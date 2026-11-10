@@ -219,6 +219,8 @@ def _key(text):
 
 
 def _shape(text):
+    # 이름 자리(「…기관(이름)」 괄호 안 · 「…기관 : 이름」 쌍점 뒤)는 꼴에서 뺀다 — 반영이 이름을 넣은 뒤에도, 자리표시가 서로 달라도(「기업명1」·「기업명2」) 같은 꼴(② §15)
+    text = SLOT_COLON.sub(lambda m: f"{m.group(1)}{{이름}}{m.group(3)}", SLOT_PAREN.sub(lambda m: f"{m.group(1)}({{이름}})", text))
     s = STAGE_RE.sub("{단계}", CALENDAR.sub("{연도}", text))
     s = SUB_RE.sub("({세부})", YEAR_RE.sub("{차년도}", s))
     s = ROLE_RE.sub("({기관})", ORG_RE.sub("{기관}", s))
@@ -424,7 +426,43 @@ def _para_groups(cid, items, levels, hinted=None):
                                "content": [_content(p["text"]) for k in range(a + 1, e + 1) for p in _paras(items[k])
                                            if p["id"] not in st]}
                               for lab, (a, e), st in zip(g, spans, strays)]})
-    return out + _overseas_groups(cid, items, levels) + _entrust_groups(cid, items)
+    return out + _overseas_groups(cid, items, levels) + _entrust_groups(cid, items) + _outside_groups(cid, items)
+
+
+OUTSIDE_LETTERS = "가나다라마바사아자차카타파하"
+# 외 기관 절의 제목 줄 「가. 기관명:    (역할:    )」 — 1 앞 빈칸 · 2 차례 글자 · 3 「. 기관명:」 · 4 사이 빈칸 · 5 이름 · 6 「(역할: …)」
+OUTSIDE_PARA = re.compile(rf"^(\s*)([{OUTSIDE_LETTERS}])(\.\s*기관명\s*:)(\s*)(.*?)(\s*\(\s*역할\s*:[^()]*\)\s*)$")
+OUTSIDE_HEAD = re.compile(r"연구개발기관\s*외\s*기관|연구개발기관이\s*아닌")   # 그 절의 머리 「라. 연구개발기관이 아닌 관계 기관(연구개발기관 외 기관)」
+OUTSIDE_NEAR, OUTSIDE_MAX = 4, 4   # 머리 문단을 찾는 앞쪽 블록 수 · 제목 줄 하나뿐일 때 항목에 넣을 뒤 블록 수
+
+
+def _outside_groups(cid, items):
+    """외 기관 절 묶음(spec_구분_기준 ② §15) — 「연구개발기관 외 기관」 머리 문단 아래 「가. 기관명: (역할: )」·「나. 기관명: (역할: )」 제목 줄과 그 아래 표가 한 벌씩
+    되풀이되는 곳. 항목 = 제목 줄부터 다음 제목 줄 앞까지(사이는 표·빈 줄뿐이어야 이어진 것), 마지막 항목은 앞 항목 길이만큼(하나뿐이면 뒤따르는 표·빈 줄).
+    값 = ("outside", k) — 외 기관 0곳이면 지우고 여럿이면 늘린다(국외기관 묶음·표지 외 기관 행과 같게)."""
+    filler = lambda b: b.get("type") == "table" or b.get("type") == "paragraph" and not (b.get("text") or "").strip()  # noqa: E731
+    marks = [i for i, b in enumerate(items) if b.get("type") == "paragraph" and OUTSIDE_PARA.match(b["text"])]
+    runs = []
+    for i in marks:
+        if runs and all(filler(items[k]) for k in range(runs[-1][-1] + 1, i)):
+            runs[-1].append(i)
+        elif any(items[k].get("type") == "paragraph" and OUTSIDE_HEAD.search(items[k]["text"] or "") for k in range(max(0, i - OUTSIDE_NEAR), i)):
+            runs.append([i])
+    out = []
+    for run in runs:
+        spans = [(a, b - 1) for a, b in zip(run, run[1:])]
+        cap = max((e - a for a, e in spans), default=OUTSIDE_MAX)
+        j = run[-1] + 1
+        while j < len(items) and j - run[-1] <= cap and filler(items[j]):
+            j += 1
+        spans.append((run[-1], j - 1))
+        out.append({"kind": "paragraph", "dim": ORG, "container": cid, "table": None,
+                    "items": [{"value": ("outside", k), "label": items[a]["id"], "labelText": items[a]["text"],
+                               "roots": [items[x]["id"] for x in range(a, e + 1)],
+                               "scope": {y["id"] for x in range(a, e + 1) for y in _under(items[x])}, "size": e - a + 1,
+                               "content": [_content(p["text"]) for x in range(a + 1, e + 1) for p in _paras(items[x])]}
+                              for k, (a, e) in enumerate(spans, 1)]})
+    return out
 
 
 def _entrust_groups(cid, items):
@@ -651,6 +689,7 @@ def _table_groups(t, title=""):
             out.append(_name_rows(t, cell))
         elif text == "기관명구분":
             out.append(_org_cols(t, cell, title))
+    out += _role_rows(t)   # 「이름 (주관)」·「이름 (공동)」 칸이 이어지는 열(② §12)
     if (oy := _org_year(t)):   # 기관-연도 표(8-3) — 간접비 「1차(1단계)」 칸 라벨 묶음은 이 묶음이 대신 맞춤
         out = oy
     return [g for g in out if g]
@@ -777,6 +816,76 @@ def _org_cols(t, head, title=""):
             "orgCols": kind}
 
 
+ROLE_END = re.compile(r"^(.*?)\((주관|공동)\)$", re.S)   # 칸 글(빈칸 뺌) 「이름(역할)」 — 1 이름 · 2 역할
+ROLE_SLOT = re.compile(r"^(?:KEIT|KIAT|KETEP|[OoＯ○ㅇ]{2,}대학교|주관기관\(미입력\)|참여기관\d+)?$")   # 역할 칸의 이름이 비었거나 양식 예시·기본 이름
+
+
+def _role_rows(t):
+    """역할 칸 행 묶음(spec_구분_기준 ② §12) — 머리 칸에 「기관」과 「역할」(또는 「주관」)이 있는 열(7-1 (3) 가. 참여연구자 현황 「소속 기관 (역할)」·
+    신규채용 표 「기관명 (주관/공동)」)에서 「이름 (주관)」·「이름 (공동)」 칸이 위아래로 맞닿아 이어지는 표: 기관마다 그 칸이 걸친 행. 같은 이름·역할 칸이
+    이어지면 한 기관(양식 예시 「KETEP (공동)」 두 칸 — 사람마다 칸을 나눔). 라벨 낱말이 든 칸(「주관연구개발기관명 (주관)」)이 있는 열은 칸 라벨 묶음
+    (_table_groups) 몫 — 반영이 이름을 넣은 뒤에는 이 규칙이 다시 찾는다. 「(주관)」이 처음이 아니거나 같은 이름이 떨어져 두 번 나오면 표째 그대로
+    (irregular). 항목의 name = 이름(빈칸 뺌), nameAts = roots 안 이름 칸 자리(사본에서도 같은 자리)."""
+    by, out = {}, []
+    for c in t["cells"]:
+        if (m := ROLE_END.match(_bare(c["text"]))):
+            by.setdefault((c["col"], c["colSpan"]), []).append((c, m.group(1), m.group(2)))
+    for (col, _), cells in by.items():
+        cells.sort(key=lambda x: x[0]["row"])
+        head = max((h for h in t["cells"] if h["row"] + h["rowSpan"] <= cells[0][0]["row"] and h["col"] <= col < h["col"] + h["colSpan"]),
+                   key=lambda h: h["row"], default=None)
+        ht = _bare(head["text"]) if head else ""
+        if "기관" not in ht or not ("역할" in ht or "주관" in ht) or any(_label(c["text"]) for c, _, _ in cells) \
+                or any(b[0]["row"] != a[0]["row"] + a[0]["rowSpan"] for a, b in zip(cells, cells[1:])):
+            continue
+        runs = []   # [(이름, 역할, [칸 …])]
+        for c, name, role in cells:
+            if runs and name and runs[-1][:2] == (name, role):
+                runs[-1][2].append(c)
+            else:
+                runs.append((name, role, [c]))
+        names = [n for n, _, _ in runs if n]
+        items, k = [], 0
+        for name, role, cs in runs:
+            a, e = cs[0]["row"], cs[-1]["row"] + cs[-1]["rowSpan"] - 1
+            inside = [x for x in t["cells"] if a <= x["row"] and x["row"] + x["rowSpan"] - 1 <= e]
+            ids = {c["id"] for c in cs}
+            k += role == "공동"
+            items.append({"value": ("lead", 0) if role == "주관" else ("joint", k), "label": cs[0]["id"], "labelText": cs[0]["text"],
+                          "name": name, "span": (a, e), "nameAts": [i for i, x in enumerate(inside) if x["id"] in ids],
+                          "cross": (min(x["col"] for x in inside), max(x["col"] + x["colSpan"] - 1 for x in inside)),
+                          "roots": [x["id"] for x in inside], "scope": {y["id"] for x in inside for y in _under(x)}, "size": e - a + 1,
+                          "content": sorted(_content(p["text"]) for x in inside if x["id"] not in ids for p in _paras(x)
+                                            if (p["text"] or "").strip())})
+        out.append({"kind": "rows", "dim": ORG, "container": None, "table": t["id"], "items": items, "_t": t, "roleRows": True,
+                    "irregular": any(role == "주관" for _, role, _ in runs[1:]) or len(set(names)) < len(names)})
+    return out
+
+
+def _role_fit(groups, values):
+    """역할 칸 행 묶음이 구분 값과 어긋나면(작성한 표) 그대로 둔다(② §12) — 이름 칸에 구분 값에 없는 이름(빈 칸·양식 예시·기본 이름 말고)이 있을 때.
+    기관-연도 표(_org_year_fit)와 같은 뜻. 보호는 여기까지 — 이름이 모두 값에 있으면 자리 차례로 맞춘다(차례를 바꾸거나 끼운 값이면 이름이 자리대로 다시 쓰임, ② §12 「이 보호의 범위」)."""
+    names = {_bare(org_name(values, k)) for k in range(len(values["orgs"]["joint"]) + 1)}
+    for g in groups:
+        if g.get("roleRows") and any(not ROLE_SLOT.match(it["name"]) and it["name"] not in names for it in g["items"]):
+            g["irregular"], g["target"] = True, None
+
+
+def _label_fit(groups, values):
+    """기관 라벨 묶음(문단·칸 라벨)의 라벨에 구분 값에 없는 이름이 적혀 있으면(작성한 문서) 그대로 둔다(② §15). 꼴에서 이름 자리를 빼면서(_shape) 이름 든
+    라벨도 묶음이 되므로, 반영이 넣은 이름(값에 있음)과 남이 쓴 이름을 가른다(_role_fit·_org_year_fit 과 같은 뜻). 자리표시(「기관명 기입」·「기업명1」)·
+    기본 이름(「참여기관k」)은 이름이 아님(_name). 역할 칸·기관-연도·기관 열·목록 행·외/국외/위탁 묶음은 저마다의 규칙."""
+    names = {_bare(org_name(values, k)) for k in range(len(values["orgs"]["joint"]) + 1)}
+    for g in groups:
+        if g["dim"] != ORG or g.get("roleRows") or g.get("orgYear") or g.get("orgCols") or g.get("list") or g["items"][0]["value"][0] in EXTRA:
+            continue
+        for it in g["items"]:
+            m = SLOT_COLON.search(it.get("labelText") or "") or SLOT_PAREN.search(it.get("labelText") or "")
+            if m and (n := _name(m.group(2))) and _bare(n) not in names:
+                g["irregular"], g["target"] = True, None
+                break
+
+
 def _qualify(groups, year_cells):
     """번호만 있는 칸 묶음은 자리표시(n)가 있거나, 단계 묶음이면 항목 안에 차년도 라벨 칸이 있거나(초기화 뒤 「1·2」), 같은 표에서
     바깥 구분 기준의 쓸 묶음 항목 안에 있을 때만(「단계」 머리 아래 1~9 같은 TRL 표를 건드리지 않게)."""
@@ -871,6 +980,8 @@ def find(blocks, levels, values, settled=(), rebuild=True, hints=None):
         else:
             g["target"] = targets(g["dim"], values, ctx=g["ctx"])
     _org_year_fit(groups, values)
+    _role_fit(groups, values)
+    _label_fit(groups, values)
     for g in groups:
         g["plan"] = _plan(g, values, idx, rebuild=rebuild and g["key"] not in settled) if g["target"] is not None else None
     return groups
@@ -914,6 +1025,9 @@ def _changes(g, values, it, ord_old, ord_new, new, idx):
         return [(p["id"], w) for p, w in zip(ps, want) if p["text"] != w]
     if g.get("orgYear"):   # 기관-연도 표: 기관 칸 = 기관 이름, 연도 칸 = 연도·차년도
         return _org_year_changes(g, values, it, new, idx)
+    if g.get("roleRows"):   # 역할 칸 행 묶음(② §12): 이름 칸 = 그 자리 기관 이름, 역할 괄호는 새 값의 역할
+        name, role = org_name(values, new[1]), "주관" if new[0] == "lead" else "공동"
+        return [ch for at in it["nameAts"] for ch in _put_role(idx.get(it["roots"][at]), name, role)]
     if it.get("nameAt") is not None:   # 목록 행·4-3 기관명 행: 기관명 칸 = 그 자리 이름(이름이 없으면 그대로 — 사본이면 자리표시)
         kind, k = new
         name = values["orgs"]["lead"] if kind == "lead" else extra_name(values, kind, k)   # 공동 = 넣은 이름만(기본 이름 아님)
@@ -968,6 +1082,13 @@ def _rename(text, dim, old, new, label, ords, values, copy=False):
         name = extra_name(values, *new) or (OVERSEAS_SLOT if copy else None)
         return OVERSEAS_NO.sub(lambda m: m.group(1) + (str(new[1]) if n >= 2 else "")
                                + (f"({name})" if name is not None else m.group(2) or ""), text, count=1)
+    if dim == ORG and label and new[0] == "outside":   # 외 기관 절 제목 줄 「가. 기관명: (역할: )」(② §15) — 차례 글자 = 자리, 이름이 있으면 「기관명:」 뒤에(없으면 그대로, 사본이면 비움)
+        if not (m := OUTSIDE_PARA.match(text)):
+            return text
+        letter = OUTSIDE_LETTERS[new[1] - 1] if 1 <= new[1] <= len(OUTSIDE_LETTERS) else m.group(2)
+        if (name := extra_name(values, *new)):
+            return f"{m.group(1)}{letter}{m.group(3)} {name} {m.group(6).strip()}"
+        return f"{m.group(1)}{letter}{m.group(3)}{m.group(4)}{'' if copy else m.group(5)}{m.group(6)}"
     if dim == ORG and label and new[0] == "entrust":   # 위탁 서명 줄 「위탁연구개발기관(이름)의 장」 — 이름이 없으면 그대로(사본이면 괄호 뺌)
         name = extra_name(values, *new)
         return ENTRUST_SIGN.sub(lambda m: m.group(1) + (f"({name})" if name else ""), text, count=1) if name or copy else text
@@ -1108,6 +1229,11 @@ def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=N
                 c = changed.setdefault(pid, {"id": pid, "old": (idx.get(pid) or {}).get("text"), "key": g["key"]})
                 c["new"] = text
                 doc.set_text(pid, text)
+        for g in work:   # 역할 칸 행 묶음의 행을 늘리거나 줄였으면 「번호」 열을 1부터 다시(② §12)
+            if g.get("roleRows") and g["key"] not in skip and (g["plan"]["copies"] or g["plan"]["drop"]):
+                for pid, text in _renumber(idx.get(g["table"])):
+                    changed.setdefault(pid, {"id": pid, "old": (idx.get(pid) or {}).get("text"), "key": g["key"]})["new"] = text
+                    doc.set_text(pid, text)
     if only is None:
         _even_cols(doc, values, report, levels_of)
         if values["orgs"]["lead"]:   # 표지 「주관연구개발기관 | 기관명」 칸 = 주관 이름(10-30 [57])
@@ -1292,6 +1418,35 @@ def _put(cell, text):
     ps = [b for b in (cell or {}).get("blocks") or () if b.get("type") == "paragraph"]
     want = [text] + [""] * (len(ps) - 1)
     return [(p["id"], w) for p, w in zip(ps, want) if p["text"] != w]
+
+
+def _put_role(cell, name, role):
+    """「이름 (역할)」 칸 글(② §12) — 역할 괄호가 든 문단 앞까지가 이름(첫 문단에 쓰고 사이 문단은 비움), 괄호 안은 role, 그 뒤 문단은 그대로
+    -> [(문단 id, 새 글)] (바뀌는 것만). 역할 괄호가 없으면 []."""
+    ps = [b for b in (cell or {}).get("blocks") or () if b.get("type") == "paragraph"]
+    j = max((i for i, p in enumerate(ps) if ROLE_RE.search(p["text"] or "")), default=None)
+    if j is None:
+        return []
+    text = ps[j]["text"]
+    m = list(ROLE_RE.finditer(text))[-1]
+    head, tail = text[:m.start()], f"({role})" + text[m.end():]
+    if j == 0:   # 한 문단 「이름 (역할)」 — 사이 빈칸은 그대로
+        want = [name + (head[len(head.rstrip()):] or " ") + tail]
+    else:        # 「이름」 문단(들) + 「(역할)」 문단
+        want = [name] + [""] * (j - 1) + [head[:len(head) - len(head.lstrip())] + tail]
+    return [(p["id"], w) for p, w in zip(ps, want) if p["text"] != w]
+
+
+def _renumber(t):
+    """「번호」 머리 칸 아래 그 열의 칸이 모두 숫자면 위에서부터 1, 2, … 로(② §12 — 행을 늘리거나 줄인 뒤) -> [(문단 id, 새 글)] (바뀌는 것만)."""
+    head = next((c for c in (t or {}).get("cells") or () if _bare(c["text"]) == "번호"), None)
+    if head is None:
+        return []
+    cs = sorted((c for c in t["cells"] if c["col"] == head["col"] and c["colSpan"] == head["colSpan"]
+                 and c["row"] >= head["row"] + head["rowSpan"]), key=lambda c: c["row"])
+    if not cs or not all(re.fullmatch(r"\d+", _bare(c["text"])) for c in cs):
+        return []
+    return [ch for k, c in enumerate(cs, 1) for ch in _put(c, str(k))]
 
 
 def _bare(text):

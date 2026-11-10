@@ -1453,6 +1453,35 @@ def divisions_llm_review(doc_id: str, body: dict = Body(default={})):
     return out
 
 
+@app.post("/api/docs/{doc_id}/divisions/llm_missing")
+def divisions_llm_missing(doc_id: str, body: dict = Body(default={})):
+    """빠진 자리 검토(spec_구분_기준 ② §13) — 어느 묶음에도 안 든 표·문단 요약을 LLM 에 보내 「구분 기준 자리로 보이는데 빠진 곳」 후보를 받는다(동기, 수십 초).
+    판정만 — 문서·묶음·추가한 자리·계획·rev 는 그대로. 자료는 잠금 안에서, 호출은 잠금 밖. 보낼 것이 없으면 호출 없이 빈 결과, 답이 없으면 502(기록은 남김)."""
+    s = _sess(doc_id)
+    with s.lock:
+        blocks = s.doc.blocks()
+        lv = PROFILE.levels_of(blocks)
+        values = _division_values(s)
+        groups = PROFILE.find(blocks, lv, values, hints=[h["para"] for h in s.division.get("hints") or [] if h.get("para")])
+        payload = division_llm.missing_data(blocks, lv, values, groups, PROFILE.value_text)
+        rev = s.rev
+    sent = {"tables": len(payload["tables"]), "paragraphs": len(payload["paragraphs"])}
+    if not payload["tables"] and not payload["paragraphs"]:
+        return {"missing": [], "skipped": [], "summary": "묶음 밖에 구분 낱말이 든 표·문단이 없습니다", "sent": sent, "call": None, "detail": None, "rev": rev}
+    res = division_llm.ask_missing(payload, effort=body.get("effort") or "medium")
+    name = f"missing_{int(time.time())}"
+    record = {"rev": rev, "payload": payload, "prompt": res["prompt"], "response": res["data"], "call": res["call"]}
+    if not res["data"]:
+        works.add_detail(s.id, "divisions", name, record)
+        works.log(s.id, "divisionMissing", rev=rev, error=res["call"].get("error"), ms=res["call"].get("ms"), **sent)
+        raise HTTPException(502, f"빠진 자리 검토에 답을 못 받았습니다: {res['call'].get('error') or '응답 없음'}")
+    items, skipped = division_llm.check_missing(res["data"], payload)
+    detail = works.add_detail(s.id, "divisions", name, {**record, "missing": items, "skipped": skipped})
+    works.log(s.id, "divisionMissing", rev=rev, found=len(items), skipped=len(skipped), backend=res["call"].get("backend"), ms=res["call"].get("ms"),
+              costUsd=res["call"].get("costUsd"), **sent)
+    return {"missing": items, "skipped": skipped, "summary": res["data"].get("summary") or "", "sent": sent, "call": res["call"], "detail": detail, "rev": rev}
+
+
 @app.get("/api/divisions/presets")
 def division_presets_list():
     return {"presets": division_presets.listing()}

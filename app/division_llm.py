@@ -161,3 +161,130 @@ def apply_revisions(hints, revisions, idx, hint_read, now=None):
         else:
             skipped.append({**r, "why": "모르는 action"})
     return hints, applied, skipped
+
+
+# ---- 빠진 자리 검토(spec_구분_기준 ② §13) — 어느 묶음에도 안 든 표·문단 가운데 구분 기준 자리로 보이는 곳을 LLM 이 판정한다(문서·묶음·hint 는 그대로) --------
+
+SIGNAL = re.compile(r"기관|주관|공동|위탁|단계|차\s*년도|년차|연차|세부")   # 구분 낱말 — 이 낱말이 있는 묶음 밖 표·문단만 보낸다
+CONF = ("high", "medium", "low")
+MISSING_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["missing", "summary"], "properties": {
+    "missing": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["id", "dim", "pattern", "reason", "confidence"],
+                                           "properties": {"id": S, "dim": {"type": "string", "enum": DIMS}, "pattern": S, "reason": S,
+                                                          "confidence": {"type": "string", "enum": list(CONF)}}}},
+    "summary": S}}
+
+MISSING_CONTRACT = """당신은 국가R&D 연구개발계획서(한글 양식)에서 **구분 기준 자리가 빠진 곳**을 찾는 검토자입니다.
+구분 기준 = 단계(stage)·차년도(year)·단계-차년도(stageYear)·세부과제(sub)·기관(org — 주관, 공동1, 공동2 …, 외·국외·위탁). 구분 기준 자리 = 그 값마다 같은 구조(문단 묶음·표 행·표 열)가
+되풀이되어야 하는 곳 — 과제의 단계·차년도 수나 참여 기관 수가 바뀌면 행·열·절을 그만큼 늘리거나 줄이고 이름을 바꿔야 하는 곳입니다. 반영 엔진은 스크립트(글 꼴 규칙)로 이런 자리를 찾아
+묶음으로 만드는데, 라벨 꼴이 낯설면 놓칩니다.
+자료: values = 이 과제의 구분 값, groups = 스크립트가 이미 찾은 묶음 요약(같은 꼴은 n 으로 합침 — 어떤 꼴이 이미 잡히는지 참고용), tables = **어느 묶음에도 안 든 표**(id · 크기 size ·
+바로 앞 제목 title · 둘러싼 헤딩 path · 머리 칸 head · 첫 열 칸 side · 구분 낱말이 든 칸 표본 marks), paragraphs = **어느 묶음에도 안 든 본문 문단** 중 구분 낱말이 있는 짧은 줄
+(id · text · path · 바로 다음 블록 next).
+할 일: tables·paragraphs 가운데 **구분 기준 자리로 보이는데 빠진 것**만 missing 에 냅니다.
+- 내는 것: 행·열·절이 기관·단계·차년도 값마다 하나씩(또는 한 묶음씩) 있어야 하는 곳. 표라면 기관(또는 단계·차년도)을 적는 열·행이 있고 그 값마다 행 묶음이나 열이 이어지는 표,
+  문단이라면 값만 다르고 꼴이 같은 제목 줄이 되풀이되는 곳(기관마다 「가. …」「나. …」, 단계마다 「[1단계 …]」「[n단계 …]」).
+- 내지 않는 것: 작성 안내·예시 설명 상자, 구분 값과 상관없이 건·실적을 나열하는 목록(논문·특허·수행 과제처럼 기관·단계 축이 없는 것), 값 하나만 적는 칸(표지의 기관명·연구개발기간),
+  본문 문장 안에 낱말이 있을 뿐인 줄, 합계·총괄 한 줄. 낱말이 있다는 것만으로 내지 않습니다 — **값마다 되풀이되는 구조**가 자료에 보여야 합니다.
+- 사람·건을 나열하는 목록이라도 **기관(또는 단계·차년도)을 적는 칸이 행을 묶으면** 구분 기준 자리입니다 — 그 칸에 역할이 붙은 기관 값(「이름 (주관)」「이름 (공동)」)이나 값마다 다른 기관 이름이
+  위아래로 이어져 기관마다 행 묶음을 이루면 냅니다(기관 수가 바뀌면 그 행 묶음이 늘거나 줄어야 하므로). 기관 칸이 비어 있거나 한 값뿐이면 내지 않습니다.
+- 다만 다음은 기관 칸이 행을 묶어 보여도 내지 않습니다: **지난 실적·이력을 적는 목록**(국가연구개발사업 수행실적·기술이전·사업화 실적·지식재산권처럼 이 과제의 계획이 아니라 이미 한 일을 적는 표),
+  **편성도·조직도 꼴 표**(기관·책임자·담당 내용을 그림처럼 배치한 표), **작성 예시 표**(기관명 칸이 「AAAAA」·「BBBBB」 같은 예시 글자뿐인 표).
+- 제목 줄(문단)과 그 바로 아래 표가 한 벌로 되풀이되면 **제목 줄만** 냅니다(표는 그 항목에 딸린 것이라 따로 내지 않습니다). 제목 줄이 paragraphs 에 없을 때만 표를 냅니다.
+- dim = 되풀이의 기준(여럿이면 가장 바깥), pattern = 무엇마다 무엇이 되풀이되는지 한 줄(예 「행: 기관 칸마다 그 기관의 줄들」「열: 차년도마다」), reason = 그렇게 본 근거 한 문장(자료의 어느 글을 보고),
+  confidence = high(되풀이가 자료에 분명히 보임) · medium(그럴 법함) · low(낱말은 있으나 구조가 흐림). 확신이 없으면 low 로 내거나 내지 않습니다.
+- 입력에 있는 id 만 씁니다. summary = 전체 판단 두세 문장(빠진 것이 없으면 그렇게 적습니다)."""
+
+TABLES_MAX, PARAS_MAX, HEAD_CELLS, SIDE_CELLS, MARK_CELLS, CELL_LEN, PARA_LEN = 80, 120, 16, 12, 8, 16, 60
+
+
+def _table_brief(t, title, path):
+    """묶음 밖 표 하나의 요약 | None(작성요령 상자·칸 2개 이하·구분 낱말 없음)."""
+    cells = sorted(t["cells"], key=lambda c: (c["row"], c["col"]))
+    filled = [c for c in cells if (c.get("text") or "").strip()]
+    if len(cells) <= 2 or not filled or "작성요령" in core._bare(filled[0]["text"])[:12]:   # 첫 글 있는 칸이 「작성요령」·「앞표지 작성 요령」
+        return None
+    head = [_short(c["text"], CELL_LEN) for c in filled if c["row"] <= 1][:HEAD_CELLS]
+    side = [_short(c["text"], CELL_LEN) for c in filled if c["col"] == 0 and c["row"] >= 1][:SIDE_CELLS]
+    marks = [_short(c["text"], 24) for c in filled if c["row"] >= 1 and c["col"] >= 1 and SIGNAL.search(c["text"]) and len(core._bare(c["text"])) <= 30][:MARK_CELLS]
+    if not SIGNAL.search(" ".join([title or "", *head, *side, *marks])):
+        return None
+    return {"id": t["id"], "size": f"{t['nRows']}x{t['nCols']}", "title": _short(title, 80), "path": [_short(x, 40) for x in path[-2:]],
+            "head": head, "side": side, "marks": marks}
+
+
+def missing_data(blocks, levels, values, groups, value_text):
+    """빠진 자리 검토에 보낼 자료(잠금 안에서) — 구분 값 · 묶음 요약 · 어느 묶음 항목에도 안 든 **본문 바로 아래** 표·문단 중 구분 낱말(SIGNAL)이 있는 것.
+    묶음 안(항목의 scope)에 든 표·문단과 칸 안 중첩 표는 보내지 않는다(② §13 1차)."""
+    covered = set()
+    for g in groups:
+        if g.get("table"):
+            covered.add(g["table"])
+        for it in g["items"]:
+            covered |= set(it.get("scope") or ())
+            covered.update(it.get("roots") or ())
+    tables, paras, prev, chain = [], [], "", {}
+    for i, b in enumerate(blocks):
+        if b.get("type") == "table":
+            title, prev = prev, ""
+            if b["id"] not in covered and not any(x["id"] in covered for x in core._under(b)) and (brief := _table_brief(b, title, list(chain.values()))):
+                tables.append(brief)
+        elif b.get("type") == "paragraph" and (b.get("text") or "").strip():
+            text = prev = b["text"]
+            if (lv := levels.get(b["id"])):
+                chain = {k: v for k, v in chain.items() if k < lv} | {lv: text}
+            bare = re.sub(r"\s+", "", core.NOTE.sub("", text))
+            if b["id"] not in covered and bare and len(bare) <= PARA_LEN and SIGNAL.search(bare):
+                nxt = next((x for x in blocks[i + 1:i + 4] if x.get("type") == "table" or (x.get("text") or "").strip()), None)
+                read = _read(text, value_text)
+                paras.append({"id": b["id"], "text": _short(text, 70), "path": [_short(x, 40) for k, x in chain.items() if k != lv][-2:],
+                              "next": "" if nxt is None else f"표 {nxt['nRows']}x{nxt['nCols']}" if nxt.get("type") == "table" else _short(nxt["text"], 30),
+                              **({"read": read} if read else {}), "_len": len(bare)})
+    if len(paras) > PARAS_MAX:   # 넘치면 짧은 줄부터(라벨에 가까움) — 문서 차례는 유지
+        keep = {p["id"] for p in sorted(paras, key=lambda p: p["_len"])[:PARAS_MAX]}
+        paras = [p for p in paras if p["id"] in keep]
+    for p in paras:
+        del p["_len"]
+    seen = {}
+    for g in groups:
+        k = (g["dim"], "list" if g.get("list") else g["kind"], tuple(_short(it.get("labelText"), 24) for it in g["items"][:2]))
+        seen[k] = seen.get(k, 0) + 1
+    orgs = values.get("orgs") or {}
+    return {"values": {"stages": values.get("stages"), "lead": orgs.get("lead"), "joint": orgs.get("joint"), "subs": values.get("subs") or []},
+            "dims": [{"id": d, "name": DIM_NAME.get(d, d)} for d in DIMS],
+            "groups": [{"dim": d, "kind": kind, "labels": list(labels), "n": n} for (d, kind, labels), n in seen.items()],
+            "tables": tables[:TABLES_MAX], "paragraphs": paras}
+
+
+def ask_missing(payload, *, call=None, effort="medium", timeout=240.0):
+    """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}}."""
+    content = MISSING_CONTRACT + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    res = (call or llm.call)(MISSING_SCHEMA, content, "divisions-missing", timeout=timeout, effort=effort)
+    return {"data": res.get("data"), "prompt": content,
+            "call": {k: res.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error")}}
+
+
+def check_missing(data, payload):
+    """응답의 missing 을 보낸 자료에 대고 검증 → (후보[{id, kind, dim, dimName, title, text, size, path, pattern, reason, confidence}], skipped[{…, why}]).
+    보낸 id 만 받고 같은 id 는 한 번만, 확신 순 → 문서(보낸) 순."""
+    known = {t["id"]: ("table", t) for t in payload.get("tables") or ()} | {p["id"]: ("paragraph", p) for p in payload.get("paragraphs") or ()}
+    order = {k: i for i, k in enumerate(known)}
+    items, skipped, seen = [], [], set()
+    for r in (data or {}).get("missing") or ():
+        if not isinstance(r, dict):
+            continue
+        rid = str(r.get("id") or "")
+        if rid not in known or rid in seen:
+            skipped.append({**r, "why": "같은 자리를 두 번" if rid in seen else "보낸 자료에 없는 id"})
+            continue
+        seen.add(rid)
+        kind, src = known[rid]
+        dim = r.get("dim") if r.get("dim") in DIMS else "other"
+        items.append({"id": rid, "kind": kind, "dim": dim, "dimName": DIM_NAME.get(dim, dim), "title": src.get("title") or "",
+                      "text": src.get("text") or " · ".join((src.get("head") or [])[:5]), "size": src.get("size") or "", "path": src.get("path") or [],
+                      "pattern": str(r.get("pattern") or "").strip()[:200], "reason": str(r.get("reason") or "").strip()[:300],
+                      "confidence": r.get("confidence") if r.get("confidence") in CONF else "low"})
+    items.sort(key=lambda x: (CONF.index(x["confidence"]), order[x["id"]]))
+    return items, skipped
+
+
+# ---- LLM 검토 취합(spec_구분_기준 ② §14) — 재검토와 빠진 자리 검토를 함께 돌린 결과를 한 목록으로 ---------------------------------------------

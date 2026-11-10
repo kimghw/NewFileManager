@@ -350,3 +350,169 @@ def test_llm_review_applies_revisions(monkeypatch):
     assert kinds.count("divisionLlm") == 2 and kinds.count("divisionHint") == 1
     server.DOCS.clear()
 
+
+# ---------------------------------------------------------------- 역할 칸 행 묶음(② §12 — 「이름 (주관)」·「이름 (공동)」 칸)
+
+def _role_groups(d, values):
+    from app.division_profiles import _structure as structure
+    blocks = d.blocks()
+    idx = structure.index_blocks(blocks)
+    return [(g, idx[g["table"]]) for g in rnd.find(blocks, rnd.levels_of(blocks), values) if g.get("roleRows")]
+
+
+def _col(t, col, top=2):
+    return [" ".join((c["text"] or "").split()) for c in sorted(t["cells"], key=lambda c: c["row"]) if c["col"] == col and c["row"] >= top]
+
+
+def test_role_cell_rows_are_an_org_group():
+    """7-1 (3) 「가. 참여연구자 현황」 — 「소속 기관 (역할)」 열의 「KEIT (주관)」·「KIAT (공동)」… 칸이 기관 행 묶음(2026-11-10 사용자 "이 테이블만 빠진듯").
+    같은 이름 칸 둘(KETEP)은 한 기관 · 수가 같으면 이름만 · 늘리면 사본 + 번호 다시 · 줄이면 끝에서 지움 · 값에 없는 이름이 있으면 그대로."""
+    from app import hwpx_doc
+    V = lambda lead, joint: rnd.norm_values({"stages": [1], "orgs": {"lead": lead, "joint": joint}})  # noqa: E731
+    d = hwpx_doc.HwpxDoc(FORM.read_bytes())
+    v = V("가나", ["다라", "마바", "사아"])
+    (g, t), = _role_groups(d, v)   # 빈 양식의 역할 칸 묶음은 이 표 하나(신규채용 표는 라벨 낱말 칸 — 칸 라벨 묶음 몫)
+    assert (t["nRows"], t["nCols"]) == (9, 15) and g["dim"] == "org" and g["kind"] == "rows" and not g["irregular"]
+    assert [it["value"] for it in g["items"]] == [("lead", 0), ("joint", 1), ("joint", 2), ("joint", 3)]
+    assert [it["span"] for it in g["items"]] == [(2, 3), (4, 5), (6, 7), (8, 8)] and len(g["items"][2]["nameAts"]) == 2
+    assert g["plan"]["copies"] == 0 and g["plan"]["drop"] == [] and not g["plan"]["done"]
+    mg = next(x for x in rnd.members(d.blocks(), rnd.levels_of(d.blocks()), v)["groups"] if x["key"] == g["key"])   # 문서 표시에도 기관 자리로
+    assert mg["dimName"] == "기관" and mg["kindName"] == "표 행" and [it["value"] for it in mg["items"]] == ["주관", "공동1", "공동2", "공동3"]
+    assert all(it["paras"] for it in mg["items"])
+    rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"])
+    assert not rep["errors"] and rep["added"] == rep["removed"] == 0
+    assert sorted((c["old"], c["new"]) for c in rep["changes"]) == [("KEIT", "가나"), ("KETEP", "마바"), ("KETEP", "마바"), ("KIAT", "다라"), ("OO대학교", "사아")]
+    (g, t), = _role_groups(d, v)
+    assert g["plan"]["done"] and _col(t, 1) == ["가나 (주관)", "다라 (공동)", "마바 (공동)", "마바 (공동)", "사아 (공동)"]   # 역할 괄호는 그대로
+    # 공동 5(마지막은 이름 없음) — 가장 큰 공동 항목 중 뒤(마바, 2행)를 둘 본뜨고 번호 열은 1부터 다시
+    v = V("가나", ["다라", "마바", "사아", "자차", ""])
+    (g, t), = _role_groups(d, v)
+    rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"])
+    (g, t), = _role_groups(d, v)
+    assert not rep["errors"] and rep["added"] == 2 and t["nRows"] == 13 and g["plan"]["done"]
+    assert [" ".join(it["labelText"].split()) for it in g["items"]] == ["가나 (주관)", "다라 (공동)", "마바 (공동)", "사아 (공동)", "자차 (공동)", "참여기관5 (공동)"]
+    assert _col(t, 0) == [str(k) for k in range(1, 11)]
+    # 표에 구분 값에 없는 이름이 있으면(기관을 빼거나 이름을 바꾼 값) 작성한 표로 보고 그대로
+    (g, t), = _role_groups(d, V("가나", ["다라"]))
+    assert g["irregular"] and g["target"] is None and g["plan"] is None
+    # 빈 양식에서 공동 1 — 남는 공동 항목은 끝에서부터 지움, 이름 없는 주관은 기본 이름
+    d = hwpx_doc.HwpxDoc(FORM.read_bytes())
+    v = V("", ["다라"])
+    (g, t), = _role_groups(d, v)
+    assert g["plan"]["drop"] == [2, 3]
+    rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"])
+    (g, t), = _role_groups(d, v)
+    assert not rep["errors"] and rep["removed"] == 2 and t["nRows"] == 6 and g["plan"]["done"]
+    assert _col(t, 1) == ["주관기관(미입력) (주관)", "다라 (공동)"] and _col(t, 0) == ["1", "2", "3"]
+
+
+def test_role_cell_tables_after_full_apply(flow):
+    """전체 반영 뒤 같은 값 재계획(② §12): 참여연구자 현황 표와 이름이 들어간 신규채용 표(「인텍 (주관)」 — 라벨 낱말이 사라져 전에는 못 찾던 것)가
+    둘 다 기관 자리로 다시 잡히고 이미 맞음."""
+    cands = [c for c in flow["plan_same"]["candidates"] if c["dim"] == "org" and c["kind"] == "rows" and c["labels"][0] == "인텍 (주관)"]
+    assert len(cands) == 2 and all(c["status"] == "already" and c["count"] == 3 for c in cands)
+    assert all(c["labels"][1:] == ["참여기관1 (공동)", "한국선급 (공동)"] for c in cands)
+
+
+# ---------------------------------------------------------------- 이름 든 기관 제목 줄 · 사업화 절 · 외 기관 절(② §15)
+
+def test_named_org_labels_found_after_apply(flow):
+    """전체 반영 뒤 같은 값 재계획: 이름이 들어간 기관 제목 줄(「[주관연구개발기관(인텍)]」·「[주관연구개발기관 : 인텍]」)이 다시 기관 문단 묶음으로 잡히고 이미 맞음 —
+    전에는 이름 때문에 꼴이 갈려 사라졌다(2026-11-10 사용자 "판단되는 곳은 다 넣어줘"). 사업화 추진전략 「[… : 기업명1/2]」 도 자리표시가 달라도 한 묶음."""
+    cands = [c for c in flow["plan_same"]["candidates"] if c["dim"] == "org" and c["kind"] == "paragraph"]
+    paren = [c for c in cands if c["labels"][0] == "[주관연구개발기관(인텍)]"]
+    colon = [c for c in cands if c["labels"][0].startswith("[주관연구개발기관 : 인텍]")]
+    assert len(paren) >= 8 and len(colon) == 2 and all(c["status"] == "already" and c["count"] == 3 for c in paren + colon)
+    assert all(c["labels"][1:] == ["[공동연구개발기관1(참여기관1)]", "[공동연구개발기관2(한국선급)]"] for c in paren)
+    first = [c for c in flow["plan"]["candidates"] if c["labels"] and c["labels"][0].startswith("[주관연구개발기관 : 기업명1]")]   # 빈 양식의 첫 계획에서
+    assert len(first) == 1 and first[0]["count"] == 2 and first[0]["target"] == 3 and first[0]["status"] == "applied"
+
+
+def test_named_labels_follow_values_or_stay(flow):
+    """반영본에서 값이 달라졌을 때(② §15): 기관을 더한 값이면 이름 든 기관 묶음이 그만큼 늘 목표를 갖고, 라벨에 **값에 없는 이름**이 남는 값(이름을 바꿈)이면
+    작성한 문서로 보고 그대로(지원 안 됨)."""
+    from app import hwpx_doc
+    blocks = hwpx_doc.HwpxDoc(flow["after_bytes"]).blocks()
+    lv = rnd.levels_of(blocks)
+    named = lambda v: [g for g in rnd.find(blocks, lv, rnd.norm_values(v)) if g["dim"] == "org" and g["kind"] == "paragraph"  # noqa: E731
+                       and "한국선급" in " ".join(it["labelText"] for it in g["items"])]
+    more = named({"stages": [2, 3], "orgs": {"lead": "인텍", "joint": ["", "한국선급", "새기관"], "nonprofit": [False, False, True, False]}})
+    assert len(more) >= 10 and all(not g["irregular"] and len(g["target"]) == 4 and g["plan"]["copies"] == 1 and not g["plan"]["drop"] for g in more)
+    renamed = named({"stages": [2, 3], "orgs": {"lead": "인텍", "joint": ["", "선급"], "nonprofit": [False, False, True]}})
+    assert len(renamed) == len(more) and all(g["irregular"] and g["target"] is None and g["plan"] is None for g in renamed)
+
+
+def test_outside_org_sections_group():
+    """7-1 라. 「연구개발기관 외 기관」 아래 「가. 기관명: (역할: )」·「나. 기관명: (역할: )」 제목 줄 + 표 한 벌 = 외 기관 묶음 — 3곳이면 하나 본뜨고 차례 글자·이름,
+    0곳이면 다 지움(국외기관 묶음과 같게)."""
+    from app import hwpx_doc
+    d = hwpx_doc.HwpxDoc(FORM.read_bytes())
+    V = lambda outside: rnd.norm_values({"stages": [1], "orgs": {"lead": "가나", "joint": ["다라"], "outside": outside}})  # noqa: E731
+
+    def find(v):
+        blocks = d.blocks()
+        return next((g for g in rnd.find(blocks, rnd.levels_of(blocks), v) if g["dim"] == "org" and not g["table"] and g["items"][0]["value"][0] == "outside"), None)
+    v = V(["한강청", "", "부산시"])
+    g = find(v)
+    assert [it["value"] for it in g["items"]] == [("outside", 1), ("outside", 2)] and [it["size"] for it in g["items"]] == [3, 3]   # 제목 줄 + 표 + 빈 줄
+    assert g["target"] == [("outside", 1), ("outside", 2), ("outside", 3)] and g["plan"]["copies"] == 1 and not g["plan"]["drop"]
+    rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"])
+    g = find(v)
+    assert not rep["errors"] and rep["added"] == 1 and g["plan"]["done"] and [it["size"] for it in g["items"]] == [3, 3, 3]
+    assert [" ".join(it["labelText"].split()) for it in g["items"]] == ["가. 기관명: 한강청 (역할: )", "나. 기관명: (역할: )", "다. 기관명: 부산시 (역할: )"]
+    v = V([])
+    g = find(v)
+    assert g["target"] == [] and g["plan"]["drop"] == [0, 1, 2]
+    rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"])
+    assert not rep["errors"] and rep["removed"] == 3 and find(v) is None
+
+
+# ---------------------------------------------------------------- 빠진 자리 검토(② §13 — LLM 이 묶음 밖 표·문단을 본다)
+
+MISSING_PARA = "(2) 주관/공동연구개발기관별"   # 빈 양식에서 아직 어느 묶음에도 안 든 문단(3-4 「(2) 주관/공동연구개발기관별 일자리 창출 계획」) — 가짜 응답이 가리킬 것
+
+def test_llm_missing_review(monkeypatch):
+    """묶음 밖 표·문단 요약을 보내고, 답은 보낸 id 만 받아 후보로 돌려준다(확신 순) — 판정만(rev·추가한 자리·계획 그대로), 기록·로그, 답이 없으면 502."""
+    from app import division_llm, hwpx_doc
+    from app.division_profiles.rnd import core
+    server.DOCS.clear()
+    c = TestClient(server.app)
+    d = _open_form(c)
+    seen = {}
+    call = {"backend": "fake", "model": "m", "effort": "medium", "ms": 5, "costUsd": 0, "error": None}
+
+    def fake(payload, *, call_=None, effort="medium", timeout=240.0):
+        seen["payload"] = payload
+        t = next(t for t in payload["tables"] if "소속 기관" in t["head"])   # 나. 연구지원인력 현황(역할 괄호 없는 사람 목록)
+        p = next(p for p in payload["paragraphs"] if p["text"].startswith(MISSING_PARA))
+        return {"data": {"missing": [
+            {"id": p["id"], "dim": "org", "pattern": "절: 기관마다", "reason": "기관별 계획 제목", "confidence": "medium"},
+            {"id": t["id"], "dim": "org", "pattern": "행: 소속 기관마다", "reason": "소속 기관 열", "confidence": "high"},
+            {"id": t["id"], "dim": "org", "pattern": "x", "reason": "x", "confidence": "low"},
+            {"id": "t-none", "dim": "org", "pattern": "x", "reason": "x", "confidence": "low"}], "summary": "두 곳"}, "prompt": "p", "call": call}
+    monkeypatch.setattr(division_llm, "ask_missing", fake)
+    before = c.get(f"/api/docs/{d}/divisions").json()
+    r = c.post(f"/api/docs/{d}/divisions/llm_missing", json={})
+    assert r.status_code == 200, r.text
+    out, pl = r.json(), seen["payload"]
+    assert out["sent"] == {"tables": len(pl["tables"]), "paragraphs": len(pl["paragraphs"])} and pl["tables"] and pl["paragraphs"] and pl["groups"]
+    assert not any("KEIT (주관)" in t["marks"] for t in pl["tables"])   # 참여연구자 현황은 이제 묶음(② §12) — 묶음 안 표는 안 보낸다
+    assert not any("작성요령" in t["head"][0].replace(" ", "")[:12] for t in pl["tables"] if t["head"])   # 작성요령 상자도
+    assert not any(p["text"].startswith(("가. 기관명", "[주관연구개발기관 : 기업명1]")) for p in pl["paragraphs"])   # 외 기관 절·사업화 절도 이제 묶음(② §15)
+    assert [x["kind"] for x in out["missing"]] == ["table", "paragraph"] and [x["confidence"] for x in out["missing"]] == ["high", "medium"]   # 확신 순
+    assert out["missing"][0]["dimName"] == "기관" and out["missing"][0]["size"] and out["missing"][1]["text"].startswith(MISSING_PARA)
+    assert [x["why"] for x in out["skipped"]] == ["같은 자리를 두 번", "보낸 자료에 없는 id"]
+    assert out["summary"] == "두 곳" and out["call"]["backend"] == "fake" and out["detail"].startswith("divisions/missing_")
+    after = c.get(f"/api/docs/{d}/divisions").json()
+    assert after["rev"] == before["rev"] == out["rev"] and after["hints"] == [] and after["plan"] is None   # 세션 상태는 그대로
+    monkeypatch.setattr(division_llm, "ask_missing", lambda payload, **k: {"data": None, "prompt": "p", "call": {**call, "error": "off"}})
+    assert c.post(f"/api/docs/{d}/divisions/llm_missing", json={}).status_code == 502
+    assert [x["kind"] for x in _log_events(c, d)].count("divisionMissing") == 2
+    server.DOCS.clear()
+    # 역할 칸 규칙이 없었다면(② §12 를 끈 채) 그 표가 자료에 실린다 — 사용자가 본 「KEIT (주관)」 칸이 표본에
+    monkeypatch.setattr(core, "_role_rows", lambda t: [])
+    blocks = hwpx_doc.HwpxDoc(FORM.read_bytes()).blocks()
+    lv, v = rnd.levels_of(blocks), rnd.norm_values({"stages": [1], "orgs": {"lead": "", "joint": []}})
+    pl2 = division_llm.missing_data(blocks, lv, v, rnd.find(blocks, lv, v), rnd.value_text)
+    t = next(t for t in pl2["tables"] if "KEIT (주관)" in t["marks"])
+    assert "소속 기관 (역할)" in t["head"] and t["title"].startswith("가. 참여연구자 현황")

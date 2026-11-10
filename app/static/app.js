@@ -4308,7 +4308,7 @@ const DV_STATUS = { applied: "맞춤", already: "이미 맞음", excluded: "제�
 const DV_EXTRA = { outside: "연구개발기관 외 기관", overseas: "국외기관", entrust: "위탁연구개발기관" };
 const divFresh = () => ({ view: null, values: null, plan: null, result: null, busy: false, dirty: false, filter: "all", skip: new Set(), showDrop: true, seq: 0,
   ui: { advanced: false, presets: false, presetId: "" },
-  marks: { data: null, index: null, loading: false, seq: 0, err: null, llm: false, llmLast: null } }); // 문서 표시·추가한 자리(spec_구분_기준 ② §11)
+  marks: { data: null, index: null, loading: false, seq: 0, err: null, llm: false, llmLast: null, missing: false, missingLast: null } }); // 문서 표시·추가한 자리(spec_구분_기준 ② §11) · 빠진 자리 검토(§13)
 let dv = divFresh();
 
 function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
@@ -4699,7 +4699,7 @@ function divGo(c) { // 후보 자리의 첫 라벨(문단 또는 칸)로 — 칸
   const id = c.key === "period" ? null : c.key;
   if (!id) return;
   if (paraEl(id)) { scrollToBlock(id, true); return; }
-  const cell = document.querySelector(`[data-id="${CSS.escape(id)}"]`);
+  const cell = document.querySelector(`#doc td[data-cell="${CSS.escape(id)}"], #doc [data-id="${CSS.escape(id)}"]`); // 표 칸은 td[data-cell](renderTable)
   const p = cell && cell.querySelector(".para");
   if (p) { scrollToBlock(p.dataset.id, true); return; }
   toast("그 자리가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
@@ -4882,6 +4882,8 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
   acts.append(hBtn(`추가한 자리 ${hints.length}`, () => divHintsList(), { title: "문서에서 표시한 라벨 문단 목록(2열) — 출처·구분·값·엔진 반영 여부·지우기" }));
   acts.append(hBtn(m.llm ? "LLM 재검토 중…" : "LLM 재검토", () => divLlmReview(), { cls: "btn sm primary", disabled: m.llm || !hints.length || dv.busy,
     title: hints.length ? "추가한 자리·묶음·후보 문단을 LLM 에 보내 형제 자리를 찾고 구분·값을 고칩니다(수십 초) — 결과는 추가한 자리 목록과 문서 표시에" : "먼저 문서에서 자리를 하나 이상 표시하세요" }));
+  acts.append(hBtn(m.missing ? "빠진 자리 검토 중…" : m.missingLast ? `빠진 자리 후보 ${m.missingLast.missing.length}` : "빠진 자리 검토", () => divMissingList(),
+    { title: "어느 묶음에도 안 든 표·문단 중 구분 기준 자리로 보이는 곳을 LLM 이 찾습니다 — 2열 목록에서 실행(판정만, 문서는 그대로)" })); // ② §13
   bar.append(acts);
   return bar;
 }
@@ -4901,7 +4903,7 @@ async function divMembersLoad(force = false) { // 표시 자료 읽기 — 같�
     if (dv.view) dv.view.hints = r.hints || [];
     divMarksDraw();
   } catch (e) { if (epoch === state.epoch && seq === m.seq) m.err = e.message; }
-  finally { if (epoch === state.epoch && seq === m.seq) { m.loading = false; divMarksBarRefresh(); if (heads.dlg === "divisions-hints") divHintsList(); } }
+  finally { if (epoch === state.epoch && seq === m.seq) { m.loading = false; divMarksBarRefresh(); if (heads.dlg === "divisions-hints") divHintsList(); else if (heads.dlg === "divisions-missing") divMissingList(); } }
 }
 
 function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽), lab, hint, lines[겉→안 소속 글]}
@@ -5109,6 +5111,74 @@ async function divLlmReview() {
     toast(`LLM 재검토를 못 했습니다: ${e.message}`, true);
   } finally {
     if (epoch === state.epoch) { dv.marks.llm = false; divMarksBarRefresh(); if (heads.dlg === "divisions-hints") divHintsList(); }
+  }
+}
+
+// ---- 빠진 자리 검토(spec_구분_기준 ② §13, 2026-11-10 사용자) — 어느 묶음에도 안 든 표·문단 중 구분 기준 자리로 보이는 곳을 LLM 이 판정(판정만 — 문서·묶음은 그대로).
+// 2열 「구분 기준 — 빠진 자리 후보」(kind "divisions-missing"): 「LLM 검토 실행」 → POST …/divisions/llm_missing → 결과 표. 문단 후보는 「자리로 추가」(추가한 자리), 표 후보는 표시만.
+const DV_CONF = { high: ["applied", "높음"], medium: ["already", "중간"], low: ["unsupported", "낮음"] };
+function divMissingGo(x) { // 후보의 문단, 또는 표(쪽 조각이면 첫 조각)로
+  if (x.kind !== "table") { if (paraEl(x.id)) scrollToBlock(x.id, true); else toast("그 문단이 지금 문서에 없습니다"); return; }
+  const t = document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(x.id)}"]`);
+  if (t) t.scrollIntoView({ block: "center", behavior: "smooth" }); else toast("그 표가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
+}
+function divMissingList() {
+  if (!state.id) return;
+  const m = dv.marks, last = m.missingLast;
+  const { tools, body, foot } = headsDlg("divisions-missing", "구분 기준 — 빠진 자리 후보",
+    "어느 묶음에도 안 든 표·문단 중 구분 기준 자리로 보이는 곳을 LLM 이 찾습니다 · 판정만(문서·묶음은 그대로) · 줄을 누르면 그 자리로");
+  if (last) {
+    tools.append(el("span", "muted", `후보 ${last.missing.length} · 보낸 표 ${last.sent.tables} · 문단 ${last.sent.paragraphs} · ${fmtWhen(last.at)}${last.call && last.call.ms ? ` · ${Math.round(last.call.ms / 1000)}s` : ""}${last.call && last.call.model ? ` · ${last.call.model}` : ""}`));
+    if (last.rev !== state.serverRev) tools.append(el("span", "hd-msg note", "문서가 바뀜 — 다시 검토"));
+    if (last.summary) { const box = el("div", "dv-llm-last"); box.append(el("strong", null, "LLM 판단"), el("p", null, last.summary)); body.append(box); }
+  }
+  const [tbl, tb] = hTable(["확신", "구분", "종류", "자리", "되풀이 꼴 · 까닭", ""]);
+  for (const x of last ? last.missing : []) {
+    const tr = el("tr", "go"); tr.tabIndex = 0;
+    const [cls, name] = DV_CONF[x.confidence] || DV_CONF.low;
+    const tdc = el("td"); tdc.append(el("span", `dv-badge ${cls}`, name)); tr.append(tdc);
+    hCell(tr, x.dimName || x.dim);
+    hCell(tr, x.kind === "table" ? `표 ${x.size || ""}`.trim() : "문단", null, x.id);
+    const tdw = el("td", "dv-labels"); tdw.append(x.kind === "table" ? (x.title || x.text || x.id) : x.text);
+    const sub = x.kind === "table" && x.title ? x.text : (x.path || []).join(" › ");
+    if (sub) tdw.append(el("div", "muted", sub));
+    tr.append(tdw);
+    const tdr = el("td", "dv-labels"); tdr.append(x.pattern || "—"); if (x.reason) tdr.append(el("div", "muted", x.reason)); tr.append(tdr);
+    const tdx = el("td");
+    if (x.kind === "paragraph" && x.dim in DV_DIM_NAME) {
+      const has = !!divHintOf(x.id);
+      tdx.append(hBtn(has ? "추가됨" : "자리로 추가", () => divHintSave({ para: x.id, dim: x.dim, note: "빠진 자리 검토" }),
+        { disabled: has, title: "이 문단을 「추가한 자리」로 표시 — 같은 꼴·같은 구분의 문단과 묶음이 되면 변경 계획에 듭니다" }));
+    } else tdx.append(el("span", "muted", x.kind === "table" ? "표시만" : ""));
+    tdx.onclick = (ev) => ev.stopPropagation();
+    tr.append(tdx);
+    tr.onclick = () => { for (const y of tb.querySelectorAll("tr.sel")) y.classList.remove("sel"); tr.classList.add("sel"); divMissingGo(x); };
+    tr.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); tr.click(); } };
+    tb.append(tr);
+  }
+  if (!last || !last.missing.length) { const tr = el("tr"); hCell(tr, m.missing ? "검토 중… 수십 초 걸립니다" : last ? "빠진 자리로 보이는 곳이 없습니다" : "아직 검토하지 않았습니다 — 아래 「LLM 검토 실행」(수십 초)"); tb.append(tr); }
+  body.append(tbl);
+  foot.append(el("span", "muted", "표 후보는 표시만(엔진 규칙은 따로 넣음) · 문단 후보는 「자리로 추가」"),
+    hBtn(m.missing ? "검토 중…" : last ? "다시 검토" : "LLM 검토 실행", () => divLlmMissing(), { cls: "btn sm primary", disabled: m.missing || dv.busy }),
+    hBtn("닫기", () => headsColClose()));
+}
+async function divLlmMissing() {
+  if (!state.id || dv.marks.missing) return;
+  const id = state.id, epoch = state.epoch;
+  await flushAll();
+  if (epoch !== state.epoch) return;
+  dv.marks.missing = true; divMarksBarRefresh(); if (heads.dlg === "divisions-missing") divMissingList();
+  toast("빠진 자리 검토 중… 수십 초 걸립니다");
+  try {
+    const r = await api(`/api/docs/${id}/divisions/llm_missing`, { method: "POST", headers: H_JSON, body: JSON.stringify({}) });
+    if (epoch !== state.epoch) return;
+    dv.marks.missingLast = { at: Date.now() / 1000, rev: r.rev, missing: r.missing || [], skipped: r.skipped || [], summary: r.summary || "", sent: r.sent || { tables: 0, paragraphs: 0 }, call: r.call || null };
+    toast(`빠진 자리 검토 — 후보 ${(r.missing || []).length}곳`);
+  } catch (e) {
+    if (epoch !== state.epoch) return;
+    toast(`빠진 자리 검토를 못 했습니다: ${e.message}`, true);
+  } finally {
+    if (epoch === state.epoch) { dv.marks.missing = false; divMarksBarRefresh(); if (heads.dlg === "divisions-missing") divMissingList(); }
   }
 }
 $("doc").addEventListener("contextmenu", divContextMenu); // 표 칸은 tselContextMenu(먼저 묶임)가 맡고 preventDefault 하므로 여기서는 표 밖 문단만

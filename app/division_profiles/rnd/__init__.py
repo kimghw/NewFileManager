@@ -12,7 +12,7 @@ from app.division_profiles.rnd.core import (EXTRA, FORM, FORMS, PERIOD, apply, f
                                             org_name, org_names, period_fill, preview, read_values, stage_year, targets)
 
 ID = "rnd"
-VERSION = 1   # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3)
+VERSION = 3   # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3). 2 = 역할 칸 행 묶음(② §12, 2026-11-10) · 3 = 이름 든 라벨·외 기관 절(② §15, 같은 날)
 NAME = "국가R&D 연구개발계획서(KEIT 서식)"
 SUPPORTED = {FORM}   # 1차 지원 양식 = 연구개발계획서(일반형)뿐(② §10) — 보고서 이름은 판정은 되지만 지원 안 함
 DIM_NAME = core.DIM_NAME | {PERIOD: "사업기간"}
