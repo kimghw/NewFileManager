@@ -1,0 +1,14 @@
+# 런타임 의존성 — FileMergeManager 와 같은 판(2026-11-01 이 PC 설치판, == 고정)
+fastapi==0.140.0
+starlette==1.3.1
+uvicorn==0.51.0
+python-multipart==0.0.32  # 업로드 폼 파싱
+lxml==6.1.1
+pillow==12.3.0
+numpy==2.5.3
+pymupdf==1.28.0           # PDF 글자열·쪽 그림·픽셀 비교
+httpx==0.28.1             # fastapi.testclient
+pywin32==312; sys_platform == "win32"   # 한글 COM PDF 출력(app/pdf_render.py 자식 프로세스)
+regex==2026.9.29          # 헤딩 추출 배운 규칙 정규식 시간 제한(app/heading_rules.py — LLM 이 제안한 정규식)
+claude-agent-sdk==0.2.172 # LLM 호출 첫 길(app/llm.py — Claude Code CLI 가 패키지에 들어 있음, Windows 휠 약 130 MB)
+openpyxl==3.1.5           # 헤딩 추출 3단계 표 의미 — 표 하나를 엑셀로(app/heading_calc.py workbook, GET …/headings/tables/{tid}/xlsx)

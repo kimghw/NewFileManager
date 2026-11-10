@@ -1,0 +1,187 @@
+# OWPML 표준 편집 — 구조·서식 편집과 OWPML 검사
+
+스키마 사실: [references/OWPML_스키마.md](../references/OWPML_스키마.md) · 포맷 사실: [references/HWPX_포맷.md](../references/HWPX_포맷.md) ·
+웹 편집 바탕(글 고치기·검증·쪽 나눔): [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md)
+
+## ① 질의·요청 히스토리
+
+- 2026-11-08 요청: "owpml 이 표준 적용해서 편집할 수 있게 해줘."
+  - 확인(AskUserQuestion): 범위 = **구조 편집 + OWPML 검사**, 먼저 열 기능 = **문단 나누기·합치기, 글자 모양, 문단 모양, 표 행·열 편집**(넷 다),
+    스키마 = **python-hwpx 가 담은 OWPML 2024 XSD 를 프로젝트에 넣기**(Apache-2.0, 출처 표기).
+  - 조사: 한컴 공개 저장소 hancom-io/hwpx-owpml-model 은 C++ 모델뿐 XSD 없음. 한글이 저장한 원본도 그 XSD 로는 오류 수십~수천 개
+    (references/OWPML_스키마.md) → 검사는 「원본에 없던 종류의 위반이 생기지 않았는가」로 판정.
+  - 세션 협의(newfilemanager-5a, 쪽 나눔 작업): app/owpml_*·hwpx_struct·새 사양서는 바로, 화면·server·verify 는 그쪽 「끝남」 뒤에 얹음.
+- 2026-11-08 요청(작업 중): "그리고 hwpx로 다시 내보내기 할 수 있도록 해줘. 검증해 잘 출력되는지." → 구조·서식 편집 뒤에도 「HWPX 저장」(내려받기)이 되게 하고,
+  편집 검증에 **한글 다시 저장**(② §1 「esave」)을 더해 실물 한글로 확인 — ③.
+  - 세션 협의(newfilemanager-f9, 검증 병렬화): verify.py·pdf_render.py 는 제 수정(esave·SaveAs 형식 인자) 뒤 그쪽이 병렬 실행기·한글 프로세스 풀을 얹음, etext 문구(빈 새 문단)는 그쪽이 고침.
+- 2026-11-10 요청: "테이블에서 마우스로 드래그 하면 셀이 선택되어야 하는데 안되네. 선택하고 복사도 하고 열,행 넣기, 지우기, 추가하기등이 되어야함" →
+  표 칸을 끌면 글 선택 대신 **칸 묶음 고르기**(② §4 「표 칸 고르기」), 고른 칸 복사(Ctrl+C — 탭 구분 글 + HTML 표), 행·열 넣기·지우기를 고른 행·열 수만큼
+  (② §2 「표 행·열」 range). 세션 협의: newfilemanager-30 이 같은 시각 renderTable 에 `data-tbl`(표 도구)을 넣어 그 위에 얹음(칸 `data-r/c/cell` 은 이쪽).
+- 2026-11-10 요청(그림: 8-1 표의 칸 묶음 위 오른쪽 단추 메뉴): "테이블 행 지울때 한 10초 걸리는거 같아. 그리고 테이블 관리 모듈은 따로 있는 거지? 본문 수정이랑 테이블 수정이랑은 좀 달리 관리 했으면
+  좋겠어. astra 협의 바람" → 실측으로 원인을 잡아 고침(③ 2026-11-10 — 표지 그리기의 강제 배치, 서버·쪽 나누기 아님), 표 구조 편집을 표 모듈로(② §2 「자리」 · spec_헤딩_추출 ② §10 「모듈」).
+  astra 검토 `artifacts/table_edit_astra_2026-11-10/`(prompt.md·astra_review.md·측정 스크립트·프로파일 JSON): 원인 귀속 맞음(2단계화 > 겹층·rAF), 기존 결함 P1 둘(③), 분리 경계 = 트랜잭션·실행 취소 공유 +
+  화면은 별도 파일 `table_edit.js` + 공용 메뉴는 본문, `refit` 생략·증분 paginate 는 전제 부족으로 미룸(④), 사양 원본은 이 문서 유지.
+
+## ② 확정 사양
+
+### 1. OWPML 검사 (`app/owpml_check.py`, 스키마 `app/owpml_schema/`)
+
+- **스키마 검사**: header.xml·section*.xml 을 OWPML 2024 XSD(`owpml-header.xsd`·`owpml-body.xsd`)로 검사한다. 파일의 2011 네임스페이스
+  (`http://www.hancom.co.kr/hwpml/2011/{head,paragraph,core,section}`)를 2024(`http://www.owpml.org/owpml/2024/…`)로 바꿔 넣고 검사.
+  검사용 사본에서 자식 요소마다 앞에 줄 바꿈을 넣어(요소 = 한 줄) 오류 줄 번호로 요소·소속 블록을 찾는다(원본 트리는 안 바꿈).
+  줄 배치 캐시 `hp:linesegarray`(OWPML 밖 한컴 확장)는 검사 사본에서 뺀다 — 두면 libxml2 가 그 자리에서 문단 검사를 멈춰 뒤 요소의 위반이 가려진다.
+  XSD 객체는 스레드마다 따로(가져오기 검증 스레드와 편집 요청이 동시에 검사함).
+- **위반 종류** = (부분 header|section, 부모 요소, 요소, 속성, 오류 형식) — 값·위치는 빼고 센다.
+- **참조 규칙**(스키마가 못 보는 것): `*IDRef`(charPr·paraPr·style·borderFill·tabPr)·heading idRef(BULLET→bullet, NUMBER→numbering)·fontRef(언어별 글꼴 id)·
+  `binaryItemIDRef`(content.hpf manifest)가 있는 정의를 가리키는지, refList 목록 `itemCnt`·fontface `fontCnt` = 자식 수, 정의 id 중복 없음, `secCnt` = 구역 수,
+  구역마다 첫 문단에 secPr 하나(다른 곳엔 없음), 표 — `rowCnt` = `hp:tr` 수, 빈 `hp:tr` 없음(한글 저장 시 죽음), 칸 주소·병합이 표 안, 격자 칸마다 정확히 한 칸이 덮음,
+  cellzone 이 표 안, `4294967295` = 없음.
+- **판정 = 원본 대비**: 원본의 위반 종류·개수가 기준선.
+  - 원본에 **없던 종류**의 스키마 위반, 또는 참조 규칙 위반 개수가 원본보다 늚 → **실패**.
+  - 원본에도 있던 종류인데 개수만 늚(예: hp:switch 를 품은 paraPr 를 복사한 새 문단 모양) → **주의**(원본에서 물려받은 것).
+  - 줄었거나 같음 → **통과**(고친 문단은 줄 배치 캐시 `linesegarray` — OWPML 밖 한컴 확장 — 가 지워져 오히려 준다).
+- **편집마다 검사**(구조·서식 편집 한 번마다): 그 편집이 닿은 최상위 문단(구역 바로 아래 hp:p — 표가 든 문단이면 표 전체)을 작은 구역 문서로 묶어 검사하고,
+  header 가 바뀌었으면 header 전체도 검사, 참조 규칙도 그 범위에서. 원본에 없던 종류가 나오면 **그 편집을 되돌리고 거절**(422 + 위반 목록) — 표준을 어기는 편집은 들어가지 않는다.
+- **검증 단계**: 가져오기 검증에 「OWPML 표준 검사」(`owpml` — 원본 기준선, 참조 규칙 위반 0 이면 통과, 스키마 위반은 개수·종류만 보임), 출력파일 검증(옛 이름 편집 검증 — 2026-11-08 화면 이름 바뀜)에
+  「수정본 OWPML 검사」(`eowpml` — 저장본 전체를 위 판정으로)와 **「한글 다시 저장」**(`esave` — 내보낸 HWPX 를 한글 COM 이 열어 `SaveAs(…, "HWPX")` 로
+  다시 저장, 다시 저장한 파일의 문단 글(공백 뺀 NFKC)을 문서 차례대로 내보낸 파일과 대조: 모두 같으면 통과, 다르면 주의 + 다른 곳 목록, 저장 실패 = 실패).
+  단계 실행 순서·병렬은 verify.py(`EDIT_DEPS` — eowpml·esave ← epackage).
+- **새 탭**: 글에 탭을 새로 넣으면 `hp:tab width="4000" leader="NONE" type="LEFT"`(OWPML 은 type 필수 — 전에는 속성 없는 `<hp:tab/>` 이라 위반이었고 이 검사가 찾음).
+  있던 탭은 속성 그대로. 한글이 이 값을 읽는 방식은 references/OWPML_스키마.md.
+
+### 2. 구조·서식 편집 (`app/hwpx_struct.py` — HwpxDoc 믹스인)
+
+글 위치(offset)는 서버 `_text(p)` 의 글자 단위 — 탭 `\t`·강제 줄 바꿈 U+2028·자동 번호 = 그 표시 글, 한 글자씩. 화면 편집 상자의 글과 같은 단위.
+
+- **문단 나누기** `split_para(id, offset)` → 새 문단 id: offset 뒤의 런 자식(글·탭·줄 바꿈·개체)을 같은 속성의 새 런으로 옮겨 **바로 뒤 새 hp:p**(문단 속성 사본,
+  `pageBreak`·`columnBreak` 는 0)에 둔다. 나뉘는 `hp:t` 는 두 개로 나눈다(같은 속성). 구역 설정(secPr·구역 ctrl)은 런 맨 앞이라 언제나 앞 문단에 남는다.
+  두 문단 모두 줄 배치 캐시 삭제. 자동 번호 글 한가운데는 그 앞으로 맞춘다. 끝에서 나누면 새 문단 = 빈 `hp:t` 하나(커서 자리 글자 모양).
+- **문단 합치기** `merge_paras(id)` = id 와 **바로 다음 형제 hp:p**: 뒤 문단의 런을 앞 문단 끝으로 옮기고 뒤 문단을 지운다. 문단 모양은 앞 문단 것.
+  같은 글자 모양의 이웃 글 런(자식이 hp:t 뿐)은 하나로 합치고, 글 없는 빈 런은 뺀다(런이 하나도 안 남으면 남김).
+  거절: 다음 형제가 없음(구역·칸 끝), 어느 쪽이든 표·그림 등 개체가 있음, 뒤 문단에 구역 설정. 화면: 문단 맨 앞 Backspace = 앞 문단과, 맨 끝 Delete = 뒤 문단과.
+- **글자 모양** `format_chars(id, start, end, changes)`: 범위 경계에서 런을 나누고(`hp:t` 도) 범위 안 글 런마다 그 런의 charPr 사본에 changes 를 얹어 같은 정의가
+  있으면 그 id, 없으면 새 charPr(`itemCnt` 갱신, 스키마 자식 순서 — `hwpx_format._set_chars`). changes = bold·italic·underline(true|false|"toggle" — 범위가 모두 켜져
+  있으면 끔)·sizePt·color(#RRGGBB). 범위가 비면 문단의 모든 글 런. 끝나면 이웃 같은 런 합치기, 줄 배치 캐시 삭제.
+- **문단 모양** `format_para(ids, changes)`: align(justify|left|right|center|distribute)·indentLeftMm·firstLineMm·lineSpacingPct(PERCENT)·spaceBeforePt·spaceAfterPt →
+  `derive_format` + `apply_format(keep_numbering, runs={})` — 런마다 글자 모양·문단 번호(heading)는 그대로, hp:switch 가 있으면 case(HWPUNIT)·default(×2) 둘 다.
+- **표 행·열** `table_edit(para_or_cell_id, op)`: 그 칸(문단이면 그 문단을 품은 가장 안쪽 칸)의 행·열 기준.
+  - `row_above`·`row_below`: 그 칸이 걸친 행들을 **빈 칸으로** 복사해 위/아래에(`clone_rows keep_text=False` — 칸 모양·문단 모양 유지, 걸친 바깥 칸은 늘어남).
+  - `col_left`·`col_right`: 그 칸이 걸친 열들을 복사해 왼쪽/오른쪽에, 새 칸은 비운다. **표 폭 그대로** — 고른 열과 새 열이 원래 폭을 나눠 가진다.
+  - `row_delete`·`col_delete`: 그 칸이 걸친 행/열을 지운다(지운 열 폭은 이웃 열에 — 표 폭 그대로). 마지막 행·열은 못 지움(표를 지울 것).
+  - 병합 칸이 범위를 가로지르는 등 격자 규칙(table_grid)이 거절하면 그 메시지로 거절.
+  - rowCnt·colCnt·cellAddr·cellSpan·cellSz·cellzone·tr 은 기존 어댑터(`_tput`)가 맞춘다.
+  - **범위**(2026-11-10): `table_edit(id, op, range)` 의 `range = {r0, c0, r1, c1}`(그 표의 격자 좌표, 끌어 고른 칸 묶음 — `hwpx_struct.table_range`)이 있으면
+    그 칸이 걸친 행·열 대신 **그 범위의 행 r0..r1 / 열 c0..c1** 기준 — 행 넣기는 그 행 수만큼 빈 행, 행 지우기는 그 행들, 열도 같다(폭 규칙은 위와 같음).
+    표 밖·뒤집힌 범위(표가 바뀐 뒤 옛 좌표)·정수 아님은 거절(400). hwpx·docx 같음. `id` 는 여전히 기준 칸(앵커)의 문단(또는 칸) — 지워지면 서버가 표를 품은 본문 문단으로 응답.
+  - **자리**(2026-11-10, 표 모듈 — astra 협의 Q5·Q6): 끝점 `POST /api/docs/{id}/table` 은 `app/tables_api.py`(URL·본문·응답 그대로), `TABLE_OPS`·`table_range` 는 `app/table_ops.py`(hwpx·docx 공용),
+    어댑터 `table_edit` 는 형식마다(`hwpx_struct`·`docx_struct` — 병합 칸·XML 이동 방식이 달라 통합 안 함). 트랜잭션(`server._edit` — 잠금·스냅샷·OWPML 검사·실행 취소 스택·기록)은 본문 편집과 **공유**
+    (실행 취소는 문서마다 한 줄). 검사·응답 대상은 늘 **표를 품은 본문 문단**(편집 전에 잡아 둠) — 기준 칸이 지워져도 남은 표를 같은 잠금 안에서 검사하고 `tops` 에 보낸다(전에는 hosts 가 비어
+    지역 검사가 빠지고 잠금 밖에서 블록을 다시 찾았음 — astra P1).
+
+### 3. 실행 취소·서버 상태 (`app/server.py`)
+
+- 구조·서식 편집 직전 상태를 묶어 둔다(저장 바이트·고친 부분·새 멤버·블록 id 자리표·세션 글 상태) — 문서마다 최근 20개. **실행 취소** = 원본 위에 그 상태를 다시 연다
+  (이후 `save()`·원본 복원·「원본과 바이트 동일」 판정이 계속 원본 기준). 그 뒤에 고친 글도 함께 돌아간다(화면이 먼저 묻는다).
+- 블록 id 는 세션 내내 같은 요소에 붙는다. 새로 생긴 문단은 새 id, 지운 문단 id 는 「지움」으로 남긴다.
+- 세션이 따로 센다: 새 문단(`new` — 어느 문단에서 생겼는지 `origin`), 지운 원본 문단(`removed`), 모양·구조가 바뀐 문단(`formatted`).
+  「고친 문단」 = 글이 다른 것 ∪ 복원 못 함 ∪ formatted ∪ removed. 새 문단·지운 문단은 「원본으로 되돌리기」 대신 실행 취소로.
+- 출력파일 검증 ⑦: 저장본을 다시 열 때 **블록 id 자리표를 되붙여** 비교(문단 수가 바뀌어도 같은 id), 글이 달라야 하는 것 = 글 고침 ∪ 새 문단 ∪ 지운 문단,
+  달라도 되는 것 = 모양·구조만 바뀐 문단. ⑨ 고친 쪽 = 그 블록들(새 문단은 origin)의 원본 PDF 쪽.
+- 글 고치기(PATCH)는 새 문단에도 된다(원래 글 없음 = 늘 고친 문단).
+- 문단 원본 복원(되돌리기)은 원본 문서의 **같은 블록 id** 요소로 찾는다(블록 순서대로 붙은 id 라 원본 문서를 다시 읽어도 같다) — 문단을 넣고 빼도 뒤 문단의 복원이 된다.
+  안 되면 전처럼 XML 자리로. 문단 속성(paraPrIDRef 등)도 원본으로, 개체 없는 문단은 런째 원본 사본으로(글자 모양 편집이 런을 나눴어도).
+- 「모양」 문단은 글을 손으로 원래대로 고쳐도 자동 복원하지 않는다(모양이 사라지므로) — 「원본으로 되돌리기」 단추로. 모양·구조 편집이 하나도 안 남으면 서식 편집이
+  header 에 더한 정의 중 아무 데서도 안 쓰는 것을 빼고(itemCnt 갱신) header 도 원본 바이트로 — 모두 되돌리면 저장본 = 원본 바이트(spec_hwpx_웹편집 ② §2 약속 유지).
+- API(모두 응답에 `tops` = 바뀐 최상위 블록 `{drop: [옛 최상위 블록 id], blocks: [새 최상위 블록]}`, `texts`·`kinds`·`focus`·`undo` 수·세션 상태):
+  `POST /api/docs/{id}/split {id, offset}` · `POST /api/docs/{id}/merge {id, dir: prev|next}` · `POST /api/docs/{id}/format/chars {id, start, end, changes}` ·
+  `POST /api/docs/{id}/format/para {ids, changes}` · `POST /api/docs/{id}/table {id, op, range?}`(표 모듈 `tables_api.py` — ② §2 「자리」) · `POST /api/docs/{id}/undo` · `GET /api/docs/{id}/owpml`(지금 상태 검사).
+  OWPML 거절은 422 `{detail, violations}`.
+
+### 4. 화면 (`app/static/`)
+
+- ~~편집 도구 막대(문서 막대 아래)~~ → 2026-11-10 문서 도구 줄 한 줄의 묶음으로 합침(「폰트 수정·문단 수정·테이블 수정」 단추로 하나씩 펼침 — 원본
+  [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md) ② §2 「도구 줄 한 줄」): 굵게·기울임·밑줄·글자 크기·글자 색 | 정렬 4개·왼쪽 여백 −/+(5mm)·첫 줄(들여/내어)·줄 간격 | 표: 행 위/아래 넣기·행 지우기·
+  열 왼/오른 넣기·열 지우기(칸 안 문단에 있을 때만) | 실행 취소(남은 수) | OWPML 상태(마지막 편집 검사 결과).
+- 키: Enter = 문단 나누기(IME 조합 중엔 안 함), Shift+Enter = 강제 줄 바꿈(그대로), 맨 앞 Backspace·맨 끝 Delete = 합치기, Ctrl+B/I/U = 글자 모양.
+- 구조 편집 전 그 문단의 대기 중 글 반영을 먼저 끝낸다. 응답의 `tops` 로 쪽 흐름(`state.flow`)의 그 항목만 바꿔 끼우고 `paginate()` — 쪽 나눔은 다음 검증 전까지 추정.
+  뒤 문단의 번호 라벨(문단 번호 1. 2. …)은 문서를 다시 열 때 맞춰진다(바꿔 끼운 블록만 새로 셈).
+- 실행 취소는 문서를 다시 읽어 그린다. 글자 모양 편집 뒤 선택 범위를 되살린다. 거절(400·422)은 알림으로 사유를 보인다.
+- **표 칸 고르기**(2026-11-10): 칸 안에서 끌다가 **다른 칸에 닿으면** 글 선택 대신 칸 묶음을 고른다(같은 칸 안 끌기는 글 선택 그대로). 고른 묶음은 앵커~포커스 칸을 덮는
+  **직사각형**, 걸친 병합 칸은 통째로 넣어 넓힌다(엑셀처럼). 안쪽 표 위를 끌면 바깥 표의 칸으로 센다. 고르면 브라우저 글 선택을 걷고 편집 상자 포커스를 빼서(타자·Enter·Delete 무시)
+  칸에 표시(`td.sel` — 파란 덮개 + 테두리), 쪽마다 나뉜 표 조각(`data-tbl` 같음)에 걸쳐도 한 묶음. 좌표는 칸의 `data-r`·`data-c`(블록 row·col)·rowSpan·colSpan.
+  - **Shift+누름** = 앵커부터 그 칸까지, **Shift+화살표** = 포커스 모서리 한 칸 옮기기(늘리고 줄임), **Esc·다른 곳 누름** = 풀기. 구조 편집·실행 취소로 표가 다시 그려지면 풀린다.
+  - **복사** Ctrl+C(또는 오른쪽 단추 메뉴 「칸 N개 복사」): `text/plain` = 탭 구분 글(행마다 줄, 병합 칸 글은 왼쪽 위 자리에만, 칸 글에 탭·줄 바꿈·따옴표가 있으면 "…" 로 감싸고
+    따옴표는 두 번), `text/html` = `<table>`(rowspan·colspan 유지, 칸 안 문단은 `<br>`) — 엑셀·한글·Word 에 붙는다. 칸 글 = 그 칸 바로 안 문단들(안쪽 표 글은 제외).
+    클립보드 API(`navigator.clipboard.write`)가 없으면 copy 이벤트에 맡기고, 그것도 안 되면 알림. 붙여넣기(칸 묶음 → 표)는 아직 없음(④).
+  - **행·열**: 도구 막대 표 단추가 고른 행·열 수를 이름에 보인다(「행↓ 2개 넣기」·「열 2개 지우기」) — 누르면 `POST /table` 에 `range` 를 붙여 그 범위 기준(② §2). 지우기는 개수를 묻는다.
+  - **오른쪽 단추 메뉴**(칸 위, 브라우저 메뉴 대신): 칸 N개 복사 · 행 (N개) 위/아래 넣기·지우기 · 열 (N개) 왼/오른쪽 넣기·지우기 · 선택 풀기. 고른 범위 밖 칸을 누르면 그 칸 하나를 고른 뒤 연다.
+    화살표로 항목 이동, Esc·바깥 누름·스크롤로 닫힘. 모달 창은 쓰지 않는다.
+  - **자리**(2026-11-10, 표 모듈 — astra Q5·P1): 위 칸 고르기·행/열 단추·표 메뉴 항목·`tableOp`·`TABLE_OP` 는 `app/static/table_edit.js`(app.js·tables.js 다음에 읽힘, 파일 끝 `tableEditInit()` 이
+    한 번 묶음 — 도구 줄 `[data-table]` 단추 포함; bind 시점 typeof 로 건너뛰면 영구 미등록이라 명시적 init). 공용 오른쪽 단추 메뉴 상자(`ctxMenu/ctxOpen/ctxClose`, 상태 `ctx.menu`, 바깥 누름·스크롤·
+    크기·포커스 닫기 `bindCtxMenu`)는 app.js — 표 칸 메뉴(`tselContextMenu`)와 문단 메뉴(`divContextMenu`, 구분 기준)가 항목을 준다. app.js 는 `tselClear`·`tselActive`·`tableOpLabel` 을 typeof 검사 뒤 부른다
+    (표 모듈이 없어도 본문은 돈다).
+
+## ③ 구현 상태
+
+- 2026-11-08 구현: `app/owpml_check.py`·`app/owpml_schema/`(XSD 5개 + NOTICE.md·라이선스)·`app/hwpx_struct.py`(StructMixin — split_para·merge_paras·format_chars·
+  format_para·table_edit·drop_unused_defs, snapshot/restore), `hwpx_doc.py`(믹스인 연결·새 탭 속성), `restore.py`(id 로 원본 찾기·문단 속성·런째 복원),
+  `server.py`(엔드포인트 7개·세션 kinds/undo/owpml), `verify.py`(owpml·eowpml·esave — 병렬 실행기는 newfilemanager-f9), `pdf_render.py`(SaveAs 형식 인자·`resave_hwpx`),
+  화면(도구 막대·키·바뀐 블록만 바꿔 끼우기·고친 문단 종류). 시험 `tests/test_owpml.py` 17개 — 전체 66 passed.
+- 검사가 찾은 기존 결함 2개: 글에 탭을 새로 치면 속성 없는 `<hp:tab/>`(OWPML type 필수 위반) → ② §1 「새 탭」; 서식 편집 뒤 되돌려도 header 에 새 정의가 남아
+  원본 바이트로 안 돌아옴 → drop_unused_defs.
+- 실물 한글 2020(이 PC, 시험 서버 8115 — 포트 대장 suggest):
+  - 기술수요조사서, 화면(Playwright)으로: 칸 안 Enter 나누기 → 새 문단에 입력 → 범위 굵게·글자 색 → 가운데 정렬 → 표 행 아래·열 오른쪽 넣기 → 맨 앞 Backspace 합치기 →
+    편집 검증: 패키지 통과, OWPML 주의(물려받은 shadeColor), PDF 2쪽, **한글 다시 저장 통과(문단 58개 글·차례 같음)**, 실행 취소 7번 → 다운로드 = 원본 바이트. 콘솔 오류 0.
+  - 연구개발계획서 양식(API): 본문 나누기·새 문단 입력, 글자 모양(굵게·빨강·14pt), 문단 모양(가운데·200%), 본문 합치기, 표 행·열 넣기, 칸 안 나누기 — 편집마다 0.6~0.9 s
+    (OWPML 검사 포함, 모두 받아들임). 편집 검증 18 s: 패키지 통과, OWPML 주의(원본 978 → 980건, 새 종류 0), PDF 37장, **한글 다시 저장 통과(문단 7,504개 같음)**,
+    쪽 대조 주의(고친 장 3·4·7 + 밀림 1 + 미세 2), 글 반영 주의(새 문단의 【】 기호를 글자·숫자로만 찾음). 내보낸 파일 391 KB(`artifacts/owpml_e2e/`), 바뀐 장 PDF 그림으로
+    나누기·합치기·글자 모양·표 열(폭 반씩)·빈 행·칸 나누기가 한글에서 그대로 나옴을 눈으로 확인.
+- 화면 고침(시험 중 발견): 매핑이 도착해 `paginate()` 가 쪽을 다시 나누면 쓰던 문단이 떼어졌다 붙어 포커스가 빠져 친 글이 사라질 수 있었음 → 다시 나눈 뒤 그 문단·커서 복원.
+  문서 막대 안내가 길어 다른 항목이 세로로 꺾이던 것 → 안내만 줄임.
+
+- 2026-11-09(newfilemanager-3a, 구분 기준 반영의 문서 전체 검사에서 발견): `owpml_check.schema_violations` 의 오류 → 요소 매핑을 고침 — 전에는 lxml `sourceline` 으로 줄 → 요소를 찾았는데
+  libxml2 가 줄 번호를 16비트로 들고 있어 **65,535줄을 넘는 구역**에서는 부모·형제 요소로 어긋나(같은 위반이 「원본에 없던 종류」로 보여 반영이 422 로 되돌려짐 — 늘린 양식은 7.9만 줄).
+  지금은 오류의 XPath(`err.path`)로 요소를 찾고, 없을 때만 직렬화한 글에서 직접 센 시작 태그 줄 번호(`_start_tag_lines`)를 쓴다. 원본 [spec_구분_기준.md](spec_구분_기준.md) ③.
+
+- 2026-11-10(newfilemanager-8b) 표 칸 고르기·범위 편집(② §2 range · § 4 「표 칸 고르기」): `hwpx_struct.table_range` + `table_edit(…, rng)`(hwpx·docx), `server.py` `POST /table` 의 `range`,
+  app.js 새 절 「표 칸 고르기」(끌기·Shift+누름/화살표·복사·오른쪽 단추 메뉴·`tableOp` 가 range 를 붙임·`refreshToolbar` 가 칸 묶음도 표 단추 켬), renderTable 의 칸 `data-r/c/cell`
+  (같은 시각 30 세션의 `data-tbl` 위에 얹음), style.css 「표 칸 고르기」 절(`td.sel`·`.ctx-menu`), index.html 안내·단추 설명. 시험 `test_owpml.py` 범위 2개(어댑터·서버)·`test_docx_web.py` 범위 —
+  touched 모음 45 passed. 화면(Playwright, 임시 8117, 연구개발계획서 양식 표 t1021 12×13): 같은 칸 안 끌기는 글 선택 그대로, 두 칸 끌기 → 4칸·단추 「행↑ 2개 넣기」, Shift+→ 6칸,
+  Ctrl+C → `" 1.	
+ 2.	"` + `<table>` 2행 4칸, 타자 무시, 오른쪽 단추 메뉴 8항목 → 「행 2개 아래에 넣기」 12→14행, 도구 막대 「열→ 2개 넣기」 13→15열, 새 열 둘 골라 「열 2개 지우기」(확인 창) → 13열.
+  콘솔 오류 0. 본 서버(8114)는 서버 코드가 바뀌어 **다시 켜야** range 가 먹는다(정적 파일은 바로 반영 — 그 전엔 범위 없이 기준 칸 한 행·열만 바뀐다).
+- 관찰: 연구개발계획서 양식(문단 7,500개)에서는 구조 편집 한 번에 서버 0.9 s 뒤 화면이 약 20 s 멈춘다(헤드리스 Chromium — 표를 바꿔 끼운 뒤 `paginate()`·`refit()` 가 문서 전체 배치를 다시 셈).
+  칸 고르기와 무관한 기존 비용 — ④. → **원인 설명은 틀렸음**(같은 날 아래 실측으로 정정 — paginate·refit 은 1 s 남짓, 멈춤은 표지 그리기).
+
+- 2026-11-10(newfilemanager-61, astra 협의 `artifacts/table_edit_astra_2026-11-10/`) **표 행 지우기 10초 → 2초**: 임시 서버 18151·헤드리스 Chromium 1600×950·연구개발계획서 양식(문단 7,496·쪽 65·
+  이어짐 조각 뺀 표 145)에서 행 하나 지우기 = 12~30 s(헤딩 추출 탭을 읽은 상태 **42 s**), 그중 서버 왕복 0.7~1.0 s·`paginate` 자체 0.8 s·`refit` 0.3 s 뿐이고 나머지가 전부 `tables.js tblMarksDraw`
+  (13~27 s)와 `app.js tplMarksDraw`(28 s) — 표(문단)마다 `getBoundingClientRect` 읽기와 표지 `append` 쓰기를 번갈아 해 표·쪽 수만큼 강제 배치(CDP 프로파일 self time 의 94% 가 getBoundingClientRect).
+  두 함수를 **읽기 단계(자리 수집) → 쓰기 단계(붙이기)** 로 나눔(표지 모양·호출 계약 그대로, 표·손잡이가 필요한 문단만 잼; 표지가 꺼져 있어도 xlApply·xlColumnSync·tablesDraw 는 돎) → 같은 행 지우기
+  **2.0~2.6 s**(사용자 경로: 칸 끌어 고름 → 「행 4개 지우기」 → 확인 창 → 22행 → 18행, 실행 취소 2.8 s → 22행, 표지 145·802 그대로, 콘솔 오류 0). 본문 문단 나누기도 같은 경로라 12 s → 같이 빨라짐.
+  측정 `time_rowdel.py`(전역 함수 시간 래퍼 + CDP Profiler) · `time_rowdel_fix.py`(브라우저 안에서 바꿔 끼워 비교) · `verify_fix.py`(고친 파일로 사용자 경로 확인) — 같은 폴더.
+  - astra P1 둘 고침: ① 서버 `POST /table` — 기준 칸이 지워지면 hosts 가 비어 남은 표의 OWPML 지역 검사가 빠지고 잠금을 풀었다 다시 잡아 블록을 찾던 것 → 편집 전 본문 문단(호스트)을 잡아 검사·`tops` 를
+    같은 잠금 안에서(② §2 「자리」; `test_server_format_and_table_ops` 에 기준 행 지우기 단언 추가) ② 화면 `applyTops` 가 `state.blocks` 를 안 고쳐 표 모듈(`xlBlocks`·「표」 탭)이 옛 구조를 보던 것 →
+    `tops.drop` 자리에서 바꿔 끼움(헤드리스 확인 22 → 18 → 22).
+  - 모듈(② §2 「자리」): `POST /table` 을 `server.py` → `tables_api.py`, `TABLE_OPS`·`table_range` 를 `hwpx_struct` → 새 `app/table_ops.py`(docx_struct 의 hwpx 의존 하나 줄임). 시험 test_owpml·test_docx_web·
+    test_server·test_table_agent·test_hwpx_doc·test_docx_doc·test_outline_edit 111 passed. 화면: app.js 「표 칸 고르기」 절·`tableOp`·`TABLE_OP`·도구 줄 `[data-table]` 등록 → 새 `app/static/table_edit.js`
+    (② §4 「자리」; 1a 세션이 같은 날 넣은 `divCtxItems` 항목과 `ctx.menu` 고침을 그대로 들고 감), 공용 메뉴는 app.js `ctx`·`bindCtxMenu`, index.html script·server.py `?v=` 목록. 헤드리스(`verify_move.py`): 실제 마우스
+    끌기 6칸(4행 — 병합 칸이 넓힘), 칸 메뉴 10항목(구분 기준 2 포함), 바깥 누름 닫힘, 표 밖 문단 메뉴 2항목, 「테이블 수정」 묶음 행 지우기 22 → 18행 2.1 s, 기록 탭 「행 지우기」, 실행 취소 22행, 콘솔 오류 0.
+    **본 서버(8114)는 서버 코드가 바뀌어 다시 켜야** P1 서버 고침·새 끝점 자리가 먹는다(정적 파일은 새로 고침으로 바로).
+
+## ④ 미결/후속
+
+- 표 칸 합치기·나누기, 문단 지우기(여러 문단 범위), 글꼴 바꾸기, 글자 모양 「다음 입력부터」(빈 선택)는 아직 화면 없음(어댑터에 merge_cells·split_cell·delete_blocks 있음).
+- 여러 문단에 걸친 글 선택(편집 상자가 문단마다 따로라 한 문단 안만 선택된다) — 표 칸 묶음은 2026-11-10 부터 고를 수 있으나(② §4) 본문 문단 여럿은 아직.
+- 표 칸 묶음(② §4)의 후속: 고른 칸에 **붙여넣기**(탭 구분 글 → 칸마다 글), **Delete 로 칸 글 비우기**(문단 여럿인 칸은 문단 수 처리 필요), 칸 합치기·나누기(어댑터 merge_cells·split_cell 있음),
+  고른 칸만 글자 모양·정렬 한 번에.
+- 스키마는 2024 판 — 2011 네임스페이스 파일과 판 차이(예: secPr `tabStop` 속성, startNum 순서)는 원본 기준선으로만 흡수한다. 한컴이 XSD 를 공개하면 바꿔 끼운다.
+- 글자 모양 편집은 새 charPr 가 원본의 `shadeColor="none"`(XSD 패턴 밖)을 물려받아 출력파일 검증이 늘 「주의」 — 값을 고쳐 쓸지(none → 속성 뺌)는 한글 실물 확인 후 결정.
+- 새 문단(나누기·표 넣기)은 원본 PDF 쪽이 없어 ⑨ 에서 출처 문단의 쪽으로 본다 — 표 행을 넣어 뒤 쪽이 밀리면 「밀림 추정」 주의.
+- 빈 문단 나누기·합치기 직후의 번호 라벨(문단 번호 1. 2. …)은 바꿔 끼운 블록만 새로 센다 — 뒤 문단 라벨은 문서를 다시 열 때 맞춰짐(② §4).
+- 첫 화면 시험에서 Enter 가 한 번 나누기를 안 한 일이 있었으나 다시 재현 안 됨(원인 미확인 — 위 포커스 문제였을 가능성).
+- 큰 문서 구조 편집 뒤 남은 비용(③ 2026-11-10 실측 뒤 약 2 s = 서버 0.7~1.3 s + paginate 0.8 s + refit 0.2~0.7 s) — astra 협의(Q4·Q9)로 **미룸**: ① `refit` 생략은 구역 크기만으로는 안 됨(twoUp·gutter·
+  패널·스크롤바 등 폭 계산 입력을 캐시해야 — 더 작은 개선은 `fitWidth` 의 `zoom=1` 왕복 제거) ② 증분 paginate 는 「앞 쪽은 같다」가 성립 안 함(`pushRow` 가 다음 쪽 남은 높이를 봄, `.cont` 조각, 꼬리 훅
+  overflowPush·overflowSplit·divMarksDraw 가 문서 전체 대상) — 쪽 경계·훅 계약을 정한 뒤 ③ 서버 `_transact` 의 `blocks()` 전체 재독은 잠금·스냅샷·격자·검사·재독·직렬화로 나눠 잰 뒤(docx 는 검사 전후 두 번
+  읽음); `hwpx_doc.table_block` 은 쪽·호스트·번호 문맥이 없어 그대로는 대체 못 함. 잔여 비용 `refreshToolbar` 0.45 s·`focusAt` 0.3 s 도 후보.
+- ~~표 구조가 바뀌어도 2열 엑셀식 격자(`tables.js xlColumnSync`)는 3단계 키만 비교해 다시 안 그린다~~ → 2026-11-10 newfilemanager-30 이 고침: 열쇠 `xlColKey` = 3단계 키 + `state.structRev` + 표 블록 크기, 표가 지워지면 열 닫음([spec_헤딩_추출.md](spec_헤딩_추출.md) ③).
+- 표 편집 연기 시험(astra P2): `tools/smoke_table_tools_ui.py` 류에 「칸 2행 끌어 고름 → 지우기 → 행 수 → 실행 취소」와 시간 상한(고정 환경 5 s), 기준 칸이 지워지는 편집에 위반을 주입해 422·원복 확인.

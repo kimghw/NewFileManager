@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HWPX·DOCX 웹 편집</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/landing.css">
+  <link rel="stylesheet" href="/static/divisions.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5L13 3.5zM8 13h8v1.6H8V13zm0 3.4h8V18H8v-1.6z"/></svg>
+      <span>HWPX·DOCX 웹 편집</span>
+    </div>
+    <div class="file" id="fileInfo" hidden>
+      <span class="file-name" id="fileName"></span>
+      <span class="file-meta" id="fileMeta"></span>
+    </div>
+    <div class="spacer"></div>
+    <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
+    <button class="btn" id="worksBtn" type="button" title="작업 목록 — 파일을 올릴 때마다 작업이 생기고 편집·검증 기록이 저장됩니다" aria-haspopup="dialog">작업</button>
+    <button class="btn" id="openBtn" type="button" title="다른 HWPX·DOCX 파일 열기(새 작업)">열기</button>
+    <button class="btn" id="verifyBtn" type="button" disabled title="저장본을 한글(HWPX)·Word(DOCX) PDF 로 찍어 원본과 쪽마다 비교">출력파일 검증</button>
+    <button class="btn primary" id="downloadBtn" type="button" disabled title="내려받기 (Ctrl+S)">저장</button>
+    <button class="btn panel-toggle" id="panelBtn" type="button" aria-controls="panel" aria-expanded="true" hidden>도구 닫기</button>
+    <input type="file" id="fileInput" accept=".hwpx,.docx" hidden>
+  </header>
+
+  <nav class="workspace-nav" id="workspaceNav" aria-label="문서 작업" hidden>
+    <div class="tabs" role="tablist" aria-label="작업별 도구">
+      <button type="button" role="tab" class="tab active" id="tabVerify" aria-selected="true" aria-controls="paneVerify" tabindex="0" title="파일·출력 확인"><span class="nav-icon" aria-hidden="true">✓</span><span>검증</span></button>
+      <button type="button" role="tab" class="tab" id="tabEdits" aria-selected="false" aria-controls="paneEdits" tabindex="-1" title="변경 내용·되돌리기"><span class="nav-icon" aria-hidden="true">✎</span><span>고친 문단 <span class="badge" id="editsBadge">0</span></span></button>
+      <button type="button" role="tab" class="tab" id="tabPdf" aria-selected="false" aria-controls="panePdf" tabindex="-1" title="원본·수정본 보기"><span class="nav-icon nav-pdf" aria-hidden="true">PDF</span><span>PDF</span></button>
+      <button type="button" role="tab" class="tab" id="tabLog" aria-selected="false" aria-controls="paneLog" tabindex="-1" title="작업 이력"><span class="nav-icon" aria-hidden="true">◷</span><span>기록</span></button>
+      <button type="button" role="tab" class="tab nav-analysis" id="tabHeads" aria-selected="false" aria-controls="paneHeads" tabindex="-1" hidden title="구조·라벨·템플릿"><span class="nav-icon" aria-hidden="true">☷</span><span>헤딩 추출</span></button>
+      <button type="button" role="tab" class="tab" id="tabTables" aria-selected="false" aria-controls="paneTables" tabindex="-1" hidden title="표 식별·엑셀식 보기·표 지침"><span class="nav-icon" aria-hidden="true">▦</span><span>표</span></button>
+      <button type="button" role="tab" class="tab" id="tabDiv" aria-selected="false" aria-controls="paneDiv" tabindex="-1" hidden title="단계·차년도·기관"><span class="nav-icon" aria-hidden="true">⊞</span><span>구분 기준</span></button>
+      <button type="button" role="tab" class="tab nav-compare" id="tabCompare" aria-selected="false" aria-controls="paneCompare" tabindex="-1" title="병합 전 확인"><span class="nav-icon" aria-hidden="true">⇄</span><span>문서 비교</span></button>
+    </div>
+    <button type="button" class="nav-fold" id="navFold" aria-controls="workspaceNav" aria-expanded="true" title="도구 탭 접기">접기 ▴</button>
+  </nav>
+
+  <main class="workspace">
+    <section class="viewer" id="viewer" aria-label="문서">
+      <div class="empty home" id="empty">
+        <div class="home-content">
+          <div class="home-intro">
+            <header class="home-heading">
+              <p class="home-eyebrow">문서 작업 공간</p>
+              <h1>문서 작업을<br> 더 간결하게.</h1>
+              <p class="home-subtitle">HWPX와 DOCX 편집부터<br> 출력 확인까지, 한곳에서.</p>
+              <p class="home-format-note"><span>HWPX</span><span>DOCX</span>원래 형식 그대로 저장</p>
+            </header>
+            <div class="home-upload">
+              <section class="drop" id="drop" aria-labelledby="dropTitle" aria-describedby="dropFormats">
+                <div class="upload-symbol" aria-hidden="true">
+                  <svg viewBox="0 0 48 48" fill="none" width="48" height="48"><path d="M13 5h15l9 9v25a4 4 0 0 1-4 4H13a4 4 0 0 1-4-4V9a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="2"/><path d="M28 5v10h9M24 34V22m-5 5 5-5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <h2 id="dropTitle">여기에 문서를 놓아주세요</h2>
+                <p class="upload-prompt">또는 파일을 선택해 시작하세요.</p>
+                <button class="btn primary lg" id="pickBtn" type="button">
+                  파일 선택
+                </button>
+                <p class="upload-formats" id="dropFormats">.hwpx · .docx<span aria-hidden="true"> · </span>한 번에 한 문서</p>
+              </section>
+              <div class="home-upload-notes">
+                <p class="env" id="envNote" role="status"></p>
+                <details class="sample-section" id="sampleSection" hidden>
+                  <summary>예제로 먼저 둘러보기 <span aria-hidden="true">⌄</span></summary>
+                  <div class="samples" id="samples"></div>
+                </details>
+              </div>
+            </div>
+          </div>
+          <ul class="home-capabilities" aria-label="문서를 열면 할 수 있는 작업">
+            <li>
+              <span class="capability-icon edit" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="m15 4 5 5M5 15 16 4a2 2 0 0 1 3 3L8 18l-5 2 2-5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 20h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+              <div><h3>문서 편집</h3><p>문단과 표를 고치고 <br>원래 형식으로 저장하세요.</p></div>
+            </li>
+            <li>
+              <span class="capability-icon verify" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <div><h3>출력 결과 확인</h3><p>원본과 수정본의 PDF를 <br>나란히 비교하세요.</p></div>
+            </li>
+            <li>
+              <span class="capability-icon structure" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><rect x="4" y="3" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="11" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="18" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.7"/><path d="M7 8v12h7M7 13h7" stroke="currentColor" stroke-width="1.7"/></svg></span>
+              <div><h3>구조 분석·비교</h3><p>HWPX의 라벨·템플릿을 <br>살펴보고 문서끼리 비교하세요.</p></div>
+            </li>
+          </ul>
+          <section class="recent" id="recent" hidden aria-labelledby="recentTitle">
+            <header class="recent-heading">
+              <div><h2 id="recentTitle">최근 작업 <span id="recentCount"></span></h2><p>작업하던 문서를 이어서 열어보세요.</p></div>
+              <button class="btn sm" id="recentAll" type="button" aria-haspopup="dialog">전체 작업 보기 <span aria-hidden="true">→</span></button>
+            </header>
+            <ul class="work-list" id="workList"></ul>
+          </section>
+        </div>
+      </div>
+      <!-- 문서·편집 도구 한 줄(spec_hwpx_웹편집 ② §2 「도구 줄」, 2026-11-10): 「페이지 보기·폰트 수정·문단 수정·테이블 수정」 중 고른 묶음(.tool-set[data-tool-set] 상자 또는
+           data-tool-for 항목들)만 펼친다 — 오른쪽 고친 문단·OWPML·실행 취소는 늘 보임. 고른 묶음은 app.js setToolSet() 이 localStorage nfm.view 에 기억 -->
+      <div class="doc-bar" id="docBar" role="toolbar" aria-label="문서·편집 도구" hidden>
+        <div class="group tool-modes" id="toolModes" role="group" aria-label="도구 묶음 — 하나만 골라 한 줄에">
+          <button class="btn sm on" type="button" data-tool="page" aria-pressed="true" aria-label="페이지 보기" title="페이지 보기 — 확대·폭/높이 맞춤·2쪽·쪽 번호·휠 쪽 넘김">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg>
+          </button>
+          <button class="btn sm" type="button" data-tool="font" aria-pressed="false" aria-label="폰트 수정" title="폰트 수정 — 굵게·기울임·밑줄·글자 크기·글자 색">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7V5h12v2M9 5v14M6 19h6M14 12v-2h7v2M17.5 10v9M15.5 19h4"/></svg>
+          </button>
+          <button class="btn sm" type="button" data-tool="para" aria-pressed="false" aria-label="문단 수정" title="문단 수정 — 정렬·왼쪽 여백·첫 줄 들여쓰기·줄 간격">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 4H9a4.5 4.5 0 0 0 0 9h3M12 4v16M17 4v16M10 20h4M15 20h4"/></svg>
+          </button>
+          <button class="btn sm" type="button" data-tool="table" aria-pressed="false" aria-label="테이블 수정" title="테이블 수정 — 표 행·열 넣기·지우기: 표 칸 안에 있거나 칸을 끌어 골랐을 때">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/></svg>
+          </button>
+        </div>
+        <span class="tb-sep" aria-hidden="true"></span>
+        <!-- 「페이지 보기」 묶음은 한 상자로 싸지 않고 항목마다 data-tool-for="page" — 좁은 줄에서 항목 단위로 꺾이게(상자째 꺾이면 줄이 셋이 된다) -->
+        <div class="group" role="group" aria-label="확대" data-tool-for="page">
+          <button class="icon" id="zoomOut" type="button" aria-label="축소">−</button>
+          <button class="zoom-val" id="zoomVal" type="button" title="100% 로">100%</button>
+          <button class="icon" id="zoomIn" type="button" aria-label="확대">+</button>
+          <button class="btn sm" id="zoomFit" type="button" aria-pressed="true">폭 맞춤</button>
+          <button class="btn sm" id="zoomHeight" type="button" aria-pressed="false" title="쪽 한 장이 창 높이에 다 들어가게 — 한 번 더 누르면 「여백 빼고 맞춤」(위·아래 쪽 여백을 뺀 본문 높이를 창에), 또 누르면 다시 높이 맞춤">높이 맞춤</button>
+          <button class="btn sm" id="twoUp" type="button" aria-pressed="false" title="두 쪽을 나란히 — 폭 맞춤은 두 쪽 폭으로, 휠 쪽 넘김은 두 쪽씩">2쪽</button>
+        </div>
+        <label class="toggle" data-tool-for="page"><input type="checkbox" id="showPages" checked> 쪽 번호</label>
+        <label class="toggle" data-tool-for="page" title="마우스 휠 한 칸에 한 쪽(2쪽 보기면 두 쪽) — 쪽이 창보다 길면 그 안에서 창 높이만큼 먼저 내려감 · 끄면 보통 스크롤 · Ctrl·Shift+휠은 그대로"><input type="checkbox" id="wheelFlip" checked> 휠 쪽 넘김</label>
+        <div class="tool-set" data-tool-set="font" role="group" aria-label="글자 모양" hidden>
+          <div class="group">
+            <button class="icon tb" type="button" data-char="bold" aria-pressed="false" title="굵게 (Ctrl+B) — 고른 글자, 고르지 않으면 문단 전체"><b>가</b></button>
+            <button class="icon tb" type="button" data-char="italic" aria-pressed="false" title="기울임 (Ctrl+I)"><i>가</i></button>
+            <button class="icon tb" type="button" data-char="underline" aria-pressed="false" title="밑줄 (Ctrl+U)"><u>가</u></button>
+          </div>
+          <label class="tb-field" title="글자 크기(pt)"><input id="tbSize" type="number" min="1" max="4096" step="0.5" aria-label="글자 크기(pt)"><span>pt</span></label>
+          <label class="tb-color" title="글자 색"><input id="tbColor" type="color" value="#000000" aria-label="글자 색"></label>
+        </div>
+        <div class="tool-set" data-tool-set="para" role="group" aria-label="문단 모양" hidden>
+          <div class="group">
+            <button class="icon tb" type="button" data-align="left" aria-pressed="false" title="왼쪽 정렬" aria-label="왼쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h8v1.5H2zm0 3h12v1.5H2zm0 3h8v1.5H2z"/></svg></button>
+            <button class="icon tb" type="button" data-align="center" aria-pressed="false" title="가운데 정렬" aria-label="가운데 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm2 3h8v1.5H4zm-2 3h12v1.5H2zm2 3h8v1.5H4z"/></svg></button>
+            <button class="icon tb" type="button" data-align="right" aria-pressed="false" title="오른쪽 정렬" aria-label="오른쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm4 3h8v1.5H6zm-4 3h12v1.5H2zm4 3h8v1.5H6z"/></svg></button>
+            <button class="icon tb" type="button" data-align="justify" aria-pressed="false" title="양쪽 정렬" aria-label="양쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2z"/></svg></button>
+          </div>
+          <div class="group">
+            <button class="icon tb" type="button" data-indent="-5" title="왼쪽 여백 −5mm" aria-label="왼쪽 여백 줄이기">⇤</button>
+            <button class="icon tb" type="button" data-indent="5" title="왼쪽 여백 +5mm" aria-label="왼쪽 여백 늘리기">⇥</button>
+          </div>
+          <label class="tb-field" title="첫 줄 들여쓰기(+)·내어쓰기(−), mm"><span>첫 줄</span><input id="tbFirst" type="number" min="-300" max="300" step="1" aria-label="첫 줄 들여쓰기 mm"></label>
+          <label class="tb-field" title="줄 간격(%)"><span>줄</span><select id="tbLine" aria-label="줄 간격"><option value="">–</option><option>100</option><option>130</option><option>150</option><option>160</option><option>180</option><option>200</option></select></label>
+        </div>
+        <div class="tool-set group" data-tool-set="table" role="group" aria-label="표 행·열" id="tbTable" hidden>
+          <button class="btn sm" type="button" data-table="row_above" title="이 칸(또는 끌어 고른 행들) 위에 빈 행 넣기 — 고른 행 수만큼">행↑ 넣기</button>
+          <button class="btn sm" type="button" data-table="row_below" title="이 칸(또는 끌어 고른 행들) 아래에 빈 행 넣기 — 고른 행 수만큼">행↓ 넣기</button>
+          <button class="btn sm" type="button" data-table="row_delete" title="이 칸의 행(또는 끌어 고른 행들) 지우기">행 지우기</button>
+          <button class="btn sm" type="button" data-table="col_left" title="이 칸(또는 끌어 고른 열들) 왼쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열← 넣기</button>
+          <button class="btn sm" type="button" data-table="col_right" title="이 칸(또는 끌어 고른 열들) 오른쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열→ 넣기</button>
+          <button class="btn sm" type="button" data-table="col_delete" title="이 칸의 열(또는 끌어 고른 열들) 지우기(폭은 이웃 열에)">열 지우기</button>
+        </div>
+        <!-- 키 안내 — 「페이지 보기」 묶음과 함께 보이되 묶음 밖에 둔다: 줄이 좁으면 이 안내부터 줄여(말줄임) 다른 항목이 겹치지 않게 -->
+        <span class="hint" id="editHint" data-tool-for="page" title="편집용 보기(출력 배치는 PDF 탭) · Enter 문단 나누기 · Shift+Enter 줄 바꿈 · 문단 맨 앞 Backspace·맨 끝 Delete 합치기 · Ctrl+B/I/U 글자 모양 · 표 칸을 끌면 칸 묶음 고르기(Ctrl+C 복사 · 오른쪽 단추 메뉴로 행·열 넣기·지우기 · Shift+화살표 늘리기 · Esc 풀기) · Esc 편집 끝">Enter 나누기 · Shift+Enter 줄 바꿈 · 맨 앞 Backspace·맨 끝 Delete 합치기 · Ctrl+B/I/U · 표 칸 끌어 고르기(Ctrl+C·오른쪽 단추)</span>
+        <div class="spacer"></div>
+        <div class="group" id="editNav" hidden>
+          <span id="editCount"></span>
+          <button class="icon" id="prevEdit" type="button" aria-label="이전 고친 문단">↑</button>
+          <button class="icon" id="nextEdit" type="button" aria-label="다음 고친 문단">↓</button>
+        </div>
+        <span class="owpml-state" id="owpmlState" role="status" aria-live="polite" title="구조·서식 편집마다 OWPML(KS X 6101) 2024 스키마·참조 규칙으로 검사 — 원본에 없던 종류의 위반이면 그 편집을 되돌린다">OWPML 검사 대기</span>
+        <button class="btn sm" id="undoBtn" type="button" disabled title="마지막 구조·서식 편집(나누기·합치기·모양·표) 직전으로 — 그 뒤 고친 글도 함께 돌아감">↶ 실행 취소</button>
+      </div>
+      <div class="scroller" id="scroller" hidden>
+        <div class="doc" id="doc"></div>
+      </div>
+    </section>
+
+    <!-- 헤딩 추출 2열 — 문단 목록·서식 라벨·규칙·지침을 문서(1열)와 패널(3열) 사이에 나란히(옛 대화창 — id 는 그대로) -->
+    <section class="heads-col" id="headsDlg" hidden aria-labelledby="headsDlgTitle" tabindex="-1">
+      <div class="heads-resizer" id="headsResizer" role="separator" aria-orientation="vertical" aria-label="헤딩 열 폭" aria-controls="headsDlg" tabindex="0"
+           title="끌어서 열 폭 조절 · ←/→ 20px(Shift 80px) · 두 번 누르면 기본 폭"></div>
+      <header>
+        <strong id="headsDlgTitle">헤딩 추출</strong>
+        <span class="recent-note" id="headsDlgNote"></span>
+        <div class="spacer"></div>
+        <button class="icon" id="headsDlgClose" type="button" aria-label="닫기" title="열 닫기">✕</button>
+      </header>
+      <div class="hd-tools" id="headsDlgTools"></div>
+      <div class="hd-body" id="headsDlgBody"></div>
+      <footer id="headsDlgFoot"></footer>
+    </section>
+
+    <aside class="panel" id="panel" hidden aria-label="문서 도구">
+      <div class="panel-resizer" id="panelResizer" role="separator" aria-orientation="vertical" aria-label="패널 폭" aria-controls="panel" tabindex="0"
+           title="끌어서 패널 폭 조절 · ←/→ 20px(Shift 80px) · 두 번 누르면 기본 폭"></div>
+      <header class="tool-heading">
+        <div class="tool-source" id="toolSource"></div>
+        <div class="tool-title-row"><h1 id="toolTitle">검증</h1><span class="tool-tag" id="toolTag">파일·출력</span></div>
+        <p id="toolDescription">원본을 읽고 저장한 결과와 출력파일을 확인합니다.</p>
+      </header>
+      <div class="pane" id="paneVerify" role="tabpanel" aria-labelledby="tabVerify">
+        <div class="summary" id="summary"></div>
+        <details class="stage" id="importBox" open>
+          <summary>가져오기 검증 <span class="stage-sum" id="importSum"></span></summary>
+          <ol class="steps" id="importSteps"></ol>
+        </details>
+        <details class="stage" id="editBox" open>
+          <summary>출력파일 검증 <span class="stage-sum" id="editSum"></span></summary>
+          <ol class="steps" id="editSteps"></ol>
+        </details>
+      </div>
+      <div class="pane" id="paneEdits" role="tabpanel" aria-labelledby="tabEdits" hidden>
+        <ul class="edits" id="editsList"></ul>
+      </div>
+      <div class="pane" id="panePdf" role="tabpanel" aria-labelledby="tabPdf" hidden>
+        <div class="pdf-bar">
+          <button class="icon" id="pdfPrev" type="button" aria-label="이전">‹</button>
+          <label class="pg-input"><input id="pdfPageInput" type="number" min="1" value="1" aria-label="PDF 번호"> <span id="pdfOf">/ –</span></label>
+          <button class="icon" id="pdfNext" type="button" aria-label="다음">›</button>
+          <div class="spacer"></div>
+          <div class="seg" role="group" aria-label="PDF 종류" id="pdfSeg">
+            <button type="button" class="on" data-which="original" aria-pressed="true">원본</button>
+            <button type="button" data-which="edited" aria-pressed="false" disabled>수정본</button>
+          </div>
+        </div>
+        <p class="pdf-note" id="pdfNote">문단을 누르면 한글·Word PDF 에서 그 문단이 있는 자리를 보여 줍니다.</p>
+        <div class="pdf-view"><img id="pdfImg" alt="" hidden></div>
+      </div>
+      <div class="pane" id="paneLog" role="tabpanel" aria-labelledby="tabLog" hidden>
+        <div class="log-top">
+          <span class="log-sum" id="logSum"></span>
+          <div class="spacer"></div>
+          <a class="btn sm" id="logOriginal" href="#" download title="이 작업에 올린 원본 파일 그대로">원본 받기</a>
+          <button class="icon" id="logRefresh" type="button" aria-label="기록 새로 읽기" title="새로 읽기">↻</button>
+        </div>
+        <ol class="log" id="logList"></ol>
+      </div>
+      <div class="pane" id="paneHeads" role="tabpanel" aria-labelledby="tabHeads" hidden>
+        <p class="hwarn" id="headsPersist" role="status" hidden></p>
+        <div class="heads-overview" id="headsOverview" aria-live="polite"></div>
+        <div class="heads-view-nav" role="tablist" aria-label="헤딩 추출 결과">
+          <button type="button" role="tab" id="headsTabTree" aria-controls="headsViewTree" aria-selected="true" data-head-view="Tree">문서 구조</button>
+          <button type="button" role="tab" id="headsTabLabels" aria-controls="headsViewLabels" aria-selected="false" tabindex="-1" data-head-view="Labels">서식 라벨</button>
+          <button type="button" role="tab" id="headsTabTemplates" aria-controls="headsViewTemplates" aria-selected="false" tabindex="-1" data-head-view="Templates">템플릿</button>
+          <button type="button" role="tab" id="headsTabTables" aria-controls="headsViewTables" aria-selected="false" tabindex="-1" data-head-view="Tables">표 구조</button>
+          <button type="button" role="tab" id="headsTabReview" aria-controls="headsViewReview" aria-selected="false" tabindex="-1" data-head-view="Review">확인할 항목</button>
+          <button type="button" role="tab" id="headsTabRun" aria-controls="headsViewRun" aria-selected="false" tabindex="-1" data-head-view="Run">추출·설정</button>
+        </div>
+        <section id="headsViewTree" class="heads-result" role="tabpanel" aria-labelledby="headsTabTree"><div id="heads2More"></div></section>
+        <section id="headsViewLabels" class="heads-result" role="tabpanel" aria-labelledby="headsTabLabels" hidden><div id="headsLabelsResult"></div></section>
+        <section id="headsViewTemplates" class="heads-result" role="tabpanel" aria-labelledby="headsTabTemplates" hidden><div id="headsTemplatesResult"></div></section>
+        <section id="headsViewTables" class="heads-result" role="tabpanel" aria-labelledby="headsTabTables" hidden><div id="headsTablesResult"></div><div id="heads3More"></div></section>
+        <section id="headsViewReview" class="heads-result" role="tabpanel" aria-labelledby="headsTabReview" hidden><div id="headsReviewResult"></div><div id="heads1More"></div><div id="headsAdjustResult"></div></section>
+        <section id="headsViewRun" class="heads-result" role="tabpanel" aria-labelledby="headsTabRun" hidden>
+        <p class="result-help">분석을 실행하거나 기준을 바꿉니다. 추출 결과는 위의 보기에서 문서와 대조하세요.</p>
+        <section class="hcard" aria-label="1단계 — 문단·규칙식·서식 라벨">
+          <div id="heads1"></div>
+          <div id="heads1Job"></div>
+        </section>
+        <section class="hcard" aria-label="2단계 — 헤딩 그래프·템플릿">
+          <div id="heads2"></div>
+          <div id="heads2Job"></div>
+        </section>
+        <section class="hcard" aria-label="3단계 — 표 구조(행헤더·열헤더·필드·서브 테이블)">
+          <div id="heads3"></div>
+          <div id="heads3Job"></div>
+        </section>
+        </section>
+      </div>
+      <!-- 표 모듈(spec_헤딩_추출 ② §10 — app/static/tables.js): 문서의 표 목록 · 표 구조 실행 · 공통 지침 · 표마다 ⊞ 엑셀식 보기(2열)·✎ 표 지침 -->
+      <div class="pane" id="paneTables" role="tabpanel" aria-labelledby="tabTables" hidden><div id="tablesBox"></div></div>
+      <!-- 구분 기준(spec_구분_기준 ② §8) — 3열: 프로파일·값 입력·저장한 기준·적용 상태 · 2열(#headsDlg 공유, kind "divisions"): 바꿀 자리 목록 -->
+      <div class="pane" id="paneDiv" role="tabpanel" aria-labelledby="tabDiv" hidden>
+        <div id="divBox"></div>
+      </div>
+      <div class="pane" id="paneCompare" role="tabpanel" aria-labelledby="tabCompare" hidden></div>
+    </aside>
+  </main>
+
+  <dialog class="compare" id="compare" aria-labelledby="cmpTitle">
+    <header>
+      <strong id="cmpTitle">쪽 비교</strong>
+      <div class="seg" role="group" aria-label="보기">
+        <button type="button" class="on" data-mode="side" aria-pressed="true">나란히</button>
+        <button type="button" data-mode="diff" aria-pressed="false">차이</button>
+      </div>
+      <div class="seg" role="group" aria-label="크기">
+        <button type="button" class="on" data-size="fit" aria-pressed="true">폭 맞춤</button>
+        <button type="button" data-size="big" aria-pressed="false">크게</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon" id="cmpPrev" type="button" aria-label="이전 다른 쪽">‹</button>
+      <span id="cmpPos"></span>
+      <button class="icon" id="cmpNext" type="button" aria-label="다음 다른 쪽">›</button>
+      <button class="icon" id="cmpClose" type="button" aria-label="닫기">✕</button>
+    </header>
+    <p class="cmp-kind" id="cmpKind"></p>
+    <div class="cmp-body" id="cmpBody"></div>
+    <footer id="cmpLegend"><span class="sw red"></span>원본에만 있는 픽셀 <span class="sw blue"></span>비교본에만 있는 픽셀 <span class="muted">· 회색 = 같은 픽셀</span></footer>
+  </dialog>
+
+  <dialog class="works-dlg" id="worksDlg" aria-labelledby="worksTitle">
+    <header>
+      <strong id="worksTitle">작업 목록</strong>
+      <span class="recent-note">최근 바뀐 차례 · 누르면 그 작업으로</span>
+      <div class="spacer"></div>
+      <button class="btn sm" id="worksNew" type="button">새 파일 올리기</button>
+      <button class="icon" id="worksClose" type="button" aria-label="닫기">✕</button>
+    </header>
+    <ul class="work-list" id="workListDlg"></ul>
+  </dialog>
+
+  <div class="toast" id="toast" role="alert" hidden></div>
+  <script src="/static/app.js"></script>
+  <script src="/static/tables.js"></script>
+  <script src="/static/table_edit.js"></script><!-- 표 구조 편집(칸 고르기·행/열) — app.js 다음(spec_owpml_편집 ② §2 「자리」) -->
+  <script src="/static/compare.js"></script>
+</body>
+</html>

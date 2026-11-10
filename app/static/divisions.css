@@ -1,0 +1,139 @@
+/* 구분 기준: 단계·기관 설정과 검토 행동을 분리한 문서 도구 패널. */
+#paneDiv { container-type: inline-size; background: #f6f8fc; }
+#divBox { color: #1e293b; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; gap: 14px; }
+#divBox *, #divBox *::before, #divBox *::after { box-sizing: border-box; }
+#divBox h3, #divBox p { margin: 0; }
+#divBox .dv-caption { color: #64748b; font-size: 12px; line-height: 1.6; font-weight: 400; overflow-wrap: anywhere; }
+#divBox .dv-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 2px 2px; }
+#divBox .dv-profile-copy { min-width: 0; }
+#divBox .dv-profile-title { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 4px; }
+#divBox .dv-profile-title strong { font-size: 13px; overflow-wrap: anywhere; }
+#divBox .dv-tag { display: inline-flex; align-items: center; flex-shrink: 0; border-radius: 5px; padding: 3px 7px; background: #e9eef5; color: #536278; font-size: 11px; font-weight: 600; line-height: 1.5; }
+#divBox .dv-tag.is-ready { color: #16734d; background: #e8f5ed; }
+#divBox .dv-tag.is-warning, #divBox .dv-count.is-warning { color: #9a5b0c; background: #fff2dc; }
+#divBox .dv-config { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+#divBox .dv-config:disabled { opacity: .65; }
+#divBox .dv-card { padding: 20px; border: 1px solid #dfe5ee; border-radius: 12px; background: #fff; box-shadow: 0 2px 5px #253b6010; }
+#divBox .dv-section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 17px; flex-wrap: wrap; }
+#divBox .dv-section-copy { flex: 1; min-width: 130px; }
+#divBox .dv-section-copy h3 { font-size: 15px; font-weight: 700; line-height: 1.5; margin-bottom: 3px; }
+#divBox .dv-step { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; background: #edf2ff; color: #315fd3; border-radius: 8px; font-size: 12px; font-weight: 700; }
+#divBox .dv-count { font-size: 11px; font-weight: 600; white-space: nowrap; padding: 4px 8px; background: #f0f3f8; border-radius: 6px; color: #51627b; margin-top: 2px; }
+#divBox .dv-stage-list, #divBox .dv-org-list { display: grid; gap: 8px; }
+#divBox .dv-stage-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #f7f9fc; border: 1px solid #e8ecf3; border-radius: 8px; }
+#divBox .dv-stage-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+#divBox .dv-stage-copy strong { font-size: 13px; font-weight: 600; }
+#divBox .dv-stage-range { font-size: 12px; color: #64748b; }
+#divBox .dv-year-field { display: flex; align-items: center; gap: 8px; color: #64748b; flex-shrink: 0; }
+#divBox input:not([type="checkbox"]), #divBox select { min-width: 0; height: 38px; border: 1px solid #ccd5e2; border-radius: 7px; background: #fff; color: #24334b; padding: 7px 10px; font: inherit; box-shadow: 0 1px 2px #1d355705; }
+#divBox input::placeholder { color: #8a96a8; }
+#divBox input:focus-visible, #divBox select:focus-visible, #divBox button:focus-visible, #divBox summary:focus-visible { outline: 3px solid #8babf7; outline-offset: 2px; }
+#divBox .dv-year-field input { width: 66px; text-align: center; font-weight: 600; padding-right: 5px; }
+#divBox .btn { min-height: 34px; border-radius: 7px; font-size: 12px; padding: 7px 12px; white-space: normal; }
+#divBox .dv-read { flex-shrink: 0; background: #fff; }
+#divBox .dv-remove { display: grid; place-items: center; background: transparent; color: #8a96a8; border: 0; width: 28px; height: 32px; border-radius: 5px; font-size: 20px; cursor: pointer; flex-shrink: 0; }
+#divBox .dv-remove:hover { color: #b63b40; background: #fff0f0; }
+#divBox .dv-add { width: 100%; margin-top: 10px; background: #fff; border: 1px dashed #c7d3e5; color: #3e67bb; min-height: 36px; }
+#divBox .dv-add:hover { background: #f3f6ff; border-color: #7296e6; }
+#divBox .dv-org-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e8ecf3; border-radius: 8px; background: #fafbfd; }
+#divBox .dv-org-field { min-width: 0; display: flex; align-items: center; gap: 8px; }
+#divBox .dv-org-role { color: #64748b; font-size: 11px; font-weight: 600; width: 26px; flex-shrink: 0; white-space: nowrap; }
+#divBox .dv-org-row > .dv-remove { width: 24px; }
+#divBox .dv-org-role.is-lead { color: #315fd3; }
+#divBox .dv-org-field input { width: 100%; }
+#divBox .dv-nonprofit { display: flex; align-items: center; gap: 5px; color: #64748b; font-size: 12px; white-space: nowrap; cursor: pointer; }
+#divBox input[type="checkbox"] { accent-color: #315fd3; width: 15px; height: 15px; margin: 0; }
+#divBox .dv-hint { margin-top: 10px; font-size: 11px; }
+#divBox .dv-field-error, #divBox .dv-notice { color: #9a5b0c; font-size: 12px; padding-top: 9px; }
+#divBox .dv-field-error[hidden] { display: none; }
+#divBox .dv-disclosure { border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; overflow: hidden; }
+#divBox .dv-disclosure summary { display: flex; align-items: center; gap: 10px; list-style: none; cursor: pointer; padding: 15px 18px; }
+#divBox .dv-disclosure summary::-webkit-details-marker { display: none; }
+#divBox .dv-disclosure summary strong { font-size: 12px; white-space: nowrap; }
+#divBox .dv-disclosure summary .dv-caption { font-size: 11px; }
+#divBox .dv-chevron { margin-left: auto; font-size: 18px; color: #70809a; line-height: 1; }
+#divBox .dv-disclosure[open] .dv-chevron { transform: rotate(180deg); }
+#divBox .dv-disclosure[open] summary { border-bottom: 1px solid #edf0f5; }
+#divBox .dv-extra-fields, #divBox .dv-preset-body { padding: 18px; display: grid; gap: 15px; }
+#divBox .dv-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #475569; font-weight: 500; min-width: 0; }
+#divBox .dv-field input, #divBox .dv-field select { width: 100%; }
+#divBox .dv-field small { font-size: 11px; }
+#divBox .dv-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#divBox .dv-preset-row { display: flex; align-items: center; gap: 8px; }
+#divBox .dv-preset-row select { flex: 1; width: 0; text-overflow: ellipsis; }
+#divBox .dv-preset-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#divBox .dv-delete { color: #ae4b52; border-color: transparent; background: transparent; }
+#divBox .dv-applied { border: 1px solid #e0e6ef; border-radius: 10px; padding: 15px 18px; background: #eef2f8; }
+#divBox .dv-applied-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 7px; }
+#divBox .dv-applied-head h3 { font-size: 12px; font-weight: 600; margin-right: auto; }
+#divBox .dv-applied-values { font-size: 12px; color: #465974; margin-bottom: 4px; overflow-wrap: anywhere; }
+#divBox .dv-plan-note { color: #76613a; font-size: 11px; margin-top: 7px; }
+#divBox .dv-undo { margin-top: 10px; background: #fff; font-size: 11px; }
+#divBox .dv-review-bar { position: sticky; bottom: -14px; z-index: 2; display: flex; align-items: center; gap: 12px; justify-content: space-between; border: 1px solid #dce4f3; background: #fff; box-shadow: 0 -4px 18px #213c6b0b; border-radius: 10px; padding: 16px 18px; }
+#divBox .dv-review-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#divBox .dv-review-copy strong { font-size: 12px; font-weight: 600; }
+#divBox .dv-review-copy span { font-size: 11px; color: #718098; }
+#divBox .dv-review-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+#divBox .dv-plan-button { min-height: 42px; padding: 10px 19px; background: #2d5be3; border-color: #2d5be3; color: #fff; font-size: 13px; font-weight: 600; }
+#divBox .dv-plan-button:hover:not(:disabled) { background: #234bc3; }
+#divBox .dv-plan-button:disabled { opacity: .5; }
+@container (max-width: 520px) {
+  #divBox .dv-card { padding: 17px 15px; }
+  #divBox .dv-nonprofit { min-height: 38px; }
+  #divBox .dv-remove { height: 38px; }
+  #divBox .dv-review-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+  #divBox .dv-review-actions { width: 100%; }
+  #divBox .dv-disclosure summary { flex-wrap: wrap; gap: 4px 10px; }
+  #divBox .dv-disclosure summary .dv-caption { order: 3; flex-basis: 100%; }
+}
+@container (max-width: 350px) {
+  #divBox .dv-profile { flex-direction: column; align-items: stretch; }
+  #divBox .dv-date-fields { grid-template-columns: 1fr; }
+  #divBox .dv-card { padding: 14px 12px; }
+  #divBox .dv-section-head { gap: 8px; }
+  #divBox .dv-count { margin-left: 36px; }
+  #divBox .dv-stage-row { padding: 10px; gap: 6px; }
+  #divBox .dv-stage-copy { flex-direction: column; gap: 1px; }
+}
+
+/* ---- 문서 표시 · 추가한 자리(spec_구분_기준 ② §11, 2026-11-10) ----
+   탭 맨 위 줄(.dv-marks)·범례(.dv-chip)·떠 있는 입력(.dv-pop)·2열 LLM 결과(.dv-llm-last). 문서 쪽 색은 아래 .para 규칙 — :where() 로 우선순위를 0 으로 낮춰
+   .para.edited(고친 문단)·.para:hover·:focus 의 바탕이 이긴다(상태 표시가 더 중요). 색 = 구분별 변수(--dv-bg·--dv-line), 라벨 문단은 진한 바탕 + 왼쪽 띠(배경 그림). */
+#divBox .dv-marks { border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#divBox .dv-marks.on { border-color: #b9c9ec; background: #f7f9ff; }
+#divBox .dv-marks-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#divBox .dv-marks-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#divBox .dv-marks-copy strong { font-size: 12.5px; }
+#divBox .dv-marks-toggle { min-width: 64px; flex-shrink: 0; }
+#divBox .dv-marks-toggle.on { background: #2d5be3; border-color: #2d5be3; color: #fff; }
+#divBox .dv-legend { display: flex; flex-wrap: wrap; gap: 5px; }
+#divBox .dv-marks-note { font-size: 11px; }
+#divBox .dv-marks-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dv-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 18px; padding: 0 7px 0 5px; border-radius: 9px; border: 1px solid var(--dv-line, #cbd5e1); background: var(--dv-bg, #f1f5f9); color: #1e293b; white-space: nowrap; }
+.dv-chip::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
+.dv-chip.hint { --dv-line: #b45309; --dv-bg: #fff7ed; border-style: dashed; }
+.dv-chip.hint-llm { --dv-line: #6d28d9; --dv-bg: #f5f3ff; border-style: dotted; }
+/* 구분별 색(바깥 → 안): 단계 파랑 · 단계-차년도 청록 · 차년도 초록 · 세부과제 보라 · 기관 주황 · 기타 자주 */
+[data-dv="stage"] { --dv-line: #315fd3; --dv-bg: rgba(49, 95, 211, .11); }
+[data-dv="stageYear"] { --dv-line: #0e7490; --dv-bg: rgba(14, 116, 144, .12); }
+[data-dv="year"] { --dv-line: #0f8a5f; --dv-bg: rgba(15, 138, 95, .12); }
+[data-dv="sub"] { --dv-line: #7c3aed; --dv-bg: rgba(124, 58, 237, .11); }
+[data-dv="org"] { --dv-line: #c2410c; --dv-bg: rgba(194, 65, 12, .11); }
+[data-dv="other"] { --dv-line: #9d174d; --dv-bg: rgba(157, 23, 77, .11); }
+:where(#doc.dv-marks .para.dv-in) { background-color: var(--dv-bg); }
+:where(#doc.dv-marks .para.dv-in.dv-lab) { background-image: linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px); background-color: color-mix(in srgb, var(--dv-bg) 100%, var(--dv-line) 10%); }
+#doc.dv-marks .para.dv-hint { outline: 1.5px dashed #b45309; outline-offset: -1px; }        /* 사용자가 표시한 자리 */
+#doc.dv-marks .para.dv-hint-llm { outline: 1.5px dotted #6d28d9; outline-offset: -1px; }    /* LLM 재검토가 넣은 자리 */
+.dv-badge.hinted { background: #fff7ed; border-color: #f4c48a; color: #9a3412; }
+.dv-pop { position: fixed; z-index: 40; width: 300px; max-width: calc(100vw - 16px); padding: 12px 14px; background: #fff; border: 1px solid #c9d3e3; border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(20, 35, 70, .22); font-size: 12.5px; color: #1e293b; display: flex; flex-direction: column; gap: 8px; }
+.dv-pop strong { font-size: 13px; }
+.dv-pop .dv-pop-text { margin: 0; color: #475569; font-size: 12px; overflow-wrap: anywhere; }
+.dv-pop .dv-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569; }
+.dv-pop .dv-field[hidden] { display: none; }
+.dv-pop input, .dv-pop select { height: 32px; border: 1px solid #ccd5e2; border-radius: 6px; padding: 4px 8px; font: inherit; background: #fff; color: #24334b; }
+.dv-pop .dv-pop-acts { display: flex; gap: 6px; justify-content: flex-end; }
+.dv-pop .dv-caption { margin: 0; color: #64748b; font-size: 11px; line-height: 1.5; }
+.dv-llm-last { margin: 8px 14px 4px; padding: 8px 10px; border: 1px solid #ddd6fe; background: #f5f3ff; border-radius: 8px; font-size: 12px; }
+.dv-llm-last p { margin: 4px 0 0; }
+
