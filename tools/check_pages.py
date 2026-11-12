@@ -3,8 +3,10 @@
 python -X utf8 tools/check_pages.py [예제 이름] [쪽 번호들(쉼표)] [출력 폴더]
 서버(8114)가 떠 있어야 한다. 쪽마다 <출력>/page_NN.png = 왼쪽 웹 쪽 상자, 오른쪽 한글 PDF 그 쪽(2쪽 모아 찍기면 장의 반)."""
 import io
+import json
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -17,6 +19,12 @@ PAGES = [int(x) for x in (sys.argv[2] if len(sys.argv) > 2 else "1,2,12,21,31,41
 OUT = Path(sys.argv[3] if len(sys.argv) > 3 else Path(__file__).resolve().parents[1] / "artifacts" / "pages")
 OUT.mkdir(parents=True, exist_ok=True)
 H = 900
+
+
+def new_work(name):
+    """예제를 늘 새 작업으로(?new=1) — 예제 단추는 같은 파일로 하던 작업을 이어 열어(spec_작업 ② §1) 사용자의 편집본을 잴 수 있다."""
+    req = urllib.request.Request(f"{URL}/api/samples/{urllib.parse.quote(name)}?new=1", method="POST")
+    return json.load(urllib.request.urlopen(req, timeout=600))["docId"]
 
 
 def pdf_half(doc, mapping, page):
@@ -35,9 +43,7 @@ def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1100, "height": 1400})
-        pg.goto(URL)
-        pg.wait_for_selector(".sample")
-        pg.click(f".sample >> text={SAMPLE}")
+        pg.goto(f"{URL}/#w={new_work(SAMPLE)}")
         pg.wait_for_selector(".para")
         for _ in range(600):
             if "run" not in (pg.get_attribute("#summary", "class") or "") and pg.inner_text("#summary").strip():

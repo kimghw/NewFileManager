@@ -15,9 +15,12 @@ MAX_LABELS = 50
 MAX_FORMULAS = 400
 
 _WS = re.compile(r"\s+")
-_CODE = re.compile(r"\(\s*([A-Z])\s*\)")
-_EXPR = re.compile(r"\(\s*([A-Z](?:\s*[+\-*/]\s*[A-Z])+)\s*\)")
-_FOOT = re.compile(r"(?<=[가-힣A-Za-z\]）)])\s*\d{1,2}(?:-\d)?\)")  # 「연구개발비15)」「단계14-2)」 각주 번호
+# 헤더 글의 괄호 안 코드 「(A)」「(E1)」 · 식 「(A+B+C)」「(I/E2)」「(L/(N+O+C))」 · 정의 「(M=K+L)」「(E1=A+B+C+D)」 — 코드 = 영문 대문자 하나(+ 숫자 하나). 읽기는 `code_info`.
+_CODE_TOK = r"[A-Z]\d?"
+_EXPR_TOK = re.compile(rf"{_CODE_TOK}|\d+(?:\.\d+)?%?|[+\-*/()]")
+_OPS_TR = str.maketrans({"×": "*", "✕": "*", "＊": "*", "∗": "*", "÷": "/", "／": "/", "＋": "+", "－": "-", "−": "-", "＝": "=", "（": "(", "）": ")"})  # 한 글자 ↔ 한 글자(자리 그대로)
+_CODE_SCAN_MAX = 400  # 이보다 긴 글(칸 안 본문)은 코드를 찾지 않는다
+_FOOT =re.compile(r"(?<=[가-힣A-Za-z\]）)])\s*\d{1,2}(?:-\d)?\)")  # 「연구개발비15)」「단계14-2)」 각주 번호
 _UNIT_PAREN = re.compile(r"[\(（]\s*단위\s*[:：]?[^)）]*[\)）]|[\(（]\s*(?:%|％|원|천원|백만원|억원|명|건|개|회|년|개월|시간|점|㎡|kg|t)\s*[\)）]")
 _UNIT_OF = re.compile(r"단위\s*[:：]?\s*([^)）\]】>\s,]{1,8})")
 _N = r"(?:\d{1,3}|[nNxX]|[①-⑳⑴-⒇]|[Ⅰ-Ⅻⅰ-ⅻ])"
@@ -33,6 +36,9 @@ _YEAR_N = re.compile(r"차\s*년\s*도|연\s*차|년\s*차|연\s*도|년\s*도")
 _ORG_N = re.compile(r"(?:연구\s*개발\s*)?기관\s*(?:명|유형|구분|별)?$|^소속(?:\s*기관)?(?:\s*\(.*\))?$|^참여\s*기관|^수행\s*기관|기관명")
 _TOTAL = re.compile(r"^(?:총\s*)?(?:합\s*계|소\s*계|총\s*계|계|총\s*액|총\s*합|누\s*계|합|total|sum|subtotal)(?:\s*(?:금액|액))?$", re.I)
 _SUBTOTAL = re.compile(r"소\s*계|subtotal", re.I)
+# 「총 연구개발비」「총사업비」「총 매출액」 — 「총 + 금액·인원 낱말」 도 같은 부모 형제들의 합(2026-11-10 사용자 표지 표: 총 현금 = 정부지원 + 기관부담 + 그 외).
+# 「총괄 …」(전체 과제)·「총 연구개발기간」(기간 — 합이 아님)은 아니다.
+_GRAND = re.compile(r"^총\s*(?!괄)[가-힣A-Za-z\s]{0,16}?(?:비|액|금|예산|인원|수량)$")
 _RATIO = re.compile(r"^(?:구성\s*)?비\s*율|^구성비|^비\s*중|^점유\s*(?:율|비율)|^ratio$|^share$", re.I)
 _ORDINAL = re.compile(r"^(?:\d{1,3}|[①-⑳⑴-⒇]|[가-힣]|[a-zA-Z]|[ⅰ-ⅻⅠ-Ⅻ])\s*[.)]?$")
 _DIGIT = re.compile(r"\d")
@@ -51,11 +57,131 @@ def clean(text):
     return _WS.sub(" ", text or "").strip()
 
 
+class _Ones(dict):
+    """모든 코드가 1 — 식의 문법만 볼 때."""
+
+    def __missing__(self, k):
+        return 1.0
+
+
+def _expr_tokens(expr):
+    """식 글(공백 없음) → 토큰 목록 | None(모르는 글자)."""
+    toks = _EXPR_TOK.findall(expr or "")
+    return toks if toks and "".join(toks) == expr else None
+
+
+def _expr_run(tokens, values):
+    """토큰 목록 → 값 — 곱·나누기 먼저 · 괄호 · 앞 부호 · 「10%」 = 0.1. values = 코드 → 수.
+    문법이 틀리면 ValueError, 모르는 코드 KeyError, 0 으로 나누면 ZeroDivisionError."""
+    pos = 0
+
+    def peek():
+        return tokens[pos] if pos < len(tokens) else None
+
+    def take():
+        nonlocal pos
+        if pos >= len(tokens):
+            raise ValueError("식이 끊김")
+        pos += 1
+        return tokens[pos - 1]
+
+    def atom():
+        t = take()
+        if t == "(":
+            v = add()
+            if take() != ")":
+                raise ValueError("괄호가 안 닫힘")
+            return v
+        if t in ("+", "-"):
+            v = atom()
+            return -v if t == "-" else v
+        if t[0].isdigit():
+            return float(t[:-1]) / 100 if t.endswith("%") else float(t)
+        if t[0].isalpha():
+            return values[t]
+        raise ValueError(f"자리에 안 맞는 {t!r}")
+
+    def mul():
+        v = atom()
+        while peek() in ("*", "/"):
+            op, w = take(), atom()
+            v = v * w if op == "*" else v / w
+        return v
+
+    def add():
+        v = mul()
+        while peek() in ("+", "-"):
+            op, w = take(), mul()
+            v = v + w if op == "+" else v - w
+        return v
+
+    v = add()
+    if pos != len(tokens):
+        raise ValueError("식 뒤에 남은 글")
+    return v
+
+
+def _code_group(inner):
+    """괄호 안 글(공백 없음) → {code} 「A」 | {expr} 「A+B」 | {code, expr} 「M=K+L」 | None(코드·식이 아님 — 「현금」「R&D」「1」)."""
+    if re.fullmatch(_CODE_TOK, inner):
+        return {"code": inner}
+    m = re.fullmatch(rf"({_CODE_TOK})=(.+)", inner)
+    body = m.group(2) if m else inner
+    toks = _expr_tokens(body)
+    if not toks or not any(t[0].isalpha() for t in toks) or (not m and len(toks) < 2):
+        return None
+    try:
+        _expr_run(toks, _Ones())
+    except ZeroDivisionError:
+        pass
+    except (ValueError, KeyError):
+        return None
+    return {"code": m.group(1), "expr": body} if m else {"expr": body}
+
+
+def code_info(text):
+    """헤더 글 → {code?, expr?, spans: [(시작, 끝)…]} — 괄호 묶음(안쪽 괄호 포함)마다 코드·식·정의인지 본다. 코드·식은 처음 나온 것 하나씩, spans = 그 묶음들의 자리(떼어 낼 곳).
+    「총 인건비1)(E1=A+B+C+D)」 → code E1 · expr A+B+C+D, 「간접비 비율4)(L/(N+O+C))」 → expr L/(N+O+C), 「(…통합관리비(현금))」 → 없음."""
+    out = {"spans": []}
+    if not text or len(text) > _CODE_SCAN_MAX:
+        return out
+    s = text.translate(_OPS_TR)
+    i = s.find("(")
+    while i >= 0:
+        depth, end = 0, -1
+        for j in range(i, len(s)):
+            if s[j] == "(":
+                depth += 1
+            elif s[j] == ")":
+                depth -= 1
+                if not depth:
+                    end = j
+                    break
+        got = _code_group(_WS.sub("", s[i + 1:end])) if end > i else None
+        if got:
+            out["spans"].append((i, end + 1))
+            for k, v in got.items():
+                out.setdefault(k, v)
+        i = s.find("(", end + 1 if got else i + 1)
+    return out
+
+
+def _strip_codes(s):
+    """글에서 코드·식 괄호 묶음을 뗀다."""
+    spans = code_info(s)["spans"]
+    if not spans:
+        return s
+    out, last = [], 0
+    for a, b in spans:
+        out.append(s[last:a])
+        last = b
+    return "".join(out) + s[last:]
+
+
 def core(text):
-    """헤더의 핵심 글 — 코드 「(A)」·식 「(A/E)」·단위 괄호·각주 번호를 뗀 것."""
+    """헤더의 핵심 글 — 코드 「(A)」·식 「(A/E)」·정의 「(M=K+L)」·단위 괄호·각주 번호를 뗀 것."""
     s = clean(text)
-    s = _EXPR.sub("", s)
-    s = _CODE.sub("", s)
+    s = _strip_codes(s)
     s = _UNIT_PAREN.sub("", s)
     s = _FOOT.sub("", s)
     return _WS.sub(" ", s).strip(" :·-–—")
@@ -71,16 +197,16 @@ def header_basis(text, above=None):
     raw = clean(text)
     c = core(raw)
     out = {"basis": [], "kind": None}
-    m, e = _CODE.search(raw), _EXPR.search(raw)
-    if m:
-        out["code"] = m.group(1)
-    if e:
-        out["expr"] = _WS.sub("", e.group(1))
+    info = code_info(raw)
+    if info.get("code"):
+        out["code"] = info["code"]
+    if info.get("expr"):
+        out["expr"] = info["expr"]
     if _PCT_UNIT.search(raw) or _WEIGHT.search(c):
         out["pctUnit"] = True
     if not c:
         return out
-    if _TOTAL.match(c):
+    if _TOTAL.match(c) or _GRAND.match(c):
         out.update(basis=["total"], kind="total", subtotal=bool(_SUBTOTAL.search(c)))
         return out
     if _RATIO.search(c):
@@ -136,9 +262,7 @@ def label_basis(text):
 def parse_num(text, kinds=None):
     """필드 글 → {num, pct?, dec?, dash?, placeholder?, text?}. 전체가 수(부호·괄호 음수·쉼표·소수·뒤 단위·뒤 코드)일 때만 num.
     「-」 홀로 = 0(dash), 자리표시(1단계 kind placeholder·「0,000,000」·「00%」) = None(placeholder), 그 밖 글 = None(text)."""
-    s = clean(text)
-    s = _EXPR.sub("", s)
-    s = _CODE.sub("", s).strip()
+    s = _strip_codes(clean(text)).strip()
     if not s:
         return {"num": None}
     if _DASH.match(s):
@@ -249,6 +373,13 @@ def band_basis(tb, band, by_id):
         hb = header_basis(x["textFull"], judged.get(above["id"]) if above else (judged.get(p["id"]) if p else None))
         judged[x["id"]] = hb
         _put(x, hb)
+    # 식의 코드가 이 띠의 어느 헤더에도 정의돼 있지 않으면 식이 아니라 약어다(「(M/M)」「(S/W)」「(N-1)」) — expr 을 떼어 합계·비율 낱말 규칙을 그대로 타게 한다.
+    # 일부만 정의돼 있으면(「E1=A+Z」) 식으로 남는다 — 못 푸는 식은 수식을 만들지 않는다(band_formulas).
+    defined = {x["code"] for x in colheads + rowheads if x.get("code")}
+    for x in colheads + rowheads:
+        if x.get("expr") and not ({t for t in _expr_tokens(x["expr"]) or [] if t[0].isalpha()} & defined):
+            x.pop("expr")
+            judged.get(x["id"], {}).pop("expr", None)
     axes = {}
     for axis, heads in (("col", colheads), ("row", rowheads)):
         levels = {}
@@ -296,16 +427,38 @@ def band_basis(tb, band, by_id):
 
 # ---- 수식 --------------------------------------------------------------------------------------------------
 
+def _ratio_expr(expr):
+    """나누기 식(비율 식)인가 — **코드로 나누는** 나누기가 있는 식(「I/E2」「L/(N+O)」「A/B*100」). 상수로만 나누는 식(「(A/12)*B*C」「(A+B)/2」)은 금액 식이다."""
+    toks = _expr_tokens(expr or "") or []
+    for i, t in enumerate(toks):
+        if t != "/" or i + 1 >= len(toks):
+            continue
+        if toks[i + 1][0].isalpha():
+            return True
+        if toks[i + 1] == "(":
+            depth = 0
+            for u in toks[i + 1:]:
+                depth += (u == "(") - (u == ")")
+                if u[0].isalpha():
+                    return True
+                if not depth:
+                    break
+    return False
+
+
 def _is_ratio_head(h):
-    return h.get("basisKind") == "ratio" or ("/" in (h.get("expr") or ""))
+    return h.get("basisKind") == "ratio" or _ratio_expr(h.get("expr"))
 
 
-def _eff(path, f, by_id):
-    """적용 경로 — 끝 헤더가 비율(또는 나누기 식)인데 값이 % 가 아니면 그 헤더를 뗀다(금액 줄과 비율 줄이 한 행헤더 아래 겹치는 양식)."""
+def _eff(path, f, by_id, axis="col"):
+    """적용 경로 — 끝 헤더가 비율(또는 나누기 식)인데 값이 % 가 아니면 그 헤더를 뗀다(금액 줄과 비율 줄이 한 헤더 아래 겹치는 양식).
+    겹치는 양식 = 비율 헤더가 바로 위 헤더와 **같은 폭으로 포개진** 둘째 줄(「현금(A)」 아래 「비율(A/E)」 — 열 축은 같은 열 범위, 행 축은 같은 행 범위)일 때만.
+    형제들 사이에 제 줄을 따로 가진 비율 헤더(「직접비 › 연구수당 비율(I/E2)」)의 칸은 빈 칸이어도 그대로 비율 칸이다."""
     if len(path) >= 2 and not f.get("pct"):
         last = by_id.get(path[-1])
         prev = by_id.get(path[-2])
-        if last is not None and _is_ratio_head(last) and prev is not None and not _is_ratio_head(prev):
+        a, b = ("col", "cs") if axis == "col" else ("row", "rs")
+        if last is not None and _is_ratio_head(last) and prev is not None and not _is_ratio_head(prev) and prev[a] == last[a] and prev[b] == last[b]:
             return list(path[:-1])
     return list(path)
 
@@ -376,42 +529,20 @@ def _ratio_base(h, heads, by_id):
 
 
 def _eval_expr(expr, values):
-    """「A/E」「B+C」 식 → 값(변수 값 dict). 곱·나누기 먼저, 왼쪽부터. 0 으로 나누면 None."""
-    cur, op = None, "+"
-    tokens = re.findall(r"[A-Z]|[+\-*/]", expr)
-    stack = []
-    for t in tokens:
-        if t in "+-":
-            stack.append(("num", cur, op))
-            cur, op = None, t
-            continue
-        if t in "*/":
-            op = op + t
-            continue
-        v = values[t]
-        if cur is None:
-            cur = v
-        elif op.endswith("*"):
-            cur = cur * v
-            op = op[:-1]
-        elif op.endswith("/"):
-            if v == 0:
-                return None
-            cur = cur / v
-            op = op[:-1]
-    stack.append(("num", cur, op))
-    total = 0.0
-    for _, v, o in stack:
-        if v is None:
-            continue
-        total = total - v if o.startswith("-") else total + v
-    return total
+    """「A/E」「B+C」「L/(N+O+C)」 식 → 값(values = 코드 → 수). 곱·나누기 먼저 · 괄호. 0 으로 나누거나 못 읽는 식이면 None."""
+    toks = _expr_tokens(expr)
+    if not toks:
+        return None
+    try:
+        return _expr_run(toks, values)
+    except (ValueError, KeyError, ZeroDivisionError):
+        return None
 
 
 def _expr_formula(expr, refs, pct):
-    out = re.sub(r"[A-Z]", lambda m: refs[m.group(0)], expr)
-    out = out.replace("*", "*").replace("/", "/")
-    if "/" in expr and pct:
+    """식의 코드를 칸 주소로 — refs = 코드 → 「E3」 | 「SUM(E3:E4)」 | 「(E3+E5)」. 나누기 식(`_ratio_expr`)이고 값이 백분율이면 ×100."""
+    out = "".join(refs.get(t, t) for t in _expr_tokens(expr) or [])
+    if pct and _ratio_expr(expr):
         return f"=({out})*100"
     return "=" + out
 
@@ -434,17 +565,19 @@ def _verify(f, operands, calc, ratio=False):
 
 
 def band_formulas(tb, band, by_id, next_id):
-    """띠의 수식 목록(spec ② §9) — 필드마다 축별로 하나: 코드 식 > 합계 > 비율. 양 축이 모두 합계인 칸은 둘 다 적되 엑셀 수식은 행 축 하나."""
+    """띠의 수식 목록(spec ② §9) — 필드마다 축별로 하나: 코드 식 > 합계 > 비율. 양 축이 모두 합계인 칸은 둘 다 적되 엑셀 수식은 행 축 하나.
+    코드 식이 적힌 헤더(「총 인건비(E1=A+B+C+D)」)는 그 식만 쓴다 — 식을 못 풀어도 그 헤더의 합계 낱말로 어림하지 않는다(적힌 정의와 다른 수식이 되므로).
+    나누기 식 칸(「연구수당 비율(I/E2)」 × 「합계」 열)에는 다른 축의 합계 수식을 붙이지 않는다(비율의 합이 아니라 합의 비율)."""
     cells = _band_cells(tb, band)
     fields = [x for x in cells if x["role"] == "field"]
     heads = {"col": [x for x in cells if x["role"] in ("colhead", "corner")], "row": [x for x in cells if x["role"] in ("rowhead", "corner")]}
     for f in fields:
-        f["_effc"] = _eff(f.get("colPath") or [], f, by_id)
-        f["_effr"] = _eff(f.get("rowPath") or [], f, by_id)
+        f["_effc"] = _eff(f.get("colPath") or [], f, by_id, "col")
+        f["_effr"] = _eff(f.get("rowPath") or [], f, by_id, "row")
     codes = {axis: {h["code"]: h for h in hs if h.get("code")} for axis, hs in heads.items()}
     out = []
     for f in fields:
-        found = {}
+        found, divides = {}, set()
         for axis in ("col", "row"):
             path = f["_effc"] if axis == "col" else f["_effr"]
             other = f["_effr"] if axis == "col" else f["_effc"]
@@ -452,20 +585,27 @@ def band_formulas(tb, band, by_id, next_id):
                 continue
             last = by_id.get(path[-1])
             rec = None
-            if last is not None and last.get("expr"):
+            has_expr = last is not None and bool(last.get("expr"))
+            if has_expr:
                 rec = _expr_record(f, last, axis, other, fields, codes, by_id)
+                if _ratio_expr(last["expr"]):  # 식을 못 풀었어도 — 비율 줄에 다른 축의 「비율의 합」 이 남지 않게
+                    divides.add(axis)
             if rec is None:
-                for i in range(len(path) - 1, -1, -1):
+                for i in range(len(path) - 1 - (1 if has_expr else 0), -1, -1):
                     h = by_id.get(path[i])
                     if h is None or "total" not in (h.get("basis") or []):
                         continue
                     rec = _sum_record(f, h, i, path, axis, other, fields, heads[axis], by_id)
                     if rec is not None:
                         break
-            if rec is None and last is not None and last.get("basisKind") == "ratio":
+            if rec is None and not has_expr and last is not None and last.get("basisKind") == "ratio":
                 rec = _ratio_record(f, last, axis, other, fields, heads[axis], by_id)
             if rec is not None:
                 found[axis] = rec
+        for axis in divides:
+            cross = "row" if axis == "col" else "col"
+            if found.get(cross, {}).get("kind") == "sum":
+                del found[cross]
         if not found:
             continue
         excel_axis = "row" if "row" in found else "col"
@@ -495,6 +635,8 @@ def _sum_record(f, h, i, path, axis, other, fields, heads, by_id):
     for s in _sum_operand_heads(h, heads, by_id):
         under = [g for g in fields if g is not f and len(g[pk]) > i and g[pk][:i] == path[:i] and g[pk][i] == s["id"] and tuple(g[ok]) == tuple(other) and same_pct(g)]
         cands = [g for g in under if tail_of(g[pk][i + 1:]) == tail]
+        if not cands and tail:  # 형제 아래에 그 묶음 전체 폭의 부제가 한 줄 더 낀 경우(「그 외 기관 지원금 › 지방자치단체 등 › 현금」) — 부제는 투명
+            cands = [g for g in under if _loose_tail(g[pk][i + 1:], tail, s, axis, by_id)]
         g = _pick(cands, f, axis)
         if g is not None:
             ops.append(g)
@@ -514,32 +656,69 @@ def _sum_record(f, h, i, path, axis, other, fields, heads, by_id):
     return _finish_record(f, "sum", ops, _sum_formula(ops), lambda v: sum(v), note=note)
 
 
-def _expr_record(f, last, axis, other, fields, codes, by_id):
-    expr = last["expr"]
-    vals, refs, ops = {}, {}, []
-    for code in dict.fromkeys(re.findall(r"[A-Z]", expr)):
-        hx = codes[axis].get(code)
-        g = None
-        if hx is not None:
-            g = _pick(_belongs(fields, axis, hx["id"], other), f, axis)
-        if g is None:
-            oaxis = "row" if axis == "col" else "col"
-            hx = codes[oaxis].get(code)
-            if hx is not None:
-                mine = (f["_effc"] if axis == "col" else f["_effr"])[:-1]
-                g = _pick(_belongs(fields, oaxis, hx["id"], mine), f, oaxis)
-        if g is None:
-            return None
-        vals[code] = g
-        refs[code] = ref(g)
-        ops.append(g)
-    pct = bool(f.get("pct"))
-    ratio = "/" in expr
+def _loose_tail(ids, tail, s, axis, by_id):
+    """경로 꼬리 ids 의 글이 tail 로 끝나고, 앞에 더 낀 헤더는 모두 형제 s 와 같은 폭(열 축은 열 범위·행 축은 행 범위)의 부제일 때."""
+    named = [(c, key(by_id[c]["textFull"])) for c in ids if c in by_id]
+    named = [(c, k) for c, k in named if k]
+    n = len(tail)
+    if len(named) <= n or tuple(k for _, k in named[-n:]) != tuple(tail):
+        return False
+    a, b = ("col", "cs") if axis == "col" else ("row", "rs")
+    return all(by_id[c][a] == s[a] and by_id[c][b] == s[b] for c, _ in named[:-n])
 
-    def calc(nums):
-        v = _eval_expr(expr, {c: n for c, n in zip(vals, nums)})
+
+def _code_cells(code, f, axis, other, fields, codes, by_id):
+    """코드 하나가 가리키는 칸들 — 같은 축의 그 코드 헤더 아래 필드 중 다른 축 적용 경로가 f 와 같은 것. 잎 헤더(「현금(N)」)면 칸 하나, 아래에 헤더를 더 거느린
+    부모 헤더(「내부인건비(A)」 › 현금·현물)면 그 아래 잎 칸 전부(안쪽에 합계 헤더가 있으면 가장 얕은 합계 칸만 · 비율 줄은 뺌). 같은 축에 없으면 다른 축의 코드 헤더(칸 하나)."""
+    pk, ok = ("_effc", "_effr") if axis == "col" else ("_effr", "_effc")
+    hx = codes[axis].get(code)
+    if hx is not None:
+        mine = [g for g in fields if g is not f and hx["id"] in g[pk] and tuple(g[ok]) == tuple(other)]
+        leaf = _pick([g for g in mine if g[pk][-1] == hx["id"]], f, axis)
+        if leaf is not None:
+            return [leaf]
+        below = {g["id"]: [by_id[c] for c in g[pk][g[pk].index(hx["id"]) + 1:] if c in by_id] for g in mine}
+        mine = [g for g in mine if not any(h.get("pctUnit") or _is_ratio_head(h) for h in below[g["id"]])]
+        depth = {g["id"]: next((k for k, h in enumerate(below[g["id"]]) if "total" in (h.get("basis") or [])), None) for g in mine}
+        inner = [g for g in mine if depth[g["id"]] is not None]
+        if inner:
+            top = min(depth[g["id"]] for g in inner)
+            mine = [g for g in inner if depth[g["id"]] == top]
+        if mine:
+            return sorted(mine, key=lambda g: (g["row"], g["col"]))
+    oaxis = "row" if axis == "col" else "col"
+    hx = codes[oaxis].get(code)
+    if hx is not None:
+        g = _pick([g for g in _belongs(fields, oaxis, hx["id"], (f["_effc"] if axis == "col" else f["_effr"])[:-1]) if g is not f], f, oaxis)
+        if g is not None:
+            return [g]
+    return None
+
+
+def _expr_record(f, last, axis, other, fields, codes, by_id):
+    """코드 식 수식 — 식의 코드마다 칸을 찾아(`_code_cells`) 주소로 바꾼다. 코드 하나라도 못 찾으면 None.
+    나누기 식이고 값이 % 이거나 헤더가 비율(「연구수당 비율」·「(%)」)이면 백분율(×100) — 비율 헤더의 값은 % 표시가 없어도 백분율로 본다(`_ratio_record` 와 같은 기준)."""
+    expr = last["expr"]
+    toks = _expr_tokens(expr) or []
+    cells, refs, ops = {}, {}, []
+    for code in dict.fromkeys(t for t in toks if t[0].isalpha()):
+        gs = _code_cells(code, f, axis, other, fields, codes, by_id)
+        if not gs:
+            return None
+        cells[code] = gs
+        text = _sum_formula(gs)[1:]
+        refs[code] = text if len(gs) == 1 or text.startswith("SUM(") else f"({text})"
+        ops += [g for g in gs if all(g is not o for o in ops)]
+    if not ops:
+        return None
+    ratio = _ratio_expr(expr)
+    pct = bool(f.get("pct")) or (ratio and bool(last.get("pctUnit") or last.get("basisKind") == "ratio"))
+
+    def calc(_nums):
+        v = _eval_expr(expr, {c: sum(g["num"] for g in gs) for c, gs in cells.items()})
         return None if v is None else (v * 100 if ratio and pct else v)
-    return _finish_record(f, "expr", ops, _expr_formula(expr, refs, pct), calc, ratio=ratio, note=f"{core(last['textFull'])[:20]} ({expr})")
+    note = f"{core(last['textFull'])[:20]} ({last['code'] + '=' if last.get('code') else ''}{expr})"
+    return _finish_record(f, "expr", ops, _expr_formula(expr, refs, pct), calc, ratio=ratio, note=note)
 
 
 def _ratio_record(f, last, axis, other, fields, heads, by_id):
@@ -614,6 +793,9 @@ def _node_text(nd):
     return clean(f"{nd.get('letter') or ''} {nd.get('text') or ''}")
 
 
+_BASIS_ID = {"단계": "stage", "차년도": "year", "기관": "org"}  # 2단계 구분 라벨의 구분 기준 이름 → 표 의미의 basis id
+
+
 def _node_owner(nd, nodes):
     path, p, hops = [], nd.get("parent"), 0
     while p in nodes and hops < 40:
@@ -623,8 +805,9 @@ def _node_owner(nd, nodes):
     path.reverse()
     div = nd if nd.get("role") == "label" else nodes.get(nd.get("division") or "")
     division = None
-    if div:
-        division = {"id": div["id"], "para": div.get("para"), "text": _node_text(div)[:60], "key": div.get("key"), "basis": label_basis(_node_text(div))}
+    if div:  # 구분 기준은 2단계가 정한 것(노드 basis — 「기관」·「단계-차년도」·사용자가 더한 이름)을 그대로, 없는 옛 결과만 글에서 어림
+        basis = [_BASIS_ID.get(b, b) for b in str(div["basis"]).split("-")] if div.get("basis") else label_basis(_node_text(div))
+        division = {"id": div["id"], "para": div.get("para"), "text": _node_text(div)[:60], "key": div.get("key"), "basis": basis}
     return {"id": nd["id"], "para": nd.get("para"), "text": _node_text(nd)[:80], "blank": bool(nd.get("blank")), "role": nd.get("role"),
             "template": nd.get("template"), "tplNo": nd.get("tplNo"), "level": nd.get("level"), "path": path, "division": division, "source": "stage2"}
 
@@ -641,6 +824,9 @@ def owners_index(stage1, stage2=None):
             return None
         p, hops = cur.get("parent"), 0
         while p and hops < 30:
+            if p in nodes and nodes[p].get("role") in ("not_heading", "note"):  # 헤딩 아님·안내(체크 칸 「[  ]」)는 소속이 아니다 — 그 위 노드로
+                p, hops = nodes[p].get("parent"), hops + 1
+                continue
             if p in nodes:
                 return _node_owner(nodes[p], nodes)
             if p == "root" or str(p).startswith("area:"):
@@ -652,25 +838,29 @@ def owners_index(stage1, stage2=None):
         return {"source": "stage2", "root": True} if p in (None, "root") else None
 
     def from_stage1(tb):
+        from app import heading_graph  # 괄호 줄의 뜻(구분 라벨·괄호 소제목·체크 칸)은 2단계와 같은 규칙으로 — 부를 때 가져온다(모듈 순환 피함)
         n = tb.get("n") or 0
         owner = div = None
         for i in range(min(n, len(paras)) - 1, max(-1, n - 800), -1):
             rec = paras[i]
             if rec.get("area") != "body" or rec.get("kind") not in ("marker", "label") or rec.get("blank") or not clean(rec.get("text")):
                 continue
-            if rec["kind"] == "label":
+            role = heading_graph.bracket_role(rec.get("letter") or clean(rec.get("text")))[0] if rec["kind"] == "label" else "heading"
+            if role == "not_heading":  # 빈 대괄호·체크 칸
+                continue
+            if role == "label":  # 구분 라벨 = 구분 소속(가장 가까운 것 하나), 소속 헤딩은 더 위에서 찾는다
                 if div is None:
                     div = rec
                 continue
-            owner = rec
+            owner = (rec, role)  # 헤딩 · 괄호 소제목(구분 기준 값이 아닌 괄호 글 — 표의 제목 소속은 되지만 구분 라벨은 아님)
             break
-        base = owner or div
+        base = owner[0] if owner else div
         if base is None:
             return None
         division = None
         if div is not None:
             division = {"id": div["id"], "para": div["id"], "text": clean(div["text"])[:60], "key": None, "basis": label_basis(div["text"])}
-        return {"id": base["id"], "para": base["id"], "text": clean(base["text"])[:80], "role": "heading" if owner else "label", "template": None,
+        return {"id": base["id"], "para": base["id"], "text": clean(base["text"])[:80], "role": owner[1] if owner else "label", "template": None,
                 "tplNo": None, "level": None, "path": [], "division": division, "source": "stage1"}
 
     def owner(tb):

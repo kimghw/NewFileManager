@@ -54,14 +54,22 @@
 #divBox .dv-chevron { margin-left: auto; font-size: 18px; color: #70809a; line-height: 1; }
 #divBox .dv-disclosure[open] .dv-chevron { transform: rotate(180deg); }
 #divBox .dv-disclosure[open] summary { border-bottom: 1px solid #edf0f5; }
-#divBox .dv-extra-fields, #divBox .dv-preset-body { padding: 18px; display: grid; gap: 15px; }
+#divBox .dv-extra-fields { padding: 18px; display: grid; gap: 15px; }
 #divBox .dv-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #475569; font-weight: 500; min-width: 0; }
 #divBox .dv-field input, #divBox .dv-field select { width: 100%; }
 #divBox .dv-field small { font-size: 11px; }
 #divBox .dv-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-#divBox .dv-preset-row { display: flex; align-items: center; gap: 8px; }
-#divBox .dv-preset-row select { flex: 1; width: 0; text-overflow: ellipsis; }
-#divBox .dv-preset-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* 저장한 과제 구성(spec_구분_기준 ② §8, 2026-11-11) — 설정 맨 위 두 줄(고르기·불러오기 / 상태·저장·⋯), ⋯ 로 셋째 줄 · 이름 입력·삭제 확인은 인라인 줄. design.md §1(패딩 ≤ 12px, 상자 2겹, 컨트롤 28px) */
+#divBox .dv-presets { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
+#divBox .dv-presets .dv-preset-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+#divBox .dv-presets select, #divBox .dv-presets input { flex: 1; width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .dv-presets .btn { min-height: 28px; padding: 4px 9px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+#divBox .dv-presets .dv-more { width: 28px; padding: 4px 0; font-size: 14px; line-height: 1; }
+#divBox .dv-presets .dv-more.on { background: #edf2ff; color: #315fd3; border-color: #b9cbf2; }
+#divBox .dv-preset-status { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #334155; overflow: hidden; white-space: nowrap; }
+#divBox .dv-preset-status .dv-preset-name, #divBox .dv-preset-status .dv-caption { overflow: hidden; text-overflow: ellipsis; }
+#divBox .dv-preset-note { font-size: 11px; color: #9a5b0c; }
+#divBox .dv-preset-note:empty { display: none; }
 #divBox .dv-delete { color: #ae4b52; border-color: transparent; background: transparent; }
 #divBox .dv-applied { border: 1px solid #e0e6ef; border-radius: 10px; padding: 15px 18px; background: #eef2f8; }
 #divBox .dv-applied-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 7px; }
@@ -102,7 +110,7 @@
 #divBox .dv-marks { border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 #divBox .dv-marks.on { border-color: #b9c9ec; background: #f7f9ff; }
 #divBox .dv-marks-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-#divBox .dv-marks-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#divBox .dv-marks-copy { display: flex; align-items: center; gap: 5px; min-width: 0; }
 #divBox .dv-marks-copy strong { font-size: 12.5px; }
 #divBox .dv-marks-toggle { min-width: 64px; flex-shrink: 0; }
 #divBox .dv-marks-toggle.on { background: #2d5be3; border-color: #2d5be3; color: #fff; }
@@ -137,3 +145,169 @@
 .dv-llm-last { margin: 8px 14px 4px; padding: 8px 10px; border: 1px solid #ddd6fe; background: #f5f3ff; border-radius: 8px; font-size: 12px; }
 .dv-llm-last p { margin: 4px 0 0; }
 
+/* 양식 정보 단추(양식 줄) · LLM 검토 결과의 「값과 안 맞는 자리」 상자(spec_구분_기준 ② §16) */
+#divBox .dv-profile-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex-shrink: 0; }
+.dv-llm-last.dv-pending { border-color: #f4d39a; background: #fffaf0; }
+.dv-llm-last.dv-pending ul { margin: 6px 0 8px; padding-left: 16px; }
+.dv-llm-last.dv-pending li { margin: 2px 0; overflow-wrap: anywhere; }
+.dv-llm-last.dv-pending li.go { cursor: pointer; }
+.dv-llm-last.dv-pending li.go:hover, .dv-llm-last.dv-pending li.go:focus-visible { text-decoration: underline; }
+
+/* 첫 줄 — 첨부 파일 · 할 일(spec_작업 ② §10, 2026-11-11): 이 문서가 무엇이고 무엇을 할지. 좁으면 두 줄. design.md §1(패딩 ≤ 12px, 컨트롤 28px) */
+#divBox .dv-task { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+#divBox .dv-task-field { flex: 1 1 170px; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; white-space: nowrap; }
+#divBox .dv-task-field select, #divBox .dv-task-field input { flex: 1; width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+/* 칸 = 할 일 · 과제 (· 첨부 파일 — 이관이 아닐 때): 넓으면 한 줄에 둘씩. 「작업」 칸은 2026-11-12 패널 머리로 옮겨 여기 없다(처음엔 첫 줄 = 작업 · 할 일 — 11-11 사용자 "작업이랑 할일") */
+#divBox .dv-task-mates { flex-basis: 100%; }
+/* 할 일의 차례(spec_작업 ② §11, 2026-11-11) — 이관: 첨부 파일 칸(종류마다 한 줄 — 열이 맞는 격자 하나) + 단계 목록(테두리 없는 줄, 지금 단계만 짙게). design.md §1-1·§1-5 */
+#divBox .dv-flow { flex-basis: 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #475569; }
+/* TASK 묶음을 가로 순서로 훑고 해당 입력/단계로 이동한다. 색과 별개로 현재·완료·대기를 적는다. */
+#divBox .dv-journey { min-width: 0; padding: 2px 0 6px; }
+#divBox .dv-journey ol { list-style: none; display: flex; gap: 14px; margin: 0; padding: 0; }
+#divBox .dv-journey li { flex: 1 1 0; min-width: 0; position: relative; }
+#divBox .dv-journey li + li::before { content: "›"; position: absolute; left: -10px; top: 10px; color: #94a3b8; }
+#divBox .dv-journey button { display: flex; flex-wrap: wrap; align-content: center; align-items: center; gap: 3px 6px; width: 100%; height: 100%; min-height: 42px; padding: 5px 7px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #64748b; font: inherit; text-align: left; cursor: pointer; }
+#divBox .dv-journey-label { font-weight: 600; word-break: keep-all; overflow-wrap: anywhere; }
+#divBox .dv-journey-status { font-size: 11px; white-space: nowrap; }
+#divBox .dv-journey button[data-state="done"] { color: #16734d; background: #f1faf5; border-color: #cce7d8; }
+#divBox .dv-journey button[data-state="done"] .dv-journey-status::before { content: "✓ "; }
+#divBox .dv-journey button[aria-current="step"] { color: var(--accent); background: var(--accent-soft); border-color: #9fb5ea; }
+#divBox .dv-journey button[data-state="halt"] { color: #92400e; background: #fff8eb; border-color: #eac78d; }
+#divBox .dv-journey button:hover { border-color: #94a3b8; }
+#divBox .dv-journey button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#divBox .dv-note-heading { display: flex; align-items: center; gap: 5px; min-width: 0; }
+#divBox .dv-note-heading h3 { margin: 0; }
+#divBox .dv-field-label { display: flex; align-items: center; gap: 5px; }
+#divBox .dv-flow-files { display: grid; grid-template-columns: max-content minmax(0, 1fr) 28px 28px; gap: 6px; align-items: center; white-space: nowrap; } /* 이름 · 문서 고르기 · 폴더(올리기) · 같이 보기(spec_작업 ② §12) */
+#divBox .dv-flow-peer[aria-pressed="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); } /* 그 칸의 문서가 옆 열에 떠 있음 */
+#divBox .dv-flow-up { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; color: #475569; } /* 칸 오른쪽 폴더 단추 — 그 자리에서 파일 올리기 */
+#divBox .dv-flow-up svg { display: block; pointer-events: none; }
+#divBox .dv-flow-files label { display: contents; }
+#divBox .dv-flow-files select { width: 100%; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .dv-flow-steps { list-style: none; margin: 0; padding: 6px 0 0; border-top: 1px solid #e8edf3; display: flex; flex-direction: column; gap: 0; }
+#divBox .dv-flow-steps li { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 5px 6px; padding: 0 0 10px; line-height: 1.5; color: #475569; }
+#divBox .dv-flow-steps li::before { content: ""; position: absolute; left: 9px; top: 23px; bottom: 3px; border-left: 1px solid #ccd5e2; }
+#divBox .dv-flow-steps li[data-step="files"]::before,
+#divBox .dv-flow-steps li[data-step="apply"]::before,
+#divBox .dv-flow-steps li[data-state="soon"]::before { content: none; }
+#divBox .dv-flow-steps li[data-step="files"] { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e8edf3; }
+#divBox .dv-flow-steps li[data-state="soon"] { padding: 8px 0 0; border-top: 1px solid #e8edf3; }
+#divBox .dv-flow-steps .dv-flow-no { text-align: center; font-size: 15px; line-height: 22px; color: #64748b; }
+#divBox .dv-flow-steps li[data-status="done"] .dv-flow-no { color: #16734d; }
+#divBox .dv-flow-steps li[data-status="now"] .dv-flow-no,
+#divBox .dv-flow-steps li[data-status="run"] .dv-flow-no { color: var(--accent); }
+#divBox .dv-flow-steps .dv-flow-body { min-width: 0; overflow-wrap: anywhere; }
+#divBox .dv-flow-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 8px; min-height: 22px; }
+#divBox .dv-flow-steps strong { font-weight: 500; color: #334155; }
+#divBox .dv-flow-steps li[data-status="now"] strong,
+#divBox .dv-flow-steps li[data-status="run"] strong { font-weight: 600; color: var(--accent); }
+#divBox .dv-flow-status { flex: none; padding: 1px 6px; border-radius: 4px; font-size: 11px; line-height: 18px; color: #526175; background: #f0f3f7; white-space: nowrap; }
+#divBox [data-status="done"] .dv-flow-status { color: #146544; background: #eaf6ef; }
+#divBox [data-status="done"] .dv-flow-status::before { content: "✓ "; }
+#divBox [data-status="now"] .dv-flow-status,
+#divBox [data-status="run"] .dv-flow-status { color: #1d4ed8; background: #eaf0ff; font-weight: 600; }
+#divBox [data-status="run"] .dv-flow-status::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px; border: 1px solid #b5c7f2; border-top-color: #1d4ed8; border-radius: 50%; animation: spin .8s linear infinite; }
+#divBox [data-status="halt"] .dv-flow-status { color: #92400e; background: #fff3dc; }
+#divBox [data-status="soon"] .dv-flow-status { background: transparent; border: 1px dashed #b6c2d1; line-height: 16px; }
+#divBox .dv-flow-steps .dv-flow-text { margin-top: 3px; color: #526175; line-height: 1.6; }
+#divBox .dv-flow-steps .dv-flow-acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+/* 1단계 「문서 프레임 작성」 묶음(spec_작업 ② §14, 2026-11-12 사용자 "이게 1단계로 … 한번에 모든 단계를 진행할 수 있는 버튼 … 세부 목록 … 접었다 폈다") — 접는 상자 하나:
+   머리 줄(▸ · 1단계 · 이름 · 끝난 수 · 「한 번에 진행」 — 왼쪽부터 붙임, 좁으면 단추가 다음 줄) + 상태 줄(다음 할 일 · 도는 중 = 동그라미 + 지금 하는 일 + 지난 시간 · 멈춘 까닭).
+   펴면 번호·세로 연결선·상태가 있는 세부 목록(위 .dv-flow-steps). 테두리·배경 상자를 겹치지 않는다(design.md §1-1) */
+#divBox .dv-phase { border-top: 1px solid #e8edf3; padding-top: 6px; }
+#divBox .dv-phase > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; cursor: pointer; list-style: none; color: #1e293b; }
+#divBox .dv-phase > summary::-webkit-details-marker { display: none; }
+#divBox .dv-phase > summary::before { content: "▸"; flex: none; width: 10px; color: #64748b; font-size: 11px; }
+#divBox .dv-phase[open] > summary::before { content: "▾"; }
+#divBox .dv-phase-no { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
+#divBox .dv-phase > summary > strong { font-weight: 600; white-space: nowrap; }
+#divBox .dv-phase-count { color: #475569; white-space: nowrap; font-size: 11px; }
+#divBox .dv-phase-progress { appearance: none; display: block; flex-basis: 100%; width: 100%; min-width: 0; height: 4px; margin: 3px 0; border: 0; border-radius: 2px; overflow: hidden; background: #e8edf3; color: #16815b; }
+#divBox .dv-phase-progress::-webkit-progress-bar { background: #e8edf3; border-radius: 2px; }
+#divBox .dv-phase-progress::-webkit-progress-value { background: #16815b; border-radius: 2px; }
+#divBox .dv-phase-progress::-moz-progress-bar { background: #16815b; border-radius: 2px; }
+#divBox .dv-phase-state { flex-basis: 100%; min-width: 0; padding-left: 16px; color: #475569; line-height: 1.5; overflow-wrap: anywhere; }
+#divBox .dv-phase-state[data-kind="run"] { color: var(--accent); }
+#divBox .dv-phase-state[data-kind="halt"] { color: var(--warn); }
+#divBox .dv-phase-state[data-kind="done"] { color: #16734d; }
+#divBox .dv-phase-spin { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; box-sizing: border-box; border: 2px solid #c7d5f5; border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+#divBox .dv-phase > .dv-flow-steps { margin-top: 10px; padding: 0; border-top: 0; }
+#divBox .dv-phase + .dv-phase { margin-top: 8px; } /* 묶음 둘(1단계 문서 프레임 작성 · 2단계 내용 매핑 — spec_작업 ② §14): 위아래로 쌓는다 */
+#divBox .dv-phase > .dv-flow-steps li:last-child::before { content: none; } /* 묶음의 마지막 줄 아래로는 연결선을 잇지 않는다(다음 줄은 다른 묶음) */
+/* 1단계 묶음의 프레임 값(spec_작업 ② §14, 2026-11-12 사용자 "1단계에서는 단계, 차년도, 기관구성이 들어가야 하지 … 저장하고 관리할 수 있어야 하는데 UI가 너무 떨어져 있네"):
+   머리의 요약 한 줄(.dv-phase-frame — 접혀 있어도 보임: 「1단계(1–4차년도) · 주관 … · 공동 3(…)」 한 줄 줄임표 + 「구성 고치기」) · 펴면 세부 목록 아래 과제 구성 입력(#taskFrameForm.dv-phase-form —
+   저장한 구성 · 단계·차년도 · 기관 구성 · 추가 설정 · 문서 반영 상태 · 변경 계획 보기). 묶음 안에서는 카드의 여백·그림자를 한 단계 덜고(상자 겹침 — design.md §1-1),
+   「변경 계획 보기」 는 보통 단추·제자리(강조 단추는 카드에 하나 — 세부 목록의 「다음 할 일」) */
+#divBox .dv-phase-frame { flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: 6px; padding-left: 16px; color: #334155; }
+#divBox .dv-phase-frame[hidden] { display: none; }
+#divBox .dv-phase-frame-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-phase-frame .btn { flex: none; height: 24px; min-height: 0; padding: 0 8px; font-size: 11px; white-space: nowrap; }
+#divBox .dv-phase-form { min-width: 0; margin-top: 2px; padding-top: 10px; border-top: 1px solid #e8edf3; display: flex; flex-direction: column; gap: 10px; white-space: normal; }
+#divBox .dv-phase-form-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; min-width: 0; }
+#divBox .dv-phase-form-head strong { font-size: 12px; font-weight: 600; color: #1e293b; }
+#divBox .dv-phase-form-head .dv-caption { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#divBox .dv-phase-form .dv-config { gap: 10px; }
+#divBox .dv-phase-form .dv-card { padding: 10px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; box-shadow: none; } /* 카드(첫 카드) 안의 카드 — 테두리 상자 대신 윗줄만(상자는 줄 상자까지 2겹) */
+#divBox .dv-phase-form .dv-section-head { margin-bottom: 10px; gap: 8px; }
+#divBox .dv-phase-form .dv-section-copy h3 { font-size: 13px; }
+#divBox .dv-phase-form .dv-stage-row { padding: 8px 10px; }
+#divBox .dv-phase-form .dv-disclosure { border-radius: 8px; }
+#divBox .dv-phase-form .dv-disclosure summary { padding: 10px 12px; }
+#divBox .dv-phase-form .dv-extra-fields { padding: 12px; gap: 12px; }
+#divBox .dv-phase-form .dv-applied { padding: 10px 12px; border-radius: 8px; }
+#divBox .dv-phase-form .dv-review-bar { position: static; padding: 10px 12px; border-radius: 8px; box-shadow: none; }
+#divBox .dv-phase-form .dv-plan-button { min-height: 34px; padding: 7px 12px; background: var(--surface); border-color: var(--line-strong); color: inherit; font-size: 12px; font-weight: 500; }
+#divBox .dv-phase-form .dv-plan-button:hover:not(:disabled) { background: var(--surface-2); }
+/* LLM 지침·프롬프트 보기(2열 kind "llmGuide" — app.js llmGuideOpen · spec_작업 ② §13, 2026-11-12 사용자 "각 LLM이 검토나 작업할때 '지침' 이나 프롬프트를 확인할 수 있으면"):
+   함께 보내는 글마다 접는 절(제목 · 파일 경로 · 글 pre — 줄바꿈 유지, 가로 스크롤 없음) + 마지막으로 보낸 프롬프트(단위마다 한 줄 — 누르면 그 아래에 전체 글과 답) */
+.hd-body .lg-msg { margin: 8px 12px; }
+.hd-body .lg-part, .hd-body .lg-unit { border-bottom: 1px solid var(--line); min-width: 0; }
+.hd-body .lg-part > summary, .hd-body .lg-unit-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; width: 100%; padding: 8px 12px; cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text); text-align: left; }
+.hd-body .lg-unit-head { border: 0; background: none; }
+.hd-body .lg-unit-head::before { content: "▸"; flex: none; width: 10px; color: var(--muted); font-size: 11px; }
+.hd-body .lg-unit-head[aria-expanded="true"]::before { content: "▾"; }
+.hd-body .lg-unit-head:disabled { cursor: default; color: var(--muted); }
+.hd-body .lg-unit-head:hover:not(:disabled), .hd-body .lg-part > summary:hover { background: var(--surface-2); }
+.hd-body .lg-part > summary strong, .hd-body .lg-unit-head strong { font-weight: 600; overflow-wrap: anywhere; }
+.hd-body .lg-src { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.hd-body .lg-err { flex-basis: 100%; color: var(--fail); font-size: 11.5px; overflow-wrap: anywhere; }
+.hd-body .lg-note { margin: 0; padding: 0 12px 6px; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.hd-body pre.lg-text { margin: 0 12px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; tab-size: 2; }
+/* 자리 연결 — 연결 목록(2열 kind "links" · spec_작업 ② §11, spec_병합 ② §8): 묶음마다 한 줄 — 자리 칸은 두 줄(연차보고서 자리 / ← 사업계획서 자리 고르기), 펼치면 항목 줄 */
+.hd-body table.lk-table { width: 100%; }
+.hd-body table.lk-table th, .hd-body table.lk-table td { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; } /* 좁은 열(같이 보기 열이 함께 열리면 320px)에서도 가로로 안 넘치게 — 상태·구분 칸도 줄을 바꾼다 */
+.hd-body table.lk-table td.lk-place { min-width: 9em; }
+.hd-body table.lk-table td.lk-nw { white-space: nowrap; } /* 값(「공동1」)·방식처럼 짧은 칸은 줄을 안 바꾼다 */
+.hd-body .lk-cap { padding: 10px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted); word-break: keep-all; overflow-wrap: anywhere; } /* 넣기 계획(kind "fill") — 본문·표 두 목록의 머리 글 */
+.hd-body .lk-to { word-break: keep-all; overflow-wrap: anywhere; color: var(--text); }
+.hd-body .lk-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.hd-body .lk-from select { flex: 1; width: 0; min-width: 8em; height: 26px; padding: 0 6px; font: inherit; color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); text-overflow: ellipsis; }
+.hd-body .lk-from .btn.sm { flex: none; height: 24px; padding: 0 8px; font-size: 12px; }
+.hd-body tr.lk-items td { background: var(--surface-2); white-space: normal; }
+.hd-body tr.lk-items ul { list-style: none; margin: 0; padding: 2px 0 2px 16px; display: flex; flex-direction: column; gap: 2px; }
+.hd-body tr.lk-items li { overflow-wrap: anywhere; }
+.hd-body tr.lk-items li strong { margin-right: 4px; font-weight: 600; }
+.hd-body tr.lk-items li.go { cursor: pointer; }
+.hd-body tr.lk-items li.go:hover, .hd-body tr.lk-items li.go:focus-visible { text-decoration: underline; }
+
+/* 양식별 코멘트 줄(spec_구분_기준 ② §18, 2026-11-11) — 양식 줄 바로 아래: 입력 칸(2줄)·「코멘트 남기기」 / 상태 한 줄 / 「코멘트 N건」 접이식 목록. design.md §1(패딩 ≤ 12px, 컨트롤 28px)·§7(상태 한 줄) */
+#divBox .dv-comments { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
+#divBox .dv-comment-row { display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+#divBox .dv-comments textarea { flex: 1; width: 0; min-width: 0; min-height: 46px; max-height: 200px; resize: vertical; border: 1px solid #ccd5e2; border-radius: 6px; background: #fff; color: #24334b; padding: 4px 8px; font: inherit; font-size: 12px; line-height: 1.5; }
+#divBox .dv-comments textarea::placeholder { color: #8a96a8; }
+#divBox .dv-comments textarea:focus-visible { outline: 3px solid #8babf7; outline-offset: 2px; }
+#divBox .dv-comments .btn { height: 28px; min-height: 0; padding: 0 9px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+#divBox .dv-comment-status { font-size: 11px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-comment-status.fail { color: var(--fail); }
+#divBox .dv-comment-status:empty { display: none; }
+#divBox .dv-comment-list { font-size: 12px; color: #475569; min-width: 0; }
+#divBox .dv-comment-list summary { cursor: pointer; }
+#divBox .dv-comment-list ul { list-style: none; margin: 4px 0 0; padding: 0; max-height: 180px; overflow-y: auto; display: grid; gap: 3px; color: #1e293b; overflow-wrap: anywhere; }
+#divBox .dv-comment-list time { color: #64748b; white-space: nowrap; }
+#divBox .dv-comment-list .linkish { margin-top: 4px; font-size: 11px; }
+@container (max-width: 350px) { /* 패널 최소 폭 — 입력 칸이 한 줄을 다 쓰고 단추는 아래 줄 */
+  #divBox .dv-comment-row { flex-wrap: wrap; }
+  #divBox .dv-comments textarea { flex-basis: 100%; }
+}
+/* LLM 후보 목록 위 한 줄 — 누를 수 있는 문단 후보가 몇 개이고 어디 있는지(spec_구분_기준 ② §13·§14 「후보 줄 차례」) */
+.dv-cand-note { padding: 6px 12px; font-size: 12px; color: var(--text); background: var(--accent-soft); border-bottom: 1px solid var(--line); }

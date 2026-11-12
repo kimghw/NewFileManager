@@ -9,7 +9,7 @@ import re
 import time
 import uuid
 
-from app import llm
+from app import heading_forms, llm
 from app.division_profiles import _structure as structure
 from app.division_profiles.rnd import core
 
@@ -23,7 +23,7 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["revisio
                                                             "dim": {"type": "string", "enum": DIMS}, "value": S, "reason": S}}},
     "summary": S}}
 
-CONTRACT = """당신은 국가R&D 연구개발계획서(한글 양식)의 **구분 기준 자리**를 검토하는 도우미입니다.
+CONTRACT = """당신은 국가R&D 연구개발계획서·연차보고서(한글 양식)의 **구분 기준 자리**를 검토하는 도우미입니다.
 구분 기준 = 단계(stage)·차년도(year)·단계-차년도(stageYear)·세부과제(sub)·기관(org — 주관, 공동1, 공동2 …, 외·국외·위탁). 자리(묶음) = 같은 꼴의 **라벨 문단**이 값 차례
 (1, 2, 3 … / 주관, 공동1, 공동2 …)로 되풀이되는 곳이고, 라벨 문단부터 다음 라벨 앞까지가 한 항목입니다. 반영 엔진은 묶음의 항목 수를 구분 값 수에 맞춰 늘리고 줄입니다.
 자료: groups = 스크립트가 글 꼴 규칙으로 자동 찾은 묶음(hinted = 사용자 표시의 꼴로 잡힌 것), hints = 사용자(by "user")나 이전 재검토(by "llm")가 문서에서 표시한 추가한 자리
@@ -37,6 +37,33 @@ CONTRACT = """당신은 국가R&D 연구개발계획서(한글 양식)의 **구�
 - value 는 「1단계」「2차년도」「1단계-2차년도」「세부1」「주관」「공동2」「N차년도」 같은 한글 표기, dim 이 other 면 자유 글. reason 은 한 문장(한국어). summary = 전체 판단 두세 문장."""
 
 CONTEXT, CANDS_MAX, OUTLINE_MAX, LABELS_MAX, CAND_LEN = 6, 300, 400, 6, 120
+
+# 양식 정보(spec_구분_기준 ② §16 · 원본 spec_헤딩_추출 ② §12) — 양식마다 md 하나(forms/<양식 키>.md)에 사용자가 관리하는 사실·요청. 두 검토의 프롬프트에 계약 뒤·자료 앞 한 절로 붙는다.
+FORM_NOTE = ("아래는 **이 문서의 양식**에 대해 사용자가 따로 관리하는 사실·요청입니다(헤딩 추출·표와 함께 쓰는 글이라 구분 기준과 무관한 절은 배경 지식으로만 읽으세요). "
+             "「구분 기준 자리」 절에 적힌 자리 · 자리가 아닌 곳 · 제목이나 칸에 넣을 것은 위 판정 기준보다 먼저 따릅니다 — 자리라고 적힌 곳이 자료에 있는데 묶음(groups)에 안 보이면 냅니다"
+             "(그 절의 「(엔진)」 = 스크립트가 이미 찾아 맞추는 자리라는 표시). "
+             "그 절 끝의 「코멘트」 줄은 사용자가 화면에서 남긴 요청입니다 — 어디가 자리인지에 관한 것이면 그 절의 다른 줄과 같은 무게로 따릅니다. "   # 양식별 코멘트(② §18)
+             "답의 꼴과 「입력에 있는 id 만」 은 위 계약을 따릅니다.")
+
+
+# 재검토(§11)는 답이 곧 추가한 자리 층에 반영되므로(apply_revisions) 양식 정보를 「형제 찾기」 의 배경으로만 쓴다 — 양식 정보에 적힌 자리라고 형제가 아닌 문단을 새로 더하지 않는다(빠진 자리는 빠진 자리 검토의 몫).
+FORM_NOTE_REVIEW = ("아래는 **이 문서의 양식**에 대해 사용자가 따로 관리하는 사실·요청입니다(헤딩 추출·표와 함께 쓰는 글이라 구분 기준과 무관한 절은 배경 지식으로만 읽으세요). "
+                    "할 일은 위 계약 그대로입니다 — 표시한 자리의 형제만 더하고, 「구분 기준 자리」 절에 자리라고 적혀 있다는 것만으로 형제가 아닌 문단을 더하지 않습니다. "
+                    "그 절이 「자리가 아닌 곳」 이라고 한 문단은 더하지 않고, 어느 문단이 어떤 구분의 라벨인지 헷갈릴 때 이 글을 참고합니다. "
+                    "그 절 끝의 「코멘트」 줄은 사용자가 화면에서 남긴 요청입니다 — 어디가 자리인지에 관한 것이면 그 절의 다른 줄과 같은 무게로 읽되, "   # 양식별 코멘트(② §18)
+                    "여기서는 마찬가지로 배경으로만 씁니다(코멘트에 적혀 있다는 것만으로 형제가 아닌 문단을 더하지 않습니다).")
+
+
+def form_part(form, note=FORM_NOTE):
+    """양식 정보(heading_forms.pin 꼴 {key, name, sha1, text} | None) → 프롬프트에 붙일 절 글 | ""(맞는 양식 없음 · 보낼 글 없음 — 프롬프트는 전과 같다).
+    note = 머리 문장 — 빠진 자리 검토는 FORM_NOTE, 재검토는 FORM_NOTE_REVIEW."""
+    text = heading_forms.without(heading_forms.body(form.get("text")), heading_forms.LINK_SECTION) if form else ""   # 「자리 연결」 절(연결 코멘트 — spec_병합 ② §5-3)은 병합 검토의 몫
+    return f"\n\n## 양식 정보 — {form.get('name') or form.get('key')} (이 양식에만 해당)\n{note}\n\n{text}" if text else ""
+
+
+def _asked(res, content, form, part):
+    return {"data": res.get("data"), "prompt": content, "call": {k: res.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error")},
+            "form": {k: form.get(k) for k in ("key", "name", "sha1")} if part else None}   # 실제로 보낸 양식 글(없으면 None)
 
 
 def _short(text, n=80):
@@ -100,12 +127,13 @@ def data(blocks, levels, values, hints, groups, value_text):
             "dims": [{"id": d, "name": DIM_NAME.get(d, d)} for d in DIMS], "hints": rows, "groups": group_rows, "outline": outline, "candidates": cands}
 
 
-def ask(payload, *, call=None, effort="medium", timeout=240.0):
-    """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}}."""
-    content = CONTRACT + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+def ask(payload, *, call=None, effort="medium", timeout=240.0, form=None):
+    """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}, "form": {key, name, sha1} | None}.
+    form = 이 문서의 양식 정보(heading_forms.pin) — 있으면 프롬프트에 한 절(② §16 — 머리 문장은 재검토용: 형제 찾기의 배경으로만)."""
+    part = form_part(form, FORM_NOTE_REVIEW)
+    content = CONTRACT + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     res = (call or llm.call)(SCHEMA, content, "divisions-llm", timeout=timeout, effort=effort)
-    return {"data": res.get("data"), "prompt": content,
-            "call": {k: res.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error")}}
+    return _asked(res, content, form, part)
 
 
 def apply_revisions(hints, revisions, idx, hint_read, now=None):
@@ -173,7 +201,7 @@ MISSING_SCHEMA = {"type": "object", "additionalProperties": False, "required": [
                                                           "confidence": {"type": "string", "enum": list(CONF)}}}},
     "summary": S}}
 
-MISSING_CONTRACT = """당신은 국가R&D 연구개발계획서(한글 양식)에서 **구분 기준 자리가 빠진 곳**을 찾는 검토자입니다.
+MISSING_CONTRACT = """당신은 국가R&D 연구개발계획서·연차보고서(한글 양식)에서 **구분 기준 자리가 빠진 곳**을 찾는 검토자입니다.
 구분 기준 = 단계(stage)·차년도(year)·단계-차년도(stageYear)·세부과제(sub)·기관(org — 주관, 공동1, 공동2 …, 외·국외·위탁). 구분 기준 자리 = 그 값마다 같은 구조(문단 묶음·표 행·표 열)가
 되풀이되어야 하는 곳 — 과제의 단계·차년도 수나 참여 기관 수가 바뀌면 행·열·절을 그만큼 늘리거나 줄이고 이름을 바꿔야 하는 곳입니다. 반영 엔진은 스크립트(글 꼴 규칙)로 이런 자리를 찾아
 묶음으로 만드는데, 라벨 꼴이 낯설면 놓칩니다.
@@ -255,12 +283,13 @@ def missing_data(blocks, levels, values, groups, value_text):
             "tables": tables[:TABLES_MAX], "paragraphs": paras}
 
 
-def ask_missing(payload, *, call=None, effort="medium", timeout=240.0):
-    """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}}."""
-    content = MISSING_CONTRACT + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+def ask_missing(payload, *, call=None, effort="medium", timeout=240.0, form=None):
+    """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}, "form": {key, name, sha1} | None}.
+    form = 이 문서의 양식 정보(heading_forms.pin) — 있으면 프롬프트에 한 절(② §16)."""
+    part = form_part(form)
+    content = MISSING_CONTRACT + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     res = (call or llm.call)(MISSING_SCHEMA, content, "divisions-missing", timeout=timeout, effort=effort)
-    return {"data": res.get("data"), "prompt": content,
-            "call": {k: res.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error")}}
+    return _asked(res, content, form, part)
 
 
 def check_missing(data, payload):
@@ -288,3 +317,37 @@ def check_missing(data, payload):
 
 
 # ---- LLM 검토 취합(spec_구분_기준 ② §14) — 재검토와 빠진 자리 검토를 함께 돌린 결과를 한 목록으로 ---------------------------------------------
+
+def merge_review(applied, missing, idx, para_of=None):
+    """재검토가 추가한 자리 층에 반영한 것(apply_revisions 의 applied — 응답 차례) + 빠진 자리 후보(check_missing 의 items — 확신 순) → 한 목록
+    [{id, kind, sources[review|missing], dim, dimName, text, title, size, path, pattern, reason, confidence, action, value, hintId, note}].
+    재검토 줄 먼저(같은 문단의 여러 고침은 한 줄 — 처음 action, 까닭은 이어 붙임), 이어서 빠진 자리 후보. 같은 문단이 둘 다에 있으면 한 줄(sources 둘 —
+    재검토의 구분·값에 빠진 자리 검토의 꼴·확신·헤딩을 붙임). para_of = {hintId: 문단 id}(change·remove 는 응답에 문단 id 가 없을 수 있다)."""
+    items, by_id = [], {}
+    for r in applied or ():
+        para = str(r.get("para") or "") or str((para_of or {}).get(r.get("hintId")) or "")
+        if not para:
+            continue
+        reason = str(r.get("reason") or "").strip()
+        it = by_id.get(para)
+        if it is None:
+            dim = r.get("dim") or "other"
+            it = by_id[para] = {"id": para, "kind": "paragraph", "sources": ["review"], "dim": dim, "dimName": DIM_NAME.get(dim, dim),
+                                "text": _short((idx.get(para) or {}).get("text"), 70), "title": "", "size": "", "path": [], "pattern": "", "reason": reason,
+                                "confidence": "", "action": r.get("action"), "value": str(r.get("value") or ""), "hintId": r.get("hintId") or "",
+                                "note": r.get("note") or ""}
+            items.append(it)
+        else:
+            if reason and reason not in it["reason"]:
+                it["reason"] = f"{it['reason']} · {reason}" if it["reason"] else reason
+            it["note"] = it["note"] or r.get("note") or ""
+    for x in missing or ():
+        it = by_id.get(x["id"]) if x.get("kind") == "paragraph" else None
+        if it is None:
+            items.append({**x, "sources": ["missing"], "action": None, "value": "", "hintId": "", "note": ""})
+            continue
+        it["sources"].append("missing")
+        it.update(pattern=x.get("pattern") or "", confidence=x.get("confidence") or "", path=x.get("path") or [])
+        if x.get("reason") and x["reason"] not in it["reason"]:
+            it["reason"] = f"{it['reason']} · {x['reason']}" if it["reason"] else x["reason"]
+    return items

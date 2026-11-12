@@ -82,7 +82,7 @@ def main():
         page.evaluate("tblMarksDraw()")
         page.wait_for_timeout(300)
         page.screenshot(path=OUT / "01_marks.png")
-        m.locator(".tm-owner").click()
+        m.locator(".tm-owner").click()  # 표지 항목은 늘 다 보인다(2026-11-10 — 여백 안에서 줄을 접음): 마우스를 올리지 않고 바로 누른다
         page.wait_for_timeout(800)
         print("after owner click selected para:", page.evaluate("state.selected"))
         # ⊞ → 2열 엑셀식 보기

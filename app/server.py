@@ -3,6 +3,7 @@
 
 실행: python -m uvicorn app.server:app --host 127.0.0.1 --port 8114"""
 import atexit
+import concurrent.futures
 import copy
 import logging
 import os
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import (division_llm, division_model, division_plan, division_presets, division_profiles, docx_check, docx_restore, docx_struct, fonts, hwpx_struct,
-                 outline_edit, owpml_check, pdf_map, pdf_render, restore, verify, works)
+                 outline_edit, outline_pos, owpml_check, pdf_map, pdf_render, restore, verify, works)
 from app.docx_doc import W as WNS
 from app.docx_doc import DocxDoc
 from app.hwpx_doc import P, TC, HwpxDoc
@@ -61,11 +62,16 @@ app.mount("/static", RevalidatedStatic(directory=STATIC), name="static")
 
 
 class Session:
-    def __init__(self, name, data, sid=None):
+    def __init__(self, name, data, sid=None, ids=None, base=0):
         self.id, self.name, self.original = sid or uuid.uuid4().hex[:12], name, data
         self.fmt = fmt_of(name)
         self.kit = FORMATS[self.fmt]
         self.doc = self.kit["cls"](data)
+        # 기준(spec_작업 ② §8): original = 고친 문단을 견주는 바이트 — 처음엔 올린 원본(base_n 0), 확정하면 마지막 확정본(+ 그때의 블록 id 자리표 base_ids).
+        # gen = 기준이 바뀐 횟수(검증 스레드가 옛 기준의 결과를 세션에 쓰지 않게 — glock), doc_key = 올린 원본의 sha256(확정해도 같은 문서 — _open·_reopen 이 채움)
+        if ids is not None and not self.doc.adopt_ids(ids):
+            raise RuntimeError("기준 확정의 블록 id 자리표가 문서와 맞지 않습니다")
+        self.base_n, self.base_ids, self.gen, self.glock, self.doc_key = base, ids, 0, threading.Lock(), None
         self.blocks = self.doc.blocks()
         self.orig_texts = verify.flat_texts(self.blocks)
         self.texts = dict(self.orig_texts)
@@ -79,9 +85,11 @@ class Session:
         self.owpml_base, self.owpml_last = None, None
         # 작업 저장(spec_작업 ② §3): 편집 차례·작업 폴더에 쓴 차례·만든 때, 저장 한 번에 하나(plock)
         self.rev, self.saved_rev, self.created, self.plock = 0, 0, time.time(), threading.Lock()
-        self.persist_error = None  # 마지막 작업 저장 실패(있으면 화면이 「자동 저장」 대신 실패를 보임)
+        self.persist_error = None  # 마지막 작업 저장 실패(있으면 화면 상단이 실패를 보임)
         # 구분 기준(spec_구분_기준 ② §4·§7): 입력 중 설정 · 마지막 적용(값·rev·planId·요약 — 문서와 함께 저장·실행 취소로 복원) · 마지막 계획(사본 문서 포함, 메모리만 하나)
-        self.division = {"settings": None, "applied": None, "plan": None, "hints": []}   # hints = 추가한 자리(spec_구분_기준 ② §11)
+        self.division = {"settings": None, "applied": None, "plan": None, "hints": [],   # hints = 추가한 자리(spec_구분_기준 ② §11)
+                         "review": None, "reviewing": False,   # 마지막 LLM 검토(취합 — ② §14, 작업에 저장) · 도는 중(메모리만)
+                         "prior": None}   # 앞서 이 문서에 반영한 값들(② §19 — None = 아직 안 모음: _division_prior 가 작업 기록에서 한 번)
         self.outline = None  # 개요(템플릿) 편집 오버레이(spec_hwpx_웹편집 ② §8) — 2단계 그래프에서 만들고 편집마다 손질, 실행 취소·작업 저장과 함께
 
     def text_edited(self):
@@ -96,14 +104,47 @@ class Session:
                 else "format" if i in self.formatted else "text" for i in self.edited()}
 
     def pristine_file(self):
-        """지금 저장하면 원본 바이트 그대로인지(고친 XML 부분·새 멤버 없음)."""
+        """지금 저장하면 기준(올린 원본 또는 마지막 확정본) 바이트 그대로인지(고친 XML 부분·새 멤버 없음)."""
         return not self.doc._dirty and not (self.doc._new_members if self.fmt == "hwpx" else self.doc._blobs)
+
+    def open_base(self):
+        """기준 문서를 따로 연다(문단 원본 복원용) — 세션 문서의 기준 요소와 같은 블록 id(올린 원본은 blocks() 차례, 확정본은 그때의 자리표)."""
+        d = self.kit["cls"](self.original)
+        if self.base_ids is not None:
+            d.adopt_ids(self.base_ids)
+        d.blocks()
+        return d
 
     def state(self):
         return {"editedCount": len(self.edited()), "unrestored": sorted(self.unrestored), "pristine": self.pristine_file(),
                 "kinds": self.kinds(), "undo": len(self.undo), "owpml": self.owpml_last,
                 "rev": self.rev,  # 서버 편집 차례(spec_작업 ② §3) — 화면이 출력파일 검증의 rev 와 견줘 「검증 뒤 바뀜」 판정
+                "base": self.base_n,  # 기준 확정 번호(spec_작업 ② §8) — 0 = 올린 원본
                 "persistError": self.persist_error}
+
+
+class _JobView:
+    """검증 스레드에 넘기는 세션 보기(spec_작업 ② §8) — 시작 때의 기준(바이트·블록·원래 글·id 자리표·PDF 사전·문서)을 붙들어, 도는 중에 확정으로 기준이
+    바뀌어도 옛 기준끼리 끝까지 맞게 돈다. 결과(매핑·재구성 바이트·기준선 …)는 기준이 그대로일 때만 세션에 쓰고, 바뀌었으면 이 보기에만 둔다."""
+    KEEP = ("original", "blocks", "orig_texts", "base_ids", "base_n", "pdf", "doc")
+
+    def __init__(self, s):
+        self.__dict__.update(_s=s, _gen=s.gen, _own={k: getattr(s, k) for k in self.KEEP})
+
+    def live(self):
+        return self._s.gen == self._gen
+
+    def __getattr__(self, k):  # 인스턴스 사전(_s·_gen·_own)에 없는 이름만 여기로 온다
+        own = self.__dict__["_own"]
+        return own[k] if k in own else getattr(self.__dict__["_s"], k)
+
+    def __setattr__(self, k, v):
+        s = self._s
+        with s.glock:
+            if s.gen != self._gen or k in self._own:
+                self._own[k] = v
+            if s.gen == self._gen:
+                setattr(s, k, v)
 
 
 DOCS: dict[str, Session] = {}
@@ -120,15 +161,17 @@ def _sess(doc_id) -> Session:
 def _start(sess, kind, fn, *args, revision=None, output=None):
     """검증 작업을 뒤 스레드로 — 끝나면(실패해도) 작업 폴더에 검증 기록을 남긴다(spec_작업 ② §5)."""
     job = verify.Job(kind, verify.steps(kind, sess.fmt))
-    job.revision, job.rev, job.output = revision, sess.rev, output
+    job.revision, job.rev, job.output, job.base = revision, sess.rev, output, sess.base_n
     sess.jobs[kind] = job
     works.log(sess.id, "verify", rev=sess.rev, verify=kind, revision=revision)
+    view = _JobView(sess)  # 시작 때의 기준을 붙든 보기 — 도는 중에 확정해도 옛 기준끼리 돈다(spec_작업 ② §8)
 
     def run():
         try:
-            fn(sess, job, *args)
+            fn(view, job, *args)
         finally:
-            _record(sess, kind, job)
+            if view.live():  # 도는 중에 기준이 바뀐 검증은 기록하지 않는다 — 새 기준의 검증이 따로 돈다
+                _record(sess, kind, job)
     threading.Thread(target=run, daemon=True).start()
     return job
 
@@ -141,21 +184,45 @@ def _admit(sess):
     DOCS[sess.id] = sess
 
 
-def _open(name, data, source="upload"):
+def _same(name, fmt, data, source):
+    """같은 파일로 만든 작업이 있으면 그 작업을 이어 연다(spec_작업 ② §1) — 메모리에 없으면 작업 폴더에서(_reopen: 기준 확정·문서 키를 맞춤).
+    못 열면 None(새 작업으로)."""
+    w = works.find_same(name, fmt, works.sha256(data))
+    if w is None:
+        return None
+    try:
+        s = DOCS.get(w["id"]) or _reopen(w["id"])
+    except Exception:  # noqa: BLE001 — 작업 폴더가 깨졌으면 새 작업으로 연다(깨진 작업은 지우지 않음)
+        return None
+    if s is None:
+        return None
+    s.touched = time.time()
+    works.log(s.id, "reupload", rev=s.rev, source=source)
+    w = works.update(s.id) or w  # 최근 작업 맨 위로
+    return {"docId": s.id, "name": w["name"], "size": len(data), "reused": True,
+            "work": {k: w.get(k) for k in ("created", "updated", "rev", "edited", "commits")}}
+
+
+def _open(name, data, source="upload", new=False):
+    """올리기·예제 열기 — 같은 파일(이름·형식·바이트)로 만든 작업이 있으면 그 작업을 이어 열고(reused), new 면 늘 새 작업(spec_작업 ② §1)."""
     fmt = fmt_of(name)
     if fmt is None:
-        raise HTTPException(400, "hwpx·docx 파일만 열 수 있습니다")
+        raise HTTPException(400, "hwp·hwpx·docx 파일만 열 수 있습니다")
     if len(data) > MAX_MB * 2 ** 20:
         raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
+    same = None if new else _same(name, fmt, data, source)
+    if same is not None:
+        return same
     try:
         sess = Session(name, data)
     except Exception as e:
         raise HTTPException(400, f"{fmt} 로 열 수 없습니다: {e}") from e
     _admit(sess)
-    works.create(sess.id, name, fmt, data, source)  # 올리기 = 새 작업(spec_작업 ② §1)
+    w = works.create(sess.id, name, fmt, data, source)  # 같은 파일 작업이 없거나 new — 새 작업(spec_작업 ② §1)
+    sess.doc_key = (w or {}).get("sha256") or works.sha256(data)  # 문서 키 = 올린 원본의 sha256(확정으로 기준이 바뀌어도 그대로, ② §8)
     _ensure_persister()
     _start(sess, "import", verify.run_import)
-    return {"docId": sess.id, "name": name, "size": len(data)}
+    return {"docId": sess.id, "name": name, "size": len(data), "reused": False}
 
 
 # ---- 작업 저장·다시 열기·기록(spec_작업 ② §3~§5) ---------------------------------------------------------
@@ -184,16 +251,18 @@ def _persist(s, force=False):
         return
     with s.plock:
         with s.lock:
-            rev = s.rev
-            snap = s.kit["struct"].snapshot(s.doc)  # 실행 취소와 같은 묶음 — 다시 열 때 struct.restore 로 원본 기준 유지
-            state = {"rev": rev, "texts": dict(s.texts), "unrestored": sorted(s.unrestored), "formatted": sorted(s.formatted),
+            rev, base = s.rev, s.base_n  # base = 이 편집 상태가 기대는 확정(spec_작업 ② §8) — 다시 열 때 그 확정 위에 붙인다
+            snap = s.kit["struct"].snapshot(s.doc)  # 실행 취소와 같은 묶음 — 다시 열 때 struct.restore 로 기준 유지
+            state = {"rev": rev, "base": base, "texts": dict(s.texts), "unrestored": sorted(s.unrestored), "formatted": sorted(s.formatted),
                      "struct": sorted(s.struct), "removed": sorted(s.removed), "origin": dict(s.origin), "owpmlLast": s.owpml_last,
                      "pdf": {k: str(p) for k, p in s.pdf.items() if p}, "mapping": _map_view(s.mapping),
                      "mappingEdited": _map_view(s.mapping_edited),
-                     "division": {"settings": s.division["settings"], "applied": s.division["applied"], "hints": s.division.get("hints") or []},  # spec_구분_기준 ② §4·§11
+                     "division": {"settings": s.division["settings"], "applied": s.division["applied"], "hints": s.division.get("hints") or [],  # spec_구분_기준 ② §4·§11
+                                  "review": s.division.get("review"),  # 마지막 LLM 검토(② §14)
+                                  **({"prior": s.division["prior"]} if s.division.get("prior") is not None else {})},  # 앞서 반영한 값들(② §19) — 아직 안 모았으면 키 없음
                      "outline": s.outline}  # 개요 편집 오버레이(spec_hwpx_웹편집 ② §8)
             edited = len(s.edited())
-        snap = {**snap, "rev": rev, "sha256": works.sha256(snap["bytes"])}
+        snap = {**snap, "rev": rev, "base": base, "sha256": works.sha256(snap["bytes"])}
         works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited)
         s.saved_rev = rev
 
@@ -234,6 +303,7 @@ def _record(s, kind, job):
         v = job.view()
         mapping = s.mapping if kind == "import" else s.mapping_edited
         rec = {"status": v["status"], "at": time.time(), "seconds": v["seconds"], "revision": job.revision, "rev": job.rev,
+               "base": getattr(job, "base", 0),  # 그때의 기준 확정 — 다시 열 때 지금 기준의 기록만 결과로 보인다(spec_작업 ② §8)
                "outputSha": job.output, "job": v, "mapping": _map_view(mapping)}
         n = works.add_run(s.id, kind, rec)
         if n is None:
@@ -257,11 +327,13 @@ class _Done:
 
 
 def _restore_state(s, got):
-    """작업 폴더의 묶음·집합을 세션에 — 묶음 차례·바이트가 상태와 어긋나면 False(원본 그대로 둔다)."""
+    """작업 폴더의 묶음·집합을 세션에 — 묶음 차례·바이트·기준 확정이 상태와 어긋나면 False(기준 그대로 둔다)."""
     snap, st = got["snap"], got["state"]
     if snap is None or not isinstance(st, dict) or snap.get("rev") != st.get("rev") or snap.get("sha256") != works.sha256(snap["bytes"]):
         return False
-    doc = s.kit["struct"].restore(s.kit["cls"], s.original, snap)  # 기준 = 원본(원본 복원·바이트 동일 판정), adopt_ids 로 같은 블록 id
+    if snap.get("base", 0) != st.get("base", 0) or st.get("base", 0) != s.base_n:  # 다른 확정 위의 편집 상태(spec_작업 ② §8)
+        return False
+    doc = s.kit["struct"].restore(s.kit["cls"], s.original, snap)  # 기준 = 세션의 기준 바이트(원본 복원·바이트 동일 판정), adopt_ids 로 같은 블록 id
     s.doc = doc
     s.texts = dict(st.get("texts") or s.orig_texts)
     s.unrestored, s.formatted = set(st.get("unrestored", ())), set(st.get("formatted", ()))
@@ -270,9 +342,34 @@ def _restore_state(s, got):
     s.pdf = {k: p for k, p in (st.get("pdf") or {}).items() if p and Path(p).exists()}  # 렌더 캐시에서 지워진 PDF 는 뺀다
     s.mapping, s.mapping_edited = st.get("mapping"), st.get("mappingEdited")
     dv = st.get("division") or {}
-    s.division = {"settings": dv.get("settings"), "applied": dv.get("applied"), "plan": None, "hints": [h for h in dv.get("hints") or [] if isinstance(h, dict)]}
+    s.division = {"settings": dv.get("settings"), "applied": dv.get("applied"), "plan": None, "hints": [h for h in dv.get("hints") or [] if isinstance(h, dict)],
+                  "review": dv.get("review") if isinstance(dv.get("review"), dict) else None, "reviewing": False,
+                  "prior": [v for v in dv["prior"] if isinstance(v, dict)] if isinstance(dv.get("prior"), list) else None}   # ② §19 — 키가 없으면(옛 작업) 처음 쓸 때 모음
     s.outline = st.get("outline") if isinstance(st.get("outline"), dict) else None
     return True
+
+
+def _commit_state(s, extra):
+    """확정 때의 구분 기준 적용 상태·개요 오버레이를 세션에(spec_작업 ② §8) — 편집 상태 파일이 있으면 _restore_state 가 그 뒤에 덮는다."""
+    extra = extra or {}
+    s.division["applied"] = extra["division"] if isinstance(extra.get("division"), dict) else None
+    s.outline = extra["outline"] if isinstance(extra.get("outline"), dict) else None
+
+
+def _base_session(w, n, original):
+    """기준 확정 n 위의 새 세션(0 = 올린 원본, spec_작업 ② §8) — 확정 파일·블록 id 자리표를 못 읽으면 예외."""
+    wid = w["id"]
+    if not n:
+        s = Session(w["name"], original, sid=wid)
+    else:
+        data, extra = works.commit_bytes(wid, n), works.commit_data(wid, n)
+        if data is None or not isinstance((extra or {}).get("ids"), dict):
+            raise RuntimeError(f"확정 {n} 의 파일을 읽지 못했습니다")
+        s = Session(w["name"], data, sid=wid, ids=extra["ids"], base=n)
+        _commit_state(s, extra)
+    s.created = w.get("created", s.created)
+    s.doc_key = w.get("sha256") or works.sha256(original)  # 문서 키 = 올린 원본의 sha256
+    return s
 
 
 def _reopen(doc_id):
@@ -287,23 +384,33 @@ def _reopen(doc_id):
         if got is None:
             return None
         w = got["work"]
-        s = Session(w["name"], got["original"], sid=doc_id)
-        s.created = w.get("created", s.created)
-        ok, why = True, None
-        if got["snap"] is not None or got["state"] is not None:
-            try:
+        st = got["state"] if isinstance(got["state"], dict) else None
+        has_state = got["snap"] is not None or got["state"] is not None
+        base = st.get("base", 0) if st else works.head(doc_id)  # 편집 상태가 기대는 확정(spec_작업 ② §8) — 상태가 없으면 마지막 확정
+        s, ok, why = None, True, None
+        try:
+            s = _base_session(w, base, got["original"])
+            if has_state:
                 ok = _restore_state(s, got)
                 why = None if ok else "편집 상태 파일이 서로 맞지 않음"
-            except Exception as e:  # noqa: BLE001 — 블록 id 자리표 불일치 등: 원본으로 연다
-                ok, why = False, str(e)
-            if not ok:  # 원본으로 연다 — 어긋난 편집 상태 파일은 지우지 않고 옆으로(손으로 살릴 수 있게)
-                s = Session(w["name"], got["original"], sid=doc_id)
-                s.created = w.get("created", s.created)
+        except Exception as e:  # noqa: BLE001 — 블록 id 자리표 불일치·기준 확정 파일을 못 읽음 등
+            ok, why = False, str(e)
+        if not ok:  # 마지막으로 읽히는 확정(없으면 올린 원본)으로 연다 — 어긋난 편집 상태 파일은 지우지 않고 옆으로(손으로 살릴 수 있게)
+            s = None
+            for k in dict.fromkeys((works.head(doc_id), 0)):
+                try:
+                    s = _base_session(w, k, got["original"])
+                    break
+                except Exception as e:  # noqa: BLE001 — 그 확정도 못 읽음: 올린 원본으로
+                    why = f"{why} · 확정 {k}: {e}"
+            if s is None:
+                raise RuntimeError(f"작업 {doc_id} 를 열지 못했습니다 — {why}")
+            if has_state:
                 works.set_aside_state(doc_id)
-                works.update(doc_id, rev=0, edited=0)
+            works.update(doc_id, rev=0, edited=0)
         s.rev = s.saved_rev = w.get("rev", 0) if ok else 0
-        for kind, rec in works.last_runs(doc_id).items():
-            if isinstance(rec, dict) and isinstance(rec.get("job"), dict):
+        for kind, rec in works.last_runs(doc_id).items():  # 지금 기준에서 돈 검증만 결과로(확정 뒤 가져오기 검증이 끝나기 전에 꺼졌으면 다시 돈다)
+            if isinstance(rec, dict) and isinstance(rec.get("job"), dict) and rec.get("base", 0) == s.base_n:
                 s.jobs[kind] = _Done(rec)
         _admit(s)
         works.log(doc_id, "reopen", rev=s.rev, ok=ok, **({"reason": why} if why else {}))
@@ -333,16 +440,33 @@ def samples():
 
 
 @app.post("/api/samples/{name}")
-def open_sample(name: str):
+def open_sample(name: str, new: bool = False):
     p = SAMPLES / name
     if p.parent != SAMPLES or not p.is_file():
         raise HTTPException(404, "예제가 없습니다")
-    return _open(p.name, p.read_bytes(), "sample")
+    return _open(p.name, p.read_bytes(), "sample", new)
 
 
 @app.post("/api/docs")
-async def upload(file: UploadFile = File(...)):
-    return _open(file.filename or "document.hwpx", await file.read())
+async def upload(file: UploadFile = File(...), new: bool = False):
+    """?new=1 이면 같은 파일 작업이 있어도 새 작업(spec_작업 ② §1). hwp(바이너리)는 한글로 hwpx 로 바꿔 hwpx 작업으로 받는다."""
+    name, data = file.filename or "document.hwpx", await file.read()
+    if name.lower().endswith(".hwp"):
+        from starlette.concurrency import run_in_threadpool
+        name, data = await run_in_threadpool(_from_hwp, name, data)   # 한글 변환은 수 초~수십 초 — 이벤트 루프 밖에서
+    return _open(name, data, new=new)
+
+
+def _from_hwp(name, data):
+    """올린 hwp → (이름.hwpx, hwpx 바이트) — 2026-11-11 사용자 "hwp 넣어도 알아서 hwpx 로 변환해서 사용할 수 있게". 작업은 hwpx 작업이고 원본 hwp 는 남기지 않는다(변환본은 렌더 캐시에)."""
+    if len(data) > MAX_MB * 2 ** 20:
+        raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
+    if not pdf_render.available("hwpx"):
+        raise HTTPException(400, "hwp 파일은 이 PC 에 한글이 있어야 hwpx 로 바꿔 열 수 있습니다 — 한글에서 hwpx 로 저장해 올려 주세요")
+    try:
+        return name[:-4] + ".hwpx", pdf_render.hwp_to_hwpx(data)
+    except (RuntimeError, TimeoutError, OSError) as e:
+        raise HTTPException(400, f"hwp 를 hwpx 로 바꾸지 못했습니다: {e}") from e
 
 
 @app.get("/api/docs/{doc_id}")
@@ -352,10 +476,10 @@ def get_doc(doc_id: str):
         edited = s.edited()
         blocks = s.doc.blocks()
         table = s.doc.font_table(blocks) if s.fmt == "docx" else s.doc.font_table()
-        return {"docId": s.id, "name": s.name, "format": s.fmt, "size": len(s.original), "blocks": blocks,
+        return {"docId": s.id, "name": _shown_of(s), "format": s.fmt, "size": len(s.original), "blocks": blocks,   # name = 보이는 이름(spec_작업 ② §10)
                 "webFonts": fonts.web_fonts(table),  # 문서 글꼴 @font-face 계획(spec_hwpx_웹편집 ② §3-3)
                 "edited": sorted(edited), "original": {i: s.orig_texts.get(i, "") for i in edited},
-                "work": {"created": s.created, "rev": s.rev, "stored": works.enabled()},  # 작업(spec_작업 ② §6)
+                "work": {"created": s.created, "rev": s.rev, "stored": works.enabled(), "task": _task(s.id, blocks)},  # 작업(spec_작업 ② §6 · task = §10)
                 **s.state()}
 
 
@@ -375,8 +499,7 @@ def _restore(s, block_id):
     """글이 원래와 같아진 문단을 원본 XML 로 되돌리고(restore.py), 그 XML 부분에 고친 문단이 더 없으면 원본 바이트와 맞춰 본다."""
     rs = s.kit["restore"]  # hwpx: restore.py, docx: docx_restore.py
     if s.pristine is None:
-        s.pristine = s.kit["cls"](s.original)
-        s.pristine.blocks()  # 블록 id — 같은 차례로 붙어 세션 문서의 원본 요소와 같은 id(restore.restore_para 가 id 로 찾음)
+        s.pristine = s.open_base()  # 블록 id — 세션 문서의 기준 요소와 같은 id(restore.restore_para 가 id 로 찾음). 기준 = 올린 원본 또는 마지막 확정본
     ok = rs.restore_para(s.doc, s.pristine, block_id)
     (s.unrestored.discard if ok else s.unrestored.add)(block_id)
     part = rs.part_of(s.doc, block_id)
@@ -405,6 +528,7 @@ def _patch(doc_id, block_id, text, kind):
         if block_id not in s.texts or el is None or el.tag != s.kit["para"] or not s.doc._attached(el):
             raise HTTPException(404, "편집할 수 있는 문단이 아닙니다")
         before = s.texts[block_id]
+        fmt0 = _para_fmt(s, block_id)
         try:
             s.doc.set_text(block_id, text.replace("\r", ""))
         except (KeyError, ValueError) as e:
@@ -419,9 +543,21 @@ def _patch(doc_id, block_id, text, kind):
             restored = _restore(s, block_id)
         elif s.texts[block_id] != orig:
             s.unrestored.discard(block_id)
-        if s.texts[block_id] != before or restored is not None or kind == "revert":
+            # 개요 줄이면 둘째 줄을 글 시작에(spec_hwpx_웹편집 ② §8-1) — 글이 원래와 다른 동안만 걸리고(원래 글이면 위에서 원본 XML 로), 모양 편집(formatted)으로 치지 않는다
+            _outline_align(s, block_id)
+        fmt1 = _para_fmt(s, block_id)
+        if s.texts[block_id] != before or restored is not None or kind == "revert" or fmt1 != fmt0:  # 글은 같아도 둘째 줄을 맞췄으면 차례를 올려 작업에 저장되게
             _bump(s, kind, id=block_id, before=before, after=s.texts[block_id], restored=restored)
-        return {"id": block_id, "text": s.texts[block_id], "edited": block_id in s.edited(), "restored": restored, **s.state()}
+        return {"id": block_id, "text": s.texts[block_id], "edited": block_id in s.edited(), "restored": restored, **s.state(),
+                **({"format": fmt1} if fmt1 != fmt0 else {})}  # 문단 모양이 바뀌었으면(둘째 줄 맞춤·원본 복원) 화면이 그 문단의 여백을 다시 잡는다
+
+
+def _para_fmt(s, block_id):
+    """hwpx 문단의 서식 요약(블록 format 과 같은 것) — 글 고침 앞뒤를 견줘 바뀌었을 때만 응답에 싣는다. docx·문단 아님 = None."""
+    el = s.doc._ids.get(block_id)
+    if s.fmt != "hwpx" or el is None or el.tag != P:
+        return None
+    return s.doc._summary(el.get("paraPrIDRef"), s.doc._char_id(el))
 
 
 @app.post("/api/docs/{doc_id}/blocks/{block_id}/revert")
@@ -449,9 +585,9 @@ def download(doc_id: str):
     with s.lock:
         data = s.doc.save()
         same = data == s.original
-    ext = "." + s.fmt
-    stem = s.name[:-len(ext)] if s.name.lower().endswith(ext) else s.name
-    name = s.name if same else f"{stem}_수정{ext}"
+    ext, shown = "." + s.fmt, _shown_of(s)   # 보이는 이름(spec_작업 ② §10 — 과제에 묶인 목적 문서는 과제 이름이 뒤에 붙는다)
+    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
+    name = shown if same and not s.base_n else f"{stem}_수정{ext}"  # same = 기준과 같은 바이트 — 기준이 확정본이면 올린 파일과는 다른 파일
     # 기록(spec_작업 ② §4·§5): 내려받은 파일(원본과 다르면 outputs/ 에)·마지막 출력파일 검증 파일과 같은 바이트인지
     sha = works.sha256(data) if same else works.add_output(s.id, s.fmt, data)
     ed = s.jobs.get("edit")
@@ -584,13 +720,45 @@ def _full_check(s, out, base, header):
     return chk.verdict(s.doc, base, chk.check_doc(s.doc))
 
 
-def _transact(s, run, op=None, req=None, check=None):
+def _texts_now(s, cur, ids):
+    """cur(블록에서 읽은 글)에 — ids 가운데 글이 비어 블록 목록에서 빠진 문단(개체만 남은 문단)도 지금 글로 더한다."""
+    for i in ids:
+        if i not in cur and s.doc._attached(s.doc._ids.get(i)) and s.doc._ids[i].tag == s.kit["para"]:
+            cur[i] = s.doc._text(s.doc._ids[i])
+    return cur
+
+
+def _touched_blocks(s, hosts, local, had):
+    """편집 뒤 닿은 최상위 문단(hosts)의 블록만 — 못 읽으면(문서 순서로 세는 값이 든 문단이 있음) None. 개요 편집이 양 끝에 하나씩 더 싣는 **안 닿은 이웃**
+    (편집 전부터 있었고(had) 편집이 닿지 않은(local 밖) 문단)이 번호·자동 번호 문단(캡션 번호가 붙은 표 등)이면 그 이웃만 빼고 읽는다 — 그 이웃은 안 바뀌었고
+    화면은 옛 블록을 그대로 둔다. 구간 가운데에 낀 것은 뺄 수 없다(화면이 구간을 통째로 바꾼다) → None."""
+    doc = s.doc
+    out = doc.host_blocks(hosts)
+    if out is not None:
+        return out
+    near, core = set(local), doc.in_order(hosts)
+    idle = lambda h: h in had and h not in near and doc.order_bound([h])  # noqa: E731
+    n = len(core)
+    while core and idle(core[0]):
+        core.pop(0)
+    while core and idle(core[-1]):
+        core.pop()
+    return doc.host_blocks(core) if core and len(core) < n else None
+
+
+def _transact(s, run, op=None, req=None, check=None, local=None):
     """구조 편집 트랜잭션(spec_구분_기준 ② §4 — _edit 의 공통부): 세션 잠금 안에서 직전 상태를 묶어 두고 → run() → 검사(check(s, out, base, header) -> verdict,
     기본 _hosts_check) → 원본에 없던 종류의 위반이면 되돌리고 422 → 성공이면 undo 1개·글/집합 갱신·rev +1·기록 1줄.
     run() -> {"hosts": 편집 뒤 닿은 요소, "focus", "formatted", "struct", "origin", "anchor", "log"?: 기록에 더 적을 것}.
-    -> (out, 편집 뒤 블록) | (JSONResponse 422, None). run() 의 KeyError·ValueError 는 400(고치다 만 경우 복원)."""
+    -> (out, 편집 뒤 블록) | (JSONResponse 422, None). run() 의 KeyError·ValueError 는 400(고치다 만 경우 복원).
+    local = 편집이 닿는 최상위 문단들(편집 전 — _edit 가 준다): 주면 편집 뒤 문서 전체(blocks())를 다시 읽지 않고 **닿은 최상위 문단의 블록만** 읽어(HwpxDoc.host_blocks)
+    글 사전을 그만큼만 고치고, 돌려주는 블록도 그것뿐이다(spec_owpml_편집 ② §3 「닿은 블록만 다시 읽기」 — 연구개발계획서 12,700문단에서 개요 줄 Enter 한 번에 1 s 들던 것).
+    문서 순서로 세는 값(번호 문단·자동 번호 — order_bound)이 닿은 문단에 있거나 docx·전체 검사(check)면 전처럼 문서 전체."""
     st, chk = s.kit["struct"], s.kit["check"]
     snap = _snap(s)
+    part = local is not None and check is None and hasattr(s.doc, "host_blocks") and not s.doc.order_bound(local)
+    had = {p for sec in s.doc._sections for p in sec.iterchildren(s.kit["para"])} if part else None  # 편집 전부터 있던 최상위 문단 — 편집 뒤 「안 닿은 이웃」을 가린다(_touched_blocks)
+    pre = {s.doc._rev[p] for h in local for p in h.iter(s.kit["para"]) if p in s.doc._rev} if part else None  # 닿는 문단 아래의 문단 id(편집 전) — 글 사전에서 이만큼만 갈아 끼운다
     ndefs = sum(len(v) for v in getattr(s.doc, "_defs", {}).values())  # hwpx header 정의 수(docx 서식 편집은 직접 서식 — 정의를 안 더함)
     base = owpml_base(s)
     try:
@@ -611,12 +779,21 @@ def _transact(s, run, op=None, req=None, check=None):
                             status_code=422), None
     s.undo.append(snap)
     del s.undo[:-st.UNDO_MAX]
-    after = s.doc.blocks()
     old = set(s.texts)
-    cur = verify.flat_texts(after)
-    for i in s.texts:  # 글이 비어 블록 목록에서 빠진 문단(개체만 남은 문단)도 지금 글로 둔다
-        if i not in cur and s.doc._attached(s.doc._ids.get(i)) and s.doc._ids[i].tag == s.kit["para"]:
-            cur[i] = s.doc._text(s.doc._ids[i])
+    after = _touched_blocks(s, out["_hosts"], local, had) if part else None
+    if after is None:  # 문서 전체를 다시 읽는다
+        after = s.doc.blocks()
+        cur = _texts_now(s, verify.flat_texts(after), s.texts)
+    else:  # 닿은 최상위 문단의 블록만 — 그 아래 문단의 글만 갈아 끼운다(밖은 안 바뀜: _hosts_check 가 닿은 문단만 검사하는 것과 같은 전제)
+        cur = {i: t for i, t in s.texts.items() if i not in pre}
+        cur.update(verify.flat_texts(after))
+        _texts_now(s, cur, pre & old)  # 글 사전에 있던 것만(표만 품은 새 문단 같은 것은 전체를 읽어도 안 든다)
+        if os.environ.get("NFM_BLOCKS_CHECK") == "1":  # 시험(tests/conftest.py): 편집마다 문서 전체를 다시 읽은 것과 견준다
+            full, ids = s.doc.blocks(), {b["id"] for b in after}
+            assert [b for b in full if b["id"] in ids] == after, f"{op}: 닿은 블록만 읽은 것이 blocks() 와 다름"
+            want = _texts_now(s, verify.flat_texts(full), s.texts)
+            assert cur == want, (f"{op}: 닿은 블록만 고친 글이 문서 전체를 다시 읽은 것과 다름 — 더 있음 {sorted(set(cur) - set(want))[:6]} · "
+                                 f"없음 {sorted(set(want) - set(cur))[:6]} · 글 다름 {[i for i in cur if i in want and cur[i] != want[i]][:6]}")
     s.texts = cur
     s.formatted |= out.get("formatted", set())
     s.struct |= out.get("struct", set())
@@ -637,11 +814,12 @@ def _edit(doc_id, make, op=None, req=None):
     with s.lock:
         st = s.kit["struct"]
         before, run = make(s)
-        drop = [i for h in dict.fromkeys(st.top_host(s.doc, e) for e in before) if h is not None
-                for i in st.top_ids(s.doc, h)]
-        out, after = _transact(s, run, op, req)
+        hosts = [h for h in dict.fromkeys(st.top_host(s.doc, e) for e in before) if h is not None]
+        drop = [i for h in hosts for i in st.top_ids(s.doc, h)]
+        out, after = _transact(s, run, op, req, local=hosts)
         if after is None:
             return out
+        drop += [i for i in out.get("drop") or () if i not in drop]  # 편집이 알려 준 「지운 블록」(개요 편집 — 닿은 문단 목록에 없던 간격 줄 등)
         want = {i for h in out["_hosts"] for i in st.top_ids(s.doc, h)}
         tops = [b for b in after if b["id"] in want]
         return {"tops": {"drop": drop, "blocks": tops}, "texts": verify.flat_texts(tops), "focus": out.get("focus"),
@@ -765,8 +943,22 @@ def _outline_ov(s, build=True):
     key = [meta.get("run"), meta.get("at")]
     ov = s.outline
     if (ov is None or ov.get("run") != key) and build:
+        old = ov
         ov = s.outline = outline_edit.build_overlay(g, _outline_probe(s), rev=s.rev)
+        outline_pos.carry(old, ov)  # 사용자가 정한 슬롯 자리 규칙(같은 앵커·레벨)·저절로 맞춘 줄의 기억은 새 오버레이로(② §8-1)
     return ov
+
+
+def _outline_align(s, block_id):
+    """글을 고친 문단이 개요 줄이면 둘째 줄을 슬롯 규칙대로(기본 = 글 시작에 — spec_hwpx_웹편집 ② §8-1). 오버레이가 아직 없으면(화면이 /outline 을 안 읽은 세션)
+    여기서 만든다. 어떤 오류도 글 반영을 막지 않는다(기록만)."""
+    try:
+        ov = _outline_ov(s)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[개요 줄 자리] %s 오버레이를 만들지 못함: %r", s.id, e)
+        return
+    if ov and block_id in ov["lines"]:
+        outline_pos.align_quiet(s.doc, ov, block_id)
 
 
 def _outline_sync(s):
@@ -802,7 +994,7 @@ def outline_get(doc_id: str):
         if ov is None:
             return {"off": True, "why": "헤딩 추출 2단계(헤딩 그래프) 결과가 없습니다" if s.fmt == "hwpx" else "개요 편집은 HWPX 에서만 됩니다",
                     "run": None, "rev": s.rev, "lines": {}, "templates": {}}
-        return outline_edit.view(ov)
+        return outline_pos.view(s.doc, ov)  # outline_edit.view + 템플릿 레벨마다 자리(레터 위치·글 시작·둘째 줄 — ② §8-1)
 
 
 OUTLINE_OPS = ("enter", "sibling", "level", "move", "remove")
@@ -871,6 +1063,7 @@ def _outline_run(s, ov, par, plan, extra, op, ids):
     last, first_new, prev_line, new_ids, changed, removed = None, None, None, [], {}, []
     struct, formatted, origin = set(), set(), {}
     focus = plan.get("focus") or {}
+    kids0 = [c for c in par.iterchildren(P)]  # 편집 전 차례 — 끝에서 「차례가 바뀐 구간」을 찾는다
 
     def rid(x):
         if x == "$last":
@@ -934,13 +1127,28 @@ def _outline_run(s, ov, par, plan, extra, op, ids):
         elif kind == "reparent":
             if a["id"] in ov["lines"]:
                 ov["lines"][a["id"]]["parent"] = a["parent"]
+    # 새 줄·레벨을 바꾼 줄은 슬롯 자리 규칙대로(기본 = 둘째 줄을 글 시작에), 번호가 바뀐 줄은 저절로 맞춘 것이면 다시 맞춘다(spec_hwpx_웹편집 ② §8-1)
+    fresh, meas = set(new_ids) | formatted, outline_pos.Measure(doc)
+    for pid in list(changed):
+        if pid in ov["lines"] and pid in doc._ids:
+            try:
+                outline_pos.align(doc, ov, pid, full=pid in fresh, measure=meas)
+            except ValueError:
+                pass  # 사용자가 정한 레터 위치가 이 줄의 앞 공백 폭보다 작다 — 줄은 그대로 만들고 자리는 안 옮긴다
     # 닿은 범위 = 그릇 안 이어진 구간 전체(가장 앞 ~ 가장 뒤 닿은 문단 사이의 모든 문단 — 표 호스트 포함)
     kids = [c for c in par.iterchildren(P)]
     ix = {c: k for k, c in enumerate(kids)}
     hit = [doc._ids[i] for a in plan["actions"] for i in (a.get("id"), rid(a.get("after")), rid(a.get("ref")), rid(a.get("first")), rid(a.get("last")))
            if i and i in doc._ids and doc._ids[i] in ix] + [doc._ids[i] for i in new_ids if i in doc._ids and doc._ids[i] in ix]
-    if hit:
-        lo, hi = min(ix[e] for e in hit), max(ix[e] for e in hit)
+    span = [ix[e] for e in hit]
+    # 차례가 바뀐 구간(넣음·지움·옮김)도 닿은 범위다 — 편집 전 차례(kids0)와 견줘 앞뒤로 같은 부분을 뺀 가운데. 지우기만 하면 닿은 문단이 남지 않고(hit 없음 — 전에는 그릇의
+    # 첫 문단을 돌려줘 화면이 엉뚱한 자리를 바꿨다), 줄을 여러 줄 건너 옮기면 옛 자리와 새 자리 사이의 문단이 hit 에 없다(화면은 그 사이를 통째로 바꾼다 — 빠지면 화면에서 사라진다). 2026-11-11
+    pre = next((k for k, (x, y) in enumerate(zip(kids0, kids)) if x is not y), min(len(kids0), len(kids)))
+    suf = next((k for k, (x, y) in enumerate(zip(reversed(kids0[pre:]), reversed(kids[pre:]))) if x is not y), min(len(kids0), len(kids)) - pre)
+    if pre + suf < max(len(kids0), len(kids)):
+        span += [pre, len(kids) - suf - 1]  # 지우기만이면 [pre, pre - 1] — 지운 자리의 앞뒤
+    if span:
+        lo, hi = max(0, min(span)), max(span)
         hosts = kids[max(0, lo - 1):hi + 2]  # 이웃 하나씩 더(지운 줄의 앞뒤)
     else:
         hosts = kids[:1]
@@ -951,8 +1159,9 @@ def _outline_run(s, ov, par, plan, extra, op, ids):
     if off is None and fid and fid in doc._ids and fid in ov["lines"]:
         off = outline_edit.prefix_len(doc._text(doc._ids[fid]), ov["lines"][fid]["letter"])
     extra.update({"lines": changed, "removed": removed, "new": new_ids, "focuses": plan.get("focuses")})
+    gone = [i for c in kids0 if c not in ix for i in s.kit["struct"].top_ids(doc, c)] if par in set(doc._sections) else []  # 지운 최상위 문단의 블록 id — 화면이 뺄 것(drop)
     return {"hosts": hosts, "focus": {"id": fid, "offset": off or 0} if fid else None, "struct": struct, "formatted": formatted, "origin": origin,
-            "anchor": ids[0], "log": {"op": op, "ids": ids, "new": new_ids, "removed": removed}}
+            "anchor": ids[0], "drop": gone, "log": {"op": op, "ids": ids, "new": new_ids, "removed": removed}}
 
 
 @app.get("/api/docs/{doc_id}/owpml")
@@ -968,7 +1177,19 @@ def owpml_now(doc_id: str):
 
 # ---- 작업 목록·기록 API(spec_작업 ② §6) ------------------------------------------------------------------
 
-WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify")
+WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task")  # commits = 마지막 확정 번호(② §8) · task = 고른 작업 종류(② §10 — 안 골랐으면 None)
+TASK = {"kind": ("", "rnd"), "file": ("", "plan", "report", "part"), "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+
+
+def _task(wid, blocks):
+    """작업의 task(② §10) — 고른 것(work.json)이 없으면 문서에서 짐작: 국가R&D 양식이면 연구개발과제, 첨부 파일 = 판정한 양식."""
+    t = (works.work(wid) or {}).get("task")
+    if not t:
+        form = PROFILE.form_of(blocks)
+        t = {"kind": "rnd" if form else "", "file": {"연구개발계획서": "plan", "연차보고서": "report"}.get(form, ""), "job": "", "project": ""}
+        if form:
+            works.update(wid, task=t)   # 짐작도 적어 둔다 — 문서 목록(상단 「다른 문서」·작업 목록)이 종류를 보이게
+    return t
 
 
 def _work_or_404(wid):
@@ -978,16 +1199,51 @@ def _work_or_404(wid):
     return w
 
 
+def _shown(w):
+    """작업(work.json)의 보이는 이름(② §10 「목적 문서의 보이는 이름」) — 과제에 묶인 목적 문서면 과제 이름을 뒤에 붙인 것, 아니면 올린 이름."""
+    return works.shown_name(w.get("name"), w.get("task"))
+
+
+def _shown_of(s):
+    """세션의 보이는 이름 — 저장된 이름(s.name)은 올린 그대로다(이어 열기·양식 판정이 그것을 본다)."""
+    return works.shown_name(s.name, (works.work(s.id) or {}).get("task"))
+
+
+def _work_view(w):
+    """작업 요약(WORK_KEYS) — name 은 보이는 이름."""
+    return {**{k: w.get(k) for k in WORK_KEYS}, "name": _shown(w)}
+
+
 @app.get("/api/works")
 def works_list():
     """작업 목록 — 최근 바뀐 차례. open = 지금 서버 메모리에 열려 있음."""
-    return [{**{k: w.get(k) for k in WORK_KEYS}, "open": w["id"] in DOCS} for w in works.list_works()]
+    return [{**_work_view(w), "open": w["id"] in DOCS} for w in works.list_works()]
+
+
+@app.put("/api/works/{wid}/task")
+def work_task(wid: str, body: dict = Body(...)):
+    """작업 종류·첨부 파일·할 일·과제(② §10) {kind, file, job, project} — work.json 에 저장만(문서·분석은 그대로).
+    과제 = 같은 이름(project)으로 묶인 작업들. 할 일은 과제에 하나: 과제에 들어온 문서는 그 과제의 할 일을 따르고, 과제 안에서 할 일을 바꾸면 묶인 문서 모두에 적는다."""
+    t = {k: body.get(k) or "" for k in TASK}
+    if any(t[k] not in TASK[k] for k in TASK) or not isinstance(body.get("project") or "", str):
+        raise HTTPException(400, "모르는 작업 종류 값입니다")
+    old = (_work_or_404(wid).get("task") or {}).get("project", "")
+    t["project"] = " ".join((body.get("project") or "").split())[:60]
+    mates = [w for w in works.list_works() if w["id"] != wid and (w.get("task") or {}).get("project") == t["project"]] if t["project"] else []
+    if mates and old != t["project"]:
+        t["job"] = mates[0]["task"].get("job") or t["job"]
+    if works.update(wid, task=t) is None:
+        raise HTTPException(404, "그런 작업이 없습니다")
+    for w in mates:
+        if w["task"].get("job", "") != t["job"]:
+            works.update(w["id"], task={**w["task"], "job": t["job"]})
+    return {"task": t}
 
 
 @app.get("/api/works/{wid}/log")
 def work_log(wid: str):
     w = _work_or_404(wid)
-    return {"work": {k: w.get(k) for k in WORK_KEYS}, "events": works.events(wid), "runs": works.runs(wid)}
+    return {"work": _work_view(w), "events": works.events(wid), "runs": works.runs(wid)}
 
 
 @app.get("/api/works/{wid}/headings-preview")
@@ -997,6 +1253,8 @@ def work_headings_preview(wid: str):
     result = heading_compare.preview(wid, DOCS.get(wid), WORK_KEYS)
     if result is None:
         raise HTTPException(404, "그런 작업이 없습니다")
+    if isinstance(result.get("work"), dict):
+        result["work"]["name"] = _shown(result["work"])   # 보이는 이름(② §10)
     return result
 
 
@@ -1016,8 +1274,8 @@ def work_file(wid: str, which: str):
     p = works.file_path(wid, which)
     if p is None:
         raise HTTPException(404, "그 파일이 없습니다")
-    ext = "." + w["format"]
-    stem = w["name"][:-len(ext)] if w["name"].lower().endswith(ext) else w["name"]
+    ext, shown = "." + w["format"], _shown(w)   # 올린 원본은 올린 이름 그대로, 편집본은 보이는 이름(② §10 「목적 문서의 보이는 이름」)에 꼬리
+    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
     name = w["name"] if which == "original" or p.name.startswith("original.") else f"{stem}_수정{ext}"
     return FileResponse(p, media_type=FORMATS[w["format"]]["mime"], filename=name)
 
@@ -1029,6 +1287,193 @@ def work_delete(wid: str):
     if s is None and not gone:
         raise HTTPException(404, "그런 작업이 없습니다")
     return {"ok": True}
+
+
+# ---- 확정(spec_작업 ② §8) — 고친 문단을 깃처럼: 확정 = 지금 상태를 한 시점으로 남기고 새 기준으로 · 확정 기록 · 버리기 · 이전 확정으로 복원 ----------
+
+COMMIT_KINDS = ("text", "format", "struct", "new", "removed")
+COMMIT_KEYS = ("n", "at", "message", "sha256", "size", "counts", "restoreOf")
+
+
+def _commits_on():
+    if not works.enabled():
+        raise HTTPException(400, "작업 저장이 꺼져 있어 확정 기능을 쓸 수 없습니다")
+
+
+def _dirty(s):
+    """확정하지 않은 변경이 있는지 — 고친 문단이 있거나 저장 바이트가 기준과 다름."""
+    return bool(s.edited()) or not s.pristine_file()
+
+
+def _commit_changes(s):
+    """기준 대비 변경 목록 [{id, kind, before, after}] — 문서 차례, 지운 문단은 끝에(세션 잠금 안)."""
+    kinds = s.kinds()
+    order = [i for i in s.texts if i in kinds] + [i for i in s.orig_texts if i in kinds and i not in s.texts]
+    order += [i for i in kinds if i not in s.texts and i not in s.orig_texts]
+    return [{"id": i, "kind": kinds[i], "before": s.orig_texts.get(i), "after": None if kinds[i] == "removed" else s.texts.get(i)}
+            for i in order]
+
+
+def _commit_counts(changes):
+    c = dict.fromkeys(COMMIT_KINDS, 0)
+    for x in changes:
+        c[x["kind"]] = c.get(x["kind"], 0) + 1
+    return {**c, "total": len(changes)}
+
+
+def _open_at(s, data, ids):
+    """(data, ids) 를 새로 연 문서와 그 블록 id 자리표(None = 올린 원본: blocks() 차례) — 번호표는 지금 세션 것보다 줄이지 않는다
+    (되돌린 뒤 새 문단이 옛 id 를 다시 쓰지 않게 — id 로 묶인 표 지침·추가한 자리가 다른 블록에 붙지 않는다)."""
+    doc = s.kit["cls"](data)
+    if ids is not None and not doc.adopt_ids(ids):
+        raise RuntimeError("블록 id 자리표가 그 확정의 문서와 맞지 않습니다")
+    doc.blocks()  # 모든 블록에 id — 자리표에서 빠지는 요소가 없게
+    doc._n = max(doc._n, s.doc._n)
+    return doc, doc.id_state()
+
+
+def _rebase(s, data, doc, ids, n, same=False):
+    """세션의 기준을 (바이트 data, 그것을 연 문서 doc, 블록 id 자리표 ids, 확정 번호 n) 으로 — 세션 잠금 안에서. 고침 집합·실행 취소를 비운다.
+    검증 결과·PDF·매핑은 옛 기준의 것이라 내린다(부른 쪽이 가져오기 검증을 다시 시작) — 돌던 검증은 gen 으로 끊는다(_JobView).
+    same = 기준 바이트·블록 id 가 그대로(버리기): 기준 쪽 결과(가져오기 검증·기준 PDF·쪽 매핑·표준 기준선)는 그대로 쓰고, 지난 출력파일 검증은
+    편집 차례(rev)가 달라 화면이 「검증 전」으로 본다 — 큰 문서에서 한글 PDF 를 다시 찍지 않는다."""
+    blocks = doc.blocks()
+    with s.glock:
+        if not same:
+            s.gen += 1
+            s.owpml_base = None
+            s.rebuilt, s.mapping, s.mapping_edited, s.pdf, s.jobs = None, None, None, {}, {}
+        s.original, s.base_ids, s.base_n = data, ids, n
+        s.doc, s.blocks = doc, blocks
+        s.orig_texts = verify.flat_texts(blocks)
+        s.texts = dict(s.orig_texts)
+        s.unrestored, s.formatted, s.struct, s.removed, s.origin = set(), set(), set(), set(), {}
+        s.pristine, s.undo = None, []
+    s.division["plan"] = None  # 계획의 사본 문서는 옛 기준 위의 것 — 다시 계획
+
+
+def _commit_view(c):
+    return {k: c.get(k) for k in COMMIT_KEYS}
+
+
+def _commit_zero(w):
+    """올린 원본 = 확정 0(확정 기록 맨 아래)."""
+    return {"n": 0, "at": w.get("created"), "message": "올린 원본", "sha256": w.get("sha256"), "size": w.get("size"), "counts": None, "restoreOf": None}
+
+
+@app.get("/api/docs/{doc_id}/commits")
+def commits_list(doc_id: str):
+    """확정 기록 — 최근 것부터, 끝에 올린 원본(n 0). base = 지금 기준, edited = 확정하지 않은 고친 문단 수."""
+    s = _sess(doc_id)
+    w = works.work(doc_id) or {"created": s.created, "size": len(s.original), "sha256": s.doc_key}
+    with s.lock:
+        base, edited = s.base_n, len(s.edited())
+    return {"base": base, "edited": edited, "enabled": works.enabled(),
+            "commits": [_commit_view(c) for c in reversed(works.commits(doc_id))] + [_commit_zero(w)]}
+
+
+@app.post("/api/docs/{doc_id}/commits")
+def commit_create(doc_id: str, body: dict = Body(default={})):
+    """확정 {message?} — 지금 편집 상태 전체를 한 시점으로 남기고 새 기준으로. 문서 글·블록 id 는 그대로(응답 = GET /api/docs/{id} + commit).
+    실행 취소 기록·구분 기준 계획·지난 검증 결과는 비우고 가져오기 검증을 새 기준으로 다시 돈다. 편집 차례(rev)는 그대로."""
+    _commits_on()
+    message = body.get("message") or ""
+    if not isinstance(message, str):
+        raise HTTPException(400, "message 는 글이어야 합니다")
+    message = " ".join(message.split())[:200]
+    s = _sess(doc_id)
+    with s.lock:
+        if not _dirty(s):
+            raise HTTPException(400, "확정할 변경이 없습니다")
+        s.doc.blocks()  # 모든 블록에 id 를 붙여 둔다 — 자리표에서 빠지는 요소가 없게
+        data = s.doc.save()
+        changes = _commit_changes(s)
+        counts = _commit_counts(changes)
+        try:
+            doc, ids = _open_at(s, data, s.doc.id_state())  # 확정본을 다시 연 문서 = 새 기준(같은 블록 id)
+            extra = {"ids": ids, "division": s.division["applied"], "outline": s.outline, "changes": changes}
+            c = works.add_commit(s.id, s.fmt, data, {"message": message, "counts": counts, "parent": s.base_n}, extra)
+        except (OSError, TypeError, ValueError, RuntimeError) as e:
+            raise HTTPException(500, f"확정을 작업 폴더에 쓰지 못했습니다: {e}") from e
+        if c is None:
+            raise HTTPException(404, "작업 폴더가 없습니다(지운 작업)")
+        _rebase(s, data, doc, ids, c["n"])
+        works.log(s.id, "commit", rev=s.rev, n=c["n"], message=message, counts=counts, sha256=c["sha256"])
+        _start(s, "import", verify.run_import)  # 새 기준의 PDF·쪽 매핑·표준 검사 기준선
+    _persist_safe(s, force=True)  # rev 는 그대로지만 기준(base)이 바뀌었다
+    return {**get_doc(doc_id), "commit": _commit_view(c)}  # 화면은 다시 그리지 않고 블록 표·원래 글만 새 기준으로 바꾼다
+
+
+@app.post("/api/docs/{doc_id}/commits/{n}/restore")
+def commit_restore(doc_id: str, n: int, body: dict = Body(default={})):
+    """확정 n(0 = 올린 원본) 상태로 되돌린다 {discard?}. n 이 지금 기준이면 「버리기」(확정하지 않은 변경만 버림 — 확정이 새로 안 생김),
+    아니면 그 상태를 새 확정으로 남긴다(기록은 한 줄로만 자람). 확정하지 않은 변경이 있으면 discard 가 있어야(409). 응답 = GET /api/docs/{id} + commit."""
+    _commits_on()
+    s = _sess(doc_id)
+    with s.lock:
+        dirty, count = _dirty(s), len(s.edited())
+        if n == s.base_n and not dirty:
+            raise HTTPException(400, "이미 그 확정 상태입니다")
+        if dirty and not body.get("discard"):
+            raise HTTPException(409, f"확정하지 않은 변경이 있습니다(고친 문단 {count}개) — 먼저 확정하거나 버리세요")
+        c = None
+        extra = (works.commit_data(s.id, n) or {}) if n else {}
+        try:
+            if n == s.base_n:  # 버리기 — 기준 그대로, 문서만 기준 상태로
+                data = s.original
+                doc, ids = _open_at(s, data, s.base_ids)
+            else:
+                data = works.commit_bytes(s.id, n)
+                if data is None or (n and not isinstance(extra.get("ids"), dict)):
+                    raise HTTPException(404, "그 확정이 없거나 파일을 읽지 못했습니다")
+                doc, ids = _open_at(s, data, extra.get("ids"))
+                meta = {"message": f"확정 {n} 로 복원" if n else "올린 원본으로 복원", "counts": None, "parent": s.base_n, "restoreOf": n}
+                c = works.add_commit(s.id, s.fmt, data, meta, {"ids": ids, "division": extra.get("division"), "outline": extra.get("outline"),
+                                                                "changes": []})
+                if c is None:
+                    raise HTTPException(404, "작업 폴더가 없습니다(지운 작업)")
+        except (OSError, TypeError, ValueError, RuntimeError) as e:
+            raise HTTPException(500, f"그 확정 상태로 되돌리지 못했습니다: {e}") from e
+        _rebase(s, data, doc, ids, c["n"] if c else n, same=c is None)
+        _commit_state(s, extra)
+        s.division["hints"] = [h for h in s.division.get("hints") or []  # 추가한 자리는 그 문단이 되돌린 문서에 있는 것만
+                               if s.doc._attached(s.doc._ids.get(h.get("para")))]
+        _outline_sync(s)
+        s.owpml_last = None
+        if c:
+            _bump(s, "restore", n=c["n"], of=n, discarded=count)
+        else:
+            _bump(s, "discard", base=n, count=count)
+        if "import" not in s.jobs:  # 기준이 바뀜(복원) — 새 기준의 PDF·쪽 매핑. 버리기는 기준이 그대로라 지난 가져오기 검증을 그대로 쓴다
+            _start(s, "import", verify.run_import)
+    _persist_safe(s, force=True)
+    return {**get_doc(doc_id), "commit": _commit_view(c) if c else None}
+
+
+@app.get("/api/works/{wid}/commits/{n}")
+def commit_detail(wid: str, n: int, limit: int = 200):
+    """확정 하나의 요약 + 변경 목록(앞 limit 개, more = 남은 수)."""
+    w = _work_or_404(wid)
+    if n == 0:
+        return {**_commit_zero(w), "changes": [], "more": 0}
+    c = works.commit(wid, n)
+    if c is None:
+        raise HTTPException(404, "그 확정이 없습니다")
+    changes = (works.commit_data(wid, n) or {}).get("changes") or []
+    limit = max(1, min(limit, 2000))
+    return {**_commit_view(c), "changes": changes[:limit], "more": max(0, len(changes) - limit)}
+
+
+@app.get("/api/works/{wid}/commits/{n}/file")
+def commit_file(wid: str, n: int):
+    """그 확정의 파일 — 0 = 올린 원본(이름 그대로), 그 밖은 <이름>_확정<n>.<ext>."""
+    w = _work_or_404(wid)
+    p = works.commit_path(wid, n)
+    if p is None:
+        raise HTTPException(404, "그 확정의 파일이 없습니다")
+    ext, shown = "." + w["format"], _shown(w)   # 0 = 올린 파일 그대로, 그 밖은 보이는 이름(② §10)에 꼬리
+    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
+    return FileResponse(p, media_type=FORMATS[w["format"]]["mime"], filename=w["name"] if n == 0 else f"{stem}_확정{n}{ext}")
 
 
 # ---- 헤딩 추출(spec_헤딩_추출 ② §7) — 세션마다 헤딩 작업 하나, 검증 작업(s.jobs)과 따로 ---------------------------------
@@ -1049,16 +1494,18 @@ def headings_state(doc_id: str):
 
 @app.post("/api/docs/{doc_id}/headings", status_code=202)
 def headings_start(doc_id: str, body: dict = Body(default={})):
-    """{stage: 1|2|3, llm: bool} — 뒤 스레드로 시작(돌고 있으면 409). 3 = 표 구조(spec_헤딩_추출 ② §8)."""
+    """{stage: 1|2|3, llm: bool} — 뒤 스레드로 시작(돌고 있으면 409). 3 = 표 구조(spec_헤딩_추출 ② §8).
+    {first: true} = 첫 분석(spec_작업 ② §9) — 2단계 → 3단계를 스크립트만으로 한 작업에(이미 결과가 있는 단계는 건너뜀), stage·llm 은 안 본다."""
     s = _sess(doc_id)
     _heads_hwpx(s)
-    stage, use_llm = body.get("stage", 1), body.get("llm", False)
+    first = body.get("first") is True
+    stage, use_llm = (3, False) if first else (body.get("stage", 1), body.get("llm", False))
     if type(stage) is not int or stage not in (1, 2, 3):  # true·1.0·"1" 은 거절
         raise HTTPException(400, "stage 는 1·2·3")
     if not isinstance(use_llm, bool):  # "false" 를 참으로 읽어 LLM 을 돌리지 않게
         raise HTTPException(400, "llm 은 true 또는 false")
     try:
-        job = heading_runs.start(s, stage, use_llm)
+        job = heading_runs.start(s, stage, use_llm, **({"first": True} if first else {}))
     except heading_runs.Busy as e:
         raise HTTPException(409, str(e)) from e
     return job.view()
@@ -1114,6 +1561,37 @@ def headings_table_xlsx(doc_id: str, tid: str):
 
 # ---- 표 모듈 끝점은 app/tables_api.py(표 지침·사용자 수식 — spec_헤딩_추출 ② §10 「모듈」, 사용자 "본문 따로, 테이블 따로") ----------------------------------------
 app.include_router(tables_api.router)
+
+# ---- 양식 정보 끝점은 app/heading_forms_api.py(양식마다 md 하나 — 일반 지침과 따로, spec_헤딩_추출 ② §12) ----------------------------------------
+from app import heading_forms_api  # noqa: E402
+
+app.include_router(heading_forms_api.router)
+
+# ---- 구분 라벨 지정 끝점은 app/heading_labels_api.py(괄호 줄 → 구분 라벨·괄호 소제목, spec_헤딩_추출 ② §13) ----------------------------------------
+from app import heading_labels_api  # noqa: E402
+
+app.include_router(heading_labels_api.router)
+
+# ---- TEMP 라벨 끝점은 app/heading_temp_api.py(표 안 작성요령·쓸 자리 — 목록·지정/해제·문서에서 지우기, spec_헤딩_추출 ② §15) ----------------------------------------
+from app import heading_temp_api  # noqa: E402
+
+app.include_router(heading_temp_api.router)
+
+# ---- 개요 줄 자리 규칙 끝점은 app/outline_format_api.py(템플릿 레벨의 레터 위치·둘째 줄 — 그 레벨 줄 모두에 적용, spec_hwpx_웹편집 ② §8-1) ----------------------------------------
+from app import outline_format_api  # noqa: E402
+
+app.include_router(outline_format_api.router)
+
+# ---- 뼈대 유지 끝점은 app/heading_drift_api.py(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림, spec_헤딩_추출 ② §17) ----------------------------------------
+from app import heading_drift_api  # noqa: E402
+
+app.include_router(heading_drift_api.router)
+
+# ---- 병합 — 자리 연결 끝점은 app/merge_api.py(spec_병합 ② §8) ----
+from app import merge_api  # noqa: E402
+
+app.include_router(merge_api.router)
+app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
 
 
 def _rules_view():
@@ -1214,7 +1692,7 @@ def headings_guide_reset(name: str):
 
 @app.get("/api/headings/history")
 def headings_history(kind: str = None, limit: int = 200):
-    return heading_rules.history(kind if kind in ("rules", "guide") else None, max(1, min(limit, 1000)))
+    return heading_rules.history(kind if kind in ("rules", "guide", "form") else None, max(1, min(limit, 1000)))  # form = 양식 정보 저장(② §12)
 
 
 @app.get("/api/headings/llm")
@@ -1222,7 +1700,7 @@ def headings_llm():
     return llm.status()
 
 
-# ---- 구분 기준(spec_구분_기준 ② §7) — 설정 · 계획(사본 모의 실행) · 반영(공통 트랜잭션 + 문서 전체 검사) · 문서에서 읽기 · 저장한 기준 ----------------
+# ---- 구분 기준(spec_구분_기준 ② §7) — 설정 · 계획(사본 모의 실행) · 반영(공통 트랜잭션 + 문서 전체 검사) · 문서에서 읽기 · 저장한 과제 구성(presets) ----------------
 
 PROFILE = division_profiles.get("rnd")   # 1차 프로파일 하나(국가R&D) — 문서마다 고르게 되면 settings.profileId 로
 
@@ -1234,6 +1712,32 @@ def _division_settings(body):
         raise HTTPException(400, f"구분 값 오류: {e}") from e
 
 
+PRIOR_MAX = 12   # 앞서 반영한 값은 이만큼까지(옛 것부터 버림)
+
+
+def _division_prior(s):
+    """앞서 이 문서에 반영한 값들(spec_구분_기준 ② §19 — 옛 것부터, 엔진의 prior 인자): 그 값의 기관 이름·연도가 적힌 자리는 반영이 쓴 것이라
+    지금 값과 달라도 자리 차례로 다시 맞춘다. 반영할 때마다 쌓고(divisions_apply) 편집 상태와 함께 저장 — 실행 취소·복원에도 줄이지 않는다.
+    목록이 없는 작업(이 규칙 전에 반영)은 작업 폴더의 반영 상세 기록(`divisions/<계획 id>.json` 의 values)에서 한 번 모은다. 세션 잠금 안에서."""
+    prior = s.division.get("prior")
+    if prior is None:
+        prior = []
+        for rec in works.detail_records(s.id, "divisions"):
+            if rec.get("appliedRev") is None or not isinstance(rec.get("values"), dict):
+                continue   # 검토·LLM 기록
+            try:
+                v = PROFILE.norm_values(rec["values"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            if v not in prior:
+                prior.append(v)
+        a = s.division.get("applied")
+        if a and isinstance(a.get("values"), dict) and a["values"] not in prior:
+            prior.append(a["values"])
+        s.division["prior"] = prior = prior[-PRIOR_MAX:]
+    return prior
+
+
 def _division_view(s):
     """GET …/divisions 의 몸통(세션 잠금 안에서) — 프로파일·양식 판정·입력 중 설정(+파생 뷰)·마지막 적용·마지막 계획 요약·오래됨."""
     form = PROFILE.form_of(s.doc.blocks())
@@ -1243,7 +1747,18 @@ def _division_view(s):
             "settings": settings, "dimensions": PROFILE.dimensions(settings["values"]) if settings else None,
             "applied": s.division["applied"], "plan": division_plan.brief(plan) if plan else None,
             "hints": s.division.get("hints") or [],   # 추가한 자리(② §11) — 수·출처만 쓰고 상세는 members
+            "review": s.division.get("review"), "reviewing": bool(s.division.get("reviewing")),   # 마지막 LLM 검토(취합)·도는 중(② §14)
             "stale": bool(plan) and plan["baseRev"] != s.rev, "rev": s.rev}
+
+
+def _division_form(s):
+    """이 문서의 양식 정보(heading_forms.pin 꼴 {key, name, how, sha1, text} | None — spec_헤딩_추출 ② §12): 구분 기준 LLM 검토의 프롬프트에 붙고(spec_구분_기준 ② §16)
+    화면의 「양식 정보」 단추 이름이 된다. 세션 잠금 밖에서 부른다(양식 폴더·작업 파일을 읽음). 못 읽으면 None."""
+    from app import heading_forms
+    try:
+        return heading_forms.pin(s)
+    except (OSError, ValueError):
+        return None
 
 
 @app.get("/api/docs/{doc_id}/divisions")
@@ -1251,7 +1766,11 @@ def divisions_get(doc_id: str):
     s = _sess(doc_id)
     with s.lock:
         view = _division_view(s)
-    return {**view, "presets": division_presets.listing()}
+    from app import heading_forms
+    form = _division_form(s)
+    ps = division_presets.state()   # 저장한 과제 구성(② §7·§8) — 파일이 손상되면 빈 목록 + presetsBroken
+    return {**view, "presets": ps["presets"], "presetsBroken": ps["broken"], "formInfo": {k: form[k] for k in ("key", "name", "how")} if form else None,
+            "comments": heading_forms.comments(form["text"]) if form else []}   # 양식별 코멘트(② §18) — 맞는 양식이 없으면 []
 
 
 @app.put("/api/docs/{doc_id}/divisions/settings")
@@ -1294,19 +1813,30 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
         settings = settings or s.division["settings"]
         if settings is None:
             raise HTTPException(400, "구분 값을 먼저 넣으세요")
+        changed = division_model.settings_hash(settings) != (division_model.settings_hash(s.division["settings"]) if s.division["settings"] else None)
         s.division["settings"] = settings
         rev = s.rev
         applied = s.division["applied"]
         rebuild = not (applied and applied.get("values") == settings["values"])  # 같은 값을 이미 전체 반영한 문서면 자리표시를 다시 본뜨지 않음(FMM divisionsDone)
         hints = [h["para"] for h in s.division.get("hints") or [] if h.get("para")]   # 추가한 자리(② §11) — 후보·모의 실행에
+        prior = list(_division_prior(s))   # 앞서 반영한 값들(② §19) — 이름·연도를 바꾼 값으로 다시 반영할 때 옛 자리를 알아봄
         copy_doc, snap = division_plan.snapshot_copy(s.kit, s.original, s.doc)
     try:
-        plan = division_plan.make(s.kit, s.original, copy_doc, rev, settings, PROFILE, only=only, skip=skip, rebuild=rebuild, copy=(copy_doc, snap), hints=hints)
+        plan = division_plan.make(s.kit, s.original, copy_doc, rev, settings, PROFILE, only=only, skip=skip, rebuild=rebuild, copy=(copy_doc, snap), hints=hints,
+                                  prior=prior)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     with s.lock:
         s.division["plan"] = plan
         stale = plan["baseRev"] != s.rev
+        a = s.division["applied"]
+        # 지금 규칙(프로파일 판)으로 다시 계획했는데 할 일이 없음 = 마지막 반영이 새 규칙에도 맞는다 — 판을 올려 화면의 「새 규칙 — 계획 확인」 을 끈다(② §16). 자리를 빼거나 한 자리만 본 계획은 아님
+        confirmed = bool(a and not stale and only is None and not skip and a.get("values") == plan["values"] and a.get("profileVersion") != plan["profileVersion"]
+                         and not plan["_report"]["groups"] and not plan["_report"]["changes"])
+        if confirmed:
+            s.division["applied"] = {**a, "profileVersion": plan["profileVersion"]}
+    if confirmed or changed:   # 설정이 바뀌었으면 작업에도 — 문서 차례가 그대로면 주기 저장이 건너뛰어 계획만 본 값이 디스크에 안 남았음(② §8 자동 저장, 2026-11-11 astra P1)
+        _persist_safe(s, force=True)
     works.log(s.id, "divisionPlan", rev=rev, planId=plan["planId"], settingsHash=plan["settingsHash"], only=only, skip=skip, summary=plan["summary"])
     return {**division_plan.view(plan), "stale": stale, "rev": s.rev}
 
@@ -1337,6 +1867,7 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
         s.division["plan"] = None
         if after is None:
             return out
+        s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]   # 반영한 값 쌓기(② §19)
         s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
                                  "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": plan["summary"]}
         detail = works.add_detail(s.id, "divisions", plan["planId"], {**division_plan.view(plan), "appliedRev": s.rev})
@@ -1373,7 +1904,7 @@ def divisions_members(doc_id: str):
     with s.lock:
         blocks = s.doc.blocks()
         form = PROFILE.form_of(blocks)
-        m = PROFILE.members(blocks, PROFILE.levels_of(blocks), _division_values(s), s.division.get("hints") or [])
+        m = PROFILE.members(blocks, PROFILE.levels_of(blocks), _division_values(s), s.division.get("hints") or [], prior=_division_prior(s))
         return {**m, "rev": s.rev, "form": form, "supported": PROFILE.supported(form)}
 
 
@@ -1416,6 +1947,49 @@ def divisions_hint_delete(doc_id: str, hid: str):
     return out
 
 
+@app.post("/api/docs/{doc_id}/divisions/comments")
+def divisions_comment(doc_id: str, body: dict = Body(...)):
+    """양식별 코멘트 하나 {text}(② §18) → {formInfo {key, name, how}, comments [{date, text}], created} — 이 문서의 양식 정보 「구분 기준 자리」 절 코멘트 목록 끝에 한 줄.
+    맞는 양식이 없으면 프로파일이 판정한 양식 이름(없으면 파일 이름에서 낸 키)으로 코멘트만 든 파일을 만들어(같은 키의 파일이 있으면 거기에 붙여) 이 문서의 양식으로 고른다.
+    세션 상태(rev·계획·추가한 자리)는 안 바꾼다. 고치기·지우기는 「양식 정보」 편집기에서."""
+    from app import heading_forms as F
+    s = _sess(doc_id)
+    try:
+        text = F.comment_line(body.get("text"))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if F.forms_dir() is None:
+        raise HTTPException(503, "양식 정보 저장이 꺼져 있어 코멘트를 남길 수 없습니다(NFM_FORMS)")
+    with s.lock:
+        name = PROFILE.form_of(s.doc.blocks())
+    date = time.strftime("%Y-%m-%d")
+    try:
+        for again in (True, False):   # 그 사이 다른 곳에서 고쳐 sha 가 어긋나면 한 번 다시 읽어 붙인다
+            form, created = F.pin(s), False
+            if form is None:
+                new = F.bare(name or s.name, F.doc_sha(s))
+                try:
+                    form = F.get(new["key"])   # 조건이 안 맞았을 뿐 같은 키의 파일이 있다 — 거기에 붙인다
+                except KeyError:
+                    form, created = {**new, "sha1": ""}, True
+            try:
+                saved = F.save(form["key"], F.add_comment(form["text"], text, date), expect=form["sha1"], reason="구분 기준 코멘트")
+                break
+            except heading_rules.StaleVersion:
+                if not again:
+                    raise
+    except (heading_rules.StaleVersion, ValueError, OSError) as e:   # 깨진 조건 블록·글 한도(20,000자)도 여기 — 코멘트 글 탓이 아니다
+        raise HTTPException(503, f"코멘트를 양식 정보에 남기지 못했습니다: {e}") from e
+    how = form.get("how")
+    if how is None:   # 맞지 않던 양식 — 이 문서의 양식으로 고른다(화면이 새 양식을 저장한 뒤 하는 것과 같음)
+        how = "manual"
+        try:
+            F.set_choice(s.id, saved["key"])
+        except (KeyError, ValueError, OSError):   # 못 적어도 코멘트는 남았다(새 파일은 sha256 조건으로 맞는다)
+            pass
+    return {"formInfo": {"key": saved["key"], "name": saved["name"], "how": how}, "comments": F.comments(saved["text"]), "created": created}
+
+
 @app.post("/api/docs/{doc_id}/divisions/llm_review")
 def divisions_llm_review(doc_id: str, body: dict = Body(default={})):
     """LLM 재검토(② §11) — 추가한 자리·묶음·후보를 보내 hint 층을 고친다(동기, 수십 초). 자료는 잠금 안에서, 호출은 잠금 밖, 반영은 잠금 안(문서가 바뀌었으면 409)."""
@@ -1427,12 +2001,12 @@ def divisions_llm_review(doc_id: str, body: dict = Body(default={})):
         blocks = s.doc.blocks()
         lv = PROFILE.levels_of(blocks)
         values = _division_values(s)
-        groups = PROFILE.find(blocks, lv, values, hints=[h["para"] for h in hints])
+        groups = PROFILE.find(blocks, lv, values, hints=[h["para"] for h in hints], prior=_division_prior(s))
         payload = division_llm.data(blocks, lv, values, hints, groups, PROFILE.value_text)
         rev = s.rev
-    res = division_llm.ask(payload, effort=body.get("effort") or "medium")
+    res = division_llm.ask(payload, effort=body.get("effort") or "medium", form=_division_form(s))   # 양식 정보 절(② §16)
     name = f"llm_{int(time.time())}"
-    record = {"rev": rev, "payload": payload, "prompt": res["prompt"], "response": res["data"], "call": res["call"]}
+    record = {"rev": rev, "payload": payload, "prompt": res["prompt"], "response": res["data"], "call": res["call"], "form": res.get("form")}
     if not res["data"]:
         works.add_detail(s.id, "divisions", name, record)
         works.log(s.id, "divisionLlm", rev=rev, error=res["call"].get("error"), ms=res["call"].get("ms"))
@@ -1445,7 +2019,8 @@ def divisions_llm_review(doc_id: str, body: dict = Body(default={})):
         s.division["hints"] = new_hints
         if applied:
             s.division["plan"] = None
-        out = {"hints": list(new_hints), "applied": applied, "skipped": skipped, "summary": res["data"].get("summary") or "", "call": res["call"], "rev": s.rev}
+        out = {"hints": list(new_hints), "applied": applied, "skipped": skipped, "summary": res["data"].get("summary") or "", "call": res["call"], "rev": s.rev,
+               "form": res.get("form")}
     out["detail"] = works.add_detail(s.id, "divisions", name, {**record, "applied": applied, "skipped": skipped})
     works.log(s.id, "divisionLlm", rev=rev, applied=len(applied), skipped=len(skipped), backend=res["call"].get("backend"), ms=res["call"].get("ms"),
               costUsd=res["call"].get("costUsd"))
@@ -1462,15 +2037,16 @@ def divisions_llm_missing(doc_id: str, body: dict = Body(default={})):
         blocks = s.doc.blocks()
         lv = PROFILE.levels_of(blocks)
         values = _division_values(s)
-        groups = PROFILE.find(blocks, lv, values, hints=[h["para"] for h in s.division.get("hints") or [] if h.get("para")])
+        groups = PROFILE.find(blocks, lv, values, hints=[h["para"] for h in s.division.get("hints") or [] if h.get("para")], prior=_division_prior(s))
         payload = division_llm.missing_data(blocks, lv, values, groups, PROFILE.value_text)
         rev = s.rev
     sent = {"tables": len(payload["tables"]), "paragraphs": len(payload["paragraphs"])}
     if not payload["tables"] and not payload["paragraphs"]:
-        return {"missing": [], "skipped": [], "summary": "묶음 밖에 구분 낱말이 든 표·문단이 없습니다", "sent": sent, "call": None, "detail": None, "rev": rev}
-    res = division_llm.ask_missing(payload, effort=body.get("effort") or "medium")
+        return {"missing": [], "skipped": [], "summary": "묶음 밖에 구분 낱말이 든 표·문단이 없습니다", "sent": sent, "call": None, "detail": None, "rev": rev,
+                "form": None}
+    res = division_llm.ask_missing(payload, effort=body.get("effort") or "medium", form=_division_form(s))   # 양식 정보 절(② §16)
     name = f"missing_{int(time.time())}"
-    record = {"rev": rev, "payload": payload, "prompt": res["prompt"], "response": res["data"], "call": res["call"]}
+    record = {"rev": rev, "payload": payload, "prompt": res["prompt"], "response": res["data"], "call": res["call"], "form": res.get("form")}
     if not res["data"]:
         works.add_detail(s.id, "divisions", name, record)
         works.log(s.id, "divisionMissing", rev=rev, error=res["call"].get("error"), ms=res["call"].get("ms"), **sent)
@@ -1479,19 +2055,118 @@ def divisions_llm_missing(doc_id: str, body: dict = Body(default={})):
     detail = works.add_detail(s.id, "divisions", name, {**record, "missing": items, "skipped": skipped})
     works.log(s.id, "divisionMissing", rev=rev, found=len(items), skipped=len(skipped), backend=res["call"].get("backend"), ms=res["call"].get("ms"),
               costUsd=res["call"].get("costUsd"), **sent)
-    return {"missing": items, "skipped": skipped, "summary": res["data"].get("summary") or "", "sent": sent, "call": res["call"], "detail": detail, "rev": rev}
+    return {"missing": items, "skipped": skipped, "summary": res["data"].get("summary") or "", "sent": sent, "call": res["call"], "detail": detail, "rev": rev,
+            "form": res.get("form")}
+
+
+@app.post("/api/docs/{doc_id}/divisions/review")
+def divisions_review(doc_id: str, body: dict = Body(default={})):
+    """LLM 검토(spec_구분_기준 ② §14) — 재검토(§11 — 표시한 자리가 있을 때만)와 빠진 자리 검토(§13)를 **동시에** 돌려 한 목록(items)으로. 자료는 잠금 안에서 한 번에(같은 rev),
+    호출은 잠금 밖 스레드 둘, 재검토의 반영은 잠금 안에서 rev 가 그대로일 때만. 마지막 결과는 세션에 두고 작업에 저장한다(GET …/divisions 의 review).
+    auto = 새 작업의 첫 분석(spec_작업 ② §9) — 이미 검토했거나 지원 양식이 아니거나 LLM 연결이 없으면 호출 없이 {skipped}. 부른 검토가 모두 답이 없으면 502, 돌고 있으면 409."""
+    s = _sess(doc_id)
+    auto, effort = body.get("auto") is True, body.get("effort") or "medium"
+    with s.lock:
+        if s.division.get("reviewing"):
+            raise HTTPException(409, "LLM 검토가 이미 돌고 있습니다")
+        blocks = s.doc.blocks()
+        if auto:
+            why = ("done" if s.division.get("review") else "unsupported" if not PROFILE.supported(PROFILE.form_of(blocks))
+                   else "llm" if not llm.status().get("available") else None)
+            if why:
+                return {"skipped": why, "review": s.division.get("review")}
+        hints = copy.deepcopy(s.division.get("hints") or [])
+        lv = PROFILE.levels_of(blocks)
+        values = _division_values(s)
+        settings, applied0 = s.division["settings"], s.division["applied"]
+        rebuild = not (settings and applied0 and applied0.get("values") == settings["values"])   # 계획과 같은 기준(divisions_plan) — 같은 값을 이미 반영한 문서면 자리표시를 다시 본뜨지 않음
+        groups = PROFILE.find(blocks, lv, values, rebuild=rebuild, hints=[h["para"] for h in hints if h.get("para")], prior=_division_prior(s))
+        pending = PROFILE.pending(groups) if settings else None   # 값과 아직 안 맞는 묶음(스크립트 — ② §16 「검토에 보이게」), 값을 안 넣었으면 모름
+        p_review = division_llm.data(blocks, lv, values, hints, groups, PROFILE.value_text) if hints else None
+        p_missing = division_llm.missing_data(blocks, lv, values, groups, PROFILE.value_text)
+        sent = {"tables": len(p_missing["tables"]), "paragraphs": len(p_missing["paragraphs"])}
+        if not p_missing["tables"] and not p_missing["paragraphs"]:
+            p_missing = None
+        rev = s.rev
+        s.division["reviewing"] = True
+    try:
+        t0 = time.time()
+        form = _division_form(s)   # 이 문서의 양식 정보 — 두 검토의 프롬프트에(② §16)
+
+        def ask(fn, payload):  # → {"data", "prompt", "call"} | None(안 부름) — 예외도 답 없음으로
+            if payload is None:
+                return None
+            try:
+                return fn(payload, effort=effort, form=form)
+            except Exception as e:  # noqa: BLE001
+                return {"data": None, "prompt": "", "call": {"error": f"{type(e).__name__}: {e}"}}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="division-review") as ex:
+            f_r, f_m = ex.submit(ask, division_llm.ask, p_review), ex.submit(ask, division_llm.ask_missing, p_missing)
+            res_r, res_m = f_r.result(), f_m.result()
+        why, errors = {}, {}
+        if p_review is None:
+            why["review"] = "표시한 자리가 없습니다"
+        if p_missing is None:
+            why["missing"] = "묶음 밖에 구분 낱말이 든 표·문단이 없습니다"
+        for k, res in (("review", res_r), ("missing", res_m)):
+            if res is not None and not res["data"]:
+                errors[k] = res["call"].get("error") or "응답 없음"
+        ran = {"review": bool(res_r and res_r["data"]), "missing": bool(res_m and res_m["data"])}
+        name = f"review_{int(time.time())}"
+        used = next((res["form"] for res in (res_r, res_m) if res and res.get("form")), None)   # 실제로 프롬프트에 붙은 양식 글 {key, name, sha1}
+        record = {"rev": rev, "auto": auto, "form": used, "pending": pending,
+                  **{k: res and {"payload": p, "prompt": res["prompt"], "response": res["data"], "call": res["call"]}
+                     for k, res, p in (("review", res_r, p_review), ("missing", res_m, p_missing))}}
+        if (res_r or res_m) and not ran["review"] and not ran["missing"]:  # 부른 검토가 모두 답이 없음
+            works.add_detail(s.id, "divisions", name, record)
+            works.log(s.id, "divisionReview", rev=rev, auto=auto, ran=ran, errors=errors)
+            raise HTTPException(502, "LLM 검토에 답을 못 받았습니다: " + " · ".join(f"{'재검토' if k == 'review' else '빠진 자리'} — {v}" for k, v in errors.items()))
+        with s.lock:
+            old_hints = list(s.division.get("hints") or [])
+            idx = division_llm.index(s.doc.blocks())
+            applied, part_r, part_m = [], None, None
+            if ran["review"]:
+                if s.rev != rev:
+                    ran["review"], errors["review"] = False, "검토하는 동안 문서가 바뀌어 재검토 결과는 반영하지 않았습니다"
+                else:
+                    new_hints, applied, skipped = division_llm.apply_revisions(old_hints, res_r["data"].get("revisions"), idx, PROFILE.hint_read)
+                    s.division["hints"] = new_hints
+                    if applied:
+                        s.division["plan"] = None
+                    part_r = {"applied": applied, "skipped": skipped, "summary": res_r["data"].get("summary") or "", "call": res_r["call"]}
+            if ran["missing"]:
+                items_m, skipped_m = division_llm.check_missing(res_m["data"], p_missing)
+                part_m = {"missing": items_m, "skipped": skipped_m, "summary": res_m["data"].get("summary") or "", "sent": sent, "call": res_m["call"]}
+            hints_now = list(s.division.get("hints") or [])
+            para_of = {h["id"]: h.get("para") for h in [*old_hints, *hints_now] if h.get("id")}
+            cost = sum((res["call"].get("costUsd") or 0) for res in (res_r, res_m) if res)
+            out = {"at": time.time(), "rev": rev, "ran": ran, "why": why, "errors": errors, "review": part_r, "missing": part_m,
+                   "items": division_llm.merge_review(applied, (part_m or {}).get("missing"), idx, para_of),
+                   "pending": pending, "form": used,   # ② §16 — 값과 아직 안 맞는 묶음(스크립트) · 프롬프트에 붙은 양식 정보
+                   "costUsd": round(cost, 4), "ms": int((time.time() - t0) * 1000)}
+            s.division["review"] = out
+        detail = works.add_detail(s.id, "divisions", name, {**record, "result": out})
+        works.log(s.id, "divisionReview", rev=rev, auto=auto, ran=ran, applied=len(applied), found=len((part_m or {}).get("missing") or []), items=len(out["items"]),
+                  ms=out["ms"], costUsd=out["costUsd"], **({"errors": errors} if errors else {}))
+    finally:
+        s.division["reviewing"] = False
+    _persist_safe(s, force=True)
+    return {**out, "hints": hints_now, "detail": detail}
 
 
 @app.get("/api/divisions/presets")
 def division_presets_list():
-    return {"presets": division_presets.listing()}
+    """저장한 과제 구성(② §7) → {presets, broken} — broken = 파일 손상(빈 목록으로 보이고 저장·삭제는 503)."""
+    return division_presets.state()
 
 
 @app.put("/api/divisions/presets/{pid}")
 def division_presets_put(pid: str, body: dict = Body(...)):
-    """{name, values, profileId?} — pid "new" 면 새로. 틀리면 400, 같은 이름 409, 없는 id 404."""
+    """{name, values, profileId?} — pid "new" 면 새로. 틀리면 400, 같은 이름 409, 없는 id 404, 저장 파일 손상 503(고치지 않음)."""
     try:
         return division_presets.put(pid, body.get("name"), body.get("values"), body.get("profileId") or PROFILE.ID)
+    except division_presets.Broken as e:
+        raise HTTPException(503, str(e)) from e
     except division_presets.Conflict as e:
         raise HTTPException(409, str(e)) from e
     except KeyError as e:
@@ -1506,6 +2181,8 @@ def division_presets_put(pid: str, body: dict = Body(...)):
 def division_presets_delete(pid: str):
     try:
         return {"deleted": division_presets.delete(pid)}
+    except division_presets.Broken as e:
+        raise HTTPException(503, str(e)) from e
     except KeyError as e:
         raise HTTPException(404, f"없는 항목: {e}") from e
     except OSError as e:

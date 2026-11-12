@@ -2,20 +2,41 @@
 // 표 모듈(spec_헤딩_추출 ② §10 「모듈」) — 본문(app.js)과 따로, 문서의 표만 다룬다(사용자 2026-11-10 "본문 따로, 테이블 따로"):
 // 표 식별 표지(.tbl-mark) · 엑셀식 보기(2열 kind "xl" · 문서 자리 .xl-wrap — A1 격자 · 수식 엔진 · 문서에 반영) · 표 지침(2열 kind "tableAgent", 표 에이전트 입력) · 「표」 탭(#paneTables).
 // app.js 가 주는 것: state·heads(view·tbl·xl·dlg·seq)·$·el·api·toast·hBtn·hTable·hCell·hFoot·headsDlg·headsColClose·headsGo·headsShow·headsStart·headsLlmTables·headsTables·headsParaLink·
-// headsCard3·colLetter·basisNames·ownerLabel·short·oneLine·nf·hasBlock·renderPara·applyServer·refreshSaveState·updateEdits·fmtWhen·H_JSON·LS.
-// app.js 가 부르는 것(typeof 검사 뒤): tblMarksDraw(paginate 끝·headsRender 끝) · tblMarksOn/tblMarksToggle(3단계 카드) · tblAgentView·xlColumn(표 보기 격자) · tblAgentLeave·xlColumnClosed(headsColClose) ·
-// tablesShow(탭 열 때)·tablesReset(문서 열고 닫을 때). 서버 짝은 app/tables_api.py(끝점)·app/table_agent.py(저장·묶음 글)·heading_tables.table_notes(작성요령). index.html 이 app.js 다음에 읽는다.
+// headsCard3·colLetter·basisNames·ownerLabel·short·oneLine·nf·hasBlock·renderPara·applyServer·refreshSaveState·updateEdits·fmtWhen·H_JSON·LS·gutterSync·sheetMarginPx.
+// app.js 가 부르는 것(typeof 검사 뒤): tblMarksDraw(paginate 끝·headsRender 끝·setTwoUp) · tblMarksPlace(tplMarksDraw 끝 — 「TN Lk」 표를 피해 자리 다시) ·
+// tblMarksOn/tblMarksToggle(3단계 카드) · tblAgentView·xlColumn(표 보기 격자) · tblAgentLeave·xlColumnClosed(headsColClose) · tablesShow(탭 열 때)·tablesReset(문서 열고 닫을 때).
+// 서버 짝은 app/tables_api.py(끝점)·app/table_agent.py(저장·묶음 글)·heading_tables.table_notes(작성요령). index.html 이 app.js 다음에 읽는다.
 
 // ---------------------------------------------------------------- 표 도구(spec_헤딩_추출 ② §10) — 표 식별 표지 · 엑셀식 보기(A1 격자 · 수식 엔진 · 문서에 반영) · 표 지침(표 에이전트 입력)
-// 표지(.tbl-mark)는 문서 표(table.tbl[data-tbl] 첫 조각 · 엑셀식 보기 .xl-wrap)의 위 오른쪽에 .sheet 절대 위치 — .tpl-mark 와 같이 zoom 1/z 로 화면 크기를 고정한다.
+// 표지(.tbl-mark)는 문서 표(table.tbl[data-tbl] 첫 조각 · 엑셀식 보기 .xl-wrap)의 위끝 높이로 **쪽 안 왼쪽 여백**(종이 왼끝 ~ 표 왼쪽 — 「TN Lk」 .tpl-mark·손잡이와 같은 여백)에 .sheet 절대 위치.
+// 가로 자리·폭은 style.css 가 --mgl(그 쪽 왼쪽 여백 폭, 화면 px — app.js sheetMarginPx)로 잡는다: 항목은 늘 다 보이고, 여백 폭에 한 줄로 안 들어가면 여백 안에서 다음 줄로 접힌다
+// (보통 「⊞ ✎ 표 id」 / 「소속 Σ」 2줄 — 2026-11-10 사용자 「마우스 대야 보이게 하지 말고 그냥 보이게」: 옛 「들어가는 항목까지만 + 올리면 펼침」 없앰).
+// .tpl-mark 와 같이 zoom 1/z 로 화면 크기를 고정하고, 「TN Lk」 표(표 첫 행 칸의 라벨 등)·손잡이·먼저 놓인 표지와 세로로 겹치면(표지 높이 = 줄 수만큼) 그 아래로 비켜 선다(tblMarksPlace).
+// 이력: 표 위 오른쪽에 겹쳐 그리던 것 → 2026-11-10 「문서 여백에 둘 수 있잖아」 로 쪽 바깥 여백 열 → 같은 날 「문서 페이지 여백에」 로 쪽 안 여백(스크롤 상자 여백 .gutter 없앰, 2쪽 보기도 쪽마다 제 왼쪽 여백).
 // 엑셀식 보기는 첫 조각을 .xl-wrap 으로 바꾸고 나머지 조각(.cont)을 숨긴다; 쪽을 다시 나누면(paginate) 조각이 새로 생기므로 tblMarksDraw → xlApply 가 heads.xl.open 의 표를 다시 격자로.
 // 격자의 값은 지금 문서 칸 글(state.texts)이고, 수식·고친 값은 「문서에 반영」 을 눌러야 PATCH /blocks 로 문서에 쓰인다(보통 글 고침과 같은 길 — 되돌리기·실행 취소·기록 그대로).
 const TBL_MARKS_KEY = "nfm.tblMarks";
 const XL_ICON = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M1.5 2h13v12h-13zM3 3.5v2.2h4v-2.2zm5.2 0v2.2H13V3.5zM3 6.9v2.2h4V6.9zm5.2 0v2.2H13V6.9zM3 10.3v2.2h4v-2.2zm5.2 0v2.2H13v-2.2z"/></svg>';
 const XL_ROLE = { colhead: "열헤더", rowhead: "행헤더", corner: "귀퉁이", field: "필드", title: "제목", note: "안내", spacer: "간격" };
 const XL_UNIT = /\s*(?:%|％|원|천원|백만원|억원|명|건|개|회|년|개월|시간|점|㎡|kg|t)\s*$/i;
-const XL_CODE = /\(\s*[A-Z](?:\s*[+\-*/]\s*[A-Z])*\s*\)\s*$/;
+function xlStripCode(t) { // 값 뒤 코드 「(A)」「(A/E)」「(M=K+L)」「(L/(N+B))」 를 뗀다 — 끝의 괄호 묶음을 짝 맞춰 찾아(안쪽 괄호 포함) 코드·수·연산 글자뿐이면. heading_calc._strip_codes 와 같은 뜻
+  const s = String(t).trimEnd();
+  if (!s.endsWith(")") && !s.endsWith("）")) return t;
+  let depth = 0, i = s.length - 1;
+  for (; i >= 0; i -= 1) {
+    if (s[i] === ")" || s[i] === "）") depth += 1;
+    else if (s[i] === "(" || s[i] === "（") { depth -= 1; if (!depth) break; }
+  }
+  if (i < 0) return t;
+  const inner = s.slice(i + 1, -1);
+  return /[A-Z]/.test(inner) && /^[A-Z0-9+\-*/×÷＋－＝=().（）%\s]+$/.test(inner) ? s.slice(0, i) : t; // 「(1,234)」 괄호 음수는 영문 대문자가 없어 그대로
+}
 const XL_REF = /^\$?([A-Z]{1,3})\$?([1-9]\d{0,3})$/i;
+const XL_PH = /^0{1,3}(?:,0{3})+$|^0{2,}$|^[0○◯]{2,}$/; // 숫자 자리표시 — heading_calc._PH 와 같다(「000,000」 도)
+function xlIsPh(s) { // 칸 글이 숫자 자리표시인가(뒤 코드·단위·% 를 뗀 뒤) — 수식 엔진은 빈 값으로 본다(0 도 글도 아님)
+  const t = xlStripCode(oneLine(String(s ?? "")).trim()).trim().replace(/[%％]\s*$/, "").replace(XL_UNIT, "").trim();
+  return !!t && XL_PH.test(t);
+}
 const xlRefOf = (row, col) => `${colLetter(col)}${row + 1}`;
 function tblMarksOn() { try { return localStorage.getItem(TBL_MARKS_KEY) !== "off"; } catch { return true; } }
 function tblMarksToggle() {
@@ -51,13 +72,16 @@ async function xlFull() { // 3단계 전체(칸 역할·§9 수식) — 「표 �
 }
 
 // ---- 표 식별 표지 --------------------------------------------------------------------------------------------
+const TBL_MARK_H = 17; // 한 줄짜리 표지·「TN Lk」 표·손잡이의 높이(화면 px — app.js TPL_MARK_H 와 같아야 같은 여백에서 서로 비켜 선다). 여러 줄 표지의 높이는 tblMarksPlace 가 잰다(data-h)
 function tblMarksDraw() {
   // 읽기 단계(모든 표의 자리) → 쓰기 단계(표지 붙이기) — 표마다 재고 붙이기를 번갈아 하면 표 수만큼 강제 배치가 되어 큰 문서에서 10~27 s 멈춘다
   // (2026-11-10 실측 — 연구개발계획서 양식 표 145개: 번갈아 13~27 s → 나눠서 0.1 s 이하, spec_owpml_편집 ③). 표지가 꺼져 있어도 xlApply·xlColumnSync·tablesDraw 는 돈다.
   for (const e of document.querySelectorAll(".tbl-mark")) e.remove();
   xlApply(); // 열어 둔 엑셀식 보기를 되살린다(쪽을 다시 나누면 표 조각이 새로 생김)
+  tblRolesApply(); // 문서에서 표 구조 보기 — 새로 생긴 표 조각의 칸에 역할 색을 다시(꺼져 있으면 걷기만)
   const sc = $("scroller");
-  if (state.id && !sc.hidden && tblMarksOn()) {
+  const shown = typeof gutterSync === "function" ? gutterSync() : !sc.hidden; // 문서가 보이고 쪽 보기가 켜져 있는가(쪽 여백이 있어야 그린다)
+  if (state.id && shown && tblMarksOn()) {
     const s3 = heads.view && heads.view.stage3;
     const byId = new Map(((s3 && s3.tables) || []).map((t) => [t.id, t]));
     const store = (heads.xl.store && heads.xl.store.tables) || {};
@@ -65,53 +89,243 @@ function tblMarksDraw() {
     for (const sheet of document.querySelectorAll("#doc .sheet")) { // 읽기 단계 — DOM 을 바꾸지 않는다
       const sr = sheet.getBoundingClientRect();
       const z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1;
+      const mgl = sheetMarginPx(sheet, z); // 그 쪽 왼쪽 여백 폭(화면 px) — style.css 가 표지를 그 안에 둔다
       for (const t of sheet.querySelectorAll("table.tbl[data-tbl]:not(.cont), .xl-wrap[data-tbl]")) {
         if (t.hidden) continue;
-        const r = t.getBoundingClientRect();
-        jobs.push({ sheet, tid: t.dataset.tbl, z, top: Math.round(r.top - sr.top), left: Math.round(r.right - sr.left) });
+        jobs.push({ sheet, tid: t.dataset.tbl, z, mgl, top: Math.round(t.getBoundingClientRect().top - sr.top) });
       }
     }
     for (const j of jobs) { // 쓰기 단계
       const m = tblMark(j.tid, byId.get(j.tid), store[j.tid], heads.xl.open.has(j.tid), !!s3);
       m.style.zoom = String(1 / j.z);
+      m.style.setProperty("--mgl", `${j.mgl}px`);
+      m.dataset.top = String(j.top); // 제자리(표 위끝) — tblMarksPlace 가 겹침을 피해 내려 놓는다
       m.style.top = `${j.top}px`;
-      m.style.left = `${j.left}px`;
       j.sheet.append(m);
     }
+    tblMarksPlace();
   }
   xlColumnSync();
   if (typeof tablesDraw === "function") tablesDraw(); // 「표」 탭 목록(소속·계산식·지침)도 같은 자료를 따른다
+  if (typeof tblMenuSync === "function") tblMenuSync(); // 표 메뉴(table_menu.js — spec ② §16): 쪽을 다시 나누면 표 조각이 새로 생긴다 — 고른 표의 모서리 손잡이를 다시 놓는다
+}
+function tblMarksPlace() { // 표지 자리 — 표 위끝(data-top)에 두되, 같은 쪽 여백의 「TN Lk」 표(.tpl-mark)·손잡이(.ol-grip)나 먼저 놓인 표지와 세로로 겹치면 가장 가까운 빈 자리(위·아래)로 옮긴다
+  // 표지는 항목이 다음 줄로 접혀 높이가 줄 수만큼이다(style.css) — 처음 한 번만 모두 재서 data-h 에 두고(읽기 단계: 강제 배치 1회), 그 뒤로는 style.top·data-h 만 읽는다(쓰기 단계).
+  // 아래로만 내리면 칸 줄마다 「TN Lk」 가 붙은 표에서 2줄 표지(32px)가 표 끝까지 밀린다(실측 400px+) — 빈 자리 후보 = 막는 것 바로 아래·바로 위, 제자리에서 가까운 순(같으면 아래).
+  // 가까운 자리(표지 높이 + 2px 안)가 없으면: ① 바로 앞 표지(칸 안 표의 바깥 표)와 위아래 한 묶음으로 다시 놓아 보고, ② 그래도 없으면 한 줄(.wide — 여백에서 표 위로 펼침)로 줄여
+  // 한 줄 자리를 찾고, ③ 그것도 멀면(작은 배율 — 「TN Lk」 가 여백을 다 채움) 여백을 떠나 표 왼쪽 위 모서리 위(.onto)에 제 높이로 둔다 — 어느 경우든 항목은 다 보인다
+  const fresh = [...document.querySelectorAll("#doc .sheet > .tbl-mark:not([data-h])")];
+  const hs = fresh.map((m) => m.getBoundingClientRect().height); // 화면 px(표지는 zoom 1/z — top 과 같은 단위)
+  fresh.forEach((m, i) => { m.dataset.h = String(Math.max(TBL_MARK_H, Math.round(hs[i]))); }); // 안 보이는 쪽(0)은 한 줄로
+  const near = (h, y0, obst) => { // 높이 h 가 obst 와 안 겹치는, y0 에서 가장 가까운 자리
+    const want = Math.max(0, y0), free = (y) => y >= 0 && !obst.some((t) => y < t.y + t.h && t.y < y + h);
+    if (free(want)) return want;
+    const hit = obst.flatMap((t) => [t.y + t.h, t.y - h]).sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || b - a).find(free);
+    return hit === undefined ? want : hit; // 맨 아래 것의 바로 아래는 늘 비어 있다
+  };
+  for (const sheet of document.querySelectorAll("#doc .sheet")) {
+    const ms = [...sheet.querySelectorAll(":scope > .tbl-mark")].sort((a, b) => +a.dataset.top - +b.dataset.top);
+    if (!ms.length) continue;
+    const taken = [...sheet.querySelectorAll(":scope > .tpl-mark, :scope > .ol-grip")].map((e) => ({ y: parseFloat(e.style.top) || 0, h: TBL_MARK_H }));
+    const spread = []; // 표 위로 펼친 한 줄 표지(.wide)들의 자리 — 여백 밖에서는 서로만 피하면 된다
+    let prev = null; // 바로 앞 표지의 자리
+    for (const m of ms) {
+      m.classList.remove("wide", "onto");
+      let h = +m.dataset.h || TBL_MARK_H, wide = false, onto = false;
+      const y0 = +m.dataset.top || 0;
+      let top = near(h, y0, taken);
+      if (Math.abs(top - y0) > h + 2) {
+        const rest = prev && !prev.wide ? taken.filter((t) => t !== prev) : null;
+        const bt = rest ? near(prev.h + h, y0 - prev.h, rest) : 0; // 묶음(앞 표지 + 이 표지) 위끝 — 이 표지가 제자리에 오는 곳부터 찾는다
+        if (rest && Math.abs(bt - prev.y0) <= prev.h + 2 && Math.abs(bt + prev.h - y0) <= h + 2) {
+          prev.y = bt;
+          prev.m.style.top = `${Math.round(bt)}px`;
+          top = bt + prev.h;
+        } else {
+          wide = true;
+          h = TBL_MARK_H;
+          top = near(h, y0, taken.concat(spread));
+          if (Math.abs(top - y0) > h + 2) { onto = true; top = near(h, y0, spread); }
+          m.classList.add("wide");
+          m.classList.toggle("onto", onto);
+          spread.push({ y: top, h });
+        }
+      }
+      prev = { y: top, h, y0, m, wide };
+      if (!onto) taken.push(prev);
+      m.style.top = `${Math.round(top)}px`;
+    }
+  }
 }
 window.addEventListener("resize", () => { if (state.id && document.querySelector(".tbl-mark, .xl-wrap")) tblMarksDraw(); });
 
+// ---- 문서에서 표 구조 보기(spec_헤딩_추출 ② §10) — 문서 표 칸에 3단계 칸 역할 색 · 서브 테이블 경계 · 도움말 ---------------------------------
+// 켜면 #doc.tbl-roles + 칸(td[data-cell])마다 data-trole(역할) · data-tsb(서브 테이블이 다시 시작하는 위 t · 왼쪽 l) · title. 색은 style.css — 칸의 background-image 로만 그려
+// 한글 칸 음영(인라인 background-color)·고른 칸 표시(td.sel 의 box-shadow)·구분 기준 표시(.para 바탕)와 겹쳐도 다 보인다. 문서 글·저장에는 영향 없음(화면 표시만).
+// 자료 = 3단계 전체 결과(xlFull — 「표 보기」 와 같은 캐시). 3단계 뒤 행·열을 넣고 지운 표에 엉뚱한 색이 안 가게 **칸 id 와 격자 자리(행·열)가 지금 문서와 같은 칸만** 칠한다.
+// 켜고 끄기 = 단추 하나(모든 표 — 이 브라우저에 기억, 기본 끔). 표지(.tbl-mark)에는 단추를 두지 않는다(여백 폭에 첫 줄 「⊞ ✎ 표 id」 가 꽉 참 — style.css 주석).
+const TBL_ROLES_KEY = "nfm.tblRoles";
+const tblRoles = { on: (() => { try { return localStorage.getItem(TBL_ROLES_KEY) === "on"; } catch { return false; } })(), key: null, map: null, wait: null, failed: null };
+function tblRolesOn() { return tblRoles.on; }
+function tblRolesToggle() {
+  tblRoles.on = !tblRoles.on;
+  tblRoles.failed = null; // 다시 켜면 다시 읽어 본다
+  try { localStorage.setItem(TBL_ROLES_KEY, tblRoles.on ? "on" : "off"); } catch { /* 기억만 안 함 */ }
+  tblRolesApply();
+  tblRolesBtnSync();
+}
+function tblRolesBtn(brief = false) { // 켜고 끄는 단추 — 2열 「표 구조」 도구 줄(brief: 범례 옆)·3단계 카드·「표」 탭
+  const b = hBtn("", () => tblRolesToggle(), { cls: "btn sm tbl-roles-btn" });
+  if (brief) b.dataset.brief = "1";
+  tblRolesBtnSet(b);
+  return b;
+}
+function tblRolesBtnSet(b) {
+  const s3 = heads.view && heads.view.stage3, on = tblRolesOn();
+  if (!b.dataset.keep) b.textContent = b.dataset.brief ? "문서에 표시" : on ? "문서 표 구조 끄기" : "문서에 표 구조 표시"; // data-keep = 제 글·아이콘을 가진 단추(도구 줄) — 눌림·꺼짐·도움말만 맞춘다
+  b.classList.toggle("on", on);
+  b.setAttribute("aria-pressed", String(on));
+  const unread = !heads.view && state.format !== "docx"; // 헤딩 요약을 아직 안 읽음(다시 연 작업 — 이때 보이는 단추는 도구 줄 것뿐): 누를 수 있게 두고, 누르면 읽는다(app.js tbRolesClick)
+  b.disabled = !on && !unread && (!s3 || state.format === "docx"); // 켜져 있으면 늘 끌 수 있게
+  b.title = unread ? "문서의 표 칸에 칸 역할 색(열헤더·행헤더·귀퉁이·제목·안내)을 겹쳐 보입니다 — 누르면 표 구조(3단계) 결과를 읽어 옵니다"
+    : !s3 ? "표 구조(3단계)를 만들면 문서의 표 칸에 칸 역할 색을 보일 수 있습니다"
+    : "문서의 표 칸에 칸 역할 색을 겹쳐 보입니다 — 열헤더 파랑 · 행헤더 초록 · 귀퉁이 보라 · 제목 주황 · 안내 회색 · 간격 빗금 · 필드는 그대로\n굵은 선 = 서브 테이블 경계 · 칸에 마우스를 올리면 역할과 헤더 경로"
+      + (s3.stale ? "\n문서가 바뀜 — 자리가 그대로인 칸만 칠합니다(표 구조를 다시 만들면 맞춰집니다)" : "") + "\n화면 표시만 — 문서 글·저장에는 영향 없음(이 브라우저에 기억)";
+}
+function tblRolesBtnSync() { for (const b of document.querySelectorAll(".tbl-roles-btn")) tblRolesBtnSet(b); }
+function tblRolesUnset(td) { td.removeAttribute("data-trole"); td.removeAttribute("data-tsb"); td.removeAttribute("title"); }
+function tblRolesIndex(full, key) { // 표 id → Map(칸 id → {row, col, role, sb, title}) — 3단계 결과(실행)마다 한 번
+  if (tblRoles.key === key && tblRoles.map) return tblRoles.map;
+  const map = new Map();
+  for (const t of full.tables || []) {
+    const byId = new Map((t.cells || []).map((c) => [c.id, c]));
+    const nameOf = (cid) => { const c = byId.get(cid); return c ? short(c.text, 30).replace("(빈 문단)", "(빈 칸)") : cid; };
+    const subs = t.subtables || [];
+    const tops = subs.filter((s) => s.rows[0] > 0), lefts = subs.filter((s) => s.cols[0] > 0); // 격자(headsTableGrid)의 굵은 선과 같은 자리
+    const cells = new Map();
+    for (const c of t.cells || []) {
+      const sb = [tops.some((s) => s.rows[0] === c.row && s.cols[0] <= c.col && c.col < s.cols[1]) ? "t" : "", lefts.some((s) => s.cols[0] === c.col && s.rows[0] <= c.row && c.row < s.rows[1]) ? "l" : ""]
+        .filter(Boolean).join(" ");
+      const lines = [`${XL_ROLE[c.role] || c.role}${c.sub && subs.length > 1 ? ` · 서브 테이블 ${c.sub}` : ""}${c.basis && c.basis.length ? ` · 구분 헤더 ${basisNames(c.basis) || c.basis.join("·")}` : ""}`
+        + `${c.changed ? " · LLM 이 초안을 바꿈" : ""}`];
+      if (c.role === "field") {
+        if ((c.rowPath || []).length) lines.push(`행헤더: ${c.rowPath.map(nameOf).join(" › ")}`);
+        if ((c.colPath || []).length) lines.push(`열헤더: ${c.colPath.map(nameOf).join(" › ")}`);
+        if (c.div && Object.keys(c.div).length) lines.push(`구분 값: ${Object.entries(c.div).map(([b, v]) => `${basisNames([b]) || b} ${v}`).join(" · ")}`);
+      } else if (c.parent) lines.push(`위 헤더: ${nameOf(c.parent)}`);
+      cells.set(c.id, { row: String(c.row), col: String(c.col), role: c.role, sb, title: lines.join("\n") });
+    }
+    map.set(t.id, cells);
+  }
+  tblRoles.key = key;
+  tblRoles.map = map;
+  return map;
+}
+function tblRolesApply() { // tblMarksDraw(쪽을 다시 나눔 · 3단계 결과가 바뀜 · 문서를 엶)와 켜고 끌 때 — 칸마다 바뀐 것만 쓴다(쓰기만, 배치를 읽지 않음)
+  const doc = $("doc");
+  if (!doc) return;
+  const s3 = heads.view && heads.view.stage3;
+  const on = tblRoles.on && !!state.id && state.format !== "docx" && !!(s3 && s3.meta);
+  doc.classList.toggle("tbl-roles", on);
+  tblRolesBtnSync(); // 3단계가 생기거나 없어지면 단추의 꺼짐·도움말도
+  if (!on) { for (const td of doc.querySelectorAll("td[data-trole]")) tblRolesUnset(td); return; }
+  const key = `${state.id}|${s3.meta.run}|${s3.meta.at}`;
+  const full = heads.tbl.data && heads.tbl.key === `${s3.meta.run}|${s3.meta.at}` ? heads.tbl.data : null;
+  if (!full) { // 3단계 전체 결과를 아직 안 읽음 — 읽고 나서 한 번 더(읽는 중·실패한 실행은 다시 안 부른다)
+    if (tblRoles.wait !== key && tblRoles.failed !== key) {
+      tblRoles.wait = key;
+      xlFull().then((d) => {
+        if (tblRoles.wait === key) tblRoles.wait = null;
+        if (d) tblRolesApply();
+        else if (tblRoles.on) { tblRoles.failed = key; toast("표 구조를 읽지 못해 문서에 표시하지 못했습니다 — 단추를 껐다 켜면 다시 읽습니다"); }
+      });
+    }
+    return;
+  }
+  const map = tblRolesIndex(full, key);
+  for (const t of doc.querySelectorAll("table.tbl[data-tbl]")) { // 쪽 조각(.cont)·칸 안 표도 — t.rows 는 그 표의 행만(안쪽 표의 행은 안쪽 표에서)
+    const cells = map.get(t.dataset.tbl);
+    for (const tr of t.rows) {
+      for (const td of tr.cells) {
+        const c = cells && cells.get(td.dataset.cell);
+        if (c && c.row === td.dataset.r && c.col === td.dataset.c) {
+          if (td.dataset.trole !== c.role) td.dataset.trole = c.role;
+          if ((td.dataset.tsb || "") !== c.sb) { if (c.sb) td.dataset.tsb = c.sb; else td.removeAttribute("data-tsb"); }
+          if (td.title !== c.title) td.title = c.title;
+        } else if (td.dataset.trole !== undefined) tblRolesUnset(td);
+      }
+    }
+  }
+}
+
 // ---- 엑셀식 보기 — 2열(kind "xl") : 문서는 그대로 두고 옆 열에 격자(사용자 2026-11-10 「열을 하나 만들어서 거기에 엑셀표」) ----------------------------------------
 const xlStageKey = () => { const s3 = heads.view && heads.view.stage3; return s3 && s3.meta ? `${s3.meta.run}|${s3.meta.at}` : "none"; };
-const xlColKey = (tid) => { // 2열 격자를 다시 만들 조건 — 3단계 결과 · 구조 편집 차례(행·열 넣기/지우기·나누기·합치기 뒤 state.structRev) · 표 블록 크기
+const xlRangeKey = (rg) => (rg ? `${rg.r0},${rg.c0},${rg.r1},${rg.c1}` : "all");
+const xlRangeName = (rg) => (rg ? `${xlRefOf(rg.r0, rg.c0)}:${xlRefOf(rg.r1, rg.c1)}` : "");
+const xlColKey = (tid, rg = null) => { // 2열 격자를 다시 만들 조건 — 3단계 결과 · 구조 편집 차례(행·열 넣기/지우기·나누기·합치기 뒤 state.structRev) · 표 블록 크기 · 범위
   const b = xlBlock(tid);
-  return `${xlStageKey()}|${state.structRev}|${b ? `${b.nRows}x${b.nCols}x${(b.cells || []).length}` : "-"}`;
+  return `${xlStageKey()}|${state.structRev}|${b ? `${b.nRows}x${b.nCols}x${(b.cells || []).length}` : "-"}|${xlRangeKey(rg)}`;
 };
-async function xlColumn(tid) {
-  if (!state.id || !xlBlock(tid)) { toast("그 표가 지금 문서에 없습니다"); return; }
-  const { tools, body } = headsDlg("xl", `엑셀식 보기 · ${tid}`, "A1 격자 · 수식 계산 — 문서는 「문서에 반영」 을 눌러야 바뀝니다");
+function xlClampRange(rg, b) { // 끌어 고른 범위(격자 좌표) → 표 안으로 · 표 전체면 null
+  if (!rg || !b) return null;
+  const R = (b.nRows || 1) - 1, C = (b.nCols || 1) - 1;
+  const out = { r0: Math.max(0, Math.min(rg.r0, R)), c0: Math.max(0, Math.min(rg.c0, C)), r1: Math.max(0, Math.min(rg.r1, R)), c1: Math.max(0, Math.min(rg.c1, C)) };
+  if (out.r0 > out.r1 || out.c0 > out.c1) return null;
+  return out.r0 === 0 && out.c0 === 0 && out.r1 === R && out.c1 === C ? null : out;
+}
+function xlSelRange(tid) { // 문서 표에서 끌어 고른 칸 묶음(table_edit.js tsel)이 이 표의 2칸 이상이면 그 범위
+  if (typeof tselActive !== "function" || !tselActive() || tsel.tbl !== tid || tsel.cells.length < 2 || !tsel.rect) return null;
+  return { ...tsel.rect };
+}
+function xlCellItems(tbl) { // 표 칸 오른쪽 단추 메뉴(table_edit.js tselContextMenu) — 고른 칸만 엑셀식 보기
+  const rg = xlSelRange(tbl);
+  return [[rg ? `고른 칸 엑셀식 보기(${xlRangeName(rg)}) — 수식 판정` : "이 표 엑셀식 보기 — 수식 판정", "", () => xlColumn(tbl, rg)], null];
+}
+
+// 수식 판정(spec ② §14) — 지금 문서의 그 표(또는 범위)만 서버가 스크립트로: 칸 역할 · 합계/비율/코드 수식 · 숫자 칸. 문서·구조 편집 차례마다 캐시(heads.xl.judge)
+const xlJudgeKey = (tid, rg) => `${state.id}|${state.epoch}|${state.structRev}|${tid}|${xlRangeKey(rg)}`;
+async function xlJudge(tid, rg, force = false) {
+  if (state.format === "docx") return null;
+  heads.xl.judge = heads.xl.judge || new Map();
+  const key = xlJudgeKey(tid, rg);
+  if (!force && heads.xl.judge.has(key)) return heads.xl.judge.get(key);
+  const epoch = state.epoch;
+  let r = null;
+  try { r = await api(`/api/docs/${encodeURIComponent(state.id)}/tables/${encodeURIComponent(tid)}/excel`, { method: "POST", headers: H_JSON, body: JSON.stringify(rg ? { range: rg } : {}) }); }
+  catch (e) { if (epoch === state.epoch) toast(`수식 판정을 못 했습니다: ${e.message}`, true); return null; }
+  if (epoch !== state.epoch) return null;
+  if (heads.xl.judge.size > 40) heads.xl.judge.clear();
+  heads.xl.judge.set(key, r);
+  return r;
+}
+
+async function xlColumn(tid, range = null) {
+  const b0 = xlBlock(tid);
+  if (!state.id || !b0) { toast("그 표가 지금 문서에 없습니다"); return; }
+  const rg = xlClampRange(range, b0);
+  const { tools, body } = headsDlg("xl", `엑셀식 보기 · ${tid}${rg ? ` ${xlRangeName(rg)}` : ""}`, "A1 격자 · 수식 자리 판정 · 계산 — 문서는 「문서에 반영」 을 눌러야 바뀝니다");
   const seq = heads.seq, epoch = state.epoch;
-  hFoot("읽는 중…", false);
+  hFoot("수식 자리를 판정하는 중…", false);
+  heads.xl.col = { tid, key: xlColKey(tid, rg), range: rg, busy: true };
   await xlStore();
   await xlFull();
+  const judge = await xlJudge(tid, rg);
   if (seq !== heads.seq || epoch !== state.epoch) return;
-  const wrap = xlBuild(tid, []);
+  const wrap = xlBuild(tid, [], { range: rg, judge });
   if (!wrap) { hFoot("표 블록을 찾지 못했습니다"); return; }
   wrap.classList.add("col");
-  heads.xl.col = { tid, key: xlColKey(tid) };
+  heads.xl.col = { tid, key: xlColKey(tid, rg), range: rg };
   body.textContent = "";
   body.append(wrap);
   const b = xlBlock(tid), s3 = heads.view && heads.view.stage3, t = s3 && (s3.tables || []).find((x) => x.id === tid);
   tools.textContent = "";
   if (t && t.owner && !t.owner.root && hasBlock(t.owner.para)) tools.append(el("span", "muted", "소속"), hBtn(ownerLabel(t.owner), () => headsGo(t.owner.para), { title: "문서의 그 헤딩으로" }));
   if (t && t.host && hasBlock(t.host)) tools.append(hBtn("표 자리로", () => headsGo(t.host), { title: "문서에서 이 표를 품은 문단으로" }));
-  tools.append(el("span", "spacer"), el("span", "muted", `${b.nRows || "?"}×${b.nCols || "?"}`));
+  if (rg) tools.append(el("span", "hb", `범위 ${xlRangeName(rg)}`), hBtn("표 전체", () => xlColumn(tid), { title: "범위를 풀고 표 전체를 격자로" }));
+  tools.append(el("span", "spacer"), el("span", "muted", rg ? `${rg.r1 - rg.r0 + 1}×${rg.c1 - rg.c0 + 1} / ${b.nRows || "?"}×${b.nCols || "?"}` : `${b.nRows || "?"}×${b.nCols || "?"}`));
   const foot = $("headsDlgFoot");
   foot.textContent = "";
-  foot.append(el("span", "muted", `표 ${tid} · 수식은 이 작업에 저장 · 문서는 「문서에 반영」 을 눌러야 바뀜`));
+  foot.append(el("span", "muted", `표 ${tid}${rg ? ` 범위 ${xlRangeName(rg)}` : ""} · 수식은 이 작업에 저장 · 문서는 「문서에 반영」 을 눌러야 바뀜 · 문서에서 칸을 끌어 고른 뒤 ⊞ 를 누르면 그 범위만`));
   wrap.focus({ preventScroll: true });
   tblMarksDraw(); // 표지의 ⊞ 눌림
 }
@@ -125,10 +339,12 @@ function xlColumnSync() { // 3단계 결과(표 구조 만들기 뒤)·표 구�
   if (!c) return;
   if (heads.dlg !== "xl") { heads.xl.col = null; return; }
   if (!xlBlock(c.tid)) { headsColClose(true); return; } // 표가 지워짐(마지막 행/열 지우기)
-  if (c.key !== xlColKey(c.tid) && !c.busy) { c.busy = true; xlColumn(c.tid); }
+  if (c.key !== xlColKey(c.tid, c.range) && !c.busy) { c.busy = true; xlColumn(c.tid, c.range); } // 범위는 구조 편집 뒤 표 안으로 줄여 다시
 }
 
-function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑셀식 보기(2열) · ✎ 표 지침 · 표 id · 소속(헤딩 「TN Lk」·구분 라벨 — 누르면 문서의 그 문단) · 수식 수
+function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑셀식 보기(2열) · ✎ 표 지침 · 표 id · 소속(헤딩 「TN Lk」·구분 라벨 — 누르면 문서의 그 문단) · Σ수식 수
+  // 쪽 안 여백(20mm 면 75~95px)에 들어가야 하므로 글은 짧게(소속은 「TN Lk」 만, 수식은 「Σn」) — 헤딩 글·경로·일치/불일치 수는 title(도움말)에.
+  // 여백 폭에 한 줄로 못 들어간 항목(보통 소속부터)은 다음 줄로 접혀 늘 보인다(style.css .tbl-mark) — 순서 = 줄 차례(⊞ ✎ id 가 첫 줄)
   const inCol = !!(heads.xl.col && heads.xl.col.tid === tid && heads.dlg === "xl"), open = inplace || inCol;
   const m = el("div", "tbl-mark" + (open ? " open" : ""));
   m.dataset.for = tid;
@@ -137,8 +353,14 @@ function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑
   xl.innerHTML = XL_ICON;
   xl.setAttribute("aria-pressed", String(open));
   xl.setAttribute("aria-label", "엑셀식 보기");
-  xl.title = inplace ? "문서 보기로(원래 표)" : inCol ? "엑셀식 보기 열 닫기" : "엑셀식 보기 — 문서 옆 열에 A1 격자(수식 계산 · 문서에 반영)";
-  xl.onclick = (e) => { e.stopPropagation(); if (inplace) xlClose(tid); else if (inCol) headsColClose(); else xlColumn(tid); };
+  xl.title = (inplace ? "문서 보기로(원래 표)" : inCol ? "엑셀식 보기 열 닫기" : "엑셀식 보기 — 문서 옆 열에 A1 격자(수식 자리 판정 · 계산 · 숫자 칸 · 정렬 · 엑셀로 받기)")
+    + "\n표 칸을 끌어 고른 뒤 누르면 그 범위만";
+  xl.onclick = (e) => {
+    e.stopPropagation();
+    const rg = xlSelRange(tid); // 끌어 고른 칸이 있으면 그 범위만(열려 있어도 범위로 다시)
+    if (rg) xlColumn(tid, rg);
+    else if (inplace) xlClose(tid); else if (inCol) headsColClose(); else xlColumn(tid);
+  };
   const g = el("button", "tm-btn guide" + (rec && rec.instructions ? " has" : ""), "✎");
   g.type = "button";
   g.setAttribute("aria-label", "표 지침");
@@ -146,11 +368,13 @@ function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑
   g.onclick = (e) => { e.stopPropagation(); tblAgentView(tid); };
   m.append(xl, g, el("span", "tm-id", tid));
   if (state.format === "docx") return m; // 3단계는 hwpx 만 — 소속 없음
+  const tmp = typeof tempTableTag === "function" ? tempTableTag(tid) : null; // TEMP 표(작성 요령 표·안내 상자 — heading_temp.js, spec ② §15): 표 구조에서 빠지므로 소속·Σ 대신 「TEMP」
+  if (tmp) { m.classList.add("temp"); m.append(tmp); return m; } // 소속 자리에(⊞ ✎ 표 id 다음 — 여백이 좁으면 둘째 줄. 옛 「가려지지 않게 맨 앞」 은 항목이 늘 다 보이므로 필요 없음)
   if (t) {
     const o = t.owner;
     if (o && !o.root) {
       const isLbl = o.role === "label";
-      const b = el("button", "tm-owner" + (isLbl ? " lbl" : ""), `${o.tplNo ? `T${o.tplNo} L${o.level} ` : ""}${short(o.text || "(제목 없음)", 24)}`);
+      const b = el("button", "tm-owner" + (isLbl ? " lbl" : ""), o.tplNo ? `T${o.tplNo} L${o.level}` : short(o.text || "(제목 없음)", 8));
       b.type = "button";
       b.title = [`소속 ${oneLine(o.text || "(제목 없음)")}${o.tplNo ? ` · 템플릿 T${o.tplNo} ${o.level}번째 줄` : ""}${isLbl ? " · 구분 라벨" : ""}`,
         (o.path || []).length ? `경로 ${o.path.join(" › ")}` : "", o.division && !isLbl ? `구분 라벨 ${oneLine(o.division.text)}` : "",
@@ -164,20 +388,33 @@ function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑
         m.append(d);
       }
     } else {
-      const s = el("span", "tm-owner muted", o && o.root ? "문서 뿌리" : "소속 없음");
+      const s = el("span", "tm-owner muted", o && o.root ? "뿌리" : "소속 없음");
       s.title = o && o.root ? "위에 헤딩이 없는 표(문서 뿌리)" : "소속 헤딩·라벨을 찾지 못함";
       m.append(s);
     }
     if (t.calc && t.calc.is) {
-      const k = el("span", "tm-calc" + (t.calc.mismatch ? " bad" : ""), `수식 ${nf(t.calc.formulas)}${t.calc.mismatch ? ` · 불일치 ${nf(t.calc.mismatch)}` : ""}`);
-      k.title = `계산식 표 — 일치 ${nf(t.calc.ok)} · 불일치 ${nf(t.calc.mismatch)} · 미기입 ${nf(t.calc.missing)} · 미검증 ${nf((t.calc.blank || 0) + (t.calc.incomplete || 0))}`;
+      const k = el("span", "tm-calc" + (t.calc.mismatch ? " bad" : ""), `Σ${nf(t.calc.formulas)}${t.calc.mismatch ? `·✗${nf(t.calc.mismatch)}` : ""}`);
+      k.title = `계산식 표 — 수식 ${nf(t.calc.formulas)} · 일치 ${nf(t.calc.ok)} · 불일치 ${nf(t.calc.mismatch)} · 미기입 ${nf(t.calc.missing)} · 미검증 ${nf((t.calc.blank || 0) + (t.calc.incomplete || 0))}`;
       m.append(k);
+      if (t.calc.mismatch) m.classList.add("bad"); // 불일치는 Σ 글과 함께 표지 테두리로도 보인다
     }
+  } else if (hasStage3) {
+    // 표 구조(3단계 결과)에 없는 표 — 옛 글 「구조에 없음」 은 뜻을 알기 어려웠다(2026-11-10 사용자 「무슨 의미인지 모르겠다」). 까닭은 둘뿐이라 그대로 적는다:
+    // 칸이 하나인 표(글상자 — 표 구조를 만들지 않음) = 「1칸 표」 · 표 구조를 만든 뒤 문서에 생긴 표 = 「새 표」(뼈대 유지 — spec ② §17).
+    // 「새 표」 를 눌러도 표 구조를 저절로 다시 만들지 않는다(LLM 결과가 스크립트 결과로 덮이던 것) — 뼈대 밖 목록을 연다(heading_drift.js)
+    const blk = xlBlock(tid), one = !!blk && (blk.cells || []).length === 1;
+    const b = el(one ? "span" : "button", `tm-owner ${one ? "muted" : "tm-new"}`, one ? "1칸 표" : "새 표");
+    if (one) b.title = "칸이 하나인 표(글상자) — 표 구조(헤더·필드·소속)를 만들지 않는 표입니다";
+    else {
+      b.type = "button";
+      b.title = "표 구조(3단계)를 만든 뒤 문서에 생긴 표 — 헤더·필드·소속을 아직 모릅니다\n표 구조는 그대로 쓰고, 이 표까지 넣으려면 「표」 탭의 「표 구조 만들기」 로 다시 만드세요 · 누르면 뼈대 밖 목록";
+      b.onclick = (e) => { e.stopPropagation(); if (typeof driftView === "function") driftView(); };
+    }
+    m.append(b);
   } else {
-    const b = el("button", "tm-owner muted", hasStage3 ? "표 구조에 없음" : "소속 모름");
+    const b = el("button", "tm-owner muted", "소속 모름");
     b.type = "button";
-    b.title = hasStage3 ? "3단계 결과에 이 표가 없습니다(1칸 표·결과가 오래됨) — 누르면 표 구조를 다시 만듭니다(스크립트만)"
-      : "표 구조(3단계)를 만들면 소속 헤딩·라벨이 표시됩니다 — 누르면 스크립트로 만들기(1초 안팎)";
+    b.title = "표 구조(3단계)를 만들면 소속 헤딩·라벨이 표시됩니다 — 누르면 스크립트로 만들기(1초 안팎)";
     b.onclick = (e) => { e.stopPropagation(); headsStart(3, false); };
     m.append(b);
   }
@@ -190,14 +427,14 @@ function xlNum(s) { // 문서 칸 글 → {v, pct} | null — §9 parse_num 과 
   let t = oneLine(String(s)).trim();
   if (!t) return null;
   if (/^[-–—－]$/.test(t)) return { v: 0, pct: false, dash: true };
-  t = t.replace(XL_CODE, "").trim();
+  t = xlStripCode(t).trim();
   const pct = /[%％]\s*$/.test(t);
   t = t.replace(/[%％]\s*$/, "").replace(XL_UNIT, "").replace(/[%％]\s*$/, "").trim();
   let neg = false;
   if (/^\(.*\)$/.test(t)) { neg = true; t = t.slice(1, -1).trim(); }
   if (/^[-−–]/.test(t)) { neg = !neg; t = t.slice(1).trim(); } else if (t.startsWith("+")) t = t.slice(1).trim();
   if (!/^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$|^\.\d+$/.test(t)) return null;
-  if (/^0(?:,000)+$|^0{2,}$/.test(t)) return null; // 자리표시 「0,000,000」「00」
+  if (XL_PH.test(t)) return null; // 자리표시 「0,000,000」「000,000」「00」
   const v = parseFloat(t.replace(/,/g, ""));
   return Number.isFinite(v) ? { v: neg ? -v : v, pct } : null;
 }
@@ -216,10 +453,13 @@ document.addEventListener("input", (e) => { // 문서의 칸 글을 고치면 �
   xlLiveTimer = setTimeout(() => { if (wrap.isConnected) xlRefresh(wrap); }, 300);
 });
 
-function xlModel(tid, b, t3, rec) {
+function xlModel(tid, b, t3, rec, judge = null, range = null) {
+  // judge(수식 판정 — 지금 문서의 표·범위, spec ② §14)가 있으면 칸 역할·수식은 그것을, 없으면(docx·판정 실패) 3단계 결과(t3)를 쓴다.
+  // range 가 있으면 격자는 그 범위만 보이고, 모형은 표 전체(범위 밖 칸을 가리키는 사용자 수식도 계산되게).
   const cells = [], occ = new Map();
   let nR = b.nRows || 0, nC = b.nCols || 0;
-  const roles = new Map(((t3 && t3.cells) || []).map((c) => [`${c.row},${c.col}`, c]));
+  const src = judge && (judge.cells || []).length ? judge : t3;
+  const roles = new Map(((src && src.cells) || []).map((c) => [`${c.row},${c.col}`, c]));
   for (const c of b.cells || []) {
     const rs = c.rowSpan || 1, cs = c.colSpan || 1;
     const cell = { row: c.row, col: c.col, rs, cs, ref: xlRefOf(c.row, c.col), paras: (c.blocks || []).filter((x) => x.type === "paragraph").map((x) => x.id),
@@ -230,12 +470,16 @@ function xlModel(tid, b, t3, rec) {
     nC = Math.max(nC, c.col + cs);
     for (let r = c.row; r < c.row + rs; r += 1) for (let k = c.col; k < c.col + cs; k += 1) if (!occ.has(`${r},${k}`)) occ.set(`${r},${k}`, cell);
   }
-  const base = new Map(); // §9 가 만든 엑셀 수식(세로 합 하나 — excel: true)
+  const base = new Map(); // 판정(§14)·§9 가 만든 엑셀 수식(세로 합 하나 — excel: true)
   const fById = new Map();
-  for (const f of (t3 && t3.formulas) || []) { if (f.excel && f.formula) base.set(f.ref, f.formula); fById.set(f.ref, f); }
+  for (const f of (src && src.formulas) || []) { if (f.excel && f.formula) base.set(f.ref, f.formula); fById.set(f.ref, f); }
   const formulas = new Map(base);
   for (const [k, v] of Object.entries((rec && rec.formulas) || {})) { if (v) formulas.set(k, v); else formulas.delete(k); } // "" = §9 수식 끄기
-  return { tid, rows: nR, cols: nC, cells, occ, base, fById, formulas, values: new Map(), rec: rec || { instructions: "", formulas: {}, version: 0 }, t3, sel: null, res: new Map() };
+  const inputs = new Set(cells.filter((c) => c.s3 && c.s3.input).map((c) => c.ref)); // 숫자 칸(넣을 자리 — 판정의 input)
+  const rg = range || { r0: 0, c0: 0, r1: nR - 1, c1: nC - 1 };
+  const inView = (c) => c.row >= rg.r0 && c.row + c.rs - 1 <= rg.r1 && c.col >= rg.c0 && c.col + c.cs - 1 <= rg.c1;
+  return { tid, rows: nR, cols: nC, cells, occ, base, fById, formulas, values: new Map(), rec: rec || { instructions: "", formulas: {}, version: 0 }, t3: src, sel: null,
+    res: new Map(), status: new Map(), inputs, range: range || null, view: rg, inView, judge, undo: null, llm: new Map(), llmInfo: null };
 }
 
 // ---- 수식 엔진 — 토큰 · 재귀 하강 · 칸 값(수식이면 계산, 아니면 문서 글의 수) · 함수 ----------------------------------------
@@ -333,7 +577,7 @@ function xlEval(model) { // 모든 수식 칸의 값 → Map(주소 → 값 | {e
     const n = xlNum(raw);
     if (n) return n.v;
     const s = oneLine(raw).trim();
-    return s ? s : null;
+    return s && !xlIsPh(s) ? s : null; // 자리표시 「0,000,000」 = 빈 값(#VALUE! 가 아니라 미검증)
   };
   const value = (ref) => {
     const cell = cellAt(ref);
@@ -478,6 +722,7 @@ async function xlOpen(tid) {
   heads.xl.open.add(tid);
   await xlStore();
   await xlFull();
+  await xlJudge(tid, null); // 캐시에 — xlApply(동기)가 꺼내 쓴다
   if (epoch !== state.epoch) return;
   tblMarksDraw(); // → xlApply
   const wrap = document.querySelector(`#doc .xl-wrap[data-tbl="${CSS.escape(tid)}"]`);
@@ -499,20 +744,22 @@ function xlApply() { // heads.xl.open 의 표마다 — 격자가 없으면(쪽�
     if (document.querySelector(`#doc .xl-wrap[data-tbl="${CSS.escape(tid)}"]`)) continue;
     const frags = [...document.querySelectorAll(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"]`)];
     if (!frags.length) continue;
-    const wrap = xlBuild(tid, frags);
+    const wrap = xlBuild(tid, frags, { judge: (heads.xl.judge && heads.xl.judge.get(xlJudgeKey(tid, null))) || null });
     if (!wrap) { heads.xl.open.delete(tid); continue; }
     frags[0].replaceWith(wrap);
     for (const f of frags.slice(1)) f.hidden = true;
   }
 }
 
-function xlBuild(tid, frags) {
+function xlBuild(tid, frags, { range = null, judge = null } = {}) {
   const b = xlBlock(tid);
   if (!b) return null;
   const full = heads.tbl.data, s3 = heads.view && heads.view.stage3;
   const t3 = full && s3 && s3.meta && heads.tbl.key === `${s3.meta.run}|${s3.meta.at}` ? (full.tables || []).find((x) => x.id === tid) || null : null;
   const rec = ((heads.xl.store || {}).tables || {})[tid] || null;
-  const model = xlModel(tid, b, t3, rec);
+  const model = xlModel(tid, b, t3, rec, judge, range);
+  const lr = heads.xl.llm && heads.xl.llm.get(xlJudgeKey(tid, range)); // 받아 둔 LLM 제안(격자를 다시 만들어도 남는다 — 구조가 바뀌면 열쇠가 달라져 버려진다)
+  if (lr) { model.llm = new Map((lr.formulas || []).map((f) => [f.ref, f])); model.llmInfo = lr; }
   const wrap = el("div", "xl-wrap");
   wrap.dataset.tbl = tid;
   wrap._frags = frags;
@@ -531,22 +778,45 @@ function xlBuild(tid, frags) {
     if (e.key === "Enter") { e.preventDefault(); if (model.sel) { xlCommit(wrap, model.sel, fx.value); xlSelect(wrap, model.sel); } }
     else if (e.key === "Escape") { e.preventDefault(); xlSelect(wrap, model.sel); }
   };
+  fx.oninput = () => { if (model.sel) xlRefsDraw(wrap, fx.value); }; // 치는 동안 참조 칸 색을 따라 바꾼다
   const write = hBtn("문서에 반영", () => xlWriteBack(wrap), { title: "수식 칸의 계산값과 고친 값을 그 칸의 문단 글로 씁니다(문단이 하나인 칸만 — 기존 글을 바꿈, 되돌리기·실행 취소로 돌릴 수 있음)" });
   write.classList.add("xl-write");
   bar.append(name, fx, write);
-  if (t3) {
-    const dl = el("a", "btn sm", "엑셀로 받기");
-    dl.href = `/api/docs/${encodeURIComponent(state.id)}/headings/tables/${encodeURIComponent(tid)}/xlsx`;
-    dl.setAttribute("download", "");
-    dl.title = "시트 「표」(격자 — 합계·비율 칸은 엑셀 수식) · 「검증」 · 「필드」 · 「정보」 .xlsx(3단계 결과 기준 — 여기서 고친 수식은 안 들어감)";
-    bar.append(dl, hBtn("표 보기", () => headsTables(tid), { title: "2열에서 칸 역할 격자·수식 검증·필드 목록" }));
-  } else if (state.format === "docx") bar.append(el("span", "muted xl-note", "3단계 표 구조는 hwpx 만 — 역할·수식 없이 격자만"));
-  else bar.append(el("span", "muted xl-note", "3단계 표 구조 없음 — 역할 색·합계/비율 수식 없이 격자만"),
-    hBtn("표 구조 만들기", () => headsStart(3, false), { cls: "btn sm primary", title: "3단계 표 구조를 스크립트로 만듭니다(1초 안팎) — 끝나면 열헤더·행헤더 색과 합계·비율·코드 수식이 격자에 들어오고 문서 값과 견줍니다" }));
+  const dl = hBtn("엑셀로 받기", () => xlDownload(wrap), { title: "이 격자 그대로 .xlsx — 수식 칸은 엑셀 수식(사용자 수식 포함) · 숫자 칸 연노랑 · 불일치 빨강 · 원문과 다른 칸은 메모에 원문"
+    + (range ? " · 범위 왼쪽 위가 A1" : "") });
+  const up = hBtn("정렬 ↑", () => xlSort(wrap, 1), { title: "고른 칸의 열을 기준으로 그 자료 행 묶음을 오름차순(작은 수·가나다 먼저, 빈 칸은 끝) — 헤더·합계 행은 그대로, 병합 칸(「1단계」)이 묶은 행 안에서만 · 수식 칸은 자리에서 다시 계산 · 「문서에 반영」 을 눌러야 문서가 바뀜" });
+  const down = hBtn("정렬 ↓", () => xlSort(wrap, -1), { title: "고른 칸의 열을 기준으로 내림차순(큰 수 먼저, 빈 칸은 끝)" });
+  const undo = hBtn("정렬 되돌리기", () => xlSortUndo(wrap), { title: "마지막 정렬 전 값으로(문서에 반영하기 전)" });
+  undo.classList.add("xl-undo");
+  undo.hidden = true;
+  bar.append(dl, up, down, undo);
+  if (judge) {
+    const k = judge.counts || {};
+    const st = el("span", "muted xl-note", `수식 자리 판정 ${nf(k.excel || 0)} · 숫자 칸 ${nf(k.input || 0)}${judge.scope === "table" && range ? " (표 전체 맥락)" : ""}`);
+    st.title = "지금 문서의 이 표" + (range ? "(고른 범위)" : "") + "만 읽어 스크립트로 판정 — 열헤더·행헤더 · 합계(「합계·계·소계·총 …비」)·비율·코드 식(「(A+B)」·「(M=K+L)」·「(I/E2)」) 수식 · 숫자를 넣을 칸"
+      + (judge.scope === "table" && range ? "\n고른 범위에 헤더가 없어 표 전체로 판정하고 범위 안 칸의 수식만 씀" : "");
+    bar.append(st, hBtn("다시 판정", async () => {
+      const j = await xlJudge(tid, range, true);
+      if (j && wrap.isConnected) { if (heads.xl.col && heads.xl.col.tid === tid && !frags.length) xlColumn(tid, range); else { const nw = xlBuild(tid, frags, { range, judge: j }); if (nw) wrap.replaceWith(nw); } }
+    }, { title: "문서 글을 고친 뒤 — 칸 역할·수식 자리를 지금 글로 다시 판정" }));
+    const lb = hBtn("LLM 수식 판정", () => xlLlm(wrap), { title: "누를 때만 LLM 을 부릅니다 — 표와 표 앞뒤 글(제목·단위·각주)·표 지침을 읽고 수식을 제안(위 판정 수식의 확인·고침 포함). 제안은 검사한 뒤 보여 주고, 「적용」 을 눌러야 수식이 됩니다" });
+    lb.classList.add("xl-llm-btn");
+    bar.append(lb, el("span", "xl-llm"));
+  } else if (t3) bar.append(el("span", "muted xl-note", "판정 없음 — 3단계 표 구조의 수식"));
+  else bar.append(el("span", "muted xl-note", state.format === "docx" ? "수식 판정은 hwpx 만 — 격자만" : "수식 판정 실패 — 격자만"));
+  if (t3) bar.append(hBtn("표 보기", () => headsTables(tid), { title: "2열에서 3단계 표 구조(문서 전체 실행 결과)의 칸 역할 격자·수식 검증·필드 목록" }));
   bar.append(hBtn("표 지침", () => tblAgentView(tid), { title: "작성요령 · 사용자 지침(표 에이전트 입력)" }), el("span", "spacer"));
   if (frags.length) bar.append(hBtn("문서 보기", () => xlClose(tid), { title: "원래 표로" }));
-  else bar.append(hBtn("문서 자리에서 보기", () => xlOpen(tid), { title: "문서의 그 표 자리를 이 격자로 바꿔 보기(다시 누르면 원래 표)" }));
+  else if (!range) bar.append(hBtn("문서 자리에서 보기", () => xlOpen(tid), { title: "문서의 그 표 자리를 이 격자로 바꿔 보기(다시 누르면 원래 표)" }));
   wrap.append(bar);
+  const refs = el("div", "xl-refs"); // 「참조」 줄 — 고른 수식 칸이 가리키는 칸·범위(xlRefsDraw)
+  refs.setAttribute("aria-label", "고른 수식이 참조한 칸");
+  refs.addEventListener("wheel", (e) => { // 한 줄로 고정한 줄 — 넘치면 휠로 가로로 굴린다
+    if (refs.scrollWidth <= refs.clientWidth) return;
+    refs.scrollLeft += e.deltaY || e.deltaX;
+    e.preventDefault();
+  }, { passive: false });
+  wrap.append(refs);
   const scroll = el("div", "xl-scroll");
   scroll.append(xlGrid(wrap));
   wrap.append(scroll);
@@ -563,17 +833,18 @@ function xlGrid(wrap) {
   const table = el("table", "xl");
   table.setAttribute("aria-label", `표 ${model.tid} 격자`);
   const thead = el("thead"), hr = el("tr");
+  const v = model.view; // 보일 범위(표 좌표 — 열 글자·행 번호는 표 기준 그대로)
   hr.append(el("th", "corner"));
-  for (let k = 0; k < model.cols; k += 1) hr.append(el("th", null, colLetter(k)));
+  for (let k = v.c0; k <= v.c1; k += 1) hr.append(el("th", null, colLetter(k)));
   thead.append(hr);
   table.append(thead);
   const tb = el("tbody");
-  for (let r = 0; r < model.rows; r += 1) {
+  for (let r = v.r0; r <= v.r1; r += 1) {
     const tr = el("tr");
     tr.append(el("th", null, String(r + 1)));
-    for (let k = 0; k < model.cols; k += 1) {
+    for (let k = v.c0; k <= v.c1; k += 1) {
       const c = model.occ.get(`${r},${k}`);
-      if (!c) { tr.append(el("td", "none")); continue; }
+      if (!c || !model.inView(c)) { tr.append(el("td", "none")); continue; } // 범위에 반만 걸친 병합 칸(구조 편집 뒤 낡은 범위)은 빈 자리로
       if (c.row !== r || c.col !== k) continue;
       const td = el("td", c.role || "");
       if (c.rs > 1) td.rowSpan = c.rs;
@@ -593,7 +864,8 @@ function xlRefresh(wrap) { // 다시 계산하고 칸마다 글·색을 맞춘�
   const model = wrap._model;
   model.res = xlEval(model);
   const byRef = new Map([...wrap.querySelectorAll("td[data-ref]")].map((td) => [td.dataset.ref, td]));
-  let bad = 0, fill = 0, errs = 0, dirty = 0, blanks = 0;
+  let bad = 0, fill = 0, errs = 0, dirty = 0, blanks = 0, inps = 0, origs = 0;
+  model.status = new Map();
   for (const c of model.cells) {
     const td = byRef.get(c.ref);
     if (!td) continue;
@@ -601,6 +873,9 @@ function xlRefresh(wrap) { // 다시 계산하고 칸마다 글·색을 맞춘�
     td.className = c.role || "";
     td.title = "";
     if (td.querySelector("input")) continue; // 고치는 중
+    const orig = xlOrig(c); // 올린 원본(원문)과 글이 다른 칸 — 문서의 「고친 문단」 표시(.para.edited)와 같은 기준
+    if (orig != null) { td.classList.add("orig"); origs += 1; }
+    if (!f && model.inputs.has(c.ref)) { td.classList.add("inp"); inps += 1; }
     if (f) {
       const v = model.res.get(c.ref), dn = xlNum(doc);
       td.classList.add("fx");
@@ -609,25 +884,33 @@ function xlRefresh(wrap) { // 다시 계산하고 칸마다 글·색을 맞춘�
       else if (v == null || v === "") { st = "blank"; blanks += 1; } // 피연산자가 빈 칸 — §9 「미검증」
       else if (typeof v === "number") {
         if (dn) { if (Math.abs(dn.v - v) <= 0.5 * 10 ** -(oneLine(doc).match(/\.(\d+)/) ? RegExp.$1.length : 0) + 1e-9) st = "ok"; else { st = "bad"; bad += 1; } }
-        else if (!oneLine(doc).trim()) { st = "fill"; fill += 1; }
+        else if (!oneLine(doc).trim() || xlIsPh(doc)) { st = "fill"; fill += 1; } // 문서 칸이 비었거나 자리표시 — 미기입
         else { st = "bad"; bad += 1; }
       }
       if (st) td.classList.add(st);
+      model.status.set(c.ref, st);
       if (typeof v === "number") td.classList.add("num");
       const dn0 = xlNum(doc);
       td.textContent = xlShow(v) + (typeof v === "number" && dn0 && dn0.pct ? "%" : "");
-      td.title = `${c.ref} ${f}\n계산값 ${st === "blank" ? "(빈 값 — 피연산자가 빈 칸)" : xlShow(v)} · 문서 값 ${doc || "(빈 칸)"}${st === "bad" ? " · 불일치" : st === "fill" ? " · 문서 칸이 비어 있음(미기입)" : st === "ok" ? " · 일치" : st === "blank" ? " · 미검증" : ""}`
-        + (model.base.has(c.ref) && model.base.get(c.ref) === f ? "\n3단계가 만든 수식" : "\n사용자 수식") + (c.role && XL_ROLE[c.role] ? `\n${XL_ROLE[c.role]}` : "");
+      const fb = model.fById.get(c.ref);
+      td.title = `${c.ref} ${f}\n계산값 ${st === "blank" ? "(빈 값 — 피연산자가 빈 칸)" : xlShow(v)} · 문서 값 ${doc || "(빈 칸)"}${st === "bad" ? " · 불일치(원문 값과 다름)" : st === "fill" ? " · 문서 칸이 비어 있음(미기입)" : st === "ok" ? " · 일치" : st === "blank" ? " · 미검증" : ""}`
+        + (model.base.has(c.ref) && model.base.get(c.ref) === f ? `\n판정한 수식${fb && fb.note ? ` — ${fb.note}` : ""}` : "\n사용자 수식") + (c.role && XL_ROLE[c.role] ? `\n${XL_ROLE[c.role]}` : "")
+        + (orig != null ? `\n원문과 다름 — 원문 「${orig || "(빈 칸)"}」` : "");
     } else {
       const raw = model.values.has(c.ref) ? model.values.get(c.ref) : doc;
       td.textContent = c.nested && !raw ? "〔표〕" : raw;
       if (xlNum(raw)) td.classList.add("num");
       if (model.values.has(c.ref) && model.values.get(c.ref) !== doc) { td.classList.add("dirty"); dirty += 1; }
-      td.title = `${c.ref}${c.role && XL_ROLE[c.role] ? ` · ${XL_ROLE[c.role]}` : ""}${model.values.has(c.ref) ? `\n고친 값(문서에 반영 전) · 문서 값 ${doc || "(빈 칸)"}` : ""}`
-        + (c.s3 && c.s3.role === "field" && (c.s3.rowPath || c.s3.colPath) ? `\n행헤더 ${(c.s3.rowPath || []).map((id) => xlNameOf(model, id)).join(" › ") || "—"} · 열헤더 ${(c.s3.colPath || []).map((id) => xlNameOf(model, id)).join(" › ") || "—"}` : "");
+      td.title = `${c.ref}${c.role && XL_ROLE[c.role] ? ` · ${XL_ROLE[c.role]}` : ""}${model.inputs.has(c.ref) ? " · 숫자 칸(숫자를 넣을 자리)" : ""}${model.values.has(c.ref) ? `\n고친 값(문서에 반영 전) · 문서 값 ${doc || "(빈 칸)"}` : ""}`
+        + (c.s3 && c.s3.role === "field" && (c.s3.rowPath || c.s3.colPath) ? `\n행헤더 ${(c.s3.rowPath || []).map((id) => xlNameOf(model, id)).join(" › ") || "—"} · 열헤더 ${(c.s3.colPath || []).map((id) => xlNameOf(model, id)).join(" › ") || "—"}` : "")
+        + (orig != null ? `\n원문과 다름 — 원문 「${orig || "(빈 칸)"}」` : "");
     }
+    const ls = xlLlmState(model, c.ref); // LLM 제안이 걸린 칸 — 새 수식·지금 수식과 다름·끄기(값만 같은 다른 꼴은 표시 안 함)
+    if (ls && ls.state !== "equiv") { td.classList.add("llm"); td.title += `\n${XL_LLM_KO[ls.state]}${ls.p.formula ? ` ${ls.p.formula}` : ""}${ls.p.reason ? ` — ${ls.p.reason}` : ""}`; }
     if (model.sel === c.ref) td.classList.add("sel");
   }
+  const undo = wrap.querySelector(".xl-undo");
+  if (undo) undo.hidden = !model.undo;
   const pending = xlPending(wrap).length;
   const write = wrap.querySelector(".xl-write");
   write.textContent = pending ? `문서에 반영 ${pending}` : "문서에 반영";
@@ -635,11 +918,207 @@ function xlRefresh(wrap) { // 다시 계산하고 칸마다 글·색을 맞춘�
   const user = [...model.formulas].filter(([k, v]) => model.base.get(k) !== v).length + [...model.base].filter(([k]) => !model.formulas.has(k)).length;
   const foot = wrap.querySelector(".xl-foot");
   foot.textContent = "";
-  foot.append(el("span", null, `${model.rows}×${model.cols} · 칸 ${nf(model.cells.length)} · 수식 ${nf(model.formulas.size)}${user ? `(사용자 ${user})` : ""}`),
-    el("span", bad ? "warn" : "", `불일치 ${nf(bad)}`), el("span", null, `미기입 ${nf(fill)}`), blanks ? el("span", null, `미검증(빈 칸) ${nf(blanks)}`) : "", errs ? el("span", "warn", `오류 ${nf(errs)}`) : "",
+  const v = model.view, shown = model.cells.filter((c) => byRef.has(c.ref)).length;
+  const chip = (cls, text, title) => { const s = el("span", "xl-key"); s.append(el("i", cls), text); s.title = title; return s; };
+  foot.append(el("span", null, `${model.range ? `${xlRangeName(v)} · ` : ""}${v.r1 - v.r0 + 1}×${v.c1 - v.c0 + 1} · 칸 ${nf(shown)} · 수식 ${nf([...model.formulas.keys()].filter((k) => byRef.has(k)).length)}${user ? `(사용자 ${user})` : ""}`),
+    chip("fx", `수식`, "수식 칸 — 계산값을 보임(초록 테두리 = 문서 값과 일치)"),
+    chip("inp", `숫자 칸 ${nf(inps)}`, "숫자를 넣을 자리 — 수식의 피연산자이거나 수·숫자 자리표시(「0,000,000」)인 칸"),
+    chip("bad", `불일치 ${nf(bad)}`, "수식 계산값과 문서(원문) 값이 다른 칸"),
+    chip("fill", `미기입 ${nf(fill)}`, "수식 칸인데 문서 칸이 비어 있음"),
+    chip("orig", `원문과 다름 ${nf(origs)}`, "올린 원본(원문)에서 글을 고친 칸 — 마우스를 올리면 원문"),
+    blanks ? el("span", null, `미검증(빈 칸) ${nf(blanks)}`) : "", errs ? el("span", "warn", `오류 ${nf(errs)}`) : "",
     dirty ? el("span", null, `고친 값 ${nf(dirty)}`) : "",
-    el("span", "muted", "Enter 반영·아래로 · Tab 오른쪽 · F2/두 번 누르기 고침 · Delete 비움 · 「=」 수식(작업에 저장)"));
+    el("span", "muted", "Enter 반영·아래로 · Tab 오른쪽 · F2/두 번 누르기 고침 · Delete 비움 · 「=」 수식(작업에 저장) · 칸을 누르고 정렬 ↑↓"));
   if (heads.xl.saving.get(model.tid) === "fail") foot.append(el("span", "warn", "수식 저장 실패 — 다시 고치면 다시 시도"));
+  xlLlmBar(wrap);
+  xlRefsDraw(wrap); // 칸 색을 새로 매겼으니 참조 칸 표시도 다시
+}
+
+// ---- LLM 수식 판정 — 단추를 누를 때만 호출 1번(서버가 답을 검사·견줌). 제안은 자동으로 적용하지 않는다: 보라 귀퉁이 표시 → 칸을 골라 「적용」·「무시」, 또는 도구 줄 「모두 적용」 ----------------
+const XL_LLM_KO = { new: "LLM 제안", diff: "LLM 제안(지금 수식과 다름)", equiv: "LLM 제안(꼴만 다르고 값은 같음)", off: "LLM 제안: 계산 칸이 아님" };
+const xlCanon = (f) => String(f || "").split(/("(?:[^"]|"")*")/).map((p, i) => (i % 2 ? p : p.replace(/\s+/g, "").toUpperCase().replace(/\$/g, ""))).join(""); // table_formula.canon 과 같은 꼴
+function xlLlmState(model, ref) { // 그 칸의 제안과 지금 수식의 사이 → null(제안 없음 · 이미 같은 수식) | {p, state: new|diff|equiv|off}
+  const p = model.llm.get(ref);
+  if (!p) return null;
+  const cur = model.formulas.get(ref) || "";
+  if (!p.formula) return cur ? { p, state: "off" } : null;
+  if (!cur) return { p, state: "new" };
+  if (xlCanon(cur) === xlCanon(p.formula)) return null;
+  if (p.kind === "equiv" && p.script && xlCanon(p.script) === xlCanon(cur)) return { p, state: "equiv" };
+  return { p, state: "diff" };
+}
+
+async function xlLlm(wrap) {
+  const model = wrap._model, tid = model.tid, rg = model.range, key = xlJudgeKey(tid, rg), id = state.id, epoch = state.epoch;
+  heads.xl.llmBusy = heads.xl.llmBusy || new Set();
+  if (heads.xl.llmBusy.has(key)) return; // 이미 묻는 중
+  heads.xl.llmBusy.add(key);
+  xlLlmBar(wrap);
+  let r = null, err = null;
+  try { r = await api(`/api/docs/${encodeURIComponent(id)}/tables/${encodeURIComponent(tid)}/excel/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify(rg ? { range: rg } : {}) }); }
+  catch (e) { err = e; }
+  heads.xl.llmBusy.delete(key);
+  if (id !== state.id || epoch !== state.epoch) return; // 그 사이 다른 문서
+  if (err) toast(`LLM 수식 판정을 못 했습니다: ${err.message}`, true);
+  else if (key !== xlJudgeKey(tid, rg)) { toast("LLM 이 판정하는 동안 표의 행·열이 바뀌어 제안을 버렸습니다 — 다시 눌러 주세요", true); r = null; }
+  else { heads.xl.llm = heads.xl.llm || new Map(); if (heads.xl.llm.size > 40) heads.xl.llm.clear(); heads.xl.llm.set(key, r); }
+  for (const w of document.querySelectorAll(`.xl-wrap[data-tbl="${CSS.escape(tid)}"]`)) { // 그 사이 격자가 다시 만들어졌을 수 있다 — 지금 화면의 격자에 얹는다
+    const m = w._model;
+    if (!m || xlRangeKey(m.range) !== xlRangeKey(rg)) continue;
+    if (r) { m.llm = new Map((r.formulas || []).map((f) => [f.ref, f])); m.llmInfo = r; }
+    xlRefresh(w);
+  }
+  if (r) {
+    const k = r.counts || {};
+    toast(`LLM 제안 — 새 수식 ${nf(k.new || 0)} · 다름 ${nf(k.diff || 0)}${k.off ? ` · 끄기 ${nf(k.off)}` : ""} · 같음 ${nf((k.same || 0) + (k.equiv || 0))}${k.rejected ? ` · 검사에서 뺌 ${nf(k.rejected)}` : ""}`);
+  }
+}
+
+function xlLlmBar(wrap) { // 도구 줄 — 단추의 「판정 중」 · 제안 수(지금 수식에 견줘 다시 셈) · 「모두 적용」·「제안 지우기」
+  const model = wrap._model, box = wrap.querySelector(".xl-llm"), btn = wrap.querySelector(".xl-llm-btn");
+  if (!box) return;
+  const busy = !!(heads.xl.llmBusy && heads.xl.llmBusy.has(xlJudgeKey(model.tid, model.range)));
+  if (btn) { btn.disabled = busy; btn.textContent = busy ? "LLM 이 판정하는 중…" : "LLM 수식 판정"; }
+  box.textContent = "";
+  const info = model.llmInfo;
+  if (!info) return;
+  const n = { new: 0, diff: 0, off: 0, equiv: 0, same: 0 }, todo = [];
+  for (const ref of model.llm.keys()) {
+    const s = xlLlmState(model, ref);
+    n[s ? s.state : "same"] += 1;
+    const mine = model.formulas.has(ref) && model.base.get(ref) !== model.formulas.get(ref); // 직접 넣은 수식 — 「모두 적용」 이 덮어쓰지 않는다
+    if (s && s.state !== "equiv" && !(mine && s.state !== "new")) todo.push(ref);
+  }
+  const pend = n.new + n.diff + n.off, call = info.call || {}, rej = info.rejected || [];
+  const st = el("span", `xl-note ${pend ? "xl-llm-pend" : "muted"}`, `LLM 제안 새 ${nf(n.new)} · 다름 ${nf(n.diff)}${n.off ? ` · 끄기 ${nf(n.off)}` : ""} · 같음 ${nf(n.same + n.equiv)}`);
+  st.title = [info.note ? `LLM: ${info.note}` : "", `새 = 수식이 없던 칸 · 다름 = 지금 수식과 값이 다름 · 같음 = 같은 수식(꼴만 다른 ${nf(n.equiv)}개 포함)`,
+    rej.length ? `검사에서 뺀 제안 ${nf((info.counts || {}).rejected || rej.length)}: ${rej.slice(0, 6).map((x) => `${x.ref} ${x.why}`).join(" · ")}${rej.length > 6 ? " …" : ""}` : "",
+    `${call.backend || ""} ${call.model || ""}${call.ms != null ? ` · ${(call.ms / 1000).toFixed(1)}초` : ""}${call.costUsd != null ? ` · $${Number(call.costUsd).toFixed(3)}` : ""}`.trim()].filter(Boolean).join("\n");
+  box.append(st);
+  if (todo.length) box.append(hBtn(`모두 적용 ${nf(todo.length)}`, () => xlLlmApply(wrap, todo), { title: "제안을 한꺼번에 수식으로(작업에 저장) — 직접 넣은 수식과 다른 제안은 빼고, 그런 칸은 골라서 적용하세요" }));
+  box.append(hBtn("제안 지우기", () => xlLlmDrop(wrap, null), { title: "LLM 제안을 모두 버립니다(이미 적용한 수식은 그대로)" }));
+}
+
+function xlLlmApply(wrap, refs) { // 제안 → 수식(사용자 수식으로 저장 — 판정 수식과 같아지면 저장할 것이 없다). 끄기 제안은 수식만 지우고 칸의 값은 그대로
+  const model = wrap._model;
+  for (const ref of refs) {
+    const p = model.llm.get(ref);
+    if (!p) continue;
+    if (p.formula) { model.formulas.set(ref, p.formula); model.values.delete(ref); } else model.formulas.delete(ref);
+  }
+  xlRefresh(wrap);
+  xlPersist(wrap);
+  wrap.focus({ preventScroll: true });
+}
+
+function xlLlmDrop(wrap, refs) { // refs = null 이면 전부
+  const model = wrap._model, key = xlJudgeKey(model.tid, model.range), lr = heads.xl.llm && heads.xl.llm.get(key);
+  if (!refs) { model.llm = new Map(); model.llmInfo = null; if (heads.xl.llm) heads.xl.llm.delete(key); }
+  else { for (const ref of refs) model.llm.delete(ref); if (lr) lr.formulas = (lr.formulas || []).filter((f) => model.llm.has(f.ref)); }
+  xlRefresh(wrap);
+  wrap.focus({ preventScroll: true });
+}
+
+function xlLlmChip(wrap, ref, ls) { // 「참조」 줄 맨 앞 — 고른 칸의 제안 · 「적용」·「무시」
+  const box = el("span", "xl-llm-prop");
+  box.append(el("b", null, XL_LLM_KO[ls.state]));
+  if (ls.p.formula) box.append(el("code", null, short(ls.p.formula, 48)));
+  box.title = `${XL_LLM_KO[ls.state]}${ls.p.formula ? ` ${ls.p.formula}` : ""}\n까닭: ${ls.p.reason || "—"}${ls.p.script ? `\n판정한 수식: ${ls.p.script}` : ""}`;
+  box.append(hBtn("적용", () => xlLlmApply(wrap, [ref]), { title: ls.p.formula ? "이 제안을 이 칸의 수식으로(작업에 저장)" : "이 칸의 수식을 끕니다(값은 그대로)" }),
+    hBtn("무시", () => xlLlmDrop(wrap, [ref]), { title: "이 칸의 제안만 버립니다" }));
+  return box;
+}
+
+// ---- 참조 칸 표시 — 수식 칸을 고르면(수식을 치는 동안에도) 그 수식이 가리키는 칸·범위를 엑셀처럼 묶음마다 다른 색 테두리로, 도구 줄 아래 「참조」 줄에 같은 색 표지로 ----------------
+const XL_REF_COLORS = 6; // style.css .xl-wrap .r0 ~ .r5
+const XL_REF_SCAN = /(?<![A-Za-z0-9_$.])\$?([A-Za-z]{1,3})\$?([1-9]\d{0,3})(?::\$?([A-Za-z]{1,3})\$?([1-9]\d{0,3}))?(?![\w(.])/g;
+function xlRefGroups(model, formula) { // 수식 글 → [{text: "E3:E4", cells: [칸…]}] — 나온 순서, 같은 주소는 한 번. 치는 중인 반쪽 수식도 읽게 구문 분석 없이 주소만 훑는다
+  const out = [], seen = new Set();
+  const src = String(formula || "").replace(/"(?:[^"]|"")*"/g, (m) => " ".repeat(m.length)); // 글 상수 안의 「A1」 은 주소가 아님
+  for (const m of src.matchAll(XL_REF_SCAN)) {
+    const a = xlRefPos(`${m[1]}${m[2]}`.toUpperCase()), b = m[3] ? xlRefPos(`${m[3]}${m[4]}`.toUpperCase()) : a;
+    if (!a || !b) continue;
+    const text = (m[3] ? `${m[1]}${m[2]}:${m[3]}${m[4]}` : `${m[1]}${m[2]}`).toUpperCase();
+    if (seen.has(text)) continue;
+    seen.add(text);
+    const cells = [], got = new Set();
+    const r0 = Math.max(0, Math.min(a.row, b.row)), r1 = Math.min(model.rows - 1, Math.max(a.row, b.row));
+    const c0 = Math.max(0, Math.min(a.col, b.col)), c1 = Math.min(model.cols - 1, Math.max(a.col, b.col));
+    for (let r = r0; r <= r1; r += 1) for (let k = c0; k <= c1; k += 1) {
+      const c = model.occ.get(`${r},${k}`);
+      if (c && !got.has(c.ref)) { got.add(c.ref); cells.push(c); } // 병합 칸은 한 번
+    }
+    out.push({ text, cells });
+  }
+  return out;
+}
+
+function xlRefName(model, cells) { // 참조 칸들의 이름 — 모두가 함께 가진 가장 안쪽 행헤더(없으면 열헤더) 글. 「E3:E4」 → 「내부인건비(A)」, 「E23:J23」 → 「직접비 소계」
+  for (const key of ["rowPath", "colPath"]) {
+    const paths = cells.map((c) => (c.s3 && c.s3[key]) || []);
+    if (!paths.length || paths.some((p) => !p.length)) continue;
+    let n = 0;
+    while (n < paths[0].length && paths.every((p) => p[n] === paths[0][n])) n += 1;
+    if (n) return xlNameOf(model, paths[0][n - 1]);
+  }
+  return "";
+}
+
+function xlRefsDraw(wrap, live) { // live = 치는 중인 글(수식 줄·칸 안 입력) — 없으면 고른 칸에 저장된 수식. 칸 색은 xlRefresh 가 className 을 새로 매기므로 그 끝에서도 부른다
+  const model = wrap._model, box = wrap.querySelector(".xl-refs");
+  if (!box) return;
+  if (live !== undefined) wrap._refLive = live;
+  for (const td of wrap.querySelectorAll("td.ref")) {
+    td.classList.remove("ref", ...Array.from({ length: XL_REF_COLORS }, (_, i) => `r${i}`));
+    for (const p of ["--rt", "--rr", "--rb", "--rl"]) td.style.removeProperty(p);
+  }
+  const saved = model.sel ? model.formulas.get(model.sel) || "" : "";
+  const typing = wrap._refLive != null;
+  const ls = model.sel && !typing ? xlLlmState(model, model.sel) : null; // 고른 칸에 걸린 LLM 제안
+  const preview = !!ls && ls.state === "new"; // 수식이 없던 칸의 제안 — 제안 수식이 가리키는 칸을 미리 보인다
+  const text = typing ? String(wrap._refLive) : preview ? ls.p.formula : saved;
+  const groups = text.trim().startsWith("=") ? xlRefGroups(model, text) : [];
+  box.textContent = "";
+  box.scrollLeft = 0;
+  if (ls) box.append(xlLlmChip(wrap, model.sel, ls)); // 맨 앞 — 참조 표지가 많아도 「적용」·「무시」 가 가려지지 않게
+  if (!groups.length) {
+    if (!ls) box.append(el("span", "muted", text.trim().startsWith("=") ? "이 수식은 다른 칸을 참조하지 않습니다" : "수식 칸을 고르면 참조한 칸을 색으로 표시합니다"));
+    return;
+  }
+  const byRef = new Map([...wrap.querySelectorAll("td[data-ref]")].map((td) => [td.dataset.ref, td]));
+  const taken = new Set(); // 두 묶음에 다 든 칸은 먼저 나온 묶음의 색
+  box.append(el("span", "xl-refs-h", preview ? `${model.sel} 제안 수식의 참조` : `${model.sel} 참조`));
+  groups.forEach((g, i) => {
+    const k = i % XL_REF_COLORS, set = new Set(g.cells.map((c) => c.ref));
+    const inSet = (r, c) => { const x = model.occ.get(`${r},${c}`); return !!x && set.has(x.ref); };
+    for (const c of g.cells) {
+      const td = byRef.get(c.ref);
+      if (!td || taken.has(c.ref)) continue;
+      taken.add(c.ref);
+      const cols = Array.from({ length: c.cs }, (_, d) => c.col + d), rows = Array.from({ length: c.rs }, (_, d) => c.row + d);
+      td.classList.add("ref", `r${k}`);
+      // 묶음 바깥 변에만 테두리 — 이웃 칸이 같은 묶음이면 그 변은 0(범위 하나가 한 테두리로 보이게)
+      td.style.setProperty("--rt", cols.every((x) => inSet(c.row - 1, x)) ? "0px" : "2px");
+      td.style.setProperty("--rb", cols.every((x) => inSet(c.row + c.rs, x)) ? "0px" : "2px");
+      td.style.setProperty("--rl", rows.every((y) => inSet(y, c.col - 1)) ? "0px" : "2px");
+      td.style.setProperty("--rr", rows.every((y) => inSet(y, c.col + c.cs)) ? "0px" : "2px");
+    }
+    const name = xlRefName(model, g.cells), shown = g.cells.some((c) => byRef.has(c.ref));
+    const chip = el("button", `xl-ref r${k}${shown ? "" : " out"}`);
+    chip.type = "button";
+    chip.append(el("i"), el("b", null, g.text));
+    if (name) chip.append(el("span", null, short(name, 14)));
+    chip.title = `${g.text}${name ? ` — ${name}` : ""} · 칸 ${nf(g.cells.length)}${!g.cells.length ? " · 표에 없는 주소" : shown ? "\n누르면 그 칸으로" : " · 보이는 범위 밖"}`;
+    chip.onclick = () => {
+      const td = g.cells.map((c) => byRef.get(c.ref)).find(Boolean);
+      if (td) td.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      wrap.focus({ preventScroll: true });
+    };
+    box.append(chip);
+  });
+  const fb = model.sel ? model.fById.get(model.sel) : null;
+  if (fb && fb.note && text === saved && model.base.get(model.sel) === saved) box.append(el("span", "muted xl-refs-note", `판정 근거 — ${fb.note}`));
+  if (!typing && !ls && saved && model.llm.has(model.sel)) box.append(el("span", "muted xl-refs-note", "LLM 도 같은 수식"));
 }
 
 const xlNameOf = (model, cid) => { const c = (model.t3 && model.t3.cells || []).find((x) => x.id === cid); return c ? (oneLine(c.text) || "(빈 칸)") : cid; };
@@ -656,6 +1135,7 @@ function xlSelect(wrap, ref) {
   const fx = wrap.querySelector(".xl-fx");
   fx.value = model.formulas.get(c.ref) || (model.values.has(c.ref) ? model.values.get(c.ref) : xlDocText(c));
   if (document.activeElement !== fx) wrap.focus({ preventScroll: true });
+  xlRefsDraw(wrap, null); // 고른 칸의 수식이 참조한 칸 표시(치던 글은 버림)
 }
 
 function xlEdit(wrap, ref, seed = null) { // 칸 안에서 고치기 — Enter 반영(아래로) · Tab 오른쪽 · Esc 취소
@@ -684,6 +1164,7 @@ function xlEdit(wrap, ref, seed = null) { // 칸 안에서 고치기 — Enter �
     else if (e.key === "Escape") { e.preventDefault(); done(false); }
   };
   inp.onblur = () => done(true);
+  inp.oninput = () => xlRefsDraw(wrap, inp.value);
   td.textContent = "";
   td.append(inp);
   inp.focus();
@@ -732,7 +1213,9 @@ function xlCommit(wrap, ref, raw) { // 「=」 수식(작업에 저장) · 아�
 function xlPersist(wrap) { // 사용자 수식(§9 수식과 다른 것 · 끈 것 = "")을 작업에 저장 — 0.6초 모아서, version 이 어긋나면 새로 읽고 한 번 더
   const model = wrap._model, tid = model.tid;
   const user = {};
-  for (const [k, v] of model.formulas) if (model.base.get(k) !== v) user[k] = v;
+  const inView = (k) => { const p = xlRefPos(k), c = p ? model.occ.get(`${p.row},${p.col}`) : null; return !!c && model.inView(c); };
+  if (model.range) for (const [k, v] of Object.entries(model.rec.formulas || {})) if (!inView(k)) user[k] = v; // 범위 보기 — 범위 밖 저장분(끈 수식 "" 포함)은 그대로 둔다(범위 판정의 기준 수식과 견주지 않음)
+  for (const [k, v] of model.formulas) if (model.base.get(k) !== v && (!model.range || inView(k))) user[k] = v;
   for (const k of model.base.keys()) if (!model.formulas.has(k)) user[k] = "";
   clearTimeout(heads.xl.saveTimer);
   const id = state.id, epoch = state.epoch;
@@ -762,6 +1245,7 @@ function xlPersist(wrap) { // 사용자 수식(§9 수식과 다른 것 · 끈 �
 function xlPending(wrap) { // 문서에 쓸 것 — 수식 칸의 수 계산값(문서 값과 다른 것) · 고친 값. 문단 없는 칸·문단 둘 이상인 칸은 건너뜀
   const model = wrap._model, out = [];
   for (const c of model.cells) {
+    if (!model.inView(c)) continue; // 범위 보기 — 보이는 칸만 쓴다
     const doc = xlDocText(c);
     let text = null;
     if (model.formulas.has(c.ref)) {
@@ -808,6 +1292,133 @@ async function xlWriteBack(wrap) {
   toast(`문서에 ${ok}개 칸을 썼습니다${fail ? ` · 실패 ${fail}` : ""}${skip.length ? ` · 건너뜀 ${skip.length}` : ""} — 「고친 문단」 탭에서 되돌릴 수 있습니다`, !!fail);
 }
 
+// ---- 원문 비교 · 정렬 · 엑셀로 받기(spec ② §14) ------------------------------------------------------------------------
+function xlOrig(c) { // 칸의 문단 중 원문(올린 원본·마지막 확정본)과 다른 것이 있으면 원문 글, 없으면 null — app.js state.edited(고친 문단)·state.original
+  if (!c.paras.some((id) => state.edited && state.edited.has(id))) return null;
+  return c.paras.map((id) => oneLine(state.original[id] || "")).filter(Boolean).join(" ");
+}
+
+function xlRaw(model, c) { return model.values.has(c.ref) ? model.values.get(c.ref) : xlDocText(c); }
+
+function xlSortBlock(model, c) {
+  // 정렬할 행 묶음 {r0, r1, c0, c1} | {err} — 고른 칸이 든 서브 테이블(판정 띠)의 자료 행 중, 그 칸을 덮는 가장 작은 세로 병합 칸(「1단계」)이 묶은 행,
+  // 없으면 헤더·합계·제목 행과 경계를 가르는 병합 칸에서 멈추는 이어진 자료 행. 열 = 띠 열 범위 ∩ 보이는 범위.
+  const v = model.view, J = model.judge;
+  const sub = J && c.s3 && c.s3.sub ? (J.subtables || []).find((s) => s.id === c.s3.sub) : null;
+  const R0 = Math.max(v.r0 + (model.t3 ? 0 : 1), sub ? sub.rows[0] : v.r0), R1 = Math.min(v.r1, sub ? sub.rows[1] - 1 : v.r1); // 역할을 모르면(docx) 첫 행은 헤더로 본다
+  const C0 = Math.max(v.c0, sub ? sub.cols[0] : v.c0), C1 = Math.min(v.c1, sub ? sub.cols[1] - 1 : v.c1);
+  const inCols = (x) => x.col >= C0 && x.col + x.cs - 1 <= C1;
+  const isTotal = (x) => x.s3 && ((x.s3.basis || []).includes("total") || x.s3.basisKind === "total");
+  const dataRow = (r) => {
+    let field = false;
+    for (const x of model.cells) {
+      if (!inCols(x) || r < x.row || r > x.row + x.rs - 1) continue;
+      if (x.row === r && ["colhead", "corner", "title", "note", "spacer"].includes(x.role)) return false;
+      if (x.role === "rowhead" && isTotal(x)) return false; // 합계·소계 행
+      if (x.row === r && (x.role === "field" || !x.role)) field = true;
+    }
+    return field;
+  };
+  if (c.row < R0 || c.row > R1 || !inCols(c)) return { err: "고른 칸이 정렬할 표 범위 밖입니다" };
+  if (!dataRow(c.row)) return { err: "헤더·합계 행은 정렬 기준이 될 수 없습니다 — 자료 칸을 고르세요" };
+  let r0 = c.row, r1 = c.row;
+  const group = model.cells.filter((x) => inCols(x) && x.rs > 1 && x.row <= c.row && c.row <= x.row + x.rs - 1 && x !== c && x.col < c.col)
+    .sort((a, b) => a.rs - b.rs)[0]; // 고른 칸 왼쪽의 가장 작은 세로 병합(「1단계」 가 묶은 1~3차년도)
+  if (group) { r0 = Math.max(R0, group.row); r1 = Math.min(R1, group.row + group.rs - 1); }
+  else {
+    const crosses = (r) => model.cells.some((x) => inCols(x) && x.rs > 1 && x.row < r && r <= x.row + x.rs - 1); // r 위 경계를 가르는 병합 칸
+    while (r0 - 1 >= R0 && dataRow(r0 - 1) && !crosses(r0)) r0 -= 1;
+    while (r1 + 1 <= R1 && dataRow(r1 + 1) && !crosses(r1 + 1)) r1 += 1;
+  }
+  for (let r = r0; r <= r1; r += 1) if (!dataRow(r)) { if (r < c.row) r0 = r + 1; else { r1 = r - 1; break; } }
+  if (r1 - r0 < 1) return { err: "정렬할 자료 행이 둘 이상 이어져 있지 않습니다" };
+  for (const x of model.cells) { // 묶음 안을 가르는 세로 병합 칸은 정렬 불가(엑셀과 같음) — 묶음 전체를 덮는 칸은 제자리
+    if (!inCols(x) || x.rs < 2) continue;
+    const a = x.row, b = x.row + x.rs - 1;
+    if (b < r0 || a > r1) continue;
+    if (!(a <= r0 && b >= r1)) return { err: `병합 칸 ${x.ref}(${x.rs}행)이 정렬할 행(${r0 + 1}~${r1 + 1})에 걸쳐 있어 정렬할 수 없습니다` };
+  }
+  return { r0, r1, c0: C0, c1: C1 };
+}
+
+function xlSort(wrap, dir) {
+  const model = wrap._model;
+  if (!model.sel) { toast("정렬 기준 칸(열)을 먼저 누르세요"); return; }
+  const pos = xlRefPos(model.sel), key = pos ? model.occ.get(`${pos.row},${pos.col}`) : null;
+  if (!key) return;
+  const blk = xlSortBlock(model, key);
+  if (blk.err) { toast(blk.err, true); return; }
+  const rows = [];
+  for (let r = blk.r0; r <= blk.r1; r += 1) {
+    const cs = model.cells.filter((x) => x.row === r && x.rs === 1 && x.col >= blk.c0 && x.col + x.cs - 1 <= blk.c1).sort((a, b) => a.col - b.col);
+    rows.push({ r, cells: cs, sig: cs.map((x) => `${x.col}:${x.cs}:${model.formulas.has(x.ref) ? "f" : ""}`).join(",") });
+  }
+  if (rows.some((x) => x.sig !== rows[0].sig)) { toast("행마다 칸 나눔(병합)·수식 자리가 달라 정렬할 수 없습니다", true); return; }
+  const k = rows[0].cells.findIndex((x) => x.col <= key.col && key.col <= x.col + x.cs - 1);
+  if (k < 0) { toast("정렬 기준 열이 행마다 같은 칸이 아닙니다", true); return; }
+  const val = (x) => { // 정렬 값 — 수식 칸은 계산값, 아니면 지금 값(고친 값 · 문서 글)의 수 또는 글, 빈 칸 null
+    if (model.formulas.has(x.ref)) { const v = model.res.get(x.ref); return typeof v === "number" ? v : v == null || xlIsErr(v) ? null : String(v); }
+    const s = oneLine(xlRaw(model, x)).trim();
+    if (!s || xlIsPh(s)) return null;
+    const n = xlNum(s);
+    return n ? n.v : s;
+  };
+  const cmp = (a, b) => {
+    if (a == null || b == null) return a == null && b == null ? 0 : a == null ? 1 : -1; // 빈 칸은 늘 끝
+    if (typeof a === "number" && typeof b === "number") return dir * (a - b);
+    if (typeof a === "number") return -1; // 수 먼저, 글 다음(엑셀 오름차순과 같음 — 내림차순이어도 수가 앞)
+    if (typeof b === "number") return 1;
+    return dir * a.localeCompare(b, "ko", { numeric: true });
+  };
+  const order = rows.map((x, i) => ({ i, v: val(x.cells[k]) })).sort((a, b) => cmp(a.v, b.v) || a.i - b.i).map((x) => x.i);
+  if (order.every((x, i) => x === i)) { toast("이미 그 순서입니다"); return; }
+  const texts = rows.map((x) => x.cells.map((y) => (model.formulas.has(y.ref) ? null : xlRaw(model, y))));
+  const undo = new Map();
+  rows.forEach((row, i) => row.cells.forEach((y, j) => {
+    if (model.formulas.has(y.ref)) return; // 수식 칸은 제자리에서 다시 계산(같은 행을 가리키는 행 합계는 그대로 맞음)
+    undo.set(y.ref, model.values.has(y.ref) ? model.values.get(y.ref) : undefined);
+    const t = texts[order[i]][j];
+    if (t === xlDocText(y)) model.values.delete(y.ref); else model.values.set(y.ref, t);
+  }));
+  model.undo = undo;
+  xlRefresh(wrap);
+  toast(`${blk.r0 + 1}~${blk.r1 + 1}행(${rows.length}행)을 ${colLetter(key.col)}열 기준 ${dir > 0 ? "오름차순" : "내림차순"}으로 정렬 — 「문서에 반영」 을 눌러야 문서가 바뀝니다`);
+}
+
+function xlSortUndo(wrap) {
+  const model = wrap._model;
+  if (!model.undo) return;
+  for (const [ref, v] of model.undo) { if (v === undefined) model.values.delete(ref); else model.values.set(ref, v); }
+  model.undo = null;
+  xlRefresh(wrap);
+}
+
+async function xlDownload(wrap) { // 이 격자 그대로 .xlsx(서버 openpyxl — POST …/excel/xlsx)
+  const model = wrap._model, cells = [];
+  for (const c of model.cells) {
+    if (!model.inView(c)) continue;
+    const f = model.formulas.get(c.ref), doc = xlDocText(c), raw = f ? null : xlRaw(model, c), n = raw != null ? xlNum(raw) : null, v = f ? model.res.get(c.ref) : null;
+    const orig = xlOrig(c);
+    cells.push({ ref: c.ref, row: c.row, col: c.col, rs: c.rs, cs: c.cs, role: c.role || null, value: raw != null ? oneLine(raw) : null,
+      num: n && !n.dash ? n.v : n && n.dash ? 0 : null, pct: !!(n && n.pct), grouped: !!(raw && /\d,\d{3}/.test(raw)),
+      formula: f || null, calc: typeof v === "number" ? v : null, status: f ? model.status.get(c.ref) || "" : null, doc: f ? doc : null,
+      input: model.inputs.has(c.ref), orig: orig != null, origText: orig });
+  }
+  const body = { range: model.range, rows: model.rows, cols: model.cols, unit: model.judge ? model.judge.unit : null, cells };
+  try {
+    const r = await fetch(`/api/docs/${encodeURIComponent(state.id)}/tables/${encodeURIComponent(model.tid)}/excel/xlsx`, { method: "POST", headers: H_JSON, body: JSON.stringify(body) });
+    if (!r.ok) { let m = `${r.status}`; try { m = (await r.json()).detail || m; } catch { /* 글 아님 */ } throw new Error(m); }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "", m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+    const a = el("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? decodeURIComponent(m[1]) : `${model.tid}.xlsx`;
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  } catch (e) { toast(`엑셀 파일을 만들지 못했습니다: ${e.message}`, true); }
+}
+
 function xlParaRefresh(wrap, pid, text, edited) { // 떼어 둔 원래 표(조각)의 그 문단을 새 글로 — 2열 격자면 문서의 살아 있는 문단을
   const roots = (wrap._frags || []).length ? wrap._frags : [$("doc")];
   for (const f of roots) {
@@ -830,8 +1441,10 @@ function tblAgentLeave() { // 열을 닫을 때 — 저장 안 한 지침 글이
 async function tblAgentView(tid) {
   if (!state.id) return;
   const isCommon = tid === "_common"; // 공통 지침만(「표」 탭의 「공통 지침」)
-  const { tools, body } = headsDlg("tableAgent", isCommon ? "공통 표 지침" : `표 지침 · ${tid}`,
-    isCommon ? "이 문서의 모든 표에 함께 주는 지침 — 표 에이전트의 입력(LLM 호출은 아직 없음)" : "작성요령(문서에서) · 공통 지침 · 이 표 지침 — 표 에이전트의 입력(LLM 호출은 아직 없음)");
+  // 작성요령의 세 묶음(spec ② §18 — 사용자 2026-11-12 "작성요령에는 문서에서 제공하는 작성요령, 다른 지침에서 제공하는 작성가이드라인도 있지만 셀에 값을 넣는 방식이나 규칙도"):
+  // ① 문서의 작성요령(표 안·앞뒤 안내 + 뒤따르는 「작성 요령」 표) ② 지침(양식·공통·이 표 — 무엇을 적는가) ③ 칸 입력 규칙(기본·공통·이 표 — 어떻게 적는가)
+  const { tools, body } = headsDlg("tableAgent", isCommon ? "공통 표 지침" : `작성요령 · 표 지침 · ${tid}`,
+    isCommon ? "이 문서의 모든 표에 함께 주는 지침·칸 입력 규칙 — 「표 채우기」·「표 만들기」·「LLM 수식 판정」 의 LLM 에 함께 갑니다" : "① 문서의 작성요령 ② 지침 ③ 칸 입력 규칙 — 「표 채우기」 에이전트가 따르는 기준");
   const seq = heads.seq, id = state.id, epoch = state.epoch;
   hFoot("읽는 중…", false);
   let a;
@@ -862,42 +1475,84 @@ async function tblAgentView(tid) {
   if (t && t.host && hasBlock(t.host)) acts.append(hBtn("표 자리로", () => headsGo(t.host), { title: "문서에서 이 표를 품은 문단으로" }));
   if (t) acts.append(hBtn("격자(표 보기)", () => headsTables(tid), { title: "칸 역할 격자 · 수식 검증 · 필드 목록" }));
   if (!isCommon) acts.append(hBtn("엑셀식 보기", () => xlColumn(tid), { title: "이 열에 A1 격자(수식 계산 · 문서에 반영)" }));
+  if (!isCommon && state.format !== "docx" && typeof tblFillView === "function") acts.append(hBtn("에이전트로 표 채우기", () => { if (tblAgentLeave()) tblFillView(tid); /* 저장 안 한 지침·규칙이 있으면 먼저 묻는다 — 채우기에는 저장된 글만 간다 */ }, { title: "이 작성요령·지침·칸 입력 규칙에 맞춰 빈 칸에 넣을 값을 LLM 이 제안합니다 — 고른 것만 문서에 들어갑니다(table_fill.js)" }));
   if (!isCommon && !a.stage3 && state.format !== "docx") acts.append(hBtn("표 구조 만들기(스크립트)", () => headsStart(3, false), { title: "3단계 표 구조를 만들면 소속·작성요령·구조·수식이 채워집니다" }));
   if (!isCommon) wrap.append(acts);
-  if (!isCommon && !a.stage3) wrap.append(el("p", "hnote", state.format === "docx" ? "3단계 표 구조는 hwpx 만 — 지침만 저장합니다." : "3단계 표 구조 결과에 이 표가 없어 소속·작성요령·구조·수식은 비어 있습니다 — 지침은 저장됩니다."));
-  if (!isCommon) wrap.append(el("h3", null, `작성요령(문서에서) ${nf((a.notes || []).length)}`));
+  if (!isCommon && !a.stage3) wrap.append(el("p", "hnote", state.format === "docx" ? "3단계 표 구조는 hwpx 만 — 지침만 저장합니다." : "3단계 표 구조 결과에 이 표가 없어 소속·표 앞뒤 안내 문단·구조·수식은 비어 있습니다 — 뒤따르는 「작성 요령」 표와 지침·칸 입력 규칙은 그대로 씁니다."));
+  const guideKeep = (n) => { // 「작성 요령」 표의 글을 이 표 지침에 — 작성 요령 표는 제출 전에 지우는 표라, 붙여 두면 표를 지운 뒤에도 남는다(저장은 사람이)
+    const add = `[${n.title || "작성 요령"}]\n${n.text || ""}`.trim();
+    if (n.text && own.ta.value.includes(n.text)) { toast("이미 이 표 지침에 들어 있습니다"); return; }
+    own.ta.value = (own.ta.value.trim() ? `${own.ta.value.trim()}\n\n` : "") + add;
+    own.ta.oninput();
+    own.ta.scrollIntoView({ block: "nearest" });
+    toast("이 표 지침에 붙였습니다 — 「저장」 을 눌러야 남습니다");
+  };
+  if (!isCommon) wrap.append(el("div", "ta-group", `① 문서의 작성요령 ${nf((a.notes || []).length)}`));
   if (isCommon) { /* 공통 — 작성요령 없음 */ } else if ((a.notes || []).length) {
     const ul = el("ul", "ta-notes");
-    const WHERE = { before: "표 앞", cell: "표 안", after: "표 뒤" };
+    const WHERE = { before: "표 앞", cell: "표 안", after: "표 뒤", guide: "작성 요령 표" };
     for (const n of a.notes) {
       const li = el("li");
       li.append(el("span", "hb", WHERE[n.where] || n.where));
-      if (n.para && hasBlock(n.para)) li.append(headsParaLink(n.para, n.text, 160, n.cell ? `칸 ${n.cell}` : ""));
+      if (n.where === "guide") { // 뒤따르는 「작성 요령」 표(spec ② §18) — 항목 줄 그대로
+        const box = el("div", "ta-guide"), head = el("div", "ta-row");
+        head.append(n.para && hasBlock(n.para) ? headsParaLink(n.para, n.title || "작성 요령", 60, `표 ${n.table}`) : el("b", null, short(n.title || "작성 요령", 60)),
+          hBtn("이 표 지침에 붙이기", () => guideKeep(n), { title: "「작성 요령」 표는 제출 전에 지우는 표입니다 — 이 표 지침에 붙여 두면 표를 지운 뒤에도 요령이 남습니다(붙인 뒤 「저장」)" }));
+        box.append(head, el("pre", "ta-prompt", n.text || ""));
+        li.classList.add("guide");
+        li.append(box);
+      } else if (n.para && hasBlock(n.para)) li.append(headsParaLink(n.para, n.text, 160, n.cell ? `칸 ${n.cell}` : ""));
       else li.append(el("span", null, short(n.text, 160)));
       ul.append(li);
     }
     wrap.append(ul);
-  } else wrap.append(el("p", "hnote", "표 안 안내 칸·표 앞뒤의 ※ 안내 문단에서 찾은 작성요령이 없습니다."));
-  const area = (title, rec, placeholder) => {
+  } else wrap.append(el("p", "hnote", "표 안 안내 칸 · 표 앞뒤의 ※ 안내 문단 · 뒤따르는 「작성 요령」 표에서 찾은 작성요령이 없습니다 — 요령을 아래 「이 표 지침」 에 적어 둘 수 있습니다."));
+  const area = (title, rec, placeholder, field = "instructions") => { // field = instructions(지침) | rules(칸 입력 규칙) — 같은 기록(version 하나)의 두 글
     wrap.append(el("h3", null, title));
     const ta = el("textarea");
-    ta.value = rec.instructions || "";
+    ta.value = rec[field] || "";
     ta.defaultValue = ta.value;
     ta.placeholder = placeholder;
-    ta.rows = title.startsWith("공통") ? 4 : 8;
-    const row = el("div", "ta-row"), st = el("span", "muted", rec.updated ? `v${rec.version} · ${fmtWhen(rec.updated)}` : "저장된 지침 없음");
+    ta.rows = field === "rules" ? 3 : title.startsWith("공통") ? 4 : 8;
+    const row = el("div", "ta-row"), st = el("span", "muted", rec.updated ? `v${rec.version} · ${fmtWhen(rec.updated)}` : field === "rules" ? "저장된 규칙 없음" : "저장된 지침 없음");
     wrap.append(ta, row);
-    return { ta, row, st };
+    return { ta, row, st, field };
   };
+  wrap.append(el("div", "ta-group", "② 지침 — 무엇을 적는가"));
+  { // 양식 지침 — 양식 정보(forms/<양식>.md)의 「표」 절: 이 양식의 모든 문서에 공통(spec_헤딩_추출 ② §12). 여기서는 보기만 — 고치기는 양식 정보 편집기
+    wrap.append(el("h3", null, "양식 지침 — 이 양식의 모든 문서"));
+    if (a.form) wrap.append(el("pre", "ta-prompt", a.form));
+    else wrap.append(el("p", "hnote", "양식 정보에 「표」 절이 없습니다 — 표에 대한 요청을 양식마다 두려면 양식 정보의 「## 표」 절에 적으세요."));
+    if (typeof divFormOpen === "function") {
+      const row = el("div", "ta-row");
+      row.append(hBtn("양식 정보 열기", () => divFormOpen(), { title: "양식 정보 편집기(2열) — 「## 표」 절을 고치면 다음 LLM 호출부터 함께 갑니다" }));
+      wrap.append(row);
+    }
+  }
   const common = area("공통 지침 — 이 문서의 모든 표", a.common, "모든 표에 함께 주는 지침(예: 금액은 천원 단위 · 합계는 행·열 모두 검산 · 빈 칸은 「-」 로)");
   const own = isCommon ? null : area("이 표 지침", a.own, "이 표에만 주는 지침(예: 1차년도 열은 2026년 · 기관부담 현물은 인건비만 · 비율은 소수 첫째 자리까지)");
+  // ③ 칸 입력 규칙 — 칸에 값을 넣는 방식(spec ② §18): 앱 기본 규칙(늘 함께 감 — 보기만) → 공통 규칙 → 이 표 규칙(어긋나면 뒤의 것이 우선) + 표에서 읽은 칸 꼴
+  wrap.append(el("div", "ta-group", "③ 칸 입력 규칙 — 칸에 값을 어떻게 넣는가"));
+  if (a.forms) {
+    const p = el("p", "hnote", `표에서 읽은 칸 꼴 — ${a.forms.text || "채우는 필드 없음"} · 채우는 필드 ${nf(a.forms.fields)}개 가운데 빈 자리 ${nf(a.forms.open)}개`);
+    p.title = "칸 글에서 읽은 「값을 넣는 방식」 — 체크 = 「[ ]」·「□」 · 날짜 = 「YYYY.MM.DD」·「20  년  월  일」 · 수 = 「0,000」 · 비율 = 「00%」 · 글 자리표시 = 「○○」·「제20xx-xx호」\n빈 자리 = 글 없음 · 자리표시뿐 · 표시 없는 체크 칸 · 숫자가 빠진 날짜(「표 채우기」 가 채우는 칸)";
+    wrap.append(p);
+  }
+  {
+    const dr = el("details", "more hblock");
+    dr.append(el("summary", null, "기본 규칙(앱) — 모든 문서의 표 채우기에 늘 함께 갑니다(공통·이 표 규칙과 어긋나면 그쪽이 우선)"), el("pre", "ta-prompt", a.rulesDefault || ""));
+    wrap.append(dr);
+  }
+  const crule = area("공통 규칙 — 이 문서의 모든 표", a.common, "모든 표의 칸에 값을 넣는 방식(예: 날짜는 YYYY.MM.DD · 금액은 천원 단위 정수 · 해당 없는 칸은 「-」)", "rules");
+  const orule = isCommon ? null : area("이 표 규칙", a.own, "이 표의 칸에 값을 넣는 방식(예: 체크는 「[ √ ]」 · 과제번호는 RS-로 시작하는 번호 그대로 · 비율은 정수 %)", "rules");
   const pre = el("pre", "ta-prompt", a.prompt || "");
-  const save = async (kind) => {
-    const which = kind === "common" ? common : own, target = kind === "common" ? "_common" : tid, rec = kind === "common" ? a.common : a.own;
+  const WHAT = { instructions: "지침", rules: "칸 입력 규칙" };
+  const save = async (kind, w) => { // w = area() 가 돌려준 글상자 — w.field 만 보낸다(같은 기록의 다른 글은 그대로)
+    const which = w, target = kind === "common" ? "_common" : tid, rec = kind === "common" ? a.common : a.own;
     const text = which.ta.value;
     which.st.textContent = "저장 중…";
     try {
-      const r = await api(tblAgentUrl(target), { method: "PUT", headers: H_JSON, body: JSON.stringify({ instructions: text, version: rec.version }) });
+      const r = await api(tblAgentUrl(target), { method: "PUT", headers: H_JSON, body: JSON.stringify({ [w.field]: text, version: rec.version }) });
       if (seq !== heads.seq || epoch !== state.epoch) return;
       a.common = r.common; a.own = kind === "common" ? a.own : r.own; a.prompt = r.prompt;
       if (kind === "common") a.common = r.common; else a.own = r.own;
@@ -907,23 +1562,24 @@ async function tblAgentView(tid) {
       pre.textContent = a.prompt || "";
       await xlStore(true);
       tblMarksDraw();
-      toast(kind === "common" ? "공통 표 지침을 저장했습니다" : `표 ${tid} 지침을 저장했습니다`);
+      toast(kind === "common" ? `공통 표 ${WHAT[w.field]}을 저장했습니다` : `표 ${tid} ${WHAT[w.field]}을 저장했습니다`);
     } catch (e) {
       if (seq !== heads.seq || epoch !== state.epoch) return;
       which.st.textContent = e.status === 409 ? "다른 화면이 먼저 저장 — 열을 다시 열어 확인하세요" : `저장 실패: ${e.message}`;
-      toast(e.status === 409 ? "표 지침이 다른 곳에서 바뀌었습니다 — 열을 다시 여세요" : `표 지침을 저장하지 못했습니다: ${e.message}`, true);
+      toast(e.status === 409 ? "표 지침이 다른 곳에서 바뀌었습니다 — 열을 다시 여세요" : `표 ${WHAT[w.field]}을 저장하지 못했습니다: ${e.message}`, true);
     }
   };
-  for (const [kind, w] of (isCommon ? [["common", common]] : [["common", common], ["own", own]])) {
-    w.row.append(hBtn("저장", () => save(kind), { cls: "btn sm primary" }), hBtn("지우기", () => { w.ta.value = ""; save(kind); }, { title: "지침을 빈 글로 저장" }), w.st);
+  const boxes = [["common", common], ["common", crule], ...(isCommon ? [] : [["own", own], ["own", orule]])];
+  for (const [kind, w] of boxes) {
+    w.row.append(hBtn("저장", () => save(kind, w), { cls: "btn sm primary" }), hBtn("지우기", () => { w.ta.value = ""; save(kind, w); }, { title: `${WHAT[w.field]}을 빈 글로 저장` }), w.st);
     w.ta.oninput = () => { w.st.textContent = w.ta.value !== w.ta.defaultValue ? "저장 안 함" : (kind === "common" ? a.common : a.own).updated ? `v${(kind === "common" ? a.common : a.own).version}` : ""; };
   }
   const d = el("details", "more hblock");
-  d.append(el("summary", null, "에이전트 입력 미리보기 — 표 식별 · 작성요령 · 지침 · 표 구조 · 수식(저장하면 새로)"), pre);
+  d.append(el("summary", null, "에이전트 입력 미리보기 — 표 식별 · 작성요령 · 지침 · 칸 입력 규칙 · 표 구조 · 수식(저장하면 새로)"), pre);
   wrap.append(d);
   body.append(wrap);
-  heads.xl.agent = { tid, dirty: () => common.ta.value !== common.ta.defaultValue || (!!own && own.ta.value !== own.ta.defaultValue) };
-  tools.append(el("span", "muted", "지침은 이 작업(문서)에 저장됩니다 · 표 에이전트의 LLM 호출은 후속"));
+  heads.xl.agent = { tid, dirty: () => boxes.some(([, w]) => w.ta.value !== w.ta.defaultValue) };
+  tools.append(el("span", "muted", "지침·칸 입력 규칙은 이 작업(문서)에 저장됩니다 · 「표 채우기」 는 셋(작성요령·지침·칸 입력 규칙)을 모두, 「LLM 수식 판정」·「표 만들기」 는 지침만 함께 받습니다"));
   hFoot(isCommon ? `공통 v${a.common.version}` : `표 ${tid}${a.stage3 ? "" : " · 3단계 없음"} · 공통 v${a.common.version} · 이 표 v${a.own.version}`, false);
 }
 
@@ -959,64 +1615,154 @@ async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)�
 function tablesDraw() {
   const box = $("tablesBox"), pane = $("paneTables");
   if (!box || !pane || pane.hidden || !state.id) return;
+  const toolsOpen = !!box.querySelector(".tp-tools[open]");
   box.textContent = "";
   const s3 = heads.view && heads.view.stage3, byId = new Map(((s3 && s3.tables) || []).map((t) => [t.id, t]));
   const store = (heads.xl.store && heads.xl.store.tables) || {}, common = heads.xl.store && heads.xl.store.common;
-  const blocks = xlBlocks();
-  const busy = !!(heads.view && heads.view.job && heads.view.job.status === "running");
+  const blocks = xlBlocks(), job = heads.view && heads.view.job;
+  const busy = !!(job && job.status === "running"), supported = state.format !== "docx";
   const c = (s3 && s3.counts) || {}, k = c.calc || {}, ow = c.owners || {};
-  const stats = el("div", "hstats");
-  const stat = (v, label, title = "", cls = "") => { const s = el("span", cls); s.append(el("b", null, typeof v === "number" ? nf(v) : v), ` ${label}`); if (title) s.title = title; stats.append(s); };
-  stat(blocks.length, "표", `문서의 표 블록(칸 안 표 ${nf(blocks.filter((b) => b.depth > 1).length)} 포함 · 1칸 표도)`);
+  const overview = el("section", "tp-overview"), stats = el("div", "tp-stats");
+  overview.setAttribute("aria-label", "표 분석 개요");
+  const stat = (label, v, cls = "") => {
+    const chip = el("span", `tp-stat ${cls}`);
+    chip.append(el("span", null, label), el("b", null, typeof v === "number" ? nf(v) : v));
+    stats.append(chip);
+  };
+  stat("표", blocks.length);
   if (s3) {
-    stat(`실행 ${s3.meta ? s3.meta.run ?? "–" : "–"}`, s3.stale ? "표 구조 · 오래됨" : "표 구조", s3.stale ? "문서가 바뀜 — 표 구조를 다시 만드세요" : `3단계 ${fmtWhen(s3.meta && s3.meta.at)}`, s3.stale ? "warn" : "");
-    stat(k.tables || 0, "계산식 표", `수식 ${nf(k.formulas || 0)} — 일치 ${nf(k.ok || 0)} · 미검증 ${nf((k.blank || 0) + (k.incomplete || 0))}`);
-    if (k.mismatch) stat(k.mismatch, "불일치", "엑셀 수식으로 다시 계산한 값과 문서 값이 다른 칸", "warn");
-    stat((ow.stage2 || 0) + (ow.stage1 || 0), "소속", `헤딩에 매달린 표 — 2단계 그래프 ${nf(ow.stage2 || 0)} · 1단계 어림 ${nf(ow.stage1 || 0)}`);
-  } else stat("없음", "표 구조", state.format === "docx" ? "3단계 표 구조는 hwpx 만" : "「표 구조 만들기」 를 누르면 소속·역할·합계/비율 수식이 채워집니다");
-  stat(Object.values(store).filter((r) => r && r.instructions).length, "지침 있는 표", "표 지침(표 에이전트 입력)을 적어 둔 표");
-  if (common && common.instructions) stat("있음", "공통 지침");
-  box.append(stats);
-  const acts = el("div", "hacts tb-acts");
-  if (state.format !== "docx") {
-    acts.append(hBtn("표 구조 만들기(스크립트)", () => headsStart(3, false), { disabled: busy, cls: "btn sm primary", title: "3단계 — 행헤더·열헤더·필드·서브 테이블 + 구분 헤더·계산식·엑셀 수식·소속(1초 안팎, LLM 없음)" }),
-      hBtn("표 구조(LLM)", () => headsLlmTables(), { disabled: busy, title: "칸 역할·서브 테이블을 LLM 이 칸의 값을 보고 판정(유료, 수 분)" }),
-      hBtn("표 보기(격자)", () => headsTables(), { disabled: !s3, title: "칸 역할 격자 · 수식 검증 · 필드 목록 — 2열" }));
+    stat("계산식", k.tables || 0);
+    if (k.mismatch) stat("불일치", k.mismatch, "is-warning");
+    stat("소속", (ow.stage2 || 0) + (ow.stage1 || 0));
   }
-  acts.append(hBtn("공통 지침", () => tblAgentView("_common"), { title: "이 문서의 모든 표에 함께 주는 지침" }),
-    hBtn(tblMarksOn() ? "표 도구 끄기" : "표 도구 표시", () => tblMarksToggle(), { title: "문서의 표마다 위 오른쪽 표지(표 id · 소속 · ⊞ · ✎)" }));
-  box.append(acts);
-  if (heads.view && heads.view.job && heads.view.job.stage === 3 && busy) box.append(el("p", "hnote", "표 구조를 만드는 중…"));
-  if (!blocks.length) { box.append(el("p", "hnote", "이 문서에 표가 없습니다.")); return; }
-  const [tbl, tb] = hTable(["#", "표", "크기", "소속", "구분", "계산식", "작성요령", "지침", ""]);
-  tbl.classList.add("tb-list");
+  stat("지침", Object.values(store).filter((r) => r && r.instructions).length);
+  const summaryHelp = [`문서의 표 ${nf(blocks.length)}개: 표 안 표 ${nf(blocks.filter((b) => b.depth > 1).length)}개와 1칸 표를 포함합니다.`,
+    "지침 수는 이 작업에 표별 지침을 저장한 표의 수입니다."];
+  if (s3) summaryHelp.push(`표 구조 실행 ${s3.meta?.run ?? "–"} · ${fmtWhen(s3.meta && s3.meta.at)}`,
+    `수식 ${nf(k.formulas || 0)}개: 일치 ${nf(k.ok || 0)} · 미검증 ${nf((k.blank || 0) + (k.incomplete || 0))}. 불일치는 계산한 값과 문서 값이 다른 칸입니다.`,
+    `소속: 헤딩 그래프 ${nf(ow.stage2 || 0)}개 · 문단 추출 기준 어림 ${nf(ow.stage1 || 0)}개.`);
+  const summaryInfo = hHelp("표 집계 기준", summaryHelp.join("\n"));
+  overview.append(stats);
+  const srcLine = typeof headsSourceLine === "function" ? headsSourceLine(heads.view, [3]) : null; // 표 구조가 LLM 것인지 스크립트 것인지 · 끝난 때 · 걸린 시간(app.js — spec ② §7 「LLM 표시」)
+  if (srcLine) { srcLine.append(summaryInfo); overview.append(srcLine); }
+  else stats.append(summaryInfo);
+  const status = el("div", "tp-status");
+  if (!supported) status.append(el("span", "tp-state", "DOCX · 표 구조 분석 미지원"));
+  else if (!s3) status.append(el("span", "tp-state", "표 구조 미분석"));
+  else {
+    // 문서가 바뀐 것만으로는 「재분석 필요」 가 아니다 — 표 구조는 한 번 만들면 뼈대(spec ② §17, 2026-11-10 사용자). 표 구조에 없는 표(새 표·모양이 바뀐 표)가 생겼을 때만 알린다(heading_drift.js)
+    const dn = typeof driftCount === "function" ? driftCount(3) : 0;
+    if (dn) status.append(el("span", "tp-state is-warning", driftText(3)),
+      hHelp("표 구조에 없는 표", "표 구조(뼈대)를 만든 뒤 문서에 생긴 표, 행·열 수가 달라진 표입니다. 표 구조는 그대로 쓰고, 이 표까지 넣으려면 표 구조를 다시 만드세요.\n헤딩 추출 탭 상태 줄의 꼬리표를 누르면 표마다 볼 수 있습니다.", { warning: true }));
+    if (s3.ownerStale) status.append(el("span", "tp-state is-warning", "소속 재확인 필요"),
+      hHelp("표 소속을 다시 확인해야 하는 이유", "헤딩 그래프가 바뀌어 표의 소속 헤딩·구분 라벨이 이전 결과를 가리킵니다. 표 구조를 다시 분석하면 맞춰집니다.", { warning: true }));
+    if (s3.tempStale) status.append(el("span", "tp-state is-warning", "TEMP 반영 필요"),
+      hHelp("표 구조에 TEMP를 반영해야 하는 이유", "표 구조 결과에서 제외한 TEMP 표가 지금 지정과 다릅니다. 표 구조를 다시 만들면 맞춰집니다.\n스크립트로 다시 만들면 이전에 LLM이 판정한 칸 역할도 스크립트 결과로 바뀝니다.", { warning: true }));
+  }
+  if (busy && supported) {
+    const now = headsJobNow(job, heads.view);
+    const progress = hBtn("", () => { showTab("Heads"); headsRunOpen(job.stage); }, { cls: "tp-progress", title: now.title });
+    progress.append(el("span", "tp-progress-what", now.what), el("span", "tp-progress-time", fmtDur(now.secs)));
+    progress.style.setProperty("--tp-spin-delay", `-${(Date.now() % 800) / 1000}s`);
+    progress.setAttribute("aria-label", `${now.what} · ${fmtDur(now.secs)} · 진행 보기`);
+    status.append(progress);
+  } else if (job && job.status === "failed" && job.stage === 3 && supported) {
+    status.append(el("span", "tp-state is-warning", "표 구조 분석 실패"),
+      hBtn("실행 내역", () => { showTab("Heads"); headsRunOpen(3); }));
+  }
+  if (status.childElementCount) overview.append(status);
+  if (supported) {
+    const acts = el("div", "tp-actions");
+    acts.append(hBtn("표 구조 만들기", () => headsStart(3, false), { disabled: busy, cls: "btn sm primary" }),
+      hBtn("LLM 분석 · 유료", () => headsLlmTables(), { disabled: busy }),
+      hHelp("표 구조 분석 방법", "표 구조 만들기: 스크립트로 행·열 헤더, 필드, 서브 테이블, 구분, 수식과 소속을 분석합니다. LLM을 호출하지 않습니다.\nLLM 분석: 칸의 값을 보고 역할과 서브 테이블을 판정합니다. 유료 호출이며 수 분 걸릴 수 있습니다."));
+    overview.append(acts);
+  }
+  box.append(overview);
+  const tools = el("details", "tp-tools"), toolButtons = el("div", "tp-tool-buttons");
+  tools.open = toolsOpen; // 폴링·문서 표시 토글로 다시 그려도 사용자가 펼친 도구는 그대로 둔다.
+  const toolSummary = el("summary");
+  toolSummary.append(el("span", null, "보기·도구"));
+  if (common && common.instructions) toolSummary.append(el("span", "tp-common-status", "공통 지침 있음"));
+  tools.append(toolSummary);
+  if (supported) {
+    toolButtons.append(hBtn("구조 격자 보기", () => headsTables(), { disabled: !s3 }));
+    if (typeof tmkOpen === "function") toolButtons.append(hBtn("표 만들기·서식 변환", () => tmkOpen()));
+  }
+  toolButtons.append(hBtn("공통 지침", () => tblAgentView("_common")));
+  if (typeof divFormOpen === "function") toolButtons.append(hBtn("양식 정보", () => divFormOpen(), // 양식마다 관리하는 요청(spec_헤딩_추출 ② §12) — 「표」 절이 표 LLM 에 「양식 표 지침」 으로 간다
+    { title: "이 문서의 양식 정보 — 「## 표」 절에 적은 내용은 이 양식의 모든 문서에서 「표 만들기」·「LLM 수식 판정」·표 지침 묶음에 함께 갑니다(공통 지침은 이 문서만)" }));
+  toolButtons.append(
+    hHelp("표 보기와 공통 지침", "구조 격자에서 칸 역할·수식 검증·필드 목록을 확인합니다.\n표 만들기·서식 변환은 선택한 표의 서식을 활용하는 도구입니다.\n공통 지침은 이 문서의 모든 표에 함께 주는 지침입니다.\n양식 정보의 「표」 절은 같은 양식의 모든 문서에 함께 주는 지침입니다.", { note: true }));
+  const display = el("div", "tp-display-tools"), marks = hBtn("표 도구 표시", () => tblMarksToggle());
+  marks.classList.toggle("on", tblMarksOn());
+  marks.setAttribute("aria-pressed", String(tblMarksOn()));
+  display.append(el("span", "tp-tool-label", "문서 표시"), marks);
+  if (supported) {
+    const roles = tblRolesBtn();
+    roles.dataset.keep = "1";
+    roles.textContent = "칸 역할 색";
+    display.append(roles);
+  }
+  display.append(hHelp("문서 표시 도움말", "표 도구 표시는 문서의 표 옆에 엑셀식 보기·지침·소속 표지를 보입니다.\n칸 역할 색은 표 구조 결과를 문서의 칸에 겹쳐 보입니다. 오래된 결과는 자리가 그대로인 칸만 표시합니다.\n화면 표시만 바뀌며 문서 내용은 바뀌지 않습니다."));
+  tools.append(toolButtons, display);
+  box.append(tools);
+  if (!blocks.length) { box.append(el("p", "tp-empty", "이 문서에 표가 없습니다.")); return; }
+  const list = el("ol", "tp-list");
+  list.setAttribute("aria-label", "문서의 표 목록");
   blocks.forEach((b, i) => {
-    const t = byId.get(b.id), rec = store[b.id], tr = el("tr");
-    hCell(tr, i + 1);
-    hCell(tr, `${b.id}${b.depth > 1 ? " (표 안 표)" : ""}`, null, `칸 ${nf(b.cells)}`);
-    hCell(tr, `${b.rows}×${b.cols}`);
-    const o = t && t.owner;
-    const td = el("td", "txt");
-    if (o && !o.root) {
-      if (hasBlock(o.para)) td.append(hBtn(short(ownerLabel(o), 40), () => headsGo(o.para), { cls: "btn sm", title: (o.path || []).concat([o.text]).join(" › ") || "문서의 그 헤딩으로" }));
-      else td.textContent = short(ownerLabel(o), 40);
-      if (o.division && o.role !== "label") td.append(" ", el("span", "hb div", (o.division.basis || []).length ? `[${basisNames(o.division.basis)}]` : short(o.division.text, 14)));
-    } else td.textContent = o && o.root ? "문서 뿌리" : t ? "—" : (s3 ? "표 구조에 없음" : "모름");
-    tr.append(td);
-    hCell(tr, t ? basisNames(t.basis) || "—" : "—");
-    const kc = (t && t.calc) || {};
-    hCell(tr, kc.is ? `수식 ${nf(kc.formulas)}${kc.mismatch ? ` · 불일치 ${nf(kc.mismatch)}` : ""}` : "—", kc.mismatch ? "warn" : null);
-    hCell(tr, t && t.notes != null ? nf(Array.isArray(t.notes) ? t.notes.length : t.notes) : "—"); // 요약은 수, 3단계 전체 결과는 목록
-    hCell(tr, rec && rec.instructions ? "있음" : "—", rec && rec.instructions ? "ok" : null, rec && rec.instructions ? short(rec.instructions, 80) : "");
-    const act = el("td");
-    const xl = hBtn("", () => xlColumn(b.id), { title: "엑셀식 보기 — 2열에 A1 격자" });
+    const t = byId.get(b.id), rec = store[b.id], row = el("li", "tp-row");
+    row.dataset.tableId = b.id;
+    const top = el("div", "tp-row-head"), name = el("div", "tp-row-name");
+    const id = el("strong", "tp-id", b.id);
+    id.title = b.id;
+    const size = el("span", "tp-size", `${b.rows}×${b.cols}`);
+    size.title = `${nf(b.rows)}행 × ${nf(b.cols)}열 · ${nf(b.cells)}칸`;
+    name.append(el("span", "tp-index", `${i + 1}.`), id, size);
+    const actions = el("div", "tp-row-actions");
+    const xl = hBtn("", () => xlColumn(b.id), { title: "엑셀식 보기" });
     xl.innerHTML = XL_ICON;
-    xl.setAttribute("aria-label", "엑셀식 보기");
-    act.append(xl, " ", hBtn("✎", () => tblAgentView(b.id), { title: "표 지침" }), " ");
+    xl.append("엑셀");
+    xl.setAttribute("aria-label", `${b.id} 엑셀식 보기`);
+    const instructions = hBtn("지침", () => tblAgentView(b.id));
+    instructions.setAttribute("aria-label", `${b.id} 지침`);
+    actions.append(xl, instructions);
     const host = t && t.host;
-    if (host && hasBlock(host)) act.append(hBtn("자리로", () => headsGo(host), { title: "문서에서 이 표를 품은 문단으로" }));
-    tr.append(act);
-    tb.append(tr);
+    if (host && hasBlock(host)) {
+      const go = hBtn("↗", () => headsGo(host), { cls: "btn sm tp-go", title: "문서에서 표 위치 보기" });
+      go.setAttribute("aria-label", `${b.id} 원문 위치`);
+      actions.append(go);
+    }
+    top.append(name, actions);
+    row.append(top);
+    const o = t && t.owner, owner = el("div", "tp-owner");
+    const tmp = typeof tempTableItem === "function" ? tempTableItem(b.id) : null; // TEMP 표(heading_temp.js — spec ② §15)
+    if (tmp) {
+      const tg = hBtn("TEMP", () => tempView(tmp.id), { cls: "hb temp", title: "TEMP 표 — 헤딩·템플릿과 표 구조에서 뺍니다 · 누르면 TEMP 목록" });
+      owner.append(tg, el("span", "tp-owner-text", TEMP_WHY[tmp.why] || tmp.why));
+    } else if (o && !o.root) {
+      owner.append(el("span", "tp-meta-label", "소속"));
+      const label = ownerLabel(o), path = (o.path || []).concat([o.text]).filter(Boolean).join(" › ") || label;
+      const link = hasBlock(o.para) ? hBtn(label, () => headsGo(o.para), { cls: "tp-owner-link", title: path }) : el("span", "tp-owner-text", label);
+      link.title = path;
+      owner.append(link);
+      if (o.division && o.role !== "label") owner.append(el("span", "hb div", (o.division.basis || []).length ? `[${basisNames(o.division.basis)}]` : short(o.division.text, 14)));
+    } else owner.append(el("span", "tp-owner-text", o && o.root ? "문서 최상위" : t ? "소속 없음" : !supported ? "표 구조 미지원"
+      : s3 ? (b.cells === 1 ? "1칸 표(표 구조 없음)" : "새 표 · 표 구조를 만든 뒤 생김") : "표 구조 미분석")); // 옛 「표 구조에 없음」 — 까닭을 그대로 적는다(문서 표지와 같은 말 — tblMark)
+    row.append(owner);
+    const meta = el("div", "tp-row-meta");
+    if (b.depth > 1) meta.append(el("span", "tp-tag", "표 안 표"));
+    const basis = t && basisNames(t.basis);
+    if (basis) meta.append(el("span", "tp-tag", `구분 ${basis}`));
+    const kc = (t && t.calc) || {};
+    if (kc.is) meta.append(el("span", "tp-tag", `수식 ${nf(kc.formulas || 0)}`));
+    if (kc.mismatch) meta.append(el("span", "tp-tag is-warning", `불일치 ${nf(kc.mismatch)}`));
+    if (t && t.notes != null) meta.append(el("span", "tp-detail", `작성요령 ${nf(Array.isArray(t.notes) ? t.notes.length : t.notes)}`)); // 요약은 수, 전체 결과는 목록
+    const note = el("span", `tp-detail${rec && rec.instructions ? " has-instructions" : ""}`, rec && rec.instructions ? "지침 있음" : "지침 없음");
+    if (rec && rec.instructions) note.title = short(rec.instructions, 120);
+    meta.append(note);
+    row.append(meta);
+    list.append(row);
   });
-  box.append(tbl);
+  box.append(list);
 }

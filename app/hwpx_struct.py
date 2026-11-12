@@ -10,7 +10,8 @@ import zipfile
 from lxml import etree
 
 from app.hwpx_format import CHAR_KEYS, _h, _p
-from app.table_ops import TABLE_OPS, table_range  # noqa: F401 — 표 행·열의 형식 중립부(app/table_ops.py 가 원본, 2026-11-10). 옛 이름은 여기서도 보인다.
+from app import table_grid as grid
+from app.table_ops import CELL_OPS, TABLE_OPS, cell_op, col_keep, even_spans, table_range  # noqa: F401 — 표 행·열의 형식 중립부(app/table_ops.py 가 원본, 2026-11-10). 옛 이름은 여기서도 보인다.
 
 P, RUN, T, TBL, PIC, TR, TC, SUBLIST, CTRL, LINESEG, CELLADDR, CELLSPAN, SECPR, AUTONUM_EL = map(_p, [
     "p", "run", "t", "tbl", "pic", "tr", "tc", "subList", "ctrl", "linesegarray", "cellAddr", "cellSpan", "secPr", "autoNum"])
@@ -339,6 +340,7 @@ class StructMixin:
                 n += 1
             self._sigs.pop(kind, None)
         if n:
+            self._summ.clear()  # 뺀 id 는 다음 새 정의가 다시 쓴다(_add_def = 가장 큰 id + 1) — 옛 id 의 서식 요약이 남으면 새 정의가 옛 모양으로 읽힌다(2026-11-10)
             self._touch(self._reflist)
         return n
 
@@ -354,11 +356,22 @@ class StructMixin:
             sub.remove(q)
         sub.append(p)
 
-    def table_edit(self, block_id: str, op: str, rng=None) -> dict:
+    @staticmethod
+    def _field_cols(tid, opts):
+        """열마다 필드 열인가 — 끝점이 넘긴 판정(opts["fields"]: 표 id → [참/거짓…] | None). 없거나 못 구하면 None(예전 폭 규칙)."""
+        fn = opts.get("fields")
+        try:
+            return fn(tid) if callable(fn) else None
+        except (KeyError, ValueError):
+            return None
+
+    def table_edit(self, block_id: str, op: str, rng=None, opts=None) -> dict:
         """block_id(칸, 또는 칸 안 문단 — 가장 안쪽 칸)이 걸친 행·열 기준 표 편집 -> {"table", "op", ...어댑터 결과}.
-        rng = {r0, c0, r1, c1}(격자 좌표) 면 그 칸 대신 끌어 고른 그 범위의 행·열 기준(table_range)."""
+        rng = {r0, c0, r1, c1}(격자 좌표) 면 그 칸 대신 끌어 고른 그 범위의 행·열 기준(table_range).
+        opts(spec_owpml_편집 ② §5): `fields` = 표 id → 열마다 필드 열인가(열 폭 규칙 §5-1 — 없으면 예전 규칙) · `rows`·`cols`·`keep`(칸 나누기 §5-2)."""
         if op not in TABLE_OPS:
             raise ValueError(f"표 편집은 {', '.join(TABLE_OPS)} 중 하나")
+        opts = opts if isinstance(opts, dict) else {}
         tc = self._ids[block_id]
         while tc is not None and tc.tag != TC:
             tc = tc.getparent()
@@ -371,18 +384,25 @@ class StructMixin:
         r1, c1 = r0 + int(s.get("rowSpan", 1)) - 1, c0 + int(s.get("colSpan", 1)) - 1
         nr, nc = int(tbl.get("rowCnt")), int(tbl.get("colCnt"))
         r0, c0, r1, c1 = table_range(rng, (r0, c0, r1, c1), nr, nc)
-        if op in ("row_above", "row_below"):
-            res = self.clone_rows(tid, r0, r1, keep_text=False, above=op == "row_above")
+        if op in ("row_above", "row_below"):  # 일부만 걸친 합친 칸(바깥 묶음 제목)은 늘어난다 — ② §5-2
+            res = self.clone_rows(tid, r0, r1, keep_text=False, above=op == "row_above", lenient=True)
         elif op == "row_delete":
             if r1 - r0 + 1 >= nr:
                 raise ValueError("표의 모든 행을 지울 수는 없습니다 — 표째 지우세요")
-            res = self.delete_rows(tid, r0, r1)
+            res = self.delete_rows(tid, r0, r1, cols=grid.band(self._tgrid(tbl)[1], nc, r0, r1))  # 그 행에서 시작해 아래로 넘어가는 합친 칸은 글째 남고 줄어든다
+        elif op in CELL_OPS:
+            def inside():
+                return [self._id(x.el) for x in sorted(self._tgrid(tbl)[1], key=lambda x: (x.r, x.c))
+                        if r0 <= x.r and x.r + x.rs - 1 <= r1 and c0 <= x.c and x.c + x.cs - 1 <= c1]
+            res = cell_op(self, tid, op, (r0, c0, r1, c1), opts, inside)
+        elif op == "cols_even":  # 열 폭 같게 — 고른 열들, 하나면 그 열을 품은 필드 열 묶음(표 폭·그 밖 열 그대로)
+            res = self.even_cols(tid, even_spans(self._tgrid(tbl)[1], nc, self._field_cols(tid, opts), c0, c1))
         elif op == "col_delete":
             if c1 - c0 + 1 >= nc:
                 raise ValueError("표의 모든 열을 지울 수는 없습니다 — 표째 지우세요")
-            res = self.delete_cols(tid, c0, c1, keep=(c0 - 1, c1) if c0 > 0 else (c0, c1 + 1))  # 지운 폭은 이웃 열에 — 표 폭 그대로
+            res = self.delete_cols(tid, c0, c1, keep=col_keep(self._field_cols(tid, opts), nc, c0, c1, add=False))  # 표 폭 그대로 — 남은 필드 열이 비율대로(② §5-1)
         else:
-            res = self.clone_cols(tid, c0, c1, keep=(c0, c1))  # 고른 열과 새 열이 원래 폭을 나눔 — 표 폭 그대로
+            res = self.clone_cols(tid, c0, c1, keep=col_keep(self._field_cols(tid, opts), nc, c0, c1, add=True))  # 표 폭 그대로 — 필드 열 묶음이 비율대로 줄어듦
             for src_id, copy_id in res["map"].items():
                 src, cp = self._ids[src_id], self._ids[copy_id]
                 if op == "col_left":  # 글(과 문단 id)은 오른쪽(사본 자리)으로, 왼쪽 원래 칸이 빈 새 칸이 된다

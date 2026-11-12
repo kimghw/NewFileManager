@@ -73,6 +73,7 @@ def test_closed_work_preview_preserves_files_and_does_not_reopen(client, monkeyp
 
 def test_active_preview_uses_live_revision_without_touching_session(client, monkeypatch):
     session = _session()
+    monkeypatch.setattr(server, "_persist_all", lambda: None)  # 배경 저장 스레드(앞 시험이 켠 것, 1.5초마다)가 이 사이에 rev 4 를 써 버리면 「파일 그대로」가 깨진다(경합, 2026-11-10)
     session.rev = 4  # 배경 저장 전의 최신 편집 차례
     touched = session.touched
     before = _files(works.folder(session.id))
@@ -97,6 +98,17 @@ def test_reextracted_labels_make_old_graph_stale_even_at_same_revision(client):
     assert data["readiness"]["stage2"] == "stale"
     assert data["summary"]["stage2"]["stale"]
     assert data["graph"]["meta"]["stage1Run"] == old_run
+
+
+def test_active_preview_after_drift_check(client):
+    """열어 둔 문서를 뼈대와 견준 뒤(heading_drift.check 가 세션 상태에 Lock·캐시를 둠)에도 미리보기가 된다 — 전에는 그 Lock 을 deepcopy 하다 500."""
+    from app import heading_drift
+    session = _session()
+    heading_drift.check(session)
+    assert "driftLock" in heading_runs.state(session)
+    response = client.get(f"/api/works/{session.id}/headings-preview")
+    assert response.status_code == 200, response.text
+    assert response.json()["readiness"]["stage2"] == "ready"
 
 
 def test_missing_analysis_does_not_extract_or_add_session_state(client, monkeypatch):

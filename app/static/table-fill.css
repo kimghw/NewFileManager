@@ -1,0 +1,34 @@
+/* ---- 작성요령 세 묶음 · 표 채우기(spec_헤딩_추출 ② §18 — tables.js tblAgentView · table_fill.js tblFillView). 틀(.ta-wrap·.ta-row·h3·textarea·.ta-prompt)은 표 지침 열 것(style.css)을 같이 쓴다.
+   .ta-group = 묶음 제목(① 문서의 작성요령 · ② 지침 · ③ 칸 입력 규칙) · .ta-guide = 뒤따르는 「작성 요령」 표의 항목 글 · .tfl-* = 표 채우기 열(2열 kind "tblFill") ·
+   td.tfl-hit = 제안 줄에 올린 동안 문서의 그 칸(고른 칸 표시 td.sel 과 같은 방식 — 칸 음영 위에 비침). 보라는 LLM 제안의 색(design.md §6). ---- */
+.ta-group { margin: 16px 0 2px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 12.5px; font-weight: 700; color: var(--text); }
+.ta-wrap > .ta-group:first-of-type { margin-top: 10px; }
+.ta-notes li.guide { align-items: flex-start; }
+.ta-guide { flex: 1; min-width: 0; }
+.ta-guide > .ta-row { margin-top: 0; }
+.ta-guide > .ta-prompt { max-height: 260px; overflow: auto; margin: 2px 0 0; }
+
+.tfl-wrap .tfl-sum { color: var(--text); font-weight: 600; }
+.tfl-wrap .tfl-jobwarn { color: var(--warn); } /* 할 일 프롬프트의 전제와 어긋날 수 있는 옵션을 켠 동안 */
+.tfl-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.tfl-opt input { margin: 0; }
+.tfl-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.tfl-spin { flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid #7c3aed; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.tfl-result { margin-top: 4px; }
+.tfl-result .tfl-answer { color: var(--text); }
+table.mini.tfl-list td { vertical-align: top; }
+table.mini.tfl-list td:first-child { width: 18px; padding-right: 0; }
+table.mini.tfl-list td:nth-child(2) { white-space: nowrap; }
+table.mini.tfl-list td:nth-child(2) .hb { margin-left: 4px; vertical-align: 1px; }
+table.mini.tfl-list td.tfl-val { min-width: 9em; white-space: pre-wrap; }
+.tfl-now { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(100, 116, 139, .5); }
+.tfl-arrow { color: var(--muted); }
+.tfl-new { color: #5b21b6; font-weight: 600; }
+table.mini.tfl-list td.tfl-why { min-width: 9em; color: var(--muted); }
+.tfl-why q { display: block; color: var(--text); quotes: "「" "」"; }
+.tfl-why q.tfl-noquote { color: var(--warn); }
+.tfl-why .tfl-reason { display: block; }
+.tfl-why .hb { margin: 2px 4px 0 0; max-width: none; }
+.tfl-rej { margin: 4px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--muted); }
+
+#doc table.tbl td.tfl-hit { box-shadow: inset 0 0 0 300mm rgba(124, 58, 237, .16); outline: 2px solid rgba(124, 58, 237, .75); outline-offset: -2px; }

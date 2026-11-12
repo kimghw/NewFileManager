@@ -7,16 +7,41 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/landing.css">
   <link rel="stylesheet" href="/static/divisions.css">
+  <link rel="stylesheet" href="/static/commits.css"><!-- 확정(「고친 문단」 탭 맨 위 — spec_작업 ② §8) -->
+  <link rel="stylesheet" href="/static/heading-panels.css">
+  <link rel="stylesheet" href="/static/table-panel.css">
+  <link rel="stylesheet" href="/static/table-menu.css"><!-- 표 메뉴(표 모서리 손잡이 — spec_헤딩_추출 ② §16) -->
+  <link rel="stylesheet" href="/static/table-fill.css"><!-- 작성요령 세 묶음 · 표 채우기(spec_헤딩_추출 ② §18) -->
+  <link rel="stylesheet" href="/static/shortcuts.css"><!-- 단축키 설명(도구 줄 단추 → 2열 목록 — spec_hwpx_웹편집 ② §2) -->
+  <link rel="stylesheet" href="/static/heading-drift.css"><!-- 뼈대 유지(새 레터·새 서식·새 표 표시 — spec_헤딩_추출 ② §17) — style.css·heading-panels.css 다음 -->
+  <link rel="stylesheet" href="/static/gather.css"><!-- 취합(할 일 「사업계획서 취합」 — 기관 문서 줄 · 기관 작성 내용 · 끌어 넣기: spec_취합 ② §5) — divisions.css 다음 -->
 </head>
-<body>
+<!-- body.no-doc = 문서를 열기 전(시작 화면이 보임) — app.js load() 가 빼고 closeDoc() 이 넣는다. landing.css 의 시작 화면 상단 바 모양이 이 클래스를 본다
+     (옛 `body:has(#empty:not([hidden]))` 는 큰 문서에서 hidden 속성·요소 붙이기마다 문서 전체 스타일을 다시 계산시켰다 — references/브라우저_강제배치_비용.md) -->
+<body class="no-doc">
   <header class="topbar">
-    <div class="brand">
+    <!-- 로고 = 시작 화면으로(spec_작업 ② §7 「시작 화면으로」, 2026-11-12 사용자): 누르면 app.js goHome() — 연 작업을 화면에서만 닫는다(지우지 않음).
+         링크라 Ctrl·Shift·가운데 누름은 새 탭·새 창에 시작 화면. 끌어도 파일 놓기 표시가 뜨지 않게 draggable=false -->
+    <a class="brand" id="homeLink" href="/" draggable="false" aria-label="HWPX·DOCX 웹 편집 — 시작 화면으로" title="시작 화면으로 — 파일 열기 · 최근 작업&#10;지금 작업은 지워지지 않습니다(최근 작업에서 다시 엽니다)">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5L13 3.5zM8 13h8v1.6H8V13zm0 3.4h8V18H8v-1.6z"/></svg>
       <span>HWPX·DOCX 웹 편집</span>
-    </div>
+    </a>
     <div class="file" id="fileInfo" hidden>
       <span class="file-name" id="fileName"></span>
+      <!-- 문서 목록(spec_작업 ② §10, 2026-11-11): 올린 문서가 둘 이상이면 파일 이름 자리가 목록(#docSwitch — 고르면 그 문서를 엶)이 된다(app.js docSwitchDraw).
+           작업 종류 목록은 여기 없다 — 오른쪽 패널 머리(#panelTask)로 옮김(같은 날 사용자 "이건 이제 필요 없지 않냐?" — 옛 #taskKind) -->
+      <select class="file-name doc-switch" id="docSwitch" aria-label="문서 목록 — 다른 문서로 바꾸기" title="올린 문서(작업) 목록 — 고르면 그 문서를 엽니다" hidden></select>
       <span class="file-meta" id="fileMeta"></span>
+    </div>
+    <div class="spacer"></div>
+    <!-- 아래 줄 조절(spec_hwpx_웹편집 ② §9 「줄 접기·바꾸기」, 2026-11-10): 도구 탭 띠·편집 도구 줄의 접기 단추를 상단 바 가운데로 — 접으면 그 줄 자체가 사라진다(.folded).
+         가운데 ⇅ 는 아래 줄 바꾸기(도구 탭 띠 ↔ 편집 도구 줄, 하나만). 상태·기억은 app.js rowFold(localStorage nfm.navFold·nfm.barFold) -->
+    <div class="bar-ctl" id="barCtl" role="group" aria-label="아래 줄 접기·바꾸기" hidden>
+      <button class="btn sm on" type="button" id="navFold" aria-controls="workspaceNav" aria-pressed="true" title="도구 탭 띠 접기">탭 ▴</button>
+      <button class="btn sm bar-swap" type="button" id="barSwap" aria-label="아래 줄 바꾸기" title="아래 줄 바꾸기 — 도구 탭 띠 ↔ 편집 도구 줄(하나만 보이게)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4"/></svg>
+      </button>
+      <button class="btn sm on" type="button" id="barFold" aria-controls="docBar" aria-pressed="true" title="편집 도구 줄 접기">편집 ▴</button>
     </div>
     <div class="spacer"></div>
     <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
@@ -25,24 +50,111 @@
     <button class="btn" id="verifyBtn" type="button" disabled title="저장본을 한글(HWPX)·Word(DOCX) PDF 로 찍어 원본과 쪽마다 비교">출력파일 검증</button>
     <button class="btn primary" id="downloadBtn" type="button" disabled title="내려받기 (Ctrl+S)">저장</button>
     <button class="btn panel-toggle" id="panelBtn" type="button" aria-controls="panel" aria-expanded="true" hidden>도구 닫기</button>
-    <input type="file" id="fileInput" accept=".hwpx,.docx" hidden>
+    <input type="file" id="fileInput" accept=".hwp,.hwpx,.docx" hidden>
   </header>
 
+  <main class="workspace">
+  <!-- 도구 탭 띠는 .workspace 안(spec_hwpx_웹편집 ② §9 「옆 열은 2행부터」, 2026-11-10): 문서 열 위에만 놓여 2열·3열이 늘 상단 바 바로 아래에서 시작한다(자리는 style.css workspace 절의 격자) -->
   <nav class="workspace-nav" id="workspaceNav" aria-label="문서 작업" hidden>
     <div class="tabs" role="tablist" aria-label="작업별 도구">
       <button type="button" role="tab" class="tab active" id="tabVerify" aria-selected="true" aria-controls="paneVerify" tabindex="0" title="파일·출력 확인"><span class="nav-icon" aria-hidden="true">✓</span><span>검증</span></button>
-      <button type="button" role="tab" class="tab" id="tabEdits" aria-selected="false" aria-controls="paneEdits" tabindex="-1" title="변경 내용·되돌리기"><span class="nav-icon" aria-hidden="true">✎</span><span>고친 문단 <span class="badge" id="editsBadge">0</span></span></button>
+      <button type="button" role="tab" class="tab" id="tabEdits" aria-selected="false" aria-controls="paneEdits" tabindex="-1" title="변경 내용·확정·되돌리기"><span class="nav-icon" aria-hidden="true">✎</span><span>고친 문단 <span class="badge" id="editsBadge">0</span></span></button>
       <button type="button" role="tab" class="tab" id="tabPdf" aria-selected="false" aria-controls="panePdf" tabindex="-1" title="원본·수정본 보기"><span class="nav-icon nav-pdf" aria-hidden="true">PDF</span><span>PDF</span></button>
       <button type="button" role="tab" class="tab" id="tabLog" aria-selected="false" aria-controls="paneLog" tabindex="-1" title="작업 이력"><span class="nav-icon" aria-hidden="true">◷</span><span>기록</span></button>
       <button type="button" role="tab" class="tab nav-analysis" id="tabHeads" aria-selected="false" aria-controls="paneHeads" tabindex="-1" hidden title="구조·라벨·템플릿"><span class="nav-icon" aria-hidden="true">☷</span><span>헤딩 추출</span></button>
       <button type="button" role="tab" class="tab" id="tabTables" aria-selected="false" aria-controls="paneTables" tabindex="-1" hidden title="표 식별·엑셀식 보기·표 지침"><span class="nav-icon" aria-hidden="true">▦</span><span>표</span></button>
-      <button type="button" role="tab" class="tab" id="tabDiv" aria-selected="false" aria-controls="paneDiv" tabindex="-1" hidden title="단계·차년도·기관"><span class="nav-icon" aria-hidden="true">⊞</span><span>구분 기준</span></button>
+      <!-- 「연구개발과제」 탭은 여기 없다(spec_작업 ② §10, 2026-11-12 사용자 "작업에서 연구개발과제를 선택했으면 … 더이상 연구개발과제 탭은 필요 없지 않나?") — 그 내용(#paneDiv)은 패널 머리의 「작업」 목록(#panelTask)·「↩ 작업 내용」(#taskHome)으로 연다 -->
       <button type="button" role="tab" class="tab nav-compare" id="tabCompare" aria-selected="false" aria-controls="paneCompare" tabindex="-1" title="병합 전 확인"><span class="nav-icon" aria-hidden="true">⇄</span><span>문서 비교</span></button>
     </div>
-    <button type="button" class="nav-fold" id="navFold" aria-controls="workspaceNav" aria-expanded="true" title="도구 탭 접기">접기 ▴</button>
   </nav>
 
-  <main class="workspace">
+    <!-- 편집 도구 줄은 .viewer 밖 — .workspace 격자의 한 줄(spec_작업 ② §12 「두 면」, 2026-11-11): 둘째 면(같이 보기)이 펴져 있으면 두 문서 위에 걸친다(style.css workspace 절) -->
+    <!-- 문서·편집 도구 한 줄(spec_hwpx_웹편집 ② §2 「도구 줄」, 2026-11-10): 「페이지 보기·폰트 수정·문단 수정·테이블 수정」 중 고른 묶음(.tool-set[data-tool-set] 상자 또는
+         data-tool-for 항목들)만 펼친다 — 오른쪽 고친 문단 ↑↓·OWPML 아이콘·실행 취소는 늘 보임. 고른 묶음은 app.js setToolSet() 이 localStorage nfm.view 에 기억 -->
+    <div class="doc-bar" id="docBar" role="toolbar" aria-label="문서·편집 도구" hidden>
+      <div class="group tool-modes" id="toolModes" role="group" aria-label="도구 묶음 — 하나만 골라 한 줄에">
+        <button class="btn sm on" type="button" data-tool="page" aria-pressed="true" aria-label="페이지 보기" title="페이지 보기 — 확대·폭/높이 맞춤·2쪽·쪽 번호·휠 쪽 넘김">
+          <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M14 3v5h5M9 12h6M9 16h4"/></svg>
+        </button>
+        <button class="btn sm" type="button" data-tool="font" aria-pressed="false" aria-label="폰트 수정" title="폰트 수정 — 굵게·기울임·밑줄·글자 크기·글자 색">
+          <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m2 18 5-13 5 13M4 13h6M21 11v7M21 14.5a3.5 3.5 0 1 0-7 0 3.5 3.5 0 0 0 7 0"/></svg>
+        </button>
+        <button class="btn sm" type="button" data-tool="para" aria-pressed="false" aria-label="문단 수정" title="문단 수정 — 정렬·왼쪽 여백·첫 줄 들여쓰기·줄 간격">
+          <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 4h-9a5 5 0 0 0 0 10h2M12 4v16M17 4v16"/></svg>
+        </button>
+        <button class="btn sm" type="button" data-tool="table" aria-pressed="false" aria-label="테이블 수정" title="테이블 수정 — 표 행·열 넣기·지우기: 표 칸 안에 있거나 칸을 끌어 골랐을 때">
+          <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 9v11M15 9v11"/></svg>
+        </button>
+      </div>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <!-- 「페이지 보기」 묶음은 한 상자로 싸지 않고 항목마다 data-tool-for="page" — 좁은 줄에서 항목 단위로 꺾이게(상자째 꺾이면 줄이 셋이 된다) -->
+      <div class="group" role="group" aria-label="확대" data-tool-for="page">
+        <button class="icon" id="zoomOut" type="button" aria-label="축소" title="축소"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 12h12"/></svg></button>
+        <button class="zoom-val" id="zoomVal" type="button" title="100% 로">100%</button>
+        <button class="icon" id="zoomIn" type="button" aria-label="확대" title="확대"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 12h12M12 6v12"/></svg></button>
+        <!-- 맞춤·2쪽·쪽 번호·휠 쪽 넘김은 글 없이 아이콘(2026-11-10) — 이름은 title·aria-label. #zoomHeight 는 지금 방식에 따라 아이콘·이름이 바뀐다(app.js setZoom — data-mode) -->
+        <button class="icon tb" id="zoomFit" type="button" aria-pressed="true" aria-label="폭 맞춤" title="폭 맞춤 — 가장 넓은 쪽이 창 폭에 들어가게"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 4H3v16h4M17 4h4v16h-4M6 12h12M9 9l-3 3 3 3M15 9l3 3-3 3"/></svg></button>
+        <button class="icon tb" id="zoomHeight" type="button" aria-pressed="false" aria-label="높이 맞춤" title="높이 맞춤 — 쪽 한 장이 창 높이에 다 들어가게 · 한 번 더 누르면 「여백 빼고 맞춤」"><svg class="toolbar-glyph i-height" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7V3h16v4M4 17v4h16v-4M12 6v12M9 9l3-3 3 3M9 15l3 3 3-3"/></svg><svg class="toolbar-glyph i-body" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 4V3h14v1M5 20v1h14v-1" opacity=".4"/><path d="M5 7h14M5 17h14M12 7v10M9.5 9.5 12 7l2.5 2.5M9.5 14.5 12 17l2.5-2.5"/></svg></button>
+        <button class="icon tb" id="twoUp" type="button" aria-pressed="false" aria-label="2쪽 보기" title="2쪽 보기 — 두 쪽을 나란히: 폭 맞춤은 두 쪽 폭으로, 휠 쪽 넘김은 두 쪽씩"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2.5" y="4" width="8" height="16" rx="1.5"/><rect x="13.5" y="4" width="8" height="16" rx="1.5"/><path d="M5.5 15h2M16.5 15h2"/></svg></button>
+      </div>
+      <label class="toggle ic" data-tool-for="page" title="쪽 번호 — 쪽 상자 위 「n쪽」 표지와 쪽 여백의 표시(템플릿·표)를 보이기 · 끄면 숨김"><input type="checkbox" id="showPages" checked aria-label="쪽 번호"><span class="icon tb" aria-hidden="true"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6" opacity=".4"/><path d="m10 12 2-1v6M10 17h4"/></svg></span></label>
+      <label class="toggle ic" data-tool-for="page" title="휠 쪽 넘김 — 마우스 휠 한 칸에 한 쪽(2쪽 보기면 두 쪽): 쪽이 창보다 길면 그 안에서 창 높이만큼 먼저 내려감 · 끄면 보통 스크롤 · Ctrl·Shift+휠은 그대로"><input type="checkbox" id="wheelFlip" checked aria-label="휠 쪽 넘김"><span class="icon tb" aria-hidden="true"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="3" width="11" height="18" rx="5.5"/><path d="M8.5 7v4M20 6v12M17.5 8.5 20 6l2.5 2.5M17.5 15.5 20 18l2.5-2.5"/></svg></span></label>
+      <div class="tool-set" data-tool-set="font" role="group" aria-label="글자 모양" hidden>
+        <div class="group">
+          <button class="icon tb" type="button" data-char="bold" aria-pressed="false" title="굵게 (Ctrl+B) — 고른 글자, 고르지 않으면 문단 전체"><b>가</b></button>
+          <button class="icon tb" type="button" data-char="italic" aria-pressed="false" title="기울임 (Ctrl+I)"><i>가</i></button>
+          <button class="icon tb" type="button" data-char="underline" aria-pressed="false" title="밑줄 (Ctrl+U)"><u>가</u></button>
+        </div>
+        <label class="tb-field" title="글자 크기(pt)"><input id="tbSize" type="number" min="1" max="4096" step="0.5" aria-label="글자 크기(pt)"><span>pt</span></label>
+        <label class="tb-color" title="글자 색"><input id="tbColor" type="color" value="#000000" aria-label="글자 색"></label>
+      </div>
+      <div class="tool-set" data-tool-set="para" role="group" aria-label="문단 모양" hidden>
+        <div class="group">
+          <button class="icon tb" type="button" data-align="left" aria-pressed="false" title="왼쪽 정렬" aria-label="왼쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h8v1.5H2zm0 3h12v1.5H2zm0 3h8v1.5H2z"/></svg></button>
+          <button class="icon tb" type="button" data-align="center" aria-pressed="false" title="가운데 정렬" aria-label="가운데 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm2 3h8v1.5H4zm-2 3h12v1.5H2zm2 3h8v1.5H4z"/></svg></button>
+          <button class="icon tb" type="button" data-align="right" aria-pressed="false" title="오른쪽 정렬" aria-label="오른쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm4 3h8v1.5H6zm-4 3h12v1.5H2zm4 3h8v1.5H6z"/></svg></button>
+          <button class="icon tb" type="button" data-align="justify" aria-pressed="false" title="양쪽 정렬" aria-label="양쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2z"/></svg></button>
+        </div>
+        <div class="group">
+          <button class="icon tb" type="button" data-indent="-5" title="왼쪽 여백 −5mm" aria-label="왼쪽 여백 줄이기">⇤</button>
+          <button class="icon tb" type="button" data-indent="5" title="왼쪽 여백 +5mm" aria-label="왼쪽 여백 늘리기">⇥</button>
+        </div>
+        <label class="tb-field" title="첫 줄 들여쓰기(+)·내어쓰기(−), mm"><span>첫 줄</span><input id="tbFirst" type="number" min="-300" max="300" step="1" aria-label="첫 줄 들여쓰기 mm"></label>
+        <label class="tb-field" title="줄 간격(%)"><span>줄</span><select id="tbLine" aria-label="줄 간격"><option value="">–</option><option>100</option><option>130</option><option>150</option><option>160</option><option>180</option><option>200</option></select></label>
+      </div>
+      <div class="tool-set group" data-tool-set="table" role="group" aria-label="표 행·열" id="tbTable" hidden>
+        <button class="btn sm" type="button" data-table="row_above" title="이 칸(또는 끌어 고른 행들) 위에 빈 행 넣기 — 고른 행 수만큼">행↑ 넣기</button>
+        <button class="btn sm" type="button" data-table="row_below" title="이 칸(또는 끌어 고른 행들) 아래에 빈 행 넣기 — 고른 행 수만큼">행↓ 넣기</button>
+        <button class="btn sm" type="button" data-table="row_delete" title="이 칸의 행(또는 끌어 고른 행들) 지우기">행 지우기</button>
+        <button class="btn sm" type="button" data-table="col_left" title="이 칸(또는 끌어 고른 열들) 왼쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열← 넣기</button>
+        <button class="btn sm" type="button" data-table="col_right" title="이 칸(또는 끌어 고른 열들) 오른쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열→ 넣기</button>
+        <button class="btn sm" type="button" data-table="col_delete" title="이 칸의 열(또는 끌어 고른 열들) 지우기 — 표 폭·헤더 열 폭은 그대로, 남은 필드 열이 비율대로 넓어집니다(올리면 문서에 미리보기)">열 지우기</button>
+      </div>
+      <!-- 「테이블 수정」 묶음의 딸림 단추(2026-11-10) — #tbTable 밖에 둔다: #tbTable 단추는 칸 안에서만 켜지고(app.js refreshToolbar) 이름이 고른 행·열 수로 바뀐다(table_edit.js tselSync).
+           표 만들기 = table_make.js tmkOpen()(2열) · 표 구조 보기 = tables.js tblRolesToggle()(눌림·꺼짐·도움말은 tblRolesBtnSync 가 .tbl-roles-btn 모두에 — data-keep = 글은 그대로) -->
+      <div class="group" id="tbTableMore" data-tool-for="table" role="group" aria-label="표 만들기 · 표 구조 보기" hidden>
+        <button class="btn sm" id="tbTableMake" type="button" title="표 만들기 · 서식 변환 — 문서의 표 하나를 표 양식으로 골라 그 서식으로: 고른 글·붙여 넣은 표를 표로 정리해 넣거나, 문서의 표에 서식을 입힙니다(2열 · hwpx 만). 글을 골라 두고 누르면 그 문단들이 원본">표 만들기·서식 변환</button>
+        <button class="btn sm tbl-roles-btn" id="tbTblRoles" type="button" data-keep="1" aria-pressed="false" title="문서의 표 칸에 칸 역할 색(열헤더·행헤더·귀퉁이·제목·안내)을 겹쳐 보입니다 — 표 구조(3단계) 결과가 있어야 합니다">표 구조 보기</button>
+      </div>
+      <!-- 단축키 설명(2026-11-10 — 옛 키 안내 글 #editHint 자리: 한 줄 글은 좁으면 말줄임으로 잘렸다): 누르면 문서 옆 2열에 키·마우스 조작 목록, 다시 누르면 닫힘(shortcuts.js).
+           어느 묶음에서나 보이는 아이콘 하나(글 없음 — 이름은 마우스 도움말·aria-label: 사용자 「다 아이콘으로 하고 마우스 갖다 대면 이름」), 눌림 표시 = 열려 있음(aria-pressed) -->
+      <button class="icon tb" id="shortcutsBtn" type="button" aria-pressed="false" aria-controls="headsDlg" aria-label="단축키 설명" title="단축키 설명 — 문서 옆 열에서 키보드·마우스 조작 보기(다시 누르면 닫힘)"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15h8"/></svg></button>
+      <div class="spacer"></div>
+      <!-- 오른쪽 묶음(늘 보임) — 한 상자: 줄이 좁아 꺾일 때 셋이 함께 다음 줄 오른쪽 끝으로 간다(따로 두면 「실행 취소」 만 왼쪽으로 떨어진다) -->
+      <div class="group bar-right" id="barRight">
+        <!-- 고친 문단으로 건너뛰기 — 수(「고친 문단 N개」)는 도구 탭 「고친 문단」 배지에만 두고 여기엔 ↑↓ 만(2026-11-10, 도움말에 수 — app.js updateEdits) -->
+        <div class="group" id="editNav" role="group" aria-label="고친 문단으로 이동" hidden>
+          <button class="icon" id="prevEdit" type="button" aria-label="이전 고친 문단" title="이전 고친 문단으로">↑</button>
+          <button class="icon" id="nextEdit" type="button" aria-label="다음 고친 문단" title="다음 고친 문단으로">↓</button>
+        </div>
+        <!-- OWPML 상태 — 아이콘 하나(2026-11-10): 방패 안 표시(.m-wait … · .m-ok ✓ · .m-warn ! · .m-fail ✕)와 색이 상태, 글은 도움말과 #owpmlText(화면 낭독용 — 눈에는 안 보임). app.js refreshToolbar -->
+        <span class="owpml-state" id="owpmlState" role="status" aria-live="polite" title="구조·서식 편집마다 OWPML(KS X 6101) 2024 스키마·참조 규칙으로 검사 — 원본에 없던 종류의 위반이면 그 편집을 되돌린다">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 9.5-4.1-1.8-7-5.3-7-9.5V6l7-3Z"/><path class="m m-wait" d="M8.6 12h.01M12 12h.01M15.4 12h.01"/><path class="m m-ok" d="M8.7 12.3l2.4 2.4 4.3-4.9"/><path class="m m-warn" d="M12 8.2v4.6M12 15.8h.01"/><path class="m m-fail" d="M9.6 9.6l4.8 4.8M14.4 9.6l-4.8 4.8"/></svg>
+          <span class="owpml-text" id="owpmlText">OWPML 검사 대기</span>
+        </span>
+        <button class="btn sm" id="undoBtn" type="button" disabled title="마지막 구조·서식 편집(나누기·합치기·모양·표) 직전으로 — 그 뒤 고친 글도 함께 돌아감">↶ 실행 취소</button>
+      </div>
+    </div>
     <section class="viewer" id="viewer" aria-label="문서">
       <div class="empty home" id="empty">
         <div class="home-content">
@@ -51,7 +163,7 @@
               <p class="home-eyebrow">문서 작업 공간</p>
               <h1>문서 작업을<br> 더 간결하게.</h1>
               <p class="home-subtitle">HWPX와 DOCX 편집부터<br> 출력 확인까지, 한곳에서.</p>
-              <p class="home-format-note"><span>HWPX</span><span>DOCX</span>원래 형식 그대로 저장</p>
+              <p class="home-format-note"><span>HWPX</span><span>DOCX</span><span data-note-label="파일 형식 안내" data-note="원래 형식 그대로 저장합니다."></span></p>
             </header>
             <div class="home-upload">
               <section class="drop" id="drop" aria-labelledby="dropTitle" aria-describedby="dropFormats">
@@ -74,113 +186,91 @@
               </div>
             </div>
           </div>
+          <!-- TASK 카드(spec_작업 ② §15, 2026-11-12 사용자 "여기에 할 일 : TASK 라고 하자 TASK 를 카드로 줘라 그리고 각 task 아이콘/로고를 만들어줘"): TASK = 할 일(task.job).
+               카드(ul#taskCards)는 app.js homeTasksDraw 가 WORK_TASK.job 차례대로 채운다 — 카드 = 그 TASK 로 문서를 올려 시작. 아래 <symbol> 은 TASK 마다의 로고 그림(id = taskIcon-<할 일 키>):
+               그림 = 문서(줄 = 사업계획서 · 막대 = 연차보고서) + 동작(↕ 양식 맞추기 · 셋→하나 취합 · → 이관), 바탕색은 landing.css .task-logo[data-doc] — design.md §12 -->
+          <section class="home-tasks" id="homeTasks" aria-labelledby="homeTasksTitle">
+            <svg class="task-icons" width="0" height="0" aria-hidden="true" focusable="false">
+              <symbol id="taskIcon-plan_fit" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 4h8l5 5v17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M14 4v5h5"/><path d="M8 14.5h7M8 18.5h7M8 22.5h4"/>
+                <path d="M25.5 10v12M22.7 12.8l2.8-2.8 2.8 2.8M22.7 19.2l2.8 2.8 2.8-2.8"/></g></symbol>
+              <symbol id="taskIcon-plan_merge" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <g fill="currentColor" stroke="none"><rect x="3" y="4" width="7" height="6" rx="1.6"/><rect x="3" y="13" width="7" height="6" rx="1.6"/><rect x="3" y="22" width="7" height="6" rx="1.6"/></g>
+                <path d="M10 7h2.5a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 0 2.5 2.5M10 25h2.5a2.5 2.5 0 0 0 2.5-2.5v-4a2.5 2.5 0 0 1 2.5-2.5M10 16h8"/>
+                <path d="M20 7h5l4 4v12a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M25 7v4h4"/><path d="M21.5 15h4.5M21.5 18.5h4.5M21.5 22h2.5"/></g></symbol>
+              <symbol id="taskIcon-plan_to_report" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 3h5l4 4v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M10 3v4h4"/><path d="M6 11.5h5M6 15.5h5"/>
+                <path d="M19 12h6l4 4v11a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2V14a2 2 0 0 1 2-2Z"/><path d="M25 12v4h4"/><path d="M20.5 26v-2.5M23 26v-5M25.5 26v-7"/>
+                <path d="M17.5 5H21a3 3 0 0 1 3 3v1.5M21.4 7.2 24 9.8l2.6-2.6"/></g></symbol>
+              <symbol id="taskIcon-report_fit" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 4h8l5 5v17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M14 4v5h5"/><path d="M8.5 23v-3M11.5 23v-6M14.5 23v-9"/>
+                <path d="M25.5 10v12M22.7 12.8l2.8-2.8 2.8 2.8M22.7 19.2l2.8 2.8 2.8-2.8"/></g></symbol>
+              <symbol id="taskIcon-report_merge" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <g fill="currentColor" stroke="none"><rect x="3" y="4" width="7" height="6" rx="1.6"/><rect x="3" y="13" width="7" height="6" rx="1.6"/><rect x="3" y="22" width="7" height="6" rx="1.6"/></g>
+                <path d="M10 7h2.5a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 0 2.5 2.5M10 25h2.5a2.5 2.5 0 0 0 2.5-2.5v-4a2.5 2.5 0 0 1 2.5-2.5M10 16h8"/>
+                <path d="M20 7h5l4 4v12a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><path d="M25 7v4h4"/><path d="M21.5 22v-2.5M24 22v-5M26.5 22v-7"/></g></symbol>
+            </svg>
+            <header class="home-tasks-heading">
+              <h2 id="homeTasksTitle">TASK</h2>
+              <span data-note-label="TASK 시작 안내" data-note="할 일을 고르고 문서를 올리면 그 TASK 로 시작합니다. 각 TASK 는 필요한 도구를 순서대로 연결합니다."></span>
+            </header>
+            <ul class="task-cards" id="taskCards"></ul>
+          </section>
           <ul class="home-capabilities" aria-label="문서를 열면 할 수 있는 작업">
             <li>
               <span class="capability-icon edit" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="m15 4 5 5M5 15 16 4a2 2 0 0 1 3 3L8 18l-5 2 2-5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 20h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
-              <div><h3>문서 편집</h3><p>문단과 표를 고치고 <br>원래 형식으로 저장하세요.</p></div>
+              <div><h3>문서 편집 <span data-note-label="문서 편집 안내" data-note="문단과 표를 고치고 원래 형식으로 저장하세요."></span></h3></div>
             </li>
             <li>
               <span class="capability-icon verify" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-              <div><h3>출력 결과 확인</h3><p>원본과 수정본의 PDF를 <br>나란히 비교하세요.</p></div>
+              <div><h3>출력 결과 확인 <span data-note-label="출력 결과 확인 안내" data-note="원본과 수정본의 PDF를 나란히 비교하세요."></span></h3></div>
             </li>
             <li>
               <span class="capability-icon structure" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" width="22" height="22"><rect x="4" y="3" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="11" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="18" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.7"/><path d="M7 8v12h7M7 13h7" stroke="currentColor" stroke-width="1.7"/></svg></span>
-              <div><h3>구조 분석·비교</h3><p>HWPX의 라벨·템플릿을 <br>살펴보고 문서끼리 비교하세요.</p></div>
+              <div><h3>구조 분석·비교 <span data-note-label="구조 분석·비교 안내" data-note="HWPX의 라벨·템플릿을 살펴보고 문서끼리 비교하세요."></span></h3></div>
             </li>
           </ul>
           <section class="recent" id="recent" hidden aria-labelledby="recentTitle">
             <header class="recent-heading">
-              <div><h2 id="recentTitle">최근 작업 <span id="recentCount"></span></h2><p>작업하던 문서를 이어서 열어보세요.</p></div>
+              <div><h2 id="recentTitle">최근 작업 <span id="recentCount"></span><span data-note-label="최근 작업 안내" data-note="작업하던 문서를 이어서 열어보세요."></span></h2></div>
               <button class="btn sm" id="recentAll" type="button" aria-haspopup="dialog">전체 작업 보기 <span aria-hidden="true">→</span></button>
             </header>
             <ul class="work-list" id="workList"></ul>
           </section>
         </div>
       </div>
-      <!-- 문서·편집 도구 한 줄(spec_hwpx_웹편집 ② §2 「도구 줄」, 2026-11-10): 「페이지 보기·폰트 수정·문단 수정·테이블 수정」 중 고른 묶음(.tool-set[data-tool-set] 상자 또는
-           data-tool-for 항목들)만 펼친다 — 오른쪽 고친 문단·OWPML·실행 취소는 늘 보임. 고른 묶음은 app.js setToolSet() 이 localStorage nfm.view 에 기억 -->
-      <div class="doc-bar" id="docBar" role="toolbar" aria-label="문서·편집 도구" hidden>
-        <div class="group tool-modes" id="toolModes" role="group" aria-label="도구 묶음 — 하나만 골라 한 줄에">
-          <button class="btn sm on" type="button" data-tool="page" aria-pressed="true" aria-label="페이지 보기" title="페이지 보기 — 확대·폭/높이 맞춤·2쪽·쪽 번호·휠 쪽 넘김">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg>
-          </button>
-          <button class="btn sm" type="button" data-tool="font" aria-pressed="false" aria-label="폰트 수정" title="폰트 수정 — 굵게·기울임·밑줄·글자 크기·글자 색">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 7V5h12v2M9 5v14M6 19h6M14 12v-2h7v2M17.5 10v9M15.5 19h4"/></svg>
-          </button>
-          <button class="btn sm" type="button" data-tool="para" aria-pressed="false" aria-label="문단 수정" title="문단 수정 — 정렬·왼쪽 여백·첫 줄 들여쓰기·줄 간격">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 4H9a4.5 4.5 0 0 0 0 9h3M12 4v16M17 4v16M10 20h4M15 20h4"/></svg>
-          </button>
-          <button class="btn sm" type="button" data-tool="table" aria-pressed="false" aria-label="테이블 수정" title="테이블 수정 — 표 행·열 넣기·지우기: 표 칸 안에 있거나 칸을 끌어 골랐을 때">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/></svg>
-          </button>
-        </div>
-        <span class="tb-sep" aria-hidden="true"></span>
-        <!-- 「페이지 보기」 묶음은 한 상자로 싸지 않고 항목마다 data-tool-for="page" — 좁은 줄에서 항목 단위로 꺾이게(상자째 꺾이면 줄이 셋이 된다) -->
-        <div class="group" role="group" aria-label="확대" data-tool-for="page">
-          <button class="icon" id="zoomOut" type="button" aria-label="축소">−</button>
-          <button class="zoom-val" id="zoomVal" type="button" title="100% 로">100%</button>
-          <button class="icon" id="zoomIn" type="button" aria-label="확대">+</button>
-          <button class="btn sm" id="zoomFit" type="button" aria-pressed="true">폭 맞춤</button>
-          <button class="btn sm" id="zoomHeight" type="button" aria-pressed="false" title="쪽 한 장이 창 높이에 다 들어가게 — 한 번 더 누르면 「여백 빼고 맞춤」(위·아래 쪽 여백을 뺀 본문 높이를 창에), 또 누르면 다시 높이 맞춤">높이 맞춤</button>
-          <button class="btn sm" id="twoUp" type="button" aria-pressed="false" title="두 쪽을 나란히 — 폭 맞춤은 두 쪽 폭으로, 휠 쪽 넘김은 두 쪽씩">2쪽</button>
-        </div>
-        <label class="toggle" data-tool-for="page"><input type="checkbox" id="showPages" checked> 쪽 번호</label>
-        <label class="toggle" data-tool-for="page" title="마우스 휠 한 칸에 한 쪽(2쪽 보기면 두 쪽) — 쪽이 창보다 길면 그 안에서 창 높이만큼 먼저 내려감 · 끄면 보통 스크롤 · Ctrl·Shift+휠은 그대로"><input type="checkbox" id="wheelFlip" checked> 휠 쪽 넘김</label>
-        <div class="tool-set" data-tool-set="font" role="group" aria-label="글자 모양" hidden>
-          <div class="group">
-            <button class="icon tb" type="button" data-char="bold" aria-pressed="false" title="굵게 (Ctrl+B) — 고른 글자, 고르지 않으면 문단 전체"><b>가</b></button>
-            <button class="icon tb" type="button" data-char="italic" aria-pressed="false" title="기울임 (Ctrl+I)"><i>가</i></button>
-            <button class="icon tb" type="button" data-char="underline" aria-pressed="false" title="밑줄 (Ctrl+U)"><u>가</u></button>
-          </div>
-          <label class="tb-field" title="글자 크기(pt)"><input id="tbSize" type="number" min="1" max="4096" step="0.5" aria-label="글자 크기(pt)"><span>pt</span></label>
-          <label class="tb-color" title="글자 색"><input id="tbColor" type="color" value="#000000" aria-label="글자 색"></label>
-        </div>
-        <div class="tool-set" data-tool-set="para" role="group" aria-label="문단 모양" hidden>
-          <div class="group">
-            <button class="icon tb" type="button" data-align="left" aria-pressed="false" title="왼쪽 정렬" aria-label="왼쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h8v1.5H2zm0 3h12v1.5H2zm0 3h8v1.5H2z"/></svg></button>
-            <button class="icon tb" type="button" data-align="center" aria-pressed="false" title="가운데 정렬" aria-label="가운데 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm2 3h8v1.5H4zm-2 3h12v1.5H2zm2 3h8v1.5H4z"/></svg></button>
-            <button class="icon tb" type="button" data-align="right" aria-pressed="false" title="오른쪽 정렬" aria-label="오른쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm4 3h8v1.5H6zm-4 3h12v1.5H2zm4 3h8v1.5H6z"/></svg></button>
-            <button class="icon tb" type="button" data-align="justify" aria-pressed="false" title="양쪽 정렬" aria-label="양쪽 정렬"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2zm0 3h12v1.5H2z"/></svg></button>
-          </div>
-          <div class="group">
-            <button class="icon tb" type="button" data-indent="-5" title="왼쪽 여백 −5mm" aria-label="왼쪽 여백 줄이기">⇤</button>
-            <button class="icon tb" type="button" data-indent="5" title="왼쪽 여백 +5mm" aria-label="왼쪽 여백 늘리기">⇥</button>
-          </div>
-          <label class="tb-field" title="첫 줄 들여쓰기(+)·내어쓰기(−), mm"><span>첫 줄</span><input id="tbFirst" type="number" min="-300" max="300" step="1" aria-label="첫 줄 들여쓰기 mm"></label>
-          <label class="tb-field" title="줄 간격(%)"><span>줄</span><select id="tbLine" aria-label="줄 간격"><option value="">–</option><option>100</option><option>130</option><option>150</option><option>160</option><option>180</option><option>200</option></select></label>
-        </div>
-        <div class="tool-set group" data-tool-set="table" role="group" aria-label="표 행·열" id="tbTable" hidden>
-          <button class="btn sm" type="button" data-table="row_above" title="이 칸(또는 끌어 고른 행들) 위에 빈 행 넣기 — 고른 행 수만큼">행↑ 넣기</button>
-          <button class="btn sm" type="button" data-table="row_below" title="이 칸(또는 끌어 고른 행들) 아래에 빈 행 넣기 — 고른 행 수만큼">행↓ 넣기</button>
-          <button class="btn sm" type="button" data-table="row_delete" title="이 칸의 행(또는 끌어 고른 행들) 지우기">행 지우기</button>
-          <button class="btn sm" type="button" data-table="col_left" title="이 칸(또는 끌어 고른 열들) 왼쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열← 넣기</button>
-          <button class="btn sm" type="button" data-table="col_right" title="이 칸(또는 끌어 고른 열들) 오른쪽에 빈 열 넣기 — 고른 열 수만큼(표 폭 그대로)">열→ 넣기</button>
-          <button class="btn sm" type="button" data-table="col_delete" title="이 칸의 열(또는 끌어 고른 열들) 지우기(폭은 이웃 열에)">열 지우기</button>
-        </div>
-        <!-- 키 안내 — 「페이지 보기」 묶음과 함께 보이되 묶음 밖에 둔다: 줄이 좁으면 이 안내부터 줄여(말줄임) 다른 항목이 겹치지 않게 -->
-        <span class="hint" id="editHint" data-tool-for="page" title="편집용 보기(출력 배치는 PDF 탭) · Enter 문단 나누기 · Shift+Enter 줄 바꿈 · 문단 맨 앞 Backspace·맨 끝 Delete 합치기 · Ctrl+B/I/U 글자 모양 · 표 칸을 끌면 칸 묶음 고르기(Ctrl+C 복사 · 오른쪽 단추 메뉴로 행·열 넣기·지우기 · Shift+화살표 늘리기 · Esc 풀기) · Esc 편집 끝">Enter 나누기 · Shift+Enter 줄 바꿈 · 맨 앞 Backspace·맨 끝 Delete 합치기 · Ctrl+B/I/U · 표 칸 끌어 고르기(Ctrl+C·오른쪽 단추)</span>
-        <div class="spacer"></div>
-        <div class="group" id="editNav" hidden>
-          <span id="editCount"></span>
-          <button class="icon" id="prevEdit" type="button" aria-label="이전 고친 문단">↑</button>
-          <button class="icon" id="nextEdit" type="button" aria-label="다음 고친 문단">↓</button>
-        </div>
-        <span class="owpml-state" id="owpmlState" role="status" aria-live="polite" title="구조·서식 편집마다 OWPML(KS X 6101) 2024 스키마·참조 규칙으로 검사 — 원본에 없던 종류의 위반이면 그 편집을 되돌린다">OWPML 검사 대기</span>
-        <button class="btn sm" id="undoBtn" type="button" disabled title="마지막 구조·서식 편집(나누기·합치기·모양·표) 직전으로 — 그 뒤 고친 글도 함께 돌아감">↶ 실행 취소</button>
-      </div>
       <div class="scroller" id="scroller" hidden>
         <div class="doc" id="doc"></div>
       </div>
+    </section>
+
+    <!-- 둘째 면 = 같이 보기(spec_작업 ② §12, 2026-11-11): 같은 과제의 다른 문서(연차보고서를 보면 사업계획서)를 문서 열 바로 옆에 읽기 전용으로 — 같은 앱을 /?peek=<작업 id> 로 연 iframe.
+         이름 줄은 없다(② §12 「두 면」): 머리 = 문서 이름 탭 줄(#peerTabs — 도구 탭 띠와 같은 행 · 고른 탭 = 떠 있는 문서, app.js peerTabsDraw) + » · ✕. #peerName 은 접힌 띠 이름·aria 용(안 보임).
+         접기(» · 띠)는 2열 것을 같이 쓴다(class heads-col). 폭 손잡이는 없다 — 문서 열과 늘 반반, 보기(배율 등)도 첫째 면을 따른다(「두 면은 같은 크기」). 켜고 끄기·주소·탭은 app.js peer* -->
+    <section class="heads-col peer-col" id="peerCol" hidden aria-labelledby="peerName">
+      <button class="col-rail" id="peerRail" type="button" aria-controls="peerCol"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg><span class="col-rail-name"></span></button>
+      <header>
+        <div class="tabs peer-tabs" id="peerTabs" role="tablist" aria-label="둘째 면에 띄울 문서"></div>
+        <strong id="peerName" hidden></strong><span class="recent-note" title="둘째 면의 문서는 보기만 합니다 — 고치려면 그 문서를 여세요(상단 바 문서 목록)">읽기 전용</span>
+        <!-- 누른 자리 따라 보기(spec_작업 ② §12 — 2026-11-12): 연차보고서에서 내용이 들어간 곳을 누르면 다른 면이 원본 자리를 보인다. 눌림 = 켬(기억 nfm.peerFollow). 이관의 두 칸이 찼을 때만 보인다 — peer_follow.js -->
+        <button class="btn sm peer-follow on" id="peerFollow" type="button" aria-pressed="true" hidden>따라 보기</button>
+        <button class="icon" id="peerFold" type="button" aria-controls="peerCol" aria-label="열 접기" title="열 접기 — 오른쪽 띠로(보던 자리 그대로, 띠를 누르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg></button>
+        <button class="icon" id="peerClose" type="button" aria-label="같이 보기 닫기" title="같이 보기 닫기 — 「연구개발과제」 패널의 첨부 파일 칸 오른쪽 단추로 다시 엽니다">✕</button>
+      </header>
+      <iframe id="peerFrame" title="같이 보는 문서"></iframe>
     </section>
 
     <!-- 헤딩 추출 2열 — 문단 목록·서식 라벨·규칙·지침을 문서(1열)와 패널(3열) 사이에 나란히(옛 대화창 — id 는 그대로) -->
     <section class="heads-col" id="headsDlg" hidden aria-labelledby="headsDlgTitle" tabindex="-1">
       <div class="heads-resizer" id="headsResizer" role="separator" aria-orientation="vertical" aria-label="헤딩 열 폭" aria-controls="headsDlg" tabindex="0"
            title="끌어서 열 폭 조절 · ←/→ 20px(Shift 80px) · 두 번 누르면 기본 폭"></div>
+      <!-- 접힌 띠(spec_hwpx_웹편집 ② §9 「열 접기」): 머리의 » 로 열을 오른쪽으로 접으면(.folded) 이 단추만 남는다 — 누르면 펴짐. 이름·도움말은 app.js colFold 가 채운다 -->
+      <button class="col-rail" id="headsRail" type="button" aria-controls="headsDlg"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg><span class="col-rail-name"></span></button>
       <header>
-        <strong id="headsDlgTitle">헤딩 추출</strong>
-        <span class="recent-note" id="headsDlgNote"></span>
+        <div class="hd-heading-copy"><strong id="headsDlgTitle">헤딩 추출</strong><span class="recent-note" id="headsDlgNote"></span></div>
+        <span id="headsDlgHelp" class="panel-help-slot"></span>
         <div class="spacer"></div>
+        <button class="icon" id="headsFold" type="button" aria-controls="headsDlg" aria-label="열 접기" title="열 접기 — 오른쪽 띠로(내용·펼친 상태는 그대로, 띠를 누르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg></button>
         <button class="icon" id="headsDlgClose" type="button" aria-label="닫기" title="열 닫기">✕</button>
       </header>
       <div class="hd-tools" id="headsDlgTools"></div>
@@ -191,10 +281,20 @@
     <aside class="panel" id="panel" hidden aria-label="문서 도구">
       <div class="panel-resizer" id="panelResizer" role="separator" aria-orientation="vertical" aria-label="패널 폭" aria-controls="panel" tabindex="0"
            title="끌어서 패널 폭 조절 · ←/→ 20px(Shift 80px) · 두 번 누르면 기본 폭"></div>
+      <!-- 접힌 띠(spec_hwpx_웹편집 ② §9 「열 접기」): 도구 이름 줄의 » 로 패널을 오른쪽으로 접으면(.folded) 이 단추만 남는다 — 누르거나 도구 탭을 고르면 펴짐 -->
+      <button class="col-rail" id="panelRail" type="button" aria-controls="panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg><span class="col-rail-name"></span></button>
+      <!-- 패널 머리(spec_작업 ② §10 「패널 머리」, 2026-11-11 사용자 "이 쪽에 작업 목록을 선택할 수 있는 리스트를 넣어주고 …" → "사이드 패널 상단에 저 탭은 중복이잖아" · "그냥 작업에서 연구개발과제를 택하면 지금 내용이 나오는거지"):
+           첫 줄 = 작업 종류 목록(#panelTask — 작업 종류를 고르는 곳은 여기: 상단 바의 옛 #taskKind 는 같은 날 없앰 · 「연구개발과제」 를 고르면 그 내용이 열림) · 파일 이름 · ? 도움말 · »
+           둘째 줄 = 지금 보는 도구 이름(#toolTitle) + 꼬리표(#toolTag) + 오른쪽 끝 「↩ 작업 내용」(#taskHome — 작업 종류가 연구개발과제이고 다른 도구를 볼 때만: 그 내용으로 돌아가는 길, 2026-11-12 탭 띠의 「연구개발과제」 탭을 없애며). 패널에 도구 탭 줄은 없다 — 도구는 문서 위 탭 띠에서 바꾼다(한때 넣은 #panelTabs 는 겹쳐서 걷어냄). 설명 글은 ? 도움말로(#toolDescription 은 값만 — app.js showTab) -->
       <header class="tool-heading">
-        <div class="tool-source" id="toolSource"></div>
-        <div class="tool-title-row"><h1 id="toolTitle">검증</h1><span class="tool-tag" id="toolTag">파일·출력</span></div>
-        <p id="toolDescription">원본을 읽고 저장한 결과와 출력파일을 확인합니다.</p>
+        <div class="tool-task-row">
+          <label class="tool-task" title="작업 종류 — 「연구개발과제」 를 고르면 그 내용(할 일·첨부 파일·구분 기준)이 이 패널에 열립니다 · 작업에 저장"><span>작업</span><select id="panelTask" aria-label="작업 종류"></select></label>
+          <div class="tool-source" id="toolSource"></div>
+          <span id="toolHelp" class="panel-help-slot"></span>
+          <button class="icon" id="panelFold" type="button" aria-controls="panel" aria-label="패널 접기" title="패널 접기 — 오른쪽 띠로(띠를 누르거나 도구 탭을 고르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="tool-title-row"><h1 id="toolTitle">검증</h1><span class="tool-tag" id="toolTag">파일·출력</span><button class="btn sm task-home" id="taskHome" type="button" aria-controls="paneDiv" hidden title="작업 내용으로 — 위 「작업」 목록에서 고른 「연구개발과제」 의 내용(할 일 · 첨부 파일 · 구분 기준)을 이 패널에 엽니다">↩ 작업 내용</button></div>
+        <p id="toolDescription" hidden>원본을 읽고 저장한 결과와 출력파일을 확인합니다.</p>
       </header>
       <div class="pane" id="paneVerify" role="tabpanel" aria-labelledby="tabVerify">
         <div class="summary" id="summary"></div>
@@ -208,6 +308,19 @@
         </details>
       </div>
       <div class="pane" id="paneEdits" role="tabpanel" aria-labelledby="tabEdits" hidden>
+        <!-- 확정(spec_작업 ② §8 — 깃처럼): 기준·고친 문단 수 한 줄 + [확정 메시지][확정][버리기] 한 줄 + 접힌 확정 기록. 그리기·단추는 app.js 「확정」 절(commitDraw), 모양은 commits.css -->
+        <section class="commit-box" id="commitBox" aria-label="확정" hidden>
+          <p class="commit-sum" id="commitSum" role="status"></p>
+          <div class="commit-row">
+            <input id="commitMsg" type="text" maxlength="200" placeholder="확정 메시지(선택)" aria-label="확정 메시지">
+            <button class="btn sm primary" id="commitBtn" type="button" disabled title="지금까지 고친 것을 한 시점으로 남기고 새 기준으로 삼습니다 — 고친 문단이 0 이 되고, 그 뒤 고친 것만 다시 모입니다">확정</button>
+            <button class="btn sm" id="discardBtn" type="button" disabled title="확정하지 않은 변경을 모두 버리고 기준 상태로 되돌립니다">버리기</button>
+          </div>
+          <details class="commit-log" id="commitLog">
+            <summary>확정 기록 <span class="badge" id="commitCount">0</span></summary>
+            <ol class="commit-list" id="commitList"></ol>
+          </details>
+        </section>
         <ul class="edits" id="editsList"></ul>
       </div>
       <div class="pane" id="panePdf" role="tabpanel" aria-labelledby="tabPdf" hidden>
@@ -241,7 +354,7 @@
           <button type="button" role="tab" id="headsTabLabels" aria-controls="headsViewLabels" aria-selected="false" tabindex="-1" data-head-view="Labels">서식 라벨</button>
           <button type="button" role="tab" id="headsTabTemplates" aria-controls="headsViewTemplates" aria-selected="false" tabindex="-1" data-head-view="Templates">템플릿</button>
           <button type="button" role="tab" id="headsTabTables" aria-controls="headsViewTables" aria-selected="false" tabindex="-1" data-head-view="Tables">표 구조</button>
-          <button type="button" role="tab" id="headsTabReview" aria-controls="headsViewReview" aria-selected="false" tabindex="-1" data-head-view="Review">확인할 항목</button>
+          <button type="button" role="tab" id="headsTabReview" aria-controls="headsViewReview" aria-selected="false" tabindex="-1" data-head-view="Review">확인 항목</button>
           <button type="button" role="tab" id="headsTabRun" aria-controls="headsViewRun" aria-selected="false" tabindex="-1" data-head-view="Run">추출·설정</button>
         </div>
         <section id="headsViewTree" class="heads-result" role="tabpanel" aria-labelledby="headsTabTree"><div id="heads2More"></div></section>
@@ -250,16 +363,24 @@
         <section id="headsViewTables" class="heads-result" role="tabpanel" aria-labelledby="headsTabTables" hidden><div id="headsTablesResult"></div><div id="heads3More"></div></section>
         <section id="headsViewReview" class="heads-result" role="tabpanel" aria-labelledby="headsTabReview" hidden><div id="headsReviewResult"></div><div id="heads1More"></div><div id="headsAdjustResult"></div></section>
         <section id="headsViewRun" class="heads-result" role="tabpanel" aria-labelledby="headsTabRun" hidden>
-        <p class="result-help">분석을 실행하거나 기준을 바꿉니다. 추출 결과는 위의 보기에서 문서와 대조하세요.</p>
-        <section class="hcard" aria-label="1단계 — 문단·규칙식·서식 라벨">
+        <!-- 단계 탭(spec_헤딩_추출 ② §7 「단계 탭」) — 1·2·3단계 카드를 한 번에 하나만. 탭마다 data-state: 도는 중 = 돌아가는 동그라미 · 오래된 결과/실패 = 점(app.js headsStageSync) -->
+        <div class="stage-bar">
+          <div class="stage-tabs" id="headsStageTabs" role="tablist" aria-label="추출 단계">
+            <button type="button" role="tab" id="headsStageTab1" aria-controls="headsStage1" aria-selected="true" data-stage="1"><b>1단계</b><span class="long">문단·라벨</span><span class="short">문단</span></button>
+            <button type="button" role="tab" id="headsStageTab2" aria-controls="headsStage2" aria-selected="false" tabindex="-1" data-stage="2"><b>2단계</b><span class="long">헤딩 그래프</span><span class="short">헤딩</span></button>
+            <button type="button" role="tab" id="headsStageTab3" aria-controls="headsStage3" aria-selected="false" tabindex="-1" data-stage="3"><b>3단계</b><span class="long">표 구조</span><span class="short">표</span></button>
+          </div>
+          <span id="headsRunHelp"></span>
+        </div>
+        <section class="hcard" id="headsStage1" role="tabpanel" aria-labelledby="headsStageTab1">
           <div id="heads1"></div>
           <div id="heads1Job"></div>
         </section>
-        <section class="hcard" aria-label="2단계 — 헤딩 그래프·템플릿">
+        <section class="hcard" id="headsStage2" role="tabpanel" aria-labelledby="headsStageTab2" hidden>
           <div id="heads2"></div>
           <div id="heads2Job"></div>
         </section>
-        <section class="hcard" aria-label="3단계 — 표 구조(행헤더·열헤더·필드·서브 테이블)">
+        <section class="hcard" id="headsStage3" role="tabpanel" aria-labelledby="headsStageTab3" hidden>
           <div id="heads3"></div>
           <div id="heads3Job"></div>
         </section>
@@ -268,7 +389,7 @@
       <!-- 표 모듈(spec_헤딩_추출 ② §10 — app/static/tables.js): 문서의 표 목록 · 표 구조 실행 · 공통 지침 · 표마다 ⊞ 엑셀식 보기(2열)·✎ 표 지침 -->
       <div class="pane" id="paneTables" role="tabpanel" aria-labelledby="tabTables" hidden><div id="tablesBox"></div></div>
       <!-- 구분 기준(spec_구분_기준 ② §8) — 3열: 프로파일·값 입력·저장한 기준·적용 상태 · 2열(#headsDlg 공유, kind "divisions"): 바꿀 자리 목록 -->
-      <div class="pane" id="paneDiv" role="tabpanel" aria-labelledby="tabDiv" hidden>
+      <div class="pane" id="paneDiv" role="region" aria-labelledby="toolTitle" hidden>
         <div id="divBox"></div>
       </div>
       <div class="pane" id="paneCompare" role="tabpanel" aria-labelledby="tabCompare" hidden></div>
@@ -300,7 +421,7 @@
   <dialog class="works-dlg" id="worksDlg" aria-labelledby="worksTitle">
     <header>
       <strong id="worksTitle">작업 목록</strong>
-      <span class="recent-note">최근 바뀐 차례 · 누르면 그 작업으로</span>
+      <span data-note-label="작업 목록 안내" data-note="최근 바뀐 차례로 표시합니다. 문서를 누르면 그 작업으로 이동합니다."></span>
       <div class="spacer"></div>
       <button class="btn sm" id="worksNew" type="button">새 파일 올리기</button>
       <button class="icon" id="worksClose" type="button" aria-label="닫기">✕</button>
@@ -309,9 +430,22 @@
   </dialog>
 
   <div class="toast" id="toast" role="alert" hidden></div>
+  <script src="/static/panel_help.js"></script>
+  <script src="/static/task_catalog.js"></script><!-- TASK 정의 · 모듈 조합 · 단계 공통 정보 -->
   <script src="/static/app.js"></script>
   <script src="/static/tables.js"></script>
   <script src="/static/table_edit.js"></script><!-- 표 구조 편집(칸 고르기·행/열) — app.js 다음(spec_owpml_편집 ② §2 「자리」) -->
+  <script src="/static/heading_forms.js"></script><!-- 양식 정보(양식마다 md 하나 — 일반 지침과 따로) — app.js 다음(spec_헤딩_추출 ② §12) -->
+  <script src="/static/heading_labels.js"></script><!-- 구분 라벨 지정(「템플릿 관계」 열의 괄호 글 목록 — 구분 라벨 ↔ 괄호 소제목) — app.js 다음(spec_헤딩_추출 ② §13) -->
+  <script src="/static/table_make.js"></script><!-- 표 만들기 · 서식 변환(표 양식 · LLM 정리 · 문서에 넣기) — tables.js·table_edit.js 다음(spec_헤딩_추출 ② §11) -->
+  <script src="/static/table_menu.js"></script><!-- 표 메뉴(표 모서리 손잡이 → 빈 필드 제거 · 엑셀식 보기 · 서식으로 변환) — tables.js·table_make.js 다음(spec_헤딩_추출 ② §16) -->
+  <script src="/static/table_fill.js"></script><!-- 표 채우기(표 메뉴 「에이전트로 표 채우기」 — 작성요령·지침·칸 입력 규칙 + 자료 → LLM 제안 → 고른 칸만 문서에) — tables.js·table_menu.js 다음(spec_헤딩_추출 ② §18) -->
+  <script src="/static/heading_temp.js"></script><!-- TEMP 라벨(표 안 작성요령·쓸 자리 — 2·3단계에서 빼고 나중에 지움: 목록·문서 표시·지정/해제) — app.js·tables.js 다음(spec_헤딩_추출 ② §15) -->
+  <script src="/static/heading_drift.js"></script><!-- 뼈대 유지(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림 — 상태 줄·카드 줄·문서 여백 표시·목록) — app.js·tables.js 다음(spec_헤딩_추출 ② §17) -->
+  <script src="/static/outline_format.js"></script><!-- 개요 줄 자리(「템플릿 관계」 레벨 줄의 레터 위치·글 시작·둘째 줄 — 보기·고치기) — app.js 다음(spec_hwpx_웹편집 ② §8-1) -->
+  <script src="/static/shortcuts.js"></script><!-- 단축키 설명(도구 줄 「단축키」 단추 → 2열에 키·마우스 조작 목록) — app.js 다음(spec_hwpx_웹편집 ② §2 「단축키 설명」) -->
+  <script src="/static/gather.js"></script><!-- 취합(할 일 「사업계획서 취합」 plan_merge — 취합본 칸·기관 문서 줄 · 묶음 둘 · 2열 「기관 작성 내용」·「넣기 계획」 · 둘째 면 · 끌어 넣기) — app.js 다음(spec_취합 ② §5) -->
+  <script src="/static/peer_follow.js"></script><!-- 누른 자리 따라 보기(이관 — 연차보고서의 자리를 누르면 다른 면이 사업계획서의 원본 자리로 · 둘째 면 머리의 「따라 보기」 단추) — app.js·gather.js 다음(spec_작업 ② §12) -->
   <script src="/static/compare.js"></script>
 </body>
 </html>

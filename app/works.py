@@ -2,6 +2,7 @@
 
 폴더 %LOCALAPPDATA%\\NewFileManager\\works\\<작업 id>, env NFM_WORKS(off·0 이면 저장 끔). 서버(server.py)가 세션 상태를 묶어 넘기고
 이 모듈은 파일만 다룬다(문서 객체를 모름)."""
+import gzip
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import re
 import shutil
 import threading
 import time
+import zlib
 from pathlib import Path
 
 ID = re.compile(r"^[0-9a-f]{12}$")
@@ -51,7 +53,15 @@ def _write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp{os.getpid()}-{threading.get_ident()}")
     tmp.write_bytes(data)
-    os.replace(tmp, path)
+    for k in range(6):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: 대상 파일을 다른 손잡이(같은 때 읽는 스레드·백신·색인기)가 잠깐 잡고 있으면 바꿔 넣기가 거절된다 — 몇 번 다시(2026-11-10)
+            if k == 5:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02 * (k + 1))
 
 
 def _write_json(path: Path, obj):
@@ -59,10 +69,14 @@ def _write_json(path: Path, obj):
 
 
 def _read_json(path: Path):
-    try:
-        return json.loads(path.read_text("utf-8"))
-    except (OSError, ValueError):
-        return None
+    for k in range(5):
+        try:
+            return json.loads(path.read_text("utf-8"))
+        except PermissionError:  # Windows: 다른 스레드가 막 바꿔 넣는 중인 파일은 열기가 거절된다(references/Windows_파일_바꿔넣기.md) — 잠깐 뒤 다시
+            time.sleep(0.01 * (k + 1))
+        except (OSError, ValueError):
+            return None
+    return None
 
 
 # ---- 작업 만들기·목록·지우기 -----------------------------------------------------------------------------
@@ -115,6 +129,32 @@ def list_works() -> list[dict]:
             if w is not None:
                 out.append(w)
     return sorted(out, key=lambda w: w.get("updated", 0), reverse=True)
+
+
+def find_same(name, fmt, sha) -> dict | None:
+    """같은 파일(이름·형식·올린 원본 sha256 이 모두 같음)로 만든 작업 중 가장 최근 것 — 다시 열면 이 작업을 이어 연다(spec_작업 ② §1).
+    sha256 은 올린 원본 것이라 확정해도 그대로다(② §8)."""
+    return next((w for w in list_works() if w.get("sha256") == sha and w.get("name") == name and w.get("format") == fmt), None)
+
+
+TARGET_FILE = {"plan_to_report": "report", "plan_merge": "plan"}  # 할 일 → 목적 문서(내용을 받는 문서)의 첨부 파일 종류: 이관의 연차보고서 · 취합의 취합본(spec_작업 ② §10 「목적 문서의 보이는 이름」)
+_NOT_IN_FILE_NAME = re.compile(r'[\\/:*?"<>|]+')
+
+
+def shown_name(name, task) -> str:
+    """보이는 이름(spec_작업 ② §10) — 과제에 묶인 목적 문서는 「<올린 이름>_<과제 이름>.<확장자>」, 그 밖에는 올린 이름 그대로.
+    저장된 이름(work.json `name`)은 안 바꾼다 — 같은 파일 이어 열기(find_same)·양식 판정(파일 이름 꼴)이 올린 이름을 본다. 이미 그 꼬리로 끝나면 두 번 안 붙인다."""
+    t = task if isinstance(task, dict) else {}
+    kind = TARGET_FILE.get(t.get("job") or "")
+    project = _NOT_IN_FILE_NAME.sub("_", t.get("project") or "").strip()
+    if not name or not kind or t.get("file") != kind or not project:
+        return name
+    stem, dot, ext = name.rpartition(".")
+    if not dot or not stem:
+        stem, ext = name, ""
+    if stem.endswith("_" + project):
+        return name
+    return f"{stem}_{project}" + (f".{ext}" if ext else "")
 
 
 def delete(wid, tries=6) -> bool:
@@ -251,7 +291,7 @@ def runs(wid) -> list[dict]:
     for p in vd.glob("*-*.json"):
         r = _read_json(p)
         if isinstance(r, dict) and isinstance(r.get("n"), int):
-            out.append({k: r.get(k) for k in ("n", "kind", "status", "at", "seconds", "revision", "rev", "outputSha")})
+            out.append({k: r.get(k) for k in ("n", "kind", "status", "at", "seconds", "revision", "rev", "outputSha", "base")})  # base = 그때의 기준 확정(② §8)
     return sorted(out, key=lambda r: r["n"])
 
 
@@ -297,6 +337,101 @@ def file_path(wid, which) -> Path | None:
     return p if p.exists() else None
 
 
+# ---- 확정(spec_작업 ② §8) — commits/<n>.json(요약) · commits/<n>.data.json.gz(블록 id 자리표·구분/개요 상태·변경 목록), 파일 바이트는 outputs/ ----
+
+def _commit_dir(wid) -> Path | None:
+    d = folder(wid)
+    return d / "commits" if d else None
+
+
+def commits(wid) -> list[dict]:
+    """확정 요약 — 번호 차례(1부터). 올린 원본(확정 0)은 여기 없다(work.json 이 그 요약)."""
+    cd = _commit_dir(wid)
+    if cd is None or not cd.is_dir():
+        return []
+    out = []
+    for p in cd.glob("*.json"):
+        c = _read_json(p) if p.stem.isdigit() else None
+        if isinstance(c, dict) and c.get("n") == int(p.stem):
+            out.append(c)
+    return sorted(out, key=lambda c: c["n"])
+
+
+def head(wid) -> int:
+    """마지막 확정 번호 — 없으면 0(올린 원본)."""
+    cs = commits(wid)
+    return cs[-1]["n"] if cs else 0
+
+
+def commit(wid, n) -> dict | None:
+    cd = _commit_dir(wid)
+    c = _read_json(cd / f"{int(n)}.json") if cd else None
+    return c if isinstance(c, dict) and c.get("n") == int(n) else None
+
+
+def add_commit(wid, fmt, data: bytes, meta: dict, extra: dict) -> dict | None:
+    """확정 하나를 남긴다 — 바이트는 outputs/(같은 바이트는 한 번), 요약·상세는 commits/. 번호는 작업 안에서 1부터.
+    -> 요약 {n, at, sha256, size, **meta} | None(저장 꺼짐·지운 작업)."""
+    d = folder(wid)
+    if d is None:
+        return None
+    # 직렬화를 먼저 끝낸다 — 못 쓰는 값이 있으면 아무것도 안 남긴다
+    blob = gzip.compress(json.dumps(extra, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6)
+    sha = add_output(wid, fmt, data)
+    with _lock(wid):
+        if not (d / "work.json").exists():
+            return None
+        cd = d / "commits"
+        n = 1 + max((int(p.stem) for p in cd.glob("*.json") if p.stem.isdigit()), default=0) if cd.is_dir() else 1
+        rec = {"n": n, "at": round(time.time(), 3), "sha256": sha, "size": len(data), **meta}
+        _write(cd / f"{n}.data.json.gz", blob)  # 상세 먼저 — 요약(목록에 보이는 것)이 있으면 상세도 있다
+        _write_json(cd / f"{n}.json", rec)
+    try:
+        update(wid, commits=n)  # 목록용 요약일 뿐(마지막 확정 번호는 head() 가 commits/ 에서 읽는다) — 못 써도 확정은 남았다
+    except OSError:
+        pass
+    return rec
+
+
+def commit_data(wid, n) -> dict | None:
+    """확정의 상세 {ids, division, outline, changes} — 없거나 깨졌으면 None."""
+    cd = _commit_dir(wid)
+    if cd is None:
+        return None
+    try:
+        got = json.loads(gzip.decompress((cd / f"{int(n)}.data.json.gz").read_bytes()).decode("utf-8"))
+    except (OSError, ValueError, EOFError, zlib.error):
+        return None
+    return got if isinstance(got, dict) else None
+
+
+def commit_path(wid, n) -> Path | None:
+    """그 확정의 파일 — 0 = 올린 원본."""
+    w, d = work(wid), folder(wid)
+    if w is None:
+        return None
+    if int(n) == 0:
+        p = d / f"original.{w['format']}"
+    else:
+        c = commit(wid, n)
+        if c is None or not isinstance(c.get("sha256"), str):
+            return None
+        p = d / "outputs" / f"{c['sha256'][:16]}.{w['format']}"
+    return p if p.exists() else None
+
+
+def commit_bytes(wid, n) -> bytes | None:
+    """그 확정의 바이트 — 파일이 없거나 적어 둔 sha256 과 다르면 None(깨진 파일로 기준을 삼지 않는다)."""
+    p = commit_path(wid, n)
+    try:
+        data = p.read_bytes() if p else None
+    except OSError:
+        return None
+    if data is not None and int(n) and sha256(data) != commit(wid, n)["sha256"]:
+        return None
+    return data
+
+
 # ---- 부가 기록(spec_구분_기준 ② §4 — 로그 한 줄 + 상세는 결과 파일) ------------------------------------------------
 
 def add_detail(wid, kind, name, record: dict) -> str | None:
@@ -312,3 +447,16 @@ def add_detail(wid, kind, name, record: dict) -> str | None:
         sub.mkdir(exist_ok=True)
         _write_json(sub / f"{safe}.json", record)
     return f"{kind}/{safe}.json"
+
+
+def detail_records(wid, kind) -> list:
+    """`<kind>/*.json` 상세 기록들(고친 시각 차례 — 옛 것부터). 못 읽는 파일은 건너뛴다. 작업 저장이 꺼져 있거나 그 폴더가 없으면 []."""
+    d = folder(wid)
+    sub = d / kind if d is not None else None
+    if sub is None or not sub.is_dir():
+        return []
+    try:
+        paths = sorted(sub.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return []
+    return [rec for rec in (_read_json(p) for p in paths) if isinstance(rec, dict)]

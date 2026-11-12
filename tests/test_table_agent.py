@@ -105,7 +105,7 @@ def test_store_memory_when_works_off(monkeypatch):
     monkeypatch.setenv("NFM_WORKS", "off")
     assert works.folder("abc123def456") is None
     wid = "abc123def456"
-    assert table_agent.get(wid, "t1") == {"instructions": "", "formulas": {}, "version": 0, "updated": None}
+    assert table_agent.get(wid, "t1") == {"instructions": "", "rules": "", "formulas": {}, "version": 0, "updated": None}
     r = table_agent.save(wid, "t1", instructions="천원 단위", formulas={"B4": "=SUM(B2:B3)", "C2": ""})
     assert r["version"] == 1 and r["formulas"] == {"B4": "=SUM(B2:B3)", "C2": ""} and r["updated"]
     assert table_agent.get(wid, "t1")["instructions"] == "천원 단위"
@@ -114,7 +114,7 @@ def test_store_memory_when_works_off(monkeypatch):
     r2 = table_agent.save(wid, "t1", instructions="다시", expect=1)
     assert r2["version"] == 2 and r2["formulas"] == {"B4": "=SUM(B2:B3)", "C2": ""}  # 주지 않은 항목은 그대로
     c = table_agent.save(wid, table_agent.COMMON, instructions="모든 표")
-    assert c == {"instructions": "모든 표", "version": 1, "updated": c["updated"]}
+    assert c == {"instructions": "모든 표", "rules": "", "version": 1, "updated": c["updated"]}
     allv = table_agent.all_tables(wid)
     assert allv["common"]["instructions"] == "모든 표" and set(allv["tables"]) == {"t1"}
 
@@ -198,7 +198,7 @@ def test_api_agent_get_put_and_errors():
         assert c.get(f"/api/docs/{d}/headings/tables/t999/agent").status_code == 404
         assert c.get(f"/api/docs/{d}/headings/tables/p1/agent").status_code == 404  # 문단은 표가 아니다
         a = c.get(f"/api/docs/{d}/headings/tables/agents").json()
-        assert a == {"common": {"instructions": "", "version": 0, "updated": None}, "tables": {}}
+        assert a == {"common": {"instructions": "", "rules": "", "version": 0, "updated": None}, "tables": {}}
         sess = server.DOCS[d]
         heading_runs.run_sync(sess, 3, False)
         tid = heading_runs.summary(sess)["stage3"]["tables"][1]["id"]

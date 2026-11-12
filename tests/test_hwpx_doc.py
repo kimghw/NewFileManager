@@ -496,6 +496,50 @@ def test_inline_objects_in_one_paragraph_share_a_row():
     assert all("inlineRow" not in b for b in images())
 
 
+def test_copy_keeps_objects_of_one_paragraph_together():
+    # 한 문단에 나란히 놓인 그림은 다른 문서로 복사해도 한 문단 — 그림마다 문단으로 풀려 두 줄이 되던 것(2026-11-12 사용자, spec_병합 ② §5 「한 문단의 표·그림」).
+    # insert_after 의 계약은 그대로: items 와 같은 차례·같은 수의 id.
+    def png(color):
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 30), color).save(buf, "PNG")
+        return buf.getvalue()
+    src = HwpxDoc(_bytes(SMALL))
+    ids = [src.insert_image(src.blocks()[1]["id"], png(c), "png") for c in ("red", "green", "blue")]
+    a, b, c = (src._ids[i] for i in ids)
+    for x, y in ((a, b), (b, c)):   # 그림 셋을 한 문단·한 런에(한글이 저장한 꼴 <run><pic/><pic/><t/></run>), 빈 문단은 지움
+        old = src._host(y)
+        x.addnext(y)
+        old.getparent().remove(old)
+    gap = etree.Element(f"{{{HP}}}t")
+    gap.text = "  "
+    a.addnext(gap)   # 첫 그림과 둘째 그림 사이 빈칸
+    src._blocks_cache = None
+    host = src._host(a)
+
+    def put(sids):
+        to = HwpxDoc(_bytes(SMALL))
+        new = to.insert_after(to.blocks()[-1]["id"], [{"kind": "copy", "srcId": s} for s in sids], src=src)
+        assert len(new) == len(sids)
+        return to, new, [to._host(to._ids[i]) for i in new]
+
+    to, new, hosts = put(ids)
+    assert len(set(hosts)) == 1 and to._text(hosts[0]) == "  "   # 한 문단 · 그림 사이 빈칸도 함께(글 없는 문단은 따로 복사되지 않는다)
+    out = _check(to.save())
+    imgs = [x for x in out.blocks() if x["type"] == "image"][-3:]
+    assert len({x["inlineRow"] for x in imgs}) == 1   # 화면도 한 줄로 묶는다
+    assert [out.media(x["media"]) for x in imgs] == [png("red"), png("green"), png("blue")]   # 차례 그대로
+    assert len(set(put([ids[0], ids[2]])[2])) == 1          # 사이 그림을 건너뛰어도 한 문단
+    assert len(set(put([ids[1], ids[0]])[2])) == 2          # 문서 순이 아니면 따로(차례를 바꾸지 않는다)
+    assert len(set(put([ids[0], ids[0]])[2])) == 2          # 같은 그림 되풀이 = 그림마다 문단
+    assert len(set(put([ids[2]])[2])) == 1
+    host.findall(f"{{{HP}}}run")[-1].findall(f"{{{HP}}}t")[-1].text = "설명"   # 글이 있는 문단 = 문단이 제 블록 — 글은 문단 사본에만
+    src._blocks_cache = None
+    to, new, hosts = put([src._id(host), *ids])
+    assert to._text(hosts[0]) == "  설명" and not to._ids[new[0]].findall(f".//{{{HP}}}pic")
+    assert hosts[1] is not hosts[0] and len(set(hosts[1:])) == 1 and to._text(hosts[1]) == ""
+    assert len([x for x in _check(to.save()).blocks() if x["type"] == "image"][-3:]) == 3
+
+
 def test_blocks_cached_until_edit():
     """blocks() 는 고치기 전까지 같은 열(캐시) — 고치는 메서드(_mark)가 비우면 다시 읽어 바뀐 글이 보인다(spec_구분_초기화 ② §4)."""
     d = HwpxDoc(_bytes(SMALL))

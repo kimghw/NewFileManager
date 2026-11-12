@@ -61,7 +61,7 @@ def main():
         page.wait_for_timeout(800)
         doc = page.evaluate("location.hash").split("=", 1)[1]
         print("doc", doc)
-        print("hint before:", page.inner_text("#editHint")[:40])
+        print("outline keys before:", page.get_attribute("#shortcutsBtn", "data-outline"))  # 옛 #editHint 글 자리 — 「1」 = 개요 편집 키 켜짐(shortcuts.js)
         run_stage(doc, 1)
         v = run_stage(doc, 2)
         print("stage2:", (v.get("stage2") or {}).get("summary") or v.get("stage2", {}).get("meta"))
@@ -69,7 +69,7 @@ def main():
         page.wait_for_selector(".para[data-id=p970]")
         page.wait_for_timeout(1500)
         grips = page.locator(".ol-grip").count()
-        print("grips:", grips, "| hint after:", page.inner_text("#editHint")[:60])
+        print("grips:", grips, "| outline keys after:", page.get_attribute("#shortcutsBtn", "data-outline"))
         page.locator(".para[data-id=p970]").scroll_into_view_if_needed()
         page.wait_for_timeout(300)
         page.screenshot(path=OUT / "01_marks_grips.png")

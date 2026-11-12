@@ -101,7 +101,7 @@ for line in sys.stdin:
         a = app(kind)
         fmt = job.get("format", "PDF")  # "HWPX"·"DOCX" = 그 프로그램이 다시 저장(내보내기 검증, spec_owpml_편집 ② §1)
         if kind == "hwp":
-            if not a.Open(job["src"], "HWPX", "forceopen:true"):
+            if not a.Open(job["src"], "HWP" if job["src"].lower().endswith(".hwp") else "HWPX", "forceopen:true"):  # hwp(바이너리)도 연다 — hwp_to_hwpx
                 raise RuntimeError("한글이 파일을 열지 못함")
             ok = a.SaveAs(job["pdf"], fmt, "")
             a.Clear(1)
@@ -299,6 +299,25 @@ def resave_hwpx(data: bytes, limit: int | None = None) -> bytes:
     done = out / f"{sha(data)}.resave.hwpx"
     with _once(done):
         return _resave(data, limit, out, done, "hwpx")
+
+
+def hwp_to_hwpx(data: bytes, limit: int | None = None) -> bytes:
+    """한글이 hwp(바이너리) 바이트를 열어 HWPX 로 저장한 바이트(캐시 {sha}.from-hwp.hwpx) — 올린 hwp 를 hwpx 작업으로 받는 길(spec_작업 ② §1).
+    한글이 없으면(available) 부르는 쪽이 막는다. 시간 한도·실패는 PDF 출력과 같다(TimeoutError·RuntimeError)."""
+    out = render_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    done = out / f"{sha(data)}.from-hwp.hwpx"
+    with _once(done):
+        if done.exists() and done.stat().st_size:
+            return done.read_bytes()
+        with tempfile.TemporaryDirectory(dir=out) as tmp:
+            src, part = Path(tmp) / "doc.hwp", Path(tmp) / "doc.hwpx"
+            src.write_bytes(data)
+            EXPORTER.run(src.resolve(), part.resolve(), limit or export_limit(len(data)), fmt="HWPX")
+            if not part.exists() or not part.stat().st_size:
+                raise RuntimeError("한글이 HWPX 를 만들지 않음")
+            part.replace(done)
+        return done.read_bytes()
 
 
 def _resave(data, limit, out, done, fmt):

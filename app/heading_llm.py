@@ -7,6 +7,7 @@ import json
 import time
 
 from app import heading_extract as E
+from app import heading_forms as F
 from app import heading_guides as G
 from app import heading_rules as R
 from app import llm
@@ -46,31 +47,38 @@ globalHint = 다른 문서에도 나올 일반 꼴이면 true. reason = 한두 �
 # ---- 2단계 계약·스키마(자료는 heading_graph) ------------------------------------------------------------------
 
 TYPES_SCHEMA = _schema({
-    "types": _arr(_schema({"type": S, "role": {"type": "string", "enum": ["heading", "label", "title", "note", "not_heading"]},
+    "types": _arr(_schema({"type": S, "role": {"type": "string", "enum": ["heading", "label", "subtitle", "title", "note", "not_heading"]},
                            "parents": _arr(S), "variantOf": S, "basis": S, "reason": S})),
     "mainChain": _arr(S),
     "summary": S})
 
 TYPES_CONTRACT = """당신은 국가R&D 계획서·보고서 같은 한글 양식의 개요 체계를 정하는 분석가입니다. 스크립트가 문서의 헤딩 후보 문단을 「헤딩 유형」(자리·레터 꼴·굵게·크기)으로
-묶은 유형 표(key = 정규 레터 키 — 변형군을 합친 레터 모양, 라벨은 "[라벨]")와, 본문 헤딩 후보를 문서 순으로 적은 개요 스케치(「유형 _앞공백칸수 레터 글」), 스크립트가 빈도로
-제안한 본문 주 사슬(mainChainProposal)을 받습니다. 템플릿은 레터 사슬 하나이고, 한 부모 아래 다른 레터가 오는 자리(가지 자리)마다 새 템플릿이 뿌리를 내립니다 — 템플릿·레벨은
-스크립트가 부모 관계에서 셈하므로 당신은 **부모 관계를 정하는 지식**을 답합니다. 아래 지침(그래프·템플릿·오차 기준)에 따라 답하세요.
-- types: 유형마다 하나 — role(heading·label·title·note·not_heading), parents(이 레터가 **보통 매달리는 부모 레터 키** 목록 — 유형 표의 key 값, 라벨 아래 내용이면 라벨 키
-  "[basis]"(예 "[기관]"), 문서 맨 위면 "root"; label·note·not_heading·title 은 빈 목록), variantOf(같은 레터로 볼 다른 유형 id — 없으면 ""), basis(구분 라벨·구분 값 제목의 구분 기준
-  이름 — 단계·차년도·기관 등, 없으면 ""), reason(예외·판단 근거 한 문장, 없으면 ""). 구분 라벨은 그 라벨부터 새 템플릿(라벨 = L1, 아래 내용 = L2…)이므로 라벨 아래 「o」 의
-  parents 에는 그 라벨 키를 적습니다. 같은 레터가 여러 자리에 쓰이면 parents 에 그 부모 레터를 모두 적습니다(예 □: ["N-N.", "(N)"]).
+묶은 유형 표(key = 정규 레터 키 — 변형군을 합친 레터 모양, 구분 라벨은 "[구분 기준]"(예 "[기관]"), 괄호 소제목은 "[…]")와, 본문 헤딩 후보를 문서 순으로 적은 개요 스케치
+(「유형 _앞공백칸수 레터 글」), 스크립트가 빈도로 제안한 본문 주 사슬(mainChainProposal), 이 문서의 구분 기준 목록(bases)을 받습니다. 템플릿은 레터 사슬 하나이고, 한 부모 아래
+다른 레터가 오는 자리(가지 자리)마다 새 템플릿이 뿌리를 내립니다 — 템플릿·레벨은 스크립트가 부모 관계에서 셈하므로 당신은 **부모 관계를 정하는 지식**을 답합니다.
+아래 지침(그래프·템플릿·오차 기준)에 따라 답하세요.
+- types: 유형마다 하나 — role(heading·label·subtitle·title·note·not_heading), parents(이 레터가 **보통 매달리는 부모 레터 키** 목록 — 유형 표의 key 값, 구분 라벨 아래 내용이면
+  라벨 키 "[구분 기준]"(예 "[기관]"), 괄호 소제목 아래 내용이면 "[…]", 문서 맨 위면 "root"; label·subtitle·note·not_heading·title 은 빈 목록), variantOf(같은 레터로 볼 다른 유형 id —
+  없으면 ""; label·subtitle 은 ""), basis(구분 라벨·구분 값 제목의 구분 기준 이름 — **bases 목록의 이름만**, 겹치면 "단계-차년도" 처럼 이음, 없으면 ""), reason(예외·판단 근거 한 문장,
+  없으면 "").
+- **label(구분 라벨)은 그 글이 구분 기준(bases)의 값일 때만**입니다(「[1단계]」「[2차년도 목표]」「[주관연구개발기관(기관명 기입)]」 — 기관 이름만 적힌 「[한국선급]」 도 기관).
+  구분 기준 값이 아닌 괄호 글(「[국내 기술 동향 및 수준]」「[최종목표]」「[과학·기술적 측면]」)은 **subtitle(괄호 소제목)** 이고 basis 는 "" 입니다 — bases 에 없는 이름(「측면」「구분」)을
+  지어내지 않습니다. 유형 표의 key 가 이미 "[기관]"·"[…]" 로 적힌 괄호 유형은 스크립트가 글의 꼴이나 사용자 지정으로 정한 것입니다(그대로 두면 됩니다). 빈 「[  ]」·「[ √ ]」 는 not_heading.
+  구분 라벨·괄호 소제목은 둘 다 그 줄부터 새 템플릿(그 줄 = L1, 아래 내용 = L2…)이므로 그 아래 「o」 의 parents 에는 그 키("[기관]"·"[…]")를 적습니다.
+  같은 레터가 여러 자리에 쓰이면 parents 에 그 부모 레터를 모두 적습니다(예 □: ["N-N.", "(N)"]).
 - mainChain: 본문 주 사슬의 레터 키 열(1레벨부터 — 예 ["N.", "N-N.", "(N)", "o", "-", "·"]). 제안이 맞으면 그대로, 틀리면 고친 사슬. 번호형 → 기호형 전환은 끊는 곳이 아닙니다.
 - summary: 문서 개요 체계 요약 두세 문장(주 사슬·가지·라벨).
 입력에 없는 유형 id·레터 키는 쓰지 않습니다. 쓰지 않는 칸은 빈 문자열·빈 목록."""
 
-SECTION_SCHEMA = _schema({"changes": _arr(_schema({"id": S, "parent": S, "role": {"type": "string", "enum": ["heading", "label", "title", "note", "not_heading"]},
-                                                   "template": S, "level": I, "reason": S})), "summary": S})
+SECTION_SCHEMA = _schema({"changes": _arr(_schema({"id": S, "parent": S, "role": {"type": "string", "enum": ["heading", "label", "subtitle", "title", "note", "not_heading"]},
+                                                   "basis": S, "template": S, "level": I, "reason": S})), "summary": S})
 
 SECTION_CONTRACT = """당신은 한글 양식 문서의 헤딩 그래프를 검토하는 분석가입니다. 스크립트가 유형 판정(A)과 부모 규칙으로 쌓은 초안 그래프의 한 구간을 받습니다.
 노드 행 = [id, 유형, 글 앞부분, 초안 부모 id, 초안 템플릿(앵커), 초안 레벨, 초안 구분 라벨 id]. 부모 "root" = 문서 맨 위, 조상 사슬 = 이 구간 앞에서 열린 노드들.
 templates = 초안의 템플릿 목록(anchor = scope:레터 사슬). 지침에 따라 **초안과 다르게 해야 하는 노드만** changes 에 적으세요 — 바꾸지 않을 노드는 적지 않습니다.
-- parent = 의미 부모(이 구간 노드·조상 사슬 id·"root" 중 하나, 문서 순으로 앞). 구분 라벨은 제 템플릿의 뿌리이므로 라벨 아래 내용은 **라벨을 부모로** 적습니다.
-- role = 역할(바꾸지 않으면 초안 값). template·level 은 **슬롯 예외**에만 적습니다 — 부모만으로 구별되지 않는 경우(예: 「(N)」 을 건너뛴 주 사슬 4레벨 「o」 가 새 가지가 아니라
+- parent = 의미 부모(이 구간 노드·조상 사슬 id·"root" 중 하나, 문서 순으로 앞). 구분 라벨·괄호 소제목은 제 템플릿의 뿌리이므로 그 아래 내용은 **그 줄을 부모로** 적습니다.
+- role = 역할(바꾸지 않으면 초안 값). label(구분 라벨)로 바꿀 때만 basis 에 구분 기준 이름을 적습니다 — **bases 목록의 이름만**(그 밖에는 ""). 구분 기준 값이 아닌 괄호 글은
+  subtitle(괄호 소제목)입니다 — bases 에 없는 이름을 지어내지 않습니다. template·level 은 **슬롯 예외**에만 적습니다 — 부모만으로 구별되지 않는 경우(예: 「(N)」 을 건너뛴 주 사슬 4레벨 「o」 가 새 가지가 아니라
   주 사슬 L4 일 때 template = 주 사슬 앵커, level = 4). 그 밖에는 template "" · level 0(스크립트가 부모 관계에서 셈함).
 - reason = 바꾸는 까닭 한 문장(한국어). 적는 노드에서 바꾸지 않는 칸(parent·role)은 초안 값을 그대로 옮겨 적습니다.
 - 확신이 없으면 바꾸지 않습니다. summary = 이 구간 판단 요약 한 문장."""
@@ -130,14 +138,24 @@ field(채우는 값 칸 — 빈 칸·자리표시·값·체크 칸) · title(서
 입력에 없는 표·칸 id 는 쓰지 않습니다. 쓰지 않는 칸은 빈 문자열·빈 목록·-1. 아래 지침(표 구조·오차 기준)을 따르세요."""
 
 
+FORM_NOTE = ("위 지침은 모든 문서에 쓰는 일반 기준이고, 아래는 **이 문서의 양식**에 대해 사용자가 따로 관리하는 사실·판단입니다 — 지침의 일반 기준과 다르면 "
+             "이 양식에 대해서는 아래 내용을 따르세요. 계약(맨 위)과 어긋나면 계약을 따릅니다.")
+
+
 def prompt(contract, guide_names, data, pinned=None):
-    """프롬프트 = 고정 계약 + 지침(이름 순) + 자료 JSON → (글, 쓴 지침 {이름: sha1}).
-    pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴) — 있으면 지금 저장소 대신 그 글을 쓴다."""
+    """프롬프트 = 고정 계약 + 지침(이름 순) + 양식 정보(있으면) + 자료 JSON → (글, 쓴 지침 {이름: sha1}).
+    pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴) — 있으면 지금 저장소 대신 그 글을 쓴다.
+    pinned["form"] = 이 문서의 양식 정보(heading_forms.pin — spec ② §12): 일반 지침 뒤에 따로 한 절로 붙고 used 에 "form" 으로 남는다."""
     parts, used = [contract, ""], {}
     for name in guide_names:
         g = (pinned or {}).get(name) or G.get(name)
         used[name] = g["sha1"]
         parts += [f"## 지침 — {G.TITLES[name]} ({name})", g["text"].strip(), ""]
+    form = (pinned or {}).get("form")
+    form_text = F.without(F.without(F.body(form.get("text")), F.DIVISION_SECTION), F.LINK_SECTION) if form else ""   # 「자리 연결」 절(연결 코멘트 — spec_병합 ② §5-3)은 병합 검토의 몫 · 「구분 기준 자리」 절은 구분 기준 검토의 몫 — 헤딩 추출에는 안 보낸다(② §12 「쓰이는 곳」)
+    if form_text:
+        used["form"] = form["sha1"]
+        parts += [f"## 양식 정보 — {form.get('name') or form.get('key')} (이 양식에만 해당)", FORM_NOTE, form_text, ""]
     parts += ["## 자료(JSON)", json.dumps(data, ensure_ascii=False, separators=(",", ":"))]
     return "\n".join(parts), used
 

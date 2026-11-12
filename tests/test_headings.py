@@ -784,7 +784,8 @@ def test_graph_llm_fake(rnd, P):
     def b(job, data):
         st["b"] += 1
         rows = [r[0] for r in data["nodes"]]
-        assert job["schema"] is HL.SECTION_SCHEMA and set(data) == {"types", "templates", "ancestors", "nodes", "preview"}
+        assert job["schema"] is HL.SECTION_SCHEMA and set(data) == {"bases", "types", "templates", "ancestors", "nodes", "preview"}
+        assert data["bases"] == ["단계", "차년도", "기관"]
         assert all(len(r) == 7 for r in data["nodes"]) and all("anchor" in t and "chain" in t for t in data["templates"])
         if ids["h1"] in rows:  # 그림 2 구간 — 바른 변경 1 + 틀린 변경 4
             return _res({"changes": [
@@ -1110,3 +1111,29 @@ def test_sections_never_exceed_max():
     nodes, graph = build([1.0] + [3.0] * 249)
     secs = HG.sections(nodes, graph, {})
     assert [len(s) for s in secs] == [HG.SECTION_MAX, HG.SECTION_MAX, 250 - 2 * HG.SECTION_MAX]
+
+
+# ---- 첫 분석(spec_작업 ② §9) — 새 작업을 처음 열 때 2단계 → 3단계를 스크립트로, 한 작업에 ------------------------------------------------
+
+def test_api_first_run_chain(client):
+    """{first: true} 한 번에 2단계(헤딩 그래프) → 3단계(표 구조)를 스크립트만으로 — 1단계는 2단계가 뽑고, 기록은 단계마다, 이미 결과가 있는 단계는 건너뛴다(LLM 결과를 덮지 않게)."""
+    d = _upload(client, SMALL)
+    r = client.post(f"/api/docs/{d}/headings", json={"first": True, "stage": 9, "llm": "x"})  # first 면 stage·llm 은 안 본다
+    assert r.status_code == 202 and r.json()["first"] is True and r.json()["stage"] == 3 and r.json()["llm"] is False
+    v = _wait_heads(client, d)
+    assert v["job"]["status"] == "done" and v["job"]["first"] is True and v["job"]["run"] == 3, v["job"]
+    assert v["stage1"] and v["stage2"] and v["stage3"] and not v["stage2"]["stale"] and not v["stage3"]["stale"]
+    assert [x["stage"] for x in v["runs"]] == [1, 2, 3] and v["stage3"]["meta"]["stage2Run"] == v["stage2"]["meta"]["run"] == 2  # 표 소속 = 방금 만든 2단계 그래프
+    assert client.get(f"/api/docs/{d}/outline").json().get("off") is not True  # 2단계가 생겼으니 개요 편집이 켜진다
+    ev = [e for e in works.events(d) if e["kind"] == "headings"]
+    assert [(e["stage"], e.get("first"), e["n"], e["llm"]) for e in ev] == [(2, True, 2, False), (3, True, 3, False)]
+    # 다시 부르면 둘 다 건너뛴다 — 실행이 늘지 않고 기록도 없다
+    r2 = client.post(f"/api/docs/{d}/headings", json={"first": True})
+    assert r2.status_code == 202
+    v2 = _wait_heads(client, d)
+    assert v2["job"]["status"] == "done" and v2["job"]["run"] is None and len(v2["runs"]) == 3
+    assert [s["name"] for s in v2["job"]["steps"]] == ["헤딩 그래프 — 건너뜀", "표 구조 — 건너뜀"]
+    assert len([e for e in works.events(d) if e["kind"] == "headings"]) == 2
+    # 여느 실행은 그대로 — first 가 아니면 보기에 first: false
+    assert client.post(f"/api/docs/{d}/headings", json={"stage": 1}).json()["first"] is False
+    _wait_heads(client, d)

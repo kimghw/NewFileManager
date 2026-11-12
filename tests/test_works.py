@@ -22,7 +22,8 @@ def client():
 
 
 def _upload(c, path=HWPX):
-    r = c.post("/api/docs", files={"file": (path.name, path.read_bytes())})
+    # 늘 새 작업(?new=1) — 같은 파일을 다시 올리면 이어 여는 것(spec_작업 ② §1)은 test_works_reuse.py
+    r = c.post("/api/docs?new=1", files={"file": (path.name, path.read_bytes())})
     assert r.status_code == 200, r.text
     return r.json()["docId"]
 
@@ -71,6 +72,7 @@ def test_upload_creates_work(client):
     listed = client.get("/api/works").json()
     assert [x["id"] for x in listed] == [d] and listed[0]["open"] is True
     assert _events(client, d)[0]["kind"] == "create"
+    _wait(client, d, "import")  # 첫 작업의 가져오기 검증이 끝나며 work.json 을 고친다(updated) — 그 뒤에 둘째 작업을 만들어야 차례가 정해진다(경합, 2026-11-10)
     s = client.post(f"/api/samples/{DOCX.name}").json()["docId"]
     assert works.work(s)["source"] == "sample" and works.work(s)["format"] == "docx"
     assert client.get("/api/works").json()[0]["id"] == s  # 최근 바뀐 차례
@@ -280,7 +282,7 @@ def test_pdf_paths_and_mapping_survive_restart(client, monkeypatch):
 
 
 def test_unserializable_state_writes_nothing(client, monkeypatch):
-    """상태에 못 쓰는 값이 있으면 파일을 하나도 안 바꾸고(어긋난 셋이 남지 않게) 세션에 실패를 단다 — 화면이 「자동 저장」 대신 실패를 보임."""
+    """상태에 못 쓰는 값이 있으면 파일을 하나도 안 바꾸고(어긋난 셋이 남지 않게) 세션에 실패를 단다 — 화면 상단이 실패를 보임."""
     d = _upload(client)
     p = _texts(client, d)[1]
     server.DOCS[d].mapping = {"pages": {"x": object()}}  # 편집 전에 — 배경 저장이 먼저 돌아도 같은 실패(응답에는 안 나가는 값)
@@ -294,3 +296,60 @@ def test_unserializable_state_writes_nothing(client, monkeypatch):
     server._persist_all()
     assert (folder / "state.json").exists()
     assert client.get(f"/api/docs/{d}").json()["persistError"] is None
+
+
+def test_task_guess_and_save(client):
+    """작업 종류·첨부 파일·할 일·과제(② §10): 안 골랐으면 문서에서 짐작(국가R&D 양식 → 연구개발과제·사업계획서 — 짐작도 적어 둠), 고르면 work.json 에 저장, 모르는 값 400.
+    과제(같은 project 이름)에 들어온 문서는 그 과제의 할 일을 따르고, 과제 안에서 할 일을 바꾸면 묶인 문서 모두에 적힌다."""
+    none = {"kind": "", "file": "", "job": "", "project": ""}
+    d = _upload(client)  # 기술수요조사서 — 국가R&D 양식이 아님
+    assert client.get(f"/api/docs/{d}").json()["work"]["task"] == none and "task" not in works.work(d)
+    t = {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "  선박  과제 "}
+    saved = {**t, "project": "선박 과제"}  # 이름은 앞뒤를 떼고 빈칸을 하나로
+    assert client.put(f"/api/works/{d}/task", json=t).json() == {"task": saved}
+    assert client.get(f"/api/docs/{d}").json()["work"]["task"] == saved and client.get("/api/works").json()[0]["task"] == saved
+    assert client.put(f"/api/works/{d}/task", json={"kind": "x"}).status_code == 400
+    assert client.put(f"/api/works/{d}/task", json={"project": 3}).status_code == 400
+    assert client.put("/api/works/000000000000/task", json=t).status_code == 404
+    p = _upload(client, SAMPLES / "연구개발계획서_양식.hwpx")
+    g = {"kind": "rnd", "file": "plan", "job": "", "project": ""}
+    assert client.get(f"/api/docs/{p}").json()["work"]["task"] == g and works.work(p)["task"] == g
+    joined = client.put(f"/api/works/{p}/task", json={**g, "project": "선박 과제"}).json()["task"]
+    assert joined == {**g, "job": "plan_to_report", "project": "선박 과제"}  # 들어온 문서 — 과제의 할 일을 따른다
+    client.put(f"/api/works/{p}/task", json={**joined, "job": "plan_merge"})
+    assert works.work(d)["task"] == {**saved, "job": "plan_merge"}  # 과제 안에서 바꾼 할 일은 묶인 문서에도
+    client.put(f"/api/works/{p}/task", json={**joined, "job": "report_merge", "project": ""})
+    assert works.work(d)["task"]["job"] == "plan_merge" and works.work(p)["task"] == {**g, "job": "report_merge"}  # 과제에서 나오면 따로
+
+
+def test_target_doc_shown_name(client):
+    """목적 문서의 보이는 이름(② §10): 과제에 묶인 목적 문서(이관의 연차보고서 · 취합의 취합본)는 「<올린 이름>_<과제 이름>.<확장자>」 — 목록·문서·내려받는 파일 이름에.
+    저장된 이름은 올린 그대로라 같은 파일을 다시 올리면 그 작업을 이어 연다. 원본 문서·과제 밖 문서·올린 원본 받기는 그대로."""
+    name = HWPX.name
+    stem = name[:-len(".hwpx")]
+    assert works.shown_name(name, None) == name and works.shown_name(name, {"job": "plan_to_report", "file": "report", "project": ""}) == name
+    assert works.shown_name(name, {"job": "plan_to_report", "file": "plan", "project": "과제"}) == name   # 이관의 원본 문서(사업계획서)
+    assert works.shown_name(name, {"job": "plan_merge", "file": "part", "project": "과제"}) == name       # 취합의 원본 문서(기관 문서)
+    assert works.shown_name(name, {"job": "plan_merge", "file": "plan", "project": "과제"}) == f"{stem}_과제.hwpx"   # 취합본
+    assert works.shown_name(f"{stem}_과제.hwpx", {"job": "plan_merge", "file": "plan", "project": "과제"}) == f"{stem}_과제.hwpx"   # 두 번 안 붙임
+    d = _upload(client)
+    t = {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "선박 과제 A/1"}
+    client.put(f"/api/works/{d}/task", json=t)
+    shown = f"{stem}_선박 과제 A_1.hwpx"   # 파일 이름에 못 쓰는 글자는 _
+    from urllib.parse import quote
+    assert client.get("/api/works").json()[0]["name"] == shown and client.get(f"/api/docs/{d}").json()["name"] == shown
+    assert client.get(f"/api/works/{d}/log").json()["work"]["name"] == shown
+    assert works.work(d)["name"] == name and server.DOCS[d].name == name   # 저장된 이름은 올린 그대로
+    assert quote(shown) in client.get(f"/api/docs/{d}/download").headers["content-disposition"]   # 안 고친 문서도 보이는 이름으로
+    p = _texts(client, d)[1]
+    client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": p["text"] + "★"})
+    server._persist_all()
+    edited = quote(f"{stem}_선박 과제 A_1_수정.hwpx")
+    assert edited in client.get(f"/api/docs/{d}/download").headers["content-disposition"]
+    assert edited in client.get(f"/api/works/{d}/file/current").headers["content-disposition"]
+    orig = client.get(f"/api/works/{d}/file/original").headers["content-disposition"]
+    assert quote(name) in orig and quote("선박") not in orig   # 올린 원본은 올린 이름 그대로
+    again = client.post("/api/docs", files={"file": (name, HWPX.read_bytes())}).json()
+    assert again["reused"] and again["docId"] == d   # 같은 파일 이어 열기는 올린 이름으로 견준다
+    client.put(f"/api/works/{d}/task", json={**t, "project": ""})
+    assert client.get("/api/works").json()[0]["name"] == name and client.get(f"/api/docs/{d}").json()["name"] == name   # 과제에서 나오면 올린 이름

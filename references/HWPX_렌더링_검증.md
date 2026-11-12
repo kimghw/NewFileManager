@@ -194,3 +194,9 @@
 - 브라우저 쪽: `transform: scaleX(r)` 로 줄인 문단 상자(폭 100%/r, 오른쪽 여백 100% − 100%/r)는 줄 나눔이 한글 장평과 같아진다(45/45). 굵은 face 없는 Dotum 을
   Chrome 이 흉내 굵게로 그리면 작은 크기에서 받침 「ㅇ」 글자가 속이 빈 듯 보인다.
   쓰는 곳: [app/static/app.js](../app/static/app.js) `paraLook`·`leadShift`, [spec/spec_hwpx_웹편집.md](../spec/spec_hwpx_웹편집.md) ② §3-4.
+
+## hwp(바이너리) → hwpx 변환 (2026-11-11 실측)
+
+- 한글 COM: `hwp.Open(경로, "HWP", "forceopen:true")` → `hwp.SaveAs(경로.hwpx, "HWPX", "")` → `hwp.Clear(1)`. 여는 형식 인자는 파일에 맞춰 준다(hwp 는 「HWP」, hwpx 는 「HWPX」).
+- 59.9 KB hwp(예제 hwpx 를 한글로 HWP 저장한 것) → hwpx 1.8초, 문단·칸 글 49개가 차례·내용 모두 같음(레이아웃은 견주지 않음). 보안 모듈이 등록돼 있으면 확인 창 없음.
+  쓰는 곳: [app/pdf_render.py](../app/pdf_render.py) `hwp_to_hwpx`, [spec/spec_작업.md](../spec/spec_작업.md) ② §1 「hwp 올리기」.

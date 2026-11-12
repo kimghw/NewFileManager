@@ -1,0 +1,144 @@
+"""화면 검사(임시 서버를 스스로 띄우는 tools/smoke_*_ui.py)를 **한꺼번에** 돌린다 — 검사마다 다른 포트·다른 폴더라 서로 안 겹친다(8114 는 안 건드림).
+
+    python -X utf8 tools/run_ui_gates.py <그림·임시 폴더> [검사 이름 …] [--all] [--jobs 5] [--no-retry] [--list] [--timeout 900]
+
+이름을 안 주면 기본 묶음(아래 GATES 의 기본 = True). 차례로 돌리면 걸린 시간의 합만큼 기다리지만, 같이 돌리면 가장 긴 검사만큼만 기다린다.
+같이 돌 때의 부하로 떨어진 것인지 가르려고 **떨어진 검사는 끝난 뒤 혼자 한 번 더** 돌린다(--no-retry 로 끔). 끝에 검사마다 통과 수·걸린 시간과 전체 시간(차례로 돌렸다면 = 합)을 보이고,
+쓴 포트에 듣는 프로세스가 남았는지 본다(임시 서버는 검사가 끝나면 꺼져 있어야 한다 — CLAUDE.md 「웹서버」). 하나라도 떨어지면 종료 코드 1."""
+import argparse
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+# 이름: (스크립트, 기본 묶음에 드나, 한마디). 모두 「<폴더> --port <포트>」 꼴 — 서버 주소를 받는 검사(smoke_commits_ui.py 등)는 여기 없다(서버를 따로 띄워야 함)
+GATES = {
+    "task": ("smoke_task_ui.py", True, "작업 종류 · 이관 단계 · 연결 목록 · 넣기 계획"),
+    "task_run": ("smoke_task_run_ui.py", True, "1단계 문서 프레임 작성 · 한 번에 진행(실제 서식 쌍)"),
+    "panel_head": ("smoke_panel_head_ui.py", True, "패널 머리 — 작업 목록 · 도구 이름 줄"),
+    "peer": ("smoke_peer_ui.py", True, "같이 보기 — 두 면"),
+    "peer_follow": ("smoke_peer_follow_ui.py", True, "같이 보기 — 누른 자리 따라 보기(원본 자리 지도는 흉내)"),
+    "gather": ("smoke_gather_ui.py", True, "취합 — 기관 문서 줄 · 배포 기준본 · 기관 작성 내용 · 넣기 계획 · 끌어 넣기 · 한 번에 진행(끝점은 흉내)"),
+    "first_run": ("smoke_first_run_ui.py", True, "첫 분석 · 구분 기준 LLM 검토 취합"),
+    "home": ("smoke_home_ui.py", False, "상단 로고 → 시작 화면"),
+    "note_help": ("smoke_note_help_ui.py", False, "노트 도움말 — hover · 키보드 · 터치 · 좁은 화면 · 대화상자"),
+    "table_menu": ("smoke_table_menu_ui.py", False, "표 메뉴"),
+    "table_fill": ("smoke_table_fill_ui.py", False, "작성요령 세 묶음 · 표 채우기"),
+    "table_cells": ("smoke_table_cells_ui.py", False, "표 칸 고르기·행/열"),
+    "heading_drift": ("smoke_heading_drift_ui.py", False, "뼈대 유지"),
+    "zoom": ("smoke_zoom_lazy_ui.py", False, "배율 — 쪽 상자마다 · 보이는 쪽부터(옆 열 여닫기 · 맞춤 · 2쪽 · 창 크기)"),
+    "edit_speed": ("smoke_edit_speed_ui.py", False, "구조 편집 속도 — 시간을 재므로 같이 돌리면 수치가 부푼다(혼자 돌릴 것)"),
+}
+ap = argparse.ArgumentParser()
+ap.add_argument("out")
+ap.add_argument("names", nargs="*")
+ap.add_argument("--all", action="store_true")
+ap.add_argument("--jobs", type=int, default=5)
+ap.add_argument("--no-retry", action="store_true")
+ap.add_argument("--list", action="store_true")
+ap.add_argument("--timeout", type=int, default=900)
+ap.add_argument("--port", type=int, default=18300, help="첫 포트 — 검사마다 하나씩 올려 쓴다")
+args = ap.parse_args()
+if args.list:
+    for k, (f, d, note) in GATES.items():
+        print(f"{'*' if d else ' '} {k:14} tools/{f} — {note}")
+    sys.exit(0)
+names = args.names or [k for k, v in GATES.items() if v[1] or args.all]
+bad = [n for n in names if n not in GATES]
+if bad:
+    sys.exit(f"모르는 검사: {', '.join(bad)} — --list 로 이름을 보세요")
+OUT = Path(args.out).resolve()
+OUT.mkdir(parents=True, exist_ok=True)
+
+
+def listening(port):
+    with socket.socket() as s:
+        s.settimeout(.3)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def free_port(start, taken):
+    p = start
+    while p in taken or listening(p):
+        p += 1
+    return p
+
+
+def start(name, port):
+    log = (OUT / f"{name}.log").open("w", encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "tools" / GATES[name][0]), str(OUT / name), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
+                            env={**os.environ, "PYTHONUTF8": "1"}, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    return {"name": name, "port": port, "proc": proc, "log": log, "t0": time.time()}
+
+
+def kill(job):  # 시간 초과 — 검사와 그것이 띄운 임시 서버까지
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(job["proc"].pid), "/T", "/F"], capture_output=True)
+    else:
+        job["proc"].kill()
+
+
+def finish(job, code):
+    job["log"].close()
+    text = (OUT / f"{job['name']}.log").read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    return {"name": job["name"], "port": job["port"], "code": code, "secs": time.time() - job["t0"], "passed": sum(x.startswith("PASS ") for x in lines),
+            "fails": [x[:300] for x in lines if x.startswith("FAIL ")], "tail": [x[:300] for x in lines[-4:]]}
+
+
+def run(batch, jobs):
+    """batch 의 검사를 jobs 개씩 같이 돌린다 → {이름: 결과}."""
+    todo, live, done, taken = list(batch), [], {}, set()
+    while todo or live:
+        while todo and len(live) < jobs:
+            port = free_port(args.port, taken)
+            taken.add(port)
+            live.append(start(todo.pop(0), port))
+            print(f"  ▶ {live[-1]['name']} (포트 {port})", flush=True)
+        time.sleep(.5)
+        for job in list(live):
+            code = job["proc"].poll()
+            if code is None and time.time() - job["t0"] > args.timeout:
+                kill(job)
+                code = -9
+            if code is None:
+                continue
+            live.remove(job)
+            r = done[job["name"]] = finish(job, code)
+            mark = "통과" if code == 0 and not r["fails"] else "시간 초과" if code == -9 else "실패"
+            print(f"  ■ {r['name']} — {mark} · 통과 {r['passed']} · 실패 {len(r['fails'])} · {r['secs']:.0f}초", flush=True)
+    return done
+
+
+t0 = time.time()
+print(f"화면 검사 {len(names)}개를 {min(args.jobs, len(names))}개씩 같이 — {', '.join(names)}", flush=True)
+res = run(names, max(1, args.jobs))
+wall, serial = time.time() - t0, sum(r["secs"] for r in res.values())
+failed = [n for n in names if res[n]["code"] != 0 or res[n]["fails"]]
+retried = {}
+if failed and not args.no_retry:
+    print(f"떨어진 검사 {len(failed)}개를 혼자 다시 — {', '.join(failed)}", flush=True)
+    for n in failed:
+        first = res[n]
+        res[n] = run([n], 1)[n]
+        retried[n] = first
+wall_all = time.time() - t0
+print("\n검사            통과  실패  시간   비고")
+for n in names:
+    r, note = res[n], ""
+    if n in retried:
+        note = "같이 돌 때 떨어졌다가 혼자서는 통과(부하)" if r["code"] == 0 and not r["fails"] else "혼자서도 실패"
+    print(f"{n:14} {r['passed']:4} {len(r['fails']):5} {r['secs']:5.0f}초  {note}")
+    for f in r["fails"][:5]:
+        print(f"    {f}")
+    if r["code"] != 0 and not r["fails"]:
+        print(f"    종료 코드 {r['code']} — {' / '.join(r['tail'])}")
+left = sorted({r["port"] for r in list(res.values()) + list(retried.values()) if listening(r["port"])})
+still = [n for n in names if res[n]["code"] != 0 or res[n]["fails"]]
+print(f"\n같이 돌린 시간 {wall:.0f}초 — 차례로 돌렸다면 {serial:.0f}초({serial / max(wall, 1):.1f}배)" + (f" · 다시 돌리기까지 {wall_all:.0f}초" if retried else ""))
+print("남은 임시 서버: " + (", ".join(map(str, left)) + " 포트가 아직 듣고 있습니다 — 끄세요" if left else "없음"))
+print(f"{'FAIL ' + str(len(still)) + ' — ' + ', '.join(still) if still else 'ALL PASS'} · 기록 {OUT}")
+sys.exit(1 if still or left else 0)

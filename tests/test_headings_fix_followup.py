@@ -66,12 +66,12 @@ def test_label_root_template_forms_instances():
 def test_demoted_to_label_stays_parent():
     """B 가 자식 있는 노드를 라벨로 바꿔도 라벨은 그대로 부모(제 템플릿의 뿌리) — 자식의 구분 소속(division)은 가장 가까운 라벨 조상."""
     nodes, graph, keys, types = _sub_graph()
-    applied, rejected = HG.apply_changes([{"id": "s0", "role": "label"}], ["r0", "s0", "o0a", "o0b"], [], graph, set())
+    applied, rejected = HG.apply_changes([{"id": "s0", "role": "label", "basis": "기관"}], ["r0", "s0", "o0a", "o0b"], [], graph, set())
     assert not rejected and [a["id"] for a in applied] == ["s0"]
     assert graph["s0"]["role"] == "label" and graph["o0a"]["parent"] == "s0" and graph["o0b"]["parent"] == "s0"
     assert HG._division_of("o0a", graph) == "s0" and HG._division_of("s0", graph) is None
     nodes, graph, keys, types = _sub_graph()
-    applied, rejected = HG.apply_changes([{"id": "o0b", "parent": "o0a"}, {"id": "o0a", "role": "label"}], ["r0", "s0", "o0a", "o0b"], [], graph, set())
+    applied, rejected = HG.apply_changes([{"id": "o0b", "parent": "o0a"}, {"id": "o0a", "role": "label", "basis": "차년도"}], ["r0", "s0", "o0a", "o0b"], [], graph, set())
     assert not rejected
     assert graph["o0b"]["parent"] == "o0a" and HG._division_of("o0b", graph) == "o0a"
 

@@ -11,7 +11,7 @@ import uuid
 
 SCHEMA_VERSION = 1
 STATUSES = ("applied", "already", "excluded", "unsupported", "unresolved")
-UNSUPPORTED_REASONS = {"irregular": "같은 꼴 라벨이 차례를 어김(손댄 문서)", "blocked": "병합 칸 때문에 표를 못 고침", "unset": "값을 정하지 않아 그대로 둠",
+UNSUPPORTED_REASONS = {"irregular": "같은 꼴 라벨이 차례를 어김(손댄 문서)", "named": "구분 값에 없는 기관 이름이 적혀 있음(작성한 문서로 보고 그대로)", "blocked": "병합 칸 때문에 표를 못 고침", "unset": "값을 정하지 않아 그대로 둠",
                        "stage": "지워질 단계 안(바깥 단계가 먼저 줄임)"}
 
 

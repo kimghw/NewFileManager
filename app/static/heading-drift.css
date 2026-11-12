@@ -1,0 +1,24 @@
+/* 뼈대 유지(spec_헤딩_추출 ② §17 — heading_drift.js): 뼈대(2·3단계 결과)를 만든 뒤 문서에 생긴 새 레터·새 서식·새 표의 표시.
+   상태 줄 꼬리표는 heading-panels.css 의 .analysis-state.stale 색을 그대로 쓰고(주황) 단추 꼴만 더한다 — 한 줄·줄임표(design.md §7). */
+#headsOverview .analysis-state.drift-chip { flex: 0 1 auto; min-width: 0; border: 0; font-family: inherit; line-height: 16px; cursor: pointer; }
+#headsOverview .analysis-state.drift-chip:hover { background: #ffe9c7; }
+#headsOverview .analysis-state.drift-chip .drift-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#headsOverview .analysis-state.drift-chip::after { content: "›"; flex: none; font-size: 13px; line-height: 14px; opacity: .65; } /* 누르면 목록 */
+
+/* 「추출·설정」 2·3단계 카드 줄 — 카드의 다른 알림과 같은 한 줄(heading-panels.css .stage-notice) + 「목록」 단추 */
+.hdrift:empty { display: none; }
+#headsViewRun .stage-notice .stage-notice-act { flex: none; height: 22px; margin: 0 2px 0 0; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+#headsViewRun .stage-notice .stage-notice-act:hover { background: rgba(0, 0, 0, .06); }
+
+/* 문서 쪽 왼쪽 여백 표시 — 「새 레터」·「새 서식」(주황 — 새 서식은 그 줄의 「TN Lk」 앞에 붙는다). style.css .tpl-mark 뒤에 읽혀 .lbl·.und 색을 덮는다 */
+.tpl-mark.drift { color: #9a4a00; background: #fff1dc; border-color: #f0b765; font-weight: 700; }
+.tpl-mark.drift:hover { border-color: #c2410c; color: #9a4a00; }
+
+/* 문서 표의 표지(tables.js tblMark) — 표 구조(3단계)를 만든 뒤 생긴 표 「새 표」(주황, 누르면 뼈대 밖 목록). style.css .tbl-mark .tm-owner 뒤에 읽힌다 */
+.tbl-mark .tm-owner.tm-new { color: #9a4a00; font-weight: 700; }
+
+/* 뼈대 밖 목록(2열 kind "drift") — 배치는 TEMP 목록(.temp-wrap·.temp-head·table.temp-list)을 그대로 쓴다 */
+.hd-body table.drift-list td.drift-letter { font-weight: 700; white-space: nowrap; }
+.hd-body table.drift-list td.drift-fmt { min-width: 10em; word-break: keep-all; overflow-wrap: anywhere; }
+.hd-body table.drift-list td.drift-fmt .drift-known { display: block; font-size: 11px; }
+.hd-body table.drift-list td.txt .drift-n { margin-left: 2px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; font-size: 11px; }

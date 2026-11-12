@@ -2,8 +2,11 @@
 
 python -X utf8 tools/screenshot_ui.py [http://127.0.0.1:8114] [예제 이름] [출력 폴더]
 서버가 떠 있어야 한다. 콘솔 오류는 console.txt 에 남긴다."""
+import json
 import sys
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -34,7 +37,9 @@ def main():
         page.goto(URL)
         page.wait_for_selector(".sample")
         page.screenshot(path=OUT / "01_empty.png")
-        page.click(f".sample >> text={SAMPLE}")
+        # 예제를 늘 새 작업으로(?new=1) — 예제 단추는 같은 파일로 하던 작업을 이어 열어(spec_작업 ② §1) 아래 「문단 고치기」가 사용자의 작업을 고칠 수 있다
+        req = urllib.request.Request(f"{URL}/api/samples/{urllib.parse.quote(SAMPLE)}?new=1", method="POST")
+        page.evaluate("id => load(id)", json.load(urllib.request.urlopen(req, timeout=600))["docId"])
         page.wait_for_selector(".para")
         page.wait_for_timeout(600)
         page.screenshot(path=OUT / "02_opened.png")

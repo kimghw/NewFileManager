@@ -42,3 +42,6 @@ async for m in query(prompt=text, options=opts):
 
 - 「2+3」 구조화 출력: 4.1 s · $0.036. WMI 로 띄운 프로세스에서 「7*6」: 3.5 s · $0.035. CLI 직접(`claude -p`, Claude Code 시스템 프롬프트) 짧은 호출 바닥 약 $0.05 보다 싸다 —
   SDK 길은 시스템 프롬프트가 비어 있어서로 보인다(추정).
+- **겹친 배열 스키마**(2026-11-10, claude-opus-5-5 · effort low · SDK 0.2.172 — `app/table_llm.py` 표 격자): `{rows: [{cells: [{text, rowSpan, colSpan}]}], headerRows, headerCols, footRows, note}`
+  (객체 → 배열 → 객체 → 배열 → 객체, 모든 층 `additionalProperties: false`·`required` 전부)가 한 번에 맞게 돌아온다. 프롬프트 약 2,500자(계약 + 양식 표 6×7 격자 + 원본 글 4줄) →
+  5행 × 6열 표: 9.8 s · $0.071, 4×4 표를 옮기기만 하는 호출: 7.5 s · $0.041. 재시도 없음.

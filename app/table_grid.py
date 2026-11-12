@@ -130,16 +130,19 @@ def split(cells, x, rows, cols):
     return new, grown, added
 
 
-def clone(cells, n_rows, n_cols, r0, r1, c0, c1, above=False):
+def clone(cells, n_rows, n_cols, r0, r1, c0, c1, above=False, lenient=False):
     """Copy rows r0..r1 of columns c0..c1 right below row r1 (spec ② §2 클론·행 추가). In those columns a cell inside
     the rows is copied and one covering all of them from above grows; outside them every cell on row r1 grows, so the
     new rows share it (선택 밖 칸 공유). above=True (끌어 복사 위로 — ② §2a): the copies go right above row r0, the
     originals move down, and outside the columns the cells on row r0 grow up over the new rows instead.
     ValueError when a merged cell crosses the range or nothing would be copied.
+    lenient=True (행 전체 넣기 — spec_owpml_편집 ② §5-2): inside the columns too, a merged cell that only partly covers
+    the rows but lies on the edge row (r1, above: r0) grows instead of raising — the cells inside its columns are not
+    copied (the grown cell covers the new rows there); ValueError when such a copy would stick out of its columns.
     -> (copies row-major, src = the copied cell; grown cells)."""
     if not (0 <= r0 <= r1 < n_rows and 0 <= c0 <= c1 < n_cols):
         raise ValueError(OUTSIDE)
-    src, grow = [], set()
+    src, grow, partly = [], set(), []
     edge = r0 if above else r1
     for x in cells:
         xr1, xc1 = x.r + x.rs - 1, x.c + x.cs - 1
@@ -150,6 +153,9 @@ def clone(cells, n_rows, n_cols, r0, r1, c0, c1, above=False):
                 src.append(x)
             elif x.r < r0 and xr1 >= r1:
                 grow.add(x)
+            elif lenient and x.r <= edge <= xr1:
+                grow.add(x)
+                partly.append(x)
             else:
                 raise ValueError(ROWS_CROSS)
         elif xc1 < c0 or x.c > c1:
@@ -157,6 +163,12 @@ def clone(cells, n_rows, n_cols, r0, r1, c0, c1, above=False):
                 grow.add(x)
         else:
             raise ValueError(COLS_CROSS)
+    for g in partly:  # 늘어나는 칸의 열 안에 든 칸은 복사하지 않는다(새 행의 그 열은 늘어난 칸이 덮는다) — 열이 어긋나면 겹치므로 거절
+        ga, gb = g.c, g.c + g.cs - 1
+        for x in [x for x in src if x.c <= gb and x.c + x.cs - 1 >= ga]:
+            if x.c < ga or x.c + x.cs - 1 > gb:
+                raise ValueError(ROWS_CROSS)
+            src.remove(x)
     if not src:
         raise ValueError(NOTHING)
     d = r1 - r0 + 1
@@ -241,6 +253,34 @@ def drop_band(cells, n_rows, n_cols, r0, r1, c0, c1):
             if x.rows:
                 x.rows = {(i - d if i > r1 else i): t for i, t in x.rows.items() if not r0 <= i <= r1}
     return gone, shrunk
+
+
+def band(cells, n_cols, r0, r1):
+    """The column band (c0, c1) to give drop_band when rows r0..r1 go: the widest run of columns free of merged cells that
+    start in those rows and reach below them (행 묶음 제목 — it keeps its text and gets shorter). None = no such cell
+    (whole rows — drop_rows). ValueError when such cells take every column. (빈 필드 제거 · 행 전체 지우기)"""
+    taken = [False] * n_cols
+    cross = False
+    for x in cells:
+        if r0 <= x.r <= r1 < x.r + x.rs - 1:
+            cross = True
+            for c in range(x.c, min(n_cols, x.c + x.cs)):
+                taken[c] = True
+    if not cross:
+        return None
+    best, c = None, 0
+    while c < n_cols:
+        if taken[c]:
+            c += 1
+            continue
+        a = c
+        while c < n_cols and not taken[c]:
+            c += 1
+        if best is None or c - a > best[1] - best[0] + 1:
+            best = (a, c - 1)
+    if best is None:
+        raise ValueError(DROP_CROSS)
+    return best
 
 
 def move_band(cells, n_rows, n_cols, r0, r1, c0, c1, to):
@@ -353,6 +393,36 @@ def col_widths(widths, c0, c1, keep, add):
     total, b = sum(widths[a:b + 1]), b + d if add else b - d
     refit(out, a, b, total)
     return out, (a, b)
+
+
+def col_run(flags, c0, c1):
+    """The widest run (a, b) of flagged columns that holds c0..c1 (열 폭 규칙 — 고른 열을 품은 이어진 필드 열 묶음,
+    spec_owpml_편집 ② §5-1); None when a column of c0..c1 is not flagged."""
+    if not (0 <= c0 <= c1 < len(flags)) or not all(flags[c0:c1 + 1]):
+        return None
+    a, b = c0, c1
+    while a > 0 and flags[a - 1]:
+        a -= 1
+    while b < len(flags) - 1 and flags[b + 1]:
+        b += 1
+    return a, b
+
+
+def col_units(cells, n_cols, first):
+    """Columns first..n_cols-1 as side-by-side units [(c0, c1)…] (표 나누기의 필드 열 단위, spec_owpml_편집 ② §5-3): a
+    column boundary cuts where no cell that starts at or after `first` crosses it (「1단계」 over three year columns = one
+    unit). Cells starting before `first` (전체 너비 줄) do not count."""
+    cut = [True] * (n_cols + 1)
+    for x in cells:
+        if x.c >= first:
+            for b in range(x.c + 1, min(n_cols, x.c + x.cs)):
+                cut[b] = False
+    out, a = [], first
+    for b in range(first + 1, n_cols + 1):
+        if b == n_cols or cut[b]:
+            out.append((a, b - 1))
+            a = b
+    return out
 
 
 def squeeze(cells, n, axis):

@@ -11,9 +11,10 @@ NFM 쪽 변경: `app.structure`·`app.tables` 대신 `division_profiles._structu
 문서는 어댑터(HwpxDoc/DocxDoc)의 clone_blocks·delete_blocks·clone_rows·delete_rows·clone_cols·delete_cols·set_text 로만
 고친다. 블록 id 는 요소에 붙어 편집 뒤에도 그대로라, 한 차례(pass) 안에서 구조를 먼저 바꾸고 글은 끝에 한 번에 고친다."""
 import re
+import unicodedata
 from collections import Counter
 from datetime import date, timedelta
-from itertools import accumulate
+from itertools import accumulate, groupby
 
 from app.division_profiles import _structure as structure
 from app import table_grid as grid
@@ -56,12 +57,20 @@ OUTSIDE_LIST = re.compile(r"^연구개발기관외기관(?:\d+(?:-\d+)*\))?$")  
 ENTRUST_LIST = re.compile(r"^위탁연구개발기관(?:\d+(?:-\d+)*\))?$")    # 혁신법 별지 1 표지 「위탁연구개발기관」 — 위탁마다 한 행
 # 서명 줄 「위탁연구개발기관의 장: (직인)」 — 이름 괄호(한 겹 허용) 포함
 ENTRUST_SIGN = re.compile(r"^(\s*위탁연구개발기관)(\s*\((?:[^()]|\([^()]*\))*\))?(?=\s*의\s*장)")
+# 맞출 서명 줄 「주관·공동·위탁연구개발기관(이름)의 장:      (직인)」(② §20) — 1 「…의 장:」 까지 · 2 사이 빈칸(반각 빈칸만) · 3 「(직인)」·「(직인생략)」·「(인)」 부터 끝.
+# 쌍점과 「(직인)」 사이에 글(기관장 이름)을 쓴 줄·탭이나 전각 빈칸으로 띄운 줄은 아님(안 건드림)
+SIGN_LINE = re.compile(r"^(\s*(?:주관|공동|위탁)연구개발기관(?:\s*(?:\d+|[Nn]))?(?:\s*\((?:[^()]|\([^()]*\))*\))?\s*의\s*장(?:\s*[:：])?)( *)(\(\s*(?:직\s*인[^()]*|인\s*)\).*)$", re.S)
+# 서명 줄의 기관 낱말 「주관·공동연구개발기관(이름)의 장」 — 1 낱말(번호까지) · 2 이름 괄호(없으면 None). 서명 줄에는 기관 이름을 넣지 않는다(② §20, 사용자 2026-11-12
+# 「여기 기관은 안들어 가는거 같아」 — 줄만 기관 수만큼): 반영은 괄호를 넣지 않고, 앞서 넣은 괄호는 뺀다. 「장」 뒤가 한글이면 서명 줄이 아니다(「…기관의 장점」)
+SIGN_NAME = re.compile(r"((?:주관|공동)연구개발기관(?:\s*(?:\d+|[Nn]))?)(\s*\((?:[^()]|\([^()]*\))*\))?(?=\s*의\s*장(?![가-힣]))")
 NAME_SLOT = re.compile(r"^\s*[Xx]{3,}\s*$")   # 기관명 자리표시 칸 「XXXXX」(4-3 기술기여도 표 — 작성 예시 「AAAAA」는 아님)
 EXAMPLE_SLOT = re.compile(r"^\s*([A-WYZa-wyz])\1{2,}\s*$")   # 작성 예시 기관명 「AAAAA」·「BBBBB」
 SLOT_PAREN = re.compile(r"((?:주관|공동)연구개발기관(?:\s*(?:\d+|[Nn]))?)\(((?:[^()]|\([^()]*\))*)\)")   # 괄호 한 겹 허용 — 「(주관기관(미입력))」
 # 쌍점 뒤 이름 자리 — 「[…기관1 : 이름]」·보고서 「[…기관명N : 이름]」·「ㅇ …기관 : 이름」(「]」 앞 / ※ 앞 / 줄 끝)
 SLOT_COLON = re.compile(r"((?:주관|공동)연구개발기관(?:명)?(?:\s*(?:\d+|[Nn]))?\s*:\s*)([^\]\n※]*?)(\s*\]|\s*(?=※)|\s*$)")
 SLOT_OF = re.compile(r"((?:주관|공동)연구개발기관)(의)")
+# 책임자 절 제목 「(2) 공동연구개발기관책임자(이름)」(7-1) — 「책임자」 바로 뒤 괄호 = 그 절의 기관 이름(spec ② §16). 1 낱말 · 2 이름(괄호가 없으면 None)
+SLOT_HEAD = re.compile(r"(공동연구개발기관\s*책임자)(?:[ \t]*\(((?:[^()]|\([^()]*\))*)\))?")
 PER_ORG = re.compile(r"기관\s*별")   # 혼자인 주관 절의 실마리 — 앞 문단 「ㅇ 연구개발기관별 사용계획 총괄표」(보고서, ② §2)
 NEXT_YEAR = re.compile(r"다음\s*연도")   # 보고서 「5. 다음 연도 연구개발계획」 — 그 아래 기관-연도 표는 다음 차년도 행 하나(② §2)
 SOLO_MAX = 60   # 혼자인 기관 절 항목의 블록 수 상한
@@ -220,7 +229,9 @@ def _key(text):
 
 def _shape(text):
     # 이름 자리(「…기관(이름)」 괄호 안 · 「…기관 : 이름」 쌍점 뒤)는 꼴에서 뺀다 — 반영이 이름을 넣은 뒤에도, 자리표시가 서로 달라도(「기업명1」·「기업명2」) 같은 꼴(② §15)
+    text = SIGN_NAME.sub(r"\1", text)   # 서명 줄의 이름 괄호도 통째로 뺀다 — 옛 판이 이름을 넣은 줄과 이름 없는 줄이 같은 꼴(② §20)
     text = SLOT_COLON.sub(lambda m: f"{m.group(1)}{{이름}}{m.group(3)}", SLOT_PAREN.sub(lambda m: f"{m.group(1)}({{이름}})", text))
+    text = SLOT_HEAD.sub(r"\1", text)   # 책임자 절 제목의 이름 괄호는 통째로 뺀다 — 이름 없는 주관 절 「(1) 주관연구개발기관책임자」 와 같은 꼴(② §16)
     s = STAGE_RE.sub("{단계}", CALENDAR.sub("{연도}", text))
     s = SUB_RE.sub("({세부})", YEAR_RE.sub("{차년도}", s))
     s = ROLE_RE.sub("({기관})", ORG_RE.sub("{기관}", s))
@@ -231,7 +242,7 @@ def _shape(text):
 def _label(text):
     """라벨이면 (구분 기준, 값, 꼴) — 「※」 뒤 주석을 뗀 글이 짧고 구분 낱말이 있음."""
     t = NOTE.sub("", text or "").strip()
-    if not t or len(re.sub(r"\s+", "", t)) > LABEL_MAX or NOT_LABEL.search(t):
+    if not t or len(re.sub(r"\s+", "", SIGN_NAME.sub(r"\1", SLOT_HEAD.sub(r"\1", t)))) > LABEL_MAX or NOT_LABEL.search(t):   # 책임자 절 제목·서명 줄의 이름 괄호는 길이에 안 셈(긴 기관 이름)
         return None
     k = _key(t)
     return (k[0], k[1], _shape(t)) if k else None
@@ -365,9 +376,27 @@ def _runs(labs, dim_of, value_of, adjacent=lambda a, b: True):
     return out
 
 
-def _para_groups(cid, items, levels, hinted=None):
+def _joint_of(values):
+    """라벨 글 → 그 이름 자리(「…기관1 : 이름」·「…기관1(이름)」)에 적힌 기관이 구분 값의 몇째 공동기관인지(k) | None(이름 자리 없음·자리표시·값에 없는 이름·여럿에 걸침).
+    같은 이름, 아니면 한쪽이 다른 쪽을 품는 이름이 하나뿐일 때(「주식회사 랩오투원」 ⊃ 「랩오투원」). 번호가 차례를 못 잇는 공동 라벨을 **이름으로** 잇는 데 쓴다(② §21)."""
+    names = [(_bare(n), k) for k, n in enumerate(values["orgs"]["joint"], 1) if _bare(n)]
+
+    def of(text):
+        m = SLOT_COLON.search(text or "") or SLOT_PAREN.search(text or "")
+        n = _bare(_name(m.group(2))) if m else ""
+        if not n:
+            return None
+        hit = [k for b, k in names if b == n] or [k for b, k in names if len(b) >= 2 and (b in n or n in b)]
+        return hit[0] if len(hit) == 1 else None
+    return of
+
+
+def _para_groups(cid, items, levels, hinted=None, report=False, joint_of=None):
     """한 그릇의 문단 묶음 — 같은 꼴 라벨의 값 차례. 같거나 바깥 구분 기준의 다른 꼴 라벨이 오면 열린 안쪽 묶음은 닫힌다.
-    hinted = 추가한 자리의 라벨 꼴 집합(hint_shapes, ② §11) — 그 꼴은 PARA_LABEL·LABEL_MAX 관문 없이 라벨."""
+    hinted = 추가한 자리의 라벨 꼴 집합(hint_shapes, ② §11) — 그 꼴은 PARA_LABEL·LABEL_MAX 관문 없이 라벨.
+    report = 보고서 양식 — 요약문 칸의 혼자인 「[N차년도 목표]」·「[N차년도 개발내용]」 도 항목 하나짜리 차년도 묶음(② §18).
+    joint_of = _joint_of(값) — 공동 라벨의 번호가 앞 라벨을 못 잇는데(작성자가 「공동연구개발기관1」 을 기관마다 되풀이해 쓴 문서) 라벨의 이름이 값의 다음 공동기관이면
+    그 기관의 항목으로 잇는다(② §21 — 번호로 이어지는 라벨은 전과 같다)."""
     labels = []
     for i, b in enumerate(items):
         if b.get("type") == "paragraph" and ((lab := _hint_label(b, hinted))
@@ -385,6 +414,10 @@ def _para_groups(cid, items, levels, hinted=None):
         i, b, dim, v, shp = lab
         g = open_.get(shp)
         goes_on = bool(g) and g[0][2] == dim and _follows(dim, g[-1][3], v)
+        if not goes_on and g and joint_of and dim == ORG and g[0][2] == ORG and v[0] == "joint" and b.get("type") == "paragraph" \
+                and (k := joint_of(b["text"])) and _follows(ORG, g[-1][3], ("joint", k)):
+            v = ("joint", k)   # 번호는 못 잇지만 이름이 값의 다음 공동기관 — 이름이 기관의 정체다(② §21)
+            lab, goes_on = (i, b, dim, v, shp), True
         if not goes_on and not _starts(dim, v):
             if g:
                 g.irregular = True  # 같은 꼴인데 차례를 어김(손댄 문서)
@@ -405,17 +438,25 @@ def _para_groups(cid, items, levels, hinted=None):
         if slot and v == ("lead", 0) and i not in taken and not _name(slot.group(2)) and _solo_ok(items, i, levels) \
                 and any(items[k].get("type") == "paragraph" and PER_ORG.search(items[k]["text"]) for k in range(max(0, i - 4), i)):
             groups.append(Run([lab]))
+        # 보고서 요약문 칸의 혼자인 「[N차년도 목표]」·「[N차년도 개발내용]」(사용자 2026-11-11 「전체 차년도마다 한 벌」, ② §18): 항목 하나짜리 차년도 묶음 —
+        # 계획서 요약문의 「[1차년도 목표]·[2차년도 목표]·[N차년도 목표]」 묶음과 같게 전체 차례로 늘린다. 자리표시(N)이거나 아래 줄이 글머리 「ㅇ」·빈 줄뿐일 때만 —
+        # 글을 쓴 「[2차년도 목표]」 하나(옛 판이 당해 차년도로 채운 뒤 작성한 문서)는 그 해의 글이라 그대로 둔다(번호를 바꿔 본뜨면 글이 해마다 복사됨).
+        elif report and cid and dim == YEAR and i not in taken and b.get("type") == "paragraph" and CUR_SUMMARY.match(b["text"]) \
+                and (v == N or all(items[k].get("type") == "paragraph" and PLACEHOLDER.match(items[k]["text"])
+                                   for k in range(i + 1, _year_solo_end(items, i) + 1))):
+            groups.append(Run([lab]))
     out = []
     for g in groups:
         dim, idx = g[0][2], [lab[0] for lab in g]
         spans = [(a, b - 1) for a, b in zip(idx, idx[1:])]
         stray = _stray_blanks(items, idx[-1], spans)   # 마지막(자리표시) 항목 라벨 바로 뒤에만 낀 빈 문단 — 항목 길이에 안 셈, 반영 때 지움
-        spans.append((idx[-1], _solo_end(items, idx[-1], levels) if len(g) == 1
+        spans.append((idx[-1], (_year_solo_end(items, idx[0]) if dim == YEAR else _solo_end(items, idx[-1], levels)) if len(g) == 1
                       else _last_end(items, idx[-1], dim, spans, levels, len(stray))))
         strays = [[] for _ in spans[:-1]] + [stray]
         before = items[idx[0] - 1] if idx[0] else None   # 묶음 바로 앞 빈 문단 — 표 사이에 넣을 빈 줄의 본
         out.append({"kind": "paragraph", "dim": dim, "container": cid, "table": None, "irregular": g.irregular,
                     "hinted": str(g[0][4]).startswith("hint:"),   # 추가한 자리의 꼴로 잡은 묶음(② §11)
+                    "tail": _tail(items, spans[-1][1], [lab[1] for lab in g], levels),   # 묶음 뒤 번호를 이어 매길 헤딩(② §16)
                     "blank": before["id"] if before and before.get("type") == "paragraph" and not before["text"].strip()
                     else None,
                     "items": [{"value": lab[3], "label": lab[1]["id"], "labelText": lab[1]["text"],
@@ -427,6 +468,46 @@ def _para_groups(cid, items, levels, hinted=None):
                                            if p["id"] not in st]}
                               for lab, (a, e), st in zip(g, spans, strays)]})
     return out + _overseas_groups(cid, items, levels) + _entrust_groups(cid, items) + _outside_groups(cid, items)
+
+
+def _year_solo_end(items, i):
+    """요약문 칸의 혼자인 차년도 라벨 i 의 항목 끝(② §18) — 다음 라벨 앞, 없으면 칸 끝."""
+    return next((k for k in range(i + 1, len(items)) if items[k].get("type") == "paragraph"
+                 and PARA_LABEL.match(items[k]["text"]) and _label(items[k]["text"])), len(items)) - 1
+
+
+def _tail(items, end, labs, levels):
+    """번호 잇기(spec ② §16) — 묶음 바로 뒤에 이어지는 같은 레벨·같은 번호 꼴 헤딩의 문단 id 들(7-1 책임자 절 뒤 「(3) 참여연구자 및 연구지원인력」).
+    묶음 라벨이 「(1)」「(2)」… 처럼 1부터 차례인 번호 헤딩일 때만. end = 마지막 항목의 끝 자리. 더 얕은 헤딩·절 제목·구분 라벨(다른 묶음의
+    「(1) 1차년도」·「[2단계]」) 앞에서 멈추고, 뒤 헤딩들의 번호가 저희끼리 차례가 아니면 [](번호를 일부러 건너뛴 문서는 건드리지 않음)."""
+    def style(b):   # (헤딩 레벨, 여는 괄호, 닫는 글자, 번호) | None
+        m = LEAD_NUM.match(b.get("text") or "") if b.get("type") == "paragraph" else None
+        return (levels.get(b["id"]), m.group(1).strip(), b["text"][m.end():m.end() + 1], int(m.group(2))) if m else None
+    heads = [style(b) for b in labs]
+    if not all(heads) or not heads[0][0] or [h[3] for h in heads] != list(range(1, len(heads) + 1)) or len({h[:3] for h in heads}) != 1:
+        return []
+    lv, out, nums, cut = heads[0][0], [], [], False
+    for b in items[end + 1:]:
+        if b.get("type") != "paragraph":
+            continue
+        t, at = b.get("text") or "", levels.get(b["id"])
+        if SECTION.match(t) or (at is not None and at < lv):
+            break   # 절 제목·더 얕은 헤딩 — 이 번호 사슬은 여기서 끝
+        label = bool(PARA_LABEL.match(t) and _label(t))
+        h = None if label else style(b)
+        same = h is not None and h[:3] == heads[0][:3]
+        if cut:   # 구분 라벨·다른 꼴 헤딩으로 끊긴 뒤 — 같은 번호 사슬이 더 나오면 앞쪽만 고쳐 번호가 겹치게 되므로 아예 건드리지 않는다
+            if same:
+                return []
+            continue
+        if label or (at == lv and not same):
+            cut = True   # 구분 라벨(다른 묶음) · 같은 레벨인데 번호가 없거나 번호 꼴이 다른 헤딩 — 이어 매기기는 여기까지
+            continue
+        if at is None or at > lv:
+            continue   # 본문·더 깊은 헤딩
+        out.append(b["id"])
+        nums.append(h[3])
+    return out if nums and nums == list(range(nums[0], nums[0] + len(nums))) else []
 
 
 OUTSIDE_LETTERS = "가나다라마바사아자차카타파하"
@@ -550,7 +631,9 @@ def _last_end(items, i, dim, prev, levels, extra=0):
     cap = (max(e - a for a, e in prev) if prev else 0) + extra
     lv = levels.get(items[i]["id"])
     inner = [levels[items[k]["id"]] for a, e in prev for k in range(a + 1, e + 1) if items[k]["id"] in levels]
-    limit = lv if lv else (min(inner) - 1 if inner else None)
+    # 앞 항목 안에 라벨과 같거나 얕은 헤딩이 있으면 라벨 레벨은 끝이 못 된다(연차보고서 「[공동연구개발기관2 : …]」 H5 아래 「ㅇ …현황표」 H4 — 거기서 끊으면
+    # 마지막 항목만 작게 재어져 다시 반영할 때마다 지우고 본떠 뒷부분이 쌓였다, 2026-11-11) → 레벨 없는 라벨과 같게 「안쪽 헤딩 중 가장 얕은 것 - 1」
+    limit = min(inner) - 1 if inner and (not lv or min(inner) <= lv) else (lv or None)
     tables = any(items[k].get("type") == "table" for a, e in prev for k in range(a, e + 1))
     j = i + 1
     while j < len(items) and j - i <= cap:
@@ -638,9 +721,17 @@ def _year_col(t, c, up):
     return 1 + sum(1 for x in t["cells"] if x["row"] == c["row"] and up["col"] <= x["col"] < c["col"] and YEAR_ONLY.match(x["text"] or ""))
 
 
-def _table_groups(t, title=""):
-    """표 하나의 묶음 — title = 표 바로 앞 글 있는 문단(7-3 「ㅇ 비영리기관 현황」 — 기관 열이 받는 기관 종류)."""
+def _table_groups(t, title="", this=False):
+    """표 하나의 묶음 — title = 표 바로 앞 글 있는 문단(7-3 「ㅇ 비영리기관 현황」 — 기관 열이 받는 기관 종류).
+    this = 보고서 「해당연도」 절의 표(② §18 — find 가 둘러싼 헤딩으로 정함): 머리 칸이 「구분」 인 열의 단계-차년도 행 라벨은 값 차례가 아니라
+    **바로 왼쪽 칸**(평가항목)이 같은 것끼리 한 묶음(하나뿐이어도) — 당해 차년도 행만 남긴다(thisYear). 그런 열이 아니면 여느 묶음.
+    ponytail: 머리 칸 글 「구분」 으로만 그 열을 알아본다(「해당연도」 범위가 넓어 — 3절 성과 표까지 — 본문에 쓴 「1단계-1차년도」 칸을 건드리지 않게).
+    머리 글이 다른 같은 꼴 표가 나오면 「왼쪽 병합 칸 아래 단계-차년도 칸이 차례로 선 열」 로 넓힌다."""
     labs, out = _table_labels(t), []
+
+    def left(x):   # 라벨 칸 바로 왼쪽에서 그 행을 덮는 칸 id | None
+        return next((y["id"] for y in t["cells"] if y["col"] + y["colSpan"] == x[0]["col"]
+                     and y["row"] <= x[0]["row"] <= y["row"] + y["rowSpan"] - 1), None)
     for axis in ("rows", "cols"):
         r, c = ("row", "col") if axis == "rows" else ("col", "row")
         rs, cs = ("rowSpan", "colSpan") if axis == "rows" else ("colSpan", "rowSpan")
@@ -657,7 +748,9 @@ def _table_groups(t, title=""):
                 and not x[c] <= a[0][c] < x[c] + x[cs] for x in t["cells"])
         for ls in keys.values():
             ls.sort(key=lambda x: x[0][r])
-            for g in _runs(ls, lambda x: x[1], lambda x: x[2], joined):
+            solo = this and axis == "rows" and ls[0][1] == STAGE_YEAR and all(left(x) for x in ls) and any(
+                y["row"] == 0 and y["col"] == ls[0][0]["col"] and _bare(y["text"]) == "구분" for y in t["cells"])
+            for g in ([Run(v) for _, v in groupby(ls, key=left)] if solo else _runs(ls, lambda x: x[1], lambda x: x[2], joined)):
                 if g[0][1] == ORG and not all(re.search(r"연구개발기관\s*(?:\d+|[Nn]|명)", x[0]["text"]) for x in g):
                     continue  # 표의 기관 묶음은 번호·「…기관명」 자리가 있을 때만(채용 확인서의 「주관/공동연구개발기관」 고르기 행 제외)
                 items = []
@@ -673,7 +766,7 @@ def _table_groups(t, title=""):
                                   "content": sorted(_content(p["text"]) for x in inside for p in _paras(x)
                                                     if x["id"] != cell["id"])})
                 out.append({"kind": axis, "dim": g[0][1], "container": None, "table": t["id"], "bare": g[0][4],
-                            "items": items, "irregular": g.irregular, "_t": t})
+                            "items": items, "irregular": g.irregular, "_t": t, "thisYear": solo})
     used = {x for g in out if g["kind"] == "rows" for it in g["items"] for x in it["scope"]} | \
         {it["label"] for g in out for it in g["items"]}   # 행 묶음 항목 안 칸(「[1단계 목표]」)은 구간 머리가 아님
     out += _section_rows(t, [lab for lab in labs if lab[0]["id"] not in used])
@@ -862,27 +955,79 @@ def _role_rows(t):
     return out
 
 
-def _role_fit(groups, values):
+def _name_sigs(values, prior=()):
+    """반영이 썼을 기관 이름 차례(주관 → 공동1 …, 빈칸 뺌) — 지금 값과 앞서 반영한 값마다 하나. 기관이 둘 이상인 값만(이름 하나로는 반영이 쓴 줄인지 못 가림)."""
+    out = []
+    for v in (values, *(prior or ())):
+        sig = [_bare(org_name(v, k)) for k in range(len(v["orgs"]["joint"]) + 1)]
+        if len(sig) >= 2 and sig not in out:
+            out.append(sig)
+    return out
+
+
+def _own_rows(t, taken, sigs):
+    """이름 칸 행 묶음(② §19) — 반영이 「주관연구개발기관명」·「공동연구개발기관명」 칸 라벨에 이름을 넣고 나면 라벨 낱말이 사라져 칸 라벨 묶음(_table_groups)이
+    그 표를 다시 못 찾는다(보고서 5절 「다음연도 연구개발비 지원·부담계획」). 한 열에서 위아래로 맞닿은 칸들의 글이 **어느 한 값의 기관 이름 차례 그대로**
+    (sigs — _name_sigs)이고 그 위 머리 칸에 「기관」 이 있으면 기관마다 그 칸이 걸친 행. 이름 차례가 통째로 같을 때만이라 작성한 표(일부 기관만·다른 차례)는 안 잡힌다.
+    taken = 이 표의 다른 기관 묶음이 이미 가진 칸·문단 id. 항목의 name·nameAts 는 역할 칸 행 묶음(_role_rows)과 같은 뜻."""
+    by, out = {}, []
+    for c in t["cells"]:
+        if c["id"] not in taken and (n := _bare(c["text"])):
+            by.setdefault((c["col"], c["colSpan"]), []).append((c, n))
+    for (col, _), cells in by.items():
+        cells.sort(key=lambda x: x[0]["row"])
+        run = next((cells[i:i + len(sig)] for sig in sigs for i in range(len(cells) - len(sig) + 1)
+                    if [n for _, n in cells[i:i + len(sig)]] == sig
+                    and all(b[0]["row"] == a[0]["row"] + a[0]["rowSpan"] for a, b in zip(cells[i:], cells[i + 1:i + len(sig)]))), None)
+        if run is None:
+            continue
+        head = max((h for h in t["cells"] if h["row"] + h["rowSpan"] <= run[0][0]["row"] and h["col"] <= col < h["col"] + h["colSpan"]),
+                   key=lambda h: h["row"], default=None)
+        if head is None or "기관" not in _bare(head["text"]):
+            continue
+        items = []
+        for k, (c, name) in enumerate(run):
+            a, e = c["row"], c["row"] + c["rowSpan"] - 1
+            inside = [x for x in t["cells"] if a <= x["row"] and x["row"] + x["rowSpan"] - 1 <= e]
+            items.append({"value": ("joint", k) if k else ("lead", 0), "label": c["id"], "labelText": c["text"], "name": name, "span": (a, e),
+                          "nameAts": [i for i, x in enumerate(inside) if x["id"] == c["id"]],
+                          "cross": (min(x["col"] for x in inside), max(x["col"] + x["colSpan"] - 1 for x in inside)),
+                          "roots": [x["id"] for x in inside], "scope": {y["id"] for x in inside for y in _under(x)}, "size": e - a + 1,
+                          "content": sorted(_content(p["text"]) for x in inside if x["id"] != c["id"] for p in _paras(x)
+                                            if (p["text"] or "").strip())})
+        out.append({"kind": "rows", "dim": ORG, "container": None, "table": t["id"], "items": items, "_t": t, "ownRows": True, "irregular": False})
+    return out
+
+
+def _own_names(values, prior=()):
+    """반영이 넣은 것으로 보는 기관 이름(빈칸 뺌) — 지금 값의 이름 + 앞서 이 문서에 반영한 값들(prior, ② §19)의 이름. 라벨·칸의 이름이 여기 있으면 자리 차례로 맞추고,
+    없으면 작성한 문서로 보고 그대로 둔다(_role_fit·_label_fit·_org_year_fit)."""
+    return {_bare(org_name(v, k)) for v in (values, *(prior or ())) for k in range(len(v["orgs"]["joint"]) + 1)}
+
+
+def _role_fit(groups, values, prior=()):
     """역할 칸 행 묶음이 구분 값과 어긋나면(작성한 표) 그대로 둔다(② §12) — 이름 칸에 구분 값에 없는 이름(빈 칸·양식 예시·기본 이름 말고)이 있을 때.
-    기관-연도 표(_org_year_fit)와 같은 뜻. 보호는 여기까지 — 이름이 모두 값에 있으면 자리 차례로 맞춘다(차례를 바꾸거나 끼운 값이면 이름이 자리대로 다시 쓰임, ② §12 「이 보호의 범위」)."""
-    names = {_bare(org_name(values, k)) for k in range(len(values["orgs"]["joint"]) + 1)}
+    기관-연도 표(_org_year_fit)와 같은 뜻. 보호는 여기까지 — 이름이 모두 값에 있으면 자리 차례로 맞춘다(차례를 바꾸거나 끼운 값이면 이름이 자리대로 다시 쓰임, ② §12 「이 보호의 범위」).
+    prior = 앞서 반영한 값들(② §19) — 그 이름은 값에 있는 것과 같게 본다(이름을 바꾼 값으로 다시 반영)."""
+    names = _own_names(values, prior)
     for g in groups:
         if g.get("roleRows") and any(not ROLE_SLOT.match(it["name"]) and it["name"] not in names for it in g["items"]):
-            g["irregular"], g["target"] = True, None
+            g["irregular"], g["named"], g["target"] = True, True, None
 
 
-def _label_fit(groups, values):
+def _label_fit(groups, values, prior=()):
     """기관 라벨 묶음(문단·칸 라벨)의 라벨에 구분 값에 없는 이름이 적혀 있으면(작성한 문서) 그대로 둔다(② §15). 꼴에서 이름 자리를 빼면서(_shape) 이름 든
-    라벨도 묶음이 되므로, 반영이 넣은 이름(값에 있음)과 남이 쓴 이름을 가른다(_role_fit·_org_year_fit 과 같은 뜻). 자리표시(「기관명 기입」·「기업명1」)·
+    라벨도 묶음이 되므로, 반영이 넣은 이름(값에 있음 · 앞서 반영한 값 prior 의 이름 — ② §19)과 남이 쓴 이름을 가른다(_role_fit·_org_year_fit 과 같은 뜻). 자리표시(「기관명 기입」·「기업명1」)·
     기본 이름(「참여기관k」)은 이름이 아님(_name). 역할 칸·기관-연도·기관 열·목록 행·외/국외/위탁 묶음은 저마다의 규칙."""
-    names = {_bare(org_name(values, k)) for k in range(len(values["orgs"]["joint"]) + 1)}
+    names = _own_names(values, prior)
     for g in groups:
         if g["dim"] != ORG or g.get("roleRows") or g.get("orgYear") or g.get("orgCols") or g.get("list") or g["items"][0]["value"][0] in EXTRA:
             continue
         for it in g["items"]:
-            m = SLOT_COLON.search(it.get("labelText") or "") or SLOT_PAREN.search(it.get("labelText") or "")
+            t = it.get("labelText") or ""
+            m = SLOT_COLON.search(t) or SLOT_PAREN.search(t) or SLOT_HEAD.search(t)   # 책임자 절 제목 괄호도 이름 자리(② §16)
             if m and (n := _name(m.group(2))) and _bare(n) not in names:
-                g["irregular"], g["target"] = True, None
+                g["irregular"], g["named"], g["target"] = True, True, None
                 break
 
 
@@ -926,27 +1071,40 @@ def _ctx(g, groups):
     return best["value"] if best["value"] != N else "?"
 
 
-def find(blocks, levels, values, settled=(), rebuild=True, hints=None):
+def find(blocks, levels, values, settled=(), rebuild=True, hints=None, prior=None):
     """한 차례의 묶음 목록 — 각 묶음에 key·ctx·target(목표 값 목록 | None)·plan. settled = 이미 구조를 맞춘 묶음 key(다시
     본뜨지 않고 수·이름만 맞춤 — 안쪽 묶음이 자라 크기가 달라져도 되풀이하지 않게). rebuild=False = 모든 묶음을 그렇게(양식 자리표시를
-    다시 본뜨지 않음 — 같은 값을 이미 전체 반영한 문서, ② §3). hints = 추가한 자리 문단 id 들(② §11 — 그 꼴을 라벨로)."""
-    groups, year_cells, titles, heads = [], set(), {}, {}
+    다시 본뜨지 않음 — 같은 값을 이미 전체 반영한 문서, ② §3). hints = 추가한 자리 문단 id 들(② §11 — 그 꼴을 라벨로).
+    prior = 앞서 이 문서에 반영한 값들(norm_values 꼴의 목록, ② §19) — 그 값의 기관 이름·연도가 적힌 자리는 반영이 쓴 것으로 보아 지금 값에 없어도
+    자리 차례로 맞추고, 반영이 이름을 넣어 라벨 낱말이 사라진 표(이름 칸 행 묶음 — _own_rows)도 다시 찾는다. None(안 넘김) = 그 둘을 하지 않는다 —
+    지금 값만 보고 다른 이름·연도가 적힌 자리는 작성한 문서로 보고 그대로(병합처럼 읽기만 하는 호출은 전과 같은 묶음)."""
+    sigs = _name_sigs(values, prior) if prior is not None else []
+    groups, year_cells, titles, heads, this = [], set(), {}, {}, set()
     idx = structure.index_blocks(blocks)
     hinted = hint_shapes(idx, hints) if hints else None
+    report = is_report(form_of(blocks))
+    joint_of = _joint_of(values)
     for cid, items in _containers(blocks):
-        groups += _para_groups(cid, items, levels, hinted)
+        groups += _para_groups(cid, items, levels, hinted, report, joint_of)
         prev, chain = "", {}   # 표 제목 = 같은 그릇에서 바로 앞 글 있는 문단(빈 문단은 건너뜀, 앞이 표면 없음) · chain = 둘러싼 헤딩(레벨 → 글)
         for b in items:
             if b.get("type") == "table":
                 titles[b["id"]], prev = prev, ""
                 heads[b["id"]] = " ".join(chain.values())
+                # 보고서: 둘러싼 헤딩을 안쪽부터 보아 처음 나온 범위 낱말(※ 주석 뺌)이 「해당·당해연도」 인 표 — 단계-차년도 행은 당해 차년도 행만(② §18)
+                sc = next((m for v in reversed(chain.values()) if (m := YEAR_SCOPE.search(NOTE.sub("", v)))), None)
+                if report and sc and not sc.group(1):
+                    this.add(b["id"])
             elif (b.get("text") or "").strip():
                 prev = b["text"]
                 if (lv := levels.get(b["id"])):
                     chain = {k: v for k, v in chain.items() if k < lv} | {lv: b["text"]}
     for b in structure.iter_blocks(blocks):
         if b.get("type") == "table":
-            groups += _table_groups(b, titles.get(b["id"], ""))
+            tg = _table_groups(b, titles.get(b["id"], ""), b["id"] in this)
+            if sigs:   # 이름 칸 행 묶음(② §19) — 다른 기관 묶음이 안 가진 칸에서만
+                tg += _own_rows(b, {x for g in tg if g["dim"] == ORG for it in g["items"] for x in it["scope"] | {it["label"]}}, sigs)
+            groups += tg
             year_cells |= {lab[0]["id"] for lab in _table_labels(b) if lab[1] in (YEAR, STAGE_YEAR)}
     groups = _qualify(groups, year_cells)
     for g in groups:   # 같은 구분 기준 묶음이 항목 안에 또 있으면(별첨 채용 확인서의 단계-차년도 안 단계-차년도) 값 바꾸기가 섞여 못 함
@@ -977,13 +1135,18 @@ def find(blocks, levels, values, settled=(), rebuild=True, hints=None):
         elif g.get("orgYear") == "year" and NEXT_YEAR.search(heads.get(g["table"], "")):   # 보고서 「다음 연도」 절의 기관-연도 표:
             k = min((values.get("current") or 1) + 1, sum(values["stages"]))                 # 기관마다 다음 차년도 행 하나(마지막 해면 그 해)
             g["target"], g["yearBase"] = [1], k - 1
+        elif g.get("thisYear") and len({it["value"] for it in g["items"]}) < len(g["items"]):
+            g["irregular"], g["target"] = True, None   # 같은 차년도 행이 둘 — 평가항목을 못 가른 표(왼쪽 칸을 합친 표 등): 그대로
+        elif g.get("thisYear"):   # 보고서 「해당연도」 절 표의 단계-차년도 행: 당해 차년도 행 하나(② §18)
+            g["target"] = [stage_year(values, values.get("current") or 1)]
         else:
             g["target"] = targets(g["dim"], values, ctx=g["ctx"])
-    _org_year_fit(groups, values)
-    _role_fit(groups, values)
-    _label_fit(groups, values)
+    _org_year_fit(groups, values, prior)
+    _role_fit(groups, values, prior)
+    _label_fit(groups, values, prior)
     for g in groups:
         g["plan"] = _plan(g, values, idx, rebuild=rebuild and g["key"] not in settled) if g["target"] is not None else None
+    _sign_fit(groups, values, blocks, idx)   # 계획(최종 차례)이 있어야 줄마다 들어갈 이름을 안다 — 맨 끝에
     return groups
 
 
@@ -992,15 +1155,19 @@ def find(blocks, levels, values, settled=(), rebuild=True, hints=None):
 def _plan(g, values, idx, rebuild=True):
     """{"keep": [항목 번호], "drop": [항목 번호], "template": 본뜰 항목 번호, "copies": n, "order": 최종 차례, "done"}.
     본뜰 항목 = 가장 큰 항목(같으면 뒤 — 기관은 공동 항목 중). 그보다 뒤에 있는 작은 항목이 양식 글뿐(본뜰 항목에 없는 글이 없음)이면
-    지우고 본뜬 사본으로 대신 — 양식의 「n단계」처럼 덜 갖춘 자리표시 항목. 남는 항목은 끝에서부터 지움."""
+    지우고 본뜬 사본으로 대신 — 양식의 「n단계」처럼 덜 갖춘 자리표시 항목. 남는 항목은 끝에서부터 지움.
+    기관-연도 표의 한 해 블록보다 작은 기관 항목(thin — _org_year)은 본뜰 항목에서 뺀다: 공동 항목이 모두 그러면 주관 블록을 본뜬다."""
     items, tg = g["items"], g["target"]
-    pool = [i for i, it in enumerate(items) if not (g["dim"] == ORG and it["value"][0] == "lead")] or [0]
+    pool = [i for i, it in enumerate(items) if not (g["dim"] == ORG and it["value"][0] == "lead") and not it.get("thin")] or [0]
     big = max(items[i]["size"] for i in pool)
     tpl = max(i for i in pool if items[i]["size"] == big)
     have = set(items[tpl]["content"])
-    drop = [i for i in range(tpl + 1, len(items)) if items[i]["size"] < big and set(items[i]["content"]) <= have] \
-        if rebuild else []
+    drop = [i for i in range(tpl + 1, len(items)) if items[i]["size"] < big and set(items[i]["content"]) <= have
+            and (rebuild or items[i].get("thin"))]   # thin 은 다시 본뜨지 않는 문서에서도 — 옛 판이 간접비 표에 남긴 얇은 기관 행을 다음 계획에서 고침
     keep = [i for i in range(len(items)) if i not in drop]
+    if g.get("thisYear"):   # 당해 차년도 행만(② §18): 그 값의 행이 있으면 그 행을(쓴 글과 라벨이 어긋나지 않게), 없으면 첫 행을 남기고 나머지는 지움
+        tpl = next((i for i, it in enumerate(items) if it["value"] == tg[0]), 0)
+        keep, drop = [tpl], [i for i in range(len(items)) if i != tpl]
     while len(keep) > len(tg):
         drop.append(keep.pop())
     copies = len(tg) - len(keep)
@@ -1025,6 +1192,8 @@ def _changes(g, values, it, ord_old, ord_new, new, idx):
         return [(p["id"], w) for p, w in zip(ps, want) if p["text"] != w]
     if g.get("orgYear"):   # 기관-연도 표: 기관 칸 = 기관 이름, 연도 칸 = 연도·차년도
         return _org_year_changes(g, values, it, new, idx)
+    if g.get("ownRows"):   # 이름 칸 행 묶음(② §19): 이름 칸 = 그 자리 기관 이름
+        return [ch for at in it["nameAts"] for ch in _put(idx.get(it["roots"][at]), org_name(values, new[1]))]
     if g.get("roleRows"):   # 역할 칸 행 묶음(② §12): 이름 칸 = 그 자리 기관 이름, 역할 괄호는 새 값의 역할
         name, role = org_name(values, new[1]), "주관" if new[0] == "lead" else "공동"
         return [ch for at in it["nameAts"] for ch in _put_role(idx.get(it["roots"][at]), name, role)]
@@ -1052,6 +1221,17 @@ def _changes(g, values, it, ord_old, ord_new, new, idx):
         if new_text != joined and len(lines) == len(ps):
             done = {pid for pid, _ in out}
             out += [(p["id"], line) for p, line in zip(ps, lines) if line != p["text"] and p["id"] not in done]
+    if g.get("tail") and ord_new == len(g["target"]):   # 번호 잇기(② §16) — 마지막 항목 차례에, 묶음 뒤 같은 레벨 번호 헤딩을 묶음 수에 이어서
+        for j, pid in enumerate(g["tail"], 1):
+            p = idx.get(pid)
+            if p is not None and (text := LEAD_NUM.sub(lambda m: m.group(1) + str(ord_new + j), p["text"], count=1)) != p["text"]:
+                out.append((pid, text))
+    if g.get("sign") and label in idx and (n := g["sign"].get(ord_new - 1)) is not None:   # 서명 줄 맞춤(② §20) — 이름을 넣은 글에서 「(직인)」 앞 빈칸 수만 그 자리 몫으로
+        cur = idx[label]["text"]
+        text = next((t for pid, t in out if pid == label), cur)
+        if (m := SIGN_LINE.match(text)):
+            text = f"{m.group(1)}{' ' * n}{m.group(3)}"
+        out = [(pid, t) for pid, t in out if pid != label] + ([(label, text)] if text != cur else [])
     return out
 
 
@@ -1089,9 +1269,8 @@ def _rename(text, dim, old, new, label, ords, values, copy=False):
         if (name := extra_name(values, *new)):
             return f"{m.group(1)}{letter}{m.group(3)} {name} {m.group(6).strip()}"
         return f"{m.group(1)}{letter}{m.group(3)}{m.group(4)}{'' if copy else m.group(5)}{m.group(6)}"
-    if dim == ORG and label and new[0] == "entrust":   # 위탁 서명 줄 「위탁연구개발기관(이름)의 장」 — 이름이 없으면 그대로(사본이면 괄호 뺌)
-        name = extra_name(values, *new)
-        return ENTRUST_SIGN.sub(lambda m: m.group(1) + (f"({name})" if name else ""), text, count=1) if name or copy else text
+    if dim == ORG and label and new[0] == "entrust":   # 위탁 서명 줄 「위탁연구개발기관의 장」 — 이름을 넣지 않는다(② §20): 앞서 넣은 이름 괄호·사본의 괄호는 뺀다
+        return ENTRUST_SIGN.sub(r"\1", text, count=1) if extra_name(values, *new) or copy else text
     if dim == SUB:   # 「(세부k)」 번호, 라벨의 「주관연구개발기관(…)」 괄호 = 세부 k 이름(없으면 그대로 — 사본이면 양식 자리표시)
         text = SUB_RE.sub(lambda m: m.group(0)[:m.start(1) - m.start()] + str(new) + m.group(0)[m.end(1) - m.start():]
                           if _same(m.group(1), old) else m.group(0), text)
@@ -1107,8 +1286,10 @@ def _rename(text, dim, old, new, label, ords, values, copy=False):
 
 
 def _org_text(text, new, name):
-    """기관 라벨: 공동 번호 → k, 이름 자리 → 이름(괄호 안 / 쌍점 뒤 / 「…기관명」 낱말 / 「…기관의」 앞에 괄호로 넣음)."""
+    """기관 라벨: 공동 번호 → k, 이름 자리 → 이름(괄호 안 / 쌍점 뒤 / 「…기관명」 낱말 / 「…기관의」 앞에 괄호로 넣음). 서명 줄 「…기관의 장」 은 이름 자리가 아니다(SIGN_NAME)."""
     kind, k = new
+    if kind == "joint" and SLOT_HEAD.search(text):   # 책임자 절 제목 — 「책임자」 바로 뒤 괄호에 이름(있던 괄호는 바꿈, ② §16). 주관 절에는 안 넣는다
+        return SLOT_HEAD.sub(lambda m: f"{m.group(1)}({name})", text, count=1)
     colon = SLOT_COLON.search(text) is not None   # 「[…기관명 : ]」 — 낱말은 두고 쌍점 뒤에 이름
 
     def tok(m):
@@ -1120,11 +1301,148 @@ def _org_text(text, new, name):
     text, n = ORG_RE.subn(tok, text, count=1)
     if not n or ORG_RE.search(text) is None:
         return text
+    if SIGN_NAME.search(text):   # 서명 줄 「…기관의 장」 — 이름을 넣지 않는다, 앞서 반영이 넣은 이름 괄호는 뺀다(② §20, 사용자 2026-11-12)
+        return SIGN_NAME.sub(r"\1", text, count=1)
     if SLOT_PAREN.search(text):
         return SLOT_PAREN.sub(lambda m: f"{m.group(1)}({name})", text, count=1)
     if SLOT_COLON.search(text):
         return SLOT_COLON.sub(lambda m: f"{m.group(1)}{name}{m.group(3)}", text, count=1)
     return SLOT_OF.sub(lambda m: f"{m.group(1)}({name}){m.group(2)}", text, count=1)
+
+
+# ---- 서명 줄 맞춤 (spec_구분_기준 ② §20) -------------------------------------------------------------------
+
+SIGN_FONT = {"LATIN": "fontLatin", "HANJA": "fontHanja", "JAPANESE": "fontJapanese", "SYMBOL": "fontSymbol"}   # 언어 → 서식 요약의 글꼴 키(hwpx_format.LANG_FONT_KEYS)
+_SIGN_FACES = {}   # (글꼴 이름, 언어, 굵게) → 이 PC 의 글꼴 face | None — 글꼴 찾기는 프로세스에 한 번
+SIGN_SLACK = 0.3   # pt(≈0.1mm) — 줄에 들어가는지 볼 때 두는 틈. 계산한 폭과 한글이 찍은 폭의 차(PDF 실측 0.06mm)보다 조금 크게
+
+
+def _glyph_em(ch, fmt):
+    """글자 하나의 글꼴 폭(em) — 문서 글꼴 → 함초롬바탕(한글이 글꼴에 없는 글자를 찍는 글꼴) → 어림(전각 1 · 그 밖 0.5). 글꼴 찾기·폭은 개요 줄 자리
+    (app/outline_pos)의 것 그대로. 늦게 불러온다 — 글꼴을 못 읽는 곳(글꼴 없는 PC·PyMuPDF 없음)에서도 반영은 어림 폭으로 간다."""
+    try:
+        from app import fonts, outline_pos
+        lang, bold = fonts.lang_of(ch), bool(fmt.get("bold"))
+        for name, lg in ((fmt.get(SIGN_FONT.get(lang, "font")) or fmt.get("font"), lang), (outline_pos.FALLBACK_FACE, "HANGUL")):
+            if (name, lg, bold) not in _SIGN_FACES:
+                ix = fonts.font_index()
+                fam = ix.resolve(name, lg)["key"] if name else None
+                _SIGN_FACES[name, lg, bold] = ((ix.face(fam, True) if bold else None) or ix.face(fam)) if fam else None
+            face = _SIGN_FACES[name, lg, bold]
+            if face and (w := outline_pos._glyph_em(face, ch)) is not None:
+                return w
+    except Exception:   # noqa: BLE001 — 깨진 글꼴 파일 하나가 반영을 막지 않게
+        pass
+    return 1.0 if unicodedata.east_asian_width(ch) in "WFA" else 0.5
+
+
+def _sign_width(text, fmt):
+    """글 폭(pt) = 글꼴 글자 폭 × 장평 × (1 + 자간) × 글자 크기 — 한글 PDF 실측 식(references/한글_문단모양_줄나눔.md 「글자 폭」). fmt = 블록·런의 글자 모양 요약.
+    빈칸은 「글꼴에 어울리는 빈칸」 을 끈 글자 모양(halfSpace — 한글 기본)이면 글꼴과 무관하게 0.5em, 아니면 글꼴의 빈칸 폭."""
+    k = (fmt.get("sizePt") or 10.0) * (fmt.get("ratioPct") or 100) / 100 * (1 + (fmt.get("spacingPct") or 0) / 100)
+    return sum((0.5 if ch in " \N{NO-BREAK SPACE}" and fmt.get("halfSpace") else _glyph_em(ch, fmt)) * k for ch in text)
+
+
+def _sign_fmt(b, at):
+    """문단 b 의 at 번째 글자의 글자 모양 요약 — 런이 여럿이면 그 글자가 든 런의 것(「(직인)」 뒤 위첨자 각주 번호 「20)」 은 다른 런)."""
+    k = 0
+    for r in b.get("runs") or ():
+        k += len(r["text"])
+        if at < k:
+            return r["format"]
+    return b.get("format") or {}
+
+
+def _sign_tail(b, start):
+    """문단 b 의 start 번째 글자부터 끝(끝 빈칸 뺌 — 줄 끝 빈칸은 줄을 안 바꾼다)까지의 폭(pt) — 글자마다 제 런의 글자 모양으로, 윗·아래첨자는 글자 크기 × 0.64
+    (한글 PDF 실측 — app/fonts.SCRIPT_SIZE)."""
+    text = b["text"].rstrip()
+    return sum(_sign_width(text[i], f) * (0.64 if f.get("script") else 1) for i in range(start, len(text)) for f in [_sign_fmt(b, i)])
+
+
+def _sign_room(cell, b):
+    """칸 안 문단 b 한 줄에 들어가는 폭(pt) = 칸 너비 − 칸 안 왼쪽·오른쪽 여백 − 문단 왼쪽·오른쪽 여백 − 첫 줄 들여쓰기 — 한글 lineseg 의 horzsize 와 같은 값
+    (연차보고서 표지 서명 줄 115.9mm). 모르면(본문 문단 · 너비를 안 주는 칸) None."""
+    if not (cell or {}).get("widthMm"):
+        return None
+    f, mg = b.get("format") or {}, cell.get("marginsMm") or {}
+    mm = cell["widthMm"] - (mg.get("l") or 0) - (mg.get("r") or 0) - (f.get("indentLeftMm") or 0) - (f.get("indentRightMm") or 0) - max(f.get("firstLineMm") or 0, 0)
+    return mm * 72 / 25.4
+
+
+def _sign_fit(groups, values, blocks, idx):
+    """서명 줄 맞춤(② §20, 사용자 2026-11-12 「기관 이름을 넣은 뒤 (직인) 이 세로로 한 줄에 서도록 빈칸 수를 조정」) — 표지의 「주관연구개발기관(이름)의 장:      (직인)」 줄들은
+    서식 속성이 아니라 빈칸 글자로 띄워, 이름을 넣으면 그 길이만큼 「(직인)」 이 줄마다 다르게 밀린다. 같은 날 뒤의 결정으로 **반영은 서명 줄에 이름을 넣지 않는다**(SIGN_NAME —
+    줄만 기관 수만큼): 이름을 뺀 줄들은 「…의 장:」 폭이 같아 모두 기본 빈칸 수가 된다 — 이 맞춤은 옛 판이 이름과 함께 늘린 빈칸을 되돌리고, 안 건드리는 줄(값에 없는 이름이 적힌
+    작성한 문서) 옆의 줄을 그 자리에 세우는 데 쓰인다. 맞닿은 서명 줄(SIGN_LINE)끼리 「(직인)」 앞 빈칸 수를 다시 정해
+    묶음에 적는다: g["sign"] = {최종 차례(0부터): 빈칸 수} — 글은 _changes 가 이름을 넣으면서 함께 고치고, 빈칸만 어긋난 묶음도 「아직 안 맞음」 이 된다(계획 done 을 다시 봄).
+    - 자리: 「…의 장:」 까지의 폭이 가장 넓은 줄(이름이 가장 긴 줄)은 기본 빈칸 수 그대로, 나머지는 「(직인)」 이 그 줄과 같은 자리에 오도록 빈칸을 더한다(빈칸 하나가
+      반각이라 반 칸 안쪽으로 반올림). 가장 넓은 줄이 안 늘어나니 줄 바꿈이 새로 생기지 않는다. 기본 빈칸으로도 한 줄에 안 들어가는 줄(이름이 너무 긴 줄 — 칸 너비를 알 때)은
+      기본 빈칸 그대로 두고 자리를 잡을 때 뺀다(그 줄에 맞추면 다른 줄까지 줄이 바뀐다).
+    - 기본 빈칸 수 = 그 줄들의 지금 빈칸 수 중 가장 작은 것(양식 15칸). 맞춘 뒤에도 가장 넓은 줄이 그 수라, 이름·기관 수가 같으면 다시 계획해도 바뀔 것이 없고
+      이름을 바꾸거나 기관을 빼면 새 이름들로 다시 맞는다(전에 늘린 빈칸이 쌓이지 않음).
+    - 주관·공동 묶음과 위탁 묶음(_entrust_groups)이 맞닿아 있으면 한데 맞춘다. 계획이 없는 묶음(작성한 문서·차례 어김)의 줄은 안 건드리고 그 줄의 지금 자리를 맞출 자리에 넣는다.
+      「연구책임자: (서명)」 줄은 서식에서도 자리가 달라 대상이 아니다. 줄들의 문단 모양(정렬·왼쪽 여백·첫 줄)이 서로 다르거나 오른쪽·배분 정렬이면
+      맞추지 않는다."""
+    signs = [g for g in groups if g["kind"] == "paragraph" and g["dim"] == ORG
+             and all(it.get("label") and it["roots"] == [it["label"]] and SIGN_LINE.match(it["labelText"] or "") for it in g["items"])]
+    owner = {it["label"]: g for g in signs for it in g["items"]}
+    seen = set()
+    is_sign = lambda b: b.get("type") == "paragraph" and SIGN_LINE.match(b.get("text") or "")   # noqa: E731
+    for g in signs:
+        if id(g) in seen:
+            continue
+        items = blocks if g["container"] is None else (idx.get(g["container"]) or {}).get("blocks") or []
+        a = e = next((k for k, b in enumerate(items) if b["id"] == g["items"][0]["label"]), None)
+        if a is None:
+            continue
+        while a > 0 and is_sign(items[a - 1]):
+            a -= 1
+        while e + 1 < len(items) and is_sign(items[e + 1]):
+            e += 1
+        run = items[a:e + 1]   # 맞닿은 서명 줄 띠 — 한데 맞출 줄들
+        members = [h for h in signs if any(owner.get(b["id"]) is h for b in run)]
+        seen.update(id(h) for h in members)
+        shapes = {tuple((b.get("format") or {}).get(k) for k in ("align", "indentLeftMm", "firstLineMm")) for b in run}
+        if len(shapes) > 1 or next(iter(shapes))[0] in ("right", "distribute"):
+            continue   # 줄 시작 자리(정렬·여백)가 줄마다 다르면 빈칸 수로는 못 맞춘다 · 오른쪽 정렬은 이미 한 줄에 서고 배분 정렬은 빈칸 폭이 늘어난다 — 그대로
+        room = _sign_room(idx.get(g["container"]), run[0])   # 한 줄에 들어가는 폭(pt) | None = 모름(본문 문단)
+        fits = lambda w: room is None or w <= room - SIGN_SLACK   # noqa: E731
+        base, fixed, moving = None, [], []   # 기본 빈칸 수 · 안 건드릴 줄의 「(직인)」 자리(pt) · 고칠 줄 (묶음, 최종 차례, 「…의 장:」 폭, 빈칸 폭, 「(직인)」 부터 끝 폭)
+        for b in run:
+            m = SIGN_LINE.match(b["text"])
+            base = len(m.group(2)) if base is None else min(base, len(m.group(2)))
+            if not (owner.get(b["id"]) or {}).get("plan"):
+                fmt = _sign_fmt(b, m.end(1) - 1)
+                at = _sign_width(m.group(1), fmt) + len(m.group(2)) * _sign_width(" ", fmt)
+                if fits(at + _sign_tail(b, m.start(3))):
+                    fixed.append(at)
+        for h in members:
+            plan = h.get("plan")
+            for n, (what, i) in enumerate(plan["order"] if plan else ()):   # _apply_group 이 _changes 에 넘기는 것과 같은 (항목, 옛 순번, 새 값)
+                i = i if what == "item" else plan["template"]
+                it, src = h["items"][i], idx.get(h["items"][i]["label"])
+                if src is None or not (m0 := SIGN_LINE.match(src["text"])):
+                    continue
+                m = SIGN_LINE.match(_rename(src["text"], ORG, it["value"], h["target"][n], True, (i + 1, n + 1), values, what == "copy" or it.get("copy")))
+                if m:
+                    fmt = _sign_fmt(src, m0.end(1) - 1)
+                    moving.append((h, n, _sign_width(m.group(1), fmt), _sign_width(" ", fmt), _sign_tail(src, m0.start(3))))
+        if not moving:
+            continue
+        # 「(직인)」 이 설 자리(줄 시작에서, pt) — 기본 빈칸으로도 한 줄에 안 들어가는 줄(이름이 너무 긴 줄 — 어차피 줄이 바뀜)은 빼고 잡는다: 그 줄에 맞추면 다른 줄까지 줄이 바뀐다
+        x = max([w + base * s for _, _, w, s, t in moving if fits(w + base * s + t)] + fixed, default=None)
+        for h, n, w, s, t in moving:
+            k = base
+            if x is not None and s > 0 and fits(w + base * s + t):
+                k = max(base, int((x - w) / s + 0.5))
+                while k > base and not fits(w + k * s + t):   # 반올림한 반 칸이 줄 끝을 넘으면 한 칸 덜
+                    k -= 1
+            h.setdefault("sign", {})[n] = k
+        for h in members:   # 이름은 이미 맞는데 빈칸만 어긋난 묶음 — 다시 봐서 할 일로
+            plan = h.get("plan")
+            if plan and plan["done"] and h.get("sign"):
+                plan["done"] = not any(_changes(h, values, h["items"][i], i + 1, n + 1, h["target"][n], idx) for n, (_, i) in enumerate(plan["order"]))
 
 
 # ---- 미리보기 · 초기화 -------------------------------------------------------------------------------------
@@ -1142,14 +1460,15 @@ def _pending(groups, skip):
 
 
 def spot(g, work=()):
-    """화면용 자리 요약(② §5). reason = 지금 고치지 않는 까닭 — "done"(이미 맞음) | "irregular"(같은 꼴 라벨이 차례를 어김 —
+    """화면용 자리 요약(② §5). reason = 지금 고치지 않는 까닭 — "done"(이미 맞음) | "named"(구분 값에도 앞서 반영한 이름에도 없는
+    기관 이름이 적혀 있음 — 작성한 문서, ② §19) | "irregular"(같은 꼴 라벨이 차례를 어김 —
     손댄 문서) | "unset"(세부과제 값이 비어 그대로) | "stage"(자리표시 단계 안 — 단계가 정해진 뒤) | "blocked"(병합 칸 때문에 표를
     못 고침 — message) |
     "nested"(바깥 묶음 뒤 다음 차례) | null."""
     nested = _nested(g, work)
     plan = g["plan"] or {}
     done = bool(plan.get("done"))
-    reason = "done" if done else "irregular" if g.get("irregular") else "unset" if g.get("unset") \
+    reason = "done" if done else "named" if g.get("named") else "irregular" if g.get("irregular") else "unset" if g.get("unset") \
         else "stage" if g["target"] is None else "blocked" if plan.get("blocked") else "nested" if nested else None
     # 줄일 때 지워질 항목 중 작성한 글이 든 것 — 화면은 ⚠ 로 보이고 「모두 반영」 에서 처음엔 뺀다(10-31 [2f], astra A2·A-4). 글 = 남는 항목들(keep)에 없는 content 중
     # 자리표시·글머리·빈 칸을 뺀 실제 글이 있는 것(남는 항목에 있는 양식 공통 글은 양식 글로 봄, 빈 뼈대 「o 」·빈 행은 아님). 한계(사양 §5): 다른 항목에 똑같이 쓴 글은 못
@@ -1165,8 +1484,8 @@ def spot(g, work=()):
             "hinted": bool(g.get("hinted"))}
 
 
-def preview(blocks, levels, values, rebuild=True, hints=None):
-    groups = find(blocks, levels, values, rebuild=rebuild, hints=hints)
+def preview(blocks, levels, values, rebuild=True, hints=None, prior=None):
+    groups = find(blocks, levels, values, rebuild=rebuild, hints=hints, prior=prior)
     work = [g for g in groups if g["plan"] and not g["plan"]["done"] and not g["plan"].get("blocked")]
     fill = period_fill(blocks, values, is_report(form_of(blocks)))
     return [spot(g, work) for g in groups] + ([_period_spot(fill)] if fill else [])
@@ -1186,11 +1505,12 @@ def _short(text, n=40):
     return re.sub(r"\s+", " ", text or "").strip()[:n]
 
 
-def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=None):
+def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=None, prior=None):
     """구분 값에 맞춰 문서를 고친다(② §3) — 차례마다 바깥 묶음만, 다시 찾기. levels_of(blocks) -> {블록 id: 헤딩 레벨}.
     rebuild=False = 양식 자리표시(본뜰 항목보다 작은 뒤 항목)를 지우고 다시 본뜨지 않음 — 같은 값을 이미 전체 반영한 문서(서버가 정함).
     only = 묶음 key 하나 — 그 묶음과 그 안쪽 묶음만(오른쪽 패널의 자리별 「반영」). 사업기간이 있으면 차례가 끝난 뒤 날짜를 채움
     (② §8 — only "period" = 날짜만, skip 에 "period" = 날짜 빼기). hints = 추가한 자리 문단 id 들(② §11 — find 에 그대로).
+    prior = 앞서 이 문서에 반영한 값들(② §19 — find 에 그대로: 그 값의 이름·연도가 든 자리는 자리 차례대로 새 값으로 다시 쓴다).
     -> {"groups": [{key, dim, kind, from, to, table, labels, added: [사본 라벨 id], removed: [지운 항목 라벨]}], "added",
     "removed", "passes", "errors", "changes": [{id, old, new, key}] (글을 바꾼 문단 — 처음 글 → 마지막 글),
     "tables": {표 id: {"removed": [칸], "origin": {새 칸: 원본 칸}}}}."""
@@ -1201,7 +1521,7 @@ def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=N
     inside = set() if only is not None else None   # only: 고친 묶음의 범위 + 사본 id(_within)
     for _ in range(PASSES if only != PERIOD else 0):
         blocks = doc.blocks()
-        groups = find(blocks, levels_of(blocks) if levels_of else {}, values, settled=shaped, rebuild=rebuild, hints=hints)
+        groups = find(blocks, levels_of(blocks) if levels_of else {}, values, settled=shaped, rebuild=rebuild, hints=hints, prior=prior)
         if only is not None:
             groups = _within(groups, only, inside)
         work = _pending(groups, skip)
@@ -1307,6 +1627,14 @@ def _org_year(t):
                           "year": int(texts[i]) if REAL_YEAR.match(texts[i]) else None})
         out.append({"kind": "rows", "dim": YEAR, "container": None, "table": t["id"], "items": items, "_t": t,
                     "orgYear": "year"})
+    # 한 해 블록(가장 큰 연도 항목 — 간접비 표의 「2021 | 1차(1단계) | 세부항목 행들」 7행)보다 행이 적은 기관 항목은 한 해도 못 담는
+    # 덜 갖춘 자리표시(간접비 표 끝 빈 행 — 연도·연차 칸이 병합됨): 본뜰 항목이 못 된다(_plan — 주관 블록을 본뜨고 그 행은 사본으로 대신).
+    # 연도 칸이 한 행씩인 목록형 표(연구시설·장비 등)는 한 해 블록 = 1행이라 빈 행이 그대로 본뜰 항목(사용자 2026-11-11).
+    # ponytail: 행 수만 본다 — 예시 연도 칸을 여러 행에 병합한 목록형 표도 블록으로 보고, 세부항목 행마다 연도 칸이 따로인 블록 표는 못 잡는다.
+    # 그런 서식이 나오면 연도 블록 안 세로 병합 칸(세부항목)·연차 칸 유무로 좁힌다.
+    unit = max((it["size"] for g in out for it in g["items"]), default=1)
+    for it in org_items:
+        it["thin"] = it["size"] < unit
     out.insert(0, {"kind": "rows", "dim": ORG, "container": None, "table": t["id"], "items": org_items, "_t": t,
                    "orgYear": "org"})
     for g in out:
@@ -1325,21 +1653,32 @@ def _org_year_item(value, cell, inside, fixed, blank):
                               if (p["text"] or "").strip())}
 
 
-def _org_year_fit(groups, values):
+def _org_year_fit(groups, values, prior=()):
     """기관-연도 표가 구분 값과 어긋나면(작성한 표 — 경비가 있는 기관만 적은 표 등) 그 표의 묶음을 모두 그대로 둔다(② §2): 기관 칸에
     구분 값에 없는 이름(빈 칸·양식 예시 「KEIT」·기본 이름 말고)이 있거나, 사업기간 안 실제 연도가 행 차례(k차년도 = 시작 연도 + k − 1)와
-    다름."""
-    names = {_bare(org_name(values, k)) for k in range(len(values["orgs"]["joint"]) + 1)}
+    다름. prior = 앞서 반영한 값들(② §19) — 그 값의 이름은 값에 있는 것과 같게 보고, 연도가 **그 값으로 반영했을 때 쓰였을 연도 그대로**면
+    (당해 차년도·사업기간을 바꾼 값으로 다시 반영) 어긋난 것으로 보지 않는다."""
+    names = _own_names(values, prior)
     years = _period(values)
     y0, n = (years[0][0].year, len(years)) if years else (0, 0)
-    bad = {g["table"] for g in groups if g.get("orgYear") == "org"
-           and any(not ORG_SLOT.match(it["name"]) and it["name"] not in names for it in g["items"])}
-    bad |= {g["table"] for g in groups if g.get("orgYear") == "year"
-            and any(it["year"] and y0 <= it["year"] < y0 + n and it["year"] - y0 != i + g.get("yearBase", 0)
-                    for i, it in enumerate(g["items"]))}
+
+    def wrote(g, v):   # 값 v 로 반영했다면 이 묶음에 쓰였을 연도 그대로인가 — 「다음 연도」 표(yearBase)는 v 의 다음 차년도 한 행
+        ys = _period(v)
+        base = min((v.get("current") or 1) + 1, sum(v["stages"])) - 1 if "yearBase" in g else 0
+        dated = [(i, it["year"]) for i, it in enumerate(g["items"]) if it["year"]]
+        return bool(ys and dated) and all(y - ys[0][0].year == i + base for i, y in dated)
+
+    named = {g["table"] for g in groups if g.get("orgYear") == "org"
+             and any(not ORG_SLOT.match(it["name"]) and it["name"] not in names for it in g["items"])}
+    bad = named | {g["table"] for g in groups if g.get("orgYear") == "year"
+                   and any(it["year"] and y0 <= it["year"] < y0 + n and it["year"] - y0 != i + g.get("yearBase", 0)
+                           for i, it in enumerate(g["items"]))
+                   and not any(wrote(g, v) for v in prior or ())}
     for g in groups:
         if g.get("orgYear") and g["table"] in bad:
             g["irregular"], g["target"] = True, None
+            if g["table"] in named:
+                g["named"] = True
 
 
 def _org_year_changes(g, values, it, new, idx):
@@ -1384,6 +1723,7 @@ CUR_PARA = re.compile(r"^(\s*[ㅇoO○●◦•]\s*)\(\s*(?:(?:\d+|[Nnx])\s*단�
 CUR_SUMMARY = re.compile(r"^(\s*\[\s*)(\d+|[Nnx])(\s*차\s*년도\s*(?:목표|개발\s*내용)\s*\])")   # 보고서 요약문 「[N차년도 목표]」·「[N차년도 개발내용]」
 # 당해 차년도 표 제목 「…현황표(x차년도)」 — 채운 「(1차년도)」·「(2단계-1차년도)」도(다시 씀)
 CUR_TABLE = re.compile(r"현황표\s*(\(\s*(?:(?:\d+|[Nnx])\s*단계\s*-\s*)?(?:\d+|[Nnx])\s*차\s*년도\s*\))")
+YEAR_SCOPE = re.compile(r"(다음)\s*연도|(?:당해|해당)\s*연도")   # 보고서 차년도 라벨의 범위 낱말 — 1 = 「다음 연도」(다음 차년도), 아니면 당해
 
 
 def _period(values):
@@ -1457,7 +1797,8 @@ def _bare(text):
 def period_fill(blocks, values, report=False):
     """사업기간으로 채울 문단 [{id, old, new, kind, where: {table, cell}}] — 이미 맞은 문단도(old == new). 사업기간이 없으면 [].
     kind = 자리(② §8): "whole"(전체 기간) | "this"(당해연도 = 1차년도 기간) | "year"(차년도 기간 행) | "stage"(단계 연도 범위) |
-    "stageYear"(단계-차년도 연도) | "column"(차년도 열 연도). report = 보고서 양식(is_report) — 당해 라벨 「ㅇ (N단계-N차년도) …」·「[N차년도 목표]」도."""
+    "stageYear"(단계-차년도 연도) | "column"(차년도 열 연도). report = 보고서 양식(is_report) — 당해 라벨 「ㅇ (N단계-N차년도) …」도, 「…현황표(…)」 라벨은
+    「다음 연도」 범위면 다음 차년도(② §18). 요약문 「[N차년도 목표]」 는 여기서 안 쓴다 — 차년도 묶음(_para_groups)이 전체 차년도로 늘린다."""
     years = _period(values)
     if not years:
         return []
@@ -1479,22 +1820,30 @@ def period_fill(blocks, values, report=False):
         if t.get("type") == "table":
             _period_table(t, values, years, year_of, put)
     ck = min(values.get("current") or 1, len(years))
-    cs, cy = stage_year(values, ck)
-    cur = f"({cy}차년도)" if len(stages) == 1 else f"({cs}단계-{cy}차년도)"   # 당해 차년도 표 제목 꼴(8-3 연도 칸과 같게)
+
+    def tag(k):   # 차년도 표 제목 꼴(8-3 연도 칸과 같게)
+        s, y = stage_year(values, k)
+        return f"({y}차년도)" if len(stages) == 1 else f"({s}단계-{y}차년도)"
+    cur, nxt = tag(ck), tag(min(ck + 1, len(years)))   # 당해 · 다음 차년도(마지막 해면 그 해 — 「다음 연도」 기관-연도 표와 같게)
     for cid, items in _containers(blocks):
         paras = [x for x in items if x.get("type") == "paragraph"]
+        ahead = False   # 보고서: 지금 「다음 연도」 범위인가 — 라벨 자신의 글(※ 주석 포함 「※ 다음연도 참여연구자 작성」), 없으면 같은 그릇 앞 문단들 중
+        # 마지막으로 범위 낱말이 나온 글(※ 주석은 뺌 — 「ㅇ … 총괄표 ※ 해당연도 배경색 표시」 는 그 표만의 안내). 계획서는 늘 당해(② §18)
+        # ponytail: 헤딩 레벨 없이 문서 차례로만 본다(candidates·apply 가 levels 없이 부름) — 「다음 연도」 절 안 본문 문단에 「해당연도」 가 주석 밖에 적히면
+        # 그 뒤 주석 없는 라벨이 당해로 돌아간다. 그런 문서가 나오면 levels 를 받아 둘러싼 헤딩 사슬로 정한다(find 의 heads 처럼).
         for i, p in enumerate(paras):
             text = p.get("text") or ""
             near = [text] + ([paras[i - 1].get("text") or ""] if cid and i else []) \
                 + ([paras[i + 1].get("text") or ""] if cid and i + 1 < len(paras) else [])
-            if (m := CUR_TABLE.search(text)):   # 「참여연구자 인건비 현황표(x차년도) ※ 당해연도 내용만 작성」 — 당해 차년도(10-30 [4f])
-                put(p, text[:m.start(1)] + cur + text[m.end(1):], "this", cell=cid)
+            tbl = CUR_TABLE.search(text)
+            par = CUR_PARA.match(text) if report and not tbl else None
+            if report and (sc := YEAR_SCOPE.search(text if tbl or par else NOTE.sub("", text))):
+                ahead = bool(sc.group(1))
+            if tbl:   # 「참여연구자 인건비 현황표(x차년도) ※ 당해연도 내용만 작성」 — 당해 차년도(10-30 [4f]), 보고서 「다음 연도」 범위면 다음 차년도
+                put(p, text[:tbl.start(1)] + (nxt if ahead else cur) + text[tbl.end(1):], "this", cell=cid)
                 continue
-            if report and (m := CUR_PARA.match(text)):   # 보고서 2-2 「ㅇ (N단계-N차년도) 추진 내용 및 실적」 = 당해 차년도(② §8 1-1)
-                put(p, m.group(1) + cur + text[m.end():], "this", cell=cid)
-                continue
-            if report and (m := CUR_SUMMARY.match(text)):   # 보고서 요약문 「[N차년도 목표]」·「[N차년도 개발내용]」 = 당해 차년도(전체 차례)
-                put(p, f"{m.group(1)}{ck}{m.group(3)}", "this", cell=cid)
+            if par:   # 보고서 2-2 「ㅇ (N단계-N차년도) 추진 내용 및 실적」 = 당해 차년도(② §8 1-1) — 「다음 연도」 범위면 다음 차년도
+                put(p, par.group(1) + (nxt if ahead else cur) + text[par.end():], "this", cell=cid)
                 continue
             m = RANGE_RE.search(text)
             if m:   # 단계 연도 범위 — 같은 문단 바로 앞 「s단계」, 없으면 같은 칸 앞 문단 끝 「s단계」
@@ -1605,8 +1954,8 @@ def _apply_group(doc, g, values, report, born=None):
         it = items[i]
         if kind == "paragraph":
             res = doc.delete_blocks(it["roots"][0], it["roots"][-1])
-        elif kind == "rows":
-            res = doc.delete_rows(tid, *it["span"])
+        elif kind == "rows":   # thisYear: 첫 행(왼쪽 평가항목 병합 칸이 시작하는 행)도 지우므로 항목 열만 — 왼쪽 칸은 글째 다음 행으로(grid.drop_band)
+            res = doc.delete_rows(tid, *it["span"], cols=list(it["cross"]) if g.get("thisYear") else None)
         else:
             res = doc.delete_cols(tid, *it["span"], keep=tuple(region))
             region[1] -= it["span"][1] - it["span"][0] + 1
@@ -1726,7 +2075,10 @@ def _simulate(g, plan):
     try:
         for i in sorted(plan["drop"], key=lambda i: -items[i]["span"][0]):
             a, e = items[i]["span"]
-            if g["kind"] == "rows":
+            if g["kind"] == "rows" and g.get("thisYear"):   # _apply_group 과 같게 — 항목 열만(첫 행도 지움)
+                grid.drop_band(cells, nr, nc, a, e, *items[i]["cross"])
+                nr -= e - a + 1
+            elif g["kind"] == "rows":
                 grid.drop_rows(cells, nr, a, e)
                 nr -= e - a + 1
             else:
@@ -1835,7 +2187,7 @@ def _name(text):
 def _read_stages(groups):
     """단계별 차년도 — 어긋나지 않은 묶음마다 한 표, 가장 많은 것: 단계-차년도 묶음(값이 (1,1)…(S,n) 차례), 단계 묶음 수 × 단계마다
     그 안 차년도 묶음 수. 둘 다 없으면 차년도 묶음 수 하나(단계 라벨이 없는 1단계 과제). 자리표시(N)만 있는 양식이면 None."""
-    ok = [g for g in groups if not g.get("irregular")]
+    ok = [g for g in groups if not g.get("irregular") and not g.get("thisYear")]   # thisYear = 당해 차년도 행 하나(단계 구성이 아님)
     votes = []
     for g in ok:
         vals = [it["value"] for it in g["items"]]

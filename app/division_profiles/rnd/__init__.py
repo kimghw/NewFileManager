@@ -1,7 +1,7 @@
 """국가R&D 프로파일(KEIT 연구개발계획서·KEIT 보고서 서식) — spec_구분_기준 ② §0 「프로파일」·§9.
 공개 계약(엔진·서버가 쓰는 것): ID·VERSION·NAME · form_of(blocks) · supported(form) · norm_values(v) · levels_of(blocks) ·
 candidates(blocks, levels, values, rebuild, skip, hints) · apply(doc, values, …) · read_values(blocks, levels) · dimensions(values) ·
-members(blocks, levels, values, hints)(문서 표시·추가한 자리, ② §11) · hint_read(text) · value_text(dim, v).
+members(blocks, levels, values, hints)(문서 표시·추가한 자리, ② §11) · hint_read(text) · value_text(dim, v) · pending(groups)(값과 아직 안 맞는 묶음, ② §16).
 핵심은 `core.py`(FMM divisions.py 사본). 정책 상수·정규식의 분리(detect/render/values)는 후속(② §9 — 지금은 한 파일)."""
 import re
 
@@ -12,9 +12,13 @@ from app.division_profiles.rnd.core import (EXTRA, FORM, FORMS, PERIOD, apply, f
                                             org_name, org_names, period_fill, preview, read_values, stage_year, targets)
 
 ID = "rnd"
-VERSION = 3   # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3). 2 = 역할 칸 행 묶음(② §12, 2026-11-10) · 3 = 이름 든 라벨·외 기관 절(② §15, 같은 날)
-NAME = "국가R&D 연구개발계획서(KEIT 서식)"
-SUPPORTED = {FORM}   # 1차 지원 양식 = 연구개발계획서(일반형)뿐(② §10) — 보고서 이름은 판정은 되지만 지원 안 함
+VERSION = 8   # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3). 2 = 역할 칸 행 묶음(② §12, 2026-11-10) · 3 = 이름 든 라벨·외 기관 절(② §15, 같은 날)
+#               4 = 책임자 절 제목의 기관 이름 · 번호 잇기(② §16, 같은 날) · 5 = 간접비 표의 기관 블록(계획서 8-3 도) · 보고서의 차년도 범위 — 전체·당해·다음 연도(② §18, 2026-11-11)
+#               6 = 반영이 넣은 이름·연도(앞서 반영한 값 prior) — 이름·당해 차년도를 바꾼 값으로 다시 반영 · 이름 칸 행 묶음(② §19, 2026-11-11)
+#               7 = 서명 줄 맞춤 — 기관 이름을 넣은 뒤 「(직인)」 이 세로로 한 줄에 서게 빈칸 수를 조정(② §20, 2026-11-12)
+#               8 = 서명 줄에 기관 이름을 넣지 않음 — 줄만 기관 수만큼, 앞서 넣은 이름 괄호는 뺌(② §20, 같은 날 사용자 「여기 기관은 안들어 가는거 같아」)
+NAME = "국가R&D 연구개발계획서·연차보고서(KEIT 서식)"
+SUPPORTED = {FORM, "연차보고서"}   # 연구개발계획서(일반형, ② §10) + 연차보고서(KEIT 서식, ② §17 — 2026-11-11). 단계·최종보고서는 판정만 되고 지원 안 함(잰 서식 없음)
 DIM_NAME = core.DIM_NAME | {PERIOD: "사업기간"}
 KIND_NAME = {"paragraph": "문단 묶음", "rows": "표 행", "cols": "표 열", "list": "목록 행", "date": "날짜"}
 DROP_LINES, DROP_CHARS = 6, 80
@@ -50,10 +54,11 @@ def _item_texts(idx, it):
     return out
 
 
-def candidates(blocks, levels, values, rebuild=True, skip=(), hints=None):
+def candidates(blocks, levels, values, rebuild=True, skip=(), hints=None, prior=None):
     """후보 자리 목록(② §2 「후보 자리」) = core.spot 요약 + 항목(라벨 id·글) + 지워질 항목의 글(drop) + 사본 수(copies).
-    skip 에 든 key 는 excluded. 사업기간이 있으면 날짜 자리 하나(kind date). hints = 추가한 자리 문단 id 들(② §11)."""
-    groups = core.find(blocks, levels, values, rebuild=rebuild, hints=hints)
+    skip 에 든 key 는 excluded. 사업기간이 있으면 날짜 자리 하나(kind date). hints = 추가한 자리 문단 id 들(② §11).
+    prior = 앞서 이 문서에 반영한 값들(② §19 — core.find 에 그대로)."""
+    groups = core.find(blocks, levels, values, rebuild=rebuild, hints=hints, prior=prior)
     work = [g for g in groups if g["plan"] and not g["plan"]["done"] and not g["plan"].get("blocked") and g["key"] not in skip]
     idx = structure.index_blocks(blocks)
     out = []
@@ -106,11 +111,11 @@ def hint_read(text):
     return {"dim": h["dim"], "dimName": DIM_NAME.get(h["dim"], h["dim"]), "value": value_text(h["dim"], h["value"])} if h else None
 
 
-def members(blocks, levels, values, hints=None):
+def members(blocks, levels, values, hints=None, prior=None):
     """문서 표시 자료(② §11) — 계획 없이 find 만: 묶음마다 항목 안 **문단 id 전부**(scope 의 문단, 문서 순) + 추가한 자리(hint) 행.
     hints = [{id, para, dim, value, …}]. hint 행에 text(문단 글)·exists·read(글에서 읽은 구분·값)·engine(엔진 묶음의 라벨이 됐는지)을 붙인다."""
     hints = list(hints or ())
-    groups = core.find(blocks, levels, values, hints=[h["para"] for h in hints])
+    groups = core.find(blocks, levels, values, hints=[h["para"] for h in hints], prior=prior)
     idx = structure.index_blocks(blocks)
     order = {pid: i for i, pid in enumerate(idx)}
     label_ids, out = set(), []
@@ -132,6 +137,20 @@ def members(blocks, levels, values, hints=None):
         rows.append({**h, "text": _short(b.get("text"), 60) if para else "", "exists": para, "read": hint_read(b.get("text")) if para else None,
                      "dimName": DIM_NAME.get(h.get("dim"), h.get("dim")), "engine": h.get("para") in label_ids})
     return {"groups": out, "hints": rows}
+
+
+def pending(groups):
+    """find 결과에서 **구분 값과 아직 안 맞는 묶음**(계획하면 「맞춤」 이 될 것 — 계획이 있고 끝나지 않았고 막히지 않음) 요약(② §16 「검토에 보이게」):
+    [{key, dim, dimName, kind, kindName, labels(처음 3), count, target}]. 그대로 두는 묶음(차례 어김·값 없음·병합 칸)은 안 든다."""
+    out = []
+    for g in groups:
+        plan = g.get("plan")
+        if not plan or plan["done"] or plan.get("blocked"):
+            continue
+        kind = "list" if g.get("list") else g["kind"]
+        out.append({"key": g["key"], "dim": g["dim"], "dimName": DIM_NAME.get(g["dim"], g["dim"]), "kind": kind, "kindName": KIND_NAME.get(kind, kind),
+                    "labels": [_short(it.get("labelText"), 30) for it in g["items"][:3]], "count": len(g["items"]), "target": len(g["target"])})
+    return out
 
 
 def dimensions(values):

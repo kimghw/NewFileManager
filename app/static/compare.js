@@ -33,6 +33,8 @@ async function mcLoadWorks() {
     m.selected = new Set(previous.filter((id) => works.some((w) => w.id === id)));
     if (previous.length !== m.selected.size) { m.snapshots = []; m.notice = "작업 목록이 바뀌었습니다. 비교할 문서를 다시 선택하세요."; }
     if (first && works.some((w) => w.id === state.id && w.format === "hwpx")) m.selected.add(state.id);
+    const project = (state.task || {}).project; // 과제로 묶인 문서(spec_작업 ② §10)는 처음부터 함께 고른다
+    if (first && project) for (const w of works) if (w.format === "hwpx" && (w.task || {}).project === project && m.selected.size < MC_LIMIT) m.selected.add(w.id);
   } catch (e) {
     if (mergeCompare !== m || seq !== m.seq || epoch !== state.epoch) return;
     m.error = `작업 목록을 읽지 못했습니다: ${e.message}`;
@@ -60,6 +62,40 @@ async function mcLoadSnapshots() {
   mcDraw();
 }
 
+// 함께 추출(spec_작업 ② §10 「문서 비교에서 함께 추출」, 2026-11-11): 고른 문서 가운데 헤딩 그래프·표 구조 분석이 없는 것을 한 번에 돌린다 — 스크립트만,
+// 첫 분석(② §9)과 같은 끝점(`POST …/headings {first: true}` — 있는 단계는 건너뜀). 다 끝나면 비교를 다시 읽는다. 닫힌 문서는 서버가 작업 폴더에서 연다.
+function mcMissing() {
+  return mergeCompare.snapshots.filter((s) => s.supported !== false && !(s.errors || []).length && ["stage2", "stage3"].some((k) => mcReadiness(s, k) === "missing"));
+}
+
+async function mcExtract() {
+  const m = mergeCompare, ids = mcMissing().map((s) => s.work.id);
+  if (m.busy || !ids.length) return;
+  const seq = ++m.seq, epoch = state.epoch, live = () => mergeCompare === m && seq === m.seq && epoch === state.epoch;
+  m.busy = true;
+  m.error = "";
+  m.notice = `문서 ${ids.length}개의 헤딩 그래프·표 구조를 추출하는 중…(스크립트)`;
+  mcDraw();
+  const one = async (id) => {
+    await api(`/api/docs/${encodeURIComponent(id)}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) });
+    for (;;) { // 끝날 때까지 2초마다 읽는다
+      await new Promise((done) => setTimeout(done, 2000));
+      if (!live()) return;
+      const job = (await api(`/api/docs/${encodeURIComponent(id)}/headings`)).job;
+      if (job && job.status === "running") continue;
+      if (job && job.error) throw new Error(job.error);
+      return;
+    }
+  };
+  const failed = (await Promise.allSettled(ids.map(one))).filter((r) => r.status === "rejected");
+  if (!live()) return;
+  m.busy = false;
+  await mcLoadSnapshots();
+  if (mergeCompare !== m || epoch !== state.epoch) return;
+  if (failed.length) { m.error = `추출하지 못한 문서 ${failed.length}개: ${failed.map((r) => r.reason.message).join(" · ")}`; mcDraw(); }
+  if (ids.includes(state.id) && typeof headsPeek === "function") headsPeek(); // 지금 문서면 헤딩 탭·쪽 여백 표시도 새 결과로
+}
+
 function mcDraw() {
   const m = mergeCompare, pane = $("paneCompare");
   if (!pane) return;
@@ -78,7 +114,7 @@ function mcDraw() {
     cb.disabled = m.busy || w.format !== "hwpx";
     cb.setAttribute("aria-label", `${w.name} 비교 선택`);
     text.append(el("strong", null, w.name), el("small", null,
-      `${w.id === state.id ? "현재 문서 · " : ""}${String(w.format || "").toUpperCase()} · 작업 ${w.id} · 수정 ${w.rev || 0}회${w.format !== "hwpx" ? " · 구조 비교 지원 예정" : ""}`));
+      `${w.id === state.id ? "현재 문서 · " : ""}${(w.task || {}).project ? `과제 ${w.task.project} · ` : ""}${typeof taskName === "function" && taskName("file", (w.task || {}).file) ? taskName("file", w.task.file) + " · " : ""}${String(w.format || "").toUpperCase()} · 작업 ${w.id} · 수정 ${w.rev || 0}회${w.format !== "hwpx" ? " · 구조 비교 지원 예정" : ""}`));
     cb.onchange = () => {
       if (cb.checked && m.selected.size >= MC_LIMIT) {
         cb.checked = false;
@@ -100,8 +136,11 @@ function mcDraw() {
   const actions = el("div", "mc-actions");
   actions.append(hBtn(m.busy ? "읽는 중…" : m.snapshots.length ? "비교 새로고침" : "선택 문서 비교", mcLoadSnapshots,
     { cls: "btn sm primary", disabled: m.busy || m.selected.size < 2 }),
-    hBtn("목록 새로고침", mcLoadWorks, { disabled: m.busy }),
-    el("span", "muted", "2개 이상 선택 · 저장된 분석만 조회"));
+    hBtn("목록 새로고침", mcLoadWorks, { disabled: m.busy }));
+  const missing = mcMissing().length;
+  if (missing) actions.append(hBtn(`분석 없는 문서 ${missing}개 추출`, mcExtract, { disabled: m.busy,
+    title: "고른 문서 가운데 헤딩 그래프·표 구조 분석이 없는 것을 함께 추출합니다 — 스크립트만(LLM 호출 없음), 이미 있는 단계는 건너뜀 · 끝나면 비교를 다시 읽습니다" }));
+  actions.append(el("span", "muted", "2개 이상 선택 · 저장된 분석만 조회"));
   shell.append(actions);
   if (m.error) shell.append(el("p", "mc-error", m.error));
   if (m.notice) {

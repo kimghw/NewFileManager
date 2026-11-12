@@ -194,7 +194,7 @@ def test_root_label_does_not_wipe_outline(rnd, P):
     g = HG.build(_with_top_label(rnd), use_llm=False, ask=_no_llm)
     N = {n["id"]: n for n in g["nodes"]}
     par = lambda k: N[P[k]["id"]]["parent"]  # noqa: E731
-    assert N["pTopLabel"]["role"] == "label" and N["pTopLabel"]["parent"] == "root"
+    assert N["pTopLabel"]["role"] == "subtitle" and N["pTopLabel"]["key"] == "[…]" and N["pTopLabel"]["parent"] == "root"  # 구분 기준 값이 아닌 괄호 글 = 괄호 소제목(§13)
     assert par("stage") == P["sec22"]["id"]
     assert par("year") == P["stage"]["id"] and N[P["year"]["id"]]["division"] == P["stage"]["id"]
     assert par("goal") == P["year"]["id"] and par("joint") == P["goal"]["id"]
@@ -225,13 +225,19 @@ def test_apply_changes_template_level_keep_or_reject():
                                              ["n1", "n2"], ["a0"], graph, anchors)
         assert applied == [] and len(rejected) == 1 and why in rejected[0]["why"], (ch, rejected)
         assert graph["n2"]["parent"] == "n1" and graph["n2"].get("slot") is None
-    # 슬롯 예외(아는 앵커 + 레벨 ≥ 1)는 그대로 적힌다 — 배정이 범위를 본다. 라벨로 내리면 슬롯 없음·레터 키는 라벨 꼴
+    # 슬롯 예외(아는 앵커 + 레벨 ≥ 1)는 그대로 적힌다 — 배정이 범위를 본다. 구분 라벨로 내리면(basis = 구분 기준) 슬롯 없음·레터 키는 「[기준]」
     graph, anchors = _g3()
     applied, rejected = HG.apply_changes([{"id": "n2", "parent": "a0", "template": "body:N.›□›o", "level": 3, "role": "heading"},
-                                          {"id": "n1", "parent": "", "template": "", "level": 0, "role": "label"}], ["n1", "n2"], ["a0"], graph, anchors)
+                                          {"id": "n1", "parent": "", "template": "", "level": 0, "role": "label", "basis": "기관"}], ["n1", "n2"], ["a0"], graph, anchors)
     assert rejected == [] and len(applied) == 2
     assert graph["n2"]["slot"] == {"template": "body:N.›□›o", "level": 3}
-    assert (graph["n1"]["role"], graph["n1"].get("slot"), graph["n1"]["key"]) == ("label", None, "[라벨]")
+    assert (graph["n1"]["role"], graph["n1"].get("slot"), graph["n1"]["key"]) == ("label", None, "[기관]")
+    assert applied[1]["asked"] == {"role": "label", "basis": "기관", "template": "", "level": 0}  # B 가 적은 그대로 — 다시 셈(replay)의 입력
+    # basis 가 없거나 구분 기준 목록 밖(지어낸 이름)이면 구분 라벨이 되지 않는다 — 역할·키 그대로(§13: 구분 라벨 = 구분 기준 값만), 괄호 줄이 아닌 줄은 소제목도 못 된다
+    for ch in ({"role": "label"}, {"role": "label", "basis": "측면"}, {"role": "subtitle"}):
+        graph, anchors = _g3()
+        HG.apply_changes([{"id": "n1", "parent": "", "template": "", "level": 0, **ch}], ["n1", "n2"], ["a0"], graph, anchors)
+        assert (graph["n1"]["role"], graph["n1"]["key"]) == ("heading", "□"), ch
     # 템플릿 없는 잎 제목을 heading 으로 — 이제 된다(레터 키 「제목」, 템플릿은 스크립트가 셈)
     graph, anchors = _g3()
     graph["t1"] = {"id": "t1", "parent": "n1", "role": "title", "key": None, "division": None}

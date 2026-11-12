@@ -18,8 +18,10 @@ from app import block_ids
 from app import hwpx_layout
 from app import table_grid as grid
 from app import zip_guard
-from app.hwpx_format import FormatMixin
+from app.hwpx_format import FormatMixin, _flag
 from app.hwpx_struct import StructMixin
+from app.hwpx_table_make import TableMakeMixin
+from app.hwpx_table_split import TableSplitMixin
 from app.textdiff import redistribute
 
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
@@ -28,6 +30,7 @@ HC = "http://www.hancom.co.kr/hwpml/2011/core"
 NS = {"hp": HP, "hh": HH, "hc": HC}
 HEADER, HPF = "Contents/header.xml", "Contents/content.hpf"
 SECTION_RE = re.compile(r"Contents/section(\d+)\.xml")
+_hu = hwpx_layout.hu  # 저장된 크기(cellSz·sz) 읽기 — 음수가 부호 없는 32비트로 적힌 값(4294967256)은 0(정보 없음)
 # 패키지 XML 은 엔티티를 펼치지 않고 네트워크를 끈 파서로 — lxml 버전 기본값에 기대지 않는다(spec_왕복_어댑터 ② §1 「비신뢰 패키지 한도」).
 # 파서는 스레드마다 따로: lxml 파서 객체를 스레드끼리 나눠 쓰면 병렬 검증 단계가 같은 바이트를 동시에 열 때 거짓 구문 오류가 난다
 # (newfilemanager-6e 가 docx 같은 꼴에서 실측, 2026-11-08 — references/OWPML_스키마.md 「검사 도구 사실」).
@@ -115,7 +118,7 @@ def _remove(el):
         parent.remove(el)
 
 
-class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(spec_owpml_편집 ② §2)
+class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # StructMixin: 구조·서식 편집(spec_owpml_편집 ② §2) · TableMakeMixin: 표 만들기·서식 입히기(spec_헤딩_추출 ② §11) · TableSplitMixin: 표 나누기·합치기(spec_owpml_편집 ② §5-3)
     format = "hwpx"
 
     def __init__(self, data: bytes):
@@ -209,6 +212,38 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
             self._keep_an = False
         hwpx_layout._walk(self, [b])
         return b
+
+    def order_bound(self, hosts) -> bool:
+        """hosts(최상위 문단들) 안에 **문서 순서로 세는 값**이 있는가 — 번호 문단(heading NUMBER: _num_ctr)·자동 번호(autoNum: _an_ctr).
+        있으면 그 문단만 따로 읽을 수 없다(앞 문단들을 다 세어야 값이 나온다)."""
+        for h in hosts:
+            if next(h.iter(AUTONUM_EL), None) is not None:
+                return True
+            for p in h.iter(P):
+                hd = self._heading(p)
+                if hd is not None and hd.get("type") == "NUMBER":
+                    return True
+        return False
+
+    def in_order(self, hosts) -> list:
+        """hosts 가운데 최상위 문단(구역 바로 아래 hp:p)만, 겹침 없이 문서 순으로."""
+        secs = {s: k for k, s in enumerate(self._sections)}
+        hosts = [h for h in dict.fromkeys(hosts) if h is not None and h.getparent() in secs]
+        return sorted(hosts, key=lambda h: (secs[h.getparent()], h.getparent().index(h)))
+
+    def host_blocks(self, hosts):
+        """최상위 문단 몇 개(hosts — 구역 바로 아래 hp:p)가 blocks() 최상위에 내는 블록만 지금 XML 에서 읽는다 — blocks() 의 그 항목들과 같은 값, 문서 순.
+        구조 편집 뒤 문서 전체를 다시 읽지 않게(연구개발계획서 12,700문단: blocks() 1 s → 수 ms, spec_owpml_편집 ② §3 「닿은 블록만 다시 읽기」).
+        문서 순서로 세는 값(order_bound)이 그 안에 있으면 None — 부르는 쪽이 blocks() 로. 캐시(_blocks_cache)는 안 건드린다."""
+        hosts = self.in_order(hosts)
+        if self.order_bound(hosts):
+            return None
+        self._keep_an = True
+        try:
+            out = [b for h in hosts for b in self._para_blocks(h, None)]
+        finally:
+            self._keep_an = False
+        return hwpx_layout.annotate_hosts(self, out)
 
     def _list_blocks(self, parent, caption_of=None):
         return [b for p in parent.iterchildren(P) for b in self._para_blocks(p, caption_of)]
@@ -498,25 +533,93 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         self._write_t(etree.SubElement(run, T), text)
         return p
 
+    def fit_chars(self, cell_id: str, src, src_cell_id: str) -> bool:
+        """칸 글의 글자 모양에 src(HwpxDoc) 칸의 **장평·자간·글자 크기**만 얹는다 -> 바뀌었나. 글꼴·색·굵기 등 나머지는 이 칸 것 그대로 — 문서 사이로 글만 옮기면
+        원본에서 장평을 줄여 한 줄에 넣은 글(이메일·영문 과제명)이 이 칸에서 여러 줄로 꺾인다(병합의 표 칸 넣기, spec_병합 ② §5 「표 묶음 항목」).
+        기준 = src 칸에서 글이 있는 첫 런의 charPr — 크기는 height, 장평·자간은 언어별 값 그대로(hh:ratio·hh:spacing 의 hangul·latin·…). 이 칸의 글 런마다
+        (개체·구역 제어만 든 런은 빼고, 글 없는 런도 — 문단 끝 빈 런의 크기가 줄 높이에 든다) 제 charPr 에 그 세 값만 바꾼 정의로 바꾼다(같은 정의가 있으면 그것 — _add_def).
+        세 값이 이미 같은 런은 그대로(새 정의 없음). src 칸에 글이 없으면 False."""
+        if not isinstance(src, HwpxDoc):
+            raise ValueError("copy source must be an HwpxDoc")
+        tc, sub = self._cell(cell_id), src._cell(src_cell_id).find(SUBLIST)
+        first = next((r for p in (sub.iterchildren(P) if sub is not None else ()) for r in p.iterchildren(RUN)
+                      if "".join(src._slot_text(s) for s in src._run_slots(r)).strip()), None)
+        sc = src._defs["charPr"].get(first.get("charPrIDRef")) if first is not None else None
+        if sc is None:
+            return False
+
+        def three(d):  # [크기, 장평(언어별), 자간(언어별)] — 없는 속성은 스키마 기본값
+            return [d.get("height", "1000")] + [[e.get(a, base) if e is not None else base for a in FONT_LANGS]
+                                                for e, base in ((d.find(_h("ratio")), "100"), (d.find(_h("spacing")), "0"))]
+        want, made, changed = three(sc), {}, False
+        sub = tc.find(SUBLIST)
+        for p in sub.iterchildren(P) if sub is not None else ():
+            hit = False
+            for r in p.iterchildren(RUN):
+                if any(c.tag in OBJECTS for c in r) or len(r) and not self._run_slots(r):
+                    continue
+                old = r.get("charPrIDRef")
+                if old not in made:
+                    d = self._defs["charPr"].get(old)
+                    if d is None or three(d) == want:
+                        made[old] = old
+                    else:
+                        c = copy.deepcopy(d)
+                        c.set("height", want[0])
+                        for tag, vals in zip(("ratio", "spacing"), want[1:]):
+                            _flag(c, tag, True).attrib.update(dict(zip(FONT_LANGS, vals)))
+                        made[old] = self._add_def("charPr", c)
+                if made[old] != old:
+                    r.set("charPrIDRef", made[old])
+                    hit = True
+            if hit:
+                for ls in p.findall(LINESEG):  # 줄 배치 캐시 — 글자 폭이 바뀌었다(한글이 다시 잰다)
+                    p.remove(ls)
+                changed = True
+        if changed:
+            self._touch(tc)
+        return changed
+
     # ---------------------------------------------------------------- insert_after / copy
     def insert_after(self, ref_id: str, items: list[dict], src=None) -> list[str]:
+        """items 를 ref 블록의 문단 뒤에 차례대로 -> 새 블록 id(items 와 같은 차례·같은 수). 항목 하나 = 새 문단 하나 — 다만 복사(kind=copy)에서
+        원본의 **한 문단에 든 표·그림**이 문서 순으로 잇달아 오면 새 문단 하나에 함께 넣는다(_row_ids): 한 줄에 나란히 놓인 그림 둘이 그림마다
+        문단으로 풀려 두 줄이 되던 것(2026-11-12 사용자 — spec_병합 ② §5 「한 문단의 표·그림」)."""
         if src is not None and not isinstance(src, HwpxDoc):
             raise ValueError("copy source must be an HwpxDoc")
         anchor = self._host(self._ids[ref_id])
-        cache, out = {}, []
-        for it in items:
+        cache, out, k = {}, [], 0
+        while k < len(items):
+            it = items[k]
             if it["kind"] == "copy":
-                new, block = self._copy(src or self, it["srcId"], cache)
+                new, blocks = self._copy(src or self, (src or self)._row_ids(items, k), cache)
             else:
                 tpl = self._host(self._ids[it["templateId"]]) if it.get("templateId") else self._default_template()
-                new = block = self._new_para(tpl, it.get("text", "").replace("\n", " "))
+                new = self._new_para(tpl, it.get("text", "").replace("\n", " "))
+                blocks = [new]
                 if not it.get("keepNumbering", it["kind"] != "heading"):
                     self._no_numbering(new)
             anchor.addnext(new)
             anchor = new
             self._touch(new)
-            out.append(self._id(block))
+            out += [self._id(b) for b in blocks]
+            k += len(blocks)
         return out
+
+    def _row_ids(self, items, k):
+        """복사 항목 items[k] 와 한 새 문단에 함께 복사할 이 문서(원본)의 블록 id 들 — items[k] 가 표·그림이고, 뒤 항목이 **같은 문단의 문서 순 다음 개체**인
+        동안 잇는다(사이의 개체를 건너뛴 것도 — 그 개체는 빠진 채 한 문단). 문단이거나 뒤가 다른 문단·앞선 개체·같은 개체(되풀이 복사)면 [그 id] 하나."""
+        ids = [items[k]["srcId"]]
+        el = self._ids[ids[0]]
+        if el.tag in (TBL, PIC):
+            order = {o: n for n, o in enumerate(o for r in self._host(el).iterchildren(RUN) for o in r.iterchildren(TBL, PIC))}
+            for it in items[k + 1:]:
+                nxt = self._ids.get(it.get("srcId")) if it["kind"] == "copy" else None
+                if nxt is None or el not in order or order.get(nxt, -1) <= order[el]:
+                    break
+                ids.append(it["srcId"])
+                el = nxt
+        return ids
 
     def insert_line(self, ref_id: str, text: str = "", before: bool = False, after_id: str | None = None) -> str:
         """ref 문단과 같은 문단·글자 모양의 새 문단 하나를 ref 위/아래에(문단 줄 추가 — spec_웹UI ② UI-010) -> 새 id.
@@ -560,20 +663,21 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         hh.set("idRef", "0")
         p.set("paraPrIDRef", self._add_def("paraPr", pp))
 
-    def _copy(self, src, sid, cache):
-        """Deep copy of a src paragraph (without its table/picture blocks) or table/picture (in a new
-        paragraph), with header/BinData references remapped into this document."""
-        el = src._ids[sid]
-        if el.tag == P:
-            new = block = copy.deepcopy(el)
+    def _copy(self, src, sids, cache):
+        """Deep copy of a src paragraph (without its table/picture blocks), or of tables/pictures of one src
+        paragraph (sids in document order — together in one new paragraph, _row_para), with header/BinData
+        references remapped into this document. -> (new paragraph, [the copied blocks — as sids])"""
+        els = [src._ids[s] for s in sids]
+        if els[0].tag == P and len(els) == 1:
+            new = copy.deepcopy(els[0])
+            blocks = [new]
             for r in new.iterchildren(RUN):
                 for o in r.findall(TBL) + r.findall(PIC):  # those are their own blocks
                     r.remove(o)
-        elif el.tag in (TBL, PIC):
-            block = copy.deepcopy(el)
-            new = self._obj_para(el, block)
+        elif all(e.tag in (TBL, PIC) for e in els):
+            new, blocks = self._row_para(src, els)
         else:
-            raise ValueError(f"cannot copy {sid}")
+            raise ValueError(f"cannot copy {sids[0]}")
         for e in list(new.iter(*DROP_ON_COPY, LINESEG)):
             parent = e.getparent()
             parent.remove(e)
@@ -581,7 +685,27 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
                 _remove(parent)
         if src is not self:
             self._remap(src, new, cache)
-        return new, block
+        return new, blocks
+
+    def _row_para(self, src, objs):
+        """New paragraph holding copies of objs — tables/pictures of one src paragraph, in document order — shaped like
+        that paragraph and their runs, so objects side by side on one line stay on one line. When that paragraph has
+        no text of its own (it is not a block, nothing else copies it) the hp:t between the objects — spaces, tabs,
+        forced line breaks — come along. One object = what _obj_para makes. -> (paragraph, [the copies])"""
+        host = src._host(objs[0])
+        seq = [(r, c) for r in host.iterchildren(RUN) for c in r]
+        at = [n for n, (_, c) in enumerate(seq) if c in objs]
+        blank = not src._text(host).strip()
+        p, of, run, news = host.makeelement(P, host.attrib), None, None, []
+        for r, c in seq[at[0]:at[-1] + 1]:
+            if c in objs or blank and c.tag == T:
+                if r is not of:
+                    of, run = r, etree.SubElement(p, RUN, r.attrib)
+                run.append(copy.deepcopy(c))
+                if c in objs:
+                    news.append(run[-1])
+        etree.SubElement(run, T)
+        return p, news
 
     def _obj_para(self, obj, new_obj):
         """New paragraph holding only new_obj, shaped like obj's host paragraph and run."""
@@ -768,6 +892,62 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
             w -= int(m.get("left", 0)) + int(m.get("right", 0)) + int(m.get("gutter", 0))
         return w * 25.4 / 7200
 
+    def fit_image(self, block_id: str) -> bool:
+        """글자처럼 취급하는 그림이 제 자리의 글 폭(칸 안 = 칸 너비 − 칸 여백, 본문 = 쪽 너비 − 쪽 여백 — _body_width_mm)보다 넓으면 비율을 지켜 그 폭으로 줄인다 -> 줄였나.
+        문서 사이 복사로 온 그림은 원본 칸이 더 넓었으면 이 칸에서 오른쪽이 잘린다(병합의 내용 넣기, spec_병합 ② §5-2). 그림이 아닌 블록·떠 있는 그림은 그대로(False)."""
+        pic = self._ids.get(block_id)
+        if pic is None or pic.tag != PIC:
+            return False
+        sz, pos = pic.find(_p("sz")), pic.find(_p("pos"))
+        if sz is None or pos is None or pos.get("treatAsChar") != "1":
+            return False
+        w, h = _hu(sz.get("width")), _hu(sz.get("height"))
+        host = self._host(pic)
+        room = round(self._body_width_mm(host) * 7200 / 25.4) - 140   # 0.5mm 틈 — 문단 여백·테두리 몫
+        if not w or not h or room <= 0 or w <= room:
+            return False
+        f = room / w
+        for tag in ("sz", "curSz"):
+            if (e := pic.find(_p(tag))) is not None and _hu(e.get("width")):
+                e.set("width", str(round(_hu(e.get("width")) * f)))
+                e.set("height", str(round(_hu(e.get("height")) * f)))
+        if (rot := pic.find(_p("rotationInfo"))) is not None:
+            rot.set("centerX", str(round(room / 2)))
+            rot.set("centerY", str(round(h * f / 2)))
+        sca = pic.find("hp:renderingInfo/hc:scaMatrix", NS)
+        if sca is not None:
+            for a in ("e1", "e5"):
+                sca.set(a, f"{float(sca.get(a, '1')) * f:.6f}")
+        for ls in host.findall(LINESEG):   # 줄 배치 캐시 — 그림 높이가 바뀌었다(한글이 다시 잰다)
+            host.remove(ls)
+        self._touch(host)
+        return True
+
+    def table_flow(self, table_id: str) -> dict | None:
+        """표의 쪽 나눔 설정 {"pageBreak": TABLE|CELL|NONE, "inline": 글자처럼 취급인가, "splits": 쪽을 넘어 나뉠 수 있나} | None(표 아님)."""
+        tbl = self._ids.get(table_id)
+        if tbl is None or tbl.tag != TBL:
+            return None
+        pos = tbl.find(_p("pos"))
+        brk, inline = tbl.get("pageBreak", "NONE"), pos is not None and pos.get("treatAsChar") == "1"
+        return {"pageBreak": brk, "inline": inline, "splits": brk != "NONE" and not inline}
+
+    def fit_table_flow(self, table_id: str, flow: dict) -> bool:
+        """표가 쪽을 넘어 나뉠 수 없으면(글자처럼 취급 또는 「나누지 않음」) flow(다른 표의 table_flow — 나뉘는 표)의 쪽 나눔 설정으로 바꾼다 -> 바꿨나.
+        못 나뉘는 표는 한 쪽을 넘는 만큼이 잘려 안 보인다 — 빈 서식의 표에 긴 내용을 넣은 뒤(병합의 내용 넣기, spec_병합 ② §5-2). 다른 속성(자리 차지 textWrap·정렬)은 그대로."""
+        now = self.table_flow(table_id)
+        if now is None or now["splits"] or not (flow or {}).get("splits"):
+            return False
+        tbl = self._ids[table_id]
+        tbl.set("pageBreak", flow["pageBreak"])
+        if (pos := tbl.find(_p("pos"))) is not None:
+            pos.set("treatAsChar", "0")
+        host = self._host(tbl)
+        for ls in host.findall(LINESEG):
+            host.remove(ls)
+        self._touch(host)
+        return True
+
     # ---------------------------------------------------------------- append_rows
     def append_rows(self, table_id: str, rows: list[list[str]]) -> list[str]:
         tbl = self._ids[table_id]
@@ -820,7 +1000,7 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         heights = {}  # row -> height of its one-row cells (merged cells' heights are the sum of their rows)
         for tc in cells:
             if span(tc) == 1 and (sz := tc.find(_p("cellSz"))) is not None:
-                heights[row(tc)] = max(heights.get(row(tc), 0), int(sz.get("height", 0)))
+                heights[row(tc)] = max(heights.get(row(tc), 0), _hu(sz.get("height")))
         # 복사본을 먼저 다 만든다(글 쓰기까지 — 표에 아직 안 붙임): 여기서 실패하면 표는 그대로(11-03 astra F07 — 전엔 행 주소를 민 뒤 중첩 표 칸에서
         # 실패해 rowAddr 가 [0,1,3] 로 남았음)
         staged = []
@@ -848,8 +1028,8 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
                 tc.find(CELLADDR).set("rowAddr", str(row(tc) + d))
         for tc in grow:
             tc.find(CELLSPAN).set("rowSpan", str(span(tc) + d))
-            if (sz := tc.find(_p("cellSz"))) is not None and int(sz.get("height", 0)):
-                sz.set("height", str(int(sz.get("height")) + sum(heights.get(r, 0) for r in range(first, last + 1)) * len(values)))
+            if (sz := tc.find(_p("cellSz"))) is not None and _hu(sz.get("height")):
+                sz.set("height", str(_hu(sz.get("height")) + sum(heights.get(r, 0) for r in range(first, last + 1)) * len(values)))
             for ls in list(tc.iter(LINESEG)):  # stale layout of the taller cell: Hancom lays it out again
                 _remove(ls)
         for z, s, e in zones:
@@ -914,42 +1094,56 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         self._tput(tbl, cells, heights, widths, sized=[x, *new])
         return grid.result(self._cid, x, new)
 
-    def split_cell(self, cell_id: str, rows: int, cols: int) -> dict:
+    SPLIT_KEEP_CELL = True  # split_cell(keep="cell") 이 된다(table_ops.cell_op — docx 어댑터는 아직)
+
+    def split_cell(self, cell_id: str, rows: int, cols: int, keep: str = "table") -> dict:
         """한글 「셀 나누기」: the cell into rows × cols pieces sharing its height/width evenly — it stays the top-left
         piece with its text, the others are empty copies. On a line the cell spans alone, new grid lines go in and the
-        other cells of that line span them; a span divisible by the count is shared out instead (ValueError otherwise)."""
+        other cells of that line span them; a span divisible by the count is shared out instead (ValueError otherwise).
+        keep="cell" (칸 크기 그대로 — spec_owpml_편집 ② §5-2): new grid rows take the row's own height instead of sharing
+        it, so each piece is as tall as the cell was and the table grows (columns always share — 표 폭 그대로)."""
         tc = self._cell(cell_id)
         tbl, cells, nr, nc = self._tgrid(tc.getparent().getparent())
         x = next(c for c in cells if c.el is tc)
         heights, widths = self._tsizes(cells, nr, nc)
         new, grown, added = grid.split(cells, x, int(rows), int(cols))
+        taller = []
         for axis, at, k in added:
             lines = heights if axis == "r" else widths
-            lines[at:at + 1] = grid.share(lines[at], k + 1)
+            if axis == "r" and keep == "cell":
+                more = lines[at] * k
+                lines[at:at + 1] = [lines[at]] * (k + 1)
+                taller = list(grown)
+                if (sz := tbl.find(_p("sz"))) is not None and _hu(sz.get("height")):
+                    sz.set("height", str(_hu(sz.get("height")) + more))
+            else:
+                lines[at:at + 1] = grid.share(lines[at], k + 1)
             self._zones(tbl, axis, lambda s, e: (s + k * (s > at), e + k * (e >= at)))
         for y in new:
             y.el = self._blank(tc)
-        self._tput(tbl, cells, heights, widths, sized=[x, *new])
+        self._tput(tbl, cells, heights, widths, sized=[x, *new, *taller])
         return grid.result(self._cid, x, new, grown=grown)
 
-    def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False) -> dict:
+    def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False,
+                   lenient: bool = False) -> dict:
         """Copy rows r0..r1 right below r1 (spec ② §2 클론; keep_text=False = 행 추가: empty cells, same paragraph and
         cell shapes). cols = [c0, c1]: only those columns get new cells, the cells outside them on row r1 grow over the
         new rows (None = whole rows). above=True: the copy goes right above r0 (outside cells on r0 grow — ② §2a).
-        ValueError when a merged cell crosses the range. "map" = {copied cell: its copy}."""
+        ValueError when a merged cell crosses the range — lenient=True (행 전체 넣기, spec_owpml_편집 ② §5-2): such a
+        cell on the edge row grows instead (grid.clone). "map" = {copied cell: its copy}."""
         tbl, cells, nr, nc = self._tgrid(self._ids.get(table_id))
         r0, r1 = int(r0), int(r1)
         c0, c1 = (int(cols[0]), int(cols[1])) if cols is not None else (0, nc - 1)
         heights, widths = self._tsizes(cells, nr, nc)
-        new, grown = grid.clone(cells, nr, nc, r0, r1, c0, c1, above=above)
+        new, grown = grid.clone(cells, nr, nc, r0, r1, c0, c1, above=above, lenient=lenient)
         d, add = r1 - r0 + 1, sum(heights[r0:r1 + 1])
         for y in new:
             y.el = copy.deepcopy(y.src.el) if keep_text else self._blank(y.src.el)
             for ls in list(y.el.iter(LINESEG)):
                 _remove(ls)
         for y in grown:
-            if (sz := y.el.find(_p("cellSz"))) is not None and int(sz.get("height", 0)):
-                sz.set("height", str(int(sz.get("height")) + add))
+            if (sz := y.el.find(_p("cellSz"))) is not None and _hu(sz.get("height")):
+                sz.set("height", str(_hu(sz.get("height")) + add))
             for ls in list(y.el.iter(LINESEG)):  # stale layout of the taller cell: 한글 lays it out again
                 _remove(ls)
         if above:
@@ -958,8 +1152,8 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         else:
             heights[r1 + 1:r1 + 1] = heights[r0:r1 + 1]
             self._zones(tbl, "r", lambda s, e: (s + d * (s > r1), e + d * (e > r1 or e == r1 and s < r0)))
-        if (sz := tbl.find(_p("sz"))) is not None and int(sz.get("height", 0)):
-            sz.set("height", str(int(sz.get("height")) + add))
+        if (sz := tbl.find(_p("sz"))) is not None and _hu(sz.get("height")):
+            sz.set("height", str(_hu(sz.get("height")) + add))
         self._tput(tbl, cells, heights, widths)
         return grid.result(self._cid, None, new, grown=grown, mapping=True)
 
@@ -981,14 +1175,14 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
         for x in gone:
             _remove(x.el)
         for x, a, b in shrunk:
-            if (sz := x.el.find(_p("cellSz"))) is not None and int(sz.get("height", 0)):
-                sz.set("height", str(max(0, int(sz.get("height")) - sum(heights[a:b + 1]))))
+            if (sz := x.el.find(_p("cellSz"))) is not None and _hu(sz.get("height")):
+                sz.set("height", str(max(0, _hu(sz.get("height")) - sum(heights[a:b + 1]))))
             for ls in list(x.el.iter(LINESEG)):
                 _remove(ls)
         cut = sum(heights[r0:r1 + 1])
         self._zones_cut(tbl, "r", r0, r1)
-        if (sz := tbl.find(_p("sz"))) is not None and int(sz.get("height", 0)):
-            sz.set("height", str(max(0, int(sz.get("height")) - cut)))
+        if (sz := tbl.find(_p("sz"))) is not None and _hu(sz.get("height")):
+            sz.set("height", str(max(0, _hu(sz.get("height")) - cut)))
         del heights[r0:r1 + 1]
         self._tput(tbl, cells, heights, widths)
         return {"removed": removed, "shrunk": [self._id(x.el) for x, _, _ in shrunk]}
@@ -1140,8 +1334,8 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
             arr[k] = size
         touched = [x for x in cells if any(x.at(axis)[0] <= k < sum(x.at(axis)) for k in lines)]
         key = "height" if axis == "r" else "width"
-        if (sz := tbl.find(_p("sz"))) is not None and int(sz.get(key, 0)):
-            sz.set(key, str(max(0, int(sz.get(key)) + delta)))
+        if (sz := tbl.find(_p("sz"))) is not None and _hu(sz.get(key)):
+            sz.set(key, str(max(0, _hu(sz.get(key)) + delta)))
         self._tput(tbl, cells, heights, widths, sized=touched)
         return {"sizes": arr, "size": size}
 
@@ -1161,8 +1355,8 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
             arr[k] = v
         touched = [x for x in cells if any(x.at(axis)[0] <= k < sum(x.at(axis)) for k in want)]
         key = "height" if axis == "r" else "width"
-        if (sz := tbl.find(_p("sz"))) is not None and int(sz.get(key, 0)):
-            sz.set(key, str(max(0, int(sz.get(key)) + delta)))
+        if (sz := tbl.find(_p("sz"))) is not None and _hu(sz.get(key)):
+            sz.set(key, str(max(0, _hu(sz.get(key)) + delta)))
         self._tput(tbl, cells, heights, widths, sized=touched)
         return {"sizes": [round(v * 25.4 / 7200, 2) for v in arr]}
 
@@ -1325,7 +1519,7 @@ class HwpxDoc(FormatMixin, StructMixin):  # StructMixin: 구조·서식 편집(s
     def _tsizes(self, cells, nr, nc):
         """(row heights, column widths) in HWPUNIT from the cells' hp:cellSz."""
         def size(dim):
-            return lambda x: int(sz.get(dim, 0)) if (sz := x.el.find(_p("cellSz"))) is not None else 0
+            return lambda x: _hu(sz.get(dim)) if (sz := x.el.find(_p("cellSz"))) is not None else 0
         return grid.sizes(cells, nr, "r", size("height")), grid.sizes(cells, nc, "c", size("width"))
 
     def _zones(self, tbl, axis, fn):

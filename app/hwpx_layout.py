@@ -16,6 +16,14 @@ def _mm(v):
     return round(int(v or 0) * HU_MM, 2)
 
 
+def hu(v):
+    """A stored size (hp:cellSz / hp:sz width·height) in HWPUNIT. 한글 writes a size that went negative as an unsigned
+    32-bit number (실파일 cellSz height="4294967256" = −40 — references/HWPX_포맷.md 「셀 높이」) and lays the row out by
+    its other cells and its text, so such a value says nothing: 0, the same as a merged cell's 0."""
+    n = int(v or 0)
+    return n if 0 <= n < 1 << 31 else 0
+
+
 def _q(el, tag):
     return el.find(f"{{http://www.hancom.co.kr/hwpml/2011/paragraph}}{tag}")
 
@@ -121,6 +129,29 @@ def annotate_pages(doc, blocks):
     return blocks
 
 
+def annotate_hosts(doc, blocks):
+    """annotate() 의 부분판 — 최상위 문단 몇 개가 낸 블록만(HwpxDoc.host_blocks, 문서 순). 쪽 정보는 annotate_pages 와 같은 규칙을
+    그 문단의 **바로 앞 최상위 문단**에서 이어 셈한다(annotate_pages 는 문서 처음부터 훑으며 같은 값을 들고 온다 — 견줌은 tests/test_host_blocks.py)."""
+    last_p = None
+    for b in blocks:
+        el = doc._ids[b["id"]]
+        root = el.getroottree().getroot()
+        p = el if el.tag == HP + "p" else el.getparent().getparent()
+        if p is last_p or p.getparent() is not root:  # 그 문단의 둘째 블록부터(표·그림) · 캡션
+            continue
+        last_p = p
+        q = next(p.itersiblings(HP + "p", preceding=True), None)
+        if q is None:  # 구역의 첫 블록 — 그 구역의 쪽 설정
+            b["page"] = page(root)
+            continue
+        v, pv = _vert(p), _vert(q)
+        prev = (pv[1], q.find(f"{HP}run/{HP}tbl") is not None) if pv else None
+        if p.get("pageBreak") == "1" or (prev and v and v[0] < prev[0] and not prev[1]):
+            b["pageStart"] = True
+    _walk(doc, blocks)
+    return blocks
+
+
 def _walk(doc, blocks):
     for b in blocks:
         if b["type"] == "paragraph":
@@ -133,7 +164,7 @@ def _walk(doc, blocks):
             for c in b["cells"]:
                 sz = _q(doc._ids[c["id"]], "cellSz")
                 if sz is not None:
-                    c["widthMm"], c["heightMm"] = _mm(sz.get("width")), _mm(sz.get("height"))
+                    c["widthMm"], c["heightMm"] = _mm(hu(sz.get("width"))), _mm(hu(sz.get("height")))
                 _walk(doc, c.get("blocks") or [])
         elif b["type"] == "image":
             b["align"] = _align(doc, doc._ids[b["id"]])

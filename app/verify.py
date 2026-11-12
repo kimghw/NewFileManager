@@ -27,6 +27,16 @@ KIT = {"hwpx": (HwpxDoc, owpml_check, ("Contents/",)),
 def fmt_of(sess):
     return getattr(sess, "fmt", "hwpx")
 
+
+def open_base(sess, Doc, data):
+    """기준 문서(또는 그 재구성본)를 따로 연다 — 기준이 확정본이면(sess.base_ids, spec_작업 ② §8) 그때의 블록 id 자리표를 되붙여 세션 블록과 같은 id 로.
+    올린 원본이 기준이면 blocks() 차례가 곧 세션 id 라 그대로."""
+    d = Doc(data)
+    ids = getattr(sess, "base_ids", None)
+    if ids:
+        d.adopt_ids(ids)
+    return d
+
 MAP_OK, MAP_WARN = 0.9, 0.6
 STYLE_FAIL = 0.02  # 글꼴 대조: 크기(첨자 빼고)·굵게·색이 다른 글자가 이 비율을 넘으면 실패
 LETTER_FAIL = 0.05  # 레터 대조: 레터 글자가 다른 헤딩이 이 비율을 넘으면 실패
@@ -307,14 +317,14 @@ def run_import(sess, job):
 
     def model():
         job.set("model", "run")
-        a, b = flat_texts(sess.blocks), flat_texts(Doc(ctx["rebuilt"]).blocks())
+        a, b = flat_texts(sess.blocks), flat_texts(open_base(sess, Doc, ctx["rebuilt"]).blocks())
         bad = [i for i in a if a.get(i) != b.get(i)] + [i for i in b if i not in a]
         job.set("model", "fail" if bad else "ok",
                 f"문단 {len(a):,}개 글 " + ("모두 동일" if not bad else f"{len(bad)}개 다름"), blocks=bad[:50])
 
     def owpml():
         job.set("owpml", "run")
-        od = Doc(data)
+        od = open_base(sess, Doc, data)
         od.blocks()
         res = check.check_doc(od)
         base = check.counts(res)
@@ -381,7 +391,7 @@ def run_import(sess, job):
 
     def letters():
         job.set("letters", "run")
-        doc = Doc(data)  # 줄 배치 캐시(둘째 줄 종류 — hwpx 만)를 읽는다 — 편집 중인 세션 문서와 따로(같은 바이트라 블록 id 같음)
+        doc = open_base(sess, Doc, data)  # 줄 배치 캐시(둘째 줄 종류 — hwpx 만)를 읽는다 — 편집 중인 세션 문서와 따로(같은 바이트·같은 블록 id)
         blocks = doc.blocks()
         if fmt == "docx":
             hang_as_hwpx(blocks)

@@ -1060,15 +1060,17 @@ class DocxDoc(DocxStructMixin):  # 구조·서식 편집·글꼴 표(NFM spec_do
         self._tput(tbl, trs, cells, widths, sized=[x, *new])
         return grid.result(self._cid, x, new, grown=grown)
 
-    def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False) -> dict:
+    def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False,
+                   lenient: bool = False) -> dict:
         """HwpxDoc.clone_rows: rows r0..r1 copied right below r1 (keep_text=False: empty cells, same shapes); cols =
         [c0, c1] copies only those columns, the cells outside them on row r1 grow (vMerge) over the new rows; above=True:
-        the copy goes right above r0 and the outside cells on r0 grow."""
+        the copy goes right above r0 and the outside cells on r0 grow; lenient=True: a merged cell partly over the rows
+        grows instead of raising (grid.clone — 행 전체 넣기)."""
         tbl = self._tbl(table_id)
         trs, cells, widths = self._tgrid(tbl)
         r0, r1 = int(r0), int(r1)
         c0, c1 = (int(cols[0]), int(cols[1])) if cols is not None else (0, len(widths) - 1)
-        new, grown = grid.clone(cells, len(trs), len(widths), r0, r1, c0, c1, above=above)
+        new, grown = grid.clone(cells, len(trs), len(widths), r0, r1, c0, c1, above=above, lenient=lenient)
         d, ref, rows_new = r1 - r0 + 1, trs[r1], [_row_like(t) for t in trs[r0:r1 + 1]]
         for t in rows_new:
             if above:

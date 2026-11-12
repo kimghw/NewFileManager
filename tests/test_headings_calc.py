@@ -411,8 +411,10 @@ def test_rnd_owner_from_stage2_graph(rnd):
     by = {t["id"]: t for t in out["tables"]}
     o = by["t8546"]["owner"]
     assert o["text"] == "8-1. 연구개발비 지원·부담계획" and o["tplNo"] == 1 and o["level"] == 2 and o["template"].startswith("body:") and o["path"] and o["division"] is None
-    lab = by["t734"]["owner"]
-    assert lab["role"] == "label" and lab["text"] == "[연구개발성과의 기술기여도]" and lab["division"]["text"] == lab["text"]
+    sub = by["t734"]["owner"]  # 괄호 소제목 — 표의 소속(제목)은 되지만 구분 라벨이 아니다(구분 소속 없음, spec ② §13)
+    assert sub["role"] == "subtitle" and sub["text"] == "[연구개발성과의 기술기여도]" and sub["division"] is None
+    div = next(t["owner"]["division"] for t in out["tables"] if (t["owner"] or {}).get("division"))  # 구분 라벨 아래 표 — 구분 기준은 2단계가 정한 것 그대로
+    assert div["key"] in ("[기관]", "[단계]", "[차년도]") and div["basis"] == [{"[기관]": "org", "[단계]": "stage", "[차년도]": "year"}[div["key"]]]
     assert by["t1"]["owner"] == {"source": "stage2", "root": True}
 
 
@@ -486,3 +488,150 @@ def test_run_stage3_uses_fresh_stage2_only():
         time.sleep(0.05)
     finally:
         server.DOCS.clear()
+
+
+# ---- 6. 코드 정의 「(M=K+L)」 · 두 글자 코드 「E1」 · 안쪽 괄호 · 부모 헤더 코드 (2026-11-10 연구개발기관별 사용계획 총괄표) ------------------------------
+
+def test_code_info_forms():
+    ci = HC.code_info
+    e1 = ci("총 인건비1)(E1=A+B+C+D)")
+    assert (e1["code"], e1["expr"]) == ("E1", "A+B+C+D") and ci("연구개발비 총액(M=K+L)")["code"] == "M" and ci("연구개발비 총액(M=K+L)")["expr"] == "K+L"
+    r = ci("간접비 비율4)(L/(N+O+C+D+P+Q+R+I+S))")
+    assert r.get("code") is None and r["expr"] == "L/(N+O+C+D+P+Q+R+I+S)"
+    assert ci("연구수당 비율3)(I/E2)")["expr"] == "I/E2" and ci("현금(N)") == {"spans": [(2, 5)], "code": "N"}
+    assert ci("소계 ( A + B + C )")["expr"] == "A+B+C" and ci("금액（C＝A×10%）")["expr"] == "A*10%" and ci("금액（C＝A×10%）")["code"] == "C"
+    for s in ("(연구시설‧장비비 중 통합관리비(현금))", "기관(R&D)", "항목(1)", "비고(SW)", "단위(%)", "안 닫힌 (A+B", ""):
+        assert ci(s) == {"spans": []}, s
+    assert HC.core("총 인건비1)(E1=A+B+C+D)") == "총 인건비" and HC.core("직접비 소계 (K=E1+F+G+H+I+S+T)") == "직접비 소계" and HC.core("간접비 비율4)(L/(N+O+C))") == "간접비 비율"
+    hb = HC.header_basis
+    assert hb("총 인건비1)(E1=A+B+C+D)")["kind"] == "total" and hb("연구수당 비율3)(I/E2)").get("pctUnit") is True and hb("연구개발비 총액(M=K+L)")["code"] == "M"
+    assert HC.parse_num("1,000 (E1)")["num"] == 1000 and HC.parse_num("20% (I/E2)") == {"num": 20.0, "dec": 0, "pct": True}
+    ev = HC._eval_expr
+    assert ev("L/(N+O)", {"L": 10, "N": 3, "O": 2}) == 2 and ev("A+B*C", {"A": 1, "B": 2, "C": 3}) == 7 and ev("K-E1-T", {"K": 10, "E1": 3, "T": 2}) == 5
+    assert ev("A*10%", {"A": 50}) == pytest.approx(5) and ev("A/B", {"A": 1, "B": 0}) is None and ev("A+", {"A": 1}) is None and ev("A+Z", {"A": 1}) is None
+
+
+def plan_tab(blank=False, bad=False):
+    """연구개발기관별 사용계획 총괄표 꼴(줄임) — 비목 | 항목(1x2) | 1차년도 | 2차년도 | 합계 ; 직접비(7x1) › 인건비(A)(2x1) › 현금(N)·현물 · 재료비(B) · 총 인건비1)(E1=A+B) ·
+    수당(I) · 수당 비율2)(I/E1) · 직접비 소계 (K=E1+I) ; 간접비(L) ; 간접비 비율3)(L/(N+B)) ; 총액(M=K+L). blank = 빈 양식(합계 줄·합계 열은 음영 빈 칸)."""
+    t = Tab("t9")
+    t.head(0, 0, "비목")
+    t.head(0, 1, "항목", cs=2)
+    for i, name in enumerate(["1차년도", "2차년도", "합계"]):
+        t.head(0, 3 + i, name)
+    t.head(1, 0, "직접비", rs=7)
+    t.head(1, 1, "인건비(A)", rs=2)
+    t.head(1, 2, "현금(N)")
+    t.head(2, 2, "현물")
+    for r, name in ((3, "재료비(B)"), (4, "총 인건비1)(E1=A+B)"), (5, "수당(I)"), (6, "수당 비율2)(I/E1)"), (7, "직접비 소계 (K=E1+I)")):
+        t.head(r, 1, name, cs=2)
+    for r, name in ((8, "간접비(L)"), (9, "간접비 비율3)(L/(N+B))"), (10, "총액(M=K+L)")):
+        t.head(r, 0, name, cs=3)
+    vals = {1: ["10", "20", "30"], 2: ["5", "5", "10"], 3: ["3", "4", "7"], 4: ["18", "29", "47"], 5: ["9", "2.9", "11.9"], 6: ["50%", "10%", "25.3%"],
+            7: ["27", "31.9", "58.9"], 8: ["3", "3.1", "6.1"], 9: ["23.1%", "12.9%", "16.5%"], 10: ["30", "36" if bad else "35", "65"]}
+    for r, row in vals.items():
+        for i, v in enumerate(row):
+            if blank:
+                t.cell(r, 3 + i, "", fill=GREY if (r in (4, 7, 10) or i == 2) else None)
+            else:
+                t.num(r, 3 + i, v)
+    return t
+
+
+def test_code_definitions_parent_codes_and_nested_ratio():
+    tb = build(plan_tab(), before="(단위: 천원)")["tables"][0]
+    s = tb["subtables"]
+    assert len(s) == 1 and s[0]["kind"] == "matrix" and s[0]["headerRows"] == 1 and s[0]["headerCols"] == 3 and "코드 식" in s[0]["calc"]["why"]
+    heads = {c["text"]: c for c in tb["cells"] if c["role"] in ("colhead", "rowhead", "corner")}
+    assert heads["총 인건비1)(E1=A+B)"]["code"] == "E1" and heads["총 인건비1)(E1=A+B)"]["expr"] == "A+B" and heads["총액(M=K+L)"]["expr"] == "K+L"
+    assert heads["간접비 비율3)(L/(N+B))"]["expr"] == "L/(N+B)" and heads["인건비(A)"]["code"] == "A"
+    # 부모 헤더 코드 A = 아래 잎 칸 전부(현금 + 현물 — SUM 범위) · 잎 코드 B = 칸 하나
+    e1 = fx(tb, 4, 3)["row"]
+    assert e1["kind"] == "expr" and e1["formula"] == "=SUM(D2:D3)+D4" and e1["expected"] == 18 and e1["status"] == "ok" and e1["excel"] is True
+    assert len(e1["operands"]) == 3 and "E1=A+B" in e1["note"]
+    # 정의한 코드를 다른 식이 쓴다 — K = E1 + I · M = K + L
+    assert fx(tb, 7, 3)["row"]["formula"] == "=D5+D6" and fx(tb, 7, 4)["row"]["expected"] == pytest.approx(31.9) and fx(tb, 7, 4)["row"]["status"] == "ok"
+    m = fx(tb, 10, 3)["row"]
+    assert m["formula"] == "=D8+D9" and m["expected"] == 30 and m["status"] == "ok" and "M=K+L" in m["note"]
+    # 비율 식 — 헤더가 「비율」 이라 백분율(×100) · 안쪽 괄호
+    assert fx(tb, 6, 3)["row"]["formula"] == "=(D6/D5)*100" and fx(tb, 6, 3)["row"]["expected"] == 50 and fx(tb, 6, 3)["row"]["status"] == "ok"
+    r = fx(tb, 9, 3)["row"]
+    assert r["formula"] == "=(D9/(D2+D4))*100" and r["expected"] == pytest.approx(23.0769, abs=1e-3) and r["status"] == "ok"
+    # 「합계」 열: 값 행은 가로 합 · 코드 식 행은 두 수식(엑셀엔 코드 식) · 비율 행은 코드 식만(비율의 합이 아니라 합의 비율)
+    assert set(fx(tb, 1, 5)) == {"col"} and fx(tb, 1, 5)["col"]["formula"] == "=SUM(D2:E2)"
+    both = fx(tb, 10, 5)
+    assert set(both) == {"row", "col"} and both["row"]["formula"] == "=F8+F9" and both["row"]["excel"] and both["col"]["formula"] == "=SUM(D11:E11)" and not both["col"]["excel"]
+    ratio = fx(tb, 6, 5)
+    assert set(ratio) == {"row"} and ratio["row"]["formula"] == "=(F6/F5)*100" and ratio["row"]["expected"] == pytest.approx(25.319, abs=1e-3) and ratio["row"]["status"] == "ok"
+    assert tb["calc"]["mismatch"] == 0 and tb["calc"]["ok"] == tb["calc"]["formulas"] == len(tb["formulas"]) == 23  # 코드 식 5행 × 3열 + 합계 열 가로 합 8행
+    # 값이 틀리면 불일치
+    x = fx(build(plan_tab(bad=True))["tables"][0], 10, 4)["row"]
+    assert x["status"] == "mismatch" and x["expected"] == 35 and x["actual"] == 36 and x["diff"] == 1
+    # 빈 양식 — 합계 줄·합계 열의 음영 빈 칸도 필드라 같은 수식이 나오고 모두 미검증(빈 칸). 빈 비율 칸도 ×100
+    blank = build(plan_tab(blank=True))["tables"][0]
+    assert len(blank["subtables"]) == 1 and blank["subtables"][0]["headerCols"] == 3 and all(c["role"] == "field" for c in blank["cells"] if c["row"] >= 1 and c["col"] >= 3)
+    assert [f["formula"] for f in blank["formulas"]] == [f["formula"] for f in tb["formulas"]] and all(f["status"] == "blank" for f in blank["formulas"])
+    assert fx(blank, 6, 3)["row"]["formula"] == "=(D6/D5)*100" and fx(blank, 10, 5)["row"]["formula"] == "=F8+F9"
+
+
+def test_unresolved_code_expr_makes_no_guess():
+    """식의 코드를 못 찾으면 수식을 만들지 않는다 — 「총 인건비(E1=A+Z)」 를 「총 …비」 합계 규칙(형제 전부의 합)으로 어림하지 않는다. 식이 없는 「총 …비」 는 예전대로 합."""
+    t = Tab("t10")
+    t.head(0, 0, "항목")
+    t.head(0, 1, "금액")
+    for r, (a, b) in enumerate([("인건비(A)", "10"), ("재료비(B)", "5"), ("총 인건비(E1=A+Z)", "10"), ("총 연구개발비", "15")], start=1):
+        t.cell(r, 0, a)
+        t.num(r, 1, b)
+    tb = build(t)["tables"][0]
+    assert fx(tb, 3, 1) == {} and cell_at(tb, 3, 0)["expr"] == "A+Z"
+    assert fx(tb, 4, 1)["row"]["kind"] == "sum"
+
+
+def test_rnd_plan_table_code_formulas(rnd):
+    """실물 — 「연구개발기관별 사용계획 총괄표」(26×11): 스크립트 초안만으로 띠 하나 · 합계 줄/열이 필드 · 표에 적힌 코드 식대로 수식."""
+    out = HT.build(rnd, use_llm=False, ask=_no_llm)
+    plans = [x for x in out["tables"] if any("연구개발비 총액(M=K+L)" in c["text"] for c in x["cells"])]
+    t = next(x for x in plans if x["rows"] == 26)
+    assert [(tuple(s["rows"]), s["kind"], s["headerRows"], s["headerCols"]) for s in t["subtables"]] == [((0, 26), "matrix", 2, 4)]
+    f = {x["ref"]: x["formula"] for x in t["formulas"] if x["excel"]}
+    assert f["E26"] == "=E23+E24" and f["K26"] == "=K23+K24"                                  # 연구개발비 총액(M=K+L)
+    assert f["E10"] == "=SUM(E3:E4)+E5+E6+SUM(E8:E9)" and f["E11"] == "=SUM(E3:E4)+E5+SUM(E8:E9)"  # 총 인건비(E1=A+B+C+D) · 수정인건비(E2=A+B+D)
+    assert f["E23"] == "=E10+SUM(E12:E13)+SUM(E15:E16)+SUM(E17:E18)+E19+E21+E22"                 # 직접비 소계(K=E1+F+G+H+I+S+T) — 「…중 통합관리비」 행(14)은 안 듦
+    assert f["E20"] == "=(E19/E11)*100" and f["K20"] == "=(K19/K11)*100"                          # 연구수당 비율(I/E2)
+    assert f["E25"] == "=(E24/(E3+E5+E6+SUM(E8:E9)+E12+E15+E17+E19+E21))*100"                    # 간접비 비율(L/(N+O+C+D+P+Q+R+I+S))
+    assert f["E7"] == "=SUM(E3:E4)+E5+E6" and f["K3"] == "=SUM(E3:J3)" and f["J26"] == "=J23+J24"
+    assert len(f) == 66 and all(x["status"] == "blank" for x in t["formulas"])
+    # 같은 꼴의 다른 표(22행 — 헤더 열이 5칸 폭, 총액 행의 이름 칸이 헤더 열 한도(4)보다 넓음): 총액 행이 같은 띠 · 뒤에 정의된 코드(M)를 앞 행이 씀
+    u = next(x for x in plans if x["rows"] == 22)
+    g = {x["ref"]: x["formula"] for x in u["formulas"] if x["excel"]}
+    assert len(u["subtables"]) == 1 and g["F22"] == "=F20+F21" and g["F10"] == "=(F9/F22)*100" and g["F9"] == "=SUM(F4:F5)+F6+F7+F8"
+    # 참여연구자 인건비 현황표 — 「총액(G=D+E+F)」 = 소계(D) + 소계(E) + 소계(F)
+    p = next(x for x in out["tables"] if any("총액(G=D+E+F)" in c["text"] for c in x["cells"]))
+    assert {x["ref"]: x["formula"] for x in p["formulas"] if x["excel"]}["I12"] == "=I6+I9+I11"
+
+
+def test_abbreviation_is_not_an_expr_and_ratio_expr_definition():
+    """코드가 하나도 정의되지 않은 괄호 글(「(M/M)」)은 식이 아니라 약어 — 합계 낱말 규칙 그대로. 나누기 식 = 코드로 나누는 식(상수로 나누는 「(A/12)×B×C」 는 금액 식).
+    못 푸는 나누기 식 줄에는 다른 축의 「비율의 합」 도 붙이지 않는다."""
+    assert HC._ratio_expr("I/E2") and HC._ratio_expr("L/(N+O)") and HC._ratio_expr("A/B*100") and HC._ratio_expr("100*(A/(B+C))")
+    assert not HC._ratio_expr("(A/12)*B*C") and not HC._ratio_expr("(A+B)/2") and not HC._ratio_expr("A+B") and not HC._ratio_expr("") and not HC._ratio_expr(None)
+    t = Tab("t11")
+    t.head(0, 0, "항목")
+    t.head(0, 1, "투입(M/M)")
+    for r, (a, b) in enumerate([("책임연구원", "3"), ("연구원", "5"), ("소계(M/M)", "8")], start=1):
+        t.cell(r, 0, a)
+        t.num(r, 1, b)
+    tb = build(t)["tables"][0]
+    assert "expr" not in cell_at(tb, 3, 0) and "expr" not in cell_at(tb, 0, 1) and cell_at(tb, 3, 0)["basis"] == ["total"]
+    assert fx(tb, 3, 1)["row"]["formula"] == "=SUM(B2:B3)" and fx(tb, 3, 1)["row"]["status"] == "ok"
+    r = Tab("t12")
+    for i, name in enumerate(["항목", "1차년도", "2차년도", "합계"]):
+        r.head(0, i, name)
+    r.cell(1, 0, "금액(A)")
+    r.cell(2, 0, "비율(A/Z)")
+    for i, (a, b) in enumerate([("10", "50%"), ("20", "40%"), ("30", "90%")]):
+        r.num(1, 1 + i, a)
+        r.num(2, 1 + i, b)
+    tb2 = build(r)["tables"][0]
+    assert cell_at(tb2, 2, 0)["expr"] == "A/Z"  # A 는 정의돼 있어 식으로 남음 — Z 를 못 찾아 수식 없음
+    assert fx(tb2, 1, 3)["col"]["formula"] == "=SUM(B2:C2)" and fx(tb2, 2, 3) == {} and fx(tb2, 2, 1) == {}

@@ -1,0 +1,70 @@
+/* 취합(할 일 「사업계획서 취합」 plan_merge) 화면 — gather.js(spec/spec_취합.md ② §5). 첫 카드의 기관 문서 줄·기관 현황, 2열 「기관 작성 내용」·「넣기 계획」·「끌어 넣기」, 문서의 놓을 줄.
+   취합본 칸(.dv-flow-files)·묶음(.dv-phase)·세부 목록(.dv-flow-steps)의 모양은 divisions.css 의 이관 것을 그대로 쓴다(같은 클래스 — 이관과 같은 꼴). 폭 규칙 = design.md §1(패널 320~520px):
+   상자는 2겹까지(카드 › 줄 — 줄은 테두리 없이 1px 구분선) · 컨트롤 28px · 되풀이 줄은 열이 맞는 격자 · 넓을 때만 열 제목 한 줄(좁으면 줄이 두 줄로 접힌다 — #paneDiv 의 폭 @container) */
+#divBox .gt-parts { min-width: 0; display: flex; flex-direction: column; padding-top: 6px; border-top: 1px solid #e8edf3; }
+#divBox .gt-parts-head { display: flex; align-items: baseline; gap: 6px; padding-bottom: 4px; }
+#divBox .gt-parts-head strong { font-weight: 600; color: #1e293b; }
+#divBox .gt-parts-n { font-size: 11px; color: #64748b; }
+#divBox .gt-cols { display: none; } /* 열 제목 — 넓을 때만(아래 @container) */
+#divBox .gt-part { display: grid; grid-template-columns: minmax(0, 1fr) max-content 28px 28px; grid-template-areas: "name tag peer del" "org chk chk chk"; gap: 4px 6px; align-items: center; padding: 5px 0; border-top: 1px solid #eef2f7; } /* 좁은 패널 — 두 줄(꼬리표 칸은 글 폭만큼 — 반영할 기관 목록이 남는 폭을 쓴다) */
+#divBox .gt-part-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1e293b; }
+#divBox .gt-part > select { grid-area: org; width: 100%; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .gt-part-chk { grid-area: chk; display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; color: #475569; cursor: pointer; }
+#divBox .gt-part-chk input { flex: none; width: 14px; height: 14px; margin: 0; }
+#divBox .gt-part-tag { grid-area: tag; justify-self: start; max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
+#divBox .gt-part > .dv-flow-peer { grid-area: peer; }
+#divBox .gt-part-del { grid-area: del; font-size: 16px; line-height: 1; color: #8a96a8; }
+#divBox .gt-part-del:hover:not(:disabled) { color: var(--fail); }
+#divBox .gt-add { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; align-items: center; padding-top: 5px; border-top: 1px solid #eef2f7; }
+#divBox .gt-add select { width: 100%; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .gt-note { margin: 4px 0 0; color: var(--warn); }
+#divBox .gt-orgs { margin: 0; font-size: 11.5px; line-height: 1.5; }
+#divBox .gt-orgs[hidden] { display: none; }
+#divBox .gt-orgs-miss { color: var(--warn); }
+@container (min-width: 440px) { /* 넓은 패널(기본 폭 520px — .pane 좌우 여백 40px·스크롤 막대를 뺀 값이 440px 을 넘을 때) — 한 줄: 문서 · 반영할 기관 · 공통 · 상태 · 같이 보기 · 빼기(열 제목은 위에 한 번, 「공통 자리 포함」 글은 열 제목이 대신한다) */
+  #divBox .gt-cols, #divBox .gt-part { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 28px 84px 28px 28px; }
+  #divBox .gt-part { grid-template-areas: "name org chk tag peer del"; }
+  #divBox .gt-cols { display: grid; gap: 0 6px; padding-bottom: 2px; font-size: 11px; color: #64748b; white-space: nowrap; }
+  #divBox .gt-part-chk { justify-content: center; }
+  #divBox .gt-part-chk span { display: none; }
+}
+/* 세부 목록 — 기관 문서 줄 안의 작은 단계 이름(② 자리 연결 · LLM 검토 · ③ 넣기 계획 · ④ 내용 반영) */
+#divBox .gt-steps .gt-sub { margin-right: 2px; font-weight: 600; color: #334155; white-space: nowrap; }
+#divBox .gt-steps li[data-step="frame"]::before { content: none; } /* 1단계의 마지막 줄 */
+#divBox .gt-steps li.gt-none { padding-bottom: 2px; color: #64748b; }
+#divBox .gt-steps [data-status="hold"] .dv-flow-status { color: #92400e; background: #fff3dc; } /* 기관 미지정 — 사람이 고를 것(멈춤과 같은 색 · 글자로도 가른다) */
+#divBox .gt-steps a.btn { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+
+/* 2열 — 기관 작성 내용(kind gather) · 넣기 계획(gatherFill): 표는 연결 목록의 것(.lk-table)을 쓰고 칸만 더한다 */
+.hd-body table.gt-table td { vertical-align: top; }
+.hd-body table.gt-table td.gt-st { white-space: nowrap; }
+.hd-body .gt-keep { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 11.5px; color: var(--text); cursor: pointer; }
+.hd-body .gt-keep input { width: 14px; height: 14px; margin: 0; }
+.hd-body .gt-undo { display: block; height: 22px; margin-top: 3px; padding: 0 6px; font-size: 11px; }
+.hd-body table.gt-table td.gt-text { min-width: 9em; color: var(--text); }
+.hd-body .gt-kind { display: inline-block; margin-right: 5px; padding: 0 5px; border-radius: 4px; background: var(--surface-2); color: var(--muted); font-size: 11px; line-height: 17px; white-space: nowrap; }
+.hd-body .gt-kind:empty { display: none; }
+.hd-body .gt-n { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.hd-body table.gt-table td.gt-llm { min-width: 7em; color: var(--muted); }
+.hd-body table.gt-table td.gt-llm strong { font-weight: 600; color: var(--text); }
+.hd-body table.gt-table td.gt-what { min-width: 6em; }
+.hd-body .gt-skipped { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0; padding: 2px 8px 8px; }
+.hd-body .gt-ul { list-style: none; margin: 0; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; overflow-wrap: anywhere; }
+.hd-body .gt-ul li { padding-left: 10px; text-indent: -10px; }
+.hd-body .gt-ul li::before { content: "· "; color: var(--muted); }
+.hd-body .gt-ul li.go { cursor: pointer; }
+.hd-body .gt-ul li.go:hover, .hd-body .gt-ul li.go:focus-visible { text-decoration: underline; }
+/* 2열 — 끌어 넣기(kind gatherDrop): 이름 · 값 두 열 */
+.hd-body .gt-drop { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; margin: 0; padding: 12px 14px; font-size: 12.5px; }
+.hd-body .gt-drop dt { color: var(--muted); white-space: nowrap; }
+.hd-body .gt-drop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.hd-body .gt-drop dd.go { cursor: pointer; }
+.hd-body .gt-drop dd.go:hover, .hd-body .gt-drop dd.go:focus-visible { text-decoration: underline; }
+.hd-body .gt-drop .gt-ul { padding: 4px 0 0; }
+.hd-body .gt-convert { display: flex; align-items: flex-start; gap: 6px; cursor: pointer; }
+.hd-body .gt-convert input { flex: none; width: 14px; height: 14px; margin: 2px 0 0; }
+
+/* 문서 — 끌어 넣기의 놓을 줄: 그 블록(문단·표) 아래의 선. 표시는 그 요소 하나에만 단다(#doc·body 에 클래스를 달지 않는다 — design.md §8) */
+.doc .gt-drop-after { box-shadow: 0 3px 0 0 #0f766e, 0 0 0 1px rgba(15, 118, 110, .18); }
+/* 둘째 면(기관 문서)의 제목 줄 손잡이 = 끌어 넣기 출발 */
+body.peek .ol-grip { cursor: grab; }

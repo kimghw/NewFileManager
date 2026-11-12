@@ -28,6 +28,18 @@
 - 구형 사양서(①~④ 절 없는 것)는 일괄 개편하지 않는다 — 그 주제를 다시 다룰 때 ①~④ 절을
   추가하고 기존 본문은 ②로 간주해 점진 이관한다.
 
+# 할 일 프롬프트 <cwd>/jobs — 할 일마다 저장해 둔 전제
+
+2026-11-11 사용자 지시("명시적으로 프롬프트를 저장하고 에이전트가 실행할떄 이 작업에서는 이 내용을 참조할 수 있도록해"). 원본 [spec/spec_작업.md](spec/spec_작업.md) ② §13.
+- 할 일(`task.job`)마다 그 일의 전제·기준을 사용자가 말한 대로 적은 md 하나: `jobs/<할 일 키>.md`. 지금 있는 것 = [jobs/plan_to_report.md](jobs/plan_to_report.md)
+  (사업계획서 → 연차보고서 이관 — **연구개발계획서에서 연차보고서에 필요한 내용을 추출**하는 일, 값도 내용도 기준은 계획서) ·
+  [jobs/plan_merge.md](jobs/plan_merge.md)(사업계획서 취합 — **1단계 프레임을 받아 기관이 채워 돌려준 문서들의 내용을 원래 사업계획서 하나에 모으는** 일, 겹치면 덮지 않는다. 사양 [spec/spec_취합.md](spec/spec_취합.md)).
+- 그 할 일의 기능을 만들거나 고치거나 **설명·답하기 전에** 그 파일을 먼저 읽고, 거기 적힌 전제와 어긋나는 설계·답을 하지 않는다. 하위 에이전트에 일을 넘길 때는 그 파일을 읽으라고 적는다.
+- 사용자가 그 일의 전제·기준을 새로 말하면 그 파일에 적는다(파일이 원본 — 앱의 LLM 호출도 같은 글을 읽는다).
+- 병합 LLM 검토의 **판단 지침**(무엇을 같은 자리·같은 표로 보는가)은 `app/merge_guides_default/<이름>.md` — 지금 있는 것 = [links.md](app/merge_guides_default/links.md)(자리 연결 LLM 검토: 묶음 짝 · 표 짝 · 서식) ·
+  [gather.md](app/merge_guides_default/gather.md)(취합 LLM 검토: 기관이 쓴 내용인지 안내 글·빈 틀인지 · 문단·표의 특성).
+  2026-11-12 사용자 지시("이 내용 도 LLM 검토 단계에서 검토하도록 지침으로 들어가 있어야함"). LLM 이 판단할 기준을 사용자가 새로 말하면 코드의 계약이 아니라 그 파일에 적는다(화면 「지침」 단추가 그 글을 보인다). 원본 [spec/spec_병합.md](spec/spec_병합.md) ② §4 「판단 지침」.
+
 # 세션 간 작업 겹침 — 상호 협의해서 처리
 
 여러 세션(멀티에이전트 포함)이 같은 작업 트리를 동시에 고칠 수 있다(2026-10-29 사용자 지시).
@@ -42,11 +54,32 @@
 - 멀티에이전트를 돌리는 세션은 코디네이터가 협의를 맡는다 — 하위 에이전트가 다른 세션과 겹치면 멈추고 코디네이터에 보고.
 - 협의로 사양이 바뀌면 그 주제 사양서 ①에 한 줄 남긴다.
 
+# 웹서버 — 백그라운드로, 1개만
+
+2026-11-10 사용자 지시.
+- 웹서버는 **8114 하나만** 띄운다. 띄우기 전에 8114 를 듣는 프로세스가 있는지 보고(`Get-NetTCPConnection -LocalPort 8114 -State Listen`),
+  있으면 새로 띄우지 않는다. 다시 켤 때는 **먼저 끄고**(듣는 `python` 의 부모 `cmd` 째 `taskkill /PID <cmd pid> /T /F` → 포트가 빌 때까지 기다림)
+  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다.
+- **백그라운드(세션과 떨어진 프로세스)** 로 띄운다 — 도구의 포그라운드 실행이나 `run_in_background` 로 띄우면 터미널을 잡거나 세션이 끝날 때 같이 죽는다. PowerShell:
+  `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'cmd /c "cd /d E:\dev\NewFileManager && set NFM_LLM_BACKEND=sdk&& python -m uvicorn app.server:app --host 127.0.0.1 --port 8114 >> artifacts\5b_server\server-8114.log 2>&1"' }`
+- 화면 검사용 임시 서버(서버 코드를 고친 뒤 8114 를 건드리지 않고 확인할 때)는 다른 포트 + 임시 `NFM_WORKS`·`NFM_RENDER` 로 띄우고 **검사가 끝나면 바로 끈다** —
+  켜 둔 채 턴을 끝내지 않는다. 8114 와 같은 작업 폴더를 쓰는 둘째 서버는 띄우지 않는다.
+- **검사는 같이 돌린다**(2026-11-12 사용자 지시 "서버 테스트 시간을 좀 줄이도록 병렬로 작업해줘"): 임시 서버를 스스로 띄우는 화면 검사(`tools/smoke_*_ui.py`)가 둘 이상이면 하나씩 차례로 돌리지 말고
+  `python -X utf8 tools/run_ui_gates.py <폴더> [이름 …]`(이름은 `--list`) 로 한꺼번에 — 검사마다 다른 포트(18300~)·다른 폴더, 떨어진 것만 혼자 한 번 더, 끝에 남은 임시 서버가 없는지 본다.
+  시간을 재는 검사(`smoke_edit_speed_ui.py`)는 같이 돌리지 않는다(부하로 수치가 부푼다). 검사가 도는 동안 기다리지 말고 안 겹치는 일(8114 읽기 확인 · 다른 세션 알림 · 사양서)을 함께 한다.
+  pytest 전체도 병렬로 — `python -X utf8 tools/run_pytest.py [pytest 인자]`(일꾼 6개 파일 단위 분배 + 한글·Word 를 띄울 수 있는 파일은 따로 차례로, 두 묶음을 같이: 실측 6분 — 한 줄로는 약 15분). 화면 검사 묶음과 pytest 는 **동시에** 돌리지 않는다(부하로 API 시험이 떨어진다).
+
 # 한글 COM 「파일 접근 허용」 창
 
 - 한글 자동화 보안 모듈이 없으면 COM 으로 파일을 열 때 「파일 접근 허용」 창이 떠서 사람이 누를 때까지 멈춘다(PDF 출력 시간 초과의 흔한 원인).
 - 이 PC 는 등록됨(2026-11-08 사용자 선택): `HKCU\Software\HNC\HwpAutomation\Modules` → `%LOCALAPPDATA%\NewFileManager\FilePathCheckerModule.dll`.
   확인 `python tools/hwp_register_module.py --status`. 미등록(새 PC 등)이면 임의로 등록하지 말고 사용자에게 묻는다(내려받기·레지스트리 변경).
+
+# 용어 — TASK
+
+2026-11-12 사용자 "할 일 : TASK 라고 하자". **TASK = 할 일**(`task.job` — 사업계획서 양식 맞추기 · 취합 · 이관 …) — 사용자가 「TASK」 라 하면 이것이다.
+시작 화면의 TASK 카드·로고는 [spec/spec_작업.md](spec/spec_작업.md) ② §15 · [design.md](design.md) §12. 패널의 「할 일」 칸·`jobs/`·사양서의 「할 일」 은 같은 것을 가리킨다(칸 이름을 바꿀지는 미정 — spec_작업 ④).
+TASK는 여러 모듈을 순서대로 쓰는 일이다. TASK 추가·공통 모듈 변경 때는 [spec/spec_작업.md](spec/spec_작업.md) ② §16의 모듈 조합·입출력·선행조건·검증 범위를 함께 확인한다. 작은 설명의 노트 도움말과 순서 안내 규칙은 [design.md](design.md) §1·§11.
 
 # 용어 — 구분 기준
 

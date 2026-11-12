@@ -148,7 +148,12 @@ class _Run:
         limit, t0 = min(MATCH_TIMEOUT, self.left), time.perf_counter()
         try:
             fn = rule["rx"].fullmatch if whole else rule["rx"].match
-            m = fn(text, concurrent=True, timeout=limit)
+            try:
+                m = fn(text, concurrent=True, timeout=limit)
+            except TimeoutError:
+                # 한 번 더 — 시간 제한은 벽시계라 세대 2 GC 멈춤(큰 문서의 힙에서 85~110 ms 실측)이 호출 안에 떨어지면 「.」 같은 식도 넘는다
+                # (references/Python_regex_시간제한.md). 정말 느린 식은 다시 넘으므로 판정은 같고, 건너뛰기까지 한 번의 제한 시간만 더 든다
+                m = fn(text, concurrent=True, timeout=limit)
             return None if m is not None and not whole and m.start() != 0 else m  # \K·(?r) — 첫머리(0)부터 맞은 것만(레터 = 맞춘 앞머리)
         except TimeoutError:
             self.skip(rid, f"호출당 {MATCH_TIMEOUT * 1000:g}ms")

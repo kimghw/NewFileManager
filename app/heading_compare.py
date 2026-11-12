@@ -86,7 +86,8 @@ def preview(wid, session, keys):
                     "edited": len(session.edited())}
             heads = getattr(session, "heads", None)
             if heads is not None and heads.get("loaded"):
-                st = copy.deepcopy({k: v for k, v in heads.items() if k != "job"})
+                # 읽는 키만 복사한다 — 세션 상태에는 복사 못 하는 것도 있다(heading_drift 의 driftLock = threading.Lock → deepcopy TypeError 로 500, 2026-11-11)
+                st = copy.deepcopy({k: heads.get(k) for k in (*STAGES, "runs", "persistError")})
                 job = heads.get("job")
                 view = job.view() if job else None
                 st["job"] = SimpleNamespace(view=lambda: view) if view else None

@@ -182,7 +182,9 @@ class FormatMixin:
                 e = m.find(_c(tag)) if m is not None else None
                 if key in ch and e is not None:
                     hwp = float(ch[key]) * (7200 / 25.4 if key.endswith("Mm") else 100)
-                    e.attrib.update({"value": str(round(hwp * scale)), "unit": "HWPUNIT"})
+                    # 2배 값(switch 없는 꼴·hp:default)은 **짝수**여야 한다 — 홀수면 한글이 그 여백을 5배로 그린다(2835 = 5mm 가 25mm 로, 한글 2020 PDF 실측 2026-11-10,
+                    # references/HWPX_포맷.md 「paraPr 여백·간격」). HWPUNIT 으로 먼저 반올림한 뒤 곱한다.
+                    e.attrib.update({"value": str(round(hwp) * scale), "unit": "HWPUNIT"})
             if "lineSpacingPct" in ch and ls is not None:
                 ls.attrib.update({"type": "PERCENT", "value": str(round(float(ch["lineSpacingPct"])))})
         return self._fmt(self._add_def("paraPr", pp), self._add_def("charPr", c))
@@ -361,3 +363,25 @@ class FormatMixin:
                     ls.getparent().remove(ls)
             if new:
                 self._touch(tc)
+
+    def set_cell_edges(self, cell_id: str, edges: dict) -> bool:
+        """Change some border lines of one cell (spec_병합 ② §5-3 표시 — 일정 표의 「당초계획」 선). edges = {"top"|"bottom"|"left"|"right":
+        {"type": Hancom line type (NONE·SOLID·DASH·DASH_DOT …), "width": "0.4 mm", "color": "#RRGGBB"}}. The cell's own borderFill is cloned and
+        only those sides change (fill and the other sides stay — a definition other cells share is never edited in place). → changed?"""
+        tc = self._cell(cell_id)
+        bf = copy.deepcopy(self._defs["borderFill"][tc.get("borderFillIDRef")])
+        for side, line in edges.items():
+            el = bf.find(_h(f"{side}Border")) if side in CELL_MARGIN.values() else None
+            if el is None:
+                raise ValueError(f"unknown cell edge: {side}")
+            if not HEX6.fullmatch(line.get("color") or "") or not re.fullmatch(r"[\d.]+ mm", line.get("width") or "") or not re.fullmatch(r"[A-Z_]+", line.get("type") or ""):
+                raise ValueError(f"bad line for {side}: {line}")
+            el.set("type", line["type"])
+            el.set("width", line["width"])
+            el.set("color", line["color"])
+        new = self._add_def("borderFill", bf)
+        if new == tc.get("borderFillIDRef"):
+            return False
+        tc.set("borderFillIDRef", new)
+        self._touch(tc)
+        return True

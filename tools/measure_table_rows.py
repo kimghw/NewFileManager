@@ -9,6 +9,7 @@ import os
 import json
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 import fitz
@@ -137,11 +138,9 @@ def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1400, "height": 1200})
-        pg.goto(URL)
-        pg.wait_for_selector(".sample", state="attached")
-        # 2026-11-10 시작 화면 개편 뒤 예제 단추는 접힌 <details id=sampleSection> 안 — 펼친 뒤 aria-label 로 누른다
-        pg.evaluate("() => { const d = document.getElementById('sampleSection'); if (d) { d.hidden = false; d.open = true; } }")
-        pg.click(f".sample[aria-label*='{SAMPLE}']")
+        # 예제를 늘 새 작업으로(?new=1) 열고 그 작업 주소로 — 예제 단추는 같은 파일로 하던 작업을 이어 열어(spec_작업 ② §1) 사용자의 편집본을 잴 수 있다
+        req = urllib.request.Request(f"{URL}/api/samples/{urllib.parse.quote(SAMPLE)}?new=1", method="POST")
+        pg.goto(f"{URL}/#w={json.load(urllib.request.urlopen(req, timeout=600))['docId']}")
         pg.wait_for_function("document.querySelector('.sheet .para') != null", timeout=240000)  # 첫 그리기(7천 문단)가 30초 넘게 걸릴 때가 있다
         for _ in range(600):
             if "run" not in (pg.get_attribute("#summary", "class") or "") and pg.inner_text("#summary").strip():

@@ -2,7 +2,6 @@
 astra 협의 시나리오(artifacts/outline_edit_astra_2026-11-09): S1 Enter 하위 줄(글 나눔·간격 줄) · S2 마지막 레벨 Enter = 같은 레벨 · S5 Alt+Enter 뼈대(L~마지막) ·
 S8~S12 레벨(가지 L1 승격 = 부모 슬롯, 마지막 레벨 하향 거절) · S14 블록 원자성 · S15 끌기(같은 템플릿·레벨, 단위 = 앞 간격 줄~마지막 내용) · S17 빈 줄 지움(라벨·자손 있는 줄 제외) ·
 S18/S20 오버레이 손질(레터가 사라진 줄 제외) · S26 라벨은 Enter 만 · S27 실행 취소 뒤 오버레이 복원 · 번호 다시 매김(합성 「1-1.」, 재시작 묶음은 안 건드림)."""
-import os
 from pathlib import Path
 
 import pytest
@@ -46,18 +45,24 @@ def test_letter_numbering():
 
 # ---------------------------------------------------------------- 양식 + 2단계(LLM 끔) — 세션 하나를 모듈이 나눠 쓴다(열기 + 1·2단계 ≈ 3 s)
 @pytest.fixture(scope="module")
-def sess():
-    server.DOCS.clear()
-    c = TestClient(server.app, raise_server_exceptions=False)
-    r = c.post("/api/docs", files={"file": (PLAN.name, PLAN.read_bytes(), "application/octet-stream")})
-    assert r.status_code == 200, r.text
-    d = r.json()["docId"]
-    s = server.DOCS[d]
-    os.environ["NFM_LLM_BACKEND"] = "off"
-    heading_runs.run_sync(s, 1, False)
-    heading_runs.run_sync(s, 2, False)
-    yield c, d, s
-    server.DOCS.clear()
+def sess(tmp_path_factory):
+    # 모듈 픽스처는 conftest 의 시험별 자동 픽스처(NFM_WORKS 등 임시 폴더)보다 먼저 돈다 — 여기서 모듈 임시 폴더로 두지 않으면
+    # 사용자 작업 폴더(%LOCALAPPDATA%)에 작업이 쌓인다(「최근 작업」에 같은 파일이 반복, spec_작업 ① 2026-11-10)
+    tmp = tmp_path_factory.mktemp("outline")
+    with pytest.MonkeyPatch.context() as mp:
+        for k, v in {"NFM_PDF": "off", "NFM_LLM_BACKEND": "off", "NFM_WORKS": tmp / "works", "NFM_RENDER": tmp / "render",
+                     "NFM_HEADINGS": tmp / "heads", "NFM_FORMS": tmp / "forms", "NFM_DIVISION_PRESETS": tmp / "presets.json"}.items():
+            mp.setenv(k, str(v))
+        server.DOCS.clear()
+        c = TestClient(server.app, raise_server_exceptions=False)
+        r = c.post("/api/docs", files={"file": (PLAN.name, PLAN.read_bytes(), "application/octet-stream")})
+        assert r.status_code == 200, r.text
+        d = r.json()["docId"]
+        s = server.DOCS[d]
+        heading_runs.run_sync(s, 1, False)
+        heading_runs.run_sync(s, 2, False)
+        yield c, d, s
+        server.DOCS.clear()
 
 
 def _undo_all(c, d, s):
@@ -77,21 +82,31 @@ def _after(s, pid, n):
     return seq[i:i + n]
 
 
+def _shape_like(s, pid, base):
+    """문단 모양이 paraPr `base`(슬롯이 동결한 모양)와 같고 둘째 줄만 글 시작에 맞춰졌는지 — 개요 편집이 만든·레벨을 바꾼 줄은 내어쓰기가 붙은
+    새 문단 모양을 갖는다(spec_hwpx_웹편집 ② §8-1, tests/test_outline_pos.py 가 값까지 본다)."""
+    a = s.doc._para_summary(s.doc._defs["paraPr"][s.doc._ids[pid].get("paraPrIDRef")])
+    b = s.doc._para_summary(s.doc._defs["paraPr"][base])
+    return b["firstLineMm"] == 0 and a["firstLineMm"] < 0 and {**a, "firstLineMm": 0.0} == b
+
+
 def test_overlay_and_view(sess):
     c, d, s = sess
     r = c.get(f"/api/docs/{d}/outline")
     assert r.status_code == 200
     o = r.json()
-    assert o["lines"]["p970"] == {"no": 3, "level": 1, "tpl": "3", "letter": "□", "role": "heading"}
+    # □ 가지 = 둘째 템플릿(T2): 그 앞 안내 상자(「※ … AI …」 t956) 안의 「o」 는 TEMP 라 헤딩 후보가 아니다(spec_헤딩_추출 ② §15 — 전에는 그 「o」 가지가 T2, □ 가 T3)
+    assert o["lines"]["p970"] == {"no": 2, "level": 1, "tpl": "2", "letter": "□", "role": "heading"}
     assert o["lines"]["p972"]["level"] == 2 and o["lines"]["p975"]["level"] == 4 and o["lines"]["p968"] == {"no": 1, "level": 2, "tpl": "1", "letter": "1-1.", "role": "heading"}
-    assert o["templates"]["3"]["chain"] == ["□", "o", "-", "·"] and o["templates"]["3"]["max"] == 4
+    assert o["templates"]["2"]["chain"] == ["□", "o", "-", "·"] and o["templates"]["2"]["max"] == 4
     ov = s.outline
-    sl = ov["templates"]["3"]["slots"]
+    sl = ov["templates"]["2"]["slots"]
     assert sl["2"]["prefix"] == "  o " and sl["3"]["prefix"] == "    - " and sl["4"]["prefix"] == "     ⋅"  # 접두·모양 동결(대표 문단에서)
     assert sl["1"]["attrs"] == {"paraPrIDRef": "39", "styleIDRef": "15", "charPrIDRef": "20"}
     assert sl["2"]["spacer"] and sl["3"]["spacer"] and sl["4"]["spacer"] is None  # 이 양식: o·- 앞은 빈 간격 문단, ⋅ 앞은 없음
     assert ov["lines"]["p972"]["parent"] == "p970" and ov["lines"]["p970"]["parent"] == "p968"
-    assert "p5" in ov["lines"] and ov["lines"]["p5"]["role"] == "label"  # 라벨도 줄(Enter 만 됨)
+    # 구분 라벨(「[주관연구개발기관(기관명 기입)]」)·괄호 소제목(「[국내 기술 동향 및 수준]」)도 줄(Enter 만 됨), 체크 칸 「[ √ ]」(p5)은 헤딩 아님이라 줄이 아니다(spec_헤딩_추출 ② §13)
+    assert ov["lines"]["p1725"]["role"] == "label" and ov["lines"]["p5876"]["role"] == "subtitle" and "p5" not in ov["lines"]
 
 
 def test_enter_makes_child_line_with_spacer_and_splits_tail(sess):
@@ -100,10 +115,10 @@ def test_enter_makes_child_line_with_spacer_and_splits_tail(sess):
     assert r.status_code == 200, r.text
     j = r.json()
     new = j["focus"]["id"]
-    assert j["focus"]["offset"] == 4 and j["outline"]["lines"][new] == {"no": 3, "level": 2, "tpl": "3", "letter": "o", "role": "heading"}
+    assert j["focus"]["offset"] == 4 and j["outline"]["lines"][new] == {"no": 2, "level": 2, "tpl": "2", "letter": "o", "role": "heading"}
     rows = _after(s, "p970", 4)
     assert rows[0][1].startswith("□") and rows[1][1] == "" and rows[2] == (new, "  o ") and rows[3][1] == ""  # □ › 빈(간격) › 새 o › 기존 빈 › …
-    assert s.doc._ids[new].get("paraPrIDRef") == "39" and s.outline["lines"][new]["parent"] == "p970"
+    assert _shape_like(s, new, "39") and s.outline["lines"][new]["parent"] == "p970"
     assert j["kinds"][new] == "new" and j["owpml"]["status"] in ("ok", "warn")
     # 한가운데 Enter — 뒤 글은 새 자식 줄로(공백·런 보존), 고른 글(offset..end)은 같은 트랜잭션에서 지움
     t = s.texts["p968"]  # " 1-1. 개발 대상 기술·제품의 개요"
@@ -175,10 +190,10 @@ def test_level_up_down_and_refusals(sess):
     # 가지 L1(□ p970) 승격 = 부모 슬롯(1-1. 다음 → 1-2.), 뒤 1-2. → 1-3.
     r = c.post(f"/api/docs/{d}/outline", json={"op": "level", "ids": ["p970"], "delta": -1})
     assert r.status_code == 200, r.text
-    assert s.texts["p970"].startswith(" 1-2. 연구개발기술") and s.texts["p982"].startswith(" 1-3. ") and s.doc._ids["p970"].get("paraPrIDRef") == "14"
+    assert s.texts["p970"].startswith(" 1-2. 연구개발기술") and s.texts["p982"].startswith(" 1-3. ") and _shape_like(s, "p970", "14")
     assert s.outline["lines"]["p970"] | {} == s.outline["lines"]["p970"] and s.outline["lines"]["p970"]["tpl"] == "1" and s.outline["lines"]["p970"]["parent"] == "p966"
     _undo_all(c, d, s)
-    assert s.outline["lines"]["p970"]["level"] == 1 and s.outline["lines"]["p970"]["tpl"] == "3"
+    assert s.outline["lines"]["p970"]["level"] == 1 and s.outline["lines"]["p970"]["tpl"] == "2"
 
 
 def test_move_subtree_before_sibling_with_renumber(sess):
@@ -210,15 +225,17 @@ def test_remove_empty_letter_line_only(sess):
     assert r.json()["outline"]["removed"] == ["p975"] and "p975" not in s.outline["lines"] and r.json()["focus"]["id"] == "p974"
     r = c.post(f"/api/docs/{d}/outline", json={"op": "remove", "id": "p974"})  # 이제 빈 - 줄 — 앞 간격 줄(p973)과 함께
     assert r.status_code == 200 and sorted(r.json()["outline"]["removed"]) == ["p973", "p974"] and "p973" not in dict(_seq(s, "p972"))
-    assert c.post(f"/api/docs/{d}/outline", json={"op": "remove", "id": "p5"}).status_code == 400  # 라벨
+    assert c.post(f"/api/docs/{d}/outline", json={"op": "remove", "id": "p1725"}).status_code == 400  # 구분 라벨
     _undo_all(c, d, s)
     assert "p975" in s.outline["lines"]
 
 
 def test_label_line_only_enter(sess):
     c, d, s = sess
-    assert c.post(f"/api/docs/{d}/outline", json={"op": "sibling", "id": "p5"}).status_code == 400
-    assert c.post(f"/api/docs/{d}/outline", json={"op": "level", "ids": ["p5"], "delta": 1}).status_code == 400
+    for pid, name in (("p1725", "구분 라벨"), ("p5876", "괄호 소제목")):  # 괄호 줄은 둘 다 자식 줄 만들기(Enter)만
+        r = c.post(f"/api/docs/{d}/outline", json={"op": "sibling", "id": pid})
+        assert r.status_code == 400 and name in r.text
+        assert c.post(f"/api/docs/{d}/outline", json={"op": "level", "ids": [pid], "delta": 1}).status_code == 400
 
 
 def test_overlay_sync_drops_broken_letter_and_merged_lines(sess):

@@ -22,7 +22,12 @@ MAX_ROUNDS = 12
 SENT_END = re.compile(r"(?:다|음|함|요|임)\.\s*$")
 VARIANTS = {"circle": "o", "latin-o": "o", "jamo-o": "o", "dash": "-", "dot": "·", "square": "□", "triangle": "△", "small-square": "▫",
             "diamond": "◇", "arrow": "▶"}
-ROLES = ("heading", "label", "title", "note", "not_heading")
+ROLES = ("heading", "label", "subtitle", "title", "note", "not_heading")
+ROOTED = ("label", "subtitle")  # 대괄호 줄 — 구분 라벨·괄호 소제목: 둘 다 그 줄부터 새 템플릿(L1). 구분 소속(division)은 구분 라벨만(spec ② §13)
+SUB_KEY = "[…]"  # 괄호 소제목의 정규 키
+BARE_KEYS = (SUB_KEY, "[라벨]")  # 구분 기준 이름이 없는 대괄호 키 — 묶음을 (키, 앞 공백)으로 가른다(「[라벨]」 = 옛 결과·basis 없는 라벨)
+BASES = ("단계", "차년도", "기관")  # 기본 구분 기준(구분 순서 — 바깥 → 안) — 사용자가 더한 이름이 뒤에 붙는다(bases_of)
+BRACKET_RULE = 1  # 괄호 줄 판정 규칙(bracket_role)의 판 — 결과에 남긴다(규칙이 바뀌면 올림)
 KIND_ORDER = {"main": 0, "branch": 1, "label": 2, "cell": 3}
 MAIN = ("body", "main")  # 주 사슬 템플릿 키
 
@@ -57,12 +62,15 @@ def _body_size(paras):
     return c.most_common(1)[0][0] if c else 10.0
 
 
-def candidates(stage1):
-    """헤딩 후보 노드(문서 순) — marker·label 구간, 개요·번호 문단, 제목 같은 plain(본문·상자, 짧고 굵거나 본문보다 큰 글), 강제 줄 바꿈 뒤 marker·label 줄."""
+def candidates(stage1, skip=()):
+    """헤딩 후보 노드(문서 순) — marker·label 구간, 개요·번호 문단, 제목 같은 plain(본문·상자, 짧고 굵거나 본문보다 큰 글), 강제 줄 바꿈 뒤 marker·label 줄.
+    skip = 후보에서 뺄 문단 id(TEMP 라벨 — 표 안 작성요령·쓸 자리, spec ② §15): 노드·유형·템플릿을 주지 않는다."""
     paras = stage1["paras"]
     body = _body_size(paras)
     out = []
     for rec in paras:
+        if rec["id"] in skip:
+            continue
         size = (rec["char"]["text"] or {}).get("sizePt") or 0
         bold = bool((rec["char"]["text"] or {}).get("bold"))
         first = rec["text"].strip().split(R.BR, 1)[0]
@@ -89,9 +97,14 @@ def candidates(stage1):
     return out
 
 
+def label_shape(letter):
+    """대괄호 줄의 꼴 — 숫자를 N 으로(「[1차년도 목표]」 → 「[N차년도 목표]」). 유형 표의 shape 이자 라벨 지정(hints)의 단위."""
+    return re.sub(r"\d+", "N", (letter or "").strip())
+
+
 def _shape_key(node):
     if node["kind"] == "label":
-        return re.sub(r"\d+", "N", node["letter"].strip())
+        return label_shape(node["letter"])
     if node["kind"] == "title":
         return "제목"
     if node["kind"] == "outline":
@@ -140,13 +153,159 @@ def sketch(nodes, limit=260):
 
 # ---- 역할 · 정규 레터 키 -----------------------------------------------------------------------------------
 
+_NUM = r"(?:\d{1,2}|[nNxX])"
+_V_SEP = re.compile(r"[\s\-–~·․⋅,/]*")
+_V_TERMS = (("단계", re.compile(rf"(?:제\s*)?{_NUM}\s*단\s*계")), ("차년도", re.compile(rf"(?:제\s*)?{_NUM}\s*(?:차\s*년\s*도|년\s*차|연\s*차)")),
+            ("기관", re.compile(rf"(?:주관|공동|위탁|참여|협동|국외|해외)\s*(?:연구\s*개발\s*)?기관\s*{_NUM}?")))
+_V_ORG_EACH = re.compile(r"(?:해당\s*)?기관\s*별")  # 「[해당 기관별 작성]」 — 기관마다 따로 쓰는 자리(사용자 2026-11-10 「해당기관별 … 기준라벨로」)
+_V_ORG_TAIL = re.compile(r"\s*(?:[(（:：].*)?")  # 기관 값 뒤 = 끝이거나 이름 자리(「(기관명 기입)」「 : 기업명1」) — 「… 기관 현황」 같은 주제 글은 아님
+_CHECK = re.compile(r"[\s√✓✔☑☐vVoOㅇ○●◯xX×✗✘□■]*")  # 빈 대괄호·체크 표시뿐인 대괄호 안(「[  ]」「[ √ ]」)
+_SENTENCE = re.compile(r"(?:을|를|은|는|의|에|에서|으로|로|와|과|에게|부터|까지)\s")  # 괄호 뒤 글이 조사로 시작 = 문장 속 괄호
+BY_USER = "사용자 지정"  # 역할의 까닭 — 사용자 라벨 지정으로 정한 것(문장 속 괄호 판정보다 앞선다)
+_BRACKETS = {"[": "]", "【": "】", "<": ">", "〈": "〉", "《": "》"}
+BASIS_SEP = "-"  # 겹친 구분 기준 이름을 잇는 글자(「단계-차년도」) — 구분 순서(바깥 → 안)대로
+BASIS_BAD = re.compile(r"[\[\]›|:\s\-–·․/,+…]|^라벨$")  # 사용자가 더하는 구분 기준 이름에 못 쓰는 글자·예약어(정규 키·앵커의 구분자)
+
+
+def _inner(letter):
+    """괄호 줄 레터의 안 글(괄호 한 겹을 벗김) — 괄호 꼴이 아니면 그대로."""
+    s = (letter or "").strip()
+    return s[1:-1].strip() if len(s) >= 2 and _BRACKETS.get(s[0]) == s[-1] else s
+
+
+def value_basis(letter):
+    """괄호 줄의 글이 **구분 기준 값으로 시작하는 꼴**이면 그 구분 기준 이름 — 「단계」·「차년도」·「기관」, 겹치면 구분 순서대로 이은 「단계-차년도」 | ""(스크립트로는 확정 못 함).
+    확정하는 꼴만(헤딩용 — 표 칸 후보를 넓게 찾는 heading_calc.label_basis 와 다르다, astra 2026-11-10): 「N단계 …」·「N차년도 …」(뒤 글은 자유 — 「[1단계(2027~2029) 목표]」
+    「[1차년도목표]」) · 「주관|공동|위탁|참여|협동|국외|해외 (연구개발)기관(번호)」 뒤가 끝이거나 이름 자리(「[주관연구개발기관(기관명 기입)]」「[주관연구개발기관 : 기업명1]」) ·
+    「(해당) 기관별 …」. 기관이라는 낱말이 든 주제 제목(「[연구개발기관의 안전관리 계획]」)·이름만 있는 글(「[한국선급]」)은 확정하지 않는다(LLM·사용자 지정 몫)."""
+    s = _inner(letter)
+    found, pos = [], 0
+    while True:
+        p = _V_SEP.match(s, pos).end()
+        m = next(((name, pat.match(s, p)) for name, pat in _V_TERMS if name not in found and pat.match(s, p)), None)
+        if m is None:
+            break
+        found.append(m[0])
+        pos = m[1].end()
+    if found and found[-1] == "기관" and not _V_ORG_TAIL.fullmatch(s, pos):
+        found.pop()  # 기관 값 뒤에 주제 글이 이어짐(「[주관연구개발기관 현황]」)
+    if not found and _V_ORG_EACH.match(s):
+        found = ["기관"]
+    return BASIS_SEP.join(n for n in BASES if n in found)
+
+
+def bases_of(hints=None):
+    """구분 기준 목록 — 기본(단계·차년도·기관) + 사용자가 더한 이름(hints.bases — 지정을 지워도 남는다) + 지정에 적힌 이름."""
+    out = list(BASES)
+    extra = list((hints or {}).get("bases") or []) + [h.get("basis") for h in ((hints or {}).get("labels") or {}).values() if h.get("role") == "label"]
+    for b in extra:
+        for part in str(b or "").split(BASIS_SEP):
+            if part.strip() and part.strip() not in out:
+                out.append(part.strip())
+    return out
+
+
+_BASIS_ALIAS = (("차년도", re.compile(r"차년도|연차|년차")), ("기관", re.compile(r"기관")), ("단계", re.compile(r"단계")))
+
+
+def norm_basis(basis, bases=BASES):
+    """LLM 이 적은 구분 기준 이름 → 목록(bases)의 이름(겹친 것은 목록 차례로 이음 「단계-차년도」) | ""(목록 밖 — 지어낸 이름이 하나라도 섞임).
+    흔한 다른 적기(연차·년차 → 차년도, 연구개발기관 → 기관)는 맞춘다."""
+    parts = [x for x in re.split(r"[\s\-–·․/,+]+", str(basis or "")) if x]
+    got = []
+    for x in parts:
+        name = x if x in bases else next((n for n, pat in _BASIS_ALIAS if n in bases and pat.search(x)), None)
+        if name is None:
+            return ""
+        got.append(name)
+    return BASIS_SEP.join(n for n in bases if n in got)
+
+
+def hint_of(hints, letter):
+    """그 대괄호 글 꼴에 사용자가 한 지정 {role: label|subtitle, basis, …} | None."""
+    h = ((hints or {}).get("labels") or {}).get(label_shape(letter))
+    if not h or h.get("role") not in ROOTED or (h["role"] == "label" and not str(h.get("basis") or "").strip()):
+        return None
+    return h
+
+
+def bracket_role(letter, hints=None, role=None, basis=""):
+    """괄호 줄(1단계 kind label — 「[…]」「【…】」·배운 괄호 규칙) 하나의 역할 → (role, basis, 까닭). A·B·사용자 지정·LLM 없는 판정이 모두 이 한 규칙을 거친다(spec ② §13).
+    role·basis = LLM(A·B)이 본 것(없으면 None). 차례: ① 사용자 지정 ② 빈 대괄호·체크 칸 = 헤딩 아님 ③ 글이 구분 기준 값으로 시작하는 꼴(value_basis) = 구분 라벨
+    ④ LLM 이 헤딩 아님·안내로 본 것은 그대로 ⑤ LLM 이 label 로 보고 적은 basis 가 구분 기준 목록에 있음 = 구분 라벨(「[한국선급]」 → 기관)
+    ⑥ 그 밖 = 괄호 소제목(LLM 이 목록 밖 이름을 지어냈으면 까닭에 남김)."""
+    h = hint_of(hints, letter)
+    if h:
+        return h["role"], (str(h["basis"]).strip() if h["role"] == "label" else ""), BY_USER
+    s = (letter or "").strip()
+    if s[:1] in ("[", "【") and _CHECK.fullmatch(_inner(s)):
+        return "not_heading", "", "빈 대괄호·체크 칸"
+    b = value_basis(s)
+    if b:
+        return "label", b, ""
+    if role in ("not_heading", "note"):
+        return role, "", ""
+    b = norm_basis(basis, bases_of(hints)) if role == "label" else ""
+    if b:
+        return "label", b, ""
+    return "subtitle", "", (f"구분 기준이 아닌 「{str(basis)[:20]}」 — 괄호 소제목" if role == "label" and basis else "")
+
+
+def _bracket_key(role, basis):
+    """대괄호 줄의 정규 키 — 구분 라벨 「[기준]」 · 괄호 소제목 「[…]」 · 헤딩 아님·안내 None."""
+    return "[" + (basis or "라벨") + "]" if role == "label" else SUB_KEY if role == "subtitle" else None
+
+
+def is_label_key(k):
+    """구분 라벨의 정규 키(「[기관]」)인가 — 괄호 소제목 「[…]」 과 대괄호 번호 레터(「[N]」「[가]」)는 아니다."""
+    return bool(k) and k.startswith("[") and k not in (SUB_KEY, "[N]", "[가]")
+
+
+def _norm_parents(parents, bases):
+    """A 가 적은 부모 레터 키 가운데 대괄호 키를 맞춘다 — 구분 기준이면 「[기준]」, 아니면(지어낸 「[측면]」·옛 「[라벨]」) 괄호 소제목 키 「[…]」
+    (소제목 키만 「[…]」 로 바꾸고 내용 레터의 parents 를 그대로 두면 「o」 가 소제목에 안 붙는다 — astra 2026-11-10)."""
+    out = []
+    for p in parents or []:
+        if p.startswith("[") and p.endswith("]") and p not in (SUB_KEY, "[N]", "[가]"):
+            b = norm_basis(p[1:-1], bases)
+            p = "[" + b + "]" if b else SUB_KEY
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def settle_roles(types, roles, hints=None):
+    """A 가 답한 역할을 규칙에 맞춘다(roles 를 고침; A 가 본 것은 aRole·aBasis 로 남김 — 사용자 지정을 지우면 여기로 돌아간다). 괄호 유형(kind label)은 bracket_role 이
+    정하고, 그 밖의 유형이 구분 라벨이 되려면 basis 가 구분 기준 목록에 있어야 한다(아니면 스크립트 대체 역할 — 소제목은 괄호 줄만). parents 의 대괄호 키도 맞춘다."""
+    bases = bases_of(hints)
+    for tid, t in types.items():
+        r = roles.get(tid) or {}
+        raw = (r.get("role"), r.get("basis") or "")
+        if t["kind"] == "label":
+            role, basis, why = bracket_role(t["shape"], hints, raw[0], raw[1])
+            old = r.get("reason", "")
+            roles[tid] = {**r, "aRole": raw[0], "aBasis": raw[1], "aReason": old, "role": role, "basis": basis, "parents": [], "variantOf": "", "hint": why == BY_USER,
+                          "reason": f"{old} · {why}" if why and old.startswith("A 판정 없음") else why or old}
+            continue
+        r = roles[tid] = {**r, "parents": _norm_parents(r.get("parents"), bases)}
+        if r.get("role") in ROOTED:
+            b = norm_basis(r.get("basis"), bases) if r["role"] == "label" else ""
+            if b:
+                r["basis"] = b
+            else:
+                r.update(role="title" if t["kind"] == "title" else "heading", basis="",
+                         reason=f"구분 기준이 아닌 「{str(r.get('basis') or '')[:20]}」 — 구분 라벨로 보지 않음" if r["role"] == "label" else "괄호 줄이 아니라 소제목으로 보지 않음")
+
+
 def _type_key(t, role):
-    """유형 → 정규 레터 키(변형군 합침). 라벨은 "[basis]"(basis 없으면 "[라벨]"). 헤딩 아님·안내·제목(잎)은 None."""
+    """유형 → 정규 레터 키(변형군 합침). 구분 라벨은 "[basis]", 괄호 소제목은 "[…]". 헤딩 아님·안내·제목(잎)은 None."""
     r = role.get("role") or "heading"
     if r in ("not_heading", "note", "title"):
         return None
-    if r == "label" or t["kind"] == "label":
+    if r == "label":
         return "[" + (role.get("basis") or "라벨") + "]"
+    if r == "subtitle" or t["kind"] == "label":
+        return SUB_KEY
     if t["kind"] == "outline":
         return t["shape"]
     if t["kind"] == "title":
@@ -155,19 +314,22 @@ def _type_key(t, role):
 
 
 def type_keys(types, roles):
-    """{Tn: 정규 레터 키 | None} — A 의 variantOf(같은 레터로 볼 다른 유형)는 그 유형의 키."""
+    """{Tn: 정규 레터 키 | None} — A 의 variantOf(같은 레터로 볼 다른 유형)는 그 유형의 키. 구분 라벨·괄호 소제목은 변형군으로 합치지 않는다(키 = 역할·구분 기준)."""
     out = {tid: _type_key(t, roles.get(tid) or {}) for tid, t in types.items()}
     for tid, r in roles.items():
         v = r.get("variantOf")
-        if v and v in out and out[v] and out.get(tid):
+        if v and v in out and out[v] and out.get(tid) and r.get("role") not in ROOTED and (roles.get(v) or {}).get("role") not in ROOTED:
             out[tid] = out[v]
     return out
 
 
-def fallback_roles(types):
-    """LLM 없이 — 라벨 꼴은 label, 제목 꼴은 title, 그 밖 heading. 부모 지식 없음(초안은 어림)."""
-    return {tid: {"role": "label" if t["kind"] == "label" else "title" if t["kind"] == "title" else "heading", "parents": [], "variantOf": "",
-                  "basis": "", "reason": "스크립트 대체 판정"} for tid, t in types.items()}
+def fallback_roles(types, hints=None):
+    """LLM 없이 — 대괄호 꼴은 bracket_role(구분 라벨·괄호 소제목·헤딩 아님), 제목 꼴은 title, 그 밖 heading. 부모 지식 없음(초안은 어림)."""
+    out = {}
+    for tid, t in types.items():
+        role, basis, why = bracket_role(t["shape"], hints) if t["kind"] == "label" else ("title" if t["kind"] == "title" else "heading", "", "")
+        out[tid] = {"role": role, "parents": [], "variantOf": "", "basis": basis, "reason": why or "스크립트 대체 판정", **({"hint": True} if why == BY_USER else {})}
+    return out
 
 
 # LLM 없는 어림의 계열 서열(얕음 → 깊음) — 한국어 개요의 흔한 차례. 보조 근거(앞 공백이 같을 때)로만 쓴다.
@@ -185,10 +347,10 @@ def _rank(nd):
 
 # ---- A 호출 --------------------------------------------------------------------------------------------
 
-def a_job(types, nodes, keys, proposal, doc_name="", pinned=None):
+def a_job(types, nodes, keys, proposal, doc_name="", pinned=None, bases=BASES):
     rows = [{**{k: t[k] for k in ("type", "area", "kind", "shape", "bold", "size", "count", "examples", "lead", "prev", "next", "blank")}, "key": keys.get(t["type"]) or ""}
             for t in types.values()]
-    data = {"document": doc_name, "types": rows, "sketch": sketch(nodes), "mainChainProposal": list(proposal or [])}
+    data = {"document": doc_name, "bases": list(bases), "types": rows, "sketch": sketch(nodes), "mainChainProposal": list(proposal or [])}
     content, used = HL.prompt(HL.TYPES_CONTRACT, ["graph", "templates", "tolerance"], data, pinned)
     return {"schema": HL.TYPES_SCHEMA, "content": content, "what": "heading_types", "timeout": 900.0, "effort": "medium"}, used, data
 
@@ -215,10 +377,16 @@ def _accepts(e, k, nd, rk, parents, main_next, trusted=True):
     지식(A 의 parents·주 사슬)이 있으면 그것만, 없으면 어림 — 서열이 더 얕은 항목(서열을 모르면 앞 공백이 더 적은 항목)이 부모. trusted = 주 사슬이 A 가 확인한 것
     (아니면 스크립트 제안이라 그것으로 정한 부모도 어림)."""
     if parents:
-        return (e["key"] in parents or main_next.get(e["key"]) == k), False
+        if e["key"] in parents or main_next.get(e["key"]) == k:
+            return True, False
+        if e["label"] and any(p.startswith("[") for p in parents):
+            # 괄호 줄(구분 라벨·소제목)인데 A 의 parents 에 그 키가 없다(소제목 키 「[…]」 를 빠뜨림 · 사용자가 새 구분 기준으로 지정한 라벨 「[관점]」) —
+            # 괄호 줄 아래 오는 레터면 다른 괄호 줄 아래에도 온다: 닻보다 깊은 서열일 때 그 줄의 내용(어림)
+            return (rk is not None and e["anchorRank"] is not None and rk > e["anchorRank"]), True
+        return False, False
     if main_next.get(e["key"]) == k:
         return True, not trusted
-    if e["label"]:  # 라벨의 닻(부모) 레터보다 깊은 서열이면 라벨의 내용
+    if e["label"]:  # 대괄호 줄(구분 라벨·괄호 소제목)의 닻(부모) 레터보다 깊은 서열이면 그 줄의 내용
         ar = e["anchorRank"]
         return (rk is None or ar is None or rk > ar), True
     er = e["rank"]
@@ -245,6 +413,9 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
     def top(flow):
         st = stacks[flow]
         return st[-1]["id"] if st else flow_root(flow)
+
+    def div(dv):  # 열린 대괄호 줄 가운데 가장 안쪽 **구분 라벨**(괄호 소제목은 구분 소속이 아님)
+        return next((x["id"] for x in reversed(dv) if x["label"]), None)
 
     for rec in stage1["paras"]:
         chain = rec["path"]
@@ -277,18 +448,24 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             st, dv = stacks[flow], divs[flow]
             g = {"id": nd["id"], "para": nd["para"], "type": nd["type"], "role": role, "key": k, "parent": None, "division": None, "depth": None,
                  "heuristic": False}
+            if nd["kind"] == "label" and role in ROOTED and _SENTENCE.match(nd["text"]) and not (roles.get(nd["type"]) or {}).get("hint"):
+                # 괄호 뒤에 조사로 문장이 이어짐(「[기술도입비 현물산정] 을 위해 아래와 같이 …」) — 문장 속 괄호이지 제목 줄이 아니다(유형이 아니라 이 줄만)
+                role, k = "not_heading", None
+                g.update(role=role, key=k, reason="괄호 뒤에 문장이 이어짐 — 헤딩 아님")
             if nd["area"] == "cell":
                 edges.append({"t": "contains", "from": flow_root(flow), "to": nd["id"]})
             if k is None:  # 헤딩 아님·안내·제목 — 잎(스택을 흔들지 않음)
-                g.update(parent=top(flow), division=dv[-1]["id"] if dv else None, depth=float(len(st) + 1))
+                g.update(parent=top(flow), division=div(dv), depth=float(len(st) + 1))
                 graph[nd["id"]] = g
                 continue
-            if role == "label":
-                cls = (k, nd["lead"]) if k == "[라벨]" else k
-                # basis 없는 꼴 묶음에서, 본문 루트에 닻 내린 라벨은 꼴만 같은 다른 유형 라벨과 같은 묶음이 아니다(열린 개요를 루트까지 지우지 않게)
-                same = next((j for j in range(len(dv) - 1, -1, -1) if dv[j]["cls"] == cls
-                             and not (k == "[라벨]" and flow == "body" and dv[j]["anchor"] == "root" and dv[j]["type"] != nd["type"])), None)
-                if same is not None:  # 같은 묶음의 다음 라벨 — 앞 라벨의 닻까지 닫는다
+            if role in ROOTED:  # 구분 라벨·괄호 소제목 — 구조는 같다(그 줄부터 새 템플릿의 뿌리)
+                cls = (k, nd["lead"]) if k in BARE_KEYS else k
+                # 닫을 자리 = 열린 괄호 줄 가운데 ⓐ 같은 묶음(구분 라벨은 같은 구분 기준, 소제목은 같은 앞 공백)이거나 ⓑ 이 줄보다 덜 들여 쓰지 않은 **소제목**(소제목은 같은 깊이의
+                # 다음 괄호 줄을 품지 않는다 — 「[최종목표]」 뒤 「[1차년도 목표]」 는 형제; 구분 라벨은 다른 기준의 라벨·소제목을 품는다 「[1단계] › [주관…]」) 중 가장 바깥.
+                # 본문 루트에 닻 내린 소제목(문서 맨 앞 「[별지 제1호서식]」)은 다른 유형의 줄로는 안 닫는다(열린 개요를 루트까지 지우지 않게).
+                same = min((j for j, e in enumerate(dv) if (e["cls"] == cls or (not e["label"] and e["lead"] >= nd["lead"]))
+                            and not (not e["label"] and flow == "body" and e["anchor"] == "root" and e["type"] != nd["type"])), default=None)
+                if same is not None:  # 그 줄의 닻까지 닫는다(이 줄은 그 줄의 형제)
                     anchor = dv[same]["anchor"]
                     del dv[same:]
                     ids = [e["id"] for e in st]
@@ -299,8 +476,8 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
                 parent = top(flow)
                 st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": None, "label": True, "parent": parent,
                            "anchorRank": next((e["rank"] for e in reversed(st) if not e["label"]), None)})
-                dv.append({"id": nd["id"], "cls": cls, "anchor": parent, "type": nd["type"]})
-                g.update(parent=parent, division=dv[-2]["id"] if len(dv) > 1 else None, depth=float(len(st)))
+                g.update(parent=parent, division=div(dv), depth=float(len(st)))
+                dv.append({"id": nd["id"], "cls": cls, "anchor": parent, "type": nd["type"], "label": role == "label", "lead": nd["lead"]})
                 graph[nd["id"]] = g
                 continue
             parents = set((roles.get(nd["type"]) or {}).get("parents") or [])
@@ -325,7 +502,7 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             while dv and dv[-1]["id"] not in ids:  # 스택에서 빠진 라벨 = 범위 끝
                 dv.pop()
             st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None})
-            g.update(parent=parent, division=dv[-1]["id"] if dv else None, depth=float(len(st)), heuristic=heuristic)
+            g.update(parent=parent, division=div(dv), depth=float(len(st)), heuristic=heuristic)
             graph[nd["id"]] = g
     for g in graph.values():
         if g["parent"] is not None:
@@ -347,7 +524,7 @@ def _eff_parent(g, graph):
 
 
 def _kind(tk):
-    return "main" if tk == MAIN else "cell" if tk[0] == "cell" else "label" if tk[1].startswith("[") else "branch"
+    return "main" if tk == MAIN else "cell" if tk[0] == "cell" else "label" if is_label_key(tk[1]) else "branch"
 
 
 _KEY_ORDER = ["제N장", "제N절", "R.", "N.", "N-N.", "N.N.", "N.N.N.", "가.", "N)", "가)", "(N)", "(가)", "①", "□", "○", "o", "△", "-", "·", "▫", "*"]
@@ -398,7 +575,7 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
                 else:
                     unresolved.append({"id": nd["id"], "slot": ov, "why": "앵커·레벨을 못 찾음"})
             if tk is None:
-                if g["role"] == "label":
+                if g["role"] in ROOTED:
                     tk, lv = (sc, k), 1
                 elif pa is None:
                     tk, lv = (MAIN, 1) if sc == "body" and (chains.get(MAIN) or [None])[0] == k else ((sc, k), 1)
@@ -418,8 +595,8 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
         kids, rootkeys, ties, conflicts = defaultdict(Counter), Counter(), [], []
         for nid, (tk, lv, _) in asg.items():
             g = graph[nid]
-            if g["role"] == "label":
-                continue  # 라벨은 부모 사슬을 잇는 후보가 아니다(늘 새 템플릿)
+            if g["role"] in ROOTED:
+                continue  # 구분 라벨·괄호 소제목은 부모 사슬을 잇는 후보가 아니다(늘 새 템플릿)
             p = _eff_parent(g, graph)
             if p in asg:
                 ptk, plv, _ = asg[p]
@@ -511,7 +688,8 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     for tk in tkeys:
         chain = chains.get(tk) or [tk[1]]
         templates.append({"id": tid[tk], "no": tid[tk], "anchor": anchors[tk], "name": anchors[tk], "key": anchors[tk], "kind": _kind(tk), "scope": tk[0],
-                          "rootRole": "label" if tk[1].startswith("[") else "heading", "root": tk[1], "chain": chain, "displayName": "",
+                          "rootRole": "label" if is_label_key(tk[1]) else "subtitle" if tk[1] == SUB_KEY else "heading", "root": tk[1], "chain": chain,
+                          "displayName": "",
                           "instances": per_tpl[tid[tk]], "where": [], "slots": [], "note": ""})
     where = defaultdict(Counter)
     for ins in instances:
@@ -592,7 +770,7 @@ def _ancestors(nid, graph, stop):
     return out[::-1]
 
 
-def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None):
+def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None, bases=BASES):
     """구간마다 B 호출 — 행 = [id, 유형, 글, 초안 부모, 초안 템플릿(앵커), 초안 레벨, 초안 구분 라벨]. prov = 초안 위 임시 배정(assign_templates 결과)."""
     by_id = {nd["id"]: nd for nd in nodes}
     brief = {t: {"role": v["role"], "key": keys.get(t) or "", "basis": v.get("basis", ""), "parents": v.get("parents", []), "shape": types[t]["shape"]}
@@ -605,7 +783,7 @@ def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None):
         rows = [[nid, graph[nid]["type"], ((by_id[nid]["letter"] or "") + " " + by_id[nid]["text"]).strip()[:60], graph[nid]["parent"] or "",
                  prov["nodes"].get(nid, {}).get("template", ""), prov["nodes"].get(nid, {}).get("level", 0), graph[nid].get("division") or ""] for nid in sec]
         nxt = secs[i + 1][:5] if i + 1 < len(secs) else []
-        data = {"types": brief, "templates": tpls, "ancestors": [[a, graph[a]["type"], by_id[a]["text"][:40] if a in by_id else ""] for a in anc],
+        data = {"bases": list(bases), "types": brief, "templates": tpls, "ancestors": [[a, graph[a]["type"], by_id[a]["text"][:40] if a in by_id else ""] for a in anc],
                 "nodes": rows, "preview": [[n, graph[n]["type"], by_id[n]["text"][:40]] for n in nxt]}
         content, u = HL.prompt(HL.SECTION_CONTRACT, ["graph", "templates"], data, pinned)
         used.update(u)
@@ -614,9 +792,23 @@ def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None):
     return jobs, used
 
 
-def apply_changes(changes, sec, anc, graph, anchors):
+def _b_role(g, nd, want, basis="", hints=None):
+    """B 가 노드 역할을 want(+ basis)로 바꾸려 할 때의 (역할, 정규 키) — A·사용자 지정과 같은 판정 규칙을 거친다. 괄호 줄(kind label)은 bracket_role 이 정한다
+    (B 가 적은 basis, 없으면 지금 키의 구분 기준을 LLM 이 본 것으로). 그 밖의 줄이 구분 라벨이 되려면 B 가 적은 basis 가 구분 기준 목록에 있어야 하고(없으면 그대로),
+    괄호 소제목은 될 수 없다. 나머지는 역할을 따라 키가 바뀐다(헤딩 아님·안내·제목 = 없음, 제목 → 헤딩 = 「제목」)."""
+    if nd.get("kind") == "label":
+        role, b, _ = bracket_role(nd.get("letter"), hints, want, basis or ((g.get("key") or "")[1:-1] if is_label_key(g.get("key")) else ""))
+        return role, _bracket_key(role, b)
+    if want in ROOTED:
+        b = norm_basis(basis, bases_of(hints)) if want == "label" else ""
+        return ("label", "[" + b + "]") if b else (g["role"], g.get("key"))
+    return want, (None if want in ("not_heading", "note", "title") else (g.get("key") or "제목"))
+
+
+def apply_changes(changes, sec, anc, graph, anchors, by_id=None, hints=None):
     """B 응답 변경을 검증해 적용 → (적용 [{id, before, after, reason}], 버림 [{id, why}]). 부모·역할은 바로 적용, template·level 은 슬롯 예외(둘 다 있을 때만 —
-    앵커는 초안 템플릿 목록(anchors)에 있어야 함). 라벨 부모는 그대로 부모(라벨은 제 템플릿의 뿌리), 헤딩 아님·안내 부모·순환·문서 순 뒤 부모는 버림."""
+    앵커는 초안 템플릿 목록(anchors)에 있어야 함). 라벨 부모는 그대로 부모(라벨은 제 템플릿의 뿌리), 헤딩 아님·안내 부모·순환·문서 순 뒤 부모는 버림.
+    by_id = 후보 노드(역할이 바뀐 노드의 키를 정할 때 글·종류를 봄 — _b_role), hints = 사용자 라벨 지정."""
     inside, allowed = set(sec), set(sec) | set(anc) | {"root"}
     order = {nid: i for i, nid in enumerate(sec)}
     applied, rejected = [], []
@@ -626,7 +818,10 @@ def apply_changes(changes, sec, anc, graph, anchors):
             rejected.append({"id": nid, "why": "구간 밖 id"})
             continue
         g = graph[nid]
-        role = ch.get("role") if ch.get("role") in ROLES else g["role"]
+        nd = (by_id or {}).get(nid) or {}
+        role, key = g["role"], g.get("key")
+        if ch.get("role") in ROLES and ch["role"] != g["role"]:
+            role, key = _b_role(g, nd, ch["role"], str(ch.get("basis") or "")[:20], hints)
         parent = ch.get("parent") or g["parent"]
         if parent not in allowed:
             rejected.append({"id": nid, "why": f"부모 {parent} 가 구간·조상 밖"})
@@ -657,13 +852,12 @@ def apply_changes(changes, sec, anc, graph, anchors):
                 continue
             slot = {"template": tpl, "level": lvl}
         before = {"parent": g["parent"], "role": g["role"], "slot": g.get("slot")}
-        g.update(parent=parent, role=role, changed=True, reason=str(ch.get("reason") or "")[:200])
-        if role != before["role"]:  # 역할이 바뀌면 정규 레터 키도 따라간다(라벨 = "[…]", 헤딩 아님·안내·제목 = 없음, 제목 → 헤딩 = 「제목」)
-            g["key"] = None if role in ("not_heading", "note", "title") else (g.get("key") if (g.get("key") or "").startswith("[") else "[라벨]") if role == "label" \
-                else (g.get("key") or "제목")
+        g.update(parent=parent, role=role, key=key, changed=True, reason=str(ch.get("reason") or "")[:200])  # 역할이 바뀌면 정규 레터 키도 따라간다(_b_role)
         if slot or role not in ("heading", "title"):
             g["slot"] = slot
-        applied.append({"id": nid, "before": before, "after": {"parent": g["parent"], "role": g["role"], "slot": g.get("slot")}, "reason": g["reason"]})
+        # asked = B 가 적은 그대로(역할·basis·슬롯 예외) — 다시 셈(replay)의 입력: 사용자 지정을 지우면 여기로 돌아가고, 슬롯 예외를 안 적은 변경도 그대로 되풀이된다
+        applied.append({"id": nid, "before": before, "after": {"parent": g["parent"], "role": g["role"], "slot": g.get("slot")}, "reason": g["reason"],
+                        "asked": {"role": ch.get("role") if ch.get("role") in ROLES else "", "basis": str(ch.get("basis") or "")[:20], "template": tpl, "level": lvl}})
     return applied, rejected
 
 
@@ -693,7 +887,7 @@ def _slot_rep(ids, by_id, graph):
 def _slots(graph, asg_nodes, by_id):
     slots = defaultdict(list)
     for nid, a in asg_nodes.items():
-        if nid in by_id and graph[nid]["role"] in ("heading", "title", "label"):
+        if nid in by_id and graph[nid]["role"] in ("heading", "title") + ROOTED:
             slots[(a["template"], a["level"])].append(nid)
     return slots
 
@@ -793,7 +987,7 @@ def finish(nodes, graph, asg, types, labels, same, review=None):
     for p, kids in children.items():
         ks = {}
         for k in kids:
-            if graph[k]["role"] in ("heading", "title", "label") and graph[k].get("key"):
+            if graph[k]["role"] in ("heading", "title") + ROOTED and graph[k].get("key"):
                 ks.setdefault(graph[k]["key"], []).append(k)
         if len(ks) > 1:
             hetero.append({"parent": p, "letters": [{"key": key, "type": graph[ids[0]]["type"], "shape": types.get(graph[ids[0]]["type"], {}).get("shape", key),
@@ -848,50 +1042,71 @@ def finish(nodes, graph, asg, types, labels, same, review=None):
 
 # ---- 2단계 실행 ------------------------------------------------------------------------------------------
 
-def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None):
+def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=None, replay=None, temp=None):
     """2단계 — 1단계 결과 → graph dict(spec ② §6). ask = llm.ask_all 대신(시험). use_llm False 면 스크립트 어림만.
-    pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴 {이름: {text, sha1, …}}) — 주면 A·B·C·D 프롬프트가 그 글을 쓴다(§7)."""
+    temp = TEMP 라벨(heading_temp.label 결과 — §15): 그 문단들은 헤딩 후보에서 빠진다(결과 `temp` 에 쓴 요약을 남김).
+    pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴 {이름: {text, sha1, …}}) — 주면 A·B·C·D 프롬프트가 그 글을 쓴다(§7).
+    hints = 사용자 라벨 지정 {"bases": [더한 구분 기준], "labels": {괄호 글 꼴: {role: label|subtitle, basis}}}(§13) — LLM 답과 달라도 지정이 이긴다.
+    replay = replay_of(같은 1단계에서 만든 앞 결과) — LLM 을 다시 부르지 않고 앞 실행의 A 답·B 변경·C/D 판정을 되풀이해 **새 추출과 같은 길**로 다시 셈한다
+    (라벨 지정을 곧바로 반영 — 부모 초안부터 다시이므로 새로 추출한 것과 같은 트리가 된다, astra 2026-11-10)."""
     t0 = time.monotonic()
     ask = ask or llm.ask_all
-    nodes = candidates(stage1)
+    use_llm = bool(use_llm or replay)
+    nodes = candidates(stage1, frozenset((temp or {}).get("paras") or ()))
     types = type_table(nodes)
     labels = stage1.get("labels") or {}
+    bases = bases_of(hints)
     calls, guides, info = [], {}, {"requested": bool(use_llm), "fallback": False, "error": None, "summary": "", "sections": 0, "applied": 0, "rejected": 0,
                                     "failedSections": 0}
-    roles = fallback_roles(types)
+    roles = fallback_roles(types, hints)
     keys = type_keys(types, roles)
     proposal = propose_main(nodes, roles, keys, stage1) if nodes else []
     main_chain, fixed = proposal, False
-    if use_llm and nodes:
-        job, used, _ = a_job(types, nodes, keys, proposal, doc_name, pinned)
+    a_data = None
+    if replay and nodes:
+        a_data = {**replay["a"], "types": _remap_types(replay["a"]["types"], types)}
+        info["replay"] = {k: replay.get(k) for k in ("from", "calls", "costUsd")}
+    elif use_llm and nodes:
+        job, used, _ = a_job(types, nodes, keys, proposal, doc_name, pinned, bases)
         guides.update(used)
         res = ask([job])[0]
         calls.append(HL._call_record(job, res))
-        if res.get("data"):
-            got, main = apply_types(res["data"], types)
-            for tid in types:  # A 가 빠뜨린 유형은 어림 역할
-                roles[tid] = got.get(tid) or {**roles[tid], "reason": "A 판정 없음 — 스크립트 대체"}
-            keys = type_keys(types, roles)
-            known = set(k for k in keys.values() if k)
-            if main and all(k in known for k in main):
-                main_chain, fixed = main, True
-            elif main:
-                info["mainChainRejected"] = main  # 모르는 레터가 든 주 사슬 — 제안으로 대신
-            info["summary"] = str(res["data"].get("summary") or "")[:600]
-        else:
+        a_data = res.get("data")
+        if not a_data:
             info["error"] = res.get("error") or "A 호출 실패"
             info["fallback"] = True
     elif not use_llm:
         info["fallback"] = True
-    info["mainChain"], info["mainChainProposal"] = list(main_chain or []), list(proposal or [])
+    if a_data:
+        got, main = apply_types(a_data, types)
+        for tid in types:  # A 가 빠뜨린 유형은 어림 역할
+            roles[tid] = got.get(tid) or {**roles[tid], "reason": "A 판정 없음 — 스크립트 대체"}
+        settle_roles(types, roles, hints)  # 괄호 줄 = 구분 라벨·괄호 소제목 규칙(§13), 그 밖의 라벨은 basis 가 구분 기준일 때만
+        keys = type_keys(types, roles)
+        known = set(k for k in keys.values() if k)
+        if main and all(k in known for k in main):
+            main_chain, fixed = main, True
+        elif main:
+            info["mainChainRejected"] = main  # 모르는 레터가 든 주 사슬 — 제안으로 대신
+        info["summary"] = str(a_data.get("summary") or "")[:600]
+    info["mainChain"], info["mainChainProposal"], info["mainChainFixed"] = list(main_chain or []), list(proposal or []), fixed
     graph, edges, containers = draft_parents(nodes, roles, keys, main_chain, stage1, trusted=fixed)
+    by_id = {nd["id"]: nd for nd in nodes}
     changes, rejected = [], []
-    if use_llm and not info["fallback"]:
+    if replay and not info["fallback"]:  # 앞 실행에서 B 가 적은 변경을 그대로 — 구간 경계는 초안에 따라 달라지므로 본문 전체를 한 구간으로 검증
+        prov = assign_templates(nodes, graph, keys, main_chain, fixed)
+        body = [nd["id"] for nd in nodes if nd["flow"] == "body" and nd["id"] in graph]
+        changes, rejected = apply_changes(replay["changes"], body, [], graph, {t["anchor"] for t in prov["templates"]}, by_id, hints)
+        for nid in replay.get("undecided") or []:
+            if nid in graph:
+                graph[nid]["undecided"] = True
+        info.update(sections=replay.get("sections") or 0, applied=len(changes), rejected=len(rejected))
+    elif use_llm and not info["fallback"]:
         prov = assign_templates(nodes, graph, keys, main_chain, fixed)  # B 에 보일 초안 배정(앵커·레벨)
         anchors = {t["anchor"] for t in prov["templates"]}
         secs = sections(nodes, graph)
         info["sections"] = len(secs)
-        jobs, used = b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned)
+        jobs, used = b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned, bases)
         guides.update(used)
         results = ask([{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]) if jobs else []
         retry, batch = [], []
@@ -914,7 +1129,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None):
                 ch = (res.get("data") or {}).get("changes")
                 batch.append((job, ch if ch is not None else first))
         for job, ch in batch:  # 모든 구간의 답을 같은 초안에 대해 모아 적용(부모 변경 보존)
-            a, r = apply_changes(ch, job["_section"], job["_ancestors"], graph, anchors)
+            a, r = apply_changes(ch, job["_section"], job["_ancestors"], graph, anchors, by_id, hints)
             changes += a
             rejected += r
         info["applied"], info["rejected"] = len(changes), len(rejected)
@@ -926,8 +1141,11 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None):
     edges = _dedupe(edges)
     asg = assign_templates(nodes, graph, keys, main_chain, fixed)  # 확정 트리 → 사슬·슬롯·인스턴스 → id 동결
     info["ties"], info["mainChainConflicts"], info["slotUnresolved"] = asg["ties"][:50], asg["conflicts"][:50], asg["unresolved"][:50]
-    same = {}
-    if use_llm and not info["fallback"]:  # C: 슬롯 서식 쌍 — 조정 판단(슬롯마다)
+    same, review = {}, {}
+    if replay and not info["fallback"]:  # 앞 실행의 조정 판정(C·D) — 슬롯 멤버가 그대로인 슬롯만 이어받는다(바뀐 슬롯은 미판정)
+        same, review = _carry(replay, _slots(graph, asg["nodes"], by_id), by_id, graph)
+        info["carried"] = len(same)
+    if use_llm and not info["fallback"] and not replay:  # C: 슬롯 서식 쌍 — 조정 판단(슬롯마다)
         pairs = slot_pairs(nodes, graph, asg["nodes"], labels, set())
         info["formatPairs"] = len(pairs)
         if pairs:
@@ -938,10 +1156,9 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None):
                 for it in (res.get("data") or {}).get("pairs") or []:
                     if it.get("a") and it.get("b") and it.get("slot"):
                         same[(str(it["slot"]), it["a"], it["b"])] = {"same": bool(it.get("same")), "reason": str(it.get("reason") or "")[:200]}
-    review = {}
     if use_llm and not info["fallback"]:  # D: 재검토 — 1차 조정 판정(C)을 새 호출(1차 맥락이 없는 다른 에이전트)이 반박 검증(2026-11-09 사용자)
-        todo = review_pairs(nodes, graph, asg["nodes"], labels, same)
-        info["reviewPairs"] = len(todo)
+        todo = [] if replay else review_pairs(nodes, graph, asg["nodes"], labels, same)
+        info["reviewPairs"] = len(review) if replay else len(todo)
         if todo:
             jobs, used = d_jobs(todo, pinned)
             guides.update(used)
@@ -960,22 +1177,106 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None):
                           "lead": nd["lead"], "fmt": nd["fmt"], "role": g.get("role"), "template": a.get("template"), "tplNo": a.get("tplNo"),
                           "level": a.get("level"), "instance": a.get("instance"), "parent": g.get("parent"), "division": g.get("division"),
                           "sourceOutlineLevel": nd.get("outline"), "changed": g.get("changed", False), "undecided": g.get("undecided", False),
-                          "heuristic": g.get("heuristic", False), "reason": g.get("reason", "")})
+                          "heuristic": g.get("heuristic", False), "reason": g.get("reason", ""),
+                          **({"basis": g["key"][1:-1]} if g.get("role") == "label" and is_label_key(g.get("key")) else {})})  # 구분 라벨의 구분 기준 이름(3단계 표 소속이 그대로 씀)
     edges += [{"t": "instance", "from": ins["root"], "to": f"tpl:{ins['template']}"} for ins in fin["instances"]]
     cost = sum((c.get("costUsd") or 0) for c in calls)
     return {"version": 2, "nodes": out_nodes, "containers": list(containers.values()), "edges": edges,
             "types": [{**t, **(roles.get(tid) or {}), "key": keys.get(tid)} for tid, t in types.items()],
-            **fin, "changes": changes, "rejected": rejected,
-            "counts": {"nodes": len(out_nodes), "body": sum(1 for n in out_nodes if n["flow"] == "body"), "cell": sum(1 for n in out_nodes if n["flow"].startswith("cell:")),  # 칸 안 상자 포함
-                       "types": len(types), "templates": len(fin["templates"]), "branches": sum(1 for t in fin["templates"] if t["kind"] == "branch"),
-                       "labelTemplates": sum(1 for t in fin["templates"] if t["kind"] == "label"), "instances": len(fin["instances"]), "repeats": len(fin["repeats"]),
-                       "heterogeneous": len(fin["heterogeneous"]), "adjust": sum(1 for a in fin["adjustments"] if a["decision"] == "adjust"),
-                       "reviewed": sum(1 for a in fin["adjustments"] if (a.get("review") or {}).get("verdict") in ("agree", "disagree")),
-                       "disagreed": sum(1 for a in fin["adjustments"] if (a.get("review") or {}).get("verdict") == "disagree"),
-                       "changed": len(changes), "undecided": sum(1 for n in out_nodes if n["undecided"]), "heuristic": sum(1 for n in out_nodes if n["heuristic"])},
+            **fin, "changes": changes, "rejected": rejected, "bases": bases, "bracketRule": BRACKET_RULE,
+            "hints": {"bases": list((hints or {}).get("bases") or []), "labels": {k: {"role": v.get("role"), "basis": v.get("basis") or ""}
+                                                                               for k, v in ((hints or {}).get("labels") or {}).items()}},
+            "counts": _counts(out_nodes, len(types), fin, len(changes)),
             "llm": {**info, "calls": len(calls), "failed": sum(1 for c in calls if c["response"] is None), "costUsd": round(cost, 4),
                     "seconds": round(time.monotonic() - t0, 2)},
+            "temp": _temp_brief(temp),  # 이 결과가 뺀 TEMP(§15) — None = TEMP 없이 만든 결과
             "guides": guides, "_calls": calls}
+
+
+def _temp_brief(temp):
+    """결과에 남기는 TEMP 요약(heading_temp.brief 와 같은 꼴 — 항목 본문은 빼고 수와 id)."""
+    if temp is None:
+        return None
+    return {"version": temp.get("version"), "hintsVersion": temp.get("hintsVersion"), "counts": temp.get("counts") or {},
+            "items": [it["id"] for it in temp.get("items") or ()], "off": list(temp.get("off") or ())}
+
+
+def _counts(out_nodes, ntypes, fin, nchanges):
+    return {"nodes": len(out_nodes), "body": sum(1 for n in out_nodes if n["flow"] == "body"), "cell": sum(1 for n in out_nodes if n["flow"].startswith("cell:")),  # 칸 안 상자 포함
+            "types": ntypes, "templates": len(fin["templates"]), "branches": sum(1 for t in fin["templates"] if t["kind"] == "branch"),
+            "labelTemplates": sum(1 for t in fin["templates"] if t["kind"] == "label"), "instances": len(fin["instances"]), "repeats": len(fin["repeats"]),
+            "labels": sum(1 for n in out_nodes if n["role"] == "label"), "subtitles": sum(1 for n in out_nodes if n["role"] == "subtitle"),
+            "heterogeneous": len(fin["heterogeneous"]), "adjust": sum(1 for a in fin["adjustments"] if a["decision"] == "adjust"),
+            "reviewed": sum(1 for a in fin["adjustments"] if (a.get("review") or {}).get("verdict") in ("agree", "disagree")),
+            "disagreed": sum(1 for a in fin["adjustments"] if (a.get("review") or {}).get("verdict") == "disagree"),
+            "changed": nchanges, "undecided": sum(1 for n in out_nodes if n["undecided"]), "heuristic": sum(1 for n in out_nodes if n["heuristic"])}
+
+
+# ---- 다시 셈(replay) — 라벨 지정을 LLM 호출 없이 반영(§13) ---------------------------------------------------------
+
+def replay_of(g):
+    """저장된 2단계 결과 g → build(replay=…) 입력. A 가 답한 유형 지식(괄호 유형은 규칙에 맞추기 전 A 가 본 그대로 aRole·aBasis·aReason) · 주 사슬(A 가 확인한 것만) ·
+    B 가 적은 변경(asked — 없는 옛 결과는 적용된 값) · 미판정 노드 · 조정 판정과 그때의 슬롯 멤버(멤버가 그대로인 슬롯만 이어받게).
+    LLM 없이 만든 결과(스크립트 대체 판정)는 None — 그때는 build(use_llm=False, hints=…) 가 곧 같은 길이다."""
+    lm = g.get("llm") or {}
+    if lm.get("fallback") or not lm.get("requested"):
+        return None
+    types = [{"type": t["type"], "ident": [t.get(k) for k in _TYPE_IDENT], "role": t["aRole"] if "aRole" in t else t.get("role"),
+              "basis": (t.get("aBasis") if "aRole" in t else t.get("basis")) or "", "parents": list(t.get("parents") or []), "variantOf": t.get("variantOf") or "",
+              "reason": (t.get("aReason") if "aRole" in t else t.get("reason")) or ""} for t in g.get("types") or []]
+    fixed = lm["mainChainFixed"] if "mainChainFixed" in lm else bool(lm.get("mainChain")) and "mainChainRejected" not in lm  # 옛 결과엔 표지가 없어 어림
+    changes = []
+    for c in g.get("changes") or []:
+        a, q = c.get("after") or {}, c.get("asked") or {}
+        slot = a.get("slot") or {}
+        changes.append({"id": c["id"], "parent": a.get("parent") or "", "role": q.get("role") or a.get("role") or "", "basis": q.get("basis") or "",
+                        "template": q["template"] if "template" in q else slot.get("template") or "", "level": q["level"] if "level" in q else slot.get("level") or 0,
+                        "reason": c.get("reason") or ""})
+    members = defaultdict(lambda: defaultdict(list))  # 슬롯 → 서식 라벨 → 그 서식인 노드
+    for n in g.get("nodes") or []:
+        if n.get("template") and n.get("level") and n.get("role") in ("heading", "title") + ROOTED:
+            members[f"{n['template']}|L{n['level']}"][n.get("fmt")].append(n["id"])
+    return {"a": {"types": types, "mainChain": list(lm.get("mainChain") or []) if fixed else [], "summary": lm.get("summary") or ""},
+            "changes": changes, "undecided": [n["id"] for n in g.get("nodes") or [] if n.get("undecided")], "slots": {k: dict(v) for k, v in members.items()},
+            "adjustments": list(g.get("adjustments") or []), "sections": lm.get("sections") or 0,
+            "from": (g.get("meta") or {}).get("run"), "calls": (lm.get("replay") or {}).get("calls", lm.get("calls")),
+            "costUsd": (lm.get("replay") or {}).get("costUsd", lm.get("costUsd"))}
+
+
+_TYPE_IDENT = ("area", "kind", "shape", "bold", "size")  # 유형의 정체(type_table 의 묶음 키) — 유형 id(Tn)는 후보 차례에 따라 달라질 수 있다
+
+
+def _remap_types(a_types, types):
+    """replay 의 유형 지식을 지금 유형 표의 id 로 옮긴다 — 정체(자리·종류·꼴·굵게·크기)가 같은 유형끼리. 지금 표에 없는 유형은 버린다(variantOf 도 함께 옮김)."""
+    now = {tuple(t.get(k) for k in _TYPE_IDENT): tid for tid, t in types.items()}
+    to = {x["type"]: now.get(tuple(x.get("ident") or ())) for x in a_types}
+    return [{**x, "type": to[x["type"]], "variantOf": to.get(x.get("variantOf")) or ""} for x in a_types if to.get(x["type"])]
+
+
+def _carry(replay, slots, by_id, graph):
+    """앞 실행의 조정 판정을 되살린다 → (same, review) — build 의 C·D 결과 꼴. 쌍(슬롯, 대표 서식, 다른 서식)의 판정은 그 근거가 그대로일 때만 이어받는다:
+    같은 슬롯(템플릿 앵커·레벨)이 있고 · 대표 서식이 그대로이고 · 그 다른 서식을 쓴 노드(판정 때 본 예문)가 같을 때. 아니면 미판정으로 둔다(astra 2026-11-10).
+    미판정이던 쌍은 판정 없음 그대로, D 가 다르게 본 쌍의 1차 판정은 first 에서."""
+    old = replay.get("slots") or {}
+    reps = {}
+    same, review = {}, {}
+    for a in replay.get("adjustments") or []:
+        slot, sk = f"{a['template']}|L{a['level']}", (a["template"], a["level"])
+        ids = slots.get(sk)
+        if not ids:
+            continue
+        if sk not in reps:
+            reps[sk] = _slot_rep(ids, by_id, graph)[1]
+        if reps[sk] != a["to"] or {i for i in ids if by_id[i]["fmt"] == a["from"]} != set((old.get(slot) or {}).get(a["from"]) or ()):
+            continue
+        k = (slot, a["to"], a["from"])
+        r = a.get("review")
+        first = a.get("first") if (r or {}).get("verdict") == "disagree" else a.get("decision")
+        if first in ("adjust", "keep"):
+            same[k] = {"same": first == "adjust", "reason": a.get("reason", "")}
+        if r:
+            review[k] = r
+    return same, review
 
 
 def _dedupe(edges):

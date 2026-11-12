@@ -206,7 +206,7 @@ def test_draft_matrix_roles_and_paths():
     assert t["before"] == "2-3. 수행일정" and t["counts"]["field"] == 8 and not t["issues"]
     core = {k: v for k, v in out["counts"].items() if k not in ("basis", "basisTables", "calc", "owners")}  # 표 의미(§9) 키는 test_headings_calc 에서
     assert core == {"tables": 1, "cells": 21, "subtables": 1, "split": 0, "roles": {"corner": 2, "colhead": 7, "rowhead": 4, "field": 8}, "repeats": 0,
-                    "changed": 0, "issues": 0, "nested": 0}
+                    "changed": 0, "issues": 0, "nested": 0, "tempTables": 0}  # tempTables = 표 구조에서 뺀 TEMP 표(§15 — test_headings_temp)
     assert out["llm"]["requested"] is False and out["llm"]["calls"] == 0 and "_calls" in out
 
 
@@ -553,7 +553,55 @@ def test_run_sync_stage3_reuses_fresh_stage1():
     sess = server.DOCS[d]
     heading_runs.run_sync(sess, 1, False)
     j = heading_runs.run_sync(sess, 3, False)
-    assert j.status == "done" and [s["name"] for s in j.steps] == ["표 구조 — 스크립트"] and j.run == 2
+    assert j.status == "done" and [s["name"] for s in j.steps] == ["TEMP 라벨 — 표 구조에서 뺌", "표 구조 — 스크립트"] and j.run == 2  # 표 검토 전에 TEMP 라벨(§15)
     st = heading_runs.state(sess)
     assert st["stage3"]["meta"]["stage1Run"] == 1 and heading_runs.summary(sess)["stage3"]["counts"]["cells"] == 43
     server.DOCS.clear()
+
+
+def test_shaded_value_row_and_column_are_fields():
+    """음영 값 칸(2026-11-10 연구개발기관별 사용계획 총괄표) — 「합계」 열·「총액」 행의 글 없는 음영 칸은 헤더가 아니라 필드, 헤더 열을 꼭 채운 이름 + 음영 빈 칸 행은
+    새 띠로 자르지 않는다. 이름 칸이 헤더 열보다 넓으면(「합 계」 가 표 폭을 거의 다 차지) 예전대로 제 띠 — 그래도 음영 빈 칸은 필드."""
+    g = "#D9D9D9"
+    t = Tab("t7")
+    for c, name in enumerate(["비목", "항목", "1차년도", "2차년도", "합계"]):
+        t.cell(0, c, name, fill=g)
+    t.cell(1, 0, "직접비", rs=2, fill=g)
+    t.cell(1, 1, "인건비(A)", fill=g)
+    t.cell(2, 1, "재료비(B)", fill=g)
+    for r in (1, 2, 3):
+        t.cell(r, 2, "")
+        t.cell(r, 3, "")
+        t.cell(r, 4, "", fill=g)
+    t.cell(3, 0, "간접비(L)", cs=2, fill=g)
+    t.cell(4, 0, "총액(M=A+B+L)", cs=2, fill=g)
+    for c in (2, 3, 4):
+        t.cell(4, c, "", fill=g)
+    tb = HT.build(stage1(t), use_llm=False, ask=_no_llm)["tables"][0]
+    assert [(tuple(s["rows"]), s["kind"], s["headerRows"], s["headerCols"]) for s in tb["subtables"]] == [((0, 5), "matrix", 1, 2)]
+    assert {c["role"] for c in tb["cells"] if c["row"] >= 1 and c["col"] >= 2} == {"field"}
+    assert by_text(tb, "총액(M=A+B+L)")["role"] == "rowhead" and by_text(tb, "합계")["role"] == "colhead"
+    last = next(c for c in tb["cells"] if c["row"] == 4 and c["col"] == 2)
+    assert last["nature"] == "header" and last["shaded"] and len(last["rowPath"]) == 1 and len(last["colPath"]) == 1
+    # 음영 빈 칸만 있는 열은 헤더 열의 근거가 아니다 — 「차년도」 열(헤더 낱말)에 합계 줄의 음영 빈 칸이 섞여도 값 열
+    w = Tab("t8")
+    for c, name in enumerate(["소속기관", "과정명", "월 급여", "합계"]):
+        w.cell(0, c, name, fill=g)
+    for r in (1, 2):
+        for c in range(4):
+            w.cell(r, c, "")
+    w.cell(3, 0, "합 계", cs=3, fill=g)
+    w.cell(3, 3, "", fill=g)
+    tb2 = HT.build(stage1(w), use_llm=False, ask=_no_llm)["tables"][0]
+    assert [(tuple(s["rows"]), s["headerCols"]) for s in tb2["subtables"]] == [((0, 3), 0), ((3, 4), 1)]
+    assert by_text(tb2, "합 계")["role"] == "rowhead" and next(c for c in tb2["cells"] if c["row"] == 3 and c["col"] == 3)["role"] == "field"
+    y = Tab("t9")
+    for c, name in enumerate(["항목", "1차년도", "2차년도"]):
+        y.cell(0, c, name, fill=g)
+    y.cell(1, 0, "인건비", fill=g)
+    y.cell(2, 0, "소계", fill=g)
+    for c in (1, 2):
+        y.cell(1, c, "")
+        y.cell(2, c, "", fill=g)
+    tb3 = HT.build(stage1(y), use_llm=False, ask=_no_llm)["tables"][0]
+    assert tb3["subtables"][0]["headerCols"] == 1 and {c["role"] for c in tb3["cells"] if c["row"] >= 1 and c["col"] >= 1} == {"field"}

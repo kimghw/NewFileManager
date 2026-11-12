@@ -70,10 +70,13 @@ def _add_para(cell, rec):
         cell["ordinal"] = True
 
 
-def collect(stage1):
-    """1단계 레코드 → 표 목록(문서 순) [{id, key, host, depth, rows, cols, n, parentCell, cells: [칸…]}]. 여러 칸 표만(1칸 상자는 투명 — 그 글은 바깥 칸에)."""
+def collect(stage1, skip=()):
+    """1단계 레코드 → 표 목록(문서 순) [{id, key, host, depth, rows, cols, n, parentCell, cells: [칸…]}]. 여러 칸 표만(1칸 상자는 투명 — 그 글은 바깥 칸에).
+    skip = 건너뛸 문단 id(TEMP 표 안의 문단 — spec ② §15): 그 표는 목록에 없고 바깥 칸의 글·「칸 안 표」 에도 안 든다."""
     tables = {}
     for rec in stage1["paras"]:
+        if rec["id"] in skip:
+            continue
         path = rec.get("path") or []
         inner = None  # 이 문단이 직접 든 「여러 칸 표」 의 칸 자리(path 인덱스)
         for i in range(len(path) - 1, -1, -1):
@@ -197,6 +200,31 @@ def _fieldish(cell):
     return cell is not None and cell["nature"] in ("empty", "field", "text")
 
 
+def _shaded_blank(cell):
+    """글 없는 음영 칸 — 성격은 header(강)지만 이름이 없으니 헤더 행·열 밖에서는 음영 값 칸(합계·총액 줄, 「합계」 열)으로 본다."""
+    return cell["nature"] == "header" and not cell["textFull"]
+
+
+def _value_row(occ, a, r, cols, starts):
+    """행 r 이 띠 [a, r) 의 음영 값 행인가 — 「연구개발비 총액(M=K+L) | (음영 빈 칸)…」 처럼 왼쪽 이름 칸 뒤가 모두 글 없는 음영 칸이고, 그 띠의 앞선 행 가운데
+    **같은 자리에서 이름과 값이 갈리는 행**(「간접비(L) | (빈 칸)…」)이 있는 행. 시작 칸이 모두 음영이라 헤더 행처럼 보이지만 헤더가 다시 시작하는 것이 아니다
+    (2026-11-10 연구개발기관별 사용계획 총괄표 — 총액 행이 딴 띠로 잘려 코드 식이 끊김). 앞선 행이 모두 빈 칸뿐이면(이름이 갈리는 자리를 모름) 예전대로 자른다."""
+    named = [x for x in starts if x["textFull"]]
+    blank = [x for x in starts if not x["textFull"]]
+    if not named or len(blank) < len(named) or not all(_shaded_blank(x) for x in blank):
+        return False
+    edge = min(x["col"] for x in blank)  # 값 칸이 시작하는 열
+    if any(x["col"] + x["cs"] > edge for x in named):
+        return False
+    for q in range(r - 1, a - 1, -1):
+        prev = _starts(occ, q, 0, cols)
+        left, right = [x for x in prev if x["col"] < edge], [x for x in prev if x["col"] >= edge]
+        if left and right and all(x["col"] + x["cs"] <= edge and x["textFull"] and x["nature"] in ("header", "headish", "text") for x in left) \
+                and all(_fieldish(x) or _shaded_blank(x) for x in right) and any(_fieldish(x) for x in right):
+            return True
+    return False
+
+
 # ---- 초안: 띠 나누기 · 헤더 행/열 · 역할 ----------------------------------------------------------------------
 
 def header_rows(tb, occ, r0, r1, c0, c1):
@@ -247,8 +275,11 @@ def header_cols(tb, occ, r0, r1, c0, c1, hr):
         keyword = bool(hr) and bool(_STUB_WORDS.search(_col_header_text(occ, c, r0, hr) or ""))
         stubby = [x["nature"] in ("header", "headish", "text") or (c == c0 and x["nature"] == "field" and _ORDINAL.match(x["textFull"] or "") is not None)
                   for x in cells]
+        named = sum(1 for x, s in zip(cells, stubby) if s and not _shaded_blank(x))  # 글 없는 음영 칸(합계·총액 줄의 값 칸)은 헤더 열의 근거가 아니다
+        if not named:
+            break
         if not all(stubby):
-            if not (keyword and sum(stubby) >= 1 and not any(x["nature"] in ("note",) for x in cells)):
+            if not (keyword and not any(x["nature"] in ("note",) for x in cells)):
                 break
         if not any(x["nature"] in ("header", "headish") for x in cells) and not keyword:
             right = sum(1 for x in cells if _fieldish(occ.get((x["row"], x["col"] + x["cs"]))))
@@ -267,7 +298,8 @@ def _full_width(cell, c0, c1):
 
 
 def bands(tb, occ):
-    """스크립트 초안의 행 띠 — ⓐ 전체 너비 한 칸 행은 자기 띠(제목·안내·간격), ⓑ 필드 행 뒤에 헤더 행(시작 칸 모두 음영·굵게)이 다시 오면 새 띠,
+    """스크립트 초안의 행 띠 — ⓐ 전체 너비 한 칸 행은 자기 띠(제목·안내·간격), ⓑ 필드 행 뒤에 헤더 행(시작 칸 모두 음영·굵게)이 다시 오면 새 띠
+    (그 띠의 음영 값 행 — 앞선 행과 같은 자리에서 갈리는 이름 + 글 없는 음영 칸들 — 은 헤더 행이 아니다 `_value_row`),
     ⓒ 열헤더가 있는 띠에서 키-값 행(음영 키 + 바로 오른쪽 필드)의 필드가 헤더 행의 열 경계와 안 맞으면 새 띠. 병합 칸을 가르는 경계는 안 자른다."""
     rows, cols = tb["rows"], tb["cols"]
     if cols <= 1:
@@ -281,7 +313,7 @@ def bands(tb, occ):
                 if cuts[-1] != r:
                     cuts.append(r)
                 seen_field = False
-            elif seen_field and _is_header_row(starts):
+            elif seen_field and _is_header_row(starts) and not _value_row(occ, cuts[-1], r, cols, starts):
                 cuts.append(r)
                 seen_field = False
         prev_full = full
@@ -349,7 +381,8 @@ def _neighbor(occ, band, r, c):
 
 def assign_roles(tb, occ, band):
     """띠 안 칸마다 역할 — 헤더 행 → colhead(헤더 열과 겹치면 corner), 헤더 열 → rowhead, 그 밖 헤더 성격 칸은 이웃 규칙(오른쪽이 채울 칸이면 rowhead,
-    아래가 채울 칸이면 colhead, 둘 다 헤더면 병합 방향), 안내 → note, 나머지 → field. 전체 너비 한 칸 띠는 띠 종류가 역할."""
+    아래가 채울 칸이면 colhead, 둘 다 헤더면 병합 방향), 안내 → note, 나머지 → field. 전체 너비 한 칸 띠는 띠 종류가 역할.
+    헤더 행·열이 있는 띠에서 그 밖에 놓인 **글 없는 음영 칸**은 field — 이름이 없는 칸은 헤더가 아니라 음영 값 칸(합계·총액 줄, 「합계」 열)이다."""
     (r0, r1), (c0, c1) = band["rows"], band["cols"]
     hr, hc = band["headerRows"], band["headerCols"]
     cells = cells_in(tb, band)
@@ -371,6 +404,8 @@ def assign_roles(tb, occ, band):
             role = "rowhead"
         elif nat == "note":
             role = "note"
+        elif (hr or hc) and _shaded_blank(x):
+            role = "field"
         elif nat in ("header", "headish"):
             right = _neighbor(occ, band, x["row"], x["col"] + x["cs"])
             down = _neighbor(occ, band, x["row"] + x["rs"], x["col"])
@@ -449,11 +484,18 @@ def table_payload(tb, occ, bs, before=""):
             "draft": [{k: b[k] for k in ("id", "rows", "cols", "kind", "headerRows", "headerCols")} for b in bs], "grid": rows}
 
 
-def _before_text(stage1, tb):
-    """표 바로 앞의 글 있는 문단(이 표 안이 아닌 것) — 표 제목 맥락."""
+def _before_text(stage1, tb, skip=()):
+    """표 바로 앞의 글 있는 문단(이 표 안이 아닌 것) — 표 제목 맥락. 앞 39문단까지 본다. skip = 건너뛸 문단 id(TEMP 표 안의 문단 — spec ② §15:
+    「작성 요령」 표의 글이 뒤 표의 제목 맥락이 되지 않게; 건너뛴 문단은 39문단 한도에 세지 않는다)."""
     paras = stage1["paras"]
-    for i in range(tb["n"] - 1, max(-1, tb["n"] - 40), -1):
+    left = 39
+    for i in range(tb["n"] - 1, -1, -1):
         rec = paras[i]
+        if rec["id"] in skip:
+            continue
+        if left <= 0:
+            break
+        left -= 1
         if any(c["t"] == "tbl" and _tid(c) == tb["id"] for c in rec.get("path") or ()):
             continue
         if rec["text"].strip() and rec["kind"] not in ("empty", "object"):
@@ -515,7 +557,7 @@ def sendable(tb):
     return len(tb["cells"]) >= MIN_CELLS_LLM and tb["rows"] >= 2 and tb["cols"] >= 2
 
 
-def t_jobs(tables, drafts, stage1, pinned=None):
+def t_jobs(tables, drafts, stage1, pinned=None, skip=()):
     """표를 문서 순으로 묶어(칸 BATCH_CELLS·표 BATCH_TABLES 까지, 큰 표는 혼자) T 호출 job 들 → (jobs, 쓴 지침)."""
     batches, cur, n = [], [], 0
     for tb in tables:
@@ -531,7 +573,7 @@ def t_jobs(tables, drafts, stage1, pinned=None):
         batches.append(cur)
     jobs, used = [], {}
     for i, batch in enumerate(batches):
-        data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb)) for tb in batch]}
+        data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb, skip)) for tb in batch]}
         content, u = HL.prompt(HL.TABLES_CONTRACT, ["tables", "tolerance"], data, pinned)
         used.update(u)
         jobs.append({"schema": HL.TABLES_SCHEMA, "content": content, "what": f"heading_tables#{i + 1}", "timeout": 900.0, "effort": "medium",
@@ -701,13 +743,31 @@ def _out_cell(x):
             if x.get(k) is not None or k in ("role", "draft", "text")}
 
 
-def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None):
+def temp_tables(temp):
+    """TEMP 라벨(heading_temp.label 결과) → (건너뛸 문단 id 집합 = TEMP 표 안의 문단, 결과에 남길 TEMP 표 목록 [{id, item, why, rule, rows, cols, n, host}]) —
+    표 단위 항목 · 그 안쪽 표 · 칸 단위 항목 안의 표(1칸 상자 포함). rows·cols·n·host 는 표 단위 항목 자신의 표에만(안쪽 표는 None)."""
+    if not temp:
+        return frozenset(), []
+    items = {it["id"]: it for it in temp.get("items") or ()}
+    skip = frozenset(temp.get("tableParas") or ())
+    out = []
+    for tid, iid in (temp.get("tables") or {}).items():
+        it = items.get(iid) or {}
+        own = it.get("unit") == "table" and it.get("table") == tid
+        out.append({"id": tid, "item": iid, "why": it.get("why"), "rule": it.get("rule"), "rows": it.get("rows") if own else None,
+                    "cols": it.get("cols") if own else None, "n": it.get("n") if own else None, "host": it.get("host") if own else None})
+    return skip, out
+
+
+def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None, temp=None, roles=None):
     """3단계 — 1단계 결과 → 표 구조 dict(spec ② §8 + 표 의미 §9). ask = llm.ask_all 대신(시험). use_llm False 면 스크립트 초안만. pinned = 실행 시작 때 고정한 지침.
-    stage2 = 같은 1단계 실행의 2단계 결과(있으면 표의 소속을 그래프에서, 없으면 1단계 어림)."""
+    stage2 = 같은 1단계 실행의 2단계 결과(있으면 표의 소속을 그래프에서, 없으면 1단계 어림). temp = TEMP 라벨(§15) — TEMP 표는 표 구조를 만들지 않는다(`tempTables` 에만).
+    roles = 사용자 헤더 지정 {표 id: {칸 id: rowhead | colhead | field}}(spec_owpml_편집 ② §5-4) — 초안·LLM 답 위에 덮는다(칸 `reason` 「사용자 지정」, 헤더 트리·수식은 그 역할로)."""
     from app import llm
     t0 = time.monotonic()
     ask = ask or llm.ask_all
-    tables = collect(stage1)
+    skip, temp_list = temp_tables(temp)
+    tables = collect(stage1, skip)
     drafts = {tb["id"]: draft(tb) for tb in tables}
     info = {"requested": bool(use_llm), "fallback": False, "error": None, "calls": 0, "failed": 0, "sent": 0, "skipped": 0, "applied": 0, "rejected": 0,
             "undecided": 0, "summary": ""}
@@ -715,7 +775,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
     for tb in tables:
         tb["llm"] = {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False}
     if use_llm and tables:
-        jobs, used = t_jobs(tables, drafts, stage1, pinned)
+        jobs, used = t_jobs(tables, drafts, stage1, pinned, skip)
         guides.update(used)
         info["sent"] = sum(len(j["_tables"]) for j in jobs)
         info["skipped"] = len(tables) - info["sent"]
@@ -755,11 +815,15 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
                 tb["llm"].update(changed=changed, rejected=rejected, summary=str(ans.get("summary") or "")[:300])
                 info["applied"] += changed
                 info["rejected"] += len(rejected)
+        mine = (roles or {}).get(tb["id"]) or {}
         for x in tb["cells"]:
+            if mine.get(x["id"]) in ("rowhead", "colhead", "field"):  # 사용자 헤더 지정 — 초안·LLM 답보다 앞
+                x["role"], x["reason"] = mine[x["id"]], "사용자 지정"
+                x["changed"] = x["role"] != x["draft"]
             x.setdefault("changed", False)
             x["sub"] = next((b["id"] for b in bs if b["rows"][0] <= x["row"] < b["rows"][1] and b["cols"][0] <= x["col"] < b["cols"][1]), None)
         subs = [finish_band(tb, occ, b) for b in bs]
-        before = _before_text(stage1, tb)
+        before = _before_text(stage1, tb, skip)
         sem = HC.annotate(tb, subs, owner_fn, before=before)  # §9 구분 헤더·계산식·수식·소속
         notes = table_notes(stage1, tb)  # §10 작성요령(표 안 안내 칸 · 표 앞뒤 안내 문단)
         for s in subs:
@@ -774,8 +838,12 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
     rep.sort(key=lambda r: -r["count"])
     roles = Counter(x["role"] for t in out_tables for x in t["cells"])
     cost = sum((c.get("costUsd") or 0) for c in calls)
+    temp_brief = None if temp is None else {"version": temp.get("version"), "hintsVersion": temp.get("hintsVersion"), "counts": temp.get("counts") or {},
+                                            "items": [it["id"] for it in temp.get("items") or ()], "off": list(temp.get("off") or ())}
     return {"version": VERSION, "tables": out_tables, "repeats": rep[:100],
+            "tempTables": temp_list, "temp": temp_brief,  # §15 — TEMP 표(표 구조 없음)와 이 결과가 쓴 TEMP 요약(None = TEMP 없이 만든 결과)
             "counts": {"tables": len(out_tables), "cells": sum(len(t["cells"]) for t in out_tables), "subtables": sum(len(t["subtables"]) for t in out_tables),
+                       "tempTables": len(temp_list),
                        "split": sum(1 for t in out_tables if len(t["subtables"]) > 1), "roles": dict(roles), "repeats": len(rep),
                        "changed": sum(1 for t in out_tables for x in t["cells"] if x.get("changed")),
                        "issues": sum(len(t["issues"]) for t in out_tables), "nested": sum(1 for t in out_tables if t["depth"] > 1),

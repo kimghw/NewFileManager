@@ -1,0 +1,53 @@
+/* ---- 표 메뉴(spec_헤딩_추출 ② §16 — table_menu.js): 표 손잡이(.tbl-corner — body 에 고정 위치, table_menu.js tmnPlace 가 transform 으로 표 오른쪽 변 바로 바깥(쪽 안 오른쪽 여백)·표 위끝 높이에 둠 · 화면 크기 16px:
+   쪽 안에 두지 않는 까닭은 table_menu.js tmnBtn 주석 — 큰 문서에서 쪽 안 요소를 옮기면 자리 재기가 문서 전체를 다시 배치한다) ·
+   고른 표 테두리(.tmn-active) · 메뉴(공용 .ctx-menu 에 data-by="tmn" — 긴 표 양식 목록은 세로로 굴림) · 문서 미리보기(지울 칸 .tmn-hit · 표 양식 .tmn-tpl-hit).
+   오른쪽 여백은 비어 있는 자리라 표도 왼쪽 여백의 표지(.tbl-mark)·「TN Lk」 도 안 가린다 — 칸 안 표·종이 끝까지 찬 표만 오른쪽 위 모서리에 걸친다(design.md §8). z 는 메뉴(.ctx-menu 30)·알림 아래. ---- */
+/* 아이콘은 둘(2026-11-12 사용자 「작성요령, 표지침을 꺼내서 아이콘 2개로」): .tbl-corner = 표 메뉴 · .tbl-corner-guide = 작성요령 · 표 지침(손잡이 바로 아래, 같은 꼴 — 연필).
+   둘째의 .has = 이 표에 적어 둔 지침·칸 입력 규칙이 있음(여백 표지 ✎ 의 주황 점과 같은 뜻). */
+.tbl-corner, .tbl-corner-guide { position: fixed; left: 0; top: 0; z-index: 20; width: 16px; height: 16px; padding: 0; display: inline-grid; place-items: center; box-sizing: border-box; will-change: transform;
+  border: 1px solid #9fb5ea; border-radius: 4px; background: #fff; color: var(--accent); cursor: pointer; box-shadow: 0 1px 3px rgba(16, 24, 40, .22); user-select: none; }
+.tbl-corner.on, .tbl-corner-guide.on { border-color: var(--accent); }
+.tbl-corner-guide.has { color: #b45309; }
+.tbl-corner-guide.has::after { content: ""; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 1px #fff; pointer-events: none; }
+.tbl-corner:hover, .tbl-corner:focus-visible, .tbl-corner-guide:hover, .tbl-corner-guide:focus-visible { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tbl-corner svg, .tbl-corner-guide svg { display: block; pointer-events: none; }
+
+.ctx-menu[data-by="tmn"] { max-width: min(440px, calc(100vw - 16px)); max-height: min(72vh, 540px); overflow-y: auto; }
+.ctx-menu[data-by="tmn"] button { display: block; overflow: hidden; text-overflow: ellipsis; } /* 긴 표 이름은 줄임표(전체 글은 도움말) — 꼬리(▸)는 오른쪽에 띄움 */
+.ctx-menu[data-by="tmn"] button kbd { float: right; margin-left: 16px; }
+.ctx-menu[data-by="tmn"] button.tmn-head, .ctx-menu[data-by="tmn"] button.tmn-sec, .ctx-menu[data-by="tmn"] button.tmn-note { padding: 3px 10px; font-size: 11px; cursor: default; }
+.ctx-menu[data-by="tmn"] button.tmn-head { font-weight: 600; color: var(--text); }
+.ctx-menu[data-by="tmn"] button.tmn-back { font-weight: 600; }
+.ctx-menu[data-by="tmn"] button.tmn-note { white-space: normal; line-height: 1.45; }
+
+#doc table.tbl.tmn-active, #doc .xl-wrap.tmn-active { outline: 1px solid rgba(36, 88, 214, .65); outline-offset: 1px; } /* 고른 표(누른 표) — 쪽마다 나뉜 조각 모두 */
+#doc table.tbl td.tmn-hit { box-shadow: inset 0 0 0 300mm rgba(200, 30, 30, .2); outline: 1px solid rgba(200, 30, 30, .6); outline-offset: -1px; } /* 지울 칸 — 고른 칸(td.sel)과 같은 방식(칸 음영 위에 비침) */
+#doc table.tbl.tmn-tpl-hit { outline: 2px solid #f59e0b; outline-offset: 1px; } /* 마우스를 올린 표 양식(화면에 보일 때) */
+
+/* ---- 표 칸 메뉴 · 미리보기 · 헤더 지정 표시(spec_owpml_편집 ② §5-4·§5-5 — table_edit.js): 공용 .ctx-menu 에 data-by="tsel"(하위 목록은 같은 자리에서 내용만 바뀜 — 분류 줄 .tmn-sec ·
+   돌아가기 .tmn-back · 안내 .tmn-note · 지금 값 .tmn-on) · 문서 미리보기(td.tp + tp-*: 메뉴 항목·도구 줄 단추에 올린 동안만) · 직접 지정한 헤더 칸의 왼쪽 위 귀퉁이(td.hd-user).
+   미리보기는 고른 칸 표시(td.sel 의 box-shadow)와 같은 방식(칸 음영 위에 비침)이라 올린 동안은 그 색이 고른 칸 색을 대신한다. ---- */
+.ctx-menu[data-by="tsel"] { max-width: min(440px, calc(100vw - 16px)); max-height: min(82vh, 680px); overflow-y: auto; }
+.ctx-menu[data-by="tsel"] button { padding: 5px 10px; }
+.ctx-menu[data-by="tsel"] button.tmn-sec, .ctx-menu[data-by="tsel"] button.tmn-note { padding: 3px 10px; font-size: 11px; cursor: default; }
+.ctx-menu[data-by="tsel"] button.tmn-sec { font-weight: 600; color: var(--text); }
+.ctx-menu[data-by="tsel"] button.tmn-back, .ctx-menu[data-by="tsel"] button.tmn-on { font-weight: 600; }
+.ctx-menu[data-by="tsel"] button.tmn-note { white-space: normal; line-height: 1.45; }
+.ctx-menu[data-by="tsel"] hr { margin: 3px 0; }
+
+#doc table.tbl td.hd-user { background-image: linear-gradient(135deg, var(--hd, #2563eb) 0 7px, transparent 7px) !important; background-repeat: no-repeat !important; } /* 직접 지정한 칸 — 행헤더 파랑 */
+#doc table.tbl td.hd-user.hd-col { --hd: #0d9488; }   /* 열헤더 청록 */
+#doc table.tbl td.hd-user.hd-field { --hd: #d97706; } /* 필드 주황 */
+
+#doc table.tbl td.tp.tp-del { box-shadow: inset 0 0 0 300mm rgba(200, 30, 30, .22); outline: 1px solid rgba(200, 30, 30, .65); outline-offset: -1px; }   /* 지워질 칸 */
+#doc table.tbl td.tp.tp-part { box-shadow: inset 0 0 0 300mm rgba(245, 158, 11, .16); outline: 2px dashed #d97706; outline-offset: -2px; }                /* 늘어나거나 줄어드는 합친 칸 */
+#doc table.tbl td.tp.tp-ins-b { box-shadow: inset 0 -4px 0 0 #16a34a, inset 0 0 0 300mm rgba(22, 163, 74, .10); outline: none; }                       /* 새 칸이 들어갈 변 — 아래 */
+#doc table.tbl td.tp.tp-ins-t { box-shadow: inset 0 4px 0 0 #16a34a, inset 0 0 0 300mm rgba(22, 163, 74, .10); outline: none; }
+#doc table.tbl td.tp.tp-ins-l { box-shadow: inset 4px 0 0 0 #16a34a, inset 0 0 0 300mm rgba(22, 163, 74, .10); outline: none; }
+#doc table.tbl td.tp.tp-ins-r { box-shadow: inset -4px 0 0 0 #16a34a, inset 0 0 0 300mm rgba(22, 163, 74, .10); outline: none; }
+#doc table.tbl td.tp.tp-merge { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .28); outline: none; }                                                    /* 한 칸으로 합쳐질 칸 */
+#doc table.tbl td.tp.tp-fit { box-shadow: inset 0 0 0 300mm rgba(22, 163, 74, .10); }                                                                     /* 폭이 바뀌는 필드 열 */
+#doc table.tbl td.tp.tp-move { box-shadow: inset 0 0 0 300mm rgba(13, 148, 136, .24); outline: 1px solid rgba(13, 148, 136, .7); outline-offset: -1px; }  /* 뒤 표로 갈 열 */
+#doc table.tbl td.tp.tp-split { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .10); outline: 1px solid var(--accent); outline-offset: -1px;                /* 나뉠 자리 — 칸을 --tp-rows × --tp-cols 로 가르는 선 */
+  background-image: linear-gradient(to bottom, transparent calc(100% - 2px), var(--tp-rl, transparent) 0), linear-gradient(to right, transparent calc(100% - 2px), var(--tp-cl, transparent) 0) !important;
+  background-size: 100% calc(100% / var(--tp-rows, 1)), calc(100% / var(--tp-cols, 1)) 100% !important; background-position: 0 0 !important; background-repeat: repeat !important; }

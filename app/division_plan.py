@@ -18,9 +18,10 @@ def snapshot_copy(kit, original, doc):
     return st.restore(kit["cls"], original, snap), snap
 
 
-def make(kit, original, doc, rev, settings, profile, *, only=None, skip=(), rebuild=True, copy=None, hints=None):
+def make(kit, original, doc, rev, settings, profile, *, only=None, skip=(), rebuild=True, copy=None, hints=None, prior=None):
     """-> 계획 dict(JSON 으로 낼 것 + 비공개 키 _doc·_report). copy = snapshot_copy() 결과 (copy, snap) — 잠금 안에서 떠 두고 밖에서 돌릴 때.
-    hints = 추가한 자리 문단 id 들(② §11 — 후보 찾기·모의 실행 모두에). 지원하지 않는 양식이면 ValueError."""
+    hints = 추가한 자리 문단 id 들(② §11 — 후보 찾기·모의 실행 모두에). prior = 앞서 이 문서에 반영한 값들(② §19 — 후보 찾기·모의 실행 모두에:
+    그 값의 이름·연도가 적힌 자리는 반영이 쓴 것으로 보아 새 값으로 다시 쓴다). 지원하지 않는 양식이면 ValueError."""
     skip = set(skip or ())
     hints = sorted(hints or ())
     blocks = doc.blocks()
@@ -29,15 +30,15 @@ def make(kit, original, doc, rev, settings, profile, *, only=None, skip=(), rebu
         raise ValueError(f"지원하는 양식이 아닙니다(앞쪽에 양식 이름 문단이 없음 — 지원: {', '.join(sorted(profile.SUPPORTED))})")
     values = settings["values"]
     lv = profile.levels_of(blocks)
-    before = profile.candidates(blocks, lv, values, rebuild=rebuild, skip=skip, hints=hints)
+    before = profile.candidates(blocks, lv, values, rebuild=rebuild, skip=skip, hints=hints, prior=prior)
     idx_before = structure.index_blocks(blocks)
     work, snap = copy if copy is not None else snapshot_copy(kit, original, doc)
     t0 = time.monotonic()
-    report = profile.apply(work, values, skip=sorted(skip), levels_of=profile.levels_of, only=only, rebuild=rebuild, hints=hints)
+    report = profile.apply(work, values, skip=sorted(skip), levels_of=profile.levels_of, only=only, rebuild=rebuild, hints=hints, prior=prior)
     seconds = round(time.monotonic() - t0, 2)
     after_blocks = work.blocks()
     idx_after = structure.index_blocks(after_blocks)
-    after = profile.candidates(after_blocks, profile.levels_of(after_blocks), values, rebuild=False, skip=skip, hints=hints)
+    after = profile.candidates(after_blocks, profile.levels_of(after_blocks), values, rebuild=False, skip=skip, hints=hints, prior=prior)
     after_by_key = {c["key"]: c for c in after}
     errors = {e["key"]: e["message"] for e in report.get("errors") or () if e.get("key")}
     attached = set(idx_after)

@@ -1,0 +1,29 @@
+/* ---- 단축키 설명(shortcuts.js — spec_hwpx_웹편집 ② §2 「단축키 설명」): 도구 줄 단추 #shortcutsBtn · 2열 #headsDlg[data-kind="shortcuts"] 의 목록.
+   design.md §1 — 상자를 겹치지 않고 구분선만, 좌우 12px, 글 12.5px. 키 열 폭은 창이 아니라 그 열의 폭(@container)에 따라 줄인다. ---- */
+#shortcutsBtn svg { display: block; pointer-events: none; } /* 단추 꼴·눌림 표시는 style.css .doc-bar .icon.tb(30×28 · aria-pressed) 그대로 — 글 없이 아이콘만 */
+
+#headsDlg[data-kind="shortcuts"] .hd-body { container-type: inline-size; padding-bottom: 12px; }
+.sc-sec > h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 14px 12px 5px; font-size: 13px; color: var(--text); }
+.sc-sec > h3 .sc-note { font-weight: 400; font-size: 12px; color: var(--muted); }
+.sc-state { padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 17px; }
+.sc-state.on { color: var(--ok); background: #e7f6ec; }
+.sc-state.off { color: var(--warn); background: var(--warn-soft); }
+.sc-off-note { margin: 0 12px 6px; font-size: 12px; line-height: 1.5; color: var(--warn); }
+.sc-off-note:empty { display: none; }
+table.sc-list { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.5; }
+table.sc-list th, table.sc-list td { padding: 5px 12px; border-top: 1px solid var(--line); vertical-align: top; text-align: left; font-weight: 400; }
+table.sc-list th { width: 176px; padding-right: 4px; }
+table.sc-list td { word-break: keep-all; overflow-wrap: anywhere; }
+.sc-sec.off table.sc-list { opacity: .55; } /* 개요 편집 키가 꺼진 문서 — 줄은 읽히되 흐리게 */
+.sc-combo { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; vertical-align: top; }
+.sc-list kbd { display: inline-block; box-sizing: border-box; min-width: 21px; height: 20px; padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--surface-2); color: var(--text); font: 11.5px/17px "Malgun Gothic", "맑은 고딕", "Segoe UI", sans-serif; text-align: center; }
+.sc-plus, .sc-or { color: var(--muted); font-size: 11px; }
+th > .sc-or { margin: 0 4px; }
+.sc-act { white-space: normal; }
+.sc-at { display: block; margin-top: 1px; font-size: 11.5px; color: var(--muted); }
+@container (max-width: 430px) {
+  table.sc-list th { width: 132px; }
+  table.sc-list th, table.sc-list td { padding-left: 10px; padding-right: 8px; }
+  .sc-combo.mouse { white-space: normal; flex-wrap: wrap; } /* 마우스 동작 글은 좁으면 꺾는다(:has() 는 쓰지 않는다 — references/브라우저_강제배치_비용.md) */
+}

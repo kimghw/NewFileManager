@@ -29,7 +29,8 @@ NUM_CLASSES = {  # 번호형 레터의 글자 열(차례) — 아라비아 숫�
 }
 _NUM_RE = re.compile(r"\d+|[①-⑳]|[가-하]|[A-Za-z]|[Ⅰ-Ⅻ]|[ⅰ-ⅻ]")
 _KEY_RE = re.compile(r"N|①|가|A|a|Ⅰ|ⅰ")
-ROLES = ("heading", "title", "label")
+ROOTED = ("label", "subtitle")  # 괄호 줄 — 구분 라벨·괄호 소제목(spec_헤딩_추출 ② §13): 둘 다 제 템플릿의 뿌리, 편집 제한이 같다
+ROLES = ("heading", "title") + ROOTED
 
 
 def is_numbered(key):
@@ -289,8 +290,8 @@ def _check_line(ov, pid, what):
     x = ov["lines"].get(pid)
     if x is None:
         raise ValueError("개요 줄이 아닙니다 — 헤딩 추출 2단계가 템플릿을 매긴 문단에서만 됩니다")
-    if x.get("role") == "label" and what != "enter":
-        raise ValueError("구분 라벨 줄은 자식 줄 만들기(Enter)만 됩니다")
+    if x.get("role") in ROOTED and what != "enter":  # 괄호 글 전체가 레터라 레벨 바꾸기·옮기기가 제목 글을 통째로 갈아 버린다
+        raise ValueError(f"{'구분 라벨' if x['role'] == 'label' else '괄호 소제목'} 줄은 자식 줄 만들기(Enter)만 됩니다")
     return x
 
 
@@ -485,8 +486,8 @@ def _target(ov, x, delta):
         p = ov["lines"].get(x["parent"])
         if p is None:
             raise ValueError("더 올릴 개요 레벨이 없습니다(가장 바깥 레벨)")
-        if p.get("role") == "label":
-            raise ValueError("구분 라벨 자리로는 올릴 수 없습니다")
+        if p.get("role") in ROOTED:
+            raise ValueError(f"{'구분 라벨' if p['role'] == 'label' else '괄호 소제목'} 자리로는 올릴 수 없습니다")
         return p["tpl"], int(p["level"])
     if _slot(ov, tid, level + 1) is not None:
         return tid, level + 1

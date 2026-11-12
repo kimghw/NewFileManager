@@ -1,0 +1,68 @@
+/* 표 관리: 좁은 문서 옆 패널에서 개요·실행·목록을 같은 밀도로 읽는다. */
+#paneTables { padding: 0; background: #fff; container-type: inline-size; }
+#tablesBox { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 12px 16px; font-size: 13px; }
+#tablesBox > * { min-width: 0; }
+#tablesBox .tp-overview { display: flex; flex-direction: column; gap: 6px; }
+#tablesBox .tp-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#tablesBox .tp-stat { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 7px; border: 1px solid #e6e9ef; border-radius: 6px; background: #f7f8fa; white-space: nowrap; }
+#tablesBox .tp-stat > span { color: #697586; font-size: 11px; }
+#tablesBox .tp-stat > b { color: #344157; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+#tablesBox .tp-stat.is-warning { border-color: #eedcbd; background: #fff6e9; }
+#tablesBox .tp-stat.is-warning > b, #tablesBox .tp-stat.is-warning > span { color: #a56820; }
+#tablesBox .src-line { flex-wrap: nowrap; min-width: 0; margin: 0; gap: 6px; }
+#tablesBox .src-chip { min-width: 0; max-width: 100%; padding: 0 6px; }
+#tablesBox .src-chip > b { flex: none; }
+#tablesBox .src-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#tablesBox .tp-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+#tablesBox .tp-state { color: #697586; font-size: 12px; line-height: 26px; }
+#tablesBox .tp-state.is-warning { color: #a56820; }
+#tablesBox .tp-actions, #tablesBox .tp-tool-buttons, #tablesBox .tp-display-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+#tablesBox .btn.sm { flex: none; height: 28px; max-width: 100%; padding: 0 8px; border-color: #dce1e9; border-radius: 6px; font-size: 12px; color: #536078; }
+#tablesBox .btn.sm.primary { border-color: var(--accent); color: #fff; }
+#tablesBox .btn.sm.on { color: var(--accent); border-color: #b8caed; background: #edf3fc; }
+#tablesBox .tp-progress { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 26px; padding: 3px 7px; border: 0; border-radius: 6px; color: #3865b7; background: #eff4fd; font: inherit; font-size: 12px; cursor: pointer; }
+#tablesBox .tp-progress::before { content: ""; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid #4576d7; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; animation-delay: var(--tp-spin-delay, 0s); }
+#tablesBox .tp-progress-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tablesBox .tp-progress-time { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#tablesBox .tp-progress-time::before { content: "· "; }
+#tablesBox .tp-progress:hover { background: #e5edfc; }
+#tablesBox .tp-tools { padding: 0 0 8px; border-bottom: 1px solid #e7eaf0; }
+#tablesBox .tp-tools > summary { display: flex; align-items: center; gap: 6px; min-height: 28px; list-style: none; color: #536078; font-size: 12px; font-weight: 500; cursor: pointer; }
+#tablesBox .tp-tools > summary::-webkit-details-marker { display: none; }
+#tablesBox .tp-tools > summary::before { content: "›"; flex: none; width: 10px; font-size: 16px; font-weight: 400; text-align: center; }
+#tablesBox .tp-tools[open] > summary::before { transform: rotate(90deg); }
+#tablesBox .tp-tools[open] > summary { margin-bottom: 6px; }
+#tablesBox .tp-tools .tp-display-tools { margin-top: 6px; }
+#tablesBox .tp-common-status, #tablesBox .tp-tool-label { font-size: 11px; font-weight: 400; color: #697586; }
+#tablesBox .tp-tool-label { flex: none; }
+#tablesBox .tp-list { list-style: none; margin: 0; padding: 0; }
+#tablesBox .tp-row { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 0; border-bottom: 1px solid #eceef2; }
+#tablesBox .tp-row:first-child { padding-top: 0; }
+#tablesBox .tp-row:last-child { border-bottom: 0; }
+#tablesBox .tp-row-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+#tablesBox .tp-row-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+#tablesBox .tp-index { flex: none; color: #697586; font-size: 11px; font-variant-numeric: tabular-nums; }
+#tablesBox .tp-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: #344157; font-size: 13px; font-weight: 600; }
+#tablesBox .tp-size { flex: none; color: #697586; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#tablesBox .tp-row-actions { display: flex; align-items: center; gap: 6px; }
+#tablesBox .tp-row-actions .btn.sm { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px; color: #63728a; background: #fff; }
+#tablesBox .tp-row-actions .btn.sm:hover { color: #315caa; background: #f2f5fa; }
+#tablesBox .tp-row-actions .tp-go { width: 28px; padding: 0; font-size: 15px; }
+#tablesBox .tp-owner { display: flex; align-items: center; gap: 6px; min-width: 0; color: #667085; font-size: 12px; }
+#tablesBox .tp-meta-label { flex: none; color: #697586; font-size: 11px; }
+#tablesBox .tp-owner-link { padding: 0; border: 0; background: transparent; color: #647896; font: inherit; cursor: pointer; text-align: left; }
+#tablesBox .tp-owner-link:hover { color: #2d5bd0; text-decoration: underline; }
+#tablesBox .tp-owner-link, #tablesBox .tp-owner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; }
+#tablesBox .tp-owner > .hb { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tablesBox .tp-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: #697586; font-size: 11px; line-height: 18px; }
+#tablesBox .tp-tag { max-width: 100%; padding: 0 5px; border-radius: 4px; background: #f3f5f8; color: #697586; overflow-wrap: anywhere; }
+#tablesBox .tp-tag.is-warning { background: #fff2de; color: #a56a21; }
+#tablesBox .tp-detail { overflow-wrap: anywhere; }
+#tablesBox .tp-detail.has-instructions { color: #577b69; }
+#tablesBox .tp-empty { margin: 0; padding: 12px 0; color: #697586; font-size: 12px; }
+#tablesBox .tp-tools > summary:focus-visible, #tablesBox .tp-progress:focus-visible, #tablesBox .tp-owner-link:focus-visible { outline: 2px solid #6b94e8; outline-offset: 2px; border-radius: 4px; }
+@container (max-width: 360px) {
+  #tablesBox .src-chip .today { display: none; }
+  #tablesBox .tp-row-head { gap: 6px; }
+  #tablesBox .tp-row-name { gap: 4px; }
+}
