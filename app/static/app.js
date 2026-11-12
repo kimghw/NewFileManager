@@ -727,10 +727,16 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const mapActs = !ready || PEEK ? [] : [...(mapOpen ? [onReport(taskFlow.mapBusy ? "표 대응 중…" : "표 대응(LLM)", () => fillMap(), { cls: "btn sm", disabled: !!(F.busy || taskFlow.mapBusy),
     title: "같은 표로 이었지만 두 서식의 행·열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM(Opus)에 물어 행·열을 맞춥니다 — 표마다 십수 초 · 유료. 글은 LLM 이 쓰지 않고 사업계획서 칸의 글을 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" })] : []),
     ...(mapOpen || mapN ? [llmGuideBtn("table-map", report.id)] : [])];
+  // 빈 자리 검토(spec_병합 ② §5-4 — 2026-11-12 사용자 "여기 들어가지 않은 것들은 LLM 이 검토하고 넣어주는 기능 없나?"): 다른 길이 못 채운 빈 표·빈 칸·빈 라벨 줄 가운데 아직 안 물은 수(넣기 계획이 센다)
+  const GC = (F.plan && F.plan.gaps && F.plan.gaps.counts) || {}, gapOpen = GC.open || 0, gapN = (GC.cells || 0) + (GC.lines || 0) + (GC.tables || 0);
+  const gapActs = !ready || PEEK || !F.plan ? [] : [...(gapOpen || gapN ? [onReport(taskFlow.gapBusy ? "빈 자리 검토 중…" : gapOpen ? "빈 자리 검토(LLM)" : "빈 자리 검토 다시", () => fillGaps({ again: !gapOpen }), { cls: "btn sm", disabled: !!(F.busy || taskFlow.gapBusy || taskFlow.mapBusy),
+    title: "내용 매핑이 못 채운 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 LLM(Opus)에 묻습니다 — 수십 초 · 유료. 글은 LLM 이 쓰지 않고 고른 자리의 글을 그대로 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" }),
+    llmGuideBtn("gaps", report.id)] : [])];
   if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다")
-      + (taskFlow.mapBusy ? " · 표 대응 중…" : mapOpen ? ` · 칸을 못 맞춘 표 ${mapOpen}개 — 「표 대응(LLM)」 이 행·열을 맞춥니다` : ""),
+      + (taskFlow.mapBusy ? " · 표 대응 중…" : mapOpen ? ` · 칸을 못 맞춘 표 ${mapOpen}개 — 「표 대응(LLM)」 이 행·열을 맞춥니다` : "")
+      + (taskFlow.gapBusy ? " · 빈 자리 검토 중…" : gapOpen ? ` · 아직 빈 자리 ${gapOpen}곳 — 「빈 자리 검토(LLM)」 가 사업계획서에서 찾습니다` : ""),
     acts: [onReport(planStep.busy ? "계획 중…" : F.plan || F.done ? "넣기 계획 다시" : "넣기 계획", () => fillPlan(), { cls: "btn sm" + (F.plan || F.done || !link.done ? "" : " primary"), disabled: !!F.busy, // 강조 단추는 카드에 하나 — ② 에 확인 필요가 남았으면 「연결 목록」 쪽
-      title: "이어진(연결됨) 자리마다 넣을 본문 블록·표 칸·늘릴 행과 못 넣는 까닭을 셉니다 — 문서는 「반영」 을 눌러야 바뀝니다" }), ...mapActs] });
+      title: "이어진(연결됨) 자리마다 넣을 본문 블록·표 칸·늘릴 행과 못 넣는 까닭을 셉니다 — 문서는 「반영」 을 눌러야 바뀝니다" }), ...mapActs, ...gapActs] });
   const nothing = !!(noTargets || (F.plan && F.plan.todo === 0));
   const applyStep = { key: "apply", no: "④", name: "내용 반영", done: !!F.done || nothing, skipped: !F.done && nothing, early: !!F.plan, keep: true, busy: !!F.busy && F.busyStep === "apply",
     acts: F.plan ? [hBtn("계획 보기", () => fillList(), { cls: "btn sm" + (F.plan.todo && link.done ? " primary" : ""), disabled: !!F.busy })] : [],
@@ -874,11 +880,66 @@ async function linksLlm() {
   linksRedraw();
 }
 
+// 표 대응(LLM) — spec_병합 ② §5-3: 같은 표로 이었는데 두 서식의 행·열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 에 물어 행 짝·열 짝을 받는다(POST …/merge-links/table-map — merge.json tableMaps 에 저장, 문서는 안 바뀜).
+// 끝나면 연결 목록을 다시 읽고, 계획이 있었으면 다시 계획한다(대응이 맡은 표의 칸이 계획에 든다). quiet = 「한 번에 진행」 안에서(알림 글 없이). → 응답 | null(못 함).
+async function fillMap({ quiet = false } = {}) {
+  const report = taskSlotDoc("report"), flow = taskFlow, epoch = state.epoch;
+  if (!report || report.id !== state.id || flow.mapBusy || (flow.fill || {}).busy) return null;
+  flow.mapBusy = true;
+  taskStepsDraw();
+  if (!quiet) toast("표 대응 — 칸을 못 맞춘 표를 표마다 LLM 에 묻습니다(표마다 십수 초)");
+  let res = null;
+  try {
+    await flushAll();
+    res = await api(`/api/docs/${report.id}/merge-links/table-map`, JSON_POST({}));
+  } catch (e) {
+    if (flow === taskFlow) toast(`표 대응을 하지 못했습니다: ${e.message}`, true);
+  }
+  flow.mapBusy = false;
+  if (epoch !== state.epoch || flow !== taskFlow) return res;
+  if (res) {
+    const bad = (res.tables || []).filter((t) => t.error);
+    if (!quiet) toast(res.asked ? `표 대응 끝 — 표 ${res.mapped}/${(res.tables || []).length}개의 행·열을 맞췄습니다${bad.length ? ` · 못 맞춤 ${bad.length}(${bad[0].error})` : ""} — 「넣기 계획」 에 들어갑니다` : "표 대응이 필요한 표가 없습니다", !!(res.asked && !res.mapped));
+    await linksCall(report); // mapOpen·maps 수를 지금 것으로
+    if ((flow.fill || {}).plan && !quiet) await fillPlan(); // 열려 있던 계획은 대응 전 것 — 다시 센다
+  }
+  taskStepsDraw();
+  return res;
+}
+
+// 빈 자리 검토(LLM) — spec_병합 ② §5-4: 묶음 짝·같은 이름 자리·표 대응이 못 채운 목적 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 묻는다
+// (POST …/merge-links/gaps — merge.json gaps 에 저장, 빈 표에 고른 원본 표는 표 짝으로도. 문서는 안 바뀜). 끝나면 다시 계획한다. again = 이미 답이 있는 자리도 다시. quiet = 「한 번에 진행」 안에서. → 응답 | null.
+async function fillGaps({ quiet = false, again = false } = {}) {
+  const report = taskSlotDoc("report"), flow = taskFlow, epoch = state.epoch;
+  if (!report || report.id !== state.id || flow.gapBusy || flow.mapBusy || (flow.fill || {}).busy) return null;
+  flow.gapBusy = true;
+  taskStepsDraw();
+  if (!quiet) toast("빈 자리 검토 — 아직 빈 자리를 사업계획서에서 찾습니다(수십 초)");
+  let res = null;
+  try {
+    await flushAll();
+    res = await api(`/api/docs/${report.id}/merge-links/gaps`, JSON_POST({ again }));
+  } catch (e) {
+    if (flow === taskFlow) toast(`빈 자리 검토를 하지 못했습니다: ${e.message}`, true);
+  }
+  flow.gapBusy = false;
+  if (epoch !== state.epoch || flow !== taskFlow) return res;
+  if (res) {
+    const got = (res.tables.paired || 0) + (res.slots.filled || 0), all = (res.found.tables || 0) + (res.found.slots || 0);
+    if (!quiet) toast(all ? `빈 자리 검토 끝 — 빈 자리 ${all}곳 가운데 ${got}곳의 원본을 찾았습니다(표 ${res.tables.paired || 0} · 칸·줄 ${res.slots.filled || 0}) — 나머지는 비워 둡니다` : "빈 자리가 없습니다");
+    await linksCall(report); // 표 짝이 늘었다(mapOpen·kept 를 지금 것으로)
+    if (!quiet) await fillPlan(); // 찾은 자리를 넣기 계획에
+  }
+  taskStepsDraw();
+  return res;
+}
+const fillGapNote = (res) => (res ? ` · 빈 자리 검토 ${(res.tables.paired || 0) + (res.slots.filled || 0)}/${(res.found.tables || 0) + (res.found.slots || 0)}` : " · 빈 자리 검토는 못 함(그 자리는 비워 둠)");
+
 // ---- LLM 지침·프롬프트 보기(2열 kind "llmGuide" — spec_작업 ② §13, 2026-11-12 사용자 "각 LLM이 검토나 작업할때 '지침' 이나 프롬프트를 확인할 수 있으면 좋겠어"). 읽기만 한다(문서·작업은 안 바뀜).
 // GET /api/docs/{문서}/llm-guide/{step} → {step, name, model(null = 기본 모델), parts[{key: contract|guide|job|form, title, text, source(저장소 기준 파일 경로 | ""), note}],
 //   last: null | {at, units[{n, title, pages[a, b] | null, targets, chars, error, has(프롬프트가 저장돼 있나)}]}} · GET …/llm-guide/{step}/prompt?unit=N → {at, title, prompt, answer}.
 // step = merge-links(자리 연결 LLM 검토 — 문서 = 연차보고서) · division-review(구분 기준 LLM 재검토) · division-missing(빠진 자리 검토). 끝점이 없으면(서버 재시작 전) 그렇게 알린다.
-const LLM_GUIDE_STEPS = { "merge-links": "자리 연결 LLM 검토", "division-review": "구분 기준 LLM 재검토", "division-missing": "빠진 자리 검토", gather: "기관 작성 내용 LLM 검토", "table-map": "표 대응(LLM)" }; // gather = 취합(문서 = 취합본 · ?part=<기관 문서> — spec_취합 ② §4-3)
+const LLM_GUIDE_STEPS = { "merge-links": "자리 연결 LLM 검토", "division-review": "구분 기준 LLM 재검토", "division-missing": "빠진 자리 검토", gather: "기관 작성 내용 LLM 검토", "table-map": "표 대응(LLM)", gaps: "빈 자리 검토(LLM)" }; // gather = 취합(문서 = 취합본 · ?part=<기관 문서> — spec_취합 ② §4-3)
 const LLM_GUIDE_SWAP = { "division-review": "division-missing", "division-missing": "division-review" }; // 「구분 기준 자리 표시」 줄의 「지침」 하나로 두 검토의 지침을 오간다
 const LLM_GUIDE_OPEN = new Set(["guide", "job"]); // 처음부터 펴 두는 절 — 사람이 관리하는 글(판단 지침 · 할 일 프롬프트). 계약·양식 정보는 접어 둔다
 function llmGuideBtn(step, docId, q = "") { // 「지침」 — 보통 단추(강조 아님: 강조 단추는 카드에 하나). q = 끝점에 붙일 질의(취합 「part=<기관 문서 id>」 — 기관 문서마다 다른 프롬프트)
@@ -961,10 +1022,14 @@ async function llmGuideOpen(step, docId, q = "") {
 const FILL_SKIP = { noSource: "원본 없음", occupied: "이미 글이 있음", tables: "양식 표가 있는 자리 — 표 칸으로", applied: "이미 넣음", changed: "넣은 뒤 원본이 바뀜", shape: "자리를 못 찾음", ambiguous: "기관 이름이 안 맞음", calc: "계산 칸(비워 둠)" };
 const FILL_MODE = { fixed: "정해진 자리", append: "이어 넣기" };
 const fillFixedText = (c) => (c ? ` · 같은 이름 자리 — 칸 ${c.cells || 0} · 라벨 내용 ${c.labels || 0}${c.pictures ? `(그림 ${c.pictures})` : ""}${c.flow ? ` · 표 쪽 나눔 맞춤 ${c.flow}` : ""}` : ""); // 고정 자리(spec_병합 ② §5-1) — 서버가 fixed 를 줄 때만
-const fillCountText = (p) => `본문 ${p.body.counts.todo || 0}항목 · 표 칸 ${p.tables.counts.cells || 0} · 행 추가 ${p.tables.counts.rows || 0}` + fillFixedText(p.fixed && p.fixed.counts) + (p.todo ? "" : " — 넣을 것 없음");
+const fillMapText = (c) => (c && c.tables ? ` · 표 대응 — 표 ${c.tables} · 칸 ${c.cells || 0}${c.lines ? ` · 일정 선 ${c.lines}` : ""}${c.rows ? ` · 행 추가 ${c.rows}` : ""}` : ""); // 표 대응(spec_병합 ② §5-3)이 맡은 표의 몫
+const fillGapText = (c) => (c && (c.cells || c.lines) ? ` · 빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}` : ""); // 빈 자리 검토(spec_병합 ② §5-4)가 원본 줄을 찾은 자리
+const fillCountText = (p) => `본문 ${p.body.counts.todo || 0}항목 · 표 칸 ${p.tables.counts.cells || 0} · 행 추가 ${p.tables.counts.rows || 0}` + fillFixedText(p.fixed && p.fixed.counts) + fillMapText(p.maps && p.maps.counts) + fillGapText(p.gaps && p.gaps.counts) + (p.todo ? "" : " — 넣을 것 없음");
 const fillDoneText = (r) => `본문 블록 ${(r.body || {}).blocks || 0} · 표 칸 ${(r.tables || {}).filled || 0} · 행 추가 ${(r.tables || {}).rowsAdded || 0} · 템플릿 변환 ${(r.converted || {}).converted || 0}줄`
   + (r.fixed ? ` · 같은 이름 자리 — 칸 ${r.fixed.filled || 0} · 라벨 내용 ${(r.fixed.labels || {}).items || 0}(블록 ${(r.fixed.labels || {}).blocks || 0})` : "")
-  + ((r.tables || {}).shaped || (r.fixed || {}).shaped ? ` · 글자 모양 맞춤 ${((r.tables || {}).shaped || 0) + ((r.fixed || {}).shaped || 0)}칸` : "")
+  + ((r.maps || {}).filled || (r.maps || {}).lines || (r.maps || {}).rowsAdded ? ` · 표 대응 — 칸 ${r.maps.filled || 0}${r.maps.lines ? ` · 일정 선 ${r.maps.lines}` : ""}${r.maps.rowsAdded ? ` · 행 추가 ${r.maps.rowsAdded}` : ""}` : "")
+  + ((r.gaps || {}).cells || (r.gaps || {}).lines ? ` · 빈 자리 — 칸 ${r.gaps.cells || 0} · 줄 ${r.gaps.lines || 0}` : "")
+  + ((r.tables || {}).shaped || (r.fixed || {}).shaped || (r.maps || {}).shaped ? ` · 칸 서식 맞춤 ${((r.tables || {}).shaped || 0) + ((r.fixed || {}).shaped || 0) + ((r.maps || {}).shaped || 0)}칸` : "") // 원본 칸의 글자 모양·문단 모양을 입힌 칸(spec_병합 ② §5 「칸 서식」)
   + ((r.fixed || {}).flowed ? ` · 표 쪽 나눔 맞춤 ${r.fixed.flowed}` : "") + (((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0) ? ` · 그림 폭 맞춤 ${((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0)}` : "")
   + (((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0) ? ` · 반영 때 건너뜀 ${((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0)}(계획 뒤 글이 생긴 칸 등)` : "")
   + ((r.dropped || []).length ? ` · 못 옮긴 것 ${r.dropped.length}(쪽 설정 등)` : "");
@@ -1021,6 +1086,27 @@ function fillList() { // 2열 「넣기 계획」(kind "fill") — 본문 항목
     for (const s of (p.fixed.skipped || []).filter((x) => x.why === "occupied").slice(0, 40)) row(b3, [["칸", "muted"], [s.detail], [SK[s.why] || s.why]], s.to, true);
     if (!b3.children.length) row(b3, [["같은 이름으로 이어진 자리가 없습니다"]], null, true);
     body.append(el("div", "lk-cap", `같은 이름 자리 — 표 ${c.tables || 0} · 칸 ${c.cells || 0}(서식 틀 채움 ${c.form || 0}) · 라벨 내용 ${c.labels || 0}${why3 ? ` · 못 넣음: ${why3}` : ""}`), t3);
+  }
+  if (p.maps && (p.maps.tables.length || p.maps.counts.open)) { // 표 대응(spec_병합 ② §5-3) — 서식이 달라 LLM 이 행·열을 맞춘 표: 「같은 표로 이음」 과 「내용이 들어감」 을 가른다(대응한 항목 · 칸 · 표시 · 늘릴 행 · 못 넣은 것)
+    const MK = { occupied: "이미 글이 있음", name: "항목 이름이 안 맞음", calc: "계산 칸(비워 둠)", shape: "자리를 못 찾음", stale: "표가 바뀌어 대응이 낡음", org: "기관이 다름", example: "서식 예시가 아님" };
+    const c = p.maps.counts, why4 = Object.entries(c.skipped || {}).filter(([, n]) => n).map(([k, n]) => `${MK[k] || k} ${n}`).join(" · ");
+    const [t4, b4] = hTable(["표 대응(LLM)", "넣을 것", "상태"]);
+    t4.classList.add("lk-table");
+    for (const t of p.maps.tables) {
+      const n = (t.cells || 0) + (t.lines || 0) + (t.rows || 0);
+      row(b4, [[`표 — ${t.title || t.to}`], [t.stale ? "—" : `항목 ${t.records || 0} · 칸 ${t.cells || 0}${t.lines ? ` · 일정 선 ${t.lines}` : ""}${t.rows ? ` · 행 추가 ${t.rows}` : ""}`, "lk-nw"],
+        [t.stale ? "표가 바뀌어 대응이 낡음 — 「표 대응(LLM)」 다시" : (n ? "넣음" : "넣을 것 없음(이미 넣었거나 빈 칸이 없음)") + (t.skipped ? ` · 못 넣음 ${t.skipped}` : ""), null, `원본 표: ${t.fromTitle || t.from || ""}`]], t.to, !n);
+    }
+    for (const id of p.maps.open || []) row(b4, [[`표 — ${id}`], ["—"], ["같은 표로 이었지만 행·열 구성이 달라 칸을 못 맞춤 — 「표 대응(LLM)」 이 맞춥니다"]], id, true);
+    body.append(el("div", "lk-cap", `표 대응 — 표 ${c.tables || 0} · 칸 ${c.cells || 0}${c.lines ? ` · 일정 선 ${c.lines}` : ""}${c.rows ? ` · 행 추가 ${c.rows}` : ""}${c.open ? ` · 대응이 필요한 표 ${c.open}` : ""}${why4 ? ` · 못 넣음: ${why4}` : ""}`), t4);
+  }
+  if (p.gaps && (p.gaps.items.length || p.gaps.counts.open)) { // 빈 자리(spec_병합 ② §5-4) — 다른 길이 못 채운 칸·라벨 줄에 LLM 이 고른 사업계획서 줄의 글(그대로). 빈 표에 고른 원본 표는 위 「같은 이름 자리」·「표 대응」 줄에 든다
+    const GK = { occupied: "이미 글이 있음", noSource: "원본 줄에 옮길 글이 없음", long: "내용이 길다 — 기관이 작성", object: "표·그림이 든 내용 — 기관이 작성", year: "차년도가 다른 내용", org: "기관이 다른 내용", done: "이미 넣음" };
+    const c = p.gaps.counts, [t5, b5] = hTable(["빈 자리", "사업계획서의 자리", "넣을 것", "상태"]);
+    t5.classList.add("lk-table");
+    for (const it of p.gaps.items) row(b5, [[`${it.kind === "cell" ? "칸" : "줄"} — ${it.label || it.to}`], [it.fromText || it.from || "", null, "줄을 누르면 연차보고서의 그 자리로 갑니다"], [it.skip ? "—" : `${it.lines}줄`, "lk-nw"], [it.skip ? GK[it.skip] || it.skip : "넣음", null, it.detail || ""]], it.to, !!it.skip);
+    if (!p.gaps.items.length) row(b5, [[c.open ? "아직 묻지 않았습니다 — 「빈 자리 검토(LLM)」" : "원본을 찾은 빈 자리가 없습니다"]], null, true);
+    body.append(el("div", "lk-cap", `빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}${c.tables ? ` · 원본 표를 찾은 빈 표 ${c.tables}(위 표 줄에)` : ""}${c.open ? ` · 아직 안 물은 빈 자리 ${c.open}` : ""}`), t5);
   }
   foot.append(el("span", "muted", p.todo ? "실행 취소 한 번으로 되돌릴 수 있습니다" : "넣을 것이 없습니다"),
     hBtn(F.busy ? "반영 중…" : "반영", () => fillApply(), { cls: "btn sm primary", disabled: !p.todo || !!F.busy, title: "이 계획대로 연차보고서에 넣습니다 — 사업계획서는 안 바뀝니다" }), hBtn("닫기", () => headsColClose()));
@@ -1450,16 +1536,39 @@ async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 �
   if (!L.counts.paired && !linksFixedN(L) && !linksFixedErr(L)) return `이어진 자리가 없어 넣을 내용이 없습니다(${linked})`;
 
   // ③ 넣기 계획 → ④ 내용 반영 — 계획 뒤 곧바로 반영(사이에 문서가 바뀌면 409: 계획을 한 번만 다시). 반영은 편집 하나(실행 취소 1)
+  let gapped = false, gapNote = "";
+  let mapped = false, mapNote = ""; // 표 대응(spec_병합 ② §5-3 10) — 같은 표로 이었는데 칸을 못 맞춘 표가 계획에 있으면 한 번만 LLM 에 묻고 다시 계획한다(유료 · 표마다 십수 초 — 시작할 때 한 번 확인한 범위)
   for (let tries = 0; ; tries++) {
     at("plan", "넣기 계획");
     await fillPlan();
-    const p = (taskFlow.fill || {}).plan;
+    let p = (taskFlow.fill || {}).plan;
     if (!p) taskHalt("넣기 계획을 세우지 못했습니다(알림 글 참고)");
-    if (!p.todo) { if (heads.dlg === "fill") headsColClose(); return `${linked} · 넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)`; } // 실패가 아니다 — 이미 넣은 문서에서 다시 누른 경우
+    const gapOpen = ((p.gaps || {}).counts || {}).open || 0;
+    if (gapOpen && !gapped) { // 빈 자리 검토(spec_병합 ② §5-4 8) — 아직 안 물은 빈 자리가 있으면 한 번만(유료 · 수십 초). 빈 표에 고른 원본 표는 아래 표 대응의 대상이 된다
+      gapped = true;
+      at("plan", `빈 자리 검토(LLM) — 아직 빈 자리 ${gapOpen}곳(수십 초)`);
+      gapNote = fillGapNote(await fillGaps({ quiet: true })); // 실패해도 멈추지 않는다 — 그 자리는 비워 둔다
+      at("plan", "넣기 계획(빈 자리 검토 뒤)");
+      await fillPlan();
+      p = (taskFlow.fill || {}).plan;
+      if (!p) taskHalt("넣기 계획을 세우지 못했습니다(알림 글 참고)");
+    }
+    const open = ((p.maps || {}).counts || {}).open || 0;
+    if (open && !mapped) {
+      mapped = true;
+      at("plan", `표 대응(LLM) — 행·열 구성이 다른 표 ${open}개(표마다 십수 초)`);
+      const got = await fillMap({ quiet: true });
+      mapNote = got ? ` · 표 대응 ${got.mapped}/${(got.tables || []).length}` : " · 표 대응은 못 함(그 표는 비워 둠)"; // 실패해도 멈추지 않는다 — 맞춘 표만 넣는다
+      at("plan", "넣기 계획(표 대응 뒤)");
+      await fillPlan();
+      p = (taskFlow.fill || {}).plan;
+      if (!p) taskHalt("넣기 계획을 세우지 못했습니다(알림 글 참고)");
+    }
+    if (!p.todo) { if (heads.dlg === "fill") headsColClose(); return `${linked}${gapNote}${mapNote} · 넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)`; } // 실패가 아니다 — 이미 넣은 문서에서 다시 누른 경우
     at("apply", "내용 반영");
     await fillApply({ quiet: true });
     const F = taskFlow.fill || {};
-    if (F.done) return `${linked} · ${fillDoneText(F.done)}`;
+    if (F.done) return `${linked}${gapNote}${mapNote} · ${fillDoneText(F.done)}`;
     if (!F.plan && !tries) continue; // 계획을 버렸다(409 — 계획 뒤 문서가 바뀜 · 넣을 것 없음) → 한 번만 다시 계획
     taskHalt("내용을 반영하지 못했습니다(알림 글 참고)");
   }
@@ -1476,7 +1585,8 @@ async function taskRunAll(stageId = "frame") { // 그 묶음의 「한 번에 �
     ? `· 중간 계획 확인 없이 연차보고서 「${report.name}」 의 구조(절·표 행·열)가 사업계획서의 단계·차년도·기관 값에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
       + "· 사업계획서의 내용은 넣지 않습니다(2단계 「내용 매핑」).\n"
     : `· 중간 계획 확인 없이 연차보고서 「${report.name}」 에 사업계획서의 내용이 들어갑니다(구분 기준 자리 + 같은 이름 자리 · 그림 포함 · 표 칸은 글자 모양도) — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
-      + "· 헤딩·표 분석이 없거나 구조 반영 전 것이면 먼저 분석합니다(스크립트). 확인 필요한 자리가 있으면 LLM 검토를 한 번 돌립니다(유료 · 수십 초).\n";
+      + "· 헤딩·표 분석이 없거나 구조 반영 전 것이면 먼저 분석합니다(스크립트). 확인 필요한 자리가 있으면 LLM 검토를 한 번 돌립니다(유료 · 수십 초).\n"
+      + "· 그래도 빈 자리가 있으면 빈 자리 검토(LLM)를, 행·열 구성이 다른 표가 있으면 표 대응(LLM)을 한 번씩 돌립니다(유료 · 각 수십 초) — 글은 LLM 이 쓰지 않고 사업계획서의 글을 그대로 옮깁니다.\n";
   if (!confirm(`「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n남은 단계\n${left.map((s, i) => `  ${taskStepName(s)}${!i && s.text ? ` — ${s.text}` : ""}`).join("\n")}\n\n${what}`
     + "· 값이 없거나 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.")) return;
   const run = (taskRun = { stage: stage.id, report: report.id, key: left[0].key, note: "", t0: Date.now(), stop: false });

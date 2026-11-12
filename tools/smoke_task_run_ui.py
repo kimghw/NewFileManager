@@ -181,7 +181,9 @@ try:
         ap1 = requests.post(f"{base}/api/docs/{plan}/divisions/apply", json={"planId": pl.json()["planId"], "expectRev": pl.json()["baseRev"]}, timeout=300)
         check("사업계획서 양식에 값 반영(API — 사전 준비)", ap1.status_code == 200 and not ap1.json().get("nothing"), ap1.status_code)
         rev0 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()["rev"]
-        calls = {"llm": 0, "amb": None}
+        calls = {"llm": 0, "amb": None, "gaps": 0, "map": 0}
+        page.on("request", lambda r: r.method == "POST" and r.url.endswith("/merge-links/gaps") and calls.__setitem__("gaps", calls["gaps"] + 1))       # 빈 자리 검토(spec_병합 ② §5-4)
+        page.on("request", lambda r: r.method == "POST" and r.url.endswith("/merge-links/table-map") and calls.__setitem__("map", calls["map"] + 1))   # 표 대응(② §5-3)
 
         def links_route(route):  # LLM 검토만 가짜(서버는 LLM 끔) — 실제 연결 목록에 llm 표시를 얹어 돌려준다. 그 뒤의 읽기에도 얹는다(서버에는 저장이 없으므로)
             req = route.request
@@ -263,6 +265,10 @@ try:
         fill_ev = next(e for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"] if e["kind"] == "mergeFill")
         check("같은 이름 자리(고정 자리)도 연결 목록·넣기 기록에 따로 실림", isinstance((links.get("fixed") or {}).get("counts"), dict) and "fixed" in fill_ev and "shaped" in fill_ev["tables"], [links.get("fixed"), {k: fill_ev.get(k) for k in ("tables", "fixed")}])
         check("LLM 검토 — 확인 필요가 있어 한 번만 부름(가짜 응답 — 이 쌍은 확인 필요 9)", calls["llm"] == 1 and links["counts"]["ambiguous"] > 0, [calls, links["counts"]])
+        # 빈 자리 검토(spec_병합 ② §5-4 8): 넣기 계획에 아직 안 물은 빈 자리(「추진목표」 칸 · 「- (정의)」 줄)가 있어 한 번 부른다 — 서버의 LLM 이 꺼져 있어 못 찾지만 멈추지 않고 끝까지 간다.
+        # 단추가 부르는 함수가 실제로 있는지도 본다(2026-11-12 — 「표 대응(LLM)」 단추의 fillMap 이 없어 표 대응이 한 번도 안 돌았다)
+        check("빈 자리 검토 — 한 번에 진행이 한 번 부름(못 찾아도 멈추지 않음) · 단추의 함수가 있음", calls["gaps"] == 1 and "빈 자리 검토" in last["text"]
+              and page.evaluate("() => typeof fillMap === 'function' && typeof fillGaps === 'function'"), [calls, last["text"]])
         check("사업계획서는 그대로(사전 반영의 편집 1뿐)", requests.get(f"{base}/api/docs/{plan}", timeout=300).json()["rev"] == ap1.json()["rev"])
         page.locator("#panel").screenshot(path=str(OUT / "3_done.png"))
         page.screenshot(path=str(OUT / "3_done_full.png"))

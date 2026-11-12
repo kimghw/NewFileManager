@@ -7,6 +7,7 @@ FileMergeManager `app/llm.py` 의 CLI·SDK 호출부만 옮겨 줄인 것(2026-1
   도구 없음·설정 안 읽음·빈 임시 폴더·세션 안 남김, `output_format` json_schema → `ResultMessage.structured_output`, references/Claude_Agent_SDK.md),
   안 되면 CLI 헤드리스(`claude -p … --json-schema`, references/Claude_CLI_헤드리스.md), 그다음 Anthropic API SDK(ANTHROPIC_API_KEY·ANTHROPIC_AUTH_TOKEN 이 있을 때만).
   env `NFM_LLM_BACKEND` = auto|sdk|cli|api|off(기본 auto = sdk → cli → api) · `NFM_LLM_MODEL`(기본 claude-opus-5-5) ·
+  `NFM_LLM_MODEL_FORCE`(모든 호출의 모델 — 검토마다 코드에 정한 모델(merge_llm.MODEL 등)보다도 먼저. 2026-11-12 사용자 「api 키로 해서 fable로 해줘」) ·
   `NFM_CLAUDE_CLI`(cli 길의 실행 파일 절대 경로 — 없으면 PATH 의 claude. sdk 길은 패키지에 든 CLI).
 - 동시 호출: 프로세스 전체 `NFM_LLM_SLOTS`(기본 4) 자리. Windows 에서 `claude -p` 를 13개 한꺼번에 띄우면 일부가 0xC0000409 로 죽은 실측(FileMergeManager)
   — `ask_all` 은 실패한 것만 병렬 2 로 한 번 더 부른다.
@@ -38,6 +39,12 @@ def _env_num(name, default, cast):
     except ValueError:
         log.warning("env %s=%r 이 숫자가 아니라 기본값 %s 을 씁니다", name, os.environ.get(name), default)
         return default
+
+
+def forced():
+    """env NFM_LLM_MODEL_FORCE 의 모델 | None — 있으면 모든 호출이 이 모델(호출이 따로 정한 모델보다 먼저)."""
+    m = os.environ.get("NFM_LLM_MODEL_FORCE", "").strip()
+    return m if m and _MODEL_RE.fullmatch(m) else None
 
 
 def settings():
@@ -96,7 +103,7 @@ def status():
     """화면용 {backend, model, sdk, cli, available, active}: active = 먼저 시도할 길(없으면 None), sdk = Agent SDK 판."""
     cfg = settings()
     tries = _tries(cfg)
-    return {"backend": cfg["backend"], "model": cfg["model"], "sdk": sdk_version(), "cli": cli_path(cfg), "available": bool(tries),
+    return {"backend": cfg["backend"], "model": forced() or cfg["model"], "sdk": sdk_version(), "cli": cli_path(cfg), "available": bool(tries),
             "active": tries[0] if tries else None}
 
 
@@ -196,6 +203,7 @@ def call(schema, content, what, *, timeout=180.0, effort=None, model=None):
         cfg["effort"] = effort
     if model and _MODEL_RE.fullmatch(model):
         cfg["model"] = model
+    cfg["model"] = forced() or cfg["model"]
     out = {"data": None, "backend": None, "ms": 0, "costUsd": None, "error": None, "model": cfg["model"], "effort": cfg["effort"]}
     tries = _tries(cfg)
     if not tries:

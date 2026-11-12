@@ -58,10 +58,12 @@
 
 2026-11-10 사용자 지시.
 - 웹서버는 **8114 하나만** 띄운다. 띄우기 전에 8114 를 듣는 프로세스가 있는지 보고(`Get-NetTCPConnection -LocalPort 8114 -State Listen`),
-  있으면 새로 띄우지 않는다. 다시 켤 때는 **먼저 끄고**(듣는 `python` 의 부모 `cmd` 째 `taskkill /PID <cmd pid> /T /F` → 포트가 빌 때까지 기다림)
-  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다.
+  있으면 새로 띄우지 않는다. 다시 켤 때는 **먼저 끄고**(듣는 `python` 의 부모 `cmd` 의 부모 `powershell`(띄우개) 째 `taskkill /PID <그 pid> /T /F` — 띄우개가 없으면 `cmd` 째 → 포트가 빌 때까지 기다림)
+  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다(`backend: api` · `model: claude-fable-5-2` · `available: true` 여야 한다).
 - **백그라운드(세션과 떨어진 프로세스)** 로 띄운다 — 도구의 포그라운드 실행이나 `run_in_background` 로 띄우면 터미널을 잡거나 세션이 끝날 때 같이 죽는다. PowerShell:
-  `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'cmd /c "cd /d E:\dev\NewFileManager && set NFM_LLM_BACKEND=sdk&& python -m uvicorn app.server:app --host 127.0.0.1 --port 8114 >> artifacts\5b_server\server-8114.log 2>&1"' }`
+  `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File E:\dev\NewFileManager\tools\start_8114.ps1'; CurrentDirectory = 'E:\dev\NewFileManager' }`
+  — LLM 은 **API 키 · Fable**(2026-11-12 사용자 「api 키로 해서 fable로 해줘」 → 답 「API 키 · Fable, 재시작」 — 전에는 `NFM_LLM_BACKEND=sdk`). 띄우개 [tools/start_8114.ps1](tools/start_8114.ps1) 가
+  `NFM_LLM_BACKEND=api` · `NFM_LLM_MODEL_FORCE=claude-fable-5-2` 를 걸고, 키는 Claude Code 사용자 설정(`~\.claude\settings.json` 의 env)에서 읽어 그 프로세스 env 에만 둔다 — WMI 로 띄운 프로세스는 이 세션의 env 를 안 물려받는다. 키를 명령 줄·파일에 적지 않는다.
 - 화면 검사용 임시 서버(서버 코드를 고친 뒤 8114 를 건드리지 않고 확인할 때)는 다른 포트 + 임시 `NFM_WORKS`·`NFM_RENDER` 로 띄우고 **검사가 끝나면 바로 끈다** —
   켜 둔 채 턴을 끝내지 않는다. 8114 와 같은 작업 폴더를 쓰는 둘째 서버는 띄우지 않는다.
 - **검사는 같이 돌린다**(2026-11-12 사용자 지시 "서버 테스트 시간을 좀 줄이도록 병렬로 작업해줘"): 임시 서버를 스스로 띄우는 화면 검사(`tools/smoke_*_ui.py`)가 둘 이상이면 하나씩 차례로 돌리지 말고

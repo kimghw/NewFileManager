@@ -208,8 +208,8 @@ def test_append_column_key_ignores_head_cells_in_data_rows_and_is_idempotent(sma
     assert not again[0] and not again[1], again[1]
 
 
-SHAPE = {"ratioPct": 70, "spacingPct": -5, "sizePt": 9.0}   # 시험이 원본 칸에 주는 장평·자간·글자 크기 — 이 세 값만 글과 함께 온다
-REST = ("font", "fontLatin", "bold", "italic", "underline", "color", "align", "lineSpacingPct")   # 목적 칸 것 그대로여야 하는 것
+SHAPE = {"ratioPct": 70, "spacingPct": -5, "sizePt": 9.0}   # 시험이 원본 칸에 주는 장평·자간·글자 크기
+REST = ("font", "fontLatin", "bold", "italic", "underline", "color", "align", "lineSpacingPct")   # 그 밖의 글자 모양·문단 모양 — 이것도 원본 칸 것이 온다(칸 서식 통째)
 
 
 def _fmt(doc, tid, cid):
@@ -229,10 +229,10 @@ def _three(fmt):
     return {k: fmt[k] for k in SHAPE}
 
 
-def test_apply_brings_ratio_spacing_size_with_the_text(small):
-    """표 칸에 글을 옮길 때 원본 칸의 장평·자간·글자 크기도 함께 온다(2026-11-12 사용자 결정 — 계획서에서 장평을 줄여 한 줄에 넣은 이메일이 연차보고서 칸에서 3줄로 꺾였다).
-    글꼴·색·굵기·문단 모양은 목적 칸 것 그대로이고 장평·자간의 언어별 값(영문만 다른 자간)도 그대로 온다. 세 값이 같은 칸은 글자 모양을 새로 만들지 않고,
-    반영 뒤 다시 계획하면 할 일이 없으며(모양만 다른 칸은 할 일이 아니다), 표준 검사에 걸리지 않고 저장해 다시 열어도 그 모양이다."""
+def test_apply_brings_the_whole_cell_format_with_the_text(small):
+    """표 칸에 글을 옮길 때 원본 칸의 **서식이 통째로** 온다(2026-11-12 사용자 「동일 테이블 매핑할 때는 서식정보도 같이 갖어오도록」 → 답 「원본 칸 서식 통째」 — 처음의 「장평·자간·글자 크기만」 을 넓힘):
+    글꼴·크기·장평·자간·색·굵기(글자 모양)와 정렬·줄 간격(문단 모양)이 원본 칸 것이 되고 장평·자간의 언어별 값(영문만 다른 자간)도 그대로 온다. 칸의 테두리·배경은 목적 표 것 그대로.
+    이미 같은 칸은 그대로 두고(다시 입혀도 정의가 늘지 않는다), 반영 뒤 다시 계획하면 할 일이 없으며(모양만 다른 칸은 할 일이 아니다), 표준 검사에 걸리지 않고 저장해 다시 열어도 그 모양이다."""
     d, pairs = small
     g = next(g for g in pairs["groups"] if g["status"] == "paired" and g["kind"] == "rows" and g["dim"] == "year" and g["to"]["label"] == "차년도" and not g["to"]["path"])
     src, tgt = _fresh(d["from"]), _fresh(d["to"])
@@ -243,31 +243,34 @@ def test_apply_brings_ratio_spacing_size_with_the_text(small):
     p = _run(d, pairs, src, tgt)
     cells, rows, _ = _mine(p, g)
     a, rest = cells[0], cells[1:]
-    sc = _reshape(src, ft, a["from"], {**SHAPE, "bold": True, "color": "#FF0000", "font": "궁서"})   # 원본 한 칸만 — 굵게·빨강·글꼴은 오면 안 된다
+    sc = _reshape(src, ft, a["from"], {**SHAPE, "bold": True, "color": "#FF0000", "font": "궁서", "align": "right"})   # 원본 한 칸만 — 굵게·빨강·글꼴·오른쪽 맞춤도 함께 온다
     sc.find("{*}spacing").set("latin", "-12")   # 영문 자간만 다른 글자 모양
-    before = {c["to"]: _fmt(tgt, tt, c["to"])[0] for c in cells}
-    assert rest and all(_three(before[c["to"]]) == _three(_fmt(src, ft, c["from"])[0]) for c in rest)   # 나머지 칸은 처음부터 세 값이 같다
-    assert _three(before[a["to"]]) != SHAPE and not before[a["to"]]["bold"] and before[a["to"]]["font"] != "궁서"
-    n = len(tgt._defs["charPr"])
+    look = lambda doc, tid, cid: {k: _fmt(doc, tid, cid)[0][k] for k in (*SHAPE, *REST)}  # noqa: E731
+    before = {c["to"]: look(tgt, tt, c["to"]) for c in cells}
+    want = {c["to"]: look(src, ft, c["from"]) for c in cells}
+    assert rest and _three(before[a["to"]]) != SHAPE and not before[a["to"]]["bold"] and before[a["to"]]["font"] != "궁서" and before[a["to"]]["align"] != "right"
+    bf = {c["to"]: next(x for x in _cells(tgt, tt) if x["id"] == c["to"]).get("bf") for c in cells}   # 칸의 테두리·배경 정의
     r = MT.apply(tgt, src, {**p, "cells": cells, "rows": rows})
-    assert (r["filled"], r["shaped"]) == (len(cells), 1) and len(tgt._defs["charPr"]) == n + 1   # 세 값이 같은 칸은 그대로 — 새 글자 모양은 하나뿐
+    assert r["filled"] == len(cells) and r["shaped"] >= 1
+    assert all(look(tgt, tt, c["to"]) == want[c["to"]] for c in cells)   # 쓴 칸마다 원본 칸의 글자 모양·문단 모양
     got, pid = _fmt(tgt, tt, a["to"])
-    assert _three(got) == SHAPE and {k: got[k] for k in REST} == {k: before[a["to"]][k] for k in REST}
+    assert _three(got) == SHAPE and (got["bold"], got["color"].upper(), got["font"], got["align"]) == (True, "#FF0000", "궁서", "right")
     tc = tgt._defs["charPr"][tgt._char_id(tgt._ids[pid])]
     assert all(dict(tc.find(f"{{*}}{tag}").attrib) == dict(sc.find(f"{{*}}{tag}").attrib) for tag in ("ratio", "spacing")) and tc.find("{*}spacing").get("latin") == "-12"
-    assert all(_fmt(tgt, tt, c["to"])[0] == before[c["to"]] for c in rest)
-    assert not tgt.fit_chars(a["to"], src, a["from"]) and len(tgt._defs["charPr"]) == n + 1   # 이미 같으면 아무것도 안 한다
+    assert bf == {c["to"]: next(x for x in _cells(tgt, tt) if x["id"] == c["to"]).get("bf") for c in cells}   # 칸 속성(테두리·배경)은 목적 표 것 그대로
+    n = (len(tgt._defs["charPr"]), len(tgt._defs["paraPr"]))
+    assert not any(tgt.fit_format(c["to"], src, c["from"]) for c in cells) and (len(tgt._defs["charPr"]), len(tgt._defs["paraPr"])) == n   # 이미 같으면 아무것도 안 한다
     again = _run(d, pairs, src, tgt)
     assert not _mine(again, g)[0] and not _mine(again, g)[1]
     base = owpml_check.counts(owpml_check.check_doc(HwpxDoc(d["to"]["bytes"])))
     assert owpml_check.verdict(tgt, base, owpml_check.check_doc(tgt))["status"] != "fail"   # 원본에 없던 종류의 위반이 없다(header 에 더한 글자 모양 포함)
     back = HwpxDoc(hwpx_struct.snapshot(tgt)["bytes"])
     assert back.adopt_ids(tgt.id_state())   # 저장본을 다시 열어 같은 id 로(표지 표는 칸 안의 표라 blocks() 최상위에 없다)
-    assert next(c for c in _cells(back, tt) if c["id"] == a["to"])["text"] == a["text"] and _three(_fmt(back, tt, a["to"])[0]) == SHAPE and not _fmt(back, tt, a["to"])[0]["bold"]
+    assert next(c for c in _cells(back, tt) if c["id"] == a["to"])["text"] == a["text"] and _three(_fmt(back, tt, a["to"])[0]) == SHAPE and _fmt(back, tt, a["to"])[0]["bold"]
 
 
 def test_append_rows_bring_shape_only_to_the_cells_they_fill(small):
-    """이어 넣는 자리도 같다 — 빈 행에 넣은 칸도 늘린 행의 칸도 원본 칸의 장평·자간·글자 크기를 받는다. 늘린 행에서 글을 안 넣은 칸은 목적 표의 모양 그대로다:
+    """이어 넣는 자리도 같다 — 빈 행에 넣은 칸도 늘린 행의 칸도 원본 칸의 서식(글자 모양·문단 모양 통째)을 받는다. 늘린 행에서 글을 안 넣은 칸은 목적 표의 모양 그대로다:
     늘리는 행은 앞 행을 본뜨므로 모양을 먼저 얹으면 앞 행 칸의 것이 글 없는 새 칸에도 따라간다(모양은 행을 다 늘린 뒤에 얹는다). 글 없는 원본 칸에서는 아무것도 안 가져온다."""
     d, pairs = small
     src, tgt = _fresh(d["from"]), _fresh(d["to"])
@@ -295,8 +298,11 @@ def test_append_rows_bring_shape_only_to_the_cells_they_fill(small):
     assert _three(look(trow, 2)) == SHAPE and _three(look(trow + 1, 3)) == SHAPE   # 가2 · 나3
     assert _three(look(trow, 4)) == theirs and _three(look(trow + 1, 4)) == theirs   # 나머지 칸은 원본 표의 값
     assert _at(tgt, tt, trow + 1, 2)["text"] == "" and _three(look(trow + 1, 2)) == _three(own)   # 글을 안 넣은 새 칸 — 윗 행 「가2」 의 모양이 따라오지 않는다
-    assert all(look(row, col)[k] == own[k] for row, col in ((trow, 2), (trow + 1, 3), (trow + 1, 4)) for k in REST)
-    assert not tgt.fit_chars(_at(tgt, tt, trow, 2)["id"], src, _at(src, ft, y27 - 1, 2)["id"]) and _three(look(trow, 2)) == SHAPE   # 글 없는 원본 칸(2026 행)
+    theirs_at = lambda cid: _fmt(src, ft, cid)[0]  # noqa: E731
+    assert all(look(trow, col)[k] == theirs_at(_at(src, ft, y27, col)["id"])[k] for col in (2, 4) for k in REST)   # 나머지 글자 모양·문단 모양도 원본 칸 것(칸 서식 통째)
+    assert all(look(trow + 1, col)[k] == theirs_at(m[_at(src, ft, y27, col)["id"]])[k] for col in (3, 4) for k in REST)
+    assert all(look(trow + 1, 2)[k] == own[k] for k in REST)   # 글을 안 넣은 새 칸은 목적 표 것
+    assert not tgt.fit_format(_at(tgt, tt, trow, 2)["id"], src, _at(src, ft, y27 - 1, 2)["id"]) and _three(look(trow, 2)) == SHAPE   # 글 없는 원본 칸(2026 행)
     again = _run(d, pairs, src, tgt)
     assert not _mine(again, g)[0] and not _mine(again, g)[1]
     back = HwpxDoc(hwpx_struct.snapshot(tgt)["bytes"])

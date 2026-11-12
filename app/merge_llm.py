@@ -40,7 +40,7 @@ examples = 이미 정해진 짝 몇 개(두 서식의 절 이름이 어떻게 �
 tableTargets = 스크립트가 **같은 표를 정하지 못한** 목적 문서의 표(구분 기준 묶음에 안 든 칸이 있는 표 — 표지·요약문의 칸, 기관 절 안의 표, 절 아래 표). 표마다: key = 표 id · title = 표 제목(소속 제목 줄) ·
 path = 소속 경로 · ctx = 그 표의 맥락(org = 어느 기관의 표인지 · year = 어느 차년도의 표인지 — 없으면 과제 전체·전 차년도) · heads = 행·열 머리 칸 꼴 · shape = {rows, cols, splits(쪽을 넘어 나뉘는 표인가)} ·
 status(none = 후보를 못 정함 · ambiguous = 후보가 여럿) · why(스크립트가 안 이은 까닭 — org·year = 머리는 같은데 기관·차년도가 다른 표가 있었음) · candidates = 머리가 겹치는 원본 표의 key 와 겹침 점수.
-tableSources = 고를 수 있는 원본 표(같은 꼴의 설명). 짝이 되면 스크립트가 두 표에서 **행·열 머리 경로가 같은 칸끼리** 원본 글을 목적의 빈 칸에 옮기고 서식(칸 글자의 장평·자간·크기, 쪽 나눔)을 맞춥니다.
+tableSources = 고를 수 있는 원본 표(같은 꼴의 설명). 짝이 되면 스크립트가 두 표에서 **행·열 머리 경로가 같은 칸끼리** 원본 글을 목적의 빈 칸에 옮기고 서식(칸의 글자 모양·문단 모양, 쪽 나눔)을 맞춥니다.
 답 tables: tableTargets 마다 한 줄 — {to, from, reason, format}. to = tableTargets 의 key, from = tableSources 의 key 또는 ""(같은 표 없음). **입력에 있는 key 만** 씁니다.
 기관(ctx.org)이나 차년도(ctx.year)가 서로 어긋나는 짝은 받지 않습니다. format = 두 표의 서식·모양 차이 가운데 사람이 확인해야 할 것 한 문장("" = 없음). tableTargets 가 없으면 tables 는 [].
 

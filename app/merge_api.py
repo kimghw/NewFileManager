@@ -364,6 +364,83 @@ def merge_table_map_post(doc_id: str, body: dict = Body(default={})):
     return {"at": at, "tables": rows, "asked": len(ask), "mapped": sum(1 for x in rows if not x.get("error"))}
 
 
+# ---- 빈 자리 검토(spec_병합 ② §5-4 — 사용자 2026-11-12 "여기 들어가지 않은 것들은 LLM 이 검토하고 넣어주는 기능 없나?" → 답 「표 + 단락 모두」) ----
+
+_GAPS_LAST = {}   # 작업 저장이 꺼졌을 때의 merge_gaps_last.json
+
+
+def _gaps(saved):
+    """merge.json `gaps` = 빈 자리 검토의 답 {at, tables{목적 표 id: {from | None, reason}}, slots{목적 칸·줄 id: {from | None, take, kind, was, label, table, reason}}}(② §5-4 7)."""
+    g = saved.get("gaps")
+    return g if isinstance(g, dict) else {}
+
+
+def _gaps_last(wid, data=None):
+    """빈 자리 검토가 마지막으로 보낸 프롬프트·답(작업 폴더 `merge_gaps_last.json`) 읽기(data None) · 쓰기."""
+    d = works.folder(wid)
+    if data is None:
+        return (works._read_json(d / "merge_gaps_last.json") if d is not None and (d / "merge_gaps_last.json").is_file() else _GAPS_LAST.get(wid)) or None
+    if d is not None:
+        works._write_json(d / "merge_gaps_last.json", data)
+    else:
+        _GAPS_LAST[wid] = data
+    return data
+
+
+def _gaps_plan(doc_id, saved, sides, fixed):
+    """넣기 계획의 빈 자리 몫(세션 잠금 안에서) — 답이 있는 빈 칸·빈 라벨 줄에 넣을 글 + 아직 안 물은 빈 자리 수(counts.open). 빈 표 ← 원본 표는 표 짝(`tables`)으로 가 있어 다른 몫이 넣는다."""
+    from app import merge_gaps
+    T, F = sides
+    gp = merge_gaps.plan(T, F, _gaps(saved))
+    try:
+        gp["counts"]["open"] = merge_gaps.open_count(merge_gaps.targets(T, F, fixed, _orig(doc_id)), _gaps(saved))
+    except Exception:   # 빈 자리 세기는 덤이다 — 틀어져도 넣기 계획은 나가야 한다
+        gp["counts"]["open"] = 0
+    return gp
+
+
+@router.post("/api/docs/{doc_id}/merge-links/gaps")
+def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
+    """빈 자리 검토(② §5-4) — 다른 길이 못 채운 목적 자리(빈 표 · 빈 칸 · 빈 라벨 줄)를 모아 계획서의 어디에서 가져올지 LLM(목적 문서의 장마다 · 병렬 · Opus)에 묻고, 검증한 답을 `merge.json` `gaps` 에 둔다.
+    빈 표에 고른 원본 표는 표 짝(`tables` source llm · by gaps)으로도 적는다 — 그 뒤는 같은 이름 자리·표 대응이 넣는다. **문서는 안 바뀐다**(넣기 계획 → 반영이 쓴다).
+    이미 답이 있는 자리(「원본 없음」 포함)는 다시 안 묻는다 — `{again: true}` 면 전부 다시.
+    → {at, asked(호출 수), found{tables, slots}, tables{paired, none}, slots{filled, none}, rejected[], units[{title, targets, error}]}. 409 까닭이 남음."""
+    from datetime import datetime
+
+    from app import job_prompts, merge_gaps, server
+    view, ctx = _view(doc_id)
+    if ctx is None:
+        raise HTTPException(409, "자리 연결을 낼 수 없는 상태입니다(문서별 까닭을 먼저 푸세요)")
+    _, _, saved, to, frm = ctx
+    again = bool(body.get("again"))
+    with server._sess(doc_id).lock:
+        _, _, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm)
+        prep = merge_gaps.prepare(T, F, fixed, _gaps(saved), again, _orig(doc_id))
+    res = merge_gaps.ask(prep, job_prompts.for_work(doc_id), _links_text(doc_id))   # 잠금 밖 — 읽어 둔 것만 쓴다
+    at = datetime.now().isoformat(timespec="seconds")
+    now = _store(doc_id)
+    old = {} if again else _gaps(now)
+    gaps = {"at": at, "tables": {**(old.get("tables") or {}), **res["tables"]}, "slots": {**(old.get("slots") or {}), **res["slots"]}, "guide": res.get("guide"), "job": res.get("job")}
+    pairs_t = dict(_forced(now))
+    for tid, v in res["tables"].items():
+        mine = pairs_t.get(tid) or {}
+        if mine.get("source") == "user":   # 사람이 정한 표 짝은 안 건드린다
+            continue
+        if v["from"]:
+            pairs_t[tid] = {"from": v["from"], "source": "llm", "by": "gaps", "reason": v["reason"], "format": ""}
+        elif mine.get("by") == "gaps":   # 다시 물었더니 「같은 표 없음」 — 앞서 이 검토가 낸 짝을 지운다
+            pairs_t.pop(tid, None)
+    _store(doc_id, {**now, "gaps": gaps, "tables": pairs_t})
+    if res["units"]:
+        _gaps_last(doc_id, {"at": at, "units": [{k: u.get(k) for k in ("n", "title", "pages", "targets", "tables", "error", "prompt", "answer")} for u in res["units"]]})
+    with _LOCK:
+        _FIXED.pop(doc_id, None)
+    count = lambda d, yes: sum(1 for v in d.values() if bool(v.get("from")) == yes)  # noqa: E731
+    return {"at": at, "asked": res["asked"], "found": res["found"], "tables": {"paired": count(res["tables"], True), "none": count(res["tables"], False)},
+            "slots": {"filled": count(res["slots"], True), "none": count(res["slots"], False)}, "rejected": res["rejected"][:40],
+            "units": [{"title": u["title"], "targets": u["targets"], "error": u.get("error")} for u in res["units"]]}
+
+
 @router.post("/api/docs/{doc_id}/merge-links/comments")
 def merge_link_comment(doc_id: str, body: dict = Body(...)):
     """연결 코멘트 하나 {text}(② §5-3 1) → {formInfo {key, name, how}, comments [{date, text}], created} — 이 문서(목적 문서)의 양식 정보 「자리 연결」 절 코멘트 목록 끝에 한 줄.
@@ -414,7 +491,8 @@ def merge_link_comment(doc_id: str, body: dict = Body(...)):
 
 _LAST = {}   # 작업 저장이 꺼졌을 때의 merge_llm_last.json
 GUIDE_STEPS = {"merge-links": "자리 연결 LLM 검토", "division-review": "구분 기준 LLM 재검토", "division-missing": "구분 기준 — 빠진 자리 검토", "gather": "취합 LLM 검토",
-               "table-map": "표 대응 에이전트"}   # 표 대응(spec_병합 ② §5-3) — 표마다 한 단위
+               "table-map": "표 대응 에이전트",   # 표 대응(spec_병합 ② §5-3) — 표마다 한 단위
+               "gaps": "빈 자리 검토"}   # 빈 자리 검토(spec_병합 ② §5-4) — 목적 문서의 장마다 한 단위
 
 
 def _last(wid, data=None):
@@ -439,12 +517,14 @@ def _division_last(wid):
 def _guide_units(step, doc_id, part=None):
     """그 검토가 마지막으로 보낸 것 → (at | None, [{n, title, pages, targets, tables, error, prompt, answer}]). part = 취합(step gather)의 기관 문서 id — 기관 문서마다 따로 남는다."""
     from datetime import datetime
-    if step in ("merge-links", "gather", "table-map"):
+    if step in ("merge-links", "gather", "table-map", "gaps"):
         if step == "gather":
             from app import merge_gather_api
             last = merge_gather_api.llm_last(doc_id, part) or {}   # 취합본 작업 폴더 `gather/llm-<기관 문서 id>.json`(spec_취합 ② §2)
         elif step == "table-map":
             last = _map_last(doc_id) or {}   # 작업 폴더 `merge_map_last.json`(표마다 한 단위)
+        elif step == "gaps":
+            last = _gaps_last(doc_id) or {}   # 작업 폴더 `merge_gaps_last.json`
         else:
             last = _last(doc_id) or {}
         return last.get("at"), [u for u in last.get("units") or () if u.get("prompt")]
@@ -472,6 +552,9 @@ def llm_guide(doc_id: str, step: str, part: str = None):
     elif step == "table-map":
         from app import merge_table_map
         parts, model = merge_table_map.parts(job=job_prompts.for_work(doc_id), links=_links_text(doc_id)), merge_table_map.MODEL
+    elif step == "gaps":
+        from app import merge_gaps
+        parts, model = merge_gaps.parts(job=job_prompts.for_work(doc_id), links=_links_text(doc_id)), merge_gaps.MODEL
     elif step == "gather":
         from app import merge_gather_llm
         parts, model = merge_gather_llm.parts(job=job_prompts.for_work(doc_id)), merge_gather_llm.MODEL
@@ -485,6 +568,8 @@ def llm_guide(doc_id: str, step: str, part: str = None):
                           "note": "양식마다 관리하는 사실·요청 — 「양식 정보」 단추에서 고치면 다음 실행부터 적용됩니다"})
         model = None
     at, units = _guide_units(step, doc_id, part)
+    from app import llm
+    model = llm.forced() or model   # env NFM_LLM_MODEL_FORCE 가 있으면 실제로 부르는 모델은 그것
     return {"step": step, "name": GUIDE_STEPS[step], "model": model, "parts": parts,
             "last": {"at": at, "units": [{**{k: u.get(k) for k in ("n", "title", "pages", "targets", "tables", "error")}, "chars": len(u["prompt"]), "has": True} for u in units]} if units else None}
 
@@ -518,6 +603,13 @@ def _maps_view(mp):
     return {"counts": {**mp["counts"], "open": len(mp.get("open") or ())}, "tables": mp["tables"], "skipped": mp["skipped"][:300], "todo": mp["todo"], "open": list(mp.get("open") or ())}
 
 
+def _gaps_view(gp):
+    """넣기 계획의 빈 자리 몫 → 화면에 보낼 꼴 {counts{open, tables, cells, lines, skipped{…}}, items[{to, kind, label, from, fromText, lines, skip, detail}], todo}."""
+    if not gp:
+        return {"counts": {"open": 0, "tables": 0, "cells": 0, "lines": 0, "skipped": {}}, "items": [], "todo": 0}
+    return {"counts": gp["counts"], "items": gp["items"][:300], "todo": gp["todo"]}
+
+
 def _plan_view(plan):
     fill, tabs, fx = plan["fill"], plan["tables"], plan["fixed"]
     keys = ("group", "value", "to", "from", "anchorText", "blocks", "paragraphs", "tables", "pictures", "skip", "detail")
@@ -525,7 +617,8 @@ def _plan_view(plan):
             "body": {"counts": fill["counts"], "items": [{k: it.get(k) for k in keys} for it in fill["items"]]},
             "tables": {"counts": tabs["counts"], "tables": [_brief(t) for t in tabs["tables"]], "skipped": tabs["skipped"][:300]},
             "fixed": {"counts": fx["counts"], "tables": fx["tables"], "labels": [{k: it.get(k) for k in (*keys, "title")} for it in fx["labels"]], "skipped": fx["skipped"][:300]},
-            "maps": _maps_view(plan.get("maps"))}   # 표 대응(② §5-3) — 표마다 대응한 항목·칸·표시·늘릴 행과 못 넣은 것
+            "maps": _maps_view(plan.get("maps")),   # 표 대응(② §5-3) — 표마다 대응한 항목·칸·표시·늘릴 행과 못 넣은 것
+            "gaps": _gaps_view(plan.get("gaps"))}   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 넣을 글 · 아직 안 물은 빈 자리 수
 
 
 @router.post("/api/docs/{doc_id}/merge-links/plan")
@@ -544,9 +637,10 @@ def merge_plan(doc_id: str):
     with s.lock:
         applied = _alive(saved.get("applied"), to)   # 실행 취소로 사라진 내용의 기록은 안 믿는다
         fill = merge_fill.plan(to, frm, to["values"], frm["values"], view, applied=applied)
-        maps, tabs, fixed, _ = _plan_parts(doc_id, view, saved, to, frm)   # 표 대응(② §5-3) → 표 묶음 → 같은 이름 자리: 대응이 맡은 표는 뒤의 둘에서 빠진다
-        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
-                "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"]}
+        maps, tabs, fixed, sides = _plan_parts(doc_id, view, saved, to, frm)   # 표 대응(② §5-3) → 표 묶음 → 같은 이름 자리: 대응이 맡은 표는 뒤의 둘에서 빠진다
+        gaps = _gaps_plan(doc_id, saved, sides, fixed)   # 빈 자리(② §5-4) — 위 셋이 못 채운 자리 가운데 LLM 이 원본 줄을 고른 것
+        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
+                "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"] + gaps["todo"]}
     _PLANS[doc_id] = plan
     return _plan_view(plan)
 
@@ -558,7 +652,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
       | {nothing: true}. 409 계획이 없거나 그 뒤 문서가 바뀜."""
     from collections import Counter
 
-    from app import merge_convert, merge_fill, merge_fixed, merge_table_map, merge_tables, server
+    from app import merge_convert, merge_fill, merge_fixed, merge_gaps, merge_table_map, merge_tables, server
     plan = _PLANS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
@@ -582,11 +676,13 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
             done["tables"] = merge_tables.apply(s.doc, frm["doc"], plan["tables"])
             done["fixed"] = merge_fixed.apply(s.doc, frm["doc"], plan["fixed"])   # 같은 이름 자리 — 같은 편집 하나에(실행 취소 1). 라벨 내용은 원본 모양 그대로(템플릿 변환 없음)
             done["maps"] = merge_table_map.apply(s.doc, frm["doc"], plan.get("maps") or {})   # 표 대응(② §5-3) — 행 늘리기 · 칸 글 · 예시 지움 · 표시 선: 같은 편집 하나에
+            done["gaps"] = merge_gaps.apply(s.doc, plan.get("gaps"))   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 원본 줄의 글: 같은 편집 하나에
             done["fill"] = merge_fill.apply(s.doc, frm["doc"], plan["fill"], convert=hook)
             done["fill"]["counts"]["fitted"] = sum(s.doc.fit_image(i) for ids in done["fill"]["inserted"].values() for i in ids)   # 넣은 그림이 칸보다 넓으면 칸 폭으로(spec_병합 ② §5-2)
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
                     "log": {"planId": plan["planId"], "body": done["fill"]["counts"], "tables": {k: done["tables"].get(k) for k in TABLE_KEYS},
-                            "fixed": {k: done["fixed"].get(k) for k in FIXED_KEYS}, "maps": {k: done["maps"].get(k) for k in MAP_KEYS}, "converted": dict(conv)}}
+                            "fixed": {k: done["fixed"].get(k) for k in FIXED_KEYS}, "maps": {k: done["maps"].get(k) for k in MAP_KEYS},
+                            "gaps": {k: done["gaps"].get(k) for k in ("cells", "lines")}, "converted": dict(conv)}}
 
         def check(s_, out, base, header):
             """문서 전체 검사 — 단 **스키마 위반의 기준선에 원본 문서의 것을 더한다**: 문서 사이 복사는 원본 문서에 한글이 써 둔 스키마 위반(strikeout shape "3D" · transMatrix 자리 등 — 실제 작성본 6종)을
@@ -609,6 +705,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         return {"body": done["fill"]["counts"], "tables": {**{k: done["tables"].get(k) for k in TABLE_KEYS}, "skipped": skip(done["tables"])},
                 "fixed": {**{k: done["fixed"].get(k) for k in FIXED_KEYS}, "skipped": skip(done["fixed"])},
                 "maps": {**{k: done["maps"].get(k) for k in MAP_KEYS}, "skipped": skip(done["maps"])},
+                "gaps": {"cells": done["gaps"]["cells"], "lines": done["gaps"]["lines"], "skipped": skip(done["gaps"])},
                 "converted": dict(conv), "dropped": done["fill"]["dropped"] + done["fixed"]["dropped"], **s.state()}
 
 

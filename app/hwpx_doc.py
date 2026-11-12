@@ -580,6 +580,48 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
             self._touch(tc)
         return changed
 
+    def fit_format(self, cell_id: str, src, src_cell_id: str) -> bool:
+        """칸 글에 src(HwpxDoc) 칸의 **글자 모양과 문단 모양을 통째로** 입힌다 -> 바뀌었나(2026-11-12 사용자 「동일 테이블 매핑할 때는 서식정보도 같이 갖어오도록」 →
+        물어서 받은 답 「원본 칸 서식 통째」 — spec_병합 ② §5 「칸 서식」). 글꼴·크기·장평·자간·색·굵기(charPr)와 정렬·줄 간격·문단 여백(paraPr)이 src 칸 것이 된다.
+        칸의 테두리·배경·안 여백·세로 정렬(칸 속성)과 문단의 스타일은 이 칸 것 그대로.
+        짝 = 이 칸의 글 문단 k번째 ↔ src 칸의 글 문단 k번째(src 가 모자라면 마지막 것). 문단 모양 = 그 src 문단의 paraPr, 글자 모양 = 그 src 문단에서 글이 있는 첫 런의 charPr
+        (빈 줄이면 그 문단의 첫 런) — 이 칸의 글 런마다(개체·구역 제어만 든 런은 빼고, 글 없는 런도 — 문단 끝 빈 런의 크기가 줄 높이에 든다). 한 문단 안에서 런마다 다른 모양(일부만 굵게)은
+        첫 런 것 하나로 온다. 정의는 header 로 가져온다(_import — 같은 정의가 있으면 그것, 글꼴·테두리·번호 정의도 함께). src 칸에 글이 없으면 False(가져올 모양이 없다)."""
+        if not isinstance(src, HwpxDoc):
+            raise ValueError("copy source must be an HwpxDoc")
+        tc, ssub = self._cell(cell_id), src._cell(src_cell_id).find(SUBLIST)
+
+        def lead(p):  # 글이 있는 첫 런
+            return next((r for r in p.iterchildren(RUN) if "".join(src._slot_text(s) for s in src._run_slots(r)).strip()), None)
+        sps = src._text_paras(ssub) if ssub is not None else []
+        if not any(lead(p) is not None for p in sps):
+            return False
+        cache, changed, sub = {}, False, tc.find(SUBLIST)
+        for k, p in enumerate(self._text_paras(sub) if sub is not None else ()):
+            sp = sps[min(k, len(sps) - 1)]
+            sr = lead(sp)
+            if sr is None:
+                sr = next(sp.iterchildren(RUN), None)
+            want_p = self._import(src, "paraPr", sp.get("paraPrIDRef"), cache) if sp.get("paraPrIDRef") is not None else None
+            want_c = self._import(src, "charPr", sr.get("charPrIDRef"), cache) if sr is not None and sr.get("charPrIDRef") is not None else None
+            hit = False
+            if want_p is not None and p.get("paraPrIDRef") != want_p:
+                p.set("paraPrIDRef", want_p)
+                hit = True
+            for r in p.iterchildren(RUN) if want_c is not None else ():
+                if any(c.tag in OBJECTS for c in r) or len(r) and not self._run_slots(r):
+                    continue
+                if r.get("charPrIDRef") != want_c:
+                    r.set("charPrIDRef", want_c)
+                    hit = True
+            if hit:
+                for ls in p.findall(LINESEG):  # 줄 배치 캐시 — 글자 폭·정렬이 바뀌었다(한글이 다시 잰다)
+                    p.remove(ls)
+                changed = True
+        if changed:
+            self._touch(tc)
+        return changed
+
     # ---------------------------------------------------------------- insert_after / copy
     def insert_after(self, ref_id: str, items: list[dict], src=None) -> list[str]:
         """items 를 ref 블록의 문단 뒤에 차례대로 -> 새 블록 id(items 와 같은 차례·같은 수). 항목 하나 = 새 문단 하나 — 다만 복사(kind=copy)에서
