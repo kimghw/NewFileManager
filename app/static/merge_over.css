@@ -1,0 +1,23 @@
+/* 넘친 개요 레벨(spec_병합 ② §5-5 9 · merge_over.js) — 2열 「넣기 계획」 안의 한 절. design.md §1: 상자를 더 두르지 않고 1px 구분선 · 패딩 8px · 입력 높이 26px · 되풀이 행은 grid 하나. 보라는 안 쓴다(LLM 제안의 색). */
+.hd-body .mo-sec { border-top: 1px solid var(--line); margin-top: 8px; }
+.hd-body .mo-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.hd-body .mo-cap .btn.sm { height: 24px; padding: 0 8px; font-size: 12px; font-weight: 400; margin-left: auto; }
+.hd-body .mo-case { padding: 6px 8px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.hd-body .mo-head { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 4px 8px; }
+.hd-body .mo-name { grid-column: 1 / -1; min-width: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; word-break: keep-all; overflow-wrap: anywhere; }
+.hd-body .mo-name:hover, .hd-body .mo-name:focus-visible { text-decoration: underline; }
+.hd-body .mo-count { font-size: 12px; }
+.hd-body .mo-mode, .hd-body .mo-like, .hd-body .mo-letter, .hd-body .mo-lead { height: 26px; min-width: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12px; color: var(--text); padding: 0 6px; }
+.hd-body .mo-mode { max-width: 100%; }
+.hd-body .mo-levels { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.hd-body .mo-flag { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid #f4c48a; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.hd-body .mo-edit { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.hd-body .mo-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 6px 8px; font-size: 12px; }
+.hd-body .mo-grid { display: grid; grid-template-columns: max-content max-content minmax(4.5em, 6.5em) minmax(0, 1fr) calc(2ch + 30px); align-items: center; gap: 4px 6px; font-size: 12px; }
+.hd-body .mo-th { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.hd-body .mo-lv { color: var(--muted); white-space: nowrap; }
+.hd-body .mo-was { white-space: nowrap; }
+.hd-body .mo-letter, .hd-body .mo-lead, .hd-body .mo-like { width: 100%; box-sizing: border-box; }
+.hd-body .mo-edit .hnote { margin: 4px 0 0; }
+.hd-body .mo-acts { display: flex; gap: 6px; margin-top: 6px; }
+.hd-body .mo-acts .btn.sm { height: 26px; padding: 0 10px; }

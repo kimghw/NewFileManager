@@ -15,12 +15,22 @@
 - `apply(to_doc, pairs, plan)` = pairs[(원본 id, 넣은 사본 id)] 의 사본에 계획대로 `replace_prefix` — 접두 = 본보기 문단의 앞 공백 + 새 레터 + 뒤 공백, 문단 속성·접두와 기본 글자 모양 = 본보기 것
   (따로 강조한 런은 그대로) → {"converted", "kept": {why: n}, "ids": 바꾼 사본 id}. 문서에서 보고 못 하는 것도 kept 에: noLetter(사본 첫머리에 원본 레터가 없음 — 한글 자동 번호 등) ·
   noLike(본보기 첫머리에 레터 없음) · marker(형광펜·변경 추적 표지가 든 문단) · missing(pairs 에 사본 없음).
-- `converter(to_doc, to_graph, from_graph)` → `convert(anchor_id, pairs)` — 본문 넣기가 복사한 바로 뒤 부르는 고리(apply 결과 + plan 요약)."""
+- `converter(to_doc, to_graph, from_graph, over=None)` → `convert(anchor_id, pairs)` — 본문 넣기가 복사한 바로 뒤 부르는 고리(apply 결과 + plan 요약 + 넘친 줄 기록 `over`).
+- **넘친 개요 레벨**(spec_병합 ② §5-5 — 2026-11-13 사용자 「덮은 템플릿으로 사용할지 템플릿을 수정할지, 다른 템플릿을 선택할 수 있게」): 목적 레벨이 자리 템플릿의 길이 K 를 넘는 줄(tooDeep)은
+  **사례**(열쇠 = `<자리 템플릿 앵커><<원본 기준 사슬에서 K+1 에 오는 레벨부터 끝까지의 레터 키를 「›」 로 이은 글>`)로 묶여 `summary.over` 에 나온다 —
+  {key, to[자리 템플릿, K], from[원본 템플릿, K+1 에 오는 원본 레벨], tail[키…], levels[{n(K+j), src(원본 레벨), key, was(그 레벨 첫 줄의 레터), rep(그 줄), lines}], lines, under[그 자리 아래에 이미 붙은 다른 템플릿 앵커…]}, 줄마다 `over`(j).
+  `plan(…, over={사례 열쇠: [레벨 지정 | None …]})`(merge_over.resolve 가 사람의 선택을 푼 것 — j 번째 넘친 레벨의 지정): 지정이 없으면 전처럼 tooDeep(원본 모양 그대로 = 「덮은 템플릿 그대로」).
+  지정 {like(목적 문서의 본보기 문단 | None), letter, lead(앞 공백 칸 수 | None), numbered} 가 있으면 바꿀 줄이 된다 — like 가 있으면 맞는 레벨과 같은 길(접두·문단 속성·기본 글자 모양 = 본보기 것),
+  없으면 `own`(제 모양을 둔 채 접두의 레터·앞 공백만). numbered 면 목적 부모마다 처음부터 번호를 매긴다(덮은 그대로인 줄은 쓴 번호 그대로). 본보기 문단이 그래프에 없으면 noLike.
+  `over=None`·빈 것이면 줄의 결과는 이 기능 전과 같다(덧붙는 것은 줄의 `over`·`parent`·`pl` 과 `summary.over` 뿐).
+  `apply` 는 넘친 줄마다 **기록** `lines[{id(넣은 줄), src, over(j), was(원본 레터), letter(지금 레터), parent(넘친 부모 줄의 넣은 id | None), pl(그 밖의 부모 레터), orig{prefix, attrs}}]` 를 함께 낸다 —
+  원본 접두와 문단·글자 모양 참조가 남아 있어 나중에 다른 선택으로 다시 입히거나 원본 모양으로 되돌릴 수 있다(merge_over.refit — 원본 문서 없이). `record(summary, res)` = 저장할 꼴 {key, to, lines} | None."""
 from collections import Counter
 
 from app.outline_edit import ROOTED, first, is_numbered, prefix_of, succ
 
 _CLEAR = ("not_heading", "note")  # 의미 부모를 찾을 때 투명한 노드(heading_graph._eff_parent 와 같음)
+SEP = "›"   # 사슬의 레터 키를 잇는 글자(템플릿 앵커와 같은 꼴 — heading_graph)
 
 
 def _index(g):
@@ -59,9 +69,16 @@ def _cell_lines(g, tables):
     return out
 
 
-def plan(to_graph, from_graph, anchor_id, src_ids, sibling=False):
+def _numpl(letter):
+    """합성 번호의 앞 번호로 쓸 부모 레터 — 로마자 한 글자(기호 「o」)는 번호가 아니다(outline_edit.numbers_of 는 그것도 번호로 읽는다)."""
+    t = (letter or "").strip()
+    return None if len(t) == 1 and t.isascii() and t.isalpha() else letter
+
+
+def plan(to_graph, from_graph, anchor_id, src_ids, sibling=False, over=None):
     """복사한 원본 블록(src_ids — 문서 순)을 목적 문서 anchor_id 아래 넣을 때 줄마다 목적 자리·레터·본보기 → {"rows", "summary"}(모듈 설명).
-    sibling=True 면 anchor_id 는 넣을 자리의 **부모가 아니라 그 자리의 줄**이다(취합 — 자리표시 줄을 대신하는 내용, merge_gather_fit): 맨 위 줄이 그 줄과 같은 (템플릿, 레벨)을 받는다."""
+    sibling=True 면 anchor_id 는 넣을 자리의 **부모가 아니라 그 자리의 줄**이다(취합 — 자리표시 줄을 대신하는 내용, merge_gather_fit): 맨 위 줄이 그 줄과 같은 (템플릿, 레벨)을 받는다.
+    over = 넘친 레벨의 지정 {사례 열쇠: [레벨 지정 | None …]}(모듈 설명 「넘친 개요 레벨」) — None 이면 넘친 줄은 원본 모양 그대로(tooDeep)."""
     src_ids = list(src_ids)
     fp, fper, fid = _index(from_graph)
     tp, tper, tid = _index(to_graph)
@@ -95,6 +112,13 @@ def plan(to_graph, from_graph, anchor_id, src_ids, sibling=False):
         for n in to_graph.get("nodes") or []:
             if n.get("template") == an["template"] and n.get("instance") == an.get("instance") and tper[n["para"]] == 1 and n.get("role") == "heading":
                 members.setdefault(int(n["level"]), n["para"])
+    # 넘친 레벨(spec_병합 ② §5-5): 자리 템플릿의 길이 K 를 넘는 목적 레벨 K+j — 사례 열쇠 = 자리 템플릿 앵커 + 원본 사슬의 넘친 꼬리(K+1 에 오는 원본 레벨 s0 부터 끝까지)
+    K = len(a_chain)
+    s0 = base_level + K - (int(an["level"]) + up) + 1 if an and at and base_level is not None else None
+    tail = list((ftpls.get(base) or {}).get("chain") or [])[s0 - 1:] if s0 else []
+    case = (f"{an['template']}<{SEP.join(tail)}" if tail else f"{an['template']}<{base}@{s0}") if s0 else None
+    specs = list((over or {}).get(case) or ()) if case else []
+    seen = {}   # j → 그 넘친 레벨의 요약(summary.over.levels)
 
     rows, new_letter, last = [], {}, {}
     for s in src_ids:
@@ -124,21 +148,43 @@ def plan(to_graph, from_graph, anchor_id, src_ids, sibling=False):
             row["why"] = "noAnchor"
             continue
         tl = int(an["level"]) + up + row["rel"]
-        if tl > len(a_chain):
-            row["why"] = "tooDeep"
-            continue
-        row["slot"] = [an["template"], tl]
-        like = members.get(tl) or reps.get(tl)
-        ln = tp.get(like) if like else None
-        if ln is None or tper[like] != 1:
-            row["why"] = "noLike"
-            continue
-        row["like"], row["likeLetter"] = like, ln.get("letter") or ""
         p = par[s]
         pkey = p if p in copied else anchor_id
         pl = new_letter.get(p) if p in copied else top_letter
-        letter = row["likeLetter"]
-        if is_numbered(a_chain[tl - 1]):
+        if tl > K:   # 넘친 레벨 — 지정이 없으면 원본 모양 그대로(덮은 템플릿 그대로)
+            j = tl - K
+            row["over"], row["parent"], row["pl"] = j, (p if p in copied else None), pl
+            seen.setdefault(j, {"n": tl, "src": lv, "key": n.get("key") or "", "was": row["was"], "rep": s, "lines": 0})["lines"] += 1
+            spec = specs[j - 1] if j - 1 < len(specs) else None
+            if not spec:
+                row["why"] = "tooDeep"
+                continue
+            row["slot"] = [an["template"], tl]
+            like = spec.get("like")
+            if like is None:   # 제 모양을 둔 채 레터·앞 공백만
+                row["own"], letter = True, spec.get("letter") or row["was"]
+                numbered = bool(spec.get("numbered")) and bool(spec.get("letter"))
+            else:
+                ln = tp.get(like)
+                if ln is None or tper[like] != 1:
+                    row["why"] = "noLike"
+                    continue
+                row["like"], row["likeLetter"] = like, ln.get("letter") or ""
+                letter = spec.get("letter") or row["likeLetter"]
+                numbered = bool(spec["numbered"]) if spec.get("numbered") is not None else is_numbered(ln.get("key"))
+            if spec.get("lead") is not None:
+                row["lead"] = int(spec["lead"])
+            pl = _numpl(pl)
+        else:
+            row["slot"] = [an["template"], tl]
+            like = members.get(tl) or reps.get(tl)
+            ln = tp.get(like) if like else None
+            if ln is None or tper[like] != 1:
+                row["why"] = "noLike"
+                continue
+            row["like"], row["likeLetter"] = like, ln.get("letter") or ""
+            letter, numbered = row["likeLetter"], is_numbered(a_chain[tl - 1])
+        if numbered:
             prev = last.get((pkey, tl))
             letter = first(letter, pl) if prev is None else succ(prev, pl)
             if letter is None:
@@ -153,44 +199,75 @@ def plan(to_graph, from_graph, anchor_id, src_ids, sibling=False):
                "levels": dict(Counter(f"{r['level'][0]}|{r['level'][1]}" for r in rows if r["level"])),
                "slots": dict(Counter(f"{r['slot'][0]}|{r['slot'][1]}" for r in rows if r["slot"] and not r["why"])),
                "convertible": sum(1 for r in rows if not r["why"]), "kept": dict(kept), "cells": sum(r["cells"] for r in rows)}
+    if seen:   # 넘친 레벨이 있는 넣기 — 사례 하나(모듈 설명 「넘친 개요 레벨」)
+        under = []   # 그 자리 아래에 이미 붙어 있는 다른 템플릿(「다른 템플릿」 후보의 맨 앞) — 자리표시 줄을 대신하는 넣기(sibling)는 해당 없음
+        for n in () if sibling else to_graph.get("nodes") or ():
+            if n.get("template") and n.get("level") and n["template"] != an["template"] and n["template"] not in under and tp.get(n["para"]) is n and _parent_para(n, tid) == anchor_id:
+                under.append(n["template"])
+        summary["over"] = {"key": case, "to": [an["template"], K], "from": [base, s0], "tail": tail, "lines": sum(v["lines"] for v in seen.values()), "under": under,
+                           "levels": [seen.get(j) or {"n": K + j, "src": s0 + j - 1, "key": tail[j - 1] if j - 1 < len(tail) else "", "was": "", "rep": None, "lines": 0}
+                                      for j in range(1, max(len(tail), max(seen)) + 1)]}
     return {"rows": rows, "summary": summary}
 
 
+def _line(to_doc, r, nid, new_of, prefix, tok):
+    """넘친 줄 하나의 기록(모듈 설명 「기록」) — 고치기 **전에** 부른다(orig = 넣은 그대로의 접두와 문단·글자 모양 참조). parent = 함께 넣은 부모 줄(넘친 줄이든 맞는 레벨 줄이든)의 넣은 id."""
+    return {"id": nid, "src": r["src"], "over": r["over"], "was": tok, "letter": tok, "parent": new_of.get(r.get("parent")), "pl": r.get("pl"),
+            "orig": {"prefix": prefix, "attrs": to_doc.para_attrs(nid)}}
+
+
 def apply(to_doc, pairs, plan):
-    """계획대로 넣은 사본의 접두를 목적 자리 모양으로 → {"converted", "kept": {why: n}, "ids"}. 바꾸지 못한 줄은 원본 모양 그대로."""
+    """계획대로 넣은 사본의 접두를 목적 자리 모양으로 → {"converted", "kept": {why: n}, "ids", "lines": 넘친 줄의 기록}. 바꾸지 못한 줄은 원본 모양 그대로."""
     new_of = dict(pairs)
-    kept, ids = Counter(), []
+    kept, ids, lines = Counter(), [], []
     for r in plan["rows"]:
+        nid = new_of.get(r["src"])
+        alive = nid is not None and nid in to_doc._ids
+        lead, tok, gap = prefix_of(to_doc._text(to_doc._ids[nid]), r["was"] or None) if alive and r["level"] else ("", "", "")
+        rec = _line(to_doc, r, nid, new_of, lead + tok + gap, tok) if r.get("over") and tok else None   # 넘친 줄은 그대로 둔 것도 적어 둔다(다시 맞추기의 근거)
+        if rec:
+            lines.append(rec)
         if r["why"]:
             kept[r["why"]] += 1
             if r["cells"]:
                 kept["cell"] += r["cells"]
             continue
-        nid = new_of.get(r["src"])
-        if nid is None or nid not in to_doc._ids:
+        if not alive:
             kept["missing"] += 1
             continue
-        lead, tok, gap = prefix_of(to_doc._text(to_doc._ids[nid]), r["was"] or None)
         if not tok:
             kept["noLetter"] += 1
             continue
-        like = to_doc._ids.get(r["like"])  # 블록 id 는 blocks() 를 읽을 때 붙는다 — 부르는 쪽이 이미 읽은 문서
-        llead, ltok, lgap = prefix_of(to_doc._text(like), r["likeLetter"] or None) if like is not None else ("", "", "")
-        if not ltok:
-            kept["noLike"] += 1
-            continue
+        if r.get("own"):   # 넘친 레벨 — 제 모양을 둔 채 레터·앞 공백만(본보기 없음)
+            prefix, like_id = (" " * r["lead"] if r.get("lead") is not None else lead) + r["letter"] + gap, None
+        else:
+            like = to_doc._ids.get(r["like"])  # 블록 id 는 blocks() 를 읽을 때 붙는다 — 부르는 쪽이 이미 읽은 문서
+            llead, ltok, lgap = prefix_of(to_doc._text(like), r["likeLetter"] or None) if like is not None else ("", "", "")
+            if not ltok:
+                kept["noLike"] += 1
+                continue
+            prefix, like_id = (" " * r["lead"] if r.get("lead") is not None else llead) + r["letter"] + lgap, r["like"]
         try:
-            to_doc.replace_prefix(nid, len(lead) + len(tok) + len(gap), llead + r["letter"] + lgap, like_id=r["like"])
+            to_doc.replace_prefix(nid, len(lead) + len(tok) + len(gap), prefix, like_id=like_id)
         except ValueError:
             kept["marker"] += 1
             continue
         ids.append(nid)
-    return {"converted": len(ids), "kept": dict(kept), "ids": ids}
+        if rec:
+            rec["letter"] = r["letter"]
+    return {"converted": len(ids), "kept": dict(kept), "ids": ids, "lines": lines}
 
 
-def converter(to_doc, to_graph, from_graph):
-    """본문 넣기 고리 — convert(anchor_id, pairs[(원본 id, 사본 id)]) 가 계획하고 바로 바꾼다 → apply 결과 + {"plan": 요약}."""
+def record(summary, res):
+    """넘친 줄의 반영 기록(spec_병합 ② §5-5 7) {key, to[자리 템플릿, K], lines} — 넘친 줄이 없으면 None."""
+    ov, lines = (summary or {}).get("over"), (res or {}).get("lines")
+    return {"key": ov["key"], "to": ov["to"], "lines": lines} if ov and lines else None
+
+
+def converter(to_doc, to_graph, from_graph, over=None):
+    """본문 넣기 고리 — convert(anchor_id, pairs[(원본 id, 사본 id)]) 가 계획하고 바로 바꾼다 → apply 결과 + {"plan": 요약, "over": 넘친 줄 기록 | None}. over = plan 의 그것."""
     def convert(anchor_id, pairs):
-        p = plan(to_graph, from_graph, anchor_id, [s for s, _ in pairs])
-        return {**apply(to_doc, pairs, p), "plan": p["summary"]}
+        p = plan(to_graph, from_graph, anchor_id, [s for s, _ in pairs], over=over)
+        res = apply(to_doc, pairs, p)
+        return {**res, "plan": p["summary"], "over": record(p["summary"], res)}
     return convert

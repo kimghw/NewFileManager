@@ -724,6 +724,8 @@ def plan(items, frame, to, part):
                 if cv is not None:
                     op["convert"], fit = cv, FIT.view(cv)
                     counts["converted"], counts["kept"] = fit["converted"], sum(fit["kept"].values())
+                    if fit.get("over"):   # 넘친 개요 레벨(취합본 틀보다 깊은 줄 — spec_병합 ② §5-5): 그 줄 수(틀 맞춤·쓴 대로 둔 줄에 이미 든 것 가운데)
+                        counts["over"] = fit["over"]["lines"]
         elif h["kind"] == "cells":
             cs = [{"to": c["to"], "from": c["id"], "text": c["text"], "base": c["base"]} for c in frm["cells"] if c.get("status", "ready") == "ready"]
             op = {"key": h["key"], "kind": "cells", "table": base["table"], "cells": cs}
@@ -906,6 +908,7 @@ def apply(to_doc, part_doc, plan):
         if fit:
             counts["converted"] += len(fit["rows"])
             counts["kept"] += sum(fit["kept"].values())
+            counts["over"] += len((fit.get("over") or {}).get("lines") or ())   # 넣은 넘친 줄(기록에 남는다 — 다시 맞추기)
         for pid in op["drop"]:
             try:
                 to_doc.delete_blocks(pid, pid)
@@ -931,5 +934,5 @@ def apply(to_doc, part_doc, plan):
         elif rec["kind"] == "rows":
             rec["fp"] = _fp_texts(cell.get(i, "") for i in rec["ids"])
     counts["hunks"], counts["skipped"] = len(done), len(out["skipped"])
-    keys = ("hunks", "blocks", "paragraphs", "tables", "pictures", "placeholders", "cells", "rows", "shaped", "fitted", "converted", "kept", "recalculated", "skipped")
+    keys = ("hunks", "blocks", "paragraphs", "tables", "pictures", "placeholders", "cells", "rows", "shaped", "fitted", "converted", "kept", "over", "recalculated", "skipped")
     return {"applied": done, "counts": {k: int(counts[k]) for k in keys}, "calc": calc, "dropped": list(plan.get("dropped") or ()), "skipped": out["skipped"]}

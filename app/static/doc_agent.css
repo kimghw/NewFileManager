@@ -1,0 +1,114 @@
+/* ---- 에이전트 보기(spec_일반편집 ② §12 — doc_agent.js): 패널(3열)의 #paneAgent. 위에서 아래로 상태 줄(.ag-status) · 대화(.ag-talk — 여기만 굴림) · 입력(.ag-input — 아래 붙박이).
+   폭은 패널 320~520px(design.md §1): 좌우 여백 12px · 컨트롤 28px · 상자는 2겹까지(패널 › 제안 카드 — 카드 안 줄은 테두리 없이). 보라 = LLM 제안(§6): 카드 왼쪽 띠 · 종류 꼬리표 · 문서의 그 자리.
+   2열 kind "agentProp"(제안 미리보기) · "agentGuide"(턴에 보낸 글)의 것도 여기(.agp-*). 틀은 2열 공용(.ta-wrap · table.mini · .tm-grid · .lg-part)과 표 채우기 목록(.tfl-list — table-fill.css)을 같이 쓴다. ---- */
+#paneAgent { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+#agentBox, .ag { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; } /* 패널 높이를 그대로 받아 대화만 굴린다 — 입력은 늘 아래에 보인다 */
+.ag { font-size: 12.5px; }
+.ag-spin { display: inline-block; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid #7c3aed; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
+.ag-run { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: #5b21b6; font-size: 12px; }
+.ag-run[hidden] { display: none; }
+
+/* 상태 줄 — 한 줄(§7): 점 + 글(남는 폭, 줄임표) · 「서식 보관함」 · 「비우기」 */
+.ag-status { flex: none; display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.ag-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--skip); }
+.ag-status[data-llm="on"] .ag-dot { background: var(--ok); }
+.ag-status[data-llm="off"] .ag-dot { background: var(--warn); }
+.ag-status-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.ag-status .btn.sm { flex: none; padding: 0 8px; }
+.ag-status .btn.sm.arm { color: var(--fail); border-color: #f2b8b8; }
+
+/* 대화 — 턴마다 요청 글 · 답 · 제안 카드 · 호출 줄 */
+.ag-talk { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
+.ag-empty { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
+.ag-turn { min-width: 0; }
+.ag-turn + .ag-turn { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ag-q { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ag-a { margin: 7px 0 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ag-note { margin: 4px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ag-turn > .ag-run { margin: 8px 0 0; }
+.ag-turn .hwarn { margin-top: 7px; }
+.ag-dropped { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
+.ag-dropped > summary { cursor: pointer; }
+.ag-dropped ul { margin: 3px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+.ag-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin: 7px 0 0; color: var(--muted); font-size: 11.5px; }
+.ag-meta > span { min-width: 0; overflow-wrap: anywhere; }
+.ag-meta .btn.sm { height: 24px; padding: 0 7px; font-size: 11.5px; }
+
+/* 제안 카드 */
+.ag-card { margin: 8px 0 0; padding: 7px 9px 8px; border: 1px solid #ddd0f7; border-left: 3px solid #7c3aed; border-radius: 6px; background: #fbf9ff; min-width: 0; }
+.ag-card[data-state="applied"] { border-color: #cfe6d6; border-left-color: var(--ok); background: #f8fcf9; }
+.ag-card[data-state="stale"], .ag-card[data-state="closed"] { border-color: var(--line); border-left-color: var(--skip); background: var(--surface-2); }
+.ag-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0; }
+.ag-tag { flex: none; padding: 0 5px; border: 1px solid #d9c8fb; border-radius: 3px; background: #f5f0ff; color: #6d28d9; font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.ag-title { min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.ag-sum { margin: 3px 0 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.ag-cands { display: flex; flex-direction: column; gap: 3px; margin: 5px 0 0; }
+.ag-cand { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 0 6px; cursor: pointer; }
+.ag-cand input { margin: 0; align-self: center; }
+.ag-cand b { min-width: 0; overflow-wrap: anywhere; }
+.ag-cand .ag-size { color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ag-cand .ag-why { grid-column: 2 / -1; color: var(--muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ag-checks { margin: 5px 0 0; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; line-height: 1.5; }
+.ag-checks:empty { display: none; }
+.ag-check { color: var(--muted); overflow-wrap: anywhere; }
+.ag-check.ok { color: var(--ok); }
+.ag-check.bad { color: var(--fail); font-weight: 600; }
+.ag-check.warn { color: var(--warn); }
+.ag-check.note { color: #5b21b6; }
+.ag-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 7px 0 0; }
+.ag-acts .btn.sm { padding: 0 9px; }
+.ag-acts .btn.sm.done { color: var(--ok); border-color: #b5e0c2; }
+.ag-state { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.ag-state.stale { color: var(--warn); font-weight: 600; }
+.ag-state.err { color: var(--fail); }
+
+/* 입력 — 아래 붙박이. 고를 때마다 바뀌는 선택 줄은 높이 고정(§6 — 한 줄 · 줄임표: 아래 고르기·글상자가 안 밀린다) */
+.ag-input { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 10px; border-top: 1px solid var(--line-strong); background: var(--surface); min-width: 0; }
+.ag-policy { margin: 0; padding: 4px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.ag-sel { height: 18px; line-height: 18px; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-sel.has { color: var(--text); }
+.ag-picks { display: flex; gap: 8px; min-width: 0; }
+.ag-pick { display: flex; flex: 1 1 0; align-items: center; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; }
+.ag-pick > span { flex: none; }
+.ag-pick select { flex: 1 1 auto; min-width: 0; width: 100%; height: 28px; padding: 0 2px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12px; color: var(--text); }
+.ag-mats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.ag-chip { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; height: 24px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-2); font-size: 11.5px; overflow: hidden; }
+.ag-chip.off { opacity: .55; }
+.ag-chip button { height: 100%; border: 0; background: none; cursor: pointer; font: inherit; color: var(--text); }
+.ag-chip .ag-chip-name { min-width: 0; padding: 0 2px 0 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-chip .ag-chip-x { flex: none; padding: 0 8px 0 4px; color: var(--muted); }
+.ag-chip .ag-chip-x:hover { color: var(--fail); }
+.ag-mats .btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.ag-mat-msg { flex: 1 1 100%; color: var(--fail); font-size: 11.5px; overflow-wrap: anywhere; }
+.ag-mat-msg:empty { display: none; }
+.ag-paste { display: flex; flex-direction: column; gap: 4px; }
+.ag-paste[hidden] { display: none; }
+.ag-paste input[type="text"] { height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12px; color: var(--text); min-width: 0; }
+.ag-paste-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.ag-input textarea { width: 100%; min-width: 0; min-height: 3.2em; max-height: 32vh; resize: vertical; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: 12.5px/1.5 "Malgun Gothic", sans-serif; color: var(--text); }
+.ag-input textarea:disabled { background: var(--surface-2); }
+.ag-send { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.ag-send .ag-why { min-width: 0; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* 문서의 그 자리(카드에 올린 동안) — 블록 테두리 · 「뒤에 넣음」 은 그 블록의 아래 변 */
+#doc .ag-hit, #doc table.tbl.ag-hit, #doc .xl-wrap.ag-hit { outline: 2px solid rgba(124, 58, 237, .75); outline-offset: 1px; } /* 고른 표의 파란 테두리(table-menu.css .tmn-active)보다 먼저 */
+#doc .ag-after { box-shadow: 0 3px 0 0 rgba(124, 58, 237, .85) !important; }
+
+/* 2열 — 제안 미리보기 */
+.agp-wrap .ag-checks { margin-top: 6px; }
+.agp-where { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.agp-where .btn.sm { height: 24px; padding: 0 7px; margin-left: 4px; font-size: 11.5px; }
+.agp-cols { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 12px; margin: 8px 0 0; }
+.agp-col { flex: 1 1 240px; min-width: 0; padding-top: 6px; border-top: 2px solid var(--line); }
+.agp-col.on { border-top-color: #7c3aed; }
+.agp-col > label { display: flex; align-items: baseline; gap: 6px; cursor: pointer; font-weight: 700; }
+.agp-col > label input { margin: 0; align-self: center; }
+.agp-col > label span { min-width: 0; overflow-wrap: anywhere; }
+.agp-col .ag-why, .agp-col .ag-state { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.agp-col[data-state="applied"] .ag-state { color: var(--ok); font-weight: 600; }
+.agp-col .tm-scroll { max-height: 40vh; }
+.agp-wrap table.tm-grid td { cursor: default; }
+table.mini.agp-lines td { vertical-align: top; }
+table.mini.agp-lines td.agp-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 10em; color: #5b21b6; font-weight: 600; }
+table.mini.agp-lines td.agp-src { min-width: 8em; color: var(--muted); }
+.agp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }

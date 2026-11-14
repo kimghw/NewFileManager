@@ -163,7 +163,7 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
   for (const [key, name] of WORK_TASK.job) {
     const t = HOME_TASKS[key];
     if (!t) continue;
-    const li = el("li"), b = el("button", "task-card"), logo = el("span", "task-logo"), go = el("span", "task-card-go", t.soon ? "준비 중" : `${t.up} 올려 시작 `);
+    const li = el("li"), b = el("button", "task-card"), logo = el("span", "task-logo"), go = el("span", "task-card-go", t.soon ? "준비 중" : `${t.upMany || t.up} 올려 시작 `); // upMany = 여러 개를 올리는 TASK(취합 간단 모드 — spec_취합 ② §8-1)
     const doc = name.endsWith(t.act) ? name.slice(0, -t.act.length).trim() : ""; // 「사업계획서 양식 맞추기」 → 「사업계획서」 + 「양식 맞추기」 — 이름이 그 꼴이 아니면 이름 한 줄
     b.type = "button";
     b.dataset.task = key;
@@ -174,12 +174,13 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
     b.append(logo, el("span", "task-card-doc", doc), el("strong", "task-card-name", doc ? t.act : name), go);
     if (t.soon) b.setAttribute("aria-disabled", "true");
     b.title = t.soon ? `TASK 「${name}」 — 준비 중인 기능입니다`
-      : `TASK 「${name}」 — ${t.up}(hwp·hwpx) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`;
-    b.onclick = () => (t.soon ? toast(`TASK 「${name}」 — 준비 중입니다`) : homeTaskPick(key));
+      : `TASK 「${name}」 — ${t.quick ? "문서를 여러 개" : t.up}(hwp·hwpx) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`;
+    // 시작 화면의 문서 목록(home_files.js — ② §15-1)이 있으면 카드 = 그 목록으로 시작, 없으면 전처럼 파일 고르기
+    b.onclick = () => (t.soon ? toast(`TASK 「${name}」 — 준비 중입니다`) : typeof hfHas === "function" && hfHas() ? homeFilesGo(key) : homeTaskPick(key));
     // 카드에 놓은 파일은 그 TASK 로 연다 — 창의 파일 놓기(bind — 그냥 열기)보다 먼저 받는다
     b.addEventListener("dragover", (e) => { if (!files(e)) return; e.preventDefault(); e.stopPropagation(); $("drop").classList.remove("over"); if (t.soon) e.dataTransfer.dropEffect = "none"; else b.classList.add("over"); });
     b.addEventListener("dragleave", (e) => { if (!b.contains(e.relatedTarget)) b.classList.remove("over"); });
-    b.addEventListener("drop", (e) => { if (!files(e)) return; e.preventDefault(); e.stopPropagation(); b.classList.remove("over"); if (!t.soon) homeTaskStart(key, e.dataTransfer.files[0]); });
+    b.addEventListener("drop", (e) => { if (!files(e)) return; e.preventDefault(); e.stopPropagation(); b.classList.remove("over"); if (!t.soon) homeTaskFiles(key, e.dataTransfer.files); });
     const note = hHelp(`${name} 안내`, t.desc + (t.hint ? "\n" + t.hint : ""), { note: true });
     note.classList.add("task-card-help"); // 카드(button) 안에 또 button을 넣지 않는다.
     li.append(b, note);
@@ -191,11 +192,18 @@ function homeTaskPick(job) { // 카드 누름 — 그 TASK 로 열 파일을 고
   const inp = el("input");
   inp.type = "file";
   inp.accept = ".hwp,.hwpx";
-  inp.onchange = () => homeTaskStart(job, inp.files[0]);
+  inp.multiple = true; // 여러 개면 시작 화면의 문서 목록으로(목적 문서를 고른 뒤 카드를 다시 누름 — ② §15-1), 하나면 지금처럼 바로
+  inp.onchange = () => homeTaskFiles(job, inp.files);
   inp.click();
 }
 
-async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 이어 엶 — openFile 과 같다) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
+function homeTaskFiles(job, files) { // 카드로 고르거나 놓은 파일들 — 목록이 이미 있거나 둘 이상이면 시작 화면의 문서 목록에 더함(home_files.js), 아니면 그 파일로 바로 시작
+  const list = [...(files || [])];
+  if (typeof homeFilesAdd === "function" && (hfHas() || list.length > 1)) homeFilesAdd(list, job);
+  else homeTaskStart(job, list[0]);
+}
+
+async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 이어 엶 — 다른 TASK 를 하던 작업이면 새 작업으로) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
   const t = HOME_TASKS[job];
   if (!file || !t || t.soon || homeTaskBusy) return;
   if (!/\.hwpx?$/i.test(file.name)) { toast("TASK 는 hwp·hwpx 문서로 시작합니다", true); return; } // hwp 는 서버가 한글로 hwpx 로 바꿔 받는다
@@ -206,25 +214,42 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
   if (card) card.classList.add("busy");
   setSaveState("busy", `${file.name} 여는 중…`);
   try {
-    const r = await api(`/api/docs${fresh ? "?new=1" : ""}`, { method: "POST", body: fd });
+    // 고른 TASK 를 함께 보낸다(?job= — ② §15): 같은 파일로 만든 작업이 여럿이면 서버가 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다(같은 카드로 다시 올려도 작업이 쌓이지 않게)
+    let r = await api(`/api/docs?${fresh ? "new=1" : `job=${encodeURIComponent(job)}`}`, { method: "POST", body: fd });
+    // 이어 연 작업의 TASK 가 그래도 다르면(그 TASK 의 작업도 빈 작업도 없음) 하던 작업은 그대로 두고 새 작업으로 다시 올려 고른 TASK 를 적는다(② §15 · §19, 2026-11-13 사용자
+    // "사업 계획서 양식 맞추기 했는데 task 에서는 이관 으로 되어 있음" — 문서 목록으로 시작할 때(home_files.js hfOpenTarget)와 같은 규칙). 하던 작업은 열지 않고 작업 목록에서 TASK 만 본다
+    let other = null; // 그대로 둔 하던 작업 {id, was 「프로젝트 「…」 · TASK 「…」」}
+    if (r.reused) {
+      let list = worksList;
+      try { list = await api("/api/works"); } catch { /* 못 읽으면 마지막으로 읽은 목록으로 */ }
+      const had = (list.find((w) => w.id === r.docId) || {}).task || {}; // 하던 작업의 task
+      if (had.job && had.job !== job) {
+        other = { id: r.docId, was: [had.project ? `프로젝트 「${had.project}」` : "", `TASK 「${taskName("job", had.job) || had.job}」`].filter(Boolean).join(" · ") };
+        const fd2 = new FormData();
+        fd2.append("file", file);
+        r = await api("/api/docs?new=1", { method: "POST", body: fd2 });
+      }
+    }
     await load(r.docId);
     const kept = await homeTaskApply(job);
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
     if (!r.reused) firstRun(); // 새 작업 — 첫 분석(② §9)
-    showTab("Div");
+    showTab(taskEntryOf(kept ? job : state.task.job)); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용, 문서 일반 편집은 에이전트)
     const again = { label: "새 작업으로 열기", run: () => homeTaskStart(job, file, true) };
-    if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`, false, again);
+    if (other) toast(`같은 파일로 하던 작업(${other.was})은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · 프로젝트 미지정`, false, // 새 작업은 프로젝트 없이 시작한다(하던 작업의 프로젝트를 따라가지 않음)
+      { label: "하던 작업 열기", run: () => (typeof projectOpen === "function" ? projectOpen(other.id) : openWork(other.id)) }); // 그 작업을 그 TASK 그대로 연다
+    else if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`, false, again); // 작업 목록을 못 읽어 TASK 를 미리 못 본 때만 남는 길
     else if (r.reused) toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」`, false, again);
   } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
   finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); }
 }
 
 // 방금 연 작업에 그 TASK 를 적는다(작업 종류 = 연구개발과제 · 할 일 = job · 첨부 파일 = 양식 판정이 정한 것, 없으면 그 TASK 의 문서) → 적었나.
-// false = 이어 연 작업에 다른 TASK 가 이미 있다 — 바꾸지 않는다(과제에 묶인 문서면 묶인 문서 모두의 할 일이 따라 바뀐다: ② §10 「할 일은 과제에 하나」)
+// false = 이어 연 작업에 다른 TASK 가 이미 있다 — 바꾸지 않는다(하던 작업의 TASK 는 그 작업 것이다). 2026-11-13 부터 homeTaskStart 가 그런 작업은 미리 새 작업으로 올리므로(② §15) 여기까지 오는 것은 작업 목록을 못 읽었을 때뿐
 async function homeTaskApply(job) {
   const id = state.id, epoch = state.epoch, cur = { kind: "", file: "", job: "", project: "", ...state.task };
   if (cur.job && cur.job !== job) return false;
-  state.task = { ...cur, kind: "rnd", job, file: cur.file || HOME_TASKS[job].file };
+  state.task = { ...cur, kind: taskKindOf(job), job, file: cur.file || HOME_TASKS[job].file }; // 작업 종류는 TASK 가 정한다(task_catalog.js kind — 서버 TASK_KIND 와 같게)
   taskDraw();
   if (!state.stored) return true; // 작업 저장이 꺼져 있으면 이 화면에서만(taskSet 과 같다)
   try {
@@ -260,7 +285,7 @@ async function load(id) {
   $("fileMeta").textContent = fmtSize(d.size) + (state.stored && state.created ? ` · 작업 ${fmtWhen(state.created)}` : "");
   $("fileMeta").title = state.stored ? "편집·검증 기록이 이 작업에 저장됩니다 — 「기록」 탭" : "작업 저장이 꺼져 있어 서버를 끄면 사라집니다";
   $("docSwitch").hidden = true; $("fileName").hidden = false; // 문서 목록은 loadWorks 가 다시 채운다(spec_작업 ② §10) — 그때까지 이름만
-  taskDraw(); // 작업 종류 · 「↩ 작업 내용」 단추
+  taskDraw(); // 작업 종류 · 패널 머리 탭 「작업 내용」
   $("logOriginal").href = `/api/works/${id}/file/original`;
   $("tabLog").hidden = !state.stored;
   $("fileInfo").hidden = $("barCtl").hidden = false; // 상단 바 가운데 줄 접기·바꾸기 묶음도 문서가 있을 때만
@@ -282,7 +307,8 @@ async function load(id) {
   divReset();
   if (typeof tablesReset === "function") tablesReset(); // 표 탭(tables.js)
   if (typeof compareReset === "function") compareReset();
-  showTab("Verify");
+  if (typeof agentReset === "function") agentReset(); // 에이전트 보기(doc_agent.js — spec_일반편집 ② §12)
+  showTab(!PEEK && taskGeneral() && toolShown("Agent") ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(② §12) — 그 밖에는 검증
   colFold("panel", colFoldLoad("panel"), false); // » 로 접어 둔 3열은 새 문서도 접힌 채(기억한 대로 — 도구 탭을 고르면 펴짐)
   renderVerify({});
   poll();
@@ -323,45 +349,135 @@ async function loadWorks() {
     $("recent").hidden = false;
     return; // 연결 오류는 빈 작업 목록이 아니다. 이미 표시한 작업은 그대로 둔다.
   }
-  renderRecentWorks($("workList"), list.slice(0, 4));
+  const rows = recentRows(list); // 최근 작업 = TASK 하나가 한 줄(② §7) — 전체 작업 보기는 파일 하나가 한 줄 그대로
+  renderRecentWorks($("workList"), rows.slice(0, 4));
   renderWorks($("workListDlg"), list);
   docSwitchDraw(list); // 상단 바 「다른 문서」(② §10)
+  if (typeof projectListDraw === "function") projectListDraw();
   $("recent").hidden = !list.length;
-  $("recentCount").textContent = `전체 ${list.length}개`;
+  $("recentCount").textContent = rows.length === list.length ? `전체 ${list.length}개` : `전체 ${rows.length}개 · 문서 ${list.length}개`;
 }
 
-function renderRecentWorks(ul, list) {
-  ul.textContent = "";
+// 작업 줄의 「무슨 일의 어느 작업」(spec_작업 ② §7, 2026-11-12 사용자 "이관이냐 취합이냐. 그리고 작업이름이 뭐냐 이런게 있어야지") — GET /api/works 의 task 를 읽기만.
+// TASK = 할 일(task.job — 작업 종류가 연구개발과제일 때만: kind 를 비워도 job 은 남는다 ② §10) · 작업 이름 = 과제 이름(project) · 역할 = 이 문서의 첨부 파일 종류(취합이면 취합본 · 기관 문서)
+function workTaskInfo(w) {
+  const t = w.task || {}, cat = (t.kind && t.kind === taskKindOf(t.job) && TASK_CATALOG[t.job]) || null, g = cat && cat.gather; // 작업 종류가 그 TASK 의 것일 때만(연구개발 프로젝트의 TASK · 일반 문서의 「문서 일반 편집」)
+  const role = !t.file ? "" : g && t.file === g.base ? "취합본" : taskName("file", t.file);
+  const what = cat ? `${t.project ? `프로젝트 「${t.project}」` : "프로젝트 미지정"} · TASK 「${cat.name}」 · Round ${taskRound(t)}${role ? ` · ${role}` : ""}` : "TASK 없음";
+  return { job: cat ? t.job : "", name: cat ? cat.name : "", doc: cat ? cat.doc : "", project: (cat && t.project) || "", role, what };
+}
+function taskLogoEl(key, doc) { // TASK 로고(시작 화면 카드와 같은 그림·색 — design.md §12)
+  const logo = el("span", "task-logo");
+  logo.dataset.doc = doc;
+  logo.setAttribute("aria-hidden", "true");
+  logo.innerHTML = `<svg viewBox="0 0 32 32" width="30" height="30" focusable="false"><use href="#taskIcon-${key}"/></svg>`;
+  return logo;
+}
+function taskChipEl(T) { // TASK 이름 표지 — 글자·바탕은 로고와 같은 문서 색, TASK 가 없으면 흐린 「TASK 없음」
+  const c = el("span", "recent-task" + (T.job ? "" : " none"), T.job ? T.name : "TASK 없음");
+  if (T.job) c.dataset.doc = T.doc;
+  return c;
+}
+
+// 최근 작업의 줄(spec_작업 ② §7, 2026-11-13 사용자 "동일한 프로젝트에서 동일한 task 인데 왜 동일한게 있냐.. 여긴 task 별로 나와야지") — (프로젝트, TASK) 하나가 한 줄,
+// 그 TASK 의 최신 라운드 문서들만(이전 라운드는 작업 리스트 · 전체 작업 보기에서). 프로젝트 이름이 없거나 TASK 가 없는 작업은 전처럼 파일 하나가 한 줄(서로 관계없는 작업 — /api/projects 도 안 묶는다).
+// docs[0] = 가장 늦게 바뀐 문서 = 줄을 누르면 여는 문서(대표 문서가 아니라 하던 문서 — 사용자 2026-11-13 「진행」).
+function recentRows(list) {
+  const groups = new Map(), rows = [];
   for (const w of list) {
-    const format = (w.format || "").toLowerCase(), li = el("li", "recent-work" + (w.id === state.id ? " current" : ""));
-    const open = el("button", "recent-work-open"), icon = el("span", `recent-file-icon ${format === "docx" ? "docx" : "hwpx"}`, format.toUpperCase() || "문서");
+    const T = workTaskInfo(w), round = taskRound(w.task || {});
+    if (!T.job || !T.project) { rows.push({ round, docs: [w] }); continue; }
+    const key = JSON.stringify([T.project, T.job]);
+    let g = groups.get(key);
+    if (!g) { g = { round, docs: [] }; groups.set(key, g); rows.push(g); }
+    if (round > g.round) { g.round = round; g.docs = []; }
+    if (round === g.round) g.docs.push(w);
+  }
+  for (const r of rows) {
+    r.docs.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    r.updated = r.docs[0].updated || 0;
+  }
+  return rows.sort((a, b) => b.updated - a.updated);
+}
+
+// 문서 하나의 검증 표지 + 나쁜 순위(묶음 줄은 종류마다 가장 나쁜 것 하나만 보인다 — 실패가 통과에 가리지 않게)
+function recentVerifyTag(w, kind) {
+  const v = (w.verify || {})[kind];
+  if (!v || !v.status) return null;
+  const tag = verifyTag(kind, v);
+  let rank = v.status === "fail" ? 3 : v.status === "warn" ? 2 : 1;
+  if (kind === "edit" && (v.rev == null || v.rev !== w.rev)) {
+    tag.textContent = v.rev == null ? "출력파일 기록 확인" : "출력파일 재검증 필요";
+    tag.className = `vtag ${v.rev == null ? "none" : "warn"}`;
+    tag.title += v.rev == null ? " · 현재 편집본과 같은지 기록에서 확인하세요." : " · 이 검증 뒤에 문서가 수정되었습니다.";
+    rank = v.rev == null ? 0 : 2;
+  }
+  return { tag, rank };
+}
+
+function renderRecentWorks(ul, rows) {
+  ul.textContent = "";
+  for (const r of rows) {
+    const docs = r.docs, w = docs[0], many = docs.length > 1, T = workTaskInfo(w); // w = 누르면 여는 문서
+    const format = (w.format || "").toLowerCase(), sum = (k) => docs.reduce((n, d) => n + (d[k] || 0), 0);
+    const li = el("li", "recent-work" + (many ? " recent-group" : "") + (docs.some((d) => d.id === state.id) ? " current" : "")); // 「group」 은 안 됨 — style.css 의 전역 .group(flex)
+    li.dataset.works = docs.map((d) => d.id).join(" "); // 이 줄에 든 작업 id 들 — 화면 검사가 [data-works~='<id>'] 로 찾는다
+    const open = el("button", "recent-work-open"), icon = T.job ? taskLogoEl(T.job, T.doc) : el("span", `recent-file-icon ${format === "docx" ? "docx" : "hwpx"}`, format.toUpperCase() || "문서");
+    const note = many ? `이 TASK 의 문서 ${docs.length}개 중 마지막에 고친 문서` : "";
     open.type = "button";
-    open.title = `${w.name} · 작업 ${w.id}`;
-    open.setAttribute("aria-label", `${w.name} · ${fmtWhen(w.created)} 시작 · 작업 ${w.id} 이어서 열기`);
+    open.title = `${T.what}\n${many ? note + "\n" : ""}${w.name} · 작업 ${w.id}`; // 끝 「작업 <id>」 = 이 줄을 누르면 여는 문서 — 화면 검사가 이것으로 찾는다
+    open.setAttribute("aria-label", `${T.what} · ${many ? note + " · " : ""}${w.name} · ${fmtWhen(w.created)} 시작 · 작업 ${w.id} 이어서 열기`);
     icon.setAttribute("aria-hidden", "true");
-    const main = el("span", "recent-work-main");
-    main.append(el("span", "recent-work-name", w.name), el("span", "recent-work-meta",
-      `${fmtSize(w.size || 0)} · 시작 ${fmtWhen(w.created)} · ${w.commits ? `확정 ${w.commits} · ` : ""}${w.edited ? `고친 문단 ${w.edited}개` : `편집 ${w.rev || 0}회`}`));
-    const tags = el("span", "recent-work-status");
+    const main = el("span", "recent-work-main"), head = el("span", "recent-work-head");
+    // 첫 줄 = 프로젝트 이름 + TASK 표지(+ Round 2 부터 Round 표지) · 둘째 줄 = 누르면 여는 문서의 역할 + 파일 이름 · 셋째 줄 = 형식·크기(묶음이면 문서 수)·때 + 검증 표지.
+    // TASK 가 없으면 첫 줄이 파일 이름(둘째 줄 없음). 문서가 여럿이면 줄 아래에 나머지 문서로 바로 가는 단추(넷째 줄 — 단추 안에 단추를 둘 수 없어 따로).
+    head.append(el("span", "recent-work-title" + (T.job && !T.project ? " none" : ""), T.job ? T.project || "프로젝트 이름 없음" : w.name), taskChipEl(T));
+    if (T.job && r.round > 1) head.append(el("span", "recent-work-round", `Round ${r.round}`));
+    main.append(head);
+    if (T.job) {
+      const file = el("span", "recent-work-file");
+      if (T.role) file.append(el("span", "recent-work-role", T.role));
+      file.append(el("span", "recent-work-name", w.name));
+      main.append(file);
+    }
+    const foot = el("span", "recent-work-foot"), tags = el("span", "recent-work-status");
+    const commits = sum("commits"), edited = sum("edited"), first = docs.reduce((m, d) => (d.created && (!m.created || d.created < m.created) ? d : m), w);
+    foot.append(el("span", "recent-work-meta",
+      `${many ? `문서 ${docs.length}개` : `${format.toUpperCase() || "문서"} · ${fmtSize(w.size || 0)}`} · 시작 ${fmtWhen(first.created)} · ${commits ? `확정 ${commits} · ` : ""}${edited ? `고친 문단 ${edited}개` : `편집 ${sum("rev")}회`}`), tags);
+    main.append(foot);
     for (const kind of ["import", "edit"]) {
-      const v = (w.verify || {})[kind];
-      if (!v || !v.status) continue;
-      const tag = verifyTag(kind, v);
-      if (kind === "edit" && (v.rev == null || v.rev !== w.rev)) {
-        tag.textContent = v.rev == null ? "출력파일 기록 확인" : "출력파일 재검증 필요";
-        tag.className = `vtag ${v.rev == null ? "none" : "warn"}`;
-        tag.title += v.rev == null ? " · 현재 편집본과 같은지 기록에서 확인하세요." : " · 이 검증 뒤에 문서가 수정되었습니다.";
+      const found = docs.map((d) => ({ d, t: recentVerifyTag(d, kind) })).filter((x) => x.t);
+      if (!found.length) continue;
+      const worst = Math.max(...found.map((x) => x.t.rank)), same = found.filter((x) => x.t.rank === worst), tag = same[0].t.tag;
+      if (many) {
+        tag.textContent += ` · 문서 ${same.length}/${docs.length}`;
+        tag.title = `문서 ${docs.length}개 중 ${same.length}개(가장 나쁜 상태를 보입니다)\n${same.map((x) => `· ${x.d.name}`).join("\n")}`;
       }
       tags.append(tag);
     }
     if (!tags.childElementCount) tags.append(el("span", "vtag none", "검증 전"));
-    main.append(tags);
     const end = el("span", "recent-work-end"), time = el("span", "recent-work-time", fmtWhen(w.updated));
     time.title = `마지막 작업 ${fmtWhen(w.updated)}`;
     end.append(time, el("span", "recent-work-arrow", "이어서 열기 →"));
     open.append(icon, main, end);
     open.onclick = () => openWork(w.id);
     li.append(open);
+    if (many) {
+      const more = el("div", "recent-work-docs");
+      more.append(el("span", "recent-work-docs-label", "다른 문서"));
+      for (const d of docs.slice(1, 4)) {
+        const D = workTaskInfo(d), b = el("button", "recent-work-doc");
+        b.type = "button";
+        b.title = `${D.what}\n${d.name} · 작업 ${d.id}`;
+        b.setAttribute("aria-label", `${D.role || "역할 없음"} · ${d.name} · 작업 ${d.id} 열기`);
+        if (D.role) b.append(el("span", "recent-work-role", D.role));
+        b.append(el("span", "recent-work-name", d.name));
+        b.onclick = () => openWork(d.id);
+        more.append(b);
+      }
+      if (docs.length > 4) more.append(el("span", "recent-work-more", `외 ${docs.length - 4}개 — 전체 작업 보기에서`));
+      li.append(more);
+    }
     ul.append(li);
   }
 }
@@ -377,7 +493,12 @@ function renderWorks(ul, list) {
     const top = el("span", "work-top");
     top.append(el("span", "work-name", w.name));
     if (w.id === state.id) top.append(el("span", "work-now", "지금"));
-    open.append(top, el("span", "work-meta", `${(w.format || "").toUpperCase()} · ${fmtSize(w.size || 0)} · 만듦 ${fmtWhen(w.created)} · 바뀜 ${fmtWhen(w.updated)}`
+    const T = workTaskInfo(w), task = el("span", "work-task"); // 최근 작업 줄과 같은 TASK · 과제 · 역할(② §7)
+    if (T.job) task.append(el("span", "work-task-text", `${T.project ? `프로젝트 「${T.project}」` : "프로젝트 미지정"}`));
+    task.append(taskChipEl(T));
+    if (T.job) task.append(el("span", "work-task-text", `Round ${taskRound(w.task)}${T.role ? ` · ${T.role}` : ""}`));
+    open.title += `\n${T.what}`;
+    open.append(top, task, el("span", "work-meta", `${(w.format || "").toUpperCase()} · ${fmtSize(w.size || 0)} · 만듦 ${fmtWhen(w.created)} · 바뀜 ${fmtWhen(w.updated)}`
       + (w.commits ? ` · 확정 ${w.commits}` : "") + (w.edited ? ` · 고친 문단 ${w.edited}개` : "") + (w.source === "sample" ? " · 예제" : "")));
     const tags = el("span", "work-tags");
     tags.append(verifyTag("import", (w.verify || {}).import), verifyTag("edit", (w.verify || {}).edit));
@@ -394,9 +515,11 @@ function renderWorks(ul, list) {
 }
 
 async function openWork(id) {
+  if (taskSaveCount) await taskSetPending;
   if ($("worksDlg").open) $("worksDlg").close();
   if (id === state.id) return;
   if (!confirmDiscard()) return;
+  await divSettingsFlush();
   setSaveState("busy", "작업 여는 중…");
   try { await load(id); } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); loadWorks(); }
 }
@@ -413,71 +536,142 @@ async function deleteWork(w) {
 
 // ---- 작업 종류 · 첨부 파일 · 할 일 · 문서 목록(spec_작업 ② §10, 2026-11-11 사용자) — 고르면 작업(work.json task)에 저장. 값은 server.py TASK 와 같게.
 // 상단 바: 문서 목록(파일 이름 자리 — #docSwitch). 작업 종류는 패널 머리(#panelTask — 상단 바의 옛 #taskKind 는 같은 날 없앰: 사용자 "이건 이제 필요 없지 않냐?").
-// 「연구개발과제」 일 때만 그 내용(#paneDiv — 탭 띠에 탭은 없다: 2026-11-12 없앰, 패널 머리의 목록·「↩ 작업 내용」 으로 연다)이 열리고 그 패널 첫 카드(taskRow)에 할 일 / 과제·첨부 파일, 아래에 구분 기준.
+// 「연구개발과제」 일 때만 그 내용(#paneDiv — 탭 띠에 탭은 없다: 2026-11-12 없앰, 패널 머리의 목록·탭 「작업 내용」 으로 연다)이 열리고 그 패널 첫 카드(taskRow)에 할 일 / 과제·첨부 파일, 아래에 구분 기준.
 const WORK_TASK = {
-  kind: [["", "작업 종류 선택"], ["rnd", "연구개발과제"]],
+  kind: [["", "작업 종류 선택"], ["rnd", "연구개발 프로젝트"], ["general", "일반 문서"]], // general = TASK 「문서 일반 편집」 의 작업 종류(spec_일반편집 ② §11)
   file: [["", "선택 안 함"], ["plan", "사업계획서"], ["report", "연차보고서"], ["part", "기관 문서"]], // part = 취합에 들어온 기관 문서(spec_취합 ② §2 — 취합본은 plan)
   job: [["", "선택 안 함"], ...Object.entries(TASK_CATALOG).map(([key, task]) => [key, task.name])],
 };
 const taskRnd = () => !state.task || state.task.kind === "rnd"; // task 가 없으면(시험용 화면 등) 전처럼 연구개발과제로 본다
+const taskGeneral = () => !!state.task && state.task.kind === "general"; // 「일반 문서」 — 패널 머리 「작업 내용」 이 에이전트 보기를 연다(spec_일반편집 ② §12)
 const taskName = (key, v) => (v && (WORK_TASK[key].find((o) => o[0] === v) || [])[1]) || "";
 
 function taskSelect(sel, key) { // select 하나를 선택지로 채우고 지금 값으로 — 바꾸면 저장
   for (const [v, name] of WORK_TASK[key]) sel.append(new Option(name, v));
   sel.dataset.task = key; // 화면 검사가 칸을 키로 찾는다(차례에 기대지 않게)
   sel.value = (state.task && state.task[key]) || "";
-  sel.onchange = () => taskSet(key, sel.value);
+  sel.onchange = () => key === "job" && typeof projectTaskPick === "function" ? projectTaskPick(sel.value) : taskSet(key, sel.value);
   return sel;
 }
 
-function taskDraw() { // 문서를 열 때 · 고른 뒤 — 패널 머리 「작업」(② §10 「패널 머리」) · 「↩ 작업 내용」
+function taskDraw() { // 문서를 열 때 · 고른 뒤 — 패널 머리 「작업」(② §10 「패널 머리」) · 탭 「작업 내용」
   const sel = $("panelTask");
   if (sel.options.length) sel.value = (state.task && state.task.kind) || "";
   else { taskSelect(sel, "kind"); sel.onchange = () => panelTaskPick(sel.value); } // 여기서 고르면 그 내용까지 연다
-  taskHomeDraw();
+  toolTabsDraw();
+  docRoleDraw();
 }
-// 패널 머리 둘째 줄 끝 「↩ 작업 내용」(#taskHome — ② §10 「패널 머리」, 2026-11-12 사용자 "… 더이상 연구개발과제 탭은 필요 없지 않나?" 로 탭 띠의 탭을 없애며): 작업 종류가 연구개발과제이고
-// 다른 도구(검증·PDF …)를 볼 때만 보인다 — 그 내용으로 돌아가는 길(목록에서 같은 값을 다시 골라도 브라우저는 사건을 안 낸다). 부르는 곳: taskDraw · showTab · divReset
-function taskHomeDraw() { $("taskHome").hidden = !state.id || !taskRnd() || $("panel").dataset.tool === "Div"; }
+// 목적 문서 표시(spec_작업 ② §10 「목적 문서 표시」, 2026-11-13 사용자 "여기 목적문서 인지 아닌지 간단하 표시가 있으면 좋겠는데") — 첫째 면 이름 줄(#docRole) · 둘째 면 탭(data-role — peerTabsDraw).
+// 목적 문서 = TASK 의 target 종류(task_catalog.js = server works.TARGET_FILE: 이관의 연차보고서 · 취합의 취합본), 같은 TASK 의 다른 종류 = 원본. 목적 문서가 없는 TASK·종류를 안 고른 문서는 표시 없음.
+const DOC_ROLE = { target: ["목적 문서", "목적", "이 TASK 에서 내용을 받아 고치는 문서"], source: ["원본 문서", "원본", "이 TASK 에서 내용을 가져오는 문서(바뀌지 않음)"] };
+function taskDocRole(t, job) { // "target" | "source" | "" — job = 작업에 할 일이 안 적혀 있을 때 쓸 값(둘째 면 탭: 지금 문서의 할 일). 원본 = 그 TASK 의 문서 종류 가운데 목적 문서 아닌 것(취합에 든 연차보고서 같은 남의 종류는 표시 없음)
+  const c = TASK_CATALOG[(t && t.job) || job || ""] || {}, file = (t && t.file) || "";
+  if (!c.target || !file) return "";
+  return file === c.target ? "target" : [c.file, ...(c.files || []), ...Object.values(c.gather || {})].includes(file) ? "source" : "";
+}
+function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프로젝트·TASK·첨부 파일을 고른 뒤)
+  const b = $("docRole"), role = state.id ? taskDocRole(state.task) : "", d = DOC_ROLE[role];
+  b.hidden = !d;
+  b.dataset.role = role;
+  b.textContent = d ? d[0] : "";
+  b.title = d ? `${d[0]} — ${d[2]}\nTASK 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
+}
+// 패널 머리 둘째 줄의 탭 「작업 내용」 · 「<도구>」(#toolTabs — ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추 #taskHome 을 바꿈).
+// 작업 종류가 연구개발과제일 때만 — 아니면 전처럼 도구 이름 + 꼬리표. 도구 탭 = 마지막으로 본 도구(처음 검증 — 문서 위 탭 띠에서 고른 것), 누르면 그 도구로. 부르는 곳: taskDraw · showTab · divReset
+let toolLast = "Verify";
+function toolTabsDraw() {
+  const gen = taskGeneral() && toolShown("Agent"), strip = $("tabAgent"); // 「일반 문서」 작업(hwpx) — 「작업 내용」 이 에이전트 보기다(spec_일반편집 ② §12)
+  if (strip) strip.hidden = gen || !toolShown("Agent"); // 문서 위 탭 「에이전트」 — hwpx 만 · 「작업 내용」 이 같은 보기를 열 때는 감춘다(같은 것을 두 곳에 두지 않는다)
+  const cur = $("panel").dataset.tool || "Verify", on = !!state.id, div = cur === (gen ? "Agent" : "Div"), list = cur === "Tasks";
+  if (gen && toolLast === "Agent") toolLast = "Verify";
+  if (!div && !list && TOOL_INFO[cur]) toolLast = cur;
+  $("toolTabs").hidden = !on;
+  $("toolTitle").hidden = $("toolTag").hidden = on; // 값은 그대로 채운다(접힌 띠 이름 — colRailName)
+  if (!on) return;
+  const t = $("toolTabTask"), u = $("toolTabTool"), l = $("toolTabList");
+  t.hidden = !taskRnd() && !gen;
+  t.setAttribute("aria-controls", gen ? "paneAgent" : "paneDiv");
+  u.textContent = TOOL_INFO[toolLast][0];
+  u.setAttribute("aria-controls", `pane${toolLast}`);
+  for (const [b, sel] of [[t, div], [u, !div && !list], [l, list]]) { b.classList.toggle("active", sel); b.setAttribute("aria-selected", sel); b.tabIndex = sel ? 0 : -1; }
+}
 
-let worksList = []; // 마지막으로 읽은 작업 목록(loadWorks) — 과제 이름 고르기 · 같은 과제의 문서
+let worksList = []; // 마지막으로 읽은 작업 목록(loadWorks) — 프로젝트 이름 고르기 · 같은 프로젝트의 문서
 const taskProject = () => (state.task && state.task.project) || "";
-const taskMates = (list = worksList) => list.filter((w) => w.id !== state.id && taskProject() && (w.task || {}).project === taskProject()); // 같은 과제로 묶인 다른 문서
+const taskRound = (t = state.task) => Math.max(1, Number(t && t.round) || 1);
+const taskScopeKey = (t = state.task) => JSON.stringify([t && t.project || "", t && t.job || "", taskRound(t)]);
+const taskSameScope = (w, t = state.task) => !!(t && t.project && w.task && w.task.project) && taskScopeKey(w.task) === taskScopeKey(t);
+const taskMates = (list = worksList) => list.filter((w) => w.id !== state.id && taskSameScope(w));
 
 function taskRow() { // 「연구개발과제」 패널 첫 카드 — 할 일 · 과제 · 첨부 파일. 「작업」 칸은 여기 없다 — 패널 머리의 목록 하나뿐(2026-11-12 사용자 답 「뺌」: 처음엔 첫 줄 = 작업 · 할 일 — 11-11 "작업이랑 할일")
   const row = el("section", "dv-task");
   const field = (name, title, control) => { const lab = el("label", "dv-task-field"); lab.title = title; lab.append(el("span", null, name), control); row.append(lab); };
-  field("할 일", "이 작업에서 할 일 — 과제로 묶인 문서는 모두 같은 값 · 작업에 저장", taskSelect(el("select"), "job"));
-  const inp = el("input"), names = el("datalist"); // 과제 = 같은 이름으로 묶인 문서들 — 새 이름을 쓰거나 있는 이름을 고른다(native datalist)
-  inp.type = "text"; inp.maxLength = 60; inp.value = taskProject(); inp.placeholder = "과제 이름(문서를 묶는 이름)"; inp.setAttribute("list", names.id = "taskProjects");
-  for (const n of new Set(worksList.map((w) => (w.task || {}).project).filter(Boolean))) names.append(new Option(n));
-  inp.onchange = () => taskSet("project", inp.value.trim().replace(/\s+/g, " "));
-  inp.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) inp.blur(); };
-  field("과제", "과제 이름 — 같은 이름을 적은 문서들이 한 과제로 묶입니다(상단 문서 목록·문서 비교가 그 묶음으로) · 작업에 저장", inp);
-  row.append(names);
+  // 프로젝트 = 같은 이름으로 묶인 문서들 — 새 이름을 쓰거나 있는 이름을 고른다. 고르기 목록은 자체 목록(project_workspace.js projectComboAttach — spec_작업 ② §19, 2026-11-13:
+  // 브라우저 datalist 는 지금 적힌 글자와 맞는 이름만 보여, 프로젝트가 적혀 있으면 다른 프로젝트가 안 보였다)
+  const inp = el("input");
+  inp.type = "text"; inp.maxLength = 60; inp.value = taskProject(); inp.placeholder = "프로젝트 이름"; inp.dataset.task = "project";
+  inp.disabled = (typeof projectBusy === "function" && projectBusy()) || dv.busy; // TASK 실행·저장·취합이 도는 동안은 꺼 둔다(② §19 — 끝나면 projectControlsSync 가 켠다)
+  let sent = null; // 이 칸에서 이미 보낸 이름 — Enter 로 정한 뒤 포커스가 나가며(change) 같은 이름을 한 번 더 보내지 않게(저장하면 칸은 새로 만들어진다)
+  const commit = () => { const name = inp.value.trim().replace(/\s+/g, " "); if (name === taskProject() || name === sent) return; sent = name; taskSet("project", name).then((ok) => { if (!ok) sent = null; }, () => { sent = null; }); }; // 고름 · Enter · 포커스를 옮김 — 지금 프로젝트와 같으면 다시 저장하지 않는다
+  inp.onchange = commit;
+  if (typeof projectComboAttach === "function") projectComboAttach(inp, { list: "taskProjectList", commit });
+  else inp.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) inp.blur(); };
+  field("프로젝트", "같은 프로젝트의 TASK들이 프로젝트 구성을 공유합니다 — 칸을 누르면 모든 프로젝트가 보입니다", inp);
+  field("TASK", "프로젝트 안의 TASK를 선택합니다 — 새 TASK는 작업 리스트에서 파일을 올려 시작합니다", taskSelect(el("select"), "job"));
+  if (typeof projectRoundRow === "function") row.append(projectRoundRow());
   const slots = taskSlots(), gather = gatherOn(), inSlot = new Set(gather ? gatherDocIds() : (slots || []).map((k) => (taskSlotDoc(k) || {}).id)); // 이관이면 첨부 파일 칸 둘 + 단계(② §11) — 그 밖에는 이 문서의 종류 하나
+  if (!gather && !slots) field("첨부 파일", "이 문서가 어떤 첨부 파일인지 — 처음에는 양식 판정으로 채웁니다 · 작업에 저장", taskSelect(el("select"), "file"));
+  if (typeof projectConfigurationRow === "function" && taskProject() && !taskGeneral()) row.append(projectConfigurationRow());
   if (gather) row.append(gatherFlowEl()); // 취합(plan_merge) — 취합본 칸 + 기관 문서 줄 + 묶음 둘은 gather.js 가 그린다(spec_취합 ② §5)
   else if (slots) row.append(taskFlowEl());
-  else field("첨부 파일", "이 문서가 어떤 첨부 파일인지 — 처음에는 양식 판정으로 채웁니다 · 작업에 저장", taskSelect(el("select"), "file"));
   const mates = taskMates().filter((w) => !inSlot.has(w.id)), mate = (w) => { const f = taskName("file", (w.task || {}).file); return f ? `${w.name}(${f})` : w.name; };
-  if (mates.length) row.append(el("p", "dv-caption dv-task-mates", `같은 과제 문서 ${mates.length}개 — ${mates.map(mate).join(" · ")}`));
+  if (mates.length) row.append(el("p", "dv-caption dv-task-mates", `이 라운드의 참고 문서 ${mates.length}개 — ${mates.map(mate).join(" · ")}`));
   return row;
 }
 
-async function taskSet(key, value) {
+let taskSaveCount = 0, taskSetPending = Promise.resolve();
+function taskSet(key, value) {
   const id = state.id, epoch = state.epoch;
-  state.task = { kind: "", file: "", job: "", project: "", ...state.task, [key]: value };
+  taskSaveCount += 1;
+  const run = taskSetPending.catch(() => {}).then(() => id === state.id && epoch === state.epoch ? taskSetNow(key, value) : false);
+  taskSetPending = run.finally(() => { taskSaveCount -= 1; if (typeof projectControlsSync === "function") projectControlsSync(); });
+  return taskSetPending;
+}
+async function taskSetNow(key, value) {
+  if (typeof projectBusy === "function" && projectBusy(false)) { taskDraw(); if (dv.view) divRender(); toast("진행 중인 작업이 끝난 뒤 프로젝트나 TASK를 바꿀 수 있습니다"); return false; }
+  const id = state.id, epoch = state.epoch;
+  await divSettingsFlush();
+  if (epoch !== state.epoch) return;
+  const previous = state.task;
+  // 프로젝트·TASK 를 바꿀 때는 round 를 보내지 않는다 — 서버가 새 묶음의 최신 라운드로 둔다(spec_작업 ② §10·§19, 2026-11-13: 전에는 늘 1 을 보내 최신 라운드가 2 이상인 프로젝트에 들어가면
+  // 이전 라운드가 되어 구분 기준이 공유되지 않았다). 화면의 값은 응답(r.task)이 올 때까지 1 로 본다(저장이 꺼진 화면은 그대로 1)
+  const regroup = key === "project" || key === "job";
+  state.task = { kind: "", file: "", job: "", project: "", ...state.task, [key]: value, ...(regroup ? { round: 1 } : {}) };
+  // 작업 종류 ↔ 할 일의 조합(server.py TASK_KIND — 어긋나면 400: spec_일반편집 ② §11): 종류를 바꾸면 다른 종류의 할 일은 비우고, 할 일을 고르면 종류가 그 할 일을 따른다
+  // (작업 종류가 정해진 할 일 — 문서 일반 편집 = general — 은 종류를 비워도 어긋난다. 그 밖의 할 일은 연구개발이고 종류를 비운 채로도 된다)
+  const jobKind = state.task.job ? taskKindOf(state.task.job) : "";
+  if (state.task.job && (jobKind !== "rnd" ? state.task.kind !== jobKind : state.task.kind && state.task.kind !== "rnd")) state.task = key === "kind" ? { ...state.task, job: "" } : { ...state.task, kind: jobKind };
   taskDraw();
-  if (!taskRnd() && $("panel").dataset.tool === "Div") showTab("Verify");
+  if (!taskRnd() && $("panel").dataset.tool === "Div") showTab(taskGeneral() && toolShown("Agent") ? "Agent" : "Verify");
   divMarksDraw(); // 연구개발과제가 아니면 문서의 구분 기준 표시도 걷는다
-  if (!state.stored) return; // 작업 저장이 꺼져 있으면 이 화면에서만
+  if (!state.stored) return true; // 작업 저장이 꺼져 있으면 이 화면에서만
   try {
-    const r = await api(`/api/works/${id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify(state.task) });
+    const { round: sentRound, ...noRound } = state.task; // regroup 이면 round 칸 없이
+    const r = await api(`/api/works/${id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify(regroup ? noRound : state.task) });
     if (epoch !== state.epoch) return;
-    state.task = r.task; // 과제에 들어가면 그 과제의 할 일을 따른다(서버가 정함)
+    state.task = r.task; // 라운드는 서버가 정한 값(taskRound 가 읽는다 — 번호가 없으면 1)
+    if (key === "project" || key === "job") {
+      divReset(); peerPick = null;
+      if (typeof gatherState !== "undefined") gatherState = null;
+      if (typeof compareReset === "function") compareReset();
+    }
     await loadWorks();
-    if (epoch === state.epoch && !$("paneDiv").hidden && dv.view && (key === "project" || key === "job")) { divRender(); taskFlowLoad(); } // 첫 줄(할 일·같은 과제 문서 · 이관의 칸·단계)을 다시
-  } catch (e) { toast(`작업 종류를 저장하지 못했습니다: ${e.message}`, true); }
+    if (key === "project" && typeof projectInfoLoad === "function") projectInfoLoad(true); // 프로젝트를 옮겼다 — 문서가 다 빠져나간 프로젝트(문서 없는 프로젝트: ② §17)가 작업 리스트·고르기 목록에 보이게
+    if (epoch === state.epoch && !$("paneDiv").hidden && (key === "project" || key === "job")) await divShow();
+    if (r.division && epoch === state.epoch && typeof projectEnterNote === "function") projectEnterNote(r.division); // 프로젝트에 들어간 직후 알림 — 갈래는 서버가 알려 준다(adopted · seeded · none: ② §19). 칸이 없으면 알림도 없다
+    if (epoch === state.epoch && typeof agentStylesRefresh === "function") agentStylesRefresh(); // 에이전트 보기의 반영 정책(원본 문서는 보기만 — spec_일반편집 ② §8)은 TASK·첨부 파일 종류를 따른다: 바꾼 뒤 다시 읽는다
+    return true;
+  } catch (e) { if (epoch === state.epoch) { state.task = previous; taskDraw(); if (dv.view) divRender(); } toast(`프로젝트·TASK를 저장하지 못했습니다: ${e.message}`, true); return false; }
 }
 
 // ---- 할 일의 차례(spec_작업 ② §11, 2026-11-11 사용자 "할일이 정해지면 순차적으로 작업이 진행되어야") — 이관을 고르면 첫 카드에 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서)과 단계(준비 → ① 구분 기준 확인 → ② 자리 연결 → … — 공통 차례는 spec_병합 ② §0-1).
@@ -491,28 +685,28 @@ const taskFlowFresh = () => ({ seq: 0, div: {}, heads: {}, err: "" }); // 읽어
 let taskFlow = taskFlowFresh();
 const taskSlots = () => (state.stored && state.task && TASK_FILES[state.task.job]) || null;
 const taskDocs = () => [{ ...(worksList.find((w) => w.id === state.id) || { id: state.id, name: state.name }), task: state.task }, ...worksList.filter((w) => w.id !== state.id)]; // 지금 문서가 맨 앞 — 그 task 는 화면 것
-function taskSlotDoc(kind, docs = taskDocs()) { // 그 칸의 문서 — 지금 문서가 그 종류면 지금 문서, 아니면 같은 과제의 그 종류 첫 문서
+function taskSlotDoc(kind, docs = taskDocs()) { // 그 칸의 문서 — 지금 문서가 그 종류면 지금 문서, 아니면 같은 프로젝트의 그 종류 첫 문서
   const P = taskProject();
-  return docs.find((w) => (w.task || {}).file === kind && (w.id === state.id || (P && w.task.project === P))) || null;
+  return docs.find((w) => (w.task || {}).file === kind && (w.id === state.id || (P && taskSameScope(w)))) || null;
 }
-const taskFlowKey = () => (taskSlots() || []).map((k) => (taskSlotDoc(k) || {}).id || "").join(",") + "|" + worksList.length;
+const taskFlowKey = () => taskScopeKey() + "|" + (taskSlots() || []).map((k) => (taskSlotDoc(k) || {}).id || "").join(",") + "|" + worksList.length;
 
-function taskSlot(kind) { // 첨부 파일 칸 하나 — 고를 수 있는 문서 = 지금 문서 + 같은 과제 문서 + 과제 이름 없는 문서(과제 이름이 비면 지금 문서뿐)
+function taskSlot(kind) { // 첨부 파일 칸 하나 — 고를 수 있는 문서 = 지금 문서 + 같은 프로젝트 문서 + 프로젝트 이름 없는 문서(프로젝트 이름이 비면 지금 문서뿐)
   const sel = el("select"), P = taskProject(), docs = taskDocs(), cur = taskSlotDoc(kind, docs), proj = (w) => (w.task || {}).project || "";
   sel.dataset.taskFile = kind;
   sel.append(new Option("선택 안 함", ""));
-  for (const w of docs.filter((w) => w.id === state.id || (P && (!proj(w) || proj(w) === P)))) {
+  for (const w of docs.filter((w) => w.id === state.id || (P && (!proj(w) || taskSameScope(w))))) {
     const k = (w.task || {}).file;
     sel.append(new Option(w.name + (w.id === state.id ? " — 지금 문서" : "") + (k && k !== kind ? ` (${taskName("file", k)})` : ""), w.id));
   }
   sel.value = cur ? cur.id : "";
-  sel.title = (cur ? cur.name + "\n" : "") + `이 과제의 ${taskName("file", kind)} — 고른 문서가 과제에 들어오고, 이 칸에 있던 문서는 빠집니다`
-    + (P ? "" : "\n과제 이름을 적으면 다른 문서를 고를 수 있습니다");
+  sel.title = (cur ? cur.name + "\n" : "") + `이 프로젝트의 ${taskName("file", kind)} — 고른 문서가 프로젝트에 들어오고, 이 칸에 있던 문서는 빠집니다`
+    + (P ? "" : "\n프로젝트 이름을 적으면 다른 문서를 고를 수 있습니다");
   sel.onchange = () => taskSlotSet(kind, sel.value);
   return sel;
 }
 
-async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선택 안 함) — 고른 문서는 이 과제의 그 종류가 되고, 칸에 있던 다른 문서는 과제에서 나온다
+async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선택 안 함) — 고른 문서는 이 프로젝트의 그 종류가 되고, 칸에 있던 다른 문서는 프로젝트에서 나온다
   // 지금 문서가 그 칸에 있었으면: 다른 문서가 들어올 때 **그 문서를 연다**(화면 = 칸의 문서) · 지금 문서도 다른 문서처럼 과제에서 나온다 —
   // 2026-11-12 사용자 "연차보고서는 빈건데 왜 화면에 보이는 것은 1단계가 진행된 문서로 나오냐?"(연차보고서를 보며 빈 서식을 다시 올렸는데 화면은 옛 문서, 단계는 새 문서를 말함).
   // 「선택 안 함」 이거나 열지 않았으면(반영 안 된 수정을 두고 그만둠 · 못 엶) 전처럼 종류만 비운다(과제에는 남음 — 보고 있는 문서의 과제 칸이 비지 않게)
@@ -522,9 +716,10 @@ async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선�
   const swap = !!(me && neu) && confirmDiscard(); // 그 자리에 다른 문서가 들어온다 → 그 문서로 화면을 바꾼다(반영 안 된 수정이 있으면 먼저 묻는다)
   let moved = false; // 새 문서를 실제로 열었나
   try {
-    for (const w of docs.filter((w) => w.id !== wid && w.id !== id && (w.task || {}).file === kind && P && w.task.project === P)) await put(w, { project: "" });
+    if (neu && neu.id !== id && neu.task && neu.task.project && !taskSameScope(neu)) throw new Error("다른 프로젝트·TASK·라운드의 문서는 첨부할 수 없습니다");
+    for (const w of docs.filter((w) => w.id !== wid && w.id !== id && (w.task || {}).file === kind && P && taskSameScope(w))) await put(w, { project: "", round: 1 });
     if (neu) {
-      const r = await put(neu, { kind: "rnd", file: kind, project: P, job: state.task.job });
+      const r = await put(neu, { kind: "rnd", file: kind, project: P, job: state.task.job, round: taskRound() });
       if (wid === id && epoch === state.epoch) state.task = r.task;
     }
     if (swap && epoch === state.epoch) {
@@ -554,7 +749,7 @@ function taskSlotUp(kind) { // 칸 오른쪽의 폴더 단추 — 그 자리에�
   b.type = "button";
   b.dataset.taskUp = kind;
   b.disabled = !P;
-  b.title = P ? `${name} 올리기 — hwp·hwpx 파일을 올려 이 칸에 넣습니다(hwp 는 hwpx 로 바꿔 받음 · ${mine ? `지금 보는 문서가 이 칸의 문서라 올린 문서로 화면이 바뀌고, 지금 문서는 과제에서 나옵니다` : "지금 보는 문서는 그대로"})` : "과제 이름을 먼저 적으세요 — 올린 문서를 그 과제에 넣습니다";
+  b.title = P ? `${name} 올리기 — hwp·hwpx 파일을 올려 이 칸에 넣습니다(hwp 는 hwpx 로 바꿔 받음 · ${mine ? `지금 보는 문서가 이 칸의 문서라 올린 문서로 화면이 바뀌고, 지금 문서는 프로젝트에서 나옵니다` : "지금 보는 문서는 그대로"})` : "프로젝트 이름을 먼저 적으세요 — 올린 문서를 그 프로젝트에 넣습니다";
   b.setAttribute("aria-label", `${name} 올리기`);
   b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
   b.onclick = (e) => {
@@ -607,7 +802,7 @@ async function taskFlowLoad() { // 단계 ①② 에 쓸 다른 문서 쪽 자�
         // 기준 문서(사업계획서)의 값 = 반영 값 → 입력 값(자리 연결 API merge_api._read 와 같은 차례 — 문서가 실제로 맞춰진 값이 먼저), 견줄 문서는 입력 값 → 반영 값
         let values = ((w === plan ? r.applied || r.settings : r.settings || r.applied) || {}).values || null, read = false;
         if (!values && w === plan && r.profile.form) { values = taskReadValues((await api(`/api/docs/${w.id}/divisions/read`)).read); read = !!values; } // 저장된 값이 없으면 문서에 적힌 값 — 사람이 확인해 저장해야 기준이 된다
-        div[w.id] = { values, applied: r.applied, read };
+        div[w.id] = { values, applied: r.applied, read, input: (r.settings || {}).values || null, confirmed: r.confirmed || null, sharing: r.projectSharing || null }; // input·confirmed = 1단계 「프로젝트 구성 확정」(spec_작업 ② §18)
       }));
     } catch (e) { err = e.message; }
   }
@@ -615,6 +810,7 @@ async function taskFlowLoad() { // 단계 ①② 에 쓸 다른 문서 쪽 자�
   Object.assign(flow, { div, heads, err });
   taskStepsDraw();
   if (plan && report && !err) linksCall(report); // ② 자리 연결 — 연결 목록(또는 문서별 까닭)을 읽는다. 큰 문서는 처음 몇 초(서버가 요약을 기억)
+  if (plan && report && !err) taskCleanupLoad(report); // ⑥ 작성요령 삭제 — 지울 안내 수(지금 문서에서 스크립트로 셈 — 1초 안팎)
 }
 
 function taskDivOf(w, basis = false) { // 문서의 구분 기준 {values | null(값 없음), applied, read?} — 지금 문서는 화면 값, 다른 문서는 읽어 둔 것. undefined = 아직 못 읽음. basis = 기준 문서(반영 값이 먼저)
@@ -622,6 +818,22 @@ function taskDivOf(w, basis = false) { // 문서의 구분 기준 {values | null
   if (!dv.view || !dv.values) return undefined;
   if (basis && dv.view.applied) return { values: dv.view.applied.values, applied: dv.view.applied };
   return { values: dv.view.settings || dv.view.applied || dv.dirty ? divValues() : null, applied: dv.view.applied };
+}
+function taskConfigOf(w) { // 1단계 「프로젝트 구성 확정」(spec_작업 ② §18) — 기준 문서(사업계획서)의 {values(입력 값 | null), confirmed, sharing, read(값이 없어 문서에서 읽은 값 | null)}. undefined = 아직 못 읽음
+  if (w.id === state.id) return dv.view && dv.values ? { values: dv.view.settings || dv.dirty ? divValues() : null, confirmed: dv.view.confirmed || null, sharing: dv.view.projectSharing || null, read: null } : undefined;
+  const D = taskFlow.div[w.id];
+  return D && { values: D.input, confirmed: D.confirmed, sharing: D.sharing, read: !D.input && D.read ? D.values : null };
+}
+async function taskConfigConfirm(plan, values) { // 「프로젝트에 저장」(1단계 확정) — 지금 문서가 이관의 칸 문서면 그 입력 칸 값(같은 프로젝트면 같은 확정), 아니면 사업계획서 작업에 바로
+  if (state.id && (taskSlots() || []).some((k) => (taskSlotDoc(k) || {}).id === state.id) && dv.view) {
+    if (values && divCanon(values) !== divCanon(divValues())) { dv.values = structuredClone(values); divTouched(); divRender(); } // 문서에서 읽은 사업계획서 값 — 입력 칸에 넣고 확정
+    return divConfirm();
+  }
+  const epoch = state.epoch;
+  try { await api(`/api/docs/${plan.id}/divisions/confirm`, { method: "POST", headers: H_JSON, body: JSON.stringify(values ? { values } : {}) }); }
+  catch (e) { toast(`프로젝트 구성을 확정하지 못했습니다: ${e.message}`, true); return false; }
+  if (epoch === state.epoch) taskFlowLoad();
+  return true;
 }
 
 async function taskPlanValuesSave(plan, values) { // 문서에서 읽은 값을 사업계획서(다른 문서)의 구분 기준 값으로 저장 — 저장만(문서는 그대로). 그 뒤 다시 읽어 견준다
@@ -666,13 +878,29 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   }, { ...opt, title: (opt.title || "") + (me(report) ? "" : "\n연차보고서를 고치는 문서로 바꾼 뒤 이어서 합니다 — 두 문서의 자리는 그대로이고 사업계획서는 읽기 전용이 됩니다") });
   const lack = [[plan, "사업계획서"], [report, "연차보고서"]].filter((x) => !x[0]).map((x) => x[1]);
   const files = { key: "files", no: "", name: "준비", done: !lack.length, acts: [], // 단계 이름·번호 = 공통 차례(spec_병합 ② §0-1, 2026-11-11 사용자 확정): 준비 → ① 구분 기준 확인 → ② 자리 연결 → …
-    text: lack.length ? `${lack.join(" · ")}를 위 칸에서 고르세요` + (taskProject() ? "" : " — 과제 이름을 적으면 다른 문서를 고를 수 있습니다") : "사업계획서 · 연차보고서" };
+    text: lack.length ? `${lack.join(" · ")}를 위 칸에서 고르세요` + (taskProject() ? "" : " — 프로젝트 이름을 적으면 다른 문서를 고를 수 있습니다") : "사업계획서 · 연차보고서" };
 
-  const division = { key: "division", no: "①", name: "구분 기준 확인", done: false, text: "", acts: [] }, A = both && taskDivOf(plan, true), B = both && taskDivOf(report);
+  // 1단계 「프로젝트 구성 확정」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1"): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
+  const config = { key: "config", no: "", name: "프로젝트 구성 확정", done: false, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」)
+  const csum = (v) => `${v.stages.length}단계 · 전체 ${divTotalYears(v)}년 · 기관 ${((v.orgs || {}).joint || []).length + 1}곳`, where = divConfirmWhere(CF && CF.sharing);
+  const confirmBtn = (values) => { const b = hBtn(`${where}에 저장`, () => taskConfigConfirm(plan, values), { cls: "btn sm primary", disabled: dv.busy,
+    title: `${values ? "사업계획서에서 읽은" : "지금 입력"} 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다. 확정해야 2단계 「문서 프레임 작성」 으로 갑니다` }); b.dataset.taskConfirm = "1"; return b; };
   if (!both) { /* 준비가 먼저 */ }
+  else if (taskFlow.err) config.text = `다른 문서를 읽지 못했습니다: ${taskFlow.err}`;
+  else if (!CF) config.text = "사업계획서의 프로젝트 구성을 읽는 중…";
+  else if (divConfirmValid(CF.values, CF.confirmed)) Object.assign(config, { done: true, text: `${where}에 확정함(${fmtWhen(CF.confirmed.at)}) — ${csum(CF.values)}` });
+  else if (!CF.values && CF.read) Object.assign(config, { text: `사업계획서에 저장된 값이 없어 문서에서 읽었습니다(${csum(CF.read)}) — 맞으면 ${where}에 저장(확정)하세요(틀리면 아래 입력 칸에서 고칩니다)`, acts: [confirmBtn(CF.read)] });
+  else if (!CF.values) Object.assign(config, { text: "프로젝트 구성(단계·차년도·기관)이 없습니다 — 사업계획서에서 추출하거나 아래 「프로젝트 구성 불러오기」 · 입력 칸에서 정하세요",
+    acts: [hBtn("사업계획서에서 추출", () => divRead({ id: plan.id, name: plan.name }), { cls: "btn sm primary", disabled: dv.busy, title: "사업계획서에 적힌 단계·차년도·기관을 읽어 입력 칸에 채웁니다 — 문서는 안 바뀌고, 확인한 뒤 확정합니다" })] });
+  else if (CF.confirmed) Object.assign(config, { text: `확정한 뒤 값이 바뀌었습니다 — 다시 저장하거나 확정본으로 되돌리세요(지금: ${csum(CF.values)})`,
+    acts: [confirmBtn(null), ...(dv.view ? [hBtn("확정본으로 되돌리기", () => divConfirmRevert(CF.confirmed), { disabled: dv.busy, title: `입력 칸을 확정한 값(${csum(CF.confirmed.values)})으로 되돌립니다` })] : [])] });
+  else Object.assign(config, { text: `${csum(CF.values)} — 확인한 뒤 ${where}에 저장(확정)하세요`, acts: [confirmBtn(null)] });
+
+  const division = { key: "division", no: "①", name: "프로젝트 구성 반영", done: false, text: "", acts: [] }, A = both && taskDivOf(plan, true), B = both && taskDivOf(report);
+  if (!both || !config.done) { /* 준비 · 1단계(프로젝트 구성 확정)가 먼저 */ }
   else if (taskFlow.err) Object.assign(division, { text: `다른 문서를 읽지 못했습니다: ${taskFlow.err}`, acts: [hBtn("다시 읽기", () => { taskFlow.err = ""; taskStepsDraw(); taskFlowLoad(); })] });
-  else if (!A || !B) division.text = "두 문서의 구분 기준을 읽는 중…";
-  else if (!A.values) Object.assign(division, { text: "사업계획서(기준)에 구분 기준 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽으세요",
+  else if (!A || !B) division.text = "두 문서의 프로젝트 구성을 읽는 중…";
+  else if (!A.values) Object.assign(division, { text: "사업계획서(기준)에 프로젝트 구성 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽으세요",
     acts: [me(plan) ? hBtn("문서에서 읽기", () => divRead(), { disabled: dv.busy }) : open(plan, "사업계획서")] });
   else {
     const diff = B.values ? taskDivDiff(A.values, B.values) : ["연차보고서에 값 없음"];
@@ -680,10 +908,10 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     const cur = (v) => JSON.parse(divCanon(v)).current, [ya, yb] = [cur(A.values), B.values ? cur(B.values) : 0]; // 당해 차년도 — 안 견주지만 사업계획서와 다르면 글로 보인다
     const year = yb && ya !== yb ? ` · 당해 차년도는 연차보고서 ${yb}차년도(사업계획서 ${ya}차년도)` : "";
     if (A.read) Object.assign(division, { text: `사업계획서에 저장된 값이 없어 문서에서 읽었습니다(${sum}) — 맞으면 사업계획서의 값으로 저장하세요(틀리면 사업계획서를 열어 고칩니다)`,
-      acts: [hBtn("사업계획서 값으로 저장", () => taskPlanValuesSave(plan, A.values), { cls: "btn sm primary", title: "읽은 값을 사업계획서 작업의 구분 기준 값으로 저장합니다 — 문서는 바뀌지 않습니다" }), open(plan, "사업계획서")] });
+      acts: [hBtn("사업계획서 값으로 저장", () => taskPlanValuesSave(plan, A.values), { cls: "btn sm primary", title: "읽은 값을 사업계획서 작업의 프로젝트 구성 값으로 저장합니다 — 문서는 바뀌지 않습니다" }), open(plan, "사업계획서")] });
     else if (diff.length) Object.assign(division, { text: `사업계획서(${sum})와 다름 — ${diff.join(" · ")}`,
       acts: [onReport("사업계획서 기준으로 맞추기", () => taskDivFit(A.values), { cls: "btn sm primary", disabled: dv.busy,
-        title: "연차보고서의 구분 기준 값을 사업계획서 값으로 바꾸고(당해 차년도 포함) 변경 계획을 엽니다 — 문서는 계획을 확인하고 「반영」 을 눌러야 바뀝니다 · 괄호 안은 사업계획서 ↔ 연차보고서" })] });
+        title: "연차보고서의 프로젝트 구성 값을 사업계획서 값으로 바꾸고(당해 차년도 포함) 변경 계획을 엽니다 — 문서는 계획을 확인하고 「반영」 을 눌러야 바뀝니다 · 괄호 안은 사업계획서 ↔ 연차보고서" })] });
     else if (!(B.applied && divCanon(B.applied.values) === divCanon(B.values))) Object.assign(division, { text: `값은 사업계획서와 같음(${sum}) · 연차보고서에 아직 반영 전${year}`,
       acts: [onReport("변경 계획 보기", () => divPlan(), { cls: "btn sm primary", disabled: dv.busy, title: "연차보고서에서 바뀔 자리를 확인한 뒤 반영합니다" })] });
     else Object.assign(division, { done: true, text: `사업계획서와 같음 · 연차보고서에 반영됨 — ${sum}${year}` });
@@ -701,7 +929,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   else if (L.error) Object.assign(link, L.missing ? { text: "자리 연결은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" } : { text: `연결 목록을 읽지 못했습니다: ${L.error}`, acts: [again()] });
   else {
     const why = [[L.from, "사업계획서"], [L.to, "연차보고서"]].filter(([s]) => !s || s.reasons.length)
-      .map(([s, name]) => `${name}: ${s ? s.reasons.map((r) => LINK_REASON[r] || r).join(", ") : "같은 과제에서 찾지 못함"}`);
+      .map(([s, name]) => `${name}: ${s ? s.reasons.map((r) => LINK_REASON[r] || r).join(", ") : "같은 프로젝트에서 찾지 못함"}`);
     if (why.length) Object.assign(link, { text: `연결 목록을 낼 수 없습니다 — ${why.join(" · ")}`, acts: [again()] }); // ① 이 끝났는데도 남는 까닭(서버가 본 것) — 그대로 보인다
     else {
       // 강조 단추 = 다음 할 일(2026-11-11 사용자 "이 다음이 LLM 검토라는걸 내가 어떻게 아냐?"): 확인 필요가 있고 LLM 검토를 아직 안 했으면 「LLM 검토」 가 앞·강조.
@@ -709,8 +937,8 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
       const first = !!L.counts.ambiguous && !L.llm, busy = taskFlow.llmBusy || taskFlow.linkBusy, openT = linksOpenTables(L); // openT = 후보는 있는데 같은 표인지 못 정한 표(LLM 검토가 본다 — spec_병합 ② §5-1 「표 짝 검토」)
       const list = hBtn("연결 목록", () => linksList(), { title: "문서 옆 열에 연결 목록을 엽니다 — 확인 필요한 자리의 원본을 후보에서 고를 수 있습니다(안 골라도 됩니다)" });
       const hint = busy ? "" : first ? " — 다음: 「LLM 검토」 로 확인 필요한 자리를 정리합니다" : L.counts.ambiguous ? ` — 남은 확인 필요 ${L.counts.ambiguous}곳은 넣지 않고 비워 둡니다(각 기관이 작성 · 고르려면 「연결 목록」)` : openT && !L.llm ? ` — 같은 표인지 못 정한 표 ${openT}개(「LLM 검토」 가 기관·차년도를 가려 봅니다)` : "";
-      const old = !busy && taskHeadsOld(report) ? " · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(2단계 「한 번에 진행」 이 다시 분석 — 스크립트)" : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다)
-      const guide = PEEK ? [] : [llmGuideBtn("merge-links", report.id), // 이 LLM 검토에 보내는 지침·할 일 프롬프트·마지막 프롬프트 보기(2026-11-12 사용자 — 목록이 나온 뒤면 늘 보인다 · 강조 아님)
+      const old = !busy && taskHeadsOld(report) ? ` · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(${TASK_STAGE_META.map.no} 「한 번에 진행」 이 다시 분석 — 스크립트)` : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다)
+      const guide = PEEK ? [] : [llmGuideBtn("merge-links", report.id), // 이 LLM 검토에 보내는 지침·TASK 프롬프트·마지막 프롬프트 보기(2026-11-12 사용자 — 목록이 나온 뒤면 늘 보인다 · 강조 아님)
         hBtn(`연결 코멘트${(L.comments || []).length ? ` ${L.comments.length}` : ""}`, () => linkNotes(), { title: "어느 표·단락을 사업계획서의 어디와 이을지 글로 남깁니다 — 연차보고서 양식 정보의 「자리 연결」 절에 쌓이고 LLM 검토·표 대응이 읽습니다(문서 옆 열)" })]; // 연결 코멘트(spec_병합 ② §5-3 1 — 2026-11-12 사용자 "어디어디 테이블이나 단락을 연결해 주라고 코멘트를")
       Object.assign(link, { done: !L.counts.ambiguous || !!L.llm, text: linksCountText(L) + linksLlmText(L) + (taskFlow.llmBusy ? " · LLM 검토 중…" : taskFlow.linkBusy ? " · 읽는 중…" : "") + hint + old,
         acts: first ? [linksLlmBtn(L, true), list, ...guide] : [list, ...(L.counts.ambiguous || L.counts.toOnly || openT ? [linksLlmBtn(L)] : []), ...guide] }); // 못 정한 자리가 있을 때만 LLM 검토(사람이 누를 때만 돈다 — 비용)
@@ -721,7 +949,8 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const targets = !!(L && !L.error && L.counts && (L.counts.paired || linksFixedN(L) || linksFixedErr(L))); // 넣을 자리 = 이어진 묶음 + 같은 이름 자리(고정 자리 — spec_병합 ② §5-1)
   const F = taskFlow.fill || {}, ready = !!(targets && L.from && !L.from.reasons.length && !L.to.reasons.length);
   const noTargets = !!(division.done && link.done && L && !L.error && L.counts && !targets && L.from && !L.from.reasons.length && L.to && !L.to.reasons.length);
-  const planStep = { key: "plan", no: "③", name: "표 안 연결 · 넣기 계획", done: !!(F.plan || F.done || noTargets), skipped: noTargets, early: ready, keep: true, busy: !!F.busy && F.busyStep === "plan", acts: [], text: noTargets ? "이어진 자리가 없어 계획할 내용이 없습니다" : "" };
+  const K = (L && !L.error && L.kept) || {}, prior = !F.done && !F.plan && (K.applied || 0) > 0; // 지난 반영 — 넣은 기록이 지금 문서에 남아 있다(서버 merge.json · 다시 열어도 — 이 화면의 F 는 메모리만)
+  const planStep = { key: "plan", no: "③", name: "표 안 연결 · 넣기 계획", done: !!(F.plan || F.done || noTargets || prior), skipped: noTargets, early: ready, keep: true, busy: !!F.busy && F.busyStep === "plan", acts: [], text: noTargets ? "이어진 자리가 없어 계획할 내용이 없습니다" : "" };
   // 표 대응(spec_병합 ② §5-3 — 2026-11-12 사용자 "그 테이블을 저테이블에 매핑해주는 에이전트를 하나 호출해서"): 같은 표로 이었는데 두 서식의 행·열 구성이 달라 칸을 못 맞춘 표 수. 계획이 있으면 그 수(표 묶음 쪽 포함), 없으면 연결 목록의 수
   const mapOpen = (F.plan && F.plan.maps ? F.plan.maps.counts.open : linksMapOpen(L)) || 0, mapN = (F.plan && F.plan.maps ? F.plan.maps.counts.tables : linksMapN(L)) || 0;
   const mapActs = !ready || PEEK ? [] : [...(mapOpen ? [onReport(taskFlow.mapBusy ? "표 대응 중…" : "표 대응(LLM)", () => fillMap(), { cls: "btn sm", disabled: !!(F.busy || taskFlow.mapBusy),
@@ -732,26 +961,45 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const gapActs = !ready || PEEK || !F.plan ? [] : [...(gapOpen || gapN ? [onReport(taskFlow.gapBusy ? "빈 자리 검토 중…" : gapOpen ? "빈 자리 검토(LLM)" : "빈 자리 검토 다시", () => fillGaps({ again: !gapOpen }), { cls: "btn sm", disabled: !!(F.busy || taskFlow.gapBusy || taskFlow.mapBusy),
     title: "내용 매핑이 못 채운 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 LLM(Opus)에 묻습니다 — 수십 초 · 유료. 글은 LLM 이 쓰지 않고 고른 자리의 글을 그대로 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" }),
     llmGuideBtn("gaps", report.id)] : [])];
-  if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다")
+  if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : prior ? `지난 반영으로 넣은 자리 ${K.applied}곳 — 더 넣을 것은 「넣기 계획 다시」 가 셉니다` : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다")
       + (taskFlow.mapBusy ? " · 표 대응 중…" : mapOpen ? ` · 칸을 못 맞춘 표 ${mapOpen}개 — 「표 대응(LLM)」 이 행·열을 맞춥니다` : "")
       + (taskFlow.gapBusy ? " · 빈 자리 검토 중…" : gapOpen ? ` · 아직 빈 자리 ${gapOpen}곳 — 「빈 자리 검토(LLM)」 가 사업계획서에서 찾습니다` : ""),
-    acts: [onReport(planStep.busy ? "계획 중…" : F.plan || F.done ? "넣기 계획 다시" : "넣기 계획", () => fillPlan(), { cls: "btn sm" + (F.plan || F.done || !link.done ? "" : " primary"), disabled: !!F.busy, // 강조 단추는 카드에 하나 — ② 에 확인 필요가 남았으면 「연결 목록」 쪽
+    acts: [onReport(planStep.busy ? "계획 중…" : F.plan || F.done || prior ? "넣기 계획 다시" : "넣기 계획", () => fillPlan(), { cls: "btn sm" + (F.plan || F.done || prior || !link.done ? "" : " primary"), disabled: !!F.busy, // 강조 단추는 카드에 하나 — ② 에 확인 필요가 남았으면 「연결 목록」 쪽
       title: "이어진(연결됨) 자리마다 넣을 본문 블록·표 칸·늘릴 행과 못 넣는 까닭을 셉니다 — 문서는 「반영」 을 눌러야 바뀝니다" }), ...mapActs, ...gapActs] });
   const nothing = !!(noTargets || (F.plan && F.plan.todo === 0));
-  const applyStep = { key: "apply", no: "④", name: "내용 반영", done: !!F.done || nothing, skipped: !F.done && nothing, early: !!F.plan, keep: true, busy: !!F.busy && F.busyStep === "apply",
+  const applyStep = { key: "apply", no: "④", name: "내용 반영", done: !!F.done || nothing || prior, skipped: !F.done && nothing && !prior, early: !!F.plan, keep: true, busy: !!F.busy && F.busyStep === "apply",
     acts: F.plan ? [hBtn("계획 보기", () => fillList(), { cls: "btn sm" + (F.plan.todo && link.done ? " primary" : ""), disabled: !!F.busy })] : [],
-    text: F.done ? fillDoneText(F.done) : nothing ? "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)" : F.plan ? "「계획 보기」 에서 확인하고 「반영」 을 누르세요" : "" };
+    text: F.done ? fillDoneText(F.done) : nothing ? "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)" : F.plan ? "「계획 보기」 에서 확인하고 「반영」 을 누르세요" : prior ? `지난 반영 — 넣은 자리 ${K.applied}곳` : "" };
   division.busy = !!dv.busy && !!report && state.id === report.id;
   link.busy = !!(taskFlow.llmBusy || (division.done && hp && hr && taskFlow.linkBusy));
-  return [files, division, link, planStep, applyStep,
+
+  // ⑥ 작성요령 삭제 — 3단계 「문서 정리」(spec_작업 ② §14 「3단계」, 2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" → "그냥 위 첨자, 작성요령이 테이블 첫번째 줄에 있는 경우,
+  // ※ 2page 이내 요약 작성.. 당구장 표시랑 색이랑 폰트가 같은 경우 정도만 삭제해도 되겠고만"): 위첨자 각주 번호 · 첫 줄이 「작성 요령」 인 표 · 안내 색 ※ 글(app/form_cleanup.py).
+  // 목록은 지금 문서에서 스크립트로 센다(GET …/form-cleanup — 읽어 둔 것: taskFlow.cleanup) → 끝남 = 내용 반영(④)이 끝났고 남은 것이 없음
+  const C = both ? taskFlow.cleanup : undefined, GD = taskFlow.guide || {};
+  const guide = { key: "guide", no: "⑥", name: "작성요령 삭제", done: false, keep: true, busy: !!GD.busy, acts: [], text: "" };
+  if (!both) { /* 준비가 먼저 */ }
+  else if (C === undefined) guide.text = "지울 안내를 세는 중…";
+  else if (C.error) Object.assign(guide, { text: `지울 안내를 세지 못했습니다: ${C.error}`, acts: [hBtn("다시 읽기", () => taskCleanupLoad(report))] });
+  else {
+    const n = C.counts || {};
+    guide.done = applyStep.done && !n.total;
+    guide.text = GD.busy ? "지우는 중…" : n.total ? `${taskCleanupText(n)} — 내용과 쓸 자리는 남깁니다(본문 색 ※ 줄은 내용으로 봄)`
+      : GD.done ? `${taskCleanupText(GD.done, true)} · 남은 안내 없음` : "지울 안내가 없습니다";
+    const list = hBtn("목록 보기", () => taskCleanupList(), { title: "지우는 패턴 목록과 지울 자리를 문서 옆 열에 보입니다 — 줄을 누르면 문서의 그 자리로" });
+    guide.acts = n.total ? [onReport(GD.busy ? "지우는 중…" : "작성요령 삭제", () => taskCleanup(), { cls: "btn sm primary", disabled: !!GD.busy,
+      title: `지우는 패턴(${cleanupNames()})에 걸린 양식 안내를 확인 창 뒤 한 번에 지웁니다 — 편집 하나 · 실행 취소 한 번` }), list] : [list];
+  }
+  return [files, config, division, link, planStep, applyStep,
     { key: "later", no: "⑤", name: "합계 계산 → 결과 확인", done: false, soon: true, acts: [], // 2026-11-12 사용자 "합계 계산은 … 어디서 표시하는건지" — 아직 없는 단계라는 것과 지금 계산 칸이 어떻게 되는지를 줄에 적는다
-      text: "아직 없는 단계입니다 — 넣은 값으로 합계·소계·비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다(넣기 계획의 「계산 칸」)" }];
+      text: "아직 없는 단계입니다 — 넣은 값으로 합계·소계·비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다(넣기 계획의 「계산 칸」)" },
+    guide];
 }
 
 // ---- ② 자리 연결 — 연결 목록(spec_병합 ② §0·§0-1·§8 · API app/merge_api.py: GET/POST /api/docs/{연차보고서}/merge-links · PUT …/{묶음}). 화면 말은 「자리 연결」·「연결 목록」(「매칭」·「짝」 안 씀)
 const LINK_STATUS = { paired: "연결됨", ambiguous: "확인 필요", toOnly: "후보 없음", fromOnly: "원본에만" }; // 묶음 상태 → 화면 말(원본 = 사업계획서)
 const LINK_BADGE = { paired: "applied", ambiguous: "unsupported", toOnly: "already", fromOnly: "already" }; // 색은 구분 기준 목록의 꼬리표(.dv-badge)를 같이 쓴다
-const LINK_REASON = { noHeadings: "헤딩·표 분석 없음", noValues: "구분 기준 값 없음", notApplied: "구분 기준 반영 전", unsupportedForm: "hwpx 문서가 아님", valuesDiffer: "구분 기준 값이 사업계획서와 다름" };
+const LINK_REASON = { noHeadings: "헤딩·표 분석 없음", noValues: "프로젝트 구성 값 없음", notApplied: "프로젝트 구성 반영 전", unsupportedForm: "hwpx 문서가 아님", valuesDiffer: "프로젝트 구성 값이 사업계획서와 다름" };
 const LINK_KIND = { paragraph: "본문", rows: "표 행", cols: "표 열", list: "목록 행" };
 const linksFixedErr = (L) => ((L && L.fixed) || {}).error || ""; // 서버가 같은 이름 자리를 못 셈 — 「0」 이 아니라 「모름」: 넣기 계획은 세울 수 있게 둔다(거기서 까닭이 드러난다)
 const linksFixedN = (L) => ((L && L.fixed) || {}).todo || 0; // 같은 이름 자리(구분 기준이 안 걸린 표지·요약문 칸 · 「[최종목표]」 같은 라벨)에 넣을 수 — 묶음 수와 따로 센다
@@ -858,12 +1106,12 @@ function linksList(keep = false) { // 2열 「자리 연결 — 연결 목록」
   foot.append(el("span", "muted", linksCountText(L) + linksLlmText(L)));
   if (c.ambiguous || c.toOnly) foot.append(linksLlmBtn(L));
   if (L.stale) foot.append(el("span", "hd-msg note", "고른 뒤 문서가 바뀌었습니다 — 고른 연결은 그대로입니다"));
-  if (L.diff && L.diff.length) foot.append(el("span", "hd-msg", "두 문서의 구분 기준 값이 다릅니다"));
+  if (L.diff && L.diff.length) foot.append(el("span", "hd-msg", "두 문서의 프로젝트 구성 값이 다릅니다"));
   foot.append(hBtn(busy ? "읽는 중…" : "다시 내기", () => linksCall(report, { method: "POST" }), { disabled: busy, title: "두 문서의 자리 묶음을 다시 읽어 연결 목록을 새로 냅니다 — 사람이 고른 것은 유지" }), hBtn("닫기", () => headsColClose()));
 }
 
 // ---- ② LLM 검토(spec_병합 ② §4 — POST …/merge-links/llm): 못 정한 자리를 연차보고서의 챕터별(20쪽 이내)로 나눠 병렬로 Opus 에 묻는다. 사람이 누를 때만 돈다
-const linksLlmText = (L) => (!L.llm ? "" : ` · LLM 검토함(${L.llm.units.filter((u) => u.call).length}단위${L.llm.units.some((u) => u.call && u.call.error) ? " — 일부 실패" : ""}${L.llm.tables && (L.llm.tables.paired || L.llm.tables.none) ? ` · 표 ${L.llm.tables.paired}개 이음 · ${L.llm.tables.none}개 비움` : ""}${L.llm.job ? " · 할 일 프롬프트 함께 보냄" : ""})`); // job = 함께 보낸 할 일 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)
+const linksLlmText = (L) => (!L.llm ? "" : ` · LLM 검토함(${L.llm.units.filter((u) => u.call).length}단위${L.llm.units.some((u) => u.call && u.call.error) ? " — 일부 실패" : ""}${L.llm.tables && (L.llm.tables.paired || L.llm.tables.none) ? ` · 표 ${L.llm.tables.paired}개 이음 · ${L.llm.tables.none}개 비움` : ""}${L.llm.job ? " · TASK 프롬프트 함께 보냄" : ""})`); // job = 함께 보낸 TASK 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)
 function linksLlmBtn(L, primary = false) { // primary = 지금 할 일(확인 필요가 있고 아직 검토 전 — taskSteps ②)
   return hBtn(taskFlow.llmBusy ? "LLM 검토 중…" : L.llm ? "LLM 다시 검토" : "LLM 검토", () => linksLlm(), { cls: "btn sm" + (primary ? " primary" : ""), disabled: !!(taskFlow.llmBusy || taskFlow.linkBusy),
     title: "못 정한 자리(확인 필요·후보 없음)와 못 정한 표(같은 표인지 · 어느 기관·차년도의 표인지)를 연차보고서의 챕터별(20쪽 이내)로 나눠 LLM(Opus)에 묻습니다 — 수십 초. 사람이 고른 연결은 안 바꾸고, LLM 이 이은 것은 「LLM」 꼬리표로 보입니다. 판단 기준은 「지침」 에서 봅니다" });
@@ -941,9 +1189,9 @@ const fillGapNote = (res) => (res ? ` · 빈 자리 검토 ${(res.tables.paired 
 // step = merge-links(자리 연결 LLM 검토 — 문서 = 연차보고서) · division-review(구분 기준 LLM 재검토) · division-missing(빠진 자리 검토). 끝점이 없으면(서버 재시작 전) 그렇게 알린다.
 const LLM_GUIDE_STEPS = { "merge-links": "자리 연결 LLM 검토", "division-review": "구분 기준 LLM 재검토", "division-missing": "빠진 자리 검토", gather: "기관 작성 내용 LLM 검토", "table-map": "표 대응(LLM)", gaps: "빈 자리 검토(LLM)" }; // gather = 취합(문서 = 취합본 · ?part=<기관 문서> — spec_취합 ② §4-3)
 const LLM_GUIDE_SWAP = { "division-review": "division-missing", "division-missing": "division-review" }; // 「구분 기준 자리 표시」 줄의 「지침」 하나로 두 검토의 지침을 오간다
-const LLM_GUIDE_OPEN = new Set(["guide", "job"]); // 처음부터 펴 두는 절 — 사람이 관리하는 글(판단 지침 · 할 일 프롬프트). 계약·양식 정보는 접어 둔다
+const LLM_GUIDE_OPEN = new Set(["guide", "job"]); // 처음부터 펴 두는 절 — 사람이 관리하는 글(판단 지침 · TASK 프롬프트). 계약·양식 정보는 접어 둔다
 function llmGuideBtn(step, docId, q = "") { // 「지침」 — 보통 단추(강조 아님: 강조 단추는 카드에 하나). q = 끝점에 붙일 질의(취합 「part=<기관 문서 id>」 — 기관 문서마다 다른 프롬프트)
-  const b = hBtn("지침", () => llmGuideOpen(step, docId, q), { title: "이 LLM 검토에 함께 보내는 지침·할 일 프롬프트·양식 정보와 마지막으로 보낸 프롬프트를 봅니다" });
+  const b = hBtn("지침", () => llmGuideOpen(step, docId, q), { title: "이 LLM 검토에 함께 보내는 지침·TASK 프롬프트·양식 정보와 마지막으로 보낸 프롬프트를 봅니다" });
   b.dataset.llmGuide = step;
   return b;
 }
@@ -1026,6 +1274,7 @@ const fillMapText = (c) => (c && c.tables ? ` · 표 대응 — 표 ${c.tables} 
 const fillGapText = (c) => (c && (c.cells || c.lines) ? ` · 빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}` : ""); // 빈 자리 검토(spec_병합 ② §5-4)가 원본 줄을 찾은 자리
 const fillCountText = (p) => `본문 ${p.body.counts.todo || 0}항목 · 표 칸 ${p.tables.counts.cells || 0} · 행 추가 ${p.tables.counts.rows || 0}` + fillFixedText(p.fixed && p.fixed.counts) + fillMapText(p.maps && p.maps.counts) + fillGapText(p.gaps && p.gaps.counts) + (p.todo ? "" : " — 넣을 것 없음");
 const fillDoneText = (r) => `본문 블록 ${(r.body || {}).blocks || 0} · 표 칸 ${(r.tables || {}).filled || 0} · 행 추가 ${(r.tables || {}).rowsAdded || 0} · 템플릿 변환 ${(r.converted || {}).converted || 0}줄`
+  + ((r.converted || {}).over ? ` · 넘친 레벨 ${r.converted.over}줄` : "") // 자리 템플릿보다 깊어 넘친 개요 줄(덮은 템플릿 그대로면 원본 모양 — spec_병합 ② §5-5)
   + (r.fixed ? ` · 같은 이름 자리 — 칸 ${r.fixed.filled || 0} · 라벨 내용 ${(r.fixed.labels || {}).items || 0}(블록 ${(r.fixed.labels || {}).blocks || 0})` : "")
   + ((r.maps || {}).filled || (r.maps || {}).lines || (r.maps || {}).rowsAdded ? ` · 표 대응 — 칸 ${r.maps.filled || 0}${r.maps.lines ? ` · 일정 선 ${r.maps.lines}` : ""}${r.maps.rowsAdded ? ` · 행 추가 ${r.maps.rowsAdded}` : ""}` : "")
   + ((r.gaps || {}).cells || (r.gaps || {}).lines ? ` · 빈 자리 — 칸 ${r.gaps.cells || 0} · 줄 ${r.gaps.lines || 0}` : "")
@@ -1033,6 +1282,7 @@ const fillDoneText = (r) => `본문 블록 ${(r.body || {}).blocks || 0} · 표 
   + ((r.fixed || {}).flowed ? ` · 표 쪽 나눔 맞춤 ${r.fixed.flowed}` : "") + (((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0) ? ` · 그림 폭 맞춤 ${((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0)}` : "")
   + (((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0) ? ` · 반영 때 건너뜀 ${((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0)}(계획 뒤 글이 생긴 칸 등)` : "")
   + ((r.dropped || []).length ? ` · 못 옮긴 것 ${r.dropped.length}(쪽 설정 등)` : "");
+const fillConvertText = (c) => (c && (c.converted || c.over) ? `${c.converted ? ` · 템플릿 변환 ${c.converted}줄` : ""}${c.over ? ` · 넘친 줄 ${c.over}` : ""}` : ""); // 본문 항목의 템플릿 변환 미리보기(서버가 줄 때만 — spec_병합 ② §5-5 6)
 
 async function fillPlan() {
   const report = taskSlotDoc("report"), flow = taskFlow, epoch = state.epoch;
@@ -1063,14 +1313,16 @@ function fillList() { // 2열 「넣기 계획」(kind "fill") — 본문 항목
   const [t1, b1] = hTable(["값", "넣을 자리", "넣을 것", "상태"]);
   t1.classList.add("lk-table");
   for (const it of p.body.items) row(b1, [[it.value, "lk-nw"], [it.anchorText || "(라벨 바로 뒤)", null, where(it.group)],
-    [it.skip ? "—" : `블록 ${it.blocks} — 문단 ${it.paragraphs} · 표 ${it.tables} · 그림 ${it.pictures}`], [it.skip ? FILL_SKIP[it.skip] || it.skip : "넣음", null, it.detail || ""]], it.to, !!it.skip);
+    [it.skip ? "—" : `블록 ${it.blocks} — 문단 ${it.paragraphs} · 표 ${it.tables} · 그림 ${it.pictures}` + fillConvertText(it.convert)], [it.skip ? FILL_SKIP[it.skip] || it.skip : "넣음", null, it.detail || ""]], it.to, !!it.skip);
   if (!p.body.items.length) row(b1, [["이어진 본문 자리가 없습니다"]], null, true);
+  const overEl = typeof mergeOverSection === "function" ? mergeOverSection({ docId: state.id, over: p.over, disabled: !!F.busy, go: (c) => { if (c.at) divGo({ key: c.at }); }, // 넘친 개요 레벨(spec_병합 ② §5-5 — merge_over.js): 처리를 고르면 계획을 다시 센다
+    onChange: async () => { const top = $("headsDlgBody").scrollTop; await fillPlan(); if (heads.dlg === "fill") $("headsDlgBody").scrollTop = top; } }) : null;
   const [t2, b2] = hTable(["표 자리", "방식", "칸", "행 추가", "못 넣음"]);
   t2.classList.add("lk-table");
   for (const t of p.tables.tables) row(b2, [[where(t.group)], [FILL_MODE[t.mode] || t.mode || "", "lk-nw"], [String(t.cells || 0), "dv-num"], [String(t.rows || 0), "dv-num"], [String(t.skipped || 0), "dv-num"]], t.group, !(t.cells || t.rows));
   if (!p.tables.tables.length) row(b2, [["이어진 표 자리가 없습니다"]], null, true);
   const why = Object.entries(p.tables.counts.skipped || {}).filter(([, n]) => n).map(([k, n]) => `${FILL_SKIP[k] || k} ${n}`).join(" · ");
-  body.append(el("div", "lk-cap", `본문 — 넣을 항목 ${p.body.counts.todo || 0}`), t1, el("div", "lk-cap", `표 — 칸 ${p.tables.counts.cells || 0}(계산 칸 ${p.tables.counts.calc || 0}) · 행 추가 ${p.tables.counts.rows || 0}${why ? ` · 못 넣음: ${why}` : ""}`), t2);
+  body.append(el("div", "lk-cap", `본문 — 넣을 항목 ${p.body.counts.todo || 0}`), t1, ...(overEl ? [overEl] : []), el("div", "lk-cap", `표 — 칸 ${p.tables.counts.cells || 0}(계산 칸 ${p.tables.counts.calc || 0}) · 행 추가 ${p.tables.counts.rows || 0}${why ? ` · 못 넣음: ${why}` : ""}`), t2);
   if (p.fixed) { // 같은 이름 자리(고정 자리 — spec_병합 ② §5-1): 구분 기준이 안 걸린 표의 칸(머리 글이 같은 칸끼리) + 같은 제목 라벨의 내용(그림 포함). 못 넣은 칸은 까닭과 함께 아래 줄로
     const SK = { ...FILL_SKIP, ambiguous: "머리 글이 같은 칸이 여럿", tables: "양식 표가 있는 자리 — 넣지 않음", org: "기관이 다른 표", year: "차년도가 다른 표", shape: "행·열 머리가 달라 칸을 못 맞춤" }; // 묶음 쪽의 「기관 이름이 안 맞음」·「표 칸으로」 와 뜻이 다르다
     const c = p.fixed.counts, why3 = Object.entries(c.skipped || {}).filter(([, n]) => n).map(([k, n]) => `${SK[k] || k} ${n}`).join(" · ");
@@ -1227,7 +1479,7 @@ function taskJourneyDraw(host = document.getElementById("taskFlow")) {
     const work = taskStageWork(stage), done = work.length > 0 && work.every((s) => s.done), box = host.querySelector(`#${stage.dom}`);
     const phaseState = box?.querySelector(".dv-phase-state")?.dataset.kind;
     const status = phaseState === "run" ? "run" : !available ? "todo" : phaseState === "halt" ? "halt" : done ? "done" : "now";
-    items.push({ id: stage.id, label: `${stage.no} ${stage.id === "frame" ? "프레임 작성" : stage.name}`, state: status, target: stage.dom,
+    items.push({ id: stage.id, label: `${stage.no} ${stage.short || stage.name}`, state: status, target: stage.dom,
       note: `${stage.name} — ${stage.does}. 눌러서 세부 순서를 확인합니다.` });
     available = available && done;
   }
@@ -1244,8 +1496,10 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
   stages.id = "taskSteps";
   taskStepsCalc();
   stages.append(...TASK_STAGES.map((stage) => taskStageEl(stage)));
-  box.append(taskJourneyEl(), files, stages);
+  const chain = taskChainEl(); // 여러 묶음 이어서 한 번에 — 첨부 파일 칸과 묶음 사이 한 줄
+  box.append(taskJourneyEl(), files, chain, stages);
   taskJourneyDraw(box);
+  taskChainSync(chain);
   return box;
 }
 
@@ -1257,13 +1511,19 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
 // **묶음은 둘**(같은 날 사용자 — 한 번에 진행한 결과를 보고 "지금 문서 프레임 작업인데 왜 내용을 넣지?" → 물어서 받은 답 「구조까지만」 · "2단계는 내용 넣고, 서식도 맞춰서 … 헤딩추출, 테이블
 // 정보 추출등을 해서 매핑하는거야. 2단계는 내용 매핑이겠지"): 1단계 「문서 프레임 작성」 = 준비 + ① 구분 기준 확인·반영(구조), 2단계 「내용 매핑」 = ② 자리 연결(앞에 헤딩·표 분석) → ③ 넣기 계획 →
 // ④ 내용 반영(서식 맞춤 포함). 묶음마다 「한 번에 진행」 — 2단계 것은 1단계가 끝나야 켜진다. 단계 번호·key 는 그대로(공통 차례 — spec_병합 ② §0-1).
+// 2026-11-13(spec_작업 ② §18 — 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"): 맨 앞에 1단계 「구분 기준」(준비 + 프로젝트 구성 확정 — 문서를 안 바꿈)을 더하고 번호를 하나씩 민다. 있던 묶음의 id·dom·store 는 그대로
 const TASK_STAGES = [
-  { id: "frame", ...TASK_STAGE_META.frame, keys: ["files", "division"], dom: "taskStage", store: "nfm.taskStageOpen", does: "구분 기준 반영(절·표 행·열 — 구조만)" },
-  { id: "map", ...TASK_STAGE_META.map, keys: ["link", "plan", "apply", "later"], dom: "taskStage2", store: "nfm.taskStageOpen2", does: "헤딩·표 분석 → 자리 연결(LLM 검토 포함) → 넣기 계획 → 내용 반영(서식 맞춤)" },
+  { id: "config", ...TASK_STAGE_META.config, keys: ["files", "config"], dom: "taskStage0", store: "nfm.taskStageOpen0", short: "프로젝트 구성", noReset: true,
+    does: "프로젝트 구성(단계·차년도·기관)만 정하기 — 사업계획서에서 추출하거나 불러와 확인한 뒤 프로젝트에 저장(확정) · 문서는 안 바뀜" },
+  { id: "frame", ...TASK_STAGE_META.frame, keys: ["division"], dom: "taskStage", store: "nfm.taskStageOpen", short: "프레임 작성", does: "프로젝트 구성 반영(절·표 행·열 — 구조만)" },
+  { id: "map", ...TASK_STAGE_META.map, keys: ["link", "plan", "apply", "later"], dom: "taskStage2", store: "nfm.taskStageOpen2", short: "내용 매핑", does: "헤딩·표 분석 → 자리 연결(LLM 검토 포함) → 넣기 계획 → 내용 반영(서식 맞춤)" },
+  // 4단계 「문서 정리」(2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" — 11-13 번호 4): ⑥ 작성요령 삭제 하나 — 초기화 단추는 없다(지운 작성요령은 프레임·매핑 초기화가 원본으로 되돌린다)
+  { id: "clean", ...TASK_STAGE_META.clean, keys: ["guide"], dom: "taskStage3", store: "nfm.taskStageOpen3", short: "문서 정리", get does() { return `작성요령 삭제(지우는 패턴 — ${cleanupNames()} · 내용은 남김)`; }, noReset: true },
 ];
 let taskStepsLast = null; // 마지막으로 셈한 단계(taskStepsCalc — 상태 st 포함) — 묶음 머리가 다시 세지 않게
-let taskRun = null; // 한 번에 진행 — 도는 중 {stage 묶음 id, report 연차보고서 id, key 지금 단계, note 지금 하는 일, t0, stop 멈춤 요청, timer}
-let taskRunLast = null; // 마지막 실행의 끝 {stage, report, ok, key, text, done 그때 그 묶음의 끝난 단계 수} — 상태 줄에 남긴다(그 뒤 단계가 더 나아가면 안 보임)
+let taskRun = null; // 한 번에 진행 — 도는 중 {stage 지금 도는 묶음 id(이어 진행이면 묶음마다 바뀜), report 연차보고서 id, key 지금 단계, note 지금 하는 일, t0 그 묶음을 시작한 때, stop 멈춤 요청, timer, chain 이어 진행이면 {to 끝 묶음 id, label 「1→3단계」} · 아니면 null}
+let taskRunLast = null; // 마지막 실행의 끝 {stage, report, ok, key, text, done 그때 그 묶음의 끝난 단계 수} — 마지막으로 돈 묶음의 것(화면 검사가 읽는다)
+let taskRunEnds = {}; // 묶음 id → 그 묶음의 끝(taskRunLast 와 같은 꼴) — 상태 줄에 남긴다(이어 진행의 앞 묶음 끝 글도 · 그 뒤 단계가 더 나아가면 안 보임)
 class TaskHalt extends Error {} // 멈춤(사람 손이 필요함 · 실패) — 글이 상태 줄에 그대로 보인다
 const taskHalt = (msg) => { throw new TaskHalt(msg); };
 const taskWait = async (ok, ms = 60000, every = 200) => { for (const t0 = Date.now(); !ok();) { if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, every)); } return true; };
@@ -1279,45 +1539,64 @@ function taskStageEl(stage) { // 묶음 상자 하나 — taskFlowEl 이 넣는�
   run.type = "button";
   run.dataset.taskRun = stage.id;
   run.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (taskRun) { if (taskRun.stage === stage.id) { taskRun.stop = true; taskStageSync(); } } else taskRunAll(stage.id); }; // summary 안이라 — 누름이 접기·펴기로 넘어가지 않게
+  const reset = stage.noReset ? null : el("button", "btn sm dv-phase-reset", "초기화"); // 묶음을 처음으로(taskReset) — 연차보고서는 올린 원본이 있다
+  if (reset) {
+    reset.type = "button";
+    reset.dataset.taskReset = stage.id;
+    reset.onclick = (e) => { e.preventDefault(); e.stopPropagation(); taskReset(stage.id); };
+  }
   spin.style.animationDelay = `-${Date.now() % 800}ms`; // 카드를 다시 그려도 동그라미가 처음부터 다시 돌지 않게(각도를 시계에 맞춤 — design.md §7)
   spin.hidden = true;
   st.append(spin, el("span")); // role=status 를 달지 않는다 — 도는 동안 1초마다 글이 바뀌어 화면 낭독이 초마다 읽는다(시작·끝·멈춤은 알림 글 toast 가 알린다)
   sum.title = "세부 목록 펴기·접기 — 단계마다 따로 진행할 수 있습니다";
   progress.setAttribute("aria-label", "세부 작업 완료");
-  sum.append(el("span", "dv-phase-no", stage.no), el("strong", null, stage.name), hHelp(`${stage.name} 안내`, stage.does + ". 세부 목록을 펴서 단계마다 진행할 수 있습니다.", { note: true }), el("span", "dv-phase-count"), run, progress, st);
+  sum.append(el("span", "dv-phase-no", stage.no), el("strong", null, stage.name), hHelp(`${stage.name} 안내`, stage.does + ". 세부 목록을 펴서 단계마다 진행할 수 있습니다.", { note: true }), el("span", "dv-phase-count"), run, ...(reset ? [reset] : []), progress, st);
   box.append(sum, taskStepsEl(stage));
-  if (stage.id === "frame") { // 1단계 = 문서 프레임(단계·차년도 · 기관 구성): 머리에 그 값 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 과제 구성 입력(divRender 가 만든 #taskFrameForm)
-    const frame = el("span", "dv-phase-frame"), edit = el("button", "btn sm", "구성 고치기");
+  if (stage.id === "config") { // 1단계 = 구분 기준(단계·차년도 · 기관 구성): 머리에 그 값 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 구성 입력(divRender 가 만든 #taskFrameForm — spec_작업 ② §18)
+    const frame = el("span", "dv-phase-frame"), edit = el("button", "btn sm", "프로젝트 구성 고치기");
     frame.hidden = true;
     edit.type = "button";
     edit.dataset.taskFrameEdit = "1";
-    edit.title = "1단계를 펴고 과제 구성(저장한 구성 · 단계·차년도 · 기관 구성) 입력으로 갑니다";
+    edit.title = "1단계를 펴고 프로젝트 구성 입력(불러오기·확정 · 단계·차년도 · 기관 구성)으로 갑니다";
     edit.onclick = (e) => { e.preventDefault(); e.stopPropagation(); taskFrameEdit(box); }; // summary 안이라 — 누름이 접기·펴기로 넘어가지 않게
     frame.append(el("span", "dv-phase-frame-text"), edit);
     sum.append(frame);
     if (taskFrameForm && taskFrameForm.isConnected) box.append(taskFrameForm); // 칸만 다시 그릴 때(loadWorks) — 입력 중인 폼 노드를 그대로 옮긴다(다시 만들지 않음)
   }
+  if (stage.id === "frame" && taskFrameApply && taskFrameApply.isConnected) box.append(taskFrameApply); // 2단계 = 문서 반영 상태 · 변경 계획 보기(+ 자리 표시 · 지원 양식) — 같은 까닭으로 그대로 옮긴다
   taskStageSync(stage, box);
   return box;
 }
 
 // 1단계 묶음 안의 과제 구성 입력(spec_작업 ② §14, 2026-11-12 사용자 "1단계에서는 단계, 차년도, 기관구성이 들어가야 하지 … 저장하고 관리할 수 있어야 하는데 UI가 너무 떨어져 있네"):
-// 이관이면 divRender 가 만든 입력 묶음(저장한 구성 · 단계·차년도 · 기관 구성 · 추가 설정 · 문서 반영 상태 · 변경 계획 보기)을 1단계 묶음(#taskStage)의 세부 목록 아래 #taskFrameForm 에 둔다.
+// 이관이면 divRender 가 만든 입력 묶음(저장한 프로젝트 구성 · 단계·차년도 · 기관 구성 · 추가 설정 · 문서 반영 상태 · 변경 계획 보기)을 1단계 묶음(#taskStage)의 세부 목록 아래 #taskFrameForm 에 둔다.
 // taskStepsDraw 는 ol 만 바꾸므로 이 노드는 입력 중에도 그대로다(포커스 유지). 이관이 아니면 전처럼 패널(#divBox)에 바로.
-let taskFrameForm = null; // 지금 패널의 #taskFrameForm(divRender 가 정함 — 없으면 null)
-function taskFrameHost(box) { // divRender 가 부른다 — 입력 묶음을 붙일 곳(이관 = 1단계 묶음 안의 새 칸, 아니면 box 그대로)
-  const stage = taskSlots() ? box.querySelector("#taskStage") : gatherOn() ? box.querySelector("#gatherStage") : null; // 취합도 1단계 묶음 안(gather.js 의 #gatherStage)
+let taskFrameForm = null; // 지금 패널의 #taskFrameForm(divRender 가 정함 — 없으면 null) — 1단계 「구분 기준」 묶음 안의 구성 입력
+let taskFrameApply = null; // 지금 패널의 #taskFrameApply — 2단계 「문서 프레임 작성」 묶음 안의 문서 반영 상태 · 변경 계획 보기(spec_작업 ② §18)
+function taskFrameHost(box) { // divRender 가 부른다 — 구성 입력을 붙일 곳(이관·취합 = 1단계 묶음 안의 새 칸, 아니면 box 그대로)
+  const stage = taskSlots() ? box.querySelector("#taskStage0") : gatherOn() ? box.querySelector("#gatherStage0") : null; // 취합도 1단계 묶음 안(gather.js 의 #gatherStage0)
   if (!stage) return box;
   const host = el("div", "dv-phase-form"), head = el("div", "dv-phase-form-head"), mine = (taskSlots() || []).find((k) => (taskSlotDoc(k) || {}).id === state.id);
   host.id = "taskFrameForm";
-  head.append(el("strong", null, "과제 구성 — 문서 프레임 값"),
-    hHelp("문서 프레임 값 안내", `지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 단계·차년도 · 기관 구성입니다. 저장한 구성에서 불러오거나 저장해 둘 수 있습니다.`, { note: true }));
+  head.append(el("strong", null, "프로젝트 구성 — 단계·차년도 · 기관"),
+    hHelp("프로젝트 구성 안내",`지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 프로젝트 구성(단계·차년도 · 기관)입니다. 같은 프로젝트의 TASK 들이 같이 쓰고, 「프로젝트에 저장」 으로 확정해야 2단계(문서 프레임 작성)로 갑니다.\n「프로젝트 구성 불러오기」 — 이 프로젝트에 확정한 구성 · 문서에서 추출(이 프로젝트 문서 · 파일 올리기) · 다른 프로젝트 · 저장한 프로젝트 구성.`, { note: true }));
   host.append(head);
   stage.append(host);
   taskFrameForm = host;
   return host;
 }
-function taskFrameEdit(box) { // 「구성 고치기」 — 1단계를 펴고 첫 입력(저장한 구성 고르기, 없으면 첫 단계의 차년도 수)으로
+function taskFrameApplyHost(box) { // divRender 가 부른다 — 문서 반영 상태 · 변경 계획 보기를 붙일 곳(2단계 묶음 안) | null(묶음이 없음 — box 에 그대로)
+  const stage = taskSlots() ? box.querySelector("#taskStage") : gatherOn() ? box.querySelector("#gatherStage") : null;
+  if (!stage) return null;
+  const host = el("div", "dv-phase-form"), head = el("div", "dv-phase-form-head");
+  host.id = "taskFrameApply";
+  head.append(el("strong", null, "구조 반영 — 확정한 프로젝트 구성으로"), hHelp("구조 반영 안내", "1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞춰 이 문서의 절·표 행·열을 늘리고 줄입니다. 변경 계획을 보고 「반영」 을 눌러야 문서가 바뀝니다.", { note: true }));
+  host.append(head);
+  stage.append(host);
+  taskFrameApply = host;
+  return host;
+}
+function taskFrameEdit(box) { // 「프로젝트 구성 고치기」 — 1단계를 펴고 첫 입력(저장한 프로젝트 구성 고르기, 없으면 첫 단계의 차년도 수)으로
   box.open = true;
   const to = taskFrameForm && taskFrameForm.isConnected && (taskFrameForm.querySelector(".dv-presets select:not(:disabled)") || taskFrameForm.querySelector(".dv-year-field input"));
   if (!to) return;
@@ -1341,7 +1620,7 @@ function taskStageSync(only = null, el0 = null) { // 묶음 머리 — 끝난 �
   if (!taskStepsLast) return;
   const files = taskStepsLast.find((s) => s.key === "files"), current = TASK_STAGES.find((g) => taskStageWork(g).some((s) => !s.done)); // current = 할 일이 남은 첫 묶음(강조 단추는 카드에 하나)
   for (const stage of TASK_STAGES) if (!only || only === stage) taskStageSync1(stage, el0 || document.getElementById(stage.dom), files, current);
-  if (!only) taskJourneyDraw();
+  if (!only) { taskJourneyDraw(); taskChainSync(); }
 }
 function taskStageSync1(stage, box, files, current) {
   if (!box) return;
@@ -1349,7 +1628,8 @@ function taskStageSync1(stage, box, files, current) {
   const next = steps.find((s) => !s.done), R = taskRun && taskRun.stage === stage.id ? taskRun : null, busy = steps.find((s) => s.busy);
   const before = TASK_STAGES.slice(0, TASK_STAGES.indexOf(stage)).find((g) => taskStageWork(g).some((s) => !s.done)); // 덜 끝난 앞 묶음 — 그 뒤에야 이 묶음의 「한 번에 진행」 이 켜진다
   const report = taskSlotDoc("report"), plan0 = taskSlotDoc("plan"); // 마지막 실행의 끝 글은 그 쌍(사업계획서·연차보고서)·그 묶음의 것일 때만
-  const last = taskRunLast && taskRunLast.stage === stage.id && report && taskRunLast.report === report.id && plan0 && taskRunLast.plan === plan0.id && taskRunLast.done === completed ? taskRunLast : null;
+  const end = taskRunEnds[stage.id]; // 끝 기록은 묶음마다 하나(이어 진행 — 앞 묶음의 끝 글이 뒤 묶음이 도는 동안에도 남는다)
+  const last = end && report && end.report === report.id && plan0 && end.plan === plan0.id && end.done === completed ? end : null;
   box.querySelector(".dv-phase-count").textContent = `${completed}/${work.length} 완료`;
   const progress = box.querySelector(".dv-phase-progress");
   progress.max = work.length;
@@ -1357,7 +1637,8 @@ function taskStageSync1(stage, box, files, current) {
   progress.setAttribute("aria-valuetext", `세부 작업 ${work.length}개 중 ${completed}개 완료`);
   const st = box.querySelector(".dv-phase-state"), key = (k) => taskStepName(steps.find((s) => s.key === k));
   let kind = "next", msg = "";
-  if (R) { kind = "run"; msg = `${key(R.key)}${R.note ? ` — ${R.note}` : ""} · ${fmtDur((Date.now() - R.t0) / 1000)}${R.stop ? " · 이 일이 끝나면 멈춥니다" : ""}`; }
+  if (taskResetting && (taskResetting === stage.id || taskResetting === "frame")) { kind = "run"; msg = taskResetting === "frame" ? "초기화 — 연차보고서를 올린 원본으로 되돌리는 중" : "초기화 — 원본으로 되돌리고 구조를 다시 반영하는 중"; } // 1단계 초기화는 2단계도 함께
+  else if (R) { kind = "run"; msg = `${key(R.key)}${R.note ? ` — ${R.note}` : ""} · ${fmtDur((Date.now() - R.t0) / 1000)}${R.stop ? " · 이 일이 끝나면 멈춥니다" : ""}`; }
   else if (busy) { kind = "run"; msg = `${taskStepName(busy)} — 진행 중`; }
   else if (before) msg = `${before.no} 「${before.name}」 완료 후 진행`; // 이전 결과가 남아 있어도 지금 선행 조건이 먼저다.
   else if (last && !last.ok) { kind = "halt"; msg = `멈춤 — ${key(last.key)}: ${last.text}`; }
@@ -1365,7 +1646,7 @@ function taskStageSync1(stage, box, files, current) {
   else if (!next) { kind = "done"; msg = "모두 끝남"; }
   else msg = `다음: ${taskStepName(next)}${!box.open && next.text ? ` — ${next.text}` : ""}`;
   st.dataset.kind = kind;
-  st.firstChild.hidden = !(R || busy);
+  st.firstChild.hidden = kind !== "run";
   if (st.lastChild.textContent !== msg) st.lastChild.textContent = msg;
   const frame = box.querySelector(".dv-phase-frame"); // 1단계만 — 프레임 값 요약(단계·차년도 · 기관). 글이 같으면 안 건드린다(도는 동안 1초마다 온다)
   if (frame) {
@@ -1376,7 +1657,15 @@ function taskStageSync1(stage, box, files, current) {
   }
   const b = box.querySelector("[data-task-run]"), ready = !!files && files.done && !before; // 준비(두 칸에 문서)와 앞 묶음이 끝나야 누를 수 있다
   b.textContent = R ? (R.stop ? "멈추는 중…" : "멈춤") : "한 번에 진행";
-  b.disabled = R ? R.stop : !!taskRun || !!busy || !next || !ready;
+  b.disabled = R ? R.stop : !!taskRun || !!taskResetting || !!busy || !next || !ready;
+  const rb = box.querySelector("[data-task-reset]"), can = rb ? taskResetCan(stage) : null; // 초기화 — 도는 일이 없고 되돌릴 것이 있을 때(3단계는 단추 없음)
+  if (rb) {
+    rb.textContent = taskResetting === stage.id ? "초기화 중…" : "초기화";
+    rb.disabled = !!taskRun || !!taskResetting || !!busy || !can.ok;
+    rb.title = taskRun ? "한 번에 진행이 끝난 뒤 쓸 수 있습니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다" : !can.ok ? `초기화할 것이 없습니다 — ${can.why}`
+      : stage.id === "frame" ? "프레임·매핑 초기화 — 연차보고서를 올린 원본으로 되돌리고 내용 매핑 기록(자리 연결 · LLM 검토 · 넣은 기록)을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴 · 1단계의 확정한 프로젝트 구성은 그대로). 누를 때 한 번 확인합니다"
+      : "내용 매핑 초기화 — 연차보고서를 원본으로 되돌린 뒤 프레임 구조를 같은 프로젝트 구성 값으로 다시 반영하고 내용 매핑 기록을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴). 누를 때 한 번 확인합니다";
+  }
   b.className = "btn sm" + (!taskRun && next && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 그 세부 목록을 펴면 그 안의 「다음 할 일」 단추가 강조
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : taskRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
     : !(files && files.done) ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !next ? "남은 단계가 없습니다"
@@ -1394,6 +1683,56 @@ function taskStageSync1(stage, box, files, current) {
     if (active ? active === s.key : status === "now" || status === "halt") li.setAttribute("aria-current", "step");
     else li.removeAttribute("aria-current");
   }
+}
+
+// ---- 여러 묶음 이어서 한 번에(spec_작업 ② §14 「이어서 한 번에」 — 2026-11-12 사용자 "1,2,3 단계도 한번에 할 수 있는 기능도 넣어줘, 1,2 만 할 수도 있고 3까지 할 수도 있고") — 이관만.
+// 첨부 파일 칸 아래 한 줄 「이어서 한 번에 [1→2단계] [1→3단계]」. 시작 = 할 일이 남은 첫 묶음, 끝 = 고른 묶음. 실행은 taskRunAll(시작, 끝) — 확인은 누를 때 한 번(설계: Fable 답 · 같은 날)
+const taskChain = (toId) => { // 이어 돌 묶음 = 처음 ~ toId 가운데 할 일이 남은 것. 둘 이상이고 끝 묶음에 할 일이 남았을 때만(아니면 [] — 그 묶음의 「한 번에 진행」 과 같다)
+  const c = TASK_STAGES.slice(0, TASK_STAGES.findIndex((g) => g.id === toId) + 1).filter((g) => taskStageWork(g).some((s) => !s.done));
+  return c.length > 1 && c[c.length - 1].id === toId ? c : [];
+};
+const taskChainLabel = (c) => `${c[0].no.replace(/단계$/, "")}→${c[c.length - 1].no}`; // 「1→3단계」 — 실제로 도는 범위
+function taskChainEl() { // 줄 하나 — 글·보임·켜짐은 taskChainSync
+  const box = el("div", "dv-chain");
+  box.id = "taskChain";
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "여러 단계 이어서 한 번에 진행");
+  box.append(el("span", "dv-chain-label", "이어서 한 번에"));
+  for (const g of TASK_STAGES.slice(1)) { // 끝 묶음마다 단추 하나(2단계까지 · 3단계까지) — 보통 단추(강조 단추는 카드에 하나)
+    const b = el("button", "btn sm");
+    b.type = "button";
+    b.dataset.taskChain = g.id;
+    b.onclick = () => taskRunChain(g.id);
+    box.append(b);
+  }
+  box.append(hHelp("이어서 한 번에 안내", "할 일이 남은 첫 묶음부터 고른 묶음까지 차례로 진행합니다. 누를 때 한 번만 확인하고, 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다(끝난 묶음은 그대로). 남은 묶음이 하나뿐이면 그 묶음의 「한 번에 진행」 을 쓰세요.", { note: true }),
+    el("span", "dv-chain-state"));
+  return box;
+}
+function taskChainSync(host = document.getElementById("taskChain")) { // taskStageSync 가 부른다(도는 동안 1초마다 — 글이 같으면 안 건드린다)
+  if (!host || !taskStepsLast) return;
+  const files = taskStepsLast.find((s) => s.key === "files"), ready = !!files && files.done, busy = taskStepsLast.some((s) => s.busy), C = taskRun && taskRun.chain;
+  let shown = 0;
+  for (const b of host.querySelectorAll("[data-task-chain]")) {
+    const c = taskChain(b.dataset.taskChain), mine = !!C && C.to === b.dataset.taskChain;
+    const text = mine ? C.label : c.length ? taskChainLabel(c) : ""; // 도는 동안 제 단추의 글은 시작할 때의 범위 그대로
+    b.hidden = !text; // 범위가 묶음 하나 이하 — 숨김
+    if (text) shown++;
+    if (text && b.textContent !== text) b.textContent = text;
+    b.disabled = !!taskRun || !!taskResetting || busy || !ready;
+    b.title = mine ? "이어 진행 중 — 멈추려면 지금 도는 묶음의 「멈춤」" : taskRun ? "지금 진행이 끝난 뒤 쓸 수 있습니다" : taskResetting ? "초기화가 끝난 뒤 쓸 수 있습니다"
+      : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다" : !ready ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요"
+      : `${c.map((g) => `${g.no} 「${g.name}」`).join(" → ")} 을 이어서 한 번에 — 누를 때 한 번만 확인하고, 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다`;
+  }
+  const cur = C && TASK_STAGES.find((g) => g.id === taskRun.stage), st = host.querySelector(".dv-chain-state");
+  const msg = cur ? `${C.label} 이어 진행 중 — 지금 ${cur.no} 「${cur.name}」${taskRun.stop ? " · 이 일이 끝나면 멈춥니다(뒤 묶음은 진행 안 함)" : ""}` : "";
+  if (st.textContent !== msg) st.textContent = msg;
+  host.hidden = !shown;
+}
+function taskRunChain(toId) { // 이어 진행 단추 — 시작 묶음은 할 일이 남은 첫 묶음
+  const c = taskChain(toId);
+  if (c.length) taskRunAll(c[0].id, toId);
+  else toast("이어서 진행할 묶음이 둘 이상 남아 있지 않습니다");
 }
 
 // 연차보고서의 헤딩·표 분석이 구분 기준 반영(구조) **전** 문서의 것인가 — 그러면 반영으로 늘어난 절·표가 분석에 없어 자리 연결이 그 자리를 못 본다(spec_작업 ④ ⓑ).
@@ -1454,7 +1793,8 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   };
 
   // 연차보고서를 고치는 문서로(taskSteps 의 onReport 와 같은 길 — 두 문서의 자리는 그대로)
-  run.key = run.stage === "frame" ? "division" : "link";
+  run.key = run.stage === "config" ? "config" : run.stage === "frame" ? "division" : run.stage === "clean" ? "guide" : "link";
+  const SN = (id) => `${TASK_STAGE_META[id].no} 「${TASK_STAGE_META[id].name}」`; // 묶음 이름(번호는 TASK_STAGE_META — spec_작업 ② §18)
   at("open", "연차보고서 여는 중");
   if (state.id !== report.id) {
     await openWork(report.id);
@@ -1462,20 +1802,46 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   }
   if ($("panel").dataset.tool !== "Div") showTab("Div");
   await divShow();
-  if (state.id !== report.id || !dv.view) taskHalt("연차보고서의 구분 기준을 읽지 못했습니다");
+  if (state.id !== report.id || !dv.view) taskHalt("연차보고서의 프로젝트 구성을 읽지 못했습니다");
   await flowRead();
 
-  if (run.stage !== "frame") { // 2단계 「내용 매핑」 — 구조(1단계)가 끝난 문서에서만
+  if (run.stage === "clean") { // 4단계 「문서 정리」 — 내용 반영(3단계)이 끝난 문서에서만
+    if (!step("apply").done) await taskWait(() => !taskFlow.linkBusy, 180000); // 「지난 반영」(연결 목록의 kept.applied)은 flowRead 뒤 연결 목록이 와야 보인다
+    const s = step("apply");
+    if (!s.done) taskHalt(`${SN("map")} 이 먼저입니다 — ${s.text || "④ 내용 반영 전"}`);
+    at("guide", `양식 안내 지우기 — ${cleanupNames()}`);
+    return (await taskCleanupRun({ quiet: true, run })) || "지울 안내가 없습니다";
+  }
+  if (run.stage === "map") { // 3단계 「내용 매핑」 — 구조(2단계)가 끝난 문서에서만
     const s = step("division");
-    if (!s.done) taskHalt(`1단계 「문서 프레임 작성」 이 먼저입니다 — ${s.text}`);
+    if (!s.done) taskHalt(`${SN("frame")} 이 먼저입니다 — ${s.text || step("config").text}`);
     return taskRunMap(run, plan, report, at, step, flowRead);
   }
+  if (run.stage === "config") { // 1단계 「구분 기준」 — 사업계획서의 구성을(값이 없으면 문서에서 읽어) 프로젝트에 확정. 문서는 안 바뀐다(spec_작업 ② §18)
+    at("config", "사업계획서의 프로젝트 구성 확인");
+    if (!step("config").done) {
+      const CF = taskConfigOf(plan);
+      let values = CF && (CF.values || CF.read);
+      if (!values) { // 저장한 값도 읽어 둔 값도 없음 — 사업계획서에 적힌 값
+        at("config", "사업계획서에서 단계·차년도·기관 읽기");
+        try { values = taskReadValues((await api(`/api/docs/${plan.id}/divisions/read`)).read); } catch (e) { console.warn(e); }
+        if (!values) taskHalt("사업계획서에서 단계·차년도·기관을 읽지 못했습니다 — 1단계의 프로젝트 구성 입력 칸에 넣거나 「프로젝트 구성 불러오기」 로 불러온 뒤 다시 누르세요");
+      }
+      at("config", "프로젝트에 저장(확정)");
+      if (!(await taskConfigConfirm(plan, values))) taskHalt("프로젝트 구성을 확정하지 못했습니다(알림 글 참고)");
+      await flowRead();
+      const s = step("config");
+      if (!s.done) taskHalt(`프로젝트 구성이 확정되지 않았습니다 — ${s.text}`);
+    }
+    return `프로젝트 구성을 확정했습니다 —${step("config").text} · 구조는 ${SN("frame")} 에서 맞춥니다`;
+  }
 
-  // 1단계 「문서 프레임 작성」 = ① 구분 기준 확인 — 기준은 사업계획서: 값을 맞추고(당해 차년도도 — taskDivFit 과 같은 값) 계획 → 반영. 반영은 편집 하나(실행 취소 1). 내용은 넣지 않는다(2단계)
+  // 2단계 「문서 프레임 작성」 = ① 구분 기준 확인 — 기준은 사업계획서(1단계에서 확정한 프로젝트 구성): 값을 맞추고(당해 차년도도 — taskDivFit 과 같은 값) 계획 → 반영. 반영은 편집 하나(실행 취소 1). 내용은 넣지 않는다(3단계)
+  if (!step("config").done) taskHalt(`${SN("config")} 이 먼저입니다 — ${step("config").text || "프로젝트 구성을 확정하세요"}`);
   at("division", "사업계획서 값과 견주기");
   if (!step("division").done) {
     let A = taskDivOf(plan, true);
-    if (!A || !A.values) taskHalt("사업계획서(기준)에 구분 기준 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽은 뒤 다시 누르세요");
+    if (!A || !A.values) taskHalt("사업계획서(기준)에 프로젝트 구성 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽은 뒤 다시 누르세요");
     if (A.read) { // 저장된 값이 없어 문서에서 읽은 값(누를 때 확인 창에 보였다) — 사업계획서 작업의 값으로 저장한다(문서는 그대로)
       at("division", "문서에서 읽은 값을 사업계획서 값으로 저장");
       await api(`/api/docs/${plan.id}/divisions/settings`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ values: A.values }) });
@@ -1493,15 +1859,15 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     }
     at("division", "변경 계획");
     await divPlan();
-    if (!dv.plan) taskHalt("구분 기준 변경 계획을 세우지 못했습니다(알림 글 참고)");
+    if (!dv.plan) taskHalt("프로젝트 구성 변경 계획을 세우지 못했습니다(알림 글 참고)");
     at("division", "연차보고서에 반영");
     await divApply({ quiet: true });
     await divShow();
     await flowRead();
     const s = step("division");
-    if (!s.done) taskHalt(`구분 기준이 반영되지 않았습니다 — ${s.text}`);
+    if (!s.done) taskHalt(`프로젝트 구성이 반영되지 않았습니다 — ${s.text}`);
   }
-  return `구조를 맞췄습니다 — ${step("division").text} · 내용은 2단계 「내용 매핑」 에서 넣습니다`;
+  return `구조를 맞췄습니다 — ${step("division").text} · 내용은 ${SN("map")} 에서 넣습니다`;
 }
 
 async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 「내용 매핑」 — 헤딩·표 분석 → ② 자리 연결(LLM 검토) → ③ 넣기 계획 → ④ 내용 반영
@@ -1574,50 +1940,256 @@ async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 �
   }
 }
 
-async function taskRunAll(stageId = "frame") { // 그 묶음의 「한 번에 진행」 — 누를 때 한 번만 확인(2026-11-12 사용자 답 「시작할 때 한 번만」): 그 뒤로는 중간 계획 확인 없이 반영한다
-  if (taskRun) return;
-  const stage = TASK_STAGES.find((g) => g.id === stageId), slots = taskSlots(), [plan, report] = (slots || []).map((k) => taskSlotDoc(k));
-  if (!stage || !plan || !report) { toast("두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요", true); return; }
-  if (!taskStepsLast) taskStepsCalc();
-  const left = taskStageWork(stage).filter((s) => !s.done);
-  if (!left.length) { toast("남은 단계가 없습니다"); return; }
-  const what = stage.id === "frame"
-    ? `· 중간 계획 확인 없이 연차보고서 「${report.name}」 의 구조(절·표 행·열)가 사업계획서의 단계·차년도·기관 값에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
-      + "· 사업계획서의 내용은 넣지 않습니다(2단계 「내용 매핑」).\n"
+function taskRunWhat(stage, report) { // 확인 창 — 그 묶음이 바꾸는 것·안 바꾸는 것·유료 호출. 묶음 하나와 이어 진행이 같이 쓴다
+  if (stage.id === "config") { // 1단계 — 확정할 값(사업계획서 입력 값 · 없으면 문서에서 읽은 값 · 그것도 없으면 누른 뒤 읽음 — spec_작업 ② §18)
+    const plan = taskSlotDoc("plan"), CF = plan ? taskConfigOf(plan) : null, v = CF && (CF.values || CF.read), where = divConfirmWhere(CF && CF.sharing);
+    return (v ? `· 확정할 프로젝트 구성:${divValuesText(v)}${!CF.values ? "(사업계획서에서 읽음 — 확인하세요)" : ""}\n` : "· 프로젝트 구성 값이 없어 사업계획서에 적힌 단계·차년도·기관을 읽어 확정합니다 — 읽은 값을 먼저 보려면 취소하고 「사업계획서에서 추출」.\n")
+      + `· 이 값을 ${divConfirmWhat(where)}으로 저장(확정)합니다 — 문서는 바뀌지 않습니다(구조는 ${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」).\n`;
+  }
+  return stage.id === "clean"
+    ? `· 연차보고서 「${report.name}」 의 양식 안내(지우는 패턴 — ${cleanupNames()})를 중간 확인 없이 지웁니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번.\n`
+      + "· 패턴 목록에 없는 안내 · 본문 색(검정) ※ 줄 · 쓸 자리는 남깁니다. 패턴과 지울 자리를 보려면 취소하고 세부 목록의 「목록 보기」.\n"
+    : stage.id === "frame"
+    ? `· 중간 계획 확인 없이 연차보고서 「${report.name}」 의 구조(절·표 행·열)가 1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
+      + `· 사업계획서의 내용은 넣지 않습니다(${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」).\n`
     : `· 중간 계획 확인 없이 연차보고서 「${report.name}」 에 사업계획서의 내용이 들어갑니다(구분 기준 자리 + 같은 이름 자리 · 그림 포함 · 표 칸은 글자 모양도) — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
       + "· 헤딩·표 분석이 없거나 구조 반영 전 것이면 먼저 분석합니다(스크립트). 확인 필요한 자리가 있으면 LLM 검토를 한 번 돌립니다(유료 · 수십 초).\n"
       + "· 그래도 빈 자리가 있으면 빈 자리 검토(LLM)를, 행·열 구성이 다른 표가 있으면 표 대응(LLM)을 한 번씩 돌립니다(유료 · 각 수십 초) — 글은 LLM 이 쓰지 않고 사업계획서의 글을 그대로 옮깁니다.\n";
-  if (!confirm(`「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n남은 단계\n${left.map((s, i) => `  ${taskStepName(s)}${!i && s.text ? ` — ${s.text}` : ""}`).join("\n")}\n\n${what}`
-    + "· 값이 없거나 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.")) return;
-  const run = (taskRun = { stage: stage.id, report: report.id, key: left[0].key, note: "", t0: Date.now(), stop: false });
+}
+function taskRunKeep(stage, plan, report, run, end) { // 그 묶음의 끝을 상태 줄에 남긴다(taskRunEnds — 묶음마다 하나) · taskRunLast = 마지막 것. 끝난 수는 방금 셈한 것(taskStepsLast)
+  taskRunLast = taskRunEnds[stage.id] = { ...end, stage: stage.id, report: report.id, plan: plan.id, key: run.key, done: taskStageWork(stage).filter((s) => s.done).length };
+}
+
+// 그 묶음의 「한 번에 진행」 — 누를 때 한 번만 확인(2026-11-12 사용자 답 「시작할 때 한 번만」): 그 뒤로는 중간 계획 확인 없이 반영한다.
+// toId 가 뒤 묶음이면 stageId 부터 거기까지 이어서(taskRunChain — 「이어서 한 번에」) — 확인은 그때도 한 번, 묶음 경계마다 단계를 다시 셈하고 멈춤 요청·실패에서 전체가 멈춘다
+async function taskRunAll(stageId = "frame", toId = stageId) {
+  if (taskRun) return;
+  const i0 = TASK_STAGES.findIndex((g) => g.id === stageId), i1 = TASK_STAGES.findIndex((g) => g.id === toId), slots = taskSlots(), [plan, report] = (slots || []).map((k) => taskSlotDoc(k));
+  if (i0 < 0 || i1 < i0 || !plan || !report) { toast("두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요", true); return; }
+  if (!taskStepsLast) taskStepsCalc();
+  const leftOf = (g) => taskStageWork(g).filter((s) => !s.done);
+  const stages = TASK_STAGES.slice(i0, i1 + 1).filter((g) => leftOf(g).length); // 할 일이 남은 묶음만
+  if (!stages.length) { toast("남은 단계가 없습니다"); return; }
+  const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
+  const lines = (g, first) => leftOf(g).map((s, i) => `  ${taskStepName(s)}${first && !i && s.text ? ` — ${s.text}` : ""}`).join("\n"); // 지금 상태 글은 맨 첫 단계만
+  const ask = chain
+    ? `「${chain.label}」 을 이어서 한 번에 진행할까요? 묶음 사이에 다시 묻지 않습니다.\n\n`
+      + stages.map((g, i) => `■ ${g.no} ${g.name} — 남은 단계\n${lines(g, !i)}\n${taskRunWhat(g, report)}`).join("\n")
+      + `\n· 실행 취소는 묶음마다 따로입니다(한꺼번에 되돌리는 길은 없음 — 필요하면 먼저 확정해 두거나, ${TASK_STAGE_META.frame.no} 「초기화」 로 올린 원본으로).\n`
+      + "· 값이 없거나 실패하면 그 묶음·그 단계에서 전체가 멈추고 세부 목록을 폅니다 — 끝난 묶음은 그대로 남고 뒤 묶음은 진행하지 않습니다."
+    : `「${stages[0].no} ${stages[0].name}」 을 한 번에 진행할까요?\n\n남은 단계\n${lines(stages[0], true)}\n\n${taskRunWhat(stages[0], report)}`
+      + "· 값이 없거나 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.";
+  if (!confirm(ask)) return;
+  const run = (taskRun = { stage: stages[0].id, report: report.id, key: leftOf(stages[0])[0].key, note: "", t0: Date.now(), stop: false, chain });
   taskRunLast = null;
+  taskRunEnds = {};
+  if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(② §19)
   run.timer = setInterval(() => taskStageSync(), 1000); // 지난 시간 — 글만 바꾼다
-  taskStageSync();
-  let end;
-  try { end = { ok: true, text: await taskRunSteps(run, plan, report) }; }
-  catch (e) { end = { ok: false, text: e instanceof TaskHalt ? e.message : `오류 — ${e.message}` }; if (!(e instanceof TaskHalt)) console.error(e); }
+  let stage = null, end = null, skip = ""; // stage·end = 마지막으로 돈 묶음과 그 끝 · skip = 다음 묶음으로 안 넘어간 까닭
+  for (const g of stages) {
+    if (stage) { // 묶음 경계 — 앞 묶음의 결과를 다시 셈해 끝 글을 남기고, 넘어가도 되는지 본다(taskRun 은 그대로 — 초기화·다른 단추는 계속 꺼져 있다)
+      taskStepsDraw();
+      taskRunKeep(stage, plan, report, run, end);
+      const before = TASK_STAGES.slice(0, TASK_STAGES.indexOf(g)).find((p) => leftOf(p).length);
+      if (run.stop) skip = "눌러서 멈췄습니다";
+      else if (before) skip = `${before.no} 「${before.name}」 이 덜 끝났습니다`;
+      if (skip) break;
+    }
+    const left = leftOf(g);
+    if (!left.length) continue; // 앞 묶음을 도는 사이 이미 끝난 묶음
+    stage = g;
+    Object.assign(run, { stage: g.id, key: left[0].key, note: "", t0: Date.now() });
+    taskStageSync();
+    try { end = { ok: true, text: await taskRunSteps(run, plan, report) }; }
+    catch (e) { end = { ok: false, text: e instanceof TaskHalt ? e.message : `오류 — ${e.message}` }; if (!(e instanceof TaskHalt)) console.error(e); }
+    if (!end.ok) break; // 멈춤·실패 — 뒤 묶음은 진행하지 않는다
+  }
   clearInterval(run.timer);
   taskRun = null;
+  if (typeof projectControlsSync === "function") projectControlsSync(); // 끝났다 — 도는 동안 꺼 둔 프로젝트 칸·버전 줄을 다시 켠다
   taskStepsDraw(); // 끝난 수를 지금 것으로(taskStepsLast)
-  taskRunLast = { ...end, stage: stage.id, report: report.id, plan: plan.id, key: run.key, done: taskStageWork(stage).filter((s) => s.done).length };
+  taskRunKeep(stage, plan, report, run, end); // 마지막으로 돈 묶음 — 전과 같은 차례(셈한 뒤 남김)
   const box = document.getElementById(stage.dom);
   if (box && !end.ok) box.open = true; // 멈춘 곳이 보이게 세부 목록을 편다
   taskStageSync();
-  toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
+  if (!chain) toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
+  else if (!end.ok) toast(`${chain.label} 이어 진행이 ${stage.no} 「${stage.name}」 에서 멈췄습니다 — ${end.text}`, true);
+  else if (skip) toast(`${chain.label} 이어 진행을 ${stage.no}까지만 했습니다 — ${skip}`, true);
+  else toast(`${chain.label} 이어 진행 끝 — ${stage.name}: ${end.text}`);
 }
 
-function docSwitchDraw(list) { // 상단 바 문서 목록 — 파일 이름 자리가 목록이 된다(지금 문서가 고른 것): 과제로 묶인 문서면 그 과제의 문서만, 아니면 올린 문서 전부. 이름 뒤에 첨부 파일 종류·할 일
+// ---- 묶음 「초기화」(spec_작업 ② §14, 2026-11-12 사용자 "새로운 작업을 할려고 했는데 로드되는 파일이 같으니깐 이전 작업이 그대로 들어옴 … 어차피 연차보고서는 원본이 있으니깐 작업 1,2 단계 초기화 할 수 있도록 해줘"):
+// 1단계 = 연차보고서를 올린 원본으로 + 2단계 기록 지움(1·2단계 모두 처음으로) · 2단계 = 원본으로 되돌린 뒤 지금 반영된 과제 구성 값으로 구조를 다시 반영 + 2단계 기록 지움 — POST …/merge-links/reset.
+// 사업계획서·과제 구성 입력 값·헤딩·표 분석·확정 기록은 그대로. 실행 취소로 못 되돌린다(확정 복원과 같은 길) — 누를 때 한 번 확인.
+let taskResetting = null; // 초기화 도는 중인 묶음 id
+function taskResetCan(stage) { // → {ok, why} — 되돌릴 것이 있는가(읽어 둔 상태로 셈 — 서버는 할 일이 없으면 그대로 둔다)
+  const report = taskSlotDoc("report");
+  if (!report) return { ok: false, why: "연차보고서 칸이 비어 있습니다" };
+  const B = taskDivOf(report), K = (taskFlow.links && taskFlow.links.kept) || {}, F = taskFlow.fill || {};
+  const framed = !!(B && B.applied), mapped = !!(K.links || K.tables || K.maps || K.applied || K.llm || F.plan || F.done);
+  if (stage.id === "map") return framed ? (mapped ? { ok: true } : { ok: false, why: "2단계 기록(자리 연결에서 고른 것 · LLM 검토 · 넣은 내용)이 없습니다" }) : { ok: false, why: "1단계(구조 반영) 전입니다" };
+  const edited = report.id === state.id ? !!(state.base || isDirty()) : !!(report.edited || report.commits);
+  return framed || mapped || edited ? { ok: true } : { ok: false, why: "연차보고서가 올린 원본 그대로이고 2단계 기록도 없습니다" };
+}
+const TASK_RESET_KEEP = "그대로 남는 것: 사업계획서 · 프로젝트 구성 입력 값 · 헤딩·표 분석 · 확정 기록";
+async function taskReset(stageId) {
+  const stage = TASK_STAGES.find((g) => g.id === stageId), report = taskSlotDoc("report");
+  if (!stage || !report || taskRun || taskResetting) return;
+  const gone = "· 2단계 기록(자리 연결에서 고른 것 · LLM 검토 결과 · 표 짝 · 표 대응 · 넣은 기록)을 지웁니다.\n";
+  const ask = stageId === "frame"
+    ? `1단계 · 2단계를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌립니다 — 구조 반영 · 넣은 내용 · 직접 고친 글이 모두 없어지고, 3단계에서 지운 작성요령은 돌아옵니다.\n${gone}`
+    : `2단계(내용 매핑)를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌린 뒤 1단계 구조를 지금 반영된 프로젝트 구성 값으로 다시 반영합니다 — 넣은 내용 · 직접 고친 글이 없어지고, 3단계에서 지운 작성요령은 돌아옵니다.\n${gone}`;
+  if (!confirm(`${ask}\n${TASK_RESET_KEEP}\n\n실행 취소로 되돌릴 수 없습니다 — 지금 상태가 필요하면 취소하고 먼저 「저장」으로 받아 두거나 「고친 문단」 탭에서 확정하세요.`)) return;
+  if (state.id !== report.id) { // 연차보고서를 고치는 문서로(「한 번에 진행」·onReport 와 같은 길 — 두 문서의 자리는 그대로)
+    await openWork(report.id);
+    if (state.id !== report.id) return; // 바꾸지 않음(저장 안 한 글을 두고 그만둠) · 못 엶
+    showTab("Div");
+  }
+  if (state.busy) { toast("편집을 반영하는 중입니다 — 잠시 뒤 다시 눌러 주세요"); return; }
+  const id = state.id, epoch = state.epoch;
+  await flushAll();
+  if (epoch !== state.epoch) return;
+  taskResetting = stageId;
+  taskStageSync();
+  setSaveState("busy", stageId === "frame" ? "연차보고서를 올린 원본으로 되돌리는 중…" : "원본으로 되돌리고 구조를 다시 반영하는 중…");
+  try {
+    const d = await api(`/api/docs/${id}/merge-links/reset`, JSON_POST({ stage: stageId }));
+    if (epoch !== state.epoch) return;
+    const r = d.reset || {}, reframe = r.reframe || {};
+    taskRunLast = null;
+    taskRunEnds = {};
+    if (heads.dlg === "links" || heads.dlg === "fill") headsColClose(true); // 지운 연결 목록 · 넣기 계획
+    adoptBase(d, true); // 문서·기준·구분 기준 적용 상태가 바뀜 — 다시 그리고 이관 자료(taskFlow)를 새로 읽는다(divReset)
+    const FR = `${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」`, MP = `${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」`;
+    if (reframe.error) toast(`원본으로 되돌렸지만 구조를 다시 반영하지 못했습니다: ${reframe.error} — ${FR}부터 다시 진행하세요`, true);
+    else if (!r.restored && !(r.cleared || []).length) toast("이미 처음 상태입니다 — 바뀐 것이 없습니다");
+    else toast(stageId === "frame" ? `${FR}·${MP}를 처음으로 되돌렸습니다 — 연차보고서는 올린 원본입니다(확정한 프로젝트 구성은 그대로)` : `${MP}를 처음으로 되돌렸습니다 — 연차보고서는 프레임 구조만 반영된 상태입니다`);
+  } catch (e) {
+    if (epoch === state.epoch) toast(`초기화하지 못했습니다: ${e.message}`, true);
+  } finally {
+    taskResetting = null;
+    if (epoch === state.epoch) {
+      commitBar(); refreshSaveState(); commitsLoad(); loadWorks(); logTouched();
+      if (!$("paneDiv").hidden) divShow(); else taskStageSync();
+    }
+  }
+}
+
+// ---- 3단계 「문서 정리」 ⑥ 작성요령 삭제(spec_작업 ② §14 「3단계」 — 2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" → "그냥 위 첨자, 작성요령이 테이블 첫번째 줄에 있는 경우,
+// ※ 2page 이내 요약 작성.. 당구장 표시랑 색이랑 폰트가 같은 경우 정도만 삭제해도 되겠고만"): 양식 안내 지우기(app/form_cleanup.py · API GET/POST …/form-cleanup — 한 구조 편집 · 실행 취소 1).
+// 지우는 패턴 목록(2026-11-12 사용자 "문서 정리에는 어떤 패턴을 삭제해야하는지 목록이 있어야함") — 원본은 서버 app/form_cleanup.py PATTERNS(GET …/form-cleanup 의 patterns:
+// 작성 요령 표 · <참고 N> 자료 · ※ 안내 · 위첨자 각주 번호). 목록은 지금 문서에서 스크립트로 센다(헤딩 추출 결과에 기대지 않음 — 문서가 바뀌어도 다시 하라고 할 일이 없다)
+const CLEANUP_NAMES = [["tables", "작성 요령 표"], ["refs", "<참고 N> 자료"], ["notes", "※ 안내"], ["marks", "위첨자 각주 번호"]]; // 목록을 읽기 전(단계 안내 글)에만 — 읽으면 서버 것
+const cleanupPatterns = () => (taskFlow.cleanup || {}).patterns || CLEANUP_NAMES.map(([key, name]) => ({ key, name }));
+const cleanupNames = () => cleanupPatterns().map((p) => p.name).join(" · ");
+const taskCleanupText = (n, done = false) => cleanupPatterns()
+  .filter((p) => n[p.key]).map((p) => `${p.name} ${nf(n[p.key])}`).join(" · ") + (done ? "을(를) 지웠습니다" : "");
+async function taskCleanupLoad(report) { // 지울 안내 수를 읽어 둔다(taskFlow.cleanup) — 단계 목록만 다시 그림
+  const flow = taskFlow;
+  try { flow.cleanup = await api(`/api/docs/${report.id}/form-cleanup`); }
+  catch (e) { flow.cleanup = { error: e.message }; }
+  if (flow === taskFlow) taskStepsDraw();
+  return flow.cleanup;
+}
+async function taskCleanupRun({ quiet = false, run = null } = {}) { // ⑥ — 지금 문서로 다시 셈 → (확인) → 한 번에 지움. 연차보고서가 지금 문서일 때(onReport · 한 번에 진행). → 끝 글 | null(그만둠). 실패는 예외
+  const report = taskSlotDoc("report"), flow = taskFlow, epoch = state.epoch;
+  if (!report || report.id !== state.id) throw new Error("연차보고서가 지금 문서가 아닙니다");
+  await flushAll(); // 고치던 글을 먼저 서버에 — 서버 문서로 센다
+  const C = await taskCleanupLoad(report);
+  if (C.error) throw new Error(C.error);
+  if (epoch !== state.epoch || flow !== taskFlow || (run && (taskRun !== run || run.stop))) return null;
+  if (!C.counts.total) return "지울 안내가 없습니다";
+  const lines = cleanupPatterns().filter((p) => C.counts[p.key]).map((p) => `· ${p.name} ${nf(C.counts[p.key])} — ${p.how || ""}`).join("\n");
+  if (!quiet && !confirm(`연차보고서에서 양식 안내를 지울까요?\n\n${lines}\n\n· 패턴 목록에 없는 안내와 본문 색(검정) ※ 줄은 남깁니다\n\n한 번의 편집으로 지우고, 실행 취소(Ctrl+Z) 한 번으로 되돌릴 수 있습니다. 패턴과 지울 자리를 보려면 취소하고 「목록 보기」.`)) return null;
+  flow.guide = { busy: true };
+  taskStepsDraw();
+  state.busy = true;
+  refreshToolbar();
+  let r;
+  try { r = await api(`/api/docs/${report.id}/form-cleanup`, JSON_POST({ expectRev: C.rev })); }
+  finally { state.busy = false; refreshToolbar(); }
+  if (epoch !== state.epoch) return null;
+  if (r.nothing) { flow.guide = {}; await taskCleanupLoad(report); return "지울 안내가 없습니다"; }
+  state.localRev += 1;
+  state.structRev = state.localRev; // 표 판정 캐시(tables.js)도 새로
+  applyEditState(r);
+  await reloadDoc(); // 떨어진 자리 여러 곳이 바뀌어 문서를 다시 읽는다
+  if (heads.dlg === "cleanup") headsColClose(true);
+  flow.guide = { done: r.done };
+  await taskCleanupLoad(report);
+  const left = (flow.cleanup && flow.cleanup.counts && flow.cleanup.counts.total) || 0;
+  return `${taskCleanupText(r.done, true)}${(r.done.skipped || []).length ? ` · 건너뜀 ${nf(r.done.skipped.length)}` : ""}${left ? ` · 남은 안내 ${nf(left)}` : ""}`;
+}
+async function taskCleanup() { // ⑥ 단추 「작성요령 삭제」
+  const flow = taskFlow;
+  if ((flow.guide || {}).busy || taskRun) return;
+  try {
+    const text = await taskCleanupRun();
+    if (text) toast(`작성요령 삭제 — ${text} · 실행 취소 한 번으로 되돌릴 수 있습니다`);
+  } catch (e) {
+    toast(e.status === 422 ? `표준 검사에 걸려 되돌렸습니다: ${e.message}` : e.status === 409 ? `${e.message}` : `지우지 못했습니다: ${e.message}`, true);
+  } finally {
+    if (flow === taskFlow && flow.guide) flow.guide.busy = false;
+    taskStepsDraw();
+  }
+}
+function taskCleanupList() { // ⑥ 「목록 보기」 — 2열 「작성요령 삭제 — 지울 안내」(kind "cleanup"): 지우는 패턴(패턴 · 찾는 것 · 처리 · 보기 · 찾은 수) + 지울 자리(종류 · 글 · 처리 — 줄을 누르면 문서의 그 자리로, ↑/↓ 로 다음 줄 — hRowKeys)
+  const C = taskFlow.cleanup, report = taskSlotDoc("report");
+  if (!C || C.error || !C.counts || !report) return;
+  const mine = report.id === state.id;
+  const { tools, body, foot } = headsDlg("cleanup", "작성요령 삭제 — 지울 안내", `${report.name} · ${mine ? "줄을 누르면 문서의 그 자리로" : "연차보고서를 열면 줄을 눌러 그 자리로 갑니다"}`);
+  tools.append(el("span", "muted", C.counts.total ? taskCleanupText(C.counts) : "지울 안내가 없습니다"));
+  body.append(el("div", "lk-cap", "지우는 패턴 — 이 목록에 있는 것만 지웁니다(없는 안내 · 본문 색 ※ 줄 · 쓸 자리는 남김)"));
+  const [ptbl, ptb] = hTable(["패턴", "찾는 것 → 처리", "찾은 수"]); // 좁은 열 — 칸 셋(이름 아래 보기 · 찾는 것 아래 처리)
+  ptbl.classList.add("lk-table");
+  for (const p of cleanupPatterns()) {
+    const tr = el("tr"), name = el("td"), rule = el("td");
+    name.append(el("strong", null, p.name), el("div", "muted", `보기: ${p.example}`));
+    rule.append(el("div", null, p.rule), el("div", "muted", `→ ${p.how}`));
+    tr.append(name, rule);
+    hCell(tr, nf(C.counts[p.key] || 0), "lk-nw");
+    ptb.append(tr);
+  }
+  body.append(ptbl);
+  if (!C.counts.total) { foot.append(hBtn("닫기", () => headsColClose())); return; }
+  body.append(el("div", "lk-cap", "지울 자리"));
+  const [tbl, tb] = hTable(["종류", "글", "처리"]);
+  tbl.classList.add("lk-table");
+  const row = (kind, text, how, id) => {
+    const tr = el("tr", mine ? "go" : null);
+    hCell(tr, kind, "lk-nw");
+    hCell(tr, text);
+    hCell(tr, how); // 줄바꿈 허용 — 「※ 앞 「…」 은 남김」 이 길면 글 칸이 한 글자 폭으로 눌렸다(좁은 열)
+    if (mine) { tr.tabIndex = 0; tr.onclick = () => { for (const x of tb.querySelectorAll("tr.sel")) x.classList.remove("sel"); tr.classList.add("sel"); divGo({ key: id }, false); tr.focus({ preventScroll: true }); }; }
+    tb.append(tr);
+  };
+  for (const t of C.tables) row("작성 요령 표", t.label, `표째(${t.rows}행)`, t.id);
+  for (const r of C.refs || []) row("<참고 N> 자료", r.label, `제목 줄과 표 ${r.tables}개째`, r.id);
+  for (const n of C.notes) row("※ 안내", n.guide, n.whole ? "문단째" : `※ 앞 「${short(n.text.slice(0, n.text.indexOf("※")).trim(), 24)}」 은 남김`, n.id);
+  for (const m of C.marks) row("위첨자", m.text, "글자만", m.id);
+  hRowKeys(tb);
+  body.append(tbl);
+  foot.append(el("span", "muted", "한 번의 편집으로 지우고 실행 취소 한 번으로 되돌립니다"),
+    hBtn("작성요령 삭제", () => { headsColClose(); taskCleanup(); }, { cls: "btn sm primary", disabled: !mine || !!(taskFlow.guide || {}).busy, title: mine ? "" : "연차보고서를 고치는 문서로 연 뒤에" }),
+    hBtn("닫기", () => headsColClose()));
+}
+
+function docNameSync(name) { // 지금 문서의 보이는 이름(spec_작업 ② §10)이 바뀌었으면 상단 바·패널 머리의 이름도 함께 → 바뀌었는가
+  if (!name || name === state.name) return false;
+  state.name = name;
+  $("fileName").textContent = $("fileName").title = name;
+  if ($("panel").dataset.tool !== "Compare") $("toolSource").textContent = $("toolSource").title = name;
+  return true;
+}
+
+function docSwitchDraw(list) { // 상단 바 문서 목록 — 파일 이름 자리가 목록이 된다(지금 문서가 고른 것): 과제로 묶인 문서면 그 프로젝트의 문서만, 아니면 올린 문서 전부. 이름 뒤에 첨부 파일 종류·할 일
   worksList = list;
   const sel = $("docSwitch"), cur = list.find((w) => w.id === state.id), others = taskProject() ? taskMates(list) : list.filter((w) => w.id !== state.id);
-  if (cur && cur.name && cur.name !== state.name) { // 지금 문서의 보이는 이름이 바뀜(목적 문서는 과제 이름이 뒤에 붙는다 — spec_작업 ② §10: 과제 이름·칸을 바꾼 바로 뒤) — 상단 바·패널 머리의 이름도 함께
-    state.name = cur.name;
-    $("fileName").textContent = $("fileName").title = cur.name;
-    if ($("panel").dataset.tool !== "Compare") $("toolSource").textContent = $("toolSource").title = cur.name;
-  }
+  if (cur) docNameSync(cur.name); // 지금 문서의 보이는 이름이 바뀜(목적 문서는 프로젝트 이름이 뒤에 붙는다 — spec_작업 ② §10: 프로젝트 이름·칸을 바꾼 바로 뒤)
   const tag = (w) => [w.name, taskName("file", (w.task || {}).file) || taskName("kind", (w.task || {}).kind), taskName("job", (w.task || {}).job)].filter(Boolean).join(" · ");
   sel.replaceChildren(...(cur ? [new Option(cur.name, cur.id)] : []), ...others.map((w) => new Option(tag(w), w.id)));
   sel.value = state.id || "";
-  sel.title = taskProject() ? `과제 「${taskProject()}」 의 문서 목록 — 고르면 그 문서를 엽니다(다른 문서는 「작업」 단추)` : "올린 문서(작업) 목록 — 고르면 그 문서를 엽니다";
+  sel.title = taskProject() ? `프로젝트 「${taskProject()}」 의 문서 목록 — 고르면 그 문서를 엽니다(다른 문서는 「작업」 단추)` : "올린 문서(작업) 목록 — 고르면 그 문서를 엽니다";
   sel.hidden = !cur || !others.length;
   $("fileName").hidden = !sel.hidden;
   sel.onchange = () => { const id = sel.value; sel.value = state.id; if (id !== state.id) openWork(id); }; // 못 열면(취소 등) 지금 문서 그대로
@@ -1634,13 +2206,13 @@ let peerKind = null; // 칸 단추로 고른 칸(plan|report) — 지금 문서�
 let peerPick = null; // 문서 이름 탭으로 고른 작업 id(이 화면에서만) — 칸 단추를 누르면 비운다
 const peerOn = () => { try { return localStorage.getItem(PEER_KEY) !== "off"; } catch { return true; } };
 const peerShown = () => ($("peerCol").hidden ? "" : $("peerFrame").dataset.w || ""); // 옆에 떠 있는 작업 id("" = 없음)
-function peerDocs() { // 둘째 면에 띄울 수 있는 문서(문서 이름 탭의 차례) — 이관의 칸 문서(칸 차례) 다음에 같은 과제의 다른 문서. 지금 문서는 뺀다 · 이관이 아니면 없음
+function peerDocs() { // 둘째 면에 띄울 수 있는 문서(문서 이름 탭의 차례) — 이관의 칸 문서(칸 차례) 다음에 같은 프로젝트의 다른 문서. 지금 문서는 뺀다 · 이관이 아니면 없음
   if (gatherOn()) return gatherPeerDocs(); // 취합 — 그 취합에 든 기관 문서(들어온 차례 · 기관 문서를 열어 보는 중이면 취합본이 맨 앞 — gather.js, spec_취합 ② §5 「둘째 면」)
   const slots = taskSlots(), P = taskProject(), out = [];
   if (!slots) return out;
   const add = (w) => { if (w && w.id !== state.id && !out.some((x) => x.id === w.id)) out.push(w); };
   for (const k of slots) add(taskSlotDoc(k));
-  if (P) for (const w of worksList) if ((w.task || {}).project === P) add(w);
+  if (P) for (const w of worksList) if (taskSameScope(w)) add(w);
   return out;
 }
 function peerDoc(docs = peerDocs()) { // 그 가운데 띄울 문서 — 탭으로 고른 것 → 칸 단추로 고른 칸의 것 → 맨 앞
@@ -1650,7 +2222,7 @@ function peerDoc(docs = peerDocs()) { // 그 가운데 띄울 문서 — 탭으�
 function peerSync() { // 옆 열을 지금 상태에 맞춘다 — 작업 목록을 읽은 뒤(docSwitchDraw) · 칸 단추 · 문서 이름 탭 · ✕ · 문서를 닫을 때
   const col = $("peerCol"), f = $("peerFrame"), docs = !PEEK && state.id && peerOn() ? peerDocs() : [], w = peerDoc(docs), id = w ? w.id : "";
   if ((f.dataset.w || "") !== id) { f.dataset.w = id; f.src = id ? `/?peek=${id}#w=${id}` : "about:blank"; } // peek 값이 달라야 iframe 이 새로 읽는다(# 뒤만 바뀌면 안 읽음)
-  if (w) { $("peerName").textContent = w.name; peerTabsDraw(docs, id); if (colFolded("peer")) colRailName("peer"); }
+  if (w) { $("peerName").textContent = peerLabel(w); peerTabsDraw(docs, id); if (colFolded("peer")) colRailName("peer"); }
   if (col.hidden === !!w) { col.hidden = !w; if (!w) col.classList.remove("folded"); colsApply(); } // 열이 생기거나 없어진 만큼 다른 열 폭을 문서 보기 몫 안으로
   peerOpenMark();
   for (const b of document.querySelectorAll("[data-task-peer]")) peerBtn(b);
@@ -1688,20 +2260,25 @@ function taskSlotPeer(kind) { // 첨부 파일 칸 오른쪽(폴더 단추 다�
 // "도구는 하나로 둘다 선택할 수 있게" · "두 면이 같은 크기로 항상 보였으면 좋겠는데") — 탭 줄·편집 도구 줄은 두 문서 위에 한 번(style.css workspace 절), 둘째 면의 머리는 문서 이름 탭 줄(peerTabsDraw).
 // 두 면은 **늘 같은 크기**: 폭은 반반(style.css — .peer-open 이면 문서 칸·둘째 면 칸이 모두 1fr), 보기는 첫째 면의 것을 둘째 면이 그대로 따른다(peerViewSync → 그 화면의 viewFollow:
 // 배율·2쪽 보기·쪽 번호·휠 쪽 넘김). 도구 줄은 하나 — 「페이지 보기」 묶음은 두 문서에 함께 듣고, 글자·문단·표 묶음과 도구 탭(패널)은 첫째 면(고치는 문서)의 것.
+const peerLabel = (w) => (gatherOn() && typeof gatherPeerLabel === "function" && gatherPeerLabel(w)) || w.name; // 탭 글 — 취합의 기관 문서는 반영할 기관 이름(spec_취합 ② §5 「둘째 면」), 그 밖은 파일 이름
 function peerTabsDraw(docs, id) { // 둘째 면 머리의 문서 이름 탭 — 띄울 수 있는 문서마다 하나, 고른 탭 = 떠 있는 문서. 누르면 그 문서로 바꾼다
-  const box = $("peerTabs"), key = docs.map((w) => `${w.id}:${w.name}:${(w.task || {}).file || ""}`).join("|") + "#" + id;
+  const job = (state.task || {}).job, role = (w) => taskDocRole(w.task, job); // 목적 문서 표시(docRoleDraw 위) — 탭 글은 peerLabel, 꼬리표는 data-role → CSS ::before
+  const seen = {}, labels = docs.map((w) => { const t = peerLabel(w); if (t === w.name) return t; const n = (seen[t] = (seen[t] || 0) + 1); return n > 1 ? `${t} (${n})` : t; }); // 같은 기관 문서가 둘이면 (2) · (3) — 파일 이름 탭은 그대로
+  const box = $("peerTabs"), key = docs.map((w, i) => `${w.id}:${w.name}:${labels[i]}:${(w.task || {}).file || ""}:${role(w)}`).join("|") + "#" + id;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.textContent = "";
-  for (const w of docs) {
-    const on = w.id === id, kind = (w.task || {}).file, b = el("button", "tab" + (on ? " active" : ""));
+  for (const [i, w] of docs.entries()) {
+    const on = w.id === id, kind = (w.task || {}).file, r = role(w), label = labels[i], b = el("button", "tab" + (on ? " active" : ""));
     b.type = "button";
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", String(on));
     b.tabIndex = on ? 0 : -1;
     b.dataset.peerDoc = w.id;
-    b.title = w.name + (kind ? ` — ${taskName("file", kind)}` : "") + (on ? "\n둘째 면에 떠 있는 문서(읽기 전용 — 고치려면 상단 바 문서 목록에서 이 문서를 엽니다)" : "\n누르면 둘째 면에 이 문서를 띄웁니다");
-    b.append(el("span", null, w.name));
+    if (r) b.dataset.role = r;
+    if (label !== w.name) b.dataset.peerOrg = label; // 반영할 기관 이름을 단 탭(화면 검사가 본다)
+    b.title = (r ? `[${DOC_ROLE[r][0]}] ` : "") + (label !== w.name ? `반영할 기관 ${label}\n` : "") + w.name + (kind ? ` — ${taskName("file", kind)}` : "") + (on ? "\n둘째 면에 떠 있는 문서(읽기 전용 — 고치려면 편집 문서 위 파일명 목록에서 이 문서를 엽니다)" : "\n누르면 둘째 면에 이 문서를 띄웁니다");
+    b.append(el("span", null, label));
     b.onclick = () => { peerPick = w.id; peerKind = null; peerSync(); };
     box.append(b);
   }
@@ -1746,6 +2323,7 @@ function closeDoc() {
   divReset();
   if (typeof tablesReset === "function") tablesReset(); // 표 탭(tables.js)
   if (typeof compareReset === "function") compareReset();
+  if (typeof agentReset === "function") agentReset(); // 에이전트 보기(doc_agent.js)
   $("workspaceNav").hidden = true;
   document.querySelector(".workspace").classList.remove("compare-mode");
   $("docBar").hidden = $("scroller").hidden = $("panel").hidden = $("fileInfo").hidden = $("panelBtn").hidden = $("barCtl").hidden = true;
@@ -2219,7 +2797,7 @@ function overflowSplit(doc) {
       ns.classList.add("over");
       const label = el("button", "sheet-label", `≈${n}쪽`); // 「+k」는 아래에서 DOM 차례로 매긴다
       label.type = "button";
-      label.title = `새 문단·표(구분 기준 반영 등)는 ${APP()} PDF 자리가 없어 ${n}쪽 상자가 용지보다 길어졌습니다 — 용지 높이로 어림해 나눈 조각(쪽 번호는 밀지 않음). `
+      label.title = `새 문단·표(프로젝트 구성 반영 등)는 ${APP()} PDF 자리가 없어 ${n}쪽 상자가 용지보다 길어졌습니다 — 용지 높이로 어림해 나눈 조각(쪽 번호는 밀지 않음). `
         + `실제 쪽은 「출력파일 검증」 뒤 PDF 탭에서 확인하세요.${m ? ` 누르면 ${APP()} PDF ${n}쪽.` : ""}`;
       label.onclick = () => { if (m) { state.pdfWhich = "original"; syncSeg(); state.pdfPage = sheetNo || n; showTab("Pdf"); setPanel(true); } };
       const nb = el("div", "sheet-body");
@@ -2848,6 +3426,7 @@ function applyServer(id, r) {
     if (p) indentLook(p.style, r.format);
   }
   state.editsDirty = true;
+  if (dv.plan) { divRunSync(); divFootSync(); } // 글을 고쳐 문서 차례가 올랐다 — 세워 둔 프로젝트 구성 계획은 낡는다(spec_구분_기준 ② §22)
 }
 
 async function flushAll() {
@@ -3070,8 +3649,11 @@ async function structOp(path, body) {
     if (state.failed.size) { toast("서버에 반영하지 못한 문단이 있어 먼저 다시 반영해야 합니다 — 「고친 문단」 탭", true); return null; }
     const r = await api(`/api/docs/${state.id}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (epoch !== state.epoch) return null;
+    // 같은 요청을 다시 보낸 답(에이전트 반영의 requestId — replayed)이나 화면이 아는 것보다 앞선 차례의 답은 문서 조각을 끼우지 않는다 — 실행 취소한 문단이 화면에 되살아난다(2026-11-13 astra). 지금 문서를 다시 읽는다
+    if (r.replayed || (r.rev != null && r.rev < state.serverRev)) { reloadDoc(); return r; }
     state.localRev += 1;
     state.structRev = state.localRev;
+    if (r.webFonts) setDocFonts(r.webFonts); // 편집이 새 글꼴 정의를 들여옴(다른 문서의 서식을 입힘) — 블록을 그리기 전에 @font-face 계획부터
     applyEditState(r);
     applyTops(r);
     if (r.outline) outlineApply(r.outline);
@@ -3080,6 +3662,7 @@ async function structOp(path, body) {
     return r;
   } catch (e) {
     if (epoch !== state.epoch) return null;
+    structOp.lastError = e; // 부른 쪽이 상태 코드를 읽는다(doc_agent.js 의 반영 — 409 = 제안이 낡음 · 403 = 원본 문서): 부르기 전에 null 로 비우고 쓴다
     if (e.status === 422 && e.body && e.body.owpml) state.owpml = { status: "fail", summary: e.message };
     toast(e.message, true);
     return null;
@@ -3105,6 +3688,7 @@ function applyEditState(r) {
   state.undo = r.undo || 0;
   state.owpml = r.owpml || state.owpml;
   for (const [i, t] of Object.entries(r.original || {})) if (!(i in state.original)) state.original[i] = t;
+  if (dv.plan) { divRunSync(); divFootSync(); } // 문서 차례가 바뀌면 세워 둔 프로젝트 구성 계획은 낡는다 — 실행 묶음의 「반영」 을 끄고 발의 글도(spec_구분_기준 ② §22)
 }
 
 function applyTops(r) {
@@ -3204,11 +3788,14 @@ function focusAt(f) {
 
 async function reloadDoc() {
   // 문서 전체를 다시 읽어 그린다(실행 취소 뒤, 바꿀 자리를 못 찾았을 때) — 검증·매핑·수정 번호는 그대로
-  const d = await api(`/api/docs/${state.id}`);
+  const id = state.id, epoch = state.epoch;
+  const d = await api(`/api/docs/${id}`);
+  if (id !== state.id || epoch !== state.epoch) return; // 읽는 사이 다른 문서를 열었다 — 옛 문서로 새 화면을 덮지 않는다(2026-11-13 astra P1)
   applyDoc(d);
 }
 
 function applyDoc(d) {
+  if (docNameSync(d.name)) loadWorks(); // 프로젝트 구성을 반영하면 프레임 이름으로, 그 반영을 실행 취소하면 올린 이름으로(spec_작업 ② §10 「프레임 이름」) — 문서 목록·작업 목록의 이름도 다시
   state.blocks = d.blocks;
   if (d.webFonts) setDocFonts(d.webFonts);
   state.byId = new Map();
@@ -4064,7 +4651,7 @@ function showPdf() {
   img.src = `/api/docs/${state.id}/pdf/${which}/${state.pdfPage}.png?v=${which === "edited" ? state.pdfVer : `b${state.base}`}`; // 기준 PDF 는 확정마다 다른 파일 — 주소도 다르게(브라우저 캐시)
 }
 
-const TOOL_TABS = ["Verify", "Edits", "Pdf", "Log", "Heads", "Tables", "Div", "Compare"]; // Tables = 표 모듈(tables.js, spec_헤딩_추출 ② §10)
+const TOOL_TABS = ["Verify", "Edits", "Pdf", "Log", "Heads", "Tables", "Agent", "Div", "Compare", "Tasks"];
 const TOOL_INFO = {
   Verify: ["검증", "파일·출력", "원본을 읽고 저장한 결과와 출력파일을 확인합니다."],
   Edits: ["고친 문단", "변경·확정", "고친 부분을 기준(마지막 확정)과 비교하고, 확정하거나 되돌립니다."],
@@ -4072,19 +4659,23 @@ const TOOL_INFO = {
   Log: ["기록", "작업 이력", "편집·추출·검증·내려받기를 시간순으로 확인합니다."],
   Heads: ["헤딩 추출", "구조 분석", "문서와 나란히 보며 라벨, 템플릿과 판단 근거를 확인합니다."],
   Tables: ["표", "표 관리", "문서의 표만 따로 — 소속 헤딩·계산식·엑셀식 보기·표 지침을 다룹니다."],
-  Div: ["연구개발과제", "구분 기준", "단계·차년도·기관에 맞춰 되풀이되는 자리를 구성합니다."], // 이름 = 작업 종류(spec_작업 ② §10 — 탭 띠에 탭은 없다: 패널 머리에서 연다), 안의 내용 = 구분 기준
+  Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 보관함에서 표·글 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12)
+  Div: ["작업 내용", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
+  Tasks: ["작업 리스트", "프로젝트 · TASK · 라운드", "프로젝트별 TASK와 이전 라운드를 열고, 새 TASK나 라운드를 시작합니다."],
   Compare: ["문서 비교", "병합 전 확인", "문서별 라벨과 템플릿을 나란히 비교하고 확인한 문서를 표시합니다."]
 };
 
 // ---- 아래 줄 접기·바꾸기 (spec_hwpx_웹편집 ② §9 「줄 접기·바꾸기」 — 2026-11-10 사용자 "접었다 폈다", "펴기 이런건 상단에 넣어줘. 그 줄 자체가 안보이게",
 // "세번째 편집 툴도 동일하게", "상단에 아이콘 하나 가운데 주고 거기 누르면 바가 변경")
-// 상단 바 가운데 [탭 ▴][⇅][편집 ▴](#barCtl): 접으면 그 줄(도구 탭 띠 #workspaceNav · 편집 도구 줄 #docBar)이 통째로 사라진다(.folded = display:none).
-// ⇅ = 아래 줄 바꾸기(둘 중 하나만 보이게). 둘 다 이 브라우저에 기억(localStorage nfm.navFold·nfm.barFold — 못 쓰면 기억만 안 함).
-const FOLD_ROWS = { nav: ["workspaceNav", "navFold", "nfm.navFold", "도구 탭 띠", "탭"], bar: ["docBar", "barFold", "nfm.barFold", "편집 도구 줄", "편집"] };
+// 상단 바 [탭 ▴][⇅][편집 ▴][파일명 ▴]: 탭·편집은 공용 도구 행 안의 묶음, 파일명은 각 문서 위의 독립 행을 함께 접는다.
+// ⇅ = 탭/편집 묶음 중 하나만 표시. 세 접힘 상태는 이 브라우저에 기억(localStorage nfm.navFold·nfm.barFold·nfm.fileFold).
+const FOLD_ROWS = { nav: ["workspaceNav", "navFold", "nfm.navFold", "도구 탭 띠", "탭"], bar: ["docBar", "barFold", "nfm.barFold", "편집 도구 줄", "편집"], file: ["fileInfo", "fileFold", "nfm.fileFold", "파일명 줄", "파일명"] };
 function rowFolded(which) { return $(FOLD_ROWS[which][0]).classList.contains("folded"); }
 function rowFold(which, on, remember = true) {
   const [rowId, btnId, key, label, short] = FOLD_ROWS[which];
   $(rowId).classList.toggle("folded", on);
+  if (which === "file") document.querySelector(".workspace").classList.toggle("file-names-folded", on);
+  $("workspaceTools").classList.toggle("folded", rowFolded("nav") && rowFolded("bar"));
   const b = $(btnId);
   b.setAttribute("aria-pressed", String(!on));
   b.classList.toggle("on", !on);
@@ -4104,16 +4695,17 @@ function barSwap() {
 
 // ---- 패널 머리(spec_작업 ② §10 「패널 머리」, 2026-11-11 사용자 "이 쪽에 작업 목록을 선택할 수 있는 리스트를 넣어주고 …" → "사이드 패널 상단에 저 탭은 중복이잖아" · "그냥 작업에서 연구개발과제를 택하면 지금 내용이 나오는거지")
 // 패널 머리 = 「작업」 목록 줄(#panelTask — taskDraw) + 도구 이름 줄(#toolTitle·#toolTag — showTab). 패널에 도구 탭 줄은 두지 않는다(문서 위 탭 띠와 겹침 — 한때 넣었던 #panelTabs·panelTabsDraw 는 같은 날 걷어냄).
-function panelTaskPick(v) { // 패널 머리의 작업 목록에서 고름 — 저장은 첫 카드의 「작업」 과 같은 길(taskSet), 연구개발과제를 고르면 그 내용(#paneDiv)을 바로 연다(푸는 쪽은 taskSet 이 「검증」 으로)
-  taskSet("kind", v); // 첫 await 앞에서 state.task(showTab("Div") 이 보는 값)·taskDraw 까지 끝난다
-  if (v === "rnd") showTab("Div");
+async function panelTaskPick(v) {
+  const id = state.id;
+  if (await taskSet("kind", v) && state.id === id && (v === "rnd" || v === "general")) showTab(v === "general" ? "Agent" : "Div"); // 「일반 문서」 = 에이전트 보기(hwpx 만 — docx 면 그대로)
 }
 
 // 탭 띠에 단추가 없는 도구 = 「연구개발과제」(Div — 2026-11-12 탭을 없앰): 작업 종류가 연구개발과제일 때만 열린다(전의 탭 보임 조건 그대로)
-const toolShown = (n) => { const t = $(`tab${n}`); return t ? !t.hidden : n === "Div" && !!state.id && taskRnd(); };
+// 에이전트(Agent — spec_일반편집 ② §12)는 탭이 감춰져 있어도(「일반 문서」 작업 — 패널 머리 「작업 내용」 이 연다) hwpx 문서면 열린다
+const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
 function showTab(name) {
   if (!TOOL_INFO[name] || !toolShown(name)) return;
-  if (!["Heads", "Div", "Tables"].includes(name) && !headsColClose()) return;
+  if (!["Heads", "Div", "Tables", "Agent"].includes(name) && !headsColClose()) return;
   panelHelpClose();
   $("panel").dataset.tool = name;
   const workspace = document.querySelector(".workspace");
@@ -4123,11 +4715,12 @@ function showTab(name) {
     if (tab) { // 「연구개발과제」(Div)는 탭이 없다 — 그 내용을 보는 동안 탭 띠에는 활성 탭이 없고, Tab 키는 첫 탭(검증)이 받는다
       tab.classList.toggle("active", on);
       tab.setAttribute("aria-selected", on);
-      tab.tabIndex = on || (name === "Div" && n === "Verify") ? 0 : -1;
+      tab.tabIndex = on || (n === "Verify" && (["Div", "Tasks"].includes(name) || (name === "Agent" && taskGeneral()))) ? 0 : -1;
     }
-    $(`pane${n}`).hidden = !on;
+    const pane = $(`pane${n}`);
+    if (pane) pane.hidden = !on;
   }
-  taskHomeDraw(); // 「↩ 작업 내용」 — 연구개발과제 내용을 보는 중이면 감춤
+  toolTabsDraw(); // 탭 「작업 내용」 · 「<도구>」 — 연구개발과제일 때만
   const [title, tag, description] = TOOL_INFO[name];
   $("toolTitle").textContent = title; // 패널 머리 둘째 줄(도구 이름 + 꼬리표) · 접힌 띠 이름(colRailName)
   $("toolTag").textContent = tag;
@@ -4144,7 +4737,9 @@ function showTab(name) {
   if (name === "Heads") headsShow();
   if (name === "Div") divShow(); // 구분 기준(spec_구분_기준 ② §8)
   if (name === "Tables" && typeof tablesShow === "function") tablesShow(); // 표 모듈(tables.js, spec_헤딩_추출 ② §10)
+  if (name === "Agent" && typeof agentShow === "function") agentShow(); // 에이전트 보기(doc_agent.js, spec_일반편집 ② §12)
   if (name === "Compare" && typeof compareShow === "function") compareShow();
+  if (name === "Tasks" && typeof projectListShow === "function") projectListShow();
 }
 
 function setPanel(open) {
@@ -4890,7 +5485,7 @@ async function headsStart(stage, useLlm) {
 function firstRun() {
   if (!state.id) return;
   if (state.format !== "docx") { headsFirst(); toast("첫 분석 — 헤딩 그래프·표 구조를 만드는 중(스크립트)"); }
-  divReview(true);
+  if (!taskGeneral()) divReview(true); // 「일반 문서」 는 구분 기준 LLM 검토를 돌리지 않는다(연구개발과제가 아님 — spec_일반편집 ② §11)
 }
 
 async function headsFirst() { // 헤딩 탭을 열지 않아도 결과·쪽 여백 표시·개요 편집 키가 생긴다 — 끝날 때까지 headsPoll 이 읽어 headsRender(→ headsMore2 → outlineLoad)
@@ -6161,6 +6756,17 @@ function hTable(head) {
   return [t, tb];
 }
 
+function hRowKeys(tb) { // 2열 표의 줄 이동 — 줄(tr.go)에 초점이 있을 때 ↑/↓ = 앞·뒤 줄을 누른 것과 같다(고름 · 문서의 그 자리). 줄 안의 체크 상자·입력에서는 그대로. 맨 끝에서는 멈춘다
+  tb.addEventListener("keydown", (e) => {
+    if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !e.target.matches || !e.target.matches("tr.go")) return;
+    e.preventDefault();
+    const rows = [...tb.querySelectorAll(":scope > tr.go")], next = rows[rows.indexOf(e.target) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    next.scrollIntoView({ block: "nearest" }); // 머리 줄(sticky)에 가리지 않게 — .hd-body tr.go scroll-margin
+    next.click();
+  });
+}
+
 function hCell(tr, text, cls = null, title = "") {
   const td = el("td", cls, text == null || text === "" ? "—" : String(text));
   if (title) td.title = title;
@@ -6820,7 +7426,8 @@ headsBind();
 // ---------------------------------------------------------------- 연결
 function bind() {
   const input = $("fileInput");
-  $("openBtn").onclick = $("pickBtn").onclick = () => input.click();
+  $("openBtn").onclick = () => input.click();
+  $("pickBtn").onclick = () => (typeof homeFilesPick === "function" ? homeFilesPick() : input.click()); // 시작 화면 「파일 선택」 = 문서 목록에 더함(여러 개 — ② §15-1). 상단 「열기」 는 전처럼 바로 연다
   input.onchange = () => { openFile(input.files[0]); input.value = ""; };
   $("downloadBtn").onclick = download;
   $("verifyBtn").onclick = startEditVerify;
@@ -6850,7 +7457,16 @@ function bind() {
   $("showPages").onchange = (e) => { $("doc").classList.toggle("hide-pages", !e.target.checked); tplMarksDraw(); peerViewSync(); }; // 쪽 표시를 끄면 템플릿 표시·여백도 함께 · 둘째 면도 같이(spec_작업 ② §12)
   $("doc").addEventListener("click", (e) => { if (e.target.closest(".sheet-label")) e.stopPropagation(); });
   const tabs = TOOL_TABS.filter((n) => $(`tab${n}`)); // 탭 띠에 단추가 있는 도구만 — 「연구개발과제」(Div)는 패널 머리에서 연다(spec_작업 ② §10)
-  $("taskHome").onclick = () => showTab("Div");
+  $("toolTabTask").onclick = () => showTab(taskGeneral() ? "Agent" : "Div"); // 패널 머리 탭(toolTabsDraw) — 「일반 문서」 작업의 작업 내용 = 에이전트 보기
+  $("toolTabTool").onclick = () => showTab(toolShown(toolLast) ? toolLast : "Verify");
+  $("toolTabList").onclick = () => showTab("Tasks");
+  $("toolTabs").onkeydown = (e) => {
+    const buttons = [...$("toolTabs").querySelectorAll('button[role="tab"]')].filter((b) => !b.hidden), i = buttons.indexOf(e.target);
+    if (i < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].click(); buttons[next].focus();
+  };
   tabs.forEach((n) => {
     const t = $(`tab${n}`);
     t.onclick = () => showTab(n);
@@ -6866,9 +7482,11 @@ function bind() {
   });
   $("navFold").onclick = () => rowFold("nav", !rowFolded("nav")); // 상단 바 가운데 [탭 ▴][⇅][편집 ▴]
   $("barFold").onclick = () => rowFold("bar", !rowFolded("bar"));
+  $("fileFold").onclick = () => rowFold("file", !rowFolded("file"));
   $("barSwap").onclick = barSwap;
   rowFold("nav", rowFoldLoad("nav"), false); // 기억한 접힘 상태로(문서 전이라 줄은 아직 숨김)
   rowFold("bar", rowFoldLoad("bar"), false);
+  rowFold("file", rowFoldLoad("file"), false);
   $("worksBtn").onclick = async () => { await loadWorks(); $("worksDlg").showModal(); };
   $("recentAll").onclick = () => $("worksBtn").click();
   $("homeLink").onclick = (e) => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); goHome(); }; // 로고 = 시작 화면으로(② §7) — Ctrl·Shift 누름은 링크대로(새 탭·새 창)
@@ -6900,10 +7518,14 @@ function bind() {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.id) { e.preventDefault(); (PEEK ? parent : window).download(); } // 옆 문서 화면에서 눌러도 바깥(지금 문서)을 저장
   });
   const drop = $("drop");
-  const own = (e) => !!heads.drag || (typeof gatherDragIs === "function" && gatherDragIs(e)); // 앱 안에서 끄는 것(개요 줄 옮기기 · 취합의 끌어 넣기 — gather.js)은 파일 놓기가 아니다
+  const own = (e) => !!heads.drag || (typeof gatherDragIs === "function" && gatherDragIs(e)) || (typeof gatherPartDragIs === "function" && gatherPartDragIs(e)); // 앱 안에서 끄는 것(개요 줄 옮기기 · 취합의 끌어 넣기 · 기관 문서 줄을 기관 폴더로 — gather.js)은 파일 놓기가 아니다
   window.addEventListener("dragover", (e) => { e.preventDefault(); if (!own(e)) drop.classList.add("over"); });
   window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) drop.classList.remove("over"); });
-  window.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); if (own(e)) return; const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault(); drop.classList.remove("over"); if (own(e)) return;
+    if (!state.id && !PEEK && typeof homeFilesAdd === "function") { homeFilesAdd(e.dataTransfer.files); return; } // 시작 화면 — 문서 목록에 더함(② §15-1). 문서를 연 뒤에는 전처럼 그 파일을 연다
+    const f = e.dataTransfer.files[0]; if (f) openFile(f);
+  });
   window.addEventListener("beforeunload", (e) => { if (hasUnsaved()) { e.preventDefault(); e.returnValue = ""; } });
   // 창·패널 크기가 바뀌어 다시 맞춰도 보던 자리 그대로. 폭 맞춤은 폭(content — 여백 padding·세로 스크롤 막대 뺀 폭)이 그대로면 건너뛴다 — 줄 접기처럼 높이만
   // 바뀌면 배율이 같은데도 fitWidth 가 배율을 1 로 돌려 재느라 문서 전체를 두 번 다시 배치한다(74쪽 0.6초)
@@ -6939,9 +7561,11 @@ init();
 const DV_STATUS = { applied: "맞춤", already: "이미 맞음", excluded: "제외", unsupported: "지원 안 됨", unresolved: "미해결" };
 const DV_EXTRA = { outside: "연구개발기관 외 기관", overseas: "국외기관", entrust: "위탁연구개발기관" };
 const divFresh = () => ({ view: null, values: null, plan: null, result: null, busy: false, dirty: false, filter: "all", skip: new Set(), showDrop: true, seq: 0,
-  ui: { advanced: false },
+  msg: null, auto: false, keepFocus: false, // 실행 묶음(② §22): 상태 줄에 남길 글 {kind: note|halt|done, text}(다음 계획·반영·입력 때까지) · 「한 번에 진행」 도는 중 · 끝나면 묶음의 다음 단추로 초점
+  ui: { advanced: false, runMore: false }, // runMore = 실행 묶음의 「세부」 를 이 문서에서 프로그램이 폄(divRunReveal — 브라우저에 기억한 펴짐은 따로)
   comment: { draft: "", busy: false, msg: "", err: false, open: false }, // 양식별 코멘트 줄(② §18, 2026-11-11): 쓰던 글 · 보내는 중 · 상태 한 줄(실패 여부) · 목록 펼침 — divRender 가 다시 그려도 남는다
-  preset: { selected: "", loaded: null, more: false, naming: false, nameDraft: null, confirming: "" }, // 저장한 과제 구성(② §8, 2026-11-11): 고른 것 · 불러오거나 저장한 것 {id, name, values(divCanon)} · ⋯ 펼침 · 이름 줄 · 삭제 확인
+  preset: { source: "", from: "", loaded: null, more: false, naming: false, nameDraft: null, confirming: "" }, // 프로젝트 구성 불러오기·확정(spec_작업 ② §18 — 전의 저장한 프로젝트 구분 기준 ② §8): 목록에서 고른 곳(confirmed|doc:id|file|project:이름|preset:id) · 마지막으로 채운 곳(글) · 저장한 프로젝트 구성 {id, name, values(divCanon)} · ⋯ 펼침 · 이름 줄 · 삭제 확인
+  projects: undefined, projectsAt: 0, projectsBusy: false, // 다른 프로젝트의 구성(GET /api/projects — 「프로젝트 구성 불러오기」 목록)
   savedKey: null, // 작업에 마지막으로 저장한 설정(divCanon) — 자동 저장(② §8)
   marks: { data: null, index: null, loading: false, seq: 0, err: null, llm: false, llmLast: null, missing: false, missingLast: null, // 문서 표시·추가한 자리(spec_구분_기준 ② §11) · 빠진 자리 검토(§13)
     reviewing: false, reviewOwn: false, review: null } }); // LLM 검토(두 검토를 함께 — ② §14): 도는 중 · 이 화면이 부른 것 · 마지막 취합 결과
@@ -6951,9 +7575,10 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
   dv = divFresh();
   taskFlow = taskFlowFresh(); // 이관 단계에 읽어 둔 다른 문서 자료(spec_작업 ② §11)
   clearTimeout(divSaveTimer); divSaveTimer = null; divSavePending = null; // 옛 문서의 설정 저장은 끊는다(② §8 자동 저장 — 도는 것은 epoch 로 버려짐)
-  taskHomeDraw(); // 「↩ 작업 내용」 — 작업 종류가 연구개발과제일 때만(spec_작업 ② §10)
+  toolTabsDraw(); // 패널 머리 탭 「작업 내용」 · 「<도구>」 — 작업 종류가 연구개발과제일 때만(spec_작업 ② §10)
+  if (typeof projectComboClose === "function") projectComboClose(); // 프로젝트 고르기 목록(② §19)은 body 에 떠 있다 — 칸이 사라지면 함께 닫는다
   $("divBox").textContent = "";
-  taskFrameForm = null; // 1단계 묶음 안의 입력 칸도 함께 사라졌다
+  taskFrameForm = null; taskFrameApply = null; // 1·2단계 묶음 안의 입력 칸도 함께 사라졌다
   divMarksDraw(); // 옛 문서의 구분 기준 표시 지움(② §11)
 }
 
@@ -6973,20 +7598,22 @@ function divValues() { // 서버에 보낼 값(빈 선택 항목은 뺀다)
 
 async function divShow() {
   if (!state.id) return;
-  const id = state.id, epoch = state.epoch, seq = ++dv.seq;
+  const id = state.id, epoch = state.epoch, view = dv, seq = ++dv.seq;
+  const inputKey = dv.values ? divCanon(divValues()) : null, savedKey = dv.savedKey;
   let r;
   try { r = await api(`/api/docs/${id}/divisions`); }
   catch (e) {
-    if (epoch !== state.epoch) return;
+    if (epoch !== state.epoch || view !== dv) return;
     $("divBox").textContent = "";
-    $("divBox").append(el("p", "hwarn fail", `구분 기준 상태를 읽지 못했습니다: ${e.message}`), hBtn("다시 읽기", () => divShow()));
+    $("divBox").append(el("p", "hwarn fail", `프로젝트 구성 상태를 읽지 못했습니다: ${e.message}`), hBtn("다시 읽기", () => divShow()));
     return;
   }
-  if (epoch !== state.epoch || seq !== dv.seq) return;
+  if (epoch !== state.epoch || view !== dv || seq !== dv.seq) return;
+  if (inputKey !== (dv.values ? divCanon(divValues()) : null) || savedKey !== dv.savedKey) return;
   dv.view = r;
   divReviewSeen(r); // 작업에 남은 마지막 LLM 검토·도는 중 표시(② §14 — 첫 분석이 돌린 것 · 다시 연 작업)
   if (divMarksOn()) divMembersLoad(); // 문서 표시가 켜져 있으면 편집 차례가 바뀐 자료를 다시(② §11)
-  if (!dv.values) {
+  if (!dv.values || dv.savedKey === divCanon(divValues())) {
     dv.values = r.settings ? structuredClone(r.settings.values) : (r.applied ? structuredClone(r.applied.values) : divDefault());
     dv.savedKey = r.settings ? divCanon(r.settings.values) : null; // 작업에 있는 설정과 같으면 자동 저장이 바로 안 돈다
   }
@@ -6996,6 +7623,7 @@ async function divShow() {
 
 function divRender() {
   const box = $("divBox"), r = dv.view;
+  const panelKeep = typeof projectPanelKeep === "function" ? projectPanelKeep(box) : null; // 프로젝트 칸·버전 이름 줄에 쓰던 글·포커스·열린 고르기 목록 — 다 그린 뒤 새 칸으로 옮긴다(spec_작업 ② §19)
   box.textContent = "";
   taskFrameForm = null; // 1단계 묶음 안의 입력 칸 — 아래 taskFrameHost 가 다시 정한다
   if (!r) return;
@@ -7025,11 +7653,11 @@ function divRender() {
   profile.append(profileText, profileActs);
   box.append(profile);
   box.append(divCommentRow()); // 양식별 코멘트 줄 — 양식 줄 바로 아래(② §18)
-  if (!ok) box.append(el("p", "dv-notice", "이 양식은 구분 기준 자동 반영을 지원하지 않습니다." + (state.format === "docx" ? "" : " 헤딩 추출에서 문서 구조를 확인할 수 있습니다.")));
+  if (!ok) box.append(el("p", "dv-notice", "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다." + (state.format === "docx" ? "" : " 헤딩 추출에서 문서 구조를 확인할 수 있습니다.")));
 
   const config = el("fieldset", "dv-config");
   config.disabled = dv.busy;
-  config.append(divPresetBlock(r, v)); // 저장한 과제 구성 — 설정 맨 위 두 줄(② §8, 2026-11-11)
+  config.append(divPresetBlock(r, v)); // 저장한 프로젝트 구분 기준 — 설정 맨 위 두 줄(② §8, 2026-11-11)
   const sectionHead = (number, title, note, badgeId) => {
     const head = el("div", "dv-section-head");
     const copy = el("div", "dv-section-copy");
@@ -7146,9 +7774,11 @@ function divRender() {
     const lab = el("div", "dv-field"), heading = el("div", "dv-field-label"), label = el("label", null, name);
     label.htmlFor = `divExtra-${key}`;
     heading.append(label);
-    if (key === "subs") heading.append(hHelp(`${name} 안내`, "비워 두면 세부과제 자리를 유지합니다.", { note: true }));
+    heading.append(hHelp(`${name} 안내`, "기관 이름을 쉼표로 구분해 입력하세요.\n" + (key === "subs"
+      ? "비워 두면 세부과제 자리를 유지합니다."
+      : "비워 두면 해당 기관 자리를 삭제하는 계획을 만듭니다."), { note: true }));
     lab.append(heading);
-    const inp = el("input"); inp.id = label.htmlFor; inp.type = "text"; inp.placeholder = "기관 이름을 쉼표로 구분"; inp.setAttribute("aria-label", name);
+    const inp = el("input"); inp.id = label.htmlFor; inp.type = "text"; inp.placeholder = "기관명, 기관명"; inp.setAttribute("aria-label", name);
     inp.value = (key === "subs" ? (v.subs || []) : (v.orgs[key] || [])).join(", ");
     inp.oninput = () => {
       const names = inp.value.split(",").map(s => s.trim()).filter(Boolean);
@@ -7156,31 +7786,31 @@ function divRender() {
       divTouched();
     };
     lab.append(inp);
-    if (key !== "subs") lab.append(el("small", "dv-caption", "비워 두면 해당 기관 자리를 삭제하는 계획을 만듭니다.")); // 삭제 영향은 계속 보인다.
     extra.append(lab);
   }
   more.append(extra); config.append(more);
 
   config.querySelectorAll(".dv-remove").forEach(button => button.setAttribute("aria-label", button.title));
-  const host = taskFrameHost(box), staged = host !== box; // 이관이면 1단계 「문서 프레임 작성」 묶음 안(세부 목록 아래 #taskFrameForm), 아니면 패널 그대로(spec_작업 ② §14)
-  host.append(config);
+  taskFrameApply = null;
+  const host = taskFrameHost(box), staged = host !== box; // 이관·취합이면 구성 입력은 1단계 「구분 기준」 묶음 안(#taskFrameForm), 반영 상태·변경 계획은 2단계 「문서 프레임 작성」 묶음 안(#taskFrameApply — spec_작업 ② §18), 아니면 패널 그대로
+  const ahost = (staged && taskFrameApplyHost(box)) || host;
 
+  // 실행 묶음(변경 계획 보기 → 반영 · 계획 다시 열기 · 한 번에 진행 — spec_구분_기준 ② §22) + 그 아래 「문서 반영 상태」. 묶음 없는 TASK(양식 맞추기)는 패널 맨 위 — 첫 카드 바로 다음, 이관·취합은 2단계 묶음 안.
+  // 묶음 없는 TASK 는 구성 입력(불러오기·확정 · 단계·차년도 · 기관)도 그 카드 안 — 「한 번에 진행」 · 「불러오기」 만 보이고 나머지는 접어 둔 「세부」(divRunFold — ② §22 「카드 하나」)
   const applied = el("section", "dv-applied"); applied.id = "divAppliedState"; applied.setAttribute("aria-live", "polite");
-  host.append(applied);
-  const review = el("div", "dv-review-bar");
-  const reviewText = el("div", "dv-review-copy"), totals = el("strong"); totals.id = "divReviewSummary";
-  reviewText.append(totals, el("span", null, "바뀔 자리와 지워질 내용을 먼저 확인하세요."));
-  const reviewActions = el("div", "dv-review-actions");
-  const planBtn = hBtn(dv.busy ? (state.busy ? "문서에 반영 중…" : "변경 계획 계산 중…") : "변경 계획 보기", () => divPlan(), {
-    cls: "btn dv-plan-button" + (staged ? "" : " primary"), disabled: !ok || dv.busy, // 묶음 안에서는 강조 아님 — 강조 단추는 카드에 하나(세부 목록의 「다음 할 일」 · 「한 번에 진행」)
-    title: "변경할 자리와 지워질 글을 미리 확인합니다. 확인 후 별도로 반영할 수 있습니다."
-  }); planBtn.id = "divPlanButton";
-  reviewActions.append(planBtn);
-  if (dv.plan) {
-    const reopen = hBtn("마지막 계획 열기", () => divList(), { disabled: dv.busy }); reopen.id = "divReopenPlan"; reviewActions.append(reopen);
-  }
-  review.append(reviewText, reviewActions); host.append(review);
+  const run = divRunBar(staged);
+  if (staged) { host.append(config); ahost.append(run, applied); }
+  else { divRunFold(run, config); box.firstElementChild.after(run, applied); }
+  // 이관이면 구분 기준 자리 표시 · 지원 양식 줄 · 양식별 코멘트도 프레임 묶음 안 — 변경 계획 아래(2026-11-12 사용자 "구분기준 자리 표시가 있네" → 물어서 받은 답 「1단계 안으로 옮김」 — 11-13 그 묶음이 2단계:
+  // 구조(구분 기준) 확인용이라 그 묶음에 둔다 · design.md §11 「묶음이 쓰는 입력·결과 값은 그 묶음 안에」). 취합(gather.js)은 그쪽 몫이라 전처럼 패널에
+  if (staged && taskSlots()) ahost.append(...[...box.querySelectorAll(":scope > #divMarksBar, :scope > .dv-profile, :scope > #divComments, :scope > .dv-notice")]);
   divRefreshDerived();
+  if (panelKeep) panelKeep();
+  if (dv.keepFocus && !dv.busy) { // 실행 묶음의 단추를 눌러 돌린 일이 끝났다 — 다시 그리며 잃은 초점을 다음 단추로(그 사이 다른 곳을 눌렀으면 그대로 둔다)
+    dv.keepFocus = false;
+    const at = document.activeElement;
+    if (!at || at === document.body) (run.querySelector("button.primary:not(:disabled)") || run.querySelector("button:not(:disabled)"))?.focus({ preventScroll: true });
+  }
 }
 
 function divRefreshDerived() {
@@ -7205,8 +7835,8 @@ function divRefreshDerived() {
   }
   current.value = String(Math.min(v.current || 1, max));
   $("divReviewSummary").textContent = v.stages.length + "단계 · 전체 " + total + "년 · 기관 " + (v.orgs.joint.length + 1) + "곳";
-  $("divPlanButton").disabled = !dv.view.profile.supported || dv.busy || total > 20;
-  if (!dv.plan) $("divReopenPlan")?.remove();
+  $("divReviewSummary").title = `지금 입력 값 — ${divValuesText(divValues())}`; // 입력이 접혀 있어도(실행 묶음의 「세부」) 불러온 값을 올려서 확인
+  divRunSync(); // 실행 묶음의 단추·상태 줄(② §22) — TASK 묶음 안이면 1단계(프로젝트 구성 확정)가 끝나야 변경 계획(spec_작업 ② §18: divRunWhy)
   divPresetRefresh(); // 「X」 수정됨 · 「저장」 켜짐(② §8)
   divRenderApplied();
   taskStepsDraw(); // 이관 단계 ① 구분 기준 확인 — 지금 문서의 입력 값으로 다시 견준다(spec_작업 ② §11)
@@ -7240,10 +7870,7 @@ function divRenderApplied() {
     if (state.undo) target.append(hBtn("↶ 마지막 구조 편집 실행 취소", () => divUndo(), { cls: "btn dv-undo", disabled: dv.busy,
       title: "마지막 구조 편집 직전으로 되돌립니다. 그 뒤 고친 글도 함께 돌아갑니다." }));
   }
-  const p = dv.view.plan;
-  if (p) target.append(el("p", "dv-plan-note", dv.dirty ? "입력값이 바뀌었습니다. 변경 계획을 다시 확인하세요." :
-    p.baseRev !== state.serverRev ? "이전 계획 이후 문서가 수정되었습니다. 변경 계획을 다시 확인하세요." :
-    "마지막 계획 " + fmtWhen(p.createdAt) + (dv.plan ? " · 검토할 수 있습니다." : " · 현재 입력값으로 다시 확인하세요.")));
+  // 계획의 상태(없음 · 준비됨 · 입력·문서가 바뀜 · 반영 완료)는 바로 위 실행 묶음의 상태 줄에(divRunSync — ② §22). 여기는 마지막 반영 기록만
 }
 
 function divValuesNormalized() { // applied.values(서버가 정리한 꼴)와 견줄 입력 값 — 서버 정리 규칙의 핵심만(빈 이름·목록 기본값)
@@ -7266,50 +7893,111 @@ function divSummary(s) {
 function divTouched() {
   const hadPlan = !!dv.plan;
   dv.plan = null; dv.result = null; dv.skip = new Set(); dv.dirty = true;
+  dv.msg = hadPlan ? { kind: "note", text: "입력값이 바뀌었습니다 · 다시 계획하세요" } : dv.msg && dv.msg.kind === "note" ? dv.msg : null; // 멈춤·끝 글은 값이 바뀌면 지난 일
   divSettingsSchedule(); // 입력값은 작업에도 — 0.7초 뒤 PUT …/settings(② §8 자동 저장)
   divRefreshDerived();
-  if (hadPlan && heads.dlg === "divisions") {
-    const foot = $("headsDlgFoot"); foot.textContent = "";
-    foot.append(el("span", "hd-msg note", "입력값이 바뀌어 이전 계획을 반영할 수 없습니다. 변경 계획을 다시 확인하세요."),
-      hBtn("다시 계획", () => divPlan(), { cls: "btn sm primary", disabled: dv.busy }), hBtn("닫기", () => headsColClose()));
-  }
+  divFootSync(); // 열려 있는 2열 목록의 발 — 그 계획은 더 반영할 수 없다(다시 계획은 패널의 실행 묶음에서 — ② §22)
 }
 
 async function divUndo() { // 실행 취소(마지막 구조 편집 = 보통 이 반영) 뒤 계획·결과를 버리고 3열·2열을 새로
-  const epoch = state.epoch;
+  const epoch = state.epoch, before = state.localRev;
   await undoStruct();
-  if (epoch !== state.epoch) return;
+  if (epoch !== state.epoch || state.localRev === before) return; // 되돌리지 않았으면(확인 창에서 그만둠 · 실패) 계획·결과는 그대로
   dv.plan = null;
   dv.result = null;
+  dv.msg = null;
   if (heads.dlg === "divisions") headsColClose();
   divShow();
 }
 
-async function divRead() {
+async function divRead(src = null) { // 문서에 적힌 구성 읽기 — src 없음 = 지금 문서, {id, name} = 이 프로젝트의 다른 문서(그 문서를 서버가 연다 — 읽기만). 입력 칸만 바뀐다(문서·확정은 그대로 — spec_작업 ② §18)
   if (!state.id) return;
-  const epoch = state.epoch;
+  const epoch = state.epoch, id = (src && src.id) || state.id, name = src && src.id !== state.id ? src.name : "";
   try {
-    const r = await api(`/api/docs/${state.id}/divisions/read`);
+    const r = await api(`/api/docs/${id}/divisions/read`);
     if (epoch !== state.epoch) return;
-    const got = r.read || {}, v = dv.values, names = [];
-    if (got.stages) { v.stages = got.stages; names.push("단계·차년도"); }
-    if (got.period) { v.period = got.period; names.push("사업기간"); }
-    if (got.current) { v.current = got.current; names.push("당해 차년도"); }
-    if (got.subs && got.subs.length) { v.subs = got.subs; names.push("세부과제"); }
-    const o = got.orgs || {};
-    if (o.lead != null) { v.orgs.lead = o.lead; names.push("주관"); }
-    if (o.joint) { v.orgs.joint = o.joint; names.push(`공동 ${o.joint.length}곳`); }
-    if (o.nonprofit) { v.orgs.nonprofit = o.nonprofit; names.push("비영리"); }
-    for (const k of Object.keys(DV_EXTRA)) if (o[k] && o[k].length) { v.orgs[k] = o[k]; names.push(`${DV_EXTRA[k]} ${o[k].length}곳`); }
-    divTouched();
+    divReadApply(r.read, name ? `「${name}」` : "문서");
+  } catch (e) { if (epoch === state.epoch) toast(`${name ? `「${name}」 에서` : "문서에서"} 읽지 못했습니다: ${e.message}`, true); }
+}
+function divReadFile() { // 「파일 올려 추출…」 — 파일 고르기 → POST /api/divisions/read-file(작업을 만들지 않음) → 입력 칸
+  const inp = el("input");
+  inp.type = "file";
+  inp.accept = ".hwp,.hwpx";
+  inp.onchange = async () => {
+    const f = inp.files[0];
+    if (!f || !state.id) return;
+    if (!/\.hwpx?$/i.test(f.name)) { toast("hwp·hwpx 파일만 읽을 수 있습니다", true); return; }
+    const epoch = state.epoch, fd = new FormData();
+    fd.append("file", f);
+    toast(`${f.name} — 프로젝트 구성 읽는 중…${/\.hwp$/i.test(f.name) ? "(한글이 hwpx 로 바꿈)" : ""}`);
+    try {
+      const r = await api("/api/divisions/read-file", { method: "POST", body: fd });
+      if (epoch === state.epoch) divReadApply(r.read, `「${f.name}」`);
+    } catch (e) { if (epoch === state.epoch) toast(`「${f.name}」 에서 읽지 못했습니다: ${e.message}`, true); }
+  };
+  inp.click();
+}
+function divReadApply(got, from) { // 읽은 값(…/divisions/read 꼴) → 입력 칸(읽은 키만 바꿈 — 못 읽은 값은 둔다)
+  got = got || {};
+  const v = dv.values, names = [];
+  if (got.stages) { v.stages = got.stages; names.push("단계·차년도"); }
+  if (got.period) { v.period = got.period; names.push("사업기간"); }
+  if (got.current) { v.current = got.current; names.push("당해 차년도"); }
+  if (got.subs && got.subs.length) { v.subs = got.subs; names.push("세부과제"); }
+  const o = got.orgs || {};
+  if (o.lead != null) { v.orgs.lead = o.lead; names.push("주관"); }
+  if (o.joint) { v.orgs.joint = o.joint; names.push(`공동 ${o.joint.length}곳`); }
+  if (o.nonprofit) { v.orgs.nonprofit = o.nonprofit; names.push("비영리"); }
+  for (const k of Object.keys(DV_EXTRA)) if (o[k] && o[k].length) { v.orgs[k] = o[k]; names.push(`${DV_EXTRA[k]} ${o[k].length}곳`); }
+  if (names.length) dv.preset.from = `${from}에서 추출`;
+  divTouched();
+  divRender();
+  toast(names.length ? `${from}에서 읽음: ${names.join(" · ")} — 확인한 뒤 「${divConfirmWhere(dv.view && dv.view.projectSharing)}에 저장」` : `${from}에서 읽을 수 있는 값이 없습니다(자리표시뿐)`);
+}
+
+// ---- 프로젝트 구성 확정(spec_작업 ② §18 — 2026-11-13 사용자 "현재 프로젝트에 구성을 저장하고 사용할 수 있도록"): 1단계 「구분 기준」 의 끝 = 입력 값이 확정한 값과 같음.
+// 확정은 프로젝트에 하나(공유 중인 작업) · 프로젝트가 없거나 이전 라운드면 그 작업에. 입력은 전처럼 자동 공유되고, 바꾸면 확정이 풀린다(valid 아님).
+const divConfirmKey = (v) => { const o = JSON.parse(divCanon(v)); delete o.current; return JSON.stringify(o); }; // 확정 비교 — 당해 차년도는 안 견준다(보고서마다 다를 수 있음 — taskDivDiff 와 같은 규칙)
+const divConfirmValid = (values, cf) => !!(values && cf && cf.values && divConfirmKey(cf.values) === divConfirmKey(values));
+const divConfirmWhere = (sharing) => (sharing && sharing.shared && sharing.project ? `프로젝트 「${sharing.project}」` : "이 문서");
+const divConfirmWhat = (where) => (where === "이 문서" ? "이 문서의 프로젝트 구성" : `${where} 구성`); // 값 묶음의 화면 이름은 「프로젝트 구성」(spec_작업 ② §19 「화면 말」) — 프로젝트 이름이 앞에 있으면 「프로젝트 「X」 구성」, 프로젝트가 없는 작업이면 「이 문서의 프로젝트 구성」
+function divValuesText(v) { // 「1단계(1–4차년도) · 주관 한국선급 · 공동 3(씨드로닉스 · 유엔젤 · 랩오투원)」
+  if (!v) return "";
+  let start = 1;
+  const stages = (v.stages || []).map((n, i) => { const y = Number(n) || 1, s = `${i + 1}단계(${y === 1 ? start : `${start}–${start + y - 1}`}차년도)`; start += y; return s; });
+  const orgs = v.orgs || {}, joint = (orgs.joint || []).map((n, i) => n || `참여기관${i + 1}`);
+  return `${stages.join(" · ")} · 주관 ${orgs.lead || "미입력"} · 공동 ${joint.length}${joint.length ? `(${joint.join(" · ")})` : ""}`;
+}
+async function divConfirm(opt = {}) { // 지금 입력 값을 확정(POST …/divisions/confirm) → 됐으면 true
+  if (!state.id || !dv.values || !dv.view) return false;
+  const id = state.id, epoch = state.epoch, values = divValues(), where = divConfirmWhere(dv.view.projectSharing);
+  await divSettingsFlush();
+  if (epoch !== state.epoch) return false;
+  try {
+    const r = await api(`/api/docs/${id}/divisions/confirm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ values }) });
+    if (epoch !== state.epoch || !dv.view) return false;
+    Object.assign(dv.view, { settings: r.settings, dimensions: r.dimensions, plan: r.plan, stale: r.stale, projectSharing: r.projectSharing, confirmed: r.confirmed || null, ...("versions" in r ? { versions: r.versions } : {}) }); // versions = 구분 기준 버전(② §19 — 옛 서버면 없음: 건드리지 않는다)
+    dv.savedKey = divCanon(values);
     divRender();
-    toast(names.length ? `문서에서 읽음: ${names.join(" · ")} — 확인한 뒤 「계획 보기」` : "문서에서 읽을 수 있는 값이 없습니다(자리표시뿐)");
-  } catch (e) { if (epoch === state.epoch) toast(`문서에서 읽지 못했습니다: ${e.message}`, true); }
+    if (typeof taskFlowLoad === "function") taskFlowLoad(); // 이관 — 다른 칸 문서의 확정 상태도 다시(같은 프로젝트면 같은 확정)
+    if (!opt.quiet) toast(`프로젝트 구성을 ${where}에 확정했습니다 — ${divValuesText(values)}`);
+    return true;
+  } catch (e) { if (epoch === state.epoch) toast(`프로젝트 구성을 확정하지 못했습니다: ${e.message}`, true); return false; }
+}
+function divConfirmRevert(cf) { // 「확정본으로 되돌리기」 — 입력 칸만(문서·확정 그대로)
+  if (!cf || !cf.values || !dv.values) return;
+  const cur = dv.values.current;
+  dv.values = structuredClone(cf.values);
+  if (!dv.values.current && cur) dv.values.current = cur;
+  dv.preset.from = "확정본";
+  divTouched();
+  divRender();
+  toast("확정한 프로젝트 구성으로 되돌렸습니다");
 }
 
 // ---- 저장한 과제 구성(spec_구분_기준 ② §0 용어 · §7 presets · §8 「저장한 과제 구성」, 2026-11-11 astra 안 1) — 설정 맨 위 두 줄 + ⋯ 셋째 줄 · 이름·삭제 확인은 인라인(모달 금지)
 const DV_CANON_KEYS = ["current", "end", "entrust", "joint", "lead", "nonprofit", "orgs", "outside", "overseas", "period", "stages", "start", "subs"]; // JSON.stringify 의 키 목록 = 키 차례 고정
-function divCanon(v) { // 서버 norm_values 가 내는 꼴과 같게 정리해 글로 — 저장본(과제 구성)·작업 설정과 견준다(키 정렬·빈칸 정리·비영리 수 맞춤·기본값)
+function divCanon(v) { // 서버 norm_values 가 내는 꼴과 같게 정리해 글로 — 저장본(프로젝트 구분 기준)·작업 설정과 견준다(키 정렬·빈칸 정리·비영리 수 맞춤·기본값)
   v = v || {};
   const o = v.orgs || {}, names = (xs) => (Array.isArray(xs) ? xs : []).map((s) => String(s ?? "").trim());
   const stages = (v.stages || []).map((n) => Number(n) || 1), joint = names(o.joint), total = stages.reduce((a, b) => a + b, 0);
@@ -7322,34 +8010,91 @@ function divCanon(v) { // 서버 norm_values 가 내는 꼴과 같게 정리해 
 const divPresetName = (s) => String(s || "").trim().replace(/\s+/g, " "); // 서버 _name 과 같게
 const divPresetSummary = (p) => `${p.name} · ${p.values.stages.join("+")}년 · 공동 ${p.values.orgs.joint.length}`;
 
+// ---- 프로젝트 구성 불러오기·확정(spec_작업 ② §18 — 2026-11-13 전의 「저장한 프로젝트 구분 기준」 두 줄을 바꿈): 첫 줄 = 고르기 목록 「프로젝트 구성 불러오기」(이 프로젝트 · 문서에서 추출 · 다른 프로젝트 · 저장한 프로젝트 구성) + 「불러오기」,
+// 둘째 줄 = 확정 상태 + 「프로젝트에 저장」(확정) + ⋯(이름 붙여 저장 · 삭제 — 저장한 프로젝트 구성 목록). 불러오기는 입력 칸만 바꾼다(문서·확정은 그대로). 모달 없음
+function divSourceDocs() { // 「문서에서 추출」 목록 — 지금 문서 + 같은 프로젝트·TASK·라운드 문서 + 취합의 기관 문서(미소속이어도). 기준 문서(취합본·사업계획서)가 앞
+  const seen = new Set(), out = [], add = (w) => { if (w && w.id && !seen.has(w.id)) { seen.add(w.id); out.push(w); } };
+  const basis = gatherOn() ? gatherPlan() : taskSlots() ? taskSlotDoc("plan") : null;
+  add(basis);
+  add(worksList.find((w) => w.id === state.id) || (state.id ? { id: state.id, name: state.name || "지금 문서", task: state.task } : null));
+  for (const w of taskMates()) add(w);
+  if (gatherOn()) for (const p of ((gt().view || {}).parts || [])) add(worksList.find((w) => w.id === p.work) || { id: p.work, name: p.name, task: { file: "part" } });
+  return out;
+}
+function divSourceFill(sel, r) { // 고르기 목록의 항목 — 다른 프로젝트 목록은 늦게 와서(GET /api/projects) 이 목록만 다시 채운다(입력 중 포커스 그대로)
+  const keep = sel.value, sharing = r.projectSharing, me = sharing && sharing.project, cf = r.confirmed, group = (label) => { const g = el("optgroup"); g.label = label; sel.append(g); return g; };
+  sel.textContent = "";
+  sel.append(new Option("프로젝트 구성 불러오기 — 고르세요", ""));
+  // 구분 기준 버전은 여기 넣지 않는다(spec_작업 ② §19) — 이 목록은 입력 칸만 바꾸고 버전 적용은 확정까지 한다: 버전은 프로젝트 칸 아래의 버전 줄(.project-versions)에서만
+  if (cf && cf.values) group(me && cf.scope === "project" ? `이 프로젝트 「${me}」` : "이 문서").append(new Option(`확정한 프로젝트 구성 — ${divValuesText(cf.values)}`, "confirmed"));
+  const docs = group("문서에서 추출");
+  for (const w of divSourceDocs()) { const f = taskName("file", (w.task || {}).file); docs.append(new Option(`${w.name}${f ? `(${f})` : ""}${w.id === state.id ? " — 지금 문서" : ""}`, `doc:${w.id}`)); }
+  docs.append(new Option("파일 올려 추출…", "file"));
+  const others = (dv.projects || []).filter((p) => p.name !== me && ((p.confirmed && p.confirmed.values) || (p.settings && p.settings.values)));
+  if (others.length) { const g = group("다른 프로젝트"); for (const p of others) g.append(new Option(`${p.name} — ${divValuesText((p.confirmed && p.confirmed.values) || p.settings.values)}${p.confirmed ? " · 확정" : ""}`, `project:${p.name}`)); }
+  const ps = r.presets || [];
+  if (ps.length) { const g = group("저장한 프로젝트 구성"); for (const p of ps) g.append(new Option(divPresetSummary(p), `preset:${p.id}`)); }
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "";
+}
+async function divProjectsLoad() { // 다른 프로젝트의 구성(GET /api/projects — 프로젝트마다 settings · confirmed) — 패널을 그릴 때 한 번(30초 안이면 다시 안 읽음)
+  if (dv.projectsBusy || (dv.projectsAt && Date.now() - dv.projectsAt < 30000)) return;
+  dv.projectsBusy = true;
+  const epoch = state.epoch;
+  try { const r = await api("/api/projects"); if (epoch !== state.epoch) return; dv.projects = r.projects || []; dv.projectsAt = Date.now(); }
+  catch { dv.projects = dv.projects || []; }
+  finally { dv.projectsBusy = false; }
+  const sel = document.getElementById("divSourceSel");
+  if (sel && dv.view) divSourceFill(sel, dv.view);
+}
+async function divSourceLoad(key) { // 「불러오기」 — 고른 곳의 값으로 입력 칸을 채운다(확정은 「프로젝트에 저장」)
+  if (!key || !dv.view) return;
+  const [kind, ...rest] = key.split(":"), arg = rest.join(":");
+  if (kind === "confirmed") { divConfirmRevert(dv.view.confirmed); return; }
+  if (kind === "file") { divReadFile(); return; }
+  if (kind === "doc") { const w = divSourceDocs().find((x) => x.id === arg); await divRead(w ? { id: w.id, name: w.name } : { id: arg, name: arg }); return; }
+  if (kind === "preset") { await divPresetLoad(arg); return; }
+  if (kind === "project") {
+    const p = (dv.projects || []).find((x) => x.name === arg), v = p && ((p.confirmed && p.confirmed.values) || (p.settings && p.settings.values));
+    if (!v) { toast("그 프로젝트의 구성을 읽지 못했습니다", true); return; }
+    const cur = dv.values && dv.values.current;
+    dv.values = structuredClone(v);
+    if (!dv.values.current && cur) dv.values.current = cur;
+    dv.preset.from = `프로젝트 「${p.name}」에서 불러옴`;
+    divTouched(); divRender();
+    toast(`프로젝트 「${p.name}」 의 구성을 불러왔습니다 — 확인한 뒤 「${divConfirmWhere(dv.view.projectSharing)}에 저장」`);
+  }
+}
+
 function divPresetBlock(r, v) {
   const ps = r.presets || [], st = dv.preset, box = el("section", "dv-presets");
-  box.setAttribute("aria-label", "저장한 과제 구성");
-  if (!st.loaded) { // 입력값이 어느 저장 항목과 똑같으면 그 항목을 불러온 것으로(다시 연 작업 등)
+  box.setAttribute("aria-label", "프로젝트 구성 불러오기·확정");
+  if (!st.loaded) { // 입력값이 어느 저장 항목과 똑같으면 그 항목을 불러온 것으로(다시 연 작업 등) — ⋯ 의 덮어쓰기·삭제 대상
     const same = ps.find((p) => divCanon(p.values) === divCanon(v));
-    if (same) { st.loaded = { id: same.id, name: same.name, values: divCanon(same.values) }; st.selected ||= same.id; }
+    if (same) st.loaded = { id: same.id, name: same.name, values: divCanon(same.values) };
   }
-  if (st.selected && !ps.some((p) => p.id === st.selected)) st.selected = "";
   const row1 = el("div", "dv-preset-row");
-  const sel = el("select"); sel.setAttribute("aria-label", "저장한 과제 구성 고르기");
-  sel.append(new Option(ps.length ? "저장한 과제 구성 고르기" : "저장한 과제 구성이 없습니다", ""));
-  for (const p of ps) sel.append(new Option(divPresetSummary(p), p.id));
-  sel.value = st.selected; sel.disabled = !ps.length;
-  const load = hBtn("불러오기", () => divPresetLoad(sel.value), { cls: "btn", disabled: !st.selected,
-    title: "고른 과제 구성의 값을 입력칸에 채웁니다 — 문서는 그대로, 「변경 계획 보기」 로 이어집니다" });
-  sel.onchange = () => { st.selected = sel.value; load.disabled = !sel.value; st.confirming = ""; divPresetRefresh(); };
+  const sel = el("select"); sel.id = "divSourceSel"; sel.setAttribute("aria-label", "프로젝트 구성 불러오기 — 이 프로젝트 확정본 · 문서에서 추출 · 다른 프로젝트 · 저장한 프로젝트 구성");
+  divSourceFill(sel, r);
+  if (st.source && [...sel.options].some((o) => o.value === st.source)) sel.value = st.source;
+  const load = hBtn("불러오기", () => divSourceLoad(sel.value), { cls: "btn", disabled: !sel.value,
+    title: "고른 곳의 프로젝트 구성(단계·차년도·기관)을 입력 칸에 채웁니다 — 문서와 확정은 그대로, 확인한 뒤 「프로젝트에 저장」 으로 확정합니다" });
+  load.id = "divSourceLoad";
+  sel.onchange = () => { st.source = sel.value; load.disabled = !sel.value; st.confirming = ""; };
   row1.append(sel, load);
-  const row2 = el("div", "dv-preset-row");
+  const row2 = el("div", "dv-preset-row dv-preset-save");
   const status = el("div", "dv-preset-status"); status.id = "divPresetStatus";
-  const save = hBtn("저장", () => divPresetSave(), { cls: "btn" }); save.id = "divPresetSaveBtn";
-  const more = hBtn("⋯", () => { st.more = !st.more; st.confirming = ""; divRender(); }, { cls: "btn dv-more" + (st.more ? " on" : ""), title: "다른 이름으로 저장 · 삭제" });
-  more.setAttribute("aria-expanded", String(st.more)); more.setAttribute("aria-label", "더 보기 — 다른 이름으로 저장, 삭제");
-  row2.append(status, save, more);
-  box.append(row1, row2);
-  if (st.more) { // 셋째 줄 — 덜 쓰는 조작. 삭제 대상은 누를 때 정한다(그린 뒤 고른 것이 바뀌어도 — divPresetTarget)
-    const row3 = el("div", "dv-preset-row");
+  const save = hBtn("프로젝트에 저장", () => divConfirm(), { cls: "btn" }); save.id = "divConfirmBtn";
+  const more = hBtn("⋯", () => { st.more = !st.more; st.confirming = ""; divRender(); }, { cls: "btn dv-more" + (st.more ? " on" : ""), title: "이름 붙여 저장 · 저장한 프로젝트 구성 삭제" });
+  more.setAttribute("aria-expanded", String(st.more)); more.setAttribute("aria-label", "더 보기 — 이름 붙여 저장, 저장한 프로젝트 구성 삭제");
+  row2.append(save, more);
+  box.append(row1, status, row2);
+  if (dv.projects === undefined || !dv.projectsAt) divProjectsLoad();
+  if (st.more) { // 셋째 줄 — 덜 쓰는 조작(이름 붙여 저장한 프로젝트 구성 — 모든 프로젝트 공용 목록). 삭제 대상 = 목록에서 고른 저장한 프로젝트 구성, 없으면 지금 값과 같은 것
+    const row3 = el("div", "dv-preset-row dv-preset-extra");
     const del = hBtn("삭제", () => { const t = divPresetTarget(); st.confirming = t ? t.id : ""; st.naming = false; divRender(); }, { cls: "btn dv-delete" }); del.id = "divPresetDelBtn";
-    row3.append(hBtn("다른 이름으로 저장…", () => divPresetNaming(true), { cls: "btn", title: "지금 값을 새 이름으로 저장합니다" }), del);
+    const over = st.loaded && divCanon(v) !== st.loaded.values ? hBtn(`「${st.loaded.name}」 덮어쓰기`, () => divPresetSave(), { cls: "btn", title: "그 저장한 프로젝트 구성을 지금 값으로 덮어씁니다" }) : null;
+    if (over) over.id = "divPresetSaveBtn";
+    row3.append(hBtn("이름 붙여 저장…", () => divPresetNaming(true), { cls: "btn", title: "지금 값을 이름 붙여 「저장한 프로젝트 구성」 에 둡니다(다른 프로젝트에서도 불러올 수 있음)" }), ...(over ? [over] : []), del);
     box.append(row3);
   }
   if (st.naming) { // 이름 줄(인라인) — Enter 저장 · Esc 취소
@@ -7372,30 +8117,33 @@ function divPresetBlock(r, v) {
   return box;
 }
 
-function divPresetTarget() { // 삭제 대상 = 고른 것, 없으면 불러온 것
-  const st = dv.preset, ps = dv.view?.presets || [];
-  return ps.find((p) => p.id === st.selected) || (st.loaded && ps.find((p) => p.id === st.loaded.id)) || null;
+function divPresetTarget() { // 삭제 대상 = 목록에서 고른 저장한 프로젝트 구성, 없으면 지금 값과 같은 것(불러온 것)
+  const st = dv.preset, ps = dv.view?.presets || [], pick = String(st.source || "").startsWith("preset:") ? st.source.slice(7) : "";
+  return ps.find((p) => p.id === pick) || (st.loaded && ps.find((p) => p.id === st.loaded.id)) || null;
 }
 
-function divPresetRefresh() { // 상태 줄·「저장」·「삭제」 — 입력·고른 것이 바뀔 때마다(divRefreshDerived · select.onchange)
-  const status = $("divPresetStatus"), save = $("divPresetSaveBtn"); if (!status || !save || !dv.view) return;
-  const st = dv.preset, ps = dv.view.presets || [];
+function divPresetRefresh() { // 상태 줄(확정 — spec_작업 ② §18)·「프로젝트에 저장」·「삭제」 — 입력·고른 것이 바뀔 때마다(divRefreshDerived)
+  const status = $("divPresetStatus"), save = $("divConfirmBtn"); if (!status || !save || !dv.view) return;
+  const st = dv.preset, cf = dv.view.confirmed, where = divConfirmWhere(dv.view.projectSharing), valid = divConfirmValid(dv.values, cf);
   const del = $("divPresetDelBtn");
-  if (del) { const t = divPresetTarget(); del.disabled = !t; del.title = t ? `「${t.name}」 삭제` : "지울 항목을 고르세요"; }
+  if (del) { const t = divPresetTarget(); del.disabled = !t; del.title = t ? `저장한 프로젝트 구성 「${t.name}」 삭제` : "지울 저장한 프로젝트 구성을 위 목록에서 고르세요"; }
   status.textContent = ""; status.title = "";
   if (dv.view.presetsBroken) {
-    const t = el("span", "dv-tag is-warning", "저장 파일 손상"); t.title = "저장한 과제 구성 파일이 손상되어 비어 보입니다(.broken 사본) — 파일을 고치거나 옮긴 뒤 다시"; status.append(t);
+    const t = el("span", "dv-tag is-warning", "저장 파일 손상"); t.title = "저장한 프로젝트 구성 파일이 손상되어 비어 보입니다(.broken 사본) — 파일을 고치거나 옮긴 뒤 다시"; status.append(t);
   }
-  const modified = !!st.loaded && divCanon(dv.values) !== st.loaded.values;
-  if (st.loaded) {
-    const name = el("span", "dv-preset-name", `「${st.loaded.name}」`); name.title = st.loaded.name; status.append(name);
-    if (modified) status.append(el("span", "dv-tag is-warning", "수정됨"));
-  } else {
-    status.append(el("span", "dv-caption", "저장하지 않은 구성"));
-    if (!ps.length) status.append(hHelp("과제 구성 저장 안내", "지금 값을 저장해 두면 다른 문서에서 불러올 수 있습니다.", { note: true }));
-  }
-  save.disabled = dv.busy || (!!st.loaded && !modified);
-  save.title = st.loaded ? (modified ? `「${st.loaded.name}」 을 지금 값으로 덮어씁니다` : "저장본과 같습니다") : "지금 값을 이름 붙여 저장합니다";
+  const name = el("span", "dv-preset-name", `${divConfirmWhat(where)}`); name.title = `${divConfirmWhat(where)} — 같은 프로젝트의 TASK 들이 같이 씁니다`; status.append(name);
+  const tag = valid ? el("span", "dv-tag is-ready", "확정함") : cf ? el("span", "dv-tag is-warning", "확정 뒤 바뀜") : el("span", "dv-tag", "확정 전");
+  tag.dataset.confirm = valid ? "valid" : cf ? "changed" : "none";
+  if (cf && cf.at) tag.title = `확정 ${fmtWhen(cf.at)} — ${divValuesText(cf.values)}`;
+  status.append(tag);
+  const sharing = dv.view.projectSharing, key = dv.values ? divCanon(divValues()) : "";
+  const ver = ((sharing && sharing.shared && dv.view.versions) || []).find((x) => divCanon(x.values) === key); // 지금 입력과 같은 구분 기준 버전(② §19 — 당해 차년도까지 같음)
+  if (ver) { const t = el("span", "dv-tag", `버전 「${ver.name}」`); t.dataset.versionTag = ver.id; t.title = `지금 입력 값이 프로젝트 구성 버전 「${ver.name}」 과 같습니다`; status.append(t); }
+  if (typeof projectSharingSync === "function") projectSharingSync(); // 프로젝트 칸 아래의 구분 기준 있음/없음 줄 · 버전 줄도 입력에 맞춘다
+  if (st.from) { const f = el("span", "dv-caption", st.from); f.title = "마지막으로 입력 칸을 채운 곳(이 화면에서만)"; status.append(f); }
+  save.textContent = `${dv.view.projectSharing && dv.view.projectSharing.shared ? "프로젝트" : "이 문서"}에 저장`;
+  save.disabled = dv.busy || valid;
+  save.title = valid ? `지금 값이 ${where}에 확정한 구성과 같습니다` : `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다(1단계 「프로젝트 구성」 의 끝)`;
 }
 
 function divPresetNaming(on) { dv.preset.naming = on; dv.preset.confirming = ""; if (!on) dv.preset.nameDraft = null; divRender(); }
@@ -7403,10 +8151,10 @@ function divPresetNaming(on) { dv.preset.naming = on; dv.preset.confirming = "";
 async function divPresetLoad(pid) {
   const p = (dv.view?.presets || []).find((x) => x.id === pid); if (!p) return;
   dv.values = structuredClone(p.values);
-  Object.assign(dv.preset, { loaded: { id: p.id, name: p.name, values: divCanon(p.values) }, selected: p.id, naming: false, nameDraft: null, confirming: "" });
+  Object.assign(dv.preset, { loaded: { id: p.id, name: p.name, values: divCanon(p.values) }, source: `preset:${p.id}`, from: `저장한 프로젝트 구성 「${p.name}」에서 불러옴`, naming: false, nameDraft: null, confirming: "" });
   divTouched(); divRender();
   await divSettingsSave(); // 작업에 바로(② §8 자동 저장)
-  toast(`「${p.name}」 을 불러왔습니다 — 변경 계획 보기로 확인하세요`);
+  toast(`저장한 프로젝트 구성 「${p.name}」 을 불러왔습니다 — 확인한 뒤 「${divConfirmWhere(dv.view && dv.view.projectSharing)}에 저장」`);
 }
 
 async function divPresetSave() { // 불러온 항목을 id 로 덮어씀 — 없으면 이름 줄
@@ -7427,8 +8175,8 @@ async function divPresetPut(pid, name) {
   try {
     const p = await api(`/api/divisions/presets/${pid}`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ name, values: divValues() }) });
     if (epoch !== state.epoch) return;
-    Object.assign(dv.preset, { loaded: { id: p.id, name: p.name, values: divCanon(p.values) }, selected: p.id, naming: false, nameDraft: null, more: false, confirming: "" });
-    toast(`「${p.name}」 저장`);
+    Object.assign(dv.preset, { loaded: { id: p.id, name: p.name, values: divCanon(p.values) }, source: `preset:${p.id}`, naming: false, nameDraft: null, more: false, confirming: "" });
+    toast(`「${p.name}」 저장(저장한 프로젝트 구성)`);
     divShow();
   } catch (e) { toast(`저장하지 못했습니다: ${e.message}`, true); }
 }
@@ -7442,7 +8190,7 @@ async function divPresetDelete(pid) {
     if (epoch !== state.epoch) return;
     const st = dv.preset;
     st.confirming = ""; st.more = false;
-    if (st.selected === pid) st.selected = "";
+    if (st.source === `preset:${pid}`) st.source = "";
     if (st.loaded && st.loaded.id === pid) st.loaded = null; // 입력값은 그대로
     toast(`「${p.name}」 지움`);
     divShow();
@@ -7455,17 +8203,18 @@ function divSettingsSchedule() { clearTimeout(divSaveTimer); divSaveTimer = setT
 async function divSettingsSave() { // 차례대로 하나씩 · 틀린 값(400)은 조용히 건너뜀(고치는 중) · 값이 달라졌으면 문서 표시 자료는 다시(서버 설정 값으로 찾으므로)
   clearTimeout(divSaveTimer); divSaveTimer = null;
   if (!state.id || !dv.values) return;
-  const id = state.id, epoch = state.epoch, prev = divSavePending;
+  const id = state.id, epoch = state.epoch, view = dv, scope = taskScopeKey(), prev = divSavePending;
   const run = (async () => {
     if (prev) { try { await prev; } catch { /* 앞 저장의 실패는 거기서 알림 */ } }
-    if (epoch !== state.epoch) return;
+    if (epoch !== state.epoch || view !== dv || scope !== taskScopeKey()) return;
     const values = divValues(), key = divCanon(values);
     if (key === dv.savedKey) return;
     try {
       const r = await api(`/api/docs/${id}/divisions/settings`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ values }) });
-      if (epoch !== state.epoch) return;
+      if (epoch !== state.epoch || view !== dv || scope !== taskScopeKey()) return;
       dv.savedKey = key;
-      if (dv.view) Object.assign(dv.view, { settings: r.settings, dimensions: r.dimensions, plan: r.plan, stale: r.stale });
+      if (dv.view) Object.assign(dv.view, { settings: r.settings, dimensions: r.dimensions, plan: r.plan, stale: r.stale, projectSharing: r.projectSharing, ...("confirmed" in r ? { confirmed: r.confirmed } : {}), ...("versions" in r ? { versions: r.versions } : {}) });
+      if (typeof projectSharingSync === "function") projectSharingSync(); // 구분 기준 있음/없음 줄 · 버전 줄(② §19) — 처음 저장되면 「없음」 → 「있음」
       dv.marks.data = null;
       if (divMarksOn()) { if (dv.marks.loading) dv.marks.again = true; else divMembersLoad(); }
     } catch (e) { if (epoch === state.epoch && e.status !== 400) toast(`구분 값을 작업에 저장하지 못했습니다: ${e.message}`, true); }
@@ -7475,51 +8224,252 @@ async function divSettingsSave() { // 차례대로 하나씩 · 틀린 값(400)�
 }
 async function divSettingsFlush() { if (divSaveTimer) await divSettingsSave(); else if (divSavePending) await divSavePending; }
 
-async function divPlan() {
-  if (!state.id || dv.busy) return;
-  const id = state.id, epoch = state.epoch;
-  await flushAll(); // 아직 반영 안 된 글부터 — 계획은 서버 문서 차례(rev)에 묶인다
-  if (epoch !== state.epoch) return;
-  await divSettingsFlush(); // 입력값도 작업에(② §8 자동 저장)
-  if (epoch !== state.epoch) return;
-  dv.busy = true;
-  divRender();
+// ---- 실행 묶음 #divRunBar(spec_구분_기준 ② §22 — 2026-11-13 사용자 "이 메뉴를 순차적으로 누를 수 있게 붙어 있어야지 … 상단에는 모든 작업 한번에 자동으로 처리 하는 버튼을 넣어줘야지. 이 4개가 하나로 묶여 있어도되고" · astra 협의):
+// 「① 변경 계획 보기 › ② 반영 · 계획 다시 열기」 + (묶음 없는 TASK 만) 「한 번에 진행」 + 상태 한 줄. **반영 단추는 여기 하나뿐** — 2열 목록의 발에는 요약 글과 「… 단추로 이동」 만(design.md §10).
+// 단추 노드는 divRender 가 만들고(divRunBar), 글·켜짐·강조·상태 줄은 divRunSync 가 맞춘다 — 입력·뺄 자리·문서 차례가 바뀔 때마다 부르고 노드는 그대로다(초점 유지).
+function divPlanState() { // 지금 계획의 상태 — 묶음·2열 발·실행 함수가 같이 본다. kind: none 계획 없음 | ready 반영할 수 있음 | same 바꿀 것 없음 | stale 문서가 바뀜 | skip 뺄 자리를 바꿈 | done 반영함
+  const plan = dv.plan;
+  if (!plan) return { kind: "none", plan: null };
+  if (dv.result) return { kind: "done", plan };
+  if (plan.baseRev !== state.serverRev) return { kind: "stale", plan };
+  const key = (a) => JSON.stringify([...(a || [])].sort());
+  if (key(dv.skip) !== key(plan.skip)) return { kind: "skip", plan };
+  const s = plan.summary;
+  return { kind: (s.groups != null ? s.groups || s.changes : s.applied) ? "ready" : "same", plan }; // 서버의 「할 일 없음」 과 같은 식(바뀔 묶음·글 — 후보 상태 수가 아니라)
+}
+const divPlanIssues = (s, all = true) => [s.errors ? `계획 오류 ${s.errors}건` : "", s.unresolved ? `미해결 ${s.unresolved}곳` : "", all && s.unsupported ? `지원 안 됨 ${s.unsupported}곳` : ""].filter(Boolean).join(" · "); // 사람이 봐야 할 것("" = 없음). all false = 「한 번에 진행」 이 멈추는 것만(계획 오류 · 미해결) — 지원 안 되는 자리는 미리 아는 자리라 그대로 두고 간다(빈 양식에도 있다)
+function divSameText(s) { // 바꿀 것이 없는 계획의 글 → {ok, text} — 「이미 맞음」 과 「못 맞춤」 을 같은 글로 보이지 않는다
+  const stops = divPlanIssues(s, false), rest = s.unsupported ? ` · 지원 안 됨 ${s.unsupported}곳은 그대로` : "";
+  if (stops) return { ok: false, text: `바꿀 수 있는 자리가 없습니다 · ${stops}${rest}` };
+  if (s.already) return { ok: true, text: `현재 구성과 맞습니다 — 바꿀 자리가 없습니다${rest}` };
+  return { ok: false, text: s.unsupported ? `맞출 수 있는 자리가 없습니다 · 지원 안 됨 ${s.unsupported}곳` : "맞출 자리를 찾지 못했습니다" };
+}
+function divRunWhy() { // 계획·반영을 할 수 없는 까닭("" = 할 수 있음) — 단추와 「한 번에 진행」 이 같이 본다
+  const v = dv.values, view = dv.view;
+  if (!v || !view) return "프로젝트 구성을 읽는 중입니다";
+  if (!view.profile.supported) return "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다";
+  if (divTotalYears(v) > 20) return "전체 차년도는 20년 이하여야 합니다";
+  if (taskFrameApply && !divConfirmValid(v, view.confirmed)) return `1단계 「프로젝트 구성」 이 먼저입니다 — ${divConfirmWhere(view.projectSharing)}에 저장(확정)한 뒤 변경 계획을 봅니다`; // TASK 묶음 안(spec_작업 ② §18)
+  return "";
+}
+const divRunLocked = () => !!dv.auto || !!taskRun || !!taskResetting || (typeof gatherRun !== "undefined" && !!gatherRun); // 다른 실행이 도는 동안(이 묶음의 한 번에 진행 · TASK 묶음의 한 번에 진행 · 초기화) — 단추만 끈다(그 실행이 부르는 divPlan·divApply 는 그대로 돈다)
+function divOrgsMoved() { // 마지막 반영 때 이름이 있던 기관의 차례가 달라졌는가 → 까닭 글 | "". 엔진은 남는 항목에 자리 차례대로 이름을 쓴다(② §5·§19) — 차례가 바뀌거나 가운데가 빠지면 쓴 내용이 다른 이름 아래에 남을 수 있다
+  const a = dv.view && dv.view.applied;
+  if (!a || !a.values || !a.values.orgs) return "";
+  const names = (v) => [v.orgs.lead || "", ...(v.orgs.joint || [])].map((n) => String(n).trim()), was = names(a.values), now = names(divValues()), role = (i) => (i ? `공동 ${i}` : "주관");
+  for (let i = 0; i < was.length; i++) {
+    const j = was[i] ? now.indexOf(was[i]) : -1;
+    if (j >= 0 && j !== i) return `기관 「${was[i]}」 의 차례가 마지막 반영과 다릅니다(${role(i)} → ${role(j)})`;
+  }
+  return "";
+}
+
+function divRunBar(staged) { // 묶음 상자 — staged = TASK 묶음 안(이관·취합의 2단계 #taskFrameApply): 「한 번에 진행」 은 그 묶음 머리에 있어 여기 안 두고, 번호(①②)도 안 붙인다(TASK 의 단계 번호와 겹침)
+  const bar = el("section", "dv-run"), head = el("div", "dv-run-head"), steps = el("div", "dv-run-steps"), st = el("p", "dv-run-state"), spin = el("i", "dv-phase-spin"), text = el("span"), totals = el("span", "dv-run-values");
+  bar.id = "divRunBar";
+  bar.dataset.staged = staged ? "1" : "0";
+  bar.setAttribute("role", "group");
+  bar.setAttribute("aria-label", "프로젝트 구성 반영");
+  totals.id = "divReviewSummary"; // 지금 입력 값 요약(「1단계 · 전체 4년 · 기관 4곳」 — divRefreshDerived)
+  const press = (run) => () => { if (dv.busy || divRunLocked()) return; dv.keepFocus = true; run(); };
+  const btn = (id, label, run, cls = "btn") => { const b = hBtn(label, run, { cls }); b.id = id; b.setAttribute("aria-describedby", "divRunState"); return b; };
+  const help = hHelp("프로젝트 구성 반영 안내", `${staged ? "" : "① "}변경 계획 보기 — 바뀔 자리와 지워질 글을 문서 옆 목록으로 봅니다(문서는 안 바뀜).\n${staged ? "" : "② "}반영 — 그 계획대로 이 문서의 구조(절·표 행·열)를 바꿉니다. 실행 취소 한 번으로 되돌립니다.\n계획 다시 열기 — 닫은 목록을 다시 엽니다(다시 계산하지 않음).`
+    + (staged ? "" : "\n한 번에 진행 — 계획을 세우고 바로 반영합니다. 누를 때 한 번만 확인하고, 미해결 자리나 계획 오류가 있으면 반영하지 않고 멈춥니다(지원 안 되는 자리는 그대로 둡니다)."
+      + "\n불러오기 — 고른 곳(이 프로젝트 · 문서 · 다른 프로젝트 · 저장한 프로젝트 구성)의 값으로 입력 칸을 채웁니다(문서는 안 바뀜).\n세부 — ①·② 단추와 프로젝트 구성 값(단계·차년도 · 기관) 입력 · 「프로젝트에 저장」 은 접어 둔 「세부」 안에 있습니다."), { note: true });
+  if (staged) head.append(totals, help);
+  else head.append(el("strong", null, "프로젝트 구성 반영"), help, btn("divRunAll", "한 번에 진행", press(() => divRunAll())), totals);
+  const arrow = el("span", "dv-run-arrow", "›");
+  arrow.setAttribute("aria-hidden", "true");
+  steps.append(btn("divPlanButton", `${staged ? "" : "① "}변경 계획 보기`, press(() => divPlan()), "btn dv-plan-button"), arrow, btn("divApplyButton", `${staged ? "" : "② "}반영`, press(() => divApply())),
+    btn("divReopenPlan", "계획 다시 열기", () => divList(), "btn dv-run-reopen"));
+  spin.hidden = true;
+  spin.style.animationDelay = `-${Date.now() % 800}ms`; // 다시 그려도 동그라미가 처음부터 다시 돌지 않게(design.md §7)
+  text.setAttribute("role", "status"); // 바뀌는 상태 글만 알린다(단추·동그라미는 밖)
+  st.id = "divRunState";
+  st.append(spin, text);
+  bar.append(head, steps, st);
+  return bar;
+}
+
+// 묶음 없는 TASK(양식 맞추기 …)의 카드 하나(spec_구분_기준 ② §22 「카드 하나」 — 2026-11-14 사용자 "이거 합치고 현재 프로젝트 구성 반영 위치에 합쳐서 같이 있어야지 … 한번에 진행, 불러오기 2개 메뉴가 있고, 다른 것은 접혀있어야 하고"):
+// 늘 보이는 것 = 윗줄 「한 번에 진행」 · 「프로젝트 구성 불러오기」 줄 · 상태 한 줄. 나머지(① 변경 계획 보기 › ② 반영 · 계획 다시 열기 / 확정 상태 · 「프로젝트에 저장」 · ⋯ / 단계·차년도 · 기관 구성 · 추가 설정)는
+// 접어 둔 「세부」(details#divRunMore — 기본 접힘 · 펴짐은 브라우저에 기억) 안. 노드의 id·클래스는 그대로다(자리만 옮김) — 다른 코드·검사가 id 로 찾는다.
+const DIV_RUN_MORE = "nfm.divRunMore";
+const divRunMoreOpen = () => { try { return localStorage.getItem(DIV_RUN_MORE) === "1"; } catch { return false; } };
+function divRunFold(bar, config) {
+  const more = el("details", "dv-run-more"), sum = el("summary"), body = el("div", "dv-phase-form dv-run-more-body"), load = config.querySelector(".dv-presets > .dv-preset-row");
+  more.id = "divRunMore";
+  let known = more.open = divRunMoreOpen() || !!dv.ui.runMore; // 기억해 둔 펴짐, 또는 이 문서에서 프로그램이 편 것(멈춤 · 「… 단추로 이동」 — divRunReveal)
+  more.ontoggle = () => {
+    if (!more.isConnected) return;
+    if (more.dataset.auto) { delete more.dataset.auto; known = more.open; } // 프로그램이 폄 — 브라우저에 기억하지 않는다
+    else if (more.open !== known) { known = dv.ui.runMore = more.open; try { localStorage.setItem(DIV_RUN_MORE, more.open ? "1" : "0"); } catch { /* 기억만 안 함 */ } } // 사람이 접거나 폄
+    divRunSync(); // 강조 단추가 옮겨 간다(접힘 = 「한 번에 진행」 · 펴짐 = 다음 할 일)
+  };
+  sum.title = "세부 펴기·접기 — 변경 계획을 먼저 보고 반영하거나, 프로젝트 구성 값을 고치고 저장합니다";
+  sum.append(el("strong", null, "세부"), el("span", "dv-caption", "단계별 반영 · 값 고치기 · 저장"));
+  body.append(bar.querySelector(".dv-run-steps"), config); // 차례 줄(① › ② · 다시 열기) 다음에 구성 입력(확정·저장 · 단계·차년도 · 기관 · 추가 설정)
+  more.append(sum, body);
+  if (load) { // 「프로젝트 구성 불러오기」 줄(고르기 목록 + 「불러오기」)만 밖으로 — fieldset(도는 동안 꺼짐) 밖이라 여기서 끈다
+    load.classList.add("dv-run-load");
+    if (dv.busy) for (const c of load.querySelectorAll("select, button")) c.disabled = true;
+    bar.querySelector(".dv-run-state").before(load);
+  }
+  bar.append(more);
+}
+function divRunReveal() { // 접어 둔 「세부」 를 편다 — 그 안의 단추·입력으로 보낼 때(멈춤 · 「… 단추로 이동」 · 「새로 만들기」). 이 문서를 보는 동안만(다시 그려도 펴짐 — dv.ui.runMore), 브라우저에는 기억하지 않는다
+  dv.ui.runMore = true;
+  const more = $("divRunMore");
+  if (more && !more.open) { more.dataset.auto = "1"; more.open = true; }
+}
+
+function divRunSync() { // 묶음의 단추(켜짐 · 강조 · 도움말)와 상태 줄 — 노드는 그대로 두고 글·속성만
+  const bar = $("divRunBar");
+  if (!bar || !dv.view || !dv.values) return;
+  const staged = bar.dataset.staged === "1", st = divPlanState(), s = st.plan && st.plan.summary, why = divRunWhy(), locked = divRunLocked(), off = dv.busy || locked, wait = "지금 진행 중인 작업이 끝나면 쓸 수 있습니다";
+  const plan = $("divPlanButton"), apply = $("divApplyButton"), reopen = $("divReopenPlan"), all = $("divRunAll");
+  const noApply = why || { none: "먼저 변경 계획을 확인하세요", stale: "문서가 바뀌었습니다 — 다시 계획하세요", skip: "뺄 자리를 바꿨습니다 — 다시 계획하세요", same: "바꿀 자리가 없습니다", done: "이미 반영했습니다 — 값을 바꾸면 다시 계획합니다" }[st.kind] || "";
+  plan.disabled = off || !!why;
+  plan.title = off ? wait : why || "바뀔 자리와 지워질 글을 문서 옆 목록으로 미리 봅니다 — 문서는 바뀌지 않습니다";
+  apply.disabled = off || !!noApply;
+  apply.title = off ? wait : noApply || "계획대로 문서를 고칩니다 — 한 번에, 표준 검사에 걸리면 전부 되돌림. 반영 뒤 「실행 취소」 로 되돌릴 수 있음";
+  reopen.disabled = dv.busy || !dv.plan; // 열어 보기만 — 다른 실행이 도는 동안에도
+  reopen.textContent = st.kind === "done" ? "반영 결과 열기" : "계획 다시 열기";
+  reopen.title = dv.plan ? "닫은 목록을 문서 옆에 다시 엽니다 — 다시 계산하지 않습니다" : "이 화면에 열 수 있는 계획이 없습니다 — 「변경 계획 보기」 를 누르세요";
+  if (all) {
+    all.disabled = off || !!why;
+    all.title = off ? wait : why || "변경 계획을 세우고 바로 반영합니다 — 누를 때 한 번만 확인하고, 사람이 봐야 할 자리가 있으면 반영하지 않고 멈춥니다";
+  }
+  // 강조 단추는 하나 — 다음 할 일(계획이 준비됐으면 반영, 아니면 계획). TASK 묶음 안에서는 강조하지 않는다(강조는 그 묶음의 「다음 할 일」 · 「한 번에 진행」 — design.md §11).
+  // 묶음 없는 TASK 의 「세부」 가 접혀 있으면 차례 단추가 안 보이므로 강조는 「한 번에 진행」(§11 「접혀 있으면 묶음의 단추, 펴면 세부 목록의 다음 할 일」)
+  const more = $("divRunMore"), folded = !!more && !more.open;
+  plan.classList.toggle("primary", !staged && !folded && st.kind !== "ready" && st.kind !== "done");
+  apply.classList.toggle("primary", !staged && !folded && st.kind === "ready");
+  if (all) all.classList.toggle("primary", folded && st.kind !== "done");
+  const issues = s ? divPlanIssues(s) : "";
+  let kind = "next", text;
+  if (dv.busy) { kind = "run"; text = state.busy ? "문서에 반영 중…" : "변경 계획 계산 중…"; }
+  else if (why) text = why;
+  else if (st.kind === "stale") text = "문서가 바뀌었습니다 · 다시 계획하세요";
+  else if (st.kind === "skip") text = "뺄 자리가 바뀌었습니다 · 다시 계획하세요";
+  else if (dv.msg) { kind = dv.msg.kind === "note" ? "next" : dv.msg.kind; text = dv.msg.text; }
+  else if (st.kind === "none") text = folded ? "「한 번에 진행」 — 변경 계획을 세우고 바로 반영합니다 · 바뀔 자리를 먼저 보려면 「세부」" : "먼저 변경 계획을 확인하세요";
+  else if (st.kind === "ready") text = `계획 준비됨 · 맞출 자리 ${s.applied}곳 · 지워지는 글 문단 ${s.deleted}${issues ? ` · ${issues}` : ""}`;
+  else if (st.kind === "same") text = divSameText(s).text;
+  else { kind = "done"; text = `반영 완료 · 편집 차례 ${dv.result.rev}${dv.result.unresolved.length ? ` · 미해결 ${dv.result.unresolved.length}곳은 손으로 맞추세요` : ""}${s.unsupported ? ` · 지원 안 됨 ${s.unsupported}곳은 그대로` : ""}`; }
+  const line = $("divRunState");
+  line.dataset.kind = kind;
+  line.firstChild.hidden = kind !== "run";
+  if (line.lastChild.textContent !== text) line.lastChild.textContent = text;
+}
+
+async function divRunFocus() { // 2열 발의 「… 단추로 이동」 — 패널의 실행 묶음을 보이고(접힌 TASK 묶음은 펴서) 다음 단추에 초점. 문서는 안 바뀐다
+  if ($("panel").dataset.tool !== "Div") { showTab("Div"); await divShow(); }
+  const bar = $("divRunBar");
+  if (!bar) return;
+  const fold = bar.closest("details");
+  if (fold) fold.open = true;
+  divRunReveal(); // 묶음 없는 TASK — 차례 단추는 접어 둔 「세부」 안
+  bar.scrollIntoView({ block: "center" });
+  (bar.querySelector("#divApplyButton:not(:disabled)") || bar.querySelector("#divPlanButton:not(:disabled)") || bar.querySelector("button:not(:disabled)"))?.focus({ preventScroll: true });
+  bar.classList.remove("dv-run-flash");
+  void bar.offsetWidth; // 같은 묶음을 다시 가리켜도 깜빡임이 처음부터
+  bar.classList.add("dv-run-flash");
+}
+
+// 「한 번에 진행」(묶음 없는 TASK — 양식 맞추기): 변경 계획 → 반영. 확인은 누를 때 한 번(design.md §11 · 이관 묶음과 같게), 그 뒤로는 묻지 않는다 —
+// 대신 사람이 봐야 할 계획(미해결 · 계획 오류 · 기관 차례가 마지막 반영과 다름)이면 반영하지 않고 목록을 연 채 멈춘다(astra P1 — 수만 보인 확인 창은 검토가 아니다).
+async function divRunAll() {
+  if (!state.id || dv.busy || divRunLocked()) return;
+  const why = divRunWhy();
+  if (why) { toast(why, true); return; }
+  const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" ? st0.plan.summary : null, source = taskDocRole(state.task) === "source";
+  if (!confirm(`「${state.name}」 의 프로젝트 구성 반영을 한 번에 진행할까요?\n\n`
+    + (source ? "※ 이 문서는 이 TASK 의 원본 문서입니다 — 원본의 구조가 바뀝니다.\n" : "")
+    + `· 값: ${divValuesText(divValues())}\n`
+    + (s0 ? `· 지금 계획 그대로 반영합니다 — 맞출 자리 ${s0.applied}곳 · 항목 추가 ${s0.added} · 지움 ${s0.removed} · 글 바꿈 ${s0.changes} · 지워지는 글 문단 ${s0.deleted}\n`
+      : "· 변경 계획을 세운 뒤 중간 확인 없이 이 문서의 구조(절·표 행·열)를 값에 맞게 바꿉니다 — 줄어드는 항목은 그 안의 글과 함께 지워집니다. 바뀔 자리를 먼저 보려면 취소하고 「세부」 의 「① 변경 계획 보기」.\n")
+    + "· 미해결 자리나 계획 오류가 있으면, 또는 기관의 차례가 마지막 반영과 다르면 반영하지 않고 멈춥니다(목록을 연 채). 지원 안 되는 자리는 그대로 둡니다.\n"
+    + "· 편집 한 번 — 「실행 취소」(Ctrl+Z) 한 번으로 되돌리고, 표준 검사에 걸리면 전부 되돌립니다.")) return;
+  const mine = () => epoch === state.epoch && id === state.id && view === dv;
+  const halt = (text) => { view.msg = { kind: "halt", text: `멈춤 — ${text}` }; toast(`한 번에 진행이 멈췄습니다 — ${text}`, true); if (mine()) divRunReveal(); }; // 멈추면 「세부」 를 펴서 다음 단추(② 반영 · 다시 계획)를 보인다(design.md §11)
+  view.auto = true;
+  view.keepFocus = true;
+  divRunSync();
   try {
-    const r = await api(`/api/docs/${id}/divisions/plan`, { method: "POST", headers: H_JSON, body: JSON.stringify({ values: divValues(), skip: [...dv.skip] }) });
-    if (epoch !== state.epoch) return;
-    dv.plan = r;
-    dv.dirty = false;
-    dv.result = null;
-    dv.busy = false; // 2열 발의 「반영」 단추가 바로 켜지게(finally 보다 먼저)
-    const s = r.summary;
-    toast(`계획 — 맞출 자리 ${s.applied} · 이미 맞음 ${s.already} · 지원 안 됨 ${s.unsupported} · 미해결 ${s.unresolved} (${s.seconds}s)`, s.unresolved > 0);
-    divList();
-  } catch (e) {
-    if (epoch !== state.epoch) return;
-    toast(`계획을 세우지 못했습니다: ${e.message}`, true);
+    if (!s0 && !(await divPlan())) { if (mine() && !view.msg) halt("변경 계획을 세우지 못했습니다(알림 글 참고)"); return; }
+    if (!mine()) return;
+    const st = divPlanState(), s = st.plan && st.plan.summary, stops = s ? divPlanIssues(s, false) : "";
+    if (st.kind === "same") { // 바꿀 것이 없다 — 「이미 맞음」 과 「못 맞춤」 을 가른다
+      const same = divSameText(s);
+      if (same.ok) { view.msg = { kind: "done", text: same.text }; toast(same.text); } else halt(same.text);
+      return;
+    }
+    if (st.kind !== "ready") { halt(st.kind === "skip" ? "뺄 자리가 바뀌었습니다 · 다시 계획하세요" : "계획을 세우는 사이 문서가 바뀌었습니다 · 다시 계획하세요"); return; }
+    const moved = divOrgsMoved();
+    if (stops) { halt(`${stops} — 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
+    if (moved) { halt(`${moved} — 쓴 내용이 다른 기관 이름 아래에 남을 수 있습니다. 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
+    if (!(await divApply({ quiet: true })) && mine() && !view.msg) halt("반영하지 못했습니다(알림 글 참고)");
   } finally {
-    dv.busy = false;
-    if (epoch === state.epoch) divShow();
+    view.auto = false;
+    if (mine()) { divRunSync(); divFootSync(); }
   }
 }
 
-function divGo(c) { // 후보 자리의 첫 라벨(문단 또는 칸)로 — 칸이면 그 칸의 첫 문단
+async function divPlan() { // → true(계획을 세워 2열에 엶) | false(못 세움 — 전의 계획이 남아 있을 수 있다: 부른 쪽은 dv.plan 이 아니라 이 값을 본다)
+  if (!state.id || dv.busy) return false;
+  const id = state.id, epoch = state.epoch, view = dv;
+  await flushAll(); // 아직 반영 안 된 글부터 — 계획은 서버 문서 차례(rev)에 묶인다
+  if (epoch !== state.epoch) return false;
+  if (state.failed.size) { toast("서버에 반영하지 못한 문단이 있어 계획을 세우지 않았습니다 — 「고친 문단」 탭에서 먼저 다시 반영하세요", true); return false; } // flushAll 은 실패를 삼킨다 — 옛 글로 계획·반영하면 화면에만 있는 글을 잃는다(astra P1 · structOp 과 같은 검사)
+  await divSettingsFlush(); // 입력값도 작업에(② §8 자동 저장)
+  if (epoch !== state.epoch) return false;
+  dv.busy = true;
+  dv.msg = null;
+  divRender();
+  let ok = false;
+  try {
+    const r = await api(`/api/docs/${id}/divisions/plan`, { method: "POST", headers: H_JSON, body: JSON.stringify({ values: divValues(), skip: [...dv.skip] }) });
+    if (epoch !== state.epoch) return false;
+    dv.plan = r;
+    dv.dirty = false;
+    dv.result = null;
+    dv.busy = false; // 실행 묶음의 「반영」 단추가 바로 켜지게(finally 보다 먼저)
+    const s = r.summary;
+    toast(`계획 — 맞출 자리 ${s.applied} · 이미 맞음 ${s.already} · 지원 안 됨 ${s.unsupported} · 미해결 ${s.unresolved} (${s.seconds}s)`, s.unresolved > 0);
+    divList();
+    ok = true;
+  } catch (e) {
+    if (epoch !== state.epoch) return false;
+    dv.msg = { kind: "halt", text: `계획을 세우지 못했습니다 — ${e.message}` };
+    toast(`계획을 세우지 못했습니다: ${e.message}`, true);
+  } finally {
+    view.busy = false; // 이 요청이 켠 것만 끈다(그 사이 다른 문서를 열었으면 dv 는 새 것)
+    if (epoch === state.epoch) divShow();
+  }
+  return ok;
+}
+
+function divGo(c, focus = true) { // 후보 자리의 첫 라벨(문단 또는 칸)로 — 칸이면 그 칸의 첫 문단. focus false = 문서로 가서 보이기만(키보드 초점은 부른 목록에 — ↑/↓ 로 이어 고르기)
   const id = c.key === "period" ? null : c.key;
   if (!id) return;
-  if (paraEl(id)) { scrollToBlock(id, true); return; }
+  if (paraEl(id)) { scrollToBlock(id, focus); return; }
   // 표 칸은 td[data-cell](renderTable) — 쪽에 걸쳐 나뉜 칸(행 안 나눔)은 조각이 여럿이고 앞 조각이 비었을 수 있어 문단이 든 첫 조각을 본다
   let p = null;
   for (const cell of document.querySelectorAll(`#doc td[data-cell="${CSS.escape(id)}"], #doc [data-id="${CSS.escape(id)}"]`)) if ((p = cell.querySelector(".para"))) break;
-  if (p) { scrollToBlock(p.dataset.id, true); return; }
+  if (p) { scrollToBlock(p.dataset.id, focus); return; }
   toast("그 자리가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
 }
 
+let divListPlan = null; // 2열 목록이 지금 그려 둔 계획 — 발을 다시 그릴 때(divFootSync) 그 계획이 아직 지금 계획인지 본다
+function divFootSync() { if (heads.dlg === "divisions" && divListPlan) divFoot($("headsDlgFoot"), divListPlan); } // 열려 있는 목록의 발을 지금 상태로(입력·문서 차례·반영 결과가 바뀐 뒤)
+
 function divList() {
   const plan = dv.plan;
-  if (!plan) { toast("먼저 「계획 보기」를 누르세요"); return; }
-  const stale = plan.baseRev !== state.serverRev;
+  if (!plan) { toast("먼저 「변경 계획 보기」를 누르세요"); return; }
+  divListPlan = plan;
   const res = dv.result;
-  const { tools, body, foot } = headsDlg("divisions", res ? "구분 기준 — 반영 결과" : "구분 기준 — 바꿀 자리",
+  const { tools, body, foot } = headsDlg("divisions", res ? "프로젝트 구성 — 반영 결과" : "프로젝트 구성 — 바꿀 자리",
     `${res ? `편집 차례 ${res.rev} 에 반영` : `편집 차례 ${plan.baseRev} 기준 계획`} · 누르면 문서의 그 자리로`);
   const statusOf = (c) => (res && res.status[c.key]) || c.status;
   const filt = el("span", "dv-filter");
@@ -7542,7 +8492,7 @@ function divList() {
     if (!res && c.key !== "period") {
       const x = el("input"); x.type = "checkbox"; x.checked = dv.skip.has(c.key); x.title = "이 자리는 반영에서 빼기(다시 계획해야 반영됨)";
       x.setAttribute("aria-label", "반영에서 빼기");
-      x.onclick = (ev) => { ev.stopPropagation(); if (x.checked) dv.skip.add(c.key); else dv.skip.delete(c.key); divFoot(foot, plan, stale); };
+      x.onclick = (ev) => { ev.stopPropagation(); if (x.checked) dv.skip.add(c.key); else dv.skip.delete(c.key); divFoot(foot, plan); };
       tdc.append(x);
     }
     tr.append(tdc);
@@ -7567,11 +8517,12 @@ function divList() {
     tr.append(tdl);
     hCell(tr, c.target == null ? `${c.count}→?` : `${c.count}→${c.target}`, "dv-num");
     hCell(tr, c.where && c.where.table ? "표 안" : "본문", null, c.where && c.where.table ? `표 ${c.where.table}` : "");
-    tr.onclick = () => { for (const x of tb.querySelectorAll("tr.sel")) x.classList.remove("sel"); tr.classList.add("sel"); divGo(c); };
+    tr.onclick = () => { for (const x of tb.querySelectorAll("tr.sel")) x.classList.remove("sel"); tr.classList.add("sel"); divGo(c, false); tr.focus({ preventScroll: true }); }; // 초점은 목록에 — ↑/↓ 로 다음 자리(hRowKeys)
     tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tr.click(); } };
     tb.append(tr);
   }
   if (!rows.length) { const tr = el("tr"); hCell(tr, "해당하는 자리가 없습니다"); tb.append(tr); }
+  hRowKeys(tb); // 2026-11-12 사용자 "이거 키보드 방향키 하면 위아래로 움직이게 해줘"
   body.append(tbl);
   if (plan.deleted && plan.deleted.length && !res) {
     const det = el("details", "dv-detail"); det.style.margin = "8px 14px 14px";
@@ -7581,68 +8532,80 @@ function divList() {
     det.append(ul);
     body.append(det);
   }
-  divFoot(foot, plan, stale);
+  divFoot(foot, plan);
 }
 
-function divFoot(foot, plan, stale) {
+function divFoot(foot, plan) { // 2열 발 — 그 계획의 요약 글 + 「… 단추로 이동」 + 「닫기」. 반영·다시 계획·실행 취소는 패널의 실행 묶음과 그 아래 「문서 반영 상태」 에서만(같은 조작을 두 곳에 두지 않는다 — design.md §10 · ② §22)
   foot.textContent = "";
-  if (dv.plan !== plan) {
-    foot.append(el("span", "hd-msg note", "입력값이 바뀌어 이전 계획을 반영할 수 없습니다. 변경 계획을 다시 확인하세요."),
-      hBtn("다시 계획", () => divPlan(), { cls: "btn sm primary", disabled: dv.busy }), hBtn("닫기", () => headsColClose()));
-    return;
+  const st = divPlanState(), s = plan.summary, issues = divPlanIssues(s), res = dv.result;
+  let cls = "muted", text, go = "변경 계획 단추로 이동";
+  if (dv.plan !== plan) { cls = "hd-msg note"; text = "이 목록의 계획은 더 반영할 수 없습니다(입력값이 바뀌었거나 계획을 버림) — 「변경 계획 보기」 로 다시 확인하세요"; }
+  else if (st.kind === "done") { text = `반영 끝 — 편집 차례 ${res.rev}. 사본은 본뜬 항목의 글을 그대로 가져왔으니 고쳐 쓰세요. 되돌리려면 「문서 반영 상태」 의 실행 취소.`; go = ""; }
+  else if (st.kind === "stale") { cls = "hd-msg"; text = "문서가 바뀌어 이 계획은 반영할 수 없습니다 — 「변경 계획 보기」 로 다시 계획하세요"; }
+  else if (st.kind === "skip") { cls = "hd-msg note"; text = "뺄 자리를 바꿨습니다 — 「변경 계획 보기」 로 다시 계획해야 반영됩니다"; }
+  else if (st.kind === "same") { text = divSameText(s).text; go = ""; }
+  else { text = `맞출 자리 ${s.applied}곳 · 추가 ${s.added} · 지움 ${s.removed} · 지워지는 글 문단 ${s.deleted}${issues ? ` · ${issues}` : ""}`; go = "반영 단추로 이동"; }
+  foot.append(el("span", cls, text));
+  if (st.kind === "done" && dv.plan === plan && res.unresolved && res.unresolved.length) foot.append(el("span", "hd-msg", `미해결 ${res.unresolved.length}곳 — 손으로 맞추세요`));
+  if (go) {
+    const b = hBtn(go, () => divRunFocus(), { title: "패널의 「프로젝트 구성 반영」 묶음으로 갑니다(접힌 묶음은 폅니다) — 반영·다시 계획은 그 묶음의 단추로 합니다. 이 단추는 문서를 바꾸지 않습니다" });
+    b.dataset.divGo = "1";
+    foot.append(b);
   }
-  const res = dv.result;
-  if (res) {
-    foot.append(el("span", "muted", `반영 끝 — 편집 차례 ${res.rev}. 사본은 본뜬 항목의 글을 그대로 가져왔으니 고쳐 쓰세요.`));
-    if (res.unresolved && res.unresolved.length) foot.append(el("span", "hd-msg", `미해결 ${res.unresolved.length}곳 — 손으로 맞추세요`));
-    foot.append(hBtn("↶ 이번 반영 취소", () => divUndo(), { title: "실행 취소 — 그 뒤 고친 글도 함께 돌아감" }), hBtn("닫기", () => headsColClose()));
-    return;
-  }
-  const skipChanged = JSON.stringify([...dv.skip].sort()) !== JSON.stringify([...(plan.skip || [])].sort());
-  const s = plan.summary;
-  if (stale) foot.append(el("span", "hd-msg", "문서가 바뀌어 이 계획은 반영할 수 없습니다 — 다시 계획하세요"));
-  else if (skipChanged) foot.append(el("span", "hd-msg note", "뺄 자리를 바꿨습니다 — 다시 계획해야 반영됩니다"));
-  else foot.append(el("span", "muted", s.applied ? `맞출 자리 ${s.applied}곳 · 추가 ${s.added} · 지움 ${s.removed} · 지워지는 글 문단 ${s.deleted}` : "맞출 자리가 없습니다(이미 맞음)"));
-  if (stale || skipChanged) foot.append(hBtn("다시 계획", () => divPlan(), { cls: "btn sm primary", disabled: dv.busy }));
-  else foot.append(hBtn("반영", () => divApply(), { cls: "btn sm primary", disabled: dv.busy || !s.applied, title: "계획대로 문서를 고칩니다 — 한 번에, 실패하면 전부 되돌림. 반영 뒤 「실행 취소」로 되돌릴 수 있음" }));
   foot.append(hBtn("닫기", () => headsColClose()));
+  divRunSync(); // 뺄 자리를 바꾸면 묶음의 「반영」 도 함께 꺼진다
 }
 
-async function divApply({ quiet = false } = {}) { // quiet = 확인 창 없이(spec_작업 ② §14 「한 번에 진행」 — 누를 때 이미 한 번 물었다: taskRunAll)
+async function divApply({ quiet = false } = {}) { // quiet = 확인 창 없이(「한 번에 진행」 — 누를 때 이미 한 번 물었다: taskRunAll · divRunAll). → true(문서에 반영함) | false
   const plan = dv.plan;
-  if (!plan || dv.busy || !state.id) return;
-  const s = plan.summary;
-  if (!quiet && !confirm(`구분 기준을 반영할까요?\n\n맞출 자리 ${s.applied}곳 — 항목 추가 ${s.added} · 지움 ${s.removed} · 글 바꿈 ${s.changes}\n지워지는 글 문단 ${s.deleted}개(2열 「지워질 글 보기」에서 확인)\n\n한 번에 반영하고 표준 검사에 걸리면 전부 되돌립니다. 반영 뒤 「실행 취소」로 되돌릴 수 있습니다.`)) return;
-  const id = state.id, epoch = state.epoch;
+  if (!plan || dv.busy || !state.id) return false;
+  const s = plan.summary, at = divPlanState();
+  if (at.kind === "done") return false;
+  if (at.kind === "skip") { toast("뺄 자리를 바꿨습니다 — 다시 계획해야 반영됩니다", true); return false; } // 단추가 꺼져 있어도 함수에서 다시 본다(계획을 세우는 사이 체크를 바꾼 경우 — astra)
+  const issues = divPlanIssues(s);
+  if (!quiet && !confirm(`「${state.name}」 에 프로젝트 구성을 반영할까요?\n\n${taskDocRole(state.task) === "source" ? "※ 이 문서는 이 TASK 의 원본 문서입니다 — 원본의 구조가 바뀝니다.\n" : ""}맞출 자리 ${s.applied}곳 — 항목 추가 ${s.added} · 지움 ${s.removed} · 글 바꿈 ${s.changes}\n지워지는 글 문단 ${s.deleted}개(목록의 「지워질 글 보기」에서 확인)${issues ? `\n${issues} — 그 자리는 그대로 남습니다(손으로 맞추세요)` : ""}\n\n한 번에 반영하고 표준 검사에 걸리면 전부 되돌립니다. 반영 뒤 「실행 취소」로 되돌릴 수 있습니다.`)) return false;
+  const id = state.id, epoch = state.epoch, view = dv;
   await flushAll();
-  if (epoch !== state.epoch) return;
-  if (plan.baseRev !== state.serverRev) { toast("문서가 바뀌어 다시 계획해야 합니다", true); divList(); return; }
+  if (epoch !== state.epoch) return false;
+  if (state.failed.size) { toast("서버에 반영하지 못한 문단이 있어 반영하지 않았습니다 — 「고친 문단」 탭에서 먼저 다시 반영하세요", true); return false; } // 반영 뒤 문서를 다시 읽으면 화면에만 있는 글을 잃는다(astra P1)
+  if (dv.plan !== plan) return false; // 기다리는 사이 입력이 바뀌어 계획을 버렸다
+  if (plan.baseRev !== state.serverRev) { toast("문서가 바뀌어 다시 계획해야 합니다", true); divRunSync(); divFootSync(); return false; }
   dv.busy = true;
+  dv.msg = null;
   state.busy = true;
   refreshToolbar();
   divRender();
+  let ok = false;
   try {
     const r = await api(`/api/docs/${id}/divisions/apply`, { method: "POST", headers: H_JSON, body: JSON.stringify({ planId: plan.planId, expectRev: plan.baseRev }) });
-    if (epoch !== state.epoch) return;
-    if (r.nothing) { toast("할 일이 없습니다 — 이미 그 값에 맞습니다"); dv.plan = null; return; }
-    applyEditState(r);
+    if (epoch !== state.epoch) return false;
+    if (r.nothing) { toast("할 일이 없습니다 — 이미 그 값에 맞습니다"); dv.plan = null; dv.msg = { kind: "done", text: divSameText(s).ok ? divSameText(s).text : "바꿀 자리가 없습니다" }; return false; }
     dv.result = { rev: r.rev, unresolved: r.unresolved || [], status: Object.fromEntries((r.candidates || []).map((c) => [c.key, c.status])),
       message: Object.fromEntries((r.candidates || []).map((c) => [c.key, c.statusMessage])) };
+    state.localRev += 1; // 구조 편집 하나(structOp 과 같게) — 내려받은 뒤 반영했으면 「안 받은 변경」 으로 잡힌다
+    state.structRev = state.localRev;
+    applyEditState(r);
     toast(`반영 — 추가 ${r.summary.added} · 지움 ${r.summary.removed} · 글 바꿈 ${r.summary.changes}${r.owpml ? ` · ${STD()} ${r.owpml.status === "ok" ? "통과" : r.owpml.summary}` : ""}`);
+    ok = true;
     await reloadDoc(); // 떨어진 자리 여러 곳이 바뀌어 부분 갱신 대신 문서를 다시 읽는다(spec_구분_기준 ② §4)
-    if (epoch !== state.epoch) return;
+    if (epoch !== state.epoch) return true;
     divList();
   } catch (e) {
-    if (epoch !== state.epoch) return;
-    if (e.status === 409) { toast(`${e.message}`, true); dv.plan = null; }
-    else if (e.status === 422) toast(`표준 검사에 걸려 되돌렸습니다: ${e.message}`, true);
-    else toast(`반영하지 못했습니다: ${e.message}`, true);
+    if (epoch !== state.epoch) return ok;
+    if (ok) toast(`반영했지만 문서를 다시 읽지 못했습니다: ${e.message} — 새로 고쳐 주세요`, true);
+    else if (e.status === 409) { toast(`${e.message}`, true); dv.plan = null; dv.msg = { kind: "note", text: "계획이 낡았습니다 · 다시 계획하세요" }; }
+    else if (e.status === 422) { toast(`표준 검사에 걸려 되돌렸습니다: ${e.message}`, true); dv.msg = { kind: "halt", text: "표준 검사에 걸려 반영하지 않았습니다(전부 되돌림) — 알림 글 참고" }; }
+    else { toast(`반영하지 못했습니다: ${e.message}`, true); dv.msg = { kind: "halt", text: `반영하지 못했습니다 — ${e.message}` }; }
   } finally {
-    dv.busy = false;
-    state.busy = false;
-    refreshToolbar();
-    if (epoch === state.epoch) divShow();
+    view.busy = false; // 이 요청이 켠 것만 끈다(그 사이 다른 문서를 열었으면 dv·state.busy 는 새 문서의 것)
+    if (epoch === state.epoch) {
+      state.busy = false;
+      refreshToolbar();
+      divFootSync(); // 열린 목록의 발 — 409·422·할 일 없음 뒤에도 지금 상태로
+      divShow();
+    }
   }
+  return ok;
 }
 
 // ---------------------------------------------------------------- 구분 기준 — 문서 표시 · 추가한 자리 · LLM 재검토(spec_구분_기준 ② §11, 2026-11-10 사용자)
@@ -7651,6 +8614,11 @@ async function divApply({ quiet = false } = {}) { // quiet = 확인 창 없이(s
 const DV_MARKS_KEY = "nfm.divMarks";
 const DV_DIM_RANK = { stage: 0, stageYear: 0, year: 1, sub: 2, org: 3 }; // 구분 순서(바깥 → 안, core.RANK) — 기타(사용자 이름)는 가장 안쪽
 const DV_DIM_NAME = { stage: "단계", year: "차년도", stageYear: "단계-차년도", sub: "세부과제", org: "기관" };
+const DV_KEY_ORDER = ["stage", "stageYear", "year", "sub", "org", "other"]; // 색 설명의 칩 차례(겉 → 안)
+const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 문서 이름 줄의 노트가 같은 글
+  "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」), 옅은 색 = 그 자리 안의 글·표 칸.\n" +
+  "여러 자리에 겹치면 가장 안쪽 것의 색입니다(단계 › 차년도 › 기관). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
+  "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
 function divMarksOn() { try { return taskRnd() && localStorage.getItem(DV_MARKS_KEY) === "on"; } catch { return false; } } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10)
 function divMarksSet(on) { try { localStorage.setItem(DV_MARKS_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
 
@@ -7660,7 +8628,7 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
   const head = el("div", "dv-marks-head");
   const copy = el("div", "dv-marks-copy");
   copy.append(el("strong", null, "구분 기준 자리 표시")); // 2026-11-12 사용자 "문서표지는 뭘 이야기 하는지 모르겠다" — 처음 이름 「문서 표시」
-  copy.append(hHelp("구분 기준 자리 표시 안내", "문서에서 단계·차년도·기관이 걸린 자리를 색으로 보여 줍니다.", { note: true }));
+  copy.append(hHelp("구분 기준 자리 표시 안내", "문서에서 단계·차년도·기관이 걸린 자리를 색으로 보여 줍니다.\n" + DV_KEY_HELP, { note: true }));
   const tg = hBtn(on ? "감추기" : "보기", () => { divMarksSet(!on); if (!on) divMembersLoad(); else divMarksDraw(); divMarksBarRefresh(); },
     { cls: "btn sm dv-marks-toggle" + (on ? " on" : ""), title: "문서의 문단에 구분 기준 자리 색 보이기/감추기(이 브라우저에 기억) · 라벨 문단은 왼쪽 띠, 마우스를 올리면 겉→안 소속" });
   tg.setAttribute("aria-pressed", String(on));
@@ -7687,15 +8655,15 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
       if (stale) bar.append(el("p", "dv-caption dv-marks-note", "문서 변경됨 · 다시 읽기 필요"));
     }
   }
-  const acts = el("div", "dv-marks-acts");
-  if (on) acts.append(hBtn("다시 읽기", () => divMembersLoad(true), { disabled: m.loading, title: "지금 문서(편집 차례)로 자리를 다시 찾음" }));
-  acts.append(hBtn(`추가한 자리 ${hints.length}`, () => divHintsList(), { title: "문서에서 표시한 라벨 문단 목록(2열) — 출처·구분·값·엔진 반영 여부·지우기" }));
-  acts.append(hBtn(m.reviewing ? "LLM 검토 중…" : m.review ? `검토 결과 ${(m.review.items || []).length}` : "LLM 검토", () => divReviewList(), { cls: "btn sm primary",
+  const acts = el("div", "dv-marks-acts"), lists = el("div", "dv-marks-lists");
+  acts.append(hBtn(m.reviewing ? "LLM 검토 중…" : m.review ? `검토 결과 ${(m.review.items || []).length}` : "LLM 검토", () => divReviewList(), { cls: "btn sm" + (taskSlots() ? "" : " primary"), // 이관이면 1단계 묶음 안 — 강조 단추는 카드에 하나(단계의 「다음 할 일」·「한 번에 진행」)
     title: "LLM 검토 — 재검토(표시한 자리가 있을 때: 형제 자리 찾기·구분 고침)와 빠진 자리 검토를 함께 돌려 한 목록으로(2열에서 실행 · 수십 초) · 하나만 다시 돌리려면 「추가한 자리」·「빠진 자리 검토」 목록에서" })); // ② §14
-  acts.append(hBtn(m.missing ? "빠진 자리 검토 중…" : m.missingLast ? `빠진 자리 후보 ${m.missingLast.missing.length}` : "빠진 자리 검토", () => divMissingList(),
+  if (!PEEK) acts.append(llmGuideBtn("division-review", state.id)); // 검토 단추 바로 옆에서 두 검토의 지침을 오간다.
+  if (on) acts.append(hBtn("다시 읽기", () => divMembersLoad(true), { cls: "btn sm dv-marks-reload", disabled: m.loading, title: "지금 문서(편집 차례)로 자리를 다시 찾음" }));
+  lists.append(hBtn(`추가한 자리 ${hints.length}`, () => divHintsList(), { title: "문서에서 표시한 라벨 문단 목록(2열) — 출처·구분·값·엔진 반영 여부·지우기" }));
+  lists.append(hBtn(m.missing ? "빠진 자리 검토 중…" : m.missingLast ? `빠진 자리 후보 ${m.missingLast.missing.length}` : "빠진 자리 검토", () => divMissingList(),
     { title: "어느 묶음에도 안 든 표·문단 중 구분 기준 자리로 보이는 곳을 LLM 이 찾습니다 — 2열 목록에서 실행(판정만, 문서는 그대로)" })); // ② §13
-  if (!PEEK) acts.append(llmGuideBtn("division-review", state.id)); // 이 두 LLM 검토에 보내는 지침·프롬프트 보기(2열 — 머리에서 「빠진 자리 검토」 것으로 바꾼다)
-  bar.append(acts);
+  bar.append(acts, lists);
   return bar;
 }
 function divMarksBarRefresh() { const old = document.getElementById("divMarksBar"); if (old) old.replaceWith(divMarksBar()); }
@@ -7749,12 +8717,14 @@ function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽), lab, hint, l
 function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — paginate 끝·자료 바뀜·토글 때
   const doc = $("doc");
   if (!doc) return;
+  if (typeof gatherZonesDraw === "function") gatherZonesDraw(); // 취합본의 기관 구역 표시(gather.js — spec_취합 ② §9-2)도 같은 때 다시 단다(쪽을 다시 나누면 요소가 새것)
   for (const p of doc.querySelectorAll(".para.dv-in")) {
     p.classList.remove("dv-in", "dv-lab", "dv-hint", "dv-hint-llm"); delete p.dataset.dv;
     if (p.dataset.dvTitle) { p.removeAttribute("title"); delete p.dataset.dvTitle; }
   }
   const on = typeof dv !== "undefined" && divMarksOn() && dv.marks.data && dv.marks.index;
   doc.classList.toggle("dv-marks", !!on);
+  divKeyDraw(!!on);
   if (!on) return;
   for (const p of doc.querySelectorAll(".para[data-id]")) {
     const e = dv.marks.index.get(p.dataset.id);
@@ -7764,6 +8734,31 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
     if (e.hint) p.classList.add(e.hint === "llm" ? "dv-hint-llm" : "dv-hint");
     if (!p.title) { p.title = "구분 기준 자리(겉 → 안)\n" + e.lines.map((x) => x.line).join("\n"); p.dataset.dvTitle = "1"; }
   }
+}
+
+// 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 내용」 의 카드에만 있었다 →
+// 색이 입혀져 있는 동안 문서 이름 줄(#fileInfo, 「편집 중」 앞 #divKey)에 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트 + 「감추기」. 색칠할 자리가 없으면 설명도 없다.
+function divKeyDraw(on) {
+  const box = $("divKey"), row = $("fileInfo");
+  if (!box || !row) return;
+  const dims = new Map(); // 구분 키 → 이름
+  if (on) {
+    const d = dv.marks.data, put = (dim, name) => { const k = dim in DV_DIM_NAME ? dim : "other"; if (!dims.has(k)) dims.set(k, DV_DIM_NAME[k] || name || "기타"); };
+    for (const g of d.groups || []) put(g.dim, g.dimName);
+    for (const h of d.hints || []) if (h.exists) put(h.dim, h.dimName);
+  }
+  const keys = [...dims.keys()].sort((a, b) => DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
+  const sig = keys.map((k) => k + "=" + dims.get(k)).join("|");
+  row.classList.toggle("has-dv-key", !!sig);
+  if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게)
+  box.dataset.sig = sig; box.hidden = !sig; box.textContent = "";
+  if (!sig) return;
+  box.append(el("span", "dv-key-name", "구분 기준 자리"));
+  for (const k of keys) { const chip = el("span", "dv-chip", dims.get(k)); chip.dataset.dv = k; box.append(chip); }
+  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨"));
+  const again = "다시 보려면 「작업 내용」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
+  box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n" + again + ".", { note: true }));
+  box.append(hBtn("감추기", () => { divMarksSet(false); divMarksDraw(); divMarksBarRefresh(); }, { cls: "btn sm dv-key-off", title: "구분 기준 자리 색 감추기 — " + again }));
 }
 
 // ---- 추가한 자리(hint) — 문서에서 오른쪽 단추
@@ -8177,7 +9172,8 @@ function divCommentRow() {
   const st = dv.comment, box = el("section", "dv-comments"), row = el("div", "dv-comment-row"), ta = el("textarea");
   box.id = "divComments"; box.setAttribute("aria-label", "양식별 코멘트");
   ta.id = "divCommentText"; ta.rows = 2; ta.maxLength = 500; ta.value = st.draft;
-  ta.placeholder = "구분 기준 결과에 대한 코멘트 — 예: 2-2 는 해당 차년도만"; ta.setAttribute("aria-label", "구분 기준 결과에 대한 코멘트");
+  const label = el("label", "dv-comment-label", "양식 코멘트"); label.htmlFor = ta.id;
+  ta.placeholder = "예: 2-2는 해당 차년도만 구분해 주세요"; ta.setAttribute("aria-label", "구분 기준 결과에 대한 코멘트");
   ta.oninput = () => { st.draft = ta.value; if (!st.busy) { st.msg = ""; st.err = false; } divCommentSync(box); };
   ta.onkeydown = (e) => { // Ctrl+Enter — 한글 조합 중이면 key 가 "Process" 라 code 도 본다(조합 중인 글자도 value 에 있다)
     if ((e.ctrlKey || e.metaKey) && (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter")) { e.preventDefault(); divCommentSave(); }
@@ -8185,7 +9181,7 @@ function divCommentRow() {
   const send = hBtn("코멘트 남기기", () => divCommentSave(), { cls: "btn",
     title: "이 양식의 양식 정보(「구분 기준 자리」 절)에 날짜와 함께 쌓이고 구분 기준 LLM 검토가 읽습니다 · Ctrl+Enter" }); send.id = "divCommentBtn";
   const status = el("p", "dv-comment-status"); status.id = "divCommentStatus"; status.setAttribute("role", "status");
-  row.append(ta, send); box.append(row, status);
+  row.append(ta, send); box.append(label, row, status);
   divCommentSync(box); divCommentList(box);
   return box;
 }

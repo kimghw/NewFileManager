@@ -3,10 +3,12 @@
 // app.js 는 할 일별 가지만 둔다(gatherOn() 이면 여기로 — 이관의 taskSteps·taskRun*·links*·fill* 은 취합에서 안 부른다):
 //   taskRow → gatherFlowEl(첫 카드) · taskFlowLoad → gatherLoad · taskStepsDraw → gatherStepsDraw · docSwitchDraw → gatherWorks · taskFrameHost(#gatherStage 안에 과제 구성 입력) ·
 //   peerDocs/peerLeft/peerSync → gatherPeerDocs/gatherPeerLeft/gatherPeerMark(둘째 면) · outlineGrip 의 dragstart → gatherGripStart(끌어 넣기 출발) · 창의 파일 놓기 → gatherDragIs(이 형식은 안 받음).
-// 첫 카드: 「사업계획서(취합본)」 칸 하나(이관의 칸 그대로 — taskSlot·taskSlotUp) + 기관 문서 줄 N + 「기관 문서 추가」 + 기관 현황 한 줄 + 묶음 둘(1단계 문서 프레임 작성 · 2단계 내용 매핑 — 이관과 같은 모양).
+// 첫 카드: 「사업계획서(취합본)」 칸 하나(이관의 칸 그대로 — taskSlot·taskSlotUp) + 기관 문서 줄 N + 「기관 문서 추가」 + 기관 현황 한 줄 + 기관 구역 줄 + 묶음 셋(1단계 구분 기준 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 — 이관과 같은 모양).
 // 2열(headsDlg): 「기관 작성 내용」(kind gather — 기관 문서마다) · 「넣기 계획」(gatherFill) · 「끌어 넣기」(gatherDrop). 취합본은 사람이 확인한 뒤에만 바뀐다(계획 → 「반영」 · 「한 번에 진행」 은 누를 때 한 번).
 // 화면 말(실무자용): 기관이 쓴 덩어리 = 「기관 작성 내용」, 상태 = 넣을 수 있음·이미 들어 있음·겹침·다른 기관 자리·반영할 기관 미지정·확인 필요·표 구조가 다름·양식 글이 바뀜·지워짐·계산 칸.
 
+const GT_PART = "application/x-nfm-gather-part"; // 기관 문서 줄을 다른 기관 폴더로 끄는 자료 형식(작업 id — ② §5 「기관별 폴더」). 창의 파일 놓기와 가른다(app.js bind 의 own)
+const gatherPartDragIs = (e) => !!(e && e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes(GT_PART));
 const GT_TYPE = "application/x-nfm-gather"; // 끌어 넣기 자료 형식({from: 기관 문서 작업 id, srcId: 제목 줄 문단 id}) — 창의 파일 놓기·같은 문서 안 개요 줄 옮기기와 가른다(② §4-6)
 const GT_POLL = 2000; // 스크립트 분석이 끝났는지 읽는 간격(ms)
 const GT_STATUS = { ready: "넣을 수 있음", overlap: "겹침", unknownPlace: "확인 필요", same: "이미 들어 있음", otherOrg: "다른 기관 자리", unassigned: "반영할 기관 미지정",
@@ -17,8 +19,8 @@ const GT_STATUS_HELP = { ready: "넣을 수 있음 — 취합본의 그 자리�
   changed: "양식 글이 바뀜 — 제목·라벨·양식 글·표 머리(넣지 않고 알리기만)", removed: "지워짐 — 기준본에 있던 것이 기관 문서에 없음(취합본에서 지우지 않음)", calc: "계산 칸 — 기관 문서의 값을 복사하지 않음" };
 const GT_BADGE = { ready: "applied", same: "already", overlap: "unsupported", otherOrg: "already", unassigned: "unsupported", unknownPlace: "unresolved", structure: "unsupported", changed: "already", removed: "already", calc: "already" }; // 색 = 구분 기준 목록의 꼬리표(.dv-badge)
 const GT_KIND = { added: "더한 내용", filled: "채운 자리", cells: "표 칸", rows: "표 행", removed: "지워짐", changed: "바뀐 글" };
-const GT_REASON = { noFrame: "배포 기준본이 없음", frameStale: "기준본이 낡음(구분 기준을 다시 반영함 — 새로 만들어야 함)", frameDiffers: "기준본이 다름(다른 판의 기준본으로 온 문서)", noHeadings: "헤딩·표 분석 없음",
-  staleHeadings: "헤딩·표 분석이 지금 문서의 것이 아님", noMatch: "기준본과 맞는 자리를 찾지 못함(끌어 넣기만)", noValues: "과제 구성 값 없음", notApplied: "구분 기준 반영 전", unsupportedForm: "지원하지 않는 양식·형식",
+const GT_REASON = { noFrame: "배포 기준본이 없음", frameStale: "기준본이 낡음(프로젝트 구성을 다시 반영함 — 새로 만들어야 함)", frameDiffers: "기준본이 다름(다른 판의 기준본으로 온 문서)", noHeadings: "헤딩·표 분석 없음",
+  staleHeadings: "헤딩·표 분석이 지금 문서의 것이 아님", noMatch: "기준본과 맞는 자리를 찾지 못함(끌어 넣기만)", noValues: "프로젝트 구성 값 없음", notApplied: "프로젝트 구성 반영 전", unsupportedForm: "지원하지 않는 양식·형식",
   lowMatch: "기준본과 자리를 충분히 확인하지 못함 — 넣을 것을 직접 고르세요", stalePlan: "계획 뒤 문서·설정이 바뀜(다시 계획)", notPart: "이 취합에 든 기관 문서가 아님", badPart: "기관 문서로 넣을 수 없는 문서(지운 문서 등)",
   noLlm: "LLM 을 쓸 수 없음", error: "판정하지 못함(오류)" }; // 서버의 까닭 열쇠(app/merge_gather_api.py MSG) → 줄에 보일 짧은 말. 알림에는 서버가 준 글(message)을 쓴다
 const GT_SOFT = ["lowMatch"]; // 줄을 막지 않는 까닭 — 자리 연결은 됐고, 넣을 것은 사람이 「넣음」 으로 고른 것만(기준본에서 나오지 않은 문서는 저절로 넣지 않는다)
@@ -26,10 +28,11 @@ const GT_DROP = { secPr: "쪽·구역 설정", colPr: "단 설정", header: "머
 const GT_CALC_WHY = { partValue: "기관 문서의 값 — 복사하지 않음", operands: "더하는 칸이 바뀜 — 반영하면 다시 계산", rows: "행이 늘어남 — 합의 범위를 확인" }; // 넣기 계획의 계산 칸 까닭(merge_gather.plan calc[].why)
 const GT_ROLE = { lead: "주관", joint: "공동", outside: "외 기관", overseas: "국외", entrust: "위탁" };
 const GT_COUNT = { items: "작성 내용", hunks: "작성 내용", blocks: "블록", paragraphs: "문단", tables: "표", pictures: "그림", cells: "표 칸", rows: "행 추가", placeholders: "지운 자리표시 줄", removed: "지운 자리표시 줄",
-  shaped: "글자 모양 맞춤", fitted: "그림 폭 맞춤", converted: "틀 맞춤", kept: "쓴 대로 둔 개요 줄", recalculated: "다시 계산", skipped: "반영 때 건너뜀" }; // 넣은 수(반영 응답 counts) → 화면 말. converted·kept = 취합본 틀에 맞춘 개요 줄 · 못 맞춰 쓴 대로 둔 개요 줄(merge_gather_fit)
-const GT_STAGES = [
-  { id: "frame", ...TASK_STAGE_META.frame, dom: "gatherStage", store: "nfm.gatherStageOpen", does: "구분 기준 반영(절·표 행·열 — 구조만) → 배포 기준본" },
-  { id: "map", ...TASK_STAGE_META.map, dom: "gatherStage2", store: "nfm.gatherStageOpen2", does: "기관 문서마다 자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영" },
+  shaped: "글자 모양 맞춤", fitted: "그림 폭 맞춤", converted: "틀 맞춤", kept: "쓴 대로 둔 개요 줄", over: "넘친 레벨", recalculated: "다시 계산", skipped: "반영 때 건너뜀" }; // 넣은 수(반영 응답 counts) → 화면 말. converted·kept = 취합본 틀에 맞춘 개요 줄 · 못 맞춰 쓴 대로 둔 개요 줄(merge_gather_fit)
+const GT_STAGES = [ // 묶음 셋(spec_취합 ② §9-1 · spec_작업 ② §18) — config 는 2026-11-13 더함(있던 묶음의 dom·store 는 그대로)
+  { id: "config", ...TASK_STAGE_META.config, dom: "gatherStage0", store: "nfm.gatherStageOpen0", short: "프로젝트 구성", does: "프로젝트 구성(단계·차년도·기관)만 정하기 — 문서에서 추출하거나 불러와 확인한 뒤 프로젝트에 저장(확정) · 문서는 안 바뀜" },
+  { id: "frame", ...TASK_STAGE_META.frame, dom: "gatherStage", store: "nfm.gatherStageOpen", short: "프레임 작성", does: "프로젝트 구성 반영(절·표 행·열 — 구조만) → 배포 기준본" },
+  { id: "map", ...TASK_STAGE_META.map, dom: "gatherStage2", store: "nfm.gatherStageOpen2", short: "내용 매핑", does: "기관 문서마다 자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영" },
 ];
 
 // ---- 상태(문서를 열 때마다 새로 — state.epoch 로 가른다: app.js divReset 에 가지를 더 두지 않는다)
@@ -45,11 +48,11 @@ class GatherHalt extends Error {} // 멈춤(사람 손이 필요함 · 실패) �
 const gatherHalt = (msg) => { throw new GatherHalt(msg); };
 
 const gatherSpec = () => (state.task && TASK_GATHER[state.task.job]) || null; // {base: 취합본의 종류(plan — 문서 하나), parts: 기관 문서의 종류(part — 여럿)}
-const gatherPlan = () => { const s = gatherSpec(); return s ? taskSlotDoc(s.base) : null; }; // 취합본 = 그 칸의 문서(지금 문서가 그 종류면 지금 문서, 아니면 같은 과제의 첫 문서)
+const gatherPlan = () => { const s = gatherSpec(); return s ? taskSlotDoc(s.base) : null; }; // 취합본 = 그 칸의 문서(지금 문서가 그 종류면 지금 문서, 아니면 같은 프로젝트의 첫 문서)
 const gatherMine = () => { const p = gatherPlan(); return !!p && p.id === state.id; }; // 취합본을 고치는 중인가
 const gatherPart = (pid) => ((gt().view || {}).parts || []).find((p) => p.work === pid) || null;
-const gatherKey = () => `${(gatherPlan() || {}).id || ""}|${worksList.length}`;
-const gatherDocIds = () => [(gatherPlan() || {}).id, ...((gt().view || {}).parts || []).map((p) => p.work)].filter(Boolean); // 이 취합의 문서(취합본 + 기관 문서) — 첫 카드의 「같은 과제 문서」 줄에서 뺀다(app.js taskRow)
+const gatherKey = () => `${taskScopeKey()}|${(gatherPlan() || {}).id || ""}|${worksList.length}`;
+const gatherDocIds = () => [(gatherPlan() || {}).id, ...((gt().view || {}).parts || []).map((p) => p.work)].filter(Boolean); // 이 취합의 문서(취합본 + 기관 문서) — 첫 카드의 「같은 프로젝트 문서」 줄에서 뺀다(app.js taskRow)
 const gatherWhen = (at) => (at == null || at === "" ? "" : fmtWhen(typeof at === "number" ? at : Date.parse(at) / 1000)); // 서버의 시각이 초든 ISO 글이든
 const gatherUrl = (path = "") => `/api/docs/${gatherPlan().id}/gather${path}`;
 const gatherCall = (path, method = "GET", body = null) => api(gatherUrl(path), method === "GET" ? {} : method === "DELETE" ? { method } : { method, headers: H_JSON, body: JSON.stringify(body || {}) });
@@ -73,7 +76,7 @@ function gatherCountText(c) { // 「넣을 수 있음 n · 겹침 n · 확인 �
 const gatherNums = (c, keys) => keys.filter((k) => c && c[k]).map((k) => `${GT_COUNT[k] || k} ${nf(c[k])}`).join(" · ");
 function gatherPlanText(P) { // 넣기 계획 한 줄 — 넣을 작성 내용 수 + 문단·표·그림·칸·행(계획에 counts 가 없으면 항목에서 더한다)
   const sum = P.counts || (P.items || []).reduce((a, it) => { for (const [k, n] of Object.entries(it.counts || {})) if (typeof n === "number") a[k] = (a[k] || 0) + n; return a; }, {});
-  const parts = gatherNums(sum, ["paragraphs", "tables", "pictures", "cells", "rows", "placeholders", "converted", "kept"]);
+  const parts = gatherNums(sum, ["paragraphs", "tables", "pictures", "cells", "rows", "placeholders", "converted", "kept", "over"]); // over = 취합본 틀보다 깊은 줄(넘친 개요 레벨 — spec_병합 ② §5-5: 맞춤·쓴 대로 둔 줄 가운데)
   return P.todo ? `넣을 내용 ${nf(P.todo)}곳${parts ? ` — ${parts}` : ""}` : "넣을 것이 없습니다(이미 넣었거나 넣을 수 있는 자리가 없음)";
 }
 function gatherDoneText(r) { // 반영 결과 한 줄
@@ -109,17 +112,19 @@ async function gatherLoad() {
     const dp = plan.id === state.id ? null : api(`/api/docs/${plan.id}/divisions`).catch(() => null); // 취합본이 다른 문서면 그 구분 기준도(닫힌 문서는 서버가 연다)
     view = await api(`/api/docs/${plan.id}/gather`);
     const r = dp && (await dp);
-    if (r) div = { values: ((r.settings || r.applied) || {}).values || null, applied: r.applied || null, ok: !!(r.profile && r.profile.supported) };
+    if (r) div = { values: ((r.settings || r.applied) || {}).values || null, applied: r.applied || null, ok: !!(r.profile && r.profile.supported), confirmed: r.confirmed || null, sharing: r.projectSharing || null };
   } catch (e) { err = e.message; missing = e.status === 404 && e.message === "Not Found"; } // 끝점이 없는 서버(재시작 전)
   if (epoch !== state.epoch || g !== gatherState || seq !== g.seq) return;
   Object.assign(g, { view: err ? g.view : view, err, missing, loading: false, div });
   gatherDraw();
   peerSync(); // 둘째 면의 탭 = 그 취합에 든 기관 문서
+  gatherZonesLoad(); // 기관 구역 표시(② §9-2) — 반영·실행 취소·구분 기준 반영 뒤에도 이 길로 다시 읽는다
 }
 function gatherViewSet(V, wipe = false) { // 조작의 응답(취합 상태 몸통)을 화면 상태로 — wipe = 기준본이 바뀌어 읽어 둔 작성 내용·계획이 모두 낡음
   const g = gt();
   if (V && Array.isArray(V.parts)) { g.view = V; g.err = ""; g.missing = false; }
   if (wipe) { g.links = {}; g.plans = {}; }
+  if (!PEEK && V && Array.isArray(V.parts)) peerSync(); // 둘째 면 탭 글(반영할 기관 이름 — gatherPeerLabel)이 바뀌었을 수 있다 — 같으면 peerTabsDraw 가 그대로 둔다
 }
 function gatherWorks() { // 작업 목록을 읽은 뒤(app.js docSwitchDraw) — 문서를 처음 열었거나 칸의 문서가 달라졌으면 다시 읽는다
   if (PEEK) return;
@@ -137,7 +142,7 @@ function gatherFlowEl() {
   stages.id = "gatherSteps";
   gatherCalc();
   stages.append(...GT_STAGES.map((stage) => gatherStageEl(stage)));
-  box.append(taskJourneyEl(), gatherFilesEl(), gatherPartsEl(), gatherOrgsEl(), stages);
+  box.append(taskJourneyEl(), gatherFilesEl(), gatherPartsEl(), gatherOrgsEl(), gatherZonesEl(), gatherQuickEl(), stages);
   gatherJourneySync(box);
   return box;
 }
@@ -147,15 +152,15 @@ function gatherJourneySync(host = document.getElementById("gatherFlow")) {
   if (!host || !gatherStepsLast) return;
   const all = gatherStepsLast, files = all.find((s) => s.step === "files"), plan = gatherPlan();
   let before = !files?.done;
-  const items = [{ id: "prepare", label: "준비", state: files?.done ? "done" : "now", target: plan && !files?.done ? "gatherStage" : host.querySelector(".gt-files"),
-    note: "취합본을 고르고 과제 구성을 확인합니다. 기관 문서는 들어오는 대로 추가할 수 있습니다." }];
+  const items = [{ id: "prepare", label: "준비", state: files?.done ? "done" : "now", target: host.querySelector(".gt-files"),
+    note: "취합본을 고릅니다. 기관 문서는 들어오는 대로 추가할 수 있습니다." }];
   for (const stage of GT_STAGES) {
     const steps = all.filter((s) => s.stage === stage.id && s.step !== "files"), completed = steps.filter((s) => s.done).length;
     const run = gatherRun?.stage === stage.id || steps.some((s) => s.busy);
     const last = gatherRunLast?.stage === stage.id && gatherRunLast.plan === plan?.id && gatherRunLast.done === completed ? gatherRunLast : null;
     const done = steps.length > 0 && completed === steps.length;
     const status = run ? "run" : before ? "todo" : last && !last.ok ? "halt" : done ? "done" : "now";
-    items.push({ id: stage.id, label: `${stage.no} ${stage.id === "frame" ? "프레임 작성" : "내용 매핑"}`, state: status, target: stage.dom, note: stage.does });
+    items.push({ id: stage.id, label: `${stage.no} ${stage.short}`, state: status, target: stage.dom, note: stage.does });
     if (!done) before = true;
   }
   taskJourneySync(host.querySelector(".dv-journey"), items);
@@ -168,6 +173,8 @@ function gatherDraw() { // 카드의 칸·기관 문서 줄·기관 현황·단�
     if (box.dataset.key !== gatherKey()) { box.dataset.key = gatherKey(); swap(".gt-files", gatherFilesEl()); }
     swap("#gatherParts", gatherPartsEl());
     swap(".gt-orgs", gatherOrgsEl());
+    swap(".gt-zones", gatherZonesEl());
+    swap(".gt-quick", gatherQuickEl());
     gatherMatesDraw();
     gatherStepsDraw();
     if (focus) { const to = box.querySelector(`[data-gather-focus="${CSS.escape(focus)}"]`); if (to && !to.disabled) to.focus({ preventScroll: true }); } // 바꾼 줄의 목록·체크 상자에 초점 그대로
@@ -177,11 +184,18 @@ function gatherDraw() { // 카드의 칸·기관 문서 줄·기관 현황·단�
   else if (heads.dlg === "gatherDrop") gatherDropList(true);
 }
 
-function gatherMatesDraw() { // 첫 카드의 「같은 과제 문서」 줄(app.js taskRow) — 이 취합의 문서(취합본·기관 문서)는 뺀다: 카드를 그릴 때는 취합 상태를 아직 못 읽어 기관 문서를 모를 수 있다
+function gatherQuickEl() { // 간단 모드 줄(② §8-6 — gather_quick.js 가 그린다). 간단 모드로 돌린 취합본이 아니면 빈 자리(숨김) — gatherDraw 가 바꿔 끼운다
+  if (typeof gatherQuickLineEl === "function") return gatherQuickLineEl();
+  const p = el("div", "gt-quick");
+  p.hidden = true;
+  return p;
+}
+
+function gatherMatesDraw() { // 첫 카드의 「같은 프로젝트 문서」 줄(app.js taskRow) — 이 취합의 문서(취합본·기관 문서)는 뺀다: 카드를 그릴 때는 취합 상태를 아직 못 읽어 기관 문서를 모를 수 있다
   const row = document.querySelector("#divBox .dv-task");
   if (!row) return;
   const ids = new Set(gatherDocIds()), mates = taskMates().filter((w) => !ids.has(w.id)), old = row.querySelector(".dv-task-mates");
-  const text = mates.length ? `같은 과제 문서 ${mates.length}개 — ${mates.map((w) => { const f = taskName("file", (w.task || {}).file); return f ? `${w.name}(${f})` : w.name; }).join(" · ")}` : "";
+  const text = mates.length ? `같은 프로젝트 문서 ${mates.length}개 — ${mates.map((w) => { const f = taskName("file", (w.task || {}).file); return f ? `${w.name}(${f})` : w.name; }).join(" · ")}` : "";
   if (!text) { if (old) old.remove(); return; }
   if (!old) row.append(el("p", "dv-caption dv-task-mates", text));
   else if (old.textContent !== text) old.textContent = text;
@@ -225,7 +239,7 @@ function gatherPartTag(p) { // 기관 문서 줄의 상태 꼬리표 → [글, .
   if (why) return ["확인 필요", "unresolved", `자리 연결을 할 수 없습니다 — ${why}` + (p.error ? `\n${p.error}` : "")];
   if (!(p.orgs || []).length) return ["기관 미지정", "unsupported", "반영할 기관 미지정 — 기관을 고르기 전에는 아무것도 넣지 않습니다"];
   if (todo > 0) return [`넣을 것 ${nf(todo)}`, "applied", gatherCountText(c)];
-  if (!c) return ["자리 연결 전", "already", "아직 기준본과 견주지 않았습니다 — 2단계에서 자리 연결"];
+  if (!c) return ["자리 연결 전", "already", `아직 기준본과 견주지 않았습니다 — ${TASK_STAGE_META.map.no}에서 자리 연결`];
   if (gatherLow(p) && c.ready) return ["직접 고르기", "unresolved", `${GT_REASON.lowMatch}(「기관 작성 내용」 에서 넣음을 켠 것만 넣습니다)\n${gatherCountText(c)}`];
   return [c.same ? "반영함" : "넣을 것 없음", "already", gatherCountText(c)];
 }
@@ -242,23 +256,36 @@ function gatherPartsEl() { // 기관 문서 줄 N + 「기관 문서 추가」 �
     cols.append(el("span", null, "문서"), el("span", null, "반영할 기관"), el("span", null, "공통"), el("span", null, "상태"));
     box.append(cols);
   }
-  const all = orgs.map((o) => o.key);
+  const all = orgs.map((o) => o.key), P = taskProject();
+  const off = !plan ? "사업계획서(취합본)를 먼저 고르세요" : !P ? "프로젝트 이름을 먼저 적으세요 — 기관 문서를 그 프로젝트에 넣습니다" : !V ? (g.err ? "취합 상태를 읽지 못했습니다" : "취합 상태를 읽는 중…") : "";
+  const foldered = all.length > 0, byF = new Map(); // 기관별 폴더(② §5 「기관별 폴더」) — 과제 구분 기준에 기관이 있을 때만(없으면 전처럼 줄만)
+  if (foldered) box.classList.add("gt-foldered");
   for (const p of parts) {
     const row = el("div", "gt-part"), name = el("span", "gt-part-name", p.name), sel = el("select"), chk = el("label", "gt-part-chk"), cb = el("input"), [tag, cls, tip] = gatherPartTag(p), cur = p.orgs || [];
     row.dataset.part = p.work;
     name.title = p.name;
+    if (foldered && !busy && !gatherRun) { // 이름을 끌어 다른 기관 폴더에 놓으면 반영할 기관이 그 기관으로(gatherFolderEl 이 받는다)
+      name.draggable = true;
+      name.title = `${p.name}\n끌어서 다른 기관 폴더에 놓으면 반영할 기관이 그 기관으로 바뀝니다`;
+      name.ondragstart = (e) => { e.dataTransfer.setData(GT_PART, p.work); e.dataTransfer.effectAllowed = "move"; row.classList.add("gt-dragging"); };
+      name.ondragend = () => { row.classList.remove("gt-dragging"); for (const f of document.querySelectorAll("#gatherParts .gt-drop")) f.classList.remove("gt-drop"); };
+    }
     sel.dataset.gatherOrg = p.work;
     sel.dataset.gatherFocus = `org:${p.work}`;
     sel.setAttribute("aria-label", `${p.name} — 반영할 기관`);
     sel.append(new Option("선택 안 함", ""));
     const rec = p.recommend && !cur.length ? p.recommend : null; // 작성 내용이 가장 많은 기관 — 추천만(고르는 것은 사람)
-    for (const o of orgs) sel.append(new Option(o.name + (GT_ROLE[o.role] ? ` (${GT_ROLE[o.role]})` : "") + (rec && rec.org === o.key ? ` — 추천(작성 내용 ${nf(rec.n)})` : ""), o.key));
+    const auto = p.orgsBy && cur.length === 1 ? cur[0] : ""; // 간단 모드가 정한 기관 — 사람이 고르면 서버가 표시를 지운다(② §8-3)
+    for (const o of orgs) sel.append(new Option(o.name + (GT_ROLE[o.role] ? ` (${GT_ROLE[o.role]})` : "") + (rec && rec.org === o.key ? ` — 추천(작성 내용 ${nf(rec.n)})` : "")
+      + (auto === o.key ? (p.orgsBy === "name" ? " — 자동(파일 이름)" : " — 자동(추천)") : ""), o.key));
     if (all.length > 1) sel.append(new Option("모든 기관", "*"));
     const isAll = all.length > 1 && cur.length === all.length && all.every((k) => cur.includes(k));
-    if (cur.length && !isAll && !(cur.length === 1 && all.includes(cur[0]))) sel.append(new Option(cur.length === 1 ? `${cur[0]}(과제 구성에 없음)` : `기관 ${cur.length}곳`, "~")); // 목록 밖의 조합 — 보이기만
+    if (cur.length && !isAll && !(cur.length === 1 && all.includes(cur[0]))) sel.append(new Option(cur.length === 1 ? `${cur[0]}(프로젝트 구성에 없음)` : `기관 ${cur.length}곳`, "~")); // 목록 밖의 조합 — 보이기만
     sel.value = !cur.length ? "" : isAll ? "*" : cur.length === 1 && all.includes(cur[0]) ? cur[0] : "~";
     sel.disabled = busy;
-    sel.title = "반영할 기관 — 이 문서에서 가져올 기관(그 기관 자리의 내용만 넣습니다). 「선택 안 함」 이면 아무것도 넣지 않습니다" + (rec ? `\n작성 내용이 가장 많은 기관: ${(orgs.find((o) => o.key === rec.org) || {}).name || rec.org}(${nf(rec.n)}곳)` : "");
+    sel.title = "반영할 기관 — 이 문서에서 가져올 기관(그 기관 자리의 내용만 넣습니다). 「선택 안 함」 이면 아무것도 넣지 않습니다"
+      + (auto ? `
+간단 모드가 ${p.orgsBy === "name" ? "파일 이름으로" : "작성 내용이 가장 많은 기관으로"} 정했습니다 — 다른 기관을 고르면 그것을 따릅니다` : "") + (rec ? `\n작성 내용이 가장 많은 기관: ${(orgs.find((o) => o.key === rec.org) || {}).name || rec.org}(${nf(rec.n)}곳)` : "");
     sel.onchange = () => { if (sel.value !== "~") gatherPartSet(p.work, { orgs: sel.value === "*" ? all : sel.value ? [sel.value] : [] }); };
     cb.type = "checkbox";
     cb.checked = p.common !== false;
@@ -279,12 +306,21 @@ function gatherPartsEl() { // 기관 문서 줄 N + 「기관 문서 추가」 �
     del.setAttribute("aria-label", `${p.name} 빼기`);
     del.onclick = () => gatherPartDel(p.work);
     row.append(name, sel, chk, badge, gatherPeerBtn(p.work, p.name), del);
-    box.append(row);
+    if (!foldered) { box.append(row); continue; }
+    const k = gatherFolderOf(p, all);
+    if (!byF.has(k)) byF.set(k, []);
+    byF.get(k).push(row);
   }
-  // 「기관 문서 추가」 — 이미 올린 문서 고르기(지금 과제의 문서 + 과제 이름 없는 문서) · 폴더 단추로 올리기(올리면 스크립트 분석을 바로 건다)
-  const add = el("div", "gt-add"), pick = el("select"), up = el("button", "icon dv-flow-up"), P = taskProject(), proj = (w) => (w.task || {}).project || "", have = new Set(parts.map((p) => p.work));
-  const cands = !plan || !P || !V ? [] : taskDocs().filter((w) => w.id !== plan.id && !have.has(w.id) && String(w.format || "hwpx").toLowerCase() !== "docx" && (!proj(w) || proj(w) === P));
-  const off = !plan ? "사업계획서(취합본)를 먼저 고르세요" : !P ? "과제 이름을 먼저 적으세요 — 기관 문서를 그 과제에 넣습니다" : !V ? (g.err ? "취합 상태를 읽지 못했습니다" : "취합 상태를 읽는 중…") : "";
+  if (foldered) { // 폴더 차례 = 구분 기준의 기관 차례 → 「여러 기관·그 밖」 → 「기관 미지정」(뒤의 둘은 문서가 있을 때만)
+    for (const f of [...orgs, { key: "~", name: "여러 기관·그 밖" }, { key: "", name: "기관 미지정" }]) {
+      const rows = byF.get(f.key) || [];
+      if ((f.key === "~" || f.key === "") && !rows.length) continue;
+      box.append(gatherFolderEl(f, rows, off));
+    }
+  }
+  // 「기관 문서 추가」 — 이미 올린 문서 고르기(지금 과제의 문서 + 과제 이름 없는 문서) · 폴더 단추로 올리기(올리면 스크립트 분석을 바로 건다) — 기관 미지정으로 넣는다
+  const add = el("div", "gt-add"), pick = el("select"), up = el("button", "icon dv-flow-up"), proj = (w) => (w.task || {}).project || "", have = new Set(parts.map((p) => p.work));
+  const cands = !plan || !P || !V ? [] : taskDocs().filter((w) => w.id !== plan.id && !have.has(w.id) && String(w.format || "hwpx").toLowerCase() !== "docx" && (!proj(w) || taskSameScope(w)));
   pick.dataset.gatherAdd = "1";
   pick.dataset.gatherFocus = "add";
   pick.setAttribute("aria-label", "기관 문서 추가 — 올린 문서에서 고르기");
@@ -296,13 +332,74 @@ function gatherPartsEl() { // 기관 문서 줄 N + 「기관 문서 추가」 �
   up.type = "button";
   up.dataset.gatherUp = "1";
   up.disabled = busy || !!off;
-  up.title = off || "기관 문서 올리기 — hwp·hwpx 파일을 올려 이 취합에 넣습니다(hwp 는 hwpx 로 바꿔 받음 · 지금 보는 문서는 그대로 · 헤딩·표 분석을 바로 겁니다)";
+  up.title = off || "기관 문서 올리기 — hwp·hwpx 파일(여러 개)을 올려 이 취합에 넣습니다(반영할 기관은 미지정 — 기관 폴더의 올리기 단추로 올리면 그 기관 · hwp 는 hwpx 로 바꿔 받음 · 지금 보는 문서는 그대로 · 헤딩·표 분석을 바로 겁니다)";
   up.setAttribute("aria-label", "기관 문서 올리기");
-  up.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-  up.onclick = () => { const inp = el("input"); inp.type = "file"; inp.accept = ".hwp,.hwpx"; inp.onchange = () => gatherUpload(inp.files[0]); inp.click(); };
+  up.innerHTML = GT_FOLDER_SVG;
+  up.onclick = () => gatherPickFiles((fs) => gatherUploadMany(fs));
   add.append(pick, up);
   box.append(add);
   if (g.err && !V) box.append(el("p", "dv-caption gt-note", g.missing ? "취합은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" : `취합 상태를 읽지 못했습니다: ${g.err}`));
+  return box;
+}
+
+// ---- 기관별 폴더(spec_취합 ② §5 「기관별 폴더」, 2026-11-13 사용자 "업로드 되면 기관별로 폴더를 두고 파일을 관리") — 화면만: 폴더 = 반영할 기관이 그 기관 하나인 기관 문서(gather.json 은 그대로)
+const GT_FOLDER_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+function gatherFolderOf(p, all) { const cur = p.orgs || []; return !cur.length ? "" : cur.length === 1 && all.includes(cur[0]) ? cur[0] : "~"; } // 그 문서의 폴더 — 기관 열쇠 · "" 미지정 · "~" 여러 기관·그 밖
+function gatherPickFiles(fn) { const inp = el("input"); inp.type = "file"; inp.accept = ".hwp,.hwpx"; inp.multiple = true; inp.onchange = () => fn([...inp.files]); inp.click(); }
+function gatherFolderEl(f, rows, off) { // 폴더 하나 — 머리(접기 · 기관 이름(역할) · 문서 수 · 올리기) + 그 기관의 기관 문서 줄. 파일·기관 문서 줄을 놓으면 그 기관으로
+  const g = gt(), box = el("div", "gt-folder"), head = el("div", "gt-folder-head"), tog = el("button", "gt-folder-tog"), n = rows.length, role = GT_ROLE[f.role] || "";
+  const fold = (g.fold = g.fold || {}), drop = f.key !== "~"; // 「여러 기관·그 밖」 은 놓는 곳이 아니다(어느 기관으로 할지 모름)
+  const shut = n > 0 && !!fold[f.key], label = f.name + (role ? ` (${role})` : "");
+  box.dataset.org = f.key;
+  box.classList.toggle("gt-folder-empty", !n);
+  box.classList.toggle("shut", shut);
+  tog.type = "button";
+  tog.dataset.gatherFocus = `fold:${f.key}`;
+  if (n) tog.setAttribute("aria-expanded", String(!shut));
+  tog.title = !n ? `${label} — 아직 받은 문서가 없습니다${drop ? "(오른쪽 단추로 올리거나 파일·기관 문서 줄을 여기에 끌어 놓으세요)" : ""}` : `${label} — 기관 문서 ${n}개(누르면 ${shut ? "펴기" : "접기"})`;
+  const ic = el("span", "gt-folder-ic");
+  ic.innerHTML = GT_FOLDER_SVG.replace('width="20" height="20"', 'width="16" height="16"');
+  tog.append(el("span", "gt-folder-caret", n ? (shut ? "▸" : "▾") : ""), ic, el("span", "gt-folder-name", f.name), role ? el("span", "gt-folder-role", role) : "", el("span", "gt-folder-n", n ? `${n}개` : "없음"));
+  tog.onclick = () => { if (!n) return; fold[f.key] = !box.classList.contains("shut"); box.classList.toggle("shut", fold[f.key]); tog.setAttribute("aria-expanded", String(!fold[f.key])); tog.firstChild.textContent = fold[f.key] ? "▸" : "▾"; };
+  head.append(tog);
+  const busy = () => !!gt().partBusy || !!gatherRun, why = () => off || (busy() ? "저장·진행 중입니다 — 끝난 뒤에 하세요" : "");
+  if (drop && f.key) { // 「기관 미지정」 의 올리기는 맨 아래 「기관 문서 추가」 의 폴더 단추가 한다(같은 것을 두 곳에 두지 않는다 — design.md §10) · 놓기는 받는다
+    const up = el("button", "icon dv-flow-up gt-folder-up");
+    up.type = "button";
+    up.dataset.gatherFolderUp = f.key;
+    up.dataset.gatherFocus = `fup:${f.key}`;
+    up.disabled = !!why();
+    up.title = why() || `${label} 문서 올리기 — hwp·hwpx 파일(여러 개)을 올려 ${f.key ? `반영할 기관을 「${f.name}」 으로` : "기관 미지정으로"} 넣습니다(헤딩·표 분석을 바로 겁니다) · 파일을 이 폴더에 끌어 놓아도 됩니다`;
+    up.setAttribute("aria-label", `${f.name} 폴더에 문서 올리기`);
+    up.innerHTML = GT_FOLDER_SVG;
+    up.onclick = () => gatherPickFiles((fs) => gatherUploadMany(fs, f.key || null));
+    head.append(up);
+  }
+  box.append(head, ...rows);
+  const kind = (e) => (gatherPartDragIs(e) ? "part" : e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files") ? "files" : "");
+  box.addEventListener("dragover", (e) => { // 창의 파일 놓기(그냥 열기 — app.js bind)보다 먼저 받는다
+    const k = kind(e);
+    if (!k) return;
+    e.preventDefault();
+    e.stopPropagation();
+    $("drop").classList.remove("over");
+    const ok = drop && !why();
+    e.dataTransfer.dropEffect = ok ? (k === "part" ? "move" : "copy") : "none";
+    box.classList.toggle("gt-drop", ok);
+  });
+  box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("gt-drop"); });
+  box.addEventListener("drop", (e) => {
+    const k = kind(e);
+    if (!k) return;
+    e.preventDefault();
+    e.stopPropagation();
+    box.classList.remove("gt-drop");
+    if (!drop) return toast("「여러 기관·그 밖」 에는 놓을 수 없습니다 — 기관 폴더나 「기관 미지정」 에 놓으세요", true);
+    if (why()) return toast(why(), true);
+    if (k === "files") return void gatherUploadMany([...e.dataTransfer.files], f.key || null);
+    const pid = e.dataTransfer.getData(GT_PART), p = gatherPart(pid);
+    if (p && gatherFolderOf(p, ((gt().view || {}).orgs || []).map((o) => o.key)) !== f.key) gatherPartSet(pid, { orgs: f.key ? [f.key] : [] });
+  });
   return box;
 }
 
@@ -341,16 +438,16 @@ async function gatherPartSet(pid, body) { // 반영할 기관({orgs}) · 공통 
   if (ok) delete g.links[pid];
   gatherDraw();
 }
-async function gatherPartAdd(pid, name = "") {
-  const g = gt(), w = worksList.find((x) => x.id === pid);
+async function gatherPartAdd(pid, name = "", org = null) { // org = 기관 폴더로 올린 것(그 기관을 반영할 기관으로 — 사람이 고른 것과 같다: ② §5 「기관별 폴더」)
+  const g = gt(), w = worksList.find((x) => x.id === pid), oname = org ? (((g.view || {}).orgs || []).find((o) => o.key === org) || {}).name || org : "";
   g.partBusy = "기관 문서 넣는 중…";
   gatherDraw();
-  const ok = await gatherPartCall(pid, "PUT", {}, "기관 문서를 넣지 못했습니다");
+  const ok = await gatherPartCall(pid, "PUT", org ? { orgs: [org] } : {}, "기관 문서를 넣지 못했습니다");
   if (g !== gatherState) return false;
   g.partBusy = "";
   if (ok && pid === state.id) state.task = { ...state.task, kind: "rnd", file: gatherSpec().parts }; // 지금 문서를 넣었으면 화면의 종류도(서버가 작업에 적었다)
   gatherDraw();
-  if (ok) { toast(`${name || (w && w.name) || "문서"} — 기관 문서로 넣었습니다(반영할 기관을 고르세요)`); await loadWorks(); } // 문서 목록의 종류 꼬리표·둘째 면의 탭도 새로
+  if (ok) { toast(`${name || (w && w.name) || "문서"} — ${org ? `「${oname}」 폴더에 넣었습니다` : "기관 문서로 넣었습니다(반영할 기관을 고르세요)"}`); await loadWorks(); } // 문서 목록의 종류 꼬리표·둘째 면의 탭도 새로
   return ok;
 }
 async function gatherPartDel(pid) {
@@ -366,28 +463,36 @@ async function gatherPartDel(pid) {
   gatherDraw();
   if (ok) { peerSync(); loadWorks(); }
 }
-async function gatherUpload(file) { // 새 작업으로 올리고(?new=1 — 열지는 않는다) 스크립트 분석을 바로 건 뒤 이 취합에 넣는다
-  if (!file) return;
-  if (!/\.hwpx?$/i.test(file.name)) { toast("hwp·hwpx 파일만 올릴 수 있습니다", true); return; } // hwp 는 서버가 hwpx 로 바꿔 받는다
+async function gatherUpload(file, org = null) { // 새 작업으로 올리고(?new=1 — 열지는 않는다) 스크립트 분석을 바로 건 뒤 이 취합에 넣는다(org = 기관 폴더로 올림) → 넣었으면 true
+  if (!file) return false;
+  if (!/\.hwpx?$/i.test(file.name)) { toast("hwp·hwpx 파일만 올릴 수 있습니다", true); return false; } // hwp 는 서버가 hwpx 로 바꿔 받는다
   const epoch = state.epoch, fd = new FormData();
   fd.append("file", file);
   toast(/\.hwp$/i.test(file.name) ? `${file.name} — hwpx 로 바꿔 올리는 중…(한글이 변환)` : `${file.name} 올리는 중…`);
   let d;
   try { d = await api("/api/docs?new=1", { method: "POST", body: fd }); }
-  catch (e) { toast(`올리지 못했습니다: ${e.message}`, true); return; }
+  catch (e) { toast(`올리지 못했습니다: ${e.message}`, true); return false; }
   api(`/api/docs/${d.docId}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) }).catch(() => {}); // 못 걸어도 2단계 줄이 「헤딩·표 분석 없음」 으로 안내한다
-  if (epoch !== state.epoch) return;
-  await gatherPartAdd(d.docId, file.name);
+  if (epoch !== state.epoch) return false;
+  return gatherPartAdd(d.docId, file.name, org);
+}
+async function gatherUploadMany(files, org = null) { // 폴더 단추·폴더에 놓기 — 여러 파일을 고른 차례대로 하나씩(들어온 차례 = 공통 자리 차지 차례). 하나가 실패하면 그 뒤는 멈춘다(알림은 gatherUpload)
+  const ok = files.filter((f) => /\.hwpx?$/i.test(f.name)), bad = files.length - ok.length;
+  if (bad) toast(`hwp·hwpx 파일만 올릴 수 있습니다 — ${bad}개는 뺐습니다`, true);
+  const epoch = state.epoch;
+  for (const f of ok) if (epoch !== state.epoch || !(await gatherUpload(f, org))) break;
 }
 
-// ---- 단계(spec_취합 ② §5 「묶음 둘」) — 1단계 = 준비 · ① 구분 기준 확인 · 배포 기준본, 2단계 = 기관 문서마다 한 줄(② 자리 연결 → LLM 검토 → ③ 넣기 계획 → ④ 내용 반영)
-function gatherDiv() { // 취합본의 구분 기준 {values | null, applied | null, ok(지원 양식)} — 지금 문서면 화면 값(dv), 아니면 읽어 둔 것. undefined = 아직 못 읽음
+// ---- 단계(spec_취합 ② §5 · §9-1 「묶음 셋」) — 1단계 = 준비 · 프로젝트 구성 확정, 2단계 = ① 구분 기준 확인 · 배포 기준본, 3단계 = 기관 문서마다 한 줄(② 자리 연결 → LLM 검토 → ③ 넣기 계획 → ④ 내용 반영)
+function gatherDiv() { // 취합본의 구분 기준 {values | null, applied | null, ok(지원 양식), confirmed(확정 — spec_작업 ② §18) | null, sharing} — 지금 문서면 화면 값(dv), 아니면 읽어 둔 것. undefined = 아직 못 읽음
   const plan = gatherPlan();
   if (!plan) return undefined;
   if (plan.id !== state.id) return gt().div;
   if (!dv.view || !dv.values) return undefined;
-  return { values: dv.view.settings || dv.view.applied || dv.dirty ? divValues() : null, applied: dv.view.applied || null, ok: !!dv.view.profile.supported };
+  return { values: dv.view.settings || dv.view.applied || dv.dirty ? divValues() : null, applied: dv.view.applied || null, ok: !!dv.view.profile.supported,
+    confirmed: dv.view.confirmed || null, sharing: dv.view.projectSharing || null };
 }
+const gatherConfirmed = (d) => divConfirmValid(d && d.values, d && d.confirmed); // 1단계 「프로젝트 구성 확정」 끝남 — 지금 입력 값이 확정한 값과 같다(app.js divConfirmValid)
 const gatherDivDone = (d) => !!(d && d.values && d.applied && divCanon(d.applied.values) === divCanon(d.values)); // 입력 값이 문서에 반영돼 있다(반영 뒤 글을 고쳤다고 「다시」 를 요구하지 않는다)
 function gatherFrameText() { // 프레임 값 요약(1단계 머리 — 접혀 있어도 보임) → {text, title} · 값이 없으면 text ""
   const d = gatherDiv(), v = d && d.values;
@@ -418,19 +523,32 @@ function gatherSteps() { // → [{stage, step(files|division|frame|part), key, p
     run: async () => { if (!gatherMine() && !(await gatherToPlan())) return; run(); } }); // 취합본에서 하는 일(변경 계획·기준본·넣기 계획 …) — 다른 문서를 보고 있어도 단추는 같다
   const sum = (v) => `${v.stages.length}단계 · 전체 ${divTotalYears(v)}년 · 기관 ${((v.orgs || {}).joint || []).length + 1}곳`;
 
-  // 준비 — 취합본 문서 · 과제 구성 값
-  const files = { stage: "frame", step: "files", key: "files", no: "", name: "준비", done: false, lines: [], acts: [] };
-  if (!plan) files.lines.push(["", "사업계획서(취합본)를 위 칸에서 고르세요" + (taskProject() ? "" : " — 과제 이름을 적으면 다른 문서를 고를 수 있습니다")]);
-  else if (d === undefined) files.lines.push(["", "취합본의 과제 구성 값을 읽는 중…"]);
-  else if (!d.values) Object.assign(files, { lines: [["", "과제 구성 값(단계·차년도 · 기관)이 없습니다 — 아래 「과제 구성」 에 입력하거나 문서에서 읽으세요"]],
-    acts: [onPlan("문서에서 읽기", () => divRead(), { disabled: dv.busy, title: "취합본에 적힌 단계·기관을 읽어 입력 칸에 채웁니다" })] });
-  else Object.assign(files, { done: true, lines: [["", `${plan.name} · ${sum(d.values)}`]] });
+  // 준비 — 취합본 문서(1단계 묶음 · 세지 않음)
+  const files = { stage: "config", step: "files", key: "files", no: "", name: "준비", done: !!plan, lines: [], acts: [] };
+  if (!plan) files.lines.push(["", "사업계획서(취합본)를 위 칸에서 고르세요" + (taskProject() ? "" : " — 프로젝트 이름을 적으면 다른 문서를 고를 수 있습니다")]);
+  else files.lines.push(["", plan.name]);
+
+  // 1단계 「프로젝트 구성 확정」 — 단계·차년도·기관 구성만 정해 프로젝트에 저장(확정). 문서는 안 바뀐다(spec_작업 ② §18 · spec_취합 ② §9-1)
+  const config = { stage: "config", step: "config", key: "config", no: "", name: "프로젝트 구성 확정", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
+  const cf = d && d.confirmed, where = divConfirmWhere(d && d.sharing);
+  if (!files.done) { /* 준비가 먼저 */ }
+  else if (d === undefined) config.lines.push(["", "취합본의 프로젝트 구성 값을 읽는 중…"]);
+  else if (gatherConfirmed(d)) Object.assign(config, { done: true, lines: [["", `${where}에 확정함(${gatherWhen(cf.at)}) — ${sum(d.values)}`]] });
+  else if (!d.values) Object.assign(config, { lines: [["", "프로젝트 구성(단계·차년도·기관)이 없습니다 — 취합본에서 추출하거나, 아래 「프로젝트 구성 불러오기」 · 입력 칸에서 정하세요"]],
+    acts: [onPlan("취합본에서 추출", () => divRead(), { primary: true, disabled: dv.busy, data: { gatherConfigRead: "1" }, title: "취합본에 적힌 단계·차년도·기관을 읽어 입력 칸에 채웁니다 — 문서는 안 바뀌고, 확인한 뒤 「프로젝트에 저장」 으로 확정합니다" })] });
+  else {
+    const save = onPlan(dv.busy && mine ? "저장 중…" : `${where}에 저장`, () => divConfirm(), { primary: true, disabled: dv.busy, data: { gatherConfirm: "1" },
+      title: `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다. 확정해야 2단계 「문서 프레임 작성」 으로 갑니다` });
+    if (cf) Object.assign(config, { lines: [["", `확정한 뒤 값이 바뀌었습니다 — 다시 저장하거나 확정본으로 되돌리세요(지금: ${sum(d.values)})`]],
+      acts: [save, onPlan("확정본으로 되돌리기", () => divConfirmRevert(cf), { disabled: dv.busy, title: `입력 칸을 확정한 값(${sum(cf.values)})으로 되돌립니다` })] });
+    else Object.assign(config, { lines: [["", `${sum(d.values)} — 확인한 뒤 ${where}에 저장(확정)하세요`]], acts: [save] });
+  }
 
   // ① 구분 기준 확인 — 취합본에 과제 구성 값이 반영돼 있다(구분 기준의 계획 → 반영 그대로 — 기관 문서 없이 할 수 있다)
-  const division = { stage: "frame", step: "division", key: "division", no: "①", name: "구분 기준 확인", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
-  if (!files.done) { /* 준비가 먼저 */ }
-  else if (gatherDivDone(d)) Object.assign(division, { done: true, lines: [["", `취합본에 반영됨 — ${sum(d.values)}`]] });
-  else if (d.ok === false) division.lines.push(["", "이 양식은 구분 기준 자동 반영을 지원하지 않습니다(연구개발계획서 양식만)"]);
+  const division = { stage: "frame", step: "division", key: "division", no: "①", name: "프로젝트 구성 반영", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
+  if (!config.done) { /* 1단계(프로젝트 구성 확정)가 먼저 */ }
+  else if (gatherDivDone(d)) Object.assign(division, { done: true, lines: [["", `${d.applied.adopted ? "구조가 이미 값에 맞음(확인함)" : "취합본에 반영됨"} — ${sum(d.values)}`]] }); // adopted = 구조 확인(② §8-4)
+  else if (d.ok === false) division.lines.push(["", "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다(연구개발계획서 양식만)"]);
   else Object.assign(division, { lines: [["", d.applied ? "입력한 값이 마지막으로 반영한 값과 다릅니다 — 변경 계획을 확인하고 반영하세요" : "값이 아직 취합본에 반영되지 않았습니다 — 바뀔 자리를 확인한 뒤 반영합니다(절·표 행·열 — 구조만)"]],
     acts: [onPlan(dv.busy && mine ? "계산 중…" : "변경 계획 보기", () => divPlan(), { primary: true, disabled: dv.busy, title: "취합본에서 바뀔 자리를 확인한 뒤 「반영」 합니다 — 문서는 「반영」 을 눌러야 바뀝니다" })] });
 
@@ -441,18 +559,18 @@ function gatherSteps() { // → [{stage, step(files|division|frame|part), key, p
     a.title = "고정해 둔 기준본 파일(hwpx)을 내려받습니다 — 기관에 나눠 주는 파일" + (F && F.stale ? "(낡은 판)" : ""); return { el: a }; };
   const make = (label, primary) => onPlan(g.frameBusy ? "만드는 중…" : label, () => gatherFrameClick(), { primary, disabled: !!g.frameBusy || running, data: { gatherFrameMake: "1" },
     title: "지금 취합본 파일과 자리 정보(자리마다 기관·차년도 · 문단 헤딩·표·서식)를 고정합니다 — 문서는 안 바뀝니다. 헤딩·표 분석이 지금 문서의 것이 아니면 먼저 다시 분석합니다(스크립트)" });
-  if (!files.done || !division.done) { if (F) Object.assign(frame, { lines: [["", `기준본 ${gatherWhen(F.at)} 만듦${F.stale ? " — 낡음(구분 기준을 다시 반영함)" : ""}`]], acts: [file()] }); } // ① 이 먼저 — 있는 기준본은 받을 수 있다
+  if (!config.done || !division.done) { if (F) Object.assign(frame, { lines: [["", `기준본 ${gatherWhen(F.at)} 만듦${F.stale ? " — 낡음(프로젝트 구성을 다시 반영함)" : ""}`]], acts: [file()] }); } // ① 이 먼저 — 있는 기준본은 받을 수 있다
   else if (g.frameBusy) frame.lines.push(["", `${g.frameBusy}…`]);
   else if (!V) Object.assign(frame, { lines: [["", g.err ? (g.missing ? "취합은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" : `취합 상태를 읽지 못했습니다: ${g.err}`) : "취합 상태를 읽는 중…"]],
     acts: g.err && !g.missing ? [{ label: "다시 읽기", run: () => gatherLoad() }] : [] });
   else if (frameOk) Object.assign(frame, { lines: [["", `기준본 ${gatherWhen(F.at)} 만듦 — 내려받아 기관에 나눠 주세요(기관은 자기 몫만 채워 돌려줍니다)`]], acts: [file(), make("기준본 다시 만들기", false)] });
-  else if (F) Object.assign(frame, { lines: [["", "기준본을 만든 뒤 구분 기준을 다시 반영했습니다 — 기준본이 낡았습니다. 새로 만들어 다시 나눠 주세요(낡은 기준본으로 온 기관 문서는 저절로 넣지 않습니다)"]],
+  else if (F) Object.assign(frame, { lines: [["", "기준본을 만든 뒤 프로젝트 구성을 다시 반영했습니다 — 기준본이 낡았습니다. 새로 만들어 다시 나눠 주세요(낡은 기준본으로 온 기관 문서는 저절로 넣지 않습니다)"]],
     acts: [make("기준본 다시 만들기", true), file()] });
   else Object.assign(frame, { lines: [["", "기관에 나눠 줄 기준본을 만듭니다 — 지금 취합본 파일과 자리 정보(자리마다 기관·차년도)를 고정합니다" + ((V.reasons || []).length ? ` · ${gatherReasons(V.reasons)}` : "")]],
     acts: [make("기준본 만들기", true)] });
   const usable = frameOk; // 기관 문서는 기준본과 견준다 — 기준본이 있어야(낡지 않아야) 2단계의 줄이 열린다
 
-  // 2단계 — 기관 문서마다 한 줄(들어온 차례)
+  // 3단계 — 기관 문서마다 한 줄(들어온 차례)
   const parts = ((V && V.parts) || []).map((p, i) => {
     const pid = p.work, S = g.links[pid] || {}, L = S.data, c = (L && L.counts) || p.counts || null, P = g.plans[pid], R = g.done[pid], todo = gatherPartTodo(p);
     const why = gatherHard([...new Set([...(p.reasons || []), ...(S.why || [])])]), assigned = (p.orgs || []).length > 0, blocked = why.length > 0, low = gatherLow(p); // low 는 막지 않는다 — 넣을 것을 사람이 고른다
@@ -486,13 +604,13 @@ function gatherSteps() { // → [{stage, step(files|division|frame|part), key, p
     s.acts.push(list);
     if (c.ready > 0) s.acts.push(onPlan(g.llmBusy === pid ? "LLM 검토 중…" : llm ? "LLM 다시 검토" : "LLM 검토", () => gatherLlm(pid), { primary: first === "llm", disabled: busy || running || !!g.llmBusy || !c.ready, data: { gatherLlm: pid },
       title: "넣을 수 있는 작성 내용을 취합본의 챕터별로 나눠 LLM(Opus)에 묻습니다 — 수십 초 · 유료. LLM 은 넣을 것을 줄이기만 합니다(제외·확인 필요) — 스크립트가 막은 것을 넣게 하지 못하고, 사람이 고른 것은 안 바꿉니다. 판단 기준은 「지침」 에서 봅니다" }));
-    if (!PEEK) s.acts.push({ el: llmGuideBtn("gather", plan.id, `part=${encodeURIComponent(pid)}`) }); // 이 LLM 검토에 보내는 지침·할 일 프롬프트·마지막 프롬프트(기관 문서마다)
+    if (!PEEK) s.acts.push({ el: llmGuideBtn("gather", plan.id, `part=${encodeURIComponent(pid)}`) }); // 이 LLM 검토에 보내는 지침·TASK 프롬프트·마지막 프롬프트(기관 문서마다)
     if (!s.done || P) s.acts.push(onPlan(g.planBusy === pid ? "계획 중…" : P ? "넣기 계획 다시" : "넣기 계획", () => gatherPlanMake(pid), { primary: first === "plan", disabled: busy || running, data: { gatherPlan: pid },
       title: "넣을 수 있는 작성 내용마다 넣을 문단·표·그림·칸·행을 셉니다 — 문서는 「반영」 을 눌러야 바뀝니다" }));
     if (P) s.acts.push({ label: "계획 보기", run: () => gatherFillList(pid), primary: first === "view", disabled: busy, data: { gatherFill: pid } });
     return s;
   });
-  return [files, division, frame, ...parts];
+  return [files, config, division, frame, ...parts];
 }
 
 function gatherCalc() { // 단계와 그 상태 — 첫 안 끝난 단계가 「지금」(묶음을 넘어 하나), 그 뒤의 기관 문서 줄은 기준본이 있으면 「진행 가능」(반영할 기관 미지정이면 「기관 미지정」 — 글만 보임)
@@ -529,7 +647,7 @@ function gatherStepsEl(stage) { // 묶음 하나의 세부 목록(이관의 목�
   if (stage.id === "map" && !ol.children.length) { const li = el("li", "gt-none"); li.dataset.step = "none"; li.dataset.state = "todo"; li.append(el("span", "dv-flow-no", "·"), el("div", "dv-flow-body", "기관 문서가 아직 없습니다 — 위 「기관 문서 추가」 로 넣으면 여기에 문서마다 한 줄이 생깁니다")); ol.append(li); }
   return ol;
 }
-function gatherStepsDraw() { // 두 묶음의 세부 목록을 다시 — 묶음 머리(끝난 수 · 상태 줄 · 「한 번에 진행」)도 함께. 과제 구성 입력을 바꿀 때마다(app.js divRefreshDerived → taskStepsDraw)
+function gatherStepsDraw() { // 두 묶음의 세부 목록을 다시 — 묶음 머리(끝난 수 · 상태 줄 · 「한 번에 진행」)도 함께. 프로젝트 구분 기준 입력을 바꿀 때마다(app.js divRefreshDerived → taskStepsDraw)
   if (!document.getElementById("gatherSteps")) return;
   gatherCalc();
   for (const stage of GT_STAGES) { const box = document.getElementById(stage.dom), old = box && box.querySelector("ol.dv-flow-steps"); if (old) old.replaceWith(gatherStepsEl(stage)); }
@@ -555,12 +673,12 @@ function gatherStageEl(stage) { // 묶음 상자 하나(이관의 묶음과 같�
   run.setAttribute("aria-label", `${stage.no} ${stage.name} 한 번에 진행`);
   sum.append(el("span", "dv-phase-no", stage.no), el("strong", null, stage.name), hHelp(`${stage.name} 순서 설명`, stage.does), el("span", "dv-phase-count"), run, progress, st);
   box.append(sum, gatherStepsEl(stage));
-  if (stage.id === "frame") { // 1단계 = 문서 프레임: 머리에 그 값 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 과제 구성 입력(app.js divRender → taskFrameHost 가 #taskFrameForm 을 여기에 둔다)
-    const frame = el("span", "dv-phase-frame"), edit = el("button", "btn sm", "구성 고치기");
+  if (stage.id === "config") { // 1단계 = 구분 기준: 머리에 구성 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 구성 입력(app.js divRender → taskFrameHost 가 #taskFrameForm 을 여기, 반영 상태·변경 계획은 2단계 묶음의 #taskFrameApply 에 둔다 — spec_작업 ② §18)
+    const frame = el("span", "dv-phase-frame"), edit = el("button", "btn sm", "프로젝트 구성 고치기");
     frame.hidden = true;
     edit.type = "button";
     edit.dataset.gatherFrameEdit = "1";
-    edit.title = "1단계를 펴고 과제 구성(저장한 구성 · 단계·차년도 · 기관 구성) 입력으로 갑니다";
+    edit.title = "1단계를 펴고 프로젝트 구성 입력(불러오기·확정 · 단계·차년도 · 기관 구성)으로 갑니다";
     edit.onclick = (e) => { e.preventDefault(); e.stopPropagation(); taskFrameEdit(box); };
     frame.append(el("span", "dv-phase-frame-text"), edit);
     sum.append(frame);
@@ -577,7 +695,7 @@ function gatherStageSync1(stage, box) {
   if (!box) return;
   const all = gatherStepsLast, work = (id) => all.filter((s) => s.stage === id && s.step !== "files"), steps = all.filter((s) => s.stage === stage.id), W = work(stage.id), completed = W.filter((s) => s.done).length; // 준비(문서 고르기)는 안 센다
   const files = all.find((s) => s.step === "files"), next = steps.find((s) => !s.done), R = gatherRun && gatherRun.stage === stage.id ? gatherRun : null, busy = steps.find((s) => s.busy);
-  const before = stage.id === "map" && work("frame").some((s) => !s.done) ? GT_STAGES[0] : null; // 덜 끝난 앞 묶음 — 그 뒤에야 이 묶음의 「한 번에 진행」 이 켜진다
+  const before = GT_STAGES.slice(0, GT_STAGES.indexOf(stage)).find((g) => work(g.id).some((s) => !s.done)) || null; // 덜 끝난 앞 묶음 — 그 뒤에야 이 묶음의 「한 번에 진행」 이 켜진다
   const current = GT_STAGES.find((g) => work(g.id).some((s) => !s.done)), plan = gatherPlan();
   const last = gatherRunLast && gatherRunLast.stage === stage.id && plan && gatherRunLast.plan === plan.id && gatherRunLast.done === completed ? gatherRunLast : null;
   const runnable = stage.id === "map" ? steps.filter((s) => !s.done && s.runnable) : steps.filter((s) => !s.done && s.step !== "files");
@@ -594,7 +712,7 @@ function gatherStageSync1(stage, box) {
   else if (last && !last.ok) { kind = "halt"; msg = `멈춤 — ${key(last.key) || stage.name}: ${last.text}`; }
   else if (last) { kind = "done"; msg = `끝남 — ${last.text}`; }
   else if (stage.id === "map" && !W.length) msg = "기관 문서가 아직 없습니다 — 위 「기관 문서 추가」 로 넣으세요(문서마다 자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영)";
-  else if (!next) { kind = "done"; msg = stage.id === "map" ? "모두 끝남 — 기관 문서마다 넣을 것이 남지 않았습니다" : "모두 끝남 — 기준본을 내려받아 기관에 나눠 주세요"; }
+  else if (!next) { kind = "done"; msg = stage.id === "map" ? "모두 끝남 — 기관 문서마다 넣을 것이 남지 않았습니다" : stage.id === "config" ? "모두 끝남 — 프로젝트 구성을 확정했습니다(문서 프레임은 2단계)" : "모두 끝남 — 기준본을 내려받아 기관에 나눠 주세요"; }
   else msg = `다음: ${gatherStepName(next)}${!box.open && next.lines.length ? ` — ${next.lines[0][1]}` : ""}`;
   st.dataset.kind = kind;
   st.firstChild.hidden = !(R || busy);
@@ -612,7 +730,7 @@ function gatherStageSync1(stage, box) {
   b.disabled = R ? R.stop : !!gatherRun || !!busy || !ready;
   b.className = "btn sm" + (!gatherRun && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 펴면 세부 목록의 「다음 할 일」
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : gatherRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
-    : !(files && files.done) ? "사업계획서(취합본)와 과제 구성 값을 먼저 정하세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !runnable.length ? (stage.id === "map" ? "넣을 것이 남은 기관 문서가 없습니다(반영할 기관을 고른 문서만 진행합니다)" : "남은 단계가 없습니다")
+    : !(files && files.done) ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !runnable.length ? (stage.id === "map" ? "넣을 것이 남은 기관 문서가 없습니다(반영할 기관을 고른 문서만 진행합니다)" : "남은 단계가 없습니다")
     : `이 묶음의 남은 일을 차례로 한 번에 — ${stage.does}. 누를 때 한 번만 확인하고, 사람 손이 필요한 곳에서는 멈춥니다`;
   const active = R ? R.key : busy && busy.key;
   for (const li of box.querySelectorAll("ol.dv-flow-steps > li[data-key]")) { // 줄마다 상태 꼬리표(글자로 — 색에만 기대지 않는다)
@@ -902,7 +1020,7 @@ function gatherFillList(pid, keep = false) { // 2열 「넣기 계획」(kind "g
       tdp.append(el("div", "lk-to", place), el("div", "lk-from", who));
       tdp.title = full;
       tr.append(tdp);
-      const what = hCell(tr, [GT_KIND[it.kind] || it.kind || "", gatherNums(it.counts, ["paragraphs", "tables", "pictures", "cells", "rows", "placeholders", "converted", "kept"])].filter(Boolean).join(" — "), "gt-what");
+      const what = hCell(tr, [GT_KIND[it.kind] || it.kind || "", gatherNums(it.counts, ["paragraphs", "tables", "pictures", "cells", "rows", "placeholders", "converted", "kept", "over"])].filter(Boolean).join(" — "), "gt-what");
       const cv = it.convert; // 틀 맞춤 — 개요 깊이·레터 꼴이 취합본 틀과 달라 맞출 줄(원래 레터 → 맞춘 레터)과 쓴 대로 둘 줄의 까닭을 도움말로
       if (cv && (cv.converted || Object.keys(cv.kept || {}).length)) what.title = [...(cv.rows || []).map((r) => `틀 맞춤: 「${r.was || ""}」 → 「${r.letter || ""}」`), ...Object.entries(cv.kept || {}).map(([k, n]) => `쓴 대로 둠 ${n}줄 — ${(cv.labels || {})[k] || k}`)].join("\n");
       hCell(tr, oneLine(it.text || "") || "(글 없음)", "gt-text");
@@ -912,6 +1030,9 @@ function gatherFillList(pid, keep = false) { // 2열 「넣기 계획」(kind "g
     }
     if (!(P.items || []).length) { const tr = el("tr"), td = hCell(tr, "넣을 것이 없습니다"); td.colSpan = 3; tb.append(tr); }
     body.append(cap(`넣을 것 — ${nf((P.items || []).length)}곳`), tbl);
+    const overEl = typeof mergeOverSection === "function" ? mergeOverSection({ docId: plan.id, over: P.over, disabled: busy || !!gatherRun || !gatherMine(), go: (c) => { if (c.at) gatherJump(c.at); }, // 넘친 개요 레벨(spec_병합 ② §5-5 — merge_over.js): 처리를 고르면 계획을 다시 센다
+      onChange: async () => { await gatherPlanMake(pid, { show: false }); if (gt().plans[pid] && heads.dlg === "gatherFill") gatherFillList(pid, true); } }) : null;
+    if (overEl) body.append(overEl);
     const skipped = Object.entries(P.skipped || {}).filter(([, n]) => n);
     const sk = el("p", "hnote gt-skipped", skipped.length ? "" : "넣지 않는 내용이 없습니다");
     for (const [k, n] of skipped) { const s = el("span", `dv-badge ${GT_BADGE[k] || ""}`, `${GT_STATUS[k] || (k === "skip" ? "뺌" : k === "check" ? "보류(확인 필요)" : k)} ${nf(n)}`); s.title = GT_STATUS_HELP[k] || ""; s.dataset.status = k; sk.append(s, " "); }
@@ -943,9 +1064,15 @@ async function gatherRunAll(stageId) {
   const S = gatherCalc(), left = S.filter((s) => s.stage === stageId && !s.done && s.step !== "files");
   if (!left.length) { toast("남은 단계가 없습니다"); return; }
   let msg;
-  if (stageId === "frame") msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n남은 단계\n${left.map((s, i) => `  ${gatherStepName(s)}${!i && s.lines.length ? ` — ${s.lines[0][1]}` : ""}`).join("\n")}\n\n`
-    + `· 중간 계획 확인 없이 취합본 「${plan.name}」 의 구조(절·표 행·열)가 과제 구성 값(단계·차년도·기관)에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번.\n· 내용은 넣지 않습니다(2단계 「내용 매핑」).\n`
-    + "· 그 뒤 배포 기준본을 만듭니다(그때의 파일과 자리 정보를 고정 — 문서는 안 바뀜). 헤딩·표 분석이 지금 문서의 것이 아니면 먼저 다시 분석합니다(스크립트).\n· 값이 없거나 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.";
+  const mapName = `${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」`;
+  if (stageId === "config") { // 1단계 — 확정할 값을 보이고 확인(값이 없으면 취합본에서 읽은 값으로 — 그 값은 누른 뒤에 정해진다)
+    const d = gatherDiv(), where = divConfirmWhere(d && d.sharing);
+    msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n`
+      + (d && d.values ? `확정할 프로젝트 구성:${divValuesText(d.values)}\n\n· 이 값을 ${divConfirmWhat(where)}으로 저장(확정)합니다.` : `· 프로젝트 구성 값이 없어 취합본 「${plan.name}」 에 적힌 단계·차년도·기관을 읽어 ${divConfirmWhat(where)}으로 저장(확정)합니다 — 읽은 값을 먼저 보려면 취소하고 「취합본에서 추출」 을 누르세요.`)
+      + "\n· 문서는 바뀌지 않습니다(구조는 2단계 「문서 프레임 작성」 에서 맞춥니다).\n· 값을 읽지 못하면 멈추고 세부 목록을 폅니다.";
+  } else if (stageId === "frame") msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n남은 단계\n${left.map((s, i) => `  ${gatherStepName(s)}${!i && s.lines.length ? ` — ${s.lines[0][1]}` : ""}`).join("\n")}\n\n`
+    + `· 중간 계획 확인 없이 취합본 「${plan.name}」 의 구조(절·표 행·열)가 1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번.\n· 내용은 넣지 않습니다(${mapName}).\n`
+    + "· 그 뒤 배포 기준본을 만듭니다(그때의 파일과 자리 정보를 고정 — 문서는 안 바뀜). 헤딩·표 분석이 지금 문서의 것이 아니면 먼저 다시 분석합니다(스크립트).\n· 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.";
   else {
     const rows = ((V && V.parts) || []).map((p, i) => { const s = S.find((x) => x.part === p.work) || {}, orgs = (p.orgs || []).map((k) => ((V.orgs || []).find((o) => o.key === k) || {}).name || k);
       return `  ${i + 1}. ${p.name} — ${!orgs.length ? "반영할 기관 미지정(건너뜀)" : s.done ? "넣을 것 없음(건너뜀)" : orgs.length > 3 ? `기관 ${orgs.length}곳` : orgs.join(" · ")}`; });
@@ -955,21 +1082,33 @@ async function gatherRunAll(stageId) {
       + "· 겹치는 자리·자리가 분명하지 않은 내용은 넣지 않고 남깁니다(덮어쓰지 않음).\n· 실패하면 그 문서에서 멈추고 세부 목록을 폅니다.";
   }
   if (!confirm(msg)) return;
+  await gatherRunStage(stage.id, plan);
+}
+// 묶음 하나를 확인 없이 끝까지(「한 번에 진행」 의 몸통 — 간단 모드 gather_quick.js 도 부른다: spec_취합 ② §8-2) → {ok, text, none?}. 남은 단계가 없으면 돌지 않는다(none).
+// opt: config — (값이 없으면 늘 문서에서 읽음) / frame — quick(구조 맞춤에 지움이 있으면 멈춤) / map — auto(Set: 미지정이면 자동 지정할 기관 문서) · llm(false = LLM 검토 안 함) · log({기관 문서 id: 결과}) / quiet(끝 알림 없음)
+async function gatherRunStage(stageId, plan, opt = {}) {
+  const stage = GT_STAGES.find((x) => x.id === stageId);
+  if (gatherRun) return { ok: false, text: "다른 묶음이 진행 중입니다" };
+  const left = gatherCalc().filter((s) => s.stage === stageId && !s.done && s.step !== "files");
+  if (!stage || !plan || !left.length) return { ok: true, text: "남은 단계가 없습니다", none: true };
   const run = (gatherRun = { stage: stage.id, plan: plan.id, key: left[0].key, note: "", t0: Date.now(), stop: false });
   gatherRunLast = null;
+  if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(spec_작업 ② §19)
   run.timer = setInterval(() => gatherStageSync(), 1000); // 지난 시간 — 글만 바꾼다
   gatherStageSync();
   let end;
-  try { end = { ok: true, text: await (stage.id === "frame" ? gatherRunFrame(run, plan) : gatherRunMap(run, plan)) }; }
+  try { end = { ok: true, text: await (stage.id === "config" ? gatherRunConfig(run, plan, opt) : stage.id === "frame" ? gatherRunFrame(run, plan, opt) : gatherRunMap(run, plan, opt)) }; }
   catch (e) { end = { ok: false, text: e instanceof GatherHalt ? e.message : `오류 — ${gatherErr(e)}` }; if (!(e instanceof GatherHalt)) console.warn(e); }
   clearInterval(run.timer);
   gatherRun = null;
+  if (typeof projectControlsSync === "function") projectControlsSync(); // 끝났다 — 꺼 둔 프로젝트 칸·버전 줄을 다시 켠다
   gatherDraw();
   gatherRunLast = { ...end, stage: stage.id, plan: plan.id, key: run.key, done: (gatherStepsLast || []).filter((s) => s.stage === stage.id && s.step !== "files" && s.done).length };
   const box = document.getElementById(stage.dom);
   if (box && !end.ok) box.open = true; // 멈춘 곳이 보이게 세부 목록을 편다
   gatherStageSync();
-  toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
+  if (!opt.quiet) toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
+  return end;
 }
 function gatherRunAt(run, plan) { // 일 하나를 시작하기 전 — 멈춤 요청·문서 바뀜을 보고 상태 줄을 바꾼다
   return (key, note) => {
@@ -982,21 +1121,56 @@ function gatherRunAt(run, plan) { // 일 하나를 시작하기 전 — 멈춤 �
     gatherStageSync();
   };
 }
-async function gatherRunFrame(run, plan) { // 1단계 — ① 구분 기준 반영(구조만 — 편집 하나) → 배포 기준본. 내용은 넣지 않는다
+async function gatherRunConfig(run, plan) { // 1단계 「구분 기준」 — 값이 없으면 취합본에 적힌 단계·차년도·기관을 읽어 입력 칸에 → 확정(프로젝트에 저장). 문서는 안 바뀐다(spec_작업 ② §18)
   const at = gatherRunAt(run, plan), step = (key) => gatherCalc().find((s) => s.key === key);
   at("open", "취합본 여는 중");
   if (!(await gatherToPlan())) gatherHalt("취합본을 열지 못했습니다(고치던 글을 두고 그만뒀거나 열리지 않음)");
-  if (!step("files").done) gatherHalt("과제 구성 값(단계·차년도 · 기관)이 없습니다 — 1단계의 「과제 구성」 에 입력한 뒤 다시 누르세요");
+  let read = false;
+  if (!(gatherDiv() || {}).values) { // 값이 없음 — 문서에 적힌 단계·차년도·기관(② §8-4 「값이 없으면 문서에서 읽는다」)
+    at("config", "취합본에서 단계·차년도·기관 읽기");
+    let got = null;
+    try { got = taskReadValues((await api(`/api/docs/${plan.id}/divisions/read`)).read); } catch (e) { console.warn(e); }
+    if (!got) gatherHalt("취합본에서 단계·차년도·기관을 읽지 못했습니다 — 1단계의 프로젝트 구성 입력 칸에 넣거나 「프로젝트 구성 불러오기」 로 불러온 뒤 다시 하세요");
+    if (state.id !== plan.id) gatherHalt("다른 문서를 열어 멈췄습니다");
+    dv.values = structuredClone(got);
+    divTouched();
+    read = true;
+  }
+  if (!step("config").done) {
+    at("config", "프로젝트에 저장(확정)");
+    if (!(await divConfirm({ quiet: true }))) gatherHalt("프로젝트 구성을 확정하지 못했습니다(알림 글 참고)");
+    if (state.id !== plan.id) gatherHalt("다른 문서를 열어 멈췄습니다");
+    if (!step("config").done) gatherHalt("프로젝트 구성이 확정되지 않았습니다");
+  }
+  const d = gatherDiv();
+  return `${read ? "취합본에서 읽은 " : ""}프로젝트 구성을 ${divConfirmWhere(d && d.sharing)}에 확정했습니다 — ${divValuesText(d.values)} · 구조는 2단계 「문서 프레임 작성」 에서 맞춥니다`;
+}
+async function gatherRunFrame(run, plan, opt = {}) { // 2단계 — ① 구조 확인 또는 구분 기준 반영(구조만 — 편집 하나) → 배포 기준본. 내용은 넣지 않는다. 값은 1단계에서 확정한 것
+  const at = gatherRunAt(run, plan), step = (key) => gatherCalc().find((s) => s.key === key);
+  at("open", "취합본 여는 중");
+  if (!(await gatherToPlan())) gatherHalt("취합본을 열지 못했습니다(고치던 글을 두고 그만뒀거나 열리지 않음)");
+  if (!step("config").done) gatherHalt(`${TASK_STAGE_META.config.no} 「${TASK_STAGE_META.config.name}」 이 먼저입니다 — 프로젝트 구성(단계·차년도·기관)을 확정한 뒤 다시 누르세요`);
+  const d0 = gatherDiv();
+  if (!step("division").done && d0 && d0.values && !d0.applied && d0.ok !== false) { // 한 번도 반영한 적 없는 문서 — 구조가 이미 값에 맞으면 「반영됨」 으로 적는다(구조 확인 — ② §3 · §8-4). 안 맞으면 아래 변경 계획 → 반영
+    at("division", "구조 확인(이미 값에 맞는지)");
+    await flushAll();
+    await divSettingsFlush();
+    try { await api(`/api/docs/${plan.id}/divisions/adopt`, { method: "POST", headers: H_JSON, body: "{}" }); } catch (e) { console.warn("구조 확인:", e.message); }
+    if (state.id !== plan.id) gatherHalt("다른 문서를 열어 멈췄습니다");
+    await divShow();
+  }
   if (!step("division").done) {
     at("division", "변경 계획");
-    if (dv.view && !dv.view.profile.supported) gatherHalt("이 양식은 구분 기준 자동 반영을 지원하지 않습니다");
+    if (dv.view && !dv.view.profile.supported) gatherHalt("이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다");
     await divPlan();
-    if (!dv.plan) gatherHalt("구분 기준 변경 계획을 세우지 못했습니다(알림 글 참고)");
+    if (!dv.plan) gatherHalt("프로젝트 구성 변경 계획을 세우지 못했습니다(알림 글 참고)");
+    const gone = ((dv.plan.summary || {}).removed || 0) + ((dv.plan.summary || {}).deleted || 0);
+    if (opt.quick && gone) gatherHalt(`구조를 값에 맞추려면 ${nf(gone)}곳을 지워야 합니다 — 자동으로 지우지 않습니다. ${TASK_STAGE_META.frame.no}의 변경 계획을 확인하고 반영한 뒤 「이어서」 를 누르세요(문서에서 읽은 값이 틀리면 절이 지워집니다)`);
     at("division", "취합본에 반영");
     await divApply({ quiet: true });
     await divShow();
     const s = step("division");
-    if (!s.done) gatherHalt(`구분 기준이 반영되지 않았습니다 — ${s.lines.length ? s.lines[0][1] : "알림 글 참고"}`);
+    if (!s.done) gatherHalt(`프로젝트 구성이 반영되지 않았습니다 — ${s.lines.length ? s.lines[0][1] : "알림 글 참고"}`);
   }
   if (!step("frame").done) {
     at("frame", "기준본 만들기");
@@ -1009,39 +1183,60 @@ async function gatherRunFrame(run, plan) { // 1단계 — ① 구분 기준 반�
     gatherDraw();
     if (!step("frame").done) gatherHalt("기준본이 만들어지지 않았습니다");
   }
-  return "구조를 맞추고 배포 기준본을 만들었습니다 — 「기준본 내려받기」 로 받아 기관에 나눠 주세요 · 내용은 2단계 「내용 매핑」 에서 넣습니다";
+  return `구조를 맞추고 배포 기준본을 만들었습니다 — 「기준본 내려받기」 로 받아 기관에 나눠 주세요 · 내용은 ${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」 에서 넣습니다`;
 }
-async function gatherRunMap(run, plan) { // 2단계 — 들어온 차례로, 넣을 것이 남고 반영할 기관이 정해진 문서마다 자리 연결 → (LLM 검토) → 넣기 계획 → 반영. 반영한 뒤의 취합본으로 다음 문서를 계획한다
-  const at = gatherRunAt(run, plan);
+async function gatherRunMap(run, plan, opt = {}) { // 3단계 — 들어온 차례로, 넣을 것이 남고 반영할 기관이 정해진 문서마다 자리 연결 → (LLM 검토) → 넣기 계획 → 반영. 반영한 뒤의 취합본으로 다음 문서를 계획한다
+  const at = gatherRunAt(run, plan), log = (pid, x) => { if (opt.log) opt.log[pid] = { ...(opt.log[pid] || {}), ...x }; }; // 간단 모드의 문서별 결과(② §8-6)
   at("open", "취합본 여는 중");
   if (!(await gatherToPlan())) gatherHalt("취합본을 열지 못했습니다(고치던 글을 두고 그만뒀거나 열리지 않음)");
   const view = () => { const V = gt().view; if (!V) gatherHalt(`취합 상태를 읽지 못했습니다${gt().err ? `: ${gt().err}` : ""}`); return V; };
-  if (gatherCalc().some((s) => s.stage === "frame" && s.step !== "files" && !s.done)) gatherHalt("1단계 「문서 프레임 작성」 이 먼저입니다(구분 기준 반영 · 배포 기준본)");
+  if (gatherCalc().some((s) => (s.stage === "config" || s.stage === "frame") && s.step !== "files" && !s.done)) gatherHalt(`${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」 이 먼저입니다(프로젝트 구성 확정 · 프로젝트 구성 반영 · 배포 기준본)`);
   const order = view().parts.map((p) => p.work), unassigned = [], blocked = [], done = [], notes = [], sum = {};
-  for (const pid of order) {
-    const p = gatherPart(pid), key = `part:${pid}`;
-    if (!p) continue; // 도는 중에 뺀 문서
-    if (!(p.orgs || []).length) { unassigned.push(p.name); continue; } // 반영할 기관 미지정 — 건너뛰고 알린다
-    if (gatherPartTodo(p) === 0 && p.counts && !gatherHard(p.reasons).length) continue; // 넣을 것이 안 남음(자리를 충분히 확인하지 못한 문서는 사람이 「넣음」 으로 고른 것이 있을 때만 진행)
-    at(key, "자리 연결(기준본과 견주기)");
-    let L = null, skip = false;
+  const link = async (pid, p, key, method) => { // 자리 연결 → L | false(저절로 넣을 수 없는 문서 — 건너뜀) | null(응답을 버림 — 문서가 바뀜). 기관 문서의 분석이 없으면 한 번 걸고 다시
     for (let tries = 0; ; tries++) {
-      try { L = await gatherLinks(pid, "POST"); break; }
+      try { return await gatherLinks(pid, method); }
       catch (e) {
         const why = gatherWhy(e);
-        if (e.status === 409 && why.includes("noHeadings") && !tries) { at(key, "헤딩·표 분석(스크립트)"); await gatherAnalyze(pid, { first: true }, () => gatherRun === run && !run.stop); at(key, "자리 연결(기준본과 견주기)"); continue; }
-        if (e.status === 409 && (why.includes("noMatch") || why.includes("frameDiffers"))) { blocked.push(`${p.name}(${gatherReasons(why)})`); skip = true; break; } // 저절로 넣을 수 없는 문서 — 끌어 넣기로. 다른 문서는 이어 간다
+        if (e.status === 409 && why.includes("noHeadings") && !tries) { at(key, "헤딩·표 분석(스크립트)"); await gatherAnalyze(pid, { first: true }, () => gatherRun === run && !run.stop); at(key, "자리 연결(기준본과 견주기)"); method = "POST"; continue; }
+        if (e.status === 409 && (why.includes("noMatch") || why.includes("frameDiffers"))) { blocked.push(`${p.name}(${gatherReasons(why)})`); log(pid, { skip: `${gatherReasons(why)} — 끌어 넣기로` }); return false; } // 저절로 넣을 수 없는 문서 — 끌어 넣기로. 다른 문서는 이어 간다
         gatherHalt(`「${p.name}」 의 자리 연결을 하지 못했습니다 — ${gatherErr(e)}`);
       }
     }
-    if (skip) continue;
+  };
+  for (const pid of order) {
+    let p = gatherPart(pid), method = "POST";
+    const key = `part:${pid}`;
+    if (!p) continue; // 도는 중에 뺀 문서
+    if (!(p.orgs || []).length && opt.auto && opt.auto.has(pid)) { // 간단 모드 — 자리 연결 뒤 반영할 기관을 정한다(파일 이름 → 추천: ② §8-3). 사람이 고른 문서는 안 건드린다(서버도 막는다)
+      at(key, "자리 연결(기준본과 견주기)");
+      const L0 = await link(pid, p, key, "POST");
+      if (L0 === false) continue;
+      if (!L0) gatherHalt("다른 문서를 열어 멈췄습니다");
+      at(key, "반영할 기관 정하기(파일 이름 → 추천)");
+      let A;
+      try { A = await gatherCall(`${gatherSeg(pid)}/auto`, "POST"); }
+      catch (e) { gatherHalt(`「${p.name}」 의 반영할 기관을 정하지 못했습니다 — ${gatherErr(e)}`); }
+      if (gt().epoch !== state.epoch || state.id !== plan.id) gatherHalt("다른 문서를 열어 멈췄습니다");
+      gatherViewSet(A);
+      delete gt().links[pid];
+      gatherDraw();
+      p = gatherPart(pid) || p;
+      log(pid, { org: A.auto.org, by: A.auto.by, why: A.auto.why });
+      method = "GET"; // 방금 맞췄다 — 판정만 새로(반영할 기관이 바뀌었다)
+    }
+    if (!(p.orgs || []).length) { unassigned.push(p.name); log(pid, { skip: "반영할 기관을 정하지 못함" }); continue; } // 반영할 기관 미지정 — 건너뛰고 알린다
+    if (method === "POST" && gatherPartTodo(p) === 0 && p.counts && !gatherHard(p.reasons).length) continue; // 넣을 것이 안 남음(자리를 충분히 확인하지 못한 문서는 사람이 「넣음」 으로 고른 것이 있을 때만 진행)
+    at(key, "자리 연결(기준본과 견주기)");
+    let L = await link(pid, p, key, method);
+    if (L === false) continue;
     if (!L) gatherHalt("다른 문서를 열어 멈췄습니다"); // 응답을 버렸다(문서가 바뀜)
     if (!gatherTodo(L)) continue; // 넣을 수 있는 것이 없다(겹침·확인 필요만 남음)
-    if (!L.llm) { // 아직 검토 전일 때만 한 번(유료) — 실패해도 멈추지 않는다(스크립트가 넣을 수 있다고 본 것만 넣는다)
+    if (!L.llm && opt.llm === false) notes.push(`「${p.name}」 LLM 검토는 끔`);
+    else if (!L.llm) { // 아직 검토 전일 때만 한 번(유료) — 실패해도 멈추지 않는다(스크립트가 넣을 수 있다고 본 것만 넣는다)
       at(key, `LLM 검토 — 넣을 수 있음 ${nf((L.counts || {}).ready || 0)}곳(수십 초)`);
       gt().llmBusy = pid;
       try { L = (await gatherLinks(pid, "POST", "/llm")) || L; }
-      catch (e) { notes.push(`「${p.name}」 LLM 검토는 못 함`); }
+      catch (e) { notes.push(`「${p.name}」 LLM 검토는 못 함`); log(pid, { llm: "LLM 검토 못 함" }); }
       finally { gt().llmBusy = ""; }
       if (!gatherTodo(L)) continue;
     }
@@ -1066,7 +1261,7 @@ async function gatherRunMap(run, plan) { // 2단계 — 들어온 차례로, 넣
       } finally { gt().applyBusy = ""; state.busy = false; refreshToolbar(); }
       delete gt().plans[pid];
       delete gt().links[pid];
-      if (r) { gt().done[pid] = r; done.push(p.name); for (const [k, n] of Object.entries(r.counts || {})) if (typeof n === "number") sum[k] = (sum[k] || 0) + n; sum.calc = (sum.calc || 0) + gatherCalcNeed(r.calc).length; }
+      if (r) { gt().done[pid] = r; done.push(p.name); log(pid, { done: gatherDoneText(r) }); for (const [k, n] of Object.entries(r.counts || {})) if (typeof n === "number") sum[k] = (sum[k] || 0) + n; sum.calc = (sum.calc || 0) + gatherCalcNeed(r.calc).length; }
       break;
     }
     at(key, "취합 상태 다시 읽기");
@@ -1087,6 +1282,13 @@ function gatherPeerDocs() { // app.js peerDocs 가 부른다 → 둘째 면에 �
   if (plan.id !== state.id) add(plan.id, plan.name, gatherSpec().base);
   for (const p of (V && V.parts) || []) add(p.work, p.name, gatherSpec().parts);
   return out;
+}
+function gatherPeerLabel(w) { // app.js peerLabel 이 부른다 → 둘째 면 탭 글 = 기관 문서의 반영할 기관 이름(2026-11-13 사용자 "여기 상단에는 반영할 기관 이름으로"). 기관 문서가 아니거나 미지정이면 "" — 파일 이름 그대로
+  const p = gatherPart(w.id), V = gt().view, all = (V && V.orgs) || [], cur = (p && p.orgs) || [];
+  if (!cur.length) return "";
+  if (all.length > 1 && cur.length === all.length && all.every((o) => cur.includes(o.key))) return "모든 기관";
+  const names = cur.map((k) => (all.find((o) => o.key === k) || {}).name || k);
+  return names.length > 2 ? `${names[0]} 외 ${names.length - 1}곳` : names.join(" · ");
 }
 function gatherPeerLeft() { const plan = gatherPlan(); return !!plan && plan.id !== state.id && peerShown() === plan.id; } // 둘째 면이 왼쪽 = 떠 있는 문서가 취합본일 때(취합본은 늘 왼쪽)
 let gatherPeerWas = "";
@@ -1204,6 +1406,9 @@ function gatherDropList(keep = false) { // 2열 「끌어 넣기」(kind "gather
   if (kept.length) { const ul = el("ul", "gt-ul"); for (const [k, n] of kept) ul.append(el("li", null, `${(C.labels || {})[k] || k} — ${nf(n)}줄`)); dd.append(ul); } // 그대로 두는 까닭별 줄 수
   if ((P.dropped || []).length) { const ul = el("ul", "gt-ul"); for (const t of gatherDropped(P.dropped)) ul.append(el("li", null, t)); row(`옮기지 못하는 개체 ${P.dropped.length}`, ul).dataset.k = "dropped"; }
   body.append(dl);
+  const overEl = typeof mergeOverSection === "function" ? mergeOverSection({ docId: plan.id, over: P.over, disabled: D.busy || !gatherMine(), go: (c) => { if (c.at) gatherJump(c.at); }, // 넘친 개요 레벨(spec_병합 ② §5-5): 처리를 고르면 같은 자리로 계획을 다시 세운다(틀 맞춤 켬/끔은 그대로)
+    onChange: async () => { const on = D.convert; await gatherDropPlan({ from: D.from, srcId: D.srcId }, D.afterId); const now = gt().drop; if (now && now !== D) { now.convert = on && !!now.plan.convert; if (heads.dlg === "gatherDrop") gatherDropList(true); } } }) : null;
+  if (overEl) body.append(overEl);
   foot.append(el("span", "muted", "실행 취소 한 번으로 되돌릴 수 있습니다 · 기관 문서는 안 바뀝니다"),
     hBtn(D.busy ? "반영 중…" : "반영", () => gatherDropApply(), { cls: "btn sm primary", disabled: D.busy || !gatherMine(), title: "이 범위를 놓은 자리 뒤에 넣습니다" }), hBtn("닫기", () => { gt().drop = null; headsColClose(); }));
 }
@@ -1241,3 +1446,155 @@ if (PEEK) { // 둘째 면 화면 — 손잡이의 도움말(끌어 넣기 출발
   document.addEventListener("mouseover", (e) => { const grip = e.target.closest && e.target.closest(".ol-grip"); if (grip && !grip.dataset.gather && part()) { grip.dataset.gather = "1"; grip.title = "끌어서 취합본의 문단 위에 놓으면 이 제목 줄과 그 아래 내용을 그 뒤에 넣습니다(넣기 전에 계획을 확인)"; } });
   document.addEventListener("dragend", () => { try { parent.gatherDragCancel(); } catch { /* 바깥이 준비 전 */ } });
 } else gatherBindDrop();
+
+// ---- 기관 구역 표시(spec_취합 ② §9-2 — 2026-11-13 사용자 "문서 프레임 작성할 때, 내용매핑할때 항시 각 기관이 작성하는 구역이 식별이 되어야함. 목적문서에서 그 작성 내용을 확인할 수도 있어야함").
+// GET …/gather/zones → 취합본에 기관 구역(문단·표 오른쪽 띠 + 구역 첫 블록 옆 오른쪽 여백의 이름 꼬리표 · 기관 칸) · 넣은 내용(그 기관 색 바탕 · 도움말 「<기관> — <기관 문서> 에서 넣음」).
+// 카드의 「기관 구역」 줄(보기/감추기 — 기본 보기 · 기관마다 칩 · 목록) · 2열 「기관 구역」(kind gatherZones). 둘째 면(기관 문서)에는 안 그린다. 같은 자료를 나중의 「어떤 내용이 취합되었는지」 표시가 쓴다(④ ⓙ)
+const GZ_KEY = "nfm.gatherZones";
+const GZ_COLORS = 8; // 기관 색 수(gather.css [data-gz="0".."7"] — 그 뒤 기관은 돌려 씀) · 기관 모름 = "u"
+function gatherZonesOn() { try { return localStorage.getItem(GZ_KEY) !== "off"; } catch { return true; } }
+function gzState() { const g = gt(); return (g.zones ||= { data: null, loading: false, err: "", missing: false, seq: 0, key: "" }); }
+function gzOrgs(Z) { // 기관 열쇠 → {i(색 차례 | "u"), name, role}
+  const m = new Map(((Z && Z.orgs) || []).map((o, i) => [o.key, { i: String(i % GZ_COLORS), name: o.name || o.key, role: o.role }]));
+  return (key, kind) => (kind === "unknown" || !key ? { i: "u", name: "기관 모름", role: "" } : m.get(key) || { i: "u", name: key, role: "" });
+}
+async function gatherZonesLoad() { // 취합 상태를 읽을 때마다(gatherLoad) — 표시가 켜져 있거나 목록이 열려 있을 때만. 서버가 같은 상태면 다시 안 센다(메모리)
+  if (PEEK || !gatherOn()) return;
+  const plan = gatherPlan(), Z = gzState(), g = gt(), epoch = state.epoch;
+  if (!plan || (!gatherZonesOn() && heads.dlg !== "gatherZones")) { gatherZonesDraw(); return; }
+  const seq = ++Z.seq;
+  Z.loading = true;
+  gatherZonesLineDraw();
+  try { Z.data = await api(`/api/docs/${plan.id}/gather/zones`); Z.err = ""; Z.missing = false; Z.key = plan.id; }
+  catch (e) { Z.err = e.message; Z.missing = e.status === 404 && e.message === "Not Found"; }
+  if (epoch !== state.epoch || g !== gatherState || seq !== Z.seq) return;
+  Z.loading = false;
+  gatherZonesLineDraw();
+  gatherZonesDraw();
+  if (heads.dlg === "gatherZones") gatherZonesList(null, true);
+}
+function gatherZonesEl() { // 카드의 「기관 구역」 줄(.gt-zones) — gatherFlowEl 이 넣고 gatherDraw 가 바꿔 끼운다
+  const box = el("div", "gt-zones"), Z = gzState(), D = Z.key === (gatherPlan() || {}).id ? Z.data : null, on = gatherZonesOn();
+  box.dataset.gz = on ? "on" : "off";
+  if (!gatherPlan()) { box.hidden = true; return box; }
+  const head = el("div", "gt-zones-head");
+  head.append(el("strong", null, "기관 구역"), hHelp("기관 구역 안내", "취합본에서 기관마다 작성하는 구역(그 기관의 절 · 표의 기관 칸)을 기관 색의 띠와 오른쪽 여백의 이름표로 보이고, 기관 문서에서 넣은 내용은 그 기관 색의 바탕으로 보입니다. 문서 프레임 작성과 내용 매핑 동안 늘 볼 수 있습니다. 칩이나 「목록」 을 누르면 문서 옆 열에 기관별 구역과 넣은 내용이 나옵니다.", { note: true }));
+  const tg = hBtn(on ? "감추기" : "보기", () => { try { localStorage.setItem(GZ_KEY, on ? "off" : "on"); } catch { /* 기억만 안 함 */ } if (on) { gatherZonesDraw(); gatherZonesLineDraw(); } else gatherZonesLoad(); },
+    { cls: "btn sm gt-zones-toggle" + (on ? " on" : ""), title: "취합본에 기관 구역·넣은 내용 표시 보이기/감추기(이 브라우저에 기억)" });
+  tg.setAttribute("aria-pressed", String(on));
+  tg.dataset.gatherZones = "toggle";
+  const list = hBtn("목록", () => gatherZonesList(), { title: "문서 옆 열에 기관별 구역과 넣은 내용 목록을 엽니다 — 줄을 누르면 그 자리로" });
+  list.dataset.gatherZones = "list";
+  head.append(tg, list);
+  box.append(head);
+  const chips = el("div", "gt-zones-chips");
+  if (Z.loading && !D) chips.append(el("span", "dv-caption", "구역을 세는 중…"));
+  else if (Z.err && !D) chips.append(el("span", "dv-caption", Z.missing ? "기관 구역은 서버를 다시 시작한 뒤에 볼 수 있습니다(새 기능)" : `구역을 읽지 못했습니다: ${Z.err}`));
+  else if (D && (D.reasons || []).includes("noValues")) chips.append(el("span", "dv-caption", "프로젝트 구성 값이 없어 구역을 셀 수 없습니다 — 1단계 「프로젝트 구성」 에서 정하세요"));
+  else if (D) {
+    const org = gzOrgs(D), per = new Map();
+    const bump = (k, f, n = 1) => { const e = per.get(k) || { zones: 0, put: 0, key: k }; e[f] += n; per.set(k, e); };
+    for (const z of D.zones || []) bump(z.kind === "unknown" || !z.org ? "?" : z.org, "zones");
+    for (const a of D.applied || []) if ((a.ids || []).length) for (const k of (a.orgs || []).length ? a.orgs : ["?"]) bump(k, "put");
+    const keys = [...(D.orgs || []).map((o) => o.key), ...(per.has("?") ? ["?"] : [])];
+    for (const k of keys) {
+      const e = per.get(k) || { zones: 0, put: 0 }, o = org(k === "?" ? null : k, k === "?" ? "unknown" : "org");
+      const chip = el("button", "dv-chip gz-chip", `${o.name} 구역 ${nf(e.zones)}${e.put ? ` · 넣은 내용 ${nf(e.put)}` : ""}`);
+      chip.type = "button";
+      chip.dataset.gz = o.i;
+      chip.dataset.org = k;
+      chip.title = `${o.name}${o.role ? `(${GT_ROLE[o.role] || o.role})` : ""} — 작성 구역 ${nf(e.zones)}곳 · 기관 문서에서 넣은 내용 ${nf(e.put)}곳. 눌러서 목록`;
+      chip.onclick = () => gatherZonesList(k);
+      chips.append(chip);
+    }
+    if (!keys.length) chips.append(el("span", "dv-caption", "기관 구역을 찾지 못했습니다"));
+    if (D.rev !== state.serverRev && gatherMine()) chips.append(el("span", "dv-caption", "문서가 바뀜 — 다시 읽는 중"));
+  }
+  box.append(chips);
+  return box;
+}
+function gatherZonesLineDraw() { const old = document.querySelector("#gatherFlow .gt-zones"); if (old) old.replaceWith(gatherZonesEl()); }
+
+function gatherZonesDraw() { // 문서(취합본)의 표시 — 쪽을 다시 나눌 때마다(app.js divMarksDraw) · 자료가 바뀔 때 · 켜고 끌 때. 읽기 단계(자리 재기)와 쓰기 단계(꼬리표 붙이기)를 나눈다(references/브라우저_강제배치_비용.md)
+  const doc = typeof $ === "function" ? $("doc") : null;
+  if (!doc) return;
+  for (const t of doc.querySelectorAll(".gz-tag")) t.remove();
+  for (const n of doc.querySelectorAll(".gz-in, .gz-put, .gz-cell")) {
+    n.classList.remove("gz-in", "gz-head", "gz-put", "gz-cell");
+    delete n.dataset.gz;
+    if (n.dataset.gzTitle) { n.removeAttribute("title"); delete n.dataset.gzTitle; }
+  }
+  const Z = !PEEK && gatherOn() && gatherZonesOn() && gatherMine() ? gzState() : null, D = Z && Z.key === state.id ? Z.data : null;
+  if (!D) return; // #doc·body 에는 클래스를 달지 않는다(문서 전체 스타일 다시 셈 — gather.css 끌어 넣기 줄과 같은 까닭) — 표시는 요소마다
+
+  const org = gzOrgs(D), idx = new Map(), add = (k, e) => { const a = idx.get(k); if (a) a.push(e); else idx.set(k, [e]); };
+  for (const e of doc.querySelectorAll(".para[data-id], table.tbl[data-tbl], td[data-cell]")) add(e.dataset.id || e.dataset.tbl || e.dataset.cell, e);
+  const mark = (e, cls, o, title) => { e.classList.add(cls); e.dataset.gz = o.i; if (title && !e.title) { e.title = title; e.dataset.gzTitle = "1"; } };
+  const heads = [];
+  for (const z of D.zones || []) {
+    const o = org(z.org, z.kind), name = `${o.name}${z.year ? ` · ${z.year}차년도` : ""}`, tip = `기관 구역 — ${name}${(z.path || []).length ? `\n${z.path.slice(-2).join(" › ")}` : ""}`;
+    (z.ids || []).forEach((id, j) => { for (const e of idx.get(id) || []) { if (e.closest("td") && e.matches(".para")) continue; mark(e, "gz-in", o, tip); if (!j) heads.push({ e, o, name }); } }); // 칸 안 문단은 표가 맡는다
+  }
+  for (const [, cells] of Object.entries(D.cells || {})) for (const c of cells) { const o = org(c.org, c.kind); for (const e of idx.get(c.id) || []) mark(e, "gz-cell", o, `기관 칸 — ${o.name}`); }
+  for (const a of D.applied || []) {
+    const ks = a.orgs || [], o = ks.length === 1 ? org(ks[0], "org") : { i: "u", name: ks.length ? `기관 ${ks.length}곳` : "기관 미지정" };
+    const tip = `${o.name} — 「${a.name}」 에서 넣음${a.at ? `(${gatherWhen(a.at)})` : ""}${GT_KIND[a.kind] ? ` · ${GT_KIND[a.kind]}` : ""}`;
+    for (const id of a.ids || []) for (const e of idx.get(id) || []) { e.classList.add("gz-put"); e.dataset.gz = o.i; e.title = tip; e.dataset.gzTitle = "1"; } // 넣은 내용의 도움말이 구역 도움말보다 앞선다
+  }
+  const seen = new Set(), jobs = []; // 이름 꼬리표 — 구역 첫 블록의 쪽 오른쪽 여백(왼쪽 여백은 개요·표 표지 몫). 같은 쪽 같은 자리에 겹치면 아래로 민다
+  for (const h of heads) {
+    const sheet = h.e.closest(".sheet");
+    if (!sheet || seen.has(h.e)) continue;
+    seen.add(h.e);
+    const sr = sheet.getBoundingClientRect(), z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1;
+    jobs.push({ sheet, z, top: Math.round(h.e.getBoundingClientRect().top - sr.top), mgr: typeof sheetMarginPx === "function" ? sheetMarginPx(sheet, z) : 60, h });
+  }
+  const last = new Map(); // 쪽 → 마지막 꼬리표 아래끝(화면 px)
+  for (const j of jobs) {
+    const t = el("div", "gz-tag", j.h.name);
+    t.dataset.gz = j.h.o.i;
+    t.title = `기관 구역 — ${j.h.name}`;
+    t.style.zoom = String(1 / j.z);
+    t.style.setProperty("--mgr", `${j.mgr}px`);
+    const top = Math.max(j.top, (last.get(j.sheet) || -1e9) + 2);
+    t.style.top = `${top}px`;
+    last.set(j.sheet, top + 30);
+    j.sheet.append(t);
+  }
+}
+
+function gatherZonesList(only = null, keep = false) { // 2열 「기관 구역」 — 기관마다 구역 · 넣은 내용(줄을 누르면 그 자리로)
+  const Z = gzState(), plan = gatherPlan(), D = plan && Z.key === plan.id ? Z.data : null;
+  if (!plan) return;
+  if (!D) { if (!Z.loading) gatherZonesLoad(); if (!keep) headsDlg("gatherZones", "기관 구역", "구역을 세는 중…"); return; }
+  const top = keep ? $("headsDlgBody").scrollTop : 0;
+  if (keep) heads.keepFold = true;
+  const { tools, body, foot } = headsDlg("gatherZones", "기관 구역", `${plan.name} — 기관마다 작성하는 구역과 기관 문서에서 넣은 내용`);
+  heads.keepFold = false;
+  const c = D.counts || {};
+  tools.append(el("span", "muted", `구역 ${nf(c.zones || 0)}곳 · 블록 ${nf(c.blocks || 0)} · 기관 칸 ${nf(c.cells || 0)} · 넣은 내용 ${nf(c.applied || 0)}곳`));
+  const org = gzOrgs(D), go = (ids) => { const id = (ids || [])[0]; if (!id) return; if (!gatherMine()) { gatherToPlan().then((ok) => ok && gatherJump(id)); return; } gatherJump(id); };
+  const row = (tb, cells, ids) => { const tr = el("tr", ids && ids.length ? "go" : null); for (const [t, cls] of cells) hCell(tr, t, cls); if (ids && ids.length) { tr.tabIndex = 0; tr.onclick = () => go(ids); tr.onkeydown = (e) => { if (e.target === tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go(ids); } }; } tb.append(tr); };
+  const keys = [...(D.orgs || []).map((o) => o.key), ...((D.zones || []).some((z) => z.kind === "unknown" || !z.org) ? ["?"] : [])];
+  let target = null;
+  for (const k of keys) {
+    const o = org(k === "?" ? null : k, k === "?" ? "unknown" : "org"), zs = (D.zones || []).filter((z) => (k === "?" ? z.kind === "unknown" || !z.org : z.org === k));
+    const puts = (D.applied || []).filter((a) => (k === "?" ? !(a.orgs || []).length : (a.orgs || []).includes(k)));
+    const cap = el("div", "lk-cap gz-cap", `${o.name}${o.role ? `(${GT_ROLE[o.role] || o.role})` : ""} — 구역 ${nf(zs.length)} · 넣은 내용 ${nf(puts.filter((a) => (a.ids || []).length).length)}`);
+    cap.dataset.gz = o.i;
+    cap.dataset.org = k;
+    body.append(cap);
+    if (only && k === only) target = cap;
+    const [tbl, tb] = hTable(["구역 · 넣은 내용", "자리", "글"]);
+    tbl.classList.add("lk-table", "gt-table", "gz-table");
+    for (const z of zs) row(tb, [[`구역${z.year ? ` · ${z.year}차년도` : ""}`, "gz-what"], [(z.path || []).slice(-2).join(" › ") || "(맨 위)", "lk-place"], [`${oneLine(z.text || "") || "(글 없음)"}${(z.ids || []).length > 1 ? ` — 블록 ${nf(z.ids.length)}` : ""}`, "gt-text"]], z.ids);
+    for (const a of puts) row(tb, [[`넣은 내용 — ${GT_KIND[a.kind] || a.kind || ""}`, "gz-what gz-put-row"], [`「${a.name}」${a.at ? ` · ${gatherWhen(a.at)}` : ""}`, "lk-place"],
+      [`${(a.ids || []).length ? `블록·칸 ${nf(a.ids.length)}` : "지금 문서에 남아 있지 않음"}${a.gone ? ` · 없어진 것 ${nf(a.gone)}` : ""}`, "gt-text"]], a.ids);
+    if (!zs.length && !puts.length) { const tr = el("tr"), td = hCell(tr, "구역도 넣은 내용도 없습니다"); td.colSpan = 3; tb.append(tr); }
+    body.append(tbl);
+  }
+  if (!keys.length) body.append(el("p", "hnote", (D.reasons || []).includes("noValues") ? "프로젝트 구성 값이 없어 구역을 셀 수 없습니다 — 1단계 「프로젝트 구성」 에서 정하세요" : "기관 구역을 찾지 못했습니다"));
+  foot.append(el("span", "muted", "넣은 내용 = 기관 문서에서 넣은 기록 가운데 지금 문서에 남은 것(실행 취소·지움으로 없어지면 빠집니다)"), hBtn("다시 읽기", () => gatherZonesLoad(), { disabled: Z.loading }), hBtn("닫기", () => headsColClose()));
+  if (keep) $("headsDlgBody").scrollTop = top;
+  else if (target) target.scrollIntoView({ block: "start" });
+}

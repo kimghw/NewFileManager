@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import (division_llm, division_model, division_plan, division_presets, division_profiles, docx_check, docx_restore, docx_struct, fonts, hwpx_struct,
-                 outline_edit, outline_pos, owpml_check, pdf_map, pdf_render, restore, verify, works)
+                 outline_edit, outline_pos, owpml_check, pdf_map, pdf_render, projects, restore, verify, works)
 from app.docx_doc import W as WNS
 from app.docx_doc import DocxDoc
 from app.hwpx_doc import P, TC, HwpxDoc
@@ -83,13 +83,15 @@ class Session:
         # 구조·서식 편집(spec_owpml_편집 ② §3): 모양만 바뀐 문단·나누기/합치기가 닿은 문단·지운 원본 문단·새 문단의 출처·실행 취소 묶음
         self.formatted, self.struct, self.removed, self.origin, self.undo = set(), set(), set(), {}, []
         self.owpml_base, self.owpml_last = None, None
+        self.owpml_ok = set()  # 다른 문서에서 가져온 내용이 물고 온 스키마 위반 종류(owpml_allow — 기준선에 더해 두고 작업에 저장: 다시 열어도 그 종류로 422 가 나지 않게)
         # 작업 저장(spec_작업 ② §3): 편집 차례·작업 폴더에 쓴 차례·만든 때, 저장 한 번에 하나(plock)
         self.rev, self.saved_rev, self.created, self.plock = 0, 0, time.time(), threading.Lock()
         self.persist_error = None  # 마지막 작업 저장 실패(있으면 화면 상단이 실패를 보임)
         # 구분 기준(spec_구분_기준 ② §4·§7): 입력 중 설정 · 마지막 적용(값·rev·planId·요약 — 문서와 함께 저장·실행 취소로 복원) · 마지막 계획(사본 문서 포함, 메모리만 하나)
         self.division = {"settings": None, "applied": None, "plan": None, "hints": [],   # hints = 추가한 자리(spec_구분_기준 ② §11)
                          "review": None, "reviewing": False,   # 마지막 LLM 검토(취합 — ② §14, 작업에 저장) · 도는 중(메모리만)
-                         "prior": None}   # 앞서 이 문서에 반영한 값들(② §19 — None = 아직 안 모음: _division_prior 가 작업 기록에서 한 번)
+                         "prior": None,   # 앞서 이 문서에 반영한 값들(② §19 — None = 아직 안 모음: _division_prior 가 작업 기록에서 한 번)
+                         "confirmed": None}   # 1단계 구성 확정 {at, hash, values}(spec_작업 ② §18) — 공유 중이면 프로젝트의 것을 옮겨 적음, 작업에 저장
         self.outline = None  # 개요(템플릿) 편집 오버레이(spec_hwpx_웹편집 ② §8) — 2단계 그래프에서 만들고 편집마다 손질, 실행 취소·작업 저장과 함께
 
     def text_edited(self):
@@ -184,10 +186,10 @@ def _admit(sess):
     DOCS[sess.id] = sess
 
 
-def _same(name, fmt, data, source):
+def _same(name, fmt, data, source, job=None):
     """같은 파일로 만든 작업이 있으면 그 작업을 이어 연다(spec_작업 ② §1) — 메모리에 없으면 작업 폴더에서(_reopen: 기준 확정·문서 키를 맞춤).
-    못 열면 None(새 작업으로)."""
-    w = works.find_same(name, fmt, works.sha256(data))
+    job(고른 TASK)이 있으면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례(② §15). 못 열면 None(새 작업으로)."""
+    w = works.find_same(name, fmt, works.sha256(data), job)
     if w is None:
         return None
     try:
@@ -203,14 +205,15 @@ def _same(name, fmt, data, source):
             "work": {k: w.get(k) for k in ("created", "updated", "rev", "edited", "commits")}}
 
 
-def _open(name, data, source="upload", new=False):
-    """올리기·예제 열기 — 같은 파일(이름·형식·바이트)로 만든 작업이 있으면 그 작업을 이어 열고(reused), new 면 늘 새 작업(spec_작업 ② §1)."""
+def _open(name, data, source="upload", new=False, job=None):
+    """올리기·예제 열기 — 같은 파일(이름·형식·바이트)로 만든 작업이 있으면 그 작업을 이어 열고(reused), new 면 늘 새 작업(spec_작업 ② §1).
+    job = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿일 때 이어 열 작업을 고르는 차례에만 쓴다(작업의 task 는 안 바꾼다)."""
     fmt = fmt_of(name)
     if fmt is None:
         raise HTTPException(400, "hwp·hwpx·docx 파일만 열 수 있습니다")
     if len(data) > MAX_MB * 2 ** 20:
         raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
-    same = None if new else _same(name, fmt, data, source)
+    same = None if new else _same(name, fmt, data, source, job)
     if same is not None:
         return same
     try:
@@ -255,15 +258,17 @@ def _persist(s, force=False):
             snap = s.kit["struct"].snapshot(s.doc)  # 실행 취소와 같은 묶음 — 다시 열 때 struct.restore 로 기준 유지
             state = {"rev": rev, "base": base, "texts": dict(s.texts), "unrestored": sorted(s.unrestored), "formatted": sorted(s.formatted),
                      "struct": sorted(s.struct), "removed": sorted(s.removed), "origin": dict(s.origin), "owpmlLast": s.owpml_last,
+                     "owpmlOk": sorted(list(k) for k in s.owpml_ok),  # 가져온 내용이 물고 온 위반 종류(owpml_allow)
                      "pdf": {k: str(p) for k, p in s.pdf.items() if p}, "mapping": _map_view(s.mapping),
                      "mappingEdited": _map_view(s.mapping_edited),
                      "division": {"settings": s.division["settings"], "applied": s.division["applied"], "hints": s.division.get("hints") or [],  # spec_구분_기준 ② §4·§11
                                   "review": s.division.get("review"),  # 마지막 LLM 검토(② §14)
+                                  "confirmed": s.division.get("confirmed"),  # 1단계 구성 확정(spec_작업 ② §18)
                                   **({"prior": s.division["prior"]} if s.division.get("prior") is not None else {})},  # 앞서 반영한 값들(② §19) — 아직 안 모았으면 키 없음
                      "outline": s.outline}  # 개요 편집 오버레이(spec_hwpx_웹편집 ② §8)
-            edited = len(s.edited())
+            edited, framed = len(s.edited()), bool(s.division["applied"])
         snap = {**snap, "rev": rev, "base": base, "sha256": works.sha256(snap["bytes"])}
-        works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited)
+        works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited, framed=framed)   # framed = 프로젝트 구성을 반영한 문서 — 닫힌 작업의 보이는 이름이 본다(spec_작업 ② §10 「프레임 이름」)
         s.saved_rev = rev
 
 
@@ -339,12 +344,14 @@ def _restore_state(s, got):
     s.unrestored, s.formatted = set(st.get("unrestored", ())), set(st.get("formatted", ()))
     s.struct, s.removed, s.origin = set(st.get("struct", ())), set(st.get("removed", ())), dict(st.get("origin") or {})
     s.owpml_last = st.get("owpmlLast")
+    s.owpml_ok, s.owpml_base = {tuple(k) for k in st.get("owpmlOk") or [] if isinstance(k, list) and all(isinstance(x, str) for x in k)}, None  # 기준선은 다음에 다시 센다(그 종류를 더해)
     s.pdf = {k: p for k, p in (st.get("pdf") or {}).items() if p and Path(p).exists()}  # 렌더 캐시에서 지워진 PDF 는 뺀다
     s.mapping, s.mapping_edited = st.get("mapping"), st.get("mappingEdited")
     dv = st.get("division") or {}
     s.division = {"settings": dv.get("settings"), "applied": dv.get("applied"), "plan": None, "hints": [h for h in dv.get("hints") or [] if isinstance(h, dict)],
                   "review": dv.get("review") if isinstance(dv.get("review"), dict) else None, "reviewing": False,
-                  "prior": [v for v in dv["prior"] if isinstance(v, dict)] if isinstance(dv.get("prior"), list) else None}   # ② §19 — 키가 없으면(옛 작업) 처음 쓸 때 모음
+                  "prior": [v for v in dv["prior"] if isinstance(v, dict)] if isinstance(dv.get("prior"), list) else None,   # ② §19 — 키가 없으면(옛 작업) 처음 쓸 때 모음
+                  "confirmed": dv.get("confirmed") if isinstance(dv.get("confirmed"), dict) else None}   # 1단계 구성 확정(spec_작업 ② §18) — 옛 작업은 없음
     s.outline = st.get("outline") if isinstance(st.get("outline"), dict) else None
     return True
 
@@ -409,6 +416,8 @@ def _reopen(doc_id):
                 works.set_aside_state(doc_id)
             works.update(doc_id, rev=0, edited=0)
         s.rev = s.saved_rev = w.get("rev", 0) if ok else 0
+        if bool(s.division.get("applied")) != bool(w.get("framed")):   # 이 표시가 생기기 전에 반영한 작업 · 어긋난 상태를 옆으로 옮긴 작업 — 닫힌 뒤의 보이는 이름이 맞게(② §10 「프레임 이름」 · 바뀐 때는 그대로)
+            works.mark(doc_id, framed=bool(s.division.get("applied")))
         for kind, rec in works.last_runs(doc_id).items():  # 지금 기준에서 돈 검증만 결과로(확정 뒤 가져오기 검증이 끝나기 전에 꺼졌으면 다시 돈다)
             if isinstance(rec, dict) and isinstance(rec.get("job"), dict) and rec.get("base", 0) == s.base_n:
                 s.jobs[kind] = _Done(rec)
@@ -448,13 +457,14 @@ def open_sample(name: str, new: bool = False):
 
 
 @app.post("/api/docs")
-async def upload(file: UploadFile = File(...), new: bool = False):
-    """?new=1 이면 같은 파일 작업이 있어도 새 작업(spec_작업 ② §1). hwp(바이너리)는 한글로 hwpx 로 바꿔 hwpx 작업으로 받는다."""
+async def upload(file: UploadFile = File(...), new: bool = False, job: str = ""):
+    """?new=1 이면 같은 파일 작업이 있어도 새 작업(spec_작업 ② §1). hwp(바이너리)는 한글로 hwpx 로 바꿔 hwpx 작업으로 받는다.
+    ?job=<TASK> = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿이면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다. 모르는 값은 없는 것으로 본다."""
     name, data = file.filename or "document.hwpx", await file.read()
     if name.lower().endswith(".hwp"):
         from starlette.concurrency import run_in_threadpool
         name, data = await run_in_threadpool(_from_hwp, name, data)   # 한글 변환은 수 초~수십 초 — 이벤트 루프 밖에서
-    return _open(name, data, new=new)
+    return _open(name, data, new=new, job=job if job and job in TASK["job"] else None)
 
 
 def _from_hwp(name, data):
@@ -585,9 +595,8 @@ def download(doc_id: str):
     with s.lock:
         data = s.doc.save()
         same = data == s.original
-    ext, shown = "." + s.fmt, _shown_of(s)   # 보이는 이름(spec_작업 ② §10 — 과제에 묶인 목적 문서는 과제 이름이 뒤에 붙는다)
-    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
-    name = shown if same and not s.base_n else f"{stem}_수정{ext}"  # same = 기준과 같은 바이트 — 기준이 확정본이면 올린 파일과는 다른 파일
+    # 보이는 이름(spec_작업 ② §10 — 과제에 묶인 목적 문서는 과제 이름이 뒤에 붙는다 · 프로젝트 구성을 반영한 양식 맞추기 문서는 프레임 이름 그대로). same = 기준과 같은 바이트 — 기준이 확정본이면 올린 파일과는 다른 파일
+    name = _save_name(_shown_of(s), "." + s.fmt, works.work(s.id), bool(s.division.get("applied")), edited=not same or bool(s.base_n))
     # 기록(spec_작업 ② §4·§5): 내려받은 파일(원본과 다르면 outputs/ 에)·마지막 출력파일 검증 파일과 같은 바이트인지
     sha = works.sha256(data) if same else works.add_output(s.id, s.fmt, data)
     ed = s.jobs.get("edit")
@@ -677,22 +686,42 @@ def pdf_diff(doc_id: str, which: str, page: int, dpi: int = 110):
 # ---- 구조·서식 편집 + OWPML 검사(spec_owpml_편집 ② §2·§3) ------------------------------------------------
 
 def owpml_base(s):
-    """원본의 OWPML 위반 종류·개수(기준선) — 가져오기 검증이 먼저 채우고, 없으면 여기서."""
+    """판정 기준선 = 원본의 OWPML 위반 종류·개수(`s.owpml_base` — 가져오기 검증이 먼저 채우고, 없으면 여기서: 캐시) + 받아들인 종류(`s.owpml_ok` — owpml_allow).
+    둘을 **부를 때마다 합친다**(원본 기준선은 그대로 둔다 — 검증이 원본 결과로 다시 채워도, 실행 취소로 받아들인 종류가 줄어도 어긋나지 않게 · 2026-11-13 astra 결과 검토)."""
     if s.owpml_base is None:  # hwpx: OWPML, docx: OOXML 참조 규칙(docx_check) — 모양이 같은 모듈
         check = s.kit["check"]
         s.owpml_base = check.counts(check.check_doc(s.kit["cls"](s.original)))
-    return s.owpml_base
+    extra = [k for k in s.owpml_ok if k not in s.owpml_base["schema"]]
+    if not extra:
+        return s.owpml_base
+    schema = s.owpml_base["schema"].copy()
+    for k in extra:
+        schema[k] = 1
+    return {"schema": schema, "rules": s.owpml_base["rules"]}
+
+
+def owpml_allow(s, kinds):
+    """다른 문서에서 가져온 내용(서식 보관함의 운반 문서 — spec_일반편집 ② §4)이 물고 올 수 있는 스키마 위반 **종류**를 이 작업이 받아들인 종류(`s.owpml_ok`)에 더한다
+    (세션 잠금 안, `_transact` 의 `run()` 안에서 — 그 편집의 판정은 run() 뒤에 기준선을 다시 읽는다) -> 새로 더한 종류. 한글이 그 문서의 **header 정의**에 써 둔 꼴(tabPr/switch 등)이라
+    편집이 만든 위반이 아니다. 받는 것은 header 쪽 스키마 종류뿐 — 본문(section)의 종류(틀린 속성 값 등 가져온 문단·표 자체의 손상)와 참조 규칙 위반(끊어진 참조)은 안 받는다:
+    그런 내용을 가져온 편집은 전처럼 422 로 되돌린다. 받아들인 종류는 실행 취소 묶음에 들고(`_snap` — 편집이 되돌려지면 함께 되돌아간다) 편집 상태와 함께 저장된다(`_persist`)."""
+    base = owpml_base(s)["schema"]
+    added = [k for k in kinds if isinstance(k, tuple) and len(k) == 5 and k[0] == "header" and k not in base]
+    s.owpml_ok.update(added)
+    return added
 
 
 def _snap(s):
     return {"doc": s.kit["struct"].snapshot(s.doc), "texts": dict(s.texts), "unrestored": set(s.unrestored),
             "formatted": set(s.formatted), "struct": set(s.struct), "removed": set(s.removed), "origin": dict(s.origin),
             "division": copy.deepcopy(s.division["applied"]),  # 구분 기준 적용 상태도 실행 취소와 함께(spec_구분_기준 ② §4)
-            "outline": copy.deepcopy(s.outline)}  # 개요 편집 오버레이도(spec_hwpx_웹편집 ② §8)
+            "outline": copy.deepcopy(s.outline),  # 개요 편집 오버레이도(spec_hwpx_웹편집 ② §8)
+            "owpml_ok": set(s.owpml_ok)}  # 받아들인 위반 종류도(owpml_allow) — 가져온 정의가 되돌려지면 허용도 되돌린다
 
 
 def _rollback(s, snap):
     s.doc = s.kit["struct"].restore(s.kit["cls"], s.original, snap["doc"])
+    s.owpml_ok = set(snap.get("owpml_ok", s.owpml_ok))
     s.texts, s.unrestored, s.formatted = dict(snap["texts"]), set(snap["unrestored"]), set(snap["formatted"])
     s.struct, s.removed, s.origin = set(snap["struct"]), set(snap["removed"]), dict(snap["origin"])
     s.division["applied"], s.division["plan"] = copy.deepcopy(snap.get("division")), None  # 계획은 문서 버전에 묶여 있어 되돌리면 무효
@@ -766,7 +795,9 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
     except (KeyError, ValueError) as e:
         if s.doc._blocks_cache is None:  # 고치다 만 경우 — 직전 상태로
             _rollback(s, snap)
+        s.owpml_ok = set(snap["owpml_ok"])  # 실패한 편집이 받아들인 종류(owpml_allow)는 남기지 않는다
         raise HTTPException(400, str(e)) from e
+    base = owpml_base(s)  # run() 이 받아들인 종류(owpml_allow)까지 넣어 다시 읽는다
     header = sum(len(v) for v in getattr(s.doc, "_defs", {}).values()) != ndefs
     if s.fmt == "docx":
         s.doc.blocks()  # docx 검사는 위반 자리를 블록 id 로 적는다 — 새 문단·칸에도 id 를 붙여 둔다
@@ -816,6 +847,7 @@ def _edit(doc_id, make, op=None, req=None):
         before, run = make(s)
         hosts = [h for h in dict.fromkeys(st.top_host(s.doc, e) for e in before) if h is not None]
         drop = [i for h in hosts for i in st.top_ids(s.doc, h)]
+        faces = _font_names(s)
         out, after = _transact(s, run, op, req, local=hosts)
         if after is None:
             return out
@@ -823,7 +855,14 @@ def _edit(doc_id, make, op=None, req=None):
         want = {i for h in out["_hosts"] for i in st.top_ids(s.doc, h)}
         tops = [b for b in after if b["id"] in want]
         return {"tops": {"drop": drop, "blocks": tops}, "texts": verify.flat_texts(tops), "focus": out.get("focus"),
-                "edited": sorted(s.edited()), "original": {i: s.orig_texts.get(i, "") for i in s.edited()}, **s.state()}
+                "edited": sorted(s.edited()), "original": {i: s.orig_texts.get(i, "") for i in s.edited()}, **s.state(),
+                # 편집이 새 글꼴 정의를 들여왔으면(다른 문서의 서식을 입힘 — spec_일반편집 ② §4) 화면이 @font-face 계획을 다시 받게: 없으면 새 글꼴의 글이 기본 글꼴로 그려진다
+                **({"webFonts": fonts.web_fonts(s.doc.font_table())} if faces is not None and _font_names(s) != faces else {})}
+
+
+def _font_names(s):
+    """hwpx 문서 header 의 (언어, 글꼴 이름)들 — 편집 앞뒤로 견줘 새 글꼴 정의가 들어왔는지 본다(docx 는 None — 직접 서식이라 편집이 글꼴 목록을 안 바꾼다)."""
+    return {(lang, face) for lang, faces in s.doc.font_table().items() for face in faces} if s.fmt == "hwpx" else None
 
 
 @app.post("/api/docs/{doc_id}/split")
@@ -1177,8 +1216,10 @@ def owpml_now(doc_id: str):
 
 # ---- 작업 목록·기록 API(spec_작업 ② §6) ------------------------------------------------------------------
 
-WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task")  # commits = 마지막 확정 번호(② §8) · task = 고른 작업 종류(② §10 — 안 골랐으면 None)
-TASK = {"kind": ("", "rnd"), "file": ("", "plan", "report", "part"), "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task", "roundParent", "alias")  # roundParent = 분기한 이전 라운드의 문서 id · alias = 별칭(② §10)
+TASK = {"kind": ("", "rnd", "general"), "file": ("", "plan", "report", "part"),
+        "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+TASK_KIND = {"doc_edit": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」 은 일반 문서(general)의 일(spec_일반편집 ② §11). 다른 조합은 저장하지 않는다(work_task)
 
 
 def _task(wid, blocks):
@@ -1199,14 +1240,30 @@ def _work_or_404(wid):
     return w
 
 
+def _framed(w):
+    """프로젝트 구성을 반영한 문서인가(② §10 「프레임 이름」) — 열려 있으면 세션의 지금 상태(반영·실행 취소 바로 뒤에도 맞게), 닫혀 있으면 작업에 적어 둔 것(work.json `framed` — _persist)."""
+    s = DOCS.get(w.get("id"))
+    return bool(s.division.get("applied")) if s is not None else bool(w.get("framed"))
+
+
 def _shown(w):
-    """작업(work.json)의 보이는 이름(② §10 「목적 문서의 보이는 이름」) — 과제에 묶인 목적 문서면 과제 이름을 뒤에 붙인 것, 아니면 올린 이름."""
-    return works.shown_name(w.get("name"), w.get("task"))
+    """작업(work.json)의 보이는 이름(② §10 「목적 문서의 보이는 이름」·「별칭」·「프레임 이름」) — 과제에 묶인 목적 문서면 과제 이름을, 별칭이 있으면 「(별칭)」 을 뒤에 붙인 것,
+    프로젝트 구성을 반영한 양식 맞추기 문서면 「<첨부 파일 종류>_<프로젝트>_프레임」, 아니면 올린 이름."""
+    return works.shown_name(w.get("name"), w.get("task"), w.get("alias"), _framed(w))
 
 
 def _shown_of(s):
     """세션의 보이는 이름 — 저장된 이름(s.name)은 올린 그대로다(이어 열기·양식 판정이 그것을 본다)."""
-    return works.shown_name(s.name, (works.work(s.id) or {}).get("task"))
+    w = works.work(s.id) or {}
+    return works.shown_name(s.name, w.get("task"), w.get("alias"), bool(s.division.get("applied")))
+
+
+def _save_name(shown, ext, w, framed, edited=True):
+    """내려받는 편집본의 파일 이름(② §10) — 보이는 이름, 고친 것이면 「_수정」 꼬리. 프레임 이름은 올린 파일과 이미 다른 이름이라 꼬리를 안 붙인다(「프레임 이름」)."""
+    if not edited or works.frame_stem((w or {}).get("task"), framed):
+        return shown
+    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
+    return f"{stem}_수정{ext}"
 
 
 def _work_view(w):
@@ -1222,22 +1279,340 @@ def works_list():
 
 @app.put("/api/works/{wid}/task")
 def work_task(wid: str, body: dict = Body(...)):
-    """작업 종류·첨부 파일·할 일·과제(② §10) {kind, file, job, project} — work.json 에 저장만(문서·분석은 그대로).
-    과제 = 같은 이름(project)으로 묶인 작업들. 할 일은 과제에 하나: 과제에 들어온 문서는 그 과제의 할 일을 따르고, 과제 안에서 할 일을 바꾸면 묶인 문서 모두에 적는다."""
+    """{kind, file, job, project, round?} → {task, division?}. 프로젝트 아래 TASK·라운드별로 문서를 묶는다.
+    다른 TASK 또는 라운드의 작업 분류는 바꾸지 않는다. 기존 round 없는 작업은 1라운드.
+    round 를 안 보냈고 묶음(프로젝트·TASK)이 바뀌면 새 묶음에 이미 있는 다른 작업들의 최신 라운드로 둔다(없으면 번호 없음 = 1 — spec_작업 ② §10·§19).
+    프로젝트가 바뀌어 이름 있는 프로젝트에 들어갔고 작업이 열려 있고 공유 중이면 division: adopted(프로젝트의 구분 기준을 받음) | seeded(이 문서의 값을 프로젝트에 올림) | none(둘 다 없음)."""
+    return _work_task(wid, body)
+
+
+def _work_task(wid, body, locked=False):
+    """work_task 의 몸통. locked = 부르는 쪽이 projects.ROUND_LOCK 을 이미 잡음(work_start_task — 재진입이 안 되는 잠금이라 여기서 다시 잡지 않는다).
+    round 를 안 보낸 요청은 최신 라운드를 읽어 적는 동안 ROUND_LOCK 을 잡는다(새 라운드·새 TASK 시작의 번호 배정과 같은 잠금) — 세션 잠금·저장은 그 밖에서."""
     t = {k: body.get(k) or "" for k in TASK}
     if any(t[k] not in TASK[k] for k in TASK) or not isinstance(body.get("project") or "", str):
         raise HTTPException(400, "모르는 작업 종류 값입니다")
-    old = (_work_or_404(wid).get("task") or {}).get("project", "")
-    t["project"] = " ".join((body.get("project") or "").split())[:60]
-    mates = [w for w in works.list_works() if w["id"] != wid and (w.get("task") or {}).get("project") == t["project"]] if t["project"] else []
-    if mates and old != t["project"]:
-        t["job"] = mates[0]["task"].get("job") or t["job"]
-    if works.update(wid, task=t) is None:
+    # 할 일과 작업 종류의 조합(spec_일반편집 ② §11): 작업 종류가 정해진 할 일(TASK_KIND — 문서 일반 편집 = general)은 그 종류여야 하고(비워도 안 됨 — 비우면 화면·프로젝트 구분 기준 공유가 연구개발로 본다),
+    # 그 밖의 할 일은 연구개발(rnd) — 작업 종류를 비운 채 할 일만 남기는 것은 전처럼 된다
+    if t["job"] and (t["kind"] != TASK_KIND[t["job"]] if t["job"] in TASK_KIND else t["kind"] not in ("", "rnd")):
+        raise HTTPException(400, "이 TASK 와 작업 종류가 맞지 않습니다 — 작업 종류를 바꾸려면 TASK 를 먼저 비우세요")
+    _work_or_404(wid)
+    t["project"] = projects.normalize_name(body.get("project") or "")
+    if "round" in body and (not isinstance(body["round"], int) or isinstance(body["round"], bool) or not 1 <= body["round"] <= 1000000):
+        raise HTTPException(400, "라운드는 1 이상의 정수여야 합니다")
+
+    def store():
+        """라운드를 정해 work.json 에 적는다 → (전의 task, 들어가기 전 그 프로젝트의 기록 | None)."""
+        old = _work_or_404(wid).get("task") or {}
+        same = projects.group_key(old)[:2] == projects.group_key(t)[:2]
+        if "round" in body or (same and "round" in old):
+            t["round"] = body.get("round", projects.round_of(old) if same else 1)
+        elif not same and t["project"]:   # 묶음이 바뀜 · round 안 보냄 → 새 묶음의 최신 라운드(자기 자신은 안 센다 — 다른 작업이 없거나 최신이 1 이면 전처럼 번호 없음 = 1)
+            others = [projects.round_of(w.get("task")) for w in works.list_works()
+                      if w["id"] != wid and projects.group_key(w.get("task"))[:2] == (t["project"], t["job"])]
+            if others and max(others) > 1:
+                t["round"] = max(others)
+        record = None
+        if t["project"]:
+            try:
+                record = projects.get(t["project"])
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+        if works.update(wid, task=t) is None:
+            raise HTTPException(404, "그런 작업이 없습니다")
+        return old, record
+
+    if locked or "round" in body:
+        old, record = store()
+    else:
+        with projects.ROUND_LOCK:
+            old, record = store()
+    out = {"task": t}
+    s = DOCS.get(wid)
+    if s is not None:
+        with s.lock:
+            sharing = _project_settings_sync(s)
+            entered = bool(t["project"]) and projects.group_key(old)[0] != t["project"]   # 프로젝트가 바뀌어 이름 있는 프로젝트에 들어감
+            if entered and sharing and sharing["shared"]:   # 들어감 알림의 근거(② §19) — 이전 라운드·일반 문서·세션 없음은 칸 없음
+                out["division"] = "adopted" if record is not None else "seeded" if s.division.get("settings") is not None else "none"
+        _persist_safe(s, force=True)
+    return out
+
+
+@app.put("/api/works/{wid}/alias")
+def work_alias(wid: str, body: dict = Body(...)):
+    """{alias} → {alias, name}. 별칭(② §10 「별칭」) — 보이는 이름의 확장자 앞에 「(별칭)」. 빈 글 = 지움. 올린 이름(work.json name)은 그대로."""
+    try:
+        alias = works.normalize_alias(body.get("alias", ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if len(alias) > works.ALIAS_MAX:
+        raise HTTPException(400, f"별칭은 {works.ALIAS_MAX}자까지입니다")
+    old = _work_or_404(wid).get("alias") or ""
+    w = works.update(wid, alias=alias) if alias else works.update(wid, alias=None)
+    if w is None:
         raise HTTPException(404, "그런 작업이 없습니다")
-    for w in mates:
-        if w["task"].get("job", "") != t["job"]:
-            works.update(w["id"], task={**w["task"], "job": t["job"]})
-    return {"task": t}
+    if alias != old:
+        works.log(wid, "alias", old=old, new=alias)
+    return {"alias": alias, "name": _shown(w)}
+
+
+@app.get("/api/projects")
+def projects_list():
+    try:
+        return {"projects": projects.listing()}
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+def _project_found(name):
+    """ROUND_LOCK 안. (정규화한 이름, 그 프로젝트의 작업들, 전체 작업). 저장 파일이 깨졌으면 아무것도 바꾸기 전에 409, 없는 프로젝트는 404."""
+    project = projects.normalize_name(name)
+    try:
+        record = projects.get(project)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    rows = works.list_works()
+    members = [w for w in rows if projects.group_key(w.get("task"))[0] == project]
+    if not project or (record is None and not members):
+        raise HTTPException(404, "그런 프로젝트가 없습니다")
+    return project, members, rows
+
+
+def _project_sessions_refresh(ids):
+    """task.project 가 바뀐 작업 중 열려 있는 세션을 새 소속에 맞추고 저장한다."""
+    for wid in ids:
+        s = DOCS.get(wid)
+        if s is None:
+            continue
+        with s.lock:
+            _project_settings_sync(s)
+        _persist_safe(s, force=True)
+
+
+@app.put("/api/projects/{name:path}")
+def project_rename(name: str, body: dict = Body(...)):
+    """{name}. 프로젝트의 모든 TASK·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다."""
+    new = body.get("name")
+    if not isinstance(new, str) or not projects.normalize_name(new):
+        raise HTTPException(400, "새 프로젝트 이름을 입력하세요")
+    new = projects.normalize_name(new)
+    with projects.ROUND_LOCK:
+        old, members, rows = _project_found(name)
+        if new == old:
+            return {"name": old, "works": []}
+        if projects.get(new) is not None or any(projects.group_key(w.get("task"))[0] == new for w in rows):
+            raise HTTPException(409, "같은 이름의 프로젝트가 이미 있습니다. 프로젝트는 합치지 않습니다")
+        changed = []
+        for w in members:  # 작업 먼저 — 기록을 먼저 옮기면 열린 세션이 옛 이름으로 기록을 다시 만든다
+            if works.update(w["id"], task={**w["task"], "project": new}) is not None:
+                works.log(w["id"], "renameProject", old=old, new=new)
+                changed.append(w["id"])
+        projects.rename(old, new)
+        _project_sessions_refresh(changed)
+        return {"name": new, "works": changed}
+
+
+@app.delete("/api/projects/{name:path}")
+def project_delete(name: str, docs: str = "keep"):
+    """docs=keep: 문서는 남기고 프로젝트만 해제 · docs=delete: 문서까지 삭제(spec_작업 ② §17). 둘 다 공유 구분 기준 기록을 지운다.
+    docs=reset: 프로젝트 구성 초기화 — 문서·소속은 그대로 두고 프로젝트 기록(구성 값·확정·버전)과, 그 구성을 공유하던 작업들의 구성 입력·확정·변경 계획을 비운다
+    → {name, docs: "reset", works: 비운 작업, skipped: 못 열어 건너뛴 작업}."""
+    if docs not in ("keep", "delete", "reset"):
+        raise HTTPException(400, "docs 는 keep · delete · reset 가운데 하나여야 합니다")
+    with projects.ROUND_LOCK:
+        project, members, _ = _project_found(name)
+        ids = [w["id"] for w in members]
+        if docs == "reset":
+            done, skipped = _project_reset(project, members)
+            return {"name": project, "docs": docs, "works": done, "skipped": skipped}
+        if docs == "delete":
+            for wid in ids:  # 작업 하나 지우기(work_delete)와 같은 방식
+                DOCS.pop(wid, None)
+                works.delete(wid)
+        else:
+            for w in members:
+                task = {k: v for k, v in w["task"].items() if k != "round"}
+                task["project"] = ""
+                if works.update(w["id"], task=task) is not None:
+                    works.log(w["id"], "leaveProject", project=project)
+            _project_sessions_refresh(ids)
+        projects.remove(project)
+        return {"name": project, "docs": docs, "works": ids}
+
+
+def _project_reset(project, members):
+    """ROUND_LOCK 안. 프로젝트 구성 초기화(spec_작업 ② §17) → (비운 작업 id 들, 못 열어 건너뛴 작업 id 들).
+    그 구성을 공유하던 작업(TASK 마다 최신 라운드 · 일반 문서 제외 — _project_settings_sync 의 shared 와 같은 조건)의 구성 입력·확정·변경 계획을 비운 **뒤에** 프로젝트 기록을 지운다
+    — 기록을 먼저 지우면 값이 남은 세션의 다음 _project_settings_sync 가 그 값을 프로젝트로 다시 올린다(seed).
+    문서 내용 · task(소속·TASK·라운드) · 반영 기록(applied) · hints · review · 이전 라운드 작업은 그대로. 닫힌 작업도 열어서 비운다."""
+    latest = {}
+    for w in members:
+        job = projects.group_key(w.get("task"))[1]
+        latest[job] = max(latest.get(job, 0), projects.round_of(w.get("task")))
+    shared = [w["id"] for w in members if projects.round_of(w.get("task")) == latest[projects.group_key(w.get("task"))[1]]
+              and (w.get("task") or {}).get("kind") != "general"]
+
+    def clear(wid):
+        """세션의 구성 입력·확정·계획을 비우고 저장 → 비울 것이 있었나."""
+        s = _sess(wid)
+        with s.lock:
+            d = s.division
+            if d.get("settings") is None and d.get("confirmed") is None and d.get("plan") is None:
+                return False
+            d["settings"] = d["confirmed"] = d["plan"] = None
+            s.saved_rev = -1   # 문서 rev 가 같아도 비운 입력은 작업에 남긴다(_project_settings_sync 와 같은 표시)
+        _persist_safe(s, force=True)
+        return True
+
+    done, skipped = [], []
+    for wid in shared:
+        try:
+            clear(wid)
+        except Exception as exc:  # noqa: BLE001 — 못 여는 작업(폴더 깨짐 등)은 건너뛴다. 못 여는 동안은 값을 프로젝트로 올리지도 못한다
+            log.warning("[프로젝트 구성 초기화] %s 작업 %s 를 열지 못해 건너뜀: %r", project, wid, exc)
+            skipped.append(wid)
+            continue
+        works.log(wid, "resetProject", project=project)
+        done.append(wid)
+    projects.remove(project)
+    again = False
+    for wid in done:   # 비우는 사이에 다른 요청이 그 세션에 프로젝트 값을 다시 받아 놓았으면(기록을 지우기 전의 동기화) 한 번 더 비운다
+        try:
+            again = clear(wid) or again
+        except Exception:  # noqa: BLE001
+            pass
+    if again:
+        projects.remove(project)
+    return done, skipped
+
+
+def _freeze_latest_project_round(project, job, rows):
+    """ROUND_LOCK 안. 새 번호 배정 전에 현재 최신 라운드의 공유 입력을 고정한다."""
+    members = [w for w in rows if projects.group_key(w.get("task"))[:2] == (project, job)]
+    latest = max((projects.round_of(w.get("task")) for w in members), default=0)
+    for member in members:
+        if projects.round_of(member.get("task")) == latest:
+            session = _sess(member["id"])
+            with session.lock:
+                _project_settings_sync(session)
+            _persist(session, force=True)
+    return latest
+
+
+@app.post("/api/works/{wid}/start-task")
+def work_start_task(wid: str, body: dict = Body(...)):
+    """새로 올린 무소속 문서를 프로젝트의 다음 TASK 라운드로 배정한다."""
+    project, job, role = body.get("project"), body.get("job"), body.get("file", "")
+    if not isinstance(project, str) or not projects.normalize_name(project):
+        raise HTTPException(400, "프로젝트 이름을 먼저 입력하세요")
+    if not isinstance(job, str) or not job or job not in TASK["job"] or role not in TASK["file"]:
+        raise HTTPException(400, "모르는 TASK 또는 문서 종류입니다")
+    project = projects.normalize_name(project)
+    with projects.ROUND_LOCK:
+        work = _work_or_404(wid)
+        if work.get("source") != "upload" or projects.group_key(work.get("task"))[0]:
+            raise HTTPException(409, "새로 올린 무소속 문서로 시작하세요. 기존 프로젝트 작업은 그대로 보관합니다")
+        latest = _freeze_latest_project_round(project, job, works.list_works())
+        result = _work_task(wid, {"kind": TASK_KIND.get(job, "rnd"), "file": role, "job": job, "project": project, "round": latest + 1}, locked=True)
+        works.log(wid, "startTask", project=project, job=job, round=latest + 1)
+        return {**result, "docId": wid, "round": latest + 1}
+
+
+def _round_uploaded_original(member):
+    """수정본에서 갈라진 라운드도 최초 업로드 원본으로 돌아간다."""
+    current, seen = member, set()
+    while True:
+        wid = current["id"]
+        if wid in seen or current.get("format") != member.get("format"):
+            raise HTTPException(409, "라운드의 원본 연결 정보를 확인할 수 없습니다")
+        seen.add(wid)
+        parent = current.get("roundParent")
+        if not parent:
+            path = works.file_path(wid, "original")
+            if path is None:
+                raise HTTPException(409, "처음 올린 원본 파일을 읽지 못했습니다")
+            return path.read_bytes()
+        current = works.work(parent)
+        if current is None:
+            raise HTTPException(409, "처음 올린 원본이 있는 이전 라운드를 찾지 못했습니다")
+
+
+@app.post("/api/works/{wid}/round")
+def work_round(wid: str, body: dict = Body(default={})):
+    """기존 라운드의 문서들을 보존하고, 그 그룹 전체를 새 라운드로 복사한다."""
+    source = body.get("source", "original")
+    if source not in ("current", "original"):
+        raise HTTPException(400, "라운드 시작 문서는 current 또는 original 입니다")
+    if not works.enabled():
+        raise HTTPException(400, "작업 저장을 켠 뒤 라운드를 만들 수 있습니다")
+    with projects.ROUND_LOCK:
+        work = _work_or_404(wid)
+        task = work.get("task") or {}
+        project, job, number = projects.group_key(task)
+        if not project or not job:
+            raise HTTPException(400, "프로젝트와 TASK를 먼저 선택하세요")
+        rows = works.list_works()
+        members = [w for w in rows if projects.group_key(w.get("task")) == (project, job, number)]
+        next_round = _freeze_latest_project_round(project, job, rows) + 1
+        prepared = []
+        for member in members:
+            original_session = _sess(member["id"])
+            with original_session.lock:
+                _project_settings_sync(original_session)
+                if source == "current":
+                    data = original_session.doc.save()
+                    applied = copy.deepcopy(original_session.division.get("applied"))
+                    if applied:
+                        applied.update(rev=0, inheritedFrom=member["id"])  # 새 문서의 기준은 지금 구조: 이전 rev를 들고 오면 새 분석이 늘 오래된 것으로 보인다.
+                else:
+                    data, applied = _round_uploaded_original(member), None
+                local_settings = copy.deepcopy(original_session.division.get("settings"))
+            _persist(original_session, force=True)  # 새 최대 round가 생기기 전에 이전 설정을 고정한다.
+            fresh = Session(member["name"], data)
+            try:
+                shared_settings = projects.settings(project)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            fresh.division["settings"] = shared_settings or local_settings
+            fresh.division["applied"] = applied
+            prepared.append((member, fresh, data))
+        created, mapping = [], {}
+        try:
+            for member, fresh, data in prepared:
+                _admit(fresh)
+                created.append(fresh.id)
+                new_work = works.create(fresh.id, fresh.name, fresh.fmt, data, "round")
+                fresh.doc_key = new_work["sha256"]
+                new_task = {**(member.get("task") or {}), "round": next_round}
+                works.update(fresh.id, task=new_task, roundParent=member["id"], **({"alias": member["alias"]} if member.get("alias") else {}))  # 별칭은 이어받는다(② §10)
+                from app import heading_forms
+                form_choice = heading_forms.choice(member["id"])
+                if form_choice is not None:
+                    heading_forms.set_choice(fresh.id, form_choice)
+                mapping[member["id"]] = fresh.id
+                _persist(fresh, force=True)
+                works.log(fresh.id, "round", fromWork=member["id"], source=source, round=next_round)
+            # 취합의 참조 선택만 복사하고 분석·반영 기록은 새 라운드에서 시작한다.
+            from app import merge_gather_api
+            for member, fresh, data in prepared:
+                if (member.get("task") or {}).get("file") == "plan" and job == "plan_merge":
+                    old_gather = merge_gather_api._store(member["id"])
+                    for part in old_gather.get("order") or []:
+                        if part in mapping:
+                            record = old_gather["parts"].get(part) or {}
+                            merge_gather_api.gather_part_put(fresh.id, mapping[part], {"orgs": record.get("orgs") or [], "common": record.get("common", True)})
+        except Exception:
+            for created_id in created:
+                DOCS.pop(created_id, None)
+                works.delete(created_id)
+            raise
+        _ensure_persister()
+        for member, fresh, data in prepared:
+            if DOCS.get(fresh.id) is fresh:
+                _start(fresh, "import", verify.run_import)
+        return {"docId": mapping[wid], "round": next_round, "sourceRound": number, "source": source,
+                "works": [_work_view(works.work(new_id)) for new_id in mapping.values()], "mapping": mapping}
 
 
 @app.get("/api/works/{wid}/log")
@@ -1254,7 +1629,7 @@ def work_headings_preview(wid: str):
     if result is None:
         raise HTTPException(404, "그런 작업이 없습니다")
     if isinstance(result.get("work"), dict):
-        result["work"]["name"] = _shown(result["work"])   # 보이는 이름(② §10)
+        result["work"]["name"] = _shown(works.work(wid) or result["work"])   # 보이는 이름(② §10) — 작업 전체에서(프레임 표시 framed 는 WORK_KEYS 밖)
     return result
 
 
@@ -1274,9 +1649,8 @@ def work_file(wid: str, which: str):
     p = works.file_path(wid, which)
     if p is None:
         raise HTTPException(404, "그 파일이 없습니다")
-    ext, shown = "." + w["format"], _shown(w)   # 올린 원본은 올린 이름 그대로, 편집본은 보이는 이름(② §10 「목적 문서의 보이는 이름」)에 꼬리
-    stem = shown[:-len(ext)] if shown.lower().endswith(ext) else shown
-    name = w["name"] if which == "original" or p.name.startswith("original.") else f"{stem}_수정{ext}"
+    # 올린 원본은 올린 이름 그대로, 편집본은 보이는 이름(② §10 「목적 문서의 보이는 이름」)에 꼬리(프레임 이름은 꼬리 없이)
+    name = w["name"] if which == "original" or p.name.startswith("original.") else _save_name(_shown(w), "." + w["format"], w, _framed(w))
     return FileResponse(p, media_type=FORMATS[w["format"]]["mime"], filename=name)
 
 
@@ -1591,7 +1965,10 @@ app.include_router(heading_drift_api.router)
 from app import merge_api  # noqa: E402
 
 app.include_router(merge_api.router)
+app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
+app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
+app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 
 
 def _rules_view():
@@ -1738,8 +2115,42 @@ def _division_prior(s):
     return prior
 
 
+def _project_settings_sync(s, settings=None):
+    """세션 잠금 안. 최신 TASK 라운드는 프로젝트 설정, 이전 라운드는 저장한 설정을 쓴다."""
+    task = (works.work(s.id) or {}).get("task") or {}
+    project, _, number = projects.group_key(task)
+    latest = projects.latest_round(task) if project else number
+    shared = bool(project) and number == latest and task.get("kind") != "general"   # 일반 문서(구분 기준이 없는 작업 — spec_일반편집 ② §11)는 프로젝트의 구분 기준을 받지도 주지도 않는다
+    current = s.division.get("settings")
+    if shared:
+        try:
+            if settings is not None:
+                settings = projects.settings(project, settings)
+            else:
+                settings = projects.settings(project, current, seed=True)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    target = settings if settings is not None else current
+    if target != current:
+        s.division["settings"] = copy.deepcopy(target)
+        s.saved_rev = -1  # 문서 rev가 같아도 공유된 입력 변경은 다음 저장에 남긴다.
+    if shared:   # 프로젝트의 1단계 확정을 작업 쪽에도 옮겨 적는다 — 새 라운드가 생겨도 이 작업엔 그때 확정이 남는다(spec_작업 ② §18)
+        try:
+            got = projects.confirmed(project)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if got is not None and got != s.division.get("confirmed"):
+            s.division["confirmed"] = got
+            s.saved_rev = -1
+    plan = s.division.get("plan")
+    if plan and target and plan.get("settingsHash") != division_model.settings_hash(target):
+        s.division["plan"] = None
+    return {"project": project, "round": number, "latestRound": latest, "shared": shared} if project else None
+
+
 def _division_view(s):
     """GET …/divisions 의 몸통(세션 잠금 안에서) — 프로파일·양식 판정·입력 중 설정(+파생 뷰)·마지막 적용·마지막 계획 요약·오래됨."""
+    sharing = _project_settings_sync(s)
     form = PROFILE.form_of(s.doc.blocks())
     plan, settings = s.division.get("plan"), s.division["settings"]
     return {"profile": {"id": PROFILE.ID, "name": PROFILE.NAME, "version": PROFILE.VERSION, "form": form, "supported": PROFILE.supported(form),
@@ -1748,7 +2159,40 @@ def _division_view(s):
             "applied": s.division["applied"], "plan": division_plan.brief(plan) if plan else None,
             "hints": s.division.get("hints") or [],   # 추가한 자리(② §11) — 수·출처만 쓰고 상세는 members
             "review": s.division.get("review"), "reviewing": bool(s.division.get("reviewing")),   # 마지막 LLM 검토(취합)·도는 중(② §14)
-            "stale": bool(plan) and plan["baseRev"] != s.rev, "rev": s.rev}
+            "stale": bool(plan) and plan["baseRev"] != s.rev, "rev": s.rev, "projectSharing": sharing,
+            "confirmed": _division_confirmed(s, sharing), "versions": _division_versions(s, sharing)}
+
+
+def _division_versions(s, sharing):
+    """(세션 잠금 안 · _project_settings_sync 뒤) 구분 기준 버전의 보기(spec_작업 ② §19) — [{id, name, at, values, hash, active}] 저장한 차례.
+    공유 중(프로젝트의 최신 라운드)일 때만 그 프로젝트의 버전, 아니면 []. active = 그 버전의 hash 가 지금 입력 설정의 hash 와 같음(당해 차년도까지)."""
+    if not (sharing and sharing["shared"]):
+        return []
+    try:
+        rows = projects.versions(sharing["project"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    settings = s.division.get("settings")
+    now = division_model.settings_hash(settings) if settings is not None else None
+    return [{**{k: v[k] for k in ("id", "name", "at", "values", "hash")}, "active": now is not None and v["hash"] == now} for v in rows]
+
+
+def _division_confirmed(s, sharing):
+    """(세션 잠금 안 · _project_settings_sync 뒤) 1단계 구성 확정의 보기(spec_작업 ② §18) — {at, hash, values, scope: project|work, project?, valid} | None.
+    공유 중(프로젝트의 최신 라운드)이면 프로젝트 기록의 것, 아니면 작업의 것. valid = 지금 입력 값의 hash 가 확정한 hash 와 같음."""
+    if sharing and sharing["shared"]:
+        try:
+            got = projects.confirmed(sharing["project"])
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        extra = {"scope": "project", "project": sharing["project"]}
+    else:
+        got, extra = copy.deepcopy(s.division.get("confirmed")), {"scope": "work"}
+    if not isinstance(got, dict):
+        return None
+    settings = s.division.get("settings")
+    return {**{k: got.get(k) for k in ("at", "hash", "values")}, **extra,
+            "valid": settings is not None and division_model.settings_hash(settings) == got.get("hash")}
 
 
 def _division_form(s):
@@ -1779,12 +2223,124 @@ def divisions_settings(doc_id: str, body: dict = Body(...)):
     settings = _division_settings(body)
     s = _sess(doc_id)
     with s.lock:
-        before = division_model.settings_hash(s.division["settings"]) if s.division["settings"] else None
-        s.division["settings"] = settings
-        if division_model.settings_hash(settings) != before:
-            s.division["plan"] = None
+        _project_settings_sync(s, settings)
         view = _division_view(s)
     _persist_safe(s, force=True)  # rev 가 안 바뀌어도 설정은 작업에 남긴다
+    return view
+
+
+@app.post("/api/docs/{doc_id}/divisions/confirm")
+def divisions_confirm(doc_id: str, body: dict = Body(default={})):
+    """1단계 「구성 확정」(spec_작업 ② §18) {values?} → GET …/divisions 와 같은 몸통. values 가 있으면 먼저 입력 값으로 저장(PUT …/settings 와 같은 길).
+    공유 중(프로젝트의 최신 라운드)이면 프로젝트 기록에 확정 {at, hash, values}(작업 쪽에도 옮겨 적음), 아니면 작업에만. 문서는 안 바뀐다.
+    400 값 없음 · 409 프로젝트 저장 파일 손상."""
+    settings = _division_settings(body) if body.get("values") is not None else None
+    s = _sess(doc_id)
+    with s.lock:
+        sharing = _project_settings_sync(s, settings)
+        settings = s.division["settings"]
+        if settings is None:
+            raise HTTPException(400, "구분 값을 먼저 넣으세요")
+        got = None
+        if sharing and sharing["shared"]:
+            try:
+                got = projects.confirm(sharing["project"], settings)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+        scope = "project" if got is not None else "work"
+        if got is None:
+            got = {"at": time.time(), "hash": division_model.settings_hash(settings), "values": copy.deepcopy(settings["values"])}
+        s.division["confirmed"] = copy.deepcopy(got)
+        view = _division_view(s)
+    _persist_safe(s, force=True)  # rev 가 안 바뀌어도 확정은 작업에 남긴다
+    works.log(s.id, "divisionConfirm", rev=s.rev, settingsHash=got["hash"], scope=scope,
+              **({"project": sharing["project"]} if scope == "project" else {}))
+    return view
+
+
+def _version_sharing(s):
+    """(세션 잠금 안) 구분 기준 버전을 다룰 수 있는 작업인지 — 공유 중(프로젝트의 최신 라운드)이 아니면 409(spec_작업 ② §19). → projectSharing."""
+    sharing = _project_settings_sync(s)
+    if not (sharing and sharing["shared"]):
+        raise HTTPException(409, "프로젝트의 최신 라운드 작업에서만 프로젝트 구성 버전을 다룹니다")
+    return sharing
+
+
+@app.post("/api/docs/{doc_id}/divisions/versions")
+def divisions_version_save(doc_id: str, body: dict = Body(...)):
+    """구분 기준 버전 저장(spec_작업 ② §19) {name, values?, replace?} → GET …/divisions 와 같은 몸통. values 가 있으면 먼저 입력 값으로 저장(PUT …/settings 와 같은 길)하고
+    지금 입력 설정을 그 이름의 버전으로 남긴다. 같은 이름은 replace: true 일 때만 덮어씀(id 유지 · at 갱신). 지금 구분 기준의 확정은 안 바뀐다.
+    400 이름·값 없음 · 409 공유 중이 아님 · 같은 이름 · 50개 넘음 · 프로젝트 저장 파일 손상."""
+    try:
+        name = projects.version_name(body.get("name"))
+    except projects.VersionName as exc:
+        raise HTTPException(400, str(exc)) from exc
+    settings = _division_settings(body) if body.get("values") is not None else None
+    s = _sess(doc_id)
+    with s.lock:
+        sharing = _version_sharing(s)   # 공유 중이 아니면 입력을 바꾸기 전에 멈춘다
+        if settings is not None:
+            _project_settings_sync(s, settings)
+        settings = s.division["settings"]
+        if settings is None:
+            raise HTTPException(400, "구분 값을 먼저 넣으세요")
+        try:
+            got = projects.version_save(sharing["project"], name, settings, replace=body.get("replace") is True)
+        except (projects.VersionConflict, projects.VersionLimit) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if got is None:
+            raise HTTPException(409, "작업 폴더가 없어 프로젝트 구성 버전을 저장하지 못했습니다")
+        view = _division_view(s)
+    _persist_safe(s, force=True)  # values 로 입력이 바뀌었으면 작업에 남긴다
+    works.log(s.id, "divisionVersion", op="save", version=got["id"], name=got["name"], project=sharing["project"], rev=s.rev)
+    return view
+
+
+@app.post("/api/docs/{doc_id}/divisions/versions/{vid}/apply")
+def divisions_version_apply(doc_id: str, vid: str):
+    """구분 기준 버전 적용(spec_작업 ② §19) → GET …/divisions 와 같은 몸통. 그 버전의 값을 입력 설정으로 두고(프로젝트 공유 입력이 바뀐다) 확정까지 — …/confirm 과 같은 결과.
+    문서는 안 바뀐다. 404 없는 버전 · 409 공유 중이 아님 · 프로젝트 저장 파일 손상."""
+    s = _sess(doc_id)
+    with s.lock:
+        sharing = _version_sharing(s)
+        try:
+            version = projects.version_get(sharing["project"], vid)
+        except projects.VersionMissing as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        _project_settings_sync(s, _division_settings({"values": version["values"]}))
+        settings = s.division["settings"]
+        try:
+            got = projects.confirm(sharing["project"], settings)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if got is None:
+            got = {"at": time.time(), "hash": division_model.settings_hash(settings), "values": copy.deepcopy(settings["values"])}
+        s.division["confirmed"] = copy.deepcopy(got)
+        view = _division_view(s)
+    _persist_safe(s, force=True)  # rev 가 안 바뀌어도 입력·확정은 작업에 남긴다
+    works.log(s.id, "divisionVersion", op="apply", version=version["id"], name=version["name"], project=sharing["project"], rev=s.rev)
+    return view
+
+
+@app.delete("/api/docs/{doc_id}/divisions/versions/{vid}")
+def divisions_version_delete(doc_id: str, vid: str):
+    """구분 기준 버전 삭제(spec_작업 ② §19) → GET …/divisions 와 같은 몸통. 지금 구분 기준·확정은 안 바뀐다. 404 없는 버전 · 409 공유 중이 아님 · 프로젝트 저장 파일 손상."""
+    s = _sess(doc_id)
+    with s.lock:
+        sharing = _version_sharing(s)
+        try:
+            gone = projects.version_delete(sharing["project"], vid)
+        except projects.VersionMissing as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        view = _division_view(s)
+    _persist_safe(s, force=True)
+    works.log(s.id, "divisionVersion", op="delete", version=gone["id"], name=gone["name"], project=sharing["project"], rev=s.rev)
     return view
 
 
@@ -1792,6 +2348,7 @@ def divisions_settings(doc_id: str, body: dict = Body(...)):
 def divisions_plan_get(doc_id: str):
     s = _sess(doc_id)
     with s.lock:
+        _project_settings_sync(s)
         plan = s.division.get("plan")
         if plan is None:
             raise HTTPException(404, "계획이 없습니다")
@@ -1810,11 +2367,12 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
     settings = _division_settings(body) if body.get("values") is not None else None
     s = _sess(doc_id)
     with s.lock:
-        settings = settings or s.division["settings"]
+        before = copy.deepcopy(s.division["settings"])
+        _project_settings_sync(s, settings)
+        settings = s.division["settings"]
         if settings is None:
             raise HTTPException(400, "구분 값을 먼저 넣으세요")
-        changed = division_model.settings_hash(settings) != (division_model.settings_hash(s.division["settings"]) if s.division["settings"] else None)
-        s.division["settings"] = settings
+        changed = settings != before
         rev = s.rev
         applied = s.division["applied"]
         rebuild = not (applied and applied.get("values") == settings["values"])  # 같은 값을 이미 전체 반영한 문서면 자리표시를 다시 본뜨지 않음(FMM divisionsDone)
@@ -1827,8 +2385,10 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     with s.lock:
-        s.division["plan"] = plan
-        stale = plan["baseRev"] != s.rev
+        _project_settings_sync(s)
+        settings_changed = division_model.settings_hash(s.division["settings"]) != plan["settingsHash"]
+        s.division["plan"] = None if settings_changed else plan
+        stale = plan["baseRev"] != s.rev or settings_changed
         a = s.division["applied"]
         # 지금 규칙(프로파일 판)으로 다시 계획했는데 할 일이 없음 = 마지막 반영이 새 규칙에도 맞는다 — 판을 올려 화면의 「새 규칙 — 계획 확인」 을 끈다(② §16). 자리를 빼거나 한 자리만 본 계획은 아님
         confirmed = bool(a and not stale and only is None and not skip and a.get("values") == plan["values"] and a.get("profileVersion") != plan["profileVersion"]
@@ -1841,6 +2401,48 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
     return {**division_plan.view(plan), "stale": stale, "rev": s.rev}
 
 
+@app.post("/api/docs/{doc_id}/divisions/adopt")
+def divisions_adopt(doc_id: str, body: dict = Body(default={})):
+    """구조 확인(spec_취합 ② §8-4) — {values?} → {adopted, why, summary, applied, rev}. 문서는 안 바뀐다.
+    한 번도 반영한 적 없는 문서의 구조가 이미 지금 값에 맞으면(전체 계획에 바뀔 것·못 정한 자리가 없고 이미 맞은 자리가 있음) 반영 기록을 적는다(adopted) —
+    구조를 맞춘 프레임을 새로 올리면 반영 끝점은 할 일이 없어 기록을 안 남기고, 그러면 취합의 배포 기준본이 notApplied 로 막힌다. 계획은 rebuild=False(채워진 자리를 다시 본뜨지 않음) · 저장하지 않는다."""
+    settings = _division_settings(body) if body.get("values") is not None else None
+    s = _sess(doc_id)
+    with s.lock:
+        _project_settings_sync(s, settings)
+        settings = s.division["settings"]
+        if settings is None:
+            raise HTTPException(400, "구분 값을 먼저 넣으세요")
+        if s.division.get("applied"):
+            return {"adopted": False, "why": "applied", "summary": None, "applied": s.division["applied"], "rev": s.rev}
+        rev, key = s.rev, division_model.settings_hash(settings)
+        hints = [h["para"] for h in s.division.get("hints") or [] if h.get("para")]
+        prior = list(_division_prior(s))
+        copy_doc, snap = division_plan.snapshot_copy(s.kit, s.original, s.doc)
+    try:
+        plan = division_plan.make(s.kit, s.original, copy_doc, rev, settings, PROFILE, only=None, skip=[], rebuild=False, copy=(copy_doc, snap), hints=hints, prior=prior)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    summary = plan["summary"]
+    why = ("changes" if plan["_report"]["groups"] or plan["_report"]["changes"] else "unresolved" if summary.get("unresolved") else
+           "noCandidates" if not summary.get("already") else None)
+    with s.lock:
+        _project_settings_sync(s)
+        if s.rev != rev or division_model.settings_hash(s.division["settings"]) != key:
+            raise HTTPException(409, "확인하는 동안 문서나 값이 바뀌었습니다 — 다시 하세요")
+        if s.division.get("applied"):
+            return {"adopted": False, "why": "applied", "summary": summary, "applied": s.division["applied"], "rev": s.rev}
+        if why:
+            return {"adopted": False, "why": why, "summary": summary, "applied": None, "rev": s.rev}
+        s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]
+        s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
+                                 "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": summary, "adopted": True}
+        applied = s.division["applied"]
+    _persist_safe(s, force=True)   # rev 가 안 바뀌어도 반영 기록은 작업에 남긴다
+    works.log(s.id, "divisionAdopt", rev=rev, planId=plan["planId"], settingsHash=plan["settingsHash"], summary=summary)
+    return {"adopted": True, "why": None, "summary": summary, "applied": applied, "rev": s.rev}
+
+
 @app.post("/api/docs/{doc_id}/divisions/apply")
 def divisions_apply(doc_id: str, body: dict = Body(...)):
     """{planId, expectRev?} → 고정된 계획만 반영(spec_구분_기준 ② §4): 계획의 사본 문서를 세션 문서로 바꿔 넣고 문서 전체 검사 → 실패면 복원·422,
@@ -1848,6 +2450,7 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
     plan_id, expect = body.get("planId"), body.get("expectRev")
     s = _sess(doc_id)
     with s.lock:
+        _project_settings_sync(s)
         plan = s.division.get("plan")
         if plan is None or plan["planId"] != plan_id:
             raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
@@ -1887,12 +2490,41 @@ def divisions_read(doc_id: str):
         return {"form": form, "read": PROFILE.read_values(blocks, PROFILE.levels_of(blocks))}
 
 
+@app.post("/api/divisions/read-file")
+async def divisions_read_file(file: UploadFile = File(...)):
+    """1단계 「파일 올려 추출」(spec_작업 ② §18) — 올린 파일(hwpx · hwp 는 올리기와 같이 한글로 바꿔)에 적힌 구분 값 → {name(올린 파일 이름), form, read}(read = …/divisions/read 와 같은 꼴).
+    작업을 만들지 않는다(세션·작업 폴더 없음 — 문서를 읽기만). 400 hwpx 아님 · 열 수 없음 · 양식 이름 문단 없음 · 413 크기."""
+    from starlette.concurrency import run_in_threadpool
+    shown, data = file.filename or "document.hwpx", await file.read()
+    if len(data) > MAX_MB * 2 ** 20:
+        raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
+    name = shown
+    if name.lower().endswith(".hwp"):
+        name, data = await run_in_threadpool(_from_hwp, name, data)   # 한글 변환은 수 초~수십 초 — 이벤트 루프 밖에서
+    if fmt_of(name) != "hwpx":
+        raise HTTPException(400, "hwp·hwpx 파일만 구분 값을 읽을 수 있습니다")
+    return await run_in_threadpool(_division_read_bytes, shown, data)   # 큰 문서는 읽는 데 1초 넘게 — 이벤트 루프 밖에서
+
+
+def _division_read_bytes(name, data):
+    """hwpx 바이트 → {name, form, read} — 세션 없이 문서만 연다(Session 과 같은 HwpxDoc · 등록·저장 없음)."""
+    try:
+        blocks = HwpxDoc(data).blocks()
+    except Exception as e:  # noqa: BLE001 — 깨진 파일·hwpx 아님
+        raise HTTPException(400, f"hwpx 로 열 수 없습니다: {e}") from e
+    form = PROFILE.form_of(blocks)
+    if not form:
+        raise HTTPException(400, "양식 이름 문단이 없어 값을 읽을 수 없습니다")
+    return {"name": name, "form": form, "read": PROFILE.read_values(blocks, PROFILE.levels_of(blocks))}
+
+
 # ---- 문서 표시 · 추가한 자리 · LLM 재검토(spec_구분_기준 ② §11) ----------------------------------------------------------
 
 DIVISION_DEFAULT_VALUES = {"stages": [1], "orgs": {"lead": "", "joint": [], "nonprofit": [False]}}   # 값이 아직 없을 때 members 가 쓰는 기본값(묶음 찾기에만)
 
 
 def _division_values(s):
+    _project_settings_sync(s)
     settings = s.division["settings"]
     return settings["values"] if settings else PROFILE.norm_values(DIVISION_DEFAULT_VALUES)
 

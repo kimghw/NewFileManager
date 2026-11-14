@@ -7,8 +7,9 @@
   화면을 다시 읽지 않음. 새로 고쳐도 시작 화면, 최근 작업에서 다시 열면 같은 작업.
 - 묻는 때: 2열에 저장 안 한 표 지침 글 · 서버에 반영 안 된 수정(「취소」 면 그대로, 「확인」 이면 시작 화면).
 - 키보드(초점 + Enter) · Ctrl 누름(새 탭에 시작 화면, 지금 작업은 그대로) · 좁은 창(앱 이름 글이 숨어도 아이콘은 남음).
-- TASK 카드(spec_작업 ② §15 — 7-1): 다섯 장·차례·글·로고(그림·바탕색)·줄 수(넓은 창 5 · 860px 3 · 560px 2 · 400px 1) · 준비 중 카드 · 누르면 파일 고르기 → 그 TASK 로 작업 내용 ·
-  같은 파일로 하던 작업 이어 열기(다른 TASK 면 안 바꿈 · 「새 작업으로 열기」) · 카드에 파일 놓기(docx 안 받음 · hwpx 는 양식 판정대로)."""
+- TASK 카드(spec_작업 ② §15 — 7-1): 여섯 장(끝에 「문서 일반 편집」 — spec_일반편집 ② §11)·차례·글·로고(그림·바탕색)·줄 수(넓은 창 6 · 860px 3 · 560px 2 · 400px 1) · 준비 중 카드 · 누르면 파일 고르기 → 그 TASK 로 작업 내용 ·
+  같은 파일로 하던 작업 이어 열기(같은 TASK·TASK 없음 = 이어 엶 + 「새 작업으로 열기」 · 다른 TASK 를 하던 작업 = 그대로 두고 새 작업 + 「하던 작업 열기」 — ② §15, 2026-11-13) ·
+  카드에 파일 놓기(docx 안 받음 · hwpx 는 양식 판정대로)."""
 import argparse
 import base64
 import os
@@ -226,14 +227,17 @@ try:
                      soon: b.getAttribute('aria-disabled') === 'true', busy: b.classList.contains('busy'), top: Math.round(r.top), h: Math.round(r.height), w: Math.round(r.width),
                      sym: !!document.querySelector(u.getAttribute('href')), ink: Math.round(u.getBBox().width), tone: lg.dataset.doc, bg: getComputedStyle(lg).backgroundImage, logo: Math.round(lg.getBoundingClientRect().width) }; })"""
         cards = page.evaluate(CARDS)
-        check("TASK 카드 다섯 장 — 할 일 차례(일의 흐름)", [c["key"] for c in cards] == ["plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge"], [c["key"] for c in cards])
+        check("TASK 카드 여섯 장 — 할 일 차례(일의 흐름 · 끝에 문서 일반 편집)", [c["key"] for c in cards] == ["plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit"], [c["key"] for c in cards])
         check("카드 글 = 문서 / 동작 두 줄", [(c["doc"], c["name"]) for c in cards] == [("사업계획서", "양식 맞추기"), ("사업계획서", "취합"), ("사업계획서 → 연차보고서", "이관"),
-                                                                             ("연차보고서", "양식 맞추기"), ("연차보고서", "취합")], [(c["doc"], c["name"]) for c in cards])
+                                                                             ("연차보고서", "양식 맞추기"), ("연차보고서", "취합"), ("문서", "일반 편집")], [(c["doc"], c["name"]) for c in cards])
         check("TASK 마다 로고(그림 있음 · 46px · 바탕 그라데이션)", all(c["sym"] and c["ink"] >= 20 and c["logo"] == 46 and "gradient" in c["bg"] for c in cards), cards)
-        check("로고 바탕색 = 문서(사업계획서 둘 같음 · 이관 다름 · 연차보고서 둘 같음)", [c["tone"] for c in cards] == ["plan", "plan", "plan-report", "report", "report"]
-              and cards[0]["bg"] == cards[1]["bg"] and cards[3]["bg"] == cards[4]["bg"] and len({cards[0]["bg"], cards[2]["bg"], cards[3]["bg"]}) == 3, [(c["tone"], c["bg"]) for c in cards])
-        check("로고 그림은 TASK 마다 다름", page.evaluate("() => new Set([...document.querySelectorAll('.task-icons symbol')].map((s) => s.innerHTML.replace(/\\s+/g, ''))).size") == 5)
-        check("넓은 창 — 다섯 장이 한 줄 · 같은 높이 · 가로 넘침 없음", len({c["top"] for c in cards}) == 1 and len({c["h"] for c in cards}) == 1
+        check("로고 바탕색 = 문서(사업계획서 둘 같음 · 이관 다름 · 연차보고서 둘 같음 · 일반 편집은 회색 — 보라 아님)", [c["tone"] for c in cards] == ["plan", "plan", "plan-report", "report", "report", "any"]
+              and cards[0]["bg"] == cards[1]["bg"] and cards[3]["bg"] == cards[4]["bg"] and len({cards[0]["bg"], cards[2]["bg"], cards[3]["bg"], cards[5]["bg"]}) == 4
+              and "rgb(244, 245, 247)" in cards[5]["bg"], [(c["tone"], c["bg"]) for c in cards])
+        check("로고 그림은 TASK 마다 다름", page.evaluate("() => new Set([...document.querySelectorAll('.task-icons symbol')].map((s) => s.innerHTML.replace(/\\s+/g, ''))).size") == 6)
+        check("넓은 창 — 여섯 장이 한 줄 · 같은 높이 · 동작 이름이 한 높이(문서 줄이 안 접힘) · 가로 넘침 없음(카드 안 글도)", len({c["top"] for c in cards}) == 1 and len({c["h"] for c in cards}) == 1
+              and len(set(page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card-name')].map((e) => Math.round(e.getBoundingClientRect().top))"))) == 1
+              and page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card')].every((b) => [...b.querySelectorAll('*')].every((x) => x.getBoundingClientRect().right <= b.getBoundingClientRect().right - 15))")  # 카드 안 여백(16px) 안쪽 — 「… 올려 시작 →」 이 안 넘친다
               and page.evaluate("() => { const e = document.getElementById('empty'); return e.scrollWidth <= e.clientWidth + 1; }"), [(c["top"], c["h"], c["w"]) for c in cards])
         check("준비 중인 TASK 는 「연차보고서 취합」 하나", [c["key"] for c in cards if c["soon"]] == ["report_merge"] and cards[4]["go"] == "준비 중" and cards[0]["go"].startswith("사업계획서 올려 시작"),
               [(c["key"], c["soon"], c["go"]) for c in cards])
@@ -272,19 +276,54 @@ try:
         check("작업에 저장됨(GET /api/works)", (saved.get("task") or {}).get("job") == "plan_fit" and saved["task"]["kind"] == "rnd", saved.get("task"))
         page.screenshot(path=str(OUT / "7_task_open.png"))
 
-        h = go_home(page)  # 다른 TASK 카드로 같은 파일 — 하던 작업의 TASK 는 안 바꾼다
+        # 다른 TASK 카드로 같은 파일 — 하던 작업은 그대로 두고 새 작업으로 열어 고른 TASK 를 적는다(② §15 · §19, 2026-11-13: 전에는 TASK 를 안 바꾸고 이어 열며 알림만 —
+        # 「양식 맞추기 카드로 올렸는데 TASK 가 이관」). 알림은 뒤따르는 다른 알림(첫 분석)에 밀릴 수 있어 부른 것을 적어 두고 본다
+        h = go_home(page)
+        page.evaluate("() => { window.__toasts = []; window.__toast0 = toast; toast = (m, e, a) => { window.__toasts.push({ m, act: a || null }); return window.__toast0(m, e, a); }; }")
         with page.expect_file_chooser() as fc:
             page.locator("#taskCards [data-task=plan_merge]").click()
         fc.value.set_files(str(ROOT / "samples" / SMALL))
-        page.wait_for_function("(w) => state.id === w && document.getElementById('panel').dataset.tool === 'Div' && !document.getElementById('toast').hidden", arg=wid, timeout=60000)
+        page.wait_for_function("""(w) => state.id && state.id !== w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div'
+            && !!document.querySelector('#paneDiv select[data-task=job]') && window.__toasts.some((x) => x.act && x.act.label === '하던 작업 열기')""", arg=wid, timeout=60000)
         t = page.evaluate(TASK)
-        check("다른 TASK 로 하던 작업 — 그대로 이어 엶(할 일 안 바뀜) · 알림", t["task"]["job"] == "plan_fit" and "하던 작업입니다" in t["toast"] and "사업계획서 양식 맞추기" in t["toast"], t)
-        page.locator("#toast .toast-act").click()  # 「새 작업으로 열기」 — 새 작업이 그 TASK 로
-        page.wait_for_function("(w) => state.id && state.id !== w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div'", arg=wid, timeout=60000)
-        page.wait_for_function(FIRST_DONE, timeout=120000)
-        t = page.evaluate(TASK)
-        check("「새 작업으로 열기」 — 새 작업이 그 TASK 로 · 첫 분석이 돎", t["id"] != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"], t)
+        new_id = t["id"]
+        note = page.evaluate("() => window.__toasts.filter((x) => x.act && x.act.label === '하던 작업 열기').map((x) => x.m).pop()")
+        check("다른 TASK 를 하던 파일 — 새 작업이 고른 TASK 로(작업 내용이 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
+        check("알림 — 하던 작업(TASK 이름)은 그대로 · 새 작업의 TASK · 단추 「하던 작업 열기」", "같은 파일로 하던 작업(TASK 「사업계획서 양식 맞추기」)은 그대로 두고 새 작업으로 열었습니다" in note
+              and note.endswith("TASK 「사업계획서 취합」 · 프로젝트 미지정") and t["task"]["project"] == "" and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
         check("앞 작업의 TASK 는 그대로", next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]["job"] == "plan_fit")
+        how = page.evaluate("""() => { const b = document.querySelector('#toast .toast-act');   // 알림의 단추 — 다른 알림에 밀렸으면 적어 둔 동작을 그대로 부른다
+            if (b && b.textContent === '하던 작업 열기' && !document.getElementById('toast').hidden) { b.click(); return 'button'; }
+            const a = window.__toasts.map((x) => x.act).filter((x) => x && x.label === '하던 작업 열기').pop(); a.run(); return 'action'; }""")
+        page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
+        t = page.evaluate(TASK)
+        check("「하던 작업 열기」 — 그 작업이 그 TASK 그대로 열림(작업 내용)", t["id"] == wid and t["task"]["job"] == "plan_fit" and t["pane"] and t["job"] == "plan_fit", (how, t))
+        page.evaluate("() => { toast = window.__toast0; }")
+        first = {}
+        for _ in range(600):  # 새 작업이면 첫 분석이 돈다(② §9) — 화면은 하던 작업으로 넘어왔으니 서버에서 본다
+            first = requests.get(f"{base}/api/docs/{new_id}/headings", timeout=10).json()
+            if first.get("stage2") and first.get("stage3") and (first.get("job") or {}).get("status") != "running":
+                break
+            time.sleep(.2)
+        check("새 작업 — 첫 분석이 돎(헤딩 그래프 · 표 구조)", bool(first.get("stage2") and first.get("stage3")), {k: bool(first.get(k)) for k in ("stage2", "stage3", "job")})
+        # 같은 카드로 같은 파일을 다시 — 화면이 고른 TASK 를 함께 보내고(POST /api/docs?job=) 서버가 전에 만든 그 TASK 의 작업을 이어 연다: 새 작업이 또 생기지 않는다(② §15)
+        h = go_home(page)
+        count = len(requests.get(f"{base}/api/works", timeout=10).json())
+        with page.expect_file_chooser() as fc:
+            page.locator("#taskCards [data-task=plan_merge]").click()
+        with page.expect_response(lambda r: "/api/docs?" in r.url and r.request.method == "POST", timeout=60000) as posted:
+            fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_function("""(w) => state.id === w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')
+            && !document.getElementById('toast').hidden && document.getElementById('toast').textContent.includes('이어서 엽니다')""", arg=new_id, timeout=60000)
+        t = page.evaluate(TASK)
+        check("같은 카드로 다시 올림 — ?job= 으로 보내고 그 TASK 의 작업을 이어 엶 · 작업 수 그대로", posted.value.url.endswith("/api/docs?job=plan_merge") and posted.value.json().get("reused") is True
+              and posted.value.json()["docId"] == new_id and t["id"] == new_id and len(requests.get(f"{base}/api/works", timeout=10).json()) == count and "이어서 엽니다" in t["toast"], (posted.value.url, t))
+        h = go_home(page)
+        with page.expect_file_chooser() as fc:  # 처음의 카드로도 — 그 TASK(양식 맞추기)의 작업(wid)이 열린다(가장 최근 작업 = 취합 작업이 아니라)
+            page.locator("#taskCards [data-task=plan_fit]").click()
+        fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div'", arg=wid, timeout=60000)
+        check("다른 카드로 다시 올림 — 그 TASK 의 작업이 열림(가장 최근 작업이 아니라) · 작업 수 그대로", page.evaluate("() => state.id") == wid and len(requests.get(f"{base}/api/works", timeout=10).json()) == count)
 
         h = go_home(page)  # 카드에 파일 놓기 — docx 는 안 받는다 · hwpx 는 그 TASK 로(양식 판정이 종류를 정한다)
         DROP = """([b64, name, key]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
@@ -305,16 +344,122 @@ try:
         page.screenshot(path=str(OUT / "7_task_drop.png"))
         h = go_home(page)
         cs = page.evaluate(CARDS)
-        check("돌아온 시작 화면 — 카드 다섯 장 그대로(올리는 중 표시 없음)", is_home(h) and len(cs) == 5 and not any(c["busy"] for c in cs), (h, cs))
+        check("돌아온 시작 화면 — 카드 여섯 장 그대로(올리는 중 표시 없음)", is_home(h) and len(cs) == 6 and not any(c["busy"] for c in cs), (h, cs))
+
+        # ---- 7-2. 최근 작업 줄 = 무슨 일의 어느 작업(spec_작업 ② §7) — TASK 로고·이름 · 작업 이름(프로젝트 이름 — 2026-11-12 「과제」→「프로젝트」, ② §17) · 역할 · TASK 없는 작업은 파일 이름 + 「TASK 없음」
+        drop_id = t["id"]
+        r = requests.put(f"{base}/api/works/{drop_id}/task", json={**t["task"], "project": "시험 과제"}, timeout=10)  # 이관 작업에 과제 이름
+        check("과제 이름 적음(PUT …/task)", r.ok and r.json()["task"]["project"] == "시험 과제", r.text[:200])
+        with (ROOT / "samples" / "기술수요조사서.docx").open("rb") as f:  # TASK 없는 작업 하나(국가R&D 양식이 아니라 짐작도 없음)
+            plain = requests.post(f"{base}/api/docs?new=1", files={"file": ("기술수요조사서.docx", f)}, timeout=120).json()["docId"]
+        page.evaluate("() => loadWorks()")
+        page.wait_for_function("(p) => !!document.querySelector(`#workList .recent-work-open[title$='작업 ${p}']`)", arg=plain, timeout=30000)
+        ROWS = """() => [...document.querySelectorAll('#workList .recent-work-open')].map((b) => { const q = (s) => b.querySelector(s), tx = (s) => (q(s) || {}).textContent || '', lg = q('.task-logo'), u = lg && lg.querySelector('use');
+            return { id: b.title.split('작업 ').pop(), title: tx('.recent-work-title'), dim: !!q('.recent-work-title.none'), chip: tx('.recent-task'), tone: (q('.recent-task') || {}).dataset ? q('.recent-task').dataset.doc || '' : '',
+                     role: tx('.recent-work-role'), name: tx('.recent-work-name'), logo: lg ? lg.dataset.doc : null, href: u ? u.getAttribute('href') : null, sym: !!(u && document.querySelector(u.getAttribute('href'))),
+                     size: lg ? Math.round(lg.getBoundingClientRect().width) : 0, file: !!q('.recent-file-icon'), label: b.getAttribute('aria-label'), tags: q('.recent-work-foot .recent-work-status') ? 1 : 0,
+                     pads: [...b.querySelectorAll('.none')].map((x) => parseFloat(getComputedStyle(x).paddingLeft)), chipH: Math.round(q('.recent-task').getBoundingClientRect().height) }; })"""
+        rows = {x["id"]: x for x in page.evaluate(ROWS)}
+        check("최근 작업 네 줄(이어 연 작업 · 새 작업 둘 · TASK 없는 작업)", set(rows) == {wid, drop_id, plain, t_merge} if (t_merge := next((w["id"] for w in requests.get(f"{base}/api/works", timeout=10).json() if (w.get("task") or {}).get("job") == "plan_merge"), None)) else False, list(rows))
+        a, m, d, p = rows.get(wid, {}), rows.get(t_merge, {}), rows.get(drop_id, {}), rows.get(plain, {})
+        check("TASK 있는 줄 — 그 TASK 로고(그림 있음 · 41px · 바탕 = 문서) + TASK 이름 표지(같은 문서 색)",
+              [(x.get("href"), x.get("logo"), x.get("tone"), x.get("chip")) for x in (a, m, d)] == [("#taskIcon-plan_fit", "plan", "plan", "사업계획서 양식 맞추기"), ("#taskIcon-plan_merge", "plan", "plan", "사업계획서 취합"),
+                                                                                  ("#taskIcon-plan_to_report", "plan-report", "plan-report", "사업계획서 → 연차보고서 이관")]
+              and all(x.get("sym") and x.get("size") == 41 and not x.get("file") for x in (a, m, d)), (a, m, d))
+        check("작업 이름 = 프로젝트 이름 — 없으면 흐린 「프로젝트 이름 없음」", d.get("title") == "시험 과제" and not d.get("dim") and a.get("title") == "프로젝트 이름 없음" and a.get("dim"), (a, d))
+        check("둘째 줄 = 이 문서의 역할 + 파일 이름(취합의 사업계획서는 「취합본」)", (a.get("role"), m.get("role"), d.get("role")) == ("사업계획서", "취합본", "사업계획서")
+              and a.get("name") == SMALL and d.get("name", "").startswith(PLAN.rsplit(".", 1)[0]), (a, m, d))
+        check("TASK 없는 줄 — 파일 형식 그림 · 첫 줄 = 파일 이름 · 「TASK 없음」 · 역할 줄 없음", p.get("file") and p.get("logo") is None and p.get("title") == "기술수요조사서.docx" and p.get("chip") == "TASK 없음"
+              and p.get("role") == "" and p.get("name") == "", p)
+        check("흐린 표시(.none — 「TASK 없음」 · 「프로젝트 이름 없음」 · 「검증 전」)에 빈 목록 줄의 큰 여백이 안 붙음 · 표지 높이 24px 이하",
+              all(v <= 8 for x in (a, m, d, p) for v in x.get("pads", [99])) and all(x.get("chipH", 99) <= 24 for x in (a, m, d, p)), [(x.get("pads"), x.get("chipH")) for x in (a, m, d, p)])
+        check("읽는 이름(aria-label)에 프로젝트 · TASK · 라운드 · 역할", d.get("label", "").startswith("프로젝트 「시험 과제」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 · 사업계획서")
+              and a.get("label", "").startswith("프로젝트 미지정 · TASK 「사업계획서 양식 맞추기」") and "TASK 없음" in p.get("label", ""), (d.get("label"), a.get("label"), p.get("label")))
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent.png"))
+        page.locator("#recentAll").click()
+        page.wait_for_selector("#worksDlg[open] #workListDlg .work-task")
+        dlg = page.evaluate("""() => [...document.querySelectorAll('#workListDlg .work-open')].map((b) => ({ name: b.querySelector('.work-name').textContent, task: b.querySelector('.work-task').textContent,
+            tagH: Math.max(...[...b.querySelectorAll('.vtag, .recent-task')].map((x) => Math.round(x.getBoundingClientRect().height))) }))""")
+        check("작업 목록 창에도 프로젝트 · TASK · 라운드 · 역할 줄", any(x["task"] == "프로젝트 「시험 과제」사업계획서 → 연차보고서 이관Round 1 · 사업계획서" for x in dlg) and any(x["task"] == "TASK 없음" for x in dlg)
+              and any(x["task"] == "프로젝트 미지정사업계획서 취합Round 1 · 취합본" for x in dlg), dlg)
+        check("작업 목록 창 — 표지(검증 · TASK) 높이 24px 이하(빈 목록 줄의 여백이 안 붙음)", all(x["tagH"] <= 24 for x in dlg), [x["tagH"] for x in dlg])
+        page.screenshot(path=str(OUT / "7_recent_dialog.png"))
+        page.evaluate("() => document.getElementById('worksDlg').close()")
+        for width in (560, 400):  # 좁은 창 — 줄이 넘치지 않음(표지는 다음 줄로)
+            page.set_viewport_size({"width": width, "height": 900})
+            page.wait_for_timeout(250)
+            fit = page.evaluate("() => { const ul = document.getElementById('workList'), r = ul.getBoundingClientRect(); return [...ul.querySelectorAll('.recent-work-open *')].every((x) => { const b = x.getBoundingClientRect(); return !b.width || (b.left >= r.left - 1 && b.right <= r.right + 1); }); }")
+            check(f"창 {width}px — 최근 작업 줄이 넘치지 않음", fit)
+            page.locator("#recent").scroll_into_view_if_needed()
+            page.screenshot(path=str(OUT / f"7_recent_{width}.png"))
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(250)
+
+        # ---- 7-3. TASK 하나가 한 줄(spec_작업 ② §7, 2026-11-13 사용자 "동일한 프로젝트에서 동일한 task 인데 왜 동일한게 있냐") — 같은 프로젝트 · 같은 TASK 의 문서들 = 한 줄,
+        #      누르면 마지막에 고친 문서 · 나머지는 「다른 문서」 단추 · 최신 라운드만 · 제목 옆 숫자 = 줄 수 · 문서 수. 프로젝트 없는 작업(wid · t_merge)은 위 7-2 처럼 낱개.
+        def new_work(task):
+            with (ROOT / "samples" / SMALL).open("rb") as f:
+                nid = requests.post(f"{base}/api/docs?new=1", files={"file": (SMALL, f)}, timeout=120).json()["docId"]
+            r = requests.put(f"{base}/api/works/{nid}/task", json=task, timeout=10)
+            check(f"같은 프로젝트 · TASK 에 문서 하나 더(PUT …/task — Round {task.get('round', 1)})", r.ok, r.text[:200])
+            return nid
+        GROUP = """(id) => { const li = [...document.querySelectorAll('#workList > li.recent-work')].filter((x) => (x.dataset.works || '').split(' ').includes(id));
+            if (li.length !== 1) return { n: li.length }; const x = li[0], b = x.querySelector('.recent-work-open'), d = x.querySelector('.recent-work-docs'), ul = document.getElementById('workList').getBoundingClientRect();
+            return { n: 1, works: x.dataset.works.split(' '), group: x.classList.contains('recent-group'), flat: getComputedStyle(x).display !== 'flex', opens: b.title.split('작업 ').pop(),
+                     meta: x.querySelector('.recent-work-meta').textContent, round: (x.querySelector('.recent-work-round') || {}).textContent || '', label: b.getAttribute('aria-label'),
+                     docs: [...x.querySelectorAll('.recent-work-doc')].map((e) => e.title.split('작업 ').pop()), below: !d || d.getBoundingClientRect().top >= b.getBoundingClientRect().bottom - 1,
+                     fit: [...x.querySelectorAll('*')].every((e) => { const r = e.getBoundingClientRect(); return !r.width || (r.left >= ul.left - 1 && r.right <= ul.right + 1); }),
+                     count: document.getElementById('recentCount').textContent }; }"""
+        ROWCOUNT = "async () => { const l = await api('/api/works'); return [recentRows(l).length, l.length]; }"
+        same = {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "시험 과제"}  # drop_id(사업계획서)와 같은 프로젝트 · TASK
+        g2 = new_work(same)
+        page.evaluate("() => loadWorks()")
+        page.wait_for_function("(id) => !!document.querySelector(`#workList > li.recent-work[data-works~='${id}']`)", arg=g2, timeout=30000)
+        ws = {w["id"]: w for w in requests.get(f"{base}/api/works", timeout=10).json()}
+        last, other = sorted([drop_id, g2], key=lambda i: ws[i].get("updated") or 0, reverse=True)
+        g, (nrows, ndocs) = page.evaluate(GROUP, g2), page.evaluate(ROWCOUNT)
+        check("같은 프로젝트 · 같은 TASK 문서 둘 = 한 줄(li.recent-group · data-works 에 둘 다 · 다른 줄에 안 나옴)", g.get("n") == 1 and g.get("group") and g.get("flat") and set(g.get("works", [])) == {drop_id, g2}, g)
+        check("그 줄을 누르면 마지막에 고친 문서 · 나머지는 줄 아래 「다른 문서」 단추", g.get("opens") == last and g.get("docs") == [other] and g.get("below"), (g, last, other))
+        check("묶음 줄 셋째 줄 「문서 2개」 · Round 1 표지는 안 보임 · 읽는 이름에 「문서 2개 중」", g.get("meta", "").startswith("문서 2개") and g.get("round") == "" and "문서 2개 중" in g.get("label", ""), g)
+        check("제목 옆 숫자 = 줄 수 · 문서 수(다를 때)", nrows < ndocs and g.get("count") == f"전체 {nrows}개 · 문서 {ndocs}개", (g.get("count"), nrows, ndocs))
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent_group.png"))
+        page.set_viewport_size({"width": 400, "height": 900})
+        page.wait_for_timeout(250)
+        g = page.evaluate(GROUP, g2)
+        check("창 400px — 묶음 줄(「다른 문서」 줄 포함)이 넘치지 않고 단추 줄은 아래", g.get("fit") and g.get("below"), g)
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent_group_400.png"))
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(250)
+        page.locator(f"#workList .recent-work-doc[title$='작업 {other}']").click()
+        page.wait_for_function("(w) => state.id === w && document.querySelector('#doc .sheet .para') != null", arg=other, timeout=60000)
+        check("「다른 문서」 단추 → 그 문서가 열림", page.evaluate("() => state.id") == other)
+        page.wait_for_timeout(300)
+        h = go_home(page)
+        check("다시 시작 화면", is_home(h), h)
+        g3 = new_work({**same, "round": 2})  # 새 라운드 — 최근 작업에는 최신 라운드 문서만
+        page.evaluate("() => loadWorks()")
+        page.wait_for_function("(id) => !!document.querySelector(`#workList > li.recent-work[data-works~='${id}']`)", arg=g3, timeout=30000)
+        g = page.evaluate(GROUP, g3)
+        hidden = page.evaluate("(ids) => ids.filter((id) => !!document.querySelector(`#workList > li.recent-work[data-works~='${id}']`))", [drop_id, g2])
+        nlist = page.evaluate("() => document.querySelectorAll('#workListDlg .work-open').length")
+        check("새 라운드 — 최신 라운드 문서만 한 줄(「Round 2」 표지) · 이전 라운드 문서는 최근 작업에 없고 작업 목록 창에는 그대로",
+              g.get("n") == 1 and g.get("works") == [g3] and g.get("round") == "Round 2" and not g.get("group") and not hidden
+              and nlist == len(requests.get(f"{base}/api/works", timeout=10).json()), (g, hidden, nlist))
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent_round2.png"))
         reopen(page, wid)  # 아래 「좁은 창」 은 작업을 연 채로 본다
 
         # ---- 8. 좁은 창 — 앱 이름 글은 숨어도 아이콘은 남아 눌린다
         page.set_viewport_size({"width": 1100, "height": 900})
         page.wait_for_timeout(400)
-        narrow = page.evaluate("""() => { const a = document.getElementById('homeLink'), r = a.getBoundingClientRect(), s = a.querySelector('span'), f = document.getElementById('fileInfo').getBoundingClientRect();
-            return { w: r.width, h: r.height, left: r.left, right: r.right, span: s.getClientRects().length, file: f.left }; }""")
-        check("좁은 창(1100px) — 글은 숨고 아이콘만(누를 자리 24px 이상 · 파일 이름과 안 겹침)", narrow["span"] == 0 and narrow["w"] >= 24 and narrow["h"] >= 24 and narrow["left"] >= 0
-              and narrow["right"] <= narrow["file"], narrow)
+        # 파일 이름은 2026-11-12 상단 바에서 문서 위 파일명 줄(#fileInfo.document-name-row)로 옮겼다(spec_작업 ② §17) — 상단 바에서 로고 오른쪽은 줄 조절 묶음(#barCtl)
+        narrow = page.evaluate("""() => { const a = document.getElementById('homeLink'), r = a.getBoundingClientRect(), s = a.querySelector('span'), n = document.getElementById('barCtl').getBoundingClientRect();
+            return { w: r.width, h: r.height, left: r.left, right: r.right, span: s.getClientRects().length, next: n.left, nextW: n.width }; }""")
+        check("좁은 창(1100px) — 글은 숨고 아이콘만(누를 자리 24px 이상 · 옆 줄 조절 단추와 안 겹침)", narrow["span"] == 0 and narrow["w"] >= 24 and narrow["h"] >= 24 and narrow["left"] >= 0
+              and narrow["nextW"] > 0 and narrow["right"] <= narrow["next"], narrow)
         page.screenshot(path=str(OUT / "8_narrow.png"), clip={"x": 0, "y": 0, "width": 700, "height": 120})
         h = go_home(page)
         check("좁은 창 — 아이콘을 눌러 시작 화면", is_home(h), h)

@@ -300,13 +300,13 @@ def test_unserializable_state_writes_nothing(client, monkeypatch):
 
 def test_task_guess_and_save(client):
     """작업 종류·첨부 파일·할 일·과제(② §10): 안 골랐으면 문서에서 짐작(국가R&D 양식 → 연구개발과제·사업계획서 — 짐작도 적어 둠), 고르면 work.json 에 저장, 모르는 값 400.
-    과제(같은 project 이름)에 들어온 문서는 그 과제의 할 일을 따르고, 과제 안에서 할 일을 바꾸면 묶인 문서 모두에 적힌다."""
+    같은 프로젝트의 문서라도 TASK는 따로 고른다(프로젝트 아래 여러 TASK·라운드)."""
     none = {"kind": "", "file": "", "job": "", "project": ""}
     d = _upload(client)  # 기술수요조사서 — 국가R&D 양식이 아님
     assert client.get(f"/api/docs/{d}").json()["work"]["task"] == none and "task" not in works.work(d)
     t = {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "  선박  과제 "}
     saved = {**t, "project": "선박 과제"}  # 이름은 앞뒤를 떼고 빈칸을 하나로
-    assert client.put(f"/api/works/{d}/task", json=t).json() == {"task": saved}
+    assert client.put(f"/api/works/{d}/task", json=t).json() == {"task": saved, "division": "none"}   # division = 프로젝트에 들어감 알림의 근거(② §10·§19)
     assert client.get(f"/api/docs/{d}").json()["work"]["task"] == saved and client.get("/api/works").json()[0]["task"] == saved
     assert client.put(f"/api/works/{d}/task", json={"kind": "x"}).status_code == 400
     assert client.put(f"/api/works/{d}/task", json={"project": 3}).status_code == 400
@@ -315,11 +315,11 @@ def test_task_guess_and_save(client):
     g = {"kind": "rnd", "file": "plan", "job": "", "project": ""}
     assert client.get(f"/api/docs/{p}").json()["work"]["task"] == g and works.work(p)["task"] == g
     joined = client.put(f"/api/works/{p}/task", json={**g, "project": "선박 과제"}).json()["task"]
-    assert joined == {**g, "job": "plan_to_report", "project": "선박 과제"}  # 들어온 문서 — 과제의 할 일을 따른다
+    assert joined == {**g, "project": "선박 과제"}  # 프로젝트에 들어와도 다른 TASK를 강제로 따르지 않는다.
     client.put(f"/api/works/{p}/task", json={**joined, "job": "plan_merge"})
-    assert works.work(d)["task"] == {**saved, "job": "plan_merge"}  # 과제 안에서 바꾼 할 일은 묶인 문서에도
+    assert works.work(d)["task"] == saved  # 같은 프로젝트의 다른 TASK는 그대로.
     client.put(f"/api/works/{p}/task", json={**joined, "job": "report_merge", "project": ""})
-    assert works.work(d)["task"]["job"] == "plan_merge" and works.work(p)["task"] == {**g, "job": "report_merge"}  # 과제에서 나오면 따로
+    assert works.work(d)["task"]["job"] == "plan_to_report" and works.work(p)["task"] == {**g, "job": "report_merge"}
 
 
 def test_target_doc_shown_name(client):
@@ -353,3 +353,149 @@ def test_target_doc_shown_name(client):
     assert again["reused"] and again["docId"] == d   # 같은 파일 이어 열기는 올린 이름으로 견준다
     client.put(f"/api/works/{d}/task", json={**t, "project": ""})
     assert client.get("/api/works").json()[0]["name"] == name and client.get(f"/api/docs/{d}").json()["name"] == name   # 과제에서 나오면 올린 이름
+
+
+def test_frame_shown_name(client):
+    """프레임 이름(② §10 「프레임 이름」 — 2026-11-14 사용자 "프로젝트 구성 반영이 완료 하면 사업계획서_{프로젝트이름}_프레임 .. 이라고 파일명을 저장하도록"):
+    양식 맞추기 TASK 의 맞추는 문서에 프로젝트 구성을 반영한 기록이 있으면 보이는 이름 = 「<첨부 파일 종류>_<프로젝트 이름>_프레임.<확장자>」 — 목록·문서·내려받는 이름에(「_수정」 꼬리 없음).
+    저장된 이름·올린 원본 받기는 그대로, 반영 기록이 없어지면(실행 취소) 올린 이름. 닫힌 작업은 work.json 의 framed 를 본다(옛 작업은 다시 열 때 맞춤 — 바뀐 때는 그대로).
+    계획·반영 끝점을 거친 확인은 test_divisions.py::test_apply_names_the_frame."""
+    from urllib.parse import quote
+    name = HWPX.name
+    stem = name[:-len(".hwpx")]
+    fit = {"job": "plan_fit", "file": "plan", "project": "데이터플랫폼"}
+    frame = "사업계획서_데이터플랫폼_프레임.hwpx"
+    assert works.shown_name(name, fit) == name and works.frame_stem(fit, False) is None            # 반영 전 — 올린 이름
+    assert works.shown_name(name, fit, framed=True) == frame and works.frame_stem(fit, True) == frame[:-5]
+    assert works.shown_name(name, {"job": "report_fit", "file": "report", "project": "A/1"}, framed=True) == "연차보고서_A_1_프레임.hwpx"   # 파일 이름에 못 쓰는 글자는 _
+    assert works.shown_name(name, fit, "1차 제출", framed=True) == "사업계획서_데이터플랫폼_프레임(1차 제출).hwpx"   # 별칭은 그 뒤에
+    assert works.shown_name(name, {**fit, "project": ""}, framed=True) == name       # 프로젝트 이름 없음
+    assert works.shown_name(name, {**fit, "file": "report"}, framed=True) == name    # 그 TASK 가 맞추는 문서가 아님
+    assert works.shown_name(name, {"job": "plan_merge", "file": "plan", "project": "과제"}, framed=True) == f"{stem}_과제.hwpx"       # 취합본 · 이관의 연차보고서는 뒤에 내용이 들어간다 — 전의 이름
+    assert works.shown_name(name, {"job": "plan_to_report", "file": "report", "project": "과제"}, framed=True) == f"{stem}_과제.hwpx"
+    assert set(works.FRAME_FILE.values()) <= set(works.FILE_LABEL) and set(works.FRAME_FILE) <= set(server.TASK["job"])
+
+    d = _upload(client)
+    client.put(f"/api/works/{d}/task", json={"kind": "rnd", **fit})
+    row = lambda: next(w for w in client.get("/api/works").json() if w["id"] == d)["name"]  # noqa: E731
+    assert client.get(f"/api/docs/{d}").json()["name"] == name == row()   # 반영 전
+    applied = {"values": {"stages": [1]}, "settingsHash": "h", "profileVersion": 1, "rev": 0, "at": time.time(), "planId": "p", "summary": {}}   # 반영 끝점이 적는 기록의 꼴
+    server.DOCS[d].division["applied"] = dict(applied)
+    assert client.get(f"/api/docs/{d}").json()["name"] == frame == row()   # 열린 문서는 세션의 지금 상태 — 저장 전에도
+    assert client.get(f"/api/works/{d}/log").json()["work"]["name"] == frame
+    assert works.work(d)["name"] == name and server.DOCS[d].name == name   # 저장된 이름은 올린 그대로
+    p = _texts(client, d)[1]
+    client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": p["text"] + "★"})
+    cd = client.get(f"/api/docs/{d}/download").headers["content-disposition"]
+    assert quote(frame) in cd and quote("_수정") not in cd   # 고친 문서도 프레임 이름 그대로(올린 파일과 이미 다른 이름)
+    server._persist_all()
+    assert works.work(d)["framed"] is True
+    cur = client.get(f"/api/works/{d}/file/current").headers["content-disposition"]
+    assert quote(frame) in cur and quote("_수정") not in cur
+    orig = client.get(f"/api/works/{d}/file/original").headers["content-disposition"]
+    assert quote(name) in orig and quote("프레임") not in orig   # 올린 원본은 올린 이름
+    server.DOCS.clear()
+    assert row() == frame   # 닫힌 작업 — work.json 의 framed
+    # 이 표시가 생기기 전에 반영한 작업(framed 없음): 닫혀 있으면 올린 이름, 다시 열 때 맞춘다 — 바뀐 때(updated)는 그대로
+    works.mark(d, framed=None)
+    assert row() == name
+    assert client.get(f"/api/docs/{d}").json()["name"] == frame and works.work(d)["framed"] is True
+    server.DOCS.clear()
+    assert row() == frame
+    works.create("0000000000aa", "표시.hwpx", "hwpx", b"mark")   # mark = 표시만 맞춤 — 바뀐 때는 그대로(세션·검증 스레드 없는 작업으로 본다)
+    stamp = works.work("0000000000aa")["updated"]
+    time.sleep(0.01)
+    assert works.mark("0000000000aa", framed=True)["updated"] == stamp and works.work("0000000000aa")["framed"] is True
+    again = client.post("/api/docs", files={"file": (name, HWPX.read_bytes())}).json()
+    assert again["reused"] and again["docId"] == d   # 같은 파일 이어 열기는 올린 이름으로 견준다
+    # 반영 기록이 없어지면(그 반영을 실행 취소) 올린 이름으로
+    server.DOCS[d].division["applied"] = None
+    assert client.get(f"/api/docs/{d}").json()["name"] == name == row()
+    server.DOCS[d].division["applied"] = dict(applied)
+    client.put(f"/api/works/{d}/task", json={"kind": "rnd", **fit, "project": ""})
+    assert client.get(f"/api/docs/{d}").json()["name"] == name   # 프로젝트에서 나오면 올린 이름
+
+
+def test_work_alias(client):
+    """별칭(② §10 「별칭」 — 2026-11-13 사용자 "별칭을 쓰면 목적문서의 이름 뒤에 (별칭) 이 붙도록"): 보이는 이름의 확장자 앞, 프로젝트 꼬리 뒤에 「(별칭)」 —
+    목록·문서·내려받는 이름에. 올린 이름·올린 원본 받기·같은 파일 이어 열기는 그대로. 빈 글 = 지움 · 40자 넘음 400 · 없는 작업 404 · 새 라운드는 이어받음."""
+    name = HWPX.name
+    stem = name[:-len(".hwpx")]
+    target = {"job": "plan_to_report", "file": "report", "project": "과제"}
+    assert works.shown_name(name, None, "1차 제출") == f"{stem}(1차 제출).hwpx"
+    assert works.shown_name(name, target, "1차 제출") == f"{stem}_과제(1차 제출).hwpx"   # 프로젝트 꼬리 뒤
+    assert works.shown_name(name, target, "A/B") == f"{stem}_과제(A_B).hwpx"           # 파일 이름에 못 쓰는 글자는 _
+    assert works.shown_name(f"{stem}(1차 제출).hwpx", None, "1차 제출") == f"{stem}(1차 제출).hwpx"   # 두 번 안 붙임
+    assert works.shown_name(name, None, "") == name and works.shown_name(name, None, None) == name
+    d = _upload(client)
+    r = client.put(f"/api/works/{d}/alias", json={"alias": "  1차   제출 "})
+    assert r.status_code == 200 and r.json() == {"alias": "1차 제출", "name": f"{stem}(1차 제출).hwpx"}   # 앞뒤를 떼고 빈칸을 하나로
+    row = next(w for w in client.get("/api/works").json() if w["id"] == d)
+    assert row["name"] == f"{stem}(1차 제출).hwpx" and row["alias"] == "1차 제출" and client.get(f"/api/docs/{d}").json()["name"] == f"{stem}(1차 제출).hwpx"
+    client.put(f"/api/works/{d}/task", json={"kind": "rnd", **target})
+    shown = f"{stem}_과제(1차 제출).hwpx"
+    assert client.get(f"/api/docs/{d}").json()["name"] == shown and works.work(d)["name"] == name
+    from urllib.parse import quote
+    assert quote(shown) in client.get(f"/api/docs/{d}/download").headers["content-disposition"]
+    assert quote("1차") not in client.get(f"/api/works/{d}/file/original").headers["content-disposition"]   # 올린 원본은 올린 이름
+    again = client.post("/api/docs", files={"file": (name, HWPX.read_bytes())}).json()
+    assert again["reused"] and again["docId"] == d   # 이어 열기는 올린 이름으로 견준다
+    assert any(e.get("kind") == "alias" and e.get("new") == "1차 제출" for e in client.get(f"/api/works/{d}/log").json()["events"])
+    assert client.put(f"/api/works/{d}/alias", json={"alias": "가" * 41}).status_code == 400
+    assert client.put(f"/api/works/{d}/alias", json={"alias": 3}).status_code == 400
+    assert client.put("/api/works/000000000000/alias", json={"alias": "x"}).status_code == 404
+    rnd = client.post(f"/api/works/{d}/round", json={"source": "original"})
+    assert rnd.status_code == 200 and works.work(rnd.json()["docId"]).get("alias") == "1차 제출"   # 새 라운드는 별칭을 이어받는다
+    assert client.put(f"/api/works/{d}/alias", json={"alias": ""}).json() == {"alias": "", "name": f"{stem}_과제.hwpx"}   # 빈 글 = 지움
+
+
+def test_reupload_prefers_the_work_of_the_chosen_task(client):
+    """같은 파일로 만든 작업이 여럿일 때 이어 열 작업(② §15 — `POST /api/docs?job=`): 그 TASK 의 작업(가장 최근) → TASK 가 빈 작업(가장 최근) → 그 밖의 가장 최근 작업.
+    job 이 없거나 모르는 값이면 전처럼 가장 최근 것, new=1 이면 늘 새 작업. 작업의 task 는 안 바꾼다."""
+    def tick():
+        time.sleep(0.03)   # 「가장 최근」 은 work.json 의 updated 로 가린다 — 시각이 겹치지 않게
+
+    def again(query=""):
+        tick()
+        r = client.post("/api/docs" + query, files={"file": (HWPX.name, HWPX.read_bytes())})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def task(d, job, file):
+        tick()
+        assert client.put(f"/api/works/{d}/task", json={"kind": "rnd", "file": file, "job": job, "project": ""}).status_code == 200
+
+    def new():
+        d = _upload(client)
+        _wait(client, d, "import")   # 가져오기 검증이 끝나며 work.json 을 고친다(updated) — 그 뒤에 차례를 견준다(test_upload_creates_work 와 같은 경합)
+        return d
+
+    move, fit = new(), new()
+    task(move, "plan_to_report", "report")
+    task(fit, "plan_fit", "plan")
+    assert works.find_same(HWPX.name, "hwpx", works.work(move)["sha256"])["id"] == fit   # job 없이 = 가장 최근 것
+    for _ in range(2):   # 다시 올려도 같은 작업 — 이어 열면 그 작업이 가장 최근이 되지만 고른 TASK 가 먼저다
+        got = again("?job=plan_to_report")
+        assert got["reused"] and got["docId"] == move
+        got = again("?job=plan_fit")
+        assert got["reused"] and got["docId"] == fit
+    assert again("?job=plan_to_report")["docId"] == move
+    assert again()["docId"] == move                      # job 없음 = 가장 최근 것(방금 이어 연 이관 작업)
+    assert again("?job=plan_fit")["docId"] == fit
+    assert again("?job=plan_merge")["docId"] == fit      # 그 TASK 의 작업도 빈 작업도 없음 = 그 밖의 가장 최근 것
+    assert again("?job=%EC%97%86%EB%8A%94TASK")["docId"] == fit and again("?job=")["docId"] == fit   # 모르는 값·빈 값 = 없는 것으로
+    blank = new()   # TASK 를 안 적은 작업(이 예제는 국가R&D 양식이 아니라 짐작도 안 적힌다)
+    assert "task" not in works.work(blank)
+    assert again("?job=plan_fit")["docId"] == fit        # 빈 작업이 더 최근이어도 그 TASK 의 작업이 먼저
+    assert again("?job=plan_merge")["docId"] == blank    # 그 TASK 의 작업이 없으면 TASK 가 빈 작업(더 최근인 양식 맞추기 작업보다 먼저)
+    cleared = new()
+    task(cleared, "plan_fit", "plan")
+    task(cleared, "", "")                                # 적었다 비운 작업(job "")도 빈 작업 — 더 최근 것
+    assert again("?job=report_fit")["docId"] == cleared
+    newer_fit = new()
+    task(newer_fit, "plan_fit", "plan")
+    assert again("?job=plan_to_report")["docId"] == move
+    assert again("?job=plan_fit")["docId"] == newer_fit  # 그 TASK 의 작업이 여럿이면 가장 최근 것
+    fresh = again("?new=1&job=plan_fit")
+    assert not fresh["reused"] and fresh["docId"] not in (move, fit, blank, cleared, newer_fit)   # new=1 은 늘 새 작업
+    assert works.work(move)["task"]["job"] == "plan_to_report" and works.work(fit)["task"]["job"] == "plan_fit" and "task" not in works.work(blank)

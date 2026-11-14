@@ -16,13 +16,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # 이름: (스크립트, 기본 묶음에 드나, 한마디). 모두 「<폴더> --port <포트>」 꼴 — 서버 주소를 받는 검사(smoke_commits_ui.py 등)는 여기 없다(서버를 따로 띄워야 함)
 GATES = {
+    "project": ("smoke_project_ui.py", False, "프로젝트 · TASK · 라운드 · 참고 파일 격리"),
+    "workspace": ("smoke_workspace_ui.py", False, "문서 위 공용 도구행 · 파일명 행"),
     "task": ("smoke_task_ui.py", True, "작업 종류 · 이관 단계 · 연결 목록 · 넣기 계획"),
     "task_run": ("smoke_task_run_ui.py", True, "1단계 문서 프레임 작성 · 한 번에 진행(실제 서식 쌍)"),
     "panel_head": ("smoke_panel_head_ui.py", True, "패널 머리 — 작업 목록 · 도구 이름 줄"),
     "peer": ("smoke_peer_ui.py", True, "같이 보기 — 두 면"),
     "peer_follow": ("smoke_peer_follow_ui.py", True, "같이 보기 — 누른 자리 따라 보기(원본 자리 지도는 흉내)"),
     "gather": ("smoke_gather_ui.py", True, "취합 — 기관 문서 줄 · 배포 기준본 · 기관 작성 내용 · 넣기 계획 · 끌어 넣기 · 한 번에 진행(끝점은 흉내)"),
+    "over": ("smoke_over_ui.py", True, "넘친 개요 레벨 — 넣기 계획의 절 · 처리 셋(덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿) · 넣은 줄에 다시 맞추기(이관·취합 — 끝점은 흉내)"),
+    "gather_quick": ("smoke_gather_quick_ui.py", True, "취합 간단 모드 — 시작 화면 목록에서 목적 문서 고르기 → 자동 진행이면 끝까지(진짜 끝점) · 끄면 올리고 등록만"),
+    "home_files": ("smoke_home_files_ui.py", True, "시작 화면 문서 목록 — 모아 두기 · 목적 문서 · 별칭 · TASK 없이 열기 · 이관 두 문서 · 양식 맞추기"),
     "first_run": ("smoke_first_run_ui.py", True, "첫 분석 · 구분 기준 LLM 검토 취합"),
+    "div_run": ("smoke_div_run_ui.py", True, "프로젝트 구성 실행 묶음 — 한 번에 진행 · ① 변경 계획 보기 › ② 반영 · 계획 다시 열기 · 멈추는 조건(진짜 끝점)"),
+    "div_key": ("smoke_div_key_ui.py", False, "구분 기준 자리 표시 — 문서 이름 줄의 색 설명(칩 · 노트 · 감추기 · 좁은 폭)"),
+    "agent": ("smoke_agent_ui.py", True, "에이전트 보기 — 탭·작업 내용 · 요청 → 제안 카드 · 미리보기 · 문서에 반영 · 자료(끝점은 흉내)"),
+    "styles": ("smoke_styles_ui.py", True, "서식 보관함 — 목록 · 검증 다시 읽기 · 이름 바꾸기 · 지우기 · 추출 후보 저장 · 표 메뉴(끝점은 흉내)"),
     "home": ("smoke_home_ui.py", False, "상단 로고 → 시작 화면"),
     "note_help": ("smoke_note_help_ui.py", False, "노트 도움말 — hover · 키보드 · 터치 · 좁은 화면 · 대화상자"),
     "table_menu": ("smoke_table_menu_ui.py", False, "표 메뉴"),

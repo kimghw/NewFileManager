@@ -1,0 +1,18 @@
+/* 취합 간단 모드(spec_취합 ② §8 — gather_quick.js). 시작 화면의 옛 고르기 패널 #quickPanel 은 2026-11-13 문서 목록(home_files.css — spec_작업 ② §15-1)으로 합침.
+   취합 카드의 간단 모드 줄 .gt-quick — 문서 옆 패널(#paneDiv) 안: 상자를 더 두르지 않고 위 1px 선으로만 가른다(design.md §1-1) · 글 13/12/11px(§1-7) · 도는 동안 동그라미(#divBox .dv-phase-spin). */
+
+.gt-quick { display: grid; gap: 4px; margin: 8px 0 4px; padding-top: 8px; border-top: 1px solid var(--line, #e3e7ef); }
+.gt-quick[hidden] { display: none; }
+.gt-quick-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.gt-quick-head strong { font-size: 13px; }
+.gt-quick-acts { display: inline-flex; gap: 6px; margin-left: auto; }
+.gt-quick-state { display: flex; align-items: baseline; gap: 2px; font-size: 12px; line-height: 1.5; color: #3d4352; word-break: keep-all; }
+.gt-quick[data-kind="halt"] .gt-quick-state { color: #b42318; }
+.gt-quick[data-kind="done"] .gt-quick-state { color: #1f6f43; }
+.gt-quick-rows { margin: 2px 0 0; padding: 0; list-style: none; }
+.gt-quick-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr); gap: 0 8px; width: 100%; padding: 4px 6px; border: 0; border-bottom: 1px solid #eef1f6; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gt-quick-row:hover:not(:disabled) { background: #f2f6ff; }
+.gt-quick-row:disabled { cursor: default; }
+.gt-quick-name { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.gt-quick-org { overflow: hidden; color: #3d4352; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.gt-quick-res { grid-column: 1 / -1; color: #5b6272; font-size: 11px; line-height: 1.5; word-break: keep-all; }

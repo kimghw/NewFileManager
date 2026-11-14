@@ -1,0 +1,63 @@
+/* ---- 서식 보관함(spec_일반편집 ② §7 · §12 — style_lib.js): 2열 kind "styleLib"(보관한 표 서식·글 서식) · "styleSave"(추출 후보 → 저장). 팝업이 아니라 문서 옆 열(design.md §2).
+   틀은 2열 공용(.hd-tools · .hd-body · table.mini · .hb · .hnote)을 같이 쓰고, 여기에는 .sl-* 만 둔다. 되풀이 줄은 상자 없이 1px 구분선(design.md §1-1), 컨트롤 28px(§1-3).
+   .sl-spin = 도는 작업(검증 중 · 저장 중 · 이름 붙이는 중 — §7). 문서의 자리 표시(.sl-hit · .sl-after)는 스크립트 후보·보관한 서식의 것이라 파랑이다 — 보라는 LLM 제안에만(§6). ---- */
+.sl-wrap { padding: 4px 12px 14px; font-size: 12.5px; min-width: 0; }
+.sl-msg { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.sl-msg.err { color: var(--fail); }
+.sl-msg:empty { display: none; }
+.sl-spin { display: inline-block; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
+.sl-run { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
+.sl-tabs { display: inline-flex; gap: 2px; }
+.sl-tabs .btn.sm { padding: 0 9px; }
+
+/* 보관한 서식 한 줄 묶음 — 이름 줄 · 원본 줄 · 견본 그림 · 뺀 것(접힘) · 단추 줄 */
+.sl-item { padding: 9px 0 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+.sl-item:last-child { border-bottom: 0; }
+.sl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.sl-name { min-width: 0; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.sl-head .hb { max-width: none; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-2); color: var(--muted); }
+.sl-rename { flex: 1 1 10em; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; color: var(--text); }
+.sl-verify { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 17px; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.sl-verify[data-status="ok"] { color: var(--ok); border-color: #b5e0c2; background: var(--ok-soft); }
+.sl-verify[data-status="warn"], .sl-verify.stale { color: var(--warn); border-color: #f5d39a; background: var(--warn-soft); }
+.sl-verify[data-status="fail"] { color: var(--fail); border-color: #f2b8b8; background: var(--fail-soft); }
+.sl-verify .sl-spin { width: 9px; height: 9px; }
+.sl-src { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.sl-proof { display: block; max-width: 100%; max-height: 120px; margin: 6px 0 0; border: 1px solid var(--line); border-radius: 4px; background: #fff; cursor: zoom-in; }
+.sl-proof.big { max-height: none; cursor: zoom-out; }
+.sl-more { margin: 5px 0 0; font-size: 12px; }
+.sl-more > summary { cursor: pointer; color: var(--muted); }
+.sl-more ul { margin: 4px 0 0; padding-left: 18px; color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }
+.sl-more li.fail { color: var(--fail); }
+.sl-more li.unknown, .sl-more li.unsupported { color: var(--muted); }
+.sl-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 7px 0 0; }
+.sl-acts .sl-gap { flex: 1 1 8px; }
+.sl-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 0; color: var(--fail); font-size: 12px; }
+.sl-confirm > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* 글 서식의 항목(레벨마다 한 줄) — 열이 정렬된 grid 하나(design.md §1-5) */
+.sl-levels { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 3px 6px; margin: 6px 0 0; }
+.sl-levels .sl-lv { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.sl-levels .sl-lname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-levels .sl-lname i { color: var(--muted); font-style: normal; }
+
+/* 추출 후보 — 줄마다: 체크 · 이름 칸 · 자리로 / 크기 · 머리행·머리열·합계행 · 같은 서식 n개 · 구조까지 */
+.sl-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0 2px; }
+.sl-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.sl-opt input { margin: 0; }
+.sl-sec { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.sl-cand { padding: 6px 0 7px; border-bottom: 1px solid var(--line); min-width: 0; }
+.sl-cand.off { background: none; }
+.sl-cand.done .sl-cname { color: var(--muted); }
+.sl-crow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sl-crow > input[type="checkbox"] { flex: none; margin: 0; }
+.sl-cname { flex: 1 1 8em; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; color: var(--text); }
+.sl-cmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin: 4px 0 0 19px; color: var(--muted); font-size: 11.5px; min-width: 0; }
+.sl-cmeta .sl-sample { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sl-num { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sl-num input { width: calc(2ch + 22px); height: 24px; padding: 0 1px 0 4px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); font: inherit; color: var(--text); }
+.sl-cstate { margin: 3px 0 0 19px; font-size: 11.5px; color: var(--ok); overflow-wrap: anywhere; }
+.sl-cstate.err { color: var(--fail); }
+.sl-cstate:empty { display: none; }
+
+#doc .sl-hit, #doc table.tbl.sl-hit, #doc .xl-wrap.sl-hit { outline: 2px solid rgba(36, 88, 214, .7); outline-offset: 1px; }

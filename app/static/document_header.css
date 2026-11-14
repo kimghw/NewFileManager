@@ -1,0 +1,67 @@
+/* 공용 편집·도구 한 줄 + 문서별 파일명 행(2026-11-12). 문서/패널 격자와 기존 조작 ID는 유지한다. */
+.workspace > .workspace-tools {
+  grid-column: 1; grid-row: 1; display: flex; align-items: stretch; min-width: 0;
+  overflow-x: auto; overflow-y: hidden; background: var(--surface); border-bottom: 1px solid var(--line);
+  scrollbar-width: thin; scrollbar-color: #c8ced8 transparent;
+}
+.workspace.peer-open > .workspace-tools { grid-column: 1 / 3; z-index: 4; }
+.workspace-tools > .doc-bar {
+  order: 0; flex: 0 0 auto; flex-wrap: nowrap; gap: 6px; padding: 5px 8px;
+  min-height: 39px; border-bottom: 0; border-right: 1px solid var(--line); overflow: visible;
+}
+.workspace-tools > .doc-bar > .spacer { display: none; }
+.workspace-tools > .doc-bar > .bar-right { margin-left: 4px; gap: 4px; }
+.workspace-tools > .workspace-nav { order: 1; flex: 1 0 auto; border-bottom: 0; container-type: normal; }
+.workspace-tools > .workspace-nav > .tabs { flex: 1 0 auto; flex-wrap: nowrap; padding: 0 6px; gap: 0; overflow: visible; }
+.workspace-tools > .workspace-nav .tab {
+  flex: 0 0 auto; min-width: auto; gap: 5px; padding: 7px 9px; font-size: 12px;
+  border-radius: 6px; align-self: center; text-align: left;
+}
+.workspace-tools > .workspace-nav .nav-analysis,
+.workspace-tools > .workspace-nav .nav-compare { margin-left: 0; }
+.workspace-tools > .workspace-nav .nav-icon { display: inline-flex; }
+.workspace > .workspace-tools.folded,
+body.no-doc .workspace-tools,
+body.peek .workspace-tools { display: none; }
+
+.workspace > .document-name-row {
+  grid-column: 1; grid-row: 2; align-items: center; gap: 7px; min-height: 35px;
+  padding: 3px 12px; border-left: 0; border-bottom: 1px solid var(--line); background: #f8faff;
+}
+.document-name-row .document-name-icon { flex: none; color: var(--accent); font-size: 16px; }
+.document-name-row .file-name { flex: 1 1 auto; min-width: 0; max-width: none; font-size: 12px; color: var(--accent); }
+.document-name-row .doc-switch { width: 0; height: 28px; }
+.document-name-row .file-meta { font-size: 11px; }
+.workspace.peer-open .document-name-row .file-meta { display: none; }
+.document-name-row .document-mode { flex: none; margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.workspace.peer-open.peer-left > .document-name-row { grid-column: 2; }
+.workspace > .peer-col > header { grid-row: 2; min-height: 35px; padding: 3px 6px; }
+.peer-col > header > .peer-tabs { align-self: center; padding-left: 0; }
+.peer-tabs .tab { padding: 5px 6px; font-size: 12px; border-radius: 5px; }
+.peer-col > header .recent-note { font-size: 11px; }
+.workspace.file-names-folded > .document-name-row,
+.workspace.file-names-folded > .peer-col > header,
+body.peek .document-name-row { display: none; }
+
+.workspace.compare-mode > .workspace-tools { grid-column: 1 / -1; }
+.workspace.compare-mode .workspace-tools > .doc-bar,
+.workspace.compare-mode > .document-name-row { display: none; }
+
+/* 목적 문서 표시(spec_작업 ② §10 「목적 문서 표시」, 2026-11-13 사용자 "목적문서 인지 아닌지 간단하 표시") — 첫째 면 이름 줄 #docRole(이름 앞) · 둘째 면 탭(data-role → ::before — 탭 글은 파일 이름 그대로).
+   목적 = 파란 바탕 흰 글 · 원본 = 회색 테 — 꼬리표 11px(design.md §1 규칙 7). */
+.doc-role, .peer-tabs .tab[data-role]::before {
+  flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+}
+.doc-role[hidden] { display: none; }
+.doc-role[data-role="target"], .peer-tabs .tab[data-role="target"]::before { border-color: var(--accent); background: var(--accent); color: #fff; }
+.peer-tabs .tab[data-role="target"]::before { content: "목적"; }
+.peer-tabs .tab[data-role="source"]::before { content: "원본"; }
+
+@media (max-width: 820px) {
+  .workspace.peer-open > .workspace-tools,
+  .workspace.peer-open.peer-left > .document-name-row,
+  .workspace.peer-open.peer-left > .viewer { grid-column: 1; }
+  .workspace-tools > .doc-bar { padding-inline: 6px; }
+  .workspace > .document-name-row { padding-inline: 8px; }
+}

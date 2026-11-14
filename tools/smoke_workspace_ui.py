@@ -1,6 +1,6 @@
 """독립 작업 내비게이션·문서 비교의 격리된 브라우저 연기 시험.
 
-python -X utf8 tools/smoke_workspace_ui.py [--port 8115]
+python -X utf8 tools/smoke_workspace_ui.py [출력 폴더] [--port 8115]
 샘플의 별도 작업 사본만 사용한다. PDF/LLM 끔, 별도 숨김 서버를 띄우고 종료한다.
 비교 B의 문서 안 S/# 번호만 바꾼 분석 fixture로 번호가 다른 같은 사슬을 검사한다.
 """
@@ -83,9 +83,12 @@ def seed(folder):
 
 
 def main():
+    global OUT
     parser = argparse.ArgumentParser()
+    parser.add_argument("out", nargs="?", default=str(OUT))
     parser.add_argument("--port", type=int, default=8115)
     args = parser.parse_args()
+    OUT = Path(args.out).resolve()
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", args.port))  # 사용 중인 서버는 건드리지 않는다.
     OUT.mkdir(parents=True, exist_ok=True)
@@ -124,7 +127,7 @@ def main():
             page.wait_for_selector(".para")
             page.click("#tabHeads")
             page.wait_for_selector("#heads2More .htree")
-            check("HWPX seven independent destinations", page.locator("#workspaceNav [role=tab]:visible").count() == 7)
+            check("HWPX eight independent destinations (incl. agent tab)", page.locator("#workspaceNav [role=tab]:visible").count() == 8)
             check("Six heading result views", page.locator(".heads-view-nav [role=tab]:visible").count() == 6)
             check("Heading tree visible without execution controls", page.locator("#heads2More .htree").is_visible() and not page.locator("#headsViewRun").is_visible())
             page.locator("#heads2More button.htext").first.click()
@@ -205,7 +208,8 @@ def main():
                 page.wait_for_timeout(300)
                 buttons = page.locator("#workspaceNav [role=tab]:visible")
                 boxes = [buttons.nth(i).bounding_box() for i in range(buttons.count())]
-                check(f"{width}px navigation remains accessible", len(boxes) == 7 and all(b and b["x"] >= -1 and b["x"] + b["width"] <= width + 1 for b in boxes), str(boxes))
+                check(f"{width}px navigation remains on one scrollable row", len(boxes) == 8 and len({round(b["y"] + b["height"] / 2) for b in boxes if b}) == 1
+                      and page.evaluate("() => { const t = document.getElementById('workspaceTools'); return t.clientWidth <= innerWidth && getComputedStyle(t).overflowX === 'auto'; }"), str(boxes))
                 page.screenshot(path=OUT / f"06_narrow_{width}.png")
                 page.click("#tabPdf")
                 check(f"{width}px navigation usable", page.locator("#panePdf").is_visible())

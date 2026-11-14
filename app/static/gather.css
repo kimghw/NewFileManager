@@ -17,11 +17,28 @@
 #divBox .gt-part-del:hover:not(:disabled) { color: var(--fail); }
 #divBox .gt-add { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; align-items: center; padding-top: 5px; border-top: 1px solid #eef2f7; }
 #divBox .gt-add select { width: 100%; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+/* 기관별 폴더(② §5 「기관별 폴더」) — 상자를 더 두르지 않는다(카드 › 줄 — 폴더 머리도 1px 구분선 줄). 폴더 안 줄은 머리 글 자리만큼 들인다(열 제목도 같이) · 놓을 수 있을 때만 옅은 바탕 */
+#divBox .gt-folder { min-width: 0; border-top: 1px solid #e8edf3; border-radius: 6px; }
+#divBox .gt-folder-head { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; align-items: center; min-height: 32px; }
+#divBox .gt-folder-head > .gt-folder-tog:only-child { grid-column: 1 / -1; padding-right: 36px; } /* 올리기 단추가 없는 폴더(기관 미지정 · 여러 기관) — 문서 수가 다른 폴더와 같은 자리에 */
+#divBox .gt-folder-tog { display: flex; align-items: center; gap: 5px; min-width: 0; height: 28px; padding: 0 2px; border: 0; background: none; font: inherit; font-size: 12.5px; color: #1e293b; text-align: left; cursor: pointer; }
+#divBox .gt-folder-empty .gt-folder-tog { cursor: default; color: #64748b; }
+#divBox .gt-folder-caret { flex: none; width: 10px; font-size: 10px; color: #64748b; }
+#divBox .gt-folder-ic { flex: none; display: inline-flex; color: #94a3b8; }
+#divBox .gt-folder:not(.gt-folder-empty) .gt-folder-ic { color: var(--accent); }
+#divBox .gt-folder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+#divBox .gt-folder-role, #divBox .gt-folder-n { flex: none; font-size: 11px; color: #64748b; white-space: nowrap; }
+#divBox .gt-folder-n { margin-left: auto; padding-left: 6px; }
+#divBox .gt-folder.shut > .gt-part { display: none; }
+#divBox .gt-folder > .gt-part, #divBox .gt-foldered > .gt-cols { padding-left: 17px; }
+#divBox .gt-folder.gt-drop { background: #f0f5ff; box-shadow: inset 0 0 0 1px var(--accent); }
+#divBox .gt-part-name[draggable="true"] { cursor: grab; }
+#divBox .gt-part.gt-dragging { opacity: .45; }
 #divBox .gt-note { margin: 4px 0 0; color: var(--warn); }
 #divBox .gt-orgs { margin: 0; font-size: 11.5px; line-height: 1.5; }
 #divBox .gt-orgs[hidden] { display: none; }
 #divBox .gt-orgs-miss { color: var(--warn); }
-@container (min-width: 440px) { /* 넓은 패널(기본 폭 520px — .pane 좌우 여백 40px·스크롤 막대를 뺀 값이 440px 을 넘을 때) — 한 줄: 문서 · 반영할 기관 · 공통 · 상태 · 같이 보기 · 빼기(열 제목은 위에 한 번, 「공통 자리 포함」 글은 열 제목이 대신한다) */
+@container (min-width: 456px) { /* 넓은 패널(기본 폭 520px — #paneDiv 좌우 여백 24px·스크롤 막대를 뺀 값이 456px 을 넘을 때. 2026-11-12 여백 40px → 24px 에 맞춰 440 → 456 — 갈리는 패널 폭은 전과 같다: 480px 은 두 줄) — 한 줄: 문서 · 반영할 기관 · 공통 · 상태 · 같이 보기 · 빼기(열 제목은 위에 한 번, 「공통 자리 포함」 글은 열 제목이 대신한다) */
   #divBox .gt-cols, #divBox .gt-part { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 28px 84px 28px 28px; }
   #divBox .gt-part { grid-template-areas: "name org chk tag peer del"; }
   #divBox .gt-cols { display: grid; gap: 0 6px; padding-bottom: 2px; font-size: 11px; color: #64748b; white-space: nowrap; }
@@ -68,3 +85,40 @@
 .doc .gt-drop-after { box-shadow: 0 3px 0 0 #0f766e, 0 0 0 1px rgba(15, 118, 110, .18); }
 /* 둘째 면(기관 문서)의 제목 줄 손잡이 = 끌어 넣기 출발 */
 body.peek .ol-grip { cursor: grab; }
+
+/* 기관 구역 표시(spec_취합 ② §9-2 — gather.js gatherZones*): 카드의 「기관 구역」 줄 · 문서(취합본)의 구역 띠 · 오른쪽 여백 이름표 · 넣은 내용 바탕 · 2열 목록.
+   색 = 기관 차례(주관 → 공동, 8색을 돌려 씀) · u = 기관 모름. 글자 색만으로 가르지 않고 이름표·칩 글을 같이 둔다. 표시는 요소마다(#doc·body 에 클래스를 달지 않는다) */
+[data-gz="0"] { --gz-c: #2563eb; --gz-bg: rgba(37, 99, 235, .10); }
+[data-gz="1"] { --gz-c: #c2410c; --gz-bg: rgba(194, 65, 12, .10); }
+[data-gz="2"] { --gz-c: #0f766e; --gz-bg: rgba(15, 118, 110, .11); }
+[data-gz="3"] { --gz-c: #7c3aed; --gz-bg: rgba(124, 58, 237, .10); }
+[data-gz="4"] { --gz-c: #b91c1c; --gz-bg: rgba(185, 28, 28, .09); }
+[data-gz="5"] { --gz-c: #4d7c0f; --gz-bg: rgba(77, 124, 15, .11); }
+[data-gz="6"] { --gz-c: #a16207; --gz-bg: rgba(161, 98, 7, .11); }
+[data-gz="7"] { --gz-c: #be185d; --gz-bg: rgba(190, 24, 93, .10); }
+[data-gz="u"] { --gz-c: #64748b; --gz-bg: rgba(100, 116, 139, .10); }
+.gt-zones { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 2px; border-top: 1px solid var(--line, #e2e8f0); }
+.gt-zones[hidden] { display: none; }
+.gt-zones-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.gt-zones-head strong { font-size: 13px; margin-right: auto; }
+.gt-zones-toggle.on { background: var(--surface-2, #eef2f7); }
+.gt-zones-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.gt-zones[data-gz="off"] .gt-zones-chips { opacity: .6; }
+.gz-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); cursor: pointer; font: inherit; font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.gz-chip:hover, .gz-chip:focus-visible { border-color: var(--gz-c); text-decoration: underline; }
+/* 문서 — 구역: 블록 오른쪽 안쪽 띠(배치 안 바뀜) · 표는 바깥 오른쪽 띠 · 기관 칸은 칸 안쪽 왼쪽 띠 · 넣은 내용은 옅은 바탕(표는 점선 테) */
+.doc .para.gz-in { box-shadow: inset -3px 0 0 0 var(--gz-c); }
+.doc table.tbl.gz-in { box-shadow: 3px 0 0 0 var(--gz-c); }
+.doc td.gz-cell { box-shadow: inset 3px 0 0 0 var(--gz-c); }
+.doc .para.gz-put { background-color: var(--gz-bg); }
+.doc table.tbl.gz-put { outline: 2px dashed var(--gz-c); outline-offset: 1px; }
+.doc td.gz-put { box-shadow: inset 0 0 0 2px var(--gz-c); background-color: var(--gz-bg); }
+/* 오른쪽 여백의 이름표(구역 첫 블록 높이) — zoom 1/z 로 화면 px, 폭 = 그 쪽 여백(--mgr) */
+.sheet > .gz-tag { position: absolute; right: 0; width: var(--mgr, 60px); box-sizing: border-box; padding: 1px 4px 1px 6px; z-index: 3; pointer-events: auto;
+  font: 600 10.5px/14px var(--ui-font, system-ui, sans-serif); color: var(--gz-c); border-left: 3px solid var(--gz-c); background: color-mix(in srgb, #fff 88%, var(--gz-c));
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; user-select: none; }
+@media print { .sheet > .gz-tag { display: none; } }
+/* 2열 「기관 구역」(kind gatherZones) */
+.hd-body .gz-cap { border-left: 4px solid var(--gz-c); padding-left: 8px; }
+.hd-body table.gz-table td.gz-what { white-space: nowrap; color: var(--gz-c, var(--text)); }
+.hd-body table.gz-table td.gz-put-row { font-weight: 600; }

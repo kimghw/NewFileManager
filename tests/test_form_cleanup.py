@@ -1,0 +1,115 @@
+"""양식 안내 지우기(이관 3단계 ⑥ 작성요령 삭제 — spec_작업 ② §14 「3단계」 · app/form_cleanup.py · API …/form-cleanup).
+지우는 패턴 목록(FC.PATTERNS)만 지운다: 첫 줄이 「작성 요령」 인 표 · 「<참고 N>」 자료(제목 줄 + 뒤 표) · 안내 색(검정 아닌) ※ 글 · 위첨자 각주 번호 — 실제 KEIT 연차보고서 서식으로."""
+from collections import Counter
+
+import pytest
+from fastapi.testclient import TestClient
+
+import merge_data as M
+from app import form_cleanup as FC
+from app import server
+from app.division_profiles import _structure as S
+from app.hwpx_doc import HwpxDoc
+
+pytestmark = pytest.mark.skipif(not M.REPORT_FORM.exists(), reason="KEIT 연차보고서 서식 hwpx 없음")
+
+
+def _paras(doc):
+    return [b for b in S.iter_blocks(doc.blocks()) if b.get("type") == "paragraph"]
+
+
+def test_find_three_kinds_and_apply_removes_them():
+    doc = HwpxDoc(M.REPORT_FORM.read_bytes())
+    f = FC.find(doc)
+    c = f["counts"]
+    assert (c["tables"], c["refs"], c["marks"], c["notes"]) == (4, 4, 56, 30) and c["total"] == 94, c   # 실측(2026-11-12) — 서식의 ※ 33줄 가운데 3줄은 작성 요령 표 안(표와 함께)
+    assert all("작성" in t["label"] and "요령" in t["label"] for t in f["tables"])
+    assert all(n["color"] in ("#0000FF", "#FF0000") for n in f["notes"])
+    inline = next(n for n in f["notes"] if "2page" in n["guide"])
+    assert not inline["whole"] and inline["guide"] == "※ 2page 이내 요약 작성"   # 헤딩과 한 문단 — 헤딩은 남긴다
+    done = FC.apply(doc, f)
+    assert (done["tables"], done["refs"], done["marks"], done["notes"]) == (4, 4, 56, 30) and not done["skipped"]
+    assert FC.find(doc)["counts"]["total"] == 0
+    head = next(b for b in _paras(doc) if (b.get("text") or "").startswith("1. 연구개발과제의 개요") and "※" not in b["text"] and "페이지" not in b["text"])
+    assert head["text"].strip() == "1. 연구개발과제의 개요"
+    runs = head.get("runs") or [{"text": head["text"], "format": head.get("format") or {}}]
+    assert all((r.get("format") or {}).get("color") in (None, "#000000") for r in runs if r["text"].strip())   # 남은 헤딩 글은 제 서식(검정) 그대로
+
+
+def test_refs_caption_and_table_go_and_blank_lines_do_not_pile_up():
+    """「<참고 N>」 자료(2026-11-12 사용자 "<참고 N> 이 패턴도 삭제하도록 해줘라") — 제목 줄 + 바로 뒤 표째. 서식: 성과 절 끝의 <참고 1~3>(빈 줄 · 제목 · 표 되풀이) + 부록의 <참고 1> 위험성 추정 예시.
+    지운 뒤 그 자리에 빈 줄이 겹쳐 쌓이지 않는다(앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도) — <참고 1~3> 앞의 빈 줄 둘 바로 뒤가 「4. 연구개발비 사용실적」."""
+    doc = HwpxDoc(M.REPORT_FORM.read_bytes())
+    refs = FC.find(doc)["refs"]
+    assert [r["label"][:8] for r in refs] == ["<참고 1> 연", "<참고 2> 국", "<참고 3> 국", "<참고 1> 위"] and all(r["tables"] == 1 for r in refs)
+    FC.apply(doc, FC.find(doc))
+    body = doc.blocks()
+    texts = [(b.get("text") or "").strip() if b.get("type") == "paragraph" else "<표>" for b in body]
+    assert not any(t.startswith("<참고") for t in texts)
+    k = next(n for n, t in enumerate(texts) if t.startswith("4. 연구개발비 사용실적("))   # 본문 헤딩(차례의 「…	(페이지표기)」 줄 말고)
+    assert texts[k - 2:k] == ["", ""] and texts[k - 3] != "", texts[k - 4:k + 1]   # 앞의 빈 줄 둘은 그대로 · 더 쌓이지 않음
+
+
+def test_ref_caption_without_table_stays():
+    """뒤에 표가 없는 「<참고 N>」 줄은 무엇을 가리키는지 꼴로 알 수 없어 안 지운다."""
+    doc = HwpxDoc(M.REPORT_FORM.read_bytes())
+    p = next(b for b in _paras(doc) if (b.get("text") or "").startswith("4. 연구개발비 사용실적("))   # 뒤는 빈 줄 · 「5. 다음 연도 …」 — 표 없음
+    doc.set_text(p["id"], "<참고 9> 표 없는 참고 줄")
+    assert p["id"] not in {r["id"] for r in FC.find(doc)["refs"]}
+
+
+def test_patterns_list_is_the_registry():
+    """지우는 패턴 목록(2026-11-12 사용자 "문서 정리에는 어떤 패턴을 삭제해야하는지 목록이 있어야함") — 종류마다 이름·찾는 것·처리·보기, find 의 counts 와 같은 키."""
+    doc = HwpxDoc(M.REPORT_FORM.read_bytes())
+    f = FC.find(doc)
+    assert [p["key"] for p in f["patterns"]] == ["tables", "refs", "notes", "marks"] == list(FC.KINDS)
+    assert all(p["name"] and p["rule"] and p["how"] and p["example"] for p in f["patterns"])
+    assert {p["key"]: p["count"] for p in f["patterns"]} == {k: f["counts"][k] for k in FC.KINDS}
+    e = FC.empty()
+    assert e["counts"]["total"] == 0 and len(e["patterns"]) == len(FC.PATTERNS) and all(e[k] == [] for k in FC.KINDS)
+
+
+def test_body_color_note_is_content_and_stays():
+    """본문 색(검정) ※ 줄은 내용(계획서에서 옮겨 온 「※ 차도선 하루 10회 …」 같은 줄) — 안 지운다."""
+    doc = HwpxDoc(M.REPORT_FORM.read_bytes())
+    p = next(b for b in _paras(doc) if (b.get("text") or "").strip() and "※" not in b["text"] and not b.get("runs")
+             and ((b.get("format") or {}).get("color") in (None, "#000000")))
+    doc.set_text(p["id"], "※ 차도선 하루 10회 이상 접안 → 고빈도 Edge Case 자동 축적")
+    assert p["id"] not in {n["id"] for n in FC.find(doc)["notes"]}
+    FC.apply(doc, FC.find(doc))
+    assert any(b["id"] == p["id"] and b["text"].startswith("※ 차도선") for b in _paras(doc))
+
+
+@pytest.fixture
+def client():
+    server.DOCS.clear()
+    yield TestClient(server.app)
+    server.DOCS.clear()
+
+
+def test_api_list_apply_undo(client):
+    d = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    v = client.get(f"/api/docs/{d}/form-cleanup").json()
+    assert v["counts"]["total"] == 94 and len(v["tables"]) == 4 and len(v["refs"]) == 4 and {"id", "guide", "whole", "color"} <= set(v["notes"][0])
+    assert client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"] + 1}).status_code == 409   # 목록을 읽은 뒤 바뀜
+    r = client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"]})
+    assert r.status_code == 200, r.text[:600]
+    out = r.json()
+    assert out["done"]["tables"] == 4 and out["done"]["refs"] == 4 and out["done"]["notes"] == 30 and out["done"]["marks"] == 56 and out["rev"] == v["rev"] + 1
+    assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 0
+    assert client.post(f"/api/docs/{d}/form-cleanup", json={}).json()["nothing"] is True   # 지울 것 없음 — 편집 안 함
+    assert client.post(f"/api/docs/{d}/undo").status_code == 200   # 편집 하나 — 실행 취소 한 번이면 다 돌아온다
+    assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 94
+
+
+def test_api_baseline_is_the_document_before_the_edit(client, monkeypatch):
+    """2단계 내용 반영이 사업계획서에서 옮겨 온 위반 종류(그림의 renderingInfo 등)는 이 지우기 탓이 아니다 — 올린 원본에 없던 종류가 이미 있어도 지운다
+    (2026-11-12 실측: 원본 기준선만 보는 전체 검사 편집(TEMP 삭제)이 반영 뒤 문서에서 422). 흉내: 원본 기준선을 비워 지금 문서의 위반이 모두 「원본에 없던 종류」 가 되게."""
+    d = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    chk = s.kit["check"]
+    assert sum(chk.counts(chk.check_doc(s.doc))["schema"].values()) > 0   # 이 서식은 원본부터 스키마 위반이 있다 — 비운 기준선이면 원본 대비 검사는 걸린다
+    monkeypatch.setattr(server, "owpml_base", lambda s_: {"schema": Counter(), "rules": Counter()})
+    r = client.post(f"/api/docs/{d}/form-cleanup", json={})
+    assert r.status_code == 200, r.text[:600]
+    assert r.json()["done"]["tables"] == 4

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COM = ["test_pdf_render.py", "test_pdf_style.py", "test_upload_hwp.py", "test_docx_web.py", "test_server.py", "test_works.py"]  # pdf_render·win32com 을 만지는 파일(grep 으로 고름 — 새로 생기면 여기에 더한다)
+COM = ["test_pdf_render.py", "test_pdf_style.py", "test_upload_hwp.py", "test_docx_web.py", "test_server.py", "test_works.py", "test_style_verify_pdf.py"]  # pdf_render·win32com 을 만지는 파일(grep 으로 고름 — 새로 생기면 여기에 더한다)
 ap = argparse.ArgumentParser()
 ap.add_argument("--jobs", type=int, default=6)
 ap.add_argument("--tmp", default=str(ROOT / "artifacts" / "pytest_tmp"))

@@ -64,6 +64,9 @@ def peek(page):
 SHOWN = "() => { const c = document.getElementById('peerCol'); return c.getClientRects().length > 0 && !c.hidden ? document.getElementById('peerFrame').dataset.w : ''; }"
 BTN = "(k) => { const b = document.querySelector(`#taskFlow [data-task-peer=${k}]`); return b ? { disabled: b.disabled, pressed: b.getAttribute('aria-pressed') } : null; }"
 RECT = "(id) => { const r = document.getElementById(id).getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }"
+ROLE = """() => { const b = document.getElementById('docRole');
+  return { mine: { shown: b.getClientRects().length > 0, text: b.textContent, role: b.dataset.role || '' },
+           tabs: [...document.querySelectorAll('#peerTabs .tab')].map((t) => [t.dataset.peerDoc, t.dataset.role || '', getComputedStyle(t, '::before').content]) }; }"""
 
 try:
     for _ in range(300):
@@ -95,6 +98,11 @@ try:
         check("문서 이름 탭 — 칸 문서(사업계획서)가 먼저·고른 탭, 같은 과제의 다른 문서가 다음", [t["id"] for t in tabs] == [plan, third] and [t["on"] for t in tabs] == [True, False]
               and all(t["shown"] and t["text"] == "기술수요조사서.hwpx" for t in tabs), tabs)
         check("이름 줄 없음 — 머리는 탭 줄(이름은 접힌 띠·aria 용으로만)", not page.is_visible("#peerName") and page.evaluate("() => document.getElementById('peerName').textContent") == "기술수요조사서.hwpx")
+        # 목적 문서 표시(② §10 「목적 문서 표시」): 첫째 면 이름 줄 꼬리표 · 둘째 면 탭은 data-role → ::before(탭 글은 이름 그대로)
+        role = page.evaluate(ROLE)
+        check("목적 문서 표시 — 연차보고서(고치는 문서) = 「목적 문서」 · 사업계획서 탭 = 「원본」 · 칸 없는 문서 탭 = 없음",
+              role["mine"] == {"shown": True, "text": "목적 문서", "role": "target"} and role["tabs"] == [[plan, "source", '"원본"'], [third, "", "none"]], role)
+        page.screenshot(path=str(OUT / "doc_role.png"), clip={"x": 0, "y": 0, "width": 1900, "height": 130})  # 꼬리표 모양 기록(이름 줄 · 둘째 면 탭)
         v, p, pn = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol"), page.evaluate(RECT, "panel")
         # 두 면의 좌우 = 칸 차례(② §12 「두 면」 — 사업계획서 왼쪽 · 연차보고서 오른쪽): 연차보고서를 고치는 중이면 옆 문서(사업계획서)가 왼쪽
         check("열 차례 = 사업계획서(옆 문서) · 연차보고서(고치는 문서) · 패널, 문서 ≥ 360", p["r"] <= v["l"] + 1 and v["r"] <= pn["l"] + 1 and v["w"] >= 360 and p["w"] >= 360
@@ -113,7 +121,7 @@ try:
         check("옆 문서에 타자해도 글·서버 그대로", para.inner_text() == before and requests.get(f"{base}/api/docs/{plan}", timeout=30).json()["rev"] == rev)
 
         # ---- 2. 칸 단추(패널 「연구개발과제」)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#taskFlow [data-task-peer=plan]")
         check("칸 단추 — 사업계획서 눌림 · 연차보고서(지금 문서) 꺼짐", page.evaluate(BTN, "plan") == {"disabled": False, "pressed": "true"} and page.evaluate(BTN, "report")["disabled"],
               (page.evaluate(BTN, "plan"), page.evaluate(BTN, "report")))
@@ -127,7 +135,7 @@ try:
         open_work(page, report)
         page.wait_for_timeout(800)
         check("새로 고쳐도 꺼진 채", page.evaluate(SHOWN) == "")
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#taskFlow [data-task-peer=plan]")
         page.click("#taskFlow [data-task-peer=plan]")
         fr = peek(page)
@@ -141,10 +149,10 @@ try:
         v, p = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol")
         check("폭 손잡이 없음 — 두 면 폭은 늘 반반", page.locator("#peerResizer").count() == 0 and abs(v["w"] - p["w"]) <= 1, (v, p))
 
-        # ---- 3-1. 두 면(② §12 「두 면」) — 탭 줄·편집 도구 줄은 두 문서 위에 한 번 · 창마다 이름 줄 없음 · 줄을 접고 펴도 두 문서의 위끝이 같은 줄
+        # ---- 3-1. 공용 도구 한 줄 + 문서별 파일명 행. 파일명 접기는 탭·편집 접기와 독립(2026-11-12).
         GEO = """() => { const q = (s) => { const e = document.querySelector(s), b = e.getBoundingClientRect(); return { t: b.top, b: b.bottom, l: b.left, r: b.right, h: b.height, w: b.width, shown: e.getClientRects().length > 0 }; };
             const ws = document.querySelector('.workspace');
-            return { ws: q('.workspace'), nav: q('#workspaceNav'), bar: q('#docBar'), viewer: q('#viewer'), sc: q('#scroller'), col: q('#peerCol'), head: q('#peerCol > header'), frame: q('#peerFrame'),
+            return { ws: q('.workspace'), tools: q('#workspaceTools'), names: q('#fileInfo'), nav: q('#workspaceNav'), bar: q('#docBar'), viewer: q('#viewer'), sc: q('#scroller'), col: q('#peerCol'), head: q('#peerCol > header'), frame: q('#peerFrame'),
                      open: ws.classList.contains('peer-open'), pane: ws.classList.contains('pane-peer') ? 'peer' : 'main' }; }"""
 
         def geo(nav, bar):
@@ -158,27 +166,37 @@ try:
         for name, nav, bar in (("둘 다", True, True), ("탭 띠만", True, False), ("편집 줄만", False, True), ("둘 다 접음", False, False)):
             g = geo(nav, bar)
             ok = g["open"] and near(g["sc"]["t"], g["frame"]["t"]) and near(g["sc"]["b"], g["frame"]["b"])
-            ok = ok and ((g["head"]["shown"] and near(g["head"]["h"], g["nav"]["h"]) and near(g["head"]["t"], g["nav"]["t"])) if nav else not g["head"]["shown"])
-            ok = ok and ((g["bar"]["shown"] and near(g["bar"]["l"], min(g["viewer"]["l"], g["col"]["l"])) and near(g["bar"]["r"], max(g["viewer"]["r"], g["col"]["r"]))) if bar else not g["bar"]["shown"])  # 두 문서 위(어느 쪽이 왼쪽이든)
-            ok = ok and ((near(g["nav"]["l"], g["viewer"]["l"]) and near(g["head"]["l"], g["col"]["l"])) if nav else True)  # 도구 탭 띠는 고치는 문서 위 · 문서 이름 탭 줄은 옆 문서 위
+            ok = ok and g["head"]["shown"] and g["names"]["shown"] and near(g["head"]["h"], g["names"]["h"]) and near(g["head"]["t"], g["names"]["t"])
+            ok = ok and g["nav"]["shown"] == nav and g["bar"]["shown"] == bar
+            ok = ok and near(g["names"]["l"], g["viewer"]["l"]) and near(g["head"]["l"], g["col"]["l"])
+            if nav or bar:
+                ok = ok and g["tools"]["shown"] and near(g["tools"]["l"], min(g["viewer"]["l"], g["col"]["l"])) and near(g["tools"]["r"], max(g["viewer"]["r"], g["col"]["r"]))
+            if nav and bar:
+                ok = ok and near(g["nav"]["t"], g["bar"]["t"])
             if not nav and not bar:
-                ok = ok and near(g["sc"]["t"], g["ws"]["t"])  # 두 문서 모두 상단 바 바로 아래
-            check(f"두 면 — {name}: 두 문서 위끝·아래끝 같은 줄 · 문서 탭 줄 = 도구 탭 띠 높이 · 편집 도구 줄은 두 문서 위", ok, g)
+                ok = ok and not g["tools"]["shown"] and near(g["names"]["t"], g["ws"]["t"])
+            check(f"두 면 — {name}: 공용 도구 한 줄 · 각 문서 위 파일명 · 두 문서 위끝·아래끝 일치", ok, g)
             page.screenshot(path=str(OUT / f"3_panes_{int(nav)}{int(bar)}.png"))
         g = geo(True, True)
-        check("편집 도구 줄 — 두 문서 폭이라 한 줄", g["bar"]["h"] <= 41, g["bar"])
-        page.set_viewport_size({"width": 1500, "height": 900})  # 문서 열이 좁아져(두 면 반반 = 490px) 도구 탭 띠가 두 줄로 꺾여도
+        check("편집·도구 탭은 한 줄", g["bar"]["h"] <= 41 and near(g["nav"]["t"], g["bar"]["t"]), g)
+        page.click("#fileFold")
+        g = page.evaluate(GEO)
+        check("파일명 접기는 탭·편집과 독립 — 두 문서 이름만 숨김", not g["names"]["shown"] and not g["head"]["shown"] and g["nav"]["shown"] and g["bar"]["shown"]
+              and near(g["sc"]["t"], g["frame"]["t"]) and page.locator("#fileFold").get_attribute("aria-pressed") == "false"
+              and page.evaluate("() => localStorage.getItem('nfm.fileFold')") == "1", g)
+        page.click("#fileFold")
+        page.set_viewport_size({"width": 1500, "height": 900})
         g = geo(True, False)
-        check("도구 탭 띠가 두 줄로 꺾이면 문서 탭 줄도 그 높이", g["nav"]["h"] >= 50 and near(g["head"]["h"], g["nav"]["h"]) and near(g["sc"]["t"], g["frame"]["t"]), g)
+        check("좁아져도 도구 탭은 한 줄 · 파일명 행 높이 독립 · 두 문서 정렬", g["nav"]["h"] <= 41 and near(g["head"]["h"], g["names"]["h"]) and near(g["sc"]["t"], g["frame"]["t"]), g)
         page.set_viewport_size({"width": 1900, "height": 900})
         geo(True, True)
         page.click("#peerFold")
         g = page.evaluate(GEO)
-        check("» 접기 — 28px 띠가 상단 바 아래부터 끝까지 · 편집 도구 줄은 문서 열 위로만", round(g["col"]["w"]) == 28 and near(g["col"]["t"], g["ws"]["t"]) and near(g["col"]["b"], g["ws"]["b"])
-              and not g["open"] and near(g["bar"]["r"], g["viewer"]["r"]), g)
+        check("» 접기 — 28px 띠가 상단 바 아래부터 끝까지 · 공용 도구 행은 문서 열 위로만", round(g["col"]["w"]) == 28 and near(g["col"]["t"], g["ws"]["t"]) and near(g["col"]["b"], g["ws"]["b"])
+              and not g["open"] and near(g["tools"]["r"], g["viewer"]["r"]), g)
         page.click("#peerRail")
         g = page.evaluate(GEO)
-        check("띠를 누르면 다시 두 문서 위", g["open"] and near(g["bar"]["l"], min(g["viewer"]["l"], g["col"]["l"])) and near(g["bar"]["r"], max(g["viewer"]["r"], g["col"]["r"])) and near(g["sc"]["t"], g["frame"]["t"]), g)
+        check("띠를 누르면 다시 두 문서 위", g["open"] and near(g["tools"]["l"], min(g["viewer"]["l"], g["col"]["l"])) and near(g["tools"]["r"], max(g["viewer"]["r"], g["col"]["r"])) and near(g["sc"]["t"], g["frame"]["t"]), g)
 
         # ---- 3-2. 두 면은 늘 같은 크기 — 폭 반반 · 둘째 면이 첫째 면의 보기(배율·2쪽 보기·쪽 번호·휠 쪽 넘김)를 따른다. 도구 줄은 하나(두 문서에 함께)
         VIEW = """() => { const f = document.getElementById('peerFrame'), w = f.contentWindow, d = f.contentDocument, r = (e) => e.getBoundingClientRect();
@@ -262,7 +280,7 @@ try:
         # ---- 5. 문서 비교에서는 안 보이고, 돌아오면 다시
         page.click("#tabCompare")
         check("문서 비교 — 옆 열 없음", page.evaluate(SHOWN) == "")
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         check("돌아오면 다시", page.evaluate(SHOWN) == plan)
 
         # ---- 6. 패널 320px 에서 칸 줄 넘침 없음
@@ -278,6 +296,9 @@ try:
         page.wait_for_function(f"([a, b]) => state.id === a && ({SHOWN})() === b", arg=[plan, report], timeout=120000)
         fr = peek(page)
         check("문서를 바꾸면 옆 문서도 바뀜", f"peek={report}" in fr.url, fr.url)
+        role = page.evaluate(ROLE)
+        check("목적 문서 표시 — 사업계획서(고치는 문서) = 「원본 문서」 · 연차보고서 탭 = 「목적」",
+              role["mine"] == {"shown": True, "text": "원본 문서", "role": "source"} and role["tabs"][0] == [report, "target", '"목적"'], role)
         v, p = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol")
         check("고치는 문서를 바꿔도 자리는 그대로 — 사업계획서(이제 고치는 문서) 왼쪽 · 연차보고서 오른쪽", v["r"] <= p["l"] + 1
               and not page.evaluate("() => document.querySelector('.workspace').classList.contains('peer-left')"), (v, p))
@@ -287,6 +308,7 @@ try:
         check("다시 켬", page.evaluate(SHOWN) == report)
         page.evaluate("() => closeDoc()")
         check("문서를 닫으면 옆 열도 닫힘", page.evaluate("() => document.getElementById('peerCol').hidden && document.getElementById('peerFrame').src === 'about:blank'"))
+        check("문서를 닫으면 목적 문서 표시도 없음", page.evaluate(ROLE)["mine"]["shown"] is False)
 
         check("옆 화면이 보낸 GET 밖 요청 0", not writes, writes[:5])
         check("화면 오류 0", not errors, errors[:5])

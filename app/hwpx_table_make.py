@@ -48,10 +48,18 @@ class _Tpl:
 
 class TableMakeMixin:
     # ---------------------------------------------------------------- 양식 읽기 · 칸 서식
-    def _tm_template(self, template_id, roles):
-        tbl = self._ids.get(template_id)
-        if tbl is None or tbl.tag != TBL or not self._attached(tbl):
-            raise ValueError("표 양식으로 고른 표가 지금 문서에 없습니다 — 양식을 다시 고르세요")
+    def _tm_template(self, template_id, roles, src=None):
+        """양식 표를 구역으로 읽는다. src(다른 HwpxDoc — 서식 보관함의 운반 문서, spec_일반편집 ② §4)를 주면 template_id 는 그 문서의 표 id:
+        그 표를 host 문단째 `_copy` 로 떼어 온 **붙이지 않은 사본**(정의는 이 문서 header 로 가져옴)을 양식으로 쓴다 — 이 문서에 임시 블록을 넣지 않는다."""
+        if src is not None and src is not self:
+            tbl = src._ids.get(template_id) if isinstance(src, TableMakeMixin) else None
+            if tbl is None or tbl.tag != TBL or not src._attached(tbl):
+                raise ValueError("표 양식으로 고른 표가 서식 문서에 없습니다 — 서식을 다시 고르세요")
+            tbl = self._copy(src, [template_id], {})[1][0]  # 사본의 부모(런·문단)는 사본이 살아 있는 동안 남는다 — _obj_para 가 그 모양을 읽는다
+        else:
+            tbl = self._ids.get(template_id)
+            if tbl is None or tbl.tag != TBL or not self._attached(tbl):
+                raise ValueError("표 양식으로 고른 표가 지금 문서에 없습니다 — 양식을 다시 고르세요")
         _, cells, nr, nc = self._tgrid(tbl)
         if not cells or nr <= 0 or nc <= 0:
             raise ValueError("표 양식에 칸이 없습니다")
@@ -156,11 +164,14 @@ class TableMakeMixin:
         return self._host(el)
 
     # ---------------------------------------------------------------- 새 표
-    def table_make(self, ref_id: str, template_id: str, norm: dict, roles: dict | None = None) -> dict:
+    def table_make(self, ref_id: str, template_id: str, norm: dict, roles: dict | None = None, *, src=None, fit: bool | None = None) -> dict:
         """ref 블록의 문단 바로 뒤에 새 문단(양식 표를 품은 문단 모양) + 그 안에 양식 서식의 새 표 -> {"table", "host", "rows", "cols"}.
-        norm = table_make.normalize 결과, roles = 양식 표의 구역 수 {headerRows, headerCols, footRows}(없으면 0·0·0)."""
+        norm = table_make.normalize 결과, roles = 양식 표의 구역 수 {headerRows, headerCols, footRows}(없으면 0·0·0).
+        src = 양식 표가 든 다른 HwpxDoc(운반 문서 — _tm_template), 없으면 이 문서의 표(전과 같다).
+        폭 맞춤(spec_일반편집 ② §4): 칸 안에 넣으면 늘 그 칸의 글 폭까지만. 본문에 넣을 때는 fit 이 참이면 그 구역의 글 폭까지만 — fit None = src 를 줬을 때만
+        (다른 문서의 양식 폭은 이 문서의 쪽 폭과 무관하다 · 이 문서의 양식은 전처럼 양식 폭 그대로)."""
         ref = self._tm_anchor(ref_id)
-        tpl = self._tm_template(template_id, roles)
+        tpl = self._tm_template(template_id, roles, src)
         n_rows, n_cols = norm["nRows"], norm["nCols"]
         rmap, cmap = tpl.maps(n_rows, n_cols, norm)
         total = sum(tpl.widths)
@@ -169,19 +180,23 @@ class TableMakeMixin:
             avail = (int(sz.get("width", 0)) if sz is not None else 0) - (int(mg.get("left", 0)) + int(mg.get("right", 0)) if mg is not None else 0)
             if 0 < avail < total:
                 total = avail
+        elif fit if fit is not None else src is not None:  # 본문 — 그 구역의 글 폭(쪽 폭 − 좌우 여백)까지만
+            avail = round(self._body_width_mm(ref) * 7200 / 25.4)
+            if 0 < avail < total:
+                total = avail
         # 열 폭 — 열 수가 양식과 같으면 양식의 열 폭 그대로(비례), 다르면 양식의 열 폭은 이 내용과 무관하므로 칸 글 길이로 표 폭을 나눈다
         widths = [max(1, tpl.widths[c]) for c in cmap] if n_cols == tpl.nc else [w * 100 for w in M.col_weights(norm)]
         if total > 0:
             grid.refit(widths, 0, n_cols - 1, total)
         body_h = tpl.body_height()
         heights = [tpl.heights[t] if (t < tpl.h or t >= tpl.nr - tpl.f) and tpl.heights[t] > 0 else body_h for t in rmap]
-        src = tpl.tbl
-        new = src.makeelement(TBL, src.attrib)
-        new.attrib.update({"id": self._tm_new_id(src), "rowCnt": str(n_rows), "colCnt": str(n_cols)})
-        first_tr = src.find(TR)
+        like = tpl.tbl
+        new = like.makeelement(TBL, like.attrib)
+        new.attrib.update({"id": self._tm_new_id(like), "rowCnt": str(n_rows), "colCnt": str(n_cols)})
+        first_tr = like.find(TR)
         trs = [new.makeelement(TR, first_tr.attrib if first_tr is not None else {}) for _ in range(n_rows)]
         placed = False
-        for ch in src:
+        for ch in like:
             if ch.tag == TR and not placed:
                 placed = True
                 for tr in trs:
@@ -200,23 +215,24 @@ class TableMakeMixin:
             raise ValueError("칸이 시작하지 않는 행이 있습니다(격자 오류)")
         if (sz := new.find(SZ)) is not None:
             sz.attrib.update({"width": str(sum(widths)), "height": str(sum(heights))})
-        host = self._obj_para(src, new)
+        host = self._obj_para(like, new)
         host.attrib.update({"pageBreak": "0", "columnBreak": "0"})
         ref.addnext(host)
         self._touch(host)
         return {"table": self._id(new), "host": self._id(host), "rows": n_rows, "cols": n_cols}
 
     # ---------------------------------------------------------------- 서식만 입히기
-    def table_restyle(self, table_id: str, template_id: str, roles: dict | None = None, tpl_roles: dict | None = None) -> dict:
+    def table_restyle(self, table_id: str, template_id: str, roles: dict | None = None, tpl_roles: dict | None = None, *, src=None) -> dict:
         """문서의 표 table_id 에 양식 표의 서식만 — 칸 괘선·음영·칸 여백·세로 정렬, 칸 바로 안 문단의 문단 모양·글자 모양(개체가 든 런은 그대로),
         표의 바깥/안 여백·표 괘선. 구조·글·칸 크기는 그대로. roles = 이 표의 구역 수, tpl_roles = 양식의 구역 수.
+        src = 양식 표가 든 다른 HwpxDoc(운반 문서 — _tm_template), 없으면 이 문서의 표.
         -> {"table", "cells", "formatted": 모양이 바뀐 문단 id}."""
         tbl = self._ids.get(table_id)
         if tbl is None or tbl.tag != TBL or not self._attached(tbl):
             raise ValueError("서식을 입힐 표가 지금 문서에 없습니다")
-        if table_id == template_id:
+        if table_id == template_id and (src is None or src is self):
             raise ValueError("표 양식과 같은 표입니다 — 다른 표를 양식으로 고르세요")
-        tpl = self._tm_template(template_id, tpl_roles)
+        tpl = self._tm_template(template_id, tpl_roles, src)
         _, cells, nr, nc = self._tgrid(tbl)
         rmap, cmap = tpl.maps(nr, nc, M.clean_roles(roles, nr, nc))
         cache, changed = {}, []

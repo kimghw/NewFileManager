@@ -69,7 +69,9 @@ def task(wid, **t):
 
 
 def task_of(wid):
-    return next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]
+    """작업의 task 에서 round 를 뺀 것 — 이 검사는 취합 묶음을 본다(라운드는 tools/smoke_project_ui.py · tests/test_projects.py, spec_작업 ② §17)."""
+    t = next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]
+    return {k: v for k, v in t.items() if k != "round"}
 
 
 def open_work(page, wid):
@@ -109,8 +111,9 @@ try:
         raise RuntimeError("서버가 뜨지 않음")
     plan, A, B, D, other = upload("사업계획서_취합본.hwpx", FORM), upload("기관A_한국선급.hwpx"), upload("기관B.hwpx"), upload("기관D_유엔젤.hwpx"), upload("참고문서.hwpx")
     task(plan, file="plan", project="GATHER")
-    task(A, file="part", project="GATHER")          # 취합에 처음부터 든 기관 문서(`part` 는 server.TASK 가 받아야 한다)
-    task(other, project="GATHER")                   # 같은 과제의 다른 문서 — 취합에 안 든 문서는 둘째 면의 탭에 안 나온다
+    # 2026-11-12 ② §17: 한 묶음 = 같은 프로젝트·TASK·라운드(프로젝트 이름만 같으면 TASK 를 옮겨 오지 않는다) — 기관 문서·참고 문서도 처음부터 취합 TASK 1라운드로. 취합본은 화면에서 TASK 를 고른다(1.)
+    task(A, file="part", project="GATHER", job="plan_merge", round=1)          # 취합에 처음부터 든 기관 문서(`part` 는 server.TASK 가 받아야 한다)
+    task(other, project="GATHER", job="plan_merge", round=1)                   # 같은 라운드의 다른 문서 — 취합에 안 든 문서는 둘째 면의 탭에 안 나온다
     NAMES = {A: "기관A_한국선급.hwpx", B: "기관B.hwpx", D: "기관D_유엔젤.hwpx"}
     check("server.TASK 가 첨부 파일 종류 `part`(기관 문서)를 받음", task_of(A)["file"] == "part", task_of(A))
     tops = [b["id"] for b in requests.get(f"{base}/api/docs/{plan}", timeout=120).json()["blocks"] if b["type"] == "paragraph" and (b.get("text") or "").strip()]
@@ -191,6 +194,10 @@ try:
         bad = lambda code, detail: route.fulfill(status=code, content_type="application/json", body=json.dumps({"detail": detail}, ensure_ascii=False))   # noqa: E731
         if tail == "":
             return ok(view())
+        if tail == "/zones":   # 기관 구역 표시(spec_취합 ② §9-2) — 흉내 상태에는 구역이 없다: 빈 구역 + 흉내 낸 넣은 기록 없음(구역 자체는 진짜 구간 13 에서 본다)
+            G["calls"].pop()
+            return ok({"rev": 0, "values": VALUES, "orgs": [{"key": o["key"], "name": o["name"], "role": o.get("role", "joint")} for o in view()["orgs"]], "zones": [], "cells": {}, "applied": [],
+                       "counts": {"zones": 0, "blocks": 0, "cells": 0, "applied": 0}, "reasons": []})
         if tail == "/frame":
             if G["stale"]:   # 헤딩·표 분석이 지금 문서 차례의 것이 아님 — 화면이 스크립트 분석을 다시 건 뒤 한 번 더 부른다
                 G["stale"] -= 1
@@ -293,9 +300,9 @@ try:
         page.route(GATHER_URL, gather_route)
         page.route(re.compile(rf"/api/docs/{plan}/divisions$"), div_route)
         page.goto(base)
-        page.evaluate("() => { localStorage.setItem('nfm.gatherStageOpen', '1'); localStorage.setItem('nfm.gatherStageOpen2', '1'); }")   # 세부 목록의 단추를 누르므로 두 묶음을 펴 둔다(기본 접힘)
+        page.evaluate("() => { localStorage.setItem('nfm.gatherStageOpen0', '1'); localStorage.setItem('nfm.gatherStageOpen', '1'); localStorage.setItem('nfm.gatherStageOpen2', '1'); }")   # 세부 목록의 단추를 누르므로 세 묶음을 펴 둔다(기본 접힘)
         open_work(page, plan)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#divBox .dv-task select[data-task=job]")
 
         # ---- 1. 할 일을 고르기 전 — 취합 화면 없음 · 끝점도 안 부름. 고르면 취합본 칸 + 기관 문서 줄 + 묶음 둘(이관 화면 없음)
@@ -312,14 +319,15 @@ try:
         check("이관 화면 없음 — 칸 둘·이관 단계·이관의 한 번에 진행·첨부 파일 select 가 안 그려짐", all(page.locator(s).count() == 0 for s in
               ("#taskFlow", "#taskSteps", "#taskStage", "#taskStage2", "select[data-task-file=report]", "[data-task-run]", "[data-task-peer]", "#divBox .dv-task select[data-task=file]")))
         check("이관의 읽은 자료가 비어 있음(taskFlow — 이관의 함수는 취합에서 안 돈다)", page.evaluate("() => !taskFlow.links && !taskFlow.fill && !Object.keys(taskFlow.div).length && !Object.keys(taskFlow.heads).length && taskSlots() === null && gatherOn()"))
-        h1, h2 = page.evaluate(HEAD, "gatherStage"), page.evaluate(HEAD, "gatherStage2")
-        check("묶음 둘 — 1단계 「문서 프레임 작성」 · 2단계 「내용 매핑」(이관과 같은 모양: 끝난 수 · 한 번에 진행 · 상태 줄)", (h1["no"], h1["name"], h2["no"], h2["name"]) == ("1단계", "문서 프레임 작성", "2단계", "내용 매핑")
-              and h1["run"] == h2["run"] == "한 번에 진행" and h1["count"] == "0/2 완료" and h2["count"] == "0/1 완료", (h1, h2))
+        h0, h1, h2 = page.evaluate(HEAD, "gatherStage0"), page.evaluate(HEAD, "gatherStage"), page.evaluate(HEAD, "gatherStage2")
+        check("묶음 셋 — 1단계 「구분 기준」 · 2단계 「문서 프레임 작성」 · 3단계 「내용 매핑」(spec_취합 ② §9-1 — 이관과 같은 모양: 끝난 수 · 한 번에 진행 · 상태 줄)",
+              (h0["no"], h0["name"], h1["no"], h1["name"], h2["no"], h2["name"]) == ("1단계", "프로젝트 구성", "2단계", "문서 프레임 작성", "3단계", "내용 매핑")
+              and h0["run"] == h1["run"] == h2["run"] == "한 번에 진행" and h0["count"] == "0/1 완료" and h1["count"] == "0/2 완료" and h2["count"] == "0/1 완료", (h0, h1, h2))
         journey = "() => [...document.querySelectorAll('#gatherFlow .dv-journey [data-journey]')].map(b => [b.dataset.journey, b.dataset.state, b.getAttribute('aria-current')])"
-        check("TASK 순서 — 준비가 현재, 프레임·내용 매핑 대기", page.evaluate(journey) == [["prepare", "now", "step"], ["frame", "todo", None], ["map", "todo", None]], page.evaluate(journey))
-        page.evaluate("() => document.getElementById('gatherStage').open = false")
-        page.locator('#gatherFlow [data-journey="prepare"]').click()
-        check("취합본 선택 뒤 준비 이동 — 누락된 과제 구성을 입력할 묶음 펼침", page.evaluate("() => document.getElementById('gatherStage').open && document.activeElement === document.querySelector('#gatherStage > summary')"))
+        check("TASK 순서 — 취합본이 있어 준비 끝 · 구분 기준이 현재, 프레임·내용 매핑 대기", page.evaluate(journey) == [["prepare", "done", None], ["config", "now", "step"], ["frame", "todo", None], ["map", "todo", None]], page.evaluate(journey))
+        page.evaluate("() => document.getElementById('gatherStage0').open = false")
+        page.locator('#gatherFlow [data-journey="config"]').click()
+        check("구분 기준 이동 — 구성을 정할 1단계 묶음 펼침", page.evaluate("() => document.getElementById('gatherStage0').open && document.activeElement === document.querySelector('#gatherStage0 > summary')"))
         page.evaluate("() => document.getElementById('gatherStage2').open = false")
         before_calls = len(G["calls"])
         page.locator('#gatherFlow [data-journey="map"]').click()
@@ -337,7 +345,8 @@ try:
               and r0["opts"] == ["선택 안 함", "한국선급 (주관)", "씨드로닉스 (공동)", "유엔젤 (공동)", "모든 기관"] and r0["common"] and r0["tag"] == "자리 연결 전" and r0["peer"] and r0["del"], r0)
         orgs = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#gatherFlow .gt-orgs span[data-k]')].map((s) => [s.dataset.k, s.textContent]))")
         check("기관 현황 한 줄 — 받은 기관 · 반영한 기관 · 아직 없는 기관", orgs == {"received": "받은 기관 1(한국선급)", "applied": "반영한 기관 0", "missing": "아직 없는 기관 2(씨드로닉스 · 유엔젤)"}, orgs)
-        check("같은 과제의 취합 밖 문서는 「같은 과제 문서」 줄에", "참고문서.hwpx" in page.inner_text("#divBox .dv-task-mates") and NAMES[A] not in page.inner_text("#divBox .dv-task-mates"), page.inner_text("#divBox .dv-task-mates"))
+        check("같은 라운드의 취합 밖 문서는 참고 문서 줄에(취합 카드는 「같은 프로젝트 문서」 — ② §17)", "참고문서.hwpx" in page.inner_text("#divBox .dv-task-mates")
+              and NAMES[A] not in page.inner_text("#divBox .dv-task-mates"), page.inner_text("#divBox .dv-task-mates"))
         page.locator("#panel").screenshot(path=str(OUT / "1_card.png"))
 
         # ---- 2. 기관 문서 추가 — 올린 문서에서 고르기 · 폴더 단추로 올리기. 더해도 앞의 기관 문서는 안 빠진다(이관의 칸 바꾸기를 안 거친다)
@@ -371,8 +380,10 @@ try:
             page.wait_for_function(f"(n) => ({IDLE})()", arg=n)
             return [c for c in G["calls"][n:] if c[0] == "PUT"] == [("PUT", f"/parts/{pid}", want)]
         check("반영할 기관 = 기관 하나 → PUT {orgs: [열쇠]}", put_org(C, "seed", {"orgs": ["seed"]}), G["calls"][-2:])
-        check("「모든 기관」 → PUT {orgs: [모든 열쇠]}", put_org(C, "*", {"orgs": ["kr", "seed", "uangel"]}) and page.evaluate(PARTS)[2]["org"] == "*", G["calls"][-2:])
-        check("「선택 안 함」 → PUT {orgs: []}(미지정 — 아무것도 안 넣음)", put_org(C, "", {"orgs": []}) and page.evaluate(PARTS)[2]["tag"] == "기관 미지정", G["calls"][-2:])
+        row_of = lambda pid: next(r for r in page.evaluate(PARTS) if r["id"] == pid)   # noqa: E731 — 줄은 기관 폴더로 묶여 차례가 바뀐다(② §5 「기관별 폴더」)
+        check("「모든 기관」 → PUT {orgs: [모든 열쇠]}", put_org(C, "*", {"orgs": ["kr", "seed", "uangel"]}) and row_of(C)["org"] == "*", G["calls"][-2:])
+        check("「모든 기관」 문서는 「여러 기관·그 밖」 폴더", page.evaluate("(id) => document.querySelector(`#gatherParts .gt-part[data-part=\"${id}\"]`).closest('.gt-folder').dataset.org", C) == "~")
+        check("「선택 안 함」 → PUT {orgs: []}(미지정 — 아무것도 안 넣음)", put_org(C, "", {"orgs": []}) and row_of(C)["tag"] == "기관 미지정", G["calls"][-2:])
         put_org(C, "seed", {"orgs": ["seed"]})
         put_org(D, "uangel", {"orgs": ["uangel"]})
         n = len(G["calls"])
@@ -385,6 +396,53 @@ try:
         check("「공통 자리 포함」 → PUT {common: false | true}", ok1 and [c for c in G["calls"][n:] if c[0] == "PUT"] == [("PUT", f"/parts/{C}", {"common": True})], G["calls"][-3:])
         orgs = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#gatherFlow .gt-orgs span[data-k]')].map((s) => [s.dataset.k, s.textContent]))")
         check("기관 현황 — 받은 기관이 늘고 아직 없는 기관 0", orgs == {"received": "받은 기관 3(한국선급 · 씨드로닉스 · 유엔젤)", "applied": "반영한 기관 0", "missing": "아직 없는 기관 0"}, orgs)
+
+        # ---- 3-1. 기관별 폴더(② §5 「기관별 폴더」 — 2026-11-13) — 화면만: 폴더 = 반영할 기관이 그 기관 하나인 문서. 올리기 · 파일 놓기 · 줄 끌어 옮기기
+        FOLD = """() => [...document.querySelectorAll('#gatherParts > .gt-folder')].map((f) => ({ org: f.dataset.org, name: f.querySelector('.gt-folder-name').textContent, n: f.querySelector('.gt-folder-n').textContent,
+  rows: [...f.querySelectorAll('.gt-part')].map((r) => r.dataset.part), up: !!f.querySelector('[data-gather-folder-up]'), shut: f.classList.contains('shut') }))"""
+        DRAG = """([pid, org]) => { const dt = new DataTransfer(), src = document.querySelector(`#gatherParts .gt-part[data-part="${pid}"] .gt-part-name`), dst = document.querySelector(`#gatherParts .gt-folder[data-org="${org}"]`);
+  src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true })); const o = new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }); dst.dispatchEvent(o);
+  const lit = dst.classList.contains('gt-drop'), over = document.getElementById('drop').classList.contains('over'); dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  src.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true })); return { taken: o.defaultPrevented, lit, over, drag: src.draggable }; }"""
+        fo = page.evaluate(FOLD)
+        check("기관별 폴더 — 구분 기준의 기관 차례 + 「기관 미지정」(문서가 있을 때) · 폴더마다 그 기관의 문서 · 올리기 단추",
+              [(f["org"], f["name"], f["n"], f["rows"]) for f in fo] == [("kr", "한국선급", "1개", [A]), ("seed", "씨드로닉스", "1개", [C]), ("uangel", "유엔젤", "1개", [D]), ("", "기관 미지정", "1개", [B])]
+              and [f["up"] for f in fo] == [True, True, True, False], fo)   # 「기관 미지정」 의 올리기는 맨 아래 「기관 문서 추가」 폴더 단추
+        n = len(G["calls"])
+        d = page.evaluate(DRAG, [B, "seed"])
+        page.wait_for_function(IDLE)
+        fo = page.evaluate(FOLD)
+        check("기관 문서 줄(이름)을 다른 기관 폴더에 끌어 놓음 → PUT {orgs: [그 기관]} · 그 폴더로 · 비면 「기관 미지정」 폴더 없음 · 창의 파일 놓기 덮개 안 뜸",
+              d["drag"] and d["taken"] and d["lit"] and not d["over"] and [c for c in G["calls"][n:] if c[0] == "PUT"] == [("PUT", f"/parts/{B}", {"orgs": ["seed"]})]
+              and [(f["org"], f["rows"]) for f in fo] == [("kr", [A]), ("seed", [B, C]), ("uangel", [D])], (d, fo, G["calls"][n:]))
+        n = len(G["calls"])
+        d = page.evaluate(DRAG, [B, "seed"])
+        check("같은 폴더에 놓으면 아무것도 안 함", d["taken"] and not [c for c in G["calls"][n:] if c[0] == "PUT"], G["calls"][n:])
+        tog = '#gatherParts .gt-folder[data-org="seed"] .gt-folder-tog'
+        page.click(tog)
+        shut = page.evaluate("(s) => { const t = document.querySelector(s), f = t.closest('.gt-folder'); return [f.classList.contains('shut'), [...f.querySelectorAll('.gt-part')].some((r) => r.checkVisibility()), t.getAttribute('aria-expanded'), t.querySelector('.gt-folder-caret').textContent]; }", tog)
+        page.click(tog)
+        check("폴더 접기 · 펴기 — 접으면 그 폴더의 줄이 안 보임(▸) · 펴면 다시(▾)", shut == [True, False, "false", "▸"]
+              and page.evaluate("(s) => [...document.querySelector(s).closest('.gt-folder').querySelectorAll('.gt-part')].every((r) => r.checkVisibility())", tog), shut)
+        files = page.evaluate("""() => { const dt = new DataTransfer(); dt.items.add(new File(['x'], 'a.hwpx')); const f = document.querySelector('#gatherParts .gt-folder[data-org="kr"]'), o = new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true });
+          f.dispatchEvent(o); const r = [o.defaultPrevented, f.classList.contains('gt-drop'), document.getElementById('drop').classList.contains('over')]; f.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, bubbles: true })); return r; }""")
+        check("폴더 위에 파일을 끌면 폴더가 받음(창의 「파일 열기」 덮개 안 뜸)", files == [True, True, False], files)
+        put_org(B, "", {"orgs": []})   # 뒤 시험이 보는 상태로(B 는 미지정)
+        del posts[:]
+        n = len(G["calls"])
+        with page.expect_file_chooser() as fc:
+            page.click('#gatherParts [data-gather-folder-up="uangel"]')
+        multi = fc.value.is_multiple()
+        fc.value.set_files({"name": "유엔젤_보완.hwpx", "mimeType": "application/octet-stream", "buffer": SAMPLE})
+        page.wait_for_function(f"() => ({PARTS})().length === 5 && ({IDLE})()", timeout=120000)
+        E = G["order"][4]
+        fo = page.evaluate(FOLD)
+        check("폴더의 올리기 단추 — 여러 파일 고르기 · 올린 문서는 PUT {orgs: [그 기관]} 한 번으로 그 폴더에(사람이 고른 것) · 지금 문서 그대로", multi and posts[0][0] == "?new=1"
+              and [c for c in G["calls"][n:] if c[0] == "PUT"] == [("PUT", f"/parts/{E}", {"orgs": ["uangel"]})] and next(f["rows"] for f in fo if f["org"] == "uangel") == [D, E]
+              and page.evaluate("() => state.id") == plan, (multi, posts, G["calls"][n:], fo))
+        page.once("dialog", lambda dlg: dlg.accept())
+        page.click(f'#gatherParts [data-gather-del="{E}"]')
+        page.wait_for_function(f"() => ({PARTS})().length === 4 && ({IDLE})()")   # 뒤 시험은 기관 문서 넷
         G["parts"][D]["llm"] = {"at": "2026-11-12T08:00:00", "held": 0, "units": []}   # 넷째 문서는 LLM 검토를 이미 한 것으로(한 번에 진행이 다시 안 돌린다)
         for width in (320, 480, 520):   # 패널 최소 폭·보통 폭·기본 폭에서 가로 넘침 없음(design.md §1-8) — 좁으면 줄이 두 줄, 기본 폭(520px)부터 한 줄 + 열 제목
             page.evaluate("(w) => document.getElementById('panel').style.setProperty('--panel', w + 'px')", width)
@@ -395,32 +453,51 @@ try:
             page.locator("#panel").screenshot(path=str(OUT / f"2_card_{width}.png"))
         page.evaluate("() => document.getElementById('panel').style.removeProperty('--panel')")
 
-        # ---- 4. 1단계 — 준비(취합본 · 과제 구성 값) → ① 구분 기준 확인 → 배포 기준본. 기관 문서와 무관하게 끝낼 수 있다
+        # ---- 4. 1단계 「구분 기준」(준비 · 구성 확정 — 문서는 안 바뀜) → 2단계 「문서 프레임 작성」(① 구분 기준 확인 → 배포 기준본). 기관 문서와 무관하게 끝낼 수 있다(spec_작업 ② §18 · spec_취합 ② §9-1)
+        st0 = page.evaluate(STEPS, "gatherStage0")
+        check("1단계 세부 목록 = 준비 · 구성 확정 — 값이 없으면 구성 확정이 다음 작업(「취합본에서 추출」)", [(s["step"], s["no"], s["name"]) for s in st0] == [("files", "·", "준비"), ("config", "·", "프로젝트 구성 확정")]
+              and [s["state"] for s in st0] == ["done", "now"] and "프로젝트 구성(단계·차년도·기관)이 없습니다" in st0[1]["text"] and st0[1]["acts"] == ["취합본에서 추출"] and st0[1]["badge"] == "다음 작업"
+              and "사업계획서_취합본_GATHER.hwpx" in st0[0]["text"], st0)   # 취합본 = 목적 문서 — 이름 뒤에 과제 이름(spec_작업 ② §10)
+        check("구성 입력이 1단계 묶음 안(#taskFrameForm — 구성 불러오기·확정) · 반영 상태·변경 계획은 2단계 묶음 안(#taskFrameApply) · 「구성 고치기」", page.evaluate("""() => { const f = document.getElementById('taskFrameForm'), s0 = document.getElementById('gatherStage0'),
+            a = document.getElementById('taskFrameApply'), s = document.getElementById('gatherStage');
+          return !!f && f.parentElement === s0 && f.previousElementSibling.matches('ol.dv-flow-steps') && !!f.querySelector('fieldset.dv-config') && !!f.querySelector('#divSourceSel') && !!f.querySelector('#divConfirmBtn')
+            && !!a && a.parentElement === s && !!a.querySelector('#divPlanButton') && !!a.querySelector('#divAppliedState') && !document.getElementById('divPlanButton').classList.contains('primary')
+            && !!s0.querySelector('[data-gather-frame-edit]') && !document.querySelector('#divBox > fieldset.dv-config'); }"""))
+        groups = page.eval_on_selector_all("#divSourceSel optgroup", "gs => gs.map(g => [g.label, g.children.length])")
+        check("「구성 불러오기」 목록 — 문서에서 추출(취합본 · 기관 문서 · 「파일 올려 추출…」) 묶음이 있음", any(lab == "문서에서 추출" and n >= 2 for lab, n in groups)
+              and page.locator("#divSourceSel option[value=file]").count() == 1 and page.locator(f"#divSourceSel option[value='doc:{plan}']").count() == 1, groups)
         st = page.evaluate(STEPS, "gatherStage")
-        check("1단계 세부 목록 = 준비 · ① 구분 기준 확인 · 배포 기준본 — 값이 없으면 준비가 다음 작업", [(s["step"], s["no"], s["name"]) for s in st] == [("files", "·", "준비"), ("division", "①", "구분 기준 확인"), ("frame", "◆", "배포 기준본")]
-              and [s["state"] for s in st] == ["now", "todo", "todo"] and "과제 구성 값(단계·차년도 · 기관)이 없습니다" in st[0]["text"] and st[0]["acts"] == ["문서에서 읽기"] and st[0]["badge"] == "다음 작업", st)
-        check("과제 구성 입력이 1단계 묶음 안(세부 목록 아래 #taskFrameForm) · 「구성 고치기」", page.evaluate("""() => { const f = document.getElementById('taskFrameForm'), s = document.getElementById('gatherStage');
-          return !!f && f.parentElement === s && f.previousElementSibling.matches('ol.dv-flow-steps') && !!f.querySelector('fieldset.dv-config') && !!f.querySelector('#divPlanButton') && !document.getElementById('divPlanButton').classList.contains('primary')
-            && !!s.querySelector('[data-gather-frame-edit]') && !document.querySelector('#divBox > fieldset.dv-config'); }"""))
+        h1 = page.evaluate(HEAD, "gatherStage")
+        check("2단계 세부 목록 = ① 구분 기준 확인 · 배포 기준본 — 1단계 전에는 대기 · 단추 꺼짐", [(s["step"], s["no"], s["name"]) for s in st] == [("division", "①", "프로젝트 구성 반영"), ("frame", "◆", "배포 기준본")]
+              and [s["state"] for s in st] == ["todo", "todo"] and h1["off"] and h1["state"].startswith("1단계(프로젝트 구성) 뒤에"), (st, h1))
         st2 = page.evaluate(STEPS, "gatherStage2")
         h2 = page.evaluate(HEAD, "gatherStage2")
-        check("2단계 — 기관 문서마다 한 줄(들어온 차례) · 1단계 전에는 대기 · 단추 꺼짐 · 상태 줄 = 그 묶음이 하는 일", [s["part"] for s in st2] == [A, B, C, D] and [s["no"] for s in st2] == ["1", "2", "3", "4"]
+        check("3단계 — 기관 문서마다 한 줄(들어온 차례) · 앞 단계 전에는 대기 · 단추 꺼짐 · 상태 줄 = 그 묶음이 하는 일", [s["part"] for s in st2] == [A, B, C, D] and [s["no"] for s in st2] == ["1", "2", "3", "4"]
               and all(s["state"] == "todo" and s["badge"] == "대기" and not s["acts"] for s in st2) and h2["off"] and h2["count"] == "0/4 완료"
-              and h2["state"] == "1단계(문서 프레임 작성) 뒤에 — 기관 문서마다 자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영", (st2, h2))
+              and h2["state"] == "1단계(프로젝트 구성) 뒤에 — 기관 문서마다 자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영", (st2, h2))
         G["div"] = "supported"
         page.evaluate("(v) => { dv.values = structuredClone(v); divTouched(); return divShow(); }", VALUES)
-        page.wait_for_function("() => dv.view && dv.view.profile.supported && document.querySelector('#gatherStage li[data-step=division]').dataset.state === 'now'")
-        st, h1 = page.evaluate(STEPS, "gatherStage"), page.evaluate(HEAD, "gatherStage")
-        check("값을 넣으면 준비 끝 · ① 이 다음 작업 — 「변경 계획 보기」(강조) · 머리에 프레임 값 요약", [s["state"] for s in st] == ["done", "now", "todo"] and "사업계획서_취합본_GATHER.hwpx · 2단계 · 전체 3년 · 기관 3곳" in st[0]["text"]   # 취합본 = 목적 문서 — 이름 뒤에 과제 이름(spec_작업 ② §10)
-              and st[1]["acts"] == ["변경 계획 보기"] and st[1]["primary"] == ["변경 계획 보기"] and "반영되지 않았습니다" in st[1]["text"]
-              and page.inner_text("#gatherStage .dv-phase-frame-text") == "1단계(1–2차년도) · 2단계(3차년도) · 주관 한국선급 · 공동 2(씨드로닉스 · 유엔젤)" and h1["count"] == "0/2 완료", (st, h1))
-        check("구성 입력 뒤 순서 표시 — 프레임 작성이 현재", page.evaluate(journey) == [["prepare", "done", None], ["frame", "now", "step"], ["map", "todo", None]], page.evaluate(journey))
+        page.wait_for_function("() => dv.view && dv.view.profile.supported && document.querySelector('#gatherStage0 li[data-step=config]').dataset.state === 'now' && !!document.querySelector('#gatherStage0 [data-gather-confirm]')")
+        st0, h0 = page.evaluate(STEPS, "gatherStage0"), page.evaluate(HEAD, "gatherStage0")
+        check("값을 넣으면 — 구성 확정이 다음 작업: 값 요약 + 「…에 저장」(강조) · 머리에 구성 요약 · 상태 「확정 전」", [s["state"] for s in st0] == ["done", "now"] and "2단계 · 전체 3년 · 기관 3곳" in st0[1]["text"]
+              and len(st0[1]["acts"]) == 1 and st0[1]["acts"][0].endswith("에 저장") and st0[1]["primary"] == st0[1]["acts"]
+              and page.inner_text("#gatherStage0 .dv-phase-frame-text") == "1단계(1–2차년도) · 2단계(3차년도) · 주관 한국선급 · 공동 2(씨드로닉스 · 유엔젤)" and h0["count"] == "0/1 완료"
+              and page.get_attribute("#divPresetStatus [data-confirm]", "data-confirm") == "none" and page.locator("#divPlanButton:disabled").count() == 1, (st0, h0))
+        n_conf = len(posts)
+        page.click("#gatherStage0 [data-gather-confirm]")
+        page.wait_for_function("() => document.querySelector('#gatherStage0 li[data-step=config]').dataset.state === 'done' && document.querySelector('#gatherStage li[data-step=division]').dataset.state === 'now'")
+        st0, h0, st, h1 = page.evaluate(STEPS, "gatherStage0"), page.evaluate(HEAD, "gatherStage0"), page.evaluate(STEPS, "gatherStage"), page.evaluate(HEAD, "gatherStage")
+        check("「…에 저장」 → POST …/divisions/confirm · 1단계 끝(「…에 확정함」 · 1/1 완료) · 상태 「확정함」 · ① 이 다음 작업 — 「변경 계획 보기」(강조)",
+              any(t.endswith("/divisions/confirm") for t, _ in posts[n_conf:]) and [s["state"] for s in st0] == ["done", "done"] and "에 확정함" in st0[1]["text"] and h0["count"] == "1/1 완료"
+              and page.get_attribute("#divPresetStatus [data-confirm]", "data-confirm") == "valid" and page.locator("#divPlanButton:disabled").count() == 0
+              and [s["state"] for s in st] == ["now", "todo"] and st[0]["acts"] == ["변경 계획 보기"] and st[0]["primary"] == ["변경 계획 보기"] and "반영되지 않았습니다" in st[0]["text"] and h1["count"] == "0/2 완료", (st0, h0, st, h1, posts[n_conf:]))
+        check("확정 뒤 순서 표시 — 프레임 작성이 현재", page.evaluate(journey) == [["prepare", "done", None], ["config", "done", None], ["frame", "now", "step"], ["map", "todo", None]], page.evaluate(journey))
         G["div"] = "applied"
         page.evaluate("() => divShow()")
         page.wait_for_function("() => document.querySelector('#gatherStage li[data-step=frame]').dataset.state === 'now'")
         st, h1 = page.evaluate(STEPS, "gatherStage"), page.evaluate(HEAD, "gatherStage")
-        check("① 반영됨 → 배포 기준본이 다음 작업 — 기준본 없음: 「기준본 만들기」(강조) · 1/2 완료", [s["state"] for s in st] == ["done", "done", "now"] and "취합본에 반영됨" in st[1]["text"] and st[2]["acts"] == ["기준본 만들기"]
-              and st[2]["primary"] == ["기준본 만들기"] and "기관에 나눠 줄 기준본을 만듭니다" in st[2]["text"] and h1["count"] == "1/2 완료" and "다음: ◆ 배포 기준본" in h1["state"]
+        check("① 반영됨 → 배포 기준본이 다음 작업 — 기준본 없음: 「기준본 만들기」(강조) · 1/2 완료", [s["state"] for s in st] == ["done", "now"] and "취합본에 반영됨" in st[0]["text"] and st[1]["acts"] == ["기준본 만들기"]
+              and st[1]["primary"] == ["기준본 만들기"] and "기관에 나눠 줄 기준본을 만듭니다" in st[1]["text"] and h1["count"] == "1/2 완료" and "다음: ◆ 배포 기준본" in h1["state"]
               and page.locator("#gatherStage [data-gather-frame-file]").count() == 0, (st, h1))
         page.locator("#panel").screenshot(path=str(OUT / "4a_frame_none.png"))
         HEADS_URL = re.compile(rf"/api/docs/{plan}/headings$")
@@ -438,16 +515,16 @@ try:
         page.wait_for_function(IDLE)
         st, h1 = page.evaluate(STEPS, "gatherStage"), page.evaluate(HEAD, "gatherStage")
         href = page.get_attribute("#gatherStage [data-gather-frame-file]", "href")
-        check("기준본 있음 — 끝남 · 「기준본 내려받기」(GET …/gather/frame/file) · 「기준본 다시 만들기」 · 2/2 완료", st[2]["state"] == "done" and st[2]["badge"] == "완료" and st[2]["acts"] == ["기준본 내려받기", "기준본 다시 만들기"]
-              and href == f"/api/docs/{plan}/gather/frame/file" and "만듦" in st[2]["text"] and h1["count"] == "2/2 완료" and h1["kind"] == "done" and h1["off"], (st[2], h1, href))
-        check("기준본 완료 뒤 순서 표시 — 내용 매핑이 현재", page.evaluate(journey) == [["prepare", "done", None], ["frame", "done", None], ["map", "now", "step"]], page.evaluate(journey))
+        check("기준본 있음 — 끝남 · 「기준본 내려받기」(GET …/gather/frame/file) · 「기준본 다시 만들기」 · 2/2 완료", st[1]["state"] == "done" and st[1]["badge"] == "완료" and st[1]["acts"] == ["기준본 내려받기", "기준본 다시 만들기"]
+              and href == f"/api/docs/{plan}/gather/frame/file" and "만듦" in st[1]["text"] and h1["count"] == "2/2 완료" and h1["kind"] == "done" and h1["off"], (st[1], h1, href))
+        check("기준본 완료 뒤 순서 표시 — 내용 매핑이 현재", page.evaluate(journey) == [["prepare", "done", None], ["config", "done", None], ["frame", "done", None], ["map", "now", "step"]], page.evaluate(journey))
         G["frame"]["stale"] = True
         page.evaluate("() => gatherLoad()")
         page.wait_for_function("() => document.querySelector('#gatherStage li[data-step=frame]').dataset.state === 'now'")
         st = page.evaluate(STEPS, "gatherStage")
-        check("기준본이 낡음(frame.stale) — 새로 만들라고 알림 · 「기준본 다시 만들기」 가 앞·강조 · 낡은 것도 내려받을 수 있음", "기준본이 낡았습니다" in st[2]["text"] and st[2]["acts"] == ["기준본 다시 만들기", "기준본 내려받기"]
-              and st[2]["primary"] == ["기준본 다시 만들기"] and all(s["state"] == "todo" for s in page.evaluate(STEPS, "gatherStage2")), st[2])
-        G["frame"] = None   # 기준본을 없애고 1단계 「한 번에 진행」 으로 다시 만든다(① 은 끝나 있어 남은 것은 기준본뿐)
+        check("기준본이 낡음(frame.stale) — 새로 만들라고 알림 · 「기준본 다시 만들기」 가 앞·강조 · 낡은 것도 내려받을 수 있음", "기준본이 낡았습니다" in st[1]["text"] and st[1]["acts"] == ["기준본 다시 만들기", "기준본 내려받기"]
+              and st[1]["primary"] == ["기준본 다시 만들기"] and all(s["state"] == "todo" for s in page.evaluate(STEPS, "gatherStage2")), st[1])
+        G["frame"] = None   # 기준본을 없애고 2단계 「한 번에 진행」 으로 다시 만든다(① 은 끝나 있어 남은 것은 기준본뿐)
         page.evaluate("() => gatherLoad()")
         page.wait_for_function("() => !gt().view.frame && !gt().loading")
         dialogs = []
@@ -457,7 +534,7 @@ try:
         page.wait_for_function("() => !gatherRun && !!gatherRunLast", timeout=60000)
         page.wait_for_function(IDLE)
         h1 = page.evaluate(HEAD, "gatherStage")
-        check("1단계 「한 번에 진행」 — 누를 때 한 번 확인(구조만 · 내용은 안 넣음) → 기준본까지 · 끝 글", len(dialogs) == 1 and "내용은 넣지 않습니다" in dialogs[0] and "배포 기준본" in dialogs[0]
+        check("2단계 「한 번에 진행」 — 누를 때 한 번 확인(구조만 · 내용은 안 넣음) → 기준본까지 · 끝 글", len(dialogs) == 1 and "내용은 넣지 않습니다" in dialogs[0] and "배포 기준본" in dialogs[0]
               and [c[:2] for c in G["calls"][n:] if c[0] == "POST"] == [("POST", "/frame")] and h1["kind"] == "done" and "배포 기준본을 만들었습니다" in h1["state"] and h1["count"] == "2/2 완료", (dialogs, h1))
         page.locator("#panel").screenshot(path=str(OUT / "4b_frame_made.png"))
 
@@ -471,8 +548,8 @@ try:
               and st2[2]["state"] == "ready" and st2[2]["badge"] == "진행 가능" and "② 자리 연결 아직 안 함" in st2[2]["text"] and st2[2]["acts"] == ["자리 연결"] and not st2[2]["primary"], st2[1:3])
         check("2단계 머리 — 0/4 완료 · 단추 켜짐 · 카드의 강조 단추는 하나(펴 둔 세부 목록의 다음 할 일)", h2["count"] == "0/4 완료" and not h2["off"] and not h2["primary"]
               and page.locator("#gatherFlow .btn.primary").count() == 1 and page.locator("#divBox .dv-task .btn.primary").count() == 1, h2)
-        tags = [r["tag"] for r in page.evaluate(PARTS)]
-        check("기관 문서 줄의 상태 꼬리표 — 넣을 것 2 · 기관 미지정 · 자리 연결 전", tags[:3] == ["넣을 것 2", "기관 미지정", "자리 연결 전"], tags)
+        tags = {r["id"]: r["tag"] for r in page.evaluate(PARTS)}   # 줄 차례는 기관 폴더 차례(3-1) — id 로 찾는다
+        check("기관 문서 줄의 상태 꼬리표 — 넣을 것 2 · 기관 미지정 · 자리 연결 전", [tags.get(A), tags.get(B), tags.get(C)] == ["넣을 것 2", "기관 미지정", "자리 연결 전"], tags)
         page.click(f'#gatherStage2 [data-gather-link="{C}"]')
         page.wait_for_selector("#headsDlg[data-kind=gather] #headsDlgBody tr[data-hunk]")
         page.wait_for_function(IDLE)
@@ -570,6 +647,14 @@ try:
         v, pc = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol")
         check("둘째 면의 탭 = 취합에 든 기관 문서 넷(들어온 차례) — 같은 과제의 다른 문서는 없음", [t["id"] for t in tabs] == [A, B, C, D] and other not in [t["id"] for t in tabs]
               and [t["on"] for t in tabs] == [True, False, False, False], tabs)
+        TABS = "() => [...document.querySelectorAll('#peerTabs .tab')].map((b) => [b.textContent, b.dataset.peerOrg || '', b.title.split('\\n').slice(0, 2).join(' | ')])"
+        tl = page.evaluate(TABS)
+        check("둘째 면 탭 글 = 반영할 기관 이름(미지정은 파일 이름) · 파일 이름은 도움말에(2026-11-13 사용자)", [t[0] for t in tl] == ["한국선급", NAMES[B], "씨드로닉스", "유엔젤"]
+              and [t[1] for t in tl] == ["한국선급", "", "씨드로닉스", "유엔젤"] and NAMES[A] in tl[0][2] and "반영할 기관 한국선급" in tl[0][2] and "반영할 기관" not in tl[1][2], tl)
+        put_org(D, "kr", {"orgs": ["kr"]})
+        tl2 = [t[0] for t in page.evaluate(TABS)]
+        put_org(D, "uangel", {"orgs": ["uangel"]})
+        check("반영할 기관을 바꾸면 탭 글도 바로 · 같은 기관이 둘이면 「(2)」", tl2 == ["한국선급", NAMES[B], "씨드로닉스", "한국선급 (2)"] and [t[0] for t in page.evaluate(TABS)][3] == "유엔젤", tl2)
         check("취합본이 왼쪽 · 기관 문서가 오른쪽(peer-left 아님)", v["r"] <= pc["l"] + 1 and not page.evaluate("() => document.querySelector('.workspace').classList.contains('peer-left')")
               and page.evaluate("() => document.querySelector('.workspace').classList.contains('peer-open')"), (v, pc))
         btn = page.evaluate("(ids) => ids.map((id) => { const b = document.querySelector(`#gatherParts [data-gather-peer=\"${id}\"]`); return [b.getAttribute('aria-pressed'), b.disabled]; })", [A, B])
@@ -659,8 +744,8 @@ try:
         page.evaluate("() => gatherLoad()")
         page.wait_for_function("() => !gt().loading && gt().view.frame.stale")
         h2 = page.evaluate(HEAD, "gatherStage2")
-        check("취합 완료 기록 뒤 기준본이 낡으면 다시 대기 — 이전 끝 글보다 선행조건 우선", page.evaluate(journey) == [["prepare", "done", None], ["frame", "now", "step"], ["map", "todo", None]]
-              and h2["kind"] == "next" and "1단계" in h2["state"] and h2["off"], (page.evaluate(journey), h2))
+        check("취합 완료 기록 뒤 기준본이 낡으면 다시 대기 — 이전 끝 글보다 선행조건 우선", page.evaluate(journey) == [["prepare", "done", None], ["config", "done", None], ["frame", "now", "step"], ["map", "todo", None]]
+              and h2["kind"] == "next" and "2단계(문서 프레임 작성) 뒤에" in h2["state"] and h2["off"], (page.evaluate(journey), h2))
         G["frame"]["stale"] = False
         page.evaluate("() => gatherLoad()")
         page.wait_for_function("() => !gt().loading && !gt().view.frame.stale")
@@ -674,32 +759,35 @@ try:
 
         # ---- 11-1. 기관 문서를 열어 보는 중 — 카드는 같은 취합을 그리고(취합본 칸 = 그 과제의 사업계획서), 둘째 면은 취합본이 맨 앞·왼쪽
         open_work(page, A)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#gatherFlow #gatherParts .gt-part")
         page.wait_for_function(f"() => ({IDLE})() && gt().div !== undefined")
         page.wait_for_function(f"(id) => ({SHOWN})() === id", arg=plan)
-        st, tabs = page.evaluate(STEPS, "gatherStage"), page.evaluate("() => [...document.querySelectorAll('#peerTabs .tab')].map((b) => b.dataset.peerDoc)")
+        st0, st, tabs = page.evaluate(STEPS, "gatherStage0"), page.evaluate(STEPS, "gatherStage"), page.evaluate("() => [...document.querySelectorAll('#peerTabs .tab')].map((b) => b.dataset.peerDoc)")
         v, pc = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol")
         check("기관 문서를 고치는 중 — 취합본 칸 = 같은 과제의 사업계획서 · 기관 문서 줄 셋 · 1단계는 취합본의 값으로(읽어 온 것)", page.eval_on_selector("#gatherFlow select[data-task-file=plan]", "e => e.value") == plan
-              and [r["id"] for r in page.evaluate(PARTS)] == [A, C, D] and [s["state"] for s in st] == ["done", "done", "done"] and "사업계획서_취합본_GATHER.hwpx" in st[0]["text"], st)
+              and [r["id"] for r in page.evaluate(PARTS)] == [A, C, D] and [s["state"] for s in st] == ["done", "done"] and [s["state"] for s in st0] == ["done", "done"] and "사업계획서_취합본_GATHER.hwpx" in st0[0]["text"], (st0, st))
         check("둘째 면 — 취합본이 맨 앞 탭 · 왼쪽(peer-left) · 지금 문서는 탭에 없음", tabs == [plan, C, D] and pc["r"] <= v["l"] + 1
               and page.evaluate("() => document.querySelector('.workspace').classList.contains('peer-left')"), (tabs, v, pc))
         tip = page.get_attribute(f'#gatherStage2 [data-gather-list="{C}"]', "title") or ""
         check("취합본에서 하는 일의 단추는 같다 — 누르면 취합본을 고치는 문서로 바꾼 뒤 이어서(도움말)", "취합본을 고치는 문서로 바꾼 뒤" in (page.get_attribute("#gatherStage [data-gather-frame-make]", "title") or ""), tip)
         open_work(page, plan)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#gatherFlow #gatherParts .gt-part")
         page.wait_for_function(IDLE)
 
-        # ---- 12. 이관은 전과 같다 — 할 일을 이관으로 바꾸면 칸 둘 + 이관 단계(취합 화면 없음)
+        # ---- 12. 이관은 전과 같다 — 같은 프로젝트의 이관 TASK 면 칸 둘 + 이관 단계(취합 화면 없음).
+        #      2026-11-12 ② §17: 프로젝트 안에서 TASK 칸은 값 바꾸기가 아니라 그 TASK 로 이동(project_workspace.js projectTaskPick) — 여기선 문서를 API 로 이관 TASK 1라운드에 넣고 다시 연다
         n = len(G["calls"])
-        with page.expect_response(lambda r: r.url.endswith(f"/api/works/{plan}/task") and r.request.method == "PUT"):
-            page.select_option("#divBox .dv-task select[data-task=job]", "plan_to_report")
+        task(plan, file="plan", project="GATHER", job="plan_to_report", round=1)
+        task(other, project="GATHER", job="plan_to_report", round=1)
+        open_work(page, plan)
+        page.click("#toolTabTask")
         page.wait_for_selector("#taskFlow #taskSteps li[data-step=files]", state="attached")   # 이관의 묶음은 기본 접힘(세부 목록은 안 보임)
         slots = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#taskFlow select[data-task-file]')].map((s) => [s.dataset.taskFile, s.value]))")
-        check("이관 — 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서) · 단계 여섯 · 취합 화면 없음", slots == {"plan": plan, "report": ""} and page.locator("#gatherFlow").count() == 0
+        check("이관 — 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서) · 단계 여덟(1단계 구성 확정 · 4단계 ⑥ 포함) · 취합 화면 없음", slots == {"plan": plan, "report": ""} and page.locator("#gatherFlow").count() == 0
               and page.eval_on_selector_all("#taskFlow .dv-flow-files label > span", "xs => xs.map(x => x.textContent)") == ["사업계획서(기준)", "연차보고서"]
-              and page.eval_on_selector_all("#taskSteps li", "ls => ls.map(l => l.dataset.step)") == ["files", "division", "link", "plan", "apply", "later"]
+              and page.eval_on_selector_all("#taskSteps li", "ls => ls.map(l => l.dataset.step)") == ["files", "config", "division", "link", "plan", "apply", "later", "guide"]
               and page.locator("#taskStage [data-task-run=frame]").count() == 1 and page.evaluate("() => !gatherOn() && taskSlots().join() === 'plan,report'"), slots)
         page.wait_for_timeout(500)
         check("이관으로 바꾼 뒤에는 /gather 를 부르지 않음 · 둘째 면은 이관의 규칙(칸 문서 → 같은 과제 문서)", not G["calls"][n:] and other in page.evaluate("() => peerDocs().map((w) => w.id)"), G["calls"][n:])
@@ -724,6 +812,7 @@ try:
         rp = upload("진짜_취합본.hwpx", FORM)
         task(rp, file="plan", project="REAL", job="plan_merge")
         requests.put(f"{base}/api/docs/{rp}/divisions/settings", json={"values": REAL}, timeout=60).raise_for_status()
+        requests.post(f"{base}/api/docs/{rp}/divisions/confirm", json={"values": REAL}, timeout=60).raise_for_status()   # 1단계 「구분 기준」 — 구성 확정(spec_작업 ② §18)
         dplan = requests.post(f"{base}/api/docs/{rp}/divisions/plan", json={}, timeout=600).json()
         requests.post(f"{base}/api/docs/{rp}/divisions/apply", json={"planId": dplan["planId"]}, timeout=600).raise_for_status()
         lap("구분 기준 계획·반영(API)")
@@ -732,11 +821,11 @@ try:
         check("[진짜] 반영 직후 — 기준본 없음 · 분석이 지금 문서의 것이 아니면 409 {reason: staleHeadings, message}", gv["frame"] is None and gv["reasons"] == ["staleHeadings"] and [o["name"] for o in gv["orgs"]] == ["한국선급", ORG, "유엔젤"]
               and r409.status_code == 409 and r409.json()["detail"]["reason"] == "staleHeadings" and bool(r409.json()["detail"]["message"]), (gv, r409.text[:200]))
         open_work(page, rp)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#gatherFlow #gatherParts")
         page.wait_for_function(f"() => ({IDLE})() && !!dv.view && document.querySelector('#gatherStage li[data-step=frame]').dataset.state === 'now'", timeout=120000)
         st = page.evaluate(STEPS, "gatherStage")
-        check("[진짜] 1단계 — 준비·① 끝남(값이 반영돼 있음) · 배포 기준본이 다음 작업", [s["state"] for s in st] == ["done", "done", "now"] and st[2]["acts"] == ["기준본 만들기"], st)
+        check("[진짜] 2단계 — ① 끝남(값이 확정·반영돼 있음) · 배포 기준본이 다음 작업", [s["state"] for s in st] == ["done", "now"] and st[1]["acts"] == ["기준본 만들기"], st)
         lap("취합본 열기")
         n_err = len(errors)
         page.click("#gatherStage [data-gather-frame-make]")
@@ -749,8 +838,8 @@ try:
         gv = requests.get(f"{base}/api/docs/{rp}/gather", timeout=120).json()
         heads = requests.get(f"{base}/api/docs/{rp}/headings", timeout=60).json()
         st, h1 = page.evaluate(STEPS, "gatherStage"), page.evaluate(HEAD, "gatherStage")
-        check("[진짜] 기준본 — 낡지 않음 · 분석이 지금 차례 · 1단계 2/2 완료 · 「기준본 내려받기」", gv["frame"] and gv["frame"]["stale"] is False and gv["reasons"] == [] and heads["stage2"]["meta"]["rev"] == heads["rev"] == heads["stage3"]["meta"]["rev"]
-              and st[2]["state"] == "done" and st[2]["acts"] == ["기준본 내려받기", "기준본 다시 만들기"] and h1["count"] == "2/2 완료", (gv["frame"], st[2], h1))
+        check("[진짜] 기준본 — 낡지 않음 · 분석이 지금 차례 · 2단계 2/2 완료 · 「기준본 내려받기」", gv["frame"] and gv["frame"]["stale"] is False and gv["reasons"] == [] and heads["stage2"]["meta"]["rev"] == heads["rev"] == heads["stage3"]["meta"]["rev"]
+              and st[1]["state"] == "done" and st[1]["acts"] == ["기준본 내려받기", "기준본 다시 만들기"] and h1["count"] == "2/2 완료", (gv["frame"], st[1], h1))
         href = page.get_attribute("#gatherStage [data-gather-frame-file]", "href")
         got = requests.get(base + href, timeout=120)
         frame_bytes = got.content
@@ -832,6 +921,35 @@ try:
               and gv["parts"][0]["counts"] == {"same": 3} and gv["parts"][0]["todo"] == 0 and gv["parts"][0]["state"] == "done"
               and requests.post(f"{base}/api/docs/{rp}/gather/parts/{rpart}/plan", timeout=120).json()["todo"] == 0, (s2, h2, gv["parts"][0]))
         page.locator("#panel").screenshot(path=str(OUT / "13b_real_applied.png"))
+        # 기관 구역 표시(spec_취합 ② §9-2 — 2026-11-13 사용자 "항시 각 기관이 작성하는 구역이 식별 … 목적문서에서 그 작성 내용을 확인"): 진짜 끝점 · 카드의 칩 · 문서의 띠·이름표·넣은 내용 바탕 · 2열 목록
+        zv = requests.get(f"{base}/api/docs/{rp}/gather/zones", timeout=120).json()
+        okey = next(o["key"] for o in zv["orgs"] if o["name"] == ORG)
+        put = [a for a in zv["applied"] if a["part"] == rpart and a["ids"]]
+        check("[진짜] 기관 구역(GET …/gather/zones) — 세 기관 모두 구역 · 넣은 기록 3곳이 지금 문서에 남음(그 기관)", {z["org"] for z in zv["zones"] if z["kind"] == "org"} >= {o["key"] for o in zv["orgs"]}
+              and len(put) == 3 and all(a["orgs"] == [okey] for a in put) and zv["counts"]["applied"] == 3, {k: zv.get(k) for k in ("counts", "reasons")})
+        page.wait_for_function("() => !!document.querySelector('#gatherFlow .gt-zones .gz-chip') && !!document.querySelector('#doc .gz-in') && !!document.querySelector('#doc .gz-put')", timeout=60000)
+        zui = page.evaluate("""(org) => ({ chips: [...document.querySelectorAll('#gatherFlow .gz-chip')].map((c) => [c.dataset.org, c.textContent]), tags: document.querySelectorAll('#doc .sheet > .gz-tag').length,
+          put: [...document.querySelectorAll('#doc .gz-put')].map((e) => e.title), toggle: document.querySelector('#gatherFlow [data-gather-zones=toggle]').getAttribute('aria-pressed') })""", okey)
+        check("[진짜] 기관 구역 — 카드 칩(기관마다 · 「넣은 내용 3」) · 문서에 구역 띠·오른쪽 여백 이름표 · 넣은 내용 바탕(도움말 「<기관> — 「기관 문서」 에서 넣음」) · 기본 보기",
+              zui["toggle"] == "true" and any(k == okey and "넣은 내용 3" in t for k, t in zui["chips"]) and len(zui["chips"]) == 3 and zui["tags"] > 0
+              and zui["put"] and all(t.startswith(f"{ORG} — 「") and "에서 넣음" in t for t in zui["put"]), zui)
+        page.locator(f'#gatherFlow .gz-chip[data-org="{okey}"]').click()
+        page.wait_for_function("() => heads.dlg === 'gatherZones' && !!document.querySelector('#headsDlgBody .gz-cap')")
+        zl = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .gz-cap')].map((c) => c.textContent)")
+        check("[진짜] 칩 → 2열 「기관 구역」 — 기관마다 구역·넣은 내용", len(zl) == 3 and any(t.startswith(ORG) and "넣은 내용 3" in t for t in zl), zl)
+        page.locator("#gatherFlow [data-gather-zones=toggle]").click()
+        page.wait_for_function("() => !document.querySelector('#doc .gz-in, #doc .gz-put, #doc .gz-tag')")
+        check("[진짜] 「감추기」 — 문서의 구역 표시가 모두 걷힘 · 다시 「보기」 로 돌아옴", page.get_attribute("#gatherFlow [data-gather-zones=toggle]", "aria-pressed") == "false")
+        page.locator("#gatherFlow [data-gather-zones=toggle]").click()
+        page.wait_for_function("() => !!document.querySelector('#doc .gz-put')", timeout=60000)
+        page.screenshot(path=str(OUT / "13c_real_zones.png"))
+        page.evaluate("() => { headsColClose(); setZoom(1); }")
+        page.wait_for_function("() => !zoomJob.on && !zoomJob.timer", timeout=60000)
+        page.wait_for_function("() => !!document.querySelector('#doc .gz-put') && !!document.querySelector('#doc .gz-tag')", timeout=60000)
+        page.evaluate("() => document.querySelector('#doc .gz-put').scrollIntoView({ block: 'center' })")
+        page.wait_for_timeout(500)
+        box = page.evaluate("() => { const s = document.querySelector('#doc .gz-put').closest('.sheet').getBoundingClientRect(), p = document.querySelector('#doc .gz-put').getBoundingClientRect(); return { x: Math.max(0, s.left), y: Math.max(0, p.top - 260), width: Math.min(s.width, 1100), height: 620 }; }")
+        page.screenshot(path=str(OUT / "13d_real_zones_page.png"), clip=box)
         guide = requests.get(f"{base}/api/docs/{rp}/llm-guide/gather?part={rpart}", timeout=60).json()
         check("[진짜] 「지침」 끝점 — 계약 · 판단 지침(gather.md) · 할 일 프롬프트(jobs/plan_merge.md) · 아직 보낸 프롬프트 없음", (guide["step"], guide["name"], guide["model"]) == ("gather", "취합 LLM 검토", "claude-opus-5-5")
               and [p["key"] for p in guide["parts"]] == ["contract", "guide", "job"] and guide["parts"][2]["source"].replace("\\", "/").endswith("jobs/plan_merge.md") and guide["last"] is None, guide.get("name"))

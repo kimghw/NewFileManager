@@ -131,30 +131,90 @@ def list_works() -> list[dict]:
     return sorted(out, key=lambda w: w.get("updated", 0), reverse=True)
 
 
-def find_same(name, fmt, sha) -> dict | None:
+def find_same(name, fmt, sha, job=None) -> dict | None:
     """같은 파일(이름·형식·올린 원본 sha256 이 모두 같음)로 만든 작업 중 가장 최근 것 — 다시 열면 이 작업을 이어 연다(spec_작업 ② §1).
-    sha256 은 올린 원본 것이라 확정해도 그대로다(② §8)."""
-    return next((w for w in list_works() if w.get("sha256") == sha and w.get("name") == name and w.get("format") == fmt), None)
+    sha256 은 올린 원본 것이라 확정해도 그대로다(② §8).
+    job(고른 TASK — ② §15)이 있으면 그 TASK 의 작업(가장 최근) → TASK 가 빈 작업(가장 최근) → 그 밖의 가장 최근 작업 차례로 고른다."""
+    rows = [w for w in list_works() if w.get("sha256") == sha and w.get("name") == name and w.get("format") == fmt]   # 최근 바뀐 차례
+    if job:
+        for want in (job, ""):
+            hit = next((w for w in rows if ((w.get("task") or {}).get("job") or "") == want), None)
+            if hit is not None:
+                return hit
+    return rows[0] if rows else None
 
 
 TARGET_FILE = {"plan_to_report": "report", "plan_merge": "plan"}  # 할 일 → 목적 문서(내용을 받는 문서)의 첨부 파일 종류: 이관의 연차보고서 · 취합의 취합본(spec_작업 ② §10 「목적 문서의 보이는 이름」)
 _NOT_IN_FILE_NAME = re.compile(r'[\\/:*?"<>|]+')
+# 프레임 이름(spec_작업 ② §10 「프레임 이름」 — 2026-11-14 사용자 "프로젝트 구성 반영이 완료 하면 사업계획서_{프로젝트이름}_프레임 .. 이라고 파일명을 저장하도록"):
+# 양식 맞추기 TASK → 맞추는 문서의 첨부 파일 종류. 그 문서에 프로젝트 구성을 반영하면 그것이 그 프로젝트의 프레임이다. 이관·취합의 문서는 뒤에 내용이 들어가므로 여기 없다.
+FRAME_FILE = {"plan_fit": "plan", "report_fit": "report"}
+FILE_LABEL = {"plan": "사업계획서", "report": "연차보고서"}   # 첨부 파일 종류의 이름(화면 app.js WORK_TASK.file 과 같게)
+FRAME_TAIL = "프레임"
 
 
-def shown_name(name, task) -> str:
-    """보이는 이름(spec_작업 ② §10) — 과제에 묶인 목적 문서는 「<올린 이름>_<과제 이름>.<확장자>」, 그 밖에는 올린 이름 그대로.
+ALIAS_MAX = 40
+
+
+def normalize_alias(alias) -> str:
+    """별칭(spec_작업 ② §10 「별칭」) — 앞뒤를 떼고 빈칸을 하나로. 글이 아니면 ValueError, 길이는 부르는 쪽이 본다."""
+    if not isinstance(alias, str):
+        raise ValueError("별칭은 글이어야 합니다")
+    return " ".join(alias.split())
+
+
+def frame_stem(task, framed) -> str | None:
+    """프레임 이름의 몸통 「<첨부 파일 종류>_<프로젝트 이름>_프레임」(spec_작업 ② §10 「프레임 이름」) | None(프레임 이름을 안 쓰는 문서).
+    framed = 그 문서에 프로젝트 구성을 반영한 기록이 있음. 양식 맞추기 TASK 의 맞추는 문서이고 프로젝트 이름이 있을 때만."""
+    t = task if isinstance(task, dict) else {}
+    kind = FRAME_FILE.get(t.get("job") or "")
+    project = _NOT_IN_FILE_NAME.sub("_", t.get("project") or "").strip()
+    if not framed or not kind or t.get("file") != kind or not project:
+        return None
+    return f"{FILE_LABEL[kind]}_{project}_{FRAME_TAIL}"
+
+
+def shown_name(name, task, alias=None, framed=False) -> str:
+    """보이는 이름(spec_작업 ② §10) — 과제에 묶인 목적 문서는 「<올린 이름>_<과제 이름>.<확장자>」, 별칭이 있으면 확장자 앞에 「(<별칭>)」, 그 밖에는 올린 이름 그대로.
+    프로젝트 구성을 반영한(framed) 양식 맞추기 문서는 올린 이름 대신 「<첨부 파일 종류>_<프로젝트 이름>_프레임.<확장자>」(frame_stem — 별칭은 그 뒤에).
     저장된 이름(work.json `name`)은 안 바꾼다 — 같은 파일 이어 열기(find_same)·양식 판정(파일 이름 꼴)이 올린 이름을 본다. 이미 그 꼬리로 끝나면 두 번 안 붙인다."""
     t = task if isinstance(task, dict) else {}
     kind = TARGET_FILE.get(t.get("job") or "")
     project = _NOT_IN_FILE_NAME.sub("_", t.get("project") or "").strip()
-    if not name or not kind or t.get("file") != kind or not project:
+    tag = _NOT_IN_FILE_NAME.sub("_", alias).strip() if isinstance(alias, str) else ""
+    frame = frame_stem(t, framed) if name else None
+    if not name or ((not kind or t.get("file") != kind or not project) and not tag and not frame):
         return name
     stem, dot, ext = name.rpartition(".")
     if not dot or not stem:
         stem, ext = name, ""
-    if stem.endswith("_" + project):
+    if frame:   # 올린 이름을 안 쓴다 — 같은 빈 서식을 프로젝트마다 올려도 프레임은 프로젝트 이름으로 갈린다
+        return frame + (f"({tag})" if tag else "") + (f".{ext}" if ext else "")
+    if tag and stem.endswith(f"({tag})"):   # 올린 이름이 이미 그 꼬리로 끝남 — 프로젝트 꼬리도 그 앞에 있다고 본다
         return name
-    return f"{stem}_{project}" + (f".{ext}" if ext else "")
+    if kind and t.get("file") == kind and project and not stem.endswith("_" + project):
+        stem = f"{stem}_{project}"
+    return stem + (f"({tag})" if tag else "") + (f".{ext}" if ext else "")
+
+
+def shown(w) -> str:
+    """작업(work.json) 하나의 보이는 이름 — framed(프로젝트 구성을 반영한 문서 — 서버가 편집 상태와 함께 적는다)면 프레임 이름."""
+    w = w if isinstance(w, dict) else {}
+    return shown_name(w.get("name"), w.get("task"), w.get("alias"), bool(w.get("framed")))
+
+
+def mark(wid, **fields) -> dict | None:
+    """work.json 필드를 고치되 바뀐 때(updated)는 그대로 — 내용이 아니라 표시만 맞출 때(옛 작업을 다시 열 때의 framed)."""
+    d = folder(wid)
+    if d is None:
+        return None
+    with _lock(wid):
+        w = work(wid)
+        if w is None:
+            return None
+        w.update(fields)
+        _write_json(d / "work.json", w)
+        return w
 
 
 def delete(wid, tries=6) -> bool:

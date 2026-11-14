@@ -34,7 +34,7 @@ async function mcLoadWorks() {
     if (previous.length !== m.selected.size) { m.snapshots = []; m.notice = "작업 목록이 바뀌었습니다. 비교할 문서를 다시 선택하세요."; }
     if (first && works.some((w) => w.id === state.id && w.format === "hwpx")) m.selected.add(state.id);
     const project = (state.task || {}).project; // 과제로 묶인 문서(spec_작업 ② §10)는 처음부터 함께 고른다
-    if (first && project) for (const w of works) if (w.format === "hwpx" && (w.task || {}).project === project && m.selected.size < MC_LIMIT) m.selected.add(w.id);
+    if (first && project) for (const w of works) if (w.format === "hwpx" && taskSameScope(w) && m.selected.size < MC_LIMIT) m.selected.add(w.id);
   } catch (e) {
     if (mergeCompare !== m || seq !== m.seq || epoch !== state.epoch) return;
     m.error = `작업 목록을 읽지 못했습니다: ${e.message}`;
@@ -114,7 +114,7 @@ function mcDraw() {
     cb.disabled = m.busy || w.format !== "hwpx";
     cb.setAttribute("aria-label", `${w.name} 비교 선택`);
     text.append(el("strong", null, w.name), el("small", null,
-      `${w.id === state.id ? "현재 문서 · " : ""}${(w.task || {}).project ? `과제 ${w.task.project} · ` : ""}${typeof taskName === "function" && taskName("file", (w.task || {}).file) ? taskName("file", w.task.file) + " · " : ""}${String(w.format || "").toUpperCase()} · 작업 ${w.id} · 수정 ${w.rev || 0}회${w.format !== "hwpx" ? " · 구조 비교 지원 예정" : ""}`));
+      `${w.id === state.id ? "현재 문서 · " : ""}${(w.task || {}).project ? `프로젝트 ${w.task.project} · Round ${taskRound(w.task)} · ` : ""}${typeof taskName === "function" && taskName("file", (w.task || {}).file) ? taskName("file", w.task.file) + " · " : ""}${String(w.format || "").toUpperCase()} · 작업 ${w.id} · 수정 ${w.rev || 0}회${w.format !== "hwpx" ? " · 구조 비교 지원 예정" : ""}`));
     cb.onchange = () => {
       if (cb.checked && m.selected.size >= MC_LIMIT) {
         cb.checked = false;

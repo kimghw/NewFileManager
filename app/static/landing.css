@@ -77,7 +77,7 @@
 .home-tasks-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 13px; }
 .home-tasks-heading h2 { margin: 0; color: #1d1d1f; font-size: 20px; font-weight: 600; letter-spacing: .01em; }
 .home-tasks-heading p { margin: 0; color: #6e6e73; font-size: 12px; line-height: 1.6; word-break: keep-all; }
-.task-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.task-cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; } /* TASK 여섯(2026-11-13 「문서 일반 편집」) — 넓은 창 한 줄 6 → 3 → 2 → 1 */
 .task-cards li { display: flex; position: relative; min-width: 0; }
 .task-cards .task-card-help { position: absolute; top: 8px; right: 8px; color: #6e6e73; }
 .task-cards .task-card-help:hover, .task-cards .task-card-help:focus-visible { color: #0066cc; background: #edf2fb; }
@@ -92,23 +92,26 @@
 .task-card.over { border-color: #0071e3; background: #f2f8ff; box-shadow: 0 0 0 3px #0071e31a; }
 .task-card.busy { cursor: progress; opacity: .7; }
 .task-logo {
-  display: grid; place-items: center; flex: none; width: 46px; height: 46px; margin-bottom: 15px; border-radius: 13px; color: #fff;
-  background: linear-gradient(145deg, #3d95f5, #0066d6); box-shadow: inset 0 1px 0 #ffffff40, 0 3px 8px #0066d62e;
+  --task-accent: #218574;
+  display: grid; place-items: center; flex: none; width: 46px; height: 46px; margin-bottom: 15px; border-radius: 14px; color: #3974c6;
+  background: linear-gradient(145deg, #f3f7ff, #e6eefb); box-shadow: inset 0 0 0 1px #3974c60b, 0 2px 4px #233c6005;
 }
-.task-logo[data-doc="report"] { background: linear-gradient(145deg, #2fbfa5, #0b8873); box-shadow: inset 0 1px 0 #ffffff40, 0 3px 8px #0b88732e; }
-.task-logo[data-doc="plan-report"] { background: linear-gradient(115deg, #2f8af0 12%, #14a58d 88%); box-shadow: inset 0 1px 0 #ffffff40, 0 3px 8px #1d93b82e; }
-.task-logo svg { display: block; width: 30px; height: 30px; }
+.task-logo[data-doc="report"] { color: #218574; background: linear-gradient(145deg, #eff9f5, #dff0e9); box-shadow: inset 0 0 0 1px #2185740b, 0 2px 4px #233c6005; }
+.task-logo[data-doc="plan-report"] { background: linear-gradient(125deg, #edf3ff 10%, #e4f4ee 90%); box-shadow: inset 0 0 0 1px #397d920b, 0 2px 4px #233c6005; }
+.task-logo[data-doc="any"] { color: #4b5563; background: linear-gradient(145deg, #f4f5f7, #e8eaee); box-shadow: inset 0 0 0 1px #4b55630b, 0 2px 4px #233c6005; } /* 어느 문서든(문서 일반 편집 — spec_일반편집 ② §11): 옅은 회색. 보라는 쓰지 않는다(LLM 제안의 색) */
+.task-logo svg { display: block; width: 32px; height: 32px; }
 .task-card-doc { min-height: 17px; padding-right: 18px; color: #6e6e73; font-size: 11px; font-weight: 600; line-height: 1.5; word-break: keep-all; }
 .task-card-name { margin-top: 1px; font-size: 16px; font-weight: 600; letter-spacing: -.035em; line-height: 1.4; word-break: keep-all; }
 .task-card-desc { margin-top: 7px; color: #6e6e73; font-size: 12px; line-height: 1.6; word-break: keep-all; }
 .task-card-go { margin-top: auto; padding-top: 13px; color: #0066cc; font-size: 11px; line-height: 1.5; white-space: nowrap; }
 .task-card[aria-disabled="true"] { cursor: default; box-shadow: none; background: #fbfbfd; }
 .task-card[aria-disabled="true"]:hover { transform: none; box-shadow: none; }
-.task-card[aria-disabled="true"] .task-logo { filter: saturate(.3); opacity: .6; box-shadow: none; }
+.task-card[aria-disabled="true"] .task-logo { filter: saturate(.25); opacity: .7; box-shadow: none; }
 .task-card[aria-disabled="true"] .task-card-name { color: #6e6e73; }
 .task-card[aria-disabled="true"] .task-card-go { padding: 2px 7px; margin-top: auto; color: #515154; font-size: 10px; font-weight: 600; background: #eaeaec; border-radius: 5px; }
 .task-card[aria-disabled="true"] .task-card-desc { margin-bottom: 11px; }
-@container home (max-width: 900px) { .task-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container home (max-width: 1019px) { .task-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } } /* 여섯 장이 한 줄에 서려면 본문 폭 1020px 가 다 있어야 한다(카드 160px — 그보다 좁으면 「… 올려 시작 →」 이 넘친다) */
+@container home (min-width: 1020px) { .task-card { padding-inline: 14px; } .task-card-doc { padding-right: 0; } } /* 여섯 장 한 줄(카드 160px): 「사업계획서 → 연차보고서」 가 한 줄에 들어가게 — 노트 아이콘은 로고 줄 높이라 문서 줄과 안 겹친다 */
 @container home (max-width: 560px) {
   .home-tasks { margin-top: 30px; }
   .task-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -149,7 +152,22 @@
 .recent-work-open:focus-visible { position: relative; outline-offset: -2px; }
 .recent-file-icon { display: inline-grid; place-items: center; width: 41px; height: 49px; flex: none; background: #f5f5f7; border: 1px solid #e8e8ed; border-radius: 7px; font-size: 9px; font-weight: 600; color: #6e6e73; }
 .recent-work-main { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 5px; }
-.recent-work-name { display: block; font-size: 13px; font-weight: 600; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 줄마다 무슨 일의 어느 작업인지(spec_작업 ② §7) — 첫 줄 = 작업 이름(과제 이름) + TASK 표지 · 둘째 줄 = 역할 + 파일 이름 · 셋째 줄 = 형식·크기·때 + 검증 표지 */
+.recent-work .task-logo { width: 41px; height: 41px; margin: 0; border-radius: 12px; }
+.recent-work .task-logo svg { width: 27px; height: 27px; }
+.recent-work-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.recent-work-title { min-width: 0; max-width: 100%; font-size: 14px; font-weight: 600; letter-spacing: -.01em; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-work-title.none { color: #86868b; font-weight: 500; }
+.recent-task { flex: none; padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600; line-height: 1.5; white-space: nowrap; color: #2f65b5; background: #edf3ff; }
+.recent-task[data-doc="report"] { color: #1b6f61; background: #e8f5ef; }
+.recent-task[data-doc="plan-report"] { color: #22687c; background: linear-gradient(90deg, #edf3ff, #e8f5ef); }
+.recent-task[data-doc="any"] { color: #4b5563; background: #eef0f3; }
+.recent-task.none { color: #6e6e73; background: #f5f5f7; font-weight: 500; }
+.recent-work-file { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12px; color: #424245; }
+.recent-work-role { flex: none; font-weight: 600; color: #1d1d1f; }
+.recent-work-role::after { content: "·"; margin-left: 6px; color: #aeaeb2; font-weight: 400; }
+.recent-work-name { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-work-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
 .recent-work-meta { color: #6e6e73; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .recent-work-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .recent-work-status .vtag { font-size: 10px; line-height: 1.5; border: 0; padding: 2px 6px; border-radius: 4px; }
@@ -157,7 +175,17 @@
 .recent-work-end { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; flex: none; }
 .recent-work-time { color: #6e6e73; font-size: 11px; white-space: nowrap; }
 .recent-work-arrow { color: #0066cc; font-size: 11px; white-space: nowrap; }
-.home #workList .none { padding: 20px; line-height: 1.7; }
+/* 같은 프로젝트 · TASK 의 문서 여럿 = 한 줄(spec_작업 ② §7, 2026-11-13) — Round 표지(2 부터) · 넷째 줄 = 나머지 문서로 바로 가는 단추(왼쪽 = 줄 여백 + 로고 + 간격 — 본문 열에 맞춤) */
+.recent-work-round { flex: none; padding: 2px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 600; line-height: 1.5; white-space: nowrap; color: #6e6e73; background: #f5f5f7; }
+.recent-work.recent-group .recent-work-open { padding-bottom: 8px; }
+.recent-work.recent-group:last-child .recent-work-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.recent-work-docs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 0 20px 14px 77px; }
+.recent-work-docs-label { flex: none; color: #86868b; font-size: 11px; }
+.recent-work-doc { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; padding: 3px 9px; border: 1px solid #e8e8ed; border-radius: 7px; background: white; color: #424245; font: inherit; font-size: 11.5px; line-height: 1.5; text-align: left; cursor: pointer; }
+.recent-work-doc:hover { background: #fafafa; border-color: #d2d2d7; }
+.recent-work-doc .recent-work-name { max-width: 280px; }
+.recent-work-more { color: #86868b; font-size: 11px; }
+.home #workList > li.none { padding: 20px; line-height: 1.7; } /* 빈 목록 줄만 — 줄 안의 .none(「검증 전」 · 「TASK 없음」 · 「과제 이름 없음」)에 여백이 붙지 않게 */
 .recent-work-error { padding: 18px 20px; color: #82622b; font-size: 12px; line-height: 1.7; }
 .recent-work-error .btn { margin-left: 8px; }
 
@@ -198,6 +226,9 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
   .recent-work-open { gap: 11px; padding: 14px; }
   .recent-work-end { gap: 10px; }
   .recent-file-icon { width: 34px; height: 42px; font-size: 8px; }
+  .recent-work .task-logo { width: 36px; height: 36px; border-radius: 11px; }
+  .recent-work .task-logo svg { width: 24px; height: 24px; }
+  .recent-work-docs { padding: 0 14px 12px 61px; }
 }
 @media (max-width: 460px) {
   .empty.home { padding: 24px 16px 28px; }
@@ -228,12 +259,18 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
   .recent-heading p { font-size: 10.5px; }
   .home #recentAll { padding: 0 7px; font-size: 10.5px; gap: 3px; }
   .recent-work-open { padding: 13px 11px; gap: 9px; align-items: flex-start; }
-  .recent-work-name { font-size: 12px; }
+  .recent-work-title { font-size: 13px; }
+  .recent-work-file { font-size: 11px; }
+  .recent-work .task-logo { width: 32px; height: 32px; margin-top: 2px; border-radius: 10px; }
+  .recent-work .task-logo svg { width: 22px; height: 22px; }
   .recent-work-meta { font-size: 10px; }
   .recent-work-time { display: none; }
   .recent-work-end { align-self: center; }
   .recent-work-arrow { font-size: 0; }
   .recent-work-arrow::after { content: "›"; font-size: 21px; }
   .recent-file-icon { width: 30px; height: 37px; margin-top: 2px; font-size: 7px; }
+  .recent-work-docs { padding: 0 11px 11px 52px; }
+  .recent-work-doc { font-size: 11px; }
+  .recent-work-doc .recent-work-name { max-width: 170px; }
 }
 @media (prefers-reduced-motion: reduce) { .home .drop { transition: none; } }

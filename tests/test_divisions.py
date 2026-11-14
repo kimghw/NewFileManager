@@ -885,6 +885,34 @@ def test_plan_with_nothing_to_do_confirms_the_current_rules():
     server.DOCS.clear()
 
 
+def test_apply_names_the_frame():
+    """프레임 이름(spec_작업 ② §10 — 2026-11-14 사용자 "프로젝트 구성 반영이 완료 하면 사업계획서_{프로젝트이름}_프레임 .. 이라고 파일명을 저장하도록"): 양식 맞추기 TASK 의 문서에
+    프로젝트 구성을 반영하면(계획 → 반영 끝점) 문서·작업 목록·내려받는 이름이 「사업계획서_<프로젝트>_프레임.hwpx」, 그 반영을 실행 취소하면 올린 이름으로 돌아온다. 저장된 이름은 그대로."""
+    from urllib.parse import quote
+    from app import works
+    server.DOCS.clear()
+    c = TestClient(server.app)
+    d = _open_form(c)
+    assert c.put(f"/api/works/{d}/task", json={"kind": "rnd", "file": "plan", "job": "plan_fit", "project": "프레임 과제"}).status_code == 200
+    assert c.put(f"/api/docs/{d}/divisions/settings", json={"values": {"stages": [1], "orgs": {"lead": "가나", "joint": []}}}).status_code == 200
+    names = lambda: (c.get(f"/api/docs/{d}").json()["name"], next(w for w in c.get("/api/works").json() if w["id"] == d)["name"])  # noqa: E731
+    assert names() == (FORM.name, FORM.name)   # 반영 전
+    plan = c.post(f"/api/docs/{d}/divisions/plan", json={}).json()
+    assert names() == (FORM.name, FORM.name)   # 계획만으로는 안 바뀐다
+    done = c.post(f"/api/docs/{d}/divisions/apply", json={"planId": plan["planId"]})
+    assert done.status_code == 200 and done.json().get("applied")
+    frame = "사업계획서_프레임 과제_프레임.hwpx"
+    assert names() == (frame, frame) and works.work(d)["name"] == FORM.name
+    cd = c.get(f"/api/docs/{d}/download").headers["content-disposition"]
+    assert quote(frame) in cd and quote("_수정") not in cd
+    server._persist_all()
+    assert works.work(d)["framed"] is True
+    assert c.post(f"/api/docs/{d}/undo").json()["name"] == FORM.name and names() == (FORM.name, FORM.name)   # 그 반영을 실행 취소
+    server._persist_all()
+    assert works.work(d)["framed"] is False
+    server.DOCS.clear()
+
+
 # ---------------------------------------------------------------- 서명 줄 맞춤(② §20)
 
 REPORT = FORM.parent / "국가RnD_서식" / "KEIT_표준서식_260320" / "1. 산업기술혁신사업 연차보고서 서식_260319.hwpx"

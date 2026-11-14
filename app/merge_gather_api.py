@@ -12,6 +12,8 @@
 - `GET|POST …/gather/parts/{part}/links` → {part{위 줄}, coverage{anchors, blocks, ratio}, share(이름 든 기관 라벨이 맞은 몫 | null), counts, todo, items[작성 내용], llm, reasons[] | ["lowMatch"]}(POST = 다시 맞춤).
   409 noFrame · frameDiffers · frameStale · noHeadings(기관 문서에 2단계 분석 없음) · noMatch. 작성 내용 한 줄 = {key, kind, status, detail, scope, path, to{prev, next, at}, from{ids, table, at}, text, counts, unique,
   decision{value, source(user|llm|auto), nature, reason[, note][, held]} | null}(at = 화면이 갈 블록·칸 id — 표 칸·표 행은 그 칸).
+- `POST …/gather/parts/{part}/auto` → 위 몸통 + auto{part, org, by: name|recommend|null, why}(간단 모드의 반영할 기관 자동 지정 — spec ② §8-3: 이미 지정돼 있으면 안 바꿈 ·
+  파일 이름에 든 과제 기관 열쇠가 하나면 그 기관, 아니면 판정의 추천(동률이면 안 정함). 정한 것은 parts[].orgsBy — 사람이 PUT 으로 orgs 를 바꾸면 지운다).
 - `PUT  …/gather/parts/{part}/links/{key}` `{value: keep|skip|null}` → 위(사람이 고름 — null = 지움: 앞선 LLM 결정이 있으면 그것으로). 404 noKey.
 - `POST …/gather/parts/{part}/llm` → 위(llm 갱신). 자료는 두 세션 잠금 안에서 만들고(prepare) 호출은 잠금 밖(run). 409 noLlm(LLM 이 꺼져 있음 — 아무것도 안 적는다).
 - `POST …/gather/parts/{part}/plan` → {planId, part, todo, counts, items[{key, kind, scope, path, text, to, from, counts, decision}], skipped{상태: n}, calc[{table, cell, why, kind, text, key}], dropped[{key, src, what}]}.
@@ -31,7 +33,9 @@ decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, reje
 캐시: 자리 연결 = (기준 판, 기관 문서 차례) · 판정 = (기준 판, 취합본 차례, 취합 설정의 판, 기관 문서 차례, 두 문서의 분석 실행) — 판정이 맞으면 GET 은 기관 문서를 열지 않는다."""
 import gzip
 import json
+import re
 import threading
+import unicodedata
 import time
 import uuid
 import zlib
@@ -48,8 +52,10 @@ from app import merge_gather as MG
 from app import merge_gather_drop as DROP
 from app import merge_gather_frame as F
 from app import merge_gather_llm as L
+from app import merge_over as MO          # 넘친 개요 레벨(spec_병합 ② §5-5) — 사례마다의 처리(저장) · 계획에 보일 것
+from app import merge_over_api as MOA     # 그 끝점 모듈의 도우미(specs · over_view) — 거기서는 이 모듈을 함수 안에서만 가져온다
 from app import merge_pairs as P
-from app import works
+from app import projects, works
 
 router = APIRouter()
 _LOCK = threading.RLock()
@@ -195,8 +201,18 @@ def _both(a, b):
         yield
 
 
-def _part_sess(pid):
+def _part_scope(to_id, pid):
+    """미소속 문서는 등록할 수 있다. 소속된 기관 문서는 취합본과 같은 TASK 라운드만 허용한다."""
+    target = projects.group_key((works.work(to_id) or {}).get("task"))
+    source = projects.group_key((works.work(pid) or {}).get("task"))
+    if pid == to_id or (source[0] and source != target):
+        raise _Why("badPart", "다른 프로젝트·TASK·라운드의 문서는 이 취합에 넣을 수 없습니다")
+    return target, source
+
+
+def _part_sess(pid, to_id):
     from app import server
+    _part_scope(to_id, pid)
     try:
         s = server._sess(pid)
     except HTTPException as e:
@@ -247,6 +263,7 @@ def _ctx(doc_id):
     G = _store(doc_id)
     frame = _frame(doc_id, G["frameId"])
     with s.lock:
+        server._project_settings_sync(s)
         stale = frame is not None and _stale(s, frame)
     return s, G, frame, stale
 
@@ -322,10 +339,11 @@ def _judged(to_s, src, G, frame, pid, fresh=False):
             else:
                 stale += 1
         h["decision"] = {k: pick[k] for k in DECISION if pick.get(k) is not None} if pick else None
-    top = Counter(h["scope"]["org"] for h in lk["items"] if h["status"] == "ready" and h["scope"]["kind"] == "org" and h["scope"]["org"]).most_common(1)
+    top = Counter(h["scope"]["org"] for h in lk["items"] if h["status"] == "ready" and h["scope"]["kind"] == "org" and h["scope"]["org"]).most_common(2)
     out = {"items": items, "coverage": lk["coverage"], "share": lk["share"], "low": lk["low"], "counts": dict(Counter(h["status"] for h in items)),
            "todo": sum(1 for h in items if h["status"] == "ready" and (h["decision"] or {}).get("value") not in ("skip", "check")),
-           "recommend": {"org": top[0][0], "n": top[0][1]} if top else None, "llmStale": stale}   # 추천 = 넣을 수 있는 작성 내용이 가장 많은 기관(고르는 것은 사람)
+           "recommend": {"org": top[0][0], "n": top[0][1], "tie": len(top) > 1 and top[1][1] == top[0][1]} if top else None,   # 추천 = 넣을 수 있는 작성 내용이 가장 많은 기관(고르는 것은 사람 · 간단 모드는 동률이 아닐 때만 — §8-3)
+           "llmStale": stale}
     with _LOCK:
         _JUDGE[(to_s.id, pid)] = (key, out)
     return out
@@ -334,6 +352,7 @@ def _judged(to_s, src, G, frame, pid, fresh=False):
 def _compute(to_s, G, frame, pid, fresh=False):
     """(잠금 밖) 판정 — 읽어 둔 것이 지금 것이면 기관 문서를 열지 않는다(메모리에 없는 기관 문서의 차례는 작업 폴더의 것 — 닫힌 문서는 안 바뀐다)."""
     from app import server
+    _part_scope(to_s.id, pid)  # 문서 차례가 같아도 소속이 바뀌면 예전 판정 캐시를 쓰지 않는다.
     src = server.DOCS.get(pid)
     with _LOCK:
         hit = None if fresh else _JUDGE.get((to_s.id, pid))
@@ -342,7 +361,7 @@ def _compute(to_s, G, frame, pid, fresh=False):
         if hit[0][:5] == (frame["frameId"], to_s.rev, G["version"], rev, tuple(_runs(to_s))) and (src is None or hit[0][5] == tuple(_runs(src))):
             return hit[1]
     to_s.touched = time.time()   # 기관 문서를 여럿 여는 동안 취합본이 메모리에서 밀려나지 않게(server._admit 은 가장 오래 안 쓴 것을 비운다)
-    src = _part_sess(pid)
+    src = _part_sess(pid, to_s.id)
     with _both(to_s, src):
         return _judged(to_s, src, G, frame, pid, fresh)
 
@@ -359,7 +378,7 @@ def _row(G, pid, got=None, why=(), error=None):
     orgs, llm = list(rec.get("orgs") or []), rec.get("llm")
     reasons = [*why, *(["lowMatch"] if got and got["low"] else [])]
     state = "blocked" if why else "unassigned" if not orgs else "new" if not got else "todo" if got["todo"] else "done"
-    return {"work": pid, "name": _name(pid, rec), "order": G["order"].index(pid), "orgs": orgs, "common": rec.get("common", True) is not False, "frameId": rec.get("frameId"), "state": state,
+    return {"work": pid, "name": _name(pid, rec), "order": G["order"].index(pid), "orgs": orgs, "orgsBy": rec.get("orgsBy") if orgs else None, "common": rec.get("common", True) is not False, "frameId": rec.get("frameId"), "state": state,
             "counts": got["counts"] if got else None, "todo": got["todo"] if got else None,
             "llm": {"at": llm.get("at"), "held": llm.get("held") or 0, "stale": got["llmStale"] if got else 0} if isinstance(llm, dict) else None,
             "recommend": got["recommend"] if got else None, "reasons": reasons, **({"error": error} if error else {})}
@@ -386,6 +405,7 @@ def _view(doc_id):
     G = _store(doc_id)
     frame = _frame(doc_id, G["frameId"])
     with s.lock:
+        server._project_settings_sync(s)
         why = _frame_why(s)
         stale = frame is not None and _stale(s, frame)
         orgs = _orgs(s, frame)
@@ -449,6 +469,7 @@ def gather_frame(doc_id: str):
     from app import server
     s = server._sess(doc_id)
     with s.lock:
+        server._project_settings_sync(s)
         why = _frame_why(s)
         if why:
             raise _err(409, why[0])
@@ -504,7 +525,12 @@ def gather_part_put(doc_id: str, part: str, body: dict = Body(default={})):
     if (orgs is not None and not (isinstance(orgs, list) and all(isinstance(x, str) and x for x in orgs))) or (common is not None and not isinstance(common, bool)):
         raise _err(400, "badValue", "orgs 는 기관 열쇠 목록, common 은 true·false")
     server._sess(doc_id)
-    project = ((works.work(doc_id) or {}).get("task") or {}).get("project") or ""
+    task = (works.work(doc_id) or {}).get("task") or {}
+    project = task.get("project") or ""
+    try:
+        _part_scope(doc_id, part)
+    except _Why as e:
+        raise _err(400, e.code, e.message) from e
     new = part not in _store(doc_id)["parts"]
     name = ""
     if new:
@@ -516,9 +542,6 @@ def gather_part_put(doc_id: str, part: str, body: dict = Body(default={})):
             raise _err(404, "badPart", "그런 문서가 없습니다") from e
         if src.fmt != "hwpx":
             raise _err(400, "badPart", "hwpx 문서만 기관 문서로 넣을 수 있습니다")
-        theirs = ((works.work(part) or {}).get("task") or {}).get("project") or ""
-        if theirs and theirs != project:
-            raise _err(400, "badPart", f"다른 과제(「{theirs}」)의 문서입니다")
         name = src.name
 
     def fn(G):
@@ -530,13 +553,15 @@ def gather_part_put(doc_id: str, part: str, body: dict = Body(default={})):
             G["order"].append(part)
         if orgs is not None:
             rec["orgs"] = list(dict.fromkeys(orgs))
+            rec.pop("orgsBy", None)   # 사람이 고른 것 — 간단 모드가 정했다는 표시를 지운다(§8-3)
         if common is not None:
             rec["common"] = common
     _change(doc_id, fn)
     with _LOCK:
         _PLANS.pop((doc_id, part), None)
     if new and works.work(part) is not None:   # 문서 목록에 종류를 보이려는 꼬리표 — 화면의 칸 바꾸기(다른 문서를 내보냄)를 거치지 않는다
-        server.work_task(part, {"kind": "rnd", "file": "part", "job": "plan_merge", "project": project})
+        server.work_task(part, {"kind": "rnd", "file": "part", "job": task.get("job") or "plan_merge", "project": project,
+                                **({"round": projects.round_of(task)} if "round" in task else {})})
     return _view(doc_id)
 
 
@@ -558,9 +583,69 @@ def gather_part_delete(doc_id: str, part: str):
         if (_DROPS.get(doc_id) or {}).get("from") == part:
             del _DROPS[doc_id]
     task = (works.work(part) or {}).get("task")
-    if task and task.get("file") == "part":   # 종류 꼬리표만 뗀다 — 과제·할 일은 그대로(같은 과제의 문서로 남아 다시 넣을 수 있다)
+    same_group = projects.group_key(task) == projects.group_key((works.work(doc_id) or {}).get("task"))
+    if task and task.get("file") == "part" and same_group:   # 다른 라운드로 이동한 문서의 종류는 건드리지 않는다.
         works.update(part, task={**task, "file": ""})
     return _view(doc_id)
+
+
+_EXT = re.compile(r"\.(hwpx?|docx)$", re.I)
+
+
+def _name_key(name):
+    """파일 이름 → 견줄 글(확장자 뗌 · NFC — macOS 에서 온 이름은 자모가 풀려 있다 · org_key: ㈜·주식회사·빈칸 뗌)."""
+    return P.org_key(unicodedata.normalize("NFC", _EXT.sub("", str(name or ""))))
+
+
+def _name_org(name, keys, base="", others=()):
+    """파일 이름에 든 과제 기관 열쇠 | None(spec ② §8-3) — 두 글자 이상 열쇠를 **긴 것부터** 찾고 찾은 자리를 가린다(「한국대병원」 안의 「한국대」 는 따로 안 걸림).
+    가르지 못하는 열쇠는 일치로 안 센다 — 취합본 이름(base)에 든 것 · 기관 문서가 둘 이상일 때 그 이름(others) 모두에 든 것(과제 이름에 주관기관 이름이 든 경우). 남은 일치가 정확히 하나일 때만."""
+    text, cand = _name_key(name), sorted({k for k in keys if k and len(k) >= 2}, key=len, reverse=True)
+    names = [_name_key(o) for o in others]
+    skip = {k for k in cand if k in _name_key(base)} | ({k for k in cand if all(k in o for o in names)} if len(names) >= 2 else set())
+    hits = set()
+    for k in cand:
+        if k in text:
+            text = text.replace(k, "\0")   # 가림 — 짧은 열쇠가 긴 이름 안에서 또 걸리지 않게
+            if k not in skip:
+                hits.add(k)
+    return hits.pop() if len(hits) == 1 else None
+
+
+@router.post("/api/docs/{doc_id}/gather/parts/{part}/auto")
+def gather_part_auto(doc_id: str, part: str):
+    """간단 모드의 반영할 기관 자동 지정(spec ② §8-3) → 취합 상태 몸통 + auto{part, org, by, why}. 이미 지정돼 있으면(사람이 고름 · 앞서 정함) 안 바꾼다."""
+    _part_id(part)
+    s, G, frame, stale = _ctx(doc_id)
+    rec = _rec(G, part)
+    if rec.get("orgs"):
+        return {**_view(doc_id), "auto": {"part": part, "org": rec["orgs"][0] if len(rec["orgs"]) == 1 else None, "by": rec.get("orgsBy"), "why": "assigned"}}
+    with s.lock:
+        keys = [o["key"] for o in _orgs(s, frame)]
+        base = s.name
+    org = _name_org(_name(part, rec), keys, base, [_name(p, G["parts"][p]) for p in G["order"]])
+    by, why = ("name", None) if org else ("recommend", None)
+    if org is None:
+        why = _blocked(rec, frame, stale)
+        if not why:
+            try:
+                got = _compute(s, G, frame, part)
+            except _Why as e:
+                why = e.code
+            else:
+                r = got["recommend"]
+                why = "noOrg" if not r or r["org"] not in keys else "tie" if r.get("tie") else None
+                org = None if why else r["org"]
+    if org:
+        def fn(G2):
+            r2 = G2["parts"].get(part)
+            if r2 is not None and not r2.get("orgs"):   # 그 사이 사람이 골랐으면 그대로
+                r2["orgs"], r2["orgsBy"] = [org], by
+        _change(doc_id, fn)
+        with _LOCK:
+            _PLANS.pop((doc_id, part), None)
+        works.log(doc_id, "gatherAuto", part=part, org=org, by=by)
+    return {**_view(doc_id), "auto": {"part": part, "org": org, "by": by if org else None, "why": why}}
 
 
 # ---- 끝점: 자리 연결 · 사람 고름 · LLM 검토(§4-1~§4-3) --------------------------------------------------------------
@@ -619,7 +704,7 @@ def gather_llm(doc_id: str, part: str):
         raise _err(409, why)
     job = job_prompts.for_work(doc_id)   # 이 작업의 할 일 프롬프트(jobs/plan_merge.md — spec_작업 ② §13)
     try:
-        src = _part_sess(part)
+        src = _part_sess(part, doc_id)
         with _both(s, src):   # 자료는 잠금 안에서 불변 입력으로(prepare 는 LLM 을 안 부른다) — 호출은 잠금 밖
             got = _judged(s, src, G, frame, part)
             names = {o["key"]: o["name"] for o in frame.get("orgs") or ()}
@@ -670,18 +755,22 @@ def _tx(s, src, run, op, req, code):
 
 @router.post("/api/docs/{doc_id}/gather/parts/{part}/plan")
 def gather_plan(doc_id: str, part: str):
-    """넣기 계획 — 넣을 수 있고(ready) 결정이 skip·check 가 아닌 작성 내용마다 넣을 것을 센다. **문서는 안 바뀐다**. 계획에 적어 두는 것 = 두 문서의 차례 · 기준 판 · 취합 설정의 판 · 분석 실행(반영이 다시 본다)."""
+    """넣기 계획 — 넣을 수 있고(ready) 결정이 skip·check 가 아닌 작성 내용마다 넣을 것을 센다. **문서는 안 바뀐다**. 계획에 적어 두는 것 = 두 문서의 차례 · 기준 판 · 취합 설정의 판 · 분석 실행(반영이 다시 본다).
+    (2026-11-13 — spec_병합 ② §5-5) 취합본 틀보다 깊게 쓴 줄(넘친 개요 레벨)은 저장된 처리(merge_over.json)대로 미리 풀어 계획에 싣고, 사례가 있으면 응답에 `over{version, cases[], templates[], records}`."""
     s, G, frame, stale = _ctx(doc_id)
     why = _blocked(_rec(G, part), frame, stale)
     if why:
         raise _err(409, why)
     try:
-        src = _part_sess(part)
+        src = _part_sess(part, doc_id)
         with _both(s, src):
             got = _judged(s, src, G, frame, part)
-            pl = MG.plan(got["items"], frame, _side(s), _side(src))
-            plan = {"planId": uuid.uuid4().hex[:12], "part": part, "toRev": s.rev, "partRev": src.rev, "frameId": frame["frameId"], "version": G["version"],
-                    "runs": [_runs(s), _runs(src)], "plan": pl}
+            to_side = _side(s)
+            store, sp = MOA.specs(doc_id, to_side["graph"])   # 넘친 개요 레벨의 처리(사례마다 사람이 고른 것) → 줄 지정
+            pl = MG.plan(got["items"], frame, {**to_side, "over": sp}, _side(src))
+            over = MOA.over_view(doc_id, MO.collect([((it.get("convert") or {}).get("over"), (it.get("to") or {}).get("prev")) for it in pl["items"]]), to_side["graph"], s.doc, store)
+            plan = {"planId": uuid.uuid4().hex[:12], "part": part, "scope": _part_scope(doc_id, part), "toRev": s.rev, "partRev": src.rev, "frameId": frame["frameId"], "version": G["version"],
+                    "runs": [_runs(s), _runs(src)], "plan": pl, "over": store["version"]}
     except _Why as e:
         raise _err(409, e.code, e.message) from e
     with _LOCK:
@@ -691,7 +780,7 @@ def gather_plan(doc_id: str, part: str):
         total.update({k: v for k, v in (it.get("counts") or {}).items() if isinstance(v, int)})
     return {"planId": plan["planId"], "part": part, "todo": pl["todo"], "counts": dict(total),
             "items": [{**it, "to": by[it["key"]][0], "from": by[it["key"]][1]} for it in pl["items"]],   # 계획 줄도 두 문서의 그 자리로 갈 수 있게(to.at · from.at)
-            "skipped": pl["skipped"], "calc": pl["calc"], "dropped": pl["dropped"]}
+            "skipped": pl["skipped"], "calc": pl["calc"], "dropped": pl["dropped"], **({"over": over} if over["cases"] else {})}
 
 
 @router.post("/api/docs/{doc_id}/gather/parts/{part}/apply")
@@ -703,7 +792,9 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
     if plan is None or plan["planId"] != body.get("planId"):
         raise _err(409, "stalePlan", "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
     try:
-        src = _part_sess(part)
+        src = _part_sess(part, doc_id)
+        if "scope" in plan and plan["scope"] != _part_scope(doc_id, part):
+            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 계획하세요")
     except _Why as e:
         raise _err(409, "stalePlan", e.message) from e
     s = server._sess(doc_id)
@@ -711,7 +802,8 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
         G = _store(doc_id)
         rec, frame = G["parts"].get(part), _frame(doc_id, G["frameId"])
         ok = (rec is not None and frame is not None and server.DOCS.get(s.id) is s and plan["toRev"] == s.rev and plan["partRev"] == src.rev
-              and plan["frameId"] == frame["frameId"] == rec.get("frameId") and plan["version"] == G["version"] and plan["runs"] == [_runs(s), _runs(src)] and not _stale(s, frame))
+              and plan["frameId"] == frame["frameId"] == rec.get("frameId") and plan["version"] == G["version"] and plan["runs"] == [_runs(s), _runs(src)] and not _stale(s, frame)
+              and ("over" not in plan or plan["over"] == MO.load(doc_id)["version"]))   # 넘친 개요 레벨의 처리가 계획 뒤 바뀌지 않았다(spec_병합 ② §5-5 6)
         if not ok:
             with _LOCK:
                 _PLANS.pop((doc_id, part), None)
@@ -746,7 +838,8 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
 
 @router.post("/api/docs/{doc_id}/gather/drop/plan")
 def gather_drop_plan(doc_id: str, body: dict = Body(...)):
-    """{from(기관 문서), srcId(끈 줄), afterId(놓은 블록)} → 끌어 넣기 계획(두 문서 모두 안 바뀜). 끌 수 있는 출처는 그 취합에 든 기관 문서뿐. 기준본은 없어도 된다(기준본에서 나오지 않은 문서를 넣는 길)."""
+    """{from(기관 문서), srcId(끈 줄), afterId(놓은 블록)} → 끌어 넣기 계획(두 문서 모두 안 바뀜). 끌 수 있는 출처는 그 취합에 든 기관 문서뿐. 기준본은 없어도 된다(기준본에서 나오지 않은 문서를 넣는 길).
+    넘친 개요 레벨이 있으면 저장된 처리대로 미리 풀고 응답에 `over{version, cases[], templates[]}`(spec_병합 ② §5-5)."""
     from app import server
     frm, src_id, after_id = body.get("from"), body.get("srcId"), body.get("afterId")
     if not all(isinstance(x, str) and x for x in (frm, src_id, after_id)):
@@ -755,7 +848,7 @@ def gather_drop_plan(doc_id: str, body: dict = Body(...)):
     if frm not in _store(doc_id)["parts"]:
         raise _err(400, "notPart")
     try:
-        src = _part_sess(frm)
+        src = _part_sess(frm, doc_id)
     except _Why as e:
         raise _err(400, "notPart", e.message) from e
     with _both(s, src):
@@ -763,13 +856,17 @@ def gather_drop_plan(doc_id: str, body: dict = Body(...)):
         if pg is None:   # 그래프가 없으면 절의 범위를 몰라 끈 줄 하나만 가게 된다 — 말없이 그러지 않는다
             raise _err(409, "noHeadings", "기관 문서의 헤딩 분석이 없어 절의 범위를 정할 수 없습니다 — 먼저 분석하세요(스크립트)")
         try:
-            p = DROP.plan({"doc": s.doc, "graph": tg}, {"doc": src.doc, "graph": pg}, src_id, after_id)
+            store, sp = MOA.specs(doc_id, tg)
+            p = DROP.plan({"doc": s.doc, "graph": tg, "over": sp}, {"doc": src.doc, "graph": pg}, src_id, after_id)
         except (KeyError, ValueError) as e:   # DropError = 사람에게 보일 까닭
             raise _err(400, "badDrop", str(e)) from e
-        plan = {"planId": uuid.uuid4().hex[:12], "from": frm, "toRev": s.rev, "partRev": src.rev, "runs": [_run(tg), _run(pg)], "plan": p}
+        ov = (p.get("convert") or {}).get("over")   # 이 끌어 넣기의 넘친 사례(넣은 줄의 기록은 안 싣는다 — 끌어 넣기는 넣은 기록이 없다)
+        over = MO.view(MO.collect([(ov, (p.get("owner") or {}).get("id"))]), store, tg or {}, s.doc) if ov else None
+        plan = {"planId": uuid.uuid4().hex[:12], "from": frm, "scope": _part_scope(doc_id, frm), "toRev": s.rev, "partRev": src.rev, "runs": [_run(tg), _run(pg)], "plan": p,
+                "over": {"version": store["version"], "specs": sp}}
     with _LOCK:
         _DROPS[doc_id] = plan
-    return {"planId": plan["planId"], "from": frm, **{k: p[k] for k in ("range", "after", "owner", "convert", "dropped")}}
+    return {"planId": plan["planId"], "from": frm, **{k: p[k] for k in ("range", "after", "owner", "convert", "dropped")}, **({"over": over} if over else {})}
 
 
 @router.post("/api/docs/{doc_id}/gather/drop/apply")
@@ -782,21 +879,24 @@ def gather_drop_apply(doc_id: str, body: dict = Body(...)):
         raise _err(409, "stalePlan", "계획이 없거나 바뀌었습니다 — 다시 끌어 놓아 주세요")
     convert = body.get("convert", True) is not False
     try:
-        src = _part_sess(plan["from"])
+        src = _part_sess(plan["from"], doc_id)
+        if "scope" in plan and plan["scope"] != _part_scope(doc_id, plan["from"]):
+            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 끌어 놓아 주세요")
     except _Why as e:
         raise _err(409, "stalePlan", e.message) from e
     s = server._sess(doc_id)
     with _both(s, src):
         tg, pg = HR.graph(s), HR.graph(src)
+        over = plan.get("over") or {}
         if (plan["from"] not in _store(doc_id)["parts"] or server.DOCS.get(s.id) is not s or plan["toRev"] != s.rev or plan["partRev"] != src.rev
-                or plan["runs"] != [_run(tg), _run(pg)]):
+                or plan["runs"] != [_run(tg), _run(pg)] or (over and over.get("version") != MO.load(doc_id)["version"])):   # over = 넘친 개요 레벨의 처리가 계획 뒤 바뀜
             with _LOCK:
                 _DROPS.pop(doc_id, None)
             raise _err(409, "stalePlan", DROP.STALE)
         done = {}
 
         def run():
-            done.update(DROP.apply(s.doc, src.doc, plan["plan"], tg, pg, convert=convert))
+            done.update(DROP.apply(s.doc, src.doc, plan["plan"], tg, pg, convert=convert, over=over.get("specs")))   # 넘친 레벨은 계획 때의 지정대로
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
                     "log": {"planId": plan["planId"], "from": plan["from"], "after": plan["plan"]["after"]["id"], "blocks": done["blocks"], "converted": done["converted"]}}
         try:
@@ -807,3 +907,116 @@ def gather_drop_apply(doc_id: str, body: dict = Body(...)):
         if after is None:
             return out
         return {**{k: done[k] for k in ("blocks", "converted", "kept", "labels", "fitted", "dropped", "ids")}, **s.state()}
+
+
+# ---- 끝점: 기관 구역 표시(§9-2) ---------------------------------------------------------------------------------------
+# GET …/gather/zones → {rev, values, orgs[{key, name, role}], zones[{org, kind: org|unknown, year, stage, ids[블록 id], path[], text}], cells{표 id: [{id, org, kind}]},
+#   applied[{part, name, orgs[], key, kind, at, ids[지금 문서에 남은 id], gone(없어진 id 수)}], counts{zones, blocks, cells, applied}, reasons[]} — 문서는 안 바뀐다.
+# 구역 = 지금 취합본을 지금 값(반영한 값 → 입력 값)으로 읽은 자리 정보(F.make — 기준본이 없어도)에서 기관(org)·기관 모름(unknown) 자리인 본문 최상위 블록이 같은 기관으로 이어지는 띠.
+# 공통 블록이 띠를 끊는다. cells = 표 안에서 칸마다 기관이 갈리는 곳(칸의 기관이 표의 것과 다름). 값이 없으면 빈 목록 + reasons ["noValues"](applied 는 그대로).
+
+_ZONES = {}   # 취합본 id → (열쇠(문서 차례 · 기준 확정 · 값 · 분석 실행), {values, orgs, zones, cells, alive}) — F.make 는 큰 문서에서 1초 가까이. 넣은 기록(applied)은 늘 새로 센다(싸다)
+ZONE_TEXT = 60
+
+
+def _zone_text(text):
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= ZONE_TEXT else t[:ZONE_TEXT - 1] + "…"
+
+
+def _zones_of(info):
+    """F.make 의 자리 정보 → (zones, cells) — 모듈 위 설명."""
+    zones, cells, cur = [], {}, None
+    for b in info["blocks"]:
+        sc = b["scope"]
+        if sc["kind"] in ("org", "unknown"):
+            k = (sc["kind"], sc["org"])
+            if cur is None or cur["_k"] != k:
+                cur = {"_k": k, "org": sc["org"], "kind": sc["kind"], "_years": set(), "_stages": set(), "ids": [], "path": list(b.get("path") or ()), "text": ""}
+                zones.append(cur)
+            cur["ids"].append(b["id"])
+            cur["_years"].add(sc.get("year"))
+            cur["_stages"].add(sc.get("stage"))
+            if not cur["text"]:
+                cur["text"] = _zone_text(b.get("text"))
+        else:
+            cur = None
+        t = b.get("table")
+        if t:
+            own = (sc["kind"], sc["org"])
+            got = [{"id": c["id"], "org": c["scope"].get("org"), "kind": c["scope"]["kind"]} for c in t.get("cells") or ()
+                   if isinstance(c.get("scope"), dict) and c["scope"].get("kind") in ("org", "unknown") and (c["scope"]["kind"], c["scope"].get("org")) != own]
+            if got:
+                cells[b["id"]] = got
+    out = []
+    for z in zones:
+        years, stages = z.pop("_years"), z.pop("_stages")
+        z.pop("_k")
+        out.append({"org": z["org"], "kind": z["kind"], "year": next(iter(years)) if len(years) == 1 else None,
+                    "stage": next(iter(stages)) if len(stages) == 1 else None, "ids": z["ids"], "path": z["path"], "text": z["text"]})
+    return out, cells
+
+
+def _alive(blocks):
+    """지금 문서의 본문 최상위 블록 id + 그 표의 칸 id — 넣은 기록 가운데 남은 것을 가린다."""
+    ids = set()
+    for b in blocks:
+        ids.add(b["id"])
+        if b.get("type") == "table":
+            ids.update(c["id"] for c in b.get("cells") or ())
+    return ids
+
+
+@router.get("/api/docs/{doc_id}/gather/zones")
+def gather_zones(doc_id: str):
+    """기관 구역 · 넣은 내용(spec_취합 ② §9-2) — 위 설명. 자리 정보는 세션 잠금 안에서 뜬 블록 목록(그대로인 사본)으로 잠금 밖에서 센다."""
+    from app import server
+    from app.division_profiles.rnd import core
+    s = server._sess(doc_id)
+    G = _store(doc_id)
+    with s.lock:
+        server._project_settings_sync(s)
+        hwpx = s.fmt == "hwpx"
+        raw = (s.division.get("applied") or {}).get("values") or (s.division.get("settings") or {}).get("values")
+        rev, base = s.rev, s.base_n
+        if hwpx:
+            blocks, graph, tables, runs = s.doc.blocks(), HR.graph(s), HR.tables(s), tuple(_runs(s))
+    reasons, values, part = [], None, None
+    if not hwpx:
+        reasons = ["unsupportedForm"]
+    else:
+        try:
+            values = core.norm_values(raw) if raw else None
+        except (KeyError, TypeError, ValueError):
+            values = None
+        if values is None:
+            reasons = ["noValues"]
+        key = (rev, base, json.dumps(values, ensure_ascii=False, sort_keys=True) if values else None, runs)
+        with _LOCK:
+            hit = _ZONES.get(doc_id)
+        if hit is not None and hit[0] == key:
+            part = hit[1]
+        else:
+            part = {"values": values, "orgs": [], "zones": [], "cells": {}, "alive": _alive(blocks)}
+            if values is not None:
+                info = F.make({"rev": rev, "values": values, "blocks": blocks, "graph": graph, "tables": tables})   # doc 없음 — 그림 열쇠(바이트 해시)는 구역에 안 쓴다
+                zones, cells = _zones_of(info)
+                part.update(orgs=[{k: o.get(k) for k in ("key", "name", "role")} for o in info["orgs"]], zones=zones, cells=cells)
+            with _LOCK:
+                _ZONES[doc_id] = (key, part)
+    alive = part["alive"] if part else set()
+    applied = []
+    for pid in G["order"] if hwpx else ():
+        rec = G["parts"][pid]
+        for k, a in (rec.get("applied") or {}).items():
+            if not isinstance(a, dict):
+                continue
+            ids = [i for i in a.get("ids") or () if isinstance(i, str)]
+            left = [i for i in ids if i in alive]
+            applied.append({"part": pid, "name": _name(pid, rec), "orgs": list(rec.get("orgs") or []), "key": k, "kind": a.get("kind"), "at": a.get("at"),
+                            "ids": left, "gone": len(ids) - len(left)})
+    zones, cells = (part or {}).get("zones") or [], (part or {}).get("cells") or {}
+    return {"rev": rev, "values": (part or {}).get("values"), "orgs": (part or {}).get("orgs") or [], "zones": zones, "cells": cells, "applied": applied,
+            "counts": {"zones": len(zones), "blocks": sum(len(z["ids"]) for z in zones), "cells": sum(len(v) for v in cells.values()),
+                       "applied": sum(1 for a in applied if a["ids"])},
+            "reasons": reasons}

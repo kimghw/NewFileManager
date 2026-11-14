@@ -40,11 +40,27 @@ def test_catalog_tasks_and_document_roles_are_accepted_by_the_save_api(catalog):
         works.create(wid, "catalog.hwpx", "hwpx", b"catalog contract")
         roles = [task["file"], *task.get("files", []), *task.get("gather", {}).values()]
         for role in dict.fromkeys(roles):
-            payload = {"kind": "rnd", "job": job, "file": role, "project": ""}
+            payload = {"kind": task.get("kind", "rnd"), "job": job, "file": role, "project": ""}   # 작업 종류는 카탈로그의 것(없으면 연구개발 — 「문서 일반 편집」 만 general)
             response = client.put(f"/api/works/{wid}/task", json=payload)
             assert response.status_code == 200, (job, role, response.text)
             assert response.json()["task"] == payload
             assert works.work(wid)["task"] == payload
+
+
+def test_task_kind_follows_the_job(catalog):
+    """할 일과 작업 종류의 조합(spec_일반편집 ② §11): 카탈로그의 kind 가 서버 표(TASK_KIND)와 같고, 어긋난 조합은 저장하지 않는다 — 연구개발의 할 일은 작업 종류를 비운 채로도 되고(전과 같음),
+    작업 종류가 정해진 할 일(문서 일반 편집)은 비워도 안 된다(비우면 화면·프로젝트 구분 기준 공유가 연구개발로 본다 — 2026-11-13 astra 결과 검토)."""
+    assert {job: task["kind"] for job, task in catalog.items() if task.get("kind", "rnd") != "rnd"} == server.TASK_KIND
+    assert set(server.TASK_KIND.values()) <= set(server.TASK["kind"])
+    client = TestClient(server.app)
+    wid = "0000000000ff"
+    works.create(wid, "kind.hwpx", "hwpx", b"kind contract")
+    for job in catalog:
+        own = server.TASK_KIND.get(job, "rnd")
+        other = "general" if own == "rnd" else "rnd"
+        assert client.put(f"/api/works/{wid}/task", json={"kind": other, "job": job, "file": "", "project": ""}).status_code == 400, job
+        assert client.put(f"/api/works/{wid}/task", json={"kind": "", "job": job, "file": "", "project": ""}).status_code == (200 if own == "rnd" else 400), job
+    assert client.put(f"/api/works/{wid}/task", json={"kind": "general", "job": "", "file": "", "project": ""}).status_code == 200   # TASK 없는 일반 문서
 
 
 def test_catalog_keeps_the_source_and_destination_roles(catalog):
@@ -58,6 +74,25 @@ def test_catalog_keeps_the_source_and_destination_roles(catalog):
     assert not catalog["report_merge"].get("gather")
     for job, task in catalog.items():
         assert not (task.get("files") and task.get("gather")), job
+
+
+def test_catalog_target_roles_match_the_server(catalog):
+    """화면의 목적 문서 표시(target)가 서버의 목적 문서(works.TARGET_FILE — 보이는 이름)와 갈라지지 않게 한다(spec_작업 ② §10 「목적 문서 표시」)."""
+    assert {job: task["target"] for job, task in catalog.items() if task.get("target")} == works.TARGET_FILE
+    for job, task in catalog.items():
+        if task.get("target"):
+            roles = [task["file"], *task.get("files", []), *task.get("gather", {}).values()]
+            assert task["target"] in roles and len(set(roles) - {""}) >= 2, job  # 목적 문서 말고 원본 종류가 하나 이상
+
+
+def test_frame_name_tasks_match_the_catalog(catalog):
+    """프레임 이름(spec_작업 ② §10 「프레임 이름」)을 쓰는 TASK(works.FRAME_FILE)가 카탈로그에서 그 종류의 문서 하나를 맞추는 TASK 이고(목적·원본이 갈리는 TASK 가 아님),
+    이름에 넣는 첨부 파일 종류의 말(works.FILE_LABEL)이 화면의 말(app.js WORK_TASK.file)과 같다."""
+    script = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    for job, kind in works.FRAME_FILE.items():
+        assert catalog[job]["file"] == kind and not catalog[job].get("target") and not catalog[job].get("files") and not catalog[job].get("gather"), job
+        assert f'["{kind}", "{works.FILE_LABEL[kind]}"]' in script, kind
+    assert not set(works.FRAME_FILE) & set(works.TARGET_FILE)   # 목적 문서의 이름 규칙(올린 이름_프로젝트)과 겹치지 않는다
 
 
 def test_catalog_cards_have_readable_labels_and_matching_logos(catalog):

@@ -11,3 +11,4 @@ def _no_hangul(tmp_path, monkeypatch):
     monkeypatch.setenv("NFM_BLOCKS_CHECK", "1")  # 구조 편집마다 「닿은 블록만 다시 읽기」를 문서 전체를 다시 읽은 것과 견준다(server._transact — spec_owpml_편집 ② §3)
     monkeypatch.setenv("NFM_FORMS", str(tmp_path / "forms"))  # 양식 정보(spec_헤딩_추출 ② §12)도 임시 폴더 — 저장소 forms/ 의 글이 시험 프롬프트에 섞이지 않게
     monkeypatch.setenv("NFM_JOBS", str(tmp_path / "jobs"))  # 할 일 프롬프트(spec_작업 ② §13)도 — 저장소 jobs/ 의 글은 그것을 보는 시험만 직접 읽는다
+    monkeypatch.setenv("NFM_STYLES", str(tmp_path / "styles"))  # 서식 보관함(spec_일반편집 ② §2)도 시험마다 임시 폴더 — 사용자 보관함(%LOCALAPPDATA%)을 안 건드린다

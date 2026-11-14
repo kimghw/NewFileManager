@@ -1,4 +1,4 @@
-"""1단계 「문서 프레임 작성」(구조) · 2단계 「내용 매핑」 묶음 · 묶음마다 「한 번에 진행」(spec_작업 ② §14) 화면 확인 — 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright.
+"""1단계 「구분 기준」(구성 확정 — 2026-11-13 spec_작업 ② §18) · 2단계 「문서 프레임 작성」(구조) · 3단계 「내용 매핑」 묶음 · 묶음마다 「한 번에 진행」(spec_작업 ② §14) 화면 확인 — 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright.
 
     python -X utf8 tools/smoke_task_run_ui.py <그림·임시 폴더> [--port 18164]
 
@@ -62,14 +62,21 @@ def open_work(page, wid):
 
 
 VIS = "(id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0 && e.checkVisibility(); }"  # 접힌 details 안은 getClientRects 가 남는다(content-visibility) — checkVisibility 까지
-STEPS = """() => [...document.querySelectorAll('#taskSteps li')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
+STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
   status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent, text: li.textContent }))"""
 # 묶음 머리 — 펴짐 · 끝난 수 · 상태 줄(종류·글·동그라미) · 단추(글·꺼짐·강조)
 STAGE = """() => { const b = document.getElementById('taskStage'); if (!b) return null; const st = b.querySelector('.dv-phase-state'), run = b.querySelector('[data-task-run]');
   const progress = b.querySelector('.dv-phase-progress');
   return { open: b.open, count: b.querySelector('.dv-phase-count').textContent, progress: [progress.value, progress.max], kind: st.dataset.kind, text: st.lastChild.textContent, spin: !st.firstChild.hidden,
     btn: run.textContent, disabled: run.disabled, primary: run.classList.contains('primary'), head: b.querySelector('summary').textContent }; }"""
-STAGE2 = STAGE.replace("'taskStage'", "'taskStage2'")  # 2단계 「내용 매핑」 묶음
+STAGE0 = STAGE.replace("'taskStage'", "'taskStage0'")  # 1단계 「구분 기준」 묶음(spec_작업 ② §18)
+STAGE2 = STAGE.replace("'taskStage'", "'taskStage2'")  # 3단계 「내용 매핑」 묶음
+STAGE3 = STAGE.replace("'taskStage'", "'taskStage3'")  # 4단계 「문서 정리」 묶음
+CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, text: li.textContent }; }"
+# 이어서 한 번에(spec_작업 ② §14 — 2026-11-12 사용자 "1,2,3 단계도 한번에 … 1,2 만 할 수도 있고 3까지 할 수도 있고"): 줄 보임 · 상태 글 · 끝 묶음마다 단추(글·숨김·꺼짐·강조)
+CHAIN = """() => { const c = document.getElementById('taskChain'); if (!c) return null;
+  return { shown: !c.hidden && c.checkVisibility(), state: c.querySelector('.dv-chain-state').textContent,
+    btns: Object.fromEntries([...c.querySelectorAll('[data-task-chain]')].map((b) => [b.dataset.taskChain, { text: b.textContent, hidden: b.hidden, disabled: b.disabled, primary: b.classList.contains('primary') }])) }; }"""
 OLVIS = "(id) => { const e = document.querySelector('#' + id + ' ol.dv-flow-steps'); return !!e && e.checkVisibility(); }"  # 그 묶음의 세부 목록이 보이나(접힌 details 안은 안 보임)
 
 try:
@@ -97,28 +104,33 @@ try:
         page.goto(base)
         page.evaluate("() => { try { localStorage.clear(); } catch {} }")
         open_work(page, a)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_selector("#taskStage")
 
         # ---- 1. 묶음 모양 — 접힌 상자 · 머리 줄 · 상태 줄 · 준비가 안 끝나면 단추 꺼짐
         labels = page.eval_on_selector_all("#divBox .dv-task-field > span", "xs => xs.map(x => x.textContent)")
-        check("첫 카드에 「작업」 칸 없음(패널 머리에만) — 할 일 · 과제", labels == ["할 일", "과제"] and page.locator("#divBox .dv-task select[data-task=kind]").count() == 0
+        check("첫 카드에 「작업」 칸 없음(패널 머리에만) — 프로젝트 · TASK(② §17 — 「할 일」 → TASK · 「과제」 → 프로젝트)", labels == ["프로젝트", "TASK"] and page.locator("#divBox .dv-task select[data-task=kind]").count() == 0
               and page.input_value("#panelTask") == "rnd", labels)
-        s = page.evaluate(STAGE)
-        check("묶음 = 접힌 상자 · 「1단계 문서 프레임 작성」 · 0/1 완료와 진행률 · 세부 목록은 안 보임", s["open"] is False and "1단계" in s["head"] and "문서 프레임 작성" in s["head"] and s["count"] == "0/1 완료" and s["progress"] == [0, 1]
-              and not page.evaluate(OLVIS, "taskStage"), s)
+        s0, s = page.evaluate(STAGE0), page.evaluate(STAGE)
+        check("묶음 = 접힌 상자 · 「1단계 구분 기준」 · 「2단계 문서 프레임 작성」 · 0/1 완료와 진행률 · 세부 목록은 안 보임", s0["open"] is False and "1단계" in s0["head"] and "프로젝트 구성" in s0["head"] and s0["count"] == "0/1 완료"
+              and s["open"] is False and "2단계" in s["head"] and "문서 프레임 작성" in s["head"] and s["count"] == "0/1 완료" and s["progress"] == [0, 1]
+              and not page.evaluate(OLVIS, "taskStage") and not page.evaluate(OLVIS, "taskStage0"), (s0, s))
         s2 = page.evaluate(STAGE2)
         map_note = page.get_attribute("#taskStage2 > summary .panel-help", "data-help")
-        check("둘째 묶음 = 「2단계 내용 매핑」 · 0/3 완료 · 선행조건은 표시하고 상세 설명은 노트 · 단추 꺼짐", s2["open"] is False and "2단계" in s2["head"] and "내용 매핑" in s2["head"]
-              and s2["count"] == "0/3 완료" and s2["progress"] == [0, 3] and s2["text"] == "1단계 「문서 프레임 작성」 완료 후 진행" and "헤딩·표 분석" in map_note and "내용 반영" in map_note
+        check("셋째 묶음 = 「3단계 내용 매핑」 · 0/3 완료 · 선행조건(앞 묶음 중 덜 끝난 첫 묶음)은 표시하고 상세 설명은 노트 · 단추 꺼짐", s2["open"] is False and "3단계" in s2["head"] and "내용 매핑" in s2["head"]
+              and s2["count"] == "0/3 완료" and s2["progress"] == [0, 3] and s2["text"] == "1단계 「프로젝트 구성」 완료 후 진행" and "헤딩·표 분석" in map_note and "내용 반영" in map_note
               and s2["disabled"] and not s2["primary"] and not page.evaluate(OLVIS, "taskStage2"), s2)
-        check("준비가 안 끝남 — 상태 줄 「다음: 준비 …」 · 단추 꺼짐", s["kind"] == "next" and s["text"].startswith("다음: 준비") and "사업계획서" in s["text"] and s["btn"] == "한 번에 진행"
-              and s["disabled"] and not s["primary"] and not s["spin"], s)
+        check("준비가 안 끝남 — 1단계 상태 줄 「다음: 준비 …」 · 단추 꺼짐 · 2단계는 「1단계 … 완료 후 진행」", s0["kind"] == "next" and s0["text"].startswith("다음: 준비") and "사업계획서" in s0["text"] and s0["btn"] == "한 번에 진행"
+              and s0["disabled"] and not s0["primary"] and not s0["spin"] and s["text"] == "1단계 「프로젝트 구성」 완료 후 진행" and s["disabled"], (s0, s))
+        ch = page.evaluate(CHAIN)
+        check("이어서 한 번에 줄 — 첨부 파일 칸과 1단계 묶음 사이 · 「1→2단계」 · 「1→3단계」 · 「1→4단계」 보통 단추 · 준비 전이라 꺼짐", bool(ch) and ch["shown"] and ch["btns"]["frame"]["text"] == "1→2단계" and ch["btns"]["map"]["text"] == "1→3단계"
+              and ch["btns"]["clean"]["text"] == "1→4단계" and all(b["disabled"] and not b["primary"] and not b["hidden"] for b in ch["btns"].values()) and not ch["state"]
+              and page.evaluate("() => { const c = document.getElementById('taskChain'); return c.previousElementSibling.classList.contains('dv-flow-files') && c.nextElementSibling.id === 'taskSteps'; }"), ch)
         page.click("#taskStage > summary strong")
         page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen') === '1'")  # toggle 사건은 한 박자 뒤에 온다
         s = page.evaluate(STAGE)
-        check("머리 줄을 누르면 펴짐 — 세부 목록(이 묶음 두 줄 · 두 묶음 합쳐 여섯 줄) · 이 브라우저에 기억 · 둘째 묶음은 접힌 채", s["open"] and page.evaluate(OLVIS, "taskStage") and not page.evaluate(OLVIS, "taskStage2")
-              and len(page.evaluate(STEPS)) == 6 and page.locator("#taskStage ol.dv-flow-steps > li").count() == 2 and page.locator("#taskStage2 ol.dv-flow-steps > li").count() == 4
+        check("머리 줄을 누르면 펴짐 — 세부 목록(이 묶음 한 줄 · 1단계 두 줄 — 준비·구성 확정 · 네 묶음 합쳐 여덟 줄) · 이 브라우저에 기억 · 다음 묶음은 접힌 채", s["open"] and page.evaluate(OLVIS, "taskStage") and not page.evaluate(OLVIS, "taskStage2")
+              and len(page.evaluate(STEPS)) == 7 and page.locator("#taskSteps li").count() == 8 and page.locator("#taskStage0 ol.dv-flow-steps > li").count() == 2 and page.locator("#taskStage ol.dv-flow-steps > li").count() == 1 and page.locator("#taskStage2 ol.dv-flow-steps > li").count() == 4 and page.locator("#taskStage3 ol.dv-flow-steps > li").count() == 1
               and page.evaluate("() => localStorage.getItem('nfm.taskStageOpen')") == "1", s)
         page.click("#taskStage > summary strong")
         page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen') === '0'")
@@ -128,24 +140,26 @@ try:
         task(a, file="report", project="묶음 시험")
         task(c, file="plan", project="묶음 시험")
         open_work(page, a)
-        page.click("#taskHome")
-        page.wait_for_function(f"() => {{ const s = ({STAGE})(); return s && s.count === '0/1 완료' && s.text.includes('값이 없습니다'); }}", timeout=60000)
-        s, s2 = page.evaluate(STAGE), page.evaluate(STAGE2)
-        check("준비는 완료 집계에서 제외 — 0/1 완료 · 다음은 ① · 단추 켜짐·강조(강조는 할 일이 남은 첫 묶음 하나 — 2단계 단추는 꺼짐)", s["text"].startswith("다음: ① 구분 기준 확인") and s["progress"] == [0, 1] and not s["disabled"] and s["primary"] and not s["open"]
-              and s2["disabled"] and not s2["primary"], [s, s2])
+        page.click("#toolTabTask")
+        page.wait_for_function(f"() => {{ const s = ({STAGE0})(); return s && s.count === '0/1 완료' && s.text.includes('프로젝트 구성(단계·차년도·기관)이 없습니다'); }}", timeout=60000)
+        s0, s, s2 = page.evaluate(STAGE0), page.evaluate(STAGE), page.evaluate(STAGE2)
+        check("준비는 완료 집계에서 제외 — 1단계 0/1 완료 · 다음은 구성 확정 · 단추 켜짐·강조(강조는 할 일이 남은 첫 묶음 하나 — 2·3단계 단추는 꺼짐)", s0["text"].startswith("다음: 프로젝트 구성 확정") and s0["progress"] == [0, 1] and not s0["disabled"] and s0["primary"] and not s0["open"]
+              and s["disabled"] and not s["primary"] and s2["disabled"] and not s2["primary"], [s0, s, s2])
+        ch = page.evaluate(CHAIN)
+        check("두 칸이 차면 이어서 단추도 켜짐 — 강조는 아님(강조 단추는 카드에 하나)", all(not b["disabled"] and not b["primary"] for b in ch["btns"].values()), ch)
         for width in (320, 480):  # 패널 최소 폭·보통 폭에서 가로 넘침 없음(design.md §1-8)
             page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
             page.wait_for_timeout(300)
-            check(f"묶음 가로 넘침 없음(패널 {width}px)", page.evaluate("() => { const t = document.querySelector('#divBox .dv-task'), r = t.getBoundingClientRect(); return t.scrollWidth <= t.clientWidth + 1 && [...t.querySelectorAll('#taskStage summary > *')].every((e) => e.getBoundingClientRect().right <= r.right + 1); }"))
+            check(f"묶음·이어서 줄 가로 넘침 없음(패널 {width}px)", page.evaluate("() => { const t = document.querySelector('#divBox .dv-task'), r = t.getBoundingClientRect(); return t.scrollWidth <= t.clientWidth + 1 && [...t.querySelectorAll('#taskStage0 summary > *, #taskStage summary > *, #taskChain > *')].filter((e) => e.checkVisibility()).every((e) => e.getBoundingClientRect().right <= r.right + 1); }"))
             page.locator("#panel").screenshot(path=str(OUT / f"2_stage_{width}.png"))
         page.evaluate("() => { const c = colSizers.find((x) => x.box === 'panel'); c.w = null; c.apply(); }")
-        page.click("#taskStage > summary strong")
-        page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen') === '1'")
-        check("펴면 묶음 단추의 강조가 풀림(강조 단추는 카드에 하나)", not page.evaluate(STAGE)["primary"])
-        st, s = page.evaluate(STEPS), page.evaluate(STAGE)
-        check("펼친 요약은 다음 작업 이름만 · 상세에 까닭과 각 단계 상태", s["text"] == "다음: ① 구분 기준 확인" and "값이 없습니다" in st[1]["text"]
-              and [x["no"] for x in st] == ["·", "①", "②", "③", "④", "⑤"]
-              and [x["badge"] for x in st] == ["완료", "다음 작업", "대기", "대기", "대기", "준비 중"], [s, st])
+        page.click("#taskStage0 > summary strong")
+        page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen0') === '1'")
+        check("펴면 묶음 단추의 강조가 풀림(강조 단추는 카드에 하나)", not page.evaluate(STAGE0)["primary"])
+        st, s0, cf = page.evaluate(STEPS), page.evaluate(STAGE0), page.evaluate(CONFIG)
+        check("펼친 요약은 다음 작업 이름만 · 상세에 까닭과 각 단계 상태(구성 확정 = 다음 작업 · ① 이하 대기)", s0["text"] == "다음: 프로젝트 구성 확정" and "프로젝트 구성(단계·차년도·기관)이 없습니다" in cf["text"] and cf["badge"] == "다음 작업"
+              and [x["no"] for x in st] == ["·", "①", "②", "③", "④", "⑤", "⑥"]
+              and [x["badge"] for x in st] == ["완료", "대기", "대기", "대기", "대기", "준비 중", "대기"], [s0, cf, st])
         for width in (320, 480):
             page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
             page.wait_for_timeout(300)
@@ -156,20 +170,29 @@ try:
               }); }"""))
             page.locator("#panel").screenshot(path=str(OUT / f"2_steps_{width}.png"))
         page.evaluate("() => { const c = colSizers.find((x) => x.box === 'panel'); c.w = null; c.apply(); }")
-        page.click("#taskStage > summary strong")
-        page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen') === '0'")
-        check("접으면 다시 강조", page.evaluate(STAGE)["primary"])
+        page.click("#taskStage0 > summary strong")
+        page.wait_for_function("() => localStorage.getItem('nfm.taskStageOpen0') === '0'")
+        check("접으면 다시 강조", page.evaluate(STAGE0)["primary"])
         n = len(dialogs)
-        page.click("#taskStage [data-task-run]")
+        page.click("#taskStage0 [data-task-run]")
         page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=60000)
-        s = page.evaluate(STAGE)
-        check("값이 없는 사업계획서 — 확인 창 한 번 뒤 ① 에서 멈춤 · 세부 목록이 펴짐 · 단추는 다시 「한 번에 진행」", len(dialogs) == n + 1 and "한 번에 진행할까요" in dialogs[-1] and "남은 단계" in dialogs[-1]
-              and s["kind"] == "halt" and s["text"].startswith("멈춤 — ① 구분 기준 확인") and "값이 없습니다" in s["text"] and s["open"] and s["btn"] == "한 번에 진행" and not s["disabled"] and not s["spin"]
-              and page.evaluate(OLVIS, "taskStage") and "1단계 문서 프레임 작성" in dialogs[-1] and "내용은 넣지 않습니다" in dialogs[-1], [s, dialogs[-1][:160]])
-        st = page.evaluate(STEPS)
-        check("멈춘 상세 단계에 멈춤 표시 · 뒤 단계는 대기", st[1]["status"] == "halt" and st[1]["badge"] == "멈춤"
-              and [x["badge"] for x in st[2:]] == ["대기", "대기", "대기", "준비 중"], st)
+        s0 = page.evaluate(STAGE0)
+        check("값이 없는(읽을 수도 없는) 사업계획서 — 확인 창 한 번 뒤 구성 확정에서 멈춤 · 세부 목록이 펴짐 · 단추는 다시 「한 번에 진행」", len(dialogs) == n + 1 and "한 번에 진행할까요" in dialogs[-1] and "남은 단계" in dialogs[-1]
+              and s0["kind"] == "halt" and s0["text"].startswith("멈춤 — 프로젝트 구성 확정") and "읽지 못했습니다" in s0["text"] and s0["open"] and s0["btn"] == "한 번에 진행" and not s0["disabled"] and not s0["spin"]
+              and page.evaluate(OLVIS, "taskStage0") and "1단계 프로젝트 구성" in dialogs[-1] and "문서는 바뀌지 않습니다" in dialogs[-1], [s0, dialogs[-1][:200]])
+        st, cf = page.evaluate(STEPS), page.evaluate(CONFIG)
+        check("멈춘 상세 단계에 멈춤 표시 · 뒤 단계는 대기", cf["status"] == "halt" and cf["badge"] == "멈춤"
+              and [x["badge"] for x in st[1:]] == ["대기", "대기", "대기", "대기", "준비 중", "대기"], (cf, st))
         page.locator("#panel").screenshot(path=str(OUT / "2_halt.png"))
+        n = len(dialogs)
+        page.evaluate("() => { taskRunLast = null; }")
+        page.click("#taskChain [data-task-chain=clean]")
+        page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=60000)
+        s0, s2, last, ends = page.evaluate(STAGE0), page.evaluate(STAGE2), page.evaluate("() => taskRunLast"), page.evaluate("() => taskRunEnds")
+        check("이어서 1→4단계 — 확인 창 한 번(네 묶음의 남은 단계·바뀌는 것) · 값이 없어 1단계 구성 확정에서 전체가 멈춤 · 뒤 묶음은 안 돔", len(dialogs) == n + 1 and "「1→4단계」 을 이어서 한 번에 진행할까요?" in dialogs[-1]
+              and all(f"■ {x}" in dialogs[-1] for x in ("1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "4단계 문서 정리")) and "내용은 넣지 않습니다" in dialogs[-1] and "LLM 검토" in dialogs[-1] and "실행 취소는 묶음마다 따로" in dialogs[-1]
+              and not last["ok"] and last["stage"] == "config" and list(ends) == ["config"] and s0["kind"] == "halt" and "읽지 못했습니다" in s0["text"] and s2["text"] == "1단계 「프로젝트 구성」 완료 후 진행"
+              and not page.evaluate(CHAIN)["btns"]["clean"]["disabled"], [s0["text"], s2["text"], last, dialogs[-1][:200]])
 
         # ---- 3. 실제 서식 쌍 — 계획서 양식에 값을 반영해 두고(API), 연차보고서 서식에서 1단계 「한 번에 진행」(구조만) → 2단계 「한 번에 진행」(내용)
         plan, report = upload(PLAN_FORM), upload(REPORT_FORM)
@@ -180,6 +203,8 @@ try:
         pl.raise_for_status()
         ap1 = requests.post(f"{base}/api/docs/{plan}/divisions/apply", json={"planId": pl.json()["planId"], "expectRev": pl.json()["baseRev"]}, timeout=300)
         check("사업계획서 양식에 값 반영(API — 사전 준비)", ap1.status_code == 200 and not ap1.json().get("nothing"), ap1.status_code)
+        cfm = requests.post(f"{base}/api/docs/{plan}/divisions/confirm", json={}, timeout=120)   # 1단계 「구분 기준」 — 프로젝트에 확정(spec_작업 ② §18)
+        check("구성 확정(API — 사전 준비) — 프로젝트 「프레임 시험」", cfm.status_code == 200 and (cfm.json().get("confirmed") or {}).get("valid") is True, cfm.status_code)
         rev0 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()["rev"]
         calls = {"llm": 0, "amb": None, "gaps": 0, "map": 0}
         page.on("request", lambda r: r.method == "POST" and r.url.endswith("/merge-links/gaps") and calls.__setitem__("gaps", calls["gaps"] + 1))       # 빈 자리 검토(spec_병합 ② §5-4)
@@ -198,16 +223,17 @@ try:
             route.fulfill(status=200, content_type="application/json", body=json.dumps(got, ensure_ascii=False))
         page.route(re.compile(r"/api/docs/[^/]+/merge-links(/llm)?$"), links_route)
         open_work(page, report)
-        page.click("#taskHome")
-        page.wait_for_function(f"() => {{ const s = ({STAGE})(); return s && s.count === '0/1 완료' && ({STEPS})()[1].text.includes('다름'); }}", timeout=120000)
+        page.click("#toolTabTask")
+        page.wait_for_function(f"() => {{ const s = ({STAGE})(); return s && s.count === '0/1 완료' && ({STEPS})()[1].text.includes('1단계 · 전체 2년 · 기관 3곳'); }}", timeout=120000)
         s = page.evaluate(STAGE)
-        check("연차보고서 서식 — 0/1 완료 · 다음은 ①, 상세에 사업계획서와 다른 까닭", s["text"].startswith("다음: ① 구분 기준 확인") and "사업계획서(1단계 · 전체 2년 · 기관 3곳)와 다름" in page.evaluate(STEPS)[1]["text"] and not s["disabled"], s)
+        # 연차보고서의 입력 값은 프로젝트 공유 구분 기준(② §17)이라 사업계획서와 같을 수 있다 — 「…와 다름」 또는 「값은 사업계획서와 같음(…) · 아직 반영 전」
+        check("연차보고서 서식 — 0/1 완료 · 다음은 ①, 상세에 사업계획서 값(1단계 · 전체 2년 · 기관 3곳)", s["text"].startswith("다음: ① 프로젝트 구성 반영") and "1단계 · 전체 2년 · 기관 3곳" in page.evaluate(STEPS)[1]["text"] and not s["disabled"], s)
         n, t0 = len(dialogs), time.time()
         page.click("#taskStage [data-task-run]")
         page.wait_for_function("() => !!taskRun", timeout=10000)
         page.wait_for_function(f"() => ({STAGE})().spin", timeout=10000)
         s = page.evaluate(STAGE)
-        check("도는 중 — 돌아가는 동그라미 + 지금 하는 일 + 지난 시간 · 단추 「멈춤」", s["kind"] == "run" and s["spin"] and "구분 기준 확인" in s["text"] and re.search(r"\d+초", s["text"]) is not None and s["btn"] == "멈춤" and not s["disabled"], s)
+        check("도는 중 — 돌아가는 동그라미 + 지금 하는 일 + 지난 시간 · 단추 「멈춤」", s["kind"] == "run" and s["spin"] and "프로젝트 구성 반영" in s["text"] and re.search(r"\d+초", s["text"]) is not None and s["btn"] == "멈춤" and not s["disabled"], s)
         running = [x for x in page.evaluate(STEPS) if x["status"] == "run"]
         check("실행 중인 상세 단계 하나에 진행 중 표시", len(running) == 1 and running[0]["step"] == "division" and running[0]["badge"] == "진행 중", running)
         page.locator("#panel").screenshot(path=str(OUT / "3_running.png"))
@@ -220,24 +246,27 @@ try:
         took = time.time() - t0
         last = page.evaluate("() => taskRunLast")
         print("  단계 글:", sorted(x for x in seen if x), flush=True)
-        check("1단계 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "frame", [last, f"{took:.0f}s"])
-        check("1단계 확인 창은 누를 때 한 번뿐(구분 기준 반영의 확인 창 없음) — 구조만 바뀌고 내용은 안 넣는다고 알림", len(dialogs) == n + 1 and "1단계 문서 프레임 작성" in dialogs[n] and "실행 취소" in dialogs[n]
+        check("2단계(프레임) 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "frame", [last, f"{took:.0f}s"])
+        check("2단계(프레임) 확인 창은 누를 때 한 번뿐(구분 기준 반영의 확인 창 없음) — 구조만 바뀌고 내용은 안 넣는다고 알림", len(dialogs) == n + 1 and "2단계 문서 프레임 작성" in dialogs[n] and "실행 취소" in dialogs[n]
               and "내용은 넣지 않습니다" in dialogs[n] and "LLM 검토" not in dialogs[n] and "연차보고서" in dialogs[n], dialogs[n:])
         st, s, s2 = page.evaluate(STEPS), page.evaluate(STAGE), page.evaluate(STAGE2)
         states = {x["step"]: x["state"] for x in st}
         doc1 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         ev1 = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
-        check("1단계 = 구조까지만 — ① 완료 · 1/1 완료 · 편집 한 번(구분 기준 반영) · 내용 넣기 기록 없음", states.get("division") == "done" and s["count"] == "1/1 완료" and s["progress"] == [1, 1] and s["kind"] == "done"
+        check("2단계 = 구조까지만 — ① 완료 · 1/1 완료 · 편집 한 번(구분 기준 반영) · 내용 넣기 기록 없음", states.get("division") == "done" and s["count"] == "1/1 완료" and s["progress"] == [1, 1] and s["kind"] == "done"
               and s["text"].startswith("끝남 — 구조를 맞췄습니다") and s["disabled"] and doc1["rev"] == rev0 + 1 and doc1.get("undo") == 1 and "divisions" in ev1 and "mergeFill" not in ev1
               and states.get("apply") != "done", [states, s, rev0, doc1["rev"], ev1[:8]])
-        check("2단계가 켜짐 — 0/3 완료 · 다음은 ② · 강조 단추가 2단계로 옮겨 감", s2["count"] == "0/3 완료" and s2["text"].startswith("다음: ② 자리 연결") and not s2["disabled"] and s2["primary"] and not s["primary"], s2)
+        check("3단계가 켜짐 — 0/3 완료 · 다음은 ② · 강조 단추가 3단계로 옮겨 감", s2["count"] == "0/3 완료" and s2["text"].startswith("다음: ② 자리 연결") and not s2["disabled"] and s2["primary"] and not s["primary"], s2)
+        ch = page.evaluate(CHAIN)
+        check("2단계가 끝나면 이어서 단추는 실제 범위 「3→4단계」 하나(3단계까지는 3단계 단추와 같아 숨김)", ch["shown"] and ch["btns"]["frame"]["hidden"] and ch["btns"]["map"]["hidden"] and ch["btns"]["clean"]["text"] == "3→4단계"
+              and not ch["btns"]["clean"]["disabled"], ch)
         page.locator("#panel").screenshot(path=str(OUT / "3_frame_done.png"))
         n, t0 = len(dialogs), time.time()
         page.click("#taskStage2 [data-task-run]")
         page.wait_for_function("() => !!taskRun", timeout=10000)
         page.wait_for_function(f"() => ({STAGE2})().spin", timeout=10000)
         s, s2 = page.evaluate(STAGE), page.evaluate(STAGE2)
-        check("2단계 도는 중 — 그 묶음에만 동그라미·「멈춤」 · 1단계 단추는 꺼짐", s2["kind"] == "run" and s2["spin"] and s2["btn"] == "멈춤" and not s2["disabled"] and not s["spin"] and s["disabled"] and s["btn"] == "한 번에 진행", [s, s2])
+        check("3단계 도는 중 — 그 묶음에만 동그라미·「멈춤」 · 2단계 단추는 꺼짐", s2["kind"] == "run" and s2["spin"] and s2["btn"] == "멈춤" and not s2["disabled"] and not s["spin"] and s["disabled"] and s["btn"] == "한 번에 진행", [s, s2])
         while page.evaluate("() => !!taskRun"):   # 끝날 때까지 — 지나간 단계 글을 모은다
             seen.add(page.evaluate("() => taskRun ? taskRun.key + ' — ' + taskRun.note : ''"))
             if time.time() - t0 > 1500:
@@ -246,15 +275,17 @@ try:
         took = time.time() - t0
         last = page.evaluate("() => taskRunLast")
         print("  단계 글:", sorted(x for x in seen if x), flush=True)
-        check("2단계 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "map", [last, f"{took:.0f}s"])
-        check("2단계 확인 창도 누를 때 한 번뿐(내용 반영의 확인 창 없음)", len(dialogs) == n + 1 and "2단계 내용 매핑" in dialogs[n] and "실행 취소" in dialogs[n] and "LLM 검토" in dialogs[n] and "같은 이름 자리" in dialogs[n], dialogs[n:])
+        check("3단계(매핑) 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "map", [last, f"{took:.0f}s"])
+        check("3단계 확인 창도 누를 때 한 번뿐(내용 반영의 확인 창 없음)", len(dialogs) == n + 1 and "3단계 내용 매핑" in dialogs[n] and "실행 취소" in dialogs[n] and "LLM 검토" in dialogs[n] and "같은 이름 자리" in dialogs[n], dialogs[n:])
         st, s = page.evaluate(STEPS), page.evaluate(STAGE2)
         states = {x["step"]: x["state"] for x in st}
         check("단계 — ①~④ 모두 완료 · 2단계 3/3 완료와 진행률 100%", [states.get(k) for k in ("files", "division", "link", "plan", "apply")] == ["done"] * 5
               and s["count"] == "3/3 완료" and s["progress"] == [3, 3] and s["kind"] == "done" and s["text"].startswith("끝남 — 연결됨") and "본문 블록" in s["text"] and "같은 이름 자리" in s["text"]
               and s["btn"] == "한 번에 진행" and s["disabled"] and not s["spin"], [states, s])
+        check("3단계까지 끝나면 이어서 줄이 숨음(남은 묶음이 하나 이하)", not page.evaluate(CHAIN)["shown"], page.evaluate(CHAIN))
         check("실행 종료 뒤 진행 중·멈춤 표시 없음 · 번호와 완료·준비 중 표시 유지", not any(x["status"] in ("run", "halt") for x in st)
-              and [x["no"] for x in st[1:]] == ["①", "②", "③", "④", "⑤"] and [x["badge"] for x in st[1:]] == ["완료", "완료", "완료", "완료", "준비 중"], st)
+              and [x["no"] for x in st[1:]] == ["①", "②", "③", "④", "⑤", "⑥"] and [x["badge"] for x in st[1:6]] == ["완료", "완료", "완료", "완료", "준비 중"]
+              and st[6]["badge"] in ("다음 작업", "완료"), st)   # ⑥ 작성요령 삭제(3단계) — 2단계가 끝났으니 다음 작업(지울 안내가 있으면)
         doc = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         ev = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
         check("연차보고서 — 편집 두 번(구분 기준 반영 · 내용 반영) · 실행 취소 2", doc["rev"] == rev0 + 2 and doc.get("undo") == 2, [rev0, doc["rev"], doc.get("undo"), ev[:12]])
@@ -275,7 +306,7 @@ try:
 
         # ---- 4. 다시 누르기 — 새로 고치면 ③④ 의 「넣은 수」 는 사라진다(메모리). 다시 눌러도 확인 창 한 번 · 실패 없이 끝나고 LLM 검토는 다시 안 부른다(이미 검토함)
         open_work(page, report)
-        page.click("#taskHome")
+        page.click("#toolTabTask")
         page.wait_for_function(f"() => {{ const s = ({STAGE2})(); return s && s.count === '1/3 완료' && ({STAGE})().count === '1/1 완료' && !taskFlow.linkBusy && !!taskFlow.links; }}", timeout=180000)
         check("다시 열면 — 1단계는 끝난 채(단추 꺼짐) · 2단계 1/3(넣은 수는 메모리라 사라짐)", page.evaluate(STAGE)["disabled"] and not page.evaluate(STAGE2)["disabled"])
         n = len(dialogs)
@@ -291,6 +322,42 @@ try:
         check("다시 누름 — 넣을 것이 없어 더 넣지 않음(넣기 기록 그대로 1번)", "넣을 것이 없습니다" in last["text"] and ev2.count("mergeFill") == ev.count("mergeFill") == 1, [last["text"], ev2.count("mergeFill")])
         third = requests.post(f"{base}/api/docs/{report}/merge-links/plan", timeout=300).json()
         check("또 계획해도 할 일 0", third.get("todo") == 0, {"todo": third.get("todo"), "tables": {k: third["tables"]["counts"].get(k) for k in ("cells", "rows")}})
+
+        # ---- 5. 이어서 한 번에 1→3단계 — 1단계 초기화(API)로 연차보고서를 올린 원본으로 되돌린 뒤 「1→3단계」 하나로 구조 → 내용 → 작성요령 삭제까지(확인 창 한 번)
+        rs = requests.post(f"{base}/api/docs/{report}/merge-links/reset", json={"stage": "frame"}, timeout=300)
+        check("1단계 초기화(API — 사전 준비)", rs.status_code == 200, rs.status_code)
+        KINDS = ("divisions", "mergeFill", "formCleanup")
+        ev_r = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
+        open_work(page, report)
+        page.click("#toolTabTask")
+        page.wait_for_function(f"() => {{ const c = ({CHAIN})(); return c && c.shown && c.btns.clean.text === '2→4단계' && !c.btns.clean.disabled && !taskFlow.linkBusy; }}", timeout=180000)
+        n, t0, chain_seen, order = len(dialogs), time.time(), set(), []
+        page.evaluate("() => { taskRunLast = null; }")
+        page.click("#taskChain [data-task-chain=clean]")
+        page.wait_for_function("() => !!taskRun", timeout=10000)
+        while page.evaluate("() => !!taskRun"):   # 끝날 때까지 — 도는 묶음 차례와 이어서 줄의 글을 모은다
+            cur = page.evaluate("() => taskRun ? [taskRun.stage, document.querySelector('#taskChain .dv-chain-state').textContent, document.querySelector('#taskChain [data-task-chain=clean]').disabled] : null")
+            if cur:
+                if not order or order[-1] != cur[0]:
+                    order.append(cur[0])
+                chain_seen.add((cur[1], cur[2]))
+            if time.time() - t0 > 2400:
+                break
+            page.wait_for_timeout(1000)
+        took = time.time() - t0
+        last, ends = page.evaluate("() => taskRunLast"), page.evaluate("() => taskRunEnds")
+        print("  이어서 차례:", order, f"{took:.0f}s", {k: v["text"][:90] for k, v in (ends or {}).items()}, flush=True)
+        check("이어서 2→4단계(구성은 확정된 채) — 확인 창 한 번 · 세 묶음이 차례로 끝까지(멈춤 없음)", len(dialogs) == n + 1 and "「2→4단계」 을 이어서 한 번에" in dialogs[n]
+              and sorted(ends) == ["clean", "frame", "map"] and all(e["ok"] for e in ends.values()) and last["stage"] == "clean" and order == [x for x in ("frame", "map", "clean") if x in order],
+              [order, {k: (v["ok"], v["text"][:80]) for k, v in (ends or {}).items()}, dialogs[n][:120] if len(dialogs) > n else None])
+        check("도는 동안 — 이어서 줄에 「2→4단계 이어 진행 중 — 지금 …」 · 이어서 단추는 꺼짐", any(t.startswith("2→4단계 이어 진행 중 — 지금") and dis for t, dis in chain_seen), sorted(chain_seen)[:4])
+        s, s2, s3 = page.evaluate(STAGE), page.evaluate(STAGE2), page.evaluate(STAGE3)
+        check("끝 — 묶음마다 끝 글이 남음(앞 묶음 것도) · 1단계 1/1 · 2단계 3/3", s["text"].startswith("끝남 — 구조를 맞췄습니다") and s2["text"].startswith("끝남 — 연결됨") and s3["kind"] == "done" and "지웠습니다" in s3["text"]
+              and s["count"] == "1/1 완료" and s2["count"] == "3/3 완료", [s["text"][:60], s2["text"][:60], s3["text"][:90], s3["count"]])
+        ev5 = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
+        check("연차보고서 — 구조 반영 · 내용 반영 · 작성요령 삭제가 한 번씩 더(기록)", all(ev5.count(k) == ev_r.count(k) + 1 for k in KINDS), {k: (ev_r.count(k), ev5.count(k)) for k in KINDS})
+        check("끝나면 이어서 줄이 숨음(남은 묶음 하나 이하)", not page.evaluate(CHAIN)["shown"], page.evaluate(CHAIN))
+        page.locator("#panel").screenshot(path=str(OUT / "5_chain_done.png"))
         bad = [e for e in errors if "Failed to load resource" not in e]
         check("화면 오류 0", not bad, bad[:5])
         browser.close()

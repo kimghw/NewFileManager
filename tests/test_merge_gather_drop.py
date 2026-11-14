@@ -241,3 +241,28 @@ def test_apply_refuses_a_stale_plan_before_touching_the_document(S):
     doc.delete_blocks(S["back"], S["back"])   # 놓을 자리가 없어짐
     with pytest.raises(D.DropError, match="놓을 자리가 취합본에 없습니다"):
         D.apply(doc, _fresh(base), pl, g, g)
+
+
+def test_overflow_level_is_reported_and_follows_the_choice(S):
+    """넘친 개요 레벨(spec_병합 ② §5-5): 「□ 배경」 아래로 끌어 넣으면 □ → o · o → - · - → ⋅ 까지는 틀 안이고 마지막 「⋅」 줄은 틀에 없는 레벨 — 사례로 보이고, 선택(to["over"])이 있으면 그대로 입힌다."""
+    g, base, part = S["g"], S["base"], S["part"]
+    text = lambda d, i: d._text(d._ids[i])  # noqa: E731
+    doc = _fresh(base)
+    pl = D.plan({"doc": doc, "graph": g}, part, S["need"], S["back"])
+    ov = pl["convert"]["over"]
+    assert ov["lines"] == 1 and ov["to"][1] == 4 and ov["key"] == f"{ov['to'][0]}<{ov['tail'][0]}" and pl["convert"]["rows"][-1]["over"] == 1 and pl["convert"]["rows"][-1]["why"] == "tooDeep"
+    res = D.apply(doc, part["doc"], pl, g, g)   # 선택이 없으면 그대로 두고, 넣은 줄을 적어 둔다
+    (line,) = res["over"]["lines"]
+    new = dict(zip(pl["src"], res["ids"]))
+    assert res["over"]["key"] == ov["key"] and (line["id"], line["over"], line["letter"]) == (new[S["dot"]], 1, line["was"]) and text(doc, new[S["dot"]]) == text(part["doc"], S["dot"])
+    off = _fresh(base)
+    assert D.apply(off, part["doc"], D.plan({"doc": off, "graph": g}, part, S["need"], S["back"]), g, g, convert=False)["over"] is None   # 틀 맞춤을 끄면 기록도 없다
+
+    over = {ov["key"]: [{"like": None, "letter": "▪", "lead": None, "numbered": False}]}
+    doc = _fresh(base)
+    pl = D.plan({"doc": doc, "graph": g, "over": over}, part, S["need"], S["back"])
+    cv = pl["convert"]
+    assert cv["converted"] == 4 and cv["kept"] == {"body": 2, "table": 1} and (cv["rows"][-1]["src"], cv["rows"][-1]["letter"], cv["rows"][-1]["why"], cv["rows"][-1]["over"]) == (S["dot"], "▪", None, 1)
+    res = D.apply(doc, part["doc"], pl, g, g, over=over)
+    new = dict(zip(pl["src"], res["ids"]))
+    assert res["converted"] == 4 and "tooDeep" not in res["kept"] and text(doc, new[S["dot"]]).lstrip().startswith("▪") and [x["letter"] for x in res["over"]["lines"]] == ["▪"]

@@ -149,6 +149,47 @@ def test_frame_needs_applied_divisions_and_fresh_analysis_then_fixes_the_bytes(c
     assert v["frame"]["stale"] is True and v["frame"]["frameId"] == fr["frameId"] and v["reasons"] == ["notApplied"]
 
 
+@pytest.mark.parametrize("different", [{"project": "다른 프로젝트"}, {"job": "plan_to_report"}, {"round": 1}])
+def test_gather_parts_cannot_cross_task_rounds(client, different):
+    """미소속 파일은 현재 라운드에 붙이고, 등록 전후의 다른 그룹 문서는 사용하지 않는다."""
+    from types import SimpleNamespace
+    from app import works
+
+    data = (M.ROOT / "samples" / "기술수요조사서.hwpx").read_bytes()
+    to = _upload(client, "취합.hwpx", data)
+    part = _upload(client, "기관.hwpx", data)
+    task = {"kind": "rnd", "file": "plan", "job": "plan_merge", "project": "선박", "round": 2}
+    works.update(to, task=task)
+    outsider = {**task, "file": "part", **different}
+    works.update(part, task=outsider)
+    url = f"/api/docs/{to}/gather/parts/{part}"
+    _why(client.put(url, json={}), 400, "badPart")
+    assert GA._store(to)["parts"] == {} and works.work(part)["task"] == outsider
+
+    works.update(part, task={})
+    response = client.put(url, json={})
+    assert response.status_code == 200, response.text
+    assert works.work(part)["task"] == {**task, "file": "part"}
+    version = GA._store(to)["version"]
+    scope = GA._part_scope(to, part)
+    works.update(part, task={})
+    GA._PLANS[(to, part)] = {"planId": "detached", "scope": scope}
+    _why(client.post(url + "/apply", json={"planId": "detached"}), 409, "stalePlan")
+    GA._DROPS[to] = {"planId": "detached-drop", "from": part, "scope": scope}
+    _why(client.post(f"/api/docs/{to}/gather/drop/apply", json={"planId": "detached-drop"}), 409, "stalePlan")
+    works.update(part, task=outsider)
+    _why(client.put(url, json={"common": False}), 400, "badPart")
+    assert GA._store(to)["version"] == version
+    GA._JUDGE[(to, part)] = (("frame", 0, version, 0, (), ()), {"cached": True})
+    with pytest.raises(GA._Why, match="badPart"):
+        GA._compute(SimpleNamespace(id=to), {}, {}, part)
+    GA._PLANS[(to, part)] = {"planId": "old-scope"}
+    _why(client.post(url + "/apply", json={"planId": "old-scope"}), 409, "stalePlan")
+    _why(client.post(f"/api/docs/{to}/gather/drop/plan", json={"from": part, "srcId": "p1", "afterId": "p2"}), 400, "notPart")
+    assert client.delete(url).status_code == 200
+    assert works.work(part)["task"] == outsider  # 옛 취합에서 빼도 옮겨 간 문서의 역할은 그대로.
+
+
 def test_register_assign_plan_apply_replan_undo_and_decisions(client):
     c = client
     to, v = _master(c)
@@ -162,7 +203,7 @@ def test_register_assign_plan_apply_replan_undo_and_decisions(client):
     A = _upload(c, "기관A_가나대.hwpx", _bytes(_edit_a))
     v = c.put(f"/api/docs/{to}/gather/parts/{A}", json={}).json()
     assert v["version"] == 2 and [p["work"] for p in v["parts"]] == [A]
-    assert _row(v, A) == {"work": A, "name": "기관A_가나대.hwpx", "order": 0, "orgs": [], "common": True, "frameId": v["frame"]["frameId"], "state": "blocked", "counts": None, "todo": None,
+    assert _row(v, A) == {"work": A, "name": "기관A_가나대.hwpx", "order": 0, "orgs": [], "orgsBy": None, "common": True, "frameId": v["frame"]["frameId"], "state": "blocked", "counts": None, "todo": None,
                           "llm": None, "recommend": None, "reasons": ["noHeadings"]}   # 분석 전 — 그 줄에만 까닭(전체는 나간다)
     _why(c.get(f"/api/docs/{to}/gather/parts/{A}/links"), 409, "noHeadings")
     assert _task(c, A) == {"kind": "rnd", "file": "part", "job": "plan_merge", "project": "취합 시험"} and _task(c, to)["file"] == "plan"
@@ -174,7 +215,7 @@ def test_register_assign_plan_apply_replan_undo_and_decisions(client):
 
     # 반영할 기관 미지정 = 아무것도 안 넣음(추천은 보이기만)
     L0 = c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()
-    assert L0["counts"] == {"unassigned": 4} and L0["todo"] == 0 and L0["part"]["state"] == "unassigned" and L0["part"]["recommend"] == {"org": J1, "n": 3}
+    assert L0["counts"] == {"unassigned": 4} and L0["todo"] == 0 and L0["part"]["state"] == "unassigned" and L0["part"]["recommend"] == {"org": J1, "n": 3, "tie": False}
     assert L0["coverage"]["ratio"] > 0.95 and L0["share"] == 1.0 and L0["reasons"] == [] and L0["llm"] is None
     assert all(set(it) == {"key", "kind", "status", "detail", "scope", "path", "to", "from", "text", "counts", "unique", "decision"} and set(it["from"]) == {"ids", "table", "at"} and set(it["to"]) == {"prev", "next", "at"} for it in L0["items"])
     spot = {it["kind"]: (it["to"]["at"], it["from"]["at"]) for it in L0["items"] if it["scope"]["kind"] == "org"}   # 화면이 갈 자리 — 표 칸·표 행은 표가 아니라 그 칸
@@ -196,7 +237,7 @@ def test_register_assign_plan_apply_replan_undo_and_decisions(client):
     done = c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]})
     assert done.status_code == 200, done.text[:600]
     out = done.json()
-    assert set(out["counts"]) == {"hunks", "blocks", "paragraphs", "tables", "pictures", "placeholders", "cells", "rows", "shaped", "fitted", "converted", "kept", "recalculated", "skipped"}   # converted·kept = 틀 맞춤(§4-4)
+    assert set(out["counts"]) == {"hunks", "blocks", "paragraphs", "tables", "pictures", "placeholders", "cells", "rows", "shaped", "fitted", "converted", "kept", "over", "recalculated", "skipped"}   # converted·kept = 틀 맞춤(§4-4) · over = 넘친 개요 줄(spec_병합 ② §5-5)
     assert out["counts"] == {**out["counts"], "hunks": 4, "paragraphs": 2, "placeholders": 2, "cells": 1, "rows": 1, "skipped": 0} and (out["rev"], out["undo"]) == (1, 1)
     assert out["calc"] == [] and out["dropped"] == [] and out["skipped"] == []
     tx = _texts(to)
@@ -449,3 +490,55 @@ def test_everything_stays_in_memory_when_work_storage_is_off(client, monkeypatch
     P = _part(c, to, "기관P.hwpx", data=D.base()["side"]["bytes"], orgs=[J1])
     L = c.get(f"/api/docs/{to}/gather/parts/{P}/links").json()
     assert L["items"] == [] and L["coverage"]["ratio"] == 1.0 and L["part"]["state"] == "done" and GA._MEM[to]["parts"][P]["orgs"] == [J1]
+
+
+OGOAL, OSUB, ODEEP = "가나대 넘침 목표", "가나대 넘침 세부", "가나대 넘침 더 깊은 줄"
+
+
+def _edit_over(d):
+    """가나대 문서 — 제 자리(취합본 틀 [기관]›o›- 의 L2)에 o · - 까지는 틀 안, 그 아래 「·」 줄은 틀에 없는 레벨(넘친 개요 레벨)."""
+    o = next(i for i in (D.nxt(d, D.para(d, f"[공동연구개발기관1({J1})]", 0), k) for k in range(1, 12)) if next(b["text"] for b in D.top(d) if b["id"] == i).strip() == "o")
+    d.set_text(o, f"  o {OGOAL}")
+    d.insert_after(o, [{"kind": "paragraph", "text": f"    - {OSUB}"}, {"kind": "paragraph", "text": f"      · {ODEEP}"}])
+
+
+def test_overflow_levels_choose_in_the_plan_then_refit_what_went_in(client):
+    """넘친 개요 레벨(spec_병합 ② §5-5 — 취합): 계획에 사례가 보임 → 처리를 고르면 세워 둔 계획을 버림 → 그 처리로 반영 · 기록 → 다시 계획하면 넣은 줄의 사례로 보임 →
+    넣은 뒤 다시 맞추기(덮은 그대로로) 뒤에도 판정은 「이미 들어 있음」(넣은 결과의 지문을 다시 적는다)."""
+    c = client
+    to, _ = _master(c)
+    part = D.part(_edit_over, "fit-over")
+    graph, tables = M._cached("gather-fit-over", part["bytes"], part["doc"], "fit-over.hwpx")   # 기관 문서의 2단계 그래프(틀 맞춤이 읽는다) — test_merge_gather_fit 과 같은 캐시
+    A = _upload(c, f"기관A_{J1}.hwpx", part["bytes"])
+    _analysed(A, graph, tables)
+    assert c.put(f"/api/docs/{to}/gather/parts/{A}", json={"orgs": [J1]}).status_code == 200
+    status = lambda: next(i for i in c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["items"] if OGOAL in i["text"])["status"]  # noqa: E731
+
+    plan = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    (case,) = plan["over"]["cases"]
+    item = next(x for x in plan["items"] if (x.get("convert") or {}).get("over"))
+    key = case["key"]
+    assert item["convert"]["over"]["key"] == key and item["counts"]["over"] == 1 and plan["counts"]["over"] == 1 and item["convert"]["kept"] == {"tooDeep": 1}
+    assert (case["mode"], case["lines"], case["applied"], case["to"]["level"], case["at"]) == ("cover", 1, 0, 3, item["to"]["prev"]) and [(x["n"], x["was"], x["lines"]) for x in case["levels"]][:1] == [(4, "·", 1)]
+    assert plan["over"]["records"] == {"lines": 0, "cases": {}} and plan["over"]["templates"]
+
+    r = c.put(f"/api/docs/{to}/merge-over", json={"key": key, "mode": "edit", "levels": [{"letter": "▪"}]})
+    assert r.status_code == 200 and r.json()["case"]["mode"] == "edit"
+    _why(c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]}), 409, "stalePlan")   # 처리를 바꾸면 세워 둔 계획은 못 쓴다
+    plan = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    assert (plan["over"]["cases"][0]["mode"], plan["over"]["cases"][0]["levels"][0]["letter"]) == ("edit", "▪")
+    done = c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]})
+    assert done.status_code == 200, done.text[:600]
+    assert done.json()["counts"]["over"] == 1 and f"▪ {ODEEP}" in _texts(to) and f"o {OGOAL}" in _texts(to) and f"- {OSUB}" in _texts(to) and status() == "same"
+    rec = next(v for v in GA._store(to)["parts"][A]["applied"].values() if (v.get("convert") or {}).get("over"))
+    assert [(x["over"], x["was"], x["letter"]) for x in rec["convert"]["over"]["lines"]] == [(1, "·", "▪")] and rec["convert"]["over"]["key"] == key
+
+    again = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()   # 다 넣은 뒤에도 그 사례는 넣은 줄의 기록으로 보인다
+    assert again["todo"] == 0 and [(x["key"], x["lines"], x["applied"], x["mode"]) for x in again["over"]["cases"]] == [(key, 0, 1, "edit")] and again["over"]["records"] == {"lines": 1, "cases": {key: 1}}
+    assert c.post(f"/api/docs/{to}/merge-over/refit", json={}).json()["nothing"] is True
+    assert c.put(f"/api/docs/{to}/merge-over", json={"key": key, "reset": True}).status_code == 200
+    rev, fp = server._sess(to).rev, rec["fp"]
+    r = c.post(f"/api/docs/{to}/merge-over/refit", json={})
+    assert r.status_code == 200 and (r.json()["lines"], r.json()["rev"]) == (1, rev + 1) and f"· {ODEEP}" in _texts(to) and f"▪ {ODEEP}" not in _texts(to)
+    now = next(v for v in GA._store(to)["parts"][A]["applied"].values() if (v.get("convert") or {}).get("over"))
+    assert now["convert"]["over"]["lines"][0]["letter"] == "·" and now["fp"] != fp and status() == "same"   # 레터가 바뀐 만큼 지문도 다시 — 판정은 그대로 「이미 들어 있음」

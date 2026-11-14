@@ -23,6 +23,9 @@
   convert 이고 품은 제목 줄이 있으면 틀 맞춤(`merge_convert.apply`) → 넣은 그림 `fit_image` →
   {"ids": [넣은 블록 id — src 와 같은 차례], "blocks", "converted", "kept": {까닭: n}, "labels": {까닭: 글}, "fitted": 줄인 그림 수, "dropped": [...]}.
   convert=False 거나 품은 제목 줄이 없으면 기관 문서 모양 그대로(converted 0 · kept {}).
+- **넘친 개요 레벨**(2026-11-13 — spec_병합 ② §5-5 가 원본): 품은 제목 줄의 틀보다 깊은 줄(tooDeep)은 사례로 묶여 미리보기의 `over`(merge_convert.plan 의 summary.over)와 줄의 `over`(j)에 나온다.
+  `plan` 의 `to["over"]` · `apply(…, over=)`(merge_over.resolve 가 푼 사람의 선택)가 있으면 그 지정대로 입히고, 없으면 전처럼 기관 문서 꼴 그대로. `apply` 결과의 `over` = 넘친 줄의 기록 | None.
+  서브 템플릿이 붙는 자리(branch)는 그 줄의 틀을 따르는 자리가 아니라 넘친 레벨로 세지 않는다.
 - `DropError(ValueError)` — 사람에게 보일 까닭. `_transact` 는 ValueError 를 400 으로 돌려준다(계획 끝점은 직접 400 으로).
 ponytail: 번호는 잇지 않는다(틀 맞춤이 「2-3.」 을 「2-1.」 로 — 형제 번호와 겹칠 수 있다, spec_취합 ④ ⓔ) · 글과 표·그림이 한 문단에 있던 것은 글 문단 + 개체 문단 둘이 된다(한 문단의 표·그림끼리는 한 문단 그대로 — hwpx_doc._row_para, spec_병합 ② §5)."""
 import hashlib
@@ -41,7 +44,7 @@ OWNERS = ("heading",) + ROOTED     # 틀 맞춤의 기준(놓은 자리를 품�
 TEXT_LEN, ROWS_MAX = 60, 300
 STALE = "계획을 세운 뒤 문서나 분석 결과가 바뀌었습니다 — 다시 끌어 놓아 주세요"
 WHY = {"body": "개요 줄이 아닌 줄(본문·빈 줄·그림)", "table": "표", "cell": "표 칸 안 개요 줄", "label": "구분 라벨·괄호 소제목", "multi": "한 문단에 개요 줄이 둘 이상",
-       "otherChain": "다른 사슬(서브 템플릿)의 줄", "hetero": "이종 형제(그 자리의 기본 레터와 다른 줄)", "tooDeep": "취합본 틀에 받을 레벨이 없음(더 깊음)",
+       "otherChain": "다른 사슬(서브 템플릿)의 줄", "hetero": "이종 형제(그 자리의 기본 레터와 다른 줄)", "tooDeep": "넘친 레벨 — 덮은 템플릿(기관 문서 꼴 그대로)",
        "noAnchor": "놓은 자리의 제목 줄이 개요 줄이 아님", "noLike": "그 레벨의 본보기 줄이 취합본에 없음", "numEnd": "번호 열이 끝남", "noLetter": "첫머리에 레터가 없음(자동 번호 등)",
        "marker": "형광펜·변경 추적 표지가 든 줄", "missing": "넣은 사본을 찾지 못함", "branch": "놓은 자리 아래는 다른 사슬(서브 템플릿)이 붙는 자리"}   # 그대로 둔 까닭 — 화면에 보일 글
 
@@ -155,13 +158,16 @@ def _branch(graph, para):
     return bool(kids) and not any(n["template"] == an["template"] and int(n["level"]) == int(an["level"]) + 1 for n in kids)
 
 
-def _convert(to_graph, part_graph, owner, ids):
-    """틀 맞춤 계획(merge_convert.plan 의 rows) — 품은 제목 줄(owner 문단 id)의 자식으로. 서브 템플릿이 붙는 자리(_branch)는 바꾸지 않는다(why branch)."""
-    p = MC.plan(to_graph, part_graph, owner, ids)
+def _convert(to_graph, part_graph, owner, ids, over=None):
+    """틀 맞춤 계획(merge_convert.plan 의 rows) — 품은 제목 줄(owner 문단 id)의 자식으로. 서브 템플릿이 붙는 자리(_branch)는 바꾸지 않는다(why branch).
+    over = 넘친 레벨의 지정(merge_over.resolve — spec_병합 ② §5-5): 없으면 틀보다 깊은 줄은 기관 문서 꼴 그대로(tooDeep)."""
+    p = MC.plan(to_graph, part_graph, owner, ids, over=over)
     if _branch(to_graph, owner):
         for r in p["rows"]:
             if not r["why"]:
                 r.update(why="branch", slot=None, like=None, letter=None, likeLetter=None)
+            r.pop("over", None)   # 서브 템플릿이 붙는 자리 — 그 줄의 틀을 따르는 자리가 아니라 「넘친 레벨」 도 없다(쓴 대로 둘 뿐, 사례로 묻지 않는다)
+        p["summary"].pop("over", None)
     return p
 
 
@@ -174,7 +180,7 @@ def _preview(to_doc, part_doc, p):
             like = to_doc._ids.get(r["like"])
             if not prefix_of(part_doc._text(part_doc._ids[r["src"]]), r["was"] or None)[1]:
                 why = "noLetter"
-            elif like is None or not prefix_of(to_doc._text(like), r["likeLetter"] or None)[1]:
+            elif not r.get("own") and (like is None or not prefix_of(to_doc._text(like), r["likeLetter"] or None)[1]):   # own = 넘친 레벨 — 제 모양을 둔 채 레터·앞 공백만(본보기 없음)
                 why = "noLike"
         if why:
             kept[why] += 1
@@ -182,9 +188,10 @@ def _preview(to_doc, part_doc, p):
         else:
             n += 1
         if r["level"]:
-            rows.append({"src": r["src"], "was": r["was"], "letter": None if why else r["letter"], "why": why})
+            rows.append({"src": r["src"], "was": r["was"], "letter": None if why else r["letter"], "why": why, **({"over": r["over"]} if r.get("over") else {})})
     kept = {k: v for k, v in kept.items() if v}
-    return {"converted": n, "kept": kept, "labels": _labels(kept), "anchor": p["summary"]["anchor"], "rows": rows[:ROWS_MAX], "more": max(0, len(rows) - ROWS_MAX)}
+    return {"converted": n, "kept": kept, "labels": _labels(kept), "anchor": p["summary"]["anchor"], "rows": rows[:ROWS_MAX], "more": max(0, len(rows) - ROWS_MAX),
+            **({"over": p["summary"]["over"]} if p["summary"].get("over") else {})}   # over = 넘친 레벨의 사례(spec_병합 ② §5-5 — 계획 화면이 고르게 한다)
 
 
 def _labels(kept):
@@ -211,12 +218,13 @@ def plan(to, part, src_id, after_id):
             "range": {"title": _label(src[0]), "blocks": len(ids), "paragraphs": kinds["paragraph"], "tables": kinds["table"], "pictures": kinds["image"],
                       "lines": sum(i in lines for i in ids), "single": single},
             "owner": {"id": owner["para"] if owner else None, "text": _short(f"{owner.get('letter') or ''} {owner.get('text') or ''}", TEXT_LEN) if owner else ""},
-            "convert": _preview(to_doc, part_doc, _convert(to_graph, part_graph, owner["para"], ids)) if owner and part_graph.get("nodes") else None,
+            "convert": _preview(to_doc, part_doc, _convert(to_graph, part_graph, owner["para"], ids, over=to.get("over"))) if owner and part_graph.get("nodes") else None,
             "dropped": _lost(part_doc, ids), "hash": _hash(src)}
 
 
-def apply(to_doc, part_doc, plan, to_graph, part_graph, convert=True):
-    """계획을 취합본에 넣는다(모듈 설명) — 지금 문서·그래프로 다시 푼 것이 계획과 다르면 넣기 전에 DropError. 기관 문서는 읽기만."""
+def apply(to_doc, part_doc, plan, to_graph, part_graph, convert=True, over=None):
+    """계획을 취합본에 넣는다(모듈 설명) — 지금 문서·그래프로 다시 푼 것이 계획과 다르면 넣기 전에 DropError. 기관 문서는 읽기만.
+    over = 계획 때의 넘친 레벨 지정(plan 의 to["over"] 와 같은 것 — spec_병합 ② §5-5). 결과의 `over` = 넘친 줄 기록 | None."""
     to_graph, part_graph = to_graph or {}, part_graph or {}
     src, _, ref, owner = _resolve(to_doc, to_graph, part_doc, part_graph, plan["srcTop"], plan["after"]["id"])
     ids, owner = [b["id"] for b in src], owner["para"] if owner else None
@@ -224,8 +232,9 @@ def apply(to_doc, part_doc, plan, to_graph, part_graph, convert=True):
         raise DropError(STALE)
     dropped = _lost(part_doc, ids)
     new = to_doc.insert_after(ref["id"], [{"kind": "copy", "srcId": s} for s in ids], src=part_doc)
-    done = {"converted": 0, "kept": {}}
-    if convert and owner and part_graph.get("nodes"):   # 받을 레벨이 있는 줄만 바뀐다 — 없으면 기관 문서 모양 그대로(까닭별로 셈)
-        r = MC.apply(to_doc, list(zip(ids, new)), _convert(to_graph, part_graph, owner, ids))
-        done = {"converted": r["converted"], "kept": r["kept"]}
-    return {"ids": new, "blocks": len(new), **done, "labels": _labels(done["kept"]), "fitted": sum(to_doc.fit_image(i) for i in new), "dropped": dropped}
+    done, rec = {"converted": 0, "kept": {}}, None
+    if convert and owner and part_graph.get("nodes"):   # 받을 레벨이 있는 줄만 바뀐다 — 없으면 기관 문서 모양 그대로(까닭별로 셈). 넘친 레벨은 over 의 지정대로(없으면 그대로)
+        p = _convert(to_graph, part_graph, owner, ids, over=over)
+        r = MC.apply(to_doc, list(zip(ids, new)), p)
+        done, rec = {"converted": r["converted"], "kept": r["kept"]}, MC.record(p["summary"], r)
+    return {"ids": new, "blocks": len(new), **done, "labels": _labels(done["kept"]), "fitted": sum(to_doc.fit_image(i) for i in new), "dropped": dropped, "over": rec}

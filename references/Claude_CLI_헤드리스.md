@@ -33,6 +33,22 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 - Windows 에서 `claude -p` 13개를 한꺼번에 띄우자 4개가 비정상 종료 — 종료 코드 3221226505(`0xC0000409`, STATUS_STACK_BUFFER_OVERRUN), stderr 없음, 입력 크기와 무관.
   같은 묶음을 병렬 4 로 다시 부르면 모두 성공 → 이 프로젝트는 서버 전체 동시 4(`NFM_LLM_SLOTS`), 실패분만 병렬 2 로 한 번 더(`llm.ask_all`).
 
+## 도구를 쓰는 헤드리스 에이전트를 API 키로 (2026-11-13 실측 — Claude Code 2.1.321 · Windows)
+
+fable 스킬의 「키 에이전트」(`~/.claude/skills/fable/scripts/fable_agent.py` — 원본 `E:\dev\globalize_skill\.claude\skills\fable`)가 쓰는 사실.
+
+- 호출: `claude -p --model claude-fable-5-2 --effort high --output-format stream-json --verbose --permission-mode acceptEdits --permission-prompts none [--allowedTools "<규칙>" …] [--max-budget-usd N] [--resume <세션 id>] [--append-system-prompt …]` — 프롬프트는 stdin, 작업 폴더 = cwd(그 폴더의 CLAUDE.md·사용자 설정은 평소처럼 읽는다).
+- **청구**: 자식 프로세스 env 에 `ANTHROPIC_API_KEY` 가 있으면 그 키로 청구된다 — `stream-json` 의 첫 메시지(`type: system`, `subtype: init`)의 `apiKeySource` 가 `"ANTHROPIC_API_KEY"`. 구독 로그인이 있어도 키가 먼저다(stderr 에 「claude.ai connectors are disabled because ANTHROPIC_API_KEY … takes precedence」).
+  `--output-format json`(결과 하나)에는 init 이 없어 키 출처를 못 본다 — 확인하려면 `stream-json --verbose`.
+- init 메시지: `apiKeySource` · `model` · `permissionMode` · `cwd` · `session_id` · `tools`(82개). 끝 메시지(`type: result`): `subtype`(success …) · `is_error` · `num_turns` · `duration_ms` · `total_cost_usd` · `usage` · `modelUsage`(claude-haiku-5-5 도 함께 쓰인다) · `session_id` · **`permission_denials`**(거절된 도구 호출 목록 — `tool_name`·`tool_input`).
+- **권한**: `--permission-mode` = acceptEdits · auto · bypassPermissions · manual · dontAsk · plan. `--permission-prompts none` = 물어야 하는 것은 자동 거절(권한 방식이 정하는 나머지는 그대로).
+  `acceptEdits` + `none`: 파일 읽기·쓰기(cwd 안)는 되고 `PowerShell python --version` 은 거절되어 `permission_denials` 에 남는다. `--allowedTools "PowerShell(python --version)"` 를 주면 그 명령만 돈다(설정 파일의 `permissions.allow` 도 같은 효과).
+  Windows 에서 에이전트는 명령을 Bash 가 아니라 **PowerShell 도구**로 돌리려 했다 — 허용 규칙은 `PowerShell(…)` 꼴도 함께.
+- `--resume <session_id>` + 새 프롬프트: 앞 대화를 기억한 채 이어 간다(같은 cwd 에서).
+- 비용: 한 줄짜리 일에도 $0.14~0.20(시스템 프롬프트·도구 정의 몫 — 캐시가 잡히면 덜 든다).
+- 부른 세션에 묶인 env(`CLAUDECODE` · `CLAUDE_CODE_ENTRYPOINT` · `CLAUDE_CODE_SSE_PORT` · `CLAUDE_CODE_SESSION_ID` · `CLAUDE_CODE_CHILD_SESSION` · `CLAUDE_CODE_MESSAGING_SOCKET` · `CLAUDE_PID` …)를 빼고 띄웠다 — 뺀 채로 정상 동작(안 뺐을 때는 시험하지 않음).
+- **부른 세션이 auto 권한 방식이면**: 자식을 `--permission-mode auto`·`bypassPermissions` 로 띄우는 Bash 호출 자체가 분류기에 거절된다(「Undermining Oversight」 — 자식은 부른 세션의 권한 검사를 받지 않는 프로세스라서). `acceptEdits` + 좁은 `--allowedTools` 로 띄우는 것은 통과했다.
+
 ## 디스크
 
 - CLI 와 임시 폴더는 `%TEMP%`(보통 C:)를 쓴다. 2026-11-09 C: 가 가득 찼을 때 TEMP·TMP 를 다른 드라이브로 돌린 프로세스에서 호출은 정상(4.1 s).

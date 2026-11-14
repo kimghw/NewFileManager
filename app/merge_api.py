@@ -1,4 +1,4 @@
-"""병합 API — 자리 연결(spec_병합 ② §0-1 ①②③ · §3 · §8 가운데 읽기 · 다시 내기 · 사람 고침). + LLM 보정(`POST …/merge-links/llm`) · 넣기 계획(`POST …/merge-links/plan`) · 반영(`POST …/merge-links/apply`) — 아래 함수 설명.
+"""병합 API — 자리 연결(spec_병합 ② §0-1 ①②③ · §3 · §8 가운데 읽기 · 다시 내기 · 사람 고침). + LLM 보정(`POST …/merge-links/llm`) · 넣기 계획(`POST …/merge-links/plan`) · 반영(`POST …/merge-links/apply`) · 1·2단계 초기화(`POST …/merge-links/reset`) — 아래 함수 설명.
 
 - `GET  /api/docs/{to}/merge-links` → {project, from{work, name, rev, reasons[]} | null, to{…}, diff[구분 값이 다른 곳], stale, groups[], counts} — 목적 문서(연차보고서) 기준.
   원본 = 같은 과제(`task.project`)에서 `task.file = plan` 인 작업(없으면 from null). 못 내는 까닭은 **문서별로**: noHeadings(헤딩 2·3단계 결과 없음) · noValues(구분 값 없음) ·
@@ -6,13 +6,14 @@
 - `POST /api/docs/{to}/merge-links` → 요약을 다시 만들어 같은 몸통(사람이 고친 것은 유지).
 - `PUT  /api/docs/{to}/merge-links/{groupId}` `{from: 원본 묶음 key | null}` 또는 `{reset: true}` → 사람이 연결을 고르거나(null = 끊음) 스크립트 결과로 되돌림. 400 후보가 될 수 없는 묶음 · 404 그런 묶음 없음.
 저장: 목적 작업 폴더 `merge.json` {from(작업 id), fixed{목적 key: {from, source: user}}, toRev, fromRev}(작업 저장이 꺼져 있으면 메모리). 문서가 그 뒤 바뀌었으면 stale 만 보인다(다시 하라고 다그치지 않음)."""
+import json
 import threading
 
 from fastapi import APIRouter, Body, HTTPException
 
 from app import heading_runs as HR
 from app import merge_pairs as P
-from app import works
+from app import projects, works
 
 router = APIRouter()
 _LOCK = threading.Lock()
@@ -34,15 +35,30 @@ def _store(wid, data=None):
     return data
 
 
+def _source_scope(to_id, from_id):
+    return tuple(projects.group_key((works.work(wid) or {}).get("task")) for wid in (to_id, from_id))
+
+
+def _source_allowed(to_id, from_id):
+    """프로젝트가 지정된 두 문서는 같은 TASK 라운드여야 한다. 미지정 문서의 수동 연결은 유지한다."""
+    if from_id == to_id:
+        return False
+    if works.work(from_id) is None:
+        return False
+    a, b = _source_scope(to_id, from_id)
+    return not (a[0] and b[0]) or a == b
+
+
 def _mate(to_id, saved):
-    """(과제 이름, 원본 작업 id | None) — 같은 과제의 사업계획서. 사람이 원본을 따로 골랐으면(saved.from) 그것."""
+    """(프로젝트 이름, 원본 작업 id | None) — 같은 프로젝트·TASK·라운드의 사업계획서."""
     task = (works.work(to_id) or {}).get("task") or {}
     project = task.get("project") or ""
     if saved.get("from") and works.work(saved["from"]):
-        return project, saved["from"]
+        # 명시한 원본이 다른 라운드로 이동했으면 멈춘다. 앞 원본의 연결 기록을 다른 문서에 적용하지 않는다.
+        return project, saved["from"] if _source_allowed(to_id, saved["from"]) else None
     for w in works.list_works() if project else ():
         t = w.get("task") or {}
-        if w["id"] != to_id and t.get("project") == project and t.get("file") == "plan":
+        if w["id"] != to_id and projects.group_key(t) == projects.group_key(task) and t.get("file") == "plan":
             return project, w["id"]
     return project, None
 
@@ -52,6 +68,7 @@ def _read(doc_id, target=False):
     from app import server   # server 가 이 모듈을 include 한다(순환 import 피함)
     s = server._sess(doc_id)
     with s.lock:
+        server._project_settings_sync(s)
         hwpx = s.fmt == "hwpx"
         g, t = (HR.graph(s), HR.tables(s)) if hwpx else (None, None)
         applied, settings = s.division.get("applied"), s.division.get("settings")
@@ -184,9 +201,10 @@ def _view(to_id, fresh=False):
     project, from_id = _mate(to_id, saved)
     to = _read(to_id, target=True)
     frm = _read(from_id) if from_id else None
-    head = lambda x: {"work": x["id"], "name": works.shown_name(x["name"], (works.work(x["id"]) or {}).get("task")), "rev": x["rev"], "reasons": x["reasons"]}  # noqa: E731 — name = 보이는 이름(spec_작업 ② §10: 목적 문서는 과제 이름이 뒤에)
+    head = lambda x: {"work": x["id"], "name": works.shown_name(x["name"], *(lambda w: (w.get("task"), w.get("alias")))(works.work(x["id"]) or {})), "rev": x["rev"], "reasons": x["reasons"]}  # noqa: E731 — name = 보이는 이름(spec_작업 ② §10: 목적 문서는 과제 이름 · 별칭이 뒤에)
     out = {"project": project, "to": head(to), "from": head(frm) if frm else None, "diff": [], "stale": False, "groups": [], "counts": dict(ZERO),
-           "comments": _link_comments(to_id)}   # 연결 코멘트(목적 양식의 양식 정보 「자리 연결」 절 — spec_병합 ② §5-3 1)
+           "comments": _link_comments(to_id),   # 연결 코멘트(목적 양식의 양식 정보 「자리 연결」 절 — spec_병합 ② §5-3 1)
+           "kept": _kept(saved)}   # 남은 2단계 기록의 수(화면의 「2단계 초기화」 — spec_작업 ② §14)
     if frm and to["values"] and frm["values"]:
         out["diff"] = P.values_diff(frm["values"], to["values"])
         if out["diff"]:
@@ -200,6 +218,7 @@ def _view(to_id, fresh=False):
     fixed = {k: v for k, v in (saved.get("fixed") or {}).items() if isinstance(v, dict)}
     out.update(P.pair(ts, fs, fixed=fixed))
     out["fixed"] = _fixed_brief(to, frm, saved)   # 같은 이름 자리(고정 자리 — spec_병합 ② §5-1): 묶음(groups·counts)과 따로 센다 {counts, todo}
+    out["kept"]["applied"] = len(_alive(saved.get("applied"), to))   # 넣은 기록 가운데 지금 문서에 남은 것(실행 취소로 사라진 것은 안 셈 — ③④ 「지난 반영」)
     out["llm"] = saved.get("llm")   # 마지막 LLM 보정 요약(단위별 쪽·묶음 수·호출) — 없으면 None
     out["stale"] = bool(fixed) and (saved.get("toRev"), saved.get("fromRev")) != (to["rev"], frm["rev"])
     return out, (ts, fs, saved, to, frm)
@@ -216,6 +235,8 @@ def merge_pairs_post(doc_id: str, body: dict = Body(default={})):
     if body.get("from"):
         if not works.work(body["from"]):
             raise HTTPException(404, "그런 작업이 없습니다")
+        if not _source_allowed(doc_id, body["from"]):
+            raise HTTPException(400, "같은 프로젝트·TASK·라운드의 원본 문서를 고르세요")
         _store(doc_id, {**_store(doc_id), "from": body["from"]})
     return _view(doc_id, fresh=True)[0]
 
@@ -613,8 +634,9 @@ def _gaps_view(gp):
 def _plan_view(plan):
     fill, tabs, fx = plan["fill"], plan["tables"], plan["fixed"]
     keys = ("group", "value", "to", "from", "anchorText", "blocks", "paragraphs", "tables", "pictures", "skip", "detail")
-    return {"planId": plan["planId"], "baseRev": plan["baseRev"], "todo": plan["todo"],
-            "body": {"counts": fill["counts"], "items": [{k: it.get(k) for k in keys} for it in fill["items"]]},
+    over = (plan.get("over") or {}).get("view") or {}   # 넘친 개요 레벨(② §5-5) — 사례가 있을 때만 싣는다(화면이 그 절을 그린다)
+    return {"planId": plan["planId"], "baseRev": plan["baseRev"], "todo": plan["todo"], **({"over": over} if over.get("cases") else {}),
+            "body": {"counts": fill["counts"], "items": [{k: it.get(k) for k in (*keys, "convert")} for it in fill["items"]]},   # convert = 항목의 템플릿 변환 미리보기 {converted, over, kept} | None(안 넣는 항목)
             "tables": {"counts": tabs["counts"], "tables": [_brief(t) for t in tabs["tables"]], "skipped": tabs["skipped"][:300]},
             "fixed": {"counts": fx["counts"], "tables": fx["tables"], "labels": [{k: it.get(k) for k in (*keys, "title")} for it in fx["labels"]], "skipped": fx["skipped"][:300]},
             "maps": _maps_view(plan.get("maps")),   # 표 대응(② §5-3) — 표마다 대응한 항목·칸·표시·늘릴 행과 못 넣은 것
@@ -624,11 +646,15 @@ def _plan_view(plan):
 @router.post("/api/docs/{doc_id}/merge-links/plan")
 def merge_plan(doc_id: str):
     """넣기 계획 — 연결된(paired) 묶음마다 넣을 본문 블록·표 칸·늘릴 행과 못 넣는 것의 까닭을 센다. **문서는 안 바뀐다**.
-    → {planId, baseRev, todo, body{counts, items[{group, value, to, from, anchorText, blocks, paragraphs, tables, pictures, skip, detail}]}, tables{counts, tables[], skipped[]},
-       fixed{counts, tables[{to, from, score, status, title, cells, skipped}], labels[본문 항목 꼴 + title], skipped[]}}(fixed = 같은 이름 자리 — merge_fixed, todo 에 든다). 409 까닭이 남음."""
+    → {planId, baseRev, todo, body{counts, items[{group, value, to, from, anchorText, blocks, paragraphs, tables, pictures, skip, detail, convert}]}, tables{counts, tables[], skipped[]},
+       fixed{counts, tables[{to, from, score, status, title, cells, skipped}], labels[본문 항목 꼴 + title], skipped[]}}(fixed = 같은 이름 자리 — merge_fixed, todo 에 든다). 409 까닭이 남음.
+    (2026-11-13 — spec_병합 ② §5-5) 본문 항목마다 템플릿 변환 미리보기 `convert{converted, over(넘친 줄), kept}` 와, 넘친 개요 레벨이 있거나 넣은 넘친 줄의 기록이 있으면 `over{version, cases[], templates[], records}`.
+    그때의 선택(merge_over.json)을 풀어 계획에 실어 둔다 — 반영은 그 지정 그대로 입힌다."""
     import uuid
 
     from app import merge_fill, merge_fixed, merge_tables, server
+    from app import merge_over as MO
+    from app import merge_over_api as MOA
     view, ctx = _view(doc_id)
     if ctx is None:
         raise HTTPException(409, "자리 연결을 낼 수 없는 상태입니다(문서별 까닭을 먼저 푸세요)")
@@ -639,7 +665,13 @@ def merge_plan(doc_id: str):
         fill = merge_fill.plan(to, frm, to["values"], frm["values"], view, applied=applied)
         maps, tabs, fixed, sides = _plan_parts(doc_id, view, saved, to, frm)   # 표 대응(② §5-3) → 표 묶음 → 같은 이름 자리: 대응이 맡은 표는 뒤의 둘에서 빠진다
         gaps = _gaps_plan(doc_id, saved, sides, fixed)   # 빈 자리(② §5-4) — 위 셋이 못 채운 자리 가운데 LLM 이 원본 줄을 고른 것
-        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
+        store, specs = MOA.specs(doc_id, to["graph"])   # 넘친 개요 레벨(② §5-5) — 사례마다 사람이 고른 처리를 줄 지정으로 푼 것
+        conv, cases = MO.fill_preview(to, frm, fill, specs)   # 본문 항목마다 템플릿 변환 미리보기 + 이번 계획의 넘친 사례
+        for it in fill["items"]:
+            if it["to"] in conv:
+                it["convert"] = conv[it["to"]]
+        over = {"version": store["version"], "specs": specs, "view": MOA.over_view(doc_id, cases, to["graph"], to["doc"], store)}
+        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "scope": _source_scope(doc_id, frm["id"]), "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps, "over": over,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
                 "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"] + gaps["todo"]}
     _PLANS[doc_id] = plan
     return _plan_view(plan)
@@ -648,31 +680,40 @@ def merge_plan(doc_id: str):
 @router.post("/api/docs/{doc_id}/merge-links/apply")
 def merge_apply(doc_id: str, body: dict = Body(...)):
     """{planId} → 그 계획을 목적 문서에 반영: 구조 편집 트랜잭션 하나(문서 전체 표준 검사 — 걸리면 전부 되돌리고 422 · 실행 취소 1 · rev +1 · 기록 `mergeFill`). 원본 문서는 안 바뀐다.
-    → {body{…넣은 수}, tables{filled, rowsAdded, shaped(글자 모양을 얹은 칸)}, fixed{filled, shaped, labels{items, blocks, …}, fitted(줄인 그림), flowed(쪽 나눔을 맞춘 표)}(같은 이름 자리), converted{…템플릿 변환}, dropped[옮기지 못한 개체], …편집 상태}
+    → {body{…넣은 수}, tables{filled, rowsAdded, shaped(글자 모양을 얹은 칸)}, fixed{filled, shaped, labels{items, blocks, …}, fitted(줄인 그림), flowed(쪽 나눔을 맞춘 표)}(같은 이름 자리), converted{…템플릿 변환 · over = 넘친 줄 수(② §5-5)}, dropped[옮기지 못한 개체], …편집 상태}
       | {nothing: true}. 409 계획이 없거나 그 뒤 문서가 바뀜."""
     from collections import Counter
 
-    from app import merge_convert, merge_fill, merge_fixed, merge_gaps, merge_table_map, merge_tables, server
+    from app import merge_convert, merge_fill, merge_fixed, merge_gaps, merge_over, merge_table_map, merge_tables, server
     plan = _PLANS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
+    if not _source_allowed(doc_id, plan["from"]) or ("scope" in plan and plan["scope"] != _source_scope(doc_id, plan["from"])):
+        _PLANS.pop(doc_id, None)
+        raise HTTPException(409, "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 계획하세요")
     to, frm = _read(doc_id, target=True), _read(plan["from"])
     s, src = server._sess(doc_id), server._sess(plan["from"])
     first, second = sorted((s, src), key=lambda x: x.id)   # 원본도 같이 잠근다(차례 = id — 서로 맞물리지 않게): 반영 중 원본이 바뀌면 칸 글은 계획 때 것, 본문은 바뀐 것이 섞인다(astra P2-12)
     with first.lock, second.lock:
         if plan["baseRev"] != s.rev or plan["fromRev"] != src.rev:
             raise HTTPException(409, "계획을 세운 뒤 문서가 바뀌었습니다 — 다시 계획하세요")
+        over = plan.get("over") or {}
+        if over and merge_over.load(doc_id)["version"] != over.get("version"):   # 넘친 개요 레벨의 선택이 계획 뒤 바뀜(② §5-5 6 — 보통은 PUT 이 계획을 버린다)
+            _PLANS.pop(doc_id, None)
+            raise HTTPException(409, "계획을 세운 뒤 넘친 개요 레벨의 처리가 바뀌었습니다 — 다시 계획하세요")
         if not plan["todo"]:
             _PLANS.pop(doc_id, None)
             return {"nothing": True, **s.state()}
         done, conv = {}, Counter()
 
         def run():
-            convert = merge_convert.converter(s.doc, to["graph"], frm["graph"])
+            convert = merge_convert.converter(s.doc, to["graph"], frm["graph"], over=over.get("specs"))   # 넘친 레벨은 계획에 실어 둔 지정대로(없으면 원본 모양 그대로)
 
             def hook(anchor, pairs):   # 넣은 항목마다 — 목적 문서 틀에 받을 레벨이 있는 줄만 바뀐다(없으면 원본 모양 그대로, 까닭별로 셈)
                 r = convert(anchor, pairs)
-                conv.update({"converted": r.get("converted", 0), **{f"kept:{k}": n for k, n in (r.get("kept") or {}).items()}})
+                lines = len(r.get("lines") or ())   # 넘친 줄(덮은 그대로 둔 것 포함) — merge_fill 이 그 기록을 항목의 applied 에 적는다(다시 맞추기의 근거)
+                conv.update({"converted": r.get("converted", 0), **({"over": lines} if lines else {}), **{f"kept:{k}": n for k, n in (r.get("kept") or {}).items()}})
+                return r
             done["tables"] = merge_tables.apply(s.doc, frm["doc"], plan["tables"])
             done["fixed"] = merge_fixed.apply(s.doc, frm["doc"], plan["fixed"])   # 같은 이름 자리 — 같은 편집 하나에(실행 취소 1). 라벨 내용은 원본 모양 그대로(템플릿 변환 없음)
             done["maps"] = merge_table_map.apply(s.doc, frm["doc"], plan.get("maps") or {})   # 표 대응(② §5-3) — 행 늘리기 · 칸 글 · 예시 지움 · 표시 선: 같은 편집 하나에
@@ -707,6 +748,138 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
                 "maps": {**{k: done["maps"].get(k) for k in MAP_KEYS}, "skipped": skip(done["maps"])},
                 "gaps": {"cells": done["gaps"]["cells"], "lines": done["gaps"]["lines"], "skipped": skip(done["gaps"])},
                 "converted": dict(conv), "dropped": done["fill"]["dropped"] + done["fixed"]["dropped"], **s.state()}
+
+
+# ---- 이관 1·2단계 초기화(spec_작업 ② §14 「초기화」 — 2026-11-12 사용자 "어차피 연차보고서는 원본이 있으니깐 작업 1,2 단계 초기화 할 수 있도록 해줘") ----
+
+STAGE2_KEYS = ("fixed", "tables", "llm", "tableMaps", "gaps", "applied", "toRev", "fromRev")   # merge.json 가운데 2단계(내용 매핑)가 쌓은 것 — `from`(사람이 따로 고른 원본)은 진행이 아니라 고른 값이라 둔다
+
+
+def _kept(saved):
+    """merge.json 에 남은 2단계 기록의 수 {links(사람·LLM 이 정한 묶음), tables(표 짝), maps(표 대응), applied(넣은 기록), llm(LLM 검토함)}
+    — 화면의 「2단계 초기화」 가 켜질지 · ③④ 가 지난 반영으로 끝났는지(다시 연 화면). applied 는 문서를 읽을 수 있으면 _view 가 지금 문서에 남은 것(_alive)으로 바꾼다."""
+    n = lambda k: len([v for v in (saved.get(k) or {}).values() if isinstance(v, dict)])  # noqa: E731
+    return {"links": n("fixed"), "tables": n("tables"), "maps": n("tableMaps"), "applied": n("applied"), "llm": bool(saved.get("llm"))}
+
+
+def _stage2_clear(doc_id):
+    """2단계 기록을 지운다 — merge.json 의 진행 키 · 마지막 LLM·표 대응 프롬프트 파일 · 이 문서의 요약·계획 캐시. → 지운 키 목록."""
+    saved = _store(doc_id)
+    gone = [k for k in STAGE2_KEYS if k in saved]
+    if gone:   # 지울 것이 없으면 merge.json 을 새로 만들지 않는다
+        _store(doc_id, {k: v for k, v in saved.items() if k not in STAGE2_KEYS})
+    d = works.folder(doc_id)
+    for name, mem in (("merge_llm_last.json", _LAST), ("merge_map_last.json", _MAP_LAST), ("merge_gaps_last.json", _GAPS_LAST)):
+        mem.pop(doc_id, None)
+        if d is not None and (d / name).is_file():
+            (d / name).unlink()
+            gone.append(name)
+    with _LOCK:
+        for cache in (_CACHE, _FIXED, _ORIGINS, _ORIG):
+            cache.pop(doc_id, None)
+    _PLANS.pop(doc_id, None)
+    return gone
+
+
+@router.post("/api/docs/{doc_id}/merge-links/reset")
+def merge_reset(doc_id: str, body: dict = Body(default={})):
+    """{stage: "frame" | "map"} — 이관의 묶음을 처음으로(목적 문서 = 연차보고서 기준). 사업계획서(원본 문서)는 안 건드린다.
+    - frame(1단계 — 1·2단계 모두): 문서를 **올린 원본(확정 0)** 으로 되돌리고(확정 복원과 같은 길 — 기준이 원본이면 「버리기」, 아니면 「올린 원본으로 복원」 확정이 하나 생김:
+      구분 기준 반영 상태·개요 오버레이도 그때 것 = 없음) 2단계 기록을 지운다. 구분 기준 **입력 값**·LLM 빠진 자리 검토·헤딩·표 분석은 그대로.
+    - map(2단계만): 지금 반영된 구분 값으로 위와 같이 원본으로 되돌린 뒤 **같은 값으로 구조를 다시 반영**(변경 계획 → 반영 — 편집 1)하고 2단계 기록을 지운다.
+      구조 반영 전 문서면 409. 다시 반영이 실패하면(표준 검사 422 등) 문서는 원본 상태로 두고 응답 `reset.reframe.error` 로 알린다(1단계부터 다시).
+    실행 취소로 되돌릴 수 없다(확정 복원과 같음 — 화면이 확인을 받는다). → GET /api/docs/{id} 꼴 + reset{stage, restored, cleared[], reframe{summary} | {error} | None}.
+    작업 저장이 꺼져 있으면 400(확정 기능이 없다)."""
+    from app import server
+    stage = body.get("stage") or "frame"
+    if stage not in ("frame", "map"):
+        raise HTTPException(400, "stage 는 frame 또는 map")
+    server._commits_on()
+    s = server._sess(doc_id)
+    with s.lock:
+        server._project_settings_sync(s)
+        applied = s.division.get("applied") or {}
+        values, base, dirty, settings = applied.get("values"), s.base_n, server._dirty(s), s.division.get("settings")
+    if stage == "map" and not values:
+        raise HTTPException(409, "구조(구분 기준)를 반영하기 전 문서입니다 — 1단계부터 진행하세요")
+    restored = bool(base or dirty)
+    if restored:
+        server.commit_restore(doc_id, 0, {"discard": True})   # 같은 잠금 길(안에서 s.lock) — 위 잠금은 풀고 부른다
+    cleared = _stage2_clear(doc_id)
+    reframe = None
+    if stage == "map":
+        try:
+            plan = server.divisions_plan(doc_id, {"values": values})
+            done = server.divisions_apply(doc_id, {"planId": plan["planId"]})
+            if getattr(done, "status_code", 200) != 200:   # 표준 검사에 걸림(_transact 가 되돌리고 422 응답을 돌려준다)
+                reframe = {"error": json.loads(done.body).get("detail") or f"HTTP {done.status_code}"}
+            else:
+                reframe = {"summary": done.get("summary"), "nothing": bool(done.get("nothing"))}
+        except HTTPException as e:
+            reframe = {"error": str(e.detail)}
+        with s.lock:   # 변경 계획은 넘긴 값을 입력 값으로 적는다 — 사람이 입력 칸에서 바꿔 둔 값(당해 차년도 등)은 그대로 둔다
+            if settings is None:
+                s.division["settings"] = None
+            else:   # 프로젝트 최신 라운드면 공유 기록(projects.json)도 되돌린다 — 세션만 되돌리면 다음 조회의 공유 맞춤이 계획 값으로 다시 덮는다(spec_작업 ② §17)
+                server._project_settings_sync(s, settings)
+        server._persist_safe(s, force=True)
+    with s.lock:
+        rev = s.rev
+    works.log(doc_id, "taskReset", rev=rev, stage=stage, restored=restored, cleared=cleared, reframe=reframe)
+    return {**server.get_doc(doc_id), "reset": {"stage": stage, "restored": restored, "cleared": cleared, "reframe": reframe}}
+
+
+# ---- 3단계 「문서 정리」 ⑥ 작성요령 삭제 — 양식 안내 지우기(spec_작업 ② §14 「3단계」 · app/form_cleanup.py) ----
+
+def _cleanup_view(found):
+    return {"counts": found["counts"], "patterns": found["patterns"], "marks": found["marks"][:300], "tables": found["tables"], "refs": found["refs"],
+            "notes": [{k: n[k] for k in ("id", "text", "guide", "color", "whole")} for n in found["notes"]][:300]}
+
+
+@router.get("/api/docs/{doc_id}/form-cleanup")
+def form_cleanup_get(doc_id: str):
+    """지울 양식 안내 목록(문서는 그대로 — 지금 문서에서 스크립트로 셈) → {counts{tables, refs, notes, marks, total}, patterns[{key, name, rule, how, example, count}](지우는 패턴 목록 —
+    form_cleanup.PATTERNS), tables[{id, label, rows, blank}], refs[{id, label, last, tables, blank}], notes[{id, text, guide, color, whole}], marks[{id, text}], rev}. hwpx 만(아니면 빈 목록 — 패턴 목록은 있음)."""
+    from app import form_cleanup, server
+    s = server._sess(doc_id)
+    with s.lock:
+        if s.fmt != "hwpx":
+            return {**_cleanup_view(form_cleanup.empty()), "rev": s.rev}
+        return {**_cleanup_view(form_cleanup.find(s.doc)), "rev": s.rev}
+
+
+@router.post("/api/docs/{doc_id}/form-cleanup")
+def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
+    """{expectRev?} → 지금 문서에서 다시 찾아 한 번에 지운다(구조 편집 트랜잭션 하나 — 실행 취소 1 · rev +1 · 기록 `formCleanup`). 지울 것이 없으면 {nothing: true}.
+    표준 검사의 기준선 = 올린 원본 + **편집 바로 전 문서**의 위반: 2단계 내용 반영이 사업계획서에서 옮겨 온 위반 종류(그림의 renderingInfo 등)를 이 지우기 탓으로 보지 않는다 —
+    올린 원본만 기준이면 반영 뒤 문서의 모든 전체 검사 편집이 422 로 되돌려진다(2026-11-12 실측: TEMP 삭제). 이 편집이 새로 만든 위반만 되돌린다(422).
+    → {done{marks, tables, notes, refs, notesWhole, notesInline, skipped}, …편집 상태}. 409 expectRev 가 지금과 다름."""
+    from collections import Counter
+
+    from app import form_cleanup, server
+    s = server._sess(doc_id)
+    if s.fmt != "hwpx":
+        raise HTTPException(400, "hwpx 문서만 됩니다")
+    with s.lock:
+        if body.get("expectRev") is not None and body["expectRev"] != s.rev:
+            raise HTTPException(409, "목록을 읽은 뒤 문서가 바뀌었습니다 — 다시 읽으세요")
+        found = form_cleanup.find(s.doc)
+        if not found["counts"]["total"]:
+            return {"nothing": True, **s.state()}
+        chk = s.kit["check"]
+        pre = chk.counts(chk.check_doc(s.doc))   # 편집 바로 전 문서의 위반 종류·개수
+        done = {}
+
+        def run():
+            done.update(form_cleanup.apply(s.doc, found))
+            return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {k: done[k] for k in ("marks", "tables", "notes", "refs", "notesWhole", "notesInline")}}
+
+        def check(s_, out, base, header):
+            return chk.verdict(s_.doc, {"schema": Counter(base["schema"]) | pre["schema"], "rules": Counter(base["rules"]) | pre["rules"]}, chk.check_doc(s_.doc))
+        out, after = server._transact(s, run, "formCleanup", req={"counts": found["counts"]}, check=check)
+        if after is None:
+            return out
+        return {"done": done, **s.state()}
 
 
 # ---- 원본 자리 지도(spec_작업 ② §12 「누른 자리 따라 보기」 — 2026-11-12 사용자 "작성된 부분은 클릭하면 상대 페이지 바로 보여주기") ----

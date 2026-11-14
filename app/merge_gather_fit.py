@@ -14,7 +14,9 @@
   - rows = merge_convert.plan 의 줄 그대로(바꿀 줄만) — `apply` 가 쓴다.
 - `view(cv)` = 넣기 계획 화면에 보일 요약 `{"converted", "same", "kept", "labels", "rows"[{src, was, letter, from, to}]}`.
 - `apply(to_doc, op, new)` = 넣은 사본(new — op.src 와 같은 차례)에 계획을 입힌다 → **반영 기록** `{"mode", "anchor", "rows": [{id, src, from: [원본 템플릿, 레벨], was: 원래 레터, to: [맞춘 템플릿, 레벨], letter}], "same", "kept"}` | None.
-  자리표시 줄을 지우기 **전에** 부른다(본보기가 그 줄일 수 있다). 이 기록이 「향후 다른 서식으로 변경」 의 근거다 — 넣은 줄마다 원래 꼴과 맞춘 자리가 남아 있어, 나중에 다른 틀로 다시 맞추거나 원래 모양으로 되돌릴 수 있다(화면·끝점은 아직 없음 — ④ ⓗ)."""
+  자리표시 줄을 지우기 **전에** 부른다(본보기가 그 줄일 수 있다). 이 기록이 「향후 다른 서식으로 변경」 의 근거다 — 넣은 줄마다 원래 꼴과 맞춘 자리가 남아 있어, 나중에 다른 틀로 다시 맞추거나 원래 모양으로 되돌릴 수 있다(화면·끝점은 아직 없음 — ④ ⓗ).
+- **넘친 개요 레벨**(2026-11-13 — spec_병합 ② §5-5 가 원본): 틀보다 깊은 줄(tooDeep)은 사례로 묶여 계획의 `over`(merge_convert.plan 의 summary.over)에 나오고, `to["over"]`(merge_over.resolve 가 푼 사람의 선택)가 있으면
+  그 지정대로 입힌다(없으면 전처럼 쓴 대로 = 「덮은 템플릿 그대로」). 반영 기록에 `over{key, to, lines}` — 쓴 대로 둔 넘친 줄까지 줄마다 원본 접두·모양(merge_over.refit 「넣은 뒤 다시 맞추기」 의 근거)."""
 from collections import Counter
 
 from app import merge_chunks as C
@@ -46,27 +48,30 @@ def plan(to, part, op):
     tp, _, tid = MC._index(tg)
     fp, _, _ = MC._index(pg)
     kept = Counter()
+    over = to.get("over")   # 넘친 레벨의 지정(merge_over.resolve — 사람의 선택. 없으면 넘친 줄은 쓴 대로)
     slot = min((tp[i] for i in op.get("drop") or () if i in tp), key=lambda n: int(n["level"]), default=None)   # 가장 얕은 자리표시 줄(같으면 문서 순 첫 줄)
     if slot is not None:
         mode, an = "slot", slot
-        p = MC.plan(tg, pg, an["para"], src, sibling=True)
+        p = MC.plan(tg, pg, an["para"], src, sibling=True, over=over)
     else:
         blocks = to.get("blocks")
         at = C.index(blocks if blocks is not None else to_doc.blocks())
         owner = DROP._owner(tg, at, at[op["after"]][0]) if op.get("after") in at else None
         mode, an = "owner", tp.get(owner["para"]) if owner else None
-        p = DROP._convert(tg, pg, an["para"], src) if an else MC.plan(tg, pg, None, src)   # 품은 제목 줄이 없으면 줄마다 noAnchor
-    rows, same = [], 0
+        p = DROP._convert(tg, pg, an["para"], src, over=over) if an else MC.plan(tg, pg, None, src)   # 품은 제목 줄이 없으면 줄마다 noAnchor
+    rows, same, held = [], 0, []   # held = 쓴 대로 두는 넘친 줄(반영 때 적어 둔다 — 다시 맞추기의 근거)
     for r in p["rows"]:
         if not r["level"]:
             continue   # 개요 줄이 아닌 줄(본문·표·그림) — 틀 맞춤이 볼 것이 아니다
         if r["why"]:
             kept[r["why"]] += 1
-        elif r["level"] == r["slot"] or (r["level"][1] == r["slot"][1] and _key(fp.get(r["src"])) == _key(tp.get(r["like"]))):
-            same += 1   # 이미 그 자리의 (템플릿, 레벨) — 건드리지 않는다. 사슬 이름만 다른 것(기관 문서에 레벨이 하나 더 생겨 「[기관]›o›-›·」)도 레벨·레터 꼴이 같으면 같은 줄
+            if r.get("over") and r["why"] == "tooDeep":
+                held.append(r)
+        elif not r.get("over") and (r["level"] == r["slot"] or (r["level"][1] == r["slot"][1] and _key(fp.get(r["src"])) == _key(tp.get(r["like"])))):
+            same += 1   # 이미 그 자리의 (템플릿, 레벨) — 건드리지 않는다. 사슬 이름만 다른 것(기관 문서에 레벨이 하나 더 생겨 「[기관]›o›-›·」)도 레벨·레터 꼴이 같으면 같은 줄. 사람이 꼴을 정한 넘친 줄은 늘 입힌다
         elif not prefix_of(part_doc._text(part_doc._ids[r["src"]]), r["was"] or None)[1]:
             kept["noLetter"] += 1
-        elif to_doc._ids.get(r["like"]) is None or not prefix_of(to_doc._text(to_doc._ids[r["like"]]), r["likeLetter"] or None)[1]:
+        elif not r.get("own") and (to_doc._ids.get(r["like"]) is None or not prefix_of(to_doc._text(to_doc._ids[r["like"]]), r["likeLetter"] or None)[1]):
             kept["noLike"] += 1
         else:
             like = _key(tp.get(r["like"]))
@@ -75,25 +80,37 @@ def plan(to, part, op):
         top = int(an["level"]) + 1
         if any(r["slot"][1] == top and r["letter"] != r["was"] and is_numbered(_key(tp.get(r["like"]))) for r in rows) and _siblings(tg, tp, tid, an, top):
             kept["numbered"] += len(rows)
+            held += [r for r in rows if r.get("over")]
             rows = []
-    return {"mode": mode, "anchor": an["para"] if an else None, "rows": rows, "same": same, "kept": dict(kept)}
+    return {"mode": mode, "anchor": an["para"] if an else None, "rows": rows, "same": same, "kept": dict(kept), "over": p["summary"].get("over"), "held": held}
 
 
 def view(cv):
-    """넣기 계획 화면에 보일 요약(모듈 설명)."""
+    """넣기 계획 화면에 보일 요약(모듈 설명) — 넘친 줄이 있으면 `over`(merge_convert.plan 의 summary.over — 사례)도."""
     return {"converted": len(cv["rows"]), "same": cv["same"], "kept": cv["kept"], "labels": {k: WHY.get(k, k) for k in cv["kept"]},
-            "rows": [{"src": r["src"], "was": r["was"], "letter": r["letter"], "from": r["level"], "to": r["slot"]} for r in cv["rows"][:ROWS_MAX]]}
+            "rows": [{"src": r["src"], "was": r["was"], "letter": r["letter"], "from": r["level"], "to": r["slot"], **({"over": r["over"]} if r.get("over") else {})} for r in cv["rows"][:ROWS_MAX]],
+            **({"over": cv["over"]} if cv.get("over") else {})}
 
 
 def apply(to_doc, op, new):
-    """넣은 사본에 틀 맞춤을 입히고 반영 기록을 낸다(모듈 설명) — 계획이 없으면 None(쓴 대로)."""
+    """넣은 사본에 틀 맞춤을 입히고 반영 기록을 낸다(모듈 설명) — 계획이 없으면 None(쓴 대로). 넘친 줄이 있으면 기록에 `over{key, to, lines}`(spec_병합 ② §5-5 7 — 쓴 대로 둔 넘친 줄도 적는다)."""
     cv = op.get("convert")
     if not cv:
         return None
     new_of = dict(zip(op["src"], new))
+    lines = []
+    for r in cv.get("held") or ():   # 쓴 대로 두는 넘친 줄 — 넣은 그대로의 접두·모양을 적어 둔다
+        nid = new_of.get(r["src"])
+        lead, tok, gap = prefix_of(to_doc._text(to_doc._ids[nid]), r["was"] or None) if nid in to_doc._ids else ("", "", "")
+        if tok:
+            lines.append(MC._line(to_doc, r, nid, new_of, lead + tok + gap, tok))
     res = MC.apply(to_doc, list(new_of.items()), {"rows": cv["rows"]}) if cv["rows"] else {"ids": [], "kept": {}}
     done, kept = set(res["ids"]), Counter(cv["kept"])
     kept.update(res["kept"])
+    order = {s: i for i, s in enumerate(op["src"])}
+    lines = sorted(lines + list(res.get("lines") or ()), key=lambda x: order.get(x["src"], 0))   # 문서 순(부모가 먼저)
+    ov = cv.get("over")
     return {"mode": cv["mode"], "anchor": cv["anchor"], "same": cv["same"], "kept": {k: v for k, v in kept.items() if v},
             "rows": [{"id": new_of[r["src"]], "src": r["src"], "from": r["level"], "was": r["was"], "to": r["slot"], "letter": r["letter"]}
-                     for r in cv["rows"] if new_of.get(r["src"]) in done]}
+                     for r in cv["rows"] if new_of.get(r["src"]) in done],
+            **({"over": {"key": ov["key"], "to": ov["to"], "lines": lines, "keepNumbers": True}} if ov and lines else {})}   # keepNumbers = 다시 맞출 때도 같은 번호 꼴이면 기관이 쓴 번호를 둔다

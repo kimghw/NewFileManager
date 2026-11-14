@@ -106,3 +106,41 @@ def test_without_the_part_graph_lines_go_in_as_written():
     assert all("convert" not in it and "converted" not in it["counts"] for it in plan["items"]) and all("convert" not in op for op in plan["ops"])
     res = G.apply(to["doc"], part["doc"], plan)
     assert f"■ {GOAL}" in D.texts(to["doc"]) and res["counts"]["converted"] == 0 and all("convert" not in r for r in res["applied"].values())
+
+
+# ---- 넘친 개요 레벨(spec_병합 ② §5-5): 취합본 틀보다 깊게 쓴 줄 = 사례 · 사람의 선택(to["over"]) · 반영 기록 --------------------------------
+
+OGOAL, OSUB, ODEEP = "가나대 넘침 목표", "가나대 넘침 세부", "가나대 넘침 더 깊은 줄"
+
+
+def _edit_over(d):
+    o = _slot(d, D.para(d, "[공동연구개발기관1(가나대)]", 0), "o")   # 취합본 틀 [기관]›o›- 의 L2 자리 — o · - 까지는 틀 안, 그 아래 「·」 는 틀에 없는 레벨
+    d.set_text(o, f"  o {OGOAL}")
+    d.insert_after(o, [{"kind": "paragraph", "text": f"    - {OSUB}"}, {"kind": "paragraph", "text": f"      · {ODEEP}"}])
+
+
+def test_overflow_level_is_reported_recorded_and_follows_the_choice():
+    frame, part = D.base()["frame"], D.part(_edit_over, "fit-over")
+    part["graph"], part["tables"] = M._cached("gather-fit-over", part["bytes"], part["doc"], "fit-over.hwpx")
+
+    def run(over=None):
+        to = D.master() if over is None else {**D.master(), "over": over}
+        plan = G.plan(G.judge(G.links(frame, part)["items"], frame, to, ALL, None), frame, to, part)
+        return to, plan, _item(plan, OGOAL)["convert"]
+
+    to, plan, cv = run()   # 선택이 없으면 전처럼 쓴 대로 — 사례로 보이고 넣은 줄이 기록에 남는다
+    ov = cv["over"]
+    assert (ov["lines"], cv["kept"], cv["converted"]) == (1, {"tooDeep": 1}, 0) and ov["to"][1] == 3 and ov["key"].startswith(f"{ov['to'][0]}<") and [x["n"] for x in ov["levels"]][:1] == [4]
+    res = G.apply(to["doc"], part["doc"], plan)
+    assert f"· {ODEEP}" in D.texts(to["doc"]) and res["counts"]["kept"] == 1
+    rec = next(r["convert"]["over"] for r in res["applied"].values() if (r.get("convert") or {}).get("over"))
+    (line,) = rec["lines"]
+    assert rec["key"] == ov["key"] and rec["to"] == ov["to"] and (line["over"], line["was"], line["letter"]) == (1, "·", "·") and ODEEP in _text(to["doc"], line["id"]) and line["orig"]["prefix"].strip() == "·"
+
+    to, plan, cv = run({ov["key"]: [{"like": None, "letter": "▪", "lead": None, "numbered": False}]})   # 사람이 그 레벨의 레터를 정함 — 제 모양은 그대로
+    assert cv["kept"] == {} and [(r["was"], r["letter"], r.get("over")) for r in cv["rows"]] == [("·", "▪", 1)] and cv["over"]["key"] == ov["key"]
+    res = G.apply(to["doc"], part["doc"], plan)
+    texts = D.texts(to["doc"])
+    assert f"▪ {ODEEP}" in texts and f"· {ODEEP}" not in texts and f"o {OGOAL}" in texts and f"- {OSUB}" in texts and res["counts"]["converted"] == 1
+    rec = next(r["convert"]["over"] for r in res["applied"].values() if (r.get("convert") or {}).get("over"))
+    assert [(x["was"], x["letter"]) for x in rec["lines"]] == [("·", "▪")]

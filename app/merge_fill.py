@@ -8,7 +8,8 @@
   표가 있으면 `tables`(표 칸 넣기 몫), 글·그림이 있으면 `occupied`(※ 안내 줄·빈 줄은 글이 아님), 글머리만 있는 줄은 넣은 뒤 지울 `placeholders`.
   `applied` = {목적 항목 key(라벨 id): {from, hash}} — 같은 해시면 `applied`, 다르면 `changed`(「원본 바뀜」 — 다시 넣지 않음).
 - `apply(to_doc, from_doc, plan, convert=None)` = 할 일(skip 없음) 항목마다 넣을 자리 뒤에 원본 블록을 원본 차례로 복사(`insert_after(kind=copy)`) → `convert(anchor, [(원본 id, 새 id)])`(템플릿 변환 갈고리 —
-  merge_convert) → 자리표시 줄 지움. 복사에서 빠지는 개체(`DROP_ON_COPY` — OLE·차트·구역 설정 등)는 `dropped` 로 알린다. 원본 문서는 읽기만 한다."""
+  merge_convert) → 자리표시 줄 지움. 복사에서 빠지는 개체(`DROP_ON_COPY` — OLE·차트·구역 설정 등)는 `dropped` 로 알린다. 원본 문서는 읽기만 한다.
+  갈고리가 결과를 돌려주고 거기에 넘친 줄의 기록(`over` — merge_convert.record, spec_병합 ② §5-5 7)이 있으면 그 항목의 `applied` 에 함께 적는다(넣은 뒤 다시 맞추기의 근거)."""
 import hashlib
 import json
 from collections import Counter
@@ -146,12 +147,13 @@ def apply(to_doc, from_doc, plan, convert=None):
             continue
         dropped += [{"item": row["to"], "src": s, "what": w} for s in row["src"] for w in _dropped(from_doc, s)]
         new = to_doc.insert_after(row["anchor"], [{"kind": "copy", "srcId": s} for s in row["src"]], src=from_doc)
-        if convert:
-            convert(row["anchor"], list(zip(row["src"], new)))
+        res = convert(row["anchor"], list(zip(row["src"], new))) if convert else None
         for pid in row["placeholders"]:
             to_doc.delete_blocks(pid, pid)
         gone += len(row["placeholders"])
         inserted[row["to"]] = new
         done[row["to"]] = {"from": row["from"], "hash": row["hash"]}
+        if isinstance(res, dict) and res.get("over"):   # 넘친 줄의 기록(merge_convert.record — spec_병합 ② §5-5 7): 고리가 돌려줄 때만 적는다(다시 맞추기의 근거)
+            done[row["to"]]["over"] = res["over"]
     return {"inserted": inserted, "applied": done, "dropped": dropped,
             "counts": {"items": len(inserted), "blocks": sum(map(len, inserted.values())), "placeholders": gone, "dropped": len(dropped)}}
