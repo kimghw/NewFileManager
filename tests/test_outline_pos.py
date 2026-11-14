@@ -255,6 +255,35 @@ def test_slot_rule_applies_to_every_line_of_the_level(sess):
     assert "pos" not in s.outline["templates"][T]["slots"]["2"] and _fmt(s, "p972")["firstLineMm"] == 0
 
 
+def test_slot_preview_shows_before_after_without_changing(sess):
+    """「자리 수정」 미리보기(POST …/slots/{tpl}/{level}/preview) — 적용과 같은 계산 · 문서·규칙·실행 취소 그대로."""
+    c, d, s = sess
+    assert c.get(f"/api/docs/{d}/outline").status_code == 200  # 오버레이를 만든다(이 시험만 돌릴 때)
+    T = _tid(s)
+    before_undo, before_rev, before_pos = s.state()["undo"], s.rev, s.outline["templates"][T]["slots"]["2"].get("pos")
+    r = c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "mm", "mm": 12, "letterMm": 10})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    g = next(x for x in j["groups"] if "p972" in x["paras"])
+    assert g["changed"] and g["before"]["letterMm"] == 4.2 and g["before"]["line2Mm"] == 0.0
+    assert g["after"] == {"letterMm": 10.0, "textMm": 14.2, "line2Mm": 12.0, "leftMm": 5.8, "firstMm": -6.2}
+    assert j["slot"]["after"]["letterMm"] == 10.0 and j["slot"]["after"]["line2Mm"] == 12.0
+    assert j["lines"] == len(OP.slot_lines(s.outline, T, 2)) and j["changed"] + j["same"] + j["skipped"] == j["lines"]
+    assert s.state()["undo"] == before_undo and s.rev == before_rev and s.outline["templates"][T]["slots"]["2"].get("pos") == before_pos
+    assert _fmt(s, "p972")["firstLineMm"] == 0
+    # 적용한 수와 같다
+    r = c.put(f"/api/docs/{d}/outline/slots/{T}/2", json={"line2": "mm", "mm": 12, "letterMm": 10})
+    assert r.status_code == 200 and r.json()["aligned"] == j["changed"]
+    j2 = c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "mm", "mm": 12, "letterMm": 10}).json()
+    assert j2["changed"] == 0 and j2["same"] == j["changed"] + j["same"]  # 이미 그 자리 — 바뀔 줄 없음
+    # 잘못된 값
+    j3 = c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "text", "letterMm": 1}).json()
+    assert j3["error"] and "앞 공백" in j3["error"]  # 앞 공백 폭보다 작은 레터 위치 — 줄마다 거절(400 이 아니라 까닭을 보임)
+    assert c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "mm"}).status_code == 400
+    assert c.post(f"/api/docs/{d}/outline/slots/{T}/9/preview", json={"line2": "text"}).status_code == 404
+    _undo_all(c, d, s)
+
+
 def test_renumber_realigns_lines_aligned_before(plan_doc):
     doc = HwpxDoc(PLAN.read_bytes())
     doc.blocks()

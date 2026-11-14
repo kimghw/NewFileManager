@@ -28,6 +28,29 @@ def align_edited(doc_id: str):
         return {"formats": formats, **s.state()}
 
 
+@router.post("/api/docs/{doc_id}/outline/slots/{tpl}/{level}/preview")
+def slot_preview(doc_id: str, tpl: str, level: int, body: dict = Body(...)):
+    """PUT …/slots/{tpl}/{level} 와 같은 몸 {line2, mm?, letterMm?} — 적용하면 그 레벨 줄들이 어떻게 바뀌나(문서·규칙은 안 바뀜, 실행 취소 기록 없음).
+    → outline_pos.preview 꼴 {lines, changed, same, skipped, error, rep, slot, groups[{count, changed, before, after, paras, more}]} + rev.
+    400 잘못된 값 · 404 그런 레벨 없음 · 409 2단계 결과 없음."""
+    from app import server, outline_match
+    s = server._sess(doc_id)
+    if s.fmt != "hwpx":
+        raise HTTPException(400, "개요 편집은 HWPX 에서만 됩니다(헤딩 그래프가 HWPX 만)")
+    try:
+        pos = outline_pos.clean_pos(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    with s.lock:
+        ov = server._outline_ov(s)
+        if ov is None:
+            raise HTTPException(409, "헤딩 추출 2단계(헤딩 그래프)를 먼저 실행하세요")
+        if outline_edit._slot(ov, tpl, level) is None:
+            raise HTTPException(404, "그런 템플릿 레벨이 없습니다")
+        out = outline_pos.preview(s.doc, ov, tpl, level, pos, order=outline_match._order(s.doc))
+        return {**out, "rev": s.rev}
+
+
 @router.put("/api/docs/{doc_id}/outline/slots/{tpl}/{level}")
 def slot_put(doc_id: str, tpl: str, level: int, body: dict = Body(...)):
     """{line2: "text"(글 시작에 맞춤) | "mm"(직접 — mm: 값) | "keep"(문단 서식 그대로), letterMm?(레터 위치 — 없으면 그대로)} — 슬롯 규칙을 저장하고

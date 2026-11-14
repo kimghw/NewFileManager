@@ -96,8 +96,8 @@ def test_overlay_and_view(sess):
     assert r.status_code == 200
     o = r.json()
     # □ 가지 = 둘째 템플릿(T2): 그 앞 안내 상자(「※ … AI …」 t956) 안의 「o」 는 TEMP 라 헤딩 후보가 아니다(spec_헤딩_추출 ② §15 — 전에는 그 「o」 가지가 T2, □ 가 T3)
-    assert o["lines"]["p970"] == {"no": 2, "level": 1, "tpl": "2", "letter": "□", "role": "heading"}
-    assert o["lines"]["p972"]["level"] == 2 and o["lines"]["p975"]["level"] == 4 and o["lines"]["p968"] == {"no": 1, "level": 2, "tpl": "1", "letter": "1-1.", "role": "heading"}
+    assert o["lines"]["p970"] == {"no": 2, "level": 1, "tpl": "2", "letter": "□", "role": "heading", "key": "□"}
+    assert o["lines"]["p972"]["level"] == 2 and o["lines"]["p975"]["level"] == 4 and o["lines"]["p968"] == {"no": 1, "level": 2, "tpl": "1", "letter": "1-1.", "role": "heading", "key": "N-N."}
     assert o["templates"]["2"]["chain"] == ["□", "o", "-", "·"] and o["templates"]["2"]["max"] == 4
     ov = s.outline
     sl = ov["templates"]["2"]["slots"]
@@ -115,7 +115,7 @@ def test_enter_makes_child_line_with_spacer_and_splits_tail(sess):
     assert r.status_code == 200, r.text
     j = r.json()
     new = j["focus"]["id"]
-    assert j["focus"]["offset"] == 4 and j["outline"]["lines"][new] == {"no": 2, "level": 2, "tpl": "2", "letter": "o", "role": "heading"}
+    assert j["focus"]["offset"] == 4 and j["outline"]["lines"][new] == {"no": 2, "level": 2, "tpl": "2", "letter": "o", "role": "heading", "key": "o"}
     rows = _after(s, "p970", 4)
     assert rows[0][1].startswith("□") and rows[1][1] == "" and rows[2] == (new, "  o ") and rows[3][1] == ""  # □ › 빈(간격) › 새 o › 기존 빈 › …
     assert _shape_like(s, new, "39") and s.outline["lines"][new]["parent"] == "p970"

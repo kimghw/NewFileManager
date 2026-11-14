@@ -2359,6 +2359,7 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   para: "문단 모양", table: "표 행·열", rejected: "표준 검사로 되돌림", undo: "실행 취소", verify: "검증 시작", verified: "검증 끝",
   download: "내려받기", reopen: "작업 다시 엶", headings: "헤딩 추출", outline: "개요 편집",
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
+  outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", // spec_hwpx_웹편집 ② §8-2
   commit: "확정", restore: "확정 복원", discard: "변경 버리기" }; // 확정(spec_작업 ② §8)
 const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기" };
 const CHANGE = { bold: "굵게", italic: "기울임", underline: "밑줄", sizePt: "크기(pt)", color: "색", align: "정렬", indentLeftMm: "왼쪽 여백(mm)",
@@ -6319,6 +6320,33 @@ function tplMarksBuild(g) { // 그래프 → Map(문단 id → {text, title, no,
   return marks;
 }
 
+function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(spec_hwpx_웹편집 ② §8-2) — 그래프 표(gm)는 미판정 표지만 물려받는다
+  const t = heads.outline && heads.outline.templates ? heads.outline.templates[String(ol.tpl)] || {} : {};
+  const sl = t.slots ? t.slots[String(ol.level)] || {} : {};
+  const lab = ol.role === "label" ? tplLabelId(ol) : "";
+  const text = `T${ol.no} L${ol.level}${lab ? ` ${lab}` : ""}`;
+  const title = `템플릿 T${ol.no} ${(t.chain || []).join(" › ")} · ${ol.level}번째 줄(레벨 ${ol.level}) 「${oneLine(ol.letter || "").slice(0, 30)}」`
+    + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
+    + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : "")
+    + `\n${pid}\n누르면 템플릿 관계 — 이 레벨의 서식 갈래 · 대표 정하기 · 대표에 맞추기`;
+  return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
+}
+
+// 「템플릿 관계」 열을 연다 — 그래프(2단계)를 아직 안 읽었으면(헤딩 탭을 안 연 작업 · TASK 와 무관) 그때 읽는다. at = {tpl, level, para}: 그 레벨을 펴고 그 줄의 서식 갈래를 표시(outline_match.js)
+async function tplRelOpen(focus = null, at = null) {
+  if (!state.id || state.format !== "hwpx") { toast("템플릿 관계는 HWPX 문서에서만 볼 수 있습니다"); return; }
+  if (!heads.graph) {
+    const id = state.id, epoch = state.epoch;
+    let g;
+    try { g = await api(`/api/docs/${id}/headings/graph`); }
+    catch (e) { if (epoch === state.epoch) toast(e.status === 404 ? "헤딩 추출 2단계(헤딩 그래프) 결과가 없습니다 — 헤딩 추출 탭에서 그래프를 만드세요" : `그래프를 읽지 못했습니다: ${e.message}`, true); return; }
+    if (epoch !== state.epoch) return;
+    if (!heads.graph) heads.graph = g; // 그 사이 헤딩 탭이 읽었으면 그것
+  }
+  headsTplView(focus);
+  if (at && typeof olmFocus === "function") olmFocus(at);
+}
+
 // 쪽 여백 표시(템플릿 표시·끌기 손잡이 — 여기, 표 표지 — tables.js)를 그릴 수 있는가 = 문서가 보이고 쪽 보기가 켜져 있는가. 두 그리기 모두 자리를 재기 전에 묻는다.
 // 표시는 쪽 **안** 여백에 놓이므로 스크롤 상자 여백·맞춤 배율은 건드리지 않는다(이름은 옛 .scroller.gutter 를 켜고 끄던 때의 것 — tables.js 도 부른다).
 function gutterSync() {
@@ -6344,9 +6372,10 @@ function tplMarksDraw() {
     const z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1; // 쪽 배율 — 표·손잡이는 zoom 1/z 로 되돌려 화면 크기를 고정하고, 자리는 화면 px 로 둔다
     const found = [], grips = [];
     for (const p of sheet.querySelectorAll(".para[data-id]")) {
-      let m = marks.get(p.dataset.id) || (tmpOf && tmpOf(p.dataset.id));
-      if (drOf) m = drOf(p.dataset.id, m) || m; // 그 문단의 표시 앞에 「새 레터」·「새 서식」 을 얹는다(「TN Lk」 가 없으면 그것만)
       const ol = outlineLine(p);
+      // 개요 오버레이 줄이면 그 「TN Lk」 가 먼저(문서를 열 때 바로 — 헤딩 탭을 안 열어도 · 종속·레벨 바꿈이 바로 보임: spec_hwpx_웹편집 ② §8-2), 아니면 그래프 표
+      let m = (ol && tplMarksOn() ? olMark(p.dataset.id, ol, marks.get(p.dataset.id)) : null) || marks.get(p.dataset.id) || (tmpOf && tmpOf(p.dataset.id));
+      if (drOf) m = drOf(p.dataset.id, m) || m; // 그 문단의 표시 앞에 「새 레터」·「새 서식」 을 얹는다(「TN Lk」 가 없으면 그것만)
       if (!m && !ol) continue;
       const top = p.getBoundingClientRect().top - sr.top;
       if (m) found.push({ top, m });
@@ -6372,9 +6401,9 @@ function tplMarksDraw() {
       const texts = [...cnt].map(([t, n]) => (n > 1 ? `${t} ×${n}` : t));
       s.textContent = texts.length > 3 ? `${texts.slice(0, 3).join(" · ")} +${texts.length - 3}` : texts.join(" · ");
       s.title = r.items.map((m) => m.title).join("\n═══\n");
-      const no = (r.items.find((m) => m.no) || {}).no;
+      const hit = r.items.find((m) => m.no) || {}, no = hit.no;
       if (dr && typeof driftView === "function") { s.setAttribute("role", "button"); s.onclick = () => driftView(); }
-      else if (no) { s.setAttribute("role", "button"); s.onclick = () => headsTplView(no); }
+      else if (no) { s.setAttribute("role", "button"); s.onclick = () => tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null); }
       else if (r.temp && typeof tempView === "function") { s.setAttribute("role", "button"); s.onclick = () => tempView(); } // TEMP 줄 — 누르면 TEMP 목록
       place(s, r.top);
     }
@@ -6410,8 +6439,10 @@ function headsTplView(focus = null) { // focus = 펼쳐 보일 템플릿 id(문�
   const g = heads.graph;
   if (!g) { toast("헤딩 그래프(2단계)가 아직 없습니다 — 헤딩 추출 탭에서 그래프를 만들거나 읽은 뒤에 볼 수 있습니다"); return; }
   const rel = tplRel(g);
+  if (typeof olmRel === "function") olmRel(rel); // 종속 템플릿 「T1T3」(개요 오버레이 — outline_match.js, spec_hwpx_웹편집 ② §8-2)을 (A, at) 아래 가지로
   const idOf = (t) => t.id ?? t.no;
-  const tpls = [...rel.tpl.values()].sort((a, b) => (a.no || 0) - (b.no || 0));
+  const byNo = (a, b) => String(a.no ?? "").localeCompare(String(b.no ?? ""), "en", { numeric: true }); // 「T1T3」 같은 글 번호도
+  const tpls = [...rel.tpl.values()].sort(byNo);
   const { tools, body } = headsDlg("templates", "템플릿 관계", `템플릿 ${tpls.length}개 · 인스턴스 ${nf((g.instances || []).length)}`);
   $("headsDlgHelp").append(hHelp("템플릿 관계 도움말", "T번호나 화살표를 누르면 레벨과 하위 템플릿이 펼쳐집니다. 노트 아이콘에서 종류와 연결 위치를 확인할 수 있습니다. 인스턴스를 펼치면 원문으로 이동합니다. 되돌이는 상위에 이미 나온 템플릿이므로 반복해서 펼치지 않습니다."));
   const tplSrc = headsSourceChip(heads.view, 2, false); // 이 그래프가 LLM 것인지 스크립트 것인지 · 끝난 때 · 걸린 시간(② §7 「LLM 표시」)
@@ -6423,26 +6454,34 @@ function headsTplView(focus = null) { // focus = 펼쳐 보일 템플릿 id(문�
     const box = el("div", "trel-body");
     const slots = t.slots || [];
     const kidLevels = [...rel.under.keys()].filter((k) => k.split("|")[0] === String(id)).map((k) => +k.split("|")[1]);
-    const maxL = Math.max(slots.length ? Math.max(...slots.map((s) => s.level)) : 0, (t.chain || []).length, kidLevels.length ? Math.max(...kidLevels) : 0);
+    const ot = heads.outline && heads.outline.templates ? heads.outline.templates[String(id)] : null; // 개요 오버레이(종속으로 늘어난 레벨 — spec_hwpx_웹편집 ② §8-2)
+    const maxL = Math.max(slots.length ? Math.max(...slots.map((s) => s.level)) : 0, (t.chain || []).length, kidLevels.length ? Math.max(...kidLevels) : 0, ot ? ot.max || 0 : 0);
     const ol = el("ol", "trel-levels");
-    for (let L = 1; L <= maxL; L += 1) {
+    const base = ot && ot.base ? ot.base : 0; // 종속 템플릿 — L1~L base 는 부모 템플릿의 레벨(그 줄은 부모 것)
+    if (base && ot.comp) box.append(el("p", "hnote olm-shared", `L1~L${base} = T${ot.comp.parentNo} 의 레벨 「${(ot.chain || []).slice(0, base).join(" › ")}」 — 이 템플릿의 줄은 L${base + 1} 부터`));
+    for (let L = base + 1; L <= maxL; L += 1) {
       const s = slots.find((x) => x.level === L) || {};
+      const os = ot && ot.slots ? ot.slots[String(L)] : null;
       const li = el("li");
       li.value = L;
       const head = el("div", "trel-level");
-      head.append(el("b", null, `L${L}`), ` 「${s.letter || (t.chain || [])[L - 1] || "?"}」`, el("span", "muted", s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
-      head.title = `${L}번째 줄(레벨 ${L})${s.format ? ` · 대표 서식 ${s.format}` : ""}${s.rep ? ` · 대표 문단 ${s.rep}` : ""}`;
+      head.append(el("b", null, `L${L}`), ` 「${(base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1] || "?"}」`,
+        el("span", "muted", os ? ` ×${nf(os.lines)}` : s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
+      head.title = `${L}번째 줄(레벨 ${L})${s.format ? ` · 대표 서식 ${s.format}` : ""}${(os && os.rep) || s.rep ? ` · 대표 문단 ${(os && os.rep) || s.rep}` : ""}`;
       li.append(head);
       const place = typeof olfRow === "function" ? olfRow(id, L) : null; // 개요 줄 자리 — 레터 위치·글 시작·둘째 줄 + 고치기(outline_format.js, spec_hwpx_웹편집 ② §8-1)
       if (place) li.append(place);
+      const fmts = typeof olmRow === "function" ? olmRow(id, L) : null; // 서식 갈래 · 대표 정하기 · 대표에 맞추기(outline_match.js, spec_hwpx_웹편집 ② §8-2)
+      if (fmts) li.append(fmts);
       if (L === 1 && typeof divLabelsList === "function") { // 괄호 줄이 뿌리인 템플릿 — 그 괄호 글 목록 + 구분 라벨 지정(heading_labels.js, spec ② §13)
         const list = divLabelsList(g, t);
         if (list) li.append(list);
       }
       const kids = rel.under.get(`${id}|${L}`);
-      if (kids && kids.size) {
+      const shown = kids ? [...kids].filter(([cid]) => !(typeof olmHidden === "function" && olmHidden(cid, id, L))) : []; // 이 레벨 아래로 다 넣은 템플릿은 레벨로 보인다(② §8-2)
+      if (shown.length) {
         const ul = el("ul", "trel");
-        for (const [cid, n] of [...kids].sort((a, b) => ((rel.tpl.get(a[0]) || {}).no || 0) - ((rel.tpl.get(b[0]) || {}).no || 0))) ul.append(make(cid, path, n));
+        for (const [cid, n] of shown.sort((a, b) => byNo(rel.tpl.get(a[0]) || {}, rel.tpl.get(b[0]) || {}))) ul.append(make(cid, path, n));
         li.append(ul);
       }
       ol.append(li);
@@ -6486,6 +6525,7 @@ function headsTplView(focus = null) { // focus = 펼쳐 보일 템플릿 id(문�
     const info = `${H_TPL[t.kind] || t.kind || "?"}${H_ROOT[t.rootRole] || ""} · 인스턴스 ${nf(ins.length)}개\n연결 위치: ${places.join(" · ") || "알 수 없음"}\n앵커: ${t.anchor || t.name || "—"}`;
     row.append(tog, num, name, meta, hHelp(`T${t.no ?? id} 템플릿 정보`, info, { note: true }));
     li.append(row);
+    if (typeof olmTplTools === "function") olmTplTools(li, row, id); // 하위로 넣기 · 넣은 템플릿 · 떼기(outline_match.js, spec_hwpx_웹편집 ② §8-2)
     let sub = null;
     const cyc = path.includes(id);
     const open = (on) => {
@@ -6532,7 +6572,7 @@ function tplFocus(body, rel, id) { // 템플릿 id 까지 펼쳐 보이기 — �
     const at = rel.at.get(path[0]);
     const up = at ? [...at.keys()].find((w) => w.includes("|")) : null;
     if (!up) break;
-    const pid = +up.split("|")[0];
+    const raw = up.split("|")[0], pid = /^\d+$/.test(raw) ? +raw : raw; // 종속 템플릿(「1+3」)은 글 키
     if (seen.has(pid)) break;
     seen.add(pid);
     path.unshift(pid);
@@ -6594,7 +6634,8 @@ function outlineLoad(refresh = false) { // 문서를 열 때·2단계가 새로 
     outlineHint();
     tplMarksDraw();
     if (typeof olfRefresh === "function") olfRefresh(); // 열려 있는 「템플릿 관계」 의 자리 줄도 새 값으로(outline_format.js)
-  }).catch(() => { if (epoch === state.epoch && (refresh || !heads.outline)) { heads.outline = null; outlineHint(); tplMarksDraw(); } });
+    if (typeof olmRefresh === "function") olmRefresh(); // 서식 갈래·도구 줄 「템플릿 관계」 단추도(outline_match.js)
+  }).catch(() => { if (epoch === state.epoch && (refresh || !heads.outline)) { heads.outline = null; outlineHint(); tplMarksDraw(); if (typeof olmRefresh === "function") olmRefresh(); } });
 }
 function outlineHint() { // 개요 편집 키가 켜졌는지(heads.outline)를 도구 줄 「단축키」 단추와 열려 있는 2열 단축키 설명에 — 키 목록·설명 글의 원본은 shortcuts.js(옛 도구 줄 키 안내 #editHint 는 없앰)
   if (typeof shortcutsSync === "function") shortcutsSync();

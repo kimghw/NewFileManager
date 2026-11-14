@@ -28,8 +28,11 @@ function olfRow(id, L) { // 레벨 줄 아래 한 줄(자리가 없는 레벨 �
     + "따로 정하지 않으면 둘째 줄은 글 시작에 맞춥니다: 이 레벨 줄에 글을 쓰거나 Enter 로 새 줄을 만들 때 그 문단에 내어쓰기가 붙습니다(문서가 이미 준 들여쓰기·내어쓰기는 그대로).";
   const rule = el("span", `hb olf-rule${set ? " chg" : ""}`, olfRuleText(sl));
   rule.title = set ? "이 레벨에 정한 규칙 — 새 줄과 글을 고치는 줄에 걸립니다" : "기본 규칙(정한 것 없음)";
-  const edit = hBtn("자리 수정", () => { form.hidden = !form.hidden; edit.setAttribute("aria-expanded", String(!form.hidden)); },
-    { title: `이 레벨 줄 ${nf(sl.lines)}개의 레터 위치·둘째 줄을 고칩니다`, cls: "btn sm olf-btn" });
+  const edit = hBtn("자리 수정", () => {
+    form.hidden = !form.hidden;
+    edit.setAttribute("aria-expanded", String(!form.hidden));
+    if (typeof olpOpen === "function") { if (form.hidden) olpFormClosed(id, L); else olpOpen(id, L, "pos"); } // 지금 → 바뀐 뒤 미리보기 창(outline_preview.js)
+  }, { title: `이 레벨 줄 ${nf(sl.lines)}개의 레터 위치·둘째 줄을 고칩니다 — 펼치면 옆에 미리보기 창(지금 → 바뀐 뒤)이 뜹니다`, cls: "btn sm olf-btn" });
   edit.setAttribute("aria-expanded", "false");
   const form = olfForm(id, L, sl);
   form.hidden = true;
@@ -45,29 +48,42 @@ function olfForm(id, L, sl) {
     return i;
   };
   const letter = num(sl.to.letterMm, "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 문단 왼쪽 여백이 움직입니다(앞 공백은 그대로)");
-  const mode = el("select");
+  letter.classList.add("olf-letter");
+  const mode = el("select", "olf-mode");
   mode.setAttribute("aria-label", "둘째 줄 규칙");
   for (const [v, t] of Object.entries(OLF_RULE)) { const o = el("option", null, t); o.value = v; mode.append(o); }
   const pos = sl.pos || {};
   mode.value = pos.set ? pos.line2 : (Math.abs(sl.at.firstMm || 0) > 0.02 ? "keep" : "text");
   const line2 = num(sl.to.line2Mm, "둘째 줄 위치(mm) — 본문 왼끝에서");
+  line2.classList.add("olf-l2");
+  const changed = () => { if (typeof olpFormInput === "function") olpFormInput(id, L); }; // 미리보기 창(outline_preview.js)이 열려 있으면 바뀐 뒤를 다시
   const sync = () => { line2.disabled = mode.value !== "mm"; };
-  mode.onchange = sync;
+  mode.onchange = () => { sync(); changed(); };
+  letter.oninput = changed;
+  line2.oninput = changed;
   sync();
   const apply = hBtn(`적용(${nf(sl.lines)}줄)`, async () => {
-    const body = { line2: mode.value };
-    const lv = parseFloat(letter.value), l2 = parseFloat(line2.value);
-    if (Number.isFinite(lv) && Math.abs(lv - sl.to.letterMm) >= 0.05) body.letterMm = lv; // 안 바꾼 레터 위치는 보내지 않는다(줄마다 제 자리 그대로)
-    else if (pos.set && pos.letterMm != null) body.letterMm = pos.letterMm;
-    if (mode.value === "mm") {
-      if (!Number.isFinite(l2)) { toast("둘째 줄 위치(mm)를 숫자로 적어 주세요", true); return; }
-      body.mm = l2;
-    }
-    await olfApply(id, L, body);
-  }, { title: "문서의 이 레벨 줄 모두에 적용 — 문단의 왼쪽 여백·첫 줄(내어쓰기)이 바뀝니다. 「실행 취소」 로 되돌립니다", cls: "btn sm primary" });
+    const b = olfBody(sl, form);
+    if (b.error) { toast(b.error, true); return; }
+    await olfApply(id, L, b.body);
+  }, { title: "문서의 이 레벨 줄 모두에 적용 — 문단의 왼쪽 여백·첫 줄(내어쓰기)이 바뀝니다. 「실행 취소」 로 되돌립니다", cls: "btn sm primary olf-apply" });
   const lab = (t) => el("span", "olf-lab", t);
   form.append(lab("레터"), letter, lab("둘째 줄"), mode, line2, lab("mm"), apply);
   return form;
+}
+
+function olfBody(sl, form) { // 고치기 줄의 값 → PUT …/slots(·/preview) 몸 {body} | {error} — 적용과 미리보기 창이 같이 쓴다
+  const pos = sl.pos || {};
+  const mode = form.querySelector(".olf-mode").value;
+  const lv = parseFloat(form.querySelector(".olf-letter").value), l2 = parseFloat(form.querySelector(".olf-l2").value);
+  const body = { line2: mode };
+  if (Number.isFinite(lv) && Math.abs(lv - sl.to.letterMm) >= 0.05) body.letterMm = lv; // 안 바꾼 레터 위치는 보내지 않는다(줄마다 제 자리 그대로)
+  else if (pos.set && pos.letterMm != null) body.letterMm = pos.letterMm;
+  if (mode === "mm") {
+    if (!Number.isFinite(l2)) return { error: "둘째 줄 위치(mm)를 숫자로 적어 주세요" };
+    body.mm = l2;
+  }
+  return { body };
 }
 
 async function olfApply(id, L, body) { // structOp 과 같은 차례: 대기 중 글 반영 → 서버 편집(표준 검사) → 바뀐 문단의 여백만 다시 → 쪽 다시 나눔
@@ -121,6 +137,7 @@ function olfRefresh() { // 오버레이를 다시 읽었거나 규칙을 바꾼 
     old.replaceWith(fresh);
   }
   olfCatchUp();
+  if (typeof olpRefresh === "function") olpRefresh(); // 미리보기 창 — 새 자리로 다시
 }
 
 // 글을 고쳐 둔 개요 줄인데 둘째 줄이 아직 안 맞은 것(이 기능 전에 고친 줄) — 문서를 열어 오버레이를 읽었을 때 한 번 서버에 맞춤을 부탁한다(POST …/outline/align).

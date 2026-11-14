@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import (division_llm, division_model, division_plan, division_presets, division_profiles, docx_check, docx_restore, docx_struct, fonts, hwpx_struct,
-                 outline_edit, outline_pos, owpml_check, pdf_map, pdf_render, projects, restore, verify, works)
+                 outline_edit, outline_match, outline_pos, owpml_check, pdf_map, pdf_render, projects, restore, verify, works)
 from app.docx_doc import W as WNS
 from app.docx_doc import DocxDoc
 from app.hwpx_doc import P, TC, HwpxDoc
@@ -985,6 +985,10 @@ def _outline_ov(s, build=True):
         old = ov
         ov = s.outline = outline_edit.build_overlay(g, _outline_probe(s), rev=s.rev)
         outline_pos.carry(old, ov)  # 사용자가 정한 슬롯 자리 규칙(같은 앵커·레벨)·저절로 맞춘 줄의 기억은 새 오버레이로(② §8-1)
+        fails = outline_match.carry(old, ov, outline_match.context(s.doc, ov))  # 템플릿 종속(같은 앵커끼리)·사람이 정한 대표도(② §8-2)
+        if fails:
+            log.warning("[개요 종속] %s 다시 걸지 못함: %s", s.id, [(m.get("child"), m.get("parent"), why) for m, why in fails])
+        outline_pos.carry(old, ov)  # 종속으로 새로 생긴 레벨의 자리 규칙도(같은 앵커·레벨)
     return ov
 
 
@@ -1955,6 +1959,11 @@ app.include_router(heading_temp_api.router)
 from app import outline_format_api  # noqa: E402
 
 app.include_router(outline_format_api.router)
+
+# ---- 레벨 대표 서식 · 대표에 맞추기 · 템플릿 종속 끝점은 app/outline_match_api.py(spec_hwpx_웹편집 ② §8-2) ----------------------------------------
+from app import outline_match_api  # noqa: E402
+
+app.include_router(outline_match_api.router)
 
 # ---- 뼈대 유지 끝점은 app/heading_drift_api.py(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림, spec_헤딩_추출 ② §17) ----------------------------------------
 from app import heading_drift_api  # noqa: E402

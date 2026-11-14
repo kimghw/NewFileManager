@@ -32,6 +32,8 @@ GATES = {
     "div_key": ("smoke_div_key_ui.py", False, "구분 기준 자리 표시 — 문서 이름 줄의 색 설명(칩 · 노트 · 감추기 · 좁은 폭)"),
     "agent": ("smoke_agent_ui.py", True, "에이전트 보기 — 탭·작업 내용 · 요청 → 제안 카드 · 미리보기 · 문서에 반영 · 자료(끝점은 흉내)"),
     "styles": ("smoke_styles_ui.py", True, "서식 보관함 — 목록 · 검증 다시 읽기 · 이름 바꾸기 · 지우기 · 추출 후보 저장 · 표 메뉴(끝점은 흉내)"),
+    "outline_match": ("smoke_outline_match_ui.py", True, "레벨 서식 갈래 · 대표 정하기 · 대표에 맞추기 · 하위로 넣기·떼기 · 문서를 열 때 「TN Lk」 · 도구 줄 「템플릿 관계」(진짜 끝점)"),
+    "outline_preview": ("smoke_outline_preview_ui.py", True, "개요 레벨 미리보기·비교 창 — 자리 수정의 지금 → 바뀐 뒤 · 서식 갈래 비교 표 · 창에서 적용·맞추기 · 닫기·옮기기(진짜 끝점)"),
     "home": ("smoke_home_ui.py", False, "상단 로고 → 시작 화면"),
     "note_help": ("smoke_note_help_ui.py", False, "노트 도움말 — hover · 키보드 · 터치 · 좁은 화면 · 대화상자"),
     "table_menu": ("smoke_table_menu_ui.py", False, "표 메뉴"),

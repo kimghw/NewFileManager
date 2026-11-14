@@ -215,7 +215,7 @@ def view(ov):
 
 
 def line_view(x):
-    return {"no": x["no"], "level": x["level"], "tpl": x["tpl"], "letter": x["letter"], "role": x.get("role", "heading")}
+    return {"no": x["no"], "level": x["level"], "tpl": x["tpl"], "letter": x["letter"], "role": x.get("role", "heading"), "key": x.get("key", "")}
 
 
 def is_descendant(ov, pid, anc, limit=64):
@@ -480,8 +480,9 @@ def plan_sibling(seq, i, ov, text_of):
 def _target(ov, x, delta):
     """레벨 한 단계 바꾼 (tpl, level) — 못 바꾸면 ValueError(astra S10·S12: 가지 자동 선택 없음)."""
     tid, level = x["tpl"], int(x["level"])
+    base = int(ov["templates"].get(tid, {}).get("base") or 0)  # 종속 템플릿(「T1T3」 — 부모 템플릿의 L base 아래에서 시작, spec_hwpx_웹편집 ② §8-2)은 L base+1 이 제 첫 레벨
     if delta < 0:
-        if level >= 2:
+        if level - 1 > base:
             return tid, level - 1
         p = ov["lines"].get(x["parent"])
         if p is None:
@@ -495,8 +496,9 @@ def _target(ov, x, delta):
 
 
 def _resolve_parent(seq, i, o2, tid, level):
-    """줄 i 가 (tid, level)일 때의 부모 — 앞으로 거슬러: 같은 (tid, level) 줄 → 그 부모, (tid, level−1) 줄 → 그 줄, L1 이면 그 템플릿이 매달리던 슬롯의 줄 → 그 줄,
+    """줄 i 가 (tid, level)일 때의 부모 — 앞으로 거슬러: 같은 (tid, level) 줄 → 그 부모, (tid, level−1) 줄 → 그 줄, 첫 레벨(L1 · 종속 템플릿은 L base+1)이면 그 템플릿이 매달리던 슬롯의 줄 → 그 줄,
     같은 템플릿의 더 얕은 줄 → 그 줄. 못 찾으면 None."""
+    first = int(o2["templates"].get(str(tid), {}).get("base") or 0) + 1  # 그 템플릿의 첫 레벨(종속 템플릿은 base + 1)
     for j in range(i - 1, -1, -1):
         q = seq[j]["id"]
         y = o2["lines"].get(q)
@@ -506,7 +508,7 @@ def _resolve_parent(seq, i, o2, tid, level):
             return y["parent"]
         if y["tpl"] == tid and y["level"] == level - 1:
             return q
-        if level == 1 and tid in (o2["branches"].get(f"{y['tpl']}|{y['level']}") or []):
+        if level == first and tid in (o2["branches"].get(f"{y['tpl']}|{y['level']}") or []):
             return q
         if y["tpl"] == tid and y["level"] < level - 1:
             return q

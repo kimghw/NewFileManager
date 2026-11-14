@@ -1178,6 +1178,32 @@ button.hb.temp { height: auto; }
 .olf-edit input[type="number"] { width: calc(5ch + 20px); padding: 0 4px; }
 .olf-edit input:disabled { opacity: .5; }
 .olf-edit select { padding: 0 2px; max-width: 11em; }
+/* 레벨 서식 갈래 · 대표 · 대표에 맞추기 · 하위로 넣기(outline_match.js — spec_hwpx_웹편집 ② §8-2): 「템플릿 관계」 레벨 줄의 자리 줄(.olf) 아래 한 줄, 템플릿 줄 머리 */
+.olm { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin: 0 0 4px; font-size: 12px; color: var(--muted); border-radius: 6px; }
+.olm.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); padding-left: 6px; }
+.olm-sum.warn { color: #b45309; font-weight: 600; }
+.olm-rep { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 100%; }
+.olm .olm-btn, .olm-merge .btn { height: 22px; padding: 0 7px; font-size: 11.5px; }
+.olm-list { flex-basis: 100%; list-style: none; margin: 2px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.olm-g { border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: var(--surface); }
+.olm-g.rep { border-color: var(--accent); }
+.olm-g.sel { box-shadow: 0 0 0 2px var(--accent); }
+.olm-gh { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; }
+.olm-gh .hlink { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.olm-badge { color: var(--accent); border-color: var(--accent); }
+.olm-n { font-variant-numeric: tabular-nums; color: var(--text); }
+.olm-diff { margin-top: 2px; color: #b45309; overflow-wrap: anywhere; }
+.olm-paras > summary { cursor: pointer; margin-top: 2px; }
+.olm-plist { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 0 10px; }
+.olm-plist .hlink { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.olm-shared { margin: 2px 0 4px; } /* 종속 템플릿의 L1~L base — 부모 템플릿의 레벨 한 줄 */
+.olm-chip { font-size: 11px; padding: 0 6px; line-height: 18px; border-radius: 9px; border: 1px solid #ddd6fe; background: #f5f3ff; color: #6d28d9; white-space: nowrap; }
+.olm-chip.into { border-color: var(--line); background: var(--surface-2); color: var(--muted); }
+.olm-merge { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 4px 28px; font-size: 12px; color: var(--muted); }
+.olm-merge[hidden] { display: none; }
+.olm-merge select { height: 26px; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; color: var(--text); }
+.olm-note { flex-basis: 100%; }
+.olm-note.warn { color: #b45309; }
 
 /* ---- LLM 표시 (spec_헤딩_추출 ② §7) — 2·3단계 결과가 LLM 것인지 스크립트 것인지 + 끝난 때·걸린 시간 꼬리표. app.js headsSourceChip — 헤딩 탭 요약·「표」 탭·2열 tools --- */
 .src-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 4px; }

@@ -1,0 +1,90 @@
+/* 개요 레벨 미리보기·비교 창(outline_preview.js — spec_hwpx_웹편집 ② §8-3): 「템플릿 관계」 열 옆에 떠 있는 창(모달 아님 · 머리 끌어 옮김 · 모서리로 크기 조절).
+   style.css 다음. 창은 하나 — 탭 「자리 미리보기」(지금 → 바뀐 뒤) · 「서식 비교」(갈래 × 다른 값). 글자 크기는 design.md §1 의 본문 13 · 보조 12 · 꼬리표 11px 안에서. */
+.olp { position: fixed; z-index: 35; display: flex; flex-direction: column; box-sizing: border-box; min-width: 340px; min-height: 180px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 10px 30px rgba(20, 35, 70, .22); resize: both; overflow: hidden; font-size: 12.5px; color: var(--text); }
+.olp[hidden] { display: none; }
+.olp-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); cursor: move; user-select: none; touch-action: none; }
+.olp-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.olp-tabs { display: flex; gap: 2px; margin-left: auto; flex: none; }
+.olp-tab { height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.olp-tab[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.olp-tab:disabled { opacity: .45; cursor: default; }
+.olp-x { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
+.olp-x:hover { background: var(--line); color: var(--text); }
+.olp-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.olp-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.olp-foot[hidden] { display: none; }
+.olp .muted { color: var(--muted); }
+.olp-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.olp-big { font-size: 13px; font-weight: 600; }
+.olp-big.chg { color: #b45309; }
+.olp-note { margin: 0; font-size: 12px; }
+.olp-err { margin: 0; padding: 4px 8px; border-radius: 6px; background: var(--fail-soft); color: var(--fail); font-size: 12px; }
+.olp-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 4px; font-size: 12px; min-width: 0; }
+.olp-cap .hlink { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.olp .btn.sm.olp-mini { height: 22px; padding: 0 7px; font-size: 11.5px; }
+
+/* 대표 줄 그림 — mm 자 + 지금 · 바뀐 뒤(첫 줄 = 레터·글, 둘째 줄). 색: 레터 위치 주황 · 글 시작 파랑 · 둘째 줄 초록 */
+.olp-fig { --k-letter: #c2410c; --k-text: var(--accent); --k-line2: #15803d; display: flex; flex-direction: column; gap: 2px; padding-left: 50px; }
+.olp-ruler { position: relative; height: 20px; border-bottom: 1px solid var(--line-strong); font-size: 10px; color: var(--muted); }
+.olp-tick { position: absolute; bottom: 0; width: 1px; height: 3px; background: var(--line-strong); }
+.olp-tick.major { height: 7px; background: var(--muted); }
+.olp-tick b { position: absolute; bottom: 7px; transform: translateX(-50%); font-weight: 400; font-variant-numeric: tabular-nums; }
+.olp-unit { position: absolute; left: -46px; bottom: 1px; }
+.olp-prow { position: relative; }
+.olp-plab { position: absolute; left: -50px; top: 4px; width: 46px; font-size: 11px; color: var(--muted); }
+.olp-prow.next .olp-plab { color: var(--accent); font-weight: 600; }
+.olp-pbox { position: relative; height: 44px; overflow: hidden; border-bottom: 1px dashed var(--line); background: linear-gradient(to right, var(--surface-2) 0 1px, transparent 1px); }
+.olp-prow.next .olp-pbox { background: #f7f9ff; }
+.olp-seg { position: absolute; padding-left: 2px; border-left: 2px solid; line-height: 20px; height: 20px; font-size: 13px; white-space: pre; color: var(--text); }
+.olp-seg.l1 { top: 1px; }
+.olp-seg.l2 { top: 22px; }
+.olp-prow.now .olp-seg { color: var(--muted); }
+.olp-seg.k-letterMm { border-color: var(--k-letter); font-weight: 600; }
+.olp-seg.k-textMm { border-color: var(--k-text); }
+.olp-seg.k-line2Mm { border-color: var(--k-line2); }
+.olp-ghost { position: absolute; top: 0; bottom: 0; border-left: 1px dashed; opacity: .75; }
+.olp-ghost.k-letterMm { border-color: var(--k-letter); }
+.olp-ghost.k-textMm { border-color: var(--k-text); }
+.olp-ghost.k-line2Mm { border-color: var(--k-line2); }
+.olp-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 2px 0 0 -50px; font-size: 11px; color: var(--muted); }
+.olp-key::before { content: ""; display: inline-block; width: 3px; height: 10px; margin-right: 4px; vertical-align: -1px; background: var(--k, var(--muted)); }
+.olp-key.k-letterMm { --k: #c2410c; }
+.olp-key.k-textMm { --k: var(--accent); }
+.olp-key.k-line2Mm { --k: #15803d; }
+.olp-key.ghost::before { width: 0; border-left: 1px dashed var(--muted); background: none; }
+
+/* 값 표 · 줄 묶음 · 서식 비교 — 1px 구분선만(design.md §1 규칙 1·5) */
+.olp table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.olp th, .olp td { padding: 3px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: top; }
+.olp thead th { font-size: 11px; font-weight: 600; color: var(--muted); }
+.olp-vals tbody th { font-weight: 400; color: var(--muted); }
+.olp-vals tr.chg td.to, .olp-vals tr.chg td.d { color: #9a3412; font-weight: 600; }
+.olp-vals tr.chg td.to { background: var(--warn-soft); }
+.olp-vals tr.same td { color: var(--muted); }
+.olp-scroll { max-width: 100%; overflow: auto; }
+.olp-grp td.n { color: var(--text); }
+.olp-grp td.v.diff { background: var(--warn-soft); color: #9a3412; font-weight: 600; }
+.olp-grp tr.same td { color: var(--muted); }
+.olp-grp td.who { white-space: normal; min-width: 140px; }
+.olp-grp td.who .hlink { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.olp-grp td.who .hb { margin-right: 4px; }
+.olp-more > summary { cursor: pointer; font-size: 11.5px; color: var(--muted); }
+.olp-plist { display: flex; flex-direction: column; gap: 1px; max-height: 160px; overflow: auto; padding: 2px 0 0 8px; }
+.olp-plist .hlink { text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.olp-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); width: max-content; }
+.olp-cmp .olp-gh { position: sticky; left: 0; z-index: 1; background: var(--surface); min-width: 180px; max-width: 280px; box-shadow: inset -1px 0 0 var(--line); }
+.olp-cmp thead .olp-gh { z-index: 2; }
+.olp-cmp tr.olp-cat th { border-bottom: 0; padding-bottom: 0; }
+.olp-cmp th.olp-catname { color: var(--text); border-left: 1px solid var(--line); }
+.olp-cmp tr.rep th, .olp-cmp tr.rep td { background: var(--accent-soft); }
+.olp-cmp td.same { color: #9aa3b2; }
+.olp-cmp td.diff { background: var(--warn-soft); color: #9a3412; font-weight: 600; }
+.olp-cmp td.base { color: var(--text); }
+.olp-cmp td.act { padding: 2px 6px; }
+.olp-gtag { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.olp-n { font-weight: 400; color: var(--text); }
+.olp-samp { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: pre; padding: 2px 4px; border: 1px solid transparent; border-radius: 4px; background: var(--surface); color: var(--text);
+  font: 13px/1.35 "Malgun Gothic", sans-serif; text-align: left; cursor: pointer; }
+.olp-samp:hover { border-color: var(--accent); }
+.olp-s-let { color: inherit; }

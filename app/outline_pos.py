@@ -261,6 +261,78 @@ def apply_slot(doc, ov, tid, level, pos):
     return out
 
 
+PREVIEW_MAX = 30  # 미리보기 묶음마다 보내는 줄 id 수
+
+
+def _spot(cur, left=None, first=None):
+    """자리 요약 {letterMm, textMm, line2Mm, leftMm, firstMm}(0.1mm) — left·first 를 주면 그 여백을 넣은 뒤의 자리."""
+    if left is None:
+        left, first = cur["leftMm"], cur["firstMm"]
+    x0 = left + max(first, 0.0)
+    return {"letterMm": _r1(x0 + cur["leadMm"]), "textMm": _r1(x0 + cur["prefixMm"]), "line2Mm": _r1(left + max(-first, 0.0)),
+            "leftMm": _r1(left), "firstMm": _r1(first)}
+
+
+def preview(doc, ov, tid, level, pos, order=None):
+    """「자리 수정 → 적용」 을 하면 어떻게 되나 — 문서·오버레이를 안 바꾼다(apply_slot 과 같은 계산: target(full=True)).
+    → {lines, changed, same, skipped, error, rep{para, before, after}|None, slot{before, after}|None(새 줄의 자리),
+       groups[{count, changed, before, after, paras(문서 순 PREVIEW_MAX 개까지), more}]} — 바뀌는 묶음 먼저, 줄 수 순."""
+    slot = OE._slot(ov, tid, level)
+    if slot is None:
+        raise ValueError("그런 템플릿 레벨이 없습니다")
+    pos = dict(pos or {}, set=True)
+    m = Measure(doc)
+    ids = slot_lines(ov, tid, level)
+    if order is not None:
+        ids.sort(key=lambda p: order.get(p, 1 << 30))
+    groups, skipped, error, rep = {}, 0, None, None
+    for pid in ids:
+        line = ov["lines"][pid]
+        if line.get("role") in OE.ROOTED:
+            skipped += 1
+            continue
+        try:
+            cur = m.place(pid, line.get("letter"))
+        except Exception:  # noqa: BLE001 — 줄 하나를 못 재도 미리보기는 계속
+            cur = None
+        if cur is None:
+            skipped += 1
+            continue
+        try:
+            t = target(cur, pos, full=True)
+        except ValueError as e:
+            error = error or str(e)
+            skipped += 1
+            continue
+        before = _spot(cur)
+        after = _spot(cur, *t) if t else dict(before)
+        key = (tuple(before.values()), tuple(after.values()))
+        g = groups.setdefault(key, {"count": 0, "changed": t is not None, "before": before, "after": after, "paras": []})
+        g["count"] += 1
+        g["paras"].append(pid)
+        if pid == slot.get("rep"):
+            rep = {"para": pid, "before": before, "after": after}
+    out = []
+    for g in groups.values():
+        g["more"] = max(0, len(g["paras"]) - PREVIEW_MAX)
+        g["paras"] = g["paras"][:PREVIEW_MAX]
+        out.append(g)
+    out.sort(key=lambda g: (not g["changed"], -g["count"]))
+    sl = None
+    try:
+        at = m.slot_place(slot)
+        if at:
+            tg = target(at, pos, full=True)
+            sl = {"before": _spot(at), "after": _spot(at, *tg) if tg else _spot(at)}
+    except ValueError as e:
+        error = error or str(e)
+    except Exception:  # noqa: BLE001
+        sl = None
+    changed = sum(g["count"] for g in out if g["changed"])
+    return {"lines": len(ids), "changed": changed, "same": sum(g["count"] for g in out) - changed, "skipped": skipped, "error": error,
+            "rep": rep, "slot": sl, "groups": out}
+
+
 def carry(old, new):
     """2단계를 다시 돌려 오버레이를 새로 만들 때 — 사용자가 정한 슬롯 규칙(같은 앵커·레벨)과 저절로 맞춘 줄의 기억을 옮긴다."""
     if not old or not new:
@@ -313,4 +385,13 @@ def view(doc, ov):
                 item["to"] = {"letterMm": _r1(x0 + at["leadMm"]), "textMm": _r1(x0 + at["prefixMm"]), "line2Mm": _r1(left + max(-first, 0.0))}
             slots[lv] = item
         out["templates"][tid]["slots"] = slots
+    from app import outline_match  # 레벨의 대표 · 넣어 온 레벨 · 템플릿 종속(spec_hwpx_웹편집 ② §8-2) — outline_match 는 이 모듈을 안 읽는다
+    for tid, ex in outline_match.view_extra(ov, outline_match.context(doc, ov)).items():
+        t = out["templates"].get(tid)
+        if t is None:
+            continue
+        for lv, sx in ex.pop("slots").items():
+            if lv in t["slots"]:
+                t["slots"][lv].update(sx)
+        t.update(ex)
     return out
