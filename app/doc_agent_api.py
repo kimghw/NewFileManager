@@ -9,7 +9,10 @@
 - 턴: 실행할 수 있는 대상을 **보낸 id**(`doc_agent.allowed_ids`)와 사람이 고른 것(표·칸 범위·서식)에 묶는다 · 표 밖 범위는 표 전체로 바꿔 읽지 않고 버린다 ·
   기준 차례는 호출 **전**의 것(`rev0`) — 도는 동안 문서가 바뀌었으면 그 턴의 제안은 모두 `stale` · 턴 id 는 무작위 꼬리 · 도는 동안 「비우기」 를 했으면 저장하지 않는다.
 - 반영: 같은 requestId 는 **영수증 + 지금 문서 상태**만(옛 구조 패치 없음 — `replayed`) · 보관함 서식의 revision 이 달라졌으면 409 · 성공하면 제안 상태를 쓰고(한 번 더 해 본다)
-  **같은 요청 안에서** 문서 상태를 작업 폴더에 쓴다 · 제안 상태를 못 썼어도 이 프로세스는 그 제안을 다시 반영하지 않는다(`_APPLIED`)."""
+  **같은 요청 안에서** 문서 상태를 작업 폴더에 쓴다 · 제안 상태를 못 썼어도 이 프로세스는 그 제안을 다시 반영하지 않는다(`_APPLIED`).
+
+2026-11-14 서식 복사(spec_서식복사 ② §6 — 행동 `styleCopy`): 턴의 프롬프트 자료에 개요 템플릿(`doc_agent.templates_of` — 2단계 그래프)을 싣고, 그 제안의 반영은 문서를 바꾸지 않는 길(`_copy_apply` —
+`style_api.save_doc_style` 을 pick 마다: `server._edit` 없음 · 쓰기 정책 없음 · 일부 실패는 `failed` 로)."""
 import logging
 import time
 
@@ -281,8 +284,10 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
         raise HTTPException(503, NO_LLM)
     gen0 = store.gen()   # 대화의 차례 — 이 턴이 도는 동안 「비우기」 를 하면 저장하지 않는다(검토 15)
     job, guide = job_prompts.for_work(s.id), doc_agent.guide()     # 할 일 프롬프트(그 작업의 TASK 에 있으면) · 판단 지침 — 파일을 읽으므로 잠금 밖에서
+    here = {"name": s.name, "sha256": getattr(s, "doc_key", None), "project": (((works.work(s.id) or {}).get("task") or {}).get("project") or "").strip() or None}   # 지금 문서 — 서식의 원본 문서와 견준다(spec_서식복사 ② §17)
     form_guide = heading_forms.table_guide(s)
     t3 = heading_runs.tables(s)
+    templates = doc_agent.templates_of(heading_runs.graph(s))   # 2단계 그래프의 개요 템플릿(서식 복사의 대상 — spec_서식복사 ② §6) — 작업 파일을 읽으므로 세션 잠금 밖에서(t3 와 같다). 그래프가 없으면 빈 목록
     with s.lock:
         if picked["table"] and picked["table"].startswith("doc:"):
             el = s.doc._ids.get(picked["table"][4:])
@@ -292,11 +297,11 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
         got_sel = doc_agent.selection_of(s.doc, sel)
         outline, tables, rev0 = doc_agent.outline_of(blocks, got_sel["focus"]), doc_agent.tables_of(blocks, focus_ids=got_sel["focus"]), s.rev   # rev0 = 이 턴의 기준 차례(호출 전 — 잠금 안에서)
     # 실행 권한의 테두리(검토 2): 프롬프트에 실제로 보낸 id · 사람이 고른 것(지금 문서에 있는 것만 — 표를 골랐을 때만 그 칸 범위)
-    allowed = doc_agent.allowed_ids(outline, tables, got_sel["data"])
+    allowed = doc_agent.allowed_ids(outline, tables, got_sel["data"], templates)
     chosen = {"paras": [p["id"] for p in got_sel["data"]["paras"]], "table": (got_sel["data"]["table"] or {}).get("id"), "range": sel["range"] if got_sel["data"]["table"] else None}
     sent = doc_agent.materials_data(mats)
     history = doc_agent.history_of([t for t in (store.turn(row["id"]) for row in store.turns()[-2 * doc_agent.HISTORY:]) if t])
-    data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked), sent, history)
+    data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked, here), sent, history, templates=templates)
     job_part, guide_part = job_prompts.part(job, doc_agent.JOB_NOTE), doc_agent.guide_part(guide)
     res = doc_agent.ask(data, guide_part, job_part, effort=effort)
     call, got = res["call"], res["data"]
@@ -327,7 +332,8 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
         with s.lock:   # 제안 검사는 지금 문서와 견주되(없는 id 는 여기서 버려진다) **기준 차례는 호출 전의 rev0** — 호출 뒤 문서로 기준을 다시 찍지 않는다(검토 3)
             changed = s.rev != rev0   # 도는 동안 문서가 바뀌었다 — 낡은 문서를 보고 한 답이다: 이 턴의 제안은 모두 낡은 것으로
             built = doc_agent.proposals(s.doc, actions, {"rev": rev0, "turn": tid, "sources": doc_agent.sources(text, got_sel["text"], sent), "styles": doc_agent.styles_index(metas),
-                                                         "picked": picked, "fills": fills, "docKey": getattr(s, "doc_key", None), "allowed": allowed, "selection": chosen, "changed": changed})
+                                                         "picked": picked, "fills": fills, "docKey": getattr(s, "doc_key", None), "allowed": allowed, "selection": chosen, "changed": changed,
+                                                         "templates": templates})
         rec.update(proposals=built["proposals"], dropped=built["dropped"], fills=fill_recs,
                    notes=[f"{d['why']}" for d in built["dropped"] if d.get("type") == "tableFill"]   # 채울 칸이 없거나 막힌 표는 그 까닭을 답에(spec ② §8)
                    + ([doc_agent.BUSY_STALE] if changed and built["proposals"] else []))
@@ -563,7 +569,10 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
     「문서가 바뀌었습니다 — 다시 요청하세요」) → 409 보관함 서식의 revision 이 제안을 낸 때와 다름(「서식이 바뀌었습니다 — 다시 요청하세요」 — 제안 상태 stale).
     400: 본문 틀림 · docx · 고른 칸 없음 · 404: 그런 턴·제안 없음 · 422: OWPML 에 어긋나 되돌림(제안은 그대로 열려 있다).
     문서 변경과 「반영됨」 기록(검토 6): 편집이 성공하면 제안 상태를 쓰고(실패하면 한 번 더) 바로 문서 상태를 작업 폴더에 쓴다(`server._persist_safe(s, force=True)` — 배경 저장을 기다리지 않는다).
-    제안 상태를 두 번 다 못 썼으면 성공 응답의 `applied.note` 에 「반영했지만 제안 상태를 저장하지 못했습니다 — 같은 제안을 다시 반영하지 마세요」 를 싣고, 이 프로세스는 그 제안을 다시 반영하지 않는다."""
+    제안 상태를 두 번 다 못 썼으면 성공 응답의 `applied.note` 에 「반영했지만 제안 상태를 저장하지 못했습니다 — 같은 제안을 다시 반영하지 마세요」 를 싣고, 이 프로세스는 그 제안을 다시 반영하지 않는다.
+    **서식 복사(type `styleCopy` — spec_서식복사 ② §6)는 다른 길이다**(`_copy_apply`): 문서를 바꾸지 않으므로 `server._edit` 를 쓰지 않고(실행 취소 없음 · rev 그대로) 쓰기 정책 403 에 걸리지 않는다(원본 문서에서도 된다).
+    같은 requestId · 404 · 409 이미 반영 · 409 낡음(고른 표·문단의 글·서식 지문)은 같다. 응답 `{replayed: false, applied {turn, proposal, type, state, styles[{id, name, kind, revision, pick}], failed[{name, why, kind, pick}]}, rev}` —
+    문서 조각 없음. 하나라도 저장되면 「반영됨」, 모두 실패면 200 + failed 로 열어 둔다(state "open")."""
     from app import server
     body = body if isinstance(body, dict) else {}
     tid, pid, rid, picks = body.get("turn"), body.get("proposal"), body.get("requestId"), body.get("picks")
@@ -579,9 +588,9 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
     if s.fmt != "hwpx":
         raise HTTPException(400, "에이전트 쓰기는 지금 hwpx 문서만 됩니다")
     pol = _policy(s)
-    if not pol["apply"]:
-        raise HTTPException(403, pol["why"])
     store = doc_agent.Store(s.id)
+    if not pol["apply"] and not _copies_style(store, tid, pid):   # 「서식 복사」 는 문서를 바꾸지 않는다 — 쓰기 정책에 걸리지 않는다(원본 문서에서도 된다: spec_서식복사 ② §6). 그 밖의 제안 · 없는 제안은 전처럼 403 이 먼저
+        raise HTTPException(403, pol["why"])
     with store.lock:   # 읽기 → 검사 → 편집 → 상태 쓰기를 한 잠금 안에서(같은 제안을 두 요청이 함께 반영하지 못하게). 잠금 차례: 저장소 → 세션
         seen = store.request(rid)
         if seen is not None:
@@ -604,6 +613,8 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
             raise HTTPException(409, "같은 묶음의 다른 후보를 이미 반영했습니다 — 후보는 하나만 반영합니다")
         if p.get("state") != "open":
             raise HTTPException(409, "반영할 수 없는 제안입니다")
+        if p.get("type") == "styleCopy":   # 서식 복사 — 문서를 바꾸지 않는다: `server._edit` 없이 보관함에 저장만(실행 취소 없음 · 문서 차례 그대로)
+            return _copy_apply(s, store, rec, p, tid, pid, rid, expected)
         op, done, side, went_stale = p["op"], {}, {}, []   # done = 응답·영수증에 싣는 것 · side = 안에서만 쓰는 것(stale — 서식이 바뀜 · targets — 옮겨 적을 지문)
         inner = {"write": lambda: _make_write(op, done, side), "tableNew": lambda: _make_table_new(op, done, side), "restyle": lambda: _make_restyle(op, done, side),
                  "tableFill": lambda: _make_fill(op, (picks or {}).get("fills") if picks and "fills" in picks else None, p.get("view") or {}, done)}.get(p.get("type"))
@@ -666,6 +677,66 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
         except Exception as e:  # noqa: BLE001 — 영수증을 못 붙들어도 반영은 끝났다(같은 requestId 가 다시 오면 「이미 반영한 제안」 409 가 막는다)
             log.warning("[에이전트 반영] %s 영수증을 저장하지 못했습니다(%s · %s): %r", s.id, tid, pid, e)
         return jsonable_encoder({**out, "replayed": False, "applied": receipt})
+
+
+def _style_api():
+    """`app.style_api`(서식 보관함 끝점 모듈 — 저장 몸통 `save_doc_style`) | None(아직 없음 · 가져오기 실패)."""
+    try:
+        from app import style_api
+        return style_api
+    except Exception:  # noqa: BLE001 — 모듈 없음·가져오다 오류: 에이전트 열의 다른 길은 서식 보관함 없이도 돈다
+        return None
+
+
+def _copies_style(store, tid, pid):
+    """저장한 그 제안이 「서식 복사」(styleCopy)인가 — 없는 턴·제안은 False(쓰기 정책 403 이 404 보다 먼저인 전의 차례 그대로)."""
+    rec = store.turn(tid)
+    return any(x.get("id") == pid and x.get("type") == "styleCopy" for x in (rec or {}).get("proposals") or [])
+
+
+def _copy_apply(s, store, rec, p, tid, pid, rid, expected):
+    """「서식 복사」 제안의 반영(spec_서식복사 ② §6) — 저장소 잠금 안에서 부른다(`agent_apply` 의 막이 404·409 를 지난 뒤). **문서를 바꾸지 않는다**: `server._edit` 를 쓰지 않고(실행 취소 없음 ·
+    문서 차례 그대로 · OWPML 검사 없음) 쓰기 정책도 보지 않는다(원본 문서에서도 된다). 대상 지문(고른 표·문단의 글·서식 — `doc_agent.looks_target`)은 전과 같은 조건으로 견준다:
+    expectedRev 가 지금과 다르거나 문서가 baseRev 뒤 바뀌었고 지문이 다르면 409 + 제안 상태 stale. 그 뒤 pick 마다 `style_api.save_doc_style(s, body)`(= `POST …/styles` 의 몸통 — 저장하고 PDF 검증을 건다):
+    그 함수가 안에서 세션 잠금을 잡으므로 **세션 잠금 밖에서** 부른다(`threading.Lock` — 겹쳐 잡으면 멈춘다). HTTPException(없는 블록 · 보관함 끔 · 끊어진 참조 …)은 그 pick 의 실패로 모은다.
+    → {replayed: false, applied: {turn, proposal, type "styleCopy", state "applied" | "open", styles[{id, name, kind, revision, pick}], failed[{name, why, kind, pick}], note?}, rev} —
+    구조 편집 응답의 문서 조각(tops·texts …)은 없다. `pick` = 제안 view.picks 안의 차례. 하나라도 저장되면 제안은 「반영됨」(`applied.styles`·`applied.failed`), 모두 실패면 열어 둔다(200 + failed — 화면이 까닭을 보인다).
+    영수증은 두 경우 모두 requestId 로 붙든다(같은 requestId 는 그 영수증). 기록 `agentApply`(type styleCopy · styles 수 · failed 수)."""
+    sa = _style_api()
+    if sa is None:
+        raise HTTPException(503, "서식 보관함 모듈이 없어 서식을 저장할 수 없습니다")
+    with s.lock:   # 대상 지문만 세션 잠금 안에서 — 저장은 아래(잠금 밖)
+        gone = (expected != s.rev or s.rev != p.get("baseRev")) and doc_agent.stale(s.doc, p)
+    if gone:       # 고른 표·문단이 제안을 낸 뒤 바뀜 — 본 것과 다른 서식을 저장하지 않는다
+        p["state"] = "stale"
+        store.save_turn(rec)
+        raise HTTPException(409, doc_agent.STALE)
+    views = (p.get("view") or {}).get("picks") or []
+    styles, failed = [], []
+    for k, body in enumerate((p.get("op") or {}).get("picks") or []):
+        label = body.get("name") or (views[k].get("summary") if k < len(views) else None) or doc_agent.STYLE_KINDS.get(body.get("kind")) or "서식"
+        try:
+            meta = sa.save_doc_style(s, dict(body))
+            styles.append({"id": meta.get("id"), "name": meta.get("name"), "kind": meta.get("kind"), "revision": meta.get("revision"), "pick": k})
+        except HTTPException as e:
+            failed.append({"name": label, "why": str(e.detail), "kind": body.get("kind"), "pick": k})
+        except Exception as e:  # noqa: BLE001 — 한 서식의 예상 밖 오류가 나머지 저장을 막지 않는다
+            log.warning("[에이전트 반영] %s 서식 복사 %s · %s 의 pick %d 를 저장하지 못했습니다: %r", s.id, tid, pid, k, e)
+            failed.append({"name": label, "why": f"저장하지 못했습니다: {type(e).__name__}: {e}"[:300], "kind": body.get("kind"), "pick": k})
+    saved = True
+    if styles:     # 하나라도 저장됨 — 제안은 「반영됨」(같은 제안을 다시 반영하면 같은 서식이 또 생긴다). 모두 실패면 열어 둔다
+        _applied_here(s.id, tid, pid, mark=True)
+        p.update(state="applied", applied={"at": round(time.time(), 3), "rev": s.rev, "table": None, "paras": [], "cells": [], "excel": None,
+                                           "note": f"서식 {len(styles)}개 저장" + (f" · 실패 {len(failed)}" if failed else ""), "styles": styles, "failed": failed})
+        saved = _save_twice(store, rec, s.id, tid, pid)
+    works.log(s.id, "agentApply", rev=s.rev, turn=tid, proposal=pid, type="styleCopy", requestId=rid, styles=len(styles), failed=len(failed))
+    receipt = jsonable_encoder({"turn": tid, "proposal": pid, "type": "styleCopy", "state": "applied" if styles else "open", "styles": styles, "failed": failed,
+                                **({} if saved else {"note": NOT_SAVED})})
+    try:
+        store.remember(rid, receipt, tid, pid)
+    except Exception as e:  # noqa: BLE001 — 영수증을 못 붙들어도 저장은 끝났다(같은 requestId 가 다시 오면 「이미 반영한 제안」 409 가 막는다)
+        log.warning("[에이전트 반영] %s 영수증을 저장하지 못했습니다(%s · %s): %r", s.id, tid, pid, e)
+    return {"replayed": False, "applied": receipt, "rev": s.rev}
 
 
 def _save_twice(store, rec, wid, tid, pid):

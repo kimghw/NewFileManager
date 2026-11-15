@@ -58,6 +58,15 @@
 .ag-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 7px 0 0; }
 .ag-acts .btn.sm { padding: 0 9px; }
 .ag-acts .btn.sm.done { color: var(--ok); border-color: #b5e0c2; }
+/* 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 저장할 서식 목록(종류 꼬리표 · 이름 · 대상) → 저장 뒤 서식마다 검증 꼬리표(.sl-verify[data-format] — style_lib.css). 되풀이 줄은 상자 없이(design.md §1-1) */
+.ag-styles { display: flex; flex-direction: column; gap: 3px; margin: 5px 0 0; min-width: 0; }
+.ag-styles:empty { display: none; }
+.ag-style { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; font-size: 12px; line-height: 1.5; }
+.ag-style > b { min-width: 0; overflow-wrap: anywhere; }
+.ag-style .hb { flex: none; max-width: none; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-2); color: var(--muted); }
+.ag-style .ag-style-what { min-width: 0; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.ag-styles > p { margin: 0; }
+.ag-state.ok { color: var(--ok); font-weight: 600; }
 .ag-state { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .ag-state.stale { color: var(--warn); font-weight: 600; }
 .ag-state.err { color: var(--fail); }

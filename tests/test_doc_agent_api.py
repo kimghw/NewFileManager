@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.testclient import TestClient
 
@@ -627,3 +628,156 @@ def test_with_style_modules_library_table_and_text_styles(c, monkeypatch):
     for _ in range(4):
         assert c.post(f"/api/docs/{d}/undo").status_code == 200
     assert [x["id"] for x in server.DOCS[d].doc.blocks()] == ["t1", "t8"]
+
+
+# ---- 서식 복사(행동 styleCopy — spec_서식복사 ② §6 「에이전트 추출 ②」): 문서를 바꾸지 않는 반영 --------------------------------------
+
+def _pick(kind, table="", template="", paras=(), name="", blueprint=False):
+    return {"kind": kind, "table": table, "template": template, "paras": list(paras), "name": name, "blueprint": blueprint}
+
+
+def _copy(*picks):
+    return {"type": "styleCopy", "after": "", "mode": "", "style": "", "table": "", "range": "", "paras": [], "item": "", "lines": [], "candidates": [], "picks": list(picks)}
+
+
+@pytest.fixture
+def lib(monkeypatch):
+    """서식 보관함 모듈과 함께(보관함은 시험마다 임시 폴더 — conftest NFM_STYLES) → (style_api, style_lib). PDF 검증·추출 모듈은 뗀다(검증 스레드가 시험 사이로 새지 않게 — tests/test_style_api.py 와 같다).
+    개요 템플릿은 없는 것으로 고정(2단계 결과와 무관하게 — 쓰는 시험은 `A.templates_of` 를 따로 바꾼다)."""
+    style_api, style_lib = pytest.importorskip("app.style_api"), pytest.importorskip("app.style_lib")
+    monkeypatch.setattr(style_api, "_mod", lambda name: None)
+    monkeypatch.setattr(A, "templates_of", lambda graph, cap=A.TEMPLATES_MAX: [])
+    return style_api, style_lib
+
+
+def _prop(c, d, k=0):
+    """다시 읽은 화면의 k번째 턴 첫 제안."""
+    return c.get(f"/api/docs/{d}/agent").json()["turns"][k]["proposals"][0]
+
+
+def test_style_copy_turn_then_apply_saves_styles_and_leaves_the_document(c, monkeypatch, lib):
+    style_api, style_lib = lib
+    d = _upload(c)
+    s = server.DOCS[d]
+    para = _cell_para(s, "t8", "기술수요 과제명")
+    seen = []
+    act = _copy(_pick("table", table="t8", name="수요조사 표 — 머리열"), _pick("text", paras=[para], name="칸 글"), _pick("table", table="t8", name="같은 표"), _pick("table", table="t999"),
+                _pick("text", template="7"))
+    _llm(monkeypatch, {"reply": "서식 둘을 저장합니다", "actions": [act]}, seen)
+    r = _turn(c, d, "이 표 서식 저장해줘", selection={"paras": [para], "table": "t8", "range": None, "cursor": None})
+    assert r.status_code == 200, r.text
+    v = r.json()["turn"]
+    (p,) = v["proposals"]
+    assert seen[0]["data"]["templates"] == [] and list(seen[0]["data"])[:5] == ["request", "selection", "outline", "tables", "templates"]
+    assert (p["type"], p["title"], p["state"], p["preselect"], p["baseRev"], p["warn"]) == ("styleCopy", "서식 복사 — 테이블 서식 1 · 템플릿 1", "open", True, 0, []) and "op" not in p
+    assert [(x["kind"], x["kindName"], x["name"]) for x in p["view"]["picks"]] == [("table", "테이블 서식", "수요조사 표 — 머리열"), ("text", "템플릿", "칸 글")]
+    assert p["view"]["picks"][0]["summary"].startswith("표 18×11") and p["view"]["picks"][1]["summary"] == "문단 1개" and p["target"]["looks"] == ["t8", para]
+    assert [(x["action"], x["pick"]) for x in v["dropped"]] == [(0, 2), (0, 3), (0, 4)] and v["notes"] == [] and s.rev == 0                    # 같은 대상 · 없는 표 · 보낸 적 없는 템플릿 — 그 pick 만 버린다
+    assert "같은 대상" in v["dropped"][0]["why"] and "문서에 없습니다" in v["dropped"][1]["why"] and A.NOT_SENT in v["dropped"][2]["why"]
+    assert A.Store(d).turn(v["id"])["proposals"][0]["op"] == {"picks": [{"kind": "table", "name": "수요조사 표 — 머리열", "table": "t8", "blueprint": False}, {"kind": "text", "name": "칸 글", "paras": [para]}]}
+    # 반영 — 보관함에 저장만: 문서 차례·실행 취소 그대로 · 문서 조각 없는 응답
+    a = _apply(c, d, v["id"], rev=0)
+    assert a.status_code == 200, a.text
+    av = a.json()
+    st = av["applied"]["styles"]
+    assert set(av) == {"replayed", "applied", "rev"} and av["replayed"] is False and av["rev"] == 0 and s.rev == 0 and len(s.undo) == 0 and len(s.doc.blocks()) == 2
+    assert av["applied"] == {"turn": v["id"], "proposal": "p1", "type": "styleCopy", "state": "applied", "styles": st, "failed": []}
+    assert [(x["name"], x["kind"], x["revision"], x["pick"]) for x in st] == [("수요조사 표 — 머리열", "table", "r1", 0), ("칸 글", "text", "r1", 1)]
+    saved = [style_lib.get(x["id"]) for x in st]
+    assert len(style_lib.listing()["styles"]) == 2 and saved[0]["source"]["block"] == "t8" and saved[0]["source"]["work"] == d and saved[0]["blueprint"] is None and len(saved[1]["items"]) == 1
+    ev = [e for e in works.events(d) if e["kind"] == "agentApply"]
+    assert len(ev) == 1 and (ev[0]["type"], ev[0]["styles"], ev[0]["failed"], ev[0]["rev"], ev[0]["turn"]) == ("styleCopy", 2, 0, 0, v["id"])
+    assert [e["kind"] for e in works.events(d)].count("styleSave") == 2
+    kept = _prop(c, d)
+    assert kept["state"] == "applied" and kept["applied"]["styles"] == st and kept["applied"]["failed"] == [] and (kept["applied"]["rev"], kept["applied"]["note"]) == (0, "서식 2개 저장")
+    assert (kept["applied"]["table"], kept["applied"]["paras"], kept["applied"]["cells"]) == (None, [], [])                                    # 자리로 갈 곳은 없다(문서에 넣은 것이 없다)
+    assert c.get(f"/api/docs/{d}/agent").json()["styles"]["table"][0]["id"] == st[0]["id"]                                                     # 저장한 서식은 서식 고르기에 보인다
+    # 같은 requestId — 영수증만(다시 저장하지 않는다) · 이미 반영한 제안 409
+    again = _apply(c, d, v["id"], rev=0)
+    assert again.status_code == 200 and again.json()["replayed"] is True and again.json()["applied"] == av["applied"] and again.json()["rev"] == 0 and len(style_lib.listing()["styles"]) == 2
+    dup = _apply(c, d, v["id"], rid="r-2", rev=0)
+    assert dup.status_code == 409 and "이미 반영" in dup.json()["detail"] and len(style_lib.listing()["styles"]) == 2
+    # 낡은 제안: 다른 표만 바뀌었으면 그대로 저장 · 고른 표가 바뀌었으면 409(본 것과 다른 서식을 저장하지 않는다)
+    _llm(monkeypatch, {"reply": "", "actions": [_copy(_pick("table", table="t8", name="다시 저장"))]})
+    v2 = _turn(c, d, "이 표 서식 저장해줘").json()["turn"]
+    assert c.patch(f"/api/docs/{d}/blocks/{_cell_para(s, 't1', '별첨')}", json={"text": "별첨 1"}).status_code == 200 and s.rev == 1           # 다른 표의 칸
+    fine = _apply(c, d, v2["id"], rid="r-3", rev=0)
+    assert fine.status_code == 200 and fine.json()["rev"] == 1 and s.rev == 1 and [x["name"] for x in fine.json()["applied"]["styles"]] == ["다시 저장"]
+    _llm(monkeypatch, {"reply": "", "actions": [_copy(_pick("table", table="t8", name="셋째"))]})
+    v3 = _turn(c, d, "이 표 서식 저장해줘").json()["turn"]
+    assert v3["proposals"][0]["baseRev"] == 1 and c.patch(f"/api/docs/{d}/blocks/{para}", json={"text": "과제 이름"}).status_code == 200 and s.rev == 2
+    late = _apply(c, d, v3["id"], rid="r-4", rev=1)
+    assert late.status_code == 409 and late.json()["detail"] == A.STALE and len(style_lib.listing()["styles"]) == 3 and s.rev == 2
+    assert _prop(c, d, 2)["state"] == "stale" and _apply(c, d, v3["id"], rid="r-5", rev=2).status_code == 409
+
+
+def test_style_copy_applies_on_a_source_document_and_reports_partial_failure(c, monkeypatch, lib):
+    style_api, style_lib = lib
+    d = _upload(c)
+    s = server.DOCS[d]
+    works.update(d, task={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": ""})          # 이관의 사업계획서 = 원본 문서(문서를 바꾸는 반영은 403)
+    assert c.get(f"/api/docs/{d}/agent").json()["policy"]["apply"] is False
+    _llm(monkeypatch, {"reply": "", "actions": [_copy(_pick("table", table="t8", name="조사서 표"), _pick("table", table="t1", name="별첨 표")), _write(mode="draft")]})
+    v = _turn(c, d, "이 문서 서식 복사해줘").json()["turn"]
+    assert [x["type"] for x in v["proposals"]] == ["styleCopy", "write"]
+    assert _apply(c, d, v["id"], "p2", rid="r-w", rev=0).status_code == 403 and _apply(c, d, v["id"], "p9", rid="r-x", rev=0).status_code == 403   # 글 쓰기 · 없는 제안은 전처럼 정책이 먼저
+    real, locked = style_api.save_doc_style, []
+
+    def flaky(sess, body):                                                                                   # 둘째 pick 만 실패
+        locked.append(sess.lock.locked())
+        if body.get("table") == "t1":
+            raise HTTPException(400, "끊어진 참조가 있어 저장하지 않습니다")
+        return real(sess, body)
+    monkeypatch.setattr(style_api, "save_doc_style", flaky)
+    a = _apply(c, d, v["id"], "p1", rev=0)                                                                   # 서식 복사는 문서를 바꾸지 않는다 — 원본 문서에서도 된다
+    assert a.status_code == 200, a.text
+    ap = a.json()["applied"]
+    assert ap["state"] == "applied" and [(x["name"], x["pick"]) for x in ap["styles"]] == [("조사서 표", 0)]
+    assert ap["failed"] == [{"name": "별첨 표", "why": "끊어진 참조가 있어 저장하지 않습니다", "kind": "table", "pick": 1}]
+    assert locked == [False, False] and s.rev == 0 and len(s.undo) == 0 and a.json()["rev"] == 0 and len(style_lib.listing()["styles"]) == 1       # 세션 잠금 밖에서 부른다(그 함수가 안에서 잡는다)
+    kept = _prop(c, d)
+    assert kept["state"] == "applied" and kept["applied"]["note"] == "서식 1개 저장 · 실패 1" and kept["applied"]["failed"] == ap["failed"]
+    ev = [e for e in works.events(d) if e["kind"] == "agentApply"]
+    assert len(ev) == 1 and (ev[0]["styles"], ev[0]["failed"]) == (1, 1)
+    assert _apply(c, d, v["id"], "p1", rid="r-2", rev=0).status_code == 409                                  # 하나라도 저장됐으면 「반영됨」
+    # 모두 실패 — 200 + failed, 제안은 열어 둔다 → 새 requestId 로 다시 반영할 수 있다
+    _llm(monkeypatch, {"reply": "", "actions": [_copy(_pick("table", table="t8", name="조사서 표 2"), _pick("page", name="문서 서식"))]})
+    v2 = _turn(c, d, "이 문서 서식 복사해줘").json()["turn"]
+
+    def off(sess, body):
+        raise HTTPException(503, "서식 보관함이 꺼져 있습니다")
+    monkeypatch.setattr(style_api, "save_doc_style", off)
+    b = _apply(c, d, v2["id"], "p1", rid="r-3", rev=0)
+    assert b.status_code == 200 and b.json()["applied"]["state"] == "open" and b.json()["applied"]["styles"] == []
+    assert [(x["name"], x["why"], x["kind"]) for x in b.json()["applied"]["failed"]] == [("조사서 표 2", "서식 보관함이 꺼져 있습니다", "table"), ("문서 서식", "서식 보관함이 꺼져 있습니다", "page")]
+    assert _prop(c, d, 1)["state"] == "open" and "applied" not in _prop(c, d, 1) and len(style_lib.listing()["styles"]) == 1
+    again = _apply(c, d, v2["id"], "p1", rid="r-3", rev=0)
+    assert again.status_code == 200 and again.json()["replayed"] is True and again.json()["applied"] == b.json()["applied"]                        # 같은 requestId 는 그 영수증
+    saved = []
+    monkeypatch.setattr(style_api, "save_doc_style", lambda sess, body: saved.append(body) or {"id": f"{len(saved):012x}", "name": body["name"], "kind": body["kind"], "revision": "r1"})
+    ok = _apply(c, d, v2["id"], "p1", rid="r-4", rev=0)
+    assert ok.status_code == 200 and ok.json()["applied"]["state"] == "applied" and [x["kind"] for x in ok.json()["applied"]["styles"]] == ["table", "page"]
+    assert saved == [{"kind": "table", "name": "조사서 표 2", "table": "t8", "blueprint": False}, {"kind": "page", "name": "문서 서식"}] and s.rev == 0 and len(s.doc.blocks()) == 2
+
+
+def test_style_copy_templates_are_sent_bound_and_never_stale(c, monkeypatch, lib):
+    style_api, _ = lib
+    rows = [{"id": "1", "no": 1, "name": "1.", "chain": ["1.", "□"], "levels": 2}]
+    monkeypatch.setattr(A, "templates_of", lambda graph, cap=A.TEMPLATES_MAX: rows)                           # 2단계 그래프의 개요 템플릿(그래프 → 이 꼴은 tests/test_doc_agent.py)
+    d = _upload(c)
+    s = server.DOCS[d]
+    seen, saved = [], []
+    _llm(monkeypatch, {"reply": "", "actions": [_copy(_pick("text", template="1", name="개요 2레벨"), _pick("page"), _pick("text", template="2"))]}, seen)
+    v = _turn(c, d, "이 문서 서식 복사해줘").json()["turn"]
+    (p,) = v["proposals"]
+    assert seen[0]["data"]["templates"] == rows and p["title"] == "서식 복사 — 템플릿 1 · 문서 서식 1" and p["view"]["picks"][0]["summary"] == "T1 · 1. › □" and p["preselect"] is True
+    assert p["target"]["blocks"] == [] and [x["pick"] for x in v["dropped"]] == [2] and A.NOT_SENT in v["dropped"][0]["why"]                     # 보낸 적 없는 템플릿
+    monkeypatch.setattr(style_api, "save_doc_style", lambda sess, body: saved.append(body) or {"id": f"{len(saved):012x}", "name": body.get("name") or "기본 이름", "kind": body["kind"], "revision": "r1"})
+    monkeypatch.setattr(API, "_style_api", lambda: None)
+    assert _apply(c, d, v["id"], rid="r-0", rev=0).status_code == 503 and _prop(c, d)["state"] == "open" and saved == []                          # 보관함 모듈 없음 — 제안은 열린 채
+    monkeypatch.setattr(API, "_style_api", lambda: style_api)
+    assert c.patch(f"/api/docs/{d}/blocks/{_cell_para(s, 't1', '별첨')}", json={"text": "별첨 1"}).status_code == 200 and s.rev == 1
+    a = _apply(c, d, v["id"], rev=0)                                                                         # 가리키는 블록이 없는 제안(템플릿 · 문서 서식)은 문서가 바뀌어도 낡지 않는다
+    assert a.status_code == 200, a.text
+    assert saved == [{"kind": "text", "name": "개요 2레벨", "template": "1"}, {"kind": "page"}] and a.json()["rev"] == 1 and s.rev == 1           # 이름이 비면 name 을 안 보낸다(기본 이름은 서버가)
+    assert [(x["name"], x["kind"], x["pick"]) for x in a.json()["applied"]["styles"]] == [("개요 2레벨", "text", 0), ("기본 이름", "page", 1)]

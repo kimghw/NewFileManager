@@ -156,7 +156,7 @@ function projectListEnsure() {
     e.preventDefault();
     const name = project.value.trim().replace(/\s+/g, " ");
     if (!name || projectBusy()) return;
-    const picker = el("input"); picker.type = "file"; picker.accept = ".hwp,.hwpx";
+    const picker = el("input"); picker.type = "file"; picker.accept = taskAcceptOf(job.value).filter((x) => x !== "pdf").map((x) => `.${x}`).join(","); // 그 TASK 가 받는 문서(task_catalog.js — 보통 hwp·hwpx · 문서 서식 복사는 docx 도). PDF 는 작업을 만들지 않으므로 여기서는 뺀다
     picker.onchange = () => projectUpload(name, job.value, picker.files[0]); picker.click();
   };
   create.append(form);
@@ -258,7 +258,7 @@ async function projectNewRound(id, source) {
     await load(result.docId);
     await loadWorks();
     $("projectNewRound").hidden = true;
-    showTab(taskEntryOf((state.task || {}).job)); // 그 TASK 가 처음 여는 보기(task_catalog.js entry)
+    taskEnter((state.task || {}).job); // 그 TASK 가 처음 여는 보기(app.js taskEnter — task_catalog.js entry)
     toast(`Round ${result.round}를 시작했습니다 — 이전 라운드는 작업 리스트에 보관됩니다`);
   } catch (e) { toast(`새 라운드를 만들지 못했습니다: ${e.message}`, true); }
   finally { projectStarting = false; if ($("projectRoundStart")) $("projectRoundStart").disabled = false; projectControlsSync(); }
@@ -266,7 +266,8 @@ async function projectNewRound(id, source) {
 
 async function projectUpload(project, job, file) {
   if (!file || projectBusy() || !confirmDiscard()) return;
-  if (!/\.hwpx?$/i.test(file.name)) { toast("TASK는 hwp·hwpx 파일로 시작합니다", true); return; }
+  const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 보통 hwp·hwpx(전과 같다) — 「문서 서식 복사」 는 docx 도(spec_서식복사 ② §1)
+  if (!exts.includes(((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase())) { toast(`TASK는 ${exts.join("·")} 파일로 시작합니다`, true); return; }
   const epoch = state.epoch;
   projectStarting = true; $("projectStartUpload").disabled = true;
   try {
@@ -278,7 +279,7 @@ async function projectUpload(project, job, file) {
     const cat = TASK_CATALOG[job], role = cat.file || guessed || "";
     const started = await api(`/api/works/${result.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project, job, file: role }) });
     if (epoch !== state.epoch) return;
-    await load(result.docId); await loadWorks(); showTab(taskEntryOf(job));
+    await load(result.docId); await loadWorks(); taskEnter(job);
     firstRun();
     toast(`${project} · ${cat.name} · Round ${started.round} 시작`);
   } catch (e) { toast(`TASK를 시작하지 못했습니다: ${e.message}`, true); }

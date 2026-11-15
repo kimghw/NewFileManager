@@ -618,6 +618,113 @@ def test_run_text_profile_and_failures_never_raise(tmp_path, monkeypatch):
     assert V.run(data, {"kind": "text"})[0]["status"] == "fail"
 
 
+# ---- 2차: 첫 쪽 전체 그림 · 표지 서식(cover-v1 — spec_서식복사 ② §13·§14) ------------------------------------------------------
+
+def test_proof_png_full_is_the_whole_first_page(tmp_path):
+    """쪽 설정·표지의 견본 그림은 내용 둘레를 자르지 않은 첫 쪽 전체 — 긴 변 1,100px 안팎 · 110dpi 를 넘지 않는다. 경로·바이트 둘 다 받는다(끝점이 저장된 proof.pdf 에서 다시 그린다)."""
+    path = _pdf(tmp_path)
+    for src in (path, path.read_bytes()):
+        png = V.proof_png(src, full=True)
+        pix = fitz.Pixmap(png)
+        assert png[:8] == b"\x89PNG\r\n\x1a\n" and abs(pix.height - V.PROOF_FULL_PX) <= 12 and pix.width == pytest.approx(pix.height * 595 / 842, abs=2)   # A4 한 쪽 통째로(약 94dpi)
+        assert pix.height <= 842 * V.PROOF_DPI / 72 + 1
+    small = fitz.open()
+    small.new_page(width=200, height=300).insert_text((20, 40), "x", fontname="helv", fontsize=10)      # 작은 쪽 — 110dpi 를 넘겨 키우지 않는다
+    spath = tmp_path / "small.pdf"
+    small.save(spath)
+    assert fitz.Pixmap(V.proof_png(spath, full=True)).height == pytest.approx(300 * V.PROOF_DPI / 72, abs=2)
+    assert fitz.Pixmap(V.proof_png(path)).height < fitz.Pixmap(V.proof_png(path, full=True)).height * 0.4   # 기본은 전처럼 내용 둘레
+
+
+COVER_PAGE = {"widthMm": 210.0, "heightMm": 297.0, "landscape": False, "marginsMm": {"l": 20.0, "r": 20.0, "t": 30.0, "b": 20.0, "gutter": 0.0}}
+
+
+def _cover(**kw):
+    """표지 서식의 meta — 글 부분 둘(제목 · 기관명) 사이에 표 하나."""
+    return {"kind": "cover", "page": COVER_PAGE, "parts": [{"key": "p1", "type": "text", "role": "title", "sample": "제목", "format": _fmt(sizePt=22.0, bold=True)},
+                                                             {"key": "p2", "type": "table", "rows": 2, "cols": 2},
+                                                             {"key": "p3", "type": "text", "role": "org", "sample": "기관명", "format": _fmt(sizePt=14.0, fontLatin="Arial")}], **kw}
+
+
+def _cover_page(exp, w=595.0, h=841.0):
+    page = _text_page({"leftMm": exp["leftMm"], "items": exp["items"]})
+    page["pages"][0].update(w=w, h=h)
+    return page
+
+
+def test_cover_checks_text_parts_and_never_counts_tables_as_passed():
+    exp = V.expect_cover(_cover())
+    assert exp["page"] == {"widthMm": 210.0, "heightMm": 297.0, "sizeTolMm": V.PAGE_TOL_HWPX} and exp["leftMm"] == 20.0 and exp["tables"] == 1
+    assert [(i["key"], i["id"], i["text"], i["format"]["sizePt"]) for i in exp["items"]] == [("p1", "c1", "제목", 22.0), ("p3", "c3", "기관명", 14.0)]   # 글 부분만 — 표 부분은 견주지 않는다
+    checks = V.check_cover(exp, _cover_page(exp))
+    assert [c["what"] for c in checks] == [*V.COVER_CHECKS, "coverLayout", "coverColor", "coverTable"]
+    st = _status(checks)
+    assert all(st[k] == "pass" for k in V.COVER_CHECKS) and st["coverLayout"] == st["coverColor"] == st["coverTable"] == "unsupported" and "표 1개" in _by(checks)["coverTable"]["note"]
+    status, cov, _ = V.summarize(checks, 1)
+    assert status == "ok" and cov["unsupported"] == 3 and _by(checks)["text"]["pass"] == 2 and cov["fail"] == 0
+    # 글자 크기·굵게가 다르면 그 부분이 fail · 쪽 크기가 다르면 pageSize fail
+    wrong = V.expect_cover({**_cover(), "parts": [{**_cover()["parts"][0], "format": _fmt(sizePt=18.0)}, *_cover()["parts"][1:]]})
+    by = _by(V.check_cover(wrong, _cover_page(exp)))
+    assert by["fontSize"]["fail"] == 1 and by["bold"]["fail"] == 1 and by["fontSize"]["examples"][0]["where"] == "p1" and by["pageSize"]["status"] == "pass"
+    by = _by(V.check_cover(exp, _cover_page(exp, w=612.0, h=792.0)))
+    assert by["pageSize"]["status"] == "fail" and by["pageSize"]["examples"][0]["want"] == "210.0×297.0mm" and by["fontSize"]["fail"] == 0
+    # 견본 줄이 PDF 에 없으면 text fail(안 잰 것을 통과로 읽지 않는다)
+    gone = _text_page({"leftMm": 20.0, "items": exp["items"]}, skip={"p3"})
+    assert _by(V.check_cover(exp, gone))["text"]["fail"] == 1 and V.summarize(V.check_cover(exp, gone), 1)[0] == "fail"
+
+
+def test_cover_expectations_follow_the_format_and_missing_pieces():
+    assert V.PROFILES["cover"] == "cover-v1" and V.expect_cover({"kind": "cover", "parts": []}) is None and V.expect_cover({"kind": "cover"}) is None and V.expect_cover(None) is None
+    dx = V.expect_cover(_cover(), "docx", own={"marginsMm": {"l": 25.0}})
+    assert dx["page"]["sizeTolMm"] == V.PAGE_TOL and dx["leftMm"] == 25.0 and "fontLatin" not in dx["items"][1]["format"] and dx["items"][1]["format"]["sizePt"] == 14.0   # docx 로 옮기는 값만
+    assert V.expect_cover(_cover())["items"][1]["format"]["fontLatin"] == "Arial"
+    given = V.expect_cover(_cover(), parts=[{"key": "v1", "type": "text", "sample": "보기에서 읽은 글", "format": _fmt()}])   # 부분을 따로 주면(운반 문서의 보기) 그것으로
+    assert [i["key"] for i in given["items"]] == ["v1"] and given["tables"] == 0
+    # 글 부분이 없는 표지(표 하나뿐인 양식의 표지) — 글 검사는 「재지 못함」
+    only = V.expect_cover({"kind": "cover", "page": COVER_PAGE, "parts": [{"key": "p1", "type": "table", "rows": 3, "cols": 4}]})
+    st = _status(V.check_cover(only, _cover_page({"leftMm": 20.0, "items": []})))
+    assert st["pageSize"] == "pass" and all(st[k] == "unsupported" for k in V.COVER_CHECKS[1:]) and st["coverTable"] == "unsupported"
+    # 쪽 설정을 모르는 표지 — pageSize 는 모름
+    bare = V.expect_cover({"kind": "cover", "parts": _cover()["parts"]})
+    assert bare["page"] is None and _status(V.check_cover(bare, _cover_page(bare)))["pageSize"] == "unknown"
+    # 대상 해시 — 부분의 역할·쪽 설정이 바뀌면 달라지고, 견본 글·이름으로는 안 달라진다
+    meta = {**_cover(), "carrierSha256": "a" * 64}
+    h = V.subject_hash(meta)
+    renamed = {**meta, "name": "새 이름", "parts": [{**meta["parts"][0], "sample": "다른 견본"}, *meta["parts"][1:]]}
+    assert V.subject_hash(renamed) == h and V.subject_hash({**meta, "parts": [{**meta["parts"][0], "role": "subtitle"}, *meta["parts"][1:]]}) != h
+    assert V.subject_hash({**meta, "page": {**COVER_PAGE, "widthMm": 297.0}}) != h
+
+
+def test_run_cover_profile_and_full_page_proof(tmp_path, monkeypatch):
+    """표지 서식의 한글 쪽 검증(가짜 출력) — profile cover-v1 · 부분은 표지 모듈이 없으면 meta.parts · 견본 그림은 첫 쪽 전체(표·글 서식은 전처럼 내용 둘레)."""
+    monkeypatch.delattr(app, "style_cover", raising=False)
+    monkeypatch.setitem(sys.modules, "app.style_cover", None)                 # 표지 모듈이 아직 없다 — meta 의 부분으로 견준다
+    meta = _cover(revision="r3")
+    exp = V.expect_cover(meta)
+    assert V.cover_parts(BASE.read_bytes(), meta) == meta["parts"] == V.cover_parts(None, meta)
+    assert V.run(b"", {"kind": "cover"})[0]["profile"] == "cover-v1"          # 한글 없이 — 출력 없음
+    _fake_export(tmp_path, monkeypatch, lambda: _cover_page(exp, h=842.0))
+    rec, files = V.run(BASE.read_bytes(), meta)
+    assert rec["profile"] == "cover-v1" and rec["status"] in ("ok", "warn") and rec["coverage"]["fail"] == 0 and rec["revision"] == "r3"
+    assert [c["what"] for c in rec["checks"]] == ["render", *V.COVER_CHECKS, "coverLayout", "coverColor", "coverTable"]
+    assert fitz.Pixmap(files["proof.png"]).height > 1000                      # 첫 쪽 전체(A4 = 1,100px 안팎)
+    rec, _ = V.run(BASE.read_bytes(), {"kind": "cover", "parts": []})
+    assert rec["status"] == "fail" and rec["note"] == "표지 서식에 부분(meta.parts)이 없습니다"
+    data, _ = _carrier_text()
+    text = V.expect_text(HwpxDoc(data))
+    monkeypatch.setattr(V, "measure_pdf", lambda path, **kw: _text_page(text))
+    _, files = V.run(data, {"kind": "text"})
+    assert fitz.Pixmap(files["proof.png"]).height < 300                       # 글 서식은 전처럼 내용 둘레로 자른다
+    # 표지 모듈이 있으면 그 보기의 부분으로(운반 문서에서 읽은 것)
+    fake = types.ModuleType("app.style_cover")
+    fake.view = lambda carrier, m: {"page": m.get("page"), "parts": [{"key": "v1", "type": "text", "sample": "보기", "format": _fmt()}]}
+    monkeypatch.setitem(sys.modules, "app.style_cover", fake)
+    monkeypatch.setattr(app, "style_cover", fake, raising=False)
+    assert [p["key"] for p in V.cover_parts(b"carrier", meta)] == ["v1"]
+    fake.view = lambda carrier, m: 1 / 0                                      # 보기를 못 지으면 meta 의 부분으로
+    assert V.cover_parts(b"carrier", meta) == meta["parts"]
+
+
 # ---- 작업(start) ---------------------------------------------------------------------------------------------------
 
 @pytest.fixture

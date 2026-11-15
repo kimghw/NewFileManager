@@ -62,7 +62,7 @@ def _kinds(c, d):
 # ---- 보관함 --------------------------------------------------------------------------------------------------------
 
 def test_save_list_get_put_delete(client):
-    assert client.get("/api/styles").json() == {"enabled": True, "pdf": False, "broken": [], "styles": []}
+    assert client.get("/api/styles").json() == {"enabled": True, "pdf": False, "pdfDocx": False, "broken": [], "styles": []}  # pdfDocx = Word 출력이 되나(spec_서식복사 ② §8)
     d = _upload(client, SMALL)
     m = _save(client, d, kind="table", table="t8", name="수요조사  표")
     sid = m["id"]
@@ -131,7 +131,7 @@ def test_put_and_delete_require_expected_revision(client, tmp_path):
 def test_library_off_is_503_but_builtin_still_applies(client, monkeypatch):
     d = _upload(client, SMALL)
     monkeypatch.setenv("NFM_STYLES", "off")
-    assert client.get("/api/styles").json() == {"enabled": False, "pdf": False, "broken": [], "styles": []}
+    assert client.get("/api/styles").json() == {"enabled": False, "pdf": False, "pdfDocx": False, "broken": [], "styles": []}
     sid = "a" * 12
     for r in (client.get(f"/api/styles/{sid}"), client.put(f"/api/styles/{sid}", json={"name": "x"}), client.delete(f"/api/styles/{sid}"), client.post(f"/api/styles/{sid}/verify"),
               client.get(f"/api/styles/{sid}/carrier"), client.post(f"/api/docs/{d}/styles", json={"kind": "table", "table": "t8"}),
@@ -209,6 +209,66 @@ def test_save_text_from_paras_and_template(client, monkeypatch):
     assert _save(client, d, kind="text", template="3")["name"] == "템플릿 3 글 서식"
 
 
+def test_para_style_role_is_saved_listed_and_edited(client):
+    """문단 서식의 역할(spec_서식복사 ② §12): 저장 `{kind: "text", paras, role?}` · meta `role`(정해진 코드나 null — 틀린 값 400) · `PUT {role}`(레벨 없는 글 서식만) · 목록 요약의 `role`·`leveled`."""
+    d = _upload(client, SMALL)
+    paras = _cell_paras(client, d)
+    m = _save(client, d, kind="text", paras=paras[:1], role="caption", name="캡션 글")
+    sid, url = m["id"], f"/api/styles/{m['id']}"
+    assert m["role"] == "caption" and style_lib.get(sid)["role"] == "caption" and _save(client, d, kind="text", paras=paras, name="역할 없이")["role"] is None
+    row = next(s for s in client.get("/api/styles").json()["styles"] if s["id"] == sid)
+    assert (row["role"], row["leveled"]) == ("caption", False)                                          # 문단 서식 = 레벨 없는 글 서식
+    for bad in ("제목", "title", "", 3):
+        r = client.post(f"/api/docs/{d}/styles", json={"kind": "text", "paras": paras[:1], "role": bad})
+        assert r.status_code == 400 and "role" in r.json()["detail"], bad
+    p = client.put(url, json={"expectedRevision": "r1", "role": "note"})
+    assert p.status_code == 200 and (p.json()["role"], p.json()["revision"]) == ("note", "r2") and style_lib.carrier(sid) == style_lib.carrier(sid, "r1")   # 운반 문서는 그대로
+    assert client.put(url, json={"expectedRevision": "r2", "role": None}).json()["role"] is None       # r3 — 모름으로
+    r = client.put(url, json={"expectedRevision": "r3", "role": "heading"})
+    assert r.status_code == 400 and "role" in r.json()["detail"] and style_lib.get(sid)["revision"] == "r3"
+    r = client.put(url, json={"expectedRevision": "r3", "role": "body", "items": [{"key": "i1", "level": 1}]})   # 같은 요청으로 레벨을 붙이면서 역할을 줄 수는 없다
+    assert r.status_code == 400 and "문단 서식" in r.json()["detail"]
+    lv = client.put(url, json={"expectedRevision": "r3", "items": [{"key": "i1", "level": 1}]})          # 레벨이 붙으면 내용 서식 — 역할은 없다
+    assert lv.status_code == 200 and lv.json()["role"] is None and lv.json()["revision"] == "r4"
+    assert client.put(url, json={"expectedRevision": "r4", "role": "body"}).status_code == 400
+    row = next(s for s in client.get("/api/styles").json()["styles"] if s["id"] == sid)
+    assert (row["role"], row["leveled"]) == (None, True)
+    t = _save(client, d, kind="table", table="t8")
+    assert client.put(f"/api/styles/{t['id']}", json={"expectedRevision": "r1", "role": "body"}).status_code == 400   # 표 서식에 역할
+    trow = next(s for s in client.get("/api/styles").json()["styles"] if s["id"] == t["id"])
+    assert "role" not in trow and "leveled" not in trow
+
+
+def test_template_save_takes_rep_only_from_the_same_slot(client, monkeypatch):
+    """템플릿 저장의 `rep`(spec_서식복사 ② §15·§16 — LLM 이 고른 대표 문단 {레벨: 문단 id}): 그래프의 `nodes` 에서 **그 템플릿 그 레벨의 문단**일 때만 받는다 — 아니면 400(다른 문단의 서식이 그 레벨로 저장되지 않게)."""
+    d = _upload(client, SMALL)
+    paras = _cell_paras(client, d)
+    doc = server.DOCS[d].doc
+    a, c = paras[0], paras[1]
+    b = next((p for p in paras[2:] if doc.get_format(p)["token"] != doc.get_format(a)["token"]), paras[2])   # 1수준의 다른 문단(되도록 서식이 다른 것)
+    other = next(p for p in paras if p not in (a, b, c))
+    node = lambda pid, no, level: {"id": f"n{pid}", "para": pid, "template": "N." if no == 3 else "다른", "tplNo": no, "level": level}  # noqa: E731
+    graph = {"templates": [{"id": 3, "no": 3, "anchor": "N.", "name": "N.", "chain": ["N.", "□"], "slots": [{"level": 1, "letter": "N.", "format": "p1|c1", "rep": a},
+                                                                                                         {"level": 2, "letter": "□", "format": "p2|c2", "rep": c}]}],
+             "nodes": [node(a, 3, 1), node(b, 3, 1), node(c, 3, 2), node(other, 4, 1), node("p99999", 3, 1)]}
+    monkeypatch.setattr(style_api.heading_runs, "graph", lambda s: graph)
+    url = f"/api/docs/{d}/styles"
+    base = _save(client, d, kind="text", template=3, name="스크립트 대표")
+    assert [i["origin"]["para"] for i in base["items"]] == [a, c] and base["role"] is None
+    picked = _save(client, d, kind="text", template=3, rep={"1": b}, name="고른 대표")
+    assert [(i["level"], i["origin"]["para"], i["origin"]["slot"]) for i in picked["items"]] == [(1, b, 1), (2, c, 2)]   # 그 레벨만 바뀐다
+    assert picked["items"][0]["format"] != base["items"][0]["format"] or doc.get_format(a)["summary"] == doc.get_format(b)["summary"]
+    for bad in ({"1": other}, {"2": b}, {"9": a}, {"x": a}, {"1": 3}, "p1", [b]):
+        r = client.post(url, json={"kind": "text", "template": 3, "rep": bad})
+        assert r.status_code == 400 and "rep" in r.json()["detail"], bad
+    assert client.post(url, json={"kind": "text", "template": 3, "rep": {"1": "p99999"}}).status_code == 404   # 그래프에는 있는데 문서에서 지워진 문단
+    r = client.post(url, json={"kind": "text", "paras": [a], "rep": {"1": b}})
+    assert r.status_code == 400 and "rep" in r.json()["detail"]                                         # rep 는 템플릿 저장에만
+    r = client.post(url, json={"kind": "text", "template": 3, "role": "body"})
+    assert r.status_code == 400 and "role" in r.json()["detail"]                                        # 개요템플릿의 글 서식에는 역할이 없다
+    assert _save(client, d, kind="text", template=3, rep={}, name="빈 rep")["items"][0]["origin"]["para"] == a
+
+
 def test_saved_table_template_carries_no_source_values(client):
     """astra 10: 머리글 없는 표를 저장하면 첫 행(관례로 머리행)의 이름·주민번호가 기본 이름·미리보기·구조(blueprint)·보기·운반 문서에 남았고, 빈 표를 넣으면 다시 나왔다."""
     d = _upload(client, SMALL)
@@ -231,12 +291,22 @@ def test_saved_table_template_carries_no_source_values(client):
         assert [c["text"] for c in blank["cells"]] == [""] * 4  # 견본 글(「가나다」)이 머리 띠라는 까닭으로 남지 않는다
 
 
-def test_docx_documents_are_rejected(client):
+def test_docx_documents_take_only_blank_table_and_format(client):
+    """spec_서식복사 ② §6·§9: docx 문서도 서식을 저장하지만(표 = 명세로 다시 지음 — summary), 적용은 빈 표 넣기 · 문단에 입히기만 — 그 밖의 모드와 개요템플릿 저장은 400."""
     d = _upload(client, DOCX)
-    tid = next(b["id"] for b in client.get(f"/api/docs/{d}").json()["blocks"] if b["type"] == "table")
-    for r in (client.post(f"/api/docs/{d}/styles", json={"kind": "table", "table": tid}), client.post(f"/api/docs/{d}/styles/candidates", json={}),
-              client.post(f"/api/docs/{d}/styles/builtin/apply", json={"mode": "tableMake", "after": tid, "grid": GRID})):
-        assert r.status_code == 400 and "hwpx" in r.json()["detail"], r.text
+    tid = max((b for b in client.get(f"/api/docs/{d}").json()["blocks"] if b["type"] == "table"), key=lambda b: len(b["cells"]))["id"]  # 20×6 자료 표(파일 추출의 후보와 같은 표)
+    for mode in ("tableMake", "tableRestyle", "page", "cover"):  # cover = 표지 넣기(spec_서식복사 ② §14 — hwpx 문서만)
+        r = client.post(f"/api/docs/{d}/styles/builtin/apply", json={"mode": mode, "after": tid, "table": tid, "grid": GRID})
+        assert r.status_code == 400 and "빈 표 넣기 · 문단에 입히기만" in r.json()["detail"], r.text
+    r = client.post(f"/api/docs/{d}/styles/builtin/apply", json={"mode": "tableBlank", "after": tid})
+    assert r.status_code == 400 and "서식 보관함의 서식만" in r.json()["detail"]  # 기본 표 · 이 문서의 표는 hwpx 문서의 것
+    r = client.post(f"/api/docs/{d}/styles", json={"kind": "text", "template": 1})
+    assert r.status_code == 400 and "hwpx 문서만" in r.json()["detail"]
+    assert client.post(f"/api/docs/{d}/styles/candidates", json={}).status_code == 501  # 추출 모듈 없이(이 파일의 _env) — 그 기능만 빠진다
+    m = _save(client, d, kind="table", table=tid)
+    assert (m["kind"], m["fidelity"], m["source"]["format"], m["source"]["block"], m["source"]["work"]) == ("table", "summary", "docx", tid, d) and m["docx"] is None  # style_docx 없이(_env) — docx: null
+    assert client.get(f"/api/docs/{d}").json()["pristine"] is True and "styleSave" in _kinds(client, d)
+    assert client.post(f"/api/docs/{d}/styles", json={"kind": "table", "table": "t99999"}).status_code == 404
 
 
 # ---- 적용 ----------------------------------------------------------------------------------------------------------
@@ -440,7 +510,7 @@ def test_candidates_and_file_routes_use_the_extract_module(client, monkeypatch):
         seen["graph"] = graph
         return {"tables": [{"key": "t:1", "table": "t8", "rows": 18, "cols": 11, "bands": {"headerRows": 0, "headerCols": 1, "footRows": 0}}, {"key": "t:2", "table": "t1"}], "texts": [{"key": "x:1"}]}
 
-    def name(cands):
+    def name(cands, job=None):  # job = 「문서 서식 복사」 의 할 일 프롬프트(끝점이 붙인다 — spec_서식복사 ② §6)
         return {"tables": {"t:1": {"name": "수요조사 양식", "keep": True, "bands": {"headerRows": 1, "headerCols": 1, "footRows": 0}, "bandsChanged": True}}, "texts": {}, "note": "하나만",
                 "call": {"backend": "api", "model": "m", "ms": 5, "costUsd": 0.01, "error": None}, "prompt": "긴 프롬프트", "response": {"tables": []}}
 
@@ -459,23 +529,35 @@ def test_candidates_and_file_routes_use_the_extract_module(client, monkeypatch):
                                  hold=lambda entry: held.setdefault("tok", entry) and "tok", held=lambda token: held.get(token))
     monkeypatch.setattr(style_api, "_mod", lambda n: fake if n == "style_extract" else None)
     r = client.post(f"/api/docs/{d}/styles/candidates", json={"llm": False})
-    assert r.status_code == 200 and r.json() == {"rev": 0, "stage2": False, "texts": [{"key": "x:1"}], "tables": candidates(None)["tables"]} and seen["graph"] is None
+    assert r.status_code == 200 and r.json() == {"rev": 0, "stage2": False, "texts": [{"key": "x:1"}], "tables": candidates(None)["tables"], "pages": [], "paras": [], "covers": [], "format": "hwpx",
+                                                 "fidelity": "native"} and seen["graph"] is None  # pages·format·fidelity = spec_서식복사 ② §8(이 가짜 모듈은 script_graph 가 없어 stage2 false) · paras·covers = ② §16(옛 모듈이 안 내면 빈 목록)
     assert client.post(f"/api/docs/{d}/styles/candidates", json={"llm": True}).status_code == 503  # LLM 꺼짐
     monkeypatch.setattr("app.llm.status", lambda: {"available": True})
     n = client.post(f"/api/docs/{d}/styles/candidates", json={"llm": True}).json()
     assert n["tables"][0] == {**candidates(None)["tables"][0], "name": "수요조사 양식", "keep": True, "bands": {"headerRows": 1, "headerCols": 1, "footRows": 0}, "bandsChanged": True}
     assert n["tables"][1] == {"key": "t:2", "table": "t1"} and n["call"]["backend"] == "api" and n["note"] == "하나만" and "prompt" not in n
+    assert n["calls"] == [n["call"]] and n["paras"] == [] and n["covers"] == []  # calls = 호출마다의 기록(② §16 — 옛 `name` 은 한 번)
     ev = [e for e in client.get(f"/api/works/{d}/log").json()["events"] if e["kind"] == "styleName"]
     assert len(ev) == 1 and ev[0]["named"] == 1 and ev[0]["costUsd"] == 0.01 and str(ev[0]["detail"]).startswith("styles/name_")
     # 파일에서 — 토큰과 후보 key 만 오간다
     assert client.post("/api/styles/extract-file", files={"file": ("a.hwpx", b"not a zip")}).status_code == 400
     up = client.post("/api/styles/extract-file", files={"file": (SMALL.name, SMALL.read_bytes())})
-    assert up.status_code == 200 and up.json() == {"token": "tok", "name": SMALL.name, "format": "hwpx", "tables": [{"key": "f:1", "rows": 18, "cols": 11}], "texts": [], "losses": ["뺀 것"]}
+    assert up.status_code == 200 and up.json() == {"token": "tok", "name": SMALL.name, "format": "hwpx", "tables": [{"key": "f:1", "rows": 18, "cols": 11}], "texts": [], "pages": [],
+                                                   "paras": [], "covers": [], "losses": ["뺀 것"]}
+    pv = client.post("/api/styles/preview-file", json={"token": "tok", "pick": {"kind": "table", "key": "f:1", "bands": {"headerCols": 1}}})  # 견본(② §13) — 저장과 같은 생성 함수(build_pick), 보관함에는 안 쓴다
+    assert pv.status_code == 200 and set(pv.json()) == {"rev", "kind", "view", "losses", "fidelity"} and (pv.json()["rev"], pv.json()["kind"], pv.json()["fidelity"]) == (None, "table", "native")
+    assert pv.json()["view"]["grid"]["headerCols"] == 1 and len(pv.json()["view"]["grid"]["rows"]) == 18 and client.get("/api/styles").json()["styles"] == []
+    gone = client.post("/api/styles/preview-file", json={"token": "expired", "pick": {"kind": "table", "key": "f:1"}})
+    assert gone.status_code == 410 and gone.json()["detail"] == "올린 파일을 서버가 놓았습니다 — 다시 올려야 저장할 수 있습니다"   # 「30분이 지남」 으로 단정하지 않는다(넷까지만 잡아 둔다)
+    assert client.post("/api/styles/preview-file", json={"token": "tok", "pick": {"kind": "table", "key": "nope"}}).status_code == 400
+    assert client.post("/api/styles/preview-file", json={"token": "tok"}).status_code == 400
     made = client.post("/api/styles/from-file", json={"token": "tok", "picks": [{"kind": "table", "key": "f:1", "name": "파일에서 온 표", "bands": {"headerCols": 1}}]})
     assert made.status_code == 200 and [m["name"] for m in made.json()["styles"]] == ["파일에서 온 표"] and made.json()["styles"][0]["revision"] == "r1"
     assert [s["name"] for s in client.get("/api/styles").json()["styles"]] == ["파일에서 온 표"] and made.json()["styles"][0]["source"]["work"] is None
     assert client.post("/api/styles/from-file", json={"token": "tok", "picks": [{"kind": "table", "key": "nope"}]}).status_code == 400
-    assert client.post("/api/styles/from-file", json={"token": "expired", "picks": [{"kind": "table", "key": "f:1"}]}).status_code == 410
+    late = client.post("/api/styles/from-file", json={"token": "expired", "picks": [{"kind": "table", "key": "f:1"}]})
+    assert late.status_code == 410 and late.json()["detail"] == style_api.GONE and "30분" not in late.json()["detail"]
+    assert client.post("/api/styles/from-file", json={"token": "tok", "picks": [{"kind": "cover", "key": "cover"}]}).status_code == 400   # 이 파일에는 표지 후보가 없다
     for bad in ({"token": "tok"}, {"token": "tok", "picks": []}, {"token": "tok", "picks": ["x"]}):
         assert client.post("/api/styles/from-file", json=bad).status_code == 400
 
@@ -517,7 +599,8 @@ def test_real_extract_and_verify_modules_plug_in(client, monkeypatch):
     monkeypatch.setattr(style_api, "_mod", REAL_MOD)
     d = _upload(client, SMALL)
     r = client.post(f"/api/docs/{d}/styles/candidates", json={})
-    assert r.status_code == 200 and r.json()["rev"] == 0 and isinstance(r.json()["tables"], list) and isinstance(r.json()["texts"], list) and r.json()["stage2"] is False
+    assert r.status_code == 200 and r.json()["rev"] == 0 and isinstance(r.json()["tables"], list) and isinstance(r.json()["texts"], list) and r.json()["stage2"] in ("script", False)  # 2단계가 없으면 스크립트 그래프로(spec_서식복사 ② §6)
+    assert isinstance(r.json()["pages"], list) and (r.json()["format"], r.json()["fidelity"]) == ("hwpx", "native")
     m = _save(client, d, kind="table", table="t8", name="실제 모듈")
     assert m["verify"] is None or m["verify"]["status"] in ("running", "none")  # 한글이 꺼져 있어(NFM_PDF=off) 「출력 없음」 으로 끝난다
     up = client.post("/api/styles/extract-file", files={"file": (SMALL.name, SMALL.read_bytes())})

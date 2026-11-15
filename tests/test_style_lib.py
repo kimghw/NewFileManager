@@ -29,12 +29,37 @@ def test_root_enabled_and_off(tmp_path, monkeypatch):
     assert L.root() == tmp_path / "local" / "NewFileManager" / "styles"
 
 
+def test_add_seen_keeps_other_source_docs_without_new_revision(tmp_path):
+    """같은 서식이 다른 문서에서 또 나오면 그 문서를 `seenIn` 에 남긴다(spec_서식복사 ② §17) — revision·고친 때·검증 기록은 그대로, 원본 문서·이미 적힌 문서는 다시 안 적는다."""
+    src = {"name": "a.hwpx", "format": "hwpx", "work": "w1", "block": "t3", "sha256": "A" * 64, "project": "갑", "job": "style_copy", "round": 2, "where": "표 3번째", "at": 10.5}
+    m = L.create({**TABLE, "source": src}, b"carrier-1")
+    assert m["source"] == {**src, "page": None} and m["seenIn"] == []
+    L.put_verify(m["id"], "r1", {"status": "ok"})
+    assert L.add_seen(m["id"], {**src, "work": "w9"}) == L.get(m["id"]) and L.get(m["id"])["seenIn"] == []      # 같은 문서(해시가 같다 — 다른 작업으로 연 것)
+    other = {"name": "b.docx", "format": "docx", "work": None, "sha256": "B" * 64, "project": "을", "where": "2쪽", "at": 20.0, "block": "t1", "junk": 1}
+    got = L.add_seen(m["id"], other)
+    seen = {"name": "b.docx", "format": "docx", "work": None, "sha256": "B" * 64, "project": "을", "job": None, "round": None, "where": "2쪽", "at": 20.0}
+    assert got["seenIn"] == [seen] and (got["revision"], got["updated"], got["verify"]) == ("r1", m["updated"], {"status": "ok"}) and got == L.get(m["id"])
+    assert L.add_seen(m["id"], {**other, "at": 30.0})["seenIn"] == [seen]                                        # 이미 적힌 문서
+    assert L.add_seen(m["id"], {"name": "c.hwpx", "format": "hwpx"})["seenIn"][-1]["name"] == "c.hwpx"           # 해시가 없으면 이름·형식으로
+    assert len(L.add_seen(m["id"], {"name": "c.hwpx", "format": "hwpx"})["seenIn"]) == 2
+    assert L.add_seen(m["id"], {"format": "hwpx"}) == L.get(m["id"]) and L.add_seen("0" * 12, other) is None      # 이름 없는 기록은 안 적는다 · 없는 서식
+    for i in range(L.SEEN_MAX + 3):
+        L.add_seen(m["id"], {"name": f"d{i}.hwpx", "format": "hwpx"})
+    kept = L.get(m["id"])["seenIn"]
+    assert len(kept) == L.SEEN_MAX and kept[-1]["name"] == f"d{L.SEEN_MAX + 2}.hwpx"                             # 넘으면 옛 것부터 버린다
+    r2 = L.revise(m["id"], "r1", {"name": "새 이름"})
+    assert r2["revision"] == "r2" and r2["seenIn"] == kept and r2["source"] == m["source"]                        # 이름을 바꿔도 원본 기록은 남는다
+    assert L.same_doc({"name": "x", "sha256": "1"}, {"name": "y", "sha256": "1"}) and not L.same_doc({"name": "x", "sha256": "1"}, {"name": "x", "sha256": "2"}) and not L.same_doc({}, {})
+
+
 def test_create_fills_meta_and_writes_revision_folder(tmp_path):
     m = L.create(TABLE, b"carrier-1", {"proof.png": b"png"})
     assert re.fullmatch(r"[0-9a-f]{12}", m["id"]) and m["revision"] == "r1" and m["schemaVersion"] == 1 and m["created"] == m["updated"] > 0
     assert m["name"] == "예산 총괄표" and m["note"] == "" and m["fidelity"] == "native" and m["verify"] is None and m["carrierSha256"] == L.sha256(b"carrier-1")
     assert m["bands"] == {"headerRows": 1, "headerCols": 3, "footRows": 1} and m["blueprint"] is None and m["losses"] == ["캡션"]  # 띠 수는 표 크기 안으로
-    assert m["requirements"] == {"fonts": ["맑은 고딕", "바탕"]} and m["source"] == {"name": "a.hwpx", "format": "hwpx", "work": "w1", "block": "t3", "page": None, "sha256": None}
+    assert m["requirements"] == {"fonts": ["맑은 고딕", "바탕"]} and m["source"] == {"name": "a.hwpx", "format": "hwpx", "work": "w1", "block": "t3", "page": None, "sha256": None,
+                                                                                     "project": None, "job": None, "round": None, "where": None, "at": None} and m["seenIn"] == []  # 원본 기록의 키(② §17) — 모르는 키(junk)는 버린다
     d = _root(tmp_path) / m["id"]
     assert json.loads((d / "current.json").read_text("utf-8")) == {"revision": "r1"}
     assert sorted(p.name for p in (d / "revisions" / "r1").iterdir()) == ["carrier.hwpx", "meta.json", "proof.png"]
@@ -260,3 +285,39 @@ def test_concurrent_revisions_get_distinct_numbers():
     for t in ts:
         t.join()
     assert not errs and sorted(out, key=lambda r: int(r[1:])) == [f"r{n}" for n in range(2, 10)] and L.get(sid)["revision"] == "r9"
+
+
+# ---- 2차: 문단 서식의 role · 표지 서식(spec_서식복사 ② §12·§14) -------------------------------------------------------------
+
+def test_text_role_is_kept_only_on_styles_without_levels():
+    para = {"kind": "text", "name": "캡션 글", "items": [{"key": "i1", "name": "문단 1", "level": None}]}
+    m = L.create({**para, "role": "caption"}, b"c1")
+    assert m["role"] == "caption" and not L.leveled(m) and L.create(para, b"c2")["role"] is None          # 역할을 안 주면 null(모름)
+    for bad in ("title", "", 3, ["body"]):
+        with pytest.raises(ValueError):
+            L.create({**para, "role": bad}, b"c")
+    assert set(L.ROLES) == {"body", "caption", "note", "box", "toc", "other"}
+    r2 = L.revise(m["id"], "r1", {"role": "note"})
+    assert r2["role"] == "note" and L.get(m["id"])["role"] == "note" and r2["revision"] == "r2"
+    with pytest.raises(ValueError):
+        L.revise(m["id"], "r2", {"role": "제목"})
+    r3 = L.revise(m["id"], "r2", {"items": [{"key": "i1", "name": "1수준", "level": 1}]})                  # 레벨이 붙으면 내용 서식 — 역할은 없다
+    assert L.leveled(r3) and r3["role"] is None
+    t = L.create({**TEXT, "role": "body"}, b"c3")                                                        # 레벨이 있는 글 서식에 준 역할은 버린다
+    assert L.leveled(t) and t["role"] is None
+    assert not L.leveled(TABLE) and not L.leveled(None) and not L.leveled({"kind": "text"})
+
+
+def test_cover_kind_needs_parts_and_keeps_page():
+    page = {"widthMm": 210.0, "heightMm": 297.0, "landscape": False, "marginsMm": {"l": 20.0, "r": 20.0, "t": 20.0, "b": 15.0}}
+    parts = [{"key": "p1", "type": "text", "role": "title", "sample": "제목", "format": {"sizePt": 22.0}}, {"key": "p2", "type": "table", "rows": 2, "cols": 3}]
+    assert "cover" in L.KINDS
+    m = L.create({"kind": "cover", "name": " 보고서  표지 ", "page": page, "parts": parts, "losses": ["그림은 옮기지 않았습니다"]}, b"cover-1", {"carrier.docx": b"docx"})
+    assert (m["kind"], m["name"], m["page"], m["parts"]) == ("cover", "보고서 표지", page, parts) and "bands" not in m and "items" not in m and "role" not in m
+    assert m["docx"]["sha256"] == L.sha256(b"docx") and L.get(m["id"]) == m and [s["id"] for s in L.listing()["styles"]] == [m["id"]] and L.listing()["broken"] == []
+    assert L.create({"kind": "cover", "name": "쪽 설정 없이", "parts": parts, "page": "A4"}, b"c")["page"] is None   # 쪽 설정을 못 읽은 표지 — 부분만
+    for bad in ({"kind": "cover", "name": "x"}, {"kind": "cover", "name": "x", "parts": []}, {"kind": "cover", "name": "x", "parts": [{"type": "image"}]}, {"kind": "cover", "name": "x", "parts": ["p"]}):
+        with pytest.raises(ValueError):
+            L.create(bad, b"c")
+    r2 = L.revise(m["id"], "r1", {"name": "새 이름"})                                                     # 이름만 — 부분·쪽 설정·docx 는 그대로
+    assert (r2["name"], r2["parts"], r2["page"], r2["docx"]) == ("새 이름", parts, page, m["docx"])

@@ -239,8 +239,8 @@ function tmnMenu(tid) {
     null,
     ["이 표를 표 양식으로 지정", "", () => tmnSetTemplate(tid), !hwpx,
       { title: `이 표를 서식을 따올 표(표 양식)로 기억합니다 — 다른 표의 「서식으로 변환하기」 목록 맨 위에 나옵니다${only}` }],
-    // 서식 보관함(spec_일반편집 ② §12 — style_lib.js): 이 표의 서식을 서버 전체 보관함에 저장 — 문서 옆 열이 이 표만 고른 채로 열린다(문서는 안 바뀜)
-    ["서식 보관함에 저장…", "", () => styleSaveOpen({ table: tid }), !hwpx || typeof styleSaveOpen !== "function",
+    // 서식 관리자(spec_일반편집 ② §12 · 이름은 spec_서식복사 ② §2 — style_lib.js): 이 표의 서식을 서버 전체 보관함에 저장 — 문서 옆 열(「서식 복사」)이 이 표만 고른 채로 열린다(문서는 안 바뀜)
+    ["서식 관리자에 저장…", "", () => styleSaveOpen({ table: tid }), !hwpx || typeof styleSaveOpen !== "function",
       { title: `이 표의 서식(괘선·음영·글자·문단 모양)을 서식 보관함에 저장합니다 — 다른 문서·TASK 에서 새 표·빈 표·서식 입히기로 다시 씁니다(문서 옆 열에서 이름·띠 수를 정해 저장)${only}` }],
   ]);
 }

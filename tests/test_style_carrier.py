@@ -543,6 +543,42 @@ def test_view_of_table_and_text_carriers(small, big):
         SC.view(data2, {"kind": "table"})  # 표가 없는 운반 문서
 
 
+def test_view_of_cover_carrier_asks_the_cover_module(monkeypatch):
+    """표지 서식의 보기(spec_서식복사 ② §14·§16) = `style_cover.view(carrier, meta)` 그대로 — 그 모듈이 아직 없으면 meta 의 값(page · parts), 보기를 못 지으면 ValueError(끝점의 viewError 길)."""
+    import sys
+    import types
+
+    import app
+    page = {"widthMm": 210.0, "heightMm": 297.0, "marginsMm": {"l": 20.0, "r": 20.0, "t": 20.0, "b": 20.0}}
+    meta = {"kind": "cover", "page": page, "parts": [{"key": "p1", "type": "text", "role": "title", "sample": "제목", "format": {"sizePt": 22.0}}, {"key": "p2", "type": "table", "rows": 2, "cols": 2}, "junk"]}
+    monkeypatch.delattr(app, "style_cover", raising=False)
+    monkeypatch.setitem(sys.modules, "app.style_cover", None)                 # 모듈 없음 — meta 의 값 그대로(표 부분의 spec 은 없다)
+    assert SC.view(SC.base(), meta) == {"page": page, "parts": meta["parts"][:2]}
+    assert SC.view(SC.base(), {"kind": "cover", "page": "A4"}) == {"page": None, "parts": []}
+    with pytest.raises(ValueError):
+        SC.view(SC.base()[:100], meta)                                        # 운반 문서가 깨졌으면 모듈이 없어도 ValueError
+    seen = []
+    fake = types.ModuleType("app.style_cover")
+
+    def view(carrier, m):
+        seen.append((carrier, m["kind"]))
+        return {"page": m["page"], "parts": [{"type": "text", "key": "p1", "role": "title", "sample": "제목", "format": {"sizePt": 22.0}, "gapBeforeMm": 0.0}, {"type": "table", "key": "p2", "spec": {"rows": 2, "cols": 2}}]}
+    fake.view = view
+    monkeypatch.setitem(sys.modules, "app.style_cover", fake)
+    monkeypatch.setattr(app, "style_cover", fake, raising=False)
+    v = SC.view(b"cover-carrier", meta)                                       # 운반 문서는 표지 모듈이 연다(여기서 열지 않는다)
+    assert v["parts"][1] == {"type": "table", "key": "p2", "spec": {"rows": 2, "cols": 2}} and v["parts"][0]["gapBeforeMm"] == 0.0 and seen == [(b"cover-carrier", "cover")]
+    fake.view = lambda carrier, m: 1 / 0
+    with pytest.raises(ValueError, match="표지 서식의 보기"):
+        SC.view(b"cover-carrier", meta)
+
+    def bad(carrier, m):
+        raise ValueError("운반 문서를 열 수 없습니다")
+    fake.view = bad
+    with pytest.raises(ValueError, match="열 수 없습니다"):
+        SC.view(b"x", meta)
+
+
 def test_put_text_writes_marker_and_body_into_their_runs(small):
     pid = next(b["id"] for c in small.table_block(BIG_TABLE)["cells"] for b in c["blocks"] if b["type"] == "paragraph" and b["text"].strip())
     small.set_text(pid, "1. 처음 글")

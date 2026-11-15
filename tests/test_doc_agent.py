@@ -80,12 +80,14 @@ def test_schema_is_strict():
         elif node.get("type") == "array":
             walk(node["items"])
         else:
-            assert node.get("type") in ("string", "integer")
+            assert node.get("type") in ("string", "integer", "boolean")
     walk(A.SCHEMA)
     action = A.SCHEMA["properties"]["actions"]["items"]["properties"]
-    assert sorted(action) == sorted(["type", "after", "mode", "style", "table", "range", "paras", "item", "lines", "candidates"])   # 행동은 type 과 무관하게 모든 키
-    assert action["type"]["enum"] == list(A.TYPES) and action["mode"]["enum"] == ["", "extract", "draft"]
-    assert sorted(["text", "rowSpan", "colSpan"]) in seen and sorted(["item", "text", "source"]) in seen and len(seen) == 7
+    assert sorted(action) == sorted(["type", "after", "mode", "style", "table", "range", "paras", "item", "lines", "candidates", "picks"])   # 행동은 type 과 무관하게 모든 키
+    assert action["type"]["enum"] == list(A.TYPES) == ["write", "tableNew", "tableFill", "restyle", "styleCopy"] and action["mode"]["enum"] == ["", "extract", "draft"]
+    assert sorted(["text", "rowSpan", "colSpan"]) in seen and sorted(["item", "text", "source"]) in seen and len(seen) == 8
+    pick = action["picks"]["items"]["properties"]                                                                                  # 서식 복사의 저장할 서식 하나(spec_서식복사 ② §6)
+    assert list(pick) == ["kind", "table", "template", "paras", "name", "blueprint"] and pick["kind"]["enum"] == ["table", "text", "page"] and pick["blueprint"] == {"type": "boolean"}
 
 
 def test_prompt_order_and_job_part_only_when_given(tmp_path, monkeypatch):
@@ -171,6 +173,20 @@ def test_styles_materials_history_payload():
                                                                     "blueprint": True}
     assert st["text"] == [{"id": "bbbbbbbbbbbb", "name": "개요 글", "items": [{"key": "i1", "name": "□ 줄", "level": 1, "sample": "□ 견본 글입니다"}]}] and st["picked"] == {"table": "doc:t1", "text": None}
     assert set(A.styles_index(metas)["table"]) == {"aaaaaaaaaaaa"} and set(A.styles_index(metas)["text"]) == {"bbbbbbbbbbbb"}
+    # 서식의 원본 문서(spec_서식복사 ② §17) — from 을 싣고, 지금 문서(here)에서 뽑은 서식 → 같은 프로젝트의 것 → 그 밖 차례로
+    t = lambda sid, src, seen=(): {"id": sid, "kind": "table", "name": sid, "rows": 2, "cols": 2, "source": src, "seenIn": list(seen)}  # noqa: E731
+    far = t("far", {"name": "남의 문서.hwpx", "sha256": "F", "project": "을", "where": "표 1번째"})
+    proj = t("proj", {"name": "같은 프로젝트 문서.hwpx", "sha256": "P", "project": "갑"}, [{"name": f"또 {i}.hwpx", "sha256": f"S{i}"} for i in range(5)])
+    mine = t("mine", {"name": "남의 문서 2.hwpx", "sha256": "G"}, [{"name": "지금 문서.hwpx", "sha256": "H", "project": "갑"}])
+    here = {"name": "지금 문서.hwpx", "sha256": "H", "project": "갑"}
+    got = A.styles_data([far, {"id": "none", "kind": "table", "name": "원본 없음"}, proj, mine], None, here)["table"]
+    assert [x["id"] for x in got] == ["builtin", "mine", "proj", "far", "none"] and "from" not in got[4] and "from" not in got[0]
+    assert got[1]["from"] == {"doc": "남의 문서 2.hwpx", "also": ["지금 문서.hwpx"], "same": "doc"}                      # 같은 서식이 이 문서에서도 나왔다(seenIn)
+    assert got[2]["from"] == {"doc": "같은 프로젝트 문서.hwpx", "project": "갑", "also": ["또 0.hwpx", "또 1.hwpx", "또 2.hwpx"], "more": 2, "same": "project"}
+    assert got[3]["from"] == {"doc": "남의 문서.hwpx", "project": "을", "where": "표 1번째"}
+    assert [x["id"] for x in A.styles_data([far, proj, mine])["table"]] == ["builtin", "far", "proj", "mine"] and "same" not in A.styles_data([mine])["table"][1]["from"]  # here 없이는 보관함 차례 그대로
+    assert A.from_text(far) == "남의 문서.hwpx · 을 · 표 1번째" and A.from_text(proj) == "같은 프로젝트 문서.hwpx · 갑 외 5개 문서" and A.from_text({"id": "x"}) is None
+    assert "from = 그 서식을 **뽑은 원본 문서**" in A.CONTRACT
     mats = [{"id": "m1", "name": "긴 자료", "text": "가" * 50_000}, {"id": "m2", "name": "짧은 자료", "text": "나" * 100}, {"id": "m3", "name": "긴 자료 2", "text": "다" * 50_000}]
     sent = A.materials_data(mats, 60_000)
     assert [m["id"] for m in sent] == ["m1", "m2", "m3"] and sum(len(m["text"]) for m in sent) == 60_000                       # 합쳐 60,000자
@@ -184,7 +200,8 @@ def test_styles_materials_history_payload():
     h = A.history_of(turns)
     assert len(h) == 6 and h[0] == {"request": "요청 2", "reply": "답 2", "applied": ["표"]} and h[-1]["request"] == "요청 7"   # 최근 6턴 · 실패한 턴은 뺀다
     p = A.payload("요청", None, [{"id": "p1", "text": "가"}], [], st, sent, h)
-    assert list(p) == ["request", "selection", "outline", "tables", "styles", "materials", "history"] and p["selection"] == {"paras": [], "table": None, "cursor": None}
+    assert list(p) == ["request", "selection", "outline", "tables", "templates", "styles", "materials", "history"] and p["selection"] == {"paras": [], "table": None, "cursor": None}
+    assert p["templates"] == []                                                                                                   # 개요 템플릿(서식 복사의 대상)을 안 주면 빈 목록
 
 
 # ---- 행동 → 제안 ----------------------------------------------------------------------------------------------------------
@@ -394,6 +411,105 @@ def test_restyle_validation(rnd):
     why = [d["why"] for d in A.proposals(rnd, [{"type": "restyle", "table": "", "style": "bbbbbbbbbbbb", "paras": ["p999999"], "item": "i1"}, {"type": "restyle", "table": "", "style": "", "paras": [], "item": ""},
                                                {"type": "restyle", "table": "t999999", "style": "builtin", "paras": [], "item": ""}], _ctx(styles=styles))["dropped"]]
     assert "문단이 문서에 없습니다" in why[0] and "표(table)나 문단(paras)이 없습니다" in why[1] and "표가 문서에 없습니다" in why[2]
+
+
+# ---- 서식 복사(행동 styleCopy — spec_서식복사 ② §6 「에이전트 추출 ②」) ----------------------------------------------------------
+
+GRAPH = {"templates": [{"id": 1, "no": 1, "name": "1.", "displayName": "", "chain": ["1.", "1-1.", "□"], "slots": [{"level": 1}, {"level": 2}, {"level": 3}]},
+                       {"id": 2, "no": 2, "name": "[1]", "displayName": "기관 절", "chain": ["[1]"], "slots": []}, {"name": "id 없음"}, "쓰레기"]}
+
+
+def _pick(kind, table="", template="", paras=(), name="", blueprint=False):
+    return {"kind": kind, "table": table, "template": template, "paras": list(paras), "name": name, "blueprint": blueprint}
+
+
+def _copy(*picks):
+    return {"type": "styleCopy", "after": "", "mode": "", "style": "", "table": "", "range": "", "paras": [], "item": "", "lines": [], "candidates": [], "picks": list(picks)}
+
+
+def test_style_copy_templates_contract_and_guide():
+    rows = A.templates_of(GRAPH)
+    assert rows == [{"id": "1", "no": 1, "name": "1.", "chain": ["1.", "1-1.", "□"], "levels": 3}, {"id": "2", "no": 2, "name": "기관 절", "chain": ["[1]"], "levels": 1}]   # id 는 글로(행동이 그대로 되적는다)
+    assert A.templates_of(GRAPH, cap=1) == [rows[0], {"more": 1}] and A.templates_of(None) == [] and A.templates_of({}) == [] and A.templates_of({"templates": None}) == []   # 그래프가 없으면 빈 목록
+    assert A.allowed_ids([{"id": "p1", "text": "가"}], [], None, rows) == {"p1", "template:1", "template:2"}                       # 보낸 템플릿 id 도 「이 턴에 보낸 id」 에(머리를 붙여 — 블록 id 와 안 섞인다)
+    assert A.allowed_ids([], [], None, A.templates_of(GRAPH, cap=1)) == {"template:1"} and A.allowed_ids([], [], None) == set()
+    assert A.payload("서식 복사", templates=rows)["templates"] == rows
+    for key in ('type "styleCopy"', "templates = 문서의 개요템플릿", "복사·추출·저장", "고유명사·수치·연도", "문서는 바뀌지 않습니다", "template 은 templates 의 id"):
+        assert key in A.CONTRACT, key
+    guide = A.guide_part()
+    assert "## 서식 복사(styleCopy)" in guide and "다시 쓸 만한 것" in guide and "구조와 겉모습" in guide and "spec_서식복사" not in guide   # 판단 기준은 지침에(그 절의 주석은 안 보낸다)
+
+
+def test_style_copy_proposal_checks_each_pick(rnd):
+    tabs = [x["id"] for x in rnd.blocks() if x["type"] == "table"]
+    a, b, other, rows = _anchor(rnd), _anchor(rnd, 6), tabs[2], A.templates_of(GRAPH)
+    act = _copy(_pick("table", table="t1", name=" 총괄표 —  머리 2행 ", blueprint=True), _pick("text", template="1", name="개요 3레벨"), _pick("text", paras=[a, b, a]), _pick("page"),
+                _pick("table", table="t1", name="같은 표 또"),                                                                    # 4: 같은 대상
+                _pick("table", table="t999999"), _pick("text", template="9"), _pick("text", paras=["p999999"]),                    # 5·6·7: 없는 표 · 보낸 적 없는 템플릿 · 없는 문단
+                _pick("text"), _pick("text", template="1", paras=[a]), _pick("기타"), _pick("page", name="가" * 61),               # 8·9·10·11: 대상 없음 · 둘 다 적음 · 모르는 종류 · 긴 이름
+                _pick("page", name="또 문서 서식"), "쓰레기")                                                                      # 12·13: 문서 서식은 하나 · 꼴이 아님
+    got = A.proposals(rnd, [act], _ctx(templates=rows))
+    (p,) = got["proposals"]                                                                                                       # 행동 하나 = 제안 하나
+    assert p["type"] == "styleCopy" and p["title"] == "서식 복사 — 테이블 서식 1 · 템플릿 2 · 문서 서식 1" and (p["state"], p["preselect"], p["warn"], p["choiceGroup"], p["baseRev"]) == ("open", True, [], None, 7)
+    assert p["op"] == {"picks": [{"kind": "table", "name": "총괄표 — 머리 2행", "table": "t1", "blueprint": True}, {"kind": "text", "name": "개요 3레벨", "template": "1"},
+                                 {"kind": "text", "paras": [a, b]}, {"kind": "page"}]}                                             # `save_doc_style` 의 body — 이름이 비면 name 을 안 싣는다(기본 이름은 서버가)
+    v = p["view"]["picks"]
+    assert [(x["kind"], x["kindName"], x["name"]) for x in v] == [("table", "테이블 서식", "총괄표 — 머리 2행"), ("text", "템플릿", "개요 3레벨"), ("text", "템플릿", None), ("page", "문서 서식", None)]
+    assert v[0]["summary"].startswith("표 49×30 · ") and (v[0]["table"], v[0]["rows"], v[0]["cols"], v[0]["blueprint"]) == ("t1", 49, 30, True)
+    assert v[1]["summary"] == "T1 · 1. › 1-1. › □" and (v[1]["template"], v[1]["no"], v[1]["chain"]) == ("1", 1, ["1.", "1-1.", "□"])
+    assert v[2]["summary"] == "문단 2개" and v[2]["paras"] == [a, b] and len(v[2]["texts"]) == 2 and v[3]["summary"] == "쪽 설정 · 본문 바탕 글 모양" and all(x["warn"] == [] for x in v)
+    assert p["target"] == A.looks_target(rnd, ["t1", a, b]) and p["target"]["looks"] == ["t1", a, b] and p["target"]["hash"] and "next" not in p["target"] and not A.stale(rnd, p)   # 넣을 자리는 없다
+    assert p["checks"][0]["status"] == "pass" and "문서는 바뀌지 않음" in p["checks"][0]["text"] and "op" not in A.card(p)
+    assert [(d["action"], d["pick"]) for d in got["dropped"]] == [(0, k) for k in range(4, 14)] and all(d["type"] == "styleCopy" for d in got["dropped"])
+    why = [d["why"] for d in got["dropped"]]
+    assert "같은 대상" in why[0] and "표가 문서에 없습니다" in why[1] and A.NOT_SENT in why[2] and "문단이 문서에 없습니다" in why[3] and "template 또는 paras" in why[4] and "하나만" in why[5]
+    assert "모르는 서식 종류" in why[6] and "이름이 너무 깁니다" in why[7] and "같은 대상" in why[8] and "꼴이어야" in why[9]
+    # 보낸 적 없는 id 는 문서에 있어도 대상이 못 된다 — 그 pick 만 버린다
+    got = A.proposals(rnd, [_copy(_pick("table", table="t1"), _pick("table", table=other), _pick("text", paras=[a]), _pick("text", paras=[b]), _pick("text", template="2"))],
+                      _ctx(templates=rows, allowed={"t1", a, "template:1"}))
+    (q,) = got["proposals"]
+    assert [x.get("table") or x.get("paras") for x in q["view"]["picks"]] == ["t1", [a]] and q["title"] == "서식 복사 — 테이블 서식 1 · 템플릿 1"
+    assert [d["pick"] for d in got["dropped"]] == [1, 3, 4] and all(A.NOT_SENT in d["why"] for d in got["dropped"])
+    # 남는 pick 이 없으면 행동을 버린다 · 8개까지
+    got = A.proposals(rnd, [_copy(), _copy(_pick("table", table="t999999")), {"type": "styleCopy"}], _ctx(templates=rows))
+    why = [d["why"] for d in got["dropped"]]
+    assert got["proposals"] == [] and len(why) == 4 and "picks" in why[0] and "표가 문서에 없습니다" in why[1] and why[2] == "저장할 수 있는 서식이 없습니다" and "picks" in why[3]
+    got = A.proposals(rnd, [_copy(*[_pick("table", table=t) for t in tabs[:10]])], _ctx())
+    assert len(got["proposals"][0]["op"]["picks"]) == A.STYLE_PICKS_MAX == 8 and [d["pick"] for d in got["dropped"]] == [8, 9] and "8개까지" in got["dropped"][0]["why"]
+    assert got["proposals"][0]["title"] == "서식 복사 — 테이블 서식 8"
+    # 사람이 고른 표·문단과 다른 대상: 제안은 남기되 경고 · 처음부터 안 고름(기존 규칙 — 템플릿·문서 서식은 가리키는 블록이 없어 안 본다)
+    one = _copy(_pick("table", table="t1"), _pick("page"))
+    for chosen, want in (({"paras": [], "table": "t1"}, None), ({"paras": [], "table": other}, "사람이 고른 표"), ({"paras": [a], "table": None}, "문단인데 표"), ({"paras": [], "table": None}, None)):
+        (p,) = A.proposals(rnd, [one], _ctx(selection={**chosen, "range": None}))["proposals"]
+        assert p["state"] == "open" and p["preselect"] is (want is None) and (p["warn"] == [] if want is None else want in p["warn"][0]), chosen
+        assert p["view"]["picks"][0]["warn"] == p["warn"] and p["view"]["picks"][1]["warn"] == [] and p["checks"][0]["status"] == ("pass" if want is None else "warn"), chosen
+    par = _copy(_pick("text", paras=[a, b]))
+    (p,) = A.proposals(rnd, [par], _ctx(selection={"paras": [a], "table": None, "range": None}))["proposals"]
+    assert p["preselect"] is False and "고른 문단 밖" in p["warn"][0]
+    (p,) = A.proposals(rnd, [par], _ctx(selection={"paras": [b, a], "table": None, "range": None}))["proposals"]
+    assert p["preselect"] is True
+    (p,) = A.proposals(rnd, [par], _ctx(changed=True))["proposals"]                                                               # 턴이 도는 동안 문서가 바뀜 — 다른 제안과 같다
+    assert (p["state"], p["preselect"]) == ("stale", False)
+
+
+def test_style_copy_target_is_text_and_looks(small):
+    para = next(c["blocks"][0]["id"] for c in small.table_block("t1")["cells"] if c["text"].strip() == "별첨")
+    (p,) = A.proposals(small, [_copy(_pick("table", table="t1"), _pick("text", paras=[para]))], _ctx())["proposals"]
+    (q,) = A.proposals(small, [_copy(_pick("table", table="t8"))], _ctx())["proposals"]
+    (page,) = A.proposals(small, [_copy(_pick("page"), _pick("text", template="1"))], _ctx(templates=A.templates_of(GRAPH)))["proposals"]
+    assert p["target"]["looks"] == ["t1", para] and q["target"] == A.looks_target(small, ["t8"]) and q["target"]["hash"] != A.target_of(small, ["t8"])["hash"]
+    assert page["target"] == {"block": None, "blocks": [], "looks": [], "hash": A.looks_target(small, [])["hash"]} and page["target"]["hash"]   # 대상 블록이 없는 제안 — 지문은 늘 같은 값
+    assert A.looks_hash(small, "t1") == A.style_hash(small, "t1") and A.looks_hash(small, para) and A.looks_hash(small, "없음") is None
+    assert A.looks_hash(small, small.table_block("t1")["cells"][0]["id"]) is None and A.looks_target(small, ["t1", "없음"])["hash"] is None      # 칸은 대상이 아니다 · 없는 블록
+    assert not A.stale(small, p) and not A.stale(small, q) and not A.stale(small, page)
+    text0 = A.target_hash(small, "t1")
+    small.format_chars(para, 0, 0, {"bold": "toggle"})                                       # 글은 그대로, 모양만 — 저장되는 것은 모양이다
+    assert A.target_hash(small, "t1") == text0 and A.stale(small, p) and not A.stale(small, page)
+    cell = next(c for c in small.table_block("t8")["cells"] if c["text"] == "기술수요 과제명")
+    small.set_text(cell["id"], "과제 이름")                                                  # 글이 바뀌어도 낡는다
+    assert A.stale(small, q) and not A.stale(small, page)
+    small.delete_blocks("t1", "t1")
+    assert A.stale(small, p) and not A.stale(small, page)                                    # 없어진 대상 · 문서 서식·템플릿만 고른 제안은 낡지 않는다(반영 때 문서에서 다시 읽는다)
 
 
 # ---- 검토(astra 2026-11-13 — artifacts/general_edit_astra_2026-11-13/review_answer.md)의 반례 ----------------------------------------

@@ -75,6 +75,10 @@
         <button class="btn sm" type="button" data-tool="table" aria-pressed="false" aria-label="테이블 수정" title="테이블 수정 — 표 행·열 넣기·지우기: 표 칸 안에 있거나 칸을 끌어 골랐을 때">
           <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 9v11M15 9v11"/></svg>
         </button>
+        <!-- 「서식」 묶음(spec_서식복사 ② §3, 2026-11-14 사용자 "여기에 서식 아이콘 넣어주고") — 다섯째: 그림 = 서식 붓(롤러). 사람이 누르면 묶음을 펼치고 서식 관리자(2열)도 연다(app.js bind — 기억한 묶음을 되살릴 때는 안 연다) -->
+        <button class="btn sm" type="button" data-tool="style" aria-pressed="false" aria-label="서식" title="서식 — 서식 관리자 · 이 문서에서 복사 · 파일에서 복사 · 템플릿 관계">
+          <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="3" width="13" height="6" rx="1.5"/><path d="M17 6h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-7v3"/><rect x="10.5" y="15" width="3" height="6" rx="1"/></svg>
+        </button>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <!-- 「페이지 보기」 묶음은 한 상자로 싸지 않고 항목마다 data-tool-for="page" — 좁은 줄에서 항목 단위로 꺾이게(상자째 꺾이면 줄이 셋이 된다) -->
@@ -126,6 +130,15 @@
         <button class="btn sm" id="tbTableMake" type="button" title="표 만들기 · 서식 변환 — 문서의 표 하나를 표 양식으로 골라 그 서식으로: 고른 글·붙여 넣은 표를 표로 정리해 넣거나, 문서의 표에 서식을 입힙니다(2열 · hwpx 만). 글을 골라 두고 누르면 그 문단들이 원본">표 만들기·서식 변환</button>
         <button class="btn sm tbl-roles-btn" id="tbTblRoles" type="button" data-keep="1" aria-pressed="false" title="문서의 표 칸에 칸 역할 색(열헤더·행헤더·귀퉁이·제목·안내)을 겹쳐 보입니다 — 표 구조(3단계) 결과가 있어야 합니다">표 구조 보기</button>
       </div>
+      <!-- 「서식」 묶음(spec_서식복사 ② §3 — style_lib.js 가 단추 셋을, outline_match.js 가 넷째 #tbTplRel 을 잇는다): 아이콘 단추 넷(글 없음 — 이름은 title·aria-label: design.md §9). #tbStyleLib 의 눌림 = 2열이 서식 관리자(styleLib·styleSave)로 열려 있음 —
+           누르면 열고 닫는다. #tbStyleCopy = 이 문서의 서식 후보 찾기(hwpx·docx) · #tbStyleFile = 파일(hwp·hwpx·docx·pdf)을 올려 후보 찾기. 그림: 겹친 판(보관한 서식) · 쪽에서 나가는 화살표 · 올리기 -->
+      <div class="tool-set group" data-tool-set="style" role="group" aria-label="서식" id="tbStyle" hidden>
+        <button class="icon tb" id="tbStyleLib" type="button" aria-pressed="false" aria-controls="headsDlg" aria-label="서식 관리자" title="서식 관리자 — 보관한 템플릿 · 문서 서식 · 테이블 서식을 문서 옆 열에서 보고 씁니다(다시 누르면 닫힘)"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
+        <button class="icon tb" id="tbStyleCopy" type="button" aria-label="이 문서에서 복사" title="이 문서에서 복사 — 이 문서의 문서 서식 · 템플릿 · 테이블 서식 후보를 찾아 서식 관리자에 저장합니다(문서는 안 바뀜)"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 21H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h7l5 5v3"/><path d="M13 3v5h5M8.5 12h3M13 17h8M18 14l3 3-3 3"/></svg></button>
+        <button class="icon tb" id="tbStyleFile" type="button" aria-label="파일에서 복사" title="파일에서 복사 — hwp·hwpx·docx·pdf 파일을 올려 그 안의 서식 후보를 찾습니다(작업은 만들지 않음)"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg></button>
+        <!-- 템플릿 관계(spec_hwpx_웹편집 ② §8-2 — outline_match.js 가 잇는다): 문서의 개요 템플릿 · 레벨마다 서식 갈래·대표 · 대표에 맞추기 · 하위로 넣기를 2열에. hwpx + 2단계 결과가 있을 때만 켜짐. 그림: 위 마디에서 갈라지는 아래 마디(개요 나무) -->
+        <button class="icon tb" id="tbTplRel" type="button" aria-pressed="false" aria-controls="headsDlg" aria-label="템플릿 관계" title="템플릿 관계" disabled><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="5" rx="1"/><rect x="11" y="10" width="10" height="4" rx="1"/><rect x="11" y="17" width="10" height="4" rx="1"/><path d="M6.5 8v10.5H11M6.5 12H11"/></svg></button>
+      </div>
       <!-- 단축키 설명(2026-11-10 — 옛 키 안내 글 #editHint 자리: 한 줄 글은 좁으면 말줄임으로 잘렸다): 누르면 문서 옆 2열에 키·마우스 조작 목록, 다시 누르면 닫힘(shortcuts.js).
            어느 묶음에서나 보이는 아이콘 하나(글 없음 — 이름은 마우스 도움말·aria-label: 사용자 「다 아이콘으로 하고 마우스 갖다 대면 이름」), 눌림 표시 = 열려 있음(aria-pressed) -->
       <button class="icon tb" id="shortcutsBtn" type="button" aria-pressed="false" aria-controls="headsDlg" aria-label="단축키 설명" title="단축키 설명 — 문서 옆 열에서 키보드·마우스 조작 보기(다시 누르면 닫힘)"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15h8"/></svg></button>
@@ -154,7 +167,7 @@
         <button type="button" role="tab" class="tab nav-analysis" id="tabHeads" aria-selected="false" aria-controls="paneHeads" tabindex="-1" hidden title="구조·라벨·템플릿"><span class="nav-icon" aria-hidden="true">☷</span><span>헤딩 추출</span></button>
         <button type="button" role="tab" class="tab" id="tabTables" aria-selected="false" aria-controls="paneTables" tabindex="-1" hidden title="표 식별·엑셀식 보기·표 지침"><span class="nav-icon" aria-hidden="true">▦</span><span>표</span></button>
         <!-- 에이전트(spec_일반편집 ② §12 — doc_agent.js): hwpx 문서에서만 보인다. 작업 종류가 「일반 문서」 면 패널 머리 「작업 내용」 이 같은 보기를 열므로 이 탭은 감춘다(app.js toolTabsDraw) -->
-        <button type="button" role="tab" class="tab" id="tabAgent" aria-selected="false" aria-controls="paneAgent" tabindex="-1" hidden title="요청 · 제안 · 서식 보관함"><span class="nav-icon" aria-hidden="true">✦</span><span>에이전트</span></button>
+        <button type="button" role="tab" class="tab" id="tabAgent" aria-selected="false" aria-controls="paneAgent" tabindex="-1" hidden title="요청 · 제안 · 서식 관리자"><span class="nav-icon" aria-hidden="true">✦</span><span>에이전트</span></button>
         <!-- 프로젝트 작업 내용은 오른쪽 패널의 「작업 내용」 탭에서 연다. -->
         <button type="button" role="tab" class="tab nav-compare" id="tabCompare" aria-selected="false" aria-controls="paneCompare" tabindex="-1" title="병합 전 확인"><span class="nav-icon" aria-hidden="true">⇄</span><span>문서 비교</span></button>
       </div>
@@ -237,6 +250,12 @@
                 <path fill="#fff" fill-opacity=".9" d="M6 4h9l5 5v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
                 <path fill="currentColor" fill-opacity=".08" d="M15 4v5h5"/><path opacity=".65" d="M8 14h8M8 18h5"/>
                 <path fill="#fff" fill-opacity=".95" d="M16.5 27.5l1.1-4.4 8.2-8.2a1.9 1.9 0 0 1 2.7 0l.6.6a1.9 1.9 0 0 1 0 2.7l-8.2 8.2-4.4 1.1Z"/><path d="M24.3 16.4l3.3 3.3"/></g></symbol>
+              <!-- 문서 서식 복사(spec_서식복사 ② §1): 문서 = 쪽(줄 — 어느 문서든) · 동작 = 서식 붓(롤러 — 도구 줄 「서식」 묶음 아이콘과 같은 그림). 바탕은 「문서 일반 편집」 과 같은 옅은 회색(data-doc="any") -->
+              <symbol id="taskIcon-style_copy" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path fill="#fff" fill-opacity=".9" d="M6 4h9l5 5v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+                <path fill="currentColor" fill-opacity=".08" d="M15 4v5h5"/><path opacity=".65" d="M8 14h6M8 18h4"/>
+                <rect fill="#fff" fill-opacity=".95" x="16" y="13.5" width="10.5" height="5" rx="1.3"/><path d="M26.5 16h1.7a1 1 0 0 1 1 1v3.2a1 1 0 0 1-1 1h-5.7v2.6"/>
+                <rect fill="#fff" fill-opacity=".95" x="21.1" y="23.8" width="2.8" height="5.2" rx="1"/></g></symbol>
             </svg>
             <header class="home-tasks-heading">
               <h2 id="homeTasksTitle">TASK</h2>
@@ -486,6 +505,7 @@
   <script src="/static/home_files.js"></script><!-- 시작 화면의 문서 목록(모아 두기 → 목적 문서 · 별칭 · 프로젝트 → TASK 카드로 시작) — app.js·gather_quick.js 다음(spec_작업 ② §15-1) -->
   <script src="/static/peer_follow.js"></script><!-- 누른 자리 따라 보기(이관 — 연차보고서의 자리를 누르면 다른 면이 사업계획서의 원본 자리로 · 둘째 면 머리의 「따라 보기」 단추) — app.js·gather.js 다음(spec_작업 ② §12) -->
   <script src="/static/compare.js"></script>
+  <script src="/static/style_pic.js"></script><!-- 서식 그림(Word 갤러리식 견본 — stylePic(view, opts): 형식 중립 값으로 그린다 · 편집 화면의 그리기 함수를 안 쓴다) — style_lib.js 앞(spec_서식복사 ② §13) -->
   <script src="/static/style_lib.js"></script><!-- 서식 보관함(보관한 표·글 서식 목록 · 추출 후보 → 저장 · 문서에 적용 — 2열) — app.js·tables.js·table_make.js·table_menu.js 다음(spec_일반편집 ② §7·§12) -->
   <script src="/static/doc_agent.js"></script><!-- 에이전트 보기(패널 #paneAgent — 요청 → 제안 카드 → 문서에 반영 · 자료 · 2열 제안 미리보기·지침) — style_lib.js·table_fill.js 다음(spec_일반편집 ② §8~§12) -->
 </body>

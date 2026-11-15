@@ -702,8 +702,31 @@ def cell_texts(carrier: bytes) -> dict:
 
 def view(carrier: bytes, meta: dict) -> dict:
     """운반 문서의 보기(끝점 `GET /api/styles/{sid}`) — 표 서식: {"table": 운반 문서 안 표 id, "grid": 글 전체 격자(띠 수는 meta 것), "spec": 표 명세} ·
-    글 서식: {"paras": [견본 문단 id…], "items": meta.items}."""
+    글 서식: {"paras": [견본 문단 id…], "items": meta.items} · 문서 서식(spec_서식복사 ② §5·§8): {"page": meta.page, "body": meta.body, "summary": 요약 한 줄 —
+    「A4 세로 · 여백 왼 30 · 오 30 · 위 20 · 아래 15mm · 본문 함초롬바탕 11pt」(`style_page.summary` — 그 모듈이 없으면 빈 글), "paras": [견본 문단 id…]} ·
+    표지 서식(spec_서식복사 ② §14·§16): `style_cover.view(carrier, meta)` = {"page", "parts": [{"type": "text", …} | {"type": "table", "spec"}]} — 그 모듈이 아직 없으면 meta 의 값 그대로
+    ({"page": meta.page, "parts": meta.parts} — 표 부분의 명세 `spec` 은 없다)."""
+    if meta.get("kind") == "cover":
+        try:
+            from app import style_cover
+        except ImportError:  # 표지 모듈이 아직 없음 — 운반 문서가 열리는지만 보고 meta 의 값을 그대로 보인다
+            doc(carrier)
+            return {"page": meta.get("page") if isinstance(meta.get("page"), dict) else None, "parts": [p for p in meta.get("parts") or [] if isinstance(p, dict)]}
+        try:
+            return style_cover.view(carrier, meta)
+        except ValueError:
+            raise
+        except Exception as e:  # noqa: BLE001 — 보기를 못 지은 것은 「운반 문서를 못 읽음」 과 같은 길로(끝점이 view: null + viewError)
+            raise ValueError(f"표지 서식의 보기를 짓지 못했습니다: {type(e).__name__}: {e}") from e
     d = doc(carrier)
+    if meta.get("kind") == "page":
+        page, body = meta.get("page") if isinstance(meta.get("page"), dict) else None, meta.get("body") if isinstance(meta.get("body"), dict) else None
+        try:
+            from app import style_page
+            summary, paras = (style_page.summary(page, body) if page else ""), getattr(style_page, "sample_ids", para_ids)(d)  # 견본 첫 줄은 첫 문단(구역 설정을 품은 문단)에 있다 — para_ids 는 그 문단을 뺀다
+        except ImportError:  # 문서 서식 모듈이 아직 없음 — 값은 그대로 보인다
+            summary, paras = "", para_ids(d)
+        return {"page": page, "body": body, "summary": summary, "paras": paras}
     if meta.get("kind") == "text":
         return {"paras": para_ids(d), "items": meta.get("items") or []}
     tid = table_id(d)

@@ -7,8 +7,31 @@
 .sl-msg:empty { display: none; }
 .sl-spin { display: inline-block; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
 .sl-run { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
-.sl-tabs { display: inline-flex; gap: 2px; }
+.sl-tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .sl-tabs .btn.sm { padding: 0 9px; }
+
+/* 서식 관리자(spec_서식복사 ② §2 — 2026-11-14): 종류 세그먼트 셋(.sl-tabs — 템플릿 · 문서 서식 · 테이블 서식: 좁으면 다음 줄로 접힌다) · 형식마다의 검증 꼬리표(.sl-verify[data-format]) · 견본 그림의 형식 전환 ·
+   문서 서식의 요약 줄 · 「서식 복사」 의 단계 줄(.sl-steps — ① 후보 찾기 › ② 에이전트 추출 › ③ 저장 › ④ PDF 검증: 끝난 것 ✓ · 지금 하는 것은 아래 한 줄에 동그라미 + 하는 일 + 지난 시간 — design.md §7·§11) · 검증 진행 줄.
+   상태는 색만으로 가르지 않는다(꼬리표 글 「hwpx 검증됨」 · 단계의 ✓). 상자를 더 두르지 않는다(§1-1 — 단계 줄은 아랫금 하나). */
+.sl-verify[data-status="nodocx"] { color: var(--muted); border-style: dashed; }
+.sl-page { margin: 3px 0 0; font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.sl-proof-fmt { display: inline-flex; gap: 2px; margin: 6px 0 0; }
+.sl-proof-fmt .btn.sm { height: 22px; padding: 0 7px; font-size: 11px; }
+.sl-proof-fmt + .sl-proof { margin-top: 3px; }
+.sl-more li.sl-fmt { margin-top: 3px; list-style: none; margin-left: -18px; color: var(--muted); font-weight: 700; }
+.sl-steps-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 2px; padding: 0 0 7px; border-bottom: 1px solid var(--line); min-width: 0; }
+.sl-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.sl-step { display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: var(--muted); white-space: nowrap; }
+.sl-step + .sl-step::before { content: "›"; margin-right: 2px; color: var(--line-strong); }
+.sl-step-no { flex: none; font-variant-numeric: tabular-nums; }
+.sl-step[data-state="done"] { color: var(--ok); }
+.sl-step[data-state="run"], .sl-step[aria-current="step"] { color: var(--text); font-weight: 700; }
+.sl-steps .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sl-step-run { flex: 1 1 100%; }
+.sl-vbox { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin: 8px 0 0; min-width: 0; }
+.sl-vbox .sl-vsum { flex: 1 1 100%; margin: 0; font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.sl-vbox .sl-vsum.late { color: var(--warn); font-weight: 600; }
+.sl-vbox .sl-vrun { flex: 1 1 100%; }
 
 /* 보관한 서식 한 줄 묶음 — 이름 줄 · 원본 줄 · 견본 그림 · 뺀 것(접힘) · 단추 줄 */
 .sl-item { padding: 9px 0 10px; border-bottom: 1px solid var(--line); min-width: 0; }
@@ -46,6 +69,11 @@
 .sl-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
 .sl-opt input { margin: 0; }
 .sl-sec { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+/* 「서식 복사」 열의 탭(spec_서식복사 ② §18 — design.md §13-1): 단계 줄 바로 아래의 세그먼트 다섯(.sl-ctabs — 서식 관리자의 갈래 단추 .sl-tabs 와 같은 간격 · 좁은 열에서는 다음 줄로 접힌다) ·
+   탭 아래 첫 줄 = 그 갈래의 설명(.sl-sec-note — 작은 회색 글: 전의 구역 제목 자리). 상자를 더 두르지 않는다(§1-1). */
+.sl-ctabs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 7px 0 0; min-width: 0; }
+.sl-ctabs .btn.sm { flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 0 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-sec-note { margin: 8px 0 2px; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .sl-cand { padding: 6px 0 7px; border-bottom: 1px solid var(--line); min-width: 0; }
 .sl-cand.off { background: none; }
 .sl-cand.done .sl-cname { color: var(--muted); }
@@ -61,3 +89,160 @@
 .sl-cstate:empty { display: none; }
 
 #doc .sl-hit, #doc table.tbl.sl-hit, #doc .xl-wrap.sl-hit { outline: 2px solid rgba(36, 88, 214, .7); outline-offset: 1px; }
+
+/* ---- 서식 그림 자리(spec_서식복사 ② §13 — style_lib.js 「서식 그림 자리」): 줄마다 그림이 먼저 — 자리(.sl-pic)는 종류마다 정해진 높이로 먼저 잡는다(목록이 안 밀린다).
+   그림은 열의 전체 폭 · 「크게」 는 그 상자 안에서만 가로로 넘긴다(열 전체는 안 넘친다) · 원천 고르기(.sl-src-seg — 웹 견본 | 한글 출력 | Word 출력)와 「크게」 는 그림 아래 한 줄(.sl-picbar). ---- */
+.sl-picbox { margin: 0 0 5px; min-width: 0; }
+.sl-cand .sl-picbox { margin: 5px 0 0; }
+.sl-pic { position: relative; box-sizing: border-box; min-width: 0; max-width: 100%; border-radius: 4px; }
+.sl-pic[data-pic-state="idle"], .sl-pic[data-pic-state="loading"], .sl-pic[data-pic-state="err"] { border: 1px solid var(--line); background: var(--surface-2); }
+.sl-pic.big { overflow-x: auto; overflow-y: hidden; }
+.sl-pic-wait, .sl-pic-msg { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 3px 6px; box-sizing: border-box; height: 100%; min-height: inherit; padding: 4px 8px; color: var(--muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.sl-pic-msg .btn.sm, .sl-picbar .btn.sm, .sl-rv .btn.sm { height: 22px; padding: 0 7px; font-size: 11px; }
+.sl-pic-proof { display: flex; align-items: flex-start; justify-content: center; border: 1px solid var(--line); background: #fff; overflow: hidden; }
+.sl-pic-proof.big { display: block; overflow-x: auto; }
+.sl-pic .sl-proof { margin: 0; border: 0; border-radius: 0; max-width: 100%; max-height: 100%; object-fit: contain; cursor: default; }
+.sl-pic.big .sl-proof { max-width: none; max-height: none; }
+.sl-picbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin: 3px 0 0; min-width: 0; color: var(--muted); font-size: 11px; }
+.sl-pic-cap { min-width: 0; overflow-wrap: anywhere; }
+.sl-src-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.sl-picbar .sl-gap { flex: 1 1 4px; }
+.sl-sub { margin: 10px 0 2px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.sl-manage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 5px 0 0; }
+.sl-role { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sl-role select { height: 24px; max-width: 9em; padding: 0 2px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); font: inherit; color: var(--text); }
+
+/* 후보마다의 검토 상태(② §15) — 글로 보인다(색만으로 가르지 않는다): 회색 「스크립트 후보 — LLM 이 보지 않음」·「LLM 이 봄 — …」 · 보라 「LLM 고침 — …」 + 「되돌리기」(보라 = LLM 이 한 것에만: design.md §6) · 주황 「확인 — …」 */
+.sl-review { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 0 19px; min-width: 0; font-size: 11.5px; line-height: 1.5; }
+.sl-review:empty { display: none; }
+.sl-rv { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.sl-rv > span { min-width: 0; overflow-wrap: anywhere; }
+.sl-rv.fix { color: #5b3fb5; }
+.sl-rv.doubt { color: var(--warn); }
+/* 후보 줄의 그림 아래(견본 줄 · 서식 정보 · 검토 상태) — 기본은 접는다(spec_서식복사 ② §19-0). 요약 줄에 추천 · 확인 n(주황) · LLM 고침·제안(보라) */
+.sl-cfold { margin: 4px 0 0 19px; min-width: 0; }
+.sl-cfold-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-height: 22px; cursor: pointer; color: var(--muted); font-size: 11px; list-style: none; }
+.sl-cfold-sum::-webkit-details-marker { display: none; }
+.sl-cfold-sum::before { content: "▸"; font-size: 10px; }
+.sl-cfold[open] > .sl-cfold-sum::before { content: "▾"; }
+.sl-cf-n { padding: 0 6px; border-radius: 9px; background: var(--surface-2); color: var(--text); line-height: 18px; white-space: nowrap; }
+.sl-cf-n.doubt { background: #fff8ec; color: #94601c; }
+.sl-cf-n.llm { background: #f6f2ff; color: #5b3fb5; }
+.sl-cfold-body > .sl-cmeta, .sl-cfold-body > .sl-review { margin-left: 0; }
+.sl-cfold-body > .sl-picbar { margin-top: 2px; }
+
+/* ---- 서식 그림(style_pic.js — ② §13): 형식 중립 값으로 그린 작은 견본. 제 클래스(sp-*)만 쓴다 — 편집 화면의 .para · table.tbl · .sheet 와 섞이지 않는다. 그림 안은 누를 수 없다(pointer-events: none). ---- */
+.sp-pic { display: block; box-sizing: border-box; width: 100%; min-width: 0; color: #222; font-size: 11px; }
+.sp-frame { position: relative; box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.sp-pic[data-sp-kind="page"] .sp-frame, .sp-pic[data-sp-kind="cover"] .sp-frame { background: var(--surface-2); }
+.sp-pic.sp-big .sp-frame { height: auto; }
+.sp-in { box-sizing: border-box; padding: 6px 8px; pointer-events: none; user-select: none; }
+.sp-frame.sp-over::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(rgba(255, 255, 255, 0), #fff); pointer-events: none; }
+.sp-note { margin: 2px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.sp-none { color: var(--muted); font-size: 11.5px; }
+/* 내용 서식 — 레벨마다 한 줄: 「L1」 표지(바깥 열) · 레터 · 견본 글 · 글 막대 */
+.sp-lv { display: flex; align-items: center; min-width: 0; margin: 0 0 3px; }
+.sp-tag { flex: none; width: 22px; color: var(--muted); font: 9.5px/1 "Malgun Gothic", sans-serif; font-variant-numeric: tabular-nums; }
+.sp-line { display: flex; align-items: center; gap: 5px; flex: 1 1 auto; box-sizing: border-box; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.3; }
+.sp-letter, .sp-text { flex: none; max-width: 62%; overflow: hidden; }
+.sp-auto { color: #9aa3b0; }
+.sp-bar { flex: 1 1 20px; min-width: 14px; height: 5px; border-radius: 2px; background: #d5d9e0; }
+/* 문단 서식 — 견본 두 줄 */
+.sp-para { margin: 0; overflow: hidden; word-break: break-all; }
+/* 테이블 서식 — 작은 표 + 표 바깥(왼쪽·위)의 띠 표시(가는 괄호선 + 글) */
+.sp-tw { position: relative; box-sizing: border-box; }
+.sp-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.sp-tbl td { box-sizing: border-box; padding: 0 2px; overflow: hidden; white-space: nowrap; line-height: 0; }
+.sp-ct { display: block; overflow: hidden; white-space: nowrap; }
+.sp-band { position: absolute; display: flex; align-items: center; box-sizing: border-box; color: #1e4bb8; font: 9px/1 "Malgun Gothic", sans-serif; white-space: nowrap; }
+.sp-band::after { content: ""; position: absolute; box-sizing: border-box; border: 1px solid #1e4bb8; }
+.sp-band-headerRows, .sp-band-footRows { justify-content: flex-end; padding-right: 7px; }
+.sp-band-footRows { top: auto !important; bottom: 0; }
+.sp-band-headerRows::after, .sp-band-footRows::after { right: 0; top: 1px; bottom: 1px; width: 4px; border-right: 0; }
+.sp-band-headerCols { align-items: flex-start; min-width: 0; }
+.sp-band-headerCols::after { left: 1px; right: 1px; bottom: 0; height: 4px; border-bottom: 0; }
+/* 쪽 설정·표지 — 쪽 도식: 용지 상자 · 본문 상자(점선) · 여백 수치 */
+.sp-dia { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.sp-mid { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.sp-paper { position: relative; flex: none; box-sizing: border-box; border: 1px solid #8f98a6; background: #fff; box-shadow: 1px 1px 0 #c9ced6; }
+.sp-body { position: absolute; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; padding: 3px; border: 1px dashed #6b7686; overflow: hidden; }
+.sp-cbody { gap: 0; padding: 0; border: 1px dotted #c0c6d0; }
+.sp-bline { flex: none; overflow: hidden; white-space: nowrap; line-height: 1.2; color: #333; }
+.sp-bbar { flex: none; width: 100%; height: 3px; min-width: 0; }
+.sp-mg { flex: none; color: var(--muted); font: 9.5px/1.2 "Malgun Gothic", sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sp-mg-l, .sp-mg-r { width: 38px; }
+.sp-mg-l { text-align: right; }
+.sp-paper-name { color: var(--text); font: 10.5px/1.3 "Malgun Gothic", sans-serif; }
+.sp-part { flex: none; min-width: 0; }
+.sp-part-text { overflow: hidden; white-space: nowrap; color: #222; }
+.sp-part-table .sp-tbl td { padding: 0; }
+
+/* LLM 이 띠를 넓히자고 한 것(서식 복사 후보 줄) — 보라 = LLM 제안(design.md §6): 사람이 눌러야 들어간다 */
+.sl-cand .btn.sl-wider { border-color: #c9b8f0; color: #5b3fb5; background: #f6f2ff; }
+.sl-cand .btn.sl-wider:hover:not(:disabled) { background: #ede6ff; }
+
+/* 서식 복사 전용 배치(design.md §13-3). 공용 보관함·문서 견본의 실제 서식에는 적용하지 않는다. */
+#headsDlg[data-kind="styleSave"] { container: sl-copy / inline-size; }
+#headsDlg[data-kind="styleSave"] > header { gap: 6px; padding: 10px 12px; }
+#headsDlg[data-kind="styleSave"] .hd-heading-copy { flex: 1; display: block; min-width: 0; }
+#headsDlg[data-kind="styleSave"] #headsDlgTitle { display: block; min-width: 0; }
+#headsDlg[data-kind="styleSave"] .sl-title-main { display: block; font-size: 14px; line-height: 20px; }
+#headsDlg[data-kind="styleSave"] .sl-title-file { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; font-weight: 400; line-height: 18px; }
+#headsDlg[data-kind="styleSave"] .sl-title-sep,
+#headsDlg[data-kind="styleSave"] #headsDlgNote,
+#headsDlg[data-kind="styleSave"] > header > .spacer { display: none; }
+#headsDlg[data-kind="styleSave"] > header > .icon { flex: none; color: var(--muted); }
+#headsDlg[data-kind="styleSave"] .hd-tools { gap: 6px; padding: 8px 12px; background: var(--surface); }
+#headsDlg[data-kind="styleSave"] .hd-tools .btn.sm { padding: 0 8px; font-size: 12px; }
+#headsDlg[data-kind="styleSave"] [data-sl-act="toLibTop"] { border-color: transparent; color: var(--muted); padding-left: 0; }
+#headsDlg[data-kind="styleSave"] [data-sl-act="auto"] { margin-left: auto; }
+#headsDlg[data-kind="styleSave"] .sl-call { flex-basis: 100%; font-size: 11px; overflow-wrap: anywhere; }
+#headsDlg[data-kind="styleSave"] .sl-wrap { padding-top: 0; }
+#headsDlg[data-kind="styleSave"] .sl-steps-row { display: block; margin: 0; padding: 10px 0; border-bottom: 0; }
+#headsDlg[data-kind="styleSave"] .sl-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; font-size: 11px; }
+#headsDlg[data-kind="styleSave"] .sl-step { justify-content: center; gap: 3px; padding: 5px 0 7px; border-bottom: 2px solid var(--line); color: var(--muted); }
+#headsDlg[data-kind="styleSave"] .sl-step + .sl-step::before { display: none; }
+#headsDlg[data-kind="styleSave"] .sl-step[data-state="done"] { color: var(--ok); border-bottom-color: #9dcab0; }
+#headsDlg[data-kind="styleSave"] .sl-step[aria-current="step"] { color: var(--accent); border-bottom-color: var(--accent); }
+#headsDlg[data-kind="styleSave"] .sl-step-run { margin-top: 7px; line-height: 1.5; }
+#headsDlg[data-kind="styleSave"] .sl-ctabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: stretch; gap: 4px; margin: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+#headsDlg[data-kind="styleSave"] .sl-ctabs .btn.sm { height: 44px; padding: 5px 2px; border: 1px solid transparent; background: var(--surface-2); border-radius: 5px; color: var(--muted); font-size: 11.5px; line-height: 16px; }
+#headsDlg[data-kind="styleSave"] .sl-ctabs .btn.sm:hover { background: var(--accent-soft); color: var(--accent); }
+#headsDlg[data-kind="styleSave"] .sl-ctabs .btn.sm.on { border-color: #b9cbf2; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+#headsDlg[data-kind="styleSave"] .sl-ctab-main { display: block; overflow: hidden; text-overflow: ellipsis; }
+#headsDlg[data-kind="styleSave"] .sl-ctab-stats { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; font-weight: 400; }
+#headsDlg[data-kind="styleSave"] .sl-ctab-picked { color: var(--accent); }
+#headsDlg[data-kind="styleSave"] .sl-sec-note { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin: 8px 0 2px; color: var(--text); font-size: 12px; }
+#headsDlg[data-kind="styleSave"] .sl-sec-note > strong { font-weight: 600; }
+#headsDlg[data-kind="styleSave"] .sl-opts { gap: 2px; margin: 0 0 0 auto; }
+#headsDlg[data-kind="styleSave"] .sl-opt { font-size: 11px; color: var(--muted); }
+#headsDlg[data-kind="styleSave"] .sl-sec-note .panel-help { width: 22px; height: 24px; }
+#headsDlg[data-kind="styleSave"] .sl-cand { padding: 8px 0 12px; }
+#headsDlg[data-kind="styleSave"] .sl-cand + .sl-cand { padding-top: 12px; }
+#headsDlg[data-kind="styleSave"] .sl-crow { border-radius: 6px; }
+#headsDlg[data-kind="styleSave"] input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+#headsDlg[data-kind="styleSave"] .sl-cname { border-color: #e0e5ed; background: var(--surface-2); font-size: 12px; font-weight: 600; }
+#headsDlg[data-kind="styleSave"] .sl-cname:hover { border-color: var(--line-strong); }
+#headsDlg[data-kind="styleSave"] .sl-cname:focus { background: var(--surface); }
+#headsDlg[data-kind="styleSave"] .sl-crow > .btn { border-color: transparent; padding: 0 5px; color: var(--accent); font-size: 11.5px; }
+#headsDlg[data-kind="styleSave"] .sl-cand:has(.sl-crow > input:checked) .sl-cname { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); }
+#headsDlg[data-kind="styleSave"] .sl-cand:has(.sl-crow > input:checked) .sp-frame { border-color: #9fb5ea; }
+#headsDlg[data-kind="styleSave"] .sl-cand .sl-picbox { margin-top: 6px; }
+#headsDlg[data-kind="styleSave"] .sl-picbar { margin-top: 4px; font-size: 10.5px; }
+#headsDlg[data-kind="styleSave"] .sl-picbar .btn.sm { border-color: transparent; color: var(--muted); }
+#headsDlg[data-kind="styleSave"] .sl-cmeta { gap: 4px 8px; margin: 5px 0 0; font-size: 11px; }
+#headsDlg[data-kind="styleSave"] .sl-review { gap: 0; margin: 6px 0 0; font-size: 11px; }
+#headsDlg[data-kind="styleSave"] .sl-rv { padding: 2px 0; }
+#headsDlg[data-kind="styleSave"] .sl-rv[data-rv="by"] { margin-bottom: 3px; }
+#headsDlg[data-kind="styleSave"] .sl-rv.doubt { border-left: 2px solid #d9a15b; padding: 4px 8px; background: #fff8ec; color: #94601c; }
+#headsDlg[data-kind="styleSave"] .sl-rv.fix { border-left: 2px solid #aa8bd8; padding: 4px 8px; background: #f8f5ff; }
+#headsDlg[data-kind="styleSave"] .sl-cstate { margin-left: 0; }
+#headsDlg[data-kind="styleSave"] .sl-cfold { margin: 4px 0 0; }
+#headsDlg[data-kind="styleSave"] > footer { gap: 6px 8px; background: var(--surface-2); }
+#headsDlg[data-kind="styleSave"] .sl-selection-count { font-size: 11px; }
+@container sl-copy (max-width: 420px) {
+  #headsDlg[data-kind="styleSave"] .sl-ctabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #headsDlg[data-kind="styleSave"] .sl-ctabs .btn.sm { font-size: 11px; }
+  #headsDlg[data-kind="styleSave"] .sl-steps { gap: 3px; font-size: 10px; }
+  #headsDlg[data-kind="styleSave"] .hd-tools .btn.sm { font-size: 11px; padding-right: 6px; padding-left: 6px; }
+}

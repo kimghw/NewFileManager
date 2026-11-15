@@ -466,3 +466,58 @@ def test_allow_adds_carried_violation_kinds_to_the_baseline(big, table_style):
     assert set(added) == set(kinds) == set(base["schema"]) and SA.allow(base, src) == [] and SA.allow(base, None) == [] and not base["rules"]  # 없는 종류만 · 규칙 위반 기준선은 그대로
     big_kinds, small_kinds = (set(C.counts(C.check_doc(HwpxDoc(p.read_bytes())))["schema"]) for p in (RND, SMALL))
     assert big_kinds - small_kinds and small_kinds - big_kinds  # 두 견본 문서는 한글이 써 둔 위반 종류가 서로 다르다 — 그래서 기준선에 더해야 한다
+
+
+# ---- 표지 넣기(spec_서식복사 ② §14) — `app.style_cover` 는 흉내로 물린다 ------------------------------------------------------
+
+def _fake_cover(monkeypatch, insert):
+    import sys
+
+    import app
+    fake = types.ModuleType("app.style_cover")
+    fake.insert = insert
+    monkeypatch.setitem(sys.modules, "app.style_cover", fake)
+    monkeypatch.setattr(app, "style_cover", fake, raising=False)
+    return fake
+
+
+def test_cover_style_and_cover_insert(text_style, monkeypatch):
+    """표지 서식 고르기(`cover_style`)와 넣기(`cover_insert` — `style_cover.insert(doc, 운반 문서)` 를 감싼다: 가져오기 전 운반 문서 검사 · 넣은 블록이 없으면 ValueError · 모듈이 없으면 ValueError)."""
+    parts = [{"key": "p1", "type": "text", "role": "title", "sample": "제목"}]
+    cm = L.create({"kind": "cover", "name": "표지", "parts": parts, "page": None}, text_style[0])      # 운반 문서 = 견본 문단들(글 서식 것 — 표지의 블록 구실)
+    xm = L.create({"kind": "text", "name": "본문 글", "items": text_style[1]}, text_style[0])
+    cs = SA.cover_style(cm["id"])
+    assert isinstance(cs["src"], HwpxDoc) and cs["parts"] == parts and cs["meta"]["id"] == cm["id"]
+    with pytest.raises(ValueError):
+        SA.cover_style(xm["id"])                                               # 표지 서식이 아닌 것
+    with pytest.raises(KeyError):
+        SA.cover_style("f" * 12)
+    tgt = _target()
+    for wrong in (lambda: SA.style_of(tgt, cm["id"]), lambda: SA.text_style(cm["id"]), lambda: SA.page_style(cm["id"])):   # 표지 서식을 표·글·쪽 설정 자리에
+        with pytest.raises(ValueError):
+            wrong()
+    first, n0, seen = tgt._id(next(tgt._sections[0].iterchildren(P))), len(tgt.blocks()), []
+
+    def insert(doc, cdoc):
+        seen.append((doc is tgt, cdoc is cs["src"]))
+        ids, anchor = [], first
+        for pid in SC.para_ids(cdoc)[:2]:
+            anchor = doc.insert_after(anchor, [{"kind": "copy", "srcId": pid}], src=cdoc)[0]
+            ids.append(anchor)
+        return {"blocks": ids, "after": "p-없는-블록"}
+    fake = _fake_cover(monkeypatch, insert)
+    r = SA.cover_insert(tgt, cs)
+    assert seen == [(True, True)] and len(r["blocks"]) == 2 and r["after"] is None and len(tgt.blocks()) == n0 + 2   # 모르는 after 는 None 으로
+    assert all(tgt._text(tgt._ids[i]).endswith("견본 글입니다") for i in r["blocks"])
+    fake.insert = lambda doc, cdoc: {"blocks": ["p-없는-블록"], "after": None}
+    with pytest.raises(ValueError, match="넣은 블록이 없습니다"):
+        SA.cover_insert(tgt, cs)
+    fake.insert = lambda doc, cdoc: None
+    with pytest.raises(ValueError):
+        SA.cover_insert(tgt, cs)
+    import sys
+    monkeypatch.setitem(sys.modules, "app.style_cover", None)                 # 표지 모듈이 없다 — 그 기능만 빠진다
+    import app
+    monkeypatch.delattr(app, "style_cover", raising=False)
+    with pytest.raises(ValueError, match="style_cover"):
+        SA.cover_insert(tgt, cs)

@@ -10,7 +10,7 @@
 // app.js 가 주는 것: state·heads·$·el·api·toast·structOp(+ structOp.lastError)·flushAll·headsDlg·headsColClose·hBtn·hTable·fmtWhen·nf·short·H_JSON. style_lib.js: slSelection·slTopOf·slBlockEls·slGo·styleLibOpen·styleSaveOpen.
 // tables.js: xlColumn·xlRangeName. table_fill.js: TFL_FORM·TFL_WHERE·tblFillHit·tblFillGo. 서버 짝은 app/doc_agent_api.py — 끝점이 없으면(404·501·503) 그 까닭을 한 줄로 보이고 입력을 끈다.
 
-const AG_TYPE = { write: "글 쓰기", tableNew: "새 표", tableFill: "표 채우기", restyle: "서식 입히기" };
+const AG_TYPE = { write: "글 쓰기", tableNew: "새 표", tableFill: "표 채우기", restyle: "서식 입히기", styleCopy: "서식 복사" }; // styleCopy = 문서의 서식을 보관함에 저장(문서는 안 바뀜 — spec_서식복사 ② §6)
 const AG_MODE = { extract: "자료·선택 글에서 옮긴 글", draft: "에이전트가 쓴 글" };
 const AG_FILES = ".txt,.md,.csv,.tsv,.xlsx,.docx,.hwpx,.pdf";
 const AG_STALE = "문서가 바뀌었습니다 — 다시 요청하세요";
@@ -43,7 +43,7 @@ function agentFillPicks(p) { // 표 채우기 제안의 고른 칸 — 처음에
   }
   return AGENT.fills[p.id];
 }
-const agentStyleOf = (v, kind) => v.styleName || agentStyleName(v.style, kind); // 제안이 쓰는 서식의 이름(서버가 준 이름 먼저)
+const agentStyleOf = (v, kind) => (v.styleName || agentStyleName(v.style, kind)) + (v.styleFrom ? ` (원본 ${v.styleFrom})` : ""); // 제안이 쓰는 서식의 이름(서버가 준 이름 먼저) + 그 서식을 뽑은 문서(spec_서식복사 ② §17)
 const agentFillCount = (p) => { const s = agentFillPicks(p); return (((p.view || {}).fills) || []).filter((f) => s.has(f.cell)).length; };
 function agentStyleName(id, kind) {
   if (!id) return kind === "text" ? "자리 둘레 서식" : "정하지 않음";
@@ -123,7 +123,7 @@ function agentFrame() {
   E.status = el("div", "ag-status");
   E.status.setAttribute("role", "status");
   E.statusText = el("span", "ag-status-text");
-  E.lib = hBtn("서식 보관함", () => { if (typeof styleLibOpen === "function") styleLibOpen(); }, { title: "보관한 표 서식·글 서식을 문서 옆 열에서 보고 문서에 적용합니다 — 이 문서의 서식을 추출해 저장할 수도 있습니다" });
+  E.lib = hBtn("서식 관리자", () => { if (typeof styleLibOpen === "function") styleLibOpen(); }, { title: "보관한 표지 · 내용 · 테이블 · 문단 서식을 문서 옆 열에서 그림으로 보고 문서에 적용합니다 — 이 문서의 서식을 복사해 저장할 수도 있습니다" }); // 열 이름 = 서식 관리자(spec_서식복사 ② §2)
   E.lib.dataset.agAct = "library";
   E.clear = hBtn("비우기", () => agentClear(), { title: "이 문서의 대화(요청·답·제안)와 자료를 모두 지웁니다 — 문서는 그대로 · 한 번 더 눌러야 지웁니다" });
   E.clear.dataset.agAct = "clear";
@@ -194,7 +194,7 @@ function agentDrawStatus() {
     : A.enabled ? ["on", "LLM 사용 가능 — 요청하면 제안을 냅니다"] : ["off", "LLM 을 쓸 수 없습니다 — 제안을 받을 수 없습니다"];
   E.status.dataset.llm = st[0];
   E.statusText.textContent = st[1];
-  E.statusText.title = st[1] + (st[0] === "off" && A.loaded && A.hwpx ? "\nClaude 실행 파일·로그인·API 키가 없거나 꺼져 있습니다 — 서식 보관함과 자료 넣기는 됩니다" : "");
+  E.statusText.title = st[1] + (st[0] === "off" && A.loaded && A.hwpx ? "\nClaude 실행 파일·로그인·API 키가 없거나 꺼져 있습니다 — 서식 관리자와 자료 넣기는 됩니다" : "");
   const armed = performance.now() < A.clearArm;
   E.clear.disabled = !A.loaded || !(A.turns.length || A.lost || A.materials.length) || !!A.busy || !!A.applying;
   E.clear.classList.toggle("arm", armed);
@@ -278,6 +278,7 @@ function agentCardEl(t, group) {
     }
     card.append(list);
   } else if (p.summary) card.append(el("p", "ag-sum", p.summary));
+  if (p.type === "styleCopy") card.append(agentStyleCopyEl(p)); // 무엇을 저장하나 · 저장 뒤 서식마다 검증 꼬리표
   card.append(agentChecksEl(p), agentActsEl(t, p));
   card.addEventListener("mouseenter", () => agentHit(p));
   card.addEventListener("mouseleave", () => agentHit(null));
@@ -317,6 +318,22 @@ function agentChecksEl(p) { // 검사 줄 — 종류별 요약 · 엑셀 검증 
 function agentActsEl(t, p, inCol = false) { // 카드의 단추 줄(2열 미리보기의 발치도 같은 줄 — inCol = 「미리보기」 빼고)
   const A = AGENT, acts = el("div", inCol ? "agp-foot" : "ag-acts"), v = p.view || {}, st = p.state || "open";
   const btn = (key, b) => { b.dataset.agAct = key; acts.append(b); return b; };
+  if (p.type === "styleCopy") { // 서식 복사 — 문서를 바꾸지 않는다: 미리보기 없음(카드에 목록이 있다) · 원본 문서(「제안은 보기만」)에서도 저장된다 · 저장 뒤 「서식 관리자에서 보기」
+    const saved = (p.applied && p.applied.styles) || [];
+    if (st === "applied") acts.append(el("span", "ag-state ok", `보관함에 저장함 — 서식 ${nf(saved.length)}개`));
+    else if (st === "closed") acts.append(el("span", "ag-state", "닫힌 제안"));
+    else btn("apply", hBtn("보관함에 저장", () => agentApply(t.id, p.id), { cls: p.preselect ? "btn sm primary" : "btn sm", disabled: st === "stale" || !!A.applying,
+      title: st === "stale" ? "문서가 바뀌어 이 제안은 저장할 수 없습니다 — 다시 요청하세요" : "이 서식들을 보관함에 저장합니다(hwpx·docx 두 형식) — 문서는 바뀌지 않고, 저장하면 PDF 검증이 뒤에서 돕니다" }));
+    if (A.applying === p.id) { const run = el("span", "ag-run"); run.append(el("span", "ag-spin"), el("span", "ag-run-text", "보관함에 저장하는 중…")); acts.append(run); }
+    // 「서식 그림 보기」(spec_서식복사 ② §13) — 저장 전: 2열에 「서식 복사」 보기를 열고 이 제안의 대상(표 id · 템플릿 id · 문단 · 쪽 설정 · 표지)을 고른 채로 보인다(같은 견본 길 — 저장될 견본). 3열 카드 안에는 큰 그림을 넣지 않는다(design.md §13)
+    if (!saved.length && st !== "closed" && (v.picks || []).length) btn("pics", hBtn("서식 그림 보기", () => { if (typeof styleSaveOpen === "function") styleSaveOpen({ picks: (v.picks || []).map((k) => ({ ...k })) }); },
+      { cls: "btn sm ag-pics", title: "문서 옆 열(서식 복사)에서 이 제안이 저장할 서식의 그림(저장될 견본)을 봅니다 — 제안의 대상을 고른 채로 엽니다 · 문서는 안 바뀝니다" }));
+    const tabOf = (x) => (typeof slTabOfPick === "function" ? slTabOfPick((v.picks || [])[x.pick] || x) : x.kind || null); // 저장한 서식의 갈래(내용 서식 · 문단 서식 …)
+    if (saved.length) btn("toLib", hBtn("서식 관리자에서 보기", () => { if (typeof styleLibOpen === "function") styleLibOpen(tabOf(saved[0])); }, { title: "방금 저장한 서식을 서식 관리자에서 봅니다 — 서식 그림 · 검증 내역 · 문서에 쓰기" }));
+    if (st === "stale") acts.append(el("span", "ag-state stale", p.why || AG_STALE));
+    else if (st === "failed") acts.append(el("span", "ag-state err", `저장하지 못했습니다${p.why ? ` — ${p.why}` : ""}`));
+    return acts;
+  }
   if (!inCol) btn("preview", hBtn("미리보기", () => agentPropOpen(t.id, p.id), { title: "문서 옆 열에서 제안 내용을 봅니다 — 문서는 안 바뀝니다" }));
   if (st === "applied") {
     const ap = p.applied || {}, paras = Array.isArray(ap.paras) ? ap.paras : [], table = ap.table || (p.type === "tableFill" || p.type === "restyle" ? v.table : null) || null;
@@ -353,7 +370,8 @@ function agentHit(p) { // 카드에 올린 동안 문서의 그 자리(보라 �
   for (const e of document.querySelectorAll("#doc .ag-hit, #doc .ag-after")) e.classList.remove("ag-hit", "ag-after");
   if (!p || typeof slBlockEls !== "function") return;
   const v = p.view || {}, tg = p.target || {}, ap = p.state === "applied" ? p.applied || {} : null, insert = p.type === "write" || p.type === "tableNew";
-  let whole = ap ? [ap.table, ...(Array.isArray(ap.paras) ? ap.paras : [])] : p.type === "tableFill" ? [v.table] : p.type === "restyle" ? [v.table, ...(v.paras || [])] : [];
+  let whole = p.type === "styleCopy" ? (v.picks || []).flatMap((k) => [k.table, ...(k.paras || [])]) // 서식 복사 — 서식을 뽑을 표·문단(저장한 뒤에도 같은 자리: 문서는 안 바뀐다)
+    : ap ? [ap.table, ...(Array.isArray(ap.paras) ? ap.paras : [])] : p.type === "tableFill" ? [v.table] : p.type === "restyle" ? [v.table, ...(v.paras || [])] : [];
   if (!whole.filter(Boolean).length && !insert) whole = tg.blocks || [tg.block]; // 보기에 자리가 없으면 서버가 적어 둔 대상(target)
   for (const id of whole.filter(Boolean).slice(0, 60)) for (const e of slBlockEls(id)) e.classList.add("ag-hit");
   if (!ap && insert && (v.after || tg.block)) { const els = slBlockEls(v.after || tg.block); if (els.length) els[els.length - 1].classList.add("ag-after"); }
@@ -553,6 +571,7 @@ async function agentClear() { // 「비우기」 — 한 번 누르면 채비(4�
 // ---- 반영 — 서버에 저장한 제안을 실행한다(클라이언트는 무엇을 넣을지 보내지 않는다) ------------------------------------------------------
 async function agentApply(tid, pid) {
   const A = AGENT, t = agentTurnOf(tid), p = agentPropOf(t, pid);
+  if (p && p.type === "styleCopy") { agentStyleCopy(tid, pid); return; } // 문서를 바꾸지 않는 제안 — 쓰기 정책(원본 문서)에 걸리지 않고, 문서 갱신 길(structOp)도 타지 않는다
   if (!p || A.applying || A.policy.apply === false || ["applied", "stale", "closed"].includes(p.state)) return;
   if (state.busy) { toast("다른 편집이 끝난 뒤 다시 누르세요"); return; }
   const v = p.view || {}, picks = p.type === "tableFill" ? { fills: (v.fills || []).filter((f) => agentFillPicks(p).has(f.cell)).map((f) => f.cell) } : null;
@@ -594,6 +613,97 @@ async function agentApply(tid, pid) {
   else if (err) { p.state = "failed"; p.why = err.message; }
   agentDraw();
   agentPropSync();
+}
+
+// ---- 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 사람이 「서식을 복사·저장해 달라」 고 할 때 에이전트가 낸다. 문서는 바뀌지 않는다 ---------------------------------
+const agentStyleSum = (x) => { const s = { verify: x.verify || null }; if (x.dual) { s.verifyDocx = x.verifyDocx || null; if (x.docx != null) s.docx = x.docx; } return s; }; // style_lib.js styleVerifyEls 가 읽는 꼴(형식마다의 검증 요약)
+const agentStyleDone = (x) => !!x.gone || (!!x.seen && (typeof slWatchSettled !== "function" || slWatchSettled({ gone: false, verify: x.verify, verifyDocx: x.verifyDocx, docx: x.docx, dual: x.dual })));
+
+function agentStyleCopyEl(p) { // 카드의 몸 — 저장 전: 무엇을 저장하나(view.picks) · 저장 뒤: 서식마다 검증 꼬리표(형식마다 — 2초마다 다시 읽음) · 못 저장한 것의 까닭
+  const box = el("div", "ag-styles"), v = p.view || {}, ap = p.applied || {}, saved = ap.styles || [], failed = ap.failed || [];
+  const kind = (k) => (typeof slPickName === "function" ? slPickName(k) : (typeof SL_KIND === "object" && SL_KIND[k && k.kind]) || (k && k.kind) || "서식"); // 표지 서식 · 내용 서식 · 쪽 설정 · 테이블 서식 · 문단 서식(서식 관리자의 갈래 이름 — spec_서식복사 ② §12)
+  if (!saved.length) {
+    for (const k of v.picks || []) {
+      const row = el("div", "ag-style"), what = k.kind === "table" ? `표 ${k.table || ""}${k.blueprint ? " · 구조까지" : ""}` : k.kind === "page" ? "쪽 설정 · 본문 바탕 글 모양" : k.kind === "cover" ? "문서 첫 쪽의 배치"
+        : k.template != null ? `개요 템플릿 ${k.templateName || k.template}` : `문단 ${nf((k.paras || []).length)}개`;
+      row.dataset.kind = k.kind || "";
+      row.append(el("span", "hb", kind(k)), el("b", null, k.name || "(이름 없음)"), el("span", "ag-style-what", what));
+      box.append(row);
+    }
+  }
+  for (const x of saved) {
+    const row = el("div", "ag-style saved");
+    row.dataset.style = x.id;
+    row.dataset.kind = x.kind || "";
+    row.append(el("span", "hb", kind((v.picks || [])[x.pick] || x)), el("b", null, x.name || x.id));
+    if (x.gone) row.append(el("span", "ag-state", "보관함에서 지워짐"));
+    else if (x.seen && typeof styleVerifyEls === "function") row.append(...styleVerifyEls(agentStyleSum(x)));
+    else row.append(el("span", "ag-state", "검증 상태를 읽는 중…"));
+    box.append(row);
+  }
+  for (const f of failed) box.append(el("p", "ag-state err", `저장하지 못함 — ${f.name || "서식"}: ${f.why || "까닭 모름"}`));
+  if (ap.late) box.append(el("p", "ag-state", "검증이 아직 돕니다 — 서식 관리자에서 확인"));
+  if (saved.length && !ap.watching && !ap.watched) setTimeout(() => agentStyleWatch(p), 0); // 다시 연 대화의 저장된 제안도 한 번 읽는다
+  return box;
+}
+
+async function agentStyleWatch(p) { // 저장한 서식마다 GET /api/styles/{sid} 를 2초마다 — 두 형식 다 끝나거나 180초(그 뒤는 서식 관리자에서)
+  const A = AGENT, ap = p.applied;
+  if (!ap || ap.watching || ap.watched || !(ap.styles || []).length || typeof styleUrl !== "function") return;
+  ap.watching = true;
+  const t0 = performance.now(), sig = () => JSON.stringify(ap.styles.map((x) => [x.seen, x.gone, x.verify && x.verify.status, x.verifyDocx && x.verifyDocx.status, x.docx]));
+  while (A === AGENT) {
+    const was = sig();
+    for (const x of ap.styles.filter((s) => !agentStyleDone(s))) {
+      try {
+        const m = await api(styleUrl(x.id));
+        Object.assign(x, { seen: true, name: m.name || x.name, verify: m.verify || null, verifyDocx: m.verifyDocx || null, dual: "verifyDocx" in m || "docx" in m, docx: "docx" in m ? !!m.docx : null });
+      } catch (e) { if (e.status === 404 && e.message !== "Not Found") x.gone = true; else x.seen = x.seen || false; } // 그 사이 지워짐 · 그 밖의 오류는 다음 차례에 다시
+    }
+    if (A !== AGENT) return;
+    const done = ap.styles.every(agentStyleDone), late = !done && performance.now() - t0 > 180000;
+    if (done || late) { ap.watching = false; ap.watched = true; ap.late = late; agentDrawTalk(); return; }
+    if (sig() !== was) agentDrawTalk();
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+async function agentStyleCopy(tid, pid) { // 「보관함에 저장」 — 같은 반영 끝점(agent/apply)이지만 응답에 문서 조각이 없다: structOp 의 문서 갱신 길을 타지 않고 따로 부른다(문서 차례 그대로 · 실행 취소 없음 · 원본 문서에서도 된다)
+  const A = AGENT, t = agentTurnOf(tid), p = agentPropOf(t, pid);
+  if (!p || A.applying || ["applied", "stale", "closed"].includes(p.state)) return;
+  const epoch = state.epoch;
+  A.applying = pid;
+  agentHit(null);
+  agentDrawStatus();
+  agentDrawTalk();
+  let r = null, err = null;
+  try {
+    await flushAll(); // 타자 중인 글을 서버에 먼저 — 대상 지문(고른 표·문단의 글·서식)을 서버 문서로 견준다
+    if (A === AGENT && epoch === state.epoch) {
+      A.req[pid] = A.req[pid] || agentUuid(); // 답을 받을 때까지 같은 번호 — 두 번 눌러도 서버가 한 번으로 친다
+      r = await api(agentUrl("/apply"), { method: "POST", headers: H_JSON, body: JSON.stringify({ turn: tid, proposal: pid, expectedRev: state.serverRev, requestId: A.req[pid] }) });
+    }
+  } catch (e) { err = e; }
+  finally { if (A === AGENT) A.applying = null; }
+  if (A !== AGENT || epoch !== state.epoch) return;
+  if (r || err) delete A.req[pid];
+  if (r) {
+    const ap = r.applied || {}, saved = ap.styles || [], failed = ap.failed || [];
+    p.applied = { styles: saved.map((x) => ({ ...x })), failed };
+    if (saved.length) { // 하나라도 저장되면 「반영됨」(서버도 그렇게 적는다)
+      p.state = ap.state && ap.state !== "open" ? ap.state : "applied";
+      delete p.why;
+      toast(`서식 ${nf(saved.length)}개를 보관함에 저장했습니다${failed.length ? ` · ${nf(failed.length)}개는 저장하지 못했습니다` : ""} — PDF 검증이 뒤에서 돕니다`, !!failed.length);
+      if (typeof STYLE === "object") STYLE.list = null; // 서식 관리자의 목록은 다음에 열 때 다시 읽는다
+      agentStyleWatch(p);
+      setTimeout(() => agentStylesRefresh(), 0); // 입력의 서식 고르기에도 새 서식
+    } else { p.state = "failed"; p.why = (failed[0] && failed[0].why) || "저장된 서식이 없습니다"; } // 모두 실패 — 제안은 열어 둔다(다시 누를 수 있다)
+  } else if (err && err.status === 409) { // 문서가 바뀜 · 이미 저장함 — 서버가 준 까닭 그대로, 서버의 제안 상태로 맞춘다
+    p.state = "stale";
+    p.why = err.message && !/^409\b/.test(err.message) ? err.message : AG_STALE;
+    agentStatesSync();
+  } else if (err) { p.state = "failed"; p.why = agentErr(err); }
+  agentDraw();
 }
 
 async function agentStatesSync() { // 409 뒤 — 서버가 적어 둔 제안 상태(applied · closed · stale)로 맞춘다. 서버가 아직 open 이라 하는 제안은 화면 것 그대로(방금 받은 까닭이 남는다)

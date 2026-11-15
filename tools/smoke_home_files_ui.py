@@ -117,7 +117,7 @@ try:
         page.evaluate(DROP, [[[b64(sample(DOCX)), DOCX], [b64(b"x"), "메모.txt"]], "#empty"])
         page.wait_for_timeout(300)
         L = page.evaluate(LIST)
-        check("시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 그 밖의 형식은 알림", len(L["rows"]) == 3 and L["rows"][2]["ext"] == "DOCX" and "TASK 없이 열기만" in L["rows"][2]["tag"]
+        check("시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 그 밖의 형식은 알림", len(L["rows"]) == 3 and L["rows"][2]["ext"] == "DOCX" and "TASK 없이 열기 · 서식 복사" in L["rows"][2]["tag"]
               and "메모.txt" in L["toast"] and works() == [], L)
         page.screenshot(path=str(OUT / "1_list.png"))
         page.set_viewport_size({"width": 400, "height": 900})

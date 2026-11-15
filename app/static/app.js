@@ -174,7 +174,7 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
     b.append(logo, el("span", "task-card-doc", doc), el("strong", "task-card-name", doc ? t.act : name), go);
     if (t.soon) b.setAttribute("aria-disabled", "true");
     b.title = t.soon ? `TASK 「${name}」 — 준비 중인 기능입니다`
-      : `TASK 「${name}」 — ${t.quick ? "문서를 여러 개" : t.up}(hwp·hwpx) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`;
+      : `TASK 「${name}」 — ${t.quick ? "문서를 여러 개" : t.up}(${taskAcceptOf(key).join("·")}) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`; // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx)
     // 시작 화면의 문서 목록(home_files.js — ② §15-1)이 있으면 카드 = 그 목록으로 시작, 없으면 전처럼 파일 고르기
     b.onclick = () => (t.soon ? toast(`TASK 「${name}」 — 준비 중입니다`) : typeof hfHas === "function" && hfHas() ? homeFilesGo(key) : homeTaskPick(key));
     // 카드에 놓은 파일은 그 TASK 로 연다 — 창의 파일 놓기(bind — 그냥 열기)보다 먼저 받는다
@@ -188,10 +188,10 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
   }
 }
 
-function homeTaskPick(job) { // 카드 누름 — 그 TASK 로 열 파일을 고른다(TASK 는 hwpx 문서의 일 — 첨부 파일 칸의 올리기 단추와 같은 형식)
+function homeTaskPick(job) { // 카드 누름 — 그 TASK 로 열 파일을 고른다(보통 hwp·hwpx — 첨부 파일 칸의 올리기 단추와 같은 형식 · 「문서 서식 복사」 는 docx·pdf 도: task_catalog.js taskAcceptOf)
   const inp = el("input");
   inp.type = "file";
-  inp.accept = ".hwp,.hwpx";
+  inp.accept = taskAcceptOf(job).map((x) => `.${x}`).join(",");
   inp.multiple = true; // 여러 개면 시작 화면의 문서 목록으로(목적 문서를 고른 뒤 카드를 다시 누름 — ② §15-1), 하나면 지금처럼 바로
   inp.onchange = () => homeTaskFiles(job, inp.files);
   inp.click();
@@ -199,6 +199,8 @@ function homeTaskPick(job) { // 카드 누름 — 그 TASK 로 열 파일을 고
 
 function homeTaskFiles(job, files) { // 카드로 고르거나 놓은 파일들 — 목록이 이미 있거나 둘 이상이면 시작 화면의 문서 목록에 더함(home_files.js), 아니면 그 파일로 바로 시작
   const list = [...(files || [])];
+  // PDF 하나(「문서 서식 복사」 카드 — spec_서식복사 ② §1)는 문서 목록이 있어도 목록에 넣지 않고 바로: 작업을 만들지 않고 서식 관리자의 파일 후보로 간다
+  if (list.length === 1 && /\.pdf$/i.test(list[0].name) && taskAcceptOf(job).includes("pdf")) { homeTaskStart(job, list[0]); return; }
   if (typeof homeFilesAdd === "function" && (hfHas() || list.length > 1)) homeFilesAdd(list, job);
   else homeTaskStart(job, list[0]);
 }
@@ -206,7 +208,12 @@ function homeTaskFiles(job, files) { // 카드로 고르거나 놓은 파일들 
 async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 이어 엶 — 다른 TASK 를 하던 작업이면 새 작업으로) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
   const t = HOME_TASKS[job];
   if (!file || !t || t.soon || homeTaskBusy) return;
-  if (!/\.hwpx?$/i.test(file.name)) { toast("TASK 는 hwp·hwpx 문서로 시작합니다", true); return; } // hwp 는 서버가 한글로 hwpx 로 바꿔 받는다
+  const accept = taskAcceptOf(job), ext = ((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase(); // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx — hwp 는 서버가 한글로 hwpx 로 바꿔 받는다)
+  if (!accept.includes(ext)) { toast(`TASK 는 ${accept.join("·")} 문서로 시작합니다`, true); return; }
+  if (ext === "pdf") { // 작업을 만들지 않는다(spec_서식복사 ② §1) — 서식 관리자의 파일 추출: 시작 화면 옆 2열에 「서식 복사」 보기(style_lib.js styleFileExtract)
+    if (typeof styleFileExtract === "function") styleFileExtract(file); else toast("서식 관리자를 읽지 못했습니다 — 새로 고친 뒤 다시 놓으세요", true);
+    return;
+  }
   if (!confirmDiscard()) return;
   const fd = new FormData(), card = document.querySelector(`#taskCards [data-task="${job}"]`);
   fd.append("file", file);
@@ -234,7 +241,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     const kept = await homeTaskApply(job);
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
     if (!r.reused) firstRun(); // 새 작업 — 첫 분석(② §9)
-    showTab(taskEntryOf(kept ? job : state.task.job)); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용, 문서 일반 편집은 에이전트)
+    taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
     const again = { label: "새 작업으로 열기", run: () => homeTaskStart(job, file, true) };
     if (other) toast(`같은 파일로 하던 작업(${other.was})은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · 프로젝트 미지정`, false, // 새 작업은 프로젝트 없이 시작한다(하던 작업의 프로젝트를 따라가지 않음)
       { label: "하던 작업 열기", run: () => (typeof projectOpen === "function" ? projectOpen(other.id) : openWork(other.id)) }); // 그 작업을 그 TASK 그대로 연다
@@ -316,6 +323,8 @@ async function load(id) {
   outlineLoad();
   commitsLoad(); // 확정 기록(spec_작업 ② §8)
   headsPeek(); // 헤딩 요약을 읽기만(GET — 추출을 시작하지 않는다): 뼈대 유지 견주기 · 도는 작업 이어 읽기(spec_헤딩_추출 ② §17)
+  // TASK 「문서 서식 복사」 의 작업을 다시 열면 2열에 「서식 복사」 보기(spec_서식복사 ② §1 — 둘째 면은 아님). 새 작업은 TASK 를 적은 뒤 taskEnter 가 연다(여기서는 아직 TASK 가 비어 있다)
+  if (!PEEK && taskEntryOf((state.task || {}).job) === "Style" && typeof styleSaveOpen === "function") styleSaveOpen();
 }
 
 // ---------------------------------------------------------------- 작업 목록·기록 (spec_작업 ② §7)
@@ -3656,7 +3665,8 @@ async function structOp(path, body) {
     state.structRev = state.localRev;
     if (r.webFonts) setDocFonts(r.webFonts); // 편집이 새 글꼴 정의를 들여옴(다른 문서의 서식을 입힘) — 블록을 그리기 전에 @font-face 계획부터
     applyEditState(r);
-    applyTops(r);
+    if (r.paged || !r.tops) reloadDoc(); // 쪽 설정이 바뀐 편집(서식 관리자 「이 문서에 입히기」 — 응답의 paged: spec_서식복사 ② §9)은 바뀐 블록만 끼우지 않고 문서를 통째로 다시 읽어 그린다(쪽 크기·여백이 바뀐다)
+    else applyTops(r);
     if (r.outline) outlineApply(r.outline);
     if (r.focus) focusAt(r.focus);
     if (r.owpml && r.owpml.status === "warn") toast(`${STD()}: ${r.owpml.summary}`);
@@ -4660,7 +4670,7 @@ const TOOL_INFO = {
   Log: ["기록", "작업 이력", "편집·추출·검증·내려받기를 시간순으로 확인합니다."],
   Heads: ["헤딩 추출", "구조 분석", "문서와 나란히 보며 라벨, 템플릿과 판단 근거를 확인합니다."],
   Tables: ["표", "표 관리", "문서의 표만 따로 — 소속 헤딩·계산식·엑셀식 보기·표 지침을 다룹니다."],
-  Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 보관함에서 표·글 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12)
+  Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 관리자에서 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12 · 「서식 관리자」 = spec_서식복사 ② §2)
   Div: ["작업 내용", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
   Tasks: ["작업 리스트", "프로젝트 · TASK · 라운드", "프로젝트별 TASK와 이전 라운드를 열고, 새 TASK나 라운드를 시작합니다."],
   Compare: ["문서 비교", "병합 전 확인", "문서별 라벨과 템플릿을 나란히 비교하고 확인한 문서를 표시합니다."]
@@ -4741,6 +4751,16 @@ function showTab(name) {
   if (name === "Agent" && typeof agentShow === "function") agentShow(); // 에이전트 보기(doc_agent.js, spec_일반편집 ② §12)
   if (name === "Compare" && typeof compareShow === "function") compareShow();
   if (name === "Tasks" && typeof projectListShow === "function") projectListShow();
+}
+
+// 그 TASK 로 들어가기(spec_서식복사 ② §1 — task_catalog.js entry): 보통은 그 패널 도구(작업 내용 Div · 에이전트 Agent). entry 가 "Style"(문서 서식 복사)이면 패널 = hwpx 면 에이전트 보기 · docx 면 검증,
+// 그리고 2열에 서식 관리자의 「서식 복사」 보기(style_lib.js styleSaveOpen). 차례: 패널 도구가 먼저다 — showTab 은 Heads·Div·Tables·Agent 가 아닌 도구로 갈 때 2열을 닫는다.
+// 부르는 곳: TASK 카드(homeTaskStart) · 시작 화면 문서 목록(home_files.js) · 작업 리스트(project_workspace.js). 이 TASK 의 작업을 다시 열 때는 load 끝이 같은 열을 연다
+function taskEnter(job) {
+  const entry = taskEntryOf(job);
+  if (entry !== "Style") { showTab(entry); return; }
+  showTab(toolShown("Agent") ? "Agent" : "Verify");
+  if (typeof styleSaveOpen === "function") styleSaveOpen();
 }
 
 function setPanel(open) {
@@ -5229,7 +5249,7 @@ function viewPrefSave() {
 
 // ---- 도구 줄 한 줄 (spec_hwpx_웹편집 ② §2 「도구 줄」 — 2026-11-10 사용자 "2줄 중 상단의 줄을 … 체크 하면 그것만 하나의 줄에 보이게")
 // 「페이지 보기·폰트 수정·문단 수정·테이블 수정」 단추 중 하나만 켜지고(.tool-modes), 그 묶음(.tool-set[data-tool-set])만 펼친다. 고른 묶음은 nfm.view 에 기억(기본 페이지 보기).
-const TOOL_SETS = ["page", "font", "para", "table"];
+const TOOL_SETS = ["page", "font", "para", "table", "style"]; // style = 「서식」 묶음(spec_서식복사 ② §3 — 서식 관리자 · 이 문서에서 복사 · 파일에서 복사: 단추는 style_lib.js 가 잇는다)
 
 function toolSetShow(name) { // 그 묶음만 펼친다 — state.tool·기억은 안 건드린다(setToolSet 이 부른다)
   const bar = $("docBar");
@@ -7490,7 +7510,11 @@ function bind() {
   $("wheelFlip").onchange = (e) => setWheelFlip(e.target.checked);
   setTwoUp(state.twoUp);
   setWheelFlip(state.wheelFlip);
-  for (const b of document.querySelectorAll("#toolModes [data-tool]")) b.onclick = () => setToolSet(b.dataset.tool); // 도구 줄 묶음 고르기(한 줄)
+  for (const b of document.querySelectorAll("#toolModes [data-tool]")) b.onclick = () => { // 도구 줄 묶음 고르기(한 줄)
+    setToolSet(b.dataset.tool);
+    // 「서식」 묶음은 사람이 누를 때만 서식 관리자(2열)도 연다 — 닫혀 있거나 다른 보기일 때(spec_서식복사 ② §3). 아래 setToolSet(state.tool) 처럼 기억한 묶음을 되살릴 때는 열지 않는다
+    if (b.dataset.tool === "style" && typeof styleLibOpen === "function" && !["styleLib", "styleSave"].includes(heads.dlg)) styleLibOpen();
+  };
   setToolSet(state.tool);
   bindWheelFlip();
   $("prevEdit").onclick = () => stepEdit(-1);

@@ -198,7 +198,7 @@ def table_style_id(doc, tbl):
 def _look(tbl):
     look = tbl.find(f"{W}tblPr/{W}tblLook")
     if look is None:
-        return {"firstRow": True, "firstColumn": True, "noVBand": True}  # Word 새 표 기본(04A0)
+        return {**dict.fromkeys(_LOOK_BITS, False), "firstRow": True, "firstColumn": True, "noVBand": True}  # Word 새 표 기본(04A0) — 키는 다 낸다(tblLook 없는 표 + 기본 표 스타일에서 cell_ctx 가 lastRow 를 읽다 KeyError: 2026-11-14)
     bits = int(look.get(W + "val") or "0", 16) if all(look.get(W + k) is None for k in _LOOK_BITS) else 0
     return {k: (look.get(W + k) in ("1", "true", "on")) if look.get(W + k) is not None else bool(bits & b) for k, b in _LOOK_BITS.items()}
 

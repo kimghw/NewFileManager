@@ -1222,8 +1222,8 @@ def owpml_now(doc_id: str):
 
 WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task", "roundParent", "alias")  # roundParent = 분기한 이전 라운드의 문서 id · alias = 별칭(② §10)
 TASK = {"kind": ("", "rnd", "general"), "file": ("", "plan", "report", "part"),
-        "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
-TASK_KIND = {"doc_edit": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」 은 일반 문서(general)의 일(spec_일반편집 ② §11). 다른 조합은 저장하지 않는다(work_task)
+        "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit", "style_copy")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+TASK_KIND = {"doc_edit": "general", "style_copy": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」(spec_일반편집 ② §11)·「문서 서식 복사」(spec_서식복사 ② §1)는 일반 문서(general)의 일. 다른 조합은 저장하지 않는다(work_task)
 
 
 def _task(wid, blocks):

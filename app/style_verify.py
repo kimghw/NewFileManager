@@ -14,7 +14,17 @@
   실제 표 21개(연구개발계획서 양식 19 · 기술수요조사서 2)를 옮긴 운반 문서에서 거짓 fail 0 — 2쪽으로 넘친 큰 표 2개와 무늬(가는 선 다발) 채움 표 1개는 unknown(warn).
 - 작업(`start`): 스레드 하나가 시작 때의 revision 을 고정해(`style_lib.pin` — 도는 동안 안 치워진다) `run` → `style_lib.put_verify` → `unpin`. 도는 동안 `running(sid)`.
 - **안 잰 것을 통과로 읽지 않는다**(astra 12): 빈 칸에 찍힌 글 = 「뜻밖의 글」 fail · 핵심 검사(글자 크기·굵게·글꼴)가 전부 미측정이면 warn(`summarize`) ·
-  견주지 않는 것(표: 선 색·칸 여백·세로 정렬·칸 안 글 정렬·대각선 / 글: 줄 간격·문단 간격)은 `unsupported` 줄로 늘 싣는다 · 글의 견본 문단 수 ≠ meta item 수 = fail."""
+  견주지 않는 것(표: 선 색·칸 여백·세로 정렬·칸 안 글 정렬·대각선 / 글: 줄 간격·문단 간격)은 `unsupported` 줄로 늘 싣는다 · 글의 견본 문단 수 ≠ meta item 수 = fail.
+- **두 형식**(spec_서식복사 ② §7): `start` 가 hwpx(한글) → docx(Word)를 차례로 출력해 잰다. 기록 둘 — `meta.verify`(hwpx) · `meta.verifyDocx`(같은 꼴 + `format: "docx"` · `renderer: {name: "Word"}`),
+  그림 `proof.png` · `proof_docx.png`. docx 운반 문서가 없으면 그 자리에서 지어 붙이고(`style_docx.build` → `style_lib.put_docx`), 못 지으면 `verifyDocx` 는 비운 채 둔다.
+  docx 의 기대값은 **명세에서** 읽는다(`expect_table_spec` = 운반 문서의 표 명세 · `expect_text_items` = meta.items · `expect_page` = meta.page·body). 한글에 맞춘 보정은 Word 에 쓰지 않는다:
+  칸의 x 는 칸의 제 폭을 쌓지 않고 **잰 세로선·채움의 열 경계**(수가 안 맞으면 명세의 열 폭 — 표 폭까지 다르면 자리 검사는 unknown), 선 굵기는 견주지 않음(unsupported).
+  Word PDF 실측(2026-11-14 — references/DOCX_포맷.md 「Word PDF 에서 표·쪽 서식 재기」): 칸 음영 위에 글 줄마다 덧칠한 사각형 · 선 옆 음영 띠 · 교차점 조각을 걷어 낸 뒤(`word_page`) 견준다 — 못 잰 것은 unknown.
+- **문서 서식**(종류 `page` · profile `page-v1` — 검사 항목은 두 형식이 같다): `render` · `pageSize`(한글 ±1.0mm `PAGE_TOL_HWPX` · Word ±0.5mm `PAGE_TOL`) · `marginLeft`·`marginTop`(견본 첫 줄의 자리 ±1.5mm) · `fontSize` · `fontFace` + unsupported(아래·오른쪽 여백 · 머리말·꼬리말 여백).
+  견줌 `check_page(exp, measure)` 는 순수 함수.
+- **표지 서식**(종류 `cover` · profile `cover-v1` — spec_서식복사 ② §14): `render` · `pageSize` · 글 부분마다 `text`·`fontSize`·`bold`·`fontFace`(글 서식과 같은 견줌 — `expect_cover` 가 부분의 견본 글·서식 요약으로
+  `check_text` 의 기대값 꼴을 만든다) + unsupported(자리·정렬·간격 · 색·들여쓰기 · 표 부분). 견줌 `check_cover(exp, measure)` 는 순수 함수.
+- **첫 쪽 전체 그림**(② §13): 쪽 설정·표지(`FULL_PROOF`)의 견본 그림은 내용 둘레를 자르지 않은 첫 쪽 전체(`proof_png(path, full=True)` — 긴 변 1,100px 안팎 · 110dpi 이하)."""
 import hashlib
 import json
 import logging
@@ -52,18 +62,47 @@ UNSUPPORTED_TABLE = (("lineColor", "선 색 — 견주지 않음(선의 자리�
                      ("cellAlign", "칸 안 글 정렬(왼쪽·가운데·오른쪽) — 견주지 않음"), ("diagonal", "대각선 — 견주지 않음(비스듬한 선은 재지 않음)"))
 # 핵심 검사 — 하나라도 「통과 0 · 모름 1 이상」(전부 못 잼: 글꼴이 모두 Type3 등)이면 전체는 높아야 warn. 다른 검사(괘선)의 통과 수에 묻히지 않게 검사마다 본다
 CORE_CHECKS = (("fontSize", "글자 크기를"), ("bold", "굵게를"), ("fontFace", "글꼴을"))
+# ---- 두 형식 · 문서 서식(spec_서식복사 ② §7) ----
+FORMATS = ("hwpx", "docx")            # 검증하는 차례 — 한글 → Word
+RENDERERS = {"hwpx": "Hancom", "docx": "Word"}
+PROFILES = {"text": "text-v1", "page": "page-v1", "cover": "cover-v1"}   # 종류 → profile(그 밖 = table-v1)
+# ---- 첫 쪽 전체 그림 · 표지 서식(spec_서식복사 ② §13·§14) ----
+FULL_PROOF = ("page", "cover")        # 견본 그림이 내용 둘레가 아니라 첫 쪽 전체인 종류(여백·배치가 보여야 한다)
+PROOF_FULL_PX = 1100                  # 첫 쪽 전체 그림의 긴 변(px 안팎 — PROOF_DPI 를 넘지 않는다)
+COVER_CHECKS = ("pageSize", "text", "fontSize", "bold", "fontFace")   # cover-v1 — render 는 run 이 붙인다
+UNSUPPORTED_COVER = (("coverLayout", "부분의 자리·정렬·간격 — 견주지 않음"), ("coverColor", "글자 색·들여쓰기 — 견주지 않음"))
+UNSUPPORTED_COVER_TABLE = ("coverTable", "표지 안 표는 견주지 않음")
+PROOFS = {"hwpx": ("proof.png", "proof.pdf"), "docx": ("proof_docx.png", "proof_docx.pdf")}
+WIDTH_TOL_DOCX = 0.02                 # Word 의 표 폭 — 비율(명세의 열 폭 합과)
+ROW_NOMINAL = 20.0                    # 명세에는 행 높이가 없다 — 행 경계를 맞출 때 쓰는 어림 높이(pt · 높이 0 인 행으로 묶이지 않게)
+PAGE_CHECKS = ("pageSize", "marginLeft", "marginTop", "fontSize", "fontFace")
+PAGE_TOL, MARGIN_TOL = 0.5, 1.5       # 쪽 크기 · 견본 첫 줄의 자리(mm)
+JOINT_MAX = 4.0                       # Word PDF 에서 선이 만나는 자리의 조각 — 가로·세로가 모두 이보다 작은 채움 사각형(pt)은 칸 음영이 아니다(word_page)
+PAGE_TOL_HWPX = 1.0                # 한글 PDF 의 쪽 크기는 문서 값보다 조금 작다(실측 2026-11-14: A4 297 → 296.7 · Letter 279.4 → 278.7mm)
+LINE_NATURAL = 1.5                    # Word 의 한 줄 높이 ÷ 글자 크기의 위쪽 어림 — 줄 간격이 100% 를 넘는 만큼 첫 줄이 내려올 수 있는 폭을 잡는다
+UNSUPPORTED_PAGE = (("marginRightBottom", "아래·오른쪽 여백 — 견본 글로는 재지 못함"), ("headerFooter", "머리말·꼬리말 여백 — 재지 못함"))
+UNSUPPORTED_LINE_WIDTH = ("lineWidth", "선 굵기 — Word 는 굵기를 제 값으로 그려 견주지 않음(선이 있는지만 봄)")
+DOCX_FORMAT_KEYS = ("font", "sizePt", "bold", "italic", "underline", "color", "ratioPct", "spacingPct", "align", "indentLeftMm", "indentRightMm", "firstLineMm", "lineSpacingPct",
+                    "spaceBeforePt", "spaceAfterPt")  # docx 로 옮기는 서식 요약(`style_docx._format` 과 같은 키) — 언어별 글꼴·윗/아래첨자는 안 옮긴다(글꼴은 rFonts 넷 모두 font)
 _STYLE_TAIL = re.compile(r"(?:bold|italic|regular|oblique|medium|light|semilight|extrabold|mt|ps)+$")
 _ALIASES = []
 
 
 # ---- 대상 해시 --------------------------------------------------------------------------------------------------
 
-def subject_hash(meta: dict) -> str:
+def subject_hash(meta: dict, fmt: str = "hwpx") -> str:
     """검증 대상의 해시 = sha256(운반 문서 해시 + 띠 수 + blueprint + items 의 뜻(key·level·marker)) — meta 의 뜻이 바뀌면 달라진다(화면 「검증 뒤 바뀜」).
-    이름·견본 글·서식 요약(운반 문서에서 다시 만들 수 있는 사본)은 넣지 않는다 — 이름만 바꾼 것으로 검증이 낡지 않게."""
+    이름·견본 글·서식 요약(운반 문서에서 다시 만들 수 있는 사본)은 넣지 않는다 — 이름만 바꾼 것으로 검증이 낡지 않게.
+    문서 서식(종류 page)은 쪽 설정·바탕 글도 넣고, fmt="docx"(`verifyDocx` 의 해시)는 docx 운반 문서의 해시도 넣는다 — 표·글 서식의 hwpx 해시는 전과 같다(이미 붙은 기록이 낡지 않게)."""
     m = meta if isinstance(meta, dict) else {}
     items = [{"key": i.get("key"), "level": i.get("level"), "marker": i.get("marker")} for i in m.get("items") or [] if isinstance(i, dict)]
     subject = {"carrier": m.get("carrierSha256"), "bands": m.get("bands"), "blueprint": m.get("blueprint"), "items": items}
+    if m.get("kind") == "page":
+        subject.update(page=m.get("page"), body=m.get("body"))
+    if m.get("kind") == "cover":  # 표지 서식(② §14) — 쪽 설정 + 부분의 뜻(차례 · 종류 · 역할). 견본 글·서식 요약은 운반 문서의 사본이라 넣지 않는다
+        subject.update(page=m.get("page"), parts=[{"key": p.get("key"), "type": p.get("type"), "role": p.get("role")} for p in m.get("parts") or [] if isinstance(p, dict)])
+    if fmt == "docx":
+        subject["docx"] = m["docx"].get("sha256") if isinstance(m.get("docx"), dict) else None
     return hashlib.sha256(json.dumps(subject, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
@@ -151,12 +190,18 @@ def measure_pdf(path, tables=True, limit=None) -> dict:
     return {"count": count, "pages": out}
 
 
-def proof_png(path) -> bytes | None:
-    """견본 그림 — 글·선이 있는 첫 쪽을 내용 둘레(여백 PROOF_PAD pt)로 잘라 PROOF_DPI 로."""
+def proof_png(path, full=False) -> bytes | None:
+    """견본 그림 — 글·선이 있는 첫 쪽을 내용 둘레(여백 PROOF_PAD pt)로 잘라 PROOF_DPI 로.
+    full(spec_서식복사 ② §13 — 쪽 설정·표지): 내용 둘레를 자르지 않은 **첫 쪽 전체**(여백이 보여야 하는 서식) — PROOF_DPI 를 넘지 않고 긴 변이 PROOF_FULL_PX 안팎이 되게 줄인다(A4 = 약 94dpi).
+    path = PDF 경로 또는 PDF 바이트."""
     import fitz
-    with fitz.open(path) as doc:
+    with (fitz.open(stream=bytes(path), filetype="pdf") if isinstance(path, (bytes, bytearray)) else fitz.open(path)) as doc:
         if not len(doc):
             return None
+        if full:
+            page = doc[0]
+            long_in = max(page.rect.width, page.rect.height) / 72 or 1.0
+            return page.get_pixmap(dpi=max(24, min(PROOF_DPI, round(PROOF_FULL_PX / long_in))), alpha=False).tobytes("png")
         for page in doc:
             box = fitz.Rect()
             for b in page.get_text("blocks"):
@@ -735,17 +780,319 @@ def check_text(exp, measure, index=None) -> list[dict]:
     return [T[k] for k in TEXT_CHECKS] + [unsupported(k, note) for k, note in UNSUPPORTED_TEXT]
 
 
+# ---- 문서 서식 견줌(page-v1 — spec_서식복사 ② §7: 두 형식 같다) ---------------------------------------------------------
+
+def _num(v, default=0.0):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
+
+def page_sample():
+    """문서 서식 운반 문서의 견본 첫 줄 글(`style_page.SAMPLES[0]` — 검증이 자리를 재는 줄) | None(그 모듈이 없음)."""
+    try:
+        from app import style_page
+        return str(style_page.SAMPLES[0])
+    except Exception:  # noqa: BLE001 — 모듈 없음 · SAMPLES 가 비었음: 견본 글을 모른 채 첫 줄을 잰다
+        return None
+
+
+def expect_page(meta, fmt="hwpx", own=None) -> dict | None:
+    """문서 서식의 기대값(명세 = meta.page · meta.body) → {"widthMm", "heightMm", "leftMm": 본문 왼끝, "topMm": 본문 위끝 | None(모름), "slackMm": 첫 줄이 더 내려올 수 있는 폭,
+    "sample": 견본 첫 줄 글 | None, "format": 바탕 글의 서식 요약 | None} | None(쪽 설정이 없음).
+    본문 왼끝 = 왼쪽 여백 + 제본 여백 · 본문 위끝 = 위 여백 t(`style_page` 의 뜻: 종이 끝에서 **본문**까지 — 한글의 위쪽 + 머리말, Word 의 top. 두 형식이 같다 · 값이 없으면 None = marginTop unknown).
+    own(운반 문서가 스스로 적은 본문 상자)은 받기만 한다 — 기대값은 명세에서만 읽는다.
+    slackMm = 문단 위 간격 + (docx 만) 줄 간격이 100% 를 넘는 만큼 — Word 는 늘어난 줄 높이를 글 위에 둔다(한글은 아래)."""
+    m = meta if isinstance(meta, dict) else {}
+    page = m.get("page") if isinstance(m.get("page"), dict) else None
+    if page is None or _num(page.get("widthMm")) <= 0 or _num(page.get("heightMm")) <= 0:
+        return None
+    mar = page.get("marginsMm") if isinstance(page.get("marginsMm"), dict) else {}
+    body = m.get("body") if isinstance(m.get("body"), dict) else {}
+    f = body.get("format") if isinstance(body.get("format"), dict) else None
+    f = ({k: f[k] for k in DOCX_FORMAT_KEYS if k in f} if fmt == "docx" else dict(f)) if f else None
+    top = _num(mar.get("t"), None)  # 위 여백 t = 종이 끝에서 본문까지(머리말 몫을 이미 품은 값 — style_page 모듈 설명: 두 형식이 같은 뜻)
+    slack = _num((f or {}).get("spaceBeforePt")) / PT_MM
+    if fmt == "docx" and f:
+        slack += max(_num(f.get("lineSpacingPct"), 100.0) - 100.0, 0.0) / 100 * _num(f.get("sizePt")) * LINE_NATURAL / PT_MM
+    return {"widthMm": _num(page["widthMm"]), "heightMm": _num(page["heightMm"]), "leftMm": _num(mar.get("l")) + _num(mar.get("gutter")), "topMm": top, "slackMm": round(slack, 2),
+            "sizeTolMm": PAGE_TOL_HWPX if fmt == "hwpx" else PAGE_TOL, "sample": page_sample(), "format": f}
+
+
+def check_page(exp, measure, index=None) -> list[dict]:
+    """문서 서식의 기대값(expect_page) × 잰 값(measure_pdf) → 검사 목록(PAGE_CHECKS 차례 + 못 재는 것 UNSUPPORTED_PAGE — render 는 run 이 붙인다).
+    pageSize = 첫 쪽의 크기(±PAGE_TOL mm) · marginLeft·marginTop = **견본 첫 줄**(첫 쪽의 맨 위 글 줄)의 왼끝·위끝과 본문 상자(±MARGIN_TOL mm — 위끝은 slackMm 만큼 더 내려와도 통과) ·
+    fontSize·fontFace = 그 줄의 글자와 바탕 글 모양. 못 재는 것은 unknown: 견본 줄이 없음 · 첫 줄이 견본 글이 아님 · 바탕 글 모양이 없음 · 가운데·오른쪽 정렬(왼끝) · 본문 위끝을 모름."""
+    T = {k: _tally(k) for k in (*PAGE_CHECKS, "bold", "color")}
+    pages = measure.get("pages") or []
+    page = pages[0] if pages else None
+    f = exp.get("format") if isinstance(exp.get("format"), dict) else None
+
+    def unknown(keys, why):
+        for k in keys:
+            _put(T[k], "unknown", "견본 첫 줄", "", why, show=True)
+    if page is None:
+        unknown(PAGE_CHECKS, "PDF 에 쪽이 없음")
+    else:
+        w, h = page["w"] / PT_MM, page["h"] / PT_MM
+        tol = _num(exp.get("sizeTolMm"), PAGE_TOL)
+        ok = abs(w - exp["widthMm"]) <= tol and abs(h - exp["heightMm"]) <= tol
+        _put(T["pageSize"], "pass" if ok else "fail", "쪽 크기", f"{exp['widthMm']:.1f}×{exp['heightMm']:.1f}mm", f"{w:.1f}×{h:.1f}mm")
+        lines = page.get("lines") or []
+        tops = [i for i, ln in enumerate(lines) if (ln.get("text") or "").strip() and ln.get("chars")]
+        li = min(tops, key=lambda i: (lines[i]["bbox"][1], lines[i]["bbox"][0]), default=None)
+        row = [(lj, pc) for lj, _, pc in pdf_style.visual_line(page, li)] if li is not None else []
+        ink = [(lj, pc) for lj, pc in row if not pc[0].isspace()]
+        want_key = key_text(exp.get("sample") or "")
+        got_key = "".join(key_text(pc[0]) for _, pc in ink)
+        if not ink:
+            unknown(PAGE_CHECKS[1:], "견본 줄이 PDF 에 없음")
+        elif want_key and not (got_key.startswith(want_key) or want_key.startswith(got_key)):
+            unknown(PAGE_CHECKS[1:], f"첫 줄이 견본 글이 아님 — 「{''.join(pc[0] for _, pc in ink)[:30]}」")
+        else:
+            if f is not None and f.get("align") in ("center", "right", "distribute"):
+                _put(T["marginLeft"], "unknown", "견본 첫 줄", "", "가운데·오른쪽 정렬은 왼끝을 못 잼", show=True)
+            else:  # 바탕 글 모양이 없는 문서 서식(본문 글이 모두 표 안인 문서)의 견본은 평범한 문단 — 왼쪽 정렬 · 들여쓰기 없음: 왼끝 = 본문 왼끝
+                want = exp["leftMm"] + _num((f or {}).get("indentLeftMm")) + max(_num((f or {}).get("firstLineMm")), 0.0)
+                got = min(pc[1] for _, pc in ink) / PT_MM
+                _put(T["marginLeft"], "pass" if abs(got - want) <= MARGIN_TOL else "fail", "견본 첫 줄 왼끝", f"{want:.1f}mm", f"{got:.1f}mm")
+            if exp.get("topMm") is None:
+                _put(T["marginTop"], "unknown", "견본 첫 줄 위끝", "", "본문 위끝을 모름(운반 문서의 쪽 설정을 읽지 못함)", show=True)
+            else:
+                want, slack, got = exp["topMm"], _num(exp.get("slackMm")), min(pc[2] for _, pc in ink) / PT_MM
+                ok = want - MARGIN_TOL <= got <= want + slack + MARGIN_TOL
+                _put(T["marginTop"], "pass" if ok else "fail", "견본 첫 줄 위끝", f"{want:.1f}mm" + (f"(+{slack:.1f}mm 까지)" if slack >= 0.05 else ""), f"{got:.1f}mm")
+            if f is not None:  # 바탕 글 모양이 없는 문서 서식은 글 모양을 견주지 않는다(아래에서 「재지 못함」 으로 — 못 잰 것을 모름으로 세어 「확인 필요」 가 되지 않게)
+                type3 = page.get("type3") or ()
+                pairs = [(pc[0], f, pc, lines[lj]["spans"][pc[5]], lines[lj]["spans"][pc[5]][0] in type3) for lj, pc in ink if key_text(pc[0])]
+                if pairs:
+                    compare_chars(pairs, "견본 첫 줄", T, index)
+                else:
+                    unknown(("fontSize", "fontFace"), "견본 줄에 글자·숫자가 없음")
+    notes = {"fontFace": _face_note(T["fontFace"]), "marginTop": "견본 첫 줄의 자리 — 줄 간격·문단 위 간격만큼의 폭을 둠" if _num(exp.get("slackMm")) >= 0.05 else ""}
+    for k in PAGE_CHECKS:
+        _done(T[k], notes.get(k, ""), "잴 것이 없음", strict=k == "fontFace" and bool(T[k].get("substituted")))
+    bare = lambda k: f is None and k in ("fontSize", "fontFace") and not (T[k]["pass"] or T[k]["fail"] or T[k]["unknown"])  # noqa: E731
+    return [unsupported(k, "바탕 글 모양이 없는 문서 서식 — 견줄 글 모양이 없음") if bare(k) else T[k] for k in PAGE_CHECKS] + [unsupported(k, note) for k, note in UNSUPPORTED_PAGE]
+
+
+# ---- 표지 서식 견줌(cover-v1 — spec_서식복사 ② §14: 두 형식 같다) -------------------------------------------------------
+
+def cover_parts(carrier, meta) -> list[dict]:
+    """표지 서식의 부분들 — 보기(`style_cover.view(carrier, meta)["parts"]`: 운반 문서에서 읽은 것)가 되면 그것, 아니면(모듈 없음 · 못 읽음 · 운반 문서를 안 줌) meta.parts."""
+    own = [p for p in (meta.get("parts") if isinstance(meta, dict) else None) or [] if isinstance(p, dict)]
+    if not carrier:
+        return own
+    try:
+        from app import style_cover
+        got = style_cover.view(carrier, meta).get("parts")
+        return [p for p in got if isinstance(p, dict)] if isinstance(got, list) and got else own
+    except Exception as e:  # noqa: BLE001 — 표지 모듈이 없거나 보기를 못 지음: meta 의 부분으로 견준다
+        log.info("표지 서식의 보기를 읽지 못해 meta.parts 로 견줌: %r", e)
+        return own
+
+
+def expect_cover(meta, fmt="hwpx", parts=None, own=None) -> dict | None:
+    """표지 서식의 기대값(명세 = meta.page · 부분들) → {"page": {"widthMm", "heightMm", "sizeTolMm"} | None(쪽 설정을 모름), "leftMm": 쪽 왼 여백, "tables": 표 부분 수,
+    "items": [글 부분마다 `check_text` 가 받는 item — {key, id, text: 견본 글, format, runs: None, auto: False}]} | None(부분이 하나도 없음).
+    parts = 부분 목록(없으면 meta.parts — `cover_parts`) · own = 운반 문서가 스스로 적은 쪽 설정(docx — 왼 여백만 읽는다). fmt="docx" 면 서식은 docx 로 옮기는 값만(`_docx_format`).
+    글 부분의 견본 글(sample)과 서식 요약(format)이 운반 문서에 쓴 그 값이다(`style_cover.carrier` 의 info.parts — spec ② §16)."""
+    m = meta if isinstance(meta, dict) else {}
+    parts = [p for p in (m.get("parts") if parts is None else parts) or [] if isinstance(p, dict)]
+    if not parts:
+        return None
+    page = m.get("page") if isinstance(m.get("page"), dict) else None
+    known = page is not None and _num(page.get("widthMm")) > 0 and _num(page.get("heightMm")) > 0
+    mar = (own or page or {}).get("marginsMm") if isinstance((own or page or {}).get("marginsMm"), dict) else {}
+    items = []
+    for n, p in enumerate(parts, 1):
+        if p.get("type") != "text":
+            continue
+        f = p.get("format") if isinstance(p.get("format"), dict) else {}
+        items.append({"key": str(p.get("key") or f"p{n}"), "id": f"c{n}", "text": str(p.get("sample") or ""), "format": _docx_format(f) if fmt == "docx" else dict(f), "runs": None, "auto": False})
+    return {"page": {"widthMm": _num(page["widthMm"]), "heightMm": _num(page["heightMm"]), "sizeTolMm": PAGE_TOL_HWPX if fmt == "hwpx" else PAGE_TOL} if known else None,
+            "leftMm": _num(mar.get("l")) + _num(mar.get("gutter")), "tables": sum(1 for p in parts if p.get("type") == "table"), "items": items}
+
+
+def check_cover(exp, measure, index=None) -> list[dict]:
+    """표지 서식의 기대값(expect_cover) × 잰 값(measure_pdf) → 검사 목록(COVER_CHECKS 차례 + 못 재는 것 — render 는 run 이 붙인다).
+    pageSize = 첫 쪽의 크기(page-v1 과 같은 오차 — 쪽 설정을 모르면 unknown) · text·fontSize·bold·fontFace = **글 부분마다** 글 서식과 같은 견줌(`check_text` — 견본 줄을 PDF 에서 찾아 그 글자들과).
+    글 부분이 하나도 없는 표지(표 하나뿐인 양식의 표지)는 글 검사가 「재지 못함」 이다. 표 부분은 늘 「견주지 않음」(unsupported) — 통과로 세지 않는다. 자리·정렬·간격·색도 견주지 않는다."""
+    size = _tally("pageSize")
+    pages = measure.get("pages") or []
+    want = exp.get("page") if isinstance(exp.get("page"), dict) else None
+    if not pages:
+        _put(size, "unknown", "쪽 크기", "", "PDF 에 쪽이 없음", show=True)
+    elif want is None:
+        _put(size, "unknown", "쪽 크기", "", "표지 서식에 쪽 설정이 없음", show=True)
+    else:
+        w, h, tol = pages[0]["w"] / PT_MM, pages[0]["h"] / PT_MM, _num(want.get("sizeTolMm"), PAGE_TOL)
+        ok = abs(w - want["widthMm"]) <= tol and abs(h - want["heightMm"]) <= tol
+        _put(size, "pass" if ok else "fail", "쪽 크기", f"{want['widthMm']:.1f}×{want['heightMm']:.1f}mm", f"{w:.1f}×{h:.1f}mm")
+    out = [_done(size)]
+    items = exp.get("items") or []
+    if items:
+        by = {c["what"]: c for c in check_text({"leftMm": _num(exp.get("leftMm")), "items": items, "metaItems": None}, measure, index)}
+        out += [by[k] for k in COVER_CHECKS[1:]]
+    else:
+        out += [unsupported(k, "표지에 글 부분이 없음 — 견줄 글 모양이 없음") for k in COVER_CHECKS[1:]]
+    out += [unsupported(k, note) for k, note in UNSUPPORTED_COVER]
+    if exp.get("tables"):
+        out.append(unsupported(UNSUPPORTED_COVER_TABLE[0], f"{UNSUPPORTED_COVER_TABLE[1]}(표 {exp['tables']}개)"))
+    return out
+
+
+# ---- docx(Word) 쪽 기대값 · 견줌 — 명세에서(spec_서식복사 ② §7) ------------------------------------------------------------
+
+def _docx_format(fmt) -> dict:
+    """서식 요약 사전에서 docx 로 옮기는 값만(② §4 — `style_docx._format` 과 같은 키) — 윗/아래첨자·언어별 글꼴은 docx 운반 문서에 없으므로 기대하지 않는다."""
+    f = fmt if isinstance(fmt, dict) else {}
+    return {k: f[k] for k in DOCX_FORMAT_KEYS if k in f}
+
+
+def expect_table_spec(spec) -> dict | None:
+    """표 명세(`style_carrier.view(carrier, meta)["spec"]` — 칸 글 포함: docx 운반 문서를 지은 그 명세) → `check_table` 이 받는 기대값(expect_table 과 같은 꼴) | None(칸 없음).
+    칸의 제 폭(widthPt)은 0 = 격자의 열 폭을 쓴다(Word 는 칸을 격자대로 그린다 — 한글의 「칸 폭 쌓기」 가 아니다) · 행 높이는 명세에 없어 어림값(ROW_NOMINAL) ·
+    열 폭이 명세에 없으면 0(표 폭은 unknown — 열 경계는 `check_table_docx` 가 잰 선에서 센다)."""
+    cells = spec.get("cells") if isinstance(spec, dict) else None
+    if not isinstance(cells, list) or not cells:
+        return None
+    rows, cols = int(spec.get("rows") or 0), int(spec.get("cols") or 0)
+    if rows < 1 or cols < 1:
+        return None
+    widths = spec.get("widthsMm")
+    known = isinstance(widths, list) and len(widths) == cols and all(_num(w) > 0 for w in widths)
+    out = []
+    for c in cells:
+        text, edges = str(c.get("text") or ""), c.get("edges") if isinstance(c.get("edges"), dict) else {}
+        out.append({"row": int(c["row"]), "col": int(c["col"]), "rowSpan": int(c.get("rowSpan") or 1), "colSpan": int(c.get("colSpan") or 1), "text": text,
+                    "fill": c.get("fill") if isinstance(c.get("fill"), str) else None, "widthPt": 0,
+                    "edges": {k: v if isinstance(v, dict) and str(v.get("type") or "NONE").upper() != "NONE" else None for k, v in edges.items()},
+                    "chars": pdf_style._web_chars({"text": text, "format": _docx_format(c.get("format"))}), "auto": False, "nested": False, "zoned": False})
+    return {"table": None, "rows": rows, "cols": cols, "widthsPt": [float(w) * PT_MM for w in widths] if known else [0.0] * cols, "heightsPt": [ROW_NOMINAL] * rows, "cells": out}
+
+
+def expect_text_items(items, left_mm=20.0) -> dict | None:
+    """글 서식의 명세(meta.items — 차례대로 견본 문단 하나씩) → `check_text` 가 받는 기대값(expect_text 와 같은 꼴) | None(항목 없음). left_mm = docx 운반 문서의 쪽 왼 여백.
+    견본 줄 = item.sample(레터 + 견본 글 — 운반 문서에 쓴 그 글) · 서식 = item.format 가운데 docx 로 옮기는 값. 내어쓰기(첫 줄 < 0)도 한글과 같은 뜻으로 옮겨져 있다
+    (`style_docx._ppr`: Word 의 left 에 그 폭을 더함 → 첫 줄은 왼쪽 여백 자리) — 왼끝의 기대값은 `check_text` 의 식 그대로."""
+    items = [i for i in items or [] if isinstance(i, dict)] if isinstance(items, list) else []
+    if not items:
+        return None
+    out = []
+    for n, it in enumerate(items, 1):
+        mode = it["marker"].get("mode") if isinstance(it.get("marker"), dict) else None
+        out.append({"key": it.get("key") or f"i{n}", "id": f"d{n}", "text": str(it.get("sample") or ""), "format": _docx_format(it.get("format")), "runs": None, "auto": mode == "auto"})
+    return {"leftMm": float(left_mm), "items": out, "metaItems": len(items)}
+
+
+def measured_cols(exp, page) -> list | None:
+    """잰 세로선·채움 사각형의 x 를 묶은 열 경계(왼 → 오른, cols + 1 개) | None(수가 안 맞음 — 세로선이 없는 표 · 뜻밖의 선: 지어내지 않는다)."""
+    xs = _clusters([(v, True) for r in page.get("rects") or [] for v in (r["x0"], r["x1"])] + [(s["x0"], False) for s in page.get("segs") or [] if s["dir"] == "v"], EDGE_TOL)
+    return xs if len(xs) == exp["cols"] + 1 else None
+
+
+def word_page(page, exp) -> dict:
+    """Word 가 PDF 에 그리는 버릇을 걷어 낸 쪽(실측 2026-11-14 — 연구개발계획서 양식의 표를 docx 로 지어 출력: 가로 경계가 7 이 아니라 12 로 세어져 칸 자리를 못 잡았다):
+    ⓐ 칸 음영을 칸 크기로 칠한 뒤 **글 줄마다 같은 색 사각형을 한 번 더** 칠한다 — 다른 채움 사각형 안에 든 같은 색 사각형은 뺀다(그 변이 행 경계로 세어진다)
+    ⓑ 선이 만나는 자리의 조각(가로·세로 모두 4pt 미만 사각형 — 굵은 바깥선은 행 경계마다 1.1×2.6pt 검은 조각을 더 그린다: 그 아랫변이 2pt 넘게 떨어져 경계 하나로 더 세어졌다)을 뺀다 ⓒ 괘선 옆에 **음영 색의 가는 띠**를 칠한다(가는 채움 사각형이라 선으로 읽힌다) — 색이 음영 색이고
+    기대한 괘선 색(명세의 선 색 · 검정)이 아닌 선은 뺀다(선 없는 음영 칸의 변에 「뜻밖의 선」 이 되지 않게)."""
+    rects = [r for r in page.get("rects") or [] if max(r["x1"] - r["x0"], r["y1"] - r["y0"]) >= JOINT_MAX]
+    inside = lambda r, q: q is not r and _near(r["fill"], q["fill"]) and q["x0"] - 0.5 <= r["x0"] and r["x1"] <= q["x1"] + 0.5 and q["y0"] - 0.5 <= r["y0"] and r["y1"] <= q["y1"] + 0.5 and (  # noqa: E731
+        (q["x1"] - q["x0"]) * (q["y1"] - q["y0"]) > (r["x1"] - r["x0"]) * (r["y1"] - r["y0"]) + 0.01)
+    rects = [r for r in rects if not any(inside(r, q) for q in rects)]
+    lines = [(0.0, 0.0, 0.0)] + [_channels(e["color"]) for c in exp.get("cells") or [] for e in (c.get("edges") or {}).values()
+                                 if isinstance(e, dict) and isinstance(e.get("color"), str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", e["color"])]
+    fills = [r["fill"] for r in rects if r.get("fill") is not None]
+    band = lambda s: s.get("color") is not None and any(_near(s["color"], f) for f in fills) and not any(_near(s["color"], c) for c in lines)  # noqa: E731
+    return {**page, "rects": rects, "segs": [s for s in page.get("segs") or [] if not band(s)]}
+
+
+def check_table_docx(exp, measure, index=None) -> list[dict]:
+    """표 명세의 기대값(expect_table_spec) × Word PDF 에서 잰 값 → 검사 목록(check_table 과 같은 차례 — `lineWidth` 는 「재지 못함」 으로).
+    한글에 맞춘 보정을 쓰지 않는다: 칸의 x = **잰 열 경계**(measured_cols — 세로선·채움), 못 세면 명세의 열 폭(표 폭이 맞을 때만), 그것도 아니면 자리에 기대는 검사 전체가 unknown
+    (글은 PDF 어디에든 있는지만). 표 폭 = 잰 폭과 명세의 열 폭 합(±WIDTH_TOL_DOCX — 명세에 열 폭이 없으면 unknown). 견줌 자체는 `check_table` 그대로."""
+    measure = {**measure, "pages": [word_page(p, exp) for p in measure.get("pages") or []]}  # Word 의 그림 버릇(글 줄마다 덧칠한 음영 · 선 옆 음영 띠 · 교차점)을 걷어 낸 뒤 견준다
+    pages, count = measure.get("pages") or [], measure.get("count") or 0
+    page = next((p for p in pages if p.get("segs") or p.get("rects") or p.get("lines")), pages[0] if pages else {})
+    plain = {**page, "segs": plain_segs(page)}
+    total, why = sum(exp["widthsPt"]), ""
+    X = measured_cols(exp, plain) if count == 1 else None
+    fr = table_frame(exp, plain)
+    got = X[-1] - X[0] if X else fr["widthPt"]
+    width = _tally("width")
+    if got is None or total <= 0:
+        _put(width, "unknown", "표 폭", f"{total:.1f}pt" if total > 0 else "명세에 열 폭 없음", "못 잼" if got is None else f"{got:.1f}pt", show=True)
+    else:
+        _put(width, "pass" if abs(got / total - 1) <= WIDTH_TOL_DOCX else "fail", "표 폭", f"{total:.1f}pt", f"{got:.1f}pt")
+    if X:  # 잰 열 경계로 칸 자리를 잡는다
+        use, m = {**exp, "widthsPt": [b - a for a, b in zip(X, X[1:])]}, measure
+    elif total > 0 and fr["widthPt"] and abs(fr["widthPt"] / total - 1) <= WIDTH_TOL:  # 열 경계는 못 셌지만 표 폭이 명세와 같다 — 명세의 열 폭으로
+        use, m = exp, measure
+    else:  # 칸 자리를 정할 수 없다 — 선·채움을 뺀 잰 값으로 견줘, 자리에 기대는 검사를 unknown 으로 둔다(지어낸 자리로 fail 을 내지 않는다)
+        use, m = {**exp, "widthsPt": [1.0] * exp["cols"]}, {**measure, "pages": [{**p, "segs": [], "rects": []} for p in pages]}
+        why = "열 경계를 PDF 의 선에서 세지 못했고 표 폭도 명세와 달라 칸 자리를 견주지 않음" if count == 1 else f"{count}쪽으로 출력되어 칸 자리를 견주지 않음"
+    out = []
+    for c in check_table(use, m, index):
+        if c["what"] == "width":
+            c = _done(width)
+        elif c["what"] == "lineWidth":
+            c = unsupported(*UNSUPPORTED_LINE_WIDTH)
+        elif why and c["status"] == "unknown" and c["what"] not in ("pages", "text"):
+            c = {**c, "note": why}
+        out.append(c)
+    return out
+
+
+def docx_page(docx: bytes) -> dict | None:
+    """docx 운반 문서가 스스로 적은 쪽 설정(본문 상자) {widthMm, heightMm, marginsMm{l,r,t,b}} | None(못 읽음) — `DocxDoc.blocks()` 의 page."""
+    try:
+        from app.docx_doc import DocxDoc
+        return next((b["page"] for b in DocxDoc(docx).blocks() if b.get("page")), None)
+    except Exception as e:  # noqa: BLE001 — 깨진 docx · 구역 설정 없음
+        log.info("docx 운반 문서의 쪽 설정을 읽지 못함: %r", e)
+        return None
+
+
+def expect_docx(docx: bytes, carrier, meta: dict, profile: str):
+    """docx 쪽 기대값 — **명세에서**(spec_서식복사 ② §7): 표 = hwpx 운반 문서의 표 명세(`style_carrier.view(carrier, meta)["spec"]`) · 글 = meta.items · 문서 서식 = meta.page·body.
+    → 기대값 사전 | None(표 명세·항목·쪽 설정이 없음). 운반 문서를 못 읽으면 ValueError."""
+    own = docx_page(docx)
+    if profile == "page-v1":
+        return expect_page(meta, "docx", own)
+    if profile == "cover-v1":  # 표지 서식(② §14) — 글 부분의 견본 글·서식 요약(docx 로 옮기는 값만) · 쪽 크기. 부분은 hwpx 운반 문서의 보기에서(docx 를 지은 그 명세)
+        return expect_cover(meta, "docx", cover_parts(carrier, meta), own)
+    if profile == "text-v1":
+        left = (own or {}).get("marginsMm", {}).get("l")
+        return expect_text_items(meta.get("items"), _num(left, 20.0))
+    from app import style_carrier
+    return expect_table_spec(style_carrier.view(carrier or b"", meta).get("spec"))
+
+
+def build_docx(meta: dict, carrier: bytes):
+    """docx 운반 문서를 그 자리에서 짓는다(옛 템플릿 — spec_서식복사 ② §4) → (docx 바이트, losses) | None(`app.style_docx` 가 없음 · 못 지음)."""
+    try:
+        from app import style_docx
+    except ImportError:
+        return None
+    try:
+        data, losses = style_docx.build(meta, carrier)
+    except Exception as e:  # noqa: BLE001 — ValueError(못 지음)와 그 밖의 오류 모두: docx 없이 둔다
+        log.info("docx 운반 문서를 짓지 못함 %s: %r", meta.get("id"), e)
+        return None
+    return (bytes(data), [str(x) for x in losses or [] if x]) if data else None
+
+
 # ---- 실행 ---------------------------------------------------------------------------------------------------------
 
-def _cached_pdf(carrier):
-    """이 운반 문서의 PDF 캐시 파일 — pdf_render.export_pdf 와 같은 이름(출력용 사본 바이트의 해시)."""
-    return pdf_render.render_dir() / f"{pdf_render.sha(pdf_render.render_copy(carrier))}.pdf"
+def _cached_pdf(carrier, fmt="hwpx"):
+    """이 운반 문서의 PDF 캐시 파일 — pdf_render.export_pdf 와 같은 이름(출력용 사본 바이트의 해시). fmt = 운반 문서의 형식(docx 는 바깥을 뗀 사본의 해시)."""
+    return pdf_render.render_dir() / f"{pdf_render.sha(pdf_render.render_copy(carrier) if fmt == 'hwpx' else pdf_render.render_copy(carrier, fmt))}.pdf"
 
 
-def _blank(meta, status="none", note=""):
-    """빈 기록(spec ② §6 의 꼴) — 검사 없이."""
-    return {"status": status, "at": time.time(), "revision": meta.get("revision"), "subjectHash": "", "profile": "text-v1" if meta.get("kind") == "text" else "table-v1",
-            "renderer": {"name": "Hancom"}, "pages": 0, "checks": [], "coverage": {"pass": 0, "fail": 0, "unknown": 0, "unsupported": 0}, "note": note}
+def _blank(meta, status="none", note="", fmt="hwpx"):
+    """빈 기록(spec ② §6 의 꼴) — 검사 없이. docx 쪽 기록(`verifyDocx`)은 같은 꼴 + `format: "docx"` · renderer Word."""
+    return {"status": status, "at": time.time(), "revision": meta.get("revision"), "subjectHash": "", "profile": PROFILES.get(meta.get("kind"), "table-v1"),
+            **({"format": fmt} if fmt != "hwpx" else {}), "renderer": {"name": RENDERERS.get(fmt, fmt)}, "pages": 0, "checks": [],
+            "coverage": {"pass": 0, "fail": 0, "unknown": 0, "unsupported": 0}, "note": note}
 
 
 def run(carrier: bytes, meta: dict, force: bool = False) -> tuple[dict, dict]:
@@ -765,11 +1112,13 @@ def run(carrier: bytes, meta: dict, force: bool = False) -> tuple[dict, dict]:
             return {**rec, "note": "PDF 출력 없음 — 이 PC 에 한글이 없어 견본을 출력하지 못했습니다"}, files
         try:
             cdoc = HwpxDoc(carrier)
-            exp = expect_text(cdoc, meta) if rec["profile"] == "text-v1" else expect_table(cdoc)
+            exp = (expect_page(meta) if rec["profile"] == "page-v1" else expect_text(cdoc, meta) if rec["profile"] == "text-v1"
+                   else expect_cover(meta, "hwpx", cover_parts(carrier, meta)) if rec["profile"] == "cover-v1" else expect_table(cdoc))
         except Exception as e:  # 깨진 zip·XML · zip_guard
             return failed(f"운반 문서를 읽지 못했습니다: {e}"[:300])
         if exp is None:
-            return failed("운반 문서에 견본 문단이 없습니다" if rec["profile"] == "text-v1" else "운반 문서에 표가 없습니다")
+            return failed({"text-v1": "운반 문서에 견본 문단이 없습니다", "page-v1": "문서 서식에 쪽 설정(meta.page)이 없습니다",
+                           "cover-v1": "표지 서식에 부분(meta.parts)이 없습니다"}.get(rec["profile"], "운반 문서에 표가 없습니다"))
         try:
             if force:
                 old = _cached_pdf(carrier)
@@ -785,7 +1134,7 @@ def run(carrier: bytes, meta: dict, force: bool = False) -> tuple[dict, dict]:
         except Exception as e:  # 시간 초과(한글 창)·한글 실패·PDF 읽기 실패
             return failed(f"한글 PDF 출력 실패: {e}"[:300])
         try:
-            png = proof_png(pdf)
+            png = proof_png(pdf, full=meta.get("kind") in FULL_PROOF)  # 쪽 설정·표지 = 첫 쪽 전체(② §13)
             if png:
                 files["proof.png"] = png
         except Exception as e:
@@ -793,7 +1142,8 @@ def run(carrier: bytes, meta: dict, force: bool = False) -> tuple[dict, dict]:
         rec["pages"] = measure["count"]
         _put(render, "pass")
         index = fonts.font_index()
-        checks = [_done(render), *(check_text(exp, measure, index) if rec["profile"] == "text-v1" else check_table(exp, measure, index))]
+        check = {"page-v1": check_page, "text-v1": check_text, "cover-v1": check_cover}.get(rec["profile"], check_table)
+        checks = [_done(render), *check(exp, measure, index)]
         status, cov, notes = summarize(checks, measure["count"])
         return {**rec, "status": status, "checks": checks, "coverage": cov, "note": " · ".join(notes)}, files
     except Exception as e:  # 견줌 코드의 예상 밖 오류 — 검증이 서버를 죽이지 않게
@@ -801,12 +1151,76 @@ def run(carrier: bytes, meta: dict, force: bool = False) -> tuple[dict, dict]:
         return failed(f"검증 중 오류: {type(e).__name__}: {e}"[:300])
 
 
-_JOBS, _JOBS_LOCK = {}, threading.Lock()   # {템플릿 id: {"revision", "at", "force"}} — 도는 검증(메모리)
+def run_docx(docx: bytes, carrier, meta: dict, force: bool = False) -> tuple[dict, dict]:
+    """docx 운반 문서 한 번 검증(Word — spec_서식복사 ② §7) → (기록(`verifyDocx` — run 과 같은 꼴 + format "docx" · renderer Word), 파일 {"proof_docx.png", "proof_docx.pdf"}).
+    carrier = 그 템플릿의 hwpx 운반 문서(표의 기대값 = 그 표 명세). 예외를 내지 않는다 — Word 가 없으면 status "none", 출력·읽기 실패는 "fail" + note.
+    기대값은 명세에서(`expect_docx`), 견줌은 표 `check_table_docx` · 글 `check_text` · 문서 서식 `check_page`."""
+    meta = meta if isinstance(meta, dict) else {}
+    rec, files = _blank(meta, fmt="docx"), {}
+    render = _tally("render")
+    png_name, pdf_name = PROOFS["docx"]
+
+    def failed(note):
+        _put(render, "fail", "출력", "PDF 출력", note)
+        checks = [_done(render), *rec["checks"]]
+        return {**rec, "status": "fail", "checks": checks, "coverage": summarize(checks)[1], "note": note}, files
+    try:
+        rec["subjectHash"] = subject_hash({**meta, "carrierSha256": meta.get("carrierSha256") or hashlib.sha256(carrier or b"").hexdigest(),
+                                           "docx": {"sha256": hashlib.sha256(docx or b"").hexdigest()}}, "docx")
+        if not pdf_render.available("docx"):
+            return {**rec, "note": "PDF 출력 없음 — 이 PC 에 Word 가 없어 견본을 출력하지 못했습니다"}, files
+        try:
+            exp = expect_docx(docx, carrier, meta, rec["profile"])
+        except Exception as e:  # 깨진 운반 문서 · 틀린 명세
+            return failed(f"docx 서식의 기대값(명세)을 읽지 못했습니다: {e}"[:300])
+        if exp is None:
+            return failed({"text-v1": "글 서식에 항목(meta.items)이 없습니다", "page-v1": "문서 서식에 쪽 설정(meta.page)이 없습니다",
+                           "cover-v1": "표지 서식에 부분(meta.parts)이 없습니다"}.get(rec["profile"], "운반 문서에 표 명세가 없습니다"))
+        try:
+            if force:
+                old = _cached_pdf(docx, "docx")
+                with pdf_render._once(old):
+                    old.unlink(missing_ok=True)
+            try:
+                pdf = pdf_render.export_pdf(docx, limit=LIMIT, fmt="docx")
+            except PermissionError:  # 막 쓴 PDF 를 아직 쥐고 있어 캐시로 옮기지 못함 — 한 번 더(run 과 같다)
+                time.sleep(0.5)
+                pdf = pdf_render.export_pdf(docx, limit=LIMIT, fmt="docx")
+            files[pdf_name] = pdf.read_bytes()
+            measure = measure_pdf(pdf)
+        except Exception as e:  # 시간 초과(Word 대화상자)·Word 실패·PDF 읽기 실패 · 읽을 수 없는 docx(render_copy)
+            return failed(f"Word PDF 출력 실패: {e}"[:300])
+        try:
+            png = proof_png(pdf, full=meta.get("kind") in FULL_PROOF)  # 쪽 설정·표지 = 첫 쪽 전체(② §13)
+            if png:
+                files[png_name] = png
+        except Exception as e:
+            log.warning("견본 그림을 못 만듦(docx): %s", e)
+        rec["pages"] = measure["count"]
+        _put(render, "pass")
+        index = fonts.font_index()
+        check = {"page-v1": check_page, "text-v1": check_text, "cover-v1": check_cover}.get(rec["profile"], check_table_docx)
+        checks = [_done(render), *check(exp, measure, index)]
+        status, cov, notes = summarize(checks, measure["count"])
+        return {**rec, "status": status, "checks": checks, "coverage": cov, "note": " · ".join(notes)}, files
+    except Exception as e:  # 견줌 코드의 예상 밖 오류 — 검증이 서버를 죽이지 않게
+        log.exception("서식 검증 실패(docx)")
+        return failed(f"검증 중 오류: {type(e).__name__}: {e}"[:300])
+
+
+_JOBS, _JOBS_LOCK = {}, threading.Lock()   # {템플릿 id: {"revision", "at", "force", "left": 아직 안 끝난 형식들}} — 도는 검증(메모리)
 
 
 def running(sid: str) -> bool:
     with _JOBS_LOCK:
         return sid in _JOBS
+
+
+def pending(sid: str) -> tuple:
+    """도는 검증에서 **아직 안 끝난 형식**들(차례대로 — ("hwpx", "docx") · ("docx",) · ()) — 안 돌고 있으면 (). 화면은 형식마다 「검증 중」 을 이것으로 보인다."""
+    with _JOBS_LOCK:
+        j = _JOBS.get(sid)
+        return tuple(j.get("left") or ()) if j else ()
 
 
 def job(sid: str) -> dict | None:
@@ -834,11 +1248,14 @@ def _hold(lib, sid, rid, on=True):
         log.exception("서식 revision 을 %s 못함: %s %s", "붙들지" if on else "놓지", sid, rid)
 
 
-def start(sid: str, force: bool = False) -> dict:
+def start(sid: str, force: bool = False, formats=None) -> dict:
     """템플릿 sid 의 검증을 스레드로 건다 → {"status": "running", "revision": 시작 때의 revision}. 이미 돌고 있으면 그 기록 그대로(새로 걸지 않음).
     끝나면 **시작할 때의 revision** 에 기록·proof.png·proof.pdf 를 붙인다(style_lib.put_verify) — 그 revision 은 시작할 때 붙들어(`style_lib.pin`) 끝날 때까지 치워지지 않는다.
-    없는 id 는 LookupError."""
+    formats = 검증할 형식(없으면 둘 다 — hwpx(한글) → docx(Word) 차례: spec_서식복사 ② §7). 아는 형식이 하나도 없으면 ValueError. 없는 id 는 LookupError."""
     from app import style_lib
+    fmts = tuple(f for f in FORMATS if formats is None or f in formats)
+    if not fmts:
+        raise ValueError(f"formats 는 {'·'.join(FORMATS)} 가운데")
     with _JOBS_LOCK:
         j = _JOBS.get(sid)
         if j is not None:
@@ -847,10 +1264,10 @@ def start(sid: str, force: bool = False) -> dict:
         if meta is None:
             raise LookupError("없는 서식 템플릿입니다")
         rid = meta.get("revision")
-        _JOBS[sid] = {"revision": rid, "at": time.time(), "force": bool(force)}
+        _JOBS[sid] = {"revision": rid, "at": time.time(), "force": bool(force), "left": fmts}
         _hold(style_lib, sid, rid)
     try:
-        threading.Thread(target=_work, args=(sid, rid, meta, bool(force)), daemon=True, name=f"style-verify-{sid}").start()
+        threading.Thread(target=_work, args=(sid, rid, meta, bool(force), fmts), daemon=True, name=f"style-verify-{sid}").start()
     except BaseException:  # 스레드를 못 띄움 — 도는 것으로 남기지 않는다
         _hold(style_lib, sid, rid, on=False)
         with _JOBS_LOCK:
@@ -859,18 +1276,46 @@ def start(sid: str, force: bool = False) -> dict:
     return {"status": "running", "revision": rid}
 
 
-def _work(sid, rid, meta, force):
+def _work_hwpx(style_lib, sid, rid, meta, force):
+    """한글 쪽 한 번 — 기록을 `verify` 에 붙인다."""
+    data = style_lib.carrier(sid, rid)
+    if data is None:
+        record, files = {**_blank(meta, "fail", "운반 문서가 없습니다"), "subjectHash": subject_hash(meta)}, {}
+    else:
+        record, files = run(data, meta, force=force)
+    record["revision"] = rid
+    style_lib.put_verify(sid, rid, record, files)
+
+
+def _work_docx(style_lib, sid, rid, meta, force):
+    """Word 쪽 한 번 — 기록을 `verifyDocx` 에 붙인다. docx 운반 문서가 그 revision 에 없으면 그 자리에서 지어 붙이고(`build_docx` → `style_lib.put_docx`),
+    못 지으면 아무것도 안 붙인다(`verifyDocx` 는 null — docx 서식이 없다). docx 형식을 모르는 저장소(put_docx 없음)에서는 아무것도 안 한다."""
+    if not hasattr(style_lib, "put_docx"):
+        return
+    docx, carrier = style_lib.carrier(sid, rid, fmt="docx"), style_lib.carrier(sid, rid)
+    if docx is None:
+        built = build_docx(meta, carrier) if carrier is not None else None
+        if built is None or not style_lib.put_docx(sid, rid, built[0], built[1]):
+            return
+        docx = built[0]
+    record, files = run_docx(docx, carrier, {**meta, "docx": {"sha256": hashlib.sha256(docx).hexdigest()}}, force=force)
+    record["revision"] = rid
+    style_lib.put_verify(sid, rid, record, files, fmt="docx")
+
+
+def _work(sid, rid, meta, force, formats=("hwpx",)):
     from app import style_lib
     try:
-        data = style_lib.carrier(sid, rid)
-        if data is None:
-            record, files = {**_blank(meta, "fail", "운반 문서가 없습니다"), "subjectHash": subject_hash(meta)}, {}
-        else:
-            record, files = run(data, meta, force=force)
-        record["revision"] = rid
-        style_lib.put_verify(sid, rid, record, files)
-    except Exception:
-        log.exception("서식 검증 작업 실패: %s %s", sid, rid)
+        for fmt in formats:  # 한글 → Word 차례로(한 형식이 실패해도 다음 형식은 돈다)
+            try:
+                (_work_docx if fmt == "docx" else _work_hwpx)(style_lib, sid, rid, meta, force)
+            except Exception:
+                log.exception("서식 검증 작업 실패: %s %s %s", sid, rid, fmt)
+            finally:
+                with _JOBS_LOCK:
+                    j = _JOBS.get(sid)
+                    if j is not None:
+                        j["left"] = tuple(f for f in j.get("left") or () if f != fmt)
     finally:
         _hold(style_lib, sid, rid, on=False)  # 기록을 붙인 뒤에 놓는다 — 그 사이 밀린 옛 revision 은 저장소가 그때 치운다
         with _JOBS_LOCK:

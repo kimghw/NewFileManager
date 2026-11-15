@@ -227,15 +227,15 @@ try:
                      soon: b.getAttribute('aria-disabled') === 'true', busy: b.classList.contains('busy'), top: Math.round(r.top), h: Math.round(r.height), w: Math.round(r.width),
                      sym: !!document.querySelector(u.getAttribute('href')), ink: Math.round(u.getBBox().width), tone: lg.dataset.doc, bg: getComputedStyle(lg).backgroundImage, logo: Math.round(lg.getBoundingClientRect().width) }; })"""
         cards = page.evaluate(CARDS)
-        check("TASK 카드 여섯 장 — 할 일 차례(일의 흐름 · 끝에 문서 일반 편집)", [c["key"] for c in cards] == ["plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit"], [c["key"] for c in cards])
+        check("TASK 카드 일곱 장 — 할 일 차례(일의 흐름 · 끝에 문서 일반 편집 · 문서 서식 복사)", [c["key"] for c in cards] == ["plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit", "style_copy"], [c["key"] for c in cards])
         check("카드 글 = 문서 / 동작 두 줄", [(c["doc"], c["name"]) for c in cards] == [("사업계획서", "양식 맞추기"), ("사업계획서", "취합"), ("사업계획서 → 연차보고서", "이관"),
-                                                                             ("연차보고서", "양식 맞추기"), ("연차보고서", "취합"), ("문서", "일반 편집")], [(c["doc"], c["name"]) for c in cards])
+                                                                             ("연차보고서", "양식 맞추기"), ("연차보고서", "취합"), ("문서", "일반 편집"), ("문서", "서식 복사")], [(c["doc"], c["name"]) for c in cards])
         check("TASK 마다 로고(그림 있음 · 46px · 바탕 그라데이션)", all(c["sym"] and c["ink"] >= 20 and c["logo"] == 46 and "gradient" in c["bg"] for c in cards), cards)
-        check("로고 바탕색 = 문서(사업계획서 둘 같음 · 이관 다름 · 연차보고서 둘 같음 · 일반 편집은 회색 — 보라 아님)", [c["tone"] for c in cards] == ["plan", "plan", "plan-report", "report", "report", "any"]
-              and cards[0]["bg"] == cards[1]["bg"] and cards[3]["bg"] == cards[4]["bg"] and len({cards[0]["bg"], cards[2]["bg"], cards[3]["bg"], cards[5]["bg"]}) == 4
+        check("로고 바탕색 = 문서(사업계획서 둘 같음 · 이관 다름 · 연차보고서 둘 같음 · 일반 편집·서식 복사는 회색 — 보라 아님)", [c["tone"] for c in cards] == ["plan", "plan", "plan-report", "report", "report", "any", "any"]
+              and cards[0]["bg"] == cards[1]["bg"] and cards[3]["bg"] == cards[4]["bg"] and cards[5]["bg"] == cards[6]["bg"] and len({cards[0]["bg"], cards[2]["bg"], cards[3]["bg"], cards[5]["bg"]}) == 4
               and "rgb(244, 245, 247)" in cards[5]["bg"], [(c["tone"], c["bg"]) for c in cards])
-        check("로고 그림은 TASK 마다 다름", page.evaluate("() => new Set([...document.querySelectorAll('.task-icons symbol')].map((s) => s.innerHTML.replace(/\\s+/g, ''))).size") == 6)
-        check("넓은 창 — 여섯 장이 한 줄 · 같은 높이 · 동작 이름이 한 높이(문서 줄이 안 접힘) · 가로 넘침 없음(카드 안 글도)", len({c["top"] for c in cards}) == 1 and len({c["h"] for c in cards}) == 1
+        check("로고 그림은 TASK 마다 다름", page.evaluate("() => new Set([...document.querySelectorAll('.task-icons symbol')].map((s) => s.innerHTML.replace(/\\s+/g, ''))).size") == 7)
+        check("넓은 창 — 일곱 장이 한 줄(카드 160px — 본문보다 넓게) · 같은 높이 · 동작 이름이 한 높이(문서 줄이 안 접힘) · 가로 넘침 없음(카드 안 글도)", len({c["top"] for c in cards}) == 1 and len({c["h"] for c in cards}) == 1
               and len(set(page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card-name')].map((e) => Math.round(e.getBoundingClientRect().top))"))) == 1
               and page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card')].every((b) => [...b.querySelectorAll('*')].every((x) => x.getBoundingClientRect().right <= b.getBoundingClientRect().right - 15))")  # 카드 안 여백(16px) 안쪽 — 「… 올려 시작 →」 이 안 넘친다
               and page.evaluate("() => { const e = document.getElementById('empty'); return e.scrollWidth <= e.clientWidth + 1; }"), [(c["top"], c["h"], c["w"]) for c in cards])
@@ -244,7 +244,7 @@ try:
         order = page.evaluate("""() => ['.home-intro', '#homeTasks', '.home-capabilities', '#recent'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top))""")
         check("자리 — 올리기 묶음 아래 · 기능 소개 줄 위 · 제목 「TASK」", order == sorted(order) and len(set(order)) == 4 and page.evaluate("() => document.getElementById('homeTasksTitle').textContent") == "TASK", order)
         page.screenshot(path=str(OUT / "7_tasks.png"), full_page=True)
-        for width, cols in ((860, 3), (560, 2), (400, 1)):  # 좁은 창 — 카드 줄 수가 준다(가로 넘침 없음)
+        for width, cols in ((1200, 4), (860, 4), (560, 2), (400, 1)):  # 좁은 창 — 카드 줄 수가 준다(가로 넘침 없음): 한 줄 7(시작 화면 폭 1192px 부터) → 4 → 2(760px 이하) → 1(430px 이하)
             page.set_viewport_size({"width": width, "height": 900})
             page.wait_for_timeout(250)
             cs = page.evaluate(CARDS)
@@ -344,7 +344,7 @@ try:
         page.screenshot(path=str(OUT / "7_task_drop.png"))
         h = go_home(page)
         cs = page.evaluate(CARDS)
-        check("돌아온 시작 화면 — 카드 여섯 장 그대로(올리는 중 표시 없음)", is_home(h) and len(cs) == 6 and not any(c["busy"] for c in cs), (h, cs))
+        check("돌아온 시작 화면 — 카드 일곱 장 그대로(올리는 중 표시 없음)", is_home(h) and len(cs) == 7 and not any(c["busy"] for c in cs), (h, cs))
 
         # ---- 7-2. 최근 작업 줄 = 무슨 일의 어느 작업(spec_작업 ② §7) — TASK 로고·이름 · 작업 이름(프로젝트 이름 — 2026-11-12 「과제」→「프로젝트」, ② §17) · 역할 · TASK 없는 작업은 파일 이름 + 「TASK 없음」
         drop_id = t["id"]

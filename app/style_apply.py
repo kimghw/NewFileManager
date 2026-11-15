@@ -13,7 +13,12 @@
   `server._transact` 의 판정은 「원본에 없던 종류」 를 되돌리므로(422), 다른 문서에서 가져오는 적용 함수는 그 문서를 쥔 서버 세션의 기준선에 운반 문서의 위반 **종류**를
   더한다(`_carry` → `server.owpml_allow` — 병합의 판정 `merge_api` `check` 와 같은 규칙: 그 종류는 이 편집 탓이 아니다).
   세션은 **부르는 쪽이 넘긴다**(적용 함수의 `session=` — `server._edit` 의 `make(s)` 가 받은 그 세션). 안 주면 전처럼 `server.DOCS` 에서 문서 객체로 찾는다 —
-  LRU 로 밀려난 세션은 거기 없어 못 찾는다(astra)."""
+  LRU 로 밀려난 세션은 거기 없어 못 찾는다(astra).
+- **문서 서식 입히기**(spec_서식복사 ② §9 — hwpx): `page_style(sid)` → `set_page(doc, pstyle)` = 모든 구역의 쪽 설정을 그 문서 서식의 값으로(`style_page.set_page`). 정의를 가져오지 않는다(운반 문서를 안 연다).
+- **표지 넣기**(spec_서식복사 ② §14 — hwpx): `cover_style(sid)` → `cover_insert(doc, cstyle)` = 문서의 맨 앞에 표지 서식의 블록들을(`style_cover.insert` — 그 모듈은 부를 때 가져온다). 운반 문서의 정의를 가져오므로
+  다른 문서에서 가져오는 적용과 같은 검사(`source_check` · `_imported`)를 한다.
+- **docx 문서**(② §9): `docx_table_blank`(docx 운반 문서의 표를 그대로 넣고 채울 칸을 비움) · `docx_format_paras`(템플릿 항목의 서식 요약을 `DocxDoc.derive_format`·`apply_format` 으로 —
+  글·레터는 그대로)만. 그 밖의 적용은 hwpx 문서만 된다. docx 운반 문서는 부르는 쪽(끝점)이 보관함에서 읽어(없으면 지어 붙여) `docx_open` 으로 열어 준다."""
 import sys
 import weakref
 
@@ -302,3 +307,176 @@ def write_lines(doc, after, lines, tstyle=None, *, session=None) -> list[str]:
         out.append(anchor)
     _imported(doc, before, tstyle["src"] if tstyle is not None else None, session)
     return out
+
+
+# ---- 문서 서식(쪽 설정 — spec_서식복사 ② §5·§9) ------------------------------------------------------------------------
+
+def page_style(sid: str) -> dict:
+    """문서 서식 하나 → {"page": 쪽 설정(`style_page.clean` 을 지난 것), "body": 바탕 글 | None, "meta": meta}. 없으면 KeyError, 문서 서식이 아니거나 값이 틀리면 ValueError
+    (문서 서식 모듈 `app.style_page` 가 없어도 ValueError)."""
+    meta = style_lib.get(sid)
+    if meta is None:
+        raise KeyError("그 서식이 서식 보관함에 없습니다")
+    if meta.get("kind") != "page":
+        raise ValueError("문서 서식이 아닙니다 — 표 서식은 표에, 글 서식은 문단에 입힙니다")
+    try:
+        from app import style_page
+    except ImportError as e:
+        raise ValueError("문서 서식 모듈(app.style_page)이 없어 쪽 설정을 입히지 못합니다") from e
+    return {"page": style_page.clean(meta.get("page")), "body": meta.get("body") if isinstance(meta.get("body"), dict) else None, "meta": meta}
+
+
+def page_hosts(doc) -> list:
+    """구역마다의 첫 문단(쪽 설정 hp:secPr 을 품은 문단) — 쪽 설정을 바꾸는 편집이 닿는 최상위 문단들(구조 편집의 before·hosts)."""
+    return [p for p in (next(sec.iterchildren(P), None) for sec in doc._sections) if p is not None]
+
+
+def set_page(doc, pstyle) -> int:
+    """hwpx 문서 doc 의 **모든 구역**의 쪽 설정(용지 크기·방향·여백)을 문서 서식 pstyle(`page_style`)의 값으로 -> 바꾼 구역 수(`style_page.set_page`).
+    바탕 글 모양은 문서에 입히지 않는다(v1 — ② §5). 바꿀 구역이 없으면 ValueError."""
+    from app import style_page
+    n = int(style_page.set_page(doc, pstyle["page"]) or 0)
+    if n < 1:
+        raise ValueError("이 문서에서 쪽 설정을 찾지 못해 문서 서식을 입히지 못했습니다")
+    for p in page_hosts(doc):  # 쪽 설정이 든 구역을 「고친 부분」 으로(저장·블록 캐시) — set_page 가 이미 했어도 해롭지 않다
+        doc._touch(p)
+    return n
+
+
+# ---- 표지 서식(표지 넣기 — spec_서식복사 ② §14) -----------------------------------------------------------------------
+
+def cover_style(sid: str) -> dict:
+    """표지 서식 하나 → {"src": 운반 문서(HwpxDoc — 블록 id 가 붙은 채), "parts": meta.parts, "meta": meta}. 없으면 KeyError, 표지 서식이 아니면 ValueError."""
+    meta, data = style_lib.get(sid), style_lib.carrier(sid)
+    if meta is None or data is None:
+        raise KeyError("그 서식이 서식 보관함에 없습니다")
+    if meta.get("kind") != "cover":
+        raise ValueError("표지 서식이 아닙니다 — 표지 넣기는 표지 서식으로 합니다")
+    return {"src": style_carrier.doc(data), "parts": meta.get("parts") or [], "meta": meta}
+
+
+def cover_insert(doc, cstyle, *, session=None) -> dict:
+    """hwpx 문서 doc 의 **맨 앞**에 표지 서식 cstyle(`cover_style`)의 블록들을 넣는다(`style_cover.insert(doc, 운반 문서)` — 원래 첫 블록은 다음 쪽에서 시작 · 구역 설정을 품은 첫 문단의 자리는 지킨다)
+    -> {"blocks": [새 블록 id…], "after": 표지 바로 뒤 블록 id | None}. 구조 편집의 `run()` 안에서 부른다.
+    다른 적용 함수와 같은 앞뒤 검사: 가져오기 전에 운반 문서의 끊어진 정의 참조(`source_check`) · 가져온 뒤 판정 기준선과 새 정의의 참조(`_imported`).
+    표지 모듈(`app.style_cover`)이 없거나 넣은 블록이 없으면 ValueError."""
+    try:
+        from app import style_cover
+    except ImportError as e:
+        raise ValueError("표지 서식 모듈(app.style_cover)이 없어 표지를 넣지 못합니다") from e
+    src = cstyle["src"]
+    source_check(src)
+    before = defs_state(doc)
+    got = style_cover.insert(doc, src)
+    got = got if isinstance(got, dict) else {}
+    ids = [i for i in got.get("blocks") or [] if isinstance(i, str) and i in doc._ids and doc._attached(doc._ids[i])]
+    if not ids:
+        raise ValueError("표지 서식에서 넣은 블록이 없습니다")
+    _imported(doc, before, src, session)
+    after = got.get("after")
+    return {"blocks": ids, "after": after if isinstance(after, str) and after in doc._ids else None}
+
+
+# ---- docx 문서(spec_서식복사 ② §9 — 빈 표 넣기 · 문단에 입히기만) --------------------------------------------------------
+
+def docx_open(data: bytes):
+    """docx 운반 문서를 연 것(블록 id 가 붙은 채 — 적용 때의 `src`). 못 열면 ValueError."""
+    from app.docx_doc import DocxDoc
+    try:
+        d = DocxDoc(data)
+        d.blocks()
+    except Exception as e:  # noqa: BLE001 — 깨진 zip·XML 은 종류가 여럿이다
+        raise ValueError(f"docx 운반 문서를 열 수 없습니다: {type(e).__name__}: {e}") from e
+    return d
+
+
+def docx_style(sid: str, kind: str) -> dict:
+    """보관함 템플릿 하나(docx 문서에 쓸 것) → {"meta": meta, "items": meta.items(글 서식)}. 없으면 KeyError, 종류(kind = "table" | "text")가 다르면 ValueError."""
+    meta = style_lib.get(sid)
+    if meta is None:
+        raise KeyError("그 서식이 서식 보관함에 없습니다")
+    if meta.get("kind") != kind:
+        raise ValueError("표 서식이 아닙니다 — 빈 표 넣기는 표 서식으로 합니다" if kind == "table" else "글 서식이 아닙니다 — 문단에 입히기는 글 서식으로 합니다")
+    return {"meta": meta, "items": meta.get("items") or []}
+
+
+def docx_top_level(doc, block_id):
+    """docx 문서에서 block_id 가 **본문 최상위 블록**(본문 바로 아래 문단·표, 또는 그 문단의 그림)이면 그 블록 요소 — 아니면(없는 id · 칸 안) ValueError."""
+    from app import docx_struct
+    el = doc._ids.get(block_id) if isinstance(block_id, str) else None
+    if el is None or not doc._attached(el):
+        raise ValueError("넣을 자리의 블록이 지금 문서에 없습니다 — 넣을 자리는 본문 최상위 블록만 됩니다")
+    try:
+        blk = doc._block(el)
+    except (ValueError, StopIteration) as e:
+        raise ValueError("넣을 자리는 본문 최상위 블록(문단·표·그림)만 됩니다") from e
+    if docx_struct.top_host(doc, blk) is not blk:
+        raise ValueError("넣을 자리는 본문 최상위 블록만 됩니다(표 칸 안에는 넣지 않습니다)")
+    return blk
+
+
+def docx_table_blank(doc, src, meta, after) -> dict:
+    """docx 문서 doc 의 after(본문 최상위 블록) 바로 뒤에 docx 운반 문서 src(`docx_open`)의 표를 **그대로** 넣고 채울 칸을 비운다 -> {table, host, rows, cols}.
+    비우는 칸은 hwpx 의 `table_blank` 와 같은 규칙: meta.blueprint 가 있으면 그 `input`·`computed` 칸, 없으면 라벨 칸이 아닌 칸 — 라벨 칸 = meta.labels, 그것도 없으면
+    `style_carrier.kept_labels`(견본 글만 든 칸은 라벨이 아니다). 표 폭은 운반 문서 그대로(대상 문서의 글 폭에 맞추지 않는다 — v1)."""
+    docx_top_level(doc, after)
+    try:
+        from app import style_docx
+    except ImportError as e:
+        raise ValueError("docx 서식 모듈(app.style_docx)이 없어 표를 넣지 못합니다") from e
+    new = doc.insert_after(after, [{"kind": "copy", "srcId": style_docx.table_id(src)}], src=src)[0]
+    tbl = doc._ids[new]
+    block = doc._table_block(tbl, {"num": {}, "seq": {}, "reset": {}})
+    meta = meta if isinstance(meta, dict) else {}
+    bands = M.clean_roles(meta.get("bands"), block["nRows"], block["nCols"])
+    bp = meta.get("blueprint") or {}
+    roles = {(c.get("row"), c.get("col")): c.get("role") for c in bp.get("cells") or [] if isinstance(c, dict)}
+    given = meta.get("labels")
+    labels = {tuple(rc) for rc in given if isinstance(rc, (list, tuple)) and len(rc) == 2} if isinstance(given, list) else style_carrier.kept_labels(block, bands)
+    for c in block["cells"]:
+        role = roles.get((c["row"], c["col"])) if roles else None
+        keep = role in LABEL_ROLES if role else (c["row"], c["col"]) in labels
+        if not keep:
+            doc._blank_cell(doc._ids[c["id"]])
+    doc._touch_doc()
+    return {"table": new, "host": new, "rows": block["nRows"], "cols": block["nCols"]}
+
+
+def docx_changes(fmt, source_format=None) -> dict:
+    """서식 요약 사전 → `DocxDoc.derive_format` 이 받는 바꿀 값(아는 키·범위 안의 값만 — `style_carrier._clean_format`).
+    **내어쓰기**(첫 줄 < 0): 한글은 첫 줄이 왼쪽 여백에서 시작하고 둘째 줄부터 그만큼 들어가지만 Word 는 왼쪽 여백에서 첫 줄을 그만큼 내어 쓴다 —
+    한글에서 온 서식(원본이 docx 가 아님)은 왼쪽 여백에 그 폭을 더해 같은 모양이 되게 한다. docx 에서 온 서식 요약은 이미 Word 의 뜻이다."""
+    from app import docx_format
+    ch = {k: v for k, v in style_carrier._clean_format(fmt).items() if k in docx_format._KEYS}
+    if "align" in ch and ch["align"] not in docx_format._ALIGN_OUT:
+        del ch["align"]
+    first = ch.get("firstLineMm")
+    if source_format != "docx" and isinstance(first, (int, float)) and first < 0:
+        ch["indentLeftMm"] = round(float(ch.get("indentLeftMm") or 0) - first, 2)
+    return ch
+
+
+def docx_format_paras(doc, tstyle, key, para_ids, keep_numbering=True) -> list[str]:
+    """docx 문서의 문단들에 글 서식 항목 key 의 모양을 입힌다 -> 모양이 바뀐 문단 id. tstyle = `docx_style(sid, "text")`. 글·레터는 안 바꾼다.
+    항목의 **서식 요약**(글꼴·크기·굵게·기울임·밑줄·색·장평·자간·정렬·여백·첫 줄·줄 간격·문단 간격)을 문단마다 제 서식 위에 덮는다(`derive_format` → `apply_format`) —
+    요약에 없는 모양(스타일·테두리·탭)은 그 문단 것 그대로. keep_numbering = 문단마다 제 번호 설정을 지킨다."""
+    from lxml import etree
+    _, it = _item(tstyle, key)
+    ch = docx_changes(it.get("format"), ((tstyle.get("meta") or {}).get("source") or {}).get("format"))
+    if not ch:
+        raise ValueError("그 글 서식 항목에 입힐 서식 값이 없습니다")
+    ps = []
+    for pid in para_ids:
+        el = doc._ids.get(pid) if isinstance(pid, str) else None
+        if el is None or not str(el.tag).endswith("}p") or not doc._attached(el):
+            raise ValueError("서식을 입힐 문단이 지금 문서에 없습니다")
+        ps.append(el)
+    changed = []
+    for pid, el in zip(para_ids, ps):
+        was = etree.tostring(el)
+        doc.apply_format([pid], doc.derive_format(doc.get_format(pid), ch), keep_numbering=keep_numbering)
+        if etree.tostring(el) != was:
+            changed.append(pid)
+    if changed:
+        doc._touch_doc()
+    return changed

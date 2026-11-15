@@ -131,7 +131,7 @@ try:
         page.evaluate(DROP, [[[b64(b"PK-not-docx"), "메모.docx"]], "#homeFiles"])
         page.wait_for_timeout(300)
         P = page.evaluate(PANEL)
-        check("목록에 docx 를 놓으면 듦(「TASK 없이 열기만」) — 서버에는 아직 안 올림", len(P["rows"]) == 5 and "TASK 없이 열기만" in P["rows"][4]["tag"] and len(works()) == n_works, P["rows"])
+        check("목록에 docx 를 놓으면 듦(「TASK 없이 열기 · 서식 복사」) — 서버에는 아직 안 올림", len(P["rows"]) == 5 and "TASK 없이 열기 · 서식 복사" in P["rows"][4]["tag"] and len(works()) == n_works, P["rows"])
         page.locator("#homeFiles .hf-row").nth(4).locator(".hf-del").click()
         page.locator("#taskCards [data-task=plan_merge]").click()
         page.wait_for_timeout(300)

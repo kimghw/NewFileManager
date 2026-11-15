@@ -16,7 +16,9 @@ const hfProjects = () => [...new Set((typeof worksList !== "undefined" ? worksLi
 function homeFilesAdd(files, job) { // 「파일 선택」 · 놓기 · 목록이 있을 때 카드에 놓기 · 카드로 여럿을 고름 — hwp·hwpx·docx 만, 같은 이름·크기는 한 번
   if (hf.busy) return;
   const list = [...(files || [])], ok = list.filter((f) => HF_OK.test(f.name)), bad = list.filter((f) => !HF_OK.test(f.name));
-  if (bad.length) toast(`hwp·hwpx·docx 문서만 목록에 올릴 수 있습니다 — 뺀 파일: ${bad.map((f) => f.name).join(" · ")}`, true);
+  // PDF 는 목록에 넣지 않는다(spec_서식복사 ② §1) — 작업을 만들지 않는 파일이라 「문서 서식 복사」 카드에 하나씩 놓아 서식 후보만 찾는다(app.js homeTaskFiles)
+  if (bad.length && bad.every((f) => /\.pdf$/i.test(f.name))) toast(`PDF 는 「문서 서식 복사」 카드에 하나씩 놓으세요 — 뺀 파일: ${bad.map((f) => f.name).join(" · ")}`, true);
+  else if (bad.length) toast(`hwp·hwpx·docx 문서만 목록에 올릴 수 있습니다 — 뺀 파일: ${bad.map((f) => f.name).join(" · ")}${bad.some((f) => /\.pdf$/i.test(f.name)) ? "\nPDF 는 「문서 서식 복사」 카드에 하나씩 놓으세요" : ""}`, true);
   let added = 0;
   for (const f of ok) if (!hf.files.some((x) => x.name === f.name && x.size === f.size)) { hf.files.push(f); added += 1; }
   if (!added) return;
@@ -75,7 +77,8 @@ function homeFilesDraw() {
   rows.setAttribute("aria-label", "목적 문서 고르기");
   hf.files.forEach((f, i) => {
     const on = i === ti, row = el("div", "hf-row" + (on ? " on" : "")), lab = el("label", "hf-pick"), r = el("input"), ext = el("span", "hf-ext", hfExt(f).toUpperCase()), name = el("span", "hf-name", f.name), del = el("button", "icon hf-del", "×");
-    const tag = el("span", "hf-tag", [on ? "목적 문서" : ti >= 0 ? "원본 문서" : "", /\.hwp$/i.test(f.name) ? "hwpx 로 바꿔 올림" : "", /\.docx$/i.test(f.name) ? "TASK 없이 열기만" : ""].filter(Boolean).join(" · "));
+    const tag = el("span", "hf-tag", [on ? "목적 문서" : ti >= 0 ? "원본 문서" : "", /\.hwp$/i.test(f.name) ? "hwpx 로 바꿔 올림" : "", /\.docx$/i.test(f.name) ? "TASK 없이 열기 · 서식 복사" : ""].filter(Boolean).join(" · "));
+    if (/\.docx$/i.test(f.name)) tag.title = "docx — 「TASK 없이 열기」 로 열거나, TASK 「문서 서식 복사」 의 목적 문서(서식을 뽑을 문서)로만 시작합니다"; // spec_서식복사 ② §1 — 그 TASK 는 docx 도 된다
     row.dataset.hfFile = String(i);
     ext.dataset.ext = hfExt(f);
     r.type = "radio";
@@ -219,7 +222,7 @@ async function hfOpenTarget(job, file, { project, alias }) {
   await loadWorks(); // 보이는 이름(프로젝트 꼬리 · 별칭)도 여기서 맞춘다(docSwitchDraw)
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
   if (fresh) firstRun(); // 새 작업 — 첫 분석(② §9)
-  showTab(taskEntryOf(job)); // 그 TASK 가 처음 여는 보기(보통 작업 내용 · 문서 일반 편집은 에이전트)
+  taskEnter(job); // 그 TASK 가 처음 여는 보기(app.js — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
   return { id: r.docId, task: state.task, note };
 }
 
@@ -244,7 +247,8 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   const ti = hfTarget(), target = hf.files[ti];
   const ask = (msg, sel) => { toast(msg, true); const to = sel && $("homeFiles").querySelector(sel); if (to) to.focus(); };
   if (!target) { ask("목적 문서를 먼저 고르세요 — 내용을 받는 문서(이관 = 연차보고서 · 취합 = 취합본 · 양식 맞추기 = 맞출 문서)", "input[type=radio]"); return; }
-  if (!HF_TASK.test(target.name)) { ask("TASK 는 hwp·hwpx 문서로 시작합니다 — docx 는 「TASK 없이 열기」 로 엽니다", "[data-hf-plain]"); return; }
+  const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 그 TASK 의 목적 문서 형식(task_catalog.js accept — 보통 hwp·hwpx · 「문서 서식 복사」 는 docx 도: spec_서식복사 ② §1). PDF 는 목록에 없다
+  if (!exts.includes(hfExt(target))) { ask(`TASK 는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「TASK 없이 열기」 로 엽니다(TASK 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return; }
   const others = hf.files.filter((_, i) => i !== ti), project = hfNorm(hf.project, 60), alias = hfNorm(hf.alias, 40), auto = hf.auto, llm = hf.llm;
   const sourceRole = (t.files || []).find((k) => k !== t.target) || "";
   let use = [];

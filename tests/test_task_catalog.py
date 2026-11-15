@@ -63,6 +63,23 @@ def test_task_kind_follows_the_job(catalog):
     assert client.put(f"/api/works/{wid}/task", json={"kind": "general", "job": "", "file": "", "project": ""}).status_code == 200   # TASK 없는 일반 문서
 
 
+def test_style_copy_card_accepts_more_formats_and_enters_the_style_view(catalog):
+    """「문서 서식 복사」(spec_서식복사 ② §1): 카드가 hwp·hwpx·docx·pdf 를 받고(accept), 처음 여는 것이 패널 도구가 아니라 서식 관리자의 「서식 복사」 보기(entry "Style") — 다른 TASK 는 accept 를 적지 않는다(hwp·hwpx 그대로).
+    화면이 읽는 도우미(taskAcceptOf · taskEntryOf · taskKindOf)의 기본값도 함께 고정한다."""
+    task = catalog["style_copy"]
+    assert (task["name"], task["act"], task["doc"], task["file"], task["up"], task["kind"], task["entry"]) == ("문서 서식 복사", "서식 복사", "any", "", "문서", "general", "Style")
+    assert task["accept"] == ["hwp", "hwpx", "docx", "pdf"]
+    assert list(catalog)[-2:] == ["doc_edit", "style_copy"]                      # doc_edit 뒤, 맨 끝
+    assert [job for job, t in catalog.items() if "accept" in t] == ["style_copy"]
+    assert server.TASK_KIND.get("style_copy") == "general"
+    node = shutil.which("node")
+    script = ("const fs = require('node:fs'), vm = require('node:vm'); const source = fs.readFileSync(process.argv[1], 'utf8'); "
+              "process.stdout.write(vm.runInNewContext(source + '\\nJSON.stringify([taskAcceptOf(\"style_copy\"), taskAcceptOf(\"plan_fit\"), taskAcceptOf(\"\"), taskEntryOf(\"style_copy\"), taskEntryOf(\"doc_edit\"), "
+              "taskEntryOf(\"plan_fit\"), taskKindOf(\"style_copy\")])', {}, {timeout: 1000}));")
+    got = json.loads(subprocess.run([node, "-e", script, str(ROOT / "app" / "static" / "task_catalog.js")], capture_output=True, text=True, encoding="utf-8", check=True, timeout=10).stdout)
+    assert got == [["hwp", "hwpx", "docx", "pdf"], ["hwp", "hwpx"], ["hwp", "hwpx"], "Style", "Agent", "Div", "general"]
+
+
 def test_catalog_keeps_the_source_and_destination_roles(catalog):
     """입력 방향이 바뀌면 다른 문서의 내용을 바꾸므로 역할 계약을 고정한다."""
     assert catalog["plan_fit"]["file"] == "plan"

@@ -92,7 +92,7 @@ def turn_body(tid, text):
         # draft 의 알림은 서버가 warn[] 에 싣고, checks[] 에도 같은 말이 온다(화면은 한 번만 보인다)
         {"id": "p2", "type": "write", "title": "기대 효과 문단", "summary": "요청대로 새로 쓴 글입니다", "state": "open", "baseRev": 0, "choiceGroup": None, "preselect": False, "warn": ["에이전트가 쓴 글 — 읽고 반영하세요"],
          "checks": [{"what": "draft", "status": "warn", "text": "에이전트가 쓴 글 — 읽고 반영하세요"}],
-         "view": {"after": IDS["after"], "mode": "draft", "style": "s_txt1", "styleName": "본문 글머리", "lines": [{"item": "i1", "itemName": "□ 줄", "text": "본 기술은 운항 효율을 높인다.", "source": "", "quoted": False, "warn": []}]}},
+         "view": {"after": IDS["after"], "mode": "draft", "style": "s_txt1", "styleName": "본문 글머리", "styleFrom": "보고서.docx · 갑 과제 · 개요템플릿 1 외 1개 문서", "lines": [{"item": "i1", "itemName": "□ 줄", "text": "본 기술은 운항 효율을 높인다.", "source": "", "quoted": False, "warn": []}]}},
         {"id": "p3", "type": "tableNew", "title": "연차별 가로 배치", "summary": "", "state": "open", "baseRev": 0, "choiceGroup": "g1", "preselect": True, "warn": [], "checks": [{"what": "excel", "status": "pass", "text": "엑셀 검증 — 수식 3 · 맞음 3"}], "excel": excel_ok,
          "view": {"after": IDS["after"], "style": "builtin", "styleName": "기본 표", "why": "연차가 열 — 합계가 오른쪽", "grid": grid(4, 5), "gridChanges": [], "rows": 4, "cols": 5}},
         {"id": "p4", "type": "tableNew", "title": "항목별 세로 배치", "summary": "", "state": "open", "baseRev": 0, "choiceGroup": "g1", "preselect": False, "warn": ["후보 사이에 수 모둠이 다릅니다"],
@@ -136,6 +136,9 @@ def agent(route):
     if tail == "/apply":
         body = json.loads(req.post_data)
         calls["apply"].append(body)
+        if body["proposal"] == "sc1":  # 서식 복사 제안(spec_서식복사 ② §6) — 문서를 안 바꾼다: 쓰기 정책에 안 걸리고, 응답에 문서 조각이 없다
+            return js(route, {"applied": {"turn": body["turn"], "proposal": "sc1", "type": "styleCopy", "state": "applied", "styles": [{"id": "s_new1", "name": "예산 총괄표 — 머리 2행·합계행", "kind": "table", "revision": "r1"}],
+                                          "failed": [{"name": "주 개요 템플릿", "why": "그 템플릿을 찾지 못했습니다"}]}, "rev": 0})
         if S["apply"] == "stale":
             return js(route, {"detail": STALE}, 409)
         if S["apply"] == "policy":
@@ -227,7 +230,16 @@ try:
         page.on("request", lambda r: sent.append((r.method, r.url)))
         page.route(AG, agent)
         page.route(re.compile(r"/api/styles(\?.*)?$"), styles)
+        page.route(re.compile(r"/api/styles/s_new1$"), lambda route: js(route, {"id": "s_new1", "name": "예산 총괄표 — 머리 2행·합계행", "kind": "table", "revision": "r1", "docx": {"sha256": "x", "losses": []},  # 서식 복사 카드가 저장 뒤 다시 읽는 서식(두 형식의 검증)
+                                                                                 "verify": {"status": "ok", "coverage": None, "stale": False}, "verifyDocx": {"status": "warn", "coverage": None, "stale": False}}))
         page.route(re.compile(r"/api/docs/[0-9a-f]{12}/styles/candidates$"), lambda route: js(route, {"rev": 0, "stage2": False, "tables": [], "texts": []}))  # 「이 표를 서식으로 저장」 이 여는 열
+        # 서식 그림(spec_서식복사 ② §13)의 견본 — 후보 = POST …/styles/preview(저장과 같은 몸) · 보관한 서식 = GET /api/styles/{sid} 의 view. 둘 다 흉내(작은 표 명세)
+        PIC = {"rows": 2, "cols": 2, "bands": {"headerRows": 1, "headerCols": 0, "footRows": 0}, "widthsMm": [40, 60],
+               "cells": [{"row": r, "col": c, "rowSpan": 1, "colSpan": 1, "text": "구분" if r == 0 else "0", "fill": "#E6E6E6" if r == 0 else None, "valign": "CENTER",
+                          "edges": {k: {"type": "SOLID", "width": "0.12 mm", "color": "#000000"} for k in "trbl"}, "format": {"font": "맑은 고딕", "sizePt": 10, "bold": r == 0, "align": "center"}} for r in range(2) for c in range(2)]}
+        previews = []
+        page.route(re.compile(r"/api/docs/[0-9a-f]{12}/styles/preview$"), lambda route: (previews.append(json.loads(route.request.post_data or "{}")), js(route, {"rev": 0, "kind": "table", "view": {"spec": PIC}, "losses": [], "fidelity": "native"}))[1])
+        page.route(re.compile(r"/api/styles/s_tbl1$"), lambda route: js(route, {"id": "s_tbl1", "revision": "r1", "kind": "table", "name": "예산 총괄표", "losses": [], "verify": None, "view": {"spec": PIC}}))
         page.goto(base)
         page.evaluate("() => { try { localStorage.clear(); } catch {} }")
         open_work(page, a)
@@ -241,7 +253,7 @@ try:
         check("탭을 누르면 패널에 에이전트 보기 · 탭이 고른 꼴 · 패널 머리 둘째 줄 도구 탭 = 「에이전트」", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.get_attribute("#tabAgent", "aria-selected") == "true"
               and page.evaluate(TABS) == [["에이전트", "true"], ["작업 리스트", "false"]], page.evaluate(TABS))
         st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].map((b) => [b.textContent, b.disabled]) })")
-        check("상태 줄 — LLM 사용 가능 · 「서식 보관함」 · 「비우기」(대화가 없어 꺼짐)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 보관함", False], ["비우기", True]], st)
+        check("상태 줄 — LLM 사용 가능 · 「서식 관리자」 · 「비우기」(대화가 없어 꺼짐)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 관리자", False], ["비우기", True]], st)
         check("빈 대화 안내 · 「보내기」 는 글이 없어 꺼짐", "제안만 냅니다" in page.inner_text("#paneAgent .ag-empty") and page.is_disabled("#paneAgent [data-ag-act=send]"))
         picks = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-pick select')].map((s) => [...s.options].map((o) => [o.value, o.textContent]))")
         check("서식 고르기 — 표: 정하지 않음 · 기본 표 · 보관한 표 서식 / 글: 자리 둘레 서식 · 보관한 글 서식", picks == [[["", "정하지 않음"], ["builtin", "기본 표"], ["s_tbl1", "예산 총괄표"]], [["", "자리 둘레 서식"], ["s_txt1", "본문 글머리"]]], picks)
@@ -355,8 +367,8 @@ try:
         check("칸을 더 고르면 카드·발치의 단추 글이 따라온다", page.inner_text("#paneAgent .ag-card[data-prop=p5] [data-ag-act=apply]") == "고른 2칸 문서에 반영" and page.inner_text("#headsDlgFoot [data-ag-act=apply]") == "고른 2칸 문서에 반영")
         page.screenshot(path=str(OUT / "6_agent_preview_fill.png"))
         page.click("#paneAgent [data-ag-act=library]")
-        page.wait_for_selector("#headsDlg[data-kind=styleLib] .sl-item")
-        check("2열을 「서식 보관함」 으로 바꿔도 패널의 대화·카드는 그대로", page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TOOL) == "Agent"
+        page.wait_for_selector("#headsDlg[data-kind=styleLib] [data-sl-tab=table]")  # 처음 갈래는 내용 서식(이 흉내 목록에는 테이블 서식뿐)
+        check("2열을 「서식 관리자」 로 바꿔도 패널의 대화·카드는 그대로", page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TOOL) == "Agent"
               and page.inner_text("#paneAgent .ag-card[data-prop=p5] [data-ag-act=apply]") == "고른 2칸 문서에 반영")
         page.click("#tabTables")
         page.click("#tabAgent")
@@ -378,7 +390,7 @@ try:
         page.click("#paneAgent .ag-card[data-prop=p2] [data-ag-act=preview]")
         page.wait_for_selector("#headsDlg[data-kind=agentProp] table.agp-lines")
         where = page.inner_text("#headsDlg .agp-where")
-        check("글 쓰기 미리보기 — 넣을 자리 · 방식(에이전트가 쓴 글) · 서식 이름 · 줄(입힐 항목 이름)", "뒤" in where and "에이전트가 쓴 글" in where and "본문 글머리" in where and page.locator("#headsDlg table.agp-lines tbody tr").count() == 1
+        check("글 쓰기 미리보기 — 넣을 자리 · 방식(에이전트가 쓴 글) · 서식 이름 · 줄(입힐 항목 이름)", "뒤" in where and "에이전트가 쓴 글" in where and "본문 글머리 (원본 보고서.docx · 갑 과제 · 개요템플릿 1 외 1개 문서)" in where and page.locator("#headsDlg table.agp-lines tbody tr").count() == 1
               and "□ 줄" in page.inner_text("#headsDlg table.agp-lines tbody tr td:first-child"), where)
         page.click("#paneAgent .ag-card[data-prop=p1] [data-ag-act=preview]")
         page.wait_for_function("() => document.querySelectorAll('#headsDlg table.agp-lines tbody tr').length === 2")
@@ -433,8 +445,8 @@ try:
               and page.locator("#headsDlgFoot [data-ag-act=apply]").count() == 0, states)
         page.click("#paneAgent .ag-card[data-group=g1] [data-ag-act=saveStyle]")
         page.wait_for_selector("#headsDlg[data-kind=styleSave] .sl-cand")
-        pick = page.evaluate("() => { const b = document.querySelector('#headsDlg .sl-cand'); return [b.dataset.cand, b.querySelector('.sl-crow > input').checked, b.querySelector('[data-sl-opt=blueprint] input').checked]; }")
-        check("「이 표를 서식으로 저장」 — 서식 추출 열이 그 표만 고른 채 · 「구조까지 저장」 켠 채로", pick == [f"pick:{IDS['table']}", True, True], pick)
+        pick = page.evaluate("() => { const b = document.querySelector('#headsDlg .sl-cand[data-kind=table]'); return [b.dataset.cand, b.querySelector('.sl-crow > input').checked, b.querySelector('[data-sl-opt=blueprint] input').checked]; }")  # 테이블 서식 후보의 맨 앞 — 고른 채로 연 표라 「테이블 서식」 탭이 열린다(spec_서식복사 ② §18)
+        check("「이 표를 서식으로 저장」 — 「서식 복사」 열이 그 표만 고른 채 · 「구조까지 저장」 켠 채로", pick == [f"pick:{IDS['table']}", True, True], pick)
         page.click("#headsDlgClose")
 
         # 409 — 문서가 바뀜
@@ -521,6 +533,39 @@ try:
         page.click("#toolTabTask")
         check("「작업 내용」 을 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5)
         check("일반 문서 작업에는 구분 기준 내용(작업 내용 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")
+        # ---- 10-1. 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 원본 문서(반영 금지)에서도 「보관함에 저장」 은 된다 · 문서는 안 바뀜 · 저장 뒤 서식마다 검증 꼬리표 · 「서식 관리자에서 보기」
+        page.evaluate("""(tbl) => { AGENT.turns.push({ id: 't9', at: Date.now() / 1000, text: '이 문서의 서식을 저장해 줘', reply: '저장할 서식을 골랐습니다.', notes: [], error: null, dropped: [], call: {}, calls: 1,
+          proposals: [{ id: 'sc1', type: 'styleCopy', title: '서식 복사 — 테이블 서식 1 · 템플릿 1 · 문서 서식 1', summary: '', state: 'open', baseRev: 0, choiceGroup: null, preselect: true, warn: [], checks: [],
+            view: { picks: [{ kind: 'table', table: tbl, name: '예산 총괄표 — 머리 2행·합계행', blueprint: true }, { kind: 'text', template: 'tpl1', name: '주 개요 템플릿' }, { kind: 'page', name: '계획서 문서 서식' }] } }] });
+          agentDrawTalk(true); }""", IDS["table"])
+        SC = """() => { const c = document.querySelector('#paneAgent .ag-card[data-prop=sc1]'); return { tag: c.querySelector('.ag-tag').textContent, state: c.dataset.state,
+          rows: [...c.querySelectorAll('.ag-style')].map((r) => [r.dataset.kind, r.querySelector('.hb').textContent, r.querySelector('b').textContent, [...r.querySelectorAll('.sl-verify')].map((v) => v.textContent)]),
+          acts: [...c.querySelectorAll('[data-ag-act]')].map((b) => [b.dataset.agAct, b.textContent, b.disabled]), text: c.textContent }; }"""
+        sc = page.evaluate(SC)
+        check("서식 복사 카드 — 꼬리표 「서식 복사」 · 저장할 서식 목록(갈래 이름 — 테이블 서식 · 내용 서식 · 쪽 설정) · 「보관함에 저장」 은 원본 문서에서도 켜짐 · 미리보기 대신 「서식 그림 보기」", sc["tag"] == "서식 복사"
+              and [r[:3] for r in sc["rows"]] == [["table", "테이블 서식", "예산 총괄표 — 머리 2행·합계행"], ["text", "내용 서식", "주 개요 템플릿"], ["page", "쪽 설정", "계획서 문서 서식"]]
+              and sc["acts"] == [["apply", "보관함에 저장", False], ["pics", "서식 그림 보기", False]] and "구조까지" in sc["text"], sc)
+        # 「서식 그림 보기」(spec_서식복사 ② §13) — 2열 「서식 복사」 보기에 그 제안의 대상을 고른 채로(같은 견본 길) · 3열 카드 안에는 큰 그림이 없다
+        n_prev = len(previews)
+        page.click("#paneAgent .ag-card[data-prop=sc1] [data-ag-act=pics]")
+        page.wait_for_selector(f'#headsDlg[data-kind=styleSave] .sl-cand[data-cand="pick:{IDS["table"]}"] .sp-pic[data-sp-kind=table]', timeout=15000)
+        pv = page.evaluate("""(tid) => { const b = document.querySelector(`#headsDlg .sl-cand[data-cand="pick:${tid}"]`);
+          return { on: b.querySelector('.sl-crow > input').checked, name: b.querySelector('.sl-cname').value, bp: b.querySelector('[data-sl-opt=blueprint] input').checked, tds: b.querySelectorAll('.sp-pic .sp-tbl td').length,
+                   inCard: document.querySelectorAll('#paneAgent .sp-pic').length, dialogs: document.querySelectorAll('dialog[open]').length, save: document.querySelector('#headsDlgFoot [data-sl-act=save]').textContent }; }""", IDS["table"])
+        check("「서식 그림 보기」 — 2열 「서식 복사」 가 제안의 표를 고른 채(제안의 이름 · 구조까지) 그 서식 그림(저장될 견본)을 보임 · 견본 요청은 저장과 같은 몸 · 카드(3열) 안에는 그림 없음 · 팝업 없음",
+              pv == {"on": True, "name": "예산 총괄표 — 머리 2행·합계행", "bp": True, "tds": 4, "inCard": 0, "dialogs": 0, "save": "고른 1개 저장"}
+              and {"kind": "table", "table": IDS["table"], "keepText": False} in previews and len(previews) - n_prev <= 1, (pv, previews))  # 같은 문서의 같은 표를 앞에서 이미 받았으면 다시 받지 않는다(견본은 열쇠로 기억)
+        n_apply, rev0 = len(calls["apply"]), page.evaluate("() => [state.serverRev, state.undo]")
+        page.click("#paneAgent .ag-card[data-prop=sc1] [data-ag-act=apply]")
+        page.wait_for_selector("#paneAgent .ag-card[data-prop=sc1] .sl-verify[data-format=docx]", timeout=15000)
+        sc, b = page.evaluate(SC), calls["apply"][n_apply]
+        check("「보관함에 저장」 — 같은 반영 끝점(몸 = turn·proposal·expectedRev·requestId) · 문서 차례·실행 취소는 그대로 · 카드가 「보관함에 저장함」", b["turn"] == "t9" and b["proposal"] == "sc1" and "requestId" in b and "expectedRev" in b
+              and page.evaluate("() => [state.serverRev, state.undo]") == rev0 and sc["state"] == "applied" and "보관함에 저장함 — 서식 1개" in sc["text"], (b, sc))
+        check("저장 뒤 — 서식마다 검증 꼬리표(형식마다) · 못 저장한 것의 까닭 · 「서식 관리자에서 보기」", sc["rows"] == [["table", "테이블 서식", "예산 총괄표 — 머리 2행·합계행", ["hwpx 검증됨", "docx 확인 필요"]]]
+              and "저장하지 못함 — 주 개요 템플릿: 그 템플릿을 찾지 못했습니다" in sc["text"] and sc["acts"] == [["toLib", "서식 관리자에서 보기", False]], sc)
+        page.click("#paneAgent .ag-card[data-prop=sc1] [data-ag-act=toLib]")
+        page.wait_for_selector("#headsDlg[data-kind=styleLib]")
+        check("「서식 관리자에서 보기」 — 문서 옆 열 「서식 관리자」(테이블 서식을 고른 채)", page.inner_text("#headsDlgTitle") == "서식 관리자" and page.get_attribute("#headsDlgTools [data-sl-tab=table]", "aria-pressed") == "true")
         for width in (320, 480):
             page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
             page.wait_for_timeout(300)
