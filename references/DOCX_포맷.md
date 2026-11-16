@@ -155,6 +155,9 @@
 COM 사용법·렌더 하드닝은 위 「열 때 Word 가 바깥에서 가져오는 것」, 구현은 `app/pdf_render.py`·`app/docx_harden.py`.
 - **PDF**: `Documents.Open(…, ReadOnly=True)` → `SaveAs2(path, FileFormat=17)`. 용지는 `w:pgSz` 그대로(기술수요조사서.docx 는 Letter 612×792pt).
   글꼴은 TrueType 부분 글꼴로 이름이 남는다(`BCDEEE+MalgunGothic`, `MalgunGothicBold`, `ArialMT`) — 한글 PDF 의 이름 없는 Type3·「????」 와 달리 가족 이름으로 맞출 수 있다.
+  - **함초롬바탕 보통 글자도 굵게 비트가 켜진다**(2026-11-16 실측 — 서식 보관함 운반 docx, 런에 `w:b` 없음): Word PDF 는 보통 글꼴 부분 `BCDGEE+HCRBatang` 의 FontDescriptor 에도
+    `FontWeight 700`(Flags 32 · StemV 93 — `HCRBatang-Bold` 부분과 같은 값)을 적고, PyMuPDF 는 그 span 에 flags 20(굵게 비트 16)을 준다. 그린 글자는 보통 굵기(굵은 줄보다 가늘다).
+    → Word PDF 에서 굵게는 `flags & 16` 이 아니라 **부분 글꼴 이름의 `Bold`** 로 가려야 한다(`pdf_map._line` 은 둘 중 하나면 굵게 — 서식 PDF 검증이 보통 줄을 「굵게 실패」 로 잘못 셈).
   PyMuPDF 로 읽으면 **줄마다 끝에 빈칸 글자**가 하나 붙는다(`'31.50 m '`) — 같은 높이 오른쪽 칸 글의 앞 공백으로 잘못 세지 않게 떼야 한다.
   Symbol·Wingdings 글머리는 PDF 에도 대개 PUA 글자 그대로다(U+F09F, 글꼴 `Wingdings-Regular` — HAZID) — 단 Wingdings 「l」(F06C)은 U+26AB ⚫ 로 나왔다(AIP 서식).
   머리말(가로 A4, 쪽 높이 595pt)은 아래끝이 ≈50pt(쪽 높이의 8.4%) — 쪽 높이 비율로 머리말 띠를 잡으면 가로 쪽에서 모자란다(머리말 자리는 물리 거리).

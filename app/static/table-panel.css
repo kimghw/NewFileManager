@@ -2,37 +2,21 @@
 #paneTables { padding: 0; background: #fff; container-type: inline-size; }
 #tablesBox { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 12px 16px; font-size: 13px; }
 #tablesBox > * { min-width: 0; }
-#tablesBox .tp-overview { display: flex; flex-direction: column; gap: 6px; }
-#tablesBox .tp-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-#tablesBox .tp-stat { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 7px; border: 1px solid #e6e9ef; border-radius: 6px; background: #f7f8fa; white-space: nowrap; }
-#tablesBox .tp-stat > span { color: #697586; font-size: 11px; }
-#tablesBox .tp-stat > b { color: #344157; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-#tablesBox .tp-stat.is-warning { border-color: #eedcbd; background: #fff6e9; }
-#tablesBox .tp-stat.is-warning > b, #tablesBox .tp-stat.is-warning > span { color: #a56820; }
+/* 머리(요약 수 · 진행 줄 · 상태 줄 · 하위 탭)는 헤딩 추출과 같은 꼴 — heading-panels.css 의 #tablesOverview · #paneTables .heads-view-nav(2026-11-16 「표를 헤딩 추출 꼴로」).
+   상자의 줄 사이 8px 에 하위 탭의 위아래 간격을 맞춘다(헤딩 추출 = 위 8px · 아래 12px) · 하위 탭의 내용(.tp-view)도 같은 8px 로 쌓는다 */
+#tablesBox > .heads-view-nav { margin: 0 0 4px; }
+#tablesBox .tp-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#tablesBox .tp-view > .tp-run-log { align-self: flex-start; }
 #tablesBox .src-line { flex-wrap: nowrap; min-width: 0; margin: 0; gap: 6px; }
 #tablesBox .src-chip { min-width: 0; max-width: 100%; padding: 0 6px; }
 #tablesBox .src-chip > b { flex: none; }
 #tablesBox .src-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-#tablesBox .tp-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
-#tablesBox .tp-state { color: #697586; font-size: 12px; line-height: 26px; }
+#tablesBox .tp-state { margin: 0; color: #697586; font-size: 12px; line-height: 20px; }
 #tablesBox .tp-state.is-warning { color: #a56820; }
 #tablesBox .tp-actions, #tablesBox .tp-tool-buttons, #tablesBox .tp-display-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
 #tablesBox .btn.sm { flex: none; height: 28px; max-width: 100%; padding: 0 8px; border-color: #dce1e9; border-radius: 6px; font-size: 12px; color: #536078; }
 #tablesBox .btn.sm.primary { border-color: var(--accent); color: #fff; }
 #tablesBox .btn.sm.on { color: var(--accent); border-color: #b8caed; background: #edf3fc; }
-#tablesBox .tp-progress { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 26px; padding: 3px 7px; border: 0; border-radius: 6px; color: #3865b7; background: #eff4fd; font: inherit; font-size: 12px; cursor: pointer; }
-#tablesBox .tp-progress::before { content: ""; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid #4576d7; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; animation-delay: var(--tp-spin-delay, 0s); }
-#tablesBox .tp-progress-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#tablesBox .tp-progress-time { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#tablesBox .tp-progress-time::before { content: "· "; }
-#tablesBox .tp-progress:hover { background: #e5edfc; }
-#tablesBox .tp-tools { padding: 0 0 8px; border-bottom: 1px solid #e7eaf0; }
-#tablesBox .tp-tools > summary { display: flex; align-items: center; gap: 6px; min-height: 28px; list-style: none; color: #536078; font-size: 12px; font-weight: 500; cursor: pointer; }
-#tablesBox .tp-tools > summary::-webkit-details-marker { display: none; }
-#tablesBox .tp-tools > summary::before { content: "›"; flex: none; width: 10px; font-size: 16px; font-weight: 400; text-align: center; }
-#tablesBox .tp-tools[open] > summary::before { transform: rotate(90deg); }
-#tablesBox .tp-tools[open] > summary { margin-bottom: 6px; }
-#tablesBox .tp-tools .tp-display-tools { margin-top: 6px; }
 #tablesBox .tp-common-status, #tablesBox .tp-tool-label { font-size: 11px; font-weight: 400; color: #697586; }
 #tablesBox .tp-tool-label { flex: none; }
 #tablesBox .tp-list { list-style: none; margin: 0; padding: 0; }
@@ -60,7 +44,7 @@
 #tablesBox .tp-detail { overflow-wrap: anywhere; }
 #tablesBox .tp-detail.has-instructions { color: #577b69; }
 #tablesBox .tp-empty { margin: 0; padding: 12px 0; color: #697586; font-size: 12px; }
-#tablesBox .tp-tools > summary:focus-visible, #tablesBox .tp-progress:focus-visible, #tablesBox .tp-owner-link:focus-visible { outline: 2px solid #6b94e8; outline-offset: 2px; border-radius: 4px; }
+#tablesBox .tp-owner-link:focus-visible { outline: 2px solid #6b94e8; outline-offset: 2px; border-radius: 4px; }
 @container (max-width: 360px) {
   #tablesBox .src-chip .today { display: none; }
   #tablesBox .tp-row-head { gap: 6px; }

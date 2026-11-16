@@ -827,7 +827,7 @@ body.ol-dragging .doc .para { caret-color: transparent; }
 /* 2026-11-15: 검증 · PDF · 기록이 이 줄의 고정 탭이 되어 탭이 최대 여섯 — 안 여백 10px(패널 430px 에서 여섯이 다 들어감) · 짧은 셋은 줄지 않고 나머지(작업 내용 · <도구>)가 먼저 줄임표 */
 .tool-tabs button { flex: 0 1 auto; min-width: 0; height: 32px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; background: none; color: var(--muted);
   font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.tool-tabs #tabVerify, .tool-tabs #tabPdf, .tool-tabs #tabLog, .tool-tabs #tabAgent { flex-shrink: 0; }
+.tool-tabs #tabVerify, .tool-tabs #tabPdf, .tool-tabs #tabLog, .tool-tabs #tabAgent, .tool-tabs #tabTables { flex-shrink: 0; } /* 「헤딩 추출」·작업 내용·<도구> 가 먼저 줄임표(2026-11-16 헤딩 추출 · 표를 이 줄로) */
 .tool-tabs button:hover { background: var(--surface-2); color: var(--text); }
 .tool-tabs button.active { background: #edf3ff; color: var(--accent); border-bottom-color: var(--accent); }
 .tool-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

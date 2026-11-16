@@ -22,61 +22,66 @@
 
 #paneHeads { background: #fff; padding: 12px 12px 24px; container-type: inline-size; }
 /* 요약(spec_헤딩_추출 ② §7 「요약 한 줄」 · design.md §7) — 수 단추 · LLM 꼬리표 · 상태를 한 줄씩(26·20·26px). 수를 이름 위아래로 쌓은 큰 카드로 두지 않는다 */
-#headsOverview .result-metrics { display: flex; flex-wrap: wrap; gap: 4px; }
-#headsOverview .result-metric { flex: 0 1 auto; flex-direction: row; align-items: center; min-width: 0; height: 26px; gap: 5px; padding: 0 8px; border-color: #e6e9ef; border-radius: 6px; background: #f8f9fb; text-align: left; }
-#headsOverview .result-metric:hover { background: #f0f4fc; border-color: #bfcee8; }
-#headsOverview .result-metric span { color: #687589; font-size: 11px; line-height: 24px; white-space: nowrap; }
-#headsOverview .result-metric strong { color: #253247; font-size: 13px; line-height: 24px; font-weight: 650; letter-spacing: 0; }
-#headsOverview .src-line { flex-wrap: nowrap; gap: 4px; min-width: 0; margin: 6px 0 0; }
-#headsOverview .src-chip { flex: 0 1 auto; min-width: 0; padding: 0 6px; }
-#headsOverview .src-chip > b { flex: none; }
-#headsOverview .src-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:is(#headsOverview, #tablesOverview) .result-metrics { display: flex; flex-wrap: wrap; gap: 4px; }
+:is(#headsOverview, #tablesOverview) .result-metric { flex: 0 1 auto; flex-direction: row; align-items: center; min-width: 0; height: 26px; gap: 5px; padding: 0 8px; border-color: #e6e9ef; border-radius: 6px; background: #f8f9fb; text-align: left; }
+:is(#headsOverview, #tablesOverview) .result-metric:hover { background: #f0f4fc; border-color: #bfcee8; }
+:is(#headsOverview, #tablesOverview) .result-metric span { color: #687589; font-size: 11px; line-height: 24px; white-space: nowrap; }
+:is(#headsOverview, #tablesOverview) .result-metric strong { color: #253247; font-size: 13px; line-height: 24px; font-weight: 650; letter-spacing: 0; }
+:is(#headsOverview, #tablesOverview) .src-line { flex-wrap: nowrap; gap: 4px; min-width: 0; margin: 6px 0 0; }
+:is(#headsOverview, #tablesOverview) .src-chip { flex: 0 1 auto; min-width: 0; padding: 0 6px; }
+:is(#headsOverview, #tablesOverview) .src-chip > b { flex: none; }
+:is(#headsOverview, #tablesOverview) .src-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .src-chip .today { font-style: normal; }
 /* 진행 줄(spec_헤딩_추출 ② §7 「진행 줄」 · design.md §7) — 두 층(스크립트 · LLM) × 세 단계 격자, 칸 22px. 층 이름 열은 글 폭만, 단계 열 셋은 같은 폭(LLM 칸이 그 단계의 스크립트 칸 바로 아래).
    표시: ✓ 끝남(초록 — LLM 이 끝낸 칸은 보라: design.md §6 「보라는 LLM」) · ○ 안 함 · 돌아가는 동그라미 · ! 실패 · 끝에 주황 점 = 뼈대에 없는 새 항목 · – 할 것 없음 */
-#headsOverview .hprog { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); align-items: center; gap: 3px 4px; margin: 6px 0 0; }
-#headsOverview .hprog-layer { padding-right: 2px; color: #7b8798; font-size: 10.5px; line-height: 22px; white-space: nowrap; }
-#headsOverview .hprog-step { display: flex; align-items: center; gap: 5px; min-width: 0; height: 22px; padding: 0 7px 0 5px; border: 1px solid #e6e9ef; border-radius: 5px; background: #f8f9fb; color: #7b8798; font: inherit; font-size: 11px; line-height: 20px; text-align: left; cursor: pointer; }
-#headsOverview .hprog-step:hover { border-color: #bfcee8; background: #f0f4fc; }
-#headsOverview .hprog-step:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
-#headsOverview .hprog-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#headsOverview .hprog-count { flex: none; margin-left: -2px; white-space: nowrap; font-variant-numeric: tabular-nums; } /* 수는 줄지 않는다 — 좁으면 이름이 먼저 줄임표 */
-#headsOverview .hprog-count::before { content: "· "; }
-#headsOverview .hprog-mark { flex: none; box-sizing: border-box; display: inline-grid; place-items: center; width: 12px; height: 12px; border: 1.5px solid #aab5c5; border-radius: 50%; font-size: 8.5px; font-weight: 700; line-height: 1; color: #fff; }
-#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"]) { color: #2f3b4f; }
-#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"]) .hprog-mark { border: 0; background: var(--ok); }
-#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"], [data-state="llm"]) .hprog-mark::before { content: "✓"; }
-#headsOverview .hprog-step[data-state="stale"]::after { content: ""; flex: none; width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: #c48631; }
-#headsOverview .hprog-step[data-state="llm"] { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
-#headsOverview .hprog-step[data-state="llm"] .hprog-mark { border: 0; background: #6d28d9; }
-#headsOverview .hprog-step[data-state="running"] { border-color: #cfddf7; background: #edf3ff; color: #2758c7; }
-#headsOverview .hprog-step[data-state="running"] .hprog-mark { border: 2px solid #4576d7; border-right-color: transparent; animation: spin .8s linear infinite; }
-#headsOverview .hprog-step[data-state="failed"] { border-color: #f5c8c8; background: var(--fail-soft); color: var(--fail); }
-#headsOverview .hprog-step[data-state="failed"] .hprog-mark { border: 0; background: var(--fail); }
-#headsOverview .hprog-step[data-state="failed"] .hprog-mark::before { content: "!"; }
-#headsOverview .hprog-step[data-state="skip"] .hprog-mark { border: 0; color: #9aa5b5; font-size: 11px; }
-#headsOverview .hprog-step[data-state="skip"] .hprog-mark::before { content: "–"; }
+:is(#headsOverview, #tablesOverview) .hprog { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); align-items: center; gap: 3px 4px; margin: 6px 0 0; }
+:is(#headsOverview, #tablesOverview) .hprog-layer { padding-right: 2px; color: #7b8798; font-size: 10.5px; line-height: 22px; white-space: nowrap; }
+:is(#headsOverview, #tablesOverview) .hprog-step { display: flex; align-items: center; gap: 5px; min-width: 0; height: 22px; padding: 0 7px 0 5px; border: 1px solid #e6e9ef; border-radius: 5px; background: #f8f9fb; color: #7b8798; font: inherit; font-size: 11px; line-height: 20px; text-align: left; cursor: pointer; }
+:is(#headsOverview, #tablesOverview) .hprog-step:hover { border-color: #bfcee8; background: #f0f4fc; }
+:is(#headsOverview, #tablesOverview) .hprog-step:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
+:is(#headsOverview, #tablesOverview) .hprog-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#headsOverview, #tablesOverview) .hprog-count { flex: none; margin-left: -2px; white-space: nowrap; font-variant-numeric: tabular-nums; } /* 수는 줄지 않는다 — 좁으면 이름이 먼저 줄임표 */
+:is(#headsOverview, #tablesOverview) .hprog-count::before { content: "· "; }
+:is(#headsOverview, #tablesOverview) .hprog-mark { flex: none; box-sizing: border-box; display: inline-grid; place-items: center; width: 12px; height: 12px; border: 1.5px solid #aab5c5; border-radius: 50%; font-size: 8.5px; font-weight: 700; line-height: 1; color: #fff; }
+:is(#headsOverview, #tablesOverview) .hprog-step:is([data-state="done"], [data-state="stale"]) { color: #2f3b4f; }
+:is(#headsOverview, #tablesOverview) .hprog-step:is([data-state="done"], [data-state="stale"]) .hprog-mark { border: 0; background: var(--ok); }
+:is(#headsOverview, #tablesOverview) .hprog-step:is([data-state="done"], [data-state="stale"], [data-state="llm"]) .hprog-mark::before { content: "✓"; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="stale"]::after { content: ""; flex: none; width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: #c48631; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="llm"] { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="llm"] .hprog-mark { border: 0; background: #6d28d9; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="running"] { border-color: #cfddf7; background: #edf3ff; color: #2758c7; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="running"] .hprog-mark { border: 2px solid #4576d7; border-right-color: transparent; animation: spin .8s linear infinite; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="failed"] { border-color: #f5c8c8; background: var(--fail-soft); color: var(--fail); }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="failed"] .hprog-mark { border: 0; background: var(--fail); }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="failed"] .hprog-mark::before { content: "!"; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="skip"] .hprog-mark { border: 0; color: #9aa5b5; font-size: 11px; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-state="skip"] .hprog-mark::before { content: "–"; }
+/* 「표」 탭도 이 요약·진행 줄·하위 탭 꼴을 같이 쓴다(#tablesOverview · #paneTables — 2026-11-16 사용자 「헤딩 추출이랑 표랑 uiux 가 유사했으면 좋겠어」 → 답 「표를 헤딩 추출 꼴로」 · design.md §10).
+   진행 줄이 한 단계뿐이면(.hprog-one — 표 구조) 칸 하나가 남는 폭을 쓴다 · 불일치 같은 주의 수는 주황 */
+:is(#headsOverview, #tablesOverview) .hprog.hprog-one { grid-template-columns: auto minmax(0, 1fr); }
+#tablesOverview .result-metric.is-warning { border-color: #eedcbd; background: #fff6e9; }
+#tablesOverview .result-metric.is-warning :is(span, strong) { color: #a56820; }
 #headsViewRun .hdl dd.llmc { color: #5b21b6; }
-#headsOverview .result-meta { gap: 4px; margin: 6px 0 0; min-height: 26px; }
-#headsOverview .result-meta:has(.analysis-state.running) { flex-wrap: nowrap; } /* 도는 동안: 줄을 접지 않고 「지금 하는 일」 글을 줄인다 */
-#headsOverview .analysis-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500; color: #617088; background: #f1f4f8; border-radius: 5px; }
-#headsOverview .analysis-state::before { content: ""; flex: none; width: 5px; height: 5px; background: #8190a6; border-radius: 50%; }
-#headsOverview .analysis-state.stale { color: #a76516; background: #fff4e3; }
-#headsOverview .analysis-state.stale::before { background: #c48631; }
-#headsOverview .analysis-state.running { flex: 0 1 auto; min-width: 0; border: 0; font-family: inherit; line-height: 16px; color: #2758c7; background: #edf3ff; cursor: pointer; }
-#headsOverview .analysis-state.running:hover { background: #e0eaff; }
+:is(#headsOverview, #tablesOverview) .result-meta { gap: 4px; margin: 6px 0 0; min-height: 26px; }
+:is(#headsOverview, #tablesOverview) .result-meta:has(.analysis-state.running) { flex-wrap: nowrap; } /* 도는 동안: 줄을 접지 않고 「지금 하는 일」 글을 줄인다 */
+:is(#headsOverview, #tablesOverview) .analysis-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500; color: #617088; background: #f1f4f8; border-radius: 5px; }
+:is(#headsOverview, #tablesOverview) .analysis-state::before { content: ""; flex: none; width: 5px; height: 5px; background: #8190a6; border-radius: 50%; }
+:is(#headsOverview, #tablesOverview) .analysis-state.stale { color: #a76516; background: #fff4e3; }
+:is(#headsOverview, #tablesOverview) .analysis-state.stale::before { background: #c48631; }
+:is(#headsOverview, #tablesOverview) .analysis-state.running { flex: 0 1 auto; min-width: 0; border: 0; font-family: inherit; line-height: 16px; color: #2758c7; background: #edf3ff; cursor: pointer; }
+:is(#headsOverview, #tablesOverview) .analysis-state.running:hover { background: #e0eaff; }
 /* 진행 표시(② §7) — 도는 동안은 점 대신 돌아가는 동그라미(style.css @keyframes spin) + 지금 하는 일 · 지난 시간 */
-#headsOverview .analysis-state.running::before { box-sizing: border-box; width: 11px; height: 11px; background: transparent; border: 2px solid #4576d7; border-right-color: transparent; animation: spin .8s linear infinite; }
-#headsOverview .analysis-state .now-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#headsOverview .analysis-state .now-secs { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#headsOverview .analysis-state .now-secs:not(:empty)::before { content: "· "; }
-#headsOverview .analysis-state.running::after { content: "›"; flex: none; font-size: 13px; line-height: 14px; opacity: .65; } /* 누르면 추출·설정의 그 단계로 */
-#headsOverview .result-meta .now-open { flex: none; }
-#headsOverview .analysis-refresh { margin-left: auto; font-size: 11px; color: #50698e; background: #fff; border-color: #dce3ee; border-radius: 6px; }
-#paneHeads .heads-view-nav { display: flex; gap: 4px; overflow: visible; position: sticky; top: -12px; z-index: 2; padding: 0; border: 0; border-bottom: 1px solid #e3e7ee; border-radius: 0; background: #fff; margin: 8px 0 12px; }
-#paneHeads .heads-view-nav button { flex: 1; min-width: 0; padding: 8px 0; font-size: 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #748095; white-space: nowrap; }
-#paneHeads .heads-view-nav button:hover { background: transparent; color: #2b4d87; }
-#paneHeads .heads-view-nav button[aria-selected="true"] { color: #2d5bd0; background: transparent; border-bottom-color: #2d5bd0; box-shadow: none; }
+:is(#headsOverview, #tablesOverview) .analysis-state.running::before { box-sizing: border-box; width: 11px; height: 11px; background: transparent; border: 2px solid #4576d7; border-right-color: transparent; animation: spin .8s linear infinite; }
+:is(#headsOverview, #tablesOverview) .analysis-state .now-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#headsOverview, #tablesOverview) .analysis-state .now-secs { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+:is(#headsOverview, #tablesOverview) .analysis-state .now-secs:not(:empty)::before { content: "· "; }
+:is(#headsOverview, #tablesOverview) .analysis-state.running::after { content: "›"; flex: none; font-size: 13px; line-height: 14px; opacity: .65; } /* 누르면 추출·설정의 그 단계로 */
+:is(#headsOverview, #tablesOverview) .result-meta .now-open { flex: none; }
+:is(#headsOverview, #tablesOverview) .analysis-refresh { margin-left: auto; font-size: 11px; color: #50698e; background: #fff; border-color: #dce3ee; border-radius: 6px; }
+:is(#paneHeads, #paneTables) .heads-view-nav { display: flex; gap: 4px; overflow: visible; position: sticky; top: -12px; z-index: 2; padding: 0; border: 0; border-bottom: 1px solid #e3e7ee; border-radius: 0; background: #fff; margin: 8px 0 12px; }
+:is(#paneHeads, #paneTables) .heads-view-nav button { flex: 1; min-width: 0; padding: 8px 0; font-size: 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #748095; white-space: nowrap; }
+:is(#paneHeads, #paneTables) .heads-view-nav button:hover { background: transparent; color: #2b4d87; }
+:is(#paneHeads, #paneTables) .heads-view-nav button[aria-selected="true"] { color: #2d5bd0; background: transparent; border-bottom-color: #2d5bd0; box-shadow: none; }
 #paneHeads .htree-head { margin-bottom: 10px; gap: 6px; }
 #paneHeads .htree-head > b, #paneHeads .htree-head > strong { font-size: 13px; }
 #paneHeads .btn.sm,
@@ -172,25 +177,25 @@
 #paneHeads .tpl-tree .olm-btn, #paneHeads .tpl-tree .olf-btn, #paneHeads .tpl-tree .olm-merge .btn { height: 22px; padding: 0 7px; font-size: 11.5px; }
 #paneHeads .tpl-tree .trel-body { margin-left: 8px; padding-left: 8px; }
 @container (max-width: 400px) { /* 꼬리표 둘·단계 탭이 한 줄에 안 들어가는 폭 — 「오늘」 을 감추고(시각만) 탭은 짧은 이름으로 */
-  #headsOverview .src-chip .today { display: none; }
+  :is(#headsOverview, #tablesOverview) .src-chip .today { display: none; }
   #headsViewRun .stage-tabs .long { display: none; }
   #headsViewRun .stage-tabs .short { display: inline; }
-  #headsOverview .hprog-unit { display: none; } /* 진행 줄 칸의 「묶음」 — 수만 남긴다(전체는 title) */
+  :is(#headsOverview, #tablesOverview) .hprog-unit { display: none; } /* 진행 줄 칸의 「묶음」 — 수만 남긴다(전체는 title) */
 }
 @container (max-width: 370px) {
-  #paneHeads .heads-view-nav { gap: 2px; }
-  #paneHeads .heads-view-nav button { font-size: 11px; }
-  #headsOverview .result-metric { padding: 0 6px; }
-  #headsOverview .result-meta .now-open { display: none; } /* 「지금 하는 일」 꼬리표를 눌러도 같은 곳으로 간다 */
+  :is(#paneHeads, #paneTables) .heads-view-nav { gap: 2px; }
+  :is(#paneHeads, #paneTables) .heads-view-nav button { font-size: 11px; }
+  :is(#headsOverview, #tablesOverview) .result-metric { padding: 0 6px; }
+  :is(#headsOverview, #tablesOverview) .result-meta .now-open { display: none; } /* 「지금 하는 일」 꼬리표를 눌러도 같은 곳으로 간다 */
 }
 @container (max-width: 330px) { /* 패널 최소 폭(320px) — 수 단추 넷이 한 줄에 들어가게 조금 더 좁히고, 꼬리표 둘은 글을 자르지 않고 두 줄로 */
-  #headsOverview .result-metrics { gap: 3px; }
-  #headsOverview .result-metric { gap: 4px; padding: 0 5px; }
-  #headsOverview .result-metric span { font-size: 10.5px; }
-  #headsOverview .src-line { flex-wrap: wrap; }
-  #headsOverview .hprog { gap: 3px; }
-  #headsOverview .hprog-step { gap: 4px; padding: 0 4px; font-size: 10.5px; } /* 칸 글은 줄임표 — 전체는 title */
+  :is(#headsOverview, #tablesOverview) .result-metrics { gap: 3px; }
+  :is(#headsOverview, #tablesOverview) .result-metric { gap: 4px; padding: 0 5px; }
+  :is(#headsOverview, #tablesOverview) .result-metric span { font-size: 10.5px; }
+  :is(#headsOverview, #tablesOverview) .src-line { flex-wrap: wrap; }
+  :is(#headsOverview, #tablesOverview) .hprog { gap: 3px; }
+  :is(#headsOverview, #tablesOverview) .hprog-step { gap: 4px; padding: 0 4px; font-size: 10.5px; } /* 칸 글은 줄임표 — 전체는 title */
 }
 @container (max-width: 330px) {
-  #paneHeads .heads-view-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 10px; }
+  :is(#paneHeads, #paneTables) .heads-view-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 10px; }
 }

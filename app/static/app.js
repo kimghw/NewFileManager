@@ -592,9 +592,12 @@ function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프�
 // 줄 = 왼쪽 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든 첫 탭 · 문서 위 탭 띠에서 옮김: 전에는 「일반 문서」 만 「작업 내용」 이 에이전트 보기였다) · 「작업 내용」(연구개발 TASK 의 Div 만) ·
 // 「<도구>」(탭 띠에서 마지막으로 고른 도구 — 고른 적이 없으면 감춤) / 오른쪽 접는 묶음 = 검증 · PDF · 기록 + 펼치기 단추(#toolMore). 접힌 동안은 그 묶음에서 고른 탭 하나만 보인다.
 // 같은 날 사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」: 「작업 리스트」 는 묶음의 넷째 탭(#toolTabList)에서 상단 바 아이콘 #taskListBtn 으로 — 아래 taskListBtnDraw · taskListToggle.
+// 같은 날 사용자 「기본적으로 헤딩추출이나 표 는 탭에 에이전트에 넣어줘야지」 → 답 「띠에서 뺌」: 「헤딩 추출」·「표」(#tabHeads·#tabTables)는 「작업 내용」 다음의 고정 탭(늘 보임 — 보임은 headsReset·tablesReset 이 정한다) ·
+// 「<도구>」 는 이제 탭 띠의 고친 문단 · 문서 비교만(spec_작업 ② §10 「둘째 줄」).
 // 부르는 곳: taskDraw · showTab · divReset · toolMoreSet
-const PANEL_TOOLS = ["Verify", "Pdf", "Log"]; // 패널 머리의 고정 탭(id tab<이름> — showTab·toolShown 이 그대로 찾는다)
-let toolLast = null; // 탭 띠(고친 문단·헤딩 추출·표·문서 비교)에서 마지막으로 본 도구
+const PANEL_TOOLS = ["Verify", "Pdf", "Log"]; // 패널 머리 오른쪽 접는 묶음의 고정 탭(id tab<이름> — showTab·toolShown 이 그대로 찾는다)
+const PANEL_MAIN = ["Heads", "Tables"]; // 패널 머리 왼쪽의 고정 탭(에이전트 · 작업 내용 다음 — 2026-11-16 탭 띠에서 옮김)
+let toolLast = null; // 탭 띠(고친 문단 · 문서 비교)에서 마지막으로 본 도구
 let toolMoreOpen = (() => { try { return localStorage.getItem("nfm.toolMore") === "1"; } catch { return false; } })(); // 오른쪽 묶음을 펼쳤나 — 처음엔 접힘 · 이 브라우저에 기억
 function toolMoreSet(open) {
   toolMoreOpen = open;
@@ -603,7 +606,7 @@ function toolMoreSet(open) {
 }
 function toolTabsDraw() {
   const cur = $("panel").dataset.tool || "Verify", on = !!state.id;
-  if (!["Agent", "Div", "Tasks", ...PANEL_TOOLS].includes(cur) && TOOL_INFO[cur]) toolLast = cur;
+  if (!["Agent", "Div", "Tasks", ...PANEL_MAIN, ...PANEL_TOOLS].includes(cur) && TOOL_INFO[cur]) toolLast = cur;
   $("toolTabs").hidden = $("toolMore").hidden = !on;
   $("toolTitle").hidden = $("toolTag").hidden = on; // 값은 그대로 채운다(접힌 띠 이름 — colRailName)
   if (!on) return;
@@ -612,7 +615,7 @@ function toolTabsDraw() {
   t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
   u.hidden = !toolLast || !toolShown(toolLast);
   if (toolLast) { u.textContent = TOOL_INFO[toolLast][0]; u.setAttribute("aria-controls", `pane${toolLast}`); }
-  const rows = [[a, cur === "Agent"], [t, cur === "Div"], [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
+  const rows = [[a, cur === "Agent"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
   for (const [b, sel] of rows) { b.classList.toggle("active", sel); b.setAttribute("aria-selected", sel); b.tabIndex = sel ? 0 : -1; }
   $("toolTabs").classList.toggle("more-folded", !toolMoreOpen); // 접힘 — 묶음(.tool-more)에서 고르지 않은 탭은 CSS 가 감춘다
   const m = $("toolMore"), what = "검증 · PDF · 기록";
@@ -2235,7 +2238,7 @@ function docSwitchDraw(list) { // 상단 바 문서 목록 — 파일 이름 자
   const tag = (w) => [w.name, taskName("file", (w.task || {}).file) || taskName("kind", (w.task || {}).kind), taskName("job", (w.task || {}).job)].filter(Boolean).join(" · ");
   sel.replaceChildren(...(cur ? [new Option(cur.name, cur.id)] : []), ...others.map((w) => new Option(tag(w), w.id)));
   sel.value = state.id || "";
-  sel.title = taskProject() ? `프로젝트 「${taskProject()}」 의 문서 목록 — 고르면 그 문서를 엽니다(다른 문서는 「작업」 단추)` : "올린 문서(작업) 목록 — 고르면 그 문서를 엽니다";
+  sel.title = (cur ? `${cur.name}\n` : "") + (taskProject() ? `프로젝트 「${taskProject()}」 의 문서 목록 — 고르면 그 문서를 엽니다(다른 문서는 「작업」 단추)` : "올린 문서(작업) 목록 — 고르면 그 문서를 엽니다"); // 첫 줄 = 지금 문서의 전체 이름(칸이 210px 라 잘린다 — document_header.css)
   sel.hidden = !cur || !others.length;
   $("fileName").hidden = !sel.hidden;
   sel.onchange = () => { const id = sel.value; sel.value = state.id; if (id !== state.id) openWork(id); }; // 못 열면(취소 등) 지금 문서 그대로
@@ -5762,15 +5765,18 @@ function headsProgJudge(r, k, now) { // LLM 판정 칸(2 헤딩 · 3 표) → {s
   if (s && lm.requested && lm.fallback) return { state: "failed", text: name, title: src ? src.title : `${name} — LLM 을 불렀지만 실패해 스크립트로 대신함` };
   return { state: "none", text: name, title: s ? `${name}(LLM) 안 함 — 지금 결과는 스크립트(${fmtWhen((s.meta || {}).at)}) · 추출·설정 ${k}단계의 ${btn}(유료)` : `${name}(LLM) — ${k}단계 결과가 없습니다` };
 }
-function headsProgLine(r) { // 진행 줄 — 두 층(스크립트 · LLM) × 세 단계, 누르면 추출·설정의 그 단계 탭
-  const now = headsProgNow(r), box = el("div", "hprog");
+// opt(2026-11-16 「표」 탭도 같은 그리기 — spec_헤딩_추출 ② §10 「꼴은 헤딩 추출과 같은 틀」): stages = 보일 단계(「표」 탭은 [3] — 한 칸이면 .hprog-one) ·
+// open(k) = 칸을 누르면(기본 = 헤딩 추출 「추출·설정」 의 그 단계 탭) · where(k) = title 끝의 「누르면 …」
+function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · LLM) × 세 단계, 누르면 추출·설정의 그 단계 탭
+  const now = headsProgNow(r), box = el("div", "hprog"), stages = opt.stages || H_STAGES, open = opt.open || headsRunOpen, where = opt.where || ((k) => `추출·설정 ${k}단계`);
+  box.classList.toggle("hprog-one", stages.length === 1);
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", "분석 진행 — 스크립트와 LLM");
   const rows = [["스크립트", (k) => headsProgScript(r, k, now)], ["LLM", (k) => (k === 1 ? headsProgRules(r, now) : headsProgJudge(r, k, now))]];
   for (const [label, info] of rows) {
     box.append(el("span", "hprog-layer", label));
-    for (const k of H_STAGES) {
-      const i = info(k), b = hBtn("", () => headsRunOpen(k), { cls: "hprog-step" });
+    for (const k of stages) {
+      const i = info(k), b = hBtn("", () => open(k), { cls: "hprog-step" });
       b.dataset.state = i.state;
       b.append(el("span", "hprog-mark"), el("span", "hprog-text", i.text));
       if (i.count) {
@@ -5778,7 +5784,7 @@ function headsProgLine(r) { // 진행 줄 — 두 층(스크립트 · LLM) × �
         if (i.unit) n.append(el("span", "hprog-unit", i.unit));
         b.append(n);
       }
-      b.title = `${i.title}\n— ${H_PROG_STATE[i.state]} · 누르면 추출·설정 ${k}단계`;
+      b.title = `${i.title}\n— ${H_PROG_STATE[i.state]} · 누르면 ${where(k)}`;
       b.setAttribute("aria-label", `${label} ${i.text}${i.count ? ` ${i.count}${i.unit || ""}` : ""} — ${H_PROG_STATE[i.state]}`);
       box.append(b);
     }
@@ -7802,7 +7808,7 @@ function bind() {
   $("showPages").onchange = (e) => { $("doc").classList.toggle("hide-pages", !e.target.checked); tplMarksDraw(); peerViewSync(); }; // 쪽 표시를 끄면 템플릿 표시·여백도 함께 · 둘째 면도 같이(spec_작업 ② §12)
   $("doc").addEventListener("click", (e) => { if (e.target.closest(".sheet-label")) e.stopPropagation(); });
   const tabs = TOOL_TABS.filter((n) => $(`tab${n}`) && $(`tab${n}`).closest("#workspaceNav")); // 탭 띠에 단추가 있는 도구만 — 에이전트·작업 내용(Div)·검증·PDF·기록은 패널 머리에서 연다(spec_작업 ② §10)
-  for (const n of [...PANEL_TOOLS, "Agent"]) $(`tab${n}`).onclick = () => showTab(n); // 패널 머리 탭 — 화살표 키는 아래 #toolTabs 의 키 처리가 맡는다
+  for (const n of [...PANEL_TOOLS, ...PANEL_MAIN, "Agent"]) $(`tab${n}`).onclick = () => showTab(n); // 패널 머리 탭 — 화살표 키는 아래 #toolTabs 의 키 처리가 맡는다
   $("toolTabTask").onclick = () => showTab("Div"); // 패널 머리 탭(toolTabsDraw) — 연구개발 TASK 의 작업 내용
   $("toolTabTool").onclick = () => showTab(toolShown(toolLast) ? toolLast : "Verify");
   $("taskListBtn").onclick = taskListToggle; // 상단 바 「작업 리스트」 아이콘(2026-11-16 — 패널 머리 탭에서 옮김)

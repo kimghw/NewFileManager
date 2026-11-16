@@ -1668,6 +1668,7 @@ function tablesReset() { // 문서를 열거나 닫을 때(app.js load·closeDoc
   if (tab) tab.hidden = !state.id;
   const box = $("tablesBox");
   if (box) box.textContent = "";
+  tpView = "List"; // 하위 탭은 문서를 열 때마다 「표 목록」 부터
 }
 
 async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)이 없으면 헤딩 상태를 읽고(1단계 자동 — 헤딩 추출 탭과 같음), 저장된 지침을 읽은 뒤 그린다
@@ -1680,22 +1681,34 @@ async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)�
   tablesDraw();
 }
 
+// 꼴은 헤딩 추출과 같은 틀(2026-11-16 사용자 「헤딩 추출이랑 표랑 uiux 가 유사했으면 좋겠어」 → 답 「표를 헤딩 추출 꼴로」 — spec_헤딩_추출 ② §10 「「표」 탭」):
+// 위에서 ① 요약 수(.result-metric — 누르면 표 목록) ② 진행 줄(app.js headsProgLine — 표 구조 한 칸) ③ 상태 줄(.result-meta) ④ 하위 탭(.heads-view-nav — 헤딩 추출 결과 탭과 같은 꼴) → 그 탭의 내용.
+// ①~③ 의 꼴은 헤딩 추출 요약과 같은 CSS(heading-panels.css 의 #tablesOverview) — 표 탭만의 머리 꼴을 따로 두지 않는다.
+const TP_VIEWS = [["List", "표 목록"], ["Tools", "보기·도구"], ["Run", "추출·설정"]];
+let tpView = "List"; // 고른 하위 탭 — 문서를 열어 둔 동안(tablesReset 이 처음으로 되돌린다)
+function tpViewSet(v, focus = false) {
+  if (!TP_VIEWS.some(([key]) => key === v)) return;
+  tpView = v;
+  tablesDraw();
+  if (focus) { const b = document.querySelector(`#tablesBox [data-tp-view="${v}"]`); if (b) b.focus(); }
+}
+
 function tablesDraw() {
   const box = $("tablesBox"), pane = $("paneTables");
   if (!box || !pane || pane.hidden || !state.id) return;
-  const toolsOpen = !!box.querySelector(".tp-tools[open]");
   box.textContent = "";
   const s3 = heads.view && heads.view.stage3, byId = new Map(((s3 && s3.tables) || []).map((t) => [t.id, t]));
   const store = (heads.xl.store && heads.xl.store.tables) || {}, common = heads.xl.store && heads.xl.store.common;
   const blocks = xlBlocks(), job = heads.view && heads.view.job;
   const busy = !!(job && job.status === "running"), supported = state.format !== "docx";
   const c = (s3 && s3.counts) || {}, k = c.calc || {}, ow = c.owners || {};
-  const overview = el("section", "tp-overview"), stats = el("div", "tp-stats");
+  const overview = el("section", "heads-overview"), metrics = el("div", "result-metrics");
+  overview.id = "tablesOverview";
   overview.setAttribute("aria-label", "표 분석 개요");
-  const stat = (label, v, cls = "") => {
-    const chip = el("span", `tp-stat ${cls}`);
-    chip.append(el("span", null, label), el("b", null, typeof v === "number" ? nf(v) : v));
-    stats.append(chip);
+  const stat = (label, v, cls = "") => { // 헤딩 추출의 수 단추와 같은 꼴 — 누르면 「표 목록」
+    const b = hBtn("", () => tpViewSet("List"), { cls: `result-metric${cls ? ` ${cls}` : ""}`, title: `${label} — 누르면 표 목록` });
+    b.append(el("span", null, label), el("strong", null, typeof v === "number" ? nf(v) : v));
+    metrics.append(b);
   };
   stat("표", blocks.length);
   if (s3) {
@@ -1709,73 +1722,102 @@ function tablesDraw() {
   if (s3) summaryHelp.push(`표 구조 실행 ${s3.meta?.run ?? "–"} · ${fmtWhen(s3.meta && s3.meta.at)}`,
     `수식 ${nf(k.formulas || 0)}개: 일치 ${nf(k.ok || 0)} · 미검증 ${nf((k.blank || 0) + (k.incomplete || 0))}. 불일치는 계산한 값과 문서 값이 다른 칸입니다.`,
     `소속: 헤딩 그래프 ${nf(ow.stage2 || 0)}개 · 문단 추출 기준 어림 ${nf(ow.stage1 || 0)}개.`);
-  const summaryInfo = hHelp("표 집계 기준", summaryHelp.join("\n"));
-  overview.append(stats);
-  const srcLine = typeof headsSourceLine === "function" ? headsSourceLine(heads.view, [3]) : null; // 표 구조가 LLM 것인지 스크립트 것인지 · 끝난 때 · 걸린 시간(app.js — spec ② §7 「LLM 표시」)
-  if (srcLine) { srcLine.append(summaryInfo); overview.append(srcLine); }
-  else stats.append(summaryInfo);
-  const status = el("div", "tp-status");
-  if (!supported) status.append(el("span", "tp-state", "DOCX · 표 구조 분석 미지원"));
-  else if (!s3) status.append(el("span", "tp-state", "표 구조 미분석"));
+  const summaryInfo = hHelp("표 집계 기준", summaryHelp.join("\n"), { note: true });
+  overview.append(metrics);
+  if (supported && heads.view && typeof headsProgLine === "function") // 진행 줄 — 헤딩 추출과 같은 그리기(스크립트 표 구조 / LLM 표 판정) · 누르면 이 탭의 「추출·설정」
+    overview.append(headsProgLine(heads.view, { stages: [3], open: () => tpViewSet("Run"), where: () => "「표」 탭의 추출·설정" }));
+  const meta = el("div", "result-meta"), chip = (text, stale = false) => el("span", `analysis-state${stale ? " stale" : ""}`, text);
+  if (!supported) meta.append(chip("DOCX · 표 구조 분석 미지원"));
+  else if (busy) { // 도는 동안 — 헤딩 추출 상태 줄과 같은 꼴(돌아가는 동그라미 + 지금 하는 일 · 지난 시간) · 누르면 헤딩 추출 「추출·설정」 의 그 단계(단계마다의 진행은 거기)
+    const now = headsJobNow(job, heads.view);
+    const progress = hBtn("", () => { showTab("Heads"); headsRunOpen(job.stage); }, { cls: "analysis-state running", title: now.title });
+    progress.append(el("span", "now-what", now.what), el("span", "now-secs", fmtDur(now.secs)));
+    progress.setAttribute("aria-label", `${now.what} · ${fmtDur(now.secs)} · 진행 보기`);
+    meta.append(progress);
+  } else if (job && job.status === "failed" && job.stage === 3) {
+    meta.append(chip("표 구조 분석 실패", true), hBtn("실행 내역", () => { showTab("Heads"); headsRunOpen(3); }));
+  } else if (!s3) meta.append(chip("표 구조 미분석"));
   else {
     // 문서가 바뀐 것만으로는 「재분석 필요」 가 아니다 — 표 구조는 한 번 만들면 뼈대(spec ② §17, 2026-11-10 사용자). 표 구조에 없는 표(새 표·모양이 바뀐 표)가 생겼을 때만 알린다(heading_drift.js)
     const dn = typeof driftCount === "function" ? driftCount(3) : 0;
-    if (dn) status.append(el("span", "tp-state is-warning", driftText(3)),
+    if (dn) meta.append(chip(driftText(3), true),
       hHelp("표 구조에 없는 표", "표 구조(뼈대)를 만든 뒤 문서에 생긴 표, 행·열 수가 달라진 표입니다. 표 구조는 그대로 쓰고, 이 표까지 넣으려면 표 구조를 다시 만드세요.\n헤딩 추출 탭 상태 줄의 꼬리표를 누르면 표마다 볼 수 있습니다.", { warning: true }));
-    if (s3.ownerStale) status.append(el("span", "tp-state is-warning", "소속 재확인 필요"),
+    if (s3.ownerStale) meta.append(chip("소속 재확인 필요", true),
       hHelp("표 소속을 다시 확인해야 하는 이유", "헤딩 그래프가 바뀌어 표의 소속 헤딩·구분 라벨이 이전 결과를 가리킵니다. 표 구조를 다시 분석하면 맞춰집니다.", { warning: true }));
-    if (s3.tempStale) status.append(el("span", "tp-state is-warning", "TEMP 반영 필요"),
+    if (s3.tempStale) meta.append(chip("TEMP 반영 필요", true),
       hHelp("표 구조에 TEMP를 반영해야 하는 이유", "표 구조 결과에서 제외한 TEMP 표가 지금 지정과 다릅니다. 표 구조를 다시 만들면 맞춰집니다.\n스크립트로 다시 만들면 이전에 LLM이 판정한 칸 역할도 스크립트 결과로 바뀝니다.", { warning: true }));
+    if (!meta.childElementCount) meta.append(chip("표 구조 결과"));
   }
-  if (busy && supported) {
-    const now = headsJobNow(job, heads.view);
-    const progress = hBtn("", () => { showTab("Heads"); headsRunOpen(job.stage); }, { cls: "tp-progress", title: now.title });
-    progress.append(el("span", "tp-progress-what", now.what), el("span", "tp-progress-time", fmtDur(now.secs)));
-    progress.style.setProperty("--tp-spin-delay", `-${(Date.now() % 800) / 1000}s`);
-    progress.setAttribute("aria-label", `${now.what} · ${fmtDur(now.secs)} · 진행 보기`);
-    status.append(progress);
-  } else if (job && job.status === "failed" && job.stage === 3 && supported) {
-    status.append(el("span", "tp-state is-warning", "표 구조 분석 실패"),
-      hBtn("실행 내역", () => { showTab("Heads"); headsRunOpen(3); }));
+  meta.append(summaryInfo);
+  overview.append(meta);
+  box.append(overview);
+  const nav = el("div", "heads-view-nav"); // 하위 탭 — 헤딩 추출 결과 탭과 같은 꼴 · ←/→ · Home/End
+  nav.setAttribute("role", "tablist");
+  nav.setAttribute("aria-label", "표 보기");
+  for (const [key, name] of TP_VIEWS) {
+    const b = el("button", null, name), on = key === tpView;
+    b.type = "button";
+    b.id = `tpTab${key}`;
+    b.dataset.tpView = key;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(on));
+    b.setAttribute("aria-controls", "tpView");
+    b.tabIndex = on ? 0 : -1;
+    b.onclick = () => tpViewSet(key);
+    nav.append(b);
   }
-  if (status.childElementCount) overview.append(status);
-  if (supported) {
+  nav.onkeydown = (e) => {
+    const i = TP_VIEWS.findIndex(([key]) => key === tpView), n = TP_VIEWS.length;
+    const to = e.key === "ArrowRight" ? (i + 1) % n : e.key === "ArrowLeft" ? (i - 1 + n) % n : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    tpViewSet(TP_VIEWS[to][0], true);
+  };
+  box.append(nav);
+  const view = el("section", "tp-view");
+  view.id = "tpView";
+  view.setAttribute("role", "tabpanel");
+  view.setAttribute("aria-labelledby", `tpTab${tpView}`);
+  box.append(view);
+  if (tpView === "Tools") { // 「보기·도구」 — 전의 접는 묶음의 내용 그대로
+    const toolButtons = el("div", "tp-tool-buttons");
+    if (common && common.instructions) toolButtons.append(el("span", "tp-common-status", "공통 지침 있음"));
+    if (supported) {
+      toolButtons.append(hBtn("구조 격자 보기", () => headsTables(), { disabled: !s3 }));
+      if (typeof tmkOpen === "function") toolButtons.append(hBtn("표 만들기·서식 변환", () => tmkOpen()));
+    }
+    toolButtons.append(hBtn("공통 지침", () => tblAgentView("_common")));
+    if (typeof divFormOpen === "function") toolButtons.append(hBtn("양식 정보", () => divFormOpen(), // 양식마다 관리하는 요청(spec_헤딩_추출 ② §12) — 「표」 절이 표 LLM 에 「양식 표 지침」 으로 간다
+      { title: "이 문서의 양식 정보 — 「## 표」 절에 적은 내용은 이 양식의 모든 문서에서 「표 만들기」·「LLM 수식 판정」·표 지침 묶음에 함께 갑니다(공통 지침은 이 문서만)" }));
+    toolButtons.append(
+      hHelp("표 보기와 공통 지침", "구조 격자에서 칸 역할·수식 검증·필드 목록을 확인합니다.\n표 만들기·서식 변환은 선택한 표의 서식을 활용하는 도구입니다.\n공통 지침은 이 문서의 모든 표에 함께 주는 지침입니다.\n양식 정보의 「표」 절은 같은 양식의 모든 문서에 함께 주는 지침입니다.", { note: true }));
+    const display = el("div", "tp-display-tools"), marks = hBtn("표 도구 표시", () => tblMarksToggle());
+    marks.classList.toggle("on", tblMarksOn());
+    marks.setAttribute("aria-pressed", String(tblMarksOn()));
+    display.append(el("span", "tp-tool-label", "문서 표시"), marks);
+    if (supported) {
+      const roles = tblRolesBtn();
+      roles.dataset.keep = "1";
+      roles.textContent = "칸 역할 색";
+      display.append(roles);
+    }
+    display.append(hHelp("문서 표시 도움말", "표 도구 표시는 문서의 표 옆에 엑셀식 보기·지침·소속 표지를 보입니다.\n칸 역할 색은 표 구조 결과를 문서의 칸에 겹쳐 보입니다. 오래된 결과는 자리가 그대로인 칸만 표시합니다.\n화면 표시만 바뀌며 문서 내용은 바뀌지 않습니다."));
+    view.append(toolButtons, display);
+    return;
+  }
+  if (tpView === "Run") { // 「추출·설정」 — 표 구조가 누구 것인지 · 실행 단추(헤딩 추출 「추출·설정」 과 같은 자리). 단계마다의 실행 기록은 헤딩 추출 쪽 3단계 카드
+    if (!supported) { view.append(el("p", "tp-empty", "DOCX 문서는 표 구조 분석을 지원하지 않습니다.")); return; }
+    const srcLine = typeof headsSourceLine === "function" ? headsSourceLine(heads.view, [3]) : null; // 표 구조가 LLM 것인지 스크립트 것인지 · 끝난 때 · 걸린 시간(app.js — spec ② §7 「LLM 표시」)
+    view.append(srcLine || el("p", "tp-state", "표 구조가 아직 없습니다 — 「표 구조 만들기」 로 만듭니다(스크립트 · 무료)."));
     const acts = el("div", "tp-actions");
     acts.append(hBtn("표 구조 만들기", () => headsStart(3, false), { disabled: busy, cls: "btn sm primary" }),
       hBtn("LLM 분석 · 유료", () => headsLlmTables(), { disabled: busy }),
       hHelp("표 구조 분석 방법", "표 구조 만들기: 스크립트로 행·열 헤더, 필드, 서브 테이블, 구분, 수식과 소속을 분석합니다. LLM을 호출하지 않습니다.\nLLM 분석: 칸의 값을 보고 역할과 서브 테이블을 판정합니다. 유료 호출이며 수 분 걸릴 수 있습니다."));
-    overview.append(acts);
+    view.append(acts, hBtn("실행 기록 — 헤딩 추출 › 추출·설정 3단계", () => { showTab("Heads"); headsRunOpen(3); },
+      { cls: "btn sm tp-run-log", title: "표 구조(3단계) 카드 — 단계마다의 진행 · 실행 기록 · 지침을 헤딩 추출 탭에서 봅니다" }));
+    return;
   }
-  box.append(overview);
-  const tools = el("details", "tp-tools"), toolButtons = el("div", "tp-tool-buttons");
-  tools.open = toolsOpen; // 폴링·문서 표시 토글로 다시 그려도 사용자가 펼친 도구는 그대로 둔다.
-  const toolSummary = el("summary");
-  toolSummary.append(el("span", null, "보기·도구"));
-  if (common && common.instructions) toolSummary.append(el("span", "tp-common-status", "공통 지침 있음"));
-  tools.append(toolSummary);
-  if (supported) {
-    toolButtons.append(hBtn("구조 격자 보기", () => headsTables(), { disabled: !s3 }));
-    if (typeof tmkOpen === "function") toolButtons.append(hBtn("표 만들기·서식 변환", () => tmkOpen()));
-  }
-  toolButtons.append(hBtn("공통 지침", () => tblAgentView("_common")));
-  if (typeof divFormOpen === "function") toolButtons.append(hBtn("양식 정보", () => divFormOpen(), // 양식마다 관리하는 요청(spec_헤딩_추출 ② §12) — 「표」 절이 표 LLM 에 「양식 표 지침」 으로 간다
-    { title: "이 문서의 양식 정보 — 「## 표」 절에 적은 내용은 이 양식의 모든 문서에서 「표 만들기」·「LLM 수식 판정」·표 지침 묶음에 함께 갑니다(공통 지침은 이 문서만)" }));
-  toolButtons.append(
-    hHelp("표 보기와 공통 지침", "구조 격자에서 칸 역할·수식 검증·필드 목록을 확인합니다.\n표 만들기·서식 변환은 선택한 표의 서식을 활용하는 도구입니다.\n공통 지침은 이 문서의 모든 표에 함께 주는 지침입니다.\n양식 정보의 「표」 절은 같은 양식의 모든 문서에 함께 주는 지침입니다.", { note: true }));
-  const display = el("div", "tp-display-tools"), marks = hBtn("표 도구 표시", () => tblMarksToggle());
-  marks.classList.toggle("on", tblMarksOn());
-  marks.setAttribute("aria-pressed", String(tblMarksOn()));
-  display.append(el("span", "tp-tool-label", "문서 표시"), marks);
-  if (supported) {
-    const roles = tblRolesBtn();
-    roles.dataset.keep = "1";
-    roles.textContent = "칸 역할 색";
-    display.append(roles);
-  }
-  display.append(hHelp("문서 표시 도움말", "표 도구 표시는 문서의 표 옆에 엑셀식 보기·지침·소속 표지를 보입니다.\n칸 역할 색은 표 구조 결과를 문서의 칸에 겹쳐 보입니다. 오래된 결과는 자리가 그대로인 칸만 표시합니다.\n화면 표시만 바뀌며 문서 내용은 바뀌지 않습니다."));
-  tools.append(toolButtons, display);
-  box.append(tools);
-  if (!blocks.length) { box.append(el("p", "tp-empty", "이 문서에 표가 없습니다.")); return; }
+  if (!blocks.length) { view.append(el("p", "tp-empty", "이 문서에 표가 없습니다.")); return; }
   const list = el("ol", "tp-list");
   list.setAttribute("aria-label", "문서의 표 목록");
   blocks.forEach((b, i) => {
@@ -1832,5 +1874,5 @@ function tablesDraw() {
     row.append(meta);
     list.append(row);
   });
-  box.append(list);
+  view.append(list);
 }

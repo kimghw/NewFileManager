@@ -73,10 +73,12 @@ NOLAP = """() => { const t = document.querySelector('.topbar'), r = [...t.childr
   return t.scrollWidth <= t.clientWidth + 1 && r.every((x, i) => i === 0 || x.left >= r[i - 1].right - 1); }"""
 
 def tabs_for(tool=None, selected="Verify", rnd=True, agent=True, open=True):
-    """둘째 줄(2026-11-16) — 에이전트(hwpx) · 작업 내용(rnd) · <도구>(탭 띠에서 고른 적이 있으면) | 검증 · PDF · 기록(접는 묶음 — 접히면 고른 탭 하나만 · 작업 리스트는 상단 바 아이콘).
-    selected = agent|task|tool|Verify|Pdf|Log|None(작업 리스트를 볼 때 — 고른 탭 없음)"""
+    """둘째 줄(2026-11-16) — 에이전트(hwpx) · 작업 내용(rnd) · 헤딩 추출(hwpx) · 표(늘 — 같은 날 탭 띠에서 옮긴 고정 탭) · <도구>(탭 띠 = 고친 문단 · 문서 비교에서 고른 적이 있으면) |
+    검증 · PDF · 기록(접는 묶음 — 접히면 고른 탭 하나만 · 작업 리스트는 상단 바 아이콘). agent = hwpx(에이전트 · 헤딩 추출이 함께 보임).
+    selected = agent|task|Heads|Tables|tool|Verify|Pdf|Log|None(작업 리스트를 볼 때 — 고른 탭 없음)"""
     more = [["검증", "Verify"], ["PDF", "Pdf"], ["기록", "Log"]]
-    row = ([["에이전트", "agent"]] if agent else []) + ([["작업 내용", "task"]] if rnd else []) + ([[tool, "tool"]] if tool else []) + [m for m in more if open or m[1] == selected]
+    fixed = ([["헤딩 추출", "Heads"]] if agent else []) + [["표", "Tables"]]
+    row = ([["에이전트", "agent"]] if agent else []) + ([["작업 내용", "task"]] if rnd else []) + fixed + ([[tool, "tool"]] if tool else []) + [m for m in more if open or m[1] == selected]
     return [[name, str(key == selected).lower()] for name, key in row]
 
 
@@ -121,8 +123,9 @@ try:
         check("머리 높이 78px · 가로 넘침 없음 · 내용이 머리 바로 아래", g0["head"][3] - g0["head"][1] == 78 and g0["over"] <= 0 and g0["pane"][1] == g0["head"][3], g0)
         page.screenshot(path=str(OUT / "1_head.png"))
 
-        check("탭 띠에는 에이전트·검증·PDF·기록이 없다(패널 머리로 옮김 — 2026-11-15 · 에이전트 2026-11-16)", page.evaluate("() => ['tabAgent', 'tabVerify', 'tabPdf', 'tabLog'].every((id) => document.getElementById(id).closest('#toolTabs'))")
-              and page.locator("#workspaceNav #tabAgent, #workspaceNav #tabVerify, #workspaceNav #tabPdf, #workspaceNav #tabLog").count() == 0)
+        check("탭 띠에는 에이전트·헤딩 추출·표·검증·PDF·기록이 없다(패널 머리로 옮김 — 2026-11-15 · 에이전트 · 헤딩 추출 · 표 2026-11-16)",
+              page.evaluate("() => ['tabAgent', 'tabHeads', 'tabTables', 'tabVerify', 'tabPdf', 'tabLog'].every((id) => document.getElementById(id).closest('#toolTabs'))")
+              and page.locator("#workspaceNav #tabAgent, #workspaceNav #tabHeads, #workspaceNav #tabTables, #workspaceNav #tabVerify, #workspaceNav #tabPdf, #workspaceNav #tabLog").count() == 0)
         # ---- 2-1. 오른쪽 묶음 펼치기·접기(2026-11-16 사용자 「검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기」) — 펼친 상태는 기억
         page.click("#toolMore")
         g = page.evaluate(MORE)
@@ -137,7 +140,8 @@ try:
         check("접힌 채 「에이전트」 — 묶음 탭은 모두 감춤(단추만)", page.evaluate(TOOL) == "Agent" and page.evaluate(TABS) == tabs_for(rnd=False, open=False, selected="agent") and page.evaluate(VIS, "toolMore"), page.evaluate(TABS))
         page.focus("#tabAgent")
         page.keyboard.press("End")
-        check("접힌 채 키보드 End — 보이는 마지막 탭(에이전트 그대로)", page.evaluate("() => document.activeElement.id") == "tabAgent")
+        check("접힌 채 키보드 End — 보이는 마지막 탭(표 — 접힌 묶음의 탭은 건너뜀 · 2026-11-16 헤딩 추출 · 표가 고정 탭)", page.evaluate("() => document.activeElement.id") == "tabTables"
+              and page.evaluate(TOOL) == "Tables", page.evaluate("() => document.activeElement.id"))
         page.click("#toolMore")
         page.click("#tabVerify")
         open_work(page, a)
@@ -184,12 +188,12 @@ try:
         check("도구 바꾸기 — 둘째 줄이 도구 이름 · 머리 높이·첫 줄 자리 그대로", seen == ["고친 문단", "기록", "헤딩 추출", "표", "검증"] and not moved, [seen, moved])
 
         # ---- 4. 패널에서 작업 = 연구개발과제 → 저장 · 그 내용이 바로 열림(탭 띠에 탭은 안 생긴다 — 2026-11-12)
-        check("작업 종류를 고르기 전 — 검증·PDF·기록·<도구>(마지막 탭 띠 도구 「표」)", page.evaluate(TABS) == tabs_for(tool="표", rnd=False) and not page.evaluate(VIS, "toolTitle"), page.evaluate(TABS))
+        check("작업 종류를 고르기 전 — 헤딩 추출·표·<도구>(마지막 탭 띠 도구 「고친 문단」)·검증·PDF·기록", page.evaluate(TABS) == tabs_for(tool="고친 문단", rnd=False) and not page.evaluate(VIS, "toolTitle"), page.evaluate(TABS))
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{a}/task") and r.request.method == "PUT") as put:
             page.select_option("#panelTask", "rnd")
         page.wait_for_selector("#divBox .dv-task select")
         check("연구개발 프로젝트 선택 — 저장·작업 내용 열림 · 작업 내용/검증 표시", put.value.status == 200 and page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "paneDiv")
-              and page.evaluate(NO_TAB) and page.evaluate(TABS) == tabs_for(tool="표", selected="task") and not page.evaluate(VIS, "toolTitle") and page.evaluate(HEAD) == ["작업 내용", "프로젝트 · TASK"], page.evaluate(TABS))
+              and page.evaluate(NO_TAB) and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="task") and not page.evaluate(VIS, "toolTitle") and page.evaluate(HEAD) == ["작업 내용", "프로젝트 · TASK"], page.evaluate(TABS))
         check("활성 탭이 없어도 Tab 키는 탭 띠의 보이는 첫 탭(고친 문단)이 받는다", page.evaluate("() => [...document.querySelectorAll('#workspaceNav .tab')].filter((t) => t.tabIndex === 0).map((t) => t.id)") == ["tabEdits"])
         g = page.evaluate(GEO)
         check("연구개발과제 내용 — 머리 높이 78px 그대로", g["head"] == g0["head"] and g["pane"][1] == g["head"][3], g["head"])
@@ -202,21 +206,21 @@ try:
         page.click("#tabVerify")
         check("패널 머리 「검증」 — 작업 목록은 그대로 「연구개발과제」", page.evaluate(TOOL) == "Verify" and page.input_value("#panelTask") == "rnd" and page.evaluate(HEAD)[0] == "검증")
         g = page.evaluate(GEO)
-        check("다른 도구를 볼 때 — 검증 선택·작업 내용 유지 · 머리 높이 그대로", page.evaluate(TABS) == tabs_for(tool="표")
+        check("다른 도구를 볼 때 — 검증 선택·작업 내용 유지 · 머리 높이 그대로", page.evaluate(TABS) == tabs_for(tool="고친 문단")
               and g["tabs"][0] >= g["head"][0] and g["tabs"][2] <= g["head"][2] and g["tabs"][1] >= g["task"][3] and g["head"] == g0["head"] and g["over"] <= 0, [page.evaluate(TABS), g])
         page.locator("#panel .tool-heading").screenshot(path=str(OUT / "5_head_tabs.png"))
         page.click("#toolTabTask")
-        check("탭 「작업 내용」 — 그 내용 · 그 탭을 고름", page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "paneDiv") and page.evaluate(TABS) == tabs_for(tool="표", selected="task") and page.evaluate(NO_TAB))
+        check("탭 「작업 내용」 — 그 내용 · 그 탭을 고름", page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "paneDiv") and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="task") and page.evaluate(NO_TAB))
         page.click("#tabPdf")
-        check("탭 「PDF」 — PDF 를 고름", page.evaluate(TOOL) == "Pdf" and page.evaluate(TABS) == tabs_for(tool="표", selected="Pdf"), page.evaluate(TABS))
+        check("탭 「PDF」 — PDF 를 고름", page.evaluate(TOOL) == "Pdf" and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="Pdf"), page.evaluate(TABS))
         page.click("#tabVerify")
-        check("탭 「검증」 — 검증으로 돌아감", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == tabs_for(tool="표"))
+        check("탭 「검증」 — 검증으로 돌아감", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == tabs_for(tool="고친 문단"))
         page.click("#toolTabTask")
 
         # ---- 6. 풀기 — 패널의 목록에서 풀면 「검증」 으로(돌아가는 단추도 없음) · 다시 고르면 다시 열림
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{a}/task")):
             page.select_option("#panelTask", "")
-        check("패널에서 풀면 — 검증으로 · 검증 탭 유지", page.evaluate(TABS) == tabs_for(tool="표", rnd=False) and not page.evaluate(VIS, "toolTitle") and page.evaluate(TOOL) == "Verify" and page.evaluate(HEAD)[0] == "검증"
+        check("패널에서 풀면 — 검증으로 · 검증 탭 유지", page.evaluate(TABS) == tabs_for(tool="고친 문단", rnd=False) and not page.evaluate(VIS, "toolTitle") and page.evaluate(TOOL) == "Verify" and page.evaluate(HEAD)[0] == "검증"
               and task_of(a)["kind"] == "", page.evaluate(HEAD))
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{a}/task")):
             page.select_option("#panelTask", "rnd")
@@ -224,7 +228,7 @@ try:
         check("패널에서 다시 고르면 — 그 내용이 다시 열림", page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "paneDiv"))
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{a}/task")):
             page.select_option("#panelTask", "")
-        check("한 번 더 풀어도 같다", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == tabs_for(tool="표", rnd=False) and task_of(a)["kind"] == "")
+        check("한 번 더 풀어도 같다", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == tabs_for(tool="고친 문단", rnd=False) and task_of(a)["kind"] == "")
         check("풀린 문서에서는 showTab('Div') 도 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Verify")
 
         # ---- 7. 탭 띠를 접은 채로도(상단 바 「탭 ▴」) 패널의 작업 목록으로 연구개발과제 내용을 연다
@@ -260,12 +264,12 @@ try:
                 page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
                 page.wait_for_timeout(300)
                 g = page.evaluate(GEO)
-                check(f"{tool} · 패널 {width}px — 탭 여섯 머리 안 · 높이 78px · 넘침 없음", len(page.evaluate(TABS) or []) == 6 and (page.evaluate(TABS) or [[0, 0]])[0][0] == "에이전트" and g["head"][3] - g["head"][1] == 78 and g["over"] <= 0
+                check(f"{tool} · 패널 {width}px — 탭 여덟 머리 안 · 높이 78px · 넘침 없음", len(page.evaluate(TABS) or []) == 8 and (page.evaluate(TABS) or [[0, 0]])[0][0] == "에이전트" and g["head"][3] - g["head"][1] == 78 and g["over"] <= 0
                       and g["tabs"][2] <= g["head"][2] and g["tabs"][0] >= g["head"][0] and g["pane"][1] == g["head"][3], g)
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}.png"))
             page.click("#toolMore")  # 접으면 — 에이전트 · 작업 내용 · <도구>(고른 탭)
             g, tl = page.evaluate(GEO), page.evaluate(TABS)
-            check(f"{tool} · 패널 280px 접힘 — 탭 셋 · 넘침 없음 · 머리 안", [t[0] for t in tl] == ["에이전트", "작업 내용", TOOL_NAME[tool]] and g["over"] <= 0
+            check(f"{tool} · 패널 280px 접힘 — 탭 다섯 · 넘침 없음 · 머리 안", [t[0] for t in tl] == ["에이전트", "작업 내용", "헤딩 추출", "표", "고친 문단"] and g["over"] <= 0
                   and g["tabs"][2] <= g["head"][2] and g["head"][3] - g["head"][1] == 78, [tl, g])
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}_folded.png"))
             page.click("#toolMore")
