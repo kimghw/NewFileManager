@@ -42,8 +42,9 @@ COMMON = (
                 out="작업(hwpx · docx)", change="store", auto=True, modules=("works", "server"), spec=(SP_WORK, "② §1·§2")),
              _s("task", "양식 판정 · 프로젝트 · TASK · 라운드", ("script", "human"), "문서가 연구개발계획서 · 연차보고서 양식인지 보고 문서 역할(사업계획서 · 연차보고서 · 기관 문서)을 정합니다. 문서는 프로젝트 → TASK → 라운드로 묶이고, "
                 "첨부 파일 · 옆 문서는 그 셋이 같은 문서만 씁니다.", change="store", modules=("projects", "works"), spec=(SP_WORK, "② §10·§17")),
-             _s("import", "가져오기 검증", "script", "올린 문서를 웹 화면이 제대로 읽었는지 검사합니다(한글 · Word 가 있으면 PDF 로 찍어 견줌). 첫 분석과 함께 돕니다.", auto=True,
-                modules=("verify", "pdf_render", "pdf_map"), spec=(SP_WEB, "② §3·§4")),
+             _s("import", "가져오기 검증", ("script", "llm"), "올린 문서를 웹 화면이 제대로 읽었는지 검사합니다(한글 · Word 가 있으면 PDF 로 찍어 견줌). 첫 분석과 함께 돕니다. "
+                "스크립트 단계에 주의 · 실패가 있으면 마지막 「LLM 검토」 가 저절로 돌아, 다름이 실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태를 바꿉니다(스크립트 판정은 옆에 남음).", auto=True,
+                agents=("verify_review",), modules=("verify", "verify_llm", "pdf_render", "pdf_map"), spec=(SP_WEB, "② §3·§4-1")),
              _s("firstHeads", "기본 분석 — 헤딩 그래프 · 표 구조", "script", "새 작업을 처음 열 때 한 번, 헤딩 추출 2단계(헤딩 그래프) → 3단계(표 구조: 열헤더 · 행헤더 등 칸 역할)를 스크립트만으로 잇달아 돌립니다(hwpx). "
                 "어느 TASK 든 같고, 이미 결과가 있는 단계는 건너뜁니다.", out="헤딩 그래프 · 표 구조(뼈대)", change="store", auto=True, uses=("headings",), modules=("heading_runs",), spec=(SP_WORK, "② §9")),
              _s("status", "분석 상태 표시", "script", "문서 이름 줄에 헤딩 · 표(스크립트) · LLM 판정 · 구분 기준 검토가 어디까지 됐는지 보입니다(「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」) — 어느 TASK 에서나 같은 꼴. "
@@ -147,7 +148,8 @@ COMMON = (
     dict(id="verify", name="검증 · 확정 · 저장", where="상단 바 「출력파일 검증」 · 「저장」 · 패널 머리 오른쪽 접는 묶음의 「검증」·「PDF」·「기록」",
          does="고친 문서가 한글 · Word 에서 제대로 출력되는지 확인하고 내려받습니다.",
          steps=(
-             _s("output", "출력파일 검증", "script", "저장본을 한글(hwpx) · Word(docx) PDF 로 찍어 원본과 쪽마다 비교합니다.", modules=("verify", "pdf_render", "pdf_map", "owpml_check"), spec=(SP_WEB, "② §3·§4·§5")),
+             _s("output", "출력파일 검증", ("script", "llm"), "저장본을 한글(hwpx) · Word(docx) PDF 로 찍어 원본과 쪽마다 비교합니다. 주의 · 실패가 있으면 마지막 「LLM 검토」 가 저절로 돌아 "
+                "실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태를 바꿉니다.", agents=("verify_review",), modules=("verify", "verify_llm", "pdf_render", "pdf_map", "owpml_check"), spec=(SP_WEB, "② §3·§4·§4-1·§5")),
              _s("commit", "확정", "human", "고친 문단을 확정해 다음 비교의 기준으로 삼습니다(확정본은 따로 받을 수 있습니다).", change="store", modules=("works",), spec=(SP_WORK, "② §8")),
              _s("save", "저장(내려받기)", "human", "지금 문서를 hwpx · docx 파일로 내려받습니다.", out="hwpx · docx 파일", modules=("server",), spec=(SP_WORK, "② §3")),
          )),
@@ -211,8 +213,9 @@ _C_WORK = _c("work", "upload", "작업 만들기 · 이어 열기", "올린 파�
              "다른 TASK 를 하던 작업뿐이면 그 작업은 그대로 두고 새 작업으로 열고 알립니다. 올리지 못하면 까닭을 알리고 시작하지 않습니다.", uses=("intake",), spec=(SP_WORK, "② §1·§15"))
 _C_TASK = _c("task", "upload", "TASK · 프로젝트 · 라운드", "작업에 이 TASK 를 적습니다. 문서 목록에 프로젝트 이름을 적었으면 그 프로젝트의 이 TASK 다음 라운드로 시작합니다.",
              "프로젝트 이름을 비우면 프로젝트 없이 시작합니다.", uses=("intake",), spec=(SP_WORK, "② §15-1·§17"))
-_C_IMPORT = _c("import", "upload", "가져오기 검증", "올린 문서를 웹 화면이 제대로 읽었는지 검사합니다(한글 · Word 가 있으면 PDF 로 찍어 견줌) — 기본 분석과 함께 돌고, 결과는 패널 머리 「검증」 에 보입니다.",
-               uses=("intake",), spec=(SP_WEB, "② §3·§4"))
+_C_IMPORT = _c("import", "upload", "가져오기 검증", "올린 문서를 웹 화면이 제대로 읽었는지 검사합니다(한글 · Word 가 있으면 PDF 로 찍어 견줌) — 기본 분석과 함께 돌고, 결과는 패널 머리 「검증」 에 보입니다. "
+               "주의 · 실패가 나면 마지막 「LLM 검토」(LLM 호출 한 번)가 저절로 돌아 그 단계가 실제 문제인지 기준 PDF 쪽 사정인지 가립니다.",
+               "LLM 을 쓸 수 없거나 호출이 실패하면 스크립트 판정 그대로 두고 「LLM 검토」 단계에 까닭을 적습니다.", by=("script", "llm"), uses=("intake",), spec=(SP_WEB, "② §3·§4-1"))
 _C_ANALYSIS = _c("analysis", "upload", "기본 분석 — 헤딩 그래프 · 표 구조", "새 작업을 처음 열 때 한 번, 헤딩 그래프 → 표 구조를 스크립트만으로 분석합니다(hwpx). 이미 결과가 있는 단계는 건너뛰고, 이어 연 작업에서는 돌지 않습니다.",
                  "시작하지 못했으면 문서 이름 줄이 「헤딩 없음 · 표 없음」, 돌다 실패했으면 멈춘 단계가 「실패」 입니다 — 이름 줄의 「분석」 단추로 다시 돌립니다.", uses=("intake", "headings"), spec=(SP_WORK, "② §9·§20"))
 _C_LLM = _c("llm", "manual", "헤딩 · 표의 LLM 판정", "기본 분석과 따로이고 올릴 때 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다. "

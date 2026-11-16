@@ -217,6 +217,10 @@
   - 쪽 = 595×841pt(문서 pt × 0.9995).
 - **글꼴 대체**: 문서 글꼴 목록에 없는 글꼴을 요청하면 다른 글꼴로 찍힌다(한글 글에 「Arial」 → MalgunGothic · 「한컴돋움」 → HCRDotum). 출력은 되므로 검증은 실패가 아니라 「대체 글꼴로 출력」 으로 알린다.
   - hwpx header 에 **typeInfo 없는 `<hh:font>`**(`HwpxDoc._font_id` 가 목록에 없는 글꼴을 맨 항목으로 더함)로 「함초롬바탕」 을 넣으면 한글이 보통 글자를 HCRBatang-**Bold** 로 찍었다(굴림·궁서·HY견고딕은 정상). docx·PDF 명세로 지은 운반 문서에서 날 수 있다 — PDF 검증이 `bold` 실패로 잡는다.
+  - **typeInfo 가 있어도 같다**(2026-11-16, 한글 기본 header 의 `함초롬바탕` — typeInfo `weight="6" proportion="4"` · 런 charPr 에 `hh:bold` 없음): 이 PC 의 한글 COM PDF(제작 「Hancom PDF 1.3.0.538」 · 「Hwp 2018 11.0.0.2129」)는
+    함초롬바탕 보통 글자를 **굵은 파일 `HANBatangB.ttf` 로 그린다** — PDF 글꼴 `HCRBatang-Bold`(flags 20, 긋기 trace 없음), 박힌 글자 꼴의 bbox 가 Bold 파일과 같고(「화」 는 바이트까지) Regular 와 다르며, 그린 그림도 Bold 와 같다.
+    설치는 정상(`HANBatang.ttf` PostScript `HCRBatang` · weight 400 / `HANBatangB.ttf` `HCRBatang-Bold` · 700, 둘 다 fsType 0x8 · 레지스트리 「HCR Batang」·「HCR Batang Bold」 따로). render 캐시의 한글 PDF 49개 중 40개에 `HCRBatang-Bold`, 보통 `HCRBatang` 은 0개(Word PDF 1개에만).
+    → 이 PC 의 한글 PDF 로는 **함초롬바탕의 굵게를 판정할 수 없다**(글꼴 대조가 보통 글자 전부를 「굵게 다름」 으로 셈 — 사업계획서 3,580/6,392자). 한글 화면에서도 굵게 보이는지는 미확인.
 - **한글 PDF 에서 표 명세 되뽑기**(명세로 지은 4×4 표를 찍은 PDF): 칸 16/16 의 글·음영·글꼴·크기·굵게·색·정렬 일치 · 변 64/64 의 있음/없음·종류(겹줄 포함) 일치 · 굵기 0.05mm 안(0.38↔0.4 · 0.13↔0.12) · 열 폭 0.06mm 안.
   못 재는 것: 칸 여백(경계와 글 사이 거리가 칸 여백인지 들여쓰기인지) · 줄 간격의 종류 · 선 없는 칸과 합친 칸의 구분 · 스캔 PDF(글 조각 없음).
 - **PDF 캐시 파일 옮기기**: `pdf_render` 가 찍은 PDF 를 캐시로 옮길 때 WinError 32(다른 프로세스가 잡음)가 드물게 난다 — 한 번 더 시도하면 된다.

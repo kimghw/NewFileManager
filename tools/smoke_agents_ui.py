@@ -2,7 +2,7 @@
 끝점은 모두 진짜(흉내 없음).
 
 - 시작 화면(문서 없음): 상단 바 오른쪽 끝의 링크 「에이전트 설정」(/agents · 새 탭 · 글 없이 아이콘만 — 2026-11-16) — 시작 화면은 agents.js 를 읽지 않는다.
-- 페이지 /agents: 상단 줄(제목 · 「에이전트 19개」 · 「LLM 꺼짐」 · 「워크플로우」) · 목차(전체 보기 · 실행 기록 · 묶음 여섯 · 에이전트 19) · 전체 보기 = 묶음 여섯 · 에이전트 19줄(작업 번호 01~19 · 이름 · 쓰는 곳 · 역할 · 모델 — 넓은 폭에서 네 칸).
+- 페이지 /agents: 상단 줄(제목 · 「에이전트 20개」 · 「LLM 꺼짐」 · 「워크플로우」) · 목차(전체 보기 · 실행 기록 · 묶음 일곱 · 에이전트 20) · 전체 보기 = 묶음 일곱 · 에이전트 20줄(작업 번호 01~20 · 이름 · 쓰는 곳 · 역할 · 모델 — 넓은 폭에서 네 칸).
 - 한 에이전트(자리 연결 검토 — 주소 #merge_links · 두 단): ① 작업 번호 ② 역할 ③ 모델·생각 깊이 → 저장 안 한 값은 다른 화면에 갔다 와도 남음(목차 「저장 안 됨」) → 「저장」 → 전체 보기 줄에 「M-1」·「Sonnet 5.5」(여기서 정함)·「고침」 ·
   겹치는 작업 번호는 거절 · 「고친 것 버리기」 · 「모두 기본으로」(두 번). ④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료.
 - 고칠 수 있는 프롬프트: 헤딩 지침(레터 규칙식 제안)과 템플릿 정리 스킬을 그 자리에서 고쳐 저장 → 「고침 · 내 사본 판 1」 → 「기본으로 되돌리기」(두 번).
@@ -124,12 +124,12 @@ def main():
             cols: Math.abs(box(row.querySelector('.ags-where')).top - box(row.querySelector('.ags-rmain')).top) < 6 && box(row.querySelector('.ags-role')).left > box(row.querySelector('.ags-where')).right - 1,
             nav: [...document.querySelectorAll('#agNav a')].map((a) => a.getAttribute('href')), navH: [...document.querySelectorAll('#agNav h2')].map((h) => h.textContent),
             cur: (document.querySelector('#agNav a[aria-current=true]') || {}).textContent, navW: Math.round(box(document.getElementById('agNav')).width), over: document.documentElement.scrollWidth > innerWidth }; }""")
-        check("새 탭 /agents — 상단 줄(제목 · 「에이전트 19개」 · 「LLM 꺼짐」 · 「워크플로우」 → /workflow) · 가로 넘침 없음",
-              st["path"] == "/agents" and st["title"].startswith("에이전트 설정") and st["h1"] == "에이전트 설정" and st["note"] == "에이전트 19개" and st["llm"] == "LLM 꺼짐" and st["wf"] == "/workflow" and not st["over"], st)
-        check("전체 보기 — 묶음 여섯 · 에이전트 19줄(작업 번호 01~19 — 묶음 차례라 「문서 편집」 의 19 가 「서식」 의 17·18 앞 · 쓰는 곳 · 역할 · 모델) · 넓은 폭에서 네 칸(번호 | 이름 | 쓰는 곳 | 역할)",
-              len(st["groups"]) == 6 and st["groups"][0] == "헤딩 추출 6" and st["nos"] == [f"{i:02d}" for i in range(1, 17)] + ["19", "17", "18"] and st["full"] and "레터 규칙식 제안" in st["first"] and "pin" in st["pin"] and st["cols"], st)
-        check("목차 — 전체 보기(지금) · 실행 기록 · 묶음 여섯 · 에이전트 19(주소 #id)",
-              st["nav"][:2] == ["#overview", "#runs"] and len(st["nav"]) == 21 and st["nav"][2] == "#heading_rules" and len(st["navH"]) == 6 and st["cur"] == "전체 보기" and st["navW"] == 248, st)
+        check("새 탭 /agents — 상단 줄(제목 · 「에이전트 20개」 · 「LLM 꺼짐」 · 「워크플로우」 → /workflow) · 가로 넘침 없음",
+              st["path"] == "/agents" and st["title"].startswith("에이전트 설정") and st["h1"] == "에이전트 설정" and st["note"] == "에이전트 20개" and st["llm"] == "LLM 꺼짐" and st["wf"] == "/workflow" and not st["over"], st)
+        check("전체 보기 — 묶음 일곱 · 에이전트 20줄(작업 번호 01~20 — 묶음 차례라 「문서 편집」 의 19 가 「서식」 의 17·18 앞, 「검증」 의 20 이 끝 · 쓰는 곳 · 역할 · 모델) · 넓은 폭에서 네 칸(번호 | 이름 | 쓰는 곳 | 역할)",
+              len(st["groups"]) == 7 and st["groups"][0] == "헤딩 추출 6" and st["nos"] == [f"{i:02d}" for i in range(1, 17)] + ["19", "17", "18", "20"] and st["full"] and "레터 규칙식 제안" in st["first"] and "pin" in st["pin"] and st["cols"], st)
+        check("목차 — 전체 보기(지금) · 실행 기록 · 묶음 일곱 · 에이전트 20(주소 #id)",
+              st["nav"][:2] == ["#overview", "#runs"] and len(st["nav"]) == 22 and st["nav"][2] == "#heading_rules" and len(st["navH"]) == 7 and st["cur"] == "전체 보기" and st["navW"] == 248, st)
         ag.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- 한 에이전트 — 설정 저장

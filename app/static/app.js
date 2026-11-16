@@ -4345,13 +4345,15 @@ async function poll() {
       if (epoch !== state.epoch) break;
       if (seq !== state.pollSeq) continue; // 읽는 사이 기준이 바뀜(확정·복원, adoptBase) — 옛 기준의 응답은 버리고 다시 읽는다
       renderVerify(v);
-      if (!Object.values(v).some((j) => j && j.running)) break;
+      if (!verifyBusy(v)) break; // 스크립트 단계(running) · LLM 검토(reviewing — spec_hwpx_웹편집 ② §4-1)가 모두 끝날 때까지 다시 읽는다
       await new Promise((r) => setTimeout(r, 1000));
     }
   } catch (e) {
     if (epoch === state.epoch) { state.pollError = e; renderSummary(state.verify || {}); }
   } finally { state.polling = false; }
 }
+
+const verifyBusy = (v) => Object.values(v || {}).some((j) => j && (j.running || j.reviewing));
 
 function canVerify() {
   const v = state.verify;
@@ -4407,14 +4409,15 @@ function renderVerify(v) {
   b.textContent = v.edit && v.edit.running ? "검증 중…" : "출력파일 검증";
   if (!$("panePdf").hidden) showPdf();
   if (state.editsDirty && !$("paneEdits").hidden) drawEdits();
-  if ((v.import || v.edit) && !Object.values(v).some((j) => j && j.running)) logTouched(); // 검증 끝 — 기록 탭에 새 줄
+  if ((v.import || v.edit) && !verifyBusy(v)) logTouched(); // 검증 끝 — 기록 탭에 새 줄
 }
 
 function stageSummary(box, sum, job) {
   if (!job) { sum.textContent = ""; return; }
   const c = { ok: 0, warn: 0, fail: 0, skip: 0 };
-  job.steps.forEach((s) => { if (s.status in c) c[s.status] += 1; });
-  sum.textContent = job.running ? "진행 중" : [c.ok && `통과 ${c.ok}`, c.warn && `주의 ${c.warn}`, c.fail && `실패 ${c.fail}`, c.skip && `건너뜀 ${c.skip}`].filter(Boolean).join(" · ");
+  job.steps.forEach((s) => { if (s.key !== "llm" && s.status in c) c[s.status] += 1; }); // LLM 검토 단계 자체는 셈에서 뺀다(그 판정은 단계 상태에 이미 들어감)
+  sum.textContent = job.running ? "진행 중" : [c.ok && `통과 ${c.ok}`, c.warn && `주의 ${c.warn}`, c.fail && `실패 ${c.fail}`, c.skip && `건너뜀 ${c.skip}`,
+    job.reviewing && "LLM 검토 중"].filter(Boolean).join(" · ");
   sum.className = `stage-sum ${job.running ? "run" : job.status}`;
   if (!box.dataset.touched) box.open = job.running || job.status !== "ok" || box.id === "editBox";
 }
@@ -4458,6 +4461,8 @@ function renderSummary(v) {
       lines.push(["웹 화면", "편집용 보기 — 출력 배치는 PDF 탭에서 확인"]);
     }
   }
+  const rv = [imp, ed].find((j) => j && j.reviewing);
+  if (rv && s.cls !== "run") s.text = `${s.text ? `${s.text} ` : ""}LLM 이 주의·실패 단계를 다시 보는 중 — 판정이 바뀔 수 있습니다.`;
   box.className = `summary ${s.cls}`;
   box.textContent = "";
   box.append(el("div", "big", s.big));
@@ -4486,6 +4491,12 @@ function fillSteps(ol, job) {
     li.append(el("span", "sec", s.seconds != null ? `${s.seconds}s` : s.status === "run" ? "진행 중" : ""));
     li.append(el("div", "det", s.detail || (s.status === "wait" ? s.about : "")));
     li.querySelector(".ttl").title = s.about;
+    if (s.llm) { // 검증 LLM 검토가 바꾼 판정 — 스크립트의 원래 판정을 함께(spec_hwpx_웹편집 ② §4-1)
+      const VERD = { real: "실제 문제", reference: "기준 쪽 사정", mixed: "섞임", unclear: "판단 못 함" };
+      const KO = { ok: "통과", warn: "주의", fail: "실패", skip: "건너뜀" };
+      const was = s.script && s.script.status !== s.status ? ` · 스크립트 판정 ${KO[s.script.status] || s.script.status} → LLM 판정 ${KO[s.status] || s.status}` : "";
+      li.append(el("div", "det", `LLM — ${VERD[s.llm.verdict] || s.llm.verdict}${was}: ${s.llm.reason || ""}`));
+    }
     if (s.diffPages && s.diffPages.length) li.append(pageChips(s));
     const miss = s.missing || (s.blocks && s.blocks.map((id) => ({ id, text: state.texts[id] || id })));
     if (miss && miss.length) li.append(blockList(miss, s.key === "map" ? `PDF 위치를 못 찾은 문단 ${s.missingCount || miss.length}개` : `확인할 문단 ${miss.length}개`));

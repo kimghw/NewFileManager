@@ -15,7 +15,7 @@ from collections import Counter
 
 import copy
 
-from app import docx_check, headings, owpml_check, pdf_map, pdf_render, pdf_style, zip_guard
+from app import docx_check, headings, owpml_check, pdf_map, pdf_render, pdf_style, verify_llm, zip_guard
 from app.docx_doc import DocxDoc
 from app.hwpx_doc import HwpxDoc
 
@@ -52,10 +52,11 @@ IMPORT_STEPS = [
     ("letters", "헤딩 레터 대조", "웹이 뽑은 헤딩 레터·앞 공백·레터 뒤 공백·둘째 줄 들여쓰기·왼쪽 여백이 한글 PDF 첫 줄과 같은지"),
     ("fonts", "글꼴 대조", "웹이 뽑은 글꼴·크기·굵게·색이 한글 PDF 글자와 같은지"),
     ("render", "재구성 렌더 비교", "다시 쓴 파일의 한글 PDF 가 원본 PDF 와 쪽마다 같은지"),
+    ("llm", "LLM 검토", "주의·실패 단계를 LLM 이 다시 보고 실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태에 반영(spec_hwpx_웹편집 ② §4-1)"),
 ]
-# 단계 -> 앞 단계(모두 통과해야 시작 — 하나가 막히면 「건너뜀」). 적히지 않은 단계는 바로 시작
-IMPORT_DEPS = {"model": ["xml"], "map": ["pdf"], "pages": ["map"], "letters": ["map"], "fonts": ["map"], "render": ["xml", "pdf"]}
-EDIT_DEPS = {"eowpml": ["epackage"], "esave": ["epackage"], "epages": ["epdf"], "etext": ["epdf"]}
+# 단계 -> 앞 단계(모두 통과해야 시작 — 하나가 막히면 「건너뜀」). 적히지 않은 단계는 바로 시작. "*" = 다른 단계가 모두 끝난 뒤(막혀도) — LLM 검토
+IMPORT_DEPS = {"model": ["xml"], "map": ["pdf"], "pages": ["map"], "letters": ["map"], "fonts": ["map"], "render": ["xml", "pdf"], "llm": "*"}
+EDIT_DEPS = {"eowpml": ["epackage"], "esave": ["epackage"], "epages": ["epdf"], "etext": ["epdf"], "llm": "*"}
 EDIT_STEPS = [
     ("epackage", "수정본 패키지", "바뀐 멤버·다시 열었을 때 바뀐 블록이 고친 블록뿐인지"),
     ("eowpml", "수정본 OWPML 검사", "저장본에 원본에 없던 종류의 OWPML 위반이 없는지"),
@@ -63,6 +64,7 @@ EDIT_STEPS = [
     ("esave", "한글 다시 저장", "내보낸 HWPX 를 한글이 열어 HWPX 로 다시 저장할 수 있는지·다시 저장한 글이 같은지"),
     ("epages", "쪽 차이 대조", "달라진 쪽이 고친 블록이 있는 쪽(과 그 뒤로 밀린 쪽)뿐인지"),
     ("etext", "수정 글 반영", "고친 블록의 새 글이 수정본 PDF 에 있는지"),
+    ("llm", "LLM 검토", "주의·실패 단계를 LLM 이 다시 보고 실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태에 반영(spec_hwpx_웹편집 ② §4-1)"),
 ]
 
 
@@ -212,20 +214,24 @@ class Job:
                 s["seconds"] = round(time.time() - s.pop("t0"), 1)
 
     def view(self):
+        """running = 스크립트 단계가 도는 동안 · reviewing = LLM 검토가 LLM 을 부르는 동안(spec_hwpx_웹편집 ② §4-1 — 출력파일 검증 단추·409 를 LLM 이 막지 않게).
+        status(가장 나쁜 상태)는 스크립트 단계로만 — LLM 검토가 바꾼 상태가 곧 그 단계의 상태다."""
         with self.lock:
             steps = [{k: v for k, v in s.items() if k != "t0"} for s in self.steps]
+        work = [s for s in steps if s["key"] != "llm"]
         worst = "ok"
-        for s in steps:
+        for s in work:
             if s["status"] in ("run", "wait"):
                 worst = "run"
                 break
         else:
             order = ["ok", "skip", "warn", "fail"]
-            worst = max((s["status"] for s in steps), key=order.index, default="ok")
+            worst = max((s["status"] for s in work), key=order.index, default="ok")
             if worst == "skip":
                 worst = "ok"
+        reviewing = self.finished is None and any(s["key"] == "llm" and s["status"] == "run" for s in steps)
         return {"kind": self.kind, "started": self.started, "status": worst if not self.error else "fail", "steps": steps,
-                "running": self.finished is None, "error": self.error,
+                "running": self.finished is None and not reviewing, "reviewing": reviewing, "error": self.error,
                 "seconds": round((self.finished or time.time()) - self.started, 1)}
 
 
@@ -267,7 +273,10 @@ def run_flow(job, fns, deps):
                 moved = False
                 for k in list(pending):
                     before = deps.get(k, ())
-                    blocked = next((state[d] for d in before if state.get(d)), None)
+                    last = before == "*"   # 다른 단계가 모두 끝난 뒤 — 막힌 단계가 있어도 돈다(LLM 검토)
+                    if last:
+                        before = [x for x in fns if x != k]
+                    blocked = None if last else next((state[d] for d in before if state.get(d)), None)
                     if blocked:
                         job.set(k, "skip", blocked)
                         state[k] = blocked
@@ -386,8 +395,10 @@ def run_import(sess, job):
         if bad:
             parts.append(f"못 맞춤 {bad}쪽")
         parts.append(f"문단이 PDF 와 같은 쪽 {m['agree'] * 100:.1f}%")
+        unsure = c.get("short", 0) + c.get("blank", 0)
         job.set("pages", "fail" if bad > max(1, n_doc // 10) else "warn" if bad or m["agree"] < 0.9 else "ok", " · ".join(parts),
-                checks=[x for x in m["checks"] if x["status"] != "ok"][:100])
+                checks=[x for x in m["checks"] if x["status"] != "ok"][:100],
+                unjudged=[f"맨 위 줄이 짧거나 빈 쪽 {unsure}쪽 — 쪽 나눔을 확인하지 못함"] if unsure else [])
 
     def letters():
         job.set("letters", "run")
@@ -397,14 +408,15 @@ def run_import(sess, job):
             hang_as_hwpx(blocks)
         rows = headings.extract(blocks, doc)["rows"]
         r = pdf_style.check_heads(rows, blocks, ctx["its"], ctx["pages"])
-        job.set("letters", *letters_verdict(r), heads=r, missing=_issue_list(r["issues"]))
+        job.set("letters", *letters_verdict(r), heads=r, missing=_issue_list(r["issues"]),
+                unjudged=[f"PDF 자리를 모르는 헤딩 {r['unknown']}개(글 없는 줄 · 못 찾은 문단 · 같은 글이 여러 칸) — 레터를 견주지 못함"] if r["unknown"] else [])
 
     def fonts():
         job.set("fonts", "run")
         table = sess.doc.font_table(sess.blocks) if fmt == "docx" else sess.doc.font_table()  # 웹 글꼴 계획(app/fonts.py)과 같은 표
         r = pdf_style.check_fonts(sess.blocks, ctx["its"], ctx["pages"], table=table)
         job.set("fonts", *fonts_verdict(r), fonts={k: r[k] for k in ("faces", "latin", "scale", "chars", "paragraphs")},
-                missing=_style_list(r, flat_texts(sess.blocks)))
+                missing=_style_list(r, flat_texts(sess.blocks)), unjudged=fonts_unjudged(r))
 
     def render():
         rebuilt = ctx["rebuilt"]
@@ -425,7 +437,7 @@ def run_import(sess, job):
         job.set("render", status, detail, diffPages=cmp["diff"], minor=minor, unexpected=real, compare="rebuilt")
 
     run_flow(job, {"package": package, "xml": xml, "model": model, "owpml": owpml, "pdf": pdf, "map": map_, "pages": pages_,
-                   "letters": letters, "fonts": fonts, "render": render}, IMPORT_DEPS)
+                   "letters": letters, "fonts": fonts, "render": render, "llm": lambda: verify_llm.review(job, fmt)}, IMPORT_DEPS)
 
 
 # Word PDF 가 Wingdings 글머리에 붙인 유니코드 ↔ 웹 라벨(docx_doc._PUA_BULLET): Wingdings 「l」(0x6C) = ⚫ U+26AB(AIP 서식, Word 16)
@@ -536,6 +548,17 @@ def fonts_verdict(r):
     return status, " · ".join(parts)
 
 
+def fonts_unjudged(r):
+    """글꼴 대조가 판정하지 못한 것(검증 LLM 검토의 입력 — spec_hwpx_웹편집 ② §4-1): Type3 글자의 굵게 · 이름 모를 PDF 글꼴."""
+    n, out = r["chars"], []
+    if n > r["bold"]["checked"]:
+        out.append(f"Type3 글꼴 글자 {n - r['bold']['checked']:,}자 — PDF 로 굵게를 알 수 없음")
+    unknown = [f"{f['web']}({f['chars']:,}자)" for f in r["faces"] + r["latin"] if f["verdict"] in ("unknown", "hangul")]
+    if unknown:
+        out.append("PDF 글꼴 이름을 몰라 같은 글꼴인지 못 가린 글꼴: " + ", ".join(unknown[:8]))
+    return out
+
+
 # ---- 출력파일 검증 (옛 이름 편집 검증) ---------------------------------------------------------------
 
 def run_edit(sess, job, saved, edited, blocks_now, unrestored=frozenset(), touched=frozenset(), origin=None, ids=None):
@@ -636,7 +659,8 @@ def run_edit(sess, job, saved, edited, blocks_now, unrestored=frozenset(), touch
         if unknown:
             parts.append(f"PDF 위치를 모르는 고친 문단 {len(unknown)}개")
         job.set("epages", status, " · ".join(parts), diffPages=cmp["diff"], expected=expect, shifted=shifted,
-                minor=minor, unexpected=unexpected, compare="edited")
+                minor=minor, unexpected=unexpected, compare="edited",
+                unjudged=[f"PDF 위치를 모르는 고친 문단 {len(unknown)}개 — 어느 쪽이 바뀌어야 하는지 모름"] if unknown else [])
 
     def etext():
         job.set("etext", "run")
@@ -661,4 +685,5 @@ def run_edit(sess, job, saved, edited, blocks_now, unrestored=frozenset(), touch
         job.set("etext", status, detail if n else f"글이 남은 고친 문단 없음 — {tail}",
                 missing=[{"id": i, "text": texts.get(i, "")[:80]} for i in lost + loose])
 
-    run_flow(job, {"epackage": epackage, "eowpml": eowpml, "epdf": epdf, "esave": esave, "epages": epages, "etext": etext}, EDIT_DEPS)
+    run_flow(job, {"epackage": epackage, "eowpml": eowpml, "epdf": epdf, "esave": esave, "epages": epages, "etext": etext,
+                   "llm": lambda: verify_llm.review(job, fmt)}, EDIT_DEPS)

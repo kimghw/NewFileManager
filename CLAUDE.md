@@ -40,13 +40,14 @@
 - 사용자가 그 일의 전제·기준을 새로 말하면 그 파일에 적는다(파일이 원본 — 앱의 LLM 호출도 같은 글을 읽는다).
 - 병합 LLM 검토의 **판단 지침**(무엇을 같은 자리·같은 표로 보는가)은 `app/merge_guides_default/<이름>.md` — 지금 있는 것 = [links.md](app/merge_guides_default/links.md)(자리 연결 LLM 검토: 묶음 짝 · 표 짝 · 서식) ·
   [gather.md](app/merge_guides_default/gather.md)(취합 LLM 검토: 기관이 쓴 내용인지 안내 글·빈 틀인지 · 문단·표의 특성) ·
-  [agent.md](app/merge_guides_default/agent.md)(에이전트 보기: 언제 답하고 언제 행동하나 · 옮긴 글과 지은 글 · 넣을 자리 · 표 구조 후보 · 표 채우기를 낼 때 — spec_일반편집 ② §8).
+  [agent.md](app/merge_guides_default/agent.md)(에이전트 보기: 언제 답하고 언제 행동하나 · 옮긴 글과 지은 글 · 넣을 자리 · 표 구조 후보 · 표 채우기를 낼 때 — spec_일반편집 ② §8) ·
+  [verify.md](app/merge_guides_default/verify.md)(검증 LLM 검토: 주의·실패 단계의 다름이 실제 문제인지 기준 PDF 쪽 사정인지 · 알려진 한글·Word PDF 의 특성 — spec_hwpx_웹편집 ② §4-1).
   2026-11-12 사용자 지시("이 내용 도 LLM 검토 단계에서 검토하도록 지침으로 들어가 있어야함"). LLM 이 판단할 기준을 사용자가 새로 말하면 코드의 계약이 아니라 그 파일에 적는다(화면 「지침」 단추가 그 글을 보인다). 원본 [spec/spec_병합.md](spec/spec_병합.md) ② §4 「판단 지침」.
 - **템플릿 서식 정리 에이전트**(템플릿 줄의 별 아이콘 — **Opus 5.5** 가 레벨마다 서식 갈래 가운데 대표·맞출 갈래를 고른다)의 판단 기준은 **스킬 글** `app/tpl_agent_default/<키>.md`(기본본 — 지금
   [tidy.md](app/tpl_agent_default/tidy.md) 「템플릿 서식 정리」 · [majority.md](app/tpl_agent_default/majority.md) 「가장 많은 서식으로 모두 맞추기」) + 사용자가 화면에서 고쳐 저장한 사본·새 스킬(`<헤딩 저장소>/tpl_agent/`).
   2026-11-15 사용자 지시("opus5.5 가 템플릿의 서식을 직접 조정 … 프롬프트/스킬을 먼저 저장하고 사용자가 이를 수정할 수 있는 형식으로"). 에이전트는 저장된 스킬 글로만 돈다 — 판단 기준을 사용자가 새로 말하면 계약(`app/tpl_agent.py` CONTRACT)이 아니라
   그 스킬 글에 적는다. 이 호출의 모델은 서버 전체 설정(`NFM_LLM_MODEL_FORCE`)보다 먼저 Opus 5.5 다(`llm.call(pin=True)`). 원본 [spec/spec_hwpx_웹편집.md](spec/spec_hwpx_웹편집.md) ② §8-4.
-- **에이전트 설정**(상단 바 오른쪽 링크 → 따로 선 페이지 `/agents` · 새 탭 — 2026-11-15 사용자 "에이전트도 워크플로우 처럼 페이지로 해줘": 전의 문서 옆 2열은 없앰) = 앱의 LLM 호출 하나하나(**에이전트** — 지금 19)의 **작업 번호 · 역할 · 쓰는 곳 · 모델·생각 깊이 · 프롬프트 구성**을 보고 고치는 곳. 2026-11-15 사용자 지시("에이전트 설정을 만들고, 어떤 역할을 하고
+- **에이전트 설정**(상단 바 오른쪽 링크 → 따로 선 페이지 `/agents` · 새 탭 — 2026-11-15 사용자 "에이전트도 워크플로우 처럼 페이지로 해줘": 전의 문서 옆 2열은 없앰) = 앱의 LLM 호출 하나하나(**에이전트** — 지금 20)의 **작업 번호 · 역할 · 쓰는 곳 · 모델·생각 깊이 · 프롬프트 구성**을 보고 고치는 곳. 2026-11-15 사용자 지시("에이전트 설정을 만들고, 어떤 역할을 하고
   프롬프트가 무엇인지 작업번호등을 관리할 수 있는 관리를 우측 상단에 배치해줘"). 등록부 = `app/agents.py` `AGENTS` · 사용자 설정 = `%LOCALAPPDATA%\NewFileManager\agents.json`(`app/agent_settings.py`). **새 LLM 호출을 만들면 `agents.AGENTS` 와
   `agent_settings.PREFIX` 에 한 줄씩 등록한다**(안 하면 `tests/test_agents.py` 가 떨어진다). 에이전트마다 사람이 정한 모델은 서버 전체 설정·고정(pin)보다 먼저다. 원본 [spec/spec_에이전트.md](spec/spec_에이전트.md).
 

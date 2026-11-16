@@ -24,6 +24,7 @@
     ⓔ 워크플로우 페이지의 단계 세부 「에이전트」 이름을 이 페이지의 그 에이전트로 잇는다. API · 등록부 · 설정 파일은 그대로.
   - 겹침 협의: newfilemanager-e9 「겹침 없음」 + 상단 바에서 지킬 것(직계 `.btn` 이면 35px·26px 규칙을 그대로 받음 · 1500px 아래 아이콘만 · 541~780px 감춤을 잃지 않기 · `smoke_panel_head_ui` 넘침 검사) · newfilemanager-2b 「겹침 없음」(`index.html` 의 `doc_status` 줄을 남길 것).
 - 2026-11-15 에이전트 19 「작업 진행」(`work_guide`)을 더함(newfilemanager-b8) — 사용자 "첫 화면 우측에 에이전트 대화할 수 있는 대화창 …" 의 LLM 호출. 원본 [spec_작업에이전트.md](spec_작업에이전트.md). 프롬프트 조각 종류 `workflow`(= `workflow.md` — 읽기만)를 더했다(② §3).
+- 2026-11-16 에이전트 20 「검증 LLM 검토」(`verify_review` · 호출 이름 `verify-llm-<import|edit>` · 저절로 돎)와 묶음 「검증」 을 더함 — 사용자 "검증은 LLM 이 처리 하도록 해줘" 의 LLM 호출. 원본 [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md) ② §4-1. 프롬프트 조각 = 계약 + 판단 지침 `merge_guides_default/verify.md`(조각 종류 `merge`).
 
 ## ② 확정 사양
 

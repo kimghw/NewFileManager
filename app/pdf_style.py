@@ -330,7 +330,7 @@ def check_fonts(blocks, its, pages, index=None, table=None):
     res = {k: {"bad": 0, "checked": 0, "examples": []} for k in ("size", "bold", "color")}
     # script = 크기가 웹의 55~75% — 첨자로 보이는데 웹 서식엔 첨자가 없음 · scripted/ratio = 웹 첨자·장평 글자(그 크기로 견줌)
     res["size"].update(script=0, scripted=0, ratio=0)
-    faces, latin, type3s = {}, {}, set()
+    faces, latin, type3s, bolds = {}, {}, set(), {}
 
     seen = set()
 
@@ -363,12 +363,15 @@ def check_fonts(blocks, its, pages, index=None, table=None):
             bad("color", pid, ch, color, _hex(sp[3]), pg)
         face, lang = _web_face(ch, wf)
         (faces if lang == "HANGUL" else latin).setdefault((face, lang), Counter())[sp[0]] += 1  # 한글 글꼴로 그린 글자 / 언어 글꼴로 그린 글자
-    return {"chars": len(pairs), "paragraphs": len({x[5] for x in pairs}), **res, "faces": _verdicts(faces, plan, index, type3s),
-            "latin": _verdicts(latin, plan, index, type3s)[:20], "scale": round(median(scale.values()), 3) if scale else None}
+        # 굵게 짝(웹 → PDF) — 다름이 PDF 글꼴 하나에 몰렸는지(기준 쪽 사정) 문단 서식을 따르는지 가리는 근거(검증 LLM 검토, spec_hwpx_웹편집 ② §4-1)
+        bolds.setdefault((face, lang), Counter())[f"{'굵게' if wf.get('bold') else '보통'}→{'모름' if type3 else '굵게' if pc[6] else '보통'}"] += 1
+    return {"chars": len(pairs), "paragraphs": len({x[5] for x in pairs}), **res, "faces": _verdicts(faces, plan, index, type3s, bolds),
+            "latin": _verdicts(latin, plan, index, type3s, bolds)[:20], "scale": round(median(scale.values()), 3) if scale else None}
 
 
-def _verdicts(tally, plan, index, type3s):
+def _verdicts(tally, plan, index, type3s, bolds=None):
     """{(웹 문서 글꼴, 언어): Counter(PDF 글꼴)} -> 그 글꼴마다 판정(글자 많은 순). 웹이 그리는 가족 = plan(app/fonts.py 계획).
+    bolds {(글꼴, 언어): Counter(「보통→굵게」 …)} 가 있으면 줄마다 "bold"(굵게 짝 — 웹 → PDF 글자 수).
     same = 같은 글꼴 · subst = 문서 글꼴이 이 PC 에 없어 한글·웹이 같은 글꼴로 대체(문서 대체 글꼴·한컴 대응표) · differ = 웹이 다른 글꼴로 그림 ·
     equiv = 한글 전용 글꼴(HFT — PDF 엔 이름 없는 Type3)인데 웹은 한컴 대응표의 같은 디자인 TTF(한양중고딕 → HY중고딕) ·
     hangul = 이름 모를 글꼴(Type3·「????」)로 찍혔고 웹은 대체 글꼴 · unknown = PDF 글꼴 이름을 모름(웹은 문서 글꼴 그대로)."""
@@ -391,4 +394,6 @@ def _verdicts(tally, plan, index, type3s):
                     "uses": index.label.get(uses, uses) if uses else None, "fallback": r["how"] != "same",
                     "pdf": dict(pdf.most_common(4)), "verdict": verdict, "chars": sum(pdf.values()),
                     "share": round(n_top / sum(fams.values()), 3)})
+        if bolds is not None:
+            out[-1]["bold"] = dict(bolds.get((face, lang)) or {})
     return out
