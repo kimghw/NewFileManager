@@ -20,7 +20,7 @@ function shareBtn() {
   b.hidden = true;
   b.setAttribute("aria-haspopup", "dialog");
   b.setAttribute("aria-expanded", "false");
-  b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="17.5" cy="9" r="2.4"/><path d="M16.5 14.2c2.6.3 4.5 2 4.5 4.3"/></svg><span class="share-btn-txt"></span>';
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8.5" cy="7.5" r="3.2"/><path d="M3 19.5c0-3.1 2.5-5.5 5.5-5.5s5.5 2.4 5.5 5.5"/><path d="M15.8 4.8a3 3 0 0 1 0 5.6M17 14.2c2.3.5 4 2.4 4 4.8"/></svg><span class="share-btn-txt"></span>';
   b.onclick = () => (sh.pop ? sharePopClose() : sharePopOpen());
   const before = $("downloadBtn");
   if (before) before.before(b);

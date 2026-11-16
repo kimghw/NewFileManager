@@ -60,7 +60,8 @@ body.peek .workspace-tools { display: none; }
   grid-column: 1; grid-row: 2; align-items: center; gap: 7px; min-height: 35px;
   padding: 3px 12px; border-left: 0; border-bottom: 1px solid var(--line); background: #f8faff;
 }
-.document-name-row .document-name-icon { flex: none; color: var(--accent); font-size: 16px; }
+.document-name-row .document-name-icon { flex: none; display: flex; color: var(--accent); }
+.document-name-row .document-name-icon svg { display: block; }
 .document-name-row .file-name { flex: 1 1 auto; min-width: 0; max-width: none; font-size: 12px; color: var(--accent); }
 .document-name-row .doc-switch { width: 0; height: 28px; }
 .document-name-row .file-meta { font-size: 11px; }

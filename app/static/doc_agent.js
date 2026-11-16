@@ -19,7 +19,7 @@ const AG_EMPTY = "문서에서 자리를 고르고(문단 끌어 고르기 · �
 function agentIcon(name) {
   const paths = {
     document: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
-    library: '<path d="m12 3 9 4.5-9 4.5-9-4.5Z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/>',
+    library: '<rect x="4" y="3" width="6" height="18" rx="1.5"/><path d="m10 4.5 5.2-1.2a1.5 1.5 0 0 1 1.8 1.1l2.8 11.6a1.5 1.5 0 0 1-1.1 1.8L8.5 20.5"/><path d="M10 15h9.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H7M7 17.5h.01"/>',
     paste: '<rect x="5" y="5" width="14" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
     file: '<path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M6 14l8-8"/>',
     send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
