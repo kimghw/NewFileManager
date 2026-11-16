@@ -159,7 +159,8 @@ function slPicErrText(e) { // 견본을 못 받은 까닭 — 옛 서버(끝점 
   return `서식 견본을 읽지 못했습니다 — ${(e && e.message) || "알 수 없는 오류"}`;
 }
 function slPicPaint(E, big = false) { // 자리의 내용을 지금 상태로(같은 상태면 그대로 둔다 — 다시 그려도 그림 요소가 안 바뀐다)
-  const sig = `${E.state}|${big ? `big:${slPicWidth()}` : ""}`, box = E.box, h = slPicHeight(E.kind, E.n);
+  const live = typeof slPicLiveOf === "function" ? slPicLiveOf(E) : null; // 값을 고치는 중인 서식 — 칸의 값을 덮은 보기로 그린다(② §19-6 「고치는 동안의 견본」)
+  const sig = `${E.state}|${big ? `big:${slPicWidth()}` : ""}|${live ? live.sig : ""}`, box = E.box, h = slPicHeight(E.kind, E.n);
   E.big = big;
   if (E.painted === sig) return box;
   E.painted = sig;
@@ -169,7 +170,8 @@ function slPicPaint(E, big = false) { // 자리의 내용을 지금 상태로(�
   box.style.height = E.state === "done" ? "" : `${h}px`;
   if (E.state === "done") {
     if (typeof stylePic !== "function") { box.dataset.picState = "err"; box.style.height = `${h}px`; box.replaceChildren(el("div", "sl-pic-msg", "서식 그림 모듈(style_pic.js)을 읽지 못했습니다 — 화면을 새로 고치세요")); return box; }
-    const w = big ? Math.max(560, Math.round(slPicWidth() * 1.8)) : slPicWidth(), pic = stylePic(E.view, { kind: E.kind, ...E.opts, n: E.n, width: w, big });
+    const w = big ? Math.max(560, Math.round(slPicWidth() * 1.8)) : slPicWidth(), pic = stylePic(live ? live.view : E.view, { kind: E.kind, ...E.opts, n: E.n, width: w, big, ...(live ? { mark: live.mark } : {}) });
+    if (live) pic.dataset.spLive = live.mark;
     if (big) pic.style.width = `${w}px`; // 「크게」 — 그 상자 안에서만 가로로 넘긴다(열 전체는 안 넘친다)
     box.replaceChildren(pic);
   } else if (E.state === "err") {
@@ -359,7 +361,8 @@ function slProof(s, fmt) { // 출력 그림 요소(기억 — 다시 그려도 �
 function styleLibPic(s) {
   const wrap = el("div", "sl-picbox"), kind = slPicKindOf(s), bigKey = `lib|${s.id}`, big = STYLE.big.has(bigKey), n = kind === "table" ? s.rows : (s.items || []).length;
   const shots = SL_FORMATS.filter(([fmt]) => (STYLE.dual || fmt === "hwpx") && ["ok", "warn", "fail"].includes((slVerifyOf(s, fmt) || {}).status)).map(([fmt]) => fmt); // 출력 그림이 있는 형식
-  const want = STYLE.picSrc[s.id] || "web", src = want !== "web" && shots.includes(want) ? want : "web", P = src === "web" ? null : slProof(s, src), failed = !!(P && P.failed);
+  const editing = !!(STYLE.edit && STYLE.edit.mode === "fmt" && STYLE.edit.sid === s.id); // 값을 고치는 동안은 웹 견본으로(칸의 값을 바로 그린다 — 출력 그림은 저장된 값의 것이다: ② §19-6)
+  const want = editing ? "web" : STYLE.picSrc[s.id] || "web", src = want !== "web" && shots.includes(want) ? want : "web", P = src === "web" ? null : slProof(s, src), failed = !!(P && P.failed);
   const E = slPicEntry(`lib|${s.id}|${s.revision || ""}`, kind, n, () => api(styleUrl(s.id)).then((m) => m.view || {}), kind === "table" ? { bands: s.bands || null } : kind === "para" ? { role: s.role || null } : {});
   wrap.dataset.picSrc = failed ? "web" : src;
   if (P && !failed) { // 출력 그림 — 자리 높이는 웹 견본과 같게(원천을 바꿔도 목록이 안 밀린다)
@@ -379,13 +382,15 @@ function styleLibPic(s) {
   seg.setAttribute("aria-label", "서식 그림의 원천");
   for (const [k, name, what] of SL_SRC) {
     if (k === "docx" && !STYLE.dual && !("verifyDocx" in s)) continue; // 옛 서버 — docx 형식을 모른다
-    const has = k === "web" || shots.includes(k), on = (failed ? "web" : src) === k;
-    const b = hBtn(name, () => { STYLE.picSrc[s.id] = k; styleLibDraw(); }, { cls: "btn sm" + (on ? " on" : ""), disabled: !has, title: has ? what : `${what}\n아직 그 형식의 PDF 검증이 끝나지 않아 출력 그림이 없습니다 — 「⋯ 더보기」 의 「다시 검증」` });
+    const got = k === "web" || shots.includes(k), has = got && (k === "web" || !editing), on = (failed ? "web" : src) === k;
+    const b = hBtn(name, () => { STYLE.picSrc[s.id] = k; styleLibDraw(); }, { cls: "btn sm" + (on ? " on" : ""), disabled: !has,
+      title: has ? what : got ? `${what}\n값을 고치는 동안은 웹 견본으로 미리 봅니다 — 출력 그림은 저장한 뒤 다시 검증해야 바뀝니다` : `${what}\n아직 그 형식의 PDF 검증이 끝나지 않아 출력 그림이 없습니다 — 「⋯ 더보기」 의 「다시 검증」` });
     b.dataset.slSrc = k;
     b.setAttribute("aria-pressed", String(on));
     seg.append(b);
   }
-  wrap.append(slPicBar(["서식 견본", "저장된 서식의 견본입니다 — 「이 서식이 이렇게 생겼다」 는 그림이지 「적용하면 문서가 이렇게 된다」 는 그림이 아닙니다(동작마다 바꾸는 범위는 단추 이름에 적혀 있습니다)"], bigKey, styleLibDraw, [seg]));
+  wrap.append(slPicBar(editing ? ["고치는 값 미리 보기", "아래 「값 고치기」 칸의 값으로 그린 견본입니다 — 아직 저장하지 않았습니다. 파란 「L」 표지가 고치는 레벨이고, 세로 점선이 「글 시작」 자리입니다(둘째 줄 막대가 시작하는 곳 = 「2번째 줄」)"]
+    : ["서식 견본", "저장된 서식의 견본입니다 — 「이 서식이 이렇게 생겼다」 는 그림이지 「적용하면 문서가 이렇게 된다」 는 그림이 아닙니다(동작마다 바꾸는 범위는 단추 이름에 적혀 있습니다)\n내용 서식은 레벨마다 두 줄 — 첫 줄(레터 · 글)과 둘째 줄(줄이 넘어가면 시작하는 자리)"], bigKey, styleLibDraw, [seg]));
   return wrap;
 }
 
@@ -472,6 +477,7 @@ function styleItemEl(s) {
   const need = can ? "" : dx ? "\ndocx 문서에는 빈 표 넣기 · 문단에 입히기만 됩니다" : "\n문서를 열어야 합니다", needAny = doc ? (dx && slNoDocx(s) ? "\n이 서식에는 docx 서식이 없습니다 — 「docx 받기」 로 다시 지어 보세요" : "") : "\n문서를 열어야 합니다";
   const canAny = doc && !(dx && slNoDocx(s)); // hwpx·docx 문서 모두에서 되는 동작(빈 표 넣기 · 고른 문단에 입히기)
   box.dataset.style = s.id;
+  box.classList.toggle("fmt-editing", !!(E && E.mode === "fmt")); // 값을 고치는 동안 — 이 서식의 견본이 열 위에 붙는다(style_lib.css — 칸이 아래에 있어도 고치는 값이 그려지는 것을 본다)
   box.dataset.kind = s.kind || "";
   box.dataset.tab = slTabOf(s);
   box.append(styleLibPic(s)); // 그림이 먼저(② §13) — 이름·꼬리표·요약·동작은 그 설명으로 아래에
@@ -531,7 +537,7 @@ function styleItemEl(s) {
       b.dataset.slItem = it.key;
       const fon = !!(E && E.mode === "fmt" && E.item === it.key); // 이 항목의 값 고치기 칸이 펴져 있나(② §19-6)
       const fx = hBtn("값 고치기", () => slFmtToggle(s, it), { cls: "btn sm" + (fon ? " on" : ""), disabled: !!(E && E.busy),
-        title: "이 항목의 앞 여백 · 2번째 줄 · 폰트 · 크기 · 줄간격을 고칩니다 — 보관함의 이 서식이 새 판이 되고 PDF 검증을 다시 합니다(문서는 안 바뀜)" });
+        title: "이 항목의 앞 여백 · 글 시작 · 2번째 줄 · 폰트 · 크기 · 줄간격을 고칩니다 — 고치는 동안 위의 서식 견본이 바로 바뀝니다 · 저장하면 보관함의 이 서식이 새 판이 되고 PDF 검증을 다시 합니다(문서는 안 바뀜)" });
       fx.dataset.slFmt = it.key;
       fx.setAttribute("aria-expanded", String(fon));
       row.classList.toggle("editing", fon);
@@ -683,25 +689,48 @@ async function styleDelete(s) {
 // ---- 서식 값 고치기 · 복사본 만들기(spec_서식복사 ② §19-6 — 사용자 "앞 여백, 2번째줄 여백 시작 위치, 폰트, 글자크기, 줄간격들을 수정할 수 있는 기능을 넣어줘" · "서식을 복사하기" → 답 ㉮·㉯) ------------------
 // 값 고치기 = 글 서식(내용 서식 레벨 · 문단 서식)의 항목 줄 안에서 다섯 칸(팝업 아님 — Enter 저장 · Esc 취소: design.md §13) → PUT …/items/{key}/format {expectedRevision, changes: 바뀐 칸만}
 // → 새 revision 의 meta(운반 문서의 견본 문단을 고침 · PDF 검증 다시). 409 = 다른 곳에서 먼저 고침 — 새 판을 읽고 칸의 값은 그대로 둔다. 표·쪽 설정·표지는 v1 에 없다(② §19-8)
-const SL_FV = [["line1Mm", "앞 여백", "mm", 5, 0, 300, 10], ["line2Mm", "2번째 줄", "mm", 5, 0, 300, 10], ["font", "폰트", "", 0, 1, 40, 0], ["sizePt", "크기", "pt", 4, 1, 200, 10], ["lineSpacingPct", "줄간격", "%", 3, 50, 500, 1]]; // [키, 이름, 단위, 숫자 칸 자릿수, 아래, 위(폰트는 자 수), 반올림(10 = 0.1 단위)] — 서식 지도(② §19-3)와 같은 다섯
-const SL_FV_HELP = "앞 여백 = 첫 줄이 시작하는 자리(왼쪽 여백 + 들여쓰기) · 2번째 줄 = 둘째 줄부터 시작하는 자리(왼쪽 여백 + 내어쓰기)\n폰트·크기는 본문 글자에만(레터·번호는 그대로) · 줄간격은 % · 비운 칸은 그대로 둡니다\n저장하면 보관함의 이 서식이 새 판이 되고 PDF 검증을 다시 합니다 — 문서는 안 바뀝니다(문서에는 「글자·문단 모양 입히기」)";
-function slFmtBase(f) { // 항목의 서식 요약 → 다섯 칸의 값(② §19-1 — line1 = 왼쪽 여백 + max(첫 줄, 0) · line2 = 왼쪽 여백 + max(−첫 줄, 0)). 모르는 값은 null(빈 칸)
-  f = f && typeof f === "object" ? f : {};
+const SL_FV = [["line1Mm", "앞 여백", "mm", 5, 0, 300, 10], ["textMm", "글 시작", "mm", 5, 0, 300, 10], ["line2Mm", "2번째 줄", "mm", 5, 0, 300, 10], ["font", "폰트", "", 0, 1, 40, 0], ["sizePt", "크기", "pt", 4, 1, 200, 10], ["lineSpacingPct", "줄간격", "%", 3, 50, 500, 1]]; // [키, 이름, 단위, 숫자 칸 자릿수, 아래, 위(폰트는 자 수), 반올림(10 = 0.1 단위)] — 서식 지도(② §19-3)의 다섯 + 「글 시작」
+// 「글 시작」(2026-11-16 사용자 "앞 여백 맞고, 그리고 첫번째 글자의 맨 앞으로의 부터 거리 … 어떤 레터가 오던 숫자가 오던 첫번째 내용의 절대위치"): 첫 내용 글자가 시작하는 자리(본문 왼끝에서 mm) = 앞 여백 + 레터 자리 폭(앞 공백 + 레터 + 레터 뒤 공백).
+// 앞 여백과 한 값의 두 이름이라 한쪽을 고치면 다른 쪽이 따라 바뀐다 — 사람이 마지막에 친 쪽(E.pair)만 서버에 보낸다(글 시작이면 서버가 레터 자리 폭을 재어 첫 줄을 옮긴다: PUT …/format 의 textMm).
+// 글자 레터가 없는 항목(문단 서식)은 글 시작 = 앞 여백이라 칸을 안 보이고, 자동 번호(번호 폭을 모른다)는 칸을 끈다.
+const SL_FV_HELP = "앞 여백 = 첫 줄이 시작하는 자리 · 글 시작 = 레터 뒤 첫 내용 글자가 시작하는 자리(레터가 무엇이든 글이 놓이는 절대 위치) · 2번째 줄 = 줄이 넘어가면 시작하는 자리 — 모두 본문 왼끝에서 잰 mm\n글 시작 = 앞 여백 + 레터 자리 폭(앞 공백 + 레터 + 레터 뒤 공백) — 한쪽을 고치면 다른 쪽이 따라 바뀝니다(글 시작을 고치면 글이 그 자리에 오게 줄이 움직입니다)\n「글 시작에 맞춤」 = 2번째 줄을 글 시작과 같은 자리로\n폰트·크기는 본문 글자에만(레터·번호는 그대로) · 줄간격은 % · 비운 칸은 그대로 둡니다 · 고치는 동안 위의 서식 견본이 그 값으로 바로 바뀝니다\n저장하면 보관함의 이 서식이 새 판이 되고 PDF 검증을 다시 합니다 — 문서는 안 바뀝니다(문서에는 「글자·문단 모양 입히기」)";
+function slFmtBase(it, pos) { // 항목 → 칸의 처음 값(② §19-1 — line1 = 왼쪽 여백 + max(첫 줄, 0) · line2 = 왼쪽 여백 + max(−첫 줄, 0) · text = line1 + 레터 자리 폭). 모르는 값은 null(빈 칸)
+  // + w(레터 자리 폭 mm | null = 못 잼) · lead(앞 공백 폭) · exact(서버가 잰 값인가 — 아니면 어림) · text: "ok" | "none"(글자 레터 없음 — 칸을 안 보인다) | "off"(자동 번호·탭 — 못 잼)
+  const f = it && it.format && typeof it.format === "object" ? it.format : {}, m = (it && it.marker) || {};
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null), r = (v, d) => (v == null ? null : Math.round(v * d) / d);
   const left = num(f.indentLeftMm), first = num(f.firstLineMm), known = left != null || first != null;
-  return { line1Mm: known ? r((left || 0) + Math.max(first || 0, 0), 10) : null, line2Mm: known ? r((left || 0) + Math.max(-(first || 0), 0), 10) : null,
-    font: typeof f.font === "string" ? f.font : "", sizePt: r(num(f.sizePt), 10), lineSpacingPct: r(num(f.lineSpacingPct), 1) };
+  const pl = typeof stylePic === "function" && stylePic.place ? stylePic.place(it || {}, pos) : { prefix: null, lead: 0, exact: false };
+  const lit = m.mode === "literal", w = lit && known && pl.prefix != null ? pl.prefix : null, line1 = known ? (left || 0) + Math.max(first || 0, 0) : null;
+  return { line1Mm: r(line1, 10), textMm: w == null ? null : r(line1 + w, 10), line2Mm: known ? r((left || 0) + Math.max(-(first || 0), 0), 10) : null,
+    font: typeof f.font === "string" ? f.font : "", sizePt: r(num(f.sizePt), 10), lineSpacingPct: r(num(f.lineSpacingPct), 1),
+    w, lead: w == null ? 0 : pl.lead, exact: !!pl.exact, text: !lit && m.mode !== "auto" ? "none" : w == null ? "off" : "ok" };
 }
 function slFontList() { // 폰트 칸의 고르기(datalist) — 보관함 목록의 글 서식 항목 · 쪽 설정 바탕 글에 있는 글꼴
   const out = new Set(), add = (f) => { if (typeof f === "string" && f.trim()) out.add(f.trim()); };
   for (const s of STYLE.list || []) { for (const it of s.items || []) add(it && it.format && it.format.font); add(s.body && s.body.format && s.body.format.font); }
   return [...out].sort((a, b) => a.localeCompare(b, "ko"));
 }
+const slFmtPic = (s) => SLP.map.get(`lib|${s.id}|${s.revision || ""}`) || null; // 그 서식의 그림 기억(받은 보기 — view.pos = 항목마다 잰 자리)
+function slFmtPos(s, key) { const P = slFmtPic(s), pos = P && P.view && P.view.pos; return pos && typeof pos === "object" ? pos[key] || null : null; }
+function slFmtEdit(s, it, pos) { // 값 고치기 상태 — 처음 값(base · base.w = 레터 자리 폭) · 칸의 글(draft) · pair = 사람이 마지막에 친 쪽(line1Mm | textMm) · touched = 한 칸이라도 쳤나
+  const base = slFmtBase(it, pos);
+  return { sid: s.id, mode: "fmt", item: it.key, base, draft: Object.fromEntries(SL_FV.map(([k]) => [k, base[k] == null ? "" : String(base[k])])), err: "", focus: null, pair: null, touched: false };
+}
 function slFmtToggle(s, it) { // 「값 고치기」 — 그 항목의 칸을 펴고 접는다(한 번에 하나 — 다른 항목의 고치기·이름 바꾸기는 닫힌다)
   const E = STYLE.edit;
   if (E && E.busy) return;
   if (E && E.mode === "fmt" && E.sid === s.id && E.item === it.key) STYLE.edit = null;
-  else { const base = slFmtBase(it.format); STYLE.edit = { sid: s.id, mode: "fmt", item: it.key, base, draft: Object.fromEntries(SL_FV.map(([k]) => [k, base[k] == null ? "" : String(base[k])])), err: "", focus: null }; }
+  else {
+    const pos = slFmtPos(s, it.key), mine = (STYLE.edit = slFmtEdit(s, it, pos));
+    if (!pos && !(slFmtPic(s) || {}).view) { // 그림을 아직 안 받았다(견본이 화면 밖) — 잰 자리를 받아 처음 값을 고친다(사람이 아직 안 쳤을 때만)
+      api(styleUrl(s.id)).then((m) => {
+        const got = m && m.view && m.view.pos && m.view.pos[it.key];
+        if (!got || STYLE.edit !== mine || mine.touched || mine.busy) return;
+        STYLE.edit = { ...slFmtEdit(s, it, got), focus: mine.focus, shown: mine.shown };
+        styleLibDraw();
+      }).catch(() => { /* 어림값으로 둔다 */ });
+    }
+  }
   styleLibDraw();
 }
 function slFmtDiff(E, k, d) { // 그 칸이 처음 값과 다른가(강조 — 비운 칸은 「그대로」)
@@ -712,19 +741,41 @@ function slFmtDiff(E, k, d) { // 그 칸이 처음 값과 다른가(강조 — �
   return !Number.isFinite(v) || E.base[k] == null || Math.abs(Math.round(v * d) / d - E.base[k]) > 1e-9;
 }
 function slFmtChanges(E) { // 바뀐 칸만 → {changes} | {err, key}. 비운 칸은 그대로 · 범위는 서식 지도와 같다(② §19-7 — mm 0~300 · pt 1~200 · % 50~500 · 폰트 1~40자)
-  const changes = {};
+  // 앞 여백 ↔ 글 시작은 한 값이라 **사람이 마지막에 친 쪽만** 보낸다(친 적이 없으면 둘 다 안 보낸다 — 따라 바뀐 쪽은 서버가 다시 셈한다)
+  const changes = {}, linked = E.base.w != null;
   for (const [k, label, unit, , lo, hi, d] of SL_FV) {
+    if (k === "textMm" && !linked) continue;
+    if (linked && (k === "line1Mm" || k === "textMm") && E.pair !== k) continue;
     const raw = String(E.draft[k] == null ? "" : E.draft[k]).trim().replace(/\s+/g, " ");
     if (!raw || !slFmtDiff(E, k, d)) continue;
     if (k === "font") { if (raw.length > hi) return { err: `${label}: ${hi}자까지 넣을 수 있습니다`, key: k }; changes[k] = raw; continue; }
     const v = Number(raw);
     if (!Number.isFinite(v) || v < lo || v > hi) return { err: `${label}: ${lo}~${hi}${unit} 사이의 수를 넣으세요`, key: k };
+    if (k === "textMm" && v < E.base.w - 0.05) return { err: `글 시작: 레터 자리 폭 ${Math.round(E.base.w * 10) / 10}mm(앞 공백 + 레터 + 레터 뒤 공백)보다 작을 수 없습니다`, key: k };
     changes[k] = Math.round(v * d) / d;
   }
   return { changes };
 }
+function slFmtOver(E) { // 칸의 값 → 서식 요약에 덮을 값(고치는 동안의 견본 — 틀리거나 비운 칸은 처음 값): 왼쪽 여백 = min(앞 여백, 2번째 줄) · 첫 줄 = 앞 여백 − 2번째 줄(서버 `style_carrier.retune` 과 같은 셈)
+  const val = (k, lo, hi) => { const raw = String(E.draft[k] == null ? "" : E.draft[k]).trim(), v = Number(raw); return raw && Number.isFinite(v) && v >= lo && v <= hi ? v : E.base[k]; };
+  const out = {}, l1 = val("line1Mm", 0, 300), l2 = val("line2Mm", 0, 300), font = String(E.draft.font || "").trim().replace(/\s+/g, " "), size = val("sizePt", 1, 200), ls = val("lineSpacingPct", 50, 500);
+  if (l1 != null && l2 != null) { out.indentLeftMm = Math.round(Math.min(l1, l2) * 100) / 100; out.firstLineMm = Math.round((l1 - l2) * 100) / 100; }
+  if (font) out.font = font;
+  if (size != null) out.sizePt = size;
+  if (ls != null) out.lineSpacingPct = ls;
+  return out;
+}
+function slPicLiveOf(P) { // 값을 고치는 중인 서식의 그림이면 {view: 칸의 값을 덮은 보기, mark: 고치는 항목 key, sig} — 아니면 null. slPicPaint 가 부른다(서버에 묻지 않는 저장 전 미리보기)
+  const E = STYLE.edit;
+  if (!E || E.mode !== "fmt" || !P || P.state !== "done" || !P.view || !Array.isArray(P.view.items) || !String(P.key).startsWith(`lib|${E.sid}|`)) return null;
+  const over = slFmtOver(E), p0 = (P.view.pos && typeof P.view.pos === "object" ? P.view.pos[E.item] : null) || {};
+  const pos = E.base.w == null ? P.view.pos : { ...(P.view.pos || {}), [E.item]: { ...p0, leadMm: E.base.lead, prefixMm: E.base.w } }; // 레터 자리 폭은 칸과 같은 값으로(글자 크기를 고쳐도 레터는 그대로다)
+  // 값 고치기는 본문 글자만 바꾼다 — 레터는 고치기 전 모양으로 그린다(letterFormat: 서버가 레터 런의 모양(pos.letter)을 안 줬을 때 쓰인다)
+  return { mark: E.item, sig: JSON.stringify([E.item, over, E.base.w]), view: { ...P.view, pos, items: P.view.items.map((it) => (it && it.key === E.item ? { ...it, format: { ...(it.format || {}), ...over }, letterFormat: it.letterFormat || it.format || {} } : it)) } };
+}
+function slFmtLive(s) { const P = slFmtPic(s); if (P && P.box.isConnected) slPicPaint(P, P.big); } // 칸이 바뀔 때마다 — 그 서식의 견본만 다시 그린다(목록은 그대로 — 입력 초점이 안 흔들린다)
 function slFmtForm(s, it, E) { // 항목 줄 바로 아래 그 줄 안의 칸(.sl-fform — 격자 한 줄을 다 쓴다): 이름 · 칸 · 단위가 한 묶음(design.md §1-4) · 숫자 칸은 자릿수 폭 28px(§1-3) · 설명은 노트 도움말(§1-6)
-  const f = el("div", "sl-fform"), row = el("div", "sl-frow"), dl = el("datalist");
+  const f = el("div", "sl-fform"), row = el("div", "sl-frow"), dl = el("datalist"), inputs = {}, B = E.base, r1 = (v) => Math.round(v * 10) / 10;
   f.dataset.slFform = it.key;
   f.setAttribute("role", "group");
   f.setAttribute("aria-label", `「${it.name || it.key}」 값 고치기`);
@@ -734,22 +785,52 @@ function slFmtForm(s, it, E) { // 항목 줄 바로 아래 그 줄 안의 칸(.s
     if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.key === "Enter") { ev.preventDefault(); styleFmtSave(s); } else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); STYLE.edit = null; styleLibDraw(); }
   };
+  const numOf = (k) => { const raw = String(E.draft[k] == null ? "" : E.draft[k]).trim(), v = Number(raw); return raw && Number.isFinite(v) ? v : null; };
+  const put = (k, v) => { E.draft[k] = v == null ? "" : String(v); if (inputs[k] && inputs[k].value !== E.draft[k]) inputs[k].value = E.draft[k]; };
+  let fit = null;
+  const sync = (k) => { // 한 칸이 바뀐 뒤 — 앞 여백 ↔ 글 시작을 서로 맞추고(글 시작 = 앞 여백 + 레터 자리 폭), 강조 · 「글 시작에 맞춤」 · 위의 견본을 고친다
+    if (k) E.touched = true;
+    if (B.w != null && (k === "line1Mm" || k === "textMm")) {
+      const v = numOf(k);
+      E.pair = k;
+      if (v != null) put(k === "line1Mm" ? "textMm" : "line1Mm", r1(k === "line1Mm" ? v + B.w : v - B.w));
+    }
+    for (const [key, , , , , , d] of SL_FV) if (inputs[key]) inputs[key].classList.toggle("chg", slFmtDiff(E, key, d));
+    if (fit) { const t = numOf("textMm"), l2 = numOf("line2Mm"), same = t != null && l2 != null && Math.abs(t - l2) < 0.05; fit.disabled = !!E.busy || t == null || same; fit.classList.toggle("on", same); fit.setAttribute("aria-pressed", String(same)); }
+    if (k) slFmtLive(s);
+  };
   for (const [k, label, unit, ch, lo, hi, d] of SL_FV) {
-    const lab = el("label", "sl-fv"), inp = el("input");
+    if (k === "textMm" && B.text === "none") continue; // 글자 레터가 없는 항목 — 글 시작 = 앞 여백
+    const lab = el("label", "sl-fv"), inp = el("input"), off = k === "textMm" && B.text === "off";
     inp.dataset.slFv = k;
     if (k === "font") { inp.type = "text"; inp.maxLength = hi; inp.setAttribute("list", dl.id); inp.autocomplete = "off"; }
-    else { inp.type = "number"; inp.min = String(lo); inp.max = String(hi); inp.step = String(1 / d); inp.inputMode = "decimal"; inp.style.width = `calc(${ch}ch + 20px)`; }
+    else { inp.type = "number"; inp.min = String(lo); inp.max = String(hi); inp.step = String(1 / d); inp.inputMode = "decimal"; inp.style.width = `calc(${ch}ch + 28px)`; } // 28 = 좌우 여백 12 + 올림·내림 단추 자리(초점이 있을 때 숫자가 안 가린다 — 「160」 이 「16」 으로 잘리던 것)
     inp.value = E.draft[k] == null ? "" : E.draft[k];
-    inp.disabled = !!E.busy;
+    inp.disabled = !!E.busy || off;
     inp.classList.toggle("chg", slFmtDiff(E, k, d));
-    inp.oninput = () => { E.draft[k] = inp.value; inp.classList.toggle("chg", slFmtDiff(E, k, d)); };
+    inp.oninput = () => { E.draft[k] = inp.value; sync(k); };
     inp.onfocus = () => { E.focus = k; };
     inp.onkeydown = keys;
+    if (k === "line1Mm") lab.title = "첫 줄이 시작하는 자리(본문 왼끝에서) — 앞 공백·레터가 여기서 시작합니다" + (B.w != null ? "\n고치면 글 시작이 따라 바뀝니다" : "");
+    if (k === "textMm") lab.title = off ? "이 항목은 글 시작을 잴 수 없습니다 — 자동 번호(번호 폭은 대상 문서의 번호 설정이 정합니다)이거나 레터 자리에 탭이 있습니다"
+      : `레터 뒤 첫 내용 글자가 시작하는 자리(본문 왼끝에서) = 앞 여백 + 레터 자리 폭 ${r1(B.w)}mm(앞 공백 + 레터 + 레터 뒤 공백${B.exact ? "" : " — 어림값: 서버를 다시 켜면 잰 값으로 보입니다"})\n고치면 글이 그 자리에 오게 줄이 움직입니다(앞 여백이 따라 바뀝니다)`;
+    if (k === "line2Mm") lab.title = "줄이 넘어가면 둘째 줄부터 시작하는 자리(본문 왼끝에서) — 위 견본의 둘째 줄 막대가 시작하는 곳";
+    if (off) inp.placeholder = "—";
+    inputs[k] = inp;
     lab.dataset.slFv = k;
     lab.append(el("span", "sl-fv-name", label), inp);
     if (unit) lab.append(el("span", "sl-fv-unit", unit));
     row.append(lab);
+    if (k === "line2Mm" && B.text === "ok") { // 「글 시작에 맞춤」 — 2번째 줄을 글 시작과 같은 자리로(줄이 넘어가도 글이 레터 아래로 들어가지 않는다). 이미 같으면 눌린 채 꺼진다
+      const cell = el("span", "sl-fv sl-fv-fit");
+      fit = hBtn("글 시작에 맞춤", () => { const t = numOf("textMm"); if (t == null) return; put("line2Mm", r1(t)); sync("line2Mm"); inputs.line2Mm.focus({ preventScroll: true }); },
+        { cls: "btn sm", title: "2번째 줄을 글 시작과 같은 자리로 맞춥니다 — 줄이 넘어가면 첫 내용 글자 바로 아래에서 시작합니다" });
+      fit.dataset.slAct = "fmtFit";
+      cell.append(fit);
+      row.append(cell);
+    }
   }
+  sync(null);
   const acts = el("div", "sl-facts"), save = hBtn("저장", () => styleFmtSave(s), { cls: "btn sm primary", disabled: !!E.busy, title: "바뀐 칸만 보관함의 이 서식에 저장합니다 · Enter" });
   const no = hBtn("취소", () => { STYLE.edit = null; styleLibDraw(); }, { disabled: !!E.busy, title: "고치지 않고 닫습니다 · Esc" });
   save.dataset.slAct = "fmtSave";
@@ -780,7 +861,7 @@ async function styleFmtSave(s) {
     if (e.status === 409) { // 다른 곳에서 먼저 바뀜 — 새 판을 읽고(처음 값도 새것으로) 고친 칸은 그대로 두어 다시 저장하게
       try { styleMerge(await api(styleUrl(cur.id))); } catch { /* 지워졌으면 다음 읽기에서 빠진다 */ }
       const it = (cur.items || []).find((x) => x && x.key === E.item);
-      if (it) E.base = slFmtBase(it.format);
+      if (it) { E.base = slFmtBase(it, slFmtPos(cur, it.key)); if (E.base.w == null) E.pair = null; }
       E.err = "다른 곳에서 이 서식을 먼저 고쳤습니다 — 새 판을 읽었습니다. 칸의 값을 확인하고 「저장」 을 한 번 더 누르세요.";
     } else E.err = `값을 고치지 못했습니다: ${styleErr(e)}`;
   }

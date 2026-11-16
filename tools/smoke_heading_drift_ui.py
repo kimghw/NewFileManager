@@ -4,8 +4,9 @@
     python -X utf8 tools/smoke_heading_drift_ui.py <그림·임시 폴더> [--port 18177]
 
 연구개발계획서_양식.hwpx 를 API 로 올려 2·3단계(스크립트)를 돌린 뒤 화면에서 연다 → 그대로(「추출 결과」 · 카드 줄 없음) → 헤딩 줄의 글만 고침(「재확인 필요」 없음 · 탭 점 없음 ·
-카드 「뼈대 유지 · 새 레터·서식 없음」) → 레터를 「▶」 로(알림 · 상태 줄 「새 레터 1」 · 2단계 탭 점 · 카드 줄 · 문서 여백 「새 레터」 · 뼈대 밖 목록) → 다른 줄의 왼쪽 여백을 바꿈(「새 서식」 —
-「TN Lk」 앞에 붙음) → 좁은 패널에서 상태 줄 한 줄 → 실행 취소·되돌리면 사라짐 · 콘솔 오류.
+카드 「뼈대 유지 · 새 레터·서식 없음」) → 레터를 「▶」 로(알림 · 상태 줄 「새 레터 1」 · 2단계 탭 점 · 카드 줄 · 문서 여백 「새 레터」 · 뼈대 밖 목록) → 다른 줄 하나의 왼쪽 여백을 바꿈(「잘못된 서식」 —
+한 줄뿐: 「TN Lk」 앞에 붙음 · 목록에 「대표에 맞추기」) → 같은 레벨의 줄 하나를 더 같은 값으로(되풀이 = 「새 서식」) → 실행 취소(다시 「잘못된 서식」) → 좁은 패널에서 상태 줄 한 줄 →
+「대표에 맞추기」(그 줄이 대표 모양으로 · 알림 사라짐) → 레터를 되돌리면 사라짐 · 콘솔 오류.
 문서를 고치므로 사용자 8114 에는 돌리지 않는다."""
 import argparse
 import os
@@ -172,16 +173,42 @@ try:
         check("뼈대 밖 목록(2열): 새 레터 줄 「▶ · 본문 · 레터 · 1 · 예문」", len(rows) == 1 and rows[0][:4] == ["▶", "본문", "레터", "1"] and "화살표로 바꾼 줄" in rows[0][4], rows)
         page.screenshot(path=str(OUT / "3_list.png"))
 
-        # ---- 4. 새 서식(다른 줄의 왼쪽 여백 — 「TN Lk」 가 있는 줄)
-        page.evaluate("""async (pid) => { const r = await api(`/api/docs/${state.id}/format/para`, { method: 'POST', headers: H_JSON, body: JSON.stringify({ ids: [pid], changes: { indentLeftMm: 30 } }) });
-            applyEditState(r); }""", PID2)
+        # ---- 4. 잘못된 서식(「TN Lk」 가 있는 줄 하나의 왼쪽 여백 — 한 줄뿐이라 새 서식이 아니다) → 같은 레벨의 줄 하나를 더(되풀이 = 새 서식) → 실행 취소
+        MARGIN = """async (pid) => { const r = await api(`/api/docs/${state.id}/format/para`, { method: 'POST', headers: H_JSON, body: JSON.stringify({ ids: [pid], changes: { indentLeftMm: 30 } }) });
+            applyEditState(r); }"""
+        LISTS = """() => [...document.querySelectorAll('#headsDlg table.drift-list')].map((t) => ({ wrong: t.classList.contains('drift-wrong'),
+            rows: [...t.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((td) => td.innerText.replace(/\\s+/g, ' ').trim())),
+            match: [...t.querySelectorAll('button.drift-match')].map((b) => !b.disabled), rel: t.querySelectorAll('button.drift-rel').length }))"""
+        # 그 레벨의 대표가 아닌 줄 둘(대표 줄은 「대표에 맞추기」 가 꺼진다 — 맞출 대표가 그 줄이라서)
+        pw1, pw2 = page.evaluate("""(pid) => { const o = heads.outline, a = o.lines[pid], rep = o.templates[String(a.tpl)].slots[String(a.level)].rep;
+            return Object.keys(o.lines).filter((p) => p !== rep && o.lines[p].tpl === a.tpl && o.lines[p].level === a.level && o.lines[p].role === a.role).slice(0, 2); }""", PID2)
+        page.evaluate(MARGIN, pw1)
         m = settle(page)
-        check("새 서식: 꼬리표 「새 레터 1 · 새 서식 1」 · 카드 줄", m["state"].startswith("새 레터 1 · 새 서식 1") and m["card2"]["text"] == "새 레터 1 · 새 서식 1" and m["counts"] == [2, 0], m)
-        joined = " · ".join(m["marks"])  # 붙어 있는 줄들의 표시는 한 표로 모인다(「새 레터 · 새 서식 T2 L2」)
-        check("새 서식: 여백 표시는 「TN Lk」 앞에 붙음 · 새 레터는 그것만", re.search(r"새 서식 T\d+ L\d+", joined) and "새 레터" in joined and "새 레터 T" not in joined, m["marks"])
-        rows = page.evaluate("() => [...document.querySelectorAll('#headsDlg table.drift-list')].map((t) => [...t.querySelectorAll('tbody tr')].map((tr) => tr.children[0].innerText.trim()))")
-        check("열려 있던 목록이 따라 바뀜(새 레터 표 · 새 서식 표)", rows == [["▶"], ["o"]], rows)
+        check("잘못된 서식: 꼬리표 「새 레터 1 · 잘못된 서식 1」 · 카드 줄(한 줄뿐인 서식은 새 서식이 아니다)", m["state"].startswith("새 레터 1 · 잘못된 서식 1") and "새 서식" not in m["state"]
+              and m["card2"]["text"] == "새 레터 1 · 잘못된 서식 1" and m["counts"] == [2, 0], m)
+        check("잘못된 서식: 알림", "한 줄의 잘못된 서식" in m["toast"] and "보기" in m["toast"], m["toast"])
+        joined = " · ".join(m["marks"])  # 붙어 있는 줄들의 표시는 한 표로 모인다(「새 레터 · 잘못된 서식 T2 L2」)
+        check("잘못된 서식: 여백 표시는 「TN Lk」 앞에 붙음 · 새 레터는 그것만", re.search(r"잘못된 서식 T\d+ L\d+", joined) and "새 서식" not in joined and "새 레터" in joined and "새 레터 T" not in joined, m["marks"])
+        lists = page.evaluate(LISTS)
+        check("열려 있던 목록이 따라 바뀜(새 레터 표 · 잘못된 서식 표 — 「대표에 맞추기」·「갈래 보기」)", [t["wrong"] for t in lists] == [False, True] and [r[0] for r in lists[0]["rows"]] == ["▶"]
+              and len(lists[1]["rows"]) == 1 and lists[1]["rows"][0][:2] == ["o", "본문"] and "왼30" in lists[1]["rows"][0][2] and "쓰던 서식" in lists[1]["rows"][0][2]
+              and lists[1]["match"] == [True] and lists[1]["rel"] == 1, lists)
+        fit = page.evaluate("""() => { const b = document.querySelector('#headsDlg table.drift-wrong button.drift-match'), c = document.querySelector('#headsDlg .hd-body') || document.querySelector('#headsDlg');
+            const br = b.getBoundingClientRect(), cr = c.getBoundingClientRect(); return { right: Math.round(br.right - cr.right), overflow: c.scrollWidth - c.clientWidth, w: Math.round(cr.width) }; }""")
+        check("「대표에 맞추기」 단추가 목록 열 안에 보임(긴 서식 이름은 칸 안에서 줄 바꿈 — 표가 열 폭을 넘지 않음)", fit["right"] <= 0 and fit["overflow"] <= 0, fit)
+        heads_txt = page.evaluate("() => [...document.querySelectorAll('#headsDlg .temp-head')].map((h) => h.innerText.replace(/\\s+/g, ' ').trim())")
+        check("잘못된 서식 묶음 머리에는 「2단계 열기」 가 없다(뼈대에 넣을 것이 아니라 맞출 것)", len(heads_txt) == 2 and "2단계 열기" in heads_txt[0] and heads_txt[1].startswith("잘못된 서식") and "단계 열기" not in heads_txt[1], heads_txt)
+        page.screenshot(path=str(OUT / "4_list_wrong.png"))
+        page.evaluate(MARGIN, pw2)
+        m = settle(page)
+        lists = page.evaluate(LISTS)
+        check("같은 서식이 두 줄(되풀이): 「새 서식 1」 — 잘못된 서식 없음 · 목록의 문단 수 2", m["state"].startswith("새 레터 1 · 새 서식 1") and "잘못된 서식" not in m["state"] and m["counts"] == [2, 0]
+              and [t["wrong"] for t in lists] == [False, False] and lists[1]["rows"][0][0] == "o" and lists[1]["rows"][0][3] == "2" and lists[1]["match"] == [] and lists[1]["rel"] == 1, (m["state"], lists))
+        check("새 서식: 여백 표시 「새 서식 TN Lk」", len(re.findall(r"새 서식 T\d+ L\d+", " · ".join(m["marks"]))) >= 1 and "잘못된 서식" not in " · ".join(m["marks"]), m["marks"])
         page.screenshot(path=str(OUT / "4_list_format.png"))
+        page.evaluate("""async () => { const r = await api(`/api/docs/${state.id}/undo`, { method: 'POST' }); applyEditState(r); }""")
+        m = settle(page)
+        check("실행 취소(둘째 줄): 다시 「잘못된 서식 1」", m["state"].startswith("새 레터 1 · 잘못된 서식 1") and m["counts"] == [2, 0], m["state"])
         page.evaluate("headsColClose(true)")
 
         # ---- 5. 좁은 패널 — 상태 줄 한 줄 · 넘침 없음
@@ -194,10 +221,20 @@ try:
                 page.locator("#paneHeads").screenshot(path=str(OUT / f"5_panel_{w}.png"))
         page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); heads.summaryKey = null; headsResultsSummary(heads.view); }")
 
-        # ---- 6. 되돌리면 사라진다 · 실행은 안 늘었다
-        page.evaluate("""async () => { const r = await api(`/api/docs/${state.id}/undo`, { method: 'POST' }); applyEditState(r); }""")
+        # ---- 6. 「대표에 맞추기」 — 그 줄이 대표 모양으로(「템플릿 관계」 의 갈래 맞추기와 같은 길 · 실행 취소 1) → 알림이 사라진다. 그 뒤 레터를 되돌리면 모두 사라진다 · 실행은 안 늘었다
+        page.click("#headsOverview .drift-chip")
+        page.wait_for_selector("#headsDlg[data-kind='drift']:not([hidden]) table.drift-wrong button.drift-match")
+        rev = page.evaluate("() => state.serverRev")
+        page.click("#headsDlg table.drift-wrong button.drift-match")
+        page.wait_for_function("(r) => state.serverRev > r", arg=rev, timeout=60000)
         m = settle(page)
-        check("실행 취소(왼쪽 여백): 「새 레터 1」 만 남음", m["state"].startswith("새 레터 1") and "새 서식" not in m["state"] and m["marks"] == ["새 레터"], (m["state"], m["marks"]))
+        left = page.evaluate("""async (pid) => { const o = heads.outline, a = o.lines[pid], rep = o.templates[String(a.tpl)].slots[String(a.level)].rep;
+            const f = (p) => (state.byId.get(p).format || {}).indentLeftMm; return [f(pid), f(rep)]; }""", pw1)
+        joined = " · ".join(m["marks"])  # 맞춘 줄이 새 레터 줄 바로 옆이면 그 줄의 「TN Lk」 가 같은 표에 모인다(「새 레터 · T2 L2」) — 서식 표시만 없으면 된다
+        check("대표에 맞추기: 「새 레터 1」 만 남음 · 그 줄의 왼쪽 여백 = 대표의 것 · 알림", m["state"].startswith("새 레터 1") and "서식" not in m["state"] and "새 레터" in joined and "서식" not in joined
+              and m["counts"] == [1, 0] and left[0] == left[1] and left[0] != 30 and "대표 모양으로 맞췄습니다" in m["toast"], (m["state"], m["marks"], m["counts"], left, m["toast"]))
+        check("대표에 맞추기: 열려 있던 목록에서 잘못된 서식 표가 사라짐", [t["wrong"] for t in page.evaluate(LISTS)] == [False], page.evaluate(LISTS))
+        page.evaluate("headsColClose(true)")
         retype(page, PID, "□ 연구개발기술(제품)의 정의 및 범위")
         m = settle(page)
         check("레터를 되돌림: 「추출 결과」 · 점·여백 표시 없음", m["state"] == "추출 결과" and m["tabs"] == ["", "", ""] and m["marks"] == [] and m["card2"]["text"] == "뼈대 유지 · 새 레터·서식 없음", m)

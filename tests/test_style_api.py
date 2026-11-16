@@ -614,3 +614,77 @@ def test_real_extract_and_verify_modules_plug_in(client, monkeypatch):
         if not any(style_verify.running(s["id"]) for s in style_lib.listing()["styles"]):
             break
         time.sleep(0.05)
+
+
+# ---- 값 고치기 · 복사본 만들기(spec_서식복사 ② §19-6·§19-7) -----------------------------------------------------------
+
+def _lettered(c, d):
+    """글머리 레터(□·o·-)로 시작하는 본문 문단 id — 그런 문단이 없는 표본이면 건너뛴다."""
+    import re
+    for b in c.get(f"/api/docs/{d}").json()["blocks"]:
+        if b["type"] == "paragraph" and re.match(r"\s*[□○ㅇo-]\s+\S", b["text"]):
+            return b["id"]
+    pytest.skip("레터로 시작하는 본문 문단이 없는 표본")
+
+
+def test_item_format_edit_retunes_the_sample_paragraph(client):
+    d = _upload(client, RND)
+    m = _save(client, d, kind="text", paras=[_lettered(client, d)])
+    sid, it = m["id"], m["items"][0]
+    key, url = it["key"], f"/api/styles/{m['id']}/items/{it['key']}/format"
+    assert it["marker"]["mode"] == "literal"
+    g = client.get(f"/api/styles/{sid}").json()
+    pos, f = g["view"]["pos"][key], it["format"]
+    assert g["view"]["items"] == m["items"]  # 자리 값은 items 밖(view.pos) — items 는 meta 그대로
+    # 자리: 앞 여백 = 왼쪽 여백 + max(첫 줄, 0) · 2번째 줄 = 왼쪽 여백 + max(−첫 줄, 0) · 글 시작 = 앞 여백 + 레터 자리 폭(잰 값)
+    assert abs(pos["line1Mm"] - (f["indentLeftMm"] + max(f["firstLineMm"], 0))) < .02 and abs(pos["line2Mm"] - (f["indentLeftMm"] + max(-f["firstLineMm"], 0))) < .02
+    assert pos["prefixMm"] > 0 and abs(pos["textMm"] - (pos["line1Mm"] + pos["prefixMm"])) < .02 and abs(pos["letterMm"] - (pos["line1Mm"] + pos["leadMm"])) < .02
+    # 글 시작 30mm · 2번째 줄 30mm · 본문 글자(폰트·크기) · 줄간격 — 새 revision, 레터·견본 글은 그대로
+    r = client.put(url, json={"expectedRevision": "r1", "changes": {"textMm": 30, "line2Mm": 30, "sizePt": 13, "font": "함초롬돋움", "lineSpacingPct": 180}})
+    assert r.status_code == 200, r.text
+    n = r.json()
+    nf = n["items"][0]["format"]
+    assert n["revision"] == "r2" and nf["sizePt"] == 13 and nf["font"] == "함초롬돋움" and nf["lineSpacingPct"] == 180
+    assert n["items"][0]["marker"] == it["marker"] and n["items"][0]["sample"] == it["sample"] and n["items"][0]["name"] == it["name"]
+    p2 = client.get(f"/api/styles/{sid}").json()["view"]["pos"][key]
+    assert abs(p2["textMm"] - 30) < .06 and abs(p2["line2Mm"] - 30) < .06 and abs(p2["prefixMm"] - pos["prefixMm"]) < .02  # 글자 값은 본문 런만 — 레터 자리 폭은 그대로
+    assert pos["letter"]["sizePt"] and p2["letter"] == pos["letter"]  # 레터 글자의 모양도 그대로(크기 13 · 함초롬돋움은 본문에만)
+    assert abs(p2["line1Mm"] - (30 - pos["prefixMm"])) < .06  # 글이 30mm 에 오게 첫 줄이 움직였다
+    # 앞 여백만 — 2번째 줄은 그대로, 글 시작이 따라온다
+    r = client.put(url, json={"expectedRevision": "r2", "changes": {"line1Mm": 5}})
+    assert r.status_code == 200 and r.json()["revision"] == "r3", r.text
+    p3 = client.get(f"/api/styles/{sid}").json()["view"]["pos"][key]
+    assert abs(p3["line1Mm"] - 5) < .06 and abs(p3["line2Mm"] - 30) < .06 and abs(p3["textMm"] - (5 + pos["prefixMm"])) < .06
+    # 거절 — 낡은 revision 409 · 앞 여백과 글 시작을 함께 · 레터 자리 폭보다 작은 글 시작 · 모르는 키 · 범위 밖 · 빈 값 400 · 없는 항목 404 (서식은 그대로 r3)
+    assert client.put(url, json={"expectedRevision": "r1", "changes": {"line1Mm": 6}}).status_code == 409
+    for bad in ({"line1Mm": 5, "textMm": 20}, {"textMm": 0}, {"bold": True}, {"sizePt": 0}, {"line2Mm": 301}, {"font": " "}, {}, None, {"lineSpacingPct": "180"}):
+        r = client.put(url, json={"expectedRevision": "r3", "changes": bad})
+        assert r.status_code == 400, (bad, r.text)
+    assert client.put(url, json={"changes": {"line1Mm": 6}}).status_code == 400  # expectedRevision 없음
+    assert client.put(f"/api/styles/{sid}/items/i99/format", json={"expectedRevision": "r3", "changes": {"line1Mm": 6}}).status_code == 404
+    assert client.get(f"/api/styles/{sid}").json()["revision"] == "r3"
+    t = _save(client, _upload(client, SMALL), kind="table", table="t8")
+    assert client.put(f"/api/styles/{t['id']}/items/i1/format", json={"expectedRevision": "r1", "changes": {"line1Mm": 6}}).status_code == 400  # 표 서식에는 없다
+
+
+def test_style_copy_makes_a_separate_style_with_the_same_values(client):
+    d = _upload(client, RND)
+    m = _save(client, d, kind="text", paras=[_lettered(client, d)], name="사업계획서: body1")
+    r = client.post(f"/api/styles/{m['id']}/copy", json={})
+    assert r.status_code == 201, r.text
+    c = r.json()
+    assert c["id"] != m["id"] and c["name"] == "사업계획서: body1 복사" and c["copyOf"] == m["id"] and c["revision"] == "r1" and c["kind"] == "text"
+    assert c["items"] == m["items"] and c["source"] == m["source"]
+    assert client.get(f"/api/styles/{c['id']}/carrier").content == client.get(f"/api/styles/{m['id']}/carrier").content  # 같은 운반 문서
+    assert {s["id"] for s in client.get("/api/styles").json()["styles"]} == {m["id"], c["id"]}  # 「같은 서식은 한 번만」 을 지나지 않는다 — 둘 다 남는다
+    # 복사본을 고쳐도 원래 서식은 그대로
+    assert client.put(f"/api/styles/{c['id']}/items/i1/format", json={"expectedRevision": "r1", "changes": {"line2Mm": 40}}).status_code == 200
+    assert client.get(f"/api/styles/{m['id']}").json()["items"] == m["items"]
+    n = client.post(f"/api/styles/{m['id']}/copy", json={"name": "  둘째   복사본 "})
+    assert n.status_code == 201 and n.json()["name"] == "둘째 복사본"
+    assert client.put(f"/api/styles/{m['id']}", json={"expectedRevision": "r1", "name": "가" * 60}).status_code == 200
+    long = client.post(f"/api/styles/{m['id']}/copy", json={})
+    assert long.status_code == 201 and len(long.json()["name"]) <= 60 and long.json()["name"].endswith(" 복사")
+    for bad in ("", " ", "가" * 61, 3):
+        assert client.post(f"/api/styles/{m['id']}/copy", json={"name": bad}).status_code == 400, bad
+    assert client.post("/api/styles/nope/copy", json={}).status_code == 404

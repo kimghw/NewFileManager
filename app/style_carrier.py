@@ -532,6 +532,119 @@ def _shapes_after(src, p, skip) -> list:
     return out
 
 
+# ---- 견본 문단의 자리 · 값 고치기(spec_서식복사 ② §19-6) ----------------------------------------------------------------
+
+def place(cdoc, el, marker, measure=None):
+    """견본 문단 el 의 자리(mm — 문단 상자 왼끝에서: spec_hwpx_웹편집 ② §8-1 과 같은 뜻) -> {line1Mm(앞 여백 = 첫 줄이 시작하는 자리), letterMm(레터 위치 = 앞 여백 + 앞 공백 폭),
+    textMm(**글 시작** = 첫 내용 글자의 자리 = 앞 여백 + 레터 자리 폭), line2Mm(2번째 줄), leadMm(앞 공백 폭), prefixMm(레터 자리 = 앞 공백 + 레터 + 레터 뒤 공백의 폭),
+    letter(레터 글자의 모양 {font, sizePt, bold, italic, underline, color} | None = 글자 레터 없음)}.
+    레터 자리는 그 글자들의 글자 모양·글꼴로 잰다(`outline_pos.Measure` — 한글의 글자 폭). 글자 레터가 없는 항목은 레터 자리 폭 0(글 시작 = 앞 여백).
+    None = 못 잼(자동 번호 — 번호 폭은 대상 문서의 번호 설정이 정한다 · 레터 자리에 탭 · 여백 단위가 HWPUNIT 이 아님)."""
+    marker = marker if isinstance(marker, dict) else {}
+    if marker.get("mode") == "auto":
+        return None
+    ps = cdoc._para_summary(cdoc._defs["paraPr"].get(str(el.get("paraPrIDRef", "0"))))
+    left, first = ps.get("indentLeftMm"), ps.get("firstLineMm")
+    if left is None or first is None:
+        return None
+    lw, pw, letter = 0.0, 0.0, None
+    if marker.get("mode") == "literal":
+        from app import outline_pos  # 부를 때 가져온다(글꼴 찾기 모듈까지 끌고 온다)
+        from app.heading_extract import _cid_at, run_ranges
+        rr, fb = run_ranges(cdoc, el), cdoc._char_id(el)
+        got = (measure or outline_pos.Measure(cdoc))._place(el.get("paraPrIDRef", "0"), marker.get("lead") or "", marker.get("literal") or "", marker.get("gap") or "",
+                                                           lambda i: _cid_at(rr, i, fb))
+        if got is None:
+            return None
+        lw, pw = got["leadMm"], got["prefixMm"]
+        cs = cdoc._char_summary(cdoc._defs["charPr"].get(str(_cid_at(rr, len(marker.get("lead") or ""), fb))))  # 레터 글자의 모양(본문 런과 다를 수 있다 — 「□」 는 기호 글꼴 · 값 고치기는 본문 런만 바꾼다)
+        letter = {k: cs.get(k) for k in ("font", "sizePt", "bold", "italic", "underline", "color")}
+    x0 = left + max(first, 0.0)
+    return {"line1Mm": round(x0, 2), "letterMm": round(x0 + lw, 2), "textMm": round(x0 + pw, 2), "line2Mm": round(left + max(-first, 0.0), 2), "leadMm": round(lw, 2), "prefixMm": round(pw, 2),
+            "letter": letter}
+
+
+def _body_chars(d, el, plen, ch) -> None:
+    """문단 el 의 본문 런(앞 plen 글자 = 레터 자리 뒤)의 글자 모양에 ch(font·sizePt)를 — 레터 런은 그대로. `format_chars` 와 같은 런 쪼개기(그 함수는 글꼴을 받지 않는다)."""
+    if plen >= len(d._text(el)):  # 본문 글이 없다 — 문단 전체에
+        plen = 0
+    d._boundary(el, plen)
+    made, pos = {}, 0
+    for r in el.iterchildren(RUN):
+        k = sum(d._clen(c) for c in r)
+        if k and pos >= plen and not any(c.tag in OBJECTS for c in r):
+            old = r.get("charPrIDRef", "0")
+            if old not in made:
+                c = copy.deepcopy(d._defs["charPr"].get(old))
+                if c is None:
+                    raise ValueError(f"글자 모양 {old} 정의가 없습니다")
+                d._set_chars(c, ch)
+                made[old] = d._add_def("charPr", c)
+            r.set("charPrIDRef", made[old])
+        pos += k
+    d._tidy(el)
+    d._drop_cache(el)
+    d._touch(el)
+
+
+def retune(carrier: bytes, meta: dict, key: str, changes: dict):
+    """글 서식의 항목 key 의 값을 고친다(spec_서식복사 ② §19-6 「값 고치기」) -> (새 운반 문서 바이트, 새 items). 그 항목의 견본 문단만 고치고 서식 요약(`format`)을 다시 읽는다.
+    changes = {line1Mm?(앞 여백), textMm?(글 시작 — 첫 내용 글자의 자리), line2Mm?(2번째 줄), font?, sizePt?, lineSpacingPct?} — 준 것만.
+    - **글 시작**은 레터 자리(앞 공백 + 레터 + 레터 뒤 공백)의 폭을 재어 첫 줄을 옮긴다: 앞 여백 = 글 시작 − 레터 자리 폭(레터와 글 사이는 그대로 — 글이 그 자리에 오게 줄이 움직인다).
+      앞 여백과 함께 주면 ValueError(둘은 한 값의 두 이름이다) · 못 재는 항목(자동 번호·탭)·레터 자리 폭보다 작은 값도 ValueError.
+    - 왼쪽 여백 = min(앞 여백, 2번째 줄) · 첫 줄 = 앞 여백 − 2번째 줄(한글 내어쓰기 — `outline_pos.target` 과 같은 셈).
+    - font·sizePt 는 **본문 런만**(레터 런은 그대로 — 레터 자리 폭이 안 바뀐다).
+    없는 항목은 KeyError."""
+    items = [dict(it) for it in meta.get("items") or [] if isinstance(it, dict)]
+    n = next((i for i, it in enumerate(items) if it.get("key") == key), None)
+    if n is None:
+        raise KeyError(key)
+    d = doc(carrier)
+    ids = para_ids(d)
+    if n >= len(ids):
+        raise ValueError("운반 문서에 그 항목의 견본 문단이 없습니다")
+    pid, it = ids[n], items[n]
+    el, marker = d._ids[pid], _clean_marker(it.get("marker"))
+    plen = len(_prefix(marker))
+    given = {k: v for k, v in (changes or {}).items() if v is not None and v != ""}
+    if "line1Mm" in given and "textMm" in given:
+        raise ValueError("앞 여백과 글 시작은 하나만 고칩니다(글 시작 = 앞 여백 + 레터 자리 폭)")
+    ch = {k: given[k] for k in ("font", "sizePt") if k in given}
+    if ch:
+        _body_chars(d, el, plen, ch)
+    para = {}
+    if any(k in given for k in ("line1Mm", "textMm", "line2Mm")):
+        ps = d._para_summary(d._defs["paraPr"].get(str(el.get("paraPrIDRef", "0"))))
+        left, first = ps.get("indentLeftMm"), ps.get("firstLineMm")
+        if left is None or first is None:
+            raise ValueError("이 항목의 문단 여백은 mm 단위가 아니라 고칠 수 없습니다")
+        l1, l2 = left + max(first, 0.0), left + max(-first, 0.0)
+        if "textMm" in given:
+            cur = place(d, el, marker)
+            if cur is None:
+                raise ValueError("이 항목은 글 시작을 잴 수 없습니다(자동 번호이거나 레터 자리에 탭이 있습니다) — 앞 여백으로 고치세요")
+            l1 = float(given["textMm"]) - cur["prefixMm"]
+            if l1 < -0.005:
+                raise ValueError(f"글 시작 {float(given['textMm']):g}mm 는 레터 자리 폭 {cur['prefixMm']:.1f}mm 보다 작을 수 없습니다")
+            l1 = max(l1, 0.0)
+        elif "line1Mm" in given:
+            l1 = float(given["line1Mm"])
+        if "line2Mm" in given:
+            l2 = float(given["line2Mm"])
+        para.update(indentLeftMm=round(min(l1, l2), 2), firstLineMm=round(l1 - l2, 2))
+    if "lineSpacingPct" in given:
+        para["lineSpacingPct"] = given["lineSpacingPct"]
+    if para:
+        d.format_para([pid], para)
+        if "indentLeftMm" in para:  # 여백 칸이 없는 문단 모양에는 값이 안 들어간다(`derive_format`) — 말없이 넘기지 않는다
+            ps = d._para_summary(d._defs["paraPr"].get(str(el.get("paraPrIDRef", "0"))))
+            if abs((ps.get("indentLeftMm") or 0.0) - para["indentLeftMm"]) > 0.06 or abs((ps.get("firstLineMm") or 0.0) - para["firstLineMm"]) > 0.06:
+                raise ValueError("이 항목의 문단 모양에는 그 여백을 넣지 못했습니다")
+    it["format"] = d._summary(el.get("paraPrIDRef"), body_char(d, el, plen))
+    _need_refs(d)
+    return d.save(), items
+
+
 # ---- 명세에서 -------------------------------------------------------------------------------------------------------
 
 def _clean_format(fmt) -> dict:
@@ -728,7 +841,18 @@ def view(carrier: bytes, meta: dict) -> dict:
             summary, paras = "", para_ids(d)
         return {"page": page, "body": body, "summary": summary, "paras": paras}
     if meta.get("kind") == "text":
-        return {"paras": para_ids(d), "items": meta.get("items") or []}
+        ids, items, pos, measure = para_ids(d), meta.get("items") or [], {}, None
+        for pid, it in zip(ids, items):  # 항목마다 견본 문단의 자리(`place` — 글 시작·레터 자리 폭: 서식 견본과 「값 고치기」 가 쓴다 · 못 재면 None). items 는 meta 것 그대로 둔다
+            if not isinstance(it, dict) or not isinstance(it.get("key"), str):
+                continue
+            try:
+                if measure is None and (it.get("marker") or {}).get("mode") == "literal":
+                    from app import outline_pos
+                    measure = outline_pos.Measure(d)
+                pos[it["key"]] = place(d, d._ids[pid], it.get("marker"), measure)
+            except Exception:  # noqa: BLE001 — 자리를 못 잰 것이 보기를 막지 않는다(화면이 어림한다)
+                pos[it["key"]] = None
+        return {"paras": ids, "items": items, "pos": pos}
     tid = table_id(d)
     b = d.table_block(tid)
     bands = M.clean_roles(meta.get("bands"), b["nRows"], b["nCols"])

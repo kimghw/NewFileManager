@@ -19,6 +19,10 @@
 
 /* 뼈대 밖 목록(2열 kind "drift") — 배치는 TEMP 목록(.temp-wrap·.temp-head·table.temp-list)을 그대로 쓴다 */
 .hd-body table.drift-list td.drift-letter { font-weight: 700; white-space: nowrap; }
-.hd-body table.drift-list td.drift-fmt { min-width: 10em; word-break: keep-all; overflow-wrap: anywhere; }
+/* 지금 서식 — 긴 서식 이름은 칸 안에서 줄을 바꾼다(table.mini 의 칸은 nowrap 이라 풀어 준다: 안 풀면 표가 열 폭을 넘어 오른쪽 칸(예문 · 할 일 단추)이 열 밖으로 밀린다) */
+.hd-body table.drift-list td.drift-fmt { min-width: 10em; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
 .hd-body table.drift-list td.drift-fmt .drift-known { display: block; font-size: 11px; }
 .hd-body table.drift-list td.txt .drift-n { margin-left: 2px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; font-size: 11px; }
+/* 서식 줄의 할 일 칸 — 「대표에 맞추기」(잘못된 서식만) · 「갈래 보기」: 한 줄로 */
+.hd-body table.drift-list td.drift-act { white-space: nowrap; }
+.hd-body table.drift-list td.drift-act .drift-match { margin-right: 6px; }

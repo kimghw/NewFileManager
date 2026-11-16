@@ -2,13 +2,15 @@
 // 뼈대 유지(spec_헤딩_추출 ② §17, 2026-11-10 사용자 "문서가 바뀔 때마다 헤딩을 다시 추출하라고 하면 어쩌냐? 한번 하면 그 구조는 그냥 그 뼈대로 그냥 두고 .. 새로운 레터나 서식이 추가되면
 // 알람이나 표시만 해줘") — 2단계(헤딩 그래프·템플릿)·3단계(표 구조) 결과는 한 번 만들면 그 문서의 뼈대다. 문서를 고쳐도 「재확인 필요」·「다시 만드세요」 를 띄우지 않고,
 // 뼈대를 만든 뒤 문서에 생긴 것만 알린다: 새 레터 · 새 서식(2단계) · 새 표 · 헤더(열헤더·행헤더)가 바뀐 표(3단계 — 행·열 수만 달라진 표는 같은 표).
+// 서식은 둘로 가른다(2026-11-16 사용자 "새로운 서식은 반복적일때 새로운 서식인거지. 이건잘못된거잖아" → 답 「2줄 이상」·「표시 + 대표에 맞추기 단추」): 여러 줄이 되풀이해 쓰는 것만 **새 서식**(stage2.formats),
+// 한 줄뿐인 것은 **잘못된 서식**(stage2.wrong — 목록의 「대표에 맞추기」 = outline_match.js olmMatch: 그 레벨 대표의 모양으로 · 실행 취소 1). 옛 서버(wrong 없음)면 전처럼 모두 새 서식.
 // 견주기는 서버 스크립트(app/heading_drift.py — LLM 없음 · 실행으로 저장 안 함), 여기는 언제 견줄지와 보이기:
 //   · 견주는 때 — 문서를 고친 뒤 DRIFT_IDLE_MS 동안 더 고치지 않았을 때(driftTouch — app.js headsMarkStale) · 헤딩 상태를 그릴 때 결과·문서 차례가 달라졌으면(driftSync — headsRender) ·
 //     문서를 연 직후 읽은 요약으로도(driftSeed — app.js headsPeek: 이어 연 작업은 헤딩 탭을 열지 않아도 견준다)
 //   · 상태 줄 꼬리표(driftChip — headsResultsSummary) · 단계 탭 점(headsStageStale 이 driftCount 를 본다) · 2·3단계 카드 줄(driftCardRow) · 「표」 탭 상태(tables.js tablesDraw)
 //   · 문서 표시 — 쪽 왼쪽 여백 「새 레터」·「새 서식」(driftMarkOf — app.js tplMarksDraw) · 뼈대 밖 목록(2열 kind "drift" — driftView) · 새 묶음이 생기면 알림(toast)
-// app.js 가 주는 것: state·heads·$·el·api·toast·hBtn·hTable·hCell·hFoot·headsDlg·headsParaLink·headsGo·headsRunOpen·headsResultsSummary·headsStageStale·showTab·tplMarksDraw·nf·short·
-// hasBlock·H_STAGE_TITLE·H_STAGE_STATE(+ panel_help.js 의 hHelp · tables.js 의 tablesDraw). app.js·tables.js 가 부르는 것은 모두 typeof 검사 뒤. 서버 짝은 app/heading_drift_api.py.
+// app.js 가 주는 것: state·heads·$·el·api·toast·hBtn·hTable·hCell·hFoot·headsDlg·headsParaLink·headsGo·headsRunOpen·headsResultsSummary·headsStageStale·showTab·tplMarksDraw·tplRelOpen·nf·short·
+// hasBlock·H_STAGE_TITLE·H_STAGE_STATE(+ panel_help.js 의 hHelp · tables.js 의 tablesDraw · outline_match.js 의 olmMatch — 둘 다 typeof 검사 뒤). app.js·tables.js 가 부르는 것은 모두 typeof 검사 뒤. 서버 짝은 app/heading_drift_api.py.
 // index.html 이 app.js·tables.js 다음에 읽는다. 화면 게이트: tools/smoke_heading_drift_ui.py(임시 서버) · artifacts/ui_heads_panel_2026-11-10/check_heads_panel.py 1-2절.
 const driftFresh = () => ({ key: null, data: null, loading: null, failed: null, error: "", off: false, timer: null, editedAt: 0, marks: new Map(), seen: null, drawn: null, tab3: "", sum: null });
 const DRIFT = driftFresh(); // key = 견준 대상(driftIdent) · seen = 앞서 본 묶음(새로 생긴 것만 알림) · drawn/tab3 = 문서 표시·「표」 탭을 그린 때의 답 · sum = 문서를 열 때 읽어 둔 요약(heads.view 가 생기기 전)
@@ -95,6 +97,7 @@ function driftGroups(d) { // 묶음마다 이름표 — 앞서 본 것과 견줘
   const s2 = (d && d.stage2) || {}, s3 = (d && d.stage3) || {};
   for (const it of s2.letters || []) out.set(`L|${it.scope}|${it.kind}|${it.shape}`, `새 레터 「${short(it.letter || it.shape, 16)}」`);
   for (const it of s2.formats || []) out.set(`F|${it.scope}|${it.kind}|${it.shape}|${it.name}`, `「${short(it.letter || it.shape, 16)}」 의 새 서식`);
+  for (const it of s2.wrong || []) out.set(`W|${it.scope}|${it.kind}|${it.shape}|${it.name}`, `「${short(it.letter || it.shape, 16)}」 한 줄의 잘못된 서식`);
   for (const t of s3.new || []) out.set(`T|${t.id}`, `새 표 ${t.rows}×${t.cols}`);
   for (const t of s3.changed || []) out.set(`C|${t.id}|${JSON.stringify(t.heads || {})}`, `헤더가 바뀐 표 ${t.id}`);
   return out;
@@ -105,7 +108,7 @@ function driftSet(key, d) {
   DRIFT.data = d;
   DRIFT.marks = new Map();
   const s2 = d.stage2 || {};
-  for (const [what, list] of [["format", s2.formats || []], ["letter", s2.letters || []]]) { // 새 레터가 새 서식보다 앞선다(같은 문단이면 「새 레터」)
+  for (const [what, list] of [["format", s2.formats || []], ["wrong", s2.wrong || []], ["letter", s2.letters || []]]) { // 새 레터가 서식(새 서식 · 잘못된 서식)보다 앞선다(같은 문단이면 「새 레터」)
     for (const it of list) for (const pid of it.paras || []) DRIFT.marks.set(pid, { what, it });
   }
   const groups = driftGroups(d);
@@ -120,18 +123,22 @@ function driftSet(key, d) {
 }
 
 // ---- 수 · 글 -----------------------------------------------------------------------------------------------------
-function driftCount(k = 0) { // k = 2(새 레터 + 새 서식 묶음) · 3(새 표 + 헤더가 바뀐 표) · 0(모두)
+function driftCount(k = 0) { // k = 2(새 레터 + 새 서식 + 잘못된 서식 묶음) · 3(새 표 + 헤더가 바뀐 표) · 0(모두)
   const d = DRIFT.data;
   if (!d) return 0;
   const c2 = (d.stage2 && d.stage2.counts) || {}, c3 = (d.stage3 && d.stage3.counts) || {};
-  const n2 = (c2.letters || 0) + (c2.formats || 0), n3 = (c3.new || 0) + (c3.changed || 0);
+  const n2 = (c2.letters || 0) + (c2.formats || 0) + (c2.wrong || 0), n3 = (c3.new || 0) + (c3.changed || 0);
   return k === 2 ? n2 : k === 3 ? n3 : n2 + n3;
 }
 
-function driftText(k = 0) { // 「새 레터 2 · 새 서식 1 · 새 표 1」
+function driftText(k = 0) { // 「새 레터 2 · 새 서식 1 · 잘못된 서식 1 · 새 표 1」 — 꼬리표는 이 글 하나(`.drift-chip` 하나 · 넘치면 줄임표: heading-panels.css 의 한 줄 규칙이 그 꼬리표를 본다)
   const d = DRIFT.data || {}, c2 = (d.stage2 && d.stage2.counts) || {}, c3 = (d.stage3 && d.stage3.counts) || {};
   const parts = [];
-  if (k !== 3) { if (c2.letters) parts.push(`새 레터 ${nf(c2.letters)}`); if (c2.formats) parts.push(`새 서식 ${nf(c2.formats)}`); }
+  if (k !== 3) {
+    if (c2.letters) parts.push(`새 레터 ${nf(c2.letters)}`);
+    if (c2.formats) parts.push(`새 서식 ${nf(c2.formats)}`);
+    if (c2.wrong) parts.push(`잘못된 서식 ${nf(c2.wrong)}`);
+  }
   if (k !== 2) { if (c3.new) parts.push(`새 표 ${nf(c3.new)}`); if (c3.changed) parts.push(`헤더가 바뀐 표 ${nf(c3.changed)}`); }
   return parts.join(" · ");
 }
@@ -157,7 +164,7 @@ function driftTabs(r = heads.view) { // 「추출·설정」 단계 탭의 점 �
 }
 
 const DRIFT_KEEP = { // 카드 줄의 도움말 — 단계마다
-  2: "헤딩 그래프(템플릿·레벨)는 한 번 만들면 이 문서의 뼈대입니다. 만든 뒤 문서가 바뀌었거나 1단계를 다시 뽑았지만 이 구조를 그대로 씁니다 — 다시 분석하지 않아도 됩니다.\n뼈대를 만들 때 문서에 없던 레터, 그 레터가 쓰지 않던 서식이 문서에 생기면 여기와 문서 여백에 알립니다. 그것까지 뼈대에 넣으려면 아래에서 다시 분석하세요.",
+  2: "헤딩 그래프(템플릿·레벨)는 한 번 만들면 이 문서의 뼈대입니다. 만든 뒤 문서가 바뀌었거나 1단계를 다시 뽑았지만 이 구조를 그대로 씁니다 — 다시 분석하지 않아도 됩니다.\n뼈대를 만들 때 문서에 없던 레터, 그 레터가 쓰지 않던 서식이 문서에 생기면 여기와 문서 여백에 알립니다 — 서식은 여러 줄이 되풀이해 쓰면 「새 서식」, 한 줄뿐이면 「잘못된 서식」(목록에서 그 줄을 대표 서식에 맞춥니다)입니다. 장평·자간만 다른 줄은 알리지 않습니다. 새 레터·새 서식까지 뼈대에 넣으려면 아래에서 다시 분석하세요.",
   3: "표 구조는 한 번 만들면 이 문서의 뼈대입니다. 만든 뒤 문서가 바뀌었거나 1단계를 다시 뽑았지만 이 표 구조를 그대로 씁니다 — 다시 분석하지 않아도 됩니다.\n뼈대를 만들 때 문서에 없던 표, 열헤더·행헤더가 바뀐 표가 생기면 여기에 알립니다(자료 행을 더하거나 지워 행·열 수만 달라진 표는 같은 표로 봅니다). 그것까지 뼈대에 넣으려면 아래에서 다시 분석하세요.\n"
     + "주의: 문서를 고친 뒤 표 구조만 다시 만들면 표의 소속(헤딩·구분 라벨)은 헤딩 그래프가 아니라 1단계 어림으로 정해지고 「소속 재확인 필요」 가 남습니다 — 그래프 소속까지 맞추려면 헤딩 그래프(2단계)부터 다시 만들어야 합니다.",
 };
@@ -210,16 +217,17 @@ function driftForce() { // 「다시 견주기」
 
 // ---- 문서 표시 ---------------------------------------------------------------------------------------------------
 const driftMarkCount = () => DRIFT.marks.size;
-function driftMarkOf(pid, m) { // app.js tplMarksDraw — 그 문단의 여백 표시 m(「TN Lk」 · 없으면 null)에 「새 레터」·「새 서식」 을 얹는다. 뼈대 밖 문단이 아니면 null
+function driftMarkOf(pid, m) { // app.js tplMarksDraw — 그 문단의 여백 표시 m(「TN Lk」 · 없으면 null)에 「새 레터」·「새 서식」·「잘못된 서식」 을 얹는다. 뼈대 밖 문단이 아니면 null
   const x = DRIFT.marks.get(pid);
   if (!x) return null;
-  const it = x.it, text = x.what === "letter" ? "새 레터" : "새 서식";
+  const it = x.it, text = x.what === "letter" ? "새 레터" : x.what === "wrong" ? "잘못된 서식" : "새 서식";
+  const fmt = `\n지금: ${it.name}${(it.known || []).length ? `\n쓰던 서식: ${it.known.join(" / ")}` : ""}`;
   const title = (x.what === "letter"
-    ? `새 레터 「${it.letter || it.shape}」 — 뼈대(헤딩 그래프)를 만들 때 ${DRIFT_SCOPE[it.scope] || it.scope}에 없던 ${DRIFT_KIND[it.kind] || it.kind}`
-    : `새 서식 — 「${it.letter || it.shape}」 가 쓰지 않던 서식\n지금: ${it.name}${(it.known || []).length ? `\n쓰던 서식: ${it.known.join(" / ")}` : ""}`)
-    + "\n뼈대는 그대로 씁니다 · 누르면 뼈대 밖 목록";
-  // 새 서식은 그 줄의 「TN Lk」 앞에 붙인다. 새 레터는 그것만 — 레터가 바뀐 줄에 남아 있는 옛 「TN Lk」(뼈대는 고치기 전 문서 기준)는 그 줄의 것이 아니다(도움말에만)
-  if (m && !m.temp && x.what === "format") return { ...m, text: `${text} ${m.text}`, title: `${title}\n—\n${m.title}`, drift: true };
+    ? `새 레터 「${it.letter || it.shape}」 — 뼈대(헤딩 그래프)를 만들 때 ${DRIFT_SCOPE[it.scope] || it.scope}에 없던 ${DRIFT_KIND[it.kind] || it.kind}\n뼈대는 그대로 씁니다 · 누르면 뼈대 밖 목록`
+    : x.what === "wrong" ? `잘못된 서식 — 「${it.letter || it.shape}」 줄 가운데 이 줄만 이 서식입니다(되풀이되지 않음)${fmt}\n누르면 뼈대 밖 목록 — 거기서 「대표에 맞추기」`
+      : `새 서식 — 「${it.letter || it.shape}」 줄 ${nf(it.count)}개가 되풀이해 쓰는, 그 레터가 쓰지 않던 서식${fmt}\n뼈대는 그대로 씁니다 · 누르면 뼈대 밖 목록`);
+  // 서식(새 서식 · 잘못된 서식)은 그 줄의 「TN Lk」 앞에 붙인다. 새 레터는 그것만 — 레터가 바뀐 줄에 남아 있는 옛 「TN Lk」(뼈대는 고치기 전 문서 기준)는 그 줄의 것이 아니다(도움말에만)
+  if (m && !m.temp && x.what !== "letter") return { ...m, text: `${text} ${m.text}`, title: `${title}\n—\n${m.title}`, drift: true };
   return { text, title: m && !m.temp ? `${title}\n—\n(레터를 바꾸기 전) ${m.title}` : title, no: null, und: false, lbl: false, drift: true };
 }
 
@@ -246,6 +254,35 @@ function driftLetterName(it) {
   return DRIFT_KIND[it.kind] || it.kind;
 }
 
+function driftLine(pid) { // 그 문단의 개요 오버레이 줄({tpl, level, no …}) — 템플릿의 줄이 아니면 null(맞출 대표가 없다)
+  const ol = heads.outline && heads.outline.lines ? heads.outline.lines[pid] : null;
+  return ol && ol.tpl != null && ol.level != null ? ol : null;
+}
+
+// 서식 줄의 할 일 칸 — 잘못된 서식: 「대표에 맞추기」(outline_match.js olmMatch — 「템플릿 관계」 의 갈래 맞추기와 같은 길: 그 줄과 서식이 같은 줄을 그 레벨 대표의 모양으로 · 실행 취소 1) ·
+// 둘 다: 「갈래 보기」(「템플릿 관계」 의 그 줄 갈래 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기를 사람이 고른다). 템플릿의 줄이 아니면 글만.
+function driftActs(it, wrong) {
+  const td = el("td", "drift-act");
+  const pid = (it.paras || [])[0], ol = pid ? driftLine(pid) : null;
+  if (!ol) {
+    td.append(el("span", "muted", "템플릿 줄 아님"));
+    td.title = "이 문단은 템플릿의 줄이 아니라 맞출 대표가 없습니다 — 문서에서 직접 고치세요";
+    return td;
+  }
+  const t = heads.outline.templates ? heads.outline.templates[String(ol.tpl)] || {} : {};
+  const rep = ((t.slots || {})[String(ol.level)] || {}).rep, name = `T${ol.no} L${ol.level}`;
+  if (wrong && typeof olmMatch === "function") {
+    const why = rep === pid ? `이 줄이 ${name} 의 대표입니다 — 「갈래 보기」 에서 대표를 다른 줄로 정한 뒤 맞추세요` : !rep ? `${name} 에 대표 줄이 없습니다` : "";
+    td.append(hBtn("대표에 맞추기", async () => { await olmMatch(ol.tpl, ol.level, 1, [pid]); driftForce(); }, { disabled: !!why, cls: "btn sm drift-match",
+      title: why || `이 줄을 ${name} 대표 줄의 모양(앞 공백·레터 · 문단 모양 · 글자 모양)으로 맞춥니다 — 장평·자간은 이 줄의 것을 지킵니다 · 「실행 취소」 로 되돌림` }));
+  }
+  if (typeof tplRelOpen === "function") {
+    td.append(hBtn("갈래 보기", () => tplRelOpen(/^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl), { tpl: ol.tpl, level: ol.level, para: pid }), { cls: "hlink drift-rel",
+      title: `「템플릿 관계」 의 ${name} 서식 갈래에서 이 줄을 봅니다 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기` }));
+  }
+  return td;
+}
+
 function driftView() {
   if (!state.id) return;
   const { tools, body } = headsDlg("drift", "뼈대 밖 목록", "뼈대를 만든 뒤 문서에 생긴 레터·서식·표");
@@ -255,15 +292,24 @@ function driftView() {
   if (!DRIFT.loading) tools.append(hBtn("다시 견주기", () => driftForce(), { title: "지금 문서를 뼈대와 다시 견줍니다(스크립트 — LLM 호출 없음)" }));
   const wrap = el("div", "temp-wrap drift-wrap"); // 배치는 TEMP 목록과 같은 꼴(style.css .temp-wrap·.temp-head·table.temp-list)
   wrap.append(el("p", "hnote", "헤딩 그래프(2단계)와 표 구조(3단계)는 한 번 만들면 이 문서의 뼈대입니다 — 문서를 고쳐도 다시 만들지 않습니다. "
-    + "아래는 뼈대를 만들 때 문서에 없던 것입니다. 뼈대에 넣으려면 「추출·설정」 에서 그 단계를 다시 만드세요."));
+    + "아래는 뼈대를 만들 때 문서에 없던 것입니다. 뼈대에 넣으려면 「추출·설정」 에서 그 단계를 다시 만드세요. "
+    + "「잘못된 서식」(한 줄만 다른 서식)은 뼈대에 넣을 것이 아니라 그 줄을 대표 서식에 맞출 것입니다."));
   if (d && !cur) wrap.append(el("p", "hnote", DRIFT.loading ? "문서가 바뀌어 다시 견주는 중 — 아래는 앞서 견준 것입니다." : "문서가 바뀌었습니다 — 잠시 뒤 다시 견줍니다(아래는 앞서 견준 것)."));
   const s2 = (d && d.stage2) || null, s3 = (d && d.stage3) || null;
-  const head = (name, note, stage) => {
+  const head = (name, note, stage = 0) => { // stage 0 = 다시 만들 단계가 없는 묶음(잘못된 서식 — 뼈대에 넣을 것이 아니다)
     const h = el("div", "temp-head");
-    h.append(el("b", null, name), el("span", "muted", note), hBtn(`${stage}단계 열기`, () => { if (typeof showTab === "function") showTab("Heads"); headsRunOpen(stage); },
-      { title: `「추출·설정」 의 ${stage}단계 — 다시 만들면 뼈대에 들어갑니다` }));
+    h.append(el("b", null, name), el("span", "muted", note));
+    if (stage) {
+      h.append(hBtn(`${stage}단계 열기`, () => { if (typeof showTab === "function") showTab("Heads"); headsRunOpen(stage); },
+        { title: `「추출·설정」 의 ${stage}단계 — 다시 만들면 뼈대에 들어갑니다` }));
+    }
     wrap.append(h);
   };
+  const fmtCell = (tr, it) => { // 지금 서식(+ 그 레터가 쓰던 서식) — 새 서식 · 잘못된 서식 표가 같이 쓴다
+    const f = hCell(tr, it.name, "drift-fmt", `지금 서식${it.fmt ? `(${it.fmt})` : ""}: ${it.name}${(it.known || []).length ? `\n그 레터가 쓰던 서식:\n· ${it.known.join("\n· ")}` : ""}`);
+    if ((it.known || []).length) f.append(el("span", "muted drift-known", `쓰던 서식 — ${it.known[0]}`));
+  };
+  const fmtLetter = (tr, it) => hCell(tr, short(it.kind === "marker" ? it.letter || it.shape : it.shape, 24), "drift-letter", it.kind === "label" ? `괄호 줄 「${it.letter}」` : "");
   if (s2 && (s2.letters || []).length) {
     head("새 레터", `${nf(s2.counts.letters)}가지 · 문단 ${nf(s2.counts.letterParas)} — 그 자리에 없던 레터`, 2);
     const [tbl, tb] = hTable(["레터", "자리", "종류", "문단", "예문"]);
@@ -280,17 +326,30 @@ function driftView() {
     wrap.append(tbl);
   }
   if (s2 && (s2.formats || []).length) {
-    head("새 서식", `${nf(s2.counts.formats)}가지 · 문단 ${nf(s2.counts.formatParas)} — 그 레터가 쓰지 않던 서식(오차 밖)`, 2);
-    const [tbl, tb] = hTable(["레터", "자리", "지금 서식", "문단", "예문"]);
+    head("새 서식", `${nf(s2.counts.formats)}가지 · 문단 ${nf(s2.counts.formatParas)} — 그 레터의 줄 여럿이 되풀이해 쓰는, 쓰지 않던 서식(오차 밖)`, 2);
+    const [tbl, tb] = hTable(["레터", "자리", "지금 서식", "문단", "예문", "갈래"]);
     tbl.classList.add("temp-list", "drift-list");
     for (const it of s2.formats) {
       const tr = el("tr");
-      hCell(tr, short(it.kind === "marker" ? it.letter || it.shape : it.shape, 24), "drift-letter", it.kind === "label" ? `괄호 줄 「${it.letter}」` : "");
+      fmtLetter(tr, it);
       hCell(tr, DRIFT_SCOPE[it.scope] || it.scope);
-      const f = hCell(tr, it.name, "drift-fmt", `지금 서식${it.fmt ? `(${it.fmt})` : ""}: ${it.name}${(it.known || []).length ? `\n그 레터가 쓰던 서식:\n· ${it.known.join("\n· ")}` : ""}`);
-      if ((it.known || []).length) f.append(el("span", "muted drift-known", `쓰던 서식 — ${it.known[0]}`));
+      fmtCell(tr, it);
       hCell(tr, nf(it.count));
-      tr.append(driftParas(it));
+      tr.append(driftParas(it), driftActs(it, false));
+      tb.append(tr);
+    }
+    wrap.append(tbl);
+  }
+  if (s2 && (s2.wrong || []).length) { // 되풀이되지 않는 서식 — 그 줄만 다르다: 뼈대에 넣을 것이 아니라 대표에 맞출 것(다시 만들 단계 단추 없음)
+    head("잘못된 서식", `${nf(s2.counts.wrong)}줄 — 그 레터의 줄 가운데 이 줄만 쓰는 서식(되풀이되지 않음 · 오차 밖)`);
+    const [tbl, tb] = hTable(["레터", "자리", "지금 서식", "예문", "할 일"]);
+    tbl.classList.add("temp-list", "drift-list", "drift-wrong");
+    for (const it of s2.wrong) {
+      const tr = el("tr");
+      fmtLetter(tr, it);
+      hCell(tr, DRIFT_SCOPE[it.scope] || it.scope);
+      fmtCell(tr, it);
+      tr.append(driftParas(it), driftActs(it, true));
       tb.append(tr);
     }
     wrap.append(tbl);

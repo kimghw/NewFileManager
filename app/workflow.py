@@ -87,7 +87,9 @@ COMMON = (
                 modules=("heading_graph", "heading_llm", "heading_guides", "heading_forms", "analysis_llm"), spec=(SP_HEAD, "② §3·§6")),
              _s("stage3", "표 구조", ("script", "llm"), "표마다 칸의 역할(열헤더 · 행헤더 · 필드 …)과 서브 테이블, 구분 헤더 · 계산식 표를 판정합니다. 스크립트 초안 위에 「표 구조(LLM)」 판정을 더할 수 있습니다.", no="3단계",
                 out="표 구조 · 표 의미", change="store", agents=("heading_tables",), modules=("heading_tables", "heading_calc", "heading_temp"), spec=(SP_HEAD, "② §8·§9")),
-             _s("drift", "뼈대 유지", "script", "문서를 고쳐도 다시 추출하라고 하지 않습니다 — 뼈대에 없는 새 레터 · 새 서식 · 새 표가 문서에 생겼을 때만 알립니다.", auto=True,
+             _s("drift", "뼈대 유지", "script", "문서를 고쳐도 다시 추출하라고 하지 않습니다 — 뼈대에 없는 새 레터 · 새 서식 · 새 표가 문서에 생겼을 때만 알립니다. "
+                "서식은 같은 레터의 줄 둘 이상이 되풀이해 쓸 때만 「새 서식」 이고, 한 줄뿐이면 「잘못된 서식」 입니다 — 뼈대 밖 목록의 「대표에 맞추기」 를 사람이 누르면 그 줄을 그 레벨의 대표 서식에 맞춥니다(저절로 맞추지 않음). "
+                "장평 · 자간만 다른 줄은 알리지 않습니다.", auto=True,
                 modules=("heading_drift",), spec=(SP_HEAD, "② §17")),
          )),
     dict(id="division", name="프로젝트 구성(구분 기준)", where="패널 「작업 내용」 의 프로젝트 구성",
@@ -109,8 +111,11 @@ COMMON = (
     dict(id="styles", name="서식 관리자(서식 보관함)", where="도구 줄 「서식」 묶음",
          does="서버 전체에 저장해 둔 서식(표지 · 내용 · 테이블 · 문단)을 보고 문서에 씁니다. 서식을 뽑아 더하는 과정은 TASK 「문서 서식 복사」 입니다.",
          steps=(
-             _s("browse", "서식 고르기", "human", "서식 견본 그림(개요 레벨의 레터 · 들여쓰기 / 표의 음영 · 괘선 / 쪽 여백)과 원본 문서 기록(어느 문서에서 뽑았나)을 보고 고릅니다.",
+             _s("browse", "서식 고르기", "human", "서식 견본 그림(개요 레벨은 레벨마다 두 줄 — 레터 · 글 시작 · 2번째 줄 자리 / 표의 음영 · 괘선 / 쪽 여백)과 원본 문서 기록(어느 문서에서 뽑았나)을 보고 고릅니다.",
                 modules=("style_lib", "format_names"), spec=(SP_STYLE, "② §2·§13·§17")),
+             _s("tune", "값 고치기 · 복사본 만들기", ("human", "script"), "글 서식(내용 서식의 레벨 · 문단 서식)의 앞 여백 · 글 시작(첫 내용 글자의 자리) · 2번째 줄 · 폰트 · 크기 · 줄간격을 고칩니다 — 고치는 동안 서식 견본이 그 값으로 바로 바뀌고, "
+                "저장하면 보관함의 그 서식이 새 판이 되어 PDF 검증을 다시 합니다(문서는 안 바뀝니다). 「복사본 만들기」 는 같은 값의 새 서식을 만듭니다.", change="store",
+                modules=("style_api", "style_carrier", "style_lib"), spec=(SP_STYLE, "② §19-6")),
              _s("apply", "문서에 적용", ("human", "script"), "고른 서식을 지금 문서(hwpx)에 입힙니다 — 새 표 · 표 서식 입히기 · 글 서식 입히기. 그 TASK 의 원본 문서에는 적용하지 않습니다.", change="doc",
                 modules=("style_apply", "style_api"), spec=(SP_EDIT, "② §4")),
              _s("verify", "PDF 검증", "script", "저장한 서식을 한글 · Word 로 출력해 서식이 뜻한 값과 PDF 에서 잰 값을 견줍니다.", change="store", modules=("style_verify",), spec=(SP_STYLE, "② §7")),

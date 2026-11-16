@@ -49,7 +49,7 @@ GATES = {
     "outline_lift": ("smoke_outline_lift_ui.py", True, "표 제목을 템플릿의 L1 으로 — 「템플릿 관계」 의 「표를 L1 으로」(같은 꼴 1칸 제목 표 한 번에) · 여백 표시 · 표 줄의 Enter · 거절 · 떼기 · 실행 취소 · 넓힘(번호 칸 + 제목 칸 띠 · 3행 표 · 닻 없는 같은 꼴 · 표 레벨 여러 층)(진짜 끝점)"),
     "outline_grow": ("smoke_outline_grow_ui.py", True,"개요 레벨 더하기 — 마지막 레벨 줄의 Alt+↓ → 후보 창(레터 · 앞 공백 · 둘째 줄 · 직접 입력) · 키 · 더하기 · 거절 · 실행 취소(진짜 끝점)"),
     "share": ("smoke_share_ui.py", True, "hwpx 공유 — 「공유」 단추 · 떠 있는 창 · 손님(공유 포트 = 포트 + 700)의 키 넣기 · 글이 오감 · 작성 중 · 줄 나누기/합치기 · 공유폴더 저장 · 끄기(진짜 끝점)"),
-    "lead_space": ("smoke_lead_space_ui.py", True, "줄 앞 공백 — 양쪽 정렬 문단의 첫머리 빈칸이 안 늘어남(조각 .lead-sp) · 자리 = 왼쪽 정렬 자리 · 저장·새로 고침 · 조각 안 편집 · Home/End/화살표 · 한글 조합(진짜 끝점)"),
+    "lead_space": ("smoke_lead_space_ui.py", True, "줄 앞 공백 — 양쪽 정렬 문단의 첫머리 빈칸이 안 늘어남(조각 .lead-sp) · 자리 = 왼쪽 정렬 자리 · 저장·새로 고침 · 조각 안 편집 · Home/End/화살표 · 한글 조합 · 빈칸 폭 = 한글 폭 0.5em(첫머리 · 줄 안 · 양쪽 정렬 아닌 문단)(진짜 끝점)"),
     "home": ("smoke_home_ui.py", False, "상단 로고 → 시작 화면"),
     "note_help": ("smoke_note_help_ui.py", False, "노트 도움말 — hover · 키보드 · 터치 · 좁은 화면 · 대화상자"),
     "table_menu": ("smoke_table_menu_ui.py", False, "표 메뉴"),

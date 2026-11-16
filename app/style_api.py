@@ -43,8 +43,9 @@ DOCX_MODES = ("tableBlank", "format")  # docx 문서에 되는 적용(spec_서�
 GROUPS = ("tables", "texts", "paras", "pages", "covers")  # 후보의 다섯 종류(spec_서식복사 ② §16 — `style_extract.candidates`·`review` 의 키)
 PICK_GROUP = {"table": "tables", "text": "texts", "page": "pages", "cover": "covers"}  # pick 의 kind → entry 의 후보 목록(글은 texts → paras 차례로 찾는다)
 NAME_GROUP = {"tables": "table", "texts": "text", "paras": "para", "pages": "page", "covers": "cover"}  # 후보 종류 → 서식 이름의 갈래(`format_names.keys_for` — spec_서식복사 ② §19-2)
-# 서식 값 고치기(spec_서식복사 ② §19-6·§19-7) — 받는 키와 범위(서식 지도의 대기 값과 같은 범위). line1Mm·line2Mm = 첫 줄·둘째 줄 시작(왼쪽 여백 + 첫 줄 들여쓰기 — 화면 「앞 여백」·「2번째 줄」)
-EDIT_NUMS = {"line1Mm": (0, 300), "line2Mm": (0, 300), "sizePt": (1, 200), "lineSpacingPct": (50, 500)}
+# 서식 값 고치기(spec_서식복사 ② §19-6·§19-7) — 받는 키와 범위(서식 지도의 대기 값과 같은 범위). line1Mm·line2Mm = 첫 줄·둘째 줄 시작(왼쪽 여백 + 첫 줄 들여쓰기 — 화면 「앞 여백」·「2번째 줄」) ·
+# textMm = 첫 내용 글자의 자리(화면 「글 시작」 = 앞 여백 + 레터 자리 폭 — line1Mm 과 함께는 못 준다: `style_carrier.retune`)
+EDIT_NUMS = {"line1Mm": (0, 300), "textMm": (0, 300), "line2Mm": (0, 300), "sizePt": (1, 200), "lineSpacingPct": (50, 500)}
 EDIT_KEYS, FONT_MAX = (*EDIT_NUMS, "font"), 40
 GONE = "올린 파일을 서버가 놓았습니다 — 다시 올려야 저장할 수 있습니다"  # 토큰이 없음(410) — 30분이 지났거나, 넷까지만 잡아 두어 먼저 밀려났다(어느 쪽인지 단정하지 않는다: ② §13)
 NO_COVER = "이 문서에서 표지를 찾지 못했습니다"
@@ -562,6 +563,77 @@ def _role(value):
     if not isinstance(value, str) or value not in style_lib.ROLES:
         raise HTTPException(400, f"role 은 {'·'.join(style_lib.ROLES)} 중 하나 또는 null")
     return value
+
+
+def _edit_changes(given) -> dict:
+    """「값 고치기」 요청의 changes → 검사한 값 {키: 값}(준 것만 — spec_서식복사 ② §19-7). 모르는 키 · 범위 밖 · 빈 것 · 앞 여백과 글 시작을 함께 준 것은 400."""
+    if not isinstance(given, dict) or not given:
+        raise HTTPException(400, f"changes 는 {{{', '.join(EDIT_KEYS)}}} 가운데 1개 이상")
+    if bad := set(given) - set(EDIT_KEYS):
+        raise HTTPException(400, f"changes 에 모르는 값이 있습니다: {', '.join(sorted(bad))}")
+    out = {}
+    for k, v in given.items():
+        if k == "font":
+            name = re.sub(r"\s+", " ", v).strip() if isinstance(v, str) else ""
+            if not 1 <= len(name) <= FONT_MAX:
+                raise HTTPException(400, f"font 는 1~{FONT_MAX}자의 글꼴 이름")
+            out[k] = name
+            continue
+        lo, hi = EDIT_NUMS[k]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or not lo <= v <= hi:
+            raise HTTPException(400, f"{k} 는 {lo}~{hi} 의 수")
+        out[k] = int(round(v)) if k == "lineSpacingPct" else round(float(v), 2)
+    if "line1Mm" in out and "textMm" in out:
+        raise HTTPException(400, "line1Mm(앞 여백)과 textMm(글 시작)은 하나만 보냅니다 — 글 시작 = 앞 여백 + 레터 자리 폭")
+    return out
+
+
+@router.put("/api/styles/{sid}/items/{key}/format")
+def style_item_format(sid: str, key: str, body: dict = Body(...)):
+    """「값 고치기」(spec_서식복사 ② §19-6) — {expectedRevision, changes: {line1Mm? | textMm?, line2Mm?, font?, sizePt?, lineSpacingPct?}} → 새 revision 의 meta.
+    운반 문서(hwpx)의 그 항목 견본 문단을 고치고(`style_carrier.retune` — 글자 값은 본문 런만) `items[].format` 을 다시 읽는다 · docx 운반 문서를 다시 짓는다 · PDF 검증을 다시 건다.
+    글 서식만(400) · 없는 항목 404 · revision 이 다르면 409 · 틀린 값·못 넣는 값 400. 문서는 안 바뀐다(보관함의 서식만)."""
+    meta = _meta(sid)
+    expected = _expected(body.get("expectedRevision"))
+    if meta.get("kind") != "text":
+        raise HTTPException(400, "값 고치기는 글 서식(내용 서식 · 문단 서식)만 됩니다")
+    if not any(isinstance(it, dict) and it.get("key") == key for it in meta.get("items") or []):
+        raise HTTPException(404, "그 항목이 이 서식에 없습니다")
+    changes = _edit_changes(body.get("changes"))
+    if expected != meta["revision"]:  # 운반 문서를 고치기 전에 — 저장소도 같은 것을 다시 본다
+        raise HTTPException(409, f"서식이 그 사이 바뀌었습니다(지금 {meta['revision']} · 요청 {expected}) — 다시 읽어 주세요")
+    try:
+        data, items = style_carrier.retune(style_lib.carrier(sid) or b"", meta, key, changes)
+    except KeyError as e:
+        raise HTTPException(404, "그 항목이 이 서식에 없습니다") from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    built = _build_docx({**meta, "items": items}, data)  # docx 운반 문서도 같은 값으로 다시(못 지으면 docx: null — 저장은 된다)
+    files = {style_lib.CARRIER_DOCX: built[0]} if built else None
+    new = _store(lambda: style_lib.revise(sid, expected, {"items": items, "docx": {"losses": built[1]} if built else None}, carrier=data, files=files))
+    _kick(sid)  # 운반 문서가 바뀌었다 — 두 형식 다시 검증(전 검증 기록은 앞 revision 에 남는다)
+    return _full(style_lib.get(sid) or new)
+
+
+@router.post("/api/styles/{sid}/copy")
+def style_copy(sid: str, body: dict = Body(default={})):
+    """「복사본 만들기」(spec_서식복사 ② §19-6) — {name?} → 새 서식의 meta(201). 같은 운반 문서·같은 값 · 이름 「<이름> 복사」(60자 안) · `copyOf` = 원래 서식 id ·
+    원본 문서 기록(`source`·`seenIn`)은 물려받고 검증은 새로 건다. 「같은 서식은 한 번만」(② §4)을 지나지 않는다(사람이 일부러 만든 것)."""
+    meta = _meta(sid)
+    name = (body or {}).get("name")
+    if name is None:
+        name = f"{meta['name'][:style_lib.NAME_MAX - 3]} 복사"
+    elif not isinstance(name, str) or not 1 <= len(re.sub(r"\s+", " ", name).strip()) <= style_lib.NAME_MAX:
+        raise HTTPException(400, f"이름은 1~{style_lib.NAME_MAX}자")
+    data = style_lib.carrier(sid)
+    if not data:
+        raise HTTPException(404, "운반 문서가 없습니다")
+    docx = _docx_bytes(sid, meta)
+    new = {k: v for k, v in meta.items() if k not in style_lib.OWN or k == "kind"}  # 저장소가 정하는 키(id·revision·때·검증 기록)는 새로 — 종류는 그대로
+    new.update(name=name, copyOf=sid, docx={"losses": list((meta.get("docx") or {}).get("losses") or [])} if docx else None)
+    out = _store(lambda: style_lib.create(new, data, {style_lib.CARRIER_DOCX: docx} if docx else None))
+    _kick(out["id"])
+    return JSONResponse(_full(style_lib.get(out["id"]) or out), status_code=201)
 
 
 @router.delete("/api/styles/{sid}")

@@ -75,6 +75,9 @@
 #headsDlg[data-kind="styleLib"] .sl-wrap { container: sl-detail / inline-size; }
 #headsDlg[data-kind="styleLib"] .sl-item { padding-block: 14px 16px; }
 #headsDlg[data-kind="styleLib"] .sl-picbox { margin-bottom: 12px; }
+/* 값을 고치는 동안(② §19-6 「고치는 동안의 견본」 — 2026-11-16 사용자 「밑에 수정하면 견본도 바뀌어야지」): 그 서식의 견본이 열 위에 붙어 있다 — 레벨이 많아 칸이 아래에 있어도 고치는 값이 그려지는 것을 본다.
+   높이는 그대로(위 −6 + 안 6 · 아래 안 6 + 6 = 전의 아래 12) — 칸을 열고 닫을 때 목록이 밀리지 않는다 */
+#headsDlg[data-kind="styleLib"] .sl-item.fmt-editing > .sl-picbox { position: sticky; top: 0; z-index: 3; margin: -6px -12px 6px; padding: 6px 12px; background: var(--surface); box-shadow: 0 7px 8px -8px rgba(20, 30, 50, .4); }
 #headsDlg[data-kind="styleLib"] .sl-picbar { margin-top: 7px; gap: 4px 6px; }
 #headsDlg[data-kind="styleLib"] .sl-head { row-gap: 5px; }
 .sl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
@@ -130,6 +133,8 @@
 .sl-fv input { box-sizing: border-box; min-width: 0; max-width: 100%; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .sl-fv input:focus-visible { outline: 2px solid #2458c733; outline-offset: 1px; border-color: var(--accent); }
 .sl-fv input.chg { border-color: #c88b31; }
+.sl-fv-fit .btn.sm { height: 28px; padding: 0 9px; font-size: 11.5px; white-space: nowrap; } /* 「글 시작에 맞춤」 — 2번째 줄 칸 옆(격자의 한 칸) */
+.sl-fv input:disabled { background: var(--surface-2); color: var(--muted); }
 .sl-fv[data-sl-fv="font"] { grid-column: 1 / -1; }
 .sl-fv[data-sl-fv="font"] input { flex: 1; width: 0; }
 .sl-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -220,13 +225,21 @@
 .sp-frame.sp-over::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(rgba(255, 255, 255, 0), #fff); pointer-events: none; }
 .sp-note { margin: 2px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .sp-none { color: var(--muted); font-size: 11.5px; }
-/* 내용 서식 — 레벨마다 한 줄: 「L1」 표지(바깥 열) · 레터 · 견본 글 · 글 막대 */
-.sp-lv { display: flex; align-items: center; min-width: 0; margin: 0 0 3px; }
-.sp-tag { flex: none; width: 22px; color: var(--muted); font: 9.5px/1 "Malgun Gothic", sans-serif; font-variant-numeric: tabular-nums; }
-.sp-line { display: flex; align-items: center; gap: 5px; flex: 1 1 auto; box-sizing: border-box; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.3; }
-.sp-letter, .sp-text { flex: none; max-width: 62%; overflow: hidden; }
-.sp-auto { color: #9aa3b0; }
+/* 내용 서식 — 레벨마다 두 줄(2026-11-16 사용자 「견본은 2줄씩 … 그래야 2번째줄 위치를 알지」): 「L1」 표지(바깥 열) · 첫 줄(앞 여백 · 앞 공백 · 레터 칸 · 견본 글 · 글 막대) · 둘째 줄(「2번째 줄」 자리에서 시작하는 글 막대).
+   레터 칸(.sp-letter)의 최소 폭 = 레터 + 레터 뒤 공백 — 견본 글이 「글 시작」 에서 시작한다. 값을 고치는 레벨(.sp-mark)은 표지가 파랗고 「글 시작」 자리에 세로 점선(.sp-guide) */
+.sp-lv { display: flex; align-items: flex-start; min-width: 0; margin: 0 0 4px; }
+.sp-tag { flex: none; width: 22px; padding-top: 5px; color: var(--muted); font: 9.5px/1 "Malgun Gothic", sans-serif; font-variant-numeric: tabular-nums; }
+.sp-lines { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.sp-line { display: flex; align-items: center; box-sizing: border-box; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.3; }
+.sp-lead { flex: none; }
+.sp-letter, .sp-text { flex: none; box-sizing: border-box; max-width: 62%; overflow: hidden; white-space: pre; }
+.sp-auto { margin-right: .5em; color: #9aa3b0; }
 .sp-bar { flex: 1 1 20px; min-width: 14px; height: 5px; border-radius: 2px; background: #d5d9e0; }
+.sp-line > .sp-bar { margin-left: 6px; }
+.sp-line2 > .sp-bar { margin-left: 0; }
+.sp-lv.sp-mark .sp-tag { color: var(--accent); font-weight: 700; }
+.sp-lv.sp-mark .sp-bar { background: #bccdf0; }
+.sp-guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--accent); opacity: .75; }
 /* 문단 서식 — 견본 두 줄 */
 .sp-para { margin: 0; overflow: hidden; word-break: break-all; }
 /* 테이블 서식 — 작은 표 + 표 바깥(왼쪽·위)의 띠 표시(가는 괄호선 + 글) */

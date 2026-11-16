@@ -79,7 +79,9 @@ L = {"mode": "ok", "pdf": True, "conflict": False, "gone": False, "styles": [
     {"id": "s_txt1", "revision": "r1", "kind": "text", "name": "본문 글머리", "note": "", "created": now, "updated": now, "source": {"name": "보고서.docx", "format": "docx", "page": None, "work": "w1", "project": "갑 과제", "job": "doc_edit", "round": 2, "where": "개요템플릿 1", "at": now - 60},
      "seenIn": [{"name": "작년 보고서.hwpx", "format": "hwpx", "project": "을 과제", "where": "개요템플릿 2", "at": now - 30}, {"name": "공고문.pdf", "format": "pdf"}], "fidelity": "summary", "losses": 0,
      "requirements": {"fonts": []}, "verify": None,
-     "items": [{"key": "i1", "name": "□ 줄", "level": 1, "marker": {"mode": "literal", "literal": "□", "lead": "", "gap": " "}, "sample": "견본 글입니다"},
+     "pos": {"i1": {"line1Mm": 3, "letterMm": 3, "textMm": 9.4, "line2Mm": 3, "leadMm": 0, "prefixMm": 6.4}, "i2": None},  # 견본 문단에서 잰 자리(view.pos — ② §19-6: 레터 자리 폭 6.4mm · 자동 번호는 못 잼)
+     "items": [{"key": "i1", "name": "□ 줄", "level": 1, "marker": {"mode": "literal", "literal": "□", "lead": "", "gap": " "}, "sample": "견본 글입니다",
+                "format": {"font": "함초롬바탕", "sizePt": 12, "bold": True, "indentLeftMm": 3, "firstLineMm": 0, "lineSpacingPct": 160}},
                {"key": "i2", "name": "자동 번호 줄", "level": 2, "marker": {"mode": "auto"}, "sample": "견본 글입니다"}]}]}
 calls = {"list": 0, "poll": {}, "poll_at": [], "put": [], "delete": [], "verify": [], "apply": [], "cands": [], "save": [], "extract": [], "from_file": [], "proof": [], "preview": [], "preview_file": []}
 PAGE = {"widthMm": 210, "heightMm": 297, "landscape": False, "marginsMm": {"l": 30, "r": 30, "t": 20, "b": 15, "header": 15, "footer": 15, "gutter": 0}}
@@ -107,7 +109,8 @@ def view_of(s):  # 보관한 서식의 보기(GET /api/styles/{sid} 의 view)
     if s["kind"] == "table":
         return {"spec": spec(s.get("rows") or 2, s.get("cols") or 2, s.get("bands") or BANDS)}
     if s["kind"] == "text":
-        return {"items": [{**it, "format": it.get("format") or {"font": "함초롬바탕", "sizePt": 12 - 2 * i, "bold": i == 0, "indentLeftMm": 6 * i}} for i, it in enumerate(s.get("items") or [])]}
+        return {"items": [{**it, "format": it.get("format") or {"font": "함초롬바탕", "sizePt": 12 - 2 * i, "bold": i == 0, "indentLeftMm": 6 * i}} for i, it in enumerate(s.get("items") or [])],
+                **({"pos": s["pos"]} if s.get("pos") else {})}
     if s["kind"] == "page":
         return {"page": s.get("page") or PAGE, "body": s.get("body"), "summary": ""}
     return COVER_VIEW if s["kind"] == "cover" else {}
@@ -221,6 +224,25 @@ def styles(route):
         L["styles"] = [x for x in L["styles"] if x["id"] != sid]
         return js(route, {"ok": True})
     return js(route, {"detail": "흉내에 없는 끝점"}, 500)
+
+
+ITEM_FMT = re.compile(r"/api/styles/([^/?]+)/items/([^/?]+)/format$")
+
+
+def item_format(route):  # 「값 고치기」 저장(PUT /api/styles/{sid}/items/{key}/format — ② §19-6): 서버처럼 글 시작이면 레터 자리 폭을 빼 첫 줄을 옮기고 새 revision 을 돌려준다
+    m, body = ITEM_FMT.search(route.request.url), json.loads(route.request.post_data)
+    s = find(m.group(1))
+    calls.setdefault("fmt", []).append({"sid": m.group(1), "item": m.group(2), **body})
+    if body.get("expectedRevision") != s["revision"]:
+        return js(route, {"detail": "다른 곳에서 먼저 바뀌었습니다"}, 409)
+    it, ch = next(x for x in s["items"] if x["key"] == m.group(2)), body["changes"]
+    f, pos = dict(it.get("format") or {}), (s.get("pos") or {}).get(it["key"]) or {}
+    l1, l2 = f.get("indentLeftMm", 0) + max(f.get("firstLineMm", 0), 0), f.get("indentLeftMm", 0) + max(-f.get("firstLineMm", 0), 0)
+    l1 = ch["textMm"] - pos.get("prefixMm", 0) if "textMm" in ch else ch.get("line1Mm", l1)
+    l2 = ch.get("line2Mm", l2)
+    f.update(indentLeftMm=round(min(l1, l2), 2), firstLineMm=round(l1 - l2, 2), **{k: ch[k] for k in ("font", "sizePt", "lineSpacingPct") if k in ch})
+    it["format"], s["revision"] = f, f"r{int(s['revision'][1:]) + 1}"
+    return js(route, full(s))
 
 
 def rich_candidates(llm):  # 6-1절의 후보(② §12·§15·§16) — 표지 1 · 내용 1 + 쪽 설정 1 · 표 12 · 문단 2. llm = 검토 결과를 합친 것(이름 · keep · 역할 · 고침 · 의심 · 같은 서식 · 띠 넓히기)
@@ -410,6 +432,7 @@ try:
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
         page.route(ST, styles)
+        page.route(ITEM_FMT, item_format)
         page.route(DOC, doc_styles)
         page.route(AG, agent)
         page.goto(base)
@@ -430,10 +453,19 @@ try:
         page.wait_for_selector("#headsDlg .sl-item[data-style=s_txt1] .sp-pic[data-sp-kind=content]")
         x1 = item(page.evaluate(ITEMS), "s_txt1")
         lv = page.evaluate("""() => { const p = document.querySelector('#headsDlg .sl-item[data-style=s_txt1] .sp-pic'); return { rows: [...p.querySelectorAll('.sp-lv')].map((r) => [r.querySelector('.sp-tag').textContent, (r.querySelector('.sp-letter') || {}).textContent,
-          !!r.querySelector('.sp-letter.sp-auto'), !!r.querySelector('.sp-bar'), parseFloat(r.querySelector('.sp-line').style.paddingLeft)]), hidden: p.querySelector('.sp-in').getAttribute('aria-hidden'), pe: getComputedStyle(p.querySelector('.sp-in')).pointerEvents }; }""")
-        check("내용 서식의 그림 — 줄의 맨 앞 · 레벨마다 한 줄(L1 「□」 · L2 자동 번호의 회색 자리표 「1.」 · 글 막대 · 깊은 레벨이 더 들여쓰임) · role=img + 「개요 2레벨: …」 · 그림 안은 aria-hidden·누를 수 없음",
+          !!r.querySelector('.sp-letter.sp-auto'), !!r.querySelector('.sp-bar'), parseFloat(r.querySelector('.sp-line').style.paddingLeft)]), hidden: p.querySelector('.sp-in').getAttribute('aria-hidden'), pe: getComputedStyle(p.querySelector('.sp-in')).pointerEvents,
+          two: [...p.querySelectorAll('.sp-lv')].map((r) => { const ls = [...r.querySelectorAll('.sp-line')], a = ls[0].getBoundingClientRect(), b = ls[1] && ls[1].getBoundingClientRect(), t = r.querySelector('.sp-text'), base = r.querySelector('.sp-lines').getBoundingClientRect().left;
+            return { n: ls.length, below: !!b && b.top >= a.bottom - .5, bar2: !!(ls[1] && ls[1].querySelector('.sp-bar')), text: t ? Math.round((t.getBoundingClientRect().left - base) * 10) / 10 : null,
+              line2: ls[1] ? Math.round((ls[1].querySelector('.sp-bar').getBoundingClientRect().left - base) * 10) / 10 : null, pad: parseFloat(ls[0].style.paddingLeft) }; }),
+          live: p.dataset.spLive || null, marks: p.querySelectorAll('.sp-mark, .sp-guide').length }; }""")
+        t1 = lv["two"][0]
+        check("내용 서식의 그림 — 줄의 맨 앞 · 레벨마다 **두 줄**(L1 「□」 · L2 자동 번호의 회색 자리표 「1.」 · 첫 줄의 글 막대 + 둘째 줄 막대 · 깊은 레벨이 더 들여쓰임) · role=img + 「개요 2레벨: …」 · 그림 안은 aria-hidden·누를 수 없음",
               x1["first"] == "sl-picbox" and x1["pic"] == ["web", "content", "img", "개요 2레벨: □ › 자동 번호"] and [r[:4] for r in lv["rows"]] == [["L1", "□", False, True], ["L2", "1.", True, True]]
-              and lv["rows"][1][4] > lv["rows"][0][4] and lv["hidden"] == "true" and lv["pe"] == "none" and page.evaluate(PURE) == 0, (x1, lv))
+              and lv["rows"][1][4] > lv["rows"][0][4] and lv["hidden"] == "true" and lv["pe"] == "none" and page.evaluate(PURE) == 0
+              and all(r["n"] == 2 and r["below"] and r["bar2"] for r in lv["two"]), (x1, lv))
+        # 자리(② §13 「내용 서식의 견본」): L1 = 앞 여백 3mm · 레터 자리 폭 6.4mm(잰 값 view.pos) · 2번째 줄 3mm → 견본 글은 글 시작(9.4mm)에서, 둘째 줄 막대는 앞 여백과 같은 자리에서 시작. 고치는 중이 아니면 표시(파란 표지·세로 점선) 없음
+        check("견본의 자리 — 견본 글이 「글 시작」(앞 여백 + 레터 자리 폭)에서 · 둘째 줄 막대가 「2번째 줄」 에서 시작(mm 가 같은 배율) · 고치는 중이 아니면 표시 없음",
+              t1["pad"] > 0 and abs(t1["text"] / t1["pad"] - 9.4 / 3) < .12 and abs(t1["line2"] - t1["pad"]) <= 1 and lv["live"] is None and lv["marks"] == 0, lv["two"])
         page.click("#headsDlgTools [data-sl-tab=cover]")
         check("「표지 서식」 — 없으면 한 줄 안내", "보관한 표지 서식이 없습니다" in page.inner_text("#headsDlgBody") and page.locator("#headsDlg .sl-item").count() == 0)
         page.screenshot(path=str(OUT / "1_styles_empty_and_agent.png"))
@@ -589,9 +621,11 @@ try:
             fields = page.evaluate("""() => { const f = document.querySelector('#headsDlg [data-sl-fform=i2]');
               return { focused: document.activeElement?.tagName === 'INPUT' && f.contains(document.activeElement),
                 units: [...f.querySelectorAll('.sl-fv-unit')].map((u) => { const i = u.parentElement.querySelector('input'), a = i.getBoundingClientRect(), b = u.getBoundingClientRect();
-                  return { gap: b.left - a.right, inline: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) <= 2 }; }) }; }""")
-            check(f"값 입력 {width}px — 실제 입력 칸에 초점 · 숫자 바로 뒤에 단위",
-                  fields["focused"] and len(fields["units"]) == 4 and all(-.5 <= u["gap"] <= 8 and u["inline"] for u in fields["units"]), fields)
+                  return { gap: b.left - a.right, inline: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) <= 2 }; }),
+                keys: [...f.querySelectorAll('input[data-sl-fv]')].map((i) => [i.dataset.slFv, i.disabled]), fit: !!f.querySelector('[data-sl-act=fmtFit]') }; }""")
+            check(f"값 입력 {width}px — 실제 입력 칸에 초점 · 숫자 바로 뒤에 단위 · 자동 번호 항목은 「글 시작」 칸이 꺼져 있고(번호 폭을 모른다) 「글 시작에 맞춤」 이 없다",
+                  fields["focused"] and len(fields["units"]) == 5 and all(-.5 <= u["gap"] <= 8 and u["inline"] for u in fields["units"])
+                  and fields["keys"] == [["line1Mm", False], ["textMm", True], ["line2Mm", False], ["font", False], ["sizePt", False], ["lineSpacingPct", False]] and not fields["fit"], fields)
             page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i1]")
             page.wait_for_selector("#headsDlg [data-sl-fform=i1]")
             levels = page.evaluate(LEVEL_LAYOUT)
@@ -606,6 +640,60 @@ try:
                   len(levels) == 2 and [(r["level"], r["apply"], r["edit"]) for r in levels] == [("L1", "i1", "i1"), ("L2", "i2", "i2")]
                   and all(r["form"] is None and r["separated"] and r["distinct"] for r in levels) and len(calls["put"]) == puts_before and len(calls["apply"]) == applies_before, levels)
         size(page, "headsDlg", 480)
+        # ---- 값 고치기 — 「글 시작」 · 고치는 동안의 견본(② §19-6 — 2026-11-16 사용자 "첫번째 내용의 절대위치" · "밑에 수정하면 견본도 바뀌어야지")
+        FV = """() => { const f = document.querySelector('#headsDlg .sl-fform'), p = document.querySelector('#headsDlg .sl-item[data-style=s_txt1] .sp-pic'), r = p.querySelector('.sp-lv[data-key=i1]');
+          const base = r.querySelector('.sp-lines').getBoundingClientRect().left, x = (e) => (e ? Math.round((e.getBoundingClientRect().left - base) * 10) / 10 : null), ls = r.querySelectorAll('.sp-line');
+          const fit = f && f.querySelector('[data-sl-act=fmtFit]');
+          return { vals: f ? Object.fromEntries([...f.querySelectorAll('input[data-sl-fv]')].map((i) => [i.dataset.slFv, i.value])) : null, chg: f ? [...f.querySelectorAll('input.chg')].map((i) => i.dataset.slFv) : null,
+            fit: fit ? [fit.disabled, fit.getAttribute('aria-pressed')] : null, live: p.dataset.spLive || null, mark: r.classList.contains('sp-mark'), others: p.querySelectorAll('.sp-lv.sp-mark').length,
+            pad: parseFloat(ls[0].style.paddingLeft), text: x(r.querySelector('.sp-text')), line2: x(ls[1].querySelector('.sp-bar')), guide: x(r.querySelector('.sp-guide')),
+            cap: document.querySelector('#headsDlg .sl-item[data-style=s_txt1] .sl-pic-cap').textContent, px: parseFloat(getComputedStyle(r.querySelector('.sp-text')).fontSize), lpx: parseFloat(getComputedStyle(r.querySelector('.sp-letter')).fontSize),
+            srcs: [...document.querySelectorAll('#headsDlg .sl-item[data-style=s_txt1] [data-sl-src]')].map((e) => [e.dataset.slSrc, e.disabled, e.getAttribute('aria-pressed')]) }; }"""
+        fmt_before = len(calls.get("fmt", []))
+        page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i1]")
+        page.wait_for_selector("#headsDlg .sl-item[data-style=s_txt1] .sp-pic[data-sp-live=i1]")
+        v0 = page.evaluate(FV)
+        check("값 고치기를 열면 — 칸 여섯(앞 여백 3 · 글 시작 9.4 = 앞 여백 + 레터 자리 폭 6.4 · 2번째 줄 3 · 폰트 · 크기 · 줄간격) + 「글 시작에 맞춤」 · 견본은 그 레벨만 표시(파란 표지 + 글 시작 자리의 세로 점선) · 「고치는 값 미리 보기」",
+              v0["vals"] == {"line1Mm": "3", "textMm": "9.4", "line2Mm": "3", "font": "함초롬바탕", "sizePt": "12", "lineSpacingPct": "160"} and v0["chg"] == [] and v0["fit"] == [False, "false"]
+              and v0["live"] == "i1" and v0["mark"] and v0["others"] == 1 and abs(v0["guide"] - v0["text"]) <= 1 and v0["cap"] == "고치는 값 미리 보기" and v0["srcs"][0] == ["web", False, "true"], v0)
+        page.locator("#headsDlg .sl-fform input[data-sl-fv=textMm]").fill("12")
+        v1 = page.evaluate(FV)
+        check("「글 시작」 을 12 로 — 앞 여백이 5.6 으로 따라 바뀌고(= 12 − 레터 자리 폭) 견본의 첫 줄·견본 글·세로 점선이 그만큼 오른쪽으로 · 둘째 줄 막대는 그대로(2번째 줄 3) · 목록을 다시 그리지 않음(초점 그대로)",
+              v1["vals"]["line1Mm"] == "5.6" and v1["vals"]["line2Mm"] == "3" and v1["chg"] == ["line1Mm", "textMm"] and v1["pad"] > v0["pad"] and abs(v1["text"] / v0["text"] - 12 / 9.4) < .06
+              and abs(v1["guide"] - v1["text"]) <= 1 and abs(v1["line2"] - v0["line2"]) <= .5 and v1["line2"] < v1["pad"]
+              and page.evaluate("() => document.activeElement && document.activeElement.dataset.slFv") == "textMm", (v0, v1))
+        page.click("#headsDlg .sl-fform [data-sl-act=fmtFit]")
+        v2 = page.evaluate(FV)
+        check("「글 시작에 맞춤」 — 2번째 줄이 12 로 · 견본의 둘째 줄 막대가 견본 글 바로 아래(세로 점선 자리)에서 시작 · 단추는 눌린 채 꺼짐",
+              v2["vals"]["line2Mm"] == "12" and v2["fit"] == [True, "true"] and abs(v2["line2"] - v2["text"]) <= 1.5 and abs(v2["text"] - v1["text"]) <= .5, v2)
+        page.locator("#headsDlg .sl-fform input[data-sl-fv=sizePt]").fill("16")
+        v3 = page.evaluate(FV)
+        check("크기를 16 으로 — 견본 글이 커지고 레터 글자·글 시작 자리는 그대로(값 고치기는 본문 글자만 바꾼다 — 레터 자리 폭은 레터 글자의 것)", v3["px"] > v2["px"] * 1.2 and v3["lpx"] == v2["lpx"] and abs(v3["text"] - v2["text"]) <= 1 and v3["vals"]["textMm"] == "12", (v2, v3))
+        page.locator("#headsDlg").screenshot(path=str(OUT / "4_level_live.png"))
+        page.locator("#headsDlg .sl-fform input[data-sl-fv=line1Mm]").fill("1")
+        v4 = page.evaluate(FV)
+        check("「앞 여백」 을 1 로 — 글 시작이 7.4 로 따라 바뀜(2번째 줄은 12 그대로 → 「글 시작에 맞춤」 이 다시 켜짐)", v4["vals"]["textMm"] == "7.4" and v4["vals"]["line2Mm"] == "12" and v4["fit"] == [False, "false"] and v4["text"] < v3["text"], v4)
+        page.locator("#headsDlg .sl-fform input[data-sl-fv=textMm]").fill("2")
+        page.click("#headsDlg .sl-fform [data-sl-act=fmtSave]")
+        page.wait_for_selector("#headsDlg .sl-fform .sl-msg.err")
+        check("글 시작이 레터 자리 폭보다 작으면 저장하지 않고 까닭을 보인다", "레터 자리 폭 6.4mm" in page.inner_text("#headsDlg .sl-fform .sl-msg.err") and len(calls.get("fmt", [])) == fmt_before, page.inner_text("#headsDlg .sl-fform .sl-msg.err"))
+        page.locator("#headsDlg .sl-fform input[data-sl-fv=textMm]").fill("12")
+        rev = find("s_txt1")["revision"]
+        page.click("#headsDlg .sl-fform [data-sl-act=fmtSave]")
+        page.wait_for_function("() => !document.querySelector('#headsDlg .sl-fform')")
+        sent = calls["fmt"][-1]
+        page.wait_for_selector("#headsDlg .sl-item[data-style=s_txt1] .sp-pic:not([data-sp-live])")
+        v5 = page.evaluate(FV)
+        check("저장 — 사람이 마지막에 친 쪽(글 시작)만 보낸다(앞 여백은 서버가 셈) + 바뀐 칸(2번째 줄 · 크기) · 새 판의 견본이 그 값으로 · 표시는 사라짐",
+              sent == {"sid": "s_txt1", "item": "i1", "expectedRevision": rev, "changes": {"textMm": 12, "line2Mm": 12, "sizePt": 16}} and len(calls["fmt"]) == fmt_before + 1
+              and v5["live"] is None and not v5["mark"] and v5["guide"] is None and v5["cap"] == "서식 견본" and abs(v5["line2"] - v5["text"]) <= 1.5, (sent, v5))
+        page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i1]")
+        page.wait_for_selector("#headsDlg [data-sl-fform=i1]")
+        v6 = page.evaluate(FV)
+        check("다시 열면 저장된 값(앞 여백 5.6 · 글 시작 12 · 2번째 줄 12 · 크기 16) — 「글 시작에 맞춤」 은 이미 맞아 눌려 있음",
+              [v6["vals"][k] for k in ("line1Mm", "textMm", "line2Mm", "sizePt")] == ["5.6", "12", "12", "16"] and v6["fit"] == [True, "true"] and v6["chg"] == [], v6)
+        page.keyboard.press("Escape")
+        page.wait_for_function("() => !document.querySelector('#headsDlg .sl-fform')")
         page.click(f'#doc .para[data-id="{IDS["cell_para"]}"]')
         page.click("#headsDlg .sl-levels [data-sl-item=i2]")
         page.wait_for_function("() => document.getElementById('toast').textContent.includes('글자·문단 모양을 입혔습니다')")

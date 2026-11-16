@@ -1,6 +1,7 @@
 """뼈대 유지(spec_헤딩_추출 ② §17, 2026-11-10 사용자 「문서가 바뀔 때마다 헤딩을 다시 추출하라고 하면 어쩌냐 … 새로운 레터나 서식이 추가되면 알람이나 표시만」).
 2·3단계 결과는 문서를 고쳐도 그대로(실행을 새로 만들지 않음) · 지금 문서를 뼈대와 견줘 새 레터 · 새 서식 · 새 표 · 모양이 바뀐 표만 알림 · 글만 고친 줄 · 개요 편집이 만든 줄 ·
-앱이 맞춘 둘째 줄(개요 줄 자리)은 새 서식이 아님 · 기준 1단계 결과가 없으면 레터만."""
+앱이 맞춘 둘째 줄(개요 줄 자리)은 새 서식이 아님 · 기준 1단계 결과가 없으면 레터만.
+서식은 되풀이될 때만 새 서식(2026-11-16 사용자 「새로운 서식은 반복적일때 새로운 서식인거지. 이건잘못된거잖아」): 한 줄뿐이면 잘못된 서식(`wrong`) · 장평·자간만 다른 줄은 알리지 않음."""
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from app import heading_temp as TP
 
 PLAN = Path(__file__).parents[1] / "samples" / "연구개발계획서_양식.hwpx"
 PID = "p970"  # 본문 「□ 연구개발기술(제품)의 정의 및 범위」 — 가지 템플릿 「□›o›-›·」 의 L1(tests/test_outline_edit.py 와 같은 줄)
-ZERO2 = {"letters": 0, "letterParas": 0, "formats": 0, "formatParas": 0}
+ZERO2 = {"letters": 0, "letterParas": 0, "formats": 0, "formatParas": 0, "wrong": 0, "wrongParas": 0}
 ZERO3 = {"new": 0, "changed": 0, "gone": 0, "resized": 0}
 
 
@@ -110,7 +111,7 @@ def test_text_edit_keeps_skeleton_and_makes_no_run(doc, monkeypatch):
     assert s.doc._para_summary(s.doc._defs["paraPr"][s.doc._ids[PID].get("paraPrIDRef")])["firstLineMm"] < 0  # 개요 줄 자리(② §8-1)가 내어쓰기를 넣었다
     x = _drift(c, d)
     assert x["extracted"] is True and x["stage2"]["moved"] is True and x["stage3"]["moved"] is True
-    assert x["stage2"]["counts"] == ZERO2 and x["stage2"]["letters"] == [] and x["stage2"]["formats"] == [] and x["stage3"]["counts"] == ZERO3
+    assert x["stage2"]["counts"] == ZERO2 and x["stage2"]["letters"] == [] and x["stage2"]["formats"] == [] and x["stage2"]["wrong"] == [] and x["stage3"]["counts"] == ZERO3
     assert len(st["runs"]) == runs and st["stage1"] is s1 and st["stage2"] is g and st["stage3"] is t3  # 실행을 만들지도, 결과를 바꾸지도 않는다
     assert heading_runs.summary(s)["stage2"]["stale"] is True  # 「문서가 바뀜」 은 사실로 남는다 — 화면이 다시 만들라고 하지 않을 뿐
     monkeypatch.setattr(E, "extract", lambda *a, **k: pytest.fail("같은 문서 차례는 다시 뽑지 않는다"))
@@ -118,7 +119,7 @@ def test_text_edit_keeps_skeleton_and_makes_no_run(doc, monkeypatch):
 
 
 def test_left_margin_changed_by_hand_on_an_app_placed_line(doc):
-    """앱이 둘째 줄을 맞춘 개요 줄에서 사람이 왼쪽 여백을 바꾸면 새 서식이다(저절로 맞춘 줄은 첫 줄만 앱의 것). 그 레벨에 사용자가 정한 자리 규칙이 있으면
+    """앱이 둘째 줄을 맞춘 개요 줄에서 사람이 왼쪽 여백을 바꾸면 뼈대 밖 서식이다(저절로 맞춘 줄은 첫 줄만 앱의 것 — 한 줄뿐이라 잘못된 서식). 그 레벨에 사용자가 정한 자리 규칙이 있으면
     (레터 위치를 옮기는 규칙 — 왼쪽 여백도 앱이 바꾼다) 왼쪽 여백도 빼고 견준다."""
     c, d, s = doc
     _patch(c, d, "□ 글만 고친 줄")
@@ -127,24 +128,24 @@ def test_left_margin_changed_by_hand_on_an_app_placed_line(doc):
     first = s.doc._para_summary(s.doc._defs["paraPr"][s.doc._ids[PID].get("paraPrIDRef")])["firstLineMm"]
     assert first < 0 and s.outline["lines"][PID]["first"] == first  # 첫 줄은 앱이 넣은 값 그대로
     x = _drift(c, d)["stage2"]
-    assert [(i["shape"], i["paras"]) for i in x["formats"]] == [("□", [PID])] and "왼30" in x["formats"][0]["name"]
+    assert x["formats"] == [] and [(i["shape"], i["paras"]) for i in x["wrong"]] == [("□", [PID])] and "왼30" in x["wrong"][0]["name"]
     st = heading_runs.state(s)
     sk = HD._skeleton(s, st, st["stage2"], heading_runs.hints(s))
     with s.lock:
         now = E.extract(s.doc, doc_key=s.doc_key)
     temp = TP.label(now, heading_runs.hints(s)["temp"])
-    assert HD.headings(sk, now, temp=temp, placed={PID: {"first": first, "left": True}})["formats"] == []   # 사용자가 정한 자리 규칙이 옮긴 왼쪽 여백
-    assert len(HD.headings(sk, now, temp=temp, placed={PID: {"first": first, "left": False}})["formats"]) == 1
-    assert len(HD.headings(sk, now, temp=temp, placed={PID: {"first": first + 1, "left": True}})["formats"]) == 1  # 첫 줄이 앱이 넣은 값이 아니면 통째로 견준다
-    assert all("n" not in i for i in x["formats"])  # 정렬에만 쓴 값은 답에 없다
+    assert HD.headings(sk, now, temp=temp, placed={PID: {"first": first, "left": True}})["wrong"] == []   # 사용자가 정한 자리 규칙이 옮긴 왼쪽 여백
+    assert len(HD.headings(sk, now, temp=temp, placed={PID: {"first": first, "left": False}})["wrong"]) == 1
+    assert len(HD.headings(sk, now, temp=temp, placed={PID: {"first": first + 1, "left": True}})["wrong"]) == 1  # 첫 줄이 앱이 넣은 값이 아니면 통째로 견준다
+    assert all("n" not in i for i in x["wrong"])  # 정렬에만 쓴 값은 답에 없다
 
 
-# ---------------------------------------------------------------- 새 레터 · 새 서식
+# ---------------------------------------------------------------- 새 레터 · 새 서식 · 잘못된 서식
 def test_new_letter(doc):
     c, d, s = doc
     _patch(c, d, "▶ 화살표로 바꾼 줄")
     x = _drift(c, d)["stage2"]
-    assert x["counts"] == {"letters": 1, "letterParas": 1, "formats": 0, "formatParas": 0}
+    assert x["counts"] == {**ZERO2, "letters": 1, "letterParas": 1}
     it = x["letters"][0]
     assert (it["scope"], it["kind"], it["shape"], it["letter"], it["count"], it["paras"]) == ("body", "marker", "▶", "▶", 1, [PID]) and it["text"] == "화살표로 바꾼 줄"
     _patch(c, d, "(가) 괄호 한글 번호")
@@ -156,29 +157,81 @@ def test_new_letter(doc):
     assert _drift(c, d)["stage2"]["counts"] == ZERO2  # 되돌리면 없어진다
 
 
-def test_known_letter_with_new_format(doc):
+def _same_letter_lines(s, n=2):
+    """PID 와 레터·서식 라벨이 같은 본문 줄 n개(PID 먼저) — 「같은 레터의 줄 여럿」 을 만들 때."""
+    recs = {r["id"]: r for r in heading_runs.state(s)["stage1"]["paras"]}
+    me = recs[PID]
+    out = [PID] + [r["id"] for r in recs.values() if r["id"] != PID and r["kind"] == "marker" and r.get("shape") == me.get("shape") and r.get("fmt") == me.get("fmt")
+                   and not r.get("table") and not r.get("blank")]
+    assert len(out) >= n, out
+    return out[:n]
+
+
+def test_known_letter_one_line_in_another_format_is_wrong(doc):
+    """레터는 있던 것인데 한 줄만 그 레터가 쓰지 않던 서식 — 새 서식이 아니라 잘못된 서식(되풀이되지 않음)."""
     c, d, s = doc
     assert c.post(f"/api/docs/{d}/format/chars", json={"id": PID, "changes": {"sizePt": 20}}).status_code == 200
     x = _drift(c, d)["stage2"]
-    assert x["counts"] == {"letters": 0, "letterParas": 0, "formats": 1, "formatParas": 1}
-    it = x["formats"][0]
-    assert (it["scope"], it["kind"], it["shape"], it["paras"]) == ("body", "marker", "□", [PID]) and "20pt" in it["name"]
+    assert x["counts"] == {**ZERO2, "wrong": 1, "wrongParas": 1} and x["formats"] == []
+    it = x["wrong"][0]
+    assert (it["scope"], it["kind"], it["shape"], it["count"], it["paras"]) == ("body", "marker", "□", 1, [PID]) and "20pt" in it["name"]
     assert it["known"] and all("20pt" not in k for k in it["known"])  # 그 레터가 쓰던 서식(이름)
     assert c.post(f"/api/docs/{d}/undo").status_code == 200
     assert _drift(c, d)["stage2"]["counts"] == ZERO2
-    assert c.post(f"/api/docs/{d}/format/para", json={"ids": [PID], "changes": {"indentLeftMm": 30}}).status_code == 200  # 사람이 바꾼 왼쪽 여백은 새 서식
-    assert [(i["shape"], i["paras"]) for i in _drift(c, d)["stage2"]["formats"]] == [("□", [PID])]
+    assert c.post(f"/api/docs/{d}/format/para", json={"ids": [PID], "changes": {"indentLeftMm": 30}}).status_code == 200  # 사람이 바꾼 왼쪽 여백도 그 줄만이면 잘못된 서식
+    x = _drift(c, d)["stage2"]
+    assert x["formats"] == [] and [(i["shape"], i["paras"]) for i in x["wrong"]] == [("□", [PID])]
+
+
+def test_format_repeated_on_several_lines_is_a_new_format(doc):
+    """같은 레터의 줄 둘 이상(`REPEAT_MIN`)이 같은 뼈대 밖 서식을 쓰면 새 서식 — 하나를 되돌려 한 줄만 남으면 잘못된 서식."""
+    c, d, s = doc
+    a, b = _same_letter_lines(s)
+    assert HD.REPEAT_MIN == 2
+    for pid in (a, b):
+        assert c.post(f"/api/docs/{d}/format/chars", json={"id": pid, "changes": {"sizePt": 20}}).status_code == 200
+    x = _drift(c, d)["stage2"]
+    assert x["counts"] == {**ZERO2, "formats": 1, "formatParas": 2} and x["wrong"] == []
+    it = x["formats"][0]
+    assert (it["shape"], it["count"], sorted(it["paras"])) == ("□", 2, sorted([a, b])) and "20pt" in it["name"]
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200  # b 를 되돌림 — a 한 줄만 남는다
+    x = _drift(c, d)["stage2"]
+    assert x["counts"] == {**ZERO2, "wrong": 1, "wrongParas": 1} and x["wrong"][0]["paras"] == [a]
+
+
+def test_fit_values_alone_are_not_a_format(doc):
+    """줄 맞춤 값(장평·자간 — 한 줄에 넣으려고 줄인 값)만 다른 줄은 새 서식도 잘못된 서식도 아니다: 서식 조정(대표에 맞추기)이 그 값을 지킨 줄이 알림으로 나오던 것.
+    글 런만 자간이 달라 레터 런과 글자 모양이 갈린 줄(레터 런 글자가 따로 잡힘)도 같다. 다른 값이 함께 다르면 그대로 알린다."""
+    c, d, s = doc
+    st = heading_runs.state(s)
+    sk = HD._skeleton(s, st, st["stage2"], heading_runs.hints(s))
+    with s.lock:
+        now = E.extract(s.doc, doc_key=s.doc_key)  # 이 시험만 쓰는 사본 — 레코드의 글자 모양을 바꿔 견준다(자간·장평은 글자 모양 API 가 받지 않는다)
+    temp = TP.label(now, heading_runs.hints(s)["temp"])
+    assert HD.headings(sk, now, temp=temp)["counts"] == ZERO2
+    tol = G.tolerance()
+    rec = next(r for r in now["paras"] if r["id"] == PID)
+    base = dict(rec["char"]["text"])
+    tight = -(int(tol["spacingPct"]) + 4)  # 오차 밖
+    rec["char"] = {"text": {**base, "charPr": "tight", "spacingPct": tight}, "letter": dict(base)}  # 글 런만 자간을 줄임 — 레터 런(자간 0)과 글자 모양이 갈린다
+    assert E._letter_run(rec) is not None and E._fp(rec) not in sk["letters"][("body", "marker", "□")]["fps"]
+    assert HD.headings(sk, now, temp=temp)["counts"] == ZERO2
+    rec["char"]["text"]["ratioPct"] = 100 - (int(tol["ratioPct"]) + 5)  # 장평도
+    assert HD.headings(sk, now, temp=temp)["counts"] == ZERO2
+    rec["char"]["text"]["sizePt"] = 20.0  # 크기까지 다르면 뼈대 밖 서식(한 줄 — 잘못된 서식)
+    x = HD.headings(sk, now, temp=temp)
+    assert x["formats"] == [] and [i["paras"] for i in x["wrong"]] == [[PID]]
 
 
 def test_existing_letter_in_a_format_it_never_used(doc):
-    """레터는 문서에 있던 것(「가.」)이지만 그 레터가 쓰던 서식이 아님(□ 줄의 서식 그대로) → 새 서식. 괄호 줄은 그 자리의 괄호 줄 전체 서식과 견준다."""
+    """레터는 문서에 있던 것(「가.」)이지만 그 레터가 쓰던 서식이 아님(□ 줄의 서식 그대로) → 뼈대 밖 서식(한 줄뿐이라 잘못된 서식). 괄호 줄은 그 자리의 괄호 줄 전체 서식과 견준다."""
     c, d, s = doc
     _patch(c, d, "가. 한글 번호로 바꾼 줄")
     x = _drift(c, d)["stage2"]
-    assert x["letters"] == [] and [(i["shape"], i["paras"]) for i in x["formats"]] == [("가.", [PID])]
+    assert x["letters"] == [] and x["formats"] == [] and [(i["shape"], i["paras"]) for i in x["wrong"]] == [("가.", [PID])]
     _patch(c, d, "[새 괄호 제목]")
     x = _drift(c, d)["stage2"]
-    assert x["letters"] == [] and [(i["kind"], i["shape"], i["paras"]) for i in x["formats"]] == [("label", "괄호 줄", [PID])]
+    assert x["letters"] == [] and [(i["kind"], i["shape"], i["paras"]) for i in x["wrong"]] == [("label", "괄호 줄", [PID])]
     _patch(c, d, "[ √ ]")  # 체크 칸은 헤딩 후보가 아니다
     assert _drift(c, d)["stage2"]["counts"] == ZERO2
 
@@ -192,7 +245,7 @@ def test_fresh_stage1_is_reused_and_base_is_kept(doc):
     heading_runs.run_sync(s, 1, False)
     assert st["stage1"]["meta"]["run"] != st["stage2"]["meta"]["stage1Run"] and st["stage2"]["meta"]["run"] == g_run  # 2단계는 그대로
     x = _drift(c, d)
-    assert x["extracted"] is False and [(i["shape"], i["paras"]) for i in x["stage2"]["formats"]] == [("□", [PID])]
+    assert x["extracted"] is False and [(i["shape"], i["paras"]) for i in x["stage2"]["wrong"]] == [("□", [PID])]
     assert c.post(f"/api/docs/{d}/undo").status_code == 200
     x = _drift(c, d)
     assert x["extracted"] is True and x["stage2"]["counts"] == ZERO2
@@ -210,10 +263,10 @@ def test_without_base_stage1_only_letters(doc):
         now = E.extract(s.doc, doc_key=s.doc_key)
     temp = TP.label(now, heading_runs.hints(s)["temp"])  # 유형 표는 TEMP 를 뺀 후보의 것 — 지금 문서도 TEMP 를 빼고 견준다(check 와 같음)
     x = HD.headings(sk, now, temp=temp)
-    assert x["formatsChecked"] is False and x["formats"] == [] and [(i["shape"], i["paras"]) for i in x["letters"]] == [("▶", [PID])]
+    assert x["formatsChecked"] is False and x["formats"] == [] and x["wrong"] == [] and [(i["shape"], i["paras"]) for i in x["letters"]] == [("▶", [PID])]
     # 세션이 쥐어 둔 뼈대(처음 물었을 때 만든 것) — 그 뒤 1단계를 다시 뽑았고 작업 폴더에서도 못 읽지만(시험마다 다른 NFM_WORKS = 저장 끔과 같음) 기준이 남아 있다
     full = HD.headings(HD._skeleton(s, heading_runs.state(s), g, heading_runs.hints(s)), now, temp=temp)
-    assert full["formatsChecked"] is True and [i["paras"] for i in full["formats"]] == [["p972"]] and [i["shape"] for i in full["letters"]] == ["▶"]
+    assert full["formatsChecked"] is True and [i["paras"] for i in full["wrong"]] == [["p972"]] and [i["shape"] for i in full["letters"]] == ["▶"]
 
 
 def test_no_results_nothing_to_compare(tmp_path, monkeypatch):
@@ -371,6 +424,10 @@ def test_screen_does_not_ask_to_rerun_on_document_change():
         assert old not in app_js and old not in tables_js, old
     for hook in ("driftChip()", "driftCardRow(r, 2)", "driftCardRow(r, 3)", "driftSync(r)", "driftTouch()", "driftReset()", "driftMarkOf"):
         assert hook in app_js, hook
+    drift_js, match_js = ((static / n).read_text("utf-8") for n in ("heading_drift.js", "outline_match.js"))
+    for word in ("s2.wrong", "잘못된 서식", "대표에 맞추기", "olmMatch(ol.tpl, ol.level, 1, [pid])"):  # 한 줄뿐인 서식은 따로 — 맞추기는 「템플릿 관계」 의 갈래 맞추기와 같은 길
+        assert word in drift_js, word
+    assert "async function olmMatch(id, L, n, group = null)" in match_js and "function tplRelOpen(focus = null, at = null)" in app_js  # heading_drift.js 가 기대는 이름·인자
     assert "driftCount(3)" in tables_js and "/static/heading_drift.js" in html and "/static/heading-drift.css" in html
     stale = app_js.split("function headsStageStale(r, k) {", 1)[1].split("function ", 1)[0]
     assert "driftCount(k)" in stale and ".stale" not in stale  # 단계 탭 점·손볼 단계 = 뼈대 밖 항목이 있을 때만

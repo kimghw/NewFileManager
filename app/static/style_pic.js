@@ -4,7 +4,8 @@
 // 편집 화면의 그리기 함수(renderTable·renderPara·fontStack)와 state 를 쓰지 않는다(astra 협의: 그 함수들은 지금 문서의 글꼴 별칭·형식·편집 표시를 읽고, 같은 id 의 요소가 저장 길 paraEl 에 잡힌다).
 // 그림 안에는 제 클래스(sp-*)만 쓴다 — .para · table.tbl · .sheet · data-id · contenteditable 을 만들지 않는다. 글꼴은 서식 요약의 글꼴 이름 그대로(PC 에 있으면 그 글꼴 · 없으면 웹 기본).
 // 밖에 내는 것 하나: stylePic(view, opts) -> HTMLElement  (+ stylePic.height(kind, n) = 그 종류의 그림 상자 높이 — 자리를 먼저 잡을 때 쓴다 · stylePic.kindOf(view, kind) = 그릴 종류)
-//   view = 견본의 보기(GET /api/styles/{sid} 의 view · POST …/styles/preview 의 view) · opts = {kind: "content"|"para"|"table"|"page"|"cover"|"text"(레벨이 있으면 content), bands?, role?, width?, big?}
+//   view = 견본의 보기(GET /api/styles/{sid} 의 view · POST …/styles/preview 의 view) · opts = {kind: "content"|"para"|"table"|"page"|"cover"|"text"(레벨이 있으면 content), bands?, role?, width?, big?,
+//   mark?: 값을 고치는 항목 key(내용 서식 — 그 레벨을 표시하고 「글 시작」 자리에 세로 점선)} · stylePic.place(item, pos) = 항목의 자리(앞 여백 · 레터 위치 · 글 시작 · 2번째 줄)
 // 배율: mm → px 을 그림마다 **한 번** 계산한다(opts.width — 기본 296px = 열 320px 의 안쪽). CSS zoom 을 쓰지 않고, 재려고 배율을 바꿨다 되돌리지도 않는다(화면 요소를 재지 않는다).
 // 그림 = role="img" + aria-label(요약 글) · 그림 안은 aria-hidden · pointer-events: none(style_lib.css). 모양(sp-*)의 CSS 는 style_lib.css 끝에 있다. index.html 이 style_lib.js 앞에 읽는다.
 
@@ -62,7 +63,7 @@ const stylePic = (() => {
 
   function height(kind, n) { // 그 종류의 그림 상자 높이(px) — 자리를 먼저 잡는다(목록이 밀리지 않게: ② §13 「목록의 살림」)
     n = Math.max(0, Math.round(num(n)));
-    if (kind === "content") return clamp(16 + (n || 3) * 22, 64, 200);
+    if (kind === "content") return clamp(16 + (n || 3) * 38, 64, 260); // 레벨마다 두 줄(첫 줄 + 둘째 줄 막대) — 15pt 레벨 하나가 약 37px
     if (kind === "para") return 64;
     if (kind === "table") return clamp(30 + (n || 5) * ROW_H, 64, 150); // 30 = 위 띠 표시 자리(15) + 안쪽 여백·테두리 — 9행까지는 다 보인다
     if (kind === "page") return 170;
@@ -81,33 +82,67 @@ const stylePic = (() => {
     return kind;
   }
 
-  // ---- 내용 서식(개요 레벨) — MS Word 의 다단계 목록 미리보기처럼: 레벨마다 한 줄(왼쪽 바깥 「L1」 · 레터 · 견본 글 · 글 막대) ----
-  function levelLine(it, k, fs, withTag) {
-    const f = it.format || {}, m = it.marker || {}, row = mk("div", "sp-lv"), line = mk("div", "sp-line"), px = Math.max(9, num(f.sizePt, 10) * fs);
+  // ---- 내용 서식(개요 레벨) — MS Word 의 다단계 목록 미리보기처럼: 레벨마다 **두 줄**(왼쪽 바깥 「L1」 · 첫 줄 = 앞 공백 · 레터 · 견본 글 · 글 막대 / 둘째 줄 = 「2번째 줄」 자리에서 시작하는 글 막대) ----
+  // 2026-11-16 사용자 "견본은 2줄씩 있어야 하고 그래야 2번째줄 위치를 알지": 둘째 줄이 있어야 내어쓰기(2번째 줄 자리)가 보인다(spec_서식복사 ② §13 「내용 서식의 견본」).
+  // 자리(mm — 문단 상자 왼끝에서): 앞 여백(첫 줄 시작) · 레터 위치(= 앞 여백 + 앞 공백 폭) · **글 시작**(= 앞 여백 + 레터 자리 폭 — 첫 내용 글자) · 2번째 줄. 레터 자리(앞 공백 + 레터 + 레터 뒤 공백)의 폭은
+  // 서버가 견본 문단에서 잰 값(view.pos[항목 key] — style_carrier.place)이 먼저고, 없으면(옛 서버 · 못 잼) 한글의 글자 폭 규칙으로 어림한다(빈칸 0.5em · 전각·기호 1em · 그 밖 0.5em — outline_pos._rough 와 같은 셈).
+  const WIDE = /[·•‧※←-⇿①-⓿■-➿⦁⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
+  function roughPrefix(it) { // → {leadMm, prefixMm} | null(자동 번호 — 번호 폭을 모른다 · 레터 자리에 탭)
+    const m = it.marker || {};
+    if (m.mode === "auto") return null;
+    if (m.mode !== "literal") return { leadMm: 0, prefixMm: 0 };
+    const em = num((it.format || {}).sizePt, 10) * PT_MM, w = (s) => [...String(s || "")].reduce((a, ch) => a + (ch === "\t" ? NaN : WIDE.test(ch) ? 1 : 0.5), 0) * em;
+    const lead = w(m.lead), all = lead + w(m.literal) + w(m.gap);
+    return Number.isFinite(all) ? { leadMm: lead, prefixMm: all } : null;
+  }
+  function placeOf(it, pos) { // 항목의 자리 {line1(앞 여백), letter(레터 위치), text(글 시작 | null = 모름), line2(2번째 줄), lead, prefix(레터 자리 폭 | null), exact(서버가 잰 값인가)} — 여백은 지금 그릴 서식 요약에서
+    it = it || {};
+    const f = it.format || {}, p = pos && typeof pos === "object" && Number.isFinite(Number(pos.prefixMm)) ? pos : null, e = p || roughPrefix(it), l1 = firstX(f);
+    const lead = e ? Math.max(0, num(e.leadMm)) : 0, prefix = e ? Math.max(lead, num(e.prefixMm)) : null;
+    return { line1: l1, letter: l1 + lead, text: prefix == null ? null : l1 + prefix, line2: restX(f), lead, prefix, exact: !!p };
+  }
+  function levelLine(it, k, fs, o) {
+    const f = it.format || {}, m = it.marker || {}, row = mk("div", "sp-lv"), lines = mk("div", "sp-lines"), line = mk("div", "sp-line"), line2 = mk("div", "sp-line sp-line2"), px = Math.max(9, num(f.sizePt, 10) * fs);
+    const p0 = o.pos && it.key ? o.pos[it.key] : null, pl = placeOf(it, p0), X = (mm) => `${Math.round(Math.max(0, mm) * k * 10) / 10}px`;
+    // 레터 글자의 모양 = 레터 런의 것(서버가 읽은 view.pos[key].letter — 「□」 는 기호 글꼴·다른 크기일 수 있다) · 없으면 고치기 전의 본문 것(it.letterFormat — 값 고치기는 본문 글자만 바꾼다) · 그것도 없으면 본문 것
+    const lf = (p0 && p0.letter && typeof p0.letter === "object" ? p0.letter : null) || (it.letterFormat && typeof it.letterFormat === "object" ? it.letterFormat : null) || f, lpx = Math.max(9, num(lf.sizePt, num(f.sizePt, 10)) * fs);
     row.dataset.level = it.level == null ? "" : String(it.level);
-    if (withTag) row.append(mk("span", "sp-tag", it.level != null ? `L${it.level}` : ""));
-    line.style.paddingLeft = `${Math.round(firstX(f) * k * 10) / 10}px`;
-    line.style.minHeight = `${Math.round(px * 1.5)}px`;
+    if (it.key) row.dataset.key = it.key;
+    row.append(mk("span", "sp-tag", it.level != null ? `L${it.level}` : ""));
+    line.style.paddingLeft = X(pl.line1); // 앞 여백 — 첫 줄이 시작하는 자리
+    line.style.minHeight = `${Math.round(Math.max(px, m.mode === "literal" ? lpx : 0) * 1.4)}px`;
+    if (pl.lead > 0) { const sp = mk("span", "sp-lead"); sp.style.width = X(pl.lead); line.append(sp); } // 앞 공백 — 레터는 그 뒤에서 시작한다
     const letter = m.mode === "auto" ? "" : String(m.literal != null && m.literal !== "" ? m.literal : it.letter || "").trim();
-    if (m.mode === "auto") line.append(look(mk("span", "sp-letter sp-auto", "1."), { font: f.font, bold: f.bold }, px)); // 자동 번호 — 대상 문서의 번호 설정을 따른다: 회색 자리표
-    else if (letter) line.append(look(mk("span", "sp-letter", short(letter, 8)), f, px));
+    const slot = m.mode === "auto" ? look(mk("span", "sp-letter sp-auto", "1."), { font: f.font, bold: f.bold }, px) // 자동 번호 — 대상 문서의 번호 설정을 따른다: 회색 자리표
+      : letter ? look(mk("span", "sp-letter", short(letter, 8)), lf, lpx) : null;
+    if (slot) { if (pl.text != null) slot.style.minWidth = X(pl.text - pl.letter); line.append(slot); } // 레터 칸의 폭 = 레터 + 레터 뒤 공백 → 견본 글이 「글 시작」 에서 시작한다
     let text = short(it.sample || "", 12);
     if (letter && text.startsWith(letter)) text = text.slice(letter.length).trim(); // 견본 글이 레터로 시작하면 한 번만
     if (text) line.append(look(mk("span", "sp-text", text), f, px));
     line.append(mk("span", "sp-bar")); // 글 막대(회색 — 줄 끝까지). 레터뿐인 레벨에도 붙는다
-    row.append(line);
+    line2.style.paddingLeft = X(pl.line2); // 2번째 줄 — 줄이 넘어가면 시작하는 자리
+    line2.style.height = `${Math.max(8, Math.round(px * 0.7))}px`;
+    line2.append(mk("span", "sp-bar"));
+    lines.append(line, line2);
+    if (o.mark && o.mark === it.key) { // 값을 고치는 레벨 — 표지를 파랗게 + 「글 시작」 자리에 세로 점선(둘째 줄이 글 아래에서 시작하는지 견줘 본다)
+      row.classList.add("sp-mark");
+      if (pl.text != null) { const g = mk("i", "sp-guide"); g.dataset.guide = "text"; g.style.left = X(pl.text); lines.append(g); }
+    }
+    row.append(lines);
     return row;
   }
+  const levelPx = (it, fs) => Math.max(9, num((it.format || {}).sizePt, 10) * fs);
   function content(view, opts) {
-    const items = (view.items || []).filter(Boolean), W = opts.width - 34;
-    const maxX = Math.max(0, ...items.map((it) => firstX(it.format))), pts = items.map((it) => num((it.format || {}).sizePt, 10)).filter((p) => p > 0);
-    const k = maxX > 0 ? Math.min(W / 160, (W * 0.55) / maxX) : W / 160; // mm → px: 모든 레벨에 같은 배율 — 가장 깊은 레벨의 첫 줄 자리가 상자 폭의 55% 안에 오게 한 번 정한다
-    const lo = Math.min(...pts, 10), hi = Math.max(...pts, 10), fs = Math.min(10.5 / lo, 17 / hi); // pt → px: 모든 레벨에 같은 배율(레벨 사이의 크기 차이가 보이게) — 가장 작은 글이 10.5px · 가장 큰 글이 17px 을 안 넘게 · 줄마다 최소 9px
+    const items = (view.items || []).filter(Boolean), W = opts.width - 34, pos = view.pos && typeof view.pos === "object" ? view.pos : null;
+    const places = items.map((it) => placeOf(it, pos && it.key ? pos[it.key] : null)), maxX = Math.max(0, ...places.map((p) => Math.max(p.line1, p.line2, p.text || 0)));
+    const pts = items.map((it) => num((it.format || {}).sizePt, 10)).filter((p) => p > 0), z = opts.big ? 1.45 : 1;
+    const lo = Math.min(...pts, 10), hi = Math.max(...pts, 10), fs = Math.min(10.5 / lo, 17 / hi) * z; // pt → px: 모든 레벨에 같은 배율(레벨 사이의 크기 차이가 보이게) — 가장 작은 글이 10.5px · 가장 큰 글이 17px 을 안 넘게(「크게」 는 1.45배) · 줄마다 최소 9px
+    const kTrue = fs / PT_MM, k = maxX > 0 ? Math.min(kTrue, (W * 0.6) / maxX) : kTrue; // mm → px: 글자와 **같은 배율**(레터 자리·들여쓰기가 글자 크기와 같은 비율로 보인다) — 가장 깊은 자리가 상자 폭의 60% 를 넘으면 그만큼 줄인다. 모든 레벨에 같은 배율
     const chain = items.map((it) => { const m = it.marker || {}; return m.mode === "auto" ? "자동 번호" : String(m.literal || it.letter || "").trim() || "(레터 없음)"; });
     const { root, box, inner } = frame("content", `개요 ${items.length}레벨: ${chain.join(" › ")}`, { ...opts, n: items.length });
     root.dataset.spLevels = String(items.length);
-    for (const it of items) inner.append(levelLine(it, k, fs, true));
-    const need = items.reduce((a, it) => a + Math.max(18, Math.round(Math.max(9, num((it.format || {}).sizePt, 10) * fs) * 1.5) + 3), 12);
+    for (const it of items) inner.append(levelLine(it, k, fs, { pos, mark: opts.mark }));
+    const need = items.reduce((a, it) => { const px = levelPx(it, fs); return a + Math.round(px * 1.4) + Math.max(8, Math.round(px * 0.7)) + 4; }, 12);
     if (!opts.big && need > height("content", items.length)) { box.classList.add("sp-over"); note(root, `전체 ${items.length}레벨`); }
     return root;
   }
@@ -289,5 +324,6 @@ const stylePic = (() => {
   }
   draw.height = height;
   draw.kindOf = kindOf;
+  draw.place = placeOf; // 항목의 자리(앞 여백 · 글 시작 · 2번째 줄 · 레터 자리 폭) — 서식 관리자의 「값 고치기」 가 같은 셈을 쓴다(style_lib.js slFmtBase)
   return draw;
 })();

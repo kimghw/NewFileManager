@@ -13,7 +13,9 @@
 - 편집: 조각 안에서 글자를 치면 조각 밖으로 · 지우면 되돌아옴 · 조각 가운데에 글자 → 앞 빈칸만 조각 · Backspace·빈칸 · 조각 끝에서 글자.
 - 키: Home → End = 첫 줄 끝(조각 끝에 안 멈춤) · Shift+End = 첫 줄 고르기 · → 로 한 글자씩 · ↓ ↑ 로 줄을 오감 · 고른 글 = 문단 글(조각 경계에 줄 바꿈 없음).
 - 한글 조합(IME — CDP): 조각 안에서 조합 → 끝난 뒤 조각 밖으로 · 글 순서 그대로.
-- 양쪽 정렬이 아닌 문단에는 조각이 없다 · 콘솔 오류 없음.
+- 빈칸 폭(② §3-4 「빈칸 폭」 — app.js spaceVars · style.css .para.hsp): 첫머리 빈칸 한 칸 · 마지막 줄(안 늘어난 줄)의 줄 안 빈칸 = 한글 폭(0.5em × 장평 × (1 + 자간)) ·
+  늘어난 줄의 빈칸은 그보다 좁지 않음 · 양쪽 정렬이 아닌 hwpx 문단도 앞 공백은 조각(문단 첫 글자인 빈칸에는 word-spacing 이 안 걸려서 — 조각의 자간으로 한글 폭).
+- 콘솔 오류 없음.
 
     python -X utf8 tools/smoke_lead_space_ui.py <출력 폴더> [--port 18481]
 """
@@ -78,7 +80,13 @@ LOOK = """(id) => { const p = paraEl(id), text = readText(p), n = text.length - 
   const sps = [...p.querySelectorAll('.lead-sp')];
   for (const s of sps) s.style.display = 'inline'; const xPlain = x(), hPlain = Math.round(p.getBoundingClientRect().height * 10) / 10; for (const s of sps) s.style.display = '';
   let end1 = n; for (let k = n; k < text.length; k++) { const b = at(k); if (b && b.width > 0 && Math.abs(b.top - y0) > 3) break; end1 = k + 1; }
+  // 빈칸 폭: half = 한글이 찍는 빈칸 폭(화면 px — 0.5em × 장평 × (1 + 자간) × 쪽 배율), lastGap = 마지막 줄(양쪽 정렬이 안 늘리는 줄)의 줄 안 빈칸 폭
+  const blk = state.byId.get(id), f = (blk && blk.format) || {}, sheet = p.closest('.sheet'), z = sheet ? sheet.getBoundingClientRect().width / sheet.offsetWidth : 1;
+  const half = Math.round(0.5 * parseFloat(getComputedStyle(p.querySelector('span') || p).fontSize) * z * ((f.ratioPct || 100) / 100) * (1 + (f.spacingPct || 0) / 100) * 100) / 100;
+  const tail = text.trimEnd().length - 1, yLast = tail > n ? at(tail).top : y0; let lastGap = null;
+  for (let k = tail; k > n; k--) { if (text[k] !== ' ') continue; const b = at(k); if (b && Math.abs(b.top - yLast) <= 3) lastGap = Math.round(b.width * 100) / 100; break; }
   return { text: text.slice(0, 14), len: text.length, n, lead: sps.map((s) => s.textContent).join(''), end1, x: now, xLeft, xPlain, h, hPlain, leadW, gaps: gaps.slice(0, 6), minGap: gaps.length ? Math.min(...gaps) : 0,
+    half, lastGap, hsp: p.classList.contains('hsp'), halfSpace: !!f.halfSpace, lastLine: Math.abs(yLast - y0) > 3,
     lines: Math.round(p.getBoundingClientRect().height / parseFloat(getComputedStyle(p).lineHeight)), align: p.style.textAlign, caret: caretAt(p), nodes: p.querySelectorAll('.lead-sp').length }; }"""
 
 
@@ -130,6 +138,13 @@ def main():
         check("그 줄의 줄 안 빈칸은 늘어나 있다(양쪽 정렬은 그대로) — 앞 공백 한 칸보다 넓음", v["gaps"][0] > v["leadW"] + 2, v)
         check("조각을 풀면(옛 그리기) 첫 글자가 오른쪽으로 밀린다 — 이 검사가 옛 동작을 잡는다", v["xPlain"] - v["x"] > 5, v)
         check("문단 높이는 조각이 있으나 없으나 같다", v["h"] == v["hPlain"], v)
+        # 빈칸 폭(② §3-4 「빈칸 폭」) — 한글은 빈칸을 글꼴과 무관하게 0.5em 으로 찍는다
+        check("빈칸 폭 — 그 문단은 「글꼴에 어울리는 빈칸」 끔(halfSpace) · .hsp", v["halfSpace"] and v["hsp"], v)
+        check("빈칸 폭 — 첫머리 빈칸 한 칸 = 한글 폭(0.5em × 장평 × (1 + 자간))", abs(v["leadW"] - v["half"]) < 0.3, v)
+        check("빈칸 폭 — 마지막 줄(안 늘어난 줄)의 줄 안 빈칸 = 한글 폭", v["lastLine"] and v["lastGap"] is not None and abs(v["lastGap"] - v["half"]) < 0.3, v)
+        check("빈칸 폭 — 늘어난 줄의 빈칸은 한글 폭보다 좁지 않다(양쪽 정렬은 그 위에서 늘린다)", v["minGap"] >= v["half"] - 0.3, v)
+        keys = page.evaluate("() => [...SPACE.keys.values()].map((k) => [k.n, k.em, getComputedStyle(document.documentElement).getPropertyValue(`--nfm-sp-${k.n}`).trim()])")
+        check("빈칸 폭 — 글꼴 차례마다 잰 빈칸 폭이 :root 변수에 있다(0 < 폭 ≤ 1em)", bool(keys) and all(0 < k[1] <= 1 and k[2] == f"{k[1]}em" for k in keys), keys)
         page.screenshot(path=str(OUT / "lead_1_typed.png"))
 
         # 저장 → 새로 고침 = 서버가 준 글로 그림(renderPara)
@@ -239,15 +254,19 @@ def main():
         blk = next((x for x in walk(srv["blocks"]) if x.get("id") == PID), {})
         check("편집을 마친 뒤 서버 문서의 글 = 앞 공백 4칸 + 원래 글", (blk.get("text") or "").startswith("    -") and len(blk.get("text") or "") == v0["len"] + 4, (blk.get("text") or "")[:20])
 
-        # 양쪽 정렬이 아닌 문단 — 조각을 만들지 않는다
-        other = page.evaluate("""() => { const p = [...document.querySelectorAll('#doc .para')].find((x) => x.style.textAlign !== 'justify' && readText(x).trim().length > 3 && !x.dataset.label); return p ? p.dataset.id : null; }""")
+        # 양쪽 정렬이 아닌 문단 — hwpx 문단이면 조각을 만든다(② §3-4 「빈칸 폭」: 문단 첫 글자인 빈칸에는 word-spacing 이 안 걸려 조각의 자간으로 한글 폭을 준다)
+        other = page.evaluate("""() => { const p = [...document.querySelectorAll('#doc .para')].find((x) => x.style.textAlign !== 'justify' && readText(x).trim().length > 3 && !x.dataset.label
+          && ((state.byId.get(x.dataset.id) || {}).format || {}).halfSpace && !((state.byId.get(x.dataset.id) || {}).runs || []).length); return p ? p.dataset.id : null; }""")
         if other:
             page.evaluate("(id) => paraEl(id).scrollIntoView({ block: 'center' })", other)
             caret(page, 0, other)
             page.keyboard.type("  ")
             page.wait_for_timeout(120)
-            o = page.evaluate("(id) => { const p = paraEl(id); return { n: p.querySelectorAll('.lead-sp').length, text: readText(p).slice(0, 6), align: p.style.textAlign }; }", other)
-            check("양쪽 정렬이 아닌 문단은 앞 공백을 쳐도 조각이 없다(늘어날 일이 없음)", o["n"] == 0 and o["text"].startswith("  "), o)
+            o = page.evaluate("""(id) => { const p = paraEl(id), sp = p.querySelector('.lead-sp'), f = state.byId.get(id).format, sheet = p.closest('.sheet'), z = sheet ? sheet.getBoundingClientRect().width / sheet.offsetWidth : 1;
+              const w = []; if (sp) for (let i = 0; i < sp.textContent.length; i++) { const r = document.createRange(); r.setStart(sp.firstChild, i); r.setEnd(sp.firstChild, i + 1); w.push(Math.round(r.getClientRects()[0].width * 100) / 100); }
+              return { n: p.querySelectorAll('.lead-sp').length, lead: sp ? sp.textContent : '', w, text: readText(p).slice(0, 6), align: p.style.textAlign,
+                half: Math.round(0.5 * parseFloat(getComputedStyle(sp || p).fontSize) * z * ((f.ratioPct || 100) / 100) * (1 + (f.spacingPct || 0) / 100) * 100) / 100 }; }""", other)
+            check("양쪽 정렬이 아닌 hwpx 문단도 앞 공백을 치면 조각 · 두 칸 모두 한글 폭(첫 칸도)", o["n"] == 1 and o["lead"] == "  " and o["text"].startswith("  ") and len(o["w"]) == 2 and all(abs(x - o["half"]) < 0.3 for x in o["w"]), o)
             page.keyboard.press("Backspace")
             page.keyboard.press("Backspace")
             saved(page)

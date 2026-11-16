@@ -2802,6 +2802,7 @@ function paginate() {
     overflowPush(doc);
     const epoch = state.paginateEpoch = (state.paginateEpoch || 0) + 1;
     document.fonts.ready.then(() => { // url() 웹 글꼴이 늦게 오면 줄 수·높이가 바뀐다 — 그때 다시 밀고 표시를 다시 그린다(그 사이 다시 나눴으면 생략)
+      spaceRemeasure(); // 빈칸 폭도 온 글꼴로 다시 잰다(② §3-4 「빈칸 폭」) — 아래 다시 밀기가 그 폭으로 본다
       if (epoch !== state.paginateEpoch || !state.mapping || !doc.isConnected) return;
       const pushed = overflowPush(doc), split = overflowSplit(doc); // 밀기 뒤 넘침 나눔도 다시(새 블록 쪽 — a4 세션, astra 11-10 ③)
       if (!pushed && !split) return; // 옮긴 게 없으면 다시 그리지 않음(표시 다시 그리기가 느림 — 61 세션)
@@ -3312,6 +3313,56 @@ function renderPara(b, text = null) {
 // 줄인 상자 안의 자간은 그대로(전각 글자 1em 기준 letter-spacing), 들여쓰기·여백만 1/장평 배로 준다.
 const ratioOf = (f) => (f.ratioPct > 0 ? f.ratioPct / 100 : 1);
 
+// 빈칸 폭(spec_hwpx_웹편집 ② §3-4 「빈칸 폭」): 한글은 「글꼴에 어울리는 빈칸」 을 끈 글자 모양(halfSpace — 대부분)의 빈칸을 글꼴과 무관하게 0.5em × 장평 × (1 + 자간)으로 찍는다
+// (한글 PDF 실측 — references/한글_문단모양_줄나눔.md 「글자 폭」). 브라우저는 글꼴의 빈칸 폭(함초롬바탕 0.30em · 돋움 0.33em · 맑은 고딕 0.35em)으로 그려서, 개요 줄의 글 시작이 한글보다
+// 왼쪽에 놓여 둘째 줄(내어쓰기 자리 — 한글 폭으로 맞춘 값)과 어긋나 보였고(「 ㅇ 」 14pt 에서 2mm) 줄마다 낱말이 한글보다 더 들어갔다. → 빈칸마다 모자란 폭을 더한다.
+// 값은 CSS 가 셈한다(style.css `.para.hsp`): 빈칸 = word-spacing(--hs-w − --hs-f), 첫머리 조각(.lead-sp)은 letter-spacing(--hs-l − --hs-f) — em 은 쓰는 요소의 글자 크기로 풀리므로
+// 크기가 다른 런·첨자도 제 크기로 맞는다. --hs-f = 그 글꼴의 빈칸 폭(브라우저가 실제로 그리는 글꼴을 캔버스로 잰 값 — :root 의 --nfm-sp-N), q = 글자 간격 배(1 + 자간 · 런 장평이
+// 문단과 다르면 kr(1+s)/k — charLook): 한글 빈칸 = 0.5q em · 웹 빈칸 = 글꼴 빈칸 + 자간 (q − 1)em + word-spacing 이므로 --hs-w = (1 − 0.5q)em · --hs-l = 0.5q em.
+// halfSpace 가 아닌 글자(글꼴에 어울리는 빈칸 켬)는 더하는 값이 0 이다. Word(docx)는 글꼴 빈칸 그대로라 안 건다.
+const SPACE = { keys: new Map(), cv: null }; // 글꼴 열쇠(기울임·굵기·글꼴 차례 — 캔버스 font 글) → { n, em }
+function spaceMeasure(font) { // -> 그 글꼴 차례가 그리는 빈칸의 폭(em). 못 재면 0.5 = 더하는 값 0(예전 그대로)
+  const cv = SPACE.cv || (SPACE.cv = document.createElement("canvas").getContext("2d"));
+  cv.font = "10px serif";
+  cv.font = font;
+  if (cv.font === "10px serif") return 0.5; // 캔버스가 그 글꼴 글을 못 읽음
+  const em = cv.measureText(" ").width / 200;
+  return em > 0 && em < 2 ? Math.round(em * 1000) / 1000 : 0.5;
+}
+function spaceVar(stack, bold, italic) { // -> 그 글꼴의 빈칸 폭을 담은 :root 변수(처음 보는 글꼴이면 재서 적는다)
+  const font = `${italic ? "italic " : ""}${bold ? 700 : 400} 200px ${stack}`;
+  let k = SPACE.keys.get(font);
+  if (!k) {
+    k = { n: SPACE.keys.size, em: spaceMeasure(font) };
+    SPACE.keys.set(font, k);
+    document.documentElement.style.setProperty(`--nfm-sp-${k.n}`, `${k.em}em`);
+  }
+  return `var(--nfm-sp-${k.n})`;
+}
+// 웹 글꼴(url)이 늦게 오면 그 전에 잰 폭은 대신 그린 글꼴의 것이다 — 글꼴이 다 온 뒤 다시 재서 바뀐 것만 :root 에 다시 적는다(문단은 변수를 따라 저절로 바뀐다). -> 바뀐 것이 있는가
+function spaceRemeasure() {
+  let changed = false;
+  for (const [font, k] of SPACE.keys) {
+    const em = spaceMeasure(font);
+    if (em === k.em) continue;
+    k.em = em;
+    document.documentElement.style.setProperty(`--nfm-sp-${k.n}`, `${em}em`);
+    changed = true;
+  }
+  return changed;
+}
+document.fonts.addEventListener("loadingdone", spaceRemeasure);
+// 문단·런 하나의 빈칸 값 셋 [--hs-f, --hs-w, --hs-l] — c = 그 글자 모양(문단 서식 f 또는 런 서식 r), q = 글자 간격 배
+function spaceVars(c, q) {
+  const r4 = (v) => Math.round(v * 10000) / 10000;
+  return c.halfSpace ? [spaceVar(fontStack(c), c.bold, c.italic), `${r4(1 - q / 2)}em`, `${r4(q / 2)}em`] : ["0.5em", "0.5em", `${r4(q - 0.5)}em`];
+}
+function spaceLook(st, v) {
+  st.setProperty("--hs-f", v[0]);
+  st.setProperty("--hs-w", v[1]);
+  st.setProperty("--hs-l", v[2]);
+}
+
 // 왼쪽 여백·첫 줄 — paraLook 과, 서버가 문단 여백만 바꿨을 때(글 고침 응답 applyServer · 개요 줄 자리 규칙 outline_format.js — spec_hwpx_웹편집 ② §8-1)가 같이 쓴다.
 function indentLook(st, f) {
   const k = ratioOf(f), left = f.indentLeftMm || 0, first = f.firstLineMm || 0;
@@ -3330,6 +3381,7 @@ function paraLook(p, f) {
   if (f.underline) st.textDecoration = "underline";
   if (f.color && f.color !== "#000000") st.color = f.color;
   if (f.spacingPct) st.letterSpacing = `${f.spacingPct / 100}em`;
+  if (state.format !== "docx") { p.classList.add("hsp"); spaceLook(st, spaceVars(f, 1 + (f.spacingPct || 0) / 100)); } // 빈칸 폭(② §3-4 「빈칸 폭」)
   st.textAlign = { justify: "justify", distribute: "justify", center: "center", right: "right" }[f.align] || "left";
   if (f.lineSpacingPct) st.lineHeight = String(Math.max(0.8, f.lineSpacingPct / 100));
   indentLook(st, f);
@@ -3362,7 +3414,8 @@ function leadShift(p, b, f) {
 // 브라우저는 pre-wrap 의 줄 앞 빈칸까지 같이 늘려서, 글이 둘째 줄로 넘어간 문단만 레터가 오른쪽으로 밀려 보였다(같은 서식인데 한 줄짜리 문단과 레터 자리가 다름 —
 // 「    - …」 13pt 두 줄 문단에서 4.8mm). 첫머리 빈칸을 늘어나지 않는 조각(.lead-sp — style.css 의 inline-block)으로 감싼다.
 // 조각은 그리기용일 뿐 글 구조가 아니다 — readText·offsetIn·pointAt 은 글 노드만 본다. Word(docx)는 안 쟀으니 예전대로, 문단 번호(::before 라벨)가 앞에 붙는 문단도 예전대로.
-const leadOn = (p) => state.format !== "docx" && p.style.textAlign === "justify" && !p.dataset.label;
+// 양쪽 정렬이 아닌 hwpx 문단(.hsp)에도 건다 — 브라우저는 문단 맨 첫 글자인 빈칸에 word-spacing 을 주지 않아서, 첫머리 빈칸의 한글 폭은 조각의 자간으로 준다(② §3-4 「빈칸 폭」).
+const leadOn = (p) => state.format !== "docx" && (p.style.textAlign === "justify" || p.classList.contains("hsp")) && !p.dataset.label;
 const leadLen = (t) => { let m = 0; while (t.charCodeAt(m) === 32) m += 1; return m; };
 
 // 글을 고친 뒤의 문단을 그 꼴로 다시 맞춘다 — 조각 안에 들어온 글자는 조각 뒤로, 조각 뒤에 붙은 첫머리 빈칸은 조각 안으로, 빈 조각은 지운다.
@@ -3433,6 +3486,10 @@ function charLook(s, r, f, pSize = f.sizePt) {
   // 자간. 런 장평이 문단과 다르면 글꼴 모양은 문단 장평(상자 scaleX) 그대로 두고 전각 글자 간격만 kr(1+s)/k 로 맞춘다(근사 — 두 예제엔 없음)
   const k = ratioOf(f), kr = ratioOf(r);
   if ((r.spacingPct || 0) !== (f.spacingPct || 0) || kr !== k) st.letterSpacing = `${kr * (1 + (r.spacingPct || 0) / 100) / k - 1}em`;
+  if (state.format !== "docx") { // 빈칸 폭(② §3-4 「빈칸 폭」) — 글꼴·굵기·자간·「글꼴에 어울리는 빈칸」 이 문단과 다른 런만 제 값을 적는다(같으면 문단 것을 물려받는다)
+    const v = spaceVars(r, kr * (1 + (r.spacingPct || 0) / 100) / k);
+    if (v.join() !== spaceVars(f, 1 + (f.spacingPct || 0) / 100).join()) spaceLook(st, v);
+  }
 }
 
 const BORDER = { SOLID: "solid", DASH: "dashed", DOT: "dotted", DASH_DOT: "dashed", DASH_DOT_DOT: "dashed", LONG_DASH: "dashed",

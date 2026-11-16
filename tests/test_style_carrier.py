@@ -536,7 +536,13 @@ def test_view_of_table_and_text_carriers(small, big):
     assert v["grid"]["rows"][5]["cells"][0]["text"] == "기술개발의\n필요성" and v["spec"]["rows"] == 18 and v["spec"]["bands"] == {"headerRows": 1, "headerCols": 1, "footRows": 0}
     data2, items = SC.from_paras(big, [{"para": _para(big, "□ ")}])
     v2 = SC.view(data2, {"kind": "text", "items": items})
+    pos = v2.pop("pos")[items[0]["key"]]  # 항목마다 견본 문단에서 잰 자리(spec_서식복사 ② §13 「내용 서식의 견본」) — items 는 meta 것 그대로
     assert v2 == {"paras": ["p2"], "items": items}
+    f = items[0]["format"]
+    assert abs(pos["line1Mm"] - (f["indentLeftMm"] + max(f["firstLineMm"], 0))) < .02 and abs(pos["line2Mm"] - (f["indentLeftMm"] + max(-f["firstLineMm"], 0))) < .02
+    assert pos["prefixMm"] > pos["leadMm"] >= 0 and abs(pos["textMm"] - pos["line1Mm"] - pos["prefixMm"]) < .02 and pos["letter"]["sizePt"] > 0  # 글 시작 = 앞 여백 + 레터 자리 폭(「□ 」)
+    plain, auto = SC.place(SC.doc(data2), SC.doc(data2)._ids["p2"], {"mode": "none"}), SC.place(SC.doc(data2), SC.doc(data2)._ids["p2"], {"mode": "auto"})
+    assert plain["prefixMm"] == 0 and plain["textMm"] == plain["line1Mm"] and plain["letter"] is None and auto is None  # 글자 레터가 없으면 글 시작 = 앞 여백 · 자동 번호는 못 잰다
     with pytest.raises(ValueError):
         SC.view(SC.base()[:100], {"kind": "table"})
     with pytest.raises(ValueError):

@@ -4,7 +4,8 @@
 2단계(헤딩 그래프·템플릿)·3단계(표 구조) 결과는 한 번 만들면 그 문서의 **뼈대**다 — 문서를 고쳐도 다시 만들라고 하지 않는다. 대신 지금 문서에서 **뼈대를 만들 때 문서에 없던 것**만
 찾아 알린다(스크립트만 · LLM 없음 · 문서와 결과를 바꾸지 않음 · 실행으로 저장하지 않음):
 
-- 2단계: **새 레터**(그 자리(본문·표 칸)에 없던 레터 꼴) · **새 서식**(레터는 있던 것인데 그 레터가 쓰던 어느 서식과도 오차 밖인 서식).
+- 2단계: **새 레터**(그 자리(본문·표 칸)에 없던 레터 꼴) · **새 서식**(레터는 있던 것인데 그 레터가 쓰던 어느 서식과도 오차 밖인 서식을 **`REPEAT_MIN` 줄 이상 되풀이**해 씀) ·
+  **잘못된 서식**(그런 서식인데 되풀이되지 않음 — 한 줄뿐: 사용자 2026-11-16 「새로운 서식은 반복적일때 새로운 서식인거지. 이건잘못된거잖아」). 줄 맞춤 값(장평·자간)만 다른 줄은 어느 쪽도 아니다.
 - 3단계: **새 표**(없던 여러 칸 표) · **헤더가 바뀐 표**(열헤더·행헤더의 글이 달라지거나 없어지거나 새로 생긴 표 — 행·열 수만 달라진 표는 같은 표로 본다).
 
 기준(뼈대를 만들 때의 문서) = 그 2단계 결과가 선 1단계 실행(`meta.stage1Run`)의 레코드 — TEMP·헤딩 아님으로 빠진 줄까지 문서에 있던 헤딩 후보 전부. 그 1단계 결과를 못 읽으면
@@ -22,10 +23,13 @@ from app import heading_runs as HR
 from app import heading_tables as HT
 from app import heading_temp as TP
 from app import outline_edit as OE
+from app import outline_match as OM
 from app import works
 
 PARAS_MAX = 200  # 묶음 하나가 실어 보내는 문단 id 수(수는 그대로 센다)
-NONE2 = {"letters": [], "formats": [], "formatsChecked": True, "counts": {"letters": 0, "letterParas": 0, "formats": 0, "formatParas": 0}}
+REPEAT_MIN = 2   # 같은 레터의 줄이 같은 서식(지금 서식 라벨)을 이만큼 되풀이해 쓸 때만 「새 서식」 — 그보다 적으면 「잘못된 서식」(사용자 2026-11-16 답 「2줄 이상」)
+NONE2 = {"letters": [], "formats": [], "wrong": [], "formatsChecked": True,
+         "counts": {"letters": 0, "letterParas": 0, "formats": 0, "formatParas": 0, "wrong": 0, "wrongParas": 0}}
 NONE3 = {"new": [], "changed": [], "gone": 0, "resized": 0, "counts": {"new": 0, "changed": 0, "gone": 0, "resized": 0}}
 
 
@@ -95,6 +99,16 @@ def skeleton(g, base=None, hints=None):
 
 INDENT = ("indentLeftMm", "firstLineMm")  # 개요 줄 자리(spec_hwpx_웹편집 ② §8-1)가 넣는 문단 여백 — 앱이 맞춘 줄은 이 둘을 빼고 견준다
 PLACED_EPS = 0.02  # mm — outline_pos.EPS 와 같음
+_FIT_FLAT = {"ratioPct": 100, "spacingPct": 0}
+assert set(_FIT_FLAT) == set(OM.FIT_KEYS)  # 줄 맞춤 값의 목록은 outline_match 가 원본(spec_hwpx_웹편집 ② §8-2 「줄 맞춤 값」)
+
+
+def _fitless(rec):
+    """줄 맞춤 값(장평·자간)을 기본값으로 눕힌 레코드(얕은 사본 — 글 런·레터 런 둘 다). 한 줄에 넣으려고 줄인 자간은 서식이 아니다: 서식 조정(대표에 맞추기)도 그 값은 지킨다 —
+    눕히지 않으면 맞춘 줄(문단 모양은 대표 · 자간은 제 것)이 뼈대에 없던 지문이라 「새 서식」 으로 나온다. 레터 런이 글 런과 줄 맞춤 값만 달랐으면 같은 글자 모양이 된다(`E._letter_run` → None)."""
+    ch = rec["char"]
+    flat = lambda c: {**c, **_FIT_FLAT} if c else c  # noqa: E731
+    return {**rec, "char": {**ch, "text": flat(ch.get("text")), "letter": flat(ch.get("letter"))}}
 
 
 class _Formats:
@@ -119,15 +133,36 @@ class _Formats:
 
 
 def headings(sk, now, temp=None, hints=None, tol=None, placed=None):
-    """뼈대(skeleton 결과) ↔ 지금 문서(1단계 꼴 `now`) → {letters[새 레터 묶음], formats[새 서식 묶음], counts, formatsChecked}.
-    묶음 = {scope, kind, shape, letter(예), text(예문), count, paras[문단 id…]} + 새 서식은 {fmt, name(지금 서식 이름), known[그 레터가 쓰던 서식 이름…]}.
+    """뼈대(skeleton 결과) ↔ 지금 문서(1단계 꼴 `now`) → {letters[새 레터 묶음], formats[새 서식 묶음], wrong[잘못된 서식 묶음], counts, formatsChecked}.
+    묶음 = {scope, kind, shape, letter(예), text(예문), count, paras[문단 id…]} + 서식 묶음은 {fmt, name(지금 서식 이름), known[그 레터가 쓰던 서식 이름…]}.
+    서식 묶음 = (자리, 레터, 지금 서식 라벨)이 같은 줄들 — `REPEAT_MIN` 줄 이상이면 **새 서식**(되풀이해 쓰는 서식), 그보다 적으면 **잘못된 서식**(그 줄만 다름 — 대표에 맞출 것).
+    줄 맞춤 값(장평·자간)만 다른 줄은 서식이 다른 것이 아니다(`_fitless`).
     temp = 지금 TEMP 라벨(그 문단은 헤딩 후보가 아니다 — §15). placed = {문단 id: {"first": 앱이 넣은 첫 줄 값 mm, "left": 왼쪽 여백도 앱이 옮기는 줄인가}}(개요 오버레이 줄의 `first` —
     개요 줄 자리 규칙이 둘째 줄을 맞춘 줄, left = 그 슬롯에 사용자가 정한 자리 규칙이 있음): 첫 줄이 그 값 그대로인 문단은 첫 줄(left 면 왼쪽 여백도)을 빼고 견준다 — 앱이 맞춘 자리는 새 서식이 아니다.
     저절로 맞춘 줄(left 아님)은 왼쪽 여백을 안 건드리므로, 사람이 왼쪽 여백을 바꾸면 새 서식으로 나온다."""
     fm = _Formats(tol)
-    rep_sig = {sid: fm.sig(rec) for sid, rec in sk["reps"].items()}
-    rep_loose = {}
+    sigs = {}  # (줄 맞춤 값을 눕혔나, S, 첫 줄을 뺐으면 left | None) → 그때 대표의 지문
     placed = placed or {}
+
+    def used(rec, ref, app_set, left):
+        """그 레터가 쓰던 서식인가 — 그때 서식 라벨의 대표와 ① 오차 안(1단계가 서식 라벨을 묶는 규칙) ② 앱이 맞춘 첫 줄(left 면 왼쪽 여백도)을 빼고 ③ 줄 맞춤 값(장평·자간)을 눕히고(②도 함께)."""
+        for flat in (False, True):
+            s = fm.sig(_fitless(rec) if flat else rec)
+            for loose in ((False, True) if app_set else (False,)):
+                a = fm.loose(s, left) if loose else s
+                for sid in ref["sids"]:
+                    r = sk["reps"].get(sid)
+                    if r is None:
+                        continue
+                    k = (flat, sid, left if loose else None)
+                    b = sigs.get(k)
+                    if b is None:
+                        b = fm.sig(_fitless(r) if flat else r)
+                        b = sigs[k] = fm.loose(b, left) if loose else b
+                    if fm.same(a, b):
+                        return True
+        return False
+
     by_id = {r["id"]: r for r in now["paras"]}
     labels = now.get("labels") or {}
     letters, formats, memo = {}, {}, {}
@@ -166,17 +201,7 @@ def headings(sk, now, temp=None, hints=None, tol=None, placed=None):
         mk = (idn[0], nd["kind"], shape, fp, bool(rec.get("blank")), app_set, left)
         known = memo.get(mk)
         if known is None:
-            known = fp in ref["fps"]
-            if not known:
-                s = fm.sig(rec)
-                known = any(sid in rep_sig and fm.same(s, rep_sig[sid]) for sid in ref["sids"])
-            if not known and app_set:
-                s = fm.loose(s, left)
-                for sid in ref["sids"]:
-                    if sid in rep_sig and (sid, left) not in rep_loose:
-                        rep_loose[sid, left] = fm.loose(rep_sig[sid], left)
-                known = any((sid, left) in rep_loose and fm.same(s, rep_loose[sid, left]) for sid in ref["sids"])
-            memo[mk] = known
+            known = memo[mk] = fp in ref["fps"] or used(rec, ref, app_set, left)
         if not known:
             sid = rec.get("fmt")
             add(formats, (idn[0], nd["kind"], shape, sid), nd, idn[0], shape, fmt=sid, name=(labels.get(sid) or {}).get("name") or E.format_name(rec),
@@ -185,8 +210,11 @@ def headings(sk, now, temp=None, hints=None, tol=None, placed=None):
     fs = sorted(formats.values(), key=lambda x: x["n"])
     for it in ls + fs:
         del it["n"]  # 문서 순으로 놓는 데만 쓴 값 — 답에는 안 싣는다
-    return {"letters": ls, "formats": fs, "formatsChecked": sk["full"],
-            "counts": {"letters": len(ls), "letterParas": sum(x["count"] for x in ls), "formats": len(fs), "formatParas": sum(x["count"] for x in fs)}}
+    ws = [x for x in fs if x["count"] < REPEAT_MIN]   # 되풀이되지 않는 서식 = 그 줄만 다름(잘못된 서식)
+    fs = [x for x in fs if x["count"] >= REPEAT_MIN]  # 되풀이해 쓰는 서식만 새 서식
+    return {"letters": ls, "formats": fs, "wrong": ws, "formatsChecked": sk["full"],
+            "counts": {"letters": len(ls), "letterParas": sum(x["count"] for x in ls), "formats": len(fs), "formatParas": sum(x["count"] for x in fs),
+                       "wrong": len(ws), "wrongParas": sum(x["count"] for x in ws)}}
 
 
 # ---- 뼈대(3단계 — 표) -----------------------------------------------------------------------------------------------
@@ -293,7 +321,7 @@ def _skeleton(sess, st, g, hv):
 
 
 def check(sess):
-    """지금 문서를 2·3단계 뼈대와 견준다 → {rev, stage2: None(결과 없음) | {moved, letters, formats, counts, formatsChecked}, stage3: None | {moved, new, changed, gone, resized, counts},
+    """지금 문서를 2·3단계 뼈대와 견준다 → {rev, stage2: None(결과 없음) | {moved, letters, formats, wrong, counts, formatsChecked}, stage3: None | {moved, new, changed, gone, resized, counts},
     extracted(견주려고 여기서 문서를 다시 뽑았나), seconds}. `moved` false = 그 결과를 만든 뒤 문서(와 1단계)가 그대로라 견줄 것이 없음.
     같은 문서 차례·같은 결과·같은 지정이면 기억해 둔 답."""
     st = HR.state(sess)
