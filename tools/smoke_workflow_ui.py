@@ -77,6 +77,9 @@ DIAGRAM = """() => { const d = document.getElementById('wfDiagram'), selected = 
     selected: selected && selected.getAttribute('href'), selectedCount: d.querySelectorAll('.wf-node[aria-current=step]').length,
     nodes: [...d.querySelectorAll('.wf-node')].map((n) => n.getAttribute('href')),
     groups: [...d.querySelectorAll('.wf-stage-link')].map((n) => n.getAttribute('href')),
+    groupCurrent: [...d.querySelectorAll('.wf-stage-link[aria-current=step]')].map((n) => n.getAttribute('href')),
+    grouped: [...d.querySelectorAll('.wf-groups > li')].map((li) => [li.querySelector(':scope > .wf-stage-link').getAttribute('href'), li.querySelectorAll(':scope > .wf-flow .wf-node').length]),
+    stageRow: d.querySelectorAll('.wf-stage-map').length,
     prev: document.getElementById('wfPrev')?.disabled, next: document.getElementById('wfNext')?.disabled,
     badges: [...d.querySelectorAll('#wfDetail > .wf-badges .wf-tag')].map((n) => n.textContent),
     impact: d.querySelector('#wfDetail .wf-impact strong')?.textContent || '',
@@ -184,25 +187,29 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     wf.screenshot(path=str(OUT / "06_diagram_styles.png"))
     navigation_checks(wf, api)
 
-    # TASK 전체 순서: 화면에는 고른 묶음의 노드만 보이고, 다음은 묶음 경계를 건넌다.
+    # TASK 전체 순서: 흐름에는 **모든 묶음의 단계가 한 번에** 보이고(2026-11-16 사용자 「여기서 모든 단계를 한번에」 — 전에는 고른 묶음의 노드만), 다음은 묶음 경계를 건넌다.
     task = tasks["style_copy"]
     sequence = [(g, s) for g in task["stages"] for s in g["steps"]]
     wf.click("#wfNav a[href='#style_copy']")
     bad = []
+    expected_nodes = [f"#style_copy--{g['id']}--{s['key']}" for g, s in sequence]
+    expected_grouped = [[f"#style_copy--{g['id']}", len(g["steps"])] for g in task["stages"]]
     for i, (group, step) in enumerate(sequence):
         state = wait_diagram(wf, step["name"])
         expected = f"#style_copy--{group['id']}--{step['key']}"
-        expected_nodes = [f"#style_copy--{group['id']}--{s['key']}" for s in group["steps"]]
         expected_badges = [api["by"][b] for b in step["by"]] + [label for key, label in (("auto", "저절로"), ("optional", "안 해도 됨"), ("soon", "준비 중")) if step[key]]
         expected_impact = {"none": "안 바뀜", "doc": "바뀜", "store": "안 바뀜 — 결과만 저장"}[step["change"]]
         if not (state["selected"] == expected and state["selectedCount"] == 1 and state["nodes"] == expected_nodes
+                and state["grouped"] == expected_grouped and state["groupCurrent"] == [f"#style_copy--{group['id']}"] and state["stageRow"] == 0
                 and state["position"].replace(" ", "") == f"단계{i + 1}/{len(sequence)}"
                 and state["prev"] == (i == 0) and state["next"] == (i == len(sequence) - 1)
                 and state["badges"] == expected_badges and state["impact"] == expected_impact):
             bad.append((i + 1, state))
         if i < len(sequence) - 1:
             wf.click("#wfNext")
-    check("문서 서식 복사 — 모든 단계를 등록부 순서대로 탐색 · 묶음을 넘어 이동 · 첫/마지막 경계 · 현재 묶음 노드만 표시", not bad, bad)
+    check("문서 서식 복사 — 모든 단계를 등록부 순서대로 탐색 · 묶음을 넘어 이동 · 첫/마지막 경계 · 모든 묶음의 노드를 한 번에(묶음 머리 아래 그 묶음의 단계 · 지금 묶음 표시 · 가로 묶음 줄 없음)", not bad, bad)
+    numbers = wf.evaluate("() => [...document.querySelectorAll('#wfDiagram .wf-node .wf-node-no')].map((n) => n.textContent)")
+    check("단계 번호는 TASK 전체로 이어 센다(묶음마다 다시 1 부터가 아니다)", numbers == [f"{i + 1:02d}" for i in range(len(sequence))], numbers)
     copy_group = next(g for g in task["stages"] if g["id"] == "copy")
     wf.click("#wfDiagram .wf-stage-link[href='#style_copy--copy']")
     stage = wait_diagram(wf, copy_group["steps"][0]["name"])
@@ -405,9 +412,10 @@ def main():
             steps: [...s.querySelectorAll('.wf-step')].map((d) => [d.querySelector('.wf-no').textContent, d.querySelector('.wf-name').textContent]), hash: location.hash,
             agents: (() => { const d = s.querySelector('.wf-step[data-step=stage2]'); d.open = true; return [...d.querySelectorAll('.wf-ano')].map((x) => x.textContent); })() }; }""")
         # 2단계의 에이전트 01(heading_rules) — 「헤딩 그래프(LLM)」 은 그래프 전에 못 맞춤·충돌 묶음의 규칙 보강을 먼저 돈다(spec_헤딩_추출 ② §3, 2026-11-16)
-        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(취합 · 이관 · 서식 복사) · 1~3단계 + 규칙 보강 · 뼈대 유지 · 2단계의 에이전트 01~05",
+        # 18(tpl_agent) — 헤딩 판정 뒤에 이어서 템플릿마다 서식 정리 계획을 받는다(같은 날 — 등록부 2단계의 agents 에 더해짐: spec_hwpx_웹편집 ② §8-4)
+        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(취합 · 이관 · 서식 복사) · 1~3단계 + 규칙 보강 · 뼈대 유지 · 2단계의 에이전트 01~05 · 18",
               c["h2"] == "공통 모듈헤딩 추출" and c["io"] == ["여는 곳", "쓰는 TASK"] and c["used"] == ["사업계획서 취합", "사업계획서 → 연차보고서 이관", "문서 서식 복사"] and c["hash"] == "#common-headings"
-              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]] and c["agents"] == ["01", "02", "03", "04", "05"], c)
+              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]] and c["agents"] == ["01", "02", "03", "04", "05", "18"], c)
         wf.screenshot(path=str(OUT / "03_common_headings.png"))
         wf.locator("#common-headings .wf-io .wf-links a", has_text="문서 서식 복사").click()
         wf.wait_for_function(f"{CURRENT}() === '문서 서식 복사'", timeout=10000)

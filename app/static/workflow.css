@@ -156,36 +156,40 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
 .wf-context > summary, .wf-tech > summary { padding: 4px 0; color: var(--muted); cursor: pointer; }
 .wf-tech > summary { padding: 8px 0; }
 .wf-context .wf-io { max-width: 1040px; }
-.wf-stage-map { list-style: none; display: flex; margin: 0 0 12px; padding: 0; gap: 26px; }
-.wf-stage-map > li { position: relative; flex: 1; min-width: 0; }
-.wf-stage-map > li + li::before { content: "→"; position: absolute; left: -21px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
-.wf-stage-link { height: 100%; min-height: 40px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 8px 12px; color: var(--text); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; background: white; }
-.wf-stage-link b { font-size: 13px; overflow-wrap: anywhere; }
-.wf-stage-link small { grid-column: 3; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.wf-stage-index { color: #73849c; font-size: 18px; font-weight: 700; }
-.wf-stage-link[aria-current="step"] { border-color: var(--accent); background: var(--accent-soft); }
-.wf-stage-link[aria-current="step"] .wf-stage-index, .wf-stage-link[aria-current="step"] b { color: var(--accent); }
-.wf-stage-link:hover { border-color: var(--accent); }
+/* 흐름 = 모든 묶음의 단계를 한 번에(2026-11-16 사용자 「여기서 모든 단계를 한번에 나타내도 될거 같은데」 — 전의 가로 묶음 줄 .wf-stage-map 은 없앰: 고른 묶음의 단계만 보였다).
+   TASK: .wf-groups › li(묶음 머리 a.wf-stage-link — 알약 번호 · 이름 · 단계 수: 테두리·바탕 없는 한 줄 + 그 묶음의 .wf-flow) · 공통 모듈: .wf-flow 만.
+   열두 단계(이관 · 취합)도 한 화면에 가깝게 — 노드는 낮게(이름 옆에 꼬리표 · 폭이 모자라면 아래 줄), 화살표 사이는 좁게. 상자는 흐름 상자 › 노드 두 겹뿐(묶음을 상자로 싸지 않는다 — design.md §1) */
 .wf-board { display: grid; grid-template-columns: minmax(260px, .85fr) minmax(0, 1.6fr); align-items: start; gap: 24px; }
-.wf-map { padding: 22px; min-width: 0; background-color: #eef2f8; background-image: radial-gradient(#c5cfdf 1px, transparent 1px); background-size: 16px 16px; border: 1px solid #dce3ed; border-radius: 12px; }
-.wf-map-head { margin: 0 0 20px; }
-.wf-map-head h3 { margin: 0 0 4px; font-size: 14px; }
+.wf-map { padding: 16px 18px; min-width: 0; background-color: #eef2f8; background-image: radial-gradient(#c5cfdf 1px, transparent 1px); background-size: 16px 16px; border: 1px solid #dce3ed; border-radius: 12px; }
+.wf-map-head { margin: 0 0 12px; }
+.wf-map-head h3 { margin: 0 0 2px; font-size: 14px; }
 .wf-map-head p { margin: 0; font-size: 11px; color: var(--muted); }
+.wf-groups { list-style: none; margin: 0; padding: 0; }
+.wf-groups > li { position: relative; }
+.wf-groups > li + li { padding-top: 18px; }
+.wf-groups > li + li::before, .wf-flow > li + li::before { content: "↓"; position: absolute; top: 1px; left: 20px; color: #8a9bb5; font-size: 14px; line-height: 14px; }
+.wf-stage-link { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 2px 4px; border-radius: 6px; color: var(--text); text-decoration: none; }
+.wf-stage-link b { flex: 0 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.wf-stage-link small { flex: none; margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.wf-stage-index { flex: none; min-width: 12px; padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; white-space: nowrap; }
+.wf-stage-link[aria-current="step"] b { color: var(--accent); }
+.wf-stage-link[aria-current="step"] .wf-stage-index { border-color: var(--accent); background: var(--accent); color: #fff; }
+.wf-stage-link:hover b { text-decoration: underline; }
+.wf-stage-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wf-flow { list-style: none; margin: 0; padding: 0; }
 .wf-flow > li { position: relative; }
-.wf-flow > li + li { padding-top: 28px; }
-.wf-flow > li + li::before { content: "↓"; position: absolute; top: 2px; left: 31px; color: #8a9bb5; font-size: 20px; line-height: 24px; }
-.wf-node { position: relative; display: flex; align-items: center; gap: 12px; padding: 16px 14px; border: 1px solid #ccd5e3; border-radius: 8px; background: white; color: var(--text); text-decoration: none; box-shadow: 0 2px 4px #152b5010; }
+.wf-flow > li + li { padding-top: 16px; }
+.wf-node { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #ccd5e3; border-radius: 8px; background: white; color: var(--text); text-decoration: none; box-shadow: 0 2px 4px #152b5010; }
 .wf-node:hover { border-color: var(--accent); }
 .wf-node.wf-optional { border-style: dashed; }
-.wf-node[aria-current="step"] { border: 2px solid var(--accent); padding: 15px 13px; background: #f6f9ff; box-shadow: 0 0 0 3px #2458d60c; }
+.wf-node[aria-current="step"] { border: 2px solid var(--accent); padding: 7px 11px; background: #f6f9ff; box-shadow: 0 0 0 3px #2458d60c; }
 .wf-node.wf-optional[aria-current="step"] { border-style: dashed; }
-.wf-node-no { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 50%; background: #edf1f7; color: #5e718d; font-size: 12px; font-weight: 700; }
+.wf-node-no { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: #edf1f7; color: #5e718d; font-size: 11.5px; font-weight: 700; }
 .wf-node[aria-current="step"] .wf-node-no { background: var(--accent); color: white; }
-.wf-node-body { min-width: 0; display: grid; gap: 6px; }
+.wf-node-body { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; }
 .wf-node-body > b { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .wf-badges { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-.wf-map-note { margin: 20px 0 0; color: #63718a; font-size: 11px; line-height: 1.6; }
+.wf-map-note { margin: 14px 0 0; color: #63718a; font-size: 11px; line-height: 1.6; }
 .wf-detail { min-width: 0; padding: 28px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 4px 18px #172c4d05; scroll-margin-top: 14px; }
 .wf-read-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .wf-position { color: var(--accent); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -220,10 +224,7 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
 @media (max-width: 1100px) {
   .wf-diagram-mode .wf-main { padding: 12px 20px 40px; }
   .wf-board { gap: 16px; grid-template-columns: minmax(240px, .9fr) minmax(0, 1.2fr); }
-  .wf-map, .wf-detail { padding: 20px; }
-  .wf-stage-map { gap: 20px; }
-  .wf-stage-map > li + li::before { left: -17px; }
-  .wf-stage-link { padding: 8px 10px; }
+  .wf-detail { padding: 20px; }
 }
 @media (max-width: 900px) {
   .wf-diagram-mode .wf-nav { padding: 6px 8px; }
@@ -234,11 +235,6 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
   .wf-diagram-head { align-items: start; }
   .wf-diagram-head h2 { font-size: 21px; }
   .wf-back { font-size: 11px; margin-top: 4px; }
-  .wf-stage-map { gap: 14px; flex-direction: column; }
-  .wf-stage-map > li + li::before { content: "↓"; top: -14px; left: 22px; line-height: 14px; transform: none; }
-  .wf-stage-link { grid-template-columns: 28px minmax(0, 1fr) auto; min-height: 44px; padding: 8px 14px; }
-  .wf-stage-index { grid-row: 1; font-size: 15px; }
-  .wf-stage-link small { grid-column: 3; }
   .wf-detail > h3 { font-size: 21px; }
 }
 
@@ -278,7 +274,8 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
   .wf-diagram-mode .wf-chain > li + li::before { content: "↓"; text-align: center; padding: 5px; }
   .wf-diagram-mode .wf-chain .wf-chip { justify-content: center; }
   .wf-diagram-head { flex-direction: column; gap: 4px; }
-  .wf-detail, .wf-map { padding: 18px; }
+  .wf-detail { padding: 18px; }
+  .wf-map { padding: 14px; }
   .wf-detail .wf-more { grid-template-columns: minmax(0, 1fr); }
   .wf-view button { padding: 4px 8px; }
 }

@@ -80,26 +80,12 @@
       return;
     }
 
-    if (item.job) {
-      const stages = h("ol", "wf-stage-map");
-      stages.setAttribute("aria-label", "TASK 단계 묶음");
-      groups.forEach((g, gi) => {
-        const li = h("li"), a = link(`#${flow.id}--${g.id}`, "", "wf-stage-link"), label = stageLabel(g);
-        a.dataset.wfFocus = `stage-${gi}`;
-        if (gi === selected.gi) a.setAttribute("aria-current", "step");
-        a.append(h("span", "wf-stage-index", String(gi + 1).padStart(2, "0")), h("b", "", label.name), h("small", "", `${g.steps.length}개 단계`));
-        li.append(a); stages.append(li);
-      });
-      diagram.append(stages);
-    }
-
-    const board = h("div", "wf-board"), map = h("div", "wf-map"), group = groups[selected.gi];
+    // 흐름(왼쪽) — **모든 묶음의 단계를 한 번에**(spec_워크플로우 ② §7 — 2026-11-16 사용자 「여기서 모든 단계를 한번에 나타내도 될거 같은데」: 전에는 위의 가로 묶음 줄에서 고른 묶음의 단계만 보였다).
+    // TASK = 묶음 머리(번호 · 이름 · 단계 수 — 누르면 그 묶음의 첫 단계) 아래 그 묶음의 단계, 번호는 TASK 전체로 이어 센다 · 공통 모듈 = 단계만. 위의 가로 묶음 줄은 없앴다(같은 것을 두 곳에 두지 않는다).
+    const board = h("div", "wf-board"), map = h("div", "wf-map");
     const mapHead = h("div", "wf-map-head");
-    mapHead.append(h("h3", "", item.job ? stageLabel(group).name : "단계 흐름"), h("p", "", "번호를 따라 선택해 보세요"));
-    const nodes = h("ol", "wf-flow");
-    nodes.setAttribute("aria-label", "순서대로 확인할 단계");
-    steps.forEach(({ s, gi, path }, i) => {
-      if (gi !== selected.gi) return;
+    mapHead.append(h("h3", "", "단계 흐름"), h("p", "", item.job ? `묶음 ${groups.length}개 · 단계 ${steps.length}개 — 번호를 따라 선택해 보세요` : "번호를 따라 선택해 보세요"));
+    const node = ({ s, path }, i) => {
       const li = h("li"), a = link(`#${path}`, "", "wf-node" + (s.soon ? " wf-soon" : "") + (s.optional ? " wf-optional" : ""));
       a.dataset.wfFocus = `node-${i}`;
       a.setAttribute("aria-controls", "wfDetail");
@@ -109,8 +95,27 @@
       if (s.change === "doc") meta.append(tag("문서 바뀜", "doc"));
       body.append(h("b", "", s.name), meta);
       a.append(h("span", "wf-node-no", String(i + 1).padStart(2, "0")), body);
-      li.append(a); nodes.append(li);
-    });
+      li.append(a);
+      return li;
+    };
+    let nodes;
+    if (item.job) {
+      nodes = h("ol", "wf-groups");
+      nodes.setAttribute("aria-label", "TASK 단계 묶음과 단계");
+      groups.forEach((g, gi) => {
+        const li = h("li"), a = link(`#${flow.id}--${g.id}`, "", "wf-stage-link"), label = stageLabel(g), ol = h("ol", "wf-flow");
+        a.dataset.wfFocus = `stage-${gi}`;
+        if (gi === selected.gi) a.setAttribute("aria-current", "step");
+        a.append(h("span", "wf-stage-index", label.no || String(gi + 1)), h("b", "", label.name), h("small", "", `${g.steps.length}개 단계`));
+        ol.setAttribute("aria-label", `${label.name}의 단계`);
+        steps.forEach((st, i) => { if (st.gi === gi) ol.append(node(st, i)); });
+        li.append(a, ol); nodes.append(li);
+      });
+    } else {
+      nodes = h("ol", "wf-flow");
+      nodes.setAttribute("aria-label", "순서대로 확인할 단계");
+      steps.forEach((st, i) => nodes.append(node(st, i)));
+    }
     map.append(mapHead, nodes, h("p", "wf-map-note", "점선 단계는 선택 사항입니다. 준비 중인 단계는 실행할 수 없습니다."));
 
     const detail = h("section", "wf-detail"); detail.id = "wfDetail";
@@ -386,6 +391,8 @@
         }
         if (oldOwner !== route.flow.id) main.scrollTop = 0;
         else if (focusKey?.startsWith("node-") && matchMedia("(max-width: 760px)").matches) $("wfDetail").scrollIntoView({ block: "start" });
+        else if ((focusKey === "wfPrev" || focusKey === "wfNext") && matchMedia("(min-width: 1200px)").matches) // 설명이 붙박이인 폭 — 이전·다음으로 고른 단계가 긴 흐름의 화면 밖이면 보이는 데까지만 민다
+          diagram.querySelector(".wf-node[aria-current=step]")?.scrollIntoView({ block: "nearest" });
       } else main.scrollTop = 0;
     } else {
       const el = document.getElementById(id) || [...main.querySelectorAll("[data-wf-path]")].find((e) => e.dataset.wfPath === id);
