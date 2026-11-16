@@ -273,24 +273,46 @@ def test_templates_and_formats_count_from_overlay_variants_and_plans():
     assert (none["templates"]["state"], none["formats"]["state"], none["formats"]["levels"]) == ("none", "none", 0)
 
 
-def test_chain_turns_follow_the_phase():
+def test_chain_turns_follow_each_part():
+    """단계마다 제 상태로 — 헤딩(+템플릿) 먼저, 그 뒤 표 · 서식은 같이(둘 다 「도는 중」 일 수 있다 — 2026-11-16 사용자 "병렬로 할 수 있으면 병렬로")."""
     both = {"stage2": _res(2), "stage3": _res(3)}
 
-    def chain(phase, status="running", error=None):
-        j = _job(stage=2 if phase == "heads" else 3, llm=True, status=status, error=error)
-        j.chain, j.phase, j.parts = "llm", phase, [{"key": "heads", "name": "h", "status": "running", "msg": ""}]
+    def chain(heads, tables, formats, status="running", error=None, fmsg=""):
+        j = _job(stage=2 if heads == "running" else 3, llm=True, status=status, error=error)
+        j.chain, j.parts = "llm", [{"key": "heads", "name": "h", "no": 1, "status": heads, "msg": ""}, {"key": "tables", "name": "t", "no": 2, "status": tables, "msg": ""},
+                                   {"key": "formats", "name": "f", "no": 2, "status": formats, "msg": fmsg}]
         return j
-    v = analysis.status(_sess({**both, "job": chain("heads")}), outline=(OV, VARS), plans={})
+    v = analysis.status(_sess({**both, "job": chain("running", "wait", "wait")}), outline=(OV, VARS), plans={})
     a = _items(v)
     assert (a["heads"]["state"], a["heads"]["llm"]["state"], a["templates"]["llm"]["state"]) == ("done", "running", "running")
     assert (a["tables"]["state"], a["tables"]["llm"]["state"], a["formats"]["llm"]["state"]) == ("done", "wait", "wait")
     assert v["base"] == "done" and v["busy"] is True and v["job"]["what"] == "LLM 검증·보완" and v["job"]["chain"] == "llm" and v["chain"]["steps"][0]["key"] == "heads"
-    b = _items(analysis.status(_sess({**both, "job": chain("formats")}), outline=(OV, VARS), plans={}))
-    assert (b["formats"]["llm"]["state"], b["tables"]["llm"]["state"]) == ("running", "none")
-    c = _items(analysis.status(_sess({**both, "job": chain("tables", "failed", "Stop: 표")}), outline=(OV, VARS), plans={}))
+    assert (v["chain"]["running"], v["chain"]["at"], [s["no"] for s in v["chain"]["steps"]]) == (["heads"], "heads", [1, 2, 2])
+    # 표 · 서식 같이 — 둘 다 도는 중
+    v2 = analysis.status(_sess({**both, "job": chain("ok", "running", "running", fmsg="T1 · T2 계획 받는 중(같이 2) — 끝남 0/2")}), outline=(OV, VARS), plans={})
+    b = _items(v2)
+    assert (b["heads"]["llm"]["state"], b["tables"]["llm"]["state"], b["formats"]["llm"]["state"]) == ("none", "running", "running")
+    assert v2["chain"]["running"] == ["tables", "formats"] and "같이 2" in b["formats"]["llm"]["text"]
+    # 서식이 먼저 끝나도 표가 도는 동안 서식 칸은 받은 계획을 센다(「대기」 가 아니다)
+    e = _items(analysis.status(_sess({**both, "job": chain("ok", "running", "ok")}), outline=(OV, VARS), plans={"1": {"rev": 3}}))
+    assert (e["tables"]["llm"]["state"], e["formats"]["llm"]["state"]) == ("running", "done")
+    # 막 시작해 단계가 아직 안 적힘 — 헤딩부터
+    j0 = _job(stage=2, llm=True)
+    j0.chain = "llm"
+    z = _items(analysis.status(_sess({**both, "job": j0}), outline=(OV, VARS), plans={}))
+    assert (z["heads"]["llm"]["state"], z["tables"]["llm"]["state"], z["formats"]["llm"]["state"]) == ("running", "wait", "wait")
+    # 실패 — 실패한 단계에만
+    c = _items(analysis.status(_sess({**both, "job": chain("ok", "failed", "ok", "failed", "Stop: 표")}), outline=(OV, VARS), plans={}))
     assert (c["tables"]["llm"]["state"], c["tables"]["llm"]["error"], c["heads"]["llm"]["state"]) == ("failed", "Stop: 표", "none")
-    d = _items(analysis.status(_sess({**both, "job": chain("formats", "failed", "Stop: 서식")}), outline=(OV, VARS), plans={}))
-    assert (d["formats"]["llm"]["state"], d["formats"]["llm"]["error"], d["tables"]["llm"]["state"]) == ("failed", "Stop: 서식", "none")
+    d = _items(analysis.status(_sess({**both, "job": chain("ok", "ok", "failed", "failed", "Stop: 서식", fmsg="실패 T1: 502")}), outline=(OV, VARS), plans={}))
+    assert (d["formats"]["llm"]["state"], d["formats"]["llm"]["error"], d["tables"]["llm"]["state"]) == ("failed", "실패 T1: 502", "none")
+    # 돌 것 — 차례 번호(같은 번호 = 같이) · 같이 도는 것이 있을 때만 「같이」 라고 적는다
+    plan = v["llmPlan"]
+    assert [(x["key"], x["no"], x["run"]) for x in plan] == [("heads", 1, True), ("tables", 2, True), ("formats", 2, True)]
+    assert "서식과 같이" in plan[1]["why"] and "표와 같이" in plan[2]["why"]
+    llm_ok = {"requested": True, "fallback": False}
+    only_t = analysis.status(_sess({"stage2": _res(2, llm=llm_ok), "stage3": _res(3)}), outline=(OV, VARS), plans={"1": {"rev": 3}})["llmPlan"]
+    assert [x["run"] for x in only_t] == [False, True, False] and "같이" not in only_t[1]["why"]
 
 
 def _llm_ok(stage, applied=3):
@@ -396,3 +418,91 @@ def test_api_llm_chain_stops_on_fallback_and_on_request(client, monkeypatch):
     j = _wait_job(client, d)
     v = client.get(f"/api/docs/{d}/analysis").json()
     assert j["status"] == "done" and [s["status"] for s in v["chain"]["steps"]] == ["ok", "stopped", "stopped"] and v["chain"]["stopping"] is True
+
+
+def _chain_job(sess):
+    j = heading_runs.Job(2, True, sess.rev)
+    j.chain = "llm"
+    return j
+
+
+def _fake_sess(stage2_llm=False, stage3_llm=False):
+    llm_ok = {"requested": True, "fallback": False}
+    st = {"stage2": _res(2, llm=llm_ok if stage2_llm else None), "stage3": _res(3, llm=llm_ok if stage3_llm else None)}
+    return _sess(st)
+
+
+TPLS = {"1": {"1": _var([5, 2])}, "2": {"1": _var([3, 1])}, "3": {"1": _var([4, 4])}}
+OV3 = _ov({"1": {"no": "1"}, "2": {"no": "2"}, "3": {"no": "3"}}, {})
+
+
+def test_chain_runs_tables_and_formats_together_and_templates_together(monkeypatch):
+    """① 헤딩 · 템플릿 먼저 혼자 → ② 표 · ③ 서식이 같이 · ③ 의 템플릿끼리도 같이(PLAN_WORKERS 까지) — 실제로 겹쳐 도는지 본다(둘이 서로를 기다리면 시간 초과)."""
+    from app import analysis_llm
+    sess = _fake_sess()
+    job = _chain_job(sess)
+    order, lock = [], threading.Lock()
+    heads_done = threading.Event()
+    t_in, f_in = threading.Event(), threading.Event()
+    p_in = threading.Barrier(3, timeout=10)   # 템플릿 셋이 한꺼번에 들어와야 지나간다
+
+    def s2(s, j, use_llm):
+        with lock:
+            order.append("heads")
+        s.heads["stage2"]["llm"] = {"requested": True, "fallback": False}
+        heads_done.set()
+        return 42
+
+    def s3(s, j, use_llm):
+        assert heads_done.is_set()   # ① 뒤
+        t_in.set()
+        assert f_in.wait(10), "표가 도는 동안 서식이 시작하지 않음"   # 서식과 겹친다
+        s.heads["stage3"]["llm"] = {"requested": True, "fallback": False}
+        with lock:
+            order.append("tables")
+        return 43
+    monkeypatch.setattr(heading_runs, "run_stage2", s2)
+    monkeypatch.setattr(heading_runs, "run_stage3", s3)
+    monkeypatch.setattr(analysis_llm.works, "log", lambda *a, **k: None)
+
+    def plan(s, tid):
+        assert heads_done.is_set()
+        f_in.set()
+        p_in.wait()   # 셋이 같이 들어와야 풀린다
+        assert t_in.wait(10)
+        with lock:
+            order.append(f"T{tid}")
+    n = analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=plan)
+    assert n == 43 and order[0] == "heads" and set(order[1:]) == {"tables", "T1", "T2", "T3"}
+    steps = {p["key"]: p for p in job.parts}
+    assert [(p["key"], p["no"], p["status"]) for p in job.parts] == [("heads", 1, "ok"), ("tables", 2, "ok"), ("formats", 2, "ok")]
+    assert steps["formats"]["msg"].startswith("계획 받음 T1 · T2 · T3")   # 끝난 차례가 아니라 템플릿 차례
+
+
+def test_chain_parallel_failure_keeps_the_other_and_stop_skips_unstarted_templates(monkeypatch):
+    from app import analysis_llm
+    monkeypatch.setattr(analysis_llm.works, "log", lambda *a, **k: None)
+    # 표가 실패해도 같이 돈 서식은 제 일을 마친다 — 작업은 표의 까닭으로 실패
+    sess = _fake_sess(stage2_llm=True)
+    job = _chain_job(sess)
+
+    def s3_fail(s, j, use_llm):
+        s.heads["stage3"]["llm"] = {"requested": True, "fallback": True, "error": "TimeoutError"}
+        return 7
+    monkeypatch.setattr(heading_runs, "run_stage3", s3_fail)
+    got = []
+    with pytest.raises(analysis_llm.Stop, match="표 구조 LLM 판정을 못 함"):
+        analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=lambda s, tid: got.append(tid))
+    assert sorted(got) == ["1", "2", "3"] and [p["status"] for p in job.parts] == ["skip", "failed", "ok"]
+    # 멈추기 — 도는 템플릿은 끝내고, 아직 시작하지 않은 템플릿은 하지 않는다
+    monkeypatch.setattr(analysis_llm, "PLAN_WORKERS", 1)
+    sess = _fake_sess(stage2_llm=True, stage3_llm=True)
+    job = _chain_job(sess)
+    done = []
+
+    def plan_stop(s, tid):
+        job.stop = True   # 첫 템플릿을 받는 동안 멈추기를 누름
+        done.append(tid)
+    analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=plan_stop)
+    f = {p["key"]: p for p in job.parts}["formats"]
+    assert done == ["1"] and f["status"] == "partial" and "멈춤 — 남은 템플릿 2" in f["msg"]

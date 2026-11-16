@@ -99,7 +99,9 @@ TABLE = """() => { const t = document.getElementById('dsTable'); if (!t || t.hid
   const go = t.querySelector('.ds-llm-go'), stop = [...t.querySelectorAll('button')].find((b) => b.textContent === '멈추기');
   return { rows: [...t.querySelectorAll('.ds-row-name')].map((e) => e.textContent), cols: [...t.querySelectorAll('.ds-col')].map((e) => e.textContent).filter(Boolean),
     cells: [...t.querySelectorAll('.ds-cell')].map((c) => ({ text: c.querySelector('span') ? c.querySelector('span').textContent : '', cls: c.className.replace('ds-cell', '').trim(), btn: c.tagName === 'BUTTON' })),
-    plan: [...t.querySelectorAll('.ds-plan li')].map((e) => e.className), steps: [...t.querySelectorAll('.ds-step')].map((e) => e.className.replace('ds-step', '').trim()),
+    plan: [...t.querySelectorAll('.ds-plan li')].map((e) => (e.classList.contains('run') ? 'run' : e.classList.contains('skip') ? 'skip' : e.className)), steps: [...t.querySelectorAll('.ds-step')].map((e) => e.className.replace('ds-step', '').trim()),
+    planWith: [...t.querySelectorAll('.ds-plan li')].map((e) => !!e.querySelector('.ds-with')), stepWith: [...t.querySelectorAll('.ds-step')].map((e) => !!e.querySelector('.ds-with')),
+    planNo: [...t.querySelectorAll('.ds-plan li')].map((e) => (e.querySelector('.ds-step-no') || {}).textContent || ''), stepNo: [...t.querySelectorAll('.ds-step')].map((e) => (e.querySelector('.ds-step-no') || {}).textContent || ''),
     go: go ? { text: go.textContent, off: go.disabled } : null, stop: !!stop,
     box: { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top) }, rowBottom: Math.round(row.bottom), vw: innerWidth }; }"""
 
@@ -196,8 +198,9 @@ def main():
         check("진행표 — 스크립트 칸은 넷 다 ✓ · 서식 반영은 「맞춘 레벨 a/b」 · 헤딩 · 템플릿 · 표의 반영은 「—」(문서를 안 바꾸는 일)",
               [c["cls"] for c in t["cells"][0::3]] == ["done"] * 4 and t["cells"][8]["text"].startswith("맞춘 레벨 ") and [t["cells"][i]["text"] for i in (2, 5, 11)] == ["—"] * 3, t["cells"])
         check("진행표 — 창 안 · 이름 줄 바로 아래", t["box"]["left"] >= 0 and t["box"]["right"] <= t["vw"] and 0 <= t["box"]["top"] - t["rowBottom"] <= 12, t["box"])
-        check("진행표 — 「돌 것」 셋(헤딩 · 템플릿 → 표 → 서식 계획) + 「LLM 검증·보완」 단추(켜짐) · 열기만 해서는 안 부름", t["plan"] == ["run", "run", "run"] and t["go"] == {"text": "LLM 검증·보완", "off": False}
+        check("진행표 — 「돌 것」 셋(헤딩 · 템플릿 먼저 → 표 · 서식 계획 같이) + 「LLM 검증·보완」 단추(켜짐) · 열기만 해서는 안 부름", t["plan"] == ["run", "run", "run"] and t["go"] == {"text": "LLM 검증·보완", "off": False}
               and not [x for x in posts if x[0].endswith("/analysis/llm")], [t["plan"], t["go"], posts])
+        check("「돌 것」 — 차례 번호 1 · 2 · 2 · 같은 번호(표 · 서식)에 「같이」", t["planNo"] == ["1", "2", "2"] and t["planWith"] == [False, True, True], [t["planNo"], t["planWith"]])
         page.screenshot(path=str(OUT / "08_table.png"))
         page.keyboard.press("Escape")
         check("Esc 로 닫힘", page.evaluate("() => document.getElementById('dsTable').hidden"))
@@ -303,8 +306,8 @@ def main():
         check("도는 중(LLM) — 헤딩은 ✓ 그대로 · 「LLM 판정 중 1분 …초」 · 「구분 기준 검토 중」 은 동그라미",
               v["texts"][0] == "헤딩 ✓" and [c["text"] for c in run] == ["LLM 판정 중", "구분 기준 검토 중"] and run[0]["secs"].startswith("1분 "), [v["texts"], [c["secs"] for c in run]])
         # LLM 검증·보완이 도는 중 — 이름 줄 「◌ LLM 검증·보완 헤딩 N초」 · 진행표의 단계 줄 · 「멈추기」
-        steps = [{"key": "heads", "name": "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "status": "running", "msg": ""}, {"key": "tables", "name": "표 — 표 구조(LLM)", "status": "wait", "msg": ""},
-                 {"key": "formats", "name": "서식 — 템플릿 서식 정리 계획", "status": "wait", "msg": ""}]
+        steps = [{"key": "heads", "name": "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "no": 1, "status": "running", "msg": ""}, {"key": "tables", "name": "표 — 표 구조(LLM)", "no": 2, "status": "wait", "msg": ""},
+                 {"key": "formats", "name": "서식 — 템플릿 서식 정리 계획", "no": 2, "status": "wait", "msg": ""}]
         state["v"] = fake([item("heads", llm="running"), tpl_item(llm="running"), fmt_item(llm="wait"), item("tables", llm="wait"), division()],
                           job={"first": False, "chain": "llm", "stage": 2, "llm": True, "status": "running", "what": "LLM 검증·보완", "started": time.time() - 20, "error": None},
                           chain={"steps": steps, "at": "heads", "stopping": False, "status": "running"})
@@ -317,7 +320,25 @@ def main():
         t = page.evaluate(TABLE)
         check("도는 중의 진행표 — 단계 줄(헤딩 도는 중 · 표 · 서식 대기) · 「멈추기」 · 「LLM 검증·보완」 단추 없음 · 헤딩 LLM 칸 도는 중 · 표 LLM 칸 대기",
               t["steps"] == ["running", "wait", "wait"] and t["stop"] and t["go"] is None and t["cells"][1]["cls"] == "running" and t["cells"][10]["cls"] == "wait", t)
+        check("도는 중의 단계 줄 — 차례 번호 1 · 2 · 2 · 표 · 서식에 「같이」", t["stepNo"] == ["1", "2", "2"] and t["stepWith"] == [False, True, True], [t["stepNo"], t["stepWith"]])
         page.screenshot(path=str(OUT / "10_chain_running.png"))
+        page.keyboard.press("Escape")
+        # 헤딩 · 템플릿이 끝나 표 · 서식이 같이 도는 중 — 이름 줄 「◌ LLM 검증·보완 표 · 서식」 · 단계 줄 둘 다 도는 중 · 진행 카드(dsRunning) 글에 둘 다
+        steps2 = [dict(steps[0], status="ok", msg="반영 3"), dict(steps[1], status="running"), dict(steps[2], status="running", msg="T1 · T2 계획 받는 중(같이 2) — 끝남 0/2")]
+        state["v"] = fake([item("heads", llm="done"), tpl_item(llm="done"), fmt_item(llm="running"), item("tables", llm="running"), division()],
+                          job={"first": False, "chain": "llm", "stage": 3, "llm": True, "status": "running", "what": "LLM 검증·보완", "started": time.time() - 90, "error": None},
+                          chain={"steps": steps2, "running": ["tables", "formats"], "at": "tables", "stopping": False, "status": "running"})
+        page.evaluate("() => docStatusPing()")
+        page.wait_for_function("() => [...document.querySelectorAll('#docStatus .ds-chip.run')].some((c) => c.textContent.includes('표 · 서식'))", timeout=15000)
+        v = page.evaluate(STATUS, "docStatus")
+        run = [c for c in v["chips"] if c["spin"]]
+        rn = page.evaluate("() => { const r = dsRunning(); return r && { label: r.label, note: r.note }; }")
+        check("표 · 서식 같이 — 이름 줄 「◌ LLM 검증·보완 표 · 서식」 · 진행 카드 「표 · 서식 같이 — 표: 도는 중 / 서식: T1 · T2 …」",
+              run and run[0]["text"] == "LLM 검증·보완 표 · 서식" and rn and rn["note"].startswith("표 · 서식 같이 — 표: 도는 중 / 서식: T1 · T2") and "같이" in rn["label"], [[c["text"] for c in run], rn])
+        page.click("#dsMore")
+        t = page.evaluate(TABLE)
+        check("같이 도는 중의 진행표 — 단계 줄 ✓ · ◌ · ◌ · 「같이」 둘 · 「멈추기」", t["steps"] == ["ok", "running", "running"] and t["stepWith"] == [False, True, True] and t["stop"], t)
+        page.screenshot(path=str(OUT / "11_chain_together.png"))
         page.keyboard.press("Escape")
         # 한쪽 검토만 답함 — 후보가 없어도 「✓」 가 아니라 「일부만」 · 다른 헤딩 작업(1단계)이 도는 동안은 「분석」 단추가 없다
         state["v"] = fake([item("heads", state="none"), item("tables", state="none"), division("done", 0, partial=True)], base_state="none", busy=True)

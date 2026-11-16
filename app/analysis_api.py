@@ -49,7 +49,7 @@ def analysis_get(doc_id: str):
 @router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
 def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
     """「LLM 검증·보완」 시작 {skill?(서식 정리 스킬 키 — 기본 "tidy")} → 202 헤딩 작업(job.view — chain "llm"). 유료 LLM — 화면은 진행표의 「돌 것」(llmPlan)을 보인 단추로만 부른다.
-    헤딩 → 표 → 서식(계획만) 차례로 · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜. 400 hwpx 아님 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
+    헤딩 · 템플릿 먼저 → 표 · 서식(계획만) 같이(app/analysis_llm.py) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜. 400 hwpx 아님 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
     from app import server
     s = server._sess(doc_id)
     if s.fmt != "hwpx":
@@ -74,7 +74,7 @@ def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
 
 @router.delete("/api/docs/{doc_id}/analysis/llm")
 def analysis_llm_stop(doc_id: str):
-    """도는 「LLM 검증·보완」 을 지금 일이 끝나면 멈춘다 → {stopping: true}. 409 = 도는 것이 없음."""
+    """도는 「LLM 검증·보완」 을 지금 도는 일(같이 도는 표 · 서식이면 둘 다 — 서식은 시작한 템플릿까지)이 끝나면 멈춘다 → {stopping: true}. 409 = 도는 것이 없음."""
     from app import server
     s = server._sess(doc_id)
     job = heading_runs.state(s).get("job") if s.fmt == "hwpx" else None

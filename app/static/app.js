@@ -6160,7 +6160,7 @@ function headsJob(job, r = null) {
   const now = job.status === "running" ? headsJobNow(job, r) : null; // 도는 동안: 지난 시간 · 지난번 LLM 실행이 걸린 시간(② §7 「진행 표시」)
   const secs = job.ended && job.started ? ` · ${(job.ended - job.started).toFixed(1)}s` : now ? ` · ${fmtDur(now.secs)} 지남${now.prev ? `(지난번 ${now.prev})` : ""}` : "";
   box.append(el("summary", `hjob-head ${job.status}`,
-    `${job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완(헤딩 → 표 → 서식 계획)" : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
+    `${job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완(헤딩 → 표 · 서식 계획 같이)" : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
   const ol = el("ol", "steps brief");
   const phase = `-${Date.now() % 800}ms`; // 읽을 때마다(약 1초) 이 상자를 다시 만든다 — 돌아가는 동그라미가 처음 각도로 튀지 않게 시계에 맞춘다(spin .8s)
   for (const s of job.steps || []) {

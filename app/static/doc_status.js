@@ -58,16 +58,17 @@ function dsLlmChip(by, view, since) { // LLM — 넷 가운데 LLM 칸이 끝난
   const base = { opt: true, go: "Table" }, rows = DS_FOUR.filter(([k]) => by[k]);
   const lines = rows.map(([k, n]) => `${n} — ${by[k].llm.text}`).join("\n");
   if (dsChain(view)) {
-    const st = ((view.chain || {}).steps || []).find((x) => x.status === "running");
-    return { ...base, text: "LLM 검증·보완", mark: st ? DS_STEP[st.key] || "" : "", spin: true, since, cls: "run", title: `LLM 검증·보완 중(유료 호출) — 몇 분 걸릴 수 있습니다\n${lines}` };
+    const run = ((view.chain || {}).steps || []).filter((x) => x.status === "running"); // 표 · 서식은 같이 돈다 — 둘 다 적는다
+    return { ...base, text: "LLM 검증·보완", mark: run.map((x) => DS_STEP[x.key] || "").filter(Boolean).join(" · "), spin: true, since, cls: "run", title: `LLM 검증·보완 중(유료 호출) — 몇 분 걸릴 수 있습니다\n${lines}` };
   }
   if (rows.some(([k]) => by[k].llm.state === "running")) return { ...base, text: "LLM 판정 중", spin: true, since, cls: "run", title: `LLM 판정 중(유료 호출)\n${lines}` };
   const done = rows.filter(([k]) => by[k].llm.state === "done").length, bad = rows.some(([k]) => by[k].llm.state === "failed");
-  const how = "\n누르면 진행표 — 「LLM 검증·보완」 단추 하나로 헤딩 · 템플릿 → 표 → 서식(계획만)을 차례로 돌립니다(유료)";
+  const how = `\n누르면 진행표 — 「LLM 검증·보완」 단추 하나로 ${DS_ORDER}을 돌립니다(유료)`;
   if (bad) return { ...base, text: "LLM", mark: "실패", cls: "warn", title: lines + how };
   return { ...base, text: "LLM", mark: !done ? "안 함" : done === rows.length ? "✓" : `${done}/${rows.length}`, cls: done === rows.length ? "ok" : done ? "" : "off", title: lines + how };
 }
 const DS_STEP = { heads: "헤딩", tables: "표", formats: "서식" };
+const DS_ORDER = "헤딩 · 템플릿을 먼저, 그 뒤 표와 서식(계획만)을 같이"; // 차례(app/analysis_llm.py — 표 · 서식은 헤딩 그래프에만 기대고 서로는 기다리지 않는다)
 
 function dsDivision(d, main) { // 구분 기준 LLM 검토(옵션)
   const base = { go: "DivReview" }, how = "저절로 돌지 않습니다 — 「작업 내용」 의 검토 결과 열에서 「LLM 검토 실행」 으로 돌립니다(유료)";
@@ -234,11 +235,24 @@ function dsRow(k, n, it) { // → [이름, 스크립트, LLM, 반영] 칸
     dsCell(lText + rules, L.state, lGo, `${n} — LLM 검증·보완(사람이 단추로 · 유료)\n${L.text}${rules}${L.error ? `\n${L.error}` : ""}`), apply];
 }
 const DS_STEP_MARK = { ok: "✓", skip: "건너뜀", running: "◌", wait: "대기", failed: "실패", partial: "일부", stopped: "멈춤" };
-function dsSteps(steps) { // LLM 검증·보완의 차례 — 단계마다 상태 · 한 줄
-  const ol = el("ol", "ds-steps");
+function dsWith(list, live) { // → (x) => 같이 도는가 — 차례 번호(no)가 같은 것 가운데 live 인 것이 둘 이상일 때만(한쪽이 건너뛰면 「같이」 가 아니다)
+  const n = {};
+  for (const x of list || []) if (x.no != null && live(x)) n[x.no] = (n[x.no] || 0) + 1;
+  return (x) => x.no != null && live(x) && n[x.no] > 1;
+}
+function dsWithEl() {
+  const b = el("span", "ds-with", "같이");
+  b.title = "같은 번호의 일은 같이 돕니다 — 서로를 기다리지 않습니다(둘 다 헤딩 · 템플릿의 결과에만 기댑니다)";
+  return b;
+}
+function dsStepNo(no) { const s = el("span", "ds-step-no", String(no)); s.title = `차례 ${no}`; return s; }
+function dsSteps(steps) { // LLM 검증·보완의 차례 — 단계마다 차례 번호 · 상태 · 한 줄(같은 번호 = 같이 돎 — 「같이」 표시)
+  const ol = el("ol", "ds-steps"), together = dsWith(steps, (s) => s.status !== "skip" && s.status !== "stopped");
   for (const s of steps || []) {
     const li = el("li", `ds-step ${s.status}`);
+    if (s.no != null) li.append(dsStepNo(s.no));
     li.append(s.status === "running" ? el("i", "ds-spin") : el("b", "ds-cell-mark", DS_STEP_MARK[s.status] || s.status), el("span", "ds-step-name", s.name));
+    if (together(s)) li.append(dsWithEl());
     if (s.msg) li.append(el("span", "ds-step-msg", s.msg));
     ol.append(li);
   }
@@ -263,7 +277,7 @@ function dsTableDraw() {
   const foot = el("div", "ds-table-foot");
   const ch = v.chain, running = dsChain(v);
   if (ch && ch.steps && ch.steps.length) {
-    foot.append(el("div", "ds-foot-title", running ? `LLM 검증·보완 — 도는 중${ch.stopping ? " · 지금 일이 끝나면 멈춤" : ""}` : `지난 LLM 검증·보완 — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
+    foot.append(el("div", "ds-foot-title", running ? `LLM 검증·보완 — 도는 중${ch.stopping ? " · 지금 도는 일이 끝나면 멈춤" : ""}` : `지난 LLM 검증·보완 — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
     if (!running && ch.status === "failed" && v.job && v.job.error && !ch.steps.some((x) => x.status === "failed" && x.msg)) foot.append(el("div", "ds-foot-err", v.job.error)); // 단계 줄에 까닭이 없을 때만
   }
   if (running) {
@@ -277,12 +291,19 @@ function dsTableDraw() {
   } else {
     const plan = v.llmPlan || [], todo = plan.filter((p) => p.run);
     if (todo.length) {
-      const ol = el("ol", "ds-plan");
-      for (const p of plan) { const li = el("li", p.run ? "run" : "skip"); li.append(el("span", "ds-step-name", p.name), el("span", "ds-step-msg", p.why)); ol.append(li); }
+      const ol = el("ol", "ds-plan"), together = dsWith(plan, (p) => p.run);
+      for (const p of plan) {
+        const li = el("li", `${p.run ? "run" : "skip"}${p.no != null ? " numbered" : ""}`);
+        if (p.no != null) li.append(dsStepNo(p.no));
+        li.append(el("span", "ds-step-name", p.name));
+        if (together(p)) li.append(dsWithEl());
+        li.append(el("span", "ds-step-msg", p.why));
+        ol.append(li);
+      }
       const go = el("button", "btn sm primary ds-llm-go", "LLM 검증·보완");
       go.type = "button";
       go.disabled = !!v.busy;
-      go.title = v.busy ? "다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요" : "아래 「돌 것」 을 차례로 돌립니다 — 유료 LLM 호출 · 몇 분 · 문서는 바뀌지 않습니다";
+      go.title = v.busy ? "다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요" : `아래 「돌 것」 을 돌립니다 — ${DS_ORDER} · 유료 LLM 호출 · 몇 분 · 문서는 바뀌지 않습니다`;
       go.onclick = (e) => { e.stopPropagation(); go.disabled = true; dsLlmRun(); };
       foot.append(el("div", "ds-foot-title", "돌 것 — 유료 LLM · 몇 분 걸립니다 · 문서는 바뀌지 않습니다(서식 정리는 계획만 — 반영은 「템플릿 서식 정리」 에서 고른 것만)"), ol, go);
     } else {
@@ -323,8 +344,10 @@ async function dsLlmStop() {
 function dsRunning() { // 작업 진행 에이전트의 진행 카드(doc_agent_work.js agwRunning) — 도는 LLM 검증·보완 | null
   const v = dsState.main;
   if (!dsChain(v) || !state.id || dsState.mainId !== state.id) return null;
-  const st = ((v.chain || {}).steps || []).find((x) => x.status === "running");
-  return { label: "LLM 검증·보완 — 헤딩 · 템플릿 → 표 → 서식(계획만)", note: st ? `${st.name}${st.msg ? ` — ${st.msg}` : ""}` : "진행 중", t0: v.job.started ? v.job.started * 1000 : 0,
+  const run = ((v.chain || {}).steps || []).filter((x) => x.status === "running"), short = (x) => DS_STEP[x.key] || x.name; // 표 · 서식은 같이 돈다 — 둘 다 적는다
+  const note = !run.length ? "진행 중" : run.length === 1 ? `${run[0].name}${run[0].msg ? ` — ${run[0].msg}` : ""}`
+    : `${run.map(short).join(" · ")} 같이 — ${run.map((x) => `${short(x)}: ${x.msg || "도는 중"}`).join(" / ")}`;
+  return { label: "LLM 검증·보완 — 헤딩 · 템플릿 → 표 · 서식(계획만) 같이", note, t0: v.job.started ? v.job.started * 1000 : 0,
     stopping: !!(v.chain && v.chain.stopping), stop: () => dsLlmStop() };
 }
 

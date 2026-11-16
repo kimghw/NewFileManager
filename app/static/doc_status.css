@@ -64,6 +64,11 @@ button.ds-cell:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .ds-step.skip, .ds-step.stopped, .ds-step.wait, .ds-plan li.skip { color: var(--muted); }
 .ds-plan li.run::before { content: "▸"; color: var(--accent); }
 .ds-plan li.skip::before { content: "–"; }
+/* 차례 번호 · 「같이」(같은 번호 = 같이 돎 — app/analysis_llm.py: 헤딩 · 템플릿 먼저, 그 뒤 표 · 서식 같이) */
+.ds-step-no { flex: none; min-width: 16px; height: 16px; align-self: flex-start; margin-top: 1px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 600; }
+.ds-with { flex: none; align-self: flex-start; margin-top: 1px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; line-height: 14px; white-space: nowrap; }
+.ds-plan li.numbered::before { content: none; } /* 번호가 있으면 ▸ · – 대신 번호(건너뜀은 흐린 글로 갈린다) — 줄이 꺾여도 번호 · 「같이」 는 첫 줄에 */
 
 /* 좁으면 옵션 항목(LLM · 구분 기준)부터 감추고 헤딩 · 표는 남긴다 — 기준은 창이 아니라 줄의 폭(design.md §3). 파일 이름(.file-name flex 1 1 auto)이 먼저 줄고 줄은 꺾이지 않는다.
    색 설명(#fmtKey · #divKey)이 줄에 떠 있는 동안은 그 설명이 먼저다(그 줄의 「폭 480px 이상이면 한 줄」 약속 — divisions.css · fmt_focus.css): 옵션 항목은 늘 감추고, 줄 폭 1000px 이하면 표시를 통째로 감춘다
