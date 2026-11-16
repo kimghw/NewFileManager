@@ -315,11 +315,12 @@ function dsTableDraw() {
   t.replaceChildren(head, grid, foot);
 }
 
-async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리 하나에서(헤딩 탭의 진행 · 결과도 같이 따라온다: headsPoll)
-  if (!state.id) return;
+async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리 하나에서(헤딩 탭의 진행 · 결과도 같이 따라온다: headsPoll). → 시작했나(true) — 에이전트 실행 카드가 「실행함」/「멈춤」 을 가른다(doc_agent_next.js)
+  if (!state.id) return false;
   const id = state.id, epoch = state.epoch;
+  let ok = false;
   await flushAll(); // 아직 반영 안 된 글부터 — 분석은 서버 문서를 읽는다
-  if (epoch !== state.epoch) return;
+  if (epoch !== state.epoch) return false;
   const skill = typeof TPA !== "undefined" && typeof TPA.key === "string" && TPA.key && TPA.key !== TPA_NEW ? TPA.key : "tidy"; // 서식 정리는 열에서 고른 스킬(없으면 기본)
   try {
     const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill }) });
@@ -328,10 +329,12 @@ async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리
     headsRender({ ...(heads.view || { rev: state.serverRev, runs: [], stage1: null, stage2: null, stage3: null }), job });
     headsPoll();
     toast("LLM 검증·보완을 시작했습니다 — 진행은 이름 줄과 진행표에 보입니다");
+    ok = true;
   } catch (e) {
     if (epoch === state.epoch) toast(e.status === 409 ? "헤딩 작업이 이미 돌고 있습니다 — 끝난 뒤 다시 누르세요" : e.status === 404 && /not found/i.test(e.message || "") ? "서버가 옛 판이라 LLM 검증·보완을 모릅니다 — 서버(8114)를 다시 시작한 뒤 쓰세요" : `LLM 검증·보완을 시작하지 못했습니다: ${e.message}`, true);
   }
   docStatusPing();
+  return ok;
 }
 
 async function dsLlmStop() {
@@ -358,6 +361,7 @@ async function dsFetch(which, seq) {
   if (seq !== dsState.seq || epoch !== state.epoch || id !== dsId(which)) return; // 그 사이 문서가 바뀌었거나 더 새 읽기가 떠 있다
   dsState[which] = v;
   dsDraw(which);
+  if (which === "main" && typeof agentNextSync === "function") agentNextSync(); // 에이전트 빈 화면의 「지금 할 수 있는 일」 · 실행 카드(doc_agent_next.js)
 }
 
 async function dsRefresh() {

@@ -310,6 +310,7 @@ async function tpaRun() { // 「정리 계획 받기」 — 고친 스킬은 먼
     if (epoch !== state.epoch || tpl !== TPA.tpl) return;
     TPA.plan = r;
     for (const lv of r.plan.levels) for (const row of tpaRows(lv)) TPA.choice.set(tpaKey(lv, row.g), row.was); // 처음 값 = 에이전트가 고른 것
+    if (typeof olmPlanGot === "function") olmPlanGot(tpl, r); // 템플릿 줄의 「템플릿 맞추기」 가 이 계획대로(outline_match.js — spec_hwpx_웹편집 ② §8-4 「계획대로 맞추기」)
   } catch (e) {
     if (epoch === state.epoch) TPA.err = e.status === 404 && /not found/i.test(e.message || "") ? "서버가 옛 판이라 서식 정리 에이전트를 모릅니다 — 서버(8114)를 다시 시작한 뒤 쓰세요" : `계획을 받지 못했습니다: ${e.message}`;
   } finally {
@@ -335,10 +336,10 @@ function tpaLetters(lv) { // 이 레벨에서 고를 수 있는 새 템플릿 �
   const mine = (lv.split || []).map((sp) => sp.sfx), used = new Set([...(lv.taken || []), ...mine]), spare = [...TPA_SFX].find((ch) => !used.has(ch));
   return spare ? [...mine, spare] : mine;
 }
-function tpaCuts(lv) { // 고른 것 → 이 레벨에서 뗄 템플릿들 [{sfx, rep(대표 갈래), rows[갈래…]}] — 대표 = 에이전트가 정한 대표(아직 그 글자에 있으면), 아니면 줄 수가 많은 갈래
+function tpaCuts(lv, choice = TPA.choice) { // 고른 것 → 이 레벨에서 뗄 템플릿들 [{sfx, rep(대표 갈래), rows[갈래…]}] — 대표 = 에이전트가 정한 대표(아직 그 글자에 있으면), 아니면 줄 수가 많은 갈래
   const by = new Map();
   for (const r of tpaRows(lv)) {
-    const c = TPA.choice.get(tpaKey(lv, r.g)) || "";
+    const c = choice.get(tpaKey(lv, r.g)) || "";
     if (!c.startsWith("s:")) continue;
     if (!by.has(c.slice(2))) by.set(c.slice(2), []);
     by.get(c.slice(2)).push(r);
@@ -349,12 +350,18 @@ function tpaCuts(lv) { // 고른 것 → 이 레벨에서 뗄 템플릿들 [{sfx
   });
 }
 
-function tpaTodo() { // 고른 것 → 적용 몸의 levels · 바뀔 줄 수 n · 다른 템플릿으로 옮길 줄 수 moved · 고른 갈래 수 picked
-  const P = TPA.plan, levels = [];
+function tpaChoiceOf(P) { // 계획 → 에이전트가 고른 그대로의 고르기(받았을 때의 처음 값 — 「템플릿 맞추기」 의 「계획대로」 가 쓴다: outline_match.js olmTplMatch)
+  const choice = new Map();
+  for (const lv of (P && P.plan && P.plan.levels) || []) for (const row of tpaRows(lv)) choice.set(tpaKey(lv, row.g), row.was);
+  return choice;
+}
+const tpaTodoOf = (P) => tpaTodo(P, tpaChoiceOf(P)); // 에이전트가 고른 그대로 반영할 때의 적용 몸 · 줄 수
+function tpaTodo(P = TPA.plan, choice = TPA.choice) { // 고른 것 → 적용 몸의 levels · 바뀔 줄 수 n · 다른 템플릿으로 옮길 줄 수 moved · 고른 갈래 수 picked
+  const levels = [];
   let n = 0, moved = 0, picked = 0;
   for (const lv of (P && P.plan.levels) || []) {
     if (!lv.rep) continue;
-    const likes = tpaRows(lv).filter((r) => TPA.choice.get(tpaKey(lv, r.g)) === "match").map((r) => r.g), cuts = tpaCuts(lv);
+    const likes = tpaRows(lv).filter((r) => choice.get(tpaKey(lv, r.g)) === "match").map((r) => r.g), cuts = tpaCuts(lv, choice);
     if (!likes.length && !cuts.length) continue; // 고른 갈래가 없는 레벨은 대표도 안 바꾼다
     n += likes.reduce((a, g) => a + g.count, 0) + cuts.reduce((a, c) => a + c.rows.reduce((b, g) => b + (g === c.rep ? 0 : g.count), 0), 0); // 뗀 줄 가운데 새 대표와 다른 갈래는 그 대표에 맞춘다
     moved += cuts.reduce((a, c) => a + c.rows.reduce((b, g) => b + g.count, 0), 0);

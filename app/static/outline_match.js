@@ -21,15 +21,30 @@ function olmLoad(force = false) { // 서식 갈래를 읽는다(같은 차례면
   if (!force && olmFresh()) return Promise.resolve(OLM.data);
   if (OLM.busy) return OLM.busy;
   const id = state.id, epoch = state.epoch;
-  OLM.busy = api(`/api/docs/${id}/outline/formats`).then((r) => {
+  const plans = api(`/api/docs/${id}/outline/agent/plans`).catch(() => null); // 받아 둔 서식 정리 계획(★) — 「템플릿 맞추기」 가 그 계획대로(olmTplPlan). 옛 서버면 없음
+  OLM.busy = Promise.all([api(`/api/docs/${id}/outline/formats`), plans]).then(([r, p]) => {
     if (epoch !== state.epoch) return null;
     OLM.data = r && !r.off ? r.slots || {} : null;
     OLM.rev = r ? r.rev : null;
     if (r && r.keys) OLM.keys = r.keys; // 비교 값 차례·이름 [[키, 이름]…] — 「서식 비교」 창(outline_preview.js)의 열
+    OLM.plans = (p && p.plans) || {};
     OLM.epoch = epoch;
     return OLM.data;
   }).catch(() => null).finally(() => { OLM.busy = null; });
   return OLM.busy;
+}
+
+// ★ 계획대로(spec_hwpx_웹편집 ② §8-4 「계획대로 맞추기」, 2026-11-16 사용자 답 「★ 계획이 있으면 따름」 — 전에는 「템플릿 맞추기」 가 계획이 사람에게 남긴 줄까지 다 맞췄다):
+// 그 템플릿에 지금 문서 차례에서 받은 계획(state planned)이 있으면 템플릿 줄의 단추는 「계획대로 맞추기(n줄)」 — 에이전트가 고른 그대로(맞추기 · 떼기만, 남긴 줄은 빼고)
+// tpl_agent.js tpaTodoOf 의 적용 몸을 같은 끝점(olmApplyTpl, by "agent")으로. 계획이 없거나 옛것·반영한 것이면 전처럼 「템플릿 맞추기」(대표와 다른 줄 모두).
+function olmTplPlan(id) { // → 지금 쓸 계획 기록 | null
+  const rec = olmFresh() && OLM.plans ? OLM.plans[String(id)] : null;
+  return rec && rec.state === "planned" && rec.plan && rec.rev === OLM.rev && typeof tpaTodoOf === "function" ? rec : null;
+}
+function olmPlanGot(tpl, rec) { // ★ 열에서 새 계획을 받음(tpl_agent.js tpaRun) — 다시 읽지 않고 템플릿 줄 단추만 맞춘다
+  if (!OLM.plans) OLM.plans = {};
+  OLM.plans[String(tpl)] = { ...rec, state: rec.rev === state.serverRev ? "planned" : "stale", applied: null };
+  for (const old of document.querySelectorAll(`.tpl-tree .olm-tm[data-tpl="${CSS.escape(String(tpl))}"]`)) old.replaceWith(olmTplMatch(String(tpl)));
 }
 
 // 대표와 다른 값 [[키, 이름, 대표, 이 갈래]…] → 「앞 공백: 지금 2칸 → 대표 1칸 · 2번째 줄: 지금 10.9mm → 대표 10.4mm」 — 값마다 이름표(지금 = 이 갈래 줄의 값 · 대표 = 대표 줄의 값),
@@ -549,11 +564,27 @@ function olmTplMatch(id) { // 템플릿 줄의 「대표 맞추기(n줄)」 자�
   box.dataset.tpl = id;
   const t = olmTpl(id), o = t ? olmTplOthers(id) : null;
   if (!o) { olmNeed(); return box; }
+  const P = olmTplPlan(id);
+  if (P) { // ★ 계획대로 — 에이전트가 고른 그대로(남긴 갈래는 빼고)
+    const todo = tpaTodoOf(P), keep = (P.plan.levels || []).reduce((a, lv) => a + (lv.keep || []).reduce((b, g) => b + (g.count || 0), 0), 0);
+    const why = `★ 서식 정리 계획(${fmtWhen(P.at)})대로 — 맞추기 · 떼기로 고른 갈래만 바꿉니다${keep ? ` · 계획이 사람에게 남긴 줄 ${nf(keep)}개는 그대로` : ""}`
+      + `\n고르기를 바꾸려면 ★ · 대표와 다른 줄을 모두 맞추려면 레벨마다 「대표에 맞추기」(지금 대표와 다른 줄 ${nf(o.n)}개)`;
+    if (!todo.levels.length) { const c = el("span", "olm-chip olm-tm-plan", "★ 계획: 바꿀 줄 없음"); c.title = why; box.append(c); return box; }
+    box.append(hBtn(`계획대로 맞추기(${nf(todo.n)}줄${todo.moved ? ` · 떼기 ${nf(todo.moved)}` : ""})`, () => olmMatchPlan(id),
+      { title: `${why}\n한 번에(「실행 취소」 한 번으로 되돌림)`, cls: "btn sm olm-btn olm-tm-btn olm-tm-plan" }));
+    return box;
+  }
   if (!o.n) return box;
+  const old = olmFresh() && OLM.plans ? OLM.plans[String(id)] : null, stale = !!(old && old.plan && old.state === "stale"); // 받은 뒤 문서가 바뀐 ★ 계획 — 계획대로는 못 맞춘다(서버 409)
   box.append(hBtn(`대표 맞추기(${nf(o.n)}줄)`, () => olmMatchTpl(id),
     { title: `T${t.no} 의 레벨 ${o.levels}개에서 대표와 서식이 다른 줄 ${nf(o.n)}개를 레벨마다 그 대표 모양으로 — 한 번에(「실행 취소」 한 번으로 되돌림)\n무엇이 다른지는 옆의 「다른 서식 보기」`
       + (t.comp ? `\n종속 템플릿의 줄만 맞춥니다 — 다른 자리의 T${t.comp.childNo} · T${t.comp.parentNo} 줄은 그대로`
-        : t.vari ? `\n서식 종속 템플릿의 줄만 맞춥니다 — T${t.vari.ofNo} 의 줄은 그대로` : "\n레벨마다 따로 하려면 펼쳐서 「대표에 맞추기」"), cls: "btn sm olm-btn olm-tm-btn" }));
+        : t.vari ? `\n서식 종속 템플릿의 줄만 맞춥니다 — T${t.vari.ofNo} 의 줄은 그대로` : "\n레벨마다 따로 하려면 펼쳐서 「대표에 맞추기」")
+      + (stale ? "\n★ 서식 정리 계획은 받은 뒤 문서가 바뀌어 옛것입니다 — 계획대로 맞추려면 「★ 계획 옛것」 을 눌러 다시 받으세요" : ""), cls: "btn sm olm-btn olm-tm-btn" }));
+  if (stale && typeof tplAgentOpen === "function") { // 옛 계획이 있다는 것을 보인다 — 누르면 ★ 열(계획 다시 받기)
+    box.append(hBtn("★ 계획 옛것", () => tplAgentOpen(id), { cls: "olm-chip olm-tm-stale",
+      title: `★ 서식 정리 계획(${fmtWhen(old.at)})은 그 뒤 문서가 바뀌어 옛것입니다 — 계획대로 맞출 수 없습니다(옆 단추는 대표와 다른 줄을 모두 맞춤)\n누르면 ★ 열 — 계획을 다시 받으면 이 자리가 「계획대로 맞추기」 가 됩니다` }));
+  }
   return box;
 }
 async function olmApplyTpl(id, body) { // 템플릿 단위 맞추기 한 번 → 응답 | null(실패 — 알림은 여기서). 「템플릿 맞추기」 단추와 서식 정리 에이전트의 적용(tpl_agent.js)이 같이 쓴다
@@ -574,6 +605,19 @@ async function olmMatchTpl(id) {
   if (!r) return;
   if (r.nothing) { toast("맞출 줄이 없습니다 — 레벨마다 모두 대표와 같습니다"); return; }
   toast(`T${t ? t.no : id} 줄 ${nf((r.changed || []).length)}개를 레벨마다 대표 모양으로 맞췄습니다(레벨 ${(r.levels || []).length}개) — 「실행 취소」 한 번으로 되돌립니다`);
+}
+async function olmMatchPlan(id) { // 「계획대로 맞추기」 — ★ 열의 「적용」 과 같은 몸(에이전트가 고른 그대로)
+  const P = olmTplPlan(id);
+  if (!P) { toast("쓸 계획이 없습니다 — 문서가 바뀌었거나 이미 반영했습니다. ★ 에서 계획을 다시 받으세요", true); olmLoad(true).then(() => olmRefresh()); return; }
+  const todo = tpaTodoOf(P);
+  if (!todo.levels.length) return;
+  const r = await olmApplyTpl(P.tpl, { rev: P.rev, by: "agent", levels: todo.levels });
+  if (!r) {
+    if (structOp.lastError && structOp.lastError.status === 409) toast("계획을 받은 뒤 문서가 바뀌었습니다 — ★ 에서 계획을 다시 받으세요", true);
+    return;
+  }
+  const n = (r.changed || []).length, made = (r.splits || []).map((x) => `T${x.no}`);
+  toast(`★ 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : ""].filter(Boolean).join(" · ") || "바꾼 것이 없습니다"} — 「실행 취소」 한 번으로 되돌립니다`);
 }
 
 // ---------------------------------------------------------------- 개요 레벨 그림 — 서식 복사의 내용 서식 견본(style_pic.js stylePic 의 "content")과 같은 그림을 템플릿마다

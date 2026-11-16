@@ -5871,8 +5871,11 @@ function headsProgJudge(r, k, now) { // LLM 판정 칸(2 헤딩 · 3 표) → {s
 }
 // opt(2026-11-16 「표」 탭도 같은 그리기 — spec_헤딩_추출 ② §10 「꼴은 헤딩 추출과 같은 틀」): stages = 보일 단계(「표」 탭은 [3] — 한 칸이면 .hprog-one) ·
 // open(k) = 칸을 누르면(기본 = 헤딩 추출 「추출·설정」 의 그 단계 탭) · where(k) = title 끝의 「누르면 …」
-function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · LLM) × 세 단계, 누르면 추출·설정의 그 단계 탭
+// LLM 층의 끝난 칸(✓ — state "llm")만은 어느 자리에서든 「LLM 이 바꾼 것」(heading_llm_diff.js — 문서 옆 열의 그 단계 절)을 연다(2026-11-16 사용자 「LLM 작업하고 뭐가 수정되었는지를 모르겠다」 → 답 「문서 옆 열」).
+// 안 돈 칸·실패한 칸·스크립트 층은 전처럼 open(k) — 실행할 자리.
+function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · LLM) × 세 단계, 누르면 추출·설정의 그 단계 탭(LLM ✓ 칸은 LLM 이 바꾼 것)
   const now = headsProgNow(r), box = el("div", "hprog"), stages = opt.stages || H_STAGES, open = opt.open || headsRunOpen, where = opt.where || ((k) => `추출·설정 ${k}단계`);
+  if (typeof llmDiffSync === "function") llmDiffSync(r); // 열려 있는 「LLM 이 바꾼 것」 — 그 사이 실행이 바뀌었으면 다시 읽는다
   box.classList.toggle("hprog-one", stages.length === 1);
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", "분석 진행 — 스크립트와 LLM");
@@ -5880,7 +5883,8 @@ function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · 
   for (const [label, info] of rows) {
     box.append(el("span", "hprog-layer", label));
     for (const k of stages) {
-      const i = info(k), b = hBtn("", () => open(k), { cls: "hprog-step" });
+      const i = info(k), diff = label === "LLM" && i.state === "llm" && typeof llmDiffOpen === "function";
+      const b = hBtn("", diff ? () => llmDiffOpen(k) : () => open(k), { cls: "hprog-step" });
       b.dataset.state = i.state;
       b.append(el("span", "hprog-mark"), el("span", "hprog-text", i.text));
       if (i.count) {
@@ -5888,7 +5892,7 @@ function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · 
         if (i.unit) n.append(el("span", "hprog-unit", i.unit));
         b.append(n);
       }
-      b.title = `${i.title}\n— ${H_PROG_STATE[i.state]} · 누르면 ${where(k)}`;
+      b.title = `${i.title}\n— ${H_PROG_STATE[i.state]} · 누르면 ${diff ? "LLM 이 바꾼 것(문서 옆 열)" : where(k)}`;
       b.setAttribute("aria-label", `${label} ${i.text}${i.count ? ` ${i.count}${i.unit || ""}` : ""} — ${H_PROG_STATE[i.state]}`);
       box.append(b);
     }

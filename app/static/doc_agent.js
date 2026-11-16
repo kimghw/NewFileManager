@@ -26,7 +26,10 @@ function agentIcon(name) {
     arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/>',
     organize: '<path d="M4 5h16M4 9h10M4 13h5"/><rect x="12" y="13" width="8" height="7" rx="1"/><path d="M12 16h8M16 13v7"/>',
-    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 11h18M7 15h3M14 15h3"/>'
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 11h18M7 15h3M14 15h3"/>',
+    report: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 15v2M12 12v5M15 9v8"/>', // 「지금 할 수 있는 일」(doc_agent_next.js) — 현황 보고 · LLM 검토 · 서식 반영
+    spark: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
+    format: '<path d="M4 7h10M4 12h7M4 17h10"/><path d="m15.5 14.5 4-4 1.5 1.5-4 4H15.5Z"/>'
   };
   const icon = el("span", "ag-icon");
   icon.setAttribute("aria-hidden", "true");
@@ -35,9 +38,10 @@ function agentIcon(name) {
 }
 const agentFresh = () => ({ doc: null, loaded: false, loading: false, err: "", enabled: false, hwpx: true, policy: { apply: true, why: "" }, turns: [], materials: [], styles: { table: [], text: [] }, limits: {},
   matOff: new Set(), matBusy: null, matMsg: "", paste: { open: false, name: "", text: "" }, draft: "", pick: { table: "", text: "" }, busy: null, lost: null,
-  choice: {}, fills: {}, req: {}, applying: null, prop: null, clearArm: 0, el: null });
+  choice: {}, fills: {}, req: {}, applying: null, prop: null, clearArm: 0, el: null, local: [], nextSig: "" });
 // turns = 서버가 준 턴(제안 포함) · matOff = 이번 요청에 안 보낼 자료 · busy = 도는 턴 {text, t0, timer} · lost = 보내지 못한 요청 {text, error} · choice[후보 묶음] = 고른 제안 ·
-// fills[제안 id] = 고른 칸 · req[제안 id] = 반영 요청 번호(같은 누름을 서버가 한 번으로) · prop = 2열에 띄운 제안 {turn, proposal} · el = 그려 둔 틀
+// fills[제안 id] = 고른 칸 · req[제안 id] = 반영 요청 번호(같은 누름을 서버가 한 번으로) · prop = 2열에 띄운 제안 {turn, proposal} · el = 그려 둔 틀 ·
+// local = 화면에만 두는 카드(현황 보고 · LLM 검토 실행 — doc_agent_next.js, 저장 안 함) · nextSig = 그 카드·빈 화면 묶음이 기대는 분석 상태의 서명
 let AGENT = agentFresh();
 let agentSelRaf = 0;
 if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { agentTurn: "에이전트 요청", agentApply: "에이전트 제안 반영", agentMaterial: "에이전트 자료", agentClear: "에이전트 대화 비우기" }); // 「기록」 탭의 이름
@@ -228,7 +232,7 @@ function agentDrawStatus() {
   E.guide.hidden = !(typeof agwGuided === "function" && agwGuided() && A.hwpx); // 단계가 있는 TASK 에서만
   E.guide.disabled = !A.loaded || !!A.busy || !!A.applying || !!(A.work && A.work.running) || (typeof agwRunning === "function" && !!agwRunning()); // 도는 실행이 있으면 끝난 뒤에(진행 카드가 보인다)
   const armed = performance.now() < A.clearArm;
-  E.clear.disabled = !A.loaded || !(A.turns.length || A.lost || A.materials.length) || !!A.busy || !!A.applying;
+  E.clear.disabled = !A.loaded || !(A.turns.length || A.lost || A.materials.length || A.local.length) || !!A.busy || !!A.applying;
   E.clear.classList.toggle("arm", armed);
   E.clear.textContent = armed ? "정말 비우기" : "비우기";
 }
@@ -245,6 +249,7 @@ function agentDrawTalk(toEnd = false) {
     box.append(el("p", "hwarn fail", `에이전트 상태를 읽지 못했습니다: ${A.err}`), acts);
   } else if (!A.turns.length && !A.busy && !A.lost && A.loaded && !(live && typeof agwGuided === "function" && agwGuided())) box.append(typeof agwGuided === "function" && agwGuided() && A.hwpx ? agentWorkEmptyEl() : agentEmptyEl()); // 단계가 있는 TASK = 진행 에이전트의 빈 상태(spec_작업에이전트 ② §5) — 도는 실행이 있으면 진행 카드만
   for (const t of A.turns) box.append(agentTurnEl(t));
+  if (typeof agentLocalEls === "function" && A.local.length) box.append(...agentLocalEls()); // 현황 보고 · LLM 검토 실행 카드(doc_agent_next.js — 화면에만)
   if (A.lost) {
     const s = el("section", "ag-turn");
     s.dataset.turn = "";
@@ -266,6 +271,7 @@ function agentEmptyEl() {
   const box = el("section", "ag-empty"), heading = el("div", "ag-empty-heading");
   heading.append(agentIcon("document"), el("h2", null, "문서 작업을 시작하세요"));
   box.append(heading, el("p", "ag-empty-intro", "문단이나 표를 고른 뒤, 필요한 작업을 요청하세요."));
+  if (typeof agentNextEl === "function" && AGENT.hwpx) box.append(agentNextEl(), el("p", "ag-next-title", "요청 예시")); // 「지금 할 수 있는 일」 — 현황 보고(사전 질의) · 아직 안 한 LLM 검토 · 서식 반영(doc_agent_next.js — spec ② §12) · 아래 예시와 가르는 제목
   const examples = el("div", "ag-examples");
   examples.setAttribute("aria-label", "요청 예시");
   for (const [label, prompt, icon] of [["자료로 표 채우기", "붙인 자료로 고른 표를 채워 줘", "table"], ["문단을 표로 정리하기", "고른 문단을 표로 정리해 줘", "organize"], ["추진 일정 작성하기", "이 자리에 추진 일정을 써 줘", "calendar"]]) {
@@ -621,7 +627,7 @@ async function agentClear() { // 「비우기」 — 한 번 누르면 채비(4�
   try { await api(agentUrl(), { method: "DELETE" }); }
   catch (e) { toast(`대화를 비우지 못했습니다: ${agentErr(e)}`, true); if (A === AGENT) agentDrawStatus(); return; }
   if (A !== AGENT) return;
-  Object.assign(A, { turns: [], lost: null, choice: {}, fills: {}, req: {}, prop: null, materials: [] }); // 서버는 대화·제안·자료를 모두 지운다
+  Object.assign(A, { turns: [], lost: null, choice: {}, fills: {}, req: {}, prop: null, materials: [], local: [] }); // 서버는 대화·제안·자료를 모두 지운다(화면에만 둔 보고·실행 카드도)
   A.matOff.clear();
   if (heads.dlg === "agentProp" || heads.dlg === "agentGuide") headsColClose(true);
   agentHit(null);

@@ -806,6 +806,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
         ans = answers.get(tb["id"]) if use_llm else None
         if use_llm and sendable(tb):
             tb["llm"]["sent"] = True
+            tb["llm"]["draftSubs"] = len(bs)  # 초안의 서브 테이블 수 — 「LLM 이 바꾼 것」 이 LLM 이 나눈·합친 것을 견준다(spec ② §7)
             if ans is None:
                 tb["llm"]["undecided"] = True
                 tb["llm"]["error"] = "T 호출 실패 — 초안 그대로"

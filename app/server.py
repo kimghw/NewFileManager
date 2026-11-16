@@ -2015,6 +2015,7 @@ app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   #
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
 app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
 app.include_router(__import__("app.analysis_api", fromlist=["router"]).router)   # 분석 상태(GET /api/docs/{id}/analysis — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나) 끝점은 app/analysis_api.py(spec_작업 ② §20)
+app.include_router(__import__("app.heading_llm_diff_api", fromlist=["router"]).router)   # LLM 이 바꾼 것(GET /api/docs/{id}/headings/llm-changes — 규칙 보강 · 헤딩 판정 · 표 판정 · 서식 계획) 끝점은 app/heading_llm_diff_api.py(spec_헤딩_추출 ② §7)
 
 # ---- 뼈대 유지 끝점은 app/heading_drift_api.py(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림, spec_헤딩_추출 ② §17) ----------------------------------------
 from app import heading_drift_api  # noqa: E402

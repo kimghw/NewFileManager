@@ -5,6 +5,7 @@
 연구개발계획서_양식.hwpx 를 올려 2·3단계(스크립트)를 돌린 뒤 헤딩 탭 → 요약 둘째 줄이 두 층 × 세 칸(스크립트 「문단·라벨 ✓ · 헤딩 그래프 ✓ · 표 구조 ✓」 /
 LLM 「규칙 보강 · 27묶음 ○ · 헤딩 판정 ○ · 표 판정 ○」) · LLM 칸이 그 단계의 스크립트 칸 바로 아래 · 칸 높이 22px · 1단계 카드의 「LLM 규칙 보강 — 안 함」 ·
 규칙 보강 칸을 누르면 추출·설정 1단계 탭 · 요약 사본에 흉내 낸 상태(규칙 보강 끝남 · 헤딩 판정 LLM · 규칙 보강 도는 중 · 실패)를 넣어 칸의 표시 ·
+LLM ✓ 칸을 누르면 문서 옆 열 「LLM 이 바꾼 것」(절 넷) ·
 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음. 문서는 고치지 않는다(흉내는 화면 함수에 넘긴 사본만)."""
 import argparse
 import os
@@ -139,6 +140,14 @@ try:
         c = page.evaluate(SNAP)["cells"]
         check("헤딩 판정 LLM: 보라 · 끝난 시각 · title 은 「LLM 표시」 와 같은 글", c[4]["state"] == "llm" and c[4]["text"].startswith("헤딩 판정 · ") and "LLM 이 판정한 결과" in c[4]["title"], c[4])
         page.locator("#headsOverview").screenshot(path=str(OUT / "3_judged.png"))
+        # LLM ✓ 칸을 누르면 「LLM 이 바꾼 것」(문서 옆 열 — heading_llm_diff.js, ② §7) · 안 돈 칸은 위처럼 추출·설정
+        check("LLM ✓ 칸 title: 누르면 LLM 이 바꾼 것", "LLM 이 바꾼 것" in c[4]["title"], c[4]["title"][-40:])
+        page.click("#headsOverview .hprog-step >> nth=4")
+        page.wait_for_function("() => document.querySelector('#headsDlg[data-kind=\"llmDiff\"]:not([hidden]) .lld-sec')", timeout=20000)
+        d = page.evaluate("() => ({ secs: [...document.querySelectorAll('#headsDlgBody .lld-sec')].map((s) => s.dataset.stage), title: document.getElementById('headsDlgTitle').textContent })")
+        check("「LLM 이 바꾼 것」 열 · 절 넷(규칙 보강 · 헤딩 판정 · 표 판정 · 서식 계획)", d == {"secs": ["1", "2", "3", "fmt"], "title": "LLM 이 바꾼 것"}, d)
+        page.screenshot(path=str(OUT / "3b_llm_diff.png"))
+        page.evaluate("() => headsColClose(true)")
         page.evaluate(FAKE, "rulesRunning")
         c = page.evaluate(SNAP)["cells"]
         check("2단계 LLM 이 규칙 보강을 먼저 하는 중: 규칙 보강 칸이 돎 · 헤딩 판정 칸은 아직", c[3]["state"] == "running" and c[4]["state"] == "none", [(x["text"], x["state"]) for x in c])

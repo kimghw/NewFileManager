@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/static/table-fill.css"><!-- 작성요령 세 묶음 · 표 채우기(spec_헤딩_추출 ② §18) -->
   <link rel="stylesheet" href="/static/shortcuts.css"><!-- 단축키 설명(도구 줄 단추 → 2열 목록 — spec_hwpx_웹편집 ② §2) -->
   <link rel="stylesheet" href="/static/heading-drift.css"><!-- 뼈대 유지(새 레터·새 서식·새 표 표시 — spec_헤딩_추출 ② §17) — style.css·heading-panels.css 다음 -->
+  <link rel="stylesheet" href="/static/heading-llm-diff.css"><!-- LLM 이 바꾼 것(2열 kind llmDiff — spec_헤딩_추출 ② §7) — style.css 다음 -->
   <link rel="stylesheet" href="/static/merge_over.css"><!-- 넘친 개요 레벨(2열 「넣기 계획」 안의 한 절 — 이관·취합·끌어 넣기: spec_병합 ② §5-5 9) — style.css·divisions.css 다음 -->
   <link rel="stylesheet" href="/static/gather.css"><!-- 취합(할 일 「사업계획서 취합」 — 기관 문서 줄 · 기관 작성 내용 · 끌어 넣기: spec_취합 ② §5) — divisions.css 다음 -->
   <link rel="stylesheet" href="/static/gather_quick.css"><!-- 취합 간단 모드(취합 카드의 간단 모드 줄 .gt-quick: spec_취합 ② §8) — landing.css·gather.css 다음 -->
@@ -530,6 +531,7 @@
   <script src="/static/table_fill.js"></script><!-- 표 채우기(표 메뉴 「에이전트로 표 채우기」 — 작성요령·지침·칸 입력 규칙 + 자료 → LLM 제안 → 고른 칸만 문서에) — tables.js·table_menu.js 다음(spec_헤딩_추출 ② §18) -->
   <script src="/static/heading_temp.js"></script><!-- TEMP 라벨(표 안 작성요령·쓸 자리 — 2·3단계에서 빼고 나중에 지움: 목록·문서 표시·지정/해제) — app.js·tables.js 다음(spec_헤딩_추출 ② §15) -->
   <script src="/static/heading_drift.js"></script><!-- 뼈대 유지(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림 — 상태 줄·카드 줄·문서 여백 표시·목록) — app.js·tables.js 다음(spec_헤딩_추출 ② §17) -->
+  <script src="/static/heading_llm_diff.js"></script><!-- LLM 이 바꾼 것(진행 줄의 LLM ✓ 칸 → 2열: 규칙 보강 · 헤딩 판정 · 표 판정 · 서식 계획 — 스크립트와 다르게 정한 것, 문서는 안 바뀜) — app.js·tables.js 다음(spec_헤딩_추출 ② §7) -->
   <script src="/static/outline_format.js"></script><!-- 개요 줄 자리(「템플릿 관계」 레벨 줄의 레터 위치·글 시작·둘째 줄 — 보기·고치기) — app.js 다음(spec_hwpx_웹편집 ② §8-1) -->
   <script src="/static/outline_match.js"></script><!-- 레벨 대표 서식 · 대표에 맞추기 · 템플릿 종속(「템플릿 관계」 레벨 줄의 서식 갈래 · 템플릿 줄의 하위로 넣기·떼기 · 도구 줄 #tbTplRel) — app.js·outline_format.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_odd.js"></script><!-- 다른 서식 보기(「템플릿 관계」 템플릿 줄의 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보이고 서식·레벨마다 맞추기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-2) -->
@@ -548,6 +550,7 @@
   <script src="/static/style_lib.js"></script><!-- 서식 보관함(보관한 표·글 서식 목록 · 추출 후보 → 저장 · 문서에 적용 — 2열) — app.js·tables.js·table_make.js·table_menu.js 다음(spec_일반편집 ② §7·§12) -->
   <script src="/static/doc_agent.js"></script><!-- 에이전트 보기(패널 #paneAgent — 요청 → 제안 카드 → 문서에 반영 · 자료 · 2열 제안 미리보기·지침) — style_lib.js·table_fill.js 다음(spec_일반편집 ② §8~§12) -->
   <script src="/static/doc_agent_work.js"></script><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
+  <script src="/static/doc_agent_next.js"></script><!-- 에이전트 빈 화면의 「지금 할 수 있는 일」 — 현황 보고 카드(스크립트) · 헤딩·표 LLM 검토 실행 카드 · 서식 반영(spec_일반편집 ② §12) -->
   <script src="/static/fmt_focus.js"></script><!-- 서식 라벨만 또렷이(여백의 서식 라벨 .tm-f 누름 → #doc.fmt-focus · .para.fmt-hit · 이름 줄 설명 #fmtKey) — app.js 다음(spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」) -->
   <script src="/static/doc_quick.js"></script><!-- 문서 이름 줄의 표시 아이콘(#nameTplMarks · #nameFmtMarks — 여백의 템플릿 표시 「T1 L2」 · 서식 라벨 「S41」 켜기/끄기) — app.js 다음(spec_작업 ② §17 「이름 줄 표시 아이콘」) -->
   <script src="/static/doc_status.js"></script><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — GET …/analysis 로 헤딩 · 표 · LLM · 구분 기준 표시 · 「분석」 단추) — app.js 다음(spec_작업 ② §20) -->

@@ -2,13 +2,14 @@
 
     python -X utf8 tools/smoke_first_run_ui.py <그림·임시 폴더> [--rnd] [--port 18171]
 
-- 새 작업(예제를 화면에서 엶): 헤딩 탭을 열지 않아도 `POST …/headings {first: true}` 한 번으로 2·3단계 결과·개요 편집이 생기고, 이름 줄의 분석 상태가 「헤딩 ✓ · 표 ✓ · LLM 안 함」 이 된다.
+- 새 작업(예제를 화면에서 엶): 헤딩 탭을 열지 않아도 `POST …/headings {first: true}` 한 번으로 2·3단계 결과·개요 편집이 생기고, 이름 줄의 분석 상태가 「헤딩 ✓ · 템플릿 ✓ · 서식 n/m · 표 ✓ · LLM 안 함」 이 된다.
   **구분 기준 LLM 검토(`POST …/divisions/review`)는 부르지 않는다**(2026-11-15 — spec_작업 ② §20 「구분 기준은 옵션」: 전에는 {auto: true} 로 한 번 불렀다). 같은 예제를 다시 열면(이어 열기) 다시 부르지 않는다.
 - 구분 기준 탭: 「LLM 검토」 → 2열 「구분 기준 — LLM 검토 결과」 → 「LLM 검토 실행」(응답은 page.route 로 끼운 가짜 — 재검토 1 + 빠진 자리 2) → 한 표·단추 글.
 - --rnd: 연구개발계획서 양식(지원 양식)을 새 작업으로 열어 첫 분석이 끝나는 시간과 쪽 여백 표시 수를 잰다(검토는 안 부름 — 이름 줄에 「구분 기준 안 함」). 4분쯤 더 걸린다."""
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -113,7 +114,9 @@ try:
         check("첫 분석은 구분 기준 LLM 검토를 부르지 않는다(POST …/divisions/review 0번 — ② §20 「구분 기준은 옵션」)", not rev_posts and not reviews, [rev_posts, reviews])
         page.wait_for_function("() => document.getElementById('docStatus').dataset.base === 'done'", timeout=15000)
         chips = page.evaluate("() => [...document.querySelectorAll('#docStatus .ds-chip')].map((c) => [...c.querySelectorAll('.ds-text, .ds-mark')].map((e) => e.textContent).join(' '))")
-        check("이름 줄의 분석 상태 — 「헤딩 ✓ · 표 ✓ · LLM 안 함」 · 「분석」 단추 없음", chips == ["헤딩 ✓", "표 ✓", "LLM 안 함"] and page.locator("#docStatus .ds-go").count() == 0, chips)
+        # 2026-11-16 이름 줄이 넷(헤딩 · 템플릿 · 서식 · 표) + LLM 으로 넓어짐(spec_작업 ② §20) — 서식은 「맞춘 레벨/레벨 수」 라 수는 예제마다 다르다
+        check("이름 줄의 분석 상태 — 「헤딩 ✓ · 템플릿 ✓ · 서식 n/m · 표 ✓ · LLM 안 함」 · 「분석」 단추 없음",
+              len(chips) == 5 and chips[:2] == ["헤딩 ✓", "템플릿 ✓"] and re.fullmatch(r"서식 \d+/\d+", chips[2]) and chips[3:] == ["표 ✓", "LLM 안 함"] and page.locator("#docStatus .ds-go").count() == 0, chips)
         page.click("#tabHeads")
         page.wait_for_function("() => !document.getElementById('paneHeads').hidden && document.querySelector('#headsOverview .result-metric') != null", timeout=30000)
         page.wait_for_timeout(1500)

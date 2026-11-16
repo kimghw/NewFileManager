@@ -262,8 +262,17 @@ try:
         check("고른 자리 줄 — 처음에는 없음", "고른 자리 없음" in page.inner_text("#paneAgent .ag-sel"), page.inner_text("#paneAgent .ag-sel"))
         page.screenshot(path=str(OUT / "1_agent_empty.png"))
 
+        # 「지금 할 수 있는 일」(2026-11-16 — spec_일반편집 ② §12): 현황 보고(늘 · 첫 줄) · 아직 안 한 LLM 검토(유료) · 서식 반영. 보고는 스크립트 카드(화면에만 · 에이전트 끝점을 안 부름)
+        nxt = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-next button')].map((b) => b.textContent.trim())")
+        check("빈 화면 「지금 할 수 있는 일」 — 첫 줄 「현재 작업 진행 현황 보고」", nxt[:1] == ["현재 작업 진행 현황 보고"], nxt)
+        page.click("#paneAgent .ag-next button >> nth=0")
+        page.wait_for_selector("#paneAgent .ag-report .ds-grid", timeout=20000)
+        rep = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-report .ds-row-name')].map((e) => e.textContent)")
+        check("현황 보고 카드 — 진행표와 같은 줄(헤딩 · 표 …) · 편집 줄 · 에이전트 끝점은 안 부름", "헤딩" in rep and "표" in rep and "고친 문단" in page.inner_text("#paneAgent .ag-report")
+              and not calls["turn"], rep)
+        page.evaluate("() => { AGENT.local = []; agentDrawTalk(); }")  # 아래 검사의 카드 수에 섞이지 않게(화면에만 둔 카드)
         # 요청 예시는 글상자만 채운다 — 전송은 사람이 「보내기」를 눌렀을 때만.
-        examples = page.locator("#paneAgent .ag-example")
+        examples = page.locator("#paneAgent .ag-empty > .ag-examples > .ag-example")  # 「지금 할 수 있는 일」 의 줄 단추도 같은 꼴(.ag-example)이라 예시 묶음 안만
         prompts = ["붙인 자료로 고른 표를 채워 줘", "고른 문단을 표로 정리해 줘", "이 자리에 추진 일정을 써 줘"]
         check("요청 예시 셋 — 자료로 표 채우기 · 문단을 표로 정리하기 · 추진 일정 작성하기", examples.all_text_contents() == ["자료로 표 채우기", "문단을 표로 정리하기", "추진 일정 작성하기"])
         for n, prompt in enumerate(prompts):
