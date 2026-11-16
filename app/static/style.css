@@ -820,17 +820,28 @@ body.ol-dragging .doc .para { caret-color: transparent; }
 .tool-source { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-task-row #panelFold { color: #647084; }
 .tool-tag { flex: none; font-size: 10.5px; font-weight: 600; padding: 3px 7px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); }
-/* 탭 「작업 내용」 · 검증 · PDF · 기록 · 「<도구>」 · 「작업 리스트」(#toolTabs — spec_작업 ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고" — 전의 「↩ 작업 내용」 단추를 바꿈 · 2026-11-15 검증·PDF·기록을 탭 띠에서 옮김):
+/* 탭 「작업 내용」 · 검증 · PDF · 기록 · 「<도구>」(「작업 리스트」 는 2026-11-16 상단 바 아이콘 #taskListBtn 으로 — document_header.css)(#toolTabs — spec_작업 ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고" — 전의 「↩ 작업 내용」 단추를 바꿈 · 2026-11-15 검증·PDF·기록을 탭 띠에서 옮김):
    작업 종류가 연구개발과제일 때 둘째 줄이 이 탭 둘이 된다(도구 이름·꼬리표 대신). 문서 위 탭 띠와 같은 꼴(고른 탭 = 옅은 파랑 바탕 + 파란 밑줄) · 높이 27px 라 머리 78px 는 그대로 · 좁으면 도구 탭 이름이 줄임표 */
 .tool-tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; align-self: stretch; margin-bottom: -9px; } /* 밑줄이 머리 아랫금(테두리)에 붙게 — 머리 아래 여백 8px + 테두리 */
 .tool-tabs[hidden] { display: none; }
-/* 2026-11-15: 검증 · PDF · 기록이 이 줄의 고정 탭이 되어 탭이 최대 여섯 — 안 여백 10px(패널 430px 에서 여섯이 다 들어감) · 짧은 셋은 줄지 않고 나머지(작업 내용 · <도구> · 작업 리스트)가 먼저 줄임표 */
+/* 2026-11-15: 검증 · PDF · 기록이 이 줄의 고정 탭이 되어 탭이 최대 여섯 — 안 여백 10px(패널 430px 에서 여섯이 다 들어감) · 짧은 셋은 줄지 않고 나머지(작업 내용 · <도구>)가 먼저 줄임표 */
 .tool-tabs button { flex: 0 1 auto; min-width: 0; height: 32px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; background: none; color: var(--muted);
   font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.tool-tabs #tabVerify, .tool-tabs #tabPdf, .tool-tabs #tabLog { flex-shrink: 0; }
+.tool-tabs #tabVerify, .tool-tabs #tabPdf, .tool-tabs #tabLog, .tool-tabs #tabAgent { flex-shrink: 0; }
 .tool-tabs button:hover { background: var(--surface-2); color: var(--text); }
 .tool-tabs button.active { background: #edf3ff; color: var(--accent); border-bottom-color: var(--accent); }
 .tool-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 2026-11-16 사용자 「검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기 해줘」(같은 날 작업 리스트는 상단 바로 뺌 — 묶음은 셋): 왼쪽 탭(에이전트 · 작업 내용 · <도구>)과 오른쪽 접는 묶음(.tool-more) 사이를 빈칸이 벌린다 ·
+   접힌 동안(.more-folded) 묶음에서는 고른 탭 하나만 보인다 · 펼치기 단추(#toolMore)는 탭과 같은 높이로 줄 오른쪽 끝(아랫금에 붙음) — 펼치면 화살표가 오른쪽(접기) */
+.tool-title-row .tool-tabs { flex: 1 1 auto; }
+.tool-tabs-gap { flex: 1 1 0; min-width: 4px; }
+.tool-tabs.more-folded .tool-more:not(.active) { display: none; }
+/* 펼친 동안은 탭이 최대 여섯(작업 리스트를 뺀 뒤 — 전에는 일곱) — 안 여백 4px · 탭 사이 0 으로 패널 430px 에 다 들어가고 280px 에서도 넘치지 않는다(에이전트·검증·PDF·기록은 줄지 않고 나머지가 줄임표) */
+.tool-tabs:not(.more-folded) { gap: 0; }
+.tool-tabs:not(.more-folded) button { padding: 0 4px; }
+.tool-more-btn { flex: none; align-self: flex-end; width: 28px; height: 32px; margin: 0 -4px -9px -6px; border-radius: 7px 7px 0 0; color: #647084; }
+.tool-more-btn[hidden] { display: none; }
+.tool-more-btn[aria-expanded="true"] svg { transform: scaleX(-1); }
 .pane { padding: 16px 20px 24px; }
 .result-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .result-metric { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; cursor: pointer; }
@@ -946,6 +957,7 @@ body.ol-dragging .doc .para { caret-color: transparent; }
   .panel { height: 53vh; }
   .tool-heading { min-height: 0; padding: 6px 12px; } /* 아래로 쌓인 패널(높이 53vh) — 머리를 78px 로 늘리지 않는다 */
   .tool-tabs { margin-bottom: -7px; } /* 탭 밑줄이 머리 아랫금에 붙게(아래 여백 6px + 테두리) */
+  .tool-more-btn { margin-bottom: -7px; }
   .doc-bar { overflow-x: auto; gap: 8px; padding: 5px 10px; }
   .workspace.compare-mode > .panel { height: auto; }
   #paneCompare { padding: 14px; }

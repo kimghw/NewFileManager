@@ -43,7 +43,7 @@ async function projectOpen(id) {
   if (projectBusy()) { toast("진행 중인 작업이 끝난 뒤 이동할 수 있습니다"); return; }
   await divSettingsFlush();
   await openWork(id);
-  if (state.id === id) showTab(taskRnd() ? "Div" : taskGeneral() ? "Agent" : "Verify"); // 「일반 문서」 작업의 작업 내용 = 에이전트 보기(spec_일반편집 ② §12)
+  if (state.id === id) showTab(taskRnd() ? "Div" : taskGeneral() ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(spec_일반편집 ② §12)
 }
 
 function projectRoundRow() {

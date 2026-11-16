@@ -96,6 +96,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page.add_init_script("try { localStorage.setItem('nfm.toolMore', '1'); } catch (e) {}")  # 패널 머리 오른쪽 묶음(검증·PDF·기록)을 펴 둔다 — 접힘은 smoke_panel_head_ui.py(2026-11-16)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
         page.goto(base)
@@ -105,8 +106,8 @@ try:
         # ---- 1. 국가R&D 양식이 아닌 문서 — 작업 종류 없음 · 탭 없음 · 파일 이름 자리 = 문서 목록
         check("작업 종류 = 선택 안 함(패널 머리의 「작업」 목록 — 상단 바의 옛 #taskKind 는 2026-11-11 없앰)", page.eval_on_selector("#panelTask", "e => e.value") == "" and page.evaluate(VIS, "panelTask")
               and page.locator("#taskKind").count() == 0)
-        check("탭 띠에 「연구개발과제」 탭 없음(2026-11-12 없앰) · 패널 머리 탭 「작업 내용」 도 안 보임(「작업 리스트」 는 늘 — ② §17)", page.locator("#tabDiv").count() == 0
-              and page.eval_on_selector("#toolTabTask", "e => e.hidden") and page.evaluate(VIS, "toolTabList"))
+        check("탭 띠에 「연구개발과제」 탭 없음(2026-11-12 없앰) · 패널 머리 탭 「작업 내용」 도 안 보임(「작업 리스트」 는 늘 — ② §17 · 2026-11-16 상단 바 아이콘)", page.locator("#tabDiv").count() == 0
+              and page.eval_on_selector("#toolTabTask", "e => e.hidden") and page.evaluate(VIS, "taskListBtn"))
         page.wait_for_function("() => !document.getElementById('docSwitch').hidden")
         opts = page.eval_on_selector_all("#docSwitch option", "os => os.map(o => o.textContent)")
         check("문서 목록 = 지금 문서 + 다른 문서", opts == ["기술수요조사서.hwpx", "기술수요조사서.docx"] and page.eval_on_selector("#docSwitch", "e => e.value") == a

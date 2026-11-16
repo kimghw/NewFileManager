@@ -4,14 +4,14 @@
 
 에이전트 끝점(`…/agent…`)과 보관함 목록(`/api/styles`)은 **흉내**다(page.route — 정규식: glob `agent**` 은 아래 경로에 안 맞는다). 문서·작업·TASK 저장은 진짜 서버.
 작은 문서(기술수요조사서 hwpx 둘 · docx 하나)로 본다:
-- 문서 위 탭 「에이전트」 — hwpx 에만 · 누르면 패널에 보기(상태 줄 · 대화 · 입력) / docx 는 탭 없음.
+- 패널 머리 첫 탭 「에이전트」(2026-11-16 — 문서 위 탭 띠에서 옮김) — hwpx 에만 · 누르면 패널에 보기(상태 줄 · 대화 · 입력) / docx 는 탭 없음.
 - 요청: 고른 자리 줄(커서 · 표) · 「보내기」(보낸 몸 = text·materials·selection·styles) → 도는 동안 보낸 요청이 턴으로 + 동그라미 + 「요청을 읽는 중 · n초」 · 입력 꺼짐 → 답 · 제안 카드.
 - 카드: 종류 꼬리표 · 스크립트가 확인한 제안만 강조 단추 · 에이전트가 쓴 글(draft)은 「읽고 반영」 · 표 구조 후보는 한 카드의 라디오 · 엑셀 검증(맞음 / 안 맞음(빨강) / 검산할 수식 없음) · 올리면 문서의 그 자리 보라.
 - 2열 미리보기(표 채우기 — 체크) → 다른 2열(서식 보관함)로 바꿨다 돌아와도 고른 것이 남음 · 「지침」 열.
 - 반영: 보낸 몸 = {turn, proposal, expectedRev, requestId}(+ 표 채우기는 picks.fills) → 「반영됨 — 자리로」 · 「엑셀식 보기」 · 「이 표를 서식으로 저장」 / 409 → 「문서가 바뀌었습니다 — 다시 요청하세요」 / 403 → 「원본 문서 — 제안은 보기만」.
 - 자료 붙여넣기 → 칩 · 다음 요청의 materials 에 그 id · 칩을 끄면 빠짐 · × 로 지움. 요청 실패(502) → 그 까닭 + 요청 글이 글상자에 남음. 「비우기」 는 두 번.
 - 폭: 패널 320 · 480px 에서 가로 넘침 없음. 끝점이 없을 때(404) 한 줄 까닭 · 입력 꺼짐.
-- 「일반 문서」 작업(TASK 문서 일반 편집): 열면 에이전트 보기부터 · 패널 머리 「작업 내용」 이 그 보기 · 탭 띠의 「에이전트」 는 감춤 · 시작 화면 카드로 시작.
+- 「일반 문서」 작업(TASK 문서 일반 편집): 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 내용」 탭은 없음) · 오른쪽 묶음(검증 · PDF · 기록 — 작업 리스트는 상단 바 아이콘) 펼치기·접기 · 시작 화면 카드로 시작.
 """
 import argparse
 import json
@@ -244,14 +244,15 @@ try:
         page.evaluate("() => { try { localStorage.clear(); } catch {} }")
         open_work(page, a)
 
-        # ---- 1. 문서 위 탭 「에이전트」 — hwpx 에만 · 누르면 패널에 보기
-        check("hwpx 문서 — 탭 띠에 「에이전트」(표 탭 뒤) · 처음 보기는 검증", page.evaluate(VIS, "tabAgent") and page.evaluate(TOOL) == "Verify"
-              and page.evaluate("() => { const t = [...document.querySelectorAll('#workspaceNav [role=tab]')].filter((b) => !b.hidden).map((b) => b.id); return t.indexOf('tabAgent') === t.indexOf('tabTables') + 1; }"))
+        # ---- 1. 패널 머리 첫 탭 「에이전트」(2026-11-16 — 탭 띠에서 옮김) — hwpx 에만 · 누르면 패널에 보기
+        check("hwpx 문서 — 패널 머리 첫 탭 「에이전트」 · 탭 띠에는 없음 · 처음 보기는 검증(접힌 묶음에서 고른 탭만)", page.evaluate(VIS, "tabAgent") and page.evaluate(TOOL) == "Verify"
+              and page.evaluate("() => !!document.getElementById('tabAgent').closest('#toolTabs') && !document.querySelector('#workspaceNav #tabAgent')")
+              and page.evaluate(TABS) == [["에이전트", "false"], ["검증", "true"]], page.evaluate(TABS))
         check("에이전트 끝점은 탭을 열기 전에는 안 부른다", calls["get"] == 0, calls["get"])
         page.click("#tabAgent")
         page.wait_for_function("() => AGENT.loaded && !!document.querySelector('#paneAgent .ag-status[data-llm=on]')")
-        check("탭을 누르면 패널에 에이전트 보기 · 탭이 고른 꼴 · 패널 머리 둘째 줄 도구 탭 = 「에이전트」", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.get_attribute("#tabAgent", "aria-selected") == "true"
-              and page.evaluate(TABS) == [["검증", "false"], ["PDF", "false"], ["기록", "false"], ["에이전트", "true"], ["작업 리스트", "false"]], page.evaluate(TABS))  # 검증·PDF·기록 = 패널 머리 고정 탭(2026-11-15)
+        check("탭을 누르면 패널에 에이전트 보기 · 탭이 고른 꼴 · 접힌 묶음(검증·PDF·기록)은 다 감춤", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.get_attribute("#tabAgent", "aria-selected") == "true"
+              and page.evaluate(TABS) == [["에이전트", "true"]] and page.evaluate(VIS, "toolMore"), page.evaluate(TABS))
         st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].filter((b) => !b.hidden).map((b) => [b.textContent, b.disabled]) })")   # 「작업 설명」(작업 진행 에이전트)은 단계가 있는 TASK 에서만 보인다 — 일반 편집에는 없다
         check("상태 줄 — LLM 사용 가능 · 「서식 관리자」 · 「비우기」(대화가 없어 꺼짐)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 관리자", False], ["비우기", True]], st)
         check("빈 대화 안내 · 「보내기」 는 글이 없어 꺼짐", "제안만 냅니다" in page.inner_text("#paneAgent .ag-empty") and page.is_disabled("#paneAgent [data-ag-act=send]"))
@@ -532,21 +533,26 @@ try:
               and page.is_enabled("#paneAgent [data-ag-act=paste]") and page.is_enabled("#paneAgent [data-ag-act=library]"))
         S["enabled"] = True
 
-        # ---- 10. 「일반 문서」 작업 — 열면 에이전트 보기부터 · 「작업 내용」 = 그 보기 · 탭 띠의 「에이전트」 는 감춤 · 원본 문서 정책
+        # ---- 10. 「일반 문서」 작업 — 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 내용」 없음) · 오른쪽 묶음 펼치기·접기 · 원본 문서 정책
         S["turns"] = [turn_body("t1", "앞서 한 요청")]
         S["policy"] = {"apply": False, "why": "원본 문서는 바꾸지 않습니다"}
         open_work(page, g)
         page.wait_for_function("() => AGENT.loaded && document.querySelectorAll('#paneAgent .ag-card').length === 5")
-        check("일반 문서 작업 — 열면 에이전트 보기 · 「작업 내용」 탭이 그 보기(고름) · 탭 띠의 「에이전트」 는 감춤", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and not page.evaluate(VIS, "tabAgent")
-              and page.evaluate(TABS) == [["작업 내용", "true"], ["검증", "false"], ["PDF", "false"], ["기록", "false"], ["작업 리스트", "false"]] and page.input_value("#panelTask") == "general"
-              and page.get_attribute("#toolTabTask", "aria-controls") == "paneAgent", page.evaluate(TABS))
+        check("일반 문서 작업 — 열면 에이전트 보기 · 「에이전트」 탭(고름) · 「작업 내용」 탭 없음 · 묶음은 접힘", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.evaluate(VIS, "tabAgent")
+              and not page.evaluate(VIS, "toolTabTask") and page.evaluate(TABS) == [["에이전트", "true"]] and page.input_value("#panelTask") == "general"
+              and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
         cs = page.evaluate(CARDS)
         check("원본 문서 정책(apply: false) — 「원본 문서 — 제안은 보기만」 · 반영 단추 꺼짐 · 미리보기는 됨", page.inner_text("#paneAgent .ag-policy") == "원본 문서 — 제안은 보기만" and all(c["off"] for c in cs)
               and page.is_enabled("#paneAgent .ag-card[data-prop=p1] [data-ag-act=preview]"), [(c["prop"], c["off"]) for c in cs])
+        page.click("#toolMore")
+        check("펼치기 — 오른쪽에 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘) · 기억(nfm.toolMore)", page.evaluate(TABS) == [["에이전트", "true"], ["검증", "false"], ["PDF", "false"], ["기록", "false"]]
+              and page.get_attribute("#toolMore", "aria-expanded") == "true" and page.evaluate("() => localStorage.getItem('nfm.toolMore')") == "1", page.evaluate(TABS))
         page.click("#tabVerify")
-        check("다른 도구(검증)를 보면 「작업 내용」 이 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["작업 내용", "false"], ["검증", "true"], ["PDF", "false"], ["기록", "false"], ["작업 리스트", "false"]])
-        page.click("#toolTabTask")
-        check("「작업 내용」 을 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5)
+        check("다른 도구(검증)를 보면 「에이전트」 가 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["에이전트", "false"], ["검증", "true"], ["PDF", "false"], ["기록", "false"]], page.evaluate(TABS))
+        page.click("#toolMore")
+        check("접기 — 묶음에서 고른 「검증」 하나만 남음", page.evaluate(TABS) == [["에이전트", "false"], ["검증", "true"]] and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
+        page.click("#tabAgent")
+        check("「에이전트」 를 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TABS) == [["에이전트", "true"]], page.evaluate(TABS))
         check("일반 문서 작업에는 구분 기준 내용(작업 내용 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")
         # ---- 10-1. 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 원본 문서(반영 금지)에서도 「보관함에 저장」 은 된다 · 문서는 안 바뀜 · 저장 뒤 서식마다 검증 꼬리표 · 「서식 관리자에서 보기」
         page.evaluate("""(tbl) => { AGENT.turns.push({ id: 't9', at: Date.now() / 1000, text: '이 문서의 서식을 저장해 줘', reply: '저장할 서식을 골랐습니다.', notes: [], error: null, dropped: [], call: {}, calls: 1,
@@ -592,11 +598,13 @@ try:
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g}/task") and r.request.method == "PUT") as put:
             page.select_option("#panelTask", "rnd")
         page.wait_for_selector("#divBox .dv-task select")
-        check("작업 = 연구개발 프로젝트로 — 저장됨(할 일 비움) · 작업 내용(Div) · 탭 띠에 「에이전트」 가 다시", put.value.status == 200 and put.value.json()["task"]["job"] == "" and page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "tabAgent"), put.value.status)
+        check("작업 = 연구개발 프로젝트로 — 저장됨(할 일 비움) · 작업 내용(Div) · 탭 = 「에이전트」 · 「작업 내용」(고름)", put.value.status == 200 and put.value.json()["task"]["job"] == "" and page.evaluate(TOOL) == "Div"
+              and page.evaluate(TABS)[:2] == [["에이전트", "false"], ["작업 내용", "true"]], (put.value.status, page.evaluate(TABS)))
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g}/task") and r.request.method == "PUT") as put:
             page.select_option("#panelTask", "general")
         page.wait_for_function("() => document.getElementById('panel').dataset.tool === 'Agent'")
-        check("작업 = 일반 문서로 — 저장됨 · 에이전트 보기 · 탭 띠의 「에이전트」 감춤", put.value.status == 200 and put.value.json()["task"]["kind"] == "general" and not page.evaluate(VIS, "tabAgent"))
+        check("작업 = 일반 문서로 — 저장됨 · 에이전트 보기 · 「에이전트」 탭 고름 · 「작업 내용」 탭 없음", put.value.status == 200 and put.value.json()["task"]["kind"] == "general" and page.evaluate(VIS, "tabAgent")
+              and page.get_attribute("#tabAgent", "aria-selected") == "true" and not page.evaluate(VIS, "toolTabTask"))
         S["policy"] = {"apply": True, "why": ""}
 
         # ---- 11. docx — 탭 없음
@@ -615,8 +623,8 @@ try:
         page.wait_for_function("() => state.id && state.task && state.task.job === 'doc_edit' && document.getElementById('panel').dataset.tool === 'Agent' && AGENT.loaded", timeout=240000)
         t = page.evaluate("() => ({ id: state.id, task: state.task, tabs: [...document.querySelectorAll('#toolTabs [role=tab]')].filter((b) => !b.hidden).map((b) => [b.textContent, b.getAttribute('aria-selected')]) })")
         saved = next((w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == t["id"]), {})
-        check("카드로 시작 — 새 작업 · 작업 종류 일반 문서 · TASK 문서 일반 편집(저장됨) · 에이전트 보기 = 「작업 내용」", t["id"] not in before and t["task"]["kind"] == "general" and t["task"]["job"] == "doc_edit"
-              and (saved.get("task") or {}).get("kind") == "general" and t["tabs"][0] == ["작업 내용", "true"], (t, saved.get("task")))
+        check("카드로 시작 — 새 작업 · 작업 종류 일반 문서 · TASK 문서 일반 편집(저장됨) · 첫 탭 「에이전트」 고름", t["id"] not in before and t["task"]["kind"] == "general" and t["task"]["job"] == "doc_edit"
+              and (saved.get("task") or {}).get("kind") == "general" and t["tabs"][0] == ["에이전트", "true"], (t, saved.get("task")))
         page.wait_for_timeout(1500)
         mine = [u for m, u in sent if f"/api/docs/{t['id']}/" in u and m == "POST"]
         check("일반 문서의 첫 분석 — 헤딩 스크립트는 돌고 구분 기준 LLM 검토는 안 돈다", any(u.endswith("/headings") for u in mine) and not any("/divisions/review" in u for u in mine), mine)

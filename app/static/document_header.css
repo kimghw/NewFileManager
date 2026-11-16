@@ -28,12 +28,16 @@
   body:not(.no-doc) > .topbar .bar-ctl { padding: 1px; }
   body:not(.no-doc) > .topbar a.brand { padding-block: 2px; }
 }
+/* 2026-11-16 상단 바 아이콘 「작업 리스트」(#taskListBtn — 30px)를 더한 뒤: 문서를 연 541~780px 에서는 사이를 4px 로 줄여 그 몫을 되찾는다
+   (사이 8px 그대로면 넘치기 시작하는 폭이 약 695 → 733px 로 올라 700px 에서 「공유」 단추와 함께 넘쳤다 — smoke_share_ui 「좁은 화면(700px)」) */
+@media (min-width: 541px) and (max-width: 780px) { body:not(.no-doc) > .topbar { gap: 4px; } }
 /* 상단 바 오른쪽 끝의 아이콘 단추 셋(2026-11-16 사용자 「이건 아이콘으로 하면 되지 않냐?」 — design.md §9): 「워크플로우」·「에이전트 설정」 링크와 패널 여닫기 #panelBtn 은
    어느 폭에서나 글 없이 아이콘 하나(그림 18px) — 이름은 title·aria-label. 폭 32px(문서를 연 줄은 30×26 — 아래), 높이는 상단 바 .btn 규칙 그대로(32 · 26 · 540px 아래 28).
-   #panelBtn 은 hidden 으로 감춘다(style.css 의 [hidden] !important 가 이 display 를 이긴다) */
-.topbar > :is(a.wf-link, a.ags-link, .panel-toggle) { display: inline-grid; place-items: center; flex: none; width: 32px; padding: 0; color: var(--text); text-decoration: none; }
-.topbar > :is(a.wf-link, a.ags-link, .panel-toggle) svg { display: block; pointer-events: none; }
-@media (min-width: 541px) { body:not(.no-doc) > .topbar > :is(a.wf-link, a.ags-link, .panel-toggle) { width: 30px; padding: 0; } }
+   #panelBtn 은 hidden 으로 감춘다(style.css 의 [hidden] !important 가 이 display 를 이긴다).
+   2026-11-16 넷째 — 「작업 리스트」 #taskListBtn(사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」 — 패널 머리 탭에서 옮김: spec_작업 ② §10 「둘째 줄」): 저장 다음 · 워크플로우 앞, 문서를 연 동안만(#panelBtn 처럼 hidden) */
+.topbar > :is(a.wf-link, a.ags-link, .panel-toggle, .task-list-btn) { display: inline-grid; place-items: center; flex: none; width: 32px; padding: 0; color: var(--text); text-decoration: none; }
+.topbar > :is(a.wf-link, a.ags-link, .panel-toggle, .task-list-btn) svg { display: block; pointer-events: none; }
+@media (min-width: 541px) { body:not(.no-doc) > .topbar > :is(a.wf-link, a.ags-link, .panel-toggle, .task-list-btn) { width: 30px; padding: 0; } }
 /* TASK 워크플로우 링크(상단 바 #workflowLink — spec_워크플로우 ② §4): 단추 꼴의 링크(새 탭). 문서를 연 541~880px 에서는 감춘다
    (「에이전트 설정」 단추가 780px 아래에서 숨는 것과 같은 까닭 — 줄 넘침을 키우지 않는다. 540px 아래는 두 줄로 꺾이므로 다시 보인다) */
 .topbar > a.wf-link svg { color: var(--accent); }
@@ -45,6 +49,9 @@
 /* 패널 여닫기(#panelBtn): 회색 그림 · 패널이 열려 있으면 눌림 바탕(도구 줄 .icon.tb 의 켜짐과 같은 옅은 파랑) */
 .topbar > button.panel-toggle { color: var(--muted); }
 .topbar > .panel-toggle[aria-expanded="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
+/* 작업 리스트(#taskListBtn): 패널 여닫기와 같은 회색 그림 · 패널이 작업 리스트를 보이는 동안 눌림 바탕(aria-pressed) */
+.topbar > button.task-list-btn { color: var(--muted); }
+.topbar > .task-list-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
 .workspace > .workspace-tools.folded,
 body.no-doc .workspace-tools,
 body.peek .workspace-tools { display: none; }

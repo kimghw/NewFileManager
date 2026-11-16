@@ -120,6 +120,7 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             page = browser.new_page(viewport={"width": 1600, "height": 1000}, device_scale_factor=1)
+            page.add_init_script("try { localStorage.setItem('nfm.toolMore', '1'); } catch (e) {}")  # 패널 머리 오른쪽 묶음(검증·PDF·기록)을 펴 둔다 — 접힘은 smoke_panel_head_ui.py(2026-11-16)
             page.on("pageerror", lambda e: logs.append(f"pageerror: {e}"))
             page.on("console", lambda msg: logs.append(f"console {msg.type}: {msg.text}") if msg.type == "error" else None)
             page.goto(f"{url}/#w={ids['a']}")
@@ -127,9 +128,9 @@ def main():
             page.wait_for_selector(".para")
             page.click("#tabHeads")
             page.wait_for_selector("#heads2More .htree")
-            # 2026-11-15: 검증·PDF·기록은 패널 머리 탭(#toolTabs) — 탭 띠는 고친 문단·헤딩 추출·표·에이전트·문서 비교 다섯
-            check("HWPX five strip destinations (incl. agent tab) + verify/PDF/log in the panel head", page.locator("#workspaceNav [role=tab]:visible").count() == 5
-                  and page.locator("#toolTabs #tabVerify:visible, #toolTabs #tabPdf:visible, #toolTabs #tabLog:visible").count() == 3)
+            # 2026-11-15: 검증·PDF·기록은 패널 머리 탭(#toolTabs) · 2026-11-16: 에이전트도 패널 머리 첫 탭 — 탭 띠는 고친 문단·헤딩 추출·표·문서 비교 넷
+            check("HWPX four strip destinations + agent/verify/PDF/log in the panel head", page.locator("#workspaceNav [role=tab]:visible").count() == 4
+                  and page.locator("#toolTabs #tabAgent:visible, #toolTabs #tabVerify:visible, #toolTabs #tabPdf:visible, #toolTabs #tabLog:visible").count() == 4)
             check("Six heading result views", page.locator(".heads-view-nav [role=tab]:visible").count() == 6)
             check("Heading tree visible without execution controls", page.locator("#heads2More .htree").is_visible() and not page.locator("#headsViewRun").is_visible())
             page.locator("#heads2More button.htext").first.click()
@@ -210,7 +211,7 @@ def main():
                 page.wait_for_timeout(300)
                 buttons = page.locator("#workspaceNav [role=tab]:visible")
                 boxes = [buttons.nth(i).bounding_box() for i in range(buttons.count())]
-                check(f"{width}px navigation remains on one scrollable row", len(boxes) == 5 and len({round(b["y"] + b["height"] / 2) for b in boxes if b}) == 1
+                check(f"{width}px navigation remains on one scrollable row", len(boxes) == 4 and len({round(b["y"] + b["height"] / 2) for b in boxes if b}) == 1
                       and page.evaluate("() => { const t = document.getElementById('workspaceTools'); return t.clientWidth <= innerWidth && getComputedStyle(t).overflowX === 'auto'; }"), str(boxes))
                 page.screenshot(path=OUT / f"06_narrow_{width}.png")
                 page.click("#tabPdf")

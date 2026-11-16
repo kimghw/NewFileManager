@@ -98,7 +98,7 @@ COMMON = (
                 modules=("style_apply", "style_api"), spec=(SP_EDIT, "② §4")),
              _s("verify", "PDF 검증", "script", "저장한 서식을 한글 · Word 로 출력해 서식이 뜻한 값과 PDF 에서 잰 값을 견줍니다.", change="store", modules=("style_verify",), spec=(SP_STYLE, "② §7")),
          )),
-    dict(id="agent", name="에이전트 보기", where="패널 「에이전트」(일반 문서는 「작업 내용」) · 첫 화면 오른쪽 대화창",
+    dict(id="agent", name="에이전트 보기", where="패널 머리 첫 탭 「에이전트」(어느 TASK 든 — hwpx 문서) · 첫 화면 오른쪽 대화창",
          does="에이전트와 글로 주고받는 대화창입니다 — TASK 를 시작하면 에이전트가 사전 준비와 진행 상황을 설명하고 다음 단계를 제안·실행하며(작업 진행), 글로 요청하면 제안(글 · 새 표 · 표 채우기 · 서식 입히기 · 서식 복사)을 내고 "
               "사람이 고른 것만 문서에 반영합니다. 어느 TASK 의 문서에서나 엽니다.",
          steps=(
@@ -144,7 +144,7 @@ COMMON = (
              _s("tidy", "템플릿 서식 정리 에이전트", ("llm", "human"), "저장된 스킬 글대로 레벨마다 대표 · 맞출 갈래 · 그대로 둘 갈래를 정한 계획을 냅니다 — 사람이 계획에서 고른 것만 적용됩니다.", change="doc", optional=True,
                 agents=("tpl_agent",), modules=("tpl_agent",), spec=(SP_WEB, "② §8-4")),
          )),
-    dict(id="verify", name="검증 · 확정 · 저장", where="상단 바 「출력파일 검증」 · 「저장」 · 패널 머리 「검증」·「PDF」·「기록」",
+    dict(id="verify", name="검증 · 확정 · 저장", where="상단 바 「출력파일 검증」 · 「저장」 · 패널 머리 오른쪽 접는 묶음의 「검증」·「PDF」·「기록」",
          does="고친 문서가 한글 · Word 에서 제대로 출력되는지 확인하고 내려받습니다.",
          steps=(
              _s("output", "출력파일 검증", "script", "저장본을 한글(hwpx) · Word(docx) PDF 로 찍어 원본과 쪽마다 비교합니다.", modules=("verify", "pdf_render", "pdf_map", "owpml_check"), spec=(SP_WEB, "② §3·§4·§5")),

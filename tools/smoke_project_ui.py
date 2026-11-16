@@ -74,8 +74,15 @@ def wait_work(page, wid):
     page.wait_for_function("() => document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('.project-round-row') && !projectStarting", timeout=30000)
 
 
+def show_list(page):
+    """작업 리스트 열기 — 상단 바 아이콘 #taskListBtn(2026-11-16 패널 머리 탭에서 옮김). 누름은 켜고 끄기라 이미 보이면(눌림) 누르지 않는다"""
+    if page.get_attribute("#taskListBtn", "aria-pressed") != "true":
+        page.locator("#taskListBtn").click()
+    page.wait_for_function("() => document.getElementById('panel').dataset.tool === 'Tasks'")
+
+
 def select_work(page, wid):
-    page.locator("#toolTabList").click()
+    show_list(page)
     button = page.locator(f'[data-project-work="{wid}"]')
     previous = button.locator("xpath=ancestor::details[contains(@class, 'project-previous')]")
     if previous.count() and not previous.evaluate("e => e.open"):
@@ -136,6 +143,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script("try { localStorage.setItem('nfm.toolMore', '1'); } catch (e) {}")  # 패널 머리 오른쪽 묶음(검증·PDF·기록)을 펴 둔다 — 접힘은 smoke_panel_head_ui.py(2026-11-16)
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("dialog", lambda dialog: dialog.accept())
         page.on("request", lambda request: llm_calls.append(request.url) if request.method == "POST" and any(k in request.url for k in ("/llm", "/extract", "/analyze")) else None)
@@ -215,11 +223,15 @@ try:
         check("삭제 — 버전만 없어지고 지금 구분 기준·확정은 그대로", applied["versions"] == [] and applied["confirmed"]["valid"] and applied["settings"]["values"]["stages"] == [2, 1], applied.get("versions"))
         shared = applied["settings"]  # 아래 「이전 라운드는 구분 기준 보관」 이 견줄 값 — 버전 적용을 거친 지금 설정
 
-        for key, expected in [("ArrowRight", "tabVerify"), ("End", "toolTabList"), ("Home", "toolTabTask"), ("ArrowLeft", "toolTabList")]:  # 둘째 탭 = 검증(2026-11-15 — 검증·PDF·기록이 패널 머리 탭)
+        order = page.evaluate("() => [...document.querySelectorAll('#toolTabs [role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => b.id)")  # 보이는 탭 차례(2026-11-16 — 에이전트 · 작업 내용 · <도구> | 검증 · PDF · 기록: 이 검사는 묶음을 펴 둔다 · 작업 리스트는 상단 바 아이콘)
+        after_task = order[order.index("toolTabTask") + 1] if "toolTabTask" in order[:-1] else ""
+        for key, expected in [("ArrowRight", after_task), ("End", order[-1]), ("Home", order[0]), ("ArrowLeft", order[-1])]:
             if key == "ArrowRight":
                 page.locator("#toolTabTask").focus()
             page.keyboard.press(key)
             check(f"패널 탭 키보드 {key}", page.evaluate("id => document.activeElement.id === id && document.activeElement.getAttribute('aria-selected') === 'true'", expected))
+        check("패널 탭 줄에 「작업 리스트」 없음(상단 바 아이콘으로 — 2026-11-16)", "toolTabList" not in order and page.locator("#toolTabList").count() == 0, order)
+        show_list(page)
         page.wait_for_selector("#projectList .project-task-open")
         check("프로젝트 두 개에 TASK 묶음 세 개", page.locator("#projectList > .project-group").count() == 2
               and page.locator("#projectList .project-task-open").count() == 3)
@@ -263,7 +275,7 @@ try:
         page.locator(".project-round-label select").select_option("1")
         wait_work(page, report)
         check("라운드 선택으로 이전 작업 복귀", "이전 라운드 보관" in page.locator(".project-sharing").inner_text())
-        page.locator("#toolTabList").click()
+        show_list(page)
         check("이전 라운드 목록에서 기존 작업 유지", page.locator(f'.project-previous [data-project-work="{report}"]').count() == 1
               and page.locator(f'.project-task-open[data-project-work="{new_report}"]').count() == 1)
         page.locator("#panel").screenshot(path=str(OUT / "02_previous_round.png"))
@@ -304,7 +316,7 @@ try:
               and "프로젝트 「프로젝트 A」 의 구성을 가져왔습니다" in page.locator("#toast").text_content() and "프로젝트 공유" in page.locator("#divBox .project-sharing").inner_text(), joined_view["projectSharing"])
 
         # 새 파일 시작 경로도 실제 업로드·start-task API를 쓴다. 첫 분석은 별도 검사이므로 호출만 센다.
-        page.locator("#toolTabList").click()
+        show_list(page)
         if not page.locator("#projectCreate").evaluate("e => e.open"):
             page.locator("#projectCreate > summary").click()
         page.locator("#projectStartName").click()  # 「새 TASK 시작」 의 프로젝트 칸도 같은 고르기 목록(② §19) — 지금 프로젝트가 미리 적혀 있어도 모든 프로젝트가 보인다
@@ -333,7 +345,7 @@ try:
               and api("GET", f"/api/docs/{report}/download").content == before and api("GET", f"/api/docs/{new_report}/download").content == before)
 
         page.evaluate("() => { colSizers.find(c => c.box === 'panel').w = 320; colsApply(); }")
-        page.locator("#toolTabList").click()
+        show_list(page)
         page.wait_for_timeout(200)
         compact = page.evaluate("""() => { const p = document.getElementById('panel'), box = document.getElementById('projectWorkspace');
           return {width:p.getBoundingClientRect().width, overflow:box.scrollWidth-box.clientWidth,
@@ -350,7 +362,7 @@ try:
         current = uploaded["docId"]
         tasks_a = {wid: task for wid, task in after_upload.items() if (task or {}).get("project") == "프로젝트 A"}
         overflow = "() => { const box = document.getElementById('projectWorkspace'); return box.scrollWidth - box.clientWidth; }"
-        page.locator("#toolTabList").click()
+        show_list(page)
         check("미지정 묶음에는 ⋯ 없음 · 이름 있는 프로젝트마다 ⋯", page.locator("[data-project-menu]").count() == 3
               and page.locator('[data-project-menu="프로젝트 B"]').get_attribute("aria-expanded") == "false")
         page.locator('[data-project-menu="프로젝트 B"]').click()
@@ -433,7 +445,7 @@ try:
         page.evaluate("id => projectOpen(id)", joiner)  # 프로젝트 A(구성 값 · 버전 「보관」)의 문서를 열어 둔 채 초기화한다
         wait_work(page, joiner)
         check("초기화 전 — 프로젝트 구성 있음 줄 · 버전 하나", page.evaluate(SHARING)["kind"] == "has" and len(page.evaluate(VERSION_OPTIONS)) == 2, page.evaluate(SHARING))
-        page.locator("#toolTabList").click()
+        show_list(page)
         page.locator('[data-project-menu="프로젝트 A"]').click()
         page.locator('[data-project-reset="프로젝트 A"]').click()
         try:
@@ -468,7 +480,7 @@ try:
         api("PUT", f"/api/docs/{lonely}/divisions/settings", json={"values": VALUES})
         api("POST", f"/api/docs/{lonely}/divisions/versions", json={"name": "남은 버전"})
         api("DELETE", f"/api/works/{lonely}")
-        page.locator("#toolTabList").click()
+        show_list(page)
         page.locator("#projectWorkspace .project-list-head button").click()  # 새로고침 — 작업 목록 + 프로젝트 정보
         page.wait_for_selector('#projectList [data-project-empty="프로젝트 빈"]', timeout=30000)
         empty_text = page.locator('#projectList [data-project-empty="프로젝트 빈"]').inner_text()
@@ -503,7 +515,7 @@ try:
               and page.locator('[data-project-menu="프로젝트 빈"]').count() == 0)
         page.evaluate("id => projectOpen(id)", current)  # 아래 「문서까지 삭제」 는 지금 연 문서(프로젝트 C2)로 본다
         wait_work(page, current)
-        page.locator("#toolTabList").click()
+        show_list(page)
         page.locator('[data-project-menu="프로젝트 C2"]').click()
         page.locator('[data-project-delete="프로젝트 C2"]').click()
         with page.expect_response(lambda r: "/api/projects/" in r.url and r.request.method == "DELETE", timeout=30000) as purged:

@@ -32,6 +32,7 @@ def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         page = b.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+        page.add_init_script("try { localStorage.setItem('nfm.toolMore', '1'); } catch (e) {}")  # 패널 머리 오른쪽 묶음(검증·PDF·기록)을 펴 둔다 — 접힘은 smoke_panel_head_ui.py(2026-11-16)
         page.on("console", lambda m: logs.append(f"[{m.type}] {m.text}"))
         page.on("pageerror", lambda e: logs.append(f"[pageerror] {e}"))
         page.goto(URL)
