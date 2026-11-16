@@ -77,7 +77,7 @@ def tabs_for(tool=None, selected="Verify", rnd=True, agent=True, open=True):
     검증 · PDF · 기록(접는 묶음 — 접히면 고른 탭 하나만 · 작업 리스트는 상단 바 아이콘). agent = hwpx(에이전트 · 헤딩 추출이 함께 보임).
     selected = agent|task|Heads|Tables|tool|Verify|Pdf|Log|None(작업 리스트를 볼 때 — 고른 탭 없음)"""
     more = [["검증", "Verify"], ["PDF", "Pdf"], ["기록", "Log"]]
-    fixed = ([["헤딩 추출", "Heads"]] if agent else []) + [["표", "Tables"]]
+    fixed = ([["헤딩 추출", "Heads"]] if agent else []) + [["테이블", "Tables"]]  # 탭 이름 「테이블」(2026-11-16 사용자 「표 아니고 테이블로」 — 전의 「표」)
     row = ([["에이전트", "agent"]] if agent else []) + ([["작업 내용", "task"]] if rnd else []) + fixed + ([[tool, "tool"]] if tool else []) + [m for m in more if open or m[1] == selected]
     return [[name, str(key == selected).lower()] for name, key in row]
 
@@ -185,7 +185,7 @@ try:
             g = page.evaluate(GEO)
             if not page.evaluate(VIS, pane) or g["head"] != g0["head"] or g["task"] != g0["task"] or g["fold"] != g0["fold"]:
                 moved.append([tool, g["head"]])
-        check("도구 바꾸기 — 둘째 줄이 도구 이름 · 머리 높이·첫 줄 자리 그대로", seen == ["고친 문단", "기록", "헤딩 추출", "표", "검증"] and not moved, [seen, moved])
+        check("도구 바꾸기 — 둘째 줄이 도구 이름 · 머리 높이·첫 줄 자리 그대로", seen == ["고친 문단", "기록", "헤딩 추출", "테이블", "검증"] and not moved, [seen, moved])
 
         # ---- 4. 패널에서 작업 = 연구개발과제 → 저장 · 그 내용이 바로 열림(탭 띠에 탭은 안 생긴다 — 2026-11-12)
         check("작업 종류를 고르기 전 — 헤딩 추출·표·<도구>(마지막 탭 띠 도구 「고친 문단」)·검증·PDF·기록", page.evaluate(TABS) == tabs_for(tool="고친 문단", rnd=False) and not page.evaluate(VIS, "toolTitle"), page.evaluate(TABS))
@@ -269,7 +269,7 @@ try:
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}.png"))
             page.click("#toolMore")  # 접으면 — 에이전트 · 작업 내용 · <도구>(고른 탭)
             g, tl = page.evaluate(GEO), page.evaluate(TABS)
-            check(f"{tool} · 패널 280px 접힘 — 탭 다섯 · 넘침 없음 · 머리 안", [t[0] for t in tl] == ["에이전트", "작업 내용", "헤딩 추출", "표", "고친 문단"] and g["over"] <= 0
+            check(f"{tool} · 패널 280px 접힘 — 탭 다섯 · 넘침 없음 · 머리 안", [t[0] for t in tl] == ["에이전트", "작업 내용", "헤딩 추출", "테이블", "고친 문단"] and g["over"] <= 0
                   and g["tabs"][2] <= g["head"][2] and g["head"][3] - g["head"][1] == 78, [tl, g])
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}_folded.png"))
             page.click("#toolMore")

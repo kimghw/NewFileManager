@@ -408,7 +408,7 @@ function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑
     if (one) b.title = "칸이 하나인 표(글상자) — 표 구조(헤더·필드·소속)를 만들지 않는 표입니다";
     else {
       b.type = "button";
-      b.title = "표 구조(3단계)를 만든 뒤 문서에 생긴 표 — 헤더·필드·소속을 아직 모릅니다\n표 구조는 그대로 쓰고, 이 표까지 넣으려면 「표」 탭의 「표 구조 만들기」 로 다시 만드세요 · 누르면 뼈대 밖 목록";
+      b.title = "표 구조(3단계)를 만든 뒤 문서에 생긴 표 — 헤더·필드·소속을 아직 모릅니다\n표 구조는 그대로 쓰고, 이 표까지 넣으려면 「테이블」 탭의 「표 구조 만들기」 로 다시 만드세요 · 누르면 뼈대 밖 목록";
       b.onclick = (e) => { e.stopPropagation(); if (typeof driftView === "function") driftView(); };
     }
     m.append(b);
@@ -1725,7 +1725,7 @@ function tablesDraw() {
   const summaryInfo = hHelp("표 집계 기준", summaryHelp.join("\n"), { note: true });
   overview.append(metrics);
   if (supported && heads.view && typeof headsProgLine === "function") // 진행 줄 — 헤딩 추출과 같은 그리기(스크립트 표 구조 / LLM 표 판정) · 누르면 이 탭의 「추출·설정」
-    overview.append(headsProgLine(heads.view, { stages: [3], open: () => tpViewSet("Run"), where: () => "「표」 탭의 추출·설정" }));
+    overview.append(headsProgLine(heads.view, { stages: [3], open: () => tpViewSet("Run"), where: () => "「테이블」 탭의 추출·설정" }));
   const meta = el("div", "result-meta"), chip = (text, stale = false) => el("span", `analysis-state${stale ? " stale" : ""}`, text);
   if (!supported) meta.append(chip("DOCX · 표 구조 분석 미지원"));
   else if (busy) { // 도는 동안 — 헤딩 추출 상태 줄과 같은 꼴(돌아가는 동그라미 + 지금 하는 일 · 지난 시간) · 누르면 헤딩 추출 「추출·설정」 의 그 단계(단계마다의 진행은 거기)

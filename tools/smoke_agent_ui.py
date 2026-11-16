@@ -188,7 +188,7 @@ def styles(route):  # 보관함 목록(「서식 보관함」 단추 — 2열을
 
 VIS = "(id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; }"
 TOOL = "() => document.getElementById('panel').dataset.tool"
-HT = [["헤딩 추출", "false"], ["표", "false"]]  # 2026-11-16 — 헤딩 추출 · 표는 패널 머리의 고정 탭(에이전트 · 작업 내용 다음 — spec_작업 ② §10 「둘째 줄」)
+HT = [["헤딩 추출", "false"], ["테이블", "false"]]  # 탭 이름 「테이블」(2026-11-16 — 전의 「표」) · 2026-11-16 — 헤딩 추출 · 표는 패널 머리의 고정 탭(에이전트 · 작업 내용 다음 — spec_작업 ② §10 「둘째 줄」)
 TABS = """() => { const t = document.getElementById('toolTabs'); return [...t.querySelectorAll('[role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => [b.textContent, b.getAttribute('aria-selected')]); }"""
 CARDS = """() => [...document.querySelectorAll('#paneAgent .ag-card')].map((c) => { const a = c.querySelector('[data-ag-act=apply]'), q = (s) => [...c.querySelectorAll(s)].map((e) => e.textContent);
   return { prop: c.dataset.prop, type: c.dataset.type, state: c.dataset.state, group: c.dataset.group || '', tag: (c.querySelector('.ag-tag') || {}).textContent, title: (c.querySelector('.ag-title') || {}).textContent,
