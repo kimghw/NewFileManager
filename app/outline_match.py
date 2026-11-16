@@ -190,8 +190,8 @@ def all_variants(doc, ov):
     order = _order(doc)
     out = {}
     for tid, t in ov["templates"].items():
-        for lv in t.get("slots", {}):
-            if slot_ids(ov, tid, lv):
+        for lv, sl in t.get("slots", {}).items():
+            if slot_ids(ov, tid, lv) and not sl.get("table"):  # 표 제목 레벨(② §8-7)은 서식 갈래·대표·맞추기가 없다
                 out.setdefault(tid, {})[lv] = variants(doc, ov, tid, lv, order)
     return out
 
@@ -349,9 +349,9 @@ def context(doc, ov):
     표 칸 안 노드는 그래프에서 부모가 칸 그릇이라 오버레이 부모가 비어 있다(spec_헤딩_추출 ② §6) — 칸 안에서는 바로 앞 줄을 매달린 자리로 본다."""
     from app.hwpx_struct import SUBLIST
     cell, prev, seen = set(), {}, set()
-    for pid in ov["lines"]:
+    for pid, x in ov["lines"].items():
         el = doc._ids.get(pid)
-        if el is None or not doc._attached(el):
+        if el is None or not doc._attached(el) or x.get("role") == OE.TABLE:  # 표 제목 줄(② §8-7)은 칸 안 문단이 열쇠지만 본문 줄이다
             continue
         par = el.getparent()
         if par is None or par.tag != SUBLIST or par in seen:
@@ -847,7 +847,7 @@ def apply_reps(g, ov):
         for lv, sl in (t.get("slots") or {}).items():
             x = ov["lines"].get(sl.get("rep")) if sl.get("repSet") else None
             if x is not None and x["tpl"] == tid and str(x["level"]) == str(lv):
-                picks[(tid, int(lv))] = sl["rep"]
+                picks[(tid, int(lv) - (1 if t.get("lift") else 0))] = sl["rep"]  # 표 제목을 L1 로 넣은 템플릿(② §8-7)은 오버레이 레벨이 그래프보다 하나 깊다
     if not picks:
         return g
     tpls = []

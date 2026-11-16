@@ -355,9 +355,12 @@ def test_relabel_of_llm_run_replays_saved_answers(c, monkeypatch):
     def ask_all(jobs, **kw):
         out = []
         for job in jobs:
+            what = job["what"].split("#", 1)[0]
+            if what == "heading_rules":  # LLM 판정이 그래프보다 먼저 묻는 못 맞춤·충돌 묶음(spec ② §3, 2026-11-16) — 제안 없음 · 그래프 호출 수(calls)에는 안 센다
+                out.append(_res({"items": [], "summary": ""}))
+                continue
             calls.append(job["what"])
             data = json.loads(job["content"].rsplit("## 자료(JSON)\n", 1)[1])
-            what = job["what"].split("#", 1)[0]
             if what == "heading_types":
                 out.append(_res({**A, "mainChain": data["mainChainProposal"]}))
             elif what == "heading_section":

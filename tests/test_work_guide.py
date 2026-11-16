@@ -60,6 +60,51 @@ def test_workflow_part_cuts_the_task_section_and_the_common_modules_it_uses():
     home = G.workflow_part(None)
     assert all(f"— `{t['job']}`" in home for t in W.TASKS) and "####" not in home and "받는 문서" in home   # TASK 마다 머리만(단계 묶음 앞까지)
     assert G.workflow_part("nope") == home
+    # 참조 글(spec ② §8) — 작업 화면의 그 TASK 절은 TASK 문서(tasks/<job>.md): workflow.md 의 절과 같은 글 + 시작 점검 + 단계마다 조건
+    assert G.task_doc_text("plan_fit") == W.task_md("plan_fit").read_text(encoding="utf-8") and G.task_doc_text("nope") == ""
+    fit = W.BY_JOB["plan_fit"]
+    assert "#### 시작 점검 — 시작할 때 저절로 확인하는 것" in p and "##### TASK 를 시작할 때" in p and "#### 단계마다 조건" in p and "  - 끝난 것으로 보는 때: " in p and "  - 안 맞으면: " in p
+    assert all(s["does"] in p and s["done"] in p for g in fit["stages"] for s in g["steps"]) and all(c["does"] in p for c in fit["entry"])
+    assert "만든 글" not in p.split("### 사업계획서 양식 맞추기 — `plan_fit`", 1)[1].split("#### 시작 점검", 1)[0]   # 파일 머리의 알림(> 줄)은 싣지 않는다
+    assert "시작 점검(시작할 때 저절로 확인하는 것): TASK 를 시작할 때 — 문서 형식" in home and "`tasks/plan_fit.md`" in home and "  - 안 맞으면: " not in home   # 첫 화면은 이름만
+
+
+def test_agent_asks_for_logs_and_the_endpoint_reads_them(monkeypatch):
+    """로그(spec ② §8) — 자료에 로그 목록 · 작업 기록의 끝 몇 줄이 실리고, 에이전트가 read 로 청하면 끝점이 읽어 logsRead 에 붙여 다시 부른다(두 번까지)."""
+    assert G.SCHEMA["properties"]["read"]["items"]["required"] == ["log", "n", "find"] and "read" in G.SCHEMA["required"]
+    assert G.reads_in({"read": [{"log": " work ", "n": 500, "find": "divisionPlan"}, {"log": "work", "n": 80, "find": "divisionPlan"}, {"log": ""}, "x", {"log": "server", "n": True, "find": 3}, {"log": "a"}, {"log": "b"}]}) \
+        == [{"log": "work", "n": 80, "find": "divisionPlan"}, {"log": "server", "n": 30, "find": "3"}, {"log": "a", "n": 30, "find": ""}]   # 셋까지 · 같은 것은 한 번 · 줄 수는 1~80
+    assert G.reads_in({"reply": ""}) == [] and G.reads_in(None) == []
+    for text in (G.CONTRACT, G.HOME_CONTRACT):
+        assert "[{log, n, find}]" in text and "{{" not in text
+    c = TestClient(server.app)
+    d = _doc(c, "plan_fit")
+    seen = []
+
+    def fake(data, job=None, *, home=False, call=None, timeout=120.0):
+        seen.append({"logs": dict(data.get("logs") or {}), "read": [dict(r, lines=list(r.get("lines") or [])) for r in data.get("logsRead") or []], "prompt": G.content(data, job, home)})
+        first = len(seen) == 1
+        raw = {"reply": "" if first else "방금 문서를 올렸고 아직 반영한 적이 없습니다", "act": "", "ask": {"kind": "", "text": "", "options": []},
+               "read": [{"log": "work", "n": 5, "find": ""}, {"log": "nope", "n": 5, "find": ""}] if first else [{"log": "server", "n": 5, "find": ""}]}
+        return {"data": G.clean(raw, data["actions"]), "reads": G.reads_in(raw), "prompt": seen[-1]["prompt"], "response": raw, "call": {"backend": "api", "model": "m", "effort": "low", "ms": 7, "costUsd": 0.01, "error": None}}
+
+    monkeypatch.setattr(llm, "status", lambda: {"available": True})
+    monkeypatch.setattr(G, "ask", fake)
+    t = c.post(f"/api/docs/{d}/agent/guide", json={"event": "say", "text": "아까 뭐 했지?", "steps": STEPS, "actions": PLAN}).json()["turn"]
+    assert len(seen) == 3 and [s["logs"]["rounds"] for s in seen] == [2, 1, 0]                                 # 두 번 읽고, 셋째 부름에는 더 읽을 수 없다(청해도 읽지 않는다)
+    assert [x["log"] for x in seen[0]["logs"]["index"]] == ["work", "peers", "verify", "agent", "llm", "server"] and any(" create " in line for line in seen[0]["logs"]["recent"])
+    assert seen[0]["read"] == [] and [r["log"] for r in seen[1]["read"]] == ["work", "nope"] and seen[1]["read"][0]["lines"] and "그런 로그가 없습니다" in seen[1]["read"][1]["error"]
+    assert [r["log"] for r in seen[2]["read"]] == ["work", "nope", "server"] and '"logsRead"' in seen[2]["prompt"] and '"logsRead"' not in seen[0]["prompt"]
+    assert t["llm"] and t["reply"].startswith("방금 문서를 올렸고") and t["notes"][0].startswith("로그를 읽었습니다 — 작업 기록 ") and "서버 로그 " in t["notes"][0]
+    assert t["call"]["ms"] == 21 and t["call"]["costUsd"] == 0.03 and t["call"]["rounds"] == 3                  # 다시 물은 호출의 시간 · 비용은 더한다
+    full = c.get(f"/api/docs/{d}/agent/turns/{t['id']}").json()
+    assert full["parts"][0]["text"] == seen[2]["prompt"]
+    last = [e for e in works.events(d) if e["kind"] == "agentGuide"][-1]
+    assert last["reads"] == ["work", "nope", "server"]
+    # 첫 화면에는 작업이 없다 — 로그를 싣지도 읽지도 않는다
+    seen.clear()
+    c.post("/api/agent/guide", json={"files": [{"name": "사업계획서.hwpx"}]})
+    assert len(seen) == 1 and seen[0]["logs"] == {} and '"logs"' not in seen[0]["prompt"].split("## 자료(JSON)", 1)[1]
 
 
 def test_inputs_are_trimmed_to_the_contract():

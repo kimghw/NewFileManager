@@ -61,6 +61,27 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
 .wf-ways-note { margin-top: 6px; }
 .wf-io dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .wf-io dd a { color: var(--accent); }
+/* 시작 점검(TASK 절 — 시작할 때 저절로 확인하는 것: spec_워크플로우 ② §10) — 때마다 묶음(접힘) › 항목(이름 · 누가 · 무엇을 확인하나 · 안 맞으면) */
+.wf-entry-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.wf-entry-head .wf-muted, .wf-entry-head code { font-size: 12px; font-weight: 400; }
+.wf-entry { margin-top: 6px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius); }
+.wf-entry-group + .wf-entry-group { border-top: 1px solid var(--line); }
+.wf-entry-group > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
+.wf-entry-group > summary:hover { background: #f8fafd; }
+.wf-entry-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wf-entry-group > summary .wf-muted { font-size: 12px; }
+.wf-entry-group > summary { list-style: none; }
+.wf-entry-group > summary::-webkit-details-marker { display: none; }
+.wf-entry-group > summary .wf-chev { align-self: center; margin: 0 2px 0 auto; }
+.wf-entry-group[open] > summary .wf-chev { transform: rotate(45deg); }
+.wf-entry-group[data-when=manual] > summary b { color: var(--muted); }
+.wf-entry-note { margin: 0 14px 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.wf-entry-items { list-style: none; margin: 0; padding: 0 14px 6px; }
+.wf-entry-items > li { padding: 6px 0; border-top: 1px dashed var(--line); }
+.wf-miss { margin: 2px 0 0; max-width: 840px; color: #45505f; font-size: 12.5px; line-height: 1.55; }
+.wf-miss b { margin-right: 2px; color: var(--muted); font-weight: 600; }
+.wf-entry-doc { margin: 2px 0 6px; color: var(--muted); }
+.wf-entry-context .wf-entry { max-width: 1040px; }
 .wf-links { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 
 /* ---- 단계 묶음(세로 차례 — 왼쪽 레일에 번호) */
@@ -94,6 +115,12 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
 .wf-more { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px 10px; margin: 0 14px 10px 56px; padding: 8px 10px; border-radius: 6px; background: var(--surface-2); font-size: 12px; line-height: 1.55; }
 .wf-more dt { color: var(--muted); }
 .wf-more dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+/* 단계마다 조건(② §10 — 하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것 · 보정) — 세부(.wf-more) 앞에 따로: 이름표가 길어 칸이 넓다 */
+.wf-cond { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 4px 10px; margin: 0 14px 6px 56px; padding: 8px 10px; border-left: 3px solid var(--line-strong); border-radius: 0 6px 6px 0; background: var(--surface-2); font-size: 12px; line-height: 1.55; }
+.wf-cond dt { color: var(--muted); }
+.wf-cond dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.wf-conds { margin-top: 20px; }
+.wf-conds .wf-cond { margin: 0; }
 .wf-agent + .wf-agent, .wf-mod + .wf-mod { margin-top: 5px; }
 .wf-agent-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
 .wf-ano { padding: 0 4px; border: 1px solid #b8c8f0; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; line-height: 17px; font-variant-numeric: tabular-nums; }
@@ -239,6 +266,12 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
   .wf-more { grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0 10px 10px; }
   .wf-more dt { margin-top: 5px; }
   .wf-more dt:first-child { margin-top: 0; }
+  .wf-cond { grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0 10px 6px; }
+  .wf-cond dt { margin-top: 5px; }
+  .wf-cond dt:first-child { margin-top: 0; }
+  .wf-entry-group > summary { padding: 7px 10px; }
+  .wf-entry-note { margin: 0 10px 4px; }
+  .wf-entry-items { padding: 0 10px 6px; }
   .wf-diagram-mode .wf-main { padding: 12px 12px 40px; }
   .wf-diagram-mode .wf-chain { flex-direction: column; align-items: stretch; width: 100%; gap: 0; }
   .wf-diagram-mode .wf-chain > li { flex-direction: column; align-items: stretch; }

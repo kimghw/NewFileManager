@@ -1,0 +1,48 @@
+/* hwpx 공유 — 주인 화면(spec_공유 ② §7 · design.md §14). share.js 가 만드는 것만: 상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시.
+   style.css 다음에 읽는다(색 변수 · .btn · 입력 28px 를 그대로 받는다). */
+#shareBtn { display: inline-flex; align-items: center; gap: 5px; flex: none; white-space: nowrap; }
+#shareBtn svg { flex: none; color: var(--accent); }
+#shareBtn.on { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+#shareBtn.on svg { color: var(--ok); }
+#shareBtn.warn { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+/* 좁은 폭 — 상단 바를 넘치게 하지 않는다(문서를 연 700px 에서 단추 42px 이면 7px 넘쳤다 — tools/smoke_share_ui.py):
+   1100px 아래 = 꺼져 있을 때는 아이콘만(다른 상단 바 아이콘 단추와 같은 30px) · 880px 아래 = 켜져 있어도 아이콘 + 손님 수만(「공유 중」 글은 title·aria-label 에). 540px 아래는 상단 바가 두 줄로 꺾여 그대로 */
+@media (max-width: 1100px) { #shareBtn .share-btn-txt.idle { display: none; } }
+@media (min-width: 541px) and (max-width: 1100px) { body:not(.no-doc) > .topbar > #shareBtn:not(.on):not(.warn) { width: 30px; padding: 0; justify-content: center; } }
+@media (min-width: 541px) and (max-width: 880px) {
+  body:not(.no-doc) > .topbar > #shareBtn:is(.on, .warn) { padding: 0 7px; }
+  body:not(.no-doc) > .topbar > #shareBtn:is(.on, .warn) .share-btn-txt { display: none; }
+  body:not(.no-doc) > .topbar > #shareBtn[data-n]::after { content: attr(data-n); font-size: 12px; }
+}
+
+/* 떠 있는 창 — 모달 아님(문서·패널은 그대로 쓴다): 단추 아래 · ✕/Esc/바깥 누름 */
+.share-pop { position: fixed; z-index: 60; width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - 64px); overflow: auto; padding: 10px 12px 12px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); font-size: 13px; color: var(--text); }
+.share-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.share-head strong { font-size: 14px; }
+.share-head .spacer { flex: 1; }
+.share-x { width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+.share-x:hover { background: var(--surface-2); color: var(--text); }
+.share-grid { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 6px 8px; }
+.share-grid > label, .share-grid > .share-k { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.share-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.share-row input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
+.share-row input[readonly] { background: var(--surface-2); }
+.share-row .btn { flex: none; height: 28px; padding: 0 8px; }
+.share-key { font-family: Consolas, "Courier New", monospace; letter-spacing: .06em; }
+.share-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-note { grid-column: 2; margin: -2px 0 0; color: var(--muted); font-size: 12px; }
+.share-note.warn { color: var(--warn); }
+.share-note.err { color: var(--fail); }
+.share-people { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.share-who { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); font: inherit; font-size: 12px; color: var(--text); white-space: nowrap; }
+.share-who i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+button.share-who { cursor: pointer; }
+button.share-who:hover { border-color: var(--line-strong); }
+.share-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.share-acts .btn { height: 28px; padding: 0 10px; }
+.share-acts .spacer { flex: 1; }
+
+/* 손님이 작성 중인 문단 — 그 사람 색 띠 + 테두리(이름은 도움말·눌렀을 때 알림·창의 사람들 줄에) */
+.para.share-held, .para.share-held:hover, .para.share-held.edited { background: color-mix(in srgb, var(--share-who) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--share-who), 0 0 0 1px var(--share-who); cursor: not-allowed; }

@@ -8,6 +8,7 @@
 - 「검증 중」 은 2초마다 그 서식을 다시 읽어 「검증됨」 으로 · 「다시 검증」.
 - 이름 바꾸기(그 줄의 입력 칸 — Enter, 보낸 몸에 expectedRevision) · 409 는 새 판을 읽고 다시 · 지우기는 두 번(그 줄에서 확인).
 - 적용: 「빈 표 넣기」(커서의 본문 최상위 블록 뒤 — 자리가 없으면 까닭) · 「고른 표에 입히기」 · 글 서식 항목 「고른 문단에 입히기」 — 보낸 몸 · 구조 편집 응답을 같은 길로.
+- 내용 서식의 레벨 목록: 520 · 480 · 320px에서 레벨·이름과 적용·수정 단추가 같은 줄 묶음에 머묾 · 값 고치기는 해당 레벨 바로 아래 · 다른 레벨로 전환 · 취소는 저장 없이 닫음.
 - 「이 문서에서 추출」 → 후보(표 → 글): 체크 · 이름 · 띠 수 · 같은 서식 n개 · 「구조까지 저장」 · 「글도 그대로 저장」 · 「이름 붙이기(LLM)」(직접 고친 이름은 그대로) · 「고른 n개 저장」(차례로 — 보낸 몸) → 보관함으로.
 - 「서식 복사」 열의 탭(spec_서식복사 ② §18): 탭 다섯(표지 서식 · 내용 서식 · 테이블 서식 · 쪽 설정 · 문단 서식 — 수 · 「· n개 고름」) · 처음 탭 · 그 탭의 후보만 보임 · 탭을 바꾸면 맨 위 · 0개인 탭의 한 줄 ·
   고름·저장 수는 모든 탭에 걸침 · 서식 관리자로 갔다 와도 고른 탭 그대로 · 서식 관리자의 갈래는 그대로 넷.
@@ -369,6 +370,16 @@ FIT_COL = """() => { const p = document.getElementById('headsDlg'), r = p.getBou
 FIT_PANEL = """() => { const p = document.getElementById('panel'), r = p.getBoundingClientRect();
   const bad = [...p.querySelectorAll('.pane:not([hidden]) *')].filter((e) => e.getClientRects().length && e.getBoundingClientRect().right > r.right + 0.5).slice(0, 6).map((e) => (e.className || e.tagName) + ':' + (e.textContent || '').slice(0, 20));
   return { w: Math.round(r.width), bad, over: p.scrollWidth - p.clientWidth }; }"""
+LEVEL_LAYOUT = """() => { const p = document.querySelector('#headsDlg .sl-item[data-style=s_txt1] .sl-levels'), panel = document.getElementById('headsDlg').getBoundingClientRect();
+  const rows = [...p.querySelectorAll('.sl-level-row')], rect = (e) => e.getBoundingClientRect();
+  return rows.map((r, i) => { const head = r.querySelector('.sl-level-head'), acts = r.querySelector('.sl-level-actions'), f = r.querySelector('.sl-fform'), bs = [...(acts?.querySelectorAll('button') || [])];
+    const box = rect(r), h = head && rect(head), a = acts && rect(acts), fr = f && rect(f), btns = bs.map(rect), next = rows[i + 1];
+    return { level: r.querySelector('.sl-lv')?.textContent, name: r.querySelector('.sl-lname')?.textContent,
+      apply: r.querySelector('[data-sl-item]')?.dataset.slItem, edit: r.querySelector('[data-sl-fmt]')?.dataset.slFmt,
+      separated: !!h && !!a && h.bottom <= a.top + .5 && btns.length === 2 && (btns[0].right <= btns[1].left + .5 || btns[0].bottom <= btns[1].top + .5),
+      contained: box.left >= panel.left - .5 && box.right <= panel.right + .5 && btns.every((b) => b.left >= box.left - .5 && b.right <= box.right + .5 && b.top >= box.top - .5 && b.bottom <= box.bottom + .5),
+      distinct: !next || box.bottom <= rect(next).top + .5,
+      form: f ? { key: f.dataset.slFform, child: f.parentElement === r, below: fr.top >= a.bottom - .5, inside: fr.bottom <= box.bottom + .5 } : null }; }); }"""
 item = lambda xs, sid: next((x for x in xs if x["id"] == sid), None)
 row = lambda xs, key: next((x for x in xs if x["key"] == key), None)
 size = lambda page, box, w: (page.evaluate("([b, w]) => { const c = colSizers.find((x) => x.box === b); c.w = w; c.apply(); }", [box, w]), page.wait_for_timeout(300))
@@ -556,6 +567,40 @@ try:
         check("원본 문서 줄(spec_서식복사 ② §17) — 「원본 문서 · 프로젝트 · 자리 외 N개 문서」 + 풍선에 TASK · 라운드 · 같은 서식이 나온 다른 문서",
               x1["src"].startswith("원본 보고서.docx · 프로젝트 갑 과제 · 개요템플릿 1 외 2개 문서 · ") and tip[0].startswith("이 서식을 뽑은 문서 — 보고서.docx · 프로젝트 갑 과제 · TASK ")
               and "라운드 2" in tip[0] and "개요템플릿 1" in tip[0] and tip[1] == "같은 서식이 나온 다른 문서:" and tip[2].startswith("· 작년 보고서.hwpx · 프로젝트 을 과제 · 개요템플릿 2") and tip[3] == "· 공고문.pdf", (x1["src"], tip))
+        for width in (520, 480, 320):
+            size(page, "headsDlg", width)
+            levels, fit = page.evaluate(LEVEL_LAYOUT), page.evaluate(FIT_COL)
+            check(f"내용 서식 {width}px — 레벨마다 이름·적용·수정이 같은 묶음 · 단추와 다음 레벨이 겹치지 않음",
+                  len(levels) == 2 and [(r["level"], r["apply"], r["edit"]) for r in levels] == [("L1", "i1", "i1"), ("L2", "i2", "i2")]
+                  and all(r["name"] and r["separated"] and r["contained"] and r["distinct"] for r in levels) and not fit["bad"] and not fit["over"], (levels, fit))
+            page.locator("#headsDlg").screenshot(path=str(OUT / f"4_levels_{width}.png"))
+            puts_before, applies_before = len(calls["put"]), len(calls["apply"])
+            page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i2]")
+            page.wait_for_selector("#headsDlg [data-sl-fform=i2]")
+            levels, fit = page.evaluate(LEVEL_LAYOUT), page.evaluate(FIT_COL)
+            check(f"값 고치기 {width}px — L2 바로 아래에만 편집 칸 · 가로 넘침 없음",
+                  len(levels) == 2 and levels[0]["form"] is None and levels[1]["form"] == {"key": "i2", "child": True, "below": True, "inside": True}
+                  and all(r["separated"] and r["contained"] and r["distinct"] for r in levels) and not fit["bad"] and not fit["over"], (levels, fit))
+            fields = page.evaluate("""() => { const f = document.querySelector('#headsDlg [data-sl-fform=i2]');
+              return { focused: document.activeElement?.tagName === 'INPUT' && f.contains(document.activeElement),
+                units: [...f.querySelectorAll('.sl-fv-unit')].map((u) => { const i = u.parentElement.querySelector('input'), a = i.getBoundingClientRect(), b = u.getBoundingClientRect();
+                  return { gap: b.left - a.right, inline: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) <= 2 }; }) }; }""")
+            check(f"값 입력 {width}px — 실제 입력 칸에 초점 · 숫자 바로 뒤에 단위",
+                  fields["focused"] and len(fields["units"]) == 4 and all(-.5 <= u["gap"] <= 8 and u["inline"] for u in fields["units"]), fields)
+            page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i1]")
+            page.wait_for_selector("#headsDlg [data-sl-fform=i1]")
+            levels = page.evaluate(LEVEL_LAYOUT)
+            check(f"수정할 레벨 변경 {width}px — L1 안으로 이동 · L2 수정 칸 닫힘 · 뒤 레벨 안 밀려 섞임",
+                  len(levels) == 2 and levels[0]["form"] == {"key": "i1", "child": True, "below": True, "inside": True} and levels[1]["form"] is None
+                  and all(r["distinct"] and r["contained"] for r in levels), levels)
+            page.locator("#headsDlg .sl-fform input[data-sl-fv=sizePt]").fill("19")
+            page.locator("#headsDlg").screenshot(path=str(OUT / f"4_level_edit_{width}.png"))
+            page.click("#headsDlg .sl-fform [data-sl-act=fmtCancel]")
+            levels = page.evaluate(LEVEL_LAYOUT)
+            check(f"값 고치기 취소 {width}px — 입력만 버리고 레벨·단추 유지 · 저장·문서 적용 요청 없음",
+                  len(levels) == 2 and [(r["level"], r["apply"], r["edit"]) for r in levels] == [("L1", "i1", "i1"), ("L2", "i2", "i2")]
+                  and all(r["form"] is None and r["separated"] and r["distinct"] for r in levels) and len(calls["put"]) == puts_before and len(calls["apply"]) == applies_before, levels)
+        size(page, "headsDlg", 480)
         page.click(f'#doc .para[data-id="{IDS["cell_para"]}"]')
         page.click("#headsDlg .sl-levels [data-sl-item=i2]")
         page.wait_for_function("() => document.getElementById('toast').textContent.includes('글자·문단 모양을 입혔습니다')")

@@ -398,7 +398,7 @@ function olmNeed() { // 갈래 자료가 없으면 한 번 읽고 한 번 다시
   OLM.pending = true;
   olmLoad().then((d) => { OLM.pending = false; if (d) olmRedraw(); });
 }
-function olmPicLevels(t) { return Object.keys(t.slots || {}).map(Number).filter((L) => L > (t.base || 0) && t.slots[String(L)].lines).sort((a, b) => a - b); }
+function olmPicLevels(t) { return Object.keys(t.slots || {}).map(Number).filter((L) => L > (t.base || 0) && t.slots[String(L)].lines && !t.slots[String(L)].table).sort((a, b) => a - b); } // 표 제목 레벨(② §8-7)은 글 서식 그림에 없다
 function olmPicView(id) { // → stylePic 의 보기 {items[{level, letter, marker, sample, format}]} | null(오버레이·갈래 자료 없음)
   const t = olmTpl(id);
   if (!t || !olmFresh()) return null;

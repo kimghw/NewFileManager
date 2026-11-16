@@ -1,14 +1,14 @@
 """TASK 워크플로우 페이지(spec_워크플로우 — app/workflow.py · app/workflow_api.py · app/static/workflow.html·js·css) 화면 확인 — 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright.
 끝점은 모두 진짜(흉내 없음).
 
-- 시작 화면: 상단 바 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 아이콘 + 글) — 맨 끝은 그대로 「에이전트 설정」(링크 a#agentsLink — /agents).
-- /workflow: 목차(전체 보기 · TASK 일곱 · 공통 모듈 여덟) · 전체 보기(TASK 마다 한 줄 — 이관 = 1~4단계 사슬 · 준비 중 TASK) · 범례.
+- 시작 화면: 상단 바 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 — 2026-11-16) — 맨 끝은 그대로 「에이전트 설정」(링크 a#agentsLink — /agents).
+- /workflow: 목차(전체 보기 · TASK 일곱 · 공통 모듈 아홉) · 전체 보기(TASK 마다 한 줄 — 이관 = 1~4단계 사슬 · 준비 중 TASK) · 범례.
 - 기본 다이어그램: 단계 노드 선택 · 이전/다음 순차 탐색 · 단계 묶음 이동 · 상세 주소 · 키보드 · 준비 중 · 기술 상세 · 관련 모듈 · 읽기 전용.
 - TASK 절(이관): 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 · 전제(할 일 프롬프트) · 묶음 넷(「N단계」 = TASK_STAGE_META) · 단계 줄(이름 · 누가 · 문서 바뀜 · 하는 일이 펴지 않아도 보임) ·
   줄을 누르면 세부(에이전트 작업 번호·이름·모델 · 모듈 파일 + 설명 · 사양 자리 · 공통 모듈 링크).
 - 공통 모듈 절: 「쓰는 TASK」 → 누르면 그 TASK 로(목차의 지금 절 표시) · 묶음 사슬을 누르면 그 묶음으로 · 주소 #<job> 로 바로 열기.
 - 「모두 펼치기」 · 「모두 접기」 · 좁은 폭(900 · 480 · 360px)에서 가로 넘침 없음(목차는 가로 줄).
-- 문서를 연 상단 바: 1600 · 1280 · 1100 · 900px 에서 넘침 없음 · 링크 26px · 1500px 아래 아이콘만 · 800px 에서는 감춤.
+- 문서를 연 상단 바: 1600 · 1280 · 1100 · 900px 에서 넘침 없음 · 링크 30×26 아이콘만(어느 폭에서나) · 패널 여닫기(#panelBtn)도 아이콘 · 800px 에서는 감춤.
 - 콘솔 오류 없음.
 
     python -X utf8 tools/smoke_workflow_ui.py <출력 폴더> [--port 18447]
@@ -239,11 +239,23 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     tech_text = tech.inner_text()
     check("기술 상세 펼치기 — 실제 에이전트·모듈·사양 포함",
           llm["agents"][0]["name"] in tech_text and llm["modules"][0]["path"] in tech_text and llm["spec"]["file"] in tech_text, tech_text)
+    # TASK 문서(spec_워크플로우 ② §10) — 고른 단계의 조건 · 시작 점검(접어 둠 — 펴면 때마다 묶음이 열린 채)
+    ent = wf.evaluate("""() => { const d = document.getElementById('wfDiagram'), e = d.querySelector('details.wf-entry-context');
+      return { cond: [...d.querySelectorAll('#wfDetail .wf-conds .wf-cond dt')].map((x) => x.textContent), condText: [...d.querySelectorAll('#wfDetail .wf-conds .wf-cond dd')].map((x) => x.textContent),
+        entry: e && { open: e.open, summary: e.querySelector('summary').textContent, doc: e.querySelector('.wf-entry-doc code').textContent,
+          groups: [...e.querySelectorAll('.wf-entry-group')].map((g) => [g.dataset.when, g.querySelectorAll('.wf-entry-items > li').length, g.open]) } }; }""")
+    relay = tasks["plan_to_report"]
+    auto = sum(len(g["items"]) for g in relay["entry"] if g["when"] != "manual")
+    check("다이어그램 — 고른 단계의 조건(하려면 · 끝난 것으로 보는 때 · 남기는 것 · 보정 — 등록부의 글) · 시작 점검은 접어 두고 때마다 묶음 · TASK 문서 경로",
+          ent["cond"] == [c["name"] for c in llm["cond"]] == ["하려면", "끝난 것으로 보는 때", "남기는 것 · 보정"] and ent["condText"] == [c["text"] for c in llm["cond"]]
+          and bool(ent["entry"]) and ent["entry"]["open"] is False and f"{auto}가지" in ent["entry"]["summary"] and ent["entry"]["doc"] == relay["doc"] == "tasks/plan_to_report.md"
+          and ent["entry"]["groups"] == [[g["when"], len(g["items"]), True] for g in relay["entry"]] and [g["when"] for g in relay["entry"]] == ["start", "upload", "enter", "manual"], ent)
     wf.screenshot(path=str(OUT / "07_diagram_transfer.png"))
     wf.click("#wfDiagram .wf-node[href='#plan_to_report--map--heads']")
     wf.click("#wfDiagram .wf-related a[href='#common-headings']")
     related = wait_diagram(wf, common["headings"]["steps"][0]["name"])
     check("관련 공통 모듈로 이동 — 첫 단계부터 확인", related["selected"] == "#common-headings--" + common["headings"]["steps"][0]["key"], related)
+    check("공통 모듈에는 시작 점검 · 단계 조건이 없다(TASK 의 것)", wf.locator("#wfDiagram .wf-entry-context, #wfDiagram .wf-conds").count() == 0)
     wf.click("#wfNav a[href='#report_merge']")
     wf.wait_for_selector("#wfDiagram .wf-empty")
     check("준비 중 TASK — 빈 상태 안내 · 이전/다음 조작 없음",
@@ -255,6 +267,7 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     wf.click("#wfDiagram .wf-node[href='#plan_to_report--map--llm']")
     wait_diagram(wf, llm["name"])
     wf.locator("#wfDiagram details.wf-tech, #wfDiagram .wf-tech details").first.locator("summary").click()
+    wf.locator("#wfDiagram details.wf-entry-context > summary").click()   # 시작 점검도 편 채로(긴 글 · 꼬리표가 좁은 폭을 넘지 않아야 한다)
     bad = []
     for width in (1500, 900, 480, 360):
         wf.set_viewport_size({"width": width, "height": 1000})
@@ -292,9 +305,9 @@ def main():
         page.wait_for_selector("#workflowLink")
         t = page.evaluate("""() => { const a = document.getElementById('workflowLink'), r = a.getBoundingClientRect(), kids = [...a.parentElement.children].filter((e) => e.offsetWidth > 0);
           return { direct: a.parentElement.classList.contains('topbar'), href: a.getAttribute('href'), target: a.target, rel: a.rel, label: a.getAttribute('aria-label'), icon: !!a.querySelector('svg'),
-            text: a.querySelector('.wf-link-txt').offsetWidth > 0, h: Math.round(r.height), last: kids.pop().id, before: kids.pop().id, deco: getComputedStyle(a).textDecorationLine, top: r.top }; }""")
-        check("시작 화면 상단 바 — 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 아이콘 + 글 · 밑줄 없음) · 맨 끝은 그대로 「에이전트 설정」(링크)",
-              t["direct"] and t["href"] == "/workflow" and t["target"] == "_blank" and "noopener" in t["rel"] and t["label"] == "TASK 워크플로우" and t["icon"] and t["text"] and t["h"] == 32
+            text: a.textContent.trim() !== '', tip: a.title, w: Math.round(r.width), h: Math.round(r.height), last: kids.pop().id, before: kids.pop().id, deco: getComputedStyle(a).textDecorationLine, top: r.top }; }""")
+        check("시작 화면 상단 바 — 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 32×32 · 이름은 도움말 · 밑줄 없음) · 맨 끝은 그대로 「에이전트 설정」(링크)",
+              t["direct"] and t["href"] == "/workflow" and t["target"] == "_blank" and "noopener" in t["rel"] and t["label"] == "TASK 워크플로우" and t["icon"] and not t["text"] and t["tip"].startswith("TASK 워크플로우 — ") and t["w"] == 32 and t["h"] == 32
               and t["last"] == "agentsLink" and t["before"] == "workflowLink" and t["deco"] == "none" and t["top"] < 40, t)
         with ctx.expect_page() as fresh:
             page.click("#workflowLink")
@@ -315,8 +328,8 @@ def main():
         nav = wf.evaluate("""() => ({ links: [...document.querySelectorAll('#wfNav a')].map((a) => [a.getAttribute('href'), a.textContent, a.className]), heads: [...document.querySelectorAll('#wfNav h2')].map((x) => x.textContent),
           secs: [...document.querySelectorAll('#wfMain .wf-sec')].map((s) => s.id), title: document.querySelector('.wf-title').textContent })""")
         jobs = [t["job"] for t in api["tasks"]]
-        check("목차 — 전체 보기 · TASK 일곱(이름 = TASK_CATALOG · 준비 중은 흐리게) · 공통 모듈 여덟 / 본문의 절이 같은 차례",
-              nav["title"] == "TASK 워크플로우" and nav["heads"] == ["TASK", "공통 모듈"] and len(nav["links"]) == 16 and nav["links"][0][:2] == ["#overview", "전체 보기"]
+        check("목차 — 전체 보기 · TASK 일곱(이름 = TASK_CATALOG · 준비 중은 흐리게) · 공통 모듈 아홉 / 본문의 절이 같은 차례",
+              nav["title"] == "TASK 워크플로우" and nav["heads"] == ["TASK", "공통 모듈"] and len(nav["links"]) == 17 and nav["links"][0][:2] == ["#overview", "전체 보기"]
               and [x[0] for x in nav["links"][1:8]] == ["#" + j for j in jobs] and nav["links"][3][1] == "사업계획서 → 연차보고서 이관" and nav["links"][5][2] == "wf-soon"
               and nav["links"][8][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)
         ov = wf.evaluate("""() => ({ rows: [...document.querySelectorAll('.wf-over > li')].map((li) => [li.dataset.job, li.querySelector('.wf-over-name').textContent, [...li.querySelectorAll('.wf-chain > li')].map((c) => c.textContent)]),
@@ -327,8 +340,8 @@ def main():
               len(ov["rows"]) == 7 and rows["plan_to_report"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑", "4단계문서 정리"]
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
               and rows["plan_fit"][2] == ["준비", "프로젝트 구성", "구조 반영"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
-        check("묶음의 점 — 이관 1단계는 점 없음(문서 안 바뀜 · LLM 없음) · 2단계 주황(문서 바뀜) · 3단계 보라+주황(LLM · 문서 바뀜) / 범례 · 공통 모듈 여덟 / 목차의 지금 절 = 전체 보기",
-              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "저절로", "안 해도 됨"] and ov["commons"] == 8 and ov["cur"] == "전체 보기", ov)
+        check("묶음의 점 — 이관 1단계는 점 없음(문서 안 바뀜 · LLM 없음) · 2단계 주황(문서 바뀜) · 3단계 보라+주황(LLM · 문서 바뀜) / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
+              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "저절로", "안 해도 됨"] and ov["commons"] == 9 and ov["cur"] == "전체 보기", ov)
         wf.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- TASK 절(이관)
@@ -359,6 +372,28 @@ def main():
               d["open"] and d["rows"] == ["문서", "에이전트", "모듈", "사양"] and d["ano"] == "09" and d["aname"] == "자리 연결 검토" and d["ahref"] == "/agents#merge_links" and d["model"] == "Opus 5.5" and d["how"] == "코드가 정함 · 눌러야 돎"
               and d["role"].startswith("사업계획서") and d["mods"] == ["app/merge_llm.py", "app/merge_chunks.py", "app/merge_guides.py", "app/job_prompts.py"] and d["doc"].startswith("병합")
               and d["spec"] == "spec/spec_병합.md ② §4", d)
+        # TASK 문서(spec_워크플로우 ② §10) — 시작 점검(진행 방식 아래 · 단계 묶음 위: 때마다 묶음 · 접힘) · 단계의 조건(세부 앞)
+        en = wf.evaluate("""() => { const s = document.getElementById('plan_to_report'), box = document.getElementById('plan_to_report--entry'), head = s.querySelector('.wf-entry-head');
+          const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING), slots = box.querySelector('li[data-entry=slots]'), d = s.querySelector('.wf-step[data-step=llm]');
+          return { head: head.textContent, doc: head.querySelector('code').textContent, order: after(s.querySelector('.wf-ways'), head) && after(box, s.querySelector('.wf-stages')),
+            groups: [...box.querySelectorAll('.wf-entry-group')].map((g) => [g.dataset.when, g.querySelector('summary b').textContent, g.querySelectorAll('.wf-entry-items > li').length, g.open]),
+            slots: { name: slots.querySelector('.wf-name').textContent, tags: [...slots.querySelectorAll('.wf-tag')].map((x) => x.textContent), does: slots.querySelector('.wf-does').textContent, miss: slots.querySelector('.wf-miss').textContent },
+            cond: [...d.querySelectorAll('.wf-cond dt')].map((x) => x.textContent), condFirst: after(d.querySelector('.wf-cond'), d.querySelector('.wf-more')),
+            common: document.querySelectorAll('#common-headings .wf-cond, #common-headings .wf-entry, #report_merge .wf-entry').length }; }""")
+        relay = next(t for t in api["tasks"] if t["job"] == "plan_to_report")
+        item = next(c for g in relay["entry"] for c in g["items"] if c["key"] == "slots")
+        check("이관 절의 「시작 점검」 — 진행 방식 아래 · 단계 묶음 위 · 저절로 확인하는 것의 수 + TASK 문서 경로 · 때마다 묶음 넷(시작할 때 · 올릴 때 · 화면을 열 때 · 저절로 돌지 않는 것 — 접힘)",
+              en["head"].startswith("시작 점검") and f"{sum(len(g['items']) for g in relay['entry'] if g['when'] != 'manual')}가지" in en["head"] and en["doc"] == "tasks/plan_to_report.md" and en["order"]
+              and en["groups"] == [[g["when"], g["name"], len(g["items"]), False] for g in relay["entry"]] and [g[1] for g in en["groups"]] == ["TASK 를 시작할 때", "문서를 올릴 때", "TASK 화면을 열 때", "저절로 돌지 않는 것"], en)
+        check("시작 점검 항목 — 이름 · 누가 · 무엇을 확인하나 · 「안 맞으면」(등록부의 글) / 단계 세부에 조건(하려면 · 끝난 것으로 보는 때 · 남기는 것 · 보정)이 세부 앞에 / 공통 모듈 · 준비 중 TASK 에는 없음",
+              en["slots"] == {"name": "두 문서가 있는가", "tags": ["스크립트"], "does": item["does"], "miss": "안 맞으면 " + item["miss"]}
+              and en["cond"] == ["하려면", "끝난 것으로 보는 때", "남기는 것 · 보정"] and en["condFirst"] and en["common"] == 0, en)
+        wf.click("#wfOpenAll")
+        opened = wf.evaluate("() => [...document.querySelectorAll('#plan_to_report--entry .wf-entry-group, #plan_to_report .wf-step')].every((g) => g.open)")
+        wf.click("#wfCloseAll")
+        closed = wf.evaluate("() => [...document.querySelectorAll('#plan_to_report--entry .wf-entry-group, #plan_to_report .wf-step')].every((g) => !g.open)")
+        check("「모두 펼치기」·「모두 접기」 는 시작 점검 묶음도 함께", opened and closed, [opened, closed])
+        wf.click("#plan_to_report .wf-step[data-step=llm] > summary")   # 아래 검사(공통 모듈 링크)가 보던 상태로 — llm 단계는 펴 둔다
         wf.screenshot(path=str(OUT / "02_task_transfer.png"))
 
         # ---- 공통 모듈 · 링크로 오가기
@@ -428,12 +463,14 @@ def main():
             page.set_viewport_size({"width": w, "height": 900})
             page.wait_for_timeout(350)
             m = page.evaluate("""() => { const bar = document.querySelector('.topbar'), a = document.getElementById('workflowLink'), pb = document.getElementById('panelBtn'), r = a.getBoundingClientRect();
-              return { sw: bar.scrollWidth, cw: bar.clientWidth, h: Math.round(bar.getBoundingClientRect().height), ah: Math.round(r.height), shown: r.width > 0, text: a.querySelector('.wf-link-txt').offsetWidth > 0,
-                inside: r.right <= innerWidth + 0.5 && r.left >= 0, panel: pb.hidden || pb.offsetWidth === 0 || pb.getBoundingClientRect().right <= innerWidth + 0.5 }; }""")
-            ok = m["sw"] <= m["cw"] + 1 and m["h"] == 35 and m["panel"] and ((m["shown"] and m["ah"] == 26 and m["inside"] and m["text"] == (w > 1500)) if w > 880 else not m["shown"])
+              return { sw: bar.scrollWidth, cw: bar.clientWidth, h: Math.round(bar.getBoundingClientRect().height), ah: Math.round(r.height), aw: Math.round(r.width), shown: r.width > 0, text: a.textContent.trim() !== '',
+                inside: r.right <= innerWidth + 0.5 && r.left >= 0, panel: pb.hidden || pb.offsetWidth === 0 || pb.getBoundingClientRect().right <= innerWidth + 0.5,
+                pbIcon: !!pb.querySelector('svg') && pb.textContent.trim() === '', pbName: pb.getAttribute('aria-label'), pbTip: pb.title, pbOpen: pb.getAttribute('aria-expanded'), pbW: pb.offsetWidth }; }""")
+            pb_ok = m["pbIcon"] and m["pbW"] == 30 and (m["pbName"], m["pbOpen"]) in (("도구 닫기", "true"), ("문서 도구", "false")) and m["pbTip"].startswith(m["pbName"] + " — ")
+            ok = m["sw"] <= m["cw"] + 1 and m["h"] == 35 and m["panel"] and pb_ok and ((m["shown"] and m["ah"] == 26 and m["aw"] == 30 and m["inside"] and not m["text"]) if w > 880 else not m["shown"])
             if not ok:
                 bad.append((w, m))
-        check("문서를 연 상단 바 — 1600·1280·1100·900px 넘침 없음 · 높이 35px · 링크 26px · 1500px 아래 아이콘만 · 「도구 닫기」 창 안 · 800px 에서는 링크를 감춤(넘침 없음)", not bad, bad)
+        check("문서를 연 상단 바 — 1600·1280·1100·900px 넘침 없음 · 높이 35px · 링크 30×26 글 없이 아이콘만(어느 폭에서나) · 패널 여닫기도 아이콘(이름 「도구 닫기」/「문서 도구」 는 도움말·낭독) 창 안 · 800px 에서는 링크를 감춤(넘침 없음)", not bad, bad)
         page.set_viewport_size({"width": 1280, "height": 900})
         page.screenshot(path=str(OUT / "05_topbar_doc.png"), clip={"x": 0, "y": 0, "width": 1280, "height": 60})
         b.close()

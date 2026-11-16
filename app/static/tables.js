@@ -108,6 +108,7 @@ function tblMarksDraw() {
   xlColumnSync();
   if (typeof tablesDraw === "function") tablesDraw(); // 「표」 탭 목록(소속·계산식·지침)도 같은 자료를 따른다
   if (typeof tblMenuSync === "function") tblMenuSync(); // 표 메뉴(table_menu.js — spec ② §16): 쪽을 다시 나누면 표 조각이 새로 생긴다 — 고른 표의 모서리 손잡이를 다시 놓는다
+  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄의 「표 라벨 표시」 아이콘(doc_quick.js #nameTblMarks) — 켜짐·표가 있는 문서인지가 여기서 바뀐다(2026-11-16)
 }
 function tblMarksPlace() { // 표지 자리 — 표 위끝(data-top)에 두되, 같은 쪽 여백의 「TN Lk」 표(.tpl-mark)·손잡이(.ol-grip)나 먼저 놓인 표지와 세로로 겹치면 가장 가까운 빈 자리(위·아래)로 옮긴다
   // 표지는 항목이 다음 줄로 접혀 높이가 줄 수만큼이다(style.css) — 처음 한 번만 모두 재서 data-h 에 두고(읽기 단계: 강제 배치 1회), 그 뒤로는 style.top·data-h 만 읽는다(쓰기 단계).

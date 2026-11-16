@@ -1,0 +1,78 @@
+/* hwpx 공유의 손님 화면(spec_공유 ② §6 · design.md §14) — 주인 화면의 CSS 를 읽지 않는다. 색·크기는 style.css 의 값과 같게 적어 둔다(입력·단추 28px · 반경 6px · 본문 13px). */
+:root {
+  --bg: #e9ecf1; --surface: #fff; --line: #d9dde4; --text: #1c2330; --muted: #5d6675; --accent: #2458d6; --accent-soft: #e8efff;
+  --ok: #15803d; --warn: #b45309; --fail: #c81e1e; --fail-soft: #fdecec;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 13px/1.45 "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif; }
+[hidden] { display: none !important; }
+
+.btn { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.btn:hover { border-color: #b9c0cc; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 위 줄 — 문서 이름 · 주인 · 사람들 · 반영 상태 · 나가기 */
+.bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 12px; background: var(--surface); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.doc-name { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.host { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.people { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.who { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 11px; font-size: 12px; white-space: nowrap; background: var(--surface); }
+.who i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.who.me { border-color: var(--accent); background: var(--accent-soft); }
+.who.busy { cursor: pointer; }
+.spacer { flex: 1; }
+.save { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.save.busy { color: var(--accent); }
+.save.err { color: var(--fail); cursor: pointer; text-decoration: underline; }
+.save.ok { color: var(--ok); }
+
+/* 키 넣기 · 끝난 공유 */
+.gate { flex: 1; display: grid; place-items: center; padding: 16px; }
+.card { width: min(340px, 100%); display: grid; gap: 6px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.card h1 { margin: 0 0 2px; font-size: 14px; }
+.card label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.card input { height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); width: 100%; }
+#keyIn { font-family: Consolas, "Courier New", monospace; letter-spacing: .06em; text-transform: uppercase; }
+.card .btn { margin-top: 8px; }
+.note { margin: 0; color: var(--muted); font-size: 12px; }
+.err { margin: 4px 0 0; color: var(--fail); font-size: 12px; }
+
+/* 문서 — 종이 한 장 폭의 이어진 글(쪽 나눔 없음) */
+.scroller { flex: 1; overflow: auto; padding: 16px 12px 48px; }
+.doc { margin: 0 auto; background: var(--surface); box-shadow: 0 1px 3px rgba(16, 24, 40, .18); color: #000; font-size: 10pt; line-height: 1.6; min-height: 60vh; }
+.para { position: relative; min-height: 1.2em; min-height: 1lh; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; tab-size: 4; outline: none; border-radius: 2px; }
+.para.char-break { word-break: break-all; }   /* 글자 단위 줄 나눔 문단(한글 문단 모양) — 주인 화면과 같은 규칙 */
+.para[data-label]::before { content: attr(data-label) " "; user-select: none; }
+.para:hover { background: rgba(36, 88, 214, .05); box-shadow: 0 0 0 1px rgba(36, 88, 214, .18); }
+.para:focus { background: rgba(36, 88, 214, .06); box-shadow: 0 0 0 1.5px var(--accent); }
+.para.saving { box-shadow: inset 3px 0 0 var(--accent); }
+.para.error, .para.error:focus { background: var(--fail-soft); box-shadow: inset 3px 0 0 var(--fail), 0 0 0 1px var(--fail); }
+/* 남이 작성 중인 문단 — 그 사람 색 띠 + 이름(색만으로 가르지 않는다) */
+.para.held, .para.held:hover { background: color-mix(in srgb, var(--who) 9%, transparent); box-shadow: inset 3px 0 0 var(--who); cursor: not-allowed; }
+.para.held::after { content: attr(data-who) " 작성 중"; position: absolute; right: 0; bottom: 100%; z-index: 2; padding: 0 5px; border-radius: 3px 3px 0 0; background: var(--who); color: #fff;
+  font: 11px/16px "Malgun Gothic", sans-serif; font-weight: 400; font-style: normal; letter-spacing: 0; text-indent: 0; white-space: nowrap; pointer-events: none; }
+.doc.busy .para { caret-color: transparent; }
+
+table.tbl { border-collapse: collapse; table-layout: fixed; margin: 1mm 0; max-width: none; }
+table.tbl.center { margin-left: auto; margin-right: auto; }
+table.tbl.right { margin-left: auto; }
+table.tbl.inline { display: inline-table; vertical-align: top; margin-right: 1mm; }
+table.tbl td { vertical-align: middle; }   /* 넘침을 자르지 않는다 — 칸 첫 문단의 「작성 중」 이름표가 칸 위로 나온다 */
+table.tbl td.top { vertical-align: top; }
+table.tbl td.bottom { vertical-align: bottom; }
+table.tbl td .para { line-height: 1.35; }
+.img { display: block; max-width: 100%; }
+.img.center { margin: 0 auto; }
+.img.right { margin-left: auto; }
+.img-ph { display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); font: 11px/1.3 "Malgun Gothic", sans-serif; }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(520px, calc(100% - 24px)); padding: 7px 12px; border-radius: 6px; background: #1c2330; color: #fff; font-size: 12px; z-index: 10; }
+.toast.err { background: var(--fail); }
+
+@media (max-width: 540px) {
+  .doc-name { max-width: 100%; }
+  .scroller { padding: 8px 0 40px; }
+}

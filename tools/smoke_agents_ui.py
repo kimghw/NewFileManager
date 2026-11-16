@@ -1,7 +1,7 @@
 """에이전트 설정 페이지(spec_에이전트 ② §5 — app/static/agents.html · agents.js · agents.css · app/agents_api.py) 화면 확인 — 임시 서버(임시 작업 폴더 · 임시 설정 파일, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright.
 끝점은 모두 진짜(흉내 없음).
 
-- 시작 화면(문서 없음): 상단 바 오른쪽 끝의 링크 「에이전트 설정」(/agents · 새 탭 · 아이콘 + 글) — 시작 화면은 agents.js 를 읽지 않는다.
+- 시작 화면(문서 없음): 상단 바 오른쪽 끝의 링크 「에이전트 설정」(/agents · 새 탭 · 글 없이 아이콘만 — 2026-11-16) — 시작 화면은 agents.js 를 읽지 않는다.
 - 페이지 /agents: 상단 줄(제목 · 「에이전트 19개」 · 「LLM 꺼짐」 · 「워크플로우」) · 목차(전체 보기 · 실행 기록 · 묶음 여섯 · 에이전트 19) · 전체 보기 = 묶음 여섯 · 에이전트 19줄(작업 번호 01~19 · 이름 · 쓰는 곳 · 역할 · 모델 — 넓은 폭에서 네 칸).
 - 한 에이전트(자리 연결 검토 — 주소 #merge_links · 두 단): ① 작업 번호 ② 역할 ③ 모델·생각 깊이 → 저장 안 한 값은 다른 화면에 갔다 와도 남음(목차 「저장 안 됨」) → 「저장」 → 전체 보기 줄에 「M-1」·「Sonnet 5.5」(여기서 정함)·「고침」 ·
   겹치는 작업 번호는 거절 · 「고친 것 버리기」 · 「모두 기본으로」(두 번). ④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료.
@@ -9,7 +9,7 @@
 - 주소: /agents#tpl_agent 로 바로 그 에이전트 · 모르는 id 는 전체 보기.
 - 실행 기록: 문서를 올려 2단계까지 돌린 뒤 템플릿 서식 정리 계획을 부르면(LLM 끔 → 503) 실행 #1 이 「LLM 꺼짐」 으로 남고, 그 에이전트의 ⑤ 최근 실행과 전체 보기 줄에도 보인다.
 - 좁은 폭(800 · 480px): 목차가 본문 위 가로 줄 · 한 에이전트가 한 단 · 가로 넘침 없음.
-- 문서를 연 상단 바(앱 화면): 1600 · 1280 · 1100 · 800px 에서 줄이 넘치지 않고 「도구 닫기」 가 창 안 · 1500px 아래에서는 아이콘만 · 링크 높이 26px · 541~780px 에서는 링크를 감춤(그 폭은 이 링크가 없어도 710px 아래에서 줄이 넘친다 — 더 키우지 않는다) · 480px(두 줄)에서는 다시 보임.
+- 문서를 연 상단 바(앱 화면): 1600 · 1280 · 1100 · 800px 에서 줄이 넘치지 않고 패널 여닫기(「도구 닫기」 — 아이콘)가 창 안 · 링크는 어느 폭에서나 아이콘만 30×26 · 541~780px 에서는 링크를 감춤(그 폭은 이 링크가 없어도 710px 아래에서 줄이 넘친다 — 더 키우지 않는다) · 480px(두 줄)에서는 다시 보임.
 - 콘솔 오류 없음(일부러 낸 400·503 은 뺌).
 
     python -X utf8 tools/smoke_agents_ui.py <출력 폴더> [--port 18441]
@@ -103,11 +103,11 @@ def main():
         page.goto(base)
         page.wait_for_selector("#agentsLink")
         t = page.evaluate("""() => { const a = document.getElementById('agentsLink'), r = a.getBoundingClientRect(), bar = document.querySelector('.topbar').getBoundingClientRect();
-          return { direct: a.parentElement.classList.contains('topbar'), right: bar.right - r.right, top: r.top, h: Math.round(r.height), text: a.querySelector('.ags-link-txt').offsetWidth > 0, icon: !!a.querySelector('svg'),
+          return { direct: a.parentElement.classList.contains('topbar'), right: bar.right - r.right, top: r.top, w: Math.round(r.width), h: Math.round(r.height), text: a.textContent.trim() !== '', tip: a.title, icon: !!a.querySelector('svg'),
             label: a.getAttribute('aria-label'), href: a.getAttribute('href'), target: a.target, rel: a.rel, deco: getComputedStyle(a).textDecorationLine,
             last: [...a.parentElement.children].filter((e) => e.offsetWidth > 0).pop().id, old: !!document.getElementById('agentsBtn'), js: typeof agentsOpen }; }""")
-        check("시작 화면 상단 바 오른쪽 끝에 링크 「에이전트 설정」(/agents · 새 탭 · 직계 .btn · 아이콘 + 글 · 밑줄 없음) — 전의 단추·agents.js 는 없음",
-              t["direct"] and t["right"] < 60 and t["top"] < 40 and t["h"] == 32 and t["text"] and t["icon"] and t["label"] == "에이전트 설정" and t["href"] == "/agents" and t["target"] == "_blank"
+        check("시작 화면 상단 바 오른쪽 끝에 링크 「에이전트 설정」(/agents · 새 탭 · 직계 .btn · 글 없이 아이콘만 32×32 · 이름은 도움말 · 밑줄 없음) — 전의 단추·agents.js 는 없음",
+              t["direct"] and t["right"] < 60 and t["top"] < 40 and t["w"] == 32 and t["h"] == 32 and not t["text"] and t["tip"].startswith("에이전트 설정 — ") and t["icon"] and t["label"] == "에이전트 설정" and t["href"] == "/agents" and t["target"] == "_blank"
               and "noopener" in t["rel"] and t["deco"] == "none" and t["last"] == "agentsLink" and not t["old"] and t["js"] == "undefined", t)
 
         # ---- 페이지 — 전체 보기
@@ -283,12 +283,12 @@ def main():
             page.set_viewport_size({"width": w, "height": 900})
             page.wait_for_timeout(350)
             m = page.evaluate("""() => { const bar = document.querySelector('.topbar'), a = document.getElementById('agentsLink'), pb = document.getElementById('panelBtn'), r = a.getBoundingClientRect();
-              return { sw: bar.scrollWidth, cw: bar.clientWidth, h: Math.round(bar.getBoundingClientRect().height), ah: Math.round(r.height), shown: r.width > 0, text: a.querySelector('.ags-link-txt').offsetWidth > 0,
+              return { sw: bar.scrollWidth, cw: bar.clientWidth, h: Math.round(bar.getBoundingClientRect().height), ah: Math.round(r.height), aw: Math.round(r.width), shown: r.width > 0, text: a.textContent.trim() !== '',
                 inside: r.right <= innerWidth + 0.5 && r.left >= 0, panel: pb.hidden || pb.offsetWidth === 0 || pb.getBoundingClientRect().right <= innerWidth + 0.5 }; }""")
-            ok = (m["sw"] <= m["cw"] + 1 and m["h"] == 35 and m["ah"] == 26 and m["shown"] and m["inside"] and m["panel"] and m["text"] == (w > 1500)) if w >= 800 else (not m["shown"] and m["h"] == 35)
+            ok = (m["sw"] <= m["cw"] + 1 and m["h"] == 35 and m["ah"] == 26 and m["aw"] == 30 and m["shown"] and m["inside"] and m["panel"] and not m["text"]) if w >= 800 else (not m["shown"] and m["h"] == 35)
             if not ok:
                 bad.append((w, m))
-        check("문서를 연 상단 바 — 1600·1280·1100·800px 에서 넘침 없음 · 높이 35px · 링크 26px · 「도구 닫기」 창 안 · 1500px 아래 아이콘만 · 541~780px(720·640·560)에서는 링크를 감춤(줄 넘침을 키우지 않음)", not bad, bad)
+        check("문서를 연 상단 바 — 1600·1280·1100·800px 에서 넘침 없음 · 높이 35px · 링크 30×26 글 없이 아이콘만(어느 폭에서나) · 패널 여닫기 창 안 · 541~780px(720·640·560)에서는 링크를 감춤(줄 넘침을 키우지 않음)", not bad, bad)
         page.set_viewport_size({"width": 480, "height": 900})
         page.wait_for_timeout(350)
         n = page.evaluate("() => { const r = document.getElementById('agentsLink').getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth + 0.5 && r.left >= 0; }")

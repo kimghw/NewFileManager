@@ -224,7 +224,7 @@ def material(doc, ov, tid):
     if var:  # 서식 종속 템플릿(② §8-5) — 「T1L3a」 = T1 의 L3 에서 뗀 것
         out["vari"] = {"ofNo": str(ov["templates"].get(var["of"], {}).get("no")), "level": int(var["level"])}
     for lv in sorted(t.get("slots", {}), key=int):
-        if not M.slot_ids(ov, tid, lv):
+        if not M.slot_ids(ov, tid, lv) or t["slots"][lv].get("table"):  # 표 제목 레벨(spec_hwpx_웹편집 ② §8-7)은 서식 정리 대상이 아니다
             continue
         v = M.variants(doc, ov, tid, lv, order, full=True)
         sl = t["slots"][lv]

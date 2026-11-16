@@ -240,10 +240,15 @@ def _map_view(m):
     return m and {k: m[k] for k in MAP_KEYS if k in m}
 
 
+BUMPED = []  # 편집 한 번마다 부를 함수 (세션, 종류, 기록 필드) — 세션 잠금 안 · 차례 순. hwpx 공유의 변경 알림이 듣는다(app/share_api.py — spec_공유 ② §4)
+
+
 def _bump(s, kind, **fields):
     """편집 한 번(세션 잠금 안에서) — 차례를 올리고 기록에 한 줄. 작업 폴더에는 배경 저장이 쓴다."""
     s.rev += 1
     works.log(s.id, kind, rev=s.rev, **fields)
+    for fn in BUMPED:
+        fn(s, kind, fields)
 
 
 def _persist(s, force=False):
@@ -984,11 +989,13 @@ def _outline_ov(s, build=True):
     if (ov is None or ov.get("run") != key) and build:
         old = ov
         ov = s.outline = outline_edit.build_overlay(g, _outline_probe(s), rev=s.rev)
+        old = __import__("app.outline_lift", fromlist=["carry"]).carry(old, ov, s.doc)  # 표 제목을 L1 로 넣은 템플릿(② §8-7)부터 — 레벨이 한 칸 밀리므로 아래 carry 들(앵커 + 레벨)보다 먼저
         outline_pos.carry(old, ov)  # 사용자가 정한 슬롯 자리 규칙(같은 앵커·레벨)·저절로 맞춘 줄의 기억은 새 오버레이로(② §8-1)
         fails = outline_match.carry(old, ov, outline_match.context(s.doc, ov))  # 템플릿 종속(같은 앵커끼리)·사람이 정한 대표도(② §8-2)
         if fails:
             log.warning("[개요 종속] %s 다시 걸지 못함: %s", s.id, [(m.get("child"), m.get("parent"), why) for m, why in fails])
         outline_pos.carry(old, ov)  # 종속으로 새로 생긴 레벨의 자리 규칙도(같은 앵커·레벨)
+        __import__("app.outline_grow", fromlist=["carry"]).carry(old, ov)  # Alt+↓ 로 더한 레벨(② §8-6) — 그래프가 못 알아본 레벨은 슬롯을 다시, 알아본 레벨은 자리 규칙만
     return ov
 
 
@@ -1021,8 +1028,13 @@ def _outline_sync(s):
 def _outline_seq(s, el):
     """el(문단)이 든 그릇(구역·표 칸 subList)의 문단 열 — 문서 순, 모든 hp:p."""
     doc, par = s.doc, el.getparent()
+    # 표 제목 줄(② §8-7 — 열쇠 = 칸 안 제목 문단)은 그 표를 품은 문단(호스트) 자리에 줄 id 로 놓는다(host = 구조 연산이 쓸 호스트 문단 id — _outline_run 의 rid)
+    alias = __import__("app.outline_lift", fromlist=["aliases"]).aliases(doc, s.outline, par) if s.outline else {}
     seq = []
     for c in par.iterchildren(P):
+        if c in alias:
+            seq.append({"id": alias[c], "text": doc._text(doc._ids[alias[c]]), "blank": False, "object": True, "host": doc._id(c)})
+            continue
         seq.append({"id": doc._id(c), "text": doc._text(c), "blank": doc.is_spacer(c), "object": doc._has_object(c)})
     return par, seq
 
@@ -1063,6 +1075,7 @@ def outline(doc_id: str, body: dict = Body(...)):
         if not ids or not all(isinstance(i, str) for i in ids):
             raise HTTPException(400, "id 가 필요합니다")
         els = [_para_el(s, i) for i in ids]
+        els = [__import__("app.outline_lift", fromlist=["host_of"]).host_of(s.doc, ov, i, e) for i, e in zip(ids, els)]  # 표 제목 줄(② §8-7)이면 그 표를 품은 본문 문단
         par, seq = _outline_seq(s, els[0])
         if any(e.getparent() is not par for e in els):
             raise HTTPException(400, "같은 구역·칸 안의 문단들만 함께 바꿀 수 있습니다")
@@ -1091,6 +1104,8 @@ def outline(doc_id: str, body: dict = Body(...)):
                    if isinstance(pid, str) and not pid.startswith("$")}
         before = [s.doc._ids[i] for i in touched if i in s.doc._ids]
 
+        plan["alias"] = {it["id"]: it["host"] for it in seq if it.get("host")}  # 표 제목 줄 → 호스트 문단(구조 연산의 자리)
+
         def run():
             return _outline_run(s, ov, par, plan, extra, op, ids)
         return before, run
@@ -1108,12 +1123,14 @@ def _outline_run(s, ov, par, plan, extra, op, ids):
     focus = plan.get("focus") or {}
     kids0 = [c for c in par.iterchildren(P)]  # 편집 전 차례 — 끝에서 「차례가 바뀐 구간」을 찾는다
 
+    alias = plan.get("alias") or {}  # 표 제목 줄(② §8-7) → 그 표를 품은 문단: 뒤에 넣기·옮기기의 자리는 호스트 문단이다
+
     def rid(x):
         if x == "$last":
             return last
         if x in ("$first", "$new"):
             return first_new
-        return x
+        return alias.get(x, x)
 
     def put_line(pid, line):
         line = dict(line)
@@ -1964,6 +1981,8 @@ app.include_router(outline_format_api.router)
 from app import outline_match_api  # noqa: E402
 
 app.include_router(outline_match_api.router)
+app.include_router(__import__("app.outline_lift_api", fromlist=["router"]).router)   # 표 제목을 템플릿의 L1 으로(후보 · 넣기 · 떼기) 끝점은 app/outline_lift_api.py(spec_hwpx_웹편집 ② §8-7)
+app.include_router(__import__("app.outline_grow_api", fromlist=["router"]).router)   # 개요 레벨 더하기(마지막 레벨의 Alt+↓ — 후보 · 새 레벨) 끝점은 app/outline_grow_api.py(spec_hwpx_웹편집 ② §8-6)
 app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
@@ -1983,6 +2002,9 @@ app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
+# hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다
+__import__("app.share_api", fromlist=["attach"]).attach(app, session=_sess, loaded=DOCS.get, name=_shown_of, doc=get_doc, patch=patch_block, split=split, merge=merge,
+                                                        media=media, bumped=BUMPED, store=works.root, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))
 
 
 def _rules_view():

@@ -31,6 +31,7 @@ _NUM_RE = re.compile(r"\d+|[①-⑳]|[가-하]|[A-Za-z]|[Ⅰ-Ⅻ]|[ⅰ-ⅻ]")
 _KEY_RE = re.compile(r"N|①|가|A|a|Ⅰ|ⅰ")
 ROOTED = ("label", "subtitle")  # 괄호 줄 — 구분 라벨·괄호 소제목(spec_헤딩_추출 ② §13): 둘 다 제 템플릿의 뿌리, 편집 제한이 같다
 ROLES = ("heading", "title") + ROOTED
+TABLE = "table"  # 표 제목 줄(spec_hwpx_웹편집 ② §8-7 — app/outline_lift.py): 1칸 제목 표를 템플릿의 L1 로 넣은 줄. 열쇠 = 칸 안 제목 문단 id, 레터 없음(letter ""), Enter 만 된다
 
 
 def is_numbered(key):
@@ -199,7 +200,8 @@ def build_overlay(g, probe, rev=0):
 
 def sync(ov, alive, text_of):
     """편집 뒤 오버레이 손질 — 떨어져 나갔거나 레터가 첫머리에서 사라진 줄을 뺀다(그 줄을 부모로 삼던 줄은 조부모로). -> 뺀 문단 id 들."""
-    gone = [p for p, x in ov["lines"].items() if not alive(p) or not prefix_of(text_of(p), x["letter"])[1]]
+    # 표 제목 줄(② §8-7)은 레터가 없다 — 문단이 살아 있는지만 본다(제목 글을 고쳐도 줄이 남는다)
+    gone = [p for p, x in ov["lines"].items() if not alive(p) or (x.get("role") != TABLE and not prefix_of(text_of(p), x["letter"])[1])]
     for p in gone:
         x = ov["lines"].pop(p)
         for y in ov["lines"].values():
@@ -292,6 +294,8 @@ def _check_line(ov, pid, what):
         raise ValueError("개요 줄이 아닙니다 — 헤딩 추출 2단계가 템플릿을 매긴 문단에서만 됩니다")
     if x.get("role") in ROOTED and what != "enter":  # 괄호 글 전체가 레터라 레벨 바꾸기·옮기기가 제목 글을 통째로 갈아 버린다
         raise ValueError(f"{'구분 라벨' if x['role'] == 'label' else '괄호 소제목'} 줄은 자식 줄 만들기(Enter)만 됩니다")
+    if x.get("role") == TABLE and what != "enter":  # 표 제목 줄(② §8-7) — 표를 만들거나 옮기거나 지우는 개요 편집은 없다
+        raise ValueError("표 제목 줄에서는 Enter(표 아래에 새 줄)만 됩니다")
     return x
 
 
@@ -398,6 +402,8 @@ def plan_enter(seq, i, offset, end, ov, text_of):
     고른 글(offset..end)은 같은 트랜잭션에서 지운다. -> {"actions", "focus"}"""
     pid = seq[i]["id"]
     x = _check_line(ov, pid, "enter")
+    if x.get("role") == TABLE:
+        return _plan_enter_table(seq, i, ov, text_of, x)
     text = text_of(pid)
     lead, tok, gap = prefix_of(text, x["letter"] or None)
     plen = len(lead) + len(tok) + len(gap)
@@ -434,6 +440,28 @@ def plan_enter(seq, i, offset, end, ov, text_of):
     anchor = next(j for j, it in enumerate(seq2) if it["id"] == "$new")
     acts += renumber(seq2, ov, lambda p: prefix if p == "$new" else text_of(p), parent, tid, lvl, shadow=shadow, anchor=anchor, fresh=("$new",))
     return {"actions": acts, "focus": {"id": "$new", "offset": len(prefix)}}
+
+
+def _plan_enter_table(seq, i, ov, text_of, x):
+    """표 제목 줄의 Enter(② §8-7) — 표 **아래**(그 표를 품은 문단 뒤: 서버가 줄 id 를 호스트 문단으로 바꿔 넣는다)에 다음 레벨의 새 줄(새 첫 자식 — 그 슬롯의 앞 간격 줄과 함께).
+    제목 글은 나누지 않는다(커서 자리·고른 글과 무관)."""
+    pid, tid, lvl = seq[i]["id"], x["tpl"], int(x["level"]) + 1
+    slot = _need_slot(ov, tid, lvl)
+    if slot is None:
+        raise ValueError("표 제목 아래 레벨이 없습니다")
+    letter = _first(slot, slot["letter"], None)
+    prefix = _prefix_for(slot, letter)
+    line = _line(ov, tid, lvl, pid, letter, x.get("flow", "body"))
+    acts, ref = [], pid
+    if slot.get("spacer"):
+        acts.append({"act": "insert_blank", "after": ref, "attrs": slot["spacer"]})
+        ref = "$last"
+    acts.append({"act": "insert", "after": ref, "text": prefix, "attrs": slot["attrs"], "line": line, "origin": pid, "head": True})
+    shadow = {p: dict(v) for p, v in ov["lines"].items()}
+    shadow["$first"] = dict(line)
+    seq2 = seq[:i + 1] + [{"id": "$first", "text": prefix, "blank": False, "object": False}] + seq[i + 1:]
+    acts += renumber(seq2, ov, lambda p: prefix if p == "$first" else text_of(p), pid, tid, lvl, shadow=shadow, anchor=i + 1, fresh=("$first",))
+    return {"actions": acts, "focus": {"id": "$first", "offset": len(prefix)}}
 
 
 def plan_sibling(seq, i, ov, text_of):
@@ -483,6 +511,8 @@ def _target(ov, x, delta):
     base = int(ov["templates"].get(tid, {}).get("base") or 0)  # 종속 템플릿(「T1T3」 — 부모 템플릿의 L base 아래에서 시작, spec_hwpx_웹편집 ② §8-2)은 L base+1 이 제 첫 레벨
     if delta < 0:
         if level - 1 > base:
+            if (_slot(ov, tid, level - 1) or {}).get("table"):  # 표 제목 레벨(② §8-7) — 그 레벨의 줄은 표다
+                raise ValueError("표 제목 레벨로는 올릴 수 없습니다(그 레벨의 줄은 표입니다)")
             return tid, level - 1
         p = ov["lines"].get(x["parent"])
         if p is None:
@@ -498,7 +528,9 @@ def _target(ov, x, delta):
 def _resolve_parent(seq, i, o2, tid, level):
     """줄 i 가 (tid, level)일 때의 부모 — 앞으로 거슬러: 같은 (tid, level) 줄 → 그 부모, (tid, level−1) 줄 → 그 줄, 첫 레벨(L1 · 종속 템플릿은 L base+1)이면 그 템플릿이 매달리던 슬롯의 줄 → 그 줄,
     같은 템플릿의 더 얕은 줄 → 그 줄. 못 찾으면 None."""
-    first = int(o2["templates"].get(str(tid), {}).get("base") or 0) + 1  # 그 템플릿의 첫 레벨(종속 템플릿은 base + 1)
+    tp = o2["templates"].get(str(tid), {})
+    first = int(tp.get("base") or 0) + 1  # 그 템플릿의 첫 레벨(종속 템플릿은 base + 1)
+    firsts = (first, first + 1) if tp.get("lift") else (first,)  # 표 제목을 L1 로 넣은 템플릿(② §8-7)은 L2 줄도 — 위에 표가 없으면 그 템플릿이 매달리던 슬롯의 줄로
     for j in range(i - 1, -1, -1):
         q = seq[j]["id"]
         y = o2["lines"].get(q)
@@ -508,7 +540,7 @@ def _resolve_parent(seq, i, o2, tid, level):
             return y["parent"]
         if y["tpl"] == tid and y["level"] == level - 1:
             return q
-        if level == first and tid in (o2["branches"].get(f"{y['tpl']}|{y['level']}") or []):
+        if level in firsts and tid in (o2["branches"].get(f"{y['tpl']}|{y['level']}") or []):
             return q
         if y["tpl"] == tid and y["level"] < level - 1:
             return q
@@ -536,7 +568,7 @@ def plan_level(seq, idxs, delta, ov, text_of):
         shadow[pid].update(tpl=tid, no=ov["templates"][tid]["no"], level=level,
                            key=ov["templates"][tid]["chain"][level - 1] if level - 1 < len(ov["templates"][tid]["chain"]) else "")
         parent = _resolve_parent(seq, i, o2, tid, level)
-        if parent is None and not (level == 1 and ov["templates"][tid]["kind"] == "main"):
+        if parent is None and not (level == (2 if ov["templates"][tid].get("lift") else 1) and ov["templates"][tid]["kind"] == "main"):  # 표를 L1 로 넣은 주 사슬(② §8-7)은 L2 가 바깥 글 레벨
             raise ValueError("이 자리에서 그 레벨로 바꾸면 매달릴 부모 줄이 없습니다")
         shadow[pid]["parent"] = parent
         letter = slot["letter"]

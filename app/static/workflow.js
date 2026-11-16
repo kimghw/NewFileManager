@@ -66,6 +66,13 @@
     }
     context.append(info);
     diagram.replaceChildren(head, lead, context);
+    if (item.job && (item.entry || []).length) { // 시작 점검(② §10) — 접어 두고, 펴면 때마다 묶음이 열린 채로
+      const ent = h("details", "wf-context wf-entry-context"), note = h("p", "wf-entry-doc", "이 TASK 의 세부(시작 점검 · 단계마다 조건)는 TASK 문서 ");
+      ent.append(h("summary", "", `시작 점검 — 시작할 때 저절로 확인하는 것 ${entryCount(item)}가지 보기`));
+      note.append(h("code", "", item.doc), document.createTextNode(" 에도 같은 글로 있습니다."));
+      ent.append(note, entryEl(item, true));
+      diagram.append(ent);
+    }
     if (!selected) {
       const empty = h("div", "wf-empty");
       empty.append(tag("준비 중", "soft"), h("h3", "", "아직 등록된 단계가 없습니다"), h("p", "", "이 TASK의 과정이 준비되면 순서대로 확인할 수 있습니다."), link("#overview", "다른 TASK 살펴보기", "wf-chip"));
@@ -120,6 +127,8 @@
       const result = h("div", "wf-result");
       result.append(h("h4", "", "나오는 것"), h("p", "", selected.s.out)); detail.append(result);
     }
+    const cond = condEl(selected.s); // 단계마다 조건(② §10) — TASK 의 단계에만 있다
+    if (cond) { const box = h("div", "wf-conds"); box.append(h("h4", "", "이 단계의 조건"), cond); detail.append(box); }
     const impact = h("div", "wf-impact" + (selected.s.change === "doc" ? " wf-impact-doc" : ""));
     impact.append(h("span", "", "문서 변경"), h("strong", "", CHANGE[selected.s.change] || selected.s.change));
     detail.append(impact);
@@ -154,7 +163,41 @@
     dl.append(h("dt", "", name), dd);
   }
 
-  function stepEl(s) { // 단계 한 줄 — 이름 · 누가 · 문서 바뀜 · 하는 일은 늘 보이고, 누르면 세부(나오는 것 · 공통 모듈 · 에이전트 · 모듈 · 사양 자리)
+  function condEl(s) { // 단계마다 조건(spec_워크플로우 ② §10) — 하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것 · 보정: 등록부에 적힌 것만(공통 모듈의 단계는 없음) → dl | null
+    if (!(s.cond || []).length) return null;
+    const dl = h("dl", "wf-cond");
+    dl.setAttribute("aria-label", "이 단계의 조건");
+    for (const c of s.cond) dl.append(h("dt", "", c.name), h("dd", "", c.text));
+    return dl;
+  }
+
+  function entryEl(t, open) { // 시작 점검(② §10) — 시작할 때 저절로 확인하는 것: 때마다 묶음(접힘) › 항목(이름 · 누가 · 무엇을 확인하나 · 안 맞으면)
+    const box = h("div", "wf-entry");
+    box.setAttribute("aria-label", "시작 점검");
+    for (const g of t.entry) {
+      const d = h("details", "wf-entry-group"), sum = h("summary"), ul = h("ul", "wf-entry-items");
+      d.dataset.when = g.when;
+      d.open = !!open;
+      const chev = h("span", "wf-chev");
+      chev.setAttribute("aria-hidden", "true");
+      sum.append(h("b", "", g.name), h("span", "wf-muted", `${g.items.length}가지`), chev); // 펴고 접는 표시 — 단계 줄과 같은 꺾쇠
+      for (const c of g.items) {
+        const li = h("li"), line = h("div", "wf-line1");
+        li.dataset.entry = c.key;
+        line.append(h("span", "wf-name", c.name));
+        for (const b of c.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b));
+        li.append(line, h("p", "wf-does", c.does));
+        if (c.miss) { const p = h("p", "wf-miss"); p.append(h("b", "", "안 맞으면"), document.createTextNode(" " + c.miss)); li.append(p); }
+        ul.append(li);
+      }
+      d.append(sum, h("p", "wf-entry-note", g.note), ul);
+      box.append(d);
+    }
+    return box;
+  }
+  const entryCount = (t) => (t.entry || []).reduce((n, g) => n + (g.when === "manual" ? 0 : g.items.length), 0); // 저절로 확인하는 것의 수(「저절로 돌지 않는 것」 은 빼고 센다)
+
+  function stepEl(s) { // 단계 한 줄 — 이름 · 누가 · 문서 바뀜 · 하는 일은 늘 보이고, 누르면 세부(조건 · 나오는 것 · 공통 모듈 · 에이전트 · 모듈 · 사양 자리)
     const d = h("details", "wf-step" + (s.soon ? " wf-soon" : "")), sum = h("summary"), main = h("div"), line = h("div", "wf-line1");
     d.dataset.step = s.key;
     line.append(h("span", "wf-name", s.name));
@@ -193,7 +236,8 @@
       return box;
     }));
     if (s.spec) { const c = h("code", "", s.spec.file); row(more, "사양", [c, document.createTextNode(" " + s.spec.at)]); }
-    d.append(sum, more);
+    const cond = condEl(s);
+    d.append(sum, ...(cond ? [cond] : []), more); // 조건은 세부(.wf-more) 앞에 따로 — 이름표가 길어 칸 폭이 다르다
     return d;
   }
 
@@ -266,6 +310,12 @@
       ways.setAttribute("aria-label", "진행 방식");
       for (const w of t.ways) row(ways, w.name, w.text);
       sec.append(h("h3", "wf-ways-head", "진행 방식"), ways);
+    }
+    if ((t.entry || []).length) { // 시작 점검(spec_워크플로우 ② §10) — 시작할 때 저절로 확인하는 것. 이 TASK 의 세부는 TASK 문서(tasks/<job>.md)에도 같은 글로 있다
+      const head = h("h3", "wf-ways-head wf-entry-head", "시작 점검"), box = entryEl(t, false);
+      head.append(h("span", "wf-muted", `시작할 때 저절로 확인하는 것 ${entryCount(t)}가지 · TASK 문서`), h("code", "", t.doc));
+      box.id = `${t.job}--entry`;
+      sec.append(head, box);
     }
     if (!t.stages.length) return sec;
     const ol = h("ol", "wf-stages");
@@ -392,7 +442,7 @@
   });
   $("wfViewDiagram").addEventListener("click", () => setView("diagram"));
   $("wfViewList").addEventListener("click", () => setView("list"));
-  const setAll = (open) => { for (const d of document.querySelectorAll("details.wf-step")) d.open = open; };
+  const setAll = (open) => { for (const d of document.querySelectorAll("#wfMain .wf-sec details.wf-step, #wfMain .wf-sec details.wf-entry-group")) d.open = open; }; // 목록 보기의 단계 · 시작 점검 묶음
   $("wfOpenAll").addEventListener("click", () => setAll(true));
   $("wfCloseAll").addEventListener("click", () => setAll(false));
   load();

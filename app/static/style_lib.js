@@ -330,7 +330,7 @@ function styleLibDraw() {
   hFoot(`${SL_TABS.map(([k, name]) => `${name} ${nf(count(k))}`).join(" · ")}${STYLE.pdf ? "" : " · PDF 출력(한글)이 꺼져 있어 hwpx 검증은 건너뜁니다"}${STYLE.dual && !STYLE.pdfDocx ? " · Word 출력이 없어 docx 검증은 건너뜁니다" : ""}`, false);
   const inp = STYLE.edit && STYLE.edit.mode === "rename" && !STYLE.edit.busy ? body.querySelector(".sl-rename") : null;
   if (inp) { inp.focus({ preventScroll: true }); if (!STYLE.edit.shown) { STYLE.edit.shown = true; inp.select(); } }
-  const fv = STYLE.edit && STYLE.edit.mode === "fmt" && !STYLE.edit.busy ? body.querySelector(`.sl-fform [data-sl-fv="${STYLE.edit.focus || SL_FV[0][0]}"]`) : null; // 값 고치기 — 다시 그려도 고치던 칸에 초점
+  const fv = STYLE.edit && STYLE.edit.mode === "fmt" && !STYLE.edit.busy ? body.querySelector(`.sl-fform input[data-sl-fv="${STYLE.edit.focus || SL_FV[0][0]}"]`) : null; // label에도 같은 키가 있다 — 실제 입력에 초점·선택.
   if (fv) { fv.focus({ preventScroll: true }); if (!STYLE.edit.shown) { STYLE.edit.shown = true; fv.select(); fv.closest(".sl-fform").scrollIntoView({ block: "nearest" }); } }
   slPicWatch(); // 보이는 줄의 서식 그림만 받는다
   stylePoll();
@@ -512,14 +512,19 @@ function styleItemEl(s) {
   more.ontoggle = () => { if (!more.open) STYLE.more.delete(s.id); else { STYLE.more.add(s.id); if (!moreBody.childElementCount) styleMoreFill(s, moreBody); } }; // 펴 둔 채 다시 그릴 때는 아래에서 이미 채운다
   if (more.open) styleMoreFill(s, moreBody);
   box.append(more);
-  if (s.kind === "text" && items.length) { // 글 서식 — 항목(레벨)마다 한 줄
+  if (s.kind === "text" && items.length) { // 레벨마다 이름 · 버튼 · 값 입력을 같은 행 안에 둔다.
     const grid = el("div", "sl-levels");
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", slTabOf(s) === "content" ? "레벨별 서식" : "문단 서식 조작");
     for (const it of items) {
-      const m = it.marker || {}, name = el("span", "sl-lname");
-      name.append(it.name || "(이름 없음)");
-      if (m.mode === "literal" && m.literal) name.append(el("i", null, ` ${m.literal}`));
-      else if (m.mode === "auto") name.append(el("i", null, " 자동 번호"));
-      if (it.sample) name.append(el("i", null, ` · ${it.sample}`));
+      const m = it.marker || {}, name = el("span", "sl-lname"), row = el("div", "sl-level-row"), levelHead = el("div", "sl-level-head"), actions = el("div", "sl-level-actions");
+      const level = it.level ? `L${it.level}` : "문단";
+      row.dataset.slLevel = it.key;
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", `${level} ${it.name || "서식"}`);
+      name.append(el("span", "sl-ltitle", it.name || "(이름 없음)"));
+      const sample = [m.mode === "auto" ? "자동 번호" : m.mode === "literal" ? m.literal : "", it.sample].filter(Boolean).join(" · ");
+      if (sample) name.append(el("span", "sl-lsample", sample));
       name.title = [it.name, m.mode === "auto" ? "자동 번호 — 대상 문서의 번호 설정을 따릅니다" : m.literal ? `레터 「${m.literal}」` : "", it.sample].filter(Boolean).join("\n");
       const b = hBtn("글자·문단 모양 입히기", () => styleApply(s, "format", it), { disabled: !canAny, title: `문서에서 끌어 고른 문단들(없으면 커서 문단)에 이 항목의 글자·문단 모양을 입힙니다 — 글·레터·기존 번호는 그대로 · 실행 취소로 되돌림${needAny}` }); // 동작 이름 = 바꾸는 범위(② §13 — 전의 「고른 문단에 입히기」)
       b.dataset.slItem = it.key;
@@ -528,8 +533,12 @@ function styleItemEl(s) {
         title: "이 항목의 앞 여백 · 2번째 줄 · 폰트 · 크기 · 줄간격을 고칩니다 — 보관함의 이 서식이 새 판이 되고 PDF 검증을 다시 합니다(문서는 안 바뀜)" });
       fx.dataset.slFmt = it.key;
       fx.setAttribute("aria-expanded", String(fon));
-      grid.append(el("span", "sl-lv", it.level ? `L${it.level}` : "문단"), name, b, fx);
-      if (fon) grid.append(slFmtForm(s, it, E));
+      row.classList.toggle("editing", fon);
+      levelHead.append(el("span", "sl-lv", level), name);
+      actions.append(b, fx);
+      row.append(levelHead, actions);
+      if (fon) row.append(slFmtForm(s, it, E));
+      grid.append(row);
     }
     box.append(grid);
   }

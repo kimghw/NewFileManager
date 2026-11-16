@@ -21,6 +21,7 @@ BY = {"script": "스크립트", "llm": "LLM", "human": "사람"}
 CHANGE = {"none": "문서 안 바뀜", "doc": "문서 바뀜", "store": "저장만"}
 SP_WORK, SP_DIV, SP_HEAD, SP_MERGE, SP_GATHER = "spec_작업.md", "spec_구분_기준.md", "spec_헤딩_추출.md", "spec_병합.md", "spec_취합.md"
 SP_EDIT, SP_STYLE, SP_WEB, SP_GUIDE = "spec_일반편집.md", "spec_서식복사.md", "spec_hwpx_웹편집.md", "spec_작업에이전트.md"
+SP_SHARE = "spec_공유.md"
 
 
 def _s(key, name, by, does, *, no="", out="", change="none", modules=(), agents=(), uses=(), spec=None, auto=False, optional=False, soon=False, need="", done="", stop="", left=""):
@@ -47,9 +48,10 @@ COMMON = (
                 "어느 TASK 든 같고, 이미 결과가 있는 단계는 건너뜁니다.", out="헤딩 그래프 · 표 구조(뼈대)", change="store", auto=True, uses=("headings",), modules=("heading_runs",), spec=(SP_WORK, "② §9")),
              _s("status", "분석 상태 표시", "script", "문서 이름 줄에 헤딩 · 표(스크립트) · LLM 판정 · 구분 기준 검토가 어디까지 됐는지 보입니다(「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」) — 어느 TASK 에서나 같은 꼴. "
                 "기본 분석이 없는 문서에는 「분석」 단추가 뜹니다.", out="분석 상태", auto=True, modules=("analysis",), spec=(SP_WORK, "② §20")),
-             _s("llm", "LLM 판정(분리)", ("human", "llm"), "헤딩 · 표의 LLM 판정은 기본 분석과 따로이고 저절로 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다(유료).",
+             _s("llm", "LLM 판정(분리)", ("human", "llm"), "헤딩 · 표의 LLM 판정은 기본 분석과 따로이고 저절로 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다(유료). "
+                "헤딩의 LLM 판정은 스크립트가 판정한 헤딩 후보뿐 아니라 판정하지 못한 첫머리 묶음(못 맞춤 · 충돌)도 봅니다 — 그래프를 짓기 전에 그 묶음의 규칙 보강을 먼저 돕니다.",
                 out="LLM 판정을 거친 헤딩 그래프 · 표 구조", change="store", optional=True, uses=("headings",),
-                agents=("heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables"), modules=("heading_runs",), spec=(SP_WORK, "② §20")),
+                agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables"), modules=("heading_runs",), spec=(SP_WORK, "② §20")),
              _s("division", "구분 기준 LLM 검토(옵션)", ("human", "llm"), "연구개발과제 문서(지원 양식)에만 있는 항목입니다. 저절로 돌지 않습니다 — 이름 줄의 「구분 기준」 표시로 검토 결과 열을 열거나 프로젝트 구성의 「LLM 검토」 로 "
                 "열어 「LLM 검토 실행」 을 눌러 돌립니다(유료). 일반 문서(문서 일반 편집 · 문서 서식 복사)에는 항목이 없습니다.", out="빠진 자리 후보 · 재검토", change="store", optional=True, uses=("division",), agents=("div_review", "div_missing"),
                 modules=("division_llm",), spec=(SP_WORK, "② §20")),
@@ -59,11 +61,13 @@ COMMON = (
          steps=(
              _s("stage1", "추출", "script", "모든 문단을 열거하고 문단 첫머리의 레터(개요 기호 · 번호 · 라벨)를 규칙식으로 판정하며 서식 라벨을 붙입니다. 탭을 열면 저절로 돕니다.", no="1단계",
                 out="문단 레코드 · 서식 라벨", change="store", auto=True, modules=("heading_extract", "heading_rules", "heading_runs"), spec=(SP_HEAD, "② §1·§2·§4")),
-             _s("rules", "규칙 보강(LLM)", "llm", "규칙으로 판정하지 못한 첫머리 묶음을 LLM 이 보고 새 규칙식을 제안합니다 — 스크립트가 검증한 뒤에만 배운 규칙이 됩니다.",
+             _s("rules", "규칙 보강(LLM)", "llm", "규칙으로 판정하지 못한 첫머리 묶음을 LLM 이 보고 새 규칙식을 제안합니다 — 스크립트가 검증한 뒤에만 배운 규칙이 됩니다. "
+                "1단계의 「LLM 규칙 보강」 단추로 따로 돌릴 수 있고, 「헤딩 그래프(LLM)」 을 누르면 그래프보다 먼저 저절로 돕니다(이미 답을 받은 묶음은 다시 묻지 않음).",
                 change="store", optional=True, agents=("heading_rules",), modules=("heading_llm", "heading_rules"), spec=(SP_HEAD, "② §3")),
              _s("stage2", "헤딩 그래프", ("script", "llm"), "헤딩 후보를 꼴이 같은 유형으로 묶어 개요 사슬을 세웁니다 — 개요템플릿 · 서브 템플릿 · 서식 조정 목록이 나옵니다. 스크립트만으로도 돌고, "
-                "「헤딩 그래프(LLM)」 을 누르면 유형 판정(A) · 구간 검토(B) · 서식 조정(C) · 재검토(D) 호출이 더해집니다.", no="2단계", out="헤딩 그래프 · 템플릿(「TN Lk」)", change="store",
-                agents=("heading_types", "heading_section", "heading_formats", "heading_review"), modules=("heading_graph", "heading_llm", "heading_guides", "heading_forms"), spec=(SP_HEAD, "② §6")),
+                "「헤딩 그래프(LLM)」 을 누르면 판정하지 못한 첫머리 묶음의 규칙 보강(못 맞춤 · 충돌 — 새로 레터가 된 줄은 헤딩 후보에 듭니다)을 먼저 하고, "
+                "유형 판정(A) · 구간 검토(B) · 서식 조정(C) · 재검토(D) 호출이 더해집니다.", no="2단계", out="헤딩 그래프 · 템플릿(「TN Lk」)", change="store",
+                agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review"), modules=("heading_graph", "heading_llm", "heading_guides", "heading_forms"), spec=(SP_HEAD, "② §3·§6")),
              _s("stage3", "표 구조", ("script", "llm"), "표마다 칸의 역할(열헤더 · 행헤더 · 필드 …)과 서브 테이블, 구분 헤더 · 계산식 표를 판정합니다. 스크립트 초안 위에 「표 구조(LLM)」 판정을 더할 수 있습니다.", no="3단계",
                 out="표 구조 · 표 의미", change="store", agents=("heading_tables",), modules=("heading_tables", "heading_calc", "heading_temp"), spec=(SP_HEAD, "② §8·§9")),
              _s("drift", "뼈대 유지", "script", "문서를 고쳐도 다시 추출하라고 하지 않습니다 — 뼈대에 없는 새 레터 · 새 서식 · 새 표가 문서에 생겼을 때만 알립니다.", auto=True,
@@ -85,7 +89,7 @@ COMMON = (
              _s("apply", "반영", ("human", "script"), "계획대로 절 · 표 행 · 표 열을 늘리고 줄입니다(구조만 — 내용은 넣지 않음). 줄어드는 항목은 그 안의 글과 함께 지워지고, 실행 취소로 되돌립니다.", no="②",
                 out="구조를 맞춘 문서", change="doc", modules=("division_model", "hwpx_struct"), spec=(SP_DIV, "② §4·§22")),
          )),
-    dict(id="styles", name="서식 관리자(서식 보관함)", where="도구 줄 「서식」 묶음 · 문서 이름 줄의 아이콘",
+    dict(id="styles", name="서식 관리자(서식 보관함)", where="도구 줄 「서식」 묶음",
          does="서버 전체에 저장해 둔 서식(표지 · 내용 · 테이블 · 문단)을 보고 문서에 씁니다. 서식을 뽑아 더하는 과정은 TASK 「문서 서식 복사」 입니다.",
          steps=(
              _s("browse", "서식 고르기", "human", "서식 견본 그림(개요 레벨의 레터 · 들여쓰기 / 표의 음영 · 괘선 / 쪽 여백)과 원본 문서 기록(어느 문서에서 뽑았나)을 보고 고릅니다.",
@@ -102,6 +106,9 @@ COMMON = (
                 "입력이 필요하면 질문 카드로 묻고, 읽기·저장만 하는 단계는 바로 실행하며, 문서를 바꾸거나 유료 LLM 을 부르는 단계는 실행 카드의 「진행」 을 눌러야 실행됩니다. 실행은 그 단계의 기존 기능이 합니다. "
                 "실행 카드는 그 카드가 보인 계획에만 쓰입니다 — 카드를 낸 뒤 계획이 바뀌었으면 실행하지 않고 새 계획으로 다시 묻습니다.",
                 out="설명 · 질문 카드 · 실행 카드", change="store", agents=("work_guide",), modules=("work_guide", "work_guide_api"), spec=(SP_GUIDE, "② §1·§2·§7")),
+             _s("refs", "참조 글 · 로그 읽기", ("script", "llm"), "에이전트는 참조 글을 지니고 작업합니다 — 워크플로우(전체 지도) · 그 TASK 의 TASK 문서(시작 점검 · 단계마다 조건) · 할 일 프롬프트(전제). "
+                "무슨 일이 있었는지는 로그로 압니다: 작업 기록의 끝 몇 줄은 늘 보고, 더 봐야 하면 작업 기록 · 함께 쓰는 문서의 기록 · 검증 기록 · 에이전트 대화 · LLM 호출 · 서버 경고를 청해 읽습니다(읽기만 — 문서와 기록은 바뀌지 않습니다).",
+                out="참조 글에 맞는 설명 · 로그에 적힌 사실", auto=True, agents=("work_guide",), modules=("work_guide", "work_logs"), spec=(SP_GUIDE, "② §8")),
              _s("live", "진행 보고 — 진행 카드 · 끝 보고 · 남긴 것의 보정", ("script", "llm"), "「한 번에 진행」(간단 모드 · 묶음 · 에이전트의 실행 카드)이 도는 동안 누가 시작했든 대화의 맨 아래 진행 카드에 지금 하는 일 · 지난 시간 · 「멈춤」(지금 하는 일이 끝나면)이 보입니다 — "
                 "도는 동안 패널을 다른 보기로 바꾸지 않습니다. 첫 화면에서 시작한 간단 모드가 끝나면 무엇을 넣었고 무엇을 남겼는지 보고하고, 남긴 것(겹침 · 확인 필요 · 미해결 자리)은 그 목록을 바로 여는 선택지로 보정하러 갑니다. "
                 "끝까지 못 간 실행은 「실행함」 이 아니라 「멈춤 — 까닭」 으로 적습니다.", out="진행 카드 · 결과 보고 · 「남긴 것 보기」", auto=True, agents=("work_guide",), modules=("work_guide",), spec=(SP_GUIDE, "② §7")),
@@ -124,12 +131,16 @@ COMMON = (
              _s("prune", "빈 필드 제거", "script", "필드가 모두 빈 행 · 열을 찾아 지웁니다.", change="doc", modules=("table_prune",), spec=(SP_HEAD, "② §16")),
          )),
     dict(id="outline", name="템플릿 관계 · 서식 정리", where="도구 줄 「서식」 묶음의 「템플릿 관계」 · 헤딩 추출 「템플릿」 탭",
-         does="헤딩 그래프 위에서 개요 템플릿의 레벨마다 서식 갈래를 보고 대표 서식에 맞춥니다.",
+         does="헤딩 그래프 위에서 개요 템플릿의 레벨마다 서식 갈래를 보고 대표 서식에 맞춥니다. 템플릿에 레벨을 더할 수도 있습니다(마지막 레벨 아래 · 표 제목을 L1 으로).",
          steps=(
              _s("tree", "템플릿 트리 · 서식 갈래", "script", "템플릿(T1 …)의 레벨마다 쓰인 서식 갈래와 줄 수를 보입니다.", uses=("headings",), modules=("outline_edit", "outline_match", "outline_pos"),
                 spec=(SP_WEB, "② §8-2")),
              _s("match", "대표 정하기 · 대표에 맞추기", ("human", "script"), "레벨의 대표 서식을 정하고 다른 갈래의 줄을 대표에 맞춥니다. 일부러 다르게 준 서식은 「다른 템플릿으로」 떼어 냅니다(T1L3a).", change="doc",
                 modules=("outline_match",), spec=(SP_WEB, "② §8-2·§8-5")),
+             _s("grow", "개요 레벨 더하기", ("human", "script"), "템플릿의 마지막 레벨 줄에서 Alt+↓ 를 누르면 레터 · 앞 공백 · 둘째 줄 후보가 뜹니다 — 고르면 템플릿에 새 개요 레벨을 더하고 그 줄을 그 레벨로 내립니다.", change="doc", optional=True,
+                modules=("outline_grow",), spec=(SP_WEB, "② §8-6")),
+             _s("lift", "표 제목을 L1 으로", ("human", "script"), "템플릿의 첫 레벨 줄 바로 위에 있는 같은 꼴의 1칸 제목 표를 한 번에 그 템플릿의 L1 로 넣습니다(글 줄은 L2 부터 · 표 제목 줄의 Enter 는 표 아래에 새 줄). 문서는 바꾸지 않습니다.", optional=True,
+                modules=("outline_lift",), spec=(SP_WEB, "② §8-7")),
              _s("tidy", "템플릿 서식 정리 에이전트", ("llm", "human"), "저장된 스킬 글대로 레벨마다 대표 · 맞출 갈래 · 그대로 둘 갈래를 정한 계획을 냅니다 — 사람이 계획에서 고른 것만 적용됩니다.", change="doc", optional=True,
                 agents=("tpl_agent",), modules=("tpl_agent",), spec=(SP_WEB, "② §8-4")),
          )),
@@ -139,6 +150,20 @@ COMMON = (
              _s("output", "출력파일 검증", "script", "저장본을 한글(hwpx) · Word(docx) PDF 로 찍어 원본과 쪽마다 비교합니다.", modules=("verify", "pdf_render", "pdf_map", "owpml_check"), spec=(SP_WEB, "② §3·§4·§5")),
              _s("commit", "확정", "human", "고친 문단을 확정해 다음 비교의 기준으로 삼습니다(확정본은 따로 받을 수 있습니다).", change="store", modules=("works",), spec=(SP_WORK, "② §8")),
              _s("save", "저장(내려받기)", "human", "지금 문서를 hwpx · docx 파일로 내려받습니다.", out="hwpx · docx 파일", modules=("server",), spec=(SP_WORK, "② §3")),
+         )),
+    dict(id="share", name="hwpx 공유 — 같이 쓰기", where="상단 바 「공유」(hwpx 문서를 연 뒤)",
+         does="지금 문서를 링크와 키를 받은 사람과 같이 씁니다 — 손님은 설치 없이 브라우저로 공유 전용 포트에 들어와 글을 쓰고, 저장본은 공유폴더(SharePoint 동기화 폴더)에 놓입니다. TASK 에 묶이지 않습니다.",
+         steps=(
+             _s("start", "공유 켜기 — 링크 · 키", "human", "공유폴더와 내 이름을 넣고 켭니다. 문서의 저장본과 링크 바로가기가 공유폴더에 놓이고(같은 이름의 파일은 덮지 않음) 공유 포트가 열립니다. 키는 켠 직후에만 보입니다.",
+                out="링크 · 키 · 공유폴더의 저장본", change="store", modules=("share", "share_api"), spec=(SP_SHARE, "② §2·§3·§8")),
+             _s("join", "손님 들어오기", "human", "손님은 링크를 브라우저로 열고 이름과 키를 넣습니다. 키를 여러 번 틀리면 잠깁니다. 손님은 그 문서의 글 쓰기(문단 글 · 줄 나누기 · 합치기)만 합니다.",
+                modules=("share_api",), spec=(SP_SHARE, "② §3·§6")),
+             _s("write", "같이 쓰기", ("human", "script"), "한 문단은 한 사람이 씁니다(남이 작성 중인 문단은 색 띠 — 못 고침). 고친 것은 1~2초 안에 서로의 화면에 보입니다 — 글은 그 문단, 줄 나누기·합치기는 그 블록만, 그 밖은 문서를 다시 읽어 맞춥니다.",
+                change="doc", modules=("share", "share_api"), spec=(SP_SHARE, "② §4·§5")),
+             _s("save", "공유폴더에 저장", "script", "문서가 바뀌고 조용해지면 공유폴더의 저장본에 다시 씁니다. 폴더의 파일이 밖에서 바뀌었으면 덮지 않고 알립니다 — 주인이 「덮어쓰기」 를 눌러야 씁니다.",
+                out="공유폴더의 hwpx", change="store", auto=True, modules=("share_api",), spec=(SP_SHARE, "② §8")),
+             _s("stop", "키 새로 만들기 · 공유 끄기", "human", "키를 새로 만들면 들어와 있던 손님이 모두 나갑니다. 끄면 링크가 닫히고 링크 바로가기는 지워지며 저장본은 폴더에 남습니다.",
+                change="store", modules=("share", "share_api"), spec=(SP_SHARE, "② §2")),
          )),
 )
 
@@ -190,7 +215,8 @@ _C_IMPORT = _c("import", "upload", "가져오기 검증", "올린 문서를 웹 
                uses=("intake",), spec=(SP_WEB, "② §3·§4"))
 _C_ANALYSIS = _c("analysis", "upload", "기본 분석 — 헤딩 그래프 · 표 구조", "새 작업을 처음 열 때 한 번, 헤딩 그래프 → 표 구조를 스크립트만으로 분석합니다(hwpx). 이미 결과가 있는 단계는 건너뛰고, 이어 연 작업에서는 돌지 않습니다.",
                  "시작하지 못했으면 문서 이름 줄이 「헤딩 없음 · 표 없음」, 돌다 실패했으면 멈춘 단계가 「실패」 입니다 — 이름 줄의 「분석」 단추로 다시 돌립니다.", uses=("intake", "headings"), spec=(SP_WORK, "② §9·§20"))
-_C_LLM = _c("llm", "manual", "헤딩 · 표의 LLM 판정", "기본 분석과 따로이고 올릴 때 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다.", by=("human", "llm"), uses=("intake",),
+_C_LLM = _c("llm", "manual", "헤딩 · 표의 LLM 판정", "기본 분석과 따로이고 올릴 때 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다. "
+            "헤딩의 LLM 판정은 스크립트가 판정하지 못한 첫머리 묶음(못 맞춤 · 충돌)도 함께 봅니다.", by=("human", "llm"), uses=("intake",),
             spec=(SP_WORK, "② §20"))
 _C_DIVLLM = _c("divisionLlm", "manual", "구분 기준 LLM 검토", "옵션입니다 — 문서 이름 줄의 「구분 기준」 표시나 프로젝트 구성의 「LLM 검토」 로 열어 「LLM 검토 실행」 을 눌러 돌립니다.", by=("human", "llm"), uses=("division",),
                spec=(SP_WORK, "② §20"))

@@ -20,7 +20,7 @@ H = "app.heading_llm"
 AGENTS = (
     dict(id="heading_rules", no="01", group="헤딩 추출", name="레터 규칙식 제안", run="manual", effort="low", contract=(H, "RULES_CONTRACT"), parts=(("heading", "rules"),),
          role="문단 첫머리의 레터(개요 기호·번호·라벨·안내 표지) 가운데 내장 규칙과 배운 규칙으로 판정하지 못한 묶음을 보고, 그것을 판정할 정규식 규칙을 제안합니다. 제안은 스크립트가 검증한 뒤에만 배운 규칙이 됩니다.",
-         where="헤딩 추출 1단계 「추출(LLM)」 — 규칙 보강", data="내장·배운 규칙 목록 + 판정하지 못한 첫머리 묶음(묶음마다 견본 글)"),
+         where="헤딩 추출 1단계 「추출(LLM)」 — 규칙 보강 · 2단계 「헤딩 그래프(LLM)」 이 그래프보다 먼저", data="내장·배운 규칙 목록 + 판정하지 못한 첫머리 묶음(묶음마다 견본 글)"),
     dict(id="heading_types", no="02", group="헤딩 추출", name="헤딩 유형 판정 (A)", run="manual", effort="medium", contract=(H, "TYPES_CONTRACT"), parts=(("heading", "graph"), ("heading", "templates"), ("heading", "tolerance"), ("form",)),
          role="스크립트가 헤딩 후보 문단을 꼴이 같은 것끼리 묶은 「유형」 마다 구실(헤딩·제목·구분 라벨·안내·헤딩 아님)과 개요 사슬에서의 자리를 정합니다. 이 판정으로 개요템플릿과 서브 템플릿이 만들어집니다.",
          where="헤딩 추출 2단계 「헤딩 그래프(LLM)」 — A 호출(한 번)", data="유형 표(유형마다 레터 꼴·서식·수·견본·앞뒤 유형) + 문서 요약"),
@@ -73,10 +73,12 @@ AGENTS = (
     dict(id="tpl_agent", no="18", group="서식", name="템플릿 서식 정리", run="manual", effort="medium", contract=("app.tpl_agent", "CONTRACT"), model=("app.tpl_agent", "MODEL"), pin=True, parts=(("skill",),),
          role="개요 템플릿 하나의 레벨마다 서식 갈래를 보고 대표로 삼을 갈래 · 그 대표에 맞출 갈래 · 그대로 둘 갈래를 정합니다. 문서에 있는 갈래 가운데 고르기만 하고, 사람이 계획에서 고른 것만 적용됩니다.",
          where="템플릿 트리(헤딩 추출 「템플릿」 탭 · 「템플릿 관계」 열)의 별 아이콘 → 「정리 계획 받기」", data="템플릿의 레벨마다 서식 갈래(값 · 줄 수 · 견본 글)"),
-    dict(id="work_guide", no="19", group="문서 편집", name="작업 진행", run="manual", effort="low", contract=("app.work_guide", "CONTRACT"), parts=(("workflow",), ("job", "*")),
+    dict(id="work_guide", no="19", group="문서 편집", name="작업 진행", run="manual", effort="low", contract=("app.work_guide", "CONTRACT"), parts=(("workflow",), ("taskdoc", "*"), ("job", "*"), ("logs",)),
          more=(("작업 화면(TASK 진행)", ("app.work_guide", "CONTRACT")), ("첫 화면(TASK 정하기)", ("app.work_guide", "HOME_CONTRACT"))),
-         role="TASK 를 시작하면 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고, 입력이 필요하면 질문 카드로 묻습니다. 절차는 workflow.md 에서 확인하고, 화면이 보낸 「지금 할 수 있는 행동」 가운데서만 고릅니다 — 실행은 화면이 하고, 문서를 바꾸는 행동은 사람이 카드에서 확인해야 실행됩니다.",
-         where="에이전트 보기(패널 「에이전트」)와 첫 화면 오른쪽 대화창 — TASK 를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때", data="사건(시작 · 글 · 답 · 결과) · TASK · 단계의 지금 상태 · 지금 할 수 있는 행동 · 사실(프로젝트 구성 · 계획 요약) · 앞선 대화"),
+         role="TASK 를 시작하면 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고, 입력이 필요하면 질문 카드로 묻습니다. 절차는 참조 글(workflow.md · 그 TASK 의 TASK 문서 · 할 일 프롬프트)에서 확인하고, "
+              "무슨 일이 있었는지는 로그(작업 기록 · 검증 · 에이전트 대화 · LLM 호출 · 서버 경고)를 읽어 설명합니다. 화면이 보낸 「지금 할 수 있는 행동」 가운데서만 고릅니다 — 실행은 화면이 하고, 문서를 바꾸는 행동은 사람이 카드에서 확인해야 실행됩니다.",
+         where="에이전트 보기(패널 「에이전트」)와 첫 화면 오른쪽 대화창 — TASK 를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때",
+         data="사건(시작 · 글 · 답 · 결과) · TASK · 단계의 지금 상태 · 지금 할 수 있는 행동 · 사실(프로젝트 구성 · 계획 요약) · 앞선 대화 · 로그(목록 · 작업 기록의 끝 몇 줄 · 에이전트가 청해 읽은 줄)"),
 )
 BY_ID = {a["id"]: a for a in AGENTS}
 assert tuple(BY_ID) == S.IDS, "agents.AGENTS 와 agent_settings.PREFIX 의 에이전트가 다릅니다"
@@ -169,7 +171,19 @@ def _parts(a):
         elif kind == "workflow":
             from app import work_guide
             out.append({"kind": "workflow", "title": "워크플로우 — workflow.md", "source": "workflow.md", "editable": False, "text": work_guide.workflow_text(),
-                        "note": "워크플로우 등록부(app/workflow.py)에서 만든 글입니다 — 부를 때 이 가운데 그 TASK 의 절과 그 TASK 가 쓰는 공통 모듈의 절만 붙습니다(첫 화면은 「한눈에」 와 TASK 마다의 머리)"})
+                        "note": "워크플로우 등록부(app/workflow.py)에서 만든 글입니다 — 부를 때 이 가운데 「한눈에」 와 그 TASK 가 쓰는 공통 모듈의 절만 붙습니다(그 TASK 의 절은 아래 TASK 문서가 대신합니다 · 첫 화면은 「한눈에」 와 TASK 마다의 머리)"})
+        elif kind == "taskdoc":   # 참조 글 — 그 TASK 의 TASK 문서(tasks/<job>.md: 시작 점검 · 단계마다 조건 — spec_워크플로우 ② §10 · spec_작업에이전트 ② §8)
+            from app import work_guide, workflow
+            cat = workflow.catalog()[0]
+            for t in workflow.TASKS:
+                out.append({"kind": "taskdoc", "name": t["job"], "title": f"TASK 문서 — {(cat.get(t['job']) or {}).get('name') or t['job']}", "source": f"{workflow.TASK_DIR.name}/{t['job']}.md", "editable": False,
+                            "text": work_guide.task_doc_text(t["job"]),
+                            "note": "작업의 TASK 가 이것일 때만 붙습니다(작업 화면) · 워크플로우 등록부에서 만든 글입니다 — 그 TASK 의 절(머리 · 단계)에 시작 점검(시작할 때 저절로 확인하는 것)과 단계마다 조건을 더한 글"})
+        elif kind == "logs":      # 로그 — 글이 아니라 읽을 수 있는 기록의 목록(spec_작업에이전트 ② §8)
+            from app import work_logs
+            out.append({"kind": "logs", "title": "로그 — 문서마다", "source": "app/work_logs.py", "editable": False,
+                        "text": "\n".join(f"- {name} · {title} — {what}" for name, title, what in work_logs.SOURCES),
+                        "note": "자료에 로그의 목록과 작업 기록의 끝 몇 줄이 늘 실리고, 더 봐야 하면 에이전트가 답의 read 로 청해 읽습니다(한 턴에 두 번까지 · 한 번에 80줄까지) — 문서와 기록은 바뀌지 않습니다"})
         elif kind == "form":
             out.append({"kind": "form", "title": "양식 정보 — 문서의 양식마다", "source": "forms/<양식>.md", "editable": False, "text": "",
                         "note": "문서가 아는 양식(연구개발계획서 · 연차보고서 …)일 때 그 양식의 글이 한 절로 붙습니다 — 헤딩 추출 「추출·설정」 의 「양식 정보」 에서 보고 고칩니다"})

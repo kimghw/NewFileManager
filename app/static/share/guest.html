@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>같이 쓰기</title>
+  <!-- hwpx 공유의 손님 화면(spec_공유 ② §6) — 공유 포트의 손님 앱(app/share_api.py guest)이 /s/<공유 id> 로 낸다. 주인 화면(index.html · app.js)과 아무것도 같이 쓰지 않는다.
+       CSP 가 'self' 뿐이라 여기에 스크립트·스타일을 직접 적지 않는다(모두 /share-static/ 의 파일). -->
+  <link rel="stylesheet" href="/share-static/guest.css">
+</head>
+<body>
+  <header class="bar" id="bar" hidden>
+    <strong class="doc-name" id="docName"></strong>
+    <span class="host" id="hostName"></span>
+    <span class="people" id="people" role="list" aria-label="들어와 있는 사람"></span>
+    <span class="spacer"></span>
+    <span class="save" id="saveState" role="status" aria-live="polite"></span>
+    <button class="btn" id="leaveBtn" type="button" title="나가기 — 다시 들어오려면 키를 넣어야 합니다">나가기</button>
+  </header>
+
+  <main class="gate" id="gate" hidden>
+    <form class="card" id="joinForm" autocomplete="off">
+      <h1>같이 쓰기</h1>
+      <p class="note" id="gateNote">링크와 함께 받은 키를 넣어 주세요.</p>
+      <label for="nameIn">이름</label>
+      <input id="nameIn" maxlength="20" required placeholder="다른 사람에게 보일 이름">
+      <label for="keyIn">키</label>
+      <input id="keyIn" maxlength="24" required placeholder="XXXX-XXXX-XXXX" spellcheck="false" autocapitalize="characters">
+      <p class="err" id="gateErr" role="alert" hidden></p>
+      <button class="btn primary" id="joinBtn" type="submit">들어가기</button>
+    </form>
+  </main>
+
+  <main class="gate" id="closed" hidden>
+    <div class="card">
+      <h1 id="closedTitle">공유가 끝났습니다</h1>
+      <p class="note" id="closedNote">공유가 꺼졌거나 없는 링크입니다. 링크를 준 사람에게 물어봐 주세요.</p>
+    </div>
+  </main>
+
+  <div class="scroller" id="scroller" hidden>
+    <article class="doc" id="doc" aria-label="같이 쓰는 문서"></article>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/share-static/guest.js"></script>
+</body>
+</html>

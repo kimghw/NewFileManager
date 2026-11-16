@@ -205,7 +205,7 @@ def align(doc, ov, pid, full=False, measure=None):
     """개요 줄 pid 를 슬롯 규칙대로 — 바꿨으면 그 문단의 새 서식 요약, 아니면 None. 괄호 줄(구분 라벨·괄호 소제목 — 글 전체가 레터)은 안 건드린다.
     문단 여백만 바꾼다(format_para — 런마다 글자 모양·문단 번호는 그대로). full 의 잘못된 규칙은 ValueError."""
     line = ov["lines"].get(pid)
-    if line is None or line.get("role") in OE.ROOTED:
+    if line is None or line.get("role") in OE.ROOTED or line.get("role") == OE.TABLE:  # 표 제목 줄(② §8-7)도 자리 규칙 없음
         return None
     slot = OE._slot(ov, line["tpl"], line["level"]) or {}
     m = measure or Measure(doc)
@@ -366,8 +366,8 @@ def view(doc, ov):
         slots = {}
         for lv, sl in t.get("slots", {}).items():
             rs = roles.get((tid, int(lv)), set())
-            rooted = bool(rs) and rs <= set(OE.ROOTED) or (not rs and t.get("kind") == "label" and lv == "1")
-            item = {"letter": sl.get("letter") or "", "lines": counts.get((tid, int(lv)), 0), "rooted": rooted,
+            rooted = bool(rs) and rs <= set(OE.ROOTED) or (not rs and t.get("kind") == "label" and lv == "1") or bool(sl.get("table"))  # 표 제목 레벨(② §8-7)도 자리 규칙 없음
+            item = {"letter": sl.get("letter") or "", "lines": counts.get((tid, int(lv)), 0), "rooted": rooted, **({"table": True} if sl.get("table") else {}),
                     "pos": {k: v for k, v in (sl.get("pos") or {"line2": "text"}).items()}}
             try:
                 at = None if rooted else m.slot_place(sl)
@@ -394,4 +394,8 @@ def view(doc, ov):
             if lv in t["slots"]:
                 t["slots"][lv].update(sx)
         t.update(ex)
+    from app import outline_lift  # 표 제목을 L1 로 넣은 템플릿(② §8-7) — lift{tables, sigs}
+    for tid, ex in outline_lift.view_extra(ov).items():
+        if tid in out["templates"]:
+            out["templates"][tid].update(ex)
     return out

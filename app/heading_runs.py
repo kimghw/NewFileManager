@@ -222,22 +222,53 @@ def run_stage1(sess, job, use_llm, pinned=None):
     return n
 
 
+def _unjudged(s1):
+    """1단계가 판정하지 못한 묶음 수(못 맞춤 + 충돌) — LLM 판정이 그래프보다 먼저 보는 것(spec ② §3 「LLM 판정은 스크립트가 판정하지 못한 것까지 본다」)."""
+    rv = (s1 or {}).get("review") or {}
+    return len(rv.get("unmatched") or []) + len(rv.get("conflicts") or [])
+
+
+def _rules_asked(s1):
+    """그 1단계 결과가 규칙 보강의 답을 받은 적이 있는가 — 받았으면 남은 묶음(LLM 이 모르겠다고 한 것 · 검증에 떨어진 제안)을 다시 묻지 않는다. 호출이 모두 실패한 결과는 안 받은 것."""
+    return bool(((s1 or {}).get("llm") or {}).get("items"))
+
+
 def run_stage2(sess, job, use_llm):
     st = state(sess)
     guides0 = _guides(sess)  # 시작 때 고정(§7) — A·B·C 프롬프트와 기록이 같은 지침(+ 양식 정보)
     hints0 = copy.deepcopy(hints(sess))  # 라벨 지정도 시작 때 고정(§13) — 실행 중 바꿔도 이 실행은 이 지정으로
     s1 = st.get("stage1")
-    if s1 is None or s1.get("meta", {}).get("rev") != sess.rev or s1.get("version") != E.VERSION:  # 옛 추출 방식의 결과(모양 키·간격·그릇 key)도 다시
-        job.step("1단계(스크립트) 다시")
-        run_stage1(sess, job, False, pinned=guides0)
+    stale = s1 is None or s1.get("meta", {}).get("rev") != sess.rev or s1.get("version") != E.VERSION  # 옛 추출 방식의 결과(모양 키·간격·그릇 key)도 다시
+    # LLM 판정은 스크립트가 판정하지 못한 것(못 맞춤·충돌)까지 본다(§3, 2026-11-16) — 그래프를 짓기 전에 그 묶음의 규칙 보강을 먼저. 이미 답을 받은 1단계 결과는 다시 묻지 않는다
+    ask_rules = bool(use_llm) and (stale or (_unjudged(s1) > 0 and not _rules_asked(s1)))
+    rules = None
+    if stale or ask_rules:
+        name = "1단계 다시 — 못 맞춤·충돌 LLM 규칙 보강" if ask_rules else "1단계(스크립트) 다시"
+        before = _unjudged(s1)
+        job.step(name)
+        n1 = run_stage1(sess, job, ask_rules, pinned=guides0)
         s1 = st["stage1"]
-        job.step("1단계(스크립트) 다시", "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음")
+        rep = s1.get("llm") if ask_rules else None  # 보강 보고(호출 기록 뺌) — 물을 묶음이 없었으면 None
+        if rep:
+            rules = {"run": n1, "groups": rep.get("groups", 0), "saved": len(rep.get("saved") or []), "kept": len(rep.get("kept") or []),
+                     "rejected": sum(1 for i in rep.get("items") or [] if i.get("verdict") == "rejected"), "left": _unjudged(s1),
+                     "costUsd": rep.get("costUsd", 0), "error": rep.get("error")}
+            works.log(sess.id, "headings", stage=1, llm=True, status="done", rev=s1["meta"]["rev"], within=2,
+                      **({"n": n1} if st.get("lastSaved") is not False else {"saved": False}))
+            job.step(name, "failed" if rules["error"] and not rep.get("items") else "ok",
+                     f"판정하지 못한 묶음 {rules['groups']} → 규칙 저장 {rules['saved']} · 그대로 {rules['kept']} · 거절 {rules['rejected']} · 남은 묶음 {rules['left']}"
+                     + (f" — {rules['error']}"[:200] if rules["error"] else ""))
+        elif ask_rules:
+            job.step(name, "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음 · 판정하지 못한 묶음 없음" if stale else f"판정하지 못한 묶음 {before} → 물을 것 없음")
+        else:
+            job.step(name, "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음")
     temp0 = TP.label(s1, hints0["temp"])  # TEMP 라벨(§15) — 본문 검토 전에: 그 문단들은 헤딩 후보에서 빠진다
     job.step("TEMP 라벨 — 헤딩 후보에서 뺌", "ok", TP.summary_text(temp0))
     job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"))
     g = HG.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, hints=hints0, temp=temp0)
     calls = g.pop("_calls", [])
     lm = g["llm"]
+    lm["rules"] = rules  # 이 LLM 판정이 먼저 돌린 규칙 보강(§3 — 판정하지 못한 묶음) | None(안 돎 — 스크립트 실행 · 물을 묶음 없음 · 이미 답을 받은 1단계)
     msg = (f"노드 {g['counts']['nodes']} · 유형 {g['counts']['types']} · 템플릿 {g['counts']['templates']} · 인스턴스 {g['counts']['instances']} · "
            f"이종 형제 {g['counts']['heterogeneous']} · 조정 {g['counts']['adjust']}" +
            (f" · 재검토 {g['counts'].get('reviewed', 0)}(불일치 {g['counts'].get('disagreed', 0)})" if use_llm and lm.get("reviewPairs") else "") +

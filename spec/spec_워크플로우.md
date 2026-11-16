@@ -39,7 +39,7 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   `change`(`none` 문서 안 바뀜 · `doc` 문서 바뀜 · `store` 문서는 그대로이고 저장만) · `modules`(`app/<이름>.py`) · `agents`(에이전트 id — `app/agents.py`) · `uses`(공통 모듈 id) · `spec`(사양서 파일 · 자리) ·
   `auto`(사람이 누르지 않아도 도는 것) · `optional`(안 해도 다음으로 가는 것) · `soon`(아직 없는 단계).
 - **`COMMON`** = 공통 모듈 — TASK 에 묶이지 않고 여러 TASK 가 쓰는 과정: `id` · `name` · `does` · `where`(화면에서 여는 곳) · `steps`(위와 같은 꼴). 지금:
-  `intake` 문서 올리기 · 첫 분석 / `headings` 헤딩 추출 / `division` 프로젝트 구성(구분 기준) / `styles` 서식 관리자 / `agent` 에이전트 보기 / `tables` 표 도구 / `outline` 템플릿 관계 · 서식 정리 / `verify` 검증 · 확정 · 저장.
+  `intake` 문서 올리기 · 첫 분석 / `headings` 헤딩 추출 / `division` 프로젝트 구성(구분 기준) / `styles` 서식 관리자 / `agent` 에이전트 보기 / `tables` 표 도구 / `outline` 템플릿 관계 · 서식 정리 / `verify` 검증 · 확정 · 저장 / `share` hwpx 공유 — 같이 쓰기(2026-11-16 — 어느 TASK 의 단계도 `uses` 로 가리키지 않는다: TASK 에 묶이지 않은 일 · [spec_공유.md](spec_공유.md)).
 - `listing()` → 화면이 쓰는 꼴(§2): 모듈은 그 파일의 설명 첫 줄(`doc`)을, 에이전트는 등록부·설정의 작업 번호 · 이름 · 역할 · 지금 모델 · 도는 때를, 공통 모듈은 그것을 쓰는 TASK(`usedBy`)를, TASK 는 할 일 프롬프트 파일(`jobs/<job>.md` — 있으면)을 붙여 준다.
 - 등록부의 글은 **화면 말**로 적는다(프로젝트 구성 · 자리 연결 · 넣기 계획 · 내용 반영 · 배포 기준본 · 기관 작성 내용 · 목적 문서·원본 문서 · 서식 관리자 — CLAUDE.md 용어).
 
@@ -67,7 +67,7 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
 
 ### 4. 들어가는 길
 
-- 상단 바 「에이전트 설정」 링크(`a#agentsLink` — 2026-11-15 단추에서 링크로: [spec_에이전트.md](spec_에이전트.md) ② §5) **앞**의 링크 `a#workflowLink.btn.wf-link`(`href="/workflow"` · 새 탭 — 연 문서를 닫지 않는다): 아이콘 + 글 「워크플로우」(1500px 아래 아이콘만). 문서가 없어도 보인다.
+- 상단 바 「에이전트 설정」 링크(`a#agentsLink` — 2026-11-15 단추에서 링크로: [spec_에이전트.md](spec_에이전트.md) ② §5) **앞**의 링크 `a#workflowLink.btn.wf-link`(`href="/workflow"` · 새 탭 — 연 문서를 닫지 않는다): **글 없이 아이콘만**(18px · 이름 「TASK 워크플로우」 는 `title`·`aria-label` — 2026-11-16 사용자 「이건 아이콘으로 하면 되지 않냐?」: 원본 [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md) ② §9 「상단 바 오른쪽 끝 아이콘」. 전에는 아이콘 + 글 · 1500px 아래에서만 아이콘). 문서가 없어도 보인다.
   문서를 연 상단 바(35px · 단추 26px)의 폭을 지킨다 — 541~880px 에서는 감춘다(「에이전트 설정」 링크가 780px 아래에서 숨는 것과 같은 까닭 — 줄 넘침을 키우지 않는다). 규칙은 `document_header.css` 의 상단 바 절.
 - 에이전트 설정 페이지(`/agents`)의 상단 줄 「워크플로우」 도 이 페이지로 온다. 거꾸로 이 페이지의 단계 세부 「에이전트」 이름은 `/agents#<에이전트 id>` 로 간다(등록부에 있는 에이전트만 — `workflow.js` `a.wf-agent-link`).
 
@@ -140,6 +140,8 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
 
 ## ③ 구현 상태
 
+- 2026-11-16 등록부 글 바뀜(newfilemanager-d3 — hwpx 공유: [spec_공유.md](spec_공유.md)): 공통 모듈 `share`(「hwpx 공유 — 같이 쓰기」 — 단계 다섯: 공유 켜기 · 손님 들어오기 · 같이 쓰기 · 공유폴더에 저장 · 키 새로 만들기·끄기)를 더함 · `SP_SHARE` ·
+  `workflow.md` 다시 만듦 · `tools/smoke_workflow_ui.py` 의 공통 모듈 수 여덟 → 아홉(목차 링크 16 → 17).
 - 2026-11-15 등록부 글 바뀜(newfilemanager-b8 — 작업 진행 에이전트: [spec_작업에이전트.md](spec_작업에이전트.md)): 공통 모듈 「에이전트 보기」 에 단계 「작업 진행 — 설명 · 다음 단계 제안 · 실행」(에이전트 19) · 여는 곳에 「첫 화면 오른쪽 대화창」 · 양식 맞추기의 「문서 올리기 · 첫 분석」 과 이관·취합의 「준비」 단계에 「LLM 을 쓸 수 있으면 패널 「에이전트」 가 열려 …」 와 공통 모듈 「에이전트 보기」 연결 → `workflow.md` 371줄. `catalog()` 는 TASK 가 받는 확장자(`accept`)도 읽는다(첫 화면 에이전트가 쓴다).
 - 2026-11-15 ② §8 `workflow.md` 구현(newfilemanager-b8): `app/workflow.py` 에 `MD` · `catalog()` · `markdown()` · 새 `tools/workflow_md.py` · 새 `workflow.md`(369줄 · 22,341자) · `tests/test_workflow.py` 에 시험 하나(9개 통과).
   같은 날 에이전트 설정 페이지에 맞춰 `workflow.js` 의 에이전트 이름을 `/agents#<id>` 링크로(`workflow.css` `.wf-agent-link`) · `smoke_workflow_ui.py` 의 상단 바 끝 요소(`agentsLink`)와 세부의 에이전트 이름 읽기를 맞춤.
@@ -160,6 +162,17 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   - 8114 재시작(같은 날 — 새 라우트 `/workflow` · `/api/workflow` 라 필요. 물어서 받은 답 「지금 재시작」): 띄우개째 끄고 1개만 다시 띄움 → `api · claude-fable-5-2 · available true` · `/workflow` 200 · 콘솔 오류 없음.
 - 2026-11-16 ② §9 — 구현(newfilemanager-ff): `app/workflow.py`(`WAYS` · `WAYS_NOTE` · `_ways` · TASK 여섯의 `ways` · `listing()` · `markdown()`) → `workflow.md` 다시 만듦(398줄 — 공통 모듈 「에이전트 보기」 에 단계 「진행 보고」 를 더함) · `workflow.js`(TASK 절 「진행 방식」 · 전체 보기 한 줄) · `workflow.css`(`.wf-ways`).
   `tests/test_workflow.py` 통과 · 화면 검사 `workflow`(이관 절의 줄에 진행 방식 넷을 더해 고침).
+- 2026-11-16 ② §10 — 구현(newfilemanager-78).
+  - 등록부 `app/workflow.py`: `WHEN`(때 넷) · `COND`(조건 이름 넷) · `_c()` + 여러 TASK 가 같이 쓰는 항목(`_c_format` · `_C_TARGET` · `_C_ONE` · `_C_WORK` · `_c_role` · `_C_TASK` · `_C_IMPORT` · `_C_ANALYSIS` · `_c_status` · `_C_AGENT` · `_C_RUNNING` · `_C_LLM` · `_C_DIVLLM` · `_c_task_llm`) ·
+    TASK 여섯의 `entry`(양식 맞추기 18 · 취합 21 · 이관 23 · 일반 편집 12 · 서식 복사 12 — 준비 중인 「연차보고서 취합」 은 없음) · `_s()` 에 `need`·`done`·`stop`·`left`(TASK 의 단계 46개 가운데 준비 중 하나를 뺀 45개에 `need`·`done`) ·
+    `entry(t)` · `listing()` 의 `tasks[].entry`·`doc` · 단계의 `cond` · `_md_tools()`(markdown · task_markdown 이 같이 쓰는 글 조각) · `task_md()`·`task_markdown()`·`task_docs()` · `TASK_DIR`.
+    글의 근거로 읽은 코드: `home_files.js` `homeFilesGo`·`hfOpenTarget`·`hfAddSource` · `app.js` `homeTaskStart`·`taskEnter`·`firstRun`·`taskSteps`·`taskStepsCalc`·`divRunWhy`·`divPlanState`·`divAutoStops` · `doc_agent_work.js` `agwFitStatus`·`agwRelayStatus`·`agwGatherStatus`·`agentWorkEnter` ·
+    `gather.js` `gatherSteps`·`gatherCalc` · `style_lib.js` `slStepState`·`styleSaveAuto` 의 설명. 공통 모듈 「에이전트 보기」 에 단계 「참조 글 · 로그 읽기」 를 더함([spec_작업에이전트.md](spec_작업에이전트.md) ② §8).
+  - 만든 글: `tools/workflow_md.py` 가 `workflow.md`(414줄 — TASK 머리에 「시작 점검」 한 줄 · 「세부」 한 줄, 머리글에 TASK 문서 안내 한 줄)와 새 `tasks/*.md` 일곱(양식 맞추기 둘 135줄 · 취합 180줄 · 이관 188줄 · 일반 편집 125줄 · 서식 복사 123줄 · 연차보고서 취합 12줄)을 함께 쓴다.
+  - 페이지 `workflow.js`·`workflow.css`: 목록 보기의 TASK 절에 「시작 점검」(진행 방식 아래 · 단계 묶음 위 — 때마다 묶음 `details.wf-entry-group`: 접힘 · 항목 = 이름 · 누가 · 무엇을 확인하나 · 「안 맞으면」) · 단계 세부에 조건(`dl.wf-cond` — 세부 `.wf-more` 앞) ·
+    다이어그램 보기에 접힌 「시작 점검 — … n가지 보기」(`details.wf-entry-context`) · 고른 단계의 「이 단계의 조건」 · 「모두 펼치기」·「모두 접기」 가 시작 점검 묶음도 함께. 공통 모듈 · 준비 중 TASK 에는 없다.
+  - 시험 `tests/test_workflow.py` 11개(새 둘 — 시작 점검·단계 조건의 계약 · TASK 문서가 등록부와 같음 + listing 검사에 `doc`·`entry`·`cond`) · 화면 검사 `workflow`(이관 절의 시작 점검 · 항목 · 조건 · 모두 펼치기/접기 · 다이어그램의 조건과 시작 점검 · 공통 모듈에는 없음 · 좁은 폭에서 시작 점검을 편 채 넘침 없음).
+  - 서버 코드(등록부 · 새 모듈)를 고쳤으므로 8114 에는 다시 켠 뒤에 보인다(다시 켜기는 사용자가 말할 때 — 페이지의 js·css 는 새로 고침만으로 읽히지만 `/api/workflow` 의 `entry`·`cond` 가 없으면 시작 점검이 그려지지 않는다: 없는 필드는 빈 목록으로 본다).
 
 ## ④ 미결/후속
 

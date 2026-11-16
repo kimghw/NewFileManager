@@ -72,6 +72,11 @@
 /* 보관한 서식 한 줄 묶음 — 이름 줄 · 원본 줄 · 견본 그림 · 뺀 것(접힘) · 단추 줄 */
 .sl-item { padding: 9px 0 10px; border-bottom: 1px solid var(--line); min-width: 0; }
 .sl-item:last-child { border-bottom: 0; }
+#headsDlg[data-kind="styleLib"] .sl-wrap { container: sl-detail / inline-size; }
+#headsDlg[data-kind="styleLib"] .sl-item { padding-block: 14px 16px; }
+#headsDlg[data-kind="styleLib"] .sl-picbox { margin-bottom: 12px; }
+#headsDlg[data-kind="styleLib"] .sl-picbar { margin-top: 7px; gap: 4px 6px; }
+#headsDlg[data-kind="styleLib"] .sl-head { row-gap: 5px; }
 .sl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .sl-name { min-width: 0; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
 .sl-head .hb { max-width: none; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-2); color: var(--muted); }
@@ -86,6 +91,10 @@
 .sl-proof.big { max-height: none; cursor: zoom-out; }
 .sl-more { margin: 5px 0 0; font-size: 12px; }
 .sl-more > summary { cursor: pointer; color: var(--muted); }
+#headsDlg[data-kind="styleLib"] .sl-more { margin-top: 9px; }
+#headsDlg[data-kind="styleLib"] .sl-more > summary { padding: 5px 7px; border-radius: 4px; background: var(--surface-2); line-height: 1.5; }
+#headsDlg[data-kind="styleLib"] .sl-more > summary:hover { color: var(--text); }
+#headsDlg[data-kind="styleLib"] .sl-more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sl-more ul { margin: 4px 0 0; padding-left: 18px; color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }
 .sl-more li.fail { color: var(--fail); }
 .sl-more li.unknown, .sl-more li.unsupported { color: var(--muted); }
@@ -94,11 +103,39 @@
 .sl-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 0; color: var(--fail); font-size: 12px; }
 .sl-confirm > span { min-width: 0; overflow-wrap: anywhere; }
 
-/* 글 서식의 항목(레벨마다 한 줄) — 열이 정렬된 grid 하나(design.md §1-5) */
-.sl-levels { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 3px 6px; margin: 6px 0 0; }
-.sl-levels .sl-lv { color: var(--muted); font-size: 11px; white-space: nowrap; }
-.sl-levels .sl-lname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sl-levels .sl-lname i { color: var(--muted); font-style: normal; }
+/* 한 레벨 = 이름·견본 / 적용·수정 버튼 / 그 레벨의 값 입력. 다음 레벨과 한 격자의 칸을 공유하지 않는다. */
+.sl-levels { display: flex; flex-direction: column; min-width: 0; margin: 10px 0 0; border-top: 1px solid var(--line); }
+.sl-level-row { min-width: 0; padding: 11px 2px; }
+.sl-level-row + .sl-level-row { border-top: 1px solid var(--line); }
+.sl-level-head { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; }
+.sl-levels .sl-lv { padding-top: 1px; color: #526683; font-size: 11px; font-weight: 600; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sl-levels .sl-lname { display: flex; flex-direction: column; gap: 3px; min-width: 0; line-height: 1.5; }
+.sl-ltitle { color: var(--text); font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.sl-lsample { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.sl-level-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; margin-top: 8px; }
+.sl-level-actions .btn.sm { min-width: 0; max-width: 100%; height: 28px; padding: 0 9px; font-size: 11.5px; white-space: nowrap; }
+.sl-level-actions [data-sl-item] { color: #315fa7; border-color: #cddbf0; background: #f6f9ff; }
+.sl-level-actions [data-sl-item]:hover:not(:disabled) { background: #eaf1ff; border-color: #9ebae5; }
+.sl-level-actions [data-sl-fmt] { min-width: 72px; }
+.sl-level-row.editing .sl-lv { color: var(--accent); }
+
+/* 값 고치기는 해당 레벨에 붙여 연다. 폰트는 한 줄, 숫자 입력은 라벨·단위와 같은 묶음. */
+.sl-fform { min-width: 0; margin-top: 10px; padding: 10px; border-left: 2px solid #b9cff0; border-radius: 0 4px 4px 0; background: #f6f8fc; }
+.sl-frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; min-width: 0; }
+.sl-fv { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11.5px; }
+.sl-fv-name { flex: 0 0 58px; color: #52617a; white-space: nowrap; }
+.sl-fv-unit { flex: none; color: var(--muted); font-size: 11px; }
+.sl-fv input { box-sizing: border-box; min-width: 0; max-width: 100%; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.sl-fv input:focus-visible { outline: 2px solid #2458c733; outline-offset: 1px; border-color: var(--accent); }
+.sl-fv input.chg { border-color: #c88b31; }
+.sl-fv[data-sl-fv="font"] { grid-column: 1 / -1; }
+.sl-fv[data-sl-fv="font"] input { flex: 1; width: 0; }
+.sl-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sl-facts .btn.sm { height: 28px; font-size: 11.5px; }
+@container sl-detail (max-width: 360px) {
+  .sl-frow { grid-template-columns: minmax(0, 1fr); }
+  .sl-level-actions .btn.sm { padding-inline: 7px; }
+}
 
 /* 추출 후보 — 줄마다: 체크 · 이름 칸 · 자리로 / 크기 · 머리행·머리열·합계행 · 같은 서식 n개 · 구조까지 */
 .sl-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0 2px; }
