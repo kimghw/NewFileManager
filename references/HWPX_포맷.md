@@ -323,6 +323,6 @@
 ## 관련
 
 - 구현: [app/hwpx_doc.py](../app/hwpx_doc.py)(서식 §8 은 [app/hwpx_format.py](../app/hwpx_format.py)), 테스트 [tests/test_hwpx_doc.py](../tests/test_hwpx_doc.py),
-  사양 [spec/spec_왕복_어댑터.md](../spec/spec_왕복_어댑터.md) §1·§2, [spec/spec_서식.md](../spec/spec_서식.md).
+  사양 [FileMergeManager 의 spec_왕복_어댑터.md](../../FileMergeManager/spec/spec_왕복_어댑터.md) §1·§2, [FileMergeManager 의 spec_서식.md](../../FileMergeManager/spec/spec_서식.md)(옛 프로젝트 사양서 — 이 저장소 spec/ 에는 없다).
 - 한/글 화면 쪽 규칙(문단 모양·정렬·줄 나눔 기준): [한글_문단모양_줄나눔.md](한글_문단모양_줄나눔.md).
 - 한컴 미설치 PC 에서 작성 — 위 사실은 실파일 XML 관찰 기반이며 한글에서 여는 검증은 별도.

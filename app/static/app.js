@@ -5751,7 +5751,7 @@ function headsRender(r) {
   if (typeof driftSync === "function") driftSync(r); // 뼈대 유지 — 결과·문서 차례가 달라졌으면 지금 문서를 뼈대와 다시 견준다(heading_drift.js — spec ② §17)
 }
 
-// ---- LLM 표시(spec_헤딩_추출 ② §7 「LLM 이 한 결과 표시」, 2026-11-10 사용자 "LLM 이 작업한 결과 임을 표시 … 각 자리에서 LLM 작업 시간을 명시")
+// ---- LLM 표시(spec_헤딩_추출 ② §7 「LLM 표시」, 2026-11-10 사용자 "LLM 이 작업한 결과 임을 표시 … 각 자리에서 LLM 작업 시간을 명시")
 // 2·3단계의 지금 결과가 LLM 이 판정한 것인지 스크립트 것인지, LLM 이면 끝난 때·걸린 시간을 결과가 보이는 자리마다 같은 꼬리표(.src-chip)로:
 // 헤딩 탭 위 요약 · 「표」 탭 · 2열 「템플릿 관계」·「표 구조」 · 추출·설정 카드 머리(걸린 시간). 자료는 GET …/headings 요약의 stageN {meta.at, llm{requested, fallback, calls, seconds, costUsd, replay}}.
 const fmtDur = (s) => { s = Math.round(s || 0); return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분${s % 60 ? ` ${s % 60}초` : ""}`; };
