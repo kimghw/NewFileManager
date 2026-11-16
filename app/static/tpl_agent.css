@@ -110,3 +110,17 @@ button.olm-chip.olm-vchip:focus-visible { outline: 2px solid #7c3aed; outline-of
 .tpa-foot { margin: 10px 0 0; }
 .tpa-count { color: var(--muted); font-size: 12px; }
 .tpa-back { padding: 0 8px; }
+
+/* ---- 진행 줄의 「조정」 줄(tpl_plan_bar.js — spec_hwpx_웹편집 ② §8-4 「계획 모두 반영」): 헤딩 추출 탭 진행 줄(.hprog — heading-panels.css)의 셋째 층.
+   칸의 꼴은 진행 줄의 다른 칸(.hprog-step)과 같다 — 여기는 새 상태 「plan」(계획 받음 · 반영 전 — 보라 테 · 속 빈 보라 동그라미)과 행동 칸(.tpb-cell[data-tpb="act"] — 표시 없이 글만 · 「모두 반영」 은 보라 바탕)만. */
+#headsOverview .hprog-step.tpb-cell[data-state="plan"] { border-color: #c4b5fd; background: #fff; color: #5b21b6; }
+#headsOverview .hprog-step.tpb-cell[data-state="plan"] .hprog-mark { border-color: #7c3aed; }
+#headsOverview .hprog-step.tpb-cell[data-state="plan"] .hprog-count { font-weight: 600; }
+#headsOverview .hprog-step.tpb-cell[data-tpb="act"] { justify-content: center; border-color: #cfdcf3; background: #fff; color: #2d5bd0; font-weight: 600; }
+#headsOverview .hprog-step.tpb-cell[data-tpb="act"]:hover:not(:disabled) { background: #f0f4fc; border-color: #9fb8e6; }
+#headsOverview .hprog-step.tpb-cell[data-tpb="act"].tpb-go { border-color: #6d28d9; background: #6d28d9; color: #fff; }
+#headsOverview .hprog-step.tpb-cell[data-tpb="act"].tpb-go:hover:not(:disabled) { background: #5b21b6; border-color: #5b21b6; }
+#headsOverview .hprog-step.tpb-cell:disabled { opacity: .55; cursor: default; }
+/* 행동이 없을 때 행동 칸은 감춘다([hidden]) — 줄의 마지막 칸이라 앞의 두 칸은 밀리지 않는다(격자의 열 폭은 그대로) */
+#headsOverview .hprog-step.tpb-cell.flash { animation: tpbFlash 1.4s ease-out; } /* 다른 자리에서 이 줄로 왔을 때(tplPlanGo) 한 번 */
+@keyframes tpbFlash { from { box-shadow: 0 0 0 3px #c4b5fd; } to { box-shadow: 0 0 0 3px transparent; } }

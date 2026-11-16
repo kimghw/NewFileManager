@@ -506,3 +506,115 @@ def test_chain_parallel_failure_keeps_the_other_and_stop_skips_unstarted_templat
     analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=plan_stop)
     f = {p["key"]: p for p in job.parts}["formats"]
     assert done == ["1"] and f["status"] == "partial" and "멈춤 — 남은 템플릿 2" in f["msg"]
+
+
+# ---------------------------------------------------------------- 헤딩 그래프(LLM) → 서식 정리 계획 · 서식 계획만 · 반영하면 바뀔 줄 수(2026-11-16 — 사용자 답 「헤딩 LLM 판정에 늘 이어서」 · 「확인 뒤 한 번에 반영」)
+
+def test_formats_item_counts_what_applying_the_plans_would_change():
+    """받아 둔 계획(지금 문서 차례)마다 에이전트가 고른 그대로 반영하면 바뀔 줄 · 다른 템플릿으로 옮길 줄 — 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」 이 보이는 수."""
+    st = {"stage2": _res(2), "stage3": _res(3)}
+
+    def g(gid, n):
+        return {"group": gid, "para": f"p{gid}", "count": n}
+    plan = {"levels": [{"level": 1, "rep": g("g1", 5), "match": [g("g2", 2)], "keep": [g("g5", 1)], "split": [{"sfx": "a", "rep": g("g3", 4), "match": [g("g4", 1)]}]},
+                       {"level": 2, "rep": g("g1", 4), "match": [], "keep": [], "split": []}]}
+    f = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 3, "plan": plan}}))["formats"]["llm"]
+    assert (f["planned"], f["change"], f["moved"]) == (1, 3, 5) and f["list"] == [{"tpl": "1", "no": "1", "state": "planned", "change": 3, "moved": 5}]
+    old = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 1, "plan": plan}}))["formats"]["llm"]   # 옛 계획 — 반영할 수 없으므로 세지 않는다
+    assert (old["stale"], old["change"], old["moved"]) == (1, 0, 0) and "change" not in old["list"][0] and (f["done"], old["done"]) == (0, 0)
+    # 반영한 계획 수(done)는 모든 템플릿에서 센다 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도(진행 줄 「조정」 의 ✓)
+    even = {"1": {"1": _var([7]), "2": _var([4])}, "2": {"1": _var([3])}}
+    after = _items(analysis.status(_sess(st), outline=(OV, even), plans={"1": {"rev": 3, "plan": plan, "applied": {"at": 1.0, "rev": 4, "changed": 3}}}))["formats"]["llm"]
+    assert (after["need"], after["applied"], after["done"], after["state"]) == (0, 0, 1, "done")
+    none = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={}))["formats"]["llm"]
+    assert (none["change"], none["moved"]) == (0, 0)
+
+
+def test_chain_name_and_parts_follow_the_chain():
+    """이어 돌리기 셋 — llm(LLM 검증·보완) · heads(헤딩 그래프(LLM) → 서식 계획: 표는 없다) · formats(서식 계획만). 화면 이름은 서버가 준다."""
+    both = {"stage2": _res(2), "stage3": _res(3)}
+    j = _job(stage=2, llm=True)
+    j.chain = "heads"   # 막 시작 — 단계가 아직 안 적힘
+    v = analysis.status(_sess({**both, "job": j}), outline=(OV, VARS), plans={})
+    a = _items(v)
+    assert v["job"]["what"] == "헤딩 LLM 판정 · 서식 계획" and (v["chain"]["chain"], v["chain"]["name"]) == ("heads", "헤딩 LLM 판정 · 서식 계획")
+    assert (a["heads"]["llm"]["state"], a["templates"]["llm"]["state"], a["formats"]["llm"]["state"], a["tables"]["llm"]["state"]) == ("running", "running", "wait", "none")
+    assert "헤딩 판정이 끝나면" in a["formats"]["llm"]["text"] and a["tables"]["state"] == "done"
+    j2 = _job(stage=2, llm=True)
+    j2.chain, j2.parts = "formats", [{"key": "formats", "name": "f", "no": 1, "status": "running", "msg": "T1 계획 받는 중 — 끝남 0/1"}]
+    v2 = analysis.status(_sess({**both, "job": j2}), outline=(OV, VARS), plans={})
+    b = _items(v2)
+    assert v2["job"]["what"] == "서식 정리 계획" and v2["chain"]["running"] == ["formats"]
+    assert (b["heads"]["llm"]["state"], b["tables"]["llm"]["state"], b["formats"]["llm"]["state"]) == ("none", "none", "running")
+    j3 = _job(stage=2, llm=True)
+    j3.chain = "llm"
+    assert analysis.status(_sess({**both, "job": j3}), outline=(OV, VARS), plans={})["chain"]["name"] == "LLM 검증·보완"
+
+
+def test_api_heading_llm_run_continues_into_format_plans(client, monkeypatch):
+    """「헤딩 그래프(LLM)」(POST …/headings {stage: 2, llm: true}) = 헤딩 판정 → 이어서 서식 정리 계획(이어 돌리기 "heads") — 표 구조 LLM 은 안 돌고 문서는 안 바뀐다."""
+    from app import llm
+    monkeypatch.setenv("NFM_LLM_BACKEND", "off")
+    d = _upload(client, FORM)
+    assert client.post(f"/api/docs/{d}/headings", json={"first": True}).status_code == 202
+    _wait_heads(client, d)
+    need = _items(client.get(f"/api/docs/{d}/analysis").json())["formats"]["llm"]["need"]
+    assert need >= 1
+    f2, f3 = _llm_ok(2), _llm_ok(3)
+    monkeypatch.setattr(heading_runs, "run_stage2", f2)
+    monkeypatch.setattr(heading_runs, "run_stage3", f3)
+    asked = []
+
+    def fake_call(schema, content, what, **kw):
+        asked.append(what)
+        return {"data": {"summary": "정리", "levels": []}, "backend": "api", "ms": 1, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake_call)
+    rev = server.DOCS[d].rev
+    assert client.post(f"/api/docs/{d}/headings", json={"stage": 2, "llm": True, "skill": "nope"}).status_code == 404   # 서식 정리 스킬 키
+    r = client.post(f"/api/docs/{d}/headings", json={"stage": 2, "llm": True})
+    assert r.status_code == 202, r.text
+    assert r.json()["chain"] == "heads" and r.json()["stage"] == 2
+    j = _wait_job(client, d)
+    assert j["status"] == "done", j
+    assert (f2.calls, f3.calls, len(asked)) == (1, 0, need) and set(asked) == {"tpl-agent"} and server.DOCS[d].rev == rev
+    assert j["stage"] == 2 and any(s["name"] == "서식 정리 계획 — LLM" and s["status"] == "ok" for s in j["steps"])   # 추출·설정 2단계의 진행 목록에도 보인다
+    v = client.get(f"/api/docs/{d}/analysis").json()
+    assert [(s["key"], s["no"], s["status"]) for s in v["chain"]["steps"]] == [("heads", 1, "ok"), ("formats", 2, "ok")] and v["chain"]["name"] == "헤딩 LLM 판정 · 서식 계획"
+    f = _items(v)["formats"]["llm"]
+    assert (f["state"], f["planned"], f["need"]) == ("done", need, need) and _items(v)["tables"]["llm"]["state"] == "none"
+    # 다시 누름 — 사람이 그 단추를 눌렀으므로 헤딩 판정은 다시 돈다(LLM 검증·보완은 건너뛴다) · 계획은 다 있으므로(가짜 실행은 그래프를 안 바꾼다) 다시 받지 않는다
+    assert client.post(f"/api/docs/{d}/headings", json={"stage": 2, "llm": True}).status_code == 202
+    _wait_job(client, d)
+    assert (f2.calls, len(asked)) == (2, need)
+    assert [s["status"] for s in client.get(f"/api/docs/{d}/analysis").json()["chain"]["steps"]] == ["ok", "skip"]
+    # 서식 계획만(헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」) — 헤딩 · 표 LLM 은 안 돈다
+    r = client.post(f"/api/docs/{d}/analysis/llm", json={"only": "formats"})
+    assert r.status_code == 202 and r.json()["chain"] == "formats"
+    _wait_job(client, d)
+    v = client.get(f"/api/docs/{d}/analysis").json()
+    assert [(s["key"], s["no"], s["status"]) for s in v["chain"]["steps"]] == [("formats", 1, "skip")] and (f2.calls, f3.calls, len(asked)) == (2, 0, need)
+    del server.DOCS[d].tpl_plans   # 계획이 없는 것처럼 — 서식 계획만 다시 받는다
+    (__import__("app.works", fromlist=["folder"]).folder(d) / "outline_agent" / "plans.json").unlink()
+    assert client.post(f"/api/docs/{d}/analysis/llm", json={"only": "formats"}).status_code == 202
+    _wait_job(client, d)
+    assert (f2.calls, f3.calls, len(asked)) == (2, 0, need * 2)
+    assert client.post(f"/api/docs/{d}/analysis/llm", json={"only": "tables"}).status_code == 400
+
+
+def test_api_heading_llm_run_ends_done_when_llm_falls_back(client, monkeypatch):
+    """「헤딩 그래프(LLM)」 에서 LLM 이 답을 못 하면 전처럼 작업은 끝난 것으로(결과 = 스크립트 대체 판정) — 서식 정리 계획은 돌리지 않는다. LLM 검증·보완은 실패로 끝난다(위 시험)."""
+    d = _upload(client, FORM)
+    assert client.post(f"/api/docs/{d}/headings", json={"first": True}).status_code == 202
+    _wait_heads(client, d)
+
+    def fallback(sess, job, use_llm):
+        st = heading_runs.state(sess)
+        st["stage2"]["llm"] = {**st["stage2"]["llm"], "requested": True, "fallback": True, "error": "off"}
+        return 9
+    monkeypatch.setattr(heading_runs, "run_stage2", fallback)
+    assert client.post(f"/api/docs/{d}/headings", json={"stage": 2, "llm": True}).status_code == 202
+    j = _wait_job(client, d)
+    assert j["status"] == "done" and j["error"] is None and j["run"] == 9
+    v = client.get(f"/api/docs/{d}/analysis").json()
+    assert [(s["key"], s["status"]) for s in v["chain"]["steps"]] == [("heads", "failed"), ("formats", "stopped")] and v["job"] is None
+    assert _items(v)["heads"]["llm"]["state"] == "failed" and not any(s["name"].startswith("서식 정리 계획") for s in j["steps"])

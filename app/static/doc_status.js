@@ -277,7 +277,8 @@ function dsTableDraw() {
   const foot = el("div", "ds-table-foot");
   const ch = v.chain, running = dsChain(v);
   if (ch && ch.steps && ch.steps.length) {
-    foot.append(el("div", "ds-foot-title", running ? `LLM 검증·보완 — 도는 중${ch.stopping ? " · 지금 도는 일이 끝나면 멈춤" : ""}` : `지난 LLM 검증·보완 — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
+    const cn = ch.name || "LLM 검증·보완"; // 이어 돌리기의 이름(서버 analysis.CHAIN_NAMES — 「헤딩 그래프(LLM)」 로 돌린 것은 「헤딩 LLM 판정 · 서식 계획」)
+    foot.append(el("div", "ds-foot-title", running ? `${cn} — 도는 중${ch.stopping ? " · 지금 도는 일이 끝나면 멈춤" : ""}` : `지난 ${cn} — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
     if (!running && ch.status === "failed" && v.job && v.job.error && !ch.steps.some((x) => x.status === "failed" && x.msg)) foot.append(el("div", "ds-foot-err", v.job.error)); // 단계 줄에 까닭이 없을 때만
   }
   if (running) {
@@ -309,7 +310,11 @@ function dsTableDraw() {
     } else {
       const left = by.formats && by.formats.apply.state !== "done" && by.formats.levels;
       foot.append(el("div", "ds-foot-title", `LLM 검증·보완을 모두 마쳤습니다${left ? ` — 남은 일: 서식 반영(${by.formats.apply.text})` : ""}`));
-      if (left) { const b = el("button", "btn sm", "템플릿 서식 정리 열기"); b.type = "button"; b.onclick = (e) => { e.stopPropagation(); dsGo("Tidy"); }; foot.append(b); }
+      if (left) { // 받아 둔 계획이 있으면 한 번에 반영하는 자리(헤딩 추출 탭 진행 줄의 「조정」 — tpl_plan_bar.js)로, 없으면 전처럼 「템플릿 서식 정리」 열
+        const all = by.formats.llm.planned > 0 && typeof tplPlanGo === "function";
+        const b = el("button", "btn sm", all ? "헤딩 추출 「조정」 으로 — 모두 반영" : "템플릿 서식 정리 열기");
+        b.type = "button"; b.onclick = (e) => { e.stopPropagation(); if (all) { dsTableClose(); tplPlanGo(); } else dsGo("Tidy"); }; foot.append(b);
+      }
     }
   }
   t.replaceChildren(head, grid, foot);
@@ -321,7 +326,7 @@ async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리
   let ok = false;
   await flushAll(); // 아직 반영 안 된 글부터 — 분석은 서버 문서를 읽는다
   if (epoch !== state.epoch) return false;
-  const skill = typeof TPA !== "undefined" && typeof TPA.key === "string" && TPA.key && TPA.key !== TPA_NEW ? TPA.key : "tidy"; // 서식 정리는 열에서 고른 스킬(없으면 기본)
+  const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : "tidy"; // 서식 정리는 열에서 고른 스킬(없으면 기본 — tpl_agent.js)
   try {
     const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill }) });
     if (epoch !== state.epoch) return;
@@ -362,6 +367,7 @@ async function dsFetch(which, seq) {
   dsState[which] = v;
   dsDraw(which);
   if (which === "main" && typeof agentNextSync === "function") agentNextSync(); // 에이전트 빈 화면의 「지금 할 수 있는 일」 · 실행 카드(doc_agent_next.js)
+  if (which === "main" && typeof tplPlanBarSync === "function") tplPlanBarSync(); // 헤딩 추출 탭 진행 줄의 「조정」(tpl_plan_bar.js) — 같은 자료
 }
 
 async function dsRefresh() {

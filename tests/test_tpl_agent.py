@@ -293,3 +293,77 @@ def test_template_match_rejects_bad_input(sess):
     assert c.post(f"{u}/3/match", json={"levels": [{"level": 2}, {"level": 2}]}).status_code == 400
     assert c.post(f"{u}/3/match", json={"levels": [{"level": 0}]}).status_code == 400
     assert c.post(f"{u}/3/match", json={"levels": "x"}).status_code == 400
+
+
+# ---------------------------------------------------------------- 받아 둔 계획을 한 번에 반영(② §8-4 — 2026-11-16 사용자 답 「확인 뒤 한 번에 반영」)
+def test_todo_is_the_agent_choice_as_an_apply_body(sess):
+    """A.todo = 계획을 에이전트가 고른 그대로 반영할 때의 몸(화면 tpaTodoOf 와 같은 셈) — 맞추기·떼기로 고른 갈래만, 「그대로」 는 빼고, 고른 갈래가 없는 레벨은 없다."""
+    c, d, s = sess
+    mat = A.material(s.doc, s.outline, "9")
+    p = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": ["g4"], "keep": [{"group": "g5", "why": "예외"}], "why": "",
+                                                      "split": [{"rep": "g2", "match": ["g3"], "why": "레터가 다름"}]}]})
+    lv = next(x for x in p["levels"] if x["level"] == 2)
+    sp = lv["split"][0]
+    t = A.todo(p)
+    assert (t["n"], t["moved"]) == (p["change"], p["moved"]) == (3, 11)
+    assert t["levels"] == [{"level": 2, "rep": lv["rep"]["para"], "likes": [lv["match"][0]["para"]],
+                            "splits": [{"likes": [sp["rep"]["para"], sp["match"][0]["para"]], "rep": sp["rep"]["para"], "sfx": "a"}]}]
+    keep_only = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": [], "keep": [], "split": [], "why": ""}]})   # 말하지 않은 갈래는 「그대로」 — 바꿀 것 없음
+    assert A.todo(keep_only) == {"levels": [], "n": 0, "moved": 0} and A.todo(None) == {"levels": [], "n": 0, "moved": 0}
+
+
+def test_apply_plans_applies_every_planned_template_in_one_undo(sess, monkeypatch):
+    """POST …/outline/agent/apply — 지금 문서 차례에서 받은 계획 모두(T3 맞추기 · T9 맞추기 + 떼기)를 트랜잭션 하나로: 실행 취소 1 · 계획은 「반영함」 · 문서 차례가 다르면 409."""
+    c, d, s = sess
+    answers = {"T3": {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]},
+               "T9": {"summary": "T9 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g4"], "keep": [], "split": [{"rep": "g2", "match": ["g3"], "why": "레터가 다름"}], "why": ""}]},
+               "T5": {"summary": "T5 — 바꿀 것 없음", "levels": []}}
+
+    def fake(schema, content, what, **kw):
+        key = next(k for k in answers if f'"no": "{k}"' in content)
+        return {"data": answers[key], "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    url = f"/api/docs/{d}/outline/agent/apply"
+    assert c.post(url, json={}).status_code == 400 and c.post(url, json={"rev": s.rev, "tpls": "3"}).status_code == 400
+    assert c.post(url, json={"rev": s.rev}).status_code == 409   # 받아 둔 계획이 없다
+    for tid in ("3", "9", "5"):
+        assert c.post(f"/api/docs/{d}/outline/agent/{tid}/plan", json={"skill": "tidy"}).status_code == 200
+    rev, undo = s.rev, s.state()["undo"]
+    assert c.post(url, json={"rev": rev - 1}).status_code == 409 and c.post(url, json={"rev": rev, "tpls": ["999"]}).status_code == 409   # 문서 차례가 다름 · 고른 템플릿에 계획이 없음
+    r = c.post(url, json={"rev": rev})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["plans"] == 3 and sorted(t["tpl"] for t in j["templates"]) == ["3", "9"] and s.state()["undo"] == undo + 1 and s.rev == rev + 1   # 트랜잭션 하나
+    by = {t["tpl"]: t for t in j["templates"]}
+    assert (by["3"]["changed"], by["9"]["changed"], len(j["changed"])) == (2, 3, 5) and by["9"]["splits"][0]["no"] == "9L2a" and by["3"]["splits"] == []
+    assert j["tops"]["blocks"] and j["outline"]["lines"]
+    plans = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert {k: v["state"] for k, v in plans.items()} == {"3": "applied", "9": "applied", "5": "applied"}   # 바꿀 것이 없던 계획(T5)도 반영함으로
+    assert (plans["3"]["applied"]["changed"], plans["9"]["applied"]["changed"], plans["5"]["applied"]["changed"]) == (2, 3, 0)
+    assert len(_slot(c, d, 3, 2)["groups"]) == 1 and _slot(c, d, "9~2a", 2)["total"] == 11 and len(_slot(c, d, "9~2a", 2)["groups"]) == 1
+    assert c.post(url, json={"rev": s.rev}).status_code == 409   # 이미 반영함 — 다시 반영할 계획이 없다
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200   # 실행 취소 한 번으로 모든 템플릿이 되돌아간다
+    assert len(_slot(c, d, 3, 2)["groups"]) == 3 and "9~2a" not in s.outline["templates"]
+    _undo_all(c, d, s)
+
+
+def test_apply_plans_without_document_change_still_marks_applied(sess, monkeypatch):
+    """떼기만 있는 계획(문서는 그대로 — 오버레이만)도 반영하면 「반영함」 이 된다(전에는 「옛 계획」 으로 남았다) · 바꿀 것이 하나도 없으면 nothing."""
+    c, d, s = sess
+
+    def fake(schema, content, what, **kw):
+        lv = [{"level": 2, "rep": "g1", "match": [], "keep": [], "split": [{"rep": "g2", "match": [], "why": "레터가 다름"}], "why": ""}] if '"no": "T9"' in content else []
+        return {"data": {"summary": "", "levels": lv}, "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    for tid in ("9", "5"):
+        assert c.post(f"/api/docs/{d}/outline/agent/{tid}/plan", json={"skill": "tidy"}).status_code == 200
+    undo = s.state()["undo"]
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "tpls": ["5"]})   # 바꿀 것 없음 — 문서 · 오버레이 그대로
+    assert r.status_code == 200 and r.json()["nothing"] is True and r.json()["templates"] == [] and s.state()["undo"] == undo
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["changed"] == [] and "tops" not in j and j["templates"][0]["splits"][0]["no"] == "9L2a" and s.state()["undo"] == undo + 1
+    plans = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert plans["9"]["state"] == "applied" and plans["5"]["state"] == "applied" and "9~2a" in s.outline["templates"]
+    _undo_all(c, d, s)

@@ -10,7 +10,13 @@
 LLM 자리(llm — NFM_LLM_SLOTS)는 서버 전체가 나눠 쓴다 — 같이 돌아도 자리보다 많이 부르지는 않는다(넘는 호출은 자리를 기다린다).
 **문서는 바꾸지 않는다** — 계획의 반영은 사람이 「템플릿 서식 정리」 열에서 고른 것만. 한 단계의 LLM 이 답을 못 하면(스크립트로 대신함) 그 단계를 실패로 남기고 뒤 차례는 돌리지 않는다
 (①이 실패하면 ②·③ 은 대기로 남음 · 같이 도는 ②·③ 은 한쪽이 실패해도 다른 쪽은 제 일을 마친다 — 작업은 실패로 끝남). 멈추기는 지금 도는 단계가 끝나면(③ 은 아직 시작하지 않은 템플릿부터).
-건너뛰는 기준은 분석 상태(app/analysis.py llm_plan)와 같다. server 를 import 하지 않는다 — outline · plans · plan 을 받는다(app/analysis_api.py 가 넘긴다)."""
+건너뛰는 기준은 분석 상태(app/analysis.py llm_plan)와 같다. server 를 import 하지 않는다 — outline · plans · plan 을 받는다(app/analysis_api.py 가 넘긴다).
+
+이어 돌리기는 셋이다(CHAINS — job.chain 의 이름 · 화면 이름은 analysis.CHAIN_NAMES):
+  llm     = 위 ① → ②·③ — 진행표의 「LLM 검증·보완」
+  heads   = ① → ③ — 「헤딩 그래프(LLM)」(2026-11-16 사용자 답 「헤딩 LLM 판정에 늘 이어서」: 어디서 돌리든 헤딩 판정이 끝나면 서식 정리 계획까지). 사람이 그 단추를 눌렀으므로 ①은 이미 LLM 을
+            거친 결과여도 **다시 돈다**(force) · LLM 이 답을 못 해 스크립트로 대신했으면 전처럼 작업은 끝난 것으로 두고(단계 줄에 실패) ③ 은 돌리지 않는다(strict 아님)
+  formats = ③ 만 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」(계획이 없거나 옛것인 템플릿만)"""
 import concurrent.futures
 import threading
 
@@ -18,6 +24,10 @@ from app import analysis, heading_runs, works
 
 PARTS = (("heads", "헤딩 · 템플릿 — 헤딩 그래프(LLM)", 1), ("tables", "표 — 표 구조(LLM)", 2), ("formats", "서식 — 템플릿 서식 정리 계획", 2))  # 셋째 = 차례 번호(같은 번호 = 같이 돎)
 PLAN_WORKERS = 3  # 서식 정리 계획을 같이 받는 템플릿 수 — LLM 자리(기본 4) 하나는 같이 도는 표 구조에 남긴다
+CHAINS = {"llm": {"parts": ("heads", "tables", "formats"), "force": False, "strict": True},      # 이름 → 도는 단계 · 헤딩을 늘 다시 도나 · 헤딩 LLM 이 답을 못 하면 작업을 실패로 끝내나
+          "heads": {"parts": ("heads", "formats"), "force": True, "strict": False},
+          "formats": {"parts": ("formats",), "force": False, "strict": True}}
+FORMATS_STEP = "서식 정리 계획 — LLM"  # 헤딩 작업의 단계 줄 이름(추출·설정의 진행 목록 · 요약의 「지금 하는 일」 — app.js headsProgNow 가 이 이름으로 가른다)
 
 
 class Stop(Exception):
@@ -59,21 +69,47 @@ def _stopped(job):
 
 
 def _log(sess, st, stage, job, n):
-    works.log(sess.id, "headings", stage=stage, llm=True, status="done", rev=job.rev, chain="llm",
+    works.log(sess.id, "headings", stage=stage, llm=True, status="done", rev=job.rev, chain=job.chain or "llm",
               **({"n": n} if st.get("lastSaved") is not False else {"saved": False}))
 
 
-def run(sess, job, *, outline, plans, plan):
-    """job = heading_runs.Job(chain "llm"). outline(sess) → (개요 오버레이, 서식 갈래) | None · plans(sess, graph) → {tpl: 기록} · plan(sess, tpl) → 계획(실패는 예외).
+def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True):
+    """job = heading_runs.Job(chain "llm" · "heads" · "formats" — CHAINS). outline(sess) → (개요 오버레이, 서식 갈래) | None · plans(sess, graph) → {tpl: 기록} · plan(sess, tpl) → 계획(실패는 예외).
+    parts = 돌 단계(없으면 셋 다) · force = 헤딩이 이미 LLM 을 거쳤어도 다시 돈다 · strict = 헤딩 LLM 이 답을 못 하면 작업을 실패로 끝낸다(아니면 단계만 실패로 적고 뒤 단계는 돌리지 않은 채 끝낸다).
     → 마지막으로 저장한 헤딩 실행 번호 | None."""
     st = heading_runs.state(sess)
-    job.parts = [{"key": k, "name": name, "no": no, "status": "wait", "msg": ""} for k, name, no in PARTS]
+    parts = tuple(parts or [k for k, _, _ in PARTS])
+    nos = sorted({no for k, _, no in PARTS if k in parts})  # 차례 번호는 도는 단계끼리 1부터(같은 번호 = 같이 돎)
+    job.parts = [{"key": k, "name": name, "no": nos.index(no) + 1, "status": "wait", "msg": ""} for k, name, no in PARTS if k in parts]
     n = None
+    rebuilt = False
+    if "heads" in parts:
+        n, rebuilt, ok = _heads(sess, job, st, force, strict)
+        if not ok or _stopped(job):
+            return n
+    rest = [k for k in ("tables", "formats") if k in parts]
+    if not rest:
+        return n
 
-    # ① 헤딩 · 템플릿
+    # ② 표 · ③ 서식(계획만) — 같이(둘 다 ①의 헤딩 그래프에만 기댄다)
+    if "tables" in rest:
+        job.stage = 3
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(rest), thread_name_prefix="llm-check") as ex:
+        ft = ex.submit(_tables, sess, job, st, rebuilt) if "tables" in rest else None
+        ff = ex.submit(_formats, sess, job, outline, plans, plan) if "formats" in rest else None
+    err = (ft.exception() if ft else None) or (ff.exception() if ff else None)  # 둘 다 끝난 뒤 — 실패는 표가 먼저(작업 오류 글 하나)
+    if err is not None:
+        raise err
+    n3 = ft.result() if ft else None
+    return n3 if n3 is not None else n
+
+
+def _heads(sess, job, st, force, strict):
+    """① 헤딩 · 템플릿 → (저장한 실행 번호 | None, 다시 지었나, 뒤 단계를 돌려도 되나)."""
+    n = None
     job.phase, job.stage = "heads", 2
     rebuilt = False
-    if llm_done(st.get("stage2")):
+    if llm_done(st.get("stage2")) and not force:
         _part(job, "heads", "skip", "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀")
     else:
         _part(job, "heads", "running")
@@ -83,24 +119,18 @@ def run(sess, job, *, outline, plans, plan):
         if not llm_done(st.get("stage2")):
             why = _why(lm.get("error"))
             _part(job, "heads", "failed", f"LLM 판정을 못 해 스크립트 결과로 대신함 — {why}")
-            raise Stop(f"헤딩 그래프 LLM 판정을 못 함 — {why}")
+            if strict:
+                raise Stop(f"헤딩 그래프 LLM 판정을 못 함 — {why}")
+            with job.lock:  # 「헤딩 그래프(LLM)」 — 전처럼 작업은 끝난 것으로(결과 = 스크립트 대체 판정 · 단계 줄에 실패). 뒤 단계는 돌리지 않는다
+                for x in job.parts:
+                    if x["status"] == "wait":
+                        x.update(status="stopped", msg="헤딩 LLM 판정을 못 해 돌리지 않음")
+            return n, True, False
         rebuilt = True
         rules = lm.get("rules") or {}
         _part(job, "heads", "ok", " · ".join(b for b in (f"규칙 보강 {rules.get('saved', 0)}" if rules else "", f"반영 {lm.get('applied', 0)}",
                                                             f"호출 {lm.get('calls', 0)}" if lm.get("calls") else "") if b))
-    if _stopped(job):
-        return n
-
-    # ② 표 · ③ 서식(계획만) — 같이(둘 다 ①의 헤딩 그래프에만 기댄다)
-    job.stage = 3
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm-check") as ex:
-        ft = ex.submit(_tables, sess, job, st, rebuilt)
-        ff = ex.submit(_formats, sess, job, outline, plans, plan)
-    err = ft.exception() or ff.exception()  # 둘 다 끝난 뒤 — 실패는 표가 먼저(작업 오류 글 하나)
-    if err is not None:
-        raise err
-    n3 = ft.result()
-    return n3 if n3 is not None else n
+    return n, rebuilt, True
 
 
 def _tables(sess, job, st, rebuilt):
@@ -121,16 +151,20 @@ def _tables(sess, job, st, rebuilt):
 
 
 def _formats(sess, job, outline, plans, plan):
-    """③ 서식 — 정리할 템플릿마다 계획만, 템플릿끼리 같이(PLAN_WORKERS 까지). 멈추기를 누르면 아직 시작하지 않은 템플릿은 하지 않는다."""
+    """③ 서식 — 정리할 템플릿마다 계획만, 템플릿끼리 같이(PLAN_WORKERS 까지). 멈추기를 누르면 아직 시작하지 않은 템플릿은 하지 않는다.
+    단계의 상태는 이어 돌리기의 단계(job.parts — 분석 상태)와 헤딩 작업의 단계 줄(job.step — 추출·설정의 진행 목록) 두 곳에 같이 적는다."""
+    def part(status, msg=""):
+        _part(job, "formats", status, msg)
+        job.step(FORMATS_STEP, "running" if status == "running" else "failed" if status == "failed" else "ok", msg)
     got = outline(sess)
     if got is None:
-        _part(job, "formats", "skip", "헤딩 그래프가 없어 서식 갈래를 셀 수 없습니다")
+        part("skip", "헤딩 그래프가 없어 서식 갈래를 셀 수 없습니다")
         return
     ov, variants = got
     have = plans(sess, ov.get("run"))
     todo = [tid for tid in analysis.need_templates(variants) if analysis.plan_state(have.get(tid), sess.rev) in ("none", "stale")]
     if not todo:
-        _part(job, "formats", "skip", "정리할 것 없음" if not analysis.need_templates(variants) else "모든 템플릿의 계획을 받았습니다 — 건너뜀")
+        part("skip", "정리할 것 없음" if not analysis.need_templates(variants) else "모든 템플릿의 계획을 받았습니다 — 건너뜀")
         return
     names = {str(tid): str(t.get("no", tid)) for tid, t in (ov.get("templates") or {}).items()}
     tag = {tid: f"T{names.get(tid, tid)}" for tid in todo}
@@ -139,7 +173,7 @@ def _formats(sess, job, outline, plans, plan):
 
     def show():  # lock 안에서
         doing = f"{' · '.join(now)} 계획 받는 중" + (f"(같이 {len(now)})" if len(now) > 1 else "") if now else "계획 받는 중"
-        _part(job, "formats", "running", f"{doing} — 끝남 {len(ok) + len(bad)}/{len(todo)}")
+        part("running", f"{doing} — 끝남 {len(ok) + len(bad)}/{len(todo)}")
 
     def one(tid):
         if job.stop:
@@ -167,6 +201,6 @@ def _formats(sess, job, outline, plans, plan):
     msg = " · ".join(b for b in (f"계획 받음 {' · '.join(got_ok)}" if got_ok else "", f"실패 {' / '.join(got_bad)}" if got_bad else "",
                                  f"멈춤 — 남은 템플릿 {left}" if left else "") if b)
     if got_bad and not got_ok:
-        _part(job, "formats", "failed", msg)
+        part("failed", msg)
         raise Stop(f"서식 정리 계획을 하나도 받지 못함 — {got_bad[0]}")
-    _part(job, "formats", "partial" if got_bad or left else "ok", msg + (" — 반영은 「템플릿 서식 정리」 열에서 고른 것만(문서는 안 바뀜)" if got_ok else ""))
+    part("partial" if got_bad or left else "ok", msg + (" — 문서는 안 바뀜 · 반영은 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」(템플릿 하나만은 템플릿 줄의 「계획대로 맞추기」)" if got_ok else ""))

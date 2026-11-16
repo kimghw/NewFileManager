@@ -3,7 +3,7 @@
     python -X utf8 tools/smoke_heading_progress_ui.py <그림·임시 폴더> [--port 18178]
 
 연구개발계획서_양식.hwpx 를 올려 2·3단계(스크립트)를 돌린 뒤 헤딩 탭 → 요약 둘째 줄이 두 층 × 세 칸(스크립트 「문단·라벨 ✓ · 헤딩 그래프 ✓ · 표 구조 ✓」 /
-LLM 「규칙 보강 · 27묶음 ○ · 헤딩 판정 ○ · 표 판정 ○」) · LLM 칸이 그 단계의 스크립트 칸 바로 아래 · 칸 높이 22px · 1단계 카드의 「LLM 규칙 보강 — 안 함」 ·
+LLM 「규칙 보강 · 27묶음 ○ · 헤딩 판정 ○ · 표 판정 ○」) + 셋째 층 「조정」(템플릿 조정 · 서식 조정 — tools/smoke_adjust_ui.py 가 자세히) · LLM 칸이 그 단계의 스크립트 칸 바로 아래 · 칸 높이 22px · 1단계 카드의 「LLM 규칙 보강 — 안 함」 ·
 규칙 보강 칸을 누르면 추출·설정 1단계 탭 · 요약 사본에 흉내 낸 상태(규칙 보강 끝남 · 헤딩 판정 LLM · 규칙 보강 도는 중 · 실패)를 넣어 칸의 표시 ·
 LLM ✓ 칸을 누르면 문서 옆 열 「LLM 이 바꾼 것」(절 넷) ·
 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음. 문서는 고치지 않는다(흉내는 화면 함수에 넘긴 사본만)."""
@@ -73,6 +73,7 @@ FAKE = """(kind) => { // 요약 사본에 흉내 낸 상태를 넣어 진행 줄
   if (kind === 'judged') { r.stage2.llm = { ...r.stage2.llm, requested: true, fallback: false, calls: 9, failed: 0, seconds: 198, costUsd: 3.1 }; r.stage2.meta.at = now - 120; }
   if (kind === 'rulesRunning') r.job = { stage: 2, llm: true, first: false, status: 'running', started: now - 5, steps: [{ name: '1단계 다시 — 못 맞춤·충돌 LLM 규칙 보강', status: 'running' }, { name: '추출', status: 'ok' }, { name: 'LLM 규칙 보강', status: 'running' }] };
   if (kind === 'graphRunning') r.job = { stage: 2, llm: true, first: false, status: 'running', started: now - 50, steps: [{ name: 'TEMP 라벨 — 헤딩 후보에서 뺌', status: 'ok' }, { name: '헤딩 그래프 — LLM', status: 'running' }] };
+  if (kind === 'fmtRunning') r.job = { stage: 2, llm: true, first: false, chain: 'heads', status: 'running', started: now - 200, steps: [{ name: '헤딩 그래프 — LLM', status: 'ok' }, { name: '서식 정리 계획 — LLM', status: 'running' }] };
   if (kind === 'rulesFailed') r.rules = { run: 99, at: now - 60, asked: false, groups: 27, saved: 0, kept: 0, rejected: 0, unsure: 0, error: '가짜 실패', costUsd: 0 };
   if (kind === 'noGroups') { r.rules = null; r.stage1.summary = { ...r.stage1.summary, unmatchedGroups: 0, conflicts: 0 }; }
   heads.summaryKey = null; headsResultsSummary(r);
@@ -109,14 +110,16 @@ try:
         # ---- 1. 스크립트만 한 문서
         m = page.evaluate(SNAP)
         c = m["cells"]
-        check("두 층 이름 · 칸 여섯", m["layers"] == ["스크립트", "LLM"] and len(c) == 6, m["layers"])
+        check("세 층 이름(스크립트 · LLM · 조정) · 칸 아홉", m["layers"] == ["스크립트", "LLM", "조정"] and len(c) == 9, (m["layers"], len(c)))
+        check("조정 층(tpl_plan_bar.js — 자세한 것은 smoke_adjust_ui.py): 「템플릿 조정」·「서식 조정」 이 LLM 칸 바로 아래", [x["text"] for x in c[6:8]] == ["템플릿 조정", "서식 조정"]
+              and all(c[i + 3]["left"] == c[i + 6]["left"] and c[i + 6]["top"] > c[i + 3]["top"] for i in range(3)), c[6:])
         check("스크립트 층: 문단·라벨 · 헤딩 그래프 · 표 구조 모두 끝남", [x["state"] for x in c[:3]] == ["done"] * 3 and [x["text"] for x in c[:3]] == ["문단·라벨", "헤딩 그래프", "표 구조"], c[:3])
-        check("LLM 층: 「규칙 보강 · 27묶음」 안 함 · 헤딩 판정 · 표 판정 안 함", [x["state"] for x in c[3:]] == ["none"] * 3
-              and c[3]["text"] == "규칙 보강 · 27묶음" and c[4]["text"] == "헤딩 판정" and c[5]["text"] == "표 판정", c[3:])
+        check("LLM 층: 「규칙 보강 · 27묶음」 안 함 · 헤딩 판정 · 표 판정 안 함", [x["state"] for x in c[3:6]] == ["none"] * 3
+              and c[3]["text"] == "규칙 보강 · 27묶음" and c[4]["text"] == "헤딩 판정" and c[5]["text"] == "표 판정", c[3:6])
         check("규칙 보강 칸 title: 못 맞춤·충돌 수 · 하는 곳(1단계 · 헤딩 그래프(LLM))", "못 맞춤 25묶음 · 충돌 2묶음" in c[3]["title"] and "LLM 규칙 보강" in c[3]["title"] and "헤딩 그래프(LLM)" in c[3]["title"], c[3]["title"])
         check("LLM 칸이 그 단계의 스크립트 칸 바로 아래(같은 왼쪽 · 아래 줄) · 칸 22px", all(c[i]["left"] == c[i + 3]["left"] and c[i + 3]["top"] > c[i]["top"] for i in range(3))
               and all(x["h"] == 22 for x in c), [(x["left"], x["top"], x["h"]) for x in c])
-        check("전의 LLM 꼬리표 줄은 요약에 없음 · 진행 줄 높이 두 줄(≤ 50px)", not m["srcLine"] and m["boxH"] <= 50, (m["srcLine"], m["boxH"]))
+        check("전의 LLM 꼬리표 줄은 요약에 없음 · 진행 줄 높이 세 줄(≤ 76px)", not m["srcLine"] and m["boxH"] <= 76, (m["srcLine"], m["boxH"]))
         page.locator("#paneHeads").screenshot(path=str(OUT / "1_script_only.png"))
 
         # ---- 2. 1단계 카드 · 누르면 추출·설정 1단계 탭
@@ -155,6 +158,11 @@ try:
         page.evaluate(FAKE, "graphRunning")
         c = page.evaluate(SNAP)["cells"]
         check("그 다음 그래프 LLM: 헤딩 판정 칸이 돎", c[4]["state"] == "running" and c[3]["state"] == "none", [(x["text"], x["state"]) for x in c])
+        page.evaluate(FAKE, "fmtRunning")
+        m2 = page.evaluate(SNAP)
+        now = page.evaluate("() => (document.querySelector('#headsOverview .analysis-state.running .now-what') || {}).textContent || ''")
+        check("헤딩 판정 뒤 서식 정리 계획이 도는 중: 스크립트 · LLM 칸은 돌지 않음 · 상태 줄 「헤딩 LLM 판정 · 서식 계획 중」", not any(x["state"] == "running" for x in m2["cells"][:6]) and "헤딩 LLM 판정 · 서식 계획" in now,
+              ([(x["text"], x["state"]) for x in m2["cells"][:6]], now))
         page.evaluate(FAKE, "rulesFailed")
         c = page.evaluate(SNAP)["cells"]
         check("규칙 보강 답을 못 받음: 실패 표시 · title 에 까닭", c[3]["state"] == "failed" and "가짜 실패" in c[3]["title"], c[3])
@@ -170,7 +178,7 @@ try:
             page.wait_for_timeout(200)
             m = page.evaluate(SNAP)
             check(f"[{w}] 규칙 보강 칸의 수는 잘리지 않음(좁으면 단위 「묶음」 만 감춤)", m["cells"][3]["countIn"] and m["cells"][3]["count"] == ("27" if w < 400 else "27묶음"), m["cells"][3])
-            check(f"[{w}] 진행 줄 두 줄 · 칸이 패널 밖으로 안 나감 · 가로 넘침 없음", m["boxH"] <= 50 and m["overflowX"] <= 0 and max(x["right"] for x in m["cells"]) <= m["paneRight"] + .5,
+            check(f"[{w}] 진행 줄 세 줄 · 칸이 패널 밖으로 안 나감 · 가로 넘침 없음", m["boxH"] <= 76 and m["overflowX"] <= 0 and max(x["right"] for x in m["cells"]) <= m["paneRight"] + .5,
                   (m["boxH"], m["overflowX"], [x["text"] for x in m["cells"]]))
             page.locator("#paneHeads").screenshot(path=str(OUT / f"5_panel_{w}.png"))
         page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); heads.summaryKey = null; headsResultsSummary(heads.view); }")

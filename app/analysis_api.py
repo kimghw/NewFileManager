@@ -46,35 +46,45 @@ def analysis_get(doc_id: str):
     return analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans)
 
 
-@router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
-def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
-    """「LLM 검증·보완」 시작 {skill?(서식 정리 스킬 키 — 기본 "tidy")} → 202 헤딩 작업(job.view — chain "llm"). 유료 LLM — 화면은 진행표의 「돌 것」(llmPlan)을 보인 단추로만 부른다.
-    헤딩 · 템플릿 먼저 → 표 · 서식(계획만) 같이(app/analysis_llm.py) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜. 400 hwpx 아님 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
-    from app import server
-    s = server._sess(doc_id)
+def start_chain(s, chain, key=None):
+    """이어 돌리기를 헤딩 작업 자리에서 시작한다 → 헤딩 작업. chain = analysis_llm.CHAINS 의 이름("llm" LLM 검증·보완 · "heads" 헤딩 그래프(LLM) → 서식 정리 계획 · "formats" 서식 정리 계획만),
+    key = 서식 정리 스킬 키(기본 "tidy"). 400 hwpx 아님 · skill 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
+    from app import server  # server 가 이 모듈을 include 하므로 부를 때 가져온다(순환 import 피함)
     if s.fmt != "hwpx":
         raise HTTPException(400, "LLM 검증·보완은 hwpx 문서에서만 됩니다(헤딩 추출이 hwpx 만)")
-    key = body.get("skill") or "tidy"
+    key = key or "tidy"
     if not isinstance(key, str):
         raise HTTPException(400, "skill 은 스킬 키")
     try:
         tpl_agent_api.A.skill(key)
     except KeyError:
         raise HTTPException(404, "그런 스킬이 없습니다") from None
+    how = analysis_llm.CHAINS[chain]
 
     def runner(sess, job):
         return analysis_llm.run(sess, job, outline=lambda x: _outline(server, x), plans=tpl_agent_api.plans,
-                                plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key))
+                                plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key), **how)
     try:
-        job = heading_runs.start(s, 2, True, chain="llm", runner=runner)
+        return heading_runs.start(s, 2, True, chain=chain, runner=runner)
     except heading_runs.Busy as e:
         raise HTTPException(409, str(e)) from e
-    return job.view()
+
+
+@router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
+def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
+    """「LLM 검증·보완」 시작 {skill?(서식 정리 스킬 키 — 기본 "tidy"), only?("formats" — 서식 정리 계획만)} → 202 헤딩 작업(job.view — chain "llm" | "formats"). 유료 LLM — 화면은 진행표의 「돌 것」(llmPlan)을 보인 단추로만 부른다.
+    헤딩 · 템플릿 먼저 → 표 · 서식(계획만) 같이(app/analysis_llm.py) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜.
+    only "formats" = 계획이 없거나 옛것인 템플릿의 서식 정리 계획만(헤딩 · 표 LLM 은 안 돎 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」). 400 hwpx 아님 · only 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
+    from app import server
+    only = body.get("only")
+    if only not in (None, "formats"):
+        raise HTTPException(400, 'only 는 "formats" 뿐입니다')
+    return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill")).view()
 
 
 @router.delete("/api/docs/{doc_id}/analysis/llm")
 def analysis_llm_stop(doc_id: str):
-    """도는 「LLM 검증·보완」 을 지금 도는 일(같이 도는 표 · 서식이면 둘 다 — 서식은 시작한 템플릿까지)이 끝나면 멈춘다 → {stopping: true}. 409 = 도는 것이 없음."""
+    """도는 이어 돌리기(「LLM 검증·보완」 · 「헤딩 그래프(LLM)」 → 서식 정리 계획 · 서식 정리 계획만)를 지금 도는 일(같이 도는 표 · 서식이면 둘 다 — 서식은 시작한 템플릿까지)이 끝나면 멈춘다 → {stopping: true}. 409 = 도는 것이 없음."""
     from app import server
     s = server._sess(doc_id)
     job = heading_runs.state(s).get("job") if s.fmt == "hwpx" else None

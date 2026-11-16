@@ -8,12 +8,16 @@ LLM 판정(헤딩 · 표 — 사람이 단추로) · 구분 기준 LLM 검토(�
 - 문서를 고친 뒤에도 done 이다(뼈대 유지 — spec_헤딩_추출 ② §17). moved = 그 결과를 뽑은 뒤 문서가 바뀜(도움말에만 쓴다).
 - 넷 · 진행표(2026-11-16 — ② §20 「넷 · 진행표 · LLM 검증·보완」): 헤딩 · **템플릿** · **서식** · 표를 스크립트 · LLM 검증·보완 · 문서 반영 세 칸으로. 템플릿 · 서식은 개요 오버레이와
   서식 갈래(outline=(ov, variants) — analysis_api 가 server 에서 읽어 넘긴다)와 받은 서식 정리 계획(plans — tpl_agent_api)으로 센다. 「LLM 검증·보완」 의 실행은 app/analysis_llm.py."""
-from app import heading_runs
+from app import heading_runs, tpl_agent
 
 STATES = ("none", "wait", "running", "done", "failed")
 NAMES = {"heads": "헤딩", "templates": "템플릿", "formats": "서식", "tables": "표", "division": "구분 기준"}
 PLAN_STATES = ("none", "planned", "applied", "stale")  # 템플릿마다 서식 정리 계획(② §20): 안 받음 · 받음(바로 적용 가능) · 적용함 · 받았지만 그 뒤 문서가 바뀜
 STAGE = {"heads": ("stage2", 2, "헤딩 그래프"), "tables": ("stage3", 3, "표 구조")}
+# 이어 돌리기(job.chain — app/analysis_llm.py CHAINS)의 화면 이름: llm = 진행표의 「LLM 검증·보완」(헤딩 → 표 · 서식 같이) · heads = 「헤딩 그래프(LLM)」(헤딩 판정 → 서식 정리 계획:
+# 2026-11-16 사용자 답 「헤딩 LLM 판정에 늘 이어서」) · formats = 서식 정리 계획만(헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」)
+CHAIN_NAMES = {"llm": "LLM 검증·보완", "heads": "헤딩 LLM 판정 · 서식 계획", "formats": "서식 정리 계획"}
+CHAIN_PARTS = {"llm": ("heads", "tables", "formats"), "heads": ("heads", "formats"), "formats": ("formats",)}
 
 
 def _llm(res, running, failed=None, waiting=False):
@@ -180,7 +184,14 @@ def _formats_item(heads, ov, variants, plans, rev, job):
     levels, aligned = len(slots), sum(1 for x in slots if x["groups"] <= 1)
     groups, others = sum(x["groups"] for x in slots), sum(x["others"] for x in slots)
     need = need_templates(variants)
-    plist = [{"tpl": tid, "no": names.get(tid, tid), "state": plan_state((plans or {}).get(tid), rev)} for tid in need]
+    plist = []
+    for tid in need:
+        rec = (plans or {}).get(tid)
+        row = {"tpl": tid, "no": names.get(tid, tid), "state": plan_state(rec, rev)}
+        if row["state"] == "planned" and isinstance(rec.get("plan"), dict):  # 지금 반영할 수 있는 계획 — 에이전트가 고른 그대로 반영하면 바뀔 줄 · 다른 템플릿으로 옮길 줄(진행 줄 「조정」 의 두 칸 · 「모두 반영」 의 수)
+            t = tpl_agent.todo(rec["plan"])
+            row.update(change=t["n"], moved=t["moved"])
+        plist.append(row)
     planned = sum(1 for x in plist if x["state"] == "planned")
     applied = sum(1 for x in plist if x["state"] == "applied")
     stale = sum(1 for x in plist if x["state"] == "stale")
@@ -194,7 +205,8 @@ def _formats_item(heads, ov, variants, plans, rev, job):
     elif running:
         llm = {"state": "running", "text": f"서식 정리 계획을 받는 중 — {part['msg']}" if part.get("msg") else "서식 정리 계획을 받는 중", "error": None}
     elif chain and part.get("status") == "wait":
-        llm = {"state": "wait", "text": "LLM 검증·보완 — 헤딩 · 템플릿이 끝나면 표와 같이 서식 정리 계획을 받습니다", "error": None}
+        llm = {"state": "wait", "text": ("LLM 검증·보완 — 헤딩 · 템플릿이 끝나면 표와 같이 서식 정리 계획을 받습니다" if job.chain == "llm"
+                                         else "헤딩 판정이 끝나면 이어서 서식 정리 계획을 받습니다"), "error": None}
     elif not need:
         llm = {"state": "done", "text": "정리할 것 없음 — 레벨마다 서식이 한 가지", "error": None}
     else:
@@ -203,7 +215,8 @@ def _formats_item(heads, ov, variants, plans, rev, job):
         state = "done" if got == len(need) else "failed" if failed and not got else "partial" if got else "none"
         text = (f"서식 정리 계획 {got}/{len(need)} 템플릿" + (" — " + " · ".join(b for b in bits if b) if any(bits) else "")) if state != "none"             else f"서식 정리 계획 안 받음 — 정리할 템플릿 {len(need)}" + (f" · 옛 계획 {stale}" if stale else "")
         llm = {"state": state, "text": text, "error": (part.get("msg") or job.error) if failed else None}  # 같이 돈 표도 실패했으면 작업 오류는 표의 것 — 서식은 제 단계 글
-    llm.update({"need": len(need), "planned": planned, "applied": applied, "stale": stale, "list": plist})
+    done = sum(1 for r in (plans or {}).values() if r and r.get("applied"))  # 이 헤딩 그래프에서 반영한 계획 수(모든 템플릿 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도: 진행 줄 「조정」 의 ✓)
+    llm.update({"need": len(need), "planned": planned, "applied": applied, "stale": stale, "done": done, "change": sum(x.get("change", 0) for x in plist), "moved": sum(x.get("moved", 0) for x in plist), "list": plist})
     apply = {"state": "done" if aligned == levels else "none", "text": f"맞춘 레벨 {aligned}/{levels}" + (f" · 대표와 다른 줄 {others}" if others else "")} if ready         else {"state": "none", "text": ""}
     return {"key": "formats", "name": NAMES["formats"], "state": heads["state"] if ov is not None or heads["state"] != "done" else "none",
             "levels": levels, "aligned": aligned, "groups": groups, "others": others, "slots": slots,
@@ -240,8 +253,10 @@ def chain_parts(job):
     """LLM 검증·보완의 단계 {key: {key, name, no, status, msg}} — 단계가 아직 적히지 않았으면(막 시작) 헤딩이 도는 것으로(app/analysis_llm.run 이 곧 적는다)."""
     with job.lock:
         got = {x["key"]: dict(x) for x in getattr(job, "parts", None) or []}
-    return got or {"heads": {"key": "heads", "status": "running", "msg": ""}, "tables": {"key": "tables", "status": "wait", "msg": ""},
-                   "formats": {"key": "formats", "status": "wait", "msg": ""}}
+    if got:
+        return got
+    keys = CHAIN_PARTS.get(job.chain) or CHAIN_PARTS["llm"]  # 그 이어 돌리기가 도는 단계만(「헤딩 그래프(LLM)」 = 헤딩 · 서식 — 표는 없다)
+    return {k: {"key": k, "status": "running" if i == 0 else "wait", "msg": ""} for i, k in enumerate(keys)}
 
 
 def _chain_view(job):
@@ -252,7 +267,8 @@ def _chain_view(job):
     with job.lock:
         parts = [dict(x) for x in getattr(job, "parts", None) or []]
     running = [x["key"] for x in parts if x["status"] == "running"]
-    return {"steps": parts, "running": running, "at": running[0] if running else job.phase, "stopping": bool(job.stop), "status": job.status}
+    return {"steps": parts, "running": running, "at": running[0] if running else job.phase, "stopping": bool(job.stop), "status": job.status,
+            "chain": job.chain, "name": CHAIN_NAMES.get(job.chain, CHAIN_NAMES["llm"])}
 
 
 def _base(items):
@@ -285,6 +301,6 @@ def status(sess, kind="", division=False, outline=None, plans=None):
     out["busy"] = job is not None and job.status == "running"
     if job is not None and (job.status == "running" or job.status == "failed"):
         v = job.view()
-        what = "첫 분석" if job.first else "LLM 검증·보완" if job.chain else f"{job.stage}단계" + (" · LLM" if job.use_llm else "")
+        what = "첫 분석" if job.first else CHAIN_NAMES.get(job.chain, CHAIN_NAMES["llm"]) if job.chain else f"{job.stage}단계" + (" · LLM" if job.use_llm else "")
         out["job"] = {"first": job.first, "chain": job.chain, "stage": job.stage, "llm": job.use_llm, "status": job.status, "what": what, "started": v["started"], "error": v["error"]}
     return out

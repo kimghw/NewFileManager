@@ -32,8 +32,9 @@ function agnNextButtons(v) { // 남은 일 단추 — 빈 화면 묶음과 보�
   const T = agnTodo(v), out = [];
   if (T.llm) out.push(agnItem("spark", agnLlmName(T.llm) === "헤딩·표 LLM 검토" ? "헤딩·표 LLM 검토하기" : agnLlmName(T.llm), "유료", () => agnExecOpen(),
     `돌 것: ${T.llm.map((p) => p.name).join(" · ")}\n누르면 실행 카드로 묻습니다(「진행」 을 눌러야 돎 · 유료 LLM · 몇 분 · 문서는 안 바뀜)`, "paid"));
-  if (T.apply) out.push(agnItem("format", "서식 반영하기", T.apply.apply.text || "", () => dsGo("Tidy"),
-    `${T.apply.apply.text || ""}\n「템플릿 서식 정리」 열을 엽니다 — 계획을 골라 적용하면 문서가 바뀝니다(실행 취소 1)`));
+  const all = T.apply && T.apply.llm && T.apply.llm.planned > 0 && typeof tplPlanGo === "function"; // 받아 둔 계획이 있으면 한 번에 반영하는 자리(헤딩 추출 탭 진행 줄의 「조정」 — tpl_plan_bar.js)
+  if (T.apply) out.push(agnItem("format", "서식 반영하기", T.apply.apply.text || "", () => (all ? tplPlanGo() : dsGo("Tidy")),
+    `${T.apply.apply.text || ""}\n${all ? "헤딩 추출 탭 진행 줄의 「조정」 으로 갑니다 — 「템플릿 조정」·「서식 조정」 칸을 눌러 계획을 확인하고 「모두 반영」 을 누르면 문서가 바뀝니다(실행 취소 1)" : "「템플릿 서식 정리」 열을 엽니다 — 계획을 골라 적용하면 문서가 바뀝니다(실행 취소 1)"}`));
   return out;
 }
 
@@ -76,7 +77,7 @@ function agnReportEl(c) {
     for (const [k, n] of DS_FOUR) if (by[k]) grid.append(...dsRow(k, n, by[k]));
     card.append(el("p", "ag-report-sec", "분석 — 스크립트는 올리면 저절로 · LLM 은 단추로"), grid);
     const ch = v.chain;
-    if (ch && ch.steps && ch.steps.length) card.append(el("p", "ag-report-sec", dsChain(v) ? "LLM 검증·보완 — 도는 중" : `지난 LLM 검증·보완 — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
+    if (ch && ch.steps && ch.steps.length) card.append(el("p", "ag-report-sec", dsChain(v) ? `${ch.name || "LLM 검증·보완"} — 도는 중` : `지난 ${ch.name || "LLM 검증·보완"} — ${ch.status === "failed" ? "멈춤(실패)" : "끝남"}`), dsSteps(ch.steps));
   }
   const lines = el("ul", "ag-report-lines");
   lines.append(el("li", null, `편집 — 고친 문단 ${nf(c.edited)}개 · 확정 ${nf(c.base)}번`));

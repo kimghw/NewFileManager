@@ -1749,7 +1749,7 @@ function tablesDraw() {
     if (!meta.childElementCount) meta.append(chip("표 구조 결과"));
   }
   meta.append(summaryInfo);
-  if (supported && heads.view && typeof headsRunMenu === "function") // 상태 줄 끝 「실행 ▾」 — 헤딩 추출과 같은 함수(표 구조 만들기 · 표 판정 · 이 탭의 추출·설정) — spec ② §7 「실행 메뉴는 머리에」
+  if (supported && heads.view && typeof headsRunMenu === "function") // 상태 줄 끝 「단계별 실행 ▾」 — 헤딩 추출과 같은 함수(표 구조 만들기 · 표 판정 · 이 탭의 추출·설정) — spec ② §7 「실행 메뉴는 머리에」
     meta.append(headsRunMenu(heads.view, { stages: [3], detail: () => tpViewSet("Run") }));
   overview.append(meta);
   box.append(overview);

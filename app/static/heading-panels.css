@@ -62,6 +62,17 @@
 /* 실행 메뉴 단추(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16) — 상태 줄 끝(오른쪽) · 줄 높이 26px 에 맞춤(두 탭의 .btn.sm 크기 규칙 29·28px 를 이긴다) */
 :is(#headsOverview, #tablesOverview) .result-meta .btn.sm.hrun-menu { flex: none; height: 26px; margin-left: auto; padding: 0 9px; border-color: #cfdcf3; border-radius: 6px; background: #fff; color: #2d5bd0; font-size: 11.5px; font-weight: 600; }
 :is(#headsOverview, #tablesOverview) .result-meta .btn.sm.hrun-menu:hover { background: #f0f4fc; border-color: #9fb8e6; }
+/* 「전체 실행」(heads_run_all.js — spec_헤딩_추출 ② §7 「전체 실행」, 2026-11-16 사용자 「지금 실행은 단계별 실행, 그리고 추가로 전체 실행(조정까지)」) — 「단계별 실행 ▾」 바로 앞 · 같은 높이.
+   남은 단계를 조정까지 돌리는 주 단추라 파란 바탕(이름 줄 진행표의 「LLM 검증·보완」 과 같은 primary) · 도는 동안은 「멈추기」(흰 바탕). 오른쪽 끝으로 미는 것은 이 단추가 맡는다(둘이 나눠 밀지 않게) */
+#headsOverview .result-meta .btn.sm.hrun-all { flex: none; height: 26px; margin-left: auto; padding: 0 9px; border-color: var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600; }
+#headsOverview .result-meta .btn.sm.hrun-all:hover:not(:disabled) { border-color: #1d49b5; background: #1d49b5; }
+#headsOverview .result-meta .btn.sm.hrun-all.on { border-color: #d5dbe6; background: #fff; color: #4a5568; }
+#headsOverview .result-meta .btn.sm.hrun-all.on:hover:not(:disabled) { border-color: #b9c2d0; background: #f5f7fa; }
+#headsOverview .result-meta .btn.sm.hrun-all:disabled { opacity: .55; cursor: default; }
+#headsOverview .result-meta .btn.sm.hrun-all + .btn.sm.hrun-menu { margin-left: 0; }
+:is(#headsOverview, #tablesOverview) .hrun-menu .hrun-word { white-space: pre; }
+/* 단추가 둘이 되어 좁은 패널에서는 주황 꼬리표(새 레터 · 새 서식 — heading-drift.css: 글이 줄어드는 꼬리표)와 한 줄에 다 안 든다 — 도는 동안처럼 줄을 접지 않고 꼬리표 글을 줄인다 */
+#headsOverview .result-meta:has(.analysis-state.drift-chip) { flex-wrap: nowrap; }
 #tablesOverview .result-metric.is-warning { border-color: #eedcbd; background: #fff6e9; }
 #tablesOverview .result-metric.is-warning :is(span, strong) { color: #a56820; }
 #headsViewRun .hdl dd.llmc { color: #5b21b6; }
@@ -190,6 +201,7 @@
   :is(#paneHeads, #paneTables) .heads-view-nav button { font-size: 11px; }
   :is(#headsOverview, #tablesOverview) .result-metric { padding: 0 6px; }
   :is(#headsOverview, #tablesOverview) .result-meta .now-open { display: none; } /* 「지금 하는 일」 꼬리표를 눌러도 같은 곳으로 간다 */
+  :is(#headsOverview, #tablesOverview) .hrun-menu .hrun-word { display: none; } /* 「단계별 실행 ▾」 → 「단계별 ▾」 — 옆의 「전체 실행」 과 꼬리표가 한 줄에 들게(이름 전체는 title) */
 }
 @container (max-width: 330px) { /* 패널 최소 폭(320px) — 수 단추 넷이 한 줄에 들어가게 조금 더 좁히고, 꼬리표 둘은 글을 자르지 않고 두 줄로 */
   :is(#headsOverview, #tablesOverview) .result-metrics { gap: 3px; }

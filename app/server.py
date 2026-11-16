@@ -1917,7 +1917,9 @@ def headings_state(doc_id: str):
 @app.post("/api/docs/{doc_id}/headings", status_code=202)
 def headings_start(doc_id: str, body: dict = Body(default={})):
     """{stage: 1|2|3, llm: bool} — 뒤 스레드로 시작(돌고 있으면 409). 3 = 표 구조(spec_헤딩_추출 ② §8).
-    {first: true} = 첫 분석(spec_작업 ② §9) — 2단계 → 3단계를 스크립트만으로 한 작업에(이미 결과가 있는 단계는 건너뜀), stage·llm 은 안 본다."""
+    {first: true} = 첫 분석(spec_작업 ② §9) — 2단계 → 3단계를 스크립트만으로 한 작업에(이미 결과가 있는 단계는 건너뜀), stage·llm 은 안 본다.
+    {stage: 2, llm: true, skill?} = 「헤딩 그래프(LLM)」 — 헤딩 판정이 끝나면 **이어서** 서식이 여러 가지인 템플릿마다 서식 정리 계획을 받는다(이어 돌리기 "heads" — app/analysis_llm.py:
+    2026-11-16 사용자 답 「헤딩 LLM 판정에 늘 이어서」). 계획만 받는다 — 문서는 안 바뀐다. skill = 서식 정리 스킬 키(기본 "tidy" · 없는 키면 404)."""
     s = _sess(doc_id)
     _heads_hwpx(s)
     first = body.get("first") is True
@@ -1926,6 +1928,9 @@ def headings_start(doc_id: str, body: dict = Body(default={})):
         raise HTTPException(400, "stage 는 1·2·3")
     if not isinstance(use_llm, bool):  # "false" 를 참으로 읽어 LLM 을 돌리지 않게
         raise HTTPException(400, "llm 은 true 또는 false")
+    if stage == 2 and use_llm:
+        from app import analysis_api
+        return analysis_api.start_chain(s, "heads", body.get("skill")).view()
     try:
         job = heading_runs.start(s, stage, use_llm, **({"first": True} if first else {}))
     except heading_runs.Busy as e:

@@ -320,6 +320,7 @@ async function tpaRun() { // 「정리 계획 받기」 — 고친 스킬은 먼
   if (epoch === state.epoch && TPA.plan && tpaDirect() && tpaTodo().levels.length) tpaApply();
 }
 
+const tpaSkillKey = () => (typeof TPA.key === "string" && TPA.key && TPA.key !== TPA_NEW ? TPA.key : "tidy"); // 이어 돌리기(LLM 검증·보완 · 헤딩 그래프(LLM) · 계획 받기)가 쓸 스킬 — 이 열에서 고른 것(없으면 기본)
 const TPA_SFX = "abcdefghijklmnopqrstuvwxyz";
 const tpaKey = (lv, g) => `${lv.level}|${g.group}`;
 function tpaRows(lv) { // 레벨의 갈래 줄(대표 갈래 빼고) — 에이전트의 답 차례: 맞추기 · 다른 템플릿(그 대표 → 같이 옮길 것) · 그대로. {g, was(에이전트가 고른 것), sp(뗄 항목), head(그 항목의 대표)}
@@ -390,7 +391,7 @@ async function tpaApply() { // 「적용」 — 고른 갈래만 대표 모양�
 
 function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 줄마다 고르기(맞추기 / 그대로 / T1L3a 로) · 적용
   const P = TPA.plan, plan = P.plan, sec = tpaSection("④", "정리 계획", "에이전트가 고른 것입니다 — 갈래마다 고르기를 바꿀 수 있습니다. 「맞추기」 = 이 레벨의 대표 모양으로 바꿉니다 · 「그대로」 = 손대지 않습니다 · "
-    + "「T1L3a 로」 = 서식이 일부러 다른 갈래를 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 같은 이름을 고른 갈래끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
+    + "「T1L3a 로」 = 그 갈래를 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 기본 스킬의 기준: 레터가 대표와 다른 갈래는 떼고, 레터가 같은 갈래는 대표에 맞춥니다 — 예외로 남길 갈래는 「그대로」 로 고르세요. 같은 이름을 고른 갈래끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
     + "대표를 바꾸는 레벨은 그 레벨에서 고른 갈래가 있어야 적용됩니다."),
     stale = P.rev !== state.serverRev && !TPA.done, done = TPA.done, lock = !!TPA.busy || stale || !!done;
   sec.classList.add("tpa-plan");

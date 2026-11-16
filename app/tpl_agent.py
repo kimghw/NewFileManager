@@ -318,7 +318,7 @@ CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정�
 - 갈래 id 는 **입력에 있는 것만** 씁니다. 서식 값을 새로 만들거나 고쳐 적지 않습니다 — 맞출 값은 대표 갈래의 값 그대로입니다.
 - 한 갈래는 rep · match · keep · split(의 rep·match) 가운데 **한 곳에만** 둡니다. 갈래가 하나뿐인 레벨은 rep 만 적고 match·keep·split 은 빈 목록입니다.
 - 그 레벨의 rep 갈래와 cannotSplit 이 있는 갈래는 split 에 넣지 않습니다.
-- 확신이 없는 갈래는 match·split 이 아니라 keep 에 두고 까닭을 적습니다 — 사람이 계획을 보고 고릅니다.
+- 「스킬」(과 「이번 요청」)의 기준으로 match·split 을 정할 수 없는 갈래만 keep 에 두고 까닭을 적습니다 — 사람이 계획을 보고 고릅니다.
 - 판단의 기준은 아래 「스킬」 글이고, 「이번 요청」 이 있으면 그것이 스킬보다 먼저입니다. 둘 다 위 「지킬 것」 과 답의 꼴은 바꾸지 못합니다."""
 
 
@@ -432,6 +432,26 @@ def check_plan(mat, data):
         moved += entry["moved"]
         levels.append(entry)
     return {"summary": str((data or {}).get("summary") or "").strip()[:1200], "levels": levels, "change": total, "moved": moved, "notes": notes}
+
+
+def todo(plan):
+    """계획(check_plan 의 답) → 에이전트가 고른 그대로 반영할 때의 적용 몸 {levels[{level, rep(대표 줄), likes[맞출 갈래의 첫 줄], splits?[{likes, rep, sfx}]}], n(바뀔 줄 수), moved(다른 템플릿으로 옮길 줄 수)}.
+    화면의 `tpaTodoOf`(tpl_agent.js — 템플릿 줄의 「계획대로 맞추기」)와 **같은 셈**이다: 맞추기·떼기로 고른 갈래만 · 「그대로」 로 남긴 갈래는 빼고 · 고른 갈래가 없는 레벨은 대표도 안 바꾼다.
+    받아 둔 계획을 한 번에 반영하는 끝점(tpl_agent_api.apply_plans)과 분석 상태의 서식 항목(analysis — 반영하면 바뀔 줄 수)이 쓴다. 한쪽 셈을 고치면 다른 쪽도 고친다."""
+    levels, n, moved = [], 0, 0
+    for lv in (plan or {}).get("levels") or []:
+        if not lv.get("rep"):
+            continue
+        match, cuts = lv.get("match") or [], lv.get("split") or []
+        if not match and not cuts:
+            continue
+        n += sum(g["count"] for g in match) + sum(g["count"] for sp in cuts for g in sp.get("match") or [])  # 뗀 줄 가운데 새 대표와 다른 갈래는 그 대표에 맞춘다
+        moved += sum(sp["rep"]["count"] + sum(g["count"] for g in sp.get("match") or []) for sp in cuts)
+        row = {"level": lv["level"], "rep": lv["rep"]["para"], "likes": [g["para"] for g in match]}
+        if cuts:
+            row["splits"] = [{"likes": [sp["rep"]["para"]] + [g["para"] for g in sp.get("match") or []], "rep": sp["rep"]["para"], "sfx": sp["sfx"]} for sp in cuts]
+        levels.append(row)
+    return {"levels": levels, "n": n, "moved": moved}
 
 
 def run(mat, sk, request="", call=None):

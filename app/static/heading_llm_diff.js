@@ -2,7 +2,7 @@
 // LLM 이 바꾼 것(spec_헤딩_추출 ② §7 「LLM 이 바꾼 것」, 2026-11-16 사용자 "LLM 작업하고 뭐가 수정되었는지를 모르겠다" → 답 「문서 옆 열」).
 // 헤딩 추출의 LLM 실행(규칙 보강 · 헤딩 판정 · 표 판정)과 받아 둔 서식 정리 계획(★)이 **스크립트가 낸 것과 다르게 정한 것**을 문서 옆 열(2열 kind "llmDiff")에 한 목록으로.
 // 여는 곳: 진행 줄(app.js headsProgLine)의 LLM 층 ✓ 칸 — 그 단계 절로 내려간다(안 돈 칸은 전처럼 추출·설정). 자료: GET /api/docs/{id}/headings/llm-changes(app/heading_llm_diff.py — 읽기만).
-// LLM 판정은 분석 결과만 바꾼다 — 문서는 그대로다. 문서 서식을 바꾸는 것은 서식 계획의 반영(템플릿 줄 「계획대로 맞추기」 · ★ 열 「적용」 — 여기에는 반영 단추를 두지 않는다: design.md §10).
+// LLM 판정은 분석 결과만 바꾼다 — 문서는 그대로다. 문서 서식을 바꾸는 것은 서식 계획의 반영(헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」 · 템플릿 줄 「계획대로 맞추기」 · ★ 열 「적용」 — 여기에는 반영 단추를 두지 않는다: design.md §10).
 // 항목을 누르면 문서의 그 문단·칸으로(열은 그대로 — 나란히 본다). 값을 견줄 때는 두 값에 이름을 단다(「스크립트 미판정 56 → LLM 맞춤 43」 — 화살표 = 바뀐 쪽).
 // app.js · tables.js · tpl_agent.js 다음에 읽힌다(el·hBtn·hHelp·api·toast·heads·state·headsDlg·headsParaLink·headsRunOpen·headsTables·tplAgentOpen·fmtWhen·fmtDur·nf·short·oneLine·
 // H_KIND·H_VERDICT·H_ROLE·H_TROLE·H_DECISION·H_AREA).
@@ -19,7 +19,7 @@ function llmDiffOpen(stage = null) { // 진행 줄의 LLM ✓ 칸 → 이 열(�
   LLD.stage = stage;
   headsDlg("llmDiff", "LLM 이 바꾼 것", "스크립트가 낸 것과 LLM 이 다르게 정한 것 · 누르면 문서의 그 자리로");
   $("headsDlgHelp").replaceChildren(hHelp("LLM 이 바꾼 것 도움말", "LLM 판정(규칙 보강 · 헤딩 판정 · 표 판정)은 분석 결과만 바꿉니다 — 문서 글·서식은 그대로입니다. "
-    + "각 절은 그 단계의 스크립트 결과(또는 LLM 이 받은 초안)와 LLM 의 답이 다른 곳입니다. 문서 서식을 대표에 맞추는 것은 맨 아래 「서식 계획」 을 템플릿 줄의 「계획대로 맞추기」 나 ★ 열에서 반영할 때뿐입니다.", { note: true }));
+    + "각 절은 그 단계의 스크립트 결과(또는 LLM 이 받은 초안)와 LLM 의 답이 다른 곳입니다. 문서 서식을 대표에 맞추는 것은 맨 아래 「서식 계획」 을 반영할 때뿐입니다 — 한 번에: 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」 · 템플릿 하나만: 템플릿 줄의 「계획대로 맞추기」 나 ★ 열.", { note: true }));
   if (LLD.epoch !== state.epoch) LLD.data = null;
   lldDraw();
   lldLoad();
@@ -305,10 +305,10 @@ const LLD_PLAN = { planned: "아직 반영 안 함", applied: "반영함", stale
 function lldFormats(list) {
   const plans = list || [], s = lldSection("fmt", "서식 계획", plans.length ? `템플릿 ${nf(plans.length)}개 · ★ 템플릿 서식 정리` : "없음", !!plans.length);
   if (!plans.length) {
-    s.body.append(el("p", "hnote", "받아 둔 서식 정리 계획이 없습니다 — 템플릿 줄의 ★(템플릿 서식 정리)에서 받거나, 문서 이름 줄 진행표의 「LLM 검증·보완」 이 갈래가 둘 이상인 템플릿마다 받습니다."));
+    s.body.append(el("p", "hnote", "받아 둔 서식 정리 계획이 없습니다 — 「헤딩 그래프(LLM)」 이 헤딩 판정 뒤에 이어서, 서식이 여러 가지인 템플릿마다 받습니다(헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」 · 템플릿 줄의 ★ 로도)."));
     return { ...s, n: 0, badge: "–", tip: "서식 계획 없음" };
   }
-  lldLines(s.body, [["계획은 LLM 이 레벨마다 대표와 맞출 줄 · 남길 줄 · 따로 뗄 줄을 고른 것입니다. 반영은 템플릿 줄의 「계획대로 맞추기」 나 ★ 열의 「적용」(실행 취소 한 번으로 되돌림)", "muted"]]);
+  lldLines(s.body, [["계획은 LLM 이 레벨마다 대표와 맞출 줄 · 따로 뗄 줄(레터가 다른 줄 → 서식 종속 템플릿) · 남길 줄을 고른 것입니다. 반영은 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」(「템플릿 조정」·「서식 조정」 옆 — 모든 템플릿을 한 번에 · 실행 취소 한 번으로 되돌림) — 템플릿 하나만은 템플릿 줄의 「계획대로 맞추기」 · 고르기를 바꾸려면 「★ 계획 열기」", "muted"]]);
   let todo = 0;
   for (const P of plans) {
     const row = el("div", `lld-item p-${P.state}`), top = el("div", "lld-top");

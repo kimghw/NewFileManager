@@ -5662,7 +5662,8 @@ async function headsStart(stage, useLlm) {
   await flushAll(); // 아직 반영 안 된 글부터 — 추출은 서버 문서를 읽는다
   if (epoch !== state.epoch) return;
   try {
-    const job = await api(`/api/docs/${id}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ stage, llm: useLlm }) });
+    const skill = stage === 2 && useLlm && typeof tpaSkillKey === "function" ? { skill: tpaSkillKey() } : {}; // 헤딩 그래프(LLM)는 서식 정리 계획까지 이어 받는다 — 그 스킬(tpl_agent.js)
+    const job = await api(`/api/docs/${id}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ stage, llm: useLlm, ...skill }) });
     if (epoch !== state.epoch) return;
     heads.expect = job.started; // 이보다 앞선 작업의 늦은 응답은 건너뛴다
     headsRender({ ...(heads.view || { rev: state.serverRev, runs: [], stage1: null, stage2: null, stage3: null }), job });
@@ -5801,6 +5802,12 @@ function headsSourceLine(r, ks = [2, 3]) { // 꼬리표 줄 — 결과가 하나
 // 실행 번호·시각·수는 title. LLM 판정의 기준은 「LLM 표시」(headsSource)와 같고, 규칙 보강은 요약의 rules(heading_runs.rules_view — 마지막 LLM 1단계 실행)를 본다.
 const H_PROG_STATE = { done: "끝남", llm: "LLM 끝남", none: "안 함", running: "도는 중", failed: "실패", stale: "뼈대에 없는 새 항목이 있음", skip: "할 것 없음" };
 const H_PROG_NAME = { 1: "문단·라벨", 2: "헤딩 그래프", 3: "표 구조" };
+// 이어 돌리기(job.chain — app/analysis_llm.py CHAINS)의 화면 이름 · 서버 analysis.CHAIN_NAMES 와 같은 글: llm = 이름 줄 진행표의 「LLM 검증·보완」(doc_status.js · spec_작업 ② §20) ·
+// heads = 「헤딩 그래프(LLM)」(헤딩 판정 → 서식 정리 계획) · formats = 서식 정리 계획만(tpl_plan_bar.js 「계획 받기」)
+const H_CHAIN = { llm: "LLM 검증·보완", heads: "헤딩 LLM 판정 · 서식 계획", formats: "서식 정리 계획" };
+const H_CHAIN_LONG = { llm: "LLM 검증·보완(헤딩 → 표 · 서식 계획 같이)", heads: "헤딩 그래프(LLM) → 서식 정리 계획", formats: "서식 정리 계획(템플릿마다)" };
+const headsChainName = (job, long = false) => (long ? H_CHAIN_LONG : H_CHAIN)[job.chain] || H_CHAIN.llm;
+const headsFmtStep = (s) => /^서식 정리 계획/.test((s && s.name) || ""); // 서식 정리 계획 단계(app/analysis_llm.py FORMATS_STEP) — 진행 줄의 스크립트 · LLM 칸이 아니라 셋째 층 「조정」(tpl_plan_bar.js)이 보인다
 const hhmmShort = (t) => { // 진행 줄 칸의 시각 — 오늘이면 「13:47」, 아니면 「11/14」(전체는 title)
   if (!t) return "";
   const d = new Date(t * 1000);
@@ -5809,7 +5816,9 @@ const hhmmShort = (t) => { // 진행 줄 칸의 시각 — 오늘이면 「13:47
 function headsProgNow(r) { // 도는 작업이 지금 하는 칸 → {llm, k} | null — 작업 steps 의 마지막 「진행 중」 단계 이름으로(서버 변경 없음)
   const job = r.job;
   if (!(job && job.status === "running")) return null;
-  const steps = job.steps || [], n = (steps.filter((s) => s.status === "running").pop() || steps.at(-1) || {}).name || "";
+  const steps = job.steps || [], run = steps.filter((s) => s.status === "running"), cur = run.filter((s) => !headsFmtStep(s)).pop();
+  if (!cur && (run.some(headsFmtStep) || headsFmtStep(steps.at(-1)))) return { llm: true, k: 0, fmt: true }; // 서식 정리 계획만 도는 중(또는 그것으로 끝남) — 진행 줄에는 도는 칸이 없다
+  const n = (cur || steps.filter((s) => !headsFmtStep(s)).pop() || {}).name || "";
   if (n.includes("규칙 보강") || (n === "다시 추출" && job.llm)) return { llm: true, k: 1 }; // 「LLM 규칙 보강」 · 2단계 LLM 의 「1단계 다시 — … LLM 규칙 보강」 · 보강 뒤 다시 추출
   const m = /^(헤딩 그래프|표 구조) — (LLM|스크립트)$/.exec(n);
   if (m) return { llm: m[2] === "LLM", k: m[1] === "표 구조" ? 3 : 2 };
@@ -5897,24 +5906,31 @@ function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · 
       box.append(b);
     }
   }
+  // 셋째 층 「조정」 — 템플릿 조정 · 서식 조정 · 모두 반영(tpl_plan_bar.js — LLM 판정 뒤의 일: 2026-11-16 사용자 「여기 밑에 템플릿 조정, 서식 조정 이 들어 가야함」). 세 단계를 다 보이는 진행 줄(헤딩 추출 탭)에만
+  if (stages.length === H_STAGES.length && typeof tplPlanRow === "function") box.append(...tplPlanRow());
   return box;
 }
 
-// ---- 실행 메뉴(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16 사용자 「규칙보강 실행 메뉴를 상단에 넣어야지. 표도 딱같음」) — 요약 상태 줄 끝 「실행 ▾」.
+// ---- 실행 메뉴(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16 사용자 「규칙보강 실행 메뉴를 상단에 넣어야지. 표도 딱같음」) — 요약 상태 줄 끝 「단계별 실행 ▾」.
+// 이름은 같은 날 사용자 「지금 실행은 단계별 실행, 그리고 추가로 전체 실행(조정까지) 로 변경해줘」 — 전의 「실행 ▾」. 단계를 하나씩 골라 돌리는 메뉴이고, 남은 단계를 조정까지 한 번에 돌리는 것은
+// 그 앞의 「전체 실행」 단추다(heads_run_all.js headsRunAllBtn — 헤딩 추출 탭에만: ② §7 「전체 실행」).
 // 전에는 실행이 「추출·설정」 의 단계 카드 안에만 있어 진행 줄에서 ○ 를 보고도 거기까지 들어가야 했다. 항목 = 진행 줄과 같은 차례(스크립트 → LLM · 유료) ·
 // 단계 카드 단추와 **같은 함수 · 같은 꺼짐 조건**(헤딩 추출 headsCard1·2·3) — 유료 항목은 그 함수의 확인 창 뒤에 돈다. 상태는 누를 때 heads.view 로 읽는다(요약은 다시 그리지 않을 수 있다).
 // opt.stages = 보일 단계(「표」 탭은 [3]) · opt.detail = 「추출·설정에서 자세히」(기본 = 헤딩 추출의 추출·설정). 부르는 곳: headsResultsSummary · tables.js tablesDraw
 function headsRunMenu(r, opt = {}) {
   const stages = opt.stages || H_STAGES, detail = opt.detail || (() => headsResultView("Run"));
-  const b = hBtn("실행 ▾", null, { cls: "btn sm hrun-menu", title: "실행 메뉴 — 단계를 여기서 돌립니다(스크립트 무료 · LLM 유료)" });
+  const b = hBtn("", null, { cls: "btn sm hrun-menu", title: "단계별 실행 — 단계를 하나씩 골라 돌립니다(스크립트 무료 · LLM 유료)" });
+  b.append("단계별", el("span", "hrun-word", " 실행"), " ▾"); // 「단계별 실행 ▾」 — 좁은 패널(370px 아래)에서는 「실행」 을 감춰 「단계별 ▾」(heading-panels.css — 옆 「전체 실행」 과 한 줄에 들게)
+  b.setAttribute("aria-label", "단계별 실행");
   b.setAttribute("aria-haspopup", "menu");
   b.onclick = () => {
-    const v = heads.view || r, s1 = v && v.stage1, job = v && v.job, busy = !!(job && job.status === "running");
+    const v = heads.view || r, s1 = v && v.stage1, job = v && v.job;
+    const busy = !!(job && job.status === "running") || (typeof headsAllRunning === "function" && !!headsAllRunning()); // 「전체 실행」 이 도는 동안은 단계 사이(LLM → 반영)에도 끈다(heads_run_all.js)
     const sm = (s1 && s1.summary) || {}, left = (sm.unmatchedGroups || 0) + (sm.conflicts || 0);
     const script = { 1: ["스크립트 — 문단·라벨 다시 추출", () => headsStart(1, false), busy], 2: ["스크립트 — 헤딩 그래프 만들기", () => headsStart(2, false), busy || !s1],
       3: ["스크립트 — 표 구조 만들기", () => headsStart(3, false), busy || !s1] };
     const llm = { 1: [`LLM — 규칙 보강 · ${left ? `남은 ${nf(left)}묶음` : "할 것 없음"} · 유료`, () => headsLlmRules(), busy || !left],
-      2: ["LLM — 헤딩 판정(헤딩 그래프) · 유료", () => headsLlmGraph(), busy || !s1], 3: ["LLM — 표 판정(표 구조) · 유료", () => headsLlmTables(), busy || !s1] };
+      2: ["LLM — 헤딩 판정(헤딩 그래프) → 서식 계획 · 유료", () => headsLlmGraph(), busy || !s1], 3: ["LLM — 표 판정(표 구조) · 유료", () => headsLlmTables(), busy || !s1] };
     const row = ([name, run, off]) => [name, "", run, off];
     const R = b.getBoundingClientRect();
     ctxOpen({ clientX: R.left, clientY: R.bottom + 2 }, [...stages.map((k) => row(script[k])), null, ...stages.map((k) => row(llm[k])), null,
@@ -6002,7 +6018,8 @@ function headsJobNow(job, r) { // → {what, secs, prev, title}
   const steps = job.steps || [], cur = steps.filter((s) => s.status === "running").pop() || steps.at(-1);
   const src = job.llm && !job.first && job.stage > 1 && r ? headsSource(r, job.stage) : null; // 같은 단계의 앞 LLM 실행이 걸린 시간 — 얼마나 걸릴지 어림
   const prev = src && src.seconds ? fmtDur(src.seconds) : "";
-  return { what: `${job.first ? "첫 분석" : job.chain ? "LLM 검증·보완" : `${job.stage}단계`} · ${cur ? cur.name : "준비 중"}`, // job.chain = 이름 줄 진행표의 「LLM 검증·보완」(doc_status.js · spec_작업 ② §20) secs: Math.max(0, Date.now() / 1000 - (job.started || 0)), prev,
+  return { what: `${job.first ? "첫 분석" : job.chain ? headsChainName(job) : `${job.stage}단계`} · ${cur ? cur.name : "준비 중"}`, // job.chain = 이어 돌리기(H_CHAIN)
+    secs: Math.max(0, Date.now() / 1000 - (job.started || 0)), prev,
     title: `${job.llm ? "LLM" : "스크립트"} 실행 · ${fmtWhen(job.started)} 시작${prev ? ` · 지난번 LLM 실행은 ${prev} 걸림` : ""} — 누르면 추출·설정에서 단계별 진행을 봅니다` };
 }
 function headsNowDraw(r) { // 요약 줄 꼬리표의 글 — 읽을 때마다(약 1초)
@@ -6066,7 +6083,7 @@ function headsResultsSummary(r) {
   heads.nowEl = null;
   if (running) { // 돌아가는 동그라미 + 지금 하는 일 · 지난 시간 — 글은 headsNowDraw 가 읽을 때마다 채운다(② §7 「진행 표시」)
     const now = hBtn("", () => headsRunOpen(job.stage), { cls: "analysis-state running" });
-    now.append(el("span", "now-what", job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완 중" : `${job.stage}단계 분석 중`), el("span", "now-secs"));
+    now.append(el("span", "now-what", job.first ? "첫 분석(2·3단계)" : job.chain ? `${headsChainName(job)} 중` : `${job.stage}단계 분석 중`), el("span", "now-secs"));
     heads.nowEl = now;
     meta.append(now, hBtn("진행 보기", () => headsRunOpen(job.stage), { cls: "btn sm now-open" }));
   } else if (job && job.status === "failed") {
@@ -6078,7 +6095,8 @@ function headsResultsSummary(r) {
     const stage = s === s1 ? 1 : s === s2 ? 2 : 3;
     return `${stage}단계 #${s.meta?.run ?? "–"}`;
   }).join(" · "), { note: true }));
-  meta.append(headsRunMenu(r)); // 상태 줄 끝 「실행 ▾」(② §7 「실행 메뉴는 머리에」 — 「표」 탭도 같은 함수)
+  if (typeof headsRunAllBtn === "function") meta.append(headsRunAllBtn()); // 「전체 실행」 — 남은 단계를 조정까지 한 번에(heads_run_all.js — ② §7 「전체 실행」 · 조정 층이 있는 이 탭에만)
+  meta.append(headsRunMenu(r)); // 상태 줄 끝 「단계별 실행 ▾」(② §7 「실행 메뉴는 머리에」 — 「표」 탭도 같은 함수)
   overview.append(meta);
   headsNowDraw(r);
   $("headsRunHelp").replaceChildren(hHelp("추출·설정 도움말", "단계 탭을 골라 분석을 실행하거나 기준을 바꿉니다. 탭의 돌아가는 동그라미 = 그 단계가 도는 중, 점 = 뼈대에 없는 새 레터·서식·표가 문서에 생김(또는 실패). 헤딩 그래프·표 구조는 한 번 만들면 문서를 고쳐도 그대로 씁니다(뼈대). 추출 결과는 문서 구조·서식 라벨·템플릿 등의 탭에서 원문과 대조하세요."));
@@ -6164,7 +6182,7 @@ function headsJob(job, r = null) {
   const now = job.status === "running" ? headsJobNow(job, r) : null; // 도는 동안: 지난 시간 · 지난번 LLM 실행이 걸린 시간(② §7 「진행 표시」)
   const secs = job.ended && job.started ? ` · ${(job.ended - job.started).toFixed(1)}s` : now ? ` · ${fmtDur(now.secs)} 지남${now.prev ? `(지난번 ${now.prev})` : ""}` : "";
   box.append(el("summary", `hjob-head ${job.status}`,
-    `${job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완(헤딩 → 표 · 서식 계획 같이)" : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
+    `${job.first ? "첫 분석(2·3단계)" : job.chain ? headsChainName(job, true) : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
   const ol = el("ol", "steps brief");
   const phase = `-${Date.now() % 800}ms`; // 읽을 때마다(약 1초) 이 상자를 다시 만든다 — 돌아가는 동그라미가 처음 각도로 튀지 않게 시계에 맞춘다(spin .8s)
   for (const s of job.steps || []) {
@@ -6285,7 +6303,8 @@ async function headsLlmGraph() {
   // LLM 판정은 스크립트가 판정하지 못한 것(못 맞춤·충돌)까지 본다(spec_헤딩_추출 ② §3, 2026-11-16) — 그래프 전에 규칙 보강을 먼저(이미 답을 받은 묶음은 서버가 다시 묻지 않는다)
   if (!st || !confirm(`헤딩 그래프(LLM) — 유형 판정·본문 구간별 판정·서식 쌍 판정을 ${llmName(st)} 에 여러 번 묻습니다.\n`
     + (left ? `스크립트가 판정하지 못한 첫머리 ${left}묶음(못 맞춤·충돌)이 있으면 그 규칙 보강을 먼저 합니다(아직 묻지 않은 묶음만 · $0.2~0.3 더).\n` : "")
-    + "유료 호출입니다(연구개발계획서 양식 기준 약 4분 · $3 안팎). 계속할까요?")) return;
+    + "헤딩 판정이 끝나면 이어서 서식이 여러 가지인 템플릿마다 서식 정리 계획을 받습니다(템플릿마다 호출 하나 더 · 계획만 — 문서는 바뀌지 않습니다).\n"
+    + "유료 호출입니다(연구개발계획서 양식 기준 헤딩 판정 약 4분 · $3 안팎 + 서식 계획). 계속할까요?")) return;
   headsStart(2, true);
 }
 
@@ -6393,7 +6412,7 @@ function headsCard2(r, busy) {
   }
   const acts = el("div", "hacts");
   acts.classList.add("stage-actions");
-  acts.append(hBtn("LLM 분석", () => headsLlmGraph(), { disabled: busy || !s1, cls: "btn sm primary", title: "유형·본문 구간·서식 쌍을 LLM 이 판정(유료, 수 분)" }),
+  acts.append(hBtn("LLM 분석", () => headsLlmGraph(), { disabled: busy || !s1, cls: "btn sm primary", title: "유형·본문 구간·서식 쌍을 LLM 이 판정(유료, 수 분) — 끝나면 이어서 템플릿마다 서식 정리 계획을 받습니다(계획만 · 반영은 진행 줄 「조정」 의 「모두 반영」)" }),
     hBtn("스크립트 분석", () => headsStart(2, false), { disabled: busy || !s1, title: "LLM 없이 레터 스택으로(몇 초)" }));
   box.append(acts);
 }
