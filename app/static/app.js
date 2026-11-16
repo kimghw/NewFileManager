@@ -4016,26 +4016,32 @@ function drawEdits() {
     list.append(li);
   }
   const ids = orderedEdits();
-  const gone = Object.values(state.kinds).filter((k) => k === "removed").length;
-  if (gone) list.append(el("li", "note-line", `지운 문단 ${gone}개(문단 합치기·표 행/열 지우기) — 되돌리려면 위 막대의 「실행 취소」`));
+  const goneIds = Object.keys(state.kinds).filter((i) => state.kinds[i] === "removed");
+  const gone = goneIds.length;
   if (!ids.length && !state.failed.size && !gone) {
     list.append(el("li", "none", state.base
       ? `확정 ${state.base} 뒤로 고친 문단이 없습니다. 문서에서 글을 고치면 여기에 다시 모입니다(확정본과 견줌 — 지난 변경은 위 「확정 기록」).`
       : "아직 고친 문단이 없습니다. 문서에서 글을 누르고 고치면 여기에 모입니다. 원래 글로 되돌리면 원본 XML(줄 배치 포함)까지 되돌려 목록에서 빠집니다."));
   }
+  const det = EDET.epoch === state.epoch ? EDET.data : null; // 지난 차례의 값도 새로 읽을 때까지는 보인다(글을 칠 때마다 「견주는 중」 으로 깜박이지 않게)
+  if (ids.some((id) => EDET_KINDS.has(state.kinds[id])) && !edetFresh()) edetNeed(); // 모양 값은 서버가 견준다 — 읽으면 다시 그린다
   const KINDS = { text: "글", format: "모양", struct: "나누기·합치기", new: "새 문단" };
   for (const id of ids) {
-    const kind = state.kinds[id] || "text";
-    const li = el("li", "edit-item");
+    const kind = state.kinds[id] || "text", g = kind === "new" ? "A" : "M";
+    const li = el("li", `edit-item g-${g}`);
     const go = el("button", "edit-go");
     go.type = "button";
     go.setAttribute("aria-label", `고친 문단으로 이동: ${short(state.texts[id], 40)}`);
-    go.append(diffView(state.original[id] || "", state.texts[id] || ""));
+    go.append(gitView(kind, state.original[id] || "", state.texts[id] || ""));
     go.onclick = () => scrollToBlock(id, true);
     li.append(go);
+    const fm = EDET_KINDS.has(kind) ? gitFmt(det, id, kind) : null;
+    if (fm) li.append(fm);
     const row = el("div", "row");
     const pg = pagesOf(id);
-    row.append(el("span", "kind", KINDS[kind] || kind));
+    const gk = el("span", `gk gk-${g}`, g);
+    gk.title = GIT_LETTER[g];
+    row.append(gk, el("span", "kind", KINDS[kind] || kind));
     row.append(el("span", null, pg ? pg.label : ""));
     if (state.unrestored.has(id)) row.append(el("span", "warn-text", `글은 원래대로 · 줄 배치는 ${APP()}가 다시 계산`));
     row.append(el("span", "spacer"));
@@ -4050,23 +4056,121 @@ function drawEdits() {
     li.append(row);
     list.append(li);
   }
+  if (gone) list.append(gitGone(goneIds));
 }
 
-function diffView(a, b) {
-  // 앞뒤 같은 부분을 빼고 바뀐 곳만 <del>/<ins> — 줄 바꿈 ↵, 탭 ⇥ 표시
+// ---- 깃 diff 처럼(spec_작업 ② §8 「화면」 — 2026-11-16 사용자 「고친문단은 깃처럼 표기해줘야지」·「어떻게 변경되었는지. 정보는 주길 바람」)
+// 항목마다 깃 상태 글자(M 고침 · A 새 문단 · D 지움 — 항목 왼쪽 띠도 그 색: M = 문서의 주황 띠) + − 원본 줄(빨강) · + 지금 줄(초록) — 글은 지운 글·넣은 글을 진하게(앞뒤 같은 글 40자까지),
+// 모양(format · struct)은 「항목 · 원본 값 · 지금 값」 표(값마다 이름 — 열 머리가 어느 쪽인지). 모양 값은 서버가 기준 블록과 지금 블록을 견줘 준다(GET …/edits/detail —
+// 편집 차례·기준이 바뀌면 0.5초 모아 다시 읽고 다시 그림). 「원본」 = 기준(확정했으면 「확정 n」).
+const GIT_LETTER = { M: "M — 고친 문단(깃의 modified)", A: "A — 새 문단(깃의 added)", D: "D — 지운 문단(깃의 deleted)" };
+const EDET_KINDS = new Set(["format", "struct"]); // 모양 값을 서버에 묻는 종류(server.DETAIL_KINDS) — 글만 고친 문단은 원래 글로 그린다
+const EDET = { data: null, epoch: null, rev: null, base: null, timer: null, busy: false }; // rev·base = 물을 때 화면의 편집 차례·기준(응답의 rev 로 견주면 화면이 모르는 차례가 있을 때 끝없이 다시 묻는다)
+const baseWho = () => (state.base ? `확정 ${state.base}` : "원본");
+
+function edetFresh() {
+  return !!EDET.data && EDET.epoch === state.epoch && EDET.rev === state.serverRev && EDET.base === (state.base || 0);
+}
+
+function edetNeed() { // 모양 값 읽기 — 0.5초 모아서 한 번(편집이 잇달아도), 읽으면 목록을 다시 그린다
+  if (EDET.timer || EDET.busy || !state.id) return;
+  EDET.timer = setTimeout(async () => {
+    EDET.timer = null;
+    const id = state.id, epoch = state.epoch, rev = state.serverRev, base = state.base || 0;
+    let data;
+    EDET.busy = true;
+    try {
+      data = await api(`/api/docs/${id}/edits/detail`);
+    } catch (e) {
+      data = { items: {}, more: 0, error: e.message }; // 같은 차례에 되풀이해 묻지 않는다 — 다음 편집 때 다시
+    } finally {
+      EDET.busy = false;
+    }
+    if (epoch !== state.epoch) return;
+    Object.assign(EDET, { data, epoch, rev, base });
+    if (!$("paneEdits").hidden) drawEdits();
+  }, 500);
+}
+
+function diffParts(a, b) { // 앞뒤 같은 부분을 빼고 바뀐 곳 — { pre, del, ins, post }
   let i = 0;
   while (i < a.length && i < b.length && a[i] === b[i]) i++;
   let j = 0;
   while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
-  const mark = (s) => s.replaceAll(LS, "↵\n").replaceAll("\t", "⇥\t");
+  return { pre: a.slice(0, i), del: a.slice(i, a.length - j), ins: b.slice(i, b.length - j), post: a.slice(a.length - j) };
+}
+const diffMark = (s) => s.replaceAll(LS, "↵\n").replaceAll("\t", "⇥\t"); // 줄 바꿈 ↵, 탭 ⇥ 표시
+
+function diffView(a, b) { // 한 줄 안에 <del>/<ins>(기록 탭 · 확정 기록의 변경 목록)
+  const { pre, del, ins, post } = diffParts(a, b);
   const box = el("div", "diff");
-  const pre = a.slice(0, i), post = a.slice(a.length - j);
   const CTX = 40;
-  box.append(el("span", "ctx", (pre.length > CTX ? "…" : "") + mark(pre.slice(-CTX))));
-  if (a.length - j > i) box.append(el("del", null, mark(a.slice(i, a.length - j))));
-  if (b.length - j > i) box.append(el("ins", null, mark(b.slice(i, b.length - j))));
-  box.append(el("span", "ctx", mark(post.slice(0, CTX)) + (post.length > CTX ? "…" : "")));
+  box.append(el("span", "ctx", (pre.length > CTX ? "…" : "") + diffMark(pre.slice(-CTX))));
+  if (del) box.append(el("del", null, diffMark(del)));
+  if (ins) box.append(el("ins", null, diffMark(ins)));
+  box.append(el("span", "ctx", diffMark(post.slice(0, CTX)) + (post.length > CTX ? "…" : "")));
   return box;
+}
+
+function gdLine(sign, cls, who, parts) { // 깃 diff 한 줄 — 부호(−·+·빈칸) · 이름표(원본·지금) · 내용
+  const ln = el("div", `gd-line ${cls}`);
+  const s = el("span", "gd-sign", sign);
+  s.setAttribute("aria-hidden", "true");
+  ln.append(s, el("span", "gd-who", who || ""));
+  const body = el("span", "gd-body");
+  body.append(...parts);
+  ln.append(body);
+  return ln;
+}
+
+function gitView(kind, a, b) { // 글의 다름 — 같으면 맥락 한 줄, 다르면 − 원본(지운 글 진하게) · + 지금(넣은 글 진하게), 새 문단은 + 한 줄
+  const box = el("div", "gd");
+  if (kind === "new") { box.append(gdLine("+", "ins", "새 문단", [short(b, 200)])); return box; } // short — 빈 글은 「(빈 문단)」
+  if (a === b) { box.append(gdLine("", "ctx", "글 같음", [short(a, 120)])); return box; }
+  const { pre, del, ins, post } = diffParts(a, b), CTX = 40;
+  const head = () => (pre.length > CTX ? "…" : "") + diffMark(pre.slice(-CTX));
+  const tail = () => diffMark(post.slice(0, CTX)) + (post.length > CTX ? "…" : "");
+  box.append(gdLine("−", "del", baseWho(), a ? [head(), del ? el("del", null, diffMark(del)) : "", tail()] : [el("span", "muted", "(빈 문단)")]));
+  box.append(gdLine("+", "ins", "지금", b ? [head(), ins ? el("ins", null, diffMark(ins)) : "", tail()] : [el("span", "muted", "(빈 문단)")]));
+  return box;
+}
+
+function gitFmt(det, id, kind) { // 모양의 다름 — 「항목 · 원본 값 · 지금 값」 표(서버 edits/detail), 읽는 중·못 읽음·견줄 값 없음은 한 줄 · 나누기·합치기는 모양이 같으면 null
+  const fmt = kind === "format";
+  if (!det) return fmt ? el("div", "gd-note", "모양 값 견주는 중…") : null;
+  if (det.error) return el("div", "gd-note warn-text", `모양 값을 읽지 못함 — ${det.error}`);
+  const ch = det.items[id];
+  if (ch === undefined) return fmt ? el("div", "gd-note", det.more ? "모양 값은 문서 앞쪽 고친 문단까지만 견줍니다" : "모양 값 견주는 중…") : null;
+  if (ch === null) return fmt ? el("div", "gd-note", "원본에 같은 문단이 없어 모양을 견주지 않음") : null;
+  if (!ch.length) return fmt ? el("div", "gd-note", "견주는 모양 값(글자·문단)은 같음 — 그 밖의 모양 속성이 바뀜") : null;
+  const t = el("table", "gd-fmt");
+  const hr = el("tr");
+  hr.append(el("th", null, "모양"), el("th", "del", `− ${baseWho()}`), el("th", "ins", "+ 지금"));
+  t.append(hr);
+  for (const c of ch) {
+    const tr = el("tr");
+    const k = el("td", "k", c.label);
+    if (c.part) { k.append(el("span", "gd-part", "일부 글자")); k.title = "문단 안에서 글자마다 값이 다릅니다 — 값을 문단 차례대로 「·」 로 이음"; }
+    tr.append(k, el("td", "del", c.before), el("td", "ins", c.after));
+    t.append(tr);
+  }
+  return t;
+}
+
+function gitGone(ids) { // 지운 문단(D) — 문서에 자리가 없어 이동은 없고 원본 글만(앞 200개), 되돌리기는 실행 취소
+  const li = el("li", "edit-item g-D");
+  const d = el("details", "gd-gone");
+  const sm = el("summary");
+  const gk = el("span", "gk gk-D", "D");
+  gk.title = GIT_LETTER.D;
+  sm.append(gk, ` 지운 문단 ${nf(ids.length)}개 `, el("span", "muted", "(문단 합치기·표 행/열 지우기 — 되돌리려면 위 막대의 「실행 취소」)"));
+  d.append(sm);
+  const box = el("div", "gd");
+  for (const id of ids.slice(0, 200)) box.append(gdLine("−", "del", baseWho(), [short(state.original[id] || "", 160)]));
+  if (ids.length > 200) box.append(el("div", "gd-note", `… 그 밖에 ${nf(ids.length - 200)}개`));
+  d.append(box);
+  li.append(d);
+  return li;
 }
 
 function orderedEdits() {

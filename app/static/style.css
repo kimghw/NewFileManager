@@ -418,6 +418,42 @@ details.more li button:hover, details.more li button:focus-visible { background:
 .diff .ctx { color: var(--muted); }
 .diff del { background: #fde2e2; color: #8f1d1d; text-decoration: line-through; border-radius: 2px; }
 .diff ins { background: #dcf3e3; color: #14532d; text-decoration: none; border-radius: 2px; font-weight: 600; }
+/* 고친 문단 — 깃 diff 처럼(spec_작업 ② §8 「화면」 · app.js gitView·gitFmt·gitGone): 항목 왼쪽 띠·상태 글자 = M 고침(문서의 주황 띠와 같은 색) · A 새 문단(초록) · D 지움(빨강),
+   − 원본 줄(옅은 빨강 · 지운 글 진하게) / + 지금 줄(옅은 초록 · 넣은 글 진하게) — 줄마다 이름표(원본·확정 n·지금)를 둬 색만으로 가르지 않는다 · 모양은 「모양 · − 원본 · + 지금」 표 */
+.edit-item.g-M { box-shadow: inset 3px 0 0 var(--edit); }
+.edit-item.g-A { box-shadow: inset 3px 0 0 var(--ok); }
+.edit-item.g-D { box-shadow: inset 3px 0 0 var(--fail); }
+.gk { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 3px; font: 700 10.5px/1 Consolas, "Malgun Gothic", monospace; color: #fff; flex: none; }
+.gk-M { background: var(--edit); }
+.gk-A { background: var(--ok); }
+.gk-D { background: var(--fail); }
+.gd { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; line-height: 1.55; border-radius: 4px; overflow: hidden; }
+.gd-line { display: grid; grid-template-columns: 14px auto minmax(0, 1fr); column-gap: 6px; padding: 2px 6px; white-space: pre-wrap; word-break: break-word; }
+.gd-line.del { background: #fff0f0; }
+.gd-line.ins { background: #edfaf1; }
+.gd-line.ctx { background: var(--surface-2); color: var(--muted); }
+.gd-sign { font: 700 12px/1.55 Consolas, monospace; text-align: center; user-select: none; }
+.gd-line.del .gd-sign { color: var(--fail); }
+.gd-line.ins .gd-sign { color: var(--ok); }
+.gd-who { font-size: 11px; color: var(--muted); white-space: nowrap; padding-top: 1px; }
+.gd-line del { background: #fccfcf; color: #7f1d1d; text-decoration: line-through; border-radius: 2px; }
+.gd-line ins { background: #b9ecc8; color: #14532d; text-decoration: none; border-radius: 2px; font-weight: 600; }
+.gd-note { margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+table.gd-fmt { margin-top: 6px; width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+table.gd-fmt th, table.gd-fmt td { padding: 2px 6px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+table.gd-fmt th { font-size: 11px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+table.gd-fmt th:first-child, table.gd-fmt td.k { width: 34%; }
+table.gd-fmt td.k { color: var(--text); }
+table.gd-fmt td.del { background: #fff0f0; color: #7f1d1d; }
+table.gd-fmt td.ins { background: #edfaf1; color: #14532d; font-weight: 600; }
+table.gd-fmt tr + tr td { border-top: 1px solid var(--surface); }
+.gd-part { margin-left: 4px; font-size: 10.5px; padding: 0 4px; border-radius: 3px; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
+.gd-gone summary { cursor: pointer; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; list-style: none; }
+.gd-gone summary::-webkit-details-marker { display: none; }
+.gd-gone summary::before { content: "▸"; color: var(--muted); font-size: 11px; width: 10px; }
+.gd-gone[open] summary::before { content: "▾"; }
+.gd-gone summary .muted { font-size: 11.5px; }
+.gd-gone[open] summary { margin-bottom: 6px; }
 .warn-text { color: var(--warn); }
 .edit-item .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); }
 .edit-item .row .spacer { flex: 1; }

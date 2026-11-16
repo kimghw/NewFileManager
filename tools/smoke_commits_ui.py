@@ -117,8 +117,11 @@ with sync_playwright() as pw:
     check("확정 뒤 고침: 원래 글 = 확정본 글(★0 포함)", ev(f"state.original['{pid}'].endsWith('★0') && state.texts['{pid}'].endsWith('★0◆')"))
     page.click("#tabEdits")
     check("확정 뒤 고침: 「확정본으로 되돌리기」 단추", ev("document.querySelector('#editsList .edit-item .btn').textContent") == "확정본으로 되돌리기")
-    diff = ev("document.querySelector('#editsList .diff').textContent")
-    check("확정 뒤 고침: 목록의 차이는 ◆ 만", ev("document.querySelector('#editsList .diff ins').textContent") == "◆" and ev("document.querySelector('#editsList .diff del')") is None, diff)
+    # 고친 문단 목록 = 깃 diff 처럼(spec_작업 ② §8 「화면」 — 2026-11-16): − 확정 1 줄 · + 지금 줄, 넣은 글만 <ins>
+    diff = ev("document.querySelector('#editsList .gd').textContent")
+    check("확정 뒤 고침: 목록의 차이는 ◆ 만", ev("document.querySelector('#editsList .gd-line.ins ins').textContent") == "◆" and ev("document.querySelector('#editsList .gd del')") is None, diff)
+    check("확정 뒤 고침: − 줄 이름표 = 확정 1 · 상태 글자 M", ev("document.querySelector('#editsList .gd-line.del .gd-who').textContent") == "확정 1"
+          and ev("document.querySelector('#editsList .edit-item .gk').textContent") == "M")
     page.click("#editsList .edit-item .btn")
     page.wait_for_function("document.getElementById('editsBadge').textContent === '0'", timeout=20000)
     check("되돌리기: 확정본 글로(★0 남고 ◆ 없음)", ev(f"""document.querySelector('.para[data-id="{pid}"]').textContent.endsWith('★0')"""))

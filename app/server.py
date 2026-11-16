@@ -1756,6 +1756,33 @@ def _commit_zero(w):
     return {"n": 0, "at": w.get("created"), "message": "올린 원본", "sha256": w.get("sha256"), "size": w.get("size"), "counts": None, "restoreOf": None}
 
 
+from app import edit_detail  # noqa: E402
+
+DETAIL_KINDS = ("format", "struct")   # 모양이 바뀌었을 수 있는 고친 문단 — 글만 고친 문단(text)은 화면이 원래 글로 그린다
+
+
+@app.get("/api/docs/{doc_id}/edits/detail")
+def edits_detail(doc_id: str, limit: int = 300):
+    """고친 문단이 어떻게 바뀌었나(② §8 「화면」 — 깃 diff 처럼): 모양이 바뀐 문단마다 모양 값의 기준 → 지금 [{key, label, before, after, part?}].
+    문서 차례 앞 limit 개 · 읽기만(_bump 없음). 같은 편집 차례·기준이면 한 번 센 것을 돌려준다(지금 블록 읽기가 큰 문서에서 1 s 안팎)."""
+    s = _sess(doc_id)
+    limit = max(1, min(int(limit), 2000))
+    with s.lock:
+        key = (s.rev, s.base_n, id(s.blocks), limit)
+        memo = getattr(s, "edit_detail_memo", None)
+        if memo and memo[0] == key:
+            return memo[1]
+        kinds = s.kinds()
+        ids = [i for i in s.texts if kinds.get(i) in DETAIL_KINDS]
+        items = {}
+        if ids:
+            base, now = edit_detail.index(s.blocks), edit_detail.index(s.doc.blocks())
+            items = {i: edit_detail.changes(base.get(i), now.get(i)) for i in ids[:limit]}
+        out = {"rev": s.rev, "base": s.base_n, "items": items, "more": max(0, len(ids) - limit)}
+        s.edit_detail_memo = (key, out)
+    return out
+
+
 @app.get("/api/docs/{doc_id}/commits")
 def commits_list(doc_id: str):
     """확정 기록 — 최근 것부터, 끝에 올린 원본(n 0). base = 지금 기준, edited = 확정하지 않은 고친 문단 수."""
