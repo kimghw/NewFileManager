@@ -170,7 +170,9 @@ try:
         sure = sum(1 for h in next(i for i in v1["items"] if i["key"] == "templates").get("hints") or [] if h.get("sure"))
         rel = f" · 종속 {sure}" if sure else ""
         want_t = ("템플릿 조정 · %s줄%s" % (format(L["moved"], ","), rel), "plan") if L["moved"] else (("템플릿 조정" + rel, "plan") if sure else ("템플릿 조정", "skip"))
-        want_f = ("서식 조정 · %s줄" % format(L["change"], ","), "plan") if L["change"] else ("서식 조정", "skip")
+        place = f1.get("place", 0)   # 자리 맞춤이 남은 줄(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8): 「서식 조정」 칸의 수 = 맞출 줄 + 이 수
+        want_f = ("서식 조정 · %s줄" % format(L["change"] + place, ","), "plan") if L["change"] + place else ("서식 조정", "skip")
+        check("분석 상태: 자리 맞춤이 남은 줄이 있다(양식은 내어쓰기가 접두 폭과 다르거나 없다) · 「모두 반영」 title 에 그 수", place > 0 and f"지금 {place:,}줄" in c[8]["title"] and "묶음 빈칸" in c[8]["title"], (place, c[8]["title"]))
         check("두 칸 = 계획의 수(뗄 줄 · 맞출 줄) · 「모두 반영」 은 보라 단추", (c[6]["text"], c[6]["state"]) == want_t and (c[7]["text"], c[7]["state"]) == want_f
               and c[8]["text"] == "모두 반영" and c[8]["go"] and not c[8]["off"], (c[6:], want_t, want_f))
         check("「모두 반영」 title: 맞출 줄 · 뗄 줄 · 실행 취소 한 번", f"대표에 맞출 줄 {L['change']:,}개" in c[8]["title"] and f"뗄 줄 {L['moved']:,}개" in c[8]["title"] and "「실행 취소」 한 번" in c[8]["title"], c[8]["title"])
@@ -202,7 +204,9 @@ try:
               and ((c[8]["text"] == "나머지 받기") if left else c[8]["hidden"]) and c[6]["left"] == c[3]["left"] and c[7]["left"] == c[4]["left"],
               ([(x["text"], x["state"], x["hidden"], x["left"]) for x in c[6:]], left))
         toast = page.evaluate("() => document.getElementById('toast').textContent")
-        check("알림: 템플릿 수 · 맞춘 줄 · 실행 취소 한 번", "계획대로 반영했습니다" in toast and "「실행 취소」 한 번" in toast, toast)
+        check("알림: 템플릿 수 · 맞춘 줄 · 자리 맞춤 줄 · 실행 취소 한 번", "계획대로 반영했습니다" in toast and "「실행 취소」 한 번" in toast and "자리 맞춤" in toast and "묶음 빈칸" in toast, toast)
+        check("반영 뒤: 자리 맞춤이 남은 줄 0 · 문서의 개요 줄 레터 뒤가 묶음 빈칸(U+2002)", f2.get("place") == 0
+              and page.evaluate("() => [...document.querySelectorAll('#doc .para')].filter((p) => /^ *[-ㅇo□]\u2002/.test(p.textContent)).length") > 20, f2.get("place"))
         if L["moved"]:  # 오버레이 요약을 다시 읽을 때까지(tpbApply 의 outlineLoad)
             page.wait_for_function("() => Object.values((heads.outline || {}).templates || {}).some((t) => t.vari)", timeout=30000)
         tpl = page.evaluate("() => Object.values((heads.outline || {}).templates || {}).filter((t) => t.vari).map((t) => t.no)")
@@ -213,6 +217,28 @@ try:
         sure2 = sum(1 for h in next(i for i in formats(wid)[1]["items"] if i["key"] == "templates").get("hints") or [] if h.get("sure"))
         check(f"확실한 종속 {sure}개를 같은 반영에서 넣음 — 종속 템플릿이 그 수 · 남은 확실한 제안 0 · 알림에 「템플릿 종속」(실행 취소는 그대로 1)", len(comp) == sure and sure2 == 0 and (not sure or "템플릿 종속" in toast), (comp, sure, sure2, toast))
         page.locator("#paneHeads").screenshot(path=str(OUT / "4_applied.png"))
+
+        # ---- 조정 줄 — 반영한 계획이 남긴 줄 · 대표만 바꾸는 계획(2026-11-16 astra: 답이 없던 줄이 ✓ 뒤로 사라졌고, 맞출 줄이 0 이면 대표 변경이 있어도 「모두 반영」 이 안 떴다).
+        #      분석 상태 사본에 그 수를 흉내 낸 뒤 되돌린다 — 요청은 안 나간다
+        syn = page.evaluate("""() => {
+          const f = dsState.main.items.find((i) => i.key === 'formats'), keep = JSON.stringify(f.llm), out = {};
+          const cell = (k) => { const b = document.querySelector(`#headsOverview .hprog [data-tpb="${k}"]`), n = b.querySelector('.hprog-count');
+            return { state: b.dataset.state, text: b.hidden ? '' : [b.querySelector('.hprog-text').textContent, n && n.innerText].filter(Boolean).join(' · '), title: b.title, hidden: b.hidden, label: b.getAttribute('aria-label') }; };
+          Object.assign(f.llm, { state: 'done', need: 1, planned: 0, applied: 1, stale: 0, done: 1, change: 0, moved: 0, reps: 0, left: { kept: 3, unanswered: 7 }, list: [{ tpl: '3', no: '3', state: 'applied', left: { kept: 3, unanswered: 7 } }] });
+          tplPlanBarSync(true); out.left = { tpl: cell('tpl'), fmt: cell('fmt') };
+          f.llm.left = { kept: 3, unanswered: 0 };
+          tplPlanBarSync(true); out.kept = { fmt: cell('fmt') };
+          Object.assign(f.llm, { planned: 1, applied: 0, done: 0, reps: 1, kept: 0, unanswered: 0, omitted: 0, left: { kept: 0, unanswered: 0 }, list: [{ tpl: '3', no: '3', state: 'planned', change: 0, moved: 0, reps: 1, at: 1 }] });
+          tplPlanBarSync(true); out.rep = { fmt: cell('fmt'), act: cell('act') };
+          f.llm = JSON.parse(keep); tplPlanBarSync(true);
+          return out;
+        }""")
+        check("조정 줄: 반영한 계획이 답 없이 남긴 줄이 있으면 「서식 조정」 은 ✓ 가 아니라 「답 없음 7줄」(도움말에 그대로 둔 줄 · 답 없는 줄) · 「템플릿 조정」 은 ✓ 그대로",
+              (syn["left"]["fmt"]["state"], syn["left"]["fmt"]["text"]) == ("left", "서식 조정 · 답 없음 7줄") and "답이 없어 안 바꾼 줄 7" in syn["left"]["fmt"]["title"]
+              and "에이전트가 그대로 둔 줄 3" in syn["left"]["fmt"]["title"] and syn["left"]["tpl"]["state"] == "llm" and "답이 없어 안 바꾼 줄이 남음" in syn["left"]["fmt"]["label"], syn["left"])
+        check("조정 줄: 에이전트가 까닭을 적고 그대로 둔 줄만 남았으면 ✓ 그대로 — 도움말에 그 수", syn["kept"]["fmt"]["state"] == "llm" and "에이전트가 그대로 둔 줄 3" in syn["kept"]["fmt"]["title"], syn["kept"])
+        check("조정 줄: 대표만 바꾸는 계획(맞출 줄 0 · 대표 변경 1) — 「서식 조정 · 대표 1」 · 「모두 반영」 이 켜짐",
+              (syn["rep"]["fmt"]["state"], syn["rep"]["fmt"]["text"]) == ("plan", "서식 조정 · 대표 1") and not syn["rep"]["act"]["hidden"] and syn["rep"]["act"]["text"] == "모두 반영", syn["rep"])
 
         # ---- ⑤ 실행 취소 한 번 — 문서가 처음 그대로
         r = requests.post(f"{base}/api/docs/{wid}/undo", timeout=120)

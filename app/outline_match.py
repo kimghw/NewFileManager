@@ -9,6 +9,7 @@
 import copy
 import hashlib
 import json
+import weakref
 from collections import Counter
 
 from app import outline_edit as OE
@@ -44,7 +45,7 @@ def ws(s):
         while j < len(s) and s[j] == ch:
             j += 1
         n = j - i
-        parts.append(f"{n}칸" if ch == " " else f"탭{n if n > 1 else ''}" if ch == "\t" else f"전각 {n}칸" if ch == "　" else f"U+{ord(ch):04X}×{n}")
+        parts.append(f"{n}칸" if ch == " " else f"묶음 {n}칸" if ch == "\u2002" else f"탭{n if n > 1 else ''}" if ch == "\t" else f"전각 {n}칸" if ch == "　" else f"U+{ord(ch):04X}×{n}")
         i = j
     return " + ".join(parts)
 
@@ -118,6 +119,8 @@ def look(doc, ov, pid):
         out["line1Mm"] = out["line2Mm"] = None
     else:
         out["line1Mm"], out["line2Mm"] = _r(left + max(first, 0.0)), _r(left + max(-first, 0.0))
+        if x.get("role") not in OE.ROOTED and _at_text(doc, p, lead, tok, gap, first):
+            out["line2At"] = AT_TEXT  # 둘째 줄이 제 글 시작에 있다 — 비교는 mm 값이 아니라 이것으로(cval)
     for k in ("align", "indentRightMm", "spaceBeforePt", "spaceAfterPt"):
         out[k] = _r(para.get(k))
     out["lineSpacingPct"] = _r(para.get("lineSpacingPct"), 0)
@@ -145,14 +148,50 @@ def shown(key, v):
     return str(v) if v != "" else "—"
 
 
+AT_TEXT = "글 시작"  # 「2번째 줄」 의 비교 값 — 둘째 줄이 그 줄의 글 시작에 있다(자리 규칙대로: spec_hwpx_웹편집 ② §8-8 「규칙이 같으면 같은 서식」)
+_MEASURES = weakref.WeakKeyDictionary()  # 문서 → (글자 폭 재개 outline_pos.Measure, 접두 폭 기억 {(접두 글, 글자 모양 id 들): mm | None})
+
+
+def _at_text(doc, p, lead, tok, gap, first):
+    """그 줄의 둘째 줄이 **제 글 시작**(첫 줄 시작 + 접두 폭)에 있는가 — 내어쓰기 값이 접두 폭과 같다. 접두를 못 재면(탭 · 긴 접두) False.
+    같은 레벨에서도 접두 폭은 줄마다 다를 수 있다(번호형 「9.」·「10.」 · 줄 맞춤으로 자간을 줄인 레터) — 그런 줄들의 둘째 줄 mm 값은 달라도 서식(규칙)은 같다."""
+    if not tok:
+        return False
+    from app import outline_pos as OP  # outline_pos 는 이 모듈을 함수 안에서만 읽는다 — 서로 물리지 않게 여기서도 함수 안에서
+    from app.heading_extract import _cid_at as cid_of, run_ranges
+    m, memo = _MEASURES.get(doc) or _MEASURES.setdefault(doc, (OP.Measure(doc), {}))
+    rr, fb = run_ranges(doc, p), doc._char_id(p)
+    text = lead + tok + gap
+    cids = tuple(cid_of(rr, i, fb) for i in range(len(text)))
+    key = (text, cids)
+    if key not in memo:
+        try:
+            memo[key] = m.width(text, lambda i: cids[i]) if all(ch in OP.BLANKS for ch in lead + gap) else None
+        except Exception:  # noqa: BLE001 — 폭을 못 재는 줄 하나가 서식 갈래 읽기를 막지 않게
+            memo[key] = None
+    w = memo[key]
+    return w is not None and w <= OP.MAX_PREFIX_MM and abs(max(first, 0.0) + w - max(-first, 0.0)) <= 0.05
+
+
+def cval(lk, k):
+    """비교에 쓰는 값 — 「2번째 줄」 은 둘째 줄이 제 글 시작에 있으면 mm 값이 아니라 AT_TEXT(규칙이 같으면 같은 서식 — ② §8-8). 그 밖은 `look` 의 값 그대로."""
+    return AT_TEXT if k == "line2Mm" and lk.get("line2At") else lk.get(k)
+
+
+def cshown(lk, k):
+    """비교 값의 화면 글 — 「2번째 줄」 이 글 시작에 있으면 「글 시작(9.7mm)」."""
+    v = lk.get(k)
+    return f"{AT_TEXT}({v:g}mm)" if k == "line2Mm" and lk.get("line2At") and v is not None else shown(k, v)
+
+
 def diff(a, b):
     """비교 값 a(대표) 와 b 의 다른 키 → [[키, 이름, 대표 글, b 글]…](KEYS 차례)."""
-    return [[k, LABELS.get(k, k), shown(k, a.get(k)), shown(k, b.get(k))] for k in KEYS if a.get(k) != b.get(k)]
+    return [[k, LABELS.get(k, k), cshown(a, k), cshown(b, k)] for k in KEYS if cval(a, k) != cval(b, k)]
 
 
 def same(a, b):
-    """두 줄의 비교 값이 같은가 — KEYS 만 견준다(`look` 에 함께 실린 줄 맞춤 값 FIT_KEYS 는 안 본다)."""
-    return all(a.get(k) == b.get(k) for k in KEYS)
+    """두 줄의 비교 값이 같은가 — KEYS 만 견준다(`look` 에 함께 실린 줄 맞춤 값 FIT_KEYS 는 안 본다). 「2번째 줄」 은 규칙으로(cval)."""
+    return all(cval(a, k) == cval(b, k) for k in KEYS)
 
 
 def _cell_of(p):
@@ -241,11 +280,11 @@ def variants(doc, ov, tid, level, order=None, full=False):
             lk = look(doc, ov, pid)
         except (KeyError, ValueError):
             continue
-        key = repr([lk.get(k) for k in KEYS])
+        key = repr([cval(lk, k) for k in KEYS])
         looks[pid] = lk
         groups.setdefault(key, {"key": key, "paras": [], "look": lk})["paras"].append(pid)
     rep = sl.get("rep") if sl.get("rep") in looks else None
-    rep_key = repr([looks[rep].get(k) for k in KEYS]) if rep else None
+    rep_key = repr([cval(looks[rep], k) for k in KEYS]) if rep else None
     base = groups[rep_key]["look"] if rep_key else None
     out = []
     fit = lambda q: tuple(looks[q].get(k) for k in ("ratioPct", "spacingPct", "L.ratioPct", "L.spacingPct"))  # noqa: E731
@@ -257,12 +296,12 @@ def variants(doc, ov, tid, level, order=None, full=False):
         key = rep if is_rep else next(q for q in g["paras"] if fit(q) == top)
         lk = looks[key]
         out.append({"key": key, "count": len(g["paras"]), "paras": g["paras"] if full else g["paras"][:_LIST_MAX], "more": 0 if full else max(0, len(g["paras"]) - _LIST_MAX),
-                    "rep": is_rep, "look": {k: shown(k, v) for k, v in lk.items()}, "raw": lk,  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
+                    "rep": is_rep, "look": {k: cshown(lk, k) for k in lk if k != "line2At"}, "raw": lk,  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
                     "diff": diff(base, lk) if base and not is_rep else []})
     out.sort(key=lambda g: (not g["rep"], -g["count"], order.get(g["paras"][0], 1 << 30) if g["paras"] else 0))
     # sig = 이 레벨의 줄 구성 지문(줄 id → 갈래 — 값 칸도 줄로 든다: 서식 비교에서는 빠져도 떼기·번호형 형제 검사에는 든다) · repIds = 대표 줄이 실제로 지닌 모양 참조(맞추면 복사되는 문단·스타일·글자 정의):
     # 서식 정리 계획을 문서 차례가 아니라 **그 템플릿 줄의 지문**에 묶는 데 쓴다(tpl_agent.fingerprint — spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」)
-    sig = hashlib.sha1(json.dumps([[p, repr([looks[p].get(k) for k in KEYS]) if p in looks else "V"] for p in alive], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    sig = hashlib.sha1(json.dumps([[p, repr([cval(looks[p], k) for k in KEYS]) if p in looks else "V"] for p in alive], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     rep_ids = None
     if rep:
         try:
@@ -321,14 +360,62 @@ def label_sync(doc, ov, g):
 
 
 OFF = "≠"  # 번호 대신 보이는 표시 — 서식이 대표와 다른데 저장된 라벨로는 구별되지 않는 줄(대표의 라벨이던 줄을 손으로 바꿈 · 라벨이 없는 줄). 저장하지 않는다(보일 때 셈한다)
+NEAR = "≈"  # 그런 줄 가운데 **대표와 거의 같은** 줄 — 레터가 같고 다른 값이 모두 오차 안(추출이 대표와 같은 번호로 묶는 줄). 2026-11-16 사용자 "≠ 이거는 유사한 의미가 아니라 ≈ 이걸로 수정해줘야지"
+# 오차로 견주는 비교 값 → tolerance 의 문턱 키(여럿이면 합 — 「2번째 줄」 = 왼쪽 여백 + 내어쓰기라 둘의 합) · 같은 군이면 같은 값(글꼴 별칭 · 색 군)
+_NEAR_NUM = {"line1Mm": ("indentMm",), "line2Mm": ("indentMm", "firstLineMm"), "indentRightMm": ("indentMm",), "spaceBeforePt": ("spacePt",),
+             "spaceAfterPt": ("spacePt",), "lineSpacingPct": ("lineSpacingPct",), "sizePt": ("sizePt",), "L.sizePt": ("sizePt",)}
+_NEAR_GROUP = {"font": "fontAliases", "L.font": "fontAliases", "color": "colors", "L.color": "colors"}
+
+
+def _group(v, groups):
+    """값 v 가 든 군(글꼴 별칭군 · 색 군) — 어느 군에도 없으면 값 그대로(대·소문자 무시)."""
+    key = str(v).casefold() if v is not None else None
+    for i, grp in enumerate(groups or ()):
+        if any((str(x).casefold() if x is not None else None) == key for x in grp):
+            return ("군", i)
+    return key
+
+
+def near(a, b, tol):
+    """비교 값 a(대표)와 b 가 **오차 안**인가(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」 ⓓ 의 「≈」) — 다른 값마다: 레터 · 정렬 · 굵게 · 기울임 · 밑줄이 다르면 아님 ·
+    앞 공백 · 레터 뒤 공백은 빈칸뿐일 때 칸 수 차이 ≤ leadSpaces(보통 빈칸과 묶음 빈칸은 같은 한 칸) · mm·pt·% 는 문턱 이하 · 글꼴 · 색은 같은 군. tol = heading_guides 의 오차 기준."""
+    for k in KEYS:
+        if cval(a, k) == cval(b, k):
+            continue
+        x, y = a.get(k), b.get(k)
+        if k in ("lead", "gap"):
+            x, y = (x or "").replace("\u2002", " "), (y or "").replace("\u2002", " ")
+            if x.strip(" ") or y.strip(" ") or abs(len(x) - len(y)) > float(tol.get("leadSpaces") or 0):
+                return False
+        elif k in _NEAR_NUM:
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (x, y)):
+                return False
+            if abs(x - y) > sum(float(tol.get(t) or 0) for t in _NEAR_NUM[k]) + 1e-9:
+                return False
+        elif k in _NEAR_GROUP:
+            if _group(x, tol.get(_NEAR_GROUP[k])) != _group(y, tol.get(_NEAR_GROUP[k])):
+                return False
+        else:
+            return False
+    return True
+
+
+def _tolerance():
+    """지금 오차 기준(지침 tolerance) — 못 읽으면 기본값(라벨 하나 때문에 화면이 멈추지 않게)."""
+    from app import heading_guides as G  # 라벨을 셈할 때만 읽는다
+    try:
+        return G.tolerance()
+    except (ValueError, OSError):
+        return dict(G.TOLERANCE_DEFAULT)
 
 
 def labels_now(doc, ov, ids=None):
     """줄마다 **지금 보일** 서식 라벨 {문단 id: 라벨}(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」) — 저장된 라벨(`lines[].fmt`: 추출한 때의 것 · 맞추면 대표의 것)을 그대로 믿지 않고
     **지금 비교 값을 레벨 대표와 견줘** 정한다(2026-11-16 astra: 손으로 서식을 바꾸는 길이 여럿이라 편집마다 라벨을 고치는 것보다 보일 때 셈하는 쪽이 빠짐이 없다):
-    대표와 비교 값이 같은 줄 = 대표의 라벨(화면은 대표의 라벨과 같으면 번호를 안 그린다) · 다른 줄 = 제 라벨, 제 라벨이 대표의 것과 같거나 없으면 OFF(「≠」).
+    대표와 비교 값이 같은 줄 = 대표의 라벨(화면은 대표의 라벨과 같으면 번호를 안 그린다) · 다른 줄 = 제 라벨, 제 라벨이 대표의 것과 같거나 없으면
+    오차 안이면 NEAR(「≈」 — 대표와 거의 같음: `near`), 레터가 다르거나 오차 밖이면 OFF(「≠」).
     대표가 없거나 대표의 라벨이 없는 레벨은 저장된 라벨 그대로. ids 를 주면 그 줄이 든 레벨의 줄만(대표 줄이 바뀌면 그 레벨 전부가 달라지므로 레벨 단위)."""
-    lines, out, slots = ov["lines"], {}, {}
+    lines, out, slots, tol = ov["lines"], {}, {}, None
     for pid, x in lines.items():
         slots.setdefault((x["tpl"], str(x["level"])), []).append(pid)
     want_ids = None if ids is None else set(ids)
@@ -348,7 +435,12 @@ def labels_now(doc, ov, ids=None):
             lab = own
             if base is not None and pid != rep and _alive(doc, pid) and not lone_value(doc, ov, pid):
                 try:
-                    lab = want if same(look(doc, ov, pid), base) else (own if own and own != want else OFF)
+                    lk = look(doc, ov, pid)
+                    if same(lk, base):
+                        lab = want
+                    elif not own or own == want:  # 번호로는 대표와 구별되지 않는다 — 거의 같은가(≈), 다른가(≠)
+                        tol = tol or _tolerance()
+                        lab = NEAR if near(base, lk, tol) else OFF
                 except (KeyError, ValueError):
                     lab = own
             if lab:
@@ -381,8 +473,20 @@ def rep_shape(doc, ov, pid):
             "fmt": ov["lines"][pid].get("fmt") or ""}  # 대표 줄의 서식 라벨 — 맞춘 줄의 라벨도 이것이 된다(여백의 「S41」 이 추출한 때의 것으로 남던 것)
 
 
-def set_rep(doc, ov, tid, level, pid):
-    """슬롯의 대표를 pid 로 — rep · 동결 접두(prefix·letter) · 모양 참조(attrs)를 그 문단의 지금 것으로. 문서는 안 바꾼다. -> 슬롯."""
+def rep_origin(sl):
+    """슬롯 대표의 출처 — "user"(사람이 정함: repSet — 서식 정리 계획이 못 바꾼다) · "agent"(서식 정리 계획이 정함: agentRep = 그 줄 id — 잠기지 않아 다음 계획이 바꿀 수 있다) ·
+    None(헤딩 그래프가 뽑았거나 저절로 다시 뽑힘). agentRep 은 **그 줄이 지금도 대표일 때만** 뜻이 있다 — 떼기·종속이 대표를 다른 줄로 다시 뽑으면 저절로 출처가 없어진다(지울 곳이 따로 없다)."""
+    if not sl or not sl.get("rep"):
+        return None
+    if sl.get("repSet"):
+        return "user"
+    return "agent" if sl.get("agentRep") == sl["rep"] else None
+
+
+def set_rep(doc, ov, tid, level, pid, by=None):
+    """슬롯의 대표를 pid 로 — rep · 동결 접두(prefix·letter) · 모양 참조(attrs)를 그 문단의 지금 것으로. 문서는 안 바꾼다. -> 슬롯.
+    by = 누가 정했나: None = 사람(대표 정하기 · 대표 미리보기의 묶음 맞추기 — repSet: 잠긴다) · "agent" = 서식 정리 계획의 반영(agentRep: 잠기지 않는다 — 전에는 이것도 repSet 을 켜서
+    다음 계획이 「사람이 정한 대표」 로 보고 못 바꿨다: 2026-11-17 astra). 출처는 rep_origin 으로 읽는다."""
     sl = OE._slot(ov, tid, level)
     if sl is None:
         raise KeyError("그런 템플릿 레벨이 없습니다")
@@ -392,7 +496,13 @@ def set_rep(doc, ov, tid, level, pid):
     if lone_value(doc, ov, pid):
         raise ValueError("값 칸(표 칸에 혼자 있는 레터)은 대표가 될 수 없습니다 — 글이 있는 줄을 대표로 정하세요")
     sh = rep_shape(doc, ov, pid)
-    sl.update(rep=pid, prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"], repSet=True)
+    sl.update(rep=pid, prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])
+    if by == "agent":
+        sl["agentRep"] = pid
+        sl.pop("repSet", None)
+    else:
+        sl["repSet"] = True
+        sl.pop("agentRep", None)
     return sl
 
 
@@ -741,15 +851,19 @@ def carry(old, new, ctx=None):
         except (KeyError, ValueError) as e:
             fails.append((m, str(e)))
     by_anchor = {t.get("anchor"): tid for tid, t in new.get("templates", {}).items()}
-    for t in old.get("templates", {}).values():  # 사람이 정한 대표(repSet) — 그 문단이 새 오버레이에서도 같은 앵커·레벨 줄이면 그대로
+    for t in old.get("templates", {}).values():  # 정해 둔 대표(사람이 정함 repSet · 서식 정리 계획이 정함 agentRep) — 그 문단이 새 오버레이에서도 같은 앵커·레벨 줄이면 그대로, 출처도 같이(사람 것만 잠긴다)
         tid = by_anchor.get(t.get("anchor"))
         for lv, sl in t.get("slots", {}).items():
-            if not sl.get("repSet") or tid is None:
+            who = rep_origin(sl)
+            if not who or tid is None:
                 continue
             x = new["lines"].get(sl.get("rep"))
             nsl = OE._slot(new, tid, lv)
             if nsl is not None and x is not None and x["tpl"] == tid and str(x["level"]) == str(lv):
-                nsl.update({k: sl.get(k) for k in ("rep", "prefix", "letter", "attrs", "bodyChar", "repSet")})
+                nsl.update({k: sl.get(k) for k in ("rep", "prefix", "letter", "attrs", "bodyChar")})
+                nsl.pop("repSet", None)
+                nsl.pop("agentRep", None)
+                nsl.update({"repSet": True} if who == "user" else {"agentRep": sl["rep"]})
     return fails
 
 
@@ -1096,14 +1210,14 @@ def _carry_split(old, new, m, tid):
 
 
 def apply_reps(g, ov):
-    """그래프 g 의 템플릿 레벨 대표 문단(slots[].rep)을 사람이 정한 대표(오버레이 repSet)로 바꾼 **사본** — 서식 복사의 내용 서식 후보가 그 줄의 서식을 뽑게
+    """그래프 g 의 템플릿 레벨 대표 문단(slots[].rep)을 정해 둔 대표(오버레이 — 사람이 정한 repSet · 서식 정리 계획이 정한 agentRep: rep_origin)로 바꾼 **사본** — 서식 복사의 내용 서식 후보가 그 줄의 서식을 뽑게
     (spec_hwpx_웹편집 ② §8-2 · spec_서식복사 ② §12). 그 대표가 오버레이에서 같은 템플릿·레벨 줄일 때만. 바꿀 것이 없으면 g 그대로."""
     if not g or not ov:
         return g
     picks = {}
     for tid, t in (ov.get("templates") or {}).items():
         for lv, sl in (t.get("slots") or {}).items():
-            x = ov["lines"].get(sl.get("rep")) if sl.get("repSet") else None
+            x = ov["lines"].get(sl.get("rep")) if rep_origin(sl) else None  # 계획이 정한 대표도(전에는 계획 반영도 repSet 을 켰다 — 서식 후보가 쓰는 대표는 그대로)
             if x is not None and x["tpl"] == tid and str(x["level"]) == str(lv):
                 picks[(tid, int(lv) - OE.lift_depth(t))] = sl["rep"]  # 표 제목을 표 레벨로 넣은 템플릿(② §8-7)은 오버레이 레벨이 그래프보다 표 레벨 수만큼 깊다
     if not picks:

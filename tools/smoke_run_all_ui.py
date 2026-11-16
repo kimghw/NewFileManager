@@ -301,6 +301,25 @@ try:
         check("되풀이 한도에 닿으면: 「전체 실행 멈춤 — 되풀이 한도(3번)」 · 남은 것(반영하지 않은 계획) · 요청 없음", "되풀이 한도(3번)" in cap["why"] and cap["text"].startswith("전체 실행 멈춤 — 되풀이 한도")
               and "반영하지 않은 계획 2개" in cap["text"] and posts[n3:] == [], (cap, posts[n3:]))
 
+        # ---- 대표만 바꾸는 계획(맞출 줄 0 · 대표 변경 1)도 조정이 반영한다 · 반영한 계획이 남긴 줄은 반영한 뒤에도 알린다(2026-11-16 astra — 전에는 줄 수가 0 이면 조정을 안 돌렸고,
+        #      반영하면 「그대로 둔 줄 · 답이 없어 안 바꾼 줄」 이 사라져 「남은 것 없음」 이라 했다). 분석 상태 사본에 그 수를 흉내 — 요청은 안 나간다
+        n5 = len(posts)
+        rep = page.evaluate("""async () => {
+          const v = await hraStatus(state.id), f = v.items.find((i) => i.key === 'formats');
+          v.busy = false; v.llmPlan.forEach((p) => { p.run = false; });
+          v.items.find((i) => i.key === 'templates').hints = [];
+          f.place = 0; f.noRep = 0;
+          Object.assign(f.llm, { planned: 1, change: 0, moved: 0, reps: 1, kept: 0, unanswered: 0, omitted: 0, left: { kept: 0, unanswered: 0 } });
+          const P = hraLeft(v), plain = hraLeft({ ...v, items: v.items.map((i) => (i.key === 'formats' ? { ...i, llm: { ...i.llm, reps: 0 } } : i)) });
+          Object.assign(f.llm, { planned: 0, reps: 0, left: { kept: 2, unanswered: 5 } });
+          const P2 = hraLeft(v), R = { did: { llm: [], tpls: 1, lines: 0, reps: 1, splits: 0, undo: 1 }, left: [] };
+          return { apply: P.apply, none: plain.apply, ask: hraAsk(P), idle: P2.apply, unseen: hraUnseen(P2), done: hraDone(R, '', P2) };
+        }""")
+        check("대표만 바꾸는 계획: 「맞출 줄 0 · 대표 변경 1」 도 반영할 것(대표 변경이 없으면 아님) · 확인 창에 「대표를 바꿀 레벨 1」 · 끝난 글에 「맞춘 줄 0 · 대표 변경 1」",
+              rep["apply"] is True and rep["none"] is False and "대표를 바꿀 레벨 1" in rep["ask"] and "맞춘 줄 0 · 대표 변경 1" in rep["done"] and posts[n5:] == [], rep)
+        check("반영한 계획이 남긴 줄: 반영한 뒤에도 남은 것으로 알림(그대로 둔 줄 2 · 답이 없어 안 바꾼 줄 5) — 「남은 것 없음」 이 아니다",
+              rep["idle"] is False and any("그대로 둔 줄 2 · 답이 없어 안 바꾼 줄 5" in x for x in rep["unseen"]) and "반영한 계획이 남긴 것" in rep["done"] and "남은 것 없음" not in rep["done"], rep)
+
         # ---- 실행 취소 — 반영한 만큼 되돌리면 올린 파일 그대로
         for _ in range(undone):
             requests.post(f"{base}/api/docs/{wid}/undo", timeout=120).raise_for_status()

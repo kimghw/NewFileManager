@@ -294,6 +294,8 @@ table.tbl.cont { margin-top: 0; }
    브라우저는 문단 맨 첫 글자인 빈칸에는 word-spacing 을 주지 않는다 — 첫머리 조각은 자간으로 준다(references/브라우저_양쪽정렬_줄앞공백.md). */
 .para.hsp, .para.hsp span { word-spacing: calc(var(--hs-w, 0.5em) - var(--hs-f, 0.5em)); }
 .para.hsp .lead-sp { word-spacing: 0; letter-spacing: calc(var(--hs-l, 0.5em) - var(--hs-f, 0.5em)); }
+/* 묶음 빈칸(U+2002 — hp:nbSpace): 한글은 자간을 곱하지 않는다(0.5em × 장평) — 자간이 있는 글에서만 app.js nbWrap 이 이 조각으로 감싼다(spec_hwpx_웹편집 ② §8-8 「묶음 빈칸」) */
+.para .nb-sp { letter-spacing: 0; }
 .para:hover { background: rgba(36, 88, 214, .05); box-shadow: 0 0 0 1px rgba(36, 88, 214, .18); }
 .para:focus { background: rgba(36, 88, 214, .06); box-shadow: 0 0 0 1.5px var(--accent); }
 .para.edited { background: rgba(245, 158, 11, .10); box-shadow: inset 3px 0 0 var(--edit); }

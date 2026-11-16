@@ -1081,7 +1081,7 @@ def outline_get(doc_id: str):
 @app.get("/api/docs/{doc_id}/outline/fmts")
 def outline_fmts(doc_id: str):
     """줄마다 지금 보일 서식 라벨만 {rev, fmts{문단 id: 라벨}} — 화면이 문서가 바뀔 때마다(어느 편집 길이든) 여백의 서식 라벨을 다시 읽는다(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」).
-    대표와 비교 값이 같은 줄은 대표의 라벨 · 다른데 라벨로 구별되지 않는 줄은 「≠」(outline_match.labels_now). 2단계 결과가 없으면 빈 것."""
+    대표와 비교 값이 같은 줄은 대표의 라벨 · 다른데 라벨로 구별되지 않는 줄은 오차 안이면 「≈」, 아니면 「≠」(outline_match.labels_now). 2단계 결과가 없으면 빈 것."""
     s = _sess(doc_id)
     with s.lock:
         ov = _outline_ov(s)

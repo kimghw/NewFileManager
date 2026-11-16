@@ -113,7 +113,7 @@ def test_value_cells_in_an_old_graph_are_not_grouped_or_matched(old):
     assert v["values"] == len(vals) >= 1 and not any(set(g["paras"]) & set(vals) for g in v["groups"]) and v["total"] == len(M.slot_ids(s.outline, tid, lv)) - len(vals)
     before = {p: s.texts[p] for p in vals}
     looks = {p: M.look(s.doc, s.outline, p) for p in vals}
-    r = c.post(f"/api/docs/{d}/outline/templates/{tid}/match", json={})   # 템플릿 맞추기(모든 레벨 · 대표와 다른 줄 모두)
+    r = c.post(f"/api/docs/{d}/outline/templates/{tid}/match", json={"place": False})   # 템플릿 맞추기(모든 레벨 · 대표와 다른 줄 모두)
     assert r.status_code in (200, 409), r.text   # 409 = 맞출 줄이 없음(값 칸뿐인 템플릿)
     changed = set(r.json().get("changed") or [])
     assert not changed & set(vals) and {p: s.texts[p] for p in vals} == before and {p: M.look(s.doc, s.outline, p) for p in vals} == looks
@@ -140,13 +140,13 @@ def test_value_cell_rep_of_an_old_graph_is_never_the_matching_base(old):
     assert v["rep"] is None and v["repMissing"] and v["total"] >= 2                # 화면에는 「대표 없음」 — 글 줄 가운데서 고르게
     text = [p for g in v["groups"] for p in g["paras"]]
     before = {p: (s.texts[p], M.look(s.doc, s.outline, p)) for p in text}
-    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={})
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False})
     assert r.status_code == 400 and "값 칸" in r.json()["detail"]
-    assert c.post(f"/api/docs/{d}/outline/templates/{tid}/match", json={}).status_code in (200, 409)   # 「모든 레벨」 은 그 레벨을 건너뛴다
+    assert c.post(f"/api/docs/{d}/outline/templates/{tid}/match", json={"place": False}).status_code in (200, 409)   # 「모든 레벨」 은 그 레벨을 건너뛴다
     assert {p: (s.texts[p], M.look(s.doc, s.outline, p)) for p in text} == before
     assert c.put(f"/api/docs/{d}/outline/slots/{tid}/{lv}/rep", json={"para": LONE}).status_code == 400   # 값 칸은 대표가 될 수 없다
     assert c.put(f"/api/docs/{d}/outline/slots/{tid}/{lv}/rep", json={"para": text[0]}).status_code == 200
-    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={})
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False})
     assert r.status_code in (200, 409) and not set(r.json().get("changed") or []) - set(text)          # 글 줄끼리만
     while s.state()["undo"]:
         c.post(f"/api/docs/{d}/undo")
@@ -193,7 +193,7 @@ def test_fit_keys_do_not_split_groups_and_survive_match(tmp_path):
         assert [g["count"] for g in v["groups"]] == [5, 1, 1] and peer in v["groups"][0]["paras"] and v["others"] == 2   # 자간만 다른 줄은 대표 갈래 그대로
         assert M.look(s.doc, s.outline, peer)["spacingPct"] == -10 and M.same(M.look(s.doc, s.outline, peer), M.look(s.doc, s.outline, "p6502"))
         assert all(x[0] not in ("spacingPct", "L.spacingPct") for g in v["groups"] for x in g["diff"])
-        r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={})
+        r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={"place": False})
         assert r.status_code == 200, r.text
         assert sorted(r.json()["changed"]) == ["p5209", "p5765"]   # 자간만 다른 줄(peer)은 건드리지 않는다
         got, rep = M.look(s.doc, s.outline, "p5209"), M.look(s.doc, s.outline, "p6502")
@@ -249,7 +249,7 @@ def test_match_keeps_fit_per_language_and_per_run(tmp_path):
         _fit_run(s, pid, 0, plen, {"spacing": {"hangul": -10, "latin": 0}})        # 접두(앞 공백 · 레터 · 뒤 공백): 한글 −10 · 영문 0
         _fit_run(s, pid, plen, mid, {"spacing": {"hangul": -5, "latin": -5}})      # 본문 앞쪽: −5
         _fit_run(s, pid, mid, n, {"spacing": {"hangul": -7, "latin": 3}})          # 본문 뒤쪽: 한글 −7 · 영문 3
-        assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"paras": [pid]}).status_code == 200
+        assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False, "paras": [pid]}).status_code == 200
         assert M.same(M.look(s.doc, s.outline, pid), M.look(s.doc, s.outline, rep))
         lead2, tok2, gap2, plen2, text2 = M.parts(s.doc, s.outline, pid)
         assert text2[plen2:] == text[plen:]                                          # 본문 글은 그대로
@@ -300,7 +300,7 @@ def test_lower_level_is_matched_to_the_planned_rep_even_when_an_upper_split_move
     want = M.look(s.doc, ov, "p6342")
     assert not M.same(M.look(s.doc, ov, "p1604"), want)
     assert c.put(f"/api/docs/{d}/outline/slots/4/3/rep", json={"para": "p6342"}).status_code == 200
-    r = c.post(f"/api/docs/{d}/outline/templates/4/match", json={"levels": [{"level": 2, "likes": [], "splits": [{"likes": ["p6341"]}]}, {"level": 3, "likes": ["p1604"]}]})
+    r = c.post(f"/api/docs/{d}/outline/templates/4/match", json={"place": False, "levels": [{"level": 2, "likes": [], "splits": [{"likes": ["p6341"]}]}, {"level": 3, "likes": ["p1604"]}]})
     assert r.status_code == 200, r.text
     j = r.json()
     assert s.outline["lines"]["p6342"]["tpl"] != "4" and "p1604" in j["changed"]            # 대표 줄은 새 템플릿으로 갔고, 남은 갈래는 바뀌었다
@@ -354,12 +354,12 @@ def test_apply_plans_only_the_plan_the_screen_saw(sess, monkeypatch):
     seen = row()
     assert seen["state"] == "planned" and isinstance(seen["at"], float) and (seen["change"], seen["kept"], seen["unanswered"], seen["omitted"]) == (2, 0, 0, 0)
     url = f"/api/docs/{d}/outline/agent/apply"
-    assert c.post(url, json={"rev": s.rev, "plans": ["3"]}).status_code == 400 and c.post(url, json={"rev": s.rev, "plans": {"3": "x"}}).status_code == 400
+    assert c.post(url, json={"place": False, "rev": s.rev, "plans": ["3"]}).status_code == 400 and c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": "x"}}).status_code == 400
     assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).status_code == 200   # 그 사이 계획을 다시 받았다(문서 차례는 같다)
-    r = c.post(url, json={"rev": s.rev, "plans": {"3": seen["at"]}})
+    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": seen["at"]}})
     assert r.status_code == 409 and "바뀌었습니다" in r.json()["detail"] and s.state()["undo"] == 0   # 화면이 본 계획이 아니다 — 반영하지 않는다
-    assert c.post(url, json={"rev": s.rev, "plans": {"999": 1.0}}).status_code == 409
-    r = c.post(url, json={"rev": s.rev, "plans": {"3": row()["at"]}})
+    assert c.post(url, json={"place": False, "rev": s.rev, "plans": {"999": 1.0}}).status_code == 409
+    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": row()["at"]}})
     assert r.status_code == 200 and r.json()["plans"] == 1 and len(r.json()["changed"]) == 2
     _undo_all(c, d, s)
 
@@ -379,7 +379,7 @@ def test_undo_reverts_only_the_result_and_the_plan_is_used_again(sess, monkeypat
     row = lambda: next(x for x in next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]["list"] if x["tpl"] == "3")  # noqa: E731
     recs = lambda: c.get(f"/api/docs/{d}/headings/llm-changes").json()["applies"]  # noqa: E731
     url, n, at, graph = f"/api/docs/{d}/outline/agent/apply", len(calls), row()["at"], list(s.outline["run"])
-    r = c.post(url, json={"rev": s.rev, "relations": False, "plans": {"3": at}})
+    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"3": at}})
     assert r.status_code == 200 and len(r.json()["changed"]) == 2 and s.outline["agent"]["3"] == at   # 반영함(다 맞춘 템플릿은 「정리할 템플릿」 목록에서 빠진다 — 표로 본다)
     one = recs()[-1]
     assert (one["by"], one["lines"], one["relations"]) == ("all", 2, []) and [(t["tpl"], t["plan"], t["live"]) for t in one["templates"]] == [("3", at, True)]
@@ -389,7 +389,7 @@ def test_undo_reverts_only_the_result_and_the_plan_is_used_again(sess, monkeypat
     back = row()
     assert (back["state"], back["at"], back["change"]) == ("planned", at, 2) and [t["live"] for t in recs()[-1]["templates"]] == [False]   # 계획은 그대로 · 기록은 「되돌림」
     assert list(s.outline["run"]) == graph and c.get(f"/api/docs/{d}/headings").json()["stage2"] is not None                                                              # 헤딩 그래프(스크립트 · LLM 판정)도 그대로
-    r = c.post(url, json={"rev": s.rev, "relations": False, "plans": {"3": at}})
+    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"3": at}})
     assert r.status_code == 200 and len(r.json()["changed"]) == 2 and len(calls) == n            # LLM 을 다시 부르지 않고 같은 계획으로
     assert [[t["live"] for t in x["templates"]] for x in recs()[-2:]] == [[False], [True]]        # 같은 계획의 기록 둘 — 남아 있는 것은 마지막 반영
     _undo_all(c, d, s)
@@ -416,7 +416,7 @@ def test_matched_lines_take_the_rep_format_label(sess):
     tid, lv, rep, odd = _odd_label(c, d, s)
     want, was = s.outline["lines"][rep]["fmt"], s.outline["lines"][odd]["fmt"]
     assert c.get(f"/api/docs/{d}/outline").json()["fmts"][odd] == was != want and "fmt" not in c.get(f"/api/docs/{d}/outline").json()["lines"][odd]
-    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"like": odd})
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False, "like": odd})
     assert r.status_code == 200, r.text
     j = r.json()
     assert odd in j["changed"] and all(s.outline["lines"][p]["fmt"] == want for p in j["changed"])
@@ -431,7 +431,7 @@ def test_label_sync_repairs_an_overlay_matched_before_labels_followed(sess):
     c, d, s = sess
     tid, lv, rep, odd = _odd_label(c, d, s)
     want, was = s.outline["lines"][rep]["fmt"], s.outline["lines"][odd]["fmt"]
-    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"like": odd}).status_code == 200
+    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False, "like": odd}).status_code == 200
     for x in s.outline["lines"].values():   # 옛 오버레이를 흉내 낸다 — 줄에 라벨이 없고 맞춘 줄은 그래프에 옛 라벨로 남아 있다
         x.pop("fmt", None)
     s.outline.pop("fmtv", None)
@@ -451,7 +451,7 @@ def test_manual_format_change_shows_the_line_as_different(sess):
     want = s.outline["lines"][rep]["fmt"]
     now = lambda: c.get(f"/api/docs/{d}/outline/fmts").json()["fmts"]  # noqa: E731
     assert now()[odd] not in ("", want, M.OFF)                                                                     # 맞추기 전 — 제 라벨(대표와 다른 번호)
-    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"like": odd}).status_code == 200 and now()[odd] == want
+    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False, "like": odd}).status_code == 200 and now()[odd] == want
     r = c.post(f"/api/docs/{d}/format/chars", json={"id": odd, "start": 0, "end": 0, "changes": {"sizePt": 31}})   # 글자 크기를 손으로
     assert r.status_code == 200, r.text
     assert r.json()["fmts"][odd] == "≠" and now()[odd] == "≠" and c.get(f"/api/docs/{d}/outline").json()["fmts"][odd] == "≠"   # 대표와 달라졌다 — 편집 응답에도
@@ -471,6 +471,35 @@ def test_manual_format_change_shows_the_line_as_different(sess):
         assert c.put(f"/api/docs/{d}/outline/slots/{tid}/{lv}/rep", json={"para": a2}).status_code == 200
         f = now()
         assert f[b2] != f[a2] or f[b2] == "≠"                                                                       # 대표(a2)와 서식이 다른 b2 는 대표의 라벨로 보이지 않는다
+    _undo_all(c, d, s)
+
+
+def test_a_line_within_tolerance_of_the_rep_shows_as_near(sess):
+    """번호로 구별되지 않는 줄을 둘로 가른다(2026-11-16 사용자 「≠ 이거는 유사한 의미가 아니라 ≈ 이걸로」) — 레터가 같고 다른 값이 오차 안이면 「≈」(대표와 거의 같음),
+    레터가 다르거나 오차 밖이면 「≠」. 편집 응답 · GET …/outline/fmts 가 같은 값을 준다."""
+    c, d, s = sess
+    tid, lv, rep, odd = _odd_label(c, d, s)
+    want, tol = s.outline["lines"][rep]["fmt"], G.tolerance()
+    now = lambda: c.get(f"/api/docs/{d}/outline/fmts").json()["fmts"]  # noqa: E731
+    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/{lv}/match", json={"place": False, "like": odd}).status_code == 200 and now()[odd] == want
+    base = M.look(s.doc, s.outline, rep)
+    size = lambda v: c.post(f"/api/docs/{d}/format/chars", json={"id": odd, "start": 0, "end": 0, "changes": {"sizePt": v}})  # noqa: E731
+    r = size(base["sizePt"] + tol["sizePt"])                                                                        # 글자 크기를 오차만큼만 — 추출이 같은 번호로 묶는 차이
+    assert r.status_code == 200, r.text
+    assert M.NEAR == "≈" and r.json()["fmts"][odd] == "≈" and now()[odd] == "≈" and c.get(f"/api/docs/{d}/outline").json()["fmts"][odd] == "≈"
+    assert s.outline["lines"][odd]["fmt"] == want                                                                   # 저장된 라벨은 그대로(보일 때 셈한다)
+    c.post(f"/api/docs/{d}/undo")
+    r = size(base["sizePt"] + tol["sizePt"] + 1)                                                                    # 오차 밖 — 전처럼 「≠」
+    assert r.status_code == 200 and r.json()["fmts"][odd] == "≠" == M.OFF
+    c.post(f"/api/docs/{d}/undo")
+    assert now()[odd] == want
+    # 판정 함수 — 레터 · 범주(정렬·굵게)가 다르면 오차와 무관하게 아님 · 보통 빈칸과 묶음 빈칸은 같은 한 칸 · 글꼴은 같은 군이면 같음
+    near = lambda **ch: M.near(base, {**base, **ch}, tol)  # noqa: E731
+    assert near() and near(gap=base["gap"].replace(" ", "\u2002")) and near(lead=base["lead"] + " ") and not near(lead=base["lead"] + "   ")
+    assert not near(letter=base["letter"] + "x") and not near(bold=not base["bold"]) and not near(align="?")
+    if isinstance(base["line1Mm"], float):
+        assert near(line1Mm=base["line1Mm"] + tol["indentMm"]) and not near(line1Mm=round(base["line1Mm"] + tol["indentMm"] + 0.2, 1))
+    assert M.near({**base, "font": "함초롬바탕"}, {**base, "font": "HCR Batang"}, tol) and not M.near({**base, "font": "함초롬바탕"}, {**base, "font": "돋움"}, tol)
     _undo_all(c, d, s)
 
 
@@ -567,8 +596,8 @@ def test_sure_relations_are_merged_by_apply_all_and_ambiguous_only_hinted(sess):
     assert [(h["child"], h["sure"]) for h in M.merge_hints(ov2)] == [(amb["child"], False)]      # 남은 것은 애매한 제안 하나
     # 「모두 반영」 — 받아 둔 서식 계획이 없어도 확실한 종속은 건다: 오버레이만 · 트랜잭션 하나
     url, undo, before = f"/api/docs/{d}/outline/agent/apply", s.state()["undo"], c.get(f"/api/docs/{d}/download").content
-    assert c.post(url, json={"rev": s.rev, "relations": False}).status_code == 409            # 서식 계획이 없고 종속도 안 걸라 했으면 할 것이 없다
-    r = c.post(url, json={"rev": s.rev})
+    assert c.post(url, json={"place": False, "rev": s.rev, "relations": False}).status_code == 409            # 서식 계획이 없고 종속도 안 걸라 했으면 할 것이 없다
+    r = c.post(url, json={"place": False, "rev": s.rev})
     assert r.status_code == 200, r.text
     j = r.json()
     assert {m["child"] for m in j["merged"]} == {h["child"] for h in sure}
@@ -587,7 +616,7 @@ def test_sure_relations_are_merged_by_apply_all_and_ambiguous_only_hinted(sess):
     assert c.post(f"/api/docs/{d}/outline/merge", json={"child": h0["child"], "parent": h0["parent"], "at": h0["at"]}).status_code == 200
     assert c.post(f"/api/docs/{d}/outline/unmerge", json={"child": h0["child"], "parent": h0["parent"]}).status_code == 200
     assert (h0["child"], h0["parent"], h0["at"]) not in {(h["child"], h["parent"], h["at"]) for h in M.merge_hints(s.outline)}
-    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev})
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"place": False, "rev": s.rev})
     assert r.status_code == 200 and h0["child"] not in {m["child"] for m in r.json()["merged"]} and r.json()["merged"]
     _undo_all(c, d, s)
 

@@ -56,7 +56,11 @@ P, RUN, T, TBL, PIC, TR, TC = map(_p, ["p", "run", "t", "tbl", "pic", "tr", "tc"
 SUBLIST, CTRL, CAPTION, LINESEG, TAB, BREAK = map(_p, ["subList", "ctrl", "caption", "linesegarray", "tab", "lineBreak"])
 AUTONUM_EL, CELLADDR, CELLSPAN = map(_p, ["autoNum", "cellAddr", "cellSpan"])
 PREFIX = {P: "p", TBL: "t", TC: "c", PIC: "i"}
-SPECIAL = {TAB: "\t", BREAK: "\u2028", _p("fwSpace"): " ", _p("nbSpace"): " ", _p("hyphen"): "-"}
+# \ubb36\uc74c \ube48\uce78(hp:nbSpace)\uc740 \ube14\ub85d \uae00\uc5d0\uc11c U+2002 \ub85c \uc77d\uace0 \uc4f4\ub2e4(spec_hwpx_\uc6f9\ud3b8\uc9d1 \u2461 \u00a78-8 \u300c\ubb36\uc74c \ube48\uce78\u300d \u2014 2026-11-16): \ud55c\uae00\uc740 \ubb36\uc74c \ube48\uce78\uc744 \ubcf4\ud1b5 \ube48\uce78\uacfc \uac19\uc740 \ud3ed(0.5em)\uc73c\ub85c \ucc0d\ub418 \uc591\ucabd \uc815\ub82c\ub85c
+# \ub298\ub9ac\uc9c0 \uc54a\ub294\ub2e4(PDF \uc2e4\uce21 \u2014 references/\ud55c\uae00_\ubb38\ub2e8\ubaa8\uc591_\uc904\ub098\ub214.md). \ub808\ud130 \ub4a4 \ube48\uce78\uc744 \uc774\uac83\uc73c\ub85c \ub450\uba74 \uccab \uc904\uc758 \uae00 \uc2dc\uc791\uc774 \uc904\ub9c8\ub2e4 \ubc00\ub9ac\uc9c0 \uc54a\ub294\ub2e4. \uc804\uc5d0\ub294 U+0020 \uc73c\ub85c \uc77d\uc5b4 \uae00\uc744 \uace0\uce58\uba74 \ubcf4\ud1b5 \ube48\uce78\uc774 \ub410\ub2e4.
+# \uace0\uc815\ud3ed \ube48\uce78(hp:fwSpace \u2014 0.25em)\uc740 \uc804\ucc98\ub7fc U+0020 \uc73c\ub85c \uc77d\ub294\ub2e4(\uae00\uc744 \uace0\uce5c hp:t \uc5d0\uc11c\ub294 \ubcf4\ud1b5 \ube48\uce78\uc774 \ub41c\ub2e4).
+NBSPACE, NB = _p("nbSpace"), "\u2002"
+SPECIAL = {TAB: "\t", BREAK: "\u2028", _p("fwSpace"): " ", NBSPACE: NB, _p("hyphen"): "-"}
 OBJECTS = frozenset(map(_p, ["tbl", "pic", "ole", "container", "equation", "line", "rect", "ellipse", "arc",
                             "polygon", "curve", "connectLine", "textart", "chart", "video"]))
 AUTONUM = {"PICTURE": "figure", "TABLE": "table", "EQUATION": "equation"}
@@ -491,16 +495,16 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         return True
 
     def _write_t(self, t, text):
-        """Rewrite an hp:t; preserve tabs' attributes and explicit line breaks."""
+        """Rewrite an hp:t; preserve tabs' attributes, explicit line breaks and \ubb36\uc74c \ube48\uce78(U+2002 \u2194 hp:nbSpace)."""
         tabs = [c for c in t if c.tag == TAB]
         for c in list(t):
             t.remove(c)
-        parts = re.split(r"([\t\u2028])", text)
+        parts = re.split(r"([\t\u2028\u2002])", text)
         t.text = parts[0] or None
         for sep, part in zip(parts[1::2], parts[2::2]):
             old = tabs.pop(0) if sep == "\t" and tabs else None
             attrs = dict(old.attrib) if old is not None else dict(NEW_TAB) if sep == "\t" else {}
-            etree.SubElement(t, TAB if sep == "\t" else BREAK, attrs).tail = part or None
+            etree.SubElement(t, TAB if sep == "\t" else NBSPACE if sep == NB else BREAK, attrs).tail = part or None
 
     def _set_cell(self, tc, text, templates=()):
         sub = tc.find(SUBLIST)

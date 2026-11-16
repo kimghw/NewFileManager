@@ -3300,12 +3300,23 @@ function renderPara(b, text = null) {
     const t = disp(r.text), m = lead ? leadLen(t) : 0, s = el("span", null, m ? null : t);
     if (m) { s.append(el("span", "lead-sp", t.slice(0, m))); if (m < t.length) s.append(t.slice(m)); }
     if (m < t.length) lead = false;
+    if (t.includes("\u2002") && ((r.format || f).spacingPct || 0)) nbWrap(s); // 묶음 빈칸 — 자간이 있는 글에서만 자간 0 조각으로(② §8-8)
     if (r.format) charLook(s, r.format, f, small);
     else if (f.script) scriptLook(s, f, f); // 문단 전체가 첨자 — 줄 높이는 문단 크기로 두고 글만 윗·아래로
     p.append(s);
   }
   if (state.edited.has(b.id)) p.classList.add("edited");
   return p;
+}
+
+// 묶음 빈칸(U+2002 — hwpx 의 hp:nbSpace, spec_hwpx_웹편집 ② §8-8 「묶음 빈칸」): 한글은 0.5em × 장평으로 찍고 자간을 곱하지 않으며 양쪽 정렬로 늘리지 않는다(레터 뒤 빈칸이 이것이면
+// 첫 줄의 글 시작이 줄마다 밀리지 않는다). 글꼴의 EN SPACE 가 0.5em 이고 브라우저도 이 글자는 양쪽 정렬로 늘리지 않으므로 그대로 맞는다 — 자간이 있는 글에서만 그 글자를 자간 0 조각(.nb-sp — 인라인)으로 감싼다.
+// 조각은 그리기용이다(글 구조가 아니다 — readText·offsetIn 은 글 노드만 본다).
+function nbWrap(s) {
+  for (const n of [...s.childNodes]) {
+    if (n.nodeType !== Node.TEXT_NODE || !n.data.includes("\u2002")) continue;
+    n.replaceWith(...n.data.split(/(\u2002+)/).filter(Boolean).map((x) => (x[0] === "\u2002" ? el("span", "nb-sp", x) : document.createTextNode(x))));
+  }
 }
 
 // 장평(글자 가로 배율, spec_hwpx_웹편집 ② §3-3): 문단 상자를 1/장평 배 넓게 잡고 scaleX(장평)로 줄여 그린다 — 글자가 가로로 줄고 줄 나눔도 한글과 같은 폭에서.
@@ -4111,21 +4122,22 @@ function formatPara(changes) {
 
 async function undoStruct() {
   if (!state.undo || state.busy) return;
+  const epoch = state.epoch, id = state.id; // 문서는 기다리기 전에 잡는다(structOp 와 같은 까닭 — 글 반영을 기다리는 사이 다른 문서를 열면 그 문서의 편집을 되돌리게 된다: 2026-11-16 astra)
   await flushAll();
+  if (epoch !== state.epoch) return;
   if (state.localRev > state.structRev && !confirm("실행 취소하면 마지막 구조·서식 편집 뒤에 고친 글도 함께 되돌아갑니다. 계속할까요?")) return;
-  const epoch = state.epoch;
   state.busy = true;
   refreshToolbar();
   try {
-    const d = await api(`/api/docs/${state.id}/undo`, { method: "POST" });
+    const d = await api(`/api/docs/${id}/undo`, { method: "POST" });
     if (epoch !== state.epoch) return;
     state.localRev += 1;
     state.structRev = state.localRev;
     applyDoc(d);
     outlineLoad(true); // 서버는 개요 오버레이(줄·레벨 자리 규칙)도 그 편집 앞으로 되돌렸다 — 화면 것도 다시 읽는다(spec_hwpx_웹편집 ② §8-1)
     toast(d.pristine ? `실행 취소 —${state.base ? `확정 ${state.base}` : "원본"}과 바이트가 같은 상태로 돌아왔습니다` : "실행 취소했습니다");
-  } catch (e) { toast(e.message, true); }
-  finally { state.busy = false; refreshToolbar(); refreshSaveState(); }
+  } catch (e) { if (epoch === state.epoch) toast(e.message, true); }
+  finally { if (epoch === state.epoch) { state.busy = false; refreshToolbar(); refreshSaveState(); } } // 그 사이 연 다른 문서의 「바쁨」 을 건드리지 않는다
 }
 
 function bindToolbar() {
@@ -7000,9 +7012,14 @@ function tplMarksDraw() {
         // 누르면 그 서식만 또렷이(fmt_focus.js — spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」, 2026-11-15 사용자 「요 서식을 클릭하면 문서에서 이 부분만 잘 보이고」): 라벨마다 눌리는 글(.tm-f — 여럿이면 누른 그 라벨).
         // 전에 누르면 열리던 그 라벨의 문단 목록은 이름 줄 설명의 「목록」 단추가 연다(그 스크립트가 없으면 전처럼 바로 목록)
         // 「≠」 = 대표의 서식이던 줄이 손으로 바뀌어 대표와 달라진 것(번호는 다시 추출해야 안다 — 서버 outline_match.OFF): 그 서식을 또렷이 볼 수 없으니 「템플릿 관계」 의 그 줄 갈래로(다른 값이 거기 보인다)
-        const pick = (id) => (id === "≠" ? tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null)
+        // 「≈」 = 그런 줄 가운데 대표와 거의 같은 줄(레터가 같고 값 차이가 오차 안 — 서버 outline_match.NEAR · 2026-11-16 사용자 「≠ 이거는 유사한 의미가 아니라 ≈ 이걸로」): 「≠」 는 레터가 다르거나 오차 밖일 때만. 둘 다 번호가 아니라 누르면 같은 곳으로
+        const OFFS = { "≈": "≈ — 대표와 거의 같음: 레터가 같고 값 차이가 오차 안입니다(추출이 대표와 같은 서식 번호로 묶는 줄)\n누르면 「템플릿 관계」 에서 무엇이 다른지 보입니다 · 「대표에 맞추기」 로 맞춥니다",
+          "≠": "≠ — 대표와 다름: 레터가 다르거나 값 차이가 오차 밖인데 제 서식 번호가 없습니다(추출한 뒤에 바뀐 줄)\n누르면 「템플릿 관계」 에서 무엇이 다른지 보입니다" };
+        const pick = (id) => (OFFS[id] ? tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null)
           : typeof fmtFocusToggle === "function" ? fmtFocusToggle(id) : headsParas({ fmt: id }));
-        const tip = `서식 라벨 ${fm.join(" · ")} — 1단계가 서식이 같은 문단끼리 묶어 매긴 이름\n누르면 문서에서 그 서식의 문단만 또렷이(나머지는 흐리게) · 다시 누르면 풀림 · 켜진 동안 휠을 굴리면 다음·앞의 그 서식 자리로`;
+        const nums = fm.filter((id) => !OFFS[id]); // 번호 라벨(「S41」)과 번호 아닌 표시(「≈」·「≠」)의 도움말은 따로
+        const tip = [...fm.filter((id) => OFFS[id]).map((id) => OFFS[id]),
+          ...(nums.length ? [`서식 라벨 ${nums.join(" · ")} — 1단계가 서식이 같은 문단끼리 묶어 매긴 이름\n누르면 문서에서 그 서식의 문단만 또렷이(나머지는 흐리게) · 다시 누르면 풀림 · 켜진 동안 휠을 굴리면 다음·앞의 그 서식 자리로`] : [])].join("\n");
         const fill = (f) => { // 글은 전과 같다 — 「S30 S32」 · 넷부터 「+n」
           fm.slice(0, 3).forEach((id, i) => {
             const b = el("span", "tm-f", id);
@@ -7133,8 +7150,9 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
       const li = el("li");
       li.value = L;
       const head = el("div", "trel-level");
-      head.append(el("b", null, `L${L}`), ` 「${os && os.table ? "표 제목" : (base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?"}」`,
-        el("span", "muted", os ? ` ×${nf(os.lines)}` : s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
+      const ltr = os && os.table ? "표 제목" : (base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?";
+      head.append(el("b", null, `L${L}`), " ", el("span", "trel-let", `「${ltr}」`),
+        el("span", "muted trel-cnt", os ? ` ×${nf(os.lines)}` : s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
       if (s.format) head.append(el("span", "slot-format", `서식 ${s.format}`)); // 그 레벨의 대표 서식 라벨(2단계 — 문서 표시의 「서식 라벨」 과 같은 이름)
       head.title = `${L}번째 줄(레벨 ${L})${s.format ? ` · 대표 서식 ${s.format}${s.formats ? `(${Object.entries(s.formats).map(([k, n]) => `${k} ${n}`).join(" · ")})` : ""}` : ""}${(os && os.rep) || s.rep ? ` · 대표 문단 ${(os && os.rep) || s.rep}` : ""}`;
       li.append(head);

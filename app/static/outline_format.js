@@ -23,7 +23,9 @@ function olfRow(id, L) { // 레벨 줄 아래 한 줄(자리가 없는 레벨 �
   row.dataset.tpl = id;
   row.dataset.level = L;
   const to = sl.to, set = !!(sl.pos && sl.pos.set);
-  const sum = el("span", "olf-sum", `레터 ${olfMm(to.letterMm)} · 글 시작 ${olfMm(to.textMm)} · 둘째 줄 ${olfMm(to.line2Mm)}mm`);
+  const sum = el("span", "olf-sum");
+  const kv = (k, v, u = "") => { const s = el("span", "olf-kv"); s.append(el("span", "olf-k", `${k} `), el("b", "olf-v", v), ...(u ? [el("span", "olf-u", u)] : [])); return s; };
+  sum.append(kv("레터", olfMm(to.letterMm)), el("span", "olf-sep", " · "), kv("글 시작", olfMm(to.textMm)), el("span", "olf-sep", " · "), kv("둘째 줄", olfMm(to.line2Mm), "mm"));
   sum.title = "본문(칸) 왼끝에서 잰 자리 — 레터 위치 · 레터 뒤 첫 글자(글 시작) · 줄이 넘어갈 때 둘째 줄이 시작하는 자리.\n"
     + "따로 정하지 않으면 둘째 줄은 글 시작에 맞춥니다: 이 레벨 줄에 글을 쓰거나 Enter 로 새 줄을 만들 때 그 문단에 내어쓰기가 붙습니다(문서가 이미 준 들여쓰기·내어쓰기는 그대로).";
   const rule = el("span", `hb olf-rule${set ? " chg" : ""}`, olfRuleText(sl));

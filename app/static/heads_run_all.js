@@ -6,7 +6,7 @@
 //      스크립트 초안은 그 단계가 스스로 뽑고, 이미 LLM 을 거친 단계는 서버가 건너뛴다)
 //   ② 조정 = 받은 계획 모두 반영(tpl_plan_bar.js tpbApply — POST …/outline/agent/apply: 템플릿 조정 · 서식 조정을 트랜잭션 하나로 · 실행 취소 1)
 //   ③ 반영으로 새로 생긴 서식 종속 템플릿에 서식이 갈린 레벨이 남으면 ① 의 서식 정리 계획 → ② 를 다시(HRA_MAX 번까지)
-// 새 실행 길을 만들지 않는다 — 끝점도 서버 검사도 기존 함수의 것이다. 남은 것은 서버의 분석 상태(GET …/analysis — llmPlan · 서식 항목의 llm{planned, change, moved, list})로 센다.
+// 새 실행 길을 만들지 않는다 — 끝점도 서버 검사도 기존 함수의 것이다. 남은 것은 서버의 분석 상태(GET …/analysis — llmPlan · 서식 항목의 llm{planned, change, moved, reps(대표를 바꿀 레벨), left(반영한 계획이 남긴 줄), list})로 센다.
 // 누르면 무엇이 돌지(돌 LLM 단계 · 건너뛸 단계 · 반영할 줄 수)를 확인 창에 먼저 보인다 — 유료 LLM 이고 문서가 바뀐다. 계획을 보고 반영하려면 「단계별 실행」 과 조정 층의 「모두 반영」.
 // 멈추는 곳(남기고 알린다 — spec_작업에이전트 ② §7): 헤딩 · 표 LLM 단계 실패 · 멈추기 · 반영 실패(표준 검사 · 그 사이 문서가 바뀜) · 다른 문서를 엶 · 되풀이 한도(HRA_MAX)에 닿았는데 남은 것이 있음.
 // 서식 정리 계획만 실패하면 받은 계획은 반영하고 못 받은 템플릿을 남긴다. 끝나면 한 것 · 멈춘 까닭 · 남은 것과 보정할 자리를 알린다(알림 + 단추 title).
@@ -30,12 +30,17 @@ async function hraStatus(id) { // 지금 분석 상태를 서버에서 새로(�
 
 function hraLeft(v) { // 분석 상태 → 남은 것 {llm[돌 LLM 단계], skip[건너뛸 단계], plans(반영할 수 있는 계획 수), change, moved, apply(반영할 것이 있나), need[계획이 없거나 옛것인 템플릿]}
   const f = (v.items || []).find((i) => i.key === "formats"), L = (f && f.llm) || {}, plan = v.llmPlan || [];
-  const lines = L.change === undefined ? null : (L.change || 0) + (L.moved || 0); // null = 서버가 옛 판(줄 수를 모른다 — 반영은 해 본다)
+  // 반영하면 바뀔 것 = 맞출 줄 + 뗄 줄 + **대표를 바꿀 레벨**(reps — 「맞출 줄 0 · 대표 변경 1」 인 계획도 반영할 것이다: 2026-11-16 astra — 전에는 줄 수가 0 이면 조정을 안 돌렸다). null = 서버가 옛 판(줄 수를 모른다 — 반영은 해 본다)
+  const lines = L.change === undefined ? null : (L.change || 0) + (L.moved || 0) + (L.reps || 0);
   const h = (v.items || []).find((i) => i.key === "heads") || {};
   const rel = ((v.items || []).find((i) => i.key === "templates") || {}).hints || [], sure = rel.filter((x) => x.sure).length; // 종속 — 확실한 것은 조정(모두 반영)이 저절로 건다 · 애매한 것은 제안으로 남긴다
   // undecided = 헤딩 판정의 미판정 노드(LLM 구간 검증이 실패해 스크립트 초안으로 남은 것) — 있으면 조정(반영)을 하지 않는다 · kept/unanswered = 반영해도 남는 줄(에이전트가 그대로 둔 것 · 답이 없던 것)
-  return { llm: plan.filter((p) => p.run), skip: plan.filter((p) => !p.run), plans: L.planned || 0, change: L.change || 0, moved: L.moved || 0,
-    apply: (!!L.planned && lines !== 0) || sure > 0, sure, hints: rel.length - sure, need: (L.list || []).filter((x) => x.state === "none" || x.state === "stale"),
+  return { llm: plan.filter((p) => p.run), skip: plan.filter((p) => !p.run), plans: L.planned || 0, change: L.change || 0, moved: L.moved || 0, reps: L.reps || 0,
+    // done = **반영한** 계획이 지금 문서에 남긴 줄(서버가 지금 갈래로 다시 센다 — 분석 상태 서식 항목의 llm.left): 에이전트가 그대로 둔 줄 · 답이 없어 안 바꾼 줄(검토한 것이 아니다).
+    // 반영한 뒤에도 남는다 — 「받음」 인 계획의 kept·unanswered(아래)와 따로 · norep = 대표가 없는 레벨(갈래가 하나여도 맞춘 레벨이 아니다)
+    done: L.left ? { kept: L.left.kept || 0, unanswered: L.left.unanswered || 0 } : null, norep: (f && f.noRep) || 0, // null = 서버가 옛 판(이 수를 모른다 — 끝난 글은 이번 실행이 센 수로)
+    place: (f && f.place) || 0, // 자리 맞춤이 남은 줄(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8): 계획이 없어도 조정(모두 반영)이 스크립트로 건다
+    apply: (!!L.planned && lines !== 0) || sure > 0 || ((f && f.place) || 0) > 0, sure, hints: rel.length - sure, need: (L.list || []).filter((x) => x.state === "none" || x.state === "stale"),
     undecided: h.undecided || 0, kept: L.kept || 0, unanswered: L.unanswered || 0, omitted: L.omitted || 0,
     at: Object.fromEntries((L.list || []).filter((x) => x.state === "planned" && x.at != null).map((x) => [x.tpl, x.at])) }; // 반영할 계획의 표시 — 방금 읽은 것 그대로 반영한다(tpbApply 의 plans)
 }
@@ -45,7 +50,14 @@ function hraUnseen(P, skipUndec = false) { // 반영할 것이 없어도 「다 
   if (P.hints) out.push(`종속 제안 ${nf(P.hints)}개(애매한 것 — 결과 화면의 「템플릿 관계」 절에서 고릅니다)`);
   const k = [P.kept ? `에이전트가 그대로 둔 줄 ${nf(P.kept)}` : "", P.unanswered ? `답이 없어 안 바꾼 줄 ${nf(P.unanswered)}` : "", P.omitted ? `갈래가 많아 못 본 갈래 ${nf(P.omitted)}` : ""].filter(Boolean);
   if (k.length) out.push(`받아 둔 계획이 남긴 것 — ${k.join(" · ")}(조정 층의 칸을 눌러 계획 보기 · 「템플릿 관계」 에서 손으로)`);
+  out.push(...hraKept(P.done));
+  if (P.norep) out.push(`대표가 없는 레벨 ${nf(P.norep)}개(「템플릿 관계」 에서 줄 하나를 대표로 — 대표가 없으면 맞춘 레벨로 세지 않습니다)`);
   return out;
+}
+// 반영한 계획이 남긴 줄 — 「끝」 으로 뭉개지 않는다: 에이전트가 그대로 둔 줄(까닭은 계획에) · 답이 없어 안 바꾼 줄(검토한 것이 아니다). 반영한 뒤에도(다음 「전체 실행」 에서도) 알린다 → [글] | []
+function hraKept(d) {
+  const kept = d ? [d.kept ? `그대로 둔 줄 ${nf(d.kept)}` : "", d.unanswered ? `답이 없어 안 바꾼 줄 ${nf(d.unanswered)}` : ""].filter(Boolean).join(" · ") : "";
+  return kept ? [`반영한 계획이 남긴 것 — ${kept}(「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로)`] : [];
 }
 const hraUndec = (n) => `헤딩 판정에 미판정 ${nf(n)}곳이 있어(LLM 구간 검증 실패 — 스크립트 초안 그대로) 조정(반영)은 하지 않았습니다 — 받은 계획은 남아 있습니다: 「단계별 실행」 의 헤딩 판정을 다시 돌리거나, 조정 층에서 계획을 확인한 뒤 「모두 반영」 을 누르세요`;
 
@@ -57,9 +69,10 @@ function hraAsk(P) { // 확인 창의 글 — 무엇이 돌고 무엇이 바뀌�
     rows.push("② 조정 — 받은 서식 정리 계획을 에이전트가 고른 그대로 모두 반영합니다(템플릿 조정 · 서식 조정).");
   } else {
     rows.push("LLM 판정은 이미 거쳐 건너뜁니다.",
-      `조정 — 받아 둔 서식 정리 계획 ${nf(P.plans)}개(템플릿)를 에이전트가 고른 그대로 모두 반영합니다: 대표에 맞출 줄 ${nf(P.change)} · 서식 종속 템플릿으로 뗄 줄 ${nf(P.moved)}.`);
+      `조정 — 받아 둔 서식 정리 계획 ${nf(P.plans)}개(템플릿)를 에이전트가 고른 그대로 모두 반영합니다: 대표에 맞출 줄 ${nf(P.change)} · 서식 종속 템플릿으로 뗄 줄 ${nf(P.moved)}${P.reps ? ` · 대표를 바꿀 레벨 ${nf(P.reps)}` : ""}.`);
   }
   if (P.sure) rows.push(`   템플릿 종속 — 한 자리에만 매달린 템플릿 ${nf(P.sure)}개를 그 자리의 템플릿 아래로 넣습니다(확실한 것만 — 문서는 안 바뀌고 템플릿만).`);
+  rows.push(`   자리 맞춤(스크립트) — 맞춘 뒤 레터 뒤 빈칸을 묶음 빈칸으로 · 둘째 줄을 글 시작에 맞춥니다${P.place ? `(지금 ${nf(P.place)}줄 + 맞춘 줄)` : ""}.`);
   rows.push("   문서가 바뀝니다 — 반영 한 번마다 「실행 취소」 한 번으로 되돌립니다.",
     `   반영으로 새로 생긴 서식 종속 템플릿에 서식이 갈린 레벨이 남으면 그 계획도 이어서 받아 반영합니다(${HRA_MAX}번까지 · 유료).`, "",
     "계획을 먼저 보고 반영하려면 「취소」 를 누르고 「단계별 실행」 과 조정 층의 「모두 반영」 을 쓰세요. 계속할까요?");
@@ -203,7 +216,7 @@ async function hraJob(R, started) { // 그 헤딩 작업이 끝날 때까지 —
 }
 
 async function hraApply(R, P) { // 조정 — 받은 계획 모두 반영(진행 줄 「조정」 의 「모두 반영」 과 같은 함수 · 같은 끝점) → 멈춘 까닭 | ""
-  R.note = `조정 — 계획 ${nf(P.plans)}개 모두 반영(맞출 줄 ${nf(P.change)} · 뗄 줄 ${nf(P.moved)})`;
+  R.note = `조정 — 계획 ${nf(P.plans)}개 모두 반영(맞출 줄 ${nf(P.change)} · 뗄 줄 ${nf(P.moved)}${P.reps ? ` · 대표 변경 ${nf(P.reps)}` : ""}${P.place ? ` · 자리 맞춤 ${nf(P.place)}` : ""})`;
   hraSync();
   for (let i = 0; state.busy && i < 50; i += 1) await hraWait(200); // 다른 편집이 끝난 뒤에
   if (!hraLive(R)) return HRA_GONE;
@@ -216,11 +229,13 @@ async function hraApply(R, P) { // 조정 — 받은 계획 모두 반영(진행
   }
   const ts = r.templates || [];
   R.did.tpls += ts.length;
-  R.did.lines += (r.changed || []).length;
+  R.did.lines += (r.changed || []).length - (r.placed || []).length; // 대표에 맞춘 줄
+  R.did.placed = (R.did.placed || 0) + (r.placed || []).length; // 자리 맞춤만 한 줄(묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)
   R.did.splits += ts.reduce((n, t) => n + (t.splits || []).length, 0);
+  R.did.reps = (R.did.reps || 0) + ts.reduce((n, t) => n + (t.levels || []).filter((x) => x.repChanged).length, 0); // 대표를 바꾼 레벨(맞춘 줄이 0 이어도 한 일이다)
   R.did.merged = (R.did.merged || 0) + (r.merged || []).length; // 저절로 건 종속(확실한 것)
   R.did.undo += Math.max(0, (state.undo || 0) - undo0);
-  R.did.kept = (R.did.kept || 0) + P.kept; // 반영한 계획이 남긴 줄 — 끝난 글의 「남긴 것」
+  R.did.kept = (R.did.kept || 0) + P.kept; // 반영한 계획이 남긴 줄 — 끝난 글의 「남긴 것」(마지막 분석 상태를 못 읽었을 때만 쓴다 — 읽었으면 서버가 다시 센 수: hraDone)
   R.did.unanswered = (R.did.unanswered || 0) + P.unanswered;
   return "";
 }
@@ -228,19 +243,17 @@ async function hraApply(R, P) { // 조정 — 받은 계획 모두 반영(진행
 function hraDone(R, why, P) { // 끝난 글 — 한 것 · (멈춘 까닭) · 남은 것과 보정할 자리. P = 마지막 분석 상태의 남은 것 | null(못 읽음 · 다른 문서)
   const d = R.did, llm = [...new Set(d.llm)].map((k) => HRA_PART[k] || k);
   const did = [llm.length ? `LLM ${llm.join(" · ")}` : "",
-    d.tpls || d.merged ? `조정 — ${[d.tpls ? `템플릿 ${nf(d.tpls)}개 반영(맞춘 줄 ${nf(d.lines)}${d.splits ? ` · 서식 종속 템플릿 ${nf(d.splits)}` : ""})` : "", d.merged ? `템플릿 종속 ${nf(d.merged)}` : ""].filter(Boolean).join(" · ")}` : ""].filter(Boolean).join(" → ");
+    d.tpls || d.merged || d.placed ? `조정 — ${[d.tpls ? `템플릿 ${nf(d.tpls)}개 반영(맞춘 줄 ${nf(d.lines)}${d.reps ? ` · 대표 변경 ${nf(d.reps)}` : ""}${d.splits ? ` · 서식 종속 템플릿 ${nf(d.splits)}` : ""})` : "", d.placed ? `자리 맞춤 ${nf(d.placed)}줄` : "", d.merged ? `템플릿 종속 ${nf(d.merged)}` : ""].filter(Boolean).join(" · ")}` : ""].filter(Boolean).join(" → ");
   const undo = d.undo ? ` · 「실행 취소」 ${d.undo > 1 ? `${nf(d.undo)}번` : "한 번"}으로 되돌립니다` : "";
   const left = [...R.left];
   if (P) {
     const judge = P.llm.filter((p) => p.key !== "formats").map((p) => HRA_PART[p.key] || p.key);
     if (judge.length) left.push(`LLM 판정을 안 한 단계 ${judge.join(" · ")} — 「단계별 실행」`);
     if (P.need.length) left.push(`계획을 받지 않은 템플릿 ${nf(P.need.length)}개(${P.need.slice(0, 5).map((x) => `T${x.no}`).join(" · ")}${P.need.length > 5 ? " …" : ""}) — 조정 층의 「나머지 받기」`);
-    if (P.apply) left.push(`반영하지 않은 계획 ${nf(P.plans)}개 — 조정 층의 「모두 반영」`);
-    else left.push(...hraUnseen(P, !!why && why.startsWith("헤딩 판정에 미판정"))); // 바꿀 줄이 없는 계획 · 미판정 — 「남은 것 없음」 이 아니다
-  }
-  // 반영은 했지만 계획이 남긴 줄 — 「끝」 으로 뭉개지 않는다: 에이전트가 그대로 둔 줄(까닭은 계획에) · 답이 없어 그대로 둔 줄(검토한 것이 아니다)
-  const kept = [d.kept ? `그대로 둔 줄 ${nf(d.kept)}` : "", d.unanswered ? `답이 없어 안 바꾼 줄 ${nf(d.unanswered)}` : ""].filter(Boolean).join(" · ");
-  if (kept) left.push(`반영한 계획이 남긴 것 — ${kept}(「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로)`);
+    // 반영은 했지만 계획이 남긴 줄(에이전트가 그대로 둔 줄 · 답이 없어 안 바꾼 줄)은 서버가 **지금 문서의 갈래로 다시 센 수**(P.done)로 알린다 — 이번에 반영한 것뿐 아니라 앞서 반영한 계획이 남긴 것도(hraUnseen 이 싣는다)
+    if (P.apply) left.push(`반영하지 않은 계획 ${nf(P.plans)}개 — 조정 층의 「모두 반영」`, ...hraKept(P.done || d));
+    else left.push(...hraUnseen(P, !!why && why.startsWith("헤딩 판정에 미판정")), ...(P.done ? [] : hraKept(d))); // 바꿀 줄이 없는 계획 · 미판정 · 반영한 계획이 남긴 줄 — 「남은 것 없음」 이 아니다(서버가 옛 판이면 이번 실행이 센 수로)
+  } else left.push(...hraKept(d)); // 마지막 분석 상태를 못 읽었다(다른 문서 · 읽기 실패) — 이번 실행이 반영하며 센 수로
   const rest = left.length ? ` · 남은 것: ${left.join(" / ")}` : "";
   return why ? `전체 실행 멈춤 — ${why}${did ? ` · 한 것: ${did}${undo}` : ""}${rest}` : `전체 실행 끝 — ${did || "새로 한 것 없음"}${undo}${rest || " · 남은 것 없음"}`;
 }

@@ -2,6 +2,7 @@
 // 탭 둘(한 레벨씩):
 //  · 「자리 미리보기」 = 「자리 수정」(outline_format.js 고치기 줄)의 값을 바꾸면 지금 → 바뀐 뒤 — 대표 줄 그림(mm 자 · 레터/글 시작/둘째 줄) · 값 표 · 줄 묶음별 바뀌는 값.
 //    자료 POST …/outline/slots/{tpl}/{L}/preview(문서·규칙은 안 바뀜). 「적용」 은 열의 고치기 줄 「적용」 과 같은 것.
+//    창 머리 아래 **자리 수정 칸**(레터 위치 · 글 시작 · 둘째 줄 규칙·mm — olpEditBuild)에서도 고친다: 열의 고치기 줄의 거울(값의 원본은 그 줄 — olfBody 가 읽는다).
 //  · 「서식 비교」 = 그 레벨의 서식 갈래(outline_match.js OLM.data · OLM.keys)를 표로 — 갈래마다 견본 글(그 갈래의 글꼴·크기·굵기로) · 대표와 다른 값만(「같은 값도」 로 전부) · 대표로 · 맞추기.
 // app.js·outline_format.js·outline_match.js 다음에 읽힌다(el·hBtn·api·toast·heads·state·nf·short·oneLine·headsGo·headsParaLink·olfSlot·olfBody·olmFresh·olmSlotData·olmLoad·olmText·olmTpl·olmSetRep·olmMatch·OLM).
 // 훅: olfRow 「자리 수정」 → olpOpen(…, "pos") · olpFormClosed · olfForm 입력 → olpFormInput · olfRefresh·olmRedraw → olpRefresh · olmRow 「비교」 → olpOpen(…, "cmp").
@@ -40,9 +41,12 @@ function olpWin() { // 창은 하나 — 처음 열 때 만든다
   x.setAttribute("aria-label", "미리보기 창 닫기");
   x.onclick = olpClose;
   head.append(title, tabs, x);
+  const edit = el("div", "olp-edit"); // 자리 수정 칸 — 몸(미리보기를 받을 때마다 다시 그림)과 달리 한 번만 만든다(치던 칸이 안 사라지게)
+  edit.hidden = true;
+  olpEditBuild(edit);
   const body = el("div", "olp-body");
   const foot = el("div", "olp-foot");
-  w.append(head, body, foot);
+  w.append(head, edit, body, foot);
   w.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); olpClose(); } });
   olpDrag(w, head);
   document.body.append(w);
@@ -117,6 +121,7 @@ function olpFormInput(tpl, L) { // 고치기 줄의 값이 바뀜 — 그 레벨
   const w = $("olpWin");
   if (!w || w.hidden || String(OLP.tpl) !== String(tpl) || +OLP.level !== +L) { olpOpen(tpl, L, "pos"); return; }
   if (OLP.tab !== "pos") { OLP.tab = "pos"; olpRender(); }
+  olpEditSync();
   olpFetch();
 }
 
@@ -124,7 +129,7 @@ function olpRefresh() { // 오버레이·서식 갈래가 바뀐 뒤(적용·맞
   const w = $("olpWin");
   if (!w || w.hidden) return;
   if (OLP.epoch !== state.epoch || !state.id || !olmTpl(OLP.tpl)) { olpClose(); return; }
-  if (OLP.tab === "pos") olpFetch(120);
+  if (OLP.tab === "pos") { olpEditSync(); olpFetch(120); } // 열의 고치기 줄을 새로 그렸다(olfRefresh) — 창의 칸도 그 값으로
   else olpRender();
 }
 
@@ -145,6 +150,74 @@ function olpRowEl() { // 그 레벨의 자리 줄 — 트리가 두 곳(「템�
 }
 function olpForm() { const r = olpRowEl(); return r ? r.querySelector(".olf-edit") : null; }
 
+// ---------------------------------------------------------------- 자리 수정 칸(창 안)
+// 창의 칸은 열의 고치기 줄(outline_format.js olfForm)의 **거울**이다 — 값의 원본은 그 줄(olfBody 가 읽는다): 창에서 고치면 그 줄의 칸에 적고 그 칸의 입력 이벤트를 일으켜 같은 길(olpFormInput → 미리보기)로 간다.
+// 「글 시작」 은 따로 저장하는 값이 아니다 — 레터와 글 사이(레터 + 레터 뒤 빈칸)는 글자 폭이라, 글 시작을 고치면 레터 위치가 같이 움직인다(레터 위치 = 글 시작 − 그 폭 · 서식 관리자의 「글 시작」 칸과 같은 뜻).
+function olpRef() { const d = OLP.pv && OLP.pv.data; return d ? d.rep || d.slot || null : null; } // 받아 둔 미리보기의 기준 줄(대표 줄 — 없으면 새 줄) {before, after, gapMm}
+function olpGap(sl) { // 레터 위치 → 글 시작(mm) = 레터 + 레터 뒤 빈칸 폭 — 미리보기가 준 0.01mm 값(gapMm), 옛 서버면 슬롯 요약(0.1mm 로 반올림한 두 값)의 차
+  const ref = olpRef();
+  return ref && ref.gapMm != null ? ref.gapMm : Math.round((sl.to.textMm - sl.to.letterMm) * 10) / 10;
+}
+
+function olpEditBuild(box) {
+  const num = (cls, label) => {
+    const i = el("input");
+    i.type = "number"; i.min = "0"; i.max = "300"; i.step = "0.1"; i.className = cls; i.setAttribute("aria-label", label);
+    return i;
+  };
+  const field = (k, name, ...ctl) => { const f = el("span", "olp-efield"); f.append(el("span", `olp-key k-${k}`, name), ...ctl); return f; };
+  const letter = num("olp-e-letter", "레터 위치(mm)");
+  letter.title = "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 첫째 줄이 통째로 움직입니다(글 시작도 같이 · 앞 공백은 그대로)";
+  const text = num("olp-e-text", "글 시작(mm) — 첫째 줄의 글이 시작하는 자리");
+  const mode = el("select", "olp-e-mode");
+  mode.setAttribute("aria-label", "둘째 줄 규칙");
+  mode.title = "둘째 줄 규칙 — 글 시작에 맞춤 · 직접(mm 를 적음) · 문단 서식 그대로(문단이 지금 가진 값을 둠)";
+  for (const [v, t] of Object.entries(OLF_RULE)) { const o = el("option", null, t); o.value = v; mode.append(o); }
+  const l2 = num("olp-e-l2", "둘째 줄 위치(mm)");
+  l2.title = "둘째 줄 위치(mm) — 본문 왼끝에서. 「직접」 일 때만 적습니다(다른 규칙이면 그 규칙이 정한 값이 보입니다)";
+  letter.oninput = () => olpEditPush("letter");
+  text.oninput = () => olpEditPush("text");
+  l2.oninput = () => olpEditPush("l2");
+  mode.onchange = () => olpEditPush("mode");
+  for (const i of [letter, text, l2]) i.onblur = () => olpEditSync(); // 치던 칸을 떠나면 열의 값 꼴로(13 → 열에 적힌 그대로 · 글 시작은 0.1mm 로)
+  box.append(field("letterMm", "레터 위치", letter), field("textMm", "글 시작", text), field("line2Mm", "둘째 줄", mode, l2, el("span", "muted", "mm")), el("span", "muted olp-e-note"));
+}
+
+function olpEditPush(which) { // 창의 칸 → 열의 고치기 줄 → 그 칸의 이벤트(안 퍼지게)가 olpFormInput 을 불러 미리보기를 다시
+  const w = $("olpWin"), form = olpForm(), sl = olfSlot(OLP.tpl, OLP.level);
+  if (!w || !form || form.hidden || !sl || !sl.to) return;
+  const q = (c) => w.querySelector(c), f = (c) => form.querySelector(c);
+  if (which === "mode") { f(".olf-mode").value = q(".olp-e-mode").value; f(".olf-mode").dispatchEvent(new Event("change")); return; }
+  if (which === "l2") { f(".olf-l2").value = q(".olp-e-l2").value; f(".olf-l2").dispatchEvent(new Event("input")); return; }
+  let v = q(".olp-e-letter").value;
+  if (which === "text") { const n = parseFloat(q(".olp-e-text").value); v = Number.isFinite(n) ? olpMm(n - olpGap(sl)) : ""; }
+  f(".olf-letter").value = v;
+  f(".olf-letter").dispatchEvent(new Event("input"));
+}
+
+function olpEditSync() { // 열의 고치기 줄 → 창의 칸(지금 치고 있는 칸은 그대로 둔다). 고치기 줄이 접혀 있거나 「서식 비교」 탭이면 칸을 숨긴다
+  const w = $("olpWin"), box = w ? w.querySelector(".olp-edit") : null;
+  if (!box) return;
+  const sl = olfSlot(OLP.tpl, OLP.level), form = !w.hidden && OLP.tab === "pos" ? olpForm() : null;
+  const on = !!(form && !form.hidden && sl && !sl.rooted && sl.at && sl.to);
+  box.hidden = !on;
+  if (!on) return;
+  const q = (c) => box.querySelector(c), f = (c) => form.querySelector(c);
+  const put = (i, v) => { if ((document.activeElement !== i || i.disabled) && i.value !== v) i.value = v; }; // 꺼진 칸은 초점이 남아 있어도 바꾼다(치는 중이 아니다)
+  const gap = olpGap(sl), mode = f(".olf-mode").value, lv = parseFloat(f(".olf-letter").value);
+  const now = olfBody(sl, form), ref = olpRef();
+  const after = ref && ref.after && OLP.pv.body && !now.error && JSON.stringify(now.body) === JSON.stringify(OLP.pv.body) ? ref.after : null; // 받아 둔 미리보기가 지금 칸의 값으로 계산한 것일 때만 — 기준 줄의 바뀐 뒤
+  put(q(".olp-e-mode"), mode);
+  put(q(".olp-e-letter"), f(".olf-letter").value);
+  put(q(".olp-e-text"), after && after.textMm != null ? olpMm(after.textMm) : Number.isFinite(lv) ? olpMm(lv + gap) : ""); // 아래 값 표의 「글 시작 — 바뀐 뒤」 와 같은 값(계산 전에는 레터 + 폭)
+  const l2 = q(".olp-e-l2"), fl2 = f(".olf-l2");
+  l2.disabled = mode !== "mm";
+  if (mode !== "mm" && after && after.line2Mm != null) fl2.value = olpMm(after.line2Mm); // 「직접」 이 아니면 둘째 줄은 규칙이 정한다 — 꺼진 칸에 그 값(기준 줄의 바뀐 뒤)을 보인다(열의 꺼진 칸도 같이 — 「직접」 으로 바꾸면 그 값에서 시작)
+  put(l2, fl2.value);
+  q(".olp-e-text").title = `글 시작(mm) — 첫째 줄에서 레터 뒤 첫 글자의 자리.\n레터와 글 사이 ${olpMm(gap)}mm(레터 + 레터 뒤 빈칸)는 글자 폭이라 그대로입니다 — 글 시작을 바꾸면 레터 위치가 같이 움직입니다(레터 위치 = 글 시작 − ${olpMm(gap)})`;
+  q(".olp-e-note").textContent = `레터 위치와 글 시작은 함께 움직입니다(사이 ${olpMm(gap)}mm = 레터·빈칸 글자 폭)`;
+}
+
 // ---------------------------------------------------------------- 자리 미리보기
 function olpFetch(delay = 180) {
   clearTimeout(OLP.timer);
@@ -154,10 +227,16 @@ function olpFetch(delay = 180) {
 async function olpFetchNow() {
   const seq = ++OLP.seq, epoch = state.epoch, tpl = OLP.tpl, L = OLP.level;
   const sl = olfSlot(tpl, L), form = olpForm();
+  OLP.loading = false; // 앞선 계산은 버린다(seq) — 아래에서 서버에 안 묻고 끝나는 길도 「계산하는 중」 에 머물지 않게
   if (!sl || sl.rooted || !sl.at || !sl.to) { OLP.pv = { error: "이 레벨은 자리(레터 위치·둘째 줄)가 없습니다 — 괄호 줄이거나 대표 줄의 자리를 못 잽니다", none: true }; olpRender(); return; }
   if (!form || form.hidden) { OLP.pv = { idle: true }; olpRender(); return; }
   const b = olfBody(sl, form);
   if (b.error) { OLP.pv = { error: b.error }; olpRender(); return; }
+  if (b.body.letterMm != null && b.body.letterMm < 0) { // 글 시작을 레터·빈칸 폭보다 작게 적었다(레터 위치 = 글 시작 − 그 폭) — 서버에 묻기 전에 까닭을
+    OLP.pv = { error: `글 시작이 레터와 글 사이 폭(${olpMm(olpGap(sl))}mm)보다 작습니다 — 레터 위치가 본문 왼끝(0)보다 왼쪽이 됩니다` };
+    olpRender();
+    return;
+  }
   OLP.loading = true;
   olpRender();
   try {
@@ -325,8 +404,8 @@ function olpPos(body, foot) {
   }
   const apply = olpForm() ? olpForm().querySelector(".olf-apply") : null;
   const go = hBtn(d.changed ? `적용 — ${nf(d.changed)}줄` : "적용", () => { if (apply) apply.click(); },
-    { title: "열의 「자리 수정」 값 그대로 이 레벨 줄 모두에 적용 — 「실행 취소」 로 되돌립니다", cls: "btn sm primary", disabled: !apply || !d.changed || state.busy });
-  foot.append(go, el("span", "muted", "값은 「템플릿 관계」 열의 고치기 줄에서 바꿉니다"));
+    { title: "위 칸의 값(= 열의 「자리 수정」 줄) 그대로 이 레벨 줄 모두에 적용 — 「실행 취소」 로 되돌립니다", cls: "btn sm primary", disabled: !apply || !d.changed || state.busy });
+  foot.append(go, el("span", "muted", "값만 바꿔서는 본문이 안 바뀝니다 — 「적용」 을 눌러야 바뀝니다 · 위 칸 = 「템플릿 관계」 열의 고치기 줄(같은 값)"));
 }
 
 // ---------------------------------------------------------------- 서식 비교
@@ -461,6 +540,7 @@ function olpRender() {
   else { OLP.tab = "cmp"; w.querySelector('.olp-tab[data-tab="cmp"]').setAttribute("aria-selected", "true"); olpCmp(body, foot); }
   foot.hidden = !foot.childNodes.length;
   body.scrollTop = top;
+  olpEditSync();
 }
 
 (() => { // 「템플릿 관계」 열을 닫거나 다른 열로 바꾸면 창도 닫는다(창은 그 열의 레벨에 매여 있다)

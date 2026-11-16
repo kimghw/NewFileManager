@@ -22,7 +22,8 @@ log = logging.getLogger("uvicorn.error")
 PT_MM = 25.4 / 72
 EPS = 0.02          # mm — 같은 자리로 보는 차(서식 요약은 0.01mm 로 반올림)
 MAX_PREFIX_MM = 50  # 접두가 이보다 넓으면 맞추지 않는다(레터로 잘못 읽힌 긴 글)
-BLANKS = "  　"  # 잴 수 있는 공백 — 반각 빈칸·줄 안 바꾸는 빈칸·전각 빈칸
+NB = "\u2002"  # 묶음 빈칸(hp:nbSpace — hwpx_doc.SPECIAL)
+BLANKS = "  　" + NB  # 잴 수 있는 공백 — 반각 빈칸·줄 안 바꾸는 빈칸·전각 빈칸·묶음 빈칸
 FALLBACK_FACE = "함초롬바탕"  # 한글이 글꼴에 없는 글자를 찍는 글꼴(PDF 실측 — 돋움체의 「⋅」「⦁」「‧」)
 LINE2 = ("text", "mm", "keep")
 
@@ -101,6 +102,8 @@ class Measure:
             return None
         lang = fonts.lang_of(ch)
         k = c["em"] * c["rel"][lang] * c["ratio"][lang] * (1 + c["spacing"][lang])
+        if ch == NB:  # 묶음 빈칸 — 늘 0.5em × 장평(자간 · 「글꼴에 어울리는 빈칸」 과 무관: 한글 PDF 실측 — references/한글_문단모양_줄나눔.md 「묶음 빈칸」). 장평은 보통 빈칸처럼 영문 값
+            return 0.5 * c["em"] * c["rel"]["LATIN"] * c["ratio"]["LATIN"]
         if ch in "  " and c["half"]:
             return 0.5 * k
         return self._glyph(ch, c["face"].get(lang) or c["face"].get("HANGUL"), lang, c["bold"]) * k
@@ -201,9 +204,10 @@ def target(cur, pos, full=False, was=None):
     return left, first
 
 
-def align(doc, ov, pid, full=False, measure=None):
+def align(doc, ov, pid, full=False, measure=None, force=False):
     """개요 줄 pid 를 슬롯 규칙대로 — 바꿨으면 그 문단의 새 서식 요약, 아니면 None. 괄호 줄(구분 라벨·괄호 소제목 — 글 전체가 레터)은 안 건드린다.
-    문단 여백만 바꾼다(format_para — 런마다 글자 모양·문단 번호는 그대로). full 의 잘못된 규칙은 ValueError."""
+    문단 여백만 바꾼다(format_para — 런마다 글자 모양·문단 번호는 그대로). full 의 잘못된 규칙은 ValueError.
+    force = 확정 서식으로 바꾸는 길(outline_conform — ② §8-8): 사람이 정한 규칙이 없어도 기본 규칙(둘째 줄 = 글 시작)을 **문단이 이미 가진 값을 덮고** 건다."""
     line = ov["lines"].get(pid)
     if line is None or line.get("role") in OE.ROOTED or line.get("role") == OE.TABLE:  # 표 제목 줄(② §8-7)도 자리 규칙 없음
         return None
@@ -212,7 +216,7 @@ def align(doc, ov, pid, full=False, measure=None):
     cur = m.place(pid, line.get("letter"))
     if cur is None:
         return None
-    t = target(cur, slot.get("pos"), full=full, was=line.get("first"))
+    t = target(cur, dict(slot.get("pos") or {"line2": "text"}, set=True) if force else slot.get("pos"), full=full or force, was=line.get("first"))
     if t is None:
         return None
     left, first = t
@@ -275,7 +279,7 @@ def _spot(cur, left=None, first=None):
 
 def preview(doc, ov, tid, level, pos, order=None):
     """「자리 수정 → 적용」 을 하면 어떻게 되나 — 문서·오버레이를 안 바꾼다(apply_slot 과 같은 계산: target(full=True)).
-    → {lines, changed, same, skipped, error, rep{para, before, after}|None, slot{before, after}|None(새 줄의 자리),
+    → {lines, changed, same, skipped, error, rep{para, before, after, gapMm}|None, slot{before, after, gapMm}|None(새 줄의 자리),
        groups[{count, changed, before, after, paras(문서 순 PREVIEW_MAX 개까지), more}]} — 바뀌는 묶음 먼저, 줄 수 순."""
     slot = OE._slot(ov, tid, level)
     if slot is None:
@@ -311,7 +315,7 @@ def preview(doc, ov, tid, level, pos, order=None):
         g["count"] += 1
         g["paras"].append(pid)
         if pid == slot.get("rep"):
-            rep = {"para": pid, "before": before, "after": after}
+            rep = {"para": pid, "before": before, "after": after, "gapMm": round(cur["prefixMm"] - cur["leadMm"], 2)}  # gapMm = 레터 위치 → 글 시작(레터 + 레터 뒤 빈칸 폭 · 0.01mm — 화면의 「글 시작」 칸이 레터 위치로 바꿔 셈: ② §8-3)
     out = []
     for g in groups.values():
         g["more"] = max(0, len(g["paras"]) - PREVIEW_MAX)
@@ -323,7 +327,7 @@ def preview(doc, ov, tid, level, pos, order=None):
         at = m.slot_place(slot)
         if at:
             tg = target(at, pos, full=True)
-            sl = {"before": _spot(at), "after": _spot(at, *tg) if tg else _spot(at)}
+            sl = {"before": _spot(at), "after": _spot(at, *tg) if tg else _spot(at), "gapMm": round(at["prefixMm"] - at["leadMm"], 2)}
     except ValueError as e:
         error = error or str(e)
     except Exception:  # noqa: BLE001

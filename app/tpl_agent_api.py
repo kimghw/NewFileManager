@@ -235,10 +235,12 @@ def plan(doc_id: str, tpl: str, body: dict = Body(default={})):
 @router.post("/api/docs/{doc_id}/outline/agent/apply")
 def apply_plans(doc_id: str, body: dict = Body(default={})):
     """{rev(화면이 계획을 본 문서 차례), tpls?([템플릿 id] — 없으면 모두)} — 받아 둔 서식 정리 계획 가운데 **지금 문서 차례에서 받은 것(state planned) 모두**를 에이전트가 고른 그대로
-    (맞추기 · 떼기로 고른 갈래만 — 「그대로」 로 남긴 갈래는 빼고: tpl_agent.todo) **트랜잭션 하나**(실행 취소 1 · 기록 `outlinePlansApply`)로 문서에 반영한다 — 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」.
-    → 다른 구조 편집과 같은 꼴 + changed[줄 id] · templates[{tpl, no, changed(수), levels[…], splits[…]}](바꾼 것이 있는 템플릿) · plans(반영한 계획 수) · outline.
-    바꿀 줄이 없으면 {changed: [], nothing: true, …}(그 계획들은 「반영함」 이 된다). 문서가 안 바뀌는 조합(떼기만 · 대표만)이면 오버레이만.
+    (맞추기 · 떼기로 고른 갈래 · 대표만 바꾸는 레벨 — 「그대로」 로 남긴 갈래는 빼고: tpl_agent.todo) **트랜잭션 하나**(실행 취소 1 · 기록 `outlinePlansApply`)로 문서에 반영한다 — 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」.
+    → 다른 구조 편집과 같은 꼴 + changed[줄 id] · templates[{tpl, no, changed(수), levels[{level, rep, repChanged, changed}], splits[…]}](바꾼 것이 있는 템플릿) · plans(반영한 계획 수) · reps(대표를 바꾼 레벨 수) · outline.
+    바꿀 줄이 없으면 {changed: [], nothing: true, …}(그 계획들은 「반영함」 이 된다). 문서가 안 바뀌는 조합(떼기만 · 대표만 · 종속만)이면 오버레이만 — 다만 새 대표 · 새 템플릿의 대표와 그 갈래에
+    확정 서식(묶음 빈칸 · 자리 규칙)이 안 걸려 있으면 같은 트랜잭션에서 건다(문서가 바뀐다 — placed).
     400 HWPX 아님 · 꼴 · 계획이 지금 문서와 안 맞음(「T3 — …」) · 409 2단계 없음 · 문서가 바뀜(rev) · 반영할 계획 없음 · 422 표준 검사에 걸림(되돌림)."""
+    from app import outline_conform as OC  # 확정 서식으로 바꾸기(② §8-8)
     from app import outline_match_api as OM  # 적용의 몸 — 템플릿 단위 맞추기와 같다
     server = _server()
     rev, tpls, seen = body.get("rev"), body.get("tpls"), body.get("plans")
@@ -271,9 +273,16 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
             recs = [(tid, rec) for tid, rec in recs if tid in {str(t) for t in seen}]
     # 확실한 종속(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래 — spec_hwpx_웹편집 ② §8-2 「종속 제안」)도 「모두 반영」 이 건다 — 2026-11-16 사용자 「확실이 구분되는건 자동으로」. relations: false 면 안 건다
     rel_on = body.get("relations") is not False and pick is None
+    # 확정 서식으로(spec_hwpx_웹편집 ② §8-8 — 2026-11-16 사용자 「'조정' 단계에서 보정을 해줘야지」): 「모두 반영」 은 맞춘 뒤에 모든 템플릿(고른 템플릿)의 레벨마다 대표와 그 갈래의 줄에
+    # 레터 뒤 묶음 빈칸 · 자리 규칙(둘째 줄 = 글 시작)을 스크립트로 건다 — 받아 둔 계획이 없어도 그 줄이 남아 있으면 그것만 건다
+    # `place: false` 면 걸지 않는다(계획 · 종속만 — 전의 동작)
+    settle = None if not OM._place_on(body) else "all" if pick is None else sorted(pick)
     with s.lock:
         sure = [h for h in A.M.merge_hints(ov) if h["sure"]] if rel_on else []
-    if not recs and not sure:
+        pend = OC.pending(s.doc, ov, None if pick is None else set(OM._settle_ids(ov, settle))) if settle is not None else []
+        if settle is not None and not pend and sure:  # 종속만 남은 반영 — 넣은 **뒤의** 대표로 보면 안 걸린 줄이 생기는가(② §8-8): 생기면 아래에서 문서 편집 트랜잭션으로(같은 반영에서 확정 서식 · 실행 취소 1)
+            pend = OM._pend_after(s, ov, [], True, settle)
+    if not recs and not sure and not pend:
         raise HTTPException(409, "반영할 서식 계획이 없습니다 — 계획을 받지 않았거나, 받은 뒤 문서가 바뀌었거나, 이미 반영했습니다")
     jobs = [(tid, lv) for tid, lv in ((tid, A.todo(rec["plan"])["levels"]) for tid, rec in recs) if lv]  # 바꿀 것이 있는 계획만 — 「바꿀 줄 없음」 인 계획은 아래에서 반영함으로만 적는다
 
@@ -282,9 +291,10 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
                 **({"changed": sum(len(x["changed"]) for x in per)} if doc else {}), "by": "agent"}
     marks = {tid: rec["at"] for tid, rec in recs if rec.get("at") is not None}  # 반영하는 계획의 표시 — 반영과 같은 트랜잭션 · 같은 잠금 안에서 오버레이에 적는다(OM._marks: 「반영함은 문서에 남아 있을 때만」)
     per, out, rel = [], None, []
-    if jobs:
+    if jobs or pend:
         _, per, out = OM.apply_templates(server, doc_id, [(tid, OM._want(lv)) for tid, lv in jobs], rev=rev, op="outlinePlansApply",
-                                         req={"rev": rev, "tpls": [tid for tid, _ in jobs]}, log=log, marks=marks, relations=rel if rel_on else None)
+                                         req={"rev": rev, "tpls": [tid for tid, _ in jobs]}, log=log, marks=marks, relations=rel if rel_on else None, settle=settle,
+                                         by="agent")  # 계획이 바꾼 대표 = 에이전트가 정한 대표(사람이 정한 대표처럼 잠기지 않는다 — 다음 계획이 바꿀 수 있다)
         if not isinstance(out, dict):  # 표준 검사에 걸려 되돌림(422 응답) — 계획은 그대로 남는다
             return out
     elif sure:  # 바꿀 서식은 없고 종속만 — 오버레이만 바꾸는 트랜잭션 하나(실행 취소 1)
@@ -312,6 +322,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
         applied(s, tid, rev, done.get(tid, 0), rec.get("at"))
     out["templates"] = [{"tpl": x["tpl"], "no": x["no"], "changed": len(x["changed"]), "levels": x["levels"], "splits": x["splits"]} for x in per]
     out["plans"] = len(recs)
+    out["reps"] = sum(1 for x in per for lv in x["levels"] if lv["repChanged"])  # 대표를 바꾼 레벨 수 — 맞춘 줄이 0 이어도 한 일이다(조정 줄 · 「전체 실행」 의 끝난 글)
     todo = dict(jobs)
     out["merged"] = [{k: v for k, v in m.items() if k != "ids"} for m in rel]  # 저절로 건 종속 [{id, no, child, childNo, parent, parentNo, at, moved}]
     note_apply(s, ov.get("run"), "all", [{"tpl": tid, "no": rec.get("no"), "plan": rec.get("at"), "summary": (rec.get("plan") or {}).get("summary", ""), "changed": done.get(tid, 0),

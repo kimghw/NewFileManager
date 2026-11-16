@@ -91,7 +91,7 @@ function tplAgentSync() { // 서식 갈래·오버레이가 바뀐 뒤(outline_m
 }
 
 function tpaTarget() { // ① 대상 — 템플릿 고르기 · 개요 레벨 그림 · 레벨마다 서식 갈래 수
-  const sec = tpaSection("①", "대상 템플릿", "에이전트가 정리할 템플릿입니다. 레벨마다 줄들을 서식이 같은 것끼리 묶은 「갈래」 를 에이전트에 보냅니다 — 갈래가 하나뿐인 레벨은 정리할 것이 없습니다. 종속 템플릿(「T1T3」)·서식 종속 템플릿(「T1L3a」)을 고르면 그 줄만 정리합니다.");
+  const sec = tpaSection("①", "대상 템플릿", "에이전트가 정리할 템플릿입니다. 레벨마다 줄들을 서식이 같은 것끼리 묶은 「갈래」 를 에이전트에 보냅니다 — 갈래가 하나뿐인 레벨은 정리할 것이 없습니다(대표가 없는 레벨은 갈래가 하나여도 에이전트가 대표를 정합니다).종속 템플릿(「T1T3」)·서식 종속 템플릿(「T1L3a」)을 고르면 그 줄만 정리합니다.");
   sec.classList.add("tpa-target");
   const list = tpaTemplates(), sel = el("select", "tpa-tpl");
   sel.setAttribute("aria-label", "정리할 템플릿");
@@ -111,10 +111,12 @@ function tpaTarget() { // ① 대상 — 템플릿 고르기 · 개요 레벨 �
     li.append(el("b", null, `L${L}`), ` 「${short(os.letter || "", 10)}」 ×${nf(os.lines)} `);
     if (!v) li.append(el("span", "muted", "서식 갈래 읽는 중…"));
     else {
-      const n = v.groups.length;
-      if (n > 1) multi += 1;
+      // 정리할 레벨 = 서식이 둘 이상이거나 **대표가 없는** 레벨(서식이 1가지여도 대표를 정해야 한다 — 서버의 「정리할 템플릿」(analysis.need_templates) · 계획 끝점과 같은 기준:
+      // 전에는 갈래 수만 세어, 대표 없는 레벨뿐인 템플릿은 「정리 계획 받기」 가 꺼져 그 레벨에 대표를 줄 길이 없었다 — 2026-11-17 astra)
+      const n = v.groups.length, norep = !!v.repMissing;
+      if (n > 1 || norep) multi += 1;
       others += v.rep ? v.others || 0 : 0;
-      li.append(el("span", n > 1 ? "tpa-warn" : "muted", n > 1 ? `서식 ${n}가지${v.rep ? ` · 대표와 다른 줄 ${nf(v.others)}` : " · 대표 없음"}` : "서식 1가지"));
+      li.append(el("span", n > 1 || norep ? "tpa-warn" : "muted", n > 1 ? `서식 ${n}가지${v.rep ? ` · 대표와 다른 줄 ${nf(v.others)}` : " · 대표 없음"}` : norep ? "서식 1가지 · 대표 없음" : "서식 1가지"));
     }
     ul.append(li);
   }
@@ -364,20 +366,23 @@ function tpaChoiceOf(P) { // 계획 → 에이전트가 고른 그대로의 고�
   return choice;
 }
 const tpaTodoOf = (P) => tpaTodo(P, tpaChoiceOf(P)); // 에이전트가 고른 그대로 반영할 때의 적용 몸 · 줄 수
-function tpaTodo(P = TPA.plan, choice = TPA.choice) { // 고른 것 → 적용 몸의 levels · 바뀔 줄 수 n · 다른 템플릿으로 옮길 줄 수 moved · 고른 갈래 수 picked
+function tpaTodo(P = TPA.plan, choice = TPA.choice) { // 고른 것 → 적용 몸의 levels · 바뀔 줄 수 n · 다른 템플릿으로 옮길 줄 수 moved · 고른 갈래 수 picked · 대표를 바꾸는 레벨 수 reps
   const levels = [];
-  let n = 0, moved = 0, picked = 0;
+  let n = 0, moved = 0, picked = 0, reps = 0;
   for (const lv of (P && P.plan.levels) || []) {
     if (!lv.rep) continue;
-    const likes = tpaRows(lv).filter((r) => choice.get(tpaKey(lv, r.g)) === "match").map((r) => r.g), cuts = tpaCuts(lv, choice);
-    if (!likes.length && !cuts.length) continue; // 고른 갈래가 없는 레벨은 대표도 안 바꾼다
+    const likes = tpaRows(lv).filter((r) => choice.get(tpaKey(lv, r.g)) === "match").map((r) => r.g), cuts = tpaCuts(lv, choice), swap = !!lv.rep.changed;
+    // 고른 갈래도 없고 대표도 그대로인 레벨은 없다. **대표만 바꾸는 레벨은 든다**(likes 빈 목록 — 서버 tpl_agent.todo 와 같은 셈: 2026-11-16 astra — 전에는 고른 갈래가 없으면 대표도 안 바꿔,
+    // 에이전트가 고른 대표가 걸리지 않고 대표가 없던 한 갈래 레벨은 끝내 대표가 없었다)
+    if (!likes.length && !cuts.length && !swap) continue;
+    if (swap) reps += 1;
     n += likes.reduce((a, g) => a + g.count, 0) + cuts.reduce((a, c) => a + c.rows.reduce((b, g) => b + (g === c.rep ? 0 : g.count), 0), 0); // 뗀 줄 가운데 새 대표와 다른 갈래는 그 대표에 맞춘다
     moved += cuts.reduce((a, c) => a + c.rows.reduce((b, g) => b + g.count, 0), 0);
     picked += likes.length + cuts.reduce((a, c) => a + c.rows.length, 0);
     levels.push({ level: lv.level, rep: lv.rep.para, likes: likes.map((g) => g.para),
       ...(cuts.length ? { splits: cuts.map((c) => ({ likes: c.rows.map((g) => g.para), rep: c.rep.para, sfx: c.sfx })) } : {}) });
   }
-  return { levels, n, moved, picked };
+  return { levels, n, moved, picked, reps };
 }
 
 async function tpaApply() { // 「적용」 — 고른 갈래만 대표 모양으로(템플릿 단위 맞추기 — 실행 취소 1)
@@ -389,9 +394,9 @@ async function tpaApply() { // 「적용」 — 고른 갈래만 대표 모양�
   const r = await olmApplyTpl(P.tpl, { rev: state.serverRev, by: "agent", plan: P.at, levels: todo.levels }); // plan = 이 계획의 표시(at) — 서버는 남아 있는 계획이 이것일 때만 「반영함」 으로 적는다(spec_hwpx_웹편집 ② §8-4)
   TPA.busy = null;
   if (r) {
-    const n = (r.changed || []).length, made = (r.splits || []).map((x) => `T${x.no}`);
-    TPA.done = { n, levels: (r.levels || []).length, reps: (r.levels || []).filter((x) => x.repChanged).length, made, moved: (r.splits || []).reduce((a, x) => a + x.moved, 0) };
-    toast(`에이전트 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : ""].filter(Boolean).join(" · ") || "바꾼 것이 없습니다"} — 「실행 취소」 한 번으로 되돌립니다`);
+    const placed = (r.placed || []).length, n = (r.changed || []).length - placed, made = (r.splits || []).map((x) => `T${x.no}`); // placed = 맞춘 뒤 확정 서식(묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)만 걸린 줄
+    TPA.done = { n, placed, levels: (r.levels || []).length, reps: (r.levels || []).filter((x) => x.repChanged).length, made, moved: (r.splits || []).reduce((a, x) => a + x.moved, 0) };
+    toast(`에이전트 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", TPA.done.reps ? `대표 ${nf(TPA.done.reps)}곳을 바꿨습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : "", placed ? `자리 맞춤 ${nf(placed)}줄` : ""].filter(Boolean).join(" · ") || "바꾼 것이 없습니다"} — 「실행 취소」 한 번으로 되돌립니다`);
   } else if (structOp.lastError && structOp.lastError.status === 409) TPA.err = "계획을 받은 뒤 문서가 바뀌었습니다 — 「정리 계획 다시 받기」 로 새 계획을 받으세요";
   if (tpaOn()) tplAgentDraw();
 }
@@ -417,7 +422,7 @@ function tpaStale(P) {
 function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 줄마다 고르기(맞추기 / 그대로 / T1L3a 로) · 적용
   const P = TPA.plan, plan = P.plan, sec = tpaSection("④", "정리 계획", "에이전트가 고른 것입니다 — 갈래마다 고르기를 바꿀 수 있습니다. 「맞추기」 = 이 레벨의 대표 모양으로 바꿉니다 · 「그대로」 = 손대지 않습니다 · "
     + "「T1L3a 로」 = 그 갈래를 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 기본 스킬의 기준: 레터가 대표와 다른 갈래는 떼고, 레터가 같은 갈래는 대표에 맞춥니다 — 예외로 남길 갈래는 「그대로」 로 고르세요. 같은 이름을 고른 갈래끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
-    + "대표를 바꾸는 레벨은 그 레벨에서 고른 갈래가 있어야 적용됩니다."),
+    + "대표를 바꾸는 레벨(「대표 바꿈」)은 고른 갈래가 없어도 대표가 바뀝니다 — 새 대표와 서식이 같은 줄은 자리(묶음 빈칸 · 둘째 줄)를 같이 맞춥니다."),
     stale = tpaStale(P) && !TPA.done, done = TPA.done, lock = !!TPA.busy || stale || !!done;
   sec.classList.add("tpa-plan");
   if (plan.summary) sec.append(el("p", "tpa-sum", plan.summary));
@@ -425,11 +430,13 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
   const apply = hBtn("", () => tpaApply(), { cls: "btn sm primary tpa-apply" });
   const sync = () => {
     const todo = tpaTodo();
-    apply.textContent = done ? `적용함 — ${nf(done.n)}줄${done.moved ? ` · 떼기 ${nf(done.moved)}줄` : ""}` : `적용 — ${nf(todo.n)}줄${todo.moved ? ` · 떼기 ${nf(todo.moved)}줄` : ""}`;
+    apply.textContent = done ? `적용함 — ${nf(done.n)}줄${done.moved ? ` · 떼기 ${nf(done.moved)}줄` : ""}`
+      : !todo.n && !todo.moved && todo.reps ? `적용 — 대표 변경 ${nf(todo.reps)}` // 대표만 바꾸는 계획 — 「0줄」 이라 하지 않는다(대표를 바꾸는 레벨 수는 옆 글에도)
+        : `적용 — ${nf(todo.n)}줄${todo.moved ? ` · 떼기 ${nf(todo.moved)}줄` : ""}`;
     apply.title = todo.moved && !done ? `맞출 줄 ${nf(todo.n)}개 · 서식 종속 템플릿으로 뗄 줄 ${nf(todo.moved)}개(그 아래 줄도 같이 갑니다) — 「실행 취소」 한 번으로 되돌립니다` : "";
     apply.disabled = lock || !todo.levels.length;
     count.textContent = done ? `레벨 ${done.levels}개${done.reps ? ` · 대표 바꿈 ${done.reps}` : ""}${done.made && done.made.length ? ` · 새 템플릿 ${done.made.join(" · ")}` : ""} · 「실행 취소」 한 번으로 되돌립니다`
-      : stale ? "이 템플릿의 줄이 바뀌었습니다 — 계획을 다시 받으세요" : `고른 갈래 ${todo.picked}개`;
+      : stale ? "이 템플릿의 줄이 바뀌었습니다 — 계획을 다시 받으세요" : `고른 갈래 ${todo.picked}개${todo.reps ? ` · 대표 바꿈 ${todo.reps}` : ""}`;
   };
   const redraw = (key) => { // 고르기를 바꾸면 계획 절만 다시 그리고(대표·맞춤 표시가 줄끼리 얽힌다) 그 고르기에 초점을 돌려준다
     const fresh = tpaPlan();
@@ -470,10 +477,12 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
   for (const lv of plan.levels) {
     const b = el("div", "tpa-lv");
     const h = el("div", "tpa-lvh");
-    h.append(el("b", null, `L${lv.level}`), ` 「${short(lv.letter || "", 10)}」 ${nf(lv.lines)}줄`, el("span", lv.change || lv.moved ? "tpa-warn" : "muted",
-      lv.single ? " · 서식 1가지 — 그대로" : lv.change || lv.moved ? `${lv.change ? ` · 바꿀 줄 ${nf(lv.change)}` : ""}${lv.moved ? ` · 다른 템플릿으로 ${nf(lv.moved)}` : ""}` : " · 바꿀 줄 없음"));
+    const swap = !!(lv.rep && lv.rep.changed); // 이 레벨의 대표를 바꾼다(대표가 없던 레벨에 정하는 것 포함) — 바꿀 줄이 없어도 적용된다(tpaTodo)
+    h.append(el("b", null, `L${lv.level}`), ` 「${short(lv.letter || "", 10)}」 ${nf(lv.lines)}줄`, el("span", lv.change || lv.moved || swap ? "tpa-warn" : "muted",
+      lv.single ? (swap ? " · 서식 1가지 — 대표를 정합니다" : " · 서식 1가지 — 그대로")
+        : lv.change || lv.moved ? `${lv.change ? ` · 바꿀 줄 ${nf(lv.change)}` : ""}${lv.moved ? ` · 다른 템플릿으로 ${nf(lv.moved)}` : ""}` : swap ? " · 대표만 바꿈" : " · 바꿀 줄 없음"));
     b.append(h);
-    if (!lv.single && lv.rep) {
+    if (lv.rep && (!lv.single || swap)) {
       const rep = el("div", "tpa-rep");
       rep.append(el("span", `hb olm-badge${lv.rep.changed ? " chg" : ""}`, lv.rep.changed ? "대표 바꿈" : "대표"), el("span", "olm-n", `×${nf(lv.rep.count)}`), headsParaLink(lv.rep.para, lv.rep.sample || "(빈 글)", 30, "대표로 삼을 줄"));
       if (lv.rep.changed) rep.title = `이 레벨의 대표를 이 갈래의 첫 줄로 바꾼 뒤 맞춥니다(지금 대표는 ${lv.was || "없음"})`;

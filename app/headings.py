@@ -282,13 +282,13 @@ def levels(blocks, shapes=None):
 # ---- 레터 꼴(FileMergeManager letter_patterns) -------------------------------------------------------
 
 BR = " "
-WS = {" ": "_", "\t": "⇥", "　": "＿", " ": "_"}
+WS = {" ": "_", "\t": "⇥", "　": "＿", " ": "_", "\u2002": "_"}  # U+2002 = 묶음 빈칸(hwpx_doc.SPECIAL)
 OPEN = {"(": ")", "[": "]", "<": ">", "{": "}", "【": "】", "〈": "〉", "《": "》", "「": "」", "『": "』", "〔": "〕"}
 ENC = {chr(c): lo for lo, hi in ("①⑳", "❶❿", "➀➉", "➊➓", "⑴⒇", "⒈⒛", "⒜⒵", "ⓐⓩ", "ⒶⓏ", "㉠㉭", "㉮㉻") for c in range(ord(lo), ord(hi) + 1)}
 MAX_TOK = 6
 QUOTES = "‘’“”\"'「『"
 SYMBOL_LETTERS = "ㆍ"  # isalnum 이 참인 가운뎃점 꼴 글자
-_LEAD = re.compile("[ \t　 ]*")
+_LEAD = re.compile("[ \t　 \u2002]*")
 
 
 def _run(m):

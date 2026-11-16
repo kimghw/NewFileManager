@@ -419,15 +419,15 @@ class StructMixin:
 
     # ---------------------------------------------------------------- 개요(템플릿) 편집용 원시 연산(spec_hwpx_웹편집 ② §8)
     def _put_text(self, run, text):
-        """런 끝에 hp:t 하나로 글을 넣는다 — 탭·강제 줄 바꿈은 hp:tab·hp:lineBreak 자식(_text 가 한 글자로 읽는 것과 같은 꼴)."""
+        """런 끝에 hp:t 하나로 글을 넣는다 — 탭·강제 줄 바꿈·묶음 빈칸(U+2002)은 hp:tab·hp:lineBreak·hp:nbSpace 자식(_text 가 한 글자로 읽는 것과 같은 꼴)."""
         t = etree.SubElement(run, T)
         atoms, buf = [], ""
         for ch in text or "":
-            if ch in ("\t", " "):
+            if ch in ("\t", "\u2028", "\u2002"):
                 if buf:
                     atoms.append(buf)
                     buf = ""
-                atoms.append(t.makeelement(_p("tab" if ch == "\t" else "lineBreak"), {}))
+                atoms.append(t.makeelement(_p("tab" if ch == "\t" else "nbSpace" if ch == "\u2002" else "lineBreak"), {}))
             else:
                 buf += ch
         if buf:
@@ -514,6 +514,42 @@ class StructMixin:
             self._drop_cache(p)
             self._touch(p)
         return {"id": block_id, "offset": start}
+
+    def set_chars(self, block_id: str, start: int, text: str) -> bool:
+        """start 부터 len(text) 글자를 text 로 **글자마다 제 자리에서** 바꾼다 — 길이는 그대로, 런·글자 모양·길이 0 자식(표지·개체)은 안 건드린다. -> 바뀌었는가.
+        탭·강제 줄 바꿈·묶음 빈칸(U+2002)은 한 글자 요소(hp:tab·hp:lineBreak·hp:nbSpace)로 쓴다. 레터 뒤 빈칸을 묶음 빈칸으로 바꿀 때 쓴다(outline_conform —
+        접두를 통째로 다시 쓰면(replace_prefix) 앞 공백·레터·뒤 빈칸의 글자 모양이 하나로 합쳐진다)."""
+        p = self._para(block_id)
+        cur, end = self._text(p), start + len(text)
+        if start < 0 or end > len(cur):
+            raise ValueError("바꿀 글자 범위가 문단 글을 벗어납니다")
+        if cur[start:end] == text:
+            return False
+        kinds = {"\t": "tab", "\u2028": "lineBreak", "\u2002": "nbSpace"}
+        pos = 0
+        for r in p.iterchildren(RUN):
+            for c in list(r):
+                n = self._clen(c)
+                if c.tag != T or pos + n <= start or pos >= end:
+                    pos += n
+                    continue
+                out = []
+                for a in _atoms(c):
+                    k = _alen(a)
+                    for j in range(k):  # 글 조각은 글자마다 · 한 글자 요소는 그 하나
+                        q = pos + j
+                        if not start <= q < end or cur[q] == text[q - start]:
+                            out.append(a[j] if isinstance(a, str) else a)
+                        else:
+                            ch = text[q - start]
+                            out.append(c.makeelement(_p(kinds[ch]), {}) if ch in kinds else ch)
+                    if k == 0:
+                        out.append(a)
+                    pos += k
+                _fill(c, out)
+        self._drop_cache(p)
+        self._touch(p)
+        return True
 
     def replace_prefix(self, block_id: str, old_len: int, new_prefix: str, like_id: str | None = None, attrs: dict | None = None) -> dict:
         """문단 첫 old_len 글자(접두 = 앞 공백·레터·뒤 공백)를 new_prefix 로. like(또는 attrs)가 있으면 문단 속성(paraPr·style)과 접두의 글자 모양을 그것으로 하고,

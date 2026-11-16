@@ -415,7 +415,7 @@ function lldFormats(list) {
     const ul = el("ul", "lld-sum");
     for (const L of P.levels || []) {
       const parts = [];
-      if (L.single) parts.push("서식 1가지 — 그대로");
+      if (L.single) parts.push(L.repChanged ? "서식 1가지 — 대표 정함" : "서식 1가지 — 그대로"); // 대표만 정하는 레벨도 반영한다(맞출 줄 0 · 대표 변경 1 — spec_hwpx_웹편집 ② §8-4)
       else {
         if (L.repChanged) parts.push("대표 바꿈");
         if (L.match) parts.push(`맞출 줄 ${nf(L.match)}`);
@@ -423,7 +423,7 @@ function lldFormats(list) {
         if (L.keep) parts.push(`사람에게 남긴 줄 ${nf(L.keep)}`);
         if (!parts.length) parts.push("바꿀 줄 없음");
       }
-      const li = el("li", L.change || L.moved ? "chg" : null, `L${L.level} 「${short(L.letter || "", 6)}」 ${nf(L.lines)}줄 — ${parts.join(" · ")}`);
+      const li = el("li", L.change || L.moved || L.repChanged ? "chg" : null, `L${L.level} 「${short(L.letter || "", 6)}」 ${nf(L.lines)}줄 — ${parts.join(" · ")}`);
       if (L.why) li.title = L.why;
       ul.append(li);
     }

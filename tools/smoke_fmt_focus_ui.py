@@ -121,7 +121,7 @@ VIEW = """() => { const doc = document.getElementById('doc'), row = document.get
 # 화면에 보이는 여백 라벨 가운데 그 라벨(없으면 아무 라벨)의 글 하나를 누른다 -> 누른 라벨
 CLICK = """(want) => { const all = [...document.querySelectorAll('.tpl-mark .tm-f')]; const b = all.find((x) => (want ? x.dataset.fmt === want : true)); if (!b) return null;
   b.scrollIntoView({ block: 'center' }); b.click(); return b.dataset.fmt; }"""
-LABELS = "() => { const c = new Map(); for (const b of document.querySelectorAll('.tpl-mark .tm-f')) if (b.dataset.fmt !== '≠') c.set(b.dataset.fmt, (c.get(b.dataset.fmt) || 0) + 1); return [...c].sort((a, b) => b[1] - a[1]); }"
+LABELS = "() => { const c = new Map(); for (const b of document.querySelectorAll('.tpl-mark .tm-f')) if (b.dataset.fmt !== '≠' && b.dataset.fmt !== '≈') c.set(b.dataset.fmt, (c.get(b.dataset.fmt) || 0) + 1); return [...c].sort((a, b) => b[1] - a[1]); }"
 TINT = "rgba(36, 88, 214, 0.1)"  # 고른 문단의 옅은 파란 바탕(fmt_focus.css --fm-tint)
 MARGIN_KEYS = {"line1Mm", "line2Mm", "indentRightMm", "spaceBeforePt", "spaceAfterPt"}  # 여백 값(fmt_focus.js FM_SIDE)
 BG = "() => [...new Set([...document.querySelectorAll('#doc .para.fmt-hit')].map((p) => getComputedStyle(p).backgroundColor))]"
@@ -384,12 +384,17 @@ def main():
 
         # 갈래를 맞추면(문서가 바뀜) 표시가 줄고 · 실행 취소면 되돌아옴 · 쪽을 다시 나눠도 그대로
         n2 = len(ex["only"]["line2Mm"])
+        rev0 = page.evaluate("() => state.serverRev")
         page.evaluate("(pid) => { olmMatch('1', 2, 0, [pid]); }", m1)
-        tpl_is(page, 1, 2, len(ex["margin"]) - n2)
+        page.wait_for_function("(r) => state.serverRev > r && !state.busy", arg=rev0, timeout=60000)
+        # 맞추면 대표도 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8)이 된다 — 남은 갈래의 「대표와 다른 값」 은 새 대표 기준이라, 기대값을 맞춘 뒤의 서버 갈래에서 다시 읽는다
+        ex2 = slot_expect(plan, 1, 2)
+        tpl_is(page, 1, 2, len(ex2["margin"]))
         v = page.evaluate(TVIEW)
-        left = sorted(set(ex["diff"]) - set(ex["only"]["line2Mm"]))
-        check(f"「2번째 줄」 만 다른 갈래({n2}줄)를 대표에 맞추면 그 줄의 주황·표가 사라짐(나머지는 그대로) · 설명의 줄 수도", v["diff"] == left and sorted(t["para"] for t in v["tags"]) == left and v["hit"] == dom_t
-              and v["key"]["legs"][0] == f"여백 다름{len(ex['margin']) - n2}", [v["diff"], left, v["key"]["legs"]])
+        left = ex2["diff"]
+        check(f"「2번째 줄」 만 다른 갈래의 줄({m1})을 대표에 맞추면 그 줄의 주황·표가 사라짐(나머지는 그대로 — 화면 = 맞춘 뒤의 서버 갈래) · 설명의 줄 수도", m1 not in left and len(left) < len(ex["diff"])
+              and v["diff"] == left and sorted(t["para"] for t in v["tags"]) == left and v["hit"] == dom_t
+              and v["key"]["legs"][0] == f"여백 다름{len(ex2['margin'])}", [v["diff"], left, v["key"]["legs"]])
         page.click("#undoBtn")
         tpl_is(page, 1, 2, len(ex["margin"]))
         v = page.evaluate(TVIEW)

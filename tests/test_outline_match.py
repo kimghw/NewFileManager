@@ -11,6 +11,7 @@ from app import heading_rules as R
 from app import heading_runs
 from app import outline_edit as OE
 from app import outline_match as M
+from app import outline_pos as OP
 from app import server
 
 ROOT = Path(__file__).parents[1]
@@ -129,8 +130,12 @@ def test_match_symbol_letters_prefix_and_shape(sess):
     r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={})
     assert r.status_code == 200, r.text
     j = r.json()
-    assert j["changed"] == ["p5209", "p5765"] and j["outline"]["lines"]["p5765"]["letter"] == "-" and j["tops"]["blocks"]
-    assert s.texts["p5209"].startswith("   - ") and s.texts["p5765"].startswith("   - ")
+    # changed = 바뀐 줄 모두 · placed = 그 가운데 대표에 맞춘 줄이 아니라 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)만 건 줄(대표 + 대표 갈래 4줄)
+    assert sorted(set(j["changed"]) - set(j["placed"])) == ["p5209", "p5765"] and j["outline"]["lines"]["p5765"]["letter"] == "-" and j["tops"]["blocks"]
+    assert len(j["placed"]) == 5 and "p6502" in j["placed"]
+    assert s.texts["p5209"].startswith("   -\u2002") and s.texts["p5765"].startswith("   -\u2002") and s.texts["p6502"].startswith("   -\u2002")  # 레터 뒤 빈칸 = 묶음 빈칸
+    at = OP.Measure(s.doc).place("p5209", "-")
+    assert abs(at["line2Mm"] - at["textMm"]) < 0.02  # 둘째 줄 = 글 시작
     rep = s.doc._ids["p6502"]
     for pid in ("p5209", "p5765"):
         assert s.doc._ids[pid].get("paraPrIDRef") == rep.get("paraPrIDRef")
@@ -149,7 +154,7 @@ def test_match_one_group_by_like_even_past_the_list_limit(sess, monkeypatch):
     others = sum(x["count"] for x in v["groups"] if not x["rep"])
     r = c.post(f"/api/docs/{d}/outline/slots/4/3/match", json={"like": g["paras"][0]})
     assert r.status_code == 200, r.text
-    assert len(r.json()["changed"]) == g["count"] < others  # 그 갈래만 — 다른 갈래는 그대로
+    assert len(r.json()["changed"]) - len(r.json()["placed"]) == g["count"] < others  # 그 갈래만 — 다른 갈래는 그대로(placed = 확정 서식만 건 대표·대표 갈래)
     assert c.post(f"/api/docs/{d}/outline/slots/4/3/match", json={"like": "p970"}).status_code == 400  # 그 레벨 줄이 아님
     assert c.post(f"/api/docs/{d}/outline/slots/4/3/match", json={"like": 3}).status_code == 400
     _undo_all(c, d, s)
@@ -161,7 +166,7 @@ def test_match_char_shapes_keep_emphasis_runs(sess):
     odd = next(g for g in v["groups"] if any(x[0] == "font" for x in g["diff"]))["paras"]
     r = c.post(f"/api/docs/{d}/outline/slots/2/1/match", json={"paras": odd})
     assert r.status_code == 200, r.text
-    assert sorted(r.json()["changed"]) == sorted(odd)
+    assert sorted(set(r.json()["changed"]) - set(r.json()["placed"])) == sorted(odd)
     rep_look = M.look(s.doc, s.outline, "p970")
     for pid in odd:
         assert M.same(M.look(s.doc, s.outline, pid), rep_look)  # 비교 값(KEYS)이 같다 — 줄 맞춤 값(장평·자간)은 그 줄 것을 지킨다(② §8-2 「줄 맞춤 값」)
@@ -173,7 +178,7 @@ def test_match_numbered_letters_keep_own_number(sess):
     assert s.texts["p5930"].startswith("5-3. ")  # 앞 공백 없음 — 대표(p968 「 1-1. 」)는 한 칸
     r = c.post(f"/api/docs/{d}/outline/slots/1/2/match", json={"paras": ["p5930", "p889"]})
     assert r.status_code == 200, r.text
-    assert s.texts["p5930"].startswith(" 5-3. ") and s.texts["p889"].startswith(" 7-1. ")
+    assert s.texts["p5930"].startswith(" 5-3.\u2002") and s.texts["p889"].startswith(" 7-1.\u2002")  # 대표 꼴에 제 번호 · 레터 뒤 빈칸은 묶음 빈칸(② §8-8)
     assert s.outline["lines"]["p5930"]["letter"] == "5-3."
     _undo_all(c, d, s)
 
@@ -281,7 +286,7 @@ def test_split_makes_a_format_variant_template_and_unsplit(sess):
     vc = _slot(c, d, "9~2a", 2)
     assert vc["total"] == 11 and vc["rep"] == g9[0] and vc["others"] == 2
     r = c.post(f"/api/docs/{d}/outline/slots/9~2a/2/match", json={})
-    assert r.status_code == 200 and sorted(r.json()["changed"]) == sorted(g2)
+    assert r.status_code == 200 and sorted(set(r.json()["changed"]) - set(r.json()["placed"])) == sorted(g2)  # placed = 확정 서식만 건 대표·대표 갈래(② §8-8)
     assert M.look(s.doc, s.outline, g2[0]) == M.look(s.doc, s.outline, g9[0]) != M.look(s.doc, s.outline, "p1692")
     c.post(f"/api/docs/{d}/undo")
     r = c.post(f"/api/docs/{d}/outline/slots/9/2/split", json={"likes": g1})
@@ -380,7 +385,7 @@ def test_template_match_with_splits_is_one_transaction(sess):
     assert r.status_code == 200, r.text
     j = r.json()
     kids = len(_tpl_lines(s, "4~3c")) - 8
-    assert sorted(j["changed"]) == sorted([a[0], b[0]]) and j["undo"] == undo + 1 and j["levels"] == [{"level": 3, "rep": v["rep"], "repChanged": False, "changed": 1}]
+    assert sorted(set(j["changed"]) - set(j["placed"])) == sorted([a[0], b[0]]) and j["undo"] == undo + 1 and j["levels"] == [{"level": 3, "rep": v["rep"], "repChanged": False, "changed": 1}]
     assert j["splits"] == [{"level": 3, "id": "4~3c", "no": "4L3c", "moved": 8 + kids, "changed": 1}] and j["outline"]["lines"][big[0]]["no"] == "4L3c"
     assert M.look(s.doc, s.outline, a[0]) == M.look(s.doc, s.outline, v["rep"]) and M.look(s.doc, s.outline, b[0]) == M.look(s.doc, s.outline, big[0])
     assert len(_slot(c, d, 4, 3)["groups"]) == 1 and _slot(c, d, "4~3c", 3)["total"] == 8 and len(_slot(c, d, "4~3c", 3)["groups"]) == 1

@@ -140,6 +140,38 @@ def main():
         w = page.evaluate(WIN)
         check("레터 10 을 치면 바로 바뀐 뒤 레터 10.0(+5.8) · 지금 자리 점선 · 「N줄이 바뀝니다」",
               w["vals"]["레터 위치"] == ["4.2", "10.0", "+5.8"] and w["ghosts"] >= 2 and "줄이 바뀝니다" in w["big"], w)
+        # 창 안의 자리 수정 칸 — 열의 고치기 줄의 거울(레터 위치 · 글 시작 · 둘째 줄 규칙·mm)
+        ED = """() => { const w = document.getElementById('olpWin'), q = (c) => w.querySelector(c); return { shown: !q('.olp-edit').hidden, letter: q('.olp-e-letter').value, text: q('.olp-e-text').value,
+          mode: q('.olp-e-mode').value, l2: q('.olp-e-l2').value, l2off: q('.olp-e-l2').disabled, note: q('.olp-e-note').textContent }; }"""
+        AFTER = "([name, v]) => [...document.querySelectorAll('#olpWin .olp-vals tbody tr')].some((tr) => tr.querySelector('th').textContent === name && tr.querySelectorAll('td')[1].textContent === v)"
+        mode0 = page.input_value(f"{row} .olf-mode")
+        e = page.evaluate(ED)
+        check("창에도 자리 수정 칸 — 열의 값 그대로(레터 10 · 글 시작 = 값 표의 「글 시작 — 바뀐 뒤」 · 둘째 줄 칸은 「직접」 일 때만 켜짐)",
+              e["shown"] and e["letter"] == "10" and e["text"] == w["vals"]["글 시작"][1] and e["mode"] == mode0 and e["l2off"] and "함께 움직" in e["note"], [e, w["vals"], mode0])
+        x8 = f"{float(w['vals']['글 시작'][1]) - 2:.1f}"  # 글 시작을 2mm 왼쪽으로 — 레터 위치는 10 → 8
+        page.fill("#olpWin .olp-e-text", x8)
+        page.wait_for_function(AFTER, arg=["레터 위치", "8.0"], timeout=20000)
+        e, w = page.evaluate(ED), page.evaluate(WIN)
+        check("창의 「글 시작」 을 고치면 레터 위치가 같이 움직임(열·창의 레터 칸 8.0 · 바뀐 뒤 레터 8.0 · 바뀐 뒤 글 시작 = 적은 값) — 치던 칸은 그대로",
+              page.input_value(f"{row} .olf-letter") == "8.0" and e["letter"] == "8.0" and e["text"] == x8 and w["vals"]["글 시작"][1] == x8
+              and page.evaluate("() => document.activeElement === document.querySelector('#olpWin .olp-e-text')"), [e, w["vals"], x8])
+        page.select_option("#olpWin .olp-e-mode", "mm")
+        page.fill("#olpWin .olp-e-l2", "11")
+        page.wait_for_function(AFTER, arg=["둘째 줄", "11.0"], timeout=20000)
+        check("창의 둘째 줄 규칙 「직접」 11 → 열의 규칙·칸도 같이(직접 · 11) · 바뀐 뒤 둘째 줄 11.0",
+              page.input_value(f"{row} .olf-mode") == "mm" and page.input_value(f"{row} .olf-l2") == "11" and not page.evaluate(ED)["l2off"], page.evaluate(ED))
+        page.select_option("#olpWin .olp-e-mode", "text")
+        page.wait_for_function("() => document.querySelector('#olpWin .olp-e-l2').disabled && document.querySelector('#olpWin .olp-e-l2').value === document.querySelector('#olpWin .olp-e-text').value", timeout=20000)
+        check("규칙 「글 시작에 맞춤」 → 꺼진 둘째 줄 칸에 규칙이 정한 값(= 글 시작)이 보임 — 열의 꺼진 칸도 같은 값",
+              page.input_value(f"{row} .olf-l2") == page.evaluate(ED)["l2"] == x8, [page.input_value(f"{row} .olf-l2"), page.evaluate(ED), x8])
+        page.fill("#olpWin .olp-e-text", "1")
+        page.wait_for_function("() => /글 시작이 레터와 글 사이/.test((document.querySelector('#olpWin .olp-err') || {}).textContent || '')", timeout=20000)
+        check("레터·빈칸 폭보다 작은 글 시작 → 창에 까닭(서버에 묻기 전에) · 칸은 그대로 보임", page.evaluate(ED)["shown"], page.evaluate(ED))
+        page.select_option("#olpWin .olp-e-mode", mode0)
+        page.fill("#olpWin .olp-e-letter", "10")
+        page.wait_for_function(AFTER, arg=["레터 위치", "10.0"], timeout=20000)
+        check("창의 「레터 위치」 10 → 열의 레터 칸도 10 · 글 시작 칸이 따라옴(값 표의 바뀐 뒤 글 시작)", page.input_value(f"{row} .olf-letter") == "10"
+              and page.evaluate(ED)["text"] == page.evaluate(WIN)["vals"]["글 시작"][1], [page.evaluate(ED), page.evaluate(WIN)["vals"]])
         page.select_option(f"{row} .olf-mode", "mm")
         page.fill(f"{row} .olf-l2", "12")
         page.wait_for_function("() => [...document.querySelectorAll('#olpWin .olp-vals tbody tr')].some((tr) => tr.querySelector('th').textContent === '둘째 줄' && tr.querySelectorAll('td')[1].textContent === '12.0')", timeout=20000)

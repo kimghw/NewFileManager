@@ -226,7 +226,7 @@ def main():
         page.wait_for_function("() => (document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-odd-btn') || {}).textContent === '다른 서식 보기(1가지)'", timeout=30000)
         od = page.evaluate(ODD)
         check("다른 서식 줄의 「맞추기」 → 그 서식의 줄만 대표 모양으로(p5209 접두 「   - 」) · 단추 「다른 서식 보기(1가지)」 · 펼친 묶음에 남은 한 줄 · 실행 취소 한 칸",
-              slot(doc, 3, 2)["others"] == 1 and page.evaluate("() => document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('   - ') && !document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('    ')")
+              slot(doc, 3, 2)["others"] == 1 and page.evaluate("() => document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('   -\u2002') && !document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('    ')")
               and not od["hidden"] and len(od["levels"]) == 1 and len(od["levels"][0]["rows"]) == 1 and "p5765" in od["levels"][0]["rows"][0]["paras"], od)
         page.click("#undoBtn")
         page.wait_for_function(f"() => state.undo === {undo0} && !state.busy", timeout=60000)
@@ -262,7 +262,7 @@ def main():
         page.wait_for_function("() => document.querySelectorAll('.tpl-mark.fmt').length > 20", timeout=30000)
         fm = page.evaluate("""() => { const under = [...document.querySelectorAll('.tpl-mark.fmt')]; const bad = under.filter((f) => { const sh = f.closest('.sheet'), top = parseFloat(f.style.top);
             return ![...sh.querySelectorAll(':scope > .tpl-mark:not(.fmt)')].some((m) => Math.abs(parseFloat(m.style.top) + 15 - top) <= 1); }).length;
-          return { under: under.length, inline: document.querySelectorAll('.tpl-mark .tm-fmt').length, bad, text: under.slice(0, 30).every((f) => /^(S\\d+|≠)/.test(f.textContent)), pressed: document.querySelector('#headsTemplatesResult .tpl-tg-fmt').getAttribute('aria-pressed') }; }""")
+          return { under: under.length, inline: document.querySelectorAll('.tpl-mark .tm-fmt').length, bad, text: under.slice(0, 30).every((f) => /^(S\\d+|≠|≈)/.test(f.textContent)), pressed: document.querySelector('#headsTemplatesResult .tpl-tg-fmt').getAttribute('aria-pressed') }; }""")
         check("「서식 라벨 보기」 → 템플릿 표 바로 아래에 「S…」 줄(자리가 없으면 같은 줄 뒤)", n0 == 0 and fm["under"] > 20 and fm["bad"] == 0 and fm["text"] and fm["pressed"] == "true", fm)
         page.evaluate("() => { const f = document.querySelector('.tpl-mark.fmt'); f.scrollIntoView({ block: 'center' }); }")
         page.wait_for_timeout(300)
@@ -293,6 +293,25 @@ def main():
               and any("템플릿 서식 정리 (기본)" == s for s in ag["skills"]) and len(ag["skills"]) >= 2 and "## 대표 고르기" in ag["text"] and ag["name"] == "템플릿 서식 정리"
               and ag["saved"] == "기본 스킬(고친 적 없음)" and "서식 3가지" in ag["levels"], ag)
         page.screenshot(path=str(OUT / "05_agent.png"))
+        # 서식이 1가지뿐이어도 **대표가 없는 레벨**이 있으면 계획을 받을 수 있다(2026-11-17 astra 2차 검토 — 전에는 갈래가 둘 이상인 레벨만 세어 「정리 계획 받기」 가 꺼져, 그 레벨에 대표를 줄 길이 없었다).
+        # 레벨마다 서식이 1가지인 템플릿을 골라 서식 갈래 자료에 「대표 없음」 을 흉내 낸 뒤 되돌린다(바꾸는 요청 없음)
+        nr = page.evaluate("""() => {
+          const pick = (id) => { const sel = document.querySelector('#headsDlgBody .tpa-tpl'); sel.value = id; sel.onchange(); };
+          const read = () => ({ multi: document.querySelector('.tpa-target').dataset.multi, off: document.querySelector('.tpa-go').disabled, levels: document.querySelector('.tpa-levels').innerText,
+            note: [...document.querySelectorAll('.tpa-target .hnote')].map((p) => p.textContent).join(' ') });
+          const one = Object.keys(OLM.data).find((id) => Object.values(OLM.data[id]).every((v) => v.groups.length === 1 && v.rep));
+          pick(one);
+          const out = { tpl: one, before: read() }, v = Object.values(OLM.data[one])[0], keep = [v.rep, v.repMissing];
+          v.rep = null; v.repMissing = true; v.groups[0].rep = false;
+          tplAgentSync(); out.norep = read();
+          [v.rep, v.repMissing] = keep; v.groups[0].rep = true;
+          pick('3');
+          return out;
+        }""")
+        page.wait_for_function("() => { const g = document.querySelector('#headsDlgBody .tpa-go'); return g && !g.disabled && document.querySelector('#headsDlgBody .tpa-tpl').value === '3'; }", timeout=30000)
+        check("★ 대상: 서식이 1가지뿐인 템플릿은 「정리할 것이 없습니다」(받기 꺼짐) — 대표가 없는 레벨이 있으면 「서식 1가지 · 대표 없음」 으로 세고 「정리 계획 받기」 가 켜진다",
+              nr["before"]["multi"] == "0" and nr["before"]["off"] and "정리할 것이 없습니다" in nr["before"]["note"]
+              and nr["norep"]["multi"] == "1" and not nr["norep"]["off"] and "서식 1가지 · 대표 없음" in nr["norep"]["levels"] and "정리할 것이 없습니다" not in nr["norep"]["note"], nr)
         page.locator("#headsDlgTools button", has_text="보낼 글").click()
         page.wait_for_selector("#headsDlgBody .tpa-prompt textarea", timeout=30000)
         pr = page.locator("#headsDlgBody .tpa-prompt textarea").input_value()
@@ -318,6 +337,13 @@ def main():
               pl["lv"] == 2 and pl["rep"] == "대표 바꿈" and pl["boxes"] == [["match", "match", "맞추기", opts], ["keep", "keep", "그대로", opts]] and pl["apply"] == "적용 — 5줄" and "고른 갈래 1개" in pl["count"]
               and any("레터 뒤 공백이 없어" in w for w in pl["why"]) and pl["notes"] == "걸러낸 답 1" and "Opus 5.5" in pl["meta"] and "15.3초" in pl["meta"] and "$0.0421" in pl["meta"] and "판 1" in pl["meta"]
               and pl["go"] == "정리 계획 다시 받기", pl)
+        # 적용 몸(tpaTodoOf — 서버 tpl_agent.todo 와 같은 셈): 대표만 바꾸는 레벨도 든다(2026-11-16 astra — 전에는 고른 갈래가 없으면 그 레벨을 버려 계획의 대표가 걸리지 않았다)
+        todo = page.evaluate("""() => tpaTodoOf({ plan: { levels: [
+          { level: 1, rep: { group: 'g1', para: 'pa', count: 9, changed: true }, match: [], split: [], keep: [] },
+          { level: 2, rep: { group: 'g2', para: 'pb', count: 1, changed: true }, match: [], split: [], keep: [{ group: 'g1', para: 'pc', count: 5 }] },
+          { level: 3, rep: { group: 'g1', para: 'pd', count: 4 }, match: [], split: [], keep: [{ group: 'g2', para: 'pe', count: 2 }] }] } })""")
+        check("적용 몸: 대표만 바꾸는 레벨(대표가 없던 한 갈래 레벨 · 갈래를 다 그대로 둔 레벨)도 든다 — likes 빈 목록 · reps = 대표를 바꾸는 레벨 수 · 바꿀 것이 없는 레벨은 없다",
+              todo == {"levels": [{"level": 1, "rep": "pa", "likes": []}, {"level": 2, "rep": "pb", "likes": []}], "n": 0, "moved": 0, "picked": 0, "reps": 2}, todo)
         page.evaluate("document.querySelector('#headsDlgBody').scrollTop = document.querySelector('.tpa-plan').offsetTop - 8")
         page.screenshot(path=str(OUT / "06_plan.png"))
         keep = '#headsDlgBody .tpa-pick[data-key="2|g3"]'
@@ -340,7 +366,7 @@ def main():
         ap2 = page.evaluate("""() => ({ count: document.querySelector('.tpa-count').textContent, dis: [...document.querySelectorAll('.tpa-g select')].every((i) => i.disabled), applyDis: document.querySelector('.tpa-apply').disabled,
           text: document.querySelector('#doc .para[data-id=p6502]').textContent.slice(0, 6), levels: document.querySelector('.tpa-levels').innerText })""")
         check("「적용」 — 대표를 p5209 로 바꾸고 고른 갈래 5줄만 맞춤(p5765 는 그대로) · 실행 취소 한 칸 · 계획은 「적용함」 으로 잠김",
-              v["rep"] == "p5209" and v["groups"][0]["count"] == 6 and v["others"] == 1 and ap2["text"].startswith("    - ") and ap2["dis"] and ap2["applyDis"] and "대표 바꿈 1" in ap2["count"]
+              v["rep"] == "p5209" and v["groups"][0]["count"] == 6 and v["others"] == 1 and ap2["text"].startswith("    -\u2002") and ap2["dis"] and ap2["applyDis"] and "대표 바꿈 1" in ap2["count"]
               and "서식 2가지" in ap2["levels"], [v["rep"], v["others"], ap2])
         page.screenshot(path=str(OUT / "07_applied.png"))
         page.click("#undoBtn")

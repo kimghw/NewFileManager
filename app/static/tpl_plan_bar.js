@@ -8,13 +8,13 @@
 //                   계획이 없거나 받은 뒤 문서가 바뀌었으면 「계획 받기」(서식 정리 계획만 — POST …/analysis/llm {only: "formats"} · 유료 · 문서는 안 바뀜)
 // 두 조정 칸을 누르면 계획 보기(문서 옆 열 「LLM 이 바꾼 것」 의 「서식 계획」 절 — 템플릿 · 레벨마다 맞출 줄 · 뗄 줄 · 남긴 줄), 계획이 하나도 없으면 「템플릿 관계」 열(손으로 맞추고 떼는 곳).
 // 「모두 반영」 은 이 줄 한 곳에만 둔다(design.md §10) — 템플릿 하나만 반영하는 길은 전처럼 템플릿 줄의 「계획대로 맞추기」 · ★ 열의 「적용」.
-// 자료 = 분석 상태(GET …/analysis — doc_status.js dsState.main 의 서식 항목 llm{state, text, need, planned, applied, stale, change, moved, list}) — 따로 읽지 않는다.
+// 자료 = 분석 상태(GET …/analysis — doc_status.js dsState.main 의 서식 항목 llm{state, text, need, planned, applied, stale, change, moved, reps(대표를 바꿀 레벨), left(반영한 계획이 남긴 줄 {kept, unanswered}), list}) — 따로 읽지 않는다.
 // 부르는 곳: app.js headsProgLine(tplPlanRow — 세 단계를 다 보이는 진행 줄에만) · doc_status.js dsFetch(tplPlanBarSync) · 이름 줄 진행표 · 에이전트 보기(tplPlanGo) ·
 // heads_run_all.js(tpbApply — 상태 줄 「전체 실행」 이 LLM 단계 뒤에 같은 함수로 반영한다 · tplPlanGo).
 // 기대는 것: app.js(state · el · hBtn · nf · toast · api · structOp · flushAll · heads · headsRender · headsPoll · outlineLoad · showTab · H_JSON) · doc_status.js(dsState · docStatusPing) ·
 // outline_match.js(olmLoad · olmRefresh) · heading_llm_diff.js(llmDiffOpen) · app.js tplRelOpen · tpl_agent.js(tpaSkillKey).
 const TPB = { sig: null, busy: false };
-const TPB_STATE = { none: "안 함", plan: "계획 받음 — 반영 전", llm: "반영함", running: "계획 받는 중", failed: "실패", skip: "할 것 없음" };
+const TPB_STATE = { none: "안 함", plan: "계획 받음 — 반영 전", llm: "반영함", left: "반영함 — 답이 없어 안 바꾼 줄이 남음", running: "계획 받는 중", failed: "실패", skip: "할 것 없음" };
 const tpbView = () => (typeof dsState === "object" && state.id && dsState.mainId === state.id ? dsState.main : null);
 const tpbFmt = (v = tpbView()) => (v ? (v.items || []).find((i) => i.key === "formats") || null : null);
 // 확실한 종속 제안(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래 — 분석 상태 템플릿 항목의 hints 가운데 sure): 「모두 반영」 이 저절로 건다(spec_hwpx_웹편집 ② §8-2 「종속 제안」 — 2026-11-16 사용자 「확실이 구분되는건 자동으로」)
@@ -59,12 +59,22 @@ function tpbDraw(els) {
   const [layer, tplB, fmtB, actB] = els, v = tpbView(), f = tpbFmt(v), L = f && f.llm;
   if (!tplB || !fmtB || !actB) return;
   const hints = tpbSure(v), sure = hints.filter((h) => h.sure), maybe = hints.filter((h) => !h.sure);
-  const sig = JSON.stringify([state.id, !!f, f && f.state, L && [L.state, L.text, L.need, L.planned, L.applied, L.stale, L.done, L.change, L.moved, L.error], f && f.others, !!(v && v.busy), TPB.busy, !!state.busy,
+  const sig = JSON.stringify([state.id, !!f, f && f.state, L && [L.state, L.text, L.need, L.planned, L.applied, L.stale, L.done, L.change, L.moved, L.reps, L.left, L.error], f && f.others, f && f.place, !!(v && v.busy), TPB.busy, !!state.busy,
     hints.map((h) => [h.child, h.parent, h.at, h.sure])]);
   if (sig === TPB.sig && tplB.childNodes.length) return;
   TPB.sig = sig;
   const ready = !!(f && f.state === "done" && L && typeof L.need === "number");
+  // 자리 맞춤(spec_hwpx_웹편집 ② §8-8 「확정 서식으로 바꾸기」): 대표와 그 갈래의 줄 가운데 레터 뒤 묶음 빈칸 · 자리 규칙(둘째 줄 = 글 시작)이 아직 안 걸린 줄 — 「모두 반영」 이 스크립트로 건다(LLM 계획이 없어도)
+  const P = (ready && f.place) || 0;
+  const placeTip = P ? `\n자리 맞춤 ${nf(P)}줄 — 레터 뒤 빈칸을 묶음 빈칸으로(양쪽 정렬이 늘리지 않습니다) · 둘째 줄을 글 시작에. 스크립트가 맞춥니다 — 「모두 반영」 이 같이 겁니다` : "";
   const list = (L && L.list) || [], none = list.filter((x) => x.state === "none").length, busy = !!(v && v.busy) || TPB.busy;
+  // 대표만 바꾸는 레벨(L.reps — 맞출 줄이 0 이어도 반영할 것이다) · 반영한 계획이 지금 문서에 남긴 줄(L.left — 에이전트가 그대로 둔 줄 LK · 답이 없어 안 바꾼 줄 LU: 검토한 것이 아니다)
+  // — 반영한 뒤에도 보인다(2026-11-16 astra: 답이 없던 줄이 ✓ 뒤로 사라졌다 — spec_hwpx_웹편집 ② §8-4)
+  const R = (ready && L.reps) || 0, LK = (ready && L.left && L.left.kept) || 0, LU = (ready && L.left && L.left.unanswered) || 0;
+  const leftTip = LK || LU ? `\n반영한 계획이 남긴 줄 — ${[LK ? `에이전트가 그대로 둔 줄 ${nf(LK)}` : "", LU ? `답이 없어 안 바꾼 줄 ${nf(LU)}(검토한 것이 아닙니다)` : ""].filter(Boolean).join(" · ")} — 「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로` : "";
+  const leftCell = () => { // 답이 없어 안 바꾼 줄이 남았으면 「서식 조정」 칸은 ✓ 가 아니다 — 남은 줄 수를 보인다(에이전트가 까닭을 적고 그대로 둔 줄은 검토한 것 — ✓ 그대로 · 도움말에만)
+    if (LU) tpbCell(fmtB, { state: "left", text: "서식 조정", count: `답 없음 ${nf(LU)}`, unit: "줄", title: `${F}\n반영했지만 에이전트가 답하지 않아 안 바꾼 줄이 ${nf(LU)}줄 남았습니다 — 검토한 것이 아닙니다${leftTip}\n— ${seeTip}`, run: see });
+  };
   const has = ready && (L.planned || L.applied || L.stale || L.done); // 볼 계획이 있나
   const see = () => { if (has && typeof llmDiffOpen === "function") llmDiffOpen("fmt"); else if (typeof tplRelOpen === "function") tplRelOpen(); };
   const seeTip = has ? "누르면 계획 보기 — 문서 옆 열 「LLM 이 바꾼 것」 의 「서식 계획」(템플릿 · 레벨마다 맞출 줄 · 뗄 줄 · 남긴 줄)" : "누르면 「템플릿 관계」 열 — 손으로 대표에 맞추고 다른 템플릿으로 떼는 곳";
@@ -80,6 +90,9 @@ function tpbDraw(els) {
   const relTip = (sure.length ? `\n종속 ${nf(sure.length)}개를 저절로 넣습니다 — ${tpbRelText(sure)}(문서는 안 바뀜 · 템플릿만)` : "") + (maybe.length ? `\n종속 제안 ${nf(maybe.length)}개는 사람이 고릅니다(「템플릿 조정」 칸을 누르면 결과 화면의 「템플릿 관계」 절) — ${tpbRelText(maybe)}` : "");
   const relCell = () => tpbCell(tplB, { state: "plan", text: "템플릿 조정", count: `종속 ${nf(sure.length)}`, title: `${T}${relTip}`, run: () => (typeof llmDiffOpen === "function" ? llmDiffOpen("rel") : see()) });
   const relAct = () => act({ text: "모두 반영", go: true, off: busy || !!state.busy, run: () => tpbApply(), title: `확실한 종속 ${nf(sure.length)}개를 넣습니다 — ${tpbRelText(sure)}. 문서 글·서식은 안 바뀌고 템플릿만 바뀝니다(「실행 취소」 한 번으로 되돌립니다 · 풀려면 「템플릿 관계」 의 「떼기」)` });
+  const placeCell = () => tpbCell(fmtB, { state: "plan", text: "서식 조정", count: nf(P), unit: "줄", title: `${F}${placeTip}\n— ${seeTip}`, run: see });
+  const placeAct = () => act({ text: "모두 반영", go: true, off: busy || !!state.busy, run: () => tpbApply(),
+    title: `자리 맞춤 ${nf(P)}줄 — 레터 뒤 빈칸을 묶음 빈칸으로 · 둘째 줄을 글 시작에 맞춥니다(스크립트 — LLM 을 부르지 않습니다)${sure.length ? ` · 확실한 종속 ${nf(sure.length)}개도 넣습니다` : ""}.\n문서가 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다` });
   const fetchAct = (label) => act({ text: label, go: false, off: busy, run: () => tpbFetch(),
     title: busy ? "다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요" : "서식이 여러 가지인 템플릿마다 서식 정리 계획을 받습니다(유료 LLM · 템플릿마다 호출 하나 · 문서는 안 바뀜) — 이미 받은 계획은 다시 받지 않습니다" });
   if (!ready) { // 헤딩 그래프가 아직 없다(또는 분석 상태를 아직 못 읽음)
@@ -92,7 +105,9 @@ function tpbDraw(els) {
   if (!L.need) { // 정리할 템플릿이 없다 — 계획을 반영해 다 맞춘 것이면 ✓, 처음부터 한 가지였으면 –
     if (L.done) both("llm", null, `모두 반영함 — 계획 ${nf(L.done)}개(템플릿) · 지금은 레벨마다 서식이 한 가지입니다`);
     else both("skip", null, "할 것 없음 — 레벨마다 서식이 한 가지입니다");
-    if (sure.length) { relCell(); relAct(); } // 서식은 다 맞았어도 확실한 종속이 남았다
+    if (sure.length) relCell(); // 서식은 다 맞았어도 확실한 종속이 남았다
+    if (P) { placeCell(); placeAct(); } // 서식 갈래는 한 가지여도 자리(묶음 빈칸 · 둘째 줄)가 아직 규칙대로가 아니다
+    else if (sure.length) relAct();
     else act({ text: "", hide: true });
     return;
   }
@@ -103,15 +118,16 @@ function tpbDraw(els) {
     return;
   }
   if (L.planned) {
-    const todo = (L.change || 0) + (L.moved || 0) + sure.length, sum =`받아 둔 계획 ${nf(L.planned)}개(템플릿) — 맞출 줄 ${nf(L.change || 0)} · 뗄 줄 ${nf(L.moved || 0)}${rest ? ` · ${rest}` : ""}`;
+    const todo = (L.change || 0) + (L.moved || 0) + R + sure.length + P, sum =`받아 둔 계획 ${nf(L.planned)}개(템플릿) — 맞출 줄 ${nf(L.change || 0)} · 뗄 줄 ${nf(L.moved || 0)}${R ? ` · 대표 변경 ${nf(R)}` : ""}${P ? ` · 자리 맞춤 ${nf(P)}` : ""}${rest ? ` · ${rest}` : ""}`;
     tpbCell(tplB, L.moved ? { state: "plan", text: "템플릿 조정", count: nf(L.moved), unit: sure.length ? `줄 · 종속 ${nf(sure.length)}` : "줄", title: `${T}\n${sum}${relTip}\n— ${seeTip}`, run: see }
       : sure.length ? { state: "plan", text: "템플릿 조정", count: `종속 ${nf(sure.length)}`, title: `${T}\n${sum} — 뗄 줄 없음${relTip}\n— ${seeTip}`, run: see }
       : { state: "skip", text: "템플릿 조정", title: `${T}\n${sum} — 뗄 줄 없음(레터가 다른 줄이 없습니다)\n— ${seeTip}`, run: see });
-    tpbCell(fmtB, L.change ? { state: "plan", text: "서식 조정", count: nf(L.change), unit: "줄", title: `${F}\n${sum}\n— ${seeTip}`, run: see }
+    tpbCell(fmtB, L.change || P ? { state: "plan", text: "서식 조정", count: nf((L.change || 0) + P), unit: R ? `줄 · 대표 ${nf(R)}` : "줄", title: `${F}\n${sum}${placeTip}\n— ${seeTip}`, run: see }
+      : R ? { state: "plan", text: "서식 조정", count: `대표 ${nf(R)}`, title: `${F}\n${sum} — 맞출 줄은 없고 대표만 바꿉니다(새 대표와 서식이 같은 줄은 자리를 같이 맞춥니다)\n— ${seeTip}`, run: see } // 대표만 바꾸는 계획 — 맞출 줄이 0 이어도 반영할 것이다
       : { state: "skip", text: "서식 조정", title: `${F}\n${sum} — 맞출 줄 없음\n— ${seeTip}`, run: see });
     if (todo) {
       act({ text: "모두 반영", go: true, off: busy || !!state.busy, run: () => tpbApply(),
-        title: `받아 둔 계획 ${nf(L.planned)}개를 에이전트가 고른 그대로 한 번에 반영합니다 — 대표에 맞출 줄 ${nf(L.change || 0)}개 · 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}개(그 아래 줄도 같이 갑니다) · 「그대로」 로 남긴 줄은 안 바뀝니다.\n문서가 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다. 먼저 「템플릿 조정」·「서식 조정」 칸을 눌러 계획을 확인하세요.${rest ? `\n${rest}` : ""}` });
+        title: `받아 둔 계획 ${nf(L.planned)}개를 에이전트가 고른 그대로 한 번에 반영합니다 — 대표에 맞출 줄 ${nf(L.change || 0)}개 · 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}개(그 아래 줄도 같이 갑니다)${R ? ` · 대표를 바꿀 레벨 ${nf(R)}개` : ""} · 「그대로」 로 남긴 줄은 안 바뀝니다.${P ?`\n맞춘 뒤 스크립트가 자리를 맞춥니다 — 레터 뒤 빈칸을 묶음 빈칸으로 · 둘째 줄을 글 시작에(지금 ${nf(P)}줄 + 맞춘 줄).` : ""}\n문서가 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다. 먼저 「템플릿 조정」·「서식 조정」 칸을 눌러 계획을 확인하세요.${rest ? `\n${rest}` : ""}` });
     } else if (L.stale || none) fetchAct("나머지 받기");
     else act({ text: "", hide: true });
     return;
@@ -119,18 +135,24 @@ function tpbDraw(els) {
   if (L.stale || none) {
     const part = !!(L.applied || L.done); // 반영한 계획이 있는데 남은 것도 있다 — 반영으로 새로 생긴 서식 종속 템플릿 · 그 뒤 고친 템플릿
     const st = L.state === "failed" ? "failed" : part ? "llm" : "none";
-    both(st, null, `서식 정리 계획 — ${rest}${part ? "\n남은 것 = 계획을 받지 않은 템플릿(반영으로 새로 생긴 서식 종속 템플릿 · 그 뒤 서식이 갈린 템플릿) — 「나머지 받기」" : ""}${L.state === "failed" && L.error ? `\n${L.error}` : ""}`);
+    both(st, null, `서식 정리 계획 — ${rest}${part ? "\n남은 것 = 계획을 받지 않은 템플릿(반영으로 새로 생긴 서식 종속 템플릿 · 그 뒤 서식이 갈린 템플릿) — 「나머지 받기」" : ""}${L.state === "failed" && L.error ? `\n${L.error}` : ""}${leftTip}`);
+    if (st === "llm") leftCell(); // 반영한 계획이 답 없이 남긴 줄 — ✓ 로 덮지 않는다
     fetchAct(part ? "나머지 받기" : L.stale && !none ? "다시 받기" : "계획 받기");
     return;
   }
-  both("llm", null, `모두 반영함 — 템플릿 ${nf(L.applied)}개${f.others ? ` · 대표와 다른 줄 ${nf(f.others)}(「그대로」 로 남긴 줄 · 그 뒤 고친 줄)` : ""}`);
-  if (sure.length) { relCell(); relAct(); }
+  both("llm", null, `모두 반영함 — 템플릿 ${nf(L.applied)}개${f.others ? ` · 대표와 다른 줄 ${nf(f.others)}(「그대로」 로 남긴 줄 · 그 뒤 고친 줄)` : ""}${leftTip}`);
+  leftCell(); // 답이 없어 안 바꾼 줄이 남았으면 「서식 조정」 은 ✓ 가 아니라 「답 없음 n줄」
+  if (sure.length) relCell();
+  if (P) { placeCell(); placeAct(); } // 계획은 다 반영했는데 자리가 안 맞은 줄이 남았다(이 기능 전에 반영한 문서 · 그 뒤 고친 줄)
+  else if (sure.length) relAct();
   else act({ text: "", hide: true });
 }
 
-function tpbAsk(L) { // 「모두 반영」 의 확인 창 글 — 무엇이 몇 줄 바뀌고 무엇이 남나(2026-11-16: 전에는 확인 없이 바로 문서를 바꿨다)
-  const rows = [`받아 둔 서식 정리 계획 ${nf(L.planned || 0)}개(템플릿)를 에이전트가 고른 그대로 반영합니다.`, "",
-    `· 서식 조정 — 대표 서식에 맞출 줄 ${nf(L.change || 0)}`, `· 템플릿 조정 — 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}`];
+function tpbAsk(L, P = 0) { // 「모두 반영」 의 확인 창 글 — 무엇이 몇 줄 바뀌고 무엇이 남나(2026-11-16: 전에는 확인 없이 바로 문서를 바꿨다). P = 자리 맞춤이 남은 줄(② §8-8)
+  const rows = L.planned ? [`받아 둔 서식 정리 계획 ${nf(L.planned || 0)}개(템플릿)를 에이전트가 고른 그대로 반영합니다.`, "",
+    `· 서식 조정 — 대표 서식에 맞출 줄 ${nf(L.change || 0)}${L.reps ? ` · 대표를 바꿀 레벨 ${nf(L.reps)}(맞출 줄이 없어도 대표가 바뀝니다)` : ""}`, `· 템플릿 조정 — 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}`]
+    : ["받아 둔 서식 정리 계획은 없습니다 — 스크립트가 맞추는 것만 반영합니다.", ""];
+  if (P || L.change) rows.push(`· 자리 맞춤(스크립트) — 레터 뒤 빈칸을 묶음 빈칸으로(양쪽 정렬이 늘리지 않음) · 둘째 줄을 글 시작에: 지금 ${nf(P)}줄${L.change ? " + 위에서 맞춘 줄" : ""}`);
   const left = [L.kept ? `에이전트가 그대로 둔 줄 ${nf(L.kept)}` : "", L.unanswered ? `답이 없어 안 바꾸는 줄 ${nf(L.unanswered)}` : "", L.omitted ? `갈래가 많아 못 본 갈래 ${nf(L.omitted)}(반영 뒤 「나머지 받기」)` : ""].filter(Boolean);
   if (left.length) rows.push(`· 안 바뀌는 것 — ${left.join(" · ")}`);
   const sure = tpbSure().filter((h) => h.sure);
@@ -147,27 +169,30 @@ function tpbAsk(L) { // 「모두 반영」 의 확인 창 글 — 무엇이 몇
 async function tpbApply(opt = {}) {
   if (TPB.busy || !state.id) return null;
   const id = state.id, epoch = state.epoch;
-  let L = (tpbFmt() || {}).llm || {};
+  let L = (tpbFmt() || {}).llm || {}, P = (tpbFmt() || {}).place || 0;
   structOp.lastError = null;
   if (!opt.plans) { // 이 줄이 가진 분석 상태는 늦을 수 있다(「템플릿 서식 정리」 열에서 방금 다시 받은 계획) — 묻기 전에 새로 읽어 그 수를 보이고 그 계획의 표시를 보낸다(옛 표시면 서버가 409 로 막는다)
     try {
       const f = ((await api(`/api/docs/${id}/analysis`)).items || []).find((i) => i.key === "formats");
-      if (f && f.llm) L = f.llm;
+      if (f && f.llm) { L = f.llm; P = f.place || 0; }
     } catch { /* 못 읽으면 가진 것으로 — 서버가 표시를 견준다 */ }
     if (epoch !== state.epoch || TPB.busy) return null;
   }
   const plans = opt.plans || Object.fromEntries((L.list || []).filter((x) => x.state === "planned" && x.at != null).map((x) => [x.tpl, x.at]));
-  if (opt.ask !== false && !confirm(tpbAsk(L))) return null;
+  if (opt.ask !== false && !confirm(tpbAsk(L, P))) return null;
   if (epoch !== state.epoch) return null;
   TPB.busy = true;
   tplPlanBarSync(true);
   const r = await structOp("outline/agent/apply", Object.keys(plans).length ? { rev: state.serverRev, plans } : { rev: state.serverRev }); // 표시가 없으면(서버가 옛 판) 전처럼 차례만
   TPB.busy = false;
   if (r) {
-    const ts = r.templates || [], n = (r.changed || []).length, made = ts.flatMap((t) => (t.splits || []).map((x) => `T${x.no}`));
+    const ts = r.templates || [], placed = (r.placed || []).length, n = (r.changed || []).length - placed, made = ts.flatMap((t) => (t.splits || []).map((x) => `T${x.no}`)); // placed = 자리 맞춤만 한 줄(② §8-8) · n = 대표에 맞춘 줄
     const rel = (r.merged || []).length ? ` · 템플릿 종속 ${nf(r.merged.length)}(${r.merged.slice(0, 4).map((m) => `T${m.no}`).join(" · ")})` : "";
-    toast(r.nothing ? "바꿀 줄이 없습니다 — 계획이 모두 「그대로」 입니다" : !ts.length && rel ? `템플릿 종속을 넣었습니다 —${rel.slice(2)} · 문서는 안 바뀜 · 「실행 취소」 한 번으로 되돌립니다`
-      : `계획대로 반영했습니다 — 템플릿 ${nf(ts.length)}개 · ${[made.length ? `템플릿 조정: 서식 종속 템플릿 ${made.slice(0, 6).join(" · ")}${made.length > 6 ? " …" : ""}` : "", n ? `서식 조정: 맞춘 줄 ${nf(n)}` : ""].filter(Boolean).join(" · ") || "대표만 바뀜"}${rel} · 「실행 취소」 한 번으로 되돌립니다`);
+    const put = placed ? `자리 맞춤 ${nf(placed)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "";
+    const reps = ts.reduce((a, t) => a + (t.levels || []).filter((x) => x.repChanged).length, 0); // 대표를 바꾼 레벨 — 맞춘 줄이 0 이어도 한 일이다
+    toast(r.nothing ? "바꿀 줄이 없습니다 — 계획이 모두 「그대로」 입니다" : !ts.length && !placed && rel ? `템플릿 종속을 넣었습니다 —${rel.slice(2)} · 문서는 안 바뀜 · 「실행 취소」 한 번으로 되돌립니다`
+      : !ts.length && placed ? `자리를 맞췄습니다 — ${put}${rel} · 「실행 취소」 한 번으로 되돌립니다`
+      : `계획대로 반영했습니다 — 템플릿 ${nf(ts.length)}개 · ${[made.length ? `템플릿 조정: 서식 종속 템플릿 ${made.slice(0, 6).join(" · ")}${made.length > 6 ? " …" : ""}` : "", n ? `서식 조정: 맞춘 줄 ${nf(n)}` : "", reps ? `대표 변경 ${nf(reps)}` : "", put].filter(Boolean).join(" · ") || "대표만 바뀜"}${rel} · 「실행 취소」 한 번으로 되돌립니다`);
   } else {
     const e = structOp.lastError; // 까닭은 structOp 이 이미 알렸다 — 옛 서버만 따로
     if (e && e.status === 404 && /not found/i.test(e.message || "")) toast("서버가 옛 판이라 「모두 반영」 을 모릅니다 — 서버(8114)를 다시 시작한 뒤 쓰세요", true);

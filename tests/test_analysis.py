@@ -527,7 +527,7 @@ def test_formats_item_counts_what_applying_the_plans_would_change():
                        {"level": 2, "rep": g("g1", 4), "match": [], "keep": [], "split": []}]}
     f = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 3, "plan": plan}}))["formats"]["llm"]
     assert (f["planned"], f["change"], f["moved"]) == (1, 3, 5)
-    assert f["list"] == [{"tpl": "1", "no": "1", "state": "planned", "change": 3, "moved": 5, "at": None, "kept": 0, "unanswered": 0, "omitted": 0}]   # at = 계획의 표시 · 남는 것(그대로 둔 줄 · 답 없던 줄 · 못 본 갈래)
+    assert f["list"] == [{"tpl": "1", "no": "1", "state": "planned", "change": 3, "moved": 5, "reps": 0, "at": None, "kept": 0, "unanswered": 0, "omitted": 0}]   # at = 계획의 표시 · reps = 대표를 바꿀 레벨 · 남는 것(그대로 둔 줄 · 답 없던 줄 · 못 본 갈래)
     old = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 1, "plan": plan}}))["formats"]["llm"]   # 옛 계획 — 반영할 수 없으므로 세지 않는다
     assert (old["stale"], old["change"], old["moved"]) == (1, 0, 0) and "change" not in old["list"][0] and (f["done"], old["done"]) == (0, 0)
     # 반영한 계획 수(done)는 모든 템플릿에서 센다 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도(진행 줄 「조정」 의 ✓)
@@ -539,6 +539,79 @@ def test_formats_item_counts_what_applying_the_plans_would_change():
     assert (back["need"], back["done"]) == (0, 0)
     none = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={}))["formats"]["llm"]
     assert (none["change"], none["moved"]) == (0, 0)
+
+
+def test_formats_item_counts_rep_changes_and_what_an_applied_plan_left():
+    """조정 길의 빈 곳(2026-11-16 astra): ① 대표만 바꾸는 레벨도 반영할 것으로 센다(reps — 「맞출 줄 0 · 대표 변경 1」 도 「전체 실행」 이 조정을 돌린다)
+    ② 반영한 계획이 남긴 줄(에이전트가 그대로 둔 줄 · 답이 없어 안 바꾼 줄)은 반영한 뒤에도 센다(left — 지금 갈래로 다시 세어, 그 뒤 사람이 맞춘 갈래는 빠진다)."""
+    from app import tpl_agent
+    st = {"stage2": _res(2), "stage3": _res(3)}
+    raw_k, raw_u = {"lead": "  "}, {"lead": "   "}   # 남긴 갈래의 비교 값(갈래 지문 = 레벨 + 비교 값)
+
+    def g(gid, n, **kw):
+        return {"group": gid, "para": f"p{gid}", "count": n, **kw}
+    plan = {"levels": [{"level": 1, "rep": g("g1", 5), "match": [g("g2", 2)], "split": [],
+                        "keep": [g("g3", 1, auto=False, sig=tpl_agent.group_sig(1, raw_k)), g("g4", 2, auto=True, sig=tpl_agent.group_sig(1, raw_u))]},
+                       {"level": 2, "rep": g("g2", 4, changed=True), "match": [], "split": [], "keep": [g("g1", 3, auto=False, sig="옛 대표 갈래")]}],
+            "left": {"kept": 4, "unanswered": 2}, "omitted": 0}
+    f = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 3, "plan": plan}}))["formats"]["llm"]
+    row = f["list"][0]
+    assert (row["state"], row["change"], row["moved"], row["reps"], row["kept"], row["unanswered"]) == ("planned", 2, 0, 1, 4, 2) and "left" not in row
+    assert f["reps"] == 1 and f["left"] == {"kept": 0, "unanswered": 0}                      # left = **반영한** 계획이 남긴 것 — 받아 둔 계획의 kept·unanswered 와 따로
+    only = {"levels": [{"level": 2, "rep": g("g2", 4, changed=True), "match": [], "split": [], "keep": []}]}   # 대표만 바꾸는 계획 — 바뀔 줄은 0 이어도 반영할 것이 있다
+    f1 = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 3, "plan": only}}))["formats"]["llm"]
+    assert (f1["planned"], f1["change"], f1["moved"], f1["reps"]) == (1, 0, 0, 1)
+
+    def grp(n, raw, rep=False):
+        return {"count": n, "rep": rep, "raw": raw, "key": "px"}
+    now = {"1": {"1": {"total": 10, "rep": "p1", "repMissing": False, "others": 3, "groups": [grp(7, {"lead": " "}, True), grp(1, raw_k), grp(2, raw_u)]}, "2": _var([7])}, "2": {"1": _var([3])}}
+    rec = {"tpl": "1", "rev": 3, "at": 2.0, "plan": plan, "applied": {"at": 1.0, "rev": 4, "changed": 2}}
+    done = _items(analysis.status(_sess(st), outline=({**OV, "agent": {"1": 2.0}}, now), plans={"1": rec}))["formats"]["llm"]
+    row = done["list"][0]
+    assert row["state"] == "applied" and row["left"] == {"kept": 1, "unanswered": 2} and "kept" not in row and "change" not in row
+    assert done["left"] == {"kept": 1, "unanswered": 2} and (done["kept"], done["unanswered"], done["reps"]) == (0, 0, 0)
+    fixed = {**now, "1": {**now["1"], "1": {"total": 10, "rep": "p1", "repMissing": False, "others": 1, "groups": [grp(9, {"lead": " "}, True), grp(1, raw_k)]}}}   # 답 없던 갈래를 사람이 대표에 맞췄다
+    assert _items(analysis.status(_sess(st), outline=({**OV, "agent": {"1": 2.0}}, fixed), plans={"1": rec}))["formats"]["llm"]["left"] == {"kept": 1, "unanswered": 0}
+    undone = _items(analysis.status(_sess(st), outline=(OV, now), plans={"1": rec}))["formats"]["llm"]   # 반영을 되돌린 계획(오버레이에 표가 없다) — 남긴 것으로 세지 않는다
+    assert undone["left"] == {"kept": 0, "unanswered": 0} and "left" not in undone["list"][0]
+
+
+def test_plan_left_does_not_drop_a_variant_just_because_its_key_line_is_gone():
+    """반영한 계획이 남긴 줄(plan_left) — 2026-11-17 astra 2차 검토 2번: 대표를 못 고른 레벨의 답 없는 갈래 G1 = {a, b}(열쇠 줄 a) · G2 = {c}. 그 뒤 사람이 c 를 대표로 정하고 **a 만** 맞추면
+    b 는 답 없던 서식 그대로다(열쇠 줄은 이제 b) — 옛 열쇠 줄 a 를 못 찾는다고 0 이 되면 안 된다. 지문(sig)이 있으면 서식으로 찾고, 지문이 없는 옛 계획은 **지금 갈래로 증명될 때만** 해결된 것으로 본다."""
+    from app import tpl_agent
+
+    def k(gid, para, n, **kw):
+        return {"group": gid, "para": para, "count": n, **kw}
+
+    def grp(key, paras, rep=False, raw=None):
+        return {"key": key, "paras": list(paras), "count": len(paras), "rep": rep, "raw": raw or {"lead": key}}
+
+    def lv(*groups):
+        return {"1": {"groups": list(groups)}}
+    old = {"levels": [{"level": 1, "rep": None, "match": [], "split": [], "keep": [k("g1", "a", 2, auto=True), k("g2", "c", 1, auto=True)]}]}   # 지문 없는 옛 계획
+    assert analysis.plan_left(old, lv(grp("a", "ab"), grp("c", "c"))) == {"kept": 0, "unanswered": 3}             # 반영 직후 — 그대로
+    after = lv(grp("c", "ca", rep=True), grp("b", "b"))                                                          # c 를 대표로 · a 만 맞춤 — b 는 그대로
+    assert analysis.plan_left(old, after) == {"kept": 0, "unanswered": 1}                                         # 열쇠 줄이 떠났다고 사라지지 않는다
+    assert analysis.plan_left(old, lv(grp("c", "cab", rep=True))) == {"kept": 0, "unanswered": 0}                 # b 까지 맞춤 — 대표와 다른 줄이 없으니 남은 것도 없다(증명됨)
+    assert analysis.plan_left(old, lv(grp("c", "c", rep=True), grp("b", "ab"))) == {"kept": 0, "unanswered": 2}    # 열쇠 줄이 그 갈래의 줄로 남아 있으면(열쇠만 바뀜) 그 갈래의 지금 줄 수
+    sig_a, sig_c = tpl_agent.group_sig(1, {"lead": "A"}), tpl_agent.group_sig(1, {"lead": "C"})
+    new = {"levels": [{"level": 1, "rep": None, "match": [], "split": [], "keep": [k("g1", "a", 2, auto=True, sig=sig_a), k("g2", "c", 1, auto=True, sig=sig_c)]}]}   # 지문이 있는 계획 — 서식으로 찾는다
+    assert analysis.plan_left(new, lv(grp("c", "ca", rep=True, raw={"lead": "C"}), grp("b", "b", raw={"lead": "A"}))) == {"kept": 0, "unanswered": 1}
+    assert analysis.plan_left(new, lv(grp("c", "ca", rep=True, raw={"lead": "C"}), grp("b", "b", raw={"lead": "Z"}))) == {"kept": 0, "unanswered": 0}   # 그 서식의 줄이 없다 — 남은 줄은 그 뒤 생긴 다른 서식(이 계획이 남긴 것이 아니다)
+    # 지문 없는 옛 계획에서 못 찾은 갈래는 답 없는 쪽부터 센다(검토 안 된 줄을 놓치지 않게) — 지금 남은 대표와 다른 줄 수를 넘지 않는다
+    mixed = {"levels": [{"level": 1, "rep": k("g0", "r", 4), "match": [], "split": [], "keep": [k("g1", "a", 2, auto=False), k("g2", "x", 3, auto=True)]}]}
+    assert analysis.plan_left(mixed, lv(grp("r", "r", rep=True), grp("b", "b"))) == {"kept": 0, "unanswered": 1}
+    assert analysis.plan_left(mixed, lv(grp("r", "r", rep=True), grp("b", "bcde"))) == {"kept": 1, "unanswered": 3}
+
+
+def test_level_without_a_rep_is_not_an_aligned_level():
+    """대표가 없는 레벨은 갈래가 하나뿐이어도 「맞춘 레벨」 이 아니다 — 대표가 없으면 자리 맞춤도 새 줄의 서식도 정해지지 않는다(2026-11-16 astra: groups <= 1 만 보고 세었다)."""
+    st = {"stage2": _res(2), "stage3": _res(3)}
+    f = _items(analysis.status(_sess(st), outline=(OV, {"1": {"1": _var([5], rep=False), "2": _var([4])}}), plans={}))["formats"]
+    assert (f["levels"], f["aligned"], f["noRep"]) == (2, 1, 1) and f["apply"] == {"state": "none", "text": "맞춘 레벨 1/2 · 대표 없는 레벨 1"}
+    ok = _items(analysis.status(_sess(st), outline=(OV, {"1": {"1": _var([5]), "2": _var([4])}}), plans={}))["formats"]
+    assert (ok["levels"], ok["aligned"], ok["noRep"]) == (2, 2, 0) and ok["apply"] == {"state": "done", "text": "맞춘 레벨 2/2"}
 
 
 def test_chain_name_and_parts_follow_the_chain():

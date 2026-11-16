@@ -116,6 +116,11 @@ button.olm-chip.olm-vchip:focus-visible { outline: 2px solid #7c3aed; outline-of
 #headsOverview .hprog-step.tpb-cell[data-state="plan"] { border-color: #c4b5fd; background: #fff; color: #5b21b6; }
 #headsOverview .hprog-step.tpb-cell[data-state="plan"] .hprog-mark { border-color: #7c3aed; }
 #headsOverview .hprog-step.tpb-cell[data-state="plan"] .hprog-count { font-weight: 600; }
+/* 「left」 = 반영은 했지만 에이전트가 답하지 않아 안 바꾼 줄이 남음(검토한 것이 아니다 — ✓ 가 아닌 주황 테 · 「!」: tpl_plan_bar.js) */
+#headsOverview .hprog-step.tpb-cell[data-state="left"] { border-color: #eac78d; background: #fff8eb; color: #92400e; }
+#headsOverview .hprog-step.tpb-cell[data-state="left"] .hprog-mark { border: 0; background: #c48631; }
+#headsOverview .hprog-step.tpb-cell[data-state="left"] .hprog-mark::before { content: "!"; }
+#headsOverview .hprog-step.tpb-cell[data-state="left"] .hprog-count { font-weight: 600; }
 #headsOverview .hprog-step.tpb-cell[data-tpb="act"] { justify-content: center; border-color: #cfdcf3; background: #fff; color: #2d5bd0; font-weight: 600; }
 #headsOverview .hprog-step.tpb-cell[data-tpb="act"]:hover:not(:disabled) { background: #f0f4fc; border-color: #9fb8e6; }
 #headsOverview .hprog-step.tpb-cell[data-tpb="act"].tpb-go { border-color: #6d28d9; background: #6d28d9; color: #fff; }

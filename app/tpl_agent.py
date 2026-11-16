@@ -243,7 +243,7 @@ def fingerprint_of(doc, ov, tid):
 
 def group_sig(level, raw):
     """갈래의 지문 — 레벨 + 비교 값(KEYS). 앞 계획의 검토·보낸 이력을 **같은 갈래**에만 잇는 데 쓴다(열쇠 줄이 같아도 서식이 바뀌어 다른 갈래가 됐으면 잇지 않는다)."""
-    return hashlib.sha1(repr([int(level)] + [raw.get(k) for k in M.KEYS]).encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(repr([int(level)] + [M.cval(raw, k) for k in M.KEYS]).encode("utf-8")).hexdigest()[:12]
 
 
 def _known(records, paras, sig):
@@ -301,7 +301,7 @@ def material(doc, ov, tid, reviewed=None, sent=None):
 
 
 def _values(look):
-    return {M.LABELS.get(k, k): look.get(k) for k in M.KEYS}
+    return {M.LABELS.get(k, k): M.cval(look, k) for k in M.KEYS}  # 「2번째 줄」 은 둘째 줄이 글 시작에 있으면 「글 시작」(값이 아니라 규칙 — outline_match.cval)
 
 
 def prompt_material(mat):
@@ -431,7 +431,10 @@ def check_plan(mat, data):
         if rep is None:  # 대표가 없고 답도 못 고름 — 손댈 수 없다
             if lv["groups"]:
                 notes.append(f"L{lv['level']} 은 대표가 없어 그대로 둠")
-            entry["keep"] = [{"group": g["id"], "para": g["para"], "count": g["count"], "sample": g["sample"], "why": "", "diff": [], "auto": True, "noSplit": True} for g in lv["groups"]]
+            # sig(갈래 지문 — 레벨 + 비교 값)도 싣는다: 반영한 뒤 남긴 줄(analysis.plan_left)을 열쇠 줄이 아니라 **서식**으로 찾게 — 전에는 이 가지만 지문이 없어,
+            # 사람이 열쇠 줄 하나만 맞추면 그 갈래의 나머지 답 없는 줄이 0 으로 사라졌다(2026-11-17 astra)
+            entry["keep"] = [{"group": g["id"], "para": g["para"], "count": g["count"], "sample": g["sample"], "why": "", "diff": [], "auto": True, "noSplit": True, "sig": g.get("sig", "")}
+                             for g in lv["groups"]]
             levels.append(entry)
             continue
         base = gs[rep]
@@ -516,23 +519,27 @@ def check_plan(mat, data):
 
 
 def todo(plan):
-    """계획(check_plan 의 답) → 에이전트가 고른 그대로 반영할 때의 적용 몸 {levels[{level, rep(대표 줄), likes[맞출 갈래의 첫 줄], splits?[{likes, rep, sfx}]}], n(바뀔 줄 수), moved(다른 템플릿으로 옮길 줄 수)}.
-    화면의 `tpaTodoOf`(tpl_agent.js — 템플릿 줄의 「계획대로 맞추기」)와 **같은 셈**이다: 맞추기·떼기로 고른 갈래만 · 「그대로」 로 남긴 갈래는 빼고 · 고른 갈래가 없는 레벨은 대표도 안 바꾼다.
-    받아 둔 계획을 한 번에 반영하는 끝점(tpl_agent_api.apply_plans)과 분석 상태의 서식 항목(analysis — 반영하면 바뀔 줄 수)이 쓴다. 한쪽 셈을 고치면 다른 쪽도 고친다."""
-    levels, n, moved = [], 0, 0
+    """계획(check_plan 의 답) → 에이전트가 고른 그대로 반영할 때의 적용 몸 {levels[{level, rep(대표 줄), likes[맞출 갈래의 첫 줄], splits?[{likes, rep, sfx}]}], n(바뀔 줄 수), moved(다른 템플릿으로 옮길 줄 수),
+    reps(대표를 바꾸는 레벨 수)}.
+    화면의 `tpaTodoOf`(tpl_agent.js — 템플릿 줄의 「계획대로 맞추기」)와 **같은 셈**이다: 맞추기·떼기로 고른 갈래만 · 「그대로」 로 남긴 갈래는 빼고 · 고른 갈래도 없고 대표도 그대로인 레벨은 없다.
+    **대표만 바꾸는 레벨도 든다**(likes 빈 목록 — 2026-11-16 astra: 전에는 고른 갈래가 없으면 그 레벨을 버려, 에이전트가 고른 대표가 걸리지 않고 대표가 없던 한 갈래 레벨은 끝내 대표가 없었다).
+    받아 둔 계획을 한 번에 반영하는 끝점(tpl_agent_api.apply_plans)과 분석 상태의 서식 항목(analysis — 반영하면 바뀔 줄 수 · 대표 변경 수)이 쓴다. 한쪽 셈을 고치면 다른 쪽도 고친다."""
+    levels, n, moved, reps = [], 0, 0, 0
     for lv in (plan or {}).get("levels") or []:
         if not lv.get("rep"):
             continue
         match, cuts = lv.get("match") or [], lv.get("split") or []
-        if not match and not cuts:
+        swap = bool(lv["rep"].get("changed"))  # 계획이 이 레벨의 대표를 바꾼다(대표가 없던 레벨에 정하는 것 포함)
+        if not match and not cuts and not swap:
             continue
+        reps += swap
         n += sum(g["count"] for g in match) + sum(g["count"] for sp in cuts for g in sp.get("match") or [])  # 뗀 줄 가운데 새 대표와 다른 갈래는 그 대표에 맞춘다
         moved += sum(sp["rep"]["count"] + sum(g["count"] for g in sp.get("match") or []) for sp in cuts)
         row = {"level": lv["level"], "rep": lv["rep"]["para"], "likes": [g["para"] for g in match]}
         if cuts:
             row["splits"] = [{"likes": [sp["rep"]["para"]] + [g["para"] for g in sp.get("match") or []], "rep": sp["rep"]["para"], "sfx": sp["sfx"]} for sp in cuts]
         levels.append(row)
-    return {"levels": levels, "n": n, "moved": moved}
+    return {"levels": levels, "n": n, "moved": moved, "reps": reps}
 
 
 def apply_view(plan, levels):

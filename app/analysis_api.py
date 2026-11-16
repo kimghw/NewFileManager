@@ -3,9 +3,18 @@ GET 은 읽기만 한다 — 분석을 시작하지 않는다(시작은 `POST �
 「LLM 검증·보완」(2026-11-16 — ② §20 「넷 · 진행표 · LLM 검증·보완」)은 `POST …/analysis/llm` 으로 시작하고 `DELETE` 로 멈춘다 — 실행은 app/analysis_llm.py."""
 from fastapi import APIRouter, Body, HTTPException
 
-from app import analysis, analysis_llm, heading_runs, outline_match, tpl_agent_api, works
+from app import analysis, analysis_llm, heading_runs, outline_conform, outline_match, tpl_agent_api, works
 
 router = APIRouter()
+
+
+def _place(s, ov):
+    """확정 서식(spec_hwpx_웹편집 ② §8-8 — 레터 뒤 묶음 빈칸 · 자리 규칙)이 아직 안 걸린 줄 수 — 문서 차례·헤딩 그래프마다 한 번 센다(도는 동안 2초마다 읽힌다)."""
+    got = getattr(s, "analysis_place", None)
+    if got is None or got[:2] != (s.rev, ov.get("run")):
+        with s.lock:
+            got = s.analysis_place = (s.rev, ov.get("run"), len(outline_conform.pending(s.doc, ov)))
+    return got[2]
 
 
 def _outline(server, s):
@@ -43,7 +52,7 @@ def analysis_get(doc_id: str):
     kind = ((works.work(s.id) or {}).get("task") or {}).get("kind") or ""
     ol = _outline(server, s)
     plans = tpl_agent_api.plans(s, ol[0].get("run")) if ol else {}
-    return analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans)
+    return analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans, place=_place(s, ol[0]) if ol else 0)
 
 
 def start_chain(s, chain, key=None):

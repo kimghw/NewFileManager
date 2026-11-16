@@ -219,7 +219,7 @@ def _line(to_doc, r, nid, new_of, prefix, tok):
 def apply(to_doc, pairs, plan):
     """계획대로 넣은 사본의 접두를 목적 자리 모양으로 → {"converted", "kept": {why: n}, "ids", "lines": 넘친 줄의 기록}. 바꾸지 못한 줄은 원본 모양 그대로."""
     new_of = dict(pairs)
-    kept, ids, lines = Counter(), [], []
+    kept, ids, lines, measure = Counter(), [], [], None
     for r in plan["rows"]:
         nid = new_of.get(r["src"])
         alive = nid is not None and nid in to_doc._ids
@@ -252,6 +252,13 @@ def apply(to_doc, pairs, plan):
         except ValueError:
             kept["marker"] += 1
             continue
+        if like_id:  # 확정 서식으로(spec_hwpx_웹편집 ② §8-8): 본보기가 「둘째 줄 = 글 시작」 꼴이면 넣은 줄도 제 접두 폭으로(번호형 「10.」 처럼 접두 폭이 본보기와 다른 줄) — 레터 뒤 묶음 빈칸은 본보기 접두를 복사해 이미 같다
+            from app import outline_conform  # 이 모듈은 문서를 안 보는 계획(plan)이 본체라 부를 때 가져온다
+            measure = measure or outline_conform.OP.Measure(to_doc)
+            try:
+                outline_conform.after_insert(to_doc, nid, r["letter"], like_id, r["likeLetter"] or None, measure)
+            except Exception:  # noqa: BLE001 — 자리를 못 맞춰도 넣기는 그대로(본보기 모양)
+                pass
         ids.append(nid)
         if rec:
             rec["letter"] = r["letter"]

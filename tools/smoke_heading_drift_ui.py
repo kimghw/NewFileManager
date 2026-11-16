@@ -227,12 +227,14 @@ try:
         rev = page.evaluate("() => state.serverRev")
         page.click("#headsDlg table.drift-wrong button.drift-match")
         page.wait_for_function("(r) => state.serverRev > r", arg=rev, timeout=60000)
+        page.wait_for_function("() => /대표 모양으로 맞췄습니다/.test(document.getElementById('toast').textContent)", timeout=20000)   # 알림은 뜬 직후에 읽는다(3.5초 뒤 사라진다 — 견준 답은 그 뒤에 온다)
+        said = page.evaluate("() => document.getElementById('toast').textContent")
         m = settle(page)
         left = page.evaluate("""async (pid) => { const o = heads.outline, a = o.lines[pid], rep = o.templates[String(a.tpl)].slots[String(a.level)].rep;
             const f = (p) => (state.byId.get(p).format || {}).indentLeftMm; return [f(pid), f(rep)]; }""", pw1)
         joined = " · ".join(m["marks"])  # 맞춘 줄이 새 레터 줄 바로 옆이면 그 줄의 「TN Lk」 가 같은 표에 모인다(「새 레터 · T2 L2」) — 서식 표시만 없으면 된다
         check("대표에 맞추기: 「새 레터 1」 만 남음 · 그 줄의 왼쪽 여백 = 대표의 것 · 알림", m["state"].startswith("새 레터 1") and "서식" not in m["state"] and "새 레터" in joined and "서식" not in joined
-              and m["counts"] == [1, 0] and left[0] == left[1] and left[0] != 30 and "대표 모양으로 맞췄습니다" in m["toast"], (m["state"], m["marks"], m["counts"], left, m["toast"]))
+              and m["counts"] == [1, 0] and left[0] == left[1] and left[0] != 30 and "대표 모양으로 맞췄습니다" in said, (m["state"], m["marks"], m["counts"], left, said))
         check("대표에 맞추기: 열려 있던 목록에서 잘못된 서식 표가 사라짐", [t["wrong"] for t in page.evaluate(LISTS)] == [False], page.evaluate(LISTS))
         page.evaluate("headsColClose(true)")
         retype(page, PID, "□ 연구개발기술(제품)의 정의 및 범위")

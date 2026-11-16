@@ -4,12 +4,19 @@
 //   POST …/slots/{tpl}/{L}/split · …/outline/unsplit(갈래를 서식 종속 템플릿 「T1L3a」 로 떼기 · 합치기 — ② §8-5: 갈래 줄의 「다른 템플릿으로」 · 레벨 줄의 「→ T1L3a(n줄) · 합치기」).
 // 도구 줄 「서식」 묶음의 #tbTplRel(템플릿 관계 열 열기·닫기)도 여기서 잇는다. app.js 다음에 읽힌다(el·hBtn·api·toast·heads·state·structOp·applyEditState·tplMarksDraw·
 // headsTplView·tplRelOpen·headsParaLink·headsColClose·colFolded·nf·short·oneLine·paraEl …). 훅: headsTplView 의 levels() 가 olmRow(id, L)·olmHidden(…) 을, make() 가 olmTplTools(…) 를,
-// outlineLoad 가 olmRefresh() 를, tplRelOpen 이 olmFocus(at) 를 부른다.
-const OLM = { data: null, rev: null, epoch: null, busy: null, pending: false, open: new Set(), mergeOpen: new Set(), splitOpen: new Set(), openEpoch: null, sel: null, pick: null, try: null, drag: null, chk: new Map() }; // open = 갈래 목록을 편 레벨 「tpl|L」 · mergeOpen = 넣기 줄을 편 템플릿 · splitOpen = 「다른 템플릿으로」 줄을 편 갈래 「tpl|L|줄」 · sel = 표시할 줄
+// outlineLoad 가 olmRefresh() 를, tplRelOpen 이 olmFocus(at) 를 부른다. 뒤에 읽히는 fmt_focus.js 와는 서로 부른다(고른 갈래 ↔ 본문 표시 — 있을 때만): 그쪽이 olmFull·olmFullLoad·olmNos·olmTryOf·olmLookFrom 을,
+// 여기서 tplPickShow·tplPickOwns·tplFocusIs·tplFocusOn·fmtFocusOff·fmtFocusRel 을.
+const OLM = { data: null, rev: null, epoch: null, busy: null, pending: false, open: new Set(), mergeOpen: new Set(), splitOpen: new Set(), openEpoch: null, sel: null, pick: null, try: null, drag: null, chk: new Map(), // open = 갈래 목록을 편 레벨 「tpl|L」 · mergeOpen = 넣기 줄을 편 템플릿 · splitOpen = 「다른 템플릿으로」 줄을 편 갈래 「tpl|L|줄」 · sel = 표시할 줄
+  chkAt: new Map(), chkGen: 0, going: null, full: new Map(), look: null, err: null };
 // try = 대표 미리보기 {epoch, tpl, level, pid}(끌어 놓은 갈래 — 문서·대표는 안 바뀜) · drag = 끄는 중인 갈래 · chk = 고른 갈래 「tpl|L」 → Set(갈래 key)(「고른 갈래 맞추기」)
+// chkAt = 그 고르기를 한 때의 갈래 자료 「tpl|L」 → {rev(문서 차례), sig(그 레벨의 갈래 구성 지문)} · chkGen = 고르기가 바뀐 횟수 · going = 「고른 갈래 맞추기」 요청이 도는 레벨 「tpl|L」(그동안 고르기를 못 바꾼다) ·
+// full = 줄 전부의 갈래 대응 「tpl|L」 → {st, rev, of, by}(olmFull) · look = 살펴보는 갈래 {epoch, tpl, level, key}(고르기와 따로) · err = 갈래 읽기가 실패했나(olmLoad — 「갈래 없음」 과 가른다). 아래 「고른 갈래 ↔ 본문 표시」
 
-function olmOpenNow() { // 편 목록 기억(OLM.open·mergeOpen·splitOpen)·미리보기·고른 갈래는 문서마다 — 다른 문서를 열었으면 비운다
-  if (OLM.openEpoch !== state.epoch) { OLM.open.clear(); OLM.mergeOpen.clear(); OLM.splitOpen.clear(); OLM.chk.clear(); OLM.try = null; OLM.openEpoch = state.epoch; }
+function olmOpenNow() { // 편 목록 기억(OLM.open·mergeOpen·splitOpen)·미리보기·고른 갈래·살펴보는 갈래·줄 전부의 갈래 대응은 문서마다 — 다른 문서를 열었으면 비운다
+  if (OLM.openEpoch !== state.epoch) {
+    OLM.open.clear(); OLM.mergeOpen.clear(); OLM.splitOpen.clear(); OLM.chk.clear(); OLM.chkAt.clear(); OLM.full.clear();
+    OLM.try = null; OLM.look = null; OLM.going = null; OLM.chkGen += 1; OLM.openEpoch = state.epoch;
+  }
   return OLM;
 }
 function olmTpl(id) { return heads.outline && heads.outline.templates ? heads.outline.templates[String(id)] || null : null; }
@@ -24,13 +31,15 @@ function olmLoad(force = false) { // 서식 갈래를 읽는다(같은 차례면
   const plans = api(`/api/docs/${id}/outline/agent/plans`).catch(() => null); // 받아 둔 서식 정리 계획(★) — 「템플릿 맞추기」 가 그 계획대로(olmTplPlan). 옛 서버면 없음
   OLM.busy = Promise.all([api(`/api/docs/${id}/outline/formats`), plans]).then(([r, p]) => {
     if (epoch !== state.epoch) return null;
+    OLM.err = null;
     OLM.data = r && !r.off ? r.slots || {} : null;
     OLM.rev = r ? r.rev : null;
     if (r && r.keys) OLM.keys = r.keys; // 비교 값 차례·이름 [[키, 이름]…] — 「서식 비교」 창(outline_preview.js)의 열
     OLM.plans = (p && p.plans) || {};
     OLM.epoch = epoch;
+    try { olmPicksCheck(); } catch (e) { console.error(e); } // 고른 갈래(☐) — 갈래 구성이 고른 때와 달라진 레벨은 비우고 알린다(아래 「고른 갈래 ↔ 본문 표시」)
     return OLM.data;
-  }).catch(() => null).finally(() => { OLM.busy = null; });
+  }).catch((e) => { if (epoch === state.epoch) OLM.err = e || true; return null; }).finally(() => { OLM.busy = null; }); // 실패도 null — 「갈래 없음」 과는 OLM.err 로 가른다(fmt_focus.js 가 「대표 없음」 으로 읽지 않게)
   return OLM.busy;
 }
 
@@ -71,17 +80,18 @@ function olmRow(id, L) { // 레벨 줄 아래 「서식 n가지 · 대표 「…
     return row;
   }
   const n = v.groups.length, key = `${id}|${L}`, open = olmOpenNow().open.has(key);
+  row.classList.add(n > 1 || v.repMissing ? "olm-warn" : "olm-ok");
   const repG = v.groups.find((g) => g.rep), cand = olmTryOf(id, L, v);
   const sum = el("span", `olm-sum${n > 1 ? " warn" : ""}`, n > 1 ? `서식 ${n}가지` : "서식 1가지 — 모두 같음");
   sum.title = "이 레벨 줄들을 레터(앞 공백·레터 글자·레터 뒤 공백) · 문단 모양(정렬·앞 여백·2번째 줄·간격·줄 간격) · 레터·본문 글자 모양이 같은 것끼리 묶었습니다";
   row.append(sum);
   if (cand) { // 대표 미리보기 중 — 끌어 놓은 갈래(대표는 아직 그대로)
     const rep = el("span", "olm-rep olm-rep-try");
-    rep.append("미리보기 ", headsParaLink(OLM.try.pid, olmText(OLM.try.pid), 22, "끌어 놓은 갈래 — 아직 대표가 아닙니다(아래 「대표로 정하기」 · 「취소」)"));
+    rep.append(el("span", "olm-rep-k", "미리보기 "), headsParaLink(OLM.try.pid, olmText(OLM.try.pid), 22, "끌어 놓은 갈래 — 아직 대표가 아닙니다(아래 「대표로 정하기」 · 「취소」)"));
     row.append(rep);
   } else if (v.rep) {
     const rep = el("span", "olm-rep");
-    rep.append("대표 ", headsParaLink(v.rep, olmText(v.rep), 22, "이 레벨의 대표 줄 — 새 줄과 「대표에 맞추기」 가 이 모양을 따릅니다"));
+    rep.append(el("span", "olm-rep-k", "대표 "), headsParaLink(v.rep, olmText(v.rep), 22, "이 레벨의 대표 줄 — 새 줄과 「대표에 맞추기」 가 이 모양을 따릅니다"));
     row.append(rep);
   } else if (v.repMissing) row.append(el("span", "hb und", "대표 없음 — 줄 하나를 대표로"));
   const tog = hBtn(open ? "▾ 갈래" : "▸ 갈래", () => { if (OLM.open.has(key)) { OLM.open.delete(key); if (cand) OLM.try = null; } else OLM.open.add(key); olmRefresh(); }, // 접으면 미리보기도 거둔다
@@ -125,35 +135,39 @@ function olmList(id, L, v, repG) { // 갈래 목록 — 맨 위 대표 카드(�
   const pick = olmPick(id, L), cand = olmTryOf(id, L, v), base = cand || repG;
   const firstOf = (g) => (pick && g.paras.includes(pick.pid) ? pick.pid : g.paras[0]); // 고른 줄이 든 갈래면 그 줄을 대표로
   const others = v.groups.filter((g) => g !== base);
-  const set = olmChkSet(id, L);
-  for (const k of [...set]) if (!others.some((g) => g.key === k)) set.delete(k); // 없어진 갈래 · 기준이 된 갈래는 고른 것에서 뺀다
-  const boxes = [];
-  const bulk = base && others.length ? olmBulk(id, L, others, cand, set, boxes) : null;
-  if (cand) ul.append(olmTryCard(id, L, cand, repG, OLM.try.pid));
-  else if (repG) ul.append(olmCard(id, L, v, repG, { first: firstOf(repG) }));
+  const nos = olmNos(v); // 갈래 번호 — 본문 오른쪽 여백의 꼬리표와 같은 번호(자료의 갈래 차례 — 고르기·미리보기로는 안 바뀐다)
+  // 여기서는 고르기(OLM.chk)를 고치지 않는다 — 그리는 길은 보이기만 한다: 없어진 갈래·기준이 된 갈래를 빼는 것은 olmPicksSettle(다시 그리기 앞 · 자료를 다시 읽은 뒤)
+  if (cand) ul.append(olmTryCard(id, L, cand, repG, OLM.try.pid, nos.get(cand.key)));
+  else if (repG) ul.append(olmCard(id, L, v, repG, { first: firstOf(repG), no: 0 }));
   else ul.append(olmSlotDrop(id, L)); // 대표가 없는 레벨 — 끌어 놓을 「대표 자리」
-  if (bulk) ul.append(bulk.bar);
-  for (const g of others) ul.append(olmCard(id, L, v, g, { first: firstOf(g), cand, base, set, boxes, sync: bulk ? bulk.sync : null }));
-  if (bulk) bulk.sync();
+  if (base && others.length) ul.append(olmBulk(id, L));
+  for (const g of others) ul.append(olmCard(id, L, v, g, { first: firstOf(g), cand, base, no: nos.get(g.key) }));
+  olmPickPaint(ul, id, L); // ☐ · 「모두 고르기」 · 단추의 글을 지금 고르기대로(두 트리가 같은 것을 본다)
   if (cand) ul.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); olmTryEnd(); } });
   return ul;
 }
 
-function olmCard(id, L, v, g, { first, cand = null, base = null, set = null, boxes = null, sync = null }) { // 갈래 카드 하나 — 대표 카드(미리보기가 아닐 때)는 끌어 놓는 곳, 다른 갈래는 끄는 것
+function olmCard(id, L, v, g, { first, cand = null, base = null, no = null }) { // 갈래 카드 하나 — 대표 카드(미리보기가 아닐 때)는 끌어 놓는 곳, 다른 갈래는 끄는 것. no = 갈래 번호(olmNos — 0 = 대표)
   const isRep = g.rep && !cand;
-  const li = el("li", `olm-g${isRep ? " rep" : ""}${g.rep && cand ? " was" : ""}`);
+  const li = el("li", `olm-g${isRep ? " rep" : ""}${g.rep && cand ? " was" : ""}${olmLooked(id, L, g.key) ? " sel" : ""}`); // .sel = 살펴보는 갈래(OLM.look — 다음 살펴보기까지)
   li.dataset.key = g.key;
   li._paras = g.paras;
   const head = el("div", "olm-gh");
   if (isRep) head.append(el("span", "hb olm-badge", "대표"), el("span", "olm-n", `×${nf(g.count)}`));
   else {
-    if (base && set) { // 고르기 — ☐ 와 ×수가 한 label(×수를 눌러도 고른다)
+    if (no) { // 갈래 번호 — 본문 오른쪽 여백의 꼬리표 「갈래 n」 과 같은 번호(「12개에서 뭔지」 를 번호로 잇는다 — 색으로 가르지 않는다)
+      const tag = el("span", "olm-no", olmNoText(no));
+      tag.title = `갈래 번호 — 본문에서 이 갈래의 줄 오른쪽 여백 꼬리표에 같은 번호 「${olmNoText(no)}」 가 붙습니다(고른 갈래를 보거나 「본문에서 보기」 를 누른 동안). 번호는 갈래를 다시 읽을 때만 바뀝니다`;
+      head.append(tag);
+    }
+    if (base) { // 고르기 — ☐ 와 ×수가 한 label(×수를 눌러도 고른다). 바꾸는 길은 olmPickChange 하나(두 트리의 ☐ · 단추 글 · 본문 표시가 같이 바뀐다)
       const lab = el("label", "olm-pick"), cb = el("input", "olm-chk");
       cb.type = "checkbox";
-      cb.checked = set.has(g.key);
-      cb.title = `이 갈래(${nf(g.count)}줄)를 고릅니다 — 위 「고른 갈래 맞추기」 로 고른 것을 한 번에 ${cand ? "미리보기 서식" : "대표 모양"}으로`;
-      cb.onchange = () => { if (cb.checked) set.add(g.key); else set.delete(g.key); if (sync) sync(); };
-      if (boxes) boxes.push([cb, g]);
+      cb.title = `이 갈래(${nf(g.count)}줄)를 고릅니다 — 본문에 고른 갈래의 줄만 또렷이 보이고, 위 「고른 갈래 맞추기」 로 고른 것을 한 번에 ${cand ? "미리보기 서식" : "대표 모양"}으로`;
+      cb.onchange = () => {
+        const want = cb.checked, ok = olmPickChange(id, L, (set) => { if (want) set.add(g.key); else set.delete(g.key); });
+        if (ok && want !== olmChkSet(id, L).has(g.key)) olmRedraw(); // 이 목록이 지금 자료보다 옛것이다(그 갈래가 없어졌다) — 목록을 지금 것으로
+      };
       lab.append(cb, el("span", "olm-n", `×${nf(g.count)}`));
       head.append(lab);
     } else head.append(el("span", "olm-n", `×${nf(g.count)}`));
@@ -162,7 +176,7 @@ function olmCard(id, L, v, g, { first, cand = null, base = null, set = null, box
     if (g.rep) head.append(el("span", "hb olm-badge was", "지금 대표"));
     else if (!cand) head.append(hBtn("대표로", () => olmSetRep(id, L, first), { title: `이 갈래의 ${first === g.paras[0] ? "첫" : "고른"} 줄(${first})을 이 레벨의 대표로 — 문서는 안 바뀝니다`, cls: "btn sm olm-btn" }));
   }
-  head.append(headsParaLink(first, olmText(first), 28));
+  head.append(headsParaLink(first, olmText(first), 28), olmSeeBtn(id, L, g, no));
   if (!g.rep && v.rep && !cand) head.append(hBtn("이 갈래만 맞추기", () => olmMatch(id, L, g.count, [...g.paras]), { title: "이 갈래 줄들만 대표 모양으로", cls: "btn sm olm-btn" }));
   li.append(head);
   if (!g.rep && v.rep && !cand) { // 「다른 템플릿으로」 — 일부러 다르게 준 서식의 갈래를 서식 종속 템플릿 「T1L3a」 로 뗀다(② §8-5): 누르면 그 아래 한 줄(팝업 아님)
@@ -225,12 +239,14 @@ function olmTryEnd() { if (!OLM.try) return; OLM.try = null; olmRedraw(); }
 function olmSamp(g) { // 갈래의 견본 글을 그 갈래 서식으로(outline_preview.js olpSample — 없으면 글만)
   return typeof olpSample === "function" ? olpSample(g) : headsParaLink(g.paras[0], olmText(g.paras[0]), 40);
 }
-function olmTryCard(id, L, cand, repG, pid) { // 맨 위 미리보기 카드 — 견본(미리보기 · 지금 대표) · 지금 대표와 다른 값 · 「대표로 정하기」 · 「취소」. 다른 갈래를 여기 끌어 놓으면 그 갈래로 바뀐다
-  const li = el("li", "olm-g olm-try");
+function olmTryCard(id, L, cand, repG, pid, no = null) { // 맨 위 미리보기 카드 — 견본(미리보기 · 지금 대표) · 지금 대표와 다른 값 · 「대표로 정하기」 · 「취소」. 다른 갈래를 여기 끌어 놓으면 그 갈래로 바뀐다. no = 갈래 번호(미리보기로는 안 바뀐다)
+  const li = el("li", `olm-g olm-try${olmLooked(id, L, cand.key) ? " sel" : ""}`);
   li.dataset.key = cand.key;
   li._paras = cand.paras;
   const head = el("div", "olm-gh");
-  head.append(el("span", "hb olm-badge try", "대표 미리보기"), el("span", "olm-n", `×${nf(cand.count)}`), headsParaLink(pid, olmText(pid), 28));
+  head.append(el("span", "hb olm-badge try", "대표 미리보기"));
+  if (no) head.append(el("span", "olm-no", olmNoText(no)));
+  head.append(el("span", "olm-n", `×${nf(cand.count)}`), headsParaLink(pid, olmText(pid), 28), olmSeeBtn(id, L, cand, no));
   li.append(head);
   const samps = el("div", "olm-samps");
   for (const [lab, g] of [["미리보기", cand], ...(repG ? [["지금 대표", repG]] : [])]) {
@@ -304,39 +320,255 @@ function olmDropTo(box, id, L) { // 끌어 놓는 곳(대표 카드 · 미리보
   box.append(el("div", "olm-drop-hint", "여기에 놓으면 그 갈래 서식으로 대표를 미리 봅니다"));
 }
 
-function olmBulk(id, L, others, cand, set, boxes) { // 「☐ 모두 고르기 · 고른 n갈래 맞추기(m줄)」 줄 → {bar, sync} — sync 는 카드의 ☐ 가 바뀔 때마다(목록을 다시 그리지 않는다 — 고르는 동안 자리·초점 유지)
+function olmBulk(id, L) { // 「☐ 모두 고르기 · 고른 n갈래 맞추기(m줄)」 줄 — 켜짐·일부·단추의 글과 줄 수는 olmPickPaint 가 지금 고르기대로 채운다(카드의 ☐ 가 바뀔 때마다 — 목록을 다시 그리지 않는다: 고르는 동안 자리·초점 유지)
   const bar = el("li", "olm-bulk"), lab = el("label", "olm-pick olm-all"), all = el("input", "olm-chk");
   all.type = "checkbox";
-  all.title = "이 레벨의 다른 갈래를 모두 고르기 · 모두 풀기";
+  all.title = "이 레벨의 다른 갈래를 모두 고르기 · 모두 풀기 — 본문에 고른 갈래의 줄만 또렷이 보입니다";
   lab.append(all, el("span", null, "모두 고르기"));
-  const go = hBtn("", () => olmBulkGo(id, L, others.filter((g) => set.has(g.key)), cand), { cls: "btn sm primary olm-btn olm-bulk-go" });
-  bar.append(lab, go);
-  const sync = () => {
-    const on = others.filter((g) => set.has(g.key)), lines = on.reduce((a, g) => a + g.count, 0);
-    all.checked = on.length === others.length;
-    all.indeterminate = on.length > 0 && on.length < others.length;
-    go.disabled = !on.length;
-    go.textContent = `${cand ? "대표로 정하고 " : ""}고른 ${on.length ? `${nf(on.length)}갈래 ` : "갈래 "}맞추기${on.length ? `(${nf(lines)}줄)` : ""}`;
-    go.title = on.length ? `고른 갈래 ${nf(on.length)}개의 줄 ${nf(lines)}개를 ${cand ? "미리보기 서식(대표를 그 줄로 바꾼 뒤)" : "대표"} 모양으로 한 번에 — 「실행 취소」 한 번으로 되돌립니다`
-      : "갈래 카드의 ☐ 를 골라 한 번에 맞춥니다";
-  };
-  all.onchange = () => {
-    for (const g of others) if (all.checked) set.add(g.key); else set.delete(g.key);
-    for (const [cb, g] of boxes) cb.checked = set.has(g.key);
-    sync();
-  };
-  return { bar, sync };
+  all.onchange = () => { const on = all.checked; olmPickChange(id, L, (set, others) => { for (const g of others) if (on) set.add(g.key); else set.delete(g.key); }); };
+  bar.append(lab, hBtn("", () => olmBulkGo(id, L), { cls: "btn sm primary olm-btn olm-bulk-go" }));
+  return bar;
 }
-async function olmBulkGo(id, L, groups, cand) { // 고른 갈래를 한 번에 — 템플릿 맞추기 끝점(트랜잭션 하나 · 실행 취소 1). 미리보기 중이면 대표를 그 줄로 바꾼 뒤 맞춘다
-  if (!groups.length) return;
-  const t = olmTpl(id), rep = cand && OLM.try ? OLM.try.pid : null;
-  const lv = { level: +L, likes: groups.map((g) => g.paras[0]), ...(rep ? { rep } : {}) };
-  const r = await olmApplyTpl(id, { levels: [lv] });
-  if (!r) return;
-  if (rep) OLM.try = null;
-  olmChkSet(id, L).clear();
-  if (r.nothing) { toast("맞출 줄이 없습니다 — 고른 갈래가 이미 같은 모양입니다"); return; }
-  toast(`T${t ? t.no : id} L${L} ${rep ? `대표를 「${short(olmText(rep), 20)}」 로 정하고 ` : ""}고른 갈래 ${nf(groups.length)}개의 줄 ${nf((r.changed || []).length)}개를 그 모양으로 맞췄습니다 — 「실행 취소」 한 번으로 되돌립니다`);
+async function olmBulkGo(id, L) { // 고른 갈래를 한 번에 — 템플릿 맞추기 끝점(트랜잭션 하나 · 실행 취소 1). 미리보기 중이면 대표를 그 줄로 바꾼 뒤 맞춘다.
+  // 맞추는 것은 **고른 때의 갈래**여야 한다(2026-11-16 astra — 전에는 갈래의 첫 줄만 보내, 고른 뒤 그 줄의 서식이 바뀌면 서버가 그 줄의 새 서식과 같은 다른 줄을 맞췄다): 쓰던 글을 먼저 반영하고,
+  // 그 사이 문서가 바뀌었으면 갈래를 다시 읽어 구성이 그대로인지 본 뒤(olmPicksCheck — 다르면 고르기를 비우고 알린다) 그 차례(rev)를 같이 보낸다. 서버가 차례가 다르다 하면(409) 아무것도 안 맞추고 고르기를 비운다.
+  // 요청이 도는 동안에는 고르기를 못 바꾸고(OLM.going), 끝나면 **보낸 갈래만** 고른 것에서 뺀다(통째로 비우지 않는다).
+  const k = olmPk(id, L);
+  if (state.busy || OLM.going || !state.id || !(OLM.chk.get(k) || []).size) return;
+  const epoch = state.epoch, t = olmTpl(id);
+  OLM.going = k;
+  olmPickSync(id, L);
+  try {
+    await flushAll();
+    if (epoch !== state.epoch) return;
+    for (let i = 0; i < 2 && !olmFresh(); i += 1) { await olmLoad(true); if (epoch !== state.epoch) return; } // 고른 뒤 문서 차례가 올랐다 — 갈래를 다시(읽고 있던 옛 응답을 받았으면 한 번 더)
+    const set = OLM.chk.get(k), at = OLM.chkAt.get(k), o = olmParts(id, L);
+    if (!set || !set.size || !at || !o) { olmRedraw(); return; } // 다시 읽어 보니 갈래 구성이 달라 고르기가 풀렸다(알림은 olmPicksCheck) — 목록을 지금 것으로
+    if (!olmFresh()) { // 갈래를 못 읽었거나, 서버의 문서가 이 화면보다 앞서 있다(다른 곳에서 바뀜)
+      if (OLM.err) toast("서식 갈래를 다시 읽지 못했습니다 — 잠시 뒤 다시 눌러 주세요", true); else olmPickStale(id, L);
+      return;
+    }
+    const groups = o.others.filter((g) => set.has(g.key)), keys = groups.map((g) => g.key);
+    if (!groups.length) return;
+    const rep = o.cand && OLM.try ? OLM.try.pid : null;
+    const lv = { level: +L, likes: groups.map((g) => g.paras[0]), ...(rep ? { rep } : {}) };
+    const r = await olmApplyTpl(id, { rev: at.rev, levels: [lv] });
+    if (epoch !== state.epoch) return;
+    if (!r) { if (structOp.lastError && structOp.lastError.status === 409) olmPickStale(id, L); return; }
+    if (rep) OLM.try = null;
+    olmPickChange(id, L, (s) => { for (const key of keys) s.delete(key); }, true); // 본문 표시도 따라 꺼진다(그 레벨의 고르기가 켠 표시일 때)
+    if (r.nothing) { toast("맞출 줄이 없습니다 — 고른 갈래가 이미 같은 모양입니다"); return; }
+    toast(`T${t ? t.no : id} L${L} ${rep ? `대표를 「${short(olmText(rep), 20)}」 로 정하고 ` : ""}고른 갈래 ${nf(groups.length)}개의 줄 ${nf(olmFit(r))}개를 그 모양으로 맞췄습니다${olmPut(r)} — 「실행 취소」 한 번으로 되돌립니다`);
+  } finally {
+    if (OLM.going === k) { OLM.going = null; if (epoch === state.epoch) olmPickSync(id, L); }
+  }
+}
+function olmPickStale(id, L) { // 고른 뒤 문서가 바뀌었다(서버 409 · 서버의 문서가 이 화면보다 앞섬) — 고른 것을 믿을 수 없다: 그 레벨의 고르기를 비우고 알린 뒤 갈래를 다시 읽는다. 화면의 문서가 서버보다 옛것이면 문서도 다시 읽는다
+  const epoch = state.epoch;
+  olmPickChange(id, L, (s) => s.clear(), true);
+  toast("문서가 바뀌었습니다 — 갈래를 다시 골라 주세요", true);
+  olmLoad(true).then(() => {
+    if (epoch !== state.epoch) return;
+    if (!OLM.err && OLM.rev != null && OLM.rev !== state.serverRev && typeof reloadDoc === "function") { // 다른 곳에서 바뀐 문서 — 이 화면의 문서·개요 오버레이를 서버 것으로
+      reloadDoc().then(() => { if (epoch === state.epoch) outlineLoad(true); }).catch(() => {});
+      return;
+    }
+    olmRefresh();
+  });
+}
+
+// ---------------------------------------------------------------- 고른 갈래 ↔ 본문 표시 · 살펴보는 갈래 — 2026-11-16 사용자 「템플릿 관계에서 모두 고르기 를 하면 왼쪽 원문에도 관련된 것들이 모두 선택이 되어야지.
+// 12개에서 내가 뭔지를 모르겠잖아. 이게 본문이랑 사이드패널 제어랑 연동이 안되어 있는거 같아 … 상호 동기화 되도록」(spec_hwpx_웹편집 ② §8-2 — astra 검토 2026-11-16).
+// · 고르기의 원본은 OLM.chk 하나이고 **바꾸는 길도 하나**(olmPickChange — 카드의 ☐ · 「모두 고르기」 · 맞춘 뒤 정리): 집합을 고치고 → 그려 둔 모든 목록(같은 레벨이 「템플릿」 탭과 「템플릿 관계」 열 두 곳에
+//   그려질 수 있다)의 ☐ · 「모두 고르기」 의 켜짐·일부 · 단추의 글·줄 수를 맞추고(olmPickSync) → 본문에 고른 갈래의 줄만 또렷이(olmPickShow → fmt_focus.js tplPickShow).
+//   그리는 길(olmList)은 고르기를 고치지 않는다 — 지금 고를 수 없는 갈래(없어진 갈래 · 기준이 된 갈래)를 빼는 것은 olmPicksSettle(다시 그리기 앞 · 자료를 다시 읽은 뒤)이 한다.
+// · 본문 표시의 수명: ☐ 를 하나라도 고르면 그 레벨의 고른 갈래 줄만 또렷이(켜져 있던 다른 표시는 갈아 끼운다) · 마지막 ☐ 를 풀면 **그 레벨의 고르기가 켠 표시일 때만** 끈다(다른 레벨의 표시 · 여백 표기를 눌러 켠 표시는 그대로) ·
+//   이름 줄의 「끄기」 는 표시만 끄고 고르기는 남긴다(☐ 를 다시 건드리면 다시 보인다) · 열을 닫거나 목록을 접어도 그대로 · 다른 문서를 열면 둘 다 비운다(olmOpenNow · fmtFocusReset).
+// · 갈래의 줄은 **자르지 않은 목록**으로(OLM.full — olmFull·olmFullLoad: 목록이 30줄에서 잘린 갈래가 있는 레벨만 GET …/outline/formats?tpl=&level= 로 줄 전부): 줄 → 갈래 · 갈래 → 줄.
+//   「잘린 갈래가 하나면 목록에 없는 줄은 그 갈래」 로 어림하지 않는다 — 값 칸·서식을 못 읽은 줄은 어느 갈래에도 없다. 카드 찾기(olmMark·olmFocus) · 본문 표시 · 꼬리표가 같은 대응을 쓴다.
+// · 갈래 번호(olmNos) = 자료의 갈래 차례(대표 = 「대표」 · 그 밖 「갈래 1」 …) — 카드 머리와 본문 오른쪽 여백의 꼬리표가 같은 번호다. 고르기·미리보기로는 안 바뀌고 자료를 다시 읽을 때만 바뀐다.
+// · 고르기는 **고른 때의 갈래 구성**(OLM.chkAt — 문서 차례 rev · 그 레벨의 지문 sig)에 묶인다: 갈래를 다시 읽었을 때 지문이 다르면 그 레벨의 고르기를 비우고 한 번 알린다(olmPicksCheck — 갈래 key 는 문단 id 라
+//   편집 뒤에는 같은 key 가 다른 갈래를 가리킬 수 있다: 말없이 옮겨 고르지 않는다). 같으면 차례만 올린다. 「고른 갈래 맞추기」 는 그 차례를 보낸다(olmBulkGo). 실행 취소는 문서만 되돌린다 — 고르기는 되살리지 않는다.
+// · 살펴보는 갈래(OLM.look) = 카드의 「본문에서 보기」 · 본문 꼬리표를 눌러 정한 갈래 하나. 고르기와 따로다(고르기를 안 바꾼다): 그 카드에 .sel(다음 살펴보기까지) · 본문의 그 갈래 줄 꼬리표에 강조.
+//   캐럿 이동·본문 글 누름으로는 열을 움직이지 않는다(꼬리표를 눌렀을 때만).
+const olmPk = (id, L) => `${id}|${+L}`;
+const olmPkOf = (k) => { const i = k.lastIndexOf("|"); return [k.slice(0, i), +k.slice(i + 1)]; };
+const olmRowsOf = (id, L) => document.querySelectorAll(`.tpl-tree .olm[data-tpl="${CSS.escape(String(id))}"][data-level="${+L}"]`); // 그 레벨의 그려 둔 줄 — 「템플릿」 탭 · 「템플릿 관계」 열 모두
+const olmSig = (v) => (v ? v.sig || v.groups.map((g) => `${g.key}:${g.count}`).sort().join(",") : ""); // 그 레벨의 갈래 구성 지문 — 서버의 sig(줄 → 갈래), 옛 서버면 갈래 key·줄 수
+function olmParts(id, L) { // 그 레벨의 지금 자료 → {v, repG, cand, base, others} | null — base = 기준 갈래(대표 · 미리보기 중이면 끌어 놓은 갈래) · others = 고를 수 있는 갈래(기준이 없으면 없다)
+  const v = OLM.data && OLM.epoch === state.epoch ? olmSlotData(id, L) : null;
+  if (!v) return null;
+  const repG = v.groups.find((g) => g.rep) || null, cand = olmTryOf(id, L, v), base = cand || repG;
+  return { v, repG, cand, base, others: base ? v.groups.filter((g) => g !== base) : [] };
+}
+function olmNos(v) { // 갈래 번호 Map(갈래 key → 번호) — 자료의 갈래 차례 그대로: 대표 = 0(「대표」), 그 밖은 1부터(「갈래 1」 …)
+  const m = new Map();
+  let n = 0;
+  for (const g of v ? v.groups : []) m.set(g.key, g.rep ? 0 : (n += 1));
+  return m;
+}
+const olmNoText = (no) => (no ? `갈래 ${no}` : "대표");
+
+// 줄 전부의 갈래 대응 — 항목 {st: "ready", rev, list(목록으로 지었나), of: Map(줄 → 갈래 key), by: Map(갈래 key → [줄…])} | {st: "pending"}(읽어야 함·읽는 중) | {st: "error"} | {st: "none"}(그 레벨의 갈래 자료 없음).
+// 갈래 자료(OLM.data)의 그 문서 차례(OLM.rev)에 묶인다 — 차례가 달라지면 버린다. 잘린 갈래가 없으면 목록이 곧 전부라 읽지 않고 짓는다.
+function olmFull(id, L) { // → 지금 쓸 수 있는 항목(읽지는 않는다 — 읽기는 olmFullLoad)
+  olmOpenNow();
+  const k = olmPk(id, L), v = OLM.data && OLM.epoch === state.epoch ? olmSlotData(id, L) : null;
+  if (!v) return { st: "none" };
+  const cut = v.groups.some((g) => g.more > 0);
+  let e = OLM.full.get(k);
+  if (e && (e.rev !== OLM.rev || (e.list && cut))) { OLM.full.delete(k); e = null; } // 다른 차례의 것 · 목록으로 지었는데 그 목록이 잘려 있다
+  if (!e && !cut) {
+    e = { st: "ready", rev: OLM.rev, list: true, of: new Map(), by: new Map() };
+    for (const g of v.groups) { e.by.set(g.key, g.paras); for (const pid of g.paras) e.of.set(pid, g.key); }
+    OLM.full.set(k, e);
+  }
+  return e || { st: "pending" };
+}
+function olmFullLoad(id, L, tries = 0) { // 줄 전부의 갈래 대응을 (필요하면) 읽는다 → Promise(항목) — 실패는 {st: "error"}(다시 부르면 다시 읽는다).
+  // 응답은 그 요청이 아직 그 레벨의 것일 때만 쓴다: 그 사이 다른 문서를 열었으면 버리고, 갈래 자료의 차례가 바뀌어 밀려났으면(읽는 동안 문서가 바뀜) 지금 차례로 다시 읽는다(두 번까지)
+  const e0 = olmFull(id, L);
+  if (e0.st === "ready" || e0.st === "none") return Promise.resolve(e0);
+  if (e0.st === "pending" && e0.p) return e0.p;
+  const k = olmPk(id, L), doc = state.id, epoch = state.epoch, e = { st: "pending", rev: OLM.rev, list: false, p: null };
+  const mine = () => epoch === state.epoch && OLM.full.get(k) === e;
+  const again = () => (epoch !== state.epoch ? { st: "none" } : tries < 2 ? olmFullLoad(id, L, tries + 1) : { st: "error" });
+  OLM.full.set(k, e);
+  e.p = api(`/api/docs/${doc}/outline/formats?${new URLSearchParams({ tpl: String(id), level: +L })}`).then(async (r) => {
+    if (!mine()) return again();
+    if (!r || !r.full) { e.st = "error"; return e; } // 옛 서버(인자를 모름 — 잘린 목록 그대로) — 줄 전부를 알 수 없다
+    const v = r.slots && r.slots[String(id)] ? r.slots[String(id)][String(+L)] || null : null;
+    e.of = new Map(); e.by = new Map();
+    for (const g of v ? v.groups : []) { e.by.set(g.key, g.paras); for (const pid of g.paras) e.of.set(pid, g.key); }
+    e.rev = r.rev; e.st = "ready";
+    if (r.rev === OLM.rev) return e;
+    await olmLoad(true); // 갈래 자료보다 새 차례의 답 — 카드·번호의 자료와 어긋난다: 갈래를 다시 읽어 차례를 맞춘다(맞으면 이 항목이 그대로 쓰인다 · 또 어긋났으면 다시)
+    const got = epoch === state.epoch ? olmFull(id, L) : { st: "none" };
+    return got.st === "ready" || got.st === "none" ? got : again();
+  }).catch(() => { if (!mine()) return again(); e.st = "error"; return e; }).finally(() => { e.p = null; });
+  return e.p;
+}
+function olmKeyOf(id, L, pid) { // 그 줄이 든 갈래의 key — null = 어느 갈래에도 없는 줄(값 칸 · 서식을 못 읽은 줄) · undefined = 아직 모른다(줄 전부를 읽어야 안다 — olmFullLoad)
+  const m = olmFull(id, L);
+  if (m.st === "ready") return m.of.has(pid) ? m.of.get(pid) : null;
+  const v = olmSlotData(id, L), g = v ? v.groups.find((x) => x.paras.includes(pid)) : null; // 목록에 있는 줄이면 그 갈래가 맞다
+  return g ? g.key : undefined;
+}
+
+function olmPickPaint(root, id, L) { // 그려 둔 목록 하나(root — 레벨 줄 · 붙이기 전의 목록)의 고르기 모습을 지금 고르기대로: 카드의 ☐ · 「모두 고르기」 의 켜짐·일부 · 단추의 글·줄 수·켜짐
+  const k = olmPk(id, L), set = OLM.chk.get(k) || new Set(), lock = OLM.going === k;
+  for (const cb of root.querySelectorAll("li.olm-g .olm-chk")) { cb.checked = set.has(cb.closest("li.olm-g").dataset.key); cb.disabled = lock; }
+  const bar = root.querySelector("li.olm-bulk"), o = bar ? olmParts(id, L) : null;
+  if (!bar) return;
+  const all = bar.querySelector(".olm-all .olm-chk"), go = bar.querySelector(".olm-bulk-go"), others = o ? o.others : [], cand = o ? o.cand : null;
+  const on = others.filter((g) => set.has(g.key)), lines = on.reduce((a, g) => a + g.count, 0);
+  all.checked = on.length > 0 && on.length === others.length;
+  all.indeterminate = on.length > 0 && on.length < others.length;
+  all.disabled = lock;
+  go.disabled = !on.length || lock;
+  go.textContent = `${cand ? "대표로 정하고 " : ""}고른 ${on.length ? `${nf(on.length)}갈래 ` : "갈래 "}맞추기${on.length ? `(${nf(lines)}줄)` : ""}`;
+  go.title = on.length ? `고른 갈래 ${nf(on.length)}개의 줄 ${nf(lines)}개를 ${cand ? "미리보기 서식(대표를 그 줄로 바꾼 뒤)" : "대표"} 모양으로 한 번에 — 「실행 취소」 한 번으로 되돌립니다\n고른 뒤 문서가 바뀌어 갈래가 달라졌으면 맞추지 않고 다시 고르게 합니다`
+    : "갈래 카드의 ☐ 를 골라 한 번에 맞춥니다 — 고른 갈래의 줄은 본문에 또렷이 보입니다";
+}
+function olmPickSync(id, L) { for (const row of olmRowsOf(id, L)) olmPickPaint(row, id, L); } // 두 트리의 같은 레벨을 같이
+function olmPickShow(id, L, own = false) { // 그 레벨의 고르기를 본문에 — 고른 갈래의 줄만 또렷이(켜져 있던 다른 표시는 갈아 끼운다). 고른 것이 없으면 그 레벨의 고르기가 켠 표시일 때만 끈다.
+  // own = 그 레벨의 고르기가 켠 표시가 켜져 있을 때만 고친다(사람이 ☐ 를 건드린 것이 아닐 때 — 「끄기」 로 꺼 둔 표시를 다시 켜지 않는다)
+  if (typeof tplPickShow !== "function") return;
+  const mine = tplPickOwns(id, L);
+  if (own && !mine) return;
+  const set = OLM.chk.get(olmPk(id, L)), t = olmTpl(id);
+  if (set && set.size) tplPickShow({ tpl: String(id), level: +L, no: t ? t.no : id, focus: olmKey(id) }, set);
+  else if (mine) fmtFocusOff();
+}
+function olmPickChange(id, L, fn, force = false) { // 고르기를 바꾸는 **하나뿐인 길** → 바꿨나. fn(set, others) 가 집합을 고친다. 맞추기 요청이 도는 동안에는 못 바꾼다(화면의 ☐ 만 되돌린다) — force = 그 요청 자신의 정리
+  const k = olmPk(id, L);
+  if (!force && (state.busy || OLM.going)) { olmPickSync(id, L); return false; }
+  const o = olmParts(id, L), set = olmChkSet(id, L);
+  fn(set, o ? o.others : []);
+  for (const key of [...set]) if (!o || !o.others.some((g) => g.key === key)) set.delete(key); // 지금 자료에 없는 갈래 · 기준 갈래는 고를 수 없다
+  if (!set.size) OLM.chkAt.delete(k);
+  else if (!OLM.chkAt.has(k)) OLM.chkAt.set(k, { rev: OLM.rev, sig: olmSig(o.v) }); // 이 고르기가 본 갈래 자료 — 문서 차례 · 갈래 구성 지문
+  OLM.chkGen += 1;
+  olmPickSync(id, L);
+  olmPickShow(id, L);
+  if (!force && !olmFresh()) olmLoad().then((d) => { if (d) olmRedraw(); }); // 화면의 목록이 지금 문서보다 옛것일 수 있다 — 갈래를 다시 읽어 고른 것이 그대로인지 본다(olmPicksCheck)
+  return true;
+}
+function olmPicksSettle() { // 다시 그리기 앞(olmRedraw) · 자료를 다시 읽은 뒤 — 고른 것 가운데 지금 고를 수 없는 갈래(없어진 갈래 · 기준이 된 갈래: 대표 미리보기를 시작함·거둠 · 대표를 바꿈)를 뺀다.
+  // 바뀐 레벨은 그려 둔 ☐ 와 본문 표시(그 레벨의 고르기가 켠 것일 때)도 맞춘다. 살펴보는 갈래가 없어졌으면 그것도 거둔다
+  olmOpenNow();
+  for (const [k, set] of OLM.chk) {
+    if (!set.size) continue;
+    const [id, L] = olmPkOf(k), o = olmParts(id, L), was = [...set].sort().join("|");
+    if (!o) continue; // 갈래를 읽는 중 — 읽은 뒤 olmPicksCheck 가 본다
+    for (const key of [...set]) {
+      if (o.others.some((g) => g.key === key)) continue;
+      set.delete(key);
+      // 갈래의 key 는 그 갈래의 한 줄이라, 구성이 그대로여도(여기 남은 고르기는 지문이 같은 것만이다 — olmPicksCheck) 가리키는 줄이 바뀔 수 있다(대표를 바꿈 · key 줄의 장평·자간만 바뀜):
+      // 그 줄이 지금 든 갈래가 고를 수 있는 갈래면 같은 갈래다 — 새 key 로 잇는다. 기준이 됐거나 못 찾으면 뺀다
+      const nk = olmKeyOf(id, L, key);
+      if (nk != null && o.others.some((g) => g.key === nk)) set.add(nk);
+    }
+    if ([...set].sort().join("|") === was) continue;
+    if (!set.size) OLM.chkAt.delete(k);
+    OLM.chkGen += 1;
+    olmPickSync(id, L);
+    olmPickShow(id, L, true);
+  }
+  const lk = OLM.look, lv = lk ? olmSlotData(lk.tpl, lk.level) : null;
+  if (lk && (lk.epoch !== state.epoch || (lv && !lv.groups.some((g) => g.key === lk.key)))) OLM.look = null;
+  if (typeof fmtFocusRel === "function") fmtFocusRel(); // 본문의 꼬리표·설명 — 살펴보는 갈래 · 대표 미리보기가 바뀌었으면 다시(같으면 그대로)
+}
+function olmPicksCheck() { // 서식 갈래를 다시 읽었다(olmLoad) · 한 레벨을 새 답으로 바꿨다(olmSetRep) — 고른 때의 지문(OLM.chkAt.sig)과 지금 자료를 견줘, 갈래 구성이 달라진 레벨의 고르기는 비우고 **한 번** 알린다.
+  // 같으면 그 고르기는 지금 차례에도 맞는 것이다 — 차례(rev)만 올린다(「고른 갈래 맞추기」 가 그 차례를 보낸다)
+  olmOpenNow();
+  const gone = [];
+  for (const [k, set] of OLM.chk) {
+    if (!set.size) continue;
+    const [id, L] = olmPkOf(k), v = olmSlotData(id, L), at = OLM.chkAt.get(k);
+    if (v && at && at.sig === olmSig(v)) { at.rev = OLM.rev; continue; }
+    set.clear();
+    OLM.chkAt.delete(k);
+    OLM.chkGen += 1;
+    gone.push([id, L]);
+  }
+  for (const [id, L] of gone) { olmPickSync(id, L); olmPickShow(id, L, true); }
+  olmPicksSettle();
+  if (gone.length) {
+    const names = gone.map(([id, L]) => { const t = olmTpl(id); return `T${t ? t.no : id} L${L}`; }).join(" · ");
+    toast(`${names} 의 서식 갈래가 바뀌었습니다 — 고른 것을 풀었습니다. 갈래를 다시 골라 주세요`);
+  }
+}
+
+const olmLooked = (id, L, key) => { const k = OLM.look; return !!k && k.epoch === state.epoch && k.tpl === String(id) && k.level === +L && k.key === key; };
+function olmLookPaint() { // 살펴보는 갈래의 카드에 .sel(두 트리 모두) — 다른 카드의 .sel 은 걷는다
+  for (const x of document.querySelectorAll(".tpl-tree li.olm-g.sel")) x.classList.remove("sel");
+  const k = OLM.look;
+  if (!k || k.epoch !== state.epoch) return;
+  for (const row of olmRowsOf(k.tpl, k.level)) for (const li of row.querySelectorAll("li.olm-g")) if (li.dataset.key === k.key) li.classList.add("sel");
+}
+function olmLookSet(id, L, key) { // 살펴보는 갈래를 정한다(고르기는 안 바뀐다) — 카드의 .sel · 본문 꼬리표의 강조
+  OLM.look = key == null ? null : { epoch: state.epoch, tpl: String(id), level: +L, key };
+  olmLookPaint();
+  if (typeof fmtFocusRel === "function") fmtFocusRel();
+}
+function olmSeeBtn(id, L, g, no) { // 카드의 「본문에서 보기」 — 카드 → 본문 찾기
+  const name = no != null ? olmNoText(no) : "이 갈래";
+  return hBtn("본문에서 보기", () => olmSee(id, L, g), { cls: "btn sm olm-btn olm-see",
+    title: `본문에서 ${name}(${nf(g.count)}줄)를 찾습니다 — 이 레벨의 줄만 또렷이 보이고(고른 갈래를 보는 중이면 그대로) 이 갈래의 줄마다 쪽 오른쪽 여백에 꼬리표 「${name}」 가 붙습니다 · 첫 줄로 갑니다\n고르기(☐)는 안 바뀝니다 · 끄기는 문서 이름 줄의 「끄기」` });
+}
+function olmSee(id, L, g) { // 이 갈래를 살펴보는 것으로 — 그 레벨의 본문 표시를 켜고(같은 레벨의 표시가 켜져 있으면 그대로: 고른 갈래를 보는 중이면 그것을 한 갈래로 바꾸지 않는다) 이 갈래의 첫 줄로. 고르기는 안 바뀐다
+  const t = olmTpl(id), first = g.paras[0];
+  OLM.look = { epoch: state.epoch, tpl: String(id), level: +L, key: g.key };
+  olmLookPaint();
+  if (typeof tplFocusIs === "function" && !tplFocusIs(id, L)) tplFocusOn({ tpl: String(id), level: +L, no: t ? t.no : id, para: first, focus: olmKey(id) }); // 레벨 전체로 — 고르기가 켠 표시가 아니다
+  else if (typeof fmtFocusRel === "function") fmtFocusRel();
+  if (first) headsGo(first);
+}
+function olmLookFrom(at, focus) { // 본문 꼬리표를 눌렀다(fmt_focus.js) — 그 줄의 갈래를 「템플릿 관계」 에서 살펴본다(고르기는 안 바뀐다).
+  // 열이 열려 있고 그 레벨 줄이 보이면 열을 다시 짓지 않고 그 레벨 줄만 다시 그려(목록을 펴) 카드로 간다 — 펼친 것·스크롤이 그대로. 아니면 열을 연다(tplRelOpen → olmFocus)
+  const row = olmColOn() && !colFolded("heads") ? document.querySelector(`#headsDlgBody .olm[data-tpl="${CSS.escape(String(at.tpl))}"][data-level="${+at.level}"]`) : null;
+  if (row && row.getClientRects().length) olmFocus(at, true); else tplRelOpen(focus, at);
 }
 
 const OLM_SFX = "abcdefghijklmnopqrstuvwxyz"; // 같은 레벨에서 뗀 차례의 글자(서버 outline_match.SFX 와 같다)
@@ -366,6 +598,7 @@ function olmRefresh() { // 오버레이·서식 갈래가 바뀐 뒤 — 열려 
   olmRedraw();
 }
 function olmRedraw() {
+  olmPicksSettle(); // 고른 갈래(☐)를 지금 고를 수 있는 것으로 먼저 — 그리는 길(olmList)은 고르기를 고치지 않는다(「고른 갈래 ↔ 본문 표시」)
   for (const old of document.querySelectorAll(".tpl-tree .olm")) { // 「템플릿」 탭과 「템플릿 관계」 열의 트리 모두(같은 줄이 두 곳에 있을 수 있다)
     const fresh = olmRow(old.dataset.tpl, +old.dataset.level);
     if (!fresh) { old.remove(); continue; }
@@ -379,44 +612,59 @@ function olmRedraw() {
   if (typeof tplAgentSync === "function") tplAgentSync(); // 열려 있는 서식 정리 에이전트 열의 대상 칸(tpl_agent.js)
 }
 
-function olmMark(at) { // 문서 표에서 온 줄 — 그 레벨 줄과 그 줄이 든 갈래를 표시
+function olmMark(at) { // 문서 표·꼬리표에서 온 줄 — 그 레벨 줄을 표시(.olm.sel — 잠시)하고 살펴보는 갈래의 카드에 .sel(olmLookPaint — 다음 살펴보기까지) → 보일 줄
   let first = null;
-  for (const row of document.querySelectorAll(`.tpl-tree .olm[data-tpl="${CSS.escape(String(at.tpl))}"][data-level="${+at.level}"]`)) {
+  for (const row of olmRowsOf(at.tpl, at.level)) {
     row.classList.add("sel");
-    const g = [...row.querySelectorAll(".olm-g")].find((x) => (x._paras || []).includes(at.para));
-    if (g) g.classList.add("sel");
     if (!first || row.closest("#headsDlgBody")) first = row; // 보일 줄 = 「템플릿 관계」 열의 것(문서 표를 누르면 그 열이 열린다)
   }
+  olmLookPaint();
   return first;
 }
 
-function olmFocus(at) { // tplRelOpen 이 부른다 — 그 레벨의 갈래 목록을 펴고 그 줄이 든 갈래를 표시
+function olmFocus(at, keep = false) { // tplRelOpen 이 부른다 — 그 레벨의 갈래 목록을 펴고 그 줄이 든 갈래를 살펴보는 것으로(OLM.look — 카드에 .sel · 고르기는 안 바뀐다).
+  // keep = 열을 그대로 두고 그 레벨 줄만 다시 그린다(본문 꼬리표를 눌렀을 때 — olmLookFrom). 그 줄의 갈래는 줄 전부의 갈래 대응으로 찾는다(목록이 30줄에서 잘린 갈래의 31번째 줄도 — 읽어야 하면 읽은 뒤)
   if (!at || at.tpl == null) return;
   OLM.sel = at;
   OLM.pick = { ...at, epoch: state.epoch }; // 표시(sel)는 잠시 · 고른 줄(pick)은 「대표로」 가 쓴다
   olmOpenNow();
-  const key = `${at.tpl}|${+at.level}`;
+  const key = `${at.tpl}|${+at.level}`, epoch = state.epoch;
   const v = olmFresh() ? olmSlotData(at.tpl, at.level) : null;
   if (!v || v.groups.length > 1) OLM.open.add(key);
+  const look = () => { // → 그 줄의 갈래를 알았나(어느 갈래에도 없는 줄 = 값 칸이면 살펴보는 갈래는 그대로 둔다)
+    const k = at.para ? olmKeyOf(at.tpl, at.level, at.para) : null;
+    if (k === undefined) return false;
+    if (k != null) olmLookSet(at.tpl, at.level, k);
+    return true;
+  };
+  const show = () => {
+    const row = olmMark(at), card = row ? row.querySelector("li.olm-g.sel") : null;
+    if (card) card.scrollIntoView({ block: keep ? "nearest" : "center" }); else if (row) row.scrollIntoView({ block: keep ? "nearest" : "center" });
+  };
   const go = () => {
-    olmRedraw();
-    const row = olmMark(at);
-    if (row) row.scrollIntoView({ block: "center" });
-    setTimeout(() => { if (OLM.sel === at) { OLM.sel = null; for (const e of document.querySelectorAll(".tpl-tree .olm.sel, .tpl-tree .olm-g.sel")) e.classList.remove("sel"); } }, 4000);
+    if (epoch !== state.epoch || OLM.sel !== at) return;
+    const known = look();
+    if (!keep) olmRedraw();
+    else for (const old of olmRowsOf(at.tpl, at.level)) { const fresh = olmRow(at.tpl, +at.level); if (fresh) old.replaceWith(fresh); } // 그 레벨 줄만(목록을 편 채로) — 열의 다른 것은 그대로
+    show();
+    if (!known) olmFullLoad(at.tpl, at.level).then(() => { if (epoch === state.epoch && OLM.sel === at && look()) show(); });
+    setTimeout(() => { if (OLM.sel === at) { OLM.sel = null; for (const e of document.querySelectorAll(".tpl-tree .olm.sel")) e.classList.remove("sel"); } }, 4000);
   };
   if (olmFresh()) go(); else olmLoad().then(go);
 }
 
 async function olmSetRep(id, L, pid) {
   if (state.busy || !state.id) return;
-  const epoch = state.epoch;
+  const epoch = state.epoch, doc = state.id; // 문서는 기다리기 전에 잡는다(structOp 와 같은 까닭 — 글 반영을 기다리는 사이 다른 문서를 열면 그 문서의 대표를 바꾸게 된다: 2026-11-16 astra)
   try {
     await flushAll();
-    const r = await api(`/api/docs/${state.id}/outline/slots/${encodeURIComponent(id)}/${L}/rep`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para: pid }) });
     if (epoch !== state.epoch) return;
+    const r = await api(`/api/docs/${doc}/outline/slots/${encodeURIComponent(id)}/${L}/rep`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para: pid }) });
+    if (epoch !== state.epoch) return;
+    const fresh = olmFresh(); // 가진 갈래 자료가 이 요청 직전 문서의 것인가 — 아니면 이 레벨만 새 답으로 바꿔도 다른 레벨은 옛것이다: 차례를 올리지 않고 아래 olmRefresh 가 다시 읽게 둔다
     applyEditState(r);
     if (r.outline && !r.outline.off) heads.outline = r.outline;
-    if (OLM.data && r.slot) { (OLM.data[String(id)] = OLM.data[String(id)] || {})[String(L)] = r.slot; OLM.rev = r.rev; OLM.epoch = state.epoch; }
+    if (fresh && r.slot) { (OLM.data[String(id)] = OLM.data[String(id)] || {})[String(L)] = r.slot; OLM.rev = r.rev; OLM.epoch = state.epoch; olmPicksCheck(); } // 고른 갈래 — 새 자료와 견준다(기준이 된 갈래는 빠진다)
     refreshToolbar(); // 실행 취소 단추(undo 수)
     refreshSaveState();
     tplMarksDraw();
@@ -432,8 +680,11 @@ async function olmMatch(id, L, n, group = null) { // group = 갈래의 줄 목�
   if (!r) return;
   if (r.nothing) { toast("맞출 줄이 없습니다 — 모두 대표와 같습니다"); olmLoad(true).then(() => olmRefresh()); return; }
   olmLoad(true).then(() => olmRefresh()); // 문서는 structOp 가 바뀐 블록으로 다시 그렸다(떨어진 줄들이면 문서를 다시 읽음)
-  toast(`T${t ? t.no : id} L${L} 줄 ${nf((r.changed || []).length || n)}개를 대표 모양으로 맞췄습니다 — 「실행 취소」 로 되돌립니다`);
+  toast(`T${t ? t.no : id} L${L} 줄 ${nf(olmFit(r) || n)}개를 대표 모양으로 맞췄습니다${olmPut(r)} — 「실행 취소」 로 되돌립니다`);
 }
+// 맞추기 답의 줄 수 — changed = 바뀐 줄 모두 · placed = 그 가운데 대표에 맞춘 줄이 아니라 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8)만 걸린 줄(대표 · 대표 갈래)
+const olmFit = (r) => (r.changed || []).length - (r.placed || []).length; // 대표에 맞춘 줄
+const olmPut = (r) => ((r.placed || []).length ? ` · 자리 맞춤 ${nf(r.placed.length)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "");
 
 // ---------------------------------------------------------------- 템플릿 종속(하위로 넣기 · 떼기) — 종속 템플릿 「T1T3」(2026-11-15 사용자 "T1 이 주고 종속이 T3 라면 T1T3 템플릿으로")
 // 넣으면 서버가 새 종속 템플릿(id 「A+B」 · 표기 「T{A}T{B}」 · base = at — L1~L at 은 A 의 레벨, L at+1 부터 B 의 레벨)을 만들고 그 자리의 B 줄을 거기로 옮긴다. A 는 안 바뀐다.
@@ -570,7 +821,8 @@ function olmTplMatch(id) { // 템플릿 줄의 「대표 맞추기(n줄)」 자�
     const why = `★ 서식 정리 계획(${fmtWhen(P.at)})대로 — 맞추기 · 떼기로 고른 갈래만 바꿉니다${keep ? ` · 계획이 사람에게 남긴 줄 ${nf(keep)}개는 그대로` : ""}`
       + `\n고르기를 바꾸려면 ★ · 대표와 다른 줄을 모두 맞추려면 레벨마다 「대표에 맞추기」(지금 대표와 다른 줄 ${nf(o.n)}개)`;
     if (!todo.levels.length) { const c = el("span", "olm-chip olm-tm-plan", "★ 계획: 바꿀 줄 없음"); c.title = why; box.append(c); return box; }
-    box.append(hBtn(`계획대로 맞추기(${nf(todo.n)}줄${todo.moved ? ` · 떼기 ${nf(todo.moved)}` : ""})`, () => olmMatchPlan(id),
+    const what = [todo.n || !todo.reps ? `${nf(todo.n)}줄` : "", todo.moved ? `떼기 ${nf(todo.moved)}` : "", todo.reps ? `대표 ${nf(todo.reps)}` : ""].filter(Boolean).join(" · "); // 대표만 바꾸는 계획(맞출 줄 0 · 대표 변경 n — tpl_agent.js tpaTodo 의 reps)도 할 일
+    box.append(hBtn(`계획대로 맞추기(${what})`, () => olmMatchPlan(id),
       { title: `${why}\n한 번에(「실행 취소」 한 번으로 되돌림)`, cls: "btn sm olm-btn olm-tm-btn olm-tm-plan" }));
     return box;
   }
@@ -604,7 +856,7 @@ async function olmMatchTpl(id) {
   const r = await olmApplyTpl(id, {});
   if (!r) return;
   if (r.nothing) { toast("맞출 줄이 없습니다 — 레벨마다 모두 대표와 같습니다"); return; }
-  toast(`T${t ? t.no : id} 줄 ${nf((r.changed || []).length)}개를 레벨마다 대표 모양으로 맞췄습니다(레벨 ${(r.levels || []).length}개) — 「실행 취소」 한 번으로 되돌립니다`);
+  toast(`T${t ? t.no : id} 줄 ${nf(olmFit(r))}개를 레벨마다 대표 모양으로 맞췄습니다(레벨 ${(r.levels || []).length}개)${olmPut(r)} — 「실행 취소」 한 번으로 되돌립니다`);
 }
 async function olmMatchPlan(id) { // 「계획대로 맞추기」 — ★ 열의 「적용」 과 같은 몸(에이전트가 고른 그대로)
   const P = olmTplPlan(id);
@@ -616,8 +868,8 @@ async function olmMatchPlan(id) { // 「계획대로 맞추기」 — ★ 열의
     if (structOp.lastError && structOp.lastError.status === 409) toast("계획을 받은 뒤 문서가 바뀌었습니다 — ★ 에서 계획을 다시 받으세요", true);
     return;
   }
-  const n = (r.changed || []).length, made = (r.splits || []).map((x) => `T${x.no}`);
-  toast(`★ 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : ""].filter(Boolean).join(" · ") || "바꾼 것이 없습니다"} — 「실행 취소」 한 번으로 되돌립니다`);
+  const n = olmFit(r), made = (r.splits || []).map((x) => `T${x.no}`);
+  toast(`★ 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : "", r.reps ? `대표 ${nf(r.reps)}개를 바꿨습니다` : ""].filter(Boolean).join(" · ") || ((r.placed || []).length ? "자리를 맞췄습니다" : "바꾼 것이 없습니다")}${olmPut(r)} — 「실행 취소」 한 번으로 되돌립니다`);
 }
 
 // ---------------------------------------------------------------- 개요 레벨 그림 — 서식 복사의 내용 서식 견본(style_pic.js stylePic 의 "content")과 같은 그림을 템플릿마다
