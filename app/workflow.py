@@ -140,7 +140,7 @@ COMMON = (
          steps=(
              _s("tree", "템플릿 트리 · 서식 갈래", "script", "템플릿(T1 …)의 레벨마다 쓰인 서식 갈래와 줄 수를 보입니다.", uses=("headings",), modules=("outline_edit", "outline_match", "outline_pos"),
                 spec=(SP_WEB, "② §8-2")),
-             _s("match", "대표 정하기 · 대표에 맞추기", ("human", "script"), "레벨의 대표 서식을 정하고 다른 갈래의 줄을 대표에 맞춥니다. 일부러 다르게 준 서식은 「다른 템플릿으로」 떼어 냅니다(T1L3a).", change="doc",
+             _s("match", "대표 정하기 · 대표에 맞추기", ("human", "script"), "레벨의 대표 서식을 정하고 다른 갈래의 줄을 대표에 맞춥니다. 갈래 카드를 대표 카드에 끌어 놓으면 그 서식으로 대표를 미리 보고(문서·대표는 그대로), ☐ 로 고른 갈래를 한 번에 맞춥니다(실행 취소 1). 일부러 다르게 준 서식은 「다른 템플릿으로」 떼어 냅니다(T1L3a).", change="doc",
                 modules=("outline_match",), spec=(SP_WEB, "② §8-2·§8-5")),
              _s("grow", "개요 레벨 더하기", ("human", "script"), "템플릿의 마지막 레벨 줄에서 Alt+↓ 를 누르면 레터 · 앞 공백 · 둘째 줄 후보가 뜹니다 — 고르면 템플릿에 새 개요 레벨을 더하고 그 줄을 그 레벨로 내립니다.", change="doc", optional=True,
                 modules=("outline_grow",), spec=(SP_WEB, "② §8-6")),

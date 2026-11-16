@@ -6,6 +6,8 @@
 - p5209(T3 L2 「    - 」)의 표를 누르면 2열 「템플릿 관계」 가 열리고(그때 그래프를 읽음) T3 L2 의 갈래 목록이 펴져 그 줄의 갈래가 표시된다(대표와 다른 값 「앞 공백 3칸 → 4칸」).
 - 「대표에 맞추기(2줄)」 → 그 두 줄의 접두가 대표 「   - 」 로 · 갈래 1가지 · 실행 취소로 되돌아감.
 - 「대표로」 → 대표 갈래가 바뀌고 문서 표 풍선에 「이 레벨의 대표 줄」 · 실행 취소.
+- 갈래 카드를 대표 카드에 끌어 놓으면 대표 미리보기(견본 둘 · 다른 값은 미리보기 기준 · 대표 그대로) · Esc 로 거둠 · ⠿ 누름 → 「대표로 정하기」 · 「모두 고르기」 → 「고른 2갈래 맞추기」 한 번(실행 취소 1) ·
+  미리보기 + 「지금 대표」 갈래 고르기 → 「대표로 정하고 고른 1갈래 맞추기」(2026-11-16 사용자 「드래그 해서 대표로 … 그 서식으로 볼 수 있게」 · 「체크체크체크 한번에 변경」).
 - T9 「[기관] › o › -」 의 「하위로」 → 「T8 L3 … 아래 40곳 → T8T9 L4~L6」 → 넣기 → 종속 템플릿 「T8T9」(T8 은 그대로 · T9 줄에 「→ T8T9」 · 종속 템플릿 줄에 「종속 — T8 L3 아래 T9」)
   · 문서 표 「T8T9 L4」 · 「템플릿 관계」 에서 T8 L3 아래에 T9 대신 T8T9 · 「떼기」 → 종속 템플릿이 없어지고 T9 줄이 돌아옴(2026-11-15 사용자 「T1T3 템플릿으로」).
 - 갈래 줄의 「다른 템플릿으로」(대표 갈래에는 없음) → 그 아래 한 줄 「새 템플릿 T9L2a · 넣기」 → 서식 종속 템플릿 「T9L2a」(② §8-5 — 줄은 L2 부터 · 「서식 종속 — T9 L2 의 다른 서식」 · 「하위로」 없음 ·
@@ -151,6 +153,69 @@ def main():
         page.click("#undoBtn")
         page.wait_for_function("() => heads.outline && heads.outline.templates['3'].slots['2'].rep === 'p6502'", timeout=20000)
         check("실행 취소 → 대표가 원래대로", True)
+
+        # 대표 미리보기(끌어 놓기) · 고른 갈래 한 번에 맞추기(2026-11-16 사용자 「드래그 해서 대표로 갖어가면 그 서식으로 볼 수 있게」 · 「체크체크체크 한번에 변경」)
+        page.wait_for_selector(f"{row} .olm-list .olm-g.rep", timeout=20000)
+        src = page.locator(f"{row} .olm-g:not(.rep)").first
+        src_paras = src.evaluate("(e) => e._paras")
+        src.drag_to(page.locator(f"{row} .olm-g.rep").first)
+        page.wait_for_selector(f"{row} .olm-try", timeout=10000)
+        tv = page.evaluate("""(r) => { const x = document.querySelector(r); const t = x.querySelector('.olm-try');
+          return { paras: t._paras, samps: t.querySelectorAll('.olp-samp').length, label: (x.querySelector('.olm-rep-try') || {}).textContent || '',
+            was: [...x.querySelectorAll('.olm-g.was .olm-badge')].map((b) => b.textContent), rep: heads.outline.templates['3'].slots['2'].rep,
+            diffs: [...x.querySelectorAll('.olm-g.was .olm-diff')].map((d) => d.textContent), rowBtns: [...x.querySelectorAll(':scope > button')].map((b) => b.textContent),
+            go: (x.querySelector('.olm-bulk-go') || {}).textContent || '' }; }""", row)
+        check("갈래를 대표 카드에 끌어 놓으면 미리보기 — 미리보기 카드(견본 둘: 미리보기 · 지금 대표) · 옛 대표 카드 「지금 대표」 · 다른 값은 미리보기 기준 · 대표는 그대로 · 「대표에 맞추기」 숨김",
+              tv["paras"] == src_paras and tv["samps"] == 2 and tv["label"].startswith("미리보기") and tv["was"] == ["지금 대표"] and tv["rep"] == "p6502"
+              and tv["diffs"] and "→ 대표" in tv["diffs"][0] and not any("대표에 맞추기" in b for b in tv["rowBtns"]) and tv["go"].startswith("대표로 정하고"), tv)
+        page.screenshot(path=str(OUT / "03b_try.png"))
+        page.keyboard.press("Escape")
+        page.wait_for_function("(r) => !document.querySelector(r + ' .olm-try') && document.querySelector(r + ' .olm-g.rep')", arg=row, timeout=10000)
+        check("Esc → 미리보기를 거둠(대표 카드로 · 대표 그대로)", page.evaluate("() => heads.outline.templates['3'].slots['2'].rep") == "p6502")
+
+        g2 = page.locator(f"{row} .olm-g:not(.rep)").nth(1)
+        p2 = g2.evaluate("(e) => e._paras[0]")
+        g2.locator(".olm-grip").click()
+        page.wait_for_selector(f"{row} .olm-try", timeout=10000)
+        page.locator(f"{row} .olm-try button", has_text="대표로 정하기").click()
+        page.wait_for_function("(p) => heads.outline.templates['3'].slots['2'].rep === p", arg=p2, timeout=20000)
+        page.wait_for_timeout(300)
+        check("⠿ 를 눌러도 미리보기 · 「대표로 정하기」 → 그 갈래 줄이 대표 · 미리보기 끝", page.locator(f"{row} .olm-try").count() == 0, p2)
+        page.click("#undoBtn")
+        page.wait_for_function("() => heads.outline.templates['3'].slots['2'].rep === 'p6502'", timeout=20000)
+        page.wait_for_timeout(300)
+        check("실행 취소 → 대표가 원래대로(미리보기는 다시 안 생김)", page.locator(f"{row} .olm-try").count() == 0)
+
+        page.wait_for_selector(f"{row} .olm-bulk", timeout=20000)
+        page.locator(f"{row} .olm-bulk .olm-all input").check()
+        go = page.locator(f"{row} .olm-bulk-go")
+        txt = go.text_content()
+        check("「모두 고르기」 → 「고른 2갈래 맞추기(2줄)」 · 카드 ☐ 둘 다 켜짐", txt == "고른 2갈래 맞추기(2줄)" and page.locator(f"{row} .olm-g input.olm-chk:checked").count() == 2, txt)
+        go.click()
+        page.wait_for_function("() => (document.querySelector('#headsDlgBody .olm[data-tpl=\"3\"][data-level=\"2\"] .olm-sum') || {}).textContent === '서식 1가지 — 모두 같음'", timeout=20000)
+        t = page.evaluate("() => ['p5209', 'p5765'].map((i) => document.querySelector(`#doc .para[data-id=${i}]`).textContent.slice(0, 6))")
+        check("「고른 갈래 맞추기」 → 고른 두 갈래 줄이 대표 접두 「   - 」 · 갈래 1가지", all(x.startswith("   - ") and not x.startswith("    ") for x in t), t)
+        page.click("#undoBtn")
+        page.wait_for_function("() => /서식 3가지/.test((document.querySelector('#headsDlgBody .olm[data-tpl=\"3\"][data-level=\"2\"] .olm-sum') || {}).textContent || '')", timeout=20000)
+        check("실행 취소 한 번 → 갈래 3가지로", True)
+
+        PRE = "(i) => (document.querySelector(`#doc .para[data-id=${i}]`).textContent.match(/^\\s*\\S+\\s*/) || [''])[0]"
+        page.wait_for_selector(f"{row} .olm-list .olm-g.rep", timeout=20000)
+        page.locator(f"{row} .olm-g:not(.rep)").first.drag_to(page.locator(f"{row} .olm-g.rep").first)
+        page.wait_for_selector(f"{row} .olm-try", timeout=10000)
+        cand = page.evaluate("() => OLM.try.pid")
+        cpre = page.evaluate(PRE, cand)
+        page.locator(f"{row} .olm-g.was input.olm-chk").check()
+        txt = page.locator(f"{row} .olm-bulk-go").text_content()
+        page.locator(f"{row} .olm-bulk-go").click()
+        page.wait_for_function("(p) => heads.outline.templates['3'].slots['2'].rep === p", arg=cand, timeout=20000)
+        page.wait_for_function("([i, s]) => (document.querySelector(`#doc .para[data-id=${i}]`) || {}).textContent?.startsWith(s)", arg=["p6502", cpre], timeout=20000)
+        check("미리보기 + 「지금 대표」 갈래 고르기 → 「대표로 정하고 고른 1갈래 맞추기」 → 대표 = 끌어 놓은 줄 · 옛 대표 줄 접두가 그 모양", txt.startswith("대표로 정하고 고른 1갈래 맞추기")
+              and page.locator(f"{row} .olm-try").count() == 0, [txt, cand, cpre])
+        page.click("#undoBtn")
+        page.wait_for_function("() => heads.outline.templates['3'].slots['2'].rep === 'p6502'", timeout=20000)
+        page.wait_for_function("() => /서식 3가지/.test((document.querySelector('#headsDlgBody .olm[data-tpl=\"3\"][data-level=\"2\"] .olm-sum') || {}).textContent || '')", timeout=20000)
+        check("실행 취소 한 번 → 대표 · 갈래 모두 원래대로", True)
 
         # 하위로 넣기 · 떼기
         page.evaluate("() => headsTplView(9)")
