@@ -187,6 +187,7 @@ COMMON = (
              _s("output", "출력파일 검증", ("script", "llm"), "저장본을 한글(hwpx) · Word(docx) PDF 로 찍어 원본과 쪽마다 비교합니다. 주의 · 실패가 있으면 마지막 「LLM 검토」 가 저절로 돌아 "
                 "실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태를 바꿉니다.", agents=("verify_review",), modules=("verify", "verify_llm", "pdf_render", "pdf_map", "owpml_check"), spec=(SP_WEB, "② §3·§4·§4-1·§5")),
              _s("commit", "확정", "human", "「고친 문단」 탭이 문단마다 어떻게 바뀌었는지를 깃 diff 처럼 보입니다(M 고침 · A 새 문단 · D 지움 — 글은 − 원본 / + 지금 줄, 모양은 원본 값 → 지금 값). "
+                "문서에서도 그 자리에 보입니다(「고친 곳 보기」 — 넣은 글 초록 · 지운 자리 빨간 물결 · 오른쪽 여백 꼬리표에 바뀐 것, 도구 줄 「±」 로 켜고 끔). "
                 "확정하면 지금 상태가 다음 비교의 기준이 됩니다(확정본은 따로 받을 수 있습니다).", change="store", modules=("works", "edit_detail"), spec=(SP_WORK, "② §8")),
              _s("save", "저장(내려받기)", "human", "지금 문서를 hwpx · docx 파일로 내려받습니다.", out="hwpx · docx 파일", modules=("server",), spec=(SP_WORK, "② §3")),
          )),

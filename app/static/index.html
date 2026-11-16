@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="/static/outline_preview.css"><!-- 개요 레벨 미리보기·비교 창(「템플릿 관계」 옆에 떠 있는 창 — 자리 미리보기 · 서식 비교: spec_hwpx_웹편집 ② §8-3) — style.css 다음 -->
   <link rel="stylesheet" href="/static/tpl_agent.css"><!-- 템플릿 트리의 개요 레벨 그림 · 문서 표시의 서식 라벨 · 템플릿 서식 정리 에이전트(2열 kind tplAgent — spec_hwpx_웹편집 ② §8-4) — heading-panels.css·style_lib.css·doc_agent.css 다음 -->
   <link rel="stylesheet" href="/static/fmt_focus.css"><!-- 서식 라벨만 또렷이(여백의 서식 라벨을 누르면 그 서식의 문단만 그대로 · 나머지는 흐리게 · 이름 줄 설명 #fmtKey — spec_헤딩_추출 ② §7) — style.css·tpl_agent.css·document_header.css·divisions.css 다음 -->
+  <link rel="stylesheet" href="/static/doc_diff.css"><!-- 문서에서 고친 곳 보기(넣은 글 초록 · 지운 자리 빨간 물결 · 오른쪽 여백 꼬리표 — doc_diff.js, spec_작업 ② §8 「문서에서 — 고친 곳 보기」) — style.css·fmt_focus.css 다음 -->
   <link rel="stylesheet" href="/static/doc_status.css"><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나: spec_작업 ② §20) — document_header.css·divisions.css·fmt_focus.css 다음 -->
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
@@ -167,6 +168,8 @@
         <div class="group" id="editNav" role="group" aria-label="고친 문단으로 이동" hidden>
           <button class="icon" id="prevEdit" type="button" aria-label="이전 고친 문단" title="이전 고친 문단으로">↑</button>
           <button class="icon" id="nextEdit" type="button" aria-label="다음 고친 문단" title="다음 고친 문단으로">↓</button>
+          <!-- 고친 곳 보기(doc_diff.js — 문서에 넣은 글·지운 자리·바뀐 모양 값을 깃처럼: spec_작업 ② §8 「문서에서 — 고친 곳 보기」) — 켬이 기본, 눌림 = 켜짐. 도움말은 ddBtnSync 가 -->
+          <button class="icon" id="ddBtn" type="button" aria-pressed="true" aria-label="고친 곳 보기" title="고친 곳 보기">±</button>
         </div>
         <!-- OWPML 상태 — 아이콘 하나(2026-11-10): 방패 안 표시(.m-wait … · .m-ok ✓ · .m-warn ! · .m-fail ✕)와 색이 상태, 글은 도움말과 #owpmlText(화면 낭독용 — 눈에는 안 보임). app.js refreshToolbar -->
         <span class="owpml-state" id="owpmlState" role="status" aria-live="polite" title="구조·서식 편집마다 OWPML(KS X 6101) 2024 스키마·참조 규칙으로 검사 — 원본에 없던 종류의 위반이면 그 편집을 되돌린다">
@@ -553,6 +556,7 @@
   <script src="/static/doc_agent.js"></script><!-- 에이전트 보기(패널 #paneAgent — 요청 → 제안 카드 → 문서에 반영 · 자료 · 2열 제안 미리보기·지침) — style_lib.js·table_fill.js 다음(spec_일반편집 ② §8~§12) -->
   <script src="/static/doc_agent_work.js"></script><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
   <script src="/static/doc_agent_next.js"></script><!-- 에이전트 빈 화면의 「지금 할 수 있는 일」 — 현황 보고 카드(스크립트) · 헤딩·표 LLM 검토 실행 카드 · 서식 반영(spec_일반편집 ② §12) -->
+  <script src="/static/doc_diff.js"></script><!-- 문서에서 고친 곳 보기(깃처럼 — 넣은 글·지운 자리·바뀐 모양 값 꼬리표 · 도구 줄 #ddBtn) — app.js 다음(spec_작업 ② §8 「문서에서 — 고친 곳 보기」) -->
   <script src="/static/fmt_focus.js"></script><!-- 서식 라벨만 또렷이(여백의 서식 라벨 .tm-f 누름 → #doc.fmt-focus · .para.fmt-hit · 이름 줄 설명 #fmtKey) — app.js 다음(spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」) -->
   <script src="/static/doc_quick.js"></script><!-- 문서 이름 줄의 표시 아이콘(#nameTplMarks · #nameFmtMarks — 여백의 템플릿 표시 「T1 L2」 · 서식 라벨 「S41」 켜기/끄기) — app.js 다음(spec_작업 ② §17 「이름 줄 표시 아이콘」) -->
   <script src="/static/doc_status.js"></script><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — GET …/analysis 로 헤딩 · 표 · LLM · 구분 기준 표시 · 「분석」 단추) — app.js 다음(spec_작업 ② §20) -->

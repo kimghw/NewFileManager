@@ -1,0 +1,50 @@
+/* 문서에서 고친 곳 보기 — 깃처럼(app/static/doc_diff.js · spec_작업 ② §8 「화면」 「문서에서 — 고친 곳 보기」). style.css 다음에 읽는다.
+   색은 「고친 문단」 목록의 깃 diff(style.css .gd-line ins/del)와 같은 계열 — 넣은 글 초록 · 지운 것 빨강 · 고친 문단 띠 주황(--edit) · 새 문단 띠 초록(--ok). 색만으로 가르지 않는다(꼬리표의 글자 M·A · 글 「−」·「+」). */
+
+/* 글자 표시 — 문단 DOM 은 그대로(CSS Custom Highlight): 넣은 글자 = 초록 바탕 · 글자를 지우기만 한 자리 = 그 앞뒤 글자에 빨간 물결 밑줄 */
+::highlight(nfm-dd-ins) { background-color: #b9ecc8; color: #14532d; }
+::highlight(nfm-dd-del) { text-decoration: underline wavy #dc2626; }
+
+/* 표시를 그린 고친 문단(.dd — 창 가까이에 있는 것만) — 바탕(주황)을 걷고 왼쪽 띠만(style.css .para.edited 의 띠 그대로). 올림·초점 바탕은 여느 문단처럼. 반영 실패(.error)는 그 표시가 먼저 */
+.para.edited.dd:not(.error) { background: none; }
+.para.edited.dd:not(.error):hover { background: rgba(36, 88, 214, .05); }
+.para.edited.dd:not(.error):focus { background: rgba(36, 88, 214, .06); }
+/* 새 문단(A) — 초록 띠 + 옅은 초록 바탕(깃의 더한 줄) */
+.para.edited.dd.dd-A:not(.error), .para.edited.dd.dd-A:not(.error):hover { background: rgba(21, 128, 61, .08); box-shadow: inset 3px 0 0 var(--ok); }
+.para.edited.dd.dd-A:not(.error):focus { background: rgba(21, 128, 61, .08); box-shadow: inset 3px 0 0 var(--ok), 0 0 0 1.5px var(--accent); }
+
+/* 쪽 오른쪽 여백의 꼬리표 「M 글 · 첫 줄」 — .sheet 에 절대 위치(문단 요소 밖) · 화면 크기 고정(zoom 1/z) · --mgr = 그 쪽 오른쪽 여백 폭(화면 px): fmt_focus.css 의 .fm-tag 와 같은 방식.
+   여백보다 긴 글은 줄임표 — 올리거나 초점을 주면 오른쪽 끝에 맞춰 왼쪽으로 펼쳐 「어떻게」(− 원본 + 지금 · 값 → 값)를 보인다(쪽 밖으로 안 나간다) */
+.sheet > .dd-tag {
+  position: absolute; left: calc(100% - var(--mgr, 60px) + 4px); max-width: max(calc(var(--mgr, 60px) - 8px), 56px); box-sizing: border-box; margin: 0; padding: 0 4px 0 0;
+  appearance: none; text-align: left; font: 600 10.5px/15px "Malgun Gothic", sans-serif; color: #7a4a00; background: #fff8ec; border: 1px solid #f0c98a; border-radius: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; user-select: none; z-index: 2;
+}
+.dd-tag .dd-k { display: inline-block; min-width: 13px; margin-right: 4px; padding: 0 2px; text-align: center; font-weight: 800; color: #fff; background: #b45309; }
+.sheet > .dd-tag.dd-A { color: #14532d; background: #f0fbf3; border-color: #a7dcb6; }
+.dd-tag.dd-A .dd-k { background: var(--ok); }
+.dd-tag .dd-l { display: none; }
+.sheet > .dd-tag:hover, .sheet > .dd-tag:focus-visible { left: auto; right: 4px; max-width: none; overflow: visible; z-index: 7; border-color: #b45309; box-shadow: 0 2px 8px rgba(16, 24, 40, .2); }
+.sheet > .dd-tag.dd-A:hover, .sheet > .dd-tag.dd-A:focus-visible { border-color: var(--ok); }
+.sheet > .dd-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dd-tag:hover .dd-s, .dd-tag:focus-visible .dd-s { display: none; }
+.dd-tag:hover .dd-l, .dd-tag:focus-visible .dd-l { display: inline; }
+.dd-tag del { background: #fccfcf; color: #7f1d1d; text-decoration: none; border-radius: 2px; padding: 0 2px; } /* 줄을 긋지 않는다 — 작은 글이라 안 읽힌다(「−」 가 지운 것임을 말한다) */
+.dd-tag ins { background: #b9ecc8; color: #14532d; text-decoration: none; border-radius: 2px; padding: 0 2px; }
+.dd-tag .dd-fmt { color: #3b4a63; }
+.dd-tag .dd-sep, .dd-tag .dd-more { color: var(--muted); font-weight: 400; }
+/* 「서식·템플릿만 또렷이」 를 보는 동안에는 그쪽 꼬리표(.fm-tag)가 같은 여백을 쓴다 — 고친 곳 꼬리표는 잠시 감춘다(글자 표시·띠는 그대로) */
+#doc.fmt-focus .sheet > .dd-tag { display: none; }
+@media print {
+  .sheet > .dd-tag { display: none; }
+  ::highlight(nfm-dd-ins) { background-color: transparent; color: inherit; }
+  ::highlight(nfm-dd-del) { text-decoration: none; }
+}
+
+/* 도구 줄의 켬·끔 단추(↑↓ 옆 「±」) — 켜져 있으면 눌린 모양 */
+#ddBtn { font-weight: 700; }
+#ddBtn[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+
+/* 꼬리표를 눌러 간 「고친 문단」 목록의 항목 — 잠깐 번쩍 */
+.edit-item.dd-flash { animation: dd-flash 1.4s ease-out; }
+@keyframes dd-flash { 0% { background: rgba(36, 88, 214, .28); } 100% { background: transparent; } }

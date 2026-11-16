@@ -2809,6 +2809,7 @@ function paginate() {
       refit();
       if (typeof tplMarksDraw === "function" && heads.marks) tplMarksDraw();
       if (typeof tblMarksDraw === "function") tblMarksDraw();
+      if (typeof ddDraw === "function") ddDraw();
     });
   }
   overflowSplit(doc); // 쪽 자리 정보가 없는 새 블록(구분 기준 반영 사본 등)으로 길어진 쪽은 용지 높이로 어림해 나눈다(② §3-1 「넘침 나눔」)
@@ -2823,6 +2824,7 @@ function paginate() {
   if (typeof tblMarksDraw === "function") tblMarksDraw(); // 표 도구 표지 · 엑셀식 보기 되살림(spec_헤딩_추출 ② §10)
   if (typeof divMarksDraw === "function") divMarksDraw(); // 구분 기준 문서 표시(문서를 다시 읽으면 문단 요소가 새것, spec_구분_기준 ② §11)
   if (typeof fmtFocusDraw === "function") fmtFocusDraw(); // 서식 라벨만 또렷이(fmt_focus.js — 같은 까닭: spec_헤딩_추출 ② §7)
+  if (typeof ddDraw === "function") ddDraw(); // 고친 곳 보기(doc_diff.js — 문단을 옮기면 글자 범위가 풀리고 꼬리표 자리가 바뀐다: spec_작업 ② §8)
 }
 
 // 쪽 상자가 용지 본문을 넘치고 그 끝이 PDF 자리를 모르는 문단(빈 줄 — 매핑 없음)이나 짧은 글(5자 이하 — 「가까운 자리」 매핑이라 쪽이 틀릴 수 있음, ④)이면
@@ -4069,6 +4071,7 @@ function flowSettle() {
   if (typeof tblMarksDraw === "function") tblMarksDraw();
   if (typeof divMarksDraw === "function") divMarksDraw();
   if (typeof fmtFocusDraw === "function") fmtFocusDraw();
+  if (typeof ddDraw === "function") ddDraw();
 }
 
 function focusAt(f) {
@@ -4237,6 +4240,7 @@ function updateEdits() {
   if (!$("paneEdits").hidden) drawEdits();
   refreshSaveState();
   commitBar(); // 확정 줄(기준·고친 수·단추) — spec_작업 ② §8
+  if (typeof ddSync === "function") ddSync(); // 문서의 「고친 곳 보기」(doc_diff.js — 넣은 글·지운 자리·꼬리표: ② §8 「문서에서 — 고친 곳 보기」)
 }
 
 function drawEdits() {
@@ -4270,6 +4274,7 @@ function drawEdits() {
   for (const id of ids) {
     const kind = state.kinds[id] || "text", g = kind === "new" ? "A" : "M";
     const li = el("li", `edit-item g-${g}`);
+    li.dataset.id = id; // 문서의 꼬리표를 누르면 이 항목으로 온다(doc_diff.js ddGo)
     const go = el("button", "edit-go");
     go.type = "button";
     go.setAttribute("aria-label", `고친 문단으로 이동: ${short(state.texts[id], 40)}`);
@@ -5863,6 +5868,7 @@ function headsReset() { // 문서를 열거나 닫을 때(load·closeDoc) — �
   if (typeof tempReset === "function") tempReset(); // TEMP 라벨(heading_temp.js — spec_헤딩_추출 ② §15)
   if (typeof driftReset === "function") driftReset(); // 뼈대 유지(heading_drift.js — spec_헤딩_추출 ② §17)
   if (typeof fmtFocusReset === "function") fmtFocusReset(); // 서식 라벨만 또렷이(fmt_focus.js — 다른 문서로 가면 풀린다: #doc 의 표시 클래스가 남으면 새 문서가 통째로 흐리다)
+  if (typeof ddReset === "function") ddReset(); // 고친 곳 보기(doc_diff.js — 지켜보던 문단·글자 표시·꼬리표를 버린다)
   tplMarksDraw();
 }
 
@@ -6944,6 +6950,7 @@ const sheetMarginPx = (sheet, z) => Math.round(((state.sections[+sheet.dataset.s
 function tplMarksDraw() {
   for (const e of document.querySelectorAll(".tpl-mark, .ol-grip")) e.remove();
   if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄의 표시 아이콘 둘(doc_quick.js) — 표시할 것이 있는 문서인지가 여기서 바뀐다(오버레이·그래프를 읽은 뒤)
+  if (typeof ddDraw === "function") ddDraw(); // 고친 곳 보기의 꼬리표(doc_diff.js) — 여기는 배율·창 크기가 바뀔 때도 불린다(꼬리표는 화면 크기 고정 — 자리를 다시): 다음 프레임에 한 번
   const tplOn = tplMarksOn(), fmtOn = tplFmtOn(); // 템플릿 표시 「TN Lk」 와 서식 라벨 「S41」 — 따로 켜고 끈다(2026-11-16): 서식 라벨만 켜면 그 줄 자리에 라벨만
   const marks = heads.marks && (tplOn || fmtOn) ? heads.marks : new Map();
   const tmpOf = typeof tempMarkOf === "function" && tplOn && tempMarkCount() ? tempMarkOf : null; // TEMP 문단·칸(heading_temp.js — spec ② §15): 「TN Lk」 가 없는 줄에 회색 「TEMP」

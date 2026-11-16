@@ -1798,24 +1798,33 @@ DETAIL_KINDS = ("format", "struct")   # 모양이 바뀌었을 수 있는 고친
 
 
 @app.get("/api/docs/{doc_id}/edits/detail")
-def edits_detail(doc_id: str, limit: int = 300):
+def edits_detail(doc_id: str, limit: int = 300, ids: str = ""):
     """고친 문단이 어떻게 바뀌었나(② §8 「화면」 — 깃 diff 처럼): 모양이 바뀐 문단마다 모양 값의 기준 → 지금 [{key, label, before, after, part?}].
-    문서 차례 앞 limit 개 · 읽기만(_bump 없음). 같은 편집 차례·기준이면 한 번 센 것을 돌려준다(지금 블록 읽기가 큰 문서에서 1 s 안팎)."""
+    문서 차례 앞 limit 개 · 읽기만(_bump 없음). 같은 편집 차례·기준이면 한 번 센 것을 돌려준다(지금 블록 읽기가 큰 문서에서 1 s 안팎).
+    ids = 쉼표로 이은 문단 id — 있으면 앞 limit 개 대신 **그 문단들만**(문서의 「고친 곳 보기」 가 창에 보이는 문단만 묻는다 — ② §8 「문서에서」).
+    모양이 바뀐 문단이 아닌 id 는 답에 없다. 두 블록 색인은 같은 차례·기준에서 한 번만 만든다(창을 옮길 때마다 다시 읽지 않게)."""
     s = _sess(doc_id)
     limit = max(1, min(int(limit), 2000))
+    want = [i for i in dict.fromkeys(x.strip() for x in ids.split(",")) if i][:2000] if ids else None
     with s.lock:
-        key = (s.rev, s.base_n, id(s.blocks), limit)
+        stamp = (s.rev, s.base_n, id(s.blocks))
         memo = getattr(s, "edit_detail_memo", None)
-        if memo and memo[0] == key:
-            return memo[1]
+        if not isinstance(memo, dict) or memo.get("stamp") != stamp:
+            memo = s.edit_detail_memo = {"stamp": stamp, "index": None, "outs": {}}
+        if want is None and limit in memo["outs"]:
+            return memo["outs"][limit]
         kinds = s.kinds()
-        ids = [i for i in s.texts if kinds.get(i) in DETAIL_KINDS]
+        changed = [i for i in s.texts if kinds.get(i) in DETAIL_KINDS]
         items = {}
-        if ids:
-            base, now = edit_detail.index(s.blocks), edit_detail.index(s.doc.blocks())
-            items = {i: edit_detail.changes(base.get(i), now.get(i)) for i in ids[:limit]}
-        out = {"rev": s.rev, "base": s.base_n, "items": items, "more": max(0, len(ids) - limit)}
-        s.edit_detail_memo = (key, out)
+        if changed:
+            if memo["index"] is None:
+                memo["index"] = (edit_detail.index(s.blocks), edit_detail.index(s.doc.blocks()))
+            base, now = memo["index"]
+            pick = changed[:limit] if want is None else [i for i in want if kinds.get(i) in DETAIL_KINDS and i in s.texts]
+            items = {i: edit_detail.changes(base.get(i), now.get(i)) for i in pick}
+        out = {"rev": s.rev, "base": s.base_n, "items": items, "more": max(0, len(changed) - limit) if want is None else 0}
+        if want is None:
+            memo["outs"][limit] = out
     return out
 
 

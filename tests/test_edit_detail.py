@@ -70,3 +70,13 @@ def test_endpoint_reports_format_edit_and_skips_text_only(client):
     assert client.get(f"/api/docs/{d}/edits/detail").json() == got  # 같은 차례 — 한 번 센 것
     rev = client.get(f"/api/docs/{d}").json()["rev"]
     assert got["rev"] == rev
+    # ids — 그 문단들만(문서의 「고친 곳 보기」 가 보이는 문단만 묻는다): 모양이 바뀐 문단이 아닌 id · 없는 id 는 답에 없다
+    one = client.get(f"/api/docs/{d}/edits/detail", params={"ids": f"{b['id']}, {a['id']},nope,{a['id']}"}).json()
+    assert one["items"] == got["items"] and one["more"] == 0 and one["rev"] == rev
+    assert client.get(f"/api/docs/{d}/edits/detail", params={"ids": b["id"]}).json()["items"] == {}
+    assert client.get(f"/api/docs/{d}/edits/detail").json() == got  # ids 로 물은 뒤에도 목록 쪽 답은 그대로
+    # 편집 차례가 오르면 다시 센다(색인을 옛 차례 것으로 쓰지 않는다)
+    r = client.post(f"/api/docs/{d}/format/para", json={"ids": [b["id"]], "changes": {"indentLeftMm": 7}})
+    assert r.status_code == 200, r.text
+    two = client.get(f"/api/docs/{d}/edits/detail", params={"ids": b["id"]}).json()
+    assert set(two["items"]) == {b["id"]} and any(c["key"] == "indentLeftMm" and c["after"] == "7mm" for c in two["items"][b["id"]])
