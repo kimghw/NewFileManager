@@ -55,6 +55,20 @@ def _undo_all(c, d, s):
     assert c.get(f"/api/docs/{d}/download").content == PLAN.read_bytes()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_plans(request, monkeypatch):
+    """받아 둔 서식 계획은 문서 차례가 아니라 그 템플릿 줄의 지문에 묶인다(spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」) — 반영을 되돌리면 **다시 쓸 수 있는 계획으로 살아난다**.
+    모듈 세션 하나를 시험들이 이어 쓰므로 앞 시험의 계획이 뒤 시험의 「모두 반영」 에 섞이지 않게 시험마다 비운다.
+    「모두 반영」 은 확실한 템플릿 종속도 저절로 건다(② §8-2 「종속 제안」) — 이 모듈은 서식 계획만 보므로 종속 제안을 끈다(그것은 tests/test_outline_safety.py 가 본다)."""
+    monkeypatch.setattr(M, "merge_hints", lambda ov: [])
+    if "sess" in request.fixturenames:
+        from app import tpl_agent_api as TA
+        _, _, s = request.getfixturevalue("sess")
+        with TA._plans_lock:
+            s.tpl_plans = {"graph": None, "plans": {}}
+    yield
+
+
 def _slot(c, d, tid, lv):
     return c.get(f"/api/docs/{d}/outline/formats").json()["slots"][str(tid)][str(lv)]
 
@@ -203,8 +217,11 @@ def test_plan_with_split_applies_in_one_undo(sess, monkeypatch):
     got = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["9"]   # 받은 계획은 남고 적용하면 applied(분석 상태의 서식 LLM 칸 — spec_작업 ② §20)
     assert got["state"] == "applied" and got["applied"]["changed"] == 3 and got["plan"]["summary"] == "기관 줄은 따로"
     assert _slot(c, d, 9, 2)["total"] == 33 and _slot(c, d, "9~2a", 2)["total"] == 11 and len(_slot(c, d, "9~2a", 2)["groups"]) == 1
+    assert s.outline["agent"]["9"] == got["at"]   # 반영의 표는 개요 오버레이에(실행 취소와 함께 되돌아간다 — tpl_agent_api._mark)
     _undo_all(c, d, s)
     assert "9~2a" not in s.outline["templates"]
+    back = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["9"]   # 반영을 되돌리면 「반영함」 이 아니다 — 오버레이의 표가 사라지고, 줄이 계획을 받은 때로 돌아왔으니 **그 계획을 다시 쓸 수 있다**(planned — 다시 받지 않는다)
+    assert back["state"] == "planned" and back["applied"]["changed"] == 3 and "9" not in (s.outline.get("agent") or {})
 
 
 def test_plan_endpoint_uses_pinned_opus_and_saved_skill(sess, monkeypatch):
@@ -342,8 +359,25 @@ def test_apply_plans_applies_every_planned_template_in_one_undo(sess, monkeypatc
     assert (plans["3"]["applied"]["changed"], plans["9"]["applied"]["changed"], plans["5"]["applied"]["changed"]) == (2, 3, 0)
     assert len(_slot(c, d, 3, 2)["groups"]) == 1 and _slot(c, d, "9~2a", 2)["total"] == 11 and len(_slot(c, d, "9~2a", 2)["groups"]) == 1
     assert c.post(url, json={"rev": s.rev}).status_code == 409   # 이미 반영함 — 다시 반영할 계획이 없다
+    assert {k: s.outline["agent"][k] for k in ("3", "9", "5")} == {k: plans[k]["at"] for k in ("3", "9", "5")}   # 반영의 표 — 계획마다 그 계획의 at
+    fmt = lambda: next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]  # noqa: E731
+    assert fmt()["done"] == 3
     assert c.post(f"/api/docs/{d}/undo").status_code == 200   # 실행 취소 한 번으로 모든 템플릿이 되돌아간다
     assert len(_slot(c, d, 3, 2)["groups"]) == 3 and "9~2a" not in s.outline["templates"]
+    # 반영을 되돌렸다 — 세 계획 모두 「반영함」 이 아니다(진행 줄 「조정」 의 ✓ 가 남지 않는다). 줄이 계획을 받은 때로 돌아왔으니 그 계획들은 **다시 쓸 수 있다**(지문이 같다 — 유료로 다시 받지 않는다)
+    back = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert {k: v["state"] for k, v in back.items()} == {"3": "planned", "9": "planned", "5": "planned"} and back["3"]["applied"]["changed"] == 2
+    f = fmt()
+    assert (f["applied"], f["done"], f["stale"]) == (0, 0, 0) and f["planned"] >= 2 and all(x["state"] == "planned" for x in f["list"] if x["tpl"] in ("3", "9"))
+    r = c.post(url, json={"rev": s.rev})   # 다시 받지 않고 그대로 반영한다
+    assert r.status_code == 200 and r.json()["plans"] == 3 and len(r.json()["changed"]) == 5
+    again = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert (again["3"]["state"], again["9"]["state"], again["5"]["state"]) == ("applied", "applied", "applied")
+    # 그 템플릿의 줄이 바뀌면(되돌린 뒤 한 줄의 서식을 손으로) 그 계획만 옛것이 된다 — 다른 템플릿의 계획은 그대로
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200
+    assert c.post(f"/api/docs/{d}/format/chars", json={"id": "p5209", "start": 0, "end": 0, "changes": {"sizePt": 31}}).status_code == 200   # T3 L2 의 줄
+    mixed = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert (mixed["3"]["state"], mixed["9"]["state"]) == ("stale", "planned")
     _undo_all(c, d, s)
 
 
@@ -367,3 +401,105 @@ def test_apply_plans_without_document_change_still_marks_applied(sess, monkeypat
     plans = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
     assert plans["9"]["state"] == "applied" and plans["5"]["state"] == "applied" and "9~2a" in s.outline["templates"]
     _undo_all(c, d, s)
+
+
+def test_applied_plan_is_not_applied_after_discard(sess, monkeypatch):
+    """반영한 뒤 「모두 되돌리기」(확정 0 으로 · discard) — 문서가 원본으로 돌아가면 그 계획은 「반영함」 이 아니다. 2026-11-16 사용자 작업에서 난 일:
+    17:11 모두 반영 → 17:31 모두 되돌리기 뒤에도 진행 줄 「조정」 이 ✓ 였다(대표와 다른 줄 96 · 「계획 받기」 단추도 숨음)."""
+    c, d, s = sess
+
+    def fake(schema, content, what, **kw):
+        return {"data": {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]},
+                "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).status_code == 200
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "tpls": ["3"]})
+    assert r.status_code == 200 and len(r.json()["changed"]) == 2
+    assert c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["3"]["state"] == "applied" and len(_slot(c, d, 3, 2)["groups"]) == 1
+    r = c.post(f"/api/docs/{d}/commits/0/restore", json={"discard": True})
+    assert r.status_code == 200, r.text
+    assert len(_slot(c, d, 3, 2)["groups"]) == 3   # 문서가 원본으로 — 서식 갈래가 되돌아왔다
+    got = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["3"]
+    assert got["state"] == "planned" and got["applied"]["changed"] == 2   # 「반영함」 이 아니다 — 문서가 계획을 받은 때로 돌아왔으니 그 계획을 다시 쓸 수 있다(다시 받지 않는다)
+    f = next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]
+    assert next(x for x in f["list"] if x["tpl"] == "3")["state"] == "planned" and f["applied"] == 0 and f["done"] == 0
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "tpls": ["3"]})
+    assert r.status_code == 200 and len(r.json()["changed"]) == 2
+    _undo_all(c, d, s)
+
+
+def test_applied_mark_is_written_inside_the_apply_transaction(sess, monkeypatch):
+    """반영의 표(오버레이 agent[템플릿] = 계획의 at)는 반영과 같은 트랜잭션에서 적는다 — 반영 직전의 실행 취소 묶음에는 없고(되돌리면 사라짐),
+    반영이 끝난 때에는 이미 있다(전에는 트랜잭션이 끝난 뒤에 따로 적어, 그 사이 다른 화면이 실행 취소하면 되돌린 오버레이에 표가 붙었다)."""
+    from app import outline_match_api as OM
+    c, d, s = sess
+
+    def fake(schema, content, what, **kw):
+        return {"data": {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]},
+                "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    j = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).json()
+    assert isinstance(j["at"], float)   # 계획의 표시 — 화면이 적용할 때 되돌려 보낸다
+    seen = []
+    real = OM.apply_templates
+
+    def spy(*a, **kw):   # 반영의 몸이 돌아온 바로 그때(끝점이 기록을 적기 전) 오버레이에 표가 있는가
+        got = real(*a, **kw)
+        seen.append(dict(s.outline.get("agent") or {}))
+        return got
+    monkeypatch.setattr(OM, "apply_templates", spy)
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "tpls": ["3"]})
+    assert r.status_code == 200 and seen and seen[0].get("3") == j["at"]
+    assert "3" not in (s.undo[-1]["outline"].get("agent") or {})   # 반영 직전 묶음에는 표가 없다 — 실행 취소가 표를 지운다
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200
+    assert "3" not in (s.outline.get("agent") or {}) and c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["3"]["state"] == "planned"   # 되돌린 계획은 다시 쓸 수 있다
+    _undo_all(c, d, s)
+
+
+def test_replaced_plan_is_not_marked_applied_and_late_answer_does_not_overwrite(sess, monkeypatch):
+    """화면이 가진 계획(plan = 그 계획의 at)과 서버에 남은 계획이 다르면(같은 문서 차례에 다시 받음) 적용은 되지만 남은 계획을 「반영함」 으로 적지 않는다 ·
+    늦게 끝난 옛 요청의 답은 더 늦게 시작한 요청이 남긴 계획을 덮지 않는다 · 다른 그래프의 답은 남기지 않는다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+
+    def fake(schema, content, what, **kw):
+        return {"data": {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]},
+                "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    old = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).json()
+    new = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).json()   # 같은 문서 차례에 다시 받음 — 남은 것은 이 계획
+    assert old["rev"] == new["rev"] and old["at"] != new["at"]
+    lv = next(x for x in old["plan"]["levels"] if x["level"] == 2)
+    body = {"rev": old["rev"], "by": "agent", "plan": old["at"], "levels": [{"level": 2, "rep": lv["rep"]["para"], "likes": [m["para"] for m in lv["match"]]}]}
+    r = c.post(f"/api/docs/{d}/outline/templates/3/match", json=body)   # 화면은 옛 계획으로 적용한다
+    assert r.status_code == 200 and len(r.json()["changed"]) == 2
+    got = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["3"]
+    assert got["at"] == new["at"] and got["applied"] is None and got["state"] == "stale" and "3" not in (s.outline.get("agent") or {})   # 남은 계획은 반영한 그 계획이 아니다
+    _undo_all(c, d, s)
+    # 화면이 가진 계획 = 남은 계획이면 반영함
+    one = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).json()
+    r = c.post(f"/api/docs/{d}/outline/templates/3/match", json={**body, "rev": one["rev"], "plan": one["at"]})
+    assert r.status_code == 200 and c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["3"]["state"] == "applied" and s.outline["agent"]["3"] == one["at"]
+    _undo_all(c, d, s)
+    # 늦은 답 — 더 늦게 시작한 요청의 계획이 남아 있으면 덮지 않는다 · 일찍 시작한 것 위에는 덮는다
+    graph, t = list(s.outline["run"]), TA.time.time() + 1000   # 위에서 남긴 계획보다 늦은 때를 기준으로
+    assert TA._remember(s, graph, "3", {"tpl": "3", "rev": s.rev, "at": t + 50, "since": t + 40, "applied": None}, since=t + 40) is True
+    assert TA._remember(s, graph, "3", {"tpl": "3", "rev": s.rev, "at": t + 60, "since": t + 30, "applied": None}, since=t + 30) is False   # 일찍 시작해 늦게 끝난 답
+    assert TA.plans(s, graph)["3"]["at"] == t + 50
+    assert TA._remember(s, graph, "3", {"tpl": "3", "rev": s.rev, "at": t + 70, "since": t + 45, "applied": None}, since=t + 45) is True
+    # 다른 그래프의 답(LLM 을 기다린 사이 2단계를 다시 돌림) — 남기지 않는다: 지금 그래프의 상자가 그대로다
+    keep = TA.plans(s, graph)
+    real = TA.A.run
+
+    def slow(mat, sk, request):
+        res = real(mat, sk, request)
+        s.outline["run"] = [graph[0], "다른 실행"]   # 그 사이 오버레이의 그래프가 바뀜(흉내)
+        return res
+    monkeypatch.setattr(TA.A, "run", slow)
+    monkeypatch.setattr(server, "_outline_ov", lambda sess_, build=True: sess_.outline)   # 흉내 낸 그래프 표시를 다시 짓지 않게
+    late = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"})
+    assert late.status_code == 200 and late.json()["plan"]["summary"] == "T3 정리"
+    s.outline["run"] = graph
+    assert TA.plans(s, graph) == keep   # 상자는 그대로 — 옛 그래프의 늦은 답이 갈아 치우지 않았다
+    with TA._plans_lock:   # 흉내로 넣은 기록(먼 뒤의 since)을 지운다 — 모듈 세션을 다른 시험이 이어 쓴다
+        TA._plans_box(s)["plans"].pop("3", None)

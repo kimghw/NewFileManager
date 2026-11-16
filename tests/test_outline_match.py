@@ -164,7 +164,7 @@ def test_match_char_shapes_keep_emphasis_runs(sess):
     assert sorted(r.json()["changed"]) == sorted(odd)
     rep_look = M.look(s.doc, s.outline, "p970")
     for pid in odd:
-        assert M.look(s.doc, s.outline, pid) == rep_look
+        assert M.same(M.look(s.doc, s.outline, pid), rep_look)  # 비교 값(KEYS)이 같다 — 줄 맞춤 값(장평·자간)은 그 줄 것을 지킨다(② §8-2 「줄 맞춤 값」)
     _undo_all(c, d, s)
 
 

@@ -560,11 +560,13 @@ def _patch(doc_id, block_id, text, kind):
             s.unrestored.discard(block_id)
             # 개요 줄이면 둘째 줄을 글 시작에(spec_hwpx_웹편집 ② §8-1) — 글이 원래와 다른 동안만 걸리고(원래 글이면 위에서 원본 XML 로), 모양 편집(formatted)으로 치지 않는다
             _outline_align(s, block_id)
+        fmts = _outline_relabel(s, [block_id])  # 글을 고쳐 첫머리(앞 공백 · 레터 뒤 공백)가 대표와 달라졌거나 같아졌으면 서식 라벨도
         fmt1 = _para_fmt(s, block_id)
         if s.texts[block_id] != before or restored is not None or kind == "revert" or fmt1 != fmt0:  # 글은 같아도 둘째 줄을 맞췄으면 차례를 올려 작업에 저장되게
             _bump(s, kind, id=block_id, before=before, after=s.texts[block_id], restored=restored)
         return {"id": block_id, "text": s.texts[block_id], "edited": block_id in s.edited(), "restored": restored, **s.state(),
-                **({"format": fmt1} if fmt1 != fmt0 else {})}  # 문단 모양이 바뀌었으면(둘째 줄 맞춤·원본 복원) 화면이 그 문단의 여백을 다시 잡는다
+                **({"format": fmt1} if fmt1 != fmt0 else {}),  # 문단 모양이 바뀌었으면(둘째 줄 맞춤·원본 복원) 화면이 그 문단의 여백을 다시 잡는다
+                **({"fmts": fmts} if fmts else {})}
 
 
 def _para_fmt(s, block_id):
@@ -839,6 +841,10 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
     s.unrestored -= s.removed
     s.owpml_last = {"status": v["status"], "summary": chk.summary_text(v)}
     _outline_sync(s)
+    if s.outline and out.get("formatted"):  # 서식이 바뀐 개요 줄의 서식 라벨을 지금 서식에 맞춘다(손으로 바꿔 대표와 달라진 줄 = 「≠」 — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」). 오버레이는 snap 에 들어 실행 취소와 함께 돌아온다
+        fm = _outline_relabel(s, out["formatted"])
+        if fm:
+            out["_fmts"] = fm
     _bump(s, op or "edit", req=req, owpml=s.owpml_last, **(out.get("log") or {}))
     return out, after
 
@@ -861,6 +867,7 @@ def _edit(doc_id, make, op=None, req=None):
         tops = [b for b in after if b["id"] in want]
         return {"tops": {"drop": drop, "blocks": tops}, "texts": verify.flat_texts(tops), "focus": out.get("focus"),
                 "edited": sorted(s.edited()), "original": {i: s.orig_texts.get(i, "") for i in s.edited()}, **s.state(),
+                **({"fmts": out["_fmts"]} if out.get("_fmts") else {}),  # 서식이 바뀐 개요 줄의 새 서식 라벨(여백의 번호 — 대표와 달라진 줄은 「≠」)
                 # 편집이 새 글꼴 정의를 들여왔으면(다른 문서의 서식을 입힘 — spec_일반편집 ② §4) 화면이 @font-face 계획을 다시 받게: 없으면 새 글꼴의 글이 기본 글꼴로 그려진다
                 **({"webFonts": fonts.web_fonts(s.doc.font_table())} if faces is not None and _font_names(s) != faces else {})}
 
@@ -996,6 +1003,8 @@ def _outline_ov(s, build=True):
             log.warning("[개요 종속] %s 다시 걸지 못함: %s", s.id, [(m.get("child"), m.get("parent"), why) for m, why in fails])
         outline_pos.carry(old, ov)  # 종속으로 새로 생긴 레벨의 자리 규칙도(같은 앵커·레벨)
         __import__("app.outline_grow", fromlist=["carry"]).carry(old, ov)  # Alt+↓ 로 더한 레벨(② §8-6) — 그래프가 못 알아본 레벨은 슬롯을 다시, 알아본 레벨은 자리 규칙만
+    if ov is not None and not ov.get("fmtv") and ov.get("run") == key:  # 줄의 서식 라벨을 지금 서식에 맞춘다 — 오버레이마다 한 번(라벨이 없던 옛 오버레이 · 새로 만든 오버레이)
+        outline_match.label_sync(s.doc, ov, g)
     return ov
 
 
@@ -1009,6 +1018,22 @@ def _outline_align(s, block_id):
         return
     if ov and block_id in ov["lines"]:
         outline_pos.align_quiet(s.doc, ov, block_id)
+
+
+def _outline_relabel(s, ids):
+    """서식·첫머리가 바뀐 문단 ids 가운데 개요 줄이 든 레벨의 **지금 보일** 서식 라벨(outline_match.labels_now — 대표와 달라진 줄은 「≠」) → {줄 id: 라벨}. 화면이 여백 표시를 그 자리에서 고친다.
+    라벨은 표시일 뿐이다 — 어떤 오류도 편집을 막지 않는다. 이 길을 안 거치는 편집(붙여넣기 · 되돌리기 · 넣기 …)은 화면이 문서 차례가 바뀔 때 `GET …/outline/fmts` 로 다시 읽는다."""
+    ov = s.outline
+    if not ov or not ov.get("fmtv"):
+        return {}
+    hit = [i for i in ids if i in ov["lines"]]
+    if not hit:
+        return {}
+    try:
+        return outline_match.labels_now(s.doc, ov, hit)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[서식 라벨] %s 다시 매기지 못함: %r", s.id, e)
+        return {}
 
 
 def _outline_sync(s):
@@ -1049,7 +1074,18 @@ def outline_get(doc_id: str):
         if ov is None:
             return {"off": True, "why": "헤딩 추출 2단계(헤딩 그래프) 결과가 없습니다" if s.fmt == "hwpx" else "개요 편집은 HWPX 에서만 됩니다",
                     "run": None, "rev": s.rev, "lines": {}, "templates": {}}
-        return outline_pos.view(s.doc, ov)  # outline_edit.view + 템플릿 레벨마다 자리(레터 위치·글 시작·둘째 줄 — ② §8-1)
+        # outline_edit.view + 템플릿 레벨마다 자리(레터 위치·글 시작·둘째 줄 — ② §8-1) + fmts = 줄마다의 지금 서식 라벨(여백의 「S41」 — 맞춘 줄은 대표의 라벨)
+        return {**outline_pos.view(s.doc, ov), "fmts": outline_match.labels_now(s.doc, ov)}
+
+
+@app.get("/api/docs/{doc_id}/outline/fmts")
+def outline_fmts(doc_id: str):
+    """줄마다 지금 보일 서식 라벨만 {rev, fmts{문단 id: 라벨}} — 화면이 문서가 바뀔 때마다(어느 편집 길이든) 여백의 서식 라벨을 다시 읽는다(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」).
+    대표와 비교 값이 같은 줄은 대표의 라벨 · 다른데 라벨로 구별되지 않는 줄은 「≠」(outline_match.labels_now). 2단계 결과가 없으면 빈 것."""
+    s = _sess(doc_id)
+    with s.lock:
+        ov = _outline_ov(s)
+        return {"rev": s.rev, "fmts": outline_match.labels_now(s.doc, ov) if ov else {}}
 
 
 OUTLINE_OPS = ("enter", "sibling", "level", "move", "remove")

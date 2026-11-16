@@ -5,7 +5,7 @@
 연구개발계획서_양식.hwpx 를 올려 2·3단계(스크립트)를 돌린 뒤 헤딩 탭 → 요약 둘째 줄이 두 층 × 세 칸(스크립트 「문단·라벨 ✓ · 헤딩 그래프 ✓ · 표 구조 ✓」 /
 LLM 「규칙 보강 · 27묶음 ○ · 헤딩 판정 ○ · 표 판정 ○」) + 셋째 층 「조정」(템플릿 조정 · 서식 조정 — tools/smoke_adjust_ui.py 가 자세히) · LLM 칸이 그 단계의 스크립트 칸 바로 아래 · 칸 높이 22px · 1단계 카드의 「LLM 규칙 보강 — 안 함」 ·
 규칙 보강 칸을 누르면 추출·설정 1단계 탭 · 요약 사본에 흉내 낸 상태(규칙 보강 끝남 · 헤딩 판정 LLM · 규칙 보강 도는 중 · 실패)를 넣어 칸의 표시 ·
-LLM ✓ 칸을 누르면 문서 옆 열 「LLM 이 바꾼 것」(절 넷) ·
+LLM ✓ 칸을 누르면 문서 옆 열 「LLM 이 바꾼 것」(절 여섯) ·
 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음. 문서는 고치지 않는다(흉내는 화면 함수에 넘긴 사본만)."""
 import argparse
 import os
@@ -148,7 +148,7 @@ try:
         page.click("#headsOverview .hprog-step >> nth=4")
         page.wait_for_function("() => document.querySelector('#headsDlg[data-kind=\"llmDiff\"]:not([hidden]) .lld-sec')", timeout=20000)
         d = page.evaluate("() => ({ secs: [...document.querySelectorAll('#headsDlgBody .lld-sec')].map((s) => s.dataset.stage), title: document.getElementById('headsDlgTitle').textContent })")
-        check("「LLM 이 바꾼 것」 열 · 절 넷(규칙 보강 · 헤딩 판정 · 표 판정 · 서식 계획)", d == {"secs": ["1", "2", "3", "fmt"], "title": "LLM 이 바꾼 것"}, d)
+        check("「LLM 이 바꾼 것」 열 · 절 여섯(규칙 보강 · 헤딩 판정 · 표 판정 · 템플릿 관계 · 반영 결과 · 서식 계획)", d == {"secs": ["1", "2", "3", "rel", "res", "fmt"], "title": "LLM 이 바꾼 것"}, d)
         page.screenshot(path=str(OUT / "3b_llm_diff.png"))
         page.evaluate("() => headsColClose(true)")
         page.evaluate(FAKE, "rulesRunning")

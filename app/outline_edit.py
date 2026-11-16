@@ -170,7 +170,8 @@ def build_overlay(g, probe, rev=0):
         if pi is None or not letter or not prefix_of(pi["text"], letter)[1]:
             continue
         lines[n["para"]] = {"tpl": tid, "no": tpls[tid]["no"], "level": int(n["level"]), "parent": None, "letter": letter, "key": n.get("key") or "",
-                            "role": n["role"], "flow": n.get("flow", "body"), "_pnode": n.get("parent")}
+                            "role": n["role"], "flow": n.get("flow", "body"), "_pnode": n.get("parent"),
+                            "fmt": n.get("fmt") or ""}  # 서식 라벨(여백의 「S41」) — 추출한 때의 것. 대표에 맞춘 줄은 대표의 라벨이 된다(outline_match.match_one · label_sync)
         by_node[n["id"]] = n["para"]
         tpls[tid]["slots"].get(str(int(n["level"])), {}).setdefault("members", []).append(n["para"])
     for line in lines.values():
@@ -281,8 +282,10 @@ def _own_spacer(seq, i, slot):
 
 def _line(ov, tid, level, parent, letter, flow="body"):
     t = ov["templates"][str(tid)]
+    rep = ((t.get("slots") or {}).get(str(int(level))) or {}).get("rep")
     return {"tpl": str(tid), "no": t["no"], "level": int(level), "parent": parent, "letter": letter,
-            "key": t["chain"][int(level) - 1] if int(level) - 1 < len(t["chain"]) else "", "role": "heading", "flow": flow}
+            "key": t["chain"][int(level) - 1] if int(level) - 1 < len(t["chain"]) else "", "role": "heading", "flow": flow,
+            "fmt": (ov["lines"].get(rep) or {}).get("fmt", "") if rep else ""}  # 새 줄은 그 레벨 대표의 모양으로 생긴다 — 서식 라벨도 대표 것
 
 
 def _need_slot(ov, tid, level):

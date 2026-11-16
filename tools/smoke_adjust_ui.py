@@ -166,7 +166,10 @@ try:
         check("분석 상태: 모든 템플릿의 계획 받음 · 바뀔 줄 수가 있음", (L["planned"], L["stale"]) == (need, 0) and L["change"] + L["moved"] > 0, L)
         m = page.evaluate(SNAP)
         c = m["cells"]
-        want_t = ("템플릿 조정 · %s줄" % format(L["moved"], ","), "plan") if L["moved"] else ("템플릿 조정", "skip")
+        # 확실한 종속 제안(한 자리에만 매달린 템플릿 — 분석 상태 템플릿 항목의 hints 가운데 sure)은 「모두 반영」 이 저절로 넣는다: 칸에 「종속 n」 이 붙는다(spec_hwpx_웹편집 ② §8-2 「종속 제안」)
+        sure = sum(1 for h in next(i for i in v1["items"] if i["key"] == "templates").get("hints") or [] if h.get("sure"))
+        rel = f" · 종속 {sure}" if sure else ""
+        want_t = ("템플릿 조정 · %s줄%s" % (format(L["moved"], ","), rel), "plan") if L["moved"] else (("템플릿 조정" + rel, "plan") if sure else ("템플릿 조정", "skip"))
         want_f = ("서식 조정 · %s줄" % format(L["change"], ","), "plan") if L["change"] else ("서식 조정", "skip")
         check("두 칸 = 계획의 수(뗄 줄 · 맞출 줄) · 「모두 반영」 은 보라 단추", (c[6]["text"], c[6]["state"]) == want_t and (c[7]["text"], c[7]["state"]) == want_f
               and c[8]["text"] == "모두 반영" and c[8]["go"] and not c[8]["off"], (c[6:], want_t, want_f))
@@ -204,19 +207,32 @@ try:
             page.wait_for_function("() => Object.values((heads.outline || {}).templates || {}).some((t) => t.vari)", timeout=30000)
         tpl = page.evaluate("() => Object.values((heads.outline || {}).templates || {}).filter((t) => t.vari).map((t) => t.no)")
         check("템플릿 조정이 있었으면 서식 종속 템플릿이 생김(없었으면 없음)", bool(tpl) == bool(L["moved"]), (tpl, L["moved"]))
+        if sure:
+            page.wait_for_function("() => Object.values((heads.outline || {}).templates || {}).some((t) => t.comp)", timeout=30000)
+        comp = page.evaluate("() => Object.values((heads.outline || {}).templates || {}).filter((t) => t.comp).map((t) => t.no)")
+        sure2 = sum(1 for h in next(i for i in formats(wid)[1]["items"] if i["key"] == "templates").get("hints") or [] if h.get("sure"))
+        check(f"확실한 종속 {sure}개를 같은 반영에서 넣음 — 종속 템플릿이 그 수 · 남은 확실한 제안 0 · 알림에 「템플릿 종속」(실행 취소는 그대로 1)", len(comp) == sure and sure2 == 0 and (not sure or "템플릿 종속" in toast), (comp, sure, sure2, toast))
         page.locator("#paneHeads").screenshot(path=str(OUT / "4_applied.png"))
 
         # ---- ⑤ 실행 취소 한 번 — 문서가 처음 그대로
         r = requests.post(f"{base}/api/docs/{wid}/undo", timeout=120)
         same = requests.get(f"{base}/api/docs/{wid}/download", timeout=120).content == PLAN.read_bytes()
-        f3, _ = formats(wid)
-        check("실행 취소 한 번으로 모든 템플릿이 되돌아감(내려받은 파일 = 올린 파일) · 대표와 다른 줄 수도 처음 값", r.ok and same and f3["others"] == others0, (r.status_code, same, f3["others"], others0))
+        f3, v3 = formats(wid)
+        sure3 = sum(1 for h in next(i for i in v3["items"] if i["key"] == "templates").get("hints") or [] if h.get("sure"))
+        check("실행 취소 한 번으로 모든 템플릿이 되돌아감(내려받은 파일 = 올린 파일) · 대표와 다른 줄 수도 처음 값 · 넣었던 종속도 풀려 다시 제안", r.ok and same and f3["others"] == others0 and sure3 == sure, (r.status_code, same, f3["others"], others0, sure3, sure))
+        L3 = f3["llm"]  # 「반영함」 은 그 반영이 문서에 남아 있을 때만 — 되돌리면 줄이 계획을 받을 때 그대로라(줄 지문이 같다) 계획은 다시 「받음」 이다(다시 받지 않는다: spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」)
+        check("반영을 되돌리면 분석 상태도 되돌아간다 — 반영함 0 · 받았던 계획은 그대로 다시 쓸 수 있다(받음 · 옛 계획 0)", (L3["applied"], L3["done"], L3["stale"]) == (0, 0, 0) and (L3["planned"], L3["need"]) == (need, need)
+              and (L3["change"], L3["moved"]) == (L["change"], L["moved"]), {k: L3[k] for k in ("need", "planned", "applied", "done", "stale", "change", "moved")})
 
         # ---- ⑥ 좁은 패널
         page.reload()
         page.wait_for_function("() => document.querySelector('#doc .sheet .para') != null", timeout=240000)
         page.click("#tabHeads")
         page.wait_for_function("() => document.querySelector('#headsOverview .hprog [data-tpb]') && typeof dsState === 'object' && dsState.main", timeout=120000)
+        page.wait_for_function("() => { const b = document.querySelector('#headsOverview .hprog [data-tpb=\"act\"]'); return b && !b.hidden && !!b.textContent; }", timeout=30000)
+        c = page.evaluate(SNAP)["cells"]
+        check("되돌린 뒤의 조정 층 — 두 칸은 ✓ 가 아니고 받아 둔 계획의 수 그대로 · 행동 칸은 「모두 반영」(다시 받지 않는다)", [(x["text"], x["state"]) for x in c[6:8]] == [want_t, want_f]
+              and c[8]["text"] == "모두 반영" and c[8]["go"] and not c[8]["hidden"], [(x["text"], x["state"], x["hidden"]) for x in c[6:]])
         for w in (320, 388, 480):
             page.evaluate("(w) => { document.getElementById('panel').style.setProperty('--panel', w + 'px'); heads.summaryKey = null; headsResultsSummary(heads.view); }", w)
             page.wait_for_timeout(200)

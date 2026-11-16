@@ -256,8 +256,15 @@ def test_templates_and_formats_count_from_overlay_variants_and_plans():
     assert (got["state"], got["planned"], got["text"]) == ("done", 1, "서식 정리 계획 1/1 템플릿 — 받음 1")
     old = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 1}}))["formats"]["llm"]
     assert (old["state"], old["stale"], old["list"][0]["state"]) == ("none", 1, "stale") and "옛 계획 1" in old["text"]
-    done = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 1, "applied": {"at": 1.0}}}))["formats"]["llm"]
-    assert (done["state"], done["applied"]) == ("done", 1)
+    rec = {"tpl": "1", "rev": 1, "at": 7.0, "applied": {"at": 8.0}}   # 반영함 = 기록의 applied + 오버레이의 표(agent[템플릿] = 그 계획의 at — tpl_agent_api.applied 가 적는다)
+    done = _items(analysis.status(_sess(st), outline=({**OV, "agent": {"1": 7.0}}, VARS), plans={"1": rec}))["formats"]["llm"]
+    assert (done["state"], done["applied"], done["done"], done["list"][0]["state"]) == ("done", 1, 1, "applied")
+    # 반영했다가 되돌림(실행 취소 · 모두 되돌리기 — 오버레이가 되돌아가 표가 없다) · 다른 계획의 표 = 반영함이 아니다 → 옛 계획(다시 받을 것)
+    for ov in (OV, {**OV, "agent": {}}, {**OV, "agent": {"1": 6.0}}, {**OV, "agent": {"2": 7.0}}):
+        undone = _items(analysis.status(_sess(st), outline=(ov, VARS), plans={"1": rec}))["formats"]["llm"]
+        assert (undone["state"], undone["applied"], undone["stale"], undone["done"], undone["list"][0]["state"]) == ("none", 0, 1, 0, "stale"), ov.get("agent")
+    assert analysis.plan_state({**rec, "rev": 3}, 3, OV) == "stale"   # 문서 차례가 같아도 반영했던 계획은 그대로 다시 반영하지 않는다
+    assert analysis.plan_state(rec, 1) == "stale" and analysis.plan_state(None, 1, OV) == "none" and analysis.plan_state({"rev": 1}, 1) == "planned"
     # 갈래가 모두 하나 — 정리할 것 없음(LLM 칸 done) · 반영 done
     one = _items(analysis.status(_sess(st), outline=(OV, {"1": {"1": _var([5])}}), plans={}))["formats"]
     assert one["llm"]["state"] == "done" and one["llm"]["text"].startswith("정리할 것 없음") and one["apply"]["state"] == "done"
@@ -519,13 +526,17 @@ def test_formats_item_counts_what_applying_the_plans_would_change():
     plan = {"levels": [{"level": 1, "rep": g("g1", 5), "match": [g("g2", 2)], "keep": [g("g5", 1)], "split": [{"sfx": "a", "rep": g("g3", 4), "match": [g("g4", 1)]}]},
                        {"level": 2, "rep": g("g1", 4), "match": [], "keep": [], "split": []}]}
     f = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 3, "plan": plan}}))["formats"]["llm"]
-    assert (f["planned"], f["change"], f["moved"]) == (1, 3, 5) and f["list"] == [{"tpl": "1", "no": "1", "state": "planned", "change": 3, "moved": 5}]
+    assert (f["planned"], f["change"], f["moved"]) == (1, 3, 5)
+    assert f["list"] == [{"tpl": "1", "no": "1", "state": "planned", "change": 3, "moved": 5, "at": None, "kept": 0, "unanswered": 0, "omitted": 0}]   # at = 계획의 표시 · 남는 것(그대로 둔 줄 · 답 없던 줄 · 못 본 갈래)
     old = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={"1": {"rev": 1, "plan": plan}}))["formats"]["llm"]   # 옛 계획 — 반영할 수 없으므로 세지 않는다
     assert (old["stale"], old["change"], old["moved"]) == (1, 0, 0) and "change" not in old["list"][0] and (f["done"], old["done"]) == (0, 0)
     # 반영한 계획 수(done)는 모든 템플릿에서 센다 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도(진행 줄 「조정」 의 ✓)
     even = {"1": {"1": _var([7]), "2": _var([4])}, "2": {"1": _var([3])}}
-    after = _items(analysis.status(_sess(st), outline=(OV, even), plans={"1": {"rev": 3, "plan": plan, "applied": {"at": 1.0, "rev": 4, "changed": 3}}}))["formats"]["llm"]
+    rec = {"tpl": "1", "rev": 3, "at": 2.0, "plan": plan, "applied": {"at": 1.0, "rev": 4, "changed": 3}}
+    after = _items(analysis.status(_sess(st), outline=({**OV, "agent": {"1": 2.0}}, even), plans={"1": rec}))["formats"]["llm"]
     assert (after["need"], after["applied"], after["done"], after["state"]) == (0, 0, 1, "done")
+    back = _items(analysis.status(_sess(st), outline=(OV, even), plans={"1": rec}))["formats"]["llm"]   # 반영을 되돌린 계획(오버레이에 표가 없다)은 안 센다
+    assert (back["need"], back["done"]) == (0, 0)
     none = _items(analysis.status(_sess(st), outline=(OV, VARS), plans={}))["formats"]["llm"]
     assert (none["change"], none["moved"]) == (0, 0)
 

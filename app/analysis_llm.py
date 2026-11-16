@@ -20,7 +20,7 @@ LLM 자리(llm — NFM_LLM_SLOTS)는 서버 전체가 나눠 쓴다 — 같이 �
 import concurrent.futures
 import threading
 
-from app import analysis, heading_runs, works
+from app import analysis, heading_runs, tpl_agent, works
 
 PARTS = (("heads", "헤딩 · 템플릿 — 헤딩 그래프(LLM)", 1), ("tables", "표 — 표 구조(LLM)", 2), ("formats", "서식 — 템플릿 서식 정리 계획", 2))  # 셋째 = 차례 번호(같은 번호 = 같이 돎)
 PLAN_WORKERS = 3  # 서식 정리 계획을 같이 받는 템플릿 수 — LLM 자리(기본 4) 하나는 같이 도는 표 구조에 남긴다
@@ -162,7 +162,7 @@ def _formats(sess, job, outline, plans, plan):
         return
     ov, variants = got
     have = plans(sess, ov.get("run"))
-    todo = [tid for tid in analysis.need_templates(variants) if analysis.plan_state(have.get(tid), sess.rev) in ("none", "stale")]
+    todo = [tid for tid in analysis.need_templates(variants) if analysis.plan_state(have.get(tid), sess.rev, ov, tpl_agent.fingerprint(ov, tid, variants.get(tid))) in ("none", "stale")]  # 반영했다가 되돌린 계획도 stale — 다시 받는다
     if not todo:
         part("skip", "정리할 것 없음" if not analysis.need_templates(variants) else "모든 템플릿의 계획을 받았습니다 — 건너뜀")
         return

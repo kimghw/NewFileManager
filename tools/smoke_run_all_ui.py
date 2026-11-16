@@ -27,6 +27,7 @@ ap.add_argument("--port", type=int, default=18493)
 args = ap.parse_args()
 OUT = Path(args.out).resolve()
 PLAN = ROOT / "samples" / "연구개발계획서_양식.hwpx"
+OTHER = ROOT / "samples" / "기술수요조사서.hwpx"
 
 OUT.mkdir(parents=True, exist_ok=True)
 tmp = OUT / "srv"
@@ -153,6 +154,9 @@ try:
     wid = r.json()["docId"]
     run_stage(wid, 2)
     run_stage(wid, 3)
+    r = requests.post(f"{base}/api/docs", files={"file": (OTHER.name, OTHER.read_bytes(), "application/octet-stream")}, timeout=120)  # ⑨ 의 「다른 문서」
+    r.raise_for_status()
+    wid2 = r.json()["docId"]
     v0, by0 = status(wid)
     need0 = by0["formats"]["llm"]["need"]
     check("처음: 헤딩 · 표 LLM 안 함 · 정리할 템플릿이 있고 계획은 없음 · 돌 것 셋", by0["heads"]["llm"]["state"] == "none" and by0["tables"]["llm"]["state"] == "none" and need0 >= 1
@@ -164,8 +168,9 @@ try:
         page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
         asked, accept = [], [False]
         page.on("dialog", lambda d: (asked.append(d.message), d.accept() if accept[0] else d.dismiss()))
-        posts = []
+        posts, full = [], []  # 바꾸는 요청 — 끝점만 · 문서 id 까지(「<id>/outline/agent/apply」)
         page.on("request", lambda q: posts.append(q.url.split("/api/docs/")[-1].split("/", 1)[-1]) if q.method in ("POST", "DELETE") and "/api/docs/" in q.url else None)
+        page.on("request", lambda q: full.append(q.url.split("/api/docs/")[-1]) if q.method in ("POST", "DELETE") and "/api/docs/" in q.url else None)
         page.goto(f"{base}/#w={wid}")
         page.wait_for_function("() => document.querySelector('#doc .sheet .para') != null", timeout=240000)
         page.click("#tabHeads")
@@ -282,6 +287,20 @@ try:
             page.wait_for_function("() => document.getElementById('toast').textContent.startsWith('남은 단계가 없습니다')", timeout=30000)
             check("남은 것이 없을 때: 확인 창 없이 「남은 단계가 없습니다」 · 요청 없음", len(asked) == a2 and posts[n2:] == [] and page.evaluate(IDLE), (asked[a2:], posts[n2:]))
 
+        # ---- 되풀이 한도(HRA_MAX) — 남은 것이 있는데 한도에 닿으면 「끝」 이 아니라 「멈춤 — 되풀이 한도」(6b · astra 검토: 까닭이 알림에 없었다). 분석 상태 사본에 받아 둔 계획을 흉내 — 요청은 안 나간다
+        n3 = len(posts)
+        cap = page.evaluate("""async () => {
+          const v = await hraStatus(state.id), f = v.items.find((i) => i.key === 'formats');
+          v.busy = false; v.llmPlan.forEach((p) => { p.run = false; });
+          Object.assign(f.llm, { planned: 2, change: 5, moved: 1 });
+          const R = { id: state.id, epoch: state.epoch, t0: Date.now(), note: '', stop: false, chains: 0, applies: HRA_MAX, sig: null, did: { llm: [], tpls: 0, lines: 0, splits: 0, undo: 0 }, left: [] };
+          HRA.run = R;
+          try { const out = await hraLoop(R, v); return { why: out.why, text: hraDone(R, out.why, out.v ? hraLeft(out.v) : null) }; }
+          finally { HRA.run = null; hraSync(); }
+        }""")
+        check("되풀이 한도에 닿으면: 「전체 실행 멈춤 — 되풀이 한도(3번)」 · 남은 것(반영하지 않은 계획) · 요청 없음", "되풀이 한도(3번)" in cap["why"] and cap["text"].startswith("전체 실행 멈춤 — 되풀이 한도")
+              and "반영하지 않은 계획 2개" in cap["text"] and posts[n3:] == [], (cap, posts[n3:]))
+
         # ---- 실행 취소 — 반영한 만큼 되돌리면 올린 파일 그대로
         for _ in range(undone):
             requests.post(f"{base}/api/docs/{wid}/undo", timeout=120).raise_for_status()
@@ -301,6 +320,24 @@ try:
             check(f"[{w}] 단추 둘이 같은 줄 · 패널 밖으로 안 나감 · 가로 넘침 없음", len(b) == 2 and b[0]["top"] == b[1]["top"] and b[1]["right"] <= m["inner"] + 1.5 and m["overflowX"] <= 0,
                   ([(x["text"], round(x["left"]), round(x["right"]), x["top"]) for x in b], m["inner"], m["overflowX"]))
             page.locator("#paneHeads").screenshot(path=str(OUT / f"8_panel_{w}.png"))
+
+        # ---- ⑨ 반영이 대기 중 글 반영(flushAll)을 기다리는 사이 다른 문서를 열면 — 그 문서로 보내지 않는다(app.js structOp — 6b · astra 검토: 주소를 기다린 뒤의 state.id 로 만들었다)
+        n4 = len(full)
+        got = page.evaluate("""async (other) => {
+          const real = flushAll;
+          let release;
+          window.flushAll = async () => { await new Promise((r) => { release = r; }); return real(); };
+          try {
+            const p = structOp('outline/agent/apply', { rev: state.serverRev }); // 「모두 반영」 과 같은 요청 — flushAll 을 기다리는 데서 선다
+            await openWork(other);                                               // 그 사이 다른 문서를 연다
+            const switched = state.id === other;
+            release();
+            return { switched, result: await p };
+          } finally { window.flushAll = real; }
+        }""", wid2)
+        page.wait_for_timeout(500)
+        sent = [u for u in full[n4:] if u.endswith("outline/agent/apply")]
+        check("반영을 기다리는 사이 다른 문서를 열면: 반영 요청을 어느 문서로도 보내지 않음(structOp 는 null)", got["switched"] and got["result"] is None and sent == [], (got, sent))
         check("콘솔·페이지 오류 없음", not errors, " | ".join(errors[:3]))
         browser.close()
 except Exception as e:  # noqa: BLE001

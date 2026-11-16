@@ -39,11 +39,11 @@ function olmLoad(force = false) { // 서식 갈래를 읽는다(같은 차례면
 // tpl_agent.js tpaTodoOf 의 적용 몸을 같은 끝점(olmApplyTpl, by "agent")으로. 계획이 없거나 옛것·반영한 것이면 전처럼 「템플릿 맞추기」(대표와 다른 줄 모두).
 function olmTplPlan(id) { // → 지금 쓸 계획 기록 | null
   const rec = olmFresh() && OLM.plans ? OLM.plans[String(id)] : null;
-  return rec && rec.state === "planned" && rec.plan && rec.rev === OLM.rev && typeof tpaTodoOf === "function" ? rec : null;
+  return rec && rec.state === "planned" && rec.plan && typeof tpaTodoOf === "function" ? rec : null; // planned = 그 템플릿 줄의 지문이 계획을 받은 때와 같다(서버 — 문서 차례가 달라도)
 }
 function olmPlanGot(tpl, rec) { // ★ 열에서 새 계획을 받음(tpl_agent.js tpaRun) — 다시 읽지 않고 템플릿 줄 단추만 맞춘다
   if (!OLM.plans) OLM.plans = {};
-  OLM.plans[String(tpl)] = { ...rec, state: rec.rev === state.serverRev ? "planned" : "stale", applied: null };
+  OLM.plans[String(tpl)] = { ...rec, state: "planned", applied: null };
   for (const old of document.querySelectorAll(`.tpl-tree .olm-tm[data-tpl="${CSS.escape(String(tpl))}"]`)) old.replaceWith(olmTplMatch(String(tpl)));
 }
 
@@ -611,7 +611,7 @@ async function olmMatchPlan(id) { // 「계획대로 맞추기」 — ★ 열의
   if (!P) { toast("쓸 계획이 없습니다 — 문서가 바뀌었거나 이미 반영했습니다. ★ 에서 계획을 다시 받으세요", true); olmLoad(true).then(() => olmRefresh()); return; }
   const todo = tpaTodoOf(P);
   if (!todo.levels.length) return;
-  const r = await olmApplyTpl(P.tpl, { rev: P.rev, by: "agent", levels: todo.levels });
+  const r = await olmApplyTpl(P.tpl, { rev: state.serverRev, by: "agent", plan: P.at, levels: todo.levels }); // plan = 이 계획의 표시(at — tpl_agent.js tpaApply 와 같은 몸)
   if (!r) {
     if (structOp.lastError && structOp.lastError.status === 409) toast("계획을 받은 뒤 문서가 바뀌었습니다 — ★ 에서 계획을 다시 받으세요", true);
     return;

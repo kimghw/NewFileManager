@@ -234,7 +234,8 @@ def test_stage2_candidates_skip_temp():
     n0, n1 = {n["para"] for n in g0["nodes"]}, {n["para"] for n in g1["nodes"]}
     assert {ids[k] for k in ("g_b1", "g_b2", "t_instr", "t_blank1", "t_blank2", "t_gline", "nb2")} <= n0     # TEMP 없이는 모두 헤딩 후보
     assert n0 - n1 == {ids[k] for k in ("g_b1", "g_b2", "t_instr", "t_blank1", "t_blank2", "t_gline", "nb2")} and not n1 & set(t["paras"])
-    assert {ids[k] for k in ("h1", "b1", "bodyblank", "t_lab", "t_lab2", "t_stage", "t_dash", "t_num", "tb2")} <= n1   # 나머지는 그대로
+    assert {ids[k] for k in ("h1", "b1", "bodyblank", "t_lab", "t_lab2", "t_stage", "tb2")} <= n1   # 나머지는 그대로
+    assert not {ids["t_dash"], ids["t_num"]} & (n0 | n1)   # 채워진 표의 칸에 혼자 있는 「-」·「1.」 = 값 칸 — TEMP 가 아니어도 헤딩 후보가 아니다(spec_헤딩_추출 ② §6 「값 칸」 2026-11-16)
     assert g0["temp"] is None and g1["temp"]["items"] == [x["id"] for x in t["items"]] and g1["temp"]["counts"]["items"] == 6
     assert len(g1["templates"]) < len(g0["templates"])                                   # 작성 요령 칸에만 있던 템플릿이 사라진다
     assert TP.same_items(g1["temp"], t) and not TP.same_items(g0["temp"], t) and TP.same_items(None, TP.label({"paras": []}))

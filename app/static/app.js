@@ -3201,8 +3201,11 @@ function renderPara(b, text = null) {
   const base = f.sizePt || 10, sized = runs.filter((r) => r.format && !r.format.script && /\S/.test(r.text || ""));
   const small = sized.every((r) => r.format.sizePt) ? Math.min(base, ...sized.map((r) => r.format.sizePt)) : base;
   if (small < base) { p.style.fontSize = `${small}pt`; p.style.setProperty("--para-size", `${base}pt`); }
+  let lead = leadOn(p); // 문단 첫머리 빈칸을 늘어나지 않는 조각으로(② §3-4 「줄 앞 공백」) — 빈칸 아닌 글자가 나올 때까지
   for (const r of runs) {
-    const s = el("span", null, disp(r.text));
+    const t = disp(r.text), m = lead ? leadLen(t) : 0, s = el("span", null, m ? null : t);
+    if (m) { s.append(el("span", "lead-sp", t.slice(0, m))); if (m < t.length) s.append(t.slice(m)); }
+    if (m < t.length) lead = false;
     if (r.format) charLook(s, r.format, f, small);
     else if (f.script) scriptLook(s, f, f); // 문단 전체가 첨자 — 줄 높이는 문단 크기로 두고 글만 윗·아래로
     p.append(s);
@@ -3260,6 +3263,69 @@ function leadShift(p, b, f) {
   const s = Math.max(f.sizePt || 0, b.endSizePt || 0, ...(b.runs || []).map((r) => (r.format && !r.format.script && r.format.sizePt) || 0));
   const dy = ((Math.max(0.8, f.lineSpacingPct / 100) - 1) * s) / 2;
   if (dy) p.style.top = `${(-dy).toFixed(2)}pt`;
+}
+
+// 줄 앞 공백(② §3-4 「줄 앞 공백」): 한글의 양쪽 정렬은 줄 안 빈칸만 늘리고 문단 첫머리의 들여쓰기용 빈칸은 그대로 둔다(한글 PDF 실측 — references/HWPX_포맷.md).
+// 브라우저는 pre-wrap 의 줄 앞 빈칸까지 같이 늘려서, 글이 둘째 줄로 넘어간 문단만 레터가 오른쪽으로 밀려 보였다(같은 서식인데 한 줄짜리 문단과 레터 자리가 다름 —
+// 「    - …」 13pt 두 줄 문단에서 4.8mm). 첫머리 빈칸을 늘어나지 않는 조각(.lead-sp — style.css 의 inline-block)으로 감싼다.
+// 조각은 그리기용일 뿐 글 구조가 아니다 — readText·offsetIn·pointAt 은 글 노드만 본다. Word(docx)는 안 쟀으니 예전대로, 문단 번호(::before 라벨)가 앞에 붙는 문단도 예전대로.
+const leadOn = (p) => state.format !== "docx" && p.style.textAlign === "justify" && !p.dataset.label;
+const leadLen = (t) => { let m = 0; while (t.charCodeAt(m) === 32) m += 1; return m; };
+
+// 글을 고친 뒤의 문단을 그 꼴로 다시 맞춘다 — 조각 안에 들어온 글자는 조각 뒤로, 조각 뒤에 붙은 첫머리 빈칸은 조각 안으로, 빈 조각은 지운다.
+// dry = 고칠 것이 있는지만 본다(문서는 그대로). -> 고쳤는가(고칠 것이 있는가)
+function leadWrap(p, dry = false) {
+  if (!leadOn(p)) return false;
+  const texts = [], w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) texts.push(n);
+  let changed = false, lead = true;
+  for (const t of texts) {
+    const len = t.data.length, m = lead ? leadLen(t.data) : 0, sp = t.parentElement.closest(".lead-sp");
+    if (sp ? m < len : m > 0) {
+      if (dry) return true;
+      changed = true;
+      if (sp) { // 조각 안의 빈칸 아닌 글자부터 조각 끝까지 — 조각 뒤로
+        const r = document.createRange();
+        r.setStart(t, m);
+        r.setEndAfter(sp.lastChild);
+        sp.after(r.extractContents());
+      } else { // 조각 밖의 첫머리 빈칸 — 바로 앞이 조각이면 거기에, 아니면 새 조각에
+        if (m < len) t.splitText(m);
+        const prev = t.previousSibling;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE && prev.classList.contains("lead-sp")) prev.append(t);
+        else { const s = el("span", "lead-sp"); t.before(s); s.append(t); }
+      }
+    }
+    if (m < len) lead = false;
+  }
+  for (const s of p.querySelectorAll(".lead-sp")) {
+    if (s.textContent) continue;
+    if (dry) return true;
+    s.remove();
+    changed = true;
+  }
+  return changed;
+}
+
+function leadFix(p) { // 글이 바뀐 뒤(input · 조합 끝) — 고칠 것이 있을 때만 커서 자리를 적어 두고 맞춘 뒤 되돌린다
+  if (!leadWrap(p, true)) return;
+  const o = document.activeElement === p ? selOffsets(p) : null;
+  leadWrap(p);
+  if (o) setCaret(p, o.start, o.end);
+}
+
+// End 키 — 커서가 첫머리 빈칸 조각 안이면 조각 뒤 글의 첫 글자 뒤로 먼저 옮긴다: 조각은 제 줄 상자라 그 안에서는 End 가 조각 끝에 멈춘다.
+// 뒤 글의 「처음」(조각 끝과 같은 자리)에 두면 브라우저가 그 자리를 다시 조각 안으로 보아 그대로 멈춘다 — 한 글자 안으로 들어가야 그 줄의 끝으로 간다.
+function leadLeave(p, extend) {
+  const s = getSelection(), f = s.focusNode, sp = f && (f.nodeType === Node.ELEMENT_NODE ? f : f.parentElement).closest(".lead-sp");
+  if (!sp || !p.contains(sp)) return;
+  const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) {
+    if (sp.contains(n) || !(sp.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) || !n.data.length) continue;
+    if (n.data[0] === "\n") return; // 첫 줄에 빈칸뿐(바로 줄 바꿈) — 조각 끝이 곧 줄 끝
+    if (extend) s.extend(n, 1); else s.collapse(n, 1);
+    return;
+  }
 }
 
 function charLook(s, r, f, pSize = f.sizePt) {
@@ -3459,7 +3525,7 @@ function save(p) {
 }
 
 function applyServer(id, r) {
-  if (r.rev != null) state.serverRev = r.rev;
+  if (r.rev != null) { if (r.rev !== state.serverRev) fmtsRefreshSoon(); state.serverRev = r.rev; }
   headsMarkStale();
   if ("persistError" in r) state.persistError = r.persistError;
   logTouched();
@@ -3477,6 +3543,7 @@ function applyServer(id, r) {
     if (b) state.byId.set(id, { ...b, format: r.format }); // 새 사전으로 — 같은 블록을 기준 블록(byIdOrig)도 가리키므로 그 자리에서 고치지 않는다
     if (p) indentLook(p.style, r.format);
   }
+  if (r.fmts && heads.outline) outlineApply({ fmts: r.fmts }); // 글을 고쳐 첫머리가 대표와 달라졌거나 같아진 개요 줄 — 여백의 서식 라벨을 그 자리에서(대표와 달라지면 「≠」)
   state.editsDirty = true;
   if (dv.plan) { divRunSync(); divFootSync(); } // 글을 고쳐 문서 차례가 올랐다 — 세워 둔 프로젝트 구성 계획은 낡는다(spec_구분_기준 ② §22)
 }
@@ -3553,11 +3620,20 @@ function bindEditing() {
     } else if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       insertText("\t");
+    } else if (e.key === "End" && !mod && !e.altKey && !composing) {
+      leadLeave(p, e.shiftKey); // 막지 않는다 — 조각 밖으로 옮긴 자리에서 브라우저가 줄 끝으로 간다
     } else if (e.key === "Escape") {
       p.blur();
     }
   });
-  doc.addEventListener("input", (e) => { const p = e.target.closest(".para"); if (p) scheduleSave(p); });
+  let imePara = null; // 한글 조합 중인 문단 — 조합 중에는 문단 안 노드를 옮기지 않는다(조합이 끊긴다)
+  doc.addEventListener("compositionstart", (e) => { imePara = e.target.closest && e.target.closest(".para"); });
+  doc.addEventListener("compositionend", (e) => {
+    const p = e.target.closest && e.target.closest(".para");
+    imePara = null;
+    if (p) setTimeout(() => { if (!imePara && p.isConnected) leadFix(p); }, 0); // 이어 치는 한글은 조합이 끝나자마자 다음 조합이 시작된다 — 그때는 건너뛰고 다음 input·조합 끝에(② §3-4 「줄 앞 공백」)
+  });
+  doc.addEventListener("input", (e) => { const p = e.target.closest(".para"); if (p) { if (!e.isComposing && !imePara) leadFix(p); scheduleSave(p); } });
   doc.addEventListener("focusout", (e) => { const p = e.target.closest && e.target.closest(".para"); if (p && state.timers.has(p.dataset.id)) save(p); });
   doc.addEventListener("focusin", (e) => { const p = e.target.closest && e.target.closest(".para"); if (p) { select(p.dataset.id); trackCaret(); } });
   document.addEventListener("selectionchange", trackCaret);
@@ -3692,14 +3768,16 @@ function busyMark(on) {
 async function structOp(path, body) {
   // 구조·서식 편집 한 번: 대기 중 글 반영을 끝내고 → 서버 편집(OWPML 검사) → 바뀐 최상위 블록만 바꿔 끼운다
   if (state.busy || !state.id) return null;
-  const epoch = state.epoch;
+  const epoch = state.epoch, id = state.id; // 문서는 기다리기 전에 잡는다 — 부른 쪽이 만든 body(rev …)는 이 문서의 것이다
   state.busy = true;
   busyMark(true);
   refreshToolbar();
   try {
     await flushAll();
+    // 글 반영을 기다리는 사이 다른 문서를 열었으면 보내지 않는다 — 전에는 주소를 기다린 뒤의 state.id 로 만들어, 앞 문서의 편집(「모두 반영」 의 {rev} 처럼 문서를 안 가리는 몸)이 새로 연 문서로 갔다(2026-11-16 astra — spec_헤딩_추출 ④)
+    if (epoch !== state.epoch) return null;
     if (state.failed.size) { toast("서버에 반영하지 못한 문단이 있어 먼저 다시 반영해야 합니다 — 「고친 문단」 탭", true); return null; }
-    const r = await api(`/api/docs/${state.id}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await api(`/api/docs/${id}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (epoch !== state.epoch) return null;
     // 같은 요청을 다시 보낸 답(에이전트 반영의 requestId — replayed)이나 화면이 아는 것보다 앞선 차례의 답은 문서 조각을 끼우지 않는다 — 실행 취소한 문단이 화면에 되살아난다(2026-11-13 astra). 지금 문서를 다시 읽는다
     if (r.replayed || (r.rev != null && r.rev < state.serverRev)) { reloadDoc(); return r; }
@@ -3710,6 +3788,7 @@ async function structOp(path, body) {
     if (r.paged || !r.tops) reloadDoc(); // 쪽 설정이 바뀐 편집(서식 관리자 「이 문서에 입히기」 — 응답의 paged: spec_서식복사 ② §9)은 바뀐 블록만 끼우지 않고 문서를 통째로 다시 읽어 그린다(쪽 크기·여백이 바뀐다)
     else applyTops(r);
     if (r.outline) outlineApply(r.outline);
+    if (r.fmts && heads.outline) outlineApply({ fmts: r.fmts }); // 서식을 바꾼 개요 줄의 새 서식 라벨(서버 outline_match.labels_now — 대표와 달라진 줄은 「≠」): 여백 표시를 그 자리에서
     if (r.focus) focusAt(r.focus);
     if (r.owpml && r.owpml.status === "warn") toast(`${STD()}: ${r.owpml.summary}`);
     return r;
@@ -3730,7 +3809,7 @@ async function structOp(path, body) {
 }
 
 function applyEditState(r) {
-  if (r.rev != null) state.serverRev = r.rev;
+  if (r.rev != null) { if (r.rev !== state.serverRev) fmtsRefreshSoon(); state.serverRev = r.rev; }
   headsMarkStale();
   if ("persistError" in r) state.persistError = r.persistError;
   logTouched();
@@ -6605,6 +6684,7 @@ function tplFmtToggle() {
   tplMarkBtnSync();
   tplMarksDraw();
   tplFmtGraph();
+  fmtsRefreshSoon(true); // 꺼 둔 동안 문서가 바뀌었을 수 있다 — 켤 때 지금 라벨을 다시 읽는다
 }
 function tplFmtGraph() { // 서식 라벨은 그래프 노드에 있다 — 헤딩 탭을 안 연 작업(오버레이 표시만)이면 그래프를 한 번 읽어 표시를 다시 그린다. -> 읽기 시작했는가
   if (!tplFmtOn() || heads.marks || !heads.outline || !state.id || state.format !== "hwpx" || heads.fmtBusy) return false;
@@ -6665,7 +6745,14 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
     + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
     + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
     + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n템플릿 관계(이 레벨의 서식 갈래 · 대표 정하기 · 대표에 맞추기)는 문서 이름 줄 설명의 「템플릿 관계」`;
-  return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, fmt: gm && gm.fmt ? gm.fmt : [], focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
+  // 서식 라벨(「S41」 — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」, 2026-11-16 사용자 「대표템플릿인경우 템플릿 클릭하면 서식이 나오니깐 별도 서식번호가 필요 없을거 같은데」):
+  // 오버레이 줄은 그 줄의 **지금** 라벨(heads.outline.fmts — 대표에 맞추면 대표의 라벨이 된다: 서버 outline_edit.fmt_view)이고, 그 레벨 대표의 라벨과 같으면 그리지 않는다 — 번호는 대표와 서식이 다른 줄에만 남는다.
+  // 서버가 옛 판이면(fmts 없음) 전처럼 그래프 노드의 라벨.
+  const fmts = heads.outline.fmts || {};
+  const repFmt = sl.rep ? fmts[sl.rep] || "" : "";
+  const own = fmts[pid] ? [fmts[pid]] : gm && gm.fmt ? gm.fmt : [];
+  const fmt = repFmt && own.length === 1 && own[0] === repFmt ? [] : own;
+  return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, fmt, focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
 }
 
 // 「템플릿 관계」 열을 연다 — 그래프(2단계)를 아직 안 읽었으면(헤딩 탭을 안 연 작업 · TASK 와 무관) 그때 읽는다. at = {tpl, level, para}: 그 레벨을 펴고 그 줄의 서식 갈래를 표시(outline_match.js)
@@ -6762,7 +6849,9 @@ function tplMarksDraw() {
       if (fm.length) {
         // 누르면 그 서식만 또렷이(fmt_focus.js — spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」, 2026-11-15 사용자 「요 서식을 클릭하면 문서에서 이 부분만 잘 보이고」): 라벨마다 눌리는 글(.tm-f — 여럿이면 누른 그 라벨).
         // 전에 누르면 열리던 그 라벨의 문단 목록은 이름 줄 설명의 「목록」 단추가 연다(그 스크립트가 없으면 전처럼 바로 목록)
-        const pick = (id) => (typeof fmtFocusToggle === "function" ? fmtFocusToggle(id) : headsParas({ fmt: id }));
+        // 「≠」 = 대표의 서식이던 줄이 손으로 바뀌어 대표와 달라진 것(번호는 다시 추출해야 안다 — 서버 outline_match.OFF): 그 서식을 또렷이 볼 수 없으니 「템플릿 관계」 의 그 줄 갈래로(다른 값이 거기 보인다)
+        const pick = (id) => (id === "≠" ? tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null)
+          : typeof fmtFocusToggle === "function" ? fmtFocusToggle(id) : headsParas({ fmt: id }));
         const tip = `서식 라벨 ${fm.join(" · ")} — 1단계가 서식이 같은 문단끼리 묶어 매긴 이름\n누르면 문서에서 그 서식의 문단만 또렷이(나머지는 흐리게) · 다시 누르면 풀림 · 켜진 동안 휠을 굴리면 다음·앞의 그 서식 자리로`;
         const fill = (f) => { // 글은 전과 같다 — 「S30 S32」 · 넷부터 「+n」
           fm.slice(0, 3).forEach((id, i) => {
@@ -7067,7 +7156,8 @@ function headsAdjust(g) {
     return (H_DECISION[x.decision] || x.decision) + (v === "agree" ? " ✓" : v === "failed" ? " (재검토 못 함)" : "");
   };
   const why = (x) => (rv(x).verdict === "disagree" ? `1차: ${x.reason || "—"} / 재검토: ${rv(x).reason || "—"}` : x.reason || "");
-  return miniTable(`조정 ${all.length}건 — 조정 ${by("adjust")} · 다름 유지 ${by("keep")} · 미판정 ${by("undecided")}`
+  const asked = !((g.llm || {}).requested && !(g.llm || {}).fallback && (g.llm || {}).pairs === false); // 서식 쌍 판정(C·D)은 기본 실행에서 뺐다(spec_헤딩_추출 ② §6) — 안 한 실행의 「미판정」 은 실패가 아니다
+  return miniTable((asked ? `조정 ${all.length}건 — 조정 ${by("adjust")} · 다름 유지 ${by("keep")} · 미판정 ${by("undecided")}` : `대표와 서식 라벨이 다른 문단 ${all.length}건 — 서식 쌍 판정은 하지 않음(서식은 조정 층의 서식 정리 계획이 정함)`)
     + (reviewed ? ` · 재검토 ${reviewed}(불일치 ${disagreed}${failed ? ` · 못 함 ${failed}` : ""})` : "") + " 보기", ["판단", "문단", "서식 → 대표", "까닭"],
     list.slice(0, 40).map((x) => ({ cls: x.decision === "undecided" ? "warn" : null, cells: [judge(x), x.n, `${x.from} → ${x.to}`, why(x)],
       title: `${x.fromName || x.from}\n→ ${x.toName || x.to}\n템플릿 ${x.tplNo ? `T${x.tplNo} ` : ""}${x.template} L${x.level}`
@@ -7102,10 +7192,28 @@ function outlineEmpty(p) { // 글 없는 레터 줄(라벨 제외) — Backspace
   const t = readText(p), i = t.indexOf(ol.letter);
   return i >= 0 && !t.slice(0, i).trim() && !t.slice(i + ol.letter.length).trim();
 }
+// 문서가 바뀌었다 — 여백의 서식 라벨(대표와 서식이 다른 줄에만 · 달라진 줄은 「≠」)을 서버의 지금 비교로 다시 읽는다(GET …/outline/fmts — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」).
+// 서식을 바꾸는 길이 여럿이라(서식 도구 · 붙여넣기 · 되돌리기 · 넣기 …) 편집마다가 아니라 문서 차례가 바뀔 때 한 번에(1.5초 모아서 · 「서식 라벨 표시」 가 켜져 있을 때만). 옛 서버면 그대로 둔다.
+let fmtsTimer = null;
+function fmtsRefreshSoon(now = false) {
+  if (!state.id || !heads.outline || typeof tplFmtOn !== "function" || !tplFmtOn()) return;
+  clearTimeout(fmtsTimer);
+  const id = state.id, epoch = state.epoch;
+  fmtsTimer = setTimeout(async () => {
+    try {
+      const r = await api(`/api/docs/${id}/outline/fmts`);
+      if (epoch !== state.epoch || !heads.outline) return;
+      heads.outline.fmts = r.fmts || {};
+      tplMarksDraw();
+    } catch { /* 옛 서버(끝점 없음) · 일시 오류 — 가진 라벨 그대로 */ }
+  }, now ? 0 : 1500);
+}
+
 function outlineApply(o) { // 응답의 바뀐·새 줄·지운 줄을 오버레이에
   if (!heads.outline || !o) return;
   for (const [pid, line] of Object.entries(o.lines || {})) heads.outline.lines[pid] = line;
   for (const pid of o.removed || []) delete heads.outline.lines[pid];
+  if (o.fmts) heads.outline.fmts = { ...(heads.outline.fmts || {}), ...o.fmts }; // 맞춘 줄의 서식 라벨(대표의 라벨이 됐다) — 여백의 번호가 그 자리에서 바뀐다(olMark)
   tplMarksDraw();
 }
 async function outlineKey(op, p) {

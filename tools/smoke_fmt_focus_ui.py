@@ -121,7 +121,7 @@ VIEW = """() => { const doc = document.getElementById('doc'), row = document.get
 # 화면에 보이는 여백 라벨 가운데 그 라벨(없으면 아무 라벨)의 글 하나를 누른다 -> 누른 라벨
 CLICK = """(want) => { const all = [...document.querySelectorAll('.tpl-mark .tm-f')]; const b = all.find((x) => (want ? x.dataset.fmt === want : true)); if (!b) return null;
   b.scrollIntoView({ block: 'center' }); b.click(); return b.dataset.fmt; }"""
-LABELS = "() => { const c = new Map(); for (const b of document.querySelectorAll('.tpl-mark .tm-f')) c.set(b.dataset.fmt, (c.get(b.dataset.fmt) || 0) + 1); return [...c].sort((a, b) => b[1] - a[1]); }"
+LABELS = "() => { const c = new Map(); for (const b of document.querySelectorAll('.tpl-mark .tm-f')) if (b.dataset.fmt !== '≠') c.set(b.dataset.fmt, (c.get(b.dataset.fmt) || 0) + 1); return [...c].sort((a, b) => b[1] - a[1]); }"
 TINT = "rgba(36, 88, 214, 0.1)"  # 고른 문단의 옅은 파란 바탕(fmt_focus.css --fm-tint)
 MARGIN_KEYS = {"line1Mm", "line2Mm", "indentRightMm", "spaceBeforePt", "spaceAfterPt"}  # 여백 값(fmt_focus.js FM_SIDE)
 BG = "() => [...new Set([...document.querySelectorAll('#doc .para.fmt-hit')].map((p) => getComputedStyle(p).backgroundColor))]"

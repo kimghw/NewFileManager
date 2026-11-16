@@ -62,14 +62,33 @@ def _body_size(paras):
     return c.most_common(1)[0][0] if c else 10.0
 
 
+def filled_flows(paras):
+    """흐름(본문 · 표 칸 …)마다 「내용이 있는」 문단 수 — 글이 있거나, 개체(표 · 그림 · 상자)를 지녔거나, 자동 번호가 붙은 문단. 값 칸은 그 칸의 흐름에 그런 문단이 하나뿐일 때다
+    (개요 오버레이 쪽의 같은 셈: outline_match.lone_value — 그 칸의 다른 문단에 글·개체가 있으면 값 칸이 아니다)."""
+    return Counter(_flow(r) for r in paras if r["text"].strip() or r.get("objects") or r.get("num"))
+
+
+def value_cell(rec, filled):
+    """값 칸(spec ② §6 「값 칸」 — 2026-11-16): 여러 칸 표의 칸(1칸 상자는 투명)에 **글이 있는 문단이 그것 하나뿐이고 레터만 있는**(제목 없음) 문단 — 표의 빈 값 「-」 · 번호 칸 「1.」.
+    레터 꼴이어도 개요 줄이 아니라 값이라 헤딩 후보에 넣지 않는다(노드·유형·템플릿을 주지 않는다 — 그 칸이 글머리 서식으로 맞춰지던 것: ① 2026-11-16 검토).
+    filled = 흐름마다 글이 있는 문단 수. 구분 라벨(대괄호 줄)은 값이 아니다."""
+    if rec["kind"] != "marker" or not rec["blank"] or (rec.get("rest") or "").strip():
+        return False
+    flow = _flow(rec)
+    return flow.startswith("cell:") and filled.get(flow, 0) == 1
+
+
 def candidates(stage1, skip=()):
     """헤딩 후보 노드(문서 순) — marker·label 구간, 개요·번호 문단, 제목 같은 plain(본문·상자, 짧고 굵거나 본문보다 큰 글), 강제 줄 바꿈 뒤 marker·label 줄.
     skip = 후보에서 뺄 문단 id(TEMP 라벨 — 표 안 작성요령·쓸 자리, spec ② §15): 노드·유형·템플릿을 주지 않는다."""
     paras = stage1["paras"]
     body = _body_size(paras)
+    filled = filled_flows(paras)  # 흐름(칸)마다 글·개체가 있는 문단 수 — 값 칸을 가린다
     out = []
     for rec in paras:
         if rec["id"] in skip:
+            continue
+        if value_cell(rec, filled):
             continue
         size = (rec["char"]["text"] or {}).get("sizePt") or 0
         bold = bool((rec["char"]["text"] or {}).get("bold"))
@@ -1042,7 +1061,7 @@ def finish(nodes, graph, asg, types, labels, same, review=None):
 
 # ---- 2단계 실행 ------------------------------------------------------------------------------------------
 
-def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=None, replay=None, temp=None):
+def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=None, replay=None, temp=None, pairs=True):
     """2단계 — 1단계 결과 → graph dict(spec ② §6). ask = llm.ask_all 대신(시험). use_llm False 면 스크립트 어림만.
     temp = TEMP 라벨(heading_temp.label 결과 — §15): 그 문단들은 헤딩 후보에서 빠진다(결과 `temp` 에 쓴 요약을 남김).
     pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴 {이름: {text, sha1, …}}) — 주면 A·B·C·D 프롬프트가 그 글을 쓴다(§7).
@@ -1145,18 +1164,23 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
     if replay and not info["fallback"]:  # 앞 실행의 조정 판정(C·D) — 슬롯 멤버가 그대로인 슬롯만 이어받는다(바뀐 슬롯은 미판정)
         same, review = _carry(replay, _slots(graph, asg["nodes"], by_id), by_id, graph)
         info["carried"] = len(same)
-    if use_llm and not info["fallback"] and not replay:  # C: 슬롯 서식 쌍 — 조정 판단(슬롯마다)
-        pairs = slot_pairs(nodes, graph, asg["nodes"], labels, set())
-        info["formatPairs"] = len(pairs)
-        if pairs:
-            jobs, used = c_jobs(pairs, pinned)
+    # pairs = 서식 쌍 판정(C)과 재검토(D)를 하나 — 기본 실행(heading_runs.run_stage2)은 하지 않는다(2026-11-16: 그 판정은 문서도 서식 정리 계획도 바꾸지 않는데 2단계 비용의 절반이었다 — spec ② §6 「서식 쌍 판정은 기본 실행에서 뺀다」).
+    # 안 하면 조정 목록은 스크립트가 낸 그대로(미판정)이고 llm.pairs = False 로 적는다(화면이 「하지 않음」 으로 보인다). 앞 실행의 판정을 이어 쓰는 다시 셈(replay)은 그대로.
+    asked = bool(replay.get("pairs", True)) if replay else bool(pairs)  # 다시 셈(replay)은 앞 실행이 판정을 했는지를 그대로 잇는다(안 한 실행을 다시 세어 「함」 이 되지 않게 — astra)
+    if use_llm and not info["fallback"]:
+        info["pairs"] = asked
+    if pairs and use_llm and not info["fallback"] and not replay:  # C: 슬롯 서식 쌍 — 조정 판단(슬롯마다)
+        found = slot_pairs(nodes, graph, asg["nodes"], labels, set())
+        info["formatPairs"] = len(found)
+        if found:
+            jobs, used = c_jobs(found, pinned)
             guides.update(used)
             for job, res in zip(jobs, ask(jobs)):
                 calls.append(HL._call_record(job, res))
                 for it in (res.get("data") or {}).get("pairs") or []:
                     if it.get("a") and it.get("b") and it.get("slot"):
                         same[(str(it["slot"]), it["a"], it["b"])] = {"same": bool(it.get("same")), "reason": str(it.get("reason") or "")[:200]}
-    if use_llm and not info["fallback"]:  # D: 재검토 — 1차 조정 판정(C)을 새 호출(1차 맥락이 없는 다른 에이전트)이 반박 검증(2026-11-09 사용자)
+    if use_llm and not info["fallback"] and asked:  # D: 재검토 — 1차 조정 판정(C)을 새 호출(1차 맥락이 없는 다른 에이전트)이 반박 검증(2026-11-09 사용자)
         todo = [] if replay else review_pairs(nodes, graph, asg["nodes"], labels, same)
         info["reviewPairs"] = len(review) if replay else len(todo)
         if todo:
@@ -1236,7 +1260,8 @@ def replay_of(g):
     for n in g.get("nodes") or []:
         if n.get("template") and n.get("level") and n.get("role") in ("heading", "title") + ROOTED:
             members[f"{n['template']}|L{n['level']}"][n.get("fmt")].append(n["id"])
-    return {"a": {"types": types, "mainChain": list(lm.get("mainChain") or []) if fixed else [], "summary": lm.get("summary") or ""},
+    return {"pairs": lm.get("pairs", True),  # 그 실행이 서식 쌍 판정(C·D)을 했는가(이 표지가 없는 옛 결과 = 함)
+            "a": {"types": types, "mainChain": list(lm.get("mainChain") or []) if fixed else [], "summary": lm.get("summary") or ""},
             "changes": changes, "undecided": [n["id"] for n in g.get("nodes") or [] if n.get("undecided")], "slots": {k: dict(v) for k, v in members.items()},
             "adjustments": list(g.get("adjustments") or []), "sections": lm.get("sections") or 0,
             "from": (g.get("meta") or {}).get("run"), "calls": (lm.get("replay") or {}).get("calls", lm.get("calls")),

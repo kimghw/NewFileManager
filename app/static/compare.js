@@ -424,6 +424,7 @@ function mcReviewItems(body, s) {
   }
   for (const a of (s.graph || {}).adjustments || []) {
     if (a.decision !== "undecided" && (a.review || {}).verdict !== "disagree" && (a.review || {}).verdict !== "failed") continue;
+    if (((s.graph || {}).llm || {}).pairs === false && !a.review) continue; // 서식 쌍 판정(C·D)을 하지 않은 실행(기본 — spec_헤딩_추출 ② §6)의 「미판정」 은 확인할 항목이 아니다
     items.push({ title: (a.review || {}).verdict === "disagree" ? "조정 재검토 불일치" : "서식 조정 미확정",
       text: `${a.from || "–"} → ${a.to || "–"} · ${(a.review || {}).reason || a.reason || "판단 근거 없음"}`, para: a.para });
   }

@@ -95,7 +95,7 @@ ROW = """() => { const row = document.getElementById('fileInfo'), vis = (e) => !
     nameW: Math.round((vis(document.getElementById('docSwitch')) ? document.getElementById('docSwitch') : document.getElementById('fileName')).getBoundingClientRect().width) }; }"""
 # 여백 표시 — 템플릿 표(「TN Lk」 — .tpl-mark 가운데 서식 라벨 줄이 아닌 것) · 서식 라벨(아래 줄 .tpl-mark.fmt + 같은 줄 .tm-fmt) · 끌기 손잡이 · 2열
 MARKS = """() => ({ tpl: document.querySelectorAll('#doc .tpl-mark:not(.fmt)').length, tplText: [...document.querySelectorAll('#doc .tpl-mark:not(.fmt)')].slice(0, 40).every((e) => /T\\d+ L\\d+|TEMP|새 /.test(e.textContent)),
-  fmt: document.querySelectorAll('#doc .tpl-mark.fmt, #doc .tpl-mark .tm-fmt').length, fmtText: [...document.querySelectorAll('#doc .tpl-mark.fmt')].slice(0, 40).every((e) => /^S\\d+/.test(e.textContent)),
+  fmt: document.querySelectorAll('#doc .tpl-mark.fmt, #doc .tpl-mark .tm-fmt').length, fmtText: [...document.querySelectorAll('#doc .tpl-mark.fmt')].slice(0, 40).every((e) => /^(S\\d+|≠)/.test(e.textContent)),
   grips: document.querySelectorAll('#doc .ol-grip').length, col: !document.getElementById('headsDlg').hidden })"""
 COLBTN = """() => { const q = (c) => { const b = document.querySelector('#headsDlg ' + c); return b ? { pressed: b.getAttribute('aria-pressed'), off: b.disabled } : null; };
   return { marks: q('.tpl-tg-marks'), fmt: q('.tpl-tg-fmt') }; }"""

@@ -7,7 +7,7 @@
 // app.js · tables.js · tpl_agent.js 다음에 읽힌다(el·hBtn·hHelp·api·toast·heads·state·headsDlg·headsParaLink·headsRunOpen·headsTables·tplAgentOpen·fmtWhen·fmtDur·nf·short·oneLine·
 // H_KIND·H_VERDICT·H_ROLE·H_TROLE·H_DECISION·H_AREA).
 const LLD = { data: null, key: null, stage: null, epoch: null, busy: false, err: "" };
-const LLD_STAGE = { 1: "규칙 보강", 2: "헤딩 판정", 3: "표 판정", fmt: "서식 계획" };
+const LLD_STAGE = { 1: "규칙 보강", 2: "헤딩 판정", 3: "표 판정", rel: "템플릿 관계", res: "반영 결과", fmt: "서식 계획" };
 const lldOn = () => { const c = $("headsDlg"); return !!c && !c.hidden && c.dataset.kind === "llmDiff"; };
 const lldRunKey = (r) => JSON.stringify([1, 2, 3].map((k) => { const s = r && r[`stage${k}`]; return s && s.meta ? s.meta.run : null; }).concat([r && r.rules ? r.rules.run : null]));
 const lldRole = (x) => (x === "heading" ? "헤딩" : x === "not_heading" ? "헤딩 아님" : H_ROLE[x] || x || "—");
@@ -68,7 +68,8 @@ function lldDraw(loaded = false) {
     if (LLD.err) hFoot(LLD.err);
     return;
   }
-  const secs = [["1", lldRules(d.rules)], ["2", lldHeads(d.heads)], ["3", lldTables(d.tables)], ["fmt", lldFormats(d.formats)]];
+  // 절 차례 = 일의 차례: LLM 판정 셋 → 조정(템플릿 관계 제안 → 반영 결과 → 서식 계획). 「반영 결과」 는 실행마다 실제로 바뀐 것(전 → 후 값 · 뗀 것 · 남긴 것과 까닭 — spec_헤딩_추출 ② §7 「결과 화면」)
+  const secs = [["1", lldRules(d.rules)], ["2", lldHeads(d.heads)], ["3", lldTables(d.tables)], ["rel", lldRelations(d.relations)], ["res", lldApplies(d.applies)], ["fmt", lldFormats(d.formats)]];
   const nav = el("div", "lld-nav");
   nav.setAttribute("role", "group");
   nav.setAttribute("aria-label", "절로 가기");
@@ -80,6 +81,12 @@ function lldDraw(loaded = false) {
   }
   tools.append(nav, hBtn("다시 읽기", () => lldLoad(), { title: "지금 결과로 다시 모읍니다(LLM 을 부르지 않음)" }));
   const lead = el("p", "lld-lead", "LLM 판정은 분석 결과(규칙 · 헤딩 그래프 · 표 구조)만 바꿉니다 — 문서 글·서식은 그대로입니다. 문서 서식을 맞추는 것은 맨 아래 「서식 계획」.");
+  const last = typeof HRA === "object" && HRA.last && HRA.last.id === state.id ? HRA.last.text : ""; // 지난 「전체 실행」 의 끝난 글(한 것 · 멈춘 까닭 · 남은 것) — 알림이 사라진 뒤에도 여기 남는다
+  if (last) {
+    const run = el("p", "lld-run-last");
+    run.append(el("b", null, "지난 전체 실행 "), last);
+    body.append(run);
+  }
   body.append(lead, ...secs.map(([, s]) => s.sec));
   hFoot(`문서 차례 ${d.rev ?? "–"} 의 결과 · 실행 번호·시각은 절 머리`, false);
   if (loaded && LLD.stage != null) { // 진행 줄에서 누른 단계 절로
@@ -176,8 +183,11 @@ function lldHeads(p) {
     [`유형 ${nf((p.types || []).length)}개: 역할을 스크립트와 다르게 본 유형 ${nf(p.typesChanged)} · 다른 유형의 변형으로 본 유형 ${nf(p.variants)}`, p.typesChanged ? "chg" : null,
       "변형 = 크기·굵기만 조금 다른 같은 구실의 레터(같은 레벨로 셈)"],
     base && base.heuristic ? [`부모: 스크립트(실행 ${p.base.run})는 어림으로 둔 부모 ${nf(base.heuristic)}곳 → LLM ${nf(cnt.heuristic || 0)}곳`, null, "어림 = 레터 차례·앞 공백만으로 정한 부모(확정 사실로 안 봄)"] : null,
-    [`서식 쌍 판정(조정): 스크립트 미판정 → LLM 맞춤 ${nf(a.adjust)}문단 · 다름 유지 ${nf(a.keep)}${a.undecided ? ` · 미판정 ${nf(a.undecided)}` : ""}${a.disagreed ? `(재검토 불일치 ${nf(a.disagreed)})` : ""}`,
-      a.adjust || a.keep ? "chg" : null, `같은 템플릿 레벨에서 대표와 서식 라벨이 다른 문단 — 같은 구실이면 「맞춤」(쌍 ${nf(a.pairs)} · 재검토 ${nf(a.reviewPairs)})`],
+    a.asked === false // 서식 쌍 판정(C·D)은 기본 실행에서 뺐다(2026-11-16 — spec_헤딩_추출 ② §6): 「미판정」 을 실패처럼 보이지 않게
+      ? [`서식 쌍 판정은 하지 않았습니다 — 같은 템플릿의 서식은 「조정」 층의 서식 정리 계획이 정합니다(대표와 서식 라벨이 다른 문단 ${nf(a.undecided)})`, "muted",
+        "서식 쌍 판정(맞춤 · 다름 유지)과 그 재검토는 문서도 서식 계획도 바꾸지 않아 기본 실행에서 뺐습니다 — 켜려면 서버 설정 NFM_HEADS_PAIRS=on"]
+      : [`서식 쌍 판정(조정): 스크립트 미판정 → LLM 맞춤 ${nf(a.adjust)}문단 · 다름 유지 ${nf(a.keep)}${a.undecided ? ` · 미판정 ${nf(a.undecided)}` : ""}${a.disagreed ? `(재검토 불일치 ${nf(a.disagreed)})` : ""}`,
+        a.adjust || a.keep ? "chg" : null, `같은 템플릿 레벨에서 대표와 서식 라벨이 다른 문단 — 같은 구실이면 「맞춤」(쌍 ${nf(a.pairs)} · 재검토 ${nf(a.reviewPairs)})`],
     ["이 판정은 분석 결과입니다 — 문서 서식은 맨 아래 「서식 계획」 을 반영할 때 바뀝니다", "muted"],
   ]);
   if ((p.nodes || []).length) {
@@ -300,8 +310,93 @@ function lldTables(p) {
   return { ...s, n: p.applied || 0, badge: nf(p.applied || 0), tip: `바꾼 칸 ${nf(p.applied)} · 보낸 표 ${nf(p.sent)}` };
 }
 
+// ---- 템플릿 관계 제안(종속 — spec_hwpx_웹편집 ② §8-2 「종속 제안」): 한 자리에만 매달린 가지 템플릿을 그 자리의 템플릿 아래로. 확실한 것(sure)은 「모두 반영」·「전체 실행」 이 저절로 넣고, 애매한 것은 여기서 「하위로 넣기」 를 눌러야 한다(문서는 안 바뀜 · 실행 취소 1)
+function lldRelations(list) {
+  const hints = list || [], s = lldSection("rel", "템플릿 관계 — 종속 제안", hints.length ? `제안 ${nf(hints.length)}` : "없음", !!hints.length);
+  if (!hints.length) {
+    s.body.append(el("p", "hnote", "종속으로 넣을 만한 템플릿이 없습니다 — 한 자리에만 매달린 가지 템플릿이 있을 때 여기에 제안합니다(여러 자리에서 같이 쓰는 템플릿 · 자리마다 다른 템플릿은 그대로 둡니다)."));
+    return { ...s, n: 0, badge: "–", tip: "종속 제안 없음" };
+  }
+  lldLines(s.body, [["가지 템플릿이 **한 자리의 줄 아래에만** 오면 그 자리의 템플릿 아래 종속 템플릿(T1T3 꼴)으로 넣을 수 있습니다 — 레벨이 윗템플릿에서 이어지고 서식 정리도 그 템플릿으로 합니다. 「확실」 은 「모두 반영」·「전체 실행」 이 저절로 넣고(「실행 취소」 한 번으로 되돌립니다), 「애매」 는 여기서 「하위로 넣기」 를 눌러야 바뀝니다 — 문서 글·서식은 안 바뀌고 템플릿만 바뀝니다.".replace(/\*\*/g, ""), "muted"]]);
+  for (const h of hints) {
+    const row = el("div", "lld-item"), top = el("div", "lld-top");
+    top.append(el("b", "lld-name", `T${h.childNo}`), el("span", "lld-meta", `${(h.chain || []).join(" › ")} · ${nf(h.lines)}줄`),
+      lldChip(`T${h.parentNo} L${h.at} 줄 아래에만 ${nf(h.places)}곳`, "good"),
+      lldChip(h.sure ? "확실 — 「모두 반영」·「전체 실행」 이 넣습니다" : `애매 — 제안만${h.why ? `: ${h.why}` : ""}`, h.sure ? "" : "warn"));
+    const go = hBtn("하위로 넣기", async () => {
+      go.disabled = true;
+      const r = await structOp("outline/merge", { child: h.child, parent: h.parent, at: h.at });
+      if (r && r.merged) toast(`T${h.childNo} 를 T${h.parentNo} L${h.at} 아래 종속 템플릿 T${r.merged.no} 로 넣었습니다(줄 ${nf(r.merged.moved)}) — 문서는 안 바뀜 · 「실행 취소」 한 번 · 풀려면 「템플릿 관계」 의 「떼기」`);
+      if (typeof outlineLoad === "function") outlineLoad(true);
+      if (typeof olmLoad === "function") olmLoad(true).then(() => { if (typeof olmRefresh === "function") olmRefresh(); });
+      if (typeof docStatusPing === "function") docStatusPing();
+      lldLoad();
+    }, { cls: "btn sm lld-open", title: `T${h.childNo} 의 줄을 T${h.parentNo} 의 L${h.at + 1} 부터로 옮긴 종속 템플릿을 만듭니다 — 문서 글·서식은 안 바뀌고 템플릿만 바뀝니다(실행 취소 1). 넣은 뒤 그 템플릿의 서식 계획은 다시 받습니다` });
+    top.append(go);
+    if (typeof tplRelOpen === "function") top.append(hBtn("템플릿 관계에서", () => tplRelOpen(/^\d+$/.test(String(h.child)) ? +h.child : h.child), { cls: "btn sm lld-open", title: "「템플릿 관계」 열에서 이 템플릿이 매달린 자리를 봅니다" }));
+    row.append(top);
+    s.body.append(row);
+  }
+  const nSure = hints.filter((h) => h.sure).length;
+  return { ...s, n: hints.length, badge: nf(hints.length), tip: `종속 제안 ${nf(hints.length)} — 확실 ${nf(nSure)}(「모두 반영」·「전체 실행」 이 넣음) · 애매 ${nf(hints.length - nSure)}(사람이 「하위로 넣기」)` };
+}
+
+// ---- 반영 결과(실행마다 — spec_헤딩_추출 ② §7 「결과 화면」): 「모두 반영」·「전체 실행」·「적용」 이 실제로 바꾼 것 — 갈래마다 전 → 후 값 · 뗀 것 · 남긴 것과 까닭. 계획(아래 절)은 다음 계획이 덮지만 이 기록은 남는다
+const LLD_KEEP = (k) => (k.byUser ? "사람이 그대로로 고름" : k.carried && !k.auto ? "앞 계획에서 그대로 둠" : k.auto ? "에이전트 답 없음 — 안 바꿈" : k.why || "에이전트가 그대로 둠");
+function lldApplies(list) {
+  const runs = [...(list || [])].reverse(), s = lldSection("res", "반영 결과", runs.length ? `반영 ${nf(runs.length)}번` : "없음", !!runs.length);
+  if (!runs.length) {
+    s.body.append(el("p", "hnote", "아직 반영한 서식 계획이 없습니다 — 「전체 실행」 이나 조정 층의 「모두 반영」 · 「템플릿 서식 정리」 열의 「적용」 으로 반영하면, 무엇이 어떻게 바뀌었는지(전 → 후 값) · 무엇을 남겼는지가 여기 남습니다."));
+    return { ...s, n: 0, badge: "–", tip: "반영 기록 없음" };
+  }
+  const diffText = (g) => (g.diff || []).slice(0, 4).map((d) => `${d[0]} ${d[1]} → ${d[2]}`).join(" · ") + ((g.diff || []).length > 4 ? ` 외 ${g.diff.length - 4}` : "");
+  const line = (ul, kind, cls, g, tail) => {
+    const li = el("li", cls);
+    li.append(el("b", "lld-kind", kind), ` ×${nf(g.count || 0)} `, lldPara(g.para, g.sample, 34), tail ? el("span", "lld-diff", ` — ${tail}`) : "");
+    ul.append(li);
+  };
+  let lines = 0;
+  runs.forEach((R, i) => {
+    const row = el("div", "lld-item"), top = el("div", "lld-top"), live = (R.templates || []).some((t) => t.live);
+    top.append(el("b", "lld-name", R.by === "all" ? "모두 반영" : "템플릿 하나 적용"), el("span", "lld-meta", `${fmtWhen(R.at)} · 바뀐 줄 ${nf(R.lines || 0)}`));
+    if ((R.templates || []).length) top.append(lldChip(live ? "지금 문서에 남아 있음" : "되돌림 — 지금 문서에는 없음", live ? "good" : "warn"));
+    row.append(top);
+    if ((R.relations || []).length) row.append(el("p", "lld-why", `템플릿 종속 ${nf(R.relations.length)} — ${R.relations.map((m) => `T${m.childNo} → T${m.no}(T${m.parentNo} L${m.at} 아래 · 줄 ${nf(m.moved)})`).join(" · ")} · 문서는 안 바뀜`));
+    if (i === 0 && live) lines = R.lines || 0;
+    for (const T of R.templates || []) {
+      const box = i ? lldMore(`T${T.no ?? T.tpl} — 바뀐 줄 ${nf(T.changed || 0)}`, false) : el("div", "lld-tpl");
+      if (!i) box.append(el("p", "lld-why", `T${T.no ?? T.tpl} — 바뀐 줄 ${nf(T.changed || 0)}${T.live ? "" : " · 되돌림"}${T.summary ? ` · ${T.summary}` : ""}`));
+      for (const L of T.levels || []) {
+        const ul = el("ul", "lld-rows");
+        const head = el("li", "lld-lv");
+        head.append(el("b", null, `L${L.level} 「${short(L.letter || "", 6)}」 ${nf(L.lines || 0)}줄`), " 대표 ", L.rep && L.rep.para ? lldPara(L.rep.para, L.rep.sample, 30) : "–", L.rep && L.rep.changed ? lldChip("대표 바꿈", "chg") : "");
+        ul.append(head);
+        for (const g of L.match || []) line(ul, "맞춤", "chg", g, diffText(g));
+        for (const sp of L.split || []) {
+          line(ul, `T${T.no ?? T.tpl}L${L.level}${sp.sfx || ""} 로 뗌`, "chg", sp.rep || {}, "새 템플릿의 대표");
+          for (const g of sp.match || []) line(ul, "뗀 줄 맞춤", "chg", g, diffText(g));
+        }
+        for (const k of L.keep || []) {
+          const li = el("li", "kept");
+          li.append(el("b", "lld-kind", "그대로"), ` ×${nf(k.count || 0)} `, lldPara(k.para, k.sample, 34), el("span", "lld-diff", ` — ${LLD_KEEP(k)}`));
+          if (typeof tplRelOpen === "function") li.append(" ", hBtn("갈래 보기", () => tplRelOpen(/^\d+$/.test(String(T.tpl)) ? +T.tpl : T.tpl, { tpl: T.tpl, level: L.level, para: k.para }),
+            { cls: "btn sm lld-open", title: "「템플릿 관계」 열에서 이 줄의 서식 갈래 — 대표에 맞추거나 「다른 템플릿으로」 뗍니다" }));
+          ul.append(li);
+        }
+        const more = [L.omitted ? `갈래가 많아 못 본 갈래 ${nf(L.omitted)}(다음 계획이 받습니다)` : "", L.values ? `값 칸 ${nf(L.values)}줄(표 칸에 혼자 있는 레터 — 맞추지 않음)` : ""].filter(Boolean);
+        if (more.length) ul.append(el("li", "muted", more.join(" · ")));
+        box.append(ul);
+      }
+      row.append(box);
+    }
+    s.body.append(row);
+  });
+  lldLines(s.body, [["되돌리려면 「실행 취소」(반영 한 번 = 한 번) — 한 갈래만 달리 하려면 되돌린 뒤 그 갈래를 「템플릿 관계」 에서 「다른 템플릿으로」 떼고 다시 「전체 실행」 을 누르세요(계획은 다시 받지 않고 그대로 씁니다).", "muted"]]);
+  return { ...s, n: lines, badge: lines ? `${nf(lines)}줄` : nf(runs.length), tip: `반영 ${nf(runs.length)}번 — 맨 위가 마지막 것` };
+}
+
 // ---- ④ 서식 계획(★)
-const LLD_PLAN = { planned: "아직 반영 안 함", applied: "반영함", stale: "문서가 바뀌어 옛 계획" };
+const LLD_PLAN = { planned: "아직 반영 안 함", applied: "반영함", stale: "옛 계획 — 다시 받기" };
 function lldFormats(list) {
   const plans = list || [], s = lldSection("fmt", "서식 계획", plans.length ? `템플릿 ${nf(plans.length)}개 · ★ 템플릿 서식 정리` : "없음", !!plans.length);
   if (!plans.length) {
@@ -333,8 +428,9 @@ function lldFormats(list) {
       ul.append(li);
     }
     row.append(ul);
-    if (P.applied) row.append(el("p", "lld-why", `${fmtWhen(P.applied.at)} 에 반영 — 줄 ${nf(P.applied.changed)}개`));
-    if (P.state === "stale") row.append(el("p", "lld-why warn", `계획을 받은 뒤(문서 차례 ${P.rev ?? "–"}) 문서가 바뀌어 계획대로 맞출 수 없습니다 — 「★ 계획 열기」 에서 다시 받으세요(템플릿 줄의 단추는 그동안 대표와 다른 줄을 모두 맞춥니다)`));
+    if (P.applied && P.state === "applied") row.append(el("p", "lld-why", `${fmtWhen(P.applied.at)} 에 반영 — 줄 ${nf(P.applied.changed)}개`));
+    else if (P.applied) row.append(el("p", "lld-why warn", `${fmtWhen(P.applied.at)} 에 반영했다가(줄 ${nf(P.applied.changed)}개) 되돌렸습니다(실행 취소 · 모두 되돌리기) — 지금 문서에는 반영돼 있지 않습니다${P.state === "planned" ? " · 계획은 그대로 다시 쓸 수 있습니다(다시 받지 않습니다)" : ""}`)); // 반영함은 문서에 남아 있을 때만(spec_hwpx_웹편집 ② §8-4)
+    if (P.state === "stale") row.append(el("p", "lld-why warn", `계획을 받은 뒤 이 템플릿의 줄이 바뀌었거나(서식 · 줄 구성) 못 본 갈래가 남아 계획대로 맞출 수 없습니다 — 「★ 계획 열기」 에서 다시 받으세요(템플릿 줄의 단추는 그동안 대표와 다른 줄을 모두 맞춥니다)`));
     if (P.state === "planned") todo += (P.change || 0) + (P.moved || 0);
     s.body.append(row);
   }

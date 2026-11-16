@@ -65,3 +65,14 @@
 .olm-tm .olm-chip.olm-tm-plan { margin-left: 4px; }
 .olm-tm button.olm-chip.olm-tm-stale { height: 20px; margin-left: 4px; border-color: #f0c98a; background: var(--warn-soft); color: var(--warn); font: inherit; font-size: 11px; cursor: pointer; }
 .olm-tm button.olm-chip.olm-tm-stale:hover { border-color: var(--warn); }
+
+/* 결과 화면(spec_헤딩_추출 ② §7 「결과 화면」 — 2026-11-16): 지난 전체 실행의 끝난 글 · 반영 결과(갈래마다 전 → 후 값 · 뗀 것 · 남긴 것과 까닭) · 템플릿 관계 제안 */
+.lld-run-last { margin: 8px 12px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft, #f6f7f9); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.lld-run-last b { color: var(--text); }
+.lld-tpl { margin: 2px 0 0; }
+.lld-rows li.lld-lv { margin-top: 4px; color: var(--text); }
+.lld-rows li.chg .lld-kind { color: #4a2fb0; }
+.lld-rows li.kept .lld-kind { color: var(--muted); }
+.lld-rows li.muted { color: var(--muted); }
+.lld-rows .lld-diff { color: var(--muted); overflow-wrap: anywhere; }
+.lld-rows li .lld-open { height: 20px; padding: 0 6px; font-size: 11px; }

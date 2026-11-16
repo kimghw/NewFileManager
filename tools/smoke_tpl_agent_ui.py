@@ -262,7 +262,7 @@ def main():
         page.wait_for_function("() => document.querySelectorAll('.tpl-mark.fmt').length > 20", timeout=30000)
         fm = page.evaluate("""() => { const under = [...document.querySelectorAll('.tpl-mark.fmt')]; const bad = under.filter((f) => { const sh = f.closest('.sheet'), top = parseFloat(f.style.top);
             return ![...sh.querySelectorAll(':scope > .tpl-mark:not(.fmt)')].some((m) => Math.abs(parseFloat(m.style.top) + 15 - top) <= 1); }).length;
-          return { under: under.length, inline: document.querySelectorAll('.tpl-mark .tm-fmt').length, bad, text: under.slice(0, 30).every((f) => /^S\\d+/.test(f.textContent)), pressed: document.querySelector('#headsTemplatesResult .tpl-tg-fmt').getAttribute('aria-pressed') }; }""")
+          return { under: under.length, inline: document.querySelectorAll('.tpl-mark .tm-fmt').length, bad, text: under.slice(0, 30).every((f) => /^(S\\d+|≠)/.test(f.textContent)), pressed: document.querySelector('#headsTemplatesResult .tpl-tg-fmt').getAttribute('aria-pressed') }; }""")
         check("「서식 라벨 보기」 → 템플릿 표 바로 아래에 「S…」 줄(자리가 없으면 같은 줄 뒤)", n0 == 0 and fm["under"] > 20 and fm["bad"] == 0 and fm["text"] and fm["pressed"] == "true", fm)
         page.evaluate("() => { const f = document.querySelector('.tpl-mark.fmt'); f.scrollIntoView({ block: 'center' }); }")
         page.wait_for_timeout(300)

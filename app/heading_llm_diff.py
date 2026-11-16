@@ -143,6 +143,7 @@ def heads_part(st):
         undecided=len(und), undecidedNodes=[{"id": n["id"], "para": n.get("para"), "text": _node_text(n)} for n in und[:NODES_MAX]],
         adjust={"adjust": dec.get("adjust", 0), "keep": dec.get("keep", 0), "undecided": dec.get("undecided", 0),
                 "disagreed": (g.get("counts") or {}).get("disagreed", 0), "pairs": lm.get("formatPairs"), "reviewPairs": lm.get("reviewPairs"),
+                "asked": lm.get("pairs", True),  # False = 이 실행은 서식 쌍 판정(C·D)을 하지 않았다(기본 — spec ② §6): 「미판정」 이 실패가 아니다
                 "groups": sorted(groups.values(), key=lambda x: (order.get(x["decision"], 3), x["tplNo"] or 0, x["level"] or 0, -x["n"]))})
     return out
 

@@ -8,6 +8,7 @@
 import copy
 import gzip
 import json
+import os
 import sys
 import threading
 import time
@@ -259,6 +260,13 @@ def _rules_asked(s1):
     return bool(((s1 or {}).get("llm") or {}).get("items"))
 
 
+def pairs_on():
+    """서식 쌍 판정(C)과 재검토(D)를 헤딩 그래프(LLM)에서 하나 — **기본은 안 한다**(env `NFM_HEADS_PAIRS=on` 일 때만).
+    2026-11-16 사용자 「C·D 호출 제외 … 다 해줘」(spec ② §6 「서식 쌍 판정은 기본 실행에서 뺀다」): 그 판정(맞춤 · 다름 유지)은 문서도 서식 정리 계획도 바꾸지 않는데 2단계 비용의 절반 · 시간의 대부분이었고,
+    같은 템플릿의 서식은 조정 층의 서식 정리 계획(기준 — 레터)이 정한다."""
+    return os.environ.get("NFM_HEADS_PAIRS", "").strip().lower() in ("on", "1", "true", "yes")
+
+
 def run_stage2(sess, job, use_llm):
     st = state(sess)
     guides0 = _guides(sess)  # 시작 때 고정(§7) — A·B·C 프롬프트와 기록이 같은 지침(+ 양식 정보)
@@ -291,7 +299,7 @@ def run_stage2(sess, job, use_llm):
     temp0 = TP.label(s1, hints0["temp"])  # TEMP 라벨(§15) — 본문 검토 전에: 그 문단들은 헤딩 후보에서 빠진다
     job.step("TEMP 라벨 — 헤딩 후보에서 뺌", "ok", TP.summary_text(temp0))
     job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"))
-    g = HG.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, hints=hints0, temp=temp0)
+    g = HG.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, hints=hints0, temp=temp0, pairs=pairs_on())
     calls = g.pop("_calls", [])
     lm = g["llm"]
     lm["rules"] = rules  # 이 LLM 판정이 먼저 돌린 규칙 보강(§3 — 판정하지 못한 묶음) | None(안 돎 — 스크립트 실행 · 물을 묶음 없음 · 이미 답을 받은 1단계)

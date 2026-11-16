@@ -342,6 +342,7 @@ def test_div_labels_api_saves_hint_and_reextracts_without_llm(c):
 def test_relabel_of_llm_run_replays_saved_answers(c, monkeypatch):
     """LLM 으로 만든 2단계 결과에 지정을 반영할 때 — LLM 을 다시 부르지 않고 저장된 결과에서 A·B·C·D 판정을 되풀이한다."""
     from app import llm
+    monkeypatch.setenv("NFM_HEADS_PAIRS", "on")  # 서식 쌍 판정(C·D)은 기본 실행에서 뺐다(spec_헤딩_추출 ② §6 2026-11-16) — 여기는 C·D 까지 되풀이하는 것을 본다(기본은 tests/test_outline_safety.py)
     r = c.post("/api/docs", files={"file": (RND.name, RND.read_bytes())})
     d = r.json()["docId"]
     s = server.DOCS[d]

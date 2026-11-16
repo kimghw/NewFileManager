@@ -206,9 +206,58 @@ def _sample(doc, pid):
     return t if len(t) <= SAMPLE_MAX else t[:SAMPLE_MAX] + "…"
 
 
-def material(doc, ov, tid):
-    """템플릿 tid 의 정리 자료 → {tpl, no, chain, kind, comp?, lines, levels[{level, letter, lines, rule, groups[{id, para, count, rep, sample, raw, look}], more}]}.
-    갈래 id = 「g1…」(variants 의 차례 — 대표 갈래 먼저, 그다음 줄 수). 없는 템플릿은 KeyError."""
+def fingerprint(ov, tid, lvs):
+    """템플릿 tid 의 **적용 안전 지문**(spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」 — 2026-11-16): 서식 정리 계획을 문서 차례(rev)가 아니라 이것에 묶는다 — 문서의 다른 곳을 고쳐도,
+    반영을 되돌려 처음 상태로 돌아와도 지문이 같으면 그 계획을 그대로 쓴다(전에는 글자 하나만 고쳐도 · 되돌려도 유료로 다시 받았다).
+    계획의 반영(check_plan → todo → outline_match_api.apply_templates · split)이 기대는 것을 다 넣는다: 템플릿의 꼴(사슬 · base · 종속/변형) · 레벨마다 대표 · 사람이 정한 대표 · 자리 규칙 · 뗀 글자 ·
+    **대표 줄이 지닌 모양 참조**(맞추면 복사되는 것) · **줄 구성**(줄 id → 갈래 — 값 칸 포함: variants 의 sig) · 줄마다 레벨 · 부모 줄 · 부모의 (템플릿, 레벨) · 이 템플릿에 매달린 가지.
+    줄의 본문 글 · 스킬 · 요청은 넣지 않는다(적용의 안전과 무관 — 판단을 새로 받고 싶으면 「다시 받기」). lvs = {레벨: outline_match.variants(…)} — 그 템플릿의 줄 있는 레벨."""
+    tid = str(tid)
+    t = (ov.get("templates") or {}).get(tid)
+    if t is None:
+        return ""
+    lines = ov["lines"]
+    rows = []
+    for pid, x in lines.items():
+        if x["tpl"] != tid:
+            continue
+        par = lines.get(x.get("parent")) if x.get("parent") else None
+        rows.append([pid, int(x["level"]), x.get("parent") or "", par["tpl"] if par else "", int(par["level"]) if par else 0])
+    rows.sort()
+    slots = {}
+    for lv in sorted(t.get("slots", {}), key=int):
+        sl, v = t["slots"][lv], (lvs or {}).get(lv) or (lvs or {}).get(str(lv)) or {}
+        slots[str(lv)] = [sl.get("rep"), bool(sl.get("repSet")), sl.get("pos"), bool(sl.get("table")), sorted(M.used_sfx(ov, tid, lv)), v.get("sig"), v.get("repIds")]
+    branches = {k: v for k, v in (ov.get("branches") or {}).items() if str(k).split("|")[0] == tid}
+    body = [tid, t.get("no"), t.get("chain"), t.get("kind"), M._base(t), t.get("composite"), t.get("variant"), slots, rows, branches]
+    return hashlib.sha1(json.dumps(body, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def fingerprint_of(doc, ov, tid):
+    """문서에서 바로 — 그 템플릿의 레벨마다 서식 갈래를 셈해 지문을(세션 잠금 안에서 부른다)."""
+    t = (ov.get("templates") or {}).get(str(tid)) or {}
+    order = M._order(doc)
+    lvs = {lv: M.variants(doc, ov, tid, lv, order) for lv, sl in t.get("slots", {}).items() if M.slot_ids(ov, tid, lv) and not sl.get("table")}
+    return fingerprint(ov, tid, lvs)
+
+
+def group_sig(level, raw):
+    """갈래의 지문 — 레벨 + 비교 값(KEYS). 앞 계획의 검토·보낸 이력을 **같은 갈래**에만 잇는 데 쓴다(열쇠 줄이 같아도 서식이 바뀌어 다른 갈래가 됐으면 잇지 않는다)."""
+    return hashlib.sha1(repr([int(level)] + [raw.get(k) for k in M.KEYS]).encode("utf-8")).hexdigest()[:12]
+
+
+def _known(records, paras, sig):
+    """이력 records([{para, sig}])에 이 갈래(구성원 paras · 지문 sig)가 있나 — 열쇠 줄이 지금도 이 갈래의 줄이고 지문이 같을 때만."""
+    members = set(paras)
+    return any(isinstance(r, dict) and r.get("sig") == sig and r.get("para") in members for r in records or ())
+
+
+def material(doc, ov, tid, reviewed=None, sent=None):
+    """템플릿 tid 의 정리 자료 → {tpl, no, chain, kind, comp?, lines, levels[{level, letter, lines, rule, groups[{id, para, count, rep, sample, raw, look, seen}], more, held[…]}]}.
+    갈래 id = 「g1…」(대표 갈래 먼저 → 아직 안 본 갈래(줄 수 순) → 앞 계획이 검토해 그대로 둔 갈래). 없는 템플릿은 KeyError.
+    sent = 앞 계획(들)이 에이전트에 **보낸** 갈래 · reviewed = 그 가운데 에이전트가 **답해서 그대로 둔** 갈래 — [{para(열쇠 줄), sig(group_sig)}](계획의 `sent`·`reviewed` — spec_hwpx_웹편집 ② §8-4 「계획 검사」 ⓑ).
+    갈래가 GROUP_MAX 를 넘는 레벨에서 보낸 적 있는 갈래를 뒤로 돌려 못 본 갈래가 에이전트에 닿게 한다(전에는 줄 수 많은 앞 40갈래만 되풀이해 보냈다). 이력은 **지문이 같은 갈래**에만 잇는다.
+    못 보낸 갈래: 검토해 그대로 둔 것 = held(계획에 「그대로」 로 이어받음) · 보냈지만 답이 없던 것 = heldAuto(답 없음 그대로) · 한 번도 못 보낸 것 = more."""
     tid = str(tid)
     t = ov["templates"].get(tid)
     if t is None:
@@ -227,15 +276,27 @@ def material(doc, ov, tid):
         if not M.slot_ids(ov, tid, lv) or t["slots"][lv].get("table"):  # 표 제목 레벨(spec_hwpx_웹편집 ② §8-7)은 서식 정리 대상이 아니다
             continue
         v = M.variants(doc, ov, tid, lv, order, full=True)
+        if not v["total"]:  # 값 칸뿐인 레벨(표 칸에 혼자 있는 레터 — outline_match.lone_value) — 정리할 줄이 없다
+            continue
         sl = t["slots"][lv]
         pos = sl.get("pos") or {}
         # noSplit = 이 갈래를 다른 템플릿으로 못 떼는 까닭(번호형 레벨에서 같은 부모 아래 형제의 일부 — ② §8-5) | None. 「대표 갈래라서」 는 여기서 안 본다(계획이 대표를 바꿀 수 있다 — rep="-")
+        tagged = []
+        for g in v["groups"]:
+            sig = group_sig(lv, g["raw"])
+            tagged.append((g, sig, (not g["rep"]) and _known(sent, g["paras"], sig), (not g["rep"]) and _known(reviewed, g["paras"], sig)))
+        tagged.sort(key=lambda x: x[2] or x[3])  # 대표 · 보낸 적 없는 갈래 먼저(차례는 그대로) → 보낸 적 있는 갈래
         groups = [{"id": f"g{i + 1}", "para": g["key"], "count": g["count"], "rep": bool(g["rep"]), "sample": _sample(doc, g["key"]), "raw": g["raw"], "look": g["look"],
-                   "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-")}
-                  for i, g in enumerate(v["groups"])]
+                   "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-"), "sig": sig, "seen": was_kept, "sentBefore": was_sent or was_kept}
+                  for i, (g, sig, was_sent, was_kept) in enumerate(tagged)]
+        rest = groups[GROUP_MAX:]
         out["levels"].append({"level": int(lv), "letter": sl.get("letter") or "", "lines": v["total"], "repMissing": bool(v["repMissing"]), "repSet": bool(sl.get("repSet")),
-                              "rule": RULE.get(pos.get("line2"), "") if pos.get("set") else "", "groups": groups[:GROUP_MAX], "more": max(0, len(groups) - GROUP_MAX),
-                              "taken": sorted(M.used_sfx(ov, tid, lv))})  # 이 레벨에서 이미 뗀 템플릿의 글자(「T1L3a」 의 a)
+                              "rule": RULE.get(pos.get("line2"), "") if pos.get("set") else "", "groups": groups[:GROUP_MAX],
+                              "more": sum(1 for g in rest if not g["sentBefore"]),            # 한 번도 못 보낸 갈래 수(계획의 omitted)
+                              "held": [g for g in rest if g["seen"]],                           # 못 보냈지만 앞 계획이 검토해 그대로 둔 갈래 — 계획에 「그대로」 로 싣는다
+                              "heldAuto": [g for g in rest if g["sentBefore"] and not g["seen"]],  # 못 보냈고, 앞서 보냈지만 답이 없던 갈래 — 답 없음 그대로(못 본 것이 아니다)
+                              "taken": sorted(M.used_sfx(ov, tid, lv)),  # 이 레벨에서 이미 뗀 템플릿의 글자(「T1L3a」 의 a)
+                              "values": v.get("values", 0)})  # 값 칸 줄 수 — 갈래에 없다(에이전트에 안 보내고 안 맞춘다)
     return out
 
 
@@ -358,9 +419,15 @@ def check_plan(mat, data):
             if rep:
                 notes.append(f"L{lv['level']} 대표 「{rep}」 는 없는 갈래 — 지금 대표를 그대로 둠")
             rep = was
+        if lv.get("repSet") and was is not None and rep != was:  # 사람이 정한 대표는 답이 바꾸지 못한다 — 스킬 글이 말해도 검사가 강제한다(2026-11-16 astra)
+            notes.append(f"L{lv['level']} 대표는 사람이 정한 것 — 「{rep}」 로 바꾸지 않음")
+            rep = was
         why = str(row.get("why") or "").strip()
-        entry = {"level": lv["level"], "letter": lv["letter"], "lines": lv["lines"], "single": len(lv["groups"]) + lv["more"] <= 1, "was": was,
-                 "rep": None, "match": [], "keep": [], "split": [], "taken": list(lv.get("taken") or []), "change": 0, "moved": 0, "why": why[:600]}
+        # omitted = 갈래가 GROUP_MAX 를 넘어 에이전트에 보내지 않은 갈래 수(못 본 것 — 이 계획을 반영해도 「다 봄」 이 아니다: analysis.plan_state) · values = 값 칸 줄 수(갈래에 없다)
+        entry = {"level": lv["level"], "letter": lv["letter"], "lines": lv["lines"],
+                 "single": len(lv["groups"]) + lv["more"] + len(lv.get("held") or []) + len(lv.get("heldAuto") or []) <= 1, "was": was,
+                 "rep": None, "match": [], "keep": [], "split": [], "taken": list(lv.get("taken") or []), "change": 0, "moved": 0, "why": why[:600],
+                 "omitted": int(lv.get("more") or 0), "values": int(lv.get("values") or 0)}
         if rep is None:  # 대표가 없고 답도 못 고름 — 손댈 수 없다
             if lv["groups"]:
                 notes.append(f"L{lv['level']} 은 대표가 없어 그대로 둠")
@@ -424,6 +491,13 @@ def check_plan(mat, data):
         for g in lv["groups"]:  # 답이 말하지 않은 갈래 — 그대로
             if g["id"] not in seen:
                 entry["keep"].append({**brief(g), "why": "", "auto": True, "noSplit": blocked(g)})
+        for g in lv.get("held") or []:  # 이번에 보내지 못했지만 앞 계획이 검토해 그대로 둔 갈래 — 그 판단을 이어받는다(다시 「못 본 갈래」 가 되지 않는다)
+            entry["keep"].append({**brief(g), "why": "앞 계획에서 그대로 둠", "auto": False, "carried": True, "noSplit": blocked(g)})
+        for g in lv.get("heldAuto") or []:  # 앞서 보냈지만 답이 없던 갈래 — 답 없음 그대로
+            entry["keep"].append({**brief(g), "why": "", "auto": True, "carried": True, "noSplit": blocked(g)})
+        for k in entry["keep"]:
+            k["sig"] = next((g["sig"] for g in list(lv["groups"]) + list(lv.get("held") or []) + list(lv.get("heldAuto") or []) if g["id"] == k["group"]), "")
+        entry["sent"] = [{"para": g["para"], "sig": g["sig"]} for g in list(lv["groups"]) + list(lv.get("held") or []) + list(lv.get("heldAuto") or []) if not g["rep"]]
         for m in entry["match"]:
             m["noSplit"] = blocked(gs[m["group"]])
         entry["change"] = sum(m["count"] for m in entry["match"]) + sum(sp["change"] for sp in entry["split"])
@@ -431,7 +505,14 @@ def check_plan(mat, data):
         total += entry["change"]
         moved += entry["moved"]
         levels.append(entry)
-    return {"summary": str((data or {}).get("summary") or "").strip()[:1200], "levels": levels, "change": total, "moved": moved, "notes": notes}
+    # left = 이 계획을 그대로 반영해도 남는 줄: kept = 에이전트가 「그대로」 로 답한 갈래의 줄 · unanswered = 답이 말하지 않아 그대로 둔 갈래의 줄(검토해 남긴 것과 다르다)
+    keeps = [k for lv in levels for k in lv["keep"]]
+    left = {"kept": sum(k["count"] for k in keeps if not k.get("auto")), "unanswered": sum(k["count"] for k in keeps if k.get("auto"))}
+    # reviewed = 에이전트가 답해서 그대로 둔 갈래의 열쇠 줄(이어받은 것 포함) — 다음 계획의 자료가 이 갈래들을 뒤로 돌린다(material)
+    return {"summary": str((data or {}).get("summary") or "").strip()[:1200], "levels": levels, "change": total, "moved": moved, "notes": notes,
+            "omitted": sum(lv["omitted"] for lv in levels), "left": left,
+            "reviewed": [{"para": k["para"], "sig": k.get("sig", "")} for k in keeps if not k.get("auto")],   # 답해서 그대로 둔 갈래(이어받은 것 포함)
+            "sent": [x for lv in levels for x in lv.pop("sent", [])]}                                          # 에이전트에 보낸 적 있는 갈래(이번 + 이어받은 이력)
 
 
 def todo(plan):
@@ -452,6 +533,50 @@ def todo(plan):
             row["splits"] = [{"likes": [sp["rep"]["para"]] + [g["para"] for g in sp.get("match") or []], "rep": sp["rep"]["para"], "sfx": sp["sfx"]} for sp in cuts]
         levels.append(row)
     return {"levels": levels, "n": n, "moved": moved}
+
+
+def apply_view(plan, levels):
+    """**실제로 반영한 것**을 적는다(spec_헤딩_추출 ② §7 「결과 화면」) — 요청 몸 levels(`todo` 의 꼴: [{level, rep, likes[갈래의 열쇠 줄], splits[{likes, rep, sfx}]}] — 「모두 반영」 은 에이전트가 고른 그대로,
+    「템플릿 서식 정리」 열의 「적용」 은 사람이 고르기를 바꾼 것)을 계획의 갈래 정보(줄 수 · 견본 · 대표와 다른 값)로 풀어서:
+    → [{level, letter, lines, rep{para, sample, changed}, match[{para, count, sample, diff[[이름, 전(그 갈래 값), 후(대표 값)]…]}], split[{sfx, rep{…}, match[…]}],
+        keep[{para, count, sample, why, auto(답 없음), carried(앞 계획에서 이어받음), byUser(계획은 바꾸라 했는데 사람이 그대로로)}], omitted(못 본 갈래), values(값 칸 줄)}].
+    계획의 레벨 가운데 요청에 없는 것(고른 갈래가 없음)도 남긴 갈래가 있으면 싣는다 — 「남긴 것」 이 결과에 보이게."""
+    asked = {int(r["level"]): r for r in levels or [] if isinstance(r, dict) and r.get("level") is not None}
+    out = []
+    for L in (plan or {}).get("levels") or []:
+        groups, planned = {}, set()
+        for g in L.get("match") or []:
+            groups[g["para"]] = g
+            planned.add(g["para"])
+        for sp in L.get("split") or []:
+            for g in [sp.get("rep") or {}] + list(sp.get("match") or []):
+                if g.get("para"):
+                    groups[g["para"]] = g
+                    planned.add(g["para"])
+        for k in L.get("keep") or []:
+            groups[k["para"]] = k
+        req = asked.get(int(L["level"])) or {}
+        likes = [p for p in req.get("likes") or [] if p in groups]
+        cuts = [sp for sp in req.get("splits") or [] if isinstance(sp, dict)]
+        cut_paras = {p for sp in cuts for p in sp.get("likes") or []}
+
+        def brief(p, groups=groups):
+            g = groups.get(p) or {}
+            return {"para": p, "count": g.get("count"), "sample": g.get("sample", ""), "diff": [[d[1], d[3], d[2]] for d in g.get("diff") or []]}  # [이름, 전(그 갈래), 후(대표)]
+        keep = [{"para": p, "count": g.get("count"), "sample": g.get("sample", ""), "why": g.get("why", ""), "auto": bool(g.get("auto")), "carried": bool(g.get("carried")),
+                 "byUser": p in planned} for p, g in groups.items() if p not in likes and p not in cut_paras]
+        if not req and not keep and not L.get("omitted"):
+            continue
+        rep0 = L.get("rep") or {}
+        rep_para = req.get("rep") or rep0.get("para")
+        out.append({"level": L["level"], "letter": L.get("letter", ""), "lines": L.get("lines"),
+                    "rep": {"para": rep_para, "sample": rep0.get("sample", "") if rep_para == rep0.get("para") else (groups.get(rep_para) or {}).get("sample", ""),
+                            "changed": bool(req) and bool(rep0.get("changed")) and rep_para == rep0.get("para")},
+                    "match": [brief(p) for p in likes],
+                    "split": [{"sfx": sp.get("sfx"), "rep": brief(sp.get("rep") or (sp.get("likes") or [None])[0]),
+                               "match": [brief(p) for p in sp.get("likes") or [] if p != (sp.get("rep") or (sp.get("likes") or [None])[0])]} for sp in cuts],
+                    "keep": keep, "omitted": int(L.get("omitted") or 0), "values": int(L.get("values") or 0)})
+    return out
 
 
 def run(mat, sk, request="", call=None):

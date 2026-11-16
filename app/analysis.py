@@ -8,7 +8,7 @@ LLM 판정(헤딩 · 표 — 사람이 단추로) · 구분 기준 LLM 검토(�
 - 문서를 고친 뒤에도 done 이다(뼈대 유지 — spec_헤딩_추출 ② §17). moved = 그 결과를 뽑은 뒤 문서가 바뀜(도움말에만 쓴다).
 - 넷 · 진행표(2026-11-16 — ② §20 「넷 · 진행표 · LLM 검증·보완」): 헤딩 · **템플릿** · **서식** · 표를 스크립트 · LLM 검증·보완 · 문서 반영 세 칸으로. 템플릿 · 서식은 개요 오버레이와
   서식 갈래(outline=(ov, variants) — analysis_api 가 server 에서 읽어 넘긴다)와 받은 서식 정리 계획(plans — tpl_agent_api)으로 센다. 「LLM 검증·보완」 의 실행은 app/analysis_llm.py."""
-from app import heading_runs, tpl_agent
+from app import heading_runs, outline_match, tpl_agent
 
 STATES = ("none", "wait", "running", "done", "failed")
 NAMES = {"heads": "헤딩", "templates": "템플릿", "formats": "서식", "tables": "표", "division": "구분 기준"}
@@ -82,6 +82,11 @@ def _item(key, st, sess, job, turn):
            "text": _text(key, res), "short": _short(key, res), "error": job.error if failed else None, "llm": _llm(res, turn == "llm", llm_failed, waiting=chain and turn == "wait")}
     if key == "heads":
         out["rules"] = heading_runs.rules_view(st) if "runs" in st else None  # 못 맞춤·충돌 규칙 보강(LLM)을 마지막으로 한 실행 | None(spec_헤딩_추출 ② §7 「진행 줄」)
+        # 미판정 = LLM 구간 검증(B)이 실패해 스크립트 초안으로 남은 노드 수 — LLM 판정은 「함」 이지만 다 본 것이 아니다: 「전체 실행」 은 이 수가 있으면 조정(반영)을 하지 않고 남긴다
+        und = int(((res or {}).get("counts") or {}).get("undecided") or 0) if out["llm"]["state"] == "done" else 0
+        out["undecided"] = und
+        if und:
+            out["llm"] = {**out["llm"], "text": out["llm"]["text"] + f" · 미판정 {und}(구간 검증 실패 — 스크립트 초안 그대로)"}
     if key == "tables":
         calc = ((res or {}).get("counts") or {}).get("calc") or {}
         out["calc"] = {"formulas": calc.get("formulas", 0), "ok": calc.get("ok", 0), "mismatch": calc.get("mismatch", 0)} if calc else None  # 검산(스크립트) — 진행표의 표 줄
@@ -127,13 +132,35 @@ def need_templates(variants):
     return [str(tid) for tid, lvs in (variants or {}).items() if any(len(v.get("groups") or []) > 1 or v.get("repMissing") for v in lvs.values())]
 
 
-def plan_state(rec, rev):
-    """받은 서식 정리 계획 하나 → PLAN_STATES 가운데 하나. rev = 지금 문서 차례(계획은 그 차례에서만 적용된다 — …/templates/{tpl}/match 의 409)."""
+def plan_applied(rec, ov):
+    """그 계획의 반영이 **지금 문서에 남아 있나** — 반영할 때 개요 오버레이에 적어 둔 표(ov["agent"][템플릿] = 그 계획의 at — tpl_agent_api.applied)가 이 계획의 것인가.
+    오버레이는 실행 취소 · 모두 되돌리기 · 확정 복원과 함께 되돌아가므로 반영을 되돌리면 표도 사라진다 — 기록의 applied 만 보면 되돌린 뒤에도 「반영함」 으로 남는다
+    (2026-11-16 사용자 「완료되었다고 나오는데 실제는 잘못된거 같아」 — spec_hwpx_웹편집 ② §8-4 「반영함은 문서에 남아 있을 때만」)."""
+    if not rec or not rec.get("applied") or not isinstance(ov, dict):
+        return False
+    mark = (ov.get("agent") or {}).get(str(rec.get("tpl")))
+    return mark is not None and mark == rec.get("at")
+
+
+def plan_state(rec, rev, ov=None, fp=None):
+    """받은 서식 정리 계획 하나 → PLAN_STATES 가운데 하나. ov = 지금 개요 오버레이 · fp = 그 템플릿의 **지금 지문**(tpl_agent.fingerprint).
+    계획은 문서 차례가 아니라 그 템플릿 줄의 지문에 묶인다(기록의 `fp` — spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」): 지문이 같으면 planned — 문서의 다른 곳을 고쳤어도,
+    **반영했다가 되돌려 처음 상태로 돌아왔어도**(기록에 applied 가 있고 오버레이 표는 없다) 그 계획을 그대로 쓴다. 지문이 다르면(그 템플릿의 줄이 바뀜) stale.
+    지문이 없는 옛 기록은 전처럼 rev(지금 문서 차례)로 — 반영한 적 있으면 stale."""
     if not rec:
         return "none"
-    if rec.get("applied"):
-        return "applied"
-    return "planned" if rec.get("rev") == rev else "stale"
+    if plan_applied(rec, ov):
+        # 갈래가 많아 일부만 본 계획(plan.omitted — tpl_agent.GROUP_MAX 를 넘는 갈래는 보내지 않는다)은 반영해도 못 본 갈래가 남는다 — 「반영함」 으로 닫지 않고 다시 받을 계획으로
+        # (2026-11-16 astra: 미검토를 완료로 보이지 않는다 — spec_hwpx_웹편집 ② §8-4 「계획 검사」)
+        return "stale" if ((rec.get("plan") or {}).get("omitted") or 0) > 0 else "applied"
+    if rec.get("fp"):
+        state = "planned" if fp and rec["fp"] == fp else "stale"
+    else:
+        state = "planned" if rec.get("rev") == rev and not rec.get("applied") else "stale"
+    plan = rec.get("plan") or {}
+    if state == "planned" and (plan.get("omitted") or 0) > 0 and not (plan.get("change") or plan.get("moved")):
+        return "stale"  # 바꿀 줄이 없는데 못 본 갈래가 남은 계획 — 반영할 것이 없으니 바로 다음 갈래를 받을 계획이다(보낸 갈래는 기록에 남아 다음 자료에서 뒤로 돈다)
+    return state
 
 
 def _others(v):
@@ -171,7 +198,9 @@ def _templates_item(heads, ov):
     elif llm["state"] == "none":
         llm["text"] = "LLM 검토 안 함 — 헤딩 그래프(LLM)이 함께 봅니다"
     text = (" · ".join(f"T{r['no']} {r['chain']}".strip() for r in rows) if rows else "템플릿 없음") if heads["state"] == "done" else ""
-    return {"key": "templates", "name": NAMES["templates"], "state": heads["state"], "count": len(rows), "list": rows, "text": text, "llm": llm}
+    # hints = 종속 제안(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래로 — outline_match.merge_hints): 확실한 것(sure)은 「모두 반영」·「전체 실행」 이 저절로 넣고 애매한 것은 제안만. 조정 층 「템플릿 조정」 칸 · 결과 화면이 보인다
+    hints = outline_match.merge_hints(ov) if ov and heads["state"] == "done" else []
+    return {"key": "templates", "name": NAMES["templates"], "state": heads["state"], "count": len(rows), "list": rows, "text": text, "llm": llm, "hints": hints}
 
 
 def _formats_item(heads, ov, variants, plans, rev, job):
@@ -180,17 +209,22 @@ def _formats_item(heads, ov, variants, plans, rev, job):
     slots = []
     for tid, lvs in (variants or {}).items():
         for lv, v in sorted(lvs.items(), key=lambda kv: int(kv[0])):
-            slots.append({"tpl": str(tid), "no": names.get(str(tid), str(tid)), "level": int(lv), "groups": len(v.get("groups") or []), "others": _others(v), "total": v.get("total", 0)})
+            slots.append({"tpl": str(tid), "no": names.get(str(tid), str(tid)), "level": int(lv), "groups": len(v.get("groups") or []), "others": _others(v), "total": v.get("total", 0),
+                          "values": v.get("values", 0)})  # values = 값 칸(표 칸에 혼자 있는 레터 — 갈래에 안 넣고 안 맞춘다: outline_match.lone_value)
     levels, aligned = len(slots), sum(1 for x in slots if x["groups"] <= 1)
     groups, others = sum(x["groups"] for x in slots), sum(x["others"] for x in slots)
     need = need_templates(variants)
     plist = []
     for tid in need:
         rec = (plans or {}).get(tid)
-        row = {"tpl": tid, "no": names.get(tid, tid), "state": plan_state(rec, rev)}
+        row = {"tpl": tid, "no": names.get(tid, tid), "state": plan_state(rec, rev, ov, tpl_agent.fingerprint(ov, tid, (variants or {}).get(tid)) if rec and rec.get("fp") else None)}
+        if rec and isinstance(rec.get("plan"), dict) and rec["plan"].get("omitted"):
+            row["omitted"] = rec["plan"]["omitted"]  # 못 본 갈래가 남은 계획(반영했어도) — 「전체 실행」 이 다음 갈래를 받으러 다시 부른다
         if row["state"] == "planned" and isinstance(rec.get("plan"), dict):  # 지금 반영할 수 있는 계획 — 에이전트가 고른 그대로 반영하면 바뀔 줄 · 다른 템플릿으로 옮길 줄(진행 줄 「조정」 의 두 칸 · 「모두 반영」 의 수)
             t = tpl_agent.todo(rec["plan"])
-            row.update(change=t["n"], moved=t["moved"])
+            left = rec["plan"].get("left") or {}
+            # at = 그 계획의 표시(「모두 반영」 이 화면이 본 계획 그대로인지 서버가 견준다) · kept/unanswered/omitted = 반영해도 남는 것(에이전트가 그대로 둔 줄 · 답이 없던 줄 · 못 본 갈래)
+            row.update(change=t["n"], moved=t["moved"], at=rec.get("at"), kept=left.get("kept", 0), unanswered=left.get("unanswered", 0), omitted=rec["plan"].get("omitted", 0))
         plist.append(row)
     planned = sum(1 for x in plist if x["state"] == "planned")
     applied = sum(1 for x in plist if x["state"] == "applied")
@@ -215,8 +249,9 @@ def _formats_item(heads, ov, variants, plans, rev, job):
         state = "done" if got == len(need) else "failed" if failed and not got else "partial" if got else "none"
         text = (f"서식 정리 계획 {got}/{len(need)} 템플릿" + (" — " + " · ".join(b for b in bits if b) if any(bits) else "")) if state != "none"             else f"서식 정리 계획 안 받음 — 정리할 템플릿 {len(need)}" + (f" · 옛 계획 {stale}" if stale else "")
         llm = {"state": state, "text": text, "error": (part.get("msg") or job.error) if failed else None}  # 같이 돈 표도 실패했으면 작업 오류는 표의 것 — 서식은 제 단계 글
-    done = sum(1 for r in (plans or {}).values() if r and r.get("applied"))  # 이 헤딩 그래프에서 반영한 계획 수(모든 템플릿 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도: 진행 줄 「조정」 의 ✓)
-    llm.update({"need": len(need), "planned": planned, "applied": applied, "stale": stale, "done": done, "change": sum(x.get("change", 0) for x in plist), "moved": sum(x.get("moved", 0) for x in plist), "list": plist})
+    done = sum(1 for r in (plans or {}).values() if plan_applied(r, ov))  # 이 헤딩 그래프에서 반영한 계획 수(모든 템플릿 — 다 맞춰 「정리할 템플릿」 에서 빠진 것도: 진행 줄 「조정」 의 ✓) — 반영을 되돌린 계획은 안 센다
+    llm.update({"need": len(need), "planned": planned, "applied": applied, "stale": stale, "done": done, "change": sum(x.get("change", 0) for x in plist), "moved": sum(x.get("moved", 0) for x in plist),
+                "kept": sum(x.get("kept", 0) for x in plist), "unanswered": sum(x.get("unanswered", 0) for x in plist), "omitted": sum(x.get("omitted", 0) for x in plist), "list": plist})
     apply = {"state": "done" if aligned == levels else "none", "text": f"맞춘 레벨 {aligned}/{levels}" + (f" · 대표와 다른 줄 {others}" if others else "")} if ready         else {"state": "none", "text": ""}
     return {"key": "formats", "name": NAMES["formats"], "state": heads["state"] if ov is not None or heads["state"] != "done" else "none",
             "levels": levels, "aligned": aligned, "groups": groups, "others": others, "slots": slots,

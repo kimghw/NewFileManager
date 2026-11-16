@@ -323,6 +323,13 @@ async function tpaRun() { // 「정리 계획 받기」 — 고친 스킬은 먼
 const tpaSkillKey = () => (typeof TPA.key === "string" && TPA.key && TPA.key !== TPA_NEW ? TPA.key : "tidy"); // 이어 돌리기(LLM 검증·보완 · 헤딩 그래프(LLM) · 계획 받기)가 쓸 스킬 — 이 열에서 고른 것(없으면 기본)
 const TPA_SFX = "abcdefghijklmnopqrstuvwxyz";
 const tpaKey = (lv, g) => `${lv.level}|${g.group}`;
+function tpaEdited() { // 이 화면에서 고르기를 에이전트가 고른 것과 다르게 바꿔 둔 계획의 템플릿 번호 | null — 「모두 반영」 의 확인 창이 알린다(tpl_plan_bar.js): 바꾼 고르기는 화면에만 있어 이 열의 「적용」 으로만 반영된다
+  const P = TPA.plan;
+  if (!P || !P.plan || TPA.done) return null;
+  for (const lv of P.plan.levels) for (const row of tpaRows(lv)) if ((TPA.choice.get(tpaKey(lv, row.g)) || row.was) !== row.was) return P.no;
+  return null;
+}
+
 function tpaRows(lv) { // 레벨의 갈래 줄(대표 갈래 빼고) — 에이전트의 답 차례: 맞추기 · 다른 템플릿(그 대표 → 같이 옮길 것) · 그대로. {g, was(에이전트가 고른 것), sp(뗄 항목), head(그 항목의 대표)}
   const rows = [];
   for (const g of lv.match || []) rows.push({ g, was: "match" });
@@ -379,7 +386,7 @@ async function tpaApply() { // 「적용」 — 고른 갈래만 대표 모양�
   TPA.busy = "apply";
   TPA.started = Date.now();
   tpaRunSync();
-  const r = await olmApplyTpl(P.tpl, { rev: P.rev, by: "agent", levels: todo.levels });
+  const r = await olmApplyTpl(P.tpl, { rev: state.serverRev, by: "agent", plan: P.at, levels: todo.levels }); // plan = 이 계획의 표시(at) — 서버는 남아 있는 계획이 이것일 때만 「반영함」 으로 적는다(spec_hwpx_웹편집 ② §8-4)
   TPA.busy = null;
   if (r) {
     const n = (r.changed || []).length, made = (r.splits || []).map((x) => `T${x.no}`);
@@ -389,11 +396,29 @@ async function tpaApply() { // 「적용」 — 고른 갈래만 대표 모양�
   if (tpaOn()) tplAgentDraw();
 }
 
+// 계획이 옛것인가 — 계획은 문서 차례가 아니라 **그 템플릿 줄의 지문**에 묶인다(서버 analysis.plan_state — spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」): 문서의 다른 곳을 고쳤어도 계획은 그대로 쓴다.
+// 화면은 지문을 모른다 — 계획을 받은 뒤 문서 차례가 바뀌었으면 서버에 그 계획의 상태를 한 번 묻고(GET …/outline/agent/plans), 그 답이 올 때까지는 쓸 수 있는 것으로 둔다(옛 계획이면 적용 때 서버가 409 로 막는다).
+function tpaStale(P) {
+  if (!P || P.rev === state.serverRev) return false;
+  const k = `${state.id}|${P.tpl}|${P.at}|${state.serverRev}`;
+  if (TPA.staleKey === k) return !!TPA.staleIs;
+  TPA.staleKey = k;
+  TPA.staleIs = false;
+  const id = state.id, epoch = state.epoch;
+  api(`/api/docs/${id}/outline/agent/plans`).then((r) => {
+    if (epoch !== state.epoch || TPA.staleKey !== k) return;
+    const rec = (r.plans || {})[String(P.tpl)];
+    const bad = !rec || rec.at !== P.at || rec.state !== "planned";
+    if (bad !== TPA.staleIs) { TPA.staleIs = bad; if (tpaOn()) tplAgentDraw(); }
+  }).catch(() => { /* 못 물으면 쓸 수 있는 것으로 — 서버가 막는다 */ });
+  return false;
+}
+
 function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 줄마다 고르기(맞추기 / 그대로 / T1L3a 로) · 적용
   const P = TPA.plan, plan = P.plan, sec = tpaSection("④", "정리 계획", "에이전트가 고른 것입니다 — 갈래마다 고르기를 바꿀 수 있습니다. 「맞추기」 = 이 레벨의 대표 모양으로 바꿉니다 · 「그대로」 = 손대지 않습니다 · "
     + "「T1L3a 로」 = 그 갈래를 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 기본 스킬의 기준: 레터가 대표와 다른 갈래는 떼고, 레터가 같은 갈래는 대표에 맞춥니다 — 예외로 남길 갈래는 「그대로」 로 고르세요. 같은 이름을 고른 갈래끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
     + "대표를 바꾸는 레벨은 그 레벨에서 고른 갈래가 있어야 적용됩니다."),
-    stale = P.rev !== state.serverRev && !TPA.done, done = TPA.done, lock = !!TPA.busy || stale || !!done;
+    stale = tpaStale(P) && !TPA.done, done = TPA.done, lock = !!TPA.busy || stale || !!done;
   sec.classList.add("tpa-plan");
   if (plan.summary) sec.append(el("p", "tpa-sum", plan.summary));
   const count = el("span", "tpa-count");
@@ -404,7 +429,7 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
     apply.title = todo.moved && !done ? `맞출 줄 ${nf(todo.n)}개 · 서식 종속 템플릿으로 뗄 줄 ${nf(todo.moved)}개(그 아래 줄도 같이 갑니다) — 「실행 취소」 한 번으로 되돌립니다` : "";
     apply.disabled = lock || !todo.levels.length;
     count.textContent = done ? `레벨 ${done.levels}개${done.reps ? ` · 대표 바꿈 ${done.reps}` : ""}${done.made && done.made.length ? ` · 새 템플릿 ${done.made.join(" · ")}` : ""} · 「실행 취소」 한 번으로 되돌립니다`
-      : stale ? "문서가 바뀌었습니다 — 계획을 다시 받으세요" : `고른 갈래 ${todo.picked}개`;
+      : stale ? "이 템플릿의 줄이 바뀌었습니다 — 계획을 다시 받으세요" : `고른 갈래 ${todo.picked}개`;
   };
   const redraw = (key) => { // 고르기를 바꾸면 계획 절만 다시 그리고(대표·맞춤 표시가 줄끼리 얽힌다) 그 고르기에 초점을 돌려준다
     const fresh = tpaPlan();
