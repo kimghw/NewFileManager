@@ -513,6 +513,69 @@ try:
         page.wait_for_function("() => !document.querySelector('#projectList [data-project-empty]') && !projectStarting", timeout=30000)
         check("삭제 뒤 — 프로젝트 목록(API)과 작업 리스트에서 사라짐", all(p["name"] != "프로젝트 빈" for p in api("GET", "/api/projects").json()["projects"])
               and page.locator('[data-project-menu="프로젝트 빈"]').count() == 0)
+        # TASK · 문서 지우기(spec_작업 ② §7 「작업 지우기」 · §17, 2026-11-16) — TASK 줄 끝 「지우기」 = 그 라운드의 문서 전부 · 문서 줄 끝 × = 그 문서 하나 → 줄 아래 확인 줄(창 없음). 320px 폭 그대로.
+        gone = "프로젝트 지움"
+        g_plan, g_report, g_extra = upload(project=gone), upload("report", project=gone), upload(project=gone)  # 이관 Round 1 — 문서 셋
+        g_fit = upload(project=gone, job="plan_fit")  # 양식 맞추기 Round 1 → 아래에서 Round 2 를 만든다(이전 라운드가 남는다는 글)
+        g_fit2 = api("POST", f"/api/works/{g_fit}/round", json={"source": "original"}).json()["docId"]
+        page.locator("#projectWorkspace .project-list-head button").click()  # 새로고침
+        page.wait_for_selector(f'[data-project-work="{g_report}"]', timeout=30000)
+        g_round, g_key = f'round:["{gone}","plan_to_report",1]', lambda wid: f"file:{wid}"
+        drop_btn = lambda key: page.locator("#projectList [data-project-drop]").evaluate_all("(list, key) => list.findIndex((b) => b.dataset.projectDrop === key)", key)
+        drop = lambda key: page.locator("#projectList [data-project-drop]").nth(drop_btn(key))
+        works_now = lambda: {w["id"] for w in api("GET", "/api/works").json()}
+        opened = page.evaluate("() => state.id")  # 지금 연 문서 — 다른 문서를 지워도 그대로여야 한다
+        check("TASK 줄마다 「지우기」 · 문서 줄 × 는 문서가 둘 이상인 묶음에만", drop_btn(g_round) >= 0 and drop(g_round).inner_text() == "지우기" and drop_btn(g_key(g_plan)) >= 0
+              and drop_btn(g_key(g_fit2)) < 0 and page.locator("#projectList .project-task-open").count() == page.locator("#projectList .project-task-del").count())
+        page.locator(f'[data-project-work="{g_report}"]').locator("xpath=ancestor::div[contains(@class, 'project-task-item')]").locator(".project-task-files > summary").click()
+        drop(g_key(g_extra)).click()
+        drop_text = page.locator("#projectList .project-drop .project-edit-text").inner_text()
+        check("문서 줄 × — 그 줄 아래 확인 줄(문서 이름 · 되살릴 수 없음) · 포커스는 취소 · 아직 안 지움", "문서 「기술수요조사서.hwpx」을(를) 지울까요?" in drop_text and "되살릴 수 없습니다" in drop_text
+              and page.evaluate("() => document.activeElement.dataset.projectEdit === 'drop-cancel'") and drop(g_key(g_extra)).get_attribute("aria-expanded") == "true" and g_extra in works_now(), drop_text)
+        check("320px — 지우기 확인 줄 가로 넘침 없음", page.evaluate(overflow) <= 1, page.evaluate(overflow))
+        page.locator("#panel").screenshot(path=str(OUT / "08_task_drop_file.png"))
+        page.keyboard.press("Escape")
+        check("Esc — 확인 줄 닫힘 · 포커스는 그 × 로 · 문서 그대로", page.locator("#projectList .project-drop").count() == 0
+              and page.evaluate("key => document.activeElement.dataset.projectDrop === key", g_key(g_extra)) and g_extra in works_now())
+        drop(g_key(g_extra)).click()
+        page.locator('[data-project-menu="프로젝트 A"]').click()
+        check("확인 줄은 한 번에 하나 — 프로젝트 ⋯ 를 열면 지우기 확인 줄이 닫힘", page.locator("#projectList .project-drop").count() == 0 and page.locator("#projectList .project-edit").count() == 1)
+        drop(g_key(g_extra)).click()
+        check("… 지우기 확인 줄을 열면 프로젝트 ⋯ 줄이 닫힘", page.locator("#projectList .project-drop").count() == 1 and page.locator("#projectList .project-edit").count() == 1
+              and page.locator('[data-project-menu="프로젝트 A"]').get_attribute("aria-expanded") == "false")
+        with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g_extra}") and r.request.method == "DELETE", timeout=30000) as dropped:
+            page.locator('#projectList [data-project-edit="drop-ok"]').click()
+        page.wait_for_function("id => !document.querySelector(`[data-project-file=\"${id}\"]`) && !projectStarting && !projectDrop", arg=g_extra, timeout=30000)
+        check("문서 하나 지우기 — DELETE /api/works/{id} · 그 문서만 없어지고 같은 묶음의 다른 문서는 그대로 · 알림", dropped.value.status == 200 and g_extra not in works_now() and {g_plan, g_report} <= works_now()
+              and "문서 「기술수요조사서.hwpx」을(를) 지웠습니다" in page.locator("#toast").text_content() and bool(opened) and page.evaluate("id => state.id === id", opened), (page.locator("#toast").text_content(), opened, page.evaluate("() => state.id")))
+        drop(g_round).click()
+        drop_text = page.locator("#projectList .project-drop").inner_text()
+        check("TASK 줄 「지우기」 — 「프로젝트 · TASK · Round 의 문서 N개」 + 문서 이름 목록", f"프로젝트 「{gone}」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in drop_text
+              and page.locator("#projectList .project-drop .work-drop-names > li").count() == 2 and "시작 화면으로" not in drop_text and "이전 라운드" not in drop_text, drop_text)
+        check("320px — 라운드 지우기 확인 줄 가로 넘침 없음", page.evaluate(overflow) <= 1, page.evaluate(overflow))
+        page.locator("#panel").screenshot(path=str(OUT / "09_task_drop_round.png"))
+        deleted = []
+        page.on("response", lambda r: deleted.append(r.url.rsplit("/", 1)[1]) if r.request.method == "DELETE" and "/api/works/" in r.url and r.status == 200 else None)
+        page.locator('#projectList [data-project-edit="drop-ok"]').click()
+        page.wait_for_function("id => !document.querySelector(`[data-project-work=\"${id}\"]`) && !projectStarting && !projectDrop", arg=g_report, timeout=30000)
+        check("라운드 지우기 — 그 라운드의 문서를 다 지움 · 같은 프로젝트의 다른 TASK 는 그대로 · 알림", set(deleted) == {g_plan, g_report} and not ({g_plan, g_report} & works_now()) and {g_fit, g_fit2} <= works_now()
+              and "의 문서 2개를 지웠습니다" in page.locator("#toast").text_content(), (deleted, page.locator("#toast").text_content()))
+        drop(f'round:["{gone}","plan_fit",2]').click()
+        drop_text = page.locator("#projectList .project-drop .project-edit-text").inner_text()
+        check("최신 라운드를 지울 때 — 「이전 라운드 1개는 남습니다」", "이전 라운드 1개는 남습니다" in drop_text, drop_text)
+        page.locator('#projectList [data-project-edit="drop-ok"]').click()
+        page.wait_for_function("id => !document.querySelector(`[data-project-work=\"${id}\"]`) && !projectStarting && !projectDrop", arg=g_fit2, timeout=30000)
+        check("최신 라운드를 지우면 이전 라운드가 진행 작업으로", g_fit2 not in works_now() and g_fit in works_now()
+              and page.locator(f'.project-previous [data-project-work="{g_fit}"]').count() == 0 and "진행 작업" in page.locator(f'[data-project-work="{g_fit}"]').inner_text())
+        page.evaluate("id => projectOpen(id)", g_fit)  # 지금 연 문서를 지우면 — 글에 알리고, 지운 뒤 시작 화면으로
+        wait_work(page, g_fit)
+        show_list(page)
+        drop(f'round:["{gone}","plan_fit",1]').click()
+        drop_text = page.locator("#projectList .project-drop .project-edit-text").inner_text()
+        check("지금 연 문서를 지울 때 — 「지금 연 문서가 들어 있어 시작 화면으로 돌아갑니다」", "지금 연 문서가 들어 있어 시작 화면으로 돌아갑니다" in drop_text, drop_text)
+        page.locator('#projectList [data-project-edit="drop-ok"]').click()
+        page.wait_for_function("() => !state.id && !document.getElementById('empty').hidden", timeout=30000)
+        check("지금 연 문서 지우기 — 문서가 없어지고 화면은 시작 화면으로", g_fit not in works_now() and requests.get(f"{BASE}/api/docs/{g_fit}", timeout=30).status_code == 404)
         page.evaluate("id => projectOpen(id)", current)  # 아래 「문서까지 삭제」 는 지금 연 문서(프로젝트 C2)로 본다
         wait_work(page, current)
         show_list(page)

@@ -359,7 +359,8 @@ async function loadWorks() {
     return; // 연결 오류는 빈 작업 목록이 아니다. 이미 표시한 작업은 그대로 둔다.
   }
   const rows = recentRows(list); // 최근 작업 = TASK 하나가 한 줄(② §7) — 전체 작업 보기는 파일 하나가 한 줄 그대로
-  renderRecentWorks($("workList"), rows.slice(0, 4));
+  recentShown = rows.slice(0, 4);
+  renderRecentWorks($("workList"), recentShown);
   renderWorks($("workListDlg"), list);
   docSwitchDraw(list); // 상단 바 「다른 문서」(② §10)
   if (typeof projectListDraw === "function") projectListDraw();
@@ -470,7 +471,16 @@ function renderRecentWorks(ul, rows) {
     end.append(time, el("span", "recent-work-arrow", "이어서 열기 →"));
     open.append(icon, main, end);
     open.onclick = () => openWork(w.id);
-    li.append(open);
+    // 줄 끝 × = 이 줄에 든 문서 지우기(② §7 「작업 지우기」) — 단추 안에 단추를 둘 수 없어 여는 단추 위에 겹쳐 놓는다(.recent-work-row). 누르면 줄 아래 확인 줄(창 없음)
+    const key = li.dataset.works, dropOn = !!recentDrop && recentDrop.key === key, row = el("div", "recent-work-row"), del = el("button", "icon recent-work-del", "×");
+    del.type = "button";
+    del.title = many ? `이 TASK 의 문서 ${docs.length}개 지우기` : "이 작업 지우기";
+    del.setAttribute("aria-label", `${T.job && T.project ? `${T.project} · ${T.name}${many ? ` · 문서 ${docs.length}개` : ""}` : w.name} 지우기`);
+    del.setAttribute("aria-expanded", String(dropOn));
+    del.disabled = !!recentDrop && recentDrop.busy;
+    del.onclick = () => recentDropSet(dropOn ? "" : key, dropOn ? "del" : "cancel");
+    row.append(open, del);
+    li.append(row);
     if (many) {
       const more = el("div", "recent-work-docs");
       more.append(el("span", "recent-work-docs-label", "다른 문서"));
@@ -487,8 +497,91 @@ function renderRecentWorks(ul, rows) {
       if (docs.length > 4) more.append(el("span", "recent-work-more", `외 ${docs.length - 4}개 — 전체 작업 보기에서`));
       li.append(more);
     }
+    if (dropOn) { li.classList.add("dropping"); li.append(recentDropEl(r)); }
     ul.append(li);
   }
+}
+
+// ---- 작업 지우기(spec_작업 ② §7 「작업 지우기」, 2026-11-16 사용자 "작업 삭제 기능이 없네.") — 시작 화면 최근 작업 줄 · 작업 리스트의 TASK 줄·문서 줄(project_workspace.js)이 같이 쓰는 몸통.
+// 확인은 부르는 쪽이 줄 아래 인라인 확인 줄로 받는다(창 없음 — 작업 목록 창의 × 만 전처럼 브라우저 확인 창: deleteWork). 서버는 문서마다 DELETE /api/works/{id}.
+const DROP_WARN = "올린 원본·편집 상태·검증 기록이 모두 지워지고 되살릴 수 없습니다";
+function worksDropText(docs, what) { // 확인 줄의 글 — 문서 하나면 그 이름, 여럿이면 「<무엇> 의 문서 N개」
+  return docs.length === 1 ? `문서 「${docs[0].name}」을(를) 지울까요? ${DROP_WARN}` : `${what} 의 문서 ${docs.length}개를 지울까요? ${DROP_WARN}`;
+}
+function worksDropNames(docs) { // 여럿일 때 지울 문서 이름(5개까지 · 넘으면 「외 n개」) — 하나면 null(글에 이름이 있다)
+  if (docs.length < 2) return null;
+  const ul = el("ul", "work-drop-names");
+  for (const d of docs.slice(0, 5)) ul.append(el("li", null, d.name));
+  if (docs.length > 5) ul.append(el("li", "more", `외 ${docs.length - 5}개`));
+  return ul;
+}
+function worksOlderRounds(docs) { // 그 문서들과 같은 프로젝트 · TASK 의 더 낮은 라운드 수 — 이름 없는 작업은 서로 관계없으므로 0
+  const t = docs[0].task || {};
+  if (!t.project || !t.job) return 0;
+  return new Set(worksList.filter((w) => w.task && w.task.project === t.project && w.task.job === t.job && taskRound(w.task) < taskRound(t)).map((w) => taskRound(w.task))).size;
+}
+function worksDropNotes(docs, round) { // 확인 줄에 덧붙이는 글 — round = 그 라운드를 통째로 지우는가(이전 라운드가 남는다는 글은 그때만)
+  const notes = [], older = round ? worksOlderRounds(docs) : 0;
+  if (state.id && docs.some((d) => d.id === state.id)) notes.push("지금 연 문서가 들어 있어 시작 화면으로 돌아갑니다");
+  if (older) notes.push(`이전 라운드 ${older}개는 남습니다`);
+  return notes.join(" · ");
+}
+// 지금 연 문서는 맨 뒤에(중간에 실패해도 화면이 남게) · 이미 없는 작업(404)은 지운 것으로 → {done: [지운 id], fail: {id, message} | null}. 지금 문서를 지웠으면 화면을 닫는다
+async function worksDelete(ids) {
+  const order = [...ids].sort((a, b) => (a === state.id) - (b === state.id)), done = [];
+  let fail = null;
+  for (const id of order) {
+    try { await api(`/api/works/${id}`, { method: "DELETE" }); done.push(id); }
+    catch (e) { if (e.status === 404) done.push(id); else { fail = { id, message: e.message }; break; } }
+  }
+  if (state.id && done.includes(state.id)) closeDoc();
+  return { done, fail };
+}
+function worksDropToast(docs, result, what) { // 지운 뒤 알림 — 다 지웠나 · 몇 개만 지웠나(지운 것은 되돌리지 못한다)
+  const n = docs.length, m = result.done.length, name = (id) => (docs.find((d) => d.id === id) || {}).name || id;
+  if (!result.fail) toast(n === 1 ? `문서 「${docs[0].name}」을(를) 지웠습니다` : `${what} 의 문서 ${n}개를 지웠습니다`);
+  else if (n === 1) toast(`문서 「${docs[0].name}」을(를) 지우지 못했습니다: ${result.fail.message}`, true);
+  else toast(`문서 ${n}개 가운데 ${m}개만 지웠습니다 — 「${name(result.fail.id)}」: ${result.fail.message}`, true);
+}
+
+let recentShown = [], recentDrop = null; // 최근 작업에 그린 줄(다시 그릴 때 쓴다) · 지우기 확인 줄을 편 줄 하나: {key: 그 줄에 든 작업 id 들(li.dataset.works), busy}
+function recentDropSet(key, focus = "") { // key "" = 닫기 · focus: "cancel" = 확인 줄의 「취소」 로, "del" = 그 줄의 × 로
+  if (recentDrop && recentDrop.busy) return;
+  const at = key || (recentDrop && recentDrop.key);
+  recentDrop = key ? { key, busy: false } : null;
+  renderRecentWorks($("workList"), recentShown);
+  const li = at && [...$("workList").children].find((x) => x.dataset.works === at);
+  const sel = focus === "cancel" ? '[data-recent-drop="cancel"]' : focus === "del" ? ".recent-work-del" : "";
+  const to = li && sel && li.querySelector(sel);
+  if (to) to.focus();
+}
+function recentDropEl(r) { // 그 줄 아래 확인 줄 — 무엇을 몇 개 · 되살릴 수 없음 · 「지우기」·「취소」(Esc = 취소)
+  const docs = r.docs, T = workTaskInfo(docs[0]), busy = recentDrop.busy, box = el("div", "recent-work-drop");
+  const what = `프로젝트 「${T.project}」 · TASK 「${T.name}」 · Round ${r.round}`, notes = worksDropNotes(docs, true), names = worksDropNames(docs);
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "지우기 확인");
+  box.append(el("p", "work-drop-text", worksDropText(docs, what) + (notes ? ` — ${notes}` : "")));
+  if (names) box.append(names);
+  const ok = hBtn(busy ? "지우는 중…" : "지우기", () => recentDropRun(r, what), { cls: "btn sm project-danger", disabled: busy }), cancel = hBtn("취소", () => recentDropSet("", "del"), { disabled: busy });
+  ok.dataset.recentDrop = "ok";
+  cancel.dataset.recentDrop = "cancel";
+  const acts = el("div", "work-drop-acts");
+  acts.append(ok, cancel);
+  box.append(acts);
+  box.onkeydown = (e) => { if (e.key === "Escape") { e.preventDefault(); recentDropSet("", "del"); } };
+  return box;
+}
+async function recentDropRun(r, what) {
+  const d = recentDrop;
+  if (!d || d.busy) return;
+  d.busy = true;
+  renderRecentWorks($("workList"), recentShown);
+  const result = await worksDelete(r.docs.map((x) => x.id));
+  recentDrop = null;
+  recentShown = recentShown.map((row) => ({ ...row, docs: row.docs.filter((x) => !result.done.includes(x.id)) })).filter((row) => row.docs.length); // 목록을 다시 못 읽어도 지운 줄은 걷는다
+  renderRecentWorks($("workList"), recentShown);
+  worksDropToast(r.docs, result, what);
+  await loadWorks();
 }
 
 function renderWorks(ul, list) {

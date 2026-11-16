@@ -457,6 +457,56 @@ try:
               and nlist == len(requests.get(f"{base}/api/works", timeout=10).json()), (g, hidden, nlist))
         page.locator("#recent").scroll_into_view_if_needed()
         page.screenshot(path=str(OUT / "7_recent_round2.png"))
+
+        # ---- 7-4. 최근 작업 줄 끝 × = 그 줄의 문서 지우기(spec_작업 ② §7 「작업 지우기」, 2026-11-16 사용자 "작업 삭제 기능이 없네.") — 줄 아래 확인 줄(창 없음) · 지우는 것은 그 줄에 든 문서(TASK 의 최신 라운드)
+        DEL = """(id) => { const li = document.querySelector(`#workList > li.recent-work[data-works~='${id}']`); if (!li) return null;
+            const x = li.querySelector('.recent-work-del'), r = x.getBoundingClientRect(), e = li.querySelector('.recent-work-end').getBoundingClientRect(), o = li.querySelector('.recent-work-open').getBoundingClientRect(),
+              ul = document.getElementById('workList').getBoundingClientRect(), d = li.querySelector('.recent-work-drop');
+            return { n: document.querySelectorAll('#workList .recent-work-del').length, rows: document.querySelectorAll('#workList > li.recent-work').length, expanded: x.getAttribute('aria-expanded'), label: x.getAttribute('aria-label'),
+                     inRow: r.top >= o.top && r.bottom <= o.bottom && r.right <= ul.right + 1, clear: r.left >= e.right - 1, size: Math.round(r.width),
+                     text: d ? d.querySelector('.work-drop-text').textContent : '', names: d ? [...d.querySelectorAll('.work-drop-names > li')].map((n) => n.textContent) : [],
+                     focus: document.activeElement.dataset.recentDrop || (document.activeElement.classList.contains('recent-work-del') ? 'x' : ''),
+                     fit: !d || [...d.querySelectorAll('*'), d].every((n) => { const b = n.getBoundingClientRect(); return !b.width || (b.left >= ul.left - 1 && b.right <= ul.right + 1); }) }; }"""
+        ids_now = lambda: {w["id"] for w in requests.get(f"{base}/api/works", timeout=10).json()}
+        x_of = lambda wid_: page.locator(f"#workList > li.recent-work[data-works~='{wid_}'] .recent-work-del")
+        asked = len(dialogs)
+        g3_name = next(w["name"] for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == g3)  # 보이는 이름(목적 문서는 프로젝트 꼬리가 붙는다 — ② §10) — 줄·확인 줄·알림이 같은 이름을 쓴다
+        d = page.evaluate(DEL, g3)
+        check("최근 작업 줄마다 × (줄 안 오른쪽 끝 · 「이어서 열기」 와 안 겹침 · 누를 자리 24px 이상 · 읽는 이름)", d["n"] == d["rows"] and d["inRow"] and d["clear"] and d["size"] >= 24
+              and d["expanded"] == "false" and d["label"].endswith("지우기"), d)
+        x_of(g3).click()
+        d = page.evaluate(DEL, g3)
+        check("× → 그 줄 아래 확인 줄(문서 이름 · 되살릴 수 없음 · 이전 라운드는 남음) · 포커스는 취소 · 브라우저 창 없음 · 아직 안 지움",
+              f"문서 「{g3_name}」을(를) 지울까요?" in d["text"] and "되살릴 수 없습니다" in d["text"] and "이전 라운드 1개는 남습니다" in d["text"] and d["focus"] == "cancel" and d["expanded"] == "true"
+              and len(dialogs) == asked and g3 in ids_now(), d)
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent_drop.png"))
+        page.keyboard.press("Escape")
+        d = page.evaluate(DEL, g3)
+        check("Esc — 확인 줄 닫힘 · 포커스는 그 × 로 · 문서 그대로", d["text"] == "" and d["focus"] == "x" and g3 in ids_now(), d)
+        x_of(g3).click()
+        with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g3}") and r.request.method == "DELETE", timeout=30000) as dropped:
+            page.locator('#workList [data-recent-drop="ok"]').click()
+        page.wait_for_function("(id) => !!document.querySelector(`#workList > li.recent-work[data-works~='${id}']`) && !recentDrop", arg=g2, timeout=30000)  # Round 2 가 없어져 Round 1 의 두 문서가 다시 한 줄로
+        g = page.evaluate(GROUP, g2)
+        check("지우기 — DELETE /api/works/{id} · 그 줄의 문서만 없어지고 이전 라운드는 남아 다시 최근 작업 줄로 · 알림", dropped.value.status == 200 and g3 not in ids_now() and {drop_id, g2} <= ids_now()
+              and set(g.get("works", [])) == {drop_id, g2} and f"문서 「{g3_name}」을(를) 지웠습니다" in page.locator("#toast").text_content(), (page.locator("#toast").text_content(), g))
+        x_of(g2).click()
+        d = page.evaluate(DEL, g2)
+        check("묶음 줄의 × — 「프로젝트 · TASK · Round 의 문서 N개」 + 문서 이름 목록", "프로젝트 「시험 과제」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in d["text"]
+              and len(d["names"]) == 2 and "이전 라운드" not in d["text"] and d["fit"], d)
+        page.set_viewport_size({"width": 400, "height": 900})
+        page.wait_for_timeout(250)
+        d = page.evaluate(DEL, g2)
+        check("창 400px — × 와 확인 줄이 넘치지 않음", d["inRow"] and d["fit"] and d["size"] >= 24, d)
+        page.locator("#recent").scroll_into_view_if_needed()
+        page.screenshot(path=str(OUT / "7_recent_drop_400.png"))
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(250)
+        page.locator('#workList [data-recent-drop="ok"]').click()
+        page.wait_for_function("(id) => !document.querySelector(`#workList > li.recent-work[data-works~='${id}']`) && !recentDrop", arg=g2, timeout=30000)
+        check("묶음 줄 지우기 — 그 줄의 문서를 다 지움 · 다른 작업은 그대로 · 알림 · 브라우저 창 없음", not ({drop_id, g2} & ids_now()) and {wid, plain} <= ids_now()
+              and "의 문서 2개를 지웠습니다" in page.locator("#toast").text_content() and len(dialogs) == asked and is_home(page.evaluate(HOME)), page.locator("#toast").text_content())
         reopen(page, wid)  # 아래 「좁은 창」 은 작업을 연 채로 본다
 
         # ---- 8. 좁은 창 — 앱 이름 글은 숨어도 아이콘은 남아 눌린다

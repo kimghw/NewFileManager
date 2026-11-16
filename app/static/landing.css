@@ -190,6 +190,17 @@
 .recent-work-doc:hover { background: #fafafa; border-color: #d2d2d7; }
 .recent-work-doc .recent-work-name { max-width: 280px; }
 .recent-work-more { color: #86868b; font-size: 11px; }
+/* 줄 끝 × = 그 줄의 문서 지우기(spec_작업 ② §7 「작업 지우기」) — 여는 단추(줄 전체) 위 오른쪽 끝에 겹쳐 놓고, 여는 단추는 그만큼 오른쪽을 비운다. 확인 줄은 줄 아래(본문 열에 맞춤 — .recent-work-docs 와 같은 왼쪽) */
+.recent-work-row { position: relative; }
+.recent-work-row .recent-work-open { padding-right: 52px; }
+.recent-work-del { position: absolute; top: 50%; right: 14px; width: 28px; height: 28px; margin-top: -14px; border-radius: 999px; color: #aeaeb2; font-size: 15px; line-height: 1; }
+.recent-work-del:hover:not(:disabled), .recent-work-del[aria-expanded="true"] { color: #b42318; background: #fde8e6; border-color: transparent; }
+.recent-work.dropping:last-child .recent-work-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.recent-work-drop { display: grid; gap: 8px; padding: 2px 20px 16px 77px; }
+.work-drop-text { margin: 0; color: #1d1d1f; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.work-drop-names { margin: 0; padding: 0 0 0 16px; color: #515154; font-size: 11.5px; line-height: 1.7; overflow-wrap: anywhere; }
+.work-drop-names > li.more { list-style: none; margin-left: -16px; color: #86868b; }
+.work-drop-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .home #workList > li.none { padding: 20px; line-height: 1.7; } /* 빈 목록 줄만 — 줄 안의 .none(「검증 전」 · 「TASK 없음」 · 「과제 이름 없음」)에 여백이 붙지 않게 */
 .recent-work-error { padding: 18px 20px; color: #82622b; font-size: 12px; line-height: 1.7; }
 .recent-work-error .btn { margin-left: 8px; }
@@ -232,6 +243,9 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
   .recent-work .task-logo { width: 36px; height: 36px; border-radius: 11px; }
   .recent-work .task-logo svg { width: 24px; height: 24px; }
   .recent-work-docs { padding: 0 14px 12px 61px; }
+  .recent-work-row .recent-work-open { padding-right: 44px; }
+  .recent-work-del { right: 9px; }
+  .recent-work-drop { padding: 2px 14px 14px 61px; }
 }
 @media (max-width: 460px) {
   .empty.home { padding: 24px 16px 28px; }
@@ -261,6 +275,9 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
   .recent-heading p { font-size: 10.5px; }
   .home #recentAll { padding: 0 7px; font-size: 10.5px; gap: 3px; }
   .recent-work-open { padding: 13px 11px; gap: 9px; align-items: flex-start; }
+  .recent-work-row .recent-work-open { padding-right: 40px; }
+  .recent-work-del { right: 6px; }
+  .recent-work-drop { padding: 2px 11px 13px 11px; }
   .recent-work-title { font-size: 13px; }
   .recent-work-file { font-size: 11px; }
   .recent-work .task-logo { width: 32px; height: 32px; margin-top: 2px; border-radius: 10px; }

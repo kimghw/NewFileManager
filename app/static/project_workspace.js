@@ -172,6 +172,8 @@ function projectListDraw() {
   const refocus = projectFocusKeep(list);
   const query = $("projectSearch").value.trim().toLocaleLowerCase(), all = projectGroups(), empties = projectEmptyNames(), names = [...new Set(all.map((g) => g.project).filter(Boolean)), ...empties];
   if (projectEdit && !projectEdit.busy && !names.includes(projectEdit.name)) projectEdit = null; // 다른 곳에서 없어진 프로젝트
+  if (projectDrop && !projectDrop.busy && !projectDropTarget(all)) projectDrop = null; // 다른 곳에서 없어진 TASK·문서(지우기 확인 줄 — ② §7 「작업 지우기」)
+  const drop = projectDropTarget(all);
   const draftKey = taskScopeKey();
   if ($("projectNewRound").dataset.work !== state.id) $("projectNewRound").hidden = true;
   if (projectDraft !== draftKey) { projectDraft = draftKey; $("projectStartName").value = taskProject(); if (TASK_CATALOG[(state.task || {}).job] && !TASK_CATALOG[state.task.job].soon) $("projectStartTask").value = state.task.job; }
@@ -183,11 +185,11 @@ function projectListDraw() {
     head.append(el("strong", null, name || "프로젝트 미지정"), el("span", null, `진행 TASK ${items.filter((g) => g.latest).length}`)); section.append(head);
     if (name) { head.append(projectMenuBtn(name, false)); if (projectEdit && projectEdit.name === name) section.append(projectEditEl(name, all, false)); }
     const active = items.filter((g) => g.latest), previous = items.filter((g) => !g.latest).sort((a, b) => b.round - a.round);
-    for (const g of active) section.append(projectGroupEl(g, open));
+    for (const g of active) section.append(projectGroupEl(g, open, drop));
     if (previous.length) {
       const past = el("details", "project-previous"); past.dataset.group = `past:${name}`; past.open = open.has(past.dataset.group) || previous.some((g) => g.current);
       past.append(el("summary", null, `이전 라운드 ${previous.length}개`));
-      for (const g of previous) past.append(projectGroupEl(g, open));
+      for (const g of previous) past.append(projectGroupEl(g, open, drop));
       section.append(past);
     }
     list.append(section);
@@ -213,19 +215,109 @@ function projectEmptyNames() { // 문서 없는 프로젝트의 이름들(GET /a
   return [...projectInfo.map.values()].filter((p) => !(p.works || []).length && !used.has(p.name)).map((p) => p.name).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
-function projectGroupEl(g, open) {
+function projectGroupEl(g, open, target) { // target = 지우기 확인 줄을 편 곳(projectDropTarget — 없으면 null)
   const row = el("div", "project-task-item" + (g.current ? " current" : ""));
   const button = el("button", "project-task-open"); button.type = "button"; button.dataset.projectWork = g.main.id;
-  button.setAttribute("aria-label", `${g.project || "프로젝트 미지정"} · ${(TASK_CATALOG[g.job] || {}).name || "TASK 미지정"} · Round ${g.round} 열기`);
+  const label = `${g.project || "프로젝트 미지정"} · ${(TASK_CATALOG[g.job] || {}).name || "TASK 미지정"} · Round ${g.round}`;
+  button.setAttribute("aria-label", `${label} 열기`);
   if (g.current) button.setAttribute("aria-current", "true");
   const title = el("span", "project-task-name", (TASK_CATALOG[g.job] || {}).name || "TASK 미지정");
   const meta = el("span", "project-task-meta", `Round ${g.round} · ${g.docs.length}개 문서${g.current ? " · 현재 작업" : g.latest ? " · 진행 작업" : " · 이전 라운드"}`);
-  button.append(title, meta); button.onclick = () => projectOpen(g.main.id); row.append(button);
-  const files = el("details", "project-task-files"); files.dataset.group = g.key; files.open = open.has(g.key);
+  button.append(title, meta); button.onclick = () => projectOpen(g.main.id);
+  // 줄 끝 「지우기」 = 그 라운드의 문서 전부 · 문서 줄 끝 × = 그 문서 하나(문서가 둘 이상인 묶음에만) — 누르면 그 아래 확인 줄(창 없음 · spec_작업 ② §7 「작업 지우기」)
+  const head = el("div", "project-task-head"), mine = !!target && target.g.key === g.key;
+  head.append(button, projectDropBtn(`round:${g.key}`, "지우기", "btn sm project-task-del", `이 라운드의 문서 ${g.docs.length}개를 지웁니다 — 누르면 아래에서 확인합니다`, `${label} 지우기`));
+  row.append(head);
+  if (mine && target.round) row.append(projectDropEl(target));
+  const files = el("details", "project-task-files"); files.dataset.group = g.key; files.open = open.has(g.key) || (mine && !target.round);
   files.append(el("summary", null, `첨부·참고 파일 ${g.docs.length}개`));
-  for (const w of g.docs) { const file = hBtn(w.name, () => projectOpen(w.id), { cls: "project-file", title: `${taskName("file", (w.task || {}).file)} · ${w.name}` }); file.dataset.projectFile = w.id; files.append(file); }
+  for (const w of g.docs) {
+    const file = hBtn(w.name, () => projectOpen(w.id), { cls: "project-file", title: `${taskName("file", (w.task || {}).file)} · ${w.name}` }); file.dataset.projectFile = w.id;
+    if (g.docs.length < 2) { files.append(file); continue; } // 하나뿐이면 줄 끝 「지우기」 와 같은 일
+    const line = el("div", "project-file-row");
+    line.append(file, projectDropBtn(`file:${w.id}`, "×", "icon project-file-del", "이 문서를 지웁니다 — 누르면 아래에서 확인합니다", `문서 ${w.name} 지우기`));
+    files.append(line);
+    if (mine && !target.round && target.docs[0].id === w.id) files.append(projectDropEl(target));
+  }
   row.append(files);
   return row;
+}
+
+// ---- TASK · 문서 지우기(spec_작업 ② §7 「작업 지우기」 · §17, 2026-11-16 사용자 "작업 삭제 기능이 없네.") — TASK 줄 끝 「지우기」(그 라운드의 문서 전부) · 문서 줄 끝 ×(그 문서 하나) → 그 아래 인라인 확인 줄(창 없음).
+// 글·지우기 몸통·알림은 시작 화면 최근 작업 줄과 같은 것(app.js worksDropText · worksDelete · worksDropToast). 프로젝트를 통째로 지우는 것은 머리 줄 ⋯ → 삭제(위 projectDelete — 프로젝트 구성 기록도 지운다)
+let projectDrop = null; // 확인 줄을 편 곳 하나: {key: "round:<묶음 키>" | "file:<작업 id>", busy}
+const projectDropWhat = (g) => `${g.project ? `프로젝트 「${g.project}」 · ` : ""}TASK 「${(TASK_CATALOG[g.job] || {}).name || "TASK 미지정"}」 · Round ${g.round}`;
+
+function projectDropTarget(groups = projectGroups()) { // 확인 줄을 편 곳 → {g: 묶음, docs: 지울 문서, round: 라운드를 통째로 지우나} · 그 사이 없어졌으면 null
+  const d = projectDrop;
+  if (!d) return null;
+  if (d.key.startsWith("file:")) {
+    const id = d.key.slice(5), g = groups.find((x) => x.docs.some((w) => w.id === id));
+    return g ? { g, docs: g.docs.filter((w) => w.id === id), round: false } : null;
+  }
+  const g = groups.find((x) => `round:${x.key}` === d.key);
+  return g ? { g, docs: g.docs, round: true } : null;
+}
+
+function projectDropBtn(key, text, cls, title, label) { // 확인 줄을 여닫는 단추 — 펼친 것은 진행 중에도 닫을 수 있게 둔다(projectMenuBtn 과 같게)
+  const on = !!projectDrop && projectDrop.key === key;
+  const b = hBtn(text, () => projectDropSet(on ? "" : key), { cls: cls + (on ? " on" : ""), disabled: (!on && projectBusy()) || (!!projectDrop && projectDrop.busy), title });
+  b.setAttribute("aria-expanded", String(on)); b.setAttribute("aria-label", label);
+  b.dataset.projectDrop = key; b.dataset.projectEdit = `drop:${key}`;
+  if (!on) b.dataset.projectAct = "on";
+  return b;
+}
+
+function projectDropSet(key) { // key "" = 닫기. 확인 줄은 한 번에 하나 — 프로젝트 ⋯ 줄도 닫는다
+  if (projectDrop && projectDrop.busy) return;
+  if (key && projectBusy()) { toast(PROJECT_WAIT); return; }
+  const was = projectDrop && projectDrop.key;
+  projectDrop = key ? { key, busy: false } : null;
+  if (key && projectEdit && !projectEdit.busy) projectEdit = null;
+  projectFocusWant = key ? "drop-cancel" : was ? `drop:${was}` : "";
+  projectListDraw();
+}
+
+function projectDropEl(t) { // 줄 아래 확인 줄 — 무엇을 몇 개 · 되살릴 수 없음 · 「지우기」·「취소」(Esc = 취소)
+  const busy = projectDrop.busy, box = el("div", "project-edit project-drop"), notes = worksDropNotes(t.docs, t.round), names = worksDropNames(t.docs);
+  box.setAttribute("role", "group"); box.setAttribute("aria-label", "지우기 확인");
+  box.append(el("p", "project-edit-text", worksDropText(t.docs, projectDropWhat(t.g)) + (notes ? ` — ${notes}` : "")));
+  if (names) box.append(names);
+  const row = el("div", "project-edit-row");
+  const ok = hBtn(busy ? "지우는 중…" : "지우기", () => projectDropRun(), { cls: "btn sm project-danger", disabled: busy, title: DROP_WARN }); ok.dataset.projectEdit = "drop-ok";
+  const cancel = hBtn("취소", () => projectDropSet(""), { disabled: busy }); cancel.dataset.projectEdit = "drop-cancel";
+  row.append(ok, cancel); box.append(row);
+  box.onkeydown = (e) => { if (e.key === "Escape") { e.preventDefault(); projectDropSet(""); } };
+  return box;
+}
+
+async function projectDropRun() { // 확인 줄의 「지우기」 — 진행 중 저장을 마친 뒤(projectChange 와 같은 차례) 문서마다 DELETE /api/works/{id}(app.js worksDelete)
+  const d = projectDrop, t = projectDropTarget();
+  if (!d || d.busy || !t) return;
+  if (projectBusy(false)) { toast(PROJECT_WAIT); return; }
+  const docs = t.docs, what = projectDropWhat(t.g);
+  const mates = !!state.id && !docs.some((w) => w.id === state.id) && docs.some((w) => taskSameScope(w)); // 지금 문서는 남고 같은 프로젝트·TASK·라운드의 다른 문서가 지워지나
+  let result = null, held = false;
+  d.busy = true;
+  try {
+    while (taskSaveCount) await taskSetPending.catch(() => {});
+    if (projectBusy(false)) { toast(PROJECT_WAIT); return; }
+    held = projectStarting = true; projectControlsSync(); projectListDraw();
+    await divSettingsFlush();
+    result = await worksDelete(docs.map((w) => w.id));
+  } catch (err) { toast(`지우지 못했습니다: ${err.message}`, true); }
+  finally { if (held) projectStarting = false; d.busy = false; projectControlsSync(); }
+  if (!result) { projectListDraw(); return; }
+  projectDrop = null;
+  worksDropToast(docs, result, what);
+  const epoch = state.epoch, again = mates && result.done.length > 0;
+  if (again) { // 지운 문서에 기대던 화면(취합 상태 · 문서 비교)을 버린다 — 둘째 면은 작업 목록을 다시 읽으면 맞춰진다(docSwitchDraw → peerSync)
+    if (typeof gatherState !== "undefined") gatherState = null;
+    if (typeof compareReset === "function") compareReset();
+  }
+  await loadWorks();
+  projectInfoLoad(true); // 문서가 다 없어진 프로젝트는 「문서 없음」 줄로(② §17)
+  if (again && epoch === state.epoch && !$("paneDiv").hidden) await divShow();
 }
 
 function projectRoundFormShow() {
@@ -314,6 +406,7 @@ function projectFocusKeep(list) { // 다시 그리기 전에 부르고, 돌려�
 
 function projectEditSet(name, mode, focus = "") { // mode "" = 닫기
   if (projectEdit && projectEdit.busy) return;
+  if (mode && projectDrop && !projectDrop.busy) projectDrop = null; // 확인 줄은 한 번에 하나 — TASK·문서 지우기 확인 줄을 닫는다(② §7 「작업 지우기」)
   projectEdit = mode ? { name, mode, draft: name, busy: false } : null;
   projectFocusWant = focus;
   projectListDraw();
