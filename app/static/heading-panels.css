@@ -59,6 +59,9 @@
 /* 「표」 탭도 이 요약·진행 줄·하위 탭 꼴을 같이 쓴다(#tablesOverview · #paneTables — 2026-11-16 사용자 「헤딩 추출이랑 표랑 uiux 가 유사했으면 좋겠어」 → 답 「표를 헤딩 추출 꼴로」 · design.md §10).
    진행 줄이 한 단계뿐이면(.hprog-one — 표 구조) 칸 하나가 남는 폭을 쓴다 · 불일치 같은 주의 수는 주황 */
 :is(#headsOverview, #tablesOverview) .hprog.hprog-one { grid-template-columns: auto minmax(0, 1fr); }
+/* 실행 메뉴 단추(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16) — 상태 줄 끝(오른쪽) · 줄 높이 26px 에 맞춤(두 탭의 .btn.sm 크기 규칙 29·28px 를 이긴다) */
+:is(#headsOverview, #tablesOverview) .result-meta .btn.sm.hrun-menu { flex: none; height: 26px; margin-left: auto; padding: 0 9px; border-color: #cfdcf3; border-radius: 6px; background: #fff; color: #2d5bd0; font-size: 11.5px; font-weight: 600; }
+:is(#headsOverview, #tablesOverview) .result-meta .btn.sm.hrun-menu:hover { background: #f0f4fc; border-color: #9fb8e6; }
 #tablesOverview .result-metric.is-warning { border-color: #eedcbd; background: #fff6e9; }
 #tablesOverview .result-metric.is-warning :is(span, strong) { color: #a56820; }
 #headsViewRun .hdl dd.llmc { color: #5b21b6; }

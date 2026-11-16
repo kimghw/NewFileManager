@@ -5792,6 +5792,29 @@ function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · 
   return box;
 }
 
+// ---- 실행 메뉴(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16 사용자 「규칙보강 실행 메뉴를 상단에 넣어야지. 표도 딱같음」) — 요약 상태 줄 끝 「실행 ▾」.
+// 전에는 실행이 「추출·설정」 의 단계 카드 안에만 있어 진행 줄에서 ○ 를 보고도 거기까지 들어가야 했다. 항목 = 진행 줄과 같은 차례(스크립트 → LLM · 유료) ·
+// 단계 카드 단추와 **같은 함수 · 같은 꺼짐 조건**(헤딩 추출 headsCard1·2·3) — 유료 항목은 그 함수의 확인 창 뒤에 돈다. 상태는 누를 때 heads.view 로 읽는다(요약은 다시 그리지 않을 수 있다).
+// opt.stages = 보일 단계(「표」 탭은 [3]) · opt.detail = 「추출·설정에서 자세히」(기본 = 헤딩 추출의 추출·설정). 부르는 곳: headsResultsSummary · tables.js tablesDraw
+function headsRunMenu(r, opt = {}) {
+  const stages = opt.stages || H_STAGES, detail = opt.detail || (() => headsResultView("Run"));
+  const b = hBtn("실행 ▾", null, { cls: "btn sm hrun-menu", title: "실행 메뉴 — 단계를 여기서 돌립니다(스크립트 무료 · LLM 유료)" });
+  b.setAttribute("aria-haspopup", "menu");
+  b.onclick = () => {
+    const v = heads.view || r, s1 = v && v.stage1, job = v && v.job, busy = !!(job && job.status === "running");
+    const sm = (s1 && s1.summary) || {}, left = (sm.unmatchedGroups || 0) + (sm.conflicts || 0);
+    const script = { 1: ["스크립트 — 문단·라벨 다시 추출", () => headsStart(1, false), busy], 2: ["스크립트 — 헤딩 그래프 만들기", () => headsStart(2, false), busy || !s1],
+      3: ["스크립트 — 표 구조 만들기", () => headsStart(3, false), busy || !s1] };
+    const llm = { 1: [`LLM — 규칙 보강 · ${left ? `남은 ${nf(left)}묶음` : "할 것 없음"} · 유료`, () => headsLlmRules(), busy || !left],
+      2: ["LLM — 헤딩 판정(헤딩 그래프) · 유료", () => headsLlmGraph(), busy || !s1], 3: ["LLM — 표 판정(표 구조) · 유료", () => headsLlmTables(), busy || !s1] };
+    const row = ([name, run, off]) => [name, "", run, off];
+    const R = b.getBoundingClientRect();
+    ctxOpen({ clientX: R.left, clientY: R.bottom + 2 }, [...stages.map((k) => row(script[k])), null, ...stages.map((k) => row(llm[k])), null,
+      [busy ? "추출·설정에서 진행 보기" : "추출·설정에서 자세히", "", detail, false]]);
+  };
+  return b;
+}
+
 const HEAD_VIEWS = ["Tree", "Labels", "Templates", "Tables", "Review", "Run"];
 function headsResultView(name) {
   panelHelpClose();
@@ -5947,6 +5970,7 @@ function headsResultsSummary(r) {
     const stage = s === s1 ? 1 : s === s2 ? 2 : 3;
     return `${stage}단계 #${s.meta?.run ?? "–"}`;
   }).join(" · "), { note: true }));
+  meta.append(headsRunMenu(r)); // 상태 줄 끝 「실행 ▾」(② §7 「실행 메뉴는 머리에」 — 「표」 탭도 같은 함수)
   overview.append(meta);
   headsNowDraw(r);
   $("headsRunHelp").replaceChildren(hHelp("추출·설정 도움말", "단계 탭을 골라 분석을 실행하거나 기준을 바꿉니다. 탭의 돌아가는 동그라미 = 그 단계가 도는 중, 점 = 뼈대에 없는 새 레터·서식·표가 문서에 생김(또는 실패). 헤딩 그래프·표 구조는 한 번 만들면 문서를 고쳐도 그대로 씁니다(뼈대). 추출 결과는 문서 구조·서식 라벨·템플릿 등의 탭에서 원문과 대조하세요."));

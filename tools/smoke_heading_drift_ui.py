@@ -69,7 +69,8 @@ SNAP = """() => {
   return {
     state: st ? st.innerText.replace(/\\s+/g, ' ').trim() : null, tag: st ? st.tagName : null, drift: st ? st.classList.contains('drift-chip') : false,
     refresh: !!q('#headsOverview .analysis-refresh'), oneLine: new Set(kids.map(mid)).size <= 1,
-    right: kids.length ? Math.max(...kids.map((e) => e.getBoundingClientRect().right)) - pane.getBoundingClientRect().right + 18 : 0, overflowX: pane.scrollWidth - pane.clientWidth,
+    // 상태 줄 항목의 오른쪽 끝 − 패널 내용 영역의 오른쪽 끝(안쪽 여백·스크롤 막대 뺀 곳). 2026-11-16 상태 줄 끝에 「실행 ▾」(margin-left: auto)를 붙여 항목이 내용 끝까지 간다 — 전의 「패널 끝 − 18px」 은 그 전 꼴에 맞춘 값
+    right: kids.length ? Math.max(...kids.map((e) => e.getBoundingClientRect().right)) - (pane.getBoundingClientRect().left + pane.clientLeft + pane.clientWidth - parseFloat(getComputedStyle(pane).paddingRight)) : 0, overflowX: pane.scrollWidth - pane.clientWidth,
     tabs: [1, 2, 3].map((k) => q('#headsStageTab' + k).dataset.state || ''), tabTitle: q('#headsStageTab2').title,
     card2: card(2), card3: card(3), card1: [...document.querySelectorAll('#heads1 .stage-notice')].map((n) => n.firstElementChild.textContent),
     marks: [...document.querySelectorAll('.tpl-mark.drift')].map((m) => m.textContent),
