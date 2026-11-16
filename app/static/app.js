@@ -6644,7 +6644,7 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
   const text = `T${ol.no} L${ol.level}${lab ? ` ${lab}` : ""}`;
   const title = `템플릿 T${ol.no} ${(t.chain || []).join(" › ")} · ${ol.level}번째 줄(레벨 ${ol.level}) 「${oneLine(ol.letter || "").slice(0, 30)}」`
     + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
-    + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" ? "\n표 제목 줄 — 1칸 제목 표를 이 템플릿의 L1 로 넣었습니다(Enter = 표 아래에 새 줄)" : "")
+    + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
     + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n템플릿 관계(이 레벨의 서식 갈래 · 대표 정하기 · 대표에 맞추기)는 문서 이름 줄 설명의 「템플릿 관계」`;
   return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, fmt: gm && gm.fmt ? gm.fmt : [], focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
 }
@@ -6863,7 +6863,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     const slots = t.slots || [];
     const kidLevels = [...rel.under.keys()].filter((k) => k.split("|")[0] === String(id)).map((k) => +k.split("|")[1]);
     const ot = heads.outline && heads.outline.templates ? heads.outline.templates[String(id)] : null; // 개요 오버레이(종속으로 늘어난 레벨 — spec_hwpx_웹편집 ② §8-2)
-    const sh = ot && ot.lift ? 1 : 0; // 표 제목을 L1 로 넣은 템플릿(spec_hwpx_웹편집 ② §8-7) — 오버레이 레벨 = 그래프 레벨 + 1(그래프의 슬롯·가지 템플릿은 L − 1 로 읽는다)
+    const sh = ot && ot.lift ? ot.lift.depth || 1 : 0; // 표 제목을 표 레벨로 넣은 템플릿(spec_hwpx_웹편집 ② §8-7) — 오버레이 레벨 = 그래프 레벨 + 표 레벨 수(그래프의 슬롯·가지 템플릿은 L − sh 로 읽는다)
     const maxL = Math.max(slots.length ? Math.max(...slots.map((s) => s.level)) + sh : 0, (t.chain || []).length + sh, kidLevels.length ? Math.max(...kidLevels) + sh : 0, ot ? ot.max || 0 : 0);
     const ol = el("ol", "trel-levels");
     const base = ot && ot.base ? ot.base : 0; // 종속 템플릿 — L1~L base 는 부모 템플릿의 레벨(그 줄은 부모 것)

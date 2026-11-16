@@ -847,7 +847,7 @@ def apply_reps(g, ov):
         for lv, sl in (t.get("slots") or {}).items():
             x = ov["lines"].get(sl.get("rep")) if sl.get("repSet") else None
             if x is not None and x["tpl"] == tid and str(x["level"]) == str(lv):
-                picks[(tid, int(lv) - (1 if t.get("lift") else 0))] = sl["rep"]  # 표 제목을 L1 로 넣은 템플릿(② §8-7)은 오버레이 레벨이 그래프보다 하나 깊다
+                picks[(tid, int(lv) - OE.lift_depth(t))] = sl["rep"]  # 표 제목을 표 레벨로 넣은 템플릿(② §8-7)은 오버레이 레벨이 그래프보다 표 레벨 수만큼 깊다
     if not picks:
         return g
     tpls = []

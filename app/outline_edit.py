@@ -31,7 +31,13 @@ _NUM_RE = re.compile(r"\d+|[①-⑳]|[가-하]|[A-Za-z]|[Ⅰ-Ⅻ]|[ⅰ-ⅻ]")
 _KEY_RE = re.compile(r"N|①|가|A|a|Ⅰ|ⅰ")
 ROOTED = ("label", "subtitle")  # 괄호 줄 — 구분 라벨·괄호 소제목(spec_헤딩_추출 ② §13): 둘 다 제 템플릿의 뿌리, 편집 제한이 같다
 ROLES = ("heading", "title") + ROOTED
-TABLE = "table"  # 표 제목 줄(spec_hwpx_웹편집 ② §8-7 — app/outline_lift.py): 1칸 제목 표를 템플릿의 L1 로 넣은 줄. 열쇠 = 칸 안 제목 문단 id, 레터 없음(letter ""), Enter 만 된다
+TABLE = "table"  # 표 제목 줄(spec_hwpx_웹편집 ② §8-7 — app/outline_lift.py): 제목 표(1칸 상자 · 번호 칸 + 제목 칸 띠 · 3행 표)를 템플릿의 표 레벨로 넣은 줄. 열쇠 = 칸 안 제목 문단 id, 레터 없음(letter ""), Enter 만 된다
+
+
+def lift_depth(t):
+    """템플릿 t 의 표 제목 레벨 수(② §8-7 「넓힘」 — 표 레벨은 L1 부터 그만큼, 글 레벨은 그 아래: 그래프의 레벨 = 오버레이 레벨 − 이 값). 표를 안 넣었으면 0 · 옛 기록(층 목록 없음)은 1."""
+    lf = (t or {}).get("lift")
+    return (len(lf["tiers"]) if "tiers" in lf else 1) if lf else 0
 
 
 def is_numbered(key):
@@ -443,9 +449,11 @@ def plan_enter(seq, i, offset, end, ov, text_of):
 
 
 def _plan_enter_table(seq, i, ov, text_of, x):
-    """표 제목 줄의 Enter(② §8-7) — 표 **아래**(그 표를 품은 문단 뒤: 서버가 줄 id 를 호스트 문단으로 바꿔 넣는다)에 다음 레벨의 새 줄(새 첫 자식 — 그 슬롯의 앞 간격 줄과 함께).
-    제목 글은 나누지 않는다(커서 자리·고른 글과 무관)."""
+    """표 제목 줄의 Enter(② §8-7) — 표 **아래**(그 표를 품은 문단 뒤: 서버가 줄 id 를 호스트 문단으로 바꿔 넣는다)에 **첫 글 레벨**의 새 줄(새 첫 자식 — 그 슬롯의 앞 간격 줄과 함께).
+    표 레벨이 여러 층이면 어느 층의 표 줄에서나 첫 글 레벨이다(그 사이 레벨의 줄은 표라 만들 수 없다). 제목 글은 나누지 않는다(커서 자리·고른 글과 무관)."""
     pid, tid, lvl = seq[i]["id"], x["tpl"], int(x["level"]) + 1
+    while (_slot(ov, tid, lvl) or {}).get("table"):
+        lvl += 1
     slot = _need_slot(ov, tid, lvl)
     if slot is None:
         raise ValueError("표 제목 아래 레벨이 없습니다")
@@ -530,7 +538,7 @@ def _resolve_parent(seq, i, o2, tid, level):
     같은 템플릿의 더 얕은 줄 → 그 줄. 못 찾으면 None."""
     tp = o2["templates"].get(str(tid), {})
     first = int(tp.get("base") or 0) + 1  # 그 템플릿의 첫 레벨(종속 템플릿은 base + 1)
-    firsts = (first, first + 1) if tp.get("lift") else (first,)  # 표 제목을 L1 로 넣은 템플릿(② §8-7)은 L2 줄도 — 위에 표가 없으면 그 템플릿이 매달리던 슬롯의 줄로
+    firsts = (first, first + lift_depth(tp)) if tp.get("lift") else (first,)  # 표 제목을 표 레벨로 넣은 템플릿(② §8-7)은 첫 글 레벨 줄도 — 위에 표가 없으면 그 템플릿이 매달리던 슬롯의 줄로
     for j in range(i - 1, -1, -1):
         q = seq[j]["id"]
         y = o2["lines"].get(q)
@@ -568,7 +576,7 @@ def plan_level(seq, idxs, delta, ov, text_of):
         shadow[pid].update(tpl=tid, no=ov["templates"][tid]["no"], level=level,
                            key=ov["templates"][tid]["chain"][level - 1] if level - 1 < len(ov["templates"][tid]["chain"]) else "")
         parent = _resolve_parent(seq, i, o2, tid, level)
-        if parent is None and not (level == (2 if ov["templates"][tid].get("lift") else 1) and ov["templates"][tid]["kind"] == "main"):  # 표를 L1 로 넣은 주 사슬(② §8-7)은 L2 가 바깥 글 레벨
+        if parent is None and not (level == 1 + lift_depth(ov["templates"][tid]) and ov["templates"][tid]["kind"] == "main"):  # 표를 표 레벨로 넣은 주 사슬(② §8-7)은 그 아래 첫 글 레벨이 바깥 글 레벨
             raise ValueError("이 자리에서 그 레벨로 바꾸면 매달릴 부모 줄이 없습니다")
         shadow[pid]["parent"] = parent
         letter = slot["letter"]

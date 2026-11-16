@@ -17,8 +17,10 @@ def _tpl(ov, tid):
 
 @router.get("/api/docs/{doc_id}/outline/lift")
 def lift_candidates(doc_id: str, tpl: str):
-    """템플릿 tpl 의 첫 레벨 줄 바로 위에 있는 1칸 제목 표 → {tpl, no, lifted(이미 넣은 표 줄 수), first(그 줄들의 지금 레벨), blocked(못 넣는 까닭 | null),
-    groups[{sig, count, lifted, look{font, sizePt, bold}, tables[{table, para, text, under}]}], rev}. 문서·오버레이는 안 바뀐다. 404 템플릿 없음 · 409 2단계 결과 없음."""
+    """템플릿 tpl 의 줄(표 줄 · 첫 글 레벨 줄) 바로 위에 있는 제목 표(1칸 상자 · 번호 칸 + 제목 칸 띠 · 3행 표)와 그 꼴의 다른 본문 제목 표 →
+    {tpl, no, lifted(이미 넣은 표 줄 수), first(첫 글 레벨), depth(표 레벨 수), blocked(못 넣는 까닭 | null),
+    groups[{sig, was, count, lifted, level(들어갈 레벨), new(새 표 레벨을 끼우나), look{font, sizePt, bold}, shape{rows, cells, num}, tables[{table, para, text, num, numPara, under}]}], rev}.
+    문서·오버레이는 안 바뀐다. 404 템플릿 없음 · 409 2단계 결과 없음."""
     server = _server()
     s = server._sess(doc_id)
     _hwpx(s)
@@ -27,14 +29,14 @@ def lift_candidates(doc_id: str, tpl: str):
         tid = _tid(tpl, "tpl")
         t = _tpl(ov, tid)
         n = sum(1 for x in ov["lines"].values() if x["tpl"] == tid and x.get("role") == outline_lift.ROLE)
-        return {"tpl": tid, "no": t["no"], "lifted": n, "first": outline_lift._first_level(t), "blocked": outline_lift._blocked(ov, tid),
+        return {"tpl": tid, "no": t["no"], "lifted": n, "first": outline_lift._first_level(t), "depth": outline_lift.depth(t), "blocked": outline_lift._blocked(ov, tid),
                 "groups": outline_lift.candidates(s.doc, ov, tid), "rev": s.rev}
 
 
 @router.post("/api/docs/{doc_id}/outline/lift")
 def lift(doc_id: str, body: dict = Body(...)):
-    """{tpl, sig?(표의 꼴 — 없으면 표가 가장 많은 꼴)} — 그 꼴의 제목 표를 **모두** 템플릿의 L1 로: 템플릿의 레벨을 한 칸 밀고(처음 넣을 때) 표 줄을 L1 에 둔다. 문서는 안 바뀐다 · 실행 취소 1.
-    → {lifted{tid, no, sig, tables, paras, adopted, levels}, outline(GET …/outline 과 같은 꼴), …편집 상태}. 400 넣을 표 없음·종속 템플릿이 걸림 · 404 템플릿 없음 · 409 2단계 결과 없음."""
+    """{tpl, sig?(표의 꼴 — 없으면 표가 가장 많은 꼴)} — 그 꼴의 제목 표를 **모두** 템플릿의 표 레벨로: 후보가 정한 레벨에 표 줄을 둔다(새 표 레벨이면 그 레벨부터 한 칸 민다). 문서는 안 바뀐다 · 실행 취소 1.
+    → {lifted{tid, no, sig, tables, paras, adopted, levels, level, new, depth, more}, outline(GET …/outline 과 같은 꼴), …편집 상태}. 400 넣을 표 없음·종속 템플릿이 걸림 · 404 템플릿 없음 · 409 2단계 결과 없음."""
     server = _server()
     tid, sig = _tid(body.get("tpl"), "tpl"), body.get("sig")
     if sig is not None and not isinstance(sig, str):
@@ -52,7 +54,7 @@ def lift(doc_id: str, body: dict = Body(...)):
 
 @router.post("/api/docs/{doc_id}/outline/unlift")
 def unlift(doc_id: str, body: dict = Body(...)):
-    """{tpl} — L1 로 넣은 표 줄을 모두 빼고 템플릿의 레벨을 되돌린다(그 아래 줄의 부모도 넣기 전으로). 문서는 안 바뀐다 · 실행 취소 1.
+    """{tpl} — 표 레벨로 넣은 표 줄을 모두(모든 층) 빼고 템플릿의 레벨을 되돌린다(그 아래 줄의 부모도 넣기 전으로). 문서는 안 바뀐다 · 실행 취소 1.
     → {unlifted{tpl, no, tables}, outline, …편집 상태}. 400 넣은 표 없음·종속 템플릿이 걸림 · 404 템플릿 없음 · 409 2단계 결과 없음."""
     server = _server()
     tid = _tid(body.get("tpl"), "tpl")

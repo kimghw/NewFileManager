@@ -8,6 +8,12 @@
 - 「떼기」 → 사슬 「□›o›-›·」 · □ 「T2 L1」 · 표 줄 표시 없음.
 - 실행 취소를 끝까지 → 내려받은 파일 = 원본 바이트 · 콘솔 오류 없음(뜻한 거절 400 빼고).
 
+넓힘(② §8-7 「넓힘」 — tools/title_tables_doc.py 가 만든 문서: 3행 표 · 띠 「1 .|띠 제목 1」·「2 .|…」 · 1칸 상자 · □ / 띠 「3 .|…」 · □):
+- 펼침에 묶음 둘 — 「1행 2칸 제목 표 3곳(번호 칸)」(표 제목 줄은 번호와 함께 「1 . 띠 제목 1」 · 닻이 없는 둘에 「아래에 이 템플릿의 줄 없음」) · 「1칸 제목 표 1곳」.
+- 상자를 넣으면 펼친 줄이 닫히지 않고 다음 후보(띠 — 「L1 으로 넣기(3곳)」)를 보인다 → 띠를 넣으면 표지 「L1~L2 = 표 제목 4곳」 · 사슬 「▦›▦›□…」 ·
+  여백 표시: 띠 제목 「T2 L1」 · 상자 제목 「T2 L2」 · □ 「T2 L3」 · 레벨 줄 L1·L2 「표 제목」 · L3 「□」 · 남은 후보 「3행 제목 표 1곳」.
+- 띠 「3 .」 제목 줄에서 Enter → 표 아래에 「□ 」 새 줄(T2 L3 — 첫 글 레벨) · 「떼기」 → 표 레벨 모두 빠짐 · 실행 취소를 끝까지 → 올린 바이트 그대로.
+
     python -X utf8 tools/smoke_outline_lift_ui.py <출력 폴더> [--port 18473]
 """
 import argparse
@@ -183,9 +189,96 @@ def main():
             idle(page)
         same = requests.get(f"{base}/api/docs/{doc}/download", timeout=60).content == PLAN.read_bytes()
         check("실행 취소를 끝까지 → 내려받은 파일 = 원본 바이트", page.evaluate(STATE)["undo"] == 0 and same)
+        page.close()
+        tiers(b)
         b.close()
     bad = [e for e in errors if "status of 400" not in e]  # 거절 둘(400)은 브라우저가 콘솔에 남긴다
     check("콘솔 오류 없음(뜻한 거절 400 빼고)", not bad and len(errors) <= 2, errors[:5])
+
+
+def tiers(b):
+    """넓힘 — 여러 칸·3행 제목 표 · 표 레벨 여러 층(② §8-7 「넓힘」)."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import title_tables_doc
+    data = title_tables_doc.build()
+    r = requests.post(base + "/api/docs", files={"file": ("제목표_층.hwpx", data, "application/octet-stream")}, timeout=120)
+    assert r.status_code == 200, r.text
+    doc = r.json()["docId"]
+    run_stage(doc, 1)
+    run_stage(doc, 2)
+    cand = requests.get(f"{base}/api/docs/{doc}/outline/lift", params={"tpl": "2"}, timeout=60).json()
+    band, box = cand["groups"]
+    b1, b3, xp, u1 = band["tables"][0]["para"], band["tables"][2]["para"], box["tables"][0]["para"], box["tables"][0]["under"]
+    sel = "#headsDlgBody li.trel-node[data-tpl='2']"
+    page = b.new_page(viewport={"width": 1600, "height": 950}, device_scale_factor=1)
+    page.on("console", lambda m: errors.append(f"[{m.type}] {m.text}") if m.type == "error" else None)
+    page.on("pageerror", lambda e: errors.append(f"[pageerror] {e}"))
+    page.goto(f"{base}/#w={doc}")
+    page.wait_for_selector("#doc .para", timeout=60000)
+    page.wait_for_function("(u) => !!heads.outline && !!heads.outline.lines[u]", arg=u1, timeout=30000)
+    page.evaluate("() => tplRelOpen(2)")
+    page.wait_for_selector(sel, timeout=20000)
+    page.wait_for_timeout(500)
+    page.click(f"{sel} > .trel-row .oll-btn")
+    page.wait_for_selector(f"{sel} > .oll-form .oll-go", timeout=20000)
+    row = page.evaluate(ROW)
+    lone = page.evaluate("() => document.querySelectorAll(\"#headsDlgBody li.trel-node[data-tpl='2'] > .oll-form .oll-lone\").length")
+    check("넓힘 — 펼침에 묶음 둘: 「1행 2칸 제목 표 3곳(번호 칸)」(번호와 함께 · 닻 없는 둘 표시) · 「1칸 제목 표 1곳」",
+          "1행 2칸 제목 표 3곳(번호 칸)" in row["form"] and "1 . 띠 제목 1" in row["form"] and "1칸 제목 표 1곳" in row["form"] and row["go"] == ["L1 으로 넣기(3곳)", "L1 으로 넣기(1곳)"]
+          and row["links"] == 4 and lone == 2, [row, lone])
+    page.screenshot(path=str(OUT / "04_tier_candidates.png"))
+
+    # 상자부터 — 펼친 줄은 닫히지 않고 다음 후보(띠)를 보인다
+    page.click(f"{sel} > .oll-form .oll-g:nth-of-type(2) .oll-go")
+    page.wait_for_function("() => heads.outline.templates['2'].lift && heads.outline.templates['2'].max === 5", timeout=20000)
+    page.wait_for_function("() => { const f = document.querySelector(\"#headsDlgBody li.trel-node[data-tpl='2'] > .oll-form\"); return f && !f.hidden && f.querySelectorAll('.oll-go').length === 1; }", timeout=20000)
+    page.wait_for_timeout(500)
+    row, st = page.evaluate(ROW), page.evaluate(STATE)
+    check("넓힘 — 상자를 넣어도 펼친 줄이 남아 다음 후보(띠 3곳 — 새 L1)를 보인다 · 알림에 「더 넣을 수 있는」",
+          row["open"] and row["chip"] == "L1 = 표 제목 1곳" and row["go"] == ["L1 으로 넣기(3곳)"] and "1행 2칸 제목 표 3곳(번호 칸)" in row["form"] and "더 넣을 수 있는" in st["toast"], [row, st])
+
+    # 띠 — 새 L1(상자는 L2 · □ 는 L3)
+    page.click(f"{sel} > .oll-form .oll-go")
+    page.wait_for_function("() => heads.outline.templates['2'].lift && heads.outline.templates['2'].max === 6", timeout=20000)
+    page.wait_for_function("() => { const f = document.querySelector(\"#headsDlgBody li.trel-node[data-tpl='2'] > .oll-form\"); return f && !f.hidden && /3행 제목 표/.test(f.textContent); }", timeout=20000)
+    page.wait_for_timeout(600)
+    row, st = page.evaluate(ROW), page.evaluate(STATE)
+    lb, lx, lu = page.evaluate(LINE, b1), page.evaluate(LINE, xp), page.evaluate(LINE, u1)
+    check("넓힘 — 띠를 넣으면 사슬 「▦›▦›□…」 · 표지 「L1~L2 = 표 제목 4곳」 · 남은 후보 「3행 제목 표 1곳」",
+          st["chain"][:3] == ["▦", "▦", "□"] and st["max"] == 6 and st["lift"]["depth"] == 2 and st["lift"]["tables"] == 4 and st["undo"] == 2 and row["chip"] == "L1~L2 = 표 제목 4곳"
+          and "3행 제목 표 1곳" in row["form"] and row["go"] == ["L1 으로 넣기(1곳)"], [st, row])
+    check("넓힘 — 여백 표시: 띠 제목 「T2 L1」 · 상자 제목 「T2 L2」 · □ 「T2 L3」 · 레벨 줄 L1·L2 「표 제목」 · L3 「□」",
+          lb["level"] == 1 and lb["role"] == "table" and "T2 L1" in lb["mark"] and lx["level"] == 2 and lx["role"] == "table" and "T2 L2" in lx["mark"] and lu["level"] == 3 and "T2 L3" in lu["mark"]
+          and len(row["levels"]) == 6 and "표 제목" in row["levels"][0] and "표 제목" in row["levels"][1] and "□" in row["levels"][2], [lb, lx, lu, row["levels"]])
+    check("넓힘 — 문서는 안 바뀜(내려받은 파일 = 올린 바이트)", requests.get(f"{base}/api/docs/{doc}/download", timeout=60).content == data)
+    page.screenshot(path=str(OUT / "05_tiers.png"))
+
+    # 띠 「3 .」 제목 줄의 Enter — 표 아래에 첫 글 레벨(L3) 새 줄
+    n0 = page.evaluate("() => document.querySelectorAll('#doc .para').length")
+    focus(page, b3, 1)
+    page.keyboard.press("Enter")
+    page.wait_for_function("(n) => !state.busy && document.querySelectorAll('#doc .para').length > n", arg=n0, timeout=20000)
+    page.wait_for_timeout(400)
+    new = page.evaluate("() => state.cur && state.cur.id")
+    nv = page.evaluate(LINE, new)
+    check("넓힘 — 띠 제목 줄에서 Enter → 표 아래 본문에 「□ 」 새 줄(T2 L3 — 첫 글 레벨) · 제목 글 그대로",
+          nv and nv["text"] == "□ " and nv["level"] == 3 and not nv["inCell"] and "T2 L3" in nv["mark"] and page.evaluate(LINE, b3)["text"] == "띠 제목 3", nv)
+
+    # 떼기 = 표 레벨 모두 · 실행 취소를 끝까지
+    page.click(f"{sel} > .trel-row .oll-un")
+    page.wait_for_function("() => !heads.outline.templates['2'].lift && heads.outline.templates['2'].max === 4", timeout=20000)
+    page.wait_for_timeout(500)
+    st, row = page.evaluate(STATE), page.evaluate(ROW)
+    check("넓힘 — 「떼기」 → 표 레벨 모두 빠짐(사슬 「□›o›-›·」 · 띠·상자 제목은 개요 줄 아님 · 단추 「표를 L1 으로」)",
+          st["chain"] == ["□", "o", "-", "·"] and page.evaluate(LINE, b1)["level"] is None and page.evaluate(LINE, xp)["level"] is None and page.evaluate(LINE, u1)["level"] == 1
+          and row["btn"] == "표를 L1 으로" and not row["chip"], [st, row])
+    for _ in range(10):
+        if not page.evaluate(STATE)["undo"]:
+            break
+        page.click("#undoBtn")
+        idle(page)
+    check("넓힘 — 실행 취소를 끝까지 → 내려받은 파일 = 올린 바이트", page.evaluate(STATE)["undo"] == 0 and requests.get(f"{base}/api/docs/{doc}/download", timeout=60).content == data)
+    page.close()
 
 
 try:

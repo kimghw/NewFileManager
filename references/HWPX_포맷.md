@@ -167,6 +167,9 @@
   **추진일정(간트) 막대가 채움이 아닐 수 있다**(2026-10-30, 연구계획서.hwpx 2-3 기관별 일정 표 t10877): 월 칸에 fillBrush·도형·그림이 전혀 없고 막대 구간 칸만
   borderFill `bottomBorder type="DASH"`(그 밖 칸은 NONE), 왼·오른 선은 열마다 SOLID/NONE 이 번갈아 — 막대를 찾으려면 채움색뿐 아니라 아래 선 종류도 봐야 한다.
   표 하나에 borderFill id 가 열·행 조합마다 다르게 수십 개 생긴다(161/162/72/122/65/119 …).
+  **같아 보이는 칸도 borderFill id 가 다르다 — 「같은 표 서식」 은 id 가 아니라 내용으로 견줘야 한다**(2026-11-16, 사업계획서 한 편의 제목 띠 표 둘 「1 . | 운영 방침」·「2 . | 부서사업과제 추진내용」):
+  제목 칸의 borderFill 이 9 와 17 인데 내용은 같다(아래 선 SOLID 0.7mm `#365F91` 하나 · 바탕 없음) — 한글에서 표를 복사·붙여 고치면 같은 내용의 정의가 새 번호로 또 생긴다. 바탕도 `faceColor="none"` 과 `#FFFFFF` 가 섞인다(번호 칸은 `#FFFFFF`).
+  문단 정렬도 한쪽은 `JUSTIFY`(양쪽), 한쪽은 `LEFT` 였다 — 한 줄짜리 제목에서는 겉모습이 같다. paraPr·charPr id 도 여백 값이 조금 달라 번호가 갈린다(같은 문서의 「사업과제 1」 과 「사업과제 2~4」).
 - **셀**: `hp:tc hasMargin="1"` 이면 `hp:cellMargin left/right/top/bottom`, `"0"` 이면 표의 `hp:inMargin` 이 적용된다
   (hasMargin=0 셀도 cellMargin 요소를 갖고 있음). 단위 HWPUNIT — 한글 기본 510/141 = 1.8mm/0.5mm.
   세로 정렬은 `hp:subList vertAlign="TOP|CENTER|BOTTOM"`. `hp:cellSz height` 는 저장된 행 높이 — 글자를 키워 넘치면
