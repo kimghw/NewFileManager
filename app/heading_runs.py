@@ -216,10 +216,33 @@ def run_stage1(sess, job, use_llm, pinned=None):
                    "guides": {n: g["sha1"] for n, g in guides0.items()}, "at": time.time()}
     meta = {"stage": 1, "stage_key": "stage1", "rev": rev, "llm": use_llm, "at": time.time(), "summary": _summary1(res),
             "costUsd": (report or {}).get("costUsd", 0), "guides": guides0 if use_llm else None}
+    if use_llm:  # 규칙 보강을 어디까지 했나(§7 「진행 줄」) — 실행 목록에 남겨 그 뒤 스크립트로 다시 뽑아도 보인다(배운 규칙은 저장소에 남는다)
+        meta["rules"] = _rules_meta(report)
     n = _save_run(sess, st, meta, "stage1.json", res, (report or {}).get("calls") or [])  # res["meta"]["run"] 도 넣음
     st["stage1"] = res
     job.step("TEMP 라벨", "ok", TP.summary_text(temp_label(sess)))  # 표 안 작성요령·쓸 자리(§15) — 2·3단계가 시작할 때 다시 셈한다(결과 파일에는 안 넣음)
     return n
+
+
+def _rules_meta(report):
+    """LLM 1단계 실행의 규칙 보강 요약(실행 목록 run.json 의 "rules") — report None = 물을 묶음이 없었음(groups 0).
+    asked = 답을 받음(호출이 모두 실패하면 거짓 — _rules_asked 와 같은 기준)."""
+    rep = report or {}
+    items = rep.get("items") or []
+    verdicts = [i.get("verdict") for i in items]
+    return {"groups": rep.get("groups", 0), "asked": bool(items), "saved": len(rep.get("saved") or []), "kept": len(rep.get("kept") or []),
+            "rejected": verdicts.count("rejected"), "unsure": verdicts.count("unsure"), "seconds": rep.get("seconds"), "error": rep.get("error")}
+
+
+def rules_view(st):
+    """이 문서에서 LLM 규칙 보강을 마지막으로 돌린 1단계 실행(spec ② §7 「진행 줄」) → None(한 번도 안 함) | {run, at, costUsd, groups, asked, saved, …}.
+    지금 1단계 결과가 그 뒤 스크립트로 다시 뽑은 것이어도 보강은 한 것이다 — 배운 규칙·keeps 는 저장소에 남아 그 추출에 쓰였다.
+    "rules" 가 없는 옛 실행(이 키 전)은 답을 받은 것으로 본다(asked None — 몇 개인지는 모름)."""
+    last = next((r for r in reversed(st["runs"]) if r.get("stage") == 1 and r.get("llm")), None)
+    if last is None:
+        return None
+    rr = last.get("rules") if isinstance(last.get("rules"), dict) else {"asked": None}
+    return {"run": last.get("n"), "at": last.get("at"), "costUsd": last.get("costUsd", 0), **rr}
 
 
 def _unjudged(s1):
@@ -413,6 +436,7 @@ def summary(sess):
     form = F.for_session(sess)  # 이 문서에 맞은 양식 정보(spec ② §12) — 실행이 쓴 판은 단계마다 meta.guides.form(sha1)
     temp = temp_label(sess)  # TEMP 라벨(§15) — (1단계 실행, 지정 판)마다 한 번 셈해 둔 것
     out = {"job": job.view() if job else None, "rev": sess.rev, "runs": st["runs"][-20:], "stage1": None, "stage2": None, "stage3": None,
+           "rules": rules_view(st),  # LLM 규칙 보강을 마지막으로 돌린 실행(§7 「진행 줄」) — 실행 목록 전체에서(위 runs 는 끝 20개뿐)
            "persistError": st.get("persistError"), "form": {k: form[k] for k in ("key", "name", "how", "sha1")} if form else None,
            "temp": {"key": f"{(s1.get('meta') or {}).get('run')}|{(s1.get('meta') or {}).get('at')}|{temp['hintsVersion']}", "counts": temp["counts"],
                     "text": TP.summary_text(temp)} if temp and s1 else None}

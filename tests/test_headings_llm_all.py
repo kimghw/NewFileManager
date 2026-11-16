@@ -139,6 +139,26 @@ def test_script_graph_never_asks_and_failed_rule_call_is_retried(c, monkeypatch)
     assert ask2.seen[0] == "heading_rules"
 
 
+def test_summary_rules_survive_script_reextract(c, monkeypatch):
+    """요약의 rules(spec ② §7 「진행 줄」) — LLM 규칙 보강을 마지막으로 돌린 1단계 실행. 그 뒤 스크립트로 다시 뽑아도 남고, 답을 못 받은 실행은 asked 거짓."""
+    d = _open_ready(c, RND)
+    s = server.DOCS[d]
+    heading_runs.run_sync(s, 1, False)
+    assert c.get(f"/api/docs/{d}/headings").json()["rules"] is None  # 아직 안 함
+    g, answer = _rule_for(heading_runs.state(s)["stage1"])
+    monkeypatch.setattr(llm, "ask_all", _asker(lambda job: answer))
+    n = heading_runs.run_sync(s, 1, True).run
+    r = c.get(f"/api/docs/{d}/headings").json()["rules"]
+    assert r["run"] == n and r["asked"] is True and r["groups"] == 27 and r["saved"] == 1 and r["error"] is None and r["at"]
+    heading_runs.run_sync(s, 1, False)  # 문서를 고친 뒤 탭을 열면 도는 스크립트 다시 뽑기와 같은 것
+    v = c.get(f"/api/docs/{d}/headings").json()
+    assert v["stage1"]["llm"] is None and v["stage1"]["meta"]["run"] > n and v["rules"]["run"] == n
+    monkeypatch.setattr(llm, "ask_all", _asker())  # 호출이 모두 실패
+    n2 = heading_runs.run_sync(s, 1, True).run
+    r = c.get(f"/api/docs/{d}/headings").json()["rules"]
+    assert r["run"] == n2 and r["asked"] is False and r["error"] and r["groups"] > 0
+
+
 def test_no_unjudged_groups_no_rule_call(c, monkeypatch):
     d = _open_ready(c, SMALL)
     s = server.DOCS[d]

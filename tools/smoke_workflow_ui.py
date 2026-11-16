@@ -404,9 +404,10 @@ def main():
           return { h2: s.querySelector('h2').textContent, io: [...s.querySelectorAll('.wf-io dt')].map((d) => d.textContent), used: [...s.querySelectorAll('.wf-io .wf-links a')].map((a) => a.textContent),
             steps: [...s.querySelectorAll('.wf-step')].map((d) => [d.querySelector('.wf-no').textContent, d.querySelector('.wf-name').textContent]), hash: location.hash,
             agents: (() => { const d = s.querySelector('.wf-step[data-step=stage2]'); d.open = true; return [...d.querySelectorAll('.wf-ano')].map((x) => x.textContent); })() }; }""")
-        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(취합 · 이관 · 서식 복사) · 1~3단계 + 뼈대 유지 · 2단계의 에이전트 02~05",
+        # 2단계의 에이전트 01(heading_rules) — 「헤딩 그래프(LLM)」 은 그래프 전에 못 맞춤·충돌 묶음의 규칙 보강을 먼저 돈다(spec_헤딩_추출 ② §3, 2026-11-16)
+        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(취합 · 이관 · 서식 복사) · 1~3단계 + 규칙 보강 · 뼈대 유지 · 2단계의 에이전트 01~05",
               c["h2"] == "공통 모듈헤딩 추출" and c["io"] == ["여는 곳", "쓰는 TASK"] and c["used"] == ["사업계획서 취합", "사업계획서 → 연차보고서 이관", "문서 서식 복사"] and c["hash"] == "#common-headings"
-              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]] and c["agents"] == ["02", "03", "04", "05"], c)
+              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]] and c["agents"] == ["01", "02", "03", "04", "05"], c)
         wf.screenshot(path=str(OUT / "03_common_headings.png"))
         wf.locator("#common-headings .wf-io .wf-links a", has_text="문서 서식 복사").click()
         wf.wait_for_function(f"{CURRENT}() === '문서 서식 복사'", timeout=10000)

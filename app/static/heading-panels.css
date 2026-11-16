@@ -32,6 +32,31 @@
 #headsOverview .src-chip > b { flex: none; }
 #headsOverview .src-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .src-chip .today { font-style: normal; }
+/* 진행 줄(spec_헤딩_추출 ② §7 「진행 줄」 · design.md §7) — 두 층(스크립트 · LLM) × 세 단계 격자, 칸 22px. 층 이름 열은 글 폭만, 단계 열 셋은 같은 폭(LLM 칸이 그 단계의 스크립트 칸 바로 아래).
+   표시: ✓ 끝남(초록 — LLM 이 끝낸 칸은 보라: design.md §6 「보라는 LLM」) · ○ 안 함 · 돌아가는 동그라미 · ! 실패 · 끝에 주황 점 = 뼈대에 없는 새 항목 · – 할 것 없음 */
+#headsOverview .hprog { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); align-items: center; gap: 3px 4px; margin: 6px 0 0; }
+#headsOverview .hprog-layer { padding-right: 2px; color: #7b8798; font-size: 10.5px; line-height: 22px; white-space: nowrap; }
+#headsOverview .hprog-step { display: flex; align-items: center; gap: 5px; min-width: 0; height: 22px; padding: 0 7px 0 5px; border: 1px solid #e6e9ef; border-radius: 5px; background: #f8f9fb; color: #7b8798; font: inherit; font-size: 11px; line-height: 20px; text-align: left; cursor: pointer; }
+#headsOverview .hprog-step:hover { border-color: #bfcee8; background: #f0f4fc; }
+#headsOverview .hprog-step:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
+#headsOverview .hprog-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#headsOverview .hprog-count { flex: none; margin-left: -2px; white-space: nowrap; font-variant-numeric: tabular-nums; } /* 수는 줄지 않는다 — 좁으면 이름이 먼저 줄임표 */
+#headsOverview .hprog-count::before { content: "· "; }
+#headsOverview .hprog-mark { flex: none; box-sizing: border-box; display: inline-grid; place-items: center; width: 12px; height: 12px; border: 1.5px solid #aab5c5; border-radius: 50%; font-size: 8.5px; font-weight: 700; line-height: 1; color: #fff; }
+#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"]) { color: #2f3b4f; }
+#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"]) .hprog-mark { border: 0; background: var(--ok); }
+#headsOverview .hprog-step:is([data-state="done"], [data-state="stale"], [data-state="llm"]) .hprog-mark::before { content: "✓"; }
+#headsOverview .hprog-step[data-state="stale"]::after { content: ""; flex: none; width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: #c48631; }
+#headsOverview .hprog-step[data-state="llm"] { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
+#headsOverview .hprog-step[data-state="llm"] .hprog-mark { border: 0; background: #6d28d9; }
+#headsOverview .hprog-step[data-state="running"] { border-color: #cfddf7; background: #edf3ff; color: #2758c7; }
+#headsOverview .hprog-step[data-state="running"] .hprog-mark { border: 2px solid #4576d7; border-right-color: transparent; animation: spin .8s linear infinite; }
+#headsOverview .hprog-step[data-state="failed"] { border-color: #f5c8c8; background: var(--fail-soft); color: var(--fail); }
+#headsOverview .hprog-step[data-state="failed"] .hprog-mark { border: 0; background: var(--fail); }
+#headsOverview .hprog-step[data-state="failed"] .hprog-mark::before { content: "!"; }
+#headsOverview .hprog-step[data-state="skip"] .hprog-mark { border: 0; color: #9aa5b5; font-size: 11px; }
+#headsOverview .hprog-step[data-state="skip"] .hprog-mark::before { content: "–"; }
+#headsViewRun .hdl dd.llmc { color: #5b21b6; }
 #headsOverview .result-meta { gap: 4px; margin: 6px 0 0; min-height: 26px; }
 #headsOverview .result-meta:has(.analysis-state.running) { flex-wrap: nowrap; } /* 도는 동안: 줄을 접지 않고 「지금 하는 일」 글을 줄인다 */
 #headsOverview .analysis-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500; color: #617088; background: #f1f4f8; border-radius: 5px; }
@@ -150,6 +175,7 @@
   #headsOverview .src-chip .today { display: none; }
   #headsViewRun .stage-tabs .long { display: none; }
   #headsViewRun .stage-tabs .short { display: inline; }
+  #headsOverview .hprog-unit { display: none; } /* 진행 줄 칸의 「묶음」 — 수만 남긴다(전체는 title) */
 }
 @container (max-width: 370px) {
   #paneHeads .heads-view-nav { gap: 2px; }
@@ -162,6 +188,8 @@
   #headsOverview .result-metric { gap: 4px; padding: 0 5px; }
   #headsOverview .result-metric span { font-size: 10.5px; }
   #headsOverview .src-line { flex-wrap: wrap; }
+  #headsOverview .hprog { gap: 3px; }
+  #headsOverview .hprog-step { gap: 4px; padding: 0 4px; font-size: 10.5px; } /* 칸 글은 줄임표 — 전체는 title */
 }
 @container (max-width: 330px) {
   #paneHeads .heads-view-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 10px; }

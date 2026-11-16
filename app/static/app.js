@@ -5688,6 +5688,104 @@ function headsSourceLine(r, ks = [2, 3]) { // 꼬리표 줄 — 결과가 하나
   return line;
 }
 
+// ---- 진행 줄(spec_헤딩_추출 ② §7 「진행 줄」, 2026-11-16 사용자 "스크립트 추출 완료, 그리고 LLM 규칙 보강 이 있어야지 … 추출/설정 안에 들어 있으니깐 어디 까지 작업을 했는지 알 수 없잖아")
+// 헤딩 탭 위 요약의 둘째 줄(전의 LLM 꼬리표 줄 자리) — 분석을 두 층 × 세 단계로: 스크립트(문단·라벨 · 헤딩 그래프 · 표 구조) / LLM(규칙 보강 · 헤딩 판정 · 표 판정).
+// LLM 칸은 그 아래 스크립트 칸의 단계에 붙는다(규칙 보강 = 1단계 · 헤딩 판정 = 2단계 · 표 판정 = 3단계). 칸마다 표시(✓·○·돌아가는 동그라미·!·–) + 짧은 글, 누르면 추출·설정의 그 단계 탭.
+// 실행 번호·시각·수는 title. LLM 판정의 기준은 「LLM 표시」(headsSource)와 같고, 규칙 보강은 요약의 rules(heading_runs.rules_view — 마지막 LLM 1단계 실행)를 본다.
+const H_PROG_STATE = { done: "끝남", llm: "LLM 끝남", none: "안 함", running: "도는 중", failed: "실패", stale: "뼈대에 없는 새 항목이 있음", skip: "할 것 없음" };
+const H_PROG_NAME = { 1: "문단·라벨", 2: "헤딩 그래프", 3: "표 구조" };
+const hhmmShort = (t) => { // 진행 줄 칸의 시각 — 오늘이면 「13:47」, 아니면 「11/14」(전체는 title)
+  if (!t) return "";
+  const d = new Date(t * 1000);
+  return d.toDateString() === new Date().toDateString() ? hhmm(d) : `${d.getMonth() + 1}/${d.getDate()}`;
+};
+function headsProgNow(r) { // 도는 작업이 지금 하는 칸 → {llm, k} | null — 작업 steps 의 마지막 「진행 중」 단계 이름으로(서버 변경 없음)
+  const job = r.job;
+  if (!(job && job.status === "running")) return null;
+  const steps = job.steps || [], n = (steps.filter((s) => s.status === "running").pop() || steps.at(-1) || {}).name || "";
+  if (n.includes("규칙 보강") || (n === "다시 추출" && job.llm)) return { llm: true, k: 1 }; // 「LLM 규칙 보강」 · 2단계 LLM 의 「1단계 다시 — … LLM 규칙 보강」 · 보강 뒤 다시 추출
+  const m = /^(헤딩 그래프|표 구조) — (LLM|스크립트)$/.exec(n);
+  if (m) return { llm: m[2] === "LLM", k: m[1] === "표 구조" ? 3 : 2 };
+  if (/^(추출|후보 규칙 시험|1단계)/.test(n)) return { llm: false, k: 1 };
+  return job.first ? { llm: false, k: r.stage2 ? 3 : 2 } : { llm: !!job.llm, k: job.stage };
+}
+function headsRulesFrom(r) { // 규칙 보강 기록 — 요약의 rules(서버), 없으면(옛 서버) 지금 1단계 결과 · 실행 목록(끝 20개)으로 어림
+  if (r.rules !== undefined) return r.rules;
+  const s1 = r.stage1, lm = s1 && s1.llm;
+  if (lm) return { run: s1.meta && s1.meta.run, at: s1.meta && s1.meta.at, groups: lm.groups || 0, asked: !!(lm.items || []).length,
+    saved: (lm.saved || []).length, kept: (lm.kept || []).length, error: lm.error, costUsd: lm.costUsd };
+  const run = [...(r.runs || [])].reverse().find((x) => x.stage === 1 && x.llm);
+  return run ? { run: run.n, at: run.at, costUsd: run.costUsd, asked: null, ...(run.rules || {}) } : null;
+}
+function headsProgScript(r, k, now) { // 스크립트 칸 → {state, text, title}
+  const s = r[`stage${k}`], name = H_PROG_NAME[k], job = r.job, meta = (s && s.meta) || {};
+  if (now && !now.llm && now.k === k) return { state: "running", text: name, title: `${name} — 스크립트로 뽑는 중 · 누르면 진행을 봅니다` };
+  if (!s && job && job.status === "failed" && (job.first || (!job.llm && job.stage === k))) return { state: "failed", text: name, title: `${name} — 실행 실패: ${job.error || "까닭 모름"}` };
+  if (!s) return { state: "none", text: name, title: `${name} — 아직 없음(${k}단계를 실행하면 만듭니다)` };
+  const when = `실행 ${meta.run ?? "–"} · ${fmtWhen(meta.at)}`;
+  if (k === 1) {
+    const sm = s.summary || {};
+    return { state: "done", text: name, title: `문단·서식 라벨 추출(스크립트) 끝남 — ${when}\n문단 ${nf(sm.paragraphs)} · 서식 라벨 ${nf(sm.labels)} · 못 맞춤 ${nf(sm.unmatchedGroups || 0)}묶음 · 충돌 ${nf(sm.conflicts || 0)}묶음`
+      + (s.stale ? "\n그 뒤 문서가 바뀜 — 헤딩 추출 탭을 열 때 저절로 다시 뽑습니다" : "") };
+  }
+  const drift = headsStageStale(r, k), src = headsSource(r, k);
+  return { state: drift ? "stale" : "done", text: name,
+    title: `${name} 있음 — ${when}${src && src.llm ? " · LLM 판정까지 거친 결과" : " · 스크립트 결과"}${drift ? "\n뼈대에 없는 새 레터·서식·표가 문서에 생김(상태 줄의 주황 꼬리표)" : ""}` };
+}
+function headsProgRules(r, now) { // LLM 규칙 보강 칸(1단계) → {state, text, title}
+  const s1 = r.stage1, sm = (s1 && s1.summary) || {}, job = r.job, rv = headsRulesFrom(r);
+  const left = (sm.unmatchedGroups || 0) + (sm.conflicts || 0), leftText = `못 맞춤 ${nf(sm.unmatchedGroups || 0)}묶음 · 충돌 ${nf(sm.conflicts || 0)}묶음`;
+  const how = "1단계 「LLM 규칙 보강」 으로 하거나, 2단계 「헤딩 그래프(LLM)」 을 누르면 그래프보다 먼저 저절로 합니다(유료)";
+  if (now && now.llm && now.k === 1) return { state: "running", text: "규칙 보강", title: "LLM 규칙 보강 중 — 스크립트가 판정하지 못한 첫머리 묶음의 규칙식을 LLM 에 묻는 중(유료) · 누르면 진행을 봅니다" };
+  if (!s1) return { state: "none", text: "규칙 보강", title: "LLM 규칙 보강 — 1단계(문단·라벨)를 뽑은 뒤에 합니다" };
+  if (job && job.status === "failed" && job.llm && job.stage === 1) return { state: "failed", text: "규칙 보강", title: `LLM 규칙 보강 실행 실패 — ${job.error || "까닭 모름"}\n${how}` };
+  const at = rv ? `실행 ${rv.run ?? "–"} · ${fmtWhen(rv.at)}` : "";
+  if (rv && rv.asked === false && rv.groups > 0) return { state: "failed", text: "규칙 보강", title: `LLM 규칙 보강 — ${at} 에 LLM 답을 못 받음: ${rv.error || "까닭 모름"}\n${how}` };
+  if (rv) {
+    const got = rv.asked == null ? "" : rv.groups ? `\n물은 묶음 ${nf(rv.groups)} → 규칙 저장 ${nf(rv.saved || 0)} · 그대로 ${nf(rv.kept || 0)} · 거절 ${nf(rv.rejected || 0)} · 모름 ${nf(rv.unsure || 0)}` : "\n그때 물을 묶음이 없었음";
+    const same = s1.meta && s1.meta.run === rv.run; // 지금 1단계 결과가 그 실행 — 남은 묶음은 LLM 이 모르겠다고 했거나 검증에 떨어진 것
+    const rest = !left ? "\n지금 판정하지 못한 묶음 없음"
+      : same ? `\n지금 남은 ${leftText} — LLM 이 모르겠다고 했거나 검증에 떨어진 것(다시 물으려면 1단계 「LLM 규칙 보강」)`
+        : `\n지금 남은 ${leftText} — 그 뒤 다시 뽑은 결과의 것(다음 「헤딩 그래프(LLM)」 이 먼저 다시 묻습니다 · 1단계 「LLM 규칙 보강」 으로도)`;
+    return { state: "llm", text: "규칙 보강", ...(left ? { count: `남은 ${nf(left)}`, unit: "묶음" } : {}), title: `LLM 규칙 보강 끝남 — ${at}${rv.costUsd ? ` · $${rv.costUsd}` : ""}${got}${rest}` };
+  }
+  if (!left) return { state: "skip", text: "규칙 보강 · 할 것 없음", title: "LLM 규칙 보강 — 할 것 없음: 스크립트가 모든 첫머리를 판정했습니다(못 맞춤·충돌 묶음 없음)" };
+  return { state: "none", text: "규칙 보강", count: nf(left), unit: "묶음", title: `LLM 규칙 보강 안 함 — 스크립트가 판정하지 못한 첫머리 ${leftText}\n${how}` };
+}
+// 칸의 글 = 이름(좁으면 줄임표) + 수(count — 줄지 않음 · 단위는 좁은 패널에서 감춤): 「규칙 보강 · 27묶음」 → 좁으면 「규칙 보… 27」. 수가 없는 칸은 이름뿐
+function headsProgJudge(r, k, now) { // LLM 판정 칸(2 헤딩 · 3 표) → {state, text, count?, title}
+  const s = r[`stage${k}`], name = k === 2 ? "헤딩 판정" : "표 판정", job = r.job, src = headsSource(r, k), lm = (s && s.llm) || {};
+  const btn = k === 2 ? "「헤딩 그래프(LLM)」" : "「표 구조(LLM)」";
+  if (now && now.llm && now.k === k) return { state: "running", text: name, title: `${name} — LLM 이 판정하는 중(유료 · 몇 분) · 누르면 진행을 봅니다` };
+  if (job && job.status === "failed" && job.llm && !job.first && job.stage === k && !(src && src.llm)) return { state: "failed", text: name, title: `${name} — LLM 실행 실패: ${job.error || "까닭 모름"} · 앞 결과는 그대로` };
+  if (src && src.llm) return { state: "llm", text: name, count: hhmmShort(src.at), title: src.title }; // 끝난 때(② §7 「LLM 표시」 — 전체 시각·걸린 시간은 title)
+  if (s && lm.requested && lm.fallback) return { state: "failed", text: name, title: src ? src.title : `${name} — LLM 을 불렀지만 실패해 스크립트로 대신함` };
+  return { state: "none", text: name, title: s ? `${name}(LLM) 안 함 — 지금 결과는 스크립트(${fmtWhen((s.meta || {}).at)}) · 추출·설정 ${k}단계의 ${btn}(유료)` : `${name}(LLM) — ${k}단계 결과가 없습니다` };
+}
+function headsProgLine(r) { // 진행 줄 — 두 층(스크립트 · LLM) × 세 단계, 누르면 추출·설정의 그 단계 탭
+  const now = headsProgNow(r), box = el("div", "hprog");
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "분석 진행 — 스크립트와 LLM");
+  const rows = [["스크립트", (k) => headsProgScript(r, k, now)], ["LLM", (k) => (k === 1 ? headsProgRules(r, now) : headsProgJudge(r, k, now))]];
+  for (const [label, info] of rows) {
+    box.append(el("span", "hprog-layer", label));
+    for (const k of H_STAGES) {
+      const i = info(k), b = hBtn("", () => headsRunOpen(k), { cls: "hprog-step" });
+      b.dataset.state = i.state;
+      b.append(el("span", "hprog-mark"), el("span", "hprog-text", i.text));
+      if (i.count) {
+        const n = el("span", "hprog-count", i.count);
+        if (i.unit) n.append(el("span", "hprog-unit", i.unit));
+        b.append(n);
+      }
+      b.title = `${i.title}\n— ${H_PROG_STATE[i.state]} · 누르면 추출·설정 ${k}단계`;
+      b.setAttribute("aria-label", `${label} ${i.text}${i.count ? ` ${i.count}${i.unit || ""}` : ""} — ${H_PROG_STATE[i.state]}`);
+      box.append(b);
+    }
+  }
+  return box;
+}
+
 const HEAD_VIEWS = ["Tree", "Labels", "Templates", "Tables", "Review", "Run"];
 function headsResultView(name) {
   panelHelpClose();
@@ -5805,7 +5903,8 @@ function headsEmptyResult(target, title, message, stage) {
 function headsResultsSummary(r) {
   const renderKey = JSON.stringify([r.rev, [1, 2, 3].map((k) => {
     const s = r[`stage${k}`]; return s && [s.meta?.run, s.meta?.at, s.stale];
-  }), r.job && [r.job.stage, r.job.status, r.job.started], !!heads.graph, r.temp && r.temp.key, typeof driftStamp === "function" ? driftStamp() : null]);
+  }), r.job && [r.job.stage, r.job.status, r.job.started], !!heads.graph, r.temp && r.temp.key, typeof driftStamp === "function" ? driftStamp() : null,
+  JSON.stringify(headsProgNow(r)), r.rules && [r.rules.run, r.rules.asked]]); // 진행 줄 — 도는 작업이 다른 칸(스크립트 → 규칙 보강 → 헤딩 판정)으로 넘어가면 다시 그린다
   if (heads.summaryKey === renderKey) return;
   panelHelpClose();
   heads.summaryKey = renderKey;
@@ -5822,8 +5921,7 @@ function headsResultsSummary(r) {
   const tm = typeof tempMetric === "function" ? tempMetric(r) : null; // TEMP 항목 수 — 누르면 TEMP 목록(heading_temp.js, spec ② §15)
   if (tm) metrics.append(tm);
   overview.append(metrics);
-  const srcLine = headsSourceLine(r); // 2·3단계 결과가 LLM 것인지 스크립트 것인지 · 끝난 때 · 걸린 시간(② §7 「LLM 표시」)
-  if (srcLine) overview.append(srcLine);
+  overview.append(headsProgLine(r)); // 진행 줄(② §7 「진행 줄」) — 스크립트 · LLM 두 층에서 어디까지 했나(전의 LLM 꼬리표 줄 자리 — LLM 판정의 끝난 때·걸린 시간은 칸의 글·title)
   const stages = [s1, s2, s3].filter(Boolean);
   // 문서가 바뀐 것만으로는 「재확인 필요」 가 아니다(② §17 뼈대 유지) — 뼈대에 없는 새 레터·새 서식·새 표가 생겼을 때만 주황 꼬리표(누르면 목록 — heading_drift.js driftChip)
   const drift = typeof driftChip === "function" ? driftChip() : null;
@@ -5997,6 +6095,9 @@ function headsCard1(r, busy) {
     row("못 맞춤", sm.unmatchedGroups ? `${nf(sm.unmatchedGroups)}묶음 · ${nf(sm.unmatched)}문단` : "없음", sm.unmatchedGroups ? "warnc" : null,
       "보통 글로 판정됐지만 앞머리에 기호·짧은 토큰이 있는 문단");
     row("충돌", sm.conflicts ? `${nf(sm.conflicts)}묶음` : "없음", sm.conflicts ? "warnc" : null, "첫머리에 종류가 다른 규칙이 둘 이상 맞는 문단(먼저 온 규칙이 이김)");
+    const ri = headsProgRules(r, headsProgNow(r)), rv = headsRulesFrom(r); // 요약 진행 줄의 「규칙 보강」 칸과 같은 판정(② §7 「진행 줄」)
+    row("LLM 규칙 보강", ri.state === "llm" ? `함 · 실행 ${rv.run ?? "–"} · ${fmtWhen(rv.at)}` : ri.state === "none" ? "안 함" : H_PROG_STATE[ri.state],
+      ri.state === "failed" ? "bad" : ri.state === "llm" ? "llmc" : null, ri.title);
     box.append(dl);
     const chips = el("div", "hkinds");
     for (const [k, v] of Object.entries(sm.kinds || {})) {
