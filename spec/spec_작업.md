@@ -1125,6 +1125,18 @@
   검사 기대값: `smoke_workspace_ui`(탭 띠 둘 · 패널 머리 여섯) · `smoke_agent_ui`(탭 줄에 헤딩 추출 · 표) · `smoke_panel_head_ui`(`tabs_for` 에 고정 탭 둘 · 「<도구>」 = 마지막 띠 도구 「고친 문단」 · 펼친 탭 여덟/접힌 다섯 · 접힌 채 End = 「표」).
   화면 검사 묶음(`run_ui_gates.py`): workspace 32/0 · panel_head 61/0 · agent 85/0 · doc_status 47/0 · heading_progress 23/0 · tpl_agent 35/0 · doc_quick 26/0 · heading_drift 26/0 · work_guide 16/0 · agent_flow 17/0 ·
   first_run 27/1 — 떨어진 하나는 이 변경과 무관(이름 줄 분석 상태의 옛 기대값 「헤딩 ✓ · 표 ✓ · LLM 안 함」 — 같은 날 13:23 커밋 「넷 · 진행표」 가 그 검사를 안 고침 · 손대지 않음). 패널 280px 에서 탭 줄 · 표 보기 넘침 없음.
+- 2026-11-16 **고친 문단 — 깃 diff 처럼**(② §8 「화면」 — ① 같은 날, newfilemanager-69): **서버 코드가 바뀜(새 끝점)** — 같은 날 사용자 「커밋하고 재시작」 으로 커밋 6bfa8e4 · 8114 다시 켬(cli · claude-fable-5-2 — 이 작업의 11개 항목 값이 8114 에서도 나옴). 끝점이 없는 옛 서버에서는 모양 항목에 「모양 값을 읽지 못함」(글 · 상태 글자 · 지운 문단은 보임).
+  - 서버: `app/edit_detail.py`(순수 — `index` · `changes` · `shown`) · `server.py` `edits_detail`(`DETAIL_KINDS`, 세션에 `edit_detail_memo`). 화면: `app.js` 「고친 문단 목록」 절(`drawEdits` · `EDET`/`edetNeed` · `diffParts`(diffView 도 이것으로) · `gdLine` · `gitView` · `gitFmt` · `gitGone`) · `style.css` `.gd*`·`.gk*`·`.edit-item.g-*`. 워크플로우 「검증 · 확정 · 저장 › 확정」 글.
+  - 검사: `tests/test_edit_detail.py`(6 — 값 꼴 · 일부 글자 · 목록 번호 안 견줌 · 칸 안 문단 · 끝점) · 화면은 임시 서버(예제에 모양·글·나누기·합치기를 API 로 낸 뒤 탭을 열어 12개 확인 — 편집 뒤 다시 묻기 1~2번 · 고리 없음 · 콘솔 오류 0) ·
+    사용자 작업 ce455d64bf44 의 **사본**으로 띄운 임시 서버에서 11개 항목이 「크기 14pt → 15pt」(7개는 문단 스타일 · 정렬도)로 보임.
+- 2026-11-16 **LLM 검증·보완 — 표 · 서식 같이 · 템플릿끼리 같이 · 「같이」 표기**(② §20 — ① 같은 날, newfilemanager-70): **서버 코드가 바뀜 — 8114 는 다시 켜야 같이 돈다**(사용자 지시 전 — 안 켬). 화면 코드는 새로 고침으로.
+  - 서버: `app/analysis_llm.py`(① 뒤 `_tables` · `_formats` 를 스레드 둘로 · 서식은 템플릿마다 `PLAN_WORKERS`=3 · PARTS 에 차례 번호 · `_part` 가 `job.phase` = 도는 첫 단계) ·
+    `app/analysis.py`(`chain_parts` — 항목의 LLM 칸 · `_turns` · 서식 칸을 단계 상태로 · `chain.running` · `llmPlan.no`·「같이」 글) · `app/analysis_api.py`(글만).
+  - 화면: `doc_status.js`(`dsLlmChip` 도는 단계 둘 · `dsSteps`·「돌 것」 에 차례 번호 · 「같이」 — `dsWith` · `dsRunning` 글 · `DS_ORDER`) · `doc_status.css`(`.ds-step-no` · `.ds-with`) · `app.js`(헤딩 작업 꼬리표 글 한 마디).
+  - 등록부: `app/workflow.py` 「LLM 검증·보완(분리)」 글 → workflow.md 다시 만듦. 계약 협의: newfilemanager-d2(`doc_agent_next.js` 가 `llmPlan`·`chain.steps`·`dsSteps` 를 읽음 — 필드만 더해 그대로) · 83 · 69 「겹침 없음 — 진행」.
+  - 검사: `tests/test_analysis.py` — 단계마다 상태(표 · 서식 둘 다 도는 중 · 서식이 먼저 끝남 · 막 시작) · 실제로 겹쳐 도는지(표가 서식을, 템플릿 셋이 서로를 기다려야 지나가는 시험) · 한쪽 실패에도 다른 쪽 마침 · 멈추기는 시작 안 한 템플릿부터 — test_analysis · test_workflow · test_tpl_agent 39 통과.
+    화면 `tools/smoke_doc_status_ui.py` 에 「돌 것」·단계 줄의 번호 · 「같이」 · 표 · 서식 같이 도는 흉내(이름 줄 「LLM 검증·보완 표 · 서식」 · 진행 카드 글)를 더함 — doc_status 51/0 · 같이 돈 heading_progress 23/0 · agent_flow 17/0.
+    실제 LLM 으로 같이 도는 것은 아직 못 봄(8114 를 다시 켠 뒤). design.md §9 「같이 도는 일의 표기」.
 - 2026-11-16 **분석 상태 넓힘 — 넷 · 진행표 · LLM 검증·보완**(② §20 — ① 같은 날, newfilemanager-11): **서버 코드가 바뀜 — 8114 는 다시 켜야 새 표시 · 단추가 보인다**(사용자 지시 전 — 안 켬). 화면 코드는 새로 고침으로.
   - 서버: `app/analysis.py`(항목 templates · formats · 헤딩 `rules` · 표 `calc` · `short` · `llmPlan` · `chain` · 이어 돌리기의 차례(`_turns` — phase) · `need_templates`·`plan_state`) ·
     `app/analysis_api.py`(GET 이 개요 오버레이 · 서식 갈래(`outline_match.all_variants`) · 받은 계획을 넘김 · `POST`/`DELETE …/analysis/llm`) · 새 `app/analysis_llm.py`(헤딩 → 표 → 서식 계획 · 건너뜀 · 멈춤 `Stop`) ·
