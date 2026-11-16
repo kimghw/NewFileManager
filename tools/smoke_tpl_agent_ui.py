@@ -1,11 +1,13 @@
-"""템플릿 트리(「템플릿」 탭 = 「템플릿 관계」 열 — 같은 UI) · 개요 레벨 그림 · 「하위로」 늘 보임 · 템플릿 맞추기 · 문서 표시의 서식 라벨 · 템플릿 서식 정리 에이전트
+"""템플릿 트리(「템플릿」 탭 = 「템플릿 관계」 열 — 같은 UI) · 개요 레벨 그림 · 「하위로」 늘 보임 · 다른 서식 보기 · 대표 맞추기 · 문서 표시의 서식 라벨 · 템플릿 서식 정리 에이전트
 (spec_헤딩_추출 ② §7 · spec_hwpx_웹편집 ② §8-2·§8-4 — app.js tplTreeDraw · outline_match.js · tpl_agent.js) 화면 확인 —
 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 끝점은 진짜 — 에이전트의 LLM 답(POST …/plan)과 「LLM 켜짐」(GET /api/outline/agent 의 available)만 흉내.
 
 연구개발계획서 양식을 올리고 1·2단계(LLM 없이)를 끝점으로 돌린 뒤 작업을 열어:
 - 헤딩 추출 「템플릿」 탭이 트리(옛 카드 목록 없음) · 템플릿마다 개요 레벨 그림 · 원문 보기 · 「템플릿 관계」 열과 줄이 같다.
 - 「하위로」 는 넣을 자리가 없는 템플릿에도 보이고(흐리게) 누르면 까닭 · 자리가 있는 T9 는 탭에서 넣어도 2열이 열리지 않고 탭의 트리에 「T8T9」 · 「떼기」.
-- 「템플릿 맞추기」(T3) → 두 레벨이 한 번에 · 실행 취소 한 번.
+- 「다른 서식 보기(2가지)」(T3) → 개요 레벨 그림 아래에 레벨마다 대표와 다른 서식(견본 글 · 「앞 공백: 지금 4칸 → 대표 3칸」) · 「문서에서 보기」 · 서식 줄의 「맞추기」 → 그 서식만 · 실행 취소 ·
+  다 맞춘 뒤에도 단추는 남고(흐린 점선) 묶음은 「대표와 다른 서식 없음」 · 실행 취소로 돌아오면 다시 2가지 · 「접기」(2026-11-16 — outline_odd.js).
+- 「대표 맞추기」(T3 — 전 이름 「템플릿 맞추기」) → 두 레벨이 한 번에 · 실행 취소 한 번.
 - 「서식 라벨 보기」 → 템플릿 표 아래(또는 같은 줄 뒤)에 「S…」 · 누르면 그 서식만 또렷이(이름 줄 설명의 「목록」 = 그 라벨의 문단 목록) · 끄면 사라짐.
 - 별 아이콘 → 2열 「템플릿 서식 정리」: 모델 「Opus 5.5」 · 스킬 고치기 → 「저장하고 정리 계획 받기」 가 먼저 저장 · 계획(대표 바꿈 · 갈래 줄마다 고르기 「맞추기 / 그대로 / T3L2a 로」) → 적용 → 실행 취소 한 번 ·
   계획을 다시 받아 갈래 하나를 「T3L2a 로」 → 「적용 — 5줄 · 떼기 1줄」 → 서식 종속 템플릿 「T3L2a」(spec_hwpx_웹편집 ② §8-5) · 실행 취소 한 번 ·
@@ -182,7 +184,56 @@ def main():
         page.wait_for_function(WAIT_IDLE)
         check("「떼기」 → 종속 템플릿이 없어짐", page.evaluate("!Object.keys(heads.outline.templates).includes('8+9')"))
 
-        # ---- 템플릿 맞추기 — 여러 레벨을 한 번에 · 실행 취소 1
+        # ---- 다른 서식 보기 — 템플릿 줄의 단추 → 그림 아래에 레벨마다 대표와 다른 서식(견본 글 · 지금 값 → 대표 값) · 서식마다 맞추기 · 문서에서 보기
+        # (2026-11-16 사용자 「템플릿 내에서 다른 서식을 템플릿 서식으로 조정하기 기능 넣어주고, 다른 서식 보기 버튼도 넣어줘」 — outline_odd.js). T3 L2 「-」 = 대표 p6502 ×5 · p5209 ×1 · p5765 ×1
+        n3 = NODE(TAB, 3)
+        ODD = """() => { const li = document.querySelector('#headsTemplatesResult li.trel-node[data-tpl="3"]'), box = li.querySelector(':scope > .olm-odd'), btn = li.querySelector(':scope > .trel-row .olm-odd-btn');
+          return { btn: btn ? btn.textContent : '', pressed: btn ? btn.getAttribute('aria-expanded') : '', box: !!box, hidden: !box || box.hidden, underPic: !!(box && box.previousElementSibling && box.previousElementSibling.classList.contains('tpl-pic')),
+            head: box && !box.hidden ? box.querySelector('.olo-head').textContent : '', dialog: !!document.querySelector('dialog[open]'), none: !!(btn && btn.classList.contains('none')),
+            same: box ? [...box.querySelectorAll('.olo-same')].map((l) => l.textContent) : [],
+            levels: box ? [...box.querySelectorAll('.olo-lv')].map((l) => ({ L: +l.dataset.level, head: l.querySelector('.olo-lh').textContent, btns: [...l.querySelectorAll('.olo-lh button')].map((b) => b.textContent),
+              rep: [...l.querySelectorAll('.olo-row.rep')].map((r) => [r.querySelector('.olo-tag').textContent, r.querySelector('.olm-n').textContent, !!r.querySelector('.olp-samp'), !!r.querySelector('.olo-go')]),
+              rows: [...l.querySelectorAll('.olo-row:not(.rep)')].map((r) => ({ tag: r.querySelector('.olo-tag').textContent, n: r.querySelector('.olm-n').textContent, paras: r._paras, samp: !!r.querySelector('.olp-samp'),
+                diff: (r.querySelector('.olm-diff') || {}).textContent || '', go: (r.querySelector('.olo-go') || {}).textContent || '' })) })) : [] }; }"""
+        page.wait_for_function("() => document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-odd-btn')", timeout=30000)
+        od0 = page.evaluate(ODD)
+        check("템플릿 줄에 「다른 서식 보기(2가지)」 — 「대표 맞추기」 바로 뒤 · 누르기 전에는 펼친 것 없음",
+              od0["btn"] == "다른 서식 보기(2가지)" and od0["pressed"] == "false" and od0["hidden"]
+              and page.evaluate("""() => { const r = document.querySelector('#headsTemplatesResult li.trel-node[data-tpl="3"] > .trel-row'), a = r.querySelector('.olm-tm-btn'), b = r.querySelector('.olm-odd-btn');
+                return !!(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)); }"""), od0)
+        page.locator(f'{n3} > .trel-row .olm-odd-btn').first.click()
+        page.wait_for_selector(f'{n3} > .olm-odd:not([hidden]) .olo-row', timeout=10000)
+        od = page.evaluate(ODD)
+        l2 = next((x for x in od["levels"] if x["L"] == 2), {"rows": [], "rep": [], "head": "", "btns": []})
+        r5209 = next((r for r in l2["rows"] if "p5209" in (r["paras"] or [])), {})
+        check("누르면 개요 레벨 그림 바로 아래에 펼쳐짐(팝업 아님) — 머리 「대표와 다른 서식 · 레벨 1개 · 2가지 · 2줄」 · L2 「-」 머리에 「문서에서 보기」·「이 레벨 맞추기(2줄)」",
+              od["pressed"] == "true" and not od["hidden"] and od["underPic"] and not od["dialog"] and "대표와 다른 서식" in od["head"] and "레벨 1개 · 2가지 · 2줄" in od["head"]
+              and [x["L"] for x in od["levels"]] == [2] and "다른 서식 2가지 · 2줄" in l2["head"] and l2["btns"] == ["문서에서 보기", "이 레벨 맞추기(2줄)"], od)
+        check("서식이 한 가지인 레벨은 한 줄 「L1 「o」 서식 1가지 — 모두 같음 · n줄」", len(od["same"]) == 1 and od["same"][0].startswith("L1") and "서식 1가지 — 모두 같음" in od["same"][0], od["same"])
+        check("레벨마다 대표 줄(「대표 ×5」 견본 · 맞추기 없음) + 다른 서식 줄(「다름 ×1」 견본 · 「맞추기」 · 「앞 공백: 지금 4칸 → 대표 3칸」 — 값마다 이름표)",
+              l2["rep"] == [["대표", "×5", True, False]] and len(l2["rows"]) == 2 and all(r["tag"] == "다름" and r["n"] == "×1" and r["samp"] and r["go"] == "맞추기" for r in l2["rows"])
+              and "앞 공백: 지금 4칸 → 대표 3칸" in r5209.get("diff", ""), l2)
+        page.screenshot(path=str(OUT / "03d_odd.png"))
+        page.locator(f'{n3} > .olm-odd .olo-see').first.click()
+        page.wait_for_function("() => FMF.kind === 'tpl' && FMF.tpl === '3' && FMF.level === 2 && document.getElementById('doc').classList.contains('fmt-focus')", timeout=20000)
+        page.wait_for_function("() => document.querySelectorAll('.sheet > .fm-tag').length > 0", timeout=20000)
+        check("「문서에서 보기」 → 문서에서 T3 L2 의 줄만 또렷이 · 대표와 다른 줄에 「≠ …」 표", page.evaluate("() => !document.getElementById('fmtKey').hidden && /T3 L2/.test(document.getElementById('fmtKey').textContent)"))
+        page.click("#fmtKey .fm-key-off")
+        page.wait_for_function("() => !document.getElementById('doc').classList.contains('fmt-focus')", timeout=10000)
+        undo0 = page.evaluate("state.undo")
+        page.evaluate("""() => { const rows = [...document.querySelectorAll('#headsTemplatesResult li.trel-node[data-tpl="3"] > .olm-odd .olo-row:not(.rep)')]; rows.find((r) => (r._paras || []).includes('p5209')).querySelector('.olo-go').click(); }""")
+        page.wait_for_function(f"() => state.undo === {undo0 + 1} && !state.busy", timeout=60000)
+        page.wait_for_function("() => (document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-odd-btn') || {}).textContent === '다른 서식 보기(1가지)'", timeout=30000)
+        od = page.evaluate(ODD)
+        check("다른 서식 줄의 「맞추기」 → 그 서식의 줄만 대표 모양으로(p5209 접두 「   - 」) · 단추 「다른 서식 보기(1가지)」 · 펼친 묶음에 남은 한 줄 · 실행 취소 한 칸",
+              slot(doc, 3, 2)["others"] == 1 and page.evaluate("() => document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('   - ') && !document.querySelector('#doc .para[data-id=p5209]').textContent.startsWith('    ')")
+              and not od["hidden"] and len(od["levels"]) == 1 and len(od["levels"][0]["rows"]) == 1 and "p5765" in od["levels"][0]["rows"][0]["paras"], od)
+        page.click("#undoBtn")
+        page.wait_for_function(f"() => state.undo === {undo0} && !state.busy", timeout=60000)
+        page.wait_for_function("() => (document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-odd-btn') || {}).textContent === '다른 서식 보기(2가지)'", timeout=30000)
+        check("실행 취소 → 다른 서식 2가지로(펼친 채)", slot(doc, 3, 2)["others"] == 2 and not page.evaluate(ODD)["hidden"])
+
+        # ---- 대표 맞추기(전 이름 「템플릿 맞추기」) — 여러 레벨을 한 번에 · 실행 취소 1
         page.wait_for_function("() => document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-tm-btn')", timeout=30000)
         txt = page.locator(f'{NODE(TAB, 3)} > .trel-row .olm-tm-btn').first.inner_text()
         undo0 = page.evaluate("state.undo")
@@ -190,12 +241,20 @@ def main():
         page.locator(f'{NODE(TAB, 3)} > .trel-row .olm-tm-btn').first.click()
         page.wait_for_function(f"() => state.undo === {undo0 + 1} && !state.busy", timeout=60000)
         after = slot(doc, 3, 2)["others"]
-        check("「템플릿 맞추기(n줄)」(T3) → 레벨마다 대표 모양으로 · 실행 취소 한 칸", re.fullmatch(r"템플릿 맞추기\(\d+줄\)", txt) and before == 2 and after == 0, [txt, before, after])
+        check("「대표 맞추기(n줄)」(T3) → 레벨마다 대표 모양으로 · 실행 취소 한 칸", re.fullmatch(r"대표 맞추기\(\d+줄\)", txt) and before == 2 and after == 0, [txt, before, after])
         page.wait_for_function("() => !document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-tm-btn')", timeout=30000)
-        check("맞춘 뒤에는 「템플릿 맞추기」 가 사라짐(맞출 줄 없음)", True)
+        check("맞춘 뒤에는 「대표 맞추기」 가 사라짐(맞출 줄 없음)", True)
+        page.wait_for_function("() => { const b = document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .trel-row .olm-odd-btn'); return b && b.textContent === '다른 서식 보기' && b.classList.contains('none'); }", timeout=30000)
+        od = page.evaluate(ODD)
+        check("맞춘 뒤에도 「다른 서식 보기」 는 남는다(흐린 점선 · 수 없음) — 펼친 묶음은 「대표와 다른 서식 없음」 + 레벨마다 「서식 1가지 — 모두 같음」",
+              od["none"] and not od["hidden"] and "대표와 다른 서식 없음" in od["head"] and not od["levels"] and len(od["same"]) == 2 and all("서식 1가지 — 모두 같음" in s for s in od["same"]), od)
         page.click("#undoBtn")
         page.wait_for_function(f"() => state.undo === {undo0} && !state.busy", timeout=60000)
         check("실행 취소 한 번으로 되돌아감", slot(doc, 3, 2)["others"] == 2)
+        page.wait_for_function("() => { const b = document.querySelector('#headsTemplatesResult li.trel-node[data-tpl=\"3\"] > .olm-odd'); return b && !b.hidden && b.querySelectorAll('.olo-row:not(.rep)').length === 2; }", timeout=30000)
+        check("실행 취소 → 펼쳐 둔 「다른 서식」 묶음이 다시 보임(2가지)", page.evaluate(ODD)["btn"] == "다른 서식 보기(2가지)")
+        page.locator(f'{n3} > .olm-odd .olo-close').first.click()
+        check("「접기」 → 묶음이 접히고 단추 눌림이 풀림", page.evaluate(ODD)["hidden"] and page.evaluate(ODD)["pressed"] == "false")
 
         # ---- 문서 표시의 서식 라벨
         n0 = page.evaluate("document.querySelectorAll('.tpl-mark.fmt, .tpl-mark .tm-fmt').length")
@@ -335,12 +394,16 @@ def main():
         check("「‹ 템플릿 관계」 → 그 템플릿을 편 템플릿 관계", page.evaluate("document.querySelector('#headsDlgBody li.trel-node.sel').dataset.tpl") == "3")
         page.click("#headsDlgClose")
 
-        # ---- 좁은 패널
+        # ---- 좁은 패널(「다른 서식」 묶음을 편 채로 잰다)
+        page.wait_for_selector(f'{NODE(TAB, 3)} > .trel-row .olm-odd-btn', timeout=30000)
+        page.locator(f'{NODE(TAB, 3)} > .trel-row .olm-odd-btn').first.click()
+        page.wait_for_selector(f'{NODE(TAB, 3)} > .olm-odd:not([hidden]) .olo-row', timeout=10000)
         page.evaluate("() => { const c = colSizers.find((x) => x.box === 'panel'); c.w = 320; c.apply(); }")
         page.wait_for_timeout(500)
-        ov = page.evaluate("""() => { const pr = document.getElementById('panel').getBoundingClientRect();
-          return [...document.querySelectorAll('#headsTemplatesResult .trel-row, #headsTemplatesResult .tpl-pic, #headsTemplatesResult .tpl-tree-tools')].filter((e) => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().right > pr.right + 1).length; }""")
-        check("패널 320px — 탭의 트리 줄·그림·단추가 패널 밖으로 안 나감", ov == 0, ov)
+        ov = page.evaluate("""() => { const pr = document.getElementById('panel').getBoundingClientRect(), R = '#headsTemplatesResult ';
+          return [...document.querySelectorAll(['.trel-row', '.tpl-pic', '.tpl-tree-tools', '.olm-odd', '.olo-lh', '.olo-rh', '.olo-rh > *', '.olo-row > .olm-diff'].map((s) => R + s).join(', '))]
+            .filter((e) => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().right > pr.right + 1).length; }""")
+        check("패널 320px — 탭의 트리 줄·그림·단추·펼친 「다른 서식」 묶음이 패널 밖으로 안 나감", ov == 0 and page.locator(f'{NODE(TAB, 3)} > .olm-odd:not([hidden]) .olo-row').count() >= 3, ov)
         page.screenshot(path=str(OUT / "08_narrow_panel.png"))
         b.close()
     check("콘솔 오류 없음", not errors, errors[:5])

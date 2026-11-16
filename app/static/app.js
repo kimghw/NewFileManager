@@ -6795,7 +6795,7 @@ function tplRel(g) { // 그래프 → {tpl: Map(id → 템플릿), node: Map(노
 }
 
 const TPL_TREE_HELP = "TN 은 이 문서의 템플릿 번호, Lk 는 템플릿 안 레벨입니다(문서 왼쪽 여백의 「TN Lk」 와 같은 번호). 템플릿마다 개요 레벨 그림 — 레벨마다 레터 · 글꼴·크기·굵기 · 들여쓰기(그 레벨 대표 줄의 서식) — 이 먼저 보이고, "
-  + "T번호나 화살표를 누르면 레벨 줄(자리 · 서식 갈래 · 대표에 맞추기)과 그 레벨에 매달린 하위 템플릿이 펼쳐집니다. 「하위로」 는 템플릿을 다른 템플릿 레벨 아래의 종속 템플릿(「T1T3」)으로 넣어 그 줄들만 따로 맞추게 하고, "
+  + "T번호나 화살표를 누르면 레벨 줄(자리 · 서식 갈래 · 대표에 맞추기)과 그 레벨에 매달린 하위 템플릿이 펼쳐집니다. 「대표 맞추기」 는 이 템플릿의 레벨마다 대표와 서식이 다른 줄을 한 번에 대표 모양으로 맞추고, 「다른 서식 보기」 는 그 다른 서식을 레벨마다 그림 아래에 펴 보입니다(견본 글 · 지금 값 → 대표 값 · 서식마다 맞추기). 「하위로」 는 템플릿을 다른 템플릿 레벨 아래의 종속 템플릿(「T1T3」)으로 넣어 그 줄들만 따로 맞추게 하고, "
   + "별 모양 단추는 서식 정리 에이전트(Opus 5.5)를 엽니다. 인스턴스를 펼치면 원문으로 이동합니다. 되돌이는 상위에 이미 나온 템플릿이므로 반복해서 펼치지 않습니다.";
 
 function tplTreeTools(root) { // 트리 위 공용 단추 — 문서 표시 · 서식 라벨 · 모두 펼치기 · 모두 접기(「템플릿」 탭과 「템플릿 관계」 열이 같이 쓴다)
@@ -6836,7 +6836,7 @@ function headsTplView(focus = null) { // 「템플릿 관계」(2열 kind "templ
 }
 
 // 템플릿 트리 — 「템플릿 관계」(2열 · where "col")와 헤딩 추출 「템플릿」 탭(where "tab")이 같이 쓰는 그리기(같은 내용 = 같은 UI: 2026-11-15 사용자).
-// 템플릿을 매달린 자리로 이은 트리: 템플릿 줄 [▸][TN] 사슬 · 수 · 정리 에이전트 · 정보 + 종속 표지·하위로·템플릿 맞추기(outline_match.js) → 개요 레벨 그림(olmPic — 서식 복사의 서식 견본과 같은 그림)
+// 템플릿을 매달린 자리로 이은 트리: 템플릿 줄 [▸][TN] 사슬 · 수 · 정리 에이전트 · 정보 + 종속 표지·하위로·대표 맞추기·다른 서식 보기(outline_match.js · outline_odd.js) → 개요 레벨 그림(olmPic — 서식 복사의 서식 견본과 같은 그림) · 다른 서식 묶음(olmOddBox — 펼친 것만)
 // · 원문 보기 → 펼치면 레벨 줄(자리 줄 olfRow · 서식 갈래 olmRow · 괄호 글 목록 · 그 레벨의 가지 템플릿) · 인스턴스. 펼친 템플릿은 자리(where)마다 기억해 다시 그려도 펼친 채다.
 // -> 템플릿 수(종속 템플릿 포함)
 function tplTreeDraw(root, g, focus = null, where = "tab") {
@@ -6934,11 +6934,12 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     const agent = !cyc && typeof tplAgentIcon === "function" ? tplAgentIcon(id) : null; // 서식 정리 에이전트(tpl_agent.js — spec_hwpx_웹편집 ② §8-4)
     row.append(tog, num, name, meta, ...(agent ? [agent] : []), hHelp(`T${t.no ?? id} 템플릿 정보`, info, { note: true }));
     li.append(row);
-    if (typeof olmTplTools === "function") olmTplTools(li, row, id); // 종속 표지 · 하위로 넣기 · 떼기 · 템플릿 맞추기(outline_match.js, spec_hwpx_웹편집 ② §8-2)
+    if (typeof olmTplTools === "function") olmTplTools(li, row, id); // 종속 표지 · 하위로 넣기 · 떼기 · 대표 맞추기 · 다른 서식 보기(outline_match.js · outline_odd.js, spec_hwpx_웹편집 ② §8-2)
     if (typeof olLiftTools === "function") olLiftTools(li, row, id); // 「표를 L1 으로」 — 첫 레벨 줄 위의 1칸 제목 표를 이 템플릿의 L1 로(outline_lift.js, spec_hwpx_웹편집 ② §8-7)
     if (!cyc) {
       const pic = typeof olmPic === "function" ? olmPic(id) : null; // 개요 레벨 그림 — 서식 복사의 내용 서식 견본과 같은 그림(레벨마다 레터 · 견본 글 · 들여쓰기)
       if (pic) li.append(pic);
+      if (typeof olmOddBox === "function") li.append(olmOddBox(id)); // 「다른 서식 보기」 의 펼침 자리 — 그림 바로 아래(접혀 있으면 숨김: outline_odd.js, spec_hwpx_웹편집 ② §8-2)
       const first = ins[0], node = first ? rel.node.get(first.root) || {} : {}, para = first ? node.para || first.root : null;
       if (para && hasBlock(para)) li.append(hBtn(`원문 보기 · ${short(`${(node.letter || "").trim()} ${first.text || node.text || ""}`.trim() || "(빈 글)", 34)}`, () => headsGo(para), { cls: "template-source", title: "이 템플릿의 첫 자리로(문서)" }));
     }

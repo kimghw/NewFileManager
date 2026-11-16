@@ -357,7 +357,8 @@ function olmRedraw() {
     old.replaceWith(fresh);
   }
   for (const box of document.querySelectorAll(".tpl-tree .tpl-pic")) olmPicFill(box); // 개요 레벨 그림도 새 대표 서식으로
-  for (const old of document.querySelectorAll(".tpl-tree .olm-tm")) old.replaceWith(olmTplMatch(old.dataset.tpl)); // 「템플릿 맞추기(n줄)」 의 줄 수도
+  for (const old of document.querySelectorAll(".tpl-tree .olm-tm")) old.replaceWith(olmTplMatch(old.dataset.tpl)); // 「대표 맞추기(n줄)」 의 줄 수도
+  if (typeof olmOddRefresh === "function") olmOddRefresh(); // 「다른 서식 보기(n가지)」 의 수 · 펼친 묶음도(outline_odd.js)
   if (OLM.sel) olmMark(OLM.sel);
   if (typeof olpRefresh === "function") olpRefresh(); // 「서식 비교」·자리 미리보기 창 — 새 갈래로
   if (typeof tplAgentSync === "function") tplAgentSync(); // 열려 있는 서식 정리 에이전트 열의 대상 칸(tpl_agent.js)
@@ -485,7 +486,7 @@ function olmNoPlace(t) { // 「하위로」 를 눌렀는데 넣을 자리가 �
     + ((t.made || []).length ? " 매달린 자리는 이미 종속 템플릿으로 넣었습니다(위 「→ T… · 떼기」)." : "");
 }
 
-function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿 표지 · 이 템플릿으로 만든 종속 템플릿 「T1T3 · 떼기」 · 「템플릿 맞추기」 · 「하위로」(넣을 자리가 없어도 보인다 — 누르면 까닭)
+function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿 표지 · 이 템플릿으로 만든 종속 템플릿 「T1T3 · 떼기」 · 「대표 맞추기」 · 「다른 서식 보기」 · 「하위로」(넣을 자리가 없어도 보인다 — 누르면 까닭)
   const t = olmTpl(id);
   if (!t) return;
   if (t.comp) {
@@ -503,7 +504,8 @@ function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿
     chip.title = `T${v.ofNo} L${v.level} 에서 서식이 달라 뗀 템플릿${v.level > 1 ? ` — L1${v.level > 2 ? `~L${v.level - 1}` : ""} 은 T${v.ofNo} 의 레벨, 이 템플릿의 줄은 L${v.level} 부터` : ""}. 서식 갈래·대표·맞추기는 이 템플릿의 줄끼리만 견줍니다`;
     row.append(chip, hBtn("합치기", () => olmUnsplit(id), { title: `이 템플릿을 지우고 그 줄을 T${v.ofNo} 의 같은 레벨로 되돌립니다(「실행 취소」 로도 됨)`, cls: "btn sm olm-btn olm-unsplit" }));
   }
-  row.append(olmTplMatch(id)); // 「템플릿 맞추기(n줄)」 — 이 템플릿(종속 템플릿이면 그 줄만)의 모든 레벨을 한 번에
+  row.append(olmTplMatch(id)); // 「대표 맞추기(n줄)」 — 이 템플릿(종속 템플릿이면 그 줄만)의 모든 레벨을 한 번에(전 이름 「템플릿 맞추기」 — 2026-11-16 사용자 「대표 맞추기.. 로 하면 되겠네」)
+  if (typeof olmOddBtn === "function") row.append(olmOddBtn(id)); // 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보인다(outline_odd.js)
   if (t.all) { row.append(el("span", "olm-chip into", "줄을 다 넣음")); return; }
   if (!t.lines || t.vari) return; // 서식 종속 템플릿은 이미 제 템플릿의 레벨 아래 — 「하위로」 없음
   const places = olmPlaces(id);
@@ -528,7 +530,7 @@ function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿
   const sync = () => {
     const p = places[+sel.value];
     const A = olmTpl(p.parent) || {};
-    note.textContent = `종속 템플릿 ${p.to.split(" ")[0]} 을 만듭니다 — 「${[...(A.chain || []).slice(0, p.at), ...(t.chain || []).slice(t.base || 0)].join(" › ")}」 · 그 자리의 T${t.no} 줄만(다른 자리의 T${t.no} · T${A.no || p.parent} 는 그대로) · 넣은 뒤 그 줄들만 따로 「종속 템플릿 맞추기」`;
+    note.textContent = `종속 템플릿 ${p.to.split(" ")[0]} 을 만듭니다 — 「${[...(A.chain || []).slice(0, p.at), ...(t.chain || []).slice(t.base || 0)].join(" › ")}」 · 그 자리의 T${t.no} 줄만(다른 자리의 T${t.no} · T${A.no || p.parent} 는 그대로) · 넣은 뒤 그 줄들만 따로 「대표 맞추기」`;
   };
   sel.onchange = sync;
   sync();
@@ -542,14 +544,14 @@ function olmTplOthers(id) { // 이 템플릿에서 대표와 서식이 다른 �
   const lv = Object.values(OLM.data[String(id)] || {}).filter((v) => v.rep && v.others);
   return { n: lv.reduce((a, v) => a + v.others, 0), levels: lv.length };
 }
-function olmTplMatch(id) { // 템플릿 줄의 「템플릿 맞추기(n줄)」 자리 — 맞출 줄이 없으면 빈 자리(갈래를 읽은 뒤 olmRedraw 가 다시 채운다)
+function olmTplMatch(id) { // 템플릿 줄의 「대표 맞추기(n줄)」 자리(전 이름 「템플릿 맞추기」·「종속 템플릿 맞추기」) — 맞출 줄이 없으면 빈 자리(갈래를 읽은 뒤 olmRedraw 가 다시 채운다)
   const box = el("span", "olm-tm");
   box.dataset.tpl = id;
   const t = olmTpl(id), o = t ? olmTplOthers(id) : null;
   if (!o) { olmNeed(); return box; }
   if (!o.n) return box;
-  box.append(hBtn(`${t.comp || t.vari ? "종속 템플릿" : "템플릿"} 맞추기(${nf(o.n)}줄)`, () => olmMatchTpl(id),
-    { title: `T${t.no} 의 레벨 ${o.levels}개에서 대표와 서식이 다른 줄 ${nf(o.n)}개를 레벨마다 그 대표 모양으로 — 한 번에(「실행 취소」 한 번으로 되돌림)`
+  box.append(hBtn(`대표 맞추기(${nf(o.n)}줄)`, () => olmMatchTpl(id),
+    { title: `T${t.no} 의 레벨 ${o.levels}개에서 대표와 서식이 다른 줄 ${nf(o.n)}개를 레벨마다 그 대표 모양으로 — 한 번에(「실행 취소」 한 번으로 되돌림)\n무엇이 다른지는 옆의 「다른 서식 보기」`
       + (t.comp ? `\n종속 템플릿의 줄만 맞춥니다 — 다른 자리의 T${t.comp.childNo} · T${t.comp.parentNo} 줄은 그대로`
         : t.vari ? `\n서식 종속 템플릿의 줄만 맞춥니다 — T${t.vari.ofNo} 의 줄은 그대로` : "\n레벨마다 따로 하려면 펼쳐서 「대표에 맞추기」"), cls: "btn sm olm-btn olm-tm-btn" }));
   return box;
