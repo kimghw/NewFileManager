@@ -103,16 +103,18 @@
 .sl-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 0; color: var(--fail); font-size: 12px; }
 .sl-confirm > span { min-width: 0; overflow-wrap: anywhere; }
 
-/* 한 레벨 = 이름·견본 / 적용·수정 버튼 / 그 레벨의 값 입력. 다음 레벨과 한 격자의 칸을 공유하지 않는다. */
+/* 한 레벨 = 2줄(2026-11-16 사용자 「2줄이면 될거 같은데」): 왼쪽 L 표지 · 이름(윗줄) · 견본 글(아랫줄) | 오른쪽 적용·수정 버튼(두 줄 높이 가운데).
+   좁은 열(아래 @container)에서는 이름·견본을 한 줄에, 버튼을 아랫줄에 — 어느 폭이든 2줄. 값 입력은 그 아래 행 전체 폭. 다음 레벨과 한 격자의 칸을 공유하지 않는다. */
 .sl-levels { display: flex; flex-direction: column; min-width: 0; margin: 10px 0 0; border-top: 1px solid var(--line); }
-.sl-level-row { min-width: 0; padding: 11px 2px; }
+.sl-level-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-width: 0; padding: 8px 2px; }
+.sl-level-row > .sl-fform { grid-column: 1 / -1; }
 .sl-level-row + .sl-level-row { border-top: 1px solid var(--line); }
 .sl-level-head { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; }
 .sl-levels .sl-lv { padding-top: 1px; color: #526683; font-size: 11px; font-weight: 600; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.sl-levels .sl-lname { display: flex; flex-direction: column; gap: 3px; min-width: 0; line-height: 1.5; }
+.sl-levels .sl-lname { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.5; }
 .sl-ltitle { color: var(--text); font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
 .sl-lsample { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
-.sl-level-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; margin-top: 8px; }
+.sl-level-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
 .sl-level-actions .btn.sm { min-width: 0; max-width: 100%; height: 28px; padding: 0 9px; font-size: 11.5px; white-space: nowrap; }
 .sl-level-actions [data-sl-item] { color: #315fa7; border-color: #cddbf0; background: #f6f9ff; }
 .sl-level-actions [data-sl-item]:hover:not(:disabled) { background: #eaf1ff; border-color: #9ebae5; }
@@ -135,6 +137,11 @@
 @container sl-detail (max-width: 360px) {
   .sl-frow { grid-template-columns: minmax(0, 1fr); }
   .sl-level-actions .btn.sm { padding-inline: 7px; }
+}
+@container sl-detail (max-width: 429px) { /* 버튼 둘(약 260px)을 이름 옆에 두면 이름 칸이 너무 좁아지는 폭 — 이름·견본 한 줄 + 버튼 아랫줄 */
+  .sl-level-row { grid-template-columns: minmax(0, 1fr); }
+  .sl-levels .sl-lname { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+  .sl-level-actions { flex-wrap: wrap; margin-top: 6px; }
 }
 
 /* 추출 후보 — 줄마다: 체크 · 이름 칸 · 자리로 / 크기 · 머리행·머리열·합계행 · 같은 서식 n개 · 구조까지 */

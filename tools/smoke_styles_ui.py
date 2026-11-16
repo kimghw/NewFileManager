@@ -374,9 +374,13 @@ LEVEL_LAYOUT = """() => { const p = document.querySelector('#headsDlg .sl-item[d
   const rows = [...p.querySelectorAll('.sl-level-row')], rect = (e) => e.getBoundingClientRect();
   return rows.map((r, i) => { const head = r.querySelector('.sl-level-head'), acts = r.querySelector('.sl-level-actions'), f = r.querySelector('.sl-fform'), bs = [...(acts?.querySelectorAll('button') || [])];
     const box = rect(r), h = head && rect(head), a = acts && rect(acts), fr = f && rect(f), btns = bs.map(rect), next = rows[i + 1];
+    const t = r.querySelector('.sl-ltitle'), s = r.querySelector('.sl-lsample'), tr = t && rect(t), sr = s && rect(s);
+    const beside = !!h && !!a && a.left >= h.right - .5 && a.top < h.bottom && a.bottom > h.top; // 버튼이 이름·견본 옆(넓은 열)
+    const inline = !sr || (sr.top < tr.bottom - .5 && sr.left >= tr.right - .5); // 견본 글이 이름과 같은 줄(좁은 열)
     return { level: r.querySelector('.sl-lv')?.textContent, name: r.querySelector('.sl-lname')?.textContent,
       apply: r.querySelector('[data-sl-item]')?.dataset.slItem, edit: r.querySelector('[data-sl-fmt]')?.dataset.slFmt,
-      separated: !!h && !!a && h.bottom <= a.top + .5 && btns.length === 2 && (btns[0].right <= btns[1].left + .5 || btns[0].bottom <= btns[1].top + .5),
+      separated: !!h && !!a && (h.right <= a.left + .5 || h.bottom <= a.top + .5) && btns.length === 2 && (btns[0].right <= btns[1].left + .5 || btns[0].bottom <= btns[1].top + .5),
+      beside, lines: beside ? (sr ? 2 : 1) : (inline ? 2 : 3) + (btns.length === 2 && btns[0].bottom <= btns[1].top + .5 ? 1 : 0),
       contained: box.left >= panel.left - .5 && box.right <= panel.right + .5 && btns.every((b) => b.left >= box.left - .5 && b.right <= box.right + .5 && b.top >= box.top - .5 && b.bottom <= box.bottom + .5),
       distinct: !next || box.bottom <= rect(next).top + .5,
       form: f ? { key: f.dataset.slFform, child: f.parentElement === r, below: fr.top >= a.bottom - .5, inside: fr.bottom <= box.bottom + .5 } : null }; }); }"""
@@ -570,9 +574,10 @@ try:
         for width in (520, 480, 320):
             size(page, "headsDlg", width)
             levels, fit = page.evaluate(LEVEL_LAYOUT), page.evaluate(FIT_COL)
-            check(f"내용 서식 {width}px — 레벨마다 이름·적용·수정이 같은 묶음 · 단추와 다음 레벨이 겹치지 않음",
+            check(f"내용 서식 {width}px — 레벨마다 이름·적용·수정이 같은 묶음 · 2줄(넓으면 버튼이 옆 · 좁으면 이름·견본 한 줄 + 버튼 아랫줄) · 단추와 다음 레벨이 겹치지 않음",
                   len(levels) == 2 and [(r["level"], r["apply"], r["edit"]) for r in levels] == [("L1", "i1", "i1"), ("L2", "i2", "i2")]
-                  and all(r["name"] and r["separated"] and r["contained"] and r["distinct"] for r in levels) and not fit["bad"] and not fit["over"], (levels, fit))
+                  and all(r["name"] and r["separated"] and r["contained"] and r["distinct"] and r["lines"] == 2 and r["beside"] == (width >= 480) for r in levels)
+                  and not fit["bad"] and not fit["over"], (levels, fit))
             page.locator("#headsDlg").screenshot(path=str(OUT / f"4_levels_{width}.png"))
             puts_before, applies_before = len(calls["put"]), len(calls["apply"])
             page.click("#headsDlg .sl-item[data-style=s_txt1] [data-sl-fmt=i2]")
