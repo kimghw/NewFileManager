@@ -235,6 +235,13 @@ try:
               and cards[0]["bg"] == cards[1]["bg"] and cards[3]["bg"] == cards[4]["bg"] and cards[5]["bg"] == cards[6]["bg"] and len({cards[0]["bg"], cards[2]["bg"], cards[3]["bg"], cards[5]["bg"]}) == 4
               and "rgb(244, 245, 247)" in cards[5]["bg"], [(c["tone"], c["bg"]) for c in cards])
         check("로고 그림은 TASK 마다 다름", page.evaluate("() => new Set([...document.querySelectorAll('.task-icons symbol')].map((s) => s.innerHTML.replace(/\\s+/g, ''))).size") == 7)
+        # 일곱 장이 한 줄 = 왼쪽 열이 1192px 를 넘을 때(landing.css @container home). 2026-11-15 부터 시작 화면 오른쪽에 에이전트 대화창(340~420px — spec_작업에이전트 ② §5)이 있어
+        # 창 1500px 에서는 네 장씩 두 줄이다(왼쪽 열이 그 폭 규칙의 기준 — doc_agent_work.css) — 한 줄은 1920px 창에서 본다
+        two = page.evaluate("() => { const e = document.getElementById('empty'); return { cols: new Set([...document.querySelectorAll('#taskCards .task-card')].map((c) => Math.round(c.getBoundingClientRect().left))).size, over: e.scrollWidth > e.clientWidth + 1, agent: document.getElementById('homeAgent').getBoundingClientRect().left >= document.querySelector('.home-content').getBoundingClientRect().right - 1 }; }")
+        check("창 1500px — 오른쪽에 에이전트 대화창 · TASK 카드는 네 장씩(왼쪽 열 폭에 맞춰) · 가로 넘침 없음", two == {"cols": 4, "over": False, "agent": True}, two)
+        page.set_viewport_size({"width": 1920, "height": 1000})
+        page.wait_for_timeout(300)
+        cards = page.evaluate(CARDS)
         check("넓은 창 — 일곱 장이 한 줄(카드 160px — 본문보다 넓게) · 같은 높이 · 동작 이름이 한 높이(문서 줄이 안 접힘) · 가로 넘침 없음(카드 안 글도)", len({c["top"] for c in cards}) == 1 and len({c["h"] for c in cards}) == 1
               and len(set(page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card-name')].map((e) => Math.round(e.getBoundingClientRect().top))"))) == 1
               and page.evaluate("() => [...document.querySelectorAll('#taskCards .task-card')].every((b) => [...b.querySelectorAll('*')].every((x) => x.getBoundingClientRect().right <= b.getBoundingClientRect().right - 15))")  # 카드 안 여백(16px) 안쪽 — 「… 올려 시작 →」 이 안 넘친다

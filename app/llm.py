@@ -24,6 +24,8 @@ import threading
 import time
 from pathlib import Path
 
+from app import agent_settings
+
 log = logging.getLogger(__name__)
 BACKENDS = ("auto", "sdk", "cli", "api", "off")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -195,15 +197,32 @@ def reset_slots():
         _SLOTS = None
 
 
-def call(schema, content, what, *, timeout=180.0, effort=None, model=None):
+def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=False):
     """구조화 출력 한 번 → {"data", "backend", "ms", "costUsd", "error"}. data 가 None 이면 error 에 까닭(off·busy·길마다 실패 글).
-    자리는 NFM_LLM_WAIT초(기본 900) 기다린다 — 기다린 시간은 ms 에 안 넣는다."""
+    자리는 NFM_LLM_WAIT초(기본 900) 기다린다 — 기다린 시간은 ms 에 안 넣는다.
+    pin=True 면 준 model 이 NFM_LLM_MODEL_FORCE 보다 먼저다 — 사용자가 그 일의 모델을 따로 정한 호출만(템플릿 서식 정리 에이전트 = Opus 5.5:
+    2026-11-15 사용자 "opus5.5 가 템플릿의 서식을 직접 조정" — spec_hwpx_웹편집 ② §8-4).
+    모델·생각 깊이의 차례(뒤가 이김): env 기본 → 호출이 준 model·effort → NFM_LLM_MODEL_FORCE(pin 이면 건너뜀) → **「에이전트 설정」 에서 그 에이전트에 사람이 정한 값**
+    (what 으로 에이전트를 찾는다 — `agent_settings.override`, spec_에이전트 ② §2). 모든 호출은 실행 기록에 한 줄 남는다(`agent_settings.record`)."""
+    out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin)
+    agent_settings.record(what, out)
+    return out
+
+
+def _call(schema, content, what, *, timeout, effort, model, pin):
     cfg = settings()
     if effort in EFFORTS:
         cfg["effort"] = effort
+    pinned = bool(pin and model and _MODEL_RE.fullmatch(model))
     if model and _MODEL_RE.fullmatch(model):
         cfg["model"] = model
-    cfg["model"] = forced() or cfg["model"]
+    if not pinned:
+        cfg["model"] = forced() or cfg["model"]
+    ov = agent_settings.override(what)  # 사람이 그 에이전트에 정한 모델·생각 깊이 — 맨 먼저
+    if ov.get("effort") in EFFORTS:
+        cfg["effort"] = ov["effort"]
+    if ov.get("model") and _MODEL_RE.fullmatch(ov["model"]):
+        cfg["model"] = ov["model"]
     out = {"data": None, "backend": None, "ms": 0, "costUsd": None, "error": None, "model": cfg["model"], "effort": cfg["effort"]}
     tries = _tries(cfg)
     if not tries:

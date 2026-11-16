@@ -510,7 +510,7 @@ async function gatherToPlan() { // 취합본을 고치는 문서로(두 문서�
     await openWork(plan.id);
     if (state.id !== plan.id) return false; // 바꾸지 않음(저장 안 한 글을 두고 그만둠) · 못 엶
   }
-  if ($("panel").dataset.tool !== "Div") showTab("Div");
+  taskPaneShow(); // 보통 패널 「작업 내용」 — 에이전트 보기가 이 TASK 를 이끌고 있으면 그대로(app.js — 진행 카드가 거기 있다)
   await divShow();
   if (state.id !== plan.id || !dv.view) return false;
   await gatherLoad();
@@ -965,9 +965,12 @@ async function gatherPlanMake(pid, { show = true } = {}) { // → 계획 | null(
   return P;
 }
 async function gatherApplyCall(pid, planId) { // 반영 한 번 — 문서를 다시 읽는다. 넣을 것이 없으면 null · 실패는 던진다(409 = 계획 뒤 바뀜 · 422 = 표준 검사)
+  const doc = gatherPlan().id; // 반영할 취합본을 먼저 붙든다 — 기다리는 사이 다른 문서를 열어도 그 문서의 취합본에 보내거나 그 화면에 얹지 않는다(astra 11-16: gatherUrl 은 「지금 화면의 취합본」 을 따라간다)
   await flushAll();
-  const r = await gatherCall(`${gatherSeg(pid)}/apply`, "POST", { planId });
+  if (state.id !== doc) throw new Error("다른 문서를 열어 반영하지 않았습니다");
+  const r = await api(`/api/docs/${doc}/gather${gatherSeg(pid)}/apply`, { method: "POST", headers: H_JSON, body: JSON.stringify({ planId }) });
   if (r.nothing) return null;
+  if (state.id !== doc) throw new Error("반영하는 사이 다른 문서를 열었습니다 — 취합본에는 반영됐습니다(그 문서를 다시 열면 보입니다)");
   applyEditState(r);
   await reloadDoc(); // 떨어진 자리 여러 곳이 바뀌어 문서를 다시 읽는다(구분 기준 반영과 같은 길)
   return r;
@@ -1162,8 +1165,9 @@ async function gatherRunFrame(run, plan, opt = {}) { // 2단계 — ① 구조 �
   if (!step("division").done) {
     at("division", "변경 계획");
     if (dv.view && !dv.view.profile.supported) gatherHalt("이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다");
-    await divPlan();
-    if (!dv.plan) gatherHalt("프로젝트 구성 변경 계획을 세우지 못했습니다(알림 글 참고)");
+    if (!(await divPlan()) || !dv.plan) gatherHalt("프로젝트 구성 변경 계획을 세우지 못했습니다(알림 글 참고)"); // divPlan 의 반환값을 본다 — 못 세워도 전의 계획이 dv.plan 에 남아 있을 수 있다
+    const stops = divAutoStops(); // 양식 맞추기의 「한 번에 진행」 과 같은 검사(app.js — 계획 오류 · 미해결 · 기관 차례): 사람이 봐야 할 계획은 저절로 반영하지 않는다
+    if (stops) gatherHalt(`${stops} — 저절로 반영하지 않습니다. ${TASK_STAGE_META.frame.no}의 변경 계획 목록에서 확인한 뒤 「② 반영」 을 누르세요`);
     const gone = ((dv.plan.summary || {}).removed || 0) + ((dv.plan.summary || {}).deleted || 0);
     if (opt.quick && gone) gatherHalt(`구조를 값에 맞추려면 ${nf(gone)}곳을 지워야 합니다 — 자동으로 지우지 않습니다. ${TASK_STAGE_META.frame.no}의 변경 계획을 확인하고 반영한 뒤 「이어서」 를 누르세요(문서에서 읽은 값이 틀리면 절이 지워집니다)`);
     at("division", "취합본에 반영");

@@ -1,0 +1,446 @@
+"""템플릿 서식 정리 에이전트(spec_hwpx_웹편집 ② §8-4) — 사용자 2026-11-15 "에이전트 기능을 추가 해서 opus5.5 가 템플릿의 서식을 직접 조정해주는 기능을 추가해줘 …
+이 에이전트에게 정리를 시킬때 프롬프트/스킬을 먼저 저장하고, 사용자가 이를 수정할 수 있는 형식으로".
+
+- **스킬** = 에이전트가 따를 정리 기준 글. 기본본 `app/tpl_agent_default/<키>.md`(읽기만 — 첫 「# 」 줄 = 이름, HTML 주석은 사람만 봄) + 사용자 사본·새 스킬
+  `<헤딩 저장소>/tpl_agent/<키>.md`(몸 글) · 메타 `<키>.json` {name, version, updated, base}. 저장 끔(NFM_HEADINGS=off)이면 메모리.
+  정리는 **저장된 스킬 글**로만 돈다(화면이 고친 글을 먼저 저장하고 부른다) — 실행 기록에 스킬 키·판·sha1 이 남는다.
+- **자료**(`material`) = 템플릿의 레벨마다 서식 갈래(`outline_match.variants` — 스크립트가 뽑은 값) · 갈래 id 「g1…」(대표 갈래 먼저).
+- **LLM**(Opus 5.5 — `MODEL`, env `NFM_LLM_MODEL_FORCE` 보다 먼저: `llm.call(pin=True)`)은 갈래 id 가운데 **고르기만** 한다 — 레벨마다 대표로 삼을 갈래 · 대표에 맞출 갈래 ·
+  그대로 둘 갈래와 까닭. 서식 값을 만들지 않는다(대표 갈래의 값이 곧 맞출 값).
+- **계획**(`check_plan`) = 답을 자료와 견줘 걸러낸 것(없는 id 는 버리고 notes 에 · 말하지 않은 갈래는 「그대로」). 적용은 `POST …/outline/templates/{tpl}/match`
+  (outline_match_api — 트랜잭션 하나 · 실행 취소 1)."""
+import hashlib
+import json
+import os
+import re
+import threading
+import time
+import uuid
+from pathlib import Path
+
+from app import agent_settings
+from app import heading_rules as R
+from app import llm
+from app import outline_edit as OE
+from app import outline_match as M
+
+MODEL = "claude-opus-5-5"   # 사용자가 이 에이전트의 모델을 정했다(2026-11-15) — env NFM_TPL_AGENT_MODEL 로만 바꾼다(NFM_LLM_MODEL_FORCE 는 이 호출에 안 걸린다)
+EFFORT = "medium"
+TIMEOUT = 300.0
+DEFAULT_DIR = Path(__file__).with_name("tpl_agent_default")
+FIRST = "tidy"            # 목록의 맨 앞 = 화면이 처음 고르는 스킬
+KEY = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+TEXT_MAX, NAME_MAX, REQUEST_MAX, USER_MAX = 20_000, 60, 2_000, 40
+GROUP_MAX = 40          # 레벨 하나에서 LLM 에 보내는 갈래 수(줄 수 많은 것부터 — 넘는 갈래는 「그대로」)
+SAMPLE_MAX = 60
+_COMMENT = re.compile(r"<!--.*?-->[ \t]*\n?", re.S)
+_TITLE = re.compile(r"\A\s*#[ \t]+([^\n]*)\n?")
+_LOCK = threading.RLock()
+_MEMORY = {}  # 저장 끔일 때 {키: (글 | None, 메타)}
+
+
+def model():
+    m = os.environ.get("NFM_TPL_AGENT_MODEL", "").strip()
+    return m if m and llm._MODEL_RE.fullmatch(m) else MODEL
+
+
+def effort():
+    e = os.environ.get("NFM_TPL_AGENT_EFFORT", "").strip().lower()
+    return e if e in llm.EFFORTS else EFFORT
+
+
+def status():
+    """화면용 {model, effort, backend, available} — 이 에이전트가 부를 모델과 지금 LLM 길. 「에이전트 설정」 에서 이 에이전트에 정한 모델·생각 깊이가 있으면 그것(llm.call 과 같은 차례)."""
+    st = llm.status()
+    ov = agent_settings.override("tpl-agent")
+    return {"model": ov.get("model") or model(), "effort": ov.get("effort") or effort(), "backend": st.get("active"), "available": bool(st.get("available"))}
+
+
+# ---------------------------------------------------------------- 스킬(저장한 정리 기준 글)
+def _sha1(text):
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()
+
+
+def _dir():
+    d = R.store_dir()
+    return d / "tpl_agent" if d is not None else None
+
+
+def _builtin():
+    """기본본 {키: (이름, 몸 글)} — 파일 이름 차례."""
+    out = {}
+    if DEFAULT_DIR.is_dir():
+        for p in sorted(DEFAULT_DIR.glob("*.md")):
+            if not KEY.fullmatch(p.stem):
+                continue
+            raw = _COMMENT.sub("", p.read_text(encoding="utf-8"))
+            m = _TITLE.match(raw)
+            out[p.stem] = ((m.group(1).strip() if m else "") or p.stem, re.sub(r"\n{3,}", "\n\n", _TITLE.sub("", raw, count=1)).strip() + "\n")
+    return out
+
+
+def _saved(key):
+    """(사용자 글 | None, 메타 | None)."""
+    d = _dir()
+    if d is None:
+        return _MEMORY.get(key, (None, None))
+    p, m = d / f"{key}.md", d / f"{key}.json"
+    try:
+        meta = json.loads(m.read_text(encoding="utf-8")) if m.is_file() else None
+    except (OSError, ValueError):
+        meta = {}
+    if meta is not None and not isinstance(meta, dict):
+        meta = {}
+    try:
+        text = p.read_text(encoding="utf-8") if p.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        text = None
+    return text, meta
+
+
+def _put(key, text, meta):
+    d = _dir()
+    if d is None:
+        _MEMORY[key] = (text, meta)
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    R._write_json(d / f"{key}.json", meta)
+    if text is None:
+        (d / f"{key}.md").unlink(missing_ok=True)
+    else:
+        tmp = d / f"{key}.md.tmp"
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(d / f"{key}.md")
+
+
+def _user_keys():
+    d = _dir()
+    if d is None:
+        return sorted(k for k, (t, _) in _MEMORY.items() if t is not None)
+    return sorted(p.stem for p in d.glob("*.md") if KEY.fullmatch(p.stem)) if d.is_dir() else []
+
+
+def skill(key):
+    """{key, name, text(지금 쓰는 글), builtin, custom(사용자가 고친 사본·만든 스킬), version, updated, sha1, defaultChanged} — 없으면 KeyError."""
+    if not isinstance(key, str) or not KEY.fullmatch(key):
+        raise KeyError(key)
+    with _LOCK:
+        base = _builtin().get(key)
+        text, meta = _saved(key)
+    if base is None and text is None:
+        raise KeyError(key)
+    meta = meta or {}
+    custom = text is not None
+    cur = text if custom else base[1]
+    return {"key": key, "name": (meta.get("name") if custom else None) or (base[0] if base else key), "text": cur, "builtin": base is not None, "custom": custom,
+            "version": int(meta.get("version", 0)), "updated": meta.get("updated"), "sha1": _sha1(cur),
+            "defaultChanged": bool(custom and base and meta.get("base") and meta["base"] != _sha1(base[1]))}
+
+
+def skills():
+    """목록(글 없이) — 기본본 먼저, 그다음 사용자가 만든 것(만든 차례)."""
+    with _LOCK:
+        keys = list(_builtin()) + [k for k in _user_keys() if k not in _builtin()]
+        out = [{k: v for k, v in skill(key).items() if k != "text"} for key in keys]
+    head = sorted((s for s in out if s["builtin"]), key=lambda s: s["key"] != FIRST)  # 기본 스킬 「템플릿 서식 정리」 가 맨 앞(나머지는 파일 이름 차례)
+    return head + sorted((s for s in out if not s["builtin"]), key=lambda s: s.get("updated") or 0)
+
+
+def save(key, name, text, expect=None):
+    """스킬 저장 → skill(). key=None 이면 새 스킬(키를 새로 만든다). expect = 기대 version(다르면 R.StaleVersion). 잘못된 값은 ValueError · 없는 키는 KeyError."""
+    if not isinstance(text, str) or not text.strip() or len(text) > TEXT_MAX:
+        raise ValueError(f"스킬 글은 비어 있지 않은 {TEXT_MAX:,}자 이하의 글이어야 합니다")
+    name = re.sub(r"\s+", " ", name).strip() if isinstance(name, str) else ""
+    if not name or len(name) > NAME_MAX:
+        raise ValueError(f"스킬 이름은 1~{NAME_MAX}자")
+    expect = R.expect_version(expect)
+    with _LOCK:
+        base = _builtin()
+        if key is None:
+            if len([k for k in _user_keys() if k not in base]) >= USER_MAX:
+                raise ValueError(f"만든 스킬은 {USER_MAX}개까지입니다 — 안 쓰는 것을 지운 뒤 만드세요")
+            key = "u" + uuid.uuid4().hex[:8]
+            meta = {}
+        else:
+            if not isinstance(key, str) or not KEY.fullmatch(key):
+                raise KeyError(key)
+            old, meta = _saved(key)
+            if key not in base and old is None:
+                raise KeyError(key)
+            meta = meta or {}
+        if expect is not None and expect != int(meta.get("version", 0)):
+            raise R.StaleVersion(f"스킬이 그 사이에 바뀌었습니다(지금 판 {meta.get('version', 0)} · 요청 {expect}) — 다시 읽어 주세요")
+        new = {"name": name, "version": int(meta.get("version", 0)) + 1, "updated": round(time.time(), 3)}
+        if key in base:
+            new["base"] = meta.get("base") or _sha1(base[key][1])
+        _put(key, text, new)
+        R.append_history({"kind": "tplAgentSkill", "name": key, "action": "save", "version": new["version"], "sha1": _sha1(text)})
+    return skill(key)
+
+
+def remove(key):
+    """사용자가 만든 스킬은 지우고({deleted: true}), 기본 스킬의 사본은 버려 기본본으로 되돌린다(skill()). 메타의 version 은 올려 남긴다(옛 판을 든 저장이 409)."""
+    if not isinstance(key, str) or not KEY.fullmatch(key):
+        raise KeyError(key)
+    with _LOCK:
+        base = _builtin()
+        old, meta = _saved(key)
+        if key not in base and old is None:
+            raise KeyError(key)
+        if old is not None:
+            _put(key, None, {"version": int((meta or {}).get("version", 0)) + 1, "updated": round(time.time(), 3)})
+            R.append_history({"kind": "tplAgentSkill", "name": key, "action": "reset" if key in base else "delete"})
+    return skill(key) if key in base else {"deleted": True, "key": key}
+
+
+# ---------------------------------------------------------------- 자료 · 프롬프트 · 계획
+KIND = {"main": "주 사슬", "branch": "가지 템플릿", "label": "구분 라벨 템플릿", "sub": "서브 템플릿", "cell": "표 칸"}
+RULE = {"text": "둘째 줄을 글 시작에 맞춤", "mm": "둘째 줄 직접", "keep": "문단 서식 그대로"}
+
+
+def _sample(doc, pid):
+    try:
+        t = re.sub(r"\s+", " ", doc._text(doc._ids[pid])).strip()
+    except Exception:  # noqa: BLE001 — 견본 글 하나가 자료를 막지 않게
+        t = ""
+    return t if len(t) <= SAMPLE_MAX else t[:SAMPLE_MAX] + "…"
+
+
+def material(doc, ov, tid):
+    """템플릿 tid 의 정리 자료 → {tpl, no, chain, kind, comp?, lines, levels[{level, letter, lines, rule, groups[{id, para, count, rep, sample, raw, look}], more}]}.
+    갈래 id = 「g1…」(variants 의 차례 — 대표 갈래 먼저, 그다음 줄 수). 없는 템플릿은 KeyError."""
+    tid = str(tid)
+    t = ov["templates"].get(tid)
+    if t is None:
+        raise KeyError(f"템플릿 {tid} 가 없습니다")
+    order = M._order(doc)
+    comp = t.get("composite")
+    out = {"tpl": tid, "no": str(t.get("no")), "chain": list(t.get("chain") or []), "kind": t.get("kind"), "levels": [],
+           "lines": sum(1 for x in ov["lines"].values() if x["tpl"] == tid)}
+    if comp:
+        tp = ov["templates"]
+        out["comp"] = {"parentNo": str(tp.get(comp["parent"], {}).get("no")), "childNo": str(tp.get(comp["child"], {}).get("no")), "at": comp["at"]}
+    var = t.get("variant")
+    if var:  # 서식 종속 템플릿(② §8-5) — 「T1L3a」 = T1 의 L3 에서 뗀 것
+        out["vari"] = {"ofNo": str(ov["templates"].get(var["of"], {}).get("no")), "level": int(var["level"])}
+    for lv in sorted(t.get("slots", {}), key=int):
+        if not M.slot_ids(ov, tid, lv):
+            continue
+        v = M.variants(doc, ov, tid, lv, order, full=True)
+        sl = t["slots"][lv]
+        pos = sl.get("pos") or {}
+        # noSplit = 이 갈래를 다른 템플릿으로 못 떼는 까닭(번호형 레벨에서 같은 부모 아래 형제의 일부 — ② §8-5) | None. 「대표 갈래라서」 는 여기서 안 본다(계획이 대표를 바꿀 수 있다 — rep="-")
+        groups = [{"id": f"g{i + 1}", "para": g["key"], "count": g["count"], "rep": bool(g["rep"]), "sample": _sample(doc, g["key"]), "raw": g["raw"], "look": g["look"],
+                   "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-")}
+                  for i, g in enumerate(v["groups"])]
+        out["levels"].append({"level": int(lv), "letter": sl.get("letter") or "", "lines": v["total"], "repMissing": bool(v["repMissing"]), "repSet": bool(sl.get("repSet")),
+                              "rule": RULE.get(pos.get("line2"), "") if pos.get("set") else "", "groups": groups[:GROUP_MAX], "more": max(0, len(groups) - GROUP_MAX),
+                              "taken": sorted(M.used_sfx(ov, tid, lv))})  # 이 레벨에서 이미 뗀 템플릿의 글자(「T1L3a」 의 a)
+    return out
+
+
+def _values(look):
+    return {M.LABELS.get(k, k): look.get(k) for k in M.KEYS}
+
+
+def prompt_material(mat):
+    """LLM 에 보낼 자료 — 대표 갈래(없으면 모든 갈래)는 값 전부, 나머지는 대표와 다른 값만 [이름, 대표, 이 갈래]."""
+    out = {"template": {"no": f"T{mat['no']}", "chain": " › ".join(mat["chain"]), "kind": KIND.get(mat["kind"], mat["kind"] or ""), "lines": mat["lines"]}, "levels": []}
+    if mat.get("comp"):
+        c = mat["comp"]
+        out["template"]["subordinate"] = f"T{c['parentNo']} L{c['at']} 아래 T{c['childNo']}(종속 템플릿 — 이 템플릿의 줄은 L{c['at'] + 1} 부터)"
+    if mat.get("vari"):
+        c = mat["vari"]
+        out["template"]["subordinate"] = f"T{c['ofNo']} L{c['level']} 에서 서식이 달라 뗀 서식 종속 템플릿 — 이 템플릿의 줄은 L{c['level']} 부터"
+    for lv in mat["levels"]:
+        rep = next((g for g in lv["groups"] if g["rep"]), None)
+        gs = []
+        for g in lv["groups"]:
+            item = {"id": g["id"], "lines": g["count"], "sample": g["sample"]}
+            if g.get("noSplit"):
+                item["cannotSplit"] = True
+            if g["rep"]:
+                item["currentRep"] = True
+            if rep is None or g["rep"]:
+                item["values"] = _values(g["look"])
+            else:
+                item["differsFromRep"] = [[d[1], d[2], d[3]] for d in M.diff(rep["raw"], g["raw"])]
+            gs.append(item)
+        row = {"level": lv["level"], "letter": lv["letter"], "lines": lv["lines"], "groups": gs}
+        if lv.get("repSet") and rep is not None:
+            row["repChosenByUser"] = True
+        if lv["rule"]:
+            row["positionRule"] = lv["rule"]
+        if lv["more"]:
+            row["omittedGroups"] = lv["more"]
+        out["levels"].append(row)
+    return out
+
+
+SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["summary", "levels"],
+    "properties": {
+        "summary": {"type": "string"},
+        "levels": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["level", "rep", "match", "keep", "split", "why"],
+            "properties": {
+                "level": {"type": "integer"}, "rep": {"type": "string"}, "match": {"type": "array", "items": {"type": "string"}},
+                "keep": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["group", "why"],
+                                                    "properties": {"group": {"type": "string"}, "why": {"type": "string"}}}},
+                "split": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["rep", "match", "why"],  # 다른 템플릿으로 뗄 갈래(② §8-5)
+                                                     "properties": {"rep": {"type": "string"}, "match": {"type": "array", "items": {"type": "string"}}, "why": {"type": "string"}}}},
+                "why": {"type": "string"}}}}}}
+
+CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정리**하는 에이전트입니다. 템플릿 하나(레터 사슬 — 예: 「□ › o › -」)의 레벨마다, 같은 레벨인데 서식이 조금씩
+다른 줄들을 어느 모양으로 맞출지, 어느 줄을 그대로 두거나 다른 템플릿으로 뗄지 정합니다.
+
+## 입력
+- material.template: 템플릿 번호·레터 사슬·구실·줄 수.
+- material.levels[]: 레벨마다 groups — 그 레벨 줄들을 **서식이 같은 것끼리 묶은 갈래**입니다(스크립트가 문서에서 뽑은 값).
+  갈래마다 id · lines(줄 수) · sample(그 갈래 첫 줄의 글) 이 있고, 지금 대표 갈래(currentRep)는 values(서식 값 전부), 나머지는 differsFromRep([이름, 대표 값, 이 갈래 값]…)만 있습니다.
+  대표가 없는 레벨은 모든 갈래에 values 가 있습니다.
+  repChosenByUser 가 있는 레벨은 사람이 그 대표를 직접 정한 것입니다 · positionRule 은 사람이 정한 둘째 줄 규칙입니다(맞춘 줄에도 그 규칙이 걸립니다).
+  cannotSplit 이 있는 갈래는 다른 템플릿으로 뗄 수 없습니다(번호형 레벨에서 같은 부모 아래 형제의 일부 — 번호가 따로 매겨집니다).
+- 값의 뜻: 앞 공백·레터·레터 뒤 공백 = 줄 첫머리 / 앞 여백 = 첫 줄 시작 자리(mm) · 2번째 줄 = 줄이 넘어갈 때 시작 자리(mm) / 레터 글꼴·크기… = 레터 글자 모양 / 글꼴·크기… = 본문 바탕 글자 모양.
+
+## 정할 것 — 줄이 있는 모든 레벨에 한 항목씩
+- rep: 그 레벨의 **대표로 삼을 갈래 id**. 지금 대표가 알맞으면 그 id 를 그대로 적습니다.
+- match: 대표 모양으로 **바꿀** 갈래 id 들. 바꾸면 그 갈래 줄의 레터 첫머리(앞 공백·레터 글자·뒤 공백) · 문단 모양 · 레터와 본문 바탕 글자 모양이 대표 것이 됩니다
+  (번호형 레터는 제 번호를 지키고, 따로 강조한 글자는 그대로입니다).
+- keep: **그대로 둘** 갈래 id 와 까닭(why — 한 문장).
+- split: **다른 템플릿으로 뗄** 갈래 — 새 템플릿 하나에 한 항목 {rep, match, why}: rep = 새 템플릿의 **대표가 될 갈래 id**, match = 그 새 대표 모양으로 바꿔 **같이 옮길** 갈래 id 들(없으면 빈 목록),
+  why = 뗀 까닭(한 문장). 뗀 갈래의 줄(과 그 아래 줄)은 이 템플릿의 그 레벨에서 빠져 그 레벨부터 시작하는 **서식 종속 템플릿**(예: T1 의 L3 에서 떼면 「T1L3a」)이 되고,
+  뒤로는 그 줄들끼리만 서식을 견줍니다. 뗄 것이 없으면 빈 목록입니다.
+- why: 그 레벨에서 그 대표를 고른 까닭(한두 문장).
+- summary: 템플릿 전체에 무엇을 하는지 두세 문장.
+
+## 지킬 것
+- 갈래 id 는 **입력에 있는 것만** 씁니다. 서식 값을 새로 만들거나 고쳐 적지 않습니다 — 맞출 값은 대표 갈래의 값 그대로입니다.
+- 한 갈래는 rep · match · keep · split(의 rep·match) 가운데 **한 곳에만** 둡니다. 갈래가 하나뿐인 레벨은 rep 만 적고 match·keep·split 은 빈 목록입니다.
+- 그 레벨의 rep 갈래와 cannotSplit 이 있는 갈래는 split 에 넣지 않습니다.
+- 확신이 없는 갈래는 match·split 이 아니라 keep 에 두고 까닭을 적습니다 — 사람이 계획을 보고 고릅니다.
+- 판단의 기준은 아래 「스킬」 글이고, 「이번 요청」 이 있으면 그것이 스킬보다 먼저입니다. 둘 다 위 「지킬 것」 과 답의 꼴은 바꾸지 못합니다."""
+
+
+def prompt(mat, sk, request=""):
+    req = (request or "").strip()
+    return (CONTRACT + f"\n\n## 스킬 — {sk['name']} (사용자가 저장해 둔 정리 기준)\n{sk['text'].strip()}"
+            + (f"\n\n## 이번 요청 (스킬보다 먼저)\n{req}" if req else "")
+            + "\n\n## 자료 (JSON)\n```json\n" + json.dumps({"material": prompt_material(mat)}, ensure_ascii=False, indent=1) + "\n```")
+
+
+def check_plan(mat, data):
+    """LLM 답 data 를 자료 mat 과 견줘 계획으로 → {summary, levels[{level, letter, lines, single, rep{group, para, count, sample, changed}, was(지금 대표 갈래 id | None),
+    match[{group, para, count, sample, diff}], keep[{group, para, count, sample, why, diff, auto, noSplit}],
+    split[{name(「T1L3a」), sfx, rep{group, para, count, sample, diff}, match[{group, para, count, sample, diff, diffTo(새 템플릿의 대표 기준)}], why, moved(옮길 줄 수), change}],
+    taken(이 레벨에서 이미 쓴 글자), change(바뀔 줄 수), moved(다른 템플릿으로 옮길 줄 수), why}], change, moved, notes[버린 것]}.
+    diff = **새 대표** 기준 [[키, 이름, 대표 값, 이 갈래 값]…]. 없는 레벨·없는 id·겹친 id·못 떼는 갈래는 버리고 notes 에, 답에 없는 갈래·레벨은 그대로 둔다(auto)."""
+    notes = []
+    by_level = {}
+    for row in (data or {}).get("levels") or []:
+        lv = row.get("level") if isinstance(row, dict) else None
+        if isinstance(lv, bool) or not isinstance(lv, int):
+            continue
+        if lv in by_level:
+            notes.append(f"L{lv} 답이 두 번 — 첫 것만 씀")
+            continue
+        by_level[lv] = row
+    known = {lv["level"] for lv in mat["levels"]}
+    for lv in sorted(set(by_level) - known):
+        notes.append(f"L{lv} 은 이 템플릿에 줄이 없는 레벨 — 버림")
+    levels, total, moved = [], 0, 0
+    for lv in mat["levels"]:
+        gs = {g["id"]: g for g in lv["groups"]}
+        was = next((g["id"] for g in lv["groups"] if g["rep"]), None)
+        row = by_level.get(lv["level"]) or {}
+        rep = row.get("rep") if isinstance(row.get("rep"), str) else None
+        if rep not in gs:
+            if rep:
+                notes.append(f"L{lv['level']} 대표 「{rep}」 는 없는 갈래 — 지금 대표를 그대로 둠")
+            rep = was
+        why = str(row.get("why") or "").strip()
+        entry = {"level": lv["level"], "letter": lv["letter"], "lines": lv["lines"], "single": len(lv["groups"]) + lv["more"] <= 1, "was": was,
+                 "rep": None, "match": [], "keep": [], "split": [], "taken": list(lv.get("taken") or []), "change": 0, "moved": 0, "why": why[:600]}
+        if rep is None:  # 대표가 없고 답도 못 고름 — 손댈 수 없다
+            if lv["groups"]:
+                notes.append(f"L{lv['level']} 은 대표가 없어 그대로 둠")
+            entry["keep"] = [{"group": g["id"], "para": g["para"], "count": g["count"], "sample": g["sample"], "why": "", "diff": [], "auto": True, "noSplit": True} for g in lv["groups"]]
+            levels.append(entry)
+            continue
+        base = gs[rep]
+        entry["rep"] = {"group": rep, "para": base["para"], "count": base["count"], "sample": base["sample"], "changed": rep != was}
+        seen = {rep}
+        brief = lambda g, to=base: {"group": g["id"], "para": g["para"], "count": g["count"], "sample": g["sample"], "diff": M.diff(to["raw"], g["raw"])}  # noqa: E731
+        blocked = lambda g: bool(g.get("noSplit"))  # noqa: E731 — 못 떼는 갈래(번호형 레벨의 형제 일부). 대표 갈래는 seen 이 막는다(대표를 바꾸면 옛 대표 갈래는 뗄 수 있다)
+        for gid in row.get("match") or []:
+            if not isinstance(gid, str) or gid not in gs:
+                notes.append(f"L{lv['level']} 맞출 갈래 「{gid}」 는 없는 갈래 — 버림")
+            elif gid in seen:
+                if gid != rep:
+                    notes.append(f"L{lv['level']} 갈래 「{gid}」 가 두 번 — 첫 것만 씀")
+            else:
+                seen.add(gid)
+                entry["match"].append(brief(gs[gid]))
+        letters = (ch for ch in M.SFX if ch not in set(entry["taken"]))
+        for sp in row.get("split") or []:  # 다른 템플릿으로 뗄 갈래(② §8-5) — 항목 하나 = 새 서식 종속 템플릿 하나
+            gid = sp.get("rep") if isinstance(sp, dict) else None
+            if not isinstance(gid, str) or gid not in gs:
+                notes.append(f"L{lv['level']} 뗄 갈래 「{gid}」 는 없는 갈래 — 버림")
+                continue
+            if gid in seen:
+                notes.append(f"L{lv['level']} 갈래 「{gid}」 는 {'이 레벨의 대표라 뗄 수 없음' if gid == rep else '두 번 — 첫 것만 씀'}")
+                continue
+            if blocked(gs[gid]):
+                notes.append(f"L{lv['level']} 갈래 「{gid}」 는 뗄 수 없어 그대로 둠 — {gs[gid]['noSplit']}")
+                continue
+            sfx = next(letters, None)
+            if sfx is None:
+                notes.append(f"L{lv['level']} 에서 뗄 수 있는 템플릿 수를 다 써 「{gid}」 는 그대로 둠")
+                continue
+            seen.add(gid)
+            head = gs[gid]
+            item = {"name": f"T{mat['no']}L{lv['level']}{sfx}", "sfx": sfx, "rep": brief(head), "match": [], "why": str(sp.get("why") or "").strip()[:400]}
+            for mid in sp.get("match") or []:
+                if not isinstance(mid, str) or mid not in gs:
+                    notes.append(f"L{lv['level']} {item['name']} 에 같이 옮길 갈래 「{mid}」 는 없는 갈래 — 버림")
+                elif mid in seen:
+                    if mid != gid:
+                        notes.append(f"L{lv['level']} 갈래 「{mid}」 는 {'이 레벨의 대표라 뗄 수 없음' if mid == rep else '두 번 — 첫 것만 씀'}")
+                elif blocked(gs[mid]):
+                    notes.append(f"L{lv['level']} 갈래 「{mid}」 는 뗄 수 없어 그대로 둠 — {gs[mid]['noSplit']}")
+                else:
+                    seen.add(mid)
+                    item["match"].append({**brief(gs[mid]), "diffTo": M.diff(head["raw"], gs[mid]["raw"])})  # diff = 이 레벨 대표 기준(다른 줄과 같이) · diffTo = 새 템플릿의 대표 기준
+            item["change"] = sum(m["count"] for m in item["match"])
+            item["moved"] = head["count"] + item["change"]
+            entry["split"].append(item)
+        for k in row.get("keep") or []:
+            gid = k.get("group") if isinstance(k, dict) else None
+            if not isinstance(gid, str) or gid not in gs:
+                notes.append(f"L{lv['level']} 그대로 둘 갈래 「{gid}」 는 없는 갈래 — 버림")
+            elif gid not in seen:
+                seen.add(gid)
+                entry["keep"].append({**brief(gs[gid]), "why": str(k.get("why") or "").strip()[:400], "auto": False, "noSplit": blocked(gs[gid])})
+        for g in lv["groups"]:  # 답이 말하지 않은 갈래 — 그대로
+            if g["id"] not in seen:
+                entry["keep"].append({**brief(g), "why": "", "auto": True, "noSplit": blocked(g)})
+        for m in entry["match"]:
+            m["noSplit"] = blocked(gs[m["group"]])
+        entry["change"] = sum(m["count"] for m in entry["match"]) + sum(sp["change"] for sp in entry["split"])
+        entry["moved"] = sum(sp["moved"] for sp in entry["split"])
+        total += entry["change"]
+        moved += entry["moved"]
+        levels.append(entry)
+    return {"summary": str((data or {}).get("summary") or "").strip()[:1200], "levels": levels, "change": total, "moved": moved, "notes": notes}
+
+
+def run(mat, sk, request="", call=None):
+    """LLM 한 번 → {plan | None, error, model, effort, backend, ms, costUsd}. LLM 이 꺼져 있으면 error "off"."""
+    req = (request or "").strip()[:REQUEST_MAX]
+    res = (call or llm.call)(SCHEMA, prompt(mat, sk, req), "tpl-agent", timeout=TIMEOUT, effort=effort(), model=model(), pin=True)
+    out = {"plan": None, "error": res.get("error"), "model": res.get("model") or model(), "effort": res.get("effort") or effort(), "backend": res.get("backend"),
+           "ms": res.get("ms") or 0, "costUsd": res.get("costUsd")}
+    if isinstance(res.get("data"), dict):
+        out["plan"] = check_plan(mat, res["data"])
+        out["error"] = None
+    return out

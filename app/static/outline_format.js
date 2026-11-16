@@ -129,7 +129,7 @@ async function olfApply(id, L, body) { // structOp 과 같은 차례: 대기 중
 }
 
 function olfRefresh() { // 오버레이를 다시 읽었거나 규칙을 바꾼 뒤 — 열려 있는 「템플릿 관계」 의 자리 줄을 새 값으로(펼쳐 둔 고치기 줄은 그대로 펼친 채)
-  for (const old of document.querySelectorAll("#headsDlgBody .olf")) {
+  for (const old of document.querySelectorAll(".tpl-tree .olf")) { // 「템플릿」 탭과 「템플릿 관계」 열의 트리 모두(app.js tplTreeDraw — 같은 줄이 두 곳에 있을 수 있다)
     const fresh = olfRow(old.dataset.tpl, +old.dataset.level);
     if (!fresh) { old.remove(); continue; }
     const was = old.querySelector(".olf-edit"), now = fresh.querySelector(".olf-edit");

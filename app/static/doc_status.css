@@ -1,0 +1,39 @@
+/* 분석 상태(spec_작업 ② §20, 2026-11-15 사용자 "task 마다 작업을 표준화 … 올리면 어디까지 작업이 되었는지 표시") — 문서 이름 줄 #docStatus(이름 · 바로 열기 아이콘 다음, 파일 크기 앞) ·
+   둘째 면 머리 #peerStatus. 헤딩 · 표(스크립트) · LLM · 구분 기준(옵션)이 어디까지 됐는지 — 어느 TASK 에서나 같은 꼴(doc_status.js 가 GET …/analysis 로 그린다).
+   표시 높이 20px(줄 높이 35px 그대로 — design.md §3) · 글 11px(§1 규칙 7) · 상태는 색만으로 가르지 않고 글로(✓ · 안 함 · 없음 · 대기 · 실패 · 후보 N).
+   style.css · document_header.css · divisions.css(container docname) · fmt_focus.css 다음에 읽힌다. */
+.doc-status { flex: none; display: inline-flex; align-items: center; gap: 2px; min-width: 0; color: var(--muted); font-size: 11px; line-height: 1; white-space: nowrap; }
+.doc-status[hidden] { display: none; }
+.ds-item { flex: none; display: inline-flex; align-items: center; gap: 2px; }   /* 항목 하나 = 가운뎃점 + 표시(헤딩 · 표는 LLM 표시가 곁에 붙기도) — 옵션 항목(.ds-opt)은 좁으면 통째로 감춘다 */
+.ds-chip { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; background: none;
+  color: var(--text); font: inherit; font-size: 11px; line-height: 1; white-space: nowrap; }
+button.ds-chip { cursor: pointer; }
+button.ds-chip:hover { border-color: var(--line); background: var(--surface-2); }
+button.ds-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ds-chip .ds-mark { font-weight: 700; }
+.ds-chip.ok .ds-mark { color: #15803d; }                                    /* 됨 = 초록 ✓ */
+.ds-chip.off, .ds-chip.off .ds-mark { color: var(--muted); font-weight: 400; }  /* 안 함 · 대기 = 회색 글 */
+.ds-chip.warn { border-color: #f4c48a; background: #fff7ed; color: #9a3412; }   /* 없음 · 실패 = 주황(구분 기준 「추가한 자리」 꼬리표와 같은 색) */
+.ds-chip.run { color: var(--accent); }                                      /* 도는 중 = 동그라미 + 지금 하는 일 + 지난 시간(design.md §7) */
+.ds-chip.found .ds-mark { color: var(--accent); }                           /* 구분 기준 후보 N — 볼 것이 있음 */
+.ds-spin { flex: none; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.ds-secs { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ds-sep { flex: none; color: #a3acba; }
+.doc-status .ds-go { flex: none; height: 20px; min-height: 20px; margin-left: 2px; padding: 0 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; }  /* 「분석」 — 기본 분석이 없을 때만 */
+@media (prefers-reduced-motion: reduce) { .ds-spin { animation-duration: 2.4s; } }
+
+/* 좁으면 옵션 항목(LLM · 구분 기준)부터 감추고 헤딩 · 표는 남긴다 — 기준은 창이 아니라 줄의 폭(design.md §3). 파일 이름(.file-name flex 1 1 auto)이 먼저 줄고 줄은 꺾이지 않는다.
+   색 설명(#fmtKey · #divKey)이 줄에 떠 있는 동안은 그 설명이 먼저다(그 줄의 「폭 480px 이상이면 한 줄」 약속 — divisions.css · fmt_focus.css): 옵션 항목은 늘 감추고, 줄 폭 1000px 이하면 표시를 통째로 감춘다
+   (설명을 끄면 다시 보인다). 아주 좁으면 파일 크기 글도 감춘다(표시가 자리를 쓴 만큼) */
+@container docname (max-width: 760px) { .doc-status .ds-opt { display: none; } }
+.has-fm-key > .doc-status .ds-opt, .has-dv-key > .doc-status .ds-opt { display: none; }
+@container docname (max-width: 1000px) { .has-fm-key > .doc-status, .has-dv-key > .doc-status { display: none; } }
+@container docname (max-width: 520px) { .document-name-row > .doc-status ~ .file-meta { display: none; } }
+@container docname (max-width: 400px) { .doc-status .ds-secs { display: none; } }
+
+/* 둘째 면(같이 보기) 머리 — 누를 수 없는 표시(읽기 전용 면). 문서 이름 탭이 먼저 줄고, 머리 줄이 좁으면 옵션 항목 → 표시 통째 차례로 감춘다.
+   기준은 여기도 창이 아니라 그 줄의 폭(design.md §3 — 패널·2열을 열면 면이 좁아진다): 머리 줄을 컨테이너로 둔다 */
+.workspace > .peer-col > header { container: peerhead / inline-size; }
+.peer-col > header > .doc-status { margin-left: 4px; }
+@container peerhead (max-width: 560px) { .peer-col > header > .doc-status .ds-opt { display: none; } }
+@container peerhead (max-width: 420px) { .peer-col > header > .doc-status { display: none; } }

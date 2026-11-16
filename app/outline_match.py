@@ -4,7 +4,10 @@
 - 대표 정하기(`set_rep`) = 오버레이 슬롯의 rep·동결 접두·모양을 그 문단의 지금 것으로(문서는 안 바뀜).
 - 대표에 맞추기(`match`) = 대표와 다른 슬롯 줄을 대표의 지금 모양으로(문서를 바꿈 — 부르는 쪽이 트랜잭션 안에서).
 - 템플릿 종속(`merge`·`unmerge`·`carry`) = 템플릿 B 가 (A, at) 줄 아래 매달린 곳의 B 줄을 (A, at + 레벨)로 — 오버레이만 바꾼다.
+- 서식 종속 템플릿(`split`·`unsplit` — ② §8-5) = (A, Lk) 의 일부러 다른 서식 갈래를 「T{A}L{k}a」 로 뗀다(그 줄과 자손 · base = k − 1) — 오버레이만 바꾼다.
 """
+import copy
+
 from app import outline_edit as OE
 from app.hwpx_struct import OBJECTS, P, RUN
 
@@ -154,8 +157,8 @@ def slot_ids(ov, tid, level):
     return [pid for pid, x in ov["lines"].items() if x["tpl"] == str(tid) and int(x["level"]) == int(level)]
 
 
-def variants(doc, ov, tid, level, order=None):
-    """슬롯 (tid, level) 의 서식 갈래 → {total, rep, repMissing, groups[{key, count, paras(문서 순 30개까지), more, rep, look(화면 글), raw(원값), diff}]} — 대표 갈래 먼저, 그다음 줄 수 순."""
+def variants(doc, ov, tid, level, order=None, full=False):
+    """슬롯 (tid, level) 의 서식 갈래 → {total, rep, repMissing, groups[{key, count, paras(문서 순 30개까지 — full 이면 전부), more, rep, look(화면 글), raw(원값), diff}]} — 대표 갈래 먼저, 그다음 줄 수 순."""
     order = order if order is not None else _order(doc)
     sl = OE._slot(ov, tid, level) or {}
     ids = sorted((p for p in slot_ids(ov, tid, level) if _alive(doc, p)), key=lambda p: order.get(p, 1 << 30))
@@ -174,7 +177,7 @@ def variants(doc, ov, tid, level, order=None):
     out = []
     for g in groups.values():
         is_rep = g["key"] == rep_key
-        out.append({"key": g["paras"][0], "count": len(g["paras"]), "paras": g["paras"][:_LIST_MAX], "more": max(0, len(g["paras"]) - _LIST_MAX),
+        out.append({"key": g["paras"][0], "count": len(g["paras"]), "paras": g["paras"] if full else g["paras"][:_LIST_MAX], "more": 0 if full else max(0, len(g["paras"]) - _LIST_MAX),
                     "rep": is_rep, "look": {k: shown(k, v) for k, v in g["look"].items()}, "raw": g["look"],  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
                     "diff": diff(base, g["look"]) if base and not is_rep else []})
     out.sort(key=lambda g: (not g["rep"], -g["count"], order.get(g["paras"][0], 1 << 30) if g["paras"] else 0))
@@ -256,6 +259,40 @@ def match_targets(doc, ov, tid, level, paras=None, like=None):
         except (KeyError, ValueError):
             continue
     return out
+
+
+def match_set(doc, ov, tid, level, rep=None, likes=None):
+    """템플릿 단위 맞추기의 한 레벨(§8-2 「템플릿 맞추기」 · §8-4 정리 에이전트) — 대표를 rep(없으면 슬롯의 지금 대표)로 **삼았을 때** 그 모양으로 바꿀 줄(문서 순).
+    likes(그 레벨 줄 id 들)를 주면 그 줄들과 비교 값이 같은 갈래만, None 이면 대표와 다른 줄 모두, 빈 목록이면 없음. 오버레이·문서를 안 바꾼다(대표 바꿈은 부른 쪽이
+    트랜잭션 안에서 `set_rep`). -> (대표 문단 id, [바꿀 줄 id]). 대표·likes 문제는 ValueError · 없는 레벨은 KeyError."""
+    sl = OE._slot(ov, tid, level)
+    if sl is None:
+        raise KeyError("그런 템플릿 레벨이 없습니다")
+    rep = rep or sl.get("rep")
+    if not rep or not _alive(doc, rep) or rep not in ov["lines"]:
+        raise ValueError(f"L{level} 의 대표 문단이 문서에 없습니다 — 줄 하나를 대표로 정한 뒤 맞추세요")
+    _check_member(ov, tid, level, rep)
+    base = look(doc, ov, rep)
+    kinds = None
+    if likes is not None:
+        kinds = []
+        for q in likes:
+            if not _alive(doc, q):
+                raise ValueError("그 갈래의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+            _check_member(ov, tid, level, q)
+            kinds.append(look(doc, ov, q))
+    order = _order(doc)
+    out = []
+    for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
+        if pid == rep or not _alive(doc, pid):
+            continue
+        try:
+            lk = look(doc, ov, pid)
+        except (KeyError, ValueError):
+            continue
+        if lk != base and (kinds is None or any(lk == k for k in kinds)):
+            out.append(pid)
+    return rep, out
 
 
 def match_one(doc, ov, pid, sh):
@@ -390,6 +427,8 @@ def merge(ov, child, parent, at, ctx=None):
     if child == parent:
         raise ValueError("템플릿을 제 아래로 넣을 수는 없습니다")
     A, B = _tpl(ov, parent), _tpl(ov, child)
+    if B.get("variant"):  # 서식 종속 템플릿(② §8-5)은 이미 제 템플릿의 레벨 아래에 있다
+        raise ValueError(f"T{B['no']} 는 서식 종속 템플릿이라 다른 템플릿 아래로 넣을 수 없습니다 — 합친 뒤 원래 템플릿을 넣으세요")
     if OE._slot(ov, parent, at) is None:
         raise ValueError(f"T{A['no']} 에 L{at} 이 없습니다")
     cid = comp_id(parent, child)
@@ -447,7 +486,8 @@ def merge(ov, child, parent, at, ctx=None):
     lst = br.setdefault(f"{parent}|{at}", [])  # 종속 템플릿은 (A, at) 에 매달린다(첫 레벨의 Alt+↑ · 부모 찾기)
     if cid not in lst:
         lst.append(cid)
-    rec = {"child": B.get("anchor"), "parent": A.get("anchor"), "childId": child, "parentId": parent, "at": at, "id": cid, "moved": moved, "adopt": adopt}
+    rec = {"child": B.get("anchor"), "parent": A.get("anchor"), "childId": child, "parentId": parent, "at": at, "id": cid, "moved": moved, "adopt": adopt,
+           "n": _seq(ov)}  # n = 종속·떼기(② §8-5)를 넣은 차례 — carry 가 그 차례대로 다시 건다
     ov.setdefault("merges", []).append(rec)
     return rec
 
@@ -467,6 +507,7 @@ def unmerge(ov, child, parent):
         if m is not rec and cid in (m.get("childId"), m.get("parentId")):
             other = ov["templates"].get(m.get("id"), {}).get("no", m.get("id"))
             raise ValueError(f"T{C.get('no', cid)} 로 만든 종속 템플릿 T{other} 가 있습니다 — 그것부터 떼세요")
+    _no_variants(ov, cid, C.get("no", cid))
     at, bb = int(rec["at"]), _base(B)
     bchain = list(B.get("chain") or [])
     back = 0
@@ -495,8 +536,15 @@ def carry(old, new, ctx=None):
     fails = []
     if not old or not new:
         return fails
-    for m in old.get("merges") or []:
-        by_anchor = {t.get("anchor"): tid for tid, t in new.get("templates", {}).items()}  # 앞의 종속이 만든 템플릿도 앵커로 찾게 매번
+    ops = [("merge", m) for m in old.get("merges") or []] + [("split", m) for m in old.get("splits") or []]
+    ops.sort(key=lambda o: o[1].get("n") or 0)  # 넣은 차례대로(차례 번호가 없는 옛 종속 기록이 먼저 — 안정 정렬이라 그 안의 차례는 그대로)
+    for kind, m in ops:
+        by_anchor = {t.get("anchor"): tid for tid, t in new.get("templates", {}).items()}  # 앞의 종속·떼기가 만든 템플릿도 앵커로 찾게 매번
+        if kind == "split":  # 서식 종속 템플릿(② §8-5) — 기록의 줄 가운데 지금도 (A, Lk) 줄인 것만, 슬롯은 옛 것
+            why = _carry_split(old, new, m, by_anchor.get(m.get("of")))
+            if why:
+                fails.append((m, why))
+            continue
         c, p = by_anchor.get(m.get("child")), by_anchor.get(m.get("parent"))
         if c is None or p is None:
             fails.append((m, "템플릿이 없음"))
@@ -520,19 +568,273 @@ def carry(old, new, ctx=None):
 
 def view_extra(ov, ctx=None):
     """오버레이 요약에 더할 것 — 템플릿마다 hang · lines · base · comp(종속 템플릿이면 {parent, parentNo, child, childNo, at}) ·
-    made(이 템플릿을 넣어 만든 종속 템플릿들) · all(줄을 다 넣음), 레벨마다 rep(ctx = context — 칸 안 매달림)."""
+    made(이 템플릿을 넣어 만든 종속 템플릿들) · all(줄을 다 넣음) · vari(서식 종속 템플릿이면 {of, ofNo, level, sfx} — ② §8-5) ·
+    splits(이 템플릿에서 뗀 서식 종속 템플릿들 [{id, no, level, sfx, lines}]), 레벨마다 rep(ctx = context — 칸 안 매달림)."""
     out = {}
     recs = ov.get("merges") or []
     tp = ov["templates"]
+    count = {}
+    for x in ov["lines"].values():
+        count[x["tpl"]] = count.get(x["tpl"], 0) + 1
     for tid, t in tp.items():
-        left = sum(1 for x in ov["lines"].values() if x["tpl"] == tid)
+        left = count.get(tid, 0)
         comp = t.get("composite")
+        var = t.get("variant")
         made = [{"id": m.get("id"), "no": tp.get(m.get("id"), {}).get("no"), "parent": m["parentId"], "parentNo": tp.get(m["parentId"], {}).get("no"), "at": m["at"],
                  "moved": len(m.get("moved") or [])} for m in recs if m.get("childId") == tid]
         out[tid] = {"hang": hang(ov, tid, ctx), "lines": left, "base": _base(t), "made": made, "all": bool(made) and not left,
                     "comp": {**comp, "parentNo": tp.get(comp["parent"], {}).get("no"), "childNo": tp.get(comp["child"], {}).get("no")} if comp else None,
+                    "vari": {**var, "ofNo": tp.get(var["of"], {}).get("no")} if var else None,
+                    "splits": sorted(({"id": oid, "no": o["no"], "level": int(o["variant"]["level"]), "sfx": o["variant"]["sfx"], "lines": count.get(oid, 0)}
+                                      for oid, o in tp.items() if (o.get("variant") or {}).get("of") == tid), key=lambda v: (v["level"], v["sfx"])),
                     "slots": {lv: {"rep": sl.get("rep")} for lv, sl in t.get("slots", {}).items()}}
     return out
+
+
+# ---------------------------------------------------------------- 서식 종속 템플릿 — 서식 갈래를 다른 템플릿으로(spec_hwpx_웹편집 ② §8-5)
+SFX = "abcdefghijklmnopqrstuvwxyz"  # 같은 (A, Lk) 에서 뗀 차례 — 「T1L3a」·「T1L3b」…
+
+
+def var_id(tid, level, sfx):
+    """서식 종속 템플릿의 id — 「A~k글자」(그래프 템플릿 id 는 정수 글 · 종속 템플릿은 「A+B」 라 겹치지 않는다)."""
+    return f"{tid}~{int(level)}{sfx}"
+
+
+def _seq(ov):
+    """종속·떼기 기록의 차례 번호 — 2단계를 다시 돌린 뒤 carry 가 넣은 차례대로 다시 건다."""
+    ov["seq"] = int(ov.get("seq") or 0) + 1
+    return ov["seq"]
+
+
+def _no_variants(ov, tid, no):
+    """템플릿 tid 에서 뗀 서식 종속 템플릿이 있으면 ValueError — tid 를 지우기 전에(떼기·합치기)."""
+    for t in ov["templates"].values():
+        if (t.get("variant") or {}).get("of") == str(tid):
+            raise ValueError(f"T{no} 에서 뗀 서식 종속 템플릿 T{t['no']} 가 있습니다 — 그것부터 합치세요")
+
+
+def split_targets(doc, ov, tid, level, likes):
+    """likes(그 레벨 줄 id 들)와 비교 값이 같은 (tid, level) 줄 모두(문서 순) — 갈래를 줄 하나로 가리킨다(화면이 가진 갈래의 줄 목록은 30줄까지).
+    likes 문제는 ValueError · 없는 레벨은 KeyError."""
+    if OE._slot(ov, tid, level) is None:
+        raise KeyError("그런 템플릿 레벨이 없습니다")
+    if not likes:
+        raise ValueError("뗄 갈래의 줄(likes)이 필요합니다")
+    kinds = []
+    for q in likes:
+        if not _alive(doc, q):
+            raise ValueError("그 갈래의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+        _check_member(ov, tid, level, q)
+        kinds.append(look(doc, ov, q))
+    order = _order(doc)
+    out = []
+    for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
+        if not _alive(doc, pid):
+            continue
+        try:
+            lk = look(doc, ov, pid)
+        except (KeyError, ValueError):
+            continue
+        if any(lk == k for k in kinds):
+            out.append(pid)
+    return out
+
+
+def split_block(ov, tid, level, paras, rep=None):
+    """(tid, level) 줄 paras 를 서식 종속 템플릿으로 못 떼는 까닭 | None — 종속 템플릿의 부모 레벨 · 대표 갈래 · 번호형 레벨에서 같은 부모 아래 형제의 일부
+    (번호 다시 매김이 (부모, 템플릿, 레벨) 묶음마다라 「1. 3.」 이 된다). rep = 그 레벨의 대표로 볼 줄(같은 트랜잭션에서 대표를 바꾼 뒤 뗄 때 — 없으면 슬롯의 지금 대표)."""
+    tid = str(tid)
+    t = ov["templates"].get(tid)
+    sl = OE._slot(ov, tid, level)
+    if t is None or sl is None:
+        return "그런 템플릿 레벨이 없습니다"
+    if int(level) <= _base(t):
+        return f"L{level} 은 T{t['no']} 의 레벨이 아닙니다 — 이 템플릿의 줄은 L{_base(t) + 1} 부터입니다"
+    want = set(paras)
+    if not want:
+        return "뗄 줄이 없습니다"
+    if (rep or sl.get("rep")) in want:
+        return f"T{t['no']} L{level} 의 대표 갈래는 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
+    if OE.is_numbered(sl.get("key") or ""):
+        by_parent = {}
+        for pid in slot_ids(ov, tid, level):
+            by_parent.setdefault(ov["lines"][pid].get("parent"), []).append(pid)
+        for sibs in by_parent.values():
+            k = sum(1 for p in sibs if p in want)
+            if 0 < k < len(sibs):
+                return (f"번호형 레벨(「{sl.get('letter') or sl.get('key')}」)은 같은 부모 아래 형제 줄의 일부만 뗄 수 없습니다 — 번호가 템플릿마다 따로 매겨집니다"
+                        f"(그 부모 아래 형제 {len(sibs)}줄 가운데 {k}줄)")
+    return None
+
+
+def used_sfx(ov, tid, level):
+    """(tid, level) 에서 뗀 서식 종속 템플릿들이 쓴 글자."""
+    return {t["variant"]["sfx"] for t in ov["templates"].values() if (t.get("variant") or {}).get("of") == str(tid) and int(t["variant"]["level"]) == int(level)}
+
+
+def _free_sfx(ov, tid, level):
+    used = used_sfx(ov, tid, level)
+    return next((ch for ch in SFX if ch not in used), None)
+
+
+def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slots=None):
+    """템플릿 tid(A) 의 L level 줄 paras(일부러 다르게 준 서식의 갈래)를 **서식 종속 템플릿**(표기 「T{A}L{k}{a…}」 · id 「A~k글자」)으로 뗀다
+    (2026-11-15 사용자 "서식이 다르면 템플릿도 다른거잖아 … T1L3 로 하고 a,b,c 를 붙이자 … 종속템플릿이기 때문에 이 템플릿의 시작은 L3 부터").
+    새 템플릿 = A 의 사슬 그대로 · base = level − 1(L1~L level−1 은 A 의 레벨 — 그 줄은 A 것) · L level 슬롯 = rep 줄의 모양(shape = rep_shape — 대표·동결 접두·모양,
+    A 의 자리 규칙·repSet 은 안 옮김) · 더 깊은 레벨 = A 의 슬롯 그대로. 옮기는 줄 = paras + 그 아래 A 줄(자손 — 레벨은 그대로). A 는 안 바뀐다.
+    into(이미 있는 서식 종속 템플릿 id)를 주면 새로 만들지 않고 거기에 더 넣는다. slots(옛 템플릿의 슬롯 — carry)을 주면 그 슬롯으로.
+    오버레이만 바꾼다 — 검사는 바꾸기 전에 다 한다(ValueError·KeyError). -> {"id", "no", "moved"[자손 포함], "paras", "new"}."""
+    tid, level = str(tid), int(level)
+    A = _tpl(ov, tid)
+    paras = list(dict.fromkeys(paras or []))
+    for pid in paras:
+        _check_member(ov, tid, level, pid)
+    why = split_block(ov, tid, level, paras)
+    if why:
+        raise ValueError(why)
+    rep = rep or paras[0]
+    if rep not in paras:
+        raise ValueError("대표로 삼을 줄은 떼는 갈래의 줄이어야 합니다")
+    recs = ov.setdefault("splits", [])
+    if into is not None:
+        cid = str(into)
+        C = ov["templates"].get(cid)
+        v = (C or {}).get("variant") or {}
+        if C is None or v.get("of") != tid or int(v.get("level") or 0) != level:
+            raise ValueError(f"그 템플릿은 T{A['no']} L{level} 에서 뗀 서식 종속 템플릿이 아닙니다")
+        new = False
+    else:
+        sfx = sfx or _free_sfx(ov, tid, level)
+        if not sfx:
+            raise ValueError(f"T{A['no']} L{level} 에서 뗄 수 있는 템플릿 수({len(SFX)}개)를 다 썼습니다 — 안 쓰는 것을 합친 뒤 떼세요")
+        if not (isinstance(sfx, str) and len(sfx) == 1 and sfx in SFX):
+            raise ValueError("글자(sfx)는 a~z 한 글자")
+        cid = var_id(tid, level, sfx)
+        if cid in ov["templates"]:
+            raise ValueError(f"T{A['no']}L{level}{sfx} 는 이미 있습니다")
+        chain = list(A.get("chain") or [])
+        amax = max([int(k) for k in A["slots"]] + [len(chain), level])
+        made = {}
+        for k in range(level, amax + 1):
+            src = (slots or {}).get(str(k)) or A["slots"].get(str(k))
+            key = chain[k - 1] if k - 1 < len(chain) else (src or {}).get("key", "")
+            sl = copy.deepcopy(src) if src else {"letter": key, "key": key, "rep": None, "count": 0, "prefix": None, "attrs": None, "spacer": None}
+            if not (slots or {}).get(str(k)):  # A 의 슬롯에서 — 사람이 A 에 정한 대표 표지는 안 옮기고, 떼는 레벨은 자리 규칙도(일부러 다른 서식)
+                sl.pop("repSet", None)
+                sl["rep"] = None
+                if k == level:
+                    sl.pop("pos", None)
+            made[str(k)] = sl
+        C = {"no": f"{A['no']}L{level}{sfx}", "kind": A.get("kind"), "anchor": f"{A.get('anchor')}~L{level}{sfx}", "chain": chain, "slots": made, "max": amax,
+             "base": level - 1, "variant": {"of": tid, "level": level, "sfx": sfx}}
+        new = True
+    # ---- 여기부터 오버레이를 바꾼다
+    moved = sorted(_members(ov, tid, paras))
+    gone = set(moved)
+    by_level = {}
+    for pid in moved:
+        by_level.setdefault(int(ov["lines"][pid]["level"]), []).append(pid)
+    if new:
+        ov["templates"][cid] = C
+        top = C["slots"][str(level)]
+        if shape:
+            top.update(rep=rep, prefix=shape["prefix"], letter=shape["tok"], attrs=shape["attrs"], bodyChar=shape["body"])
+        elif top.get("rep") not in paras:
+            top["rep"] = rep
+    for k, ids in by_level.items():  # 대표가 비었거나 이 템플릿 밖이면 옮긴 줄의 첫 것(동결 모양은 그대로)
+        sl = C["slots"].get(str(k))
+        if sl is not None and (not sl.get("rep") or (sl["rep"] not in gone and ov["lines"].get(sl["rep"], {}).get("tpl") != cid)):
+            sl["rep"] = ids[0]
+            sl.pop("repSet", None)
+    for k, sl in C["slots"].items():  # carry — 옛 슬롯의 대표가 이제 이 템플릿 줄이 아니면 비운다
+        if sl.get("rep") and sl["rep"] not in gone and ov["lines"].get(sl["rep"], {}).get("tpl") != cid:
+            sl["rep"] = None
+            sl.pop("repSet", None)
+    for k, sl in A["slots"].items():  # A 의 더 깊은 레벨 대표가 옮긴 줄이면 남은 줄의 첫 것으로(동결 모양은 그대로)
+        if sl.get("rep") in gone:
+            rest = [pid for pid, x in ov["lines"].items() if x["tpl"] == tid and str(x["level"]) == k and pid not in gone]
+            if rest:
+                sl["rep"] = rest[0]
+                sl.pop("repSet", None)
+    for pid in moved:
+        ov["lines"][pid].update(tpl=cid, no=C["no"])
+    if new:
+        br = ov.setdefault("branches", {})
+        for k in range(level, int(C["max"]) + 1):  # A 의 그 레벨들에 매달리던 가지 → 새 템플릿의 그 레벨에도
+            for c in list(br.get(f"{tid}|{k}") or []):
+                lst = br.setdefault(f"{cid}|{k}", [])
+                if c not in lst:
+                    lst.append(c)
+        if level - 1 > _base(A):  # 새 템플릿은 (A, level − 1) 에 매달린다(첫 레벨의 Alt+↑ · 부모 찾기)
+            lst = br.setdefault(f"{tid}|{level - 1}", [])
+            if cid not in lst:
+                lst.append(cid)
+        else:  # level 이 A 의 첫 레벨 — A 가 매달린 자리마다
+            for key, lst in list(br.items()):
+                if tid in lst and cid not in lst and key.split("|")[0] != cid:
+                    lst.append(cid)
+    rec = next((r for r in recs if r.get("id") == cid), None)
+    if rec is None:
+        rec = {"of": A.get("anchor"), "ofId": tid, "level": level, "sfx": C["variant"]["sfx"], "id": cid, "lines": [], "n": _seq(ov)}
+        recs.append(rec)
+    rec["lines"] = sorted(set(rec["lines"]) | set(paras))
+    return {"id": cid, "no": C["no"], "moved": moved, "paras": paras, "new": new}
+
+
+def unsplit(ov, cid):
+    """split 을 거꾸로 — 서식 종속 템플릿 cid 의 줄 모두(뗀 뒤 Enter 로 만든 줄 포함)를 원래 템플릿의 같은 레벨로 되돌리고 그 템플릿을 지운다. -> 되돌린 줄 수.
+    그 템플릿으로 만든 종속 템플릿·서식 종속 템플릿이 있으면 그것부터(ValueError)."""
+    cid = str(cid)
+    C = ov["templates"].get(cid)
+    v = (C or {}).get("variant")
+    if not v:
+        raise ValueError("서식 종속 템플릿이 아닙니다")
+    tid = str(v["of"])
+    A = ov["templates"].get(tid)
+    if A is None:
+        raise ValueError(f"T{C['no']} 의 원래 템플릿이 없습니다")
+    for m in ov.get("merges") or []:
+        if cid in (m.get("childId"), m.get("parentId")):
+            other = ov["templates"].get(m.get("id"), {}).get("no", m.get("id"))
+            raise ValueError(f"T{C['no']} 로 만든 종속 템플릿 T{other} 가 있습니다 — 그것부터 떼세요")
+    _no_variants(ov, cid, C["no"])
+    back = 0
+    for x in ov["lines"].values():
+        if x["tpl"] == cid:
+            x.update(tpl=tid, no=A["no"])
+            back += 1
+    ov["templates"].pop(cid, None)
+    br = ov.get("branches") or {}
+    for key in [k for k in br if k.split("|")[0] == cid]:
+        br.pop(key, None)
+    for lst in br.values():
+        if cid in lst:
+            lst.remove(cid)
+    ov["splits"] = [r for r in ov.get("splits") or [] if r.get("id") != cid]
+    return back
+
+
+def _carry_split(old, new, m, tid):
+    """carry 의 떼기 한 건 — 새 오버레이의 템플릿 tid(같은 앵커)에서 기록 m 의 줄 가운데 지금도 (tid, level) 줄인 것을 다시 뗀다. -> 못 건 까닭 | None."""
+    if tid is None:
+        return "템플릿이 없음"
+    level = int(m["level"])
+    lines = [p for p in m.get("lines") or [] if p in new["lines"] and new["lines"][p]["tpl"] == tid and int(new["lines"][p]["level"]) == level]
+    if not lines:
+        return "뗀 줄이 없음"
+    oc = (old.get("templates") or {}).get(m.get("id")) or {}
+    oa = (old.get("templates") or {}).get(m.get("ofId")) or {}
+    nsl, osl = OE._slot(new, tid, level), (oa.get("slots") or {}).get(str(level)) or {}
+    if nsl is not None and nsl.get("rep") in lines:  # 새 그래프의 대표가 뗄 줄 — 옛 오버레이에서 A 의 대표였던 줄이 지금도 그 레벨 줄이면 그것으로
+        x = new["lines"].get(osl.get("rep"))
+        if x is not None and x["tpl"] == tid and int(x["level"]) == level and osl["rep"] not in lines:
+            nsl.update({k: osl.get(k) for k in ("rep", "prefix", "letter", "attrs", "bodyChar")})
+    rep = ((oc.get("slots") or {}).get(str(level)) or {}).get("rep")
+    try:
+        split(new, tid, level, lines, rep=rep if rep in lines else lines[0], sfx=m.get("sfx"), slots=oc.get("slots") or None)
+    except (KeyError, ValueError) as e:
+        return str(e)
+    return None
 
 
 def apply_reps(g, ov):

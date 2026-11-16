@@ -196,7 +196,7 @@ try:
         # ---- 3. 새로 고쳐도 그대로
         open_work(page, a)
         check("새로 연 화면(검증)에 패널 머리 탭 「작업 내용」 · 「검증」(고름)", page.evaluate(VIS, "toolTabs") and page.inner_text("#toolTabTask").strip() == "작업 내용"
-              and page.get_attribute("#toolTabTool", "aria-selected") == "true", page.inner_text("#toolTabs"))
+              and page.get_attribute("#tabVerify", "aria-selected") == "true", page.inner_text("#toolTabs"))  # 「검증」 은 패널 머리의 고정 탭(2026-11-15)
         page.click("#toolTabTask")
         page.wait_for_selector("#divBox .dv-task select")
         vals = page.evaluate("() => [document.getElementById('panelTask').value, document.querySelector('#divBox .dv-task select[data-task=job]').value]")

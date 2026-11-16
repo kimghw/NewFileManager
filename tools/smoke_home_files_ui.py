@@ -3,9 +3,9 @@
     python -X utf8 tools/smoke_home_files_ui.py <그림·임시 폴더> [--port 18394]
 
 보는 것: 「파일 선택」 = 여러 개 · 목록에 모임(서버에는 아직 안 올림) · 시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 카드 글 「목록으로 시작」 ·
-docx 목적 문서로 TASK 카드 → 알림만 · 「TASK 없이 열기」 + 별칭 → 이름 뒤 「(별칭)」 · 이관: 프로젝트 없이 두 문서면 알림 → 프로젝트를 적으면 목적 문서 = 연차보고서(라운드 1) +
+상단 소개 + 넓은 업로드 · 파일 모양 카드마다 약칭 · 목적 문서를 고르기 전/형식이 안 맞는 TASK는 비활성 · 「TASK 없이 열기」 + 약칭 → 이름 뒤 「(약칭)」 · 이관: 프로젝트 없이 두 문서면 알림 → 프로젝트를 적으면 목적 문서 = 연차보고서(라운드 1) +
 사업계획서를 같은 프로젝트·TASK·라운드로(첨부 파일 칸이 저절로 잇는다) · 쓴 문서는 목록에서 빠짐 · 양식 맞추기: 나머지 문서는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면 새 작업 ·
-좁은 창에서 목록이 넘치지 않음."""
+약칭은 문서 선택을 바꿔도 유지하고 원본 문서에도 저장 · 파일 삭제 후 하나가 남으면 자동 선택 · 좁은 창에서 목록이 넘치지 않음."""
 import argparse
 import base64
 import os
@@ -64,9 +64,10 @@ def sample(name):
 
 LIST = """() => { const p = document.getElementById('homeFiles'), g = (s) => document.querySelector(s);
   return { vis: !!p && !p.hidden && p.getClientRects().length > 0, has: g('#drop').classList.contains('has-files'), title: p.hidden ? '' : (p.querySelector('h3') || {}).textContent,
-    rows: [...p.querySelectorAll('.hf-row')].map((r) => ({ name: r.querySelector('.hf-name').textContent, ext: r.querySelector('.hf-ext').textContent, tag: r.querySelector('.hf-tag').textContent, on: r.querySelector('input').checked })),
+    rows: [...p.querySelectorAll('.hf-row')].map((r) => ({ name: r.querySelector('.hf-name').textContent, ext: r.querySelector('.hf-ext').textContent, tag: r.querySelector('.hf-tag').textContent, on: r.querySelector('input[type=radio]').checked, alias: (r.querySelector('.hf-alias input') || {}).value })),
     plain: !!p.querySelector('[data-hf-plain]') && !p.querySelector('[data-hf-plain]').disabled, status: (p.querySelector('.hf-status') || {}).textContent || '',
     go: Object.fromEntries([...document.querySelectorAll('#taskCards .task-card')].map((b) => [b.dataset.task, b.querySelector('.task-card-go').textContent.trim()])),
+    disabled: Object.fromEntries([...document.querySelectorAll('#taskCards .task-card')].map((b) => [b.dataset.task, b.disabled || b.getAttribute('aria-disabled') === 'true'])),
     id: state.id, toast: g('#toast').hidden ? '' : g('#toast').textContent, pick: g('#pickBtn').getClientRects().length > 0 }; }"""
 DROP = """([files, sel]) => { const dt = new DataTransfer(); for (const [b64, name] of files) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); dt.items.add(new File([u], name)); }
   const t = document.querySelector(sel), ev = (n) => new DragEvent(n, { bubbles: true, cancelable: true, dataTransfer: dt }); t.dispatchEvent(ev('dragover')); t.dispatchEvent(ev('drop')); }"""
@@ -104,14 +105,29 @@ try:
         page.wait_for_selector("#taskCards [data-task=plan_fit]")
         L = page.evaluate(LIST)
         check("처음 — 목록 없음 · 「파일 선택」 보임 · 카드 글은 전처럼 「… 올려 시작」", not L["vis"] and not L["has"] and L["pick"] and L["go"]["plan_fit"].startswith("사업계획서 올려 시작"), L)
+        layout = page.evaluate("""() => { const r = (s) => document.querySelector(s).getBoundingClientRect(), intro = r('.home-heading'), drop = r('#drop'), hero = r('.home-intro');
+          return { above: intro.bottom <= drop.top, wide: drop.width >= hero.width * .95, width: drop.width, hero: hero.width }; }""")
+        check("넓은 창 — 소개는 상단 · 파일 입력 영역은 본문 폭 전체", layout["above"] and layout["wide"], layout)
+        page.screenshot(path=str(OUT / "0_home_wide.png"))
 
         # ---- 1. 「파일 선택」 = 여러 개 → 목록(서버에는 안 올림) · 시작 화면에 놓아도 목록 · 같은 파일은 한 번
         fc = pick(page, [SMALL, PLAN])
         check("「파일 선택」 → 여러 개 · hwp·hwpx·docx", fc.is_multiple() and fc.element.evaluate("(e) => e.accept") == ".hwp,.hwpx,.docx")
         L = page.evaluate(LIST)
-        check("목록 — 파일 놓는 카드가 목록이 됨(「파일 선택」 은 감춤) · 줄 둘 · 목적 문서 기본 선택 없음 · 아직 아무것도 안 올림 · 카드 글 「목록으로 시작」(준비 중은 그대로)",
+        check("목록 — 파일 카드 둘 · 목적 문서 기본 선택 없음 · 아직 아무것도 안 올림 · 목적 문서를 고르기 전에는 TASK 비활성",
               L["vis"] and L["has"] and not L["pick"] and [r["name"] for r in L["rows"]] == [SMALL, PLAN] and not any(r["on"] for r in L["rows"]) and L["id"] is None and works() == []
-              and L["go"]["plan_fit"].startswith("목록으로 시작") and L["go"]["report_merge"] == "준비 중" and L["title"] == "올린 문서 2개" and not L["plain"], L)
+              and all(L["disabled"].values()) and L["go"]["report_merge"] == "준비 중" and L["title"] == "올린 문서 2개" and not L["plain"], L)
+        cards = page.evaluate("""() => [...document.querySelectorAll('#homeFiles .hf-row')].map((e) => { const r = e.getBoundingClientRect(), i = e.querySelector('.hf-file-icon').getBoundingClientRect();
+          return { x: r.x, y: r.y, right: r.right, width: r.width, height: r.height, icon: i.width > 0 && i.height > 0, alias: !!e.querySelector('.hf-alias input') }; })""")
+        check("파일마다 개별 카드 · 문서 아이콘 · 약칭 입력 · 넓은 창에서 나란히", all(r["width"] > 0 and r["height"] > 0 and r["icon"] and r["alias"] for r in cards)
+              and abs(cards[0]["y"] - cards[1]["y"]) < 2 and cards[0]["right"] <= cards[1]["x"], cards)
+        page.locator("#homeFiles .hf-row").nth(0).locator(".hf-alias input").fill("보고")
+        page.locator("#homeFiles .hf-row").nth(1).locator(".hf-alias input").fill("계획")
+        page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
+        page.locator("#homeFiles .hf-row").nth(1).locator("input[type=radio]").check()
+        L = page.evaluate(LIST)
+        check("목적 문서 변경 — 각 문서의 약칭 유지 · 선택은 하나 · TASK 활성", [r["alias"] for r in L["rows"]] == ["보고", "계획"]
+              and [r["on"] for r in L["rows"]] == [False, True] and not L["disabled"]["plan_fit"], L)
         page.evaluate(DROP, [[[b64(sample(DOCX)), DOCX]], "#empty"])
         page.wait_for_function("() => document.querySelectorAll('#homeFiles .hf-row').length === 3")
         page.evaluate(DROP, [[[b64(sample(DOCX)), DOCX], [b64(b"x"), "메모.txt"]], "#empty"])
@@ -120,22 +136,23 @@ try:
         check("시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 그 밖의 형식은 알림", len(L["rows"]) == 3 and L["rows"][2]["ext"] == "DOCX" and "TASK 없이 열기 · 서식 복사" in L["rows"][2]["tag"]
               and "메모.txt" in L["toast"] and works() == [], L)
         page.screenshot(path=str(OUT / "1_list.png"))
-        page.set_viewport_size({"width": 400, "height": 900})
-        page.wait_for_timeout(200)
-        page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
-        fit = page.evaluate("() => { const e = document.getElementById('empty'), p = document.getElementById('homeFiles'), w = e.clientWidth; return e.scrollWidth <= w + 1 && [...p.querySelectorAll('*')].every((x) => x.getBoundingClientRect().right <= w + 1); }")
-        check("좁은 창(400px) — 목록(별칭 줄 포함)이 가로로 넘치지 않음", fit)
-        page.locator("#drop").screenshot(path=str(OUT / "1_list_narrow.png"))
+        for width in (400, 320):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.wait_for_timeout(200)
+            page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
+            fit = page.evaluate("""() => { const e = document.getElementById('empty'), p = document.getElementById('homeFiles'), bounds = e.getBoundingClientRect();
+              return e.scrollWidth <= e.clientWidth + 1 && [...p.querySelectorAll('.hf-row, .hf-name, .hf-alias input, .hf-foot button')].every((x) => {
+                const r = x.getBoundingClientRect(); return r.left >= bounds.left - 1 && r.right <= bounds.right + 1; }); }""")
+            check(f"좁은 창({width}px) — 파일 카드·약칭·버튼이 가로로 넘치지 않음", fit)
+            page.locator("#drop").screenshot(path=str(OUT / f"1_list_narrow_{width}.png"))
         page.set_viewport_size({"width": 1400, "height": 960})
 
-        # ---- 2. docx 를 목적 문서로 → TASK 카드는 알림만 · 「TASK 없이 열기」 + 별칭
+        # ---- 2. docx 를 목적 문서로 → 지원하는 TASK만 활성 · 「TASK 없이 열기」 + 약칭
         page.locator("#homeFiles .hf-row").nth(2).locator("input[type=radio]").check()
-        page.locator("#taskCards [data-task=plan_fit]").click()
-        page.wait_for_timeout(300)
         L = page.evaluate(LIST)
-        check("docx 목적 문서로 TASK 카드 → 알림만(아무것도 안 올림)", L["id"] is None and "hwp·hwpx" in L["toast"] and works() == [] and L["plain"], L)
-        page.locator("#homeFiles [data-hf-focus=alias]").fill("메모")
-        check("별칭 미리 보기", page.evaluate("() => document.querySelector('#homeFiles .hf-shown').textContent") == "보일 이름 기술수요조사서(메모).docx")
+        check("docx 목적 문서 — 양식 TASK는 비활성 · 서식 복사·그냥 열기는 활성 · 아직 안 올림", L["id"] is None and L["disabled"]["plan_fit"] and not L["disabled"]["style_copy"] and works() == [] and L["plain"], L)
+        page.locator("#homeFiles .hf-row.on .hf-alias input").fill("메모")
+        check("약칭 미리 보기", "기술수요조사서(메모).docx" in page.locator("#homeFiles .hf-row.on .hf-shown").inner_text())
         page.locator("#homeFiles [data-hf-plain]").click()
         page.wait_for_function("() => state.id && state.format === 'docx' && (state.name || '').endsWith('(메모).docx')", timeout=120000)
         did = page.evaluate("() => state.id")
@@ -148,7 +165,7 @@ try:
         L = page.evaluate(LIST)
         check("시작 화면에 돌아오면 남은 목록 그대로(둘 · 목적 문서 풀림)", [r["name"] for r in L["rows"]] == [SMALL, PLAN] and not any(r["on"] for r in L["rows"]), L)
         page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
-        page.locator("#homeFiles [data-hf-focus=alias]").fill("보고")
+        check("다른 파일을 열고 돌아와도 남은 문서의 약칭 유지", [r["alias"] for r in L["rows"]] == ["보고", "계획"], L)
         n = len(works())
         page.locator("#taskCards [data-task=plan_to_report]").click()
         page.wait_for_timeout(300)
@@ -168,8 +185,8 @@ try:
         check("목적 문서 = 연차보고서 · 프로젝트 「시험 P」 라운드 1(start-task) · 이름 = 올린 이름_프로젝트(별칭)",
               rep["task"] == {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "시험 P", "round": 1} and rep["name"] == "기술수요조사서_시험 P(보고).hwpx"
               and page.evaluate("() => state.name") == "기술수요조사서_시험 P(보고).hwpx", rep)
-        check("사업계획서 = 새 작업 · 같은 프로젝트·TASK·라운드 · 첨부 파일 칸에 저절로 듦 · 이름은 올린 그대로(별칭 없음)",
-              plan.get("task") == {"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "시험 P", "round": 1} and plan.get("name") == PLAN and not plan.get("alias"), plan)
+        check("사업계획서 = 새 작업 · 같은 프로젝트·TASK·라운드 · 첨부 파일 칸에 저절로 듦 · 원본 약칭도 저장",
+              plan.get("task") == {"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "시험 P", "round": 1} and plan.get("name") == "연구개발계획서_양식(계획).hwpx" and plan.get("alias") == "계획", plan)
         check("쓴 문서는 목록에서 빠짐 → 목록 비고 카드 글은 전처럼", page.evaluate("() => hf.files.length === 0 && document.getElementById('homeFiles').hidden && !document.getElementById('drop').classList.contains('has-files')")
               and page.evaluate("() => document.querySelector('#taskCards [data-task=plan_fit] .task-card-go').textContent.trim()").startswith("사업계획서 올려 시작"))
         page.screenshot(path=str(OUT / "3_transfer.png"))
@@ -195,9 +212,19 @@ try:
         check("안 쓴 문서는 목록에 남음", page.evaluate("() => hf.files.map((f) => f.name)") == [SMALL])
         go_home(page)
         L = page.evaluate(LIST)
-        check("시작 화면 — 남은 하나가 저절로 목적 문서", [r["name"] for r in L["rows"]] == [SMALL] and L["rows"][0]["on"] and L["rows"][0]["tag"] == "목적 문서" and L["plain"], L)
+        check("시작 화면 — 남은 하나가 저절로 목적 문서", [r["name"] for r in L["rows"]] == [SMALL] and L["rows"][0]["on"] and "목적 문서" in L["rows"][0]["tag"] and L["plain"], L)
         page.locator("#homeFiles .hf-clear").click()
         check("「비우기」 → 목록 없음", not page.evaluate(LIST)["vis"])
+        pick(page, [SMALL])
+        L = page.evaluate(LIST)
+        check("처음부터 파일 하나만 올림 — 목적 문서 자동 선택 · TASK 활성", len(L["rows"]) == 1 and L["rows"][0]["on"] and not L["disabled"]["plan_fit"], L)
+        page.locator("#homeFiles .hf-row.on .hf-alias input").fill("남길 약칭")
+        page.evaluate(DROP, [[[b64(sample(PLAN)), PLAN]], "#empty"])
+        page.locator("#homeFiles .hf-row").nth(1).locator("input[type=radio]").check()
+        page.locator("#homeFiles .hf-row").nth(1).locator(".hf-del").click()
+        L = page.evaluate(LIST)
+        check("선택한 파일 삭제 — 남은 하나 자동 선택 · 남은 약칭 유지 · TASK 활성", len(L["rows"]) == 1 and L["rows"][0]["on"] and L["rows"][0]["alias"] == "남길 약칭" and not L["disabled"]["plan_fit"], L)
+        page.locator("#homeFiles .hf-clear").click()
         page.screenshot(path=str(OUT / "4_home.png"))
         bad = [e for e in errors if "409" not in e]   # 409 = LLM 꺼짐(noLlm) — 기대한 것
         check("콘솔 오류 0(기대한 409 빼고)", not bad, bad[:5])

@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="note-help-", dir=OUT) as tmp:
                 check("고정 설명은 노트 아이콘 · 중첩 단추 없음", page.locator("[data-note] > .panel-help").count() == 7 and page.locator("button button").count() == 0)
                 note.hover()
                 tip = page.locator("#panelHelpTooltip")
-                check("마우스 올림으로 설명 · 접근성 연결", tip.is_visible() and "필요한 도구를 순서대로" in tip.inner_text() and note.get_attribute("aria-describedby") == "panelHelpTooltip")
+                check("마우스 올림으로 설명 · 접근성 연결", tip.is_visible() and "목적 문서를 고른 뒤 TASK를 누르세요" in tip.inner_text() and note.get_attribute("aria-describedby") == "panelHelpTooltip")
                 tip.hover()
                 page.wait_for_timeout(220)
                 check("설명 위로 마우스를 옮겨도 유지", tip.is_visible())

@@ -15,6 +15,21 @@ const AG_MODE = { extract: "자료·선택 글에서 옮긴 글", draft: "에이
 const AG_FILES = ".txt,.md,.csv,.tsv,.xlsx,.docx,.hwpx,.pdf";
 const AG_STALE = "문서가 바뀌었습니다 — 다시 요청하세요";
 const AG_EMPTY = "문서에서 자리를 고르고(문단 끌어 고르기 · 표 누르기 · 커서 두기) 아래에 요청을 적으세요. 에이전트는 제안만 냅니다 — 카드의 「문서에 반영」 을 눌러야 문서가 바뀌고, 도구 줄의 실행 취소로 되돌립니다.";
+// 화면 장식은 같은 선 굵기의 작은 SVG로 — 버튼의 이름과 기존 동작은 그대로 둔다.
+function agentIcon(name) {
+  const paths = {
+    document: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+    library: '<path d="m12 3 9 4.5-9 4.5-9-4.5Z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/>',
+    paste: '<rect x="5" y="5" width="14" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
+    file: '<path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M6 14l8-8"/>',
+    send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>'
+  };
+  const icon = el("span", "ag-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.document}</svg>`;
+  return icon;
+}
 const agentFresh = () => ({ doc: null, loaded: false, loading: false, err: "", enabled: false, hwpx: true, policy: { apply: true, why: "" }, turns: [], materials: [], styles: { table: [], text: [] }, limits: {},
   matOff: new Set(), matBusy: null, matMsg: "", paste: { open: false, name: "", text: "" }, draft: "", pick: { table: "", text: "" }, busy: null, lost: null,
   choice: {}, fills: {}, req: {}, applying: null, prop: null, clearArm: 0, el: null });
@@ -32,7 +47,7 @@ const agentTurnOf = (tid) => AGENT.turns.find((t) => t.id === tid) || null;
 const agentPropOf = (t, pid) => (t && (t.proposals || []).find((p) => p.id === pid)) || null;
 const agentGroup = (t, p) => (p.choiceGroup ? (t.proposals || []).filter((x) => x.choiceGroup === p.choiceGroup) : [p]);
 const agentUuid = () => (crypto.randomUUID ? crypto.randomUUID() : `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`);
-const agentBusyText = (b) => `요청을 읽는 중 · ${Math.round((performance.now() - b.t0) / 1000)}초`;
+const agentBusyText = (b) => `${b.label || "요청을 읽는 중"} · ${Math.round((performance.now() - b.t0) / 1000)}초`; // label = 진행 턴의 글(doc_agent_work.js — 「작업 절차를 확인하는 중」 …)
 function agentChosen(t, group) { // 후보 묶음에서 지금 고른 것 — 반영한 것이 있으면 그것 · 사람이 고른 것 · 스크립트가 확인한 첫 후보 · 첫 후보
   return group.find((p) => p.state === "applied") || group.find((p) => p.id === AGENT.choice[group[0].choiceGroup]) || group.find((p) => p.preselect && (p.state || "open") === "open") || group[0];
 }
@@ -125,9 +140,12 @@ function agentFrame() {
   E.statusText = el("span", "ag-status-text");
   E.lib = hBtn("서식 관리자", () => { if (typeof styleLibOpen === "function") styleLibOpen(); }, { title: "보관한 표지 · 내용 · 테이블 · 문단 서식을 문서 옆 열에서 그림으로 보고 문서에 적용합니다 — 이 문서의 서식을 복사해 저장할 수도 있습니다" }); // 열 이름 = 서식 관리자(spec_서식복사 ② §2)
   E.lib.dataset.agAct = "library";
+  E.lib.prepend(agentIcon("library"));
   E.clear = hBtn("비우기", () => agentClear(), { title: "이 문서의 대화(요청·답·제안)와 자료를 모두 지웁니다 — 문서는 그대로 · 한 번 더 눌러야 지웁니다" });
   E.clear.dataset.agAct = "clear";
-  E.status.append(el("span", "ag-dot"), E.statusText, E.lib, E.clear);
+  E.guide = hBtn("작업 설명", () => { if (typeof agentWorkStart === "function") agentWorkStart(true); }, { title: "이 TASK 의 사전 준비 · 진행 상황 · 다음 단계를 지금 상태로 다시 설명합니다(작업 진행 에이전트)" });
+  E.guide.dataset.agAct = "guide";
+  E.status.append(el("span", "ag-dot"), E.statusText, E.guide, E.lib, E.clear);
   E.talk = el("div", "ag-talk");
   E.talk.setAttribute("role", "log");
   E.talk.setAttribute("aria-label", "에이전트 대화");
@@ -167,19 +185,26 @@ function agentFrame() {
   E.paste.append(E.pasteName, E.pasteText, pasteActs);
   E.text = el("textarea");
   E.text.rows = 3; E.text.maxLength = 4000;
-  E.text.placeholder = "요청을 적으세요 — 예: 「붙인 자료로 고른 표를 채워 줘」 · 「고른 문단을 표로 정리해 줘」 · 「이 자리에 추진 일정을 써 줘」";
+  E.text.id = "agentRequest";
+  E.text.placeholder = "어떤 작업을 도와드릴까요?";
   E.text.setAttribute("aria-label", "에이전트에 보낼 요청");
   E.text.oninput = () => { AGENT.draft = E.text.value; agentSendSync(); };
   E.text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey) && !ev.isComposing && ev.keyCode !== 229) { ev.preventDefault(); agentSend(); } };
   E.send = hBtn("보내기", () => agentSend(), { cls: "btn sm primary", title: "요청을 에이전트에 보냅니다(Ctrl+Enter) — 제안만 받습니다. 문서는 카드의 「문서에 반영」 을 눌러야 바뀝니다" });
   E.send.dataset.agAct = "send";
+  E.send.append(agentIcon("send"));
   E.run = el("span", "ag-run");
   E.run.hidden = true;
   E.run.append(el("span", "ag-spin"), el("span", "ag-run-text live"));
   E.why = el("span", "ag-why");
+  const requestHead = el("div", "ag-request-head"), requestLabel = el("label", "ag-request-label", "작업 요청");
+  requestLabel.htmlFor = E.text.id;
+  requestHead.append(requestLabel);
+  if (typeof hHelp === "function") requestHead.append(hHelp("작업 요청 안내", AG_EMPTY));
+  requestHead.append(el("span", "ag-shortcut", "Ctrl / ⌘ + Enter"));
   const sendRow = el("div", "ag-send");
-  sendRow.append(E.send, E.run, E.why);
-  E.input.append(E.policy, E.sel, picks, E.mats, E.paste, E.text, sendRow);
+  sendRow.append(E.mats, E.send, E.run, E.why);
+  E.input.append(E.policy, E.sel, picks, requestHead, E.text, E.paste, sendRow);
   root.append(E.status, E.talk, E.input);
   box.replaceChildren(root);
 }
@@ -191,10 +216,12 @@ function agentDrawStatus() {
   const A = AGENT, E = A.el;
   if (!E) return;
   const st = A.err && !A.loaded ? ["off", `에이전트를 쓸 수 없습니다 — ${A.err}`] : !A.loaded ? ["", "에이전트 상태를 읽는 중…"] : !A.hwpx ? ["off", "hwpx 문서만 됩니다"]
-    : A.enabled ? ["on", "LLM 사용 가능 — 요청하면 제안을 냅니다"] : ["off", "LLM 을 쓸 수 없습니다 — 제안을 받을 수 없습니다"];
+    : A.enabled ? ["on", "LLM 사용 가능"] : ["off", "LLM 을 쓸 수 없습니다 — 제안을 받을 수 없습니다"];
   E.status.dataset.llm = st[0];
   E.statusText.textContent = st[1];
   E.statusText.title = st[1] + (st[0] === "off" && A.loaded && A.hwpx ? "\nClaude 실행 파일·로그인·API 키가 없거나 꺼져 있습니다 — 서식 관리자와 자료 넣기는 됩니다" : "");
+  E.guide.hidden = !(typeof agwGuided === "function" && agwGuided() && A.hwpx); // 단계가 있는 TASK 에서만
+  E.guide.disabled = !A.loaded || !!A.busy || !!A.applying || !!(A.work && A.work.running) || (typeof agwRunning === "function" && !!agwRunning()); // 도는 실행이 있으면 끝난 뒤에(진행 카드가 보인다)
   const armed = performance.now() < A.clearArm;
   E.clear.disabled = !A.loaded || !(A.turns.length || A.lost || A.materials.length) || !!A.busy || !!A.applying;
   E.clear.classList.toggle("arm", armed);
@@ -205,12 +232,13 @@ function agentDrawTalk(toEnd = false) {
   const A = AGENT, E = A.el;
   if (!E) return;
   const box = E.talk, keep = box.scrollTop, atEnd = toEnd || box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  const live = typeof agwLiveEl === "function" && A.loaded ? agwLiveEl() : null; // 진행 카드 — 지금 도는 「한 번에 진행」(doc_agent_work.js: 누가 시작했든 대화의 맨 아래 한 곳에)
   box.textContent = "";
   if (A.err && !A.loaded) {
     const acts = el("div", "ag-acts");
     acts.append(hBtn("다시 읽기", () => agentLoad()));
     box.append(el("p", "hwarn fail", `에이전트 상태를 읽지 못했습니다: ${A.err}`), acts);
-  } else if (!A.turns.length && !A.busy && !A.lost) box.append(el("p", "ag-empty", A.loaded ? AG_EMPTY : ""));
+  } else if (!A.turns.length && !A.busy && !A.lost && A.loaded && !(live && typeof agwGuided === "function" && agwGuided())) box.append(typeof agwGuided === "function" && agwGuided() && A.hwpx ? agentWorkEmptyEl() : agentEmptyEl()); // 단계가 있는 TASK = 진행 에이전트의 빈 상태(spec_작업에이전트 ② §5) — 도는 실행이 있으면 진행 카드만
   for (const t of A.turns) box.append(agentTurnEl(t));
   if (A.lost) {
     const s = el("section", "ag-turn");
@@ -218,16 +246,40 @@ function agentDrawTalk(toEnd = false) {
     s.append(el("p", "ag-q", A.lost.text), el("p", "hwarn fail", `요청을 보내지 못했습니다: ${A.lost.error} — 요청 글은 아래 글상자에 그대로 있습니다`));
     box.append(s);
   }
+  if (live) box.append(live);
   if (A.busy) { // 보낸 요청은 답이 오기 전에도 턴으로 보인다 — 동그라미 + 지금 하는 일 + 지난 시간(design.md §7)
     const s = el("section", "ag-turn pending"), run = el("div", "ag-run");
     run.append(el("span", "ag-spin"), el("span", "ag-run-text live", agentBusyText(A.busy)));
-    s.append(el("p", "ag-q", A.busy.text), run);
+    if (A.busy.text) s.append(el("p", "ag-q", A.busy.text));
+    s.append(run);
     box.append(s);
   }
   box.scrollTop = atEnd ? box.scrollHeight : keep;
 }
 
+function agentEmptyEl() {
+  const box = el("section", "ag-empty"), heading = el("div", "ag-empty-heading");
+  heading.append(agentIcon("document"), el("h2", null, "문서 작업을 시작하세요"));
+  box.append(heading, el("p", "ag-empty-intro", "문단이나 표를 고른 뒤, 필요한 작업을 요청하세요."));
+  const examples = el("div", "ag-examples");
+  examples.setAttribute("aria-label", "요청 예시");
+  for (const [label, prompt] of [["자료로 표 채우기", "붙인 자료로 고른 표를 채워 줘"], ["문단을 표로 정리하기", "고른 문단을 표로 정리해 줘"], ["추진 일정 작성하기", "이 자리에 추진 일정을 써 줘"]]) {
+    const button = hBtn(label, () => {
+      const E = AGENT.el;
+      if (!E || E.text.disabled) return;
+      const draft = [AGENT.draft.trim(), prompt].filter(Boolean).join("\n");
+      if (draft.length <= E.text.maxLength) { AGENT.draft = draft; E.text.value = draft; agentSendSync(); }
+      E.text.focus();
+    }, { cls: "btn sm ag-example", title: `요청 예시를 입력합니다 — ${prompt}` });
+    button.append(agentIcon("arrow"));
+    examples.append(button);
+  }
+  box.append(examples, el("p", "ag-empty-note", "에이전트는 제안만 냅니다. 확인한 제안을 문서에 반영하세요."));
+  return box;
+}
+
 function agentTurnEl(t) {
+  if (t.kind === "guide" && typeof agentWorkTurnEl === "function") return agentWorkTurnEl(t); // 진행 턴(작업 진행 에이전트 — doc_agent_work.js)
   const box = el("section", "ag-turn"), seen = new Set(), c = t.call || {}, dropped = t.dropped || [];
   box.dataset.turn = t.id;
   box.append(el("p", "ag-q", t.text || ""));
@@ -426,9 +478,11 @@ function agentDrawMats() {
   const paste = hBtn("자료 붙여넣기", () => { AGENT.paste.open = !AGENT.paste.open; agentDrawInput(); if (AGENT.paste.open) E.pasteText.focus(); },
     { cls: "btn sm" + (A.paste.open ? " on" : ""), disabled: lock, title: "글을 붙여 넣어 자료로 씁니다(아래에 글상자가 열립니다) — 에이전트는 자료에 있는 값만 옮깁니다" });
   paste.dataset.agAct = "paste";
+  paste.prepend(agentIcon("paste"));
   paste.setAttribute("aria-pressed", String(A.paste.open));
   const file = hBtn("파일", () => agentMatPick(), { disabled: lock, title: `파일을 자료로 — ${(A.limits.ext || []).join("·") || "txt·md·csv·tsv·xlsx·docx·hwpx·pdf"}(${A.limits.materialMb || 20} MB 까지 · 글로 바꿔 읽습니다)` });
   file.dataset.agAct = "file";
+  file.prepend(agentIcon("file"));
   E.mats.append(paste, file);
   if (A.matBusy) { const run = el("span", "sl-run"); run.append(el("span", "sl-spin"), el("span", null, `「${short(A.matBusy.name || "자료", 20)}」 을(를) 자료로 읽는 중…`)); E.mats.append(run); }
   E.mats.append(el("span", "ag-mat-msg", A.matMsg));
@@ -513,9 +567,10 @@ async function agentMatDelete(m) {
   agentDrawMats();
 }
 
-async function agentSend() { // 한 턴 — 요청 글 + 고른 자료 + 고른 자리 + 고른 서식 → 답과 제안(문서는 안 바뀐다). 동기 응답이라 10~90초 걸릴 수 있다
+async function agentSend(edit = false) { // 한 턴 — 요청 글 + 고른 자료 + 고른 자리 + 고른 서식 → 답과 제안(문서는 안 바뀐다). 동기 응답이라 10~90초 걸릴 수 있다
   const A = AGENT, text = A.draft.trim();
   if (!text || A.busy || !A.loaded || !A.enabled || !A.hwpx || !state.id) return;
+  if (edit !== true && typeof agentWorkSay === "function" && agentWorkSay(text)) return; // 단계가 있는 TASK — 진행 에이전트가 먼저 읽고, 글·표 요청이면 이 함수로 되넘긴다(edit true: spec_작업에이전트 ② §1 「넘기기」)
   const epoch = state.epoch, sel = slSelection();
   const body = { text, materials: A.materials.filter((m) => !A.matOff.has(m.id)).map((m) => m.id), selection: sel,
     styles: { table: A.pick.table === "doc" ? (sel.table ? `doc:${sel.table}` : null) : A.pick.table || null, text: A.pick.text || null } };

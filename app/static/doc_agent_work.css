@@ -1,0 +1,98 @@
+/* 작업 진행 에이전트(spec_작업에이전트 ② §5 — doc_agent_work.js): 에이전트 보기(#paneAgent)의 진행 턴(에이전트의 말 · 진행 줄 · 질문 카드 · 실행 카드)과 첫 화면 오른쪽 대화창(#homeAgent).
+   landing.css · doc_agent.css 다음에 읽힌다 — 카드·말·동그라미는 doc_agent.css 의 것(.ag-card · .ag-q · .ag-a · .ag-run)을 그대로 쓴다. 보라 = LLM(design.md §6·§13) · 주황 = 문서가 바뀜.
+   패널 320px 에서 가로 넘침 없음(design.md §1): 줄은 flex-wrap, 긴 글은 overflow-wrap. */
+
+/* ---- 진행 턴 */
+.agw-say { padding-left: 8px; border-left: 3px solid #c9b6f5; }
+.agw-steps { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 0; padding: 0; }
+.agw-step { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 5px; max-width: 100%; padding: 2px 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); color: #53647f; font-size: 11.5px; line-height: 1.6; }
+.agw-step b { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.agw-step .agw-st { color: var(--muted); font-size: 10.5px; }
+.agw-step .agw-now { flex-basis: 100%; color: #5b21b6; font-size: 11px; overflow-wrap: anywhere; }
+.agw-step[data-state="done"] { border-color: #cfe6d6; background: #f3faf5; }
+.agw-step[data-state="done"] .agw-mark { color: var(--ok); font-weight: 700; }
+.agw-step[data-state="now"] { border-color: #d9c8fb; background: #f5f0ff; }
+.agw-step[data-state="now"] .agw-mark { color: #7c3aed; }
+.agw-step[data-state="now"] .agw-st { color: #5b21b6; font-weight: 600; }
+.agw-step[data-state="soon"] { border-style: dashed; background: transparent; }
+
+/* ---- 카드(질문 · 실행) — .ag-card 위에 */
+.agw-card { display: flex; flex-direction: column; gap: 6px; }
+.agw-card[data-state="done"] { border-color: #cfe6d6; border-left-color: var(--ok); background: #f8fcf9; }
+.agw-card[data-state="skipped"] { border-color: var(--line); border-left-color: var(--skip); background: var(--surface-2); }
+.agw-card[data-state="halt"] { border-color: #f5d39a; border-left-color: var(--warn); background: var(--warn-soft); } /* 끝까지 못 간 실행(멈춤 · 실패) — 「실행함」 초록이 아니다 */
+.agw-live { margin-top: 10px; } /* 진행 카드 — 지금 도는 실행(대화의 맨 아래 한 곳) */
+.agw-live .agw-card { border-style: dashed; }
+.agw-live .ag-run, .agw-act[data-state="running"] .ag-run { display: flex; align-items: flex-start; line-height: 1.5; }
+.agw-live .ag-run .ag-spin, .agw-act[data-state="running"] .ag-run .ag-spin { margin-top: 3px; }
+.agw-live-text, .agw-run-text { min-width: 0; overflow-wrap: anywhere; }
+.agw-then { margin: 8px 0 -4px; color: var(--muted); font-size: 10.5px; } /* 앞 턴의 진행 줄 — 그때의 상태(지금 상태는 마지막 진행 턴의 줄) */
+.agw-steps.then { opacity: .72; }
+.agw-card .ag-card-head { gap: 4px 8px; }
+.agw-card .ag-acts, .agw-card .ag-state, .agw-card .ag-run { margin: 0; }
+.agw-q { margin: 0; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
+.agw-does { margin: 0; color: #45505f; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.agw-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.agw-tag { padding: 0 6px; line-height: 17px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: #53647f; font-size: 10.5px; font-weight: 400; white-space: nowrap; }
+.agw-tag.doc { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.agw-tag.paid { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
+.agw-opts { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.agw-opt { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 6px 9px; border: 1px solid #cbd6e6; border-radius: 6px; background: var(--surface); cursor: pointer; line-height: 1.5; }
+.agw-opt:hover:not(:disabled) { border-color: #9fb5ea; background: var(--accent-soft); }
+.agw-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.agw-opt:disabled { opacity: .5; cursor: default; }
+.agw-opt b { color: var(--text); font-size: 12.5px; overflow-wrap: anywhere; }
+.agw-opt span { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.agw-skip { align-self: flex-start; border-color: transparent; background: transparent; color: var(--muted); }
+.agw-textrow { display: flex; gap: 6px; min-width: 0; }
+.agw-textrow input { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid #cbd6e6; border-radius: 6px; font: inherit; }
+
+/* 프로젝트 구성 폼(질문 카드 config) — 이름표 칸 64px + 값 */
+.agw-form { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.agw-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 8px; align-items: center; min-width: 0; }
+.agw-lab { color: var(--muted); font-size: 11.5px; }
+.agw-form input[type="number"] { width: 58px; height: 28px; padding: 0 6px; border: 1px solid #cbd6e6; border-radius: 6px; font: inherit; font-variant-numeric: tabular-nums; }
+.agw-form input[type="text"], .agw-form textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px 8px; border: 1px solid #cbd6e6; border-radius: 6px; background: var(--surface); font: 12.5px/1.6 "Malgun Gothic", "Segoe UI", sans-serif; }
+.agw-form input[type="text"] { height: 28px; padding: 0 8px; }
+.agw-form textarea { resize: vertical; }
+.agw-years { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
+.agw-ylab { color: var(--muted); font-size: 11.5px; }
+.agw-row.num { grid-template-columns: 64px max-content minmax(0, 1fr); } /* 수 칸 + 단위 글 */
+.agw-empty .btn { margin: 4px 0 8px; }
+
+/* ---- 첫 화면: 왼쪽 = 지금의 시작 화면 · 오른쪽 = 에이전트 대화창(붙박이). 1280px 아래에서는 아래로 */
+.home-agent { display: flex; flex-direction: column; min-width: 0; border: 1px solid #dcdce1; border-radius: 16px; background: #fff; overflow: hidden; font-size: 12.5px; font-family: "Malgun Gothic", "맑은 고딕", "Segoe UI", system-ui, sans-serif; color: var(--text); }
+.home-agent.over { border-color: #7c3aed; box-shadow: 0 0 0 3px #7c3aed22; }
+.agh-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 12px 14px; border-bottom: 1px solid #ececf0; }
+.agh-head h2 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; font-weight: 700; color: #5b21b6; }
+.agh-sub { flex: 1 1 140px; min-width: 0; color: #6e6e73; font-size: 11.5px; line-height: 1.5; }
+.agh-head .btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; border-color: transparent; background: transparent; color: #6e6e73; }
+.agh-head .btn.sm:hover { background: #f1f1f4; }
+.agh-talk { flex: 1 1 auto; min-height: 120px; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.agh-talk > * { margin: 0; flex: none; }
+.agh-talk .ag-q { align-self: flex-end; max-width: 92%; }
+.agh-hint { color: #6e6e73; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.agh-input { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 12px; border-top: 1px solid #ececf0; background: #fafafc; }
+.agh-input textarea { width: 100%; min-width: 0; box-sizing: border-box; min-height: 3.2em; max-height: 30vh; resize: vertical; padding: 8px; border: 1px solid #cbd6e6; border-radius: 8px; background: #fff; font: 12.5px/1.6 "Malgun Gothic", "Segoe UI", sans-serif; }
+.agh-files { display: flex; flex-wrap: wrap; gap: 4px; }
+.agh-files:empty { display: none; }
+.agh-file { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 1px 4px 1px 8px; border: 1px solid #d9c8fb; border-radius: 10px; background: #f5f0ff; color: #5b21b6; font-size: 11.5px; overflow-wrap: anywhere; }
+.agh-file { padding: 1px 8px; } /* 문서 목록의 요약 — 빼기 · 목적 문서 고르기는 왼쪽 목록에서 */
+.agh-file.target { border-color: #9fb5ea; background: var(--accent-soft, #eef3ff); color: #1d4ed8; font-weight: 600; }
+.agh-file.more { border-style: dashed; background: transparent; }
+.agh-list-note { flex-basis: 100%; color: #6e6e73; font-size: 11px; overflow-wrap: anywhere; }
+.agh-x { all: unset; padding: 0 4px; border-radius: 6px; cursor: pointer; color: #6d28d9; }
+.agh-x:hover { background: #e9defc; }
+.agh-send { display: flex; align-items: center; gap: 6px; }
+.agh-send .btn.sm { display: inline-flex; align-items: center; gap: 5px; }
+.agh-spacer { flex: 1; }
+@media (min-width: 1280px) {
+  /* 바탕(.empty — style.css)의 가운데 맞춤(place-items · align-content: center)을 푼다: 내용이 창보다 길면 가운데 맞춤은 위쪽을 잘라 먹는다(스크롤로도 못 본다) */
+  .empty.home.with-agent { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 420px); gap: 0 28px; align-items: start; align-content: start; justify-items: stretch; }
+  /* 왼쪽 열이 시작 화면의 컨테이너(home)가 된다 — landing.css 의 폭 규칙(@container home: TASK 카드 7칸 · 4칸 · 2칸 …)이 창이 아니라 **왼쪽 열의 폭**을 본다(대화창만큼 좁아진 열에 7칸을 욱여넣지 않게) */
+  .empty.home.with-agent > .home-content { width: 100%; max-width: 1280px; justify-self: center; container: home / inline-size; }
+  .home-agent { position: sticky; top: 0; height: calc(100vh - var(--topbar) - 80px); min-height: 360px; max-height: 860px; }
+}
+@media (max-width: 1279px) { /* 왼쪽 열이 TASK 카드 네 장(760px)보다 좁아지는 창 — 대화창은 아래로 */
+  .home-agent { width: min(1280px, 100%); margin: 28px auto 0; max-height: 520px; }
+}

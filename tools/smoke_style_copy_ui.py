@@ -215,7 +215,7 @@ try:
             return { keys: all.map((x) => x.dataset.task), tops: new Set(all.map((x) => Math.round(x.getBoundingClientRect().top))).size, doc: b.querySelector('.task-card-doc').textContent, name: b.querySelector('.task-card-name').textContent,
                      go: b.querySelector('.task-card-go').textContent.trim(), title: b.title, tone: b.querySelector('.task-logo').dataset.doc, sym: !!document.querySelector('#taskIcon-style_copy'),
                      fit: document.getElementById('empty').scrollWidth <= document.getElementById('empty').clientWidth + 1 }; }""")
-        check("카드 일곱 장이 한 줄(끝에 「문서 / 서식 복사」 · 회색 바탕 · 로고 있음) · 도움말에 받는 형식 hwp·hwpx·docx·pdf · 가로 넘침 없음", len(c["keys"]) == 7 and c["keys"][-1] == "style_copy" and c["tops"] == 1 and (c["doc"], c["name"]) == ("문서", "서식 복사")
+        check("카드 일곱 장(창 1600px — 오른쪽 에이전트 대화창과 나란히라 네 장 + 세 장: 한 줄은 1800px 위 · 끝에 「문서 / 서식 복사」 · 회색 바탕 · 로고 있음) · 도움말에 받는 형식 hwp·hwpx·docx·pdf · 가로 넘침 없음", len(c["keys"]) == 7 and c["keys"][-1] == "style_copy" and c["tops"] <= 2 and (c["doc"], c["name"]) == ("문서", "서식 복사")
               and c["go"].startswith("문서 올려 시작") and "(hwp·hwpx·docx·pdf)" in c["title"] and c["tone"] == "any" and c["sym"] and c["fit"], c)
 
         # ---- 2. PDF — 작업을 만들지 않고 시작 화면 옆 2열 「서식 복사」
@@ -292,7 +292,8 @@ try:
               and tips == ["후보 0 · 고름 0 · 확인이 필요한 것 0", "후보 1 · 고름 0 · 확인이 필요한 것 0", "후보 3 · 고름 0 · 확인이 필요한 것 1", "후보 1 · 고름 0 · 확인이 필요한 것 0", "후보 1 · 고름 0 · 확인이 필요한 것 1"], (after, tips))
         check("「한 번에 진행」 — ② LLM 검토 한 번({llm: true}) → ③ 추천이면서 의심·LLM 고침이 없는 후보만 저장(내용 서식 · 쪽 설정 · 추천 표) → ④ 검증을 기다림 · 단계 넷 모두 끝남",
               [b.get("llm") for b in calls["cands"]].count(True) == 1 and [b["kind"] for b in calls["save"]] == ["text", "page", "table"] and calls["save"][1]["name"].endswith(" 쪽 설정")
-              and calls["save"][0].get("template") == "tpl1" and calls["save"][2]["name"] == "수요조사 양식표 — 머리 1행·머리열" and page.evaluate(STEPS) == ["done"] * 4, calls["save"])
+              and calls["save"][0].get("template") == "tpl1" and calls["save"][2]["name"] == "구분 표" and calls["save"][2].get("note") == "수요조사 양식표 — 머리 1행·머리열"
+              and page.evaluate(STEPS) == ["done"] * 4, calls["save"])
         check("확인이 필요한 후보는 저장하지 않는다 — 의심이 붙은 표(「LLM 확인 — …」) · LLM 이 고친 문단 서식(「LLM 고침 — …」)은 고르지 않은 채 남고, 추천 아닌 표도 그대로 · 끝 요약에 「확인이 필요한 후보 2개 — 보고 골라 저장하세요」",
               left["T2"][:2] == [False, False] and left["T3"] == [False, False, ["LLM 이 봄 — 이름 · 띠 수 · 역할", "LLM 확인 — 안내문 표로 보임"]]
               and left["P1"] == [False, False, ["LLM 이 봄 — 이름 · 역할", "LLM 고침 — 역할: other → caption"]] and "확인이 필요한 후보 2개 — 보고 골라 저장하세요" in page.inner_text("#headsDlg .sl-wrap > .sl-msg"), left)

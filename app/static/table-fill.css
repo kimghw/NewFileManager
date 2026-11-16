@@ -8,6 +8,84 @@
 .ta-guide > .ta-row { margin-top: 0; }
 .ta-guide > .ta-prompt { max-height: 260px; overflow: auto; margin: 2px 0 0; }
 
+/* 작성요령·표 지침 편집기만: 문서의 요령을 먼저 보고, 지침/칸 규칙을 두 탭에서 편집한다.
+   tblFill·agentProp도 ta-* 틀을 쓰므로 이 규칙은 tableAgent 열에만 적용한다. */
+#headsDlg[data-kind="tableAgent"]:not(.folded) > header { box-sizing: border-box; min-height: 78px; padding: 12px; gap: 6px; background: #fff; border-bottom-color: #e3e7ee; }
+#headsDlg[data-kind="tableAgent"] .hd-heading-copy { flex: 1; flex-direction: column; align-items: flex-start; gap: 5px; }
+#headsDlg[data-kind="tableAgent"] #headsDlgTitle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #25364f; font-size: 14px; line-height: 1.5; font-weight: 700; }
+#headsDlg[data-kind="tableAgent"] #headsDlgNote { max-width: 100%; color: #637289; font-size: 11px; line-height: 18px; }
+#headsDlg[data-kind="tableAgent"] > header > .spacer { flex: 0; }
+#headsDlg[data-kind="tableAgent"] > header .icon { color: #637289; border-radius: 6px; }
+#headsDlg[data-kind="tableAgent"] > .hd-tools { padding: 6px 12px; gap: 6px; background: #f8fafd; border-bottom-color: #e6eaf0; color: #52617a; font-size: 12px; }
+#headsDlg[data-kind="tableAgent"] > footer { padding: 8px 12px; border-top-color: #e6eaf0; background: #fafbfd; color: #637289; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#headsDlg[data-kind="tableAgent"] .ta-editor { min-width: 0; padding: 10px 12px 14px; color: #34445d; font-size: 12.5px; container: ta-editor / inline-size; }
+#headsDlg[data-kind="tableAgent"] .ta-context { min-width: 0; padding-bottom: 10px; border-bottom: 1px solid #e6eaf0; }
+#headsDlg[data-kind="tableAgent"] .ta-ident { gap: 4px 6px; margin: 0 0 8px; color: #637289; font-size: 11.5px; line-height: 1.6; }
+#headsDlg[data-kind="tableAgent"] .ta-ident > b { color: #34445d; font-size: 12px; }
+#headsDlg[data-kind="tableAgent"] .ta-ident > span { min-width: 0; overflow-wrap: anywhere; }
+#headsDlg[data-kind="tableAgent"] .ta-owner-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 4px 0 8px; color: #637289; font-size: 11.5px; }
+#headsDlg[data-kind="tableAgent"] .ta-owner-row > .muted { flex: none; }
+#headsDlg[data-kind="tableAgent"] .ta-owner-row > :is(.btn.sm, b) { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#headsDlg[data-kind="tableAgent"] .ta-owner-row > .ta-owner-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#headsDlg[data-kind="tableAgent"] .ta-row { gap: 6px; }
+#headsDlg[data-kind="tableAgent"] .ta-actions { margin: 0; }
+#headsDlg[data-kind="tableAgent"] .btn.sm { height: 28px; min-width: 0; max-width: 100%; padding: 0 8px; border-color: #dce2eb; border-radius: 6px; background: #fff; color: #52617a; font-size: 12px; }
+#headsDlg[data-kind="tableAgent"] .btn.sm:hover:not(:disabled) { border-color: #c8d6ef; background: #eef3fc; color: #2458c7; }
+#headsDlg[data-kind="tableAgent"] .btn.sm.primary { border-color: #2458d6; background: #2458d6; color: #fff; }
+#headsDlg[data-kind="tableAgent"] .btn.sm.primary:hover:not(:disabled) { border-color: #1d49b5; background: #1d49b5; color: #fff; }
+#headsDlg[data-kind="tableAgent"] .ta-actions .btn.sm { font-size: 11.5px; }
+#headsDlg[data-kind="tableAgent"] .ta-group { margin: 10px 0 8px; padding: 0; border: 0; color: #53647f; font-size: 12px; line-height: 1.6; font-weight: 600; }
+#headsDlg[data-kind="tableAgent"] .ta-source { margin: 6px 0 10px; padding-bottom: 8px; border-bottom: 1px solid #e6eaf0; }
+#headsDlg[data-kind="tableAgent"] :is(.ta-source, .ta-form-note, .ta-default-rules, .ta-preview) > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 0; list-style: none; cursor: pointer; color: #53647f; font-size: 12px; line-height: 1.6; }
+#headsDlg[data-kind="tableAgent"] :is(.ta-source, .ta-form-note, .ta-default-rules, .ta-preview) > summary::-webkit-details-marker { display: none; }
+#headsDlg[data-kind="tableAgent"] :is(.ta-source, .ta-form-note, .ta-default-rules, .ta-preview) > summary::before { content: "›"; display: inline-block; flex: none; width: 10px; color: #78869b; font-size: 17px; line-height: 1; text-align: center; }
+#headsDlg[data-kind="tableAgent"] :is(.ta-source, .ta-form-note, .ta-default-rules, .ta-preview)[open] > summary::before { transform: rotate(90deg); }
+#headsDlg[data-kind="tableAgent"] :is(.ta-source, .ta-form-note, .ta-default-rules, .ta-preview) > summary:hover { color: #2458c7; }
+#headsDlg[data-kind="tableAgent"] .ta-source > .ta-group { margin: 0; }
+#headsDlg[data-kind="tableAgent"] .ta-notes { margin: 4px 0 0; gap: 6px; font-size: 12px; line-height: 1.6; }
+#headsDlg[data-kind="tableAgent"] .ta-notes li { min-width: 0; }
+#headsDlg[data-kind="tableAgent"] .ta-notes li > :not(.hb) { min-width: 0; overflow-wrap: anywhere; }
+#headsDlg[data-kind="tableAgent"] .ta-notes .hb { height: 18px; padding: 0 5px; border-color: #e0e6ef; background: #f3f6fa; color: #637289; font-size: 10.5px; line-height: 16px; }
+#headsDlg[data-kind="tableAgent"] .ta-editor-tabs { display: grid; flex: 1 1 200px; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0; padding: 3px; border: 1px solid #e4e8ef; border-radius: 6px; background: #eef1f6; }
+#headsDlg[data-kind="tableAgent"] .ta-editor-tabs [data-ta-tab] { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #637289; font: inherit; font-size: 12px; cursor: pointer; }
+#headsDlg[data-kind="tableAgent"] .ta-editor-tabs [data-ta-tab]:hover { background: #e5ebf4; }
+#headsDlg[data-kind="tableAgent"] .ta-editor-tabs [aria-selected="true"] { border-color: #d5dff0; background: #fff; color: #2458c7; font-weight: 600; }
+#headsDlg[data-kind="tableAgent"] .ta-tab-dirty { color: #a05b13; font-size: 10px; font-weight: 500; }
+#headsDlg[data-kind="tableAgent"] .ta-section { min-width: 0; }
+#headsDlg[data-kind="tableAgent"] .ta-form-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 8px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid #e6eaf0; }
+#headsDlg[data-kind="tableAgent"] .ta-form-row > .ta-form-note { flex: 0 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; }
+#headsDlg[data-kind="tableAgent"] .ta-form-row > .ta-form-note[open] { flex-basis: 100%; }
+#headsDlg[data-kind="tableAgent"] .ta-form-row > .btn.sm { margin-top: 2px; }
+#headsDlg[data-kind="tableAgent"] .ta-form-note { margin: 0 0 2px; padding: 0 0 8px; border-bottom: 1px solid #e6eaf0; }
+#headsDlg[data-kind="tableAgent"] .ta-form-note > summary h3 { min-width: 0; margin: 0; color: #53647f; font-size: 12px; font-weight: 600; }
+#headsDlg[data-kind="tableAgent"] .ta-scope { flex: none; padding: 1px 5px; border-radius: 4px; background: #f0f3f8; color: #637289; font-size: 10.5px; line-height: 17px; font-weight: 400; white-space: nowrap; }
+#headsDlg[data-kind="tableAgent"] .ta-field { min-width: 0; padding: 10px 0; }
+#headsDlg[data-kind="tableAgent"] .ta-field + .ta-field { border-top: 1px solid #e6eaf0; }
+#headsDlg[data-kind="tableAgent"] .ta-field-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 6px; min-width: 0; }
+#headsDlg[data-kind="tableAgent"] .ta-field-head h3 { min-width: 0; margin: 0; color: #34445d; font-size: 12.5px; line-height: 1.6; font-weight: 600; }
+#headsDlg[data-kind="tableAgent"] .ta-field-head .panel-help { width: 22px; height: 22px; }
+#headsDlg[data-kind="tableAgent"] .ta-field textarea { display: block; width: 100%; min-width: 0; min-height: 64px; margin: 0; padding: 7px 8px; border: 1px solid #cbd5e3; border-radius: 6px; background: #fff; color: #34445d; font: 12.5px/1.6 "Malgun Gothic", sans-serif; resize: vertical; }
+#headsDlg[data-kind="tableAgent"] .ta-field[data-ta-scope="own"] textarea { min-height: 84px; }
+#headsDlg[data-kind="tableAgent"] .ta-field textarea::placeholder { color: #69768b; }
+#headsDlg[data-kind="tableAgent"] .ta-field[data-dirty="true"] textarea { border-color: #c9964c; }
+#headsDlg[data-kind="tableAgent"] .ta-field textarea:focus { border-color: #6f97e8; outline: 2px solid #e4edff; outline-offset: 1px; }
+#headsDlg[data-kind="tableAgent"] .ta-field-actions { margin: 6px 0 0; gap: 6px; }
+#headsDlg[data-kind="tableAgent"] .ta-field-actions [data-ta-action="clear"] { border-color: transparent; background: transparent; color: #637289; }
+#headsDlg[data-kind="tableAgent"] .ta-save-state { min-width: 0; color: #637289; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#headsDlg[data-kind="tableAgent"] .ta-save-state[data-state="dirty"] { color: #a05b13; }
+#headsDlg[data-kind="tableAgent"] .ta-save-state[data-state="saving"] { color: #2458c7; }
+#headsDlg[data-kind="tableAgent"] .ta-save-state[data-state="saved"] { color: #237342; }
+#headsDlg[data-kind="tableAgent"] .ta-save-state[data-state="error"] { flex-basis: 100%; color: #b42318; }
+#headsDlg[data-kind="tableAgent"] :is(.hnote, .ta-rules-summary) { margin: 6px 0; color: #637289; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#headsDlg[data-kind="tableAgent"] .ta-rules-summary { padding: 6px 8px; border-left: 2px solid #c8d6ef; background: #f8fafd; }
+#headsDlg[data-kind="tableAgent"] .ta-default-rules { margin: 4px 0 2px; }
+#headsDlg[data-kind="tableAgent"] .ta-prompt { min-width: 0; max-width: 100%; max-height: 220px; margin: 4px 0 6px; padding: 8px; border-color: #e0e6ef; border-radius: 6px; background: #f8fafd; color: #52617a; font-size: 11.5px; line-height: 1.6; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+#headsDlg[data-kind="tableAgent"] .ta-preview { margin: 4px 0 0; padding-top: 6px; border-top: 1px solid #e6eaf0; }
+@container ta-editor (max-width: 350px) {
+  #headsDlg[data-kind="tableAgent"] .ta-actions .btn.sm { padding: 0 6px; font-size: 11px; }
+  #headsDlg[data-kind="tableAgent"] .ta-field-actions .ta-save-state { flex: 1 1 120px; }
+}
+
 .tfl-wrap .tfl-sum { color: var(--text); font-weight: 600; }
 .tfl-wrap .tfl-jobwarn { color: var(--warn); } /* 할 일 프롬프트의 전제와 어긋날 수 있는 옵션을 켠 동안 */
 .tfl-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }

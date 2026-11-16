@@ -8,6 +8,8 @@
 - 「대표로」 → 대표 갈래가 바뀌고 문서 표 풍선에 「이 레벨의 대표 줄」 · 실행 취소.
 - T9 「[기관] › o › -」 의 「하위로」 → 「T8 L3 … 아래 40곳 → T8T9 L4~L6」 → 넣기 → 종속 템플릿 「T8T9」(T8 은 그대로 · T9 줄에 「→ T8T9」 · 종속 템플릿 줄에 「종속 — T8 L3 아래 T9」)
   · 문서 표 「T8T9 L4」 · 「템플릿 관계」 에서 T8 L3 아래에 T9 대신 T8T9 · 「떼기」 → 종속 템플릿이 없어지고 T9 줄이 돌아옴(2026-11-15 사용자 「T1T3 템플릿으로」).
+- 갈래 줄의 「다른 템플릿으로」(대표 갈래에는 없음) → 그 아래 한 줄 「새 템플릿 T9L2a · 넣기」 → 서식 종속 템플릿 「T9L2a」(② §8-5 — 줄은 L2 부터 · 「서식 종속 — T9 L2 의 다른 서식」 · 「하위로」 없음 ·
+  문서 표 「T9L2a L2」 · T9 L2 줄에 「→ T9L2a(n줄)」) · 「합치기」 → 없어지고 줄이 T9 L2 로(2026-11-15 사용자 「서식이 다르면 템플릿도 다른거잖아 … T1L3 로 하고 a,b,c」).
 - 도구 줄 「서식」 묶음의 넷째 아이콘 「템플릿 관계」(#tbTplRel) — 켜짐 · 누르면 열고 닫음 · 눌림.
 - 좁은 창(480px)에서 2열 가로 넘침 없음 · 콘솔 오류 없음.
 
@@ -109,16 +111,19 @@ def main():
         check("문서를 열자마자 「TN Lk」 표(헤딩 탭·그래프 없이 — 오버레이 줄)", not st["graph"] and any(t.startswith("T2 L1") for t in st["marks"]) and any(t.startswith("T3 L2") for t in st["marks"]), st)
         page.screenshot(path=str(OUT / "01_marks.png"))
 
-        # 문서 표 → 템플릿 관계 · 그 레벨의 갈래 표시
+        # 문서 표 → (그 템플릿·레벨만 또렷이 — 이름 줄 설명의 「템플릿 관계」) → 템플릿 관계 · 그 레벨의 갈래 표시.
+        # 2026-11-15 표 누름이 「템플릿만 또렷이」 로 바뀜(spec_헤딩_추출 ② §7 — fmt_focus.js): 전에 표를 누르면 바로 열리던 열은 설명의 단추가 연다(누른 줄은 그대로 전해진다)
         i = mark_index(page, "p5209")
         check("p5209 의 문서 표를 찾음", i >= 0, i)
         page.locator(".tpl-mark").nth(i).click()
+        page.wait_for_function("() => FMF.kind === 'tpl' && FMF.tpl === '3' && FMF.level === 2 && FMF.para === 'p5209' && document.getElementById('headsDlg').dataset.kind !== 'templates'", timeout=20000)
+        page.click("#fmtKey .fm-key-rel")
         page.wait_for_selector("#headsDlg[data-kind=templates] .olm.sel", timeout=20000)
         page.wait_for_function("() => document.querySelector('#headsDlgBody .olm.sel .olm-g.sel')", timeout=20000)
         v = page.evaluate(OLM, ["3", 2])
         selg = next((g for g in (v or {}).get("groups", []) if g["sel"]), {})
-        check("표를 누르면 「템플릿 관계」 의 T3 L2 갈래 목록 · 그 줄의 갈래 표시(앞 공백 3칸 → 4칸) · 「누른 줄을 대표로」",
-              v and v["sel"] and "서식 3가지" in v["sum"] and "p5209" in selg.get("paras", []) and "앞 공백 3칸 → 4칸" in selg.get("diff", "") and page.evaluate("() => !!heads.graph")
+        check("표를 누르면 「템플릿 관계」 의 T3 L2 갈래 목록 · 그 줄의 갈래 표시(앞 공백: 지금 4칸 → 대표 3칸 — 값마다 이름표) · 「누른 줄을 대표로」",
+              v and v["sel"] and "서식 3가지" in v["sum"] and "p5209" in selg.get("paras", []) and "앞 공백: 지금 4칸 → 대표 3칸" in selg.get("diff", "") and page.evaluate("() => !!heads.graph")
               and "누른 줄을 대표로" in v["buttons"], v)
         page.screenshot(path=str(OUT / "02_rel_focus.png"))
 
@@ -174,6 +179,40 @@ def main():
         page.locator("#headsDlgBody .trel-row button", has_text="떼기").first.click()
         page.wait_for_function("() => heads.outline && !heads.outline.templates['8+9']", timeout=20000)
         check("「떼기」 → 종속 템플릿이 없어지고 T9 줄이 돌아옴", page.evaluate("() => Object.values(heads.outline.lines).filter((x) => x.tpl === '9').length") == 92)
+
+        # 서식 종속 템플릿(② §8-5) — 갈래 줄의 「다른 템플릿으로」 → 「T9L2a」(줄은 L2 부터) → 합치기. T9 「[기관] › o › -」 L2 「o」 = 대표 ×31 · ×9(p1703) · ×2 · ×1 · ×1
+        row9 = '#headsDlgBody .olm[data-tpl="9"][data-level="2"]'
+        page.evaluate("() => tplRelOpen(9, { tpl: '9', level: 2, para: 'p1703' })")
+        page.wait_for_selector(f"{row9} .olm-g", timeout=20000)
+        gi = page.evaluate("(r) => [...document.querySelector(r).querySelectorAll('.olm-g')].findIndex((x) => (x._paras || []).includes('p1703'))", row9)
+        g = page.locator(row9).first.locator(".olm-g").nth(gi)
+        check("대표 갈래에는 「다른 템플릿으로」 가 없고 다른 갈래에는 있다", gi > 0 and g.locator("button", has_text="다른 템플릿으로").count() == 1
+              and page.locator(row9).first.locator(".olm-g.rep button", has_text="다른 템플릿으로").count() == 0, gi)
+        g.locator("button", has_text="다른 템플릿으로").click()
+        form = g.locator(".olm-splitf")
+        opts, note = form.locator("select option").all_inner_texts(), form.locator(".olm-note").inner_text()
+        check("「다른 템플릿으로」 → 그 아래 한 줄(팝업 아님): 「새 템플릿 T9L2a」 · 넣기 · 설명(줄은 L2 부터)", form.is_visible() and opts == ["새 템플릿 T9L2a"] and "T9L2a 를 만듭니다" in note and "9줄" in note
+              and "줄은 L2 부터" in note and "L1 은 T9 의 레벨" in note, [opts, note])
+        page.screenshot(path=str(OUT / "03b_split_form.png"))
+        form.locator("button", has_text="넣기").click()
+        page.wait_for_function("() => heads.outline && heads.outline.templates['9~2a'] && heads.outline.templates['9~2a'].no === '9L2a'", timeout=20000)
+        page.wait_for_function("() => [...document.querySelectorAll('.tpl-mark')].some((m) => /^T9L2a L2/.test(m.textContent))", timeout=20000)
+        page.wait_for_selector('#headsDlgBody li.trel-node[data-tpl="9~2a"]', timeout=20000)
+        page.wait_for_function("(r) => /서식 4가지/.test((document.querySelector(r + ' .olm-sum') || {}).textContent || '')", arg=row9, timeout=20000)
+        st = page.evaluate("""(r) => { const li = document.querySelector('#headsDlgBody li.trel-node[data-tpl="9~2a"]'), t = heads.outline.templates['9~2a'];
+          return { base: t.base, vari: t.vari, lines: t.lines, row: li.querySelector('.trel-row').textContent, sub: !!li.querySelector(':scope > .trel-row .olm-sub'), shared: (li.querySelector('.olm-shared') || {}).textContent || '',
+            chips: [...document.querySelector(r).querySelectorAll('.olm-vchip')].map((c) => c.textContent), t9: Object.values(heads.outline.lines).filter((x) => x.tpl === '9').length,
+            tip: ([...document.querySelectorAll('.tpl-mark')].find((m) => /^T9L2a L2/.test(m.textContent)) || {}).title || '' }; }""", row9)
+        check("넣기 → 서식 종속 템플릿 「T9L2a」(base 1 — 줄은 L2 부터) · 트리에 「서식 종속 — T9 L2 의 다른 서식 · 합치기」 · 「하위로」 없음 · 펴면 「L1 = T9 의 레벨」 · 문서 표 「T9L2a L2」",
+              st["base"] == 1 and st["vari"]["ofNo"] == 9 and st["vari"]["level"] == 2 and "T9L2a" in st["row"] and "서식 종속 — T9 L2 의 다른 서식" in st["row"] and "합치기" in st["row"] and not st["sub"]
+              and "L1 = T9 의 레벨" in st["shared"] and "L2 부터" in st["shared"] and "서식 종속 템플릿 — T9 L2 의 다른 서식" in st["tip"], st)
+        check("T9 L2 줄에 「→ T9L2a(n줄)」 · 갈래 4가지로 줄어듦 · T9 줄 수가 그만큼 줄어듦", len(st["chips"]) == 1 and st["chips"][0] == f"→ T9L2a({st['lines']}줄)" and st["t9"] == 92 - st["lines"] and st["lines"] >= 9, st)
+        page.screenshot(path=str(OUT / "03c_split.png"))
+        page.locator(row9).first.locator("button.olm-unsplit").click()
+        page.wait_for_function("() => heads.outline && !heads.outline.templates['9~2a']", timeout=20000)
+        page.wait_for_function("(r) => /서식 5가지/.test((document.querySelector(r + ' .olm-sum') || {}).textContent || '')", arg=row9, timeout=20000)
+        check("「합치기」 → 서식 종속 템플릿이 없어지고 줄이 T9 L2 로(갈래 5가지 · 표 「T9 L2」)", page.evaluate("() => Object.values(heads.outline.lines).filter((x) => x.tpl === '9').length") == 92
+              and not page.evaluate("() => [...document.querySelectorAll('.tpl-mark')].some((m) => /^T9L2a/.test(m.textContent))"))
 
         # 도구 줄 「서식」 묶음의 「템플릿 관계」 — 묶음(spec_서식복사 ② §3)이 있는 판에서만(개요만 커밋한 판에는 묶음이 없다 — 표·헤딩 탭으로 연다)
         if page.locator("#toolModes [data-tool=style]").count():

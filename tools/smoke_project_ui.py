@@ -215,7 +215,7 @@ try:
         check("삭제 — 버전만 없어지고 지금 구분 기준·확정은 그대로", applied["versions"] == [] and applied["confirmed"]["valid"] and applied["settings"]["values"]["stages"] == [2, 1], applied.get("versions"))
         shared = applied["settings"]  # 아래 「이전 라운드는 구분 기준 보관」 이 견줄 값 — 버전 적용을 거친 지금 설정
 
-        for key, expected in [("ArrowRight", "toolTabTool"), ("End", "toolTabList"), ("Home", "toolTabTask"), ("ArrowLeft", "toolTabList")]:
+        for key, expected in [("ArrowRight", "tabVerify"), ("End", "toolTabList"), ("Home", "toolTabTask"), ("ArrowLeft", "toolTabList")]:  # 둘째 탭 = 검증(2026-11-15 — 검증·PDF·기록이 패널 머리 탭)
             if key == "ArrowRight":
                 page.locator("#toolTabTask").focus()
             page.keyboard.press(key)

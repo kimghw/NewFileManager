@@ -251,14 +251,29 @@ try:
         page.click("#tabAgent")
         page.wait_for_function("() => AGENT.loaded && !!document.querySelector('#paneAgent .ag-status[data-llm=on]')")
         check("탭을 누르면 패널에 에이전트 보기 · 탭이 고른 꼴 · 패널 머리 둘째 줄 도구 탭 = 「에이전트」", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.get_attribute("#tabAgent", "aria-selected") == "true"
-              and page.evaluate(TABS) == [["에이전트", "true"], ["작업 리스트", "false"]], page.evaluate(TABS))
-        st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].map((b) => [b.textContent, b.disabled]) })")
+              and page.evaluate(TABS) == [["검증", "false"], ["PDF", "false"], ["기록", "false"], ["에이전트", "true"], ["작업 리스트", "false"]], page.evaluate(TABS))  # 검증·PDF·기록 = 패널 머리 고정 탭(2026-11-15)
+        st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].filter((b) => !b.hidden).map((b) => [b.textContent, b.disabled]) })")   # 「작업 설명」(작업 진행 에이전트)은 단계가 있는 TASK 에서만 보인다 — 일반 편집에는 없다
         check("상태 줄 — LLM 사용 가능 · 「서식 관리자」 · 「비우기」(대화가 없어 꺼짐)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 관리자", False], ["비우기", True]], st)
         check("빈 대화 안내 · 「보내기」 는 글이 없어 꺼짐", "제안만 냅니다" in page.inner_text("#paneAgent .ag-empty") and page.is_disabled("#paneAgent [data-ag-act=send]"))
         picks = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-pick select')].map((s) => [...s.options].map((o) => [o.value, o.textContent]))")
         check("서식 고르기 — 표: 정하지 않음 · 기본 표 · 보관한 표 서식 / 글: 자리 둘레 서식 · 보관한 글 서식", picks == [[["", "정하지 않음"], ["builtin", "기본 표"], ["s_tbl1", "예산 총괄표"]], [["", "자리 둘레 서식"], ["s_txt1", "본문 글머리"]]], picks)
         check("고른 자리 줄 — 처음에는 없음", "고른 자리 없음" in page.inner_text("#paneAgent .ag-sel"), page.inner_text("#paneAgent .ag-sel"))
         page.screenshot(path=str(OUT / "1_agent_empty.png"))
+
+        # 요청 예시는 글상자만 채운다 — 전송은 사람이 「보내기」를 눌렀을 때만.
+        examples = page.locator("#paneAgent .ag-example")
+        prompts = ["붙인 자료로 고른 표를 채워 줘", "고른 문단을 표로 정리해 줘", "이 자리에 추진 일정을 써 줘"]
+        check("요청 예시 셋 — 자료로 표 채우기 · 문단을 표로 정리하기 · 추진 일정 작성하기", examples.all_text_contents() == ["자료로 표 채우기", "문단을 표로 정리하기", "추진 일정 작성하기"])
+        for n, prompt in enumerate(prompts):
+            page.fill("#agentRequest", "")
+            examples.nth(n).click()
+            check(f"요청 예시 {n + 1} — 입력·초점만, 전송 없음", page.input_value("#agentRequest") == prompt
+                  and page.evaluate("() => AGENT.draft === document.getElementById('agentRequest').value && document.activeElement === document.getElementById('agentRequest')")
+                  and page.is_enabled("#paneAgent [data-ag-act=send]") and not calls["turn"] and not held.get("turn"))
+        page.fill("#agentRequest", "기존에 작성한 요청")
+        examples.first.click()
+        check("요청 예시는 기존 초안을 보존하고 다음 줄에 추가", page.input_value("#agentRequest") == "기존에 작성한 요청\n" + prompts[0] and not calls["turn"])
+        page.fill("#agentRequest", "")
 
         # ---- 2. 고른 자리 — 문서의 선택 상태를 그대로(커서 · 표)
         page.click(f'#doc .para[data-id="{IDS["after_para"]}"]')
@@ -523,13 +538,13 @@ try:
         open_work(page, g)
         page.wait_for_function("() => AGENT.loaded && document.querySelectorAll('#paneAgent .ag-card').length === 5")
         check("일반 문서 작업 — 열면 에이전트 보기 · 「작업 내용」 탭이 그 보기(고름) · 탭 띠의 「에이전트」 는 감춤", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and not page.evaluate(VIS, "tabAgent")
-              and page.evaluate(TABS) == [["작업 내용", "true"], ["검증", "false"], ["작업 리스트", "false"]] and page.input_value("#panelTask") == "general"
+              and page.evaluate(TABS) == [["작업 내용", "true"], ["검증", "false"], ["PDF", "false"], ["기록", "false"], ["작업 리스트", "false"]] and page.input_value("#panelTask") == "general"
               and page.get_attribute("#toolTabTask", "aria-controls") == "paneAgent", page.evaluate(TABS))
         cs = page.evaluate(CARDS)
         check("원본 문서 정책(apply: false) — 「원본 문서 — 제안은 보기만」 · 반영 단추 꺼짐 · 미리보기는 됨", page.inner_text("#paneAgent .ag-policy") == "원본 문서 — 제안은 보기만" and all(c["off"] for c in cs)
               and page.is_enabled("#paneAgent .ag-card[data-prop=p1] [data-ag-act=preview]"), [(c["prop"], c["off"]) for c in cs])
         page.click("#tabVerify")
-        check("다른 도구(검증)를 보면 「작업 내용」 이 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["작업 내용", "false"], ["검증", "true"], ["작업 리스트", "false"]])
+        check("다른 도구(검증)를 보면 「작업 내용」 이 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["작업 내용", "false"], ["검증", "true"], ["PDF", "false"], ["기록", "false"], ["작업 리스트", "false"]])
         page.click("#toolTabTask")
         check("「작업 내용」 을 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5)
         check("일반 문서 작업에는 구분 기준 내용(작업 내용 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")

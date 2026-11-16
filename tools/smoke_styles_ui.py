@@ -334,6 +334,7 @@ def unfold(page, key):  # 후보 줄의 그림 아래(견본 줄 · 서식 정�
 
 
 ROWS = """() => [...document.querySelectorAll('#headsDlg .sl-cand')].map((b) => ({ key: b.dataset.cand, kind: b.dataset.kind, on: b.querySelector('.sl-crow > input[type=checkbox]').checked, name: b.querySelector('.sl-cname').value,
+  note: b.querySelector('.sl-cnote')?.textContent || '',
   bands: [...b.querySelectorAll('input[data-band]')].map((i) => i.value), meta: b.querySelector('.sl-cmeta').textContent, state: b.querySelector('.sl-cstate').textContent, go: !!b.querySelector('.sl-crow > .btn'),
   bp: b.querySelector('[data-sl-opt=blueprint] input') ? b.querySelector('[data-sl-opt=blueprint] input').checked : null }))"""
 # 「서식 복사」 열의 탭(spec_서식복사 ② §18) — 탭 다섯(data-sl-ctab) · 그 탭의 후보 줄만 DOM 에 있다(ROWS 는 열린 탭의 줄) · 탭 아래 첫 줄이 그 갈래의 설명([data-sl-sec] 하나)
@@ -407,9 +408,9 @@ try:
         page.wait_for_selector("#headsDlg[data-kind=styleLib] .sl-item")
         TABS = "() => [...document.querySelectorAll('#headsDlgTools [data-sl-tab]')].map((b) => [b.dataset.slTab, b.textContent, b.getAttribute('aria-pressed')])"
         tabs = page.evaluate(TABS)
-        check("서식 관리자는 문서 옆 열(팝업 아님) · 갈래 세그먼트 넷 「표지 서식 0」 · 「내용 서식 1」(처음 고름) · 「테이블 서식 2」 · 「문단 서식 0」 · 복사 단추 둘", page.evaluate(VIS, "headsDlg") and page.locator("dialog[open]").count() == 0 and page.inner_text("#headsDlgTitle") == "서식 관리자"
+        check("서식 관리자는 문서 옆 열(팝업 아님) · 갈래 세그먼트 넷 「표지 서식 0」 · 「내용 서식 1」(처음 고름) · 「테이블 서식 2」 · 「문단 서식 0」 · 복사 단추 둘 · 서식 지도", page.evaluate(VIS, "headsDlg") and page.locator("dialog[open]").count() == 0 and page.inner_text("#headsDlgTitle") == "서식 관리자"
               and tabs == [["cover", "표지 서식 0", "false"], ["content", "내용 서식 1", "true"], ["table", "테이블 서식 2", "false"], ["para", "문단 서식 0", "false"]]
-              and page.locator("#headsDlgTools [data-sl-act]").all_inner_texts() == ["이 문서에서 복사", "파일에서 복사"] and "템플릿" not in page.inner_text("#headsDlgTools") and "문서 서식" not in page.inner_text("#headsDlgTools"), tabs)
+              and page.locator("#headsDlgTools [data-sl-act]").all_inner_texts() == ["이 문서에서 복사", "파일에서 복사", "서식 지도"] and "템플릿" not in page.inner_text("#headsDlgTools") and "문서 서식" not in page.inner_text("#headsDlgTools"), tabs)
         # 서식 그림(② §13) — 내용 서식: 레벨마다 한 줄(「L1」·「L2」 · 레터 · 글 막대 — 자동 번호는 회색 자리표) · 그림이 줄의 맨 앞 · role=img + 요약 글
         page.wait_for_selector("#headsDlg .sl-item[data-style=s_txt1] .sp-pic[data-sp-kind=content]")
         x1 = item(page.evaluate(ITEMS), "s_txt1")
@@ -420,6 +421,7 @@ try:
               and lv["rows"][1][4] > lv["rows"][0][4] and lv["hidden"] == "true" and lv["pe"] == "none" and page.evaluate(PURE) == 0, (x1, lv))
         page.click("#headsDlgTools [data-sl-tab=cover]")
         check("「표지 서식」 — 없으면 한 줄 안내", "보관한 표지 서식이 없습니다" in page.inner_text("#headsDlgBody") and page.locator("#headsDlg .sl-item").count() == 0)
+        page.screenshot(path=str(OUT / "1_styles_empty_and_agent.png"))
         page.click("#headsDlgTools [data-sl-tab=table]")
         check("「테이블 서식」 을 고르면 그 갈래만(눌림 표시)", [t[2] for t in page.evaluate(TABS)] == ["false", "false", "true", "false"])
         page.wait_for_selector("#headsDlg .sl-item[data-style=s_tbl2] .sp-pic[data-sp-kind=table]")
@@ -452,8 +454,8 @@ try:
         manage(page, "s_tbl1")
         manage(page, "s_tbl2")
         its = page.evaluate(ITEMS)
-        check("「⋯ 더보기」 — 줄 안에서 펴짐(팝업 아님): 「hwpx 받기」(옛 서버라 docx 받기는 없음) · 이름 바꾸기 · 다시 검증(검증 중이면 꺼짐) · 지우기",
-              item(its, "s_tbl1")["manage"] == [["getHwpx", False], ["rename", False], ["verify", True], ["delete", False]] and item(its, "s_tbl2")["manage"] == [["getHwpx", False], ["rename", False], ["verify", False], ["delete", False]]
+        check("「⋯ 더보기」 — 줄 안에서 펴짐(팝업 아님): 「hwpx 받기」(옛 서버라 docx 받기는 없음) · 이름 바꾸기 · 복사본 만들기 · 다시 검증(검증 중이면 꺼짐) · 지우기",
+              item(its, "s_tbl1")["manage"] == [["getHwpx", False], ["rename", False], ["copy", False], ["verify", True], ["delete", False]] and item(its, "s_tbl2")["manage"] == [["getHwpx", False], ["rename", False], ["copy", False], ["verify", False], ["delete", False]]
               and page.get_attribute("#headsDlg .sl-item[data-style=s_tbl1] [data-sl-act=more]", "aria-expanded") == "true" and page.locator("dialog[open]").count() == 0, its)
         check("발치 — 수 요약(갈래 넷) · 읽지 못한 서식 알림", "표지 서식 0 · 내용 서식 1 · 테이블 서식 2 · 문단 서식 0" in page.inner_text("#headsDlgFoot") and "읽지 못한 서식 1개" in page.inner_text("#headsDlgBody"))
         page.screenshot(path=str(OUT / "1_styles_lib.png"))
@@ -651,13 +653,14 @@ try:
         ctab(page, "table")
         r1 = row(page.evaluate(ROWS), "T1")
         check("탭을 바꿨다 돌아와도 줄의 상태(고름 · 이름 · 띠 수 · 구조까지)는 그대로 — 후보 자료에 남는다", r1["on"] and r1["name"] == "수요조사 표" and r1["bands"] == ["2", "1", "0"] and r1["bp"] is True, r1)
-        # 이름 붙이기(LLM) — 직접 고친 이름·띠 수는 그대로, 나머지는 LLM 이름 · 추천 표(모든 탭의 후보를 본다 — 보이는 탭만이 아니다)
+        # LLM 검토 — 이름은 보존하고 LLM 설명은 note로 분리(② §19-2). 직접 고친 띠 수도 그대로.
         page.click("#headsDlgTools [data-sl-act=name]")
-        page.wait_for_function("() => document.querySelector('#headsDlg .sl-cand[data-cand=T2] .sl-cname').value.startsWith('항목 합계표')")
+        page.wait_for_function("() => document.querySelector('#headsDlg .sl-cand[data-cand=T2] .sl-cnote')?.textContent === '항목 합계표 — 머리 1행·합계행'")
         rows = tab_rows(page, "content", "table")
         r1, r2, rx = row(rows, "T1"), row(rows, "T2"), row(rows, "X1")
-        check("「LLM 검토」(전의 「에이전트 추출」) — 몸 {llm: true} · 직접 고친 이름·띠 수는 그대로 · 나머지는 LLM 이름·띠 수 · 「추천」 표 · 고른 것은 안 바뀜 · 단계 ② 끝남", calls["cands"][1] == {"llm": True} and r1["name"] == "수요조사 표" and r1["bands"] == ["2", "1", "0"]
-              and r2["name"] == "항목 합계표 — 머리 1행·합계행" and r2["bands"] == ["2", "0", "1"] and rx["name"] == "주 사슬 글 서식" and "추천" in r1["meta"] and "추천" not in r2["meta"]
+        check("「LLM 검토」 — 몸 {llm: true} · 직접 고친 이름·띠 수와 기본 이름은 보존 · LLM 설명은 note · 「추천」 표 · 고른 것은 안 바뀜 · 단계 ② 끝남", calls["cands"][1] == {"llm": True} and r1["name"] == "수요조사 표" and r1["bands"] == ["2", "1", "0"]
+              and r1["note"] == "수요조사 양식표 — 머리 1행·머리열" and r2["name"] == "항목 표" and r2["note"] == "항목 합계표 — 머리 1행·합계행" and r2["bands"] == ["2", "0", "1"]
+              and rx["name"] == "주 사슬" and rx["note"] == "주 사슬 글 서식" and "추천" in r1["meta"] and "추천" not in r2["meta"]
               and [r["on"] for r in rows] == [False, True, False] and r1["bp"] is True and "claude-fable-5-2" in page.inner_text("#headsDlgTools")
               and page.inner_text("#headsDlgTools [data-sl-act=name]") == "LLM 검토" and page.evaluate(STEPS)[1][1] == "done" and "LLM 검토 끝" in page.inner_text("#headsDlg .sl-wrap > .sl-msg"), rows)
         page.wait_for_function("() => { const b = document.querySelector('#headsDlg .sl-cand[data-cand=T1] .sp-band'); return !!b && b.textContent === '머리행 1–2'; }")
@@ -676,9 +679,9 @@ try:
         page.wait_for_selector("#headsDlg .sl-cand[data-cand=T2] .sl-cstate.err")
         rows = tab_rows(page, "content", "table")
         check("저장 — 차례로 POST …/styles(표: table·bands·keepText·blueprint·name / 글: template) · 실패한 줄에 까닭 · 된 줄은 「저장했습니다」 · 열은 그대로",
-              calls["save"] == [{"kind": "text", "template": "tpl1", "keepText": True, "name": "주 사슬 글 서식"},
-                                {"kind": "table", "table": IDS["table"], "bands": {"headerRows": 2, "headerCols": 1, "footRows": 0}, "keepText": True, "blueprint": True, "name": "수요조사 표"},
-                                {"kind": "table", "table": "t900", "bands": {"headerRows": 2, "headerCols": 0, "footRows": 1}, "keepText": True, "blueprint": False, "name": "실패할 이름"}]
+              calls["save"] == [{"kind": "text", "template": "tpl1", "keepText": True, "name": "주 사슬", "note": "주 사슬 글 서식"},
+                                {"kind": "table", "table": IDS["table"], "bands": {"headerRows": 2, "headerCols": 1, "footRows": 0}, "keepText": True, "blueprint": True, "name": "수요조사 표", "note": "수요조사 양식표 — 머리 1행·머리열"},
+                                {"kind": "table", "table": "t900", "bands": {"headerRows": 2, "headerCols": 0, "footRows": 1}, "keepText": True, "blueprint": False, "name": "실패할 이름", "note": "항목 합계표 — 머리 1행·합계행"}]
               and "보관함에 저장했습니다" in row(rows, "T1")["state"] and "그 표를 찾지 못했습니다" in row(rows, "T2")["state"] and "보관함에 저장했습니다" in row(rows, "X1")["state"]
               and page.get_attribute("#headsDlg", "data-kind") == "styleSave" and page.inner_text("#headsDlgFoot [data-sl-act=save]") == "고른 1개 저장", (calls["save"], rows))
         page.fill("#headsDlg .sl-cand[data-cand=T2] .sl-cname", "항목 합계표")
@@ -783,8 +786,11 @@ try:
         check("검토 전 — 스크립트 자기 점검의 의심은 LLM 없이도 글로(주황 「스크립트 확인 — …」) · 탭 도움말에는 아직 「확인이 필요한 것」 이 없다(LLM 검토 뒤에만)", page.evaluate(REVIEW, "X1") == [["by", "스크립트 후보 — LLM 이 보지 않음", False], ["doubt", "스크립트 확인 — 한 레벨에 서식이 여럿", False]]
               and page.evaluate(CTIPS) == ["후보 1 · 고름 0", "후보 1 · 고름 0", "후보 12 · 고름 0", "후보 1 · 고름 0", "후보 2 · 고름 0"], (page.evaluate(REVIEW, "X1"), page.evaluate(CTIPS)))
         # LLM 검토 — 본 것 · 고친 것(+ 되돌리기) · 의심 · 같은 서식 · 띠 넓히기 제안을 글로. 검토는 모든 탭의 후보에 걸친다(열린 탭 = 내용 서식 — 다른 탭의 줄은 DOM 에 없다)
+        rich_names = {r["key"]: r["name"] for r in tab_rows(page, "cover", "content", "page", "para", "table")}
+        ctab(page, "content")
         page.click("#headsDlgTools [data-sl-act=name]")
-        page.wait_for_function("() => document.querySelector('#headsDlg .sl-cand[data-cand=X1] .sl-cname').value === '주 개요 내용 서식'")
+        page.wait_for_function("() => document.querySelector('#headsDlg .sl-cand[data-cand=X1] .sl-cnote')?.textContent === '주 개요 내용 서식'")
+        check("LLM 설명이 생겨도 기본 이름은 그대로", {r["key"]: r["name"] for r in tab_rows(page, "cover", "content", "page", "para", "table")} == rich_names)
         rv = {}
         for tab, keys in (("content", ("X1",)), ("cover", ("cover",)), ("page", ("page",)), ("para", ("P1", "P2")), ("table", ("R1", "R2", "R3", "R4"))):  # 끝에는 테이블 서식 탭
             ctab(page, tab)
@@ -794,7 +800,7 @@ try:
               and [t[1] for t in page.evaluate(CTABS)] == ["표지 서식 1", "내용 서식 1", "테이블 서식 12", "쪽 설정 1", "문단 서식 2"], page.evaluate(CTIPS))
         check("검토 상태 — 「LLM 이 봄 — 이름 · 띠 수 · 역할」(체크가 아니라 본 것을 글로) · 의심은 「LLM 확인 — …」·「스크립트 확인 — …」 · 같은 서식 · LLM 이 본 표의 역할 꼬리표",
               rv["R1"] == [["by", "LLM 이 봄 — 이름 · 띠 수 · 역할", False]] and rv["R3"] == [["by", "LLM 이 봄 — 이름 · 띠 수 · 역할", False], ["doubt", "LLM 확인 — 안내문 표로 보임", False]]
-              and rv["R4"] == [["by", "LLM 이 봄 — 이름 · 띠 수 · 역할", False], ["same", "「항목 자료표 — 머리 1행」 과 같은 서식으로 보임", False]] and rv["cover"] == [["by", "LLM 이 봄 — 범위 · 역할", False]]
+              and rv["R4"] == [["by", "LLM 이 봄 — 이름 · 띠 수 · 역할", False], ["same", f"「{rich_names['R1']}」 과 같은 서식으로 보임", False]] and rv["cover"] == [["by", "LLM 이 봄 — 범위 · 역할", False]]
               and page.text_content("#headsDlg .sl-cand[data-cand=R1] .hb[data-role]") == "자료 표" and page.locator("#headsDlg .sl-cand[data-cand=R2] [data-sl-act=wider]").count() == 1, rv)
         ctab(page, "para")
         check("LLM 이 고친 것 — 보라 「LLM 고침 — <무엇>: <전> → <뒤>」 + 「되돌리기」(대표 문단 · 역할 · 바탕 글) · 문단 서식의 역할은 LLM 값으로",
@@ -825,8 +831,8 @@ try:
         page.wait_for_selector("#headsDlg .sl-cand[data-cand=P2].done")
         sv = calls["save"][n_save:]
         check("저장 몸 — LLM 이 고른 값은 되돌리지 않았을 때만 싣는다: 표지 = {kind: cover, end, roles} · 내용 서식 = rep 없음(되돌림) · 쪽 설정 = {kind: page, bodyKey: b2} · 문단 서식 = {kind: text, paras: [대표 문단], role: 스크립트 값}",
-              sv == [{"kind": "cover", "end": IDS["other"], "roles": {IDS["other"]: "title"}, "keepText": False, "name": "계획서 표지"}, {"kind": "text", "template": "tpl1", "keepText": False, "name": "주 개요 내용 서식"},
-                     {"kind": "page", "bodyKey": "b2", "name": "계획서 쪽 설정"}, {"kind": "text", "paras": [IDS["cell_para"]], "role": "other", "keepText": False, "name": "캡션 서식"}], sv)
+              sv == [{"kind": "cover", "end": IDS["other"], "roles": {IDS["other"]: "title"}, "keepText": False, "name": rich_names["cover"], "note": "계획서 표지"}, {"kind": "text", "template": "tpl1", "keepText": False, "name": rich_names["X1"], "note": "주 개요 내용 서식"},
+                     {"kind": "page", "bodyKey": "b2", "name": rich_names["page"], "note": "계획서 쪽 설정"}, {"kind": "text", "paras": [IDS["cell_para"]], "role": "other", "keepText": False, "name": rich_names["P2"], "note": "캡션 서식"}], sv)
         page.wait_for_selector("#headsDlg .sl-vbox[data-state=done]", timeout=20000)
         # 옛 서버(견본 끝점 없음 — 404) — 그림 자리에 한 줄 · 목록은 그대로 · 「다시」
         L["preview"] = "missing"
@@ -957,13 +963,13 @@ try:
         n_apply = len(calls["apply"])
         page.click("#headsDlg .sl-item[data-kind=cover] [data-sl-act=cover]")
         page.wait_for_function("() => document.getElementById('toast').textContent.includes('표지를 문서 맨 앞에 넣었습니다')")
-        check("표지 서식 갈래 — 표지 그림(부분 넷) · 「표지 넣기」 = 몸 {mode: cover} → 응답의 covered 로 문서를 다시 읽음(알림에 블록 수)", cv["name"] == "계획서 표지" and cv["tab"] == "cover" and cv["pic"][1] == "cover" and cv["acts"] == [["cover", False], ["more", False]]
+        check("표지 서식 갈래 — 표지 그림(부분 넷) · 「표지 넣기」 = 몸 {mode: cover} → 응답의 covered 로 문서를 다시 읽음(알림에 블록 수)", cv["name"] == rich_names["cover"] and cv["tab"] == "cover" and cv["pic"][1] == "cover" and cv["acts"] == [["cover", False], ["more", False]]
               and calls["apply"][n_apply:] == [{"sid": cv["id"], "mode": "cover"}] and "블록 4개" in page.inner_text("#toast"), (cv, calls["apply"][n_apply:]))
         page.wait_for_function("() => !state.busy && document.querySelector('#doc .sheet .para') != null")
         page.click("#headsDlgTools [data-sl-tab=para]")
         page.wait_for_selector("#headsDlg .sl-item[data-tab=para] .sp-pic[data-sp-kind=para]")
         pa = page.evaluate(ITEMS)[0]
-        check("문단 서식 갈래 — 레벨 없는 글 서식 · 견본 두 줄 그림 · 역할 꼬리표(글로) · 「글자·문단 모양 입히기」", pa["name"] == "캡션 서식" and pa["tab"] == "para" and "기타" in pa["tags"] and pa["levels"] == ["문단"]
+        check("문단 서식 갈래 — 레벨 없는 글 서식 · 견본 두 줄 그림 · 역할 꼬리표(글로) · 「글자·문단 모양 입히기」", pa["name"] == rich_names["P2"] and pa["tab"] == "para" and "기타" in pa["tags"] and pa["levels"] == ["문단"]
               and page.locator("#headsDlg .sl-item[data-tab=para] .sl-levels [data-sl-item]").all_inner_texts() == ["글자·문단 모양 입히기"], pa)
         page.click("#headsDlgTools [data-sl-tab=table]")  # 아래 9절은 테이블 서식 목록에서 본다
         L["dual"] = False

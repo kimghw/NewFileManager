@@ -21,7 +21,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from app import doc_agent, heading_forms, heading_runs, job_prompts, llm, merge_guides, table_agent, table_make, works
+from app import doc_agent, heading_forms, heading_runs, job_prompts, llm, merge_guides, table_agent, table_make, work_guide, works
 from app.hwpx_doc import TBL, P
 
 router = APIRouter()
@@ -84,6 +84,11 @@ def _policy(s):
     return doc_agent.policy((works.work(s.id) or {}).get("task"), s.name)
 
 
+def _view(rec, full=False):
+    """턴 기록 → 화면 꼴 — 진행 턴(`kind: "guide"` — 작업 진행 에이전트)은 `work_guide.view`, 편집 턴은 `doc_agent.turn_view`."""
+    return work_guide.view(rec, full) if rec.get("kind") == "guide" else doc_agent.turn_view(rec, full)
+
+
 def _limits():
     return {"text": doc_agent.TEXT_MAX, "materials": doc_agent.MATERIALS_MAX, "materialMb": doc_agent.MATERIAL_BYTES // 2 ** 20, "materialChars": doc_agent.MATERIAL_CHARS,
             "sent": doc_agent.MATERIALS_SENT, "ext": list(doc_agent.MATERIAL_EXT), "actions": doc_agent.ACTIONS_MAX, "candidates": doc_agent.CANDIDATES_MAX}
@@ -95,7 +100,7 @@ def agent_state(doc_id: str):
     turns[턴 보기 — 최근 20개 · 옛 것부터: `doc_agent.turn_view`], materials[{id, name, kind, chars, sha256, cut, lossy, note, head, at}], styles{table[], text[]}(보관함 요약 — 없으면 빈 목록), limits}."""
     s = _sess(doc_id)
     store = doc_agent.Store(s.id)
-    turns = [doc_agent.turn_view(t) for t in (store.turn(row["id"]) for row in store.turns()[-TURNS_SHOWN:]) if t]
+    turns = [_view(t) for t in (store.turn(row["id"]) for row in store.turns()[-TURNS_SHOWN:]) if t]   # 진행 턴(kind guide — spec_작업에이전트)이 차례대로 섞여 있다
     return {"enabled": bool(llm.status()["available"]), "hwpx": s.fmt == "hwpx", "policy": _policy(s), "rev": s.rev, "turns": turns,
             "materials": [doc_agent.material_view(m) for m in store.materials()], "styles": _styles_view(_listing()), "limits": _limits()}
 
@@ -108,7 +113,7 @@ def agent_turn_get(doc_id: str, turn: str):
     rec = doc_agent.Store(_sess(doc_id).id).turn(turn)
     if rec is None:
         raise HTTPException(404, "그런 턴이 없습니다")
-    return doc_agent.turn_view(rec, full=True)
+    return _view(rec, full=True)
 
 
 @router.delete("/api/docs/{doc_id}/agent")

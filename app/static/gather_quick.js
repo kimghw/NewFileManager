@@ -19,9 +19,9 @@ function gqConfirmText(target, parts, llm) {
 }
 
 // ---- 목적 문서가 열린 뒤 → 차례대로(gqGo) -------------------------------------------------------------------------
-async function gatherQuickRun(planId, name, parts, { llm = true, uploadOnly = false } = {}) { // home_files.js 가 목적 문서(취합본)를 열고 TASK 를 적은 뒤 부른다 — 기관 문서는 목록 차례
+async function gatherQuickRun(planId, name, parts, { llm = true, uploadOnly = false, aliases = new Map() } = {}) { // home_files.js 가 목적 문서(취합본)를 열고 TASK 를 적은 뒤 부른다 — 기관 문서는 목록 차례
   if (state.id !== planId) return;
-  gqRun = { job: "plan_merge", plan: planId, name, llm, uploadOnly, items: parts.map((f) => ({ file: f, name: f.name })), auto: new Set(), log: {}, note: "", t0: Date.now(), stop: false, busy: false, end: null };
+  gqRun = { job: "plan_merge", plan: planId, name, llm, uploadOnly, items: parts.map((f) => ({ file: f, name: f.name, alias: aliases.get(f) || "" })), auto: new Set(), log: {}, note: "", t0: Date.now(), stop: false, busy: false, end: null };
   await gqGo(gqRun);
 }
 async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문서 올리기 → (등록만이면 끝) → 1단계 → 2단계. 「이어서」 도 이것
@@ -32,7 +32,8 @@ async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문�
   let end;
   try {
     at("취합 상태 읽기");
-    if ($("panel").dataset.tool !== "Div") showTab("Div");
+    taskPaneShow(); // 보통 패널 「작업 내용」 — 에이전트 보기가 이끌고 있으면 그대로(app.js: 진행은 에이전트 보기의 진행 카드가 보인다 — spec_작업에이전트 ② §7)
+    for (const it of run.items) if (!it.pid && it.err && !it.skip) it.err = ""; // 「이어서」 — 못 올린 문서는 다시 올려 본다(목적 문서와 같은 파일만 빼고: astra 11-16 — 전에는 한 번 실패하면 다시 올릴 길이 없었다)
     await divShow();
     await gatherLoad();
     const plan = gatherPlan(), V = gt().view;
@@ -44,8 +45,16 @@ async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문�
       at(`기관 문서 올리는 중 ${k + 1}/${todo.length} — ${it.name}${gqHwp(it) ? "(hwpx 로 바꿈)" : ""}`);
       await gqAddPart(run, it);
     }
-    if (todo.length) { await loadWorks(); await gatherLoad(); }
-    const got = run.items.filter((x) => x.pid).length, failed = run.items.filter((x) => x.err).length;
+    const named = run.items.filter((it) => it.pid && it.alias && !it.aliasSaved);
+    for (const it of named) { // 올린 뒤 멈췄다가 이어도 약칭은 해당 기관 문서에 저장한다.
+      at(`기관 문서 약칭 저장 — ${it.name}`);
+      try {
+        await api(`/api/works/${it.pid}/alias`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ alias: it.alias }) });
+        Object.assign(it, { aliasSaved: true, aliasErr: "" });
+      } catch (e) { it.aliasErr = `약칭 저장 실패: ${gatherErr(e)}`; }
+    }
+    if (todo.length || named.length) { await loadWorks(); await gatherLoad(); }
+    const got = run.items.filter((x) => x.pid).length, failed = run.items.filter((x) => x.err && !x.skip).length; // 못 올린 문서(「이어서」 가 다시 올린다) — 목적 문서와 같은 파일(skip)은 세지 않는다
     if (run.uploadOnly) end = { ok: true, text: `올리고 등록했습니다 — 기관 문서 ${got}개${failed ? ` · 못 올림 ${failed}개` : ""}. 세부 작업 모드에서 단계마다 진행하세요` };
     else {
       if (!got) gatherHalt("넣을 기관 문서가 없습니다(모두 올리지 못함)");
@@ -62,27 +71,30 @@ async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문�
       at(sname("map"));
       const e2 = await gatherRunStage("map", gatherPlan(), { auto: run.auto, llm: run.llm, log: run.log, quiet: true });
       if (!e2.ok) gatherHalt(`${sname("map")}에서 멈춤 — ${e2.text}`);
-      end = { ok: true, text: (e2.none ? "넣을 것이 남은 기관 문서가 없습니다" : e2.text) + (failed ? ` · 못 올린 문서 ${failed}개` : "") };
+      end = { ok: true, text: (e2.none ? "넣을 것이 남은 기관 문서가 없습니다" : e2.text) + (failed ? ` · 못 올린 문서 ${failed}개(「이어서」 로 다시 올립니다)` : "") };
     }
   } catch (e) { end = { ok: false, text: e instanceof GatherHalt ? e.message : `오류 — ${gatherErr(e)}` }; if (!(e instanceof GatherHalt)) console.warn(e); }
   clearInterval(run.timer);
+  const aliasFailed = run.items.filter((it) => it.aliasErr).length;
+  if (aliasFailed) end.text += ` · 약칭 저장 실패 ${aliasFailed}개(이어서 다시 시도)`;
   Object.assign(run, { busy: false, end, note: "" });
   if (gqRun === run) { gatherDraw(); gqDraw(); }
-  toast(end.ok ? `간단 모드 — ${end.text}` : `간단 모드가 멈췄습니다 — ${end.text}`, !end.ok);
+  toast(end.ok ? `간단 모드 — ${end.text}` : `간단 모드가 멈췄습니다 — ${end.text}`, !end.ok || !!aliasFailed);
 }
 async function gqAddPart(run, it) { // 기관 문서 하나 올리고 이 취합에 넣는다 — 같은 이름의 기관 문서가 이미 있으면 그것을 쓴다(수정본은 다시 넣지 않음 — 할 일 프롬프트)
   const stem = (n) => String(n || "").replace(/\.(hwpx?|docx)$/i, "").normalize("NFC").trim();
   const same = ((gt().view || {}).parts || []).find((p) => stem(p.name) === stem(it.name));
   if (same) { Object.assign(it, { pid: same.work, kept: true }); run.auto.add(same.work); return; }
   const up = async (fresh) => { const fd = new FormData(); fd.append("file", it.file); return api(`/api/docs${fresh ? "?new=1" : ""}`, { method: "POST", body: fd }); };
-  const put = (pid) => api(gatherUrl(gatherSeg(pid)), { method: "PUT", headers: H_JSON, body: "{}" });
+  // 등록할 취합본은 **이 실행의 목적 문서**(run.plan)로 못 박는다 — gatherUrl 은 「지금 화면의 취합본」 을 따라가므로, 올리는 사이 다른 취합본을 열면 그쪽에 등록됐다(astra 11-16 P1). 그 사이 문서가 바뀌었으면 등록하지 않고 멈춘다
+  const put = (pid) => { if (state.id !== run.plan) gatherHalt("다른 문서를 열어 멈췄습니다 — 올린 기관 문서는 등록하지 않았습니다"); return api(`/api/docs/${run.plan}/gather${gatherSeg(pid)}`, { method: "PUT", headers: H_JSON, body: "{}" }); };
   let d, V;
   try {
     d = await up(false); // 같은 파일로 하던 작업이면 그 작업
-    if (d.docId === run.plan) { it.err = "목적 문서와 같은 파일 — 건너뜀"; return; }
+    if (d.docId === run.plan) { Object.assign(it, { err: "목적 문서와 같은 파일 — 건너뜀", skip: true }); return; }
     try { V = await put(d.docId); }
     catch (e) { if (e.status !== 400) throw e; d = await up(true); V = await put(d.docId); } // 그 작업은 다른 프로젝트·TASK·라운드의 것 — 새 작업으로
-  } catch (e) { it.err = `올리지 못함 — ${gatherErr(e)}`; return; }
+  } catch (e) { if (e instanceof GatherHalt) throw e; it.err = `올리지 못함 — ${gatherErr(e)}`; return; }
   it.pid = d.docId;
   run.auto.add(d.docId);
   if (state.id === run.plan) { gatherViewSet(V); gatherDraw(); }
@@ -106,7 +118,7 @@ function gqRowText(R, it) { // 문서 한 줄 → [반영할 기관, 결과]
   const why = L.why && !(p.orgs || []).length ? GQ_WHY[L.why] || GT_REASON[L.why] || L.why : "";
   const res = L.done ? `넣음 — ${L.done}` : L.skip ? `건너뜀 — ${why || L.skip}` : gatherHard(p.reasons).length ? `확인 필요 — ${gatherReasons(gatherHard(p.reasons))}`
     : gatherLow(p) ? GT_REASON.lowMatch : it.kept ? "이미 든 문서(같은 이름) — 그대로 씀" : c.same && !gatherPartTodo(p) ? "이미 들어 있음" : R.busy ? "" : "넣을 것 없음";
-  return [org, [res, left, L.llm || ""].filter(Boolean).join(" · ")];
+  return [org, [res, left, L.llm || "", it.aliasErr || ""].filter(Boolean).join(" · ")];
 }
 function gatherQuickLineEl() { // gather.js gatherQuickEl 이 부른다 — 간단 모드로 돌린 이 취합본이 아니면 빈 자리(숨김)
   const box = el("div", "gt-quick"), R = gqRun, plan = gatherPlan();
@@ -125,7 +137,7 @@ function gatherQuickLineEl() { // gather.js gatherQuickEl 이 부른다 — 간�
     stop.dataset.quickStop = "1";
     acts.append(stop);
   } else {
-    if (R.end && !R.end.ok) {
+    if (R.end && (!R.end.ok || R.items.some((it) => it.aliasErr || (!it.pid && it.err && !it.skip)))) { // 멈춤 · 약칭 저장 실패 · 못 올린 문서가 남음(끝났어도 — 다시 올려 본다)
       const again = hBtn("이어서", () => { if (confirm(`간단 모드를 이어서 할까요?\n\n남은 기관 문서 올리기 → 1단계(남았으면) → 2단계를 다시 차례대로 합니다.\n앞서 넣은 것은 다시 넣지 않습니다(이미 들어 있음).${R.llm ? "\nLLM 검토는 아직 안 한 문서만(유료)." : ""}`)) gqGo(R); },
         { cls: "btn sm primary", disabled: !!gatherRun, title: "멈춘 곳부터 남은 일을 이어서 합니다(누를 때 한 번 확인)" });
       again.dataset.quickAgain = "1";

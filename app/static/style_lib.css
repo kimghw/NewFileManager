@@ -10,6 +10,42 @@
 .sl-tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .sl-tabs .btn.sm { padding: 0 9px; }
 
+/* 보관함: 종류 고르기 / 복사 조작을 두 줄로 나누고, 빈 목록에서도 다음 행동이 보이게 한다. */
+#headsDlg[data-kind="styleLib"]:not(.folded) > header { box-sizing: border-box; min-height: 78px; padding: 12px; gap: 6px; background: #fff; border-bottom-color: #e3e7ee; }
+#headsDlg[data-kind="styleLib"] .hd-heading-copy { flex: 1; flex-direction: column; align-items: flex-start; gap: 5px; }
+#headsDlg[data-kind="styleLib"] #headsDlgTitle { color: #25364f; font-size: 14px; font-weight: 700; line-height: 1.5; }
+#headsDlg[data-kind="styleLib"] #headsDlgNote { max-width: 100%; color: #637289; font-size: 11px; line-height: 18px; }
+#headsDlg[data-kind="styleLib"] > header > .spacer { flex: 0; }
+#headsDlg[data-kind="styleLib"] > header .icon { color: #7b8798; border-radius: 6px; }
+#headsDlg[data-kind="styleLib"] > footer { color: #637289; border-top-color: #e6eaf0; background: #fafbfd; font-size: 11px; }
+#headsDlg[data-kind="styleLib"]:not(.folded) > .hd-tools { display: block; padding: 10px 12px; background: #fafbfd; border-bottom-color: #e6eaf0; container: sl-library / inline-size; }
+#headsDlg[data-kind="styleLib"] .sl-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 3px; border: 1px solid #e4e8ef; border-radius: 6px; background: #eef1f6; }
+#headsDlg[data-kind="styleLib"] .sl-tabs .btn.sm { display: block; min-width: 0; height: 28px; padding: 0 6px; border-color: transparent; background: transparent; color: #657187; font-size: 12px; text-align: center; white-space: nowrap; }
+#headsDlg[data-kind="styleLib"] .sl-tabs .btn.sm:hover { background: #e5ebf4; color: #344767; }
+#headsDlg[data-kind="styleLib"] .sl-tabs .btn.sm.on { background: #fff; border-color: #d5dff0; color: #2458c7; font-weight: 600; }
+.sl-tab-count { display: inline-block; min-width: 17px; height: 17px; margin-left: 2px; padding: 0 4px; border-radius: 4px; background: #e3e8f0; color: #53647f; font-size: 10.5px; line-height: 17px; font-weight: 500; font-variant-numeric: tabular-nums; vertical-align: middle; }
+.sl-tabs .on .sl-tab-count { background: #eaf0ff; color: #2458c7; }
+.sl-lib-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; }
+.sl-lib-actions .btn.sm { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; font-size: 12px; border-color: #dce2eb; background: #fff; color: #52617a; }
+.sl-lib-actions .btn.sm.sl-lib-primary { border-color: #d0ddf7; background: #edf3ff; color: #2458c7; font-weight: 600; }
+.sl-lib-actions .btn.sm[data-sl-act="fmtMap"] { border-color: transparent; background: transparent; }
+.sl-lib-actions .btn.sm:hover:not(:disabled) { background: #e8eef9; border-color: #c8d6ef; color: #2458c7; }
+.sl-lib-icon { display: inline-flex; flex: none; width: 14px; height: 14px; }
+.sl-lib-icon svg { display: block; width: 100%; height: 100%; }
+#headsDlg[data-kind="styleLib"] > .hd-tools > .sl-run { margin-top: 8px; }
+.sl-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; margin: 36px auto 0; max-width: 340px; text-align: center; }
+.sl-empty > .sl-lib-icon { width: 36px; height: 36px; margin-bottom: 4px; color: #92a7c8; }
+.sl-empty-heading { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
+.sl-empty .sl-empty-title { margin: 0; color: #41516a; font-size: 13px; line-height: 1.6; font-weight: 600; word-break: keep-all; }
+.sl-empty-heading .panel-help { flex: none; width: 22px; height: 22px; color: #8a96a8; }
+.sl-empty-next, .sl-empty-reuse { margin: 0; color: #637289; font-size: 12px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+.sl-empty-reuse { font-size: 11px; }
+@container sl-library (max-width: 390px) {
+  #headsDlg[data-kind="styleLib"] .sl-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sl-lib-actions .btn.sm { padding: 0 7px; font-size: 11.5px; }
+  .sl-lib-actions .sl-lib-icon { display: none; }
+}
+
 /* 서식 관리자(spec_서식복사 ② §2 — 2026-11-14): 종류 세그먼트 셋(.sl-tabs — 템플릿 · 문서 서식 · 테이블 서식: 좁으면 다음 줄로 접힌다) · 형식마다의 검증 꼬리표(.sl-verify[data-format]) · 견본 그림의 형식 전환 ·
    문서 서식의 요약 줄 · 「서식 복사」 의 단계 줄(.sl-steps — ① 후보 찾기 › ② 에이전트 추출 › ③ 저장 › ④ PDF 검증: 끝난 것 ✓ · 지금 하는 것은 아래 한 줄에 동그라미 + 하는 일 + 지난 시간 — design.md §7·§11) · 검증 진행 줄.
    상태는 색만으로 가르지 않는다(꼬리표 글 「hwpx 검증됨」 · 단계의 ✓). 상자를 더 두르지 않는다(§1-1 — 단계 줄은 아랫금 하나). */

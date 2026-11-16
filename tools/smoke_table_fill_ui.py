@@ -65,6 +65,20 @@ def corner(page, tid):
     page.wait_for_selector(".ctx-menu[data-by='tmn']:not([hidden])")
 
 
+def guide_field(page, scope, kind):
+    return page.locator(f".ta-field[data-ta-scope='{scope}'][data-ta-field='{kind}']")
+
+
+def guide_tab(page, kind):
+    page.locator(f".ta-editor-tabs [data-ta-tab='{kind}']").click()
+    page.wait_for_selector(f".ta-section[data-ta-section='{kind}']:not([hidden])")
+
+
+FIT_GUIDE = """() => { const p = document.getElementById('headsDlg'), r = p.getBoundingClientRect();
+  const bad = [...p.querySelectorAll('.ta-wrap *')].filter(e => e.getClientRects().length && (e.getBoundingClientRect().right > r.right + 1 || e.getBoundingClientRect().left < r.left - 1)).slice(0, 6).map(e => e.className || e.tagName);
+  return { width: Math.round(r.width), bad, over: p.scrollWidth - p.clientWidth, bodyOver: document.getElementById('headsDlgBody').scrollWidth - document.getElementById('headsDlgBody').clientWidth }; }"""
+
+
 try:
     for _ in range(300):
         try:
@@ -112,42 +126,116 @@ try:
         page.wait_for_selector(".ta-wrap .ta-group")
         info = page.evaluate("""() => { const w = document.querySelector('.ta-wrap');
             return {title: document.getElementById('headsDlgTitle').textContent, kind: heads.dlg, groups: [...w.querySelectorAll('.ta-group')].map((e) => e.textContent),
-                    guides: [...w.querySelectorAll('.ta-notes li.guide')].map((li) => ({badge: li.querySelector('.hb').textContent, head: li.querySelector('.ta-row').textContent, text: li.querySelector('pre').textContent})),
-                    areas: [...w.querySelectorAll('h3')].map((e) => e.textContent), boxes: w.querySelectorAll('textarea').length,
-                    notes: [...w.querySelectorAll('p.hnote')].map((e) => e.textContent), defaults: [...w.querySelectorAll('details pre')].map((e) => e.textContent)}; }""")
+                    guides: [...w.querySelectorAll('.ta-source')].map((e) => ({head: e.textContent, text: e.querySelector('pre')?.textContent || '', open: e.open})),
+                    fields: [...w.querySelectorAll('.ta-field')].map((e) => [e.dataset.taScope, e.dataset.taField]), boxes: w.querySelectorAll('textarea').length,
+                    notes: [...w.querySelectorAll('.hnote')].map((e) => e.textContent), defaults: w.querySelector('.ta-default-rules pre').textContent}; }""")
         check("열 제목 「작성요령 · 표 지침 · <표>」", info["title"] == f"작성요령 · 표 지침 · {tid}" and info["kind"] == "tableAgent", info["title"])
         check("세 묶음 — ① 문서의 작성요령 ② 지침 ③ 칸 입력 규칙", len(info["groups"]) == 3 and info["groups"][0].startswith("① 문서의 작성요령 1") and info["groups"][1].startswith("② 지침")
               and info["groups"][2].startswith("③ 칸 입력 규칙"), info["groups"])
         g = info["guides"]
-        check("① — 뒤따르는 「앞표지 작성 요령」 표의 항목 줄", len(g) == 1 and g[0]["badge"] == "작성 요령 표" and "앞표지 작성 요령" in g[0]["head"] and "1. 보안등급: 보안과제에 해당하는 경우" in g[0]["text"]
-              and "13. 연구개발과제명" in g[0]["text"], g)
+        check("① — 뒤따르는 「앞표지 작성 요령」 표의 항목 줄(긴 원문은 접힘)", len(g) == 1 and "작성 요령 표" in g[0]["head"] and "앞표지 작성 요령" in g[0]["head"] and "1. 보안등급: 보안과제에 해당하는 경우" in g[0]["text"]
+              and "13. 연구개발과제명" in g[0]["text"] and not g[0]["open"], g)
         check("② ③ — 글상자 넷(공통 지침 · 이 표 지침 · 공통 규칙 · 이 표 규칙)",
-              info["boxes"] == 4 and [a for a in info["areas"] if "지침" in a or "규칙" in a] == ["양식 지침 — 이 양식의 모든 문서", "공통 지침 — 이 문서의 모든 표", "이 표 지침", "공통 규칙 — 이 문서의 모든 표", "이 표 규칙"], info["areas"])
-        check("③ — 표에서 읽은 칸 꼴 · 기본 규칙(앱)", any(n.startswith("표에서 읽은 칸 꼴 — ") and "체크" in n and "빈 자리" in n for n in info["notes"]) and info["defaults"][0].startswith("- 체크 칸(「[ ]」·「□」)"),
-              (info["notes"], info["defaults"][0][:60]))
+              info["boxes"] == 4 and info["fields"] == [["common", "instructions"], ["own", "instructions"], ["common", "rules"], ["own", "rules"]]
+              and "양식 지침" in page.text_content(".ta-section[data-ta-section=instructions]"), info["fields"])
+        check("③ — 표에서 읽은 칸 꼴 · 기본 규칙(앱)", any(n.startswith("표에서 읽은 칸 꼴 — ") and "체크" in n and "빈 자리" in n for n in info["notes"]) and info["defaults"].startswith("- 체크 칸(「[ ]」·「□」)"),
+              (info["notes"], info["defaults"][:60]))
+        check("처음에는 지침 탭만 보이고 변경 없는 저장·비어 있는 지우기는 꺼짐", page.locator(".ta-editor-tabs [data-ta-tab=instructions]").get_attribute("aria-selected") == "true"
+              and page.locator(".ta-section[data-ta-section=instructions]").is_visible() and not page.locator(".ta-section[data-ta-section=rules]").is_visible()
+              and page.eval_on_selector_all(".ta-field [data-ta-action]", "es => es.every(e => e.disabled)"))
+        labels = []
+        for kind, names in (("instructions", ("공통 지침", "이 표 지침")), ("rules", ("공통 규칙", "이 표 규칙"))):
+            guide_tab(page, kind)
+            labels.extend(page.get_by_role("textbox", name=name, exact=True).count() == 1 for name in names)
+        check("글상자 넷에 접근 가능한 이름", all(labels), labels)
+        guide_tab(page, "instructions")
+        page.locator("[data-ta-tab=instructions]").press("ArrowRight")
+        right = page.evaluate("() => document.activeElement.dataset.taTab === 'rules' && document.activeElement.getAttribute('aria-selected') === 'true' && !document.querySelector('[data-ta-section=rules]').hidden")
+        page.locator("[data-ta-tab=rules]").press("ArrowLeft")
+        left = page.evaluate("() => document.activeElement.dataset.taTab === 'instructions' && document.activeElement.getAttribute('aria-selected') === 'true' && !document.querySelector('[data-ta-section=instructions]').hidden")
+        check("화살표 키로 탭·초점·선택 표시가 함께 이동", right and left, [right, left])
+        for width in (320, 480):
+            page.evaluate("(w) => { const c = colSizers.find(x => x.box === 'headsDlg'); c.w = w; c.apply(); }", width)
+            page.wait_for_timeout(200)
+            for kind in ("instructions", "rules"):
+                guide_tab(page, kind)
+                fit = page.evaluate(FIT_GUIDE)
+                check(f"작성요령 · {kind} · {width}px — 가로 넘침 없음", fit["width"] in (width - 1, width) and not fit["bad"] and fit["over"] <= 0 and fit["bodyOver"] <= 0, fit)
+                page.locator("#headsDlg").screenshot(path=str(OUT / f"2_guide_{kind}_{width}.png"))
+        guide_tab(page, "instructions")
         page.screenshot(path=str(OUT / "2_guide.png"))
         # 「이 표 지침에 붙이기」 → 저장 · 이 표 규칙 저장
-        page.locator(".ta-notes li.guide button:has-text('이 표 지침에 붙이기')").click()
-        own_box = page.evaluate("""() => { const w = document.querySelector('.ta-wrap'), h = [...w.querySelectorAll('h3')].find((e) => e.textContent === '이 표 지침'); const ta = h.nextElementSibling;
-            return {text: ta.value, state: ta.nextElementSibling.querySelector('.muted').textContent, dirty: heads.xl.agent.dirty()}; }""")
+        page.locator(".ta-source > summary").first.click()
+        page.locator(".ta-source button:has-text('이 표 지침에 붙이기')").click()
+        own = guide_field(page, "own", "instructions")
+        own_box = own.evaluate("""e => ({text: e.querySelector('textarea').value, state: e.querySelector('.ta-save-state').textContent, dirty: heads.xl.agent.dirty()})""")
         check("「이 표 지침에 붙이기」 — 글상자에 요령이 들어가고 「저장 안 함」", own_box["text"].startswith("[앞표지 작성 요령") and "2. 중앙행정기관명:" in own_box["text"] and own_box["state"] == "저장 안 함" and own_box["dirty"], own_box)
+        check("수정한 글상자만 저장·지우기가 켜지고 지침 탭에 미저장 표시", own.locator("[data-ta-action=save]").is_enabled() and own.locator("[data-ta-action=clear]").is_enabled()
+              and guide_field(page, "common", "instructions").locator("[data-ta-action=save]").is_disabled() and page.locator("[data-ta-tab=instructions] .ta-tab-dirty").is_visible())
+        guide_tab(page, "rules")
+        guide_field(page, "own", "rules").locator("textarea").fill("체크는 「[ √ ]」 로")
+        guide_tab(page, "instructions")
+        check("지침·규칙 탭을 오가도 초안 둘이 남고 각 탭에 미저장 표시", own.locator("textarea").input_value() == own_box["text"]
+              and guide_field(page, "own", "rules").locator("textarea").input_value() == "체크는 「[ √ ]」 로"
+              and page.locator("[data-ta-tab=instructions] .ta-tab-dirty").is_visible() and page.locator("[data-ta-tab=rules] .ta-tab-dirty").is_visible())
         page.locator(".tbl-corner-guide").click()   # 저장 안 한 글이 있는 채로 같은 표의 둘째 아이콘을 다시 누름 — 열을 다시 그리지 않는다(글이 지워지면 안 됨)
         page.wait_for_timeout(400)
-        keep = page.evaluate("""() => { const w = document.querySelector('.ta-wrap'), h = w && [...w.querySelectorAll('h3')].find((e) => e.textContent === '이 표 지침');
-            return {text: !!h && h.nextElementSibling.value.startsWith('[앞표지 작성 요령'), dirty: heads.xl.agent.dirty(), kind: heads.dlg}; }""")
+        keep = own.evaluate("""e => ({text: e.querySelector('textarea').value.startsWith('[앞표지 작성 요령'), dirty: heads.xl.agent.dirty(), kind: heads.dlg})""")
         check("저장 안 한 글이 있을 때 둘째 아이콘을 다시 눌러도 열은 그대로(글이 안 지워짐)", keep["text"] and keep["dirty"] and keep["kind"] == "tableAgent", keep)
-        page.evaluate("""() => { const w = document.querySelector('.ta-wrap'), h = [...w.querySelectorAll('h3')].find((e) => e.textContent === '이 표 지침'); h.nextElementSibling.nextElementSibling.querySelector('button.primary').click(); }""")
-        page.wait_for_function("() => !heads.xl.agent.dirty()", timeout=20000)
-        page.evaluate("""() => { const w = document.querySelector('.ta-wrap'), h = [...w.querySelectorAll('h3')].find((e) => e.textContent === '이 표 규칙'); const ta = h.nextElementSibling;
-            ta.value = '체크는 「[ √ ]」 로'; ta.oninput(); ta.nextElementSibling.querySelector('button.primary').click(); }""")
+        own.locator("[data-ta-action=save]").click()
+        page.wait_for_function("() => document.querySelector('.ta-field[data-ta-scope=own][data-ta-field=instructions] .ta-save-state').dataset.state === 'saved'", timeout=20000)
+        check("지침을 저장해도 다른 탭의 규칙 초안·미저장 표시는 유지", guide_field(page, "own", "rules").locator("textarea").input_value() == "체크는 「[ √ ]」 로"
+              and page.evaluate("() => heads.xl.agent.dirty()") and page.locator("[data-ta-tab=rules] .ta-tab-dirty").is_visible())
+        guide_tab(page, "rules")
+        guide_field(page, "own", "rules").locator("[data-ta-action=save]").click()
         page.wait_for_function("() => !heads.xl.agent.dirty()", timeout=20000)
         page.wait_for_timeout(600)
         saved = requests.get(f"{base}/api/docs/{doc}/headings/tables/{tid}/agent", timeout=60).json()
         check("저장 — 이 표 지침(붙인 요령) · 이 표 규칙이 작업에 남고 묶음 글에 든다",
               saved["own"]["instructions"].startswith("[앞표지 작성 요령") and saved["own"]["rules"] == "체크는 「[ √ ]」 로" and saved["own"]["version"] == 2
               and "### 이 표 규칙\n체크는 「[ √ ]」 로" in saved["prompt"], {k: saved["own"][k] for k in ("rules", "version")})
-        check("미리보기 글이 저장 뒤 새로", page.evaluate("() => [...document.querySelectorAll('.ta-wrap details pre')].pop().textContent.includes('### 이 표 규칙\\n체크는')"))
+        check("미리보기 글이 저장 뒤 새로", page.evaluate("() => document.querySelector('.ta-preview pre').textContent.includes('### 이 표 규칙\\n체크는')"))
+        check("저장 뒤에는 탭 미저장 표시가 사라지고 다시 저장은 꺼짐", page.eval_on_selector_all(".ta-tab-dirty", "es => es.every(e => !e.getClientRects().length)")
+              and page.eval_on_selector_all(".ta-field [data-ta-action=save]", "es => es.every(e => e.disabled)"))
         check("둘째 아이콘 — 저장하면 「적어 둔 글 있음」 표시(.has)", page.evaluate("(t) => { const g = document.querySelector('.tbl-corner-guide'); return g.dataset.for === t && g.style.display !== 'none' && g.classList.contains('has'); }", tid))
+
+        # 저장 응답이 늦는 동안 계속 적어도 새 초안은 덮이지 않는다(응답만 보류, 저장 API는 진짜).
+        agent_url = f"{base}/api/docs/{doc}/headings/tables/{tid}/agent"
+        held_save = {}
+
+        def hold_save(route):
+            if route.request.method != "PUT":
+                route.continue_()
+                return
+            response = route.fetch()
+            held_save.update(route=route, response=response, body=json.loads(route.request.post_data))
+
+        page.route(agent_url, hold_save)
+        rule_box = guide_field(page, "own", "rules")
+        original_rule = saved["own"]["rules"]
+        submitted_rule = original_rule + "\n날짜는 YYYY.MM.DD로"
+        later_rule = submitted_rule + "\n저장 응답 전에 추가한 초안"
+        rule_box.locator("textarea").fill(submitted_rule)
+        rule_box.locator("[data-ta-action=save]").click()
+        for _ in range(50):
+            if "route" in held_save:
+                break
+            page.wait_for_timeout(100)
+        check("저장 중에는 모든 저장·지우기를 끄고 글 입력은 허용", "route" in held_save
+              and rule_box.locator(".ta-save-state").get_attribute("data-state") == "saving"
+              and page.eval_on_selector_all(".ta-field [data-ta-action]", "es => es.every(e => e.disabled)") and rule_box.locator("textarea").is_enabled())
+        rule_box.locator("textarea").fill(later_rule)
+        held_save["route"].fulfill(response=held_save["response"])
+        page.wait_for_function("() => document.querySelector('.ta-field[data-ta-scope=own][data-ta-field=rules] .ta-save-state').dataset.state === 'dirty'", timeout=20000)
+        check("늦은 저장 응답 — 보낸 글만 저장 기준, 이후 초안·미저장 표시는 보존", held_save["body"] == {"rules": submitted_rule, "version": 2}
+              and rule_box.locator("textarea").input_value() == later_rule and rule_box.locator("textarea").evaluate("e => e.defaultValue") == submitted_rule
+              and rule_box.locator("[data-ta-action=save]").is_enabled() and page.locator("[data-ta-tab=rules] .ta-tab-dirty").is_visible()
+              and requests.get(agent_url, timeout=60).json()["own"]["rules"] == submitted_rule)
+        page.unroute(agent_url, hold_save)
+        rule_box.locator("textarea").fill(original_rule)
+        rule_box.locator("[data-ta-action=save]").click()
+        page.wait_for_function("() => !heads.xl.agent.dirty()", timeout=20000)
+        check("저장 지연 검사 뒤 원래 규칙으로 복구", requests.get(agent_url, timeout=60).json()["own"]["rules"] == original_rule)
 
         # ---- 3. 표 채우기 열 — LLM 없는 서버
         page.locator(".ta-wrap button:has-text('에이전트로 표 채우기')").click()

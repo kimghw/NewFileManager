@@ -69,7 +69,8 @@ function olpDrag(w, head) { // 머리를 끌어 옮긴다 — 화면 안에 머�
 
 function olpPlace(w) { // 처음 자리 — 「템플릿 관계」 열 바로 왼쪽, 편집 도구 줄 아래(문서 위에 겹침 — 도구 줄·실행 취소는 가리지 않는다). 사용자가 옮겼으면 그 자리
   const vw = window.innerWidth, vh = window.innerHeight;
-  const col = $("headsDlg"), r = col && !col.hidden ? col.getBoundingClientRect() : null;
+  const col = $("headsDlg"), pan = $("panel"), pr = pan ? pan.getBoundingClientRect() : null;
+  const r = col && !col.hidden ? col.getBoundingClientRect() : pr && pr.width > 0 ? pr : null; // 열이 없으면(「템플릿」 탭에서 엶) 패널 바로 왼쪽 — 트리를 가리지 않는다
   const doc = $("doc"), dr = (doc && doc.parentElement ? doc.parentElement : $("viewer") || document.body).getBoundingClientRect();
   if (OLP.at) {
     w.style.left = `${Math.max(0, Math.min(OLP.at.x, vw - 120))}px`;
@@ -138,7 +139,10 @@ function olpTab(tab) {
   else if (!olmFresh()) olmLoad().then(() => olpRender());
 }
 
-function olpRowEl() { return document.querySelector(`#headsDlgBody .olf[data-tpl="${CSS.escape(String(OLP.tpl))}"][data-level="${+OLP.level}"]`); }
+function olpRowEl() { // 그 레벨의 자리 줄 — 트리가 두 곳(「템플릿」 탭 · 「템플릿 관계」 열)에 있으면 고치기 줄을 펴 둔 쪽
+  const all = [...document.querySelectorAll(`.tpl-tree .olf[data-tpl="${CSS.escape(String(OLP.tpl))}"][data-level="${+OLP.level}"]`)];
+  return all.find((r) => { const f = r.querySelector(".olf-edit"); return f && !f.hidden; }) || all[0] || null;
+}
 function olpForm() { const r = olpRowEl(); return r ? r.querySelector(".olf-edit") : null; }
 
 // ---------------------------------------------------------------- 자리 미리보기

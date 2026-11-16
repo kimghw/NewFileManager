@@ -1,0 +1,86 @@
+/* ---- 템플릿 트리(「템플릿」 탭 · 「템플릿 관계」 열 — app.js tplTreeDraw: 같은 내용 = 같은 UI) · 개요 레벨 그림 · 서식 라벨 표시 · 템플릿 서식 정리 에이전트(2열 kind "tplAgent" — tpl_agent.js)
+   spec_헤딩_추출 ② §7 「템플릿 관계」·「문서 표시」 · spec_hwpx_웹편집 ② §8-2·§8-4. style.css · heading-panels.css · style_lib.css(sp-*) · doc_agent.css(.ag-spin·.ag-note) 다음에 읽힌다.
+   트리의 줄 모양은 heading-panels.css 가 두 자리(#headsDlg[data-kind="templates"] · #headsTemplatesResult)에 같은 규칙으로 준다 — 여기는 새로 생긴 것만. */
+
+/* 개요 레벨 그림(서식 복사의 서식 견본과 같은 그림) — 템플릿 줄 바로 아래. 그림은 눌리지 않는다(style_lib.css .sp-in) */
+.tpl-pic { margin: 2px 0 4px; max-width: 420px; min-width: 0; }
+.tpl-tree .tpl-pic { max-width: none; } /* 트리에서는 해당 템플릿 줄의 폭 전체를 쓴다. */
+.tpl-pic-hold { box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.trel-node > .template-source { display: block; margin: 0 0 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; font-size: 11.5px; }
+.tpl-tree .slot-format { margin-left: 8px; }
+.tpl-tree-tools { margin: 6px 0 2px; }
+
+/* 템플릿 줄의 서식 정리 에이전트 아이콘(보라 = LLM — design.md §13) · 「하위로」 가 넣을 자리가 없을 때(흐리게 — 눌러 까닭을 본다) · 「템플릿 맞추기」 자리 */
+.icon.tpl-agent { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #6d28d9; cursor: pointer; }
+.icon.tpl-agent:hover { background: #f5f0ff; border-color: #d9c8fb; }
+.icon.tpl-agent:focus-visible { outline: 2px solid #7c3aed; outline-offset: 1px; }
+.olm-btn.olm-sub.none { color: var(--muted); border-style: dashed; }
+/* 서식 종속 템플릿 「T1L3a」(spec_hwpx_웹편집 ② §8-5) — 갈래 줄 아래 「다른 템플릿으로」 한 줄(갈래 상자 안이라 왼쪽 들여쓰기 없음) · 레벨 줄의 「→ T1L3a(6줄)」 은 눌리는 칩 */
+.olm-g > .olm-merge.olm-splitf { margin: 4px 0 0; }
+button.olm-chip.olm-vchip { height: 20px; cursor: pointer; font: inherit; font-size: 11px; }
+button.olm-chip.olm-vchip:hover { border-color: #7c3aed; }
+button.olm-chip.olm-vchip:focus-visible { outline: 2px solid #7c3aed; outline-offset: 1px; }
+.olm-tm { display: contents; }
+.trel-row .olm-btn { height: 22px; padding: 0 7px; font-size: 11.5px; }
+
+/* 문서 표시의 서식 라벨 — 템플릿 표 「TN Lk」 바로 아래 한 줄(.tpl-mark.fmt · 자리는 app.js tplMarksDraw 가 top 으로) · 자리가 없으면 같은 줄 뒤(.tm-fmt) */
+.tpl-mark.fmt { font-size: 9.5px; line-height: 13px; color: #5b6472; background: #f4f5f7; border-color: #dfe3ea; z-index: 1; }
+.tpl-mark.fmt:hover { color: var(--accent); border-color: var(--accent); z-index: 6; }
+.tpl-mark .tm-fmt { color: #6b7483; font-size: 9.5px; padding-left: 3px; border-left: 1px solid #c9d6f5; }
+
+/* 서식 정리 에이전트 열 — 폭 480~620px(design.md §1): 좌우 12px · 컨트롤 28px · 절은 1px 선으로만 나눈다(상자 2겹까지 — 계획의 레벨 상자가 한 겹) */
+.tpa { display: flex; flex-direction: column; padding: 2px 12px 16px; font-size: 12.5px; min-width: 0; }
+.tpa-sec { padding: 10px 0 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+.tpa-sec:last-child { border-bottom: 0; }
+.hd-body .tpa-h { display: flex; align-items: center; gap: 6px; margin: 0 0 7px; font-size: 12.5px; font-weight: 700; color: var(--text); }
+.tpa-no { color: #6d28d9; font-weight: 700; }
+.tpa-h .panel-help { width: 22px; height: 22px; margin-left: 2px; }
+.tpa-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.tpa select, .tpa input[type="text"] { height: 28px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; color: var(--text); }
+.tpa-tpl { width: 100%; margin-bottom: 6px; }
+.tpa-target .tpl-pic { margin: 0 0 6px; }
+.tpa-levels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 12px; }
+.tpa-levels b { color: var(--text); font-weight: 600; margin-right: 2px; }
+.tpa-warn { color: #b45309; font-weight: 600; }
+.tpa-skill { flex: 1 1 160px; }
+.tpa-name { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; }
+.tpa-text { display: block; width: 100%; box-sizing: border-box; min-height: 220px; max-height: 60vh; resize: vertical; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--surface); color: var(--text); font: 12.5px/1.6 "Malgun Gothic", "Segoe UI", sans-serif; }
+.tpa-text.ro { min-height: 180px; background: var(--surface-2); font: 11.5px/1.5 Consolas, "Malgun Gothic", monospace; }
+.tpa-text:disabled { background: var(--surface-2); }
+.tpa-state { margin-top: 6px; min-height: 28px; } /* 높이를 고정한다 — 저장 상태가 바뀌어도 아래가 안 밀린다(design.md §6) */
+.tpa-saved { color: var(--muted); font-size: 11.5px; }
+.tpa-saved.dirty { color: #b45309; font-weight: 600; }
+.tpa-state .btn.sm.danger { color: var(--fail); border-color: #f2b8b8; }
+.tpa-req { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.tpa-runrow { min-height: 30px; }
+.tpa-direct { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.tpa-direct input { margin: 0; }
+.tpa-live { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: #5b21b6; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tpa-live:empty { display: none; }
+.tpa-err { margin: 8px 0 0; }
+.tpa-model { padding: 0 7px; line-height: 20px; border: 1px solid #d9c8fb; border-radius: 10px; background: #f5f0ff; color: #6d28d9; font-size: 11px; white-space: nowrap; }
+.tpa-model.off { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.tpa-prompt { margin: 10px 0 0; font-size: 12px; }
+.tpa-prompt > summary { cursor: pointer; color: var(--muted); margin-bottom: 6px; overflow-wrap: anywhere; }
+
+/* 계획 — 레벨마다 한 상자(왼쪽 보라 띠 = LLM 제안), 갈래 줄은 테두리 없이 */
+.tpa-sum { margin: 0 0 8px; line-height: 1.6; overflow-wrap: anywhere; }
+.tpa-lv { margin: 0 0 8px; padding: 6px 8px 7px; border: 1px solid #ddd0f7; border-left: 3px solid #7c3aed; border-radius: 6px; background: #fbf9ff; min-width: 0; }
+.tpa-lvh { color: var(--muted); font-size: 12px; }
+.tpa-lvh b { color: var(--text); margin-right: 2px; }
+.tpa-rep { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin: 4px 0 0; min-width: 0; }
+.tpa-rep .hlink, .tpa-gb .hlink { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpa-why { display: block; flex-basis: 100%; margin: 2px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+/* 갈래 줄 = [고르기 ▾] ×수 견본 줄 … — 고르기는 맞추기(주황 = 바뀐다) / 그대로(기본) / T1L3a 로(보라 = 다른 템플릿으로 뗀다 — ② §8-5). 높이 24px(줄이 촘촘하다 — 열의 다른 컨트롤은 28px) */
+.tpa-g { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0 6px; margin: 5px 0 0; }
+.tpa .tpa-pick { height: 24px; max-width: 116px; padding: 0 2px; font-size: 11.5px; }
+.tpa-g.match .tpa-pick { border-color: #f1c38b; background: #fff7ed; color: #9a3412; }
+.tpa-g.split .tpa-pick { border-color: #c4b5fd; background: #f5f3ff; color: #5b21b6; }
+.tpa-gb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; min-height: 24px; }
+.tpa-diff { flex-basis: 100%; color: #b45309; font-size: 11.5px; overflow-wrap: anywhere; }
+.tpa-g.keep .tpa-diff, .tpa-vt.head + .tpa-diff { color: var(--muted); } /* 안 바뀌는 줄(그대로 · 새 템플릿의 대표)의 다른 값은 흐리게 */
+.tpa-vt.head { border-color: #7c3aed; font-weight: 600; }
+.tpa-foot { margin: 10px 0 0; }
+.tpa-count { color: var(--muted); font-size: 12px; }
+.tpa-back { padding: 0 8px; }

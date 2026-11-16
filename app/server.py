@@ -1964,6 +1964,11 @@ app.include_router(outline_format_api.router)
 from app import outline_match_api  # noqa: E402
 
 app.include_router(outline_match_api.router)
+app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
+app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
+app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
+app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
+app.include_router(__import__("app.analysis_api", fromlist=["router"]).router)   # 분석 상태(GET /api/docs/{id}/analysis — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나) 끝점은 app/analysis_api.py(spec_작업 ② §20)
 
 # ---- 뼈대 유지 끝점은 app/heading_drift_api.py(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림, spec_헤딩_추출 ② §17) ----------------------------------------
 from app import heading_drift_api  # noqa: E402
@@ -2704,7 +2709,8 @@ def divisions_llm_missing(doc_id: str, body: dict = Body(default={})):
 def divisions_review(doc_id: str, body: dict = Body(default={})):
     """LLM 검토(spec_구분_기준 ② §14) — 재검토(§11 — 표시한 자리가 있을 때만)와 빠진 자리 검토(§13)를 **동시에** 돌려 한 목록(items)으로. 자료는 잠금 안에서 한 번에(같은 rev),
     호출은 잠금 밖 스레드 둘, 재검토의 반영은 잠금 안에서 rev 가 그대로일 때만. 마지막 결과는 세션에 두고 작업에 저장한다(GET …/divisions 의 review).
-    auto = 새 작업의 첫 분석(spec_작업 ② §9) — 이미 검토했거나 지원 양식이 아니거나 LLM 연결이 없으면 호출 없이 {skipped}. 부른 검토가 모두 답이 없으면 502, 돌고 있으면 409."""
+    auto = 이미 검토했거나 지원 양식이 아니거나 LLM 연결이 없으면 호출 없이 {skipped}(전에는 새 작업의 첫 분석이 이 인자로 불렀다 — 2026-11-15 부터 화면은 auto 로 부르지 않는다: spec_작업 ② §9·§20
+    「구분 기준은 옵션」). 부른 검토가 모두 답이 없으면 502, 돌고 있으면 409."""
     s = _sess(doc_id)
     auto, effort = body.get("auto") is True, body.get("effort") or "medium"
     with s.lock:

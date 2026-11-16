@@ -127,7 +127,9 @@ def main():
             page.wait_for_selector(".para")
             page.click("#tabHeads")
             page.wait_for_selector("#heads2More .htree")
-            check("HWPX eight independent destinations (incl. agent tab)", page.locator("#workspaceNav [role=tab]:visible").count() == 8)
+            # 2026-11-15: 검증·PDF·기록은 패널 머리 탭(#toolTabs) — 탭 띠는 고친 문단·헤딩 추출·표·에이전트·문서 비교 다섯
+            check("HWPX five strip destinations (incl. agent tab) + verify/PDF/log in the panel head", page.locator("#workspaceNav [role=tab]:visible").count() == 5
+                  and page.locator("#toolTabs #tabVerify:visible, #toolTabs #tabPdf:visible, #toolTabs #tabLog:visible").count() == 3)
             check("Six heading result views", page.locator(".heads-view-nav [role=tab]:visible").count() == 6)
             check("Heading tree visible without execution controls", page.locator("#heads2More .htree").is_visible() and not page.locator("#headsViewRun").is_visible())
             page.locator("#heads2More button.htext").first.click()
@@ -135,7 +137,7 @@ def main():
             page.screenshot(path=OUT / "01_heads_tree.png")
 
             page.click("#headsTabTemplates")
-            check("Templates accessible directly", page.locator("#headsTemplatesResult .hlist > li").count() > 0)
+            check("Templates accessible directly", page.locator("#headsTemplatesResult .tpl-tree li.trel-node").count() > 0)  # 2026-11-15: 탭도 「템플릿 관계」 와 같은 트리(옛 카드 목록 없음)
             source = page.locator("#headsTemplatesResult .template-source")
             check("Template source jump buttons exist", source.count() > 0, f"{source.count()} buttons")
             if source.count():
@@ -208,7 +210,7 @@ def main():
                 page.wait_for_timeout(300)
                 buttons = page.locator("#workspaceNav [role=tab]:visible")
                 boxes = [buttons.nth(i).bounding_box() for i in range(buttons.count())]
-                check(f"{width}px navigation remains on one scrollable row", len(boxes) == 8 and len({round(b["y"] + b["height"] / 2) for b in boxes if b}) == 1
+                check(f"{width}px navigation remains on one scrollable row", len(boxes) == 5 and len({round(b["y"] + b["height"] / 2) for b in boxes if b}) == 1
                       and page.evaluate("() => { const t = document.getElementById('workspaceTools'); return t.clientWidth <= innerWidth && getComputedStyle(t).overflowX === 'auto'; }"), str(boxes))
                 page.screenshot(path=OUT / f"06_narrow_{width}.png")
                 page.click("#tabPdf")

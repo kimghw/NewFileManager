@@ -1,7 +1,7 @@
 /* 시작 화면 전용. 문서를 연 뒤의 편집·분석 작업 영역에는 적용하지 않는다. */
 .empty.home {
   display: block;
-  padding: 54px 32px 56px;
+  padding: 32px 32px 48px;
   background: #f5f5f7;
   color: #1d1d1f;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
@@ -10,18 +10,18 @@
   scrollbar-gutter: stable;
   container: home / inline-size;
 }
-.home-content { width: min(1020px, 100%); margin: 0 auto; }
-.home-intro { display: grid; grid-template-columns: minmax(240px, .88fr) minmax(0, 1.12fr); gap: 64px; align-items: start; padding-top: 8px; }
-.home-heading { text-align: left; margin: 0; padding-top: 32px; }
-.home-eyebrow { margin: 0 0 17px; color: #6e6e73; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
-.home-heading h1 { margin: 0; color: #1d1d1f; font-size: 48px; font-weight: 650; letter-spacing: -.055em; line-height: 1.24; }
-.home-subtitle { margin: 22px 0 0; color: #6e6e73; font-size: 16px; line-height: 1.75; word-break: keep-all; }
-.home-format-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 25px 0 0; color: #6e6e73; font-size: 11px; line-height: 1.6; }
+.home-content { width: min(1280px, 100%); margin: 0 auto; }
+.home-intro { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+.home-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; text-align: left; margin: 0; }
+.home-eyebrow { grid-column: 1 / -1; margin: 0 0 10px; color: #6e6e73; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.home-heading h1 { grid-column: 1 / -1; margin: 0; color: #1d1d1f; font-size: 36px; font-weight: 650; letter-spacing: -.055em; line-height: 1.3; word-break: keep-all; }
+.home-subtitle { margin: 10px 0 0; color: #6e6e73; font-size: 14px; line-height: 1.75; word-break: keep-all; }
+.home-format-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; align-self: end; margin: 10px 0 0 20px; color: #6e6e73; font-size: 11px; line-height: 1.6; }
 .home-format-note > span:not(.panel-help-slot) { padding: 3px 7px; color: #515154; font-size: 10px; font-weight: 600; letter-spacing: .015em; background: #eaeaec; border: 0; border-radius: 5px; }
 .home-upload { min-width: 0; }
 
 .home .drop {
-  width: 100%; min-height: 324px; padding: 30px 24px;
+  width: 100%; min-height: 280px; padding: 24px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   position: relative; border: 1px solid #00000007; border-radius: 24px;
   background: #fff; color: #1d1d1f; text-align: center;
@@ -32,8 +32,8 @@
 .home .drop.over { background: #f2f8ff; border-color: #0071e3; box-shadow: 0 0 0 3px #0071e31a; }
 .home .drop.over::before { border-color: #0071e3; }
 .home .drop svg { color: currentColor; }
-.upload-symbol { display: grid; place-items: center; width: 72px; height: 72px; margin-bottom: 20px; border-radius: 20px; background: #f5f5f7; color: #6e6e73; }
-.upload-symbol svg { width: 42px; height: 42px; }
+.upload-symbol { display: grid; place-items: center; width: 60px; height: 60px; margin-bottom: 16px; border-radius: 18px; background: #f5f5f7; color: #6e6e73; }
+.upload-symbol svg { width: 36px; height: 36px; }
 .home .drop h2 { margin: 0 0 7px; color: #1d1d1f; font-size: 18px; font-weight: 600; letter-spacing: -.035em; line-height: 1.5; word-break: keep-all; }
 .home .upload-prompt { margin: 0 0 21px; color: #6e6e73; font-size: 12px; line-height: 1.6; }
 .home #pickBtn {
@@ -72,11 +72,11 @@
 
 /* TASK 카드(spec_작업 ② §15 — 2026-11-12 사용자): 할 일(task.job)마다 카드 한 장 + 로고. 카드는 app.js homeTasksDraw, 로고 그림은 index.html <symbol id="taskIcon-…">.
    로고 바탕색 = 문서(사업계획서 파랑 · 연차보고서 청록 · 이관 = 파랑→청록), 그림 = 문서 + 동작 — design.md §12. 좁을 때 줄이는 규칙도 이 절에 함께 둔다(아래 @container home). */
-.home-tasks { margin: 44px 0 0; }
+.home-tasks { margin: 28px 0 0; }
 .task-icons { position: absolute; width: 0; height: 0; overflow: hidden; }
 .home-tasks-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 13px; }
 .home-tasks-heading h2 { margin: 0; color: #1d1d1f; font-size: 20px; font-weight: 600; letter-spacing: .01em; }
-.home-tasks-heading p { margin: 0; color: #6e6e73; font-size: 12px; line-height: 1.6; word-break: keep-all; }
+.home-tasks-heading p { min-width: 0; max-width: 100%; margin: 0; color: #6e6e73; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .task-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; } /* TASK 일곱(2026-11-14 「문서 서식 복사」 — spec_서식복사 ② §1) — 한 줄 7 → 4 → 2 → 1(경계는 아래 @container home) */
 .task-cards li { display: flex; position: relative; min-width: 0; }
 .task-cards .task-card-help { position: absolute; top: 8px; right: 8px; color: #6e6e73; }
@@ -110,10 +110,8 @@
 .task-card[aria-disabled="true"] .task-card-name { color: #6e6e73; }
 .task-card[aria-disabled="true"] .task-card-go { padding: 2px 7px; margin-top: auto; color: #515154; font-size: 10px; font-weight: 600; background: #eaeaec; border-radius: 5px; }
 .task-card[aria-disabled="true"] .task-card-desc { margin-bottom: 11px; }
-/* 일곱 장 한 줄은 카드 160px(여섯 장일 때와 같은 폭 — 그보다 좁으면 「문서 여러 개 올려 시작 →」·「사업계획서 → 연차보고서」 가 넘친다) × 7 + 틈 12 × 6 = 1192px 부터.
-   본문(.home-content)은 1020px 까지라, 시작 화면 폭이 1192px 이상이면 TASK 묶음만 본문 양옆으로 86px 씩 넓힌다(카드 폭 160px 고정). 그 아래는 네 장씩(761~1191px — 카드 181px 이상), 760px 이하 두 장, 430px 이하 한 장. */
+/* 소개 · 파일 카드 · TASK 는 같은 본문 폭(최대 1280px). 일곱 TASK 가 160px 이상씩 들어갈 때 한 줄. */
 @container home (min-width: 1192px) {
-  .home-tasks { margin-inline: -86px; }
   .task-cards { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .task-card { padding-inline: 14px; }
   .task-card-doc { padding-right: 0; } /* 「사업계획서 → 연차보고서」 가 한 줄에 들어가게 — 노트 아이콘은 로고 줄 높이라 문서 줄과 안 겹친다 */
@@ -214,15 +212,13 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
   .empty.home { padding: 28px 20px 36px; scrollbar-gutter: auto; }
 }
 @container home (max-width: 760px) {
-  .home-intro { grid-template-columns: 1fr; gap: 28px; max-width: 600px; margin: 0 auto; padding-top: 0; }
-  .home-heading { text-align: center; padding-top: 0; }
-  .home-eyebrow { justify-content: center; margin-bottom: 11px; }
-  .home-heading h1 { font-size: 36px; line-height: 1.25; }
-  .home-heading h1 br { display: none; }
-  .home-subtitle { font-size: 14px; margin-top: 14px; }
-  .home-subtitle br { display: none; }
-  .home-format-note { justify-content: center; margin-top: 13px; }
-  .home .drop { min-height: 306px; }
+  .home-intro { gap: 22px; }
+  .home-heading { grid-template-columns: minmax(0, 1fr); }
+  .home-eyebrow { margin-bottom: 9px; }
+  .home-heading h1 { font-size: 30px; }
+  .home-subtitle { font-size: 13px; margin-top: 9px; }
+  .home-format-note { margin: 10px 0 0; }
+  .home .drop { min-height: 270px; }
   .home-capabilities { gap: 8px; margin: 25px 0 28px; padding-top: 20px; }
   .home-capabilities li { flex-direction: column; gap: 10px; padding: 6px 2px; }
   .home-capabilities li + li { padding-left: 12px; }
@@ -244,11 +240,10 @@ body.no-doc #worksBtn:hover { background: #e4e4e8; }
 @container home (max-width: 430px) {
   .home-intro { gap: 22px; }
   .home-eyebrow { font-size: 11px; margin-bottom: 10px; }
-  .home-heading h1 { font-size: 36px; }
-  .home-heading h1 br { display: block; }
-  .home-subtitle { font-size: 14px; max-width: 280px; margin: 14px auto 0; }
+  .home-heading h1 { font-size: 27px; }
+  .home-subtitle { font-size: 12px; margin: 9px 0 0; }
   .home-format-note { font-size: 10.5px; }
-  .home .drop { min-height: 300px; padding: 26px 18px; border-radius: 20px; }
+  .home .drop { min-height: 270px; padding: 22px 16px; border-radius: 20px; }
   .home .drop h2 { font-size: 17px; }
   .home .drop::before { inset: 7px; border-radius: 13px; }
   .home #pickBtn { min-width: 148px; height: 44px; font-size: 14px; }

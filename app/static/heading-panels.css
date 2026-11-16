@@ -102,24 +102,50 @@
 #headsReviewResult .review-nodes li { display: flex; align-items: flex-start; gap: 6px; }
 #headsReviewResult .review-node { flex: 1; min-width: 0; }
 
-#headsDlg[data-kind="templates"]:not(.folded) > .hd-tools { padding: 11px 18px; gap: 6px; background: #fafbfd; border-bottom-color: #e6eaf0; }
-.trel-toolbar-label { color: #788393; font-size: 11px; }
+#headsDlg[data-kind="templates"]:not(.folded) > .hd-tools { padding: 8px 12px; gap: 8px; background: #fafbfd; border-bottom-color: #e6eaf0; }
+/* 켜고 끄는 표시 옵션 / 한 번 실행하는 펼침·접기. 좁아지면 묶음째 내려가 단추 하나만 남지 않는다. */
+.tpl-tool-group { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+#headsTemplatesResult .tpl-tree-tools { gap: 8px; }
+#headsTemplatesResult .tpl-tree-links { gap: 6px; margin: 8px 0 2px; }
+.tpl-tools-source { display: flex; flex: 0 0 100%; min-width: 0; }
+.tpl-tools-source .src-chip { min-width: 0; max-width: 100%; }
+.tpl-tools-source .src-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-tool-group .btn.sm { height: 28px; padding: 0 8px; font-size: 11.5px; white-space: nowrap; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-display-tools .btn { display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: transparent; color: #53647f; }
+.tpl-display-tools .btn::before { content: ""; box-sizing: border-box; flex: none; width: 13px; height: 13px; border: 1px solid #a6b2c3; border-radius: 3px; background: #fff; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-display-tools .btn[aria-pressed="true"] { color: #2758c7; background: #edf3ff; border-color: #cfddf7; }
+.tpl-display-tools .btn[aria-pressed="true"]::before { border-color: #3267d1; background: #3267d1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2.5 6 2.2 2.2 4.8-4.5' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px 11px no-repeat; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-display-tools .btn:disabled { color: #96a0af; opacity: 1; cursor: default; }
+.tpl-display-tools .btn:disabled::before { border-color: #d3d9e2; background: #f3f5f8; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-tool-group .btn:hover:not(:disabled) { background-color: #e8eef9; color: #2758c7; }
+.tpl-tool-group .btn:focus-visible { position: relative; z-index: 1; outline: 2px solid #6b94e8; outline-offset: 2px; }
+.tpl-expand-tools { gap: 0; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-expand-tools .btn { background: #fff; border-radius: 0; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-expand-tools .btn:first-child { border-radius: 6px 0 0 6px; }
+:is(#paneHeads, #headsDlg[data-kind="templates"] .hd-tools) .tpl-expand-tools .btn:last-child { margin-left: -1px; border-radius: 0 6px 6px 0; }
 #headsDlg[data-kind="templates"] .hd-body { background: #fff; }
-#headsDlg[data-kind="templates"] .hd-body > h3 { display: flex; align-items: center; margin: 17px 18px 7px; font-size: 12px; font-weight: 600; color: #647084; }
-#headsDlg[data-kind="templates"] .hd-body > .trel { padding: 0 14px 10px; }
-#headsDlg[data-kind="templates"] .trel-row { min-height: 35px; gap: 5px; padding: 5px 4px; border-radius: 6px; font-size: 12px; }
-#headsDlg[data-kind="templates"] .trel-row:hover { background: #f6f8fc; }
-#headsDlg[data-kind="templates"] .trel-name { font-weight: 600; color: #26364e; min-width: 0; overflow-wrap: anywhere; }
-#headsDlg[data-kind="templates"] .trel-meta { font-size: 10.5px; color: #7b8798; white-space: nowrap; padding: 2px 6px; background: #f2f4f8; border-radius: 4px; }
-#headsDlg[data-kind="templates"] .trel-row > .panel-help { width: 23px; height: 23px; }
-#headsDlg[data-kind="templates"] .trel-row > .hb.tplno { font-size: 10.5px; line-height: 19px; padding: 0 5px; border-radius: 4px; }
-#headsDlg[data-kind="templates"] .trel-body { margin: 1px 0 7px 16px; padding-left: 12px; border-left: 1px solid #dce3ef; }
-#headsDlg[data-kind="templates"] .trel-level { font-size: 11.5px; padding: 5px 0; }
-#headsDlg[data-kind="templates"] .trel-level b { margin-right: 6px; color: #53647f; }
-#headsDlg[data-kind="templates"] .trel-levels .trel { margin-left: 4px; }
-#headsDlg[data-kind="templates"] .trel-cyc { display: flex; align-items: center; gap: 3px; color: #8a6b35; font-size: 11px; }
-#headsDlg[data-kind="templates"] .trel-inst { margin: 6px 0 9px; font-size: 11.5px; }
-#headsDlg[data-kind="templates"] .trel-inst summary { color: #6b7d98; }
+/* 템플릿 트리(.tpl-tree — app.js tplTreeDraw): 「템플릿 관계」 열과 헤딩 추출 「템플릿」 탭이 **같은 트리**를 그린다(2026-11-15 사용자 「똑같은 내용이니깐 똑같은 UI로」) — 줄 모양은 두 자리에 같은 규칙.
+   다른 것은 바깥 여백뿐: 열은 좌우 14·18px, 탭은 패널의 12px 를 그대로 쓴다(상자를 더 두르지 않는다 — design.md §1) */
+#headsDlg[data-kind="templates"] .tpl-tree > h3 { display: flex; align-items: center; margin: 17px 18px 7px; font-size: 12px; font-weight: 600; color: #647084; }
+#headsDlg[data-kind="templates"] .tpl-tree > .trel { padding: 0 14px 10px; }
+#headsTemplatesResult .tpl-tree > h3 { display: flex; align-items: center; margin: 12px 0 5px; font-size: 12px; font-weight: 600; color: #647084; }
+#headsTemplatesResult .tpl-tree > .trel { padding: 0 0 6px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row { min-height: 35px; gap: 5px; padding: 5px 4px; border-radius: 6px; font-size: 12px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row:hover { background: #f6f8fc; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-name { font-weight: 600; color: #26364e; min-width: 0; overflow-wrap: anywhere; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-meta { font-size: 10.5px; color: #7b8798; white-space: nowrap; padding: 2px 6px; background: #f2f4f8; border-radius: 4px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row > .panel-help { width: 23px; height: 23px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row > .hb.tplno { font-size: 10.5px; line-height: 19px; padding: 0 5px; border-radius: 4px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-body { margin: 1px 0 7px 16px; padding-left: 12px; border-left: 1px solid #dce3ef; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-level { font-size: 11.5px; padding: 5px 0; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-level b { margin-right: 6px; color: #53647f; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-levels .trel { margin-left: 4px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-cyc { display: flex; align-items: center; gap: 3px; color: #8a6b35; font-size: 11px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-inst { margin: 6px 0 9px; font-size: 11.5px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-inst summary { color: #6b7d98; }
+/* 패널의 단추 규칙(#paneHeads .btn.sm — 29px)은 id 가 끼어 트리 줄의 작은 단추(22px)를 이긴다 — 탭의 트리도 열의 트리와 같은 크기로 되돌린다 */
+#paneHeads .tpl-tree .olm-btn, #paneHeads .tpl-tree .olf-btn, #paneHeads .tpl-tree .olm-merge .btn { height: 22px; padding: 0 7px; font-size: 11.5px; }
+#paneHeads .tpl-tree .trel-body { margin-left: 8px; padding-left: 8px; }
 @container (max-width: 400px) { /* 꼬리표 둘·단계 탭이 한 줄에 안 들어가는 폭 — 「오늘」 을 감추고(시각만) 탭은 짧은 이름으로 */
   #headsOverview .src-chip .today { display: none; }
   #headsViewRun .stage-tabs .long { display: none; }

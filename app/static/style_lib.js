@@ -229,7 +229,7 @@ function styleChanged() { if (typeof agentStylesRefresh === "function") agentSty
 async function styleLibOpen(tab = null) { // tab = 갈래(cover·content·table·para) · 저장 꼴(kind) · 서식(요약·meta) — 그 갈래를 고른 채로 연다
   const want = slTabArg(tab);
   if (want) STYLE.tab = want;
-  headsDlg("styleLib", "서식 관리자", "보관한 표지 · 내용 · 테이블 · 문단 서식 — 어느 문서에서나 씁니다");
+  headsDlg("styleLib", "서식 관리자", "서식을 모아 두고 다른 문서에 재사용");
   const seq = heads.seq;
   STYLE.edit = null;
   styleLibDraw(); // 읽어 둔 목록이 있으면 먼저 보인다
@@ -245,6 +245,23 @@ async function styleLibLoad() {
   } catch (e) { STYLE.list = null; STYLE.err = styleErr(e); }
 }
 
+// 보관함의 조작과 빈 상태에 쓰는 선 아이콘 — 서식 견본과 구별하고 낭독은 버튼 이름에 맡긴다.
+function slLibIcon(kind) {
+  const shapes = {
+    cover: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M9 11h6M10 17h4"/>',
+    content: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h7M10 12h6M12 16h4"/>',
+    table: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M3 14.5h18M9 5v14M15 5v14"/>',
+    para: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 11h8M8 14h8M8 17h5"/>',
+    fromDoc: '<rect x="8" y="7" width="12" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2M11 11h6M11 15h6"/>',
+    fromFile: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z"/><path d="M14 3v6h6M12 18v-6M9 15l3-3 3 3"/>',
+    map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Zm6-2v16M15 5v16"/>'
+  };
+  const icon = el("span", "sl-lib-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" focusable="false">' + (shapes[kind] || shapes.content) + '</svg>';
+  return icon;
+}
+
 function styleLibDraw() {
   if (!styleLibOn()) return;
   const tools = $("headsDlgTools"), body = $("headsDlgBody"), keep = body.scrollTop, list = STYLE.list || [];
@@ -254,7 +271,9 @@ function styleLibDraw() {
   tabs.setAttribute("role", "group");
   tabs.setAttribute("aria-label", "서식 갈래");
   for (const [k, name, what] of SL_TABS) { // 갈래 고르기(세그먼트 넷 — 표지 서식 · 내용 서식 · 테이블 서식 · 문단 서식: spec_서식복사 ② §12). 고른 갈래는 문서를 바꿔도 남는다
-    const b = hBtn(STYLE.list ? `${name} ${nf(count(k))}` : name, () => { STYLE.tab = k; STYLE.edit = null; styleLibDraw(); }, { cls: "btn sm" + (STYLE.tab === k ? " on" : ""), title: `${name} — ${what}` });
+    const b = hBtn("", () => { STYLE.tab = k; STYLE.edit = null; styleLibDraw(); }, { cls: "btn sm" + (STYLE.tab === k ? " on" : ""), title: `${name} — ${what}` });
+    b.append(el("span", "sl-tab-label", name));
+    if (STYLE.list) b.append(" ", el("span", "sl-tab-count", nf(count(k))));
     b.dataset.slTab = k;
     b.setAttribute("aria-pressed", String(STYLE.tab === k));
     tabs.append(b);
@@ -263,13 +282,19 @@ function styleLibDraw() {
   const fromFile = hBtn("파일에서 복사", () => styleFilePick(), { disabled: !!STYLE.file, title: "hwp·hwpx·docx·pdf 파일을 올려 그 안의 서식 후보를 찾습니다 — 작업은 만들지 않습니다\nhwpx = 원본 서식 그대로 · docx = 요약 · pdf = 잰 값으로 근사(테이블 서식 · 쪽 설정만)" });
   fromDoc.dataset.slAct = "fromDoc";
   fromFile.dataset.slAct = "fromFile";
+  fromDoc.prepend(slLibIcon("fromDoc"));
+  fromFile.prepend(slLibIcon("fromFile"));
+  (doc ? fromDoc : fromFile).classList.add("sl-lib-primary");
   // 「서식 지도」(spec_서식복사 ② §19-3 — 같은 열을 바꿔 연다: format_map.js 의 fmtMapOpen). hwpx 문서만 — 안 되면 끄고 까닭을 도움말에(design.md §13-1)
   const hwpx = doc && state.format !== "docx", fmOk = typeof fmtMapOpen === "function";
   const fmap = hBtn("서식 지도", () => { if (typeof fmtMapOpen === "function") fmtMapOpen(); }, { disabled: !hwpx || !fmOk,
     title: !doc ? "hwpx 문서를 열어야 합니다 — 서식 지도는 문서의 어느 단락이 어느 서식인지 보입니다" : !hwpx ? "서식 지도는 hwpx 문서에서만 됩니다" : !fmOk ? "서식 지도 화면(format_map.js)을 읽지 못했습니다 — 화면을 새로 고치세요"
       : "이 문서의 어느 단락이 어느 서식인지 · 서식과 다른 단락이 있는지 봅니다(이 열을 바꿔 엽니다)" });
   fmap.dataset.slAct = "fmtMap";
-  tools.append(tabs, fromDoc, fromFile, fmap);
+  fmap.prepend(slLibIcon("map"));
+  const actions = el("div", "sl-lib-actions");
+  actions.append(fromDoc, fromFile, fmap);
+  tools.append(tabs, actions);
   if (STYLE.file) tools.append(slRun(`「${short(STYLE.file.name, 24)}」 에서 서식을 찾는 중 · ${slSecs(STYLE.file.t0)}`));
   body.textContent = "";
   const wrap = el("div", "sl-wrap");
@@ -283,11 +308,14 @@ function styleLibDraw() {
   if (!STYLE.list) { wrap.append(slRun("서식 보관함을 읽는 중…")); hFoot("", false); return; }
   const mine = list.filter((s) => slTabOf(s) === STYLE.tab), pages = STYLE.tab === "content" ? mine.filter((s) => s.kind === "page") : [];
   if (!mine.length) {
-    wrap.append(el("p", "hnote", STYLE.tab === "table"
-      ? "보관한 테이블 서식이 없습니다 — 「이 문서에서 복사」 로 문서의 표 서식을 저장하거나, 문서의 표 메뉴에서 「서식 관리자에 저장…」 을 누르세요."
-      : STYLE.tab === "cover" ? "보관한 표지 서식이 없습니다 — 「이 문서에서 복사」 로 문서 첫 쪽(제목·기관·날짜 자리 · 표지 표)의 배치를 저장하세요."
-        : STYLE.tab === "para" ? "보관한 문단 서식이 없습니다 — 「이 문서에서 복사」 로 본문·캡션·주석 같은 낱 문단의 서식을 저장하세요."
-          : "보관한 내용 서식이 없습니다 — 「이 문서에서 복사」 로 개요 레벨의 글 서식(레벨마다 레터·글자·문단 모양)과 쪽 설정(용지·방향·여백)을 저장하세요."));
+    const [, name, what] = SL_TABS.find(([k]) => k === STYLE.tab) || SL_TABS[1];
+    const empty = el("div", "sl-empty"), heading = el("div", "sl-empty-heading");
+    heading.append(el("h3", "sl-empty-title", `보관한 ${name}이 없습니다`));
+    if (typeof hHelp === "function") heading.append(hHelp(`${name} 설명`, what + (STYLE.tab === "table" ? " · 문서의 표 메뉴에서 「서식 관리자에 저장…」으로 표 하나만 저장할 수도 있습니다." : "")));
+    empty.append(slLibIcon(STYLE.tab), heading,
+      el("p", "sl-empty-next", doc ? "위의 「이 문서에서 복사」로 첫 서식을 추가하세요." : "위의 「파일에서 복사」로 첫 서식을 추가하세요."),
+      el("p", "sl-empty-reuse", "저장한 서식은 다른 문서에서도 다시 쓸 수 있습니다."));
+    wrap.append(empty);
   }
   for (const s of mine) if (s.kind !== "page") wrap.append(styleItemEl(s));
   if (pages.length) { // 내용 서식 갈래 안의 한 구역 「쪽 설정」(② §12 — 전의 「문서 서식」)

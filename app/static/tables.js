@@ -1444,7 +1444,7 @@ async function tblAgentView(tid) {
   // 작성요령의 세 묶음(spec ② §18 — 사용자 2026-11-12 "작성요령에는 문서에서 제공하는 작성요령, 다른 지침에서 제공하는 작성가이드라인도 있지만 셀에 값을 넣는 방식이나 규칙도"):
   // ① 문서의 작성요령(표 안·앞뒤 안내 + 뒤따르는 「작성 요령」 표) ② 지침(양식·공통·이 표 — 무엇을 적는가) ③ 칸 입력 규칙(기본·공통·이 표 — 어떻게 적는가)
   const { tools, body } = headsDlg("tableAgent", isCommon ? "공통 표 지침" : `작성요령 · 표 지침 · ${tid}`,
-    isCommon ? "이 문서의 모든 표에 함께 주는 지침·칸 입력 규칙 — 「표 채우기」·「표 만들기」·「LLM 수식 판정」 의 LLM 에 함께 갑니다" : "① 문서의 작성요령 ② 지침 ③ 칸 입력 규칙 — 「표 채우기」 에이전트가 따르는 기준");
+    isCommon ? "이 문서의 모든 표에 적용하는 작성 기준" : "지침과 입력 규칙을 저장해 표 채우기에 활용합니다");
   const seq = heads.seq, id = state.id, epoch = state.epoch;
   hFoot("읽는 중…", false);
   let a;
@@ -1453,7 +1453,7 @@ async function tblAgentView(tid) {
   if (seq !== heads.seq || epoch !== state.epoch) return;
   await xlStore();
   if (seq !== heads.seq || epoch !== state.epoch) return;
-  const wrap = el("div", "ta-wrap");
+  const wrap = el("div", "ta-wrap ta-editor"), context = el("div", "ta-context"), owner = el("div", "ta-owner-row");
   const ident = el("div", "ta-ident");
   const t = a.ident;
   if (!isCommon) ident.append(el("b", null, tid));
@@ -1461,33 +1461,40 @@ async function tblAgentView(tid) {
     ident.append(el("span", null, `${t.rows}×${t.cols} · 칸 ${nf(t.cells)}${t.depth > 1 ? " · 표 안 표" : ""}`));
     const o = t.owner;
     if (o && !o.root) {
-      ident.append(el("span", "muted", "소속"), hasBlock(o.para) ? hBtn(ownerLabel(o), () => headsGo(o.para), { title: (o.path || []).concat([o.text]).join(" › ") || "문서의 그 헤딩으로" }) : el("b", null, ownerLabel(o)));
-      if ((o.path || []).length) ident.append(el("span", "muted", `(${o.path.join(" › ")})`));
-      if (o.division) ident.append(el("span", "hb div", `구분 라벨 ${o.division.text}`));
-    } else ident.append(el("span", "muted", o && o.root ? "소속: 문서 뿌리(위에 헤딩 없음)" : "소속: 모름"));
+      owner.append(el("span", "muted", "소속"), hasBlock(o.para) ? hBtn(ownerLabel(o), () => headsGo(o.para), { title: (o.path || []).concat([o.text]).join(" › ") || "문서의 그 헤딩으로" }) : el("b", null, ownerLabel(o)));
+      if ((o.path || []).length) { const path = el("span", "ta-owner-path", o.path.join(" › ")); path.title = path.textContent; owner.append(path); }
+      if (o.division) owner.append(el("span", "hb div", `구분 라벨 ${o.division.text}`));
+    } else owner.append(el("span", "muted", o && o.root ? "소속: 문서 뿌리(위에 헤딩 없음)" : "소속: 모름"));
     if ((t.basis || []).length) ident.append(el("span", "hb", `구분 ${basisNames(t.basis)}`));
     if (t.unit) ident.append(el("span", "hb", `단위 ${t.unit}`));
     if (t.calc && t.calc.is) ident.append(el("span", "hb", `수식 ${nf(t.calc.formulas)}${t.calc.mismatch ? ` · 불일치 ${nf(t.calc.mismatch)}` : ""}`));
-    if (t.before) ident.append(el("span", "muted", `앞 문단 「${short(t.before, 36)}」`));
+    if (t.before) owner.append(hHelp("표 앞 문단", t.before));
   }
-  if (!isCommon) wrap.append(ident);
-  const acts = el("div", "ta-row");
+  if (!isCommon) { context.append(ident, owner); wrap.append(context); }
+  const acts = el("div", "ta-row ta-actions");
   if (t && t.host && hasBlock(t.host)) acts.append(hBtn("표 자리로", () => headsGo(t.host), { title: "문서에서 이 표를 품은 문단으로" }));
-  if (t) acts.append(hBtn("격자(표 보기)", () => headsTables(tid), { title: "칸 역할 격자 · 수식 검증 · 필드 목록" }));
-  if (!isCommon) acts.append(hBtn("엑셀식 보기", () => xlColumn(tid), { title: "이 열에 A1 격자(수식 계산 · 문서에 반영)" }));
-  if (!isCommon && state.format !== "docx" && typeof tblFillView === "function") acts.append(hBtn("에이전트로 표 채우기", () => { if (tblAgentLeave()) tblFillView(tid); /* 저장 안 한 지침·규칙이 있으면 먼저 묻는다 — 채우기에는 저장된 글만 간다 */ }, { title: "이 작성요령·지침·칸 입력 규칙에 맞춰 빈 칸에 넣을 값을 LLM 이 제안합니다 — 고른 것만 문서에 들어갑니다(table_fill.js)" }));
-  if (!isCommon && !a.stage3 && state.format !== "docx") acts.append(hBtn("표 구조 만들기(스크립트)", () => headsStart(3, false), { title: "3단계 표 구조를 만들면 소속·작성요령·구조·수식이 채워집니다" }));
-  if (!isCommon) wrap.append(acts);
-  if (!isCommon && !a.stage3) wrap.append(el("p", "hnote", state.format === "docx" ? "3단계 표 구조는 hwpx 만 — 지침만 저장합니다." : "3단계 표 구조 결과에 이 표가 없어 소속·표 앞뒤 안내 문단·구조·수식은 비어 있습니다 — 뒤따르는 「작성 요령」 표와 지침·칸 입력 규칙은 그대로 씁니다."));
+  if (t) acts.append(hBtn("격자(표 보기)", () => { if (tblAgentLeave()) headsTables(tid); }, { title: "칸 역할 격자 · 수식 검증 · 필드 목록" }));
+  if (!isCommon) acts.append(hBtn("엑셀식 보기", () => { if (tblAgentLeave()) xlColumn(tid); }, { title: "이 열에 A1 격자(수식 계산 · 문서에 반영)" }));
+  if (!isCommon && state.format !== "docx" && typeof tblFillView === "function") acts.append(hBtn("에이전트로 표 채우기", () => { if (tblAgentLeave()) tblFillView(tid); /* 저장 안 한 지침·규칙이 있으면 먼저 묻는다 — 채우기에는 저장된 글만 간다 */ }, { cls: "btn sm primary", title: "이 작성요령·지침·칸 입력 규칙에 맞춰 빈 칸에 넣을 값을 LLM 이 제안합니다 — 고른 것만 문서에 들어갑니다" }));
+  if (!isCommon && !a.stage3 && state.format !== "docx") acts.append(hBtn("표 구조 만들기(스크립트)", () => { if (tblAgentLeave()) headsStart(3, false); }, { title: "3단계 표 구조를 만들면 소속·작성요령·구조·수식이 채워집니다" }));
+  if (!isCommon) context.append(acts);
+  if (!isCommon && !a.stage3) context.append(el("p", "hnote", state.format === "docx" ? "DOCX 문서는 지침과 규칙을 저장할 수 있습니다." : "표 구조 분석 전입니다. 작성요령과 지침은 지금도 사용할 수 있습니다."));
   const guideKeep = (n) => { // 「작성 요령」 표의 글을 이 표 지침에 — 작성 요령 표는 제출 전에 지우는 표라, 붙여 두면 표를 지운 뒤에도 남는다(저장은 사람이)
     const add = `[${n.title || "작성 요령"}]\n${n.text || ""}`.trim();
     if (n.text && own.ta.value.includes(n.text)) { toast("이미 이 표 지침에 들어 있습니다"); return; }
     own.ta.value = (own.ta.value.trim() ? `${own.ta.value.trim()}\n\n` : "") + add;
     own.ta.oninput();
+    selectSection("instructions");
     own.ta.scrollIntoView({ block: "nearest" });
+    own.ta.focus({ preventScroll: true });
     toast("이 표 지침에 붙였습니다 — 「저장」 을 눌러야 남습니다");
   };
-  if (!isCommon) wrap.append(el("div", "ta-group", `① 문서의 작성요령 ${nf((a.notes || []).length)}`));
+  const source = el("details", "ta-source");
+  source.open = !!(a.notes || []).length && !(a.notes || []).some((n) => n.where === "guide" || (n.text || "").length > 180) && a.notes.length <= 2;
+  if (!isCommon) {
+    source.append(el("summary", "ta-group", `① 문서의 작성요령 ${nf((a.notes || []).length)}`));
+    wrap.append(source);
+  }
   if (isCommon) { /* 공통 — 작성요령 없음 */ } else if ((a.notes || []).length) {
     const ul = el("ul", "ta-notes");
     const WHERE = { before: "표 앞", cell: "표 안", after: "표 뒤", guide: "작성 요령 표" };
@@ -1505,81 +1512,141 @@ async function tblAgentView(tid) {
       else li.append(el("span", null, short(n.text, 160)));
       ul.append(li);
     }
-    wrap.append(ul);
-  } else wrap.append(el("p", "hnote", "표 안 안내 칸 · 표 앞뒤의 ※ 안내 문단 · 뒤따르는 「작성 요령」 표에서 찾은 작성요령이 없습니다 — 요령을 아래 「이 표 지침」 에 적어 둘 수 있습니다."));
-  const area = (title, rec, placeholder, field = "instructions") => { // field = instructions(지침) | rules(칸 입력 규칙) — 같은 기록(version 하나)의 두 글
-    wrap.append(el("h3", null, title));
+    source.append(ul);
+  } else source.append(el("p", "hnote", "문서에서 찾은 작성요령이 없습니다. 필요한 내용은 「이 표 지침」에 적으세요."));
+  // 두 탭은 같은 DOM을 유지한다 — 탭을 옮겨도 초안·저장 상태가 사라지지 않는다.
+  const tabs = el("div", "ta-editor-tabs"), sections = {}, tabButtons = {}, tabDirty = {};
+  tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "표 작성 기준");
+  const selectSection = (key, focus = false) => {
+    for (const k of Object.keys(sections)) {
+      sections[k].hidden = k !== key;
+      tabButtons[k].setAttribute("aria-selected", String(k === key));
+      tabButtons[k].tabIndex = k === key ? 0 : -1;
+    }
+    body.scrollTop = 0;
+    if (focus) tabButtons[key].focus();
+  };
+  for (const [key, title] of [["instructions", "작성 지침"], ["rules", "칸 입력 규칙"]]) {
+    const section = el("section", "ta-section"), button = el("button"), dirty = el("span", "ta-tab-dirty");
+    section.dataset.taSection = button.dataset.taTab = key;
+    section.id = `ta-section-${seq}-${key}`; button.id = `ta-tab-${seq}-${key}`;
+    section.setAttribute("role", "tabpanel"); section.setAttribute("aria-labelledby", button.id);
+    button.type = "button"; button.setAttribute("role", "tab"); button.setAttribute("aria-controls", section.id);
+    button.onclick = () => selectSection(key);
+    button.onkeydown = (e) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      selectSection(e.key === "Home" ? "instructions" : e.key === "End" ? "rules" : key === "instructions" ? "rules" : "instructions", true);
+    };
+    dirty.hidden = true; button.append(el("span", null, title), dirty); tabs.append(button);
+    sections[key] = section; tabButtons[key] = button; tabDirty[key] = dirty;
+    wrap.append(section);
+  }
+  const area = (title, rec, placeholder, field, scope) => { // 같은 기록(version 하나)의 instructions/rules를 따로 저장한다.
+    const box = el("div", "ta-field"), head = el("div", "ta-field-head"), heading = el("h3"), label = el("label", null, title);
+    box.dataset.taScope = scope; box.dataset.taField = field;
     const ta = el("textarea");
+    ta.id = `ta-${seq}-${scope}-${field}`; label.htmlFor = ta.id;
     ta.value = rec[field] || "";
     ta.defaultValue = ta.value;
     ta.placeholder = placeholder;
-    ta.rows = field === "rules" ? 3 : title.startsWith("공통") ? 4 : 8;
-    const row = el("div", "ta-row"), st = el("span", "muted", rec.updated ? `v${rec.version} · ${fmtWhen(rec.updated)}` : field === "rules" ? "저장된 규칙 없음" : "저장된 지침 없음");
-    wrap.append(ta, row);
-    return { ta, row, st, field };
+    ta.rows = scope === "own" && field === "instructions" ? 4 : 3;
+    const range = el("span", "ta-scope", scope === "common" ? "문서 전체" : "이 표만");
+    range.id = `${ta.id}-scope`; range.title = scope === "common" ? "이 문서의 모든 표에 적용합니다" : "지금 선택한 표에만 적용합니다";
+    ta.setAttribute("aria-describedby", range.id);
+    heading.append(label); head.append(heading, range);
+    const row = el("div", "ta-row ta-field-actions"), st = el("span", "ta-save-state");
+    st.setAttribute("role", "status");
+    box.append(head, ta, row); sections[field].append(box);
+    return { box, ta, row, st, field, error: "", saving: false, saved: false };
   };
-  wrap.append(el("div", "ta-group", "② 지침 — 무엇을 적는가"));
+  sections.instructions.append(el("div", "ta-group", "② 지침 — 무엇을 적는가"));
   { // 양식 지침 — 양식 정보(forms/<양식>.md)의 「표」 절: 이 양식의 모든 문서에 공통(spec_헤딩_추출 ② §12). 여기서는 보기만 — 고치기는 양식 정보 편집기
-    wrap.append(el("h3", null, "양식 지침 — 이 양식의 모든 문서"));
-    if (a.form) wrap.append(el("pre", "ta-prompt", a.form));
-    else wrap.append(el("p", "hnote", "양식 정보에 「표」 절이 없습니다 — 표에 대한 요청을 양식마다 두려면 양식 정보의 「## 표」 절에 적으세요."));
+    const row = el("div", "ta-form-row"), form = el("details", "ta-form-note"), summary = el("summary");
+    summary.append(el("h3", null, "양식 지침"), el("span", "ta-scope", "양식 전체"), el("span", "muted", a.form ? "등록됨" : "없음"));
+    form.append(summary);
+    if (a.form) form.append(el("pre", "ta-prompt", a.form));
+    else form.append(el("p", "hnote", "같은 양식의 모든 문서에 쓸 지침은 양식 정보의 「표」 절에 적으세요."));
+    row.append(form);
     if (typeof divFormOpen === "function") {
-      const row = el("div", "ta-row");
-      row.append(hBtn("양식 정보 열기", () => divFormOpen(), { title: "양식 정보 편집기(2열) — 「## 표」 절을 고치면 다음 LLM 호출부터 함께 갑니다" }));
-      wrap.append(row);
+      row.append(hBtn("양식 정보 열기", () => divFormOpen(), { title: "같은 양식의 모든 문서에 쓰는 지침을 보고 고칩니다" }));
     }
+    sections.instructions.append(row);
   }
-  const common = area("공통 지침 — 이 문서의 모든 표", a.common, "모든 표에 함께 주는 지침(예: 금액은 천원 단위 · 합계는 행·열 모두 검산 · 빈 칸은 「-」 로)");
-  const own = isCommon ? null : area("이 표 지침", a.own, "이 표에만 주는 지침(예: 1차년도 열은 2026년 · 기관부담 현물은 인건비만 · 비율은 소수 첫째 자리까지)");
+  const common = area("공통 지침", a.common, "예: 금액은 천원 단위, 합계는 행·열 모두 검산", "instructions", "common");
+  const own = isCommon ? null : area("이 표 지침", a.own, "예: 1차년도는 2026년, 기관부담 현물은 인건비만", "instructions", "own");
   // ③ 칸 입력 규칙 — 칸에 값을 넣는 방식(spec ② §18): 앱 기본 규칙(늘 함께 감 — 보기만) → 공통 규칙 → 이 표 규칙(어긋나면 뒤의 것이 우선) + 표에서 읽은 칸 꼴
-  wrap.append(el("div", "ta-group", "③ 칸 입력 규칙 — 칸에 값을 어떻게 넣는가"));
+  sections.rules.append(el("div", "ta-group", "③ 칸 입력 규칙 — 칸에 값을 어떻게 넣는가"));
   if (a.forms) {
-    const p = el("p", "hnote", `표에서 읽은 칸 꼴 — ${a.forms.text || "채우는 필드 없음"} · 채우는 필드 ${nf(a.forms.fields)}개 가운데 빈 자리 ${nf(a.forms.open)}개`);
+    const p = el("p", "hnote ta-rules-summary", `표에서 읽은 칸 꼴 — ${a.forms.text || "채우는 필드 없음"} · 채우는 필드 ${nf(a.forms.fields)}개 가운데 빈 자리 ${nf(a.forms.open)}개`);
     p.title = "칸 글에서 읽은 「값을 넣는 방식」 — 체크 = 「[ ]」·「□」 · 날짜 = 「YYYY.MM.DD」·「20  년  월  일」 · 수 = 「0,000」 · 비율 = 「00%」 · 글 자리표시 = 「○○」·「제20xx-xx호」\n빈 자리 = 글 없음 · 자리표시뿐 · 표시 없는 체크 칸 · 숫자가 빠진 날짜(「표 채우기」 가 채우는 칸)";
-    wrap.append(p);
+    sections.rules.append(p);
   }
   {
-    const dr = el("details", "more hblock");
-    dr.append(el("summary", null, "기본 규칙(앱) — 모든 문서의 표 채우기에 늘 함께 갑니다(공통·이 표 규칙과 어긋나면 그쪽이 우선)"), el("pre", "ta-prompt", a.rulesDefault || ""));
-    wrap.append(dr);
+    const dr = el("details", "more hblock ta-default-rules"), summary = el("summary", null, "기본 규칙(앱)");
+    summary.append(hHelp("기본 규칙 적용 범위", "모든 문서의 표 채우기에 함께 적용합니다. 공통 규칙이나 이 표 규칙과 다르면 직접 적은 규칙을 우선합니다."));
+    dr.append(summary, el("pre", "ta-prompt", a.rulesDefault || ""));
+    sections.rules.append(dr);
   }
-  const crule = area("공통 규칙 — 이 문서의 모든 표", a.common, "모든 표의 칸에 값을 넣는 방식(예: 날짜는 YYYY.MM.DD · 금액은 천원 단위 정수 · 해당 없는 칸은 「-」)", "rules");
-  const orule = isCommon ? null : area("이 표 규칙", a.own, "이 표의 칸에 값을 넣는 방식(예: 체크는 「[ √ ]」 · 과제번호는 RS-로 시작하는 번호 그대로 · 비율은 정수 %)", "rules");
+  const crule = area("공통 규칙", a.common, "예: 날짜는 YYYY.MM.DD, 해당 없는 칸은 「-」", "rules", "common");
+  const orule = isCommon ? null : area("이 표 규칙", a.own, "예: 체크는 「[ √ ]」, 비율은 정수 %로 입력", "rules", "own");
   const pre = el("pre", "ta-prompt", a.prompt || "");
   const WHAT = { instructions: "지침", rules: "칸 입력 규칙" };
+  let saving = false;
   const save = async (kind, w) => { // w = area() 가 돌려준 글상자 — w.field 만 보낸다(같은 기록의 다른 글은 그대로)
-    const which = w, target = kind === "common" ? "_common" : tid, rec = kind === "common" ? a.common : a.own;
-    const text = which.ta.value;
-    which.st.textContent = "저장 중…";
+    if (saving || w.ta.value === w.ta.defaultValue) { syncFields(); return; }
+    const target = kind === "common" ? "_common" : tid, rec = kind === "common" ? a.common : a.own, text = w.ta.value;
+    saving = w.saving = true; w.error = ""; syncFields();
     try {
       const r = await api(tblAgentUrl(target), { method: "PUT", headers: H_JSON, body: JSON.stringify({ [w.field]: text, version: rec.version }) });
       if (seq !== heads.seq || epoch !== state.epoch) return;
       a.common = r.common; a.own = kind === "common" ? a.own : r.own; a.prompt = r.prompt;
-      if (kind === "common") a.common = r.common; else a.own = r.own;
-      which.ta.defaultValue = which.ta.value;
-      const now = kind === "common" ? a.common : a.own;
-      which.st.textContent = `v${now.version} · ${fmtWhen(now.updated)} · 저장함`;
+      // 응답을 기다리며 더 적은 글은 초안으로 남긴다. 서버에 보낸 글만 저장된 기준이다.
+      w.ta.defaultValue = text; w.saved = true;
       pre.textContent = a.prompt || "";
       await xlStore(true);
       tblMarksDraw();
       toast(kind === "common" ? `공통 표 ${WHAT[w.field]}을 저장했습니다` : `표 ${tid} ${WHAT[w.field]}을 저장했습니다`);
     } catch (e) {
       if (seq !== heads.seq || epoch !== state.epoch) return;
-      which.st.textContent = e.status === 409 ? "다른 화면이 먼저 저장 — 열을 다시 열어 확인하세요" : `저장 실패: ${e.message}`;
+      w.error = e.status === 409 ? "다른 화면이 먼저 저장 — 열을 다시 열어 확인하세요" : `저장 실패: ${e.message}`;
       toast(e.status === 409 ? "표 지침이 다른 곳에서 바뀌었습니다 — 열을 다시 여세요" : `표 ${WHAT[w.field]}을 저장하지 못했습니다: ${e.message}`, true);
+    } finally {
+      saving = w.saving = false;
+      if (seq === heads.seq && epoch === state.epoch) syncFields();
     }
   };
   const boxes = [["common", common], ["common", crule], ...(isCommon ? [] : [["own", own], ["own", orule]])];
+  const syncFields = () => {
+    for (const [kind, w] of boxes) {
+      const rec = kind === "common" ? a.common : a.own, dirty = w.ta.value !== w.ta.defaultValue;
+      w.box.dataset.dirty = String(dirty);
+      w.save.disabled = saving || !dirty;
+      w.clear.disabled = saving || !w.ta.value;
+      w.st.dataset.state = w.saving ? "saving" : w.error ? "error" : dirty ? "dirty" : w.saved || (rec.updated && w.ta.defaultValue) ? "saved" : "clean";
+      w.st.textContent = w.saving ? "저장 중…" : w.error || (dirty ? "저장 안 함" : w.st.dataset.state === "saved" ? `저장됨 · v${rec.version}` : `저장된 ${w.field === "rules" ? "규칙" : "지침"} 없음`);
+      w.st.title = rec.updated ? `마지막 저장 ${fmtWhen(rec.updated)}` : "";
+    }
+    for (const key of Object.keys(tabDirty)) {
+      const n = boxes.filter(([, w]) => w.field === key && w.ta.value !== w.ta.defaultValue).length;
+      tabDirty[key].hidden = !n;
+      tabDirty[key].textContent = n ? `수정 ${n}` : "";
+    }
+  };
   for (const [kind, w] of boxes) {
-    w.row.append(hBtn("저장", () => save(kind, w), { cls: "btn sm primary" }), hBtn("지우기", () => { w.ta.value = ""; save(kind, w); }, { title: `${WHAT[w.field]}을 빈 글로 저장` }), w.st);
-    w.ta.oninput = () => { w.st.textContent = w.ta.value !== w.ta.defaultValue ? "저장 안 함" : (kind === "common" ? a.common : a.own).updated ? `v${(kind === "common" ? a.common : a.own).version}` : ""; };
+    w.save = hBtn("저장", () => save(kind, w), { cls: "btn sm primary" });
+    w.clear = hBtn("지우기", () => { w.ta.value = ""; w.error = ""; save(kind, w); }, { title: `${WHAT[w.field]}을 빈 글로 저장` });
+    w.save.dataset.taAction = "save"; w.clear.dataset.taAction = "clear";
+    w.row.append(w.save, w.clear, w.st);
+    w.ta.oninput = () => { w.error = ""; syncFields(); };
   }
-  const d = el("details", "more hblock");
-  d.append(el("summary", null, "에이전트 입력 미리보기 — 표 식별 · 작성요령 · 지침 · 칸 입력 규칙 · 표 구조 · 수식(저장하면 새로)"), pre);
+  syncFields(); selectSection("instructions");
+  const d = el("details", "more hblock ta-preview");
+  d.append(el("summary", null, "에이전트 입력 미리보기"), pre);
   wrap.append(d);
   body.append(wrap);
   heads.xl.agent = { tid, dirty: () => boxes.some(([, w]) => w.ta.value !== w.ta.defaultValue) };
-  tools.append(el("span", "muted", "지침·칸 입력 규칙은 이 작업(문서)에 저장됩니다 · 「표 채우기」 는 셋(작성요령·지침·칸 입력 규칙)을 모두, 「LLM 수식 판정」·「표 만들기」 는 지침만 함께 받습니다"));
+  tools.append(tabs, hHelp("표 지침 안내", "지침과 칸 입력 규칙은 이 작업(문서)에 저장됩니다.\n표 채우기는 작성요령·지침·칸 입력 규칙을 모두 사용하고, LLM 수식 판정과 표 만들기는 지침을 함께 받습니다.\n저장한 내용은 다음 제안부터 적용됩니다."));
   hFoot(isCommon ? `공통 v${a.common.version}` : `표 ${tid}${a.stage3 ? "" : " · 3단계 없음"} · 공통 v${a.common.version} · 이 표 v${a.own.version}`, false);
 }
 

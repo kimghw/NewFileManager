@@ -2,10 +2,10 @@
 
     python -X utf8 tools/smoke_first_run_ui.py <그림·임시 폴더> [--rnd] [--port 18171]
 
-- 새 작업(예제를 화면에서 엶): 헤딩 탭을 열지 않아도 `POST …/headings {first: true}` 한 번으로 2·3단계 결과·개요 편집이 생기고, `POST …/divisions/review {auto: true}` 는
-  안 돌 까닭({skipped})으로 끝난다(작은 문서 = 지원 양식 아님, LLM 끔). 같은 예제를 다시 열면(이어 열기) 둘 다 다시 부르지 않는다.
+- 새 작업(예제를 화면에서 엶): 헤딩 탭을 열지 않아도 `POST …/headings {first: true}` 한 번으로 2·3단계 결과·개요 편집이 생기고, 이름 줄의 분석 상태가 「헤딩 ✓ · 표 ✓ · LLM 안 함」 이 된다.
+  **구분 기준 LLM 검토(`POST …/divisions/review`)는 부르지 않는다**(2026-11-15 — spec_작업 ② §20 「구분 기준은 옵션」: 전에는 {auto: true} 로 한 번 불렀다). 같은 예제를 다시 열면(이어 열기) 다시 부르지 않는다.
 - 구분 기준 탭: 「LLM 검토」 → 2열 「구분 기준 — LLM 검토 결과」 → 「LLM 검토 실행」(응답은 page.route 로 끼운 가짜 — 재검토 1 + 빠진 자리 2) → 한 표·단추 글.
-- --rnd: 연구개발계획서 양식(지원 양식)을 새 작업으로 열어 첫 분석이 끝나는 시간과 쪽 여백 표시 수를 잰다(LLM 끔 → 검토는 {skipped: "llm"}). 4분쯤 더 걸린다."""
+- --rnd: 연구개발계획서 양식(지원 양식)을 새 작업으로 열어 첫 분석이 끝나는 시간과 쪽 여백 표시 수를 잰다(검토는 안 부름 — 이름 줄에 「구분 기준 안 함」). 4분쯤 더 걸린다."""
 import argparse
 import json
 import os
@@ -107,14 +107,12 @@ try:
         print("INFO 쪽 여백 표시(.tpl-mark)", page.locator("#doc .tpl-mark").count(), flush=True)
         heads_posts = [p for p in posts if p[0] == "headings"]
         check("POST …/headings 는 {first: true} 한 번", len(heads_posts) == 1 and json.loads(heads_posts[0][1]) == {"first": True}, heads_posts)
-        page.wait_for_function("() => true", timeout=1000)
-        for _ in range(100):
-            if reviews:
-                break
-            page.wait_for_timeout(100)
+        page.wait_for_timeout(2500)  # 전에는 이 사이 {auto: true} 검토가 한 번 나갔다
         rev_posts = [p for p in posts if p[0] == "divisions/review"]
-        check("POST …/divisions/review 는 {auto: true} 한 번", len(rev_posts) == 1 and json.loads(rev_posts[0][1]) == {"auto": True}, rev_posts)
-        check("작은 문서 — 검토는 호출 없이 {skipped}", len(reviews) == 1 and reviews[0][0] == 200 and reviews[0][1].get("skipped") in ("unsupported", "llm"), reviews)
+        check("첫 분석은 구분 기준 LLM 검토를 부르지 않는다(POST …/divisions/review 0번 — ② §20 「구분 기준은 옵션」)", not rev_posts and not reviews, [rev_posts, reviews])
+        page.wait_for_function("() => document.getElementById('docStatus').dataset.base === 'done'", timeout=15000)
+        chips = page.evaluate("() => [...document.querySelectorAll('#docStatus .ds-chip')].map((c) => [...c.querySelectorAll('.ds-text, .ds-mark')].map((e) => e.textContent).join(' '))")
+        check("이름 줄의 분석 상태 — 「헤딩 ✓ · 표 ✓ · LLM 안 함」 · 「분석」 단추 없음", chips == ["헤딩 ✓", "표 ✓", "LLM 안 함"] and page.locator("#docStatus .ds-go").count() == 0, chips)
         page.click("#tabHeads")
         page.wait_for_function("() => !document.getElementById('paneHeads').hidden && document.querySelector('#headsOverview .result-metric') != null", timeout=30000)
         page.wait_for_timeout(1500)
@@ -201,11 +199,10 @@ try:
             c = page.evaluate("() => ({ nodes: heads.view.stage2.counts.nodes, templates: heads.view.stage2.counts.templates, tables: heads.view.stage3.counts.tables, marks: document.querySelectorAll('#doc .tpl-mark').length })")
             print(f"INFO 양식: 문서 그림 {t_doc:.1f}s · 첫 분석 끝 {t_first:.1f}s · 쪽 여백 표시 {t_marks:.1f}s · {c}", flush=True)
             check("양식 — 2·3단계 결과", c["nodes"] > 500 and c["tables"] > 50 and c["marks"] > 100, c)
-            for _ in range(100):
-                if reviews:
-                    break
-                page.wait_for_timeout(100)
-            check("양식(지원 양식) — LLM 끔이라 검토는 {skipped: llm}", len(reviews) == 1 and reviews[0][1] == {"skipped": "llm", "review": None}, reviews)
+            page.wait_for_timeout(2500)
+            check("양식(지원 양식) — 첫 분석은 구분 기준 LLM 검토를 부르지 않는다", not reviews, reviews)
+            chips = page.evaluate("() => [...document.querySelectorAll('#docStatus .ds-chip')].map((c) => [...c.querySelectorAll('.ds-text, .ds-mark')].map((e) => e.textContent).join(' '))")
+            check("양식 — 이름 줄 「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」", chips == ["헤딩 ✓", "표 ✓", "LLM 안 함", "구분 기준 안 함"], chips)
             page.screenshot(path=str(OUT / "4_rnd_first_run.png"))
 
         bad = [e for e in errors if "Failed to load resource" not in e]
