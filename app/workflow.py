@@ -47,12 +47,14 @@ COMMON = (
                 agents=("verify_review",), modules=("verify", "verify_llm", "pdf_render", "pdf_map"), spec=(SP_WEB, "② §3·§4-1")),
              _s("firstHeads", "기본 분석 — 헤딩 그래프 · 표 구조", "script", "새 작업을 처음 열 때 한 번, 헤딩 추출 2단계(헤딩 그래프) → 3단계(표 구조: 열헤더 · 행헤더 등 칸 역할)를 스크립트만으로 잇달아 돌립니다(hwpx). "
                 "어느 TASK 든 같고, 이미 결과가 있는 단계는 건너뜁니다.", out="헤딩 그래프 · 표 구조(뼈대)", change="store", auto=True, uses=("headings",), modules=("heading_runs",), spec=(SP_WORK, "② §9")),
-             _s("status", "분석 상태 표시", "script", "문서 이름 줄에 헤딩 · 표(스크립트) · LLM 판정 · 구분 기준 검토가 어디까지 됐는지 보입니다(「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」) — 어느 TASK 에서나 같은 꼴. "
-                "기본 분석이 없는 문서에는 「분석」 단추가 뜹니다.", out="분석 상태", auto=True, modules=("analysis",), spec=(SP_WORK, "② §20")),
-             _s("llm", "LLM 판정(분리)", ("human", "llm"), "헤딩 · 표의 LLM 판정은 기본 분석과 따로이고 저절로 돌지 않습니다 — 「헤딩 추출」 탭의 「헤딩 그래프(LLM)」 · 「표 구조(LLM)」 단추로 돌립니다(유료). "
-                "헤딩의 LLM 판정은 스크립트가 판정한 헤딩 후보뿐 아니라 판정하지 못한 첫머리 묶음(못 맞춤 · 충돌)도 봅니다 — 그래프를 짓기 전에 그 묶음의 규칙 보강을 먼저 돕니다.",
-                out="LLM 판정을 거친 헤딩 그래프 · 표 구조", change="store", optional=True, uses=("headings",),
-                agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables"), modules=("heading_runs",), spec=(SP_WORK, "② §20")),
+             _s("status", "분석 상태 표시 · 진행표", "script", "어느 문서든 같은 네 가지 일 — 헤딩 · 템플릿 · 서식 · 표 — 이 어디까지 됐는지 문서 이름 줄에 보입니다(「헤딩 ✓ · 템플릿 ✓ · 서식 0/4 · 표 ✓ · LLM 안 함」 — "
+                "서식 = 서식 갈래가 하나뿐인 레벨 / 레벨). 표시를 누르면 진행표가 펼쳐집니다 — 일마다 스크립트(올리면 저절로) · LLM 검증·보완(단추로) · 문서 반영 세 칸, 칸을 누르면 그 도구로. "
+                "기본 분석이 없는 문서에는 「분석」 단추가 뜹니다.", out="분석 상태 · 진행표", auto=True, modules=("analysis", "analysis_api"), spec=(SP_WORK, "② §20")),
+             _s("llm", "LLM 검증·보완(분리)", ("human", "llm"), "저절로 돌지 않습니다 — 진행표의 「LLM 검증·보완」 단추 하나가 헤딩 · 템플릿(헤딩 그래프 LLM) → 표(표 구조 LLM) → 서식(템플릿마다 서식 정리 계획)을 차례로 돌립니다(유료 · 이미 거친 것은 건너뜀). "
+                "문서는 안 바뀝니다 — 계획의 반영은 「템플릿 서식 정리」 열에서 고른 것만. 헤딩 판정은 스크립트가 판정하지 못한 첫머리 묶음(못 맞춤 · 충돌)의 규칙 보강부터 합니다.",
+                out="LLM 판정을 거친 헤딩 그래프 · 표 구조 · 서식 정리 계획", change="store", optional=True, uses=("headings", "outline"),
+                agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent"),
+                modules=("analysis_llm", "heading_runs", "tpl_agent_api"), spec=(SP_WORK, "② §20")),
              _s("division", "구분 기준 LLM 검토(옵션)", ("human", "llm"), "연구개발과제 문서(지원 양식)에만 있는 항목입니다. 저절로 돌지 않습니다 — 이름 줄의 「구분 기준」 표시로 검토 결과 열을 열거나 프로젝트 구성의 「LLM 검토」 로 "
                 "열어 「LLM 검토 실행」 을 눌러 돌립니다(유료). 일반 문서(문서 일반 편집 · 문서 서식 복사)에는 항목이 없습니다.", out="빠진 자리 후보 · 재검토", change="store", optional=True, uses=("division",), agents=("div_review", "div_missing"),
                 modules=("division_llm",), spec=(SP_WORK, "② §20")),
@@ -232,7 +234,7 @@ _C_RUNNING = _c("running", "enter", "지금 도는 실행", "이 문서에 「�
 
 
 def _c_status(general=False):
-    return _c("status", "upload", "분석 상태 표시", "문서 이름 줄에 헤딩 · 표 · " + ("LLM 판정이" if general else "LLM 판정 · 구분 기준 검토가") + " 어디까지 됐는지 보입니다 — 어느 TASK 에서나 같은 꼴입니다"
+    return _c("status", "upload", "분석 상태 표시", "문서 이름 줄에 헤딩 · 템플릿 · 서식 · 표 · " + ("LLM 검증·보완이" if general else "LLM 검증·보완 · 구분 기준 검토가") + " 어디까지 됐는지 보입니다 — 어느 TASK 에서나 같은 꼴입니다(누르면 진행표)"
               + ("(일반 문서라 구분 기준 항목은 없습니다)." if general else "."), uses=("intake",), spec=(SP_WORK, "② §20"))
 
 

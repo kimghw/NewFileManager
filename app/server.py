@@ -1801,7 +1801,7 @@ def commit_create(doc_id: str, body: dict = Body(default={})):
 
 @app.post("/api/docs/{doc_id}/commits/{n}/restore")
 def commit_restore(doc_id: str, n: int, body: dict = Body(default={})):
-    """확정 n(0 = 올린 원본) 상태로 되돌린다 {discard?}. n 이 지금 기준이면 「버리기」(확정하지 않은 변경만 버림 — 확정이 새로 안 생김),
+    """확정 n(0 = 올린 원본) 상태로 되돌린다 {discard?}. n 이 지금 기준이면 「모두 되돌리기」(전 이름 「버리기」 — 확정하지 않은 변경만 버림 — 확정이 새로 안 생김),
     아니면 그 상태를 새 확정으로 남긴다(기록은 한 줄로만 자람). 확정하지 않은 변경이 있으면 discard 가 있어야(409). 응답 = GET /api/docs/{id} + commit."""
     _commits_on()
     s = _sess(doc_id)

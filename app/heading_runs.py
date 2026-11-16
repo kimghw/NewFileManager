@@ -33,6 +33,9 @@ class Job:
     def __init__(self, stage, use_llm, rev):
         self.stage, self.use_llm, self.rev = stage, use_llm, rev
         self.first = False  # 첫 분석(2단계 → 3단계를 한 작업으로 — run_first, spec_작업 ② §9)
+        self.chain = None  # 이어 돌리기 이름("llm" = LLM 검증·보완 — app/analysis_llm.py, spec_작업 ② §20) | None
+        self.phase = None  # 이어 돌리기의 지금 일("heads" · "tables" · "formats") — 분석 상태가 어느 항목이 도는지 안다
+        self.stop = False  # 이어 돌리기를 지금 단계가 끝나면 멈춤(DELETE …/analysis/llm)
         self.status, self.error, self.run = "running", None, None
         self.steps, self.started, self.ended = [], time.time(), None
         self.lock = threading.Lock()
@@ -47,7 +50,7 @@ class Job:
 
     def view(self):
         with self.lock:
-            return {"stage": self.stage, "llm": self.use_llm, "first": self.first, "status": self.status, "error": self.error, "run": self.run, "rev": self.rev,
+            return {"stage": self.stage, "llm": self.use_llm, "first": self.first, "chain": self.chain, "phase": self.phase, "stopping": self.stop, "status": self.status, "error": self.error, "run": self.run, "rev": self.rev,
                     "started": self.started, "ended": self.ended, "steps": [{k: v for k, v in s.items() if k != "t0"} for s in self.steps]}
 
 
@@ -371,8 +374,9 @@ def _runner(stage):
 _start_lock = threading.Lock()  # 「돌고 있나」 확인과 자리 잡기 사이에 다른 요청이 못 끼게(FastAPI 스레드 풀)
 
 
-def start(sess, stage, use_llm, first=False):
-    """first = 첫 분석(run_first — 2단계 → 3단계 스크립트, 한 작업 · spec_작업 ② §9): stage 는 3 으로 적고 use_llm 은 안 쓴다."""
+def start(sess, stage, use_llm, first=False, chain=None, runner=None):
+    """first = 첫 분석(run_first — 2단계 → 3단계 스크립트, 한 작업 · spec_작업 ② §9): stage 는 3 으로 적고 use_llm 은 안 쓴다.
+    chain · runner = 이어 돌리기(chain 이름 · runner(sess, job) — 단계 실행과 기록은 runner 가 한다: app/analysis_llm.py 「LLM 검증·보완」). 같은 작업 자리를 쓴다(겹치면 Busy)."""
     st = state(sess)
     with _start_lock:
         job0 = st.get("job")
@@ -380,21 +384,22 @@ def start(sess, stage, use_llm, first=False):
             raise Busy("헤딩 추출이 이미 돌고 있습니다")
         job = Job(stage, use_llm, sess.rev)
         job.first = bool(first)
+        job.chain = chain if runner is not None else None
         st["job"] = job
 
     def run():
         try:
-            job.run = (run_first if first else _runner(stage))(sess, job, use_llm)  # run_first 도 부를 때 찾는다(시험이 바꿔 낀다)
+            job.run = (runner(sess, job) if runner is not None else (run_first if first else _runner(stage))(sess, job, use_llm))  # run_first 도 부를 때 찾는다(시험이 바꿔 낀다)
             job.status = "done"
-            if first:  # 첫 분석의 기록은 단계마다 run_first 가 적었다
+            if first or runner is not None:  # 첫 분석 · 이어 돌리기의 기록은 단계마다 그 실행이 적었다
                 return
             saved = st.get("lastSaved")  # 저장이 실제로 한 일 — 안 쓴 실행(밀려난 세션·지운 작업·디스크 오류)의 번호는 다음 실행이 쓰므로 안 남김
             works.log(sess.id, "headings", stage=stage, llm=use_llm, status="done", rev=job.rev,
                       **({"n": job.run} if saved is not False else {"saved": False}))
         except Exception as e:  # 단계 실패 — 화면에 보이고 기록에 남김
-            job.status, job.error = "failed", f"{type(e).__name__}: {e}"
+            job.status, job.error = "failed", (str(e) if getattr(e, "plain", False) else f"{type(e).__name__}: {e}")  # plain = 사람이 읽는 까닭(analysis_llm.Stop)
             job.step("오류", "failed", traceback.format_exc()[-800:])
-            works.log(sess.id, "headings", stage=stage, llm=use_llm, status="failed", error=job.error[:300])
+            works.log(sess.id, "headings", stage=job.stage, llm=use_llm, status="failed", error=job.error[:300], **({"chain": job.chain} if job.chain else {}))
         finally:
             job.ended = time.time()
     threading.Thread(target=run, daemon=True).start()

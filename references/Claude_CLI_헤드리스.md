@@ -14,7 +14,11 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 - `--json-schema`: 결과 객체(`--output-format json`)의 **`structured_output`** 에 파싱된 dict, `result` 에는 같은 내용의 JSON 문자열.
 - `--tools ""` = 도구 끔, `--setting-sources ""` = user·project·local 설정 안 읽음, `--no-session-persistence` = 세션 저장 안 함. 작업 폴더의 CLAUDE.md 는 읽으므로
   **빈 임시 폴더에서** 실행한다(`tempfile.TemporaryDirectory()` — TEMP 가 가리키는 드라이브).
-- 인증 = 그 PC 사용자의 Claude Code 로그인(구독). `ANTHROPIC_API_KEY` 없이도 된다(이 PC 에는 키 없음 — SDK 길은 안 쓰임). Claude Code 세션 안에서 다시 불러도 동작.
+- 인증 = 그 PC 사용자의 Claude Code 로그인(구독). `ANTHROPIC_API_KEY` 없이도 된다. Claude Code 세션 안에서 다시 불러도 동작.
+  단 **자식 env 에 `ANTHROPIC_API_KEY` 가 있으면 구독보다 키가 먼저**다(아래 「도구를 쓰는 헤드리스 에이전트」 — `--setting-sources ""` 여도 env 는 그대로). 이 PC 는 2026-11-12부터 `~\.claude\settings.json` env 에 키가 있어
+  Claude Code 세션의 Bash 에도 키가 들어 있다 — 구독으로 부르려면 `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claude -p …`.
+- 2026-11-16 실측(2.1.321): 키를 뺀 구독 로그인으로 `--model claude-fable-5-2` 가 된다(작은 스키마 4.4초 · `modelUsage` 의 `costBasis: "list"` — `total_cost_usd` 는 정가로 셈한 값이지 키 청구가 아니다).
+  같은 날 8114 서버를 이 길로(`NFM_LLM_BACKEND=cli`) 바꿔 서식 LLM 검토 호출 3번이 18.8초에 통과.
 - 성공 판정: 종료 코드 0, `is_error: false`, `subtype: "success"`, `structured_output` 이 dict. 구조화 출력은 도구 호출로 구현돼 `stop_reason` 이 `"tool_use"`, `num_turns` 2 —
   `stop_reason` 으로 판정하지 않는다. 그 밖에 `total_cost_usd`, `duration_ms`, `modelUsage`.
 

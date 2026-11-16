@@ -393,13 +393,13 @@
         </details>
       </div>
       <div class="pane" id="paneEdits" role="tabpanel" aria-labelledby="tabEdits" hidden>
-        <!-- 확정(spec_작업 ② §8 — 깃처럼): 기준·고친 문단 수 한 줄 + [확정 메시지][확정][버리기] 한 줄 + 접힌 확정 기록. 그리기·단추는 app.js 「확정」 절(commitDraw), 모양은 commits.css -->
+        <!-- 확정(spec_작업 ② §8 — 깃처럼): 기준·고친 문단 수 한 줄 + [확정 메시지][확정][모두 되돌리기] 한 줄 + 접힌 확정 기록. 그리기·단추는 app.js 「확정」 절(commitDraw), 모양은 commits.css -->
         <section class="commit-box" id="commitBox" aria-label="확정" hidden>
           <p class="commit-sum" id="commitSum" role="status"></p>
           <div class="commit-row">
             <input id="commitMsg" type="text" maxlength="200" placeholder="확정 메시지(선택)" aria-label="확정 메시지">
             <button class="btn sm primary" id="commitBtn" type="button" disabled title="지금까지 고친 것을 한 시점으로 남기고 새 기준으로 삼습니다 — 고친 문단이 0 이 되고, 그 뒤 고친 것만 다시 모입니다">확정</button>
-            <button class="btn sm" id="discardBtn" type="button" disabled title="확정하지 않은 변경을 모두 버리고 기준 상태로 되돌립니다">버리기</button>
+            <button class="btn sm" id="discardBtn" type="button" disabled title="확정하지 않은 변경을 모두 기준 상태로 되돌립니다(되돌린 고침은 되살릴 수 없음)">모두 되돌리기</button>
           </div>
           <details class="commit-log" id="commitLog">
             <summary>확정 기록 <span class="badge" id="commitCount">0</span></summary>

@@ -70,11 +70,11 @@
 2026-11-10 사용자 지시.
 - 웹서버는 **8114 하나만** 띄운다. 띄우기 전에 8114 를 듣는 프로세스가 있는지 보고(`Get-NetTCPConnection -LocalPort 8114 -State Listen`),
   있으면 새로 띄우지 않는다. 다시 켤 때는 **먼저 끄고**(듣는 `python` 의 부모 `cmd` 의 부모 `powershell`(띄우개) 째 `taskkill /PID <그 pid> /T /F` — 띄우개가 없으면 `cmd` 째 → 포트가 빌 때까지 기다림)
-  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다(`backend: api` · `model: claude-fable-5-2` · `available: true` 여야 한다).
+  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다(`backend: cli` · `model: claude-fable-5-2` · `available: true` 여야 한다).
 - **백그라운드(세션과 떨어진 프로세스)** 로 띄운다 — 도구의 포그라운드 실행이나 `run_in_background` 로 띄우면 터미널을 잡거나 세션이 끝날 때 같이 죽는다. PowerShell:
   `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File E:\dev\NewFileManager\tools\start_8114.ps1'; CurrentDirectory = 'E:\dev\NewFileManager' }`
-  — LLM 은 **API 키 · Fable**(2026-11-12 사용자 「api 키로 해서 fable로 해줘」 → 답 「API 키 · Fable, 재시작」 — 전에는 `NFM_LLM_BACKEND=sdk`). 띄우개 [tools/start_8114.ps1](tools/start_8114.ps1) 가
-  `NFM_LLM_BACKEND=api` · `NFM_LLM_MODEL_FORCE=claude-fable-5-2` 를 걸고, 키는 Claude Code 사용자 설정(`~\.claude\settings.json` 의 env)에서 읽어 그 프로세스 env 에만 둔다 — WMI 로 띄운 프로세스는 이 세션의 env 를 안 물려받는다. 키를 명령 줄·파일에 적지 않는다.
+  — LLM 은 **Claude CLI(구독 로그인) · Fable**(2026-11-16 사용자 「cli로 해줘.. 왜 api 로 만 할필요가 없는데」 — API 키 계정의 크레딧이 떨어져 모든 호출이 400. 전에는 2026-11-12 「API 키 · Fable」, 그 전에는 `sdk`). 띄우개 [tools/start_8114.ps1](tools/start_8114.ps1) 가
+  `NFM_LLM_BACKEND=cli` · `NFM_LLM_MODEL_FORCE=claude-fable-5-2` · `NFM_CLAUDE_CLI=%USERPROFILE%\.local\bin\claude.exe` 를 걸고 `ANTHROPIC_API_KEY` 는 **넣지 않고 지운다** — CLI 는 자식 env 에 키가 있으면 구독이 아니라 그 키로 청구한다([references/Claude_CLI_헤드리스.md](references/Claude_CLI_헤드리스.md)). 키를 명령 줄·파일에 적지 않는다.
 - 화면 검사용 임시 서버(서버 코드를 고친 뒤 8114 를 건드리지 않고 확인할 때)는 다른 포트 + 임시 `NFM_WORKS`·`NFM_RENDER` 로 띄우고 **검사가 끝나면 바로 끈다** —
   켜 둔 채 턴을 끝내지 않는다. 8114 와 같은 작업 폴더를 쓰는 둘째 서버는 띄우지 않는다.
 - **검사는 같이 돌린다**(2026-11-12 사용자 지시 "서버 테스트 시간을 좀 줄이도록 병렬로 작업해줘"): 임시 서버를 스스로 띄우는 화면 검사(`tools/smoke_*_ui.py`)가 둘 이상이면 하나씩 차례로 돌리지 말고
@@ -125,6 +125,9 @@ workflow.md 가 모든 TASK 의 차례를 보이는 **전체 지도**라면 TASK
 어디까지 됐는지는 **문서 이름 줄**에 같은 꼴로 보인다(답 「문서 이름 줄」 — 「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」: `GET /api/docs/{id}/analysis` · `app/analysis.py` · `app/static/doc_status.js`).
 「구분 기준」 항목은 **구분 기준 LLM 검토**를 가리킨다(프로젝트 구성의 확정 · 반영은 TASK 단계가 보인다). TASK 의 「한 번에 진행」·간단 모드가 확인 창 뒤에 부르는 LLM 은 그 TASK 의 것이라 여기 말과 다르다.
 문서마다의 분석을 새로 더할 때는 이 세 층에 맞춘다 — 올릴 때 저절로 도는 것은 스크립트만 · LLM 은 사람이 단추로 · 상태는 TASK 마다 따로 보이지 않고 이 줄의 항목으로(이 줄은 에이전트 판단 — 사용자 확인 전: ② §20 「개발 규칙」).
+2026-11-16 넓힘 — 사용자 "모든 문서의 템플릿/서식/헤딩/테이블 작업은 공통 … 스크립트로 하냐, LLM 까지 검증하고 보완까지 하냐의 차이 … 어디까지 했는지 알 수가 없다" → 답 「줄 넷 + 눌러서 표」 · 「단추 하나로 넷을 차례로」:
+이름 줄은 **헤딩 · 템플릿 · 서식 · 표** 넷 + LLM(「헤딩 ✓ · 템플릿 ✓ · 서식 0/4 · 표 ✓ · LLM 안 함 ▾」), 누르면 **진행표**(넷 × 스크립트 · LLM 검증·보완 · 문서 반영). 진행표의 **「LLM 검증·보완」** 단추 하나가 헤딩 · 템플릿(헤딩 그래프 LLM) → 표(표 구조 LLM) → 서식(템플릿 서식 정리 **계획만**)을 차례로 돌린다(`POST /api/docs/{id}/analysis/llm` · `app/analysis_llm.py` — 이미 거친 것은 건너뜀 · 문서는 안 바뀜 · 받은 계획은 작업 폴더에 남아 「템플릿 서식 정리」 열이 다시 부르지 않고 쓴다).
+문서마다의 일(헤딩 · 템플릿 · 서식 · 표)에 LLM 단계를 새로 더하면 이 차례(`analysis_llm.run` · `analysis.llm_plan`)와 진행표의 칸에도 넣는다.
 2026-11-16 사용자 "LLM 검증 단계는 스크립트가 판정한 것과 판정하지 못한것들 모두 해야지": **LLM 판정·검토 단계는 스크립트가 판정한 것만 다시 보지 않는다 — 스크립트가 판정하지 못한 것(못 맞춤 · 충돌 · 빠진 자리 · 후보에 못 든 것)도 그 단계가 함께 본다.**
 헤딩의 LLM 판정은 그래프를 짓기 전에 못 맞춤·충돌 묶음의 규칙 보강을 먼저 돈다([spec/spec_헤딩_추출.md](spec/spec_헤딩_추출.md) ② §3). LLM 판정·검토를 새로 만들거나 고칠 때는 그 단계의 「스크립트가 판정하지 못한 것」 이 무엇인지 적고 LLM 의 입력에 넣는다(아직 못 넣은 단계 = 같은 사양서 ④).
 원본 [spec/spec_작업.md](spec/spec_작업.md) ② §9·§20 · [design.md](design.md) §9.

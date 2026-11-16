@@ -299,7 +299,7 @@ try:
               and not page.locator("#paneAgent .ag-paste").is_visible() and calls["material"] == [{"name": "과제 개요", "text": "과제명: 해양 플랜트 설계\n1차년도: 설계 기준 수립"}], (chip, calls["material"]))
 
         # ---- 4. 요청 → 도는 동안 → 답 · 카드
-        page.fill("#paneAgent .ag-input > textarea", "붙인 자료로 일정과 예산표를 정리해 줘")
+        page.fill("#agentRequest", "붙인 자료로 일정과 예산표를 정리해 줘")
         check("글을 쓰면 「보내기」 가 켜진다(강조 단추)", page.is_enabled("#paneAgent [data-ag-act=send]") and "primary" in page.get_attribute("#paneAgent [data-ag-act=send]", "class"))
         page.click("#paneAgent [data-ag-act=send]")
         page.wait_for_function("() => !!AGENT.busy && !!document.querySelector('#paneAgent .ag-turn.pending')")
@@ -310,8 +310,8 @@ try:
         page.wait_for_timeout(1300)
         pend = page.evaluate("""() => { const t = document.querySelector('#paneAgent .ag-turn.pending'), run = t.querySelector('.ag-run');
           return { q: t.querySelector('.ag-q').textContent, spin: !!run.querySelector('.ag-spin') && getComputedStyle(run.querySelector('.ag-spin')).animationName, text: run.textContent,
-            off: [...document.querySelectorAll('#paneAgent .ag-input > textarea, #paneAgent .ag-pick select, #paneAgent [data-ag-act=send], #paneAgent [data-ag-act=paste], #paneAgent .ag-chip button')].map((e) => e.disabled),
-            draft: document.querySelector('#paneAgent .ag-input > textarea').value, inRun: document.querySelector('#paneAgent .ag-send .ag-run').textContent }; }""")
+            off: [...document.querySelectorAll('#agentRequest, #paneAgent .ag-pick select, #paneAgent [data-ag-act=send], #paneAgent [data-ag-act=paste], #paneAgent .ag-chip button')].map((e) => e.disabled),
+            draft: document.querySelector('#agentRequest').value, inRun: document.querySelector('#paneAgent .ag-send .ag-run').textContent }; }""")
         check("도는 동안 — 보낸 요청이 바로 턴으로 · 동그라미 + 「요청을 읽는 중 · n초」(초가 간다) · 입력 꺼짐", pend["q"] == "붙인 자료로 일정과 예산표를 정리해 줘" and pend["spin"] == "spin"
               and re.fullmatch(r"요청을 읽는 중 · [1-9]\d*초", pend["text"]) and all(pend["off"]) and pend["draft"] == "" and "요청을 읽는 중" in pend["inRun"], pend)
         page.screenshot(path=str(OUT / "4_agent_pending.png"))
@@ -324,7 +324,7 @@ try:
         page.wait_for_function("() => !AGENT.busy && document.querySelectorAll('#paneAgent .ag-card').length === 5")
         cs = page.evaluate(CARDS)
         check("답 · 카드 다섯(글 쓰기 둘 · 새 표 후보 묶음 하나 · 표 채우기 · 서식 입히기) · 입력이 다시 켜짐", page.inner_text("#paneAgent .ag-turn .ag-a").startswith("자료에서 일정과 예산을 찾았습니다")
-              and [c["tag"] for c in cs] == ["글 쓰기", "글 쓰기", "새 표", "표 채우기", "서식 입히기"] and page.is_enabled("#paneAgent .ag-input > textarea") and not page.locator("#paneAgent .ag-turn.pending").count(), [c["tag"] for c in cs])
+              and [c["tag"] for c in cs] == ["글 쓰기", "글 쓰기", "새 표", "표 채우기", "서식 입히기"] and page.is_enabled("#agentRequest") and not page.locator("#paneAgent .ag-turn.pending").count(), [c["tag"] for c in cs])
         c1, c2, c3, c5 = card(cs, "p1"), card(cs, "p2"), card(cs, "p3"), card(cs, "p5")
         check("스크립트가 확인한 제안 — 강조 단추 「문서에 반영」", c1["apply"] == "문서에 반영" and c1["primary"] and not c1["off"] and "스크립트 검사 통과 1" in " ".join(c1["checks"]), c1)
         check("에이전트가 쓴 글(draft) — 강조 아님 · 「읽고 반영」 · 「에이전트가 쓴 글 — 읽고 반영하세요」", c2["apply"] == "읽고 반영" and not c2["primary"] and c2["checks"] == ["에이전트가 쓴 글 — 읽고 반영하세요"], c2)  # 서버 warn[] 의 말 — checks[] 에 되풀이된 같은 말은 한 번만
@@ -481,7 +481,7 @@ try:
         S["apply"] = "ok"
 
         # ---- 8. 자료 — 다음 요청의 materials · 칩을 끄면 빠짐 · × 로 지움 · 요청 실패
-        page.fill("#paneAgent .ag-input > textarea", "둘째 요청")
+        page.fill("#agentRequest", "둘째 요청")
         page.keyboard.press("Control+Enter")
         for _ in range(50):
             if "turn" in held:
@@ -496,13 +496,13 @@ try:
         page.click("#paneAgent .ag-chip[data-material=m1] .ag-chip-name")
         check("칩을 누르면 이번 요청에서 뺀다(눌림 풀림)", page.get_attribute("#paneAgent .ag-chip[data-material=m1] .ag-chip-name", "aria-pressed") == "false")
         S["turn_fail"] = True
-        page.fill("#paneAgent .ag-input > textarea", "셋째 요청")
+        page.fill("#agentRequest", "셋째 요청")
         page.click("#paneAgent [data-ag-act=send]")
         page.wait_for_selector("#paneAgent .ag-turn .hwarn.fail")
         lost = page.inner_text("#paneAgent .ag-turn:last-child .hwarn.fail")
         check("LLM 호출 실패(502 — 서버가 그 턴을 저장해 돌려줌) — 대화에 그 턴이 까닭과 함께 남음 · 요청 글이 글상자에 남음 · 끈 자료는 안 보냄", "에이전트가 답하지 못했습니다" in lost and "시간 초과" in lost
               and page.locator("#paneAgent .ag-turn").count() == 3 and page.get_attribute("#paneAgent .ag-turn:last-child", "data-turn") == "t3" and page.locator("#paneAgent .ag-turn:last-child [data-ag-guide=t3]").count() == 1
-              and page.input_value("#paneAgent .ag-input > textarea") == "셋째 요청" and calls["turn"][2]["materials"] == [], (lost, calls["turn"][2]))
+              and page.input_value("#agentRequest") == "셋째 요청" and calls["turn"][2]["materials"] == [], (lost, calls["turn"][2]))
         S["turn_fail"] = False
         page.click("#paneAgent .ag-chip[data-material=m1] .ag-chip-x")
         page.wait_for_function("() => !document.querySelector('#paneAgent .ag-chip')")
@@ -528,7 +528,7 @@ try:
         S["missing"], S["enabled"] = False, False
         page.click("#paneAgent .ag-talk button")
         page.wait_for_function("() => AGENT.loaded")
-        page.fill("#paneAgent .ag-input > textarea", "요청")
+        page.fill("#agentRequest", "요청")
         check("LLM 꺼짐 — 상태 줄에 까닭 · 「보내기」 꺼짐(보관함·자료는 됨)", "LLM 을 쓸 수 없습니다" in page.inner_text("#paneAgent .ag-status-text") and page.is_disabled("#paneAgent [data-ag-act=send]")
               and page.is_enabled("#paneAgent [data-ag-act=paste]") and page.is_enabled("#paneAgent [data-ag-act=library]"))
         S["enabled"] = True

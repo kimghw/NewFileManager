@@ -1377,6 +1377,10 @@ PDF 글자는 PyMuPDF `rawdict`(글자마다 자리·글꼴·크기·색) + `get
   시험: 새 `tests/test_outline_lift.py` 5개(후보 · 넣기 → 요약·Enter·거절·레벨 바꿈의 부모·제목 고침 · 떼기 = 넣기 전 그대로 + 더한 레벨과 함께 · 2단계 다시 실행 뒤 다시 걸기와 자리 규칙의 레벨 · 못 넣는 템플릿) 통과.
   화면: 새 `tools/smoke_outline_lift_ui.py`(임시 서버 11개 — 단추·펼침·넣기·여백 표시·트리·표 줄 Enter·거절 둘·떼기·실행 취소 = 원본 바이트) 통과 · `run_ui_gates` 에 `outline_lift` 등록.
   사용자 문서 확인(작업 `ce455d64bf44` 의 원본을 임시 세션에 올려 — 그 작업 폴더는 읽기만): 후보 한 묶음 4곳(사업과제 1~4 · HY헤드라인M 16pt) → 넣기 뒤 사슬 「▦›□›o›-」 · 표 줄의 Enter = 표 아래 「□ 」 · 거절 넷 · 떼기 = 원래대로.
+  8114(다시 켠 뒤 — 읽기만): 그 작업에 `GET …/outline/lift?tpl=1` = 후보 4곳 · 넣은 것 없음(넣기는 사용자가 「템플릿 관계」 에서).
+  끝 확인(§8-6·§8-7·이름 줄 아이콘 함께): `run_ui_gates` 8개 모두 통과(`outline_match` 21 · `outline_preview` 18 · `tpl_agent` 35 · `fmt_focus` 47 · `doc_quick` 26 · `outline_grow` 28 · `outline_lift` 11 · `styles` 120) ·
+  전체 pytest(`tools/run_pytest.py`) 1,394 통과 · 12 실패 — 실패는 모두 `test_style_extract`(3)·`test_style_copy`(5)·`test_style_api`(4)이고 이 일 전 커밋 `75f01ca` 에서도 같은 12개가 떨어진다
+  (서식 후보의 `defaultName` · 검토 답의 `role` 을 시험이 못 따라옴 — 이 사양과 무관, 안 고침: 서식 복사 쪽에서 볼 것).
 - 2026-11-16 검증 LLM 검토(② §4-1): 새 `app/verify_llm.py`(계약 · `payload` · `apply` · `review`) · 판단 지침 `app/merge_guides_default/verify.md` · `verify.py` 단계 「LLM 검토」(`IMPORT_STEPS`·`EDIT_STEPS` 끝 ·
   deps `"*"` — `run_flow` 가 다른 단계가 모두 끝난 뒤 막혀도 돌림) · `Job.view` 의 `running`(스크립트 단계만)·`reviewing`(LLM 이 도는 동안)·`status`(스크립트 단계로만) · 단계의 `unjudged`
   (레터 · 글꼴 `fonts_unjudged` · 쪽 나눔 · 쪽 차이) · `pdf_style._verdicts` 의 굵게 짝 `bold` · 에이전트 20 `verify_review`(agents · agent_settings `verify-llm`) · 워크플로우 등록부(공통 모듈

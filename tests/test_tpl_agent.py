@@ -200,6 +200,8 @@ def test_plan_with_split_applies_in_one_undo(sess, monkeypatch):
     r = c.post(f"/api/docs/{d}/outline/templates/9/match", json=body)
     assert r.status_code == 200, r.text
     assert len(r.json()["changed"]) == 3 and r.json()["splits"][0]["no"] == "9L2a" and r.json()["splits"][0]["changed"] == 2 and s.state()["undo"] == undo + 1
+    got = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["9"]   # 받은 계획은 남고 적용하면 applied(분석 상태의 서식 LLM 칸 — spec_작업 ② §20)
+    assert got["state"] == "applied" and got["applied"]["changed"] == 3 and got["plan"]["summary"] == "기관 줄은 따로"
     assert _slot(c, d, 9, 2)["total"] == 33 and _slot(c, d, "9~2a", 2)["total"] == 11 and len(_slot(c, d, "9~2a", 2)["groups"]) == 1
     _undo_all(c, d, s)
     assert "9~2a" not in s.outline["templates"]
@@ -222,6 +224,8 @@ def test_plan_endpoint_uses_pinned_opus_and_saved_skill(sess, monkeypatch):
     assert seen["model"] == "claude-opus-5-5" and seen["pin"] is True and seen["what"] == "tpl-agent"
     assert "내가 고친 기준 글" in seen["content"] and "앞 공백 3칸" in seen["content"] and "## 대표 고르기" not in seen["content"]
     assert j["rev"] == s.rev and j["skill"]["version"] == 1 and j["request"] == "앞 공백 3칸" and j["model"] == "claude-opus-5-5" and j["plan"]["change"] == 2
+    kept = c.get(f"/api/docs/{d}/outline/agent/plans").json()
+    assert kept["rev"] == s.rev and kept["plans"]["3"]["state"] == "planned" and kept["plans"]["3"]["applied"] is None and kept["plans"]["3"]["plan"]["change"] == 2
     assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "nope"}).status_code == 404
     assert c.post(f"/api/docs/{d}/outline/agent/999/plan", json={"skill": "tidy"}).status_code == 404
 

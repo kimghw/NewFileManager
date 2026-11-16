@@ -23,7 +23,10 @@ function agentIcon(name) {
     paste: '<rect x="5" y="5" width="14" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
     file: '<path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M6 14l8-8"/>',
     send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
-    arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>'
+    arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/>',
+    organize: '<path d="M4 5h16M4 9h10M4 13h5"/><rect x="12" y="13" width="8" height="7" rx="1"/><path d="M12 16h8M16 13v7"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 11h18M7 15h3M14 15h3"/>'
   };
   const icon = el("span", "ag-icon");
   icon.setAttribute("aria-hidden", "true");
@@ -160,7 +163,7 @@ function agentFrame() {
     s.setAttribute("aria-label", `${label} 서식`);
     s.dataset.agPick = key;
     s.onchange = () => { AGENT.pick[key] = s.value; };
-    l.append(el("span", null, label), s);
+    l.append(el("span", null, `${label} 서식`), s);
     picks.append(l);
     return s;
   };
@@ -204,7 +207,9 @@ function agentFrame() {
   requestHead.append(el("span", "ag-shortcut", "Ctrl / ⌘ + Enter"));
   const sendRow = el("div", "ag-send");
   sendRow.append(E.mats, E.send, E.run, E.why);
-  E.input.append(E.policy, E.sel, picks, requestHead, E.text, E.paste, sendRow);
+  const composer = el("div", "ag-composer");
+  composer.append(requestHead, E.text, sendRow);
+  E.input.append(E.policy, E.sel, picks, E.paste, composer);
   root.append(E.status, E.talk, E.input);
   box.replaceChildren(root);
 }
@@ -263,7 +268,7 @@ function agentEmptyEl() {
   box.append(heading, el("p", "ag-empty-intro", "문단이나 표를 고른 뒤, 필요한 작업을 요청하세요."));
   const examples = el("div", "ag-examples");
   examples.setAttribute("aria-label", "요청 예시");
-  for (const [label, prompt] of [["자료로 표 채우기", "붙인 자료로 고른 표를 채워 줘"], ["문단을 표로 정리하기", "고른 문단을 표로 정리해 줘"], ["추진 일정 작성하기", "이 자리에 추진 일정을 써 줘"]]) {
+  for (const [label, prompt, icon] of [["자료로 표 채우기", "붙인 자료로 고른 표를 채워 줘", "table"], ["문단을 표로 정리하기", "고른 문단을 표로 정리해 줘", "organize"], ["추진 일정 작성하기", "이 자리에 추진 일정을 써 줘", "calendar"]]) {
     const button = hBtn(label, () => {
       const E = AGENT.el;
       if (!E || E.text.disabled) return;
@@ -271,6 +276,7 @@ function agentEmptyEl() {
       if (draft.length <= E.text.maxLength) { AGENT.draft = draft; E.text.value = draft; agentSendSync(); }
       E.text.focus();
     }, { cls: "btn sm ag-example", title: `요청 예시를 입력합니다 — ${prompt}` });
+    button.prepend(agentIcon(icon));
     button.append(agentIcon("arrow"));
     examples.append(button);
   }

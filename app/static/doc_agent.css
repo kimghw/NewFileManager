@@ -3,7 +3,7 @@
    2열 kind "agentProp"(제안 미리보기) · "agentGuide"(턴에 보낸 글)의 것도 여기(.agp-*). 틀은 2열 공용(.ta-wrap · table.mini · .tm-grid · .lg-part)과 표 채우기 목록(.tfl-list — table-fill.css)을 같이 쓴다. ---- */
 #paneAgent { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 #agentBox, .ag { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; } /* 패널 높이를 그대로 받아 대화만 굴린다 — 입력은 늘 아래에 보인다 */
-.ag { font-size: 12.5px; container-type: inline-size; }
+.ag { font-size: 12.5px; color: var(--text); background: #fff; container-type: inline-size; }
 .ag-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; color: inherit; }
 .ag-icon svg { display: block; }
 .ag .btn.sm:has(> .ag-icon) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
@@ -12,29 +12,32 @@
 .ag-run[hidden] { display: none; }
 
 /* 상태 줄 — 한 줄(§7): 점 + 글(남는 폭, 줄임표) · 「서식 보관함」 · 「비우기」 */
-.ag-status { flex: none; display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-bottom: 1px solid #e7ebf1; background: #fbfcfe; }
+.ag-status { flex: none; display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-bottom: 1px solid #e8eaef; background: #fff; }
 .ag-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--skip); }
 .ag-status[data-llm="on"] .ag-dot { background: var(--ok); }
 .ag-status[data-llm="off"] .ag-dot { background: var(--warn); }
-.ag-status-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
-.ag-status .btn.sm { flex: none; padding: 0 7px; border-color: transparent; background: transparent; color: #53647d; font-size: 12px; }
-.ag-status [data-ag-act="library"] { color: var(--accent); background: #eef3fc; }
-.ag-status .btn.sm:hover:not(:disabled) { background: #e8eef8; }
+.ag-status-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #596171; font-size: 11.5px; }
+.ag-status .btn.sm { flex: none; padding: 0 7px; border-color: transparent; background: transparent; color: #596171; font-size: 12px; }
+.ag-status .btn[data-ag-act="library"] { border-color: #e5e7ed; background: #f8f9fb; color: #454c5b; }
+.ag-status .btn.sm:hover:not(:disabled) { background: #f0f2f6; color: var(--text); }
 .ag-status .btn.sm.arm { color: var(--fail); border-color: #f2b8b8; }
 
 /* 대화 — 턴마다 요청 글 · 답 · 제안 카드 · 호출 줄 */
 .ag-talk { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 12px 14px; scrollbar-gutter: stable; }
-.ag-empty { max-width: 340px; margin: 32px auto 12px; color: #6a7689; font-size: 12px; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }
-.ag-empty-heading { display: flex; align-items: center; gap: 8px; color: #26364f; }
-.ag-empty-heading > .ag-icon { width: 32px; height: 32px; border-radius: 6px; background: #edf3ff; color: var(--accent); }
+.ag-talk:has(> .ag-empty:only-child) { display: flex; flex-direction: column; }
+.ag-empty { flex: none; width: 100%; max-width: 340px; margin: auto; padding: 8px 0; color: #626b79; font-size: 12px; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }
+.ag-empty-heading { display: flex; align-items: center; gap: 8px; color: #272c38; }
+.ag-empty-heading > .ag-icon { width: 32px; height: 32px; border-radius: 6px; background: #f2edfc; color: #7652b8; }
 .ag-empty-heading svg { width: 19px; height: 19px; }
-.ag-empty h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -.025em; }
-.ag-empty-intro { margin: 10px 0; }
-.ag-examples { display: grid; gap: 6px; margin: 12px 0; }
-.ag-examples .ag-example { justify-content: flex-start; width: 100%; padding: 0 8px; border-color: #e1e7f0; background: #fafbfd; color: #465976; font-size: 12px; text-align: left; }
-.ag-example > .ag-icon { margin-left: auto; color: #8a9ab2; }
-.ag-examples .ag-example:hover { border-color: #b7c9ed; background: #f0f5ff; color: var(--accent); }
-.ag-empty-note { margin: 10px 0 0; color: #637289; font-size: 11px; }
+.ag-empty .ag-empty-heading > h2 { margin: 0; color: inherit; font-size: 14px; font-weight: 700; letter-spacing: -.025em; }
+.ag-empty-intro { margin: 8px 0; }
+.ag-examples { display: grid; gap: 6px; margin: 10px 0; }
+.ag .btn.sm.ag-example { justify-content: flex-start; gap: 8px; width: 100%; padding: 0 8px; border-color: #e5e6ed; background: #fff; color: #424958; font-size: 12px; text-align: left; }
+.ag-example > .ag-icon:first-child { color: #8067ae; }
+.ag-example > .ag-icon:last-child { margin-left: auto; color: #9299a6; }
+.ag .btn.sm.ag-example:hover { border-color: #c8b8e7; background: #f8f5fd; color: #61418f; }
+.ag .btn:focus-visible, .ag-pick select:focus-visible { outline: 2px solid #8e7aba; outline-offset: 2px; }
+.ag-empty-note { margin: 8px 0 0; color: #747b87; font-size: 11px; }
 .ag-turn { min-width: 0; }
 .ag-turn + .ag-turn { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .ag-q { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -87,21 +90,24 @@
 .ag-state.err { color: var(--fail); }
 
 /* 입력 — 아래 붙박이. 고를 때마다 바뀌는 선택 줄은 높이 고정(§6 — 한 줄 · 줄임표: 아래 고르기·글상자가 안 밀린다) */
-.ag-input { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-top: 1px solid #dfe5ef; background: #f8fafd; min-width: 0; max-height: 65%; overflow-y: auto; }
+.ag-input { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-top: 1px solid #e5e7ed; background: #f8f9fb; min-width: 0; max-height: 65%; overflow-y: auto; }
 .ag-input > * { flex-shrink: 0; }
 .ag-policy { margin: 0; padding: 4px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-.ag-sel { height: 18px; line-height: 18px; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-sel { height: 18px; line-height: 18px; color: #656d7b; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-sel.has { color: var(--text); }
 .ag-sel::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border: 1px solid #9ca9bc; border-radius: 2px; }
 .ag-sel.has::before { border-color: var(--accent); background: var(--accent); }
 .ag-picks { display: flex; gap: 8px; min-width: 0; }
-.ag-pick { display: flex; flex: 1 1 0; align-items: center; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; }
+.ag-pick { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; color: #656d7b; font-size: 11px; }
 .ag-pick > span { flex: none; }
-.ag-pick select { flex: 1 1 auto; min-width: 0; width: 100%; height: 28px; padding: 0 6px; border: 1px solid #d6dfea; border-radius: 6px; background: var(--surface); font: inherit; font-size: 12px; color: #42516a; }
-.ag-request-head { display: flex; align-items: center; gap: 4px; min-height: 22px; margin-top: 4px; }
-.ag-request-label { color: #35455f; font-size: 12px; font-weight: 600; }
+.ag-pick select { flex: 1 1 auto; min-width: 0; width: 100%; height: 28px; padding: 0 6px; border: 1px solid #dfe2e9; border-radius: 6px; background: var(--surface); font: inherit; font-size: 12px; color: #424958; }
+.ag-composer { display: flex; flex-direction: column; min-width: 0; border: 1px solid #cdd3df; border-radius: 6px; background: #fff; }
+.ag-composer:focus-within { border-color: #829bd3; outline: 2px solid #e0e8fa; outline-offset: 0; }
+.ag-composer > * { flex-shrink: 0; }
+.ag-request-head { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 4px 8px 0; }
+.ag-request-label { color: #424958; font-size: 12px; font-weight: 600; }
 .ag-request-head .panel-help { width: 22px; height: 22px; }
-.ag-shortcut { margin-left: auto; color: #637289; font: 10.5px "Segoe UI", sans-serif; white-space: nowrap; }
+.ag-shortcut { margin-left: auto; color: #7b8290; font: 10.5px "Segoe UI", sans-serif; white-space: nowrap; }
 .ag-mats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .ag-chip { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; height: 24px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-2); font-size: 11.5px; overflow: hidden; }
 .ag-chip.off { opacity: .55; }
@@ -109,7 +115,7 @@
 .ag-chip .ag-chip-name { min-width: 0; padding: 0 2px 0 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-chip .ag-chip-x { flex: none; padding: 0 8px 0 4px; color: var(--muted); }
 .ag-chip .ag-chip-x:hover { color: var(--fail); }
-.ag-mats .btn.sm { height: 28px; padding: 0 6px; border-color: transparent; background: transparent; color: #5d6e88; font-size: 11.5px; }
+.ag-mats .btn.sm { height: 28px; padding: 0 6px; border-color: transparent; background: transparent; color: #626b79; font-size: 11.5px; }
 .ag-mats .btn.sm.on { background: var(--accent-soft); color: var(--accent); }
 .ag-mats .btn.sm:hover:not(:disabled) { background: #eaf0f9; }
 .ag-mat-msg { flex: 1 1 100%; color: var(--fail); font-size: 11.5px; overflow-wrap: anywhere; }
@@ -122,9 +128,13 @@
 .ag-input textarea::placeholder { color: #637289; }
 .ag-input textarea:focus { outline: 2px solid #b6cafa; outline-offset: 0; border-color: #6e96e8; }
 .ag-input textarea:disabled { background: var(--surface-2); }
-.ag-send { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.ag-composer > textarea { min-height: 64px; max-height: 26vh; border: 0; border-radius: 0; padding: 6px 8px 8px; background: transparent; }
+.ag-composer > textarea::placeholder { color: #858b97; }
+.ag-composer > textarea:focus { outline: none; }
+.ag-send { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; padding: 6px; border-top: 1px solid #edf0f4; }
 .ag-send > .ag-mats { flex: 1 1 0; }
 .ag-send > [data-ag-act="send"] { flex: none; align-self: flex-end; height: 28px; padding: 0 10px; }
+.ag-send > [data-ag-act="send"]:disabled { opacity: 1; border-color: #e7eaf0; background: #e7eaf0; color: #969eac; }
 .ag-send > .ag-run, .ag-send > .ag-why { flex-basis: 100%; }
 .ag-send > .ag-why:empty { display: none; }
 .ag-send .ag-why { min-width: 0; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
@@ -133,11 +143,13 @@
   .ag-status-text { font-size: 11px; }
   .ag-status .btn.sm { padding: 0 5px; font-size: 11.5px; }
   .ag-status [data-ag-act="library"] .ag-icon { display: none; }
-  .ag-empty { margin-top: 22px; }
+  .ag-pick { gap: 4px; }
+  .ag-pick select { padding: 0 3px; font-size: 11px; }
   .ag-mats .btn.sm { padding: 0 3px; }
   .ag-send { gap: 4px; }
+  .ag-send > [data-ag-act="send"] { padding: 0 7px; }
 }
-@media (max-height: 650px) { .ag-empty { margin-top: 10px; } .ag-input { padding-top: 6px; padding-bottom: 6px; } }
+@media (max-height: 650px) { .ag-empty { margin-top: 0; margin-bottom: 0; } .ag-input { padding-top: 6px; padding-bottom: 6px; } }
 
 /* 문서의 그 자리(카드에 올린 동안) — 블록 테두리 · 「뒤에 넣음」 은 그 블록의 아래 변 */
 #doc .ag-hit, #doc table.tbl.ag-hit, #doc .xl-wrap.ag-hit { outline: 2px solid rgba(124, 58, 237, .75); outline-offset: 1px; } /* 고른 표의 파란 테두리(table-menu.css .tmn-active)보다 먼저 */

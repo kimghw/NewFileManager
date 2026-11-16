@@ -44,6 +44,7 @@ async function tplAgentOpen(id = null) {
   tplAgentDraw();
   if (!olmFresh()) olmLoad().then(() => tplAgentSync());
   const epoch = state.epoch;
+  tpaStored(); // 받아 둔 계획(LLM 검증·보완 · 앞서 받은 것)이 있으면 다시 부르지 않고 그것을
   try {
     TPA.info = await api("/api/outline/agent");
     TPA.infoErr = "";
@@ -97,7 +98,7 @@ function tpaTarget() { // ① 대상 — 템플릿 고르기 · 개요 레벨 �
   for (const { id, t } of list) { const o = el("option", null, `T${t.no} ${(t.chain || []).slice(t.base || 0).join(" › ")} · ${nf(t.lines)}줄${t.comp ? " · 종속" : t.vari ? " · 서식 종속" : ""}`); o.value = id; sel.append(o); }
   sel.value = String(TPA.tpl);
   sel.disabled = !!TPA.busy;
-  sel.onchange = () => { Object.assign(TPA, { tpl: sel.value, plan: null, choice: new Map(), err: "", prompt: null, done: null }); tplAgentDraw(); };
+  sel.onchange = () => { Object.assign(TPA, { tpl: sel.value, plan: null, choice: new Map(), err: "", prompt: null, done: null }); tplAgentDraw(); tpaStored(); };
   sec.append(sel);
   const t = olmTpl(TPA.tpl);
   if (!t) { sec.append(el("p", "hnote", "정리할 템플릿이 없습니다 — 헤딩 추출 2단계(헤딩 그래프)를 먼저 만드세요.")); return sec; }
@@ -278,6 +279,20 @@ function tpaPromptBox() {
   ta.readOnly = true; ta.value = p.prompt; ta.setAttribute("aria-label", "에이전트에 보내는 글");
   d.append(ta);
   return d;
+}
+
+async function tpaStored() { // 받아 둔 계획을 불러온다(GET …/outline/agent/plans — spec_작업 ② §20) — 지금 문서 차례에서 받은 것(planned)만. 적용함 · 옛 계획은 다시 받는다
+  if (!state.id || TPA.plan || TPA.busy || TPA.tpl == null) return;
+  const id = state.id, epoch = state.epoch, tpl = String(TPA.tpl);
+  let r;
+  try { r = await api(`/api/docs/${id}/outline/agent/plans`); } catch { return; } // 옛 서버 — 전처럼 「정리 계획 받기」 로
+  if (epoch !== state.epoch || String(TPA.tpl) !== tpl || TPA.plan || TPA.busy) return;
+  const rec = (r.plans || {})[tpl];
+  if (!rec || rec.state !== "planned" || !rec.plan) return;
+  TPA.plan = rec;
+  TPA.choice = new Map();
+  for (const lv of rec.plan.levels) for (const row of tpaRows(lv)) TPA.choice.set(tpaKey(lv, row.g), row.was); // 처음 값 = 에이전트가 고른 것(받았을 때와 같게)
+  if (tpaOn()) tplAgentDraw();
 }
 
 async function tpaRun() { // 「정리 계획 받기」 — 고친 스킬은 먼저 저장 → 계획(LLM) → (바로 적용이면 적용)

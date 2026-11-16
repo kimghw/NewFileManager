@@ -2407,7 +2407,7 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   download: "내려받기", reopen: "작업 다시 엶", headings: "헤딩 추출", outline: "개요 편집",
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
   outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", // spec_hwpx_웹편집 ② §8-2
-  commit: "확정", restore: "확정 복원", discard: "변경 버리기" }; // 확정(spec_작업 ② §8)
+  commit: "확정", restore: "확정 복원", discard: "모두 되돌리기" }; // 확정(spec_작업 ② §8)
 const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기" };
 const CHANGE = { bold: "굵게", italic: "기울임", underline: "밑줄", sizePt: "크기(pt)", color: "색", align: "정렬", indentLeftMm: "왼쪽 여백(mm)",
   indentRightMm: "오른쪽 여백(mm)", firstLineMm: "첫 줄(mm)", lineSpacingPct: "줄 간격(%)", spaceBeforePt: "위 간격(pt)", spaceAfterPt: "아래 간격(pt)" };
@@ -4126,9 +4126,9 @@ function stepEdit(dir) {
 }
 
 // ---------------------------------------------------------------- 확정 (spec_작업 ② §8 — 고친 문단을 깃처럼)
-// 「고친 문단」 탭 맨 위(#commitBox, 모양 commits.css): 기준·고친 수 한 줄 + [메시지][확정][버리기] + 접힌 확정 기록.
+// 「고친 문단」 탭 맨 위(#commitBox, 모양 commits.css): 기준·고친 수 한 줄 + [메시지][확정][모두 되돌리기] + 접힌 확정 기록.
 // 기준 = 마지막 확정(state.base, 0 = 올린 원본) — 확정하면 지금 상태가 새 기준이 되어 고친 문단이 0 부터 다시 모인다.
-// 깃에 견주면: 고친 문단 = 작업 트리 변경 · 확정 = commit · 확정 기록 = log · 버리기 = 변경 모두 버림 · 「이 확정으로 복원」 = 그 시점으로 되돌리는 새 확정.
+// 깃에 견주면: 고친 문단 = 작업 트리 변경 · 확정 = commit · 확정 기록 = log · 모두 되돌리기 = 변경 모두 버림(코드 이름 discard) ·「이 확정으로 복원」 = 그 시점으로 되돌리는 새 확정.
 const KIND_KO = { text: "글", format: "모양", struct: "나누기·합치기", new: "새 문단", removed: "지움" };
 const baseName = (n = state.base) => (n ? `확정 ${n}` : "올린 원본");
 const kindCounts = (c) => Object.keys(KIND_KO).filter((k) => c && c[k]).map((k) => `${KIND_KO[k]} ${nf(c[k])}`).join(" · ");
@@ -4154,7 +4154,7 @@ function commitBar() { // 기준·고친 수 한 줄과 단추 상태 — update
   else sum.append(dirty ? `글은 같으나 파일이 기준과 다름(줄 배치를 ${APP()}가 다시 계산할 문단)` : "고친 것 없음");
   $("commitBtn").disabled = $("discardBtn").disabled = $("commitMsg").disabled = !dirty || !!state.commitBusy;
   $("commitBtn").textContent = state.commitBusy === "commit" ? "확정 중…" : "확정";
-  $("discardBtn").textContent = state.commitBusy === "discard" ? "버리는 중…" : "버리기";
+  $("discardBtn").textContent = state.commitBusy === "discard" ? "되돌리는 중…" : "모두 되돌리기";
   const ob = document.querySelector('#pdfSeg [data-which="original"]'); // PDF 탭 왼쪽 단추 = 기준 PDF
   if (ob) ob.textContent = state.base ? `확정 ${state.base}` : "원본";
 }
@@ -4198,7 +4198,7 @@ async function commitBodyDraw(c, body) { // 확정 하나를 펼침 — [파일 
   file.title = `${baseName(c.n)} 의 ${EXT()} 파일`;
   rs.type = "button";
   rs.disabled = c.n === state.base;
-  rs.title = c.n === state.base ? "지금 고친 문단을 견주는 기준입니다 — 변경을 버리려면 위 「버리기」" : `문서를 ${baseName(c.n)} 상태로 되돌리고 새 확정으로 남깁니다(지금 기준으로도 다시 돌아올 수 있음)`;
+  rs.title = c.n === state.base ? "지금 고친 문단을 견주는 기준입니다 — 이 상태로 돌아가려면 위 「모두 되돌리기」" : `문서를 ${baseName(c.n)} 상태로 되돌리고 새 확정으로 남깁니다(지금 기준으로도 다시 돌아올 수 있음)`;
   rs.onclick = () => commitRestore(c.n);
   acts.append(file, rs, el("span", "c-sha", `${fmtSize(c.size || 0)} · ${(c.sha256 || "").slice(0, 12)}…`));
   body.append(acts);
@@ -4255,25 +4255,25 @@ async function commitDo() { // 확정 — 지금 상태가 새 기준. 문서는
   }
 }
 
-async function commitRestore(n) { // n = 지금 기준이면 「버리기」(확정이 안 생김), 아니면 그 확정 상태로 되돌려 새 확정으로 남김
+async function commitRestore(n) { // n = 지금 기준이면 「모두 되돌리기」(확정이 안 생김), 아니면 그 확정 상태로 되돌려 새 확정으로 남김
   if (!(await commitReady("restore"))) return;
   const discard = n === state.base, dirty = isDirty() || state.failed.size > 0, count = state.edited.size + state.failed.size;
-  if (discard && !dirty) { toast("버릴 변경이 없습니다"); return; }
+  if (discard && !dirty) { toast("되돌릴 변경이 없습니다"); return; }
   const ask = discard
-    ? `확정하지 않은 변경(고친 문단 ${nf(count)}개)을 모두 버리고 ${baseName()} 상태로 되돌릴까요?\n버린 변경은 되살릴 수 없습니다.`
+    ? `확정하지 않은 변경(고친 문단 ${nf(count)}개)을 모두 ${baseName()} 상태로 되돌릴까요?\n되돌린 고침은 되살릴 수 없습니다.`
     : `문서를 ${baseName(n)} 상태로 되돌릴까요?\n새 확정으로 남으므로 지금 기준(${baseName()})으로도 다시 돌아올 수 있습니다.`
       + (dirty ? `\n\n확정하지 않은 변경(고친 문단 ${nf(count)}개)은 버립니다 — 남기려면 취소하고 먼저 「확정」하세요.` : "");
   if (!confirm(ask)) return;
   const id = state.id, epoch = state.epoch;
   state.commitBusy = discard ? "discard" : "restore";
   commitBar();
-  setSaveState("busy", discard ? "변경을 버리는 중…" : `${baseName(n)} 상태로 되돌리는 중…`);
+  setSaveState("busy", discard ? "모두 되돌리는 중…" :`${baseName(n)} 상태로 되돌리는 중…`);
   try {
     const d = await api(`/api/docs/${id}/commits/${n}/restore`, JSON_POST({ discard: dirty }));
     if (epoch !== state.epoch) return;
     state.commitBusy = false;
     adoptBase(d, true);
-    toast(discard ? `변경을 버렸습니다 — ${baseName()} 상태` : `${baseName(n)} 상태로 되돌려 ${baseName()} 로 남겼습니다`);
+    toast(discard ? `모두 되돌렸습니다 — ${baseName()} 상태` : `${baseName(n)} 상태로 되돌려 ${baseName()} 로 남겼습니다`);
   } catch (e) {
     if (epoch === state.epoch) toast(e.message, true);
   } finally {
@@ -5865,7 +5865,7 @@ function headsJobNow(job, r) { // → {what, secs, prev, title}
   const steps = job.steps || [], cur = steps.filter((s) => s.status === "running").pop() || steps.at(-1);
   const src = job.llm && !job.first && job.stage > 1 && r ? headsSource(r, job.stage) : null; // 같은 단계의 앞 LLM 실행이 걸린 시간 — 얼마나 걸릴지 어림
   const prev = src && src.seconds ? fmtDur(src.seconds) : "";
-  return { what: `${job.first ? "첫 분석" : `${job.stage}단계`} · ${cur ? cur.name : "준비 중"}`, secs: Math.max(0, Date.now() / 1000 - (job.started || 0)), prev,
+  return { what: `${job.first ? "첫 분석" : job.chain ? "LLM 검증·보완" : `${job.stage}단계`} · ${cur ? cur.name : "준비 중"}`, // job.chain = 이름 줄 진행표의 「LLM 검증·보완」(doc_status.js · spec_작업 ② §20) secs: Math.max(0, Date.now() / 1000 - (job.started || 0)), prev,
     title: `${job.llm ? "LLM" : "스크립트"} 실행 · ${fmtWhen(job.started)} 시작${prev ? ` · 지난번 LLM 실행은 ${prev} 걸림` : ""} — 누르면 추출·설정에서 단계별 진행을 봅니다` };
 }
 function headsNowDraw(r) { // 요약 줄 꼬리표의 글 — 읽을 때마다(약 1초)
@@ -5929,7 +5929,7 @@ function headsResultsSummary(r) {
   heads.nowEl = null;
   if (running) { // 돌아가는 동그라미 + 지금 하는 일 · 지난 시간 — 글은 headsNowDraw 가 읽을 때마다 채운다(② §7 「진행 표시」)
     const now = hBtn("", () => headsRunOpen(job.stage), { cls: "analysis-state running" });
-    now.append(el("span", "now-what", job.first ? "첫 분석(2·3단계)" : `${job.stage}단계 분석 중`), el("span", "now-secs"));
+    now.append(el("span", "now-what", job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완 중" : `${job.stage}단계 분석 중`), el("span", "now-secs"));
     heads.nowEl = now;
     meta.append(now, hBtn("진행 보기", () => headsRunOpen(job.stage), { cls: "btn sm now-open" }));
   } else if (job && job.status === "failed") {
@@ -6026,7 +6026,7 @@ function headsJob(job, r = null) {
   const now = job.status === "running" ? headsJobNow(job, r) : null; // 도는 동안: 지난 시간 · 지난번 LLM 실행이 걸린 시간(② §7 「진행 표시」)
   const secs = job.ended && job.started ? ` · ${(job.ended - job.started).toFixed(1)}s` : now ? ` · ${fmtDur(now.secs)} 지남${now.prev ? `(지난번 ${now.prev})` : ""}` : "";
   box.append(el("summary", `hjob-head ${job.status}`,
-    `${job.first ? "첫 분석(2·3단계)" : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
+    `${job.first ? "첫 분석(2·3단계)" : job.chain ? "LLM 검증·보완(헤딩 → 표 → 서식 계획)" : `${job.stage}단계`} · ${job.llm ? "LLM" : "스크립트만"} · ${H_JOB[job.status] || job.status}${job.run ? ` · 실행 ${job.run}번` : ""}${secs}`));
   const ol = el("ol", "steps brief");
   const phase = `-${Date.now() % 800}ms`; // 읽을 때마다(약 1초) 이 상자를 다시 만든다 — 돌아가는 동그라미가 처음 각도로 튀지 않게 시계에 맞춘다(spin .8s)
   for (const s of job.steps || []) {

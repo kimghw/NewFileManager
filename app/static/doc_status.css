@@ -22,6 +22,49 @@ button.ds-chip:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .doc-status .ds-go { flex: none; height: 20px; min-height: 20px; margin-left: 2px; padding: 0 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; }  /* 「분석」 — 기본 분석이 없을 때만 */
 @media (prefers-reduced-motion: reduce) { .ds-spin { animation-duration: 2.4s; } }
 
+/* 진행표 펼치기 ▾ — 좁아서 LLM 표시(옵션)가 감춰져도 남는다 */
+.doc-status .ds-more { flex: none; width: 18px; height: 20px; min-height: 20px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--muted); font-size: 10px; line-height: 1; cursor: pointer; }
+.doc-status .ds-more:hover, .doc-status .ds-more[aria-expanded="true"] { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+.doc-status .ds-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 진행표(2026-11-16 — spec_작업 ② §20 「넷 · 진행표 · LLM 검증·보완」) — 이름 줄 아래로 펼치는 4×3 표(창이 아니다: 바깥을 누르거나 Esc 면 닫힘 · 위치는 doc_status.js dsTablePlace).
+   글 12px · 칸 머리 11px(design.md §1 규칙 7) · 상태는 색만이 아니라 글로(✓ · 대기 · 실패 · 일부). 칸을 누르면 그 도구로 */
+.ds-table { position: fixed; z-index: 60; box-sizing: border-box; max-height: calc(100vh - 120px); overflow: auto; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); box-shadow: 0 8px 24px rgba(15, 23, 42, .14); color: var(--text); font-size: 12px; line-height: 1.4; }
+.ds-table[hidden] { display: none; }
+.ds-table-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ds-table-head strong { flex: none; font-size: 13px; }
+.ds-table-note { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-table-x { flex: none; width: 24px; height: 24px; min-height: 24px; padding: 0; }
+.ds-grid { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 4px; align-items: stretch; }
+.ds-col { padding: 0 6px 2px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.ds-row-name { display: flex; align-items: center; font-weight: 600; }
+.ds-cell { display: flex; align-items: flex-start; gap: 5px; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2);
+  color: var(--text); font: inherit; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+button.ds-cell { cursor: pointer; }
+button.ds-cell:hover { border-color: var(--accent); }
+button.ds-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ds-cell .ds-spin { margin-top: 3px; }
+.ds-cell-mark { flex: none; font-weight: 700; }
+.ds-cell.done .ds-cell-mark, .ds-step.ok .ds-cell-mark { color: #15803d; }
+.ds-cell.done { background: #f0fdf4; border-color: #bbe5c8; }
+.ds-cell.none, .ds-cell.wait, .ds-cell.na { color: var(--muted); }
+.ds-cell.na { background: none; border-style: dashed; }
+.ds-cell.failed, .ds-cell.partial { background: #fff7ed; border-color: #f4c48a; color: #9a3412; }
+.ds-cell.running { color: var(--accent); }
+.ds-table-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ds-foot-title { color: var(--text); font-weight: 600; }
+.ds-foot-err { color: #9a3412; overflow-wrap: anywhere; }
+.ds-steps, .ds-plan { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.ds-step, .ds-plan li { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ds-step .ds-spin { align-self: center; }
+.ds-step-name { flex: none; }
+.ds-step-msg { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.ds-step.failed .ds-cell-mark, .ds-step.partial .ds-cell-mark { color: #9a3412; }
+.ds-step.skip, .ds-step.stopped, .ds-step.wait, .ds-plan li.skip { color: var(--muted); }
+.ds-plan li.run::before { content: "▸"; color: var(--accent); }
+.ds-plan li.skip::before { content: "–"; }
+
 /* 좁으면 옵션 항목(LLM · 구분 기준)부터 감추고 헤딩 · 표는 남긴다 — 기준은 창이 아니라 줄의 폭(design.md §3). 파일 이름(.file-name flex 1 1 auto)이 먼저 줄고 줄은 꺾이지 않는다.
    색 설명(#fmtKey · #divKey)이 줄에 떠 있는 동안은 그 설명이 먼저다(그 줄의 「폭 480px 이상이면 한 줄」 약속 — divisions.css · fmt_focus.css): 옵션 항목은 늘 감추고, 줄 폭 1000px 이하면 표시를 통째로 감춘다
    (설명을 끄면 다시 보인다). 아주 좁으면 파일 크기 글도 감춘다(표시가 자리를 쓴 만큼) */

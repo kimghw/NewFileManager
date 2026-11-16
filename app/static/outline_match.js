@@ -161,6 +161,7 @@ function olmSplitForm(id, L, g, like) { // 갈래 줄 아래 「옮길 템플릿
 
 function olmRefresh() { // 오버레이·서식 갈래가 바뀐 뒤 — 열려 있는 「템플릿 관계」 의 갈래 줄을 다시(편 목록은 편 채로), 도구 줄 단추도
   olmToolSync();
+  if (typeof docStatusPing === "function") docStatusPing(); // 이름 줄의 「서식 맞춘 레벨」 · 진행표도(doc_status.js — spec_작업 ② §20)
   const rows = document.querySelectorAll(".tpl-tree .olm, .tpl-tree .tpl-pic, .tpl-tree .olm-tm");
   if (!rows.length && !(typeof tpaOn === "function" && tpaOn())) return; // 트리가 없어도 서식 정리 에이전트 열(tpl_agent.js)의 대상 칸은 새 갈래로
   if (!olmFresh()) { olmLoad().then((d) => { if (d) olmRedraw(); }); return; }

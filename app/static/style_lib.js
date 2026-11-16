@@ -523,7 +523,8 @@ function styleItemEl(s) {
       row.setAttribute("role", "group");
       row.setAttribute("aria-label", `${level} ${it.name || "서식"}`);
       name.append(el("span", "sl-ltitle", it.name || "(이름 없음)"));
-      const sample = [m.mode === "auto" ? "자동 번호" : m.mode === "literal" ? m.literal : "", it.sample].filter(Boolean).join(" · ");
+      const lit = m.mode === "literal" ? String(m.literal || "").trim() : "", said = String(it.sample || "").trim(); // 견본 글은 보통 레터로 시작한다(style_carrier._item) — 그때는 레터를 따로 앞에 붙이지 않는다(「□ · □ 견본 글입니다」 겹침)
+      const sample = [m.mode === "auto" ? "자동 번호" : lit && !said.startsWith(lit) ? lit : "", said].filter(Boolean).join(" · ");
       if (sample) name.append(el("span", "sl-lsample", sample));
       name.title = [it.name, m.mode === "auto" ? "자동 번호 — 대상 문서의 번호 설정을 따릅니다" : m.literal ? `레터 「${m.literal}」` : "", it.sample].filter(Boolean).join("\n");
       const b = hBtn("글자·문단 모양 입히기", () => styleApply(s, "format", it), { disabled: !canAny, title: `문서에서 끌어 고른 문단들(없으면 커서 문단)에 이 항목의 글자·문단 모양을 입힙니다 — 글·레터·기존 번호는 그대로 · 실행 취소로 되돌림${needAny}` }); // 동작 이름 = 바꾸는 범위(② §13 — 전의 「고른 문단에 입히기」)

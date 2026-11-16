@@ -8,6 +8,15 @@
 - 명령 이름은 **`agy`**(winget 이 명령 줄 별칭으로 더한다): `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe`. `agy --version` → `1.5.9`.
 - 이미 열려 있던 터미널은 PATH 를 다시 읽지 않는다 — 새 터미널에서 잡힌다. 처음 실행하면 Google 계정 로그인이 필요하다(사람이 한다).
 
+## 로그인(2026-11-16 확인)
+
+- `login` 하위 명령은 **없다**(`agy --help` 의 하위 명령: acp · agent(s) · changelog · help · install · mcp · mic-serve · models · plugin(s) · remote-control · update).
+  로그인은 **인자 없이 `agy` 를 띄운 대화형 화면**에서 한다 — 에이전트의 비대화형 셸(stdin 없음)에서는 못 하니 새 콘솔 창으로 띄워 사람이 마친다
+  (PowerShell: `Start-Process agy -WorkingDirectory <폴더>`).
+- 로그인 여부 확인: `agy models` — 안 됐으면 `Error: Please sign in to view available models. Launch the CLI without arguments to sign in.`, 되면 모델 목록.
+- 로그인 전에는 `%USERPROFILE%` · `%APPDATA%` · `%LOCALAPPDATA%` 아래에 agy·antigravity·gemini 이름의 설정 폴더가 없었다(설정은 첫 실행 때 생긴다).
+  로그인 뒤 CLI 설정은 `%USERPROFILE%\.gemini\antigravity-cli\settings.json`(처음엔 `trustedWorkspaces` 만 — 기본 모델은 적혀 있지 않다).
+
 ## 비대화형 실행 · 음성 받아쓰기(2026-11-16 확인)
 
 - 한 번 묻고 답만 받기: `agy -p "<프롬프트>" [--model <id>] [--effort low|…|max] [--mode accept-edits|auto|plan] [--print-timeout 600s]`.

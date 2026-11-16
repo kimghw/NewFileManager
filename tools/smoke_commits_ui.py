@@ -124,7 +124,8 @@ with sync_playwright() as pw:
     check("되돌리기: 확정본 글로(★0 남고 ◆ 없음)", ev(f"""document.querySelector('.para[data-id="{pid}"]').textContent.endsWith('★0')"""))
     check("되돌리기: 파일 = 확정 1 과 같음", "확정 1" in save_state(), save_state())
 
-    # 버리기
+    # 모두 되돌리기(#discardBtn — 전 이름 「버리기」)
+    check("모두 되돌리기: 단추 이름", ev("document.getElementById('discardBtn').textContent") == "모두 되돌리기")
     for k, x in enumerate(ids[:2]):
         page.click(f'.para[data-id="{x}"]')
         page.keyboard.press("End")
@@ -179,7 +180,7 @@ with sync_playwright() as pw:
     page.click("#tabLog")
     page.wait_for_selector("#logList .log-item.k-restore", timeout=20000)
     kinds = ev("[...document.querySelectorAll('#logList .log-item .log-kind')].map(e => e.textContent)")
-    check("기록: 확정 2 · 변경 버리기 1 · 확정 복원 1", kinds.count("확정") == 2 and kinds.count("변경 버리기") == 1 and kinds.count("확정 복원") == 1, str(kinds[:12]))
+    check("기록: 확정 2 · 모두 되돌리기 1 · 확정 복원 1", kinds.count("확정") == 2 and kinds.count("모두 되돌리기") == 1 and kinds.count("확정 복원") == 1, str(kinds[:12]))
 
     if PDF:  # 새 기준의 가져오기 검증(한글 PDF)이 끝나면 쪽 매핑·PDF 가 새 기준 것으로
         wait_import(wid)

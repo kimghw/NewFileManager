@@ -1,4 +1,4 @@
-/* 확정(spec_작업 ② §8 — 고친 문단을 깃처럼) — 「고친 문단」 탭 맨 위: 기준·고친 수 한 줄, [메시지][확정][버리기] 한 줄, 접힌 확정 기록.
+/* 확정(spec_작업 ② §8 — 고친 문단을 깃처럼) — 「고친 문단」 탭 맨 위: 기준·고친 수 한 줄, [메시지][확정][모두 되돌리기] 한 줄, 접힌 확정 기록.
    design.md §1: 상자 겹침 2겹까지(패널 › 확정 상자 — 기록 줄은 구분선만), 좌우 패딩 ≤ 12px, 컨트롤 높이 28px, 한 묶음은 왼쪽부터 붙여 놓음. */
 .commit-box { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 8px 10px; margin-bottom: 10px; }
 .commit-sum { margin: 0 0 6px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }

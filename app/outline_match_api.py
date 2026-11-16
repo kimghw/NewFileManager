@@ -331,6 +331,9 @@ def match_template(doc_id: str, tpl: str, body: dict = Body(default={})):
         out["levels"] = done
         if cuts:
             out["splits"] = cuts
+        if by == "agent" and rev is not None:  # 정리 에이전트의 계획을 적용함 — 분석 상태의 서식 LLM 칸(spec_작업 ② §20)
+            from app import tpl_agent_api
+            tpl_agent_api.applied(server._sess(doc_id), tpl, rev, len(changed))
     return out
 
 

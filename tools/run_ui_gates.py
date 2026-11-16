@@ -28,7 +28,7 @@ GATES = {
     "gather_quick": ("smoke_gather_quick_ui.py", True, "취합 간단 모드 — 시작 화면 목록에서 목적 문서 고르기 → 자동 진행이면 끝까지(진짜 끝점) · 끄면 올리고 등록만"),
     "home_files": ("smoke_home_files_ui.py", True, "시작 화면 문서 목록 — 모아 두기 · 목적 문서 · 별칭 · TASK 없이 열기 · 이관 두 문서 · 양식 맞추기"),
     "first_run": ("smoke_first_run_ui.py", True, "첫 분석(헤딩 · 표 스크립트만 — 구분 기준 LLM 검토는 안 부름) · 구분 기준 LLM 검토 취합"),
-    "doc_status": ("smoke_doc_status_ui.py", True, "분석 상태 — 문서 이름 줄의 「헤딩 · 표 · LLM · 구분 기준」 표시(없음 → 「분석」 → ✓ · 누르면 그 도구로 · docx · 구분 기준 옵션 · 좁은 폭 · 둘째 면 머리)"),
+    "doc_status": ("smoke_doc_status_ui.py", True, "분석 상태 — 문서 이름 줄의 「헤딩 · 템플릿 · 서식 · 표 · LLM · 구분 기준」 표시(없음 → 「분석」 → ✓ · 누르면 진행표 → 칸은 그 도구로 · 「LLM 검증·보완」(LLM 끔 → 멈춤) · 도는 중 · docx · 구분 기준 옵션 · 좁은 폭 · 둘째 면 머리)"),
     "heading_progress": ("smoke_heading_progress_ui.py", True, "헤딩 추출 진행 줄 — 스크립트(문단·라벨 · 헤딩 그래프 · 표 구조) · LLM(규칙 보강 · 헤딩 판정 · 표 판정) 두 층 · 누르면 그 단계 탭 · 1단계 카드 · 흉내 낸 상태(끝남 · 도는 중 · 실패 · 할 것 없음) · 좁은 폭"),
     "div_run": ("smoke_div_run_ui.py", True, "프로젝트 구성 실행 묶음 — 한 번에 진행 · ① 변경 계획 보기 › ② 반영 · 계획 다시 열기 · 멈추는 조건(진짜 끝점)"),
     "div_key": ("smoke_div_key_ui.py", False, "구분 기준 자리 표시 — 문서 이름 줄의 색 설명(칩 · 노트 · 감추기 · 좁은 폭)"),
