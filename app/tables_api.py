@@ -750,3 +750,84 @@ def table_fill_apply(doc_id: str, tid: str, body: dict = Body(...)):
     if isinstance(out, dict):
         out["filled"] = done
     return out
+
+
+# ---- 표 서식 — 점검 · 맞추기(spec_헤딩_추출 ② §19) -------------------------------------------------------------------------------------------
+STYLE_KEYS_MAX = 2000
+
+
+def _style_hwpx(s):
+    if not hasattr(s.doc, "split_table"):
+        raise HTTPException(400, "표 서식 점검은 지금 hwpx 문서만 됩니다")
+
+
+def _style_tb(s, tid):
+    """표 서식의 칸 역할 → (표, 출처). 3단계 결과에 그 표가 있고 칸이 지금 문서와 같으면 그것(표 판정 LLM 이 고친 역할 포함 — 출처 stage3),
+    아니면 그 표만의 스크립트 초안(`table_heads.table` — draft). 어느 쪽이든 지금의 사람 헤더 지정을 덮는다(3단계 결과는 복사해서 — 캐시를 바꾸지 않게)."""
+    from app import table_heads
+    user = table_heads.get(s.id, tid) or None
+    alive = {s.doc._id(x.el) for x in s.doc._tgrid(s.doc._ids[tid])[1]}
+    t3 = heading_runs.tables(s)
+    tb = next((t for t in (t3 or {}).get("tables") or [] if t.get("id") == tid), None)
+    if tb is not None and {c["id"] for c in tb.get("cells") or []} == alive:
+        tb = {**tb, "cells": [dict(c) for c in tb["cells"]]}
+        table_heads.apply(tb, user)
+        return tb, "stage3"
+    try:
+        tb = table_heads.table(s.doc, tid, user, doc_key=getattr(s, "doc_key", None))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if tb is None:
+        raise HTTPException(400, "칸 역할을 읽지 못한 표입니다(1칸 표 · 상자)")
+    return tb, "draft"
+
+
+def _style_report(s, tid):
+    """그 표의 점검(문서 안 바뀜) — 개요 줄(템플릿이 다룸)은 견주지 않는다."""
+    from app import server, table_style
+    tb, source = _style_tb(s, tid)
+    ov = server._outline_ov(s) or {}
+    skip = {k for part in ("lines", "autos") for k in (ov.get(part) or ()) if isinstance(k, str)}  # 개요 줄 · 자동 글머리 줄(템플릿 대표에 맞추는 줄 — spec_hwpx_웹편집 ② §8-8)
+    return table_style.check(s.doc, tb, skip=frozenset(skip), source=source)
+
+
+@router.get("/api/docs/{doc_id}/tables/{tid}/style")
+def table_style_get(doc_id: str, tid: str):
+    """표 하나의 서식 점검 — 자리(머리행 · 머리열 · 합계행 · 열 · 빈 값)마다 대표 서식과 다른 서식, 그 표의 빈 값 표시. 문서는 안 바뀐다. hwpx 만 · 표 없음 404."""
+    s = _sess(doc_id)
+    with s.lock:
+        _style_hwpx(s)
+        _live_table(s, tid, "서식을 볼 표")
+        return {**_style_report(s, tid), "rev": s.rev}
+
+
+@router.post("/api/docs/{doc_id}/tables/{tid}/style/apply")
+def table_style_apply(doc_id: str, tid: str, body: dict = Body(...)):
+    """고른 다른 서식을 그 자리의 대표로 — {keys: [항목 키 「무엇:칸 id:문단 id」…]}(1~2,000개). 맞출 때 다시 점검해 지금도 다른 것만 바꾼다(그 밖은 skipped).
+    한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tableStyle`). 응답 = 구조 편집 응답 + `styled {table, done[키], skipped[{key, why}], formatted}`.
+    400 키 꼴 · docx · 409 맞출 것이 하나도 안 남음 · 404 표 없음."""
+    from app import server, table_style
+    keys = body.get("keys") if isinstance(body, dict) else None
+    if not isinstance(keys, list) or not keys or len(keys) > STYLE_KEYS_MAX or not all(isinstance(k, str) and table_style.KEY_RE.match(k) for k in keys):
+        raise HTTPException(400, f"keys 는 1~{STYLE_KEYS_MAX}개의 항목 키(「무엇:칸 id:문단 id」)")
+    done = {}
+
+    def make(s):
+        _style_hwpx(s)
+        _live_table(s, tid, "서식을 맞출 표")
+        tbl = s.doc._ids[tid]
+        report = _style_report(s, tid)
+        live = {o["key"] for p in report["places"] for o in p["odd"]}
+        if not any(k in live for k in keys):
+            raise HTTPException(409, "맞출 것이 없습니다 — 점검한 뒤 문서가 바뀌었습니다. 다시 점검하세요")
+
+        def run():
+            r = table_style.conform(s.doc, report, keys)
+            done.update(table=tid, done=r["done"], skipped=r["skipped"], formatted=len(r["formatted"]))
+            return {"hosts": [tbl], "anchor": tid, "focus": None, "formatted": set(r["formatted"]),
+                    "log": {"table": tid, "done": len(r["done"]), "skipped": len(r["skipped"]), "formatted": len(r["formatted"])}}
+        return [tbl], run
+    out = server._edit(doc_id, make, "tableStyle", {"table": tid, "keys": len(keys)})
+    if isinstance(out, dict):
+        out["styled"] = done
+    return out

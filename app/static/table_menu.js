@@ -229,6 +229,9 @@ function tmnMenu(tid) {
       { title: "문서 옆 열에 A1 격자 — 수식 자리 판정 · 계산 · 숫자 칸 · 엑셀로 받기\n표 칸을 끌어 고른 뒤 열면 그 범위만" }],
     ["서식으로 변환하기", "▸", () => tmnTemplates(tid), !hwpx || state.busy,
       { title: `표 양식(서식을 따올 표)을 고르면 이 표에 그 서식만 입힙니다 — 구조·글·칸 크기는 그대로(실행 취소로 되돌림)${only}` }],
+    // 표 서식 점검(spec_헤딩_추출 ② §19 — table_style.js): 이 표 안에서 같은 자리(머리행 · 머리열 · 열 · 빈 값)의 칸끼리 서식이 같은지 — 문서 옆 열
+    ["표 서식 점검…", "", () => tblStyleView(tid), !hwpx || typeof tblStyleView !== "function",
+      { title: `이 표 안에서 머리행 · 머리열 · 열 · 빈 값 칸끼리 글꼴 · 크기 · 정렬 · 줄 간격 · 여백이 같은지 봅니다(문서 옆 열) — 고른 곳만 그 자리의 대표 서식에 맞춥니다(실행 취소로 되돌림)${only}` }],
     ["표 나누기", "▸", () => tsplitMenu(tid, () => tmnMenu(tid), tmn.anchor), !hwpx || state.busy || typeof tsplitMenu !== "function", // table_edit.js — spec_owpml_편집 ② §5-3
       { title: `필드 열을 나눠 표 2개로(헤더 열은 두 표에 똑같이 · 두 표 모두 원래 폭) · 나눈 표를 다시 나누기(4+1 → 2+3) · 다시 합치기${only}` }],
     null,

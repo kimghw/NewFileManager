@@ -60,6 +60,7 @@ GATES = {
     "note_help": ("smoke_note_help_ui.py", False, "노트 도움말 — hover · 키보드 · 터치 · 좁은 화면 · 대화상자"),
     "table_menu": ("smoke_table_menu_ui.py", False, "표 메뉴"),
     "table_fill": ("smoke_table_fill_ui.py", False, "작성요령 세 묶음 · 표 채우기"),
+    "table_style": ("smoke_table_style_ui.py", False, "표 서식 점검 · 맞추기"),
     "table_cells": ("smoke_table_cells_ui.py", False, "표 칸 고르기·행/열"),
     "heading_drift": ("smoke_heading_drift_ui.py", False, "뼈대 유지"),
     "zoom": ("smoke_zoom_lazy_ui.py", False, "배율 — 쪽 상자마다 · 보이는 쪽부터(옆 열 여닫기 · 맞춤 · 2쪽 · 창 크기)"),

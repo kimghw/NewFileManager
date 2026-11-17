@@ -167,7 +167,7 @@ COMMON = (
                 modules=("doc_agent_api",), spec=(SP_EDIT, "② §9")),
          )),
     dict(id="tables", name="표 도구", where="표 손잡이(표 오른쪽 여백)의 메뉴 · 패널 탭 「테이블」(하위 탭 「표 목록 · 보기·도구 · 추출·설정」)",
-         does="표 하나에 대한 일입니다 — 수식 검산 · 빈 칸 채우기 · 표 만들기 · 빈 필드 지우기.",
+         does="표 하나에 대한 일입니다 — 수식 검산 · 빈 칸 채우기 · 표 만들기 · 표 서식 맞추기 · 빈 필드 지우기.",
          steps=(
              _s("xl", "엑셀식 보기 · 수식 판정", ("script", "llm"), "표를 엑셀 격자로 보고 합계 · 소계 · 비율 칸의 수식을 판정 · 검산합니다. 「LLM 수식 판정」 을 누르면 LLM 이 수식 자리를 더 찾습니다(계산은 스크립트).",
                 agents=("table_formula",), modules=("table_excel", "table_excel_llm", "table_formula"), spec=(SP_HEAD, "② §14")),
@@ -175,6 +175,9 @@ COMMON = (
                 agents=("table_fill",), modules=("table_fill", "table_agent"), spec=(SP_HEAD, "② §18")),
              _s("make", "표 만들기 · 서식 변환", ("llm", "script"), "글이나 다른 표를 고른 표 양식의 격자로 정리해 문서에 넣습니다 — 괘선 · 음영 · 글자 모양은 양식에서 옵니다.", change="doc",
                 agents=("table_make",), modules=("table_make", "table_llm", "hwpx_table_make"), spec=(SP_HEAD, "② §11")),
+             _s("style", "표 서식 점검 · 맞추기", ("script", "human"), "표 안에서 같은 자리(머리행 · 머리열 · 합계행 · 열 · 빈 값)의 칸끼리 글꼴 · 크기 · 정렬 · 줄 간격 · 여백이 같은지 보고, "
+                "그 표의 빈 값 표시(「–」 등)를 읽습니다. 사람이 고른 곳만 그 자리의 대표 서식(가장 많이 쓴 서식)에 맞춥니다 — 장평 · 자간은 칸 폭 맞춤이라 그대로 둡니다.", change="doc",
+                modules=("table_style",), spec=(SP_HEAD, "② §19")),
              _s("prune", "빈 필드 제거", "script", "필드가 모두 빈 행 · 열을 찾아 지웁니다.", change="doc", modules=("table_prune",), spec=(SP_HEAD, "② §16")),
          )),
     dict(id="outline", name="템플릿 관계 · 서식 정리", where="도구 줄 「서식」 묶음의 「템플릿 관계」 · 헤딩 추출 「템플릿」 탭 · 헤딩 추출 탭 진행 줄의 「조정」(템플릿 조정 · 서식 조정 · 모두 반영) · 도구 줄 「문단 수정」 묶음의 「레터 넣기」",
