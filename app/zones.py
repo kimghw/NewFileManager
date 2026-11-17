@@ -30,10 +30,12 @@ PATH_MAX = 8
 CELL_MAX = 24   # 이름표 칸의 글 길이 상한(빈칸 뗀 글)
 # 이름표 칸(② §2 「표 안의 값 읽기」) — 괄호 안과 빈칸을 뗀 글이 **낱말 그대로**일 때만(fullmatch). 역할이 든 이름표(「주관연구개발기관」·「공동연구개발기관」·「해당과제의 주관연구개발기관」)는
 # 그 표가 누구 것인지가 아니라 「주관이 누구인지」 를 적는 자리라 읽지 않는다 · 「연차휴가 일수」·「연차별 예산」 처럼 낱말이 섞인 칸도 이름표가 아니다.
-ORG_CELL = re.compile(r"연구개발기관명?|기관명|수행기관명?|참여기관명?|소유권자")
+ORG_CELL = re.compile(r"연구개발기관명?|기관명|수행기관명?|참여기관명?|소속기관명?|보유기관명?|소유권자")
 YEAR_CELL = re.compile(r"(?:구입|사용|해당|수행|집행|개발)?(?:연차|차년도|년차)")
 ROLE_CELL = re.compile(r"(?:주관|공동|위탁)(?:연구개발)?기관")   # 이름표 칸의 왼쪽 칸이 역할 줄의 머리(「주관연구개발기관 | 기관명 | 이름」)면 그 이름은 표 전체의 기관이 아니다
 YEAR_VALUE = re.compile(r"^(?:\(?(\d{1,2})단계\)?[-,·]?)?(\d{1,2})(?:차년도|년차)?(?:\((?:19|20)\d\d년?\))?$")   # 값 칸(빈칸 뗀 글) 「2차년도」·「2차년도(2026년)」·「2」·「2단계 1차년도」
+COL_MIN = 2    # 값으로 알아보는 기관 열(② §2 「기관 열」 — 기관 이름 · 「개발 내용 … (기관 이름)」 이 행마다 되풀이되는 열)로 보는 칸 수의 하한
+_TAIL = re.compile(r"[(（]([^()（）]*)[)）]$")
 ORG_TEXT = {"unknown": "기관 모름", "conflict": "기관 확인 필요"}
 WHY_ORG = ("byNo", "byName", "byGroup", "byPath", "byCell")
 
@@ -116,6 +118,41 @@ def _cell_org(text, keys):
         if k and k in keys:
             return k
     return None
+
+
+def _tail_org(text, keys):
+    """칸 글이 「내용 … (기관 이름)」 으로 **끝나면** 그 괄호 안의 과제 기관 열쇠 | None — 괄호 앞에 글이 있고 괄호 안이 열쇠와 통째로 같을 때만(`_cell_org`).
+    일정표의 「서브모듈 기초설계\\n(인텍전기전자)」 꼴. 가운데 괄호(「기술 기준(안)」)·여러 기관(「(가나, 다라)」)·품은 이름(「(한국선급엔지니어링)」)은 아니다."""
+    t = core.NOTE.sub("", str(text or "")).strip()
+    m = _TAIL.search(t)
+    if not m or not t[:m.start()].strip():
+        return None
+    return _cell_org(m.group(1), keys)
+
+
+def _org_cols(cells, keys, at):
+    """**값으로 알아보는 기관 열**의 칸 → [(칸, 열쇠)] — 이름표 낱말이 없어도 칸의 값이 행마다 기관을 가르는 열(② §2 「기관 열」). at = {(행, 열): 칸}(병합 칸이 덮은 자리 포함).
+    칸 하나가 기관을 말하는 때: **첫 열**(행 머리 열 — 보유현황 표의 합친 「인텍\\n전기전자㈜」)의 칸 글이 통째로 과제 기관 이름(`_cell_org`)이거나, 어느 열이든 「… (기관 이름)」 으로 끝날 때(`_tail_org` — 일정표의 「개발 내용」).
+    첫 열이 아닌 열의 이름 그대로인 칸은 안 본다 — 그 열의 뜻이 발행기관 · 과제의 주관기관 · 상대 업체일 수 있다(실측: 「인증기준 | 발행기관 한국선급」 · 「주관연구개발기관 / 당시 소속기관」).
+    왼쪽 칸이 역할 줄의 머리(「주관연구개발기관 | 인텍」)인 칸 · 맨 위 칸이 역할 낱말인 열은 안 본다 — 참여 기관을 적는 공통 표의 줄은 그 기관의 자리가 아니다(이름표 규칙의 ROLE_CELL 과 같은 까닭).
+    같은 열(시작 열 · 너비)에서 그런 칸이 COL_MIN 개 이상 · **기관이 둘 이상**(행을 기관별로 가르는 열 — 한 기관뿐이면 표 전체의 일이라 LLM 검토의 후보로 둔다) · 그 열의 글 든 칸(머리 칸 포함) 가운데 절반 이상일 때만 —
+    몇 칸에 붙은 괄호(「사용용도(업체)」 열 끝의 「형식승인 서비스\\n(한국선급)」 = 상대 업체)를 행의 기관으로 읽지 않게. 못 읽은 칸(「한양대학교 에리카산학협력단」)은 그 행을 비워 둔다."""
+    def says(c):
+        left = at.get((c["row"], c["col"] - 1))
+        if left is not None and left["id"] != c["id"] and ROLE_CELL.search(core._bare(left.get("text"))):
+            return None
+        return (_cell_org(c.get("text"), keys) if c["col"] == 0 else None) or _tail_org(c.get("text"), keys)
+    by = {}
+    for c in cells:
+        by.setdefault((c["col"], c.get("colSpan") or 1), []).append(c)
+    out = []
+    for cs in by.values():
+        if ROLE_CELL.search(core._bare(min(cs, key=lambda c: c["row"]).get("text"))):
+            continue
+        got = [(c, k) for c in cs if (k := says(c))]
+        if len(got) >= COL_MIN and len({k for _, k in got}) >= 2 and 2 * len(got) >= sum(1 for c in cs if _WS.sub("", c.get("text") or "")):
+            out += got
+    return out
 
 
 def _org_pick(by_no, hit):
@@ -245,16 +282,21 @@ def _table_read(b, keys, stages, skip=()):
     - 표 전체: 이름표 칸의 오른쪽 이웃 칸(같은 행)에 값이 있고 그 이름표 칸 아래(그 범위)에는 값이 없을 때. 그렇게 읽은 기관이 서로 다르면 conflict(차년도가 다르면 비움).
       읽지 않는 때 — 그 표 안에 그 기준의 묶음(행·열)이 있다(skip) · 값이 옆으로 이어진다(값마다 열이 있는 머리 행) · 행마다 기관이 갈린다 · 이름표의 왼쪽 칸이 역할 줄의 머리다(「주관연구개발기관 | 기관명 | 이름」).
     - 행: 이름표 칸의 아래 칸들에 값이 있을 때 — 그 값 칸이 걸친 행 안에 온전히 든 모든 칸. 한 행의 기관 열들이 서로 다른 기관을 말하면 conflict.
+    - 행(기관 열): 기관 이름표 칸이 **없는** 표에서, 값으로 알아보는 기관 열(`_org_cols` — 첫 열의 합친 기관 이름 칸 · 일정표 「개발 내용」 의 「(기관 이름)」)의 칸이 걸친 행 — 위 「행」 과 같은 규칙.
+      기관 이름표 칸이 있으면 그것이 먼저다(값으로는 안 본다 — 그런 표의 다른 열 괄호는 상대 업체·발급 기관일 수 있다).
     왼쪽에 값이 있는 꼴(「이름 | 연구개발기관명」)과 칸 안의 표는 읽지 않는다."""
     cells = b.get("cells") or ()
-    tags = [(c, k) for c in cells if (k := _tag_kinds(c.get("text"), keys))]
-    if not tags:
+    if not cells:
         return None, {}
+    tags = [(c, k) for c in cells if (k := _tag_kinds(c.get("text"), keys))]
     at = {}
     for c in cells:
         for r in range(c["row"], c["row"] + (c.get("rowSpan") or 1)):
             for k in range(c["col"], c["col"] + (c.get("colSpan") or 1)):
                 at[(r, k)] = c
+    tails = [] if any("org" in k for _, k in tags) else _org_cols(cells, keys, at)
+    if not tags and not tails:
+        return None, {}
     n_rows, memo = max(r for r, _ in at) + 1, {}
     heads = sorted({c["row"] for c, _ in tags})   # 머리 행 — 이름표 칸이 시작하는 행
 
@@ -290,6 +332,9 @@ def _table_read(b, keys, stages, skip=()):
                 if kind == "org" and left is not None and left["id"] != h["id"] and ROLE_CELL.search(core._bare(left.get("text"))):
                     continue   # 역할 줄의 이름 — 그 표가 누구 것인지가 아니다
                 whole[kind].append(v)
+    for x, v in tails:
+        for r in range(x["row"], x["row"] + (x.get("rowSpan") or 1)):
+            claims["org"].setdefault(r, []).append(v)
     row_org, row_year = {}, {}
     for r, vs in claims["org"].items():
         ks = list(dict.fromkeys(vs))
