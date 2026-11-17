@@ -170,7 +170,9 @@ def test_knowledge_beats_indent_and_rank():
 
 # ---- L2 → L4 생략은 B 의 슬롯 예외 · B 의 부모 변경은 재배정 뒤에도 보존 -----------------------------------------------------------
 
-def test_skipped_level_needs_slot_exception_and_parent_change_survives_reassignment():
+def test_skipped_level_is_the_deeper_level_and_parent_change_survives_reassignment():
+    """(N) 을 건너뛴 「o」 — 2026-11-17 부터 부모만으로 주 사슬 L4(잇닿은 사슬 · 레벨 건너뜀 — spec_헤딩_추출 ② §6 「잇닿은 사슬」, 사용자 답 「T1 에 넣기」).
+    전에는 가지 템플릿 「o」 L1 이고 B 의 슬롯 예외가 있어야 L4 였다 — 지금 B 의 같은 슬롯 예외는 결과를 바꾸지 않는다."""
     rows = [("1.", "N.", "decimal", "장", 0), ("1-1.", "N-N.", "hyphen", "절", 0),
             ("o", "o", "latin-o", "건너뜀", 2),  # (N) 없이 1-1. 바로 아래
             ("(1)", "(N)", "paren-num", "괄호", 1), ("o", "o", "latin-o", "보통", 2), ("o", "o", "latin-o", "둘째", 2)]
@@ -179,12 +181,12 @@ def test_skipped_level_needs_slot_exception_and_parent_change_survives_reassignm
     A = _a(st1, {"N.": ["root"], "N-N.": ["N."], "(N)": ["N-N."], "o": ["(N)", "N-N."]}, ["N.", "N-N.", "(N)", "o"])
     g = HG.build(st1, use_llm=True, ask=fake_ask(heading_types=lambda job, d: _res(A)))
     N = _nodes(g)
-    assert N["p2"]["parent"] == "p1" and N["p2"]["template"] == "body:o" and N["p2"]["level"] == 1  # 부모만으로는 새 가지
-    assert (N["p4"]["template"], N["p4"]["level"]) == (M, 4)
+    assert N["p2"]["parent"] == "p1" and (N["p2"]["template"], N["p2"]["level"]) == (M, 4)  # 부모만으로 주 사슬 L4(전: 새 가지 「o」 L1)
+    assert (N["p4"]["template"], N["p4"]["level"]) == (M, 4) and [t["anchor"] for t in g["templates"]] == [M]
 
     def b(job, d):
         rows_ = {r[0]: r for r in d["nodes"]}
-        assert rows_["p2"][4] == "body:o" and rows_["p2"][5] == 1 and any(t["anchor"] == M for t in d["templates"])  # B 는 초안 배정·템플릿 목록을 본다
+        assert rows_["p2"][4] == M and rows_["p2"][5] == 4 and any(t["anchor"] == M for t in d["templates"])  # B 는 초안 배정·템플릿 목록을 본다
         return _res({"changes": [{"id": "p2", "parent": "", "role": "heading", "template": M, "level": 4, "reason": "(N) 을 건너뛴 주 사슬 L4"},
                                  {"id": "p5", "parent": "p2", "role": "heading", "template": "", "level": 0, "reason": "둘째 o 는 건너뜀 o 의 자식"},
                                  {"id": "p4", "parent": "", "role": "heading", "template": "body:없음", "level": 2, "reason": "모르는 앵커"}], "summary": ""})

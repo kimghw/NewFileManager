@@ -5,7 +5,10 @@
 자식, 라벨은 제 템플릿의 뿌리) → **B 호출**(본문 구간마다 초안과 다른 노드만 — 부모·역할 + 슬롯 예외) → 확정 트리 위에서 **사슬 학습 ↔ 슬롯 배정**(고정점) →
 템플릿 **id 동결**·앵커 → **C**(슬롯 서식 쌍 조정) → **D**(재검토) → 인스턴스·이종 형제·조정.
 템플릿 = 레터 계열 **사슬** 하나(key = scope:사슬 = 앵커). 가지 자리(한 부모 아래 레터가 둘 이상)마다 새 템플릿이 뿌리(L1)를 내리고, 같은 사슬 꼴은 어디에 매달려도
-같은 템플릿(정의 1 + 인스턴스 여럿). 구분 라벨은 그 라벨부터 새 템플릿(라벨 = L1). LLM 이 없거나 실패하면 역할·부모는 스크립트 어림(`heuristic` 표지)."""
+같은 템플릿(정의 1 + 인스턴스 여럿). 구분 라벨은 그 라벨부터 새 템플릿(라벨 = L1). LLM 이 없거나 실패하면 역할·부모는 스크립트 어림(`heuristic` 표지).
+**잇닿은 사슬**(2026-11-17 사용자 "레터가 다르거나 하지 않고 늘어나면 같은 템플릿으로" — spec ② §6 「잇닿은 사슬」): 템플릿을 가르는 것은 레터가 다를 때뿐 — 문서 맨 위에 매달린 줄의 레터가
+주 사슬에 있으면 주 사슬의 그 레벨, 부모 템플릿의 더 깊은 레벨 레터면(레벨 건너뜀) 그 레벨이고(`assign_templates`), 받아 줄 부모가 열려 있지 않은 줄은 문서 맨 위로 보내며 열린 줄을 닫지 않고
+가장 가까운 더 얕은 줄에 어림으로 붙인다(`_shallower`)."""
 import json
 import re
 import time
@@ -414,6 +417,26 @@ def _accepts(e, k, nd, rk, parents, main_next, trusted=True):
     return e["lead"] <= nd["lead"], True  # 서열을 모르면 앞 공백 — 덜(또는 같게) 들여 쓴 쪽이 부모
 
 
+def _shallower(st, k, rk, main_chain):
+    """열린 줄 스택 st 에서 레터 k(서열 rk) 줄보다 **더 얕은** 가장 가까운 항목의 자리 | None — 받아 줄 부모가 열려 있지 않은 줄을 어림으로 붙일 곳(draft_parents).
+    더 얕다 = 둘 다 주 사슬의 레터면 주 사슬에서 앞선 레벨, 아니면 둘 다 서열을 알 때 서열이 더 얕음. 서열을 모르는 레터(「▸」「∘」 — 주 사슬에도 없음)는 깊은 글머리로 보고
+    가장 가까운 열린 줄. 괄호 줄(구분 라벨·소제목)은 건너뛴다(그 줄의 내용이 아니라고 이미 판정됨)."""
+    at = {key: i for i, key in reversed(list(enumerate(main_chain or [])))}
+    for i in range(len(st) - 1, -1, -1):
+        e = st[i]
+        if e["label"]:
+            continue
+        if k in at and e["key"] in at:
+            if at[e["key"]] < at[k]:
+                return i
+        elif e["rank"] is not None and rk is not None:
+            if e["rank"] < rk:
+                return i
+        elif rk is None and k not in at:
+            return i
+    return None
+
+
 def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
     """부모 초안 → (graph {id: {id, para, type, role, key, parent, division, depth, heuristic}}, edges(contains·parent 그릇 간선), containers).
     흐름마다 열린 노드 스택: 노드마다 스택 위에서부터 — 같은 키 = 형제, 부모로 받아들여지는 항목 = 자식, 아니면 닫고 아래로. 라벨 = 같은 묶음 라벨이 열려 있으면
@@ -513,6 +536,13 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
                     parent, heuristic = e["id"], guessed
                     del st[i + 1:]
                     break
+            if parent is None and parents and "root" not in parents and not (main_chain and main_chain[0] == k):
+                # A 가 적은 부모 레터가 하나도 열려 있지 않다(「(3)」 바로 아래 「-」 — o 를 건너뜀). 문서 맨 위로 보내며 스택을 비우면 뒤의 형제 절(「5-3.」「5-4.」)까지
+                # 열린 「5.」 를 잃고 맨 위에 매달려 따로 템플릿이 된다 — 가장 가까운 **더 얕은** 열린 줄에 어림으로 붙이고(레벨 건너뜀) 그 위 스택은 그대로 둔다
+                i = _shallower(st, k, rk, main_chain)
+                if i is not None:
+                    parent, heuristic = st[i]["id"], True
+                    del st[i + 1:]
             if parent is None:
                 parent = flow_root(flow)
                 heuristic = not parents and not (trusted and main_chain and main_chain[0] == k)
@@ -561,7 +591,9 @@ def anchor_of(tk, chain):
 def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     """확정 트리 위에서 템플릿 사슬을 배우고 노드마다 (템플릿, 레벨, 인스턴스)를 매긴다(고정점) → {"templates", "instances", "nodes": {id: {template, tplNo, level, instance}},
     "chains", "ties", "conflicts", "unresolved"}. main_chain = A 가 확인한 주 사슬(fixed_main 이면 제약 — 학습은 그 뒤 레벨만 잇고, 다르게 셈한 자리는 conflicts 에 기록).
-    노드 규칙: 라벨 → (scope:[basis], 1) · 흐름 뿌리 아래 주 사슬 첫 레터 → (main, 1) · 부모 사슬의 다음 레터 = 내 레터 → (부모 템플릿, L+1) · 그 밖 → (scope:레터, 1).
+    노드 규칙: 라벨 → (scope:[basis], 1) · 본문 흐름 뿌리 아래(열린 부모 없음) 주 사슬에 있는 레터 → (main, 주 사슬에서 그 레터의 레벨 — 첫 레터면 1, 「5.」 없이 온 「5-4.」 면 2:
+    잇닿은 사슬) · 부모 사슬의 다음 레터 = 내 레터 → (부모 템플릿, L+1) · 부모 사슬의 더 깊은 레벨 레터 = 내 레터 → (부모 템플릿, 그 레벨 — 레벨 건너뜀도 잇닿은 사슬) ·
+    그 밖 → (scope:레터, 1).
     B 의 슬롯 예외(graph[id]["slot"] = {template: 앵커, level}) 가 있으면 그대로(앵커를 못 찾으면 기록하고 규칙대로)."""
     by_id = {nd["id"]: nd for nd in nodes}
     order = [nd for nd in nodes if nd["id"] in graph and graph[nd["id"]].get("key") and graph[nd["id"]]["role"] not in ("not_heading", "note", "title")]
@@ -597,11 +629,18 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
                 if g["role"] in ROOTED:
                     tk, lv = (sc, k), 1
                 elif pa is None:
-                    tk, lv = (MAIN, 1) if sc == "body" and (chains.get(MAIN) or [None])[0] == k else ((sc, k), 1)
+                    # 문서 맨 위에 매달린 줄(열린 부모가 없음) — 레터가 주 사슬에 있으면 새 가지가 아니라 **주 사슬의 그 레벨**이다(잇닿은 사슬 — spec ② §6):
+                    # 「5.」 를 못 찾은 「5-4.」 = L2, 그 아래 (N)·o·-·· 는 L3… 로 이어지고 사슬보다 더 내려가면 주 사슬이 그만큼 늘어난다. 인스턴스는 윗 레벨이 빠진 편차(missing)
+                    # 첫 레터가 아닌 주 사슬 레터는 **본문 흐름**에서만(글상자·머리말·각주 그릇의 맨 위 줄은 전처럼 — 그 그릇의 첫 줄이 주 사슬의 일부라고 볼 근거가 없다)
+                    main = (chains.get(MAIN) or []) if sc == "body" else []
+                    at = main.index(k) if k in main and (nd["flow"] == "body" or main[0] == k) else None
+                    tk, lv = (MAIN, at + 1) if at is not None else ((sc, k), 1)
                 else:
+                    # 부모 사슬의 다음 레터면 L+1. 다음 레터가 아니어도 **부모 템플릿의 더 깊은 레벨 레터**면 그 레벨이다(잇닿은 사슬 — 레벨을 건너뜀: 「1-1.」 바로 아래 「o」 = 주 사슬 L4,
+                    # 2026-11-17 사용자 답 「T1 에 넣기」 — 전에는 가지 템플릿). 부모 사슬에 없거나 더 얕은 레터만 새 가지(L1)
                     ptk, plv, _ = pa
                     ch = chains.get(ptk) or []
-                    tk, lv = (ptk, plv + 1) if plv < len(ch) and ch[plv] == k else ((sc, k), 1)
+                    tk, lv = (ptk, ch.index(k, plv) + 1) if k in ch[plv:] else ((sc, k), 1)
             if lv == 1 or pa is None or pa[0] != tk:
                 instances.append({"tk": tk, "root": nd["id"], "parent": p if p in graph else (p or "root")})
                 inst = len(instances) - 1
@@ -871,7 +910,8 @@ def apply_changes(changes, sec, anc, graph, anchors, by_id=None, hints=None):
                 continue
             slot = {"template": tpl, "level": lvl}
         before = {"parent": g["parent"], "role": g["role"], "slot": g.get("slot")}
-        g.update(parent=parent, role=role, key=key, changed=True, reason=str(ch.get("reason") or "")[:200])  # 역할이 바뀌면 정규 레터 키도 따라간다(_b_role)
+        # 역할이 바뀌면 정규 레터 키도 따라간다(_b_role). B 가 적은 줄의 부모는 어림이 아니다(스크립트가 어림으로 붙인 줄을 B 가 보고 정한 것)
+        g.update(parent=parent, role=role, key=key, changed=True, heuristic=False, reason=str(ch.get("reason") or "")[:200])
         if slot or role not in ("heading", "title"):
             g["slot"] = slot
         # asked = B 가 적은 그대로(역할·basis·슬롯 예외) — 다시 셈(replay)의 입력: 사용자 지정을 지우면 여기로 돌아가고, 슬롯 예외를 안 적은 변경도 그대로 되풀이된다
@@ -1115,7 +1155,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
     if replay and not info["fallback"]:  # 앞 실행에서 B 가 적은 변경을 그대로 — 구간 경계는 초안에 따라 달라지므로 본문 전체를 한 구간으로 검증
         prov = assign_templates(nodes, graph, keys, main_chain, fixed)
         body = [nd["id"] for nd in nodes if nd["flow"] == "body" and nd["id"] in graph]
-        changes, rejected = apply_changes(replay["changes"], body, [], graph, {t["anchor"] for t in prov["templates"]}, by_id, hints)
+        changes, rejected = apply_changes(_refold(replay["changes"], prov["templates"]), body, [], graph, {t["anchor"] for t in prov["templates"]}, by_id, hints)
         for nid in replay.get("undecided") or []:
             if nid in graph:
                 graph[nid]["undecided"] = True
@@ -1266,6 +1306,27 @@ def replay_of(g):
             "adjustments": list(g.get("adjustments") or []), "sections": lm.get("sections") or 0,
             "from": (g.get("meta") or {}).get("run"), "calls": (lm.get("replay") or {}).get("calls", lm.get("calls")),
             "costUsd": (lm.get("replay") or {}).get("costUsd", lm.get("costUsd"))}
+
+
+def _refold(changes, templates):
+    """다시 셈 — 앞 실행의 B 슬롯 예외가 가리킨 앵커가 지금 없는 템플릿이고 그 사슬이 본문 주 사슬의 **첫 레터가 아닌 어느 레벨부터 레터 그대로**(그 슬롯 레벨까지) 이어지면
+    **주 사슬의 같은 자리**로 옮겨 읽는다(잇닿은 사슬 규칙 전의 결과 — 「5-4.」 가 문서 맨 위에서 따로 템플릿 「N-N.›(N)›o」 이던 때 그 L3 으로 적은 「o」 = 지금 주 사슬 L4).
+    레터가 어긋나면(옛 사슬이 주 사슬의 꼬리와 다름) 옮기지 않는다 — 전처럼 apply_changes 가 「모르는 템플릿」 으로 버린다. 그 밖의 변경은 그대로."""
+    main = next((t for t in templates if t["kind"] == "main"), None)
+    known = {t["anchor"] for t in templates}
+    if main is None:
+        return changes
+    mc = list(main["chain"])
+    out = []
+    for c in changes or []:
+        tpl, lv = str(c.get("template") or ""), c.get("level")
+        if tpl.startswith("body:") and tpl not in known and isinstance(lv, int) and not isinstance(lv, bool) and lv >= 1:
+            old = tpl[5:].split("›")
+            at = mc.index(old[0]) if old[0] in mc else 0
+            if at and old[:lv] == mc[at:at + lv]:
+                c = {**c, "template": main["anchor"], "level": at + lv}
+        out.append(c)
+    return out
 
 
 _TYPE_IDENT = ("area", "kind", "shape", "bold", "size")  # 유형의 정체(type_table 의 묶음 키) — 유형 id(Tn)는 후보 차례에 따라 달라질 수 있다

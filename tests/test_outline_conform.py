@@ -110,30 +110,32 @@ def test_nbspace_width_is_half_em_times_ratio_without_spacing():
 def test_settle_level_places_rep_and_its_group_and_freezes_the_slot(sess):
     c, d, s = sess
     ov = s.outline
-    before = c.get(f"/api/docs/{d}/outline/formats").json()["slots"]["3"]["2"]
-    assert before["rep"] == "p6502" and [g["count"] for g in before["groups"]] == [5, 1, 1]
-    assert OC.pending(s.doc, ov, {"3"}) and "p6502" in OC.pending(s.doc, ov, {"3"})          # 대표와 그 갈래 — 아직 보통 빈칸
-    r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={"like": "p5209"})              # 갈래 하나만 맞춰도 대표와 대표 갈래는 확정 서식으로
+    # T1 L5 「-」(2026-11-17 「잇닿은 사슬」 전의 T3 L2 — 「1-1.」 아래 o 의 「-」 가 주 사슬 L5 로): 대표 p5209 「    - 」 9줄 · p6502 「   - 」 5줄 · p5765 「    -」
+    before = c.get(f"/api/docs/{d}/outline/formats").json()["slots"]["1"]["5"]
+    assert before["rep"] == "p5209" and [g["count"] for g in before["groups"]] == [9, 5, 1]
+    assert OC.pending(s.doc, ov, {"1"}) and "p5209" in OC.pending(s.doc, ov, {"1"})          # 대표와 그 갈래 — 아직 보통 빈칸
+    r = c.post(f"/api/docs/{d}/outline/slots/1/5/match", json={"like": "p6502"})              # 갈래 하나만 맞춰도 대표와 대표 갈래는 확정 서식으로
     assert r.status_code == 200, r.text
     j = r.json()
-    assert sorted(set(j["changed"]) - set(j["placed"])) == ["p5209"] and len(j["placed"]) == 5 and j["undo"] == 1
+    moved = set(j["changed"]) - set(j["placed"])
+    assert "p6502" in moved and len(moved) == 5 and "p5765" not in j["changed"] and len(j["placed"]) == 9 and j["undo"] == 1
     m = OP.Measure(s.doc)
     for pid in j["changed"]:
         lead, tok, gap, plen, text = M.parts(s.doc, ov, pid)
         at = m.place(pid, tok)
         assert gap == NB and abs(at["line2Mm"] - at["textMm"]) < 0.02, pid                       # 레터 뒤 = 묶음 빈칸 · 둘째 줄 = 글 시작
-    sl = ov["templates"]["3"]["slots"]["2"]
-    assert sl["prefix"] == "   -" + NB and sl["attrs"]["paraPrIDRef"] == s.doc._ids["p6502"].get("paraPrIDRef")   # 새 줄(Enter)도 확정 서식
-    after = c.get(f"/api/docs/{d}/outline/formats").json()["slots"]["3"]["2"]
-    assert [g["count"] for g in after["groups"]] == [6, 1] and after["groups"][1]["paras"] == ["p5765"]                    # 안 고른 갈래는 그대로
+    sl = ov["templates"]["1"]["slots"]["5"]
+    assert sl["prefix"] == "    -" + NB and sl["attrs"]["paraPrIDRef"] == s.doc._ids["p5209"].get("paraPrIDRef")   # 새 줄(Enter)도 확정 서식
+    after = c.get(f"/api/docs/{d}/outline/formats").json()["slots"]["1"]["5"]
+    assert [g["count"] for g in after["groups"]] == [14, 1] and after["groups"][1]["paras"] == ["p5765"]                    # 안 고른 갈래는 그대로
     assert ["gap", "레터 뒤 빈칸", "묶음 1칸", "없음"] in after["groups"][1]["diff"]
-    assert not [p for p in OC.pending(s.doc, ov, {"3"}) if int(ov["lines"][p]["level"]) == 2]
-    enter = c.post(f"/api/docs/{d}/outline", json={"op": "sibling", "id": "p6502"})             # 같은 레벨 새 줄
+    assert not [p for p in OC.pending(s.doc, ov, {"1"}) if int(ov["lines"][p]["level"]) == 5]
+    enter = c.post(f"/api/docs/{d}/outline", json={"op": "sibling", "id": "p5209"})             # 같은 레벨 새 줄
     if enter.status_code == 200:
         new = enter.json()["focus"]["id"]
-        assert s.texts[new].startswith("   -" + NB) and M.same(M.look(s.doc, ov, new), M.look(s.doc, ov, "p6502"))
+        assert s.texts[new].startswith("    -" + NB) and M.same(M.look(s.doc, ov, new), M.look(s.doc, ov, "p5209"))
     _undo_all(c, d, s)
-    assert s.texts["p6502"].startswith("   - ")
+    assert s.texts["p5209"].startswith("    - ") and s.texts["p6502"].startswith("   - ")
 
 
 def test_apply_all_places_every_template_even_without_plans(sess):
@@ -181,15 +183,15 @@ def test_apply_all_places_every_template_even_without_plans(sess):
 
 def test_template_match_places_only_when_it_matches(sess):
     c, d, s = sess
-    r = c.post(f"/api/docs/{d}/outline/templates/3/match", json={"levels": [{"level": 2, "rep": "p5209", "likes": []}]})   # 대표만 — 문서는 그대로(오버레이만)
+    r = c.post(f"/api/docs/{d}/outline/templates/1/match", json={"levels": [{"level": 5, "rep": "p6502", "likes": []}]})   # 대표만 — 문서는 그대로(오버레이만)
     assert r.status_code == 200 and r.json()["changed"] == [] and r.json()["reps"] == 1 and c.get(f"/api/docs/{d}/download").content == PLAN.read_bytes()
     c.post(f"/api/docs/{d}/undo")
-    r = c.post(f"/api/docs/{d}/outline/templates/3/match", json={})                                                      # 모든 레벨 — 맞추고 그 템플릿의 줄을 확정 서식으로
+    r = c.post(f"/api/docs/{d}/outline/templates/1/match", json={})                                                      # 모든 레벨 — 맞추고 그 템플릿의 줄을 확정 서식으로
     assert r.status_code == 200, r.text
     j = r.json()
-    assert {"p5209", "p5765"} <= set(j["changed"]) - set(j["placed"]) and "p6502" in j["placed"]
-    assert all(s.outline["lines"][p]["tpl"] == "3" for p in j["placed"]) and not OC.pending(s.doc, s.outline, {"3"})      # 그 템플릿만
-    assert OC.pending(s.doc, s.outline, {"1"})                                                                             # 다른 템플릿은 그대로
+    assert {"p6502", "p5765"} <= set(j["changed"]) - set(j["placed"]) and "p5209" in j["placed"]
+    assert all(s.outline["lines"][p]["tpl"] == "1" for p in j["placed"]) and not OC.pending(s.doc, s.outline, {"1"})      # 그 템플릿만
+    assert OC.pending(s.doc, s.outline, {"2"})                                                                             # 다른 템플릿은 그대로
     _undo_all(c, d, s)
 
 
@@ -213,8 +215,9 @@ def test_after_insert_gives_an_inserted_line_its_own_hanging_when_the_model_foll
 
 
 # ---------------------------------------------------------------- 조정 길의 빈 곳(2026-11-16 astra 검토 — 손으로 한 것과 조정이 같은 결과를 내게)
-def _t3_l2(c, d):
-    return c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "3", "level": 2}).json()["slots"]["3"]["2"]
+def _t1_l5(c, d):
+    """T1 L5 「-」(2026-11-17 「잇닿은 사슬」 전의 T3 L2) — 대표 p5209 「    - 」 9줄 · p6502 「   - 」 5줄 · p5765 「    -」 1줄."""
+    return c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "1", "level": 5}).json()["slots"]["1"]["5"]
 
 
 def test_template_match_places_a_matched_line_whose_prefix_width_differs_from_the_rep(sess, monkeypatch):
@@ -225,20 +228,20 @@ def test_template_match_places_a_matched_line_whose_prefix_width_differs_from_th
     monkeypatch.setattr(hwpx_struct, "CHAR_EDIT", hwpx_struct.CHAR_EDIT | {"spacingPct"})   # 시험에서만 — 자간(줄 맞춤 값)을 끝점으로 준다(실행 취소로 되돌리게)
     c, d, s = sess
     assert c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "relations": False}).status_code == 200   # ① 대표를 먼저 확정 서식으로(받아 둔 계획 없이 자리만)
-    rep = OP.Measure(s.doc).place("p6502", "-")
-    assert abs(rep["line2Mm"] - rep["textMm"]) < 0.02 and not OC.pending(s.doc, s.outline, {"3"}) and s.outline["templates"]["3"]["slots"]["2"].get("pos") is None
-    assert c.post(f"/api/docs/{d}/format/chars", json={"id": "p5209", "start": 0, "end": 5, "changes": {"spacingPct": 40}}).status_code == 200   # ② 다른 갈래(앞 공백 4칸)의 줄 — 레터에 자간
-    assert [g["count"] for g in _t3_l2(c, d)["groups"]] == [5, 1, 1]
-    r = c.post(f"/api/docs/{d}/outline/templates/3/match", json={"levels": [{"level": 2, "likes": ["p5209"]}]})   # ③ 템플릿 맞추기 — 조정의 「모두 반영」 과 같은 몸
+    rep = OP.Measure(s.doc).place("p5209", "-")
+    assert abs(rep["line2Mm"] - rep["textMm"]) < 0.02 and not OC.pending(s.doc, s.outline, {"1"}) and s.outline["templates"]["1"]["slots"]["5"].get("pos") is None
+    assert c.post(f"/api/docs/{d}/format/chars", json={"id": "p5765", "start": 0, "end": 5, "changes": {"spacingPct": 40}}).status_code == 200   # ② 다른 갈래(레터 뒤 빈칸 없음)의 줄 — 레터에 자간
+    assert [g["count"] for g in _t1_l5(c, d)["groups"]] == [9, 5, 1]
+    r = c.post(f"/api/docs/{d}/outline/templates/1/match", json={"levels": [{"level": 5, "likes": ["p5765"]}]})   # ③ 템플릿 맞추기 — 조정의 「모두 반영」 과 같은 몸
     assert r.status_code == 200, r.text
     j = r.json()
-    assert "p5209" in j["changed"] and "p5209" not in j["placed"]                               # 대표에 맞춘 줄 — placed(자리만 건 줄)에는 안 든다
+    assert "p5765" in j["changed"] and "p5765" not in j["placed"]                               # 대표에 맞춘 줄 — placed(자리만 건 줄)에는 안 든다
     m = OP.Measure(s.doc)
-    a, b = m.place("p5209", "-"), m.place("p6502", "-")
-    assert M.parts(s.doc, s.outline, "p5209")[:3] == M.parts(s.doc, s.outline, "p6502")[:3] == ("   ", "-", NB)   # 접두 글은 대표와 같다
+    a, b = m.place("p5765", "-"), m.place("p5209", "-")
+    assert M.parts(s.doc, s.outline, "p5765")[:3] == M.parts(s.doc, s.outline, "p5209")[:3] == ("    ", "-", NB)   # 접두 글은 대표와 같다
     assert a["prefixMm"] > b["prefixMm"] + 1                                                    # 폭은 더 넓다(제 자간)
     assert abs(a["line2Mm"] - a["textMm"]) < 0.02, (a["line2Mm"], a["textMm"], b["line2Mm"])    # 그래도 둘째 줄 = **제** 글 시작(대표의 값이 아니라 규칙)
-    assert M.same(M.look(s.doc, s.outline, "p5209"), M.look(s.doc, s.outline, "p6502")) and [g["count"] for g in _t3_l2(c, d)["groups"]] == [6, 1]   # 규칙이 같으니 대표 갈래
+    assert M.same(M.look(s.doc, s.outline, "p5765"), M.look(s.doc, s.outline, "p5209")) and [g["count"] for g in _t1_l5(c, d)["groups"]] == [10, 5]   # 규칙이 같으니 대표 갈래
     _undo_all(c, d, s)
 
 
@@ -308,26 +311,26 @@ def test_settle_keeps_the_position_rule_a_person_set(sess):
     """조정의 자리 맞춤은 사람이 그 레벨에 정해 둔 자리 규칙(슬롯의 pos — ② §8-1)이 먼저다: 「둘째 줄 12mm」 는 12mm 그대로 · 「문단 서식 그대로」 는 여백을 안 건드린다.
     기본 「둘째 줄 = 글 시작」 은 정한 규칙이 없는 레벨에만. 레터 뒤 빈칸은 규칙과 무관하게 묶음 빈칸이 된다."""
     c, d, s = sess
-    assert c.put(f"/api/docs/{d}/outline/slots/3/2", json={"line2": "mm", "mm": 12}).status_code == 200     # T3 L2 「-」 — 둘째 줄 12mm
-    assert c.put(f"/api/docs/{d}/outline/slots/3/1", json={"line2": "keep"}).status_code == 200            # T3 L1 「o」 — 문단 서식 그대로
+    assert c.put(f"/api/docs/{d}/outline/slots/1/5", json={"line2": "mm", "mm": 12}).status_code == 200     # T1 L5 「-」 — 둘째 줄 12mm
+    assert c.put(f"/api/docs/{d}/outline/slots/1/4", json={"line2": "keep"}).status_code == 200            # T1 L4 「o」 — 문단 서식 그대로
     ov = s.outline
-    assert ov["templates"]["3"]["slots"]["2"]["pos"] == {"line2": "mm", "mm": 12.0, "set": True} and ov["templates"]["3"]["slots"]["1"]["pos"] == {"line2": "keep", "set": True}
+    assert ov["templates"]["1"]["slots"]["5"]["pos"] == {"line2": "mm", "mm": 12.0, "set": True} and ov["templates"]["1"]["slots"]["4"]["pos"] == {"line2": "keep", "set": True}
     m = OP.Measure(s.doc)
-    was = {p: (at["leftMm"], at["firstMm"]) for p in M.slot_ids(ov, "3", 1) if (at := m.place(p, ov["lines"][p]["letter"])) is not None}
-    assert len(was) == 9
+    was = {p: (at["leftMm"], at["firstMm"]) for p in M.slot_ids(ov, "1", 4) if (at := m.place(p, ov["lines"][p]["letter"])) is not None}
+    assert len(was) == 22
     r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"rev": s.rev, "relations": False})
     assert r.status_code == 200, r.text
     m, ov = OP.Measure(s.doc), s.outline
-    assert ov["templates"]["3"]["slots"]["2"]["pos"] == {"line2": "mm", "mm": 12.0, "set": True}             # 규칙은 그대로
-    group = _t3_l2(c, d)["groups"][0]["paras"]
-    assert len(group) == 5 and group[0] == "p6502"
+    assert ov["templates"]["1"]["slots"]["5"]["pos"] == {"line2": "mm", "mm": 12.0, "set": True}             # 규칙은 그대로
+    group = _t1_l5(c, d)["groups"][0]["paras"]
+    assert len(group) == 9 and group[0] == "p5209"
     for p in group:
         at = m.place(p, "-")
         assert M.parts(s.doc, ov, p)[2] == NB and abs(at["line2Mm"] - 12) < 0.02 and abs(at["textMm"] - 12) > 0.5, (p, at["line2Mm"], at["textMm"])   # 12mm 그대로(글 시작이 아니다)
     for p, (left, first) in was.items():
         at = m.place(p, ov["lines"][p]["letter"])
         assert (at["leftMm"], at["firstMm"]) == (left, first), p                                             # 「그대로」 — 여백은 안 바뀐다
-    assert M.parts(s.doc, ov, "p1422")[2] == NB and not OC.pending(s.doc, ov, {"3"})
+    assert M.parts(s.doc, ov, "p5208")[2] == NB and not OC.pending(s.doc, ov, {"1"})                        # T1 L4 대표 — 「그대로」 여도 레터 뒤는 묶음 빈칸
     free = m.place("p972", "o")                                                                              # 정한 규칙이 없는 레벨(T2 L2) — 기본: 둘째 줄 = 글 시작
     assert ov["templates"]["2"]["slots"]["2"].get("pos") is None and abs(free["line2Mm"] - free["textMm"]) < 0.02
     _undo_all(c, d, s)

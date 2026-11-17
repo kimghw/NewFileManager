@@ -897,7 +897,8 @@ def merge_hints(ov):
     가지 템플릿 B 의 첫 레벨 줄이 **모두 한 자리 (A, Lk) 의 줄 아래에만** 매달려 있으면 「B 를 A 의 Lk 아래 종속 템플릿(T{A}T{B})으로」 를 **제안**한다 — 저절로 걸지 않는다(사람이 「하위로 넣기」 를 눌러야:
     한 자리에만 온다는 것은 관측일 뿐이고, 떼고 묶은 결과가 아직 다른 화면에 닿지 않는다 — astra).
     여러 자리에 매달린 B(여러 상위 레벨이 같이 쓰는 템플릿 = 같음) · 자리마다 다른 템플릿(다름)은 그대로 둔다. 제안하지 않는 것: 가지(branch)가 아닌 템플릿(주 사슬 · 구분 라벨 · 표 칸) ·
-    이미 종속/서식 종속인 것 · 표 칸이나 다른 그릇에 줄이 있는 것 · 본문 최상위에 놓인 줄이 있는 것 · B 의 첫 레터가 A 의 다음 레벨 레터와 같은 것(그 레벨의 줄로 볼 것) ·
+    이미 종속/서식 종속인 것 · 표 칸이나 다른 그릇에 줄이 있는 것 · 본문 최상위에 놓인 줄이 있는 것 · B 의 첫 레터가 A 의 그 자리보다 깊은 레벨 레터와 같은 것(그 레벨의 줄로 볼 것 —
+    다음 레벨만이 아니라 건너뛴 레벨도: 2026-11-17 「잇닿은 사슬」 · spec_헤딩_추출 ② §6 — 다시 세지 않은 옛 그래프의 「1-1.」 아래 「o › -」 를 「T1T8」 로 넣지 않는다) ·
     사람이 넣었다가 푼 쌍(`unmerged`). -> [{child, childNo, parent, parentNo, at, places(매달린 곳 수), lines(B 의 줄 수), chain}] — 한 건을 넣으면 다시 셈한다(B → A · C → B 처럼 이어진 것)."""
     tp, lines, out = ov.get("templates") or {}, ov.get("lines") or {}, []
     undone = {(m.get("child"), m.get("parent"), int(m.get("at") or 0)) for m in ov.get("unmerged") or []}
@@ -921,7 +922,7 @@ def merge_hints(ov):
         if A is None or ptid == tid or A.get("variant") or A.get("kind") == "cell" or comp_id(ptid, tid) in tp:
             continue
         achain, bchain = list(A.get("chain") or []), list(B.get("chain") or [])
-        if at < len(achain) and bchain and achain[at] == bchain[0]:
+        if bchain and bchain[0] in achain[at:]:  # A 의 그 자리보다 깊은 레벨 레터 — 종속이 아니라 A 의 그 레벨 줄(잇닿은 사슬)
             continue
         if (B.get("anchor"), A.get("anchor"), at) in undone:
             continue

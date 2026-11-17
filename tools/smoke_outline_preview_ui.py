@@ -2,8 +2,8 @@
 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 끝점은 모두 진짜(흉내 없음).
 
 연구개발계획서 양식을 올리고 1·2단계(LLM 없이)를 끝점으로 돌린 뒤 작업을 연다:
-- 「템플릿 관계」 T3 L2(서식 3가지)의 「비교」 → 떠 있는 창(모달 아님 · 열과 안 겹침) 「서식 비교」 탭 — 갈래 3줄(대표 먼저) · 다른 항목 열(앞 공백 · 레터 뒤 공백)만 ·
-  다른 값 칸 강조 · 견본 글(누르면 문서로) · 「맞추기」 2개 · 「같은 값도 보기」 로 열이 늘어남 · 「대표에 맞추기(2줄)」.
+- 「템플릿 관계」 T1 L5(서식 3가지 — 2026-11-17 「잇닿은 사슬」 전에는 가지 T3 L2)의 「비교」 → 떠 있는 창(모달 아님 · 열과 안 겹침) 「서식 비교」 탭 — 갈래 3줄(대표 먼저) · 다른 항목 열(앞 공백 · 레터 뒤 공백)만 ·
+  다른 값 칸 강조 · 견본 글(누르면 문서로) · 「맞추기」 2개 · 「같은 값도 보기」 로 열이 늘어남 · 「대표에 맞추기(6줄)」.
 - 가지 템플릿 L2 「o」(p972)의 「자리 수정」 → 창이 「자리 미리보기」 로 — 지금 = 바뀐 뒤(레터 4.2) · 레터 10 을 치면 바뀐 뒤 레터 10.0 · 점선(지금 자리) · 「N줄이 바뀝니다」 ·
   둘째 줄 「직접」 12 → 둘째 줄 12.0 · 창의 「적용」 → 문서가 바뀌고 미리보기는 「바뀌는 줄 없음」 · 실행 취소 → 처음대로 · 너무 작은 레터 위치는 까닭을 보임.
 - 「자리 수정」 을 접으면 창이 닫힘 · Esc 로 닫힘 · 머리를 끌어 옮김 · 좁은 창(480px)에서 화면 안 · 콘솔 오류 없음.
@@ -97,17 +97,17 @@ def main():
         page.wait_for_selector("#doc .para[data-id=p970]", timeout=60000)
         page.wait_for_function("() => heads.outline && document.querySelectorAll('.tpl-mark').length > 20", timeout=30000)
 
-        # ---- 서식 비교 — T3 L2(서식 3가지)
-        page.evaluate("() => tplRelOpen(3, { tpl: '3', level: 2, para: 'p5209' })")
-        page.wait_for_function("() => /서식 3가지/.test((document.querySelector('#headsDlgBody .olm[data-tpl=\"3\"][data-level=\"2\"] .olm-sum') || {}).textContent || '')", timeout=30000)
-        page.locator('#headsDlgBody .olm[data-tpl="3"][data-level="2"] > button', has_text="비교").click()
+        # ---- 서식 비교 — T1 L5(서식 3가지)
+        page.evaluate("() => tplRelOpen(1, { tpl: '1', level: 5, para: 'p6502' })")
+        page.wait_for_function("() => /서식 3가지/.test((document.querySelector('#headsDlgBody .olm[data-tpl=\"1\"][data-level=\"5\"] .olm-sum') || {}).textContent || '')", timeout=30000)
+        page.locator('#headsDlgBody .olm[data-tpl="1"][data-level="5"] > button', has_text="비교").click()
         page.wait_for_selector("#olpWin:not([hidden]) .olp-cmp tbody tr", timeout=20000)
         w = page.evaluate(WIN)
-        check("「비교」 → 떠 있는 창 「서식 비교」 탭 · 제목 T3 L2 · 「템플릿 관계」 열과 안 겹침", w and w["tab"] == "cmp" and w["title"].startswith("T3 L2") and w["right"] <= w["colLeft"] + 1, w)
+        check("「비교」 → 떠 있는 창 「서식 비교」 탭 · 제목 T1 L5 · 「템플릿 관계」 열과 안 겹침", w and w["tab"] == "cmp" and w["title"].startswith("T1 L5") and w["right"] <= w["colLeft"] + 1, w)
         check("갈래 3줄 · 대표가 먼저 · 다른 항목 열만(레터 앞 빈칸 · 레터 뒤 빈칸) · 다른 값 칸 강조 · 견본 글",
               w and len(w["rows"]) == 3 and w["rows"][0]["rep"] and not any(x["rep"] for x in w["rows"][1:]) and w["heads"][1:3] == ["레터 앞 빈칸", "레터 뒤 빈칸"]
               and all(x["diff"] >= 1 for x in w["rows"][1:]) and w["rows"][0]["diff"] == 0 and all(x["samp"] for x in w["rows"]), w)
-        check("갈래마다 「맞추기」(대표 빼고) · 아래 「대표에 맞추기(2줄)」", w and [x["act"] for x in w["rows"]] == ["", "맞추기", "맞추기"] and ["대표에 맞추기(2줄)", False] in w["foot"], w and (w["rows"], w["foot"]))
+        check("갈래마다 「맞추기」(대표 빼고) · 아래 「대표에 맞추기(6줄)」", w and [x["act"] for x in w["rows"]] == ["", "맞추기", "맞추기"] and ["대표에 맞추기(6줄)", False] in w["foot"], w and (w["rows"], w["foot"]))
         n0 = len(w["heads"])
         page.locator("#olpWin .olp-chk input").check()
         page.wait_for_timeout(150)
@@ -212,9 +212,9 @@ def main():
         check("Esc 로 닫힘", page.evaluate("() => document.getElementById('olpWin').hidden"))
         page.set_viewport_size({"width": 480, "height": 900})
         page.evaluate("() => { OLP.at = null; }")
-        page.evaluate("() => tplRelOpen(3, { tpl: '3', level: 2, para: 'p5209' })")
-        page.wait_for_selector('#headsDlgBody .olm[data-tpl="3"][data-level="2"] > button.olm-cmp', timeout=20000)
-        page.locator('#headsDlgBody .olm[data-tpl="3"][data-level="2"] > button.olm-cmp').click()
+        page.evaluate("() => tplRelOpen(1, { tpl: '1', level: 5, para: 'p6502' })")
+        page.wait_for_selector('#headsDlgBody .olm[data-tpl="1"][data-level="5"] > button.olm-cmp', timeout=20000)
+        page.locator('#headsDlgBody .olm[data-tpl="1"][data-level="5"] > button.olm-cmp').click()
         page.wait_for_selector("#olpWin:not([hidden]) .olp-cmp", timeout=20000)
         g = page.evaluate("() => { const r = document.getElementById('olpWin').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; }")
         check("좁은 창(480px) — 창이 화면 안 · 가로 넘침 없음", g[0] >= 0 and g[1] <= g[2] + 1 and g[3] <= g[2] + 1, g)

@@ -1,6 +1,7 @@
 """개요 레벨 대표 서식 · 대표에 맞추기 · 템플릿 종속(spec_hwpx_웹편집 ② §8-2) — 연구개발계획서 양식 + 2단계(LLM 끔).
-양식의 실제 갈래: T3 「o › -」 L2 = 「   - 」 5줄(대표 p6502) · 「    - 」(p5209) · 「    -」(p5765) / T2 「□ › o › - › ·」 L1 = 글꼴·크기가 다른 □ 3줄 /
-T1 L2 「N-N.」 = 앞 공백이 다른 번호 줄 / T9 「[기관] › o › -」 가 T8 「[단계] › (N) › ①」 L3 아래 40곳 · T3 은 T1 L2 아래 7곳(T1 L3 = 「(N)」 이어도 종속 템플릿 「T1T3」 로 넣는다)."""
+양식의 실제 갈래: T1 L5 「-」 = 「    - 」 9줄(대표 p5209) · 「   - 」 5줄(p6502) · 「    -」(p5765) / T2 「□ › o › - › ·」 L1 = 글꼴·크기가 다른 □ 3줄 /
+T1 L2 「N-N.」 = 앞 공백이 다른 번호 줄 / T9 「[기관] › o › -」 가 T8 「[단계] › (N) › ①」 L3 아래 40곳 · T2 는 T1 L2 아래 3곳 · T1 L3 아래 4곳(T1 L3 = 「(N)」 이어도 종속 템플릿 「T1T2」 로 넣는다).
+2026-11-17 「잇닿은 사슬」(spec_헤딩_추출 ② §6) 전에는 「1-1.」 바로 아래 「o › -」 가 가지 T3 이었다 — 지금은 T1 L4·L5(그 「-」 줄 p6502 · p5209 · p5765 가 T1 L5)이고 T3 은 「[단계]」 아래 「o」 두 줄."""
 from pathlib import Path
 
 import pytest
@@ -68,13 +69,13 @@ def test_ws_and_form():
 
 def test_variants_group_lines_and_show_differences(sess):
     c, d, s = sess
-    v = _slot(c, d, 3, 2)
-    assert v["total"] == 7 and v["rep"] == "p6502" and v["others"] == 2
+    v = _slot(c, d, 1, 5)
+    assert v["total"] == 15 and v["rep"] == "p5209" and v["others"] == 6
     rep, *rest = v["groups"]
-    assert rep["rep"] and rep["count"] == 5 and rep["diff"] == [] and rep["paras"][0] == "p6502"
+    assert rep["rep"] and rep["count"] == 9 and rep["diff"] == [] and rep["paras"][0] == "p5209"
     by = {g["paras"][0]: g for g in rest}
-    assert by["p5209"]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"]]
-    assert by["p5765"]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"], ["gap", "레터 뒤 빈칸", "1칸", "없음"]]
+    assert by["p6502"]["diff"] == [["lead", "레터 앞 빈칸", "4칸", "3칸"]] and by["p6502"]["count"] == 5
+    assert by["p5765"]["diff"] == [["gap", "레터 뒤 빈칸", "1칸", "없음"]]
     assert by["p5765"]["raw"]["lead"] == "    " and by["p5765"]["raw"]["gap"] == "" and by["p5765"]["look"]["lead"] == "4칸"  # 원값(서식 비교의 견본 글)
     keys = c.get(f"/api/docs/{d}/outline/formats").json()["keys"]  # 비교 값 차례·이름(서식 비교 표의 열)
     assert keys[:3] == [["lead", "레터 앞 빈칸"], ["letter", "레터"], ["gap", "레터 뒤 빈칸"]] and ["L.font", "레터 글꼴"] in keys
@@ -82,7 +83,7 @@ def test_variants_group_lines_and_show_differences(sess):
     keys = [x[0] for g in v2["groups"] for x in g["diff"]]
     assert "L.font" in keys and "font" in keys and "L.sizePt" in keys
     o = c.get(f"/api/docs/{d}/outline").json()
-    assert o["templates"]["3"]["slots"]["2"]["rep"] == "p6502" and o["templates"]["9"]["hang"]["8|3"] == 40
+    assert o["templates"]["1"]["slots"]["5"]["rep"] == "p5209" and o["templates"]["9"]["hang"]["8|3"] == 40
     assert o["lines"]["p970"]["key"] == "□"
 
 
@@ -90,57 +91,58 @@ def test_formats_of_one_slot_lists_every_line(sess, monkeypatch):
     """`?tpl=&level=` — 그 슬롯 하나만, 갈래마다 줄 전부(문서의 「템플릿만 또렷이」 가 줄마다 대표와 다른 값을 표시: spec_헤딩_추출 ② §7)."""
     c, d, s = sess
     monkeypatch.setattr(M, "_LIST_MAX", 2)  # 모든 슬롯 응답은 갈래마다 2줄에서 자르게
-    cut = _slot(c, d, 3, 2)["groups"][0]
-    assert cut["count"] == 5 and len(cut["paras"]) == 2 and cut["more"] == 3
-    r = c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "3", "level": 2})
+    cut = _slot(c, d, 1, 5)["groups"][0]
+    assert cut["count"] == 9 and len(cut["paras"]) == 2 and cut["more"] == 7
+    r = c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "1", "level": 5})
     assert r.status_code == 200, r.text
     r = r.json()
-    assert r["full"] is True and list(r["slots"]) == ["3"] and list(r["slots"]["3"]) == ["2"] and r["rev"] == s.rev and r["keys"][0] == ["lead", "레터 앞 빈칸"]
-    one = r["slots"]["3"]["2"]
-    assert one["total"] == 7 and one["rep"] == "p6502" and [len(g["paras"]) for g in one["groups"]] == [5, 1, 1] and all(g["more"] == 0 for g in one["groups"])
+    assert r["full"] is True and list(r["slots"]) == ["1"] and list(r["slots"]["1"]) == ["5"] and r["rev"] == s.rev and r["keys"][0] == ["lead", "레터 앞 빈칸"]
+    one = r["slots"]["1"]["5"]
+    assert one["total"] == 15 and one["rep"] == "p5209" and [len(g["paras"]) for g in one["groups"]] == [9, 5, 1] and all(g["more"] == 0 for g in one["groups"])
     assert one["groups"][1]["diff"] and not one["groups"][0]["diff"]
-    assert c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "3", "level": 9}).json()["slots"] == {}  # 줄이 없는 레벨
+    assert c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "1", "level": 9}).json()["slots"] == {}  # 줄이 없는 레벨
     assert c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "999", "level": 1}).status_code == 404
 
 
 def test_set_rep_is_model_only_and_undoable(sess):
     c, d, s = sess
     before = c.get(f"/api/docs/{d}/download").content
-    r = c.put(f"/api/docs/{d}/outline/slots/3/2/rep", json={"para": "p5209"})
+    r = c.put(f"/api/docs/{d}/outline/slots/1/5/rep", json={"para": "p6502"})
     assert r.status_code == 200, r.text
     j = r.json()
-    assert j["slot"]["rep"] == "p5209" and j["undo"] == 1 and j["outline"]["templates"]["3"]["slots"]["2"]["rep"] == "p5209"
-    sl = s.outline["templates"]["3"]["slots"]["2"]
-    assert sl["prefix"] == "    - " and sl["repSet"] and sl["attrs"]["paraPrIDRef"] == s.doc._ids["p5209"].get("paraPrIDRef")
+    assert j["slot"]["rep"] == "p6502" and j["undo"] == 1 and j["outline"]["templates"]["1"]["slots"]["5"]["rep"] == "p6502"
+    sl = s.outline["templates"]["1"]["slots"]["5"]
+    assert sl["prefix"] == "   - " and sl["repSet"] and sl["attrs"]["paraPrIDRef"] == s.doc._ids["p6502"].get("paraPrIDRef")
     assert c.get(f"/api/docs/{d}/download").content == before  # 문서는 안 바뀜
-    assert c.put(f"/api/docs/{d}/outline/slots/3/2/rep", json={"para": "p970"}).status_code == 400  # 그 레벨 줄이 아님
-    assert c.put(f"/api/docs/{d}/outline/slots/3/9/rep", json={"para": "p5209"}).status_code == 404
-    assert c.put(f"/api/docs/{d}/outline/slots/3/2/rep", json={}).status_code == 400
+    assert c.put(f"/api/docs/{d}/outline/slots/1/5/rep", json={"para": "p970"}).status_code == 400  # 그 레벨 줄이 아님
+    assert c.put(f"/api/docs/{d}/outline/slots/1/9/rep", json={"para": "p6502"}).status_code == 404
+    assert c.put(f"/api/docs/{d}/outline/slots/1/5/rep", json={}).status_code == 400
     g = heading_runs.graph(s)  # 서식 복사의 내용 서식 후보도 사람이 정한 대표 줄에서(apply_reps — 그래프는 안 바꾸고 사본)
-    t3 = lambda gg: next(x for x in gg["templates"] if x["id"] == 3)  # noqa: E731
+    t1 = lambda gg: next(x for x in gg["templates"] if x["id"] == 1)  # noqa: E731
     g2 = M.apply_reps(g, s.outline)
-    assert next(x for x in t3(g2)["slots"] if x["level"] == 2)["rep"] == "p5209" and next(x for x in t3(g)["slots"] if x["level"] == 2)["rep"] == "p6502"
+    assert next(x for x in t1(g2)["slots"] if x["level"] == 5)["rep"] == "p6502" and next(x for x in t1(g)["slots"] if x["level"] == 5)["rep"] == "p5209"
     c.post(f"/api/docs/{d}/undo")
-    assert s.outline["templates"]["3"]["slots"]["2"]["rep"] == "p6502" and M.apply_reps(g, s.outline) is g
+    assert s.outline["templates"]["1"]["slots"]["5"]["rep"] == "p5209" and M.apply_reps(g, s.outline) is g
     _undo_all(c, d, s)
 
 
 def test_match_symbol_letters_prefix_and_shape(sess):
     c, d, s = sess
-    r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={})
+    r = c.post(f"/api/docs/{d}/outline/slots/1/5/match", json={})
     assert r.status_code == 200, r.text
     j = r.json()
-    # changed = 바뀐 줄 모두 · placed = 그 가운데 대표에 맞춘 줄이 아니라 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)만 건 줄(대표 + 대표 갈래 4줄)
-    assert sorted(set(j["changed"]) - set(j["placed"])) == ["p5209", "p5765"] and j["outline"]["lines"]["p5765"]["letter"] == "-" and j["tops"]["blocks"]
-    assert len(j["placed"]) == 5 and "p6502" in j["placed"]
-    assert s.texts["p5209"].startswith("   -\u2002") and s.texts["p5765"].startswith("   -\u2002") and s.texts["p6502"].startswith("   -\u2002")  # 레터 뒤 빈칸 = 묶음 빈칸
-    at = OP.Measure(s.doc).place("p5209", "-")
+    # changed = 바뀐 줄 모두 · placed = 그 가운데 대표에 맞춘 줄이 아니라 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)만 건 줄(대표 + 대표 갈래 8줄)
+    moved = set(j["changed"]) - set(j["placed"])                                    # 대표에 맞춘 줄 = 「   - 」 5줄 + 「    -」 1줄
+    assert {"p6502", "p5765"} <= moved and len(moved) == 6 and j["outline"]["lines"]["p5765"]["letter"] == "-" and j["tops"]["blocks"]
+    assert len(j["placed"]) == 9 and "p5209" in j["placed"]
+    assert all(s.texts[p].startswith("    -\u2002") for p in ("p5209", "p5765", "p6502"))  # 대표 꼴(레터 앞 빈칸 4칸) · 레터 뒤 빈칸 = 묶음 빈칸
+    at = OP.Measure(s.doc).place("p6502", "-")
     assert abs(at["line2Mm"] - at["textMm"]) < 0.02  # 둘째 줄 = 글 시작
-    rep = s.doc._ids["p6502"]
-    for pid in ("p5209", "p5765"):
+    rep = s.doc._ids["p5209"]
+    for pid in ("p6502", "p5765"):
         assert s.doc._ids[pid].get("paraPrIDRef") == rep.get("paraPrIDRef")
-    assert len(_slot(c, d, 3, 2)["groups"]) == 1
-    again = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={})
+    assert len(_slot(c, d, 1, 5)["groups"]) == 1
+    again = c.post(f"/api/docs/{d}/outline/slots/1/5/match", json={})
     assert again.status_code == 200 and again.json()["nothing"] and again.json()["undo"] == 1  # 맞출 줄이 없으면 편집을 안 연다
     _undo_all(c, d, s)
 
@@ -187,26 +189,27 @@ def test_merge_makes_a_composite_template_and_unmerge(sess):
     c, d, s = sess
     before = c.get(f"/api/docs/{d}/download").content
     t1 = dict(s.outline["templates"]["1"], slots=dict(s.outline["templates"]["1"]["slots"]))
-    # T3 「o › -」 를 T1 「N. › N-N. › (N) › o › -」 의 L2 아래로 — T1 L3 은 「(N)」 이지만 종속 템플릿은 다른 템플릿이라 된다(2026-11-15 사용자 「T1T3 템플릿으로」)
-    r = c.post(f"/api/docs/{d}/outline/merge", json={"child": "3", "parent": "1", "at": 2})
+    # T2 「□ › o › - › ·」 를 T1 「N. › N-N. › (N) › o › -」 의 L2 아래로 — T1 L3 은 「(N)」 이지만 종속 템플릿은 다른 템플릿이라 된다(2026-11-15 사용자 「T1T3 템플릿으로」 —
+    # 그때의 예 T3 「o › -」 는 2026-11-17 「잇닿은 사슬」 로 T1 L4·L5 가 되어 없다: T1 L2 아래 3곳 · T1 L3 아래 4곳에 매달린 T2 로)
+    r = c.post(f"/api/docs/{d}/outline/merge", json={"child": "2", "parent": "1", "at": 2})
     assert r.status_code == 200, r.text
     j = r.json()
-    assert j["merged"] == {"id": "1+3", "no": "1T3", "child": 3, "parent": 1, "at": 2, "moved": 14, "levels": [3, 4]} and j["undo"] == 1
-    comp, t3 = j["outline"]["templates"]["1+3"], j["outline"]["templates"]["3"]
-    assert comp["no"] == "1T3" and comp["chain"] == ["N.", "N-N.", "o", "-"] and comp["max"] == 4 and comp["base"] == 2 and sorted(comp["slots"]) == ["3", "4"]
-    assert comp["comp"] == {"parent": "1", "child": "3", "at": 2, "parentNo": 1, "childNo": 3} and comp["hang"] == {"1|2": 7}
-    assert t3["made"][0]["id"] == "1+3" and t3["lines"] == 2 and not t3["all"] and "1|2" not in t3["hang"]
+    assert j["merged"] == {"id": "1+2", "no": "1T2", "child": 2, "parent": 1, "at": 2, "moved": 15, "levels": [3, 6]} and j["undo"] == 1
+    comp, t2 = j["outline"]["templates"]["1+2"], j["outline"]["templates"]["2"]
+    assert comp["no"] == "1T2" and comp["chain"] == ["N.", "N-N.", "□", "o", "-", "·"] and comp["max"] == 6 and comp["base"] == 2 and sorted(comp["slots"]) == ["3", "4", "5", "6"]
+    assert comp["comp"] == {"parent": "1", "child": "2", "at": 2, "parentNo": 1, "childNo": 2} and comp["hang"] == {"1|2": 3}
+    assert t2["made"][0]["id"] == "1+2" and t2["lines"] == 6 and not t2["all"] and "1|2" not in t2["hang"] and t2["hang"] == {"1|3": 4}
     assert s.outline["templates"]["1"]["chain"] == t1["chain"] and s.outline["templates"]["1"]["max"] == t1["max"]  # T1 은 안 바뀐다
-    mine = {p: x for p, x in s.outline["lines"].items() if x["tpl"] == "1+3"}
+    mine = {p: x for p, x in s.outline["lines"].items() if x["tpl"] == "1+2"}
     first = next(p for p, x in mine.items() if x["level"] == 3)
-    assert len(mine) == 14 and all(x["no"] == "1T3" for x in mine.values()) and s.outline["lines"][s.outline["lines"][first]["parent"]]["tpl"] == "1"
+    assert len(mine) == 15 and all(x["no"] == "1T2" for x in mine.values()) and s.outline["lines"][s.outline["lines"][first]["parent"]]["tpl"] == "1"
     assert c.get(f"/api/docs/{d}/download").content == before  # 문서는 안 바뀜
-    v = _slot(c, d, "1+3", 3)
-    assert v["total"] == 7 and v["rep"] in mine
-    # 종속 템플릿 줄의 개요 편집: Enter = 그 템플릿의 다음 레벨(L4 「-」) · Alt+↑ = 첫 레벨이라 부모 줄의 (T1, L2)
+    v = _slot(c, d, "1+2", 3)
+    assert v["total"] == 3 and v["rep"] in mine
+    # 종속 템플릿 줄의 개요 편집: Enter = 그 템플릿의 다음 레벨(L4 「o」) · Alt+↑ = 첫 레벨이라 부모 줄의 (T1, L2)
     r = c.post(f"/api/docs/{d}/outline", json={"op": "enter", "id": first, "offset": len(s.texts[first])})
     assert r.status_code == 200, r.text
-    assert r.json()["outline"]["lines"][r.json()["focus"]["id"]] == {"no": "1T3", "level": 4, "tpl": "1+3", "letter": "-", "role": "heading", "key": "-"}
+    assert r.json()["outline"]["lines"][r.json()["focus"]["id"]] == {"no": "1T2", "level": 4, "tpl": "1+2", "letter": "o", "role": "heading", "key": "o"}
     c.post(f"/api/docs/{d}/undo")
     r = c.post(f"/api/docs/{d}/outline", json={"op": "level", "ids": [first], "delta": -1})
     assert r.status_code == 200, r.text
@@ -215,35 +218,35 @@ def test_merge_makes_a_composite_template_and_unmerge(sess):
     # 둘째 종속 · 같은 것 또 · 매달린 곳 없음 · 제 자신 · 잘못된 값
     r = c.post(f"/api/docs/{d}/outline/merge", json={"child": "9", "parent": "8", "at": 3})
     assert r.status_code == 200 and r.json()["merged"]["no"] == "8T9" and r.json()["merged"]["moved"] == 80 and r.json()["merged"]["levels"] == [4, 6]
-    again = c.post(f"/api/docs/{d}/outline/merge", json={"child": "3", "parent": "1", "at": 2})
-    assert again.status_code == 400 and "T1T3" in again.json()["detail"]
+    again = c.post(f"/api/docs/{d}/outline/merge", json={"child": "2", "parent": "1", "at": 2})
+    assert again.status_code == 400 and "T1T2" in again.json()["detail"]
     assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "5", "parent": "8", "at": 1}).status_code == 400
     assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "8", "parent": "8", "at": 1}).status_code == 400
     assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "9", "parent": "8", "at": 0}).status_code == 400
-    # 떼기 — 종속 템플릿이 없어지고 줄이 T3 로
-    r = c.post(f"/api/docs/{d}/outline/unmerge", json={"child": "3", "parent": "1"})
+    # 떼기 — 종속 템플릿이 없어지고 줄이 T2 로
+    r = c.post(f"/api/docs/{d}/outline/unmerge", json={"child": "2", "parent": "1"})
     assert r.status_code == 200, r.text
-    assert r.json()["back"] == 14 and "1+3" not in r.json()["outline"]["templates"]
-    assert sum(1 for x in s.outline["lines"].values() if x["tpl"] == "3") == 16 and all(x["key"] in ("o", "-") for x in s.outline["lines"].values() if x["tpl"] == "3")
-    assert "1+3" not in str(s.outline.get("branches"))
-    assert c.post(f"/api/docs/{d}/outline/unmerge", json={"child": "3", "parent": "1"}).status_code == 400
+    assert r.json()["back"] == 15 and "1+2" not in r.json()["outline"]["templates"]
+    assert sum(1 for x in s.outline["lines"].values() if x["tpl"] == "2") == 21 and all(x["key"] in ("□", "o", "-", "·") for x in s.outline["lines"].values() if x["tpl"] == "2")
+    assert "1+2" not in str(s.outline.get("branches"))
+    assert c.post(f"/api/docs/{d}/outline/unmerge", json={"child": "2", "parent": "1"}).status_code == 400
     c.post(f"/api/docs/{d}/undo")  # 떼기 되돌림 → 종속 템플릿이 다시
-    assert "1+3" in s.outline["templates"]
+    assert "1+2" in s.outline["templates"]
     _undo_all(c, d, s)
-    assert "1+3" not in s.outline["templates"] and "8+9" not in s.outline["templates"] and not s.outline.get("merges")
+    assert "1+2" not in s.outline["templates"] and "8+9" not in s.outline["templates"] and not s.outline.get("merges")
 
 
 def test_merge_and_rep_carry_over_a_new_overlay(sess):
     c, d, s = sess
-    assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "3", "parent": "1", "at": 2}).status_code == 200
+    assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "2", "parent": "1", "at": 2}).status_code == 200
     assert c.post(f"/api/docs/{d}/outline/merge", json={"child": "9", "parent": "8", "at": 3}).status_code == 200
-    rest = [p for p, x in s.outline["lines"].items() if x["tpl"] == "3" and x["level"] == 1][-1]  # T3 에 남은 줄(넣은 자리 밖 — T8 L1 아래)
-    assert c.put(f"/api/docs/{d}/outline/slots/3/1/rep", json={"para": rest}).status_code == 200
+    rest = [p for p, x in s.outline["lines"].items() if x["tpl"] == "2" and x["level"] == 1][-1]  # T2 에 남은 줄(넣은 자리 밖 — T1 L3 아래)
+    assert c.put(f"/api/docs/{d}/outline/slots/2/1/rep", json={"para": rest}).status_code == 200
     ov = OE.build_overlay(heading_runs.graph(s), server._outline_probe(s), rev=s.rev)  # 2단계를 다시 돌린 것과 같이 — 그래프에서 새로 만든 오버레이
-    assert not ov.get("merges") and "1+3" not in ov["templates"]
+    assert not ov.get("merges") and "1+2" not in ov["templates"]
     fails = M.carry(s.outline, ov, M.context(s.doc, ov))
-    assert fails == [] and ov["templates"]["1+3"]["no"] == "1T3" and ov["templates"]["8+9"]["max"] == 6
-    assert sum(1 for x in ov["lines"].values() if x["tpl"] == "8+9") == 80 and ov["templates"]["3"]["slots"]["1"]["rep"] == rest
+    assert fails == [] and ov["templates"]["1+2"]["no"] == "1T2" and ov["templates"]["8+9"]["max"] == 6
+    assert sum(1 for x in ov["lines"].values() if x["tpl"] == "8+9") == 80 and ov["templates"]["2"]["slots"]["1"]["rep"] == rest
     _undo_all(c, d, s)
 
 

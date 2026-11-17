@@ -186,7 +186,7 @@ def main():
     ids_a = level_ids(doc, *A)
     in_var = {p for g in va["groups"] for p in g["paras"]}
     print(f"INFO 레벨 A = T{A[0]} L{A[1]}: 줄 {len(ids_a)} · 갈래 {[('대표 ' if g['rep'] else '') + str(g['count']) for g in va['groups']]} · 값 칸 {va['values']} · 30줄 넘는 갈래 key {big['key']}({big['count']}줄)", flush=True)
-    B = ("3", 2)
+    B = ("1", 5)  # T1 L5 「-」 — 갈래 셋(대표 ×9 · ×5 · ×1). 2026-11-17 「잇닿은 사슬」 전에는 가지 T3 L2(spec_헤딩_추출 ② §6)
     vb, _ = slot(doc, *B)
     ob = others(vb)
     assert len(ob) >= 2, vb["groups"]
@@ -439,7 +439,7 @@ def main():
               and len(vb2["groups"]) == len(vb["groups"]) - 1, [posts[:1], rev0, srv0, len(vb2["groups"])])
         check("맞춘 뒤 — 보낸 고르기가 비워지고 본문 표시도 꺼진다", ok10 and page.evaluate(PICKS) == {} and not page.evaluate(VIEW)["on"], page.evaluate(PICKS))
         page.click("#undoBtn")
-        page.wait_for_function("(n) => !state.busy && olmFresh() && (OLM.data['3'] || {})['2'] && OLM.data['3']['2'].groups.length === n", arg=len(vb["groups"]), timeout=60000)
+        page.wait_for_function("(n) => !state.busy && olmFresh() && (OLM.data['1'] || {})['5'] && OLM.data['1']['5'].groups.length === n", arg=len(vb["groups"]), timeout=60000)
         vb3, _ = slot(doc, *B)
         check("실행 취소 → 갈래가 되돌아온다(문서만 — 고르기는 되살리지 않는다)", len(vb3["groups"]) == len(vb["groups"]) and page.evaluate(PICKS) == {} and not page.evaluate(VIEW)["on"], [len(vb3["groups"]), page.evaluate(PICKS)])
 
@@ -460,7 +460,7 @@ def main():
               stale_go[0] == f"고른 서식 1가지 맞추기({kb['count']}줄)" and not stale_go[1] and not stale_go[2] and not posts and page.evaluate(PICKS) == {} and "서식 구성이 바뀌었습니다" in toast and "다시 골라" in toast
               and not page.evaluate(VIEW)["on"], [posts, page.evaluate(PICKS), toast, stale_go])
         page.click("#undoBtn")
-        page.wait_for_function("(n) => !state.busy && olmFresh() && OLM.data['3']['2'].groups.length === n", arg=len(vb["groups"]), timeout=60000)
+        page.wait_for_function("(n) => !state.busy && olmFresh() && OLM.data['1']['5'].groups.length === n", arg=len(vb["groups"]), timeout=60000)
 
         # 10c. 화면 모르게 문서가 바뀜(끝점으로 편집 — 화면의 rev 는 옛것) → 서버 409: 고르기를 풀고 알림 · 아무것도 안 맞춤 · 화면이 서버 문서를 다시 읽는다
         vb4, _ = slot(doc, *B)

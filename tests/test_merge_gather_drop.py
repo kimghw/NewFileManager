@@ -94,11 +94,14 @@ def test_range_is_the_graph_subtree_not_a_level_number(S):
     assert label["template"] != step["template"] and label["level"] <= step["level"]
     got = src(step["para"])
     assert got == cut(step["para"], _node(g, "(2)", "정량적 목표")["para"]) and {label["para"], *_chain(g, label["id"])} < set(got)
-    # 주 사슬 「2-1.」(L2) 아래 서브 템플릿 「(1)」(L1) — 숫자로는 윗 레벨이지만 멈추지 않는다
+    # 주 사슬 「2-1.」(L2) 은 다음 「2-2.」 앞에서 멈춘다. 그 아래 「(1)」 은 「가.」 를 건너뛴 주 사슬 L4 다(2026-11-17 「잇닿은 사슬」 — spec_헤딩_추출 ② §6; 전에는 서브 템플릿 「(N)›o›-」 L1)
     fin = _node(g, "2-1.")
     got = src(fin["para"])
     assert got == cut(fin["para"], _node(g, "2-2.")["para"])
-    assert any(n["para"] in got and n["parent"] == fin["id"] and n["level"] and n["template"] != fin["template"] and n["level"] < fin["level"] for n in g["nodes"])
+    # 주 사슬 「1-2.」(L2) 아래 서브 템플릿 「□」(L1) — 숫자로는 윗 레벨이지만 멈추지 않는다
+    sec = next(n for n in g["nodes"] if n["para"] == S["sec"])
+    got = src(S["sec"])
+    assert any(n["para"] in got and n["parent"] == sec["id"] and n["level"] and n["template"] != sec["template"] and n["level"] < sec["level"] for n in g["nodes"])
     # 구분 라벨 절 = 그 라벨부터 다음 형제 라벨 앞까지
     lead = _node(g, "[주관연구개발기관", role="label")
     nxt = next(n for n in g["nodes"] if n["parent"] == lead["parent"] and n["role"] == "label" and n["id"] != lead["id"])
@@ -210,10 +213,11 @@ def test_convert_follows_the_owner_or_leaves_as_written(S):
     assert r2["converted"] == 0 and [text(off, i) for i in r2["ids"][:4]] == [text(part["doc"], s) for s in pl["src"][:4]]
     # 절 끝의 글 없는 글머리 줄(자리표시) 뒤에 놓아도 품은 제목 줄은 그 위 「□ 배경」
     assert D.plan(S["to"], part, S["need"], S["back_kids"][-1])["owner"]["id"] == S["back"]
-    # 「1-2.」 줄 바로 뒤: 그 아래는 서브 템플릿(□ …)이 붙는 자리 — merge_convert 는 주 사슬 다음 레벨(가.)로 보내려 하므로 바꾸지 않고 까닭(branch)만 센다
+    # 「1-2.」 줄 바로 뒤: 그 아래는 서브 템플릿(□ …)이 붙는 자리 — merge_convert 는 주 사슬 다음 레벨(가.)로 보내려 하므로 바꾸지 않고 까닭(branch)만 센다.
+    # 넷(□ · o · - · ⋅) 모두 branch — 2026-11-17 「잇닿은 사슬」 뒤로 주 사슬이 「N.›N-N.›가.›(N)›o›-」 6레벨이라 깊이가 모자라지 않는다(전에는 4레벨이라 - · ⋅ 가 tooDeep)
     doc = _fresh(base)
     pl = D.plan({"doc": doc, "graph": g}, part, S["need"], S["sec"])
-    assert pl["owner"]["id"] == S["sec"] and pl["convert"]["converted"] == 0 and pl["convert"]["kept"]["branch"] == 2
+    assert pl["owner"]["id"] == S["sec"] and pl["convert"]["converted"] == 0 and pl["convert"]["kept"]["branch"] == 4 and "tooDeep" not in pl["convert"]["kept"]
     res = D.apply(doc, part["doc"], pl, g, g)
     assert res["converted"] == 0 and res["kept"] == pl["convert"]["kept"] and [text(doc, i) for i in res["ids"][:4]] == [text(part["doc"], s) for s in pl["src"][:4]]
     # 첫 제목 줄 앞(표지 표 뒤): 품은 제목 줄이 없다 → 틀 맞춤 없이 그대로

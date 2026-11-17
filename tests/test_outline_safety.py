@@ -184,23 +184,24 @@ def test_fit_keys_do_not_split_groups_and_survive_match(tmp_path):
     c, d, s = _open(tmp_path)
     try:
         assert "spacingPct" not in M.KEYS and "L.ratioPct" not in M.KEYS and set(M.FIT_KEYS) == {"ratioPct", "spacingPct"}
-        v = _slots(c, d)["3"]["2"]   # T3 L2 「-」 — 대표 p6502 ×5 · 「    - 」 p5209 · 「    -」 p5765
-        assert [g["count"] for g in v["groups"]] == [5, 1, 1] and v["rep"] == "p6502"
-        peer = next(p for p in v["groups"][0]["paras"] if p != "p6502")
+        v = _slots(c, d)["1"]["5"]   # T1 L5 「-」 — 대표 p5209 ×9 · 「   - 」 p6502 ×5 · 「    -」 p5765(2026-11-17 「잇닿은 사슬」 전에는 가지 T3 L2)
+        assert [g["count"] for g in v["groups"]] == [9, 5, 1] and v["rep"] == "p5209"
+        peer = next(p for p in v["groups"][0]["paras"] if p != "p5209")
         _tighten(s, peer, -10)      # 대표와 값이 같은 줄 — 자간만 줄임
-        _tighten(s, "p5209", -7)    # 앞 공백이 다른 줄 — 자간도 줄임
-        v = _slots(c, d)["3"]["2"]
-        assert [g["count"] for g in v["groups"]] == [5, 1, 1] and peer in v["groups"][0]["paras"] and v["others"] == 2   # 자간만 다른 줄은 대표 갈래 그대로
-        assert M.look(s.doc, s.outline, peer)["spacingPct"] == -10 and M.same(M.look(s.doc, s.outline, peer), M.look(s.doc, s.outline, "p6502"))
+        _tighten(s, "p6502", -7)    # 레터 앞 빈칸이 다른 줄 — 자간도 줄임
+        v = _slots(c, d)["1"]["5"]
+        assert [g["count"] for g in v["groups"]] == [9, 5, 1] and peer in v["groups"][0]["paras"] and v["others"] == 6   # 자간만 다른 줄은 제 갈래 그대로
+        assert M.look(s.doc, s.outline, peer)["spacingPct"] == -10 and M.same(M.look(s.doc, s.outline, peer), M.look(s.doc, s.outline, "p5209"))
         assert all(x[0] not in ("spacingPct", "L.spacingPct") for g in v["groups"] for x in g["diff"])
-        r = c.post(f"/api/docs/{d}/outline/slots/3/2/match", json={"place": False})
+        five = next(g for g in v["groups"] if "p6502" in g["paras"])["paras"]
+        r = c.post(f"/api/docs/{d}/outline/slots/1/5/match", json={"place": False})
         assert r.status_code == 200, r.text
-        assert sorted(r.json()["changed"]) == ["p5209", "p5765"]   # 자간만 다른 줄(peer)은 건드리지 않는다
-        got, rep = M.look(s.doc, s.outline, "p5209"), M.look(s.doc, s.outline, "p6502")
+        assert sorted(r.json()["changed"]) == sorted(five + ["p5765"])   # 자간만 다른 줄(peer)은 건드리지 않는다
+        got, rep = M.look(s.doc, s.outline, "p6502"), M.look(s.doc, s.outline, "p5209")
         assert M.same(got, rep) and got["lead"] == rep["lead"]                       # 비교 값은 대표와 같아졌다
         assert got["spacingPct"] == -7 and got["L.spacingPct"] == -7 and rep["spacingPct"] == 0   # 줄 맞춤 값은 그 줄 것
         assert M.look(s.doc, s.outline, peer)["spacingPct"] == -10
-        assert len(_slots(c, d)["3"]["2"]["groups"]) == 1
+        assert len(_slots(c, d)["1"]["5"]["groups"]) == 1
     finally:
         server.DOCS.pop(d, None)
 
@@ -269,18 +270,18 @@ def test_match_keeps_fit_per_language_and_per_run(tmp_path):
 def test_plan_uses_the_actual_rep_line_not_the_first_line_of_its_group(sess):
     """사람이 정한 대표가 그 갈래의 첫 줄이 아니어도 계획은 **그 줄**을 대표로 든다 — 전에는 갈래의 첫 줄로 바꿔 넣어, 반영하면 대표 줄이 바뀌었다."""
     c, d, s = sess
-    v = _slots(c, d)["3"]["2"]
+    v = _slots(c, d)["1"]["5"]                                                       # T1 L5 「-」 — 대표 갈래 ×9
     other = next(p for p in v["groups"][0]["paras"] if p != v["rep"])              # 대표 갈래의 다른 줄
     assert v["groups"][0]["paras"][0] == v["rep"] != other
-    assert c.put(f"/api/docs/{d}/outline/slots/3/2/rep", json={"para": other}).status_code == 200
-    v = _slots(c, d)["3"]["2"]
+    assert c.put(f"/api/docs/{d}/outline/slots/1/5/rep", json={"para": other}).status_code == 200
+    v = _slots(c, d)["1"]["5"]
     assert v["rep"] == other and v["groups"][0]["key"] == other and v["groups"][0]["paras"][0] != other   # 열쇠 줄 = 대표 줄(갈래의 첫 줄이 아니다)
-    mat = A.material(s.doc, s.outline, "3")
-    lv = next(x for x in mat["levels"] if x["level"] == 2)
+    mat = A.material(s.doc, s.outline, "1")
+    lv = next(x for x in mat["levels"] if x["level"] == 5)
     assert lv["repSet"] and lv["groups"][0]["rep"] and lv["groups"][0]["para"] == other
-    plan = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]})
+    plan = A.check_plan(mat, {"summary": "", "levels": [{"level": 5, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]})
     todo = A.todo(plan)
-    assert next(x for x in todo["levels"] if x["level"] == 2)["rep"] == other and not next(x for x in plan["levels"] if x["level"] == 2)["rep"]["changed"]
+    assert next(x for x in todo["levels"] if x["level"] == 5)["rep"] == other and not next(x for x in plan["levels"] if x["level"] == 5)["rep"]["changed"]
     _undo_all(c, d, s)
 
 
@@ -313,14 +314,14 @@ def test_lower_level_is_matched_to_the_planned_rep_even_when_an_upper_split_move
 # ---------------------------------------------------------------- 계획 검사
 def test_check_plan_keeps_the_rep_a_person_chose(sess):
     _, _, s = sess
-    mat = A.material(s.doc, s.outline, "3")
-    lv = next(x for x in mat["levels"] if x["level"] == 2)
-    data = {"summary": "", "levels": [{"level": 2, "rep": "g2", "match": ["g1", "g3"], "keep": [], "split": [], "why": ""}]}
-    free = next(x for x in A.check_plan(mat, data)["levels"] if x["level"] == 2)
+    mat = A.material(s.doc, s.outline, "1")                                      # T1 L5 「-」 — g1 대표 ×9 · g2 ×5 · g3 ×1
+    lv = next(x for x in mat["levels"] if x["level"] == 5)
+    data = {"summary": "", "levels": [{"level": 5, "rep": "g2", "match": ["g1", "g3"], "keep": [], "split": [], "why": ""}]}
+    free = next(x for x in A.check_plan(mat, data)["levels"] if x["level"] == 5)
     assert free["rep"]["group"] == "g2" and free["rep"]["changed"]            # 사람이 정하지 않은 대표는 답이 바꿀 수 있다
     lv["repSet"] = True
     plan = A.check_plan(mat, data)
-    held = next(x for x in plan["levels"] if x["level"] == 2)
+    held = next(x for x in plan["levels"] if x["level"] == 5)
     assert held["rep"]["group"] == "g1" and not held["rep"]["changed"] and [m["group"] for m in held["match"]] == ["g3"]
     assert any("사람이 정한" in n for n in plan["notes"]) and [k["group"] for k in held["keep"]] == ["g2"] and held["keep"][0]["auto"]
 
@@ -329,17 +330,17 @@ def test_plan_reports_unseen_groups_and_unanswered_lines(sess, monkeypatch):
     """갈래가 한도를 넘어 못 본 것(omitted) · 답이 말하지 않아 그대로 둔 줄(unanswered)을 계획이 센다 — 못 본 갈래가 있는 계획은 반영해도 「반영함」 으로 닫지 않는다(다시 받을 계획)."""
     _, _, s = sess
     monkeypatch.setattr(A, "GROUP_MAX", 2)
-    mat = A.material(s.doc, s.outline, "3")
-    lv = next(x for x in mat["levels"] if x["level"] == 2)
+    mat = A.material(s.doc, s.outline, "2")                                      # T2 L1 「□」 — g1 대표 p970 ×3 · g2 p11850 ×3 · g3 p1014 ×1(다른 레벨은 갈래 하나)
+    lv = next(x for x in mat["levels"] if x["level"] == 1)
     assert len(lv["groups"]) == 2 and lv["more"] == 1
-    plan = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
-    assert plan["omitted"] >= 1 and next(x for x in plan["levels"] if x["level"] == 2)["omitted"] == 1
+    plan = A.check_plan(mat, {"summary": "", "levels": [{"level": 1, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
+    assert plan["omitted"] >= 1 and next(x for x in plan["levels"] if x["level"] == 1)["omitted"] == 1
     none = A.check_plan(mat, {"summary": "", "levels": []})
     assert none["left"]["unanswered"] >= 1 and none["left"]["kept"] == 0 and none["change"] == 0
-    kept = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": [], "keep": [{"group": "g2", "why": "남김"}], "split": [], "why": ""}]})
-    assert kept["left"]["kept"] == 1
-    rec = {"tpl": "3", "at": 5.0, "rev": 1, "applied": {"at": 6.0}, "plan": {"omitted": 1}}
-    ov = {"agent": {"3": 5.0}}
+    kept = A.check_plan(mat, {"summary": "", "levels": [{"level": 1, "rep": "g1", "match": [], "keep": [{"group": "g2", "why": "남김"}], "split": [], "why": ""}]})
+    assert kept["left"]["kept"] == 3
+    rec = {"tpl": "2", "at": 5.0, "rev": 1, "applied": {"at": 6.0}, "plan": {"omitted": 1}}
+    ov = {"agent": {"2": 5.0}}
     assert analysis.plan_state(rec, 2, ov) == "stale"                                             # 반영했지만 못 본 갈래가 남았다
     assert analysis.plan_state({**rec, "plan": {"omitted": 0}}, 2, ov) == "applied" and analysis.plan_state({**rec, "plan": {}}, 2, ov) == "applied"
 
@@ -347,20 +348,20 @@ def test_plan_reports_unseen_groups_and_unanswered_lines(sess, monkeypatch):
 # ---------------------------------------------------------------- 「모두 반영」 — 화면이 본 계획 그대로
 def test_apply_plans_only_the_plan_the_screen_saw(sess, monkeypatch):
     c, d, s = sess
-    answer = {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]}
+    answer = {"summary": "T2 정리", "levels": [{"level": 1, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]}   # T2 L1 — p11850 ×3 · p1014 ×1 을 대표에
     monkeypatch.setattr(llm, "call", lambda schema, content, what, **kw: {"data": answer, "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")})
-    assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).status_code == 200
-    row = lambda: next(x for x in next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]["list"] if x["tpl"] == "3")  # noqa: E731
+    assert c.post(f"/api/docs/{d}/outline/agent/2/plan", json={"skill": "tidy"}).status_code == 200
+    row = lambda: next(x for x in next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]["list"] if x["tpl"] == "2")  # noqa: E731
     seen = row()
-    assert seen["state"] == "planned" and isinstance(seen["at"], float) and (seen["change"], seen["kept"], seen["unanswered"], seen["omitted"]) == (2, 0, 0, 0)
+    assert seen["state"] == "planned" and isinstance(seen["at"], float) and (seen["change"], seen["kept"], seen["unanswered"], seen["omitted"]) == (4, 0, 0, 0)
     url = f"/api/docs/{d}/outline/agent/apply"
-    assert c.post(url, json={"place": False, "rev": s.rev, "plans": ["3"]}).status_code == 400 and c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": "x"}}).status_code == 400
-    assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).status_code == 200   # 그 사이 계획을 다시 받았다(문서 차례는 같다)
-    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": seen["at"]}})
+    assert c.post(url, json={"place": False, "rev": s.rev, "plans": ["2"]}).status_code == 400 and c.post(url, json={"place": False, "rev": s.rev, "plans": {"2": "x"}}).status_code == 400
+    assert c.post(f"/api/docs/{d}/outline/agent/2/plan", json={"skill": "tidy"}).status_code == 200   # 그 사이 계획을 다시 받았다(문서 차례는 같다)
+    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"2": seen["at"]}})
     assert r.status_code == 409 and "바뀌었습니다" in r.json()["detail"] and s.state()["undo"] == 0   # 화면이 본 계획이 아니다 — 반영하지 않는다
     assert c.post(url, json={"place": False, "rev": s.rev, "plans": {"999": 1.0}}).status_code == 409
-    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"3": row()["at"]}})
-    assert r.status_code == 200 and r.json()["plans"] == 1 and len(r.json()["changed"]) == 2
+    r = c.post(url, json={"place": False, "rev": s.rev, "plans": {"2": row()["at"]}})
+    assert r.status_code == 200 and r.json()["plans"] == 1 and len(r.json()["changed"]) == 4
     _undo_all(c, d, s)
 
 
@@ -368,29 +369,29 @@ def test_undo_reverts_only_the_result_and_the_plan_is_used_again(sess, monkeypat
     """되돌리기는 **조정의 결과만** 되돌린다(2026-11-16 사용자 「되돌려도 … 보강했던 내용들은 되돌릴 필요는 없지」) — 받아 둔 계획은 남고 줄 지문이 같으니 **다시 받지 않고** 그대로 반영한다.
     반영 기록(결과 화면)은 실행마다 남는다: 갈래마다 [이름, 전, 후] 값 · 같은 계획을 되돌렸다가 다시 반영하면 「지금 문서에 남아 있음」 은 마지막 반영만."""
     c, d, s = sess
-    answer = {"summary": "T3 정리", "levels": [{"level": 2, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]}
+    answer = {"summary": "T2 정리", "levels": [{"level": 1, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]}   # T2 L1 — p11850 ×3 · p1014 ×1 을 대표에
     calls = []
 
     def call(schema, content, what, **kw):
         calls.append(what)
         return {"data": answer, "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
     monkeypatch.setattr(llm, "call", call)
-    assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy"}).status_code == 200
-    row = lambda: next(x for x in next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]["list"] if x["tpl"] == "3")  # noqa: E731
+    assert c.post(f"/api/docs/{d}/outline/agent/2/plan", json={"skill": "tidy"}).status_code == 200
+    row = lambda: next(x for x in next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]["list"] if x["tpl"] == "2")  # noqa: E731
     recs = lambda: c.get(f"/api/docs/{d}/headings/llm-changes").json()["applies"]  # noqa: E731
     url, n, at, graph = f"/api/docs/{d}/outline/agent/apply", len(calls), row()["at"], list(s.outline["run"])
-    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"3": at}})
-    assert r.status_code == 200 and len(r.json()["changed"]) == 2 and s.outline["agent"]["3"] == at   # 반영함(다 맞춘 템플릿은 「정리할 템플릿」 목록에서 빠진다 — 표로 본다)
+    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"2": at}})
+    assert r.status_code == 200 and len(r.json()["changed"]) == 4 and s.outline["agent"]["2"] == at   # 반영함(다 맞춘 템플릿은 「정리할 템플릿」 목록에서 빠진다 — 표로 본다)
     one = recs()[-1]
-    assert (one["by"], one["lines"], one["relations"]) == ("all", 2, []) and [(t["tpl"], t["plan"], t["live"]) for t in one["templates"]] == [("3", at, True)]
+    assert (one["by"], one["lines"], one["relations"]) == ("all", 4, []) and [(t["tpl"], t["plan"], t["live"]) for t in one["templates"]] == [("2", at, True)]
     lv = one["templates"][0]["levels"][0]
-    assert lv["level"] == 2 and sum(g["count"] for g in lv["match"]) == 2 and lv["keep"] == [] and all(len(x) == 3 and x[1] != x[2] for g in lv["match"] for x in g["diff"])
+    assert lv["level"] == 1 and sum(g["count"] for g in lv["match"]) == 4 and lv["keep"] == [] and all(len(x) == 3 and x[1] != x[2] for g in lv["match"] for x in g["diff"])
     assert c.post(f"/api/docs/{d}/undo").status_code == 200
     back = row()
-    assert (back["state"], back["at"], back["change"]) == ("planned", at, 2) and [t["live"] for t in recs()[-1]["templates"]] == [False]   # 계획은 그대로 · 기록은 「되돌림」
+    assert (back["state"], back["at"], back["change"]) == ("planned", at, 4) and [t["live"] for t in recs()[-1]["templates"]] == [False]   # 계획은 그대로 · 기록은 「되돌림」
     assert list(s.outline["run"]) == graph and c.get(f"/api/docs/{d}/headings").json()["stage2"] is not None                                                              # 헤딩 그래프(스크립트 · LLM 판정)도 그대로
-    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"3": at}})
-    assert r.status_code == 200 and len(r.json()["changed"]) == 2 and len(calls) == n            # LLM 을 다시 부르지 않고 같은 계획으로
+    r = c.post(url, json={"place": False, "rev": s.rev, "relations": False, "plans": {"2": at}})
+    assert r.status_code == 200 and len(r.json()["changed"]) == 4 and len(calls) == n            # LLM 을 다시 부르지 않고 같은 계획으로
     assert [[t["live"] for t in x["templates"]] for x in recs()[-2:]] == [[False], [True]]        # 같은 계획의 기록 둘 — 남아 있는 것은 마지막 반영
     _undo_all(c, d, s)
 
@@ -510,33 +511,33 @@ def test_unseen_groups_reach_the_agent_past_the_group_limit(sess, monkeypatch):
     _, _, s = sess
     monkeypatch.setattr(A, "GROUP_MAX", 2)
     paras = lambda rows: [r["para"] for r in rows]  # noqa: E731
-    mat = A.material(s.doc, s.outline, "3")                                           # T3 L2: 대표 ×5 · p5209 · p5765 — 한도 2 면 뒤의 한 갈래를 못 보낸다
-    lv = next(x for x in mat["levels"] if x["level"] == 2)
-    assert paras(lv["groups"]) == ["p6502", "p5209"] and lv["more"] == 1 and lv["held"] == [] and lv["heldAuto"] == []
-    first = A.check_plan(mat, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": [], "keep": [{"group": "g2", "why": "남김"}], "split": [], "why": ""}]})
-    assert first["omitted"] == 1 and paras(first["reviewed"]) == ["p5209"] and paras(first["sent"]) == ["p5209"] and all(r["sig"] for r in first["reviewed"])
-    mat2 = A.material(s.doc, s.outline, "3", reviewed=first["reviewed"], sent=first["sent"])
-    lv2 = next(x for x in mat2["levels"] if x["level"] == 2)
-    assert paras(lv2["groups"]) == ["p6502", "p5765"]                                 # 이번에는 못 봤던 갈래가 간다
-    assert lv2["more"] == 0 and paras(lv2["held"]) == ["p5209"] and lv2["heldAuto"] == []
-    second = A.check_plan(mat2, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
-    L2 = next(x for x in second["levels"] if x["level"] == 2)
-    assert second["omitted"] == 0 and paras(L2["match"]) == ["p5765"]
-    assert [(k["para"], k["auto"], k.get("carried")) for k in L2["keep"]] == [("p5209", False, True)] and paras(second["reviewed"]) == ["p5209"]   # 앞 계획의 「그대로」 를 이어받는다
-    assert sorted(paras(second["sent"])) == ["p5209", "p5765"] and not L2["single"] and second["left"]["kept"] == 1
+    mat = A.material(s.doc, s.outline, "2")                                           # T2 L1: 대표 p970 ×3 · p11850 ×3 · p1014 ×1 — 한도 2 면 뒤의 한 갈래를 못 보낸다
+    lv = next(x for x in mat["levels"] if x["level"] == 1)
+    assert paras(lv["groups"]) == ["p970", "p11850"] and lv["more"] == 1 and lv["held"] == [] and lv["heldAuto"] == []
+    first = A.check_plan(mat, {"summary": "", "levels": [{"level": 1, "rep": "g1", "match": [], "keep": [{"group": "g2", "why": "남김"}], "split": [], "why": ""}]})
+    assert first["omitted"] == 1 and paras(first["reviewed"]) == ["p11850"] and paras(first["sent"]) == ["p11850"] and all(r["sig"] for r in first["reviewed"])
+    mat2 = A.material(s.doc, s.outline, "2", reviewed=first["reviewed"], sent=first["sent"])
+    lv2 = next(x for x in mat2["levels"] if x["level"] == 1)
+    assert paras(lv2["groups"]) == ["p970", "p1014"]                                 # 이번에는 못 봤던 갈래가 간다
+    assert lv2["more"] == 0 and paras(lv2["held"]) == ["p11850"] and lv2["heldAuto"] == []
+    second = A.check_plan(mat2, {"summary": "", "levels": [{"level": 1, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
+    L1 = next(x for x in second["levels"] if x["level"] == 1)
+    assert second["omitted"] == 0 and paras(L1["match"]) == ["p1014"]
+    assert [(k["para"], k["auto"], k.get("carried")) for k in L1["keep"]] == [("p11850", False, True)] and paras(second["reviewed"]) == ["p11850"]   # 앞 계획의 「그대로」 를 이어받는다
+    assert sorted(paras(second["sent"])) == ["p1014", "p11850"] and not L1["single"] and second["left"]["kept"] == 3
     # 지문이 다른 이력(그 줄의 서식이 바뀌어 다른 갈래가 됐다)은 잇지 않는다 — 새 갈래로 다시 보낸다
-    stale = [{"para": "p5209", "sig": "다른-갈래"}]
-    lv3 = next(x for x in A.material(s.doc, s.outline, "3", reviewed=stale, sent=stale)["levels"] if x["level"] == 2)
-    assert paras(lv3["groups"]) == ["p6502", "p5209"] and lv3["more"] == 1 and lv3["held"] == []
+    stale = [{"para": "p11850", "sig": "다른-갈래"}]
+    lv3 = next(x for x in A.material(s.doc, s.outline, "2", reviewed=stale, sent=stale)["levels"] if x["level"] == 1)
+    assert paras(lv3["groups"]) == ["p970", "p11850"] and lv3["more"] == 1 and lv3["held"] == []
     # 보냈지만 답이 없던 갈래도 뒤로 돈다(뒤쪽을 막지 않는다) — 답 없음으로 이어진다(검토해 남긴 것이 아니다)
     none = A.check_plan(mat, {"summary": "", "levels": []})
-    assert none["reviewed"] == [] and paras(none["sent"]) == ["p5209"] and none["left"]["unanswered"] >= 1
-    lv4 = next(x for x in A.material(s.doc, s.outline, "3", reviewed=none["reviewed"], sent=none["sent"])["levels"] if x["level"] == 2)
-    assert paras(lv4["groups"]) == ["p6502", "p5765"] and lv4["more"] == 0 and lv4["held"] == [] and paras(lv4["heldAuto"]) == ["p5209"]
-    mat4 = A.material(s.doc, s.outline, "3", reviewed=none["reviewed"], sent=none["sent"])
-    fourth = A.check_plan(mat4, {"summary": "", "levels": [{"level": 2, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
-    k4 = next(x for x in fourth["levels"] if x["level"] == 2)["keep"]
-    assert [(k["para"], k["auto"]) for k in k4] == [("p5209", True)] and fourth["omitted"] == 0 and fourth["left"]["unanswered"] == 1 and fourth["reviewed"] == []
+    assert none["reviewed"] == [] and paras(none["sent"]) == ["p11850"] and none["left"]["unanswered"] >= 1
+    lv4 = next(x for x in A.material(s.doc, s.outline, "2", reviewed=none["reviewed"], sent=none["sent"])["levels"] if x["level"] == 1)
+    assert paras(lv4["groups"]) == ["p970", "p1014"] and lv4["more"] == 0 and lv4["held"] == [] and paras(lv4["heldAuto"]) == ["p11850"]
+    mat4 = A.material(s.doc, s.outline, "2", reviewed=none["reviewed"], sent=none["sent"])
+    fourth = A.check_plan(mat4, {"summary": "", "levels": [{"level": 1, "rep": "g1", "match": ["g2"], "keep": [], "split": [], "why": ""}]})
+    k4 = next(x for x in fourth["levels"] if x["level"] == 1)["keep"]
+    assert [(k["para"], k["auto"]) for k in k4] == [("p11850", True)] and fourth["omitted"] == 0 and fourth["left"]["unanswered"] == 3 and fourth["reviewed"] == []
 
 
 def test_pair_judgment_calls_are_off_by_default(sess, monkeypatch):

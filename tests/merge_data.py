@@ -3,7 +3,7 @@
 - `analyze(doc)` = 서버의 첫 분석(heading_runs.run_first)과 같은 차례를 세션 없이: 1단계 추출 → TEMP 라벨 → 2단계 그래프 → 3단계 표 구조. LLM 없음.
 - `real()` = 실제 작성본(FMM `연구계획서.hwpx` — 없으면 None) ↔ 그 문서에서 읽은 구분 값으로 반영한 연차보고서 서식.
 - `small()` = 저장소 안 자료만: 빈 계획서 양식에 값을 반영하고 몇 자리에 글을 넣은 것 ↔ 같은 값으로 반영한 연차보고서 서식.
-추출 결과는 느리므로(작성본 47 MB) 문서 바이트 sha 로 `artifacts/merge_fixture/` 에 gz 로 둔다(git 무시 폴더)."""
+추출 결과는 느리므로(작성본 47 MB) 문서 바이트 sha + 추출 판(`GRAPH_VER`)으로 `artifacts/merge_fixture/` 에 gz 로 둔다(git 무시 폴더)."""
 import gzip
 import hashlib
 import json
@@ -15,6 +15,9 @@ REAL_PLAN = Path(os.environ.get("NFM_MERGE_REAL_PLAN") or r"E:\dev\FileMergeMana
 PLAN_FORM = ROOT / "samples" / "연구개발계획서_양식.hwpx"
 REPORT_FORM = ROOT / "samples" / "국가RnD_서식" / "KEIT_표준서식_260320" / "1. 산업기술혁신사업 연차보고서 서식_260319.hwpx"
 CACHE = ROOT / "artifacts" / "merge_fixture"
+# 추출 판 — 캐시 열쇠에 든다. 추출 결과(헤딩 그래프 · 표 구조)가 달라지는 코드를 고치면 올린다(공유 폴더라 지우지 않는다 — 옛 판의 파일은 안 쓰일 뿐).
+# 2: 2026-11-17 「잇닿은 사슬」(spec_헤딩_추출 ② §6 — 레터가 같고 레벨만 건너뛰거나 늘어난 사슬은 부모 템플릿의 그 레벨).
+GRAPH_VER = 2
 SMALL_VALUES = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"], "nonprofit": [False, True, False]},
                 "period": {"start": "2026-03-01", "end": "2027-12-31"}, "current": 1}
 _MEMO = {}
@@ -42,9 +45,9 @@ def analyze(doc, name=""):
 
 
 def _cached(tag, data, doc, name):
-    """문서 바이트 sha 로 (graph, tables)를 캐시 — 추출 코드가 바뀌어 결과가 달라져야 하면 폴더를 지운다."""
+    """문서 바이트 sha + 추출 판(GRAPH_VER)으로 (graph, tables)를 캐시 — 추출 코드가 바뀌어 결과가 달라져야 하면 GRAPH_VER 를 올린다."""
     CACHE.mkdir(parents=True, exist_ok=True)
-    p = CACHE / f"{tag}-{hashlib.sha256(data).hexdigest()[:16]}.json.gz"
+    p = CACHE / f"{tag}-{hashlib.sha256(data).hexdigest()[:16]}{f'-v{GRAPH_VER}' if GRAPH_VER > 1 else ''}.json.gz"
     if p.is_file():
         d = json.loads(gzip.decompress(p.read_bytes()))
         return d["graph"], d["tables"]

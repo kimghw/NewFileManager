@@ -14,6 +14,7 @@ from app.outline_edit import body_of, prefix_of
 from tests import merge_data as M
 
 SRC_TPL, TO_TPL = "body:□›o›-›·", "body:[…]›□›o›-"
+MAIN = "body:N.›N-N.›o›-"   # 목적 문서(연차보고서 서식)의 주 사슬 — 2026-11-17 「잇닿은 사슬」 전에는 「N.›N-N.›o」 + 가지 「o›-」
 ONE, ALL = f"{TO_TPL}<·", f"{TO_TPL}<□›o›-›·"
 JS = Path(__file__).parents[1] / "app" / "static" / "merge_over.js"
 
@@ -67,7 +68,8 @@ def test_templates_are_the_target_body_templates_with_usable_levels(S):
     to = M.fresh(S["to"])
     to.blocks()
     tpls = {t["anchor"]: t for t in MO.templates(S["to"]["graph"], to)}
-    assert TO_TPL in tpls and "body:o›-" in tpls and not [a for a in tpls if a.startswith("cell:")]   # 표 칸 템플릿은 후보가 아니다
+    # 표 칸 템플릿은 후보가 아니다. 2026-11-17 「잇닿은 사슬」(spec_헤딩_추출 ② §6) 뒤로 「N.」 바로 아래 「o › -」(「N-N.」 을 건너뜀)는 가지 「o›-」 가 아니라 주 사슬 L3·L4
+    assert TO_TPL in tpls and MAIN in tpls and "body:o›-" not in tpls and not [a for a in tpls if a.startswith("cell:")]
     lv = {x["level"]: x for x in tpls[TO_TPL]["levels"]}
     assert [lv[i]["ok"] for i in (1, 2, 3, 4)] == [False, True, True, True] and lv[3]["key"] == "o" and lv[3]["letter"] and lv[3]["rep"]   # 괄호 줄 레벨은 본보기로 못 쓴다
     assert tpls[TO_TPL]["chain"] == ["[…]", "□", "o", "-"] and tpls[TO_TPL]["no"]
@@ -82,7 +84,7 @@ def test_validate_normalizes_or_refuses(S):
     got = MO.validate({"mode": "edit", "levels": [{"letter": " ▪ ", "like": like, "lead": 4}, None, {"letter": "", "lead": None}, {"lead": 0}]}, tpls)
     assert got == {"mode": "edit", "template": None, "levels": [{"letter": "▪", "like": like, "lead": 4}, None, None, {"letter": None, "like": None, "lead": 0}]}
     assert MO.validate({"mode": "edit", "levels": [{}, None]}) == {"mode": "cover", "levels": [], "template": None}   # 아무것도 안 고침 = 덮은 그대로
-    assert MO.validate({"mode": "template", "template": {"template": "body:o›-", "level": 1}}, tpls)["template"] == {"template": "body:o›-", "level": 1}
+    assert MO.validate({"mode": "template", "template": {"template": MAIN, "level": 3}}, tpls)["template"] == {"template": MAIN, "level": 3}
     for bad, word in (({"mode": "x"}, "mode"), ({"mode": "edit", "levels": []}, "levels"), ({"mode": "edit", "levels": [{"letter": "가 나"}]}, "빈칸"),
                       ({"mode": "edit", "levels": [{"letter": "x" * 13}]}, "12자"), ({"mode": "edit", "levels": [{"lead": 41}]}, "레터 앞 빈칸"), ({"mode": "edit", "levels": [{"lead": True}]}, "레터 앞 빈칸"),
                       ({"mode": "edit", "levels": [{"like": {"template": "body:없는 템플릿", "level": 1}}]}, "없습니다"), ({"mode": "edit", "levels": [{"like": {"template": TO_TPL, "level": 1}}]}, "본보기로 쓸 수 없는"),
@@ -124,7 +126,7 @@ def test_plan_view_lists_cases_with_what_goes_in(S):
     assert set(by) == {ONE, ALL} and (by[ONE]["lines"], by[ONE]["places"], by[ONE]["at"]) == (1, 1, _anchor(S)) and (by[ALL]["lines"], by[ALL]["places"]) == (8, 2)   # 같은 사례는 자리가 여럿이어도 하나
     assert [(x["n"], x["key"], x["lines"]) for x in by[ALL]["levels"]] == [(5, "□", 2), (6, "o", 2), (7, "-", 2), (8, "·", 2)]
 
-    store = {"version": 3, "cases": {ALL: {"mode": "edit", "levels": [{"letter": "▪", "like": None, "lead": None}, None, {"letter": None, "like": {"template": "body:N.›N-N.›o", "level": 1}, "lead": None},
+    store = {"version": 3, "cases": {ALL: {"mode": "edit", "levels": [{"letter": "▪", "like": None, "lead": None}, None, {"letter": None, "like": {"template": MAIN, "level": 1}, "lead": None},
                                                                       {"letter": None, "like": {"template": "body:없는 템플릿", "level": 1}, "lead": 2}]}}}
     v = MO.view(cases, store, tg, to)
     assert v["version"] == 3 and [t["anchor"] for t in v["templates"]] == [t["anchor"] for t in MO.templates(tg, to)]

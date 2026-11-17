@@ -284,26 +284,27 @@ def _fin(nodes, graph, keys, types):
 
 
 def test_b_demote_with_children_keeps_subtree_in_instance():
-    """B 가 자식 있는 「□」 를 not_heading 으로 내리면 헤딩 아님은 투명 — 그 아래 o,o 는 「①」 에 붙어 「o」 가지(① 인스턴스의 childInstances)가 되고 ① 인스턴스는 편차(L2·L3 빠짐).
-    내려간 뿌리 「①」 는 인스턴스가 아니다."""
+    """B 가 자식 있는 「□」 를 not_heading 으로 내리면 헤딩 아님은 투명 — 그 아래 o,o 는 「①」 에 붙는다. 2026-11-17 부터 그 o 는 가지 「o」 가 아니라 주 사슬 「① › □ › o」 의 L3
+    (레벨 건너뜀 = 잇닿은 사슬 — spec_헤딩_추출 ② §6, 사용자 답 「T1 에 넣기」)이고 ① 인스턴스의 멤버, ① 인스턴스는 편차(L2 빠짐). 내려간 뿌리 「①」 는 인스턴스가 아니다."""
     nodes, graph, keys, types = _sub_graph()
     applied, rejected = HG.apply_changes([{"id": "s0", "role": "not_heading", "reason": "제목 아님"}], ["r0", "s0", "o0a", "o0b"], [], graph, set())
     assert [a["id"] for a in applied] == ["s0"] and not rejected and graph["s0"]["key"] is None
     fin = _fin(nodes, graph, keys, types)
     ins = {x["root"]: x for x in fin["instances"]}
-    assert ins["r0"]["members"] == [] and ins["r0"]["deviates"] and ins["r0"]["missing"] == [2, 3]
-    assert sorted(fin["instances"][i]["root"] for i in ins["r0"]["childInstances"]) == ["o0a", "o0b"]
-    assert ins["o0a"]["anchor"] == "body:o" and ins["o0a"]["parent"] == "r0"
+    assert ins["r0"]["members"] == ["o0a", "o0b"] and ins["r0"]["deviates"] and ins["r0"]["missing"] == [2]
+    assert ins["r0"]["childInstances"] == [] and "o0a" not in ins and [t["anchor"] for t in fin["templates"]] == ["body:①›□›o"]
     assert ins["r1"]["members"] == ["s1", "o1a", "o1b"] and not ins["r1"]["deviates"]
     assert graph["o0a"]["parent"] == "s0"  # 그래프 부모는 그대로(화면은 흐린 「□」 아래)
-    # 내려간 뿌리 「①」 는 인스턴스를 만들지 않는다 — 그 아래 □ 는 본문 뿌리에서 「□ › o」 가지로
+    # 내려간 뿌리 「①」 는 인스턴스를 만들지 않는다 — 그 아래 □ 는 본문 뿌리에 매달린 **주 사슬의 레터**라 가지 「□ › o」 가 아니라 주 사슬 L2 다
+    # (윗 레벨이 빠진 인스턴스 — spec ② §6 「잇닿은 사슬」, 2026-11-17 사용자 "레터가 다르거나 하지 않고 늘어나면 같은 템플릿으로": 전에는 「□ › o」 가지 템플릿)
     nodes, graph, keys, types = _sub_graph()
     applied, rejected = HG.apply_changes([{"id": "r2", "role": "not_heading", "reason": "뿌리 아님"}], ["r2", "s2", "o2a", "o2b"], [], graph, set())
     assert [a["id"] for a in applied] == ["r2"] and not rejected
     fin = _fin(nodes, graph, keys, types)
     main = next(t for t in fin["templates"] if t["kind"] == "main")
-    assert main["chain"] == ["①", "□", "o"] and [x["root"] for x in fin["instances"] if x["template"] == main["id"]] == ["r0", "r1", "r3"]
-    assert next(x for x in fin["instances"] if x["root"] == "s2")["anchor"] == "body:□›o"
+    assert main["chain"] == ["①", "□", "o"] and [x["root"] for x in fin["instances"] if x["template"] == main["id"]] == ["r0", "r1", "s2", "r3"]
+    s2 = next(x for x in fin["instances"] if x["root"] == "s2")
+    assert s2["anchor"] == "body:①›□›o" and s2["missing"] == [1] and s2["members"] == ["o2a", "o2b"] and [t["anchor"] for t in fin["templates"]] == ["body:①›□›o"]
 
 
 def test_b_label_parent_kept_and_non_heading_parent_rejected():

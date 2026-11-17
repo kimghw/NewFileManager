@@ -28,7 +28,7 @@ def _edit(d):
     d.insert_after(o, [{"kind": "paragraph", "text": f"  o {SUB}"},    # 깊이가 다름(■ 아래 o — 취합본 틀로는 o 아래 -)
                        {"kind": "paragraph", "text": BODY}])           # 레터 없는 본문 줄
     d.set_text(_slot(d, D.para(d, "□ 배경"), "o"), f"  o {BACK}")      # 틀 안에서 쓴 줄(공통 자리 — □›o 의 o)
-    d.set_text(_slot(d, D.para(d, "3-1. 기술개발 추진방법·전략"), "o"), f"□ {PLAN}")   # 가지 템플릿의 뿌리 자리(3-1. 아래 「o›-」 의 o)에 □ 로 씀
+    d.set_text(_slot(d, D.para(d, "3-1. 기술개발 추진방법·전략"), "o"), f"□ {PLAN}")   # 3-1. 아래 o 자리(가.·(N) 을 건너뛴 주 사슬 L5 — 2026-11-17 「잇닿은 사슬」 전에는 가지 「o›-」 의 뿌리)에 □ 로 씀
     d.set_text(D.nxt(d, D.para(d, "(1) 최종목표", 0, start=True)), f"  o {FINAL}")   # 자리표시 줄 「□」 앞의 빈 줄에 씀 — 끼어든 내용(added) · 그 제목 아래는 서브 템플릿이 붙는 자리
 
 
@@ -62,7 +62,7 @@ def test_plan_fits_only_the_lines_whose_letter_or_depth_differs(S):
     back = _item(S["plan"], BACK)["convert"]
     assert (back["converted"], back["same"], back["kept"]) == (0, 1, {})   # 틀 안에서 쓴 줄은 건드리지 않는다
     root = _item(S["plan"], PLAN)["convert"]
-    assert [(r["was"], r["letter"], r["to"][1]) for r in root["rows"]] == [("□", "o", 1)]   # 가지 템플릿의 뿌리 자리 — 자리표시 줄이 가리키는 (템플릿, 레벨)로
+    assert [(r["was"], r["letter"], r["to"][1]) for r in root["rows"]] == [("□", "o", 5)]   # 자리표시 줄이 가리키는 (템플릿, 레벨)로 — 주 사슬 「N.›N-N.›가.›(N)›o›-」 의 L5(전: 가지 「o›-」 L1)
     ops = {op["key"]: op for op in S["plan"]["ops"]}
     assert ops[org["key"]]["convert"]["mode"] == "slot" and ops[_item(S["plan"], PLAN)["key"]]["convert"]["mode"] == "slot"
     added = _item(S["plan"], FINAL)
