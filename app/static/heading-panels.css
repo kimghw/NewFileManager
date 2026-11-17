@@ -71,6 +71,39 @@
 #headsOverview .result-meta .btn.sm.hrun-all:disabled { opacity: .55; cursor: default; }
 #headsOverview .result-meta .btn.sm.hrun-all + .btn.sm.hrun-menu { margin-left: 0; }
 :is(#headsOverview, #tablesOverview) .hrun-menu .hrun-word { white-space: pre; }
+/* 단계별 실행 — 고르기 목록(heads_run_pick.js — spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」 「고른 것만 차례로」, 2026-11-17 사용자 「클릭한 다음에 클릭한 것들만 실행」).
+   공용 메뉴 상자(.ctx-menu — body 에 붙는다)에 data-by="hrp": 줄 = 네모(고름 ✓ · 도는 중 = 돌아가는 동그라미 · 끝남 = 초록 ✓ · 실패 !) + 이름 + 상태 글 / 아래 주 단추 「고른 n개 실행」(도는 동안 「멈추기」 — 흰 바탕).
+   도는 동안 단추는 옅은 파랑(.on) · 진행 줄에서 차례를 기다리는 칸은 점선 동그라미([data-queued]) */
+:is(#headsOverview, #tablesOverview) .result-meta .btn.sm.hrun-menu.on { border-color: #9fb8e6; background: #edf3ff; font-variant-numeric: tabular-nums; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-queued] { border-style: dashed; border-color: #a9c0ee; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-queued] .hprog-mark { border: 1.5px dashed #4576d7; background: transparent; }
+:is(#headsOverview, #tablesOverview) .hprog-step[data-queued] .hprog-mark::before { content: none; }
+.ctx-menu[data-by="hrp"] { max-width: calc(100vw - 16px); }
+.ctx-menu[data-by="hrp"] button.hrp-row { justify-content: flex-start; gap: 8px; }
+.ctx-menu[data-by="hrp"] .hrp-box { flex: none; box-sizing: border-box; display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1.5px solid #9aa8bd; border-radius: 3px; background: #fff; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; }
+.ctx-menu[data-by="hrp"] .hrp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu[data-by="hrp"] .hrp-note { flex: none; margin-left: auto; padding-left: 12px; color: var(--muted); font-size: 11px; }
+.ctx-menu[data-by="hrp"] .hrp-note:empty { display: none; }
+.ctx-menu[data-by="hrp"] button.hrp-row[aria-checked="true"] .hrp-box { border-color: var(--accent); background: var(--accent); }
+.ctx-menu[data-by="hrp"] button.hrp-row[aria-checked="true"] .hrp-box::before { content: "✓"; }
+.ctx-menu[data-by="hrp"] button.hrp-row[disabled] .hrp-box { border-color: #cfd6e1; background: #f3f5f8; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state]:not([data-state=""]) { color: var(--text); } /* 도는 실행의 단계 — 꺼진 줄이어도 읽히게 */
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="wait"] .hrp-box { border: 1.5px dashed #4576d7; background: #fff; color: #4576d7; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="running"] .hrp-box { border: 2px solid #4576d7; border-right-color: transparent; border-radius: 50%; background: transparent; animation: spin .8s linear infinite; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="running"] .hrp-box::before { content: none; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="running"] .hrp-note { color: #2758c7; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="done"] .hrp-box { border-color: var(--ok); background: var(--ok); }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="skip"] .hrp-box { border-color: #cfd6e1; background: #f3f5f8; color: #9aa5b5; }
+.ctx-menu[data-by="hrp"] button.hrp-row[data-state="skip"] .hrp-box::before { content: "–"; }
+.ctx-menu[data-by="hrp"] button.hrp-row:is([data-state="failed"], [data-state="miss"]) .hrp-box { border-color: var(--fail); background: var(--fail); }
+.ctx-menu[data-by="hrp"] button.hrp-row:is([data-state="failed"], [data-state="miss"]) .hrp-box::before { content: "!"; }
+.ctx-menu[data-by="hrp"] button.hrp-row:is([data-state="failed"], [data-state="miss"]) .hrp-note { color: var(--fail); }
+.ctx-menu[data-by="hrp"] button.hrp-go { justify-content: center; padding: 6px 10px; background: var(--accent); color: #fff; font-weight: 600; }
+.ctx-menu[data-by="hrp"] button.hrp-go:is(:hover, :focus):not([disabled]) { background: #1d49b5; }
+.ctx-menu[data-by="hrp"] button.hrp-go:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
+.ctx-menu[data-by="hrp"] button.hrp-go[disabled] { background: #eef1f6; color: var(--muted); font-weight: 500; }
+.ctx-menu[data-by="hrp"] button.hrp-go.stop { background: #fff; color: #4a5568; box-shadow: inset 0 0 0 1px #d5dbe6; }
+.ctx-menu[data-by="hrp"] button.hrp-go.stop:is(:hover, :focus):not([disabled]) { background: #f5f7fa; }
 /* 단추가 둘이 되어 좁은 패널에서는 주황 꼬리표(새 레터 · 새 서식 — heading-drift.css: 글이 줄어드는 꼬리표)와 한 줄에 다 안 든다 — 도는 동안처럼 줄을 접지 않고 꼬리표 글을 줄인다 */
 #headsOverview .result-meta:has(.analysis-state.drift-chip) { flex-wrap: nowrap; }
 #tablesOverview .result-metric.is-warning { border-color: #eedcbd; background: #fff6e9; }

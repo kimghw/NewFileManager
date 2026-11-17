@@ -5,11 +5,14 @@
 LLM 은 **가짜**다(임시 서버 안에서만): 헤딩 그래프(LLM) · 표 구조(LLM)는 스크립트로 돌리고 「LLM 판정을 거침」 으로만 적는다(헤딩은 멈추기를 누를 틈으로 몇 초 쉰다) ·
 서식 정리 에이전트는 기본 스킬의 기준(레터)대로 답한다(tools/smoke_adjust_ui.py 와 같은 가짜). 이어 돌리기 · 계획 받기 · 반영의 끝점과 화면 함수는 진짜다.
 연구개발계획서_양식.hwpx 를 올려 2·3단계(스크립트)를 돌린 뒤 헤딩 탭 →
-① 상태 줄 끝에 「전체 실행」 · 「단계별 실행 ▾」 둘(같은 줄 · 26px · 오른쪽 끝) ② 「단계별 실행 ▾」 = 전의 메뉴(스크립트 · LLM 항목) ③ 「테이블」 탭에는 「단계별 실행 ▾」 만
+① 상태 줄 끝에 「전체 실행」 · 「단계별 실행 ▾」 둘(같은 줄 · 26px · 오른쪽 끝) ② 「단계별 실행 ▾」 = 고르기 목록(스크립트 · LLM 줄을 눌러 표시 — 누르는 것만으로는 안 돎 · 「고른 n개 실행」) ③ 「테이블」 탭에는 「단계별 실행 ▾」 만
 ④ 「전체 실행」 → 확인 창(돌 LLM 단계 · 문서가 바뀜) — 「취소」 면 아무것도 안 돎 ⑤ 「확인」 → 도는 동안 단추는 「멈추기」 · 에이전트 진행 카드에 보임 → 「멈추기」: 지금 단계가 끝나면 멈추고 **반영하지 않는다**(남은 것을 알림)
 ⑥ 다시 「전체 실행」 → 거친 단계는 건너뛰고 표 · 서식 계획 → 조정(모두 반영)까지 — 반영마다 실행 취소 1 · 받은 계획이 남지 않음 · 조정 칸 ✓ · 끝난 글(한 것 · 남은 것)
-⑦ 남은 것이 없으면 다시 눌러도 묻지 않고 「남은 단계가 없습니다」 ⑧ 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음."""
+⑦ 남은 것이 없으면 다시 눌러도 묻지 않고 「남은 단계가 없습니다」 ⑧ 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음
+⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 한 번(「취소」 면 고른 것만 남음) → 고른 셋을 진행 줄의 차례로(보낸 요청 = 고른 것만) · 도는 동안 「단계별 실행 2/3 ▾」 · 메뉴의 차례 · 「멈추기」 ·
+진행 줄의 기다림 표시 · 에이전트 진행 카드 → 끝난 글 / 멈추기(뒤는 안 돎) / LLM 이 답을 못 하면 뒤 LLM 단계는 남김 / 스크립트만 고르면 확인 창 없이."""
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -137,6 +140,20 @@ META = """(box) => { // 상태 줄 — 실행 단추 둘의 자리
 }"""
 ADJ = """() => [...document.querySelectorAll('#headsOverview .hprog [data-tpb]')].map((b) => ({ key: b.dataset.tpb, state: b.dataset.state, hidden: b.hidden,
   text: b.hidden ? '' : b.querySelector('.hprog-text').textContent }))"""
+MENU_OPEN = "() => { const m = document.querySelector('.ctx-menu[data-by=\"hrp\"]'); return !!m && !m.hidden && !!m.querySelector('.hrp-row'); }"
+MENU = """() => { // 「단계별 실행 ▾」 의 고르기 목록 — 줄(고름 · 꺼짐 · 상태) · 아래 단추 둘
+  const m = document.querySelector('.ctx-menu[data-by="hrp"]'), go = m.querySelector('.hrp-go');
+  return { rows: [...m.querySelectorAll('.hrp-row')].map((b) => ({ key: b.dataset.hrp, name: b.querySelector('.hrp-name').textContent, on: b.getAttribute('aria-checked') === 'true', off: b.disabled,
+      state: b.dataset.state, note: b.querySelector('.hrp-note').textContent, role: b.getAttribute('role') })),
+    go: { text: go.textContent, off: go.disabled, stop: go.classList.contains('stop') }, detail: m.querySelector('.hrp-detail').textContent };
+}"""
+PICK_IDLE = "() => typeof HRP === 'object' && !HRP.run"
+PICK = """(keys) => { // 메뉴가 열린 채 — 고른 것을 비우고 그 줄들을 누른다
+  const m = document.querySelector('.ctx-menu[data-by="hrp"]');
+  for (const b of m.querySelectorAll('.hrp-row[aria-checked="true"]')) b.click();
+  for (const k of keys) m.querySelector(`[data-hrp="${k}"]`).click();
+}"""
+QUEUED = "() => [...document.querySelectorAll('#headsOverview .hprog .hprog-step[data-queued]')].map((b) => b.querySelector('.hprog-text').textContent)"
 IDLE = "() => typeof HRA === 'object' && !HRA.run"
 TOAST = "() => document.getElementById('toast').textContent"
 
@@ -171,6 +188,8 @@ try:
         posts, full = [], []  # 바꾸는 요청 — 끝점만 · 문서 id 까지(「<id>/outline/agent/apply」)
         page.on("request", lambda q: posts.append(q.url.split("/api/docs/")[-1].split("/", 1)[-1]) if q.method in ("POST", "DELETE") and "/api/docs/" in q.url else None)
         page.on("request", lambda q: full.append(q.url.split("/api/docs/")[-1]) if q.method in ("POST", "DELETE") and "/api/docs/" in q.url else None)
+        hbody = []  # POST …/headings 의 본문(단계 · LLM) — 「단계별 실행」 이 고른 것만 그 차례로 보내는지(⑩)
+        page.on("request", lambda q: hbody.append(json.loads(q.post_data or "{}")) if q.method == "POST" and q.url.endswith("/headings") else None)
         page.goto(f"{base}/#w={wid}")
         page.wait_for_function("() => document.querySelector('#doc .sheet .para') != null", timeout=240000)
         page.click("#tabHeads")
@@ -187,16 +206,28 @@ try:
         check("「전체 실행」 title: 조정까지 · 유료 · 문서가 바뀜 · 단계별 실행과의 차이", len(b) == 2 and all(w in b[0]["title"] for w in ("조정", "유료", "문서가 바뀝니다", "단계별 실행")), b[0]["title"] if b else "")
         page.locator("#headsOverview").screenshot(path=str(OUT / "1_buttons.png"))
 
-        # ---- ② 「단계별 실행 ▾」 = 전의 실행 메뉴
+        # ---- ② 「단계별 실행 ▾」 = 고르기 목록(heads_run_pick.js — 2026-11-17 「클릭한 다음에 클릭한 것들만 실행」): 항목을 눌러도 돌지 않고 표시만 · 「고른 n개 실행」 이 돌린다
+        n_pick = len(posts)
         page.click("#headsOverview .hrun-menu")
-        page.wait_for_function("() => [...document.querySelectorAll('[role=\"menuitem\"]')].some((x) => x.offsetParent && x.textContent.startsWith('스크립트 — '))", timeout=5000)
-        items = page.evaluate("() => [...document.querySelectorAll('[role=\"menuitem\"]')].filter((x) => x.offsetParent).map((x) => [x.textContent, x.disabled])")
-        names = [t for t, _ in items]
-        check("메뉴: 스크립트 셋 · LLM 셋 · 추출·설정에서 자세히", [t.split(" — ")[0] for t in names[:6]] == ["스크립트"] * 3 + ["LLM"] * 3 and names[-1] == "추출·설정에서 자세히"
-              and any("헤딩 판정" in t for t in names) and any("표 판정" in t for t in names), items)
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        mn = page.evaluate(MENU)
+        names = [x["name"] for x in mn["rows"]]
+        check("메뉴: 고르기 줄 여섯(스크립트 셋 · LLM 셋 — 모두 안 고름) · 아래 「돌릴 단계를 고르세요」(꺼짐) · 「추출·설정에서 자세히」", [t.split(" — ")[0] for t in names] == ["스크립트"] * 3 + ["LLM"] * 3
+              and any("헤딩 판정" in t for t in names) and any("표 판정" in t for t in names) and not any(x["on"] for x in mn["rows"])
+              and mn["go"] == {"text": "돌릴 단계를 고르세요", "off": True, "stop": False} and mn["detail"] == "추출·설정에서 자세히", mn)
+        page.click(".ctx-menu[data-by='hrp'] [data-hrp='s2']")
+        page.click(".ctx-menu[data-by='hrp'] [data-hrp='l3']")
+        m2 = page.evaluate(MENU)
+        check("두 줄을 누르면: 메뉴는 열린 채 두 줄에 표시 · 「고른 2개 실행」 켜짐 · 아무것도 돌지 않음(요청 없음)", [x["key"] for x in m2["rows"] if x["on"]] == ["s2", "l3"]
+              and m2["go"] == {"text": "고른 2개 실행", "off": False, "stop": False} and posts[n_pick:] == [] and page.evaluate(PICK_IDLE), (m2, posts[n_pick:]))
         page.screenshot(path=str(OUT / "2_stage_menu.png"))
+        page.click(".ctx-menu[data-by='hrp'] [data-hrp='s2']")
+        m3 = page.evaluate(MENU)
+        check("다시 누르면 빠짐: 「고른 1개 실행」", [x["key"] for x in m3["rows"] if x["on"]] == ["l3"] and m3["go"]["text"] == "고른 1개 실행", m3)
+        page.click(".ctx-menu[data-by='hrp'] [data-hrp='l3']")
         page.keyboard.press("Escape")
         page.wait_for_timeout(150)
+        check("Esc 로 닫힘 · 고르기만으로는 요청 없음", not page.evaluate(MENU_OPEN) and posts[n_pick:] == [], posts[n_pick:])
 
         # ---- ③ 「테이블」 탭 — 「단계별 실행 ▾」 만
         page.click("#tabTables")
@@ -228,9 +259,10 @@ try:
         live = page.evaluate("() => { const R = agwRunning(); return R && { kind: R.kind, label: R.label, stop: typeof R.stop }; }")
         check("도는 동안: 에이전트 진행 카드에 「전체 실행」(agwRunning kind headsAll · 멈춤 있음)", bool(live) and live["kind"] == "headsAll" and "전체 실행" in live["label"] and live["stop"] == "function", live)
         page.click("#headsOverview .hrun-menu")
-        page.wait_for_function("() => [...document.querySelectorAll('[role=\"menuitem\"]')].some((x) => x.offsetParent && x.textContent.startsWith('스크립트 — '))", timeout=5000)
-        offs = page.evaluate("() => [...document.querySelectorAll('[role=\"menuitem\"]')].filter((x) => x.offsetParent && / — /.test(x.textContent) && !x.textContent.startsWith('추출')).map((x) => x.disabled)")
-        check("도는 동안: 「단계별 실행」 메뉴의 실행 항목은 꺼짐", len(offs) == 6 and all(offs), offs)
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        mr = page.evaluate(MENU)
+        check("도는 동안: 「단계별 실행」 메뉴의 고르기 줄은 꺼짐 · 「다른 헤딩 작업이 도는 중」(꺼짐) · 「추출·설정에서 진행 보기」", len(mr["rows"]) == 6 and all(x["off"] for x in mr["rows"])
+              and mr["go"] == {"text": "다른 헤딩 작업이 도는 중", "off": True, "stop": False} and mr["detail"] == "추출·설정에서 진행 보기", mr)
         page.keyboard.press("Escape")
         page.locator("#paneHeads").screenshot(path=str(OUT / "5_running.png"))
         page.click("#headsOverview .hrun-all")
@@ -339,6 +371,124 @@ try:
             check(f"[{w}] 단추 둘이 같은 줄 · 패널 밖으로 안 나감 · 가로 넘침 없음", len(b) == 2 and b[0]["top"] == b[1]["top"] and b[1]["right"] <= m["inner"] + 1.5 and m["overflowX"] <= 0,
                   ([(x["text"], round(x["left"]), round(x["right"]), x["top"]) for x in b], m["inner"], m["overflowX"]))
             page.locator("#paneHeads").screenshot(path=str(OUT / f"8_panel_{w}.png"))
+
+        # ---- ⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 한 번 · 도는 동안 차례 · 멈추기 · LLM 이 답을 못 하면 뒤는 남김 · 스크립트만이면 묻지 않음
+        page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); heads.summaryKey = null; headsResultsSummary(heads.view); }")
+        page.wait_for_function("() => heads.view && !(heads.view.job && heads.view.job.status === 'running') && !state.busy", timeout=120000)  # 문서가 바뀐 뒤 저절로 도는 1단계 다시 추출이 끝난 뒤에
+        page.wait_for_timeout(300)
+
+        def pick(keys, box="#headsOverview"):  # 메뉴를 열고 그 줄들을 고른 뒤 「고른 n개 실행」 을 누른다 → 누르기 전의 아래 단추
+            page.click(f"{box} .hrun-menu")
+            page.wait_for_function(MENU_OPEN, timeout=5000)
+            page.evaluate(PICK, keys)
+            go = page.evaluate(MENU)["go"]
+            page.click(".ctx-menu[data-by='hrp'] .hrp-go")
+            return go
+
+        def sent(i):  # 그 뒤로 보낸 POST …/headings 의 (단계, LLM)
+            return [(b.get("stage"), b.get("llm")) for b in hbody[i:]]
+
+        accept[0] = False
+        n6, a6, h6 = len(posts), len(asked), len(hbody)
+        go = pick(["l3", "s2", "l2"])  # 누른 차례와 달라도 도는 차례는 진행 줄의 차례(스크립트 → LLM)
+        for _ in range(100):
+            if len(asked) > a6:
+                break
+            page.wait_for_timeout(100)
+        page.wait_for_timeout(300)
+        msg = asked[a6] if len(asked) > a6 else ""
+        check("확인 창 한 번: 고른 3개 · 차례(스크립트 헤딩 그래프 → LLM 헤딩 판정 → LLM 표 판정) · 유료 LLM 단계 2개 · 실패하면 뒤는 남김", go["text"] == "고른 3개 실행" and len(asked) == a6 + 1
+              and all(w in msg for w in ("고른 3개를 이 차례로", "1. 스크립트 — 헤딩 그래프 만들기 · 무료", "2. LLM — 헤딩 판정(헤딩 그래프) → 서식 계획 · 유료", "3. LLM — 표 판정(표 구조) · 유료",
+                                         "유료 LLM 단계 2개", "뒤 단계는 돌리지 않고 남깁니다")), (go, msg))
+        page.click("#headsOverview .hrun-menu")
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        kept = page.evaluate(MENU)
+        page.keyboard.press("Escape")
+        check("「취소」: 요청 없음 · 도는 것 없음 · 고른 것은 남음(다시 열면 「고른 3개 실행」)", posts[n6:] == [] and page.evaluate(PICK_IDLE) and kept["go"]["text"] == "고른 3개 실행"
+              and [x["key"] for x in kept["rows"] if x["on"]] == ["s2", "l2", "l3"], (posts[n6:], kept))
+
+        accept[0] = True
+        pick(["s2", "l2", "l3"])
+        page.wait_for_function("() => HRP.run && HRP.run.i === 1 && heads.view.job && heads.view.job.status === 'running' && heads.view.job.llm", timeout=120000)  # 둘째(LLM 헤딩 판정 — 가짜가 몇 초 쉰다)
+        live = page.evaluate("""() => { const R = agwRunning(), b = document.querySelector('#headsOverview .hrun-menu'), all = document.querySelector('#headsOverview .hrun-all');
+          return { kind: R && R.kind, label: R && R.label, stop: R && typeof R.stop, btn: b.textContent, on: b.classList.contains('on'), allOff: all.disabled }; }""")
+        check("도는 동안: 단추 「단계별 실행 2/3 ▾」 · 「전체 실행」 꺼짐 · 에이전트 진행 카드(agwRunning kind headsPick · 멈춤 있음)", live["btn"] == "단계별 실행 2/3 ▾" and live["on"] and live["allOff"]
+              and live["kind"] == "headsPick" and "고른 3개를 차례로" in (live["label"] or "") and live["stop"] == "function", live)
+        q = page.evaluate(QUEUED)
+        check("진행 줄: 차례를 기다리는 칸(표 판정)만 점선 표시", q == ["표 판정"], q)
+        page.click("#headsOverview .hrun-menu")
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        mrun = page.evaluate(MENU)
+        page.screenshot(path=str(OUT / "10_pick_running.png"))
+        page.keyboard.press("Escape")
+        check("도는 동안 메뉴: 고른 셋의 차례(끝남 · 도는 중 · 기다림) · 줄은 모두 꺼짐 · 「멈추기」", {x["key"]: x["state"] for x in mrun["rows"]} == {"s1": "", "s2": "done", "s3": "", "l1": "", "l2": "running", "l3": "wait"}
+              and all(x["off"] for x in mrun["rows"]) and [x["note"] for x in mrun["rows"] if x["state"]] == ["끝남", "도는 중", "기다림"] and mrun["go"] == {"text": "멈추기", "off": False, "stop": True}, mrun)
+        page.wait_for_function(PICK_IDLE, timeout=300000)
+        page.wait_for_timeout(600)
+        t6 = page.evaluate(TOAST)
+        check("끝난 글: 「단계별 실행 끝 — 스크립트 헤딩 그래프 → LLM 헤딩 판정 · 서식 계획 → LLM 표 판정」", t6.startswith("단계별 실행 끝 — 스크립트 헤딩 그래프 → LLM 헤딩 판정 · 서식 계획 → LLM 표 판정"), t6)
+        check("보낸 것: 고른 셋만 · 그 차례(헤딩 그래프 스크립트 → 헤딩 그래프 LLM → 표 구조 LLM) · 확인 창은 한 번", sent(h6) == [(2, False), (2, True), (3, True)] and len(asked) == a6 + 2
+              and posts[n6:] == ["headings"] * 3, (sent(h6), posts[n6:], len(asked) - a6))
+        aft = page.evaluate("""() => { const b = document.querySelector('#headsOverview .hrun-menu');
+          return { btn: b.textContent, on: b.classList.contains('on'), title: b.title, s2: headsSource(heads.view, 2).llm, s3: headsSource(heads.view, 3).llm,
+            queued: document.querySelectorAll('#headsOverview .hprog-step[data-queued]').length, allOff: document.querySelector('#headsOverview .hrun-all').disabled }; }""")
+        check("끝난 뒤: 단추 「단계별 실행 ▾」 · title 에 지난 실행 · 헤딩 · 표가 LLM 판정을 거침 · 기다림 표시 없음 · 「전체 실행」 켜짐", aft["btn"] == "단계별 실행 ▾" and not aft["on"]
+              and "지난 단계별 실행: 단계별 실행 끝" in aft["title"] and aft["s2"] and aft["s3"] and aft["queued"] == 0 and not aft["allOff"], aft)
+
+        # 멈추기 — 지금 도는 단계가 끝나면 멈추고 뒤는 돌리지 않는다(남긴다)
+        n7, h7 = len(posts), len(hbody)
+        pick(["l2", "l3"])
+        page.wait_for_function("() => HRP.run && heads.view.job && heads.view.job.status === 'running' && heads.view.job.chain === 'heads'", timeout=120000)
+        page.click("#headsOverview .hrun-menu")
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        page.click(".ctx-menu[data-by='hrp'] .hrp-go")  # 「멈추기」
+        stopping = page.evaluate(MENU)["go"]
+        page.keyboard.press("Escape")
+        page.wait_for_function(PICK_IDLE, timeout=300000)
+        page.wait_for_timeout(600)
+        t7 = page.evaluate(TOAST)
+        check("멈추기: 단추는 「멈추는 중…」 → 「단계별 실행 멈춤 — 멈추기를 눌러」 · 한 것(LLM 헤딩 판정) · 돌리지 않은 것(LLM 표 판정) · 표 판정 요청 없음", stopping == {"text": "멈추는 중…", "off": True, "stop": True}
+              and t7.startswith("단계별 실행 멈춤 — 멈추기를 눌러 멈췄습니다") and "한 것: LLM 헤딩 판정 · 서식 계획" in t7 and "돌리지 않은 것: LLM 표 판정" in t7
+              and sent(h7) == [(2, True)] and posts[n7:] == ["headings", "analysis/llm"], (stopping, t7, sent(h7), posts[n7:]))
+
+        # LLM 이 답을 못 하면(규칙 보강 — 임시 서버의 LLM 은 꺼져 있다) 멈추고 뒤 LLM 단계는 돌리지 않는다. 판정하지 못한 묶음이 있는 문서에서만
+        page.wait_for_function("() => !(heads.view.job && heads.view.job.status === 'running')", timeout=120000)
+        page.click("#headsOverview .hrun-menu")
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        l1 = next(x for x in page.evaluate(MENU)["rows"] if x["key"] == "l1")
+        page.keyboard.press("Escape")
+        if not l1["off"]:
+            h8 = len(hbody)
+            pick(["l1", "l3"])
+            page.wait_for_function("() => !!HRP.run", timeout=30000)
+            page.wait_for_function(PICK_IDLE, timeout=300000)
+            page.wait_for_timeout(600)
+            t8 = page.evaluate(TOAST)
+            check("LLM 이 답을 못 하면: 「단계별 실행 멈춤 — 「LLM 규칙 보강」 …」 · 돌리지 않은 것(LLM 표 판정) · 표 판정 요청 없음", t8.startswith("단계별 실행 멈춤 — 「LLM 규칙 보강」") and "돌리지 않은 것: LLM 표 판정" in t8
+                  and sent(h8) == [(1, True)], (t8, sent(h8)))
+        else:
+            print("SKIP LLM 이 답을 못 하는 경우 — 이 문서에는 판정하지 못한 묶음이 없어 「규칙 보강」 이 꺼져 있음", flush=True)
+
+        # 「테이블」 탭 — 줄 둘 · 스크립트만 고르면 확인 창 없이 바로
+        page.click("#tabTables")
+        page.wait_for_function("() => document.querySelector('#tablesOverview .hrun-menu') && !(heads.view.job && heads.view.job.status === 'running')", timeout=60000)
+        a9, h9 = len(asked), len(hbody)
+        page.click("#tablesOverview .hrun-menu")
+        page.wait_for_function(MENU_OPEN, timeout=5000)
+        mt2 = page.evaluate(MENU)
+        page.keyboard.press("Escape")
+        check("「테이블」 탭 메뉴: 고르기 줄 둘(표 구조 만들기 · 표 판정)", [x["key"] for x in mt2["rows"]] == ["s3", "l3"] and mt2["go"]["text"] == "돌릴 단계를 고르세요", mt2)
+        pick(["s3"], "#tablesOverview")
+        for _ in range(100):
+            if len(hbody) > h9:
+                break
+            page.wait_for_timeout(100)
+        page.wait_for_function(PICK_IDLE, timeout=120000)
+        page.wait_for_timeout(600)
+        t9 = page.evaluate(TOAST)
+        check("스크립트만 고르면: 확인 창 없이 바로 돎 · 끝난 글 「단계별 실행 끝 — 스크립트 표 구조」", len(asked) == a9 and sent(h9) == [(3, False)] and t9.startswith("단계별 실행 끝 — 스크립트 표 구조"), (len(asked) - a9, sent(h9), t9))
+        page.click("#tabHeads")
+        page.wait_for_function("() => document.querySelector('#headsOverview .hrun-all') && !(heads.view.job && heads.view.job.status === 'running')", timeout=60000)
 
         # ---- ⑨ 반영이 대기 중 글 반영(flushAll)을 기다리는 사이 다른 문서를 열면 — 그 문서로 보내지 않는다(app.js structOp — 6b · astra 검토: 주소를 기다린 뒤의 state.id 로 만들었다)
         n4 = len(full)

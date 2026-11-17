@@ -5905,22 +5905,25 @@ function headsFailed(e) {
   $("headsOverview").replaceChildren(el("p", "hwarn fail", `분석 상태를 읽지 못했습니다: ${e.message}`), hBtn("다시 읽기", () => headsShow()));
 }
 
-async function headsStart(stage, useLlm) {
-  if (!state.id) return;
+async function headsStart(stage, useLlm) { // → 시작한 작업 | null(못 시작함 · 그 사이 다른 문서) — 고른 단계를 차례로 돌리는 「단계별 실행」(heads_run_pick.js)이 그 작업이 끝나기를 기다린다
+  if (!state.id) return null;
   const id = state.id, epoch = state.epoch;
+  let started = null;
   await flushAll(); // 아직 반영 안 된 글부터 — 추출은 서버 문서를 읽는다
-  if (epoch !== state.epoch) return;
+  if (epoch !== state.epoch) return null;
   try {
     const skill = stage === 2 && useLlm && typeof tpaSkillKey === "function" ? { skill: tpaSkillKey() } : {}; // 헤딩 그래프(LLM)는 서식 정리 계획까지 이어 받는다 — 그 스킬(tpl_agent.js)
     const job = await api(`/api/docs/${id}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ stage, llm: useLlm, ...skill }) });
-    if (epoch !== state.epoch) return;
+    if (epoch !== state.epoch) return null;
     heads.expect = job.started; // 이보다 앞선 작업의 늦은 응답은 건너뛴다
     headsRender({ ...(heads.view || { rev: state.serverRev, runs: [], stage1: null, stage2: null, stage3: null }), job });
+    started = job;
   } catch (e) {
-    if (epoch !== state.epoch) return;
+    if (epoch !== state.epoch) return null;
     toast(e.status === 409 ? "헤딩 추출이 이미 돌고 있습니다 — 끝난 뒤 다시 누르세요" : `헤딩 추출을 시작하지 못했습니다: ${e.message}`, e.status !== 409);
   }
   headsPoll();
+  return started;
 }
 
 // 첫 분석(spec_작업 ② §9, 2026-11-10 사용자) — 새 작업을 처음 열었을 때 한 번(opened: 올리기·예제 열기 응답이 reused 가 아닐 때): 헤딩 2단계 → 3단계(스크립트만 — 서버가 한 작업으로,
@@ -6157,34 +6160,24 @@ function headsProgLine(r, opt = {}) { // 진행 줄 — 두 층(스크립트 · 
   }
   // 셋째 층 「조정」 — 템플릿 조정 · 서식 조정 · 모두 반영(tpl_plan_bar.js — LLM 판정 뒤의 일: 2026-11-16 사용자 「여기 밑에 템플릿 조정, 서식 조정 이 들어 가야함」). 세 단계를 다 보이는 진행 줄(헤딩 추출 탭)에만
   if (stages.length === H_STAGES.length && typeof tplPlanRow === "function") box.append(...tplPlanRow());
+  if (typeof headsPickMarks === "function") headsPickMarks(box); // 「단계별 실행」 이 고른 단계 가운데 차례를 기다리는 칸(heads_run_pick.js — 점선 동그라미)
   return box;
 }
 
 // ---- 실행 메뉴(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」, 2026-11-16 사용자 「규칙보강 실행 메뉴를 상단에 넣어야지. 표도 딱같음」) — 요약 상태 줄 끝 「단계별 실행 ▾」.
-// 이름은 같은 날 사용자 「지금 실행은 단계별 실행, 그리고 추가로 전체 실행(조정까지) 로 변경해줘」 — 전의 「실행 ▾」. 단계를 하나씩 골라 돌리는 메뉴이고, 남은 단계를 조정까지 한 번에 돌리는 것은
+// 이름은 같은 날 사용자 「지금 실행은 단계별 실행, 그리고 추가로 전체 실행(조정까지) 로 변경해줘」 — 전의 「실행 ▾」. 돌릴 단계를 **골라** 돌리는 메뉴이고, 남은 단계를 조정까지 한 번에 돌리는 것은
 // 그 앞의 「전체 실행」 단추다(heads_run_all.js headsRunAllBtn — 헤딩 추출 탭에만: ② §7 「전체 실행」).
-// 전에는 실행이 「추출·설정」 의 단계 카드 안에만 있어 진행 줄에서 ○ 를 보고도 거기까지 들어가야 했다. 항목 = 진행 줄과 같은 차례(스크립트 → LLM · 유료) ·
-// 단계 카드 단추와 **같은 함수 · 같은 꺼짐 조건**(헤딩 추출 headsCard1·2·3) — 유료 항목은 그 함수의 확인 창 뒤에 돈다. 상태는 누를 때 heads.view 로 읽는다(요약은 다시 그리지 않을 수 있다).
+// 전에는 실행이 「추출·설정」 의 단계 카드 안에만 있어 진행 줄에서 ○ 를 보고도 거기까지 들어가야 했다. 항목 = 진행 줄과 같은 차례(스크립트 → LLM · 유료) · 단계 카드 단추와 같은 꺼짐 조건.
+// 2026-11-17 사용자 「여기에서 클릭한 다음에 클릭한 것들만 실행 … 불필요하게 한개씩 하지 말고」: 메뉴는 **고르기 목록**이다 — 항목을 눌러 표시하고 「고른 n개 실행」 을 누르면 고른 것만 차례로 돈다
+// (확인 창은 한 번). 메뉴 · 차례 실행 · 멈추기는 heads_run_pick.js(headsPickBind) — 여기는 단추만 만든다.
 // opt.stages = 보일 단계(「표」 탭은 [3]) · opt.detail = 「추출·설정에서 자세히」(기본 = 헤딩 추출의 추출·설정). 부르는 곳: headsResultsSummary · tables.js tablesDraw
 function headsRunMenu(r, opt = {}) {
   const stages = opt.stages || H_STAGES, detail = opt.detail || (() => headsResultView("Run"));
-  const b = hBtn("", null, { cls: "btn sm hrun-menu", title: "단계별 실행 — 단계를 하나씩 골라 돌립니다(스크립트 무료 · LLM 유료)" });
+  const b = hBtn("", null, { cls: "btn sm hrun-menu", title: "단계별 실행 — 돌릴 단계를 골라 고른 것만 차례로 돌립니다(스크립트 무료 · LLM 유료)" });
   b.append("단계별", el("span", "hrun-word", " 실행"), " ▾"); // 「단계별 실행 ▾」 — 좁은 패널(370px 아래)에서는 「실행」 을 감춰 「단계별 ▾」(heading-panels.css — 옆 「전체 실행」 과 한 줄에 들게)
   b.setAttribute("aria-label", "단계별 실행");
   b.setAttribute("aria-haspopup", "menu");
-  b.onclick = () => {
-    const v = heads.view || r, s1 = v && v.stage1, job = v && v.job;
-    const busy = !!(job && job.status === "running") || (typeof headsAllRunning === "function" && !!headsAllRunning()); // 「전체 실행」 이 도는 동안은 단계 사이(LLM → 반영)에도 끈다(heads_run_all.js)
-    const sm = (s1 && s1.summary) || {}, left = (sm.unmatchedGroups || 0) + (sm.conflicts || 0);
-    const script = { 1: ["스크립트 — 문단·라벨 다시 추출", () => headsStart(1, false), busy], 2: ["스크립트 — 헤딩 그래프 만들기", () => headsStart(2, false), busy || !s1],
-      3: ["스크립트 — 표 구조 만들기", () => headsStart(3, false), busy || !s1] };
-    const llm = { 1: [`LLM — 규칙 보강 · ${left ? `남은 ${nf(left)}묶음` : "할 것 없음"} · 유료`, () => headsLlmRules(), busy || !left],
-      2: ["LLM — 헤딩 판정(헤딩 그래프) → 서식 계획 · 유료", () => headsLlmGraph(), busy || !s1], 3: ["LLM — 표 판정(표 구조) · 유료", () => headsLlmTables(), busy || !s1] };
-    const row = ([name, run, off]) => [name, "", run, off];
-    const R = b.getBoundingClientRect();
-    ctxOpen({ clientX: R.left, clientY: R.bottom + 2 }, [...stages.map((k) => row(script[k])), null, ...stages.map((k) => row(llm[k])), null,
-      [busy ? "추출·설정에서 진행 보기" : "추출·설정에서 자세히", "", detail, false]]);
-  };
+  if (typeof headsPickBind === "function") headsPickBind(b, { stages, detail }); // 누르면 고르기 목록 · 도는 동안은 「단계별 실행 2/3 ▾」(heads_run_pick.js)
   return b;
 }
 

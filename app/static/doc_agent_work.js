@@ -37,6 +37,8 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
     stopping: !!S.auto.stop, stop: () => { S.auto.stop = true; if (typeof styleSaveDraw === "function") styleSaveDraw(); } };
   const F = typeof headsAllRunning === "function" ? headsAllRunning() : null; // 헤딩 추출 「전체 실행」(heads_run_all.js — 남은 LLM 단계 → 조정까지: spec_헤딩_추출 ② §7 「전체 실행」) — 그 안에서 도는 LLM 검증·보완보다 먼저
   if (F) return { kind: "headsAll", ...F };
+  const P = typeof headsPickRunning === "function" ? headsPickRunning() : null; // 헤딩 추출 「단계별 실행」 — 고른 단계를 차례로(heads_run_pick.js: spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」) — 그 안에서 도는 헤딩 판정 → 서식 계획보다 먼저
+  if (P) return { kind: "headsPick", ...P };
   const A = typeof dsRunning === "function" ? dsRunning() : null; // 분석의 「LLM 검증·보완」(doc_status.js — spec_작업 ② §20) — 어느 TASK 에서나
   if (A) return { kind: "analysis", ...A };
   return null;

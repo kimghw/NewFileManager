@@ -86,7 +86,8 @@ function headsRunAllBtn() {
   return b;
 }
 function hraBtnDraw(b) {
-  const R = HRA.run && HRA.run.id === state.id ? HRA.run : null, job = (heads.view || {}).job, other = !R && (!!HRA.run || !!(job && job.status === "running"));
+  const pick = typeof headsPickRunning === "function" && !!headsPickRunning(); // 고른 단계를 차례로 도는 「단계별 실행」(heads_run_pick.js) — 그 단계 사이에도 끈다
+  const R = HRA.run && HRA.run.id === state.id ? HRA.run : null, job = (heads.view || {}).job, other = !R && (!!HRA.run || pick || !!(job && job.status === "running"));
   const last = HRA.last && HRA.last.id === state.id ? `\n지난 전체 실행: ${HRA.last.text}` : "";
   b.textContent = R ? (R.stop ? "멈추는 중…" : "멈추기") : "전체 실행";
   b.disabled = R ? R.stop : other || !state.id;
@@ -120,6 +121,7 @@ function headsAllRunning() { // 에이전트 보기의 진행 카드(doc_agent_w
 // ---- 실행
 async function headsRunAll() {
   if (HRA.run || !state.id) return;
+  if (typeof headsPickRunning === "function" && headsPickRunning()) { toast("단계별 실행이 도는 중입니다 — 끝난 뒤 누르세요"); return; } // 단계 사이의 틈에 끼어들지 않는다
   const id = state.id, epoch = state.epoch;
   const v = await hraStatus(id);
   if (epoch !== state.epoch || HRA.run) return;
