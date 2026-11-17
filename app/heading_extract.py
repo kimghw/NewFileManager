@@ -22,7 +22,8 @@ HH = "{http://www.hancom.co.kr/hwpml/2011/head}"
 HC = "{http://www.hancom.co.kr/hwpml/2011/core}"
 P, RUN, TBL, TC, SUBLIST, LINESEG = (HP + t for t in ("p", "run", "tbl", "tc", "subList", "linesegarray"))
 HU_MM = 25.4 / 7200
-VERSION = 3  # 2 (2026-11-09): 번호형 모양 키 정규화·형제 묶음 간격·그릇 key·S 묶기 고침 · 3 (2026-11-09): 칸 사슬에 fill(3단계 표 구조) — 옛 결과는 2·3단계가 1단계를 다시 뽑음
+VERSION = 4  # 2 (2026-11-09): 번호형 모양 키 정규화·형제 묶음 간격·그릇 key·S 묶기 고침 · 3 (2026-11-09): 칸 사슬에 fill(3단계 표 구조) — 옛 결과는 2·3단계가 1단계를 다시 뽑음
+#              4 (2026-11-17): 내장 규칙에 줄 첫머리 「:」 레터(b.colon) — 옛 결과는 그 줄을 보통 글로 두었다
 OBJECT_TAGS = {"tbl", "pic", "ole", "container", "equation", "line", "rect", "ellipse", "arc", "polygon", "curve", "connectLine",
                "textart", "chart", "video"}
 # hp:subList 를 품은 요소 → 자리 이름(블록 트리가 안 걷는 곳 포함)

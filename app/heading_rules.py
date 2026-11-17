@@ -80,6 +80,8 @@ BUILTIN = [
     _r("b.small-square", "▫", "marker", "small-square", r"[▫▪]"),
     _r("b.diamond", "◇", "marker", "diamond", r"[◇◆]"),
     _r("b.arrow", "▶", "marker", "arrow", r"[▶►▷➢➤]"),
+    # 줄 첫머리의 「:」 — 문장 부호 꼴이어도 레터 후보에서 빼지 않는다(spec_헤딩_추출 ② §2 「줄 첫머리의 문장 부호」). 글에 붙은 「:(보고서)」·「::」 는 아님
+    _r("b.colon", ":", "marker", "colon", rf"[:：]{_SYM_END}"),
     _r("b.note", "※ 안내", "note", "note", r"※"),
     _r("b.footnote", "* 각주", "footnote", "footnote", r"\*{1,4}(?=[\s\d\u2028]|$)"),
 ]

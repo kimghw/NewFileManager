@@ -180,6 +180,38 @@ def test_learned_prefix_rule_at_start_still_works():
     assert (out["rule"], out["lead"], out["letter"], out["gap"], out["rest"]) == ("t", "  ", "▣", " ", "사업 개요")
 
 
+# ---- 줄 첫머리의 「:」 = 레터(b.colon) — 문장 부호 꼴이어도 헤딩 후보에서 빼지 않는다(spec ② §2 「줄 첫머리의 문장 부호」) -------
+
+@pytest.mark.parametrize("text,lead,letter,rest", [
+    (" : (보고서) 자율 벙커링 위험도 평가 절차서", " ", ":", "(보고서) 자율 벙커링 위험도 평가 절차서"),
+    (": 내용", "", ":", "내용"), ("： 전각 쌍점", "", "：", "전각 쌍점"), ("  : 묶음 빈칸 뒤 글", "  ", ":", "묶음 빈칸 뒤 글"),
+])
+def test_leading_colon_is_a_letter(text, lead, letter, rest):
+    c = R.classify(text, _rules())
+    assert (c["kind"], c["rule"], c["family"], c["shape"]) == ("marker", "b.colon", "colon", letter)
+    assert (c["lead"], c["letter"], c["rest"], c["blank"]) == (lead, letter, rest, False)
+    assert HG.VARIANTS["colon"] == ":"   # 반각·전각은 같은 레터 키
+
+
+@pytest.mark.parametrize("text", [":(보고서) 붙여 쓴 글", ":: 겹친 쌍점", "산출근거 : 줄 가운데", "100 : 보고서(2건) 제출", ":"])
+def test_colon_that_is_not_a_leading_letter(text):
+    """글에 붙은 쌍점 · 겹친 쌍점 · 줄 가운데의 쌍점은 레터가 아니다. 홀로 선 「:」 는 레터(쓸 자리 — blank)."""
+    c = R.classify(text, _rules())
+    if text == ":":
+        assert (c["rule"], c["blank"]) == ("b.colon", True)
+    else:
+        assert c["rule"] != "b.colon" and c["kind"] != "marker", c
+
+
+def test_colon_lines_hang_under_the_dash_line_in_fallback():
+    """「- 산출근거」 아래 「 : (보고서) …」 두 줄 — 한 유형의 형제이고 부모는 「-」 줄(스크립트 대체 · LLM 없음)."""
+    g = HG.build(_stage1(["1. 성과", "- 산출근거", " : (보고서) 절차서", " : (보고서) 평가 보고서", "- 측정산식"]), use_llm=False,
+                 ask=lambda jobs: pytest.fail("LLM 을 부르면 안 됨"))
+    N = {n["id"]: n for n in g["nodes"]}
+    assert N["p2"]["type"] == N["p3"]["type"] and N["p2"]["parent"] == N["p3"]["parent"] == "p1"
+    assert N["p4"]["parent"] == N["p1"]["parent"] == "p0"
+
+
 @pytest.mark.parametrize("bad", [r"(\d)\.\g<1>", r"(?P<n>\d)\.\g<n>"])
 def test_backreference_g_form_rejected(bad):
     with pytest.raises(ValueError, match="역참조"):

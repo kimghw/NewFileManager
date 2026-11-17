@@ -21,7 +21,7 @@ CHANGE_RATE_RETRY = 0.3
 MAX_ROUNDS = 12
 SENT_END = re.compile(r"(?:다|음|함|요|임)\.\s*$")
 VARIANTS = {"circle": "o", "latin-o": "o", "jamo-o": "o", "dash": "-", "dot": "·", "square": "□", "triangle": "△", "small-square": "▫",
-            "diamond": "◇", "arrow": "▶"}
+            "diamond": "◇", "arrow": "▶", "colon": ":"}
 ROLES = ("heading", "label", "subtitle", "title", "note", "not_heading")
 ROOTED = ("label", "subtitle")  # 대괄호 줄 — 구분 라벨·괄호 소제목: 둘 다 그 줄부터 새 템플릿(L1). 구분 소속(division)은 구분 라벨만(spec ② §13)
 SUB_KEY = "[…]"  # 괄호 소제목의 정규 키

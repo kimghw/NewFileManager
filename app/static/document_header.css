@@ -52,6 +52,13 @@
 /* 작업 리스트(#taskListBtn): 패널 여닫기와 같은 회색 그림 · 패널이 작업 리스트를 보이는 동안 눌림 바탕(aria-pressed) */
 .topbar > button.task-list-btn { color: var(--muted); }
 .topbar > .task-list-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
+/* 「열기」(#openBtn — 2026-11-17 사용자 「열기..도 폴더 아이콘을 넣어줘」): 폴더 그림(16px · 회색) + 글 「열기」 — 옆 「공유」 단추(share.css)와 같은 꼴·같은 폭 규칙:
+   1100px 아래 = 그림만(문서를 연 541px 위에서는 다른 상단 바 아이콘 단추와 같은 30px — 글이 있을 때보다 좁아져 줄 넘침을 키우지 않는다) · 이름은 title·aria-label.
+   시작 화면에서는 전처럼 안 보인다(landing.css body.no-doc #openBtn) */
+.topbar > #openBtn { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.topbar > #openBtn svg { flex: none; color: var(--muted); pointer-events: none; }
+@media (max-width: 1100px) { .topbar > #openBtn .open-btn-txt { display: none; } }
+@media (min-width: 541px) and (max-width: 1100px) { body:not(.no-doc) > .topbar > #openBtn { width: 30px; padding: 0; justify-content: center; } }
 .workspace > .workspace-tools.folded,
 body.no-doc .workspace-tools,
 body.peek .workspace-tools { display: none; }
