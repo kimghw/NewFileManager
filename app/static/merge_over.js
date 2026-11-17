@@ -7,7 +7,7 @@
    app.js 의 el · hBtn · hHelp · api · toast · nf · H_JSON 을 쓴다(이 파일은 그 뒤에 읽는다). 글·PUT 바디를 만드는 함수(mergeOverCaseText · mergeOverLevelText · mergeOverDraft · mergeOverBody)는 화면 없이도 돈다(tests/test_merge_over.py). */
 const MERGE_OVER_MODE = { cover: "덮은 템플릿 그대로", edit: "템플릿 수정", template: "다른 템플릿" };
 const MERGE_OVER_HELP = "넣는 내용의 개요가 넣을 자리의 템플릿보다 깊으면, 넘친 레벨에는 넣는 쪽(원본)의 개요 레벨이 자리 템플릿 아래에 이어 붙습니다(덮은 템플릿). "
-  + "「덮은 템플릿 그대로」 = 넘친 줄을 원본 모양 그대로 둡니다. 「템플릿 수정」 = 넘친 레벨마다 레터 · 본보기(문단·글자 모양을 가져올 목적 문서의 레벨) · 앞 공백을 고칩니다. "
+  + "「덮은 템플릿 그대로」 = 넘친 줄을 원본 모양 그대로 둡니다. 「템플릿 수정」 = 넘친 레벨마다 레터 · 본보기(문단·글자 모양을 가져올 목적 문서의 레벨) · 레터 앞 빈칸을 고칩니다. "
   + "「다른 템플릿」 = 목적 문서의 다른 템플릿을 골라 넘친 레벨이 그 템플릿의 레벨을 차례로 받게 합니다(모자란 레벨은 원본 그대로). "
   + "자리 템플릿에 맞는 레벨은 어느 쪽을 골라도 지금처럼 자리 템플릿으로 바뀝니다. 같은 자리 템플릿에 같은 원본 사슬이 넘치는 곳은 한 번만 고릅니다.";
 const mergeOverDrafts = {}; // 「문서 id\n사례 열쇠」 → 펴 둔 편집 초안 — 목록을 다시 그려도 쓰던 값이 남는다
@@ -23,7 +23,7 @@ function mergeOverCaseText(c) { // 사례 한 줄의 이름 — 「자리 템플
 function mergeOverLevelText(lv) { // 넘친 레벨 하나에 무엇이 들어가는가(글) — 알림(본보기 없음 · 윗 레벨과 같은 레터)은 괄호로
   const to = lv.letter ? `「${lv.letter}」` : lv.like ? `「${lv.like.letter || "?"}」` : "";
   const shape = lv.like ? ` · 본보기 L${lv.like.level}` : lv.letter || lv.lead != null ? " · 제 모양" : "";
-  const what = to || lv.lead != null ? `${to ? `→ ${to}` : "레터 그대로"}${shape}${lv.lead != null ? ` · 앞 공백 ${lv.lead}칸` : ""}` : "원본 그대로";
+  const what = to || lv.lead != null ? `${to ? `→ ${to}` : "레터 그대로"}${shape}${lv.lead != null ? ` · 레터 앞 빈칸 ${lv.lead}칸` : ""}` : "원본 그대로";
   const warn = [lv.missing ? "본보기 없음 — 원본 꼴로 둠" : "", lv.clash ? "윗 레벨과 같은 레터" : ""].filter(Boolean);
   return `L${lv.n} 「${lv.was || lv.key || ""}」 ${what}${warn.length ? ` (${warn.join(" · ")})` : ""}`;
 }
@@ -139,7 +139,7 @@ function mergeOverEditEl(sec, opt, c, d, busy) { // 사례 줄 아래에 펴는 
     box.append(row, el("p", "hnote", "넘친 레벨이 고른 템플릿의 그 레벨부터 아래 레벨을 차례로 받습니다(레터·문단 모양·글자 모양). 그 템플릿의 레벨이 모자란 넘친 레벨은 원본 그대로 둡니다."));
   } else {
     const grid = el("div", "mo-grid");
-    for (const h of ["레벨", "원본", "넣을 레터", "본보기(모양)", "앞 공백"]) grid.append(el("span", "mo-th", h));
+    for (const h of ["레벨", "원본", "넣을 레터", "본보기(모양)", "레터 앞 빈칸"]) grid.append(el("span", "mo-th", h));
     (c.levels || []).forEach((lv, i) => {
       const x = d.levels[i] || (d.levels[i] = { letter: "", like: null, lead: null });
       const letter = el("input", "mo-letter"), lead = el("input", "mo-lead"), like = pick(x.like, "원본 모양 그대로");
@@ -157,11 +157,11 @@ function mergeOverEditEl(sec, opt, c, d, busy) { // 사례 줄 아래에 펴는 
       lead.max = "40";
       lead.value = x.lead == null ? "" : String(x.lead);
       lead.placeholder = "–"; // 좁은 칸(두 자리 수) — 「그대로」 는 아래 안내 글에
-      lead.setAttribute("aria-label", `L${lv.n} 의 앞 공백 칸 수`);
+      lead.setAttribute("aria-label", `L${lv.n} 의 레터 앞 빈칸 칸 수`);
       lead.oninput = () => { x.lead = lead.value === "" ? null : Number(lead.value); };
       grid.append(el("span", "mo-lv", `L${lv.n}`), el("span", "mo-was", `「${lv.was || lv.key || ""}」`), letter, like, lead);
     });
-    box.append(grid, el("p", "hnote", "빈 칸 = 그대로. 본보기를 고르면 그 레벨 줄의 문단 모양·글자 모양·앞뒤 공백을 받고, 레터를 안 적으면 본보기의 레터를 씁니다. 번호 꼴 레터(「(1)」·「가.」·「①」)는 부모 줄마다 처음부터 매깁니다."));
+    box.append(grid, el("p", "hnote", "빈 칸 = 그대로. 본보기를 고르면 그 레벨 줄의 문단 모양·글자 모양·레터 앞뒤 빈칸을 받고, 레터를 안 적으면 본보기의 레터를 씁니다. 번호 꼴 레터(「(1)」·「가.」·「①」)는 부모 줄마다 처음부터 매깁니다."));
   }
   const acts = el("div", "mo-acts");
   acts.append(hBtn(mergeOverBusy === "save" ? "저장 중…" : "적용", () => mergeOverSave(sec, opt, c, mergeOverBody(c, d)), { cls: "btn sm", disabled: busy || (d.mode === "template" && !d.template), title: "이 처리를 저장하고 넣기 계획을 다시 셉니다 — 문서는 「반영」 을 눌러야 바뀝니다" }),

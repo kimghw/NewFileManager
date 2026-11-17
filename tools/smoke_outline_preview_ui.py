@@ -104,8 +104,8 @@ def main():
         page.wait_for_selector("#olpWin:not([hidden]) .olp-cmp tbody tr", timeout=20000)
         w = page.evaluate(WIN)
         check("「비교」 → 떠 있는 창 「서식 비교」 탭 · 제목 T3 L2 · 「템플릿 관계」 열과 안 겹침", w and w["tab"] == "cmp" and w["title"].startswith("T3 L2") and w["right"] <= w["colLeft"] + 1, w)
-        check("갈래 3줄 · 대표가 먼저 · 다른 항목 열만(앞 공백 · 레터 뒤 공백) · 다른 값 칸 강조 · 견본 글",
-              w and len(w["rows"]) == 3 and w["rows"][0]["rep"] and not any(x["rep"] for x in w["rows"][1:]) and w["heads"][1:3] == ["앞 공백", "레터 뒤 공백"]
+        check("갈래 3줄 · 대표가 먼저 · 다른 항목 열만(레터 앞 빈칸 · 레터 뒤 빈칸) · 다른 값 칸 강조 · 견본 글",
+              w and len(w["rows"]) == 3 and w["rows"][0]["rep"] and not any(x["rep"] for x in w["rows"][1:]) and w["heads"][1:3] == ["레터 앞 빈칸", "레터 뒤 빈칸"]
               and all(x["diff"] >= 1 for x in w["rows"][1:]) and w["rows"][0]["diff"] == 0 and all(x["samp"] for x in w["rows"]), w)
         check("갈래마다 「맞추기」(대표 빼고) · 아래 「대표에 맞추기(2줄)」", w and [x["act"] for x in w["rows"]] == ["", "맞추기", "맞추기"] and ["대표에 맞추기(2줄)", False] in w["foot"], w and (w["rows"], w["foot"]))
         n0 = len(w["heads"])
@@ -189,8 +189,8 @@ def main():
         page.locator(f"{row} .olf-btn").click() if page.locator(f"{row} .olf-edit").is_hidden() else None
         page.wait_for_selector(f"{row} .olf-edit:not([hidden])", timeout=10000)
         page.fill(f"{row} .olf-letter", "1")
-        page.wait_for_function("() => /앞 공백/.test((document.querySelector('#olpWin .olp-err') || {}).textContent || '')", timeout=20000)
-        check("앞 공백 폭보다 작은 레터 위치 → 창에 까닭(적용 전에)", True)
+        page.wait_for_function("() => /레터 앞 빈칸/.test((document.querySelector('#olpWin .olp-err') || {}).textContent || '')", timeout=20000)
+        check("레터 앞 빈칸 폭보다 작은 레터 위치 → 창에 까닭(적용 전에)", True)
 
         # ---- 닫기 · 옮기기 · 좁은 창
         page.locator(f"{row} .olf-btn").click()

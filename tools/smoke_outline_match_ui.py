@@ -124,8 +124,8 @@ def main():
         page.wait_for_function("() => document.querySelector('#headsDlgBody .olm.sel .olm-g.sel')", timeout=20000)
         v = page.evaluate(OLM, ["3", 2])
         selg = next((g for g in (v or {}).get("groups", []) if g["sel"]), {})
-        check("표를 누르면 「템플릿 관계」 의 T3 L2 갈래 목록 · 그 줄의 갈래 표시(앞 공백: 지금 4칸 → 대표 3칸 — 값마다 이름표) · 「누른 줄을 대표로」",
-              v and v["sel"] and "서식 3가지" in v["sum"] and "p5209" in selg.get("paras", []) and "앞 공백: 지금 4칸 → 대표 3칸" in selg.get("diff", "") and page.evaluate("() => !!heads.graph")
+        check("표를 누르면 「템플릿 관계」 의 T3 L2 갈래 목록 · 그 줄의 갈래 표시(레터 앞 빈칸: 지금 4칸 → 대표 3칸 — 값마다 이름표) · 「누른 줄을 대표로」",
+              v and v["sel"] and "서식 3가지" in v["sum"] and "p5209" in selg.get("paras", []) and "레터 앞 빈칸: 지금 4칸 → 대표 3칸" in selg.get("diff", "") and page.evaluate("() => !!heads.graph")
               and "누른 줄을 대표로" in v["buttons"], v)
         page.screenshot(path=str(OUT / "02_rel_focus.png"))
 

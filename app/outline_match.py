@@ -24,7 +24,7 @@ FIT_KEYS = ("ratioPct", "spacingPct")
 CMP_CHAR = tuple(k for k in CHAR_KEYS if k not in FIT_KEYS)
 # 비교 값의 차례(화면의 「대표와 다른 값」 차례) — 접두 → 문단 → 레터 글자(L.) → 본문 바탕 글자
 KEYS = ("lead", "letter", "gap") + PARA_KEYS + tuple("L." + k for k in CMP_CHAR) + CMP_CHAR
-LABELS = {"lead": "앞 공백", "letter": "레터", "gap": "레터 뒤 공백", "align": "정렬", "line1Mm": "앞 여백", "line2Mm": "2번째 줄",
+LABELS = {"lead": "레터 앞 빈칸", "letter": "레터", "gap": "레터 뒤 빈칸", "align": "정렬", "line1Mm": "앞 여백", "line2Mm": "2번째 줄",
           "indentRightMm": "오른쪽 여백", "spaceBeforePt": "위 간격", "spaceAfterPt": "아래 간격", "lineSpacingPct": "줄 간격",
           "font": "글꼴", "sizePt": "크기", "bold": "굵게", "italic": "기울임", "underline": "밑줄", "color": "색", "ratioPct": "장평", "spacingPct": "자간"}
 LABELS.update({"L." + k: "레터 " + LABELS[k] for k in CHAR_KEYS})

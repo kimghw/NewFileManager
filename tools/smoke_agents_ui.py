@@ -214,12 +214,12 @@ def main():
         first = ag.locator("#agMain .agp.k-skill").first
         first.locator("summary").click()
         first.locator("button", has_text="고치기").click()
-        first.locator(".agp-text").fill("앞 공백은 가장 많은 것으로.\n")
+        first.locator(".agp-text").fill("레터 앞 빈칸은 가장 많은 것으로.\n")
         first.locator("button", has_text="저장").click()
         ag.wait_for_function("() => /내 사본 · 판 1/.test((document.querySelector('.agp.k-skill .agp-ver') || {}).textContent || '')", timeout=20000)
         s = requests.get(f"{base}/api/outline/agent/skills/tidy", timeout=30).json()
         check("템플릿 정리 스킬도 여기서 고쳐 저장(스킬 저장소) · 모델 「Opus 5.5 — 이 에이전트에 고정」",
-              sk == ["스킬 — 템플릿 서식 정리", "스킬 — 가장 많은 서식으로 모두 맞추기"] and s["custom"] and s["text"] == "앞 공백은 가장 많은 것으로.\n" and s["name"] == "템플릿 서식 정리"
+              sk == ["스킬 — 템플릿 서식 정리", "스킬 — 가장 많은 서식으로 모두 맞추기"] and s["custom"] and s["text"] == "레터 앞 빈칸은 가장 많은 것으로.\n" and s["name"] == "템플릿 서식 정리"
               and ag.locator("#agMain .ags-model-in option").first.inner_text() == "따로 정하지 않음 — 지금 Opus 5.5(이 에이전트에 고정)", [sk, s])
         requests.delete(f"{base}/api/outline/agent/skills/tidy", timeout=30)
 

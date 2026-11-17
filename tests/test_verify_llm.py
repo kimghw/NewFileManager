@@ -20,7 +20,7 @@ def _steps(**status):
 
 
 def test_apply_checks_answer():
-    steps = _steps(fonts=("fail", "굵게 다름 3,580자"), letters=("warn", "앞 공백"), pages=("warn", "못 맞춤"), owpml=("warn", "규칙"), map=("ok", ""))
+    steps = _steps(fonts=("fail", "굵게 다름 3,580자"), letters=("warn", "레터 앞 빈칸"), pages=("warn", "못 맞춤"), owpml=("warn", "규칙"), map=("ok", ""))
     got, rejected = verify_llm.apply(steps, {"steps": [
         {"key": "fonts", "verdict": "reference", "status": "ok", "reason": "  HCRBatang-Bold 에\n몰림 "},   # 받음 — 실패 → 통과
         {"key": "letters", "verdict": "mixed", "status": "fail", "reason": "x"},     # 스크립트(주의)보다 무거움 → 그대로
@@ -82,10 +82,10 @@ def test_review_applies_and_keeps_script(monkeypatch):
         sent.update(content=content, what=what, kw=kw)
         gate.wait(5)
         return {"data": {"steps": [{"key": "fonts", "verdict": "reference", "status": "ok", "reason": "함초롬바탕 글자가 모두 HCRBatang-Bold 로 찍힘"},
-                                   {"key": "letters", "verdict": "real", "status": "warn", "reason": "앞 공백이 다름"}], "summary": "글꼴은 PDF 쪽 사정"},
+                                   {"key": "letters", "verdict": "real", "status": "warn", "reason": "레터 앞 빈칸이 다름"}], "summary": "글꼴은 PDF 쪽 사정"},
                 "backend": "cli", "model": "claude-fable-5-2", "effort": "medium", "ms": 4200, "costUsd": None, "error": None}
     monkeypatch.setattr(verify_llm.llm, "call", call)
-    job = _job(package=("ok", "일치"), pdf=("skip", "한글 없음"), fonts=("fail", "굵게 다름 3,580자"), letters=("warn", "앞 공백 칸 수 3/5"))
+    job = _job(package=("ok", "일치"), pdf=("skip", "한글 없음"), fonts=("fail", "굵게 다름 3,580자"), letters=("warn", "레터 앞 빈칸 칸 수 3/5"))
     job.set("fonts", "fail", "굵게 다름 3,580자", fonts={"faces": [{"web": "함초롬바탕", "pdf": {"HCRBatang-Bold": 3355}, "bold": {"보통→굵게": 3322, "굵게→굵게": 33}}]},
             unjudged=["Type3 글꼴 글자 30자 — PDF 로 굵게를 알 수 없음"])
     t = threading.Thread(target=verify_llm.review, args=(job,))

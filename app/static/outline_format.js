@@ -49,7 +49,7 @@ function olfForm(id, L, sl) {
     i.type = "number"; i.min = "0"; i.max = "300"; i.step = "0.1"; i.value = olfMm(value); i.setAttribute("aria-label", label); i.title = label;
     return i;
   };
-  const letter = num(sl.to.letterMm, "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 문단 왼쪽 여백이 움직입니다(앞 공백은 그대로)");
+  const letter = num(sl.to.letterMm, "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 문단 왼쪽 여백이 움직입니다(레터 앞 빈칸은 그대로)");
   letter.classList.add("olf-letter");
   const mode = el("select", "olf-mode");
   mode.setAttribute("aria-label", "둘째 줄 규칙");

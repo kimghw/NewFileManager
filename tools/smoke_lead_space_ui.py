@@ -1,20 +1,20 @@
-"""줄 앞 공백(spec_hwpx_웹편집 ② §3-4 「줄 앞 공백」 — app.js renderPara · leadWrap · leadFix · leadLeave, style.css .lead-sp) 화면 확인 —
+"""줄 앞 빈칸(spec_hwpx_웹편집 ② §3-4 「줄 앞 빈칸」 — app.js renderPara · leadWrap · leadFix · leadLeave, style.css .lead-sp) 화면 확인 —
 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 끝점은 모두 진짜(흉내 없음).
 
 한글의 양쪽 정렬은 줄 안 빈칸만 늘리고 문단 첫머리의 들여쓰기용 빈칸은 그대로 둔다. 브라우저는 줄 앞 빈칸까지 늘려서 글이 둘째 줄로 넘어간 문단만
 레터가 오른쪽으로 밀려 보였다(같은 서식인데 한 줄 문단과 자리가 다름). 첫머리 빈칸을 늘어나지 않는 조각(.lead-sp)으로 감싼 것을 본다.
 
 기술수요조사서(작은 문서)의 양쪽 정렬 문단 p86 의 글을 「- 가나 다라 한한한…(긴 한 낱말) 끝말 …」 로 바꿔(낱말이 적어 첫 줄의 빈칸이 크게 늘어나는 여러 줄 문단)
-화면에서 앞 공백 4칸을 쳐 넣고:
+화면에서 앞 빈칸 4칸을 쳐 넣고:
 - 친 빈칸이 조각 안으로 · 글은 그대로 · 커서 자리 그대로.
-- 첫 글자의 자리 = 왼쪽 정렬로 그렸을 때의 자리(= 한글의 자리 — 앞 공백이 안 늘어남) · 그 줄의 줄 안 빈칸은 늘어나 있음(양쪽 정렬은 살아 있음) ·
+- 첫 글자의 자리 = 왼쪽 정렬로 그렸을 때의 자리(= 한글의 자리 — 앞 빈칸이 안 늘어남) · 그 줄의 줄 안 빈칸은 늘어나 있음(양쪽 정렬은 살아 있음) ·
   조각을 풀면(옛 그리기) 첫 글자가 오른쪽으로 밀림(이 검사가 옛 동작을 잡는다는 확인) · 문단 높이는 그대로.
 - 저장 → 새로 고침(서버가 준 글로 그림) → 같은 꼴 · 같은 자리.
 - 편집: 조각 안에서 글자를 치면 조각 밖으로 · 지우면 되돌아옴 · 조각 가운데에 글자 → 앞 빈칸만 조각 · Backspace·빈칸 · 조각 끝에서 글자.
 - 키: Home → End = 첫 줄 끝(조각 끝에 안 멈춤) · Shift+End = 첫 줄 고르기 · → 로 한 글자씩 · ↓ ↑ 로 줄을 오감 · 고른 글 = 문단 글(조각 경계에 줄 바꿈 없음).
 - 한글 조합(IME — CDP): 조각 안에서 조합 → 끝난 뒤 조각 밖으로 · 글 순서 그대로.
 - 빈칸 폭(② §3-4 「빈칸 폭」 — app.js spaceVars · style.css .para.hsp): 첫머리 빈칸 한 칸 · 마지막 줄(안 늘어난 줄)의 줄 안 빈칸 = 한글 폭(0.5em × 장평 × (1 + 자간)) ·
-  늘어난 줄의 빈칸은 그보다 좁지 않음 · 양쪽 정렬이 아닌 hwpx 문단도 앞 공백은 조각(문단 첫 글자인 빈칸에는 word-spacing 이 안 걸려서 — 조각의 자간으로 한글 폭).
+  늘어난 줄의 빈칸은 그보다 좁지 않음 · 양쪽 정렬이 아닌 hwpx 문단도 앞 빈칸은 조각(문단 첫 글자인 빈칸에는 word-spacing 이 안 걸려서 — 조각의 자간으로 한글 폭).
 - 콘솔 오류 없음.
 
     python -X utf8 tools/smoke_lead_space_ui.py <출력 폴더> [--port 18481]
@@ -126,16 +126,16 @@ def main():
         page.keyboard.insert_text("- 가나 다라 " + "한" * n + " 끝말 " + "마무리 글 " * 6)
         page.wait_for_timeout(150)
         v0 = look(page)
-        check("처음 — 양쪽 정렬 여러 줄 문단(첫 줄이 「- 가나 다라 …」 로 시작) · 앞 공백 없음 · 조각 없음", v0["align"] == "justify" and v0["lines"] >= 2 and v0["n"] == 0 and v0["nodes"] == 0 and v0["end1"] < v0["len"] and n > 12, [n, v0])
+        check("처음 — 양쪽 정렬 여러 줄 문단(첫 줄이 「- 가나 다라 …」 로 시작) · 앞 빈칸 없음 · 조각 없음", v0["align"] == "justify" and v0["lines"] >= 2 and v0["n"] == 0 and v0["nodes"] == 0 and v0["end1"] < v0["len"] and n > 12, [n, v0])
 
-        # 화면에서 앞 공백 4칸
+        # 화면에서 앞 빈칸 4칸
         caret(page, 0)
         page.keyboard.type("    ")
         page.wait_for_timeout(120)
         v = look(page)
-        check("앞 공백 4칸을 치면 조각에 4칸 · 글은 「    - …」 · 커서 4", v["lead"] == "    " and v["n"] == 4 and v["len"] == v0["len"] + 4 and v["caret"] == 4, v)
-        check("첫 글자의 자리 = 왼쪽 정렬로 그린 자리(앞 공백이 안 늘어남)", abs(v["x"] - v["xLeft"]) < 0.3, v)
-        check("그 줄의 줄 안 빈칸은 늘어나 있다(양쪽 정렬은 그대로) — 앞 공백 한 칸보다 넓음", v["gaps"][0] > v["leadW"] + 2, v)
+        check("앞 빈칸 4칸을 치면 조각에 4칸 · 글은 「    - …」 · 커서 4", v["lead"] == "    " and v["n"] == 4 and v["len"] == v0["len"] + 4 and v["caret"] == 4, v)
+        check("첫 글자의 자리 = 왼쪽 정렬로 그린 자리(앞 빈칸이 안 늘어남)", abs(v["x"] - v["xLeft"]) < 0.3, v)
+        check("그 줄의 줄 안 빈칸은 늘어나 있다(양쪽 정렬은 그대로) — 앞 빈칸 한 칸보다 넓음", v["gaps"][0] > v["leadW"] + 2, v)
         check("조각을 풀면(옛 그리기) 첫 글자가 오른쪽으로 밀린다 — 이 검사가 옛 동작을 잡는다", v["xPlain"] - v["x"] > 5, v)
         check("문단 높이는 조각이 있으나 없으나 같다", v["h"] == v["hPlain"], v)
         # 빈칸 폭(② §3-4 「빈칸 폭」) — 한글은 빈칸을 글꼴과 무관하게 0.5em 으로 찍는다
@@ -158,7 +158,7 @@ def main():
         check("저장 → 새로 고침 뒤에도 조각에 4칸(서버가 런을 나눠 주면 조각도 나뉜다 — 그림은 같음) · 같은 자리", w["lead"] == "    " and w["n"] == 4 and abs(w["x"] - w["xLeft"]) < 0.3 and w["xPlain"] - w["x"] > 5, w)
         srv = requests.get(f"{base}/api/docs/{doc}", timeout=30).json()
         blk = next((x for x in walk(srv["blocks"]) if x.get("id") == PID), {})
-        check("서버 문서의 글 = 앞 공백 4칸 + 원래 글(조각은 글에 안 남음)", (blk.get("text") or "").startswith("    -") and len(blk.get("text") or "") == v0["len"] + 4, (blk.get("text") or "")[:20])
+        check("서버 문서의 글 = 앞 빈칸 4칸 + 원래 글(조각은 글에 안 남음)", (blk.get("text") or "").startswith("    -") and len(blk.get("text") or "") == v0["len"] + 4, (blk.get("text") or "")[:20])
 
         # 편집 — 조각 안에서 글자
         caret(page, 0)
@@ -252,7 +252,7 @@ def main():
         saved(page)
         srv = requests.get(f"{base}/api/docs/{doc}", timeout=30).json()
         blk = next((x for x in walk(srv["blocks"]) if x.get("id") == PID), {})
-        check("편집을 마친 뒤 서버 문서의 글 = 앞 공백 4칸 + 원래 글", (blk.get("text") or "").startswith("    -") and len(blk.get("text") or "") == v0["len"] + 4, (blk.get("text") or "")[:20])
+        check("편집을 마친 뒤 서버 문서의 글 = 앞 빈칸 4칸 + 원래 글", (blk.get("text") or "").startswith("    -") and len(blk.get("text") or "") == v0["len"] + 4, (blk.get("text") or "")[:20])
 
         # 양쪽 정렬이 아닌 문단 — hwpx 문단이면 조각을 만든다(② §3-4 「빈칸 폭」: 문단 첫 글자인 빈칸에는 word-spacing 이 안 걸려 조각의 자간으로 한글 폭을 준다)
         other = page.evaluate("""() => { const p = [...document.querySelectorAll('#doc .para')].find((x) => x.style.textAlign !== 'justify' && readText(x).trim().length > 3 && !x.dataset.label
@@ -266,7 +266,7 @@ def main():
               const w = []; if (sp) for (let i = 0; i < sp.textContent.length; i++) { const r = document.createRange(); r.setStart(sp.firstChild, i); r.setEnd(sp.firstChild, i + 1); w.push(Math.round(r.getClientRects()[0].width * 100) / 100); }
               return { n: p.querySelectorAll('.lead-sp').length, lead: sp ? sp.textContent : '', w, text: readText(p).slice(0, 6), align: p.style.textAlign,
                 half: Math.round(0.5 * parseFloat(getComputedStyle(sp || p).fontSize) * z * ((f.ratioPct || 100) / 100) * (1 + (f.spacingPct || 0) / 100) * 100) / 100 }; }""", other)
-            check("양쪽 정렬이 아닌 hwpx 문단도 앞 공백을 치면 조각 · 두 칸 모두 한글 폭(첫 칸도)", o["n"] == 1 and o["lead"] == "  " and o["text"].startswith("  ") and len(o["w"]) == 2 and all(abs(x - o["half"]) < 0.3 for x in o["w"]), o)
+            check("양쪽 정렬이 아닌 hwpx 문단도 앞 빈칸을 치면 조각 · 두 칸 모두 한글 폭(첫 칸도)", o["n"] == 1 and o["lead"] == "  " and o["text"].startswith("  ") and len(o["w"]) == 2 and all(abs(x - o["half"]) < 0.3 for x in o["w"]), o)
             page.keyboard.press("Backspace")
             page.keyboard.press("Backspace")
             saved(page)

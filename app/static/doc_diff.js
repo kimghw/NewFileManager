@@ -6,7 +6,8 @@
 // 켜져 있으면(기본 — 도구 줄 ↑↓ 옆 「±」 단추 #ddBtn, 브라우저에 기억) 창 가까이에 있는 고친 문단마다:
 //  · 문단 바탕(주황)을 걷고 왼쪽 띠만 남긴다 — 고침 M 주황 · 새 문단 A 초록(옅은 초록 바탕).
 //  · 글: 넣은 글자에 초록 바탕, 글자를 지우기만 한 자리는 그 앞뒤 글자에 빨간 물결 밑줄. 문단 DOM 은 건드리지 않는다(CSS Custom Highlight — 편집 상자의 글·커서·readText 가 그대로).
-//  · 쪽 오른쪽 여백의 꼬리표: 「M 글 · 첫 줄」(무엇이 바뀌었나) — 올리면 「− 빈칸 + 묶음 빈칸 · 첫 줄 -16.4mm → -14mm」(어떻게), 누르면 「고친 문단」 목록의 그 항목(되돌리기는 거기서).
+//  · 쪽 오른쪽 여백의 꼬리표: 「M 글 · 2번째 줄」(무엇이 바뀌었나) — 올리면 「− 빈칸 + 묶음 빈칸 · 2번째 줄 원본 16.4mm → 지금 14mm」(어떻게 — 값마다 이름), 누르면 「고친 문단」 목록의 그 항목(되돌리기는 거기서).
+//    줄의 자리는 서식 값(왼쪽 여백 · 첫 줄)이 아니라 줄이 시작하는 자리(「앞 여백」 · 「2번째 줄」)로 온다 — 2026-11-17 사용자 「이게 원본이 원래 0은 아닌데」(「첫 줄 0mm → -7.8mm」 가 첫 줄이 옮겨진 것 · 빈칸 폭을 0 으로 잰 것처럼 읽혔다).
 // 끄면 전처럼 문단 바탕만.
 //
 // 기대는 app.js 의 이름: state(id · epoch · edited · kinds · original · byId · sections · base) · $ · el · readText · LS · PEEK · api · baseWho · showTab · drawEdits · gutterSync ·
@@ -198,9 +199,10 @@ function ddInfo(p, m) { // 꼬리표에 적을 것 — { labels: [무엇이], lo
         labels.push(c.label);
         tip.push(`모양 ${c.label}: ${who} ${c.before} → 지금 ${c.after}${c.part ? " (일부 글자)" : ""}`);
       }
+      for (const c of ch) if (c.hint) tip.push(`※ ${c.hint}`); // 줄의 자리 값(앞 여백 · 2번째 줄)의 뜻 — 문단 모양에서 센 자리이지 빈칸을 잰 폭이 아니다(edit_detail.HINTS)
       ch.slice(0, 2).forEach((c) => {
         sep();
-        long.push(el("span", "dd-fmt", `${c.label} ${c.before} → ${c.after}`));
+        long.push(el("span", "dd-fmt", `${c.label} ${who} ${c.before} → 지금 ${c.after}`)); // 값마다 이름(「원본 0mm → 지금 7.8mm」 — 이름 없는 「0mm → 7.8mm」 는 어느 쪽이 원본인지 모른다)
       });
       if (ch.length > 2) long.push(el("span", "dd-more", ` 외 모양 ${ch.length - 2}`));
     } else if (ch === undefined) { if (m.kind === "format") labels.push("모양 …"); }
@@ -369,7 +371,7 @@ function ddBtnSync() {
   if (!b) return;
   if (b.getAttribute("aria-pressed") !== String(DD.on)) b.setAttribute("aria-pressed", String(DD.on));
   const title = DD.on
-    ? "고친 곳 보기 — 켜짐: 문서에 무엇을 고쳤는지 깃처럼 보입니다.\n· 넣은 글 = 초록 바탕 · 글자를 지운 자리 = 빨간 물결 밑줄\n· 왼쪽 띠 = 고친 문단(주황 M) · 새 문단(초록 A)\n· 오른쪽 여백 꼬리표 = 바뀐 것(글 · 첫 줄 …) — 올리면 원본 값 → 지금 값, 누르면 「고친 문단」 목록\n누르면 끕니다(고친 문단을 바탕색으로만)."
+    ? "고친 곳 보기 — 켜짐: 문서에 무엇을 고쳤는지 깃처럼 보입니다.\n· 넣은 글 = 초록 바탕 · 글자를 지운 자리 = 빨간 물결 밑줄\n· 왼쪽 띠 = 고친 문단(주황 M) · 새 문단(초록 A)\n· 오른쪽 여백 꼬리표 = 바뀐 것(글 · 2번째 줄 …) — 올리면 원본 값 → 지금 값, 누르면 「고친 문단」 목록\n누르면 끕니다(고친 문단을 바탕색으로만)."
     : "고친 곳 보기 — 꺼짐: 고친 문단을 바탕색으로만 표시합니다.\n누르면 켭니다: 넣은 글(초록) · 지운 자리(빨간 물결) · 바뀐 모양 값(오른쪽 여백 꼬리표)을 문서에 보입니다.";
   if (b.title !== title) b.title = title;
 }

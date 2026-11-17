@@ -35,7 +35,7 @@ RULES_CONTRACT = """당신은 한글(hwpx) 문서의 문단 첫머리 「레터�
 스크립트 규칙이 못 맞춘 문단 묶음(type unmatched — 꼴이 같은 문단들)과, 종류가 다른 두 규칙이 함께 맞아 먼저 온 규칙이 이긴 충돌 묶음(type conflict — rules = [이긴 규칙, 진 규칙])을 받습니다.
 묶음마다 정확히 하나씩 답하세요(group = 묶음 group 값 그대로).
 - decision "rule": 이 묶음을 판정할 규칙 하나 — name(짧은 이름), kind(marker·label·note·footnote·data·placeholder·plain), family(계열 이름 — 영문 소문자·하이픈),
-  pattern(Python 정규식 — scope "prefix" 는 앞 공백을 뗀 첫머리에 match 로 레터 토큰만, "whole" 은 앞뒤 공백을 뗀 첫 줄 전체에 fullmatch), scope,
+  pattern(Python 정규식 — scope "prefix" 는 레터 앞 빈칸을 뗀 첫머리에 match 로 레터 토큰만, "whole" 은 앞뒤 빈칸을 뗀 첫 줄 전체에 fullmatch), scope,
   first(충돌 묶음에서 이긴 내장 규칙을 뒤집어야 할 때만 true — 그때 이 규칙은 내장 규칙보다 먼저 판정되며 묶음 밖 문단을 하나도 바꾸면 안 됨),
   positives(이 규칙이 맞아야 하는 예문 id — 묶음 예문 중), negatives(맞으면 안 되는 글 — 꾸며 써도 됨, 3개 이내).
   plain 으로 볼 꼴(괄호 안 낱말로 시작하는 표 머리말 등)도 kind plain 규칙으로 남겨 다시 묻지 않게 합니다.
@@ -54,7 +54,7 @@ TYPES_SCHEMA = _schema({
 
 TYPES_CONTRACT = """당신은 국가R&D 계획서·보고서 같은 한글 양식의 개요 체계를 정하는 분석가입니다. 스크립트가 문서의 헤딩 후보 문단을 「헤딩 유형」(자리·레터 꼴·굵게·크기)으로
 묶은 유형 표(key = 정규 레터 키 — 변형군을 합친 레터 모양, 구분 라벨은 "[구분 기준]"(예 "[기관]"), 괄호 소제목은 "[…]")와, 본문 헤딩 후보를 문서 순으로 적은 개요 스케치
-(「유형 _앞공백칸수 레터 글」), 스크립트가 빈도로 제안한 본문 주 사슬(mainChainProposal), 이 문서의 구분 기준 목록(bases)을 받습니다. 템플릿은 레터 사슬 하나이고, 한 부모 아래
+(「유형 _레터앞빈칸수 레터 글」), 스크립트가 빈도로 제안한 본문 주 사슬(mainChainProposal), 이 문서의 구분 기준 목록(bases)을 받습니다. 템플릿은 레터 사슬 하나이고, 한 부모 아래
 다른 레터가 오는 자리(가지 자리)마다 새 템플릿이 뿌리를 내립니다 — 템플릿·레벨은 스크립트가 부모 관계에서 셈하므로 당신은 **부모 관계를 정하는 지식**을 답합니다.
 아래 지침(그래프·템플릿·오차 기준)에 따라 답하세요.
 - types: 유형마다 하나 — role(heading·label·subtitle·title·note·not_heading), parents(이 레터가 **보통 매달리는 부모 레터 키** 목록 — 유형 표의 key 값, 구분 라벨 아래 내용이면
@@ -100,7 +100,7 @@ REVIEW_SCHEMA = _schema({"pairs": _arr(_schema({"slot": S, "a": S, "b": S, "verd
 
 REVIEW_CONTRACT = """당신은 한글 양식 문서의 서식 통일(조정) 판정을 **재검토**하는 분석가입니다. 앞선 판정자(다른 호출)가 템플릿 슬롯(같은 템플릿·같은 레벨)마다
 슬롯 대표 서식 라벨 a 와 그 슬롯에 함께 쓰인 다른 서식 라벨 b 의 쌍에 내린 1차 판정을 받습니다 — first.same true = b 를 a 로 조정(같은 구실), false = 다름 유지, first.reason = 그 까닭.
-aName·bName 은 사람이 읽는 서식 요약(글꼴·크기·굵게·정렬·여백·간격·앞 공백), examples = b 서식 문단 글 앞부분.
+aName·bName 은 사람이 읽는 서식 요약(글꼴·크기·굵게·정렬·여백·간격·레터 앞 빈칸), examples = b 서식 문단 글 앞부분.
 1차 까닭을 그대로 믿지 말고, 먼저 서식 이름과 예문으로 **스스로 판정**한 뒤 1차와 견주어 반박할 수 있는지 보세요.
 쌍마다 하나씩 답하세요(slot·a·b 는 입력 그대로): same = 당신의 판정(b 를 a 로 조정해도 되는 같은 구실 — 같은 단계의 보통 항목, 오차·우연한 차이 — 이면 true,
 일부러 다른 서식(소제목·안내·인용·상자 글·자리표시·강조·다른 역할)이면 false), verdict = 1차와 같으면 "agree", 다르면 "disagree",

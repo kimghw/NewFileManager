@@ -49,7 +49,7 @@ IMPORT_STEPS = [
     ("pdf", "한글 PDF 출력", "원본을 한글로 PDF 출력"),
     ("map", "PDF 매핑", "웹 블록이 한글 PDF 의 어느 쪽에 있는지 대응"),
     ("pages", "쪽 나눔 대조", "웹 쪽 나눔이 한글 PDF 각 쪽 맨 위 줄과 맞는지"),
-    ("letters", "헤딩 레터 대조", "웹이 뽑은 헤딩 레터·앞 공백·레터 뒤 공백·둘째 줄 들여쓰기·왼쪽 여백이 한글 PDF 첫 줄과 같은지"),
+    ("letters", "헤딩 레터 대조", "웹이 뽑은 헤딩 레터·레터 앞 빈칸·레터 뒤 빈칸·둘째 줄 들여쓰기·왼쪽 여백이 한글 PDF 첫 줄과 같은지"),
     ("fonts", "글꼴 대조", "웹이 뽑은 글꼴·크기·굵게·색이 한글 PDF 글자와 같은지"),
     ("render", "재구성 렌더 비교", "다시 쓴 파일의 한글 PDF 가 원본 PDF 와 쪽마다 같은지"),
     ("llm", "LLM 검토", "주의·실패 단계를 LLM 이 다시 보고 실제 문제인지 기준 PDF 쪽 사정인지 가려 그 단계 상태에 반영(spec_hwpx_웹편집 ② §4-1)"),
@@ -485,7 +485,7 @@ def _prefetch(data, fmt="hwpx"):
 
 def _issue_list(issues):
     """레터 대조의 다른 곳 -> 화면 「확인할 문단」 목록 [{id, text}]."""
-    what = {"letter": "레터", "lead": "앞 공백", "gap": "레터 뒤 공백", "line2": "둘째 줄 들여쓰기", "left": "왼쪽 여백", "outline": "웹에 없는 개요 번호"}
+    what = {"letter": "레터", "lead": "레터 앞 빈칸", "gap": "레터 뒤 빈칸", "line2": "둘째 줄 들여쓰기", "left": "왼쪽 여백", "outline": "웹에 없는 개요 번호"}
     return [{"id": i["id"], "text": f"{what[i['kind']]} 웹 「{i['web']}」 · PDF 「{i['pdf']}」({i['page']}쪽) — {i['text']}"} for i in issues]
 
 
@@ -506,7 +506,7 @@ def letters_verdict(r):
         return "ok", "헤딩 문단(레터·개요·자동 번호) 없음"
     c = {k: (r[k].get("ok", 0), r[k].get("bad", 0)) for k in ("letter", "lead", "gap", "line2", "left")}
     parts = [f"헤딩 문단 {r['total']:,}개 중 PDF 첫 줄을 잰 것 {r['checked']:,}개",
-             f"레터 같음 {_ratio(*c['letter'])}", f"앞 공백 칸 수 {_ratio(*c['lead'])}", f"레터 뒤 공백 칸 수 {_ratio(*c['gap'])}"]
+             f"레터 같음 {_ratio(*c['letter'])}", f"레터 앞 빈칸 칸 수 {_ratio(*c['lead'])}", f"레터 뒤 빈칸 칸 수 {_ratio(*c['gap'])}"]
     if sum(c["line2"]):
         parts.append(f"둘째 줄 들여쓰기 {_ratio(*c['line2'])}(±{pdf_style.TOL_MM}mm)")
     if sum(c["left"]):

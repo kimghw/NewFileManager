@@ -4398,6 +4398,7 @@ function gitFmt(det, id, kind) { // 모양의 다름 — 「항목 · 원본 값
     const tr = el("tr");
     const k = el("td", "k", c.label);
     if (c.part) { k.append(el("span", "gd-part", "일부 글자")); k.title = "문단 안에서 글자마다 값이 다릅니다 — 값을 문단 차례대로 「·」 로 이음"; }
+    else if (c.hint) k.title = c.hint; // 줄의 자리 값(앞 여백 · 2번째 줄)의 뜻 — 문단 모양에서 센 자리이지 빈칸을 잰 폭이 아니다(edit_detail.HINTS)
     tr.append(k, el("td", "del", c.before), el("td", "ins", c.after));
     t.append(tr);
   }
@@ -4973,13 +4974,13 @@ const PLACE = { body: "본문", box: "글상자", cell: "표 칸" };
 const mm = (v) => (v == null ? null : `${v.toFixed(1)}`);
 
 function headTable(patterns) {
-  return miniTable(`레터 꼴별 PDF 실측 ${patterns.length}개 보기`, ["자리", "꼴", "문단", "앞 공백", "레터 뒤", "둘째 줄 / 서식"],
+  return miniTable(`레터 꼴별 PDF 실측 ${patterns.length}개 보기`, ["자리", "꼴", "문단", "레터 앞 빈칸", "레터 뒤", "둘째 줄 / 서식"],
     patterns.map((p) => ({
       cells: [PLACE[p.place] || p.place, p.full, p.count, mm(p.leadMm), mm(p.gapMm),
         `${p.line2Count ? mm(p.line2Mm) : "—"} / ${mm(p.hangMm) ?? "—"}${p.line2Count ? ` (${p.line2Count})` : ""}`],
       title: `${p.full} — ${APP()} PDF 에서 잰 가운데 값(mm). 둘째 줄 = 둘째 줄이 첫 줄보다 들어간 폭 / 서식 = 문단 서식의 내어쓰기(괄호 = 잰 문단 수)`,
     })),
-    "mm · 꼴: _n = 반각 공백 n칸, ＿n = 전각, ⇥n = 탭, N = 숫자, list: = 자동 번호·글머리", [5]);
+    "mm · 꼴: _n = 반각 빈칸 n칸, ＿n = 전각, ⇥n = 탭, N = 숫자, list: = 자동 번호·글머리", [5]);
 }
 
 const FONT_VERDICT = { same: ["같음", "ok"], subst: ["둘 다 대체", "ok"], equiv: ["같은 디자인", "ok"], differ: ["웹이 다른 글꼴", "warn"],
@@ -7623,7 +7624,7 @@ async function headsParasLoad() {
     hCell(tr, p.form || p.letter, "code");
     hCell(tr, p.fmt, null, p.fp ? `정밀 서식 ${p.fp}` : "");
     hCell(tr, short(p.text, 60), "txt");
-    tr.title = `${p.id} · 규칙 ${p.rule || "—"} · 앞 공백 ${p.leadSpaces ?? 0}칸${p.leadMm != null ? ` ${p.leadMm}mm` : ""}${p.blank ? " · 제목 없음(쓸 자리)" : ""}\n`
+    tr.title = `${p.id} · 규칙 ${p.rule || "—"} · 레터 앞 빈칸 ${p.leadSpaces ?? 0}칸${p.leadMm != null ? ` ${p.leadMm}mm` : ""}${p.blank ? " · 제목 없음(쓸 자리)" : ""}\n`
       + `${ch.font || "?"} ${ch.sizePt ?? "?"}pt${ch.bold ? " 굵게" : ""} · ${ALIGN[String(pa.align || "").toLowerCase()] || pa.align || "—"} · 왼 ${pa.indentLeftMm ?? "–"}mm`
       + ` · 첫 줄 ${pa.firstLineMm ?? "–"}mm · 위 ${pa.spaceBeforePt ?? "–"} 아래 ${pa.spaceAfterPt ?? "–"}pt`
       + ` · 줄 간격 ${ls ? `${ls.value ?? "?"}${ls.type === "PERCENT" ? "%" : "pt"}` : "—"}${hasBlock(p.id) ? "" : "\n웹 블록 없음 — 문서에서 찾아갈 수 없음"}`;
@@ -7668,7 +7669,7 @@ async function headsLabels() {
     hCell(tr, Object.entries(l.kinds || {}).map(([k, v]) => `${H_KIND[k] || k} ${v}`).join(" · "), "wrap");
     hCell(tr, Object.keys(l.variants || {}).length, null, Object.entries(l.variants || {}).map(([k, v]) => `${k} ${v}`).join(" · "));
     tr.tabIndex = 0;
-    tr.title = `대표 문단 ${l.sample || "—"} · 앞 공백 꼴 ${l.leadCode || "—"} · 레터 뒤 ${l.gapCode || "—"}${l.spacer ? " · 간격 장치(빈 문단)" : ""} · 누르면 문단 목록`;
+    tr.title = `대표 문단 ${l.sample || "—"} · 레터 앞 빈칸 꼴 ${l.leadCode || "—"} · 레터 뒤 ${l.gapCode || "—"}${l.spacer ? " · 간격 장치(빈 문단)" : ""} · 누르면 문단 목록`;
     tr.onclick = () => headsParas({ fmt: l.id });
     tr.onkeydown = (e) => { if (e.key === "Enter") headsParas({ fmt: l.id }); };
     tb.append(tr);

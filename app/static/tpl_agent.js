@@ -167,9 +167,9 @@ function tplAgentDraw() {
   wrap.append(sk);
 
   // ③ 이번 요청 + 실행
-  const rq = tpaSection("③", "이번 요청", "이번 한 번만 더할 말입니다(없어도 됩니다) — 스킬보다 먼저 따릅니다. 예: 「L2 는 앞 공백 1칸짜리로」 · 「글꼴은 건드리지 말고 들여쓰기만」.");
+  const rq = tpaSection("③", "이번 요청", "이번 한 번만 더할 말입니다(없어도 됩니다) — 스킬보다 먼저 따릅니다. 예: 「L2 는 레터 앞 빈칸 1칸짜리로」 · 「글꼴은 건드리지 말고 들여쓰기만」.");
   const req = el("input", "tpa-req");
-  req.type = "text"; req.maxLength = 2000; req.value = TPA.request; req.placeholder = "없어도 됩니다 — 예: L2 는 앞 공백 1칸짜리로"; req.setAttribute("aria-label", "이번 요청");
+  req.type = "text"; req.maxLength = 2000; req.value = TPA.request; req.placeholder = "없어도 됩니다 — 예: L2 는 레터 앞 빈칸 1칸짜리로"; req.setAttribute("aria-label", "이번 요청");
   req.oninput = () => { TPA.request = req.value; };
   req.disabled = !!TPA.busy;
   const run = el("div", "tpa-row tpa-runrow");

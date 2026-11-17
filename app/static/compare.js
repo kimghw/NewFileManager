@@ -398,7 +398,7 @@ function mcFormat(l) {
   row("첫 줄", v(p.firstLineMm, "mm"));
   row("문단 위 / 아래", `${v(p.spaceBeforePt, "pt")} / ${v(p.spaceAfterPt, "pt")}`);
   row("줄 간격", p.lineSpacing ? `${v(p.lineSpacing.value, p.lineSpacing.unit || "")} · ${p.lineSpacing.type || ""}` : "정보 없음");
-  row("앞 / 레터 뒤 공백", `${l.leadCode || "없음"} / ${l.gapCode || "없음"}`);
+  row("레터 앞 / 뒤 빈칸", `${l.leadCode || "없음"} / ${l.gapCode || "없음"}`);
   if (letter) row("레터 글꼴", `${v(letter.font)} / ${v(letter.sizePt, "pt")}${letter.bold ? " · 굵게" : ""}`);
   d.append(dl);
   return d;

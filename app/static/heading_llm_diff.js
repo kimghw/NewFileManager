@@ -182,7 +182,7 @@ function lldHeads(p) {
     mc.fixed && mc.fixed.length ? (same || !mc.proposal.length ? `주 사슬 ${chain(mc.fixed)} — 스크립트 제안 그대로 확인` : [`주 사슬: 스크립트 제안 ${chain(mc.proposal)} → LLM ${chain(mc.fixed)}`, "chg"]) : null,
     [`유형 ${nf((p.types || []).length)}개: 역할을 스크립트와 다르게 본 유형 ${nf(p.typesChanged)} · 다른 유형의 변형으로 본 유형 ${nf(p.variants)}`, p.typesChanged ? "chg" : null,
       "변형 = 크기·굵기만 조금 다른 같은 구실의 레터(같은 레벨로 셈)"],
-    base && base.heuristic ? [`부모: 스크립트(실행 ${p.base.run})는 어림으로 둔 부모 ${nf(base.heuristic)}곳 → LLM ${nf(cnt.heuristic || 0)}곳`, null, "어림 = 레터 차례·앞 공백만으로 정한 부모(확정 사실로 안 봄)"] : null,
+    base && base.heuristic ? [`부모: 스크립트(실행 ${p.base.run})는 어림으로 둔 부모 ${nf(base.heuristic)}곳 → LLM ${nf(cnt.heuristic || 0)}곳`, null, "어림 = 레터 차례·레터 앞 빈칸만으로 정한 부모(확정 사실로 안 봄)"] : null,
     a.asked === false // 서식 쌍 판정(C·D)은 기본 실행에서 뺐다(2026-11-16 — spec_헤딩_추출 ② §6): 「미판정」 을 실패처럼 보이지 않게
       ? [`서식 쌍 판정은 하지 않았습니다 — 같은 템플릿의 서식은 「조정」 층의 서식 정리 계획이 정합니다(대표와 서식 라벨이 다른 문단 ${nf(a.undecided)})`, "muted",
         "서식 쌍 판정(맞춤 · 다름 유지)과 그 재검토는 문서도 서식 계획도 바꾸지 않아 기본 실행에서 뺐습니다 — 켜려면 서버 설정 NFM_HEADS_PAIRS=on"]

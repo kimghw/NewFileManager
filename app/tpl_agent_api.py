@@ -23,15 +23,25 @@ def _plans_path(sid):
     return f / "outline_agent" / "plans.json" if f is not None and (f / "work.json").is_file() else None
 
 
+OLD_LABELS = (("앞 공백", "레터 앞 빈칸"), ("레터 뒤 공백", "레터 뒤 빈칸"))  # 2026-11-17 화면 말이 바뀌기 전에 남긴 계획의 값 이름(spec_헤딩_추출 ② §0 「줄 첫머리의 말」)
+
+
+def _relabel(raw):
+    """남겨 둔 계획 글(JSON)의 옛 값 이름을 지금 말로 — **값 이름 그 자체인 문자열만**(「대표와 다른 값」 의 이름 · 값 사전의 키). LLM 이 쓴 까닭 글 속의 말은 그대로 둔다."""
+    for old, new in OLD_LABELS:
+        raw = raw.replace(json.dumps(old, ensure_ascii=False), json.dumps(new, ensure_ascii=False))
+    return raw
+
+
 def _plans_box(s):
-    """세션의 받은 계획 상자 {graph: [run, at] | None, plans: {tpl: 기록}} — 처음 한 번 작업 폴더에서 읽는다."""
+    """세션의 받은 계획 상자 {graph: [run, at] | None, plans: {tpl: 기록}} — 처음 한 번 작업 폴더에서 읽는다(옛 값 이름은 지금 말로 읽는다 — `_relabel`)."""
     box = getattr(s, "tpl_plans", None)
     if box is None:
         box = {"graph": None, "plans": {}}
         path = _plans_path(s.id)
         if path is not None and path.is_file():
             try:
-                got = json.loads(path.read_text(encoding="utf-8"))
+                got = json.loads(_relabel(path.read_text(encoding="utf-8")))
                 if isinstance(got, dict) and isinstance(got.get("plans"), dict):
                     box = {"graph": got.get("graph"), "plans": got["plans"], "applies": got.get("applies") if isinstance(got.get("applies"), list) else []}  # applies = 반영 기록(실행마다 — note_apply)
             except (OSError, ValueError):

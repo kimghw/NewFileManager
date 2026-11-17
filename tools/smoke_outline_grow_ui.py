@@ -150,7 +150,7 @@ def main():
         check("마지막 레벨 줄(「⋅」 L4)의 Alt+↓ → 후보 창 「T2 에 새 개요 레벨 L5」 · 윗 레벨 견본", bx is not None and "T2 에 새 개요 레벨 L5" in bx["head"] and "L4" in bx["head"] and "윗 레벨(L4)" in bx["ctx"], bx)
         check("후보 3~10줄 · 이 템플릿이 쓰는 계열(□ o - ·) 없음 · 첫 줄이 고름 · 직접 입력 칸", 3 <= bx["n"] <= 10 and not set(bx["letters"]) & {"□", "o", "○", "-", "·", "•", "⋅"} and bx["sel"] == 0 and bx["input"], bx)
         check("깊은 기호가 먼저, 그다음 번호형(꼬리표 「번호」)", bx["letters"][:4] == ["▪", "▶", "◇", "①"] and bx["tags"][3] == "번호" and bx["tags"][0] != "번호", [bx["letters"], bx["tags"]])
-        check("앞 공백 「6칸」(5칸 + 마지막 두 레벨의 차) · 둘째 줄 = 글 시작", bx["lead"] == "6칸" and bx["line2"] == ["true", "false", "false"], [bx["lead"], bx["line2"]])
+        check("레터 앞 빈칸 「6칸」(5칸 + 마지막 두 레벨의 차) · 둘째 줄 = 글 시작", bx["lead"] == "6칸" and bx["line2"] == ["true", "false", "false"], [bx["lead"], bx["line2"]])
         check("모달 아님 · 창 안 · 그 줄 아래(줄을 안 가림) · 폭 ≤ 340 · 높이 ≤ 420 · 초점이 창에 · 키 안내", not bx["modal"] and bx["inView"] and bx["below"] and bx["w"] <= 340 and bx["h"] <= 420 and bx["focus"] and "Enter" in bx["keys"], bx)
         check("견본 세 줄(윗 레벨 · 첫째 줄 · 둘째 줄) — 고른 레터 · 둘째 줄이 레터보다 오른쪽(글 시작)", bx["demoLt"] == bx["letters"][0] and bx["x2"] > bx["x1"] and bx["demoH"] >= 50, bx)
         page.screenshot(path=str(OUT / "01_box.png"))
@@ -168,7 +168,7 @@ def main():
         up = page.evaluate(BOX)
         page.keyboard.press("ArrowLeft")
         dn = page.evaluate(BOX)
-        check("→ → ← = 앞 공백 8칸 → 7칸", up["lead"] == "8칸" and dn["lead"] == "7칸", [up["lead"], dn["lead"]])
+        check("→ → ← = 레터 앞 빈칸 8칸 → 7칸", up["lead"] == "8칸" and dn["lead"] == "7칸", [up["lead"], dn["lead"]])
         page.keyboard.press("ArrowLeft")
         x_text = page.evaluate(BOX)["x2"]
         page.keyboard.press("Tab")

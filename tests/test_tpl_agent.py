@@ -131,7 +131,7 @@ def test_material_groups_and_prompt(sess):
     assert [g["id"] for g in l2["groups"]] == ["g1", "g2", "g3"] and l2["groups"][0]["rep"] and l2["groups"][0]["para"] == "p6502" and l2["groups"][0]["count"] == 5
     pm = A.prompt_material(mat)
     g1, g2 = pm["levels"][1]["groups"][:2]
-    assert g1["currentRep"] and g1["values"]["앞 공백"] == "3칸" and "values" not in g2 and ["앞 공백", "3칸", "4칸"] in g2["differsFromRep"]
+    assert g1["currentRep"] and g1["values"]["레터 앞 빈칸"] == "3칸" and "values" not in g2 and ["레터 앞 빈칸", "3칸", "4칸"] in g2["differsFromRep"]
     text = A.prompt(mat, A.skill("tidy"), "L2 는 3칸으로")
     assert "## 스킬 — 템플릿 서식 정리" in text and "## 이번 요청" in text and "L2 는 3칸으로" in text and '"id": "g2"' in text and "<!--" not in text
     dry = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy", "dry": True}).json()
@@ -150,7 +150,7 @@ def test_check_plan_filters_unknown_and_keeps_unmentioned(sess):
     l1, l2 = p["levels"]
     assert l1["rep"]["group"] == l1["was"] == "g1" and not l1["rep"]["changed"] and not l1["match"]  # 답에 없는 레벨 — 그대로
     assert l2["rep"] == {"group": "g2", "para": "p5209", "count": 1, "sample": l2["rep"]["sample"], "changed": True} and l2["was"] == "g1"
-    assert [m["group"] for m in l2["match"]] == ["g1"] and l2["match"][0]["count"] == 5 and l2["match"][0]["diff"] == [["lead", "앞 공백", "4칸", "3칸"]]  # 새 대표 기준
+    assert [m["group"] for m in l2["match"]] == ["g1"] and l2["match"][0]["count"] == 5 and l2["match"][0]["diff"] == [["lead", "레터 앞 빈칸", "4칸", "3칸"]]  # 새 대표 기준
     assert [(k["group"], k["auto"]) for k in l2["keep"]] == [("g3", True)] and l2["change"] == 5 and p["change"] == 5
     assert any("g9" in n for n in p["notes"]) and any("zz" in n for n in p["notes"]) and any("L7" in n for n in p["notes"])
     assert A.check_plan(mat, {})["change"] == 0  # 빈 답 — 아무것도 안 바꿈
@@ -235,12 +235,12 @@ def test_plan_endpoint_uses_pinned_opus_and_saved_skill(sess, monkeypatch):
     monkeypatch.setattr(llm, "call", fake)
     monkeypatch.setenv("NFM_LLM_MODEL_FORCE", "claude-fable-5-2")  # 모든 호출을 Fable 로 돌려도 이 에이전트는 Opus 5.5
     A.save("tidy", "템플릿 서식 정리", "내가 고친 기준 글")
-    r = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy", "request": "  앞 공백 3칸  "})
+    r = c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "tidy", "request": "  레터 앞 빈칸 3칸  "})
     assert r.status_code == 200, r.text
     j = r.json()
     assert seen["model"] == "claude-opus-5-5" and seen["pin"] is True and seen["what"] == "tpl-agent"
-    assert "내가 고친 기준 글" in seen["content"] and "앞 공백 3칸" in seen["content"] and "## 대표 고르기" not in seen["content"]
-    assert j["rev"] == s.rev and j["skill"]["version"] == 1 and j["request"] == "앞 공백 3칸" and j["model"] == "claude-opus-5-5" and j["plan"]["change"] == 2
+    assert "내가 고친 기준 글" in seen["content"] and "레터 앞 빈칸 3칸" in seen["content"] and "## 대표 고르기" not in seen["content"]
+    assert j["rev"] == s.rev and j["skill"]["version"] == 1 and j["request"] == "레터 앞 빈칸 3칸" and j["model"] == "claude-opus-5-5" and j["plan"]["change"] == 2
     kept = c.get(f"/api/docs/{d}/outline/agent/plans").json()
     assert kept["rev"] == s.rev and kept["plans"]["3"]["state"] == "planned" and kept["plans"]["3"]["applied"] is None and kept["plans"]["3"]["plan"]["change"] == 2
     assert c.post(f"/api/docs/{d}/outline/agent/3/plan", json={"skill": "nope"}).status_code == 404
@@ -702,3 +702,19 @@ def test_replaced_plan_is_not_marked_applied_and_late_answer_does_not_overwrite(
     assert TA.plans(s, graph) == keep   # 상자는 그대로 — 옛 그래프의 늦은 답이 갈아 치우지 않았다
     with TA._plans_lock:   # 흉내로 넣은 기록(먼 뒤의 since)을 지운다 — 모듈 세션을 다른 시험이 이어 쓴다
         TA._plans_box(s)["plans"].pop("3", None)
+
+
+def test_stored_plan_reads_old_value_names_as_new():
+    """2026-11-17 화면 말 「앞 공백」 → 「레터 앞 빈칸」 · 「레터 뒤 공백」 → 「레터 뒤 빈칸」(spec_헤딩_추출 ② §0 「줄 첫머리의 말」) — 그 전에 작업 폴더에 남긴 계획도 지금 말로 읽는다.
+    값 이름 그 자체인 문자열만(다른 값의 이름 · 값 사전의 키) — LLM 이 쓴 까닭 글 속의 말은 그대로."""
+    import json
+
+    from app import tpl_agent_api as TA
+    old = {"plans": {"1": {"plan": {"levels": [{"values": {"앞 공백": "3칸"}, "match": [{"diff": [["lead", "앞 공백", "3칸", "4칸"], ["gap", "레터 뒤 공백", "1칸", "없음"]],
+                                                                                    "why": "앞 공백 한 칸 차이"}]}]}}}}
+    got = json.loads(TA._relabel(json.dumps(old, ensure_ascii=False)))
+    lv = got["plans"]["1"]["plan"]["levels"][0]
+    assert lv["values"] == {"레터 앞 빈칸": "3칸"}
+    assert lv["match"][0]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"], ["gap", "레터 뒤 빈칸", "1칸", "없음"]]
+    assert lv["match"][0]["why"] == "앞 공백 한 칸 차이"   # 글 속의 말은 안 건드린다
+    assert [M.LABELS["lead"], M.LABELS["gap"]] == [new for _, new in TA.OLD_LABELS]   # 바꾸는 곳 = 지금의 값 이름

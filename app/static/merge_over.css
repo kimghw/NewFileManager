@@ -13,7 +13,7 @@
 .hd-body .mo-flag { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid #f4c48a; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-size: 11px; line-height: 16px; white-space: nowrap; }
 .hd-body .mo-edit { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .hd-body .mo-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 6px 8px; font-size: 12px; }
-.hd-body .mo-grid { display: grid; grid-template-columns: max-content max-content minmax(4.5em, 6.5em) minmax(0, 1fr) calc(2ch + 30px); align-items: center; gap: 4px 6px; font-size: 12px; }
+.hd-body .mo-grid { display: grid; grid-template-columns: max-content max-content minmax(4.5em, 6.5em) minmax(0, 1fr) minmax(calc(2ch + 30px), max-content); align-items: center; gap: 4px 6px; font-size: 12px; } /* 끝 열 = 칸 수 입력 폭과 머리 글 「레터 앞 빈칸」 가운데 넓은 쪽(머리 글이 열을 넘어 좁은 창에서 가로로 넘치지 않게 — 본보기 열이 그만큼 준다) */
 .hd-body .mo-th { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .hd-body .mo-lv { color: var(--muted); white-space: nowrap; }
 .hd-body .mo-was { white-space: nowrap; }

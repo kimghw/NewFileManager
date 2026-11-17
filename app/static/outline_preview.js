@@ -167,7 +167,7 @@ function olpEditBuild(box) {
   };
   const field = (k, name, ...ctl) => { const f = el("span", "olp-efield"); f.append(el("span", `olp-key k-${k}`, name), ...ctl); return f; };
   const letter = num("olp-e-letter", "레터 위치(mm)");
-  letter.title = "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 첫째 줄이 통째로 움직입니다(글 시작도 같이 · 앞 공백은 그대로)";
+  letter.title = "레터 위치(mm) — 본문 왼끝에서 레터까지. 바꾸면 첫째 줄이 통째로 움직입니다(글 시작도 같이 · 레터 앞 빈칸은 그대로)";
   const text = num("olp-e-text", "글 시작(mm) — 첫째 줄의 글이 시작하는 자리");
   const mode = el("select", "olp-e-mode");
   mode.setAttribute("aria-label", "둘째 줄 규칙");

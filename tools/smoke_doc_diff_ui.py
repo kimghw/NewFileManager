@@ -6,7 +6,7 @@
 
  1. 켜짐이 기본 — 「±」 단추 눌림 · 고친 문단의 주황 바탕이 걷히고(왼쪽 띠만) 새 문단은 초록 띠.
  2. 넣은 글자에 초록 표시(넣은 글 그대로) · 지우기만 한 자리는 앞뒤 글자에 빨간 물결 · 문단 DOM 은 그대로(글이 서버 글과 같다).
- 3. 오른쪽 여백 꼬리표 — 「M 글」 · 「M 왼쪽 여백」(서버가 견준 값 「… → 7mm」) · 「A 새 문단」 · 제 문단 높이 · 쪽 안.
+ 3. 오른쪽 여백 꼬리표 — 「M 글」 · 「M 앞 여백 · 2번째 줄」(서버가 견준 줄의 자리 「원본 … → 지금 7mm」) · 「A 새 문단」 · 제 문단 높이 · 쪽 안.
  4. 꼬리표에 올리면 「어떻게」(− … + … · 값 → 값)가 펼쳐진다(쪽 밖으로 안 나감) · 누르면 「고친 문단」 목록의 그 항목.
  5. 글을 치면 친 글이 바로 초록(서버 반영 전).
  6. 배율을 바꾸면 꼬리표가 제 문단 높이로 다시 · 글자 표시는 남는다.
@@ -137,7 +137,7 @@ def main():
         # 문서가 짧아(2쪽) 창을 길게 — 고친 문단 여섯이 모두 창 가까이에 들게
         page.set_viewport_size({"width": 1600, "height": 2400})
         page.wait_for_function("() => typeof DD === 'object' && DD.marks.size >= 6 && document.querySelectorAll('.sheet > .dd-tag').length >= 4", timeout=20000)
-        page.wait_for_function("(id) => { const t = [...document.querySelectorAll('.sheet > .dd-tag')]; return t.some((x) => /왼쪽 여백/.test(x.textContent)); }", arg=A["id"], timeout=20000)
+        page.wait_for_function("(id) => { const t = [...document.querySelectorAll('.sheet > .dd-tag')]; return t.some((x) => /앞 여백|2번째 줄/.test(x.textContent)); }", arg=A["id"], timeout=20000)
         v = view(page, ids)
         page.screenshot(path=str(OUT / "01_on.png"))
 
@@ -160,7 +160,9 @@ def main():
         # ---- 3
         ta, tb_, tn = tag_of(v, A["id"]), tag_of(v, B["id"]), tag_of(v, N)
         check("꼬리표는 누르는 단추 · 쪽 안 · 제 문단 높이", v["tags"] and all(t["tag"] == "BUTTON" and t["inside"] and t["dy"] is not None and -3 <= t["dy"] <= 20 for t in v["tags"]), v["tags"])
-        check("모양만 고친 문단 — 「M 왼쪽 여백」 · 값 「… → 7mm」", ta and ta["k"] == "M" and "왼쪽 여백" in ta["s"] and "→ 7mm" in ta["l"] and "원본" in ta["title"] and "지금 7mm" in ta["title"], ta)
+        check("모양만 고친 문단 — 「M 앞 여백 · 2번째 줄」(줄의 자리 — 서식 값 「왼쪽 여백」·「첫 줄」 이 아니라) · 값마다 이름 「원본 … → 지금 7mm」 · 도움말에 값의 뜻",
+              ta and ta["k"] == "M" and "2번째 줄" in ta["s"] and "왼쪽 여백" not in ta["s"] and "첫 줄" not in ta["s"] and "원본" in ta["l"] and "→ 지금 7mm" in ta["l"]
+              and "원본" in ta["title"] and "지금 7mm" in ta["title"] and "문단 모양" in ta["title"], ta)
         check("글을 고친 문단 — 「M 글」 · 「+ \"★넣은글\"」", tb_ and tb_["k"] == "M" and "글" in tb_["s"] and '+ "★넣은글"' in tb_["l"], tb_)
         check("새 문단 — 「A 새 문단」", tn and tn["k"] == "A" and "새 문단" in tn["s"] and "dd-A" in tn["cls"], tn)
         td_ = tag_of(v, D["id"])

@@ -83,7 +83,7 @@ function olmRow(id, L) { // 레벨 줄 아래 「서식 n가지 · 대표 「…
   row.classList.add(n > 1 || v.repMissing ? "olm-warn" : "olm-ok");
   const repG = v.groups.find((g) => g.rep), cand = olmTryOf(id, L, v);
   const sum = el("span", `olm-sum${n > 1 ? " warn" : ""}`, n > 1 ? `서식 ${n}가지` : "서식 1가지 — 모두 같음");
-  sum.title = "이 레벨 줄들을 레터(앞 공백·레터 글자·레터 뒤 공백) · 문단 모양(정렬·앞 여백·2번째 줄·간격·줄 간격) · 레터·본문 글자 모양이 같은 것끼리 묶었습니다";
+  sum.title = "이 레벨 줄들을 레터(레터 앞 빈칸·레터 글자·레터 뒤 빈칸) · 문단 모양(정렬·앞 여백·2번째 줄·간격·줄 간격) · 레터·본문 글자 모양이 같은 것끼리 묶었습니다";
   row.append(sum);
   if (cand) { // 대표 미리보기 중 — 끌어 놓은 갈래(대표는 아직 그대로)
     const rep = el("span", "olm-rep olm-rep-try");
@@ -108,7 +108,7 @@ function olmRow(id, L) { // 레벨 줄 아래 「서식 n가지 · 대표 「…
   }
   if (v.rep && v.others && !cand) { // 미리보기 중에는 미리보기 카드 · 「고른 서식 맞추기」 가 대신한다(지금 대표 기준의 단추를 같이 두면 헷갈림)
     row.append(hBtn(`대표에 맞추기(${nf(v.others)}줄)`, () => olmMatch(id, L, v.others),
-      { title: "대표와 서식이 다른 이 레벨 줄 모두를 대표 모양으로 — 레터(앞 공백·글자·뒤 공백) · 문단 모양 · 레터·본문 바탕 글자 모양(강조한 글자는 그대로, 번호는 제 번호). 「실행 취소」 로 되돌립니다", cls: "btn sm primary olm-btn" }));
+      { title: "대표와 서식이 다른 이 레벨 줄 모두를 대표 모양으로 — 레터(레터 앞 빈칸·글자·레터 뒤 빈칸) · 문단 모양 · 레터·본문 바탕 글자 모양(강조한 글자는 그대로, 번호는 제 번호). 「실행 취소」 로 되돌립니다", cls: "btn sm primary olm-btn" }));
   }
   for (const sp of olmSplits(id, L)) { // 이 레벨에서 서식이 달라 뗀 템플릿 「→ T1L3a(6줄) · 합치기」(spec_hwpx_웹편집 ② §8-5)
     const chip = el("button", "olm-chip olm-vchip", `→ T${sp.no}(${nf(sp.lines)}줄)`);

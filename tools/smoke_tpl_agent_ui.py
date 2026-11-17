@@ -5,7 +5,7 @@
 연구개발계획서 양식을 올리고 1·2단계(LLM 없이)를 끝점으로 돌린 뒤 작업을 열어:
 - 헤딩 추출 「템플릿」 탭이 트리(옛 카드 목록 없음) · 템플릿마다 개요 레벨 그림 · 원문 보기 · 「템플릿 관계」 열과 줄이 같다.
 - 「하위로」 는 넣을 자리가 없는 템플릿에도 보이고(흐리게) 누르면 까닭 · 자리가 있는 T9 는 탭에서 넣어도 2열이 열리지 않고 탭의 트리에 「T8T9」 · 「떼기」.
-- 「다른 서식 보기(2가지)」(T3) → 개요 레벨 그림 아래에 레벨마다 대표와 다른 서식(견본 글 · 「앞 공백: 지금 4칸 → 대표 3칸」) · 「문서에서 보기」 · 서식 줄의 「맞추기」 → 그 서식만 · 실행 취소 ·
+- 「다른 서식 보기(2가지)」(T3) → 개요 레벨 그림 아래에 레벨마다 대표와 다른 서식(견본 글 · 「레터 앞 빈칸: 지금 4칸 → 대표 3칸」) · 「문서에서 보기」 · 서식 줄의 「맞추기」 → 그 서식만 · 실행 취소 ·
   다 맞춘 뒤에도 단추는 남고(흐린 점선) 묶음은 「대표와 다른 서식 없음」 · 실행 취소로 돌아오면 다시 2가지 · 「접기」(2026-11-16 — outline_odd.js).
 - 「대표 맞추기」(T3 — 전 이름 「템플릿 맞추기」) → 두 레벨이 한 번에 · 실행 취소 한 번.
 - 「서식 라벨 보기」 → 템플릿 표 아래(또는 같은 줄 뒤)에 「S…」 · 누르면 그 서식만 또렷이(이름 줄 설명의 「목록」 = 그 라벨의 문단 목록) · 끄면 사라짐.
@@ -119,15 +119,15 @@ def main():
             v = slot(doc, 3, 2)
             g = {x["key"]: x for x in v["groups"]}
             sk = requests.get(f"{base}/api/outline/agent/skills/{body['skill']}", timeout=30).json()
-            mk = lambda k, i: {"group": f"g{i}", "para": k, "count": g[k]["count"], "sample": f"줄 {k}", "diff": [["lead", "앞 공백", "4칸", "3칸"]]}  # noqa: E731
+            mk = lambda k, i: {"group": f"g{i}", "para": k, "count": g[k]["count"], "sample": f"줄 {k}", "diff": [["lead", "레터 앞 빈칸", "4칸", "3칸"]]}  # noqa: E731
             lv2 = {"level": 2, "letter": "-", "lines": v["total"], "single": False, "was": "g1", "rep": {"group": "g2", "para": "p5209", "count": 1, "sample": "줄 p5209", "changed": True},
-                   "match": [mk("p6502", 1)], "keep": [{**mk("p5765", 3), "why": "레터 뒤 공백이 없어 따로 둠", "auto": False}], "split": [], "taken": [], "change": g["p6502"]["count"], "moved": 0,
-                   "why": "앞 공백 4칸이 위 레벨과 어울림"}
+                   "match": [mk("p6502", 1)], "keep": [{**mk("p5765", 3), "why": "레터 뒤 빈칸이 없어 따로 둠", "auto": False}], "split": [], "taken": [], "change": g["p6502"]["count"], "moved": 0,
+                   "why": "레터 앞 빈칸 4칸이 위 레벨과 어울림"}
             lv1 = {"level": 1, "letter": "o", "lines": 7, "single": True, "was": "g1", "rep": {"group": "g1", "para": "x", "count": 7, "sample": "", "changed": False}, "match": [], "keep": [],
                    "split": [], "taken": [], "change": 0, "moved": 0, "why": ""}
             route.fulfill(json={"tpl": "3", "no": "3", "rev": requests.get(f"{base}/api/docs/{doc}/outline/formats", timeout=60).json()["rev"],
                                 "skill": {k: sk[k] for k in ("key", "name", "version", "sha1")}, "request": body.get("request") or "", "model": "claude-opus-5-5", "effort": "medium", "backend": "api",
-                                "ms": 15300, "costUsd": 0.0421, "plan": {"summary": "L2 의 앞 공백을 4칸으로 맞춥니다.", "levels": [lv1, lv2], "change": lv2["change"], "moved": 0,
+                                "ms": 15300, "costUsd": 0.0421, "plan": {"summary": "L2 의 레터 앞 빈칸을 4칸으로 맞춥니다.", "levels": [lv1, lv2], "change": lv2["change"], "moved": 0,
                                                                          "notes": ["L7 은 이 템플릿에 줄이 없는 레벨 — 버림"]}})
         page.route(re.compile(r"/api/outline/agent$"), info)
         page.route(re.compile(r"/outline/agent/[^/]+/plan$"), plan)
@@ -210,9 +210,9 @@ def main():
               od["pressed"] == "true" and not od["hidden"] and od["underPic"] and not od["dialog"] and "대표와 다른 서식" in od["head"] and "레벨 1개 · 2가지 · 2줄" in od["head"]
               and [x["L"] for x in od["levels"]] == [2] and "다른 서식 2가지 · 2줄" in l2["head"] and l2["btns"] == ["문서에서 보기", "이 레벨 맞추기(2줄)"], od)
         check("서식이 한 가지인 레벨은 한 줄 「L1 「o」 서식 1가지 — 모두 같음 · n줄」", len(od["same"]) == 1 and od["same"][0].startswith("L1") and "서식 1가지 — 모두 같음" in od["same"][0], od["same"])
-        check("레벨마다 대표 줄(「대표 ×5」 견본 · 맞추기 없음) + 다른 서식 줄(「다름 ×1」 견본 · 「맞추기」 · 「앞 공백: 지금 4칸 → 대표 3칸」 — 값마다 이름표)",
+        check("레벨마다 대표 줄(「대표 ×5」 견본 · 맞추기 없음) + 다른 서식 줄(「다름 ×1」 견본 · 「맞추기」 · 「레터 앞 빈칸: 지금 4칸 → 대표 3칸」 — 값마다 이름표)",
               l2["rep"] == [["대표", "×5", True, False]] and len(l2["rows"]) == 2 and all(r["tag"] == "다름" and r["n"] == "×1" and r["samp"] and r["go"] == "맞추기" for r in l2["rows"])
-              and "앞 공백: 지금 4칸 → 대표 3칸" in r5209.get("diff", ""), l2)
+              and "레터 앞 빈칸: 지금 4칸 → 대표 3칸" in r5209.get("diff", ""), l2)
         page.screenshot(path=str(OUT / "03d_odd.png"))
         page.locator(f'{n3} > .olm-odd .olo-see').first.click()
         page.wait_for_function("() => FMF.kind === 'tpl' && FMF.tpl === '3' && FMF.level === 2 && document.getElementById('doc').classList.contains('fmt-focus')", timeout=20000)
@@ -318,7 +318,7 @@ def main():
         check("「보낼 글」 — 계약 · 저장된 스킬 글 · 자료(LLM 을 안 부름)", seen["dry"] == 1 and seen["plan"] == 0 and "## 스킬 — 템플릿 서식 정리" in pr and "## 대표 고르기" in pr and '"id": "g2"' in pr, pr[:300])
         page.locator("#headsDlgTools button", has_text="보낼 글").click()
         # 스킬을 고치면 먼저 저장하고 부른다
-        page.fill("#headsDlgBody .tpa-text", "앞 공백은 4칸으로 맞춘다.\n")
+        page.fill("#headsDlgBody .tpa-text", "레터 앞 빈칸은 4칸으로 맞춘다.\n")
         d = page.evaluate("[document.querySelector('.tpa-go').textContent, document.querySelector('.tpa-saved').textContent, document.querySelector('.tpa-save').disabled]")
         check("스킬 글을 고치면 「고침 — 저장 안 됨」 · 단추가 「저장하고 정리 계획 받기」", d == ["저장하고 정리 계획 받기", "고침 — 저장 안 됨", False], d)
         page.fill("#headsDlgBody .tpa-req", "L2 만")
@@ -330,12 +330,12 @@ def main():
           boxes: [...document.querySelectorAll('.tpa-g')].map((g) => { const s = g.querySelector('.tpa-pick'); return [g.classList.contains('match') ? 'match' : g.classList.contains('split') ? 'split' : 'keep', s.value, s.selectedOptions[0].textContent, [...s.options].map((o) => o.textContent).join('|')]; }),
           why: [...document.querySelectorAll('.tpa-why')].map((w) => w.textContent), notes: (document.querySelector('.tpa-plan .ag-dropped summary') || {}).textContent, meta: document.querySelector('.tpa-plan .ag-note').textContent,
           saved: document.querySelector('.tpa-saved').textContent, go: document.querySelector('.tpa-go').textContent })""")
-        check("「저장하고 정리 계획 받기」 — 스킬을 먼저 저장(판 1)하고 그 스킬·요청으로 부름", sk["custom"] and sk["version"] == 1 and sk["text"] == "앞 공백은 4칸으로 맞춘다.\n" and seen["plan"] == 1
+        check("「저장하고 정리 계획 받기」 — 스킬을 먼저 저장(판 1)하고 그 스킬·요청으로 부름", sk["custom"] and sk["version"] == 1 and sk["text"] == "레터 앞 빈칸은 4칸으로 맞춘다.\n" and seen["plan"] == 1
               and seen["body"] == {"skill": "tidy", "request": "L2 만"} and pl["saved"].startswith("저장됨 · 판 1"), [sk, seen.get("body"), pl["saved"]])
         opts = "맞추기|그대로|T3L2a 로"
         check("계획 — 레벨마다 한 상자 · 「대표 바꿈」 · 갈래 줄마다 고르기(맞추기 / 그대로 / T3L2a 로 — 에이전트가 고른 것이 처음 값) · 까닭 · 걸러낸 답 · 모델·시간·비용·스킬 판",
               pl["lv"] == 2 and pl["rep"] == "대표 바꿈" and pl["boxes"] == [["match", "match", "맞추기", opts], ["keep", "keep", "그대로", opts]] and pl["apply"] == "적용 — 5줄" and "고른 서식 1가지" in pl["count"]
-              and any("레터 뒤 공백이 없어" in w for w in pl["why"]) and pl["notes"] == "걸러낸 답 1" and "Opus 5.5" in pl["meta"] and "15.3초" in pl["meta"] and "$0.0421" in pl["meta"] and "판 1" in pl["meta"]
+              and any("레터 뒤 빈칸이 없어" in w for w in pl["why"]) and pl["notes"] == "걸러낸 답 1" and "Opus 5.5" in pl["meta"] and "15.3초" in pl["meta"] and "$0.0421" in pl["meta"] and "판 1" in pl["meta"]
               and pl["go"] == "정리 계획 다시 받기", pl)
         # 적용 몸(tpaTodoOf — 서버 tpl_agent.todo 와 같은 셈): 대표만 바꾸는 레벨도 든다(2026-11-16 astra — 전에는 고른 갈래가 없으면 그 레벨을 버려 계획의 대표가 걸리지 않았다)
         todo = page.evaluate("""() => tpaTodoOf({ plan: { levels: [
@@ -353,7 +353,7 @@ def main():
         sp = page.evaluate("""(k) => { const s = document.querySelector(k), g = s.closest('.tpa-g'); return { apply: document.querySelector('.tpa-apply').textContent, count: document.querySelector('.tpa-count').textContent,
           cls: g.className, chip: (g.querySelector('.tpa-vt') || {}).textContent, focus: document.activeElement === s, why: (g.querySelector('.tpa-why') || {}).textContent }; }""", keep)
         check("「T3L2a 로」 로 바꾸면 그 갈래는 다른 템플릿으로 — 「적용 — 5줄 · 떼기 1줄」 · 줄에 「T3L2a 의 대표」 · 고르기에 초점이 남음",
-              sp["apply"] == "적용 — 5줄 · 떼기 1줄" and "고른 서식 2가지" in sp["count"] and "split" in sp["cls"] and sp["chip"] == "T3L2a 의 대표" and sp["focus"] and "레터 뒤 공백이 없어" in (sp["why"] or ""), sp)
+              sp["apply"] == "적용 — 5줄 · 떼기 1줄" and "고른 서식 2가지" in sp["count"] and "split" in sp["cls"] and sp["chip"] == "T3L2a 의 대표" and sp["focus"] and "레터 뒤 빈칸이 없어" in (sp["why"] or ""), sp)
         page.screenshot(path=str(OUT / "06b_plan_split.png"))
         page.select_option(keep, "keep")
         check("「그대로」 로 되돌리면 처음 줄 수", page.locator("#headsDlgBody .tpa-apply").inner_text() == "적용 — 5줄")

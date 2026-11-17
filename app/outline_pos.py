@@ -188,7 +188,7 @@ def target(cur, pos, full=False, was=None):
     else:
         x0 = cur["x0"] if pos.get("letterMm") is None else pos["letterMm"] - cur["leadMm"]
         if x0 < -EPS:
-            raise ValueError(f"레터 위치 {pos['letterMm']:g}mm 는 앞 공백 폭 {cur['leadMm']:.1f}mm 보다 작을 수 없습니다")
+            raise ValueError(f"레터 위치 {pos['letterMm']:g}mm 는 레터 앞 빈칸 폭 {cur['leadMm']:.1f}mm 보다 작을 수 없습니다")
         x0 = max(x0, 0.0)
     if mode == "text":
         if cur["prefixMm"] > MAX_PREFIX_MM:

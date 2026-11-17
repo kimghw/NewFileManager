@@ -84,7 +84,7 @@ def test_validate_normalizes_or_refuses(S):
     assert MO.validate({"mode": "edit", "levels": [{}, None]}) == {"mode": "cover", "levels": [], "template": None}   # 아무것도 안 고침 = 덮은 그대로
     assert MO.validate({"mode": "template", "template": {"template": "body:o›-", "level": 1}}, tpls)["template"] == {"template": "body:o›-", "level": 1}
     for bad, word in (({"mode": "x"}, "mode"), ({"mode": "edit", "levels": []}, "levels"), ({"mode": "edit", "levels": [{"letter": "가 나"}]}, "빈칸"),
-                      ({"mode": "edit", "levels": [{"letter": "x" * 13}]}, "12자"), ({"mode": "edit", "levels": [{"lead": 41}]}, "앞 공백"), ({"mode": "edit", "levels": [{"lead": True}]}, "앞 공백"),
+                      ({"mode": "edit", "levels": [{"letter": "x" * 13}]}, "12자"), ({"mode": "edit", "levels": [{"lead": 41}]}, "레터 앞 빈칸"), ({"mode": "edit", "levels": [{"lead": True}]}, "레터 앞 빈칸"),
                       ({"mode": "edit", "levels": [{"like": {"template": "body:없는 템플릿", "level": 1}}]}, "없습니다"), ({"mode": "edit", "levels": [{"like": {"template": TO_TPL, "level": 1}}]}, "본보기로 쓸 수 없는"),
                       ({"mode": "template", "template": {"template": TO_TPL, "level": 9}}, "없습니다"), ({"mode": "template"}, "템플릿"), ({"mode": "edit", "levels": [{"like": {"template": TO_TPL, "level": "3"}}]}, "level")):
         with pytest.raises(ValueError, match=word):

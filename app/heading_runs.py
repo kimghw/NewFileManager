@@ -628,7 +628,7 @@ def set_hint(sess, shape, role, basis="", text=""):
             b = HG.norm_basis(raw, HG.bases_of(h))
             if not b:  # 새 구분 기준 이름
                 if not raw or len(raw) > 12 or HG.BASIS_BAD.search(raw):
-                    raise ValueError("구분 기준 이름은 12자 안, 공백과 [ ] › | : - · / , + … 없이 적습니다" if raw else "구분 라벨로 지정하려면 구분 기준(단계·차년도·기관 …)이 필요합니다")
+                    raise ValueError("구분 기준 이름은 12자 안, 빈칸과 [ ] › | : - · / , + … 없이 적습니다" if raw else "구분 라벨로 지정하려면 구분 기준(단계·차년도·기관 …)이 필요합니다")
                 h["bases"].append(raw)
                 b = raw
         h["labels"][shape] = {"role": role, "basis": b, "by": "user", "at": round(time.time(), 3), "text": str(text or "")[:80]}

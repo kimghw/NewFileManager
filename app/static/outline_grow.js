@@ -10,7 +10,7 @@
    · 모달이 아니다(design.md §8 「하나 고르고 닫는 목록」) — 밖을 누르거나 문서를 굴리면 닫힌다. 문서는 「더하기」 전에는 안 바뀐다.
    app.js 다음에 읽힌다(state · heads · $ · el · api · toast · paraEl · outlineLine · isRooted · selOffsets · setCaret · structOp · outlineLoad 를 쓴다). app.js outlineLevel 이 outlineGrowAt → outlineGrowOpen 을 부른다. */
 const OLG = { box: null, st: null };
-const OLG_KEYS = "↑↓ 고르기 · ←→ 앞 공백 · Tab 둘째 줄 · Enter 더하기 · Esc 닫기";
+const OLG_KEYS = "↑↓ 고르기 · ←→ 레터 앞 빈칸 · Tab 둘째 줄 · Enter 더하기 · Esc 닫기";
 
 function outlineGrowAt(lines) { // 걸친 개요 줄이 모두 한 템플릿의 마지막 레벨인가(괄호 줄 제외) — 그때만 Alt+↓ 가 후보를 연다. 섞였으면 종전대로 서버가 까닭을 알린다
   if (!heads.outline || !lines.length) return false;
@@ -82,7 +82,7 @@ function olgDemo(st, letter) { // 견본(높이 고정 — design.md §6): 윗 �
   c.append(olgPre(d.last.prefix), `윗 레벨(L${d.last.level}) 줄`);
   l2.append(olgPre(st.line2 === "text" ? " ".repeat(st.lead) + letter + d.gap : st.line2 === "letter" ? " ".repeat(st.lead) : d.last.prefix, "hid"), el("span", "olg-2", "둘째 줄은 여기서 시작"));
   demo.append(c, olgLine(st, letter || "?", "새 레벨의 글(첫째 줄)"), l2);
-  demo.title = `견본 — 윗 레벨(앞 공백 ${d.last.lead}칸 「${d.last.letter}」) 아래에 새 레벨이 놓이는 모양: 앞 공백 ${st.lead}칸 · 둘째 줄 = ${(d.line2s.find((x) => x[0] === st.line2) || [])[1] || ""}`;
+  demo.title = `견본 — 윗 레벨(레터 앞 빈칸 ${d.last.lead}칸 「${d.last.letter}」) 아래에 새 레벨이 놓이는 모양: 레터 앞 빈칸 ${st.lead}칸 · 둘째 줄 = ${(d.line2s.find((x) => x[0] === st.line2) || [])[1] || ""}`;
   return demo;
 }
 
@@ -125,7 +125,7 @@ function olgDraw() { // 통째로 다시 그린다(후보 ≤ 10줄) — 고른 
   const ctl = el("div", "olg-ctl");
   const btn = (text, title, fn) => { const b = el("button", "btn sm", text); b.type = "button"; b.title = title; b.onclick = fn; return b; };
   const leadBox = el("span", "olg-lead");
-  leadBox.append(btn("−", "앞 공백 한 칸 줄이기(←)", () => olgLead(-1)), el("b", "olg-n", `${st.lead}칸`), btn("+", "앞 공백 한 칸 늘리기(→)", () => olgLead(1)));
+  leadBox.append(btn("−", "레터 앞 빈칸 한 칸 줄이기(←)", () => olgLead(-1)), el("b", "olg-n", `${st.lead}칸`), btn("+", "레터 앞 빈칸 한 칸 늘리기(→)", () => olgLead(1)));
   const seg = el("span", "olg-seg");
   seg.setAttribute("role", "radiogroup");
   seg.setAttribute("aria-label", "둘째 줄");
@@ -136,7 +136,7 @@ function olgDraw() { // 통째로 다시 그린다(후보 ≤ 10줄) — 고른 
     if (st.line2 === k) b.classList.add("on");
     seg.append(b);
   }
-  ctl.append(el("span", "olg-lab", "앞 공백"), leadBox, el("span", "olg-lab", "둘째 줄"), seg);
+  ctl.append(el("span", "olg-lab", "레터 앞 빈칸"), leadBox, el("span", "olg-lab", "둘째 줄"), seg);
   const foot = el("div", "olg-foot");
   const go = btn("더하기", "고른 레터로 템플릿에 새 레벨을 더하고 이 줄을 그 레벨로 내립니다(Enter) — 도구 줄 「↶ 실행 취소」 로 되돌립니다(템플릿의 레벨도 함께)", () => outlineGrowApply());
   go.classList.add("primary");

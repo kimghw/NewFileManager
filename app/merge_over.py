@@ -159,7 +159,7 @@ def validate(body, tpls=None):
                 if letter and (len(letter) > LETTER_MAX or any(c.isspace() for c in letter)):
                     raise ValueError(f"넘친 레벨 {i}: 레터는 빈칸 없는 {LETTER_MAX}자 이내의 글이어야 합니다")
             if lead is not None and (isinstance(lead, bool) or not isinstance(lead, int) or not 0 <= lead <= LEAD_MAX):
-                raise ValueError(f"넘친 레벨 {i}: 앞 공백은 0~{LEAD_MAX} 칸이어야 합니다")
+                raise ValueError(f"넘친 레벨 {i}: 레터 앞 빈칸은 0~{LEAD_MAX} 칸이어야 합니다")
             like = _slot(x["like"], f"넘친 레벨 {i}의 본보기", by) if x.get("like") is not None else None
             out["levels"].append({"letter": letter, "like": like, "lead": lead} if letter or like or lead is not None else None)   # 아무것도 안 고친 레벨 = 원본 그대로
         if not any(out["levels"]):

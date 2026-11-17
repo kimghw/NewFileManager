@@ -41,7 +41,7 @@ def letter_key(letter):
     """레터 → 정규 레터 키(2단계 그래프의 키와 같은 꼴 — 「(3)」 → 「(N)」, 「•」 → 「·」, 「○」 → 「o」). 개요 레터로 읽히지 않으면 ValueError."""
     s = (letter or "").strip() if isinstance(letter, str) else ""
     if not s or len(s) > 8 or any(ch.isspace() for ch in s):
-        raise ValueError("레터는 공백 없는 1~8글자입니다")
+        raise ValueError("레터는 빈칸 없는 1~8글자입니다")
     c = HR.classify(s + " 가", _rules())
     if c["kind"] != "marker" or c["letter"] != s:
         raise ValueError(f"「{s}」 는 개요 레터로 읽히지 않습니다 — 기호(· - o □ ▪ ▶ ◇)나 번호 꼴(① (1) 1) 가. 가) a.)로 고르세요")
@@ -186,7 +186,7 @@ def prepare(doc, ov, pids, letter, lead=None, line2="text"):
     n, blank = _lead_default(ov, tid, level, last)
     if lead is not None:
         if isinstance(lead, bool) or not isinstance(lead, int) or not 0 <= lead <= LEAD_MAX:
-            raise ValueError(f"앞 공백은 0~{LEAD_MAX}칸의 정수")
+            raise ValueError(f"레터 앞 빈칸은 0~{LEAD_MAX}칸의 정수")
         n = lead
     gap = OE.prefix_of(last["prefix"], last["letter"])[2] or " "
     slot = {"letter": letter, "key": key, "rep": None, "count": 0, "prefix": blank * n + letter + gap, "attrs": dict(last["attrs"]), "spacer": None, "grown": True}

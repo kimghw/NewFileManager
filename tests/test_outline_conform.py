@@ -126,7 +126,7 @@ def test_settle_level_places_rep_and_its_group_and_freezes_the_slot(sess):
     assert sl["prefix"] == "   -" + NB and sl["attrs"]["paraPrIDRef"] == s.doc._ids["p6502"].get("paraPrIDRef")   # 새 줄(Enter)도 확정 서식
     after = c.get(f"/api/docs/{d}/outline/formats").json()["slots"]["3"]["2"]
     assert [g["count"] for g in after["groups"]] == [6, 1] and after["groups"][1]["paras"] == ["p5765"]                    # 안 고른 갈래는 그대로
-    assert ["gap", "레터 뒤 공백", "묶음 1칸", "없음"] in after["groups"][1]["diff"]
+    assert ["gap", "레터 뒤 빈칸", "묶음 1칸", "없음"] in after["groups"][1]["diff"]
     assert not [p for p in OC.pending(s.doc, ov, {"3"}) if int(ov["lines"][p]["level"]) == 2]
     enter = c.post(f"/api/docs/{d}/outline", json={"op": "sibling", "id": "p6502"})             # 같은 레벨 새 줄
     if enter.status_code == 200:

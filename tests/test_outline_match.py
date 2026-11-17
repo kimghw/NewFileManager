@@ -73,11 +73,11 @@ def test_variants_group_lines_and_show_differences(sess):
     rep, *rest = v["groups"]
     assert rep["rep"] and rep["count"] == 5 and rep["diff"] == [] and rep["paras"][0] == "p6502"
     by = {g["paras"][0]: g for g in rest}
-    assert by["p5209"]["diff"] == [["lead", "앞 공백", "3칸", "4칸"]]
-    assert by["p5765"]["diff"] == [["lead", "앞 공백", "3칸", "4칸"], ["gap", "레터 뒤 공백", "1칸", "없음"]]
+    assert by["p5209"]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"]]
+    assert by["p5765"]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"], ["gap", "레터 뒤 빈칸", "1칸", "없음"]]
     assert by["p5765"]["raw"]["lead"] == "    " and by["p5765"]["raw"]["gap"] == "" and by["p5765"]["look"]["lead"] == "4칸"  # 원값(서식 비교의 견본 글)
     keys = c.get(f"/api/docs/{d}/outline/formats").json()["keys"]  # 비교 값 차례·이름(서식 비교 표의 열)
-    assert keys[:3] == [["lead", "앞 공백"], ["letter", "레터"], ["gap", "레터 뒤 공백"]] and ["L.font", "레터 글꼴"] in keys
+    assert keys[:3] == [["lead", "레터 앞 빈칸"], ["letter", "레터"], ["gap", "레터 뒤 빈칸"]] and ["L.font", "레터 글꼴"] in keys
     v2 = _slot(c, d, 2, 1)  # 글자 모양이 다른 갈래 — 레터 런과 본문 런을 따로 견준다
     keys = [x[0] for g in v2["groups"] for x in g["diff"]]
     assert "L.font" in keys and "font" in keys and "L.sizePt" in keys
@@ -95,7 +95,7 @@ def test_formats_of_one_slot_lists_every_line(sess, monkeypatch):
     r = c.get(f"/api/docs/{d}/outline/formats", params={"tpl": "3", "level": 2})
     assert r.status_code == 200, r.text
     r = r.json()
-    assert r["full"] is True and list(r["slots"]) == ["3"] and list(r["slots"]["3"]) == ["2"] and r["rev"] == s.rev and r["keys"][0] == ["lead", "앞 공백"]
+    assert r["full"] is True and list(r["slots"]) == ["3"] and list(r["slots"]["3"]) == ["2"] and r["rev"] == s.rev and r["keys"][0] == ["lead", "레터 앞 빈칸"]
     one = r["slots"]["3"]["2"]
     assert one["total"] == 7 and one["rep"] == "p6502" and [len(g["paras"]) for g in one["groups"]] == [5, 1, 1] and all(g["more"] == 0 for g in one["groups"])
     assert one["groups"][1]["diff"] and not one["groups"][0]["diff"]

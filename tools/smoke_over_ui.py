@@ -199,7 +199,7 @@ try:
         page.select_option(f"{SEC} .mo-mode", "edit")
         ed = page.evaluate(f"""() => {{ const e = document.querySelector('{SEC} .mo-edit'); return e && {{ mode: e.dataset.mode, th: [...e.querySelectorAll('.mo-th')].map((x) => x.textContent), rows: e.querySelectorAll('.mo-letter').length,
           likes: [...e.querySelector('.mo-like').options].map((o) => o.textContent), acts: [...e.querySelectorAll('.mo-acts button')].map((b) => b.textContent), inside: !!e.closest('#headsDlgBody') }}; }}""")
-        check("템플릿 수정 — 레벨 표(레벨 · 원본 · 넣을 레터 · 본보기 · 앞 공백) · 적용/취소 · 아직 저장 안 함", ed and ed["mode"] == "edit" and ed["th"] == ["레벨", "원본", "넣을 레터", "본보기(모양)", "앞 공백"] and ed["rows"] == 3
+        check("템플릿 수정 — 레벨 표(레벨 · 원본 · 넣을 레터 · 본보기 · 레터 앞 빈칸) · 적용/취소 · 아직 저장 안 함", ed and ed["mode"] == "edit" and ed["th"] == ["레벨", "원본", "넣을 레터", "본보기(모양)", "레터 앞 빈칸"] and ed["rows"] == 3
               and ed["acts"] == ["적용", "취소"] and ed["inside"] and CALLS == [], (ed, CALLS))
         check("본보기 목록 — 맨 위 「원본 모양 그대로」 · 그 자리 아래에 붙은 템플릿이 먼저 · 못 쓰는 레벨(괄호 줄)은 없음", ed["likes"][0] == "원본 모양 그대로" and ed["likes"][1].startswith("이 자리 아래 · #2 o › - — L1")
               and len(ed["likes"]) == 1 + 2 + 3 + 1 and not any("[…] › □ › o › - — L1" in t for t in ed["likes"]), ed["likes"])
@@ -209,11 +209,11 @@ try:
         page.click(f"{SEC} .mo-acts button >> nth=0")
         wait_calls(page, 2)
         page.wait_for_function(f"() => {{ const s = document.querySelector('{SEC} .mo-mode'); return s && s.value === 'edit' && !document.querySelector('{SEC} .mo-edit'); }}")
-        check("적용 → PUT {key, mode: edit, levels[레터 · 본보기 · 앞 공백]} → 계획을 다시 세움(조용히)", CALLS[0] == ("PUT", {"key": KEY, "mode": "edit", "levels": [{"letter": "▪", "like": None, "lead": None},
+        check("적용 → PUT {key, mode: edit, levels[레터 · 본보기 · 레터 앞 빈칸]} → 계획을 다시 세움(조용히)", CALLS[0] == ("PUT", {"key": KEY, "mode": "edit", "levels": [{"letter": "▪", "like": None, "lead": None},
               {"letter": None, "like": {"template": "body:o›-", "level": 2}, "lead": None}, {"letter": None, "like": None, "lead": 4}]}) and CALLS[1] == ("PLAN", "fill") and page.evaluate("() => __n.fill") == 1, CALLS)
         info = page.evaluate(INFO)
-        check("다시 그린 절 — 처리 = 템플릿 수정 · 레벨마다 넣을 것(레터 · 본보기 · 앞 공백) · 꼬리표 없음", info["mode"] == "edit" and "→ 「▪」 · 제 모양" in info["levels"][0] and "→ 「-」 · 본보기 L2" in info["levels"][1]
-              and "레터 그대로 · 제 모양 · 앞 공백 4칸" in info["levels"][2] and info["flags"] == [], info)
+        check("다시 그린 절 — 처리 = 템플릿 수정 · 레벨마다 넣을 것(레터 · 본보기 · 레터 앞 빈칸) · 꼬리표 없음", info["mode"] == "edit" and "→ 「▪」 · 제 모양" in info["levels"][0] and "→ 「-」 · 본보기 L2" in info["levels"][1]
+              and "레터 그대로 · 제 모양 · 레터 앞 빈칸 4칸" in info["levels"][2] and info["flags"] == [], info)
         page.screenshot(path=str(OUT / "over_2_edit.png"))
 
         # ---- 3. 「다른 템플릿」 — 템플릿·시작 레벨 하나 → PUT {mode: template}

@@ -39,6 +39,7 @@ const FM_WHEEL_KEY = "nfm.fmFocusWheel"; // 「휠 이동」 끔 = "off"(없으�
 
 // 대표와 다른 값의 키 → 그 값이 그려지는 문단 상자의 쪽(왼·오른·위·아래 여백 — app.js indentLook·paraLook 이 padding 으로 그린다). 여기 없는 키(레터·공백·정렬·줄 간격·글자 모양)는 여백이 아니다
 const FM_SIDE = { line1Mm: "l", line2Mm: "l", indentRightMm: "r", spaceBeforePt: "t", spaceAfterPt: "b" };
+const FM_SHORT = { lead: "앞 빈칸", gap: "뒤 빈칸" }; // 꼬리표에만 쓰는 짧은 이름 — 「레터 앞 빈칸」·「레터 뒤 빈칸」 은 좁은 여백(56px 안팎)에서 잘린다(도움말에는 긴 이름: spec_헤딩_추출 ② §0 「줄 첫머리의 말」)
 const FM_VARS = { l: "--fm-l", r: "--fm-r", t: "--fm-t", b: "--fm-b" };
 
 function fmtFocusToggle(label) { // 여백의 서식 라벨을 눌렀을 때
@@ -146,7 +147,7 @@ function tplPickShow(m, keys) { // m = {tpl, level, no, focus} · keys = 고른 
 
 function fmDiffInfo(diff) { // 갈래의 「대표와 다른 값」 [[키, 이름, 대표, 이 갈래]…] → 그 줄에 그릴 것 {sides(칠할 여백 쪽), margin, other, tag, title}
   const sides = new Set(), mn = [], on = [];
-  for (const d of diff) { const s = FM_SIDE[d[0]]; if (s) { sides.add(s); mn.push(d[1]); } else on.push(d[1]); }
+  for (const d of diff) { const s = FM_SIDE[d[0]], nm = FM_SHORT[d[0]] || d[1]; if (s) { sides.add(s); mn.push(nm); } else on.push(nm); }
   const m = mn.length === 1 ? mn[0] : mn.length ? "여백" : "", o = on.length === 1 ? on[0] : on.length ? "서식" : "";
   const what = m && o ? "여백·서식" : m || o; // 하나만 다르면 그 값의 이름(「2번째 줄」·「크기」), 여럿이면 「여백」·「서식」
   // 표 글 「≠ 2번째 줄」 — 「다름」 을 앞의 「≠」 로: 오른쪽 여백(20mm 면 75~95px)이 좁아 줄임표로 잘려도 다르다는 표시는 남는다(풀어 쓴 글은 도움말에)
@@ -449,7 +450,7 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
       return b;
     };
     if (s.margin) box.append(leg("margin", "mg", "여백 다름", s.margin, `대표 줄과 여백(앞 여백 · 2번째 줄 · 오른쪽 여백 · 위·아래 간격)이 다른 줄 ${nf(s.margin)}개 — 문서에서 그 여백 자리만 주황`));
-    if (s.other) box.append(leg("other", "ot", "서식 다름", s.other, `대표 줄과 여백이 아닌 값(레터 · 공백 · 정렬 · 줄 간격 · 글자 모양)이 다른 줄 ${nf(s.other)}개 — 쪽 오른쪽 여백의 표에 무엇이 다른지`));
+    if (s.other) box.append(leg("other", "ot", "서식 다름", s.other, `대표 줄과 여백이 아닌 값(레터 · 빈칸 · 정렬 · 줄 간격 · 글자 모양)이 다른 줄 ${nf(s.other)}개 — 쪽 오른쪽 여백의 표에 무엇이 다른지`));
     if (!s.margin && !s.other) { const n = el("span", "fm-key-note", s.unknown ? "" : "대표와 모두 같음"); if (n.textContent) { n.title = "이 레벨의 줄이 모두 대표 줄과 서식이 같습니다(레터 · 문단 모양 · 글자 모양)"; box.append(n); } }
     if (s.unknown) { const n = el("span", "fm-key-note", `못 견줌 ${nf(s.unknown)}`); n.title = `서식 두 가지 이상이 30줄을 넘어 ${nf(s.unknown)}줄은 어느 서식인지 가르지 못했습니다 — 서버를 다시 켜면 줄 전부를 읽습니다(「템플릿 관계」 의 서식 목록은 그대로 맞습니다)`; box.append(n); }
   }

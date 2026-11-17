@@ -1821,7 +1821,7 @@ def edits_detail(doc_id: str, limit: int = 300, ids: str = ""):
                 memo["index"] = (edit_detail.index(s.blocks), edit_detail.index(s.doc.blocks()))
             base, now = memo["index"]
             pick = changed[:limit] if want is None else [i for i in want if kinds.get(i) in DETAIL_KINDS and i in s.texts]
-            items = {i: edit_detail.changes(base.get(i), now.get(i)) for i in pick}
+            items = {i: edit_detail.changes(base.get(i), now.get(i), word=s.fmt == "docx") for i in pick}
         out = {"rev": s.rev, "base": s.base_n, "items": items, "more": max(0, len(changed) - limit) if want is None else 0}
         if want is None:
             memo["outs"][limit] = out

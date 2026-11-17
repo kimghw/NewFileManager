@@ -16,11 +16,27 @@ def _p(**kw):
 def test_changes_names_each_side_in_screen_form():
     a, b = _p(), _p(format={"sizePt": 13.0, "indentLeftMm": 10.44, "align": "center"}, style="개요 1")
     got = {c["key"]: c for c in ED.changes(a, b)}
-    assert set(got) == {"style", "align", "indentLeftMm", "sizePt"}
+    assert set(got) == {"style", "align", "line1Mm", "line2Mm", "sizePt"}  # 왼쪽 여백이 늘면 첫 줄도 둘째 줄부터도 옮겨진다
     assert (got["sizePt"]["label"], got["sizePt"]["before"], got["sizePt"]["after"]) == ("크기", "11pt", "13pt")
-    assert (got["indentLeftMm"]["before"], got["indentLeftMm"]["after"]) == ("0mm", "10.4mm")
+    assert (got["line1Mm"]["label"], got["line1Mm"]["before"], got["line1Mm"]["after"]) == ("앞 여백", "0mm", "10.4mm")
+    assert (got["line2Mm"]["label"], got["line2Mm"]["before"], got["line2Mm"]["after"]) == ("2번째 줄", "0mm", "10.4mm")
     assert (got["align"]["before"], got["align"]["after"]) == ("양쪽", "가운데")
-    assert "part" not in got["sizePt"]
+    assert "part" not in got["sizePt"] and "hint" not in got["sizePt"] and "문단 모양" in got["line2Mm"]["hint"]
+
+
+def test_line_places_not_raw_indent_values():
+    """줄의 자리(앞 여백 · 2번째 줄)로 견준다 — 2026-11-17 사용자 「이게 원본이 원래 0은 아닌데」: 한글의 내어쓰기는 첫 줄을 그대로 두고 둘째 줄부터를 들인다(「첫 줄 0mm → -7.8mm」 가 아니라 「2번째 줄 0mm → 7.8mm」)."""
+    hang = ED.changes(_p(format={"firstLineMm": 0.0}), _p(format={"firstLineMm": -7.78}))
+    assert [(c["key"], c["before"], c["after"]) for c in hang] == [("line2Mm", "0mm", "7.8mm")]  # 첫 줄은 안 움직였다 — 적지 않는다
+    dent = ED.changes(_p(format={"firstLineMm": 0.0}), _p(format={"firstLineMm": 5.0}))
+    assert [(c["key"], c["before"], c["after"]) for c in dent] == [("line1Mm", "0mm", "5mm")]  # 들여쓰기 — 첫 줄만
+    assert ED.lines({"indentLeftMm": 10.0, "firstLineMm": -4.0}) == {"line1Mm": 10.0, "line2Mm": 14.0}
+    # Word: 왼쪽 값이 둘째 줄부터의 자리 · 내어쓰기는 첫 줄을 왼쪽으로(left 14 · hanging 4 = 첫 줄 10 · 둘째 줄부터 14)
+    assert ED.lines({"indentLeftMm": 14.0, "firstLineMm": -4.0}, word=True) == {"line1Mm": 10.0, "line2Mm": 14.0}
+    word = ED.changes(_p(format={"indentLeftMm": 14.0, "firstLineMm": 0.0}), _p(format={"indentLeftMm": 14.0, "firstLineMm": -4.0}), word=True)
+    assert [(c["key"], c["before"], c["after"]) for c in word] == [("line1Mm", "14mm", "10mm")]
+    assert ED.lines({}) == {"line1Mm": None, "line2Mm": None}  # 서식 값이 없는 블록 — 「없음」 끼리라 다름이 아니다
+    assert ED.changes(_p(format={"indentLeftMm": None}), _p(format={"indentLeftMm": None})) == []
 
 
 def test_same_shown_value_is_not_a_change_and_missing_block_is_none():
@@ -79,4 +95,4 @@ def test_endpoint_reports_format_edit_and_skips_text_only(client):
     r = client.post(f"/api/docs/{d}/format/para", json={"ids": [b["id"]], "changes": {"indentLeftMm": 7}})
     assert r.status_code == 200, r.text
     two = client.get(f"/api/docs/{d}/edits/detail", params={"ids": b["id"]}).json()
-    assert set(two["items"]) == {b["id"]} and any(c["key"] == "indentLeftMm" and c["after"] == "7mm" for c in two["items"][b["id"]])
+    assert set(two["items"]) == {b["id"]} and any(c["key"] in ED.LINE_KEYS and c["after"] == "7mm" for c in two["items"][b["id"]])  # 왼쪽 여백 7 → 앞 여백·2번째 줄 가운데 들이지 않은 쪽이 7mm

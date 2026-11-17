@@ -278,7 +278,7 @@ def test_slot_preview_shows_before_after_without_changing(sess):
     assert j2["changed"] == 0 and j2["same"] == j["changed"] + j["same"]  # 이미 그 자리 — 바뀔 줄 없음
     # 잘못된 값
     j3 = c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "text", "letterMm": 1}).json()
-    assert j3["error"] and "앞 공백" in j3["error"]  # 앞 공백 폭보다 작은 레터 위치 — 줄마다 거절(400 이 아니라 까닭을 보임)
+    assert j3["error"] and "레터 앞 빈칸" in j3["error"]  # 앞 공백 폭보다 작은 레터 위치 — 줄마다 거절(400 이 아니라 까닭을 보임)
     assert c.post(f"/api/docs/{d}/outline/slots/{T}/2/preview", json={"line2": "mm"}).status_code == 400
     assert c.post(f"/api/docs/{d}/outline/slots/{T}/9/preview", json={"line2": "text"}).status_code == 404
     _undo_all(c, d, s)

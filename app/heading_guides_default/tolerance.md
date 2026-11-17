@@ -23,7 +23,7 @@
 }
 ```
 
-- leadSpaces·leadMm: 앞 공백 칸 수·폭 차이. indentMm: 왼·오른 여백, firstLineMm: 첫 줄 들여/내어쓰기 폭.
+- leadSpaces·leadMm: 레터 앞 빈칸 칸 수·폭 차이. indentMm: 왼·오른 여백, firstLineMm: 첫 줄 들여/내어쓰기 폭.
 - sizePt: 글자 크기, spacePt: 문단 위·아래 간격, gapPt: 유효 간격(빈 문단 포함), lineSpacingPct: 줄 간격(%), lineSpacingPt: 고정·최소·여백 줄 간격(pt), ratioPct·spacingPct: 장평·자간.
 - fontAliases: 같은 글꼴로 보는 이름 묶음. colors: 같은 색으로 보는 묶음(null = 자동 색).
 
@@ -32,4 +32,4 @@
 - 문턱 밖이지만 같은 구실(같은 단계의 보통 항목)이면 LLM 이 같은 슬롯으로 보고 편차로 기록한다(조정 지침).
 
 ## 비교에서 빼는 것
-- 글 없는 줄(쓸 자리)의 레터 뒤 공백, 빈 문단(간격 장치)의 글꼴 이름.
+- 글 없는 줄(쓸 자리)의 레터 뒤 빈칸, 빈 문단(간격 장치)의 글꼴 이름.
