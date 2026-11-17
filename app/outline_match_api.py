@@ -166,7 +166,7 @@ def match(doc_id: str, tpl: str, level: int, body: dict = Body(default={})):
             placed.extend(i for i in changed if i not in set(ids))  # 대표에 맞춘 줄(ids)이 아니라 확정 서식만 건 줄(대표 · 대표 갈래)
             no = ov2["templates"][str(tpl)]["no"]
             left.extend(_left_rows(lf, tpl, no, level))
-            extra.update({"lines": {pid: outline_edit.line_view(ov2["lines"][pid]) for pid in hit}, "removed": [], "fmts": outline_match.labels_now(s.doc, ov2, hit)})  # fmts = 그 레벨 줄들의 지금 서식 라벨(맞춘 줄은 대표의 라벨이 됐다)
+            extra.update({"lines": {pid: outline_edit.line_view(ov2["lines"][pid]) for pid in hit if pid in ov2["lines"]}, "removed": [], "fmts": outline_match.labels_now(s.doc, ov2, hit)})  # 표지 때문에 못 맞춘 자동 글머리 줄(② §8-8)은 줄이 아니다  # fmts = 그 레벨 줄들의 지금 서식 라벨(맞춘 줄은 대표의 라벨이 됐다)
             return {"hosts": [s.doc._ids[i] for i in hit], "formatted": set(changed), "struct": set(), "origin": {}, "anchor": hit[0],
                     "log": {"tpl": no, "level": level, "rep": sl["rep"], "changed": len(ids) - len(left), "placed": len(changed) - len(ids), **({"left": len(left)} if left else {})}}
         return [s.doc._ids[i] for i in hit], run

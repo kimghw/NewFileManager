@@ -245,7 +245,8 @@ def fingerprint_of(doc, ov, tid):
 def group_sig(level, raw):
     """갈래의 지문 — 레벨 + 비교 값(KEYS). 앞 계획의 검토·보낸 이력을 **같은 갈래**에만 잇는 데 쓴다(열쇠 줄이 같아도 서식이 바뀌어 다른 갈래가 됐으면 잇지 않는다)."""
     # 표 안의 줄은 표 양식도(② §8-11 「갈래는 표 양식마다」 — 서식이 같아도 표 양식이 다르면 다른 갈래다) · 표 밖 갈래의 지문은 전과 같다
-    return hashlib.sha1(repr([int(level)] + [M.cval(raw, k) for k in M.KEYS] + ([raw["form"]] if raw.get("form") else [])).encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(repr([int(level)] + [M.cval(raw, k) for k in M.KEYS] + ([raw["form"]] if raw.get("form") else [])
+                             + ([f"자동:{raw['auto']}"] if raw.get("auto") else [])).encode("utf-8")).hexdigest()[:12]  # 자동 글머리 줄(② §8-8)도 따로 — 친 레터 갈래의 지문은 전과 같다
 
 
 def _known(records, paras, sig):
@@ -296,6 +297,7 @@ def material(doc, ov, tid, reviewed=None, sent=None):
                    "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-", doc=doc), "hard": bool(M.split_block(ov, tid, lv, g["paras"], rep="-", doc=doc, partial=False)),
                    "units": dict(Counter(ukey(p) for p in g["paras"] if p in units)) if units is not None else None,
                    "form": g.get("form"), "own": bool(g.get("own")),  # 표 안의 줄 — 표 양식{label, tables, around} · 표의 서식인가(② §8-11)
+                   "cannotBeRep": bool(g["raw"].get("auto")),  # 자동 글머리 줄(② §8-8) — 레터가 글에 없어 대표가 못 된다(맞추면 친 레터가 된다)
                    "sig": sig, "seen": was_kept, "sentBefore": was_sent or was_kept}
                   for i, (g, sig, was_sent, was_kept) in enumerate(tagged)]
         rest = groups[GROUP_MAX:]
@@ -386,6 +388,8 @@ def prompt_material(mat):
                 item["table"] = {"header": f["label"], "tables": f["tables"], **({"textAround": f["around"]} if f.get("around") else {}), **({"ownFormat": True} if g.get("own") else {})}
             if g["rep"]:
                 item["currentRep"] = True
+            if g.get("cannotBeRep"):
+                item["cannotBeRep"] = True
             if rep is None or g["rep"]:
                 item["values"] = _values(g["look"])
             else:
@@ -431,6 +435,8 @@ CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정�
   ownFormat(그 표에는 대표와 서식이 같은 줄이 하나도 없습니다 — 그 표가 제 서식을 씁니다). differsFromRep 의 이름 「표」 = 대표 줄과 표(머리글)가 다릅니다. 표 안의 줄은 서식이 같아도 표가 다르면 다른 갈래로 옵니다.
 - 값의 뜻: 레터 앞 빈칸·레터·레터 뒤 빈칸 = 줄 첫머리 / 앞 여백 = 첫 줄 시작 자리(mm) · 2번째 줄 = 줄이 넘어갈 때 시작 자리(mm) / 레터 글꼴·크기… = 레터 글자 모양 / 글꼴·크기… = 본문 바탕 글자 모양.
   differsFromRep 의 이름 「닮은 레터 글자」 = 레터는 대표와 **같고 글자만 다른** 것입니다(헤딩 판정이 같은 레터로 묶은 글자 — 「o」·「ㅇ」·「○」 · 「·」·「⋅」·「•」). 이름 「레터」 는 레터 자체가 다를 때만 나옵니다.
+  differsFromRep 의 이름 「자동 글머리」 = 그 갈래의 레터는 글로 친 것이 아니라 한글의 자동 글머리표·문단 번호입니다(레터는 대표와 같습니다 — 「레터」 가 다른 것이 아닙니다).
+  cannotBeRep 이 있는 갈래(자동 글머리 줄)는 rep 로 고를 수 없고 다른 템플릿으로 뗄 수도 없습니다 — match 하면 대표의 접두가 글로 들어가 친 레터가 됩니다.
 
 ## 정할 것 — 줄이 있는 모든 레벨에 한 항목씩
 - rep: 그 레벨의 **대표로 삼을 갈래 id**. 지금 대표가 알맞으면 그 id 를 그대로 적습니다.
@@ -489,6 +495,9 @@ def check_plan(mat, data):
             rep = was
         if lv.get("repSet") and was is not None and rep != was:  # 사람이 정한 대표는 답이 바꾸지 못한다 — 스킬 글이 말해도 검사가 강제한다(2026-11-16 astra)
             notes.append(f"L{lv['level']} 대표는 사람이 정한 것 — 「{rep}」 로 바꾸지 않음")
+            rep = was
+        if rep is not None and rep != was and gs[rep].get("cannotBeRep"):  # 자동 글머리 줄(② §8-8)은 대표가 못 된다 — 레터가 글에 없다
+            notes.append(f"L{lv['level']} 서식 「{rep}」 는 자동 글머리표·문단 번호 줄이라 대표가 될 수 없음 — 지금 대표를 그대로 둠")
             rep = was
         why = str(row.get("why") or "").strip()
         # omitted = 갈래가 GROUP_MAX 를 넘어 에이전트에 보내지 않은 갈래 수(못 본 것 — 이 계획을 반영해도 「다 봄」 이 아니다: analysis.plan_state) · values = 값 칸 줄 수(갈래에 없다)

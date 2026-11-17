@@ -74,6 +74,19 @@ def numbers_of(letter):
     return [v for _, _, t in _runs(letter) if (v := _ordinal(t)) is not None]
 
 
+def letter_form(tok, key):
+    """레터의 꼴 — 번호형(key)은 번호 글자를 「#」 로(「3.」·「4.」 는 같은 꼴 · 「3)」 은 다른 꼴), 기호는 글자 그대로(「o」·「ㅇ」 는 다른 꼴)."""
+    if not is_numbered(key):
+        return tok
+    out, last = [], 0
+    for s, e, t in _runs(tok):
+        if _ordinal(t) is not None:
+            out.append(tok[last:s] + "#")
+            last = e
+    out.append(tok[last:])
+    return "".join(out)
+
+
 def with_numbers(letter, values):
     """레터의 번호 글자들을 values 로(꼴은 그대로) — 자리 수가 다르면 뒤에서부터 맞춘다. 열을 넘으면 None."""
     runs = [r for r in _runs(letter) if _ordinal(r[2]) is not None]
@@ -172,7 +185,7 @@ def build_overlay(g, probe, rev=0):
         pi = info(n["para"])
         letter = n.get("letter") or ""
         if pi is None or not letter or not prefix_of(pi["text"], letter)[1]:
-            continue
+            continue  # 글 첫머리에 레터가 없는 줄 — 자동 글머리 줄이면 아래 collect_autos 가 따로(ov["autos"])
         lines[n["para"]] = {"tpl": tid, "no": tpls[tid]["no"], "level": int(n["level"]), "parent": None, "letter": letter, "key": n.get("key") or "",
                             "role": n["role"], "flow": n.get("flow", "body"), "_pnode": n.get("parent"),
                             "fmt": n.get("fmt") or ""}  # 서식 라벨(여백의 「S41」) — 추출한 때의 것. 대표에 맞춘 줄은 대표의 라벨이 된다(outline_match.match_one · label_sync)
@@ -208,13 +221,136 @@ def build_overlay(g, probe, rev=0):
                 rep_pi = info(sl["rep"]) if sl["rep"] else None
                 sl["spacer"] = (rep_pi or {}).get("spacer") or with_sp[0]["spacer"]
             sl.pop("members", None)
+    autos = collect_autos(g, info, lines, tpls)  # 자동 글머리 줄(② §8-8) — 슬롯 레터를 얼린 뒤에(대표가 친 레터와 견준다)
     branches = {}
     for ins in g.get("instances") or []:
         pp = by_node.get(ins.get("parent"))
         if pp and pp in lines and str(ins.get("template")) in tpls:
             branches.setdefault(f"{lines[pp]['tpl']}|{lines[pp]['level']}", Counter())[str(ins["template"])] += 1
     return {"run": [meta.get("run"), meta.get("at")], "baseRev": rev, "rev": rev, "lines": lines, "templates": tpls,
-            "branches": {k: [t for t, _ in c.most_common()] for k, c in branches.items()}}
+            "branches": {k: [t for t, _ in c.most_common()] for k, c in branches.items()}, **({"autos": autos} if autos else {}), "autosv": 1}
+
+
+# ---------------------------------------------------------------- 자동 글머리 줄(spec_hwpx_웹편집 ② §8-8 「자동 글머리 줄」 — 2026-11-17 사용자 답 「친 레터로 바꿔 맞춤」)
+# 레터가 글이 아니라 문단 모양의 글머리표(hh:heading BULLET)·문단 번호(NUMBER)인 헤딩 줄. 그래프는 템플릿 레벨에 넣지만 ov["lines"](글 첫머리에 레터 그대로)가 못 된다 —
+# ov["autos"]{문단 id: {tpl, no, level, parent, d, letter(라벨), key, role, flow, auto, fmt}} 에 따로 두고 서식 갈래 · 대표에 맞추기만 본다(outline_match.slot_ids · _line_of).
+# 맞추면(outline_match.match_one) 대표의 접두를 글로 넣고 대표의 문단 모양이 되어 친 레터의 보통 줄이 된다 — ov["lines"] 로 옮긴다(promote).
+AUTO_KINDS = ("bullet", "number")
+
+
+def collect_autos(g, probe, lines, tpls):
+    """그래프 g 에서 자동 글머리 줄을 골라 → {문단 id: {tpl, no, level, parent, d, letter, key, role, flow, auto, fmt}}. lines · tpls = 오버레이의 줄 · 템플릿(슬롯 레터를 얼린 뒤).
+    고르는 줄: 그래프의 줄 조건(헤딩 역할 · 템플릿 · 레벨 · 문단에 노드 하나)을 갖추고 개요 줄이 아니며 · 글 첫머리에 레터가 없고 · 지금 문단 모양이 글머리표·문단 번호(probe 의 auto)이고 ·
+    글이 있고(글 없는 줄 = 쓸 자리는 뺀다) · 그 레벨과 **같은 레터가 생기는** 줄(2026-11-17 사용자 「숫자, 영문, 문자는 그대로 갖어오고 동일한 레터가 생기는 자동만 처리하면 되잖아?」 —
+    라벨의 꼴 = 그 레벨 레터(대표가 친 레터)의 꼴: 번호형은 번호만 다를 수 있다(「1.」 레벨의 「2.」 · 「3)」 은 아님), 기호는 글자까지 같다(닮은 글자도 아님)).
+    부모 = 그래프의 부모 노드 문단이 개요 줄 · 자동 글머리 줄일 때만 · d = 같은 그래프 템플릿이면 그래프 레벨 차이(종속 · 떼기로 부모가 옮기면 따라간다 — auto_slot)."""
+    nodes = g.get("nodes") or []
+    per_para = Counter(n["para"] for n in nodes if n.get("role") in ROLES and n.get("template") and n.get("level"))
+    by_anchor = {t.get("anchor"): tid for tid, t in tpls.items() if t.get("anchor")}
+    by_id = {n.get("id"): n for n in nodes}
+    autos = {}
+    for n in nodes:
+        if n.get("role") != "heading" or n.get("band") or not n.get("template") or not n.get("level") or per_para[n["para"]] != 1 or n["para"] in lines:
+            continue
+        tid = by_anchor.get(n["template"], str(n.get("tplNo")))
+        t, letter = tpls.get(tid), n.get("letter") or ""
+        if t is None or not letter:
+            continue
+        pi = probe(n["para"])
+        if pi is None or pi.get("auto") not in AUTO_KINDS or not pi["text"].strip() or prefix_of(pi["text"], letter)[1]:
+            continue
+        level = int(n["level"])
+        sl, chain = t["slots"].get(str(level)) or {}, t.get("chain") or []
+        key = n.get("key") or (chain[level - 1] if level - 1 < len(chain) else "")  # 정규 키(「N.」 · 「-」) — 슬롯의 key 는 레터 글자(「1.」)라 번호형을 못 가린다
+        if sl.get("table") or not sl.get("letter") or letter_form(letter, key) != letter_form(sl["letter"], key):
+            continue
+        pn = by_id.get(n.get("parent")) if n.get("parent") else None
+        d = level - int(pn["level"]) if pn and pn.get("template") == n["template"] and pn.get("level") and level > int(pn["level"]) else None
+        autos[n["para"]] = {"tpl": tid, "no": t.get("no"), "level": level, "parent": pn.get("para") if pn else None, "d": d, "letter": letter, "key": n.get("key") or "",
+                            "role": n["role"], "flow": n.get("flow", "body"), "auto": pi["auto"], "fmt": n.get("fmt") or ""}
+    for a in autos.values():  # 부모가 개요 줄도 자동 글머리 줄도 아니면 — 만든 때의 자리
+        if a["parent"] not in lines and a["parent"] not in autos:
+            a["parent"], a["d"] = None, None
+    return autos
+
+
+def add_autos(ov, g, probe):
+    """자동 글머리 줄이 생기기 전에 만든 오버레이(저장된 작업 — `autosv` 없음)에 한 번 채운다(헤딩 그래프를 다시 돌리지 않아도 — label_sync 와 같은 꼴). -> 채웠나."""
+    if ov.get("autosv"):
+        return False
+    autos = collect_autos(g, probe, ov["lines"], ov["templates"])
+    if autos:
+        ov["autos"] = {**autos, **(ov.get("autos") or {})}
+    ov["autosv"] = 1
+    return True
+
+
+def auto_slot(ov, pid, limit=16):
+    """자동 글머리 줄 pid 의 지금 (템플릿 id, 레벨) | None(그 템플릿이 없음). 부모가 같은 템플릿의 줄이면(d) 부모를 따라간다 — 종속 · 서식 종속 템플릿으로 부모가 옮겨도 같이
+    (부모가 자동 글머리 줄이면 그 줄의 자리부터). 아니면 만든 때의 자리."""
+    autos = ov.get("autos") or {}
+    a = autos.get(pid)
+    if a is None:
+        return None
+    par, d = a.get("parent"), a.get("d")
+    if par and d and limit > 0:
+        if par in ov["lines"]:
+            px = ov["lines"][par]
+            return px["tpl"], int(px["level"]) + int(d)
+        if par in autos:
+            got = auto_slot(ov, par, limit - 1)
+            if got is not None:
+                return got[0], got[1] + int(d)
+    return (a["tpl"], int(a["level"])) if str(a["tpl"]) in ov["templates"] else None
+
+
+def auto_view(ov, pid):
+    """자동 글머리 줄의 줄 꼴(ov["lines"] 의 값과 같은 키 + auto) — tpl · no · level 은 지금 자리(auto_slot). 자리가 없으면 None."""
+    a = (ov.get("autos") or {}).get(pid)
+    at = auto_slot(ov, pid) if a is not None else None
+    if at is None:
+        return None
+    t = ov["templates"].get(str(at[0])) or {}
+    par = a.get("parent")
+    return {**a, "tpl": str(at[0]), "level": at[1], "no": t.get("no", a.get("no")), "parent": par if par in ov["lines"] else None}
+
+
+def promote(ov, pid, letter, **extra):
+    """자동 글머리 줄 pid 를 친 레터의 보통 개요 줄로(맞춘 뒤 — 대표의 접두를 글로 넣었다): ov["autos"] 에서 빼고 ov["lines"] 에 지금 자리로 넣는다. -> 그 줄."""
+    x = auto_view(ov, pid)
+    if x is None:
+        raise ValueError(f"{pid} 는 자동 글머리 줄이 아닙니다")
+    ov["autos"].pop(pid)
+    if not ov["autos"]:
+        ov.pop("autos")
+    line = {k: x[k] for k in ("tpl", "no", "level", "parent", "key", "role", "flow", "fmt") if k in x}
+    line.update(letter=letter, **extra)
+    ov["lines"][pid] = line
+    return line
+
+
+def sync_autos(ov, alive, kind_of, text_of):
+    """편집 뒤 자동 글머리 줄 손질 — 문단이 없어졌거나 · 글머리표·문단 번호가 꺼졌거나(kind_of(pid) ∉ AUTO_KINDS) · 글이 비었으면 뺀다.
+    그 줄을 부모로 삼던 자동 글머리 줄은 빼기 전의 자리를 굳히고 부모를 놓는다. 부모 개요 줄이 이미 빠진 줄(sync 가 먼저 돈다)은 만든 때의 자리로. -> 뺀 문단 id 들."""
+    autos = ov.get("autos")
+    if not autos:
+        return []
+    for a in autos.values():
+        par = a.get("parent")
+        if par and par not in ov["lines"] and par not in autos:
+            a["parent"], a["d"] = None, None
+    gone = [p for p in autos if not alive(p) or kind_of(p) not in AUTO_KINDS or not text_of(p).strip()]
+    for q, y in autos.items():
+        if q not in gone and y.get("parent") in gone:
+            cur = auto_slot(ov, q)
+            y["parent"], y["d"] = None, None
+            if cur is not None:
+                y["tpl"], y["level"] = str(cur[0]), cur[1]
+    for p in gone:
+        autos.pop(p)
+    if not autos:
+        ov.pop("autos", None)
+    return gone
 
 
 def sync(ov, alive, text_of):

@@ -52,16 +52,8 @@ def ws(s):
 
 
 def _form(tok, key):
-    """레터의 꼴 — 번호형은 번호 글자를 「#」 로(「3.」·「4.」 는 같은 꼴), 기호는 글자 그대로(「o」·「ㅇ」 는 다른 꼴)."""
-    if not OE.is_numbered(key):
-        return tok
-    out, last = [], 0
-    for s, e, t in OE._runs(tok):
-        if OE._ordinal(t) is not None:
-            out.append(tok[last:s] + "#")
-            last = e
-    out.append(tok[last:])
-    return "".join(out)
+    """레터의 꼴 — 번호형은 번호 글자를 「#」 로(「3.」·「4.」 는 같은 꼴), 기호는 글자 그대로(「o」·「ㅇ」 는 다른 꼴). 본은 outline_edit.letter_form(오버레이가 자동 글머리 줄을 고를 때도 같은 꼴)."""
+    return OE.letter_form(tok, key)
 
 
 # 닮은 레터 글자(spec_hwpx_웹편집 ② §8-5 「닮은 글자」 — 2026-11-17 사용자 「이것도 같은 서식을 갖어야 하는데 .. 식별이 안되었나? 이건 같은 템플릿에서 같은 뿌리인데」 → 답 「같은 레터 · 글자도 대표로」):
@@ -74,6 +66,58 @@ GLYPH = "닮은 레터 글자"  # diff 의 이름 — 레터는 같고 글자만
 def kin(tok, key):
     """레터의 **계열** — 같으면 같은 레터다(글자가 달라도 닮은 글자). 줄의 레터 키(헤딩 판정의 정규 키) + 속이 찬 기호인가. 키가 없는 줄은 글자 그대로."""
     return (key or tok) + ("/찬" if tok[:1] in FILLED else "")
+
+
+# 자동 글머리 줄(spec_hwpx_웹편집 ② §8-8 「자동 글머리 줄」 — 2026-11-17 사용자 「이거는 LLM 조정할 때 대표 서식에 포함되도록 안 되나? 왜 남아 있지?」 → 답 「친 레터로 바꿔 맞춤」):
+# 레터가 글이 아니라 문단 모양의 글머리표·문단 번호인 줄(오버레이 ov["autos"] — outline_edit.auto_view). 그 레벨의 서식 갈래에 들고, 비교 값 「자동 글머리」 가 대표(친 레터)와 다르다 —
+# 레터가 다른 것이 아니다(라벨이 그 레벨의 레터: 떼는 기준이 아님). 대표가 될 수 없고(접두를 얼릴 글이 없다) 다른 템플릿으로 떼지 않는다 · 맞추면 친 레터의 보통 줄이 된다(match_one).
+AUTO = "자동 글머리"  # diff 의 이름
+AUTO_SHOWN = {"": "친 글자", "bullet": "자동 글머리표", "number": "자동 번호"}
+AUTO_REP = "자동 글머리표·문단 번호 줄은 레터가 글에 없어 대표가 될 수 없습니다 — 친 레터의 줄을 대표로 정하세요(맞추면 이 줄도 친 레터가 됩니다)"
+AUTO_SPLIT = "자동 글머리표·문단 번호 줄은 다른 템플릿으로 떼지 않습니다 — 대표에 맞추면 친 레터가 됩니다"
+
+
+def auto_kind(doc, pid):
+    """문단 pid 의 문단 모양이 글머리표 · 문단 번호면 "bullet" | "number", 아니면 None(개요 번호 OUTLINE 은 아니다 — 한글이 번호 글을 비워 둔 양식이 흔하다)."""
+    el = doc._ids.get(pid) if hasattr(doc, "_heading") else None
+    h = doc._heading(el) if el is not None and el.tag == P else None
+    kind = h.get("type") if h is not None else None
+    return {"BULLET": "bullet", "NUMBER": "number"}.get(kind)
+
+
+def _is_auto(ov, pid):
+    return pid not in ov["lines"] and pid in (ov.get("autos") or {})
+
+
+def auto_numbers(doc, ov, tid=None, level=None):
+    """자동 번호 줄(ov["autos"] 의 number — tid·level 을 주면 그 레벨 것만)의 레터를 **지금 문서에 보이는 번호**로 — 맞추기 전에 한 번(맞추면 그 줄이 번호 매김에서 빠져
+    뒤 줄의 번호가 당겨지므로, 맞출 줄들의 번호는 바꾸기 전에 함께 센다). 번호는 화면 블록과 같은 셈(hwpx_doc._list_info — 번호 정의마다 문서 차례로). -> 바꾼 줄 수."""
+    autos = ov.get("autos") or {}
+    want = [p for p, a in autos.items() if a.get("auto") == "number"
+            and (tid is None or (OE.auto_slot(ov, p) or (None, None)) == (str(tid), int(level)))]
+    if not want or not hasattr(doc, "_list_info"):
+        return 0
+    want, labels = set(want), {}
+    saved = doc._num_ctr
+    doc._num_ctr = {}
+    try:
+        for sec in doc._sections:
+            for p in sec.iter(P):
+                h = doc._heading(p)
+                if h is None or h.get("type") != "NUMBER":
+                    continue
+                info = doc._list_info(h)
+                pid = doc._rev.get(p)
+                if pid in want and info.get("label"):
+                    labels[pid] = info["label"]
+    finally:
+        doc._num_ctr = saved
+    n = 0
+    for pid, lab in labels.items():
+        if autos[pid]["letter"] != lab:
+            autos[pid]["letter"] = lab
+            n += 1
+    return n
 
 
 def _runs_pos(doc, p):
@@ -99,6 +143,8 @@ def _cid_at(doc, p, offset):
 
 def _line_of(ov, pid):
     x = ov["lines"].get(pid)
+    if x is None and pid in (ov.get("autos") or {}):
+        x = OE.auto_view(ov, pid)  # 자동 글머리 줄 — 지금 자리(템플릿·레벨)의 줄 꼴(사본: 고쳐도 오버레이는 안 바뀐다 — 맞추면 promote)
     if x is None:
         raise ValueError("개요 줄이 아닙니다 — 헤딩 추출 2단계가 템플릿을 매긴 문단만 됩니다")
     return x
@@ -127,8 +173,11 @@ def look(doc, ov, pid):
     pp = p.get("paraPrIDRef")
     para, lch, bch = doc._summary(pp, lc), doc._summary(pp, lc), doc._summary(pp, bc)
     left, first = para.get("indentLeftMm"), para.get("firstLineMm")
-    out = {"lead": lead, "letter": "" if x.get("role") in OE.ROOTED else _form(tok, x.get("key") or ""), "gap": gap}
-    out["kin"] = "" if x.get("role") in OE.ROOTED else kin(tok, x.get("key") or "")  # 레터 계열 — 비교 값(KEYS)이 아니다: 갈래는 전처럼 글자로 가르고, diff 가 다른 글자의 이름만 정한다
+    lt = tok or (x.get("letter") or "" if x.get("auto") else "")  # 자동 글머리 줄(② §8-8) — 레터는 글이 아니라 라벨(그 레벨의 레터: 「레터」 가 다른 것이 아니다)
+    out = {"lead": lead, "letter": "" if x.get("role") in OE.ROOTED else _form(lt, x.get("key") or ""), "gap": gap}
+    out["kin"] = "" if x.get("role") in OE.ROOTED else kin(lt, x.get("key") or "")  # 레터 계열 — 비교 값(KEYS)이 아니다: 갈래는 전처럼 글자로 가르고, diff 가 다른 글자의 이름만 정한다
+    if x.get("auto"):
+        out["auto"] = x["auto"]  # 자동 글머리(② §8-8) — KEYS 밖의 비교 값(same · diff · 갈래 열쇠가 따로 본다: 친 레터 줄의 지문은 전과 같다)
     tf = table_form(doc, ov, p)  # 표 양식(② §8-11) — 비교 값(KEYS)이 아니다: 대표와 서식이 다른 표 안의 줄을 표 양식마다 다른 갈래로 가른다(variants · mate)
     out["form"], out["formLabel"] = (tf["key"], tf["label"]) if tf else ("", "")
     if left is None or first is None:
@@ -150,6 +199,8 @@ def shown(key, v):
     """화면용 값 글 — 공백은 「2칸」, mm·pt·% 는 단위."""
     if key in ("lead", "gap"):
         return ws(v)
+    if key == "auto":
+        return AUTO_SHOWN.get(v or "", str(v))
     if v is None:
         return "—"
     if isinstance(v, bool):
@@ -205,15 +256,16 @@ def diff(a, b):
     """비교 값 a(대표) 와 b 의 다른 키 → [[키, 이름, 대표 글, b 글]…](KEYS 차례).
     레터 글자가 달라도 **계열이 같으면**(`kin` — 닮은 글자) 이름은 「레터」 가 아니라 「닮은 레터 글자」(GLYPH)다 — 서식 정리 에이전트가 떼는 기준은 이름이 「레터」 인 항목뿐이다."""
     glyph = bool(a.get("kin")) and a.get("kin") == b.get("kin")
-    out = [[k, GLYPH if k == "letter" and glyph else LABELS.get(k, k), cshown(a, k), cshown(b, k)] for k in KEYS if cval(a, k) != cval(b, k)]
+    out = [["auto", AUTO, shown("auto", a.get("auto")), shown("auto", b.get("auto"))]] if (a.get("auto") or "") != (b.get("auto") or "") else []  # 자동 글머리(② §8-8) — 맨 앞
+    out += [[k, GLYPH if k == "letter" and glyph else LABELS.get(k, k), cshown(a, k), cshown(b, k)] for k in KEYS if cval(a, k) != cval(b, k)]
     if b.get("form") and (a.get("form") or "") != b["form"]:  # 표 안의 줄 — 대표 줄과 표 양식이 다르다(② §8-11: 「표: 대표의 머리글 → 이 갈래의 머리글」)
         out.append(["form", FORM, a.get("formLabel") or "표 밖", b.get("formLabel") or "—"])
     return out
 
 
 def same(a, b):
-    """두 줄의 비교 값이 같은가 — KEYS 만 견준다(`look` 에 함께 실린 줄 맞춤 값 FIT_KEYS 는 안 본다). 「2번째 줄」 은 규칙으로(cval)."""
-    return all(cval(a, k) == cval(b, k) for k in KEYS)
+    """두 줄의 비교 값이 같은가 — KEYS 와 자동 글머리(② §8-8)를 견준다(`look` 에 함께 실린 줄 맞춤 값 FIT_KEYS 는 안 본다). 「2번째 줄」 은 규칙으로(cval)."""
+    return (a.get("auto") or "") == (b.get("auto") or "") and all(cval(a, k) == cval(b, k) for k in KEYS)
 
 
 def _cell_of(p):
@@ -302,7 +354,7 @@ def around_text(counter):
     return " ".join(x for x in (font, f"{size:g}pt" if size else "", "굵게" if bold else "") if x)
 
 
-_LOOK_ONLY = ("line2At", "kin", "form", "formLabel")  # `look` 에 함께 실리지만 화면의 서식 값(갈래의 look)이 아닌 것
+_LOOK_ONLY = ("line2At", "kin", "form", "formLabel", "auto")  # `look` 에 함께 실리지만 화면의 서식 값(갈래의 look)이 아닌 것
 
 
 def _form_view(doc, ov, paras):
@@ -392,7 +444,12 @@ def _order(doc):
 
 
 def slot_ids(ov, tid, level):
-    return [pid for pid, x in ov["lines"].items() if x["tpl"] == str(tid) and int(x["level"]) == int(level)]
+    """(tid, level) 의 줄 — 개요 줄 + 자동 글머리 줄(② §8-8 — 지금 자리가 그 레벨인 것: outline_edit.auto_slot)."""
+    out = [pid for pid, x in ov["lines"].items() if x["tpl"] == str(tid) and int(x["level"]) == int(level)]
+    if ov.get("autos"):
+        want = (str(tid), int(level))
+        out += [pid for pid in ov["autos"] if pid not in ov["lines"] and OE.auto_slot(ov, pid) == want]
+    return out
 
 
 def variants(doc, ov, tid, level, order=None, full=False):
@@ -409,8 +466,8 @@ def variants(doc, ov, tid, level, order=None, full=False):
         except (KeyError, ValueError):
             continue
         looks[pid] = lk
-        fkey[pid] = repr([cval(lk, k) for k in KEYS])
-    rep = sl.get("rep") if sl.get("rep") in looks else None
+        fkey[pid] = repr([cval(lk, k) for k in KEYS]) + (f"|자동:{lk['auto']}" if lk.get("auto") else "")  # 자동 글머리 줄(② §8-8)은 따로 — 친 레터 줄의 열쇠는 전과 같다
+    rep = sl.get("rep") if sl.get("rep") in looks and not _is_auto(ov, sl["rep"]) else None  # 자동 글머리 줄은 대표가 아니다(② §8-8 — 그래프가 그 줄을 대표로 뽑았던 레벨은 「대표 없음」)
     rep_key = fkey[rep] if rep else None
     base = looks[rep] if rep else None  # 대표 **줄**의 비교 값(대표 갈래의 첫 줄이 아니라 — 표 양식은 줄마다 다를 수 있다)
     for pid, lk in looks.items():
@@ -489,7 +546,7 @@ def label_sync(doc, ov, g):
             except (KeyError, ValueError):
                 continue
             for pid in slot_ids(ov, tid, lv):
-                if pid == rep or ov["lines"][pid].get("fmt") == want or not _alive(doc, pid):
+                if pid == rep or pid not in ov["lines"] or ov["lines"][pid].get("fmt") == want or not _alive(doc, pid):  # 자동 글머리 줄(② §8-8)은 대표와 서식이 늘 달라 라벨이 그래프 것 그대로
                     continue
                 try:
                     if same(look(doc, ov, pid), base):
@@ -519,7 +576,10 @@ def _group(v, groups):
 
 def near(a, b, tol):
     """비교 값 a(대표)와 b 가 **오차 안**인가(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」 ⓓ 의 「≈」) — 다른 값마다: 레터 · 정렬 · 굵게 · 기울임 · 밑줄이 다르면 아님 ·
-    앞 공백 · 레터 뒤 공백은 빈칸뿐일 때 칸 수 차이 ≤ leadSpaces(보통 빈칸과 묶음 빈칸은 같은 한 칸) · mm·pt·% 는 문턱 이하 · 글꼴 · 색은 같은 군. tol = heading_guides 의 오차 기준."""
+    앞 공백 · 레터 뒤 공백은 빈칸뿐일 때 칸 수 차이 ≤ leadSpaces(보통 빈칸과 묶음 빈칸은 같은 한 칸) · mm·pt·% 는 문턱 이하 · 글꼴 · 색은 같은 군. tol = heading_guides 의 오차 기준.
+    자동 글머리(② §8-8)가 다르면 아니다 — 친 레터와 자동 글머리표는 오차가 아니다."""
+    if (a.get("auto") or "") != (b.get("auto") or ""):
+        return False
     for k in KEYS:
         if cval(a, k) == cval(b, k):
             continue
@@ -636,6 +696,8 @@ def set_rep(doc, ov, tid, level, pid, by=None):
     _check_member(ov, tid, level, pid)
     if lone_value(doc, ov, pid):
         raise ValueError("값 칸(표 칸에 혼자 있는 레터)은 대표가 될 수 없습니다 — 글이 있는 줄을 대표로 정하세요")
+    if _is_auto(ov, pid):
+        raise ValueError(AUTO_REP)
     sh = rep_shape(doc, ov, pid)
     sl.update(rep=pid, prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])
     if by == "agent":
@@ -667,6 +729,7 @@ def match_targets(doc, ov, tid, level, paras=None, like=None):
     kind = look(doc, ov, like) if like is not None else None
     order = _order(doc)
     want = set(paras) if paras else None
+    auto_numbers(doc, ov, tid, level)  # 자동 번호 줄의 레터를 지금 번호로 — 맞추기 전에 한 번(② §8-8 「자동 글머리 줄」)
     rows = []
     for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
         if pid == rep or not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 맞추지 않는다
@@ -704,6 +767,7 @@ def match_set(doc, ov, tid, level, rep=None, likes=None):
             _check_member(ov, tid, level, q)
             kinds.append(look(doc, ov, q))
     order = _order(doc)
+    auto_numbers(doc, ov, tid, level)  # 자동 번호 줄의 레터를 지금 번호로 — 맞추기 전에 한 번(② §8-8 「자동 글머리 줄」)
     rows = []
     for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
         if pid == rep or not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 맞추지 않는다(옛 계획이 그 갈래를 가리켜도)
@@ -722,16 +786,24 @@ def match_one(doc, ov, pid, sh, left=None):
     """줄 pid 를 대표 모양 sh(rep_shape)로 — 접두 · 문단 모양·스타일 · 레터 런 · 옛 본문 바탕 글자 모양을 쓰던 런. -> 바뀐 줄의 새 레터(모양만 맞춘 줄은 옛 레터).
     **짝 표지가 든 줄**(형광펜 · 필드 · 변경 추적 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」): 제 표지가 없으면 전처럼 접두를 다시 쓴다(replace_prefix).
     있으면 레터가 그대로일 때 레터 앞·뒤 빈칸만 제자리에서 바꾸고(prefix_keep_marks — 완전히 맞춤), 레터를 바꿔야 하거나 표지 때문에 못 바꾸면(MarkBlock)
-    **모양만**(prefix_shape_only — 글 · 오버레이의 letter · fmt 는 그대로) 맞추고 left 에 {"id", "why"("letter" | MarkBlock.why), "kinds"} 를 더한다 — 표지 때문에는 예외를 내지 않는다."""
-    x = ov["lines"][pid]
+    **모양만**(prefix_shape_only — 글 · 오버레이의 letter · fmt 는 그대로) 맞추고 left 에 {"id", "why"("letter" | MarkBlock.why), "kinds"} 를 더한다 — 표지 때문에는 예외를 내지 않는다.
+    **자동 글머리 줄**(ov["autos"] — ② §8-8 「자동 글머리 줄」): 대표의 접두(레터 앞 빈칸 · 레터 · 레터 뒤 빈칸)를 글 앞에 넣고(글 앞의 빈칸은 레터 뒤 빈칸이라 덮는다) 문단 모양을 대표 것으로 —
+    대표의 문단 모양에는 글머리표·문단 번호가 없어 **친 레터**가 된다 — 레터는 **보이던 그대로**(숫자 · 영문 · 글자 — 번호는 맞추기 전에 센 것: auto_numbers ·
+    그 레벨과 같은 레터가 생기는 줄만 오버레이에 든다). 맞춘 줄은 ov["lines"] 로 옮긴다(outline_edit.promote).
+    표지가 든 줄은 새 접두를 표지 밖에 넣고(prefix_keep_marks), 못 넣으면 **문서를 안 바꾸고** left 에 싣는다(모양만 맞추면 글머리표가 꺼져 레터가 없어진다)."""
+    auto = _is_auto(ov, pid)
+    x = _line_of(ov, pid)
     p = doc._ids[pid]
     lead, tok, gap, plen, text = parts(doc, ov, pid)
-    if not tok:
+    if not tok and not auto:
         raise ValueError(f"{pid} 의 첫머리에 레터가 없습니다")
-    if x.get("role") in OE.ROOTED:
+    own = tok or (x.get("letter") or "" if auto else "")  # 자동 글머리 줄의 지금 레터 = 라벨(번호형은 그 번호)
+    if auto:
+        new_tok = own  # 자동 글머리 줄 — 보이던 레터 그대로(숫자 · 영문 · 글자: 그 레벨과 같은 레터가 생기는 줄만 든다 — outline_edit.build_overlay)
+    elif x.get("role") in OE.ROOTED:
         new_tok = tok  # 괄호 줄 — 글 전체가 레터(구분 값)라 글은 그대로
     elif OE.is_numbered(x.get("key") or ""):
-        new_tok = OE.with_numbers(sh["tok"], OE.numbers_of(tok)) or tok  # 대표 꼴에 제 번호
+        new_tok = OE.with_numbers(sh["tok"], OE.numbers_of(own)) or own  # 대표 꼴에 제 번호
     else:
         new_tok = sh["tok"]
     new_prefix = sh["lead"] + new_tok + sh["gap"]
@@ -750,6 +822,13 @@ def match_one(doc, ov, pid, sh, left=None):
     if not doc.own_marks(p):
         doc.replace_prefix(pid, plen, new_prefix, attrs=attrs)
         n0 = len(new_prefix)
+    elif auto:  # 자동 글머리 줄 + 제 표지 — 글 앞의 빈칸 자리에 접두 전체를 넣는다(새 글은 형광펜 밖)
+        try:
+            n0 = doc.prefix_keep_marks(pid, lead, "", "", new_prefix, "", attrs=attrs)["offset"]
+        except MarkBlock as e:  # 문서는 그대로(모양만 맞추면 글머리표가 꺼져 레터가 없어진다) — 자동 글머리 줄로 남는다
+            if left is not None:
+                left.append({"id": pid, "why": e.why, "kinds": doc.mark_names(p)})
+            return own
     else:
         if new_tok == tok:
             try:
@@ -780,6 +859,8 @@ def match_one(doc, ov, pid, sh, left=None):
         doc._tidy(p)
         doc._drop_cache(p)
         doc._touch(p)
+    if auto:  # 친 레터가 됐다 — 보통 개요 줄로(ov["autos"] → ov["lines"])
+        x = OE.promote(ov, pid, new_tok)
     if why is None:  # 완전히 맞춘 줄만 — 모양만 맞춘 줄은 레터 · 서식 라벨이 그대로다(글이 그대로)
         x["letter"] = new_tok
         if sh.get("fmt"):
@@ -1191,7 +1272,7 @@ def split_units(ov, tid, level, doc=None):
         return None
     out = {}
     for pid in slot_ids(ov, tid, level):
-        x = ov["lines"][pid]
+        x = _line_of(ov, pid)  # 자동 글머리 줄도(② §8-8 — 번호 묶음의 형제로 센다)
         if doc is not None:
             el = doc._ids.get(pid)
             tbl = table_of(el) if el is not None else None
@@ -1215,6 +1296,8 @@ def split_block(ov, tid, level, paras, rep=None, doc=None, partial=True):
     want = set(paras)
     if not want:
         return "뗄 줄이 없습니다"
+    if any(_is_auto(ov, p) for p in want):  # 자동 글머리 줄(② §8-8)은 떼지 않는다 — 맞추면 친 레터가 된다(그 뒤에 뗄 수 있다)
+        return AUTO_SPLIT
     if (rep or sl.get("rep")) in want:
         return f"T{t['no']} L{level} 의 대표 서식은 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
     units = split_units(ov, tid, level, doc) if partial else None  # partial=False — 「형제의 일부」 는 안 본다(계획 검사가 한 split 항목의 줄을 합쳐서 본다: tpl_agent.check_plan)

@@ -991,7 +991,8 @@ def _outline_probe(s):
         while prev is not None and not isinstance(prev.tag, str):
             prev = prev.getprevious()
         sp = doc.para_attrs(doc._rev[prev]) if prev is not None and prev.tag == P and prev in doc._rev and doc.is_spacer(prev) else None
-        return {"text": doc._text(el), "attrs": doc.para_attrs(pid), "spacer": sp}
+        # auto = 문단 모양의 글머리표·문단 번호("bullet" | "number" | None) — 레터가 글에 없는 자동 글머리 줄(spec_hwpx_웹편집 ② §8-8 「자동 글머리 줄」)
+        return {"text": doc._text(el), "attrs": doc.para_attrs(pid), "spacer": sp, "auto": outline_match.auto_kind(doc, pid)}
     return probe
 
 
@@ -1018,6 +1019,8 @@ def _outline_ov(s, build=True):
         __import__("app.caption_tpl", fromlist=["carry"]).carry(old, ov)  # 캡션 템플릿 「CN」 의 번호·사람이 정한 대표(② §8-10 — 그래프와 무관한 키라 그대로 옮긴다)
     if ov is not None and not ov.get("fmtv") and ov.get("run") == key:  # 줄의 서식 라벨을 지금 서식에 맞춘다 — 오버레이마다 한 번(라벨이 없던 옛 오버레이 · 새로 만든 오버레이)
         outline_match.label_sync(s.doc, ov, g)
+    if ov is not None and not ov.get("autosv") and ov.get("run") == key:  # 자동 글머리 줄(spec_hwpx_웹편집 ② §8-8)이 생기기 전에 만든 오버레이 — 한 번 채운다(그래프를 다시 돌리지 않아도)
+        outline_edit.add_autos(ov, g, _outline_probe(s))
     return ov
 
 
@@ -1060,6 +1063,7 @@ def _outline_sync(s):
         el = doc._ids.get(pid)
         return el is not None and el.tag == P and doc._attached(el)
     outline_edit.sync(ov, alive, lambda pid: doc._text(doc._ids[pid]))
+    outline_edit.sync_autos(ov, alive, lambda pid: outline_match.auto_kind(doc, pid), lambda pid: doc._text(doc._ids[pid]))  # 자동 글머리 줄(② §8-8)
     ov["rev"] = s.rev + 1
 
 
