@@ -211,6 +211,7 @@
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row:hover { background: #f6f8fc; }
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-name { font-weight: 600; color: #26364e; min-width: 0; overflow-wrap: anywhere; }
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-meta { font-size: 10.5px; color: #7b8798; white-space: nowrap; padding: 2px 6px; background: #f2f4f8; border-radius: 4px; }
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-hang { font-size: 10.5px; color: #7b8798; white-space: nowrap; } /* 「종속 템플릿」 절의 매달린 자리 「T1 L2 · T11 L3 아래」 */
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row > .panel-help { width: 23px; height: 23px; }
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-row > .hb.tplno { font-size: 10.5px; line-height: 19px; padding: 0 5px; border-radius: 4px; }
 :is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .trel-body { margin: 1px 0 7px 16px; padding-left: 12px; border-left: 1px solid #dce3ef; }

@@ -265,7 +265,8 @@ def main():
         page.wait_for_function("() => [...document.querySelectorAll('.tpl-mark')].some((m) => /^T9L2a L2/.test(m.textContent))", timeout=20000)
         page.wait_for_selector('#headsDlgBody li.trel-node[data-tpl="9~2a"]', timeout=20000)
         page.wait_for_function("(r) => /서식 4가지/.test((document.querySelector(r + ' .olm-sum') || {}).textContent || '')", arg=row9, timeout=20000)
-        st = page.evaluate("""(r) => { const li = document.querySelector('#headsDlgBody li.trel-node[data-tpl="9~2a"]'), t = heads.outline.templates['9~2a'];
+        # 펴 보인 줄 = 「종속 템플릿」 절에 따로 선 줄(spec_헤딩_추출 ② 「템플릿 관계」 — T9 L1 아래 가지 목록에도 접힌 채 하나 더 있다)
+        st = page.evaluate("""(r) => { const li = document.querySelector('#headsDlgBody .tpl-tree > .trel > li.trel-node[data-tpl="9~2a"]') || document.querySelector('#headsDlgBody li.trel-node[data-tpl="9~2a"]'), t = heads.outline.templates['9~2a'];
           return { base: t.base, vari: t.vari, lines: t.lines, row: li.querySelector('.trel-row').textContent, sub: !!li.querySelector(':scope > .trel-row .olm-sub'), shared: (li.querySelector('.olm-shared') || {}).textContent || '',
             chips: [...document.querySelector(r).querySelectorAll('.olm-vchip')].map((c) => c.textContent), t9: Object.values(heads.outline.lines).filter((x) => x.tpl === '9').length,
             tip: ([...document.querySelectorAll('.tpl-mark')].find((m) => /^T9L2a L2/.test(m.textContent)) || {}).title || '' }; }""", row9)

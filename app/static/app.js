@@ -7077,7 +7077,10 @@ function tplRel(g) { // 그래프 → {tpl: Map(id → 템플릿), node: Map(노
 
 const TPL_TREE_HELP = "TN 은 이 문서의 템플릿 번호, Lk 는 템플릿 안 레벨입니다(문서 왼쪽 여백의 「TN Lk」 와 같은 번호). 템플릿마다 개요 레벨 그림 — 레벨마다 레터 · 글꼴·크기·굵기 · 들여쓰기(그 레벨 대표 줄의 서식) — 이 먼저 보이고, "
   + "T번호나 화살표를 누르면 레벨 줄(자리 · 서식 목록 · 대표에 맞추기)과 그 레벨에 매달린 하위 템플릿이 펼쳐집니다. 「대표 맞추기」 는 이 템플릿의 레벨마다 대표와 서식이 다른 줄을 한 번에 대표 모양으로 맞추고, 「다른 서식 보기」 는 그 다른 서식을 레벨마다 그림 아래에 펴 보입니다(견본 글 · 지금 값 → 대표 값 · 서식마다 맞추기). 「하위로」 는 템플릿을 다른 템플릿 레벨 아래의 종속 템플릿(「T1T3」)으로 넣어 그 줄들만 따로 맞추게 하고, "
-  + "별 모양 단추는 서식 정리 에이전트(Opus 5.5)를 엽니다. 인스턴스를 펼치면 원문으로 이동합니다. 되돌이는 상위에 이미 나온 템플릿이므로 반복해서 펼치지 않습니다.";
+  + "별 모양 단추는 서식 정리 에이전트(Opus 5.5)를 엽니다. 인스턴스를 펼치면 원문으로 이동합니다. 되돌이는 상위에 이미 나온 템플릿이므로 반복해서 펼치지 않습니다. "
+  + "「종속 템플릿」 절은 본문 템플릿의 레벨 아래에 매달린 템플릿을 하나씩 따로 보입니다(부모 템플릿을 펼친 레벨 아래에도 보입니다).";
+const TPL_SUB_HELP = "본문 템플릿의 레벨 아래에 매달린 템플릿입니다 — 그 레벨 아래로 갈라진 다른 레터의 템플릿(「T1 L2 아래」 — 매달린 자리), 「하위로」 로 넣어 만든 종속 템플릿(「T1T3」), 서식이 달라 뗀 서식 종속 템플릿(「T1L3a」). "
+  + "부모 템플릿을 펼치지 않아도 템플릿마다 그림 · 단추가 따로 보입니다. 부모 템플릿을 펼친 레벨 아래에도 그대로 보입니다. 줄을 모두 종속 템플릿으로 넣은 템플릿은 여기서 빠집니다(그 줄은 종속 템플릿에 있습니다).";
 
 function tplTreeTools(root) { // 트리 위 공용 단추 — 문서 표시 · 서식 라벨 · 모두 펼치기 · 모두 접기(「템플릿」 탭과 「템플릿 관계」 열이 같이 쓴다)
   const tg = hBtn("", () => tplMarksToggle(), { cls: "btn sm tpl-tg-marks",
@@ -7134,7 +7137,8 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
   const idOf = (t) => t.id ?? t.no;
   const byNo = (a, b) => String(a.no ?? "").localeCompare(String(b.no ?? ""), "en", { numeric: true }); // 「T1T3」 같은 글 번호도
   const tpls = [...rel.tpl.values()].sort(byNo);
-  const placeName = (k) => (k === "root" ? "문서 최상위" : k === "cell" ? "표 칸" : k === "other" ? "템플릿 밖 노드" : `T${k.split("|")[0]} L${k.split("|")[1]}`);
+  const tplNoOf = (raw) => { const t = rel.tpl.get(/^\d+$/.test(raw) ? +raw : raw); return t && t.no != null ? t.no : raw; }; // 자리 키의 템플릿 id → 표기 번호(종속 템플릿 「1~4b」 → 「1L4b」)
+  const placeName = (k) => (k === "root" ? "문서 최상위" : k === "cell" ? "표 칸" : k === "other" ? "템플릿 밖 노드" : `T${tplNoOf(k.split("|")[0])} L${k.split("|")[1]}`);
   const levels = (t, id, path) => { // 펼친 몸통 — 매달린 자리 · 줄(레벨)마다 레터·수·그 줄의 가지 템플릿 · 인스턴스 목록(문서로)
     const box = el("div", "trel-body");
     const slots = t.slots || [];
@@ -7195,7 +7199,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     }
     return box;
   };
-  const make = (id, path, here = null) => { // 템플릿 한 줄 — [▸] [TN] 사슬 · 구실 · 인스턴스 수(여기 매달린 수) + 개요 레벨 그림
+  const make = (id, path, here = null, hang = false) => { // 템플릿 한 줄 — [▸] [TN] 사슬 · 구실 · 인스턴스 수(여기 매달린 수) + 개요 레벨 그림. hang = 매달린 자리 「T1 L2 아래」 도(「종속 템플릿」 절)
     const t = rel.tpl.get(id) || { no: id, chain: [], kind: "?" };
     const li = el("li", `trel-node k-${t.kind || "x"}`);
     li.dataset.tpl = id;
@@ -7214,7 +7218,11 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     const info = `${H_TPL[t.kind] || t.kind || "?"}${H_ROOT[t.rootRole] || ""} · 인스턴스 ${nf(ins.length)}개\n연결 위치: ${places.join(" · ") || "알 수 없음"}\n앵커: ${t.anchor || t.name || "—"}`;
     const cyc = path.includes(id);
     const agent = !cyc && typeof tplAgentIcon === "function" ? tplAgentIcon(id) : null; // 서식 정리 에이전트(tpl_agent.js — spec_hwpx_웹편집 ② §8-4)
-    row.append(tog, num, name, meta, ...(agent ? [agent] : []), hHelp(`T${t.no ?? id} 템플릿 정보`, info, { note: true }));
+    const ot0 = hang && typeof olmTpl === "function" ? olmTpl(id) : null;
+    const ups = hang && !(ot0 && (ot0.comp || ot0.vari)) ? [...(rel.at.get(id) || new Map())].filter(([k]) => k.includes("|")).sort((a, b) => b[1] - a[1]) : []; // 종속 표지가 있는 템플릿은 표지가 자리를 말한다
+    const up = ups.length ? el("span", "trel-hang", `${ups.slice(0, 3).map(([k]) => placeName(k)).join(" · ")}${ups.length > 3 ? ` +${ups.length - 3}` : ""} 아래`) : null;
+    if (up) up.title = `매달린 자리 — ${ups.map(([k, n]) => `${placeName(k)} 아래 ${nf(n)}곳`).join(" · ")}`;
+    row.append(tog, num, name, meta, ...(up ? [up] : []), ...(agent ? [agent] : []), hHelp(`T${t.no ?? id} 템플릿 정보`, info, { note: true }));
     li.append(row);
     if (typeof olmTplTools === "function") olmTplTools(li, row, id); // 종속 표지 · 하위로 넣기 · 떼기 · 대표 맞추기 · 다른 서식 보기(outline_match.js · outline_odd.js, spec_hwpx_웹편집 ② §8-2)
     if (typeof olLiftTools === "function") olLiftTools(li, row, id); // 「표를 L1 으로」 — 첫 레벨 줄 위의 1칸 제목 표를 이 템플릿의 L1 로(outline_lift.js, spec_hwpx_웹편집 ② §8-7)
@@ -7249,17 +7257,24 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
   const walk = (id) => { if (reach.has(id)) return; reach.add(id); for (const [k, kids] of rel.under) if (k.split("|")[0] === String(id)) for (const c of kids.keys()) walk(c); };
   const roots = tpls.filter((t) => t.kind === "main" || attached(t).has("root"));
   roots.forEach((t) => walk(idOf(t)));
+  // 종속 템플릿 — 본문 템플릿의 레벨 아래에 매달려 그 템플릿을 펼쳐야만 보이던 템플릿(가지 템플릿 · 「T1T3」 · 「T1L3a」)을 본문 템플릿 다음에 하나씩 따로(2026-11-17 사용자 「개별적으로」 — spec_헤딩_추출 ② 「템플릿 관계」).
+  // 부모 레벨의 가지 목록에도 전처럼 보인다. 줄을 다 종속 템플릿으로 넣은 템플릿(「줄을 다 넣음」)은 뺀다 — 그 줄은 종속 템플릿 쪽에 있다
+  const isRoot = new Set(roots.map(idOf));
+  const subs = tpls.filter((t) => reach.has(idOf(t)) && !isRoot.has(idOf(t)) && !(typeof olmTpl === "function" && (olmTpl(idOf(t)) || {}).all));
   const cells = tpls.filter((t) => !reach.has(idOf(t)) && (t.kind === "cell" || t.scope === "cell" || attached(t).has("cell")));
   cells.forEach((t) => walk(idOf(t)));
   const rest = tpls.filter((t) => !reach.has(idOf(t)));
-  const section = (title, list) => {
+  const section = (title, list, opt = {}) => {
     if (!list.length) return;
-    root.append(el("h3", null, title));
+    const h = el("h3", null, title);
+    if (opt.help) h.append(hHelp(`${opt.name} 도움말`, opt.help));
+    root.append(h);
     const ul = el("ul", "trel");
-    list.forEach((t) => ul.append(make(idOf(t), [])));
+    list.forEach((t) => ul.append(make(idOf(t), [], null, !!opt.hang)));
     root.append(ul);
   };
   section(`본문 템플릿 ${roots.length}`, roots);
+  section(`종속 템플릿 ${subs.length}`, subs, { name: "종속 템플릿", hang: true, help: TPL_SUB_HELP });
   section(`표 칸 템플릿 ${cells.length}`, cells);
   section(`기타 템플릿 ${rest.length}`, rest);
   if (!tpls.length) root.append(el("p", "hnote pad", "템플릿이 없습니다."));
@@ -7279,23 +7294,27 @@ function tplTreeRefresh(focus = null, force = false) { // 오버레이를 (다�
   }
 }
 
-function tplFocus(body, rel, id) { // 템플릿 id 까지 펼쳐 보이기 — 매달린 자리를 따라 뿌리까지 올라간 길(첫 자리만)을 위에서부터 연다
-  const path = [id], seen = new Set([id]);
-  for (let k = 0; k < 20; k += 1) {
-    const at = rel.at.get(path[0]);
-    const up = at ? [...at.keys()].find((w) => w.includes("|")) : null;
-    if (!up) break;
-    const raw = up.split("|")[0], pid = /^\d+$/.test(raw) ? +raw : raw; // 종속 템플릿(「1+3」)은 글 키
-    if (seen.has(pid)) break;
-    seen.add(pid);
-    path.unshift(pid);
-  }
-  let scope = body, li = null;
-  for (const tid of path) {
-    li = [...scope.querySelectorAll("li.trel-node")].find((x) => x.dataset.tpl === String(tid)) || null;
-    if (!li) break;
-    li._open(true);
-    scope = li;
+function tplFocus(body, rel, id) { // 템플릿 id 까지 펼쳐 보이기 — 절에 따로 선 줄(본문 · 종속 · 표 칸 · 기타 템플릿)이 있으면 그 줄을, 없으면 매달린 자리를 따라 뿌리까지 올라간 길(첫 자리만)을 위에서부터 연다
+  let li = [...body.querySelectorAll(":scope > .trel > li.trel-node")].find((x) => x.dataset.tpl === String(id)) || null;
+  if (li) li._open(true);
+  else {
+    const path = [id], seen = new Set([id]);
+    for (let k = 0; k < 20; k += 1) {
+      const at = rel.at.get(path[0]);
+      const up = at ? [...at.keys()].find((w) => w.includes("|")) : null;
+      if (!up) break;
+      const raw = up.split("|")[0], pid = /^\d+$/.test(raw) ? +raw : raw; // 종속 템플릿(「1+3」)은 글 키
+      if (seen.has(pid)) break;
+      seen.add(pid);
+      path.unshift(pid);
+    }
+    let scope = body;
+    for (const tid of path) {
+      li = [...scope.querySelectorAll("li.trel-node")].find((x) => x.dataset.tpl === String(tid)) || null;
+      if (!li) break;
+      li._open(true);
+      scope = li;
+    }
   }
   if (li && li.dataset.tpl === String(id)) {
     li.classList.add("sel");
