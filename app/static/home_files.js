@@ -243,9 +243,9 @@ async function homeFilesPlain() { // 「TASK 없이 열기」 — 목적 문서�
   if (!f || hf.busy || homeTaskBusy || !confirmDiscard()) return;
   hfBusy(`「${f.name}」 여는 중…`);
   try {
-    const fd = new FormData();
-    fd.append("file", f);
-    const r = await api("/api/docs", { method: "POST", body: fd });
+    const got = await sameFileUpload(f, { onAsk: () => hfBusy(`「${f.name}」 — 같은 파일로 하던 작업이 있습니다. 떠 있는 창에서 고르세요`) }); // 같은 파일로 하던 작업이 있으면 묻는다(same_file.js — spec_작업 ② §1 「같은 파일은 묻고 연다」)
+    if (!got) { hfBusy(""); refreshSaveState(); return; } // 창을 닫음 — 목록 그대로
+    const r = got.r;
     await opened(r, () => openFile(f, true));
     hfUsed([f]);
     if (alias && state.stored && state.id === r.docId) {
@@ -255,21 +255,27 @@ async function homeFilesPlain() { // 「TASK 없이 열기」 — 목적 문서�
   } catch (e) { setSaveState("err", "열지 못함"); hfFail(`열지 못했습니다: ${e.message}`); }
 }
 
-// 목적 문서를 올려 열고 그 TASK 로 적는다 → {id, task, note}. 같은 파일로 하던 작업은 이어 연다(② §1) — 다른 TASK · 다른 프로젝트 · 기관 문서 · 다른 역할이었으면 묻지 않고 새 작업으로(목록에서 TASK 를 골랐다).
+// 목적 문서를 올려 열고 그 TASK 로 적는다 → {id, task, note} | {opened: 작업 id}(「그대로 열기」 — TASK 시작은 멈춤) | null(창을 닫음).
+// 같은 파일로 하던 작업이 있으면 묻는다(same_file.js — ② §1 「같은 파일은 묻고 연다」, 2026-11-18): 다른 TASK · 다른 프로젝트 · 기관 문서 · 다른 역할이었던 작업의 줄은 「그대로 열기」 만
+// (그 작업의 TASK 를 바꾸지 않는다 — 전(11-13~11-17)에는 묻지 않고 새 작업으로 열었다). 창의 「새 작업으로 시작」 은 프로젝트 칸(처음 값 = 이 목록의 프로젝트)의 이름으로 시작한다.
 async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zones = 목록에서 고른 편집 구역의 기준(hf.zones — null 이면 손대지 않음)
   const cat = TASK_CATALOG[job], blank = { kind: "", file: "", job: "", project: "" };
-  const up = async (fresh) => { const fd = new FormData(); fd.append("file", file); const r = await api(`/api/docs${fresh ? "?new=1" : ""}`, { method: "POST", body: fd }); await load(r.docId); return r; };
-  let r = await up(false), note = "", fresh = !r.reused;
-  if (r.reused) {
-    const t = { ...blank, ...state.task };
-    const other = (t.job && t.job !== job) || t.file === "part" || (cat.target && t.job === job && t.file && t.file !== cat.target) || (project && t.project && t.project !== project);
-    if (other) {
-      const was = [t.project ? `프로젝트 「${t.project}」` : "", t.job ? `TASK 「${taskName("job", t.job)}」` : "", t.file ? taskName("file", t.file) : ""].filter(Boolean).join(" · ");
-      r = await up(true);
-      fresh = true;
-      note = `같은 파일로 하던 작업(${was || "다른 작업"})은 그대로 두고 새 작업으로 열었습니다`;
-    } else note = "같은 파일로 하던 작업을 이어서 엽니다";
-  }
+  const fit = (w) => {
+    const t = { ...blank, ...(w.task || {}) };
+    if (t.job && t.job !== job) return `다른 TASK(「${taskName("job", t.job) || t.job}」)`;
+    if (t.file === "part") return "기관 문서로 쓰던 작업";
+    if (cat.target && t.job === job && t.file && t.file !== cat.target) return `다른 역할(${taskName("file", t.file)})`;
+    if (project && t.project && t.project !== project) return `다른 프로젝트(「${t.project}」)`;
+    return true;
+  };
+  const got = await sameFileUpload(file, { job, project, fit, onAsk: () => hfBusy(`「${file.name}」 — 같은 파일로 하던 작업이 있습니다. 떠 있는 창에서 고르세요`) });
+  if (!got) return null;
+  if (got.act === "open") return { opened: got.id };
+  if (got.act === "new") project = got.project; // 창의 프로젝트 칸이 목록의 칸보다 먼저(사람이 마지막에 고친 값)
+  const r = got.r;
+  await load(r.docId);
+  const fresh = !r.reused;
+  const note = { use: "같은 파일로 하던 작업을 이어서 엽니다", reset: "작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다", new: "같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다" }[got.act] || "";
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
   const cur = { ...blank, ...state.task }, role = cat.target || cur.file || cat.file; // 목적 문서 종류: 이관 = 연차보고서 · 취합 = 취합본 · 양식 맞추기 = 양식 판정(못 정하면 그 TASK 의 문서)
   if (state.stored) {
@@ -353,6 +359,12 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   if (typeof agentWorkHold === "function") agentWorkHold(true);
   try {
     main = await hfOpenTarget(job, target, { project, alias, zones });
+    if (!main || main.opened) { // 창을 닫음 · 「그대로 열기」 — TASK 시작은 멈추고 목록은 그대로(spec_작업 ② §15-1 「올림」)
+      main = null;
+      hfBusy("");
+      if (!state.id) refreshSaveState();
+      return false;
+    }
     hfUsed([target, ...use]);
     if (main.note) toast(main.note);
     if (t.gather && use.length) await gatherQuickRun(main.id, target.name, use, { llm, uploadOnly: !auto, aliases }); // 취합 — 기관 문서 올리기·등록(+ 자동 진행이면 끝까지): gather_quick.js

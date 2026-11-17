@@ -188,17 +188,29 @@ def _admit(sess):
     DOCS[sess.id] = sess
 
 
-def _same(name, fmt, data, source, job=None):
+def _same_view(w):
+    """「같은 파일 고르기」 의 줄 하나(spec_작업 ② §1 「같은 파일은 묻고 연다」) — 보이는 이름 · TASK 묶음 · 언제 · 얼마나 했나."""
+    return {"id": w["id"], "name": _shown(w), "task": w.get("task") or {}, "alias": w.get("alias") or "", "source": w.get("source"),
+            **{k: w.get(k) for k in ("created", "updated", "rev", "edited", "commits")}, "open": w["id"] in DOCS}
+
+
+def _same(name, fmt, data, source, job=None, use=None):
     """같은 파일로 만든 작업이 있으면 그 작업을 이어 연다(spec_작업 ② §1) — 메모리에 없으면 작업 폴더에서(_reopen: 기준 확정·문서 키를 맞춤).
-    job(고른 TASK)이 있으면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례(② §15). 못 열면 None(새 작업으로)."""
-    w = works.find_same(name, fmt, works.sha256(data), job)
+    use = 「같은 파일 고르기」 에서 고른 작업 id(그 같은 파일 작업 — 아니면 409 · 못 열면 409). use 가 없으면 job(고른 TASK)이 있을 때
+    그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례(② §15)의 맨 앞. 못 열면 None(새 작업으로)."""
+    rows = works.same_works(name, fmt, works.sha256(data), job)
+    w = next((x for x in rows if x["id"] == use), None) if use else (rows[0] if rows else None)
+    if use and w is None:
+        raise HTTPException(409, "고른 작업은 이 파일로 만든 작업이 아닙니다 — 다시 올려 고르세요")
     if w is None:
         return None
     try:
         s = DOCS.get(w["id"]) or _reopen(w["id"])
     except Exception:  # noqa: BLE001 — 작업 폴더가 깨졌으면 새 작업으로 연다(깨진 작업은 지우지 않음)
-        return None
+        s = None
     if s is None:
+        if use:
+            raise HTTPException(409, "고른 작업을 열지 못했습니다(작업 폴더를 읽지 못함) — 「새 작업으로 시작」 을 고르세요")
         return None
     s.touched = time.time()
     works.log(s.id, "reupload", rev=s.rev, source=source)
@@ -207,15 +219,20 @@ def _same(name, fmt, data, source, job=None):
             "work": {k: w.get(k) for k in ("created", "updated", "rev", "edited", "commits")}}
 
 
-def _open(name, data, source="upload", new=False, job=None):
+def _open(name, data, source="upload", new=False, job=None, ask=False, use=None):
     """올리기·예제 열기 — 같은 파일(이름·형식·바이트)로 만든 작업이 있으면 그 작업을 이어 열고(reused), new 면 늘 새 작업(spec_작업 ② §1).
-    job = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿일 때 이어 열 작업을 고르는 차례에만 쓴다(작업의 task 는 안 바꾼다)."""
+    job = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿일 때 이어 열 작업을 고르는 차례에만 쓴다(작업의 task 는 안 바꾼다).
+    ask = 같은 파일 작업이 있으면 열지 않고 그 목록 {ask, name, same}(「같은 파일 고르기」 — ② §1 「같은 파일은 묻고 연다」) · use = 그 가운데 고른 작업을 이어 엶."""
     fmt = fmt_of(name)
     if fmt is None:
         raise HTTPException(400, "hwp·hwpx·docx 파일만 열 수 있습니다")
     if len(data) > MAX_MB * 2 ** 20:
         raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
-    same = None if new else _same(name, fmt, data, source, job)
+    if ask and not new and not use:
+        rows = works.same_works(name, fmt, works.sha256(data), job)
+        if rows:
+            return {"ask": True, "name": name, "size": len(data), "same": [_same_view(w) for w in rows]}
+    same = None if new else _same(name, fmt, data, source, job, use)
     if same is not None:
         return same
     try:
@@ -260,6 +277,8 @@ def _persist(s, force=False):
     if DOCS.get(s.id) is not s:  # 메모리에서 비웠거나 지운 세션(늦게 끝난 검증 스레드 등) — 다시 연 세션의 상태를 옛것으로 덮지 않는다
         return
     with s.plock:
+        if DOCS.get(s.id) is not s:  # 저장 차례를 기다리는 사이 비운 세션(작업 내용 초기화가 plock 을 쥐고 비운다 — spec_작업 ② §3-1): 옮긴 뒤의 폴더에 옛 상태를 쓰지 않는다
+            return
         with s.lock:
             rev, base = s.rev, s.base_n  # base = 이 편집 상태가 기대는 확정(spec_작업 ② §8) — 다시 열 때 그 확정 위에 붙인다
             snap = s.kit["struct"].snapshot(s.doc)  # 실행 취소와 같은 묶음 — 다시 열 때 struct.restore 로 기준 유지
@@ -467,14 +486,15 @@ def open_sample(name: str, new: bool = False):
 
 
 @app.post("/api/docs")
-async def upload(file: UploadFile = File(...), new: bool = False, job: str = ""):
+async def upload(file: UploadFile = File(...), new: bool = False, job: str = "", ask: bool = False, use: str = ""):
     """?new=1 이면 같은 파일 작업이 있어도 새 작업(spec_작업 ② §1). hwp(바이너리)는 한글로 hwpx 로 바꿔 hwpx 작업으로 받는다.
-    ?job=<TASK> = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿이면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다. 모르는 값은 없는 것으로 본다."""
+    ?job=<TASK> = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿이면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다. 모르는 값은 없는 것으로 본다.
+    ?ask=1 = 같은 파일 작업이 있으면 열지 않고 {ask: true, name, size, same[…]} 으로 묻는다 · ?use=<작업 id> = 그 가운데 고른 작업을 이어 엶(② §1 「같은 파일은 묻고 연다」)."""
     name, data = file.filename or "document.hwpx", await file.read()
     if name.lower().endswith(".hwp"):
         from starlette.concurrency import run_in_threadpool
         name, data = await run_in_threadpool(_from_hwp, name, data)   # 한글 변환은 수 초~수십 초 — 이벤트 루프 밖에서
-    return _open(name, data, new=new, job=job if job and job in TASK["job"] else None)
+    return _open(name, data, new=new, job=job if job and job in TASK["job"] else None, ask=ask, use=use or None)
 
 
 def _from_hwp(name, data):
@@ -1749,6 +1769,126 @@ def work_delete(wid: str):
     if s is None and not gone:
         raise HTTPException(404, "그런 작업이 없습니다")
     return {"ok": True}
+
+
+# ---- 작업 내용 초기화(spec_작업 ② §3-1 — 2026-11-18 사용자 "작업한 내용 초기화 하는 기능도 넣어줘" → 답 「문서 + 분석·결과 모두」) ----------------
+# 같은 작업 id · 이름 · 프로젝트 · TASK · 라운드 · 약칭 그대로 올린 직후로. 작업 폴더의 나머지는 지우지 않고 reset/<n>/ 으로 옮긴다(works.reset_files).
+
+RESET_CARRY = ("headings/form.json",)   # 옮긴 것 가운데 제자리에 되돌려 두는 것 — 양식 선택(heading_forms · 새 라운드도 옮긴다). 취합본의 기관 문서 등록은 work_reset 이 다시 넣는다
+
+
+def _reset_busy(s):
+    """초기화를 막는 도는 일의 이름 | None(② §3-1 「거절」) — 끝나며 작업 폴더에 결과를 쓰는 것들. 검증 스레드는 막지 않는다(gen 으로 끊김 — _JobView)."""
+    job = (getattr(s, "heads", None) or {}).get("job")
+    if job is not None and getattr(job, "status", None) == "running":
+        return "헤딩 추출 · LLM 판정"
+    if s.division.get("reviewing"):
+        return "구분 기준 LLM 검토"
+    from app import zones_api
+    if s.id in getattr(zones_api, "_LLM_RUN", ()):
+        return "편집 구역 LLM 검토"
+    return None
+
+
+def _reset_keep(wid, s):
+    """초기화 뒤에도 남길 입력(② §3-1 「남기는 것」) — 프로젝트 구성 값·확정(세션, 메모리에 없으면 state.json) · 취합본의 기관 문서 등록(gather.json 의 차례 · 기관 · 공통)."""
+    if s is not None:
+        dv = s.division
+    else:
+        d = works.folder(wid)
+        st = works._read_json(d / "state.json") if d is not None and (d / "state.json").is_file() else None
+        dv = (st or {}).get("division") or {} if isinstance(st, dict) else {}
+    keep = {"settings": copy.deepcopy(dv.get("settings")), "confirmed": copy.deepcopy(dv.get("confirmed")) if isinstance(dv.get("confirmed"), dict) else None}
+    from app import merge_gather_api
+    G = merge_gather_api._store(wid)
+    keep["parts"] = [(p, {"orgs": list((G["parts"].get(p) or {}).get("orgs") or []), "common": bool((G["parts"].get(p) or {}).get("common", True))}) for p in G["order"]]
+    return keep
+
+
+def _reset_forget(wid):
+    """작업 id 로 묶어 둔 메모리의 기억을 버린다 — 옮긴 결과를 다시 내지 않게(열쇠가 달라 안 쓰일 것도 함께). 도는 에이전트 턴은 저장되지 않는다(「비우기」 와 같은 차례 올림)."""
+    from app import doc_agent, doc_agent_api, merge_api, merge_gather_api, merge_over_api, zones_api
+    gens = getattr(doc_agent, "_GENS", None)
+    if isinstance(gens, dict):
+        gens[wid] = gens.get(wid, 0) + 1
+    for mod, name in ((doc_agent_api, "_APPLIED"), (merge_api, "_FIXED"), (merge_api, "_ORIGINS"), (merge_gather_api, "_FRAMES"), (merge_gather_api, "_ZONES"), (zones_api, "_AUTO")):
+        d = getattr(mod, name, None)
+        if isinstance(d, dict):
+            d.pop(wid, None)
+    for name in ("_LINKS", "_JUDGE"):   # (취합본, 기관 문서) 열쇠
+        d = getattr(merge_gather_api, name, None)
+        if isinstance(d, dict):
+            for k in [k for k in d if isinstance(k, tuple) and k and k[0] == wid]:
+                d.pop(k, None)
+    merge_over_api.forget(wid)
+
+
+@app.post("/api/works/{wid}/reset")
+def work_reset(wid: str):
+    """작업 내용 초기화(spec_작업 ② §3-1) — 같은 작업을 올린 직후로: 문서 = 올린 원본, 고친 문단 · 실행 취소 · 분석 · LLM 결과 · 대화 · 검증 기록은 reset/<n>/ 으로 옮긴다.
+    남김: 올린 원본 · 확정(있으면 「작업 내용 초기화 — 올린 원본으로」 확정 하나를 더함 — 기준이 뒤로 가지 않게 §8) · 작업 기록 · 양식 선택 · 취합본의 기관 문서 등록 · 프로젝트 구성 값·확정 · TASK 옵션.
+    편집 차례는 이어 센다. 메모리의 세션은 버리고 작업 폴더에서 다시 연다(가져오기 검증이 돈다 — 첫 분석은 화면이 부른다).
+    → GET /api/docs/{id} 꼴 + reset {n, archive, commit, skipped}. 400 저장 끔 · 404 없는 작업 · 409 공유 중 · 도는 LLM 일 · 500 옮기지 못함."""
+    if not works.enabled():
+        raise HTTPException(400, "작업 저장이 꺼져 있어 작업 내용을 초기화할 수 없습니다")
+    w = _work_or_404(wid)
+    from app import share
+    try:
+        shared = share.by_doc(wid)
+    except Exception:  # noqa: BLE001 — 공유 기록을 못 읽으면(공유 끔 등) 공유 중이 아닌 것으로
+        shared = None
+    if shared:
+        raise HTTPException(409, "이 문서를 공유하고 있습니다 — 공유를 끈 뒤에 초기화하세요")
+    with _reopen_lock:   # 그 사이 다른 요청이 옛 상태로 다시 열지 않게
+        s = DOCS.get(wid)
+        busy = _reset_busy(s) if s is not None else None
+        if busy:
+            raise HTTPException(409, f"{busy}이(가) 도는 중입니다 — 끝난 뒤에 초기화하세요")
+        keep = _reset_keep(wid, s)
+        try:
+            if s is not None:
+                with s.plock:   # 도는 저장(_persist)이 옮긴 뒤의 폴더에 옛 상태를 쓰지 않게 — _persist 는 plock 안에서 DOCS 를 다시 본다
+                    with s.glock:
+                        s.gen += 1   # 도는 검증은 결과를 세션·작업 폴더에 쓰지 않는다(_JobView.live)
+                    DOCS.pop(wid, None)
+                    rev = max(s.rev, w.get("rev") or 0) + 1
+                    moved = works.reset_files(wid, rev, carry=RESET_CARRY)
+            else:
+                rev = (w.get("rev") or 0) + 1
+                moved = works.reset_files(wid, rev, carry=RESET_CARRY)
+        except OSError as e:
+            works.log(wid, "resetFailed", error=str(e))
+            raise HTTPException(500, f"작업 폴더의 일부를 옮기지 못했습니다(다른 프로그램이 잡고 있음) — 잠시 뒤 다시 하세요: {e}") from e
+        if moved is None:
+            raise HTTPException(404, "그런 작업이 없습니다")
+        commit = None
+        if works.commits(wid):
+            original = works.file_path(wid, "original").read_bytes()
+            doc = FORMATS[w["format"]]["cls"](original)
+            doc.blocks()   # 모든 블록에 id — 자리표에서 빠지는 요소가 없게(_open_at 과 같다)
+            c = works.add_commit(wid, w["format"], original, {"message": "작업 내용 초기화 — 올린 원본으로", "counts": None, "parent": works.head(wid), "restoreOf": 0},
+                                 {"ids": doc.id_state(), "division": None, "outline": None, "changes": []})
+            commit = c["n"] if c else None
+    _reset_forget(wid)
+    s2 = _sess(wid)   # 작업 폴더에서 다시 연다(§3) — 상태 파일이 없으니 기준(올린 원본 · 남긴 확정) 그대로, 차례 = rev
+    with s2.lock:
+        if keep["settings"] is not None:
+            s2.division["settings"] = keep["settings"]
+        if keep["confirmed"] is not None:
+            s2.division["confirmed"] = keep["confirmed"]
+        s2.division["prior"] = []   # 앞서 반영한 값들(spec_구분_기준 ② §19) — 초기화한 문서에는 없다: 작업 기록에서 옛 반영을 다시 모으지 않게
+    skipped = []
+    if keep["parts"]:
+        from app import merge_gather_api
+        for part, body in keep["parts"]:
+            try:
+                merge_gather_api.gather_part_put(wid, part, body)
+            except Exception as e:  # noqa: BLE001 — 그 사이 지운 기관 문서 등: 그 문서만 빠진다(기록에 남김)
+                skipped.append(part)
+                log.warning("[작업 내용 초기화] %s 기관 문서 %s 를 다시 넣지 못함: %r", wid, part, e)
+    works.log(wid, "reset", rev=rev, n=moved["n"], archive=moved["archive"], moved=moved["moved"], commit=commit, **({"skipped": skipped} if skipped else {}))
+    _persist_safe(s2, force=True)
+    return {**get_doc(wid), "reset": {"n": moved["n"], "archive": moved["archive"], "commit": commit, "skipped": skipped}}
 
 
 # ---- 확정(spec_작업 ② §8) — 고친 문단을 깃처럼: 확정 = 지금 상태를 한 시점으로 남기고 새 기준으로 · 확정 기록 · 버리기 · 이전 확정으로 복원 ----------

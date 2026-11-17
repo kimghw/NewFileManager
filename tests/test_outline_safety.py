@@ -311,6 +311,76 @@ def test_lower_level_is_matched_to_the_planned_rep_even_when_an_upper_split_move
     _undo_all(c, d, s)
 
 
+def test_lower_split_whose_lines_an_upper_split_took_sets_that_templates_rep(sess):
+    """2026-11-18 사용자 「모두 반영」 400 「그 문단은 T17 L2 줄이 아닙니다(지금 T17L1a L2)」 — 계획이 L1 에서 표 하나의 「①」 을 떼고(그 아래 「-」 가 함께 감) L2 에서 그 「-」 를 또 뗐다.
+    윗레벨 떼기가 먼저 데려간 갈래는 새 템플릿을 또 만들지 않고 **데려간 템플릿의 그 레벨**에서 그 서식을 대표로 삼는다(뗀 줄 맞추기도 그 대표 모양으로 — 문서를 고치는 길)."""
+    c, d, s = sess
+    ov = s.outline
+    took = M.split_targets(s.doc, ov, "4", 2, ["p6194"])                                   # T4 L2 의 큰 갈래(17줄) — 그 아래 L3 줄 17줄이 함께 간다
+    assert "p6341" not in took and {"p1604", "p5772"} <= M._members(ov, "4", took)
+    assert c.put(f"/api/docs/{d}/outline/slots/4/2/rep", json={"para": "p6341"}).status_code == 200
+    assert c.put(f"/api/docs/{d}/outline/slots/4/3/rep", json={"para": "p6342"}).status_code == 200
+    want = M.look(s.doc, ov, "p5772")
+    assert not M.same(M.look(s.doc, ov, "p1604"), want)
+    r = c.post(f"/api/docs/{d}/outline/templates/4/match", json={"place": False, "levels": [
+        {"level": 2, "likes": [], "splits": [{"likes": ["p6194"]}]},
+        {"level": 3, "likes": [], "splits": [{"likes": ["p5772", "p1604"], "rep": "p5772"}]}]})                # L3 의 「p5772 갈래 + p1604」 — 모두 윗레벨 떼기가 데려가는 줄
+    assert r.status_code == 200, r.text
+    j, ov = r.json(), s.outline
+    vid = ov["lines"]["p5772"]["tpl"]
+    assert vid != "4" and ov["templates"][vid]["variant"]["level"] == 2 and ov["lines"]["p1604"]["tpl"] == vid
+    assert [x["level"] for x in j["splits"]] == [2]                                                     # 새로 만든 서식 종속 템플릿은 L2 의 것 하나뿐
+    assert not any((t.get("variant") or {}).get("of") == "4" and int(t["variant"]["level"]) == 3 for t in ov["templates"].values())
+    assert [(x["level"], x["id"], x["whole"], x["lines"]) for x in j["into"]] == [(3, vid, True, 8)]
+    sl = ov["templates"][vid]["slots"]["3"]
+    assert sl["rep"] == "p5772" and not sl.get("repSet") and "p1604" in j["changed"]                      # 데려간 템플릿의 L3 대표 = 계획한 떼기의 대표
+    assert M.same(M.look(s.doc, ov, "p1604"), want)                                                     # 뗀 줄 맞추기도 그 대표 모양으로
+    assert ov["templates"]["4"]["slots"]["3"]["rep"] == "p6342"
+    _undo_all(c, d, s)
+
+
+def test_lower_split_partly_taken_by_an_upper_split(sess):
+    """아랫레벨 떼기의 줄 일부만 윗레벨 떼기가 데려간 경우 — 데려간 줄은 그 템플릿의 그 레벨 대표로, 남은 줄은 전처럼 새 서식 종속 템플릿으로(계획한 대표가 떠났으면 남은 줄 가운데 같은 서식의 첫 줄이 대표)."""
+    c, d, s = sess
+    ov = s.outline
+    assert c.put(f"/api/docs/{d}/outline/slots/4/3/rep", json={"para": "p1604"}).status_code == 200
+    rest = [p for p in M.split_targets(s.doc, ov, "4", 3, ["p6342"]) if p != "p6342"]
+    r = c.post(f"/api/docs/{d}/outline/templates/4/match", json={"place": False, "levels": [
+        {"level": 2, "likes": [], "splits": [{"likes": ["p6341"]}]},                                    # p6341 을 떼면 그 아래 p6342 가 함께 간다
+        {"level": 3, "likes": [], "splits": [{"likes": ["p6342"]}]}]})                                  # p6342 의 갈래(9줄) — p6342 만 이미 떠났다
+    assert r.status_code == 200, r.text
+    j, ov = r.json(), s.outline
+    up, low = (next(x for x in j["splits"] if x["level"] == lv) for lv in (2, 3))
+    assert ov["lines"]["p6342"]["tpl"] == up["id"] and ov["templates"][up["id"]]["slots"]["3"]["rep"] == "p6342"
+    assert [(x["level"], x["id"], x["whole"], x["lines"]) for x in j["into"]] == [(3, up["id"], False, 1)]
+    assert {p for p in rest if ov["lines"][p]["tpl"] == low["id"]} == set(rest) and ov["templates"][low["id"]]["slots"]["3"]["rep"] == rest[0]
+    _undo_all(c, d, s)
+
+
+def test_planned_rep_taken_by_an_upper_split(sess):
+    """같은 문서의 T19(「모두 반영」 400 「T19 L2 의 대표 서식은 뗄 수 없습니다」) — 윗레벨 떼기가 아랫레벨의 **계획한 대표와 그 서식의 줄을 모두** 데려가면:
+    ① 계획한 대표는 데려간 템플릿의 그 레벨 대표로 따라가고(맞춘 줄도 그 모양) ② 남은 줄 가운데 떼기로 고른 갈래는 떼지 않고 이 템플릿 그 레벨의 대표가 되며(떼면 대표가 될 줄이 없다)
+    ③ 그 떼기 갈래 가운데 데려간 템플릿으로 간 줄은 그 템플릿의 계획한 대표에 져서 다른 서식으로 그대로 남는다."""
+    c, d, s = sess
+    ov = s.outline
+    assert c.put(f"/api/docs/{d}/outline/slots/4/2/rep", json={"para": "p6341"}).status_code == 200
+    assert c.put(f"/api/docs/{d}/outline/slots/4/3/rep", json={"para": "p1604"}).status_code == 200      # 계획한 L3 대표 — L2 떼기가 데려가는 줄
+    want, mine = M.look(s.doc, ov, "p1604"), M.look(s.doc, ov, "p6342")
+    away = [p for p in M.split_targets(s.doc, ov, "4", 3, ["p6342"]) if p != "p6342"]
+    r = c.post(f"/api/docs/{d}/outline/templates/4/match", json={"place": False, "levels": [
+        {"level": 2, "likes": [], "splits": [{"likes": ["p6194"]}]},
+        {"level": 3, "likes": ["p5772"], "splits": [{"likes": ["p6342"]}]}]})
+    assert r.status_code == 200, r.text
+    j, ov = r.json(), s.outline
+    vid = ov["lines"]["p1604"]["tpl"]
+    assert vid != "4" and [x["level"] for x in j["splits"]] == [2] and ov["lines"]["p6342"]["tpl"] == "4"
+    assert ov["templates"][vid]["slots"]["3"]["rep"] == "p1604" and M.same(M.look(s.doc, ov, "p5772"), want) and "p5772" in j["changed"]   # ①
+    assert ov["templates"]["4"]["slots"]["3"]["rep"] == "p6342" and M.same(M.look(s.doc, ov, "p6342"), mine)                                # ②
+    assert [(x["id"], bool(x.get("stayed")), bool(x.get("aside")), x["lines"], x["whole"]) for x in j["into"]] == [("4", True, False, 1, True), (vid, False, True, len(away), True)]
+    assert all(ov["lines"][p]["tpl"] == vid and p not in j["changed"] for p in away)                                                      # ③
+    _undo_all(c, d, s)
+
+
 # ---------------------------------------------------------------- 계획 검사
 def test_check_plan_keeps_the_rep_a_person_chose(sess):
     _, _, s = sess

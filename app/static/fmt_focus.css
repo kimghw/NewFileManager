@@ -106,5 +106,14 @@ button.fm-tag { margin: 0; appearance: none; text-align: left; }
 @container docname (max-width: 980px) { .fm-key.tpl .fm-key-text { display: none; } }
 @container docname (max-width: 900px) { .fm-key.tpl .fm-key-wheel { display: none; } }
 @container docname (max-width: 820px) { .fm-key.tpl .fm-key-count, .fm-key.tpl .fm-key-note { display: none; } }
+/* 가장 좁을 때(문서 옆 열을 연 1100~1500px — 줄 360px 안팎): 글을 다 감춰도 칩 · 색 설명 칩 · 단추(약 250px)가 줄을 넘었다(2026-11-16 부터 화면 검사 fmt_focus 의 2건).
+   design.md §4 「줄이 좁으면 이름이 먼저 준다」 — 문서 이름(목록)을 더 줄이고 앞의 꾸밈 그림을 감추고 설명 안의 사이 · 단추 안쪽 여백을 좁힌다. 칩 · 단추 · 아이콘은 남긴다
+   (줄 자체의 사이는 못 좁힌다 — @container 는 그 그릇(이름 줄)의 안쪽에만 걸린다) */
+@container docname (max-width: 440px) {
+  .has-fm-key > .document-name-icon { display: none; }
+  .has-fm-key > .doc-switch, .has-fm-key > .file-name { min-width: 2.5em; }
+  .fm-key { gap: 3px; }
+  .fm-key .fm-key-btn { padding: 0 4px; }
+}
 /* 고른 갈래의 줄을 못 읽었을 때(.err — 「서식의 줄을 읽지 못함」 + 「다시 읽기」): 좁아 글이 감춰지면 「템플릿 관계」 대신 「다시 읽기」 를 남긴다(못 읽었다는 표시가 단추로 남는다 · 줄이 넘치지 않는다) */
 @container docname (max-width: 820px) { .fm-key.err .fm-key-rel { display: none; } }

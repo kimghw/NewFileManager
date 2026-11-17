@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/static/gather.css"><!-- 취합(할 일 「사업계획서 취합」 — 기관 문서 줄 · 기관 작성 내용 · 끌어 넣기: spec_취합 ② §5) — divisions.css 다음 -->
   <link rel="stylesheet" href="/static/zones.css"><!-- 편집 구역(패널의 「편집 구역」 줄 · 문서의 구역 띠·이름표·들어온 내용 · 「구역 지정…」 입력 · 문서 옆 목록: spec_구역 ② §6) — gather.css 다음 -->
   <link rel="stylesheet" href="/static/gather_quick.css"><!-- 취합 간단 모드(취합 카드의 간단 모드 줄 .gt-quick: spec_취합 ② §8) — landing.css·gather.css 다음 -->
+  <link rel="stylesheet" href="/static/same_file.css"><!-- 같은 파일 고르기(떠 있는 창 .sf-pop — spec_작업 ② §1 · design.md §16) — style.css·project_workspace.css 의 .btn · .project-danger 를 쓴다 -->
   <link rel="stylesheet" href="/static/home_files.css"><!-- 시작 화면의 문서 목록(#homeFiles — 파일 놓는 카드 안: spec_작업 ② §15-1) — landing.css 다음 -->
   <link rel="stylesheet" href="/static/document_header.css"><!-- 공용 도구 한 줄 · 문서별 파일명 줄 -->
   <link rel="stylesheet" href="/static/project_workspace.css">
@@ -413,6 +414,7 @@
             <input id="commitMsg" type="text" maxlength="200" placeholder="확정 메시지(선택)" aria-label="확정 메시지">
             <button class="btn sm primary" id="commitBtn" type="button" disabled title="지금까지 고친 것을 한 시점으로 남기고 새 기준으로 삼습니다 — 고친 문단이 0 이 되고, 그 뒤 고친 것만 다시 모입니다">확정</button>
             <button class="btn sm" id="discardBtn" type="button" disabled title="확정하지 않은 변경을 모두 기준 상태로 되돌립니다(되돌린 고침은 되살릴 수 없음)">모두 되돌리기</button>
+            <button class="btn sm" id="resetWorkBtn" type="button" title="작업 내용 초기화 — 이 작업을 올린 직후로 되돌립니다: 고친 문단 · 분석 · LLM 결과 · 에이전트 대화 · 검증 기록을 비우고 첫 분석부터(확정 기록 · 작업 기록 · 프로젝트 · TASK 는 남음 — 누르면 확인)">초기화…</button>
           </div>
           <details class="commit-log" id="commitLog">
             <summary>확정 기록 <span class="badge" id="commitCount">0</span></summary>
@@ -535,6 +537,7 @@
   <script src="/static/task_catalog.js"></script><!-- TASK 정의 · 모듈 조합 · 단계 공통 정보 -->
   <script src="/static/app.js"></script>
   <script src="/static/project_workspace.js"></script>
+  <script src="/static/same_file.js"></script><!-- 같은 파일 고르기(올릴 때 같은 파일로 하던 작업이 있으면 떠 있는 창으로 묻기 — 이어서 · 초기화하고 열기 · 새 작업) · 작업 내용 초기화 — app.js 다음(spec_작업 ② §1 · §3-1) -->
   <script src="/static/tables.js"></script>
   <script src="/static/table_edit.js"></script><!-- 표 구조 편집(칸 고르기·행/열) — app.js 다음(spec_owpml_편집 ② §2 「자리」) -->
   <script src="/static/heading_forms.js"></script><!-- 양식 정보(양식마다 md 하나 — 일반 지침과 따로) — app.js 다음(spec_헤딩_추출 ② §12) -->

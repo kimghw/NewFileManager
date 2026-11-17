@@ -8,7 +8,8 @@
 - 묻는 때: 2열에 저장 안 한 표 지침 글 · 서버에 반영 안 된 수정(「취소」 면 그대로, 「확인」 이면 시작 화면).
 - 키보드(초점 + Enter) · Ctrl 누름(새 탭에 시작 화면, 지금 작업은 그대로) · 좁은 창(앱 이름 글이 숨어도 아이콘은 남음).
 - TASK 카드(spec_작업 ② §15 — 7-1): 여섯 장(끝에 「문서 일반 편집」 — spec_일반편집 ② §11)·차례·글·로고(그림·바탕색)·줄 수(넓은 창 6 · 860px 3 · 560px 2 · 400px 1) · 준비 중 카드 · 누르면 파일 고르기 → 그 TASK 로 작업 내용 ·
-  같은 파일로 하던 작업 이어 열기(같은 TASK·TASK 없음 = 이어 엶 + 「새 작업으로 열기」 · 다른 TASK 를 하던 작업 = 그대로 두고 새 작업 + 「하던 작업 열기」 — ② §15, 2026-11-13) ·
+  같은 파일 고르기(같은 파일로 하던 작업이 있으면 떠 있는 창으로 묻는다 — 같은 TASK·TASK 없음 = 「이어서」·「초기화하고 열기」 · 다른 TASK 를 하던 작업 = 「그대로 열기」 · 「새 작업으로 시작」 · Esc ·
+  줄 차례 · Enter — ② §1 · §3-1 · §15, 2026-11-18) ·
   카드에 파일 놓기(docx 안 받음 · hwpx 는 양식 판정대로)."""
 import argparse
 import base64
@@ -269,42 +270,58 @@ try:
         t = page.evaluate(TASK)
         check("준비 중 카드 — 누르면 알림만(작업이 안 열림)", t["id"] is None and "준비 중" in t["toast"], t)
 
-        with page.expect_file_chooser() as fc:  # 누르면 파일 고르기 — 같은 파일로 하던 작업(2 에서 연 것)이 있으니 그 작업을 그 TASK 로 이어 연다
+        # 「같은 파일 고르기」(spec_작업 ② §1 「같은 파일은 묻고 연다」 · design.md §16 — 2026-11-18): 같은 파일로 하던 작업이 있으면 열기 전에 떠 있는 창으로 묻는다
+        SF = """() => { const p = document.querySelector('.sf-pop'); if (!p) return null;
+            return { rows: [...p.querySelectorAll('.sf-row')].map((r) => ({ id: r.dataset.work, acts: [...r.querySelectorAll('.sf-acts [data-sf]')].map((b) => b.dataset.sf), why: (r.querySelector('.sf-why') || {}).textContent || '' })),
+              project: !!p.querySelector('#sfProject'), focus: (document.activeElement && document.activeElement.dataset.sf) || '',
+              inside: p.getBoundingClientRect().right <= innerWidth + 1 && p.getBoundingClientRect().left >= -1 }; }"""
+
+        def sf_pick(act, work=None):  # 창에서 고른다 — work 가 있으면 그 작업의 줄에서
+            page.wait_for_selector(".sf-pop", timeout=60000)
+            page.locator(".sf-pop " + (f'.sf-row[data-work="{work}"] ' if work else "") + f'[data-sf="{act}"]').first.click()
+
+        with page.expect_file_chooser() as fc:  # 누르면 파일 고르기 — 같은 파일로 하던 작업(2 에서 연 것 · TASK 없음)이 있으니 열기 전에 묻는다
             page.locator("#taskCards [data-task=plan_fit]").click()
         check("카드 누름 → 파일 고르기(hwp·hwpx)", fc.value.element.evaluate("(e) => e.accept") == ".hwp,.hwpx")
         fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        sf = page.evaluate(SF)
+        check("같은 파일 — 떠 있는 창으로 묻는다(하던 작업 한 줄 · 「이어서」·「초기화하고 열기」 · 프로젝트 칸 · 「이어서」 에 포커스 · 창 안) · 아직 아무것도 안 열림",
+              sf and [r["id"] for r in sf["rows"]] == [wid] and sf["rows"][0]["acts"] == ["use", "reset"] and sf["project"] and sf["focus"] == "use" and sf["inside"]
+              and page.evaluate("() => state.id") is None, sf)
+        page.screenshot(path=str(OUT / "7_same_file.png"))
+        sf_pick("use", wid)
         page.wait_for_function("(w) => state.id === w && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
         page.wait_for_function("() => state.task.job === 'plan_fit' && worksList.some((w) => w.id === state.id && (w.task || {}).job === 'plan_fit')", timeout=30000)
         t = page.evaluate(TASK)
         check("그 TASK 로 열림 — 작업 종류 연구개발과제 · 할 일 · 양식 판정이 못 정한 종류는 그 TASK 의 문서", t["task"] == {"kind": "rnd", "file": "plan", "job": "plan_fit", "project": ""}, t["task"])
         check("작업 내용(연구개발과제 패널)이 열리고 「할 일」 칸이 그 TASK", t["tool"] == "Div" and t["pane"] and t["job"] == "plan_fit", t)
-        check("이어 연 작업 — 알림에 TASK 이름 · 「새 작업으로 열기」", "이어서 엽니다" in t["toast"] and "사업계획서 양식 맞추기" in t["toast"] and "새 작업으로 열기" in t["toast"], t["toast"])
+        check("「이어서」 — 알림에 TASK 이름(고른 뒤라 「새 작업으로 열기」 단추는 없음)", "이어서 엽니다" in t["toast"] and "사업계획서 양식 맞추기" in t["toast"] and "새 작업으로 열기" not in t["toast"], t["toast"])
         saved = next((w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid), {})
         check("작업에 저장됨(GET /api/works)", (saved.get("task") or {}).get("job") == "plan_fit" and saved["task"]["kind"] == "rnd", saved.get("task"))
         page.screenshot(path=str(OUT / "7_task_open.png"))
 
-        # 다른 TASK 카드로 같은 파일 — 하던 작업은 그대로 두고 새 작업으로 열어 고른 TASK 를 적는다(② §15 · §19, 2026-11-13: 전에는 TASK 를 안 바꾸고 이어 열며 알림만 —
-        # 「양식 맞추기 카드로 올렸는데 TASK 가 이관」). 알림은 뒤따르는 다른 알림(첫 분석)에 밀릴 수 있어 부른 것을 적어 두고 본다
+        # 다른 TASK 카드로 같은 파일 — 하던 작업(다른 TASK)의 줄은 「그대로 열기」 만이고(그 작업의 TASK 를 안 바꾼다 — ② §15 · §19, 2026-11-13 「양식 맞추기 카드로 올렸는데 TASK 가 이관」),
+        # 새 작업은 「새 작업으로 시작」 으로(2026-11-18 — 전에는 묻지 않고 새 작업). 알림은 뒤따르는 다른 알림(첫 분석)에 밀릴 수 있어 부른 것을 적어 두고 본다
         h = go_home(page)
         page.evaluate("() => { window.__toasts = []; window.__toast0 = toast; toast = (m, e, a) => { window.__toasts.push({ m, act: a || null }); return window.__toast0(m, e, a); }; }")
         with page.expect_file_chooser() as fc:
             page.locator("#taskCards [data-task=plan_merge]").click()
         fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        sf = page.evaluate(SF)
+        check("다른 TASK 를 하던 작업 — 그 줄은 「그대로 열기」 만 · 까닭(다른 TASK 의 이름)", sf and [r["id"] for r in sf["rows"]] == [wid] and sf["rows"][0]["acts"] == ["open"]
+              and "다른 TASK" in sf["rows"][0]["why"] and "사업계획서 양식 맞추기" in sf["rows"][0]["why"] and sf["focus"] == "open", sf)
+        sf_pick("new")
         page.wait_for_function("""(w) => state.id && state.id !== w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div'
-            && !!document.querySelector('#paneDiv select[data-task=job]') && window.__toasts.some((x) => x.act && x.act.label === '하던 작업 열기')""", arg=wid, timeout=60000)
+            && !!document.querySelector('#paneDiv select[data-task=job]') && window.__toasts.some((x) => x.m.includes('새 작업으로 열었습니다'))""", arg=wid, timeout=60000)
         t = page.evaluate(TASK)
         new_id = t["id"]
-        note = page.evaluate("() => window.__toasts.filter((x) => x.act && x.act.label === '하던 작업 열기').map((x) => x.m).pop()")
-        check("다른 TASK 를 하던 파일 — 새 작업이 고른 TASK 로(작업 내용이 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
-        check("알림 — 하던 작업(TASK 이름)은 그대로 · 새 작업의 TASK · 단추 「하던 작업 열기」", "같은 파일로 하던 작업(TASK 「사업계획서 양식 맞추기」)은 그대로 두고 새 작업으로 열었습니다" in note
-              and note.endswith("TASK 「사업계획서 취합」 · 프로젝트 미지정") and t["task"]["project"] == "" and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
+        note = page.evaluate("() => window.__toasts.map((x) => x.m).filter((m) => m.includes('새 작업으로 열었습니다')).pop()")
+        check("「새 작업으로 시작」 — 새 작업이 고른 TASK 로(작업 내용이 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
+        check("알림 — 하던 작업은 그대로 · 새 작업의 TASK · 프로젝트 미지정(칸을 비움)", note.endswith("TASK 「사업계획서 취합」 · 프로젝트 미지정") and t["task"]["project"] == ""
+              and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
         check("앞 작업의 TASK 는 그대로", next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]["job"] == "plan_fit")
-        how = page.evaluate("""() => { const b = document.querySelector('#toast .toast-act');   // 알림의 단추 — 다른 알림에 밀렸으면 적어 둔 동작을 그대로 부른다
-            if (b && b.textContent === '하던 작업 열기' && !document.getElementById('toast').hidden) { b.click(); return 'button'; }
-            const a = window.__toasts.map((x) => x.act).filter((x) => x && x.label === '하던 작업 열기').pop(); a.run(); return 'action'; }""")
-        page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
-        t = page.evaluate(TASK)
-        check("「하던 작업 열기」 — 그 작업이 그 TASK 그대로 열림(작업 내용)", t["id"] == wid and t["task"]["job"] == "plan_fit" and t["pane"] and t["job"] == "plan_fit", (how, t))
         page.evaluate("() => { toast = window.__toast0; }")
         first = {}
         for _ in range(600):  # 새 작업이면 첫 분석이 돈다(② §9) — 화면은 하던 작업으로 넘어왔으니 서버에서 본다
@@ -313,24 +330,73 @@ try:
                 break
             time.sleep(.2)
         check("새 작업 — 첫 분석이 돎(헤딩 그래프 · 표 구조)", bool(first.get("stage2") and first.get("stage3")), {k: bool(first.get(k)) for k in ("stage2", "stage3", "job")})
-        # 같은 카드로 같은 파일을 다시 — 화면이 고른 TASK 를 함께 보내고(POST /api/docs?job=) 서버가 전에 만든 그 TASK 의 작업을 이어 연다: 새 작업이 또 생기지 않는다(② §15)
+        # 같은 카드로 같은 파일을 다시 — 화면이 고른 TASK 를 함께 보내 묻고(POST /api/docs?ask=1&job=) 줄 차례는 그 TASK 의 작업 먼저 · 다른 TASK 의 작업은 「그대로 열기」(② §1 · §15)
         h = go_home(page)
         count = len(requests.get(f"{base}/api/works", timeout=10).json())
         with page.expect_file_chooser() as fc:
             page.locator("#taskCards [data-task=plan_merge]").click()
-        with page.expect_response(lambda r: "/api/docs?" in r.url and r.request.method == "POST", timeout=60000) as posted:
+        fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        sf = page.evaluate(SF)
+        check("줄 차례 — 그 TASK 의 작업(이어서 · 초기화) 먼저 · 다른 TASK 의 작업은 「그대로 열기」", sf and [r["id"] for r in sf["rows"]] == [new_id, wid]
+              and sf["rows"][0]["acts"] == ["use", "reset"] and sf["rows"][1]["acts"] == ["open"], sf)
+        sf_pick("open", wid)  # 「그대로 열기」 — 그 작업을 그 TASK 그대로 열고 이 TASK 시작은 멈춘다
+        page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
+        t = page.evaluate(TASK)
+        check("「그대로 열기」 — 그 작업이 그 TASK 그대로 열림(작업 내용) · 작업 수 그대로", t["id"] == wid and t["task"]["job"] == "plan_fit" and t["pane"] and t["job"] == "plan_fit"
+              and len(requests.get(f"{base}/api/works", timeout=10).json()) == count, t)
+        h = go_home(page)
+        with page.expect_file_chooser() as fc:
+            page.locator("#taskCards [data-task=plan_merge]").click()
+        with page.expect_response(lambda r: "/api/docs?ask=1" in r.url and r.request.method == "POST", timeout=60000) as asked:
             fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        with page.expect_response(lambda r: "/api/docs?use=" in r.url and r.request.method == "POST", timeout=60000) as used:
+            sf_pick("use", new_id)
         page.wait_for_function("""(w) => state.id === w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')
             && !document.getElementById('toast').hidden && document.getElementById('toast').textContent.includes('이어서 엽니다')""", arg=new_id, timeout=60000)
         t = page.evaluate(TASK)
-        check("같은 카드로 다시 올림 — ?job= 으로 보내고 그 TASK 의 작업을 이어 엶 · 작업 수 그대로", posted.value.url.endswith("/api/docs?job=plan_merge") and posted.value.json().get("reused") is True
-              and posted.value.json()["docId"] == new_id and t["id"] == new_id and len(requests.get(f"{base}/api/works", timeout=10).json()) == count and "이어서 엽니다" in t["toast"], (posted.value.url, t))
+        check("같은 카드로 다시 올림 — ?ask=1&job= 으로 묻고 고른 작업을 ?use= 로 이어 엶 · 작업 수 그대로", asked.value.url.endswith("/api/docs?ask=1&job=plan_merge") and asked.value.json().get("ask") is True
+              and used.value.json().get("reused") is True and used.value.json()["docId"] == new_id and t["id"] == new_id
+              and len(requests.get(f"{base}/api/works", timeout=10).json()) == count and "이어서 엽니다" in t["toast"], (asked.value.url, t))
         h = go_home(page)
-        with page.expect_file_chooser() as fc:  # 처음의 카드로도 — 그 TASK(양식 맞추기)의 작업(wid)이 열린다(가장 최근 작업 = 취합 작업이 아니라)
+        with page.expect_file_chooser() as fc:  # 처음의 카드로도 — 그 TASK(양식 맞추기)의 작업(wid)이 첫 줄(가장 최근 작업 = 취합 작업이 아니라) · Enter = 포커스의 「이어서」
             page.locator("#taskCards [data-task=plan_fit]").click()
         fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        top = page.evaluate(SF)["rows"][0]["id"]
+        page.keyboard.press("Enter")
         page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div'", arg=wid, timeout=60000)
-        check("다른 카드로 다시 올림 — 그 TASK 의 작업이 열림(가장 최근 작업이 아니라) · 작업 수 그대로", page.evaluate("() => state.id") == wid and len(requests.get(f"{base}/api/works", timeout=10).json()) == count)
+        check("다른 카드로 다시 올림 — 그 TASK 의 작업이 첫 줄 · Enter 로 이어 엶 · 작업 수 그대로", top == wid and page.evaluate("() => state.id") == wid
+              and len(requests.get(f"{base}/api/works", timeout=10).json()) == count, top)
+
+        # Esc — 아무것도 열지 않는다 · 「초기화하고 열기」(② §3-1) — 줄 아래 확인 줄 → 같은 작업을 올린 직후로(TASK 그대로 · 기록에 reset)
+        h = go_home(page)
+        with page.expect_file_chooser() as fc:
+            page.locator("#taskCards [data-task=plan_fit]").click()
+        fc.value.set_files(str(ROOT / "samples" / SMALL))
+        page.wait_for_selector(".sf-pop", timeout=60000)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        check("Esc — 창이 닫히고 아무것도 안 열림 · 카드는 다시 받음 · 작업 수 그대로", page.evaluate("() => !document.querySelector('.sf-pop') && !state.id && !homeTaskBusy")
+              and len(requests.get(f"{base}/api/works", timeout=10).json()) == count)
+        for _ in range(600):  # 헤딩 추출이 도는 중이면 초기화가 409 — 끝나기를 기다린다
+            if (requests.get(f"{base}/api/docs/{wid}/headings", timeout=10).json().get("job") or {}).get("status") != "running":
+                break
+            time.sleep(.2)
+        with page.expect_file_chooser() as fc:
+            page.locator("#taskCards [data-task=plan_fit]").click()
+        fc.value.set_files(str(ROOT / "samples" / SMALL))
+        sf_pick("reset", wid)
+        page.wait_for_selector('.sf-pop [data-sf="reset-ok"]', timeout=10000)
+        conf = page.evaluate("() => document.querySelector('.sf-pop .sf-confirm').textContent")
+        check("「초기화하고 열기」 — 줄 아래 확인 줄(비우는 것 · 남는 것)", "올린 원본" in conf and "확정 기록" in conf and "에이전트 대화" in conf and page.evaluate("() => state.id") is None, conf)
+        page.screenshot(path=str(OUT / "7_same_file_reset.png"))
+        page.locator('.sf-pop [data-sf="reset-ok"]').click()
+        page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div'", arg=wid, timeout=60000)
+        ev = [e["kind"] for e in requests.get(f"{base}/api/works/{wid}/log", timeout=10).json()["events"]]
+        check("초기화 — 같은 작업 · TASK 그대로 · 고친 문단 0 · 기록에 reset · 작업 수 그대로", "reset" in ev and page.evaluate("() => state.edited.size") == 0
+              and len(requests.get(f"{base}/api/works", timeout=10).json()) == count, ev[-5:])
 
         h = go_home(page)  # 카드에 파일 놓기 — docx 는 안 받는다 · hwpx 는 그 TASK 로(양식 판정이 종류를 정한다)
         DROP = """([b64, name, key]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);

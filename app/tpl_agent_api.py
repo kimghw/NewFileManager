@@ -300,7 +300,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
     def log(per, doc):  # changed = 완전히 맞춘 줄 · left = 표지 때문에 모양만 맞춘 줄(spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)
         nl = sum(len(x.get("left") or ()) for x in per)
         return {"templates": [{"tpl": x["no"], "levels": list(x["levels"]), "changed": len(x["changed"]), **({"left": len(x["left"])} if x.get("left") else {}),
-                               **({"splits": list(x["splits"])} if x["splits"] else {})} for x in per],
+                               **({"splits": list(x["splits"])} if x["splits"] else {}), **({"into": list(x["into"])} if x.get("into") else {})} for x in per],
                 **({"changed": sum(len(x["changed"]) for x in per)} if doc else {}), **({"left": nl} if nl else {}), "by": "agent"}
     marks = {tid: rec["at"] for tid, rec in recs if rec.get("at") is not None}  # 반영하는 계획의 표시 — 반영과 같은 트랜잭션 · 같은 잠금 안에서 오버레이에 적는다(OM._marks: 「반영함은 문서에 남아 있을 때만」)
     per, out, rel = [], None, []
@@ -334,7 +334,10 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
     kept = {x["tpl"]: len(x.get("left") or ()) for x in per}
     for tid, rec in recs:
         applied(s, tid, rev, done.get(tid, 0), rec.get("at"))
-    out["templates"] = [{"tpl": x["tpl"], "no": x["no"], "changed": len(x["changed"]), "left": kept[x["tpl"]], "levels": x["levels"], "splits": x["splits"]} for x in per]
+    # into = 윗레벨 떼기가 먼저 데려간 줄의 떼기 — 새 템플릿 대신 데려간 템플릿의 그 레벨 대표로(outline_match_api._cut_now)
+    out["templates"] = [{"tpl": x["tpl"], "no": x["no"], "changed": len(x["changed"]), "left": kept[x["tpl"]], "levels": x["levels"], "splits": x["splits"],
+                         **({"into": x["into"]} if x.get("into") else {})} for x in per]
+    into = {x["tpl"]: x.get("into") or [] for x in per}
     out.setdefault("left", [])  # 표지 때문에 모양만 맞춘 줄 [{id, tpl, no, level, why, kinds}](apply_templates 의 답) — 계획 상태는 「반영함」 그대로
     out["plans"] = len(recs)
     out["reps"] = sum(1 for x in per for lv in x["levels"] if lv["repChanged"])  # 대표를 바꾼 레벨 수 — 맞춘 줄이 0 이어도 한 일이다(조정 줄 · 「전체 실행」 의 끝난 글)
@@ -342,7 +345,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
     out["merged"] = [{k: v for k, v in m.items() if k != "ids"} for m in rel]  # 저절로 건 종속 [{id, no, child, childNo, parent, parentNo, at, moved}]
     note_apply(s, ov.get("run"), "all", [{"tpl": tid, "no": rec.get("no"), "plan": rec.get("at"), "summary": (rec.get("plan") or {}).get("summary", ""), "changed": done.get(tid, 0),
                                           **({"left": kept[tid]} if kept.get(tid) else {}),
-                                          "levels": A.apply_view(rec.get("plan"), todo.get(tid) or [])} for tid, rec in recs], relations=rel)
+                                          "levels": A.apply_view(rec.get("plan"), todo.get(tid) or [], into.get(tid))} for tid, rec in recs], relations=rel)
     return out
 
 

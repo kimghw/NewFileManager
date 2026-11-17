@@ -131,16 +131,18 @@ def list_works() -> list[dict]:
     return sorted(out, key=lambda w: w.get("updated", 0), reverse=True)
 
 
-def find_same(name, fmt, sha, job=None) -> dict | None:
-    """같은 파일(이름·형식·올린 원본 sha256 이 모두 같음)로 만든 작업 중 가장 최근 것 — 다시 열면 이 작업을 이어 연다(spec_작업 ② §1).
-    sha256 은 올린 원본 것이라 확정해도 그대로다(② §8).
-    job(고른 TASK — ② §15)이 있으면 그 TASK 의 작업(가장 최근) → TASK 가 빈 작업(가장 최근) → 그 밖의 가장 최근 작업 차례로 고른다."""
+def same_works(name, fmt, sha, job=None) -> list[dict]:
+    """같은 파일(이름·형식·올린 원본 sha256 이 모두 같음)로 만든 작업들 — 이어 열 차례(spec_작업 ② §1 「같은 파일은 묻고 연다」: 「같은 파일 고르기」 의 줄 차례).
+    sha256 은 올린 원본 것이라 확정해도 그대로다(② §8). 최근 바뀐 차례이고, job(고른 TASK — ② §15)이 있으면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖 차례(저마다 최근 차례)."""
     rows = [w for w in list_works() if w.get("sha256") == sha and w.get("name") == name and w.get("format") == fmt]   # 최근 바뀐 차례
     if job:
-        for want in (job, ""):
-            hit = next((w for w in rows if ((w.get("task") or {}).get("job") or "") == want), None)
-            if hit is not None:
-                return hit
+        rows.sort(key=lambda w: 0 if ((w.get("task") or {}).get("job") or "") == job else 1 if not (w.get("task") or {}).get("job") else 2)   # 안정 정렬 — 같은 칸 안은 최근 차례 그대로
+    return rows
+
+
+def find_same(name, fmt, sha, job=None) -> dict | None:
+    """같은 파일로 만든 작업 가운데 이어 열 것(same_works 의 맨 앞) — 묻지 않고 이어 여는 길(예제 열기 · ?ask 없는 옛 화면 — spec_작업 ② §1)."""
+    rows = same_works(name, fmt, sha, job)
     return rows[0] if rows else None
 
 
@@ -215,6 +217,48 @@ def mark(wid, **fields) -> dict | None:
         w.update(fields)
         _write_json(d / "work.json", w)
         return w
+
+
+RESET_KEEP = ("work.json", "log.jsonl", "commits", "outputs", "reset")   # 작업 내용 초기화가 제자리에 두는 것(spec_작업 ② §3-1) — 올린 원본(original.<ext>)과 함께
+
+
+def reset_files(wid, rev, carry=(), tries=6) -> dict | None:
+    """작업 내용 초기화(spec_작업 ② §3-1)의 파일 쪽 — 남기는 것(RESET_KEEP · original.*) 밖의 항목을 `reset/<n>/` 으로 옮기고(지우지 않음)
+    carry(옮긴 것 가운데 제자리에 사본을 되돌려 둘 상대 경로 — 양식 선택 등, 있을 때만) 를 되돌린 뒤 work.json 의 요약을 올린 직후로(rev 는 이어 센다 · 고친 문단 0 · 검증 요약 비움 · 프레임 표시 끔).
+    → {n, archive, moved[이름]} | None(지운 작업 · 저장 끔). 다른 손잡이가 잡아 못 옮기면 몇 번 다시 뒤 OSError — 그때까지 옮긴 것은 그대로 둔다."""
+    d = folder(wid)
+    if d is None:
+        return None
+    with _lock(wid):
+        w = work(wid)
+        if w is None:
+            return None
+        box = d / "reset"
+        box.mkdir(exist_ok=True)
+        n = max([int(p.name) for p in box.iterdir() if p.name.isdigit()] + [0]) + 1
+        dst = box / str(n)
+        dst.mkdir()
+        moved = []
+        for p in sorted(d.iterdir(), key=lambda x: x.name):
+            if p.name in RESET_KEEP or p.name.startswith("original."):
+                continue
+            for k in range(tries):
+                try:
+                    os.replace(p, dst / p.name)
+                    break
+                except OSError:   # Windows: 백신·색인기·읽는 스레드가 잠깐 잡음 — 몇 번 다시
+                    if k == tries - 1:
+                        raise
+                    time.sleep(0.05 * (k + 1))
+            moved.append(p.name)
+        for rel in carry:
+            src = dst / rel
+            if src.is_file():
+                (d / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, d / rel)
+        w.update(rev=rev, edited=0, verify={}, framed=False, updated=time.time())
+        _write_json(d / "work.json", w)
+    return {"n": n, "archive": f"reset/{n}", "moved": moved}
 
 
 def delete(wid, tries=6) -> bool:

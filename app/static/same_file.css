@@ -1,0 +1,37 @@
+/* 같은 파일 고르기(spec_작업 ② §1 「같은 파일은 묻고 연다」 · design.md §16) — same_file.js 가 만드는 것만.
+   떠 있는 창(모달 아님 — 바탕을 가리지 않음): 상단 바 아래 가운데 · 폭 440px 이하 · ✕/Esc. 색 변수 · .btn · 입력 28px 는 style.css 의 것. */
+.sf-pop { position: fixed; z-index: 61; top: 56px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 72px); overflow: auto;
+  padding: 10px 12px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); font-size: 13px; color: var(--text); }
+.sf-head { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px; }
+.sf-title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.sf-title strong { font-size: 14px; }
+.sf-file { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-x { flex: none; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+.sf-x:hover { background: var(--surface-2); color: var(--text); }
+
+.sf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* 줄 = 위에 정보(작업 · 언제 · 얼마나) · 아래 오른쪽에 단추 — 단추를 정보 옆에 두면 440px 에서 첫 줄이 잘렸다(「프로젝트 …」) */
+.sf-row { display: flex; flex-direction: column; gap: 6px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.sf-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sf-top { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.sf-top .recent-task { flex: none; }
+.sf-what { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.sf-meta, .sf-why { color: var(--muted); font-size: 12px; word-break: keep-all; overflow-wrap: anywhere; }
+.sf-why { color: var(--warn); }
+.sf-acts { display: flex; justify-content: flex-end; gap: 6px; }
+.sf-acts .btn { height: 28px; padding: 0 10px; }
+.sf-confirm { padding: 6px 0 0; border-top: 1px dashed var(--line); }
+.sf-confirm p { margin: 0 0 6px; font-size: 12px; line-height: 1.5; color: var(--text); word-break: keep-all; overflow-wrap: anywhere; }
+.sf-confirm-acts { display: flex; gap: 6px; }
+
+.sf-new { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.sf-grid { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 6px 8px; }
+.sf-k { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.sf-grid input { height: 28px; min-width: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
+.sf-new-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.sf-new-acts .btn { height: 28px; padding: 0 10px; }
+.sf-note { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 480px) {
+  .sf-pop { width: calc(100vw - 32px); }
+}

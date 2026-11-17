@@ -316,12 +316,78 @@ def _plan(s, ov, jobs, rev):
     return out
 
 
-def _cut_now(s, ov, tpl, lv, c, done_cuts):
-    """뗄 것 하나를 지금 뗀다(오버레이) → (새 템플릿 대표의 모양 — 뗀 줄을 맞출 때 쓴다, split 의 답)."""
+def _cut_now(s, ov, tpl, lv, c, one, r=None):
+    """뗄 것 하나를 지금 뗀다(오버레이) → ([(대표 모양, 그 모양으로 맞출 줄, 기록)], 다른 템플릿으로 옮긴 줄). 기록 = one["splits"](새로 만든 서식 종속 템플릿) · one["into"](아래)의 항목.
+    r = 이 레벨의 계획한 대표 줄(_plan_tpl) — 윗레벨 떼기가 그 줄도 같은 템플릿으로 데려갔으면 그 템플릿에서는 그 대표가 이긴다(아래 aside).
+    **윗레벨 떼기가 이 갈래의 줄을 먼저 데려갔으면**(같은 반영의 앞 레벨이 그 줄의 부모를 뗐다 — 부모와 함께 새 템플릿의 같은 레벨로 간다) 그 줄은 **데려간 템플릿의 그 레벨**에서
+    이 갈래의 서식을 대표로 삼는다(그 레벨의 대표 · 동결 모양 = 계획한 대표의 것 · 자리 규칙은 안 옮김 — `split` 이 떼는 레벨에 하는 것과 같다). 새 템플릿을 또 만들지 않는다:
+    전에는 떼기가 「그 문단은 T17 L2 줄이 아닙니다(지금 T17L1a L2)」 400 으로 「모두 반영」 전체를 막았다(2026-11-18 — 표 하나의 「①」 을 L1 에서 떼고 그 아래 「-」 를 L2 에서 또 뗀 계획).
+    남은 줄은 전처럼 새 서식 종속 템플릿으로(spec_hwpx_웹편집 ② §8-2 「계획의 대표로」)."""
     shape = outline_match.rep_shape(s.doc, ov, c["rep"])
-    got = outline_match.split(ov, tpl, lv, c["paras"], rep=c["rep"], shape=shape, sfx=c["sfx"], doc=s.doc)
-    done_cuts.append({"level": lv, "id": got["id"], "no": got["no"], "moved": len(got["moved"]), "changed": len(c["ids"])})
-    return shape, got
+    base = outline_match.look(s.doc, ov, c["rep"])
+    order = outline_match._order(s.doc)
+    stay, away = [], {}
+    for p in sorted(c["paras"], key=lambda q: order.get(q, 1 << 30)):
+        if _in_slot(ov, p, tpl, lv):
+            stay.append(p)
+            continue
+        x = ov["lines"].get(p) or {}
+        if not x.get("tpl") or int(x.get("level", -1)) != int(lv):
+            raise ValueError(f"그 문단은 T{ov['templates'][str(tpl)]['no']} L{lv} 줄이 아닙니다(지금 T{x.get('no')} L{x.get('level')})")
+        away.setdefault(x["tpl"], []).append(p)
+
+    def rep_of(ps):  # 계획한 대표가 그 묶음에 있으면 그 줄 · 없으면 그 대표와 서식이 같은 첫 줄 · 그것도 없으면 첫 줄(맞추면 그 모양이 된다)
+        if c["rep"] in ps:
+            return c["rep"]
+        for p in ps:
+            try:
+                if outline_match.same(outline_match.look(s.doc, ov, p), base):
+                    return p
+            except (KeyError, ValueError):
+                continue
+        return ps[0]
+    out, moved, made = [], [], False
+    if stay:
+        ids = [i for i in c["ids"] if i in set(stay)]
+        here = outline_edit._slot(ov, tpl, lv)
+        if here.get("rep") in stay:
+            # 이 레벨의 대표가 이 갈래의 줄이다 — 계획한 대표가 그 서식의 줄과 함께 윗레벨 떼기로 모두 떠나(_settle_rep 이 남은 줄에서 못 찾음) `split` 이 남은 줄 하나를 대표로 둔 레벨.
+            # 이 갈래를 떼면 이 템플릿의 그 레벨에 대표가 될 줄이 없다(대표 갈래는 못 뗀다) — 떼지 않고 이 갈래가 이 템플릿의 그 레벨 대표가 된다(2026-11-18 같은 문서의 T19: 「대표 서식은 뗄 수 없습니다」)
+            _own(here, rep_of(stay), shape)
+            rec = {"level": lv, "id": str(tpl), "no": ov["templates"][str(tpl)]["no"], "sfx": c["sfx"], "lines": len(stay), "stayed": True, "changed": len(ids)}
+            one.setdefault("into", []).append(rec)
+        else:
+            got = outline_match.split(ov, tpl, lv, stay, rep=rep_of(stay), shape=shape, sfx=c["sfx"], doc=s.doc)
+            rec = {"level": lv, "id": got["id"], "no": got["no"], "moved": len(got["moved"]), "changed": len(ids)}
+            one["splits"].append(rec)
+            moved.extend(got["moved"])
+            made = True
+        out.append((shape, ids, rec))
+    for vid, ps in away.items():
+        sl = outline_edit._slot(ov, vid, lv)
+        if sl is None:
+            raise ValueError(f"T{ov['templates'][vid]['no']} 에 L{lv} 이 없습니다")
+        if r is not None and (ov["lines"].get(r) or {}).get("tpl") == vid:
+            # 이 레벨의 계획한 대표도 그 템플릿으로 갔다(_settle_rep 이 그 템플릿의 대표로 삼음) — 그 대표가 이긴다: 이 갈래의 줄은 그 템플릿에서 다른 서식으로 그대로(맞추지 않음 — 다음 계획이 본다)
+            rec = {"level": lv, "id": vid, "no": ov["templates"][vid]["no"], "sfx": c["sfx"], "lines": len(ps), "aside": True, "changed": 0}
+            one.setdefault("into", []).append(rec)
+            continue
+        _own(sl, rep_of(ps), shape)
+        ids = [i for i in c["ids"] if i in set(ps)]
+        rec = {"level": lv, "id": vid, "no": ov["templates"][vid]["no"], "sfx": c["sfx"], "lines": len(ps), "changed": len(ids)}
+        one.setdefault("into", []).append(rec)
+        out.append((shape, ids, rec))
+    for rec in one.get("into") or ():  # whole = 이 떼기가 새 템플릿을 만들지 않았다(줄이 모두 다른 템플릿의 그 레벨 대표 서식이 됨)
+        if rec["level"] == lv and rec["sfx"] == c["sfx"]:
+            rec["whole"] = not made
+    return out, moved
+
+
+def _own(sl, rep, sh, keep_pos=False):
+    """슬롯의 대표를 rep 로 · 동결 모양을 sh(rep_shape)로 — 사람·계획이 정한 대표 표시는 지우고, 자리 규칙은 keep_pos 가 아니면 지운다(다른 서식 — `split` 이 떼는 레벨에 하는 것과 같다)."""
+    sl.update(rep=rep, prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])
+    for k in ("repSet", "agentRep") + (() if keep_pos else ("pos",)):
+        sl.pop(k, None)
 
 
 def _in_slot(ov, pid, tpl, lv):
@@ -349,6 +415,35 @@ def _settle_rep(s, ov, tpl, lv, sl, r, sh, want):
     sl.update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])  # 새 줄도 대표의 지금 모양으로
 
 
+def _follow_rep(s, ov, tpl, lv, r, sh, want):
+    """레벨 lv 의 계획한 대표 줄 r 을 윗레벨 떼기가 데려갔으면 r 은 **데려간 서식 종속 템플릿의 그 레벨 대표**로 따라간다(동결 모양 sh = 계획의 대표 모양 · 자리 규칙은 그대로 — 같은 서식) —
+    다만 그 템플릿의 그 레벨에서 계획한 대표의 서식(want)인 줄(방금 맞춘 줄 포함)이 지금 대표의 서식인 줄보다 적지 않을 때만이다(계획이 그 레벨을 맞추며 함께 옮긴 줄이 그 서식이 됐을 때 —
+    맞춘 줄 없이 대표만 데려간 계획에서 한두 줄의 서식이 그 템플릿의 대표를 빼앗지 않게). 전에는 떼기가 옮긴 줄 가운데 하나를 대표로 두었다(2026-11-18 · spec_hwpx_웹편집 ② §8-2 「계획의 대표로」).
+    그 레벨의 떼기(_cut_now)보다 먼저 부른다 — 같은 템플릿으로 간 떼기 갈래는 그 템플릿에 계획한 대표가 있으면 진다(aside)."""
+    x = ov["lines"].get(r) or {}
+    vt = ov["templates"].get(x.get("tpl")) or {}
+    if x.get("tpl") == str(tpl) or str((vt.get("variant") or {}).get("of")) != str(tpl) or int(x.get("level", -1)) != int(lv):
+        return
+    vsl = outline_edit._slot(ov, x["tpl"], lv)
+    if vsl is None or not outline_match._alive(s.doc, r) or vsl.get("rep") == r:
+        return
+    cur = vsl.get("rep")
+    try:
+        now = outline_match.look(s.doc, ov, cur) if cur and outline_match._alive(s.doc, cur) and _in_slot(ov, cur, x["tpl"], lv) else None
+    except (KeyError, ValueError):
+        now = None
+    n_want = n_now = 0
+    for p in outline_match.slot_ids(ov, x["tpl"], lv):
+        try:
+            lk = outline_match.look(s.doc, ov, p) if outline_match._alive(s.doc, p) else None
+        except (KeyError, ValueError):
+            continue
+        n_want += lk is not None and outline_match.same(lk, want)
+        n_now += lk is not None and now is not None and outline_match.same(lk, now)
+    if n_want >= n_now:
+        _own(vsl, r, sh, keep_pos=True)
+
+
 def _marks(ov, marks, left=None):
     """반영한 서식 정리 계획의 표를 개요 오버레이에(ov["agent"][템플릿] = 그 계획의 at) — 「반영함」 은 이 표가 그 계획의 것일 때만이다(analysis.plan_applied · spec_hwpx_웹편집 ② §8-4).
     **반영과 같은 트랜잭션 · 같은 잠금 안에서** 적는다: 반영 직전의 실행 취소 묶음에는 없고 그 뒤의 묶음에는 있어, 반영을 되돌리면 표도 사라진다.
@@ -367,10 +462,19 @@ def _marks(ov, marks, left=None):
 
 
 def _plan_shapes(s, ov, rows):
-    """계획의 대표 모양(rep_shape) · 비교 값(look)을 레벨마다 → {레벨: (모양, 비교 값)} — 맞출 줄이 있거나 대표를 바꾸는 레벨만. **그 템플릿을 바꾸기 전에** 잡는다:
+    """계획의 대표 모양(rep_shape) · 비교 값(look)을 레벨마다 → {레벨: (모양, 비교 값)} — 맞출 줄이 있거나 대표를 바꾸거나 떼는 레벨만. **그 템플릿을 바꾸기 전에** 잡는다:
     윗레벨 떼기가 아랫레벨의 대표 줄을 새 템플릿으로 데려가면 슬롯의 대표가 남은 줄로 바뀌는데(outline_match.split), 그때 그 바뀐 대표로 맞추면 계획과 다른 모양이 된다
     (2026-11-16 astra — spec_hwpx_웹편집 ② §8-2 「계획의 대표로」). 문서 편집 길 · 오버레이만 바꾸는 길 · 그 사본(_pend_after)이 같이 쓴다."""
-    return {lv: (outline_match.rep_shape(s.doc, ov, r), outline_match.look(s.doc, ov, r)) for lv, r, rep_changed, ids, _ in rows if ids or rep_changed}
+    out = {}
+    for lv, r, rep_changed, ids, cut in rows:
+        if ids or rep_changed:
+            out[lv] = (outline_match.rep_shape(s.doc, ov, r), outline_match.look(s.doc, ov, r))
+        elif cut:  # 떼기만 하는 레벨도 — _follow_rep 이 쓴다. 대표 모양을 못 읽으면(그 레벨의 대표를 쓰지 않는 반영이다) 건너뛴다 — 전에 되던 계획을 막지 않게
+            try:
+                out[lv] = (outline_match.rep_shape(s.doc, ov, r), outline_match.look(s.doc, ov, r))
+            except (KeyError, ValueError):
+                pass
+    return out
 
 
 def _take_rep(s, ov, tpl, lv, r, rep_changed, by=None):
@@ -393,9 +497,11 @@ def _model_run(s, ov, pre, per, by=None):
             _take_rep(s, ov, tpl, lv, r, rep_changed, by)
             if rep_changed:
                 _settle_rep(s, ov, tpl, lv, sl, r, *shapes[lv])
+            if lv in shapes:
+                _follow_rep(s, ov, tpl, lv, r, *shapes[lv])
             one["levels"].append({"level": lv, "rep": sl["rep"], "repChanged": rep_changed, "changed": 0})  # rep = 실제로 대표가 된 줄(문서 편집 길의 답과 같게 — 떠난 줄이 아니다)
             for c in cut:
-                _cut_now(s, ov, tpl, lv, c, one["splits"])
+                _cut_now(s, ov, tpl, lv, c, one, r)
         per.append(one)
 
 
@@ -498,13 +604,16 @@ def apply_templates(server, doc_id, jobs, *, rev=None, op="outlineTplMatch", req
                                     except ValueError:
                                         pass
                             _settle_rep(s, ov2, tpl, lv, sl, r, sh, want)
+                        if lv in shapes:
+                            _follow_rep(s, ov2, tpl, lv, r, *shapes[lv])
                         one["levels"].append({"level": lv, "rep": sl["rep"], "repChanged": rep_changed, "changed": len(ids) - n_left, **({"left": n_left} if n_left else {})})
-                        for c in cut:  # 서식 종속 템플릿으로 떼고(② §8-5), 뗀 줄 가운데 새 대표와 다른 줄은 그 대표 모양으로
-                            shape, got = _cut_now(s, ov2, tpl, lv, c, one["splits"])
-                            moved.extend(got["moved"])
-                            c_left = sum(_match_one(s.doc, ov2, pid, shape, one, lv) for pid in c["ids"])
-                            if c_left:  # 뗀 줄 가운데 모양만 맞춘 줄 — 떼기의 changed 는 완전히 맞춘 줄만
-                                one["splits"][-1].update(changed=len(c["ids"]) - c_left, left=c_left)
+                        for c in cut:  # 서식 종속 템플릿으로 떼고(② §8-5), 뗀 줄 가운데 새 대표와 다른 줄은 그 대표 모양으로(윗레벨 떼기가 먼저 데려간 줄은 그 템플릿에서 — _cut_now)
+                            done_c, got_moved = _cut_now(s, ov2, tpl, lv, c, one, r)
+                            moved.extend(got_moved)
+                            for shape, c_ids, rec in done_c:
+                                c_left = sum(_match_one(s.doc, ov2, pid, shape, one, lv) for pid in c_ids)
+                                if c_left:  # 뗀 줄 가운데 모양만 맞춘 줄 — 떼기의 changed 는 완전히 맞춘 줄만
+                                    rec.update(changed=len(c_ids) - c_left, left=c_left)
                     per.append(one)
                 _marks(ov2, marks, {one["tpl"]: one["left"] for one in per})
                 if relations is not None:  # 확실한 종속(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래 — ② §8-2 「종속 제안」)을 같은 트랜잭션에: 줄을 제 대표에 맞춘 **뒤에** 옮긴다
@@ -597,6 +706,8 @@ def match_template(doc_id: str, tpl: str, body: dict = Body(default={})):
     out["levels"] = one["levels"]
     if one["splits"]:
         out["splits"] = one["splits"]
+    if one.get("into"):  # 윗레벨 떼기가 먼저 데려간 줄의 떼기 — 데려간 템플릿의 그 레벨 대표로(_cut_now)
+        out["into"] = one["into"]
     if at is not None:  # 분석 상태의 서식 LLM 칸(spec_작업 ② §20). 문서가 안 바뀐 반영(떼기만 · 대표만)도 적는다
         s1 = server._sess(doc_id)
         tpl_agent_api.applied(s1, tpl, rev, len(one["changed"]), at)
@@ -605,7 +716,7 @@ def match_template(doc_id: str, tpl: str, body: dict = Body(default={})):
         if rec.get("at") == at:  # 실제로 반영한 것(사람이 고르기를 바꿨으면 바꾼 대로)을 실행 기록에 — 결과 화면(spec_헤딩_추출 ② §7 「결과 화면」)
             tpl_agent_api.note_apply(s1, graph, "tpl", [{"tpl": str(tpl), "no": rec.get("no"), "plan": at, "summary": (rec.get("plan") or {}).get("summary", ""), "changed": len(one["changed"]),
                                                          **({"left": len(one["left"])} if one.get("left") else {}),
-                                                         "levels": tpl_agent_api.A.apply_view(rec.get("plan"), levels if isinstance(levels, list) else [])}])
+                                                         "levels": tpl_agent_api.A.apply_view(rec.get("plan"), levels if isinstance(levels, list) else [], one.get("into"))}])
     return out
 
 

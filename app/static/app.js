@@ -122,12 +122,14 @@ function confirmDiscard() {
     : "내려받지 않은 수정(또는 반영 중·반영 실패한 수정)이 있습니다. 다른 파일을 열면 사라집니다. 계속할까요?");
 }
 
-// 같은 파일(이름·형식·바이트)로 하던 작업이 있으면 서버가 그 작업을 이어 연다(reused) — 알림에서 새 작업으로 다시 열 수 있다(spec_작업 ② §1)
+// 같은 파일(이름·형식·바이트)로 하던 작업이 있으면 — 올리기는 열기 전에 묻고(same_file.js — spec_작업 ② §1 「같은 파일은 묻고 연다」) 예제 열기는 서버가 이어 연다(reused) — 알림에서 새 작업으로 다시 열 수 있다
 async function opened(r, again) {
   await load(r.docId);
+  if (r.reset) { firstRun(); toast("작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다"); return; } // 「초기화하고 열기」(② §3-1) — 새 작업과 같이 첫 분석
   if (!r.reused) { firstRun(); return; } // 새 작업 — 첫 분석(헤딩 2·3단계 스크립트 — spec_작업 ② §9 · 구분 기준 LLM 검토는 2026-11-15 부터 저절로 안 돈다: ② §20)
   const w = r.work || {};
   const done = [w.commits ? `확정 ${w.commits}` : "", w.edited ? `고친 문단 ${w.edited}개` : ""].filter(Boolean).join(" · ");
+  if (r.picked) { toast(`하던 작업을 이어서 엽니다 — ${fmtWhen(w.created)} 시작${done ? " · " + done : ""}`); return; } // 「같은 파일 고르기」 에서 골랐다 — 다시 묻지 않는다
   toast(`같은 파일로 하던 작업을 이어서 엽니다 — ${fmtWhen(w.created)} 시작${done ? " · " + done : ""}`, false,
     { label: "새 작업으로 열기", run: again });
 }
@@ -136,11 +138,13 @@ async function openFile(file, fresh = false) {
   if (!file) return;
   if (!/\.(hwpx?|docx)$/i.test(file.name)) { toast("hwp·hwpx·docx 파일만 열 수 있습니다", true); return; } // hwp 는 서버가 한글로 hwpx 로 바꿔 받는다
   if (!confirmDiscard()) return;
-  const fd = new FormData();
-  fd.append("file", file);
   setSaveState("busy", `${file.name} 여는 중…`);
-  try { await opened(await api(`/api/docs${fresh ? "?new=1" : ""}`, { method: "POST", body: fd }), () => openFile(file, true)); }
-  catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
+  try {
+    if (fresh) { const fd = new FormData(); fd.append("file", file); await opened(await api("/api/docs?new=1", { method: "POST", body: fd })); return; }
+    const got = await sameFileUpload(file); // 같은 파일로 하던 작업이 있으면 묻는다(TASK 없이 — 줄은 모두 「이어서」 · 「초기화하고 열기」)
+    if (!got) { refreshSaveState(); return; } // 창을 닫음 — 아무것도 열지 않는다
+    await opened(got.r, () => openFile(file, true));
+  } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
 }
 
 async function openSample(name, fresh = false) {
@@ -205,7 +209,7 @@ function homeTaskFiles(job, files) { // 카드로 고르거나 놓은 파일들 
   else homeTaskStart(job, list[0]);
 }
 
-async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 이어 엶 — 다른 TASK 를 하던 작업이면 새 작업으로) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
+async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 「같은 파일 고르기」 로 묻는다 — same_file.js) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
   const t = HOME_TASKS[job];
   if (!file || !t || t.soon || homeTaskBusy) return;
   const accept = taskAcceptOf(job), ext = ((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase(); // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx — hwp 는 서버가 한글로 hwpx 로 바꿔 받는다)
@@ -221,32 +225,32 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
   if (card) card.classList.add("busy");
   setSaveState("busy", `${file.name} 여는 중…`);
   try {
-    // 고른 TASK 를 함께 보낸다(?job= — ② §15): 같은 파일로 만든 작업이 여럿이면 서버가 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다(같은 카드로 다시 올려도 작업이 쌓이지 않게)
-    let r = await api(`/api/docs?${fresh ? "new=1" : `job=${encodeURIComponent(job)}`}`, { method: "POST", body: fd });
-    // 이어 연 작업의 TASK 가 그래도 다르면(그 TASK 의 작업도 빈 작업도 없음) 하던 작업은 그대로 두고 새 작업으로 다시 올려 고른 TASK 를 적는다(② §15 · §19, 2026-11-13 사용자
-    // "사업 계획서 양식 맞추기 했는데 task 에서는 이관 으로 되어 있음" — 문서 목록으로 시작할 때(home_files.js hfOpenTarget)와 같은 규칙). 하던 작업은 열지 않고 작업 목록에서 TASK 만 본다
-    let other = null; // 그대로 둔 하던 작업 {id, was 「프로젝트 「…」 · TASK 「…」」}
-    if (r.reused) {
-      let list = worksList;
-      try { list = await api("/api/works"); } catch { /* 못 읽으면 마지막으로 읽은 목록으로 */ }
-      const had = (list.find((w) => w.id === r.docId) || {}).task || {}; // 하던 작업의 task
-      if (had.job && had.job !== job) {
-        other = { id: r.docId, was: [had.project ? `프로젝트 「${had.project}」` : "", `TASK 「${taskName("job", had.job) || had.job}」`].filter(Boolean).join(" · ") };
-        const fd2 = new FormData();
-        fd2.append("file", file);
-        r = await api("/api/docs?new=1", { method: "POST", body: fd2 });
-      }
+    // 같은 파일로 하던 작업이 있으면 묻는다(same_file.js — ② §1 「같은 파일은 묻고 연다」, 2026-11-18 사용자): 줄 차례 = 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖(?job=).
+    // 다른 TASK 를 하던 작업은 「그대로 열기」 만 — 그 작업의 TASK 를 바꾸지 않는다(② §15 · §19, 2026-11-13 사용자 "사업 계획서 양식 맞추기 했는데 task 에서는 이관 으로 되어 있음").
+    // 전(11-13~11-17)에는 그런 작업이면 묻지 않고 새 작업으로 열었다 — 이제 새 작업은 창의 「새 작업으로 시작」 으로.
+    const got = fresh ? { act: "new", r: await api("/api/docs?new=1", { method: "POST", body: fd }), project: "" }
+      : await sameFileUpload(file, { job, fit: (w) => (!(w.task || {}).job || w.task.job === job ? true : `다른 TASK(「${taskName("job", w.task.job) || w.task.job}」)`) });
+    if (!got) { refreshSaveState(); return; } // 창을 닫음 — 아무것도 열지 않는다
+    if (got.act === "open") { // 「그대로 열기」 — 그 작업을 그 TASK 그대로 연다
+      await (typeof projectOpen === "function" ? projectOpen(got.id) : openWork(got.id));
+      toast("하던 작업을 그 TASK 그대로 엽니다 — 이 TASK 로 시작하려면 다시 올려 「새 작업으로 시작」 을 고르세요");
+      return;
     }
+    const r = got.r;
     await load(r.docId);
-    const kept = await homeTaskApply(job);
+    let kept = true;
+    if (got.act === "new" && got.project && state.stored) { // 창의 프로젝트 칸 — 그 프로젝트의 이 TASK 다음 라운드(② §17 start-task)
+      const role = (state.task && state.task.file) || t.file || "";
+      const res = await api(`/api/works/${r.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project: got.project, job, file: role }) });
+      if (state.id === r.docId) { state.task = res.task; taskDraw(); await loadWorks(); }
+    } else kept = await homeTaskApply(job);
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
-    if (!r.reused) firstRun(); // 새 작업 — 첫 분석(② §9)
+    if (!r.reused) firstRun(); // 새 작업 · 초기화한 작업 — 첫 분석(② §9)
     taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
-    const again = { label: "새 작업으로 열기", run: () => homeTaskStart(job, file, true) };
-    if (other) toast(`같은 파일로 하던 작업(${other.was})은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · 프로젝트 미지정`, false, // 새 작업은 프로젝트 없이 시작한다(하던 작업의 프로젝트를 따라가지 않음)
-      { label: "하던 작업 열기", run: () => (typeof projectOpen === "function" ? projectOpen(other.id) : openWork(other.id)) }); // 그 작업을 그 TASK 그대로 연다
-    else if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`, false, again); // 작업 목록을 못 읽어 TASK 를 미리 못 본 때만 남는 길
-    else if (r.reused) toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」`, false, again);
+    if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`); // 작업 목록이 낡아 TASK 를 미리 못 본 때만 남는 길
+    else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — TASK 「${taskName("job", job)}」 를 올린 원본부터 다시 시작합니다`);
+    else if (got.act === "use") toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」`);
+    else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · ${got.project ? `프로젝트 「${got.project}」` : "프로젝트 미지정"}`);
   } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
   finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); }
 }
@@ -4566,6 +4570,7 @@ function commitBar() { // 기준·고친 수 한 줄과 단추 상태 — update
     box.dataset.bound = "1";
     $("commitBtn").onclick = commitDo;
     $("discardBtn").onclick = () => commitRestore(state.base);
+    $("resetWorkBtn").onclick = () => workResetAsk(); // 작업 내용 초기화(same_file.js — spec_작업 ② §3-1)
     $("commitMsg").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); commitDo(); } });
   }
   const n = state.edited.size, c = {}, dirty = isDirty();
@@ -4576,6 +4581,8 @@ function commitBar() { // 기준·고친 수 한 줄과 단추 상태 — update
   if (n) sum.append(el("span", "n", `고친 문단 ${nf(n)}`), ` (${kindCounts(c)})`);
   else sum.append(dirty ? `글은 같으나 파일이 기준과 다름(줄 배치를 ${APP()}가 다시 계산할 문단)` : "고친 것 없음");
   $("commitBtn").disabled = $("discardBtn").disabled = $("commitMsg").disabled = !dirty || !!state.commitBusy;
+  $("resetWorkBtn").disabled = !!state.commitBusy; // 초기화는 고친 것이 없어도 된다(분석 · LLM 결과 · 대화도 비운다)
+  $("resetWorkBtn").textContent = state.commitBusy === "reset" ? "초기화 중…" : "초기화…";
   $("commitBtn").textContent = state.commitBusy === "commit" ? "확정 중…" : "확정";
   $("discardBtn").textContent = state.commitBusy === "discard" ? "되돌리는 중…" : "모두 되돌리기";
   const ob = document.querySelector('#pdfSeg [data-which="original"]'); // PDF 탭 왼쪽 단추 = 기준 PDF

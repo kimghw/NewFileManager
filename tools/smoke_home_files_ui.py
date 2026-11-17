@@ -4,7 +4,8 @@
 
 보는 것: 「파일 선택」 = 여러 개 · 목록에 모임(서버에는 아직 안 올림) · 시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 카드 글 「목록으로 시작」 ·
 상단 소개 + 넓은 업로드 · 파일 모양 카드마다 약칭 · 목적 문서를 고르기 전/형식이 안 맞는 TASK는 비활성 · 「TASK 없이 열기」 + 약칭 → 이름 뒤 「(약칭)」 · 이관: 프로젝트 없이 두 문서면 알림 → 프로젝트를 적으면 목적 문서 = 연차보고서(라운드 1) +
-사업계획서를 같은 프로젝트·TASK·라운드로(첨부 파일 칸이 저절로 잇는다) · 쓴 문서는 목록에서 빠짐 · 양식 맞추기: 나머지 문서는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면 새 작업 ·
+사업계획서를 같은 프로젝트·TASK·라운드로(첨부 파일 칸이 저절로 잇는다) · 쓴 문서는 목록에서 빠짐 · 양식 맞추기: 나머지 문서는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면
+「같은 파일 고르기」 창(그 줄은 「그대로 열기」 만 · 목록 줄은 「고르세요」 · 프로젝트 칸) → 「새 작업으로 시작」(spec_작업 ② §1 — 2026-11-18) ·
 약칭은 문서 선택을 바꿔도 유지하고 원본 문서에도 저장 · 파일 삭제 후 하나가 남으면 자동 선택 · 좁은 창에서 목록이 넘치지 않음."""
 import argparse
 import base64
@@ -204,10 +205,17 @@ try:
               and len(works()) == n and page.evaluate("() => state.id") is None, dialogs)
         answer["accept"] = True
         page.locator("#taskCards [data-task=plan_fit]").click()
+        page.wait_for_selector(".sf-pop", timeout=120000)  # 「같은 파일 고르기」(spec_작업 ② §1 「같은 파일은 묻고 연다」 — 2026-11-18: 전에는 묻지 않고 새 작업)
+        sf = page.evaluate("""() => ({ rows: [...document.querySelectorAll('.sf-pop .sf-row')].map((r) => [r.dataset.work, [...r.querySelectorAll('.sf-acts [data-sf]')].map((b) => b.dataset.sf),
+            (r.querySelector('.sf-why') || {}).textContent || '']), project: (document.getElementById('sfProject') || {}).value, busy: hf.busy, id: state.id })""")
+        check("같은 파일로 다른 TASK(이관의 사업계획서)를 하던 작업 → 「같은 파일 고르기」(그 줄은 「그대로 열기」 만 · 프로젝트 칸 · 목록 줄은 「고르세요」 · 아직 안 열림)",
+              len(sf["rows"]) == 1 and sf["rows"][0][0] == pid and sf["rows"][0][1] == ["open"] and "다른 TASK" in sf["rows"][0][2] and sf["project"] == page.evaluate("() => hfNorm(hf.project, 60)")
+              and "고르세요" in sf["busy"] and sf["id"] is None, sf)
+        page.locator('.sf-pop [data-sf="new"]').click()
         page.wait_for_function("() => state.id && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div'", timeout=120000)
         fid = page.evaluate("() => state.id")
         t = page.evaluate("() => [state.task, document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent]")
-        check("같은 파일로 다른 TASK(이관의 사업계획서)를 하던 작업 → 새 작업 · 알림 · 앞 작업은 그대로",
+        check("「새 작업으로 시작」 → 새 작업 · 알림 · 앞 작업은 그대로",
               fid != pid and t[0]["file"] == "plan" and "새 작업으로 열었습니다" in t[1] and next(x for x in works() if x["id"] == pid)["task"]["job"] == "plan_to_report", t)
         check("안 쓴 문서는 목록에 남음", page.evaluate("() => hf.files.map((f) => f.name)") == [SMALL])
         go_home(page)

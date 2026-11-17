@@ -628,13 +628,21 @@ def todo(plan):
     return {"levels": levels, "n": n, "moved": moved, "reps": reps}
 
 
-def apply_view(plan, levels):
+def apply_view(plan, levels, into=None):
     """**실제로 반영한 것**을 적는다(spec_헤딩_추출 ② §7 「결과 화면」) — 요청 몸 levels(`todo` 의 꼴: [{level, rep, likes[갈래의 열쇠 줄], splits[{likes, rep, sfx}]}] — 「모두 반영」 은 에이전트가 고른 그대로,
     「템플릿 서식 정리」 열의 「적용」 은 사람이 고르기를 바꾼 것)을 계획의 갈래 정보(줄 수 · 견본 · 대표와 다른 값)로 풀어서:
     → [{level, letter, lines, rep{para, sample, changed}, match[{para, count, sample, diff[[이름, 전(그 갈래 값), 후(대표 값)]…]}], split[{sfx, rep{…}, match[…]}],
         keep[{para, count, sample, why, auto(답 없음), carried(앞 계획에서 이어받음), byUser(계획은 바꾸라 했는데 사람이 그대로로)}], omitted(못 본 갈래), values(값 칸 줄)}].
-    계획의 레벨 가운데 요청에 없는 것(고른 갈래가 없음)도 남긴 갈래가 있으면 싣는다 — 「남긴 것」 이 결과에 보이게."""
+    계획의 레벨 가운데 요청에 없는 것(고른 갈래가 없음)도 남긴 갈래가 있으면 싣는다 — 「남긴 것」 이 결과에 보이게.
+    into = 반영이 적은 「윗레벨 떼기 때문에 새 템플릿으로 떼지 않은 줄」 [{level, no, sfx, lines, whole, stayed?}](outline_match_api._cut_now) — 그 떼기 항목에 split[].into[{no, lines, whole, stayed?}] 로 싣는다
+    (whole = 새 템플릿을 만들지 않았다 · 표시가 없으면 윗레벨 떼기가 데려간 템플릿 「T{no}」 의 그 레벨 대표 서식이 됐고, stayed 면 계획한 대표가 떠난 이 템플릿 「T{no}」 의 그 레벨 대표 서식이 됐고,
+    aside 면 계획한 대표도 그 템플릿으로 가 그 대표가 이겨 그 템플릿에서 다른 서식으로 그대로 남았다)."""
     asked = {int(r["level"]): r for r in levels or [] if isinstance(r, dict) and r.get("level") is not None}
+
+    def went(level, sfx):  # 그 떼기 항목에서 윗레벨 떼기가 먼저 데려간 줄 → {"into": [...]} | {}
+        got = [{"no": x["no"], "lines": x["lines"], "whole": bool(x.get("whole")), **{k: True for k in ("stayed", "aside") if x.get(k)}} for x in into or ()
+               if int(x.get("level") or 0) == int(level) and x.get("sfx") == sfx]
+        return {"into": got} if got else {}
     out = []
     for L in (plan or {}).get("levels") or []:
         groups, planned = {}, set()
@@ -667,7 +675,8 @@ def apply_view(plan, levels):
                             "changed": bool(req) and bool(rep0.get("changed")) and rep_para == rep0.get("para")},
                     "match": [brief(p) for p in likes],
                     "split": [{"sfx": sp.get("sfx"), "rep": brief(sp.get("rep") or (sp.get("likes") or [None])[0]),
-                               "match": [brief(p) for p in sp.get("likes") or [] if p != (sp.get("rep") or (sp.get("likes") or [None])[0])]} for sp in cuts],
+                               "match": [brief(p) for p in sp.get("likes") or [] if p != (sp.get("rep") or (sp.get("likes") or [None])[0])],
+                               **went(L["level"], sp.get("sfx"))} for sp in cuts],
                     "keep": keep, "omitted": int(L.get("omitted") or 0), "values": int(L.get("values") or 0)})
     return out
 

@@ -373,7 +373,14 @@ function lldApplies(list) {
         ul.append(head);
         for (const g of L.match || []) line(ul, "맞춤", "chg", g, diffText(g));
         for (const sp of L.split || []) {
-          line(ul, `T${T.no ?? T.tpl}L${L.level}${sp.sfx || ""} 로 뗌`, "chg", sp.rep || {}, "새 템플릿의 대표");
+          // into = 윗레벨 떼기 때문에 새 템플릿으로 떼지 않은 줄(outline_match_api._cut_now) — 데려간 템플릿의 이 레벨 대표 서식으로 · stayed = 계획한 대표가 떠난 이 템플릿의 이 레벨 대표 서식으로
+          const into = sp.into || [], whole = into.length && into.every((x) => x.whole);
+          // aside = 계획한 대표도 그 템플릿으로 가 그 대표가 이김 — 그 템플릿에서 다른 서식으로 그대로(다음 계획이 봄)
+          const went = into.map((x) => x.stayed ? `계획한 대표의 서식이 윗레벨 떼기로 모두 옮겨 가 ${nf(x.lines)}줄은 T${x.no} L${L.level} 의 대표 서식으로`
+            : x.aside ? `윗레벨에서 T${x.no} 로 함께 옮겨 간 ${nf(x.lines)}줄은 그 템플릿에 계획한 대표가 있어 다른 서식으로 그대로`
+            : `윗레벨에서 T${x.no} 로 함께 옮겨 간 ${nf(x.lines)}줄은 그 템플릿 L${L.level} 의 대표 서식으로`).join(" · ");
+          line(ul, whole ? `T${into.map((x) => x.no).join(" · T")} L${L.level} 의 대표로` : `T${T.no ?? T.tpl}L${L.level}${sp.sfx || ""} 로 뗌`, "chg", sp.rep || {},
+            whole ? went : into.length ? `새 템플릿의 대표 · ${went}` : "새 템플릿의 대표");
           for (const g of sp.match || []) line(ul, "뗀 줄 맞춤", "chg", g, diffText(g));
         }
         for (const k of L.keep || []) {

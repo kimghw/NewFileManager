@@ -236,7 +236,7 @@ def main():
 
         v, labels = page.evaluate(VIEW), page.evaluate(LABELS)
         check("누르기 전 — 흐린 문단 없음 · 이름 줄 설명 없음 · 여백의 서식 라벨은 라벨마다 눌리는 글", not v["on"] and not v["hit"] and v["missOp"] == [1] and not v["key"]["shown"] and not v["marks"]
-              and len(labels) >= 2 and all(l.startswith("S") for l, _ in labels) and v["rowH"] == 35 and v["key"]["next"] == "divKey", [v["key"], labels[:6]])
+              and len(labels) >= 2 and all(l.startswith("S") for l, _ in labels) and v["rowH"] == 35 and v["key"]["next"] == "zonesKey", [v["key"], labels[:6]])  # 다음 = 「편집 구역」 색 설명(565dded 부터 #fmtKey 와 #divKey 사이)
         first, second = labels[0][0], labels[1][0]
         want, total = label_ids(plan, first)
 
