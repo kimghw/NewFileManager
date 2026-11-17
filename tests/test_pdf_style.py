@@ -176,6 +176,17 @@ def test_font_plan_follows_hangul_order(tmp_path):
     idx.fams["fake"] = [{"ps": {"휴먼명조"}}]
     assert idx.broken_match("ABCDEF+????", "fake") and not idx.broken_match("???", "fake") and not idx.broken_match("T9", "fake")
     assert fonts.lang_of("A") == "LATIN" and fonts.lang_of("漢") == "HANJA" and fonts.lang_of("한") == "HANGUL" and fonts.lang_of("㎎") == "SYMBOL"
+    # 한글이 기호 글꼴로 찍는 글자(2026-11-17 시험 문서 실측) — 「√」 를 한글 글꼴(전각)로 그려 표 칸 줄이 한글보다 더 갈렸다
+    assert all(fonts.lang_of(c) == "SYMBOL" for c in "√∼①□○※「」〈→℃ⅠΩ～＋㈜") and fonts.lang_of("•") == "SYMBOL"
+    assert fonts.lang_of("‘") == fonts.lang_of("”") == fonts.lang_of("·") == "LATIN" and fonts.lang_of("〓") == "JAPANESE"
+    assert fonts.lang_of("ㆍ") == fonts.lang_of("ㅇ") == fonts.lang_of("　") == fonts.lang_of(" ") == "HANGUL"  # 호환 자모 · 빈칸 글자는 넣지 않음
+    # 대체 글꼴 없는 HFT 의 영문·기호 = 한글의 기본 대체 글꼴(고딕 계열 영문·한자·일어 → 돋움, 그 밖 → 바탕)
+    assert fonts.hft_subst("한양견고딕", "LATIN") == fonts.hft_subst("한양중고딕", "HANJA") == fonts.hft_subst("HCI Hollyhock", "LATIN") == ("Dotum",)
+    assert fonts.hft_subst("한양중고딕", "SYMBOL") == fonts.hft_subst("한양신명조", "LATIN") == fonts.hft_subst("HCI Poppy", "LATIN") == ("Batang",)
+    if dotum := idx.family("Dotum"):
+        assert idx.resolve("가짜한양고딕", "LATIN", "HFT") == {"key": dotum, "how": "subst", "via": "Dotum"}
+        assert idx.resolve("가짜한양고딕", "LATIN", "HFT", ["맑은 고딕"])["key"] == malgun  # 문서에 대체 글꼴이 있으면 그것
+    assert idx.resolve("가짜한양고딕", "HANGUL", "HFT")["how"] == "equiv"  # 한글 글자는 그대로 같은 디자인
 
 
 SAMPLE = Path(__file__).parents[1] / "samples" / "연구개발계획서_양식.hwpx"

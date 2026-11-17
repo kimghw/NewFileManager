@@ -9,8 +9,8 @@
   @font-face(src: local(전체 이름), local(PostScript 이름), url(...)) 별칭으로 건다(references/HWPX_렌더링_검증.md 「웹 글꼴」).
 - 정하는 차례(한글이 찍는 것과 같게): 그 글꼴이 있으면 그것(same). HFT(한글 전용 글꼴 — 브라우저가 못 씀)는 한글 글자면 한컴 대응표
   (Shared\\Fonts\\FontMap.dat 의 mapFont — 「한양중고딕」 → 같은 디자인 TTF 「HY중고딕」, equiv), 영문·한자 등은 문서의 대체 글꼴(hh:substFont —
-  한글도 HFT 에 없는 글자를 이것으로 찍음, subst). 없는 TTF 는 문서의 대체 글꼴(subst) → 대응표(equiv) → 웹 기본(fallback).
-- 언어별 글꼴은 unicode-range 로 나눈다: 영문(U+0000–024F)·한자·일어 글자만 그 언어 글꼴, 나머지(한글·기호)는 한글 글꼴."""
+  한글도 HFT 에 없는 글자를 이것으로 찍음, subst — 문서에 대체 글꼴이 없으면 한글의 기본 대체 글꼴 `hft_subst`). 없는 TTF 는 문서의 대체 글꼴(subst) → 대응표(equiv) → 웹 기본(fallback).
+- 언어별 글꼴은 unicode-range 로 나눈다(`LANG_RANGE` — 한글이 그 언어 글꼴로 찍는 글자: 영문·한자·일어·기호), 나머지(한글 등)는 한글 글꼴."""
 import os
 import re
 import struct
@@ -21,15 +21,38 @@ from pathlib import Path
 
 WEB_FALLBACK = ["HCR Dotum", "함초롬돋움", "Malgun Gothic"]  # app.js FALLBACK 과 같은 차례 — 계획이 없을 때 브라우저가 쓰는 글꼴
 LANGS = ("HANGUL", "LATIN", "HANJA", "JAPANESE", "OTHER", "SYMBOL", "USER")  # hh:fontface lang = charPr fontRef 속성(소문자)
-LANG_RANGE = {  # 웹이 언어 글꼴로 그리는 글자(unicode-range). 그 밖(①·외국어·사용자 글자 등)의 한글 분류는 실측 전 — 한글 글꼴로 그린다
-    "LATIN": [(0x0000, 0x024F)],
+# 웹이 언어 글꼴로 그리는 글자(unicode-range) = 한글 2020 이 그 언어 글꼴(charPr fontRef)로 찍는 글자 — 2026-11-17 언어마다 다른 KS X 1001 글꼴을 준
+# 시험 문서를 한글 PDF 로 찍어 글자마다 PDF 글꼴을 봄(references/HWPX_렌더링_검증.md 「언어 글꼴 범위」). 블록마다 몇 글자씩 잰 것을 블록 전체로 넓혔고,
+# 잰 글자가 블록 안에서 갈린 곳(따옴표 ‘’“” = 영문 · 〓 = 일어)만 따로 뗐다. 빈칸 글자(U+2000–200F · U+3000)·딩뱃(✓ — 두 글꼴 모두 글자가 없어 못 잼)·
+# 한글 호환 자모(ㄱ·ㆍ — 한글 글꼴)는 넣지 않는다 — 그 밖은 한글 글꼴로 그린다.
+LANG_RANGE = {
+    "LATIN": [(0x0000, 0x024F), (0x2018, 0x2019), (0x201C, 0x201D)],
     "HANJA": [(0x2E80, 0x2FDF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF)],
-    "JAPANESE": [(0x3040, 0x30FF), (0x31F0, 0x31FF)],
-    "SYMBOL": [(0x3380, 0x33FF)],  # CJK 단위 기호 ㎎·㎥ — 한글이 기호 글꼴(SYMBOL fontRef)로 찍음(2026-11-08 실측)
+    "JAPANESE": [(0x3013, 0x3013), (0x3040, 0x30FF), (0x31F0, 0x31FF)],
+    "SYMBOL": [(0x0370, 0x04FF),  # 그리스·키릴 문자
+               (0x2010, 0x2017), (0x201A, 0x201B), (0x201E, 0x2027), (0x2030, 0x205E),  # 일반 문장부호(― † … ‰ ′ ※ •)
+               (0x2070, 0x218F),  # 위·아래 첨자 숫자 · 통화(€) · 글자 같은 기호(℃ №) · 숫자 꼴(Ⅰ ⅓)
+               (0x2190, 0x23FF),  # 화살표 · 수학 연산자(√ ∼ ≠ ∙) · 기술 기호(⌒)
+               (0x2460, 0x26FF),  # 둘러싼 영숫자(① ⓐ) · 괘선 · 블록 · 도형(□ ○ △) · 기타 기호(☆ ♪)
+               (0x3001, 0x3012), (0x3014, 0x303F),  # 한중일 문장부호(、 「」 〈〉)
+               (0x3200, 0x33FF),  # 둘러싼 한중일 글자(㈜ ㉠) · 호환 단위(㎎ ㎥)
+               (0xFF01, 0xFF5E), (0xFFE0, 0xFFE6)],  # 전각 꼴(！ Ａ ０ ～ ￦)
 }
 WEB_LANGS = ("HANGUL", *LANG_RANGE)
 SCRIPT_SIZE, SUP_RISE = 0.64, 0.44  # 한글 윗·아래첨자: 글자 크기 × 0.64, 윗첨자 기준선 + 0.44 × 크기(한글 2020 PDF 실측 — app.js 와 같은 값)
 REGULAR = {"", "regular", "normal", "book", "roman", "medium", "standard"}
+
+
+HFT_SANS = {"산세리프", "HCI Hollyhock"}  # 이름에 「고딕」 이 없는데 한글이 돋움으로 대체하는 HFT(산세리프 = 문서들의 substFont 돋움 · HCI Hollyhock = 기술수요조사서 PDF)
+
+
+def hft_subst(face, lang):
+    """hh:substFont 가 없는 HFT 의 그 언어 글자를 한글이 찍는 글꼴 — 고딕 계열의 영문·한자·일어는 돋움, 그 밖(명조 계열 · 기호·기타·사용자)은 바탕.
+    근거: 2026-11-17 대체 글꼴을 뺀 시험 문서(한양견고딕 영문·한양중고딕 한자·일어 → Dotum, 한양중고딕 기호 → Batang)와 연구계획서_공통.hwpx 의 PDF,
+    그리고 한글이 대체 글꼴을 적어 둔 문서 18개의 값(한양중고딕·한양견고딕·산세리프 영문 → Dotum, 한양신명조·명조·HCI Poppy·기호 → Batang)이 같다."""
+    if lang in ("LATIN", "HANJA", "JAPANESE") and ("고딕" in (face or "") or face in HFT_SANS):
+        return ("Dotum",)
+    return ("Batang",)
 
 
 def lang_of(ch):
@@ -275,6 +298,8 @@ class FontIndex:
         hft = (ftype or "").upper() == "HFT"
         if not hft and (k := self.family(face)):
             return {"key": k, "how": "same", "via": face}
+        if hft and lang != "HANGUL" and not subst:
+            subst = hft_subst(face, lang)  # 문서에 대체 글꼴이 없어도 한글은 기본 대체 글꼴로 찍는다(HFT 의 영문·기호 글자는 HFT 에서 안 나옴)
 
         def by_subst():
             for s in subst:
