@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -X utf8 \"$CLAUDE_PROJECT_DIR/tools/full_test.py\" --due --hook 2>/dev/null || true",
+            "timeout": 15,
+            "statusMessage": "전체 시험 때 확인 중…"
+          }
+        ]
+      }
+    ]
+  }
+}

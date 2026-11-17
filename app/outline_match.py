@@ -396,7 +396,7 @@ def slot_ids(ov, tid, level):
 
 
 def variants(doc, ov, tid, level, order=None, full=False):
-    """슬롯 (tid, level) 의 서식 갈래 → {total, rep, repMissing, values(값 칸 줄 수 — 갈래에 안 넣음: lone_value), groups[{key, count, paras(문서 순 30개까지 — full 이면 전부), more, rep, look(화면 글), raw(원값), diff}]} — 대표 갈래 먼저, 그다음 줄 수 순.
+    """슬롯 (tid, level) 의 서식 갈래 → {total, rep, repMissing, values(값 칸 줄 수 — 갈래에 안 넣음: lone_value), groups[{key, count, paras(문서 순 30개까지 — full 이면 전부), more, rep, look(화면 글), raw(원값), diff, near(대표와 오차 안)}]} — 대표 갈래 먼저, 그다음 줄 수 순.
     갈래는 비교 값 KEYS 가 모두 같은 줄 — 줄 맞춤 값(장평·자간)은 달라도 같은 갈래다."""
     order = order if order is not None else _order(doc)
     sl = OE._slot(ov, tid, level) or {}
@@ -418,7 +418,7 @@ def variants(doc, ov, tid, level, order=None, full=False):
         key = fkey[pid] if (fkey[pid] == rep_key or not lk.get("form")) else fkey[pid] + "|" + lk["form"]
         groups.setdefault(key, {"key": key, "paras": [], "look": lk})["paras"].append(pid)
     uses_rep = {looks[p]["form"] for p in groups[rep_key]["paras"] if looks[p].get("form")} if rep_key else set()  # 대표 서식의 줄이 있는 표 양식 — 그 표는 대표 서식을 쓴다
-    out = []
+    out, tol = [], None  # tol = 오차 기준(지침 tolerance — 대표와 다른 갈래가 있을 때만 한 번 읽는다)
     fit = lambda q: tuple(looks[q].get(k) for k in ("ratioPct", "spacingPct", "L.ratioPct", "L.spacingPct"))  # noqa: E731
     for g in groups.values():
         is_rep = g["key"] == rep_key
@@ -432,6 +432,8 @@ def variants(doc, ov, tid, level, order=None, full=False):
         out.append({"key": key, "count": len(g["paras"]), "paras": g["paras"] if full else g["paras"][:_LIST_MAX], "more": 0 if full else max(0, len(g["paras"]) - _LIST_MAX),
                     "rep": is_rep, "look": {k: cshown(lk, k) for k in lk if k not in _LOOK_ONLY}, "raw": lk,  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
                     "diff": diff(base, lk) if base and not is_rep else [],
+                    # near = 대표와 **거의 같은** 갈래(레터가 같고 다른 값이 모두 오차 안 — 서식 라벨의 「≈」 와 같은 판단: labels_now · near). 화면의 「≈ 2번째 줄」 / 「≠ 2번째 줄」(fmt_focus.js fmDiffInfo)
+                    "near": bool(base) and not is_rep and near(base, lk, tol := tol or _tolerance()),
                     "form": form, "own": bool(rep) and not is_rep and bool(lk.get("form")) and lk["form"] not in uses_rep})
     out.sort(key=lambda g: (not g["rep"], -g["count"], order.get(g["paras"][0], 1 << 30) if g["paras"] else 0))
     # sig = 이 레벨의 줄 구성 지문(줄 id → 갈래 — 값 칸도 줄로 든다: 서식 비교에서는 빠져도 떼기·번호형 형제 검사에는 든다) · repIds = 대표 줄이 실제로 지닌 모양 참조(맞추면 복사되는 문단·스타일·글자 정의):

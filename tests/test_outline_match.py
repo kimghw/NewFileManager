@@ -167,11 +167,14 @@ def test_variants_group_lines_and_show_differences(sess):
     assert by["p6502"]["diff"] == [["lead", "레터 앞 빈칸", "4칸", "3칸"]] and by["p6502"]["count"] == 5
     assert by["p5765"]["diff"] == [["gap", "레터 뒤 빈칸", "1칸", "없음"]]
     assert by["p5765"]["raw"]["lead"] == "    " and by["p5765"]["raw"]["gap"] == "" and by["p5765"]["look"]["lead"] == "4칸"  # 원값(서식 비교의 견본 글)
+    # near = 대표와 오차 안(레터 앞 빈칸 1칸 차이 ≤ leadSpaces 1) — 화면 표의 「≈」(서식 라벨의 ≈ 와 같은 판단 · 대표 갈래는 늘 False)
+    assert by["p6502"]["near"] is True and rep["near"] is False
     keys = c.get(f"/api/docs/{d}/outline/formats").json()["keys"]  # 비교 값 차례·이름(서식 비교 표의 열)
     assert keys[:3] == [["lead", "레터 앞 빈칸"], ["letter", "레터"], ["gap", "레터 뒤 빈칸"]] and ["L.font", "레터 글꼴"] in keys
     v2 = _slot(c, d, 2, 1)  # 글자 모양이 다른 갈래 — 레터 런과 본문 런을 따로 견준다
     keys = [x[0] for g in v2["groups"] for x in g["diff"]]
     assert "L.font" in keys and "font" in keys and "L.sizePt" in keys
+    assert any(g["diff"] and g["near"] is False for g in v2["groups"])  # 글꼴이 다른 갈래 = 오차 밖 → 「≠」
     o = c.get(f"/api/docs/{d}/outline").json()
     assert o["templates"]["1"]["slots"]["5"]["rep"] == "p5209" and o["templates"]["9"]["hang"]["8|3"] == 40
     assert o["lines"]["p970"]["key"] == "□"

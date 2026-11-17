@@ -9,6 +9,7 @@
      **대표와 다른 줄**: 서식 갈래(GET …/outline/formats — outline_match.js olmLoad 가 기억한 것)에서 그 줄의 갈래가 대표와 다른 값(diff)을 본다 —
        여백 값(앞 여백·2번째 줄·오른쪽 여백·위 간격·아래 간격)이 다르면 **그 쪽 여백 자리만 주황**(.fm-d + --fm-l/r/t/b — 여백이 0이면 4px 띠) + 쪽 오른쪽 여백에 표 「≠ 앞 여백」(.fm-tag — 도움말에 「지금 … → 대표 …」),
        여백이 아닌 값(레터·글자 모양·줄 간격 …)이 다르면 표만 「≠ 크기」·「≠ 서식」. 표를 누르면 「템플릿 관계」 의 그 레벨·그 줄의 갈래(맞추기·대표 정하기는 거기서).
+       표의 기호는 여백 서식 라벨과 같은 기준 — 레터가 같고 다른 값이 모두 오차 안인 갈래는 「≈ 2번째 줄」, 레터가 다르거나 오차 밖이면 「≠ …」(2026-11-17 — 서버 갈래의 near).
      갈래 목록은 갈래마다 30줄까지라 — 잘린 갈래가 있는 레벨은 그 슬롯만 줄 전부로 읽어(?tpl=&level= — outline_match.js olmFullLoad 가 기억한다) 줄마다 어느 갈래인지를 정한다(어느 갈래에도 없는 값 칸은 견주지 않는다).
        못 읽었을 때만(옛 서버 · 일시 오류) 전처럼 「잘린 갈래가 하나면 목록에 없는 줄은 그 갈래」 로 어림하고 못 가른 줄은 「못 견줌」 으로 센다.
      문서가 바뀌면(편집 차례 rev) 0.4초 뒤 갈래를 다시 읽어 표시를 고친다 — 같은 차례에는 한 번만.
@@ -145,14 +146,18 @@ function tplPickShow(m, keys) { // m = {tpl, level, no, focus} · keys = 고른 
   if (!got) tplFocusDiff();
 }
 
-function fmDiffInfo(diff) { // 갈래의 「대표와 다른 값」 [[키, 이름, 대표, 이 갈래]…] → 그 줄에 그릴 것 {sides(칠할 여백 쪽), margin, other, tag, title}
+function fmDiffInfo(diff, near) { // 갈래의 「대표와 다른 값」 [[키, 이름, 대표, 이 갈래]…] + 대표와 거의 같은가(서버 갈래의 near) → 그 줄에 그릴 것 {sides(칠할 여백 쪽), margin, other, near, tag, title}
   const sides = new Set(), mn = [], on = [];
   for (const d of diff) { const s = FM_SIDE[d[0]], nm = FM_SHORT[d[0]] || d[1]; if (s) { sides.add(s); mn.push(nm); } else on.push(nm); }
   const m = mn.length === 1 ? mn[0] : mn.length ? "여백" : "", o = on.length === 1 ? on[0] : on.length ? "서식" : "";
   const what = m && o ? "여백·서식" : m || o; // 하나만 다르면 그 값의 이름(「2번째 줄」·「크기」), 여럿이면 「여백」·「서식」
-  // 표 글 「≠ 2번째 줄」 — 「다름」 을 앞의 「≠」 로: 오른쪽 여백(20mm 면 75~95px)이 좁아 줄임표로 잘려도 다르다는 표시는 남는다(풀어 쓴 글은 도움말에)
-  return { sides: [...sides], margin: mn.length > 0, other: on.length > 0, tag: `≠ ${what}`,
-    title: (typeof olmDiffTitle === "function" ? olmDiffTitle(diff) : diff.map((d) => `${d[1]}: 지금 ${d[3]} → 대표 ${d[2]}`).join("\n"))
+  // 표 글 「≠ 2번째 줄」 — 「다름」 을 앞의 기호로: 오른쪽 여백(20mm 면 75~95px)이 좁아 줄임표로 잘려도 표시는 남는다(풀어 쓴 글은 도움말에).
+  // 기호는 여백 서식 라벨과 같은 기준(spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」 ⓓ — 2026-11-16 사용자 「≠ 이거는 유사한 의미가 아니라 ≈ 이걸로」 → 2026-11-17 이 표에도):
+  // 레터가 같고 다른 값이 모두 오차 안이면 「≈」(대표와 거의 같음), 레터가 다르거나 오차 밖이면 「≠」. near 를 모르는 옛 서버면 전처럼 「≠」
+  const sym = near ? "≈" : "≠";
+  return { sides: [...sides], margin: mn.length > 0, other: on.length > 0, near: !!near, tag: `${sym} ${what}`,
+    title: (near ? "≈ — 대표와 거의 같음: 레터가 같고 값 차이가 모두 오차 안\n" : "≠ — 대표와 다름: 레터가 다르거나 값 차이가 오차 밖\n")
+      + (typeof olmDiffTitle === "function" ? olmDiffTitle(diff) : diff.map((d) => `${d[1]}: 지금 ${d[3]} → 대표 ${d[2]}`).join("\n"))
       + (mn.length ? "\n여백이 다른 쪽은 문서에서 그 여백 자리만 주황으로 칠했습니다" : "") + "\n누르면 템플릿 관계 — 이 줄의 서식(맞추기 · 대표 정하기 · 다른 템플릿으로)" };
 }
 
@@ -172,7 +177,7 @@ function tplFocusMap(v, m, ids) { // 그 슬롯의 서식 갈래 v + 줄 전부�
     } else g = of.get(pid) || (cut.length === 1 ? cut[0] : null); // 줄 전부를 못 읽었다(옛 서버 · 일시 오류) — 목록(30줄)에 없는 줄은 잘린 갈래가 하나면 그 갈래로 본다(여백 표시에만: 고른 갈래 표시에는 이 어림을 쓰지 않는다)
     if (!g) { sum.unknown += 1; continue; }
     if (g.rep || !(g.diff || []).length) { sum.same += 1; continue; }
-    if (!info.has(g)) info.set(g, fmDiffInfo(g.diff));
+    if (!info.has(g)) info.set(g, fmDiffInfo(g.diff, g.near));
     const d = info.get(g);
     map.set(pid, d);
     if (d.margin) sum.margin += 1;
@@ -347,7 +352,7 @@ function fmtFocusTags() {
       const t = el("button", `fm-tag${r.d && r.d.margin ? " mg" : ""}${numbered ? " var" : ""}${r.lk ? " look" : ""}`, (numbered ? (what ? `${short} · ${what}` : short) : what || short) + (r.pids.length > 1 ? ` ×${r.pids.length}` : ""));
       t.type = "button";
       t.title = `${FMF.label}${name ? ` ${name}` : ""}${r.lk ? " — 「템플릿 관계」 에서 살펴보는 서식" : ""}\n`
-        + (r.d ? `${FMF.label} 의 대표 줄과 다릅니다\n${r.d.title.split("\n누르면")[0]}` : no === 0 ? "이 레벨의 대표 서식(대표 줄과 서식이 같은 줄)" : "대표와 다른 값 없음(이 레벨에 대표가 없거나 같은 서식)")
+        + (r.d ? r.d.title.split("\n누르면")[0] : no === 0 ? "이 레벨의 대표 서식(대표 줄과 서식이 같은 줄)" : "대표와 다른 값 없음(이 레벨에 대표가 없거나 같은 서식)")
         + (pre ? "\n대표 미리보기 중 — 「템플릿 관계」 카드의 「다른 값」 은 미리보기 서식 기준입니다(여기 적은 값과 주황 여백은 지금 대표 기준)" : "")
         + "\n누르면 템플릿 관계 — 이 서식의 카드(맞추기 · 대표 정하기 · 다른 템플릿으로). 고르기(☐)는 안 바뀝니다";
       t.dataset.para = r.pids[0];

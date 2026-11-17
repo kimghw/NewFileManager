@@ -194,7 +194,8 @@ def slot_expect(doc, tid, lv):  # 그 템플릿·레벨의 줄(개요 오버레�
     return {"ids": ids, "no": o["templates"][str(tid)]["no"], "rep": v["rep"], "groups": v["groups"], "diff": sorted(p for g in odd for p in g["paras"]),
             "margin": sorted(p for g in odd if any(x[0] in MARGIN_KEYS for x in g["diff"]) for p in g["paras"]),
             "other": sorted(p for g in odd if any(x[0] not in MARGIN_KEYS for x in g["diff"]) for p in g["paras"]),
-            "only": {k: sorted(p for g in odd if [x[0] for x in g["diff"]] == [k] for p in g["paras"]) for k in ("line2Mm", "lineSpacingPct")}}
+            "only": {k: sorted(p for g in odd if [x[0] for x in g["diff"]] == [k] for p in g["paras"]) for k in ("line2Mm", "lineSpacingPct")},
+            "near": {p for g in odd if g.get("near") for p in g["paras"]}}  # 대표와 오차 안인 갈래의 줄 — 표 기호 「≈」(아니면 「≠」: fmt_focus.js fmDiffInfo)
 
 
 def tpl_is(page, tid, lv, margin=None):
@@ -335,9 +336,13 @@ def main():
         check("여백(2번째 줄)이 다른 줄 — 왼쪽 여백 자리만 주황(폭 > 0 · 다른 쪽은 0) · 줄 간격만 다른 줄은 칠하지 않음",
               sz.get(m1, zero) != zero and sz[m1].endswith(" 100%, 0px 100%, 100% 0px, 100% 0px") and not sz[m1].startswith("0px") and sz.get(o1) == zero, [m1, sz.get(m1), o1, sz.get(o1)])
         tg = {t["para"]: t for t in v["tags"]}
-        check("대표와 다른 줄마다 쪽 오른쪽 여백에 표(그 줄 높이 · 여백 안) — 「≠ 2번째 줄」(주황 띠 · 도움말에 「지금 … → 대표 …」) · 「≠ 줄 간격」",
-              sorted(tg) == v["diff"] and all(t["inMargin"] and t["same"] and -2 <= t["dy"] <= 30 and t["h"] <= 20 for t in v["tags"]) and tg[m1]["text"] == "≠ 2번째 줄" and tg[m1]["mg"]
-              and tg[o1]["text"] == "≠ 줄 간격" and not tg[o1]["mg"] and "2번째 줄: 지금 " in tg[m1]["tip"] and " → 대표 " in tg[m1]["tip"], [sorted(tg), [t for t in v["tags"] if not t["inMargin"]][:2], tg.get(m1), tg.get(o1)])
+        sym = lambda p: "≈" if p in ex["near"] else "≠"  # noqa: E731 — 표의 기호: 대표와 오차 안인 갈래는 「≈」(서버 갈래의 near · 여백 서식 라벨과 같은 기준)
+        check(f"대표와 다른 줄마다 쪽 오른쪽 여백에 표(그 줄 높이 · 여백 안) — 「{sym(m1)} 2번째 줄」(주황 띠 · 도움말에 기호의 뜻 + 「지금 … → 대표 …」) · 「{sym(o1)} 줄 간격」"
+              f" · 모든 표의 기호 = 갈래의 near(≈ {len(ex['near'])}줄)",
+              sorted(tg) == v["diff"] and all(t["inMargin"] and t["same"] and -2 <= t["dy"] <= 30 and t["h"] <= 20 for t in v["tags"]) and tg[m1]["text"] == f"{sym(m1)} 2번째 줄" and tg[m1]["mg"]
+              and tg[o1]["text"] == f"{sym(o1)} 줄 간격" and not tg[o1]["mg"] and "2번째 줄: 지금 " in tg[m1]["tip"] and " → 대표 " in tg[m1]["tip"]
+              and all(t["text"].startswith(sym(p) + " ") and t["tip"].split("\n")[1].startswith(sym(p) + " — ") for p, t in tg.items()),
+              [sorted(tg), [t for t in v["tags"] if not t["inMargin"]][:2], tg.get(m1), tg.get(o1), sorted(ex["near"])[:5]])
         page.evaluate("(pid) => document.querySelector(`#doc .para[data-id=\"${pid}\"]`).scrollIntoView({ block: 'center' })", m1)
         page.wait_for_timeout(300)
         page.screenshot(path=str(OUT / "06_tpl_margin.png"))
