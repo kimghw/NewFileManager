@@ -441,11 +441,56 @@ def from_table(src, tid, bands, keep_text=False):
 
 # ---- hwpx 문단에서 --------------------------------------------------------------------------------------------------
 
+SECPR = _p("secPr")
+OUTLINE_NOTE = "개요 번호 모양이 다른 구역의 문단 — 견본은 첫 개요 문단이 든 구역의 번호 모양으로 그렸습니다"
+
+
+def outline_shape(doc, p):
+    """문단 p 가 든 구역의 개요 번호 모양 — 번호 정의 id(구역 설정 secPr 의 outlineShapeIDRef) | None(구역 설정이 없음)."""
+    sp = next(p.getroottree().getroot().iter(SECPR), None)
+    return sp.get("outlineShapeIDRef") if sp is not None else None
+
+
+def _head_text(doc, nid, level):
+    """번호 정의 nid 의 수준 level(1부터) 번호 글(「^1.」 꼴 — 앞뒤 빈칸 뺌) — 정의·수준이 없으면 None, 글이 비었으면 ""."""
+    num = doc._defs["numbering"].get(nid) if nid is not None else None
+    ph = next((x for x in num.iterchildren(_h("paraHead")) if x.get("level") == str(level)), None) if num is not None else None
+    return None if ph is None else (ph.text or "").strip()
+
+
+def shown_number(doc, p) -> bool:
+    """문단 p 의 문단 모양 번호(hh:heading — 개요·번호·글머리표)를 한글이 실제로 그리는가. 개요(OUTLINE)는 그 구역의 개요 번호 모양, 번호(NUMBER)는 그 번호 정의에서
+    그 수준의 번호 글이 **비어 있으면** 안 그린다 — 공공 양식에 흔한 꼴(개요 문단이지만 번호 모양의 글이 비었고 레터 「1.」·「2-1.」·「(1)」 은 글로 쳤다: 실측 2026-11-17
+    연구계획서_공통.hwpx). 정의·수준을 못 찾으면 그린다고 본다(전처럼 — 짐작해 레터로 읽지 않는다). 글머리표는 그린다고 본다."""
+    h = doc._heading(p)
+    kind = h.get("type") if h is not None else None
+    if kind not in ("OUTLINE", "NUMBER", "BULLET"):
+        return False
+    if kind == "BULLET":
+        return True
+    try:
+        level = int(h.get("level", 0)) + 1
+    except ValueError:
+        return True
+    return _head_text(doc, outline_shape(doc, p) if kind == "OUTLINE" else h.get("idRef"), level) != ""
+
+
+def _use_outline(cdoc, src, sid) -> None:
+    """운반 문서(구역 하나)의 개요 번호 모양을 원본 구역의 것(번호 정의 sid)으로 — 개요 문단의 번호가 원본에서처럼 그려진다(번호 글이 빈 모양이면 안 그려지고
+    바탕의 「1. 가. 1) …」 이 끼지 않는다). 원본에 그 정의가 없으면 그대로 둔다."""
+    if src._defs["numbering"].get(sid) is None:
+        return
+    sp = next(cdoc._sections[0].iter(SECPR), None)
+    if sp is not None:
+        sp.set("outlineShapeIDRef", cdoc._import(src, "numbering", sid, {}))
+        cdoc._touch(sp)
+
+
 def _marker(src, p, text, rules) -> dict:
-    """문단의 레터 정책 {mode: literal|auto|none, literal, lead, gap, family}. 자동 번호(문단 모양의 hh:heading 이 OUTLINE·NUMBER·BULLET)는 auto —
-    레터를 글에 다시 쓰지 않는다. 아니면 글머리 규칙(내장 규칙만 — 보관함은 문서와 무관)으로 읽은 레터가 있으면 literal, 없으면 none."""
-    h = src._heading(p)
-    if h is not None and h.get("type") in ("OUTLINE", "NUMBER", "BULLET"):
+    """문단의 레터 정책 {mode: literal|auto|none, literal, lead, gap, family}. 자동 번호(문단 모양의 hh:heading 이 OUTLINE·NUMBER·BULLET 이고 한글이 그 번호를 그린다 —
+    `shown_number`)는 auto — 레터를 글에 다시 쓰지 않는다. 아니면 글머리 규칙(내장 규칙만 — 보관함은 문서와 무관)으로 읽은 레터가 있으면 literal, 없으면 none.
+    개요 문단이어도 번호 모양의 글이 비었으면(번호가 안 보인다) 글로 친 레터를 읽는다 — 헤딩 추출이 읽는 레터와 같다."""
+    if shown_number(src, p):
         return {"mode": "auto", "literal": "", "lead": "", "gap": "", "family": None}
     head = R.classify(text, rules)
     if head["letter"] and head["kind"] in ("marker", "note", "footnote"):
@@ -487,7 +532,7 @@ def from_paras(src, picks, keep_text=False):
     if not isinstance(picks, list) or not picks:
         raise ValueError("서식으로 저장할 문단을 고르세요")
     cdoc, first, plain = open_base()
-    rules, anchor, items = R.active({}), first, []
+    rules, anchor, items, shape = R.active({}), first, [], None  # shape = 운반 문서에 줄 개요 번호 모양(첫 개요 문단이 든 원본 구역의 것 — `_use_outline`)
     for n, pick in enumerate(picks, 1):
         pid = pick.get("para") if isinstance(pick, dict) else None
         p = src._ids.get(pid) if isinstance(pid, str) else None
@@ -503,6 +548,13 @@ def from_paras(src, picks, keep_text=False):
         unsupported += [x for x in _copy_losses(src, p) if x != STYLE_NOTE]
         if src._has_object(p):
             unsupported.append("문단 안 표·그림·개체는 옮기지 않았습니다")
+        h = src._heading(p)
+        if h is not None and h.get("type") == "OUTLINE":  # 개요 문단의 번호는 구역의 개요 번호 모양이 그린다 — 운반 문서는 구역이 하나라 첫 것을 쓴다
+            mine = outline_shape(src, p)
+            if shape is None:
+                shape = mine
+            elif mine != shape and shown_number(src, p) != (_head_text(src, shape, int(h.get("level", 0) or 0) + 1) != ""):
+                unsupported.append(OUTLINE_NOTE)
         anchor = cdoc.insert_after(anchor, [{"kind": "copy", "srcId": pid}], src=src)[0]
         el = cdoc._ids[anchor]
         _no_break(el)
@@ -515,6 +567,8 @@ def from_paras(src, picks, keep_text=False):
             unsupported.append("글자 모양이 여러 가지인 문단 — 줄 쓰기는 본문의 첫 글 런 모양 하나로 씁니다")
         fmt = cdoc._summary(el.get("paraPrIDRef"), body_char(cdoc, el, plen))  # 서식 요약은 본문 쪽 글자 모양으로(레터 런이 따로면 그것은 레터만의 모양)
         items.append(_item(n, pick, marker, cdoc._text(el), fmt, unsupported, para=pid))
+    if shape is not None:
+        _use_outline(cdoc, src, shape)
     cdoc.delete_blocks(plain, plain)
     _drop_unused_bins(cdoc)
     _need_refs(cdoc)

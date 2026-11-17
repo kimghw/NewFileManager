@@ -244,6 +244,16 @@ def test_para_groups_merge_identical_formats():
     assert got[1]["items"][0]["marker"]["mode"] == "literal" and got[1]["items"][0]["letter"] == "1." and got[2]["items"][0]["marker"]["mode"] == "auto"
 
 
+def test_para_groups_outline_level_alone_is_not_a_number():
+    """개요 수준만 있는 문단(Word 의 개요 수준 · 한글의 번호 글이 빈 개요 문단)은 번호를 안 그린다 — 글로 친 레터를 읽는다(2026-11-17).
+    hwpx 는 `shown_of(doc)` 가 판정한다(그 구역의 개요 번호 모양) — 여기서는 numbered 로 그 판정을 흉내 낸다."""
+    f = {"font": "바탕", "sizePt": 12.0, "bold": True}
+    blocks = [{"id": "p1", "type": "paragraph", "text": "2-1. 최종목표", "format": f, "outlineLevel": 2}]
+    m = X.para_groups(blocks)[0]["items"][0]["marker"]
+    assert m["mode"] == "literal" and m["literal"] == "2-1."
+    assert X.para_groups(blocks, numbered=lambda b: True)[0]["items"][0]["marker"]["mode"] == "auto"
+
+
 # ---- pdf(잰 값으로 근사) -------------------------------------------------------------------------------------------
 
 def _table_pdf(pages=1, text=True):

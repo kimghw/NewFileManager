@@ -1069,7 +1069,7 @@ def _build_from_docx(s, body, kind, keep, role=None, naming=None):  # 이름 주
                     if sig in seen:  # 서식이 같은 문단은 하나로
                         continue
                     seen.add(sig)
-                    marker = se._marker(b.get("text"), bool(b.get("list") or b.get("outlineLevel"))) if se is not None and hasattr(se, "_marker") else None
+                    marker = se._marker(b.get("text"), bool(b.get("list"))) if se is not None and hasattr(se, "_marker") else None  # Word 의 개요 수준은 번호를 안 그린다 — 번호는 numPr(list)만
                     specs.append({"level": None, "marker": marker, "sample": b.get("text") or "", "format": dict(b.get("format") or {})})
                     origin.append(i)
                 data, items = style_carrier.from_text_spec(specs, keep_text=keep)

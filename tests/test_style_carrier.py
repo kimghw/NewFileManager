@@ -12,7 +12,7 @@ from app import owpml_check as C
 from app import style_carrier as SC
 from app import table_make as M
 from app.docx_doc import DocxDoc
-from app.hwpx_doc import CTRL, RUN, TC, HwpxDoc, P, T, _p
+from app.hwpx_doc import CTRL, RUN, TC, HwpxDoc, P, T, _h, _p
 
 SAMPLES = Path(__file__).parents[1] / "samples"
 SMALL, RND, DOCX = SAMPLES / "기술수요조사서.hwpx", SAMPLES / "연구개발계획서_양식.hwpx", SAMPLES / "기술수요조사서.docx"
@@ -378,6 +378,36 @@ def test_from_paras_marker_literal_auto_none(big, small):
     assert d2._heading(d2._ids[SC.para_ids(d2)[0]]).get("type") == "BULLET"  # 번호 설정은 견본 문단의 문단 모양에 그대로
     kept, items3 = SC.from_paras(big, picks[:2], keep_text=True)
     assert [i["sample"] for i in items3] == [big._text(big._ids[p["para"]])[:60] for p in picks[:2]] and items3[0]["marker"]["literal"] == "1."
+
+
+def test_from_paras_outline_with_blank_number_keeps_typed_letter():
+    """개요 문단(OUTLINE)이지만 구역의 개요 번호 모양에서 그 수준의 번호 글이 비었다 = 한글이 번호를 안 그리고 레터는 글로 쳤다(실측 2026-11-17 연구계획서_공통.hwpx —
+    「1.」·「2-1.」·「(1)」·「①」 이 모두 자동 번호로 읽혀 회색 「1.」 자리표로 그려졌다). → 레터를 읽고(literal) 운반 문서의 개요 번호 모양도 원본 구역의 것(빈 글)으로.
+    번호 글이 있는 모양이면 전처럼 자동 번호(auto)이고, 운반 문서는 원본 구역의 번호 모양을 쓴다(바탕의 「1. 가. 1) …」 이 아니라)."""
+    d = HwpxDoc(RND.read_bytes())
+    d.blocks()
+    pid = _para(d, "1. ")
+    p = d._ids[pid]
+    d._defs["paraPr"][p.get("paraPrIDRef")].find(_h("heading")).attrib.update({"type": "OUTLINE", "idRef": "0", "level": "0"})
+    sid = SC.outline_shape(d, p)
+    head = next(x for x in d._defs["numbering"][sid].iterchildren(_h("paraHead")) if x.get("level") == "1")
+
+    def shape_text(data):  # 운반 문서 구역의 개요 번호 모양에서 수준 1 의 번호 글
+        c = _ok(data)
+        num = c._defs["numbering"][next(c._sections[0].iter(SC.SECPR)).get("outlineShapeIDRef")]
+        return next(x for x in num.iterchildren(_h("paraHead")) if x.get("level") == "1").text or ""
+
+    head.text = None  # 번호 글이 빈 개요 모양
+    assert not SC.shown_number(d, p)
+    data, items = SC.from_paras(d, [{"para": pid, "level": 1}])
+    assert items[0]["marker"]["mode"] == "literal" and items[0]["marker"]["literal"] == "1." and items[0]["sample"].startswith("1. 견본 글입니다")
+    assert items[0]["unsupported"] == [] and shape_text(data) == ""   # 바탕의 「^1.」 이 끼면 한글이 「1. 1. 견본 …」 으로 그린다
+    head.text = "^1."  # 번호 글이 있는 개요 모양 — 한글이 번호를 그린다
+    assert SC.shown_number(d, p)
+    data, items = SC.from_paras(d, [{"para": pid, "level": 1}])
+    assert items[0]["marker"]["mode"] == "auto" and items[0]["sample"] == "견본 글입니다" and items[0]["unsupported"] == [SC.AUTO_NOTE] and shape_text(data) == "^1."
+    d._defs["paraPr"][p.get("paraPrIDRef")].find(_h("heading")).set("type", "NONE")
+    assert not SC.shown_number(d, p)
 
 
 def test_from_paras_keeps_marker_run_apart_from_body(small):

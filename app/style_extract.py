@@ -299,16 +299,24 @@ def text_candidates(doc, graph) -> list[dict]:
     return out
 
 
-def para_groups(blocks, skip=(), body=None) -> list[dict]:
+def shown_of(doc):
+    """hwpx 문서 doc 의 「문단 모양 번호가 실제로 그려지는 문단인가」(블록 → bool — `style_carrier.shown_number`: 개요 문단이어도 번호 모양의 글이 비었으면 아니다)."""
+    from app import style_carrier as SC
+    return lambda b: (el := doc._ids.get(b.get("id"))) is not None and SC.shown_number(doc, el)
+
+
+def para_groups(blocks, skip=(), body=None, numbered=None) -> list[dict]:
     """**문단 묶음 후보**(spec_서식복사 ② §12 — 문단 서식의 자동 후보): 본문 최상위 글 문단(캡션 포함) + 1칸 표(글상자 — 「작성 요령」 상자는 뺌) 안의 글 문단을 서식 요약이 같은 것끼리 묶은 것 →
     [{key(대표 문단 id), role, count, items: [{para, level: None, letter, sample, format, marker}], where: {caption, note, box}, doubts: []}] 쓰인 수 많은 차례(같으면 문서 순) TEXT_GROUPS 개.
     대표 = 묶음에서 문서 순 첫 문단. 빈 문단과 skip(헤딩 노드의 문단 id — `head_paras`)은 뺀다. docx·그래프가 없는 hwpx 문서의 「서식이 같은 문단 묶음」 도 이 꼴이다(전에는 `texts` 에 `template: None` 으로).
     where = 그 묶음에서 캡션인 문단 수 · 주석 꼴(글머리 규칙의 note·footnote — 앞 NOTE_PROBE 개만 본다)인 문단 수 · 1칸 표 안인 문단 수.
-    role 의 스크립트 어림(LLM 이 애매한 것만 고친다 — ② §15): 절반 넘게 캡션 = `caption` · 주석 꼴 = `note` · 1칸 표 안 = `box` · body(쪽 설정의 바탕 글 1위 서식 요약)와 같은 서식 = `body` · 그 밖 None."""
+    role 의 스크립트 어림(LLM 이 애매한 것만 고친다 — ② §15): 절반 넘게 캡션 = `caption` · 주석 꼴 = `note` · 1칸 표 안 = `box` · body(쪽 설정의 바탕 글 1위 서식 요약)와 같은 서식 = `body` · 그 밖 None.
+    numbered = 블록 → 「번호가 그려지는 문단인가」(레터 정책 auto — hwpx 는 `shown_of(doc)`) · 없으면 번호 목록(list)만(Word 의 개요 수준은 번호를 안 그린다)."""
     from app import heading_rules as R
     from app import table_fill
     from app.hwpx_format import SUMMARY_KEYS
     skip, by, seen = set(skip or ()), {}, 0
+    numbered = numbered or (lambda b: bool(b.get("list")))
 
     def add(b, box):
         nonlocal seen
@@ -336,7 +344,7 @@ def para_groups(blocks, skip=(), body=None) -> list[dict]:
         look = {k: v for k, v in (b.get("format") or {}).items() if k in SUMMARY_KEYS and v is not None}
         role = ("caption" if g["caption"] * 2 > g["count"] else "note" if note * 2 > len(g["probe"]) else "box" if g["box"] * 2 > g["count"]
                 else "body" if isinstance(body, dict) and body and look == body else None)
-        letter = _marker(b.get("text"), bool(b.get("list") or b.get("outlineLevel")))
+        letter = _marker(b.get("text"), numbered(b))
         out.append({"key": b["id"], "role": role, "count": g["count"],
                     "items": [{"para": b["id"], "level": None, "letter": letter["literal"], "sample": _short(b.get("text"), LINE_TEXT), "format": dict(b.get("format") or {}),
                                "marker": letter}],
@@ -440,7 +448,7 @@ def candidates(doc, graph=None) -> dict:
     graph = 2단계 그래프 사전(없으면 내용 서식 후보 없음 — 문단 묶음은 낸다)."""
     blocks, skip = doc.blocks(), head_paras(graph)
     pages = page_candidates("hwpx", doc, skip)
-    return {"tables": table_candidates(blocks), "texts": text_candidates(doc, graph), "paras": para_groups(blocks, skip, _body_format(pages)), "pages": pages,
+    return {"tables": table_candidates(blocks), "texts": text_candidates(doc, graph), "paras": para_groups(blocks, skip, _body_format(pages), shown_of(doc)), "pages": pages,
             "covers": cover_candidates(doc, graph)}
 
 
@@ -870,7 +878,7 @@ def _from_hwpx(name, data):
         losses.append(f"개요 추출(스크립트)에 실패해 글 서식 후보는 내지 못했습니다: {type(e).__name__}: {e}"[:300])
     skip = head_paras(graph)
     pages = page_candidates("hwpx", doc, skip)
-    return {"name": name, "format": "hwpx", "fidelity": "native", "tables": tables, "texts": texts, "paras": para_groups(blocks, skip, _body_format(pages)), "pages": pages,
+    return {"name": name, "format": "hwpx", "fidelity": "native", "tables": tables, "texts": texts, "paras": para_groups(blocks, skip, _body_format(pages), shown_of(doc)), "pages": pages,
             "covers": cover_candidates(doc, graph), "losses": losses, "_doc": doc, "_graph": graph, "_sha256": sha}
 
 

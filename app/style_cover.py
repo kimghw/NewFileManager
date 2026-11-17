@@ -286,8 +286,7 @@ def _para_from_hwpx(cdoc, anchor, src, b, sample, keep_text, like, losses) -> st
             o.getparent().remove(o)
     SC._need_refs(src, [own], what="원본 문서", did="표지 서식으로 저장하지")
     _note(losses, *[x for x in SC._copy_losses(src, p) if x != SC.STYLE_NOTE])
-    h = src._heading(p)
-    if sample and h is not None and h.get("type") in ("OUTLINE", "NUMBER", "BULLET"):
+    if sample and SC.shown_number(src, p):  # 번호가 실제로 그려지는 문단만(개요 문단이어도 번호 모양의 글이 비었으면 아니다)
         _note(losses, AUTO_NOTE)
     new = cdoc.insert_after(anchor, [{"kind": "copy", "srcId": pid}], src=src)[0]
     el = cdoc._ids[new]
@@ -430,6 +429,10 @@ def carrier(src, block_ids, roles=None, keep_text=False):
                               "format": _fmt(cdoc._summary(el.get("paraPrIDRef"), SC.body_char(cdoc, el)))})
     if images:
         _note(losses, f"{IMAGE_NOTE}({images}개)")
+    outline = next((p for b in rng if hwpx and b["type"] == "paragraph" and (p := src._ids.get(b["id"])) is not None
+                    and (h := src._heading(p)) is not None and h.get("type") == "OUTLINE"), None)
+    if outline is not None:  # 개요 문단의 번호는 구역의 개요 번호 모양이 그린다 — 원본 구역의 것으로(빈 번호 글이면 안 그려진다: `style_carrier._use_outline`)
+        SC._use_outline(cdoc, src, SC.outline_shape(src, outline))
     cdoc.delete_blocks(plain, plain)
     head = cdoc._ids[first]
     lead = next(head.itersiblings(P), None)

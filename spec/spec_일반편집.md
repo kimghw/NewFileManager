@@ -136,8 +136,12 @@ TASK 「문서 일반 편집」(`doc_edit`)과 그 TASK 가 쓰는 **공통 모�
   - 뺀 것은 `losses` 에 적는다: 칸 안 표·그림(칸은 글만) · 캡션 · 그림 채움(`_import_def`) · 같은 이름 style 은 대상의 것 재사용 · 번호 다시 시작(`newNum`).
   - `info` = `{rows, cols, bands, losses, fonts, preview{grid, looks}}`.
 - **hwpx 문단에서** `from_paras(src, picks: [{para, level?, origin?}], keep_text=False)` → `(bytes, items)`: 문단마다 복사(표·그림은 뺌) — 글은 `marker`(앞 공백 + 레터 + 사이 공백) + 견본 「견본 글입니다」(`keep_text` 면 원문 60자).
-  `marker` 판정: 문단의 `hh:heading` 이 `OUTLINE|NUMBER|BULLET` 이면 `mode: "auto"`(레터를 글에 다시 쓰지 않는다 · `unsupported` 에 「자동 번호 — 대상 문서의 번호 설정을 따름」),
+  `marker` 판정: 문단의 `hh:heading` 이 `OUTLINE|NUMBER|BULLET` 이고 **한글이 그 번호를 실제로 그리면**(`style_carrier.shown_number`) `mode: "auto"`(레터를 글에 다시 쓰지 않는다 · `unsupported` 에 「자동 번호 — 대상 문서의 번호 설정을 따름」),
   아니면 `heading_rules.classify`/`split_lead` 로 글머리 레터를 읽어 `literal`(`lead` = 앞 공백 · `literal` = 레터 글 · `gap` = 레터 뒤 공백 · `family` = 규칙 계열), 레터가 없으면 `none`.
+  **그리는가**(2026-11-17 — spec_서식복사 ① 같은 날): 개요(OUTLINE)는 그 문단이 든 구역의 개요 번호 모양(secPr `outlineShapeIDRef` 의 번호 정의), 번호(NUMBER)는 그 번호 정의에서 그 수준(`level`+1)의 번호 글이 **비었으면 안 그린다** —
+  공공 양식에 흔한 꼴(개요 문단이지만 번호 글이 빈 모양 · 레터 「1.」·「2-1.」·「(1)」 은 글로 쳤다 — 헤딩 추출이 읽는 레터와 같다). 정의·수준을 못 찾으면 그린다고 본다 · 글머리표(BULLET)는 그린다고 본다.
+  운반 문서(구역 하나)의 개요 번호 모양은 **첫 개요 문단이 든 원본 구역의 것**으로 바꾼다(`_use_outline` — 바탕의 「1. 가. 1) …」 이 끼면 한글이 「1. 1. 견본 …」 으로 그린다) · 번호를 그리는지가 그것과 다른 구역의 문단은 `unsupported` 에 적는다. 표지 운반 문서도 같다(`style_cover.carrier`).
+  hwpx 블록만 보는 곳(문단 묶음 후보 `style_extract.para_groups`)은 `shown_of(doc)` 로, docx 는 번호 목록(`list` — numPr)만 auto 로 본다(Word 의 개요 수준은 번호를 안 그린다).
   레터 런과 본문 런의 글자 모양이 다른 문단은 그대로 옮겨지지만(복사) 「줄 쓰기」 는 문단의 첫 글 런 모양 하나로 쓴다 — `unsupported` 에 적는다.
 - **명세에서** `from_table_spec(spec)` · `from_text_spec(items)` → bytes: 빈 바탕의 평범한 표·문단에서 출발해 `table_make` → 칸마다 `derive_format`·`apply_cell_format`(글·음영·세로 정렬·칸 여백)·`set_cell_edges`(괘선) (실험 ⓑ).
   **표 명세**(형식 중립 — hwpx·docx 표 블록과 PDF 측정이 같은 꼴로 낸다): `{rows, cols, bands, widthsMm: [열 폭…]|null, cells: [{row, col, rowSpan, colSpan, text, fill: "#RRGGBB"|null, valign, marginsMm{l,r,t,b}|null,

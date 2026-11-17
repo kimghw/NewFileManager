@@ -120,6 +120,9 @@
   `hh:heading type="NONE|OUTLINE|BULLET|NUMBER" idRef level`; style `paraPrIDRef charPrIDRef nextStyleIDRef`;
   bullet/numbering `hh:paraHead charPrIDRef`(`4294967295` = 없음).
 - heading: OUTLINE 은 `idRef="0"`(번호 모양은 secPr `outlineShapeIDRef` 의 numbering), level 0-based.
+  **OUTLINE 이라고 번호가 보이는 것은 아니다**(2026-11-17 실측 — 연구계획서_공통.hwpx): 구역의 개요 번호 모양에서 그 수준의 `hh:paraHead` 글이 비었으면(`<hh:paraHead … level="1" …/>` — 글 없음) 한글은 번호를 안 그린다.
+  공공 양식에 흔하다 — 「개요 1~4」 스타일(목차·개요 보기용)을 쓰면서 레터 「1.」·「2-1.」·「(1)」·「①」 는 글로 친다. 같은 문서라도 구역마다 `outlineShapeIDRef` 가 다를 수 있다(이 문서는 구역 22개에 번호 정의 1·2·6~10).
+  그런 문단을 번호 글이 있는 개요 모양의 구역(새 문서의 기본 「^1.」·「^2.」(가)·「^3)」 …)으로 옮기면 「1. 1. …」 처럼 번호가 하나 더 붙는다 — 옮길 때 구역의 개요 번호 모양도 함께 본다.
   BULLET → `hh:bullets/hh:bullet char`(paraHead level 0), NUMBER → `hh:numberings/hh:numbering`
   (paraHead level 1-based = heading level+1, 텍스트 템플릿 `^1.`·`(^5)`, `numFormat` DIGIT·HANGUL_SYLLABLE·CIRCLED_DIGIT…, `start`).
 - 굵게: charPr 에 `hh:bold` 자식. 셀 배경: borderFill `hc:fillBrush/hc:winBrush faceColor`(`none` 또는 `#RRGGBB`).

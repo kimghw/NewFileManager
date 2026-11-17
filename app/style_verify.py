@@ -263,8 +263,10 @@ def expect_text(cdoc, meta=None) -> dict | None:
     out = []
     for n, p in enumerate(ps):
         it = items[n] if n < len(items) else {}
+        mode = (it.get("marker") or {}).get("mode") if isinstance(it.get("marker"), dict) else None
         out.append({"key": it.get("key") or f"i{n + 1}", "id": p["id"], "text": p.get("text") or "", "format": p.get("format") or {}, "runs": p.get("runs"),
-                    "auto": bool(p.get("list") or p.get("outlineLevel") or p.get("autoNum")) or (it.get("marker") or {}).get("mode") == "auto"})
+                    # 개요 수준(outlineLevel)만으로는 번호가 그려진다고 보지 않는다 — 항목의 레터 정책이 있으면 그것이 판정이다(번호 모양의 글이 빈 개요 문단 = literal: style_carrier.shown_number)
+                    "auto": bool(p.get("list") or p.get("autoNum") or (p.get("outlineLevel") and mode is None)) or mode == "auto"})
     return {"leftMm": float((page.get("marginsMm") or {}).get("l") or 0), "items": out, "metaItems": len(items) if isinstance(given, list) else None}
 
 
