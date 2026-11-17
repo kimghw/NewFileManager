@@ -2060,6 +2060,7 @@ from app import outline_match_api  # noqa: E402
 app.include_router(outline_match_api.router)
 app.include_router(__import__("app.outline_lift_api", fromlist=["router"]).router)   # 표 제목을 템플릿의 L1 으로(후보 · 넣기 · 떼기) 끝점은 app/outline_lift_api.py(spec_hwpx_웹편집 ② §8-7)
 app.include_router(__import__("app.outline_grow_api", fromlist=["router"]).router)   # 개요 레벨 더하기(마지막 레벨의 Alt+↓ — 후보 · 새 레벨) 끝점은 app/outline_grow_api.py(spec_hwpx_웹편집 ② §8-6)
+app.include_router(__import__("app.para_letter_api", fromlist=["router"]).router)   # 레터 넣기(도구 줄 「문단 수정」 묶음 — 메뉴 · 레터만/개요 레벨로/빼기) 끝점은 app/para_letter_api.py(spec_hwpx_웹편집 ② §8-9)
 app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)

@@ -2504,7 +2504,8 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
   outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", // spec_hwpx_웹편집 ② §8-2
   commit: "확정", restore: "확정 복원", discard: "모두 되돌리기" }; // 확정(spec_작업 ② §8)
-const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기" };
+const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기",
+  letter: "레터 넣기(문단 묶음의 단추 — 레터만 · 개요 레벨로 · 레터 빼기)" }; // letter = para_letter_api(spec_hwpx_웹편집 ② §8-9)
 const CHANGE = { bold: "굵게", italic: "기울임", underline: "밑줄", sizePt: "크기(pt)", color: "색", align: "정렬", indentLeftMm: "왼쪽 여백(mm)",
   indentRightMm: "오른쪽 여백(mm)", firstLineMm: "첫 줄(mm)", lineSpacingPct: "줄 간격(%)", spaceBeforePt: "위 간격(pt)", spaceAfterPt: "아래 간격(pt)" };
 const ALIGN = { left: "왼쪽", center: "가운데", right: "오른쪽", justify: "양쪽" };
@@ -3884,7 +3885,7 @@ function trackCaret() {
 function refreshToolbar(p = null, at = null) {
   if (!p && state.cur) p = paraEl(state.cur.id);
   const on = !!p && !!state.id;
-  for (const b of document.querySelectorAll("#docBar [data-char], #docBar [data-align], #docBar [data-indent]")) b.disabled = !on || state.busy;
+  for (const b of document.querySelectorAll("#docBar [data-char], #docBar [data-align], #docBar [data-indent], #tbLetter")) b.disabled = !on || state.busy; // #tbLetter = 레터 넣기(para_letter.js — spec_hwpx_웹편집 ② §8-9)
   for (const x of [$("tbSize"), $("tbColor"), $("tbFirst"), $("tbLine")]) x.disabled = !on || state.busy;
   const inCell = (on && !!p.closest("td")) || (typeof tselActive === "function" && tselActive()); // 칸 안 문단에 있거나 칸을 끌어 골랐을 때(표 모듈)
   $("tbTable").setAttribute("aria-disabled", String(!inCell));

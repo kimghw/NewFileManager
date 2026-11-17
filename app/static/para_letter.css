@@ -1,0 +1,39 @@
+/* 레터 넣기(spec_hwpx_웹편집 ② §8-9 — para_letter.js): 도구 줄 「문단 수정」 묶음의 #tbLetter 단추 아래에 뜨는 메뉴(#plMenu).
+   하나 고르고 닫는 목록(design.md §8) — 모달 아님 · 단추 바로 아래. 폭은 보수적으로(§1): 318px, 창이 좁으면 창 폭 − 16px.
+   레터 단추(.pl-chip)는 폭이 같은 격자(한 줄 6칸) — 레터가 바뀌어도(이어서 ↔ 처음부터) 자리가 안 움직인다(§6).
+   style.css 다음에 읽힌다(색 변수). */
+.pl-menu {
+  position: fixed; z-index: 60; width: min(318px, calc(100vw - 16px)); display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 28px rgba(20, 30, 50, .18); font-size: 12.5px; outline: none;
+}
+.pl-menu:focus-visible { border-color: var(--accent); }
+.pl-head { flex: none; padding: 6px 10px 5px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-head b { color: var(--text); }
+.pl-sub { color: var(--muted); font-size: 11.5px; }
+.pl-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 2px 10px 8px; }
+.pl-sec { display: flex; align-items: center; gap: 6px; margin: 7px 0 4px; white-space: nowrap; }
+.pl-sec b { flex: none; font-size: 11.5px; color: var(--text); }
+.pl-note { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 11px; }
+.pl-hint { margin: 7px 0 2px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.pl-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.pl-t { flex: none; width: 26px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pl-row .pl-chip { width: 42px; }
+.pl-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.pl-chip {
+  height: 26px; min-width: 0; padding: 0 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); cursor: pointer;
+  font: 13px/1 "Malgun Gothic", "맑은 고딕", "함초롬돋움", "HCR Dotum", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: clip; /* 둘레 글자(⑴ ㉠ ㉮)가 또렷한 글꼴 먼저 */
+}
+.pl-chip:hover { background: var(--surface-2); border-color: var(--line-strong); }
+.pl-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pl-chip.cont { color: var(--accent); }                     /* 앞 줄에 이어지는 번호 */
+.pl-chip.cur { background: var(--accent-soft); border-color: var(--accent); } /* 지금 이 문단의 레벨 */
+.pl-seg { flex: none; display: inline-flex; }
+.pl-chip.seg { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 0; margin-left: -1px; font-family: inherit; font-size: 11px; color: var(--muted); }
+.pl-chip.seg:first-child { border-radius: 5px 0 0 5px; margin-left: 0; }
+.pl-chip.seg:last-child { border-radius: 0 5px 5px 0; }
+.pl-chip.seg.on { position: relative; z-index: 1; background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.pl-foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.pl-in { flex: 1 1 auto; min-width: 0; height: 26px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; font: inherit; background: var(--surface); color: var(--text); }
+.pl-in:focus { outline: none; border-color: var(--accent); }
+.pl-chip.go, .pl-chip.rm { flex: none; padding: 0 9px; font-family: inherit; font-size: 12px; }
+.pl-chip.rm { color: var(--muted); }

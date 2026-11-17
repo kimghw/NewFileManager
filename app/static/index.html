@@ -29,6 +29,7 @@
   <link rel="stylesheet" href="/static/fmt_focus.css"><!-- 서식 라벨만 또렷이(여백의 서식 라벨을 누르면 그 서식의 문단만 그대로 · 나머지는 흐리게 · 이름 줄 설명 #fmtKey — spec_헤딩_추출 ② §7) — style.css·tpl_agent.css·document_header.css·divisions.css 다음 -->
   <link rel="stylesheet" href="/static/doc_diff.css"><!-- 문서에서 고친 곳 보기(넣은 글 초록 · 지운 자리 빨간 물결 · 오른쪽 여백 꼬리표 — doc_diff.js, spec_작업 ② §8 「문서에서 — 고친 곳 보기」) — style.css·fmt_focus.css 다음 -->
   <link rel="stylesheet" href="/static/doc_status.css"><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나: spec_작업 ② §20) — document_header.css·divisions.css·fmt_focus.css 다음 -->
+  <link rel="stylesheet" href="/static/para_letter.css"><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 단추 아래 메뉴 #plMenu: 개요 레벨 · 번호 · 기호 · 직접 입력 · 레터 빼기 — spec_hwpx_웹편집 ② §8-9) — style.css 다음 -->
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
 </head>
@@ -88,7 +89,7 @@
         <button class="btn sm" type="button" data-tool="font" aria-pressed="false" aria-label="폰트 수정" title="폰트 수정 — 굵게·기울임·밑줄·글자 크기·글자 색">
           <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 19 8 5l5 14M4.8 14h6.4M21 12v7"/><circle cx="17.5" cy="15.5" r="3.5"/></svg>
         </button>
-        <button class="btn sm" type="button" data-tool="para" aria-pressed="false" aria-label="문단 수정" title="문단 수정 — 정렬·왼쪽 여백·첫 줄 들여쓰기·줄 간격">
+        <button class="btn sm" type="button" data-tool="para" aria-pressed="false" aria-label="문단 수정" title="문단 수정 — 정렬·왼쪽 여백·레터 넣기·첫 줄 들여쓰기·줄 간격">
           <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13 4v16M17.5 4v16M19.5 4h-10a4.5 4.5 0 0 0 0 9H13"/></svg>
         </button>
         <button class="btn sm" type="button" data-tool="table" aria-pressed="false" aria-label="테이블 수정" title="테이블 수정 — 표 행·열 넣기·지우기: 표 칸 안에 있거나 칸을 끌어 골랐을 때">
@@ -131,6 +132,11 @@
         <div class="group">
           <button class="icon tb" type="button" data-indent="-5" title="왼쪽 여백 −5mm" aria-label="왼쪽 여백 줄이기">⇤</button>
           <button class="icon tb" type="button" data-indent="5" title="왼쪽 여백 +5mm" aria-label="왼쪽 여백 늘리기">⇥</button>
+        </div>
+        <!-- 레터 넣기(spec_hwpx_웹편집 ② §8-9 — para_letter.js, 2026-11-17 사용자 「레터를 선택해서 헤딩으로 넣을 수 있는 기능」): 누르면 단추 아래 메뉴(#plMenu)에서 레터(이 문서의 개요 레벨 · ① 1. 1) (1) 1.1. … · 기호 · 직접 입력)를 골라
+             커서가 든 문단을 헤딩(레터 줄)으로. 글 없이 아이콘(design.md §9) — 그림: 줄마다 앞에 레터(둥근 숫자 · □ · -)가 붙은 세 줄. 켜고 끄기는 app.js refreshToolbar -->
+        <div class="group">
+          <button class="icon tb" id="tbLetter" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="레터 넣기" title="레터 넣기 — 레터(① 1. 1) (1) □ o - …)를 골라 이 문단을 헤딩으로: 이 문서의 개요 레벨(레터 + 서식) · 번호(앞 줄에 이어서) · 기호 · 레터 빼기"><svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5.5" cy="6" r="2.6"/><rect x="3.2" y="10" width="4.6" height="4.6" rx=".8"/><path d="M3.4 18.5h4.2M11.5 6h9M11.5 12.3h9M11.5 18.5h9"/></svg></button>
         </div>
         <label class="tb-field" title="첫 줄 들여쓰기(+)·내어쓰기(−), mm"><span>첫 줄</span><input id="tbFirst" type="number" min="-300" max="300" step="1" aria-label="첫 줄 들여쓰기 mm"></label>
         <label class="tb-field" title="줄 간격(%)"><span>줄</span><select id="tbLine" aria-label="줄 간격"><option value="">–</option><option>100</option><option>130</option><option>150</option><option>160</option><option>180</option><option>200</option></select></label>
@@ -539,6 +545,7 @@
   <script src="/static/outline_match.js"></script><!-- 레벨 대표 서식 · 대표에 맞추기 · 템플릿 종속(「템플릿 관계」 레벨 줄의 서식 갈래 · 템플릿 줄의 하위로 넣기·떼기 · 도구 줄 #tbTplRel) — app.js·outline_format.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_odd.js"></script><!-- 다른 서식 보기(「템플릿 관계」 템플릿 줄의 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보이고 서식·레벨마다 맞추기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_lift.js"></script><!-- 표 제목을 템플릿의 L1 으로(「템플릿 관계」 템플릿 줄의 「표를 L1 으로」 — 같은 꼴 1칸 제목 표를 한 번에 넣기·떼기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-7) -->
+  <script src="/static/para_letter.js"></script><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 레터를 골라 문단을 헤딩으로: 개요 레벨로 · 레터만 · 레터 빼기) — app.js 다음(spec_hwpx_웹편집 ② §8-9) -->
   <script src="/static/outline_grow.js"></script><!-- 개요 레벨 더하기(마지막 레벨의 Alt+↓ → 레터·앞 공백·둘째 줄 후보 → 템플릿에 새 레벨 — app.js outlineLevel 이 부른다) — app.js 다음(spec_hwpx_웹편집 ② §8-6) -->
   <script src="/static/outline_preview.js"></script><!-- 개요 레벨 미리보기·비교 창(자리 수정의 지금 → 바뀐 뒤 · 서식 갈래 비교 표 — 떠 있는 창, 모달 아님) — outline_format.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-3) -->
   <script src="/static/tpl_agent.js"></script><!-- 템플릿 서식 정리 에이전트(템플릿 줄의 별 아이콘 → 2열: 대상 · 저장한 스킬 글 고치기 · 계획 → 고른 것만 적용 — Opus 5.5) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-4) -->
