@@ -191,6 +191,10 @@ def _taken(s):
     if hwpx:
         g, tb = HR.graph(s), HR.tables(s)
         t.update(graph=g, tables=tb, runs=(_run(g), _run(tb)), hints=copy.deepcopy(d.get("hints") or []), prior=copy.deepcopy(server._division_prior(s)))
+    from app import division_scan_api as DSA
+    t["dv"] = DSA.inputs(s, t["blocks"]) if hwpx else None   # 구분 기준 판독의 입력(spec_구분_기준 ② §23) — 자동 판독의 묶음 · 표 안 값 읽기는 그 판독에서 받는다
+    if hwpx and t["dv"] is None:   # 연구개발과제 문서가 아님 — 구분 기준 엔진을 쓰지 않는다(2026-11-18 사용자 "연구개발과제 에서만 구분 기준엔진을 쓸거야")
+        t.update(raw=None, basis=None)
     return t
 
 
@@ -204,12 +208,17 @@ def _auto(t):
         except (KeyError, TypeError, ValueError):
             values = None
     basis = t["basis"] if values is not None else None
-    key = (t["rev"], t["base"], _j(values), basis, tuple(t["runs"]), _j(t["hints"]), _j(t["prior"]))
+    dv = t.get("dv") if values is not None else None
+    key = (t["rev"], t["base"], _j(values), basis, tuple(t["runs"]), _j(t["hints"]), _j(t["prior"]), dv["key"] if dv else None)
     with _LOCK:
         hit = _AUTO.get(t["id"])
     if hit is not None and hit[0] == key:
         return hit[1], values, basis
-    info = zones.read({"blocks": t["blocks"], "values": values, "graph": t["graph"], "tables": t["tables"], "hints": t["hints"], "prior": t["prior"]})
+    scan = None
+    if dv is not None:   # 구분 기준 판독(읽어 둔 것 · 없으면 여기서 — 같은 입력이면 다른 길이 이미 센 것을 쓴다)
+        from app import division_scan_api as DSA
+        scan = (DSA.peek(dv) or DSA.compute(dv))["result"]
+    info = zones.read({"blocks": t["blocks"], "values": values, "graph": t["graph"], "tables": t["tables"], "hints": t["hints"], "prior": t["prior"], "scan": scan})
     with _LOCK:
         _AUTO.pop(t["id"], None)
         _AUTO[t["id"]] = (key, info)

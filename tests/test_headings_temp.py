@@ -302,7 +302,8 @@ def test_temp_api_lists_designates_and_reextracts_without_llm(c):
     j1 = heading_runs.run_sync(s, 1, False)
     assert [x["name"] for x in j1.view()["steps"]][-1] == "TEMP 라벨" and "작성 요령 표 30" in j1.view()["steps"][-1]["msg"]
     j2 = heading_runs.run_sync(s, 2, False)
-    assert [x["name"] for x in j2.view()["steps"]][0].startswith("TEMP 라벨") and "헤딩 후보 394" in j2.view()["steps"][0]["msg"]
+    steps2 = j2.view()["steps"]   # 연구개발과제 문서는 「구분 기준 판독」 이 먼저(spec_구분_기준 ② §23) — 그 다음이 TEMP 라벨
+    assert [x["name"] for x in steps2][0] == "구분 기준 판독" and steps2[1]["name"].startswith("TEMP 라벨") and "헤딩 후보 394" in steps2[1]["msg"]
     j3 = heading_runs.run_sync(s, 3, False)
     nt = len(heading_runs.temp_label(s)["tables"])                                        # TEMP 표 = 항목 31(작성 요령 표 30 + 안내 상자 1) + 그 안쪽 표·상자
     assert nt > 31 and [x["name"] for x in j3.view()["steps"]][0].startswith("TEMP 라벨") and f"TEMP 표 {nt} 뺌" in j3.view()["steps"][-1]["msg"]

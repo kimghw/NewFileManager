@@ -336,10 +336,29 @@ def pairs_on():
     return os.environ.get("NFM_HEADS_PAIRS", "").strip().lower() in ("on", "1", "true", "yes")
 
 
+def _division_scan(sess):
+    """구분 기준 판독 항목(division_scan_api.ensure — 연구개발과제 문서만) | None. 세션 대역(닫힌 작업 미리보기의 SimpleNamespace)·관문 밖·실패는 None."""
+    if not all(hasattr(sess, k) for k in ("lock", "division", "doc", "rev")):
+        return None
+    from app import division_scan_api as DSA
+    try:
+        return DSA.ensure(sess)
+    except Exception as e:  # noqa: BLE001 — 판독이 안 돼도 헤딩 추출은 전처럼(글 꼴 규칙) 돈다
+        print(f"[headings] 구분 기준 판독 실패(헤딩은 판독 없이): {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
 def run_stage2(sess, job, use_llm):
     st = state(sess)
     guides0 = _guides(sess)  # 시작 때 고정(§7) — A·B·C 프롬프트와 기록이 같은 지침(+ 양식 정보)
     hints0 = copy.deepcopy(hints(sess))  # 라벨 지정도 시작 때 고정(§13) — 실행 중 바꿔도 이 실행은 이 지정으로
+    # 구분 기준 판독이 먼저(2026-11-18 사용자 "구분기준은 첫번째하고 언제든지 다시 돌릴 수 있고 헤딩은 마지막 결과를 참조" — spec_구분_기준 ② §23 · ② §13 「구분 기준 판독」):
+    # 지금 입력(문서·값·추가한 자리)의 마지막 판독을 확보해 이 실행 동안 고정한다. 판독은 헤딩을 읽지 않는다(한 방향)
+    dv = _division_scan(sess)
+    if dv is not None:
+        c = dv["result"]["counts"]
+        job.step("구분 기준 판독", "ok", f"엔진 묶음 {c['groups']} · 라벨 문단 {c['labels']}(글 꼴 보탬 {c['pattern']}) · 표 안 기관·차년도 {c['tables']}표 {c['cells']}칸 · {dv['secs']}초"
+                 + (" — 프로젝트 구성이 없어 표 안 판독은 안 함" if dv.get("basis") is None else ""))
     s1 = st.get("stage1")
     stale = s1 is None or s1.get("meta", {}).get("rev") != sess.rev or s1.get("version") != E.VERSION  # 옛 추출 방식의 결과(모양 키·간격·그릇 key)도 다시
     # LLM 판정은 스크립트가 판정하지 못한 것(못 맞춤·충돌)까지 본다(§3, 2026-11-16) — 그래프를 짓기 전에 그 묶음의 규칙 보강을 먼저. 이미 답을 받은 1단계 결과는 다시 묻지 않는다
@@ -368,6 +387,14 @@ def run_stage2(sess, job, use_llm):
     ahead = getattr(job, "tables_ahead", None)
     if use_llm and ahead is not None:  # 표 판정 호출을 헤딩 판정과 같이(§8) — 1단계가 정해졌으니 지금부터 묻는다(그래프를 기다리지 않는다)
         ahead.start(job, s1, guides0, copy.deepcopy(hints0["temp"]))
+    if dv is not None:   # 판독은 1단계와 같은 문서 차례의 것이어야 한다(astra · Fable 협의) — 그 사이 문서가 바뀌었으면 한 번 다시, 그래도 다르면 판독 없이
+        if dv["rev"] != s1["meta"]["rev"]:
+            dv = _division_scan(sess)
+        if dv is not None and dv["rev"] == s1["meta"]["rev"]:
+            from app import division_scan as DS
+            hints0 = {**hints0, "division": DS.pin(dv["result"], dv["key"], dv["at"])}   # 사본에만(hints.json 에 쓰지 않는다)
+        else:
+            job.step("구분 기준 판독", "ok", "판독 뒤 문서가 바뀌어 이번 헤딩은 판독 없이(글 꼴 규칙) — 다시 돌리면 씁니다")
     temp0 = TP.label(s1, hints0["temp"])  # TEMP 라벨(§15) — 본문 검토 전에: 그 문단들은 헤딩 후보에서 빠진다
     job.step("TEMP 라벨 — 헤딩 후보에서 뺌", "ok", TP.summary_text(temp0))
     job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"))
@@ -754,6 +781,9 @@ def relabel(sess, what="라벨 지정"):
         else:
             st.setdefault("bases2", {})[base_n] = g  # 저장 끔(메모리만)이어도 다음 반영이 처음 실행을 찾게
         replay = HG.replay_of(base)
+        pin = (base.get("division") or {}).get("pin")
+        if pin:   # 구분 기준 판독도 처음 실행이 고정한 것 그대로(§13 「구분 기준 판독」 — 라벨 지정 반영이 판독이 바뀐 것까지 몰래 들이지 않게 · astra 협의)
+            h = {**h, "division": pin}
         temp0 = TP.label(s1, h["temp"])  # TEMP 라벨도 지금 지정으로(§15) — TEMP 문단은 후보에서 빠지고, 풀린 문단은 후보로 돌아온다
         g2 = HG.build(s1, use_llm=False, doc_name=sess.name, hints=h, replay=replay, temp=temp0)
         g2.pop("_calls", None)

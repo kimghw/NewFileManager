@@ -57,7 +57,8 @@
 #doc .para.gz-in, #doc .para.gz-put { --zn-none: linear-gradient(transparent, transparent); background-image: var(--zn-band, var(--zn-none)), var(--zn-lab, var(--zn-none)), var(--zn-tint, var(--zn-none)); }
 #doc .para.gz-in { --zn-band: linear-gradient(to left, var(--gz-c) 0 3px, transparent 3px); }
 #doc .para.gz-put { --zn-tint: linear-gradient(var(--gzo-bg), var(--gzo-bg)); }
-#doc.dv-marks .para.dv-lab.gz-in, #doc.dv-marks .para.dv-lab.gz-put { --zn-lab: linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px); }
+#doc.dv-marks .para.dv-lab.gz-in, #doc.dv-marks .para.dv-lab.gz-put,
+#doc.dv-marks .para.dv-multi.gz-in, #doc.dv-marks .para.dv-multi.gz-put, #doc.dv-marks .para.dv-read.gz-in, #doc.dv-marks .para.dv-read.gz-put { --zn-lab: var(--dv-stripes, linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px)); } /* 「구분 기준 자리」 의 왼쪽 띠(든 구분마다 — divisions.css) */
 .doc table.tbl.gz-in { box-shadow: 3px 0 0 0 var(--gz-c); }
 .doc td.gz-cell { box-shadow: inset 3px 0 0 0 var(--gz-c); }
 .doc table.tbl.gz-put { outline: 2px dashed var(--gzo-c); outline-offset: 1px; }

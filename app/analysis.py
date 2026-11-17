@@ -122,8 +122,15 @@ def _division(sess):
     state = "running" if dv.get("reviewing") else "done" if r else "none"   # 구분 기준은 none · running · done 셋뿐 — 모두 실패한 검토는 저장되지 않아 none 으로 남는다(알림만)
     text = ("구분 기준 LLM 검토 중" if state == "running" else f"구분 기준 LLM 검토함 — 빠진 자리 후보 {found} · 재검토 반영 {applied}" + (f" · 답을 못 받은 검토: {error}" if error else "")
             if r else "구분 기준 LLM 검토 안 함(옵션)")
+    # 구분 기준 판독(스크립트 — 헤딩 추출 앞 · spec_구분_기준 ② §23): 읽어 둔 것만 보인다(상태 읽기는 세지 않는다 — astra · Fable 협의). state 는 LLM 검토의 뜻 그대로
+    from app import division_scan_api as DSA
+    scan = DSA.summary(DSA.last(sess), sess)
+    if scan:
+        c = scan["counts"]
+        text = (f"구분 기준 판독(스크립트) — 라벨 문단 {c['labels']} · 표 안 기관·차년도 {c['tables']}표" + ("" if scan.get("fresh") else " · 문서가 바뀌어 다음 읽기에 다시 셈")
+                + "\n" + text)
     return {"key": "division", "name": NAMES["division"], "optional": True, "state": state, "at": (r or {}).get("at"), "found": found, "applied": applied,
-            "partial": state == "done" and bool(errors), "error": error if state == "done" else None, "text": text}
+            "partial": state == "done" and bool(errors), "error": error if state == "done" else None, "text": text, "scan": scan}
 
 
 # ---------------------------------------------------------------- 템플릿 · 서식(2026-11-16 — ② §20 「넷 · 진행표 · LLM 검증·보완」)

@@ -86,6 +86,10 @@ COMMON = (
              _s("rules", "규칙 보강(LLM)", "llm", "규칙으로 판정하지 못한 첫머리 묶음을 LLM 이 보고 새 규칙식을 제안합니다 — 스크립트가 검증한 뒤에만 배운 규칙이 됩니다. "
                 "1단계의 「LLM 규칙 보강」 단추로 따로 돌릴 수 있고, 「헤딩 그래프(LLM)」 을 누르면 그래프보다 먼저 저절로 돕니다(이미 답을 받은 묶음은 다시 묻지 않음).",
                 change="store", optional=True, agents=("heading_rules",), modules=("heading_llm", "heading_rules"), spec=(SP_HEAD, "② §3")),
+             _s("scan", "구분 기준 판독(먼저)", "script", "연구개발과제 문서에서만 — 헤딩 그래프를 짓기 전에 구분 기준 판독(되풀이 묶음 · 괄호 줄 글 꼴 · 표 안의 기관 · 차년도)을 먼저 확보해 "
+                "이 실행 동안 고정합니다. 괄호 줄은 글 꼴 다음 차례로, 유형의 줄 모두가 같은 구분 기준으로 확인된 것만 구분 라벨이 되고(일부만이면 LLM 유형 판정이 참고로 봄), "
+                "라벨 지정 반영은 처음 실행의 판독을 되풀이합니다. 판독은 헤딩을 읽지 않습니다(한 방향).", out="이 실행이 쓴 판독(결과에 남김)", change="store", auto=True,
+                modules=("division_scan", "division_scan_api", "division_terms"), spec=(SP_HEAD, "② §13")),
              _s("stage2", "헤딩 그래프", ("script", "llm"), "헤딩 후보를 꼴이 같은 유형으로 묶어 개요 사슬을 세웁니다 — 개요템플릿 · 서브 템플릿 · 서식 조정 목록이 나옵니다. 스크립트만으로도 돌고, "
                 "「헤딩 그래프(LLM)」 을 누르면 판정하지 못한 첫머리 묶음의 규칙 보강(못 맞춤 · 충돌 — 새로 레터가 된 줄은 헤딩 후보에 듭니다)을 먼저 하고, "
                 "유형 판정(A) · 구간 검토(B) 호출이 더해집니다(서식 쌍 판정은 기본으로 안 함). 헤딩 판정이 끝나면 이어서 서식이 여러 가지인 템플릿마다 서식 정리 계획을 받습니다"
@@ -107,8 +111,9 @@ COMMON = (
                 out="단계 · 차년도 · 기관 · 사업기간 · 당해 차년도", change="store", modules=("division_model", "division_presets", "projects"), spec=(SP_WORK, "② §18·§19")),
              _s("confirm", "확정 — 프로젝트에 저장", "human", "확인한 값을 프로젝트에 저장(확정)합니다. 확정한 뒤 값을 바꾸면 다시 확정해야 다음 단계로 갑니다.", change="store",
                 modules=("projects",), spec=(SP_WORK, "② §18")),
-             _s("places", "구분 기준 자리 찾기", "script", "값만큼 되풀이될 자리(절 헤딩 · 표 행 · 표 열)를 양식 프로파일로 찾습니다.", out="자리 후보", auto=True,
-                modules=("division_model", "division_profiles"), spec=(SP_DIV, "② §3")),
+             _s("places", "구분 기준 자리 찾기 · 판독", "script", "값만큼 되풀이될 자리(절 헤딩 · 표 행 · 표 열)를 양식 프로파일로 찾고, 그 밖의 구분 기준 근거 — 괄호 줄 글 꼴 · 표 안의 기관 · 차년도(이름표 칸 · 기관 열) — 를 "
+                "판독만으로 보탭니다(반영 대상이 아님 — 「구분 기준 자리 표시」 에 가는 띠). 연구개발과제 문서에서만, 헤딩 추출보다 먼저(처음 읽을 때) 돌고 언제든 다시 판독할 수 있습니다.", out="자리 후보 · 판독", auto=True,
+                modules=("division_model", "division_profiles", "division_scan", "division_scan_api"), spec=(SP_DIV, "② §3·§23")),
              _s("review", "자리 LLM 검토", "llm", "찾은 자리가 맞는지(재검토)와 빠진 자리가 없는지를 LLM 이 봅니다 — 빠진 자리 후보는 사람이 「자리로 추가」 해야 자리가 됩니다.", change="store", optional=True,
                 agents=("div_review", "div_missing"), modules=("division_llm",), spec=(SP_DIV, "② §13·§14")),
              _s("plan", "변경 계획 보기", "script", "작업용 사본에서 전체 반영을 모의 실행해 바뀔 자리를 목록으로 보입니다. 문서는 바뀌지 않습니다.", no="①", out="변경 계획",
@@ -123,7 +128,8 @@ COMMON = (
              _s("options", "보일 기준 고르기(TASK 옵션)", "human", "기관 · 단계 · 차년도 가운데 이 TASK 에서 보일 기준을 고릅니다 — TASK 묶음(프로젝트 · TASK · 라운드)마다 저장되어 같은 묶음의 문서가 같이 봅니다. "
                 "취합은 기관이 기본으로 켜져 있고, 시작 화면의 문서 목록에서도 고를 수 있습니다.", out="보일 기준", change="store", modules=("task_options", "task_options_api"), spec=(SP_ZONE, "② §1")),
              _s("read", "구역 읽기", "script", "켠 기준이 있으면 저절로 읽습니다 — 구분 기준의 되풀이 자리 · 기관 이름이 든 윗 제목 · 표의 이름표 칸(「연구개발기관명 | 한국선급」 = 그 표 전체, 기관 · 연차 열 아래의 값 = 그 행). "
-                "번호와 이름이 다르면 짐작하지 않고 「기관 확인 필요」, 못 읽으면 「기관 모름」 으로 남깁니다.", out="블록 · 칸마다 기관 · 단계 · 차년도", auto=True, uses=("division",), modules=("zones", "zones_api"), spec=(SP_ZONE, "② §2")),
+                "번호와 이름이 다르면 짐작하지 않고 「기관 확인 필요」, 못 읽으면 「기관 모름」 으로 남깁니다. 되풀이 자리와 표 안의 값은 구분 기준 판독(연구개발과제 문서)에서 받아 씁니다.",
+                out="블록 · 칸마다 기관 · 단계 · 차년도", auto=True, uses=("division",), modules=("zones", "zones_api", "division_scan_api"), spec=(SP_ZONE, "② §2")),
              _s("mark", "구역 지정", "human", "스크립트가 못 읽었거나 틀린 곳은 문서에서 문단 · 표를 골라 오른쪽 단추 「구역 지정…」 으로 값을 정합니다(그대로 · 값 · 없음). 고른 블록 그대로 저장하고, 지정한 문단을 나누면 새 문단도 그 지정을 잇습니다.",
                 out="지정", change="store", optional=True, modules=("zones_api",), spec=(SP_ZONE, "② §3")),
              _s("origin", "취합 출처 남기기", "script", "취합 반영 · 끌어 넣기로 기관 문서에서 들어온 블록 · 칸마다 그때의 기관 문서와 반영할 기관을 그 편집 안에서 적습니다(실행 취소하면 함께 돌아갑니다). "

@@ -2094,6 +2094,7 @@ app.include_router(__import__("app.outline_lift_api", fromlist=["router"]).route
 app.include_router(__import__("app.outline_grow_api", fromlist=["router"]).router)   # 개요 레벨 더하기(마지막 레벨의 Alt+↓ — 후보 · 새 레벨) 끝점은 app/outline_grow_api.py(spec_hwpx_웹편집 ② §8-6)
 app.include_router(__import__("app.para_letter_api", fromlist=["router"]).router)   # 레터 넣기(도구 줄 「문단 수정」 묶음 — 메뉴 · 레터만/개요 레벨로/빼기) 끝점은 app/para_letter_api.py(spec_hwpx_웹편집 ② §8-9)
 app.include_router(__import__("app.caption_tpl_api", fromlist=["router"]).router)   # 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — 템플릿 · 대표 정하기 · 대표에 맞추기) 끝점은 app/caption_tpl_api.py(spec_hwpx_웹편집 ② §8-10)
+app.include_router(__import__("app.division_scan_api", fromlist=["router"]).router)   # 구분 기준 판독(연구개발과제 문서 — 헤딩 추출 앞 · 지연 계산 · 다시 판독) 끝점은 app/division_scan_api.py(spec_구분_기준 ② §23)
 app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
@@ -2681,13 +2682,27 @@ def _division_values(s):
 
 @app.get("/api/docs/{doc_id}/divisions/members")
 def divisions_members(doc_id: str):
-    """문서 표시 자료(② §11) — 계획 없이 find 만: 묶음마다 항목 안 문단 id 전부 + 추가한 자리(hint) 행. 문서는 그대로."""
+    """문서 표시 자료(② §11) — 계획 없이 find 만: 묶음마다 항목 안 문단 id 전부 + 추가한 자리(hint) 행. 문서는 그대로.
+    + reads = 구분 기준 판독(② §23 — 연구개발과제 문서만)이 보탠 자리: 엔진 묶음의 라벨이 아닌 괄호 줄 · 표 안의 기관·차년도(판독만 — 반영 대상이 아니다). scan = 그 판독의 요약."""
     s = _sess(doc_id)
     with s.lock:
         blocks = s.doc.blocks()
         form = PROFILE.form_of(blocks)
         m = PROFILE.members(blocks, PROFILE.levels_of(blocks), _division_values(s), s.division.get("hints") or [], prior=_division_prior(s))
-        return {**m, "rev": s.rev, "form": form, "supported": PROFILE.supported(form)}
+        out = {**m, "rev": s.rev, "form": form, "supported": PROFILE.supported(form)}
+    from app import division_scan_api as DSA
+    e = DSA.ensure(s)
+    if e is not None and e["rev"] == out["rev"]:   # 판독이 같은 문서 차례의 것일 때만 보탠다(그 사이 고쳤으면 다음 읽기에)
+        v = e["result"].get("_values")
+        out["reads"] = DSA.reads(e, _division_orgs(v) if v else None, (v or {}).get("stages"))
+        out["scan"] = DSA.summary(e, s)
+    return out
+
+
+def _division_orgs(values):
+    """과제 기관 [{key, name, role}] — 구분 기준 판독의 보탬이 기관 열쇠를 이름으로 보일 때(merge_gather_frame.orgs_of)."""
+    from app import merge_gather_frame
+    return merge_gather_frame.orgs_of(values)
 
 
 @app.post("/api/docs/{doc_id}/divisions/hints")

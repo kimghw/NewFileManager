@@ -18,10 +18,12 @@ import re
 import time
 from collections import Counter, defaultdict
 
+from app import division_terms as DT
 from app import heading_bands as HB
 from app import heading_llm as HL
 from app import heading_rules as R
 from app import llm
+from app.division_terms import BASES, BASIS_SEP, label_shape, value_basis  # noqa: F401 — 구분 기준 값의 글 꼴은 구분 기준 쪽(division_terms)이 원본(2026-11-18) · 이 모듈 이름으로도 그대로 부른다
 
 TITLE_MAX = 60
 SECTION_MAX = 120
@@ -34,8 +36,7 @@ ROLES = ("heading", "label", "subtitle", "title", "note", "not_heading")
 ROOTED = ("label", "subtitle")  # 대괄호 줄 — 구분 라벨·괄호 소제목: 둘 다 그 줄부터 새 템플릿(L1). 구분 소속(division)은 구분 라벨만(spec ② §13)
 SUB_KEY = "[…]"  # 괄호 소제목의 정규 키
 BARE_KEYS = (SUB_KEY, "[라벨]")  # 구분 기준 이름이 없는 대괄호 키 — 묶음을 (키, 앞 공백)으로 가른다(「[라벨]」 = 옛 결과·basis 없는 라벨)
-BASES = ("단계", "차년도", "기관")  # 기본 구분 기준(구분 순서 — 바깥 → 안) — 사용자가 더한 이름이 뒤에 붙는다(bases_of)
-BRACKET_RULE = 1  # 괄호 줄 판정 규칙(bracket_role)의 판 — 결과에 남긴다(규칙이 바뀌면 올림)
+BRACKET_RULE = 2  # 괄호 줄 판정 규칙(bracket_role)의 판 — 결과에 남긴다(규칙이 바뀌면 올림). 2 = 구분 기준 판독(2026-11-18 — 글 꼴 다음 차례)
 KIND_ORDER = {"main": 0, "branch": 1, "label": 2, "cell": 3, HB.KIND: 4}  # 띠 표 템플릿은 맨 뒤 번호(있던 템플릿의 번호를 밀지 않는다)
 MAIN = ("body", "main")  # 주 사슬 템플릿 키
 
@@ -133,11 +134,6 @@ def candidates(stage1, skip=()):
     return out
 
 
-def label_shape(letter):
-    """대괄호 줄의 꼴 — 숫자를 N 으로(「[1차년도 목표]」 → 「[N차년도 목표]」). 유형 표의 shape 이자 라벨 지정(hints)의 단위."""
-    return re.sub(r"\d+", "N", (letter or "").strip())
-
-
 def _shape_key(node):
     if node["kind"] == "label":
         return label_shape(node["letter"])
@@ -189,45 +185,13 @@ def sketch(nodes, limit=260):
 
 # ---- 역할 · 정규 레터 키 -----------------------------------------------------------------------------------
 
-_NUM = r"(?:\d{1,2}|[nNxX])"
-_V_SEP = re.compile(r"[\s\-–~·․⋅,/]*")
-_V_TERMS = (("단계", re.compile(rf"(?:제\s*)?{_NUM}\s*단\s*계")), ("차년도", re.compile(rf"(?:제\s*)?{_NUM}\s*(?:차\s*년\s*도|년\s*차|연\s*차)")),
-            ("기관", re.compile(rf"(?:주관|공동|위탁|참여|협동|국외|해외)\s*(?:연구\s*개발\s*)?기관\s*{_NUM}?")))
-_V_ORG_EACH = re.compile(r"(?:해당\s*)?기관\s*별")  # 「[해당 기관별 작성]」 — 기관마다 따로 쓰는 자리(사용자 2026-11-10 「해당기관별 … 기준라벨로」)
-_V_ORG_TAIL = re.compile(r"\s*(?:[(（:：].*)?")  # 기관 값 뒤 = 끝이거나 이름 자리(「(기관명 기입)」「 : 기업명1」) — 「… 기관 현황」 같은 주제 글은 아님
 _CHECK = re.compile(r"[\s√✓✔☑☐vVoOㅇ○●◯xX×✗✘□■]*")  # 빈 대괄호·체크 표시뿐인 대괄호 안(「[  ]」「[ √ ]」)
 _SENTENCE = re.compile(r"(?:을|를|은|는|의|에|에서|으로|로|와|과|에게|부터|까지)\s")  # 괄호 뒤 글이 조사로 시작 = 문장 속 괄호
 BY_USER = "사용자 지정"  # 역할의 까닭 — 사용자 라벨 지정으로 정한 것(문장 속 괄호 판정보다 앞선다)
-_BRACKETS = {"[": "]", "【": "】", "<": ">", "〈": "〉", "《": "》"}
-BASIS_SEP = "-"  # 겹친 구분 기준 이름을 잇는 글자(「단계-차년도」) — 구분 순서(바깥 → 안)대로
+_BRACKETS = DT.BRACKETS
+_inner = DT.inner
 BASIS_BAD = re.compile(r"[\[\]›|:\s\-–·․/,+…]|^라벨$")  # 사용자가 더하는 구분 기준 이름에 못 쓰는 글자·예약어(정규 키·앵커의 구분자)
-
-
-def _inner(letter):
-    """괄호 줄 레터의 안 글(괄호 한 겹을 벗김) — 괄호 꼴이 아니면 그대로."""
-    s = (letter or "").strip()
-    return s[1:-1].strip() if len(s) >= 2 and _BRACKETS.get(s[0]) == s[-1] else s
-
-
-def value_basis(letter):
-    """괄호 줄의 글이 **구분 기준 값으로 시작하는 꼴**이면 그 구분 기준 이름 — 「단계」·「차년도」·「기관」, 겹치면 구분 순서대로 이은 「단계-차년도」 | ""(스크립트로는 확정 못 함).
-    확정하는 꼴만(헤딩용 — 표 칸 후보를 넓게 찾는 heading_calc.label_basis 와 다르다, astra 2026-11-10): 「N단계 …」·「N차년도 …」(뒤 글은 자유 — 「[1단계(2027~2029) 목표]」
-    「[1차년도목표]」) · 「주관|공동|위탁|참여|협동|국외|해외 (연구개발)기관(번호)」 뒤가 끝이거나 이름 자리(「[주관연구개발기관(기관명 기입)]」「[주관연구개발기관 : 기업명1]」) ·
-    「(해당) 기관별 …」. 기관이라는 낱말이 든 주제 제목(「[연구개발기관의 안전관리 계획]」)·이름만 있는 글(「[한국선급]」)은 확정하지 않는다(LLM·사용자 지정 몫)."""
-    s = _inner(letter)
-    found, pos = [], 0
-    while True:
-        p = _V_SEP.match(s, pos).end()
-        m = next(((name, pat.match(s, p)) for name, pat in _V_TERMS if name not in found and pat.match(s, p)), None)
-        if m is None:
-            break
-        found.append(m[0])
-        pos = m[1].end()
-    if found and found[-1] == "기관" and not _V_ORG_TAIL.fullmatch(s, pos):
-        found.pop()  # 기관 값 뒤에 주제 글이 이어짐(「[주관연구개발기관 현황]」)
-    if not found and _V_ORG_EACH.match(s):
-        found = ["기관"]
-    return BASIS_SEP.join(n for n in BASES if n in found)
+# 구분 기준 값의 글 꼴(value_basis · label_shape · BASES · BASIS_SEP)은 app/division_terms.py 가 원본(2026-11-18 — 구분 기준 판독과 함께 씀)
 
 
 def bases_of(hints=None):
@@ -265,11 +229,16 @@ def hint_of(hints, letter):
     return h
 
 
-def bracket_role(letter, hints=None, role=None, basis=""):
+BY_SCAN = "구분 기준 판독"  # 역할의 까닭 — 구분 기준 판독(division_scan — 연구개발과제 문서에서 헤딩 앞에 도는 스크립트)이 이 유형의 줄 모두를 그 구분 기준 값으로 확인한 것
+
+
+def bracket_role(letter, hints=None, role=None, basis="", div=None):
     """괄호 줄(1단계 kind label — 「[…]」「【…】」·배운 괄호 규칙) 하나의 역할 → (role, basis, 까닭). A·B·사용자 지정·LLM 없는 판정이 모두 이 한 규칙을 거친다(spec ② §13).
-    role·basis = LLM(A·B)이 본 것(없으면 None). 차례: ① 사용자 지정 ② 빈 대괄호·체크 칸 = 헤딩 아님 ③ 글이 구분 기준 값으로 시작하는 꼴(value_basis) = 구분 라벨
-    ④ LLM 이 헤딩 아님·안내로 본 것은 그대로 ⑤ LLM 이 label 로 보고 적은 basis 가 구분 기준 목록에 있음 = 구분 라벨(「[한국선급]」 → 기관)
-    ⑥ 그 밖 = 괄호 소제목(LLM 이 목록 밖 이름을 지어냈으면 까닭에 남김)."""
+    role·basis = LLM(A·B)이 본 것(없으면 None). div = 구분 기준 판독이 **이 유형의 줄 모두**를 같은 구분 기준으로 확인했을 때 그 이름(division_scan.type_bases — 일부만이면 None).
+    차례: ① 사용자 지정 ② 빈 대괄호·체크 칸 = 헤딩 아님 ③ 글이 구분 기준 값으로 시작하는 꼴(value_basis) = 구분 라벨
+    ④ 구분 기준 판독(div) = 구분 라벨(2026-11-18 사용자 「구분기준은 첫번째 … 헤딩은 마지막 결과를 참조」 — 글 꼴 다음: 엔진은 「[주관연구개발기관(1단계)]」 를 단계로 읽는다(Fable 협의).
+    판독이 못 정한 것은 「아님」 이 아니라 「모름」 — 아래로) ⑤ LLM 이 헤딩 아님·안내로 본 것은 그대로 ⑥ LLM 이 label 로 보고 적은 basis 가 구분 기준 목록에 있음 = 구분 라벨(「[한국선급]」 → 기관)
+    ⑦ 그 밖 = 괄호 소제목(LLM 이 목록 밖 이름을 지어냈으면 까닭에 남김)."""
     h = hint_of(hints, letter)
     if h:
         return h["role"], (str(h["basis"]).strip() if h["role"] == "label" else ""), BY_USER
@@ -279,12 +248,20 @@ def bracket_role(letter, hints=None, role=None, basis=""):
     b = value_basis(s)
     if b:
         return "label", b, ""
+    if div:
+        return "label", div, BY_SCAN
     if role in ("not_heading", "note"):
         return role, "", ""
     b = norm_basis(basis, bases_of(hints)) if role == "label" else ""
     if b:
         return "label", b, ""
     return "subtitle", "", (f"구분 기준이 아닌 「{str(basis)[:20]}」 — 괄호 소제목" if role == "label" and basis else "")
+
+
+def _div_basis(divt, tid, bases=BASES):
+    """구분 기준 판독(divt = hints["_divTypes"] — division_scan.type_bases)이 그 유형의 줄 **모두**를 같은 구분 기준으로 확인했으면 그 이름(구분 기준 목록에 있는 것만 — 세부과제는 아님) | None."""
+    b = ((divt or {}).get(tid) or {}).get("basis")
+    return norm_basis(b, bases) or None if b else None
 
 
 def _bracket_key(role, basis):
@@ -319,6 +296,7 @@ def settle_roles(types, roles, hints=None):
     """A 가 답한 역할을 규칙에 맞춘다(roles 를 고침; A 가 본 것은 aRole·aBasis 로 남김 — 사용자 지정을 지우면 여기로 돌아간다). 괄호 유형(kind label)은 bracket_role 이
     정하고, 그 밖의 유형이 구분 라벨이 되려면 basis 가 구분 기준 목록에 있어야 한다(아니면 스크립트 대체 역할 — 소제목은 괄호 줄만). parents 의 대괄호 키도 맞춘다."""
     bases = bases_of(hints)
+    divt = (hints or {}).get("_divTypes")  # 구분 기준 판독(있을 때만 — 연구개발과제 문서): {유형 id: {basis, confirmed, total, conflict}}
     for tid, t in types.items():
         r = roles.get(tid) or {}
         raw = (r.get("role"), r.get("basis") or "")
@@ -326,7 +304,7 @@ def settle_roles(types, roles, hints=None):
             roles[tid] = {**r, **_band_role()}
             continue
         if t["kind"] == "label":
-            role, basis, why = bracket_role(t["shape"], hints, raw[0], raw[1])
+            role, basis, why = bracket_role(t["shape"], hints, raw[0], raw[1], div=_div_basis(divt, tid, bases))
             old = r.get("reason", "")
             roles[tid] = {**r, "aRole": raw[0], "aBasis": raw[1], "aReason": old, "role": role, "basis": basis, "parents": [], "variantOf": "", "hint": why == BY_USER,
                           "reason": f"{old} · {why}" if why and old.startswith("A 판정 없음") else why or old}
@@ -334,6 +312,13 @@ def settle_roles(types, roles, hints=None):
         r = roles[tid] = {**r, "parents": _norm_parents(r.get("parents"), bases)}
         if r.get("role") in ROOTED:
             b = norm_basis(r.get("basis"), bases) if r["role"] == "label" else ""
+            if b and divt is not None and _div_basis(divt, tid, bases) != b:
+                # 괄호 줄이 아닌 유형(「(N)」 — 「(1) 1차년도」 와 「(2) 기술목표」 가 한 유형)을 A 가 구분 라벨로 답해도 판독이 그 유형의 줄 **모두**를 그 구분 기준으로 확인하지 않았으면
+                # 유형 전체로 퍼뜨리지 않는다(2026-11-18 astra P1). 판독이 없는 문서(연구개발과제가 아님)는 전과 같다
+                d = (divt or {}).get(tid) or {}
+                r.update(role="title" if t["kind"] == "title" else "heading", basis="", aRole=raw[0], aBasis=raw[1],
+                         reason=f"구분 기준 판독이 이 유형의 줄 {d.get('total', 0)}개 가운데 {d.get('confirmed', 0)}개만 「{b}」 값으로 확인 — 유형 전체를 구분 라벨로 보지 않음")
+                continue
             if b:
                 r["basis"] = b
             else:
@@ -369,10 +354,10 @@ def type_keys(types, roles):
 
 
 def fallback_roles(types, hints=None):
-    """LLM 없이 — 대괄호 꼴은 bracket_role(구분 라벨·괄호 소제목·헤딩 아님), 제목 꼴은 title, 그 밖 heading. 부모 지식 없음(초안은 어림)."""
-    out = {}
+    """LLM 없이 — 대괄호 꼴은 bracket_role(구분 라벨·괄호 소제목·헤딩 아님 — 구분 기준 판독이 있으면 그것부터), 제목 꼴은 title, 그 밖 heading. 부모 지식 없음(초안은 어림)."""
+    out, divt, bases = {}, (hints or {}).get("_divTypes"), bases_of(hints)
     for tid, t in types.items():
-        role, basis, why = bracket_role(t["shape"], hints) if t["kind"] == "label" else ("title" if t["kind"] == "title" else "heading", "", "")
+        role, basis, why = bracket_role(t["shape"], hints, div=_div_basis(divt, tid, bases)) if t["kind"] == "label" else ("title" if t["kind"] == "title" else "heading", "", "")
         out[tid] = {"role": role, "parents": [], "variantOf": "", "basis": basis, "reason": why or "스크립트 대체 판정", **({"hint": True} if why == BY_USER else {})}
         if t["kind"] == HB.KIND:
             out[tid] = _band_role()
@@ -394,10 +379,13 @@ def _rank(nd):
 
 # ---- A 호출 --------------------------------------------------------------------------------------------
 
-def a_job(types, nodes, keys, proposal, doc_name="", pinned=None, bases=BASES):
+def a_job(types, nodes, keys, proposal, doc_name="", pinned=None, bases=BASES, division=None):
     rows = [{**{k: t[k] for k in ("type", "area", "kind", "shape", "bold", "size", "count", "examples", "lead", "prev", "next", "blank")}, "key": keys.get(t["type"]) or ""}
             for t in types.values()]
     data = {"document": doc_name, "bases": list(bases), "types": rows, "sketch": sketch(nodes), "mainChainProposal": list(proposal or [])}
+    if division is not None:   # 구분 기준 판독(연구개발과제 문서 — §13 「구분 기준 판독」): 확인한 줄 · 엇갈린 줄 · 기관 이름 후보 줄의 수(근거가 있는 유형만)
+        data["division"] = [{"type": tid, "basis": d.get("basis") or "", "confirmed": d["confirmed"], "of": d["total"], "conflict": d["conflict"], "names": d.get("names", 0)}
+                            for tid, d in division.items() if d.get("confirmed") or d.get("conflict") or d.get("names")]
     content, used = HL.prompt(HL.TYPES_CONTRACT, ["graph", "templates", "tolerance"], data, pinned)
     return {"schema": HL.TYPES_SCHEMA, "content": content, "what": "heading_types", "timeout": 900.0, "effort": "medium"}, used, data
 
@@ -891,11 +879,15 @@ def _b_role(g, nd, want, basis="", hints=None):
     """B 가 노드 역할을 want(+ basis)로 바꾸려 할 때의 (역할, 정규 키) — A·사용자 지정과 같은 판정 규칙을 거친다. 괄호 줄(kind label)은 bracket_role 이 정한다
     (B 가 적은 basis, 없으면 지금 키의 구분 기준을 LLM 이 본 것으로). 그 밖의 줄이 구분 라벨이 되려면 B 가 적은 basis 가 구분 기준 목록에 있어야 하고(없으면 그대로),
     괄호 소제목은 될 수 없다. 나머지는 역할을 따라 키가 바뀐다(헤딩 아님·안내·제목 = 없음, 제목 → 헤딩 = 「제목」)."""
+    divt = (hints or {}).get("_divTypes")
     if nd.get("kind") == "label":
-        role, b, _ = bracket_role(nd.get("letter"), hints, want, basis or ((g.get("key") or "")[1:-1] if is_label_key(g.get("key")) else ""))
+        role, b, _ = bracket_role(nd.get("letter"), hints, want, basis or ((g.get("key") or "")[1:-1] if is_label_key(g.get("key")) else ""),
+                                  div=_div_basis(divt, nd.get("type"), bases_of(hints)))
         return role, _bracket_key(role, b)
     if want in ROOTED:
         b = norm_basis(basis, bases_of(hints)) if want == "label" else ""
+        if b and divt is not None and _div_basis(divt, nd.get("type"), bases_of(hints)) != b:
+            return g["role"], g.get("key")   # 판독이 이 유형의 줄 모두를 그 구분 기준으로 확인하지 않음 — 괄호 줄이 아닌 줄을 구분 라벨로 바꾸지 않는다(settle_roles 와 같은 까닭)
         return ("label", "[" + b + "]") if b else (g["role"], g.get("key"))
     return want, (None if want in ("not_heading", "note", "title") else (g.get("key") or "제목"))
 
@@ -1146,6 +1138,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
     temp = TEMP 라벨(heading_temp.label 결과 — §15): 그 문단들은 헤딩 후보에서 빠진다(결과 `temp` 에 쓴 요약을 남김).
     pinned = 실행 시작 때 고정한 지침(heading_guides.snapshot() 꼴 {이름: {text, sha1, …}}) — 주면 A·B·C·D 프롬프트가 그 글을 쓴다(§7).
     hints = 사용자 라벨 지정 {"bases": [더한 구분 기준], "labels": {괄호 글 꼴: {role: label|subtitle, basis}}}(§13) — LLM 답과 달라도 지정이 이긴다.
+      + "division" = 실행 시작 때 고정한 **구분 기준 판독**(division_scan.pin 꼴 — 연구개발과제 문서만, §13 「구분 기준 판독」): 유형의 줄 모두가 같은 구분 기준으로 확인되면 그 유형은 구분 라벨(글 꼴 다음 차례).
     replay = replay_of(같은 1단계에서 만든 앞 결과) — LLM 을 다시 부르지 않고 앞 실행의 A 답·B 변경·C/D 판정을 되풀이해 **새 추출과 같은 길**로 다시 셈한다
     (라벨 지정을 곧바로 반영 — 부모 초안부터 다시이므로 새로 추출한 것과 같은 트리가 된다, astra 2026-11-10)."""
     t0 = time.monotonic()
@@ -1154,6 +1147,10 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
     nodes = candidates(stage1, frozenset((temp or {}).get("paras") or ()))
     types = type_table(nodes)
     labels = stage1.get("labels") or {}
+    pin = (hints or {}).get("division")
+    if pin:   # 구분 기준 판독(2026-11-18) — 유형마다 확인한 줄 수(유형 전체로는 줄 모두가 같은 구분일 때만 — astra · Fable 협의)
+        from app import division_scan as DS
+        hints = {**hints, "_divTypes": DS.type_bases(nodes, pin)}
     bases = bases_of(hints)
     calls, guides, info = [], {}, {"requested": bool(use_llm), "fallback": False, "error": None, "summary": "", "sections": 0, "applied": 0, "rejected": 0,
                                     "failedSections": 0}
@@ -1166,7 +1163,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
         a_data = {**replay["a"], "types": _remap_types(replay["a"]["types"], types)}
         info["replay"] = {k: replay.get(k) for k in ("from", "calls", "costUsd")}
     elif use_llm and nodes:
-        job, used, _ = a_job(types, nodes, keys, proposal, doc_name, pinned, bases)
+        job, used, _ = a_job(types, nodes, keys, proposal, doc_name, pinned, bases, (hints or {}).get("_divTypes"))
         guides.update(used)
         res = ask([job])[0]
         calls.append(HL._call_record(job, res))
@@ -1292,11 +1289,20 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
             **fin, "changes": changes, "rejected": rejected, "bases": bases, "bracketRule": BRACKET_RULE,
             "hints": {"bases": list((hints or {}).get("bases") or []), "labels": {k: {"role": v.get("role"), "basis": v.get("basis") or ""}
                                                                                for k, v in ((hints or {}).get("labels") or {}).items()}},
+            "division": _division_brief(pin, (hints or {}).get("_divTypes"), types, roles),   # 이 결과가 쓴 구분 기준 판독(고정본 — 라벨 지정 반영이 그대로 되풀이) | None(판독 없음)
             "counts": _counts(out_nodes, len(types), fin, len(changes)),
             "llm": {**info, "calls": len(calls), "failed": sum(1 for c in calls if c["response"] is None), "costUsd": round(cost, 4),
                     "seconds": round(time.monotonic() - t0, 2)},
             "temp": _temp_brief(temp),  # 이 결과가 뺀 TEMP(§15) — None = TEMP 없이 만든 결과
             "guides": guides, "_calls": calls}
+
+
+def _division_brief(pin, divt, types, roles):
+    """결과에 남기는 구분 기준 판독 — {pin(고정본 그대로 — relabel 이 되풀이), types{유형 id: {basis, confirmed, total, conflict}}(근거가 있는 유형만), decided[판독이 구분 라벨로 정한 유형 id]} | None."""
+    if not pin:
+        return None
+    tb = {tid: d for tid, d in (divt or {}).items() if d.get("confirmed") or d.get("conflict") or d.get("names")}
+    return {"pin": pin, "types": tb, "decided": [tid for tid in types if (roles.get(tid) or {}).get("reason") == BY_SCAN]}
 
 
 def _temp_brief(temp):

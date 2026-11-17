@@ -123,7 +123,9 @@ def members(blocks, levels, values, hints=None, prior=None):
         items = []
         for it in g["items"]:
             paras = sorted((x for x in it.get("scope") or () if (idx.get(x) or {}).get("type") == "paragraph"), key=order.get)
-            items.append({"label": it.get("label"), "text": _short(it.get("labelText"), 40), "value": value_text(g["dim"], it.get("value")), "paras": paras})
+            lab = idx.get(it.get("label")) if it.get("label") else None
+            lab_paras = [it["label"]] if lab is not None and lab.get("type") == "paragraph" else [x["id"] for x in core._paras(lab)] if lab is not None else []   # 라벨이 칸이면 그 칸의 문단(화면의 라벨 띠 — 2026-11-18 astra P2)
+            items.append({"label": it.get("label"), "labelParas": lab_paras, "text": _short(it.get("labelText"), 40), "value": value_text(g["dim"], it.get("value")), "paras": paras})
             if it.get("label"):
                 label_ids.add(it["label"])
         kind = "list" if g.get("list") else g["kind"]

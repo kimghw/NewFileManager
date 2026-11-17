@@ -846,3 +846,49 @@ def test_build_is_cheap_on_a_large_document():
     took = time.perf_counter() - t
     assert took < 0.5 and view["counts"]["marks"] == 20 and view["counts"]["zones"] > 20   # 옵션·지정이 바뀔 때마다 불린다 — 수 ms(여유를 크게 둔 상한)
     assert info["auto"] == b["info"]["auto"] and len(marks[0]["ids"]) == 5                  # 받은 것은 안 고친다
+
+
+# ---- 2026-11-18 astra 반례(구분 기준 판독을 헤딩 앞에 — spec_구분_기준 ① 같은 날): 틀린 자리에 기관·차년도가 붙던 것 ------------------------------------
+
+def test_table_read_keeps_a_year_clash_instead_of_the_whole_table_year():
+    """한 행의 차년도 열들이 1 · 2 로 엇갈리는데 「구입연차 | 1」 이 표 전체의 차년도 1 로 서서 그 행에 물려 주던 것 — 엇갈림을 남기고 표 전체 차년도를 세우지 않는다."""
+    t = _tbl([["차년도", "차년도", "구입연차", "1"], ["1", "2", "", ""]])
+    whole, per = Z._table_read(t, KEYS, [4])
+    assert not (whole or {}).get("year")                                                    # 전에는 {'year': 1}
+    assert {c: e.get("yearClash") for c, e in per.items()} == {f"t1_{k}": [1, 2] for k in range(4)}
+    blocks = _doc("머리 글", [["차년도", "차년도", "구입연차", "1"], ["1", "2", "", ""]])
+    info = Z.read(_snap(blocks, core.norm_values({"stages": [4], "orgs": {"lead": "인텍", "joint": ["가나대"]}})))
+    view = Z.build(info, [], [], ["org", "stage", "year"])
+    for c in ("c2_1_0", "c2_1_1", "c2_1_2", "c2_1_3"):
+        lab = Z.label_of(view, c) or {}
+        assert lab.get("year") is None and (lab.get("why") or {}).get("year", {}).get("byCell") == [1, 2], (c, lab)   # 표의 값을 물려받지 않고 엇갈림이 보인다
+    no_clash = _tbl([["차년도", "구입연차", "1"], ["1", "", ""]])
+    assert Z._table_read(no_clash, KEYS, [4])[0] == {"year": 1}                              # 엇갈림이 없으면 그대로
+
+
+def test_org_column_under_a_head_naming_another_party_is_not_the_rows_org():
+    """첫 열 머리가 「발행기관」(인증서를 발행한 곳) · 「거래처」 열의 「자문(가나대)」 — 행을 쓴 기관이 아니다."""
+    issued = _tbl([["발행기관", "인증명"], ["가나대", "ISO 9001"], ["다라연", "KS"]])
+    assert Z._table_read(issued, KEYS, [2]) == (None, {})
+    trade = _tbl([["활동", "거래처"], ["구매", "자문(가나대)"], ["구매", "서비스(다라연)"]])
+    assert Z._table_read(trade, KEYS, [2]) == (None, {})
+    own = _tbl([["기관", "인증명"], ["가나대", "ISO 9001"], ["다라연", "KS"]])                 # 머리가 상대 낱말이 아니면 전처럼 기관 열
+    assert {e["org"][1] for e in Z._table_read(own, KEYS, [2])[1].values() if "org" in e} == {"가나대", "다라연"}
+
+
+def test_old_org_names_from_prior_values_are_not_mapped_to_the_current_org_by_number():
+    """옛 구성(주관 가나 · 공동 다라)으로 반영한 문서를 새 구성(주관 마바 · 공동 사아)으로 읽을 때 — 옛 이름이 적힌 자리를 번호로 새 기관에 붙이지 않는다(「기관 모름」)."""
+    values = core.norm_values({"stages": [2], "orgs": {"lead": "마바", "joint": ["사아"]}})
+    keys = ["마바", "사아"]
+    old = Z.old_keys([core.norm_values({"stages": [2], "orgs": {"lead": "가나", "joint": ["다라"]}})], keys)
+    assert old == ["가나", "다라"] or sorted(old) == ["가나", "다라"]
+    lead = {"value": ("lead", 0), "labelText": "[주관연구개발기관(가나)]"}
+    joint = {"value": ("joint", 1), "labelText": "[공동연구개발기관1(다라)]"}
+    assert Z._org_item({}, lead, values, keys)[:2] == ("org", "마바")                       # prior 를 안 주면 전처럼 번호(옛 길)
+    assert Z._org_item({}, lead, values, keys, old)[:2] == ("unknown", None)
+    assert Z._org_item({}, joint, values, keys, old)[:2] == ("unknown", None)
+    now = {"value": ("lead", 0), "labelText": "[주관연구개발기관(마바)]"}                     # 다시 반영해 새 이름이 적힌 자리는 그 기관
+    assert Z._org_item({}, now, values, keys, old)[:2] == ("org", "마바")
+    plain = {"value": ("lead", 0), "labelText": "[주관연구개발기관]"}                          # 이름이 없는 자리는 번호대로
+    assert Z._org_item({}, plain, values, keys, old)[:2] == ("org", "마바")
+    assert Z.old_keys(None, keys) == [] and Z.old_keys([values], keys) == []

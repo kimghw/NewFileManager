@@ -9523,7 +9523,8 @@ const DV_DIM_NAME = { stage: "단계", year: "차년도", stageYear: "단계-차
 const DV_KEY_ORDER = ["stage", "stageYear", "year", "sub", "org", "other"]; // 색 설명의 칩 차례(겉 → 안)
 const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 문서 이름 줄의 노트가 같은 글
   "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」), 옅은 색 = 그 자리 안의 글·표 칸.\n" +
-  "여러 자리에 겹치면 가장 안쪽 것의 색입니다(단계 › 차년도 › 기관). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
+  "여러 자리에 겹치면 바탕은 가장 안쪽 것의 색이고, 왼쪽 띠가 든 자리마다 하나씩 겉에서 안 차례로 붙습니다(단계 › 차년도 › 기관 — 2줄·3줄). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
+  "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
   "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
 function divMarksOn() { try { return taskRnd() && localStorage.getItem(DV_MARKS_KEY) === "on"; } catch { return false; } } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10)
 function divMarksSet(on) { try { localStorage.setItem(DV_MARKS_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
@@ -9593,31 +9594,60 @@ async function divMembersLoad(force = false) { // 표시 자료 읽기 — 같�
   finally { if (epoch === state.epoch && seq === m.seq) { m.loading = false; divMarksBarRefresh(); if (heads.dlg === "divisions-hints") divHintsList(); else if (heads.dlg === "divisions-missing") divMissingList(); if (m.again) { m.again = false; divMembersLoad(true); } } }
 }
 
-function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽), lab, hint, lines[겉→안 소속 글]}
+function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽 — 바탕), dims[든 구분 — 겉→안 · 띠 차례], thin(판독만인 구분), readOnly(판독만인 문단), lab, hint, lines[겉→안 소속 글]}
   const idx = new Map();
   const rank = (dim) => (dim in DV_DIM_RANK ? DV_DIM_RANK[dim] : 4);
+  const key = (dim) => (dim in DV_DIM_NAME ? dim : "other");
+  const entry = (pid, dim, rk, lab) => { let e = idx.get(pid); if (!e) { e = { dim, rank: rk, size: Infinity, lab: !!lab, hint: null, dims: [], outer: {}, solid: new Set(), lines: [] }; idx.set(pid, e); } return e; };
+  const add = (e, dim, sz, solid) => { const k = key(dim); if (!e.dims.includes(k)) e.dims.push(k); e.outer[k] = Math.max(e.outer[k] || 0, sz); if (solid) e.solid.add(k); };
   for (const g of r.groups || []) {
     for (const it of g.items || []) {
       const line = `${g.dimName} 「${it.value || "?"}」 — ${g.kindName}${g.where && g.where.table ? ` · 표 ${g.where.table}` : ""} · 항목 ${g.count}개${g.hinted ? " · 추가한 자리 꼴" : ""}${it.text ? ` · 라벨 「${it.text}」` : ""}`;
-      const rk = rank(g.dim), sz = (it.paras || []).length;
+      const rk = rank(g.dim), sz = (it.paras || []).length, labs = it.labelParas || [it.label]; // 라벨이 칸이면 그 칸의 문단(2026-11-18 astra P2)
       for (const pid of it.paras || []) {
-        let e = idx.get(pid);
-        if (!e) { e = { dim: g.dim, rank: -1, size: Infinity, lab: false, hint: null, lines: [] }; idx.set(pid, e); }
+        const e = entry(pid, g.dim, -1);
         e.lines.push({ rank: rk, line });
+        add(e, g.dim, sz, true);
         if (rk > e.rank || (rk === e.rank && sz < e.size)) { e.rank = rk; e.size = sz; e.dim = g.dim; }
-        if (pid === it.label) e.lab = true;
+        if (labs.includes(pid)) e.lab = true;
       }
     }
   }
   for (const h of r.hints || []) {
     if (!h.exists) continue;
-    let e = idx.get(h.para);
-    if (!e) { e = { dim: h.dim, rank: 4, size: 1, lab: true, hint: null, lines: [] }; idx.set(h.para, e); }
+    const e = entry(h.para, h.dim, 4, true);
     e.lab = true; e.hint = h.by === "llm" ? "llm" : "user";
+    add(e, h.dim, 1, true);
     e.lines.push({ rank: 9, line: `추가한 자리(${h.by === "llm" ? "LLM" : "사용자"}) — ${h.dimName || h.dim} 「${h.value || "?"}」${h.engine ? " · 묶음의 라벨" : " · 표시만(아직 묶음 아님)"}${h.reason ? ` · ${h.reason}` : ""}${h.note ? ` · 메모 ${h.note}` : ""}` });
   }
-  for (const e of idx.values()) e.lines.sort((a, b) => a.rank - b.rank);
+  // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕 없음(같은 구분의 엔진 자리 안이면 엔진 자리대로)
+  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", table: "표 안 판독" };
+  for (const x of r.reads || []) {
+    for (const pid of x.paras || []) {
+      const e = entry(pid, x.dim, 5);
+      add(e, x.dim, (x.paras || []).length, x.inGroup);
+      if (x.kind === "label") e.lab = true;
+      if (e.dim == null || !e.solid.size) e.dim = x.dim;
+      e.lines.push({ rank: 8, line: `${x.inGroup ? "구분 기준 판독" : "판독만(반영 대상 아님)"} — ${x.dimName} 「${x.value || "?"}」 · ${SRC[x.src] || x.src}${x.table ? ` · 표 ${x.table}` : ""}${x.text ? ` · 「${x.text}」` : ""}` });
+    }
+  }
+  for (const e of idx.values()) {
+    e.lines.sort((a, b) => a.rank - b.rank);
+    // 겉 → 안 — 실제로 품은 차례(그 구분의 항목이 클수록 바깥 · 2026-11-18 astra P2: 기관 절 안에 차년도 절이 있는 문서), 같으면 기준 순서(단계 › 차년도 › 세부과제 › 기관 › 기타)
+    e.dims.sort((a, b) => (e.outer[b] || 0) - (e.outer[a] || 0) || DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
+    e.thin = new Set(e.dims.filter((k) => !e.solid.has(k)));
+    e.readOnly = !e.solid.size;
+  }
   return idx;
+}
+
+// 왼쪽 띠(사용자 2026-11-18 "구분기준이 2개 이상이면 줄을 하나만 표시하지말고 모든 색을 반영해서 넣어줘, 2줄이건 3줄이건 상관없잖아"): 문단이 든 구분마다 띠 하나(겉 → 안, 3px씩) —
+// 라벨 줄은 늘(구분이 하나여도), 내용 줄은 든 구분이 둘 이상일 때 · 판독만인 문단은 늘(바탕이 없으니). 판독만인 구분(thin)은 가는 띠(1px — Fable 협의: 점선은 이미 「추가한 자리」).
+// 색은 divisions.css 의 --dvc-<구분>(구분별 색과 같은 값).
+const DV_STRIPE = 3;
+function divStripes(dims, thin) {
+  const stops = dims.map((k, i) => { const a = i * DV_STRIPE, b = (i + 1) * DV_STRIPE; return thin && thin.has(k) ? `var(--dvc-${k}) ${a}px ${a + 1}px, transparent ${a + 1}px ${b}px` : `var(--dvc-${k}) ${a}px ${b}px`; });
+  return `linear-gradient(to right, ${stops.join(", ")}, transparent ${dims.length * DV_STRIPE}px)`;
 }
 
 function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — paginate 끝·자료 바뀜·토글 때
@@ -9625,7 +9655,8 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
   if (!doc) return;
   if (typeof zonesDraw === "function") zonesDraw(); // 편집 구역 표시(zones.js — spec_구역 ② §6 「화면」: 취합본의 기관 구역도 이것)도 같은 때 다시 단다(쪽을 다시 나누면 요소가 새것)
   for (const p of doc.querySelectorAll(".para.dv-in")) {
-    p.classList.remove("dv-in", "dv-lab", "dv-hint", "dv-hint-llm"); delete p.dataset.dv;
+    p.classList.remove("dv-in", "dv-lab", "dv-multi", "dv-read", "dv-hint", "dv-hint-llm"); delete p.dataset.dv; delete p.dataset.dvs;
+    p.style.removeProperty("--dv-stripes");
     if (p.dataset.dvTitle) { p.removeAttribute("title"); delete p.dataset.dvTitle; }
   }
   const on = typeof dv !== "undefined" && divMarksOn() && dv.marks.data && dv.marks.index;
@@ -9637,6 +9668,9 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
     if (!e) continue;
     p.classList.add("dv-in"); p.dataset.dv = e.dim in DV_DIM_NAME ? e.dim : "other";
     if (e.lab) p.classList.add("dv-lab");
+    if (e.dims.length > 1) p.classList.add("dv-multi");
+    if (e.readOnly) p.classList.add("dv-read"); // 판독만 — 바탕 없음(바탕 = 엔진 자리)
+    if (e.lab || e.dims.length > 1 || e.readOnly) { p.dataset.dvs = e.dims.join(" "); p.style.setProperty("--dv-stripes", divStripes(e.dims, e.thin)); } // 띠 — 든 구분마다(겉 → 안)
     if (e.hint) p.classList.add(e.hint === "llm" ? "dv-hint-llm" : "dv-hint");
     if (!p.title) { p.title = "구분 기준 자리(겉 → 안)\n" + e.lines.map((x) => x.line).join("\n"); p.dataset.dvTitle = "1"; }
   }
@@ -9652,6 +9686,7 @@ function divKeyDraw(on) {
     const d = dv.marks.data, put = (dim, name) => { const k = dim in DV_DIM_NAME ? dim : "other"; if (!dims.has(k)) dims.set(k, DV_DIM_NAME[k] || name || "기타"); };
     for (const g of d.groups || []) put(g.dim, g.dimName);
     for (const h of d.hints || []) if (h.exists) put(h.dim, h.dimName);
+    for (const x of d.reads || []) put(x.dim, x.dimName);
   }
   const keys = [...dims.keys()].sort((a, b) => DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
   const sig = keys.map((k) => k + "=" + dims.get(k)).join("|");
@@ -9661,7 +9696,7 @@ function divKeyDraw(on) {
   if (!sig) return;
   box.append(el("span", "dv-key-name", "구분 기준 자리"));
   for (const k of keys) { const chip = el("span", "dv-chip", dims.get(k)); chip.dataset.dv = k; box.append(chip); }
-  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨"));
+  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(이름 줄을 더 쓰지 않는다 — design.md §1)
   const again = "다시 보려면 「작업 내용」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
   box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n" + again + ".", { note: true }));
   box.append(hBtn("감추기", () => { divMarksSet(false); divMarksDraw(); divMarksBarRefresh(); }, { cls: "btn sm dv-key-off", title: "구분 기준 자리 색 감추기 — " + again }));

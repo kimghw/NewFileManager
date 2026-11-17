@@ -161,15 +161,20 @@
 .dv-chip::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
 .dv-chip.hint { --dv-line: #b45309; --dv-bg: #fff7ed; border-style: dashed; }
 .dv-chip.hint-llm { --dv-line: #6d28d9; --dv-bg: #f5f3ff; border-style: dotted; }
-/* 구분별 색(바깥 → 안): 단계 파랑 · 단계-차년도 청록 · 차년도 초록 · 세부과제 보라 · 기관 주황 · 기타 자주 */
-[data-dv="stage"] { --dv-line: #315fd3; --dv-bg: rgba(49, 95, 211, .11); }
-[data-dv="stageYear"] { --dv-line: #0e7490; --dv-bg: rgba(14, 116, 144, .12); }
-[data-dv="year"] { --dv-line: #0f8a5f; --dv-bg: rgba(15, 138, 95, .12); }
-[data-dv="sub"] { --dv-line: #7c3aed; --dv-bg: rgba(124, 58, 237, .11); }
-[data-dv="org"] { --dv-line: #c2410c; --dv-bg: rgba(194, 65, 12, .11); }
-[data-dv="other"] { --dv-line: #9d174d; --dv-bg: rgba(157, 23, 77, .11); }
+/* 구분별 색(바깥 → 안): 단계 파랑 · 단계-차년도 청록 · 차년도 초록 · 세부과제 보라 · 기관 주황 · 기타 자주. --dvc-<구분> = 여러 띠(app.js divStripes)가 쓰는 같은 색 */
+:root { --dvc-stage: #315fd3; --dvc-stageYear: #0e7490; --dvc-year: #0f8a5f; --dvc-sub: #7c3aed; --dvc-org: #c2410c; --dvc-other: #9d174d; }
+[data-dv="stage"] { --dv-line: var(--dvc-stage); --dv-bg: rgba(49, 95, 211, .11); }
+[data-dv="stageYear"] { --dv-line: var(--dvc-stageYear); --dv-bg: rgba(14, 116, 144, .12); }
+[data-dv="year"] { --dv-line: var(--dvc-year); --dv-bg: rgba(15, 138, 95, .12); }
+[data-dv="sub"] { --dv-line: var(--dvc-sub); --dv-bg: rgba(124, 58, 237, .11); }
+[data-dv="org"] { --dv-line: var(--dvc-org); --dv-bg: rgba(194, 65, 12, .11); }
+[data-dv="other"] { --dv-line: var(--dvc-other); --dv-bg: rgba(157, 23, 77, .11); }
 :where(#doc.dv-marks .para.dv-in) { background-color: var(--dv-bg); }
-:where(#doc.dv-marks .para.dv-in.dv-lab) { background-image: linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px); background-color: color-mix(in srgb, var(--dv-bg) 100%, var(--dv-line) 10%); }
+/* 왼쪽 띠 — 든 구분마다 하나(겉 → 안, 3px씩 · 2026-11-18 사용자 "2줄이건 3줄이건"): 라벨 줄은 늘, 내용 줄은 구분이 둘 이상일 때(.dv-multi). 띠 그림은 app.js 가 문단의 --dv-stripes 에 넣는다 */
+:where(#doc.dv-marks .para.dv-in.dv-lab, #doc.dv-marks .para.dv-in.dv-multi, #doc.dv-marks .para.dv-in.dv-read) { background-image: var(--dv-stripes, linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px)); }
+:where(#doc.dv-marks .para.dv-in.dv-lab) { background-color: color-mix(in srgb, var(--dv-bg) 100%, var(--dv-line) 10%); }
+/* 판독만(구분 기준 판독이 보탠 자리 — 엔진 묶음 밖: 표 안의 기관·차년도 · 괄호 줄 글 꼴 · spec_구분_기준 ② §23): 바탕 없이 가는 띠만(바탕 = 반영 대상인 엔진 자리) */
+:where(#doc.dv-marks .para.dv-in.dv-read) { background-color: transparent; }
 #doc.dv-marks .para.dv-hint { outline: 1.5px dashed #b45309; outline-offset: -1px; }        /* 사용자가 표시한 자리 */
 #doc.dv-marks .para.dv-hint-llm { outline: 1.5px dotted #6d28d9; outline-offset: -1px; }    /* LLM 재검토가 넣은 자리 */
 /* 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여") — 문서 이름 줄(#fileInfo.document-name-row — document_header.css)의 「편집 중」 앞 #divKey: 색이 문서에 입혀져 있는 동안만

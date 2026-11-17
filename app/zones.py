@@ -12,7 +12,7 @@
 
 라벨 = `{org, orgKind: org|unknown|conflict|None, stage, year(전체 차례), src{기준: auto|mark|origin}, ev{기준: group|cell|path}}` — `ev` 는 스크립트가 읽은 값(src auto)의 근거다.
 `why`(근거가 서로 다를 때만 붙는다 — 값이 다 비어도 라벨은 남는다: 「값 없음」 과 「엇갈려서 비움」 을 가른다) = `{byNo?: 번호(주관·공동 k)로 읽은 열쇠, byName?: [라벨 글에서 찾은 열쇠 …], byGroup?: 묶음이 말한 열쇠, byPath?: 윗 제목이 말한 열쇠, byCell?: [표의 칸이 말한 열쇠 …],
-year?: {byGroup: 차년도 | None, byCell: 차년도}, stage?: {byGroup: 단계, byCell: 단계}}` — 기관이 다르면 `orgKind: conflict`(org None), 차년도·단계가 다르면 그 기준을 비운다."""
+year?: {byGroup: 차년도 | None, byCell: 차년도 | [차년도 …](칸이 걸친 행의 차년도 열들이 서로 엇갈림)}, stage?: {byGroup: 단계, byCell: 단계}}` — 기관이 다르면 `orgKind: conflict`(org None), 차년도·단계가 다르면 그 기준을 비운다."""
 import re
 import uuid
 from datetime import datetime
@@ -35,6 +35,8 @@ YEAR_CELL = re.compile(r"(?:구입|사용|해당|수행|집행|개발)?(?:연차
 ROLE_CELL = re.compile(r"(?:주관|공동|위탁)(?:연구개발)?기관")   # 이름표 칸의 왼쪽 칸이 역할 줄의 머리(「주관연구개발기관 | 기관명 | 이름」)면 그 이름은 표 전체의 기관이 아니다
 YEAR_VALUE = re.compile(r"^(?:\(?(\d{1,2})단계\)?[-,·]?)?(\d{1,2})(?:차년도|년차)?(?:\((?:19|20)\d\d년?\))?$")   # 값 칸(빈칸 뗀 글) 「2차년도」·「2차년도(2026년)」·「2」·「2단계 1차년도」
 COL_MIN = 2    # 값으로 알아보는 기관 열(② §2 「기관 열」 — 기관 이름 · 「개발 내용 … (기관 이름)」 이 행마다 되풀이되는 열)로 보는 칸 수의 하한
+# 기관 열로 보지 않는 열의 머리 — 그 열의 기관은 행을 쓴 기관이 아니라 상대(발행·발급·인증한 곳 · 거래·공급·구매·판매·납품·고객 · 수요처). 2026-11-18 astra 반례(「발행기관 | 인증명」 · 「활동 | 거래처」)
+OTHER_ORG_HEAD = re.compile(r"발행|발급|인증|거래|고객|상대|공급|구매|판매|납품|수요")
 _TAIL = re.compile(r"[(（]([^()（）]*)[)）]$")
 ORG_TEXT = {"unknown": "기관 모름", "conflict": "기관 확인 필요"}
 WHY_ORG = ("byNo", "byName", "byGroup", "byPath", "byCell")
@@ -147,7 +149,8 @@ def _org_cols(cells, keys, at):
         by.setdefault((c["col"], c.get("colSpan") or 1), []).append(c)
     out = []
     for cs in by.values():
-        if ROLE_CELL.search(core._bare(min(cs, key=lambda c: c["row"]).get("text"))):
+        head = core._bare(min(cs, key=lambda c: c["row"]).get("text"))
+        if ROLE_CELL.search(head) or OTHER_ORG_HEAD.search(head):   # 맨 위 칸이 역할 낱말 · 상대 기관 낱말(「발행기관」 · 「거래처」 — 2026-11-18 astra 반례)인 열
             continue
         got = [(c, k) for c in cs if (k := says(c))]
         if len(got) >= COL_MIN and len({k for _, k in got}) >= 2 and 2 * len(got) >= sum(1 for c in cs if _WS.sub("", c.get("text") or "")):
@@ -166,15 +169,32 @@ def _org_pick(by_no, hit):
     return "unknown", None, None
 
 
-def _org_item(g, it, values, keys):
+def _org_item(g, it, values, keys, old=()):
     """기관 묶음의 항목 하나 → (orgKind, 열쇠 | None, why | None). 번호 = 주관(0)·공동 k — 값에 없는 번호, 차례 없는 「공동」, 열·외 기관·국외·위탁 항목에는 번호가 없다.
-    라벨에 과제에 없는 이름이 적힌 묶음(엔진이 「작성한 문서」 로 본 것 — named)은 번호(자리 차례)를 믿지 않는다."""
+    라벨에 과제에 없는 이름이 적힌 묶음(엔진이 「작성한 문서」 로 본 것 — named)은 번호(자리 차례)를 믿지 않는다.
+    old = 앞서 반영한 값(prior)에만 있는 기관 열쇠 — 라벨에 옛 이름만 적혀 있으면 번호를 믿지 않고 「기관 모름」(2026-11-18 astra P1: 엔진은 옛 이름을 「다시 반영할 수 있는 자리」 로 보아
+    named 보호를 풀지만, 그것이 그 내용이 지금 같은 번호의 기관 것이라는 근거는 아니다 — 옛 「가나」 내용이 새 구성의 주관 「마바」 로 붙던 것)."""
     v = it.get("value")
     k = v[1] if isinstance(v, tuple) and len(v) == 2 and v[0] in ("lead", "joint") else None
+    hit = _names(it.get("labelText"), keys)
+    if old and not hit and _names(it.get("labelText"), old):
+        return "unknown", None, None
     by_no = None
     if _int(k) and 0 <= k <= len(values["orgs"]["joint"]) and (k == 0) == (v[0] == "lead") and not g.get("named"):
         by_no = P.org_key(core.org_name(values, k)) or None
-    return _org_pick(by_no, _names(it.get("labelText"), keys))
+    return _org_pick(by_no, hit)
+
+
+def old_keys(prior, keys):
+    """앞서 반영한 값들(prior — norm_values 꼴 목록)에만 있는 기관 열쇠(지금 열쇠에 없는 것 · 긴 것 먼저) — `_org_item` 의 old."""
+    now, out = set(keys), set()
+    for v in prior or ():
+        orgs = (v or {}).get("orgs") or {} if isinstance(v, dict) else {}
+        for n in [orgs.get("lead") or "", *(orgs.get("joint") or ())]:
+            k = P.org_key(n) if isinstance(n, str) else None
+            if k and k not in now:
+                out.add(k)
+    return sorted(out, key=len, reverse=True)
 
 
 def _year_value(text, stages):
@@ -188,7 +208,7 @@ def _year_value(text, stages):
     return sum(stages[:s - 1]) + y if 1 <= s <= len(stages) and 1 <= y <= stages[s - 1] else None
 
 
-def _memberships(groups, values, keys):
+def _memberships(groups, values, keys, old=()):
     """구분 기준 묶음 → ({블록·칸 id: {"org": (항목 크기, (orgKind, 열쇠, why)), "stage": (크기, 단계 | None), "year": (크기, (전체 차례 | None, abs|free))}}, {표 id: 그 표 안에 묶음이 있는 기준}).
     기준마다 가장 안쪽(작은) 항목이 이긴다(`merge_gather_frame._memberships` 와 같게). 못 읽은 값(자리표시 N · 범위 밖)도 **빈 값으로 남겨** 바깥 항목의 값이 대신 붙지 않게 한다.
     차년도: 단계-차년도 = 그 단계의 것(abs) · 단계 항목 안의 차년도 묶음(ctx) = 단계 안 차년도 → 전체 차례(abs) · 그 밖 = 전체 차례로 읽되 블록의 단계와 안 맞으면 다시 본다(free — `_auto_label`)."""
@@ -203,7 +223,7 @@ def _memberships(groups, values, keys):
         for it in g["items"]:
             v = it.get("value")
             if dim == core.ORG:
-                what, val = "org", _org_item(g, it, values, keys)
+                what, val = "org", _org_item(g, it, values, keys, old)
             elif dim == core.STAGE:
                 what, val = "stage", v if _int(v) and 1 <= v <= n_st else None
             elif dim == core.YEAR:
@@ -335,14 +355,17 @@ def _table_read(b, keys, stages, skip=()):
     for x, v in tails:
         for r in range(x["row"], x["row"] + (x.get("rowSpan") or 1)):
             claims["org"].setdefault(r, []).append(v)
-    row_org, row_year = {}, {}
+    row_org, row_year, year_clash = {}, {}, {}
     for r, vs in claims["org"].items():
         ks = list(dict.fromkeys(vs))
         row_org[r] = ("org", ks[0], None) if len(ks) == 1 else ("conflict", None, {"byCell": ks})
     for r, vs in claims["year"].items():
-        row_year[r] = vs[0] if len(set(vs)) == 1 else None
+        if len(set(vs)) == 1:
+            row_year[r] = vs[0]
+        else:
+            year_clash[r] = sorted(set(vs))   # 한 행의 차년도 열들이 서로 다른 차년도를 말한다 — 비우되 「값 없음」 이 아니라 「엇갈림」 으로 남긴다(표 전체의 값을 물려받지 않게 — 2026-11-18 astra P1)
     per = {}
-    for c in cells if row_org or row_year else ():
+    for c in cells if row_org or row_year or year_clash else ():
         rows = range(c["row"], c["row"] + (c.get("rowSpan") or 1))
         e, got = {}, [row_org.get(r) for r in rows]
         if all(got):
@@ -350,8 +373,11 @@ def _table_read(b, keys, stages, skip=()):
                 e["org"] = got[0]
             elif any(g[0] == "conflict" for g in got):
                 e["org"] = ("conflict", None, {"byCell": list(dict.fromkeys(k for g in got for k in ([g[1]] if g[0] == "org" else g[2]["byCell"])))})
+        clash = sorted({y for r in rows for y in year_clash.get(r, ())})
         ys = {row_year.get(r) for r in rows}
-        if len(ys) == 1 and None not in ys:
+        if clash:
+            e["yearClash"] = sorted(set(clash) | (ys - {None}))
+        elif len(ys) == 1 and None not in ys:
             e["year"] = ys.pop()
         if e:
             per[c["id"]] = e
@@ -359,7 +385,7 @@ def _table_read(b, keys, stages, skip=()):
     ks = list(dict.fromkeys(whole["org"]))
     if ks and len({(g[0], g[1]) for g in row_org.values()}) < 2:
         w["org"] = ("org", ks[0], None) if len(ks) == 1 else ("conflict", None, {"byCell": ks})
-    if len(set(whole["year"])) == 1 and len(set(row_year.values())) < 2:
+    if len(set(whole["year"])) == 1 and len(set(row_year.values())) < 2 and not year_clash:   # 엇갈린 행이 있으면 표 전체의 차년도를 세우지 않는다
         w["year"] = whole["year"][0]
     return (w or None), per
 
@@ -398,7 +424,11 @@ def _auto_label(m, org, org_ev, cell, stages):
         ev["org"] = e
         why.update(w or {})
     c_year = cell.get("year")
-    if c_year is not None:
+    if cell.get("yearClash"):   # 칸이 걸친 행의 차년도 열들이 엇갈린다 — 차년도를 비우고 엇갈림을 남긴다(묶음이 말한 차년도도 세우지 않는다 · 단계는 묶음의 것 그대로)
+        why["year"], year = {"byGroup": year, "byCell": list(cell["yearClash"])}, None
+        if stage is not None:
+            ev["stage"] = "group"
+    elif c_year is not None:
         c_stage = _stage_of(stages, c_year)
         if stage is not None and stage != c_stage:   # 단계가 다르다 — 차년도도 설 자리가 없다
             why["stage"], why["year"] = {"byGroup": stage, "byCell": c_stage}, {"byGroup": year, "byCell": c_year}
@@ -466,10 +496,16 @@ def _scan(snap, cells=True):
         info["orgs"], info["stages"] = F.orgs_of(values), list(values["stages"])
         stages = info["stages"]
         keys = sorted({o["key"] for o in info["orgs"] if o["key"]}, key=len, reverse=True)   # 빈 열쇠는 「든 것」 으로 치지 않는다
-        hints = [h["para"] for h in snap.get("hints") or () if isinstance(h, dict) and h.get("para")]
-        groups = core.find(blocks, rnd.levels_of(blocks), values, hints=hints or None, prior=snap.get("prior"))
-        best, inside = _memberships(groups, values, keys)
-        for b in blocks if cells else ():
+        sc = snap.get("scan")
+        if sc is not None and sc.get("_values") == values:   # 구분 기준 판독(spec_구분_기준 ② §23 — 헤딩 앞 단계)이 이미 센 묶음 · 소속 · 표 안 값 읽기를 그대로(같은 값으로 센 것만)
+            best, inside = sc["_best"], sc["_inside"]
+            if cells:
+                cell_ev = sc["_cellEv"]
+        else:
+            hints = [h["para"] for h in snap.get("hints") or () if isinstance(h, dict) and h.get("para")]
+            groups = core.find(blocks, rnd.levels_of(blocks), values, hints=hints or None, prior=snap.get("prior"))
+            best, inside = _memberships(groups, values, keys, old_keys(snap.get("prior"), keys))
+        for b in blocks if cells and not (sc is not None and sc.get("_values") == values) else ():
             if b.get("type") == "table" and not b.get("captionOf") and b.get("id") is not None:
                 whole, per = _table_read(b, keys, stages, inside.get(b["id"], ()))
                 if whole:
@@ -523,7 +559,8 @@ def _scan(snap, cells=True):
 
 
 def read(snap):
-    """자동 판독(② §2) — snap{blocks(그대로인 사본), values(norm_values 꼴) | None, graph | None, tables | None, hints[추가한 자리 dict], prior} →
+    """자동 판독(② §2) — snap{blocks(그대로인 사본), values(norm_values 꼴) | None, graph | None, tables | None, hints[추가한 자리 dict], prior, scan?(division_scan.scan 결과 — 같은 값으로 센 것이면
+    묶음 · 소속 · 표 안 값 읽기를 다시 세지 않고 쓴다: spec_구분_기준 ② §23)} →
     info{order[본문 최상위 블록 id — 캡션 블록 뺌], kinds{id: p|tbl|pic}, cellsOf{표 id: [칸 id]}, auto{블록·칸 id: 라벨 — 값이 하나라도 있거나 엇갈린 근거(why)가 남은 것}, path{블록 id: [윗 제목 사슬]},
     text{블록 id: 첫 글 TEXT_MAX 자}, orgs[{key, name, role}], stages[단계마다 차년도 수]}. values 가 없으면(못 읽는 꼴 포함) auto = {} · orgs = [] · stages = [](나머지는 그대로)."""
     return _scan(snap)

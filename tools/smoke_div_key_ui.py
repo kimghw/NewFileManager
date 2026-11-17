@@ -93,6 +93,24 @@ try:
         same = page.evaluate("""() => [...document.querySelectorAll('#divKey .dv-chip')].every((c) => { const p = document.querySelector(`#doc .para.dv-in[data-dv="${c.dataset.dv}"]`);
           return !!p && getComputedStyle(c).getPropertyValue('--dv-line').trim() === getComputedStyle(p).getPropertyValue('--dv-line').trim() && getComputedStyle(c, '::before').backgroundColor !== 'rgba(0, 0, 0, 0)'; })""")
         check("칩 색 = 문서의 그 구분 색", same)
+        # 겹친 자리의 띠(2026-11-18 사용자 "구분기준이 2개 이상이면 줄을 하나만 표시하지말고 모든 색을 반영해서 넣어줘") — 든 구분마다 띠 하나, 겉 → 안 차례 · 라벨 줄은 하나여도 띠
+        mul = page.evaluate("""() => { const order = ['stage', 'stageYear', 'year', 'sub', 'org', 'other'], ps = [...document.querySelectorAll('#doc .para.dv-in')];
+          const dimsOf = (p) => (p.dataset.dvs || '').split(' ').filter(Boolean), multi = ps.filter((p) => dimsOf(p).length > 1);
+          const rgb = (p) => (getComputedStyle(p).backgroundImage.match(/rgb\\([^)]*\\)/g) || []).filter((c, i, a) => i === 0 || c !== a[i - 1]); // 띠 하나 = 색 멈춤 둘(시작·끝) — 이어진 같은 색은 하나로
+          const want = (k) => { const s = document.createElement('i'); s.style.color = `var(--dvc-${k})`; document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; };
+          const ok = multi.every((p) => { const d = dimsOf(p), got = rgb(p); return p.classList.contains('dv-multi') && new Set(d).size === d.length && d.every((k) => order.includes(k))
+            && got.length >= d.length && d.every((k, i) => got[i] === want(k)); });   // 차례는 실제로 품은 차례(항목이 큰 것이 바깥) — 색이 그 차례대로
+          const labs = ps.filter((p) => p.classList.contains('dv-lab')), labOk = labs.every((p) => rgb(p).length >= Math.max(1, dimsOf(p).length));
+          const single = ps.filter((p) => !p.classList.contains('dv-lab') && !p.classList.contains('dv-read') && dimsOf(p).length < 2), plain = single.every((p) => !p.classList.contains('dv-multi') && rgb(p).length === 0);
+          const reads = ps.filter((p) => p.classList.contains('dv-read')), readOk = reads.every((p) => getComputedStyle(p).backgroundColor === 'rgba(0, 0, 0, 0)' && rgb(p).length >= 1
+            && /1px/.test(p.style.getPropertyValue('--dv-stripes')) && /판독만/.test(p.title));
+          return { multi: multi.length, three: multi.filter((p) => dimsOf(p).length > 2).length, ok, labs: labs.length, labOk, single: single.length, plain, reads: reads.length, readOk,
+                   sample: multi[0] ? [multi[0].dataset.dvs, rgb(multi[0])] : null }; }""")
+        check("겹친 자리 — 든 구분마다 왼쪽 띠(구분별 색) · 라벨 줄은 늘 띠 · 구분 하나인 내용 줄은 띠 없음",
+              mul["multi"] > 0 and mul["ok"] and mul["labOk"] and mul["plain"], mul)
+        # 구분 기준 판독(spec_구분_기준 ② §23)이 보탠 자리 — 엔진 묶음 밖의 괄호 줄(「[해당 기관별 작성] …」): 가는 띠 · 바탕 없음 · 도움말에 「판독만」 · 이름 줄에 「가는 띠 = 판독만」
+        check("판독만인 자리 — 가는 띠(1px) · 바탕 없음 · 문단 도움말 「판독만」 · 색 설명 노트에 「가는 띠」(이름 줄 글은 늘리지 않음)",
+              mul["reads"] > 0 and mul["readOk"] and "가는 띠" in (page.get_attribute("#divKey .panel-help", "data-help") or ""), mul)
         check("「구분 기준 자리」 · 「진한 줄 = 라벨」 · 노트(색마다 구분 · 진한/옅은 · 가장 안쪽 · 다시 켜는 곳) · 「감추기」", k["name"] and k["tone"] and k["off"] == "감추기"
               and all(s in k["help"] for s in ("파랑 단계", "주황 기관", "진한 색 + 왼쪽 띠", "옅은 색", "가장 안쪽", "다시 보려면")), k["help"][:200])
         check("줄을 더 쓰지 않음 — 이름 줄 높이 그대로 · 넘침 없음 · 칩·노트·감추기가 줄 안", k["rowH"] == k0["rowH"] and not k["over"] and k["inside"], (k0["rowH"], k["rowH"], k["rowW"]))
