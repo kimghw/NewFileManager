@@ -5,7 +5,7 @@
    · 서식이 한 가지인 레벨은 한 줄 「L1 「□」 서식 1가지 — 모두 같음 · 19줄」.
    · 대표와 다른 서식 갈래가 있는 레벨마다 「L2 「o」 · 다른 서식 2가지 · 11줄」 + 「문서에서 보기」(그 레벨의 줄만 또렷이 — fmt_focus.js tplFocusOn: 대표와 다른 줄에 「≠ …」 표) + 「이 레벨 맞추기(m줄)」,
      그 아래 대표 줄 「대표 ×8 견본 글」 과 다른 서식마다 「다름 ×3 견본 글(그 서식 그대로 — 누르면 문서의 그 줄) · 맞추기 · 이름: 지금 값 → 대표 값 · 줄 목록」.
-   · 맞추기는 레벨 줄의 「대표에 맞추기」·「이 갈래만 맞추기」 와 같은 몸(outline_match.js olmMatch — 같은 끝점 · 실행 취소 1). 템플릿의 모든 레벨을 한 번에 맞추는 것은 템플릿 줄의 「대표 맞추기(n줄)」(olmTplMatch).
+   · 맞추기는 레벨 줄의 「대표에 맞추기」·「이 줄들만 맞추기」 와 같은 몸(outline_match.js olmMatch — 같은 끝점 · 실행 취소 1). 템플릿의 모든 레벨을 한 번에 맞추는 것은 템플릿 줄의 「대표 맞추기(n줄)」(olmTplMatch).
    · 대표가 없는 레벨(대표 줄을 지움)은 갈래만 보이고 맞추기는 없다(레벨 줄에서 대표를 정한 뒤).
    새 자료·새 끝점 없음 — 서식 갈래(GET …/outline/formats — outline_match.js olmLoad 가 기억한 OLM.data)만 읽는다. 문서도 서버도 이 보기만으로는 안 바뀐다.
    훅: outline_match.js olmTplTools 가 olmOddBtn(id) 를, olmRedraw 가 olmOddRefresh() 를, app.js tplTreeDraw 의 make() 가 그림 다음에 olmOddBox(id) 를 부른다. outline_match.js 다음에 읽힌다
@@ -74,7 +74,7 @@ function olmOddFill(box) { // 펼친 묶음을 (다시) 그린다 — 접혔으�
   const lv = oloLevels(id);
   if (!lv) { // 갈래를 아직 안 읽음 — 읽은 뒤 olmRedraw → olmOddRefresh
     box.hidden = false;
-    if (!box.firstChild) box.append(el("p", "hnote", "서식 갈래 읽는 중…"));
+    if (!box.firstChild) box.append(el("p", "hnote", "서식 읽는 중…"));
     olmNeed();
     return;
   }
@@ -135,7 +135,7 @@ function oloRow(id, L, t, g, isRep, canMatch = false) { // 서식 한 줄 — [�
   head.append(el("span", `hb ${isRep ? "olm-badge" : "und"} olo-tag`, isRep ? "대표" : "다름"), el("span", "olm-n", `×${nf(g.count)}`), oloSamp(g));
   if (!isRep && canMatch) {
     head.append(hBtn("맞추기", () => olmMatch(id, L, g.count, [...g.paras]),
-      { title: `이 서식의 줄 ${nf(g.count)}개만 T${t.no} L${L} 의 대표 모양으로 — 「실행 취소」 로 되돌립니다(갈래 줄의 「이 갈래만 맞추기」 와 같은 것)`, cls: "btn sm olm-btn olo-go" }));
+      { title: `이 서식의 줄 ${nf(g.count)}개만 T${t.no} L${L} 의 대표 모양으로 — 「실행 취소」 로 되돌립니다(서식 카드의 「이 줄들만 맞추기」 와 같은 것)`, cls: "btn sm olm-btn olo-go" }));
   }
   row.append(head);
   if (!isRep && (g.diff || []).length) { // 「이름: 지금 값 → 대표 값」 — 값마다 이름표 · 화살표 = 맞추면 바뀌는 방향(outline_match.js olmDiffText)

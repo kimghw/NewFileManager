@@ -12,7 +12,7 @@
      갈래 목록은 갈래마다 30줄까지라 — 잘린 갈래가 있는 레벨은 그 슬롯만 줄 전부로 읽어(?tpl=&level= — outline_match.js olmFullLoad 가 기억한다) 줄마다 어느 갈래인지를 정한다(어느 갈래에도 없는 값 칸은 견주지 않는다).
        못 읽었을 때만(옛 서버 · 일시 오류) 전처럼 「잘린 갈래가 하나면 목록에 없는 줄은 그 갈래」 로 어림하고 못 가른 줄은 「못 견줌」 으로 센다.
      문서가 바뀌면(편집 차례 rev) 0.4초 뒤 갈래를 다시 읽어 표시를 고친다 — 같은 차례에는 한 번만.
-   · **고른 갈래만 또렷이**(2026-11-16 — 아래 그 절): 「템플릿 관계」 에서 ☐ 로 고른 갈래의 줄만(FMF.keys · by "chk" — 고르기의 원본은 outline_match.js OLM.chk). 줄마다 오른쪽 여백에 꼬리표 「갈래 3 · ≠ 2번째 줄」(카드의 번호와 같다),
+   · **고른 서식만 또렷이**(2026-11-16 — 아래 그 절): 「템플릿 관계」 에서 ☐ 로 고른 갈래의 줄만(FMF.keys · by "chk" — 고르기의 원본은 outline_match.js OLM.chk). 줄마다 오른쪽 여백에 꼬리표 「서식 3 · ≠ 2번째 줄」(카드의 번호와 같다),
      꼬리표를 누르면 그 갈래의 카드로(살펴보기 — 고르기는 안 바뀐다). 여백의 그 레벨 표기는 「일부」(.tm-t.part) — 누르면 레벨 전체로.
    · 표시: #doc.fmt-focus + 그 문단들에 .fmt-hit(+ .fm-d) — 쪽을 다시 나누면 문단 요소가 새것이라 app.js paginate·flowSettle 끝이 fmtFocusDraw() 를 다시 부른다(구분 기준 자리 표시 divMarksDraw 와 같은 때) ·
      여백 표를 다시 그린 뒤에는 tplMarksDraw 끝이 fmtFocusMarks() 를 부른다(템플릿을 고른 동안에는 문단·표도 같이 — 오버레이가 바뀌었을 수 있다).
@@ -26,7 +26,7 @@
 const FMF = { kind: null, label: null, ids: null, total: 0, seq: 0, // kind = "fmt"|"tpl" · label = 고른 것의 글(「S41」·「T1 L2」) · ids = 그 문단 id(서식: 읽기 전에는 null — 눌림만 먼저)
   tpl: null, level: 0, no: "", para: null, focus: null, // 템플릿: 오버레이 템플릿 id · 레벨 · 표기 번호 · 누른 줄 · 「템플릿 관계」 에서 펼 템플릿
   diff: null, sum: null, rev: null, tried: null, timer: 0, at: { margin: -1, other: -1 }, // diff = Map(줄 → 대표와 다른 것) · sum = 줄 수 요약 · rev = 그 갈래의 문서 차례 · tried = 다시 읽기를 건 차례 · at = 「다름」 칩으로 가 본 줄
-  // 고른 갈래만 또렷이(아래 「고른 갈래만 또렷이」 절): by = 표시를 켠 것("chk" = 「템플릿 관계」 의 고르기 · null = 여백의 표기 — 레벨 전체) · keys = 고른 갈래 key 집합(null = 레벨 전체) ·
+  // 고른 서식만 또렷이(아래 「고른 서식만 또렷이」 절): by = 표시를 켠 것("chk" = 「템플릿 관계」 의 고르기 · null = 여백의 표기 — 레벨 전체) · keys = 고른 갈래 key 집합(null = 레벨 전체) ·
   // mem = 줄 → 갈래 대응의 상태("pending" 읽는 중 · "ready" · "error" 못 읽음 · null 아직 안 봄) · of = 그 대응 Map(줄 → 갈래 key) · nos = 갈래 번호 Map(갈래 key → 번호 — 0 = 대표) ·
   // gen = 갈래·대응 읽기의 세대(읽기마다 +1 — 응답은 쓰기 직전에 제 세대인지 본다) · pg = 고른 것이 바뀐 횟수 · rel = 꼬리표를 그릴 때의 「템플릿 관계」 쪽 상태(살펴보는 갈래 · 대표 미리보기)
   by: null, keys: null, mem: null, of: null, nos: null, gen: 0, pg: 0, rel: "" };
@@ -122,9 +122,9 @@ function tplFocusIds() { // 또렷이 보일 줄 — 레벨 전체, 고른 갈�
   return ids;
 }
 
-// ---- 고른 갈래만 또렷이 — 「템플릿 관계」 의 ☐ 와 본문(spec_hwpx_웹편집 ② §8-2 — 2026-11-16 사용자 "모두 고르기 를 하면 왼쪽 원문에도 관련된 것들이 모두 선택이 되어야지. 12개에서 내가 뭔지를 모르겠잖아") ----
+// ---- 고른 서식만 또렷이 — 「템플릿 관계」 의 ☐ 와 본문(spec_hwpx_웹편집 ② §8-2 — 2026-11-16 사용자 "모두 고르기 를 하면 왼쪽 원문에도 관련된 것들이 모두 선택이 되어야지. 12개에서 내가 뭔지를 모르겠잖아") ----
 // 새 표시를 만들지 않고 「템플릿만 또렷이」 에 거르개를 얹는다: 고르기의 원본은 outline_match.js 의 OLM.chk 이고, 그쪽(olmPickShow)이 고른 갈래 key 들을 넘긴다(FMF.keys · by "chk").
-// 흐림 · 옅은 바탕 · 여백 칠 · 알약 · 다시 그리기는 그대로 따라온다. 줄마다 쪽 오른쪽 여백에 꼬리표 「갈래 3 · ≠ 2번째 줄」(번호 = 카드의 번호 — 같은 자료).
+// 흐림 · 옅은 바탕 · 여백 칠 · 알약 · 다시 그리기는 그대로 따라온다. 줄마다 쪽 오른쪽 여백에 꼬리표 「서식 3 · ≠ 2번째 줄」(번호 = 카드의 번호 — 같은 자료).
 // 끄는 길: 이름 줄 「끄기」(표시만 — 고르기는 남는다) · 마지막 ☐ 를 풀 때(그 레벨의 고르기가 켠 표시일 때만: tplPickOwns) · 다른 문서. 여백의 표기를 누르면 레벨 전체로 바뀐다.
 function tplPickOwns(tpl, L) { return tplFocusIs(tpl, L) && FMF.by === "chk"; } // 지금 표시가 그 레벨의 고르기가 켠 것인가
 function tplPickShow(m, keys) { // m = {tpl, level, no, focus} · keys = 고른 갈래 key 들(하나 이상). 같은 레벨의 고르기 표시가 켜져 있으면 고른 것만 바꾸고, 아니면 켜져 있던 표시를 갈아 끼운다
@@ -152,7 +152,7 @@ function fmDiffInfo(diff) { // 갈래의 「대표와 다른 값」 [[키, 이�
   // 표 글 「≠ 2번째 줄」 — 「다름」 을 앞의 「≠」 로: 오른쪽 여백(20mm 면 75~95px)이 좁아 줄임표로 잘려도 다르다는 표시는 남는다(풀어 쓴 글은 도움말에)
   return { sides: [...sides], margin: mn.length > 0, other: on.length > 0, tag: `≠ ${what}`,
     title: (typeof olmDiffTitle === "function" ? olmDiffTitle(diff) : diff.map((d) => `${d[1]}: 지금 ${d[3]} → 대표 ${d[2]}`).join("\n"))
-      + (mn.length ? "\n여백이 다른 쪽은 문서에서 그 여백 자리만 주황으로 칠했습니다" : "") + "\n누르면 템플릿 관계 — 이 줄의 서식 갈래(맞추기 · 대표 정하기 · 다른 템플릿으로)" };
+      + (mn.length ? "\n여백이 다른 쪽은 문서에서 그 여백 자리만 주황으로 칠했습니다" : "") + "\n누르면 템플릿 관계 — 이 줄의 서식(맞추기 · 대표 정하기 · 다른 템플릿으로)" };
 }
 
 function tplFocusMap(v, m, ids) { // 그 슬롯의 서식 갈래 v + 줄 전부의 갈래 대응 m(outline_match.js olmFull 의 "ready" 항목 — 못 읽었으면 null) + 그 레벨 줄들 → [Map(줄 → fmDiffInfo), 요약 {lines, same, margin, other, unknown, norep, out}]
@@ -303,10 +303,10 @@ function fmTagGo(pid) { // 꼬리표를 눌렀다 — 그 줄의 갈래를 「�
 
 // 쪽 오른쪽 여백의 꼬리표 — 문단 요소 밖(.sheet 에 절대 위치 · 화면 크기 고정: 여백 표 .tpl-mark 와 같은 방식) · 누르는 단추(키보드 초점 · Enter/Space).
 // · 레벨 전체를 볼 때: 대표와 다른 줄마다 「≠ 앞 여백」.
-// · 고른 갈래를 볼 때(FMF.keys): **보이는 줄마다** 「갈래 3 · ≠ 2번째 줄」 — 번호는 「템플릿 관계」 카드의 번호(같은 자료: FMF.nos), 대표와 다른 값이 없거나 대표가 없는 레벨이면 번호만.
+// · 고른 갈래를 볼 때(FMF.keys): **보이는 줄마다** 「서식 3 · ≠ 2번째 줄」 — 번호는 「템플릿 관계」 카드의 번호(같은 자료: FMF.nos), 대표와 다른 값이 없거나 대표가 없는 레벨이면 번호만.
 //   그 레벨이 대표 미리보기 중이면 번호만 적는다 — 카드의 「다른 값」 은 미리보기 갈래 기준이라 여기(지금 대표 기준) 값과 다르다(도움말에 그렇게 적는다).
 // · 살펴보는 갈래(OLM.look)의 줄: 어느 때든 꼬리표가 붙고(번호와 함께) 강조(.look).
-// 같은 높이(표 한 행의 칸들 — 14px 안)의 줄은 **같은 갈래끼리만** 한 꼬리표로(「갈래 3 ×2」) — 다른 갈래를 한 꼬리표로 묶으면 그것이 첫 줄의 갈래만 가리킨다. 같은 높이의 다른 갈래는 아래로 쌓는다.
+// 같은 높이(표 한 행의 칸들 — 14px 안)의 줄은 **같은 갈래끼리만** 한 꼬리표로(「서식 3 ×2」) — 다른 갈래를 한 꼬리표로 묶으면 그것이 첫 줄의 갈래만 가리킨다. 같은 높이의 다른 갈래는 아래로 쌓는다.
 function fmtFocusTags() {
   for (const e of document.querySelectorAll(".sheet > .fm-tag")) e.remove();
   if (FMF.kind !== "tpl") { FMF.rel = ""; return; }
@@ -341,14 +341,14 @@ function fmtFocusTags() {
   }
   for (const { sheet, z, mgr, rows } of jobs) {
     for (const r of rows) {
-      const no = r.key != null && nos.has(r.key) ? nos.get(r.key) : null, name = no == null ? "" : no ? `갈래 ${no}` : "대표";
+      const no = r.key != null && nos.has(r.key) ? nos.get(r.key) : null, name = no == null ? "" : no ? `다른 서식 ${no}` : "대표", short = no ? `서식 ${no}` : name; // short = 꼬리표에 적는 짧은 꼴(여백 폭 56px 안팎 — 「다른 서식 3」 은 번호가 잘린다: outline_match.js olmTagText 와 같은 글)
       const numbered = !!name && (pick || r.lk), what = r.d && !(numbered && pre) ? r.d.tag : ""; // 번호는 고른 갈래를 볼 때 · 살펴보는 갈래에
-      const t = el("button", `fm-tag${r.d && r.d.margin ? " mg" : ""}${numbered ? " var" : ""}${r.lk ? " look" : ""}`, (numbered ? (what ? `${name} · ${what}` : name) : what || name) + (r.pids.length > 1 ? ` ×${r.pids.length}` : ""));
+      const t = el("button", `fm-tag${r.d && r.d.margin ? " mg" : ""}${numbered ? " var" : ""}${r.lk ? " look" : ""}`, (numbered ? (what ? `${short} · ${what}` : short) : what || short) + (r.pids.length > 1 ? ` ×${r.pids.length}` : ""));
       t.type = "button";
-      t.title = `${FMF.label}${name ? ` ${name}` : ""}${r.lk ? " — 「템플릿 관계」 에서 살펴보는 갈래" : ""}\n`
-        + (r.d ? `${FMF.label} 의 대표 줄과 다릅니다\n${r.d.title.split("\n누르면")[0]}` : no === 0 ? "이 레벨의 대표 갈래(대표 줄과 같은 서식)" : "대표와 다른 값 없음(이 레벨에 대표가 없거나 같은 서식)")
-        + (pre ? "\n대표 미리보기 중 — 「템플릿 관계」 카드의 「다른 값」 은 미리보기 갈래 기준입니다(여기 적은 값과 주황 여백은 지금 대표 기준)" : "")
-        + "\n누르면 템플릿 관계 — 이 갈래의 카드(맞추기 · 대표 정하기 · 다른 템플릿으로). 고르기(☐)는 안 바뀝니다";
+      t.title = `${FMF.label}${name ? ` ${name}` : ""}${r.lk ? " — 「템플릿 관계」 에서 살펴보는 서식" : ""}\n`
+        + (r.d ? `${FMF.label} 의 대표 줄과 다릅니다\n${r.d.title.split("\n누르면")[0]}` : no === 0 ? "이 레벨의 대표 서식(대표 줄과 서식이 같은 줄)" : "대표와 다른 값 없음(이 레벨에 대표가 없거나 같은 서식)")
+        + (pre ? "\n대표 미리보기 중 — 「템플릿 관계」 카드의 「다른 값」 은 미리보기 서식 기준입니다(여기 적은 값과 주황 여백은 지금 대표 기준)" : "")
+        + "\n누르면 템플릿 관계 — 이 서식의 카드(맞추기 · 대표 정하기 · 다른 템플릿으로). 고르기(☐)는 안 바뀝니다";
       t.dataset.para = r.pids[0];
       if (r.key != null) t.dataset.key = r.key;
       t.onclick = () => fmTagGo(r.pids[0]);
@@ -417,30 +417,30 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
   }
   chip.title = `템플릿 T${FMF.no} 의 ${FMF.level}번째 줄(레벨 ${FMF.level})`;
   const rel = hBtn("템플릿 관계", () => tplRelOpen(FMF.focus, FMF.para ? { tpl: FMF.tpl, level: FMF.level, para: FMF.para } : null),
-    { cls: "btn sm fm-key-btn fm-key-rel", title: `템플릿 관계를 문서 옆 열에 — ${label} 의 서식 갈래 · 대표 정하기 · 대표에 맞추기(전에 여백의 표를 누르면 열리던 것)` });
-  if (pick) { // 「템플릿 관계」 에서 고른 갈래만 — 「고른 갈래 n · 줄 m개」(줄 대응을 읽기 전·못 읽었으면 줄 수를 말하지 않는다)
-    text.textContent = "고른 갈래만 또렷이";
-    text.title = `「템플릿 관계」 에서 ☐ 로 고른 서식 갈래의 줄만 그대로(옅은 파란 바탕) 보이고 나머지 문단은 흐리게 보입니다(감추지 않습니다 · 문서는 안 바뀝니다).\n줄마다 쪽 오른쪽 여백에 꼬리표 「갈래 n」 — 「템플릿 관계」 카드의 번호와 같습니다. 누르면 그 카드로 갑니다(고르기는 안 바뀝니다).\n「끄기」 는 이 표시만 끕니다 — 고른 것은 남고, ☐ 를 다시 건드리면 다시 보입니다. 여백의 「${label}」 표기를 누르면 이 레벨의 줄 전체를 봅니다.`;
-    off.title = "이 표시만 끕니다 — 「템플릿 관계」 에서 고른 갈래(☐)는 그대로 남습니다(☐ 를 다시 건드리면 다시 보입니다)";
+    { cls: "btn sm fm-key-btn fm-key-rel", title: `템플릿 관계를 문서 옆 열에 — ${label} 의 서식 목록 · 대표 정하기 · 대표에 맞추기(전에 여백의 표를 누르면 열리던 것)` });
+  if (pick) { // 「템플릿 관계」 에서 고른 갈래만 — 「고른 서식 n가지 · 줄 m개」(줄 대응을 읽기 전·못 읽었으면 줄 수를 말하지 않는다)
+    text.textContent = "고른 서식만 또렷이";
+    text.title = `「템플릿 관계」 에서 ☐ 로 고른 서식의 줄만 그대로(옅은 파란 바탕) 보이고 나머지 문단은 흐리게 보입니다(감추지 않습니다 · 문서는 안 바뀝니다).\n줄마다 쪽 오른쪽 여백에 꼬리표 「서식 n」 — 「템플릿 관계」 카드 「다른 서식 n」 과 같은 번호입니다. 누르면 그 카드로 갑니다(고르기는 안 바뀝니다).\n「끄기」 는 이 표시만 끕니다 — 고른 것은 남고, ☐ 를 다시 건드리면 다시 보입니다. 여백의 「${label}」 표기를 누르면 이 레벨의 줄 전체를 봅니다.`;
+    off.title = "이 표시만 끕니다 — 「템플릿 관계」 에서 고른 서식(☐)은 그대로 남습니다(☐ 를 다시 건드리면 다시 보입니다)";
     box.append(chip, text);
     if (FMF.mem === "error") { // 못 읽었다 — 줄 수를 말하지 않는다
-      const n = el("span", "fm-key-note err", "갈래의 줄을 읽지 못함");
-      n.title = `고른 갈래 ${nf(FMF.keys.size)}개의 줄 목록을 서버에서 읽지 못했습니다 — 본문 표시가 고른 것과 다를 수 있습니다. 「다시 읽기」 를 누르거나 ☐ 를 다시 건드리세요`;
-      box.append(n, hBtn("다시 읽기", () => tplFocusDiff(), { cls: "btn sm fm-key-btn fm-key-retry", title: "고른 갈래의 줄 목록을 다시 읽습니다" }));
-    } else if (FMF.mem !== "ready" || !FMF.ids) box.append(el("span", "fm-key-count", `고른 갈래 ${nf(FMF.keys.size)} · 읽는 중…`));
+      const n = el("span", "fm-key-note err", "서식의 줄을 읽지 못함");
+      n.title = `고른 서식 ${nf(FMF.keys.size)}가지의 줄 목록을 서버에서 읽지 못했습니다 — 본문 표시가 고른 것과 다를 수 있습니다. 「다시 읽기」 를 누르거나 ☐ 를 다시 건드리세요`;
+      box.append(n, hBtn("다시 읽기", () => tplFocusDiff(), { cls: "btn sm fm-key-btn fm-key-retry", title: "고른 서식의 줄 목록을 다시 읽습니다" }));
+    } else if (FMF.mem !== "ready" || !FMF.ids) box.append(el("span", "fm-key-count", `고른 서식 ${nf(FMF.keys.size)}가지 · 읽는 중…`));
     else {
-      const c = el("span", "fm-key-count", `고른 갈래 ${nf(FMF.keys.size)} · 줄 ${nf(FMF.total)}개`);
-      c.title = `「템플릿 관계」 에서 고른 서식 갈래 ${nf(FMF.keys.size)}개 — 그 줄 ${nf(FMF.total)}개가 본문에 또렷이 보입니다(값 칸은 어느 갈래에도 들지 않아 빠집니다)`;
+      const c = el("span", "fm-key-count", `고른 서식 ${nf(FMF.keys.size)}가지 · 줄 ${nf(FMF.total)}개`);
+      c.title = `「템플릿 관계」 에서 고른 서식 ${nf(FMF.keys.size)}가지 — 그 줄 ${nf(FMF.total)}개가 본문에 또렷이 보입니다(값 칸은 어느 서식에도 들지 않아 빠집니다)`;
       box.append(c);
     }
-    if (pre) { const n = el("span", "fm-key-note", "미리보기 중"); n.title = "이 레벨은 대표 미리보기 중입니다 — 「템플릿 관계」 카드의 「다른 값」 은 미리보기 갈래 기준이라, 본문 꼬리표에는 갈래 번호만 적습니다(주황 여백은 지금 대표 기준)"; box.append(n); }
+    if (pre) { const n = el("span", "fm-key-note", "미리보기 중"); n.title = "이 레벨은 대표 미리보기 중입니다 — 「템플릿 관계」 카드의 「다른 값」 은 미리보기 서식 기준이라, 본문 꼬리표에는 서식 번호만 적습니다(주황 여백은 지금 대표 기준)"; box.append(n); }
     box.append(wheel, rel, off);
     return;
   }
   text.title = `문서에서 ${label} 의 줄만 그대로(옅은 파란 바탕) 보이고 나머지 문단은 흐리게 보입니다(감추지 않습니다 · 문서는 안 바뀝니다).\n이 레벨의 대표 줄과 여백이 다른 줄은 그 여백 자리만 주황으로 칠하고, 쪽 오른쪽 여백에 무엇이 다른지 적습니다.\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 가고(「휠 이동」), 문서 창 오른쪽 위·아래에 창 밖에 남은 자리 수가 보입니다.`;
   box.append(chip, text, el("span", "fm-key-count", `줄 ${nf(FMF.total)}개`));
   if (!s) box.append(el("span", "fm-key-note", "대표와 견주는 중…"));
-  else if (s.failed) { const n = el("span", "fm-key-note err", "갈래를 읽지 못함"); n.title = "이 레벨의 서식 갈래를 서버에서 읽지 못해 대표와 견주지 못했습니다(대표가 없다는 뜻이 아닙니다) — 문서가 바뀌면 다시 읽습니다"; box.append(n); }
+  else if (s.failed) { const n = el("span", "fm-key-note err", "서식을 읽지 못함"); n.title = "이 레벨의 서식을 서버에서 읽지 못해 대표와 견주지 못했습니다(대표가 없다는 뜻이 아닙니다) — 문서가 바뀌면 다시 읽습니다"; box.append(n); }
   else if (s.norep) { const n = el("span", "fm-key-note", "대표 없음"); n.title = "이 레벨에 대표 줄이 없어 견줄 서식이 없습니다 — 「템플릿 관계」 에서 줄 하나를 대표로 정하세요"; box.append(n); }
   else {
     const leg = (kind, cls, name, n, tip) => { // 색 설명 칩(색 네모 + 이름 + 수 — 색만으로 가르지 않는다) · 누르면 그런 줄로 차례로
@@ -451,7 +451,7 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
     if (s.margin) box.append(leg("margin", "mg", "여백 다름", s.margin, `대표 줄과 여백(앞 여백 · 2번째 줄 · 오른쪽 여백 · 위·아래 간격)이 다른 줄 ${nf(s.margin)}개 — 문서에서 그 여백 자리만 주황`));
     if (s.other) box.append(leg("other", "ot", "서식 다름", s.other, `대표 줄과 여백이 아닌 값(레터 · 공백 · 정렬 · 줄 간격 · 글자 모양)이 다른 줄 ${nf(s.other)}개 — 쪽 오른쪽 여백의 표에 무엇이 다른지`));
     if (!s.margin && !s.other) { const n = el("span", "fm-key-note", s.unknown ? "" : "대표와 모두 같음"); if (n.textContent) { n.title = "이 레벨의 줄이 모두 대표 줄과 서식이 같습니다(레터 · 문단 모양 · 글자 모양)"; box.append(n); } }
-    if (s.unknown) { const n = el("span", "fm-key-note", `못 견줌 ${nf(s.unknown)}`); n.title = `서식 갈래 둘 이상이 30줄을 넘어 ${nf(s.unknown)}줄은 어느 갈래인지 가르지 못했습니다 — 서버를 다시 켜면 줄 전부를 읽습니다(「템플릿 관계」 의 갈래 목록은 그대로 맞습니다)`; box.append(n); }
+    if (s.unknown) { const n = el("span", "fm-key-note", `못 견줌 ${nf(s.unknown)}`); n.title = `서식 두 가지 이상이 30줄을 넘어 ${nf(s.unknown)}줄은 어느 서식인지 가르지 못했습니다 — 서버를 다시 켜면 줄 전부를 읽습니다(「템플릿 관계」 의 서식 목록은 그대로 맞습니다)`; box.append(n); }
   }
   box.append(wheel, rel, off);
 }

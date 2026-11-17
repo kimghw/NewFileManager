@@ -293,7 +293,7 @@ def test_split_makes_a_format_variant_template_and_unsplit(sess):
     assert r.status_code == 200 and r.json()["split"]["no"] == "9L2b" and [x["no"] for x in r.json()["outline"]["templates"]["9"]["splits"]] == ["9L2a", "9L2b"]
     # 못 떼는 것: 대표 갈래 · 그 레벨 줄이 아님 · 없는 레벨 · 남의 템플릿에 더 넣기 · 종속 템플릿의 부모 레벨 · 번호형 레벨에서 형제의 일부 · 잘못된 값 · 「하위로」
     bad = c.post(f"/api/docs/{d}/outline/slots/9/2/split", json={"likes": ["p1692"]})
-    assert bad.status_code == 400 and "대표 갈래" in bad.json()["detail"]
+    assert bad.status_code == 400 and "대표 서식" in bad.json()["detail"]
     assert c.post(f"/api/docs/{d}/outline/slots/9/2/split", json={"likes": ["p970"]}).status_code == 400
     assert c.post(f"/api/docs/{d}/outline/slots/9/7/split", json={"likes": [g9[0]]}).status_code == 404
     assert c.post(f"/api/docs/{d}/outline/slots/9/2/split", json={"likes": []}).status_code == 400

@@ -158,7 +158,7 @@ def _formats(sess, job, outline, plans, plan):
         job.step(FORMATS_STEP, "running" if status == "running" else "failed" if status == "failed" else "ok", msg)
     got = outline(sess)
     if got is None:
-        part("skip", "헤딩 그래프가 없어 서식 갈래를 셀 수 없습니다")
+        part("skip", "헤딩 그래프가 없어 서식 가짓수를 셀 수 없습니다")
         return
     ov, variants = got
     have = plans(sess, ov.get("run"))

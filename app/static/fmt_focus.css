@@ -29,7 +29,7 @@
 /* 꼬리표는 누르는 단추다(fmt_focus.js fmtFocusTags — 키보드 초점 · Enter/Space): 단추 기본 모양을 걷고 위 꼴 그대로 · 초점 테 */
 button.fm-tag { margin: 0; appearance: none; text-align: left; }
 .sheet > .fm-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 6; }
-/* 갈래 번호가 붙은 꼬리표 「갈래 3 · ≠ 2번째 줄」(.var — 「템플릿 관계」 에서 고른 갈래를 보는 동안 · 살펴보는 갈래): 번호 칩(outline_preview.css .olm-no)과 같은 파란 계열 — 색만이 아니라 글 「갈래 n」 이 같다.
+/* 갈래 번호가 붙은 꼬리표 「서식 3 · ≠ 2번째 줄」(.var — 「템플릿 관계」 에서 고른 갈래를 보는 동안 · 살펴보는 갈래): 번호 칩(outline_preview.css .olm-no)과 같은 파란 계열 — 색만이 아니라 번호가 같다(카드 「다른 서식 n」 ↔ 꼬리표 「서식 n」 — 여백이 좁아 꼬리표는 짧은 꼴: 긴 꼴이면 번호가 줄임표에 잘린다).
    여백이 다른 줄의 주황 띠(.mg)는 그대로 남는다. 살펴보는 갈래(.look — 카드의 「본문에서 보기」 · 꼬리표를 누른 갈래)는 굵은 글 + 파란 테 둘레(카드의 .sel 과 같은 표시) */
 .sheet > .fm-tag.var { color: #1c3f94; background: #eef3ff; border-color: #9fb8e6; }
 .sheet > .fm-tag.var.mg { border-left-color: #f59e0b; }
@@ -72,7 +72,7 @@ button.fm-tag { margin: 0; appearance: none; text-align: left; }
 
 /* 이름 줄의 설명(#fmtKey — 「편집 중」·구분 기준 색 설명 앞): 칩 · 「이 서식만 또렷이」·「이 템플릿만 또렷이」 · 수 · (서식) 「목록」 / (템플릿) 색 설명 칩 「여백 다름 n」·「서식 다름 n」 · 「템플릿 관계」 · 「끄기」
    — 조작 22px(줄 높이 35px 그대로), 좁으면 줄 폭으로 글부터 감춘다(칩·단추는 남김).
-   고른 갈래만 볼 때(「템플릿 관계」 의 ☐ — .tpl 그대로): 칩 · 「고른 갈래만 또렷이」 · 「고른 갈래 n · 줄 m개」 · 「템플릿 관계」 · 「끄기」 — 색 설명 칩이 없어 레벨 전체 설명보다 짧다 */
+   고른 갈래만 볼 때(「템플릿 관계」 의 ☐ — .tpl 그대로): 칩 · 「고른 서식만 또렷이」 · 「고른 서식 n가지 · 줄 m개」 · 「템플릿 관계」 · 「끄기」 — 색 설명 칩이 없어 레벨 전체 설명보다 짧다 */
 .fm-key { flex: none; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .fm-key[hidden] { display: none; }
 .fm-key-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap; }
@@ -96,5 +96,5 @@ button.fm-tag { margin: 0; appearance: none; text-align: left; }
 @container docname (max-width: 980px) { .fm-key.tpl .fm-key-text { display: none; } }
 @container docname (max-width: 900px) { .fm-key.tpl .fm-key-wheel { display: none; } }
 @container docname (max-width: 820px) { .fm-key.tpl .fm-key-count, .fm-key.tpl .fm-key-note { display: none; } }
-/* 고른 갈래의 줄을 못 읽었을 때(.err — 「갈래의 줄을 읽지 못함」 + 「다시 읽기」): 좁아 글이 감춰지면 「템플릿 관계」 대신 「다시 읽기」 를 남긴다(못 읽었다는 표시가 단추로 남는다 · 줄이 넘치지 않는다) */
+/* 고른 갈래의 줄을 못 읽었을 때(.err — 「서식의 줄을 읽지 못함」 + 「다시 읽기」): 좁아 글이 감춰지면 「템플릿 관계」 대신 「다시 읽기」 를 남긴다(못 읽었다는 표시가 단추로 남는다 · 줄이 넘치지 않는다) */
 @container docname (max-width: 820px) { .fm-key.err .fm-key-rel { display: none; } }

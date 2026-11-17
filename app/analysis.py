@@ -301,7 +301,7 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
              + (f" · 대표 없는 레벨 {norep}" if norep else "")} if ready         else {"state": "none", "text": ""}
     return {"key": "formats", "name": NAMES["formats"], "state": heads["state"] if ov is not None or heads["state"] != "done" else "none",
             "levels": levels, "aligned": aligned, "noRep": norep, "groups": groups, "others": others, "slots": slots, "place": place,
-            "text": f"레벨 {levels} · 서식 갈래 {groups}" if ready else "", "llm": llm, "apply": apply}
+            "text": f"레벨 {levels} · 서식 {groups}가지" if ready else "", "llm": llm, "apply": apply}
 
 
 def llm_plan(items, need_plans):
@@ -324,7 +324,7 @@ def llm_plan(items, need_plans):
          "why": ("헤딩 그래프를 다시 지으므로 표 구조도 다시" if h_run and tables["llm"]["state"] == "done" else "칸 역할 · 서브 테이블 판정") + both if t_run
          else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
         {"key": "formats", "no": 2, "name": "서식 — 템플릿 서식 정리 계획", "run": f_run,
-         "why": ("헤딩 그래프를 다시 지은 뒤 갈래가 둘 이상인 템플릿마다 계획만(문서는 안 바뀜)" if h_run
+         "why": ("헤딩 그래프를 다시 지은 뒤 서식이 두 가지 이상인 템플릿마다 계획만(문서는 안 바뀜)" if h_run
                  else f"정리할 템플릿 {need_plans}개 — 계획만(문서는 안 바뀜)" if need_plans
                  else "정리할 것 없음 — 건너뜀" if not f_need else "모든 템플릿의 계획을 받았습니다 — 건너뜀") + ((" — 표와 같이" if t_run else "") + many if f_run else "")},
     ]  # no = 차례 번호 — 같은 번호는 같이 돈다(app/analysis_llm.py PARTS 와 같음)

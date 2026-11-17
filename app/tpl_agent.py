@@ -417,7 +417,7 @@ def check_plan(mat, data):
         rep = row.get("rep") if isinstance(row.get("rep"), str) else None
         if rep not in gs:
             if rep:
-                notes.append(f"L{lv['level']} 대표 「{rep}」 는 없는 갈래 — 지금 대표를 그대로 둠")
+                notes.append(f"L{lv['level']} 대표 「{rep}」 는 없는 서식 — 지금 대표를 그대로 둠")
             rep = was
         if lv.get("repSet") and was is not None and rep != was:  # 사람이 정한 대표는 답이 바꾸지 못한다 — 스킬 글이 말해도 검사가 강제한다(2026-11-16 astra)
             notes.append(f"L{lv['level']} 대표는 사람이 정한 것 — 「{rep}」 로 바꾸지 않음")
@@ -444,10 +444,10 @@ def check_plan(mat, data):
         blocked = lambda g: bool(g.get("noSplit"))  # noqa: E731 — 못 떼는 갈래(번호형 레벨의 형제 일부). 대표 갈래는 seen 이 막는다(대표를 바꾸면 옛 대표 갈래는 뗄 수 있다)
         for gid in row.get("match") or []:
             if not isinstance(gid, str) or gid not in gs:
-                notes.append(f"L{lv['level']} 맞출 갈래 「{gid}」 는 없는 갈래 — 버림")
+                notes.append(f"L{lv['level']} 맞출 서식 「{gid}」 는 없는 서식 — 버림")
             elif gid in seen:
                 if gid != rep:
-                    notes.append(f"L{lv['level']} 갈래 「{gid}」 가 두 번 — 첫 것만 씀")
+                    notes.append(f"L{lv['level']} 서식 「{gid}」 가 두 번 — 첫 것만 씀")
             else:
                 seen.add(gid)
                 entry["match"].append(brief(gs[gid]))
@@ -455,13 +455,13 @@ def check_plan(mat, data):
         for sp in row.get("split") or []:  # 다른 템플릿으로 뗄 갈래(② §8-5) — 항목 하나 = 새 서식 종속 템플릿 하나
             gid = sp.get("rep") if isinstance(sp, dict) else None
             if not isinstance(gid, str) or gid not in gs:
-                notes.append(f"L{lv['level']} 뗄 갈래 「{gid}」 는 없는 갈래 — 버림")
+                notes.append(f"L{lv['level']} 뗄 서식 「{gid}」 는 없는 서식 — 버림")
                 continue
             if gid in seen:
-                notes.append(f"L{lv['level']} 갈래 「{gid}」 는 {'이 레벨의 대표라 뗄 수 없음' if gid == rep else '두 번 — 첫 것만 씀'}")
+                notes.append(f"L{lv['level']} 서식 「{gid}」 는 {'이 레벨의 대표라 뗄 수 없음' if gid == rep else '두 번 — 첫 것만 씀'}")
                 continue
             if blocked(gs[gid]):
-                notes.append(f"L{lv['level']} 갈래 「{gid}」 는 뗄 수 없어 그대로 둠 — {gs[gid]['noSplit']}")
+                notes.append(f"L{lv['level']} 서식 「{gid}」 는 뗄 수 없어 그대로 둠 — {gs[gid]['noSplit']}")
                 continue
             sfx = next(letters, None)
             if sfx is None:
@@ -472,12 +472,12 @@ def check_plan(mat, data):
             item = {"name": f"T{mat['no']}L{lv['level']}{sfx}", "sfx": sfx, "rep": brief(head), "match": [], "why": str(sp.get("why") or "").strip()[:400]}
             for mid in sp.get("match") or []:
                 if not isinstance(mid, str) or mid not in gs:
-                    notes.append(f"L{lv['level']} {item['name']} 에 같이 옮길 갈래 「{mid}」 는 없는 갈래 — 버림")
+                    notes.append(f"L{lv['level']} {item['name']} 에 같이 옮길 서식 「{mid}」 는 없는 서식 — 버림")
                 elif mid in seen:
                     if mid != gid:
-                        notes.append(f"L{lv['level']} 갈래 「{mid}」 는 {'이 레벨의 대표라 뗄 수 없음' if mid == rep else '두 번 — 첫 것만 씀'}")
+                        notes.append(f"L{lv['level']} 서식 「{mid}」 는 {'이 레벨의 대표라 뗄 수 없음' if mid == rep else '두 번 — 첫 것만 씀'}")
                 elif blocked(gs[mid]):
-                    notes.append(f"L{lv['level']} 갈래 「{mid}」 는 뗄 수 없어 그대로 둠 — {gs[mid]['noSplit']}")
+                    notes.append(f"L{lv['level']} 서식 「{mid}」 는 뗄 수 없어 그대로 둠 — {gs[mid]['noSplit']}")
                 else:
                     seen.add(mid)
                     item["match"].append({**brief(gs[mid]), "diffTo": M.diff(head["raw"], gs[mid]["raw"])})  # diff = 이 레벨 대표 기준(다른 줄과 같이) · diffTo = 새 템플릿의 대표 기준
@@ -487,7 +487,7 @@ def check_plan(mat, data):
         for k in row.get("keep") or []:
             gid = k.get("group") if isinstance(k, dict) else None
             if not isinstance(gid, str) or gid not in gs:
-                notes.append(f"L{lv['level']} 그대로 둘 갈래 「{gid}」 는 없는 갈래 — 버림")
+                notes.append(f"L{lv['level']} 그대로 둘 서식 「{gid}」 는 없는 서식 — 버림")
             elif gid not in seen:
                 seen.add(gid)
                 entry["keep"].append({**brief(gs[gid]), "why": str(k.get("why") or "").strip()[:400], "auto": False, "noSplit": blocked(gs[gid])})

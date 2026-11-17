@@ -190,7 +190,7 @@ try:
         joined = " · ".join(m["marks"])  # 붙어 있는 줄들의 표시는 한 표로 모인다(「새 레터 · 잘못된 서식 T2 L2」)
         check("잘못된 서식: 여백 표시는 「TN Lk」 앞에 붙음 · 새 레터는 그것만", re.search(r"잘못된 서식 T\d+ L\d+", joined) and "새 서식" not in joined and "새 레터" in joined and "새 레터 T" not in joined, m["marks"])
         lists = page.evaluate(LISTS)
-        check("열려 있던 목록이 따라 바뀜(새 레터 표 · 잘못된 서식 표 — 「대표에 맞추기」·「갈래 보기」)", [t["wrong"] for t in lists] == [False, True] and [r[0] for r in lists[0]["rows"]] == ["▶"]
+        check("열려 있던 목록이 따라 바뀜(새 레터 표 · 잘못된 서식 표 — 「대표에 맞추기」·「서식 보기」)", [t["wrong"] for t in lists] == [False, True] and [r[0] for r in lists[0]["rows"]] == ["▶"]
               and len(lists[1]["rows"]) == 1 and lists[1]["rows"][0][:2] == ["o", "본문"] and "왼30" in lists[1]["rows"][0][2] and "쓰던 서식" in lists[1]["rows"][0][2]
               and lists[1]["match"] == [True] and lists[1]["rel"] == 1, lists)
         fit = page.evaluate("""() => { const b = document.querySelector('#headsDlg table.drift-wrong button.drift-match'), c = document.querySelector('#headsDlg .hd-body') || document.querySelector('#headsDlg');

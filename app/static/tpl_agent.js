@@ -25,7 +25,7 @@ function tplAgentIcon(id) { // 템플릿 줄의 아이콘 단추 — 개요 오�
   b.type = "button";
   b.innerHTML = TPA_ICON;
   b.setAttribute("aria-label", `T${t.no} 서식 정리 에이전트`);
-  b.title = `서식 정리 에이전트 — Opus 5.5 가 T${t.no} 의 레벨마다 서식 갈래를 보고 대표와 맞출 줄을 정합니다\n저장해 둔 스킬(정리 기준 글)을 보고 고친 뒤 시킵니다 · 계획을 보고 고른 것만 적용(문서 옆 열)`;
+  b.title = `서식 정리 에이전트 — Opus 5.5 가 T${t.no} 의 레벨마다 쓰인 서식을 보고 대표와 맞출 줄을 정합니다\n저장해 둔 스킬(정리 기준 글)을 보고 고친 뒤 시킵니다 · 계획을 보고 고른 것만 적용(문서 옆 열)`;
   b.onclick = (e) => { e.stopPropagation(); tplAgentOpen(id); };
   return b;
 }
@@ -91,7 +91,7 @@ function tplAgentSync() { // 서식 갈래·오버레이가 바뀐 뒤(outline_m
 }
 
 function tpaTarget() { // ① 대상 — 템플릿 고르기 · 개요 레벨 그림 · 레벨마다 서식 갈래 수
-  const sec = tpaSection("①", "대상 템플릿", "에이전트가 정리할 템플릿입니다. 레벨마다 줄들을 서식이 같은 것끼리 묶은 「갈래」 를 에이전트에 보냅니다 — 갈래가 하나뿐인 레벨은 정리할 것이 없습니다(대표가 없는 레벨은 갈래가 하나여도 에이전트가 대표를 정합니다).종속 템플릿(「T1T3」)·서식 종속 템플릿(「T1L3a」)을 고르면 그 줄만 정리합니다.");
+  const sec = tpaSection("①", "대상 템플릿", "에이전트가 정리할 템플릿입니다. 레벨마다 줄들을 서식이 같은 것끼리 묶어 에이전트에 보냅니다 — 서식이 한 가지뿐인 레벨은 정리할 것이 없습니다(대표가 없는 레벨은 서식이 한 가지여도 에이전트가 대표를 정합니다).종속 템플릿(「T1T3」)·서식 종속 템플릿(「T1L3a」)을 고르면 그 줄만 정리합니다.");
   sec.classList.add("tpa-target");
   const list = tpaTemplates(), sel = el("select", "tpa-tpl");
   sel.setAttribute("aria-label", "정리할 템플릿");
@@ -109,7 +109,7 @@ function tpaTarget() { // ① 대상 — 템플릿 고르기 · 개요 레벨 �
   for (const L of Object.keys(t.slots || {}).map(Number).filter((x) => x > (t.base || 0) && t.slots[String(x)].lines).sort((a, b) => a - b)) {
     const os = t.slots[String(L)], v = olmFresh() ? olmSlotData(TPA.tpl, L) : null, li = el("li");
     li.append(el("b", null, `L${L}`), ` 「${short(os.letter || "", 10)}」 ×${nf(os.lines)} `);
-    if (!v) li.append(el("span", "muted", "서식 갈래 읽는 중…"));
+    if (!v) li.append(el("span", "muted", "서식 읽는 중…"));
     else {
       // 정리할 레벨 = 서식이 둘 이상이거나 **대표가 없는** 레벨(서식이 1가지여도 대표를 정해야 한다 — 서버의 「정리할 템플릿」(analysis.need_templates) · 계획 끝점과 같은 기준:
       // 전에는 갈래 수만 세어, 대표 없는 레벨뿐인 템플릿은 「정리 계획 받기」 가 꺼져 그 레벨에 대표를 줄 길이 없었다 — 2026-11-17 astra)
@@ -130,9 +130,9 @@ function tplAgentDraw() {
   if (!tpaOn()) return;
   const tools = $("headsDlgTools"), body = $("headsDlgBody"), keep = body.scrollTop, t = olmTpl(TPA.tpl), info = TPA.info, cur = tpaCur();
   $("headsDlgNote").textContent = t ? `T${t.no} ${(t.chain || []).slice(t.base || 0).join(" › ")}` : "";
-  $("headsDlgHelp").replaceChildren(hHelp("템플릿 서식 정리 도움말", "에이전트(Opus 5.5)가 템플릿의 레벨마다 서식 갈래를 보고 어느 갈래를 대표로 삼고 어느 줄을 맞출지 정합니다. 에이전트는 저장해 둔 스킬 글(정리 기준)을 따르고, 스킬은 여기서 고쳐 저장할 수 있습니다. "
-    + "계획을 받은 뒤 고른 것만 「적용」 하면 그 줄들의 레터 첫머리·문단 모양·글자 모양이 대표 것으로 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다. 일부러 다르게 준 서식의 갈래는 맞추지 않고 서식 종속 템플릿(「T1L3a」)으로 뗍니다. "
-    + "에이전트는 문서에 있는 갈래 가운데 고르기만 하고 서식 값을 새로 만들지 않습니다."));
+  $("headsDlgHelp").replaceChildren(hHelp("템플릿 서식 정리 도움말", "에이전트(Opus 5.5)가 템플릿의 레벨마다 쓰인 서식을 보고 어느 서식을 대표로 삼고 어느 줄을 맞출지 정합니다. 에이전트는 저장해 둔 스킬 글(정리 기준)을 따르고, 스킬은 여기서 고쳐 저장할 수 있습니다. "
+    + "계획을 받은 뒤 고른 것만 「적용」 하면 그 줄들의 레터 첫머리·문단 모양·글자 모양이 대표 것으로 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다. 일부러 다르게 준 서식의 줄은 맞추지 않고 서식 종속 템플릿(「T1L3a」)으로 뗍니다. "
+    + "에이전트는 문서에 있는 서식 가운데 고르기만 하고 서식 값을 새로 만들지 않습니다."));
   tools.replaceChildren(hBtn("‹ 템플릿 관계", () => headsTplView(t ? olmKey(TPA.tpl) : null), { title: "템플릿 관계로 돌아갑니다(쓰던 스킬 글·계획은 남습니다)", cls: "btn sm tpa-back" }),
     (() => { const c = el("span", `tpa-model${info && info.available ? "" : " off"}`, info ? `${tpaModel(info.model)}${info.available ? ` · ${info.backend === "api" ? "API" : info.backend || ""}` : " · LLM 꺼짐"}` : TPA.infoErr ? "에이전트 없음" : "읽는 중…");
       c.title = info ? `이 에이전트가 부르는 모델: ${info.model}(생각 깊이 ${info.effort}) — 다른 LLM 검토의 모델 설정과 따로입니다` : TPA.infoErr; return c; })(), el("span", "spacer"),
@@ -142,7 +142,7 @@ function tplAgentDraw() {
   wrap.append(tpaTarget());
 
   // ② 스킬 — 저장해 둔 정리 기준 글(고르기 · 이름 · 글 · 저장 · 새 스킬 · 기본으로/지우기)
-  const sk = tpaSection("②", "스킬 — 에이전트가 따를 정리 기준", "에이전트는 여기 저장된 글을 그대로 읽고 판단합니다. 글을 고쳤으면 「저장」 을 눌러야 쓰입니다(「정리 계획 받기」 가 먼저 저장합니다). "
+  const sk = tpaSection("②", "스킬 — 에이전트가 따를 정리 기준", "에이전트는 여기 저장된 글을 그대로 읽고 판단합니다(글의 「갈래」 = 서식이 같은 줄끼리 묶은 것 — 화면의 「대표」 · 「다른 서식 n」). 글을 고쳤으면 「저장」 을 눌러야 쓰입니다(「정리 계획 받기」 가 먼저 저장합니다). "
     + "기본 스킬을 고치면 내 사본이 생기고 「기본으로 되돌리기」 로 돌아갑니다. 「새 스킬」 로 다른 기준을 따로 만들어 둘 수 있습니다. 스킬은 이 PC 의 모든 문서가 같이 씁니다.");
   const pick = el("select", "tpa-skill");
   pick.setAttribute("aria-label", "저장해 둔 스킬");
@@ -158,7 +158,7 @@ function tplAgentDraw() {
   name.type = "text"; name.maxLength = 60; name.value = cur.name; name.placeholder = "스킬 이름"; name.setAttribute("aria-label", "스킬 이름");
   const ta = el("textarea", "tpa-text");
   ta.value = cur.text; ta.spellcheck = false; ta.setAttribute("aria-label", "스킬 글 — 에이전트가 따를 정리 기준");
-  ta.placeholder = "에이전트가 따를 정리 기준을 적습니다 — 어느 갈래를 대표로 삼나 · 무엇을 맞추고 무엇을 남기나";
+  ta.placeholder = "에이전트가 따를 정리 기준을 적습니다 — 어느 서식을 대표로 삼나 · 무엇을 맞추고 무엇을 남기나";
   name.disabled = ta.disabled = !info || !!TPA.busy || (!TPA.skill && TPA.key !== TPA_NEW);
   const stateLine = el("div", "tpa-row tpa-state");
   const edit = () => { TPA.drafts[TPA.key] = { name: name.value, text: ta.value }; tpaSkillState(stateLine); tpaRunSync(); };
@@ -222,7 +222,7 @@ function tpaRunSync() { // 「정리 계획 받기」 단추의 글·켜짐과 �
     live.replaceChildren();
     if (TPA.busy === "plan" || TPA.busy === "apply") {
       const secs = Math.max(0, Math.round((Date.now() - TPA.started) / 1000));
-      live.append(el("span", "ag-spin"), TPA.busy === "plan" ? ` ${tpaModel(info && info.model)} 가 서식 갈래를 보는 중 · ${secs}초` : " 문서에 적용하는 중");
+      live.append(el("span", "ag-spin"), TPA.busy === "plan" ? ` ${tpaModel(info && info.model)} 가 서식을 보는 중 · ${secs}초` : " 문서에 적용하는 중");
     }
   }
 }
@@ -420,9 +420,9 @@ function tpaStale(P) {
 }
 
 function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 줄마다 고르기(맞추기 / 그대로 / T1L3a 로) · 적용
-  const P = TPA.plan, plan = P.plan, sec = tpaSection("④", "정리 계획", "에이전트가 고른 것입니다 — 갈래마다 고르기를 바꿀 수 있습니다. 「맞추기」 = 이 레벨의 대표 모양으로 바꿉니다 · 「그대로」 = 손대지 않습니다 · "
-    + "「T1L3a 로」 = 그 갈래를 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 기본 스킬의 기준: 레터가 대표와 다른 갈래는 떼고, 레터가 같은 갈래는 대표에 맞춥니다 — 예외로 남길 갈래는 「그대로」 로 고르세요. 같은 이름을 고른 갈래끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
-    + "대표를 바꾸는 레벨(「대표 바꿈」)은 고른 갈래가 없어도 대표가 바뀝니다 — 새 대표와 서식이 같은 줄은 자리(묶음 빈칸 · 둘째 줄)를 같이 맞춥니다."),
+  const P = TPA.plan, plan = P.plan, sec = tpaSection("④", "정리 계획", "에이전트가 고른 것입니다 — 서식마다 고르기를 바꿀 수 있습니다. 「맞추기」 = 이 레벨의 대표 모양으로 바꿉니다 · 「그대로」 = 손대지 않습니다 · "
+    + "「T1L3a 로」 = 그 서식의 줄을 서식 종속 템플릿으로 뗍니다(그 레벨부터 시작하는 다른 템플릿 — 뒤로는 그 줄들끼리만 서식을 견줍니다). 기본 스킬의 기준: 레터가 대표와 다른 서식은 떼고, 레터가 같은 서식은 대표에 맞춥니다 — 예외로 남길 서식은 「그대로」 로 고르세요. 같은 이름을 고른 서식끼리 한 템플릿이 되고, 그 가운데 대표(에이전트가 정한 것, 없으면 줄 수가 많은 것)에 나머지를 맞춥니다. "
+    + "대표를 바꾸는 레벨(「대표 바꿈」)은 고른 서식이 없어도 대표가 바뀝니다 — 새 대표와 서식이 같은 줄은 자리(묶음 빈칸 · 둘째 줄)를 같이 맞춥니다."),
     stale = tpaStale(P) && !TPA.done, done = TPA.done, lock = !!TPA.busy || stale || !!done;
   sec.classList.add("tpa-plan");
   if (plan.summary) sec.append(el("p", "tpa-sum", plan.summary));
@@ -436,7 +436,7 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
     apply.title = todo.moved && !done ? `맞출 줄 ${nf(todo.n)}개 · 서식 종속 템플릿으로 뗄 줄 ${nf(todo.moved)}개(그 아래 줄도 같이 갑니다) — 「실행 취소」 한 번으로 되돌립니다` : "";
     apply.disabled = lock || !todo.levels.length;
     count.textContent = done ? `레벨 ${done.levels}개${done.reps ? ` · 대표 바꿈 ${done.reps}` : ""}${done.made && done.made.length ? ` · 새 템플릿 ${done.made.join(" · ")}` : ""} · 「실행 취소」 한 번으로 되돌립니다`
-      : stale ? "이 템플릿의 줄이 바뀌었습니다 — 계획을 다시 받으세요" : `고른 갈래 ${todo.picked}개${todo.reps ? ` · 대표 바꿈 ${todo.reps}` : ""}`;
+      : stale ? "이 템플릿의 줄이 바뀌었습니다 — 계획을 다시 받으세요" : `고른 서식 ${todo.picked}가지${todo.reps ? ` · 대표 바꿈 ${todo.reps}` : ""}`;
   };
   const redraw = (key) => { // 고르기를 바꾸면 계획 절만 다시 그리고(대표·맞춤 표시가 줄끼리 얽힌다) 그 고르기에 초점을 돌려준다
     const fresh = tpaPlan();
@@ -455,10 +455,10 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
     pick.dataset.key = key;
     pick.value = cur;
     pick.disabled = lock;
-    pick.setAttribute("aria-label", `×${g.count} 갈래 「${short(g.sample || "", 16)}」 를 어떻게 할지`);
-    pick.title = "맞추기 = 이 레벨의 대표 모양으로 · 그대로 = 손대지 않음 · T…L…a 로 = 서식이 다른 종속 템플릿으로 떼기(같은 이름끼리 한 템플릿)" + (g.noSplit ? "\n이 갈래는 뗄 수 없습니다 — 번호형 레벨에서 같은 부모 아래 형제의 일부(번호가 따로 매겨집니다)" : "");
+    pick.setAttribute("aria-label", `×${g.count} 서식 「${short(g.sample || "", 16)}」 를 어떻게 할지`);
+    pick.title = "맞추기 = 이 레벨의 대표 모양으로 · 그대로 = 손대지 않음 · T…L…a 로 = 서식이 다른 종속 템플릿으로 떼기(같은 이름끼리 한 템플릿)" + (g.noSplit ? "\n이 서식은 뗄 수 없습니다 — 번호형 레벨에서 같은 부모 아래 형제의 일부(번호가 따로 매겨집니다)" : "");
     pick.onchange = () => { TPA.choice.set(key, pick.value); redraw(key); };
-    body.append(el("span", "olm-n", `×${nf(g.count)}`), headsParaLink(g.para, g.sample || "(빈 글)", 30, "이 갈래의 첫 줄"));
+    body.append(el("span", "olm-n", `×${nf(g.count)}`), headsParaLink(g.para, g.sample || "(빈 글)", 30, "이 서식의 첫 줄"));
     if (cut) body.append(el("span", `olm-chip tpa-vt${head ? " head" : ""}`, head ? `${name(cut.sfx)} 의 대표` : `${name(cut.sfx)} 대표에 맞춤`));
     const diff = g.diff || [];
     if (head) { // 새 템플릿의 대표 — 안 바뀐다: 이 레벨 대표와 무엇이 다른지만(화살표 없이)
@@ -469,7 +469,7 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
       if (to && to.length) d.title = olmDiffTitle(to);
       body.append(d);
     } else if (diff.length) { const d = el("span", "tpa-diff", olmDiffText(diff, 3)); d.title = olmDiffTitle(diff); body.append(d); }
-    const why = row.head ? row.sp.why : row.was === "keep" ? (g.auto ? "에이전트가 말하지 않은 갈래 — 그대로 둡니다" : g.why || "") : "";
+    const why = row.head ? row.sp.why : row.was === "keep" ? (g.auto ? "에이전트가 말하지 않은 서식 — 그대로 둡니다" : g.why || "") : "";
     if (why) body.append(el("span", "tpa-why", why));
     line.append(pick, body);
     return line;
@@ -485,7 +485,7 @@ function tpaPlan() { // ④ 계획 — 요약 · 레벨마다 대표 · 갈래 �
     if (lv.rep && (!lv.single || swap)) {
       const rep = el("div", "tpa-rep");
       rep.append(el("span", `hb olm-badge${lv.rep.changed ? " chg" : ""}`, lv.rep.changed ? "대표 바꿈" : "대표"), el("span", "olm-n", `×${nf(lv.rep.count)}`), headsParaLink(lv.rep.para, lv.rep.sample || "(빈 글)", 30, "대표로 삼을 줄"));
-      if (lv.rep.changed) rep.title = `이 레벨의 대표를 이 갈래의 첫 줄로 바꾼 뒤 맞춥니다(지금 대표는 ${lv.was || "없음"})`;
+      if (lv.rep.changed) rep.title = `이 레벨의 대표를 이 서식의 첫 줄로 바꾼 뒤 맞춥니다(지금 대표는 ${lv.was || "없음"})`;
       b.append(rep);
       if (lv.why) b.append(el("p", "tpa-why", lv.why));
       const cuts = tpaCuts(lv);

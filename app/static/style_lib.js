@@ -271,7 +271,7 @@ function styleLibDraw() {
   tools.textContent = "";
   const tabs = el("span", "sl-tabs");
   tabs.setAttribute("role", "group");
-  tabs.setAttribute("aria-label", "서식 갈래");
+  tabs.setAttribute("aria-label", "서식 종류");
   for (const [k, name, what] of SL_TABS) { // 갈래 고르기(세그먼트 넷 — 표지 서식 · 내용 서식 · 테이블 서식 · 문단 서식: spec_서식복사 ② §12). 고른 갈래는 문서를 바꿔도 남는다
     const b = hBtn("", () => { STYLE.tab = k; STYLE.edit = null; styleLibDraw(); }, { cls: "btn sm" + (STYLE.tab === k ? " on" : ""), title: `${name} — ${what}` });
     b.append(el("span", "sl-tab-label", name));
@@ -1192,7 +1192,7 @@ function styleSaveDraw() {
   if (!SL_CTAB[S.tab]) S.tab = slCtabFirst(S);
   const ctabs = el("div", "sl-ctabs"), ctabBtn = {};
   ctabs.setAttribute("role", "group");
-  ctabs.setAttribute("aria-label", "서식 후보의 갈래");
+  ctabs.setAttribute("aria-label", "서식 후보의 종류");
   for (const [k, name] of SL_CTABS) {
     const b = hBtn(name, () => slCtabGo(S, k), { cls: "btn sm" + (S.tab === k ? " on" : "") });
     b.dataset.slCtab = k;
@@ -1202,7 +1202,7 @@ function styleSaveDraw() {
   }
   wrap.append(ctabs);
   const nameBtn = hBtn("LLM 검토", () => styleSaveName(), { disabled: busy || !S.rows.some((r) => r.kind !== "paras" && r.state !== "done"),
-    title: "스크립트가 찾은 후보를 LLM 이 검토합니다(유료 — 수 초~수십 초): 설명(구조·겉모습 — 이름 칸 아래 한 줄) · 저장할 만한지(「추천」) · 띠 수 · 역할 · 의심스러운 데. 서식 값과 이름은 LLM 이 짓지 않습니다(값은 모두 스크립트가 문서에서 읽은 것 · 이름은 「<문서 이름>: <갈래><번호>」). 문서는 안 바뀌고, 직접 고친 이름·띠 수·역할은 그대로 둡니다" }); // 전의 「에이전트 추출」(② §15 · 설명 = ② §19-2)
+    title: "스크립트가 찾은 후보를 LLM 이 검토합니다(유료 — 수 초~수십 초): 설명(구조·겉모습 — 이름 칸 아래 한 줄) · 저장할 만한지(「추천」) · 띠 수 · 역할 · 의심스러운 데. 서식 값과 이름은 LLM 이 짓지 않습니다(값은 모두 스크립트가 문서에서 읽은 것 · 이름은 「<문서 이름>: <종류><번호>」). 문서는 안 바뀌고, 직접 고친 이름·띠 수·역할은 그대로 둡니다" }); // 전의 「에이전트 추출」(② §15 · 설명 = ② §19-2)
   nameBtn.dataset.slAct = "name";
   tools.insertBefore(nameBtn, autoBtn);
   if (S.call && !S.llm) tools.append(el("span", "muted sl-call", [S.call.model || "", S.call.ms != null ? `${(S.call.ms / 1000).toFixed(1)}초` : "", S.call.costUsd != null ? `$${Number(S.call.costUsd).toFixed(3)}` : ""].filter(Boolean).join(" · ")));
@@ -1369,7 +1369,7 @@ function styleSaveVerifyEl(S) {
     box.append(el("p", "sl-vsum" + (V.late ? " late" : ""), V.late ? "검증이 아직 돕니다 — 서식 관리자에서 확인" : `PDF 검증 끝 — 서식 ${nf(V.items.length)}개`));
     for (const t of slWatchSum(V)) { const p = el("p", "sl-vsum"); p.dataset.format = t.split(" ")[0]; p.textContent = t; box.append(p); }
   }
-  const go = hBtn("서식 관리자에서 보기", () => styleLibOpen((V.items[0] || {}).tab || (V.items[0] || {}).kind || null), { title: "방금 저장한 서식을 서식 관리자에서 봅니다(그 갈래로) — 서식 그림 · 검증 내역 · 문서에 쓰기" });
+  const go = hBtn("서식 관리자에서 보기", () => styleLibOpen((V.items[0] || {}).tab || (V.items[0] || {}).kind || null), { title: "방금 저장한 서식을 서식 관리자에서 봅니다(그 종류로) — 서식 그림 · 검증 내역 · 문서에 쓰기" });
   go.dataset.slAct = "toLib";
   box.append(go);
   return box;

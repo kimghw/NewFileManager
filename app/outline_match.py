@@ -521,7 +521,7 @@ def match_targets(doc, ov, tid, level, paras=None, like=None):
     base = look(doc, ov, rep)
     if like is not None:
         if not _alive(doc, like):
-            raise ValueError("그 갈래의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+            raise ValueError("그 서식의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
         _check_member(ov, tid, level, like)
     kind = look(doc, ov, like) if like is not None else None
     order = _order(doc)
@@ -558,7 +558,7 @@ def match_set(doc, ov, tid, level, rep=None, likes=None):
         kinds = []
         for q in likes:
             if not _alive(doc, q):
-                raise ValueError("그 갈래의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+                raise ValueError("그 서식의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
             _check_member(ov, tid, level, q)
             kinds.append(look(doc, ov, q))
     order = _order(doc)
@@ -991,11 +991,11 @@ def split_targets(doc, ov, tid, level, likes):
     if OE._slot(ov, tid, level) is None:
         raise KeyError("그런 템플릿 레벨이 없습니다")
     if not likes:
-        raise ValueError("뗄 갈래의 줄(likes)이 필요합니다")
+        raise ValueError("뗄 서식의 줄(likes)이 필요합니다")
     kinds = []
     for q in likes:
         if not _alive(doc, q):
-            raise ValueError("그 갈래의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+            raise ValueError("그 서식의 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
         _check_member(ov, tid, level, q)
         kinds.append(look(doc, ov, q))
     order = _order(doc)
@@ -1026,7 +1026,7 @@ def split_block(ov, tid, level, paras, rep=None):
     if not want:
         return "뗄 줄이 없습니다"
     if (rep or sl.get("rep")) in want:
-        return f"T{t['no']} L{level} 의 대표 갈래는 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
+        return f"T{t['no']} L{level} 의 대표 서식은 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
     if OE.is_numbered(sl.get("key") or ""):
         by_parent = {}
         for pid in slot_ids(ov, tid, level):
@@ -1066,7 +1066,7 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
         raise ValueError(why)
     rep = rep or paras[0]
     if rep not in paras:
-        raise ValueError("대표로 삼을 줄은 떼는 갈래의 줄이어야 합니다")
+        raise ValueError("대표로 삼을 줄은 떼는 서식의 줄이어야 합니다")
     recs = ov.setdefault("splits", [])
     if into is not None:
         cid = str(into)

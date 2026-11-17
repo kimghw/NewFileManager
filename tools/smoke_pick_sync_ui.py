@@ -3,9 +3,9 @@
 
 2026-11-16 사용자 「템플릿 관계에서 모두 고르기 를 하면 왼쪽 원문에도 관련된 것들이 모두 선택이 되어야지. 12개에서 내가 뭔지를 모르겠잖아 … 상호 동기화 되도록」.
 연구개발계획서 양식을 올리고 1·2단계(LLM 없이)를 끝점으로 돌린다. T9 「[기관] › o › -」 L2 「o」 는 갈래 다섯(대표 ×31 · ×9 · ×2 · ×1 · ×1) — **30줄을 넘는 갈래를 고를 수 있게** 끝점으로 대표를 ×9 갈래의 줄로
-바꿔 둔다(PUT …/rep — 그러면 ×31 갈래가 「갈래 1」: 카드의 줄 목록은 30줄에서 잘린다). 본문의 표시는 **줄 수가 아니라 문단 id 집합**으로 견준다(#doc .para.fmt-hit 의 data-id — 쪽에 걸친 문단은 요소가 둘).
+바꿔 둔다(PUT …/rep — 그러면 ×31 갈래가 「다른 서식 1」: 카드의 줄 목록은 30줄에서 잘린다). 본문의 표시는 **줄 수가 아니라 문단 id 집합**으로 견준다(#doc .para.fmt-hit 의 data-id — 쪽에 걸친 문단은 요소가 둘).
 
- 1. 갈래 하나의 ☐ → 본문에 또렷한 줄 = 그 갈래의 줄 전부(GET …/outline/formats?tpl=&level= 의 paras) · 이름 줄 「고른 갈래 1 · 줄 n개」 · 꼬리표의 번호 = 카드의 번호 · 여백 표기는 「일부」(.part).
+ 1. 갈래 하나의 ☐ → 본문에 또렷한 줄 = 그 갈래의 줄 전부(GET …/outline/formats?tpl=&level= 의 paras) · 이름 줄 「고른 서식 1가지 · 줄 n개」 · 꼬리표의 번호 = 카드의 번호 · 여백 표기는 「일부」(.part).
  2. 「모두 고르기」 → 대표가 아닌 갈래의 줄 전부의 합집합(값 칸 줄은 어느 갈래에도 없어 빠진다 — 그런 레벨이 있으면 그 레벨로도).
  3. 30줄을 넘는 갈래만 → 31번째 줄까지(카드의 목록은 30줄).
  4. 모두 풀면 표시가 꺼진다.
@@ -14,7 +14,7 @@
  7. 꼬리표를 누르면 그 갈래의 카드에 .sel — 31번째 뒤의 줄도 · 열을 다시 짓지 않는다 · 고르기는 안 바뀐다.
  8. 「본문에서 보기」 는 고르기를 안 바꾼다(고른 갈래를 보는 중이면 표시도 그대로 · 꺼져 있으면 레벨 전체로).
  9. 레벨 A 고름 → 끄기 → 레벨 B 고름 → A 의 마지막 ☐ 를 풀어도 B 의 표시는 그대로.
-10. 「고른 갈래 맞추기」 가 rev 를 보낸다 · 보낸 고르기와 표시가 비워진다 · 실행 취소 · 고른 뒤 갈래가 바뀌면(화면에서 그 줄의 서식을 바꿈) 맞추지 않고 고르기를 푼다 ·
+10. 「고른 서식 맞추기」 가 rev 를 보낸다 · 보낸 고르기와 표시가 비워진다 · 실행 취소 · 고른 뒤 갈래가 바뀌면(화면에서 그 줄의 서식을 바꿈) 맞추지 않고 고르기를 푼다 ·
     화면 모르게 문서가 바뀌면(끝점으로 편집 — 옛 rev) 서버 409: 고르기를 풀고 알림 · 아무것도 안 맞춤.
 11. 다른 문서를 열면 고르기도 표시도 없다.
 12. 체크한 갈래를 대표 미리보기로 끌면 고른 것에서 빠지고 본문 표시도 따라 바뀐다 · 줄 전부 읽기가 실패하면 「읽지 못함」(줄 수를 말하지 않고 꺼지지도 않음) → 「다시 읽기」 · 콘솔 오류 없음 · 켜고 끄는 시간.
@@ -100,7 +100,7 @@ def level_ids(doc, tid, lv):  # 그 템플릿·레벨의 줄(개요 오버레이
     return sorted(p for p, x in o["lines"].items() if str(x["tpl"]) == str(tid) and int(x["level"]) == lv)
 
 
-def others(v):  # 대표가 아닌 갈래(목록 차례 = 화면의 「갈래 1」 …)
+def others(v):  # 대표가 아닌 갈래(목록 차례 = 화면의 「다른 서식 1」 …)
     return [g for g in v["groups"] if not g["rep"]]
 
 
@@ -237,8 +237,9 @@ def main():
         page.evaluate("([t, l]) => tplRelOpen(+t, { tpl: t, level: l, para: null })", [A[0], A[1]])  # 줄 없이 그 레벨만 편다(줄을 주면 그 줄의 갈래가 「살펴보는 갈래」 가 된다 — 7·8 에서 따로 본다)
         page.wait_for_selector(f"{row} .olm-list li.olm-g", timeout=30000)
         rv = page.evaluate(ROWV, [COL, *A])
-        nos = {g["key"]: f"갈래 {i + 1}" for i, g in enumerate(oa)}
-        check("카드마다 갈래 번호(대표 = 「대표」 · 그 밖 「갈래 1」 … — 목록 차례) · 「본문에서 보기」 · 30줄 넘는 갈래의 카드 목록은 30줄",
+        nos = {g["key"]: f"다른 서식 {i + 1}" for i, g in enumerate(oa)}
+        tnos = {k: n.replace("다른 ", "") for k, n in nos.items()}  # 본문 꼬리표는 짧은 꼴 「서식 n」(여백이 좁다) — 번호는 카드와 같다
+        check("카드마다 갈래 번호(대표 = 「대표」 · 그 밖 「다른 서식 1」 … — 목록 차례) · 「본문에서 보기」 · 30줄 넘는 갈래의 카드 목록은 30줄",
               rv and all(rv["nos"].get(k) == n for k, n in nos.items()) and rv["nos"].get(va["rep"]) == "대표" and rv["see"] == rv["cards"] == len(va["groups"]) and rv["list"][big["key"]] == 30, rv)
         v = page.evaluate(VIEW)
         check("고르기 전 — 본문 표시 없음 · 고른 것 없음", not v["kind"] and not v["on"] and not v["hit"] and page.evaluate(PICKS) == {}, [v["kind"], v["hit"][:3]])
@@ -250,14 +251,14 @@ def main():
         check(f"1. 갈래 하나의 ☐ → 본문에 또렷한 줄 = 그 갈래의 줄 전부({k1['count']}줄 — 문단 id 집합) · 표시의 주인 = 고르기(by chk)",
               v["hit"] == sorted(k1["paras"]) and v["by"] == "chk" and v["tpl"] == A[0] and v["level"] == A[1] and v["keys"] == [k1["key"]] and v["on"], [v["hit"], k1["paras"], v["by"], v["keys"]])
         no_a = page.evaluate("(t) => String(heads.outline.templates[t].no)", A[0])
-        check("이름 줄 「T… L…」 칩 · 「고른 갈래 1 · 줄 n개」 · 「템플릿 관계」 · 「끄기」 · 줄 높이 35px · 넘침 없음",
-              v["key"]["shown"] and v["key"]["chip"] == f"T{no_a} L{A[1]}" and v["key"]["count"] == f"고른 갈래 1 · 줄 {k1['count']}개" and v["key"]["btns"][-2:] == ["템플릿 관계", "끄기"] and v["rowH"] == 35 and not v["over"], v["key"])
+        check("이름 줄 「T… L…」 칩 · 「고른 서식 1가지 · 줄 n개」 · 「템플릿 관계」 · 「끄기」 · 줄 높이 35px · 넘침 없음",
+              v["key"]["shown"] and v["key"]["chip"] == f"T{no_a} L{A[1]}" and v["key"]["count"] == f"고른 서식 1가지 · 줄 {k1['count']}개" and v["key"]["btns"][-2:] == ["템플릿 관계", "끄기"] and v["rowH"] == 35 and not v["over"], v["key"])
         tg = [t for t in v["tags"] if t["key"] == k1["key"]]
-        check("보이는 줄마다 쪽 오른쪽 여백에 꼬리표 — 번호가 카드의 번호와 같다(「갈래 n · ≠ …」) · 누르는 단추(button)",
-              sorted({t["para"] for t in tg}) == sorted(k1["paras"]) and all(t["text"].startswith(nos[k1["key"]]) and t["tag"] == "BUTTON" and t["type"] == "button" for t in tg) and len(v["tags"]) == len(tg)
+        check("보이는 줄마다 쪽 오른쪽 여백에 꼬리표 — 번호가 카드의 번호와 같다(「서식 n · ≠ …」) · 누르는 단추(button)",
+              sorted({t["para"] for t in tg}) == sorted(k1["paras"]) and all(t["text"].startswith(tnos[k1["key"]]) and t["tag"] == "BUTTON" and t["type"] == "button" for t in tg) and len(v["tags"]) == len(tg)
               and rv["nos"][k1["key"]] == nos[k1["key"]], [v["tags"][:4], rv["nos"]])
         check("여백의 그 레벨 표기는 「일부」(.part — 레벨 전체의 눌림 .on 이 아니다)", v["part"] == [f"{A[0]}|{A[1]}"] and v["onMarks"] == 0, [v["part"], v["onMarks"]])
-        check("단추 글 「고른 1갈래 맞추기(n줄)」 · 「모두 고르기」 는 일부(가운데 줄)", rv["go"] == f"고른 1갈래 맞추기({k1['count']}줄)" and rv["all"] == [False, True] and rv["checked"] == [k1["key"]], rv)
+        check("단추 글 「고른 서식 1가지 맞추기(n줄)」 · 「모두 고르기」 는 일부(가운데 줄)", rv["go"] == f"고른 서식 1가지 맞추기({k1['count']}줄)" and rv["all"] == [False, True] and rv["checked"] == [k1["key"]], rv)
 
         # 2. 모두 고르기
         page.locator(f"{row} .olm-bulk .olm-all input").first.check()
@@ -265,8 +266,8 @@ def main():
         safe(lambda: shown_is(union), "2")
         v, rv = page.evaluate(VIEW), page.evaluate(ROWV, [COL, *A])
         lines = sum(g["count"] for g in oa)
-        check(f"2. 「모두 고르기」 → 대표가 아닌 갈래 {len(oa)}개의 줄 전부({lines}줄 — 합집합 · 30줄 넘는 갈래의 31번째 줄도) · 「고른 갈래 {len(oa)} · 줄 {lines}개」 · 단추 글",
-              v["hit"] == union and len(union) == lines and big["paras"][30] in v["hit"] and v["key"]["count"] == f"고른 갈래 {len(oa)} · 줄 {lines}개" and rv["go"] == f"고른 {len(oa)}갈래 맞추기({lines}줄)"
+        check(f"2. 「모두 고르기」 → 대표가 아닌 갈래 {len(oa)}개의 줄 전부({lines}줄 — 합집합 · 30줄 넘는 갈래의 31번째 줄도) · 「고른 서식 {len(oa)}가지 · 줄 {lines}개」 · 단추 글",
+              v["hit"] == union and len(union) == lines and big["paras"][30] in v["hit"] and v["key"]["count"] == f"고른 서식 {len(oa)}가지 · 줄 {lines}개" and rv["go"] == f"고른 서식 {len(oa)}가지 맞추기({lines}줄)"
               and rv["all"] == [True, False] and rv["checked"] == sorted(g["key"] for g in oa), [len(v["hit"]), lines, v["key"], rv["go"], rv["all"]])
         rest = sorted(set(ids_a) - in_var)
         check(f"대표 갈래의 줄 · 어느 갈래에도 없는 줄(값 칸 {len(rest)}줄)은 고른 것으로 안 보인다", not (set(v["hit"]) & (set(next(g for g in va['groups'] if g['rep'])['paras']) | set(rest))), rest[:5])
@@ -274,7 +275,7 @@ def main():
         for t in v["tags"]:
             tk.setdefault(t["key"], []).append(t)
         check("꼬리표는 갈래마다 제 번호 — 다른 갈래를 한 꼬리표로 묶지 않는다(꼬리표의 갈래 = 그 줄의 갈래)",
-              set(tk) == {g["key"] for g in oa} and all(all(t["text"].startswith(nos[k]) and t["para"] in next(g for g in oa if g["key"] == k)["paras"] for t in ts) for k, ts in tk.items()),
+              set(tk) == {g["key"] for g in oa} and all(all(t["text"].startswith(tnos[k]) and t["para"] in next(g for g in oa if g["key"] == k)["paras"] for t in ts) for k, ts in tk.items()),
               {k: [t["text"] for t in ts][:3] for k, ts in tk.items()})
         page.evaluate("(pid) => document.querySelector(`#doc .para[data-id=\"${pid}\"]`).scrollIntoView({ block: 'center' })", big["paras"][0])
         page.wait_for_timeout(400)
@@ -290,7 +291,7 @@ def main():
         safe(lambda: shown_is(big["paras"]), "3")
         v, rv = page.evaluate(VIEW), page.evaluate(ROWV, [COL, *A])
         check(f"3. 30줄을 넘는 갈래({big['count']}줄)만 → 그 줄 전부(31번째 줄 {big['paras'][30]} 포함) — 카드의 줄 목록은 30줄에서 잘려 있다",
-              v["hit"] == sorted(big["paras"]) and big["paras"][30] in v["hit"] and rv["list"][big["key"]] == 30 and rv["go"] == f"고른 1갈래 맞추기({big['count']}줄)" and v["key"]["count"] == f"고른 갈래 1 · 줄 {big['count']}개", [len(v["hit"]), rv["go"], v["key"]])
+              v["hit"] == sorted(big["paras"]) and big["paras"][30] in v["hit"] and rv["list"][big["key"]] == 30 and rv["go"] == f"고른 서식 1가지 맞추기({big['count']}줄)" and v["key"]["count"] == f"고른 서식 1가지 · 줄 {big['count']}개", [len(v["hit"]), rv["go"], v["key"]])
 
         # 7. 꼬리표 → 카드(31번째 뒤의 줄) — 열을 다시 짓지 않는다 · 고르기는 안 바뀐다
         late = big["paras"][30:]
@@ -328,7 +329,7 @@ def main():
         tk2 = [t for t in v["tags"] if t["key"] == k2["key"]]
         check("8. 고른 갈래를 보는 중의 「본문에서 보기」(다른 갈래) — 고르기 그대로 · 본문 표시도 그대로(고른 갈래의 줄) · 그 카드에 .sel · 그 갈래의 줄에 강조 꼬리표(번호) · 첫 줄로",
               page.evaluate(PICKS) == {f"{A[0]}|{A[1]}": [big["key"]]} and v["by"] == "chk" and v["hit"] == sorted(big["paras"]) and rv["sel"] == [k2["key"]] and rv["checked"] == [big["key"]]
-              and sorted({t["para"] for t in tk2}) == sorted(k2["paras"]) and all(t["look"] and t["text"].startswith(nos[k2["key"]]) for t in tk2)
+              and sorted({t["para"] for t in tk2}) == sorted(k2["paras"]) and all(t["look"] and t["text"].startswith(tnos[k2["key"]]) for t in tk2)
               and page.evaluate("(pid) => document.querySelector(`#doc .para[data-id=\"${pid}\"]`).classList.contains('flash')", k2["paras"][0]), [page.evaluate(PICKS), v["by"], rv["sel"], tk2[:2]])
         # 5. 「끄기」 — 표시만
         page.click("#fmtKey .fm-key-off")
@@ -360,7 +361,7 @@ def main():
         card(k2).locator("input.olm-chk").check()  # 열에서 고르면 탭도
         page.wait_for_timeout(300)
         a, c = page.evaluate(ROWV, [TAB, *A]), page.evaluate(ROWV, [COL, *A])
-        check("열에서 ☐ 를 고르면 탭의 ☐ · 단추 글도 같이 바뀐다", same(a, c) and k2["key"] in a["checked"] and a["go"] == f"고른 3갈래 맞추기({big['count'] + k1['count'] + k2['count']}줄)", [a, c])
+        check("열에서 ☐ 를 고르면 탭의 ☐ · 단추 글도 같이 바뀐다", same(a, c) and k2["key"] in a["checked"] and a["go"] == f"고른 서식 3가지 맞추기({big['count'] + k1['count'] + k2['count']}줄)", [a, c])
         card(big, TAB).locator("input.olm-chk").uncheck()  # 탭에서 풀면 열도 · 본문도
         want = sorted(k1["paras"] + k2["paras"])
         safe(lambda: shown_is(want), "6b")
@@ -399,7 +400,7 @@ def main():
             okv = safe(lambda: shown_is(wantv), "값 칸")
             v = page.evaluate(VIEW)
             check(f"값 칸 줄이 있는 레벨(T{V[0]} L{V[1]} — 값 칸 {len(valv)}줄: {vpid})을 모두 고르면 갈래의 줄만({len(wantv)}줄) — 값 칸 줄은 어느 갈래에도 없어 고른 것으로 안 보인다(그 레벨의 줄이기는 하다)",
-                  okv and v["hit"] == wantv and len(valv) == vv["values"] > 0 and vpid in valv and vpid in idv and not (set(v["hit"]) & set(valv)) and v["key"]["count"] == f"고른 갈래 {len(others(vv))} · 줄 {len(wantv)}개",
+                  okv and v["hit"] == wantv and len(valv) == vv["values"] > 0 and vpid in valv and vpid in idv and not (set(v["hit"]) & set(valv)) and v["key"]["count"] == f"고른 서식 {len(others(vv))}가지 · 줄 {len(wantv)}개",
                   [len(v["hit"]), len(wantv), valv[:3], v["key"]])
             page.evaluate("([t, l]) => olmPickChange(t, l, (s) => s.clear())", [V[0], V[1]])
             safe(off_is, "값 칸 풀기")
@@ -424,7 +425,7 @@ def main():
         check("9. 레벨 A 고름 → 끄기 → 레벨 B 고름 → A 의 마지막 ☐ 를 풀어도 B 의 표시는 그대로(표시의 주인 = B 의 고르기)", v["by"] == "chk" and v["tpl"] == B[0] and v["level"] == B[1] and v["hit"] == sorted(kb["paras"])
               and page.evaluate(PICKS) == {f"{B[0]}|{B[1]}": [kb["key"]]}, [v["by"], v["tpl"], v["level"], v["hit"], page.evaluate(PICKS)])
 
-        # 10. 「고른 갈래 맞추기」 — rev 를 보낸다 · 보낸 고르기와 표시가 비워진다 · 실행 취소
+        # 10. 「고른 서식 맞추기」 — rev 를 보낸다 · 보낸 고르기와 표시가 비워진다 · 실행 취소
         rev0 = page.evaluate("() => state.serverRev")
         _, srv0 = slot(doc, *B)
         posts.clear()
@@ -433,7 +434,7 @@ def main():
         ok10 = safe(off_is, "10")
         body = json.loads(posts[0][1]) if posts else {}
         vb2, _ = slot(doc, *B)
-        check("10. 「고른 갈래 맞추기」 가 고른 때의 문서 차례(rev)를 보낸다 · 고른 갈래만(likes) · 맞춘 뒤 그 갈래가 없어짐",
+        check("10. 「고른 서식 맞추기」 가 고른 때의 문서 차례(rev)를 보낸다 · 고른 갈래만(likes) · 맞춘 뒤 그 갈래가 없어짐",
               len(posts) == 1 and f"/outline/templates/{B[0]}/match" in posts[0][0] and body.get("rev") == rev0 == srv0 and len(body["levels"]) == 1 and body["levels"][0]["likes"] == [kb["paras"][0]]
               and len(vb2["groups"]) == len(vb["groups"]) - 1, [posts[:1], rev0, srv0, len(vb2["groups"])])
         check("맞춘 뒤 — 보낸 고르기가 비워지고 본문 표시도 꺼진다", ok10 and page.evaluate(PICKS) == {} and not page.evaluate(VIEW)["on"], page.evaluate(PICKS))
@@ -455,8 +456,8 @@ def main():
         page.wait_for_function("() => { olmOpenNow(); return !OLM.going && !state.busy && olmFresh() && ![...OLM.chk.values()].some((s) => s.size); }", timeout=30000)
         toast = page.evaluate("() => { const t = document.getElementById('toast'); return t.hidden ? '' : t.textContent; }")
         page.wait_for_timeout(600)
-        check("고른 뒤 그 갈래 줄의 서식이 바뀌면(목록은 옛것 — 단추는 켜진 채) 「고른 갈래 맞추기」 는 맞추지 않는다 — 갈래를 다시 읽어 구성이 달라 고르기를 풀고 알린다(요청을 안 보냄) · 표시 꺼짐",
-              stale_go[0] == f"고른 1갈래 맞추기({kb['count']}줄)" and not stale_go[1] and not stale_go[2] and not posts and page.evaluate(PICKS) == {} and "갈래가 바뀌었습니다" in toast and "다시 골라" in toast
+        check("고른 뒤 그 갈래 줄의 서식이 바뀌면(목록은 옛것 — 단추는 켜진 채) 「고른 서식 맞추기」 는 맞추지 않는다 — 갈래를 다시 읽어 구성이 달라 고르기를 풀고 알린다(요청을 안 보냄) · 표시 꺼짐",
+              stale_go[0] == f"고른 서식 1가지 맞추기({kb['count']}줄)" and not stale_go[1] and not stale_go[2] and not posts and page.evaluate(PICKS) == {} and "서식 구성이 바뀌었습니다" in toast and "다시 골라" in toast
               and not page.evaluate(VIEW)["on"], [posts, page.evaluate(PICKS), toast, stale_go])
         page.click("#undoBtn")
         page.wait_for_function("(n) => !state.busy && olmFresh() && OLM.data['3']['2'].groups.length === n", arg=len(vb["groups"]), timeout=60000)
@@ -480,7 +481,7 @@ def main():
         page.wait_for_timeout(300)
         quiet["on"] = False
         after = [g["count"] for g in slot(doc, *B)[0]["groups"]]
-        check("화면 모르게 문서가 바뀐 뒤의 「고른 갈래 맞추기」 → 옛 rev 를 보내 서버가 409 — 아무것도 안 맞춘다 · 고르기를 풀고 「문서가 바뀌었습니다 — 갈래를 다시 골라 주세요」 · 표시 꺼짐 · 화면이 서버 문서로",
+        check("화면 모르게 문서가 바뀐 뒤의 「고른 서식 맞추기」 → 옛 rev 를 보내 서버가 409 — 아무것도 안 맞춘다 · 고르기를 풀고 「문서가 바뀌었습니다 — 서식을 다시 골라 주세요」 · 표시 꺼짐 · 화면이 서버 문서로",
               len(posts) == 1 and json.loads(posts[0][1]).get("rev") == rev2 and before == after and page.evaluate(PICKS) == {} and "문서가 바뀌었습니다" in toast and "다시 골라" in toast
               and not page.evaluate(VIEW)["on"] and page.evaluate("() => state.serverRev") == slot(doc, *B)[1], [posts[:1], rev2, before, after, toast, page.evaluate(PICKS)])
 
@@ -504,15 +505,15 @@ def main():
         okf = safe(lambda: page.wait_for_function("() => FMF.kind === 'tpl' && FMF.by === 'chk' && FMF.mem === 'error'", timeout=20000), "12b")
         page.wait_for_timeout(300)
         v = page.evaluate(VIEW)
-        check("줄 전부 읽기가 실패하면 — 표시는 꺼지지 않고(고르기 그대로) 이름 줄에 「갈래의 줄을 읽지 못함」 · 줄 수를 말하지 않는다 · 「다시 읽기」",
-              okf and cut["n"] == 1 and v["kind"] == "tpl" and v["by"] == "chk" and v["key"]["shown"] and v["key"]["note"] == "갈래의 줄을 읽지 못함" and "줄" not in v["key"]["count"] and "다시 읽기" in v["key"]["btns"]
+        check("줄 전부 읽기가 실패하면 — 표시는 꺼지지 않고(고르기 그대로) 이름 줄에 「서식의 줄을 읽지 못함」 · 줄 수를 말하지 않는다 · 「다시 읽기」",
+              okf and cut["n"] == 1 and v["kind"] == "tpl" and v["by"] == "chk" and v["key"]["shown"] and v["key"]["note"] == "서식의 줄을 읽지 못함" and "줄" not in v["key"]["count"] and "다시 읽기" in v["key"]["btns"]
               and page.evaluate(PICKS) == {f"{A[0]}|{A[1]}": [big["key"]]}, [v["kind"], v["mem"], v["key"], cut])
         quiet["on"] = False
         page.click("#fmtKey .fm-key-retry")
         safe(lambda: shown_is(big["paras"]), "12c")
         page.unroute(full_url)
         v = page.evaluate(VIEW)
-        check("「다시 읽기」 → 고른 갈래의 줄 전부가 보인다", v["hit"] == sorted(big["paras"]) and v["key"]["count"] == f"고른 갈래 1 · 줄 {big['count']}개", [len(v["hit"]), v["key"]])
+        check("「다시 읽기」 → 고른 갈래의 줄 전부가 보인다", v["hit"] == sorted(big["paras"]) and v["key"]["count"] == f"고른 서식 1가지 · 줄 {big['count']}개", [len(v["hit"]), v["key"]])
         page.screenshot(path=str(OUT / "03_pick_key.png"))
 
         # 좁은 폭 — 고른 갈래 설명도 한 줄(35px) · 넘침 없음 · 칩과 단추는 줄 안: 옆 열을 연 1500px(문서 칸이 가장 좁다 — 360px) · 1100px · 열을 닫은 700px

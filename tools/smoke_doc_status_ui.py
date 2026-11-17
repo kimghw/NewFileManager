@@ -130,7 +130,7 @@ def tpl_item(state="done", llm="none"):
 
 
 def fmt_item(state="done", aligned=1, levels=3, llm="none"):
-    return {"key": "formats", "name": "서식", "state": state, "levels": levels, "aligned": aligned, "groups": 5, "others": 4, "slots": [], "text": f"레벨 {levels} · 서식 갈래 5",
+    return {"key": "formats", "name": "서식", "state": state, "levels": levels, "aligned": aligned, "groups": 5, "others": 4, "slots": [], "text": f"레벨 {levels} · 서식 5가지",
             "llm": {"state": llm, "text": "서식 정리 계획 안 받음 — 정리할 템플릿 1", "error": None, "need": 1, "planned": 0, "applied": 0, "stale": 0, "list": [{"tpl": "1", "no": "1", "state": "none"}]},
             "apply": {"state": "done" if aligned == levels else "none", "text": f"맞춘 레벨 {aligned}/{levels} · 대표와 다른 줄 4"}}
 

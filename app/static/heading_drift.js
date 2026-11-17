@@ -260,7 +260,7 @@ function driftLine(pid) { // 그 문단의 개요 오버레이 줄({tpl, level, 
 }
 
 // 서식 줄의 할 일 칸 — 잘못된 서식: 「대표에 맞추기」(outline_match.js olmMatch — 「템플릿 관계」 의 갈래 맞추기와 같은 길: 그 줄과 서식이 같은 줄을 그 레벨 대표의 모양으로 · 실행 취소 1) ·
-// 둘 다: 「갈래 보기」(「템플릿 관계」 의 그 줄 갈래 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기를 사람이 고른다). 템플릿의 줄이 아니면 글만.
+// 둘 다: 「서식 보기」(「템플릿 관계」 의 그 줄 갈래 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기를 사람이 고른다). 템플릿의 줄이 아니면 글만.
 function driftActs(it, wrong) {
   const td = el("td", "drift-act");
   const pid = (it.paras || [])[0], ol = pid ? driftLine(pid) : null;
@@ -272,13 +272,13 @@ function driftActs(it, wrong) {
   const t = heads.outline.templates ? heads.outline.templates[String(ol.tpl)] || {} : {};
   const rep = ((t.slots || {})[String(ol.level)] || {}).rep, name = `T${ol.no} L${ol.level}`;
   if (wrong && typeof olmMatch === "function") {
-    const why = rep === pid ? `이 줄이 ${name} 의 대표입니다 — 「갈래 보기」 에서 대표를 다른 줄로 정한 뒤 맞추세요` : !rep ? `${name} 에 대표 줄이 없습니다` : "";
+    const why = rep === pid ? `이 줄이 ${name} 의 대표입니다 — 「서식 보기」 에서 대표를 다른 줄로 정한 뒤 맞추세요` : !rep ? `${name} 에 대표 줄이 없습니다` : "";
     td.append(hBtn("대표에 맞추기", async () => { await olmMatch(ol.tpl, ol.level, 1, [pid]); driftForce(); }, { disabled: !!why, cls: "btn sm drift-match",
       title: why || `이 줄을 ${name} 대표 줄의 모양(앞 공백·레터 · 문단 모양 · 글자 모양)으로 맞춥니다 — 장평·자간은 이 줄의 것을 지킵니다 · 「실행 취소」 로 되돌림` }));
   }
   if (typeof tplRelOpen === "function") {
-    td.append(hBtn("갈래 보기", () => tplRelOpen(/^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl), { tpl: ol.tpl, level: ol.level, para: pid }), { cls: "hlink drift-rel",
-      title: `「템플릿 관계」 의 ${name} 서식 갈래에서 이 줄을 봅니다 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기` }));
+    td.append(hBtn("서식 보기", () => tplRelOpen(/^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl), { tpl: ol.tpl, level: ol.level, para: pid }), { cls: "hlink drift-rel",
+      title: `「템플릿 관계」 의 ${name} 서식 목록에서 이 줄을 봅니다 — 대표에 맞추기 · 다른 템플릿으로 · 대표로 정하기` }));
   }
   return td;
 }
@@ -327,7 +327,7 @@ function driftView() {
   }
   if (s2 && (s2.formats || []).length) {
     head("새 서식", `${nf(s2.counts.formats)}가지 · 문단 ${nf(s2.counts.formatParas)} — 그 레터의 줄 여럿이 되풀이해 쓰는, 쓰지 않던 서식(오차 밖)`, 2);
-    const [tbl, tb] = hTable(["레터", "자리", "지금 서식", "문단", "예문", "갈래"]);
+    const [tbl, tb] = hTable(["레터", "자리", "지금 서식", "문단", "예문", "할 일"]);
     tbl.classList.add("temp-list", "drift-list");
     for (const it of s2.formats) {
       const tr = el("tr");

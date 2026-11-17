@@ -45,11 +45,11 @@ function dsTpl(it) { // 템플릿 — 헤딩 그래프(2단계)가 세운 것(�
 
 function dsFmt(it) { // 서식 — 맞춘 레벨(갈래가 하나뿐인 레벨) / 줄이 있는 레벨
   const go = "Table", n = it.name, plan = `\n서식 정리 계획(LLM): ${it.llm.text}`;
-  if (it.state !== "done") return { text: n, mark: it.state === "running" || it.state === "wait" ? "대기" : "없음", cls: "off", go, title: "서식 — 헤딩 그래프의 템플릿 레벨마다 서식 갈래를 셉니다" };
+  if (it.state !== "done") return { text: n, mark: it.state === "running" || it.state === "wait" ? "대기" : "없음", cls: "off", go, title: "서식 — 헤딩 그래프의 템플릿 레벨마다 쓰인 서식의 가짓수를 셉니다" };
   if (!it.levels) return { text: n, mark: "없음", cls: "off", go, title: "서식 — 템플릿 레벨이 없습니다" };
   const all = it.aligned === it.levels;
   return { text: n, mark: all ? "✓" : `${it.aligned}/${it.levels}`, cls: all ? "ok" : "", go,
-    title: `서식 — ${it.text} · ${it.apply.text}${all ? "" : "\n「맞춘 레벨」 = 서식 갈래가 하나뿐인 레벨 — 「그대로」 로 둔 갈래도 다른 줄로 셉니다"}${plan}` };
+    title: `서식 — ${it.text} · ${it.apply.text}${all ? "" : "\n「맞춘 레벨」 = 서식이 한 가지뿐인 레벨 — 「그대로」 로 둔 서식도 다른 줄로 셉니다"}${plan}` };
 }
 
 const DS_FOUR = [["heads", "헤딩"], ["templates", "템플릿"], ["formats", "서식"], ["tables", "표"]];
@@ -229,7 +229,7 @@ function dsRow(k, n, it) { // → [이름, 스크립트, LLM, 반영] 칸
   const rules = k === "heads" && it.rules && it.rules.asked !== false && L.state !== "failed" ? ` · 규칙 보강 ${it.rules.saved != null ? it.rules.saved : "함"}` : ""; // 답을 받은 보강만(못 받은 것은 세지 않는다)
   const lGo = k === "formats" ? "Tidy" : go, aGo = k === "formats" ? "Tidy" : null;
   const apply = k === "formats" ? dsCell(it.apply.text || "—", it.apply.state === "done" ? "done" : "", it.state === "done" ? aGo : null,
-    `${it.apply.text}\n맞춘 레벨 = 서식 갈래가 하나뿐인 레벨 — 「템플릿 서식 정리」 에서 계획을 골라 적용하거나 「대표에 맞추기」 로 맞춥니다(문서가 바뀜 · 실행 취소 1)`)
+    `${it.apply.text}\n맞춘 레벨 = 서식이 한 가지뿐인 레벨 — 「템플릿 서식 정리」 에서 계획을 골라 적용하거나 「대표에 맞추기」 로 맞춥니다(문서가 바뀜 · 실행 취소 1)`)
     : dsCell("—", "na", null, "문서를 바꾸지 않는 일입니다 — 결과는 뼈대로만 씁니다");
   return [el("span", "ds-row-name", n), dsCell(sText, it.state, go, `${n} — 스크립트(올리면 저절로 · 무료)\n${it.text || sText}`),
     dsCell(lText + rules, L.state, lGo, `${n} — LLM 검증·보완(사람이 단추로 · 유료)\n${L.text}${rules}${L.error ? `\n${L.error}` : ""}`), apply];

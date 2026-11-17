@@ -251,9 +251,9 @@ def _plan_tpl(s, ov, tpl, want):
             for c_likes, c_rep, c_sfx, c_match in cuts:  # 서식 종속 템플릿으로 뗄 갈래(② §8-5) — 바꾸기 전에 다 검사한다
                 paras = outline_match.split_targets(s.doc, ov, tpl, lv, c_likes)
                 if c_rep not in paras:
-                    raise ValueError("splits[].rep 는 그 갈래의 줄이어야 합니다")
+                    raise ValueError("splits[].rep 는 그 서식의 줄이어야 합니다")
                 if gone & set(paras):
-                    raise ValueError(f"L{lv} 의 같은 갈래를 두 템플릿으로 뗄 수는 없습니다")
+                    raise ValueError(f"L{lv} 의 같은 서식을 두 템플릿으로 뗄 수는 없습니다")
                 why = outline_match.split_block(ov, tpl, lv, paras, rep=r)
                 if why:
                     raise ValueError(why)
@@ -264,7 +264,7 @@ def _plan_tpl(s, ov, tpl, want):
                             "ids": [p for p in paras if p != c_rep and not outline_match.same(outline_match.look(s.doc, ov, p), base)] if c_match else []})
                 gone |= set(paras)
             if likes is not None and gone & set(ids):
-                raise ValueError(f"L{lv} 의 같은 갈래를 맞추면서 뗄 수는 없습니다")
+                raise ValueError(f"L{lv} 의 같은 서식을 맞추면서 뗄 수는 없습니다")
             ids = [i for i in ids if i not in gone]
             used = outline_match.used_sfx(ov, tpl, lv) | {c["sfx"] for c in cut if c["sfx"]}
             for c in cut:  # 글자를 안 준 것은 여기서 정해 둔다(빈 글자 가운데 첫 것 — 뒤의 것이 준 글자와 안 겹치게)
@@ -286,7 +286,7 @@ def _plan(s, ov, jobs, rev):
         if str(tpl) not in ov["templates"]:
             raise HTTPException(404, "그런 템플릿이 없습니다")
     if rev is not None and rev != s.rev:
-        raise HTTPException(409, "그 사이에 문서가 바뀌었습니다 — 서식 갈래를 다시 읽은 뒤 맞추세요")
+        raise HTTPException(409, "그 사이에 문서가 바뀌었습니다 — 서식을 다시 읽은 뒤 맞추세요")
     out = []
     for tpl, want in jobs:
         try:
@@ -616,7 +616,7 @@ def split(doc_id: str, tpl: str, level: int, body: dict = Body(...)):
     server = _server()
     likes, rep, into, sfx = body.get("likes"), body.get("rep"), body.get("into"), body.get("sfx")
     if not isinstance(likes, list) or not likes or not all(isinstance(p, str) and p for p in likes):
-        raise HTTPException(400, "likes(뗄 갈래의 줄 id 목록)가 필요합니다")
+        raise HTTPException(400, "likes(뗄 서식의 줄 id 목록)가 필요합니다")
     if rep is not None and (not isinstance(rep, str) or not rep):
         raise HTTPException(400, "rep 는 문단 id")
     if into is not None:

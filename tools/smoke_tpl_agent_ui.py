@@ -334,7 +334,7 @@ def main():
               and seen["body"] == {"skill": "tidy", "request": "L2 만"} and pl["saved"].startswith("저장됨 · 판 1"), [sk, seen.get("body"), pl["saved"]])
         opts = "맞추기|그대로|T3L2a 로"
         check("계획 — 레벨마다 한 상자 · 「대표 바꿈」 · 갈래 줄마다 고르기(맞추기 / 그대로 / T3L2a 로 — 에이전트가 고른 것이 처음 값) · 까닭 · 걸러낸 답 · 모델·시간·비용·스킬 판",
-              pl["lv"] == 2 and pl["rep"] == "대표 바꿈" and pl["boxes"] == [["match", "match", "맞추기", opts], ["keep", "keep", "그대로", opts]] and pl["apply"] == "적용 — 5줄" and "고른 갈래 1개" in pl["count"]
+              pl["lv"] == 2 and pl["rep"] == "대표 바꿈" and pl["boxes"] == [["match", "match", "맞추기", opts], ["keep", "keep", "그대로", opts]] and pl["apply"] == "적용 — 5줄" and "고른 서식 1가지" in pl["count"]
               and any("레터 뒤 공백이 없어" in w for w in pl["why"]) and pl["notes"] == "걸러낸 답 1" and "Opus 5.5" in pl["meta"] and "15.3초" in pl["meta"] and "$0.0421" in pl["meta"] and "판 1" in pl["meta"]
               and pl["go"] == "정리 계획 다시 받기", pl)
         # 적용 몸(tpaTodoOf — 서버 tpl_agent.todo 와 같은 셈): 대표만 바꾸는 레벨도 든다(2026-11-16 astra — 전에는 고른 갈래가 없으면 그 레벨을 버려 계획의 대표가 걸리지 않았다)
@@ -353,7 +353,7 @@ def main():
         sp = page.evaluate("""(k) => { const s = document.querySelector(k), g = s.closest('.tpa-g'); return { apply: document.querySelector('.tpa-apply').textContent, count: document.querySelector('.tpa-count').textContent,
           cls: g.className, chip: (g.querySelector('.tpa-vt') || {}).textContent, focus: document.activeElement === s, why: (g.querySelector('.tpa-why') || {}).textContent }; }""", keep)
         check("「T3L2a 로」 로 바꾸면 그 갈래는 다른 템플릿으로 — 「적용 — 5줄 · 떼기 1줄」 · 줄에 「T3L2a 의 대표」 · 고르기에 초점이 남음",
-              sp["apply"] == "적용 — 5줄 · 떼기 1줄" and "고른 갈래 2개" in sp["count"] and "split" in sp["cls"] and sp["chip"] == "T3L2a 의 대표" and sp["focus"] and "레터 뒤 공백이 없어" in (sp["why"] or ""), sp)
+              sp["apply"] == "적용 — 5줄 · 떼기 1줄" and "고른 서식 2가지" in sp["count"] and "split" in sp["cls"] and sp["chip"] == "T3L2a 의 대표" and sp["focus"] and "레터 뒤 공백이 없어" in (sp["why"] or ""), sp)
         page.screenshot(path=str(OUT / "06b_plan_split.png"))
         page.select_option(keep, "keep")
         check("「그대로」 로 되돌리면 처음 줄 수", page.locator("#headsDlgBody .tpa-apply").inner_text() == "적용 — 5줄")

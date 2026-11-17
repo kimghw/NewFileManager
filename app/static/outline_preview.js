@@ -447,7 +447,7 @@ function olpSample(g) { // 갈래의 견본 글 — 레터는 레터 글자 모�
 function olpCmp(body, foot) {
   const v = olmFresh() ? olmSlotData(OLP.tpl, OLP.level) : null;
   if (!v) {
-    body.append(el("p", "muted", olmFresh() ? "이 레벨의 서식 갈래가 없습니다" : "서식 갈래 읽는 중…"));
+    body.append(el("p", "muted", olmFresh() ? "이 레벨의 서식 정보가 없습니다" : "서식 읽는 중…"));
     if (!olmFresh()) olmLoad().then((x) => { if (x && OLP.tab === "cmp") olpRender(); });
     return;
   }
@@ -458,7 +458,7 @@ function olpCmp(body, foot) {
   const cols = OLP.showAll || n < 2 ? keys : diffKeys;
   const head = el("div", "olp-sum");
   head.append(el("span", n > 1 ? "olp-big chg" : "olp-big", n > 1 ? `서식 ${n}가지` : "서식 1가지 — 모두 같음"),
-    el("span", "muted", `이 레벨 ${nf(v.total)}줄${n > 1 ? ` · 다른 항목 ${diffKeys.length}개` : ""} · ${rep ? "기준 = 대표" : "대표 없음 — 첫 갈래와 견줌"}`));
+    el("span", "muted", `이 레벨 ${nf(v.total)}줄${n > 1 ? ` · 다른 항목 ${diffKeys.length}개` : ""} · ${rep ? "기준 = 대표" : "대표 없음 — 첫 서식과 견줌"}`));
   body.append(head);
   if (n > 1) {
     const lab = el("label", "olp-chk");
@@ -473,7 +473,7 @@ function olpCmp(body, foot) {
   const thead = el("thead");
   const cat = el("tr", "olp-cat"), names = el("tr");
   cat.append(el("th", "olp-gh", ""));
-  names.append(el("th", "olp-gh", "갈래 · 견본(누르면 문서로)"));
+  names.append(el("th", "olp-gh", "서식 · 견본(누르면 문서로)"));
   let last = null, span = null;
   for (const [k, name] of cols) {
     const c = olpCat(k);
@@ -492,7 +492,7 @@ function olpCmp(body, foot) {
     const th = el("th", "olp-gh");
     const tag = el("div", "olp-gtag");
     if (g.rep) tag.append(el("span", "hb olm-badge", "대표"));
-    else tag.append(hBtn("대표로", () => olmSetRep(OLP.tpl, OLP.level, g.paras[0]), { title: `이 갈래의 첫 줄(${g.paras[0]})을 이 레벨의 대표로 — 문서는 안 바뀝니다`, cls: "btn sm olp-mini" }));
+    else tag.append(hBtn("대표로", () => olmSetRep(OLP.tpl, OLP.level, g.paras[0]), { title: `이 서식의 첫 줄(${g.paras[0]})을 이 레벨의 대표로 — 문서는 안 바뀝니다`, cls: "btn sm olp-mini" }));
     tag.append(el("span", "olp-n", `×${nf(g.count)}`));
     th.append(tag, olpSample(g));
     tr.append(th);
@@ -503,7 +503,7 @@ function olpCmp(body, foot) {
     const act = el("td", "act");
     if (!g.rep && rep) {
       act.append(hBtn("맞추기", () => olmMatch(OLP.tpl, OLP.level, g.count, [...g.paras]),
-        { title: `이 갈래 줄 ${nf(g.count)}개를 대표 모양으로 — 「실행 취소」 로 되돌립니다`, cls: "btn sm olp-mini" }));
+        { title: `이 서식의 줄 ${nf(g.count)}개를 대표 모양으로 — 「실행 취소」 로 되돌립니다`, cls: "btn sm olp-mini" }));
     }
     tr.append(act);
     tb.append(tr);

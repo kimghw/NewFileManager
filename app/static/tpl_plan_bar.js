@@ -153,7 +153,7 @@ function tpbAsk(L, P = 0) { // 「모두 반영」 의 확인 창 글 — 무엇
     `· 서식 조정 — 대표 서식에 맞출 줄 ${nf(L.change || 0)}${L.reps ? ` · 대표를 바꿀 레벨 ${nf(L.reps)}(맞출 줄이 없어도 대표가 바뀝니다)` : ""}`, `· 템플릿 조정 — 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}`]
     : ["받아 둔 서식 정리 계획은 없습니다 — 스크립트가 맞추는 것만 반영합니다.", ""];
   if (P || L.change) rows.push(`· 자리 맞춤(스크립트) — 레터 뒤 빈칸을 묶음 빈칸으로(양쪽 정렬이 늘리지 않음) · 둘째 줄을 글 시작에: 지금 ${nf(P)}줄${L.change ? " + 위에서 맞춘 줄" : ""}`);
-  const left = [L.kept ? `에이전트가 그대로 둔 줄 ${nf(L.kept)}` : "", L.unanswered ? `답이 없어 안 바꾸는 줄 ${nf(L.unanswered)}` : "", L.omitted ? `갈래가 많아 못 본 갈래 ${nf(L.omitted)}(반영 뒤 「나머지 받기」)` : ""].filter(Boolean);
+  const left = [L.kept ? `에이전트가 그대로 둔 줄 ${nf(L.kept)}` : "", L.unanswered ? `답이 없어 안 바꾸는 줄 ${nf(L.unanswered)}` : "", L.omitted ? `서식 가짓수가 많아 못 본 서식 ${nf(L.omitted)}가지(반영 뒤 「나머지 받기」)` : ""].filter(Boolean);
   if (left.length) rows.push(`· 안 바뀌는 것 — ${left.join(" · ")}`);
   const sure = tpbSure().filter((h) => h.sure);
   if (sure.length) rows.push(`· 템플릿 종속 — 한 자리에만 매달린 템플릿 ${nf(sure.length)}개를 그 자리의 템플릿 아래로 넣습니다(${tpbRelText(sure)} — 문서는 안 바뀌고 템플릿만)`);

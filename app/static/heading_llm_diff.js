@@ -379,11 +379,11 @@ function lldApplies(list) {
         for (const k of L.keep || []) {
           const li = el("li", "kept");
           li.append(el("b", "lld-kind", "그대로"), ` ×${nf(k.count || 0)} `, lldPara(k.para, k.sample, 34), el("span", "lld-diff", ` — ${LLD_KEEP(k)}`));
-          if (typeof tplRelOpen === "function") li.append(" ", hBtn("갈래 보기", () => tplRelOpen(/^\d+$/.test(String(T.tpl)) ? +T.tpl : T.tpl, { tpl: T.tpl, level: L.level, para: k.para }),
-            { cls: "btn sm lld-open", title: "「템플릿 관계」 열에서 이 줄의 서식 갈래 — 대표에 맞추거나 「다른 템플릿으로」 뗍니다" }));
+          if (typeof tplRelOpen === "function") li.append(" ", hBtn("서식 보기", () => tplRelOpen(/^\d+$/.test(String(T.tpl)) ? +T.tpl : T.tpl, { tpl: T.tpl, level: L.level, para: k.para }),
+            { cls: "btn sm lld-open", title: "「템플릿 관계」 열에서 이 줄의 서식 — 대표에 맞추거나 「다른 템플릿으로」 뗍니다" }));
           ul.append(li);
         }
-        const more = [L.omitted ? `갈래가 많아 못 본 갈래 ${nf(L.omitted)}(다음 계획이 받습니다)` : "", L.values ? `값 칸 ${nf(L.values)}줄(표 칸에 혼자 있는 레터 — 맞추지 않음)` : ""].filter(Boolean);
+        const more = [L.omitted ? `서식 가짓수가 많아 못 본 서식 ${nf(L.omitted)}가지(다음 계획이 받습니다)` : "", L.values ? `값 칸 ${nf(L.values)}줄(표 칸에 혼자 있는 레터 — 맞추지 않음)` : ""].filter(Boolean);
         if (more.length) ul.append(el("li", "muted", more.join(" · ")));
         box.append(ul);
       }
@@ -391,7 +391,7 @@ function lldApplies(list) {
     }
     s.body.append(row);
   });
-  lldLines(s.body, [["되돌리려면 「실행 취소」(반영 한 번 = 한 번) — 한 갈래만 달리 하려면 되돌린 뒤 그 갈래를 「템플릿 관계」 에서 「다른 템플릿으로」 떼고 다시 「전체 실행」 을 누르세요(계획은 다시 받지 않고 그대로 씁니다).", "muted"]]);
+  lldLines(s.body, [["되돌리려면 「실행 취소」(반영 한 번 = 한 번) — 한 서식만 달리 하려면 되돌린 뒤 그 서식을 「템플릿 관계」 에서 「다른 템플릿으로」 떼고 다시 「전체 실행」 을 누르세요(계획은 다시 받지 않고 그대로 씁니다).", "muted"]]);
   return { ...s, n: lines, badge: lines ? `${nf(lines)}줄` : nf(runs.length), tip: `반영 ${nf(runs.length)}번 — 맨 위가 마지막 것` };
 }
 
@@ -409,7 +409,7 @@ function lldFormats(list) {
     const row = el("div", `lld-item p-${P.state}`), top = el("div", "lld-top");
     top.append(el("b", "lld-name", `T${P.no ?? P.tpl}`), lldChip(LLD_PLAN[P.state] || P.state || "", P.state === "planned" ? "good" : P.state === "stale" ? "warn" : ""),
       el("span", "lld-meta", `${fmtWhen(P.at)}${P.model ? ` · ${/opus-5-5/.test(P.model) ? "Opus 5.5" : P.model}` : ""}${lldMoney(P.costUsd)}`));
-    if (typeof tplAgentOpen === "function") top.append(hBtn("★ 계획 열기", () => tplAgentOpen(P.tpl), { cls: "btn sm lld-open", title: "템플릿 서식 정리 열 — 갈래마다 고르기를 바꾸고 적용" }));
+    if (typeof tplAgentOpen === "function") top.append(hBtn("★ 계획 열기", () => tplAgentOpen(P.tpl), { cls: "btn sm lld-open", title: "템플릿 서식 정리 열 — 서식마다 고르기를 바꾸고 적용" }));
     row.append(top);
     if (P.summary) row.append(el("p", "lld-why", P.summary));
     const ul = el("ul", "lld-sum");
@@ -430,7 +430,7 @@ function lldFormats(list) {
     row.append(ul);
     if (P.applied && P.state === "applied") row.append(el("p", "lld-why", `${fmtWhen(P.applied.at)} 에 반영 — 줄 ${nf(P.applied.changed)}개`));
     else if (P.applied) row.append(el("p", "lld-why warn", `${fmtWhen(P.applied.at)} 에 반영했다가(줄 ${nf(P.applied.changed)}개) 되돌렸습니다(실행 취소 · 모두 되돌리기) — 지금 문서에는 반영돼 있지 않습니다${P.state === "planned" ? " · 계획은 그대로 다시 쓸 수 있습니다(다시 받지 않습니다)" : ""}`)); // 반영함은 문서에 남아 있을 때만(spec_hwpx_웹편집 ② §8-4)
-    if (P.state === "stale") row.append(el("p", "lld-why warn", `계획을 받은 뒤 이 템플릿의 줄이 바뀌었거나(서식 · 줄 구성) 못 본 갈래가 남아 계획대로 맞출 수 없습니다 — 「★ 계획 열기」 에서 다시 받으세요(템플릿 줄의 단추는 그동안 대표와 다른 줄을 모두 맞춥니다)`));
+    if (P.state === "stale") row.append(el("p", "lld-why warn", `계획을 받은 뒤 이 템플릿의 줄이 바뀌었거나(서식 · 줄 구성) 못 본 서식이 남아 계획대로 맞출 수 없습니다 — 「★ 계획 열기」 에서 다시 받으세요(템플릿 줄의 단추는 그동안 대표와 다른 줄을 모두 맞춥니다)`));
     if (P.state === "planned") todo += (P.change || 0) + (P.moved || 0);
     s.body.append(row);
   }

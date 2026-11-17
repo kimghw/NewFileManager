@@ -48,7 +48,7 @@ function hraUnseen(P, skipUndec = false) { // 반영할 것이 없어도 「다 
   const out = [];
   if (P.undecided && !skipUndec) out.push(`헤딩 판정의 미판정 ${nf(P.undecided)}곳(LLM 구간 검증 실패 — 「단계별 실행」 의 헤딩 판정을 다시)`);
   if (P.hints) out.push(`종속 제안 ${nf(P.hints)}개(애매한 것 — 결과 화면의 「템플릿 관계」 절에서 고릅니다)`);
-  const k = [P.kept ? `에이전트가 그대로 둔 줄 ${nf(P.kept)}` : "", P.unanswered ? `답이 없어 안 바꾼 줄 ${nf(P.unanswered)}` : "", P.omitted ? `갈래가 많아 못 본 갈래 ${nf(P.omitted)}` : ""].filter(Boolean);
+  const k = [P.kept ? `에이전트가 그대로 둔 줄 ${nf(P.kept)}` : "", P.unanswered ? `답이 없어 안 바꾼 줄 ${nf(P.unanswered)}` : "", P.omitted ? `서식 가짓수가 많아 못 본 서식 ${nf(P.omitted)}가지` : ""].filter(Boolean);
   if (k.length) out.push(`받아 둔 계획이 남긴 것 — ${k.join(" · ")}(조정 층의 칸을 눌러 계획 보기 · 「템플릿 관계」 에서 손으로)`);
   out.push(...hraKept(P.done));
   if (P.norep) out.push(`대표가 없는 레벨 ${nf(P.norep)}개(「템플릿 관계」 에서 줄 하나를 대표로 — 대표가 없으면 맞춘 레벨로 세지 않습니다)`);

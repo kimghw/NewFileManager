@@ -247,7 +247,7 @@ def test_templates_and_formats_count_from_overlay_variants_and_plans():
     assert (t["state"], t["count"], t["text"], t["llm"]["state"]) == ("done", 2, "T1 □ › o › - · T2 -", "none")
     f = a["formats"]
     assert (f["state"], f["levels"], f["aligned"], f["groups"], f["others"]) == ("done", 3, 2, 4, 2)
-    assert f["apply"] == {"state": "none", "text": "맞춘 레벨 2/3 · 대표와 다른 줄 2"} and f["text"] == "레벨 3 · 서식 갈래 4"
+    assert f["apply"] == {"state": "none", "text": "맞춘 레벨 2/3 · 대표와 다른 줄 2"} and f["text"] == "레벨 3 · 서식 4가지"
     assert f["llm"]["state"] == "none" and f["llm"]["need"] == 1 and f["llm"]["list"] == [{"tpl": "1", "no": "1", "state": "none"}]
     assert a["tables"]["calc"] == {"formulas": 12, "ok": 12, "mismatch": 0} and a["heads"]["rules"] is None
     assert [(x["key"], x["run"]) for x in v["llmPlan"]] == [("heads", True), ("tables", True), ("formats", True)] and v["chain"] is None
