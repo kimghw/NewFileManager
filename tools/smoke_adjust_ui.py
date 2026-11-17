@@ -4,7 +4,9 @@
 
 서식 정리 에이전트(LLM)는 **기본 스킬의 기준대로 답하는 가짜**로 바꿔 끼운다(임시 서버 안에서만 — 레터가 대표와 같은 갈래는 맞추고, 다른 갈래는 레터마다 떼고, 못 떼면 그대로):
 그래서 계획 받기 · 반영의 끝점은 진짜다. 연구개발계획서_양식.hwpx 를 올려 2·3단계(스크립트)를 돌린 뒤 헤딩 탭 →
-① 진행 줄이 세 층(스크립트 · LLM · 조정) · 조정 = 「템플릿 조정 ○」·「서식 조정 ○」·「계획 받기」 ② 「계획 받기」(확인 창) → 서식 정리 계획만 돌고(헤딩 · 표 LLM 은 안 돎) 두 칸이 「계획 받음 · n줄」 + 「모두 반영」
+① 진행 줄이 세 층(스크립트 · LLM · 조정) · 조정 = 「템플릿 조정 ○」·「서식 조정 ○」 · 헤딩 판정(LLM)을 안 거친 문서의 행동 칸은 **「LLM 판정」**(「계획 받기」 가 아니다 — 2026-11-17: 누르면 돌 것을 보인 확인 창 뒤에
+「LLM 검증·보완」 이어 돌리기 — 임시 서버에는 헤딩 LLM 이 없어 그 함수만 바꿔 끼워 불렸는지 본다) · 판정을 거친 문서(화면 함수 tpbJudged 를 바꿔 끼워 흉내)에서만 「계획 받기」
+② 「계획 받기」(확인 창) → 서식 정리 계획만 돌고(헤딩 · 표 LLM 은 안 돎) 두 칸이 「계획 받음 · n줄」 + 「모두 반영」
 ③ 칸을 누르면 「LLM 이 바꾼 것」 열의 「서식 계획」 절 ④ 「모두 반영」 → 실행 취소 1 · 모든 템플릿 · 두 칸 ✓ · 계획은 반영함 ⑤ 실행 취소 한 번이면 문서가 처음 그대로
 ⑥ 좁은 패널(320 · 388 · 480px)에서 세 줄 · 가로 넘침 없음 · 콘솔 오류 없음."""
 import argparse
@@ -142,18 +144,47 @@ try:
         page.wait_for_function("() => document.querySelector('#doc .sheet .para') != null", timeout=240000)
         page.click("#tabHeads")
         page.wait_for_function("() => typeof heads !== 'undefined' && heads.view && heads.view.stage3 && !(heads.view.job && heads.view.job.status === 'running') && document.querySelector('#headsOverview .hprog [data-tpb]')", timeout=120000)
-        page.wait_for_function(WAIT_ADJ, arg="계획 받기", timeout=30000)
+        page.wait_for_function(WAIT_ADJ, arg="LLM 판정", timeout=30000)
 
-        # ---- ① 세 층 — 조정: 계획 없음
+        # ---- ① 세 층 — 조정: 계획 없음 · 헤딩 판정(LLM)을 안 거침 → 행동 칸은 「LLM 판정」(2026-11-17 사용자 「LLM 판정버튼이 없고 계획받기 버튼을 누르도록 되어 있었어」 — 전에는 「계획 받기」)
         m = page.evaluate(SNAP)
         c = m["cells"]
         check("진행 줄 세 층(스크립트 · LLM · 조정) · 칸 아홉", m["layers"] == ["스크립트", "LLM", "조정"] and len(c) == 9, (m["layers"], len(c)))
-        check("조정 층: 「템플릿 조정」 ○ · 「서식 조정」 ○ · 「계획 받기」", [(x["key"], x["text"], x["state"]) for x in c[6:]] == [("tpl", "템플릿 조정", "none"), ("fmt", "서식 조정", "none"), ("act", "계획 받기", "act")]
-              and not c[8]["hidden"] and not c[8]["off"] and not c[8]["go"], c[6:])
+        check("조정 층: 「템플릿 조정」 ○ · 「서식 조정」 ○ · 헤딩 판정(LLM) 전의 행동 칸은 「LLM 판정」(「계획 받기」 가 아니다) · 두 칸 도움말에 「헤딩 판정(LLM)을 아직 안 했습니다」",
+              [(x["key"], x["text"], x["state"]) for x in c[6:]] == [("tpl", "템플릿 조정", "none"), ("fmt", "서식 조정", "none"), ("act", "LLM 판정", "act")]
+              and not c[8]["hidden"] and not c[8]["off"] and not c[8]["go"] and "헤딩 판정(LLM)을 아직 안 했습니다" in c[8]["title"]
+              and all("헤딩 판정(LLM)을 아직 안 했습니다" in x["title"] for x in c[6:8]), c[6:])
         check("조정 칸이 LLM 칸 바로 아래(같은 왼쪽 · 아래 줄) · 칸 22px · 진행 줄 세 줄(≤ 76px)", all(c[i + 3]["left"] == c[i + 6]["left"] and c[i + 6]["top"] > c[i + 3]["top"] for i in range(3))
               and all(x["h"] == 22 for x in c) and m["boxH"] <= 76, ([(x["left"], x["top"], x["h"]) for x in c[3:]], m["boxH"]))
         check("칸 title: 템플릿 조정 = 레터가 다른 줄을 종속 템플릿으로 · 서식 조정 = 대표 서식에", "레터가 대표와 다른 줄" in c[6]["title"] and "서식 종속 템플릿" in c[6]["title"] and "대표 서식에 맞춥니다" in c[7]["title"], (c[6]["title"][:80], c[7]["title"][:80]))
         page.locator("#headsOverview").screenshot(path=str(OUT / "1_no_plan.png"))
+
+        # ---- ①-1 LLM 연결이 없는 서버(이 임시 서버)에서 「LLM 판정」 — 막다른 길이 아니다: 스크립트가 맞출 것(자리 맞춤)이 있으면 그것만 반영할지 「모두 반영」 의 확인 창으로 넘긴다(여기서는 그 함수만 바꿔 끼워 넘어온 것을 본다)
+        page.evaluate("() => { window.__apply0 = tpbApply; window.__applyOpt = null; window.tpbApply = async (o) => { window.__applyOpt = o || {}; return null; }; }")
+        page.click('#headsOverview .hprog [data-tpb="act"]')
+        page.wait_for_function("() => window.__applyOpt !== null", timeout=30000)
+        off = page.evaluate("() => ({ note: window.__applyOpt.note || '', toast: document.getElementById('toast').textContent })")
+        check("LLM 연결이 없으면: 「LLM 연결이 없습니다」 알림 + 스크립트 반영만 묻는 길로(확인 창 맨 앞 한 줄) · 요청은 안 나감", "LLM 연결이 없어 LLM 판정은 돌리지 못합니다" in off["note"] and "LLM 연결이 없습니다" in off["toast"]
+              and not asked and "analysis/llm" not in posts and "outline/agent/apply" not in posts, (off, asked, posts))
+        page.evaluate("() => { window.tpbApply = window.__apply0; }")
+
+        # ---- ①-2 「LLM 판정」 — 돌 것을 보인 확인 창 뒤에 「LLM 검증·보완」 이어 돌리기(doc_status.js dsLlmRun)를 부른다.
+        #      임시 서버는 LLM 이 꺼져 있어 연결 확인(headsLlmReady)과 그 함수만 바꿔 끼운다 — 요청은 안 나간다
+        page.evaluate("() => { window.__keep = { ready: headsLlmReady, run: dsLlmRun }; window.__judge = 0; window.headsLlmReady = async () => ({ available: true });"
+                      " window.dsLlmRun = async () => { window.__judge += 1; return true; }; }")
+        page.click('#headsOverview .hprog [data-tpb="act"]')
+        page.wait_for_function("() => window.__judge === 1", timeout=30000)
+        check("「LLM 판정」: 확인 창에 돌 것(헤딩 · 표 · 서식 정리 계획) · 유료 · 문서는 안 바뀜 → LLM 검증·보완 이어 돌리기 한 번(서식 정리 계획만 부르지 않는다)",
+              len(asked) == 1 and all(w in asked[0] for w in ("돌 것", "헤딩 그래프(LLM)", "표 구조(LLM)", "서식 정리 계획", "유료", "문서는 바뀌지 않습니다")) and "analysis/llm" not in posts, (asked, posts))
+        page.evaluate("() => { window.headsLlmReady = window.__keep.ready; window.dsLlmRun = window.__keep.run; }")
+        asked.clear()
+
+        # ---- ①-3 헤딩 판정(LLM)을 거친 뒤에만 「계획 받기」 — 임시 서버에는 헤딩 LLM 이 없어 「거쳤다」 만 흉내 낸다(tpl_plan_bar.js tpbJudged — 계획 받기 · 반영의 끝점은 진짜)
+        page.evaluate("() => { window.__judged0 = tpbJudged; window.tpbJudged = () => true; tplPlanBarSync(true); }")
+        page.wait_for_function(WAIT_ADJ, arg="계획 받기", timeout=10000)
+        c = page.evaluate(SNAP)["cells"]
+        check("헤딩 판정(LLM)을 거친 문서: 행동 칸 「계획 받기」 · 두 칸 도움말에 판정 안내 없음", (c[8]["text"], c[8]["state"]) == ("계획 받기", "act") and not c[8]["hidden"] and not c[8]["off"] and not c[8]["go"]
+              and not any("헤딩 판정(LLM)을 아직 안 했습니다" in x["title"] for x in c[6:8]), c[6:])
 
         # ---- ② 「계획 받기」 — 서식 정리 계획만(유료 확인 창) → 계획 받음
         page.click('#headsOverview .hprog [data-tpb="act"]')
@@ -204,6 +235,13 @@ try:
               and ((c[8]["text"] == "나머지 받기") if left else c[8]["hidden"]) and c[6]["left"] == c[3]["left"] and c[7]["left"] == c[4]["left"],
               ([(x["text"], x["state"], x["hidden"], x["left"]) for x in c[6:]], left))
         toast = page.evaluate("() => document.getElementById('toast').textContent")
+        # 헤딩 판정(LLM)을 안 거친 채 반영한 문서(흉내를 풀면 이 문서가 그렇다 — 2026-11-17 사용자 그림: LLM ○ · 조정 ✓) — 두 칸은 ✓ 그대로이고 행동 칸은 감추지 않고 「LLM 판정」(빠진 단계가 남은 일로 보인다)
+        j = page.evaluate("""() => { window.tpbJudged = window.__judged0; tplPlanBarSync(true);
+          const cell = (k) => { const b = document.querySelector(`#headsOverview .hprog [data-tpb="${k}"]`); return { state: b.dataset.state, text: b.hidden ? '' : b.querySelector('.hprog-text').textContent, off: b.disabled }; };
+          const out = { tpl: cell('tpl'), fmt: cell('fmt'), act: cell('act') };
+          window.tpbJudged = () => true; tplPlanBarSync(true);
+          return out; }""")
+        check("판정을 안 거친 채 반영한 문서: 두 칸 ✓ 그대로 · 행동 칸은 「LLM 판정」", (j["tpl"]["state"], j["fmt"]["state"]) == ("llm", "llm") and (j["act"]["text"], j["act"]["off"]) == ("LLM 판정", False), j)
         check("알림: 템플릿 수 · 맞춘 줄 · 자리 맞춤 줄 · 실행 취소 한 번", "계획대로 반영했습니다" in toast and "「실행 취소」 한 번" in toast and "자리 맞춤" in toast and "묶음 빈칸" in toast, toast)
         check("반영 뒤: 자리 맞춤이 남은 줄 0 · 문서의 개요 줄 레터 뒤가 묶음 빈칸(U+2002)", f2.get("place") == 0
               and page.evaluate("() => [...document.querySelectorAll('#doc .para')].filter((p) => /^ *[-ㅇo□]\u2002/.test(p.textContent)).length") > 20, f2.get("place"))
@@ -240,6 +278,23 @@ try:
         check("조정 줄: 대표만 바꾸는 계획(맞출 줄 0 · 대표 변경 1) — 「서식 조정 · 대표 1」 · 「모두 반영」 이 켜짐",
               (syn["rep"]["fmt"]["state"], syn["rep"]["fmt"]["text"]) == ("plan", "서식 조정 · 대표 1") and not syn["rep"]["act"]["hidden"] and syn["rep"]["act"]["text"] == "모두 반영", syn["rep"])
 
+        # 받아 둔 계획 없이 스크립트가 맞출 것(자리 맞춤)만 남은 문서 — 헤딩 판정(LLM)을 거쳤으면 「모두 반영」, 안 거쳤으면 그보다 「LLM 판정」 이 먼저(칸의 「n줄」 은 그대로 · 2026-11-17: 행동 칸은 차례를 따른다)
+        seq = page.evaluate("""() => {
+          const f = dsState.main.items.find((i) => i.key === 'formats'), keep = JSON.stringify(f.llm), place0 = f.place, out = {};
+          const cell = (k) => { const b = document.querySelector(`#headsOverview .hprog [data-tpb="${k}"]`), n = b.querySelector('.hprog-count');
+            return { state: b.dataset.state, text: b.hidden ? '' : [b.querySelector('.hprog-text').textContent, n && n.innerText].filter(Boolean).join(' · '), title: b.title }; };
+          Object.assign(f.llm, { state: 'done', need: 0, planned: 0, applied: 0, stale: 0, done: 1, change: 0, moved: 0, reps: 0, left: { kept: 0, unanswered: 0 }, list: [] });
+          f.place = 5;
+          tplPlanBarSync(true); out.judged = { fmt: cell('fmt'), act: cell('act') };
+          window.tpbJudged = window.__judged0; tplPlanBarSync(true); out.not = { fmt: cell('fmt'), act: cell('act') };
+          window.tpbJudged = () => true;
+          f.llm = JSON.parse(keep); f.place = place0; tplPlanBarSync(true);
+          return out;
+        }""")
+        check("자리 맞춤만 남은 문서: 판정을 거쳤으면 「서식 조정 · 5줄」 + 「모두 반영」 · 안 거쳤으면 칸은 그대로 「5줄」 이고 행동 칸은 「LLM 판정」(도움말에 자리 맞춤 5줄은 판정 뒤 같이)",
+              (seq["judged"]["fmt"]["text"], seq["judged"]["act"]["text"]) == ("서식 조정 · 5줄", "모두 반영") and (seq["not"]["fmt"]["text"], seq["not"]["act"]["text"]) == ("서식 조정 · 5줄", "LLM 판정")
+              and "자리 맞춤 5줄" in seq["not"]["act"]["title"], seq)
+
         # ---- ⑤ 실행 취소 한 번 — 문서가 처음 그대로
         r = requests.post(f"{base}/api/docs/{wid}/undo", timeout=120)
         same = requests.get(f"{base}/api/docs/{wid}/download", timeout=120).content == PLAN.read_bytes()
@@ -257,8 +312,8 @@ try:
         page.wait_for_function("() => document.querySelector('#headsOverview .hprog [data-tpb]') && typeof dsState === 'object' && dsState.main", timeout=120000)
         page.wait_for_function("() => { const b = document.querySelector('#headsOverview .hprog [data-tpb=\"act\"]'); return b && !b.hidden && !!b.textContent; }", timeout=30000)
         c = page.evaluate(SNAP)["cells"]
-        check("되돌린 뒤의 조정 층 — 두 칸은 ✓ 가 아니고 받아 둔 계획의 수 그대로 · 행동 칸은 「모두 반영」(다시 받지 않는다)", [(x["text"], x["state"]) for x in c[6:8]] == [want_t, want_f]
-              and c[8]["text"] == "모두 반영" and c[8]["go"] and not c[8]["hidden"], [(x["text"], x["state"], x["hidden"]) for x in c[6:]])
+        check("되돌린 뒤의 조정 층 — 두 칸은 ✓ 가 아니고 받아 둔 계획의 수 그대로 · 행동 칸은 「모두 반영」(다시 받지 않는다 — 판정을 안 거친 그래프의 계획이라는 한 줄이 도움말에)", [(x["text"], x["state"]) for x in c[6:8]] == [want_t, want_f]
+              and c[8]["text"] == "모두 반영" and c[8]["go"] and not c[8]["hidden"] and "헤딩 판정(LLM)을 안 거친" in c[8]["title"], [(x["text"], x["state"], x["hidden"]) for x in c[6:]] + [c[8]["title"][-120:]])
         for w in (320, 388, 480):
             page.evaluate("(w) => { document.getElementById('panel').style.setProperty('--panel', w + 'px'); heads.summaryKey = null; headsResultsSummary(heads.view); }", w)
             page.wait_for_timeout(200)
