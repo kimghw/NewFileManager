@@ -38,7 +38,8 @@ function hraLeft(v) { // 분석 상태 → 남은 것 {llm[돌 LLM 단계], skip
   return { llm: plan.filter((p) => p.run), skip: plan.filter((p) => !p.run), plans: L.planned || 0, change: L.change || 0, moved: L.moved || 0, reps: L.reps || 0,
     // done = **반영한** 계획이 지금 문서에 남긴 줄(서버가 지금 갈래로 다시 센다 — 분석 상태 서식 항목의 llm.left): 에이전트가 그대로 둔 줄 · 답이 없어 안 바꾼 줄(검토한 것이 아니다).
     // 반영한 뒤에도 남는다 — 「받음」 인 계획의 kept·unanswered(아래)와 따로 · norep = 대표가 없는 레벨(갈래가 하나여도 맞춘 레벨이 아니다)
-    done: L.left ? { kept: L.left.kept || 0, unanswered: L.left.unanswered || 0 } : null, norep: (f && f.noRep) || 0, // null = 서버가 옛 판(이 수를 모른다 — 끝난 글은 이번 실행이 센 수로)
+    // marked = 표지(형광펜·필드) 때문에 모양만 맞추고 남긴 줄 가운데 지금도 대표와 다른 서식인 줄(spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)
+    done: L.left ? { kept: L.left.kept || 0, unanswered: L.left.unanswered || 0, marked: L.left.marked || 0 } : null, norep: (f && f.noRep) || 0, // null = 서버가 옛 판(이 수를 모른다 — 끝난 글은 이번 실행이 센 수로)
     place: (f && f.place) || 0, // 자리 맞춤이 남은 줄(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8): 계획이 없어도 조정(모두 반영)이 스크립트로 건다
     apply: (!!L.planned && lines !== 0) || sure > 0 || ((f && f.place) || 0) > 0, sure, hints: rel.length - sure, need: (L.list || []).filter((x) => x.state === "none" || x.state === "stale"),
     undecided: h.undecided || 0, kept: L.kept || 0, unanswered: L.unanswered || 0, omitted: L.omitted || 0,
@@ -56,7 +57,8 @@ function hraUnseen(P, skipUndec = false) { // 반영할 것이 없어도 「다 
 }
 // 반영한 계획이 남긴 줄 — 「끝」 으로 뭉개지 않는다: 에이전트가 그대로 둔 줄(까닭은 계획에) · 답이 없어 안 바꾼 줄(검토한 것이 아니다). 반영한 뒤에도(다음 「전체 실행」 에서도) 알린다 → [글] | []
 function hraKept(d) {
-  const kept = d ? [d.kept ? `그대로 둔 줄 ${nf(d.kept)}` : "", d.unanswered ? `답이 없어 안 바꾼 줄 ${nf(d.unanswered)}` : ""].filter(Boolean).join(" · ") : "";
+  const kept = d ? [d.kept ? `그대로 둔 줄 ${nf(d.kept)}` : "", d.unanswered ? `답이 없어 안 바꾼 줄 ${nf(d.unanswered)}` : "",
+    d.marked ? `형광펜·필드 표지가 있어 모양만 맞춘 줄 ${nf(d.marked)}(글은 그대로 — ${d.unanswered ? "남긴 줄은 조정 층 「서식 조정」 칸에서" : "조정 층 「서식 조정」 칸을 누르면 그 줄로"})` : ""].filter(Boolean).join(" · ") : "";
   return kept ? [`반영한 계획이 남긴 것 — ${kept}(「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로)`] : [];
 }
 const hraUndec = (n) => `헤딩 판정에 미판정 ${nf(n)}곳이 있어(LLM 구간 검증 실패 — 스크립트 초안 그대로) 조정(반영)은 하지 않았습니다 — 받은 계획은 남아 있습니다: 「단계별 실행」 의 헤딩 판정을 다시 돌리거나, 조정 층에서 계획을 확인한 뒤 「모두 반영」 을 누르세요`;
@@ -231,7 +233,7 @@ async function hraApply(R, P) { // 조정 — 받은 계획 모두 반영(진행
   }
   const ts = r.templates || [];
   R.did.tpls += ts.length;
-  R.did.lines += (r.changed || []).length - (r.placed || []).length; // 대표에 맞춘 줄
+  R.did.lines += (r.changed || []).length - (r.placed || []).length - (r.left || []).length; // 대표에 맞춘 줄(모양만 맞춘 줄은 빼고)
   R.did.placed = (R.did.placed || 0) + (r.placed || []).length; // 자리 맞춤만 한 줄(묶음 빈칸 · 둘째 줄 = 글 시작 — ② §8-8)
   R.did.splits += ts.reduce((n, t) => n + (t.splits || []).length, 0);
   R.did.reps = (R.did.reps || 0) + ts.reduce((n, t) => n + (t.levels || []).filter((x) => x.repChanged).length, 0); // 대표를 바꾼 레벨(맞춘 줄이 0 이어도 한 일이다)
@@ -239,6 +241,7 @@ async function hraApply(R, P) { // 조정 — 받은 계획 모두 반영(진행
   R.did.undo += Math.max(0, (state.undo || 0) - undo0);
   R.did.kept = (R.did.kept || 0) + P.kept; // 반영한 계획이 남긴 줄 — 끝난 글의 「남긴 것」(마지막 분석 상태를 못 읽었을 때만 쓴다 — 읽었으면 서버가 다시 센 수: hraDone)
   R.did.unanswered = (R.did.unanswered || 0) + P.unanswered;
+  R.did.marked = (R.did.marked || 0) + (r.left || []).length; // 표지 때문에 모양만 맞춘 줄(② §8-8 「짝 표지가 든 줄」 — 마지막 분석 상태를 못 읽었을 때만 쓴다)
   return "";
 }
 

@@ -36,6 +36,10 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 
 - Windows 에서 `claude -p` 13개를 한꺼번에 띄우자 4개가 비정상 종료 — 종료 코드 3221226505(`0xC0000409`, STATUS_STACK_BUFFER_OVERRUN), stderr 없음, 입력 크기와 무관.
   같은 묶음을 병렬 4 로 다시 부르면 모두 성공 → 이 프로젝트는 서버 전체 동시 4(`NFM_LLM_SLOTS`), 실패분만 병렬 2 로 한 번 더(`llm.ask_all`).
+- **다시 잼(이 PC 2026-11-17 — Claude Code 2.1.321 · NewFileManager `app/llm._call` 의 cli 길 · 작은 프롬프트 · `--model claude-haiku-5-5` · 구조화 출력)**: 한꺼번에 **8개** × 5바퀴(40호출) 모두 성공(바퀴마다 4.4~7.4초),
+  **12개** × 2바퀴(24호출)도 모두 성공(8.8초 · 12.0초 — 12개째부터는 호출마다 시간이 늘기도 한다). 위의 13개 비정상 종료는 재현되지 않았다(CLI 판이 달라졌을 수 있다 — 그때 판은 기록에 없다).
+  → 이 프로젝트의 기본 자리 수를 **8** 로 올림(`llm.SLOTS_DEFAULT` — 12 에서 성공했지만 여유를 둠 · env `NFM_LLM_SLOTS` 로 바꾼다). 잰 것은 **프로세스가 죽는지**뿐이다 —
+  큰 프롬프트 · Fable 8개를 한꺼번에 불렀을 때의 구독 사용 한도(429)는 재지 않았다(실패한 호출은 `llm.ask_all` 이 병렬 2 로 한 번 더 부른다).
 
 ## 도구를 쓰는 헤드리스 에이전트를 API 키로 (2026-11-13 실측 — Claude Code 2.1.321 · Windows)
 

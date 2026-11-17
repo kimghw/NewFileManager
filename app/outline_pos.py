@@ -372,6 +372,7 @@ def view(doc, ov):
             rs = roles.get((tid, int(lv)), set())
             rooted = bool(rs) and rs <= set(OE.ROOTED) or (not rs and t.get("kind") == "label" and lv == "1") or bool(sl.get("table"))  # 표 제목 레벨(② §8-7)도 자리 규칙 없음
             item = {"letter": sl.get("letter") or "", "lines": counts.get((tid, int(lv)), 0), "rooted": rooted, **({"table": True} if sl.get("table") else {}),
+                    **({"name": sl["name"]} if sl.get("name") else {}),  # 띠 표 템플릿의 이름표 꼴(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」)
                     "pos": {k: v for k, v in (sl.get("pos") or {"line2": "text"}).items()}}
             try:
                 at = None if rooted else m.slot_place(sl)

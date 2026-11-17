@@ -16,6 +16,7 @@ import re
 import threading
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 
 from app import agent_settings
@@ -194,7 +195,7 @@ def remove(key):
 
 
 # ---------------------------------------------------------------- 자료 · 프롬프트 · 계획
-KIND = {"main": "주 사슬", "branch": "가지 템플릿", "label": "구분 라벨 템플릿", "sub": "서브 템플릿", "cell": "표 칸"}
+KIND = {"main": "주 사슬", "branch": "가지 템플릿", "label": "구분 라벨 템플릿", "sub": "서브 템플릿", "cell": "표 칸", "band": "별첨·부록 표 제목 템플릿"}
 RULE = {"text": "둘째 줄을 글 시작에 맞춤", "mm": "둘째 줄 직접", "keep": "문단 서식 그대로"}
 
 
@@ -243,7 +244,8 @@ def fingerprint_of(doc, ov, tid):
 
 def group_sig(level, raw):
     """갈래의 지문 — 레벨 + 비교 값(KEYS). 앞 계획의 검토·보낸 이력을 **같은 갈래**에만 잇는 데 쓴다(열쇠 줄이 같아도 서식이 바뀌어 다른 갈래가 됐으면 잇지 않는다)."""
-    return hashlib.sha1(repr([int(level)] + [M.cval(raw, k) for k in M.KEYS]).encode("utf-8")).hexdigest()[:12]
+    # 표 안의 줄은 표 양식도(② §8-11 「갈래는 표 양식마다」 — 서식이 같아도 표 양식이 다르면 다른 갈래다) · 표 밖 갈래의 지문은 전과 같다
+    return hashlib.sha1(repr([int(level)] + [M.cval(raw, k) for k in M.KEYS] + ([raw["form"]] if raw.get("form") else [])).encode("utf-8")).hexdigest()[:12]
 
 
 def _known(records, paras, sig):
@@ -286,8 +288,15 @@ def material(doc, ov, tid, reviewed=None, sent=None):
             sig = group_sig(lv, g["raw"])
             tagged.append((g, sig, (not g["rep"]) and _known(sent, g["paras"], sig), (not g["rep"]) and _known(reviewed, g["paras"], sig)))
         tagged.sort(key=lambda x: x[2] or x[3])  # 대표 · 보낸 적 없는 갈래 먼저(차례는 그대로) → 보낸 적 있는 갈래
+        # units = 번호형 레벨의 「함께 옮겨야 하는 형제 묶음」 마다 이 갈래의 줄 수(표 안의 줄은 같은 표의 형제끼리 — outline_match.split_units) · hard = 형제의 일부라서가 아닌 까닭으로 못 뗀다.
+        # 갈래 하나로는 형제의 일부여도(noSplit) 같은 묶음의 갈래를 한 split 항목에 함께 넣으면 뗄 수 있다 — check_plan 이 항목의 줄을 합쳐서 본다(② §8-11 「번호형 레벨의 떼기」)
+        units = M.split_units(ov, tid, lv, doc)
+        ukey = (lambda p: repr(units[p])) if units is not None else None
         groups = [{"id": f"g{i + 1}", "para": g["key"], "count": g["count"], "rep": bool(g["rep"]), "sample": _sample(doc, g["key"]), "raw": g["raw"], "look": g["look"],
-                   "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-"), "sig": sig, "seen": was_kept, "sentBefore": was_sent or was_kept}
+                   "noSplit": M.split_block(ov, tid, lv, g["paras"], rep="-", doc=doc), "hard": bool(M.split_block(ov, tid, lv, g["paras"], rep="-", doc=doc, partial=False)),
+                   "units": dict(Counter(ukey(p) for p in g["paras"] if p in units)) if units is not None else None,
+                   "form": g.get("form"), "own": bool(g.get("own")),  # 표 안의 줄 — 표 양식{label, tables, around} · 표의 서식인가(② §8-11)
+                   "sig": sig, "seen": was_kept, "sentBefore": was_sent or was_kept}
                   for i, (g, sig, was_sent, was_kept) in enumerate(tagged)]
         rest = groups[GROUP_MAX:]
         out["levels"].append({"level": int(lv), "letter": sl.get("letter") or "", "lines": v["total"], "repMissing": bool(v["repMissing"]), "repSet": bool(sl.get("repSet")),
@@ -296,12 +305,59 @@ def material(doc, ov, tid, reviewed=None, sent=None):
                               "held": [g for g in rest if g["seen"]],                           # 못 보냈지만 앞 계획이 검토해 그대로 둔 갈래 — 계획에 「그대로」 로 싣는다
                               "heldAuto": [g for g in rest if g["sentBefore"] and not g["seen"]],  # 못 보냈고, 앞서 보냈지만 답이 없던 갈래 — 답 없음 그대로(못 본 것이 아니다)
                               "taken": sorted(M.used_sfx(ov, tid, lv)),  # 이 레벨에서 이미 뗀 템플릿의 글자(「T1L3a」 의 a)
+                              "unitSizes": dict(Counter(repr(u) for u in units.values())) if units is not None else None,  # 번호형 레벨 — 형제 묶음마다 줄 수(값 칸 포함: 갈래의 units 와 견줘 「통째인가」 를 본다)
                               "values": v.get("values", 0)})  # 값 칸 줄 수 — 갈래에 없다(에이전트에 안 보내고 안 맞춘다)
     return out
 
 
 def _values(look):
     return {M.LABELS.get(k, k): M.cval(look, k) for k in M.KEYS}  # 「2번째 줄」 은 둘째 줄이 글 시작에 있으면 「글 시작」(값이 아니라 규칙 — outline_match.cval)
+
+
+def _units_short(lv, groups):
+    """번호형 레벨에서 갈래들(groups)의 줄을 합쳐도 **형제 묶음이 통째가 아닌가** → 까닭 글 | None(통째다 · 번호형이 아니다). 묶음 = 같은 부모 아래 형제 — 표 안의 줄은 같은 표의 형제끼리."""
+    sizes = lv.get("unitSizes")
+    if not sizes:
+        return None
+    total = Counter()
+    for g in groups:
+        total.update(g.get("units") or {})
+    for u, k in total.items():
+        if 0 < k < sizes.get(u, k):
+            return f"번호형 레벨은 같은 부모 · 같은 표의 형제 줄을 함께 옮겨야 합니다(형제 {sizes[u]}줄 가운데 {k}줄)"
+    return None
+
+
+def split_mates(lv):
+    """번호형 레벨에서 **혼자는 못 떼는 갈래**(형제의 일부 — noSplit 이고 hard 가 아님)마다 「함께 옮기면 뗄 수 있는 갈래들」 → {갈래 id: [함께 넣을 갈래 id] | None(함께 넣어도 못 뗀다)}.
+    같은 형제 묶음(units)을 나눠 가진 갈래끼리 한 무리 — 그 무리에 대표 갈래나 다른 까닭으로 못 떼는 갈래가 있거나, 무리의 줄을 다 모아도 묶음이 통째가 아니면(보내지 않은 갈래 · 값 칸) None."""
+    gs = lv["groups"]
+    if not lv.get("unitSizes"):
+        return {}
+    root = {g["id"]: g["id"] for g in gs}
+
+    def find(a):
+        while root[a] != a:
+            root[a] = root[root[a]]
+            a = root[a]
+        return a
+    owner = {}
+    for g in gs:
+        for u in g.get("units") or {}:
+            if u in owner:
+                root[find(g["id"])] = find(owner[u])
+            else:
+                owner[u] = g["id"]
+    comps = {}
+    for g in gs:
+        comps.setdefault(find(g["id"]), []).append(g)
+    out = {}
+    for members in comps.values():
+        ok = not any(m["rep"] or m.get("hard") for m in members) and _units_short(lv, members) is None
+        for g in members:
+            if g.get("noSplit") and not g.get("hard"):
+                out[g["id"]] = [m["id"] for m in members if m is not g] if ok else None
+    return out
 
 
 def prompt_material(mat):
@@ -316,10 +372,18 @@ def prompt_material(mat):
     for lv in mat["levels"]:
         rep = next((g for g in lv["groups"] if g["rep"]), None)
         gs = []
+        mates = split_mates(lv)
         for g in lv["groups"]:
             item = {"id": g["id"], "lines": g["count"], "sample": g["sample"]}
             if g.get("noSplit"):
-                item["cannotSplit"] = True
+                tog = None if g.get("hard") else mates.get(g["id"])
+                if tog:
+                    item["splitTogether"] = tog  # 혼자는 형제의 일부라 못 떼지만 이 갈래들과 한 split 항목에 함께 넣으면 뗄 수 있다(② §8-11 「번호형 레벨의 떼기」)
+                else:
+                    item["cannotSplit"] = True
+            f = g.get("form")
+            if f:  # 표 안의 줄(② §8-11) — 그 표의 머리글 · 표 수 · 주변 글(그 표의 다른 글의 글자 모양) · 표의 서식인가(그 표 양식에 대표 서식의 줄이 없다)
+                item["table"] = {"header": f["label"], "tables": f["tables"], **({"textAround": f["around"]} if f.get("around") else {}), **({"ownFormat": True} if g.get("own") else {})}
             if g["rep"]:
                 item["currentRep"] = True
             if rep is None or g["rep"]:
@@ -362,7 +426,11 @@ CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정�
   대표가 없는 레벨은 모든 갈래에 values 가 있습니다.
   repChosenByUser 가 있는 레벨은 사람이 그 대표를 직접 정한 것입니다 · positionRule 은 사람이 정한 둘째 줄 규칙입니다(맞춘 줄에도 그 규칙이 걸립니다).
   cannotSplit 이 있는 갈래는 다른 템플릿으로 뗄 수 없습니다(번호형 레벨에서 같은 부모 아래 형제의 일부 — 번호가 따로 매겨집니다).
+  splitTogether 가 있는 갈래는 혼자는 못 떼지만, 거기 적힌 갈래들과 **한 split 항목에 함께**(rep 또는 match 로) 넣으면 뗄 수 있습니다(번호형 레벨 — 같은 표의 형제 줄은 함께 옮깁니다).
+  table 이 있는 갈래는 **표 안의 줄**입니다 — header(그 표의 머리글) · tables(표 수) · textAround(그 표의 다른 글의 글꼴·크기 — 주변 글) ·
+  ownFormat(그 표에는 대표와 서식이 같은 줄이 하나도 없습니다 — 그 표가 제 서식을 씁니다). differsFromRep 의 이름 「표」 = 대표 줄과 표(머리글)가 다릅니다. 표 안의 줄은 서식이 같아도 표가 다르면 다른 갈래로 옵니다.
 - 값의 뜻: 레터 앞 빈칸·레터·레터 뒤 빈칸 = 줄 첫머리 / 앞 여백 = 첫 줄 시작 자리(mm) · 2번째 줄 = 줄이 넘어갈 때 시작 자리(mm) / 레터 글꼴·크기… = 레터 글자 모양 / 글꼴·크기… = 본문 바탕 글자 모양.
+  differsFromRep 의 이름 「닮은 레터 글자」 = 레터는 대표와 **같고 글자만 다른** 것입니다(헤딩 판정이 같은 레터로 묶은 글자 — 「o」·「ㅇ」·「○」 · 「·」·「⋅」·「•」). 이름 「레터」 는 레터 자체가 다를 때만 나옵니다.
 
 ## 정할 것 — 줄이 있는 모든 레벨에 한 항목씩
 - rep: 그 레벨의 **대표로 삼을 갈래 id**. 지금 대표가 알맞으면 그 id 를 그대로 적습니다.
@@ -378,7 +446,7 @@ CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정�
 ## 지킬 것
 - 갈래 id 는 **입력에 있는 것만** 씁니다. 서식 값을 새로 만들거나 고쳐 적지 않습니다 — 맞출 값은 대표 갈래의 값 그대로입니다.
 - 한 갈래는 rep · match · keep · split(의 rep·match) 가운데 **한 곳에만** 둡니다. 갈래가 하나뿐인 레벨은 rep 만 적고 match·keep·split 은 빈 목록입니다.
-- 그 레벨의 rep 갈래와 cannotSplit 이 있는 갈래는 split 에 넣지 않습니다.
+- 그 레벨의 rep 갈래와 cannotSplit 이 있는 갈래는 split 에 넣지 않습니다. splitTogether 가 있는 갈래를 뗄 때는 거기 적힌 갈래를 모두 같은 split 항목에 넣습니다.
 - 「스킬」(과 「이번 요청」)의 기준으로 match·split 을 정할 수 없는 갈래만 keep 에 두고 까닭을 적습니다 — 사람이 계획을 보고 고릅니다.
 - 판단의 기준은 아래 「스킬」 글이고, 「이번 요청」 이 있으면 그것이 스킬보다 먼저입니다. 둘 다 위 「지킬 것」 과 답의 꼴은 바꾸지 못합니다."""
 
@@ -442,6 +510,8 @@ def check_plan(mat, data):
         seen = {rep}
         brief = lambda g, to=base: {"group": g["id"], "para": g["para"], "count": g["count"], "sample": g["sample"], "diff": M.diff(to["raw"], g["raw"])}  # noqa: E731
         blocked = lambda g: bool(g.get("noSplit"))  # noqa: E731 — 못 떼는 갈래(번호형 레벨의 형제 일부). 대표 갈래는 seen 이 막는다(대표를 바꾸면 옛 대표 갈래는 뗄 수 있다)
+        # hard = **함께 옮겨도** 못 떼는 갈래 — 형제의 일부라서 혼자 못 떼는 갈래(번호형 레벨)는 같은 묶음의 갈래와 한 split 항목에 넣으면 된다(_units_short 가 합쳐서 본다 — ② §8-11)
+        hard = lambda g, sized=bool(lv.get("unitSizes")): bool(g.get("noSplit")) and (bool(g.get("hard")) or not sized)  # noqa: E731
         for gid in row.get("match") or []:
             if not isinstance(gid, str) or gid not in gs:
                 notes.append(f"L{lv['level']} 맞출 서식 「{gid}」 는 없는 서식 — 버림")
@@ -460,27 +530,34 @@ def check_plan(mat, data):
             if gid in seen:
                 notes.append(f"L{lv['level']} 서식 「{gid}」 는 {'이 레벨의 대표라 뗄 수 없음' if gid == rep else '두 번 — 첫 것만 씀'}")
                 continue
-            if blocked(gs[gid]):
+            if hard(gs[gid]):
                 notes.append(f"L{lv['level']} 서식 「{gid}」 는 뗄 수 없어 그대로 둠 — {gs[gid]['noSplit']}")
+                continue
+            head = gs[gid]
+            mids = []  # 같이 옮길 갈래 — 다 검사한 뒤에 건다(항목의 줄을 합쳐 형제 묶음이 통째인지 본다: ② §8-11 「번호형 레벨의 떼기」)
+            for mid in sp.get("match") or []:
+                if not isinstance(mid, str) or mid not in gs:
+                    notes.append(f"L{lv['level']} 「{gid}」 와 같이 옮길 서식 「{mid}」 는 없는 서식 — 버림")
+                elif mid in seen or mid in mids or mid == gid:
+                    if mid != gid:
+                        notes.append(f"L{lv['level']} 서식 「{mid}」 는 {'이 레벨의 대표라 뗄 수 없음' if mid == rep else '두 번 — 첫 것만 씀'}")
+                elif hard(gs[mid]):
+                    notes.append(f"L{lv['level']} 서식 「{mid}」 는 뗄 수 없어 그대로 둠 — {gs[mid]['noSplit']}")
+                else:
+                    mids.append(mid)
+            short = _units_short(lv, [head] + [gs[m] for m in mids])
+            if short:
+                notes.append(f"L{lv['level']} 서식 「{gid}」{f'(과 같이 옮길 서식 {len(mids)}가지)' if mids else ''} 는 뗄 수 없어 그대로 둠 — {short}")
                 continue
             sfx = next(letters, None)
             if sfx is None:
                 notes.append(f"L{lv['level']} 에서 뗄 수 있는 템플릿 수를 다 써 「{gid}」 는 그대로 둠")
                 continue
             seen.add(gid)
-            head = gs[gid]
             item = {"name": f"T{mat['no']}L{lv['level']}{sfx}", "sfx": sfx, "rep": brief(head), "match": [], "why": str(sp.get("why") or "").strip()[:400]}
-            for mid in sp.get("match") or []:
-                if not isinstance(mid, str) or mid not in gs:
-                    notes.append(f"L{lv['level']} {item['name']} 에 같이 옮길 서식 「{mid}」 는 없는 서식 — 버림")
-                elif mid in seen:
-                    if mid != gid:
-                        notes.append(f"L{lv['level']} 서식 「{mid}」 는 {'이 레벨의 대표라 뗄 수 없음' if mid == rep else '두 번 — 첫 것만 씀'}")
-                elif blocked(gs[mid]):
-                    notes.append(f"L{lv['level']} 서식 「{mid}」 는 뗄 수 없어 그대로 둠 — {gs[mid]['noSplit']}")
-                else:
-                    seen.add(mid)
-                    item["match"].append({**brief(gs[mid]), "diffTo": M.diff(head["raw"], gs[mid]["raw"])})  # diff = 이 레벨 대표 기준(다른 줄과 같이) · diffTo = 새 템플릿의 대표 기준
+            for mid in mids:
+                seen.add(mid)
+                item["match"].append({**brief(gs[mid]), "diffTo": M.diff(head["raw"], gs[mid]["raw"])})  # diff = 이 레벨 대표 기준(다른 줄과 같이) · diffTo = 새 템플릿의 대표 기준
             item["change"] = sum(m["count"] for m in item["match"])
             item["moved"] = head["count"] + item["change"]
             entry["split"].append(item)

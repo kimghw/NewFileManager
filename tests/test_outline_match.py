@@ -67,6 +67,96 @@ def test_ws_and_form():
     assert M._form("3.", "N.") == "#." and M._form("1-2.", "N-N.") == "#-#." and M._form("(가)", "(가)") == "(#)" and M._form("ㅇ", "o") == "ㅇ"
 
 
+def test_lookalike_letter_glyph_is_the_same_letter(sess):
+    """닮은 레터 글자(spec_hwpx_웹편집 ② §8-5 「닮은 글자」 — 2026-11-17 사용자 답 「같은 레터 · 글자도 대표로」): 헤딩 판정이 같은 레터 키로 묶는 글자(「o」·「ㅇ」·「○」)는 같은 레터다 —
+    갈래는 전처럼 글자로 갈리지만 다른 값의 이름이 「레터」 가 아니라 「닮은 레터 글자」 이고, 맞추면 글자도 대표의 글자가 된다. 속이 찬 기호(「□」 자리의 「■」)는 전처럼 「레터」 가 다르다."""
+    import copy
+
+    from app.hwpx_doc import HwpxDoc
+
+    assert M.kin("ㅇ", "o") == M.kin("o", "o") == M.kin("○", "o") and M.kin("·", "·") == M.kin("•", "·")
+    assert M.kin("●", "o") != M.kin("○", "o") and M.kin("■", "□") != M.kin("□", "□") and M.kin("x", "") == "x"
+    c, d, s = sess
+    doc = HwpxDoc(PLAN.read_bytes())  # 세션 문서는 그대로 두고 사본에서(오버레이도 사본)
+    doc.blocks()
+    ov = copy.deepcopy(s.outline)
+    assert doc._text(doc._ids["p6502"]).startswith("   - ") and ov["lines"]["p6502"]["key"] == "-"
+    doc.set_chars("p6502", 3, "–")  # T1 L5 「-」 줄 하나를 닮은 글자(반각 줄표)로
+    ov["lines"]["p6502"]["letter"] = "–"
+    g = next(x for x in M.variants(doc, ov, "1", 5)["groups"] if "p6502" in x["paras"])
+    assert g["count"] == 1 and ["letter", "닮은 레터 글자", "-", "–"] in g["diff"] and not any(x[1] == "레터" for x in g["diff"])
+    assert "kin" not in g["look"] and g["raw"]["kin"] == M.kin("-", "-")  # 계열은 화면의 서식 비교 표에 줄로 나오지 않는다(raw 에만)
+    M.match_one(doc, ov, "p6502", M.rep_shape(doc, ov, "p5209"))
+    assert doc._text(doc._ids["p6502"]).startswith("    -") and ov["lines"]["p6502"]["letter"] == "-"  # 맞추면 글자도 대표 글자
+    pid = next(p for p, x in ov["lines"].items() if x.get("key") == "□" and x.get("letter") == "□" and ov["templates"][x["tpl"]]["slots"][str(x["level"])].get("rep") not in (None, p))
+    x = ov["lines"][pid]
+    doc.set_chars(pid, doc._text(doc._ids[pid]).index("□"), "■")  # 속이 찬 기호 — 닮은 글자가 아니다
+    x["letter"] = "■"
+    g = next(v for v in M.variants(doc, ov, x["tpl"], x["level"])["groups"] if pid in v["paras"])
+    assert ["letter", "레터", "□", "■"] in g["diff"]
+    a = M.look(doc, ov, "p5209")
+    assert M.diff({**a, "kin": ""}, {**a, "kin": "", "letter": "–"}) == [["letter", "레터", "-", "–"]]  # 계열을 모르는 값(옛 저장본)은 전처럼 「레터」
+
+
+def _cell_tpl(ov, root):
+    """표 칸 템플릿(사슬의 첫 레터가 root) — 번호는 그래프 규칙이 바뀌면 달라지므로 사슬로 찾는다."""
+    return next(t for t, T in ov["templates"].items() if T.get("kind") == "cell" and (T.get("chain") or [""])[0] == root and not T.get("variant"))
+
+
+def test_table_lines_keep_their_tables_format(sess):
+    """표 안의 줄 — 표 양식마다의 서식(spec_hwpx_웹편집 ② §8-11 — 2026-11-17 사용자 「같은 것끼리는 서식을 공유하지만 그렇지 않은 경유, 기존 테이블 안의 서식을 사용」).
+    표 칸의 번호 줄 「N.」 11줄: 대표 p6293 의 표(머리글 「기술개발 내용 · 위험요인 …」) 6줄 = 대표 4 + 레터 뒤 빈칸이 다른 2 / 다른 표 둘(「세부사업명 …」) 3줄 · 2줄 = 그 표의 서식.
+    대표와 서식이 다른 줄은 표 양식마다 갈래 · 「대표에 맞추기」 는 다른 표의 서식을 건드리지 않고 · 골라서 맞추는 것은 된다."""
+    c, d, s = sess
+    tid = _cell_tpl(s.outline, "N.")
+    v = _slot(c, d, tid, 1)
+    assert v["rep"] == "p6293" and v["total"] == 11 and v["others"] == 2 and v["ownLines"] == 5
+    by = {g["key"]: g for g in v["groups"]}
+    rep, near, own, own2 = by["p6293"], by["p6302"], by["p12723"], by["p13221"]
+    assert rep["form"]["label"].startswith("기술개발 내용") and rep["form"]["around"] == "Dotum 8pt" and not rep["own"]
+    assert not near["own"] and near["form"]["key"] == rep["form"]["key"] and not any(x[0] == "form" for x in near["diff"])  # 대표와 같은 표 — 흔들린 줄
+    assert own["own"] and own2["own"] and len({rep["form"]["key"], own["form"]["key"], own2["form"]["key"]}) == 3              # 머리글이 다른 표 = 다른 표 양식
+    assert own["diff"][-1][:2] == ["form", "표"] and own["diff"][-1][2].startswith("기술개발 내용") and own["diff"][-1][3].startswith("세부사업명")
+    assert own["form"]["tables"] == 1 and "form" not in own["look"] and "formLabel" not in own["look"] and own["raw"]["form"] == own["form"]["key"]
+    assert M.table_form(s.doc, s.outline, s.doc._ids["p5209"]) is None and _slot(c, d, 1, 5)["ownLines"] == 0 and all(g["form"] is None for g in _slot(c, d, 1, 5)["groups"])  # 표 밖의 줄은 전과 같다
+    kept = {p: (s.texts[p], s.doc._ids[p].get("paraPrIDRef")) for p in own["paras"] + own2["paras"]}
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/1/match", json={})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert set(j["changed"]) - set(j["placed"]) == set(near["paras"])                                     # 대표의 표에 있는 다른 서식만 맞춘다
+    assert all((s.texts[p], s.doc._ids[p].get("paraPrIDRef")) == kept[p] for p in kept)                  # 다른 표의 줄은 글도 문단 모양도 그대로
+    v2 = _slot(c, d, tid, 1)
+    assert v2["others"] == 0 and v2["ownLines"] == 5 and len(v2["groups"]) == 3
+    again = c.post(f"/api/docs/{d}/outline/slots/{tid}/1/match", json={})
+    assert again.status_code == 200 and again.json()["nothing"]                                           # 남은 것은 표의 서식뿐 — 맞출 줄이 없다
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/1/match", json={"like": "p12723"})                    # 사람이 그 갈래를 골라서 맞추는 것은 된다
+    assert r.status_code == 200 and set(r.json()["changed"]) - set(r.json()["placed"]) == set(own["paras"])
+    assert _slot(c, d, tid, 1)["ownLines"] == 2                                                           # 같은 서식이어도 다른 표(p13221 의 표)는 그대로
+    _undo_all(c, d, s)
+
+
+def test_table_form_splits_into_its_own_template_on_a_numbered_level(sess):
+    """번호형 레벨의 떼기(② §8-11) — 표 안의 줄은 같은 표의 형제를 통째로 옮기면 뗄 수 있다(전에는 같은 부모 아래 형제의 일부라 못 뗐다). 대표와 같은 표의 줄 일부는 전처럼 못 뗀다."""
+    c, d, s = sess
+    tid = _cell_tpl(s.outline, "N.")
+    before = c.get(f"/api/docs/{d}/download").content
+    own = next(g for g in _slot(c, d, tid, 1)["groups"] if g["key"] == "p12723")["paras"]
+    units = M.split_units(s.outline, tid, 1, s.doc)
+    assert len({units[p] for p in own}) == 1 and M.split_units(s.outline, 1, 5) is None                   # 그 표의 줄 = 한 묶음 · 기호 레벨은 묶음 제약이 없다
+    assert M.split_block(s.outline, tid, 1, own, doc=s.doc) is None
+    assert "형제 줄의 일부" in M.split_block(s.outline, tid, 1, ["p6302"], doc=s.doc)                    # 대표의 표에 있는 줄 일부
+    assert M.split_block(s.outline, tid, 1, ["p6302"], doc=s.doc, partial=False) is None                  # 「형제의 일부」 만 빼고 보면 막는 것이 없다(계획 검사가 합쳐서 본다)
+    r = c.post(f"/api/docs/{d}/outline/slots/{tid}/1/split", json={"likes": ["p12723"]})
+    assert r.status_code == 200, r.text
+    cid = r.json()["split"]["id"]
+    assert cid == f"{tid}~1a" and r.json()["split"]["lines"] == len(own) and c.get(f"/api/docs/{d}/download").content == before  # 문서는 안 바뀜
+    assert s.outline["templates"][cid]["slots"]["1"]["rep"] == "p12723" and all(s.outline["lines"][p]["tpl"] == cid for p in own)
+    va, vc = _slot(c, d, tid, 1), _slot(c, d, cid, 1)
+    assert va["ownLines"] == 2 and va["total"] == 11 - len(own) and vc["total"] == len(own) and len(vc["groups"]) == 1 and vc["ownLines"] == 0  # 뗀 템플릿은 그 표의 줄끼리 — 서식 하나
+    assert c.post(f"/api/docs/{d}/outline/slots/{tid}/1/split", json={"likes": ["p6302"]}).status_code == 400
+    _undo_all(c, d, s)
+
+
 def test_variants_group_lines_and_show_differences(sess):
     c, d, s = sess
     v = _slot(c, d, 1, 5)
@@ -198,7 +288,8 @@ def test_merge_makes_a_composite_template_and_unmerge(sess):
     comp, t2 = j["outline"]["templates"]["1+2"], j["outline"]["templates"]["2"]
     assert comp["no"] == "1T2" and comp["chain"] == ["N.", "N-N.", "□", "o", "-", "·"] and comp["max"] == 6 and comp["base"] == 2 and sorted(comp["slots"]) == ["3", "4", "5", "6"]
     assert comp["comp"] == {"parent": "1", "child": "2", "at": 2, "parentNo": 1, "childNo": 2} and comp["hang"] == {"1|2": 3}
-    assert t2["made"][0]["id"] == "1+2" and t2["lines"] == 6 and not t2["all"] and "1|2" not in t2["hang"] and t2["hang"] == {"1|3": 4}
+    band = next(k for k, t in s.outline["templates"].items() if t.get("kind") == "band")  # 띠 표 템플릿 「별첨N」(spec_헤딩_추출 ② §6 「띠 표 줄」) — 별첨4 아래 「□」 셋은 그 줄 아래에 매달린다(전에는 앞 장의 (N) 줄 아래에 어림으로)
+    assert t2["made"][0]["id"] == "1+2" and t2["lines"] == 6 and not t2["all"] and "1|2" not in t2["hang"] and t2["hang"] == {"1|3": 1, f"{band}|1": 3}
     assert s.outline["templates"]["1"]["chain"] == t1["chain"] and s.outline["templates"]["1"]["max"] == t1["max"]  # T1 은 안 바뀐다
     mine = {p: x for p, x in s.outline["lines"].items() if x["tpl"] == "1+2"}
     first = next(p for p, x in mine.items() if x["level"] == 3)

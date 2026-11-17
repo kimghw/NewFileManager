@@ -246,7 +246,8 @@ def plan(doc_id: str, tpl: str, body: dict = Body(default={})):
 def apply_plans(doc_id: str, body: dict = Body(default={})):
     """{rev(화면이 계획을 본 문서 차례), tpls?([템플릿 id] — 없으면 모두)} — 받아 둔 서식 정리 계획 가운데 **지금 문서 차례에서 받은 것(state planned) 모두**를 에이전트가 고른 그대로
     (맞추기 · 떼기로 고른 갈래 · 대표만 바꾸는 레벨 — 「그대로」 로 남긴 갈래는 빼고: tpl_agent.todo) **트랜잭션 하나**(실행 취소 1 · 기록 `outlinePlansApply`)로 문서에 반영한다 — 헤딩 추출 탭 진행 줄 「조정」 의 「모두 반영」.
-    → 다른 구조 편집과 같은 꼴 + changed[줄 id] · templates[{tpl, no, changed(수), levels[{level, rep, repChanged, changed}], splits[…]}](바꾼 것이 있는 템플릿) · plans(반영한 계획 수) · reps(대표를 바꾼 레벨 수) · outline.
+    → 다른 구조 편집과 같은 꼴 + changed[줄 id] · templates[{tpl, no, changed(완전히 맞춘 줄 수), left(모양만 맞춘 줄 수), levels[{level, rep, repChanged, changed, left?}], splits[…]}](바꾼 것이 있는 템플릿) · plans(반영한 계획 수) · reps(대표를 바꾼 레벨 수) · outline ·
+    left[{id, tpl, no, level, why, kinds}] — 형광펜 · 필드 · 변경 추적 표지 때문에 글을 못 바꿔 모양만 맞추고 남긴 줄(spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」 — 그 줄 때문에 전체를 되돌리지 않는다 · 오버레이 agentLeft).
     바꿀 줄이 없으면 {changed: [], nothing: true, …}(그 계획들은 「반영함」 이 된다). 문서가 안 바뀌는 조합(떼기만 · 대표만 · 종속만)이면 오버레이만 — 다만 새 대표 · 새 템플릿의 대표와 그 갈래에
     확정 서식(묶음 빈칸 · 자리 규칙)이 안 걸려 있으면 같은 트랜잭션에서 건다(문서가 바뀐다 — placed).
     400 HWPX 아님 · 꼴 · 계획이 지금 문서와 안 맞음(「T3 — …」) · 409 2단계 없음 · 문서가 바뀜(rev) · 반영할 계획 없음 · 422 표준 검사에 걸림(되돌림)."""
@@ -296,9 +297,11 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
         raise HTTPException(409, "반영할 서식 계획이 없습니다 — 계획을 받지 않았거나, 받은 뒤 문서가 바뀌었거나, 이미 반영했습니다")
     jobs = [(tid, lv) for tid, lv in ((tid, A.todo(rec["plan"])["levels"]) for tid, rec in recs) if lv]  # 바꿀 것이 있는 계획만 — 「바꿀 줄 없음」 인 계획은 아래에서 반영함으로만 적는다
 
-    def log(per, doc):
-        return {"templates": [{"tpl": x["no"], "levels": list(x["levels"]), "changed": len(x["changed"]), **({"splits": list(x["splits"])} if x["splits"] else {})} for x in per],
-                **({"changed": sum(len(x["changed"]) for x in per)} if doc else {}), "by": "agent"}
+    def log(per, doc):  # changed = 완전히 맞춘 줄 · left = 표지 때문에 모양만 맞춘 줄(spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)
+        nl = sum(len(x.get("left") or ()) for x in per)
+        return {"templates": [{"tpl": x["no"], "levels": list(x["levels"]), "changed": len(x["changed"]), **({"left": len(x["left"])} if x.get("left") else {}),
+                               **({"splits": list(x["splits"])} if x["splits"] else {})} for x in per],
+                **({"changed": sum(len(x["changed"]) for x in per)} if doc else {}), **({"left": nl} if nl else {}), "by": "agent"}
     marks = {tid: rec["at"] for tid, rec in recs if rec.get("at") is not None}  # 반영하는 계획의 표시 — 반영과 같은 트랜잭션 · 같은 잠금 안에서 오버레이에 적는다(OM._marks: 「반영함은 문서에 남아 있을 때만」)
     per, out, rel = [], None, []
     if jobs or pend:
@@ -327,15 +330,18 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
             OM._marks(s.outline, marks)
             s.saved_rev = -1  # 문서 차례가 그대로다 — 표가 다음 저장에 들어가게
             out = {"changed": [], "nothing": True, **OM._state(s)}
-    done = {x["tpl"]: len(x["changed"]) for x in per}
+    done = {x["tpl"]: len(x["changed"]) for x in per}  # 완전히 맞춘 줄(표지 때문에 모양만 맞춘 줄은 left — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)
+    kept = {x["tpl"]: len(x.get("left") or ()) for x in per}
     for tid, rec in recs:
         applied(s, tid, rev, done.get(tid, 0), rec.get("at"))
-    out["templates"] = [{"tpl": x["tpl"], "no": x["no"], "changed": len(x["changed"]), "levels": x["levels"], "splits": x["splits"]} for x in per]
+    out["templates"] = [{"tpl": x["tpl"], "no": x["no"], "changed": len(x["changed"]), "left": kept[x["tpl"]], "levels": x["levels"], "splits": x["splits"]} for x in per]
+    out.setdefault("left", [])  # 표지 때문에 모양만 맞춘 줄 [{id, tpl, no, level, why, kinds}](apply_templates 의 답) — 계획 상태는 「반영함」 그대로
     out["plans"] = len(recs)
     out["reps"] = sum(1 for x in per for lv in x["levels"] if lv["repChanged"])  # 대표를 바꾼 레벨 수 — 맞춘 줄이 0 이어도 한 일이다(조정 줄 · 「전체 실행」 의 끝난 글)
     todo = dict(jobs)
     out["merged"] = [{k: v for k, v in m.items() if k != "ids"} for m in rel]  # 저절로 건 종속 [{id, no, child, childNo, parent, parentNo, at, moved}]
     note_apply(s, ov.get("run"), "all", [{"tpl": tid, "no": rec.get("no"), "plan": rec.get("at"), "summary": (rec.get("plan") or {}).get("summary", ""), "changed": done.get(tid, 0),
+                                          **({"left": kept[tid]} if kept.get(tid) else {}),
                                           "levels": A.apply_view(rec.get("plan"), todo.get(tid) or [])} for tid, rec in recs], relations=rel)
     return out
 

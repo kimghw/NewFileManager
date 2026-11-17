@@ -18,6 +18,11 @@
 - 같은 블로그의 파싱 편(https://tech.hancom.com/python-hwpx-parsing-2/, 2025-09-29): `hp:p` 속성 id·paraPrIDRef·styleIDRef·
   pageBreak·columnBreak·merged(+paraTcId), `hp:run charPrIDRef`(+charTcId), `hp:t` 는 mixed — 자식 markpenBegin/End·titleMark·tab·
   lineBreak·hyphen·nbSpace·fwSpace·insertBegin/End·deleteBegin/End 와 tail 텍스트를 이어 붙여야 본문이 빠지지 않는다.
+- **짝 표지 실측**(2026-11-17 — 사용자 작업 사본 · `artifacts/markers_astra_2026-11-17/`): 형광펜 `hp:markpenBegin color`/`hp:markpenEnd` 는 `hp:t` 의 길이 0 자식(짝은 문단 안 차례),
+  필드 `hp:fieldBegin id type`/`hp:fieldEnd beginIDRef` 는 `hp:run/hp:ctrl` 의 자식(짝은 id). 문서마다 형광펜 색이 다르다 — 이 문서는 `#F0F0F0`(옅은 회색)이고 **한글의 PDF 출력에 안 보인다**
+  (PDF 그림으로 형광펜 자리를 확인할 수 없음 — XML 로 본다). 한글 COM 으로 열고 hwpx 로 다시 저장(`pdf_render.resave_hwpx`)해도 형광펜 · 필드 수와 형광펜 시작·끝 자리(앞 글자 수)가 그대로다 —
+  우리가 같은 `hp:t` 안에서 새 빈칸 글자를 형광펜 시작 표지 **앞**에 넣은 배치(레터 앞 빈칸 0·2칸 → 4칸 · 형광펜 (0,17)→(4,21))를 한글이 받아들이고 바꾸지 않는다(줄 넷 · 54 MB 문서).
+  XSD 는 안 닫힌 형광펜 · 없는 `beginIDRef` 도 오류 0 이라 짝의 옳음을 XSD 로는 못 본다.
   블로그는 네임스페이스를 `http://www.owpml.org/owpml/2021/…` 로 적었으나 이 프로젝트 실파일(한글 11·12 저장)은
   `http://www.hancom.co.kr/hwpml/2011/…` — 파서는 URI 를 고정하지 말 것. 한컴 공개 C++ 모델: hwpx-owpml-model(오픈소스).
 - 본문 조작은 `Contents/section*.xml` 만 바꾸고 나머지 멤버는 바이트 그대로 재압축하면
@@ -78,6 +83,13 @@
 - `hp:p id` 는 `2147483648`·`0` 등 중복이 정상.
 - 캡션: `hp:tbl`/`hp:pic` 의 자식 `hp:caption side gap width lastWidth` → `hp:subList` → `hp:p`.
   실문서 캡션은 리터럴 텍스트(`표 3.1.3 …`)였고 autoNum 은 쪽번호(`PAGE`)만 있었다.
+  - 자리·꼴(2026-11-17 사용자 문서 3건 실측 — 캡션 49 · 8 · 163개): `hp:tbl` 에서는 `hp:outMargin` 바로 뒤(`sz · pos · outMargin · caption · inMargin · tr…`), `hp:pic` 에서도 `outMargin` 뒤.
+    `<hp:caption side="TOP|BOTTOM|LEFT|RIGHT" fullSz="0" width="8504" gap="850" lastWidth="47624">` → `<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">` → `hp:p`(여럿일 수 있다).
+    이 꼴로 표에 붙여 저장한 문서는 OWPML 검사·다시 열기를 통과한다(시험 `tests/test_caption_tpl.py` — 한글에서 열어 보지는 않았다).
+  - 쓰임(같은 실측): 표 캡션은 `side="TOP"`, 그림 캡션은 `side="BOTTOM"` 이 거의 전부(예외 표 아래 1 · 그림 위 1). 글은 번호 없는 **「< 제목 >」** 이 대부분이고(「<　제목　＞」 전각 빈칸·전각 괄호 · 「<제목>」 도 섞임) 「표 1-1 제목」 은 드물다 —
+    번호는 손으로 친 글(자동 번호 `TABLE`·`PICTURE` 는 없었다). 한 캡션에 문단이 여럿일 수 있다: 제목 문단 + 「*. 출처 : …」 문단(+ 넘어간 줄을 따로 친 문단). 캡션은 달려 있지만 글이 빈 것도 있다.
+  - 묶음 개체 `hp:container`(그림 여러 개를 묶은 것)에도 `hp:caption` 이 붙는다 — 이 프로젝트의 블록 읽기(`HwpxDoc._para_blocks`)는 `hp:tbl`·`hp:pic` 의 캡션만 블록으로 내므로 그 문단은 웹 블록 id 가 없다(한 문서에서 21줄).
+  - 캡션 대신 **본문 문단**으로 친 캡션도 흔하다: 표 바로 위 · 그림 바로 아래의 「< 제목 >」 문단(작업 `2336f896d390` 에서 그림 아래 14 · 표 위 5), 양식의 「<표 1> 노출수준(가능성)」 처럼 표 칸 안에 친 것.
 - 자동 번호: `hp:run/hp:ctrl/hp:autoNum num=".." numType="PAGE|PICTURE|TABLE|EQUATION|…"` + `hp:autoNumFormat`.
 - 그림 `hp:pic`: `hc:img binaryItemIDRef`(= manifest item id), 표시 크기 `hp:sz width/height`(HWPUNIT),
   원본 `hp:orgSz` ≈ 픽셀×75(96dpi), 자르기 없으면 `hp:imgClip right/bottom` = orgSz, `hp:imgRect` 꼭짓점도 orgSz.
@@ -253,6 +265,11 @@
 - **글자처럼 취급(`hp:pos treatAsChar="1"`) 개체가 한 문단에 여럿**이면 글자처럼 한 줄에 나란히 놓인다(각 개체 캡션은 그 개체 밑).
   한글이 저장한 꼴(2026-11-12 실측 — 그림 둘을 나란히 붙여 넣은 문단): **런 하나에 개체가 잇달아** `<hp:run><hp:pic/><hp:pic/><hp:t/></hp:run>`(사이에 빈칸을 넣었으면 그 사이에 `<hp:t> </hp:t>`).
   개체마다 문단을 따로 만들면 문단마다 줄이 바뀌어 세로로 쌓인다 — 나란히 두려면 한 문단 안에 둬야 한다.
+- **글이 있는 문단의 글자처럼 취급 그림은 글과 같은 줄의 그 자리**(2026-11-17 실측 — 한글 PDF 200dpi · 사업계획서의 제목 상자 16곳: 1×1 표 칸에 `<hp:run><hp:pic/><hp:t> 글로벌 자율운항선박 …</hp:t></hp:run>`,
+  그림 3.82×4.22mm(1083×1197 HU) · 글 13pt · 줄 간격 140% · 칸 세로 가운데): 런 안의 차례가 곧 줄 안의 차례다 — 그림이 `hp:t` 앞이면 글머리 아이콘처럼 줄 맨 앞, 사이면 글 사이.
+  그림이 글자 상자보다 낮으면 **줄 높이는 그대로**(`lineseg vertsize="1300" textheight="1300" baseline="1105"` — 그림 높이 1197 < 1300 · 표 높이 3000 HU = 칸 여백 850 × 2 + 1300),
+  **그림의 아래끝 = 줄(글자 상자)의 아래끝** = 기준선 아래 0.15em(줄 위끝 46.65mm · 기준선 50.55 · 줄 아래끝 51.23 ↔ 그림 46.99~51.18 — 기준선에 앉지 않는다).
+  그림 오른끝에서 글까지는 그 사이에 친 빈칸 한 칸(0.5em = 2.29mm). 그림이 글자 상자보다 높을 때의 줄 높이·기준선은 미실측.
 - `hh:breakSetting` 쪽 나눔: `keepWithNext`(다음 문단과 함께)·`keepLines`(문단 보호)·`widowOrphan`(외톨이줄 보호) — 연구계획서 문단 모양
   467개 중 1인 것 0·0·4. 끈 문단은 쪽 끝·처음에 한 줄만 남아도 그대로 둔다(브라우저 다단 기본 orphans/widows 2 와 다름).
 - 머리말·꼬리말 여백(`hp:margin header/footer`)은 본문 위·아래 여백에 더해진다(top 10 + header 10 → 본문 20mm 부터, PDF 실측 일치).

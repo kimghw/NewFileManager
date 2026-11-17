@@ -2,12 +2,14 @@
 // job 키는 server.py TASK["job"] 및 저장된 work.task.job과의 계약이다.
 // files = 이관의 문서 칸, gather = 취합본 한 개 + 기관 문서 여러 개.
 // target = 목적 문서(내용을 받는 문서)의 첨부 파일 종류 — server works.TARGET_FILE 과 같게(tests/test_task_catalog.py). 그 TASK 의 다른 종류 문서는 원본(spec_작업 ② §10 「목적 문서 표시」).
+// zones = 그 TASK 가 편집 구역에서 기본으로 켤 기준(org 기관 · stage 단계 · year 차년도 — 없으면 켠 것 없음). 사람이 정하면 TASK 묶음마다 서버에 따로 적힌다(TASK 옵션 — spec_구역 ② §1).
+//   서버 app/task_options.py ZONES_DEFAULT 와 같게(tests/test_task_catalog.py) — 취합은 기관 구역이 전부터 기본으로 보였다.
 // 새 TASK를 넣을 때 spec/spec_작업.md §16의 모듈·검사 범위도 확인한다.
 const TASK_CATALOG = Object.freeze({
   plan_fit: { name: "사업계획서 양식 맞추기", act: "양식 맞추기", doc: "plan", file: "plan", up: "사업계획서", desc: "단계·차년도·기관에 맞춰 양식의 절·표를 늘리고 줄입니다." },
   plan_merge: { name: "사업계획서 취합", act: "취합", doc: "plan", file: "plan", up: "취합본", upMany: "문서 여러 개", quick: true, desc: "기관이 나눠 쓴 문서의 내용을 사업계획서 하나로 모읍니다.",
     hint: "간단 모드 — 취합본과 기관 문서를 위 목록에 한꺼번에 올리고 목적 문서(취합본)를 고른 뒤 「자동 진행」 을 켜고 이 카드를 누르면 끝까지 자동으로 넣습니다.\n세부 작업 모드 — 「자동 진행」 을 끄면 올리고 등록만 합니다(취합본 하나만이면 단계마다 보고 고르며 함 — 기관 문서는 연 뒤 작업 내용에서 넣음).",
-    gather: { base: "plan", parts: "part" }, target: "plan" }, // quick = 카드에 여럿을 올리면 간단 모드(gather_quick.js — spec_취합 ② §8)
+    gather: { base: "plan", parts: "part" }, target: "plan", zones: ["org"] }, // quick = 카드에 여럿을 올리면 간단 모드(gather_quick.js — spec_취합 ② §8)
   plan_to_report: { name: "사업계획서 → 연차보고서 이관", act: "이관", doc: "plan-report", file: "", up: "문서", desc: "사업계획서에서 필요한 내용을 뽑아 연차보고서로 옮깁니다.",
     hint: "사업계획서나 연차보고서 가운데 하나 — 나머지 문서는 연 뒤 작업 내용의 첨부 파일 칸에서 올립니다", files: ["plan", "report"], target: "report" },
   report_fit: { name: "연차보고서 양식 맞추기", act: "양식 맞추기", doc: "report", file: "report", up: "연차보고서", desc: "단계·차년도·기관에 맞춰 양식의 절·표를 늘리고 줄입니다." },
@@ -25,6 +27,8 @@ const TASK_CATALOG = Object.freeze({
 const taskKindOf = (job) => (TASK_CATALOG[job] || {}).kind || "rnd";
 const taskEntryOf = (job) => (TASK_CATALOG[job] || {}).entry || "Div";
 const taskAcceptOf = (job) => (TASK_CATALOG[job] || {}).accept || ["hwp", "hwpx"]; // 그 TASK 의 카드가 받는 확장자(spec_서식복사 ② §1 — 다른 TASK 는 전과 같이 hwp·hwpx)
+// 그 TASK 가 편집 구역에서 기본으로 켤 기준(사람이 정한 적 없을 때 — spec_구역 ② §1). 서버 app/task_options.py ZONES_DEFAULT 와 같아야 한다(tests/test_task_catalog.py)
+const taskZonesDefault = (job) => (TASK_CATALOG[job] || {}).zones || [];
 
 // 이관·취합이 공유하는 사용자 단계 이름. 단계별 실행·완료 조건은 각 흐름이 정의한다.
 // config = 구성(단계·차년도·기관)만 추출해 프로젝트에 확정 — 문서를 안 바꾼다(spec_작업 ② §18, 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"). 묶음 id·저장 키는 번호와 따로(frame·map·clean 그대로).

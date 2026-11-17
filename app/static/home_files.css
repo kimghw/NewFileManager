@@ -48,6 +48,8 @@
 .hf-check { display: inline-flex; align-items: center; gap: 5px; color: #515154; font-size: 12px; cursor: pointer; }
 .hf-check input { margin: 0; }
 .hf-check input:disabled + span { color: #a1a1a6; }
+/* 「편집 구역」 묶음(가려 볼 기준 — 기관 · 단계 · 차년도: spec_구역 ② §1)의 상태 글 — 손대지 않은 것(「TASK 기본값대로」)과 모두 끈 것(「모두 끔」)은 체크가 같아 보여 글로 가른다 */
+.hf-zones-note { color: #6e6e73; font-size: 11px; white-space: nowrap; }
 
 .hf-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 .home-tasks .task-card:disabled { cursor: default; transform: none; box-shadow: none; background: #f9f9fb; }

@@ -496,3 +496,13 @@ def test_the_share_port_serves_only_the_guest_app(client, tmp_path, monkeypatch)
             requests.get(f"http://127.0.0.1:{free}/s/{st['id']}/info", timeout=2)
     finally:
         lis.stop()
+
+
+def test_slim_keeps_in_text_pictures():
+    # 글 속 그림(spec_hwpx_웹편집 ② §3-6) — 손님 화면도 글과 같은 줄의 그 자리에 그리게 문단의 pics 와 그 그림 블록의 inlineOf 를 실어 보낸다(그 밖의 키는 전처럼 뺀다)
+    pic = {"id": "i2", "at": 0, "media": "BinData/image1.png", "widthMm": 3.8, "heightMm": 4.2}
+    out = share_api.slim([{"id": "p1", "type": "paragraph", "text": " 제목", "format": {"sizePt": 13}, "pics": [{**pic, "more": 1}], "lines": [1]},
+                          {"id": "i2", "type": "image", "media": pic["media"], "widthMm": 3.8, "heightMm": 4.2, "inlineOf": "p1", "align": "left"},
+                          {"id": "p3", "type": "paragraph", "text": "그림 없는 문단", "format": None}])
+    assert out[0] == {"id": "p1", "type": "paragraph", "text": " 제목", "format": {"sizePt": 13}, "pics": [pic]}
+    assert out[1]["inlineOf"] == "p1" and "pics" not in out[2]

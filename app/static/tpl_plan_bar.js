@@ -9,13 +9,13 @@
 //                   **헤딩 판정(LLM)을 안 거쳤으면 그보다 먼저 「LLM 판정」**(tpbJudge — 「LLM 검증·보완」 이어 돌리기: 헤딩 · 템플릿 → 표 · 서식 정리 계획. 행동 칸은 차례를 따른다 — 2026-11-17)
 // 두 조정 칸을 누르면 계획 보기(문서 옆 열 「LLM 이 바꾼 것」 의 「서식 계획」 절 — 템플릿 · 레벨마다 맞출 줄 · 뗄 줄 · 남긴 줄), 계획이 하나도 없으면 「템플릿 관계」 열(손으로 맞추고 떼는 곳).
 // 「모두 반영」 은 이 줄 한 곳에만 둔다(design.md §10) — 템플릿 하나만 반영하는 길은 전처럼 템플릿 줄의 「계획대로 맞추기」 · ★ 열의 「적용」.
-// 자료 = 분석 상태(GET …/analysis — doc_status.js dsState.main 의 서식 항목 llm{state, text, need, planned, applied, stale, change, moved, reps(대표를 바꿀 레벨), left(반영한 계획이 남긴 줄 {kept, unanswered}), list}) — 따로 읽지 않는다.
+// 자료 = 분석 상태(GET …/analysis — doc_status.js dsState.main 의 서식 항목 llm{state, text, need, planned, applied, stale, change, moved, reps(대표를 바꿀 레벨), left(반영한 계획이 남긴 줄 {kept, unanswered, marked?(표지 때문에 모양만 맞춘 줄)}), leftMarked(그 줄 id), list}) — 따로 읽지 않는다.
 // 부르는 곳: app.js headsProgLine(tplPlanRow — 세 단계를 다 보이는 진행 줄에만) · doc_status.js dsFetch(tplPlanBarSync) · 이름 줄 진행표 · 에이전트 보기(tplPlanGo) ·
 // heads_run_all.js(tpbApply — 상태 줄 「전체 실행」 이 LLM 단계 뒤에 같은 함수로 반영한다 · tplPlanGo).
-// 기대는 것: app.js(state · el · hBtn · nf · toast · api · structOp · flushAll · heads · headsRender · headsPoll · headsLlmReady · outlineLoad · showTab · H_JSON) · doc_status.js(dsState · docStatusPing · dsLlmRun) ·
+// 기대는 것: app.js(state · el · hBtn · nf · toast · api · structOp · flushAll · heads · headsRender · headsPoll · headsLlmReady · outlineLoad · showTab · scrollToBlock · H_JSON) · doc_status.js(dsState · docStatusPing · dsLlmRun) ·
 // outline_match.js(olmLoad · olmRefresh) · heading_llm_diff.js(llmDiffOpen) · app.js tplRelOpen · tpl_agent.js(tpaSkillKey).
-const TPB = { sig: null, busy: false };
-const TPB_STATE = { none: "안 함", plan: "계획 받음 — 반영 전", llm: "반영함", left: "반영함 — 답이 없어 안 바꾼 줄이 남음", running: "계획 받는 중", failed: "실패", skip: "할 것 없음" };
+const TPB = { sig: null, busy: false, mark: -1 }; // mark = 「표지 n줄」 칸을 눌러 간 줄의 차례(tpbMarkGo)
+const TPB_STATE = { none: "안 함", plan: "계획 받음 — 반영 전", llm: "반영함", left: "반영함 — 답이 없어 안 바꾼 줄이 남음", marked: "반영함 — 표지 때문에 모양만 맞춘 줄이 남음", running: "계획 받는 중", failed: "실패", skip: "할 것 없음" };
 const tpbView = () => (typeof dsState === "object" && state.id && dsState.mainId === state.id ? dsState.main : null);
 const tpbFmt = (v = tpbView()) => (v ? (v.items || []).find((i) => i.key === "formats") || null : null);
 // 확실한 종속 제안(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래 — 분석 상태 템플릿 항목의 hints 가운데 sure): 「모두 반영」 이 저절로 건다(spec_hwpx_웹편집 ② §8-2 「종속 제안」 — 2026-11-16 사용자 「확실이 구분되는건 자동으로」)
@@ -57,7 +57,8 @@ function tpbCell(b, i) { // 칸 하나 — 진행 줄의 다른 칸과 같은 �
     b.append(n);
   }
   b.title = i.title || "";
-  b.setAttribute("aria-label", `조정 ${i.text}${i.count ? ` ${i.count}${i.unit || ""}` : ""}${TPB_STATE[i.state] && !i.plain ? ` — ${TPB_STATE[i.state]}` : ""}`);
+  const say = TPB_STATE[i.say || i.state]; // say = 읽어 줄 상태(모양은 state 를 따르고 글만 다를 때 — 「표지 n줄」 은 「left」 모양)
+  b.setAttribute("aria-label", `조정 ${i.text}${i.count ? ` ${i.count}${i.unit || ""}` : ""}${say && !i.plain ? ` — ${say}` : ""}`);
   b.onclick = i.run || null;
   b.hidden = !!i.hide;
 }
@@ -78,9 +79,14 @@ function tpbDraw(els) {
   // 대표만 바꾸는 레벨(L.reps — 맞출 줄이 0 이어도 반영할 것이다) · 반영한 계획이 지금 문서에 남긴 줄(L.left — 에이전트가 그대로 둔 줄 LK · 답이 없어 안 바꾼 줄 LU: 검토한 것이 아니다)
   // — 반영한 뒤에도 보인다(2026-11-16 astra: 답이 없던 줄이 ✓ 뒤로 사라졌다 — spec_hwpx_웹편집 ② §8-4)
   const R = (ready && L.reps) || 0, LK = (ready && L.left && L.left.kept) || 0, LU = (ready && L.left && L.left.unanswered) || 0;
-  const leftTip = LK || LU ? `\n반영한 계획이 남긴 줄 — ${[LK ? `에이전트가 그대로 둔 줄 ${nf(LK)}` : "", LU ? `답이 없어 안 바꾼 줄 ${nf(LU)}(검토한 것이 아닙니다)` : ""].filter(Boolean).join(" · ")} — 「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로` : "";
+  // LM = 반영이 형광펜 · 필드 표지 때문에 모양만 맞추고 남긴 줄(지금도 대표와 다른 서식 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」): 레터 첫머리의 글은 그대로라 대표와 다르다. 실패가 아니라 남긴 것 — 단계별로 보정
+  const LM = (ready && L.left && L.left.marked) || 0;
+  const markTip = LM ? `표지 때문에 모양만 맞춘 줄 ${nf(LM)} — 형광펜·필드 표지가 있어 레터 첫머리의 글(레터 · 레터 앞·뒤 빈칸)은 그대로입니다(문단·글자 모양은 맞춤). 한글에서 표지를 지운 뒤 「이 줄들만 맞추기」, 또는 그대로 둡니다` : "";
+  const leftTip = LK || LU || LM ? `\n반영한 계획이 남긴 줄 — ${[LK ? `에이전트가 그대로 둔 줄 ${nf(LK)}` : "", LU ? `답이 없어 안 바꾼 줄 ${nf(LU)}(검토한 것이 아닙니다)` : "", LM ? `표지 때문에 모양만 맞춘 줄 ${nf(LM)}` : ""].filter(Boolean).join(" · ")} — 「반영한 계획 보기」 · 「템플릿 관계」 에서 손으로` : "";
   const leftCell = () => { // 답이 없어 안 바꾼 줄이 남았으면 「서식 조정」 칸은 ✓ 가 아니다 — 남은 줄 수를 보인다(에이전트가 까닭을 적고 그대로 둔 줄은 검토한 것 — ✓ 그대로 · 도움말에만)
     if (LU) tpbCell(fmtB, { state: "left", text: "서식 조정", count: `답 없음 ${nf(LU)}`, unit: "줄", title: `${F}\n반영했지만 에이전트가 답하지 않아 안 바꾼 줄이 ${nf(LU)}줄 남았습니다 — 검토한 것이 아닙니다${leftTip}\n— ${seeTip}`, run: see });
+    // 표지 때문에 모양만 맞춘 줄만 남았다 — 같은 모양(!)으로 「표지 n줄」, 누르면 그 줄로 차례로 간다(tpbMarkGo)
+    else if (LM) tpbCell(fmtB, { state: "left", say: "marked", text: "서식 조정", count: `표지 ${nf(LM)}`, unit: "줄", title: `${F}\n${markTip}${leftTip}\n— 누르면 그 줄로 차례로 갑니다`, run: tpbMarkGo });
   };
   const has = ready && (L.planned || L.applied || L.stale || L.done); // 볼 계획이 있나
   const see = () => { if (has && typeof llmDiffOpen === "function") llmDiffOpen("fmt"); else if (typeof tplRelOpen === "function") tplRelOpen(); };
@@ -208,9 +214,10 @@ async function tpbApply(opt = {}) {
   const r = await structOp("outline/agent/apply", Object.keys(plans).length ? { rev: state.serverRev, plans } : { rev: state.serverRev }); // 표시가 없으면(서버가 옛 판) 전처럼 차례만
   TPB.busy = false;
   if (r) {
-    const ts = r.templates || [], placed = (r.placed || []).length, n = (r.changed || []).length - placed, made = ts.flatMap((t) => (t.splits || []).map((x) => `T${x.no}`)); // placed = 자리 맞춤만 한 줄(② §8-8) · n = 대표에 맞춘 줄
+    // placed = 자리 맞춤만 한 줄(② §8-8) · lm = 형광펜·필드 표지 때문에 모양만 맞추고 남긴 줄(② §8-8 「짝 표지가 든 줄」 — changed 에도 든다) · n = 대표에 맞춘 줄
+    const ts = r.templates || [], placed = (r.placed || []).length, lm = (r.left || []).length, n = (r.changed || []).length - placed - lm, made = ts.flatMap((t) => (t.splits || []).map((x) => `T${x.no}`));
     const rel = (r.merged || []).length ? ` · 템플릿 종속 ${nf(r.merged.length)}(${r.merged.slice(0, 4).map((m) => `T${m.no}`).join(" · ")})` : "";
-    const put = placed ? `자리 맞춤 ${nf(placed)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "";
+    const put = [placed ? `자리 맞춤 ${nf(placed)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "", lm ? `형광펜·필드 표지가 있어 모양만 맞춘 줄 ${nf(lm)}(글은 그대로 — 남긴 줄은 조정 층 「서식 조정」 칸에서)` : ""].filter(Boolean).join(" · ");
     const reps = ts.reduce((a, t) => a + (t.levels || []).filter((x) => x.repChanged).length, 0); // 대표를 바꾼 레벨 — 맞춘 줄이 0 이어도 한 일이다
     toast(r.nothing ? "바꿀 줄이 없습니다 — 계획이 모두 「그대로」 입니다" : !ts.length && !placed && rel ? `템플릿 종속을 넣었습니다 —${rel.slice(2)} · 문서는 안 바뀜 · 「실행 취소」 한 번으로 되돌립니다`
       : !ts.length && placed ? `자리를 맞췄습니다 — ${put}${rel} · 「실행 취소」 한 번으로 되돌립니다`
@@ -272,6 +279,16 @@ async function tpbJudge() {
   rows.push("", "유료 LLM · 몇 분 걸립니다 · 문서는 바뀌지 않습니다 — 받은 서식 정리 계획은 「템플릿 조정」·「서식 조정」 칸에서 확인한 뒤 「모두 반영」 으로 반영합니다. 계속할까요?");
   if (!confirm(rows.join("\n")) || epoch !== state.epoch) return;
   await dsLlmRun();
+}
+
+// 「서식 조정 · 표지 n줄」 칸 — 반영이 형광펜·필드 표지 때문에 모양만 맞추고 남긴 줄(분석 상태 서식 항목의 llm.leftMarked — 지금도 대표와 다른 서식인 줄, 30개까지)로 누를 때마다 다음 줄
+// (spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」 — 보정은 단계별: 한글에서 표지를 지운 뒤 「이 줄들만 맞추기」, 또는 그대로 둔다). 문서는 안 바꾼다 · app.js scrollToBlock
+function tpbMarkGo() {
+  const f = tpbFmt(), ids = (f && f.llm && f.llm.leftMarked) || [], n = (f && f.llm && f.llm.left && f.llm.left.marked) || ids.length;
+  if (!ids.length) { toast("표지 때문에 모양만 맞춘 줄이 지금은 없습니다"); return; }
+  TPB.mark = (TPB.mark + 1) % ids.length;
+  if (typeof scrollToBlock === "function") scrollToBlock(ids[TPB.mark], true);
+  toast(`표지 때문에 모양만 맞춘 줄 ${nf(TPB.mark + 1)}/${nf(n)} — 형광펜·필드 표지가 있어 레터 첫머리의 글은 그대로입니다. 한글에서 표지를 지운 뒤 「이 줄들만 맞추기」, 또는 그대로 둡니다${n > ids.length ? ` (${nf(ids.length)}줄까지 차례로 갑니다)` : ""}`);
 }
 
 function tplPlanGo() { // 다른 자리(이름 줄 진행표의 「남은 일: 서식 반영」 · 에이전트 보기의 「서식 반영하기」)에서 — 헤딩 추출 탭을 열고 「조정」 줄을 짚어 준다(반영은 그 줄의 단추로)

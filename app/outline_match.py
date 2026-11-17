@@ -9,12 +9,13 @@
 import copy
 import hashlib
 import json
+import re
 import weakref
 from collections import Counter
 
 from app import outline_edit as OE
 from app.hwpx_format import CHAR_LANGS, _h
-from app.hwpx_struct import OBJECTS, P, RUN, TC, TR
+from app.hwpx_struct import OBJECTS, P, RUN, TC, TR, MarkBlock
 
 CHAR_KEYS = ("font", "sizePt", "bold", "italic", "underline", "color", "ratioPct", "spacingPct")
 PARA_KEYS = ("align", "line1Mm", "line2Mm", "indentRightMm", "spaceBeforePt", "spaceAfterPt", "lineSpacingPct")
@@ -61,6 +62,18 @@ def _form(tok, key):
             last = e
     out.append(tok[last:])
     return "".join(out)
+
+
+# 닮은 레터 글자(spec_hwpx_웹편집 ② §8-5 「닮은 글자」 — 2026-11-17 사용자 「이것도 같은 서식을 갖어야 하는데 .. 식별이 안되었나? 이건 같은 템플릿에서 같은 뿌리인데」 → 답 「같은 레터 · 글자도 대표로」):
+# 헤딩 판정이 **같은 레터 키**로 묶는 글자(「o」·「ㅇ」·「○」 → 「o」 · 「·」·「⋅」·「•」 → 「·」 — heading_graph.VARIANTS · heading_rules 의 계열)는 사람마다 다르게 친 같은 레터다 — 「레터」 가 다른 것이 아니다.
+# 속이 찬 기호는 닮은 글자로 보지 않는다 — 같은 꼴의 빈 기호(□·○·△·◇·▫·▷)와 일부러 달리 썼을 수 있다(에이전트 판단 — 사용자 확인 전: 같은 사양서 ④).
+FILLED = frozenset("■●▲◆▪▶►➤")
+GLYPH = "닮은 레터 글자"  # diff 의 이름 — 레터는 같고 글자만 다름(LABELS["letter"] = 「레터」 는 레터가 다를 때만)
+
+
+def kin(tok, key):
+    """레터의 **계열** — 같으면 같은 레터다(글자가 달라도 닮은 글자). 줄의 레터 키(헤딩 판정의 정규 키) + 속이 찬 기호인가. 키가 없는 줄은 글자 그대로."""
+    return (key or tok) + ("/찬" if tok[:1] in FILLED else "")
 
 
 def _runs_pos(doc, p):
@@ -115,6 +128,9 @@ def look(doc, ov, pid):
     para, lch, bch = doc._summary(pp, lc), doc._summary(pp, lc), doc._summary(pp, bc)
     left, first = para.get("indentLeftMm"), para.get("firstLineMm")
     out = {"lead": lead, "letter": "" if x.get("role") in OE.ROOTED else _form(tok, x.get("key") or ""), "gap": gap}
+    out["kin"] = "" if x.get("role") in OE.ROOTED else kin(tok, x.get("key") or "")  # 레터 계열 — 비교 값(KEYS)이 아니다: 갈래는 전처럼 글자로 가르고, diff 가 다른 글자의 이름만 정한다
+    tf = table_form(doc, ov, p)  # 표 양식(② §8-11) — 비교 값(KEYS)이 아니다: 대표와 서식이 다른 표 안의 줄을 표 양식마다 다른 갈래로 가른다(variants · mate)
+    out["form"], out["formLabel"] = (tf["key"], tf["label"]) if tf else ("", "")
     if left is None or first is None:
         out["line1Mm"] = out["line2Mm"] = None
     else:
@@ -159,7 +175,8 @@ def _at_text(doc, p, lead, tok, gap, first):
         return False
     from app import outline_pos as OP  # outline_pos 는 이 모듈을 함수 안에서만 읽는다 — 서로 물리지 않게 여기서도 함수 안에서
     from app.heading_extract import _cid_at as cid_of, run_ranges
-    m, memo = _MEASURES.get(doc) or _MEASURES.setdefault(doc, (OP.Measure(doc), {}))
+    # 재개는 문서를 약하게 쥔다(weakref.proxy) — 값이 문서를 강하게 쥐면 약한 키가 끝내 안 풀려, 실행 취소 · 되돌림이 새 문서를 열 때마다 옛 문서 전체가 남았다(2026-11-17 검토)
+    m, memo = _MEASURES.get(doc) or _MEASURES.setdefault(doc, (OP.Measure(weakref.proxy(doc)), {}))
     rr, fb = run_ranges(doc, p), doc._char_id(p)
     text = lead + tok + gap
     cids = tuple(cid_of(rr, i, fb) for i in range(len(text)))
@@ -185,8 +202,13 @@ def cshown(lk, k):
 
 
 def diff(a, b):
-    """비교 값 a(대표) 와 b 의 다른 키 → [[키, 이름, 대표 글, b 글]…](KEYS 차례)."""
-    return [[k, LABELS.get(k, k), cshown(a, k), cshown(b, k)] for k in KEYS if cval(a, k) != cval(b, k)]
+    """비교 값 a(대표) 와 b 의 다른 키 → [[키, 이름, 대표 글, b 글]…](KEYS 차례).
+    레터 글자가 달라도 **계열이 같으면**(`kin` — 닮은 글자) 이름은 「레터」 가 아니라 「닮은 레터 글자」(GLYPH)다 — 서식 정리 에이전트가 떼는 기준은 이름이 「레터」 인 항목뿐이다."""
+    glyph = bool(a.get("kin")) and a.get("kin") == b.get("kin")
+    out = [[k, GLYPH if k == "letter" and glyph else LABELS.get(k, k), cshown(a, k), cshown(b, k)] for k in KEYS if cval(a, k) != cval(b, k)]
+    if b.get("form") and (a.get("form") or "") != b["form"]:  # 표 안의 줄 — 대표 줄과 표 양식이 다르다(② §8-11: 「표: 대표의 머리글 → 이 갈래의 머리글」)
+        out.append(["form", FORM, a.get("formLabel") or "표 밖", b.get("formLabel") or "—"])
+    return out
 
 
 def same(a, b):
@@ -205,6 +227,112 @@ def _cell_of(p):
                 return el
         el = el.getparent()
     return None
+
+
+# ---------------------------------------------------------------- 표 안의 줄 — 표 양식마다의 서식(spec_hwpx_웹편집 ② §8-11)
+# 2026-11-17 사용자 「테이블은 같은 형식/ 헤더열/행을 보면 같은건지 알겠지? 같은 것끼리는 서식을 공유하지만 그렇지 않은 경유, 기존 테이블 안의 서식을 사용해 주는게 맞는거 같아」 —
+# 표 칸의 줄은 레터 사슬이 같으면 문서 전체에서 한 템플릿이라(「N. › -」), 「레터가 같으면 대표에 맞춘다」 를 그대로 걸면 8pt 표의 줄이 다른 표의 대표 서식(10pt 굵게)이 된다.
+FORM = "표"  # diff 의 이름 — 대표 줄과 표 양식이 다름(키 `form` — 비교 값 KEYS 가 아니다)
+_FORMS = weakref.WeakKeyDictionary()  # 문서 → (고친 차례 doc._gen, {표 요소: 표 양식})
+_FORM_DROP = re.compile(r"[\W\d_]+")  # 머리글 지문에서 빼는 것 — 빈칸 · 숫자 · 문장 부호(「1차년도」·「2차년도」 는 같은 머리글)
+
+
+def _read_form(doc, tbl, lines):
+    """표 하나 → {key(양식 지문), label(머리글 — 화면 글), around(주변 글 Counter{(글꼴, 크기, 굵게): 글자 수})}.
+    머리글 = 음영이 있는 칸의 글((행, 열) 차례) — 없으면 첫 행, 그것도 비면 그 표 하나가 한 양식. 주변 글 = 개요 줄(lines)이 아닌 문단의 첫 글자 모양(머리글 칸은 빼고 — 다 머리글이면 전부)."""
+    from app.hwpx_doc import CELLADDR, SUBLIST  # 함수 안에서 — 모듈을 서로 물리지 않게
+
+    cells = []
+    for r, tr in enumerate(tbl.iterchildren(TR)):
+        for c, tc in enumerate(tr.iterchildren(TC)):
+            addr, sub = tc.find(CELLADDR), tc.find(SUBLIST)
+            ps = [q for q in sub.iterchildren(P)] if sub is not None else []
+            cells.append((int(addr.get("rowAddr", r)) if addr is not None else r, int(addr.get("colAddr", c)) if addr is not None else c,
+                          bool(doc._shaded(tc.get("borderFillIDRef"))), ps))
+    cells.sort(key=lambda x: (x[0], x[1]))
+    text = lambda ps: " ".join(t for t in (doc._text(q).strip() for q in ps) if t)  # noqa: E731
+    heads = [text(ps) for _, _, shaded, ps in cells if shaded]
+    if not any(heads):
+        top = min((x[0] for x in cells), default=0)
+        heads = [text(ps) for r, _, _, ps in cells if r == top]
+    heads = [h for h in heads if _FORM_DROP.sub("", h)]
+    sig = "|".join(_FORM_DROP.sub("", h)[:24] for h in heads)
+    key = hashlib.sha1((sig or f"표 {id(tbl)}").encode("utf-8")).hexdigest()[:10]
+    short = [h if len(h) <= 14 else h[:13] + "…" for h in (" ".join(h.split()) for h in heads[:3])]
+    label = (" · ".join(short) + (" …" if len(heads) > 3 else "")) if short else "머리글 없는 표"
+    around, shaded_only = Counter(), not any(not sh for _, _, sh, _ in cells)
+    for _, _, shaded, ps in cells:
+        if shaded and not shaded_only:
+            continue
+        for q in ps:
+            n = len(doc._text(q).strip())
+            if not n or doc._rev.get(q) in lines:
+                continue
+            sm = doc._summary(q.get("paraPrIDRef"), doc._char_id(q))
+            around[(sm.get("font") or "", sm.get("sizePt") or 0, bool(sm.get("bold")))] += n
+    return {"key": key, "label": label, "around": around}
+
+
+def table_of(p):
+    """문단이 든 여러 칸 표(hp:tbl) | None(표 밖 · 1칸 상자 안 — `_cell_of` 와 같은 기준)."""
+    tc = _cell_of(p)
+    tr = tc.getparent() if tc is not None else None
+    return tr.getparent() if tr is not None else None
+
+
+def table_form(doc, ov, p):
+    """문단 p 가 든 표의 **표 양식**(② §8-11) → {key, label, around} | None(표 밖). 같은 문서 상태에서는 표마다 한 번만 읽는다(문서를 고치면 다시 — doc._gen)."""
+    tbl = table_of(p)
+    if tbl is None:
+        return None
+    gen = getattr(doc, "_gen", 0)
+    memo = _FORMS.get(doc)
+    if memo is None or memo[0] != gen:
+        memo = _FORMS[doc] = (gen, {})
+    if tbl not in memo[1]:
+        memo[1][tbl] = _read_form(doc, tbl, ov.get("lines") or {})
+    return memo[1][tbl]
+
+
+def around_text(counter):
+    """주변 글 Counter → 「Dotum 8pt」 · 「Dotum 10pt 굵게」 | ""(글이 없음) — 가장 흔한 글자 모양 하나."""
+    if not counter:
+        return ""
+    font, size, bold = counter.most_common(1)[0][0]
+    return " ".join(x for x in (font, f"{size:g}pt" if size else "", "굵게" if bold else "") if x)
+
+
+_LOOK_ONLY = ("line2At", "kin", "form", "formLabel")  # `look` 에 함께 실리지만 화면의 서식 값(갈래의 look)이 아닌 것
+
+
+def _form_view(doc, ov, paras):
+    """줄들이 든 표들의 양식 → {key, label(머리글), tables(표 수), around(주변 글 — 그 표들의 가장 흔한 글자 모양)} | None(표 밖)."""
+    tabs, total, first = set(), Counter(), None
+    for q in paras:
+        el = doc._ids.get(q)
+        tbl = table_of(el) if el is not None else None
+        if tbl is None or tbl in tabs:
+            continue
+        tabs.add(tbl)
+        f = table_form(doc, ov, el)
+        first = first or f
+        total.update(f["around"])
+    return {"key": first["key"], "label": first["label"], "tables": len(tabs), "around": around_text(total)} if first else None
+
+
+def mate(lk, kind, base=None):
+    """lk 가 kind 와 **같은 갈래**인가(② §8-11 「갈래는 표 양식마다」) — 서식(KEYS)이 같고, 표 양식도 같다. kind 가 대표(base)와 같은 서식이면 표 양식은 안 본다(대표 갈래는 어느 표든 하나)."""
+    return same(lk, kind) and ((lk.get("form") or "") == (kind.get("form") or "") or (base is not None and same(kind, base)))
+
+
+def rep_forms(looks, base):
+    """대표(base)와 서식이 같은 줄이 있는 표 양식들 — 그 표는 대표 서식을 쓴다. looks = 그 레벨 줄들의 비교 값."""
+    return {lk["form"] for lk in looks if lk.get("form") and same(lk, base)}
+
+
+def is_own(lk, base, forms):
+    """「표의 서식」 인가(② §8-11) — 표 안의 줄이고 대표와 서식이 다르며, 그 표 양식에 대표 서식의 줄이 하나도 없다. 대표에 맞추지 않는다(골라서 맞추는 것은 됨)."""
+    return bool(lk.get("form")) and lk["form"] not in forms and not same(lk, base)
 
 
 def lone_value(doc, ov, pid):
@@ -274,18 +402,22 @@ def variants(doc, ov, tid, level, order=None, full=False):
     sl = OE._slot(ov, tid, level) or {}
     alive = sorted((p for p in slot_ids(ov, tid, level) if _alive(doc, p)), key=lambda p: order.get(p, 1 << 30))
     ids = [p for p in alive if not lone_value(doc, ov, p)]
-    groups, looks = {}, {}
+    groups, looks, fkey = {}, {}, {}
     for pid in ids:
         try:
             lk = look(doc, ov, pid)
         except (KeyError, ValueError):
             continue
-        key = repr([cval(lk, k) for k in KEYS])
         looks[pid] = lk
-        groups.setdefault(key, {"key": key, "paras": [], "look": lk})["paras"].append(pid)
+        fkey[pid] = repr([cval(lk, k) for k in KEYS])
     rep = sl.get("rep") if sl.get("rep") in looks else None
-    rep_key = repr([cval(looks[rep], k) for k in KEYS]) if rep else None
-    base = groups[rep_key]["look"] if rep_key else None
+    rep_key = fkey[rep] if rep else None
+    base = looks[rep] if rep else None  # 대표 **줄**의 비교 값(대표 갈래의 첫 줄이 아니라 — 표 양식은 줄마다 다를 수 있다)
+    for pid, lk in looks.items():
+        # 갈래 열쇠(② §8-11 「갈래는 표 양식마다」): 대표와 서식이 같은 줄 · 표 밖의 줄 = 서식 / 표 안의 다른 서식 줄 = 서식 + 표 양식(서식이 같아도 표 양식이 다르면 다른 갈래)
+        key = fkey[pid] if (fkey[pid] == rep_key or not lk.get("form")) else fkey[pid] + "|" + lk["form"]
+        groups.setdefault(key, {"key": key, "paras": [], "look": lk})["paras"].append(pid)
+    uses_rep = {looks[p]["form"] for p in groups[rep_key]["paras"] if looks[p].get("form")} if rep_key else set()  # 대표 서식의 줄이 있는 표 양식 — 그 표는 대표 서식을 쓴다
     out = []
     fit = lambda q: tuple(looks[q].get(k) for k in ("ratioPct", "spacingPct", "L.ratioPct", "L.spacingPct"))  # noqa: E731
     for g in groups.values():
@@ -295,13 +427,18 @@ def variants(doc, ov, tid, level, order=None, full=False):
         top = Counter(fit(q) for q in g["paras"]).most_common(1)[0][0]
         key = rep if is_rep else next(q for q in g["paras"] if fit(q) == top)
         lk = looks[key]
+        # form = 표 안의 줄이면 그 표 양식{key, label(머리글), tables(표 수), around(주변 글)} | None · own = 「표의 서식」(그 표 양식에 대표 서식의 줄이 없다 — 대표에 맞추지 않는다: ② §8-11)
+        form = _form_view(doc, ov, [key] if is_rep else g["paras"]) if lk.get("form") else None
         out.append({"key": key, "count": len(g["paras"]), "paras": g["paras"] if full else g["paras"][:_LIST_MAX], "more": 0 if full else max(0, len(g["paras"]) - _LIST_MAX),
-                    "rep": is_rep, "look": {k: cshown(lk, k) for k in lk if k != "line2At"}, "raw": lk,  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
-                    "diff": diff(base, lk) if base and not is_rep else []})
+                    "rep": is_rep, "look": {k: cshown(lk, k) for k in lk if k not in _LOOK_ONLY}, "raw": lk,  # raw = 비교 값 원값(화면 「서식 비교」 의 견본 글 — outline_preview.js)
+                    "diff": diff(base, lk) if base and not is_rep else [],
+                    "form": form, "own": bool(rep) and not is_rep and bool(lk.get("form")) and lk["form"] not in uses_rep})
     out.sort(key=lambda g: (not g["rep"], -g["count"], order.get(g["paras"][0], 1 << 30) if g["paras"] else 0))
     # sig = 이 레벨의 줄 구성 지문(줄 id → 갈래 — 값 칸도 줄로 든다: 서식 비교에서는 빠져도 떼기·번호형 형제 검사에는 든다) · repIds = 대표 줄이 실제로 지닌 모양 참조(맞추면 복사되는 문단·스타일·글자 정의):
     # 서식 정리 계획을 문서 차례가 아니라 **그 템플릿 줄의 지문**에 묶는 데 쓴다(tpl_agent.fingerprint — spec_hwpx_웹편집 ② §8-4 「계획은 줄 지문에」)
-    sig = hashlib.sha1(json.dumps([[p, repr([cval(looks[p], k) for k in KEYS]) if p in looks else "V"] for p in alive], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    # 표 안의 줄은 표 양식도 든다(② §8-11 「계획 지문」 — 표를 모르고 받은 옛 계획이 그대로 반영되지 않게 · 표 밖의 줄만 있는 레벨의 지문은 전과 같다)
+    sig = hashlib.sha1(json.dumps([([p, fkey[p]] + ([looks[p]["form"]] if looks[p].get("form") else [])) if p in looks else [p, "V"] for p in alive],
+                                  ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     rep_ids = None
     if rep:
         try:
@@ -310,7 +447,9 @@ def variants(doc, ov, tid, level, order=None, full=False):
         except (KeyError, ValueError):
             rep_ids = None
     return {"tpl": str(tid), "level": int(level), "total": len(looks), "rep": rep, "repMissing": bool(ids) and rep is None, "values": len(alive) - len(ids),
-            "others": sum(g["count"] for g in out if not g["rep"]) if rep else 0, "groups": out, "sig": sig, "repIds": rep_ids}
+            # others = 「대표에 맞추기」 가 맞출 줄(표의 서식 갈래는 뺀다) · ownLines = 표의 서식 갈래의 줄(대표에 맞추지 않는다 — 떼거나 골라서 맞춘다: ② §8-11)
+            "others": sum(g["count"] for g in out if not g["rep"] and not g["own"]) if rep else 0, "ownLines": sum(g["count"] for g in out if g["own"]),
+            "groups": out, "sig": sig, "repIds": rep_ids}
 
 
 def all_variants(doc, ov):
@@ -526,17 +665,18 @@ def match_targets(doc, ov, tid, level, paras=None, like=None):
     kind = look(doc, ov, like) if like is not None else None
     order = _order(doc)
     want = set(paras) if paras else None
-    out = []
+    rows = []
     for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
-        if pid == rep or (want is not None and pid not in want) or not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 맞추지 않는다
+        if pid == rep or not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 맞추지 않는다
             continue
         try:
-            lk = look(doc, ov, pid)
-            if not same(lk, base) and (kind is None or same(lk, kind)):
-                out.append(pid)
+            rows.append((pid, look(doc, ov, pid)))
         except (KeyError, ValueError):
             continue
-    return out
+    # 갈래도 줄도 고르지 않은 맞추기(「대표에 맞추기」)는 **표의 서식** 갈래를 건드리지 않는다(② §8-11 — 그 표 양식에 대표 서식의 줄이 없다). 골라서(paras · like) 맞추는 것은 된다
+    forms = rep_forms([base] + [lk for _, lk in rows], base) if want is None and kind is None else None
+    return [pid for pid, lk in rows if (want is None or pid in want) and not same(lk, base) and (kind is None or mate(lk, kind, base))
+            and not (forms is not None and is_own(lk, base, forms))]
 
 
 def match_set(doc, ov, tid, level, rep=None, likes=None):
@@ -562,21 +702,25 @@ def match_set(doc, ov, tid, level, rep=None, likes=None):
             _check_member(ov, tid, level, q)
             kinds.append(look(doc, ov, q))
     order = _order(doc)
-    out = []
+    rows = []
     for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
         if pid == rep or not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 맞추지 않는다(옛 계획이 그 갈래를 가리켜도)
             continue
         try:
-            lk = look(doc, ov, pid)
+            rows.append((pid, look(doc, ov, pid)))
         except (KeyError, ValueError):
             continue
-        if not same(lk, base) and (kinds is None or any(same(lk, k) for k in kinds)):
-            out.append(pid)
-    return rep, out
+    # likes 가 없는 「모두」 는 표의 서식 갈래를 건드리지 않는다 · likes 는 그 줄의 갈래만(서식 + 표 양식 — ② §8-11)
+    forms = rep_forms([base] + [lk for _, lk in rows], base) if kinds is None else None
+    return rep, [pid for pid, lk in rows if not same(lk, base) and (kinds is None or any(mate(lk, k, base) for k in kinds))
+                 and not (forms is not None and is_own(lk, base, forms))]
 
 
-def match_one(doc, ov, pid, sh):
-    """줄 pid 를 대표 모양 sh(rep_shape)로 — 접두 · 문단 모양·스타일 · 레터 런 · 옛 본문 바탕 글자 모양을 쓰던 런. -> 바뀐 줄의 새 레터."""
+def match_one(doc, ov, pid, sh, left=None):
+    """줄 pid 를 대표 모양 sh(rep_shape)로 — 접두 · 문단 모양·스타일 · 레터 런 · 옛 본문 바탕 글자 모양을 쓰던 런. -> 바뀐 줄의 새 레터(모양만 맞춘 줄은 옛 레터).
+    **짝 표지가 든 줄**(형광펜 · 필드 · 변경 추적 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」): 제 표지가 없으면 전처럼 접두를 다시 쓴다(replace_prefix).
+    있으면 레터가 그대로일 때 레터 앞·뒤 빈칸만 제자리에서 바꾸고(prefix_keep_marks — 완전히 맞춤), 레터를 바꿔야 하거나 표지 때문에 못 바꾸면(MarkBlock)
+    **모양만**(prefix_shape_only — 글 · 오버레이의 letter · fmt 는 그대로) 맞추고 left 에 {"id", "why"("letter" | MarkBlock.why), "kinds"} 를 더한다 — 표지 때문에는 예외를 내지 않는다."""
     x = ov["lines"][pid]
     p = doc._ids[pid]
     lead, tok, gap, plen, text = parts(doc, ov, pid)
@@ -599,9 +743,24 @@ def match_one(doc, ov, pid, sh):
     # 줄 맞춤 값(장평·자간)은 이 줄의 것을 지킨다(자간을 줄여 한 줄에 넣은 줄이 대표의 0% 가 되면 넘친다) — 바꾸기 전에 글 자리마다(본문 시작에서 잰 자리) 그 런의 글자 모양을 적어 두고,
     # 접두·본문 바탕을 다 바꾼 뒤 그 자리의 런에 그 장평·자간을 다시 얹는다(런마다 값이 달라도 · 접두 교체가 다른 런의 글자 모양을 바꿔도 제 값으로)
     fits = [(max(a, plen) - plen, b - plen, r.get("charPrIDRef")) for a, b, r in _runs_pos(doc, p) if b > max(a, plen) and not any(o.tag in OBJECTS for o in r)]
-    doc.replace_prefix(pid, plen, new_prefix, attrs={**sh["attrs"], "charPrIDRef": keep_fit(doc, sh["attrs"]["charPrIDRef"], old_letter)})
+    attrs = {**sh["attrs"], "charPrIDRef": keep_fit(doc, sh["attrs"]["charPrIDRef"], old_letter)}
+    why = None  # 모양만 맞춘 까닭(완전히 맞추면 None)
+    if not doc.own_marks(p):
+        doc.replace_prefix(pid, plen, new_prefix, attrs=attrs)
+        n0 = len(new_prefix)
+    else:
+        if new_tok == tok:
+            try:
+                n0 = doc.prefix_keep_marks(pid, lead, tok, gap, sh["lead"], sh["gap"], attrs=attrs)["offset"]
+            except MarkBlock as e:  # 문서는 그대로 — 아래 모양만
+                why = e.why
+        else:
+            why = "letter"  # 레터 글자를 바꾸면 그 자리의 표지가 갈라질 수 있다
+        if why is not None:
+            n0 = doc.prefix_shape_only(pid, plen, attrs)["offset"]  # 실제로 남은 접두 길이 — 본문 바탕 · 줄 맞춤 자리는 이것으로 잰다
+            if left is not None:
+                left.append({"id": pid, "why": why, "kinds": doc.mark_names(p)})
     body = sh.get("body") or sh["attrs"]["charPrIDRef"]
-    n0 = len(new_prefix)
     want = {_fit_of(doc, sh["attrs"]["charPrIDRef"]), _fit_of(doc, body)}
     refit = [f for f in fits if _fit_of(doc, f[2]) not in want]  # 대표와 줄 맞춤 값이 다른 자리만(없으면 런을 가르지 않는다)
     if body_spans or refit:
@@ -619,14 +778,15 @@ def match_one(doc, ov, pid, sh):
         doc._tidy(p)
         doc._drop_cache(p)
         doc._touch(p)
-    x["letter"] = new_tok
-    if sh.get("fmt"):
-        x["fmt"] = sh["fmt"]  # 서식이 대표 것이 됐다 — 서식 라벨도
+    if why is None:  # 완전히 맞춘 줄만 — 모양만 맞춘 줄은 레터 · 서식 라벨이 그대로다(글이 그대로)
+        x["letter"] = new_tok
+        if sh.get("fmt"):
+            x["fmt"] = sh["fmt"]  # 서식이 대표 것이 됐다 — 서식 라벨도
     if sh.get("first") is not None:  # 문단 모양을 대표 것으로 바꿨으니 저절로 맞춘 값의 기억도 대표 것 — 다르면 뒤의 글 고침이 사람이 정한 값으로 보고 안 맞춘다
         x["first"] = sh["first"]
     else:
         x.pop("first", None)
-    return new_tok
+    return new_tok if why is None else tok
 
 
 # ---------------------------------------------------------------- 템플릿 종속
@@ -720,6 +880,9 @@ def merge(ov, child, parent, at, ctx=None):
     if child == parent:
         raise ValueError("템플릿을 제 아래로 넣을 수는 없습니다")
     A, B = _tpl(ov, parent), _tpl(ov, child)
+    for T in (A, B):  # 띠 표 템플릿(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」): 늘 문서 맨 위의 제 템플릿이고 그 아래 줄도 제 템플릿 그대로다
+        if T.get("kind") == OE.BAND:
+            raise ValueError(f"T{T['no']} 는 별첨·부록 표 제목 템플릿이라 종속 템플릿을 만들 수 없습니다 — 그 줄은 문서 맨 위의 줄이고 그 아래 줄은 제 템플릿 그대로입니다")
     if B.get("variant"):  # 서식 종속 템플릿(② §8-5)은 이미 제 템플릿의 레벨 아래에 있다
         raise ValueError(f"T{B['no']} 는 서식 종속 템플릿이라 다른 템플릿 아래로 넣을 수 없습니다 — 합친 뒤 원래 템플릿을 넣으세요")
     if OE._slot(ov, parent, at) is None:
@@ -921,6 +1084,8 @@ def merge_hints(ov):
         A = tp.get(ptid)
         if A is None or ptid == tid or A.get("variant") or A.get("kind") == "cell" or comp_id(ptid, tid) in tp:
             continue
+        if A.get("kind") == OE.BAND:  # 띠 표 템플릿(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」) 아래의 줄은 제 템플릿 그대로다(사용자 답 「제 템플릿으로」 — 별첨 아래 「□」 = T2 L1): 종속으로 제안하지 않는다
+            continue
         achain, bchain = list(A.get("chain") or []), list(B.get("chain") or [])
         if bchain and bchain[0] in achain[at:]:  # A 의 그 자리보다 깊은 레벨 레터 — 종속이 아니라 A 의 그 레벨 줄(잇닿은 사슬)
             continue
@@ -1000,6 +1165,8 @@ def split_targets(doc, ov, tid, level, likes):
         _check_member(ov, tid, level, q)
         kinds.append(look(doc, ov, q))
     order = _order(doc)
+    rep = (OE._slot(ov, tid, level) or {}).get("rep")
+    base = look(doc, ov, rep) if rep and _alive(doc, rep) and rep in ov["lines"] else None  # 갈래 = 서식 + (대표와 다른 서식이면) 표 양식 — ② §8-11
     out = []
     for pid in sorted(slot_ids(ov, tid, level), key=lambda p: order.get(p, 1 << 30)):
         if not _alive(doc, pid) or lone_value(doc, ov, pid):  # 값 칸은 떼지 않는다(갈래에 없다)
@@ -1008,14 +1175,34 @@ def split_targets(doc, ov, tid, level, likes):
             lk = look(doc, ov, pid)
         except (KeyError, ValueError):
             continue
-        if any(same(lk, k) for k in kinds):
+        if any(mate(lk, k, base) for k in kinds):
             out.append(pid)
     return out
 
 
-def split_block(ov, tid, level, paras, rep=None):
+def split_units(ov, tid, level, doc=None):
+    """번호형 레벨 (tid, level) 의 **함께 옮겨야 하는 형제 묶음** {줄 id: 묶음 열쇠} | None(번호형이 아님 — 묶음 제약 없음).
+    묶음 = 같은 부모 아래 형제 — 표 안의 줄은 **같은 표**의 형제끼리(② §8-11 「번호형 레벨의 떼기」: 번호 묶음은 표를 넘지 않는다). doc 이 없으면(2단계를 다시 돌린 뒤 떼기를 다시 걸 때 —
+    carry) 표 대신 그 줄의 흐름(칸)으로 가른다 — 전에 문서로 검사해 건 떼기를 다시 거는 길이다."""
+    sl = OE._slot(ov, tid, level)
+    if sl is None or not OE.is_numbered(sl.get("key") or ""):
+        return None
+    out = {}
+    for pid in slot_ids(ov, tid, level):
+        x = ov["lines"][pid]
+        if doc is not None:
+            el = doc._ids.get(pid)
+            tbl = table_of(el) if el is not None else None
+            where = id(tbl) if tbl is not None else None
+        else:
+            where = x.get("flow") if str(x.get("flow") or "").startswith("cell") else None
+        out[pid] = (x.get("parent"), where)
+    return out
+
+
+def split_block(ov, tid, level, paras, rep=None, doc=None, partial=True):
     """(tid, level) 줄 paras 를 서식 종속 템플릿으로 못 떼는 까닭 | None — 종속 템플릿의 부모 레벨 · 대표 갈래 · 번호형 레벨에서 같은 부모 아래 형제의 일부
-    (번호 다시 매김이 (부모, 템플릿, 레벨) 묶음마다라 「1. 3.」 이 된다). rep = 그 레벨의 대표로 볼 줄(같은 트랜잭션에서 대표를 바꾼 뒤 뗄 때 — 없으면 슬롯의 지금 대표)."""
+    (번호 다시 매김이 (부모, 템플릿, 레벨) 묶음마다라 「1. 3.」 이 된다 — 표 안의 줄은 같은 표의 형제끼리가 한 묶음: split_units). rep = 그 레벨의 대표로 볼 줄(같은 트랜잭션에서 대표를 바꾼 뒤 뗄 때 — 없으면 슬롯의 지금 대표)."""
     tid = str(tid)
     t = ov["templates"].get(tid)
     sl = OE._slot(ov, tid, level)
@@ -1028,10 +1215,11 @@ def split_block(ov, tid, level, paras, rep=None):
         return "뗄 줄이 없습니다"
     if (rep or sl.get("rep")) in want:
         return f"T{t['no']} L{level} 의 대표 서식은 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
-    if OE.is_numbered(sl.get("key") or ""):
+    units = split_units(ov, tid, level, doc) if partial else None  # partial=False — 「형제의 일부」 는 안 본다(계획 검사가 한 split 항목의 줄을 합쳐서 본다: tpl_agent.check_plan)
+    if units is not None:
         by_parent = {}
-        for pid in slot_ids(ov, tid, level):
-            by_parent.setdefault(ov["lines"][pid].get("parent"), []).append(pid)
+        for pid, u in units.items():
+            by_parent.setdefault(u, []).append(pid)
         for sibs in by_parent.values():
             k = sum(1 for p in sibs if p in want)
             if 0 < k < len(sibs):
@@ -1050,7 +1238,7 @@ def _free_sfx(ov, tid, level):
     return next((ch for ch in SFX if ch not in used), None)
 
 
-def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slots=None):
+def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slots=None, doc=None):
     """템플릿 tid(A) 의 L level 줄 paras(일부러 다르게 준 서식의 갈래)를 **서식 종속 템플릿**(표기 「T{A}L{k}{a…}」 · id 「A~k글자」)으로 뗀다
     (2026-11-15 사용자 "서식이 다르면 템플릿도 다른거잖아 … T1L3 로 하고 a,b,c 를 붙이자 … 종속템플릿이기 때문에 이 템플릿의 시작은 L3 부터").
     새 템플릿 = A 의 사슬 그대로 · base = level − 1(L1~L level−1 은 A 의 레벨 — 그 줄은 A 것) · L level 슬롯 = rep 줄의 모양(shape = rep_shape — 대표·동결 접두·모양,
@@ -1062,7 +1250,7 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
     paras = list(dict.fromkeys(paras or []))
     for pid in paras:
         _check_member(ov, tid, level, pid)
-    why = split_block(ov, tid, level, paras)
+    why = split_block(ov, tid, level, paras, doc=doc)  # doc = 표 안의 줄을 같은 표의 형제끼리 본다(split_units — 없으면 흐름으로)
     if why:
         raise ValueError(why)
     rep = rep or paras[0]

@@ -109,7 +109,7 @@ def set_rep(doc_id: str, tpl: str, level: int, body: dict = Body(...)):
 def match(doc_id: str, tpl: str, level: int, body: dict = Body(default={})):
     """{paras?, like?} — 그 레벨에서 대표와 비교 값이 다른 줄(paras 를 주면 그 가운데 그 레벨 줄만 · like(그 레벨 줄 id)를 주면 그 줄과 서식이 같은 갈래만 — 30줄 넘는 갈래도)을
     대표의 지금 모양으로(접두 · 문단 모양 · 레터·본문 바탕 글자 모양).
-    구조 편집 트랜잭션 하나(기록 `outlineMatch` · 실행 취소 1 · 닿은 문단 검사). 응답 = 다른 구조 편집과 같은 꼴 + changed · outline{lines}.
+    구조 편집 트랜잭션 하나(기록 `outlineMatch` · 실행 취소 1 · 닿은 문단 검사). 응답 = 다른 구조 편집과 같은 꼴 + changed · outline{lines} · left[{id, tpl, no, level, why, kinds}](표지 때문에 모양만 맞춘 줄 — ② §8-8 「짝 표지가 든 줄」 · changed 에도 든다).
     맞출 줄이 없으면 편집을 열지 않고 {changed: [], nothing: true, …편집 상태}. 400 대표가 문서에 없음 · 404 그런 레벨 없음 · 409 2단계 없음.
     **확정 서식으로**(② §8-8 — 기본): 대표 줄에 레터 뒤 묶음 빈칸 · 자리 규칙(둘째 줄 = 글 시작)을 걸고, 맞춘 줄과 대표 갈래의 줄을 그 서식으로(`outline_conform.settle`) —
     답의 `placed` = 대표에 맞춘 줄이 아니라 그것만 걸린 줄. `place: false` 면 걸지 않는다(대표의 지금 모양 그대로 복사 — 전의 동작)."""
@@ -131,7 +131,7 @@ def match(doc_id: str, tpl: str, level: int, body: dict = Body(default={})):
             raise HTTPException(400, str(e)) from e
         if not pre and not (place and _pend_level(s0.doc, ov, tpl, level)):
             return {"changed": [], "nothing": True, **_state(s0)}
-    extra, changed, placed = {}, [], []
+    extra, changed, placed, left = {}, [], [], []
 
     def make(s):
         ov2 = _ov(server, s)
@@ -146,15 +146,16 @@ def match(doc_id: str, tpl: str, level: int, body: dict = Body(default={})):
         sl = outline_edit._slot(ov2, tpl, level)
 
         def run():
+            lf = []  # 표지(형광펜 · 필드 · 변경 추적) 때문에 모양만 맞추고 남긴 줄(② §8-8 「짝 표지가 든 줄」 — match_one 이 싣는다)
             # 줄을 확정 서식으로 바꾸는 길은 하나다(outline_conform.settle — ② §8-8): 대표에 묶음 빈칸·자리 규칙을 걸어 확정 서식을 정하고, 고른 줄(ids)과 대표 갈래의 줄을 그 서식으로
             if place:
-                done = outline_conform.settle(s.doc, ov2, tpl, level, ids, outline_pos.Measure(s.doc))
+                done = outline_conform.settle(s.doc, ov2, tpl, level, ids, outline_pos.Measure(s.doc), left=lf)
             else:  # 확정 서식을 걸지 않는다 — 대표의 지금 모양 그대로(사람이 정한 자리 규칙만 다시)
                 sh = outline_match.rep_shape(s.doc, ov2, sl["rep"])
                 sl.update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])
                 meas = outline_pos.Measure(s.doc) if (sl.get("pos") or {}).get("set") else None
                 for pid in ids:
-                    outline_match.match_one(s.doc, ov2, pid, sh)
+                    outline_match.match_one(s.doc, ov2, pid, sh, lf)
                     if meas is not None:
                         try:
                             outline_pos.align(s.doc, ov2, pid, full=True, measure=meas)
@@ -163,15 +164,30 @@ def match(doc_id: str, tpl: str, level: int, body: dict = Body(default={})):
                 done = ids
             changed.extend(i for i in hit if i in set(done))
             placed.extend(i for i in changed if i not in set(ids))  # 대표에 맞춘 줄(ids)이 아니라 확정 서식만 건 줄(대표 · 대표 갈래)
+            no = ov2["templates"][str(tpl)]["no"]
+            left.extend(_left_rows(lf, tpl, no, level))
             extra.update({"lines": {pid: outline_edit.line_view(ov2["lines"][pid]) for pid in hit}, "removed": [], "fmts": outline_match.labels_now(s.doc, ov2, hit)})  # fmts = 그 레벨 줄들의 지금 서식 라벨(맞춘 줄은 대표의 라벨이 됐다)
             return {"hosts": [s.doc._ids[i] for i in hit], "formatted": set(changed), "struct": set(), "origin": {}, "anchor": hit[0],
-                    "log": {"tpl": ov2["templates"][str(tpl)]["no"], "level": level, "rep": sl["rep"], "changed": len(ids), "placed": len(changed) - len(ids)}}
+                    "log": {"tpl": no, "level": level, "rep": sl["rep"], "changed": len(ids) - len(left), "placed": len(changed) - len(ids), **({"left": len(left)} if left else {})}}
         return [s.doc._ids[i] for i in hit], run
     out = server._edit(doc_id, make, "outlineMatch", {"tpl": tpl, "level": level, "paras": paras, "like": like})
     if isinstance(out, dict):
         out["outline"] = extra
         out["changed"] = changed
         out["placed"] = placed
+        out["left"] = left  # 표지 때문에 모양만 맞춘 줄 [{id, tpl, no, level, why, kinds}] — changed 에도 든다(문단 모양은 바뀜 · 글은 그대로)
+    return out
+
+
+def _left_rows(lf, tpl, no, level):
+    """match_one 이 남긴 줄(형광펜 · 필드 · 변경 추적 표지 때문에 글을 못 바꿔 모양만 맞춘 줄 — ② §8-8 「짝 표지가 든 줄」) → 답의 꼴 [{id, tpl, no, level, why, kinds}](한 줄은 한 번)."""
+    seen, out = set(), []
+    for x in lf:
+        pid = x.get("id")
+        if pid in seen:
+            continue
+        seen.add(pid)
+        out.append({"id": pid, "tpl": str(tpl), "no": no, "level": int(level), "why": x.get("why") or "letter", "kinds": list(x.get("kinds") or [])})
     return out
 
 
@@ -254,7 +270,7 @@ def _plan_tpl(s, ov, tpl, want):
                     raise ValueError("splits[].rep 는 그 서식의 줄이어야 합니다")
                 if gone & set(paras):
                     raise ValueError(f"L{lv} 의 같은 서식을 두 템플릿으로 뗄 수는 없습니다")
-                why = outline_match.split_block(ov, tpl, lv, paras, rep=r)
+                why = outline_match.split_block(ov, tpl, lv, paras, rep=r, doc=s.doc)
                 if why:
                     raise ValueError(why)
                 if c_sfx and outline_match.var_id(tpl, lv, c_sfx) in ov["templates"]:
@@ -303,7 +319,7 @@ def _plan(s, ov, jobs, rev):
 def _cut_now(s, ov, tpl, lv, c, done_cuts):
     """뗄 것 하나를 지금 뗀다(오버레이) → (새 템플릿 대표의 모양 — 뗀 줄을 맞출 때 쓴다, split 의 답)."""
     shape = outline_match.rep_shape(s.doc, ov, c["rep"])
-    got = outline_match.split(ov, tpl, lv, c["paras"], rep=c["rep"], shape=shape, sfx=c["sfx"])
+    got = outline_match.split(ov, tpl, lv, c["paras"], rep=c["rep"], shape=shape, sfx=c["sfx"], doc=s.doc)
     done_cuts.append({"level": lv, "id": got["id"], "no": got["no"], "moved": len(got["moved"]), "changed": len(c["ids"])})
     return shape, got
 
@@ -333,11 +349,21 @@ def _settle_rep(s, ov, tpl, lv, sl, r, sh, want):
     sl.update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])  # 새 줄도 대표의 지금 모양으로
 
 
-def _marks(ov, marks):
+def _marks(ov, marks, left=None):
     """반영한 서식 정리 계획의 표를 개요 오버레이에(ov["agent"][템플릿] = 그 계획의 at) — 「반영함」 은 이 표가 그 계획의 것일 때만이다(analysis.plan_applied · spec_hwpx_웹편집 ② §8-4).
-    **반영과 같은 트랜잭션 · 같은 잠금 안에서** 적는다: 반영 직전의 실행 취소 묶음에는 없고 그 뒤의 묶음에는 있어, 반영을 되돌리면 표도 사라진다."""
+    **반영과 같은 트랜잭션 · 같은 잠금 안에서** 적는다: 반영 직전의 실행 취소 묶음에는 없고 그 뒤의 묶음에는 있어, 반영을 되돌리면 표도 사라진다.
+    left = {템플릿 id: [{id, level, why}]} — 그 반영이 표지 때문에 모양만 맞추고 남긴 줄(② §8-8 「짝 표지가 든 줄」): marks 의 템플릿마다 ov["agentLeft"][템플릿] = 그 목록,
+    없거나 빈 것이면 그 템플릿의 키를 지운다(같은 템플릿을 다시 반영해 남긴 줄이 없으면 옛 목록이 남지 않게). 분석 상태가 그 가운데 지금도 대표와 다른 서식인 줄을 센다(analysis._formats_item)."""
     if marks and isinstance(ov, dict):
         ov.setdefault("agent", {}).update({str(k): v for k, v in marks.items()})
+        for k in marks:
+            rows = (left or {}).get(str(k))
+            if rows:
+                ov.setdefault("agentLeft", {})[str(k)] = [{"id": x["id"], "level": x.get("level"), "why": x.get("why")} for x in rows]
+            elif isinstance(ov.get("agentLeft"), dict):
+                ov["agentLeft"].pop(str(k), None)
+        if isinstance(ov.get("agentLeft"), dict) and not ov["agentLeft"]:
+            ov.pop("agentLeft")
 
 
 def _plan_shapes(s, ov, rows):
@@ -392,7 +418,9 @@ def apply_templates(server, doc_id, jobs, *, rev=None, op="outlineTplMatch", req
     """템플릿 하나 또는 여럿의 맞추기 · 떼기를 **트랜잭션 하나**(실행 취소 1)로 — 템플릿 단위 맞추기(아래 match_template)와 받아 둔 서식 정리 계획을 한 번에 반영하는 끝점
     (tpl_agent_api.apply_plans)이 같이 쓴다. jobs = [(tpl, _want 의 답 | None)] · rev = 계획을 세운 문서 차례(지금과 다르면 409) · log(per, doc) → 기록에 적을 것(doc = 문서가 바뀌었나).
     → (kind, per, 답): kind "nothing"(바꿀 것 없음 — 답 = {changed: [], nothing, …편집 상태}) · "model"(대표만 · 떼기만 — 문서는 그대로, 오버레이만) · "edit"(문서가 바뀜 — 답이 dict 가 아니면 422 응답).
-    per = [{tpl, no, levels[{level, rep, repChanged, changed(수)}], splits[{level, id, no, moved, changed}], changed[줄 id]}] — 바꾼 것이 있는 템플릿만, jobs 차례.
+    per = [{tpl, no, levels[{level, rep, repChanged, changed(수), left?(수)}], splits[{level, id, no, moved, changed, left?}], changed[줄 id], left[{id, level, why, kinds}]}] — 바꾼 것이 있는 템플릿만, jobs 차례.
+    changed 는 **완전히 맞춘 줄**만 · left = 형광펜 · 필드 · 변경 추적 표지 때문에 글을 못 바꿔 모양만 맞추고 남긴 줄(② §8-8 「짝 표지가 든 줄」 — 그 줄 때문에 전체를 되돌리지 않는다).
+    답(kind "edit")의 changed[줄 id] 에는 둘 다 들고(문단 모양은 바뀜) left[{id, tpl, no, level, why, kinds}] 로 따로 알린다 · 오버레이 agentLeft[템플릿] 은 marks 와 같이 적는다(_marks).
     레벨마다 대표 바꿈 → 맞추기(뗄 줄은 빼고) → 떼기 → 뗀 줄 맞추기. 도중의 오류는 오버레이를 처음 것으로 되돌린다(_ov_guard).
     marks = {템플릿 id: 계획의 at} — 서식 정리 계획을 반영하는 것이면 그 표를 같은 트랜잭션 안에서 오버레이에 적는다(_marks). 바꿀 것이 없을 때도 같은 잠금 안에서.
     settle = 확정 서식을 걸 템플릿("all" | [템플릿 id] | None — ② §8-8): 맞추기·떼기 **뒤에** 그 템플릿들의 모든 레벨에서 대표와 그 갈래의 줄에 레터 뒤 묶음 빈칸·자리 규칙을 건다
@@ -450,51 +478,54 @@ def apply_templates(server, doc_id, jobs, *, rev=None, op="outlineTplMatch", req
             moved = []
             with _ov_guard(ov2, relations is not None or any(cut for _, rows in todo for *_, cut in rows)):
                 for tpl, rows in todo:
-                    one = {"tpl": str(tpl), "no": ov2["templates"][str(tpl)]["no"], "levels": [], "splits": [], "changed": []}
+                    # changed = 완전히 맞춘 줄 · left = 형광펜 · 필드 · 변경 추적 표지 때문에 글을 못 바꿔 **모양만** 맞추고 남긴 줄 [{id, level, why, kinds}](② §8-8 「짝 표지가 든 줄」 —
+                    # 그 줄 때문에 반영 전체를 되돌리지 않는다: match_one 이 표지 때문에는 예외를 내지 않고 left 에 싣는다)
+                    one = {"tpl": str(tpl), "no": ov2["templates"][str(tpl)]["no"], "levels": [], "splits": [], "changed": [], "left": []}
                     # 계획의 대표 모양은 **이 템플릿을 바꾸기 전에** 잡는다(_plan_shapes) — 대표 결정(_take_rep → 맞추기 → _settle_rep)은 오버레이만 바꾸는 길(_model_run)과 같은 함수다
                     shapes = _plan_shapes(s, ov2, rows)
                     for lv, r, rep_changed, ids, cut in rows:
                         sl = outline_edit._slot(ov2, tpl, lv)
                         _take_rep(s, ov2, tpl, lv, r, rep_changed, by)
+                        n_left = 0
                         if ids or rep_changed:
                             sh, want = shapes[lv]
                             meas = outline_pos.Measure(s.doc) if (sl.get("pos") or {}).get("set") else None
                             for pid in ids:
-                                outline_match.match_one(s.doc, ov2, pid, sh)
+                                n_left += _match_one(s.doc, ov2, pid, sh, one, lv)
                                 if meas is not None:  # 사람이 정한 자리 규칙(② §8-1)도 다시
                                     try:
                                         outline_pos.align(s.doc, ov2, pid, full=True, measure=meas)
                                     except ValueError:
                                         pass
-                                one["changed"].append(pid)
                             _settle_rep(s, ov2, tpl, lv, sl, r, sh, want)
-                        one["levels"].append({"level": lv, "rep": sl["rep"], "repChanged": rep_changed, "changed": len(ids)})
+                        one["levels"].append({"level": lv, "rep": sl["rep"], "repChanged": rep_changed, "changed": len(ids) - n_left, **({"left": n_left} if n_left else {})})
                         for c in cut:  # 서식 종속 템플릿으로 떼고(② §8-5), 뗀 줄 가운데 새 대표와 다른 줄은 그 대표 모양으로
                             shape, got = _cut_now(s, ov2, tpl, lv, c, one["splits"])
                             moved.extend(got["moved"])
-                            for pid in c["ids"]:
-                                outline_match.match_one(s.doc, ov2, pid, shape)
-                                one["changed"].append(pid)
+                            c_left = sum(_match_one(s.doc, ov2, pid, shape, one, lv) for pid in c["ids"])
+                            if c_left:  # 뗀 줄 가운데 모양만 맞춘 줄 — 떼기의 changed 는 완전히 맞춘 줄만
+                                one["splits"][-1].update(changed=len(c["ids"]) - c_left, left=c_left)
                     per.append(one)
-                _marks(ov2, marks)
+                _marks(ov2, marks, {one["tpl"]: one["left"] for one in per})
                 if relations is not None:  # 확실한 종속(한 자리에만 매달린 가지 템플릿 → 그 자리의 템플릿 아래 — ② §8-2 「종속 제안」)을 같은 트랜잭션에: 줄을 제 대표에 맞춘 **뒤에** 옮긴다
                     relations.extend(outline_match.auto_merge(ov2))
                     moved.extend(i for m in relations for i in m["ids"])
                 if settle is not None:  # 확정 서식으로(② §8-8) — 맞추고 · 떼고 · 종속을 건 **뒤의** 템플릿·대표로: 레벨마다 대표와 그 갈래의 줄(방금 맞춘 줄 포함)에 레터 뒤 묶음 빈칸 · 자리 규칙
                     pm = outline_pos.Measure(s.doc)
                     got = set(outline_conform.settle_templates(s.doc, ov2, _settle_ids(ov2, settle), pm))
-                    done = {i for one in per for i in one["changed"]}
+                    done = {i for one in per for i in _touched(one)}
                     # 방금 맞춘 줄(뗀 뒤 새 대표에 맞춘 줄 포함)은 대표 갈래를 다시 찾는 것(settle 의 _mates)에 맡기지 않고 **직접** 건다 — 대표가 이미 확정 서식이면 맞춘 줄은 대표의 내어쓰기 값을
                     # 그대로 받는데, 접두 폭이 대표와 다른 줄(제 번호 「10.」 · 제 자간을 지킨 줄)은 둘째 줄이 제 글 시작이 아니라서 대표 갈래에서 빠져 안 걸렸다(2026-11-16 astra).
                     # 다시 맞추지는 않는다(계획의 대표 모양으로 이미 맞췄다 — 「계획의 대표로」) — 묶음 빈칸 · 자리 규칙만, 그 줄이 **지금 든** 템플릿·레벨의 규칙으로(떼기 · 종속 뒤의 소속)
-                    for pid in dict.fromkeys(i for one in per for i in one["changed"]):
+                    # 모양만 맞추고 남긴 줄(표지)도 묶음 빈칸 · 자리 규칙은 건다(set_chars 는 표지를 지킨다 — ② §8-8 「짝 표지가 든 줄」)
+                    for pid in dict.fromkeys(i for one in per for i in _touched(one)):
                         try:
                             outline_conform.place(s.doc, ov2, pid, pm)
                         except (KeyError, ValueError):
                             continue
                     placed.extend(i for i in hit if i in got and i not in done)
                     placed.extend(i for i in got if i not in done and i not in set(hit))  # 닿는 문단으로 미리 못 잡은 줄(없어야 한다 — 있으면 그 줄도 고친 문단으로)
-            changed.extend(dict.fromkeys([i for one in per for i in one["changed"]] + placed))
+            changed.extend(dict.fromkeys([i for one in per for i in _touched(one)] + placed))  # 모양만 맞춘 줄도 바뀐 줄이다(문단 모양) — 답의 left 로 따로 알린다
             seen = list(dict.fromkeys(hit + placed))
             extra.update({"lines": {pid: outline_edit.line_view(ov2["lines"][pid]) for pid in dict.fromkeys(seen + moved) if pid in ov2["lines"]}, "removed": [], "fmts": outline_match.labels_now(s.doc, ov2, seen)})
             return {"hosts": [s.doc._ids[i] for i in seen], "formatted": set(changed), "struct": set(), "origin": {}, "anchor": seen[0],
@@ -506,7 +537,27 @@ def apply_templates(server, doc_id, jobs, *, rev=None, op="outlineTplMatch", req
         out["changed"] = changed
         out["placed"] = placed
         out["reps"] = sum(1 for one in per for x in one["levels"] if x["repChanged"])  # 대표를 바꾼 레벨 수 — 문서를 안 바꾸는 길("model")의 답과 같은 이름
+        out["left"] = [{"id": x["id"], "tpl": one["tpl"], "no": one["no"], "level": x["level"], "why": x["why"], "kinds": x["kinds"]} for one in per for x in one["left"]]  # 표지 때문에 모양만 맞춘 줄
     return "edit", per, out
+
+
+def _match_one(doc, ov, pid, sh, one, lv):
+    """줄 하나를 대표 모양으로(outline_match.match_one) → 남겼으면 1, 완전히 맞췄으면 0. 완전히 맞춘 줄은 one["changed"] 에, 표지 때문에 모양만 맞춘 줄은 one["left"] 에
+    {id, level, why, kinds} 로(② §8-8 「짝 표지가 든 줄」). 그 밖의 ValueError 는 그대로 — 트랜잭션이 전체를 되돌린다."""
+    lf = []
+    outline_match.match_one(doc, ov, pid, sh, lf)
+    rows = [x for x in lf if x.get("id") == pid]
+    if not rows:
+        one["changed"].append(pid)
+        return 0
+    x = rows[-1]
+    one["left"].append({"id": pid, "level": int(lv), "why": x.get("why") or "letter", "kinds": list(x.get("kinds") or [])})
+    return 1
+
+
+def _touched(one):
+    """템플릿 하나에서 맞추기가 바꾼 줄 — 완전히 맞춘 줄 + 모양만 맞춘 줄(차례대로)."""
+    return one["changed"] + [x["id"] for x in one.get("left") or ()]
 
 
 @router.post("/api/docs/{doc_id}/outline/templates/{tpl}/match")
@@ -528,7 +579,8 @@ def match_template(doc_id: str, tpl: str, body: dict = Body(default={})):
         if not per:  # 맞출 갈래 없이 확정 서식(묶음 빈칸 · 자리 규칙 — ② §8-8)만 건 것
             return {"tpl": tpl, "levels": [], "by": by}
         one = per[0]
-        return {"tpl": one["no"], "levels": list(one["levels"]), **({"changed": len(one["changed"])} if doc else {}), "by": by, **({"splits": list(one["splits"])} if one["splits"] else {})}
+        return {"tpl": one["no"], "levels": list(one["levels"]), **({"changed": len(one["changed"])} if doc else {}), "by": by, **({"splits": list(one["splits"])} if one["splits"] else {}),
+                **({"left": len(one["left"])} if one.get("left") else {})}  # 표지 때문에 모양만 맞춘 줄 수(② §8-8 「짝 표지가 든 줄」)
     at = None
     if by == "agent" and rev is not None:  # 정리 에이전트의 계획을 적용함 — 어느 계획인지(그 계획의 at)를 반영 전에 잡아 둔다: 표는 반영과 같은 트랜잭션에서 적는다(② §8-4 「반영함은 문서에 남아 있을 때만」)
         from app import tpl_agent_api
@@ -552,6 +604,7 @@ def match_template(doc_id: str, tpl: str, body: dict = Body(default={})):
         rec = tpl_agent_api.plans(s1, graph).get(str(tpl)) or {}
         if rec.get("at") == at:  # 실제로 반영한 것(사람이 고르기를 바꿨으면 바꾼 대로)을 실행 기록에 — 결과 화면(spec_헤딩_추출 ② §7 「결과 화면」)
             tpl_agent_api.note_apply(s1, graph, "tpl", [{"tpl": str(tpl), "no": rec.get("no"), "plan": at, "summary": (rec.get("plan") or {}).get("summary", ""), "changed": len(one["changed"]),
+                                                         **({"left": len(one["left"])} if one.get("left") else {}),
                                                          "levels": tpl_agent_api.A.apply_view(rec.get("plan"), levels if isinstance(levels, list) else [])}])
     return out
 
@@ -634,7 +687,7 @@ def split(doc_id: str, tpl: str, level: int, body: dict = Body(...)):
             paras = outline_match.split_targets(s.doc, ov, tpl, level, likes)
             r = rep or likes[0]
             shape = outline_match.rep_shape(s.doc, ov, r) if into is None else None  # 더 넣을 때는 그 템플릿의 대표·모양 그대로
-            got = outline_match.split(ov, tpl, level, paras, rep=r, shape=shape, into=into, sfx=sfx)
+            got = outline_match.split(ov, tpl, level, paras, rep=r, shape=shape, into=into, sfx=sfx, doc=s.doc)
             return {"id": got["id"], "no": got["no"], "of": ov["templates"][str(tpl)]["no"], "level": level, "moved": len(got["moved"]), "lines": len(paras), "added": not got["new"]}
         got, ok = _model_only(server, s, "outlineSplit", {"tpl": tpl, "level": level, "likes": likes, "rep": rep, "into": into, "sfx": sfx}, change)
         if not ok:

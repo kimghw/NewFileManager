@@ -8,12 +8,17 @@
 같은 템플릿(정의 1 + 인스턴스 여럿). 구분 라벨은 그 라벨부터 새 템플릿(라벨 = L1). LLM 이 없거나 실패하면 역할·부모는 스크립트 어림(`heuristic` 표지).
 **잇닿은 사슬**(2026-11-17 사용자 "레터가 다르거나 하지 않고 늘어나면 같은 템플릿으로" — spec ② §6 「잇닿은 사슬」): 템플릿을 가르는 것은 레터가 다를 때뿐 — 문서 맨 위에 매달린 줄의 레터가
 주 사슬에 있으면 주 사슬의 그 레벨, 부모 템플릿의 더 깊은 레벨 레터면(레벨 건너뜀) 그 레벨이고(`assign_templates`), 받아 줄 부모가 열려 있지 않은 줄은 문서 맨 위로 보내며 열린 줄을 닫지 않고
-가장 가까운 더 얕은 줄에 어림으로 붙인다(`_shallower`)."""
+가장 가까운 더 얕은 줄에 어림으로 붙인다(`_shallower`).
+**띠 표 줄**(2026-11-17 사용자 "테이블도 헤딩레벨로 … 별첨, 부록 appendix" → 답 「제 템플릿으로」 · 「헤딩 추출이 스스로」 — spec ② §6 「띠 표 줄」): 본문의 이름표 띠 표(「별첨2 | 제목」 —
+`heading_bands.find`)는 kind `band` 의 본문 흐름 노드다(열쇠 = 이름표 문단 · 레터 = 이름표 글 · 제목 = 제목 칸의 글). 역할·부모·템플릿은 스크립트가 정한다 — 늘 헤딩이고 문서 맨 위,
+이름표 꼴(「별첨N」)이 레터인 제 템플릿(kind band — 번호는 맨 뒤)의 L1. 그 아래 줄은 다음 띠 표나 주 사슬 첫 레터(장)가 올 때까지 그 줄의 자식이고, 띠 표 줄은 템플릿 사슬에 투명하다
+(자식의 템플릿·레벨은 문서 맨 위에 매달린 줄처럼 — 띠 표 템플릿은 L1 하나뿐)."""
 import json
 import re
 import time
 from collections import Counter, defaultdict
 
+from app import heading_bands as HB
 from app import heading_llm as HL
 from app import heading_rules as R
 from app import llm
@@ -31,7 +36,7 @@ SUB_KEY = "[…]"  # 괄호 소제목의 정규 키
 BARE_KEYS = (SUB_KEY, "[라벨]")  # 구분 기준 이름이 없는 대괄호 키 — 묶음을 (키, 앞 공백)으로 가른다(「[라벨]」 = 옛 결과·basis 없는 라벨)
 BASES = ("단계", "차년도", "기관")  # 기본 구분 기준(구분 순서 — 바깥 → 안) — 사용자가 더한 이름이 뒤에 붙는다(bases_of)
 BRACKET_RULE = 1  # 괄호 줄 판정 규칙(bracket_role)의 판 — 결과에 남긴다(규칙이 바뀌면 올림)
-KIND_ORDER = {"main": 0, "branch": 1, "label": 2, "cell": 3}
+KIND_ORDER = {"main": 0, "branch": 1, "label": 2, "cell": 3, HB.KIND: 4}  # 띠 표 템플릿은 맨 뒤 번호(있던 템플릿의 번호를 밀지 않는다)
 MAIN = ("body", "main")  # 주 사슬 템플릿 키
 
 
@@ -87,9 +92,18 @@ def candidates(stage1, skip=()):
     paras = stage1["paras"]
     body = _body_size(paras)
     filled = filled_flows(paras)  # 흐름(칸)마다 글·개체가 있는 문단 수 — 값 칸을 가린다
+    bands = HB.find(paras, skip)  # 이름표 띠 표(「별첨N | 제목」 — spec ② §6 「띠 표 줄」): 이름표 문단 id → 띠 표
     out = []
     for rec in paras:
         if rec["id"] in skip:
+            continue
+        b = bands.get(rec["id"])
+        if b is not None:  # 띠 표 줄 — 그 표가 놓인 본문 흐름의 줄: 레터 = 이름표 글(「별첨2」), 제목 = 제목 칸의 글. 열쇠는 이름표 문단
+            ch = rec["char"]["text"] or {}
+            out.append({"para": rec["id"], "n": rec["n"], "area": rec["area"], "flow": "body", "table": rec["table"], "cell": rec["cell"], "lead": 0, "fmt": rec["fmt"],
+                        "bold": bool(ch.get("bold")), "size": ch.get("sizePt") or 0, "id": rec["id"], "span": 0, "kind": HB.KIND, "family": HB.KIND, "shape": b["key"],
+                        "letter": b["letter"], "blank": False, "text": b["text"][:80], "outline": None,
+                        "band": {"table": b["table"], "title": b["title"], "host": b["host"]}})
             continue
         if value_cell(rec, filled):
             continue
@@ -296,6 +310,11 @@ def _norm_parents(parents, bases):
     return out
 
 
+def _band_role():
+    """띠 표 줄(이름표 띠 표 — heading_bands)의 유형 역할 — 늘 헤딩이고 부모는 문서 맨 위."""
+    return {"role": "heading", "parents": ["root"], "variantOf": "", "basis": "", "reason": "별첨·부록 표 제목 — 문서 맨 위의 줄(스크립트)"}  # 화면(유형 표)에 보이는 글 — 「띠 표」 는 안쪽 말이라 쓰지 않는다
+
+
 def settle_roles(types, roles, hints=None):
     """A 가 답한 역할을 규칙에 맞춘다(roles 를 고침; A 가 본 것은 aRole·aBasis 로 남김 — 사용자 지정을 지우면 여기로 돌아간다). 괄호 유형(kind label)은 bracket_role 이
     정하고, 그 밖의 유형이 구분 라벨이 되려면 basis 가 구분 기준 목록에 있어야 한다(아니면 스크립트 대체 역할 — 소제목은 괄호 줄만). parents 의 대괄호 키도 맞춘다."""
@@ -303,6 +322,9 @@ def settle_roles(types, roles, hints=None):
     for tid, t in types.items():
         r = roles.get(tid) or {}
         raw = (r.get("role"), r.get("basis") or "")
+        if t["kind"] == HB.KIND:  # 띠 표 줄 — 역할·부모는 스크립트가 정한다(A 의 답과 무관: 늘 헤딩 · 문서 맨 위 — spec ② §6 「띠 표 줄」)
+            roles[tid] = {**r, **_band_role()}
+            continue
         if t["kind"] == "label":
             role, basis, why = bracket_role(t["shape"], hints, raw[0], raw[1])
             old = r.get("reason", "")
@@ -340,7 +362,8 @@ def type_keys(types, roles):
     out = {tid: _type_key(t, roles.get(tid) or {}) for tid, t in types.items()}
     for tid, r in roles.items():
         v = r.get("variantOf")
-        if v and v in out and out[v] and out.get(tid) and r.get("role") not in ROOTED and (roles.get(v) or {}).get("role") not in ROOTED:
+        if v and v in out and out[v] and out.get(tid) and r.get("role") not in ROOTED and (roles.get(v) or {}).get("role") not in ROOTED \
+                and HB.KIND not in (types[tid]["kind"], types[v]["kind"]):  # 띠 표 줄은 변형군으로 합치지 않는다
             out[tid] = out[v]
     return out
 
@@ -351,6 +374,8 @@ def fallback_roles(types, hints=None):
     for tid, t in types.items():
         role, basis, why = bracket_role(t["shape"], hints) if t["kind"] == "label" else ("title" if t["kind"] == "title" else "heading", "", "")
         out[tid] = {"role": role, "parents": [], "variantOf": "", "basis": basis, "reason": why or "스크립트 대체 판정", **({"hint": True} if why == BY_USER else {})}
+        if t["kind"] == HB.KIND:
+            out[tid] = _band_role()
     return out
 
 
@@ -525,13 +550,17 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             parents = set((roles.get(nd["type"]) or {}).get("parents") or [])
             rk = _rank(nd)
             parent, heuristic = None, False
-            for i in range(len(st) - 1, -1, -1):
+            band = nd["kind"] == HB.KIND  # 띠 표 줄 — 늘 문서 맨 위(열린 줄을 모두 닫는다)
+            for i in (() if band else range(len(st) - 1, -1, -1)):
                 e = st[i]
                 if not e["label"] and e["key"] == k:  # 같은 레터 = 형제
                     parent = e["parent"]
                     del st[i:]
                     break
-                ok, guessed = _accepts(e, k, nd, rk, parents, main_next, trusted)
+                if e.get("band"):  # 열린 띠 표 줄 — 다음 띠 표·주 사슬 첫 레터(장)가 올 때까지 그 아래 줄은 모두 그 줄의 것(spec ② §6 「띠 표 줄」)
+                    ok, guessed = not (main_chain and main_chain[0] == k), False
+                else:
+                    ok, guessed = _accepts(e, k, nd, rk, parents, main_next, trusted)
                 if ok:
                     parent, heuristic = e["id"], guessed
                     del st[i + 1:]
@@ -550,7 +579,7 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             ids = {e["id"] for e in st}
             while dv and dv[-1]["id"] not in ids:  # 스택에서 빠진 라벨 = 범위 끝
                 dv.pop()
-            st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None})
+            st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None, "band": band})
             g.update(parent=parent, division=div(dv), depth=float(len(st)), heuristic=heuristic)
             graph[nd["id"]] = g
     for g in graph.values():
@@ -617,6 +646,8 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
             sc = _scope(nd["flow"])
             p = _eff_parent(g, graph)
             pa = asg.get(p)
+            if pa is not None and by_id[p]["kind"] == HB.KIND:
+                pa = None  # 띠 표 줄은 템플릿 사슬에 투명하다 — 그 아래 줄의 템플릿·레벨은 문서 맨 위에 매달린 줄처럼 정한다(띠 표 템플릿은 L1 하나뿐 — spec ② §6 「띠 표 줄」)
             ov = g.get("slot")
             tk = lv = None
             if ov:
@@ -656,6 +687,8 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
             if g["role"] in ROOTED:
                 continue  # 구분 라벨·괄호 소제목은 부모 사슬을 잇는 후보가 아니다(늘 새 템플릿)
             p = _eff_parent(g, graph)
+            if by_id[nid]["kind"] == HB.KIND or (p in asg and by_id[p]["kind"] == HB.KIND):
+                continue  # 띠 표 줄과 그 아래 줄 — 주 사슬 첫 레터 셈에도 부모 사슬 잇기에도 넣지 않는다(띠 표 템플릿은 L1 하나뿐)
             if p in asg:
                 ptk, plv, _ = asg[p]
                 kids[(ptk, plv)][g["key"]] += 1
@@ -707,7 +740,11 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     for nid, (tk, _, _) in asg.items():
         first_n[tk] = min(first_n.get(tk, 1 << 30), by_id[nid]["n"])
     used = {tk for tk, _, _ in asg.values()}
-    tkeys = sorted(used, key=lambda tk: (KIND_ORDER[_kind(tk)], first_n.get(tk, 1 << 30), str(tk)))
+    band_tks = {a[0] for nid, a in asg.items() if by_id[nid]["kind"] == HB.KIND}  # 띠 표 템플릿(kind band)
+
+    def kind_of(tk):
+        return HB.KIND if tk in band_tks and tk != MAIN else _kind(tk)
+    tkeys = sorted(used, key=lambda tk: (KIND_ORDER[kind_of(tk)], first_n.get(tk, 1 << 30), str(tk)))
     tid = {tk: i + 1 for i, tk in enumerate(tkeys)}
     anchors = {tk: anchor_of(tk, chains.get(tk) or [tk[1]]) for tk in tkeys}
     # 인스턴스 — 템플릿 L1 이 나타나는 모든 자리; 멤버 = 직접 소속(안쪽 인스턴스 경계까지)
@@ -745,7 +782,7 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     templates = []
     for tk in tkeys:
         chain = chains.get(tk) or [tk[1]]
-        templates.append({"id": tid[tk], "no": tid[tk], "anchor": anchors[tk], "name": anchors[tk], "key": anchors[tk], "kind": _kind(tk), "scope": tk[0],
+        templates.append({"id": tid[tk], "no": tid[tk], "anchor": anchors[tk], "name": anchors[tk], "key": anchors[tk], "kind": kind_of(tk), "scope": tk[0],
                           "rootRole": "label" if is_label_key(tk[1]) else "subtitle" if tk[1] == SUB_KEY else "heading", "root": tk[1], "chain": chain,
                           "displayName": "",
                           "instances": per_tpl[tid[tk]], "where": [], "slots": [], "note": ""})
@@ -877,6 +914,9 @@ def apply_changes(changes, sec, anc, graph, anchors, by_id=None, hints=None):
             continue
         g = graph[nid]
         nd = (by_id or {}).get(nid) or {}
+        if nd.get("kind") == HB.KIND:  # 띠 표 줄의 역할·부모·템플릿은 스크립트가 정한다(늘 헤딩 · 문서 맨 위 · 제 템플릿 L1 — spec ② §6 「띠 표 줄」)
+            rejected.append({"id": nid, "why": "별첨·부록 표 제목 줄 — 스크립트가 정한다"})
+            continue
         role, key = g["role"], g.get("key")
         if ch.get("role") in ROLES and ch["role"] != g["role"]:
             role, key = _b_role(g, nd, ch["role"], str(ch.get("basis") or "")[:20], hints)
@@ -1143,7 +1183,8 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
         settle_roles(types, roles, hints)  # 괄호 줄 = 구분 라벨·괄호 소제목 규칙(§13), 그 밖의 라벨은 basis 가 구분 기준일 때만
         keys = type_keys(types, roles)
         known = set(k for k in keys.values() if k)
-        if main and all(k in known for k in main):
+        bandkeys = {keys[tid] for tid, t in types.items() if t["kind"] == HB.KIND}
+        if main and all(k in known for k in main) and not bandkeys & set(main):  # 띠 표 줄의 레터는 주 사슬에 들지 않는다
             main_chain, fixed = main, True
         elif main:
             info["mainChainRejected"] = main  # 모르는 레터가 든 주 사슬 — 제안으로 대신
@@ -1242,7 +1283,8 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
                           "level": a.get("level"), "instance": a.get("instance"), "parent": g.get("parent"), "division": g.get("division"),
                           "sourceOutlineLevel": nd.get("outline"), "changed": g.get("changed", False), "undecided": g.get("undecided", False),
                           "heuristic": g.get("heuristic", False), "reason": g.get("reason", ""),
-                          **({"basis": g["key"][1:-1]} if g.get("role") == "label" and is_label_key(g.get("key")) else {})})  # 구분 라벨의 구분 기준 이름(3단계 표 소속이 그대로 씀)
+                          **({"basis": g["key"][1:-1]} if g.get("role") == "label" and is_label_key(g.get("key")) else {}),  # 구분 라벨의 구분 기준 이름(3단계 표 소속이 그대로 씀)
+                          **({"band": nd["band"]} if nd.get("band") else {})})  # 띠 표 줄 — {table, title(제목 문단), host}(오버레이가 표 줄로 둔다)
     edges += [{"t": "instance", "from": ins["root"], "to": f"tpl:{ins['template']}"} for ins in fin["instances"]]
     cost = sum((c.get("costUsd") or 0) for c in calls)
     return {"version": 2, "nodes": out_nodes, "containers": list(containers.values()), "edges": edges,

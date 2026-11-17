@@ -10,6 +10,7 @@ import re
 import threading
 import zipfile
 import zlib
+from difflib import SequenceMatcher
 
 from lxml import etree
 from PIL import Image
@@ -19,7 +20,7 @@ from app import hwpx_layout
 from app import table_grid as grid
 from app import zip_guard
 from app.hwpx_format import FormatMixin, _flag
-from app.hwpx_struct import StructMixin
+from app.hwpx_struct import StructMixin, _fill, _ins_cut, _side
 from app.hwpx_table_make import TableMakeMixin
 from app.hwpx_table_split import TableSplitMixin
 from app.textdiff import redistribute
@@ -58,7 +59,7 @@ AUTONUM_EL, CELLADDR, CELLSPAN = map(_p, ["autoNum", "cellAddr", "cellSpan"])
 PREFIX = {P: "p", TBL: "t", TC: "c", PIC: "i"}
 # \ubb36\uc74c \ube48\uce78(hp:nbSpace)\uc740 \ube14\ub85d \uae00\uc5d0\uc11c U+2002 \ub85c \uc77d\uace0 \uc4f4\ub2e4(spec_hwpx_\uc6f9\ud3b8\uc9d1 \u2461 \u00a78-8 \u300c\ubb36\uc74c \ube48\uce78\u300d \u2014 2026-11-16): \ud55c\uae00\uc740 \ubb36\uc74c \ube48\uce78\uc744 \ubcf4\ud1b5 \ube48\uce78\uacfc \uac19\uc740 \ud3ed(0.5em)\uc73c\ub85c \ucc0d\ub418 \uc591\ucabd \uc815\ub82c\ub85c
 # \ub298\ub9ac\uc9c0 \uc54a\ub294\ub2e4(PDF \uc2e4\uce21 \u2014 references/\ud55c\uae00_\ubb38\ub2e8\ubaa8\uc591_\uc904\ub098\ub214.md). \ub808\ud130 \ub4a4 \ube48\uce78\uc744 \uc774\uac83\uc73c\ub85c \ub450\uba74 \uccab \uc904\uc758 \uae00 \uc2dc\uc791\uc774 \uc904\ub9c8\ub2e4 \ubc00\ub9ac\uc9c0 \uc54a\ub294\ub2e4. \uc804\uc5d0\ub294 U+0020 \uc73c\ub85c \uc77d\uc5b4 \uae00\uc744 \uace0\uce58\uba74 \ubcf4\ud1b5 \ube48\uce78\uc774 \ub410\ub2e4.
-# \uace0\uc815\ud3ed \ube48\uce78(hp:fwSpace \u2014 0.25em)\uc740 \uc804\ucc98\ub7fc U+0020 \uc73c\ub85c \uc77d\ub294\ub2e4(\uae00\uc744 \uace0\uce5c hp:t \uc5d0\uc11c\ub294 \ubcf4\ud1b5 \ube48\uce78\uc774 \ub41c\ub2e4).
+# 고정폭 빈칸(hp:fwSpace — 0.25em)은 전처럼 U+0020 으로 읽는다. 글을 고치면 바뀐 곳에 든 것만 보통 빈칸이 된다(_write_t — 같은 앞·뒤는 자식째 그대로: spec_owpml_편집 ② §2 「글 고침」).
 NBSPACE, NB = _p("nbSpace"), "\u2002"
 SPECIAL = {TAB: "\t", BREAK: "\u2028", _p("fwSpace"): " ", NBSPACE: NB, _p("hyphen"): "-"}
 OBJECTS = frozenset(map(_p, ["tbl", "pic", "ole", "container", "equation", "line", "rect", "ellipse", "arc",
@@ -180,6 +181,7 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         """부분 name 을 고쳤다고 표시 — 저장 때 다시 쓰고, blocks() 캐시를 버린다(고치는 길은 모두 여기를 지난다)."""
         self._dirty.add(name)
         self._blocks_cache = None
+        self._gen = getattr(self, "_gen", 0) + 1  # 고친 차례 — 문서에서 읽어 둔 것(표 양식: outline_match.table_form)을 고친 뒤 다시 읽게
 
     def _touch(self, el):
         name = self._name_of.get(el.getroottree().getroot())
@@ -261,17 +263,35 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         text = self._text(p)
         objs = [o for r in p.iterchildren(RUN) for o in r.iterchildren(TBL, PIC)]
         out = [self._para_dict(p, text, caption_of)] if text.strip() or not objs else []
-        inline = [o for o in objs if (pos := o.find(_p("pos"))) is not None and pos.get("treatAsChar") == "1"]
+        held = self._text_pics(p) if out and objs else {}  # 글 속 그림 — 글이 있는 문단의 줄 안에 놓인 그림(spec_hwpx_웹편집 ② §3-6)
+        inline = [o for o in objs if o not in held and (pos := o.find(_p("pos"))) is not None and pos.get("treatAsChar") == "1"]
         row = None
         for o in objs:
             oid = self._id(o)
             caps = [b for c in o.iterchildren(CAPTION) for s in c.iterchildren(SUBLIST)
                     for b in self._list_blocks(s, oid)]
             blk = self._table(o) if o.tag == TBL else self._image(o)
-            if len(inline) > 1 and o in inline:  # 글자처럼 취급한 개체가 한 문단에 둘 이상 — 한글은 한 줄에 나란히 놓는다
+            if o in held:  # 블록은 전처럼 문단 뒤에 그대로(목록·id·차례 그대로) — 화면은 문단의 pics 로 글 속 그 자리에 그린다
+                blk["inlineOf"] = out[0]["id"]
+                out[0].setdefault("pics", []).append({"id": oid, "at": held[o], **{k: blk[k] for k in ("media", "widthMm", "heightMm")}})
+            elif len(inline) > 1 and o in inline:  # 글자처럼 취급한 개체가 한 문단에 둘 이상 — 한글은 한 줄에 나란히 놓는다
                 blk["inlineRow"] = row = row or oid
             out.append(blk)
             out += caps
+        return out
+
+    def _text_pics(self, p):
+        """글 속 그림 {hp:pic: 그 그림 앞까지의 글자 수(_text 단위)} — 글자처럼 취급(treatAsChar)하고 캡션이 없는 그림만. 한글은 그런 그림을 글과 같은 줄의
+        그 자리에 놓는다(글머리 아이콘 「▶ 제목」 — `<run><pic/><t> 제목</t></run>`). 표와 캡션이 달린 그림은 전처럼 따로(블록)."""
+        out, n = {}, 0
+        for r in p.iterchildren(RUN):
+            for c in r:
+                if c.tag == T:
+                    n += len(self._slot_text(c))
+                elif c.tag == CTRL:
+                    n += sum(len(self._slot_text(a)) for a in c.iterchildren(AUTONUM_EL) if a.get("numType") in AUTONUM)
+                elif c.tag == PIC and c.find(CAPTION) is None and (pos := c.find(_p("pos"))) is not None and pos.get("treatAsChar") == "1":
+                    out[c] = n
         return out
 
     def _para_dict(self, p, text, caption_of):
@@ -495,7 +515,69 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         return True
 
     def _write_t(self, t, text):
-        """Rewrite an hp:t; preserve tabs' attributes, explicit line breaks and \ubb36\uc74c \ube48\uce78(U+2002 \u2194 hp:nbSpace)."""
+        """hp:t 의 글을 text 로 — spec_owpml_편집 ② §2 「글 고침」: 옛 글(_slot_text 와 같은 읽기)과 새 글의 **같은 앞·뒤는 자식째 그대로**
+        (표지 · 탭 · 묶음 빈칸 · 고정폭 빈칸 · 줄 바꿈 · 하이픈 · titleMark) 두고 **바뀐 곳만** 새로 쓴다 — 탭 = hp:tab(그 바뀐 곳에서 빠진 옛 탭의 속성을 차례로, 모자라면 새 탭) ·
+        U+2028 = hp:lineBreak · U+2002 = hp:nbSpace · 그 밖은 글. 같은 앞·뒤를 뺀 가운데는 SequenceMatcher 로 다시 나눠 **바뀐 곳마다** 따로 쓴다 — 여러 곳을 한 번에 고쳐도
+        그 사이의 안 바뀐 글자(칠한 글 · 고정폭 빈칸 …)와 표지는 자식째 그대로(2026-11-17 검토: 전에는 첫 다름 ~ 끝 다름을 통째로 다시 써 형광펜이 번졌다).
+        바뀐 곳에 걸린 길이 0 자식: 앞 경계의 것은 새 글 앞 · 뒤 경계의 것은 새 글 뒤 · 안쪽의 것은 **차례 그대로** 두고 새 글을 안쪽의 첫 끝 표지 앞에(그 앞의 시작 표지 · 그 밖은 새 글 앞,
+        첫 끝 표지부터는 새 글 뒤 — 「시작 → 끝」 은 새 글을 감싸고 「끝 → 시작」(붙은 두 짝)은 새 글이 두 짝 밖에: 짝을 뒤집거나 겹치게 하지 않는다).
+        옛 글이 빈 곳(넣기만)은 그 자리의 마지막 끝 표지 뒤 · 그다음 첫 시작 표지 앞(새 글은 짝 밖 — _ins_cut).
+        새 글이 옛 글과 같으면 아무것도 안 바꾼다(표지·낯선 자식을 걷는 정리는 _rewrite_t — style_carrier._scrub)."""
+        units = [(ch, ch) for ch in t.text or ""]
+        for c in t:
+            units.append((SPECIAL.get(c.tag, ""), c))
+            units += [(ch, ch) for ch in c.tail or ""]
+        old = "".join(ch for ch, _ in units)
+        if old == text:
+            return
+        no, nn = len(old), len(text)
+        a = 0
+        while a < no and a < nn and old[a] == text[a]:
+            a += 1
+        b = 0
+        while b < no - a and b < nn - a and old[no - 1 - b] == text[nn - 1 - b]:
+            b += 1
+        ops = [(i1 + a, i2 + a, j1 + a, j2 + a) for op, i1, i2, j1, j2 in
+               SequenceMatcher(None, old[a:no - b], text[a:nn - b], autojunk=False).get_opcodes() if op != "equal"]
+        pos, q = [], 0  # 차례 단위마다 옛 글 자리(글자 = 그 글자의 자리 · 길이 0 자식 = 그 앞 글자 수)
+        for ch, _ in units:
+            pos.append(q)
+            q += 1 if ch else 0
+        out, k, n = [], 0, len(units)
+        for i1, i2, j1, j2 in ops:
+            while k < n and pos[k] < i1:  # 바뀐 곳 앞 — 그대로
+                out.append(units[k][1])
+                k += 1
+            front, inner, tabs = [], [], []
+            while k < n and pos[k] == i1 and not units[k][0]:  # 앞 경계의 길이 0 자식
+                front.append(units[k][1])
+                k += 1
+            while k < n and pos[k] < i2:  # 옛 글 [i1, i2) 와 그 안쪽의 길이 0 자식(뒤 경계 = 자리 i2 의 것은 다음 「그대로」 로 — 새 글 뒤)
+                ch, u = units[k]
+                if not ch:
+                    inner.append(u)
+                elif not isinstance(u, str) and u.tag == TAB:
+                    tabs.append(u)
+                k += 1
+            mid = []
+            for ch in text[j1:j2]:
+                if ch == "\t":
+                    mid.append(tabs.pop(0) if tabs else t.makeelement(TAB, dict(NEW_TAB)))
+                elif ch in (SPECIAL[BREAK], NB):
+                    mid.append(t.makeelement(BREAK if ch == SPECIAL[BREAK] else NBSPACE, {}))
+                else:
+                    mid.append(ch)
+            if i1 == i2:  # 넣기만
+                cut = _ins_cut([_side(u) for u in front])
+                out += front[:cut] + mid + front[cut:]
+            else:
+                e = next((x for x, u in enumerate(inner) if _side(u) == "end"), len(inner))
+                out += front + inner[:e] + mid + inner[e:]
+        out += [u for _, u in units[k:]]
+        _fill(t, out)
+
+    def _rewrite_t(self, t, text):
+        """hp:t 를 통째로 다시 쓴다(보이는 글만 — 탭의 속성 · 강제 줄 바꿈 · 묶음 빈칸(U+2002 ↔ hp:nbSpace)만 남고 표지·고정폭 빈칸·낯선 자식은 걷힌다). 옛 _write_t."""
         tabs = [c for c in t if c.tag == TAB]
         for c in list(t):
             t.remove(c)
@@ -513,20 +595,36 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         all_p, ps, lines = list(sub.iterchildren(P)), self._text_paras(sub), text.split("\n")
         if not ps and not text:
             return False
-        tpl, last = (ps or all_p)[0], (ps or all_p)[-1]
+        tpl = (ps or all_p)[0]
         changed = len(ps) != len(lines)
-        while len(ps) < len(lines):
-            own = self._ids.get(templates[len(ps)]) if len(ps) < len(templates) and templates[len(ps)] else None
-            new = self._new_para(own if own is not None and own.tag == P else tpl, "")
-            last.addnext(new)
-            ps.append(new)
-            last = new
-        for extra in ps[len(lines):]:
+        if not changed:
+            slots, gone = list(ps), []
+        else:  # 줄 수가 바뀜 — 줄을 차례가 아니라 **문단 글끼리** 맞춘다(SequenceMatcher): 사라진 줄의 문단만 빼고 새 줄은 그 자리에 새 문단으로.
+            # 전에는 줄을 차례로 문단에 채우고 남는 뒤 문단을 지워, 뒤 문단의 형광펜 · 필드가 그 글과 함께 가지 않고 사라졌다(2026-11-17 검토 — spec_owpml_편집 ② §2 「짝 표지」)
+            slots, gone = [None] * len(lines), []
+            for _, i1, i2, j1, j2 in SequenceMatcher(None, [self._text(p) for p in ps], lines, autojunk=False).get_opcodes():
+                k = min(i2 - i1, j2 - j1)
+                slots[j1:j1 + k] = ps[i1:i1 + k]
+                gone += ps[i1 + k:i2]
+            prev = None
+            for j, p in enumerate(slots):
+                if p is None:  # 새 줄 — 앞 줄의 문단 뒤(맨 앞이면 첫 남은 문단 앞 · 남은 문단이 없으면 칸의 마지막 문단 뒤)
+                    own = self._ids.get(templates[j]) if j < len(templates) and templates[j] else None
+                    p = slots[j] = self._new_para(own if own is not None and own.tag == P else tpl, "")
+                    nxt = next((x for x in slots[j + 1:] if x is not None), None) if prev is None else None
+                    if prev is not None:
+                        prev.addnext(p)
+                    elif nxt is not None:
+                        nxt.addprevious(p)
+                    else:
+                        all_p[-1].addnext(p)
+                prev = p
+        for extra in gone:
             if self._has_object(extra):  # 개체가 있는 초과 문단은 글자만 비운다.
                 self._set_para(extra, "")
             else:
                 sub.remove(extra)
-        for p, line in zip(ps, lines):
+        for p, line in zip(slots, lines):
             changed |= self._set_para(p, line)
         return changed
 

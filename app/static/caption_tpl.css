@@ -1,0 +1,21 @@
+/* 캡션 템플릿 「CN」(caption_tpl.js — spec_hwpx_웹편집 ② §8-10): 문서 쪽 왼쪽 여백의 표시 「C1」(.tpl-mark.cap) · 「템플릿 관계」 트리 끝의 「캡션 템플릿」 절(.capt-sec).
+   style.css(.tpl-mark · .trel-* · .olm-g …) · heading-panels.css · tpl_agent.css 다음에 읽힌다. 카드 꾸밈(.olm-g · .olm-gh · .olm-diff · .olm-no)은 개요 템플릿 것을 그대로 쓴다.
+   색: 보라 계열 — 개요 템플릿 「TN Lk」(파랑) · 구분 라벨(초록) · 뼈대 밖(주황) · TEMP(회색 점선)과 가른다(색만이 아니라 글 「C」 로도 갈린다). */
+.tpl-mark.cap { color: #5b21b6; background: #f5f0ff; border-color: #d6c8f5; }
+.tpl-mark.cap:hover { color: #5b21b6; border-color: #7c3aed; }
+.trel-node.k-cap > .trel-row .hb.tplno { color: #5b21b6; border-color: #d6c8f5; background: #f5f0ff; }
+.capt-sec[hidden] { display: none; }
+/* 절 머리·목록의 바깥 여백 — 트리의 다른 절(「본문 템플릿 n」 — heading-panels.css 의 .tpl-tree > h3 · .tpl-tree > .trel)과 같은 값(절을 한 상자로 갈아 끼우려고 한 겹 싸여 있어 그 규칙이 안 닿는다) */
+#headsDlg[data-kind="templates"] .capt-sec > h3 { display: flex; align-items: center; margin: 17px 18px 7px; font-size: 12px; font-weight: 600; color: #647084; }
+#headsDlg[data-kind="templates"] .capt-sec > .trel { padding: 0 14px 10px; }
+#headsDlg[data-kind="templates"] .capt-sec > .capt-missed { margin: 0 18px 10px; }
+#headsTemplatesResult .capt-sec > h3 { display: flex; align-items: center; margin: 12px 0 5px; font-size: 12px; font-weight: 600; color: #647084; }
+#headsTemplatesResult .capt-sec > .trel { padding: 0 0 6px; }
+.capt-chip { flex: none; }
+/* 서식 줄 — 개요 레벨 줄의 .olm 과 같은 배치(그 이름은 쓰지 않는다: outline_match.js 가 .olm 줄을 개요 레벨 줄로 알고 다시 그린다) */
+.capt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin: 0 0 6px 26px; font-size: 12px; color: var(--muted); min-width: 0; }
+.capt-row > .olm-list, .capt-row > .olm-paras { flex-basis: 100%; }
+.capt-row .olm-btn { height: 22px; padding: 0 7px; font-size: 11.5px; }
+.capt-row.capt-ok .olm-sum { color: #6b7d98; font-size: 11.5px; }
+.capt-g.capt-sel { box-shadow: 0 0 0 2px var(--accent); } /* 여백 표시를 눌러 온 줄이 든 서식 */
+.capt-missed { margin: 2px 0 6px 26px; }

@@ -69,7 +69,7 @@ const olmText = (pid) => (state.texts && state.texts[pid] != null ? state.texts[
 function olmRow(id, L) { // 레벨 줄 아래 「서식 n가지 · 대표 「…」」 + 「대표에 맞추기(m줄)」 + 갈래 목록(편 것만) — 그 레벨에 줄이 없으면 null
   const t = olmTpl(id);
   const os = t && t.slots ? t.slots[String(L)] : null;
-  if (!os || !os.lines) return null;
+  if (!os || !os.lines || os.table) return null; // 표 제목 레벨(넣은 표 줄 · 띠 표 줄)은 서식 갈래가 없다 — 「서식 정보 없음」 줄을 그리지 않는다
   const row = el("div", "olm");
   row.dataset.tpl = id;
   row.dataset.level = L;
@@ -108,7 +108,12 @@ function olmRow(id, L) { // 레벨 줄 아래 「서식 n가지 · 대표 「…
   }
   if (v.rep && v.others && !cand) { // 미리보기 중에는 미리보기 카드 · 「고른 서식 맞추기」 가 대신한다(지금 대표 기준의 단추를 같이 두면 헷갈림)
     row.append(hBtn(`대표에 맞추기(${nf(v.others)}줄)`, () => olmMatch(id, L, v.others),
-      { title: "대표와 서식이 다른 이 레벨 줄 모두를 대표 모양으로 — 레터(레터 앞 빈칸·글자·레터 뒤 빈칸) · 문단 모양 · 레터·본문 바탕 글자 모양(강조한 글자는 그대로, 번호는 제 번호). 「실행 취소」 로 되돌립니다", cls: "btn sm primary olm-btn" }));
+      { title: `대표와 서식이 다른 이 레벨 줄 모두를 대표 모양으로 — 레터(레터 앞 빈칸·글자·레터 뒤 빈칸) · 문단 모양 · 레터·본문 바탕 글자 모양(강조한 글자는 그대로, 번호는 제 번호).${v.ownLines ? ` 다른 표의 서식 ${nf(v.ownLines)}줄은 건드리지 않습니다(그 표의 서식).` : ""} 「실행 취소」 로 되돌립니다`, cls: "btn sm primary olm-btn" }));
+  }
+  if (v.rep && v.ownLines && !cand) { // 표의 서식(spec_hwpx_웹편집 ② §8-11) — 그 표에 대표 서식의 줄이 없는 서식: 「대표에 맞추기」 가 건드리지 않는다
+    const own = el("span", "muted olm-own", `표의 서식 ${nf(v.ownLines)}줄은 그대로`);
+    own.title = "표 안의 줄은 표마다 서식이 따로입니다 — 대표 서식의 줄이 하나도 없는 표의 줄은 그 표의 서식이라 「대표에 맞추기」 가 건드리지 않습니다. 그 서식 카드의 「다른 템플릿으로」 로 떼면 그 표의 줄끼리만 서식을 견주고, 꼭 맞추려면 「이 줄들만 맞추기」 를 누르세요";
+    row.append(own);
   }
   for (const sp of olmSplits(id, L)) { // 이 레벨에서 서식이 달라 뗀 템플릿 「→ T1L3a(6줄) · 합치기」(spec_hwpx_웹편집 ② §8-5)
     const chip = el("button", "olm-chip olm-vchip", `→ T${sp.no}(${nf(sp.lines)}줄)`);
@@ -173,6 +178,11 @@ function olmCard(id, L, v, g, { first, cand = null, base = null, no = null }) { 
     } else head.append(el("span", "olm-n", `×${nf(g.count)}`));
     head.append(olmGrip(id, L, first));
     olmDragSrc(li, id, L, first);
+    if (g.own) { // 표의 서식 — 이 서식의 줄이 든 표에는 대표 서식의 줄이 없다(② §8-11): 「대표에 맞추기」 가 건드리지 않는다
+      const ob = el("span", "hb olm-badge was olm-ownb", "표의 서식");
+      ob.title = `이 서식의 줄이 든 표${g.form ? `(머리글 「${g.form.label}」${g.form.tables > 1 ? ` · 표 ${nf(g.form.tables)}개` : ""}${g.form.around ? ` · 그 표의 다른 글 ${g.form.around}` : ""})` : ""}에는 대표 서식의 줄이 없습니다 — 그 표의 서식입니다. 「대표에 맞추기」 는 건드리지 않습니다(「다른 템플릿으로」 로 떼면 그 표의 줄끼리만 견줍니다)`;
+      head.append(ob);
+    }
     if (g.rep) head.append(el("span", "hb olm-badge was", "지금 대표"));
     else if (!cand) head.append(hBtn("대표로", () => olmSetRep(id, L, first), { title: `이 서식의 ${first === g.paras[0] ? "첫" : "고른"} 줄(${first})을 이 레벨의 대표로 — 문서는 안 바뀝니다`, cls: "btn sm olm-btn" }));
   }
@@ -221,8 +231,11 @@ function olmTryOf(id, L, v) { // 이 레벨의 미리보기 갈래 | null(미리
 }
 function olmTryDiff(b, g) { // 기준 갈래 b 와 갈래 g 의 다른 값 [[키, 이름, b 글, g 글]…] — 서버 diff 와 같은 꼴(KEYS 차례 · raw 로 견줌 · 글은 look)
   const ra = b.raw || {}, rg = g.raw || {}, la = b.look || {}, lg = g.look || {};
-  const keys = OLM.keys && OLM.keys.length ? OLM.keys : Object.keys(ra).map((k) => [k, k]);
-  return keys.filter(([k]) => (ra[k] ?? null) !== (rg[k] ?? null)).map(([k, name]) => [k, name, la[k] ?? "—", lg[k] ?? "—"]);
+  const keys = OLM.keys && OLM.keys.length ? OLM.keys : Object.keys(ra).filter((k) => k !== "kin").map((k) => [k, k]);
+  const glyph = !!ra.kin && ra.kin === rg.kin; // 레터 계열이 같다 = 닮은 레터 글자(「o」·「ㅇ」·「○」) — 서버 outline_match.diff 와 같은 이름(「레터」 는 레터가 다를 때만: spec_hwpx_웹편집 ② §8-5 「닮은 글자」)
+  const out = keys.filter(([k]) => (ra[k] ?? null) !== (rg[k] ?? null)).map(([k, name]) => [k, k === "letter" && glyph ? "닮은 레터 글자" : name, la[k] ?? "—", lg[k] ?? "—"]);
+  if (rg.form && (ra.form || "") !== rg.form) out.push(["form", "표", ra.formLabel || "표 밖", rg.formLabel || "—"]); // 표 안의 줄 — 기준 줄과 표(머리글)가 다르다(서버 diff 와 같은 줄: ② §8-11)
+  return out;
 }
 function olmTry(id, L, pid) { // 그 줄이 든 갈래로 대표 미리보기 — 지금 대표 갈래면 미리보기를 거둔다
   const v = olmSlotData(id, L), g = v && v.groups.find((x) => x.paras.includes(pid));
@@ -681,11 +694,20 @@ async function olmMatch(id, L, n, group = null) { // group = 갈래의 줄 목�
   if (!r) return;
   if (r.nothing) { toast("맞출 줄이 없습니다 — 모두 대표와 같습니다"); olmLoad(true).then(() => olmRefresh()); return; }
   olmLoad(true).then(() => olmRefresh()); // 문서는 structOp 가 바뀐 블록으로 다시 그렸다(떨어진 줄들이면 문서를 다시 읽음)
-  toast(`T${t ? t.no : id} L${L} 줄 ${nf(olmFit(r) || n)}개를 대표 모양으로 맞췄습니다${olmPut(r)} — 「실행 취소」 로 되돌립니다`);
+  toast(`T${t ? t.no : id} L${L} 줄 ${nf((r.left || []).length ? olmFit(r) : olmFit(r) || n)}개를 대표 모양으로 맞췄습니다${olmPut(r)} — 「실행 취소」 로 되돌립니다`);
 }
 // 맞추기 답의 줄 수 — changed = 바뀐 줄 모두 · placed = 그 가운데 대표에 맞춘 줄이 아니라 확정 서식(레터 뒤 묶음 빈칸 · 둘째 줄 = 글 시작 — spec_hwpx_웹편집 ② §8-8)만 걸린 줄(대표 · 대표 갈래)
-const olmFit = (r) => (r.changed || []).length - (r.placed || []).length; // 대표에 맞춘 줄
-const olmPut = (r) => ((r.placed || []).length ? ` · 자리 맞춤 ${nf(r.placed.length)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "");
+// left = 형광펜·필드·변경 추적 표지 때문에 글을 못 바꿔 모양만 맞추고 남긴 줄(changed 에도 든다 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」) [{id, tpl, no, level, why, kinds}]
+const olmFit = (r) => (r.changed || []).length - (r.placed || []).length - (r.left || []).length; // 대표에 맞춘 줄(모양만 맞춘 줄은 빼고)
+const olmPut = (r) => ((r.placed || []).length ? ` · 자리 맞춤 ${nf(r.placed.length)}줄(묶음 빈칸 · 둘째 줄 = 글 시작)` : "") + olmLeft(r);
+const OLM_WHY = { letter: "레터를 바꿔야 함", inside: "빈칸 사이에 표지", field: "필드가 레터 앞·뒤 빈칸에 걸침", track: "변경 추적이 레터 앞·뒤 빈칸에 걸침", unpaired: "짝이 안 맞는 표지" };
+function olmLeft(r) { // 맞추기 끝난 알림의 한 구절 — 모양만 맞춘 줄 수 · 표지 종류 · 까닭(글은 그대로)
+  const xs = r.left || [];
+  if (!xs.length) return "";
+  const kinds = [...new Set(xs.flatMap((x) => x.kinds || []))].join("·") || "표지";
+  const why = Object.entries(xs.reduce((a, x) => { const w = OLM_WHY[x.why] || x.why || "표지"; a[w] = (a[w] || 0) + 1; return a; }, {})).map(([w, n]) => `${w} ${nf(n)}`).join(" · ");
+  return ` · ${kinds} 표지가 있어 모양만 맞춘 줄 ${nf(xs.length)}(글은 그대로 — ${why})`;
+}
 
 // ---------------------------------------------------------------- 템플릿 종속(하위로 넣기 · 떼기) — 종속 템플릿 「T1T3」(2026-11-15 사용자 "T1 이 주고 종속이 T3 라면 T1T3 템플릿으로")
 // 넣으면 서버가 새 종속 템플릿(id 「A+B」 · 표기 「T{A}T{B}」 · base = at — L1~L at 은 A 의 레벨, L at+1 부터 B 의 레벨)을 만들고 그 자리의 B 줄을 거기로 옮긴다. A 는 안 바뀐다.
@@ -737,7 +759,7 @@ function olmPlaces(id) { // 넣을 수 있는 자리 — 이 템플릿 첫 레�
     const [a, at] = k.split("|");
     if (a === String(id) || done.has(a)) continue;
     const A = olmTpl(a);
-    if (!A) continue;
+    if (!A || A.kind === "band") continue; // 띠 표 템플릿(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」) 아래의 줄은 제 템플릿 그대로 — 종속 템플릿을 만들지 않는다
     const span = Math.max(1, (t.max || 0) - (t.base || 0));
     const letter = (A.slots && A.slots[at] ? A.slots[at].letter : (A.chain || [])[+at - 1]) || "?";
     out.push({ parent: a, at: +at, n, label: `T${A.no} L${at} 「${short(letter, 14)}」 아래 ${nf(n)}곳`, to: `T${A.no}T${t.no} L${+at + 1}${span > 1 ? `~L${+at + span}` : ""}` });
@@ -774,7 +796,7 @@ function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿
   row.append(olmTplMatch(id)); // 「대표 맞추기(n줄)」 — 이 템플릿(종속 템플릿이면 그 줄만)의 모든 레벨을 한 번에(전 이름 「템플릿 맞추기」 — 2026-11-16 사용자 「대표 맞추기.. 로 하면 되겠네」)
   if (typeof olmOddBtn === "function") row.append(olmOddBtn(id)); // 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보인다(outline_odd.js)
   if (t.all) { row.append(el("span", "olm-chip into", "줄을 다 넣음")); return; }
-  if (!t.lines || t.vari) return; // 서식 종속 템플릿은 이미 제 템플릿의 레벨 아래 — 「하위로」 없음
+  if (!t.lines || t.vari || t.kind === "band") return; // 서식 종속 템플릿은 이미 제 템플릿의 레벨 아래 — 「하위로」 없음 · 띠 표 템플릿은 늘 문서 맨 위(다른 템플릿 아래로 넣지 않는다)
   const places = olmPlaces(id);
   const open = olmOpenNow().mergeOpen.has(String(id));
   const form = el("div", "olm-merge");
@@ -870,7 +892,7 @@ async function olmMatchPlan(id) { // 「계획대로 맞추기」 — ★ 열의
     return;
   }
   const n = olmFit(r), made = (r.splits || []).map((x) => `T${x.no}`);
-  toast(`★ 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : "", r.reps ? `대표 ${nf(r.reps)}개를 바꿨습니다` : ""].filter(Boolean).join(" · ") || ((r.placed || []).length ? "자리를 맞췄습니다" : "바꾼 것이 없습니다")}${olmPut(r)} — 「실행 취소」 한 번으로 되돌립니다`);
+  toast(`★ 계획대로 ${[n ? `T${P.no} 줄 ${nf(n)}개를 맞췄습니다` : "", made.length ? `서식 종속 템플릿 ${made.join(" · ")} 를 만들었습니다` : "", r.reps ? `대표 ${nf(r.reps)}개를 바꿨습니다` : ""].filter(Boolean).join(" · ") || ((r.placed || []).length ? "자리를 맞췄습니다" : (r.left || []).length ? "모양을 맞췄습니다" : "바꾼 것이 없습니다")}${olmPut(r)} — 「실행 취소」 한 번으로 되돌립니다`);
 }
 
 // ---------------------------------------------------------------- 개요 레벨 그림 — 서식 복사의 내용 서식 견본(style_pic.js stylePic 의 "content")과 같은 그림을 템플릿마다

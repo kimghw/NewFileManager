@@ -1,0 +1,104 @@
+/* 편집 구역(spec_구역 ② §6 「화면」 — zones.js): 패널의 「편집 구역」 줄(취합은 취합 카드 안) · 문서의 구역 띠·오른쪽 여백 이름표·들어온 내용 바탕 · 문서 이름 줄의 색 설명 · 「구역 지정…」 입력 · 문서 옆 목록.
+   취합의 「기관 구역」 스타일(gather.css — spec_취합 ② §9-2)을 옮겨 넓힌 것. 화면 표시일 뿐이다(내보내는 파일에는 아무것도 안 쓴다) — 표시는 요소마다(#doc·body 에 클래스를 달지 않는다: design.md §8).
+   색 = 색 축 하나의 값 차례(기관을 켰으면 기관 주관 → 공동, 아니면 차년도, 아니면 단계 — 8색을 돌려 씀) · u = 기관 모름·확인 필요·값 없음. 색만으로 가르지 않고 이름표·칩 글을 같이 둔다(design.md §15).
+   **구역 색(data-gz → --gz-c)과 출처 색(data-gzo → --gzo-c)은 따로 건다** — A 구역에 B 기관 문서의 내용이 들어와도 띠는 A 색 · 바탕만 B 색이다(하나가 다른 것을 덮지 않는다) */
+[data-gz="0"] { --gz-c: #2563eb; --gz-bg: rgba(37, 99, 235, .10); }
+[data-gz="1"] { --gz-c: #c2410c; --gz-bg: rgba(194, 65, 12, .10); }
+[data-gz="2"] { --gz-c: #0f766e; --gz-bg: rgba(15, 118, 110, .11); }
+[data-gz="3"] { --gz-c: #7c3aed; --gz-bg: rgba(124, 58, 237, .10); }
+[data-gz="4"] { --gz-c: #b91c1c; --gz-bg: rgba(185, 28, 28, .09); }
+[data-gz="5"] { --gz-c: #4d7c0f; --gz-bg: rgba(77, 124, 15, .11); }
+[data-gz="6"] { --gz-c: #a16207; --gz-bg: rgba(161, 98, 7, .11); }
+[data-gz="7"] { --gz-c: #be185d; --gz-bg: rgba(190, 24, 93, .10); }
+[data-gz="u"] { --gz-c: #64748b; --gz-bg: rgba(100, 116, 139, .10); }
+[data-gzo="0"] { --gzo-c: #2563eb; --gzo-bg: rgba(37, 99, 235, .10); }
+[data-gzo="1"] { --gzo-c: #c2410c; --gzo-bg: rgba(194, 65, 12, .10); }
+[data-gzo="2"] { --gzo-c: #0f766e; --gzo-bg: rgba(15, 118, 110, .11); }
+[data-gzo="3"] { --gzo-c: #7c3aed; --gzo-bg: rgba(124, 58, 237, .10); }
+[data-gzo="4"] { --gzo-c: #b91c1c; --gzo-bg: rgba(185, 28, 28, .09); }
+[data-gzo="5"] { --gzo-c: #4d7c0f; --gzo-bg: rgba(77, 124, 15, .11); }
+[data-gzo="6"] { --gzo-c: #a16207; --gzo-bg: rgba(161, 98, 7, .11); }
+[data-gzo="7"] { --gzo-c: #be185d; --gzo-bg: rgba(190, 24, 93, .10); }
+[data-gzo="u"] { --gzo-c: #64748b; --gzo-bg: rgba(100, 116, 139, .10); }
+
+/* 줄(#zonesBar.zn-bar.gt-zones) — 취합 카드 안에서는 1px 구분선의 한 줄(상자를 더 두르지 않는다: design.md §1-1), 패널에 바로 놓일 때(.zn-card)는 「구분 기준 자리 표시」 줄과 같은 카드.
+   머리 = 이름 + 노트 · 「구역 표시」 보기/감추기 · 「목록」 / 체크 셋(보일 기준 — 꺼져 있어도 늘 보인다) / 값마다 칩. 조작 28px(design.md §1-3) */
+.gt-zones { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 0 2px; border-top: 1px solid var(--line, #e2e8f0); }
+.gt-zones[hidden] { display: none; }
+#divBox .zn-bar.zn-card { padding: 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+.gt-zones-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.zn-copy { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin-right: auto; }
+.zn-copy strong { font-size: 12.5px; white-space: nowrap; }
+#divBox .zn-bar .gt-zones-head .btn { height: 28px; min-height: 28px; padding: 0 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+.gt-zones-toggle.on { background: var(--accent-soft, #e8eefc); border-color: #9fb5ea; color: var(--accent, #2458d6); } /* 켜짐 = 옅은 눌림 바탕(design.md §9) */
+.zn-dims { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; font-size: 12px; color: #475569; }
+.zn-dims-name { font-size: 11px; color: #64748b; white-space: nowrap; }
+.zn-dim { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
+.zn-dim input { flex: none; width: 14px; height: 14px; margin: 0; }
+.gt-zones-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.zn-bar[data-zn="off"] .gt-zones-chips { opacity: .6; } /* 표시를 꺼 둔 동안의 칩(마지막으로 읽은 것) */
+.gz-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); cursor: pointer; font: inherit; font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.gz-chip:hover, .gz-chip:focus-visible { border-color: var(--gz-c, #64748b); text-decoration: underline; }
+.gz-chip.zn-chip-mark { border-style: dashed; } /* 지정한 구역(사람 · LLM) — 문서의 점선 이름표와 같은 꼴 */
+/* 「LLM 검토」(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」) — 머리의 보통 단추(강조 아님). 도는 동안은 돌아가는 동그라미(style.css @keyframes spin) + 「LLM 검토 중… n초」(design.md §7) · 아래에 마지막 결과 한 줄 */
+.zn-llm { display: inline-flex; align-items: center; gap: 5px; }
+.zn-llm.run { color: #2758c7; background: #edf3ff; border-color: #c5d3ed; opacity: 1; cursor: progress; }
+.zn-llm.run::before { content: ""; flex: none; box-sizing: border-box; width: 11px; height: 11px; border: 2px solid #4576d7; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.zn-llm-t { font-variant-numeric: tabular-nums; }
+.zn-llm-last { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; line-height: 1.5; color: #64748b; overflow-wrap: anywhere; }
+.zn-llm-last.err { color: #92400e; }
+.zn-llm-last .panel-help { flex: none; width: 20px; height: 20px; }
+.gz-chip.zn-chip-warn { color: #92400e; border-color: #e7b56a; background: #fff7e6; }
+
+/* 문서 — 구역: 블록 오른쪽 안쪽 띠(배치 안 바뀜) · 표는 바깥 오른쪽 띠 · 표와 값이 다른 칸은 칸 안쪽 왼쪽 띠 · 들어온 내용은 그 기관 문서 기관 색의 옅은 바탕(표는 점선 테).
+   문단의 띠·바탕은 **배경 그림 층**으로 얹는다(box-shadow·background-color 가 아니다) — 문단의 상태 표시(고친 문단의 왼쪽 띠·바탕 · 포커스 테 · 반영 중 · 실패 · 마우스 올림 — style.css · 「고친 곳 보기」 doc_diff.css)가
+   box-shadow 와 바탕색을 쓰므로 그것들을 덮지 않고 함께 보이게: 층 = 구역 띠(오른쪽 3px) · 「구분 기준 자리」 라벨 줄의 왼쪽 띠(divisions.css 의 것을 그대로 — 두 표시를 함께 켰을 때) · 들어온 내용의 옅은 바탕.
+   #doc 으로 우선순위를 올린다 — 상태 규칙의 `background` 줄임 속성이 배경 그림을 지우지 않게(바탕색은 그 규칙의 것이 그대로 보인다) */
+#doc .para.gz-in, #doc .para.gz-put { --zn-none: linear-gradient(transparent, transparent); background-image: var(--zn-band, var(--zn-none)), var(--zn-lab, var(--zn-none)), var(--zn-tint, var(--zn-none)); }
+#doc .para.gz-in { --zn-band: linear-gradient(to left, var(--gz-c) 0 3px, transparent 3px); }
+#doc .para.gz-put { --zn-tint: linear-gradient(var(--gzo-bg), var(--gzo-bg)); }
+#doc.dv-marks .para.dv-lab.gz-in, #doc.dv-marks .para.dv-lab.gz-put { --zn-lab: linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px); }
+.doc table.tbl.gz-in { box-shadow: 3px 0 0 0 var(--gz-c); }
+.doc td.gz-cell { box-shadow: inset 3px 0 0 0 var(--gz-c); }
+.doc table.tbl.gz-put { outline: 2px dashed var(--gzo-c); outline-offset: 1px; }
+.doc td.gz-put { box-shadow: inset 0 0 0 2px var(--gzo-c); background-color: var(--gzo-bg); }
+.doc td.gz-cell.gz-put { box-shadow: inset 3px 0 0 0 var(--gz-c), inset 0 0 0 2px var(--gzo-c); } /* 칸의 띠(구역 색) 위에 넣은 내용의 테(출처 색) — 둘 다 보인다 */
+.doc .para.zn-pick, .doc table.tbl.zn-pick { outline: 2px dashed var(--accent, #2458d6); outline-offset: 1px; } /* 「구역 지정…」 입력이 떠 있는 동안의 대상 범위 */
+/* 오른쪽 여백의 이름표(띠 첫 블록 높이 — design.md §4: 왼쪽 여백은 개요·표 표시 몫) — zoom 1/z 로 화면 px, 폭 = 그 쪽 여백(--mgr). 사람이 지정한 띠는 점선 테 */
+.sheet > .gz-tag { position: absolute; right: 0; width: var(--mgr, 60px); box-sizing: border-box; padding: 1px 4px 1px 6px; z-index: 3; pointer-events: auto;
+  font: 600 10.5px/14px var(--ui-font, system-ui, sans-serif); color: var(--gz-c); border-left: 3px solid var(--gz-c); background: color-mix(in srgb, #fff 88%, var(--gz-c));
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; user-select: none; }
+.sheet > .gz-tag.gz-mark { outline: 1px dashed var(--gz-c); outline-offset: -1px; }
+.sheet > .gz-tag.gz-mark.gz-llm { outline-style: dotted; font-style: italic; } /* LLM 이 지정한 띠 — 글 끝의 「· LLM」 꼬리가 말하고(색·테만으로 가르지 않는다) 테는 점점이 */
+@media print { .sheet > .gz-tag { display: none; } }
+
+/* 문서 이름 줄의 색 설명(#zonesKey.dv-key.zn-key — 꼴은 divisions.css 의 .dv-key): 표시가 켜져 있고 띠가 있는 동안만(zones.js zonesKeyDraw 가 줄에 .has-zn-key).
+   줄을 더 쓰지 않는다 — 좁으면 줄 폭(@container docname)으로 이름 → 뒤쪽 칩 → 「편집 중」·파일 크기 차례로 감추고, 그래도 안 들어가면 설명만 다음 줄로 접힌다(「구분 기준 자리」 설명과 같은 규칙) */
+.document-name-row.has-zn-key { flex-wrap: wrap; row-gap: 3px; }
+.document-name-row.has-zn-key > .file-name { flex-basis: 6em; }
+.zn-key-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); flex: none; max-width: 9em; }
+.zn-key-chip-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.zn-key-more, .zn-key-tone { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.zn-key-tone { display: inline-flex; align-items: center; gap: 4px; }
+.zn-key-tone::before { content: ""; width: 12px; height: 9px; box-sizing: border-box; border: 1px dashed #64748b; border-left: 3px solid #64748b; } /* 점선 이름표 꼴 */
+.has-zn-key > .doc-status .ds-opt { display: none; }
+@container docname (max-width: 1000px) { .has-zn-key > .doc-status { display: none; } .zn-key-chip:nth-of-type(n+6), .zn-key-more { display: none; } } /* 칩 넷까지(첫 span 은 이름) */
+@container docname (max-width: 760px) { .zn-key .dv-key-name, .zn-key-tone { display: none; } .zn-key-chip { max-width: 6em; } .zn-key-chip:nth-of-type(n+5) { display: none; } } /* 칩 셋까지 */
+@container docname (max-width: 560px) { .has-zn-key > .document-mode, .has-zn-key > .file-meta { display: none; } }
+@container docname (max-width: 520px) { .has-zn-key > .name-quick > #nameTblMarks { display: none; } }
+
+/* 「구역 지정…」 입력(#zonesPop.dv-pop.zn-pop — 꼴은 divisions.css 의 .dv-pop: 떠 있는 작은 창 · 모달 아님) */
+.zn-pop .dv-pop-text { font-weight: 600; color: #334155; }
+
+/* 문서 옆 목록(2열 kind zones) — 표는 연결 목록의 것(.lk-table)을 쓰고 칸만 더한다 */
+.hd-body .gz-cap { border-left: 4px solid var(--gz-c, #cbd5e1); padding-left: 8px; }
+.hd-body table.gz-table th { white-space: nowrap; }
+.hd-body table.gz-table td.gz-what { white-space: nowrap; color: var(--gz-c, var(--text)); }
+.hd-body table.gz-table td.gz-put-row { font-weight: 600; }
+.hd-body table.gz-table td.gz-bad { color: #92400e; white-space: normal; }
+.hd-body table.gz-table td.gz-src { white-space: nowrap; color: var(--muted); }
+.hd-body table.gz-table td.gz-by-llm { color: #6d28d9; font-weight: 600; } /* 근거 = LLM(글이 말한다 — 색은 구분 기준의 「추가(LLM)」 과 같은 보라) */
+.hd-body .gz-cap.zn-cap-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; } /* 「지정」 묶음 머리 — 글 + 「LLM 지정 모두 해제」 */
+.hd-body .gz-cap.zn-cap-acts .btn { height: 22px; min-height: 22px; padding: 0 7px; font-size: 11px; font-weight: 400; }
+.hd-body table.gz-table td.gz-act { width: 1%; white-space: nowrap; }
+.hd-body table.gz-table td.gz-act .btn { height: 22px; min-height: 22px; padding: 0 6px; font-size: 11px; }

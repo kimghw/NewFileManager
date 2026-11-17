@@ -32,6 +32,7 @@ PREFIX = (
     ("doc-agent", "doc_agent"), ("style-review", "style_review"), ("tpl-agent", "tpl_agent"),
     ("work-guide", "work_guide"),
     ("verify-llm", "verify_review"),
+    ("zones-llm", "zone_review"),
 )
 _BY_LEN = sorted(PREFIX, key=lambda x: -len(x[0]))
 IDS = tuple(dict.fromkeys(a for _, a in PREFIX))

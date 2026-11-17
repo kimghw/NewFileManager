@@ -25,6 +25,8 @@
   - 겹침 협의: newfilemanager-e9 「겹침 없음」 + 상단 바에서 지킬 것(직계 `.btn` 이면 35px·26px 규칙을 그대로 받음 · 1500px 아래 아이콘만 · 541~780px 감춤을 잃지 않기 · `smoke_panel_head_ui` 넘침 검사) · newfilemanager-2b 「겹침 없음」(`index.html` 의 `doc_status` 줄을 남길 것).
 - 2026-11-15 에이전트 19 「작업 진행」(`work_guide`)을 더함(newfilemanager-b8) — 사용자 "첫 화면 우측에 에이전트 대화할 수 있는 대화창 …" 의 LLM 호출. 원본 [spec_작업에이전트.md](spec_작업에이전트.md). 프롬프트 조각 종류 `workflow`(= `workflow.md` — 읽기만)를 더했다(② §3).
 - 2026-11-16 에이전트 20 「검증 LLM 검토」(`verify_review` · 호출 이름 `verify-llm-<import|edit>` · 저절로 돎)와 묶음 「검증」 을 더함 — 사용자 "검증은 LLM 이 처리 하도록 해줘" 의 LLM 호출. 원본 [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md) ② §4-1. 프롬프트 조각 = 계약 + 판단 지침 `merge_guides_default/verify.md`(조각 종류 `merge`).
+- 2026-11-17 에이전트 21 「편집 구역 검토」(`zone_review` · 호출 이름 `zones-llm` · 묶음 「프로젝트 구성」 · 눌러야 돎)를 더함(newfilemanager-57) — 사용자 "이것도 LLM이 검토해서 차년도, 기관을 찾아 내는 과정이 포함되어 있나?" 의 LLM 호출. 원본 [spec_구역.md](spec_구역.md) ② §8.
+  프롬프트 조각 = 판단 지침 `app/merge_guides_default/zones.md`(`("merge", "zones")`). 화면 검사 `tools/smoke_agents_ui.py` 의 기대(에이전트 21 · 번호 차례에 21 이 08 뒤)를 고침.
 
 ## ② 확정 사양
 

@@ -5,10 +5,16 @@
 // app.js(bind 의 「파일 선택」·창 놓기 · homeTasksDraw·homeTaskFiles) 와 gather_quick.js(gatherQuickRun · gqConfirmText) 를 쓴다 — 그 둘 다음에 읽는다(index.html).
 
 const HF_OK = /\.(hwpx?|docx)$/i, HF_TASK = /\.hwpx?$/i;
-const hf = { files: [], target: -1, aliases: new WeakMap(), project: "", auto: false, llm: true, busy: "", err: "",
+const hf = { files: [], target: -1, aliases: new WeakMap(), project: "", auto: false, llm: true, zones: null, busy: "", err: "",
   get alias() { return this.aliases.get(this.files[hfTarget()]) || ""; },
   set alias(value) { const file = this.files[hfTarget()]; if (file) this.aliases.set(file, value); },
 }; // 약칭은 File 에 붙인다 — 목적 문서를 바꾸거나 앞 파일을 빼도 다른 문서로 옮겨 가지 않는다.
+// hf.zones = 편집 구역에서 가려 볼 기준(TASK 옵션 — spec_구역 ② §1): null = 손대지 않음(그 TASK 의 기본값 — task_catalog.js zones) · 목록 = 사람이 고른 것(빈 목록 = 끔).
+const HF_ZONES = [["org", "기관"], ["stage", "단계"], ["year", "차년도"]]; // 서버 app/zones.py DIMS 의 차례 · 이름
+if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { taskOptions: "편집 구역 기준 정함" }); // 「기록」 탭의 이름 — 편집 구역에서 가려 볼 기준을 사람이 정함(서버 task_options_api 의 작업 기록 `taskOptions`: 이 목록 · 「작업 내용」 의 「편집 구역」 줄)
+const hfZoneNames = (dims) => HF_ZONES.filter(([d]) => dims.includes(d)).map(([, name]) => name).join(" · ");
+const hfZonesDefaults = () => Object.keys(TASK_CATALOG).filter((job) => taskZonesDefault(job).length) // 기본으로 켜는 TASK 들 — 「사업계획서 취합 = 기관」(task_catalog.js zones)
+  .map((job) => `${TASK_CATALOG[job].name} = ${hfZoneNames(taskZonesDefault(job))}`).join(" · ");
 const hfHas = () => hf.files.length > 0;
 const hfTarget = () => (hf.files.length === 1 ? 0 : hf.target); // 하나면 그것이 목적 문서 — 둘 이상이면 고르기 전에는 없음(잘못 고르면 다른 문서가 바뀐다)
 const hfNorm = (s, n) => String(s || "").split(/\s+/).filter(Boolean).join(" ").slice(0, n); // 서버와 같게: 앞뒤를 떼고 빈칸을 하나로(별칭 40 · 프로젝트 60자)
@@ -169,7 +175,37 @@ function homeFilesDraw() {
   quick.append(el("span", "hf-group-name", "사업계획서 취합"),
     check("자동 진행", "auto", "사업계획서 취합 — 켜고 카드를 누르면 확인 한 번 뒤 끝까지 한 번에 취합합니다(간단 모드 — 넣지 않고 남긴 것은 연 뒤 단계별로 보정). 끄면 올리고 등록만 해서 단계별로 진행합니다(세부 작업 모드)"),
     check("LLM 검토", "llm", "자동 진행 때 넣을 수 있다고 본 내용을 LLM 이 한 번 더 봅니다(문서마다 수십 초 · 유료) — 넣을 것을 줄이기만 합니다", !hf.auto));
-  opts.append(pl, quick);
+  // 「편집 구역」(TASK 옵션 — spec_구역 ② §1): 연구개발 TASK 의 문서에서 가려 볼 기준(기관 · 단계 · 차년도). 손대지 않으면(hf.zones null) 꺼진 채로 보이고 그 TASK 의 기본값으로 시작한다 —
+  // 하나라도 누르면 그때부터 사람이 고른 것(모두 끄면 끔)이고 TASK 를 시작한 뒤 한 번 적는다(hfOpenTarget). 손대지 않은 것과 모두 끈 것은 체크가 같아 보여 옆에 글로 가른다(「TASK 기본값대로」 · 「모두 끔」)
+  const zg = el("span", "hf-group hf-zones"), znote = el("span", "hf-zones-note");
+  const zoneState = () => {
+    znote.textContent = hf.zones == null ? "TASK 기본값대로" : hf.zones.length ? "" : "모두 끔";
+    znote.hidden = !znote.textContent;
+    zg.title = "연구개발 TASK(양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
+      + `손대지 않으면 TASK 의 기본값(${hfZonesDefaults() ? `${hfZonesDefaults()} · 그 밖의 TASK 는 켠 것 없음` : "어느 TASK 도 켠 것 없음"})\n`
+      + (hf.zones == null ? "지금: 손대지 않음 — 시작하는 TASK 의 기본값대로 보입니다"
+        : hf.zones.length ? `지금 고른 기준: ${hfZoneNames(hf.zones)} — 시작하는 연구개발 TASK 에 이 기준을 적습니다`
+          : "지금: 모두 끔 — 시작하는 연구개발 TASK 에서 편집 구역을 보이지 않습니다(기본값 대신 끈 것으로 적습니다)");
+  };
+  const zoneCheck = ([dim, name]) => {
+    const lab = el("label", "hf-check"), cb = el("input");
+    cb.type = "checkbox";
+    cb.checked = !!hf.zones && hf.zones.includes(dim);
+    cb.disabled = busy;
+    cb.dataset.hfFocus = `zones:${dim}`;
+    cb.dataset.hfZone = dim;
+    cb.onchange = () => { // 누른 것만 바꾸고 나머지는 지금 보이는 그대로(손대지 않았으면 꺼진 것) — 차례는 늘 기관 · 단계 · 차년도
+      hf.zones = HF_ZONES.map(([d]) => d).filter((d) => (d === dim ? cb.checked : !!hf.zones && hf.zones.includes(d)));
+      zoneState();
+    };
+    lab.append(cb, el("span", null, name));
+    return lab;
+  };
+  zg.setAttribute("role", "group");
+  zg.setAttribute("aria-label", "편집 구역 — 문서에서 가려 볼 기준");
+  zg.append(el("span", "hf-group-name", "편집 구역"), ...HF_ZONES.map(zoneCheck), znote);
+  zoneState();
+  opts.append(pl, quick, zg);
   const foot = el("div", "hf-foot"), more = el("button", "btn sm", "파일 더하기"), plain = el("button", "btn sm", "TASK 없이 열기");
   more.type = plain.type = "button";
   more.disabled = busy;
@@ -220,7 +256,7 @@ async function homeFilesPlain() { // 「TASK 없이 열기」 — 목적 문서�
 }
 
 // 목적 문서를 올려 열고 그 TASK 로 적는다 → {id, task, note}. 같은 파일로 하던 작업은 이어 연다(② §1) — 다른 TASK · 다른 프로젝트 · 기관 문서 · 다른 역할이었으면 묻지 않고 새 작업으로(목록에서 TASK 를 골랐다).
-async function hfOpenTarget(job, file, { project, alias }) {
+async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zones = 목록에서 고른 편집 구역의 기준(hf.zones — null 이면 손대지 않음)
   const cat = TASK_CATALOG[job], blank = { kind: "", file: "", job: "", project: "" };
   const up = async (fresh) => { const fd = new FormData(); fd.append("file", file); const r = await api(`/api/docs${fresh ? "?new=1" : ""}`, { method: "POST", body: fd }); await load(r.docId); return r; };
   let r = await up(false), note = "", fresh = !r.reused;
@@ -244,6 +280,14 @@ async function hfOpenTarget(job, file, { project, alias }) {
     if (alias) { // 별칭을 못 적어도 TASK 는 시작한다(서버가 별칭 끝점을 모르는 옛 서버일 때 등) — 알림만
       try { await api(`/api/works/${r.docId}/alias`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ alias }) }); }
       catch (e) { toast(`약칭을 저장하지 못했습니다: ${e.message}`, true); }
+    }
+    if (taskKindOf(job) === "rnd" && state.id === r.docId) { // 편집 구역(TASK 옵션 — spec_구역 ② §1)은 연구개발 TASK 에만 — 일반 문서의 TASK 는 고름을 안 쓴다
+      // 사람이 고른 기준만 그 TASK 묶음(프로젝트 · TASK · 라운드)에 적는다 — 손대지 않았으면 안 보낸다(기본값 · 이어 여는 작업은 전에 정한 것 그대로). 못 적어도 TASK 는 시작한다 — 알림만
+      if (zones != null) {
+        try { await api(`/api/works/${r.docId}/task-options`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ zones: { dims: zones } }) }); }
+        catch (e) { toast(`편집 구역의 기준을 저장하지 못했습니다: ${(e.body && e.body.detail && e.body.detail.message) || e.message} — 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 다시 고르세요`, true); }
+      }
+      if (typeof zonesLoad === "function") Promise.resolve().then(() => zonesLoad(true)).catch(() => {}); // TASK 묶음이 정해졌다 — 문서를 열 때 읽은 편집 구역을 그 묶음의 옵션으로 다시 읽는다(zones.js — 못 읽어도 TASK 는 시작한다)
     }
   } else state.task = { ...cur, kind: taskKindOf(job), job, file: role, project: project || cur.project }; // 작업 저장이 꺼져 있으면 이 화면에서만(② §10)
   taskDraw();
@@ -283,6 +327,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 그 TASK 의 목적 문서 형식(task_catalog.js accept — 보통 hwp·hwpx · 「문서 서식 복사」 는 docx 도: spec_서식복사 ② §1). PDF 는 목록에 없다
   if (!exts.includes(hfExt(target))) { ask(`TASK 는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「TASK 없이 열기」 로 엽니다(TASK 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return; }
   const others = hf.files.filter((_, i) => i !== ti), project = hfNorm(hf.project, 60), alias = hfNorm(hf.alias, 40), auto = hf.auto, llm = hf.llm;
+  const zones = hf.zones && [...hf.zones]; // 편집 구역의 기준 — 누를 때의 고름(null = 손대지 않음 → 그 TASK 의 기본값)
   const aliases = new Map(hf.files.map((file) => [file, hfNorm(hf.aliases.get(file), 40)]));
   const sourceRole = (t.files || []).find((k) => k !== t.target) || "";
   let use = [];
@@ -307,7 +352,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   // 준비(목적 문서 열기 → 원본·기관 문서 올리기 → 간단 모드)가 끝날 때까지 작업 진행 에이전트의 시작 턴을 붙든다 — 준비가 끝난 상태로 한 번만 설명하고, 간단 모드가 돌았으면 그 결과를 보고한다(doc_agent_work.js agentWorkHold · spec_작업에이전트 ② §7)
   if (typeof agentWorkHold === "function") agentWorkHold(true);
   try {
-    main = await hfOpenTarget(job, target, { project, alias });
+    main = await hfOpenTarget(job, target, { project, alias, zones });
     hfUsed([target, ...use]);
     if (main.note) toast(main.note);
     if (t.gather && use.length) await gatherQuickRun(main.id, target.name, use, { llm, uploadOnly: !auto, aliases }); // 취합 — 기관 문서 올리기·등록(+ 자동 진행이면 끝까지): gather_quick.js

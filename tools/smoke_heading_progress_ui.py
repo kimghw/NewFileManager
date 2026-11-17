@@ -73,6 +73,9 @@ FAKE = """(kind) => { // 요약 사본에 흉내 낸 상태를 넣어 진행 줄
   if (kind === 'judged') { r.stage2.llm = { ...r.stage2.llm, requested: true, fallback: false, calls: 9, failed: 0, seconds: 198, costUsd: 3.1 }; r.stage2.meta.at = now - 120; }
   if (kind === 'rulesRunning') r.job = { stage: 2, llm: true, first: false, status: 'running', started: now - 5, steps: [{ name: '1단계 다시 — 못 맞춤·충돌 LLM 규칙 보강', status: 'running' }, { name: '추출', status: 'ok' }, { name: 'LLM 규칙 보강', status: 'running' }] };
   if (kind === 'graphRunning') r.job = { stage: 2, llm: true, first: false, status: 'running', started: now - 50, steps: [{ name: 'TEMP 라벨 — 헤딩 후보에서 뺌', status: 'ok' }, { name: '헤딩 그래프 — LLM', status: 'running' }] };
+  // 「LLM 검증·보완」 — 헤딩 판정이 도는 동안 표 판정 호출이 같이(heading_runs.TablesAhead: 단계 줄 「표 구조 — LLM」 이 「헤딩 그래프 — LLM」 보다 먼저 서고 둘 다 도는 중)
+  if (kind === 'bothRunning') r.job = { stage: 2, llm: true, first: false, chain: 'llm', status: 'running', started: now - 90, steps: [{ name: '다시 추출', status: 'ok' },
+    { name: '표 구조 — LLM', status: 'running', msg: '표 판정 호출 7/29 끝남 — 헤딩 판정과 같이' }, { name: 'TEMP 라벨 — 헤딩 후보에서 뺌', status: 'ok' }, { name: '헤딩 그래프 — LLM', status: 'running' }] };
   if (kind === 'fmtRunning') r.job = { stage: 2, llm: true, first: false, chain: 'heads', status: 'running', started: now - 200, steps: [{ name: '헤딩 그래프 — LLM', status: 'ok' }, { name: '서식 정리 계획 — LLM', status: 'running' }] };
   if (kind === 'rulesFailed') r.rules = { run: 99, at: now - 60, asked: false, groups: 27, saved: 0, kept: 0, rejected: 0, unsure: 0, error: '가짜 실패', costUsd: 0 };
   if (kind === 'noGroups') { r.rules = null; r.stage1.summary = { ...r.stage1.summary, unmatchedGroups: 0, conflicts: 0 }; }
@@ -158,6 +161,12 @@ try:
         page.evaluate(FAKE, "graphRunning")
         c = page.evaluate(SNAP)["cells"]
         check("그 다음 그래프 LLM: 헤딩 판정 칸이 돎", c[4]["state"] == "running" and c[3]["state"] == "none", [(x["text"], x["state"]) for x in c])
+        page.evaluate(FAKE, "bothRunning")
+        c = page.evaluate(SNAP)["cells"]
+        check("LLM 검증·보완 — 헤딩 판정과 표 판정 칸이 같이 도는 중(표 판정 호출은 헤딩 판정을 기다리지 않는다) · 규칙 보강 · 스크립트 칸은 안 돎 · 표 판정 title 에 「호출 7/29 … 헤딩 판정과 같이」",
+              c[4]["state"] == "running" and c[5]["state"] == "running" and not any(x["state"] == "running" for x in c[:4]) and "표 판정 호출 7/29 끝남 — 헤딩 판정과 같이" in c[5]["title"],
+              [(x["text"], x["state"]) for x in c[:6]] + [c[5]["title"][:80]])
+        page.locator("#headsOverview").screenshot(path=str(OUT / "4b_heads_tables_together.png"))
         page.evaluate(FAKE, "fmtRunning")
         m2 = page.evaluate(SNAP)
         now = page.evaluate("() => (document.querySelector('#headsOverview .analysis-state.running .now-what') || {}).textContent || ''")

@@ -838,7 +838,8 @@ def test_graph_llm_fake(rnd, P):
     assert ty[T[ids["stage"]]]["basis"] == "단계" and ty[T[ids["joint"]]]["basis"] == "기관" and "T9999" not in ty
     assert ty[T[ids["joint"]]]["key"] == "[기관]" and ty[T[ids["sq"]]]["parents"] == A["types"][2]["parents"]
     filled = [t for t in g["types"] if t["type"] not in {x["type"] for x in A["types"]}]
-    assert filled and all("스크립트 대체" in t["reason"] for t in filled)  # A 가 빠뜨린 유형은 대체 역할
+    assert filled and all("스크립트 대체" in t["reason"] for t in filled if t["kind"] != "band")  # A 가 빠뜨린 유형은 대체 역할
+    assert all(t["role"] == "heading" and t["parents"] == ["root"] and "별첨·부록 표 제목" in t["reason"] for t in g["types"] if t["kind"] == "band")  # 띠 표 줄(「별첨N」 — ② §6)의 역할·부모는 A 의 답과 무관하게 스크립트가
     # 인스턴스 — 템플릿 L1 자리마다: 「[1단계]」 라벨이 뿌리(① · ② 는 그 L3 멤버), 「[기관]」 라벨은 제 인스턴스(단계 인스턴스의 childInstances)
     by_root = {i["root"]: i for i in g["instances"]}
     assert ids["stage"] in by_root and ids["joint"] in by_root and ids["goal"] not in by_root

@@ -194,10 +194,6 @@ try:
         bad = lambda code, detail: route.fulfill(status=code, content_type="application/json", body=json.dumps({"detail": detail}, ensure_ascii=False))   # noqa: E731
         if tail == "":
             return ok(view())
-        if tail == "/zones":   # 기관 구역 표시(spec_취합 ② §9-2) — 흉내 상태에는 구역이 없다: 빈 구역 + 흉내 낸 넣은 기록 없음(구역 자체는 진짜 구간 13 에서 본다)
-            G["calls"].pop()
-            return ok({"rev": 0, "values": VALUES, "orgs": [{"key": o["key"], "name": o["name"], "role": o.get("role", "joint")} for o in view()["orgs"]], "zones": [], "cells": {}, "applied": [],
-                       "counts": {"zones": 0, "blocks": 0, "cells": 0, "applied": 0}, "reasons": []})
         if tail == "/frame":
             if G["stale"]:   # 헤딩·표 분석이 지금 문서 차례의 것이 아님 — 화면이 스크립트 분석을 다시 건 뒤 한 번 더 부른다
                 G["stale"] -= 1
@@ -265,6 +261,12 @@ try:
                        "calc": [], "dropped": [], "skipped": [], **edit_state()})   # 서버의 꼴(merge_gather.apply)
         return bad(404, "Not Found")
 
+    def zones_route(route):   # 편집 구역(GET …/zones — spec_구역 ② §5: 전의 기관 구역 표시 …/gather/zones) — 흉내 상태에는 구역이 없다: 빈 구역 + 넣은 내용 없음(구역 자체는 진짜 구간 13 에서 본다)
+        orgs = [{"key": o["key"], "name": o["name"], "role": o.get("role", "joint")} for o in view()["orgs"]]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"rev": G["rev"], "zonesRev": 0, "basis": "applied",
+            "options": {"scope": "p:GATHER|plan_merge|1", "offered": True, "zones": {"dims": ["org"], "defaulted": True}, "rev": 0}, "orgs": orgs, "stages": VALUES["stages"],
+            "blocks": {}, "cells": {}, "zones": [], "marks": [], "origins": [], "counts": {"zones": 0, "blocks": 0, "cells": 0, "marks": 0, "origins": 0, "conflicts": 0, "unknown": 0}, "reasons": []}, ensure_ascii=False))
+
     def div_route(route):   # 구분 기준 상태 — 진짜 응답에 「지원 양식」(supported) · 「반영됨」(applied) 만 얹는다
         if route.request.method != "GET" or not G["div"]:
             return route.continue_()
@@ -298,6 +300,9 @@ try:
         page.on("request", on_post)
         GATHER_URL = re.compile(r"/api/docs/[^/]+/gather(?:[/?]|$)")
         page.route(GATHER_URL, gather_route)
+        page.route(re.compile(rf"/api/docs/{plan}/zones$"), zones_route)
+        page.route(re.compile(rf"/api/docs/{plan}/zones/llm$"), lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(   # 편집 구역 「LLM 검토」 의 미리 보기(spec_구역 ② §8) — 흉내 상태: LLM 끔 · 후보 없음
+            {"available": False, "why": "LLM 을 쓸 수 없습니다(시험)", "running": False, "candidates": 0, "kinds": {"conflict": 0, "unknown": 0, "hint": 0, "alone": 0}, "truncated": False, "last": None}, ensure_ascii=False)))
         page.route(re.compile(rf"/api/docs/{plan}/divisions$"), div_route)
         page.goto(base)
         page.evaluate("() => { localStorage.setItem('nfm.gatherStageOpen0', '1'); localStorage.setItem('nfm.gatherStageOpen', '1'); localStorage.setItem('nfm.gatherStageOpen2', '1'); }")   # 세부 목록의 단추를 누르므로 세 묶음을 펴 둔다(기본 접힘)
@@ -928,19 +933,28 @@ try:
         check("[진짜] 기관 구역(GET …/gather/zones) — 세 기관 모두 구역 · 넣은 기록 3곳이 지금 문서에 남음(그 기관)", {z["org"] for z in zv["zones"] if z["kind"] == "org"} >= {o["key"] for o in zv["orgs"]}
               and len(put) == 3 and all(a["orgs"] == [okey] for a in put) and zv["counts"]["applied"] == 3, {k: zv.get(k) for k in ("counts", "reasons")})
         page.wait_for_function("() => !!document.querySelector('#gatherFlow .gt-zones .gz-chip') && !!document.querySelector('#doc .gz-in') && !!document.querySelector('#doc .gz-put')", timeout=60000)
-        zui = page.evaluate("""(org) => ({ chips: [...document.querySelectorAll('#gatherFlow .gz-chip')].map((c) => [c.dataset.org, c.textContent]), tags: document.querySelectorAll('#doc .sheet > .gz-tag').length,
-          put: [...document.querySelectorAll('#doc .gz-put')].map((e) => e.title), toggle: document.querySelector('#gatherFlow [data-gather-zones=toggle]').getAttribute('aria-pressed') })""", okey)
-        check("[진짜] 기관 구역 — 카드 칩(기관마다 · 「넣은 내용 3」) · 문서에 구역 띠·오른쪽 여백 이름표 · 넣은 내용 바탕(도움말 「<기관> — 「기관 문서」 에서 넣음」) · 기본 보기",
-              zui["toggle"] == "true" and any(k == okey and "넣은 내용 3" in t for k, t in zui["chips"]) and len(zui["chips"]) == 3 and zui["tags"] > 0
-              and zui["put"] and all(t.startswith(f"{ORG} — 「") and "에서 넣음" in t for t in zui["put"]), zui)
+        # 화면은 공통 모듈 「편집 구역」(zones.js — spec_구역 ② §6 「화면」: 2026-11-17)의 줄을 취합 카드의 그 자리(#gatherFlow .gt-zones = #zonesBar)에 쓴다 — 자료는 GET …/zones(출처 = origins), 취합은 기관이 기본으로 켜져 있다
+        zn_view = requests.get(f"{base}/api/docs/{rp}/zones", timeout=120).json()
+        org_keys = [o["key"] for o in zv["orgs"]]
+        zui = page.evaluate("""() => ({ chips: [...document.querySelectorAll('#gatherFlow .gz-chip[data-org]')].map((c) => [c.dataset.org, c.textContent]), tags: document.querySelectorAll('#doc .sheet > .gz-tag').length,
+          put: [...document.querySelectorAll('#doc .gz-put')].map((e) => e.title), gzo: [...new Set([...document.querySelectorAll('#doc .gz-put')].map((e) => e.dataset.gzo))],
+          dims: [...document.querySelectorAll('#gatherFlow #zonesBar input[data-zones-dim]')].map((c) => [c.dataset.zonesDim, c.checked]), name: document.querySelector('#gatherFlow #zonesBar strong').textContent,
+          toggle: document.querySelector('#gatherFlow [data-zones=toggle]').getAttribute('aria-pressed') })""")
+        check("[진짜] 편집 구역(GET …/zones) — 취합 TASK 는 기관이 기본으로 켜짐 · 출처 이벤트 3(그 기관 문서 · 그때의 반영할 기관 · 옛 기록 아님)", zn_view["options"]["zones"] == {"dims": ["org"], "defaulted": True}
+              and len([o for o in zn_view["origins"] if o["part"] == rpart and o["ids"] and o["orgs"] == [okey] and not o.get("legacy")]) == 3 and zn_view["counts"]["origins"] == 3,
+              {k: zn_view.get(k) for k in ("options", "counts", "reasons")})
+        check("[진짜] 기관 구역 — 카드 칩(기관마다 · 「넣은 내용 3」) · 문서에 구역 띠·오른쪽 여백 이름표 · 넣은 내용 바탕(도움말 「<기관> — 「기관 문서」 에서 넣음」 · 출처 색은 그 기관의 것) · 기본 보기",
+              zui["toggle"] == "true" and any(k == okey and "넣은 내용 3" in t for k, t in zui["chips"]) and [k for k, _ in zui["chips"] if k in org_keys] == org_keys and zui["tags"] > 0
+              and zui["put"] and all(t.startswith(f"{ORG} — 「") and "에서 넣음" in t for t in zui["put"]) and zui["gzo"] == [str(org_keys.index(okey))]
+              and zui["name"] == "편집 구역" and zui["dims"] == [["org", True], ["stage", False], ["year", False]], zui)
         page.locator(f'#gatherFlow .gz-chip[data-org="{okey}"]').click()
-        page.wait_for_function("() => heads.dlg === 'gatherZones' && !!document.querySelector('#headsDlgBody .gz-cap')")
-        zl = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .gz-cap')].map((c) => c.textContent)")
-        check("[진짜] 칩 → 2열 「기관 구역」 — 기관마다 구역·넣은 내용", len(zl) == 3 and any(t.startswith(ORG) and "넣은 내용 3" in t for t in zl), zl)
-        page.locator("#gatherFlow [data-gather-zones=toggle]").click()
+        page.wait_for_function("() => heads.dlg === 'zones' && !!document.querySelector('#headsDlgBody .gz-cap')")
+        zl = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .gz-cap[data-org]')].map((c) => [c.dataset.org, c.textContent])")
+        check("[진짜] 칩 → 2열 「편집 구역」 — 기관마다 구역·넣은 내용", [k for k, _ in zl if k in org_keys] == org_keys and any(t.startswith(ORG) and "넣은 내용 3" in t for _, t in zl), zl)
+        page.locator("#gatherFlow [data-zones=toggle]").click()
         page.wait_for_function("() => !document.querySelector('#doc .gz-in, #doc .gz-put, #doc .gz-tag')")
-        check("[진짜] 「감추기」 — 문서의 구역 표시가 모두 걷힘 · 다시 「보기」 로 돌아옴", page.get_attribute("#gatherFlow [data-gather-zones=toggle]", "aria-pressed") == "false")
-        page.locator("#gatherFlow [data-gather-zones=toggle]").click()
+        check("[진짜] 「감추기」 — 문서의 구역 표시가 모두 걷힘 · 다시 「보기」 로 돌아옴", page.get_attribute("#gatherFlow [data-zones=toggle]", "aria-pressed") == "false")
+        page.locator("#gatherFlow [data-zones=toggle]").click()
         page.wait_for_function("() => !!document.querySelector('#doc .gz-put')", timeout=60000)
         page.screenshot(path=str(OUT / "13c_real_zones.png"))
         page.evaluate("() => { headsColClose(); setZoom(1); }")

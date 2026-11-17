@@ -93,6 +93,8 @@ class Session:
                          "prior": None,   # 앞서 이 문서에 반영한 값들(② §19 — None = 아직 안 모음: _division_prior 가 작업 기록에서 한 번)
                          "confirmed": None}   # 1단계 구성 확정 {at, hash, values}(spec_작업 ② §18) — 공유 중이면 프로젝트의 것을 옮겨 적음, 작업에 저장
         self.outline = None  # 개요(템플릿) 편집 오버레이(spec_hwpx_웹편집 ② §8) — 2단계 그래프에서 만들고 편집마다 손질, 실행 취소·작업 저장과 함께
+        # 편집 구역(spec_구역 ② §7 「저장 · 읽는 길 · 등록」 — zones_api.blank() 와 같은 꼴): 구역 판 · 지정(사람이 고른 블록 — 실행 취소 대상 아님) · 출처(취합으로 들어온 내용 — 실행 취소와 함께). 작업에 저장
+        self.zones = {"rev": 0, "marks": [], "origins": []}
 
     def text_edited(self):
         return {i for i, t in self.texts.items() if t != self.orig_texts.get(i)}
@@ -270,7 +272,8 @@ def _persist(s, force=False):
                                   "review": s.division.get("review"),  # 마지막 LLM 검토(② §14)
                                   "confirmed": s.division.get("confirmed"),  # 1단계 구성 확정(spec_작업 ② §18)
                                   **({"prior": s.division["prior"]} if s.division.get("prior") is not None else {})},  # 앞서 반영한 값들(② §19) — 아직 안 모았으면 키 없음
-                     "outline": s.outline}  # 개요 편집 오버레이(spec_hwpx_웹편집 ② §8)
+                     "outline": s.outline,  # 개요 편집 오버레이(spec_hwpx_웹편집 ② §8)
+                     "zones": copy.deepcopy(s.zones)}  # 편집 구역의 지정·출처(spec_구역 ② §7 「저장 · 읽는 길 · 등록」) — 사본(쓰기는 잠금 밖: 그 사이 지정을 잇는 편집이 목록을 고친다)
             edited, framed = len(s.edited()), bool(s.division["applied"])
         snap = {**snap, "rev": rev, "base": base, "sha256": works.sha256(snap["bytes"])}
         works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited, framed=framed)   # framed = 프로젝트 구성을 반영한 문서 — 닫힌 작업의 보이는 이름이 본다(spec_작업 ② §10 「프레임 이름」)
@@ -358,6 +361,8 @@ def _restore_state(s, got):
                   "prior": [v for v in dv["prior"] if isinstance(v, dict)] if isinstance(dv.get("prior"), list) else None,   # ② §19 — 키가 없으면(옛 작업) 처음 쓸 때 모음
                   "confirmed": dv.get("confirmed") if isinstance(dv.get("confirmed"), dict) else None}   # 1단계 구성 확정(spec_작업 ② §18) — 옛 작업은 없음
     s.outline = st.get("outline") if isinstance(st.get("outline"), dict) else None
+    from app import zones_api
+    s.zones = zones_api.load(st.get("zones"))   # 편집 구역의 지정·출처(spec_구역 ② §7 「저장 · 읽는 길 · 등록」) — 옛 작업(키 없음)은 빈 것
     return True
 
 
@@ -723,7 +728,8 @@ def _snap(s):
             "formatted": set(s.formatted), "struct": set(s.struct), "removed": set(s.removed), "origin": dict(s.origin),
             "division": copy.deepcopy(s.division["applied"]),  # 구분 기준 적용 상태도 실행 취소와 함께(spec_구분_기준 ② §4)
             "outline": copy.deepcopy(s.outline),  # 개요 편집 오버레이도(spec_hwpx_웹편집 ② §8)
-            "owpml_ok": set(s.owpml_ok)}  # 받아들인 위반 종류도(owpml_allow) — 가져온 정의가 되돌려지면 허용도 되돌린다
+            "owpml_ok": set(s.owpml_ok),  # 받아들인 위반 종류도(owpml_allow) — 가져온 정의가 되돌려지면 허용도 되돌린다
+            "zones": __import__("app.zones_api", fromlist=["snap"]).snap(s)}  # 편집 구역의 출처(취합으로 들어온 내용의 기록)도 — 넣은 편집이 되돌려지면 함께(spec_구역 ② §4 「출처 — 취합으로 들어온 내용」). 지정은 안 넣는다
 
 
 def _rollback(s, snap):
@@ -733,6 +739,8 @@ def _rollback(s, snap):
     s.struct, s.removed, s.origin = set(snap["struct"]), set(snap["removed"]), dict(snap["origin"])
     s.division["applied"], s.division["plan"] = copy.deepcopy(snap.get("division")), None  # 계획은 문서 버전에 묶여 있어 되돌리면 무효
     s.outline = copy.deepcopy(snap.get("outline"))
+    # 편집 구역(spec_구역 ② §3 「지정 — 사람이 고른 블록」): 출처는 그 묶음의 것으로 · 되돌린 문서에 없는 블록은 지정에서 뺀다(번호표도 되돌아가 같은 번호가 다른 새 문단에 다시 쓰인다 — 옛 지정을 물려받지 않게)
+    __import__("app.zones_api", fromlist=["rollback"]).rollback(s, snap.get("zones"))
 
 
 def _para_el(s, block_id, cell_ok=False):
@@ -802,6 +810,8 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
     except (KeyError, ValueError) as e:
         if s.doc._blocks_cache is None:  # 고치다 만 경우 — 직전 상태로
             _rollback(s, snap)
+        else:  # 문서는 안 건드렸어도 오버레이는 시작 때 것으로(대표 바꿈 같은 오버레이 변경이 남지 않게 — spec_hwpx_웹편집 ② §8-8 「실패 뒤 오버레이」). snap 은 버리는 것이라 그대로 쓴다
+            s.outline = snap["outline"]
         s.owpml_ok = set(snap["owpml_ok"])  # 실패한 편집이 받아들인 종류(owpml_allow)는 남기지 않는다
         raise HTTPException(400, str(e)) from e
     base = owpml_base(s)  # run() 이 받아들인 종류(owpml_allow)까지 넣어 다시 읽는다
@@ -845,6 +855,8 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
         fm = _outline_relabel(s, out["formatted"])
         if fm:
             out["_fmts"] = fm
+    if s.zones["marks"] or s.zones["origins"]:  # 편집 구역(spec_구역 ② §3 「지정 — 사람이 고른 블록」): 지정한 문단에서 나온 새 문단(문단 나눔 · 새 줄 — zones_api.INHERIT_OPS)은 그 지정에 잇고, 취합으로 들어온 문단을 나눈 뒷부분은 그 출처에 잇는다. 둘 다 없으면 아무 일도 안 한다
+        __import__("app.zones_api", fromlist=["after_edit"]).after_edit(s, op, {i: s.origin.get(i) for i in set(cur) - old})
     _bump(s, op or "edit", req=req, owpml=s.owpml_last, **(out.get("log") or {}))
     return out, after
 
@@ -1003,6 +1015,7 @@ def _outline_ov(s, build=True):
             log.warning("[개요 종속] %s 다시 걸지 못함: %s", s.id, [(m.get("child"), m.get("parent"), why) for m, why in fails])
         outline_pos.carry(old, ov)  # 종속으로 새로 생긴 레벨의 자리 규칙도(같은 앵커·레벨)
         __import__("app.outline_grow", fromlist=["carry"]).carry(old, ov)  # Alt+↓ 로 더한 레벨(② §8-6) — 그래프가 못 알아본 레벨은 슬롯을 다시, 알아본 레벨은 자리 규칙만
+        __import__("app.caption_tpl", fromlist=["carry"]).carry(old, ov)  # 캡션 템플릿 「CN」 의 번호·사람이 정한 대표(② §8-10 — 그래프와 무관한 키라 그대로 옮긴다)
     if ov is not None and not ov.get("fmtv") and ov.get("run") == key:  # 줄의 서식 라벨을 지금 서식에 맞춘다 — 오버레이마다 한 번(라벨이 없던 옛 오버레이 · 새로 만든 오버레이)
         outline_match.label_sync(s.doc, ov, g)
     return ov
@@ -1447,6 +1460,17 @@ def _project_sessions_refresh(ids):
         _persist_safe(s, force=True)
 
 
+def _task_options_follow(fn, *args):
+    """TASK 옵션(TASK 묶음마다의 저장소 app/task_options.py — spec_구역 ② §1 「TASK 옵션 — TASK 묶음마다」)의 묶음 열쇠를 프로젝트 이름 변경 · 삭제 · 새 라운드에 맞춘다
+    (fn = rename_project | drop_project | copy_round). 못 해도 본 일은 막지 않는다 — 옵션이 기본값으로 보일 뿐이다. 실패는 서버 로그에 남긴다."""
+    try:
+        from app import task_options
+        return getattr(task_options, fn)(*args)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[TASK 옵션] %s%r 을 하지 못함: %r", fn, args, exc)
+        return None
+
+
 @app.put("/api/projects/{name:path}")
 def project_rename(name: str, body: dict = Body(...)):
     """{name}. 프로젝트의 모든 TASK·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다."""
@@ -1466,6 +1490,7 @@ def project_rename(name: str, body: dict = Body(...)):
                 works.log(w["id"], "renameProject", old=old, new=new)
                 changed.append(w["id"])
         projects.rename(old, new)
+        _task_options_follow("rename_project", old, new)   # 그 프로젝트 묶음들의 TASK 옵션도 새 이름으로
         _project_sessions_refresh(changed)
         return {"name": new, "works": changed}
 
@@ -1495,6 +1520,7 @@ def project_delete(name: str, docs: str = "keep"):
                     works.log(w["id"], "leaveProject", project=project)
             _project_sessions_refresh(ids)
         projects.remove(project)
+        _task_options_follow("drop_project", project)   # 프로젝트가 없어졌다(해제 · 문서까지 삭제) — 그 프로젝트 묶음들의 TASK 옵션도 지운다: 남기면 같은 이름으로 다시 만든 프로젝트가 옛 옵션을 물려받는다. 구성 초기화(reset)는 남긴다(spec_구역 ② §1)
         return {"name": project, "docs": docs, "works": ids}
 
 
@@ -1664,6 +1690,7 @@ def work_round(wid: str, body: dict = Body(default={})):
                 DOCS.pop(created_id, None)
                 works.delete(created_id)
             raise
+        _task_options_follow("copy_round", task, {**task, "round": next_round})   # 앞 라운드 묶음의 TASK 옵션을 새 묶음이 이어받는다(묶음에 한 번 — 문서들의 task 는 프로젝트·TASK·라운드가 같다). 지정·출처는 안 옮긴다(블록 id 가 새로 매겨진다)
         _ensure_persister()
         for member, fresh, data in prepared:
             if DOCS.get(fresh.id) is fresh:
@@ -1905,6 +1932,7 @@ def commit_restore(doc_id: str, n: int, body: dict = Body(default={})):
         _commit_state(s, extra)
         s.division["hints"] = [h for h in s.division.get("hints") or []  # 추가한 자리는 그 문단이 되돌린 문서에 있는 것만
                                if s.doc._attached(s.doc._ids.get(h.get("para")))]
+        __import__("app.zones_api", fromlist=["prune"]).prune(s)   # 편집 구역의 지정·출처도 되돌린 문서에 있는 블록만(spec_구역 ② §3 「지정 — 사람이 고른 블록」)
         _outline_sync(s)
         s.owpml_last = None
         if c:
@@ -2061,6 +2089,7 @@ app.include_router(outline_match_api.router)
 app.include_router(__import__("app.outline_lift_api", fromlist=["router"]).router)   # 표 제목을 템플릿의 L1 으로(후보 · 넣기 · 떼기) 끝점은 app/outline_lift_api.py(spec_hwpx_웹편집 ② §8-7)
 app.include_router(__import__("app.outline_grow_api", fromlist=["router"]).router)   # 개요 레벨 더하기(마지막 레벨의 Alt+↓ — 후보 · 새 레벨) 끝점은 app/outline_grow_api.py(spec_hwpx_웹편집 ② §8-6)
 app.include_router(__import__("app.para_letter_api", fromlist=["router"]).router)   # 레터 넣기(도구 줄 「문단 수정」 묶음 — 메뉴 · 레터만/개요 레벨로/빼기) 끝점은 app/para_letter_api.py(spec_hwpx_웹편집 ② §8-9)
+app.include_router(__import__("app.caption_tpl_api", fromlist=["router"]).router)   # 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — 템플릿 · 대표 정하기 · 대표에 맞추기) 끝점은 app/caption_tpl_api.py(spec_hwpx_웹편집 ② §8-10)
 app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
@@ -2079,6 +2108,8 @@ from app import merge_api  # noqa: E402
 app.include_router(merge_api.router)
 app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
+app.include_router(__import__("app.zones_api", fromlist=["router"]).router)   # 편집 구역(기관·단계·차년도 값마다의 구역 — 자동 판독 · 지정 · 취합 출처) 끝점은 app/zones_api.py(spec_구역 ② §5)
+app.include_router(__import__("app.task_options_api", fromlist=["router"]).router)   # TASK 옵션(TASK 묶음마다 — 편집 구역이 보이는 기준) 끝점은 app/task_options_api.py(spec_구역 ② §1)
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다

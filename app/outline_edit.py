@@ -32,6 +32,7 @@ _KEY_RE = re.compile(r"N|①|가|A|a|Ⅰ|ⅰ")
 ROOTED = ("label", "subtitle")  # 괄호 줄 — 구분 라벨·괄호 소제목(spec_헤딩_추출 ② §13): 둘 다 제 템플릿의 뿌리, 편집 제한이 같다
 ROLES = ("heading", "title") + ROOTED
 TABLE = "table"  # 표 제목 줄(spec_hwpx_웹편집 ② §8-7 — app/outline_lift.py): 제목 표(1칸 상자 · 번호 칸 + 제목 칸 띠 · 3행 표)를 템플릿의 표 레벨로 넣은 줄. 열쇠 = 칸 안 제목 문단 id, 레터 없음(letter ""), Enter 만 된다
+BAND = "band"  # 띠 표 템플릿의 kind(app/heading_bands.KIND — spec_헤딩_추출 ② §6 「띠 표 줄」): 이름표 띠 표(「별첨N | 제목」)를 헤딩 추출이 줄로 잡은 것. 그 줄도 표 줄(role TABLE)이다 — 열쇠 = 이름표 문단, 이름표 글은 `name`
 
 
 def lift_depth(t):
@@ -149,6 +150,9 @@ def build_overlay(g, probe, rev=0):
                                           "prefix": None, "attrs": None, "spacer": None, "members": []}
         for i, k in enumerate(t.get("chain") or [], 1):  # 사슬에 있으나 관측 0 인 레벨 — 대표 없음(못 만든다)
             slots.setdefault(str(i), {"letter": k, "key": k, "rep": None, "count": 0, "prefix": None, "attrs": None, "spacer": None, "members": []})
+        if t.get("kind") == BAND:  # 띠 표 템플릿 — 레벨이 표 줄이다(레터·접두·서식 없음: 자리 규칙 · 서식 갈래 · 서식 정리의 대상이 아니다). 이름표 꼴(「별첨N」)은 name 에
+            for sl in slots.values():
+                sl.update(table=True, name=sl["key"], letter="")
         tpls[tid] = {"no": t.get("no", t.get("id")), "kind": t.get("kind"), "anchor": t.get("anchor") or t.get("name"), "chain": list(t.get("chain") or []),
                      "slots": slots, "max": max((int(k) for k in slots), default=0)}
         by_anchor[tpls[tid]["anchor"]] = tid
@@ -172,6 +176,9 @@ def build_overlay(g, probe, rev=0):
         lines[n["para"]] = {"tpl": tid, "no": tpls[tid]["no"], "level": int(n["level"]), "parent": None, "letter": letter, "key": n.get("key") or "",
                             "role": n["role"], "flow": n.get("flow", "body"), "_pnode": n.get("parent"),
                             "fmt": n.get("fmt") or ""}  # 서식 라벨(여백의 「S41」) — 추출한 때의 것. 대표에 맞춘 줄은 대표의 라벨이 된다(outline_match.match_one · label_sync)
+        band = n.get("band")
+        if band:  # 띠 표 줄(spec_헤딩_추출 ② §6 「띠 표 줄」) — 표 줄로 둔다: 레터 없음(이름표 글 「별첨2」 는 name — 자식 줄의 합성 번호가 그 숫자를 물려받지 않게), 본문 자리는 그 표를 품은 문단
+            lines[n["para"]].update(letter="", role=TABLE, table=band.get("table"), name=letter, **({"title": band["title"]} if band.get("title") else {}))
         by_node[n["id"]] = n["para"]
         tpls[tid]["slots"].get(str(int(n["level"])), {}).setdefault("members", []).append(n["para"])
     for line in lines.values():
@@ -179,6 +186,11 @@ def build_overlay(g, probe, rev=0):
         line["parent"] = by_node.get(pn) if pn and pn in by_node else None
     for t in tpls.values():  # 슬롯 접두·모양·앞 간격 줄 동결 — 대표 문단(없거나 죽었으면 살아 있는 멤버 첫 것)에서
         for sl in t["slots"].values():
+            if sl.get("table"):  # 표 줄 레벨(띠 표 템플릿) — 얼릴 접두·모양이 없다. 대표 = 줄로 남은 것 가운데(그래프의 대표가 줄이 못 됐으면 첫 줄)
+                live = [m for m in sl.get("members") or [] if m in lines]
+                sl["rep"] = sl["rep"] if sl.get("rep") in live else (live[0] if live else None)
+                sl.pop("members", None)
+                continue
             cands = [sl["rep"]] + [m for m in sl["members"] if m != sl["rep"]]
             for pid in cands:
                 pi = info(pid) if pid else None
@@ -224,7 +236,8 @@ def view(ov):
 
 
 def line_view(x):
-    return {"no": x["no"], "level": x["level"], "tpl": x["tpl"], "letter": x["letter"], "role": x.get("role", "heading"), "key": x.get("key", "")}
+    return {"no": x["no"], "level": x["level"], "tpl": x["tpl"], "letter": x["letter"], "role": x.get("role", "heading"), "key": x.get("key", ""),
+            **({"name": x["name"]} if x.get("name") else {})}  # 띠 표 줄의 이름표 글(「별첨2」)
 
 
 def is_descendant(ov, pid, anc, limit=64):

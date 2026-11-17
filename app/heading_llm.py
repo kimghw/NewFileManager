@@ -13,7 +13,7 @@ from app import heading_rules as R
 from app import llm
 
 RULE_KINDS = ["marker", "label", "note", "footnote", "data", "placeholder", "plain"]
-BATCH_GROUPS = 30
+BATCH_GROUPS = 10  # 규칙 보강 호출 하나에 담는 묶음 수 — 묶음이 많은 큰 문서는 여러 호출이 같이 돈다(llm.ask_all). 전에는 30: 실측(2026-11-17 · 묶음 29 · 한 호출) 73초 — 답 길이가 시간을 정한다(묶음마다 약 2.5초)
 
 
 def _schema(props, required=None):

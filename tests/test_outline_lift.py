@@ -60,7 +60,7 @@ def _undo_all(c, d, s):
     assert c.get(f"/api/docs/{d}/download").content == PLAN.read_bytes()
     t = s.outline["templates"]["2"]
     assert t["chain"] == ["□", "o", "-", "·"] and t["max"] == 4 and "lift" not in t and not s.outline.get("lifts")
-    assert not any(x.get("role") == "table" for x in s.outline["lines"].values())
+    assert not any(x.get("role") == "table" and x.get("key") == "▦" for x in s.outline["lines"].values())  # 넣은 표 줄(▦) — 헤딩 추출이 잡은 띠 표 줄(「별첨N」 — spec_헤딩_추출 ② §6)은 늘 있다
 
 
 def _cand(c, d):
@@ -167,7 +167,7 @@ def _undo_all_keep_text(c, d, s):
         c.post(f"/api/docs/{d}/undo")
     t = s.outline["templates"]["2"]
     assert t["chain"] == ["□", "o", "-", "·"] and t["max"] == 4 and "lift" not in t and not s.outline.get("lifts")
-    assert not any(x.get("role") == "table" for x in s.outline["lines"].values())
+    assert not any(x.get("role") == "table" and x.get("key") == "▦" for x in s.outline["lines"].values())  # 넣은 표 줄(▦) — 헤딩 추출이 잡은 띠 표 줄(「별첨N」 — spec_헤딩_추출 ② §6)은 늘 있다
     for pid in [p for p in s.edited()]:  # 고친 제목을 원래대로
         c.patch(f"/api/docs/{d}/blocks/{pid}", json={"text": s.orig_texts[pid]})
     assert c.get(f"/api/docs/{d}/download").content == PLAN.read_bytes()
@@ -324,7 +324,7 @@ def _undo_tiered(c, d, s, data):
     while s.state()["undo"]:
         c.post(f"/api/docs/{d}/undo")
     assert c.get(f"/api/docs/{d}/download").content == data
-    assert "lift" not in s.outline["templates"]["2"] and not any(x.get("role") == "table" for x in s.outline["lines"].values())
+    assert "lift" not in s.outline["templates"]["2"] and not any(x.get("role") == "table" and x.get("key") == "▦" for x in s.outline["lines"].values())
 
 
 def test_tiers_inner_first(tiered):

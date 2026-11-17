@@ -46,7 +46,7 @@ def _settled(d, quiet=0.3, limit=20.0):
 
 
 def test_sources_are_the_logs_the_agent_can_read():
-    assert L.NAMES == ("work", "peers", "verify", "agent", "llm", "server") and all(title and what for _, title, what in L.SOURCES)
+    assert L.NAMES == ("work", "peers", "verify", "agent", "zones", "llm", "server") and all(title and what for _, title, what in L.SOURCES)   # zones = 편집 구역 LLM 검토 기록(2026-11-17 — 세부는 test_zones_llm)
     assert L.TITLE["work"] == "작업 기록" and set(L._READ) == set(L.NAMES)
 
 

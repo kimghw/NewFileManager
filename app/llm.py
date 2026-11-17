@@ -9,8 +9,9 @@ FileMergeManager `app/llm.py` 의 CLI·SDK 호출부만 옮겨 줄인 것(2026-1
   env `NFM_LLM_BACKEND` = auto|sdk|cli|api|off(기본 auto = sdk → cli → api) · `NFM_LLM_MODEL`(기본 claude-opus-5-5) ·
   `NFM_LLM_MODEL_FORCE`(모든 호출의 모델 — 검토마다 코드에 정한 모델(merge_llm.MODEL 등)보다도 먼저. 2026-11-12 사용자 「api 키로 해서 fable로 해줘」) ·
   `NFM_CLAUDE_CLI`(cli 길의 실행 파일 절대 경로 — 없으면 PATH 의 claude. sdk 길은 패키지에 든 CLI).
-- 동시 호출: 프로세스 전체 `NFM_LLM_SLOTS`(기본 4) 자리. Windows 에서 `claude -p` 를 13개 한꺼번에 띄우면 일부가 0xC0000409 로 죽은 실측(FileMergeManager)
-  — `ask_all` 은 실패한 것만 병렬 2 로 한 번 더 부른다.
+- 동시 호출: 프로세스 전체 `NFM_LLM_SLOTS`(기본 8 — `SLOTS_DEFAULT`) 자리. Windows 에서 `claude -p` 를 13개 한꺼번에 띄우면 일부가 0xC0000409 로 죽은 실측(FileMergeManager 2026-10-31)이 있어
+  처음에는 4 였고, 2026-11-17 다시 재서(8개 × 5바퀴 · 12개 × 2바퀴 모두 성공 — references/Claude_CLI_헤드리스.md) 8 로 올렸다(사용자 "문서가 큰 경우 병렬에이전트를 사용해서" — 큰 문서는 호출이 수십 개라 자리 수가 걸리는 시간을 정한다).
+  `ask_all` 은 실패한 것만 병렬 2 로 한 번 더 부른다.
 - 예외를 내지 않는다: 결과 = {"data": dict | None, "backend": "sdk"|"cli"|"api"|None, "ms", "costUsd", "error"}."""
 import concurrent.futures
 import json
@@ -178,6 +179,7 @@ def _api(cfg, schema, content, timeout, max_tokens=32000):
     return json.loads(next(b.text for b in resp.content if b.type == "text")), None
 
 
+SLOTS_DEFAULT = 8  # 동시에 부르는 호출 수의 기본(env NFM_LLM_SLOTS 가 먼저) — 위 「동시 호출」
 _SLOTS = None
 _SLOTS_GUARD = threading.Lock()
 
@@ -186,7 +188,7 @@ def _slots():
     global _SLOTS
     with _SLOTS_GUARD:
         if _SLOTS is None:
-            _SLOTS = threading.BoundedSemaphore(max(1, _env_num("NFM_LLM_SLOTS", 4, int)))
+            _SLOTS = threading.BoundedSemaphore(slots_n())
         return _SLOTS
 
 
@@ -252,9 +254,15 @@ def _call(schema, content, what, *, timeout, effort, model, pin):
         slots.release()
 
 
-def ask_all(jobs, workers=None, retry_workers=2):
+def slots_n():
+    """동시에 부를 수 있는 호출 수(env NFM_LLM_SLOTS — 기본 SLOTS_DEFAULT) — 자리(_slots)와 같이 도는 일꾼 수를 정하는 곳이 쓴다(자리보다 많은 일꾼은 자리를 기다릴 뿐이다)."""
+    return max(1, _env_num("NFM_LLM_SLOTS", SLOTS_DEFAULT, int))
+
+
+def ask_all(jobs, workers=None, retry_workers=2, progress=None):
     """여러 호출을 병렬로 → jobs 와 같은 순서의 결과 목록. job = call 의 인자 dict {schema, content, what, timeout?, effort?, model?}.
-    데이터 없이 실패한 것(off·busy 제외)은 retry_workers 병렬로 한 번 더 — 결과에 "retried": True. 한 job 의 예외가 다른 결과를 버리지 않는다."""
+    데이터 없이 실패한 것(off·busy 제외)은 retry_workers 병렬로 한 번 더 — 결과에 "retried": True. 한 job 의 예외가 다른 결과를 버리지 않는다.
+    progress(끝난 수, 전체 수) = 첫 바퀴에서 호출 하나가 끝날 때마다(부른 스레드에서 · 예외는 삼킨다) — 큰 문서의 진행 글(「표 판정 호출 7/25」)."""
     jobs = list(jobs)
     if not jobs:
         return []
@@ -266,16 +274,21 @@ def ask_all(jobs, workers=None, retry_workers=2):
         except Exception as e:  # call 은 예외를 안 내지만 시험의 가짜 call 등
             return {"data": None, "backend": None, "ms": 0, "costUsd": None, "error": f"예외: {e}"}
 
-    def run(idx, n):
+    def run(idx, n, tick=None):
         res = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(n, len(idx)))) as ex:
             futs = {ex.submit(one, jobs[i]): i for i in idx}
             for f in concurrent.futures.as_completed(futs):
                 res[futs[f]] = f.result()
+                if tick is not None:
+                    try:
+                        tick(len(res), len(jobs))
+                    except Exception:  # 진행 글이 호출 결과를 버리지 않게
+                        log.exception("ask_all progress 실패")
         return res
 
-    n = workers or max(1, _env_num("NFM_LLM_SLOTS", 4, int))
-    out = run(range(len(jobs)), n)
+    n = workers or slots_n()
+    out = run(range(len(jobs)), n, progress)
     again = [i for i, r in out.items() if r["data"] is None and r["error"] not in ("off", "busy")]
     if again:
         for i, r in run(again, retry_workers).items():

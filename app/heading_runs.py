@@ -37,6 +37,7 @@ class Job:
         self.chain = None  # 이어 돌리기 이름("llm" = LLM 검증·보완 — app/analysis_llm.py, spec_작업 ② §20) | None
         self.phase = None  # 이어 돌리기의 지금 일("heads" · "tables" · "formats") — 분석 상태가 어느 항목이 도는지 안다
         self.stop = False  # 이어 돌리기를 지금 단계가 끝나면 멈춤(DELETE …/analysis/llm)
+        self.tables_ahead = None  # TablesAhead | None — 표 판정 호출을 헤딩 판정과 같이(「LLM 검증·보완」 이 건다 — run_stage2 가 시작하고 run_stage3 이 답을 쓴다)
         self.status, self.error, self.run = "running", None, None
         self.steps, self.started, self.ended = [], time.time(), None
         self.lock = threading.Lock()
@@ -260,6 +261,74 @@ def _rules_asked(s1):
     return bool(((s1 or {}).get("llm") or {}).get("items"))
 
 
+STEP3_LLM = "표 구조 — LLM"  # 3단계 LLM 실행의 단계 줄 이름(화면 진행 줄이 이 이름으로 「표 판정」 칸을 가른다 — app.js headsProgNow)
+
+
+class TablesAhead:
+    """표 판정 호출(T)을 헤딩 판정(2단계 LLM)과 **같이** 돌린다(spec ② §8 「헤딩 판정과 같이」 — 2026-11-17 사용자 "문서가 큰 경우 병렬에이전트를 사용해서 판정 및 실행").
+    T 호출의 자료(보낼 표 · 초안)는 1단계 결과에서만 나온다 — 규칙 보강이 끝나 1단계가 정해지면(run_stage2 가 그래프를 짓기 직전) 바로 묻기 시작하고,
+    표의 소속(헤딩 그래프)은 run_stage3 이 그래프가 끝난 뒤 붙인다. 큰 문서에서 유형 판정(A — 한 호출 · 1~3분) 동안 비던 LLM 자리를 표 판정이 쓴다.
+    쓰는 법: 「LLM 검증·보완」(app/analysis_llm.py)이 `job.tables_ahead` 에 걸어 두면 run_stage2 가 start() · run_stage3 이 take().
+    답은 **그 1단계 결과(같은 객체) · 그때의 TEMP · 그때의 지침**에만 쓴다 — 그 사이 문서가 바뀌어 1단계를 다시 뽑았거나 묻다가 오류가 났으면 버리고 run_stage3 이 제 손으로 묻는다.
+    on_progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다(묻는 스레드에서)."""
+
+    def __init__(self, on_progress=None):
+        self.on_progress = on_progress
+        self.started = False
+        self.dropped = False
+        self.s1 = self.temp = self.guides = None
+        self._thread, self._out, self._err = None, None, None
+        self._lock = threading.Lock()  # 진행 글(tick)과 버리기(drop)가 엇갈리지 않게 — 잡은 채 job.lock 을 잡는다(거꾸로는 없음)
+
+    def start(self, job, s1, guides0, temp_hints):
+        """1단계가 정해진 뒤 한 번 — 따로 선 스레드에서 TEMP 라벨 → T 호출. 바로 돌아온다."""
+        if self.started:
+            return
+        self.started, self.s1, self.guides = True, s1, guides0
+        job.step(STEP3_LLM, "running", "표 판정 호출을 준비하는 중 — 헤딩 판정과 같이")
+
+        def tick(done, total):
+            with self._lock:
+                if self.dropped:  # 버린 뒤 — 단계 줄을 다시 「도는 중」 으로 되돌리지 않는다
+                    return
+                job.step(STEP3_LLM, "running", f"표 판정 호출 {done}/{total} 끝남 — 헤딩 판정과 같이")
+                if self.on_progress is not None:
+                    self.on_progress(done, total)
+
+        def work():
+            try:
+                self.temp = TP.label(s1, temp_hints)  # TEMP 표는 보내지 않는다(§15) — run_stage3 이 같은 라벨로 짓는다
+                self._out = HT.ask_tables(s1, pinned=guides0, temp=self.temp, progress=tick)
+            except Exception as e:  # 묻다가 난 오류 — run_stage3 이 제 손으로 다시 묻는다
+                self._err = e
+        self._thread = threading.Thread(target=work, daemon=True, name="tables-ahead")
+        self._thread.start()
+
+    def take(self, s1):
+        """→ (asked, temp, guides) | None — 답이 다 올 때까지 기다린다. None = 시작하지 않음 · 다른 1단계 결과의 답 · 묻다가 오류."""
+        if not self.started:
+            return None
+        self._thread.join()
+        if self.dropped or self._err is not None or self._out is None or self.s1 is not s1:
+            return None
+        return self._out, self.temp, self.guides
+
+    def useful(self):
+        """받은 답 가운데 쓸 것이 있나 — 답이 다 올 때까지 기다린다. 호출이 하나도 답하지 못했으면(LLM 꺼짐 · 자리 없음 · 모두 실패) 거짓:
+        헤딩 판정이 실패한 뒤에 표 구조를 「LLM 실패」 로 다시 지어 앞 결과를 덮지 않게(analysis_llm._close_ahead)."""
+        if not self.started or self.dropped:
+            return False
+        self._thread.join()
+        return self._err is None and self._out is not None and any(c.get("response") is not None for c in self._out["calls"])
+
+    def drop(self, job, why):
+        """받은(받을) 답을 쓰지 않는다 — 단계 줄을 맺는다(기다리지 않는다: 묻던 스레드는 저절로 끝난다)."""
+        with self._lock:
+            self.dropped = True
+            if self.started:
+                job.step(STEP3_LLM, "failed", why)
+
+
 def pairs_on():
     """서식 쌍 판정(C)과 재검토(D)를 헤딩 그래프(LLM)에서 하나 — **기본은 안 한다**(env `NFM_HEADS_PAIRS=on` 일 때만).
     2026-11-16 사용자 「C·D 호출 제외 … 다 해줘」(spec ② §6 「서식 쌍 판정은 기본 실행에서 뺀다」): 그 판정(맞춤 · 다름 유지)은 문서도 서식 정리 계획도 바꾸지 않는데 2단계 비용의 절반 · 시간의 대부분이었고,
@@ -296,6 +365,9 @@ def run_stage2(sess, job, use_llm):
             job.step(name, "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음 · 판정하지 못한 묶음 없음" if stale else f"판정하지 못한 묶음 {before} → 물을 것 없음")
         else:
             job.step(name, "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음")
+    ahead = getattr(job, "tables_ahead", None)
+    if use_llm and ahead is not None:  # 표 판정 호출을 헤딩 판정과 같이(§8) — 1단계가 정해졌으니 지금부터 묻는다(그래프를 기다리지 않는다)
+        ahead.start(job, s1, guides0, copy.deepcopy(hints0["temp"]))
     temp0 = TP.label(s1, hints0["temp"])  # TEMP 라벨(§15) — 본문 검토 전에: 그 문단들은 헤딩 후보에서 빠진다
     job.step("TEMP 라벨 — 헤딩 후보에서 뺌", "ok", TP.summary_text(temp0))
     job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"))
@@ -333,12 +405,19 @@ def run_stage3(sess, job, use_llm):
     s2 = st.get("stage2")
     if not (s2 and s2.get("meta", {}).get("stage1Run") == s1["meta"].get("run")):
         s2 = None  # 2단계가 없거나 다른 1단계 실행의 것 — 표의 소속은 1단계 어림(spec ② §9)
-    temp0 = TP.label(s1, copy.deepcopy(hints(sess)["temp"]))  # TEMP 라벨(§15) — 표 검토 전에: TEMP 표는 표 구조를 만들지 않는다
+    # 헤딩 판정과 같이 미리 물은 T 호출의 답(TablesAhead — §8) — 같은 1단계 결과의 것만 쓴다(답이 다 올 때까지 여기서 기다린다 · 지침 · TEMP 도 물을 때의 것으로)
+    ahead = getattr(job, "tables_ahead", None)
+    got = ahead.take(s1) if use_llm and ahead is not None else None
+    asked = None
+    if got is not None:
+        asked, temp0, guides0 = got
+    else:
+        temp0 = TP.label(s1, copy.deepcopy(hints(sess)["temp"]))  # TEMP 라벨(§15) — 표 검토 전에: TEMP 표는 표 구조를 만들지 않는다
     job.step("TEMP 라벨 — 표 구조에서 뺌", "ok", f"TEMP 표 {len(temp0['tables'])}개(안쪽 표·상자 포함) · " + TP.summary_text(temp0))
-    name = "표 구조" + (" — LLM" if use_llm else " — 스크립트")
-    job.step(name)
+    name = STEP3_LLM if use_llm else "표 구조 — 스크립트"
+    job.step(name, "running", "받은 표 판정 답을 붙이는 중 — 소속은 헤딩 그래프에서" if asked is not None else "")
     from app import table_heads  # 사용자 헤더 지정(spec_owpml_편집 ② §5-4) — 부를 때 가져온다(table_heads 가 표 모듈들을 읽는다)
-    t = HT.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, stage2=s2, temp=temp0, roles=table_heads.load(sess.id)["tables"])
+    t = HT.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, stage2=s2, temp=temp0, roles=table_heads.load(sess.id)["tables"], asked=asked)
     calls = t.pop("_calls", [])
     lm, c = t["llm"], t["counts"]
     roles = c["roles"]
@@ -347,6 +426,7 @@ def run_stage3(sess, job, use_llm):
            f" · 구분 헤더 표 {c['basisTables']} · 계산식 표 {c['calc']['tables']}(수식 {c['calc']['formulas']} · 불일치 {c['calc']['mismatch']} · "
            f"미기입 {c['calc']['missing']}) · 소속 = {'2단계 그래프' if s2 else '1단계 어림'}" +
            (f" · LLM 호출 {lm['calls']}(실패 {lm['failed']}) 보낸 표 {lm['sent']} 변경 {lm['applied']} 거절 {lm['rejected']} · ${lm['costUsd']}" if use_llm else "") +
+           (" · 호출은 헤딩 판정과 같이" if lm.get("ahead") else "") +
            (" · LLM 없이 초안 그대로" if lm["fallback"] else ""))
     job.step(name, "failed" if use_llm and lm["fallback"] and lm.get("error") else "ok", msg + (f" — {lm['error']}" if lm.get("error") else ""))
     t["meta"] = {"rev": s1["meta"]["rev"], "stage1Run": s1["meta"].get("run"), "sha256": s1["meta"]["sha256"], "at": time.time(),
@@ -445,10 +525,11 @@ def para_view(r):
 def summary(sess):
     st = state(sess)
     job = st.get("job")
+    jv = job.view() if job else None  # 작업 상태를 결과보다 **먼저** 읽는다 — 거꾸로면 그 사이 끝난 작업이 「끝남」 인데 결과는 없는 것으로 보인다(부하 때 시험이 떨어지던 틈)
     s1, s2, s3 = st.get("stage1"), st.get("stage2"), st.get("stage3")
     form = F.for_session(sess)  # 이 문서에 맞은 양식 정보(spec ② §12) — 실행이 쓴 판은 단계마다 meta.guides.form(sha1)
     temp = temp_label(sess)  # TEMP 라벨(§15) — (1단계 실행, 지정 판)마다 한 번 셈해 둔 것
-    out = {"job": job.view() if job else None, "rev": sess.rev, "runs": st["runs"][-20:], "stage1": None, "stage2": None, "stage3": None,
+    out = {"job": jv, "rev": sess.rev, "runs": st["runs"][-20:], "stage1": None, "stage2": None, "stage3": None,
            "rules": rules_view(st),  # LLM 규칙 보강을 마지막으로 돌린 실행(§7 「진행 줄」) — 실행 목록 전체에서(위 runs 는 끝 20개뿐)
            "persistError": st.get("persistError"), "form": {k: form[k] for k in ("key", "name", "how", "sha1")} if form else None,
            "temp": {"key": f"{(s1.get('meta') or {}).get('run')}|{(s1.get('meta') or {}).get('at')}|{temp['hintsVersion']}", "counts": temp["counts"],

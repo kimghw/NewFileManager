@@ -82,7 +82,7 @@ def start_chain(s, chain, key=None):
 @router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
 def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
     """「LLM 검증·보완」 시작 {skill?(서식 정리 스킬 키 — 기본 "tidy"), only?("formats" — 서식 정리 계획만)} → 202 헤딩 작업(job.view — chain "llm" | "formats"). 유료 LLM — 화면은 진행표의 「돌 것」(llmPlan)을 보인 단추로만 부른다.
-    헤딩 · 템플릿 먼저 → 표 · 서식(계획만) 같이(app/analysis_llm.py) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜.
+    헤딩 · 템플릿과 표 판정의 호출을 같이 → 헤딩 그래프가 끝나면 서식(계획만 — 템플릿끼리 같이)(app/analysis_llm.py — 헤딩을 건너뛰면 표 · 서식이 같이) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜.
     only "formats" = 계획이 없거나 옛것인 템플릿의 서식 정리 계획만(헤딩 · 표 LLM 은 안 돎 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」). 400 hwpx 아님 · only 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
     from app import server
     only = body.get("only")

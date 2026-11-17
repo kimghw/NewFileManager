@@ -141,6 +141,99 @@ def test_material_groups_and_prompt(sess):
         A.material(s.doc, s.outline, "999")
 
 
+def test_lookalike_letter_glyph_reaches_the_agent_as_its_own_name(sess):
+    """닮은 레터 글자(spec_hwpx_웹편집 ② §8-5 「닮은 글자」 — 2026-11-17 사용자 답 「같은 레터 · 글자도 대표로」): 에이전트에는 「레터」 가 아니라 「닮은 레터 글자」 로 가고(떼는 기준은 「레터」 뿐),
+    계약은 그 이름의 뜻을 · 기본 스킬은 「닮은 글자는 같은 레터 — 떼지 않고 맞춘다」 를 싣는다. 계획에서 그 갈래를 맞추면 반영할 줄에 든다."""
+    import copy
+
+    from app.hwpx_doc import HwpxDoc
+
+    _, _, s = sess
+    doc = HwpxDoc(PLAN.read_bytes())  # 세션 문서는 그대로 — 사본에서 줄 하나의 레터를 닮은 글자로
+    doc.blocks()
+    ov = copy.deepcopy(s.outline)
+    doc.set_chars("p6502", 3, "–")
+    ov["lines"]["p6502"]["letter"] = "–"
+    mat = A.material(doc, ov, "1")
+    l5 = next(lv for lv in mat["levels"] if lv["level"] == 5)
+    gid = next(g["id"] for g in l5["groups"] if g["para"] == "p6502")
+    pg = next(g for g in A.prompt_material(mat)["levels"][4]["groups"] if g["id"] == gid)
+    assert ["닮은 레터 글자", "-", "–"] in pg["differsFromRep"] and not any(x[0] == "레터" for x in pg["differsFromRep"])
+    text = A.prompt(mat, A.skill("tidy"))
+    assert "differsFromRep 의 이름 「닮은 레터 글자」" in text and "닮은 글자는 같은 레터다" in text and "「o」 자리의 「ㅇ」·「○」 · 「□」 자리의 「■」" not in text
+    rep = next(g["id"] for g in l5["groups"] if g["rep"])
+    plan = A.check_plan(mat, {"summary": "", "levels": [{"level": 5, "rep": rep, "match": [gid], "keep": [], "split": [], "why": ""}]})
+    m = next(x for x in next(lv for lv in plan["levels"] if lv["level"] == 5)["match"] if x["group"] == gid)
+    assert ["letter", "닮은 레터 글자", "-", "–"] in m["diff"]
+
+
+def _cell_tpl(ov, root):
+    """표 칸 템플릿(사슬의 첫 레터가 root) — 번호는 그래프 규칙이 바뀌면 달라지므로 사슬로 찾는다."""
+    return next(t for t, T in ov["templates"].items() if T.get("kind") == "cell" and (T.get("chain") or [""])[0] == root and not T.get("variant"))
+
+
+def test_table_lines_reach_the_agent_with_their_table_and_split_by_table(sess, monkeypatch):
+    """표 안의 줄 — 표 양식마다의 서식(spec_hwpx_웹편집 ② §8-11 — 2026-11-17 사용자 「테이블 안에서 서식은 주변 폰트만 보더라도 … 기존 테이블 안의 서식을 사용」):
+    에이전트 자료에 갈래마다 표(머리글 · 주변 글 · 표의 서식인가)가 가고, 계획이 표의 서식 갈래를 표마다 떼면 그 표의 줄은 글 · 문단 모양 그대로 새 서식 종속 템플릿이 된다(대표에 안 맞춘다).
+    표 칸 「N.」 11줄 = 대표 p6293 의 표 6줄(대표 4 + 흔들린 2) · 다른 표 3줄(p12723) · 또 다른 표 2줄(p13221)."""
+    c, d, s = sess
+    tid = _cell_tpl(s.outline, "N.")
+    no = s.outline["templates"][tid]["no"]
+    mat = A.material(s.doc, s.outline, tid)
+    lv = mat["levels"][0]
+    gid = {x["para"]: x["id"] for x in lv["groups"]}
+    pm = {x["id"]: x for x in A.prompt_material(mat)["levels"][0]["groups"]}
+    rep, near, own, own2 = (pm[gid[p]] for p in ("p6293", "p6302", "p12723", "p13221"))
+    assert rep["table"]["header"].startswith("기술개발 내용") and rep["table"]["textAround"] == "Dotum 8pt" and "ownFormat" not in rep["table"]
+    assert near.get("cannotSplit") and "ownFormat" not in near["table"] and not any(x[0] == "표" for x in near["differsFromRep"])  # 대표와 같은 표 — 맞출 줄(형제의 일부라 못 뗀다)
+    assert own["table"]["ownFormat"] and own2["table"]["ownFormat"] and not own.get("cannotSplit") and not own.get("splitTogether")  # 표를 통째로 옮기면 뗄 수 있다
+    assert own["differsFromRep"][-1][0] == "표" and own["differsFromRep"][-1][2].startswith("세부사업명")
+    text = A.prompt(mat, A.skill("tidy"))
+    assert "## 표 안의 줄 — 표마다의 서식" in text and "table.ownFormat" in text and "splitTogether 가 있는 갈래는" in text and '"ownFormat": true' in text
+    kept = {p: (s.texts[p], s.doc._ids[p].get("paraPrIDRef")) for p in ("p12723", "p13221")}
+    answer = {"summary": "표마다 따로", "levels": [{"level": 1, "rep": gid["p6293"], "match": [gid["p6302"]], "keep": [],
+                                                 "split": [{"rep": gid["p12723"], "match": [], "why": "다른 표의 서식"}, {"rep": gid["p13221"], "match": [], "why": "다른 표의 서식"}], "why": ""}]}
+    monkeypatch.setattr(llm, "call", lambda schema, content, what, **kw: {"data": answer, "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")})
+    j = c.post(f"/api/docs/{d}/outline/agent/{tid}/plan", json={"skill": "tidy"}).json()
+    row = j["plan"]["levels"][0]
+    assert [sp["name"] for sp in row["split"]] == [f"T{no}L1a", f"T{no}L1b"] and j["plan"]["notes"] == [] and j["plan"]["change"] == 2 and j["plan"]["moved"] == 5
+    r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"place": False, "rev": s.rev, "tpls": [tid]})
+    assert r.status_code == 200, r.text
+    assert all(s.outline["lines"][p]["tpl"] == f"{tid}~1a" for p in ("p12723",)) and s.outline["lines"]["p13221"]["tpl"] == f"{tid}~1b"
+    assert all((s.texts[p], s.doc._ids[p].get("paraPrIDRef")) == kept[p] for p in kept)  # 다른 표의 줄은 그대로 — 대표 서식이 되지 않는다
+    left = M.variants(s.doc, s.outline, tid, 1)
+    assert left["total"] == 6 and len(left["groups"]) == 1 and left["ownLines"] == 0     # 대표의 표만 남고 서식 하나
+    _undo_all(c, d, s)
+
+
+def test_split_item_may_join_variants_that_cannot_split_alone(sess):
+    """번호형 레벨의 떼기(② §8-11) — 같은 표의 줄이 서식 둘로 갈려 있으면 갈래 하나로는 형제의 일부라 못 떼지만(splitTogether), 한 split 항목에 함께 넣으면 뗀다. 하나만 넣은 계획은 버리고 까닭을 남긴다."""
+    import copy
+
+    from app.hwpx_doc import HwpxDoc
+
+    _, _, s = sess
+    tid = _cell_tpl(s.outline, "N.")
+    doc = HwpxDoc(PLAN.read_bytes())  # 세션 문서는 그대로 — 사본에서 다른 표(p12723 의 표 3줄)의 한 줄만 레터 앞에 빈칸을 넣어 서식을 가른다
+    doc.blocks()
+    ov = copy.deepcopy(s.outline)
+    odd = next(p for p in M.split_targets(doc, ov, tid, 1, ["p12723"]) if p != "p12723")
+    doc.replace_prefix(odd, 0, " ")
+    mat = A.material(doc, ov, tid)
+    lv = mat["levels"][0]
+    a, b = next(g for g in lv["groups"] if g["para"] == "p12723"), next(g for g in lv["groups"] if g["para"] == odd)
+    assert a["count"] == 2 and b["count"] == 1 and a["noSplit"] and b["noSplit"] and not a["hard"] and not b["hard"] and a["own"] and b["own"]
+    pm = {x["id"]: x for x in A.prompt_material(mat)["levels"][0]["groups"]}
+    assert pm[a["id"]]["splitTogether"] == [b["id"]] and pm[b["id"]]["splitTogether"] == [a["id"]] and "cannotSplit" not in pm[a["id"]]
+    rep = next(g["id"] for g in lv["groups"] if g["rep"])
+    alone = A.check_plan(mat, {"summary": "", "levels": [{"level": 1, "rep": rep, "match": [], "keep": [], "split": [{"rep": a["id"], "match": [], "why": ""}], "why": ""}]})
+    assert alone["levels"][0]["split"] == [] and any("형제 줄을 함께" in n for n in alone["notes"])
+    assert {k["group"] for k in alone["levels"][0]["keep"]} >= {a["id"], b["id"]}                         # 버린 떼기의 갈래는 그대로 둔다(맞추지 않는다)
+    both = A.check_plan(mat, {"summary": "", "levels": [{"level": 1, "rep": rep, "match": [], "keep": [], "split": [{"rep": a["id"], "match": [b["id"]], "why": ""}], "why": ""}]})
+    sp = both["levels"][0]["split"][0]
+    assert sp["rep"]["group"] == a["id"] and [m["group"] for m in sp["match"]] == [b["id"]] and sp["moved"] == 3 and sp["change"] == 1 and both["notes"] == []
+
+
 def test_check_plan_filters_unknown_and_keeps_unmentioned(sess):
     _, _, s = sess
     mat = A.material(s.doc, s.outline, "1")

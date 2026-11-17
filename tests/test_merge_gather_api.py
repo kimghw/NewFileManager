@@ -246,7 +246,7 @@ def test_register_assign_plan_apply_replan_undo_and_decisions(client):
     assert server._sess(A).rev == 0 and server._sess(A).pristine_file()   # 기관 문서는 그대로
     _why(c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]}), 409, "stalePlan")   # 같은 계획을 두 번 못 쓴다
     saved = GA._store(to)
-    assert saved["version"] == 4 and len(saved["parts"][A]["applied"]) == 4 and all(set(x) == {"at", "ids", "fp", "kind"} for x in saved["parts"][A]["applied"].values())   # 넣은 기록은 판을 안 올린다
+    assert saved["version"] == 4 and len(saved["parts"][A]["applied"]) == 4 and all(set(x) == {"at", "ids", "fp", "kind", "ev"} for x in saved["parts"][A]["applied"].values())   # 넣은 기록은 판을 안 올린다 · ev = 그 편집이 적은 출처 이벤트 id(spec_구역 ② §4)
 
     # 다시 계획 = 할 일 없음 · 기관 현황의 반영한 기관
     v = c.get(f"/api/docs/{to}/gather").json()

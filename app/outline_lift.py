@@ -170,6 +170,8 @@ def _tiers(t):
 def _blocked(ov, tid):
     """표를 넣거나 뗄 수 없는 까닭 | None — 종속·서식 종속 템플릿이거나 그런 템플릿이 이 템플릿에 걸려 있으면(레벨을 밀면 그 기록이 어긋난다)."""
     t = ov["templates"][tid]
+    if t.get("kind") == OE.BAND:  # 띠 표 템플릿(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」)은 줄이 이미 표다 — 그 위에 표 레벨을 더 끼우지 않는다
+        return f"T{t['no']} 는 별첨·부록 표 제목 템플릿입니다 — 줄이 이미 표 제목입니다(헤딩 추출이 스스로 잡은 「{(t.get('chain') or ['?'])[0]}」 표)"
     if t.get("composite") or t.get("variant"):
         return f"T{t['no']} 는 종속 템플릿입니다 — 원래 템플릿에서 하세요"
     for o in ov["templates"].values():

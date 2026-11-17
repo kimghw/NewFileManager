@@ -2503,6 +2503,7 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   download: "내려받기", reopen: "작업 다시 엶", headings: "헤딩 추출", outline: "개요 편집",
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
   outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", // spec_hwpx_웹편집 ② §8-2
+  captionRep: "캡션 템플릿 대표 정하기", captionMatch: "캡션을 대표에 맞추기", // 캡션 템플릿 「CN」(spec_hwpx_웹편집 ② §8-10)
   commit: "확정", restore: "확정 복원", discard: "모두 되돌리기" }; // 확정(spec_작업 ② §8)
 const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기",
   letter: "레터 넣기(문단 묶음의 단추 — 레터만 · 개요 레벨로 · 레터 빼기)" }; // letter = para_letter_api(spec_hwpx_웹편집 ② §8-9)
@@ -2799,21 +2800,19 @@ function paginate() {
     });
   }
   if (m && num < m.pageCount) between(m.pageCount + 1, body ? rowCarry(body, num, m.pageCount + 1, m) : new Map()); // 문서 끝에 남은 쪽
-  if (m) {
-    overflowPush(doc);
-    const epoch = state.paginateEpoch = (state.paginateEpoch || 0) + 1;
-    document.fonts.ready.then(() => { // url() 웹 글꼴이 늦게 오면 줄 수·높이가 바뀐다 — 그때 다시 밀고 표시를 다시 그린다(그 사이 다시 나눴으면 생략)
-      spaceRemeasure(); // 빈칸 폭도 온 글꼴로 다시 잰다(② §3-4 「빈칸 폭」) — 아래 다시 밀기가 그 폭으로 본다
-      if (epoch !== state.paginateEpoch || !state.mapping || !doc.isConnected) return;
-      const pushed = overflowPush(doc), split = overflowSplit(doc); // 밀기 뒤 넘침 나눔도 다시(새 블록 쪽 — a4 세션, astra 11-10 ③)
-      if (!pushed && !split) return; // 옮긴 게 없으면 다시 그리지 않음(표시 다시 그리기가 느림 — 61 세션)
-      refit();
-      if (typeof tplMarksDraw === "function" && heads.marks) tplMarksDraw();
-      if (typeof tblMarksDraw === "function") tblMarksDraw();
-      if (typeof ddDraw === "function") ddDraw();
-    });
-  }
-  overflowSplit(doc); // 쪽 자리 정보가 없는 새 블록(구분 기준 반영 사본 등)으로 길어진 쪽은 용지 높이로 어림해 나눈다(② §3-1 「넘침 나눔」)
+  if (m) overflowPush(doc);
+  const epoch = state.paginateEpoch = (state.paginateEpoch || 0) + 1;
+  document.fonts.ready.then(() => { // url() 웹 글꼴이 늦게 오면 줄 수·높이가 바뀐다 — 그때 다시 밀고·나누고 표시를 다시 그린다(그 사이 다시 나눴으면 생략)
+    spaceRemeasure(); // 빈칸 폭도 온 글꼴로 다시 잰다(② §3-4 「빈칸 폭」) — 아래 다시 밀기가 그 폭으로 본다
+    if (epoch !== state.paginateEpoch || !doc.isConnected) return;
+    const pushed = state.mapping ? overflowPush(doc) : 0, split = overflowSplit(doc); // 밀기 뒤 넘침 나눔도 다시(새 블록 쪽 — a4 세션, astra 11-10 ③ · 매핑이 없으면 넘친 쪽 모두)
+    if (!pushed && !split) return; // 옮긴 게 없으면 다시 그리지 않음(표시 다시 그리기가 느림 — 61 세션)
+    refit();
+    if (typeof tplMarksDraw === "function" && heads.marks) tplMarksDraw();
+    if (typeof tblMarksDraw === "function") tblMarksDraw();
+    if (typeof ddDraw === "function") ddDraw();
+  });
+  overflowSplit(doc); // 쪽 자리 정보가 없는 새 블록(구분 기준 반영 사본 등)으로 길어진 쪽 · 매핑 전 어림 나눔에서 용지보다 긴 쪽은 용지 높이로 어림해 나눈다(② §3-1 「넘침 나눔」)
   markUnmapped();
   refit();
   $("scroller").scrollTop = keep;
@@ -2883,6 +2882,7 @@ function pushRow(seg, nextBody, room) {
 // 넘침 나눔(② §3-1): 쪽 자리 정보가 없는 **새 블록**(구분 기준 반영·구조 편집으로 생긴 사본 — 한글 줄 배치(pageStart)도 PDF 매핑도 없다)은 앞 블록의 쪽 상자에
 // 그대로 쌓여 그 상자가 용지의 몇 배로 길어진다(2026-11-10 사용자 "왜 다 페이지가 안맞냐" — 2-2 기관 사본·(3)(4) 참여기관 절 사본). 새 블록이 든 쪽 상자가 용지
 // 본문보다 길면 용지 높이로 어림해 뒤를 잘라 「≈n쪽 +k」 조각 상자로 잇는다 — 새 블록이 없는 쪽은 웹 글꼴·표 높이 차이로 길어진 것이라 그대로(쪽 번호 = PDF 쪽).
+// 매핑이 없으면(어림 나눔 — 2026-11-17) 새 블록이 없어도 넘친 쪽은 모두 나눈다: 어림 나눔은 표 행을 쪽마다 못 나눠 여러 쪽짜리 표가 한 상자가 된다.
 // 조각은 같은 쪽 번호(PDF 자리가 없으니 뒤 쪽 번호를 밀지 않는다 — 출력파일 검증을 돌려야 실제 쪽을 안다). 나눔 단위 = 최상위 문단·그림·표 행 — 위 행의 세로 병합 칸이 덮는 행
 // 앞에서도 자르고 그 칸은 이어짐 칸으로 나눈다(2026-11-10 — 전에는 그 행 묶음을 한 덩이로 재어, 묶음 제목이 표 전체에 걸치면 못 잘랐다). 조각마다 한 단위는 남긴다.
 // 높이는 쪽마다 한 번에 다 읽고(강제 배치 1회) 그다음 DOM 을 옮긴다(61 세션 부탁 — 읽기·쓰기를 번갈지 않음). 웹 글꼴이 늦게 와 높이가 바뀌면(paginate 의 fonts.ready) 조각도
@@ -2891,7 +2891,9 @@ const SPLIT_TOL = 1.08; // 넘침 나눔 문턱 — 용지 본문의 8% 까지�
 
 function overflowSplit(doc) {
   const isNew = (p) => state.kinds[p.dataset.id] === "new";
-  const sheets = [...doc.querySelectorAll(".sheet")].filter((s) => [...s.querySelectorAll(".para")].some(isNew));
+  // 매핑이 없으면(PDF 매핑 전 · 「≈n쪽」 어림 나눔) 넘친 쪽 모두 — 어림 나눔은 최상위 블록의 쪽 시작만 알아 여러 쪽에 걸친 표가 한 상자에 쌓인다(2026-11-17 사용자 "이거 페이지 별로 해봐, 1페이지에
+  // 안들어 가잖아" — 요약문 표가 용지 5.5배인 「≈2쪽」). 지킬 PDF 쪽 번호가 없으니 새 블록 쪽만 나눌 까닭이 없다. 매핑이 있으면 전처럼 새 블록이 든 쪽만(나머지는 「행 안 나눔」 이 PDF 쪽대로)
+  const sheets = [...doc.querySelectorAll(".sheet")].filter((s) => !state.mapping || [...s.querySelectorAll(".para")].some(isNew));
   if (!sheets.length) return false;
   const jobs = []; // 읽기만: [{s, units, cuts}]
   for (const s of sheets) {
@@ -2946,8 +2948,10 @@ function overflowSplit(doc) {
       ns.classList.add("over");
       const label = el("button", "sheet-label", `≈${n}쪽`); // 「+k」는 아래에서 DOM 차례로 매긴다
       label.type = "button";
-      label.title = `새 문단·표(프로젝트 구성 반영 등)는 ${APP()} PDF 자리가 없어 ${n}쪽 상자가 용지보다 길어졌습니다 — 용지 높이로 어림해 나눈 조각(쪽 번호는 밀지 않음). `
-        + `실제 쪽은 「출력파일 검증」 뒤 PDF 탭에서 확인하세요.${m ? ` 누르면 ${APP()} PDF ${n}쪽.` : ""}`;
+      label.title = m ? `새 문단·표(프로젝트 구성 반영 등)는 ${APP()} PDF 자리가 없어 ${n}쪽 상자가 용지보다 길어졌습니다 — 용지 높이로 어림해 나눈 조각(쪽 번호는 밀지 않음). `
+        + `실제 쪽은 「출력파일 검증」 뒤 PDF 탭에서 확인하세요. 누르면 ${APP()} PDF ${n}쪽.`
+        : `${APP()} PDF 쪽 매핑이 아직 없어 ${n}쪽 상자가 용지보다 길어졌습니다(여러 쪽에 걸친 표 등) — 용지 높이로 어림해 나눈 조각(쪽 번호는 밀지 않음). `
+        + `PDF 매핑이 오면 ${APP()} PDF 쪽에 맞춰 다시 나눕니다.`;
       label.onclick = () => { if (m) { state.pdfWhich = "original"; syncSeg(); state.pdfPage = sheetNo || n; showTab("Pdf"); setPanel(true); } };
       const nb = el("div", "sheet-body");
       ns.append(label, nb);
@@ -3308,8 +3312,67 @@ function renderPara(b, text = null) {
     else if (f.script) scriptLook(s, f, f); // 문단 전체가 첨자 — 줄 높이는 문단 크기로 두고 글만 윗·아래로
     p.append(s);
   }
+  if (b.pics && b.pics.length) picsPlace(p, b.pics); // 글 속 그림 — 글과 같은 줄의 그 자리에(② §3-6)
   if (state.edited.has(b.id)) p.classList.add("edited");
   return p;
+}
+
+// 글 속 그림(spec_hwpx_웹편집 ② §3-6): 글이 있는 문단에 글자처럼 취급으로 놓인 그림 — 한글은 글과 같은 줄의 그 자리에 놓는다(글머리 아이콘 「▶ 제목」).
+// 서버가 문단 블록에 pics [{id, at(그 그림 앞까지의 글자 수 — readText 단위), media, widthMm, heightMm}] 를 싣고 그 그림 블록에는 inlineOf(문단 id)를 단다.
+// 그림 블록은 전처럼 문단 뒤에 있고(renderImage 가 빈 자리 표시로 — 흐름 항목·칸 자식 수는 블록과 같다) 그림은 문단 안에 인라인으로 그린다.
+// 그림은 그리기용일 뿐 글 구조가 아니다 — readText·offsetIn·pointAt 은 글 노드만 본다.
+function picNode(x) {
+  const ext = (x.media || "").split(".").pop().toLowerCase();
+  const dress = (n) => { n.dataset.pic = x.id; n.contentEditable = "false"; n.style.width = `${x.widthMm || 4}mm`; n.style.height = `${x.heightMm || 4}mm`; return n; };
+  const ph = () => { // 브라우저가 못 그리는 그림(wmf·emf …)·연결 그림 — 크기만 맞춘 자리 표시
+    const s = el("span", "pic-in pic-ph");
+    s.title = x.media ? `그림 (${ext.toUpperCase()} — 브라우저가 못 그림, PDF 탭에서 확인)` : "그림 (연결 그림)";
+    return dress(s);
+  };
+  if (!x.media || !IMG_OK.has(ext)) return ph();
+  const img = new Image();
+  img.className = "pic-in";
+  img.alt = "";
+  img.loading = "lazy";
+  img.draggable = false; // 편집 상자 안에서 끌어 옮기지 못하게 — 그림의 자리는 파일이 정한다
+  img.onerror = () => img.replaceWith(ph());
+  img.src = `/api/docs/${state.id}/media?name=${encodeURIComponent(x.media)}`;
+  return dress(img);
+}
+
+function picsPlace(p, pics) {
+  // 뒤 자리부터 · 같은 자리는 뒤 그림부터 넣고, 늘 그 자리에 이미 놓인 그림들의 앞에 둔다 — 그림의 차례가 문서와 같다
+  for (const x of [...pics].sort((a, z) => a.at - z.at).reverse()) {
+    const pic = picNode(x);
+    let [n, k] = pointAt(p, x.at);
+    if (n === p) { p.prepend(pic); continue; } // 글 노드가 없다(빈 글)
+    if (k > 0 && k < n.data.length) { n = n.splitText(k); k = 0; }
+    let at = n;
+    if (k === 0) { // 글 노드의 앞 — 조각(런 · 첫머리 빈칸 조각)의 맨 앞이면 조각 밖에
+      while (at.parentNode !== p && !at.previousSibling) at = at.parentNode;
+      while (at.previousSibling && at.previousSibling.nodeType === Node.ELEMENT_NODE && at.previousSibling.classList.contains("pic-in")) at = at.previousSibling;
+      at.before(pic);
+    } else { // 글 노드의 뒤 — 조각의 맨 뒤면 조각 밖에
+      while (at.parentNode !== p && !at.nextSibling) at = at.parentNode;
+      at.after(pic);
+    }
+  }
+}
+
+// 글을 고친 뒤(input · 조합 끝) 글 속 그림을 제자리에 — 그림은 글 편집으로 지워지거나 옮겨지지 않는다(글만 서버로 간다 — 파일의 그림은 그대로라 화면만 어긋난다):
+// 지워진 그림은 다시 넣고, 문단 맨 앞 그림(at 0) 앞에 친 글은 그림 뒤로 보낸다(파일에서도 그 글은 그림 뒤다). 커서는 글자 자리로 되살린다.
+function picsFix(p) {
+  const b = state.byId.get(p.dataset.id);
+  if (!b || !b.pics || !b.pics.length) return;
+  const have = new Map([...p.querySelectorAll(".pic-in")].map((n) => [n.dataset.pic, n]));
+  const lead = (n) => { const r = document.createRange(); r.setStart(p, 0); r.setEndBefore(n); return r.toString().length; }; // 그 그림 앞의 글자 수
+  const bad = b.pics.filter((x) => { const n = have.get(x.id); return !n || (x.at === 0 && lead(n) > 0); });
+  if (!bad.length) return;
+  const redo = bad.some((x) => x.at === 0) ? b.pics.filter((x) => x.at === 0 || bad.includes(x)) : bad; // 맨 앞 그림은 함께 다시(차례)
+  const o = document.activeElement === p ? selOffsets(p) : null;
+  for (const x of redo) { const n = have.get(x.id); if (n) n.remove(); }
+  picsPlace(p, redo);
+  if (o) setCaret(p, o.start, o.end);
 }
 
 // 묶음 빈칸(U+2002 — hwpx 의 hp:nbSpace, spec_hwpx_웹편집 ② §8-8 「묶음 빈칸」): 한글은 0.5em × 장평으로 찍고 자간을 곱하지 않으며 양쪽 정렬로 늘리지 않는다(레터 뒤 빈칸이 이것이면
@@ -3592,9 +3655,10 @@ function renderTable(b) {
 // (음수 margin — 글자 자리·줄 사이 거리는 그대로, 칸 높이만 한글처럼). docx 는 안 잼.
 function cellLastLine(td, blocks) {
   if (state.format === "docx") return;
-  const b = blocks[blocks.length - 1];
+  let k = blocks.length - 1, p = td.lastElementChild;
+  while (k >= 0 && blocks[k].inlineOf && p && p.classList.contains("pic-held")) { k -= 1; p = p.previousElementSibling; } // 글 속 그림의 빈 자리 표시는 건너뛴다 — 칸의 마지막 줄은 그 문단(② §3-6)
+  const b = blocks[k];
   if (!b || b.type !== "paragraph" || b.inlineRow) return;
-  const p = td.lastElementChild;
   if (!p || !p.classList.contains("para")) return;
   const f = b.format || {};
   const ls = f.lineSpacingPct ? Math.max(0.8, f.lineSpacingPct / 100) : 1.35; // 1.35 = style.css 「table.tbl td .para」 기본 줄 간격
@@ -3604,6 +3668,7 @@ function cellLastLine(td, blocks) {
 }
 
 function renderImage(b) {
+  if (b.inlineOf) return el("span", "pic-held"); // 글 속 그림 — 그 문단이 글 속 제자리에 그린다(renderPara → picsPlace). 블록 자리에는 빈 자리 표시만(② §3-6)
   const ext = (b.media || "").split(".").pop().toLowerCase();
   const w = b.widthMm || 30, h = b.heightMm || 20;
   if (!b.widthMm && !b.heightMm && b.media) return el("span");
@@ -3689,7 +3754,7 @@ function save(p) {
 }
 
 function applyServer(id, r) {
-  if (r.rev != null) { if (r.rev !== state.serverRev) fmtsRefreshSoon(); state.serverRev = r.rev; }
+  if (r.rev != null) { if (r.rev !== state.serverRev) { fmtsRefreshSoon(); if (typeof captSoon === "function") captSoon(); if (typeof zonesInvalidate === "function") zonesInvalidate("edit"); } state.serverRev = r.rev; }
   headsMarkStale();
   if ("persistError" in r) state.persistError = r.persistError;
   logTouched();
@@ -3795,9 +3860,9 @@ function bindEditing() {
   doc.addEventListener("compositionend", (e) => {
     const p = e.target.closest && e.target.closest(".para");
     imePara = null;
-    if (p) setTimeout(() => { if (!imePara && p.isConnected) leadFix(p); }, 0); // 이어 치는 한글은 조합이 끝나자마자 다음 조합이 시작된다 — 그때는 건너뛰고 다음 input·조합 끝에(② §3-4 「줄 앞 공백」)
+    if (p) setTimeout(() => { if (!imePara && p.isConnected) { leadFix(p); picsFix(p); } }, 0); // 이어 치는 한글은 조합이 끝나자마자 다음 조합이 시작된다 — 그때는 건너뛰고 다음 input·조합 끝에(② §3-4 「줄 앞 공백」)
   });
-  doc.addEventListener("input", (e) => { const p = e.target.closest(".para"); if (p) { if (!e.isComposing && !imePara) leadFix(p); scheduleSave(p); } });
+  doc.addEventListener("input", (e) => { const p = e.target.closest(".para"); if (p) { if (!e.isComposing && !imePara) { leadFix(p); picsFix(p); } scheduleSave(p); } });
   doc.addEventListener("focusout", (e) => { const p = e.target.closest && e.target.closest(".para"); if (p && state.timers.has(p.dataset.id)) save(p); });
   doc.addEventListener("focusin", (e) => { const p = e.target.closest && e.target.closest(".para"); if (p) { select(p.dataset.id); trackCaret(); } });
   document.addEventListener("selectionchange", trackCaret);
@@ -3973,7 +4038,7 @@ async function structOp(path, body) {
 }
 
 function applyEditState(r) {
-  if (r.rev != null) { if (r.rev !== state.serverRev) fmtsRefreshSoon(); state.serverRev = r.rev; }
+  if (r.rev != null) { if (r.rev !== state.serverRev) { fmtsRefreshSoon(); if (typeof captSoon === "function") captSoon(); if (typeof zonesInvalidate === "function") zonesInvalidate("edit"); } state.serverRev = r.rev; }
   headsMarkStale();
   if ("persistError" in r) state.persistError = r.persistError;
   logTouched();
@@ -4689,9 +4754,11 @@ function adoptBase(d, redraw) {
 
 // ---------------------------------------------------------------- 검증
 async function poll() {
-  if (state.polling || !state.id) return;
-  state.polling = true;
+  // 「이미 읽는 중」 은 지금 연 문서(epoch)의 읽기일 때만 — 앞서 연 문서의 읽기는 응답을 버리고 끝나므로 그것을 보고 돌아가면 이 문서는 검증·쪽 매핑을 끝내 못 받는다
+  // (2026-11-17: 문서 열기가 겹치면(큰 문서를 여는 몇 초 사이 다시 누름 — GET 이 셋) 마지막 화면에 매핑이 없어 쪽이 「≈n쪽」 어림 나눔으로 남고 표가 쪽마다 안 나뉘었다)
+  if (!state.id || state.polling === state.epoch) return;
   const id = state.id, epoch = state.epoch;
+  state.polling = epoch;
   state.pollError = null;
   try {
     for (;;) {
@@ -4705,7 +4772,7 @@ async function poll() {
     }
   } catch (e) {
     if (epoch === state.epoch) { state.pollError = e; renderSummary(state.verify || {}); }
-  } finally { state.polling = false; }
+  } finally { if (state.polling === epoch) state.polling = false; } // 뒤에 연 문서의 읽기가 돌고 있으면 그 표시는 둔다
 }
 
 const verifyBusy = (v) => Object.values(v || {}).some((j) => j && (j.running || j.reviewing));
@@ -5828,13 +5895,13 @@ async function download() {
 // 상태를 읽는다(검증 poll 과 따로). 큰 표(문단 목록·서식 라벨·규칙·지침)는 문서와 패널 사이 2열 #headsDlg 하나를 바꿔 쓴다(팝업 아님 — 문서와
 // 나란히 보며 문단으로 찾아감 · 옛 대화창이라 id 는 그대로). 문서 글은 모두 textContent 로.
 const H_KIND = { marker: "레터", label: "괄호 표기", note: "안내(※)", footnote: "각주(*)", data: "값", placeholder: "자리표시", plain: "보통 글",
-  empty: "빈 문단", object: "개체", toc: "목차", caption: "캡션" };
+  empty: "빈 문단", object: "개체", toc: "목차", caption: "캡션", band: "별첨·부록 표 제목" };
 const H_AREA = { body: "본문", cell: "표 칸", box: "글상자", shape: "도형 글", caption: "캡션", header: "머리말", footer: "꼬리말", footnote: "각주", endnote: "미주" };
 const H_VERDICT = { saved: "저장", rejected: "거절", kept: "그대로", unsure: "모름", duplicate: "중복" };
 const H_STEP = { running: "run", ok: "ok", failed: "fail" };
 const H_JOB = { running: "진행 중", done: "끝남", failed: "실패" };
 const H_ROLE = { label: "구분 라벨", subtitle: "괄호 소제목", title: "제목", note: "안내" }; // 구분 라벨 = 구분 기준(단계·차년도·기관 …) 값이 든 괄호 줄, 그 밖의 괄호 줄 = 괄호 소제목
-const H_TPL = { main: "주 사슬", branch: "가지 템플릿", label: "구분 라벨 템플릿", sub: "서브 템플릿", cell: "표 칸" };
+const H_TPL = { main: "주 사슬", branch: "가지 템플릿", label: "구분 라벨 템플릿", sub: "서브 템플릿", cell: "표 칸", band: "별첨·부록 표 제목 템플릿(「별첨N | 제목」 처럼 이름 칸 + 제목 칸으로 된 표)" }; // band = 코드·사양서의 「띠 표 템플릿」(spec_헤딩_추출 ② §6 「띠 표 줄」) — 화면에는 그 말을 쓰지 않는다
 const H_ROOT = { label: " · 뿌리 = 구분 라벨", subtitle: " · 뿌리 = 괄호 소제목" }; // 템플릿 rootRole → 설명 글
 const isRooted = (role) => role === "label" || role === "subtitle"; // 괄호 줄 — 그 줄부터 새 템플릿(L1), 개요 편집은 Enter 만
 const H_DECISION = { adjust: "조정", keep: "다름 유지", undecided: "미판정" };
@@ -6057,7 +6124,7 @@ const H_PROG_NAME = { 1: "문단·라벨", 2: "헤딩 그래프", 3: "표 구조
 // 이어 돌리기(job.chain — app/analysis_llm.py CHAINS)의 화면 이름 · 서버 analysis.CHAIN_NAMES 와 같은 글: llm = 이름 줄 진행표의 「LLM 검증·보완」(doc_status.js · spec_작업 ② §20) ·
 // heads = 「헤딩 그래프(LLM)」(헤딩 판정 → 서식 정리 계획) · formats = 서식 정리 계획만(tpl_plan_bar.js 「계획 받기」)
 const H_CHAIN = { llm: "LLM 검증·보완", heads: "헤딩 LLM 판정 · 서식 계획", formats: "서식 정리 계획" };
-const H_CHAIN_LONG = { llm: "LLM 검증·보완(헤딩 → 표 · 서식 계획 같이)", heads: "헤딩 그래프(LLM) → 서식 정리 계획", formats: "서식 정리 계획(템플릿마다)" };
+const H_CHAIN_LONG = { llm: "LLM 검증·보완(헤딩 · 표 판정 같이 → 서식 계획)", heads: "헤딩 그래프(LLM) → 서식 정리 계획", formats: "서식 정리 계획(템플릿마다)" };
 const headsChainName = (job, long = false) => (long ? H_CHAIN_LONG : H_CHAIN)[job.chain] || H_CHAIN.llm;
 const headsFmtStep = (s) => /^서식 정리 계획/.test((s && s.name) || ""); // 서식 정리 계획 단계(app/analysis_llm.py FORMATS_STEP) — 진행 줄의 스크립트 · LLM 칸이 아니라 셋째 층 「조정」(tpl_plan_bar.js)이 보인다
 const hhmmShort = (t) => { // 진행 줄 칸의 시각 — 오늘이면 「13:47」, 아니면 「11/14」(전체는 title)
@@ -6065,18 +6132,26 @@ const hhmmShort = (t) => { // 진행 줄 칸의 시각 — 오늘이면 「13:47
   const d = new Date(t * 1000);
   return d.toDateString() === new Date().toDateString() ? hhmm(d) : `${d.getMonth() + 1}/${d.getDate()}`;
 };
-function headsProgNow(r) { // 도는 작업이 지금 하는 칸 → {llm, k} | null — 작업 steps 의 마지막 「진행 중」 단계 이름으로(서버 변경 없음)
+function headsStepCell(n, job) { // 작업 단계 줄의 이름 → 진행 줄의 칸 {llm, k} | null(칸에 안 드는 단계)
+  if (n.includes("규칙 보강") || (n === "다시 추출" && job.llm)) return { llm: true, k: 1 }; // 「LLM 규칙 보강」 · 2단계 LLM 의 「1단계 다시 — … LLM 규칙 보강」 · 보강 뒤 다시 추출
+  const m = /^(헤딩 그래프|표 구조) — (LLM|스크립트)$/.exec(n);
+  if (m) return { llm: m[2] === "LLM", k: m[1] === "표 구조" ? 3 : 2 };
+  if (/^(추출|후보 규칙 시험|1단계)/.test(n)) return { llm: false, k: 1 };
+  return null;
+}
+// 도는 작업이 지금 하는 칸 → {llm, k, more?} | null — 작업 steps 의 마지막 「진행 중」 단계 이름으로. more = 같이 도는 다른 칸(「LLM 검증·보완」 은 헤딩 판정이 도는 동안
+// 표 판정 호출을 같이 돌린다 — heading_runs.TablesAhead: spec_헤딩_추출 ② §8 「헤딩 판정과 같이」). 칸이 도는지는 headsNowAt 으로 묻는다
+function headsProgNow(r) {
   const job = r.job;
   if (!(job && job.status === "running")) return null;
   const steps = job.steps || [], run = steps.filter((s) => s.status === "running"), cur = run.filter((s) => !headsFmtStep(s)).pop();
   if (!cur && (run.some(headsFmtStep) || headsFmtStep(steps.at(-1)))) return { llm: true, k: 0, fmt: true }; // 서식 정리 계획만 도는 중(또는 그것으로 끝남) — 진행 줄에는 도는 칸이 없다
   const n = (cur || steps.filter((s) => !headsFmtStep(s)).pop() || {}).name || "";
-  if (n.includes("규칙 보강") || (n === "다시 추출" && job.llm)) return { llm: true, k: 1 }; // 「LLM 규칙 보강」 · 2단계 LLM 의 「1단계 다시 — … LLM 규칙 보강」 · 보강 뒤 다시 추출
-  const m = /^(헤딩 그래프|표 구조) — (LLM|스크립트)$/.exec(n);
-  if (m) return { llm: m[2] === "LLM", k: m[1] === "표 구조" ? 3 : 2 };
-  if (/^(추출|후보 규칙 시험|1단계)/.test(n)) return { llm: false, k: 1 };
-  return job.first ? { llm: false, k: r.stage2 ? 3 : 2 } : { llm: !!job.llm, k: job.stage };
+  const at = headsStepCell(n, job) || (job.first ? { llm: false, k: r.stage2 ? 3 : 2 } : { llm: !!job.llm, k: job.stage });
+  const more = run.filter((s) => s !== cur && !headsFmtStep(s)).map((s) => headsStepCell(s.name || "", job)).filter((c) => c && !(c.llm === at.llm && c.k === at.k));
+  return more.length ? { ...at, more } : at;
 }
+const headsNowAt = (now, llm, k) => !!now && ((!!now.llm === llm && now.k === k) || (now.more || []).some((c) => c.llm === llm && c.k === k)); // 그 칸(층 · 단계)이 지금 도는가 — 같이 도는 칸도
 function headsRulesFrom(r) { // 규칙 보강 기록 — 요약의 rules(서버), 없으면(옛 서버) 지금 1단계 결과 · 실행 목록(끝 20개)으로 어림
   if (r.rules !== undefined) return r.rules;
   const s1 = r.stage1, lm = s1 && s1.llm;
@@ -6087,7 +6162,7 @@ function headsRulesFrom(r) { // 규칙 보강 기록 — 요약의 rules(서버)
 }
 function headsProgScript(r, k, now) { // 스크립트 칸 → {state, text, title}
   const s = r[`stage${k}`], name = H_PROG_NAME[k], job = r.job, meta = (s && s.meta) || {};
-  if (now && !now.llm && now.k === k) return { state: "running", text: name, title: `${name} — 스크립트로 뽑는 중 · 누르면 진행을 봅니다` };
+  if (headsNowAt(now, false, k)) return { state: "running", text: name, title: `${name} — 스크립트로 뽑는 중 · 누르면 진행을 봅니다` };
   if (!s && job && job.status === "failed" && (job.first || (!job.llm && job.stage === k))) return { state: "failed", text: name, title: `${name} — 실행 실패: ${job.error || "까닭 모름"}` };
   if (!s) return { state: "none", text: name, title: `${name} — 아직 없음(${k}단계를 실행하면 만듭니다)` };
   const when = `실행 ${meta.run ?? "–"} · ${fmtWhen(meta.at)}`;
@@ -6104,7 +6179,7 @@ function headsProgRules(r, now) { // LLM 규칙 보강 칸(1단계) → {state, 
   const s1 = r.stage1, sm = (s1 && s1.summary) || {}, job = r.job, rv = headsRulesFrom(r);
   const left = (sm.unmatchedGroups || 0) + (sm.conflicts || 0), leftText = `못 맞춤 ${nf(sm.unmatchedGroups || 0)}묶음 · 충돌 ${nf(sm.conflicts || 0)}묶음`;
   const how = "1단계 「LLM 규칙 보강」 으로 하거나, 2단계 「헤딩 그래프(LLM)」 을 누르면 그래프보다 먼저 저절로 합니다(유료)";
-  if (now && now.llm && now.k === 1) return { state: "running", text: "규칙 보강", title: "LLM 규칙 보강 중 — 스크립트가 판정하지 못한 첫머리 묶음의 규칙식을 LLM 에 묻는 중(유료) · 누르면 진행을 봅니다" };
+  if (headsNowAt(now, true, 1)) return { state: "running", text: "규칙 보강", title: "LLM 규칙 보강 중 — 스크립트가 판정하지 못한 첫머리 묶음의 규칙식을 LLM 에 묻는 중(유료 · 묶음이 많으면 여러 호출이 같이 돕니다) · 누르면 진행을 봅니다" };
   if (!s1) return { state: "none", text: "규칙 보강", title: "LLM 규칙 보강 — 1단계(문단·라벨)를 뽑은 뒤에 합니다" };
   if (job && job.status === "failed" && job.llm && job.stage === 1) return { state: "failed", text: "규칙 보강", title: `LLM 규칙 보강 실행 실패 — ${job.error || "까닭 모름"}\n${how}` };
   const at = rv ? `실행 ${rv.run ?? "–"} · ${fmtWhen(rv.at)}` : "";
@@ -6124,7 +6199,10 @@ function headsProgRules(r, now) { // LLM 규칙 보강 칸(1단계) → {state, 
 function headsProgJudge(r, k, now) { // LLM 판정 칸(2 헤딩 · 3 표) → {state, text, count?, title}
   const s = r[`stage${k}`], name = k === 2 ? "헤딩 판정" : "표 판정", job = r.job, src = headsSource(r, k), lm = (s && s.llm) || {};
   const btn = k === 2 ? "「헤딩 그래프(LLM)」" : "「표 구조(LLM)」";
-  if (now && now.llm && now.k === k) return { state: "running", text: name, title: `${name} — LLM 이 판정하는 중(유료 · 몇 분) · 누르면 진행을 봅니다` };
+  if (headsNowAt(now, true, k)) { // 도는 중 — 표 판정은 헤딩 판정과 같이 돌 수 있다(그때는 단계 줄의 글 「표 판정 호출 7/25 끝남 — 헤딩 판정과 같이」 을 덧붙인다)
+    const step = ((job && job.steps) || []).find((x) => x.status === "running" && (headsStepCell(x.name || "", job) || {}).k === k && x.msg);
+    return { state: "running", text: name, title: `${name} — LLM 이 판정하는 중(유료 · 몇 분)${step ? `\n${step.msg}` : ""} · 누르면 진행을 봅니다` };
+  }
   if (job && job.status === "failed" && job.llm && !job.first && job.stage === k && !(src && src.llm)) return { state: "failed", text: name, title: `${name} — LLM 실행 실패: ${job.error || "까닭 모름"} · 앞 결과는 그대로` };
   if (src && src.llm) return { state: "llm", text: name, count: hhmmShort(src.at), title: src.title }; // 끝난 때(② §7 「LLM 표시」 — 전체 시각·걸린 시간은 title)
   if (s && lm.requested && lm.fallback) return { state: "failed", text: name, title: src ? src.title : `${name} — LLM 을 불렀지만 실패해 스크립트로 대신함` };
@@ -6904,9 +6982,10 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
   const sl = t.slots ? t.slots[String(ol.level)] || {} : {};
   const lab = ol.role === "label" ? tplLabelId(ol) : "";
   const text = `T${ol.no} L${ol.level}${lab ? ` ${lab}` : ""}`;
-  const title = `템플릿 T${ol.no} ${(t.chain || []).join(" › ")} · ${ol.level}번째 줄(레벨 ${ol.level}) 「${oneLine(ol.letter || "").slice(0, 30)}」`
+  const title = `템플릿 T${ol.no} ${(t.chain || []).join(" › ")} · ${ol.level}번째 줄(레벨 ${ol.level}) 「${oneLine(ol.letter || ol.name || "").slice(0, 30)}」`
     + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
-    + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
+    + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" && t.kind === "band" ? `\n별첨·부록 표 제목 줄 — 「${oneLine(ol.name || "").slice(0, 20)}」 칸과 제목 칸으로 된 표를 헤딩 추출이 스스로 줄로 잡았습니다(문서 맨 위의 줄 · 그 아래 줄은 다음 별첨·부록 표나 장이 올 때까지 이 줄의 것)`
+      : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
     + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n템플릿 관계(이 레벨의 서식 목록 · 대표 정하기 · 대표에 맞추기)는 문서 이름 줄 설명의 「템플릿 관계」`;
   // 서식 라벨(「S41」 — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」, 2026-11-16 사용자 「대표템플릿인경우 템플릿 클릭하면 서식이 나오니깐 별도 서식번호가 필요 없을거 같은데」):
   // 오버레이 줄은 그 줄의 **지금** 라벨(heads.outline.fmts — 대표에 맞추면 대표의 라벨이 된다: 서버 outline_edit.fmt_view)이고, 그 레벨 대표의 라벨과 같으면 그리지 않는다 — 번호는 대표와 서식이 다른 줄에만 남는다.
@@ -6950,9 +7029,10 @@ function tplMarksDraw() {
   const marks = heads.marks && (tplOn || fmtOn) ? heads.marks : new Map();
   const tmpOf = typeof tempMarkOf === "function" && tplOn && tempMarkCount() ? tempMarkOf : null; // TEMP 문단·칸(heading_temp.js — spec ② §15): 「TN Lk」 가 없는 줄에 회색 「TEMP」
   const drOf = typeof driftMarkOf === "function" && tplOn && driftMarkCount() ? driftMarkOf : null; // 뼈대에 없는 새 레터·새 서식 문단(heading_drift.js — spec ② §17): 주황 「새 레터」·「새 서식」
+  const capOf = typeof captMarkOf === "function" && tplOn && captMarkCount() ? captMarkOf : null; // 캡션 줄(caption_tpl.js — spec_hwpx_웹편집 ② §8-10): 「TN Lk」·TEMP 가 없는 캡션 줄에 보라 「C1」
   const shown = gutterSync();
   const tblPlace = () => { if (typeof tblMarksPlace === "function") tblMarksPlace(); }; // 같은 여백의 표 표지(tables.js)는 「TN Lk」 표·손잡이를 피해 자리를 다시 잡는다
-  if (!shown || !(marks.size || heads.outline || tmpOf || drOf)) { tblPlace(); return; }
+  if (!shown || !(marks.size || heads.outline || tmpOf || drOf || capOf)) { tblPlace(); return; }
   // 읽기 단계(쪽·문단 자리를 모두 먼저) → 쓰기 단계(표·손잡이 붙이기). 쪽마다 재고 붙이기를 번갈아 하면 쪽 수(65)만큼, 손잡이는 문단마다 강제 배치가 되어
   // 연구개발계획서 양식에서 28 s 멈췄다(2026-11-10 실측 → 나눠서 0.03 s, spec_owpml_편집 ③). 표·손잡이가 필요한 문단만 잰다(outlineLine 은 자료 조회뿐).
   const jobs = [];
@@ -6963,7 +7043,7 @@ function tplMarksDraw() {
     for (const p of sheet.querySelectorAll(".para[data-id]")) {
       const ol = outlineLine(p);
       // 개요 오버레이 줄이면 그 「TN Lk」 가 먼저(문서를 열 때 바로 — 헤딩 탭을 안 열어도 · 종속·레벨 바꿈이 바로 보임: spec_hwpx_웹편집 ② §8-2), 아니면 그래프 표
-      let m = (ol && (tplOn || fmtOn) ? olMark(p.dataset.id, ol, marks.get(p.dataset.id)) : null) || marks.get(p.dataset.id) || (tmpOf && tmpOf(p.dataset.id));
+      let m = (ol && (tplOn || fmtOn) ? olMark(p.dataset.id, ol, marks.get(p.dataset.id)) : null) || marks.get(p.dataset.id) || (tmpOf && tmpOf(p.dataset.id)) || (capOf && capOf(p.dataset.id));
       if (drOf) m = drOf(p.dataset.id, m) || m; // 그 문단의 표시 앞에 「새 레터」·「새 서식」 을 얹는다(「TN Lk」 가 없으면 그것만)
       if (m && !tplOn && !(m.fmt && m.fmt.length)) m = null; // 서식 라벨만 보는 중 — 라벨이 없는 줄에는 그릴 것이 없다
       if (!m && !ol) continue;
@@ -6985,7 +7065,8 @@ function tplMarksDraw() {
     }
     for (const [k, r] of rows.entries()) {
       const dr = r.items.some((m) => m.drift); // 뼈대 밖 문단이 든 줄 — 주황, 누르면 뼈대 밖 목록(② §17)
-      const s = el("span", "tpl-mark" + (r.und ? " und" : "") + (r.lbl ? " lbl" : "") + (r.temp ? " temp" : "") + (dr ? " drift" : ""));
+      const cm = r.items.find((m) => m.cap); // 캡션 줄 「C1」(caption_tpl.js) — 그 줄뿐인 표는 보라, 누르면 「템플릿 관계」 의 캡션 템플릿
+      const s = el("span", "tpl-mark" + (r.und ? " und" : "") + (r.lbl ? " lbl" : "") + (r.temp ? " temp" : "") + (dr ? " drift" : "") + (cm && r.items.every((m) => m.cap) ? " cap" : ""));
       const cnt = new Map(); // 같은 표기(표 한 행의 같은 템플릿·레벨 칸들)는 「T11 L2 ×2」 로 모은다 — 표기 → {n, m(그 표기의 첫 줄)}
       for (const m of r.items) { const c = cnt.get(m.text); if (c) c.n += 1; else cnt.set(m.text, { n: 1, m }); }
       const texts = [...cnt].map(([t, c]) => ({ text: c.n > 1 ? `${t} ×${c.n}` : t, m: c.m }));
@@ -7008,6 +7089,7 @@ function tplMarksDraw() {
       if (dr && typeof driftView === "function") { s.setAttribute("role", "button"); s.onclick = () => driftView(); }
       else if (no && focusable && hit.tpl != null) { s.setAttribute("role", "button"); s.onclick = () => tplFocusToggle(hit); } // 글 사이·「+n」 을 눌러도 첫 표기
       else if (no) { s.setAttribute("role", "button"); s.onclick = () => tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null); }
+      else if (cm && typeof captOpen === "function") { s.setAttribute("role", "button"); s.onclick = () => captOpen(cm.cap, cm.para); } // 캡션 줄 — 누르면 그 캡션 템플릿의 서식 목록
       else if (r.temp && typeof tempView === "function") { s.setAttribute("role", "button"); s.onclick = () => tempView(); } // TEMP 줄 — 누르면 TEMP 목록
       const fm = fmtOn ? [...new Set(r.items.flatMap((m) => m.fmt || []))] : []; // 서식 라벨(「S41」) — 템플릿 표 아래 한 줄(자리가 없으면 같은 줄 뒤에)
       if (fm.length) {
@@ -7050,7 +7132,7 @@ function tplMarksDraw() {
   if (typeof fmtFocusMarks === "function") fmtFocusMarks(); // 고른 서식 라벨·템플릿 표기(「서식 라벨만 또렷이」·「템플릿만 또렷이」 — fmt_focus.js)의 눌림을 새로 그린 표에도
   if (typeof tblMarksPlace === "function") tblMarksPlace(); // 표 표지가 먼저 그려져 있으면 새 「TN Lk」 표와 겹치지 않게 내려 놓는다
 }
-window.addEventListener("resize", () => { if (heads.marks || heads.outline || (typeof tempMarkCount === "function" && tempMarkCount()) || (typeof driftMarkCount === "function" && driftMarkCount())) tplMarksDraw(); });
+window.addEventListener("resize", () => { if (heads.marks || heads.outline || (typeof tempMarkCount === "function" && tempMarkCount()) || (typeof driftMarkCount === "function" && driftMarkCount()) || (typeof captMarkCount === "function" && captMarkCount())) tplMarksDraw(); });
 
 // ---------------------------------------------------------------- 템플릿 관계 보기(2열 kind "templates", spec_헤딩_추출 ② §7 「템플릿 관계」)
 // 템플릿을 매달린 자리(부모 템플릿·레벨)로 이은 트리 — 인스턴스의 parent 노드가 (TN, Lk) 이면 그 템플릿은 TN 의 k번째 줄 아래 가지. 「TN」 을 누르면 레벨(줄)마다 레터·문단 수와
@@ -7156,7 +7238,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
       const li = el("li");
       li.value = L;
       const head = el("div", "trel-level");
-      const ltr = os && os.table ? "표 제목" : (base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?";
+      const ltr = os && os.table ? (os.name ? `표 제목 · ${os.name}` : "표 제목") : (base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?"; // os.name = 띠 표 템플릿의 이름표 꼴(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」)
       head.append(el("b", null, `L${L}`), " ", el("span", "trel-let", `「${ltr}」`),
         el("span", "muted trel-cnt", os ? ` ×${nf(os.lines)}` : s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
       if (s.format) head.append(el("span", "slot-format", `서식 ${s.format}`)); // 그 레벨의 대표 서식 라벨(2단계 — 문서 표시의 「서식 라벨」 과 같은 이름)
@@ -7277,6 +7359,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
   section(`종속 템플릿 ${subs.length}`, subs, { name: "종속 템플릿", hang: true, help: TPL_SUB_HELP });
   section(`표 칸 템플릿 ${cells.length}`, cells);
   section(`기타 템플릿 ${rest.length}`, rest);
+  if (typeof captSection === "function") root.append(captSection()); // 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — caption_tpl.js, spec_hwpx_웹편집 ② §8-10): 개요 템플릿과 따로 선 절
   if (!tpls.length) root.append(el("p", "hnote pad", "템플릿이 없습니다."));
   if (focus == null && where === "col" && typeof divLabelsPending === "function") focus = divLabelsPending(g); // 방금 지정을 바꾼 괄호 글이 든 템플릿을 다시 펼친다
   if (focus != null) tplFocus(root, rel, focus);
@@ -7370,6 +7453,7 @@ function outlineLoad(refresh = false) { // 문서를 열 때·2단계가 새로 
     tplTreeRefresh(); // 다른 오버레이로 그려 둔 템플릿 트리(탭·열)는 통째로 다시 — 아래 두 줄은 그대로인 트리의 줄만 새 값으로
     if (typeof olfRefresh === "function") olfRefresh(); // 열려 있는 「템플릿 관계」 의 자리 줄도 새 값으로(outline_format.js)
     if (typeof olmRefresh === "function") olmRefresh(); // 서식 갈래·도구 줄 「템플릿 관계」 단추도(outline_match.js)
+    if (typeof captRefresh === "function") captRefresh(true); // 캡션 템플릿 「CN」 — 여백의 「C1」 · 열려 있는 「캡션 템플릿」 절(caption_tpl.js)
   }).catch(() => { if (epoch === state.epoch && (refresh || !heads.outline)) { heads.outline = null; outlineHint(); tplMarksDraw(); if (typeof olmRefresh === "function") olmRefresh(); } });
 }
 function outlineHint() { // 개요 편집 키가 켜졌는지(heads.outline)를 도구 줄 「단축키」 단추와 열려 있는 2열 단축키 설명에 — 키 목록·설명 글의 원본은 shortcuts.js(옛 도구 줄 키 안내 #editHint 는 없앰)
@@ -8381,6 +8465,7 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
   if (typeof projectComboClose === "function") projectComboClose(); // 프로젝트 고르기 목록(② §19)은 body 에 떠 있다 — 칸이 사라지면 함께 닫는다
   $("divBox").textContent = "";
   taskFrameForm = null; taskFrameApply = null; // 1·2단계 묶음 안의 입력 칸도 함께 사라졌다
+  if (typeof zonesReset === "function") zonesReset(); // 편집 구역(zones.js) — 읽어 둔 구역을 버리고, 문서가 열려 있으면 새 문서·새 TASK 의 것으로 곧 다시 읽는다(문서를 열 때 · 닫을 때 · TASK 를 바꾼 뒤)
   divMarksDraw(); // 옛 문서의 구분 기준 표시 지움(② §11)
 }
 
@@ -8437,6 +8522,7 @@ function divRender() {
 
   box.append(taskRow()); // 첫 줄: 첨부 파일 · 할 일(spec_작업 ② §10)
   box.append(divMarksBar()); // 그 아래: 문서 표시 보기/감추기 · 범례 · 추가한 자리 · LLM 재검토(② §11 — 2026-11-10 사용자)
+  if (typeof zonesBarEl === "function" && !gatherOn()) box.append(zonesBarEl()); // 그 아래: 「편집 구역」 줄(zones.js — spec_구역 ② §6 「화면」) — 취합은 취합 카드 안에 같은 줄이 있다(gather.js gatherZonesEl)
   const profile = el("section", "dv-profile");
   const profileText = el("div", "dv-profile-copy");
   const profileTitle = el("div", "dv-profile-title");
@@ -9526,7 +9612,7 @@ function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽), lab, hint, l
 function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — paginate 끝·자료 바뀜·토글 때
   const doc = $("doc");
   if (!doc) return;
-  if (typeof gatherZonesDraw === "function") gatherZonesDraw(); // 취합본의 기관 구역 표시(gather.js — spec_취합 ② §9-2)도 같은 때 다시 단다(쪽을 다시 나누면 요소가 새것)
+  if (typeof zonesDraw === "function") zonesDraw(); // 편집 구역 표시(zones.js — spec_구역 ② §6 「화면」: 취합본의 기관 구역도 이것)도 같은 때 다시 단다(쪽을 다시 나누면 요소가 새것)
   for (const p of doc.querySelectorAll(".para.dv-in")) {
     p.classList.remove("dv-in", "dv-lab", "dv-hint", "dv-hint-llm"); delete p.dataset.dv;
     if (p.dataset.dvTitle) { p.removeAttribute("title"); delete p.dataset.dvTitle; }
@@ -9574,12 +9660,13 @@ function divKeyDraw(on) {
 function divHintOf(pid) { const d = dv.marks.data; return ((d && d.hints) || (dv.view && dv.view.hints) || []).find((h) => h.para === pid) || null; }
 function divCtxItems(e) { // 오른쪽 단추 메뉴 항목(앞에 구분선) — 표 칸 메뉴(tselContextMenu)와 문단 메뉴(divContextMenu) 공용
   const p = e.target.closest && e.target.closest(".para[data-id]");
-  if (!p || !state.id || !taskRnd()) return [];
+  const zone = typeof zonesCtxItems === "function" ? zonesCtxItems(e) : []; // 편집 구역의 「구역 지정…」·「구역 지정 고치기…」·「지정 해제」(zones.js — spec_구역 ② §3 「지정 — 사람이 고른 블록」) — 문단이 아닌 곳(표 칸의 여백)에서도
+  if (!p || !state.id || !taskRnd()) return zone;
   const h = divHintOf(p.dataset.id);
   const items = [null, [h ? "구분 기준 자리 표시 고치기…" : "구분 기준 자리로 추가…", "", () => divHintPop(p, e, h)]];
   if (h) items.push(["이 자리 표시 지우기", "", () => divHintDelete(h.id)]);
   items.push([divMarksOn() ? "구분 기준 표시 감추기" : "구분 기준 표시 보기", "", () => { divMarksSet(!divMarksOn()); if (divMarksOn()) divMembersLoad(); else divMarksDraw(); divMarksBarRefresh(); }]);
-  return items;
+  return [...items, ...zone];
 }
 function divContextMenu(e) { // 표 밖 문단 — 표 칸은 tselContextMenu 가 맡는다
   if (!state.id || (typeof cellOf === "function" && cellOf(e.target))) return;

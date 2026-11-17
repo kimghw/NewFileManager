@@ -314,12 +314,19 @@ def test_chain_turns_follow_each_part():
     d = _items(analysis.status(_sess({**both, "job": chain("ok", "ok", "failed", "failed", "Stop: 서식", fmsg="실패 T1: 502")}), outline=(OV, VARS), plans={}))
     assert (d["formats"]["llm"]["state"], d["formats"]["llm"]["error"], d["tables"]["llm"]["state"]) == ("failed", "실패 T1: 502", "none")
     # 돌 것 — 차례 번호(같은 번호 = 같이) · 같이 도는 것이 있을 때만 「같이」 라고 적는다
+    # 헤딩 판정이 돌면 표 판정의 호출이 그것과 같이(1 · 1 · 2 — 2026-11-17 사용자 "문서가 큰 경우 병렬에이전트를 사용해서"), 서식 계획은 헤딩 그래프가 끝난 뒤
     plan = v["llmPlan"]
-    assert [(x["key"], x["no"], x["run"]) for x in plan] == [("heads", 1, True), ("tables", 2, True), ("formats", 2, True)]
-    assert "서식과 같이" in plan[1]["why"] and "표와 같이" in plan[2]["why"]
+    assert [(x["key"], x["no"], x["run"]) for x in plan] == [("heads", 1, True), ("tables", 1, True), ("formats", 2, True)]
+    assert "표 판정 호출이 같이" in plan[0]["why"] and "헤딩 판정과 같이" in plan[1]["why"] and "표와 같이" not in plan[2]["why"] and "템플릿끼리도 같이" in plan[2]["why"]
     llm_ok = {"requested": True, "fallback": False}
     only_t = analysis.status(_sess({"stage2": _res(2, llm=llm_ok), "stage3": _res(3)}), outline=(OV, VARS), plans={"1": {"rev": 3}})["llmPlan"]
     assert [x["run"] for x in only_t] == [False, True, False] and "같이" not in only_t[1]["why"]
+    # 헤딩 판정을 건너뛰면 표 · 서식이 같이(1 · 2 · 2)
+    t_f = analysis.status(_sess({"stage2": _res(2, llm=llm_ok), "stage3": _res(3)}), outline=(OV, VARS), plans={})["llmPlan"]
+    assert [(x["no"], x["run"]) for x in t_f] == [(1, False), (2, True), (2, True)] and "서식과 같이" in t_f[1]["why"] and "표와 같이" in t_f[2]["why"]
+    assert analysis.part_nos(("heads", "tables", "formats"), True) == {"heads": 1, "tables": 1, "formats": 2}
+    assert analysis.part_nos(("heads", "tables", "formats"), False) == {"heads": 1, "tables": 2, "formats": 2}
+    assert analysis.part_nos(("heads", "formats"), True) == {"heads": 1, "formats": 2} and analysis.part_nos(("formats",), False) == {"formats": 1}
 
 
 def _llm_ok(stage, applied=3):
@@ -444,7 +451,8 @@ OV3 = _ov({"1": {"no": "1"}, "2": {"no": "2"}, "3": {"no": "3"}}, {})
 
 
 def test_chain_runs_tables_and_formats_together_and_templates_together(monkeypatch):
-    """① 헤딩 · 템플릿 먼저 혼자 → ② 표 · ③ 서식이 같이 · ③ 의 템플릿끼리도 같이(PLAN_WORKERS 까지) — 실제로 겹쳐 도는지 본다(둘이 서로를 기다리면 시간 초과)."""
+    """① 헤딩 · 템플릿이 끝나면 ② 표(맺기) · ③ 서식이 같이 · ③ 의 템플릿끼리도 같이(LLM 자리 수까지) — 실제로 겹쳐 도는지 본다(둘이 서로를 기다리면 시간 초과).
+    여기 가짜 2단계는 표 판정 호출을 미리 걸지 않는다(TablesAhead.start 를 안 부름) — 그때 표는 전처럼 ① 뒤에 제 손으로 묻는다. 미리 거는 길은 tests/test_tables_ahead.py."""
     from app import analysis_llm
     sess = _fake_sess()
     job = _chain_job(sess)
@@ -482,8 +490,9 @@ def test_chain_runs_tables_and_formats_together_and_templates_together(monkeypat
     n = analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=plan)
     assert n == 43 and order[0] == "heads" and set(order[1:]) == {"tables", "T1", "T2", "T3"}
     steps = {p["key"]: p for p in job.parts}
-    assert [(p["key"], p["no"], p["status"]) for p in job.parts] == [("heads", 1, "ok"), ("tables", 2, "ok"), ("formats", 2, "ok")]
+    assert [(p["key"], p["no"], p["status"]) for p in job.parts] == [("heads", 1, "ok"), ("tables", 1, "ok"), ("formats", 2, "ok")]   # 헤딩이 돌면 표는 같은 번호(판정 호출이 같이)
     assert steps["formats"]["msg"].startswith("계획 받음 T1 · T2 · T3")   # 끝난 차례가 아니라 템플릿 차례
+    assert job.tables_ahead is not None and job.tables_ahead.started is False   # 걸어 두었지만 가짜 2단계가 시작하지 않음
 
 
 def test_chain_parallel_failure_keeps_the_other_and_stop_skips_unstarted_templates(monkeypatch):

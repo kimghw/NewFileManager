@@ -759,13 +759,47 @@ def temp_tables(temp):
     return skip, out
 
 
-def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None, temp=None, roles=None):
+def ask_tables(stage1, *, ask=None, pinned=None, temp=None, progress=None, tables=None, drafts=None):
+    """T 호출만 한다(spec ② §8 「헤딩 판정과 같이」) → asked {"answers": {표 id: 답 | None(그 호출이 실패 · 답에 그 표가 없음)}, "calls": [호출 기록], "guides": 쓴 지침,
+    "jobs": 호출 수, "sent": 보낸 표 수, "summary": 호출들의 요약 글}. 보낼 표 · 초안 · 자료는 **1단계 결과에서만** 나온다 — 2단계(헤딩 그래프)에 기대는 것은 표의 소속뿐이고 그것은 build 가 붙인다.
+    그래서 이 호출은 헤딩 판정(LLM)과 같이 돌 수 있다(heading_runs.TablesAhead). build(asked=…) 는 **같은 1단계 · 같은 TEMP** 로 부른다(표 id · 초안이 같아야 답이 맞는다).
+    ask = llm.ask_all 대신(시험). progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다. tables · drafts = build 가 이미 모은 것(없으면 여기서 모은다)."""
+    from app import llm
+    skip, _ = temp_tables(temp)
+    if tables is None:
+        tables = collect(stage1, skip)
+        drafts = {tb["id"]: draft(tb) for tb in tables}
+    jobs, used = t_jobs(tables, drafts, stage1, pinned, skip)
+    out = {"answers": {}, "calls": [], "guides": used, "jobs": len(jobs), "sent": sum(len(j["_tables"]) for j in jobs), "summary": ""}
+    if not jobs:
+        return out
+    if progress is not None:
+        progress(0, len(jobs))
+    clean = [{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]
+    results = ask(clean) if ask is not None else llm.ask_all(clean, progress=progress) if progress is not None else llm.ask_all(clean)
+    summaries = []
+    for job, res in zip(jobs, results):
+        out["calls"].append(HL._call_record(job, res))
+        data = res.get("data")
+        if not data:
+            for tid in job["_tables"]:
+                out["answers"][tid] = None
+            continue
+        if data.get("summary"):
+            summaries.append(str(data["summary"])[:300])
+        got = {str(t.get("table")): t for t in data.get("tables") or [] if isinstance(t, dict)}
+        for tid in job["_tables"]:
+            out["answers"][tid] = got.get(tid, {"subtables": [], "cells": []}) if tid in got else None
+    out["summary"] = " ".join(summaries)[:600]
+    return out
+
+
+def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None, temp=None, roles=None, asked=None):
     """3단계 — 1단계 결과 → 표 구조 dict(spec ② §8 + 표 의미 §9). ask = llm.ask_all 대신(시험). use_llm False 면 스크립트 초안만. pinned = 실행 시작 때 고정한 지침.
     stage2 = 같은 1단계 실행의 2단계 결과(있으면 표의 소속을 그래프에서, 없으면 1단계 어림). temp = TEMP 라벨(§15) — TEMP 표는 표 구조를 만들지 않는다(`tempTables` 에만).
-    roles = 사용자 헤더 지정 {표 id: {칸 id: rowhead | colhead | field}}(spec_owpml_편집 ② §5-4) — 초안·LLM 답 위에 덮는다(칸 `reason` 「사용자 지정」, 헤더 트리·수식은 그 역할로)."""
-    from app import llm
+    roles = 사용자 헤더 지정 {표 id: {칸 id: rowhead | colhead | field}}(spec_owpml_편집 ② §5-4) — 초안·LLM 답 위에 덮는다(칸 `reason` 「사용자 지정」, 헤더 트리·수식은 그 역할로).
+    asked = 미리 받은 T 호출의 답(ask_tables — 같은 stage1 · 같은 temp 로 물은 것: 헤딩 판정과 같이 돌린 것) — 주면 여기서는 묻지 않고 그 답을 붙인다(결과 `llm.ahead` = True)."""
     t0 = time.monotonic()
-    ask = ask or llm.ask_all
     skip, temp_list = temp_tables(temp)
     tables = collect(stage1, skip)
     drafts = {tb["id"]: draft(tb) for tb in tables}
@@ -775,28 +809,17 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
     for tb in tables:
         tb["llm"] = {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False}
     if use_llm and tables:
-        jobs, used = t_jobs(tables, drafts, stage1, pinned, skip)
-        guides.update(used)
-        info["sent"] = sum(len(j["_tables"]) for j in jobs)
+        got = asked if asked is not None else ask_tables(stage1, ask=ask, pinned=pinned, temp=temp, tables=tables, drafts=drafts)
+        calls, answers = list(got["calls"]), got["answers"]
+        guides.update(got["guides"])
+        info["sent"] = got["sent"]
         info["skipped"] = len(tables) - info["sent"]
-        results = ask([{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]) if jobs else []
-        summaries = []
-        for job, res in zip(jobs, results):
-            calls.append(HL._call_record(job, res))
-            data = res.get("data")
-            if not data:
-                for tid in job["_tables"]:
-                    answers[tid] = None
-                continue
-            if data.get("summary"):
-                summaries.append(str(data["summary"])[:300])
-            got = {str(t.get("table")): t for t in data.get("tables") or [] if isinstance(t, dict)}
-            for tid in job["_tables"]:
-                answers[tid] = got.get(tid, {"subtables": [], "cells": []}) if tid in got else None
-        info["summary"] = " ".join(summaries)[:600]
+        info["summary"] = got["summary"]
         info["calls"] = len(calls)
         info["failed"] = sum(1 for c in calls if c["response"] is None)
-        if jobs and info["failed"] == len(jobs):
+        if asked is not None:
+            info["ahead"] = True  # T 호출을 헤딩 판정과 같이 미리 돌린 실행(§8 「헤딩 판정과 같이」)
+        if got["jobs"] and info["failed"] == got["jobs"]:
             info["fallback"] = True
             info["error"] = next((c["error"] for c in calls if c.get("error")), "T 호출 실패")
     out_tables, repeats = [], defaultdict(list)

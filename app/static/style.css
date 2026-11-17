@@ -322,6 +322,9 @@ table.tbl td .para { line-height: 1.35; }
   display: grid; place-items: center; background: repeating-linear-gradient(45deg, #f4f5f8, #f4f5f8 6px, #eceef2 6px, #eceef2 12px);
   border: 1px dashed #b9c0cc; color: #6b7280; font: 11px "Malgun Gothic", sans-serif; text-align: center; overflow: hidden;
 }
+/* 글 속 그림(spec_hwpx_웹편집 ② §3-6 — app.js picNode): 한글은 글자처럼 취급한 그림의 아래끝을 줄(글자 상자)의 아래끝 = 기준선 아래 0.15em 에 둔다(PDF 실측) */
+.para .pic-in { display: inline-block; vertical-align: -0.15em; user-select: none; }
+.para .pic-ph { box-sizing: border-box; border: 1px dashed #b9c0cc; background: #f4f5f8; }
 .inline-row { display: flex; align-items: flex-end; gap: 2mm; flex-wrap: wrap; }
 .inline-row.center { justify-content: center; }
 .inline-row.right { justify-content: flex-end; }

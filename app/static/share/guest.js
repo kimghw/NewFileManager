@@ -213,6 +213,36 @@ function fillText(p, b, text = null) { // text 를 주면 그 글 한 덩이(남
     if (r.format) charLook(s, r.format, f);
     p.append(s);
   }
+  placePics(p, b.pics);
+}
+
+// 글 속 그림(spec_hwpx_웹편집 ② §3-6): 글이 있는 문단의 줄 안에 놓인 그림 — 블록의 pics [{id, at(그 그림 앞까지의 글자 수), media, widthMm, heightMm}] 를 글의 그 자리에 인라인으로 그린다
+// (그 그림 블록은 inlineOf 를 달고 온다 — renderImage 가 빈 자리 표시로). 그림은 글이 아니다 — readText·offsetAt·setCaret 은 글 노드만 센다.
+function placePics(p, pics) {
+  for (const x of [...(pics || [])].sort((a, z) => a.at - z.at).reverse()) { // 뒤 자리부터 · 같은 자리는 뒤 그림부터 — 늘 그 자리의 맨 앞에 넣으면 차례가 문서와 같다
+    const ext = (x.media || "").split(".").pop().toLowerCase(), ok = x.media && ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp"].includes(ext);
+    const n = ok ? new Image() : el("span", "pic-in pic-ph");
+    if (ok) { n.className = "pic-in"; n.alt = ""; n.draggable = false; n.src = `${BASE}/media?name=${encodeURIComponent(x.media)}`; }
+    n.dataset.pic = x.id;
+    n.contentEditable = "false";
+    n.style.width = `${x.widthMm || 4}mm`;
+    n.style.height = `${x.heightMm || 4}mm`;
+    const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    let left = Math.max(0, x.at || 0), hit = null, last = null;
+    for (let t; (t = w.nextNode());) { last = t; if (left <= t.data.length) { hit = t; break; } left -= t.data.length; }
+    if (!hit && last) { hit = last; left = last.data.length; }
+    if (!hit) { p.prepend(n); continue; }
+    let a = hit;
+    if (left > 0 && left < hit.data.length) { hit.splitText(left).before(n); continue; }
+    if (left === 0) { // 조각(런)의 맨 앞이면 조각 밖에 · 이미 놓인 그림들의 앞에
+      while (a.parentNode !== p && !a.previousSibling) a = a.parentNode;
+      while (a.previousSibling && a.previousSibling.nodeType === Node.ELEMENT_NODE && a.previousSibling.classList.contains("pic-in")) a = a.previousSibling;
+      a.before(n);
+    } else {
+      while (a.parentNode !== p && !a.nextSibling) a = a.parentNode;
+      a.after(n);
+    }
+  }
 }
 
 const BORDER = { SOLID: "solid", DASH: "dashed", DOT: "dotted", DASH_DOT: "dashed", DASH_DOT_DOT: "dashed", LONG_DASH: "dashed", CIRCLE: "dotted",
@@ -267,6 +297,7 @@ function renderTable(b) {
 }
 
 function renderImage(b) {
+  if (b.inlineOf) return el("span", "pic-held"); // 글 속 그림 — 그 문단이 글 속 제자리에 그린다(placePics)
   const w = b.widthMm || 30, h = b.heightMm || 20, ext = (b.media || "").split(".").pop().toLowerCase();
   const ph = () => { const d = el("div", `img img-ph ${b.align || ""}`, "그림"); d.style.width = `${w}mm`; d.style.height = `${h}mm`; return d; };
   if (!b.media || !["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp"].includes(ext)) return ph();

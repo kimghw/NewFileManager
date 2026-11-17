@@ -68,7 +68,7 @@ function dsLlmChip(by, view, since) { // LLM — 넷 가운데 LLM 칸이 끝난
   return { ...base, text: "LLM", mark: !done ? "안 함" : done === rows.length ? "✓" : `${done}/${rows.length}`, cls: done === rows.length ? "ok" : done ? "" : "off", title: lines + how };
 }
 const DS_STEP = { heads: "헤딩", tables: "표", formats: "서식" };
-const DS_ORDER = "헤딩 · 템플릿을 먼저, 그 뒤 표와 서식(계획만)을 같이"; // 차례(app/analysis_llm.py — 표 · 서식은 헤딩 그래프에만 기대고 서로는 기다리지 않는다)
+const DS_ORDER = "헤딩 · 템플릿과 표 판정을 같이, 그 뒤 서식(계획만 — 템플릿끼리 같이)"; // 차례(app/analysis_llm.py — 표 판정 호출은 1단계에만 기대어 헤딩 판정과 같이 돌고, 서식 계획은 헤딩 그래프가 끝난 뒤: 2026-11-17)
 
 function dsDivision(d, main) { // 구분 기준 LLM 검토(옵션)
   const base = { go: "DivReview" }, how = "저절로 돌지 않습니다 — 「작업 내용」 의 검토 결과 열에서 「LLM 검토 실행」 으로 돌립니다(유료)";
@@ -242,7 +242,7 @@ function dsWith(list, live) { // → (x) => 같이 도는가 — 차례 번호(n
 }
 function dsWithEl() {
   const b = el("span", "ds-with", "같이");
-  b.title = "같은 번호의 일은 같이 돕니다 — 서로를 기다리지 않습니다(둘 다 헤딩 · 템플릿의 결과에만 기댑니다)";
+  b.title = "같은 번호의 일은 같이 돕니다 — 서로를 기다리지 않습니다(표 판정의 호출은 헤딩 판정과 같이 돌고 소속만 헤딩 그래프가 끝난 뒤 붙입니다 · 헤딩을 건너뛰면 표와 서식 계획이 같이)";
   return b;
 }
 function dsStepNo(no) { const s = el("span", "ds-step-no", String(no)); s.title = `차례 ${no}`; return s; }
@@ -355,7 +355,7 @@ function dsRunning() { // 작업 진행 에이전트의 진행 카드(doc_agent_
   const run = ((v.chain || {}).steps || []).filter((x) => x.status === "running"), short = (x) => DS_STEP[x.key] || x.name; // 표 · 서식은 같이 돈다 — 둘 다 적는다
   const note = !run.length ? "진행 중" : run.length === 1 ? `${run[0].name}${run[0].msg ? ` — ${run[0].msg}` : ""}`
     : `${run.map(short).join(" · ")} 같이 — ${run.map((x) => `${short(x)}: ${x.msg || "도는 중"}`).join(" / ")}`;
-  return { label: "LLM 검증·보완 — 헤딩 · 템플릿 → 표 · 서식(계획만) 같이", note, t0: v.job.started ? v.job.started * 1000 : 0,
+  return { label: "LLM 검증·보완 — 헤딩 · 표 판정 같이 → 서식(계획만)", note, t0: v.job.started ? v.job.started * 1000 : 0,
     stopping: !!(v.chain && v.chain.stopping), stop: () => dsLlmStop() };
 }
 

@@ -3,7 +3,7 @@
 // app.js 는 할 일별 가지만 둔다(gatherOn() 이면 여기로 — 이관의 taskSteps·taskRun*·links*·fill* 은 취합에서 안 부른다):
 //   taskRow → gatherFlowEl(첫 카드) · taskFlowLoad → gatherLoad · taskStepsDraw → gatherStepsDraw · docSwitchDraw → gatherWorks · taskFrameHost(#gatherStage 안에 과제 구성 입력) ·
 //   peerDocs/peerLeft/peerSync → gatherPeerDocs/gatherPeerLeft/gatherPeerMark(둘째 면) · outlineGrip 의 dragstart → gatherGripStart(끌어 넣기 출발) · 창의 파일 놓기 → gatherDragIs(이 형식은 안 받음).
-// 첫 카드: 「사업계획서(취합본)」 칸 하나(이관의 칸 그대로 — taskSlot·taskSlotUp) + 기관 문서 줄 N + 「기관 문서 추가」 + 기관 현황 한 줄 + 기관 구역 줄 + 묶음 셋(1단계 구분 기준 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 — 이관과 같은 모양).
+// 첫 카드: 「사업계획서(취합본)」 칸 하나(이관의 칸 그대로 — taskSlot·taskSlotUp) + 기관 문서 줄 N + 「기관 문서 추가」 + 기관 현황 한 줄 + 편집 구역 줄(zones.js zonesBarEl — 전의 기관 구역 줄) + 묶음 셋(1단계 구분 기준 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 — 이관과 같은 모양).
 // 2열(headsDlg): 「기관 작성 내용」(kind gather — 기관 문서마다) · 「넣기 계획」(gatherFill) · 「끌어 넣기」(gatherDrop). 취합본은 사람이 확인한 뒤에만 바뀐다(계획 → 「반영」 · 「한 번에 진행」 은 누를 때 한 번).
 // 화면 말(실무자용): 기관이 쓴 덩어리 = 「기관 작성 내용」, 상태 = 넣을 수 있음·이미 들어 있음·겹침·다른 기관 자리·반영할 기관 미지정·확인 필요·표 구조가 다름·양식 글이 바뀜·지워짐·계산 칸.
 
@@ -118,7 +118,7 @@ async function gatherLoad() {
   Object.assign(g, { view: err ? g.view : view, err, missing, loading: false, div });
   gatherDraw();
   peerSync(); // 둘째 면의 탭 = 그 취합에 든 기관 문서
-  gatherZonesLoad(); // 기관 구역 표시(② §9-2) — 반영·실행 취소·구분 기준 반영 뒤에도 이 길로 다시 읽는다
+  if (typeof zonesLoad === "function") zonesLoad(); // 편집 구역(zones.js — 전의 기관 구역 표시: ② §9-2) — 반영·실행 취소·구분 기준 반영 뒤에도 이 길로 다시 읽는다
 }
 function gatherViewSet(V, wipe = false) { // 조작의 응답(취합 상태 몸통)을 화면 상태로 — wipe = 기준본이 바뀌어 읽어 둔 작성 내용·계획이 모두 낡음
   const g = gt();
@@ -1452,153 +1452,12 @@ if (PEEK) { // 둘째 면 화면 — 손잡이의 도움말(끌어 넣기 출발
 } else gatherBindDrop();
 
 // ---- 기관 구역 표시(spec_취합 ② §9-2 — 2026-11-13 사용자 "문서 프레임 작성할 때, 내용매핑할때 항시 각 기관이 작성하는 구역이 식별이 되어야함. 목적문서에서 그 작성 내용을 확인할 수도 있어야함").
-// GET …/gather/zones → 취합본에 기관 구역(문단·표 오른쪽 띠 + 구역 첫 블록 옆 오른쪽 여백의 이름 꼬리표 · 기관 칸) · 넣은 내용(그 기관 색 바탕 · 도움말 「<기관> — <기관 문서> 에서 넣음」).
-// 카드의 「기관 구역」 줄(보기/감추기 — 기본 보기 · 기관마다 칩 · 목록) · 2열 「기관 구역」(kind gatherZones). 둘째 면(기관 문서)에는 안 그린다. 같은 자료를 나중의 「어떤 내용이 취합되었는지」 표시가 쓴다(④ ⓙ)
-const GZ_KEY = "nfm.gatherZones";
-const GZ_COLORS = 8; // 기관 색 수(gather.css [data-gz="0".."7"] — 그 뒤 기관은 돌려 씀) · 기관 모름 = "u"
-function gatherZonesOn() { try { return localStorage.getItem(GZ_KEY) !== "off"; } catch { return true; } }
-function gzState() { const g = gt(); return (g.zones ||= { data: null, loading: false, err: "", missing: false, seq: 0, key: "" }); }
-function gzOrgs(Z) { // 기관 열쇠 → {i(색 차례 | "u"), name, role}
-  const m = new Map(((Z && Z.orgs) || []).map((o, i) => [o.key, { i: String(i % GZ_COLORS), name: o.name || o.key, role: o.role }]));
-  return (key, kind) => (kind === "unknown" || !key ? { i: "u", name: "기관 모름", role: "" } : m.get(key) || { i: "u", name: key, role: "" });
-}
-async function gatherZonesLoad() { // 취합 상태를 읽을 때마다(gatherLoad) — 표시가 켜져 있거나 목록이 열려 있을 때만. 서버가 같은 상태면 다시 안 센다(메모리)
-  if (PEEK || !gatherOn()) return;
-  const plan = gatherPlan(), Z = gzState(), g = gt(), epoch = state.epoch;
-  if (!plan || (!gatherZonesOn() && heads.dlg !== "gatherZones")) { gatherZonesDraw(); return; }
-  const seq = ++Z.seq;
-  Z.loading = true;
-  gatherZonesLineDraw();
-  try { Z.data = await api(`/api/docs/${plan.id}/gather/zones`); Z.err = ""; Z.missing = false; Z.key = plan.id; }
-  catch (e) { Z.err = e.message; Z.missing = e.status === 404 && e.message === "Not Found"; }
-  if (epoch !== state.epoch || g !== gatherState || seq !== Z.seq) return;
-  Z.loading = false;
-  gatherZonesLineDraw();
-  gatherZonesDraw();
-  if (heads.dlg === "gatherZones") gatherZonesList(null, true);
-}
-function gatherZonesEl() { // 카드의 「기관 구역」 줄(.gt-zones) — gatherFlowEl 이 넣고 gatherDraw 가 바꿔 끼운다
-  const box = el("div", "gt-zones"), Z = gzState(), D = Z.key === (gatherPlan() || {}).id ? Z.data : null, on = gatherZonesOn();
-  box.dataset.gz = on ? "on" : "off";
-  if (!gatherPlan()) { box.hidden = true; return box; }
-  const head = el("div", "gt-zones-head");
-  head.append(el("strong", null, "기관 구역"), hHelp("기관 구역 안내", "취합본에서 기관마다 작성하는 구역(그 기관의 절 · 표의 기관 칸)을 기관 색의 띠와 오른쪽 여백의 이름표로 보이고, 기관 문서에서 넣은 내용은 그 기관 색의 바탕으로 보입니다. 문서 프레임 작성과 내용 매핑 동안 늘 볼 수 있습니다. 칩이나 「목록」 을 누르면 문서 옆 열에 기관별 구역과 넣은 내용이 나옵니다.", { note: true }));
-  const tg = hBtn(on ? "감추기" : "보기", () => { try { localStorage.setItem(GZ_KEY, on ? "off" : "on"); } catch { /* 기억만 안 함 */ } if (on) { gatherZonesDraw(); gatherZonesLineDraw(); } else gatherZonesLoad(); },
-    { cls: "btn sm gt-zones-toggle" + (on ? " on" : ""), title: "취합본에 기관 구역·넣은 내용 표시 보이기/감추기(이 브라우저에 기억)" });
-  tg.setAttribute("aria-pressed", String(on));
-  tg.dataset.gatherZones = "toggle";
-  const list = hBtn("목록", () => gatherZonesList(), { title: "문서 옆 열에 기관별 구역과 넣은 내용 목록을 엽니다 — 줄을 누르면 그 자리로" });
-  list.dataset.gatherZones = "list";
-  head.append(tg, list);
-  box.append(head);
-  const chips = el("div", "gt-zones-chips");
-  if (Z.loading && !D) chips.append(el("span", "dv-caption", "구역을 세는 중…"));
-  else if (Z.err && !D) chips.append(el("span", "dv-caption", Z.missing ? "기관 구역은 서버를 다시 시작한 뒤에 볼 수 있습니다(새 기능)" : `구역을 읽지 못했습니다: ${Z.err}`));
-  else if (D && (D.reasons || []).includes("noValues")) chips.append(el("span", "dv-caption", "프로젝트 구성 값이 없어 구역을 셀 수 없습니다 — 1단계 「프로젝트 구성」 에서 정하세요"));
-  else if (D) {
-    const org = gzOrgs(D), per = new Map();
-    const bump = (k, f, n = 1) => { const e = per.get(k) || { zones: 0, put: 0, key: k }; e[f] += n; per.set(k, e); };
-    for (const z of D.zones || []) bump(z.kind === "unknown" || !z.org ? "?" : z.org, "zones");
-    for (const a of D.applied || []) if ((a.ids || []).length) for (const k of (a.orgs || []).length ? a.orgs : ["?"]) bump(k, "put");
-    const keys = [...(D.orgs || []).map((o) => o.key), ...(per.has("?") ? ["?"] : [])];
-    for (const k of keys) {
-      const e = per.get(k) || { zones: 0, put: 0 }, o = org(k === "?" ? null : k, k === "?" ? "unknown" : "org");
-      const chip = el("button", "dv-chip gz-chip", `${o.name} 구역 ${nf(e.zones)}${e.put ? ` · 넣은 내용 ${nf(e.put)}` : ""}`);
-      chip.type = "button";
-      chip.dataset.gz = o.i;
-      chip.dataset.org = k;
-      chip.title = `${o.name}${o.role ? `(${GT_ROLE[o.role] || o.role})` : ""} — 작성 구역 ${nf(e.zones)}곳 · 기관 문서에서 넣은 내용 ${nf(e.put)}곳. 눌러서 목록`;
-      chip.onclick = () => gatherZonesList(k);
-      chips.append(chip);
-    }
-    if (!keys.length) chips.append(el("span", "dv-caption", "기관 구역을 찾지 못했습니다"));
-    if (D.rev !== state.serverRev && gatherMine()) chips.append(el("span", "dv-caption", "문서가 바뀜 — 다시 읽는 중"));
-  }
-  box.append(chips);
+// 2026-11-17 공통 모듈 「편집 구역」(zones.js — spec_구역 ② §6 「화면」)의 화면으로 바뀜: 취합 카드의 이 자리(.gt-zones)에 그 줄(#zonesBar — 「편집 구역」 · 체크 셋(취합은 기관이 기본으로 켜짐) · 「구역 표시」 보기/감추기 · 칩 · 「목록」)이 놓이고,
+// 문서의 구역 띠·오른쪽 여백 이름표·넣은 내용 바탕(도움말 「<기관> — 「<기관 문서>」 에서 넣음」) · 2열 목록(kind zones)도 그 모듈이 그린다. 자료 = GET /api/docs/<취합본>/zones — 취합 상태를 읽을 때마다(gatherLoad) 함께 읽는다.
+// 기관 문서를 보는 중에도 줄은 취합본의 것이고 문서 표시는 지금 문서가 취합본일 때만 · 둘째 면(기관 문서)에는 안 그린다(zones.js znTarget · znShown)
+function gatherZonesEl() { // 카드의 「편집 구역」 줄(.gt-zones) — gatherFlowEl 이 넣고 gatherDraw 가 바꿔 끼운다
+  if (typeof zonesBarEl === "function") return zonesBarEl({ gather: true });
+  const box = el("div", "gt-zones"); // zones.js 가 없는 화면 — 빈 자리(숨김)
+  box.hidden = true;
   return box;
-}
-function gatherZonesLineDraw() { const old = document.querySelector("#gatherFlow .gt-zones"); if (old) old.replaceWith(gatherZonesEl()); }
-
-function gatherZonesDraw() { // 문서(취합본)의 표시 — 쪽을 다시 나눌 때마다(app.js divMarksDraw) · 자료가 바뀔 때 · 켜고 끌 때. 읽기 단계(자리 재기)와 쓰기 단계(꼬리표 붙이기)를 나눈다(references/브라우저_강제배치_비용.md)
-  const doc = typeof $ === "function" ? $("doc") : null;
-  if (!doc) return;
-  for (const t of doc.querySelectorAll(".gz-tag")) t.remove();
-  for (const n of doc.querySelectorAll(".gz-in, .gz-put, .gz-cell")) {
-    n.classList.remove("gz-in", "gz-head", "gz-put", "gz-cell");
-    delete n.dataset.gz;
-    if (n.dataset.gzTitle) { n.removeAttribute("title"); delete n.dataset.gzTitle; }
-  }
-  const Z = !PEEK && gatherOn() && gatherZonesOn() && gatherMine() ? gzState() : null, D = Z && Z.key === state.id ? Z.data : null;
-  if (!D) return; // #doc·body 에는 클래스를 달지 않는다(문서 전체 스타일 다시 셈 — gather.css 끌어 넣기 줄과 같은 까닭) — 표시는 요소마다
-
-  const org = gzOrgs(D), idx = new Map(), add = (k, e) => { const a = idx.get(k); if (a) a.push(e); else idx.set(k, [e]); };
-  for (const e of doc.querySelectorAll(".para[data-id], table.tbl[data-tbl], td[data-cell]")) add(e.dataset.id || e.dataset.tbl || e.dataset.cell, e);
-  const mark = (e, cls, o, title) => { e.classList.add(cls); e.dataset.gz = o.i; if (title && !e.title) { e.title = title; e.dataset.gzTitle = "1"; } };
-  const heads = [];
-  for (const z of D.zones || []) {
-    const o = org(z.org, z.kind), name = `${o.name}${z.year ? ` · ${z.year}차년도` : ""}`, tip = `기관 구역 — ${name}${(z.path || []).length ? `\n${z.path.slice(-2).join(" › ")}` : ""}`;
-    (z.ids || []).forEach((id, j) => { for (const e of idx.get(id) || []) { if (e.closest("td") && e.matches(".para")) continue; mark(e, "gz-in", o, tip); if (!j) heads.push({ e, o, name }); } }); // 칸 안 문단은 표가 맡는다
-  }
-  for (const [, cells] of Object.entries(D.cells || {})) for (const c of cells) { const o = org(c.org, c.kind); for (const e of idx.get(c.id) || []) mark(e, "gz-cell", o, `기관 칸 — ${o.name}`); }
-  for (const a of D.applied || []) {
-    const ks = a.orgs || [], o = ks.length === 1 ? org(ks[0], "org") : { i: "u", name: ks.length ? `기관 ${ks.length}곳` : "기관 미지정" };
-    const tip = `${o.name} — 「${a.name}」 에서 넣음${a.at ? `(${gatherWhen(a.at)})` : ""}${GT_KIND[a.kind] ? ` · ${GT_KIND[a.kind]}` : ""}`;
-    for (const id of a.ids || []) for (const e of idx.get(id) || []) { e.classList.add("gz-put"); e.dataset.gz = o.i; e.title = tip; e.dataset.gzTitle = "1"; } // 넣은 내용의 도움말이 구역 도움말보다 앞선다
-  }
-  const seen = new Set(), jobs = []; // 이름 꼬리표 — 구역 첫 블록의 쪽 오른쪽 여백(왼쪽 여백은 개요·표 표지 몫). 같은 쪽 같은 자리에 겹치면 아래로 민다
-  for (const h of heads) {
-    const sheet = h.e.closest(".sheet");
-    if (!sheet || seen.has(h.e)) continue;
-    seen.add(h.e);
-    const sr = sheet.getBoundingClientRect(), z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1;
-    jobs.push({ sheet, z, top: Math.round(h.e.getBoundingClientRect().top - sr.top), mgr: typeof sheetMarginPx === "function" ? sheetMarginPx(sheet, z) : 60, h });
-  }
-  const last = new Map(); // 쪽 → 마지막 꼬리표 아래끝(화면 px)
-  for (const j of jobs) {
-    const t = el("div", "gz-tag", j.h.name);
-    t.dataset.gz = j.h.o.i;
-    t.title = `기관 구역 — ${j.h.name}`;
-    t.style.zoom = String(1 / j.z);
-    t.style.setProperty("--mgr", `${j.mgr}px`);
-    const top = Math.max(j.top, (last.get(j.sheet) || -1e9) + 2);
-    t.style.top = `${top}px`;
-    last.set(j.sheet, top + 30);
-    j.sheet.append(t);
-  }
-}
-
-function gatherZonesList(only = null, keep = false) { // 2열 「기관 구역」 — 기관마다 구역 · 넣은 내용(줄을 누르면 그 자리로)
-  const Z = gzState(), plan = gatherPlan(), D = plan && Z.key === plan.id ? Z.data : null;
-  if (!plan) return;
-  if (!D) { if (!Z.loading) gatherZonesLoad(); if (!keep) headsDlg("gatherZones", "기관 구역", "구역을 세는 중…"); return; }
-  const top = keep ? $("headsDlgBody").scrollTop : 0;
-  if (keep) heads.keepFold = true;
-  const { tools, body, foot } = headsDlg("gatherZones", "기관 구역", `${plan.name} — 기관마다 작성하는 구역과 기관 문서에서 넣은 내용`);
-  heads.keepFold = false;
-  const c = D.counts || {};
-  tools.append(el("span", "muted", `구역 ${nf(c.zones || 0)}곳 · 블록 ${nf(c.blocks || 0)} · 기관 칸 ${nf(c.cells || 0)} · 넣은 내용 ${nf(c.applied || 0)}곳`));
-  const org = gzOrgs(D), go = (ids) => { const id = (ids || [])[0]; if (!id) return; if (!gatherMine()) { gatherToPlan().then((ok) => ok && gatherJump(id)); return; } gatherJump(id); };
-  const row = (tb, cells, ids) => { const tr = el("tr", ids && ids.length ? "go" : null); for (const [t, cls] of cells) hCell(tr, t, cls); if (ids && ids.length) { tr.tabIndex = 0; tr.onclick = () => go(ids); tr.onkeydown = (e) => { if (e.target === tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go(ids); } }; } tb.append(tr); };
-  const keys = [...(D.orgs || []).map((o) => o.key), ...((D.zones || []).some((z) => z.kind === "unknown" || !z.org) ? ["?"] : [])];
-  let target = null;
-  for (const k of keys) {
-    const o = org(k === "?" ? null : k, k === "?" ? "unknown" : "org"), zs = (D.zones || []).filter((z) => (k === "?" ? z.kind === "unknown" || !z.org : z.org === k));
-    const puts = (D.applied || []).filter((a) => (k === "?" ? !(a.orgs || []).length : (a.orgs || []).includes(k)));
-    const cap = el("div", "lk-cap gz-cap", `${o.name}${o.role ? `(${GT_ROLE[o.role] || o.role})` : ""} — 구역 ${nf(zs.length)} · 넣은 내용 ${nf(puts.filter((a) => (a.ids || []).length).length)}`);
-    cap.dataset.gz = o.i;
-    cap.dataset.org = k;
-    body.append(cap);
-    if (only && k === only) target = cap;
-    const [tbl, tb] = hTable(["구역 · 넣은 내용", "자리", "글"]);
-    tbl.classList.add("lk-table", "gt-table", "gz-table");
-    for (const z of zs) row(tb, [[`구역${z.year ? ` · ${z.year}차년도` : ""}`, "gz-what"], [(z.path || []).slice(-2).join(" › ") || "(맨 위)", "lk-place"], [`${oneLine(z.text || "") || "(글 없음)"}${(z.ids || []).length > 1 ? ` — 블록 ${nf(z.ids.length)}` : ""}`, "gt-text"]], z.ids);
-    for (const a of puts) row(tb, [[`넣은 내용 — ${GT_KIND[a.kind] || a.kind || ""}`, "gz-what gz-put-row"], [`「${a.name}」${a.at ? ` · ${gatherWhen(a.at)}` : ""}`, "lk-place"],
-      [`${(a.ids || []).length ? `블록·칸 ${nf(a.ids.length)}` : "지금 문서에 남아 있지 않음"}${a.gone ? ` · 없어진 것 ${nf(a.gone)}` : ""}`, "gt-text"]], a.ids);
-    if (!zs.length && !puts.length) { const tr = el("tr"), td = hCell(tr, "구역도 넣은 내용도 없습니다"); td.colSpan = 3; tb.append(tr); }
-    body.append(tbl);
-  }
-  if (!keys.length) body.append(el("p", "hnote", (D.reasons || []).includes("noValues") ? "프로젝트 구성 값이 없어 구역을 셀 수 없습니다 — 1단계 「프로젝트 구성」 에서 정하세요" : "기관 구역을 찾지 못했습니다"));
-  foot.append(el("span", "muted", "넣은 내용 = 기관 문서에서 넣은 기록 가운데 지금 문서에 남은 것(실행 취소·지움으로 없어지면 빠집니다)"), hBtn("다시 읽기", () => gatherZonesLoad(), { disabled: Z.loading }), hBtn("닫기", () => headsColClose()));
-  if (keep) $("headsDlgBody").scrollTop = top;
-  else if (target) target.scrollIntoView({ block: "start" });
 }

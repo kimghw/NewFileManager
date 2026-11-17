@@ -92,7 +92,7 @@ def test_agent_asks_for_logs_and_the_endpoint_reads_them(monkeypatch):
     monkeypatch.setattr(G, "ask", fake)
     t = c.post(f"/api/docs/{d}/agent/guide", json={"event": "say", "text": "아까 뭐 했지?", "steps": STEPS, "actions": PLAN}).json()["turn"]
     assert len(seen) == 3 and [s["logs"]["rounds"] for s in seen] == [2, 1, 0]                                 # 두 번 읽고, 셋째 부름에는 더 읽을 수 없다(청해도 읽지 않는다)
-    assert [x["log"] for x in seen[0]["logs"]["index"]] == ["work", "peers", "verify", "agent", "llm", "server"] and any(" create " in line for line in seen[0]["logs"]["recent"])
+    assert [x["log"] for x in seen[0]["logs"]["index"]] == ["work", "peers", "verify", "agent", "zones", "llm", "server"] and any(" create " in line for line in seen[0]["logs"]["recent"])
     assert seen[0]["read"] == [] and [r["log"] for r in seen[1]["read"]] == ["work", "nope"] and seen[1]["read"][0]["lines"] and "그런 로그가 없습니다" in seen[1]["read"][1]["error"]
     assert [r["log"] for r in seen[2]["read"]] == ["work", "nope", "server"] and '"logsRead"' in seen[2]["prompt"] and '"logsRead"' not in seen[0]["prompt"]
     assert t["llm"] and t["reply"].startswith("방금 문서를 올렸고") and t["notes"][0].startswith("로그를 읽었습니다 — 작업 기록 ") and "서버 로그 " in t["notes"][0]

@@ -241,7 +241,7 @@ def _scrub(doc, p) -> None:
         for ch in [c for c in r if c.tag != T]:
             r.remove(ch)
         for t in r.iterchildren(T):
-            doc._write_t(t, doc._slot_text(t))
+            doc._rewrite_t(t, doc._slot_text(t))  # 통째로 다시 씀(표지·낯선 자식을 걷음) — _write_t 는 같은 글이면 자식째 그대로 둔다(spec_owpml_편집 ② §2 「글 고침」)
 
 
 def _img_fill(src, el) -> bool:

@@ -67,6 +67,8 @@ table.tbl td .para { line-height: 1.35; }
 .img { display: block; max-width: 100%; }
 .img.center { margin: 0 auto; }
 .img.right { margin-left: auto; }
+.para .pic-in { display: inline-block; vertical-align: -0.15em; user-select: none; } /* 글 속 그림 — 아래끝 = 줄 아래끝(spec_hwpx_웹편집 ② §3-6) */
+.para .pic-ph { box-sizing: border-box; border: 1px dashed var(--line); }
 .img-ph { display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); font: 11px/1.3 "Malgun Gothic", sans-serif; }
 
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(520px, calc(100% - 24px)); padding: 7px 12px; border-radius: 6px; background: #1c2330; color: #fff; font-size: 12px; z-index: 10; }

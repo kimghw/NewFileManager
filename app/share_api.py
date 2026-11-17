@@ -661,6 +661,8 @@ def slim(blocks) -> list:
                 x["runs"] = [{"text": r.get("text") or "", "format": _fmt(r.get("format"))} for r in b["runs"]]
             if (b.get("list") or {}).get("label"):
                 x["label"] = b["list"]["label"]
+            if b.get("pics"):  # 글 속 그림 — 글과 같은 줄의 그 자리에 그린다(spec_hwpx_웹편집 ② §3-6)
+                x["pics"] = [{k: q.get(k) for k in ("id", "at", "media", "widthMm", "heightMm")} for q in b["pics"]]
         elif t == "table":
             x = {"id": b["id"], "type": t, "nRows": b.get("nRows"), "nCols": b.get("nCols"), "borderFills": b.get("borderFills") or {},
                  "cells": [{**{k: c[k] for k in _CELL if c.get(k) is not None}, "blocks": slim(c.get("blocks"))} for c in b.get("cells") or ()]}
@@ -668,7 +670,7 @@ def slim(blocks) -> list:
             x = {"id": b["id"], "type": t, "media": b.get("media"), "widthMm": b.get("widthMm"), "heightMm": b.get("heightMm")}
         else:
             continue
-        for k in ("align", "inlineRow", "captionOf", "page"):
+        for k in ("align", "inlineRow", "inlineOf", "captionOf", "page"):
             if b.get(k) is not None:
                 x[k] = b[k]
         out.append(x)

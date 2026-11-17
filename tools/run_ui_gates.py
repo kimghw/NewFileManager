@@ -24,6 +24,7 @@ GATES = {
     "peer": ("smoke_peer_ui.py", True, "같이 보기 — 두 면"),
     "peer_follow": ("smoke_peer_follow_ui.py", True, "같이 보기 — 누른 자리 따라 보기(원본 자리 지도는 흉내)"),
     "gather": ("smoke_gather_ui.py", True, "취합 — 기관 문서 줄 · 배포 기준본 · 기관 작성 내용 · 넣기 계획 · 끌어 넣기 · 한 번에 진행(끝점은 흉내)"),
+    "zones": ("smoke_zones_ui.py", True, "편집 구역 — 「작업 내용」 의 줄(체크 셋 = TASK 옵션 · 「구역 표시」 보기/감추기 · 칩) · 문서의 띠·오른쪽 여백 이름표 · 이름 줄 색 설명 · 「구역 지정…」(떠 있는 입력 · 고치기 · 해제 · 표 칸 = 표) · 목록 · 편집 뒤 다시 읽기 · 새로 고침 · 배율 · 옵션 409(진짜 끝점)"),
     "over": ("smoke_over_ui.py", True, "넘친 개요 레벨 — 넣기 계획의 절 · 처리 셋(덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿) · 넣은 줄에 다시 맞추기(이관·취합 — 끝점은 흉내)"),
     "gather_quick": ("smoke_gather_quick_ui.py", True, "취합 간단 모드 — 시작 화면 목록에서 목적 문서 고르기 → 자동 진행이면 끝까지(진짜 끝점) · 끄면 올리고 등록만"),
     "home_files": ("smoke_home_files_ui.py", True, "시작 화면 문서 목록 — 모아 두기 · 목적 문서 · 별칭 · TASK 없이 열기 · 이관 두 문서 · 양식 맞추기"),
@@ -49,6 +50,8 @@ GATES = {
     "doc_diff": ("smoke_doc_diff_ui.py", True, "문서에서 고친 곳 보기(깃처럼) — 넣은 글 초록 · 지운 자리 빨간 물결 · 띠(M 주황 · A 초록) · 오른쪽 여백 꼬리표(무엇이 → 올리면 어떻게 → 누르면 「고친 문단」 항목) · 치는 대로 · 배율 · 켬·끔 기억 · 되돌리기 · 다른 문서(진짜 끝점)"),
     "doc_quick": ("smoke_doc_quick_ui.py", True, "문서 이름 줄의 표시 아이콘 — 여백의 템플릿 표시 「T1 L2」 · 서식 라벨 「S41」 을 따로 켜고 끔 · 열 위 단추와 같은 값 · 기억 · 좁은 폭 · docx·분석 전 문서(진짜 끝점)"),
     "outline_lift": ("smoke_outline_lift_ui.py", True, "표 제목을 템플릿의 L1 으로 — 「템플릿 관계」 의 「표를 L1 으로」(같은 꼴 1칸 제목 표 한 번에) · 여백 표시 · 표 줄의 Enter · 거절 · 떼기 · 실행 취소 · 넓힘(번호 칸 + 제목 칸 띠 · 3행 표 · 닻 없는 같은 꼴 · 표 레벨 여러 층)(진짜 끝점)"),
+    "heading_bands": ("smoke_heading_bands_ui.py", True, "띠 표 줄 — 「별첨N | 제목」 이름표 띠 표를 헤딩 추출이 줄로(그래프 노드 · 맨 뒤 번호의 띠 표 템플릿) · 여백 표시 「TN L1」 · 「템플릿 관계」 의 「L1 = 별첨·부록 표 제목」·레벨 줄 「표 제목 · 별첨N」 · Enter 거절 · 「표를 L1 으로」 400(진짜 끝점)"),
+    "caption_tpl": ("smoke_caption_tpl_ui.py", True,"캡션 템플릿 「CN」 — 여백의 보라 「C1」(다른 서식 「≠」 · TEMP 제외) · 「템플릿 관계」 끝의 「캡션 템플릿」 절(서식 목록 · 대표로 · 이 줄들만 맞추기 · 대표에 맞추기 · 실행 취소) · 표시를 눌러 그 서식으로(진짜 끝점)"),
     "outline_grow": ("smoke_outline_grow_ui.py", True,"개요 레벨 더하기 — 마지막 레벨 줄의 Alt+↓ → 후보 창(레터 · 레터 앞 빈칸 · 둘째 줄 · 직접 입력) · 키 · 더하기 · 거절 · 실행 취소(진짜 끝점)"),
     "para_letter": ("smoke_para_letter_ui.py", True, "레터 넣기 — 「문단 수정」 묶음의 단추 → 단추 아래 메뉴(개요 레벨 · 번호 · 기호 · 직접 입력 · 레터 빼기) · 이어서/처음부터 · 여러 문단 · 거절 · 실행 취소(진짜 끝점)"),
     "share": ("smoke_share_ui.py", True, "hwpx 공유 — 「공유」 단추 · 떠 있는 창 · 손님(공유 포트 = 포트 + 700)의 키 넣기 · 글이 오감 · 작성 중 · 줄 나누기/합치기 · 공유폴더 저장 · 끄기(진짜 끝점)"),
@@ -60,6 +63,7 @@ GATES = {
     "table_cells": ("smoke_table_cells_ui.py", False, "표 칸 고르기·행/열"),
     "heading_drift": ("smoke_heading_drift_ui.py", False, "뼈대 유지"),
     "zoom": ("smoke_zoom_lazy_ui.py", False, "배율 — 쪽 상자마다 · 보이는 쪽부터(옆 열 여닫기 · 맞춤 · 2쪽 · 창 크기)"),
+    "text_pics": ("smoke_text_pics_ui.py", False, "글 속 그림 — 글과 같은 줄의 그 자리에(표 칸 · 본문 · 글 고치기 · 문단 나누기)"),
     "edit_speed": ("smoke_edit_speed_ui.py", False, "구조 편집 속도 — 시간을 재므로 같이 돌리면 수치가 부푼다(혼자 돌릴 것)"),
 }
 ap = argparse.ArgumentParser()

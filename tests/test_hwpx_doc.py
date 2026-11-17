@@ -496,6 +496,55 @@ def test_inline_objects_in_one_paragraph_share_a_row():
     assert all("inlineRow" not in b for b in images())
 
 
+def test_inline_picture_in_a_text_paragraph_rides_in_the_text():
+    # 글이 있는 문단에 글자처럼 취급으로 놓인 그림(글머리 아이콘 「▶ 제목」 — <run><pic/><t> 제목</t></run>): 한글은 글과 같은 줄의 그 자리에 놓는다.
+    # 문단 블록에 pics [{id, at(그 그림 앞까지의 글자 수), …}] · 그 그림 블록에 inlineOf(문단 id) — 블록 목록·차례는 그대로이고 그 그림은 inlineRow 를 안 받는다
+    # (웹이 그림을 글 아래 줄에 따로 그려 1줄 표가 2줄 높이가 되던 것 — 2026-11-17 사용자, spec_hwpx_웹편집 ② §3-6)
+    import copy
+    d = HwpxDoc(_bytes(SMALL))
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), "red").save(buf, "PNG")
+    iid = d.insert_image(d.blocks()[1]["id"], buf.getvalue(), "png")
+    pic = d._ids[iid]
+    run = pic.getparent()
+
+    def read():
+        d._blocks_cache = None   # XML 을 직접 고치는 시험 — blocks() 캐시를 비움
+        bl = d.blocks()
+        k = next(i for i, b in enumerate(bl) if b["id"] == iid)
+        return bl[k - 1], bl[k]
+
+    assert "inlineOf" not in read()[1]                      # 글 없는 문단의 그림 — 전처럼 따로(문단 블록이 없다)
+    for t in run.findall(f"{{{HP}}}t"):
+        run.remove(t)
+    tail = etree.SubElement(run, f"{{{HP}}}t")
+    tail.text = " 제목"
+    para, img = read()
+    assert para["type"] == "paragraph" and para["text"] == " 제목"
+    assert para["pics"] == [{"id": iid, "at": 0, "media": img["media"], "widthMm": img["widthMm"], "heightMm": img["heightMm"]}]
+    assert img["type"] == "image" and img["inlineOf"] == para["id"] and "inlineRow" not in img
+    head = etree.Element(f"{{{HP}}}t")
+    head.text = "앞글"
+    pic.addprevious(head)                                   # 글 사이의 그림 — 그 그림 앞까지의 글자 수
+    para, img = read()
+    assert para["text"] == "앞글 제목" and [x["at"] for x in para["pics"]] == [2]
+    d.set_text(para["id"], "앞글 새 제목")                    # 글을 고쳐도 그림은 그 자리(글만 고친다)
+    para, img = read()
+    assert para["text"] == "앞글 새 제목" and [x["at"] for x in para["pics"]] == [2] and img["inlineOf"] == para["id"]
+    twin = copy.deepcopy(pic)
+    pic.addnext(twin)                                       # 글 속 그림 둘 — 둘 다 글 속에(나란히 묶음 inlineRow 가 아니다)
+    d._blocks_cache = None
+    imgs = [b for b in d.blocks() if b["type"] == "image"]
+    assert [b.get("inlineOf") for b in imgs] == [para["id"]] * 2 and all("inlineRow" not in b for b in imgs)
+    assert [x["at"] for x in next(b for b in d.blocks() if b["id"] == para["id"])["pics"]] == [2, 2]
+    run.remove(twin)
+    pic.find(f"{{{HP}}}pos").set("treatAsChar", "0")        # 글자처럼 취급이 아닌 그림(떠 있는 그림) — 글 속 그림이 아니다
+    para, img = read()
+    assert "pics" not in para and "inlineOf" not in img
+    out = _check(d.save())                                   # 저장본도 멀쩡
+    assert any(b["type"] == "image" for b in out.blocks())
+
+
 def test_copy_keeps_objects_of_one_paragraph_together():
     # 한 문단에 나란히 놓인 그림은 다른 문서로 복사해도 한 문단 — 그림마다 문단으로 풀려 두 줄이 되던 것(2026-11-12 사용자, spec_병합 ② §5 「한 문단의 표·그림」).
     # insert_after 의 계약은 그대로: items 와 같은 차례·같은 수의 id.

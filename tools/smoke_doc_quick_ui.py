@@ -6,7 +6,7 @@
 
 문서 셋을 올린다: ㉮ 연구개발계획서 양식(hwpx — 1·2단계를 끝점으로 돌림) ㉯ 기술수요조사서(hwpx — 분석 전) ㉰ 기술수요조사서(docx).
 - ㉮ 이름 줄: 문서 이름 바로 뒤(파일 크기 앞)에 아이콘 둘 「템플릿 표시」 · 「서식 라벨 표시」 — 글 없음 · 28px 이하 · 줄 높이 35px 그대로 · 넘침 없음.
-- 처음(기억 없음): 템플릿 표시 켜짐(눌림) · 서식 라벨 꺼짐 — 여백에 「TN Lk」 만.
+- 처음(기억 없음): 템플릿 표시 켜짐(눌림) · 서식 라벨 꺼짐 — 여백에 「TN Lk」 만(캡션 줄은 캡션 템플릿 「C1」 — 템플릿 표시와 같이 켜지고 꺼진다).
 - 「서식 라벨 표시」 → 「S…」 가 보이고 눌림 · 「템플릿 표시」 를 끄면 「TN Lk」 는 사라지고 **서식 라벨만** 남는다(끌기 손잡이는 그대로) · 둘 다 끄면 표시 없음 · 다시 켜면 돌아옴.
 - 아이콘은 2열을 열지 않는다 · 「템플릿 관계」 열 위의 「문서 표시」·「서식 라벨」 단추와 같은 값(어느 쪽을 눌러도 함께 바뀜 · 「서식 라벨」 단추는 「문서 표시」 를 꺼도 눌린다).
 - 새로 고침해도 기억(이 브라우저).
@@ -94,7 +94,7 @@ ROW = """() => { const row = document.getElementById('fileInfo'), vis = (e) => !
     meta: vis(document.getElementById('fileMeta')), tpl: btn('nameTplMarks'), fmt: btn('nameFmtMarks'), tbl: btn('nameTblMarks'),
     nameW: Math.round((vis(document.getElementById('docSwitch')) ? document.getElementById('docSwitch') : document.getElementById('fileName')).getBoundingClientRect().width) }; }"""
 # 여백 표시 — 템플릿 표(「TN Lk」 — .tpl-mark 가운데 서식 라벨 줄이 아닌 것) · 서식 라벨(아래 줄 .tpl-mark.fmt + 같은 줄 .tm-fmt) · 끌기 손잡이 · 2열
-MARKS = """() => ({ tpl: document.querySelectorAll('#doc .tpl-mark:not(.fmt)').length, tplText: [...document.querySelectorAll('#doc .tpl-mark:not(.fmt)')].slice(0, 40).every((e) => /T\\d+ L\\d+|TEMP|새 /.test(e.textContent)),
+MARKS = """() => ({ tpl: document.querySelectorAll('#doc .tpl-mark:not(.fmt)').length, tplText: [...document.querySelectorAll('#doc .tpl-mark:not(.fmt)')].slice(0, 40).every((e) => /T\\d+ L\\d+|^C\\d+|TEMP|새 /.test(e.textContent)),  // 「C1」 = 캡션 템플릿 표시(spec_hwpx_웹편집 ② §8-10) — 템플릿 표시와 같이 켜지고 꺼진다
   fmt: document.querySelectorAll('#doc .tpl-mark.fmt, #doc .tpl-mark .tm-fmt').length, fmtText: [...document.querySelectorAll('#doc .tpl-mark.fmt')].slice(0, 40).every((e) => /^(S\\d+|≠|≈)/.test(e.textContent)),
   grips: document.querySelectorAll('#doc .ol-grip').length, col: !document.getElementById('headsDlg').hidden })"""
 COLBTN = """() => { const q = (c) => { const b = document.querySelector('#headsDlg ' + c); return b ? { pressed: b.getAttribute('aria-pressed'), off: b.disabled } : null; };

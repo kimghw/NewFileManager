@@ -17,7 +17,8 @@ REPORT_FORM = ROOT / "samples" / "국가RnD_서식" / "KEIT_표준서식_260320"
 CACHE = ROOT / "artifacts" / "merge_fixture"
 # 추출 판 — 캐시 열쇠에 든다. 추출 결과(헤딩 그래프 · 표 구조)가 달라지는 코드를 고치면 올린다(공유 폴더라 지우지 않는다 — 옛 판의 파일은 안 쓰일 뿐).
 # 2: 2026-11-17 「잇닿은 사슬」(spec_헤딩_추출 ② §6 — 레터가 같고 레벨만 건너뛰거나 늘어난 사슬은 부모 템플릿의 그 레벨).
-GRAPH_VER = 2
+# 3: 2026-11-17 「띠 표 줄」(spec_헤딩_추출 ② §6 — 본문의 이름표 띠 표 「별첨N | 제목」 이 그래프의 줄 · 그 아래 줄의 부모).
+GRAPH_VER = 3
 SMALL_VALUES = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"], "nonprofit": [False, True, False]},
                 "period": {"start": "2026-03-01", "end": "2027-12-31"}, "current": 1}
 _MEMO = {}

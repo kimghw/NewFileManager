@@ -513,7 +513,8 @@ def merge_link_comment(doc_id: str, body: dict = Body(...)):
 _LAST = {}   # 작업 저장이 꺼졌을 때의 merge_llm_last.json
 GUIDE_STEPS = {"merge-links": "자리 연결 LLM 검토", "division-review": "구분 기준 LLM 재검토", "division-missing": "구분 기준 — 빠진 자리 검토", "gather": "취합 LLM 검토",
                "table-map": "표 대응 에이전트",   # 표 대응(spec_병합 ② §5-3) — 표마다 한 단위
-               "gaps": "빈 자리 검토"}   # 빈 자리 검토(spec_병합 ② §5-4) — 목적 문서의 장마다 한 단위
+               "gaps": "빈 자리 검토",   # 빈 자리 검토(spec_병합 ② §5-4) — 목적 문서의 장마다 한 단위
+               "zones": "편집 구역 LLM 검토"}   # 편집 구역 LLM 검토(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」) — 한 번 호출이라 단위 하나
 
 
 def _last(wid, data=None):
@@ -538,10 +539,13 @@ def _division_last(wid):
 def _guide_units(step, doc_id, part=None):
     """그 검토가 마지막으로 보낸 것 → (at | None, [{n, title, pages, targets, tables, error, prompt, answer}]). part = 취합(step gather)의 기관 문서 id — 기관 문서마다 따로 남는다."""
     from datetime import datetime
-    if step in ("merge-links", "gather", "table-map", "gaps"):
+    if step in ("merge-links", "gather", "table-map", "gaps", "zones"):
         if step == "gather":
             from app import merge_gather_api
             last = merge_gather_api.llm_last(doc_id, part) or {}   # 취합본 작업 폴더 `gather/llm-<기관 문서 id>.json`(spec_취합 ② §2)
+        elif step == "zones":
+            from app import zones_api
+            last = zones_api.llm_last(doc_id) or {}   # 작업 폴더 `zones/llm-last.json`
         elif step == "table-map":
             last = _map_last(doc_id) or {}   # 작업 폴더 `merge_map_last.json`(표마다 한 단위)
         elif step == "gaps":
@@ -579,6 +583,9 @@ def llm_guide(doc_id: str, step: str, part: str = None):
     elif step == "gather":
         from app import merge_gather_llm
         parts, model = merge_gather_llm.parts(job=job_prompts.for_work(doc_id)), merge_gather_llm.MODEL
+    elif step == "zones":
+        from app import zones_llm
+        parts, model = zones_llm.parts(), None   # 계약 + 판단 지침(app/merge_guides_default/zones.md) — 모델은 서버 기본
     else:
         review = step == "division-review"
         parts = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴 · 판단 기준", "text": division_llm.CONTRACT if review else division_llm.MISSING_CONTRACT, "source": "app/division_llm.py",

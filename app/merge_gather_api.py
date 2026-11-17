@@ -24,7 +24,7 @@
 **오류 꼴**: 이 끝점들의 400·404·409 는 모두 `detail = {"reason": 까닭 열쇠, "message": 한국어 글}`(MSG). 422 는 server._transact 의 것 그대로.
 
 저장(취합본 작업 폴더 — 작업 저장이 꺼져 있으면 메모리): `gather.json` {version(설정·결정이 바뀔 때마다 +1 — 넣은 기록만 적을 때는 그대로), frameId, order[], parts{id: {name, added, orgs[], common, frameId,
-decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind}}}}, gone{뺀 문서의 넣은 기록}} ·
+decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind, ev(그 편집이 적은 편집 구역의 출처 이벤트 id — spec_구역 ② §4: 없으면 옛 기록)}}}}, gone{뺀 문서의 넣은 기록}} ·
 `gather/frame-<frameId>.hwpx`(나눠 주는 바이트) · `gather/frame-<frameId>.json.gz`(자리 정보 + frameId·at·sha256·runs·division{planId, rev}) · `gather/llm-<기관 문서 id>.json`(마지막으로 보낸 프롬프트·답 — 화면 「지침」).
 기준본이 낡음(frame.stale) = 기준본 뒤에 취합본의 구분 기준을 다시 반영함(그때 적어 둔 반영 계획 id·차례와 다름) · 또는 기준본의 블록 id 가 지금 문서에 절반도 안 남음.
 
@@ -816,6 +816,11 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
 
         def run():
             done.update(MG.apply(s.doc, src.doc, plan["plan"]))
+            # 출처 이벤트(spec_구역 ② §4 「출처 — 취합으로 들어온 내용」): 이 편집 안에서 그때의 문서 이름·반영할 기관을 굳혀 적는다 — 실행 취소하면 함께 돌아간다. 이벤트 id 는 넣은 기록의 `ev` 로(뒤의 _change 가 gather.json 에 쓴다)
+            from app import zones_api
+            name, orgs = _name(part, rec), list(rec.get("orgs") or [])
+            for k, v in done["applied"].items():
+                v["ev"] = zones_api.origin_add(s, part, name, orgs, v.get("kind"), v.get("ids"), k)
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {"planId": plan["planId"], "part": part, "counts": done["counts"]}}
         try:
             out, after = _tx(s, src, run, "gatherFill", {"planId": plan["planId"], "part": part}, "applyFailed")
@@ -897,6 +902,9 @@ def gather_drop_apply(doc_id: str, body: dict = Body(...)):
 
         def run():
             done.update(DROP.apply(s.doc, src.doc, plan["plan"], tg, pg, convert=convert, over=over.get("specs")))   # 넘친 레벨은 계획 때의 지정대로
+            from app import zones_api   # 끌어 넣은 블록의 출처 이벤트(spec_구역 ② §4 「출처 — 취합으로 들어온 내용」 — 이 편집과 한 묶음: 실행 취소하면 함께 돌아간다)
+            rec = _store(doc_id)["parts"].get(plan["from"]) or {}
+            zones_api.origin_add(s, plan["from"], _name(plan["from"], rec), list(rec.get("orgs") or []), "drop", done["ids"], None)
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
                     "log": {"planId": plan["planId"], "from": plan["from"], "after": plan["plan"]["after"]["id"], "blocks": done["blocks"], "converted": done["converted"]}}
         try:
@@ -907,6 +915,26 @@ def gather_drop_apply(doc_id: str, body: dict = Body(...)):
         if after is None:
             return out
         return {**{k: done[k] for k in ("blocks", "converted", "kept", "labels", "fitted", "dropped", "ids")}, **s.state()}
+
+
+# ---- 편집 구역이 읽는 옛 넣은 기록(spec_구역 ② §4 「출처 — 취합으로 들어온 내용」) ------------------------------------------------
+
+def legacy_origins(doc_id):
+    """출처 이벤트가 생기기 전에 넣은 기록(`ev` 없는 applied)을 출처 꼴로 → [{id: "legacy:<기관 문서>:<열쇠>", part, name, orgs, kind, ids, key, at, legacy: True}] — gather.json 의 order 차례.
+    기관 = **지금의** 반영할 기관(그때 것을 적어 두지 않았다 — 전의 「기관 구역」 과 같은 어림). `ev` 가 있는 기록은 내지 않는다: 그 출처는 세션의 이벤트가 원본이고 실행 취소하면 사라진다.
+    읽기만 한다 — 취합을 한 적 없는 문서에서 불러도 파일을 만들거나 판을 올리지 않는다(zones_api 가 문서를 읽을 때마다 부른다)."""
+    d = _dir(doc_id)
+    if not ((d / "gather.json").is_file() if d is not None else doc_id in _MEM):
+        return []
+    G, out = _store(doc_id), []
+    for pid in G["order"]:
+        rec = G["parts"][pid]
+        for key, a in (rec.get("applied") or {}).items():
+            if not isinstance(a, dict) or a.get("ev"):
+                continue
+            out.append({"id": f"legacy:{pid}:{key}", "part": pid, "name": _name(pid, rec), "orgs": list(rec.get("orgs") or []), "kind": a.get("kind"),
+                        "ids": [i for i in a.get("ids") or () if isinstance(i, str)], "key": key, "at": a.get("at"), "legacy": True})
+    return out
 
 
 # ---- 끝점: 기관 구역 표시(§9-2) ---------------------------------------------------------------------------------------

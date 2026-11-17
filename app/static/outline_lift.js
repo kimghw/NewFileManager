@@ -21,6 +21,12 @@ function ollShape(sh) { // 꼴 이름 — 「1칸 제목 표」 · 「1행 2칸 
 function olLiftTools(li, row, id) {
   const t = typeof olmTpl === "function" ? olmTpl(id) : null;
   if (!t || t.comp || t.vari || (!t.lines && !t.lift)) return; // 종속 템플릿은 원래 템플릿에서 · 줄이 없는 템플릿은 넣을 자리가 없다
+  if (t.kind === "band") { // 띠 표 템플릿(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」) — 줄이 이미 표다(표를 더 끼우지 않는다): 표지만
+    const chip = el("span", "olm-chip oll-chip", "L1 = 별첨·부록 표 제목");
+    chip.title = `「${(t.chain || ["?"])[0]}」 칸과 제목 칸으로 된 표(「별첨2 | 제목」)를 헤딩 추출이 스스로 이 템플릿의 줄로 잡았습니다 — 문서 맨 위의 줄이고, 그 아래 줄은 다음 별첨·부록 표나 장이 올 때까지 이 줄 아래에 매달립니다`;
+    row.append(chip);
+    return;
+  }
   if (OLL.epoch !== state.epoch) { OLL.open.clear(); OLL.epoch = state.epoch; }
   const key = String(id), d = ollDepth(t);
   if (t.lift) {

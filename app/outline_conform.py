@@ -11,12 +11,14 @@
   ② **자리 규칙**(② §8-1): 사람이 그 레벨에 정한 규칙이 있으면 그것, 없으면 기본 「둘째 줄 = 글 시작」 — 문단이 이미 가진 첫 줄 값도 덮는다(`outline_pos.align(force=True)`).
      대표와 접두 폭이 다른 줄(번호형 「10.」 · 줄 맞춤으로 자간을 줄인 레터)은 제 접두 폭으로 — 값이 아니라 규칙이 같다.
 - `place(doc, ov, pid, m)` = 줄 하나에 ①② · `needs(…)` = 그 줄이 ①② 에 안 맞는가(문서는 안 바꿈).
-- `conform(doc, ov, pid, sh, m)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①②.
-- `settle(doc, ov, tid, level, ids, m)` = 레벨 하나: 대표 줄에 ①② 를 걸어 확정 서식을 정하고(슬롯의 동결 접두·모양도 그것으로 — Enter 로 만드는 새 줄이 같은 서식),
+- `conform(doc, ov, pid, sh, m, left)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①②.
+- `settle(doc, ov, tid, level, ids, m, left)` = 레벨 하나: 대표 줄에 ①② 를 걸어 확정 서식을 정하고(슬롯의 동결 접두·모양도 그것으로 — Enter 로 만드는 새 줄이 같은 서식),
   대표와 서식이 같던 줄(대표 갈래)과 ids(맞추기로 고른 줄)를 그 서식으로. → 바뀐 줄 id.
 - `pending(doc, ov, tids)` = 대표 갈래의 줄 가운데 ①② 가 아직 안 걸린 줄(서식이 대표와 다른 줄은 서식 갈래가 센다) — 조정 줄의 「자리 맞춤 n줄」.
 - `after_insert(doc, pid, letter, like, like_letter, m)` = 템플릿 변환(이관·취합이 넣은 줄 — 개요 오버레이 없이 본보기 문단으로): 넣은 줄에 ①② 를 본보기의 꼴대로.
 괄호 줄(구분 라벨·괄호 소제목 — 글 전체가 레터) · 표 제목 줄 · 값 칸(표 칸에 혼자 있는 레터) · 접두에 탭이 든 줄 · 접두 폭 50mm 초과 줄에는 걸지 않는다(② §8-1 과 같은 제외).
+짝 표지가 든 줄(형광펜 · 필드 · 변경 추적 — ② §8-8 「짝 표지가 든 줄」): 글을 못 바꾸면 모양만 맞추고 `left` 에 남긴다(`outline_match.match_one`) · 레터 뒤 빈칸이 필드·변경 추적 범위에 걸리면 묶음 빈칸으로 안 바꾼다(`_gap`) —
+대표나 대표 갈래의 줄이 그렇다면 그 레벨의 다른 줄도 보통 빈칸 그대로(`_held` — 한 레벨 = 한 서식: 갈라 놓거나 맞추기가 안 끝나지 않게).
 """
 from app import outline_edit as OE
 from app import outline_match as OM
@@ -45,12 +47,79 @@ def nb_gap(gap):
     return gap.replace(" ", NB)
 
 
-def _gap(doc, pid, letter):
-    """(레터 뒤 빈칸의 시작 자리, 그 글) — 묶음 빈칸으로 바꿀 것이 있을 때만(접두가 잴 수 있는 빈칸뿐이고 보통 빈칸이 있음), 아니면 None."""
+def _gap_at(doc, pid, letter):
+    """(레터 뒤 빈칸의 시작 자리, 그 글) — 묶음 빈칸으로 바꿀 보통 빈칸이 있을 때만(접두가 잴 수 있는 빈칸뿐이고 보통 빈칸이 있음), 아니면 None. 표지는 안 본다."""
     lead, tok, gap = OE.prefix_of(doc._text(doc._ids[pid]), letter or None)
     if not tok or " " not in gap or any(ch not in OP.BLANKS for ch in lead + gap):
         return None
     return len(lead) + len(tok), gap
+
+
+def _hit(doc, p, at, n):
+    """글 [at, at+n) 이 필드 · 변경 추적 범위와 겹치면 그 종류("field" | "track"), 아니면 None(형광펜은 안 막는다 — set_chars 가 표지를 지킨다).
+    짝이 이 문단 밖에 있는 표지(문단을 넘는 범위 — mark_spans 의 ok 가 거짓)는 시작 표지면 그 자리부터 문단 끝까지 · 끝 표지면 문단 처음부터 그 자리까지로 본다
+    (prefix_keep_marks 가 같은 줄을 unpaired 로 막는 것과 어긋나지 않게 — 2026-11-17 검토)."""
+    if not hasattr(doc, "own_marks"):  # DocxDoc — 짝 표지를 안 다룬다
+        return None
+    marks = doc.own_marks(p)
+    if not marks:
+        return None
+    spans, ok = doc.mark_spans(p)
+    rng = [(sp["kind"], sp["start"], sp["end"]) for sp in spans if sp["kind"] != "markpen"]
+    if not ok:
+        paired = {el for sp in spans for el in (sp["begin"], sp["close"])}
+        rng += [(mk["kind"], -1, mk["pos"]) if mk["end"] else (mk["kind"], mk["pos"], float("inf"))
+                for mk in marks if mk["kind"] != "markpen" and mk["el"] not in paired]
+    return next((k for k, x, y in rng if x < at + n and y > at), None)
+
+
+def _blocked(doc, pid, letter):
+    """그 줄의 레터 뒤 보통 빈칸이 필드 · 변경 추적 범위 안이라 묶음 빈칸으로 못 바꾸면 그 종류("field" | "track"), 아니면 None(바꿀 것이 없거나 바꿀 수 있음)."""
+    g = _gap_at(doc, pid, letter)
+    return _hit(doc, doc._ids[pid], g[0], len(g[1])) if g is not None else None
+
+
+def _gap(doc, pid, letter):
+    """(레터 뒤 빈칸의 시작 자리, 그 글) — 묶음 빈칸으로 바꿀 것이 있을 때만(접두가 잴 수 있는 빈칸뿐이고 보통 빈칸이 있음), 아니면 None.
+    레터 뒤 빈칸이 필드(하이퍼링크 …)·변경 추적 범위와 겹치면 None — 그 범위의 글은 바꾸지 않는다(형광펜은 set_chars 가 표지를 지키므로 바꾼다: ② §8-8 「짝 표지가 든 줄」 ·
+    문단을 넘는 범위는 _hit). 레벨 전체의 규칙은 _held — needs · place 가 같이 따른다."""
+    g = _gap_at(doc, pid, letter)
+    if g is None or _hit(doc, doc._ids[pid], g[0], len(g[1])):
+        return None
+    return g
+
+
+def _held(doc, ov, tid, level, m=None):
+    """그 레벨은 레터 뒤 빈칸을 묶음 빈칸으로 바꾸지 않는가(한 레벨 = 한 서식) — 대표 줄이나 대표와 서식이 같은 줄(대표 갈래)의 레터 뒤 보통 빈칸이 필드 · 변경 추적 범위 안이면
+    그 줄은 못 바꾸므로 그 레벨의 다른 줄도 보통 빈칸 그대로 둔다. 전에는 막힌 줄만 보통 빈칸으로 남고 나머지가 묶음 빈칸이 되어 같은 서식이던 줄이 「다른 서식」 으로 갈라졌고,
+    대표가 막혔으면 맞추기를 거듭해도 끝나지 않았다(2026-11-17 검토). m(요청 하나 동안의 재개)에 레벨마다 기억한다 — 판정은 그 레벨을 처음 볼 때(바꾸기 전) 한 번."""
+    memo = m.__dict__.setdefault("_conform_held", {}) if m is not None else {}
+    key = (str(tid), int(level))
+    if key not in memo:
+        memo[key] = _held_now(doc, ov, tid, level)
+    return memo[key]
+
+
+def _held_now(doc, ov, tid, level):
+    if not hasattr(doc, "own_marks"):
+        return False
+    rep = _rep(doc, ov, tid, level)
+    if rep is None:
+        return False
+    stuck = [p for p in OM.slot_ids(ov, tid, level) if OM._alive(doc, p) and doc.own_marks(doc._ids[p])
+             and not _skip(doc, ov, p) and _blocked(doc, p, ov["lines"][p].get("letter"))]
+    if not stuck:
+        return False
+    if rep in stuck:
+        return True
+    base = OM.look(doc, ov, rep)
+    for p in stuck:
+        try:
+            if OM.same(OM.look(doc, ov, p), base):
+                return True
+        except (KeyError, ValueError):
+            continue
+    return False
 
 
 def _target(doc, ov, pid, m):
@@ -69,7 +138,8 @@ def needs(doc, ov, pid, m):
     """그 줄이 확정 서식의 ①(묶음 빈칸) ②(자리 규칙)에 안 맞는가 — 문서는 안 바꾼다."""
     if _skip(doc, ov, pid):
         return False
-    return _gap(doc, pid, ov["lines"][pid].get("letter")) is not None or _target(doc, ov, pid, m) is not None
+    line = ov["lines"][pid]
+    return (not _held(doc, ov, line["tpl"], line["level"], m) and _gap(doc, pid, line.get("letter")) is not None) or _target(doc, ov, pid, m) is not None
 
 
 def place(doc, ov, pid, m):
@@ -77,7 +147,8 @@ def place(doc, ov, pid, m):
     if _skip(doc, ov, pid):
         return False
     changed = False
-    g = _gap(doc, pid, ov["lines"][pid].get("letter"))
+    line = ov["lines"][pid]
+    g = None if _held(doc, ov, line["tpl"], line["level"], m) else _gap(doc, pid, line.get("letter"))  # 레벨 규칙이 먼저(_held — 한 레벨 = 한 서식)
     if g is not None:
         changed = doc.set_chars(pid, g[0], nb_gap(g[1]))
     try:
@@ -88,9 +159,10 @@ def place(doc, ov, pid, m):
     return changed
 
 
-def conform(doc, ov, pid, sh, m):
-    """줄 pid 를 확정 서식 sh(①② 를 건 대표의 `outline_match.rep_shape`)로 — 접두·문단·레터 글자·본문 바탕 글자 + ①②. 줄 하나를 템플릿 레벨 서식으로 바꾸는 단 하나의 길."""
-    OM.match_one(doc, ov, pid, sh)
+def conform(doc, ov, pid, sh, m, left=None):
+    """줄 pid 를 확정 서식 sh(①② 를 건 대표의 `outline_match.rep_shape`)로 — 접두·문단·레터 글자·본문 바탕 글자 + ①②. 줄 하나를 템플릿 레벨 서식으로 바꾸는 단 하나의 길.
+    left = 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`outline_match.match_one` — 그런 줄에도 ①② 는 건다)."""
+    OM.match_one(doc, ov, pid, sh, left)
     place(doc, ov, pid, m)
 
 
@@ -120,9 +192,10 @@ def _mates(doc, ov, tid, level, rep, skip=()):
     return out
 
 
-def settle(doc, ov, tid, level, ids=(), m=None):
+def settle(doc, ov, tid, level, ids=(), m=None, left=None):
     """레벨 하나를 확정 서식으로 → 바뀐 줄 id. ① 대표 줄에 묶음 빈칸·자리 규칙 → 그 모양이 확정 서식(슬롯의 동결 접두·모양도 그것으로)
-    ② 대표와 서식이 같던 줄(대표 갈래) + ids(맞추기로 고른 그 레벨 줄 — 대표와 다른 갈래)를 그 서식으로. 대표가 없는 레벨은 건드리지 않는다(ids 가 있으면 ValueError)."""
+    ② 대표와 서식이 같던 줄(대표 갈래) + ids(맞추기로 고른 그 레벨 줄 — 대표와 다른 갈래)를 그 서식으로. 대표가 없는 레벨은 건드리지 않는다(ids 가 있으면 ValueError).
+    left = ids 가운데 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`conform`) — 그 줄도 바뀐 줄에 든다."""
     rep = _rep(doc, ov, tid, level)
     if rep is None:
         if ids:
@@ -135,7 +208,7 @@ def settle(doc, ov, tid, level, ids=(), m=None):
     sh = OM.rep_shape(doc, ov, rep)
     OE._slot(ov, tid, level).update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])  # 새 줄(Enter)도 확정 서식으로
     for p in ids:
-        conform(doc, ov, p, sh, m)
+        conform(doc, ov, p, sh, m, left)
         out.append(p)
     for p in mates:
         if place(doc, ov, p, m):

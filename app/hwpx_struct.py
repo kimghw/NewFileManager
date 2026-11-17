@@ -19,9 +19,20 @@ ONE_CHAR = frozenset(map(_p, ["tab", "lineBreak", "fwSpace", "nbSpace", "hyphen"
 OBJECTS = frozenset(map(_p, ["tbl", "pic", "ole", "container", "equation", "line", "rect", "ellipse", "arc",
                              "polygon", "curve", "connectLine", "textart", "chart", "video"]))
 AUTONUM_TYPES = frozenset(["PICTURE", "TABLE", "EQUATION"])
-# 짝을 이루는 표지 — 두 문단으로 갈라지면 짝이 깨진다(형광펜·변경 추적·필드)
+# 짝을 이루는 표지 — 두 문단으로 갈라지면 짝이 깨진다(형광펜·변경 추적·필드). 정의·짝 맞추기·거절 = spec_owpml_편집 ② §2 「짝 표지」
 MARKERS = frozenset(map(_p, ["markpenBegin", "markpenEnd", "insertBegin", "insertEnd", "deleteBegin", "deleteEnd",
                              "fieldBegin", "fieldEnd"]))
+MARK_BEGIN = frozenset(map(_p, ["markpenBegin", "insertBegin", "deleteBegin", "fieldBegin"]))
+MARK_KIND = {_p(t): k for k, ts in (("markpen", ("markpenBegin", "markpenEnd")), ("field", ("fieldBegin", "fieldEnd")),
+                                    ("track", ("insertBegin", "insertEnd", "deleteBegin", "deleteEnd"))) for t in ts}
+FIELD_BEGIN, FIELD_END = _p("fieldBegin"), _p("fieldEnd")
+FIELD_NAMES = {"HYPERLINK": "하이퍼링크", "FORMULA": "계산식", "BOOKMARK": "책갈피", "MEMO": "메모", "CLICK_HERE": "누름틀"}  # 그 밖 = 「필드」
+# 거절 글(_no_markers) — 행동마다 (누구에게, 무엇을 못 하나(까닭))
+MARK_ACTS = {"split": ("이 문단", "Enter 로 나눌 수 없습니다(시작·끝 표지가 두 문단으로 갈라짐)"),
+             "merge": ("합칠 문단", "두 문단을 합칠 수 없습니다(두 문단의 시작·끝 표지가 섞임)"),
+             "erase": ("이 문단", "고른 글을 지울 수 없습니다(시작·끝 표지 한쪽만 지워질 수 있음)"),
+             "prefix": ("이 문단", "레터를 바꿀 수 없습니다(레터 자리의 시작·끝 표지가 갈라질 수 있음)"),
+             "remove": ("이 문단", "문단을 지울 수 없습니다(표지가 함께 지워짐)")}
 TOGGLES = ("bold", "italic", "underline")
 CHAR_EDIT = {"bold", "italic", "underline", "sizePt", "color"}
 PARA_EDIT = {"align", "indentLeftMm", "indentRightMm", "firstLineMm", "lineSpacingPct", "spaceBeforePt", "spaceAfterPt"}
@@ -59,6 +70,35 @@ def _fill(t, atoms):
             a.tail = None
             t.append(a)
             last = a
+
+
+def _side(u):
+    """차례 단위 하나가 짝 표지라면 "begin" | "end", 아니면 None(글자 · 탭 · titleMark · 개체 …). hp:ctrl 이면 그 안의 필드 표지로."""
+    if isinstance(u, str) or not isinstance(u.tag, str):
+        return None
+    if u.tag == CTRL:
+        u = next((x for x in u if isinstance(x.tag, str) and x.tag in MARKERS), None)
+        if u is None:
+            return None
+    return "begin" if u.tag in MARK_BEGIN else "end" if u.tag in MARKERS else None
+
+
+def _ins_cut(sides):
+    """한 자리에 모인 길이 0 단위들(차례 — _side 값) 사이에서 **새 글을 넣을 곳** -> 그 앞에 둘 단위 수.
+    마지막 끝 표지 뒤 · 그다음 첫 시작 표지 앞(새 글은 짝 밖 — spec_owpml_편집 ② §2 「글 고침」 · 「접두 빈칸만 바꾸기」).
+    있던 단위의 차례는 바꾸지 않는다(같은 자리의 빈 짝 「시작 → 끝」 을 뒤집지 않게)."""
+    last_end = max((k for k, s in enumerate(sides) if s == "end"), default=-1)
+    return next((k for k in range(last_end + 1, len(sides)) if sides[k] == "begin"), len(sides))
+
+
+class MarkBlock(ValueError):
+    """짝 표지 때문에 접두 빈칸을 제자리에서 못 바꿈(문서는 그대로) — why: inside · field · track · unpaired · kinds: 표지의 화면 이름(spec_owpml_편집 ② §2)."""
+    WHY = {"inside": "바꿀 빈칸 사이에 표지가 있음", "field": "필드 범위가 레터 앞·뒤 빈칸에 걸침",  # field · track = 범위가 바꿀 빈칸 조각과 겹침(prefix_keep_marks 의 검사 그대로)
+           "track": "변경 추적 범위가 레터 앞·뒤 빈칸에 걸침", "unpaired": "시작·끝 표지의 짝이 안 맞음"}
+
+    def __init__(self, why, kinds=()):
+        self.why, self.kinds = why, list(kinds)
+        super().__init__(f"{'·'.join(self.kinds) or '짝'} 표지 때문에 레터 앞·뒤 빈칸을 제자리에서 바꿀 수 없습니다({self.WHY.get(why, why)})")
 
 
 def _split_t(t, k):
@@ -119,9 +159,104 @@ class StructMixin:
             el = el.getparent()
         return el in self._name_of
 
-    def _no_markers(self, p):
-        if next(p.iter(*MARKERS), None) is not None:
-            raise ValueError("형광펜·변경 추적·필드 표지가 든 문단은 나누거나 합칠 수 없습니다(짝이 갈라짐)")
+    # ---------------------------------------------------------------- 짝 표지(spec_owpml_편집 ② §2 「짝 표지」)
+    @staticmethod
+    def _owner(el):
+        """el 의 가장 가까운 hp:p 조상."""
+        q = el.getparent()
+        while q is not None and q.tag != P:
+            q = q.getparent()
+        return q
+
+    def own_marks(self, p) -> list[dict]:
+        """문단 p 의 **제 표지**(가장 가까운 hp:p 조상이 p — 형광펜·변경 추적은 제 런의 hp:t 안 · 필드는 제 런의 hp:ctrl 안), 문서 차례
+        -> [{"el", "kind": markpen|field|track, "end": 끝 표지인가, "pos": 그 앞 글자 수(_clen 단위 — 자동 번호의 표시 글도 셈), "type"}].
+        type = 필드는 fieldBegin 의 type(끝 표지는 짝 시작의 것 — 못 찾으면 "") · 변경 추적은 insert|delete · 형광펜은 ""."""
+        if next(p.iter(*MARKERS), None) is None:
+            return []
+        out, pos = [], 0
+
+        def put(el, q):
+            k = MARK_KIND[el.tag]
+            typ = (el.get("type", "") if el.tag == FIELD_BEGIN else "") if k == "field" else (
+                "insert" if "insert" in el.tag else "delete") if k == "track" else ""
+            out.append({"el": el, "kind": k, "end": el.tag not in MARK_BEGIN, "pos": q, "type": typ})
+
+        for r in p.iterchildren(RUN):
+            for c in r:
+                if c.tag == T:
+                    q = pos
+                    for a in _atoms(c):
+                        if not isinstance(a, str) and a.tag in MARKERS:
+                            put(a, q)
+                        q += _alen(a)
+                elif c.tag == CTRL:
+                    q = pos
+                    for a in c:
+                        if a.tag in MARKERS:
+                            put(a, q)
+                        elif a.tag == AUTONUM_EL and a.get("numType") in AUTONUM_TYPES:
+                            q += len(self._slot_text(a))
+                elif isinstance(c.tag, str):
+                    for a in c.iter(*MARKERS):
+                        if self._owner(a) is p:
+                            put(a, pos)
+                pos += self._clen(c)
+        begins = {m["el"].get("id"): m["type"] for m in out if m["el"].tag == FIELD_BEGIN}
+        for m in out:
+            if m["el"].tag == FIELD_END:
+                m["type"] = begins.get(m["el"].get("beginIDRef"), "")
+        return out
+
+    def mark_spans(self, p) -> tuple[list[dict], bool]:
+        """제 표지의 짝 -> ([{"kind", "type", "start", "end", "begin": 시작 요소, "close": 끝 요소}] 시작 차례, ok = 모든 표지가 짝을 찾음).
+        형광펜 = 문단 안 차례(스택) · 필드 = fieldBegin@id ↔ fieldEnd@beginIDRef · 변경 추적 = 같은 종류(insert|delete)의 Id."""
+        marks = self.own_marks(p)
+        stacks, spans, ok = {}, [], True
+        for i, m in enumerate(marks):
+            el = m["el"]
+            if m["kind"] == "markpen":
+                key = ("markpen",)
+            elif m["kind"] == "field":
+                key = ("field", el.get("beginIDRef") if m["end"] else el.get("id"))
+            else:
+                key = ("track", m["type"], el.get("Id"))
+            if not m["end"]:
+                stacks.setdefault(key, []).append((i, m))
+                continue
+            st = stacks.get(key)
+            if not st:
+                ok = False
+                continue
+            i0, b = st.pop()
+            spans.append((i0, {"kind": m["kind"], "type": b["type"], "start": b["pos"], "end": m["pos"], "begin": b["el"], "close": el}))
+        if any(stacks.values()):
+            ok = False
+        return [s for _, s in sorted(spans, key=lambda x: x[0])], ok
+
+    def mark_names(self, p, own=True) -> list[str]:
+        """표지 종류의 화면 이름(형광펜 · 하이퍼링크 · 계산식 · 책갈피 · 메모 · 누름틀 · 필드 · 변경 추적) — 문서 차례 · 중복 없음.
+        own = 제 표지만(own_marks), 거짓이면 문단 아래 전부(표 칸·글상자·각주 안 문단의 것까지)."""
+        els = [m["el"] for m in self.own_marks(p)] if own else list(p.iter(*MARKERS))
+        types = {e.get("id"): e.get("type", "") for e in els if e.tag == FIELD_BEGIN}
+        out = []
+        for e in els:
+            k = MARK_KIND[e.tag]
+            if k == "field":
+                name = FIELD_NAMES.get((e.get("type") if e.tag == FIELD_BEGIN else types.get(e.get("beginIDRef"))) or "", "필드")
+            else:
+                name = "형광펜" if k == "markpen" else "변경 추적"
+            if name not in out:
+                out.append(name)
+        return out
+
+    def _no_markers(self, p, act="split", own=False):
+        """짝 표지가 있으면 거절 — act(split · merge · erase · prefix · remove)와 표지 종류를 글에(spec_owpml_편집 ② §2 「거절」).
+        own = 제 표지만 본다(제 런의 글만 고치는 replace_prefix · delete_text), 거짓 = 문단 아래 전부(나누기 · 합치기 · 문단 지우기)."""
+        names = self.mark_names(p, own)
+        if names:
+            who, what = MARK_ACTS.get(act, MARK_ACTS["split"])
+            raise ValueError(f"{who}에 {'·'.join(names)} 표지가 있어 {what}")
 
     def _cut(self, p, offset):
         """offset 자리 = (런, i): 그 런의 i 번째 자식 앞. offset 을 지나는 hp:t 는 먼저 둘로 나눈다. 길이 0 자식은 앞쪽에 남는다.
@@ -187,7 +322,7 @@ class StructMixin:
     def split_para(self, block_id: str, offset: int) -> str:
         """문단을 offset 에서 둘로 -> 새(뒤) 문단 id. 앞 문단은 id·구역 설정을 지킨다(spec_owpml_편집 ② §2)."""
         p = self._para(block_id)
-        self._no_markers(p)
+        self._no_markers(p, "split")
         offset = max(0, min(int(offset), len(self._text(p))))
         r, i = self._cut(p, offset)
         new = p.makeelement(P, p.attrib)
@@ -228,7 +363,7 @@ class StructMixin:
         for x in (p, q):
             if self._has_object(x):
                 raise ValueError("표·그림 등 개체가 든 문단은 합칠 수 없습니다")
-            self._no_markers(x)
+            self._no_markers(x, "merge")
         if next(q.iter(SECPR), None) is not None:
             raise ValueError("구역 설정이 든 문단은 앞 문단과 합칠 수 없습니다")
         at = len(self._text(p))
@@ -476,36 +611,44 @@ class StructMixin:
         return self._id(new)
 
     def _erase(self, p, start, n):
-        """start 부터 n 글자(글 조각·탭·줄 바꿈)를 걷어 낸다 — 길이 0 자식(구역 설정·개체·표지)은 그대로. 비게 된 hp:t 는 _tidy 가 정리."""
-        pos, left = 0, n
+        """start 부터 n 글자(글 조각·탭·줄 바꿈 …)를 걷어 낸다 — 길이 0 자식(구역 설정·개체·표지·hp:t 안의 titleMark …)은 범위 안이어도 **제자리에 두고 글자로 세지 않는다**
+        (spec_owpml_편집 ② §2 「글자 걷어 내기」 — 전에는 hp:t 안의 길이 0 자식을 한 글자로 세어 빼고 한 글자 덜 지웠다). 겹침은 원래 자리로 잰다.
+        자동 번호(표시 글이 있는 hp:ctrl)가 범위에 걸치면 ValueError(문서는 그대로). 비게 된 hp:t 는 _tidy 가 정리."""
+        end = start + n
+        if n <= 0:
+            return
+        pos = 0
+        for r in p.iterchildren(RUN):  # 바꾸기 전에 — 자동 번호
+            for c in r:
+                k = self._clen(c)
+                if c.tag != T and k and pos < end and pos + k > start:
+                    raise ValueError("자동 번호(그림·표 번호)가 든 글은 지울 수 없습니다")
+                pos += k
+        pos = 0
         for r in list(p.iterchildren(RUN)):
             for c in list(r):
-                if left <= 0:
-                    return
-                if c.tag != T:
-                    pos += self._clen(c)
+                k = self._clen(c)
+                if c.tag != T or pos + k <= start or pos >= end:
+                    pos += k
                     continue
-                keep = []
+                keep, q = [], pos
                 for a in _atoms(c):
-                    k = _alen(a)
-                    if left <= 0 or pos + k <= start:
-                        keep.append(a)
-                    elif isinstance(a, str):
-                        cut0 = max(0, start - pos)
-                        cut1 = min(k, cut0 + left)
-                        left -= cut1 - cut0
-                        piece = a[:cut0] + a[cut1:]
+                    m = _alen(a)
+                    if isinstance(a, str):
+                        lo, hi = max(start, q) - q, min(end, q + m) - q
+                        piece = a[:lo] + a[hi:] if lo < hi else a
                         if piece:
                             keep.append(piece)
-                    else:  # 탭·줄 바꿈 한 글자
-                        left -= 1
-                    pos += k
+                    elif not (m and start <= q < end):  # 한 글자 요소(탭·줄 바꿈 …)는 범위 안이면 뺀다 · 길이 0 자식은 늘 둔다
+                        keep.append(a)
+                    q += m
                 _fill(c, keep)
+                pos += k
 
     def delete_text(self, block_id: str, start: int, end: int) -> dict:
-        """start..end 글자 지우기(고른 글 — 개요 편집과 한 트랜잭션에) -> {"id", "offset": start}."""
+        """start..end 글자 지우기(고른 글 — 개요 편집과 한 트랜잭션에) -> {"id", "offset": start}. 제 표지가 든 문단은 거절(own — 품은 표 칸의 표지는 상관없다)."""
         p = self._para(block_id)
-        self._no_markers(p)
+        self._no_markers(p, "erase", own=True)
         n = len(self._text(p))
         start, end = max(0, min(int(start), n)), max(0, min(int(end), n))
         if end > start:
@@ -554,9 +697,10 @@ class StructMixin:
     def replace_prefix(self, block_id: str, old_len: int, new_prefix: str, like_id: str | None = None, attrs: dict | None = None) -> dict:
         """문단 첫 old_len 글자(접두 = 앞 공백·레터·뒤 공백)를 new_prefix 로. like(또는 attrs)가 있으면 문단 속성(paraPr·style)과 접두의 글자 모양을 그것으로 하고,
         옛 접두와 같은 글자 모양을 쓰던 런(문단 기본 모양을 따르던 글)도 그 글자 모양으로 — 따로 모양을 준 런(강조·색)은 그대로.
-        길이 0 자식(구역 설정·개체·표지)은 건드리지 않는다. -> {"id", "offset": 새 접두 끝}."""
+        길이 0 자식(구역 설정·개체·표지)은 건드리지 않는다. -> {"id", "offset": 새 접두 끝}.
+        제 짝 표지(형광펜·필드·변경 추적)가 든 문단은 거절 — 그런 줄은 prefix_keep_marks · prefix_shape_only 로(spec_owpml_편집 ② §2 「짝 표지」)."""
         p = self._para(block_id)
-        self._no_markers(p)
+        self._no_markers(p, "prefix", own=True)
         old_len = max(0, min(int(old_len), len(self._text(p))))
         first = self._first_text_run(p)
         old_cid = first.get("charPrIDRef") if first is not None else None
@@ -585,6 +729,159 @@ class StructMixin:
         self._drop_cache(p)
         self._touch(p)
         return {"id": block_id, "offset": len(new_prefix)}
+
+    # ---------------------------------------------------------------- 접두 — 짝 표지를 지키며(spec_owpml_편집 ② §2 「접두 빈칸만 바꾸기」 · 「모양만」)
+    def _flat(self, p):
+        """문단의 차례 단위 -> (items, units). units = {hp:t: [글자 하나(str) | 자식 요소]}(글은 글자마다 갈라 둠) ·
+        items = [(자리, 글자 수, _side, hp:t | None, hp:t 안 차례 | None, 런 자식 | None)] — hp:t 밖의 런 자식(hp:ctrl · 개체 · 구역 설정)은 하나씩."""
+        items, units, pos = [], {}, 0
+        for r in p.iterchildren(RUN):
+            for c in r:
+                if c.tag == T:
+                    us = units[c] = [x for a in _atoms(c) for x in (a if isinstance(a, str) else (a,))]
+                    for j, u in enumerate(us):
+                        n = 1 if isinstance(u, str) else _alen(u)
+                        items.append((pos, n, _side(u), c, j, None))
+                        pos += n
+                else:
+                    n = self._clen(c)
+                    items.append((pos, n, _side(c), None, None, c))
+                    pos += n
+        return items, units
+
+    @staticmethod
+    def _piece_atoms(el, text):
+        """새 빈칸 글 -> hp:t 원자(_put_text 와 같은 변환 — U+2002 = hp:nbSpace · 탭 = hp:tab(새 탭 속성) · U+2028 = hp:lineBreak · 그 밖은 글)."""
+        from app.hwpx_doc import NEW_TAB  # hwpx_doc 이 이 모듈을 부른다 — 여기서는 늦게
+        out = []
+        for ch in text:
+            if ch == "\t":
+                out.append(el.makeelement(_p("tab"), dict(NEW_TAB)))
+            elif ch in ("\u2028", "\u2002"):
+                out.append(el.makeelement(_p("lineBreak" if ch == "\u2028" else "nbSpace"), {}))
+            else:
+                out.append(ch)
+        return out
+
+    def _swap_piece(self, p, s, e, new):
+        """글 [s, e) 를 new 로 **제자리에서**(검사는 부른 쪽이 먼저 — 조각 안쪽에 표지 · 자동 번호 없음).
+        옛 조각이 있으면 첫 글자가 있던 곳에(그 앞의 길이 0 단위 뒤 — 형광펜 안이었으면 안) · 비었으면 그 자리의 마지막 끝 표지 뒤 · 첫 시작 표지 앞(_ins_cut).
+        그 사이에 hp:t 가 없으면(필드 표지 hp:ctrl 사이 · 구역 설정 뒤) 같은 런의 그 자리에 새 hp:t."""
+        items, units = self._flat(p)
+        i0 = next((i for i, it in enumerate(items) if it[0] >= s), len(items))
+        i1 = next((i for i in range(i0, len(items)) if items[i][1] or items[i][0] > s), len(items))
+        if e > s:
+            at = i1
+            drop = {(it[3], it[4]) for it in items if it[1] and s <= it[0] < e}
+        else:
+            at = i0 + _ins_cut([items[i][2] for i in range(i0, i1)])
+            drop = set()
+        nxt = items[at] if at < len(items) else None
+        prv = items[at - 1] if at > 0 else None
+        if nxt is not None and nxt[3] is not None:
+            tgt, jt = nxt[3], nxt[4]
+        elif prv is not None and prv[3] is not None:
+            tgt, jt = prv[3], prv[4] + 1
+        else:
+            tgt, jt = p.makeelement(T, {}), 0
+            units[tgt] = []
+            if nxt is not None:
+                nxt[5].addprevious(tgt)
+            elif prv is not None:
+                prv[5].addnext(tgt)
+            else:
+                run = next(p.iterchildren(RUN), None)
+                if run is None:
+                    run = p.makeelement(RUN, {"charPrIDRef": "0"})
+                    p.insert(0, run)
+                run.append(tgt)
+        add = self._piece_atoms(tgt, new)
+        for t in {t for t, _ in drop} | {tgt}:
+            us, out = units[t], []
+            for j, u in enumerate(us):
+                if t is tgt and j == jt:
+                    out += add
+                if (t, j) not in drop:
+                    out.append(u)
+            if t is tgt and jt >= len(us):
+                out += add
+            _fill(t, out)
+
+    def _prefix_shape(self, p, plen, attrs, old_cid):
+        """접두의 모양(replace_prefix 와 같은 규칙): 문단 속성 = attrs 의 paraPrIDRef·styleIDRef · 옛 접두 첫 글자 모양을 쓰던 런(개체 런 빼고) = attrs.charPrIDRef ·
+        접두 [0, plen) 경계에서 런을 갈라 그 안의 글 런 = attrs.charPrIDRef. attrs 가 없으면 아무것도 안 한다 -> 했나."""
+        if not attrs:
+            return False
+        pattrs, cid = self._like_attrs(None, attrs)
+        for k, v in pattrs.items():
+            p.set(k, v)
+        if old_cid is not None:
+            for r in p.iterchildren(RUN):
+                if r.get("charPrIDRef") == old_cid and not any(o.tag in OBJECTS for o in r):
+                    r.set("charPrIDRef", cid)
+        if plen > 0:
+            self._boundary(p, plen)
+            pos = 0
+            for r in p.iterchildren(RUN):
+                k = sum(self._clen(c) for c in r)
+                if pos + k <= plen and any(self._slot_text(t) for t in r.iterchildren(T)) and not any(o.tag in OBJECTS for o in r):
+                    r.set("charPrIDRef", cid)
+                pos += k
+        return True
+
+    def prefix_keep_marks(self, block_id: str, lead: str, tok: str, gap: str, new_lead: str, new_gap: str, attrs: dict | None = None) -> dict:
+        """제 짝 표지가 든 줄의 접두에서 **레터(tok)는 그대로 · 레터 앞 빈칸 [0, len(lead)) → new_lead · 레터 뒤 빈칸 → new_gap** 만 제자리에서 바꾸고
+        접두 모양은 replace_prefix 와 같은 규칙으로(spec_owpml_편집 ② §2 「접두 빈칸만 바꾸기 — 표지를 지키며」) -> {"id", "offset": 새 접두 끝}.
+        새로 넣는 빈칸(옛 조각이 빈 자리)은 끝 표지 뒤 · 시작 표지 앞(형광펜 밖), 옛 조각이 있으면 그 글자들이 있던 자리(형광펜 안이었으면 안).
+        못 함 = MarkBlock(문서 그대로 — 먼저 다 보고 그다음 바꾼다): 짝이 안 맞음(unpaired) · 바꿀 조각 안쪽(경계 말고)에 표지(inside) ·
+        필드 / 변경 추적 범위가 바꿀 조각과 겹침(field / track — 넣기만이면 범위 안쪽 자리). 지금 글의 [0, plen) 이 lead+tok+gap 이 아니면 그냥 ValueError."""
+        p = self._para(block_id)
+        lead, tok, gap, new_lead, new_gap = (str(x or "") for x in (lead, tok, gap, new_lead, new_gap))
+        a, b = len(lead), len(lead) + len(tok)
+        plen = b + len(gap)
+        if self._text(p)[:plen] != lead + tok + gap:
+            raise ValueError("접두(레터 앞 빈칸 · 레터 · 레터 뒤 빈칸)가 지금 문단 글과 다릅니다")
+        pieces = [(s, e, new) for s, e, old, new in ((b, plen, gap, new_gap), (0, a, lead, new_lead)) if old != new]  # 뒤 조각부터(앞 자리가 안 밀리게)
+        marks = self.own_marks(p)
+        if marks and pieces:
+            spans, ok = self.mark_spans(p)
+            kinds = self.mark_names(p)
+            if not ok:
+                raise MarkBlock("unpaired", kinds)
+            for s, e, _ in pieces:
+                if e > s and any(s < m["pos"] < e for m in marks):
+                    raise MarkBlock("inside", kinds)
+            for s, e, _ in pieces:
+                for sp in spans:
+                    x, y = sp["start"], sp["end"]
+                    if sp["kind"] != "markpen" and ((x < e and y > s) if e > s else x < s < y):
+                        raise MarkBlock(sp["kind"], kinds)
+        items, _ = self._flat(p)
+        for s, e, _ in pieces:
+            if any(it[3] is None and it[1] and ((it[0] < e and it[0] + it[1] > s) if e > s else it[0] < s < it[0] + it[1]) for it in items):
+                raise ValueError("자동 번호(그림·표 번호)가 든 접두는 빈칸을 바꿀 수 없습니다")
+        first = self._first_text_run(p)
+        old_cid = first.get("charPrIDRef") if first is not None else None
+        for s, e, new in pieces:
+            self._swap_piece(p, s, e, new)
+        offset = len(new_lead) + len(tok) + len(new_gap)
+        shaped = self._prefix_shape(p, offset, attrs, old_cid)
+        if pieces or shaped:
+            self._tidy(p)
+            self._drop_cache(p)
+            self._touch(p)
+        return {"id": block_id, "offset": offset}
+
+    def prefix_shape_only(self, block_id: str, plen: int, attrs: dict | None = None) -> dict:
+        """글은 그대로 두고 접두 [0, plen) 의 모양만(prefix_keep_marks · replace_prefix 와 같은 규칙 — 짝 표지 때문에 글을 못 바꾸는 줄) -> {"id", "offset": plen}."""
+        p = self._para(block_id)
+        plen = max(0, min(int(plen), len(self._text(p))))
+        first = self._first_text_run(p)
+        if self._prefix_shape(p, plen, attrs, first.get("charPrIDRef") if first is not None else None):
+            self._tidy(p)
+            self._drop_cache(p)
+            self._touch(p)
+        return {"id": block_id, "offset": plen}
 
     def move_paras(self, first_id: str, last_id: str, ref_id: str, after: bool = True) -> list[str]:
         """first..last(같은 부모 아래 이웃 형제 문단 범위, 문서 순)를 ref 문단 바로 뒤(앞)로 — 같은 그릇(구역·칸) 안에서만. -> 옮긴 문단 id 들."""
@@ -622,7 +919,7 @@ class StructMixin:
             raise ValueError("표·그림 등 개체가 든 문단은 지울 수 없습니다")
         if next(p.iter(SECPR), None) is not None:
             raise ValueError("구역 설정이 든 문단은 지울 수 없습니다")
-        self._no_markers(p)
+        self._no_markers(p, "remove")
         prev, nxt = self._sibling(p, -1), self._sibling(p, +1)
         if prev is None and nxt is None:
             raise ValueError("그릇의 하나뿐인 문단은 지울 수 없습니다")

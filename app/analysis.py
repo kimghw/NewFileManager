@@ -14,7 +14,7 @@ STATES = ("none", "wait", "running", "done", "failed")
 NAMES = {"heads": "헤딩", "templates": "템플릿", "formats": "서식", "tables": "표", "division": "구분 기준"}
 PLAN_STATES = ("none", "planned", "applied", "stale")  # 템플릿마다 서식 정리 계획(② §20): 안 받음 · 받음(바로 적용 가능) · 적용함 · 받았지만 그 뒤 문서가 바뀜
 STAGE = {"heads": ("stage2", 2, "헤딩 그래프"), "tables": ("stage3", 3, "표 구조")}
-# 이어 돌리기(job.chain — app/analysis_llm.py CHAINS)의 화면 이름: llm = 진행표의 「LLM 검증·보완」(헤딩 → 표 · 서식 같이) · heads = 「헤딩 그래프(LLM)」(헤딩 판정 → 서식 정리 계획:
+# 이어 돌리기(job.chain — app/analysis_llm.py CHAINS)의 화면 이름: llm = 진행표의 「LLM 검증·보완」(헤딩 · 표 판정 같이 → 서식) · heads = 「헤딩 그래프(LLM)」(헤딩 판정 → 서식 정리 계획:
 # 2026-11-16 사용자 답 「헤딩 LLM 판정에 늘 이어서」) · formats = 서식 정리 계획만(헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」)
 CHAIN_NAMES = {"llm": "LLM 검증·보완", "heads": "헤딩 LLM 판정 · 서식 계획", "formats": "서식 정리 계획"}
 CHAIN_PARTS = {"llm": ("heads", "tables", "formats"), "heads": ("heads", "formats"), "formats": ("formats",)}
@@ -70,9 +70,11 @@ def _item(key, st, sess, job, turn):
     res = st.get(STAGE[key][0])
     meta = (res or {}).get("meta") or {}
     failed = _failed(key, st, job)
-    here = ((chain_parts(job).get(key) or {}).get("status") == "failed" if job is not None and job.chain  # 이어 돌리기(LLM 검증·보완)는 그 단계의 상태로 가른다(표 · 서식이 같이 돈다)
+    part = (chain_parts(job).get(key) or {}) if job is not None and job.chain else {}
+    here = (part.get("status") == "failed" if job is not None and job.chain  # 이어 돌리기(LLM 검증·보완)는 그 단계의 상태로 가른다(헤딩 · 표 · 서식이 같이 돌 수 있다)
             else job is not None and job.stage == STAGE[key][1])
-    llm_failed = job.error if job is not None and job.status == "failed" and job.use_llm and not job.first and here else None
+    # 같이 돈 단계가 둘 다 실패하면 작업 오류 글은 하나뿐이다(헤딩이 먼저) — 그 단계의 글이 있으면 그것을 보인다
+    llm_failed = (part.get("msg") or job.error) if job is not None and job.status == "failed" and job.use_llm and not job.first and here else None
     chain = bool(job is not None and job.chain)
     if chain and res is not None:  # LLM 검증·보완은 결과가 있는 항목의 스크립트 칸을 건드리지 않는다 — 기다림은 LLM 칸에만
         state = "done"
@@ -101,7 +103,7 @@ def _turns(st, job):
         if st.get("stage2") is None:
             return {"heads": "run", **({"tables": "wait"} if st.get("stage3") is None else {})}
         return {"tables": "run"} if st.get("stage3") is None else {}
-    if job.chain:  # LLM 검증·보완 — 헤딩(+템플릿) 먼저, 그 뒤 표 · 서식 같이(app/analysis_llm.py) — 단계마다 제 상태로
+    if job.chain:  # LLM 검증·보완 — 헤딩(+템플릿)과 표 판정 호출이 같이, 헤딩이 끝나면 서식(app/analysis_llm.py) — 단계마다 제 상태로
         p = chain_parts(job)
         out = {k: ("llm" if x["status"] == "running" else "wait") for k, x in p.items() if x["status"] in ("running", "wait")}
         if out.get("heads") == "llm":
@@ -239,7 +241,9 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
     """서식 — 스크립트 칸 = 템플릿 레벨마다 서식 갈래 · LLM 칸 = 템플릿 서식 정리 계획(정리할 템플릿마다) · 반영 칸 = 맞춘 레벨(갈래 하나뿐이고 대표가 있음) · 대표와 다른 줄.
     place = 확정 서식(레터 뒤 묶음 빈칸 · 자리 규칙 — spec_hwpx_웹편집 ② §8-8)이 아직 안 걸린 줄 수(대표와 그 갈래의 줄 — 조정 줄의 「모두 반영」 이 스크립트로 건다).
     LLM 칸의 수: change · moved · **reps**(대표를 바꿀 레벨 — 맞출 줄이 0 이어도 반영할 것이다) = 받아 둔 계획을 반영하면 바뀔 것 · kept · unanswered · omitted = 그 계획을 반영해도 남을 것 ·
-    **left**{kept, unanswered} = **반영한** 계획이 지금 문서에 남긴 줄(plan_left — 반영한 뒤에도 센다: 답이 없던 줄을 「끝남」 으로 보이지 않게)."""
+    **left**{kept, unanswered} = **반영한** 계획이 지금 문서에 남긴 줄(plan_left — 반영한 뒤에도 센다: 답이 없던 줄을 「끝남」 으로 보이지 않게) ·
+    left.marked(있을 때만) = 반영이 형광펜 · 필드 · 변경 추적 표지 때문에 모양만 맞추고 남긴 줄(오버레이 agentLeft) 가운데 지금도 대표와 다른 서식인 줄 · leftMarked = 그 줄 id(30개까지).
+    계획 상태는 그 줄 때문에 바뀌지 않는다(「반영함」 그대로 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)."""
     names = {r["id"]: r["no"] for r in _tpl_rows(ov)} if ov else {}
     slots = []
     for tid, lvs in (variants or {}).items():
@@ -251,6 +255,28 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
     norep = sum(1 for x in slots if x["repMissing"])
     groups, others = sum(x["groups"] for x in slots), sum(x["others"] for x in slots)
     need = need_templates(variants)
+
+    def marked_left():
+        """반영한 계획(plan_applied)이 표지 때문에 모양만 맞추고 남긴 줄(오버레이 agentLeft — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」) 가운데 **지금도 대표와 다른 서식**에 있는 줄
+        → {템플릿 id: [줄 id]}. 줄은 지금 서식 목록(모든 템플릿 · 레벨의 대표가 아닌 갈래의 paras · key)에서 찾는다 — 떼기로 다른 템플릿에 간 줄도. 그 뒤 사람이 맞췄거나 대표로 삼은 줄은 빠진다."""
+        box = ov.get("agentLeft") if isinstance(ov, dict) else None
+        if not isinstance(box, dict) or not box:
+            return {}
+        off = set()
+        for lvs in (variants or {}).values():
+            for v in lvs.values():
+                for g in v.get("groups") or []:
+                    if not g.get("rep"):
+                        off.update(g.get("paras") or ())
+                        off.add(g.get("key"))
+        got = {}
+        for tid, rows in box.items():
+            if plan_applied((plans or {}).get(str(tid)), ov):
+                ids = list(dict.fromkeys(x.get("id") for x in rows or () if isinstance(x, dict) and x.get("id") in off))
+                if ids:
+                    got[str(tid)] = ids
+        return got
+    marked = marked_left()
     plist = []
     for tid in need:
         rec = (plans or {}).get(tid)
@@ -264,11 +290,16 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
             row.update(change=t["n"], moved=t["moved"], reps=t["reps"], at=rec.get("at"), kept=left.get("kept", 0), unanswered=left.get("unanswered", 0), omitted=rec["plan"].get("omitted", 0))
         elif rec and isinstance(rec.get("plan"), dict) and plan_applied(rec, ov):  # 반영한 계획 — 그 계획이 지금 문서에 남긴 줄(그대로 둔 줄 · 답이 없던 줄)을 지금 갈래로 다시 센다
             row["left"] = plan_left(rec["plan"], (variants or {}).get(tid))
+            if marked.get(tid):  # 표지 때문에 모양만 맞춘 줄 가운데 지금도 대표와 다른 서식인 줄(있을 때만 — 없으면 키를 안 둔다)
+                row["left"]["marked"] = len(marked[tid])
         plist.append(row)
     planned = sum(1 for x in plist if x["state"] == "planned")
     applied = sum(1 for x in plist if x["state"] == "applied")
     stale = sum(1 for x in plist if x["state"] == "stale")
     left = {k: sum((x.get("left") or {}).get(k, 0) for x in plist) for k in ("kept", "unanswered")}  # 반영한 계획들이 지금 문서에 남긴 줄
+    mk = list(dict.fromkeys(i for ids in marked.values() for i in ids))  # 반영한 계획들이 표지 때문에 모양만 맞추고 남긴 줄(모든 템플릿 — spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)
+    if mk:
+        left["marked"] = len(mk)
     part = (chain_parts(job).get("formats") or {}) if job is not None and job.chain else {}
     chain = bool(job is not None and job.chain and job.status == "running")
     running = chain and part.get("status") == "running"
@@ -279,14 +310,15 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
     elif running:
         llm = {"state": "running", "text": f"서식 정리 계획을 받는 중 — {part['msg']}" if part.get("msg") else "서식 정리 계획을 받는 중", "error": None}
     elif chain and part.get("status") == "wait":
-        llm = {"state": "wait", "text": ("LLM 검증·보완 — 헤딩 · 템플릿이 끝나면 표와 같이 서식 정리 계획을 받습니다" if job.chain == "llm"
+        llm = {"state": "wait", "text": ("LLM 검증·보완 — 헤딩 · 템플릿이 끝나면 서식 정리 계획을 받습니다(템플릿끼리 같이)" if job.chain == "llm"
                                          else "헤딩 판정이 끝나면 이어서 서식 정리 계획을 받습니다"), "error": None}
     elif not need:
         llm = {"state": "done", "text": "정리할 것 없음 — 레벨마다 서식이 한 가지", "error": None}
     else:
         got = planned + applied
         bits = [f"받음 {planned}" if planned else "", f"적용함 {applied}" if applied else "", f"옛 계획 {stale}" if stale else "",
-                f"반영한 계획이 그대로 둔 줄 {left['kept']}" if left["kept"] else "", f"답이 없어 안 바꾼 줄 {left['unanswered']}" if left["unanswered"] else ""]
+                f"반영한 계획이 그대로 둔 줄 {left['kept']}" if left["kept"] else "", f"답이 없어 안 바꾼 줄 {left['unanswered']}" if left["unanswered"] else "",
+                f"표지 때문에 모양만 맞춘 줄 {len(mk)}" if mk else ""]
         state = "done" if got == len(need) else "failed" if failed and not got else "partial" if got else "none"
         text = (f"서식 정리 계획 {got}/{len(need)} 템플릿" + (" — " + " · ".join(b for b in bits if b) if any(bits) else "")) if state != "none"             else f"서식 정리 계획 안 받음 — 정리할 템플릿 {len(need)}" + (f" · 옛 계획 {stale}" if stale else "")
         llm = {"state": state, "text": text, "error": (part.get("msg") or job.error) if failed else None}  # 같이 돈 표도 실패했으면 작업 오류는 표의 것 — 서식은 제 단계 글
@@ -294,7 +326,8 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
     llm.update({"need": len(need), "planned": planned, "applied": applied, "stale": stale, "done": done, "change": sum(x.get("change", 0) for x in plist), "moved": sum(x.get("moved", 0) for x in plist),
                 "reps": sum(x.get("reps", 0) for x in plist),  # 받아 둔 계획이 대표를 바꿀 레벨 수 — 「맞출 줄 0 · 대표 변경 1」 도 반영할 것이 있다(조정 줄 · 「전체 실행」)
                 "kept": sum(x.get("kept", 0) for x in plist), "unanswered": sum(x.get("unanswered", 0) for x in plist), "omitted": sum(x.get("omitted", 0) for x in plist),
-                "left": left, "list": plist})
+                "left": left, "list": plist,
+                "leftMarked": mk[:30]})  # 그 줄 id(30개까지) — 조정 줄의 「서식 조정 · 표지 n줄」 을 누르면 차례로 간다
     place = place if ready else 0
     apply = {"state": "done" if aligned == levels and not place else "none",
              "text": f"맞춘 레벨 {aligned}/{levels}" + (f" · 대표와 다른 줄 {others}" if others else "") + (f" · 자리 안 맞은 줄 {place}" if place else "")
@@ -304,8 +337,17 @@ def _formats_item(heads, ov, variants, plans, rev, job, place=0):
             "text": f"레벨 {levels} · 서식 {groups}가지" if ready else "", "llm": llm, "apply": apply}
 
 
+def part_nos(parts, heads_run):
+    """이어 돌리기 단계의 차례 번호 {key: no} — **같은 번호는 같이 돈다**(도는 단계끼리 1부터). parts = 그 이어 돌리기의 단계 · heads_run = 헤딩 판정이 실제로 도나.
+    헤딩 판정이 돌면 표 판정의 호출이 그것과 같이 돈다(헤딩 1 · 표 1 · 서식 2 — 표 판정 호출은 1단계에만 기댄다: heading_runs.TablesAhead · 서식 계획은 헤딩 그래프가 끝나야 한다),
+    헤딩 판정을 건너뛰면 표 · 서식이 같이(헤딩 1 · 표 2 · 서식 2). 실행(app/analysis_llm.run)과 「돌 것」(llm_plan)이 같이 쓴다."""
+    raw = {"heads": 1, "tables": 1 if heads_run and "heads" in parts else 2, "formats": 2}
+    nos = sorted({raw[k] for k in parts})
+    return {k: nos.index(raw[k]) + 1 for k in parts}
+
+
 def llm_plan(items, need_plans):
-    """지금 「LLM 검증·보완」 을 누르면 돌 것 → [{key, no, name, run, why}] — app/analysis_llm.py 가 실행 때 쓰는 기준과 같다(건너뜀은 run False + why · no 가 같으면 같이 돎).
+    """지금 「LLM 검증·보완」 을 누르면 돌 것 → [{key, no, name, run, why}] — app/analysis_llm.py 가 실행 때 쓰는 기준과 같다(건너뜀은 run False + why · no 가 같으면 같이 돎 — part_nos).
     need_plans = 정리할 템플릿 가운데 계획이 없거나 옛것인 수."""
     by = {i["key"]: i for i in items}
     heads, tables = by.get("heads"), by.get("tables")
@@ -315,19 +357,21 @@ def llm_plan(items, need_plans):
     t_run = h_run or tables["llm"]["state"] != "done"
     f_need = by["formats"]["llm"].get("need", 0) if "formats" in by else 0
     f_run = h_run or need_plans > 0
-    both = " — 서식과 같이" if t_run and f_run else ""  # 같이 도는 것이 실제로 있을 때만 적는다
+    nos = part_nos(("heads", "tables", "formats"), h_run)
+    both = " — 서식과 같이" if t_run and f_run and not h_run else ""  # 같이 도는 것이 실제로 있을 때만 적는다(헤딩이 돌면 표는 헤딩과 같이)
     many = " · 템플릿끼리도 같이" if h_run or need_plans > 1 else ""
     return [
-        {"key": "heads", "no": 1, "name": "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "run": h_run,
-         "why": "못 맞춤·충돌 규칙 보강 → 유형 판정 · 구간 검토 · 서식 조정 — 먼저 혼자(표 · 서식이 이 결과에 기댑니다)" if h_run else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
-        {"key": "tables", "no": 2, "name": "표 — 표 구조(LLM)", "run": t_run,
-         "why": ("헤딩 그래프를 다시 지으므로 표 구조도 다시" if h_run and tables["llm"]["state"] == "done" else "칸 역할 · 서브 테이블 판정") + both if t_run
+        {"key": "heads", "no": nos["heads"], "name": "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "run": h_run,
+         "why": "못 맞춤·충돌 규칙 보강 → 유형 판정 · 구간 검토 — 규칙 보강이 끝나면 표 판정 호출이 같이 돕니다(서식 계획은 이 결과가 나온 뒤)" if h_run else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
+        {"key": "tables", "no": nos["tables"], "name": "표 — 표 구조(LLM)", "run": t_run,
+         "why": (("헤딩 그래프를 다시 지으므로 표 구조도 다시" if tables["llm"]["state"] == "done" else "칸 역할 · 서브 테이블 판정")
+                 + " — 호출은 헤딩 판정과 같이(규칙 보강 뒤 바로) · 소속은 헤딩 그래프가 끝난 뒤 붙임" if h_run else "칸 역할 · 서브 테이블 판정" + both) if t_run
          else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
-        {"key": "formats", "no": 2, "name": "서식 — 템플릿 서식 정리 계획", "run": f_run,
+        {"key": "formats", "no": nos["formats"], "name": "서식 — 템플릿 서식 정리 계획", "run": f_run,
          "why": ("헤딩 그래프를 다시 지은 뒤 서식이 두 가지 이상인 템플릿마다 계획만(문서는 안 바뀜)" if h_run
                  else f"정리할 템플릿 {need_plans}개 — 계획만(문서는 안 바뀜)" if need_plans
-                 else "정리할 것 없음 — 건너뜀" if not f_need else "모든 템플릿의 계획을 받았습니다 — 건너뜀") + ((" — 표와 같이" if t_run else "") + many if f_run else "")},
-    ]  # no = 차례 번호 — 같은 번호는 같이 돈다(app/analysis_llm.py PARTS 와 같음)
+                 else "정리할 것 없음 — 건너뜀" if not f_need else "모든 템플릿의 계획을 받았습니다 — 건너뜀") + ((" — 표와 같이" if t_run and not h_run else "") + many if f_run else "")},
+    ]  # no = 차례 번호 — 같은 번호는 같이 돈다(part_nos — app/analysis_llm.run 과 같음)
 
 
 def chain_parts(job):

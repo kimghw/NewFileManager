@@ -102,6 +102,25 @@ def test_catalog_target_roles_match_the_server(catalog):
             assert task["target"] in roles and len(set(roles) - {""}) >= 2, job  # 목적 문서 말고 원본 종류가 하나 이상
 
 
+def test_catalog_zone_defaults_match_the_server(catalog):
+    """편집 구역의 기본 기준(TASK 항목 zones — spec_구역 ② §1)이 서버의 기본값(task_options.ZONES_DEFAULT)과 갈라지지 않게 한다 — 갈리면 화면이 자료를 읽기 전에 보이는 체크와 서버가 띠를 만드는 기준이 다르다.
+    기준은 아는 것만 · zones.DIMS 차례 · 연구개발 TASK 에만(일반 문서에는 편집 구역이 없다). 화면이 읽는 도우미(taskZonesDefault)의 기본값도 함께 고정한다."""
+    from app import task_options, zones
+    assert {job: task["zones"] for job, task in catalog.items() if task.get("zones")} == task_options.ZONES_DEFAULT
+    for job, task in catalog.items():
+        dims = task.get("zones", [])
+        assert dims == [d for d in zones.DIMS if d in dims], job
+        assert not dims or task.get("kind", "rnd") == "rnd", job
+        work = {"id": "0" * 12, "task": {"kind": task.get("kind", "rnd"), "job": job, "file": "", "project": ""}}
+        assert task_options.resolve(work)["zones"] == {"dims": dims, "defaulted": True}, job   # 서버가 그 TASK 의 작업에 내는 기본값 = 카탈로그의 것
+    node = shutil.which("node")
+    script = ("const fs = require('node:fs'), vm = require('node:vm'); const source = fs.readFileSync(process.argv[1], 'utf8'); "
+              "process.stdout.write(vm.runInNewContext(source + '\\nJSON.stringify([taskZonesDefault(\"plan_merge\"), taskZonesDefault(\"plan_fit\"), taskZonesDefault(\"doc_edit\"), taskZonesDefault(\"\"), "
+              "taskZonesDefault(\"no_such_task\")])', {}, {timeout: 1000}));")
+    got = json.loads(subprocess.run([node, "-e", script, str(ROOT / "app" / "static" / "task_catalog.js")], capture_output=True, text=True, encoding="utf-8", check=True, timeout=10).stdout)
+    assert got == [["org"], [], [], [], []]
+
+
 def test_frame_name_tasks_match_the_catalog(catalog):
     """프레임 이름(spec_작업 ② §10 「프레임 이름」)을 쓰는 TASK(works.FRAME_FILE)가 카탈로그에서 그 종류의 문서 하나를 맞추는 TASK 이고(목적·원본이 갈리는 TASK 가 아님),
     이름에 넣는 첨부 파일 종류의 말(works.FILE_LABEL)이 화면의 말(app.js WORK_TASK.file)과 같다."""
