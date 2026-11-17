@@ -30,11 +30,12 @@ const FMF = { kind: null, label: null, ids: null, total: 0, seq: 0, // kind = "f
   // 고른 서식만 또렷이(아래 「고른 서식만 또렷이」 절): by = 표시를 켠 것("chk" = 「템플릿 관계」 의 고르기 · null = 여백의 표기 — 레벨 전체) · keys = 고른 갈래 key 집합(null = 레벨 전체) ·
   // mem = 줄 → 갈래 대응의 상태("pending" 읽는 중 · "ready" · "error" 못 읽음 · null 아직 안 봄) · of = 그 대응 Map(줄 → 갈래 key) · nos = 갈래 번호 Map(갈래 key → 번호 — 0 = 대표) ·
   // gen = 갈래·대응 읽기의 세대(읽기마다 +1 — 응답은 쓰기 직전에 제 세대인지 본다) · pg = 고른 것이 바뀐 횟수 · rel = 꼬리표를 그릴 때의 「템플릿 관계」 쪽 상태(살펴보는 갈래 · 대표 미리보기)
-  by: null, keys: null, mem: null, of: null, nos: null, gen: 0, pg: 0, rel: "" };
+  by: null, keys: null, mem: null, of: null, nos: null, gen: 0, pg: 0, rel: "",
+  blank: 0 }; // 서식 라벨의 문단 가운데 빈 줄 수(1단계 kind "empty" — 아래 「빈 줄」: 이름 줄 「빈 줄 n」 · 문서의 띠에 「S82 · 빈 줄」)
 
 // 자리 옮기기(아래 「자리 옮기기」 절) — stops = 곳 목록(스크롤 좌표 · 위에서부터) + 그것을 잰 때의 스크롤 상자 크기(h·w — 달라지면 다시 잰다) · count = 창 위·아래에 남은 곳 수 ·
 // up·down = 알약 · to·at = 마지막으로 보낸 자리(부드러운 스크롤이 끝나기 전에 또 굴리면 그 자리를 기준으로) · acc·lastEvt·lastStep·locked = 휠 손짓 하나에 한 번(app.js bindWheelFlip 과 같은 셈)
-const FMN = { stops: null, h: -1, w: -1, count: null, raf: 0, up: null, down: null, to: null, at: 0, acc: 0, lastEvt: 0, lastStep: 0, locked: false };
+const FMN = { stops: null, h: -1, w: -1, skip: false, count: null, raf: 0, up: null, down: null, to: null, at: 0, acc: 0, lastEvt: 0, lastStep: 0, locked: false };
 const FMN_EDGE = 8; // 창 위·아래 끝에서 이만큼은 「창 밖」 으로 본다(끝에 몇 px 걸친 곳)
 const FM_WHEEL_KEY = "nfm.fmFocusWheel"; // 「휠 이동」 끔 = "off"(없으면 켬 — 사용자가 청한 기본)
 
@@ -55,7 +56,7 @@ function fmFresh(kind) { // 고른 것을 바꾼다 — 읽고 있던 것은 버
   FMF.pg += 1;
   clearTimeout(FMF.timer);
   Object.assign(FMF, { kind, label: null, ids: null, total: 0, tpl: null, level: 0, no: "", para: null, focus: null, diff: null, sum: null, rev: null, tried: null, timer: 0, at: { margin: -1, other: -1 },
-    by: null, keys: null, mem: null, of: null, nos: null, rel: "" });
+    by: null, keys: null, mem: null, of: null, nos: null, rel: "", blank: 0 });
   fmNavForget(); // 보이는 줄이 바뀐다 — 알약이 가던 자리는 옛 줄의 것이다
   return FMF.seq;
 }
@@ -66,14 +67,14 @@ async function fmtFocusOn(label) {
   FMF.label = label;
   fmtFocusDraw(); // 앞에 고른 것의 흐림은 걷고 눌림 표시는 곧바로 — 문서는 문단을 읽은 뒤
   const ids = new Set();
-  let total = 0;
+  let total = 0, blank = 0;
   try {
     for (let off = 0; off < 50000; off += 500) {
       const r = await api(`/api/docs/${id}/headings/paras?${new URLSearchParams({ fmt: label, offset: off, limit: 500 })}`);
       if (seq !== FMF.seq || epoch !== state.epoch) return; // 그 사이 다른 라벨·끄기·다른 문서
       const items = r.items || [];
       total = r.total || 0;
-      for (const p of items) ids.add(p.id);
+      for (const p of items) { ids.add(p.id); if (p.kind === "empty") blank += 1; } // 빈 줄(글 없는 문단 — 줄 간격용)도 서식 라벨을 받는다
       if (!items.length || off + items.length >= total) break;
     }
   } catch (e) {
@@ -81,7 +82,7 @@ async function fmtFocusOn(label) {
     return;
   }
   if (!ids.size) { fmtFocusOff(); toast(`서식 ${label} 의 문단이 없습니다 — 1단계를 다시 추출해 라벨 번호가 바뀌었을 수 있습니다`); return; }
-  FMF.ids = ids; FMF.total = total;
+  FMF.ids = ids; FMF.total = total; FMF.blank = blank;
   fmtFocusDraw();
 }
 
@@ -265,7 +266,8 @@ function fmtFocusParas() { // 문단 요소에 .fmt-hit(고른 것) · .fm-d + -
   if (!on) {
     if (!doc.classList.contains("fmt-focus")) return;
     doc.classList.remove("fmt-focus");
-    for (const p of doc.querySelectorAll(".para.fmt-hit")) p.classList.remove("fmt-hit");
+    doc.style.removeProperty("--fm-blank-txt");
+    for (const p of doc.querySelectorAll(".para.fmt-hit")) p.classList.remove("fmt-hit", "fm-blank");
     for (const p of doc.querySelectorAll(".para.fm-d")) fmSides(p, null);
     return;
   }
@@ -273,11 +275,19 @@ function fmtFocusParas() { // 문단 요소에 .fmt-hit(고른 것) · .fm-d + -
   for (const p of doc.querySelectorAll(".para[data-id]")) {
     const hit = FMF.ids.has(p.dataset.id);
     p.classList.toggle("fmt-hit", hit); // 같은 값이면 스타일을 다시 계산하지 않는다
+    p.classList.toggle("fm-blank", hit && fmBlank(p));
     const d = hit && diff ? diff.get(p.dataset.id) : null;
     if (d || p.classList.contains("fm-d")) fmSides(p, d);
   }
+  const txt = JSON.stringify(`${FMF.label} · 빈 줄`); // 빈 줄의 띠에 적는 글(fmt_focus.css .fm-blank::before — CSS 글 값)
+  if (doc.style.getPropertyValue("--fm-blank-txt") !== txt) doc.style.setProperty("--fm-blank-txt", txt);
   doc.classList.add("fmt-focus");
 }
+// 본문의 빈 줄 — 글 · 글머리(::before) · 글 속 그림이 없는 문단. 고른 것이 빈 줄이면 옅은 바탕만으로는 고른 자리가 보이지 않아(2026-11-17 사용자 「s82 … 휠을 내리고 올리는데 s82 가 보이질 않음」 —
+// S82 문단 150개 가운데 124개가 빈 줄) 그 띠에 「S82 · 빈 줄」 을 적는다(fmt_focus.css — 그림만: 글·배치는 안 바뀐다). 고른 문단에만 묻는다(문단 전체의 글을 읽지 않는다).
+// 표 칸 안의 빈 줄은 빼다 — 칸은 바탕으로 이미 상자가 보이고, 일정표처럼 좁은 칸이 수백 개면 글이 옆 칸으로 넘쳐 표를 덮는다
+function fmEmpty(p) { return !p.dataset.label && !p.textContent.trim() && !p.querySelector(".pic-in"); } // 빈 줄(본문이든 표 칸이든) — 휠 이동이 건너뛰는 것(아래 「자리 옮기기」)
+function fmBlank(p) { return fmEmpty(p) && !p.closest("td, th"); }
 
 function fmSides(p, d) { // 대표와 여백이 다른 쪽의 자리만 칠할 폭·높이를 그 문단에(없으면 걷음) — 값은 그 문단의 인라인 padding(app.js indentLook·paraLook)에서: 배치를 읽지 않는다
   const st = p.style;
@@ -398,7 +408,7 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
   const tpl = FMF.kind === "tpl", s = FMF.sum, wheelOn = fmWheelOn(), pick = tpl && !!FMF.keys, pre = tpl && tplFocusTry();
   // 같은 설명이면 다시 그리지 않는다 — 고른 갈래를 볼 때는 고른 것 · 켠 것(by) · 줄 대응을 읽었나(mem) · 대표 미리보기도 설명에 든다
   const sig = !FMF.label ? "" : (tpl ? `T|${FMF.label}|${FMF.ids ? FMF.total : "…"}|${s ? [s.margin, s.other, s.unknown, s.norep, +!!s.failed].join(",") : "…"}|${FMF.by || ""}|${pick ? `${[...FMF.keys].join(",")}|${FMF.mem}|${+pre}` : ""}`
-    : `${FMF.label}|${FMF.ids ? FMF.total : "…"}`) + `|w${+wheelOn}`;
+    : `${FMF.label}|${FMF.ids ? `${FMF.total}|${FMF.blank}` : "…"}`) + `|w${+wheelOn}`;
   row.classList.toggle("has-fm-key", !!sig);
   if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로
   box.dataset.sig = sig; box.hidden = !sig; box.textContent = "";
@@ -417,7 +427,13 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
   if (!tpl) {
     chip.title = `서식 라벨 ${label} — 1단계가 서식이 같은 문단끼리 묶어 매긴 이름`;
     text.title = `문서에서 서식 ${label} 의 문단만 그대로(옅은 파란 바탕) 보이고 나머지 문단은 흐리게 보입니다(감추지 않습니다 · 문서는 안 바뀝니다).\n1단계 추출 뒤에 새로 생긴 문단은 라벨이 없어 흐리게 보입니다.\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 서식 자리로 가고(「휠 이동」), 문서 창 오른쪽 위·아래에 창 밖에 남은 자리 수가 보입니다.`;
-    box.append(chip, text, el("span", "fm-key-count", FMF.ids ? `문단 ${nf(FMF.total)}개` : "읽는 중…"), wheel,
+    box.append(chip, text, el("span", "fm-key-count", FMF.ids ? `문단 ${nf(FMF.total)}개` : "읽는 중…"));
+    if (FMF.ids && FMF.blank) { // 그 가운데 빈 줄 — 휠이 빈 줄로 가면 글 없는 띠만 보인다: 문서의 띠에 「S82 · 빈 줄」 이 적혀 있다는 것을 여기서도
+      const n = el("span", "fm-key-note fm-key-blank", `빈 줄 ${nf(FMF.blank)}`);
+      n.title = `서식 ${label} 의 문단 ${nf(FMF.total)}개 가운데 ${nf(FMF.blank)}개는 글이 없는 빈 줄(줄 간격용 문단)입니다 — 휠 이동과 「▲ 위 n곳」·「▼ 아래 n곳」 은 빈 줄을 건너뛰고 글이 있는 문단으로만 갑니다.\n문서에서는 본문의 빈 줄이 옅은 파란 띠 왼쪽에 「${label} · 빈 줄」 로 보입니다(표 칸 안의 빈 줄은 칸의 옅은 바탕만).`;
+      box.append(n);
+    }
+    box.append(wheel,
       hBtn("목록",() => headsParas({ fmt: label }), { cls: "btn sm fm-key-btn fm-key-list", title: `서식 ${label} 의 문단 목록을 문서 옆 열에 — 줄을 누르면 그 문단으로` }), off);
     return;
   }
@@ -464,6 +480,8 @@ function fmtFocusKey() { // 문서 이름 줄의 설명 — 고른 것이 있을
 
 // ---- 자리 옮기기 — 휠로 다음·앞 곳 · 창 위·아래에 남은 곳 수 -----------------------------------------------------------------------
 // 곳 = 고른 것의 문단이 문서 순서로 붙어 있는 묶음(사이에 낀 빈 문단은 넘긴다 — 「- 가 / - 나 / - 다」 세 줄이 한 곳 · 제목 줄은 줄마다 한 곳). 서식·템플릿 모두 FMF.ids 로 센다.
+// 고른 것 가운데 **빈 줄은 곳이 되지 않는다**(2026-11-17 사용자 「빈줄은 건너 띄자」 — S82 는 문단 150개 가운데 124개가 빈 줄이라 휠이 빈 띠로만 갔다): 휠·알약·위·아래 수 모두 글이 있는 문단으로만.
+// 빈 줄의 띠 표시(「S82 · 빈 줄」)는 그대로다. 고른 것이 모두 빈 줄이면 건너뛸 것이 없어 전처럼 빈 줄로 간다.
 // 자리는 스크롤 좌표(스크롤 상자 내용의 위끝 기준)로 한 번 재서 기억하고(FMN.stops), 그리기(fmtFocusDraw — 쪽 다시 나눔 · 고른 것 바뀜)·배율·창 크기·내용 높이가 바뀌면 다시 잰다.
 function fmNavOn() { return !!(FMF.label && FMF.ids && FMF.ids.size) && !$("scroller").hidden; }
 function fmWheelOn() { try { return localStorage.getItem(FM_WHEEL_KEY) !== "off"; } catch { return true; } }
@@ -483,11 +501,13 @@ function fmNavLater() { // 프레임에 한 번 — 스크롤 · 그리기 뒤
 function fmNavStops() { // 곳 목록 [{top, bottom(스크롤 좌표), n(줄 수), els(그 문단 요소)}] — 위에서부터
   const sc = $("scroller");
   if (FMN.stops && FMN.h === sc.scrollHeight && FMN.w === sc.scrollWidth) return FMN.stops;
-  const base = sc.getBoundingClientRect().top - sc.scrollTop, stops = [];
-  let run = null, last = null;
-  for (const p of document.querySelectorAll("#doc .para[data-id]")) {
-    const id = p.dataset.id;
-    if (FMF.ids.has(id)) {
+  const base = sc.getBoundingClientRect().top - sc.scrollTop, stops = [], all = document.querySelectorAll("#doc .para[data-id]");
+  let run = null, last = null, skip = false, skipped = false;
+  for (const p of all) if (FMF.ids.has(p.dataset.id) && !fmEmpty(p)) { skip = true; break; } // 글이 있는 고른 문단이 하나라도 있으면 빈 줄은 건너뛴다
+  for (const p of all) {
+    const id = p.dataset.id, hit = FMF.ids.has(id);
+    if (hit && skip && fmEmpty(p)) { skipped = true; continue; } // 건너뛴 빈 줄은 다른 빈 문단처럼 — 곳을 끊지도 시작하지도 않는다
+    if (hit) {
       const r = p.getBoundingClientRect();
       if (!r.width && !r.height) continue; // 안 그려진 문단
       const top = r.top - base, bottom = r.bottom - base;
@@ -498,6 +518,7 @@ function fmNavStops() { // 곳 목록 [{top, bottom(스크롤 좌표), n(줄 수
   }
   stops.sort((a, b) => a.top - b.top); // 2쪽 보기 · 표 칸 — 화면에서 위인 것이 먼저(같으면 문서 순)
   FMN.stops = stops; FMN.h = sc.scrollHeight; FMN.w = sc.scrollWidth;
+  FMN.skip = skipped; // 건너뛴 빈 줄이 있었나(알약 도움말)
   return stops;
 }
 
@@ -533,15 +554,15 @@ function fmNavDraw() { // 창 위·아래에 남은 곳 수 → 알약 「▲ �
   const tpl = FMF.kind === "tpl", what = `${tpl ? "템플릿" : "서식"} ${FMF.label}`, unit = tpl ? "줄" : "문단", wheel = fmWheelOn();
   const put = (b, arrow, word, roll, n, lines) => {
     b.hidden = false;
-    const sig = `${FMF.label}|${n}|${lines}|${+wheel}`;
+    const sig = `${FMF.label}|${n}|${lines}|${+wheel}|${+FMN.skip}`;
     if (b.dataset.sig === sig) return; // 스크롤마다 불린다 — 같으면 그대로
     b.dataset.sig = sig;
     b.textContent = `${arrow} ${word} ${nf(n)}곳`;
     b.classList.toggle("none", !n);
     b.setAttribute("aria-disabled", String(!n));
-    b.title = n ? `이 창 ${word}쪽에 ${what} 이(가) ${nf(n)}곳(${unit} ${nf(lines)}개) 더 있습니다 — 곳 = 붙어 있는 ${unit} 묶음\n누르${wheel ? `거나 문서에서 휠을 ${roll}` : ""}면 바로 ${word}의 자리로 갑니다`
+    b.title = n ? `이 창 ${word}쪽에 ${what} 이(가) ${nf(n)}곳(${unit} ${nf(lines)}개) 더 있습니다 — 곳 = 붙어 있는 ${unit} 묶음${FMN.skip ? "(빈 줄은 건너뜀)" : ""}\n누르${wheel ? `거나 문서에서 휠을 ${roll}` : ""}면 바로 ${word}의 자리로 갑니다`
         + (wheel ? "" : "\n(「휠 이동」 이 꺼져 있어 휠은 평소대로 움직입니다 — 이름 줄에서 켭니다)")
-      : `이 창 ${word}쪽에는 ${what} 이(가) 더 없습니다`;
+      : `이 창 ${word}쪽에는 ${what} 이(가) 더 없습니다${FMN.skip ? "(빈 줄은 건너뜀)" : ""}`; // 빈 줄은 더 있을 수 있다 — 「없다」 가 빈 줄까지 없다는 말로 읽히지 않게
   };
   put(FMN.up, "▲", "위", "올리", c.up, c.upN);
   put(FMN.down, "▼", "아래", "내리", c.down, c.downN);

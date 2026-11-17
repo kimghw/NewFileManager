@@ -6989,7 +6989,7 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
     + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
     + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" && t.kind === "band" ? `\n별첨·부록 표 제목 줄 — 「${oneLine(ol.name || "").slice(0, 20)}」 칸과 제목 칸으로 된 표를 헤딩 추출이 스스로 줄로 잡았습니다(문서 맨 위의 줄 · 그 아래 줄은 다음 별첨·부록 표나 장이 올 때까지 이 줄의 것)`
       : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
-    + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n템플릿 관계(이 레벨의 서식 목록 · 대표 정하기 · 대표에 맞추기)는 문서 이름 줄 설명의 「템플릿 관계」`;
+    + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n두 번 누르면 「템플릿 관계」 — 이 레벨의 서식 목록에서 이 줄의 서식(대표 정하기 · 대표에 맞추기 · 다른 템플릿으로)`;
   // 서식 라벨(「S41」 — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」, 2026-11-16 사용자 「대표템플릿인경우 템플릿 클릭하면 서식이 나오니깐 별도 서식번호가 필요 없을거 같은데」):
   // 오버레이 줄은 그 줄의 **지금** 라벨(heads.outline.fmts — 대표에 맞추면 대표의 라벨이 된다: 서버 outline_edit.fmt_view)이고, 그 레벨 대표의 라벨과 같으면 그리지 않는다 — 번호는 대표와 서식이 다른 줄에만 남는다.
   // 서버가 옛 판이면(fmts 없음) 전처럼 그래프 노드의 라벨.
@@ -7076,6 +7076,13 @@ function tplMarksDraw() {
       // 누르면 그 템플릿·레벨의 줄만 또렷이(fmt_focus.js tplFocusToggle — spec_헤딩_추출 ② §7 「템플릿만 또렷이」, 2026-11-15 사용자 「템플릿도 클릭하면 똑같이 동일한 템플릿만」): 개요 오버레이 줄의 표기마다 눌리는 글(.tm-t —
       // 한 표에 여럿이면 누른 그 표기). 전에 누르면 열리던 「템플릿 관계」 는 이름 줄 설명의 단추가 연다. 오버레이 줄이 아닌 표(그래프만 · 뼈대 밖 · TEMP)는 전과 같다
       const focusable = !dr && typeof tplFocusToggle === "function";
+      // 두 번 누르면 「템플릿 관계」 의 그 레벨 · 이 줄의 서식으로(2026-11-17 사용자 「T1 L3 더블클릭하면 템플릿 관계로 가줘야 하는거 아냐?」 — spec_헤딩_추출 ② §7 「템플릿만 또렷이」).
+      // 한 번 누름(또렷이 켜고 끄기)은 그대로 · 둘째 누름(detail 2)은 켜고 끄지 않고, 두 번 누름은 또렷이를 켠 채 둔다(첫 누름이 껐으면 다시 켬). 열이 열려 있으면 다시 짓지 않고 그 줄로(outline_match.js olmLookFrom)
+      const relGo = (m) => {
+        if (typeof tplFocusIs === "function" && !tplFocusIs(m.tpl, m.level)) tplFocusOn(m);
+        const at = m.para ? { tpl: m.tpl, level: m.level, para: m.para } : null;
+        if (at && typeof olmLookFrom === "function") olmLookFrom(at, m.focus ?? m.no); else tplRelOpen(m.focus ?? m.no, at);
+      };
       texts.slice(0, 3).forEach((x, i) => { // 글은 전과 같다 — 「A · B · C +n」
         if (i) s.append(" · ");
         if (!focusable || x.m.tpl == null) { s.append(x.text); return; }
@@ -7083,14 +7090,15 @@ function tplMarksDraw() {
         b.dataset.tpl = String(x.m.tpl);
         b.dataset.level = String(x.m.level);
         b.setAttribute("role", "button");
-        b.onclick = (e) => { e.stopPropagation(); tplFocusToggle(x.m); };
+        b.onclick = (e) => { e.stopPropagation(); if (e.detail < 2) tplFocusToggle(x.m); };
+        b.ondblclick = (e) => { e.stopPropagation(); relGo(x.m); };
         s.append(b);
       });
       if (texts.length > 3) s.append(` +${texts.length - 3}`);
       s.title = r.items.map((m) => m.title).join("\n═══\n");
       const hit = r.items.find((m) => m.no) || {}, no = hit.no;
       if (dr && typeof driftView === "function") { s.setAttribute("role", "button"); s.onclick = () => driftView(); }
-      else if (no && focusable && hit.tpl != null) { s.setAttribute("role", "button"); s.onclick = () => tplFocusToggle(hit); } // 글 사이·「+n」 을 눌러도 첫 표기
+      else if (no && focusable && hit.tpl != null) { s.setAttribute("role", "button"); s.onclick = (e) => { if (e.detail < 2) tplFocusToggle(hit); }; s.ondblclick = () => relGo(hit); } // 글 사이·「+n」 을 눌러도 첫 표기
       else if (no) { s.setAttribute("role", "button"); s.onclick = () => tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null); }
       else if (cm && typeof captOpen === "function") { s.setAttribute("role", "button"); s.onclick = () => captOpen(cm.cap, cm.para); } // 캡션 줄 — 누르면 그 캡션 템플릿의 서식 목록
       else if (r.temp && typeof tempView === "function") { s.setAttribute("role", "button"); s.onclick = () => tempView(); } // TEMP 줄 — 누르면 TEMP 목록

@@ -144,9 +144,10 @@ CLICK_T = """([t, l]) => { const b = [...document.querySelectorAll('.tpl-mark .t
   b.scrollIntoView({ block: 'center' }); b.click(); return b.textContent; }"""
 # 자리 옮기기의 지금 모습 — 알약 · FMN.count 와, 화면에서 따로 센 것(want: 붙어 있는 .fmt-hit 묶음 가운데 창 위·아래에 있는 수 · seen: 창에 보이는 묶음 · tops: 묶음 위끝의 창 안 자리)
 NAV = """() => { const sc = document.getElementById('scroller'), vw = document.getElementById('viewer').getBoundingClientRect(), sr = sc.getBoundingClientRect(), E = 8, vis = (e) => !!e && e.getClientRects().length > 0;
-  const groups = []; let g = null;
-  for (const p of document.querySelectorAll('#doc .para[data-id]')) {
-    if (p.classList.contains('fmt-hit')) { const r = p.getBoundingClientRect(); if (!r.width && !r.height) continue;
+  const groups = [], ps = [...document.querySelectorAll('#doc .para[data-id]')], empty = (p) => !p.dataset.label && !p.textContent.trim() && !p.querySelector('.pic-in');
+  const skip = ps.some((p) => p.classList.contains('fmt-hit') && !empty(p)); let g = null;  // 고른 것 가운데 빈 줄은 곳이 아니다(글이 있는 고른 문단이 있을 때 — fmt_focus.js fmNavStops)
+  for (const p of ps) {
+    if (p.classList.contains('fmt-hit') && !(skip && empty(p))) { const r = p.getBoundingClientRect(); if (!r.width && !r.height) continue;
       if (g) { g.top = Math.min(g.top, r.top); g.bottom = Math.max(g.bottom, r.bottom); } else { g = { top: r.top, bottom: r.bottom, id: p.dataset.id }; groups.push(g); } }
     else if (g && p.textContent.trim()) g = null; }
   groups.sort((a, b) => a.top - b.top);
@@ -311,6 +312,58 @@ def main():
         focus_is(page, None)
         v = page.evaluate(VIEW)
         check("「끄기」 → 풀림", not v["on"] and not v["hit"] and v["missOp"] == [1] and not v["key"]["shown"] and not v["marks"], [v["on"], v["key"]])
+
+        # 빈 줄이 든 서식 — 띠에 「S… · 빈 줄」 · 이름 줄 「빈 줄 n」(2026-11-17 사용자 「s82 … 휠을 내리고 올리는데 s82 가 보이질 않음」 — 그 서식의 문단 대부분이 빈 줄)
+        empties, off = [], 0
+        while True:  # 끝점은 한 번에 500개까지
+            r_ = requests.get(f"{base}/api/docs/{plan}/headings/paras", params={"kind": "empty", "offset": off, "limit": 500}, timeout=60).json()
+            empties += r_["items"]
+            off += len(r_["items"])
+            if not r_["items"] or off >= r_["total"]:
+                break
+        by_fmt, body_fmt = {}, {}  # 서식 → 빈 줄 id(모두 — 이름 줄 「빈 줄 n」) · 본문의 빈 줄 id(띠에 글이 붙는 것 — 표 칸은 뺀다)
+        for p_ in empties:
+            by_fmt.setdefault(p_["fmt"], []).append(p_["id"])
+            if p_["area"] == "body":
+                body_fmt.setdefault(p_["fmt"], []).append(p_["id"])
+        bl = max(body_fmt, key=lambda k: len(body_fmt[k])) if body_fmt else None
+        if bl:
+            _, bl_total = label_ids(plan, bl)
+            page.evaluate("(l) => fmtFocusOn(l)", bl)  # 빈 줄에는 여백 라벨이 없다 — 누르는 대신 같은 함수를 부른다
+            focus_is(page, bl, bl_total)
+            bv = page.evaluate("""(ids) => { const doc = document.getElementById('doc'), all = [...doc.querySelectorAll('.para.fmt-hit')], bs = all.filter((p) => p.classList.contains('fm-blank'));
+              const blank = (p) => !p.dataset.label && !p.textContent.trim() && !p.querySelector('.pic-in') && !p.closest('td, th');
+              const b = bs[0]; if (b) b.scrollIntoView({ block: 'center' });
+              const want = ids.filter((i) => { const p = doc.querySelector(`.para[data-id="${i}"]`); return p && blank(p); });
+              const bad = all.filter((p) => p.classList.contains('fm-blank') !== blank(p)).length, inCell = bs.filter((p) => p.closest('td, th')).length;
+              const before = b ? getComputedStyle(b, '::before') : null;
+              return { blanks: [...new Set(bs.map((p) => p.dataset.id))].sort(), want: [...new Set(want)].sort(), bad, inCell, content: before ? before.content : '', pos: before ? before.position : '',
+                note: (document.querySelector('#fmtKey .fm-key-blank') || {}).textContent || '', count: (document.querySelector('#fmtKey .fm-key-count') || {}).textContent || '', id: b ? b.dataset.id : null,
+                over: document.getElementById('fileInfo').scrollWidth > document.getElementById('fileInfo').clientWidth + 1 }; }""", body_fmt[bl])
+            check(f"빈 줄이 든 서식 「{bl}」(문단 {bl_total}개 · 빈 줄 {len(by_fmt[bl])} · 본문 {len(body_fmt[bl])}) — 본문 빈 줄의 띠에 「{bl} · 빈 줄」(절대 위치 — 배치 안 바뀜) · 글이 있는 문단 · 표 칸엔 없음 · 이름 줄 「빈 줄 n」 · 넘침 없음",
+                  bv["blanks"] and bv["want"] and set(bv["want"]) <= set(bv["blanks"]) and not bv["bad"] and not bv["inCell"] and bv["content"] == f'"{bl} · 빈 줄"' and bv["pos"] == "absolute"
+                  and bv["note"] == f"빈 줄 {len(by_fmt[bl]):,}" and bv["count"] == f"문단 {bl_total:,}개" and not bv["over"], bv)
+            page.wait_for_timeout(200)
+            page.screenshot(path=str(OUT / "05b_blank.png"))
+            fo = page.evaluate("""(pid) => { const p = document.querySelector(`#doc .para[data-id="${pid}"]`); p.focus(); const a = getComputedStyle(p, '::before').content; p.blur(); return [a, getComputedStyle(p, '::before').content]; }""", bv["id"])
+            check("커서를 둔 빈 줄에는 「… · 빈 줄」 을 붙이지 않음(글을 쓰는 중) — 벗어나면 다시", fo[0] == "none" and fo[1] == f'"{bl} · 빈 줄"', fo)
+            # 휠 이동은 빈 줄을 건너뜀(2026-11-17 사용자 「빈줄은 건너 띄자」) — 곳 = 글이 있는 고른 문단의 묶음만 · 띠 표시는 그대로
+            page.evaluate("() => { document.getElementById('scroller').scrollTop = 0; }")
+            page.evaluate(SETTLE)
+            with_blank = page.evaluate("""() => { let g = 0, on = false; for (const p of document.querySelectorAll('#doc .para[data-id]')) {
+              if (p.classList.contains('fmt-hit')) { if (!on) { g += 1; on = true; } } else if (on && p.textContent.trim()) on = false; } return g; }""")  # 빈 줄까지 곳으로 셌다면
+            n1 = wheel(page, 100)
+            solid = page.evaluate("(ids) => ids.map((i) => { const p = document.querySelector(`#doc .para[data-id=\"${i}\"]`); return !!p && (!!p.textContent.trim() || !!p.dataset.label); })", n1["land"])
+            tips = [(n1[k] or {}).get("tip", "") for k in ("up", "down")]
+            check(f"휠 이동은 빈 줄을 건너뜀 — 곳 {n1['want']['all']}(글이 있는 문단 묶음 — 빈 줄까지 세면 {with_blank}) · 휠 한 칸이 글이 있는 문단으로(.fm-land) · 알약 도움말 「빈 줄은 건너뜀」 · 빈 줄 띠는 그대로",
+                  nav_ok(n1) and 0 < n1["want"]["all"] < with_blank and solid and all(solid) and n1["y"] > 0 and any("빈 줄은 건너뜀" in t for t in tips)
+                  and page.evaluate("() => document.querySelectorAll('#doc .para.fm-blank').length") > 0, [nav_brief(n1), with_blank, n1["land"], solid, tips])
+            page.click("#fmtKey .fm-key-off")
+            focus_is(page, None)
+            gone = page.evaluate("() => [document.querySelectorAll('#doc .para.fm-blank').length, document.getElementById('doc').style.getPropertyValue('--fm-blank-txt')]")
+            check("「끄기」 → 빈 줄 표시도 걷힘", gone == [0, ""], gone)
+        else:
+            check("빈 줄이 든 서식이 양식에 있음(검사 자료)", False, "kind=empty 문단 없음")
 
         # ---- 템플릿만 또렷이 — 「T1 L2」(양식의 「N-N.」 줄 26개: 대표 13 · 여백이 다른 줄 · 줄 간격만 다른 줄이 섞여 있다)
         in_dom = "(ids) => ids.filter((i) => !!document.querySelector(`#doc .para[data-id=\"${i}\"]`))"
