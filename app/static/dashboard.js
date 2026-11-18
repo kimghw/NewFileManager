@@ -18,7 +18,12 @@ const DASH_HELP = "이 TASK 의 단계를 워크플로우의 차례대로 보이
   + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 합니다(누를 때 한 번 확인 · 사람이 봐야 할 곳에서는 멈추거나 넣지 않고 남김).\n"
   + "점선 단계는 안 해도 되는 단계, 「준비 중」 은 아직 없는 단계입니다. 값 입력 · 목록 보기처럼 넓은 일은 「작업 내용」 이나 문서 옆 열에서 합니다.";
 
-const dashShown = () => !!state.id && typeof TASK_CATALOG === "object" && !!TASK_CATALOG[agwJob()]; // TASK 가 적힌 문서면(app.js toolShown("Dash"))
+// 탭은 문서가 열려 있으면 늘 보인다(app.js toolShown("Dash")) — 2026-11-18 사용자 "내가 단계 흐름에서 자동 실행할 수 있도록, 여기 탭에 넣어 달라고 했는데 보이질 않아"(TASK 없이 연 문서라 탭이 감춰져 있었다: 전에는 TASK 가 적힌 문서만).
+// TASK 가 없으면 이 문서에 맞는 TASK 를 고르는 카드(dashPickEl) — 고르면 그 자리에서 단계 흐름
+const dashShown = () => !!state.id;
+const dashHasTask = (job = agwJob()) => typeof TASK_CATALOG === "object" && !!TASK_CATALOG[job];
+const DASH_PICK_HELP = "이 문서에는 TASK 가 적혀 있지 않습니다. TASK 를 고르면 그 TASK 의 단계 흐름이 여기 보이고, 단계마다 지금 상태와 실행 단추 · 묶음의 「한 번에 진행」 이 생깁니다.\n"
+  + "고르는 것은 패널 「작업 내용」 의 TASK 칸과 같습니다(이 문서에 TASK 를 적음 — 문서는 바뀌지 않습니다). 이 문서의 형식(hwpx · docx)으로 할 수 있는 TASK 만 보입니다.";
 const dashKey = () => `${state.id}|${state.epoch}`;
 const dashHere = (t) => String(t || "").replace(/위 칸에서/g, "「작업 내용」 의 칸에서").replace(/아래 「/g, "「작업 내용」 의 「").replace(/아래 입력 칸/g, "「작업 내용」 의 입력 칸"); // 「작업 내용」 의 단계 글은 그 패널 안의 자리를 가리킨다 — 여기서는 그 패널 이름으로
 
@@ -334,7 +339,48 @@ function dashLiveEl(M) { // 지금 도는 것 — 에이전트 보기의 진행 
   return box;
 }
 
+async function dashPick(job) { // TASK 고르기 — 「작업 내용」 의 TASK 칸과 같은 길(project_workspace.js projectTaskPick → taskSet) · 고른 뒤 그 자리에서 단계 흐름
+  if (agwRunning()) { toast("지금 진행 중인 작업이 끝난 뒤에 고르세요", true); return; }
+  const doc = dashKey();
+  if (typeof projectTaskPick === "function") await projectTaskPick(job); else await taskSet("job", job);
+  if (DASH.doc !== doc || !dashHasTask()) return;
+  Object.assign(DASH, { open: null, nowKey: "", form: false, last: null, sig: "" });
+  if (typeof $ === "function" && !$("paneDash").hidden) await dashShow();
+}
+
+function dashPickEl() { // TASK 가 없는 문서 — 이 문서의 형식으로 할 수 있는 TASK 마다 카드: 이름 · 하는 일 · 묶음 차례 · 「이 TASK 로」
+  const root = el("section", "dash"), head = el("header", "dash-head"), title = el("div", "dash-title"), meta = typeof TASK_STAGE_META === "undefined" ? {} : TASK_STAGE_META;
+  root.setAttribute("aria-label", "대시보드");
+  const wf = el("a", "dash-wf", "워크플로우 ↗");
+  wf.href = "/workflow#overview"; wf.target = "_blank"; wf.rel = "noopener"; wf.title = "워크플로우 페이지에서 TASK 마다의 과정 보기(새 탭)";
+  title.append(el("b", null, "TASK 고르기"), hHelp("대시보드 도움말", DASH_PICK_HELP), wf);
+  const next = el("p", "dash-next", "이 문서에는 TASK 가 없습니다 — TASK 를 고르면 단계 흐름이 보입니다");
+  next.setAttribute("role", "status");
+  head.append(title, next);
+  root.append(head);
+  if (DASH.regErr && !DASH.reg) { root.append(el("p", "dash-note warn", `워크플로우를 읽지 못했습니다: ${DASH.regErr}`), dashBtn("다시 읽기", () => { DASH.regErr = ""; dashShow(); })); return root; }
+  const fmt = state.format || "hwpx", ul = el("ul", "dash-picks");
+  ul.setAttribute("aria-label", "이 문서로 할 수 있는 TASK");
+  for (const [job, cat] of Object.entries(TASK_CATALOG)) {
+    if (cat.soon || !taskAcceptOf(job).includes(fmt)) continue;
+    const reg = DASH.reg && DASH.reg.tasks.find((t) => t.job === job), li = el("li", "dash-pick"), top = el("div", "dash-pick-top");
+    li.dataset.job = job;
+    top.append(el("b", null, cat.name));
+    if (reg && reg.stages.length) top.append(el("span", "dash-gcount", `단계 ${reg.stages.reduce((s, g) => s + g.steps.length, 0)}개`));
+    li.append(top, el("p", "dash-text", cat.desc || ""));
+    if (reg && reg.stages.length) li.append(el("p", "dash-text muted", reg.stages.map((g) => (g.meta && meta[g.meta] ? meta[g.meta].name : g.name)).join(" › ")));
+    const acts = el("div", "dash-acts");
+    acts.append(dashBtn("이 TASK 로", () => dashPick(job), { title: `이 문서의 TASK 를 「${cat.name}」 로 적고 단계 흐름을 봅니다(문서는 바뀌지 않습니다)`, focus: `pick:${job}` }));
+    li.append(acts);
+    ul.append(li);
+  }
+  if (!ul.children.length) ul.append(el("li", "dash-pick muted", `이 문서 형식(${fmt})으로 할 수 있는 TASK 가 없습니다`));
+  root.append(ul);
+  return root;
+}
+
 function dashEl(M) {
+  if (!dashHasTask(M.job)) return dashPickEl();
   const root = el("section", "dash"), head = el("header", "dash-head"), title = el("div", "dash-title");
   root.setAttribute("aria-label", "대시보드");
   const nodes = M.groups.flatMap((g) => g.nodes), counted = nodes.filter(dashCounted), done = counted.filter((n) => n.state === "done").length;
@@ -378,7 +424,7 @@ function dashEl(M) {
 
 function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜짐 · 강조)가 같으면 도는 글만 바꾼다(1초마다 · 초점 유지)
   const b = (x) => (x ? `${x.textContent}|${x.disabled ? 1 : 0}|${x.className}|${x.title}` : "");
-  return JSON.stringify([M.job, !!M.reg, DASH.regErr, DASH.open, DASH.form, !!DASH.busy, DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
+  return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DASH.regErr, DASH.open, DASH.form, !!DASH.busy, DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
     M.notes.map((n) => [n.text, b(n.act)]), M.top.map(b),
     M.groups.map((g) => [b(g.run), g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.text, n.lines, n.acts.map(b)])])]);
 }

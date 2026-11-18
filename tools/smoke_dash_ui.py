@@ -5,6 +5,7 @@
 - 대시보드에서만: 「프로젝트 구성 입력 · 확정…」 → 폼(에이전트 질문 카드와 같은 폼) → 「이 값으로 확정」 → 확정(문서 그대로) · 02 끝남 · 04 지금 → 「변경 계획 보기」 → 끝 글 · 문서 옆 열에 목록(탭은 대시보드 그대로)
   → 05 「문서에 반영」(제 확인 창) → 문서가 바뀜 · 「모두 끝남」.
 - 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」(등록부의 조건) · 좁은 패널에서 가로 넘침 없음 · 다시 그려도 초점 유지(1초 지켜보기) · 문서 일반 편집(doc_edit)의 흐름 · 「에이전트 보기 열기」 · 콘솔 오류 없음.
+- TASK 가 없는 문서(TASK 없이 올림 → #w=) — 탭은 보이고 「TASK 고르기」 카드 → 「이 TASK 로」 → 문서에 TASK 가 적히고 그 자리에서 단계 흐름(② §9 「TASK 가 없을 때」).
 
     python -X utf8 tools/smoke_dash_ui.py <출력 폴더> [--port 18471]
 """
@@ -204,6 +205,30 @@ def main():
         page.wait_for_selector('#paneDash .dash-node[data-key=link] .dash-detail')
         check("등록부의 세부 단계(자리 연결 LLM 검토)는 「「자리 연결」 의 단추로 함께」 + 「그 단계로」 → ② 자리 연결 카드가 펴짐", "「자리 연결」" in via["text"] and via["btn"] == "그 단계로", via)
         page.locator("#paneDash").screenshot(path=str(OUT / "06_relay.png"))
+
+        # ---- TASK 가 없는 문서 — 탭은 늘 보이고 「TASK 고르기」 → 고르면 그 자리에서 단계 흐름(2026-11-18 사용자 「여기 탭에 넣어 달라고 했는데 보이질 않아」 — ② §9 「TASK 가 없을 때」)
+        with PLAN.open("rb") as f:
+            bare = requests.post(f"{base}/api/docs?new=1", files={"file": (PLAN.name, f)}, timeout=180).json()["docId"]
+        page.goto(f"{base}/#w={bare}")
+        page.wait_for_selector("#doc .para", timeout=120000)
+        page.wait_for_function(f"() => state.id === '{bare}' && !(state.task || {{}}).job && !document.getElementById('tabDash').hidden", timeout=30000)
+        page.click("#tabDash")
+        page.wait_for_function("() => document.querySelectorAll('#paneDash .dash-pick .dash-text.muted').length > 0", timeout=30000)   # 등록부를 읽어 묶음 차례까지
+        picks = page.evaluate("""() => ({ title: (document.querySelector('#paneDash .dash-title b') || {}).textContent, next: (document.querySelector('#paneDash .dash-next') || {}).textContent || '',
+          jobs: [...document.querySelectorAll('#paneDash .dash-pick')].map((p) => p.dataset.job), flow: (document.querySelector('#paneDash .dash-pick[data-job=plan_merge] .dash-text.muted') || {}).textContent || '',
+          btn: (document.querySelector('#paneDash .dash-pick[data-job=plan_fit] button') || {}).textContent || '', over: document.getElementById('paneDash').scrollWidth > document.getElementById('paneDash').clientWidth + 1 })""")
+        check("TASK 가 없는 문서 — 탭 「대시보드」 가 보이고 누르면 「TASK 고르기」: hwpx 로 할 수 있는 TASK 카드(준비 중인 연차보고서 취합은 없음) · 묶음 차례 · 「이 TASK 로」",
+              picks["title"] == "TASK 고르기" and "TASK 가 없습니다" in picks["next"] and {"plan_fit", "plan_merge", "plan_to_report", "doc_edit", "style_copy"} <= set(picks["jobs"]) and "report_merge" not in picks["jobs"]
+              and picks["flow"] == "프로젝트 구성 › 문서 프레임 작성 › 내용 매핑" and picks["btn"] == "이 TASK 로" and not picks["over"], picks)
+        page.locator("#paneDash").screenshot(path=str(OUT / "07_pick.png"))
+        page.click('#paneDash .dash-pick[data-job=plan_fit] button')
+        page.wait_for_function("() => (state.task || {}).job === 'plan_fit' && !!document.querySelector('#paneDash .dash-node[data-key=values]')", timeout=60000)
+        h = page.evaluate(HEAD)
+        lst = requests.get(f"{base}/api/works", timeout=30).json()
+        saved = next((w for w in (lst if isinstance(lst, list) else lst.get("works", [])) if w.get("id") == bare), {})
+        check("「이 TASK 로」 → 문서에 TASK 가 적힘(서버) · 패널은 대시보드 그대로 · 그 자리에서 양식 맞추기 단계 흐름",
+              (saved.get("task") or {}).get("job") == "plan_fit" and h["tool"] == "Dash" and h["title"] == "사업계획서 양식 맞추기" and [g[1] for g in h["groups"]] == ["준비", "프로젝트 구성", "구조 반영"], [saved.get("task"), h])
+        page.locator("#paneDash").screenshot(path=str(OUT / "08_picked.png"))
 
         # ---- 문서 일반 편집 — 끝을 세지 않는 흐름 · 「에이전트 보기 열기」
         page.goto(base)

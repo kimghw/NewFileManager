@@ -722,7 +722,7 @@ function toolTabsDraw() {
   if (!on) return;
   const a = $("tabAgent"), t = $("toolTabTask"), u = $("toolTabTool");
   a.hidden = !toolShown("Agent"); // hwpx 만(docx 는 에이전트 보기가 없다)
-  const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): TASK 가 적힌 문서면 에이전트 다음
+  const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): 문서가 열려 있으면 늘(TASK 가 없으면 TASK 고르기) · 에이전트 다음
   d.hidden = !toolShown("Dash");
   t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
   u.hidden = !toolLast || !toolShown(toolLast);

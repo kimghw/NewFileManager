@@ -28,6 +28,9 @@ TASK 를 시작하면 에이전트가 **사전 준비와 진행 상황을 설명
   → ② §9(패널 탭 「대시보드」). 에이전트 판단(사용자 확인 전 — ④): ⓐ 「도구」 = 문서 옆 패널(3열)의 탭 줄 — 탭 이름 「대시보드」(사용자의 「대쉬보드」 를 표준 표기로) · 자리는 「에이전트」 다음 ·
   ⓑ 「여기서 실행을 다 할 수」 = 단계마다 그 단계를 하는 단추 + 묶음의 「한 번에 진행」 — **새 실행 길을 만들지 않고** 「작업 내용」 · 에이전트의 것을 부른다(§7 ⓒ) · 값 입력 · 긴 목록처럼 넓은 일은 「작업 내용」 · 문서 옆 열을 연다 ·
   ⓒ 단계 흐름은 워크플로우 등록부가 원본(같은 차례 · 이름 · 꼬리표) · 상태는 화면이 들고 있는 값으로 센다(서버를 다시 읽지 않음).
+- 2026-11-18 (newfilemanager-fd) 사용자(워크플로우의 취합 「단계 흐름」 그림 + 패널 탭 줄 「에이전트 · 작업 내용 · 헤딩 추출 · 테이블」 그림): **"내가 단계 흐름에서 자동 실행할 수 있도록 , 여기 탭에 넣어 달라고 했는데 보이질 않아"**
+  → 까닭: 연 문서(작업 `e41ebd0b8b5a` · 연구개발 사업계획서)에 TASK 가 적혀 있지 않았다(`job: ""` — 「작업 내용」 은 작업 종류가 연구개발이라 보임) · 탭은 TASK 가 적힌 문서만 보였다(`dashShown`).
+  → ② §9 「자리」 · 「TASK 가 없을 때」 · ③ 같은 날. 에이전트 판단(사용자 확인 전 — 「권장사항을 자동으로 따르도록」): 탭은 문서가 열려 있으면 늘 보이고, TASK 가 없으면 그 문서 형식으로 할 수 있는 TASK 를 고르는 카드 → 고르면 그 자리에서 단계 흐름.
 
 ## ② 확정 사양
 
@@ -195,7 +198,9 @@ TASK 마다 단계는 달라도 공통 모듈·단계를 같이 쓰고, **진행
 
 ### 9. 대시보드 — 단계 흐름에서 단계마다 상태 · 실행 (2026-11-18 사용자 요청 — ① 같은 날)
 
-- **자리**: 패널(3열) 머리 둘째 줄의 탭 「대시보드」(`#tabDash` · `#paneDash` — 「에이전트」 다음). TASK 가 적힌 문서면 보인다(`dashShown` — hwpx · docx). 화면 `app/static/dashboard.js` · `dashboard.css` · 모양 [design.md](../design.md) §17.
+- **자리**: 패널(3열) 머리 둘째 줄의 탭 「대시보드」(`#tabDash` · `#paneDash` — 「에이전트」 다음). **문서가 열려 있으면 늘 보인다**(`dashShown` — hwpx · docx · 2026-11-18 ①: 전에는 TASK 가 적힌 문서만이라 TASK 없이 연 문서에서 탭이 안 보였다). 화면 `app/static/dashboard.js` · `dashboard.css` · 모양 [design.md](../design.md) §17.
+- **TASK 가 없을 때**(2026-11-18 ①): 단계 흐름 대신 **TASK 고르기** — 그 문서 형식으로 할 수 있는 TASK(`taskAcceptOf` · 준비 중 TASK 는 뺌)마다 카드(이름 · 하는 일 · 등록부의 묶음 차례 · 단계 수 · 「이 TASK 로」).
+  고르면 「작업 내용」 의 TASK 칸과 같은 길(`projectTaskPick` → `taskSet` — 문서에 TASK 를 적음 · 문서는 안 바뀜)로 적고, 그 자리(대시보드)에서 그 TASK 의 단계 흐름을 그린다(`dashPick` — 처음 여는 보기 `taskEnter` 로 옮기지 않는다). 도는 일이 있으면 고르지 않는다.
 - **그림**: 워크플로우 페이지(`/workflow`)의 「단계 흐름」 과 같은 꼴 — 묶음 머리(번호 · 이름 · 끝난 수 · 「한 번에 진행」) 아래 단계 카드(번호 동그라미 · 이름 · 꼬리표 스크립트 · LLM · 사람 · 문서 바뀜 · 저절로 · 안 해도 됨 · **상태 글**).
   묶음 · 단계 · 이름 · 누가 · 조건은 **등록부(`GET /api/workflow` — `app/workflow.py`)가 원본**이다(대시보드가 다시 적지 않는다). 상태 글 = 끝남 · 지금 · 할 수 있음 · 남음 · 기관 미지정 · 진행 중 · 준비 중(색만으로 가르지 않는다).
   「지금」(도는 중이면 그것) 단계가 펴져 있고, 단계를 누르면 펴고 접는다. 편 카드 = 지금 상태 글 · 단추 · 접은 「하는 일 · 조건」(등록부의 하는 일 · 나오는 것 · 하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것). 아직 차례가 아닌 단계는 상태 글 대신 「하려면」 을 보인다.
@@ -222,6 +227,8 @@ TASK 마다 단계는 달라도 공통 모듈·단계를 같이 쓰고, **진행
 
 ## ③ 구현 상태
 
+- 2026-11-18 **② §9 「자리」 · 「TASK 가 없을 때」 — 구현(newfilemanager-fd)**: `dashboard.js` `dashShown` = 문서가 열려 있으면 · `dashHasTask` · `dashPickEl`(TASK 고르기 카드) · `dashPick`(`projectTaskPick` → `dashShow`) · `dashEl` 이 TASK 가 없으면 고르기를 그림 ·
+  `dashboard.css` `.dash-picks` · `.dash-pick` · `app.js` `toolTabsDraw` 주석 · `workflow.py` 공통 모듈 「대시보드」 의 여는 곳 → `workflow.md` 다시 만듦. 화면 검사 `smoke_dash_ui.py` 에 「TASK 없는 문서 — 탭이 보이고 고르면 단계 흐름」 을 더함.
 - 2026-11-18 **② §9 — 구현(newfilemanager-d9)**: 패널 탭 「대시보드」.
   - 새 `app/static/dashboard.js`(등록부 읽기 `dashRegLoad` · 문서마다 처음 한 번 `dashPrime` · TASK 가지 `dashFitLive` · `dashRelayLive` · `dashGatherLive` · `dashStyleLive` · `dashEditLive` · 그리기 `dashEl` · 1초 지켜보기 — 같으면 도는 글만 · 초점 유지 · 「지금」 이 나아가면 펼친 카드도 따라감) · 새 `dashboard.css`.
   - `index.html`(탭 `#tabDash` · `#paneDash` · css · js) · `app.js`(`TOOL_TABS` · `TOOL_INFO.Dash` · `toolShown` · `showTab` — 문서 옆 열을 닫지 않음 · `toolTabsDraw` · 탭 누름 · `taskPaneShow` — 대시보드면 그대로) ·
