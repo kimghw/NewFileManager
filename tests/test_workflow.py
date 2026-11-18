@@ -123,7 +123,7 @@ def test_task_docs_are_the_registry_written_out():
     assert "### TASK 를 시작할 때" in relay and "### 저절로 돌지 않는 것" in relay and "  - 안 맞으면: " in relay and "  - 끝난 것으로 보는 때: " in relay and "## 쓰는 공통 모듈" in relay
     assert "에이전트: 09 자리 연결 검토" in relay and "`jobs/plan_to_report.md`" in relay and "#### " not in relay   # 묶음은 ### (workflow.md 의 #### 보다 한 층 위 — 문서 하나가 TASK 하나)
     wf = W.markdown()   # 전체 지도는 TASK 문서를 가리키기만 한다(머리에 — 첫 화면 에이전트가 머리만 읽는다)
-    head = wf.split("### 사업계획서 양식 맞추기 — `plan_fit`", 1)[1].split("\n#### ", 1)[0]
+    head = wf.split("### 사업계획서 양식 표준화 — `plan_fit`", 1)[1].split("\n#### ", 1)[0]
     assert "- 세부(TASK 문서 — 시작 점검 · 단계마다 조건): `tasks/plan_fit.md`" in head and "- 시작 점검(시작할 때 저절로 확인하는 것): TASK 를 시작할 때 — 문서 형식 · 목적 문서" in head
     assert "  - 끝난 것으로 보는 때: " not in wf and "tasks/report_merge.md" in wf
 
@@ -146,7 +146,7 @@ def test_listing_adds_module_docs_agent_numbers_and_users_of_common_modules():
     mods = {m["name"]: m for m in link["modules"]}
     assert mods["merge_llm"]["path"] == "app/merge_llm.py" and mods["merge_llm"]["doc"].startswith("병합")
     common = {c["id"]: c for c in L["common"]}
-    assert common["headings"]["usedBy"] == ["plan_merge", "plan_to_report", "style_copy"] and "plan_fit" in common["division"]["usedBy"] and common["verify"]["usedBy"] == []
+    assert common["headings"]["usedBy"] == ["plan_fit", "plan_merge", "plan_to_report", "style_copy"] and "plan_fit" in common["division"]["usedBy"]   # 양식 표준화 2 · 3단계가 헤딩 추출을 쓴다(spec_양식표준화 ② §1) and common["verify"]["usedBy"] == []
     places = next(s for s in common["division"]["steps"] if s["key"] == "places")
     assert {m["name"]: m["path"] for m in places["modules"]}["division_profiles"] == "app/division_profiles/"   # 묶음(폴더) 모듈
     # TASK 문서(② §10) — 시작 점검은 때마다 묶어, 단계의 조건은 적힌 것만

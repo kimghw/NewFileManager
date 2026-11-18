@@ -155,7 +155,7 @@ def set_zones(work, dims, rev=None, scope=None) -> dict:
     ValueError = 모르는 기준 · 목록 아님(zones.norm_dims) · 연구개발 문서가 아님 · Stale = rev 를 줬는데 저장된 판과 다름 · **scope 를 줬는데 그 작업의 지금 묶음과 다름** · Broken = 저장 파일이 깨짐(덮어쓰지 않는다).
     scope = 화면이 옵션을 읽을 때의 묶음(astra 결과 검토 7): 읽은 뒤 작업이 다른 프로젝트·TASK·라운드로 옮겨졌으면 판(rev)이 우연히 같아도 다른 묶음의 옵션을 덮지 않는다."""
     if not _offered(work):
-        raise ValueError("이 TASK 에는 편집 구역 옵션이 없습니다 — 연구개발 TASK(양식 맞추기 · 취합 · 이관)의 문서에서만 씁니다")
+        raise ValueError("이 TASK 에는 편집 구역 옵션이 없습니다 — 연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)의 문서에서만 씁니다")
     try:
         dims = list(getattr(zones, "norm_dims", _norm_dims)(dims))
     except TypeError as exc:   # 목록 안에 글자가 아닌 것(목록 · 사전) — 모르는 기준과 같은 400

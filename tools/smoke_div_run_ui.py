@@ -2,7 +2,7 @@
 
     python -X utf8 tools/smoke_div_run_ui.py <그림·임시 폴더> [--port 18171]
 
-TASK 「사업계획서 양식 맞추기」 에 연구개발계획서 양식(저장소 samples)을 올려 본다 — 계획·반영은 진짜 끝점(계획 한 번에 10~20초):
+TASK 「사업계획서 양식 표준화」(1단계 프로젝트 구성)에 연구개발계획서 양식(저장소 samples)을 올려 본다 — 계획·반영은 진짜 끝점(계획 한 번에 10~20초):
 ① 묶음의 자리 — 카드 하나(2026-11-14 ② §22 「카드 하나」): 보이는 것은 「한 번에 진행」 · 「불러오기」 둘, 나머지(① 변경 계획 보기 › ② 반영 · 계획 다시 열기 · 확정·저장 · 값 입력)는 접어 둔 「세부」 ·
    접혀 있으면 강조는 「한 번에 진행」, 펴면 다음 할 일 하나 · 320/480px · 「불러오기」 는 입력만 바꾼다.
 ② 차례대로: ① → 목록(2열 발에는 반영 단추가 없다 — 「반영 단추로 이동」 뿐) → ② → 반영 결과 → 실행 취소.
@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FORM = ROOT / "samples" / "연구개발계획서_양식.hwpx"
 VALUES = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"], "nonprofit": [False, True, False]}}
 PROJECT = "프레임 과제"
-FRAME = f"사업계획서_{PROJECT}_프레임.hwpx"   # 반영한 양식 맞추기 문서의 보이는 이름(spec_작업 ② §10 「프레임 이름」)
+FRAME = f"사업계획서_{PROJECT}_프레임.hwpx"   # 반영한 양식 표준화 문서의 보이는 이름(spec_작업 ② §10 「프레임 이름」)
 ap = argparse.ArgumentParser()
 ap.add_argument("out")
 ap.add_argument("--port", type=int, default=18171)
@@ -239,7 +239,7 @@ try:
         check("반영 뒤 — 상태 글 「반영 완료 · 편집 차례 N」 · 강조 없음 · ② 꺼짐 · 「반영 결과 열기」 · 발은 글 + 닫기뿐(실행 취소는 문서 반영 상태에)", v["text"].startswith("반영 완료 · 편집 차례 ") and v["kind"] == "done"
               and not [b for b in v["btns"] if b["primary"]] and v["by"]["divApplyButton"]["off"] and v["by"]["divReopenPlan"]["text"] == "반영 결과 열기" and not v["by"]["divReopenPlan"]["off"]
               and f["text"].startswith("반영 끝 — 편집 차례") and f["btns"] == ["닫기"] and page.locator("#divAppliedState .dv-undo").count() == 1, [v, f])
-        # 프레임 이름(spec_작업 ② §10) — 반영을 마친 양식 맞추기 문서: 화면(상단 바 · 패널 머리 · 문서 목록)과 내려받는 파일 이름이 「사업계획서_<프로젝트>_프레임.hwpx」(「_수정」 꼬리 없음), 저장된 이름·올린 원본은 그대로
+        # 프레임 이름(spec_작업 ② §10) — 반영을 마친 양식 표준화 문서: 화면(상단 바 · 패널 머리 · 문서 목록)과 내려받는 파일 이름이 「사업계획서_<프로젝트>_프레임.hwpx」(「_수정」 꼬리 없음), 저장된 이름·올린 원본은 그대로
         page.wait_for_function("(n) => state.name === n && (worksList.find((w) => w.id === state.id) || {}).name === n", arg=FRAME, timeout=30000)
         cd = unquote(requests.get(f"{base}/api/docs/{wid}/download", timeout=120).headers["content-disposition"])
         orig = unquote(requests.get(f"{base}/api/works/{wid}/file/original", timeout=120).headers["content-disposition"])

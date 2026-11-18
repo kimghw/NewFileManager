@@ -99,7 +99,7 @@ def navigation_checks(wf, api):
     wait_diagram(wf, styles[0]["name"])
     wf.click(f"#wfDiagram .wf-node[href='#common-styles--{styles[1]['key']}']")
     middle = wait_diagram(wf, styles[1]["name"])
-    wf.click("#wfNext")
+    wf.click(f"#wfDiagram .wf-node[href='#common-styles--{styles[-1]['key']}']")   # 마지막 단계로 한 번에(기록 한 칸) — 단계 수와 상관없이
     last = wait_diagram(wf, styles[-1]["name"])
     wf.go_back()
     back = wait_diagram(wf, styles[1]["name"])
@@ -161,10 +161,12 @@ def diagram_checks(wf, ctx, api, workflow_requests):
           and first["position"].replace(" ", "") == f"단계1/{len(styles)}", first)
     wf.click("#wfNext")
     middle = wait_diagram(wf, styles[1]["name"])
-    wf.click("#wfNext")
-    last = wait_diagram(wf, styles[-1]["name"])
-    wf.click("#wfPrev")
-    back = wait_diagram(wf, styles[1]["name"])
+    for i in range(2, len(styles)):   # 마지막 단계까지 — 단계 수는 등록부가 정한다(11-16 밤 「값 고치기 · 복사본 만들기」 가 더해져 넷: 전에는 셋을 가정해 떨어졌다)
+        wf.click("#wfNext")
+        last = wait_diagram(wf, styles[i]["name"])
+    for i in range(len(styles) - 2, 0, -1):
+        wf.click("#wfPrev")
+        back = wait_diagram(wf, styles[i]["name"])
     check("공통 모듈 이전·다음 — 단계와 주소가 함께 바뀌고 마지막에서 다음 비활성",
           middle["hash"] == "#common-styles--" + styles[1]["key"] and last["next"] is True
           and last["position"].replace(" ", "") == f"단계{len(styles)}/{len(styles)}"
@@ -174,15 +176,16 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     first_node.focus()
     first_node.press("Enter")
     keyboard = wait_diagram(wf, styles[0]["name"])
-    wf.click(f"#wfDiagram .wf-node[href='#common-styles--{styles[1]['key']}']")
-    selected = wait_diagram(wf, styles[1]["name"])
+    apply = next(s for s in styles if s["key"] == "apply")   # 「문서에 적용」 — 차례가 아니라 key 로(11-16 밤 「값 고치기」 가 둘째 자리에 들어옴)
+    wf.click(f"#wfDiagram .wf-node[href='#common-styles--{apply['key']}']")
+    selected = wait_diagram(wf, apply["name"])
     check("단계 노드는 키보드 Enter와 클릭으로 선택 — 상세·선택 표시가 일치",
           keyboard["selected"] == "#common-styles--" + styles[0]["key"] and keyboard["selectedCount"] == 1
-          and selected["selected"] == "#common-styles--" + styles[1]["key"] and selected["selectedCount"] == 1,
+          and selected["selected"] == "#common-styles--" + apply["key"] and selected["selectedCount"] == 1,
           [keyboard, selected])
     check("단계의 담당자와 문서 변경 구분 — 서식 선택은 사람·안 바뀜, 적용은 사람+스크립트·바뀜",
           first["badges"] == [api["by"][b] for b in styles[0]["by"]] and first["impact"] == "안 바뀜"
-          and selected["badges"] == [api["by"][b] for b in styles[1]["by"]] and selected["impact"] == "바뀜",
+          and selected["badges"] == [api["by"][b] for b in apply["by"]] and selected["impact"] == "바뀜",
           [first, selected])
     wf.screenshot(path=str(OUT / "06_diagram_styles.png"))
     navigation_checks(wf, api)
@@ -230,7 +233,7 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     state = wait_diagram(direct, save["name"])
     check("다이어그램 ↔ 목록 전환 뒤에도 고른 단계 유지", state["selected"] == "#style_copy--copy--save", state)
     direct.goto(base + "/workflow#common-styles--apply")
-    state = wait_diagram(direct, styles[1]["name"])
+    state = wait_diagram(direct, apply["name"])
     check("공통 모듈의 상세 주소로 바로 열기", state["selected"] == "#common-styles--apply", state)
     direct.close()
 
@@ -336,7 +339,7 @@ def main():
           secs: [...document.querySelectorAll('#wfMain .wf-sec')].map((s) => s.id), title: document.querySelector('.wf-title').textContent })""")
         jobs = [t["job"] for t in api["tasks"]]
         check("목차 — 전체 보기 · TASK 일곱(이름 = TASK_CATALOG · 준비 중은 흐리게) · 공통 모듈 아홉 / 본문의 절이 같은 차례",
-              nav["title"] == "TASK 워크플로우" and nav["heads"] == ["TASK", "공통 모듈"] and len(nav["links"]) == 17 and nav["links"][0][:2] == ["#overview", "전체 보기"]
+              nav["title"] == "TASK 워크플로우" and nav["heads"] == ["TASK", "공통 모듈"] and len(nav["links"]) == 1 + len(jobs) + len(api["common"]) and nav["links"][0][:2] == ["#overview", "전체 보기"]   # 공통 모듈 수는 등록부에서(편집 구역 · 대시보드 · 공유가 더해져 열하나)
               and [x[0] for x in nav["links"][1:8]] == ["#" + j for j in jobs] and nav["links"][3][1] == "사업계획서 → 연차보고서 이관" and nav["links"][5][2] == "wf-soon"
               and nav["links"][8][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)
         ov = wf.evaluate("""() => ({ rows: [...document.querySelectorAll('.wf-over > li')].map((li) => [li.dataset.job, li.querySelector('.wf-over-name').textContent, [...li.querySelectorAll('.wf-chain > li')].map((c) => c.textContent)]),
@@ -346,9 +349,9 @@ def main():
         check("전체 보기 — TASK 마다 한 줄: 이관 = 「1단계 프로젝트 구성 › 2단계 문서 프레임 작성 › 3단계 내용 매핑 › 4단계 문서 정리」 · 취합 = 1~3단계 · 「연차보고서 취합」 은 준비 중",
               len(ov["rows"]) == 7 and rows["plan_to_report"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑", "4단계문서 정리"]
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
-              and rows["plan_fit"][2] == ["준비", "프로젝트 구성", "구조 반영"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
+              and rows["plan_fit"][2] == ["1단계프로젝트 구성", "2단계헤딩 추출", "3단계표"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
         check("묶음의 점 — 이관 1단계는 점 없음(문서 안 바뀜 · LLM 없음) · 2단계 주황(문서 바뀜) · 3단계 보라+주황(LLM · 문서 바뀜) / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
-              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "저절로", "안 해도 됨"] and ov["commons"] == 9 and ov["cur"] == "전체 보기", ov)
+              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "저절로", "안 해도 됨"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
         wf.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- TASK 절(이관)
@@ -413,9 +416,10 @@ def main():
             agents: (() => { const d = s.querySelector('.wf-step[data-step=stage2]'); d.open = true; return [...d.querySelectorAll('.wf-ano')].map((x) => x.textContent); })() }; }""")
         # 2단계의 에이전트 01(heading_rules) — 「헤딩 그래프(LLM)」 은 그래프 전에 못 맞춤·충돌 묶음의 규칙 보강을 먼저 돈다(spec_헤딩_추출 ② §3, 2026-11-16)
         # 18(tpl_agent) — 헤딩 판정 뒤에 이어서 템플릿마다 서식 정리 계획을 받는다(같은 날 — 등록부 2단계의 agents 에 더해짐: spec_hwpx_웹편집 ② §8-4)
-        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(취합 · 이관 · 서식 복사) · 1~3단계 + 규칙 보강 · 뼈대 유지 · 2단계의 에이전트 01~05 · 18",
-              c["h2"] == "공통 모듈헤딩 추출" and c["io"] == ["여는 곳", "쓰는 TASK"] and c["used"] == ["사업계획서 취합", "사업계획서 → 연차보고서 이관", "문서 서식 복사"] and c["hash"] == "#common-headings"
-              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]] and c["agents"] == ["01", "02", "03", "04", "05", "18"], c)
+        check("단계의 「공통 모듈」 링크 → 「헤딩 추출」 절: 여는 곳 · 쓰는 TASK(양식 표준화 · 취합 · 이관 · 서식 복사) · 1~3단계 + 규칙 보강 · 뼈대 유지 · 2단계의 에이전트 01~05 · 18",
+              c["h2"] == "공통 모듈헤딩 추출" and c["io"] == ["여는 곳", "쓰는 TASK"] and c["used"] == ["사업계획서 양식 표준화", "사업계획서 취합", "사업계획서 → 연차보고서 이관", "문서 서식 복사"] and c["hash"] == "#common-headings"
+              and c["steps"] == [["1단계", "추출"], ["", "규칙 보강(LLM)"], ["", "구분 기준 판독(먼저)"], ["2단계", "헤딩 그래프"], ["3단계", "표 구조"], ["", "뼈대 유지"]]   # 판독 — 82c9793(헤딩 그래프보다 먼저: spec_헤딩_추출 ② §13)
+              and c["agents"] == ["01", "02", "03", "04", "05", "18"], c)
         wf.screenshot(path=str(OUT / "03_common_headings.png"))
         wf.locator("#common-headings .wf-io .wf-links a", has_text="문서 서식 복사").click()
         wf.wait_for_function(f"{CURRENT}() === '문서 서식 복사'", timeout=10000)

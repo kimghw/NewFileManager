@@ -183,7 +183,7 @@ function homeFilesDraw() {
   const zoneState = () => {
     znote.textContent = hf.zones == null ? "TASK 기본값대로" : hf.zones.length ? "" : "모두 끔";
     znote.hidden = !znote.textContent;
-    zg.title = "연구개발 TASK(양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
+    zg.title = "연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
       + `손대지 않으면 TASK 의 기본값(${hfZonesDefaults() ? `${hfZonesDefaults()} · 그 밖의 TASK 는 켠 것 없음` : "어느 TASK 도 켠 것 없음"})\n`
       + (hf.zones == null ? "지금: 손대지 않음 — 시작하는 TASK 의 기본값대로 보입니다"
         : hf.zones.length ? `지금 고른 기준: ${hfZoneNames(hf.zones)} — 시작하는 연구개발 TASK 에 이 기준을 적습니다`
@@ -279,7 +279,7 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
   const fresh = !r.reused;
   const note = { use: "같은 파일로 하던 작업을 이어서 엽니다", reset: "작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다", new: "같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다" }[got.act] || "";
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
-  const cur = { ...blank, ...state.task }, role = cat.target || cur.file || cat.file; // 목적 문서 종류: 이관 = 연차보고서 · 취합 = 취합본 · 양식 맞추기 = 양식 판정(못 정하면 그 TASK 의 문서)
+  const cur = { ...blank, ...state.task }, role = cat.target || cur.file || cat.file; // 목적 문서 종류: 이관 = 연차보고서 · 취합 = 취합본 · 양식 표준화 · 양식 맞추기 = 양식 판정(못 정하면 그 TASK 의 문서)
   let temp = "";
   if (state.stored) {
     const put = () => api(`/api/works/${r.docId}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...cur, kind: taskKindOf(job), job, file: role }) }); // 작업 종류는 TASK 가 정한다(task_catalog.js — 「문서 일반 편집」 = 일반 문서)
@@ -339,7 +339,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   if (t.soon) { toast(`TASK 「${t.name}」 — 준비 중입니다`); return; }
   const ti = hfTarget(), target = hf.files[ti];
   const ask = (msg, sel) => { toast(msg, true); const to = sel && $("homeFiles").querySelector(sel); if (to) to.focus(); };
-  if (!target) { ask("목적 문서를 먼저 고르세요 — 내용을 받는 문서(이관 = 연차보고서 · 취합 = 취합본 · 양식 맞추기 = 맞출 문서)", "input[type=radio]"); return; }
+  if (!target) { ask("목적 문서를 먼저 고르세요 — 내용을 받는 문서(이관 = 연차보고서 · 취합 = 취합본 · 양식 표준화 · 양식 맞추기 = 맞출 문서)", "input[type=radio]"); return; }
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 그 TASK 의 목적 문서 형식(task_catalog.js accept — 보통 hwp·hwpx · 「문서 서식 복사」 는 docx 도: spec_서식복사 ② §1). PDF 는 목록에 없다
   if (!exts.includes(hfExt(target))) { ask(`TASK 는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「TASK 없이 열기」 로 엽니다(TASK 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return; }
   const others = hf.files.filter((_, i) => i !== ti), project = hfNorm(hf.project, 60), alias = hfNorm(hf.alias, 40), auto = hf.auto, llm = hf.llm;

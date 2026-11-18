@@ -68,17 +68,19 @@ GEO = """() => { const h = document.querySelector('#panel .tool-heading'), r = (
 TABS = """() => { const t = document.getElementById('toolTabs'); return t && !t.hidden && t.getClientRects().length ? [...t.querySelectorAll('[role=tab]')].filter(b => !b.hidden && b.getClientRects().length).map((b) => [b.textContent, b.getAttribute('aria-selected')]) : null; }"""  # 둘째 줄의 실제 보이는 탭 — [[이름, 골랐나]] | None
 NO_TAB = "() => !document.getElementById('tabDiv') && !document.querySelector('#workspaceNav .tab.active, #workspaceNav .tab[aria-selected=true]')"  # 탭 띠에 「연구개발과제」 탭이 없고 활성 탭도 없다
 TOOL_NAME = {"Edits": "고친 문단", "Heads": "헤딩 추출"}
-MORE = """() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { agent: r('tabAgent').right, verify: r('tabVerify').left, last: r('tabLog').right, more: [r('toolMore').left, r('toolMore').right], head: r('panel').right }; }"""  # 펼친 묶음의 자리
+MORE = """() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { agent: r('tabAgent').right, verify: r('tabVerify').left, last: r('tabLog').right, more: [r('toolMore').left, r('toolMore').right], head: r('panel').right,
+  row1: [r('tabDash').top, r('tabDash').bottom], row2: [r('tabVerify').top, r('tabPdf').top, r('tabLog').top], moreTop: r('toolMore').top }; }"""  # 펼친 묶음의 자리 — 둘째 줄(2026-11-18)
+HEAD_OPEN = 104  # 펼친 머리 높이 — 묶음(검증 · PDF · 기록)이 탭 줄 아래 둘째 줄이라 탭 한 줄만큼 높다(2026-11-18 사용자 「>> 이걸 클릭하면 2번째 줄에 나오게」 · 접힌 머리는 78px 그대로)
 NOLAP = """() => { const t = document.querySelector('.topbar'), r = [...t.children].filter((e) => e.getClientRects().length && !e.classList.contains('spacer')).map((e) => e.getBoundingClientRect());
   return t.scrollWidth <= t.clientWidth + 1 && r.every((x, i) => i === 0 || x.left >= r[i - 1].right - 1); }"""
 
 def tabs_for(tool=None, selected="Verify", rnd=True, agent=True, open=True):
-    """둘째 줄(2026-11-16) — 에이전트(hwpx) · 작업 내용(rnd) · 헤딩 추출(hwpx) · 표(늘 — 같은 날 탭 띠에서 옮긴 고정 탭) · <도구>(탭 띠 = 고친 문단 · 문서 비교에서 고른 적이 있으면) |
-    검증 · PDF · 기록(접는 묶음 — 접히면 고른 탭 하나만 · 작업 리스트는 상단 바 아이콘). agent = hwpx(에이전트 · 헤딩 추출이 함께 보임).
-    selected = agent|task|Heads|Tables|tool|Verify|Pdf|Log|None(작업 리스트를 볼 때 — 고른 탭 없음)"""
+    """둘째 줄(2026-11-16) — 대시보드(문서가 열려 있으면 늘 · 첫 탭: 2026-11-18) · 에이전트(hwpx) · 작업 내용(rnd) · 헤딩 추출(hwpx) · 표(늘 — 같은 날 탭 띠에서 옮긴 고정 탭) · <도구>(탭 띠 = 고친 문단 · 문서 비교에서 고른 적이 있으면) |
+    검증 · PDF · 기록(접는 묶음 — 접히면 고른 탭 하나만 · 펼치면 탭 줄 아래 둘째 줄 · 작업 리스트는 상단 바 아이콘). agent = hwpx(에이전트 · 헤딩 추출이 함께 보임).
+    selected = dash|agent|task|Heads|Tables|tool|Verify|Pdf|Log|None(작업 리스트를 볼 때 — 고른 탭 없음)"""
     more = [["검증", "Verify"], ["PDF", "Pdf"], ["기록", "Log"]]
     fixed = ([["헤딩 추출", "Heads"]] if agent else []) + [["테이블", "Tables"]]  # 탭 이름 「테이블」(2026-11-16 사용자 「표 아니고 테이블로」 — 전의 「표」)
-    row = ([["에이전트", "agent"]] if agent else []) + ([["작업 내용", "task"]] if rnd else []) + fixed + ([[tool, "tool"]] if tool else []) + [m for m in more if open or m[1] == selected]
+    row = [["대시보드", "dash"]] + ([["에이전트", "agent"]] if agent else []) + ([["작업 내용", "task"]] if rnd else []) + fixed + ([[tool, "tool"]] if tool else []) + [m for m in more if open or m[1] == selected]
     return [[name, str(key == selected).lower()] for name, key in row]
 
 
@@ -129,9 +131,11 @@ try:
         # ---- 2-1. 오른쪽 묶음 펼치기·접기(2026-11-16 사용자 「검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기」) — 펼친 상태는 기억
         page.click("#toolMore")
         g = page.evaluate(MORE)
-        check("펼치기 — 검증 · PDF · 기록이 오른쪽(빈칸 뒤)에 · 단추는 줄 끝 · 기억", page.evaluate(TABS) == tabs_for(rnd=False) and page.get_attribute("#toolMore", "aria-expanded") == "true"
+        gh = page.evaluate(GEO)
+        check("펼치기 — 검증 · PDF · 기록이 탭 줄 아래 둘째 줄 오른쪽 끝(2026-11-18) · 단추는 첫 줄 끝 그대로 · 머리가 탭 한 줄만큼 높아짐 · 기억", page.evaluate(TABS) == tabs_for(rnd=False) and page.get_attribute("#toolMore", "aria-expanded") == "true"
               and g["verify"] > g["agent"] + 20 and g["last"] <= g["more"][0] + 1 and g["more"][1] <= g["head"] and page.evaluate("() => localStorage.getItem('nfm.toolMore')") == "1"
-              and page.evaluate(GEO)["over"] <= 0, [page.evaluate(TABS), g])
+              and all(abs(t - g["row1"][1]) <= 1 for t in g["row2"]) and abs(g["moreTop"] - g["row1"][0]) <= 1
+              and gh["head"][3] - gh["head"][1] == HEAD_OPEN and gh["pane"][1] == gh["head"][3] and gh["over"] <= 0, [page.evaluate(TABS), g, gh["head"]])
         page.locator("#panel .tool-heading").screenshot(path=str(OUT / "2_more_open.png"))
         page.click("#toolMore")
         check("접기 — 다시 고른 탭(검증) 하나만 · 기억", page.evaluate(TABS) == tabs_for(rnd=False, open=False) and page.evaluate("() => localStorage.getItem('nfm.toolMore')") == "0")
@@ -146,6 +150,7 @@ try:
         page.click("#tabVerify")
         open_work(page, a)
         check("새로 읽어도 펼친 상태 그대로(기억)", page.evaluate(TABS) == tabs_for(rnd=False) and page.get_attribute("#toolMore", "aria-expanded") == "true", page.evaluate(TABS))
+        g0 = page.evaluate(GEO)  # 아래 견줌의 기준 = 펼친 머리(둘째 줄 묶음이라 접힌 78px 보다 높다 — 2026-11-18)
         # ---- 2-2. 「작업 리스트」 = 상단 바 아이콘(2026-11-16 사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」 — 패널 머리 묶음의 탭에서 옮김)
         PRESSED = "() => document.getElementById('taskListBtn').getAttribute('aria-pressed')"
         order = page.evaluate("() => [...document.querySelector('.topbar').children].map((e) => e.id).filter(Boolean)")
@@ -196,7 +201,7 @@ try:
               and page.evaluate(NO_TAB) and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="task") and not page.evaluate(VIS, "toolTitle") and page.evaluate(HEAD) == ["작업 내용", "프로젝트 · TASK"], page.evaluate(TABS))
         check("활성 탭이 없어도 Tab 키는 탭 띠의 보이는 첫 탭(고친 문단)이 받는다", page.evaluate("() => [...document.querySelectorAll('#workspaceNav .tab')].filter((t) => t.tabIndex === 0).map((t) => t.id)") == ["tabEdits"])
         g = page.evaluate(GEO)
-        check("연구개발과제 내용 — 머리 높이 78px 그대로", g["head"] == g0["head"] and g["pane"][1] == g["head"][3], g["head"])
+        check("연구개발과제 내용 — 머리 높이 그대로", g["head"] == g0["head"] and g["pane"][1] == g["head"][3], g["head"])
         check("작업에 저장", task_of(a)["kind"] == "rnd", task_of(a))
         check("연구개발과제 패널 첫 카드에는 「작업」 칸이 없다(패널 머리의 목록 하나뿐 — 2026-11-12)", page.locator("#divBox .dv-task select[data-task=kind]").count() == 0
               and page.locator("#divBox .dv-task select[data-task=job]").count() == 1)
@@ -249,12 +254,12 @@ try:
         page.click("#navFold")
         check("펴도 탭 띠에 「연구개발과제」 탭·활성 탭 없음", page.evaluate(NO_TAB) and page.evaluate(VIS, "tabEdits"))
 
-        # ---- 8. 폭 — 520 · 430 · 320 · 280px: 머리 높이 78px 그대로 · 가로 넘침 없음 · 목록·단추·이름이 머리 안
+        # ---- 8. 폭 — 520 · 430 · 320 · 280px: 머리 높이 그대로(펼친 머리 — 탭 줄은 좁아져도 한 줄 · 묶음은 둘째 줄) · 가로 넘침 없음 · 목록·단추·이름이 머리 안
         for width in (520, 430, 320, 280):
             page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
             page.wait_for_timeout(300)
             g = page.evaluate(GEO)
-            check(f"패널 {width}px — 높이 78px · 넘침 없음 · 머리 안", g["head"][2] - g["head"][0] in (width - 1, width) and g["head"][3] - g["head"][1] == 78 and g["over"] <= 0
+            check(f"패널 {width}px — 높이 {HEAD_OPEN}px(펼침) · 넘침 없음 · 머리 안", g["head"][2] - g["head"][0] in (width - 1, width) and g["head"][3] - g["head"][1] == HEAD_OPEN and g["over"] <= 0
                   and g["task"][0] >= g["head"][0] and g["fold"][2] <= g["head"][2] and g["tabs"][2] <= g["head"][2] and g["tabs"][0] >= g["head"][0] and g["pane"][1] == g["head"][3], g)
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_{width}.png"))
         # 도구 탭 이름이 긴 「고친 문단」·「헤딩 추출」 에서도 좁은 폭에 넘치지 않는다 — 펼친 탭 여섯(에이전트 · 작업 내용 · <도구> · 검증 · PDF · 기록 — 작업 리스트는 상단 바로 뺌) · 접으면 셋
@@ -264,12 +269,12 @@ try:
                 page.evaluate("(w) => { const c = colSizers.find((x) => x.box === 'panel'); c.w = w; c.apply(); }", width)
                 page.wait_for_timeout(300)
                 g = page.evaluate(GEO)
-                check(f"{tool} · 패널 {width}px — 탭 여덟 머리 안 · 높이 78px · 넘침 없음", len(page.evaluate(TABS) or []) == 8 and (page.evaluate(TABS) or [[0, 0]])[0][0] == "에이전트" and g["head"][3] - g["head"][1] == 78 and g["over"] <= 0
+                check(f"{tool} · 패널 {width}px — 탭 아홉 머리 안(대시보드가 첫 탭) · 높이 {HEAD_OPEN}px(펼침 — 탭 줄 한 줄 + 묶음 둘째 줄) · 넘침 없음", len(page.evaluate(TABS) or []) == 9 and (page.evaluate(TABS) or [[0, 0]])[0][0] == "대시보드" and g["head"][3] - g["head"][1] == HEAD_OPEN and g["over"] <= 0
                       and g["tabs"][2] <= g["head"][2] and g["tabs"][0] >= g["head"][0] and g["pane"][1] == g["head"][3], g)
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}.png"))
             page.click("#toolMore")  # 접으면 — 에이전트 · 작업 내용 · <도구>(고른 탭)
             g, tl = page.evaluate(GEO), page.evaluate(TABS)
-            check(f"{tool} · 패널 280px 접힘 — 탭 다섯 · 넘침 없음 · 머리 안", [t[0] for t in tl] == ["에이전트", "작업 내용", "헤딩 추출", "테이블", "고친 문단"] and g["over"] <= 0
+            check(f"{tool} · 패널 280px 접힘 — 탭 여섯 · 넘침 없음 · 머리 안 · 높이 78px", [t[0] for t in tl] == ["대시보드", "에이전트", "작업 내용", "헤딩 추출", "테이블", "고친 문단"] and g["over"] <= 0
                   and g["tabs"][2] <= g["head"][2] and g["head"][3] - g["head"][1] == 78, [tl, g])
             page.locator("#panel").screenshot(path=str(OUT / f"8_panel_280_{tool}_folded.png"))
             page.click("#toolMore")

@@ -229,7 +229,7 @@ try:
                      sym: !!document.querySelector(u.getAttribute('href')), ink: Math.round(u.getBBox().width), tone: lg.dataset.doc, bg: getComputedStyle(lg).backgroundImage, logo: Math.round(lg.getBoundingClientRect().width) }; })"""
         cards = page.evaluate(CARDS)
         check("TASK 카드 일곱 장 — 할 일 차례(일의 흐름 · 끝에 문서 일반 편집 · 문서 서식 복사)", [c["key"] for c in cards] == ["plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit", "style_copy"], [c["key"] for c in cards])
-        check("카드 글 = 문서 / 동작 두 줄", [(c["doc"], c["name"]) for c in cards] == [("사업계획서", "양식 맞추기"), ("사업계획서", "취합"), ("사업계획서 → 연차보고서", "이관"),
+        check("카드 글 = 문서 / 동작 두 줄", [(c["doc"], c["name"]) for c in cards] == [("사업계획서", "양식 표준화"), ("사업계획서", "취합"), ("사업계획서 → 연차보고서", "이관"),
                                                                              ("연차보고서", "양식 맞추기"), ("연차보고서", "취합"), ("문서", "일반 편집"), ("문서", "서식 복사")], [(c["doc"], c["name"]) for c in cards])
         check("TASK 마다 로고(그림 있음 · 46px · 바탕 그라데이션)", all(c["sym"] and c["ink"] >= 20 and c["logo"] == 46 and "gradient" in c["bg"] for c in cards), cards)
         check("로고 바탕색 = 문서(사업계획서 둘 같음 · 이관 다름 · 연차보고서 둘 같음 · 일반 편집·서식 복사는 회색 — 보라 아님)", [c["tone"] for c in cards] == ["plan", "plan", "plan-report", "report", "report", "any", "any"]
@@ -298,7 +298,7 @@ try:
               {k: v for k, v in t["task"].items() if k not in ("project", "round")} == {"kind": "rnd", "file": "plan", "job": "plan_fit"}
               and t["task"]["project"].startswith("임시 프로젝트 ") and t["task"].get("round") == 1 and "임시 이름" in t["toast"], t["task"])
         check("작업 내용(연구개발과제 패널)이 열리고 「할 일」 칸이 그 TASK", t["tool"] == "Div" and t["pane"] and t["job"] == "plan_fit", t)
-        check("「이어서」 — 알림에 TASK 이름(고른 뒤라 「새 작업으로 열기」 단추는 없음)", "이어서 엽니다" in t["toast"] and "사업계획서 양식 맞추기" in t["toast"] and "새 작업으로 열기" not in t["toast"], t["toast"])
+        check("「이어서」 — 알림에 TASK 이름(고른 뒤라 「새 작업으로 열기」 단추는 없음)", "이어서 엽니다" in t["toast"] and "사업계획서 양식 표준화" in t["toast"] and "새 작업으로 열기" not in t["toast"], t["toast"])
         saved = next((w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid), {})
         check("작업에 저장됨(GET /api/works)", (saved.get("task") or {}).get("job") == "plan_fit" and saved["task"]["kind"] == "rnd", saved.get("task"))
         page.screenshot(path=str(OUT / "7_task_open.png"))
@@ -313,7 +313,7 @@ try:
         page.wait_for_selector(".sf-pop", timeout=60000)
         sf = page.evaluate(SF)
         check("다른 TASK 를 하던 작업 — 그 줄은 「그대로 열기」 만 · 까닭(다른 TASK 의 이름)", sf and [r["id"] for r in sf["rows"]] == [wid] and sf["rows"][0]["acts"] == ["open"]
-              and "다른 TASK" in sf["rows"][0]["why"] and "사업계획서 양식 맞추기" in sf["rows"][0]["why"] and sf["focus"] == "open", sf)
+              and "다른 TASK" in sf["rows"][0]["why"] and "사업계획서 양식 표준화" in sf["rows"][0]["why"] and sf["focus"] == "open", sf)
         sf_pick("new")
         page.wait_for_function("""(w) => state.id && state.id !== w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div'
             && !!document.querySelector('#paneDiv select[data-task=job]') && window.__toasts.some((x) => x.m.includes('새 작업으로 열었습니다'))""", arg=wid, timeout=60000)
@@ -443,7 +443,7 @@ try:
         check("최근 작업 네 줄(이어 연 작업 · 새 작업 둘 · TASK 없는 작업)", set(rows) == {wid, drop_id, plain, t_merge} if (t_merge := next((w["id"] for w in requests.get(f"{base}/api/works", timeout=10).json() if (w.get("task") or {}).get("job") == "plan_merge"), None)) else False, list(rows))
         a, m, d, p = rows.get(wid, {}), rows.get(t_merge, {}), rows.get(drop_id, {}), rows.get(plain, {})
         check("TASK 있는 줄 — 그 TASK 로고(그림 있음 · 41px · 바탕 = 문서) + TASK 이름 표지(같은 문서 색)",
-              [(x.get("href"), x.get("logo"), x.get("tone"), x.get("chip")) for x in (a, m, d)] == [("#taskIcon-plan_fit", "plan", "plan", "사업계획서 양식 맞추기"), ("#taskIcon-plan_merge", "plan", "plan", "사업계획서 취합"),
+              [(x.get("href"), x.get("logo"), x.get("tone"), x.get("chip")) for x in (a, m, d)] == [("#taskIcon-plan_fit", "plan", "plan", "사업계획서 양식 표준화"), ("#taskIcon-plan_merge", "plan", "plan", "사업계획서 취합"),
                                                                                   ("#taskIcon-plan_to_report", "plan-report", "plan-report", "사업계획서 → 연차보고서 이관")]
               and all(x.get("sym") and x.get("size") == 41 and not x.get("file") for x in (a, m, d)), (a, m, d))
         check("작업 이름 = 프로젝트 이름 — 없으면 흐린 「프로젝트 이름 없음」", d.get("title") == "시험 과제" and not d.get("dim") and a.get("title") == "프로젝트 이름 없음" and a.get("dim"), (a, d))
@@ -454,7 +454,7 @@ try:
         check("흐린 표시(.none — 「TASK 없음」 · 「프로젝트 이름 없음」 · 「검증 전」)에 빈 목록 줄의 큰 여백이 안 붙음 · 표지 높이 24px 이하",
               all(v <= 8 for x in (a, m, d, p) for v in x.get("pads", [99])) and all(x.get("chipH", 99) <= 24 for x in (a, m, d, p)), [(x.get("pads"), x.get("chipH")) for x in (a, m, d, p)])
         check("읽는 이름(aria-label)에 프로젝트 · TASK · 라운드 · 역할", d.get("label", "").startswith("프로젝트 「시험 과제」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 · 사업계획서")
-              and a.get("label", "").startswith("프로젝트 미지정 · TASK 「사업계획서 양식 맞추기」") and "TASK 없음" in p.get("label", ""), (d.get("label"), a.get("label"), p.get("label")))
+              and a.get("label", "").startswith("프로젝트 미지정 · TASK 「사업계획서 양식 표준화」") and "TASK 없음" in p.get("label", ""), (d.get("label"), a.get("label"), p.get("label")))
         page.locator("#recent").scroll_into_view_if_needed()
         page.screenshot(path=str(OUT / "7_recent.png"))
         page.locator("#recentAll").click()

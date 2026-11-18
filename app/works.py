@@ -160,7 +160,7 @@ def _named_project(task) -> str:
 
 
 # 프레임 이름(spec_작업 ② §10 「프레임 이름」 — 2026-11-14 사용자 "프로젝트 구성 반영이 완료 하면 사업계획서_{프로젝트이름}_프레임 .. 이라고 파일명을 저장하도록"):
-# 양식 맞추기 TASK → 맞추는 문서의 첨부 파일 종류. 그 문서에 프로젝트 구성을 반영하면 그것이 그 프로젝트의 프레임이다. 이관·취합의 문서는 뒤에 내용이 들어가므로 여기 없다.
+# 양식 표준화 · 양식 맞추기 TASK → 맞추는 문서의 첨부 파일 종류. 그 문서에 프로젝트 구성을 반영하면 그것이 그 프로젝트의 프레임이다. 이관·취합의 문서는 뒤에 내용이 들어가므로 여기 없다.
 FRAME_FILE = {"plan_fit": "plan", "report_fit": "report"}
 FILE_LABEL = {"plan": "사업계획서", "report": "연차보고서"}   # 첨부 파일 종류의 이름(화면 app.js WORK_TASK.file 과 같게)
 FRAME_TAIL = "프레임"
@@ -178,7 +178,7 @@ def normalize_alias(alias) -> str:
 
 def frame_stem(task, framed) -> str | None:
     """프레임 이름의 몸통 「<첨부 파일 종류>_<프로젝트 이름>_프레임」(spec_작업 ② §10 「프레임 이름」) | None(프레임 이름을 안 쓰는 문서).
-    framed = 그 문서에 프로젝트 구성을 반영한 기록이 있음. 양식 맞추기 TASK 의 맞추는 문서이고 프로젝트 이름이 있을 때만."""
+    framed = 그 문서에 프로젝트 구성을 반영한 기록이 있음. 양식 표준화 · 양식 맞추기 TASK 의 맞추는 문서이고 프로젝트 이름이 있을 때만."""
     t = task if isinstance(task, dict) else {}
     kind = FRAME_FILE.get(t.get("job") or "")
     project = _named_project(t)   # 임시 이름이면 "" — 프레임 이름을 안 쓴다(이름을 정하면 그때)
@@ -189,7 +189,7 @@ def frame_stem(task, framed) -> str | None:
 
 def shown_name(name, task, alias=None, framed=False) -> str:
     """보이는 이름(spec_작업 ② §10) — 과제에 묶인 목적 문서는 「<올린 이름>_<과제 이름>.<확장자>」, 별칭이 있으면 확장자 앞에 「(<별칭>)」, 그 밖에는 올린 이름 그대로.
-    프로젝트 구성을 반영한(framed) 양식 맞추기 문서는 올린 이름 대신 「<첨부 파일 종류>_<프로젝트 이름>_프레임.<확장자>」(frame_stem — 별칭은 그 뒤에).
+    프로젝트 구성을 반영한(framed) 양식 표준화 · 양식 맞추기 문서는 올린 이름 대신 「<첨부 파일 종류>_<프로젝트 이름>_프레임.<확장자>」(frame_stem — 별칭은 그 뒤에).
     저장된 이름(work.json `name`)은 안 바꾼다 — 같은 파일 이어 열기(find_same)·양식 판정(파일 이름 꼴)이 올린 이름을 본다. 이미 그 꼬리로 끝나면 두 번 안 붙인다."""
     t = task if isinstance(task, dict) else {}
     kind = TARGET_FILE.get(t.get("job") or "")

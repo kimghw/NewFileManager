@@ -200,16 +200,20 @@ function hrpAsk(steps, st) {
 }
 
 // ---- 실행
-async function headsPickRun(keys) {
+// opt.asked = 부른 쪽이 이미 확인받았다(대시보드 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛴다(LLM 연결 · 멈추는 곳은 그대로).
+// → {ok, text}(끝까지 감 · 멈춤 — HRP.last 와 같은 글) | undefined(시작하지 않음 — 까닭은 알림 글)
+async function headsPickRun(keys, opt = {}) {
   if (HRP.run || !state.id) return;
   const id = state.id, epoch = state.epoch;
-  const steps = HRP_STEPS.filter((s) => keys.includes(s.key) && !hrpOff(s)).map((s) => ({ ...s, state: "wait", msg: "" }));
+  // 1단계(문단·라벨) 결과가 없어 꺼진 단계도, 같은 실행에 s1 이 있으면 남긴다 — s1 이 먼저 돌아 결과가 생기고, 차례가 오면 hrpLoop 가 다시 본다(대시보드 「헤딩 추출(스크립트)」 = s1 → s2: 검토 11-18)
+  const noS1 = (s) => (s.stage > 1 || s.llm) && !(heads.view && heads.view.stage1);
+  const steps = HRP_STEPS.filter((s) => keys.includes(s.key) && (!hrpOff(s) || (keys.includes("s1") && noS1(s)))).map((s) => ({ ...s, state: "wait", msg: "" }));
   if (!steps.length) return;
   const busy = () => { if (!hrpBusy()) return false; toast("다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요"); return true; };
   if (busy()) return;
   if (steps.some((s) => s.llm)) { // 유료 — 확인 창은 한 번(전에는 단계마다 하나씩)
     const st = await headsLlmReady(); // LLM 연결이 없으면 알림은 그 함수가(스크립트만 돌리려면 LLM 단계를 빼고 다시)
-    if (!st || epoch !== state.epoch || HRP.run || !confirm(hrpAsk(steps, st)) || epoch !== state.epoch || HRP.run || busy()) return;
+    if (!st || epoch !== state.epoch || HRP.run || (!opt.asked && !confirm(hrpAsk(steps, st))) || epoch !== state.epoch || HRP.run || busy()) return;
   }
   HRP.pick.clear();
   const R = HRP.run = { id, epoch, t0: Date.now(), steps, i: 0, stop: false, note: "시작" };
@@ -225,6 +229,7 @@ async function headsPickRun(keys) {
   toast(text, !!why && why !== HRP_STOP, !here ? null
     : bad ? { label: "실행 내역 보기", run: () => { if (typeof showTab === "function") showTab("Heads"); headsRunOpen(bad.stage); } }
       : llm && typeof llmDiffOpen === "function" ? { label: "LLM 이 바꾼 것 보기", run: () => llmDiffOpen(llm.stage) } : null);
+  return { ok: !why, text };
 }
 
 async function hrpLoop(R) { // 고른 단계를 차례로 → 멈춘 까닭("" = 끝까지 감)

@@ -4,7 +4,7 @@
 
 1. 취합 간단 모드(첫 화면 「자동 진행」) + 에이전트: 패널이 「에이전트」 로 넘어간 뒤 「작업 내용」 으로 되돌아가지 않는다 · 도는 동안 진행 카드(지금 하는 일 · 「멈춤」) · 도는 동안 진행 턴이 따로 돌지 않는다(중복 시작 없음) ·
    끝나면 결과 턴 하나(「간단 모드 … 끝남」 + 기관 문서마다 한 줄) · 취합 카드의 간단 모드 줄은 그대로(「작업 내용」).
-2. 실행 카드는 그 카드가 보인 계획에 묶인다: 양식 맞추기에서 「문서에 반영」 카드를 낸 뒤 세부 화면에서 계획을 다시 세우면, 앞 카드의 「진행」 은 반영하지 않고(문서 그대로) 「실행하지 않음」 으로 닫히며 새 계획의 카드가 나온다 → 그 카드의 「진행」 은 반영.
+2. 실행 카드는 그 카드가 보인 계획에 묶인다: 양식 표준화에서 「문서에 반영」 카드를 낸 뒤 세부 화면에서 계획을 다시 세우면, 앞 카드의 「진행」 은 반영하지 않고(문서 그대로) 「실행하지 않음」 으로 닫히며 새 계획의 카드가 나온다 → 그 카드의 「진행」 은 반영.
 3. 첫 화면 대화창은 왼쪽 문서 목록 하나를 본다: 대화창의 「파일」 로 고른 파일이 왼쪽 목록에 들고 · 둘 이상이면 목적 문서를 고르라고 말하며(짐작하지 않음) 시작하지 않는다.
 4. 문서 목록의 「자동 진행」 · 「LLM 검토」 는 「사업계획서 취합」 묶음 안에 있다(다른 TASK 의 옵션처럼 보이지 않는다).
 
@@ -171,7 +171,7 @@ def main():
         q = page.evaluate("() => { const q = document.querySelector('#gatherFlow .gt-quick'); return q && !q.hidden ? { kind: q.dataset.kind, rows: q.querySelectorAll('.gt-quick-row').length } : null; }")
         check("패널 「작업 내용」 의 간단 모드 줄은 그대로(기관 문서마다 결과 — 세부 작업으로 이어 간다)", q is not None and q["kind"] == "done" and q["rows"] == 2, q)
 
-        # ---- 2. 실행 카드는 그 카드가 보인 계획에 묶인다(양식 맞추기)
+        # ---- 2. 실행 카드는 그 카드가 보인 계획에 묶인다(양식 표준화 1단계)
         page.goto(base)
         page.wait_for_selector("#taskCards .task-card")
         with page.expect_file_chooser() as fc:
@@ -208,10 +208,13 @@ def main():
             check("새 계획의 「문서에 반영」 카드가 다시 나온다", page.evaluate(TURNS)[-1]["act"] == "apply")
             page.screenshot(path=str(OUT / "04_stale_card.png"))
             page.click("#paneAgent .agw-turn:last-child [data-agw=go]")
-            page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && /모두 끝났습니다/.test(t.textContent); }", timeout=240000)
+            # 반영 뒤 결과 턴 — 양식 표준화는 1단계(프로젝트 구성)가 끝나도 2 · 3단계(헤딩 추출 · 표)가 남는다(spec_양식표준화): 「모두 끝났습니다」 가 아니라 다음 차례를 말한다
+            page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && t.dataset.event === 'result' && /문서에 반영했습니다/.test(t.textContent) && !AGENT.busy; }", timeout=240000)
             rev2 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
-            done = next((t for t in reversed(page.evaluate(TURNS)) if t["act"] == "apply"), None)
-            check("새 카드의 「진행」 → 반영(편집 차례가 오름) · 카드 「실행함 — …」", rev2 > rev0 and done["state"] == "done" and done["out"].startswith("실행함"), [rev0, rev2, done])
+            turns = page.evaluate(TURNS)
+            done = next((t for t in reversed(turns) if t["act"] == "apply"), None)
+            check("새 카드의 「진행」 → 반영(편집 차례가 오름) · 카드 「실행함 — …」 · 결과 턴은 다음 차례(2단계 헤딩 추출)를 말함 — 1단계만 끝났으니 「모두 끝났습니다」 가 아님",
+                  rev2 > rev0 and done["state"] == "done" and done["out"].startswith("실행함") and "지금 차례는 「" in turns[-1]["say"] and "모두 끝났습니다" not in turns[-1]["say"], [rev0, rev2, done, turns[-1]])
             then = page.evaluate("() => [...document.querySelectorAll('#paneAgent .agw-then')].length")
             check("앞 턴의 진행 줄에는 「이 턴 때의 진행 상황」 이라고 적는다(저장된 줄을 지금 상태로 읽지 않게)", then >= 1, then)
         b.close()

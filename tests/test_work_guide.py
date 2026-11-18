@@ -54,9 +54,10 @@ def test_agent_is_registered_and_its_prompt_shows_the_workflow():
 
 def test_workflow_part_cuts_the_task_section_and_the_common_modules_it_uses():
     p = G.workflow_part("plan_fit")
-    assert "## 한눈에" in p and "### 사업계획서 양식 맞추기 — `plan_fit`" in p and "### 프로젝트 구성(구분 기준) — `division`" in p and "### 문서 올리기 · 첫 분석 — `intake`" in p
+    assert "## 한눈에" in p and "### 사업계획서 양식 표준화 — `plan_fit`" in p and "### 프로젝트 구성(구분 기준) — `division`" in p and "### 문서 올리기 · 첫 분석 — `intake`" in p
     assert "`plan_to_report`" not in p.split("## 한눈에", 1)[1].split("공통 모듈:", 1)[1]   # 다른 TASK 의 절은 없다(「한눈에」 표에는 이름이 있다)
-    assert "### 표 도구 — `tables`" not in p and len(p) < len(G.workflow_text())
+    assert "### 서식 관리자(서식 보관함) — `styles`" not in p and len(p) < len(G.workflow_text())   # 그 TASK 가 안 쓰는 공통 모듈은 없다
+    assert "### 표 도구 — `tables`" in p                                                                    # 양식 표준화 3단계(표 점검 · 서식 맞추기)가 쓴다 — spec_양식표준화 ② §1
     home = G.workflow_part(None)
     assert all(f"— `{t['job']}`" in home for t in W.TASKS) and "####" not in home and "받는 문서" in home   # TASK 마다 머리만(단계 묶음 앞까지)
     assert G.workflow_part("nope") == home
@@ -65,7 +66,7 @@ def test_workflow_part_cuts_the_task_section_and_the_common_modules_it_uses():
     fit = W.BY_JOB["plan_fit"]
     assert "#### 시작 점검 — 시작할 때 저절로 확인하는 것" in p and "##### TASK 를 시작할 때" in p and "#### 단계마다 조건" in p and "  - 끝난 것으로 보는 때: " in p and "  - 안 맞으면: " in p
     assert all(s["does"] in p and s["done"] in p for g in fit["stages"] for s in g["steps"]) and all(c["does"] in p for c in fit["entry"])
-    assert "만든 글" not in p.split("### 사업계획서 양식 맞추기 — `plan_fit`", 1)[1].split("#### 시작 점검", 1)[0]   # 파일 머리의 알림(> 줄)은 싣지 않는다
+    assert "만든 글" not in p.split("### 사업계획서 양식 표준화 — `plan_fit`", 1)[1].split("#### 시작 점검", 1)[0]   # 파일 머리의 알림(> 줄)은 싣지 않는다
     assert "시작 점검(시작할 때 저절로 확인하는 것): TASK 를 시작할 때 — 문서 형식" in home and "`tasks/plan_fit.md`" in home and "  - 안 맞으면: " not in home   # 첫 화면은 이름만
 
 
@@ -135,9 +136,9 @@ def test_clean_keeps_only_actions_that_were_sent():
 
 
 def test_fallback_explains_and_proposes_the_primary_action():
-    base = {"task": {"job": "plan_fit", "name": "사업계획서 양식 맞추기"}, "steps": G.steps_in(STEPS)}
+    base = {"task": {"job": "plan_fit", "name": "사업계획서 양식 표준화"}, "steps": G.steps_in(STEPS)}
     start = G.fallback({**base, "event": "start", "actions": G.actions_in(ACTS)})
-    assert "「사업계획서 양식 맞추기」" in start["reply"] and "4개 가운데 1개" in start["reply"] and start["act"] == "" and start["ask"]["kind"] == "config"   # 값이 필요한 행동은 질문 카드로
+    assert "「사업계획서 양식 표준화」" in start["reply"] and "4개 가운데 1개" in start["reply"] and start["act"] == "" and start["ask"]["kind"] == "config"   # 값이 필요한 행동은 질문 카드로
     nxt = G.fallback({**base, "event": "result", "text": "프로젝트 구성을 확정했습니다", "ok": True, "act": "config_set", "actions": G.actions_in(PLAN)})
     assert nxt["act"] == "plan" and "하겠습니다" in nxt["reply"] and nxt["reply"].startswith("프로젝트 구성을 확정했습니다")
     doc = G.fallback({**base, "event": "result", "text": "계획 — 맞출 자리 12", "ok": True, "act": "plan", "actions": G.actions_in([{**PLAN[1], "primary": True}])})
@@ -164,7 +165,7 @@ def test_guide_turns_are_stored_in_the_agent_talk():
     assert r.status_code == 200, r.text
     t = r.json()["turn"]
     assert t["kind"] == "guide" and t["event"] == "start" and not t["llm"] and t["state"] == "open" and t["ask"]["kind"] == "config" and t["act"] is None
-    assert len(t["carry"]) == 2 and [s["state"] for s in t["steps"]] == ["done", "now", "todo", "todo"] and "「사업계획서 양식 맞추기」" in t["reply"]
+    assert len(t["carry"]) == 2 and [s["state"] for s in t["steps"]] == ["done", "now", "todo", "todo"] and "「사업계획서 양식 표준화」" in t["reply"]
     assert c.put(f"/api/docs/{d}/agent/guide/{t['id']}", json={"state": "done", "outcome": "1단계(1–3차년도) · 주관 한국선급"}).json()["turn"]["state"] == "done"
     r2 = c.post(f"/api/docs/{d}/agent/guide", json={"event": "result", "text": "프로젝트 구성을 확정했습니다", "ok": True, "act": "config_set", "steps": STEPS, "actions": PLAN})
     t2 = r2.json()["turn"]
@@ -200,8 +201,8 @@ def test_llm_answer_is_checked_against_the_sent_actions(monkeypatch):
     monkeypatch.setattr(G, "ask", fake)
     t = c.post(f"/api/docs/{d}/agent/guide", json={"event": "say", "text": "다 해줘", "steps": STEPS, "actions": PLAN, "facts": {"config": "1단계(1–3차년도)"}}).json()["turn"]
     assert t["llm"] and t["act"] is None and t["state"] == "done" and "wipe" in t["notes"][0] and t["text"] == "다 해줘"
-    assert seen["job"] == "plan_fit" and seen["data"]["task"]["name"] == "사업계획서 양식 맞추기" and seen["data"]["facts"] == {"config": "1단계(1–3차년도)"}
-    assert G.CONTRACT in seen["prompt"] and "## 워크플로우 (workflow.md)" in seen["prompt"] and "### 사업계획서 양식 맞추기 — `plan_fit`" in seen["prompt"]
+    assert seen["job"] == "plan_fit" and seen["data"]["task"]["name"] == "사업계획서 양식 표준화" and seen["data"]["facts"] == {"config": "1단계(1–3차년도)"}
+    assert G.CONTRACT in seen["prompt"] and "## 워크플로우 (workflow.md)" in seen["prompt"] and "### 사업계획서 양식 표준화 — `plan_fit`" in seen["prompt"]
     full = c.get(f"/api/docs/{d}/agent/turns/{t['id']}").json()
     assert full["parts"][0]["text"] == seen["prompt"] and full["response"]["act"] == "wipe"
     # 못 쓰는 답이면 스크립트가 답한다

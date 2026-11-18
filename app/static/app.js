@@ -168,7 +168,7 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
     const t = HOME_TASKS[key];
     if (!t) continue;
     const li = el("li"), b = el("button", "task-card"), logo = el("span", "task-logo"), go = el("span", "task-card-go", t.soon ? "준비 중" : `${t.upMany || t.up} 올려 시작 `); // upMany = 여러 개를 올리는 TASK(취합 간단 모드 — spec_취합 ② §8-1)
-    const doc = name.endsWith(t.act) ? name.slice(0, -t.act.length).trim() : ""; // 「사업계획서 양식 맞추기」 → 「사업계획서」 + 「양식 맞추기」 — 이름이 그 꼴이 아니면 이름 한 줄
+    const doc = name.endsWith(t.act) ? name.slice(0, -t.act.length).trim() : ""; // 「사업계획서 양식 표준화」 → 「사업계획서」 + 「양식 표준화」 — 이름이 그 꼴이 아니면 이름 한 줄
     b.type = "button";
     b.dataset.task = key;
     logo.dataset.doc = t.doc;
@@ -699,7 +699,7 @@ function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프�
 // 패널 머리 둘째 줄의 탭 「작업 내용」 · 「<도구>」(#toolTabs — ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추 #taskHome 을 바꿈).
 // 2026-11-15 사용자 「검증, 기록, PDF 사이드 패널에 있으니깐 여기에 필요 없어 보이거든」: 검증 · PDF · 기록은 이 줄의 고정 탭(#tabVerify·#tabPdf·#tabLog — 문서 위 탭 띠에서 옮김) →
 // 2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나? 검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기 … 다른 task 랑 구조가 같아야 하는데 다름」 →
-// 줄 = 왼쪽 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든 첫 탭 · 문서 위 탭 띠에서 옮김: 전에는 「일반 문서」 만 「작업 내용」 이 에이전트 보기였다) · 「작업 내용」(연구개발 TASK 의 Div 만) ·
+// 줄 = 왼쪽 「대시보드」(#tabDash — 첫 탭: 2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」) · 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든 · 문서 위 탭 띠에서 옮김: 전에는 「일반 문서」 만 「작업 내용」 이 에이전트 보기였다) · 「작업 내용」(연구개발 TASK 의 Div 만) ·
 // 「<도구>」(탭 띠에서 마지막으로 고른 도구 — 고른 적이 없으면 감춤) / 오른쪽 접는 묶음 = 검증 · PDF · 기록 + 펼치기 단추(#toolMore). 접힌 동안은 그 묶음에서 고른 탭 하나만 보인다.
 // 같은 날 사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」: 「작업 리스트」 는 묶음의 넷째 탭(#toolTabList)에서 상단 바 아이콘 #taskListBtn 으로 — 아래 taskListBtnDraw · taskListToggle.
 // 같은 날 사용자 「기본적으로 헤딩추출이나 표 는 탭에 에이전트에 넣어줘야지」 → 답 「띠에서 뺌」: 「헤딩 추출」·「표」(#tabHeads·#tabTables)는 「작업 내용」 다음의 고정 탭(늘 보임 — 보임은 headsReset·tablesReset 이 정한다) ·
@@ -722,12 +722,12 @@ function toolTabsDraw() {
   if (!on) return;
   const a = $("tabAgent"), t = $("toolTabTask"), u = $("toolTabTool");
   a.hidden = !toolShown("Agent"); // hwpx 만(docx 는 에이전트 보기가 없다)
-  const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): 문서가 열려 있으면 늘(TASK 가 없으면 TASK 고르기) · 에이전트 다음
+  const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): 문서가 열려 있으면 늘(TASK 가 없으면 TASK 고르기) · 첫 탭(2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」)
   d.hidden = !toolShown("Dash");
   t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
   u.hidden = !toolLast || !toolShown(toolLast);
   if (toolLast) { u.textContent = TOOL_INFO[toolLast][0]; u.setAttribute("aria-controls", `pane${toolLast}`); }
-  const rows = [[a, cur === "Agent"], [d, cur === "Dash"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
+  const rows = [[d, cur === "Dash"], [a, cur === "Agent"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
   for (const [b, sel] of rows) { b.classList.toggle("active", sel); b.setAttribute("aria-selected", sel); b.tabIndex = sel ? 0 : -1; }
   $("toolTabs").classList.toggle("more-folded", !toolMoreOpen); // 접힘 — 묶음(.tool-more)에서 고르지 않은 탭은 CSS 가 감춘다
   const m = $("toolMore"), what = "검증 · PDF · 기록";
@@ -5229,7 +5229,7 @@ async function panelTaskPick(v) {
 }
 
 // 탭 띠에 단추가 없는 도구 = 「연구개발과제」(Div — 2026-11-12 탭을 없앰): 작업 종류가 연구개발과제일 때만 열린다(전의 탭 보임 조건 그대로)
-// 에이전트(Agent — spec_일반편집 ② §12)는 탭(패널 머리 첫 탭 #tabAgent)의 보임과 상관없이 hwpx 문서면 열린다 — 탭의 보임은 toolTabsDraw 가 이 값으로 정한다
+// 에이전트(Agent — spec_일반편집 ② §12)는 탭(패널 머리 탭 #tabAgent — 대시보드 다음)의 보임과 상관없이 hwpx 문서면 열린다 — 탭의 보임은 toolTabsDraw 가 이 값으로 정한다
 const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; if (n === "Dash") return typeof dashShown === "function" && dashShown(); const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
 function showTab(name) {
   if (!TOOL_INFO[name] || !toolShown(name)) return;
@@ -9331,12 +9331,13 @@ async function divRunFocus() { // 2열 발의 「… 단추로 이동」 — 패
 
 // 「한 번에 진행」(묶음 없는 TASK — 양식 맞추기): 변경 계획 → 반영. 확인은 누를 때 한 번(design.md §11 · 이관 묶음과 같게), 그 뒤로는 묻지 않는다 —
 // 대신 사람이 봐야 할 계획(미해결 · 계획 오류 · 기관 차례가 마지막 반영과 다름)이면 반영하지 않고 목록을 연 채 멈춘다(astra P1 — 수만 보인 확인 창은 검토가 아니다).
-async function divRunAll() {
+// opt.asked = 부른 쪽이 이미 확인받았다(대시보드의 「이어서 한 번에 1→3단계」 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛰고 멈추는 검사는 그대로다
+async function divRunAll(opt = {}) {
   if (!state.id || dv.busy || divRunLocked()) return;
   const why = divRunWhy();
   if (why) { toast(why, true); return; }
   const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" ? st0.plan.summary : null, source = taskDocRole(state.task) === "source";
-  if (!confirm(`「${state.name}」 의 프로젝트 구성 반영을 한 번에 진행할까요?\n\n`
+  if (!opt.asked && !confirm(`「${state.name}」 의 프로젝트 구성 반영을 한 번에 진행할까요?\n\n`
     + (source ? "※ 이 문서는 이 TASK 의 원본 문서입니다 — 원본의 구조가 바뀝니다.\n" : "")
     + `· 값: ${divValuesText(divValues())}\n`
     + (s0 ? `· 지금 계획 그대로 반영합니다 — 맞출 자리 ${s0.applied}곳 · 항목 추가 ${s0.added} · 지움 ${s0.removed} · 글 바꿈 ${s0.changes} · 지워지는 글 문단 ${s0.deleted}\n`

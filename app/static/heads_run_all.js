@@ -121,7 +121,9 @@ function headsAllRunning() { // 에이전트 보기의 진행 카드(doc_agent_w
 }
 
 // ---- 실행
-async function headsRunAll() {
+// opt.asked = 부른 쪽이 이미 확인받았다(대시보드의 「이어서 한 번에」 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛴다(LLM 연결 · 멈추는 검사는 그대로).
+// → {ok, text}(끝까지 감 · 멈춤 — HRA.last 와 같은 글) | undefined(시작하지 않음 — 까닭은 알림 글)
+async function headsRunAll(opt = {}) {
   if (HRA.run || !state.id) return;
   if (typeof headsPickRunning === "function" && headsPickRunning()) { toast("단계별 실행이 도는 중입니다 — 끝난 뒤 누르세요"); return; } // 단계 사이의 틈에 끼어들지 않는다
   const id = state.id, epoch = state.epoch;
@@ -139,7 +141,7 @@ async function headsRunAll() {
   }
   if (!P.llm.length && P.undecided) { toast(hraUndec(P.undecided), true, typeof tplPlanGo === "function" ? { label: "조정 줄 보기", run: () => tplPlanGo() } : null); return; } // 남은 것이 반영뿐인데 헤딩 판정에 미판정이 있다 — 묻지 않고 알린다
   if (P.llm.length && !(await headsLlmReady())) return; // LLM 연결이 없으면 알림은 그 함수가
-  if (epoch !== state.epoch || HRA.run || !confirm(hraAsk(P)) || epoch !== state.epoch) return;
+  if (epoch !== state.epoch || HRA.run || (!opt.asked && !confirm(hraAsk(P))) || epoch !== state.epoch) return;
   const R = HRA.run = { id, epoch, t0: Date.now(), note: "시작", stop: false, chains: 0, applies: 0, sig: null,
     did: { llm: [], tpls: 0, lines: 0, splits: 0, undo: 0 }, left: [] };
   hraSync();
@@ -155,6 +157,7 @@ async function headsRunAll() {
   if ((R.did.tpls || R.did.merged) && state.id === id && state.epoch === epoch && typeof llmDiffOpen === "function") llmDiffOpen(R.did.tpls ? "res" : "rel");
   toast(text, !!out.why && out.why !== HRA_STOP && out.why !== HRA_CAP, adj ? { label: "조정 줄 보기", run: () => tplPlanGo() }
     : R.did.tpls && typeof llmDiffOpen === "function" && state.id === id ? { label: "반영한 계획 보기", run: () => llmDiffOpen("fmt") } : null);
+  return { ok: !out.why, text };
 }
 
 // 남은 것이 없을 때까지: LLM 이어 돌리기 → 반영 → (반영으로 새로 남은 계획 → 반영) … → {why 멈춘 까닭("" = 끝까지 감), v 마지막 분석 상태 | null}

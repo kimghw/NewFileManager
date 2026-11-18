@@ -590,7 +590,7 @@ try:
         # TASK · 문서 지우기(spec_작업 ② §7 「작업 지우기」 · §17, 2026-11-16) — TASK 줄 끝 「지우기」 = 그 라운드의 문서 전부 · 문서 줄 끝 × = 그 문서 하나 → 줄 아래 확인 줄(창 없음). 320px 폭 그대로.
         gone = "프로젝트 지움"
         g_plan, g_report, g_extra = upload(project=gone), upload("report", project=gone), upload(project=gone)  # 이관 Round 1 — 문서 셋
-        g_fit = upload(project=gone, job="plan_fit")  # 양식 맞추기 Round 1 → 아래에서 Round 2 를 만든다(이전 라운드가 남는다는 글)
+        g_fit = upload(project=gone, job="plan_fit")  # 양식 표준화 Round 1 → 아래에서 Round 2 를 만든다(이전 라운드가 남는다는 글)
         g_fit2 = api("POST", f"/api/works/{g_fit}/round", json={"source": "original"}).json()["docId"]
         page.locator("#projectRefresh").click()  # 새로고침
         page.wait_for_selector(f'[data-project-work="{g_report}"]', timeout=30000)

@@ -3,9 +3,11 @@
 // 사용자 2026-11-15 "첫 화면 우측에 에이전트 대화할 수 있는 대화창 … 파일 올리면 작업절차를 확인하고 직접 작업을 진행하고 필요한 경우 질문형식으로" ·
 //   "task 를 클릭하고 문서를 로드 했을 때 사전준비가 필요한 부분이나 작업진행 사항을 에이전트가 설명하고 진행 … 다음 스테이지도 에이전트가 제안하고 실행".
 // 나눔: 에이전트(서버 app/work_guide.py — LLM 또는 스크립트 답)는 **설명하고 고른다**. 단계의 상태(steps)와 지금 할 수 있는 행동(actions)은 이 파일이 화면의 기존 상태에서 계산해 보내고(agwStatus),
-//   고른 행동도 이 파일이 기존 함수로 실행한다(agwExec — divPlan · divApply · taskRunAll · gatherRunStage …: 새 실행 길을 만들지 않는다).
+//   고른 행동도 이 파일이 기존 함수로 실행한다(agwExec — divPlan · divApply · taskRunAll · gatherRunStage · headsPickRun · tpbApply …: 새 실행 길을 만들지 않는다).
+//   양식 표준화(plan_fit)의 2 · 3단계(헤딩 추출 · 표) 상태는 agwStdSteps — 대시보드(dashboard.js)와 같이 쓴다(spec_양식표준화 ② §2·§5).
 // 한 번의 연쇄: 턴(POST …/agent/guide) → 행동이 있으면 ⓐ 문서가 안 바뀌고 무료면 바로 실행 → 결과 턴 ⓑ 문서가 바뀌거나 유료면 실행 카드의 「진행」 을 기다림. 질문 카드는 답을 기다린다. 6턴까지.
-// doc_agent.js 다음에 읽힌다(AGENT · agentUrl · agentErr · agentDraw* · agentSend · agentTurnOf · agentWhen · agentIcon). app.js: state · dv · div* · task* · showTab · toolShown · api · el · hBtn · toast · nf · H_JSON · homeTaskStart.
+// doc_agent.js 다음에 읽힌다(AGENT · agentUrl · agentErr · agentDraw* · agentSend · agentTurnOf · agentWhen · agentIcon). app.js: state · dv · div* · task* · showTab · toolShown · api · el · hBtn · toast · nf · H_JSON · homeTaskStart · heads · headsRender · headsPoll.
+// 부를 때 찾는 것(양식 표준화 2 · 3단계): doc_status.js(dsState · dsDraw · dsRunning) · heads_run_all.js(hraLeft · hraUnseen · headsAllRunning) · heads_run_pick.js(headsPickRun · headsPickRunning) · tpl_plan_bar.js(tpbApply).
 
 const AGW_STATE = { done: "끝남", now: "지금", todo: "남음", soon: "준비 중" };
 const AGW_CHAIN_MAX = 6;
@@ -16,12 +18,12 @@ if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { agentGuide: "에이�
 const agw = () => (AGENT.work || (AGENT.work = { chain: 0, running: null, readTried: false, form: null })); // 문서마다(AGENT 와 함께 새로) — running = 도는 행동 {turn, name, t0, timer}
 const agwJob = () => (state.task && state.task.job) || "";
 const agwFit = (job) => job === "plan_fit" || job === "report_fit";
-// 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
+// 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 표준화 · 양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
 const agwGuided = (job = agwJob()) => agwFit(job) || job === "plan_to_report" || job === "plan_merge";
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
 // ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 내용」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
-// 실행은 TASK 마다 제 상태에 있다(이관 taskRun · 취합 gatherRun · 간단 모드 gqRun · 양식 맞추기 dv.auto · 서식 복사 STYLE.save.auto) — 여기서는 **읽기만** 한다(새 실행 길 · 새 상태를 만들지 않는다).
+// 실행은 TASK 마다 제 상태에 있다(이관 taskRun · 취합 gatherRun · 간단 모드 gqRun · 양식 표준화 · 양식 맞추기 dv.auto · 서식 복사 STYLE.save.auto) — 여기서는 **읽기만** 한다(새 실행 길 · 새 상태를 만들지 않는다).
 // 간단 모드(gqRun)와 그 안에서 도는 묶음(gatherRun)은 같은 실행의 부모·자식이다 — 부모를 먼저 본다. 「멈춤」 은 어느 것이든 「지금 하는 일이 끝나면」 이다(바로 끊지 못한다).
 function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 = 모름), stopping, stop() | null} | null
   if (!state.id) return null;
@@ -80,21 +82,28 @@ function agwCommon(out) { // 어느 TASK 든 — 작업 내용 열기 · 편집 
   return out;
 }
 
-async function agwFitStatus() { // 양식 맞추기 — 프로젝트 구성 값(확정) → ① 변경 계획 → ② 반영
+function agwFitApplied(st = divPlanState(), v = dv.view) { // 1단계 「적용(반영)」 이 끝났나 → {applied, same} — 반영함 · 이미 구성에 맞음 · 마지막으로 반영한 값이 지금 값과 같음(agwFitStatus · 대시보드 「이어서 한 번에」 가 같이 본다)
+  const s = st.plan && st.plan.summary, same = st.kind === "same" && divSameText(s).ok, values = dv.values ? divValues() : null;
+  return { same, applied: st.kind === "done" || same || (st.kind === "none" && !!v && !!v.applied && !!v.applied.values && !!values && divConfirmKey(v.applied.values) === divConfirmKey(values)) };
+}
+
+// 양식 맞추기(report_fit) · 양식 표준화(plan_fit — spec_양식표준화: 1단계 프로젝트 구성 + 2 · 3단계 헤딩 추출 · 표는 agwStdStatus) — 프로젝트 구성 값(확정) → ① 변경 계획 → ② 반영.
+// opt.fresh = 분석 상태(헤딩 · 표)를 지금 다시 읽는다 — 에이전트 턴이 부를 때(대시보드는 1초마다 부르므로 화면이 들고 있는 값으로)
+async function agwFitStatus(opt = {}) {
   if (!dv.view || !dv.values) await divShow();
-  const out = { steps: [{ stage: "준비", key: "open", name: "문서 올리기 · 기본 분석", state: "done", text: "" }], actions: [], facts: {} }, v = dv.view;
+  const std = agwJob() === "plan_fit", g1 = std ? { open: AGW_STD.config, config: AGW_STD.config, frame: AGW_STD.config } : { open: "준비", config: "프로젝트 구성", frame: "구조 반영" }; // 진행 줄의 묶음 이름(등록부 _std · _fit 의 묶음)
+  const out = { steps: [{ stage: g1.open, key: "open", name: "문서 올리기 · 기본 분석", state: "done", text: "" }], actions: [], facts: {} }, v = dv.view;
   if (!v || !dv.values) { out.facts.why = "프로젝트 구성 상태를 읽지 못했습니다"; return agwCommon(out); }
   const values = divValues(), text = divValuesText(values), confirmed = divConfirmValid(dv.values, v.confirmed), why = divRunWhy(), st = divPlanState(), s = st.plan && st.plan.summary;
   const has = !!(values.orgs.lead || values.orgs.joint.length || values.stages.length > 1 || values.stages[0] > 1);
-  const same = st.kind === "same" && divSameText(s).ok;
-  const applied = st.kind === "done" || same || (st.kind === "none" && !!v.applied && !!v.applied.values && divConfirmKey(v.applied.values) === divConfirmKey(values));
+  const { same, applied } = agwFitApplied(st, v);
   const issues = s && (st.kind === "ready" || st.kind === "same") ? divPlanIssues(s, false) : "";
   const planText = !s ? "" : st.kind === "stale" || st.kind === "skip" ? "계획이 낡았습니다 — 다시 계획해야 합니다"
     : st.kind === "same" ? divSameText(s).text : `맞출 자리 ${s.applied}곳 · 항목 추가 ${s.added} · 지움 ${s.removed} · 글 바꿈 ${s.changes} · 지워지는 글 문단 ${s.deleted}${issues ? ` · ${issues}` : ""}`;
   const planned = st.kind === "ready" || st.kind === "same" || st.kind === "done";
-  out.steps.push({ stage: "프로젝트 구성", key: "values", name: "프로젝트 구성 값 정하기 · 확정", state: confirmed ? "done" : "now", text: confirmed ? text : has ? `입력됨(확정 전) — ${text}` : "아직 값이 없습니다" },
-    { stage: "구조 반영", key: "plan", name: "① 변경 계획 보기", state: applied || (confirmed && planned) ? "done" : confirmed ? "now" : "todo", text: planText },
-    { stage: "구조 반영", key: "apply", name: "② 반영", state: applied ? "done" : confirmed && st.kind === "ready" ? "now" : "todo", text: applied ? (same ? "이미 프로젝트 구성에 맞습니다" : "문서 구조를 프로젝트 구성에 맞췄습니다") : "" });
+  out.steps.push({ stage: g1.config, key: "values", name: std ? "프로젝트 구성 확정" : "프로젝트 구성 값 정하기 · 확정", state: confirmed ? "done" : "now", text: confirmed ? text : has ? `입력됨(확정 전) — ${text}` : "아직 값이 없습니다" },
+    { stage: g1.frame, key: "plan", name: "① 변경 계획 보기", state: applied || (confirmed && planned) ? "done" : confirmed ? "now" : "todo", text: planText },
+    { stage: g1.frame, key: "apply", name: std ? "② 적용(문서에 반영)" : "② 반영", state: applied ? "done" : confirmed && st.kind === "ready" ? "now" : "todo", text: applied ? (same ? "이미 프로젝트 구성에 맞습니다" : "문서 구조를 프로젝트 구성에 맞췄습니다") : "" });
   Object.assign(out.facts, { config: has ? text : "", confirmed, plan: planText, supported: !!v.profile.supported });
   if (why) out.facts.why = why;
   if (!confirmed) {
@@ -112,7 +121,109 @@ async function agwFitStatus() { // 양식 맞추기 — 프로젝트 구성 값(
     }
     out.actions.push({ name: "config_set", label: "프로젝트 구성 고치기", does: "단계 · 차년도 · 기관을 다시 입력해 확정합니다 — 문서는 바뀌지 않습니다", change: "store" });
   }
+  if (std) await agwStdStatus(out, { open: applied || !v.profile.supported, fresh: !!opt.fresh }); // 2 · 3단계 행동은 1단계가 「적용」 까지 끝난 뒤(지원 안 되는 양식이면 1단계를 할 수 없으니 바로 — 등록부 _std 「지원 양식인가」)
   return agwCommon(out);
+}
+
+// ---------------------------------------------------------------- 양식 표준화(plan_fit)의 2 · 3단계 — 헤딩 추출 · 표(spec_양식표준화 ② §2·§5)
+// 상태는 **분석 상태**(dsState.main — GET …/analysis: 이름 줄 · 진행표와 같은 값)와 헤딩 쪽에서 도는 것(헤딩 작업 · 전체 실행 · 단계별 실행 · LLM 검증·보완)으로 센다 — 새 상태를 만들지 않는다.
+// 에이전트(agwStdStatus — steps · 행동)와 대시보드(dashboard.js dashStdLive)가 agwStdSteps 를 같이 쓴다. 단계 key 는 등록부(app/workflow.py _std)의 것 — 바꾸면 여기와 대시보드를 함께 본다.
+// 실행은 기존 함수다: 헤딩 · 표 LLM 판정 = 「단계별 실행」(heads_run_pick.js headsPickRun) · 조정 = 진행 줄 「조정」 의 「모두 반영」(tpl_plan_bar.js tpbApply) · 남은 것 = heads_run_all.js hraLeft · hraUnseen.
+const AGW_STD = { config: "1단계 프로젝트 구성", heads: "2단계 헤딩 추출", tables: "3단계 표" }; // 진행 줄의 묶음 이름 — 등록부 _std 의 묶음(no · name)과 같게
+const AGW_STD_KEYS = ["heads", "headsLlm", "adjust", "tables", "tablesLlm"]; // 세는 단계(안 해도 되는 tree · tableTools 는 대시보드만)
+const AGW_STD_NAMES = { heads: "헤딩 · 템플릿 추출", headsLlm: "헤딩 LLM 판정 · 서식 계획", adjust: "조정 — 템플릿 조정 · 서식 조정", tables: "표 구조 — 칸 역할 라벨", tablesLlm: "표 판정(LLM) — 라벨 검증 · 보완" };
+const agwStdView = () => (typeof dsState === "object" && state.id && dsState.mainId === state.id ? dsState.main : null);
+const agwHash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }; // 행동 key 를 짧게(서버 KEY_MAX)
+// 조정이 반영할 것 한 줄 — 받아 둔 계획(맞출 줄 · 뗄 줄 · 대표 변경) · 스크립트가 맞출 것(자리 맞춤 · 확실한 종속). P = hraLeft
+const agwStdApplyText = (P) => [P.plans ? `받아 둔 서식 정리 계획 ${nf(P.plans)}개(템플릿)` : "", P.change ? `대표에 맞출 줄 ${nf(P.change)}` : "", P.moved ? `서식 종속 템플릿으로 뗄 줄 ${nf(P.moved)}` : "",
+  P.reps ? `대표를 바꿀 레벨 ${nf(P.reps)}` : "", P.place ? `자리 맞춤 ${nf(P.place)}줄` : "", P.sure ? `확실한 종속 ${nf(P.sure)}개` : ""].filter(Boolean).join(" · ") || "반영할 것";
+
+async function agwStdFresh() { // 분석 상태를 지금 다시 읽는다(행동이 끝난 뒤 · 에이전트 턴) — 이름 줄도 같은 자료로(doc_agent_next.js agnReport 와 같은 길) → 분석 상태 | null
+  const id = state.id, epoch = state.epoch;
+  if (!id) return null;
+  let v = null;
+  try { v = await api(`/api/docs/${id}/analysis`); } catch { return null; }
+  if (epoch !== state.epoch || id !== state.id) return null;
+  if (typeof dsState === "object" && dsState.mainId === id) { dsState.main = v; if (typeof dsDraw === "function") dsDraw("main"); }
+  return v;
+}
+
+async function agwHeadsView() { // 헤딩 요약(heads.view)이 없으면 한 번 읽어 그린다 — 단계별 실행 · 전체 실행이 1단계 결과를 본다(heads_run_pick.js hrpOff).
+  // headsShow(탭 열기)와 달리 추출을 저절로 시작하지 않는다(GET 만 — 도는 작업이 있으면 끝날 때까지 읽음: headsPeek 와 같은 몫 + heads.view)
+  if (!state.id || state.format === "docx" || heads.view) return;
+  const id = state.id, epoch = state.epoch;
+  let r = null;
+  try { r = await api(`/api/docs/${id}/headings`); } catch { return; }
+  if (epoch !== state.epoch || heads.view) return;
+  headsRender(r);
+  if (r.job && r.job.status === "running") headsPoll();
+}
+
+function agwStdBusy(v = agwStdView()) { // 헤딩 쪽에서 도는 것의 이름 | "" — 전체 실행 · 단계별 실행 · LLM 검증·보완(에이전트 진행 카드와 같은 것) · 그 밖의 헤딩 작업(첫 분석 · 탭의 단계 하나)
+  const R = (typeof headsAllRunning === "function" && headsAllRunning()) || (typeof headsPickRunning === "function" && headsPickRunning()) || (typeof dsRunning === "function" && dsRunning()) || null;
+  if (R) return R.label;
+  const job = heads.view ? heads.view.job : null;
+  return (job && job.status === "running") || (v && v.busy) ? "헤딩 작업이 도는 중" : "";
+}
+
+// → {v, busy, judged, undecided, P(hraLeft), can(조정 「모두 반영」 을 할 수 있나), applyKey, items{heads, tables, formats}, steps{heads, headsLlm, adjust, tables, tablesLlm: {state: done|run|fail|todo, text}}} | null(분석 상태를 아직 못 읽음)
+function agwStdSteps(v = agwStdView()) {
+  if (!v) return null;
+  const by = Object.fromEntries((v.items || []).map((i) => [i.key, i])), H = by.heads, T = by.tables, F = by.formats, busy = agwStdBusy(v);
+  if (!H || !T) return { v, busy, none: true, steps: Object.fromEntries(AGW_STD_KEYS.map((k) => [k, { state: "todo", text: "헤딩 · 표 분석은 hwpx 문서에서만 됩니다" }])) };
+  const base = (it) => (it.state === "done" ? { state: "done", text: it.short || it.text || "" } : it.state === "running" || it.state === "wait" ? { state: "run", text: `${it.name} 분석 중(스크립트)` }
+    : it.state === "failed" ? { state: "fail", text: `${it.name} 분석 실패 — ${it.error || "까닭 모름"}` } : { state: "todo", text: `${it.name} 분석 결과가 없습니다` });
+  const llm = (it) => { const L = it.llm || {}; return { state: L.state === "done" ? "done" : L.state === "running" || L.state === "wait" ? "run" : L.state === "failed" ? "fail" : "todo", text: `${L.text || "LLM 판정 안 함"}${L.error ? ` — ${L.error}` : ""}` }; };
+  const judged = (H.llm || {}).state === "done", undecided = judged ? H.undecided || 0 : 0, P = typeof hraLeft === "function" ? hraLeft(v) : null, fl = (F && F.llm) || {}, ap = (F && F.apply) || {};
+  let adjust; // 조정 — 헤딩 판정(LLM) 전이면 남음 · 판정 뒤 반영할 것(계획 · 자리 맞춤 · 확실한 종속 · 받을 계획)이 남지 않았으면 끝남(등록부 「반영할 계획 · 자리 맞춤이 남지 않았을 때」).
+  // 차례가 중요하다 — 서식 항목의 반영 칸(ap)이 ✓ 여도 판정 전이거나 확실한 종속 · 대표 변경이 남았으면 끝남이 아니다(검토 11-18: 전에는 반영 칸을 먼저 봐 「이어서 한 번에」 가 종속을 건너뜀)
+  if (!F || H.state !== "done") adjust = { state: "todo", text: "헤딩 그래프가 있어야 셉니다" };
+  else if (!judged) adjust = { state: "todo", text: `헤딩 LLM 판정 뒤에 합니다${ap.text ? ` — 지금 ${ap.text}` : ""}` };
+  else if (fl.state === "running" || fl.state === "wait") adjust = { state: "run", text: fl.text || "서식 정리 계획을 받는 중" };
+  else if (P && P.apply) adjust = { state: "todo", text: undecided ? `헤딩 판정에 미판정 ${nf(undecided)}곳이 있어 반영하지 않습니다 — 헤딩 판정을 다시 돌리거나 「계획 보기」 에서 확인합니다` : `반영할 것 — ${agwStdApplyText(P)}` };
+  else if (P && P.need.length) adjust = { state: "todo", text: `서식 정리 계획을 받지 않은 템플릿 ${nf(P.need.length)}개 — 「계획 보기」 의 「계획 받기」(유료)` };
+  else if (!P && ap.state !== "done") adjust = { state: "todo", text: ap.text || "반영할 것이 남았는지 셀 수 없습니다 — 헤딩 추출 탭의 「조정」 줄을 보세요" };
+  else { const left = P && typeof hraUnseen === "function" ? hraUnseen(P, true) : []; adjust = { state: "done", text: `반영할 것이 남지 않았습니다${ap.text ? ` — ${ap.text}` : ""}${left.length ? ` · 남긴 것: ${left.join(" / ")}` : ""}` }; } // 남긴 줄은 실패도 「다 맞음」 도 아니다 — 무엇이 몇 줄 · 어디서 보정하는지(spec_작업에이전트 ② §7 ⓐ)
+  const hl = llm(H);
+  if (judged && fl.text) hl.text += ` · ${fl.text}`;
+  return { v, busy, judged, undecided, P, can: judged && !undecided && !!P && !!P.apply, items: { heads: H, tables: T, formats: F },
+    applyKey: P ? `fmt:${agwHash(JSON.stringify([P.at, P.change, P.moved, P.reps, P.place, P.sure]))}` : "", // 카드가 가리키는 계획 — 「진행」 을 누를 때 지금 계획과 견준다(agentWorkRun)
+    steps: { heads: base(H), headsLlm: hl, adjust, tables: base(T), tablesLlm: llm(T) } };
+}
+
+async function agwStdStatus(out, o = {}) { // 2 · 3단계 → out.steps · out.actions · out.facts 에 더한다. o.open = 1단계가 끝났나(그 전에는 2 · 3단계 행동을 내지 않는다) · o.fresh = 분석 상태를 지금 다시 읽는다
+  const W = agw();
+  if (o.fresh || (!agwStdView() && W.stdTried !== state.epoch)) { W.stdTried = state.epoch; await agwStdFresh(); } // 대시보드(1초마다)는 처음 한 번만 — 못 읽어도 되풀이하지 않는다
+  const S = agwStdSteps();
+  out.std = S; // 대시보드가 쓰는 자세한 상태(서버에는 보내지 않는다 — agentWorkTurn 은 steps · actions · facts 만)
+  const now = o.open && S ? AGW_STD_KEYS.find((k) => S.steps[k].state !== "done") : null, llmOff = !AGENT.enabled;
+  for (const k of AGW_STD_KEYS) {
+    const s = S ? S.steps[k] : { state: "todo", text: "분석 상태를 읽지 못했습니다" };
+    out.steps.push({ stage: k.startsWith("tables") ? AGW_STD.tables : AGW_STD.heads, key: k, name: AGW_STD_NAMES[k], state: s.state === "done" ? "done" : k === now ? "now" : "todo",
+      text: s.text + (k === now && llmOff && (k === "headsLlm" || k === "tablesLlm") ? " · LLM 을 쓸 수 없어 지금은 할 수 없습니다" : "") });
+  }
+  if (!S || S.none) return;
+  if (S.busy) { out.facts.headsBusy = `${S.busy} — 끝나면 2 · 3단계를 이어 갑니다`; return; } // 도는 동안은 2 · 3단계 행동을 내지 않는다(같은 문서에 두 실행을 겹치지 않는다)
+  if (!o.open) return;
+  const H = S.items.heads, T = S.items.tables, acts = [];
+  if (llmOff && (S.steps.headsLlm.state !== "done" || S.steps.tablesLlm.state !== "done")) out.facts.llmOff = "LLM 을 쓸 수 없어 헤딩 · 표 LLM 판정을 할 수 없습니다 — 2 · 3단계는 스크립트 결과로 남습니다(LLM 을 켠 뒤 이어서 합니다)";
+  if (H.state !== "done" || T.state !== "done") out.facts.analysis = "헤딩 · 표 기본 분석(스크립트)이 없거나 실패했습니다 — 대시보드의 「헤딩 추출(스크립트)」 · 「표 구조(스크립트)」 또는 이름 줄의 「분석」 으로 다시 뽑습니다(무료)";
+  if (!llmOff && S.steps.headsLlm.state !== "done" && H.state === "done") acts.push({ name: "heads_llm", label: "헤딩 LLM 판정 · 서식 계획", change: "store", paid: true,
+    does: "스크립트가 판정하지 못한 첫머리의 규칙 보강 → 헤딩 판정 → 서식이 여러 가지인 템플릿마다 서식 정리 계획을 차례로 받습니다(유료 · 몇 분) — 문서는 바뀌지 않고, 반영은 다음 「조정」" });
+  if (S.can) acts.push({ name: "heads_apply", label: "조정 — 모두 반영", change: "doc", key: S.applyKey,
+    does: `받아 둔 서식 정리 계획을 에이전트가 고른 그대로 한 번에 반영합니다 — ${agwStdApplyText(S.P)} · 「그대로」 로 남긴 줄은 안 바뀌고, 실행 취소 한 번으로 되돌립니다` });
+  else if (S.judged && S.undecided && S.P && S.P.apply) out.facts.adjust = S.steps.adjust.text;
+  if (!llmOff && S.steps.tablesLlm.state !== "done" && T.state === "done") acts.push({ name: "tables_llm", label: "표 판정(LLM)", change: "store", paid: true,
+    does: "표 묶음마다 서브 테이블 · 헤더 행/열 · 칸 역할을 LLM 이 칸의 값을 보고 판정합니다(유료 · 수 분) — 문서는 바뀌지 않습니다" });
+  if (acts.length && !out.actions.some((a) => a.primary)) acts[0].primary = true; // 남은 것 가운데 첫째(헤딩 판정 → 조정 → 표 판정)
+  out.actions.push(...acts);
+}
+
+function agwStdApplied(r) { // tpbApply 의 결과 → 끝 글 {ok, text}(에이전트 · 대시보드가 같이 씀)
+  if (!r) return { ok: false, text: "조정을 반영하지 못했습니다 — 알림 글을 보세요(그 사이 계획이 바뀌었거나 표준 검사에 걸림)" };
+  if (r.nothing) return { ok: true, text: "바꿀 줄이 없습니다 — 계획이 모두 「그대로」 입니다" };
+  const ts = r.templates || [], n = (r.changed || []).length, mg = (r.merged || []).length, splits = ts.reduce((a, t) => a + (t.splits || []).length, 0);
+  return { ok: true, text: `조정을 반영했습니다 — ${[ts.length ? `템플릿 ${nf(ts.length)}개` : "", n ? `바뀐 줄 ${nf(n)}` : "", splits ? `서식 종속 템플릿 ${nf(splits)}개` : "", mg ? `템플릿 종속 ${nf(mg)}` : ""].filter(Boolean).join(" · ") || "대표만 바뀜"}(「실행 취소」 한 번으로 되돌립니다)` };
 }
 
 async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 「한 번에 진행」
@@ -181,16 +292,16 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
   return agwCommon(out);
 }
 
-async function agwStatusOf(job) {
+async function agwStatusOf(job, opt = {}) {
   try {
-    if (agwFit(job)) return await agwFitStatus();
+    if (agwFit(job)) return await agwFitStatus(opt);
     if (job === "plan_to_report") return await agwRelayStatus();
     if (job === "plan_merge") return await agwGatherStatus();
   } catch (e) { console.error(e); return agwCommon({ steps: [], actions: [], facts: { why: `단계 상태를 읽지 못했습니다: ${e.message}` } }); }
   return agwCommon({ steps: [], actions: [], facts: {} });
 }
-async function agwStatus() { // 도는 것이 있는 동안에는 보기만 — 실행·저장하는 행동을 내지 않는다(같은 문서에 두 실행이 겹치지 않게: 에이전트의 무료 행동은 바로 실행된다)
-  const out = await agwStatusOf(agwJob()), R = agwRunning();
+async function agwStatus(opt = {}) { // 도는 것이 있는 동안에는 보기만 — 실행·저장하는 행동을 내지 않는다(같은 문서에 두 실행이 겹치지 않게: 에이전트의 무료 행동은 바로 실행된다). opt.fresh = 에이전트 턴(분석 상태를 다시 읽음 — agwFitStatus)
+  const out = await agwStatusOf(agwJob(), opt), R = agwRunning();
   if (R) {
     out.actions = out.actions.filter((a) => a.name === "open:div" || a.name.startsWith("list:"));
     out.facts.running = `${R.label} — ${R.note}`;
@@ -231,9 +342,26 @@ async function agwExec(name, args) {
   if (name === "config_read") {
     const before = divCanon(divValues());
     await divRead();
-    agw().readTried = true;
-    return divCanon(divValues()) !== before ? { ok: true, text: `문서에서 프로젝트 구성을 읽었습니다(아직 확정 전) — ${divValuesText(divValues())}` }
+    const W = agw(), got = divCanon(divValues()) !== before;
+    W.readTried = true;
+    W.readText = got ? `읽은 값(확정 전) — ${divValuesText(divValues())}` : "읽을 수 있는 값이 없었습니다(자리표시뿐인 양식이거나 이미 같은 값)"; // 대시보드 「구성 읽기」 카드의 한 줄(spec_양식표준화 ② §2)
+    return got ? { ok: true, text: `문서에서 프로젝트 구성을 읽었습니다(아직 확정 전) — ${divValuesText(divValues())}` }
       : { ok: true, text: "문서에서 읽을 수 있는 프로젝트 구성 값이 없습니다(자리표시뿐인 양식이거나 이미 같은 값) — 값을 입력해야 합니다" };
+  }
+  if (name === "heads_llm" || name === "tables_llm") { // 양식 표준화 2 · 3단계의 LLM 판정 — 헤딩 추출 「단계별 실행」 과 같은 함수(headsPickRun: l2 = 규칙 보강 → 헤딩 판정 → 서식 계획 · l3 = 표 판정). 실행 카드의 「진행」 이 그 확인이다(opt.asked)
+    const id = state.id, epoch = state.epoch;
+    await agwHeadsView(); // 단계별 실행이 1단계 결과를 본다(hrpOff)
+    if (state.id !== id || state.epoch !== epoch) return { ok: false, text: "다른 문서를 열어 시작하지 않았습니다" }; // 그 사이 연 문서에 유료 실행을 걸지 않는다(검토 11-18)
+    const r = await headsPickRun([name === "heads_llm" ? "l2" : "l3"], { asked: true });
+    await agwStdFresh(); // 다음 턴이 끝난 상태로 센다
+    return r ? { ok: !!r.ok, text: r.text } : { ok: false, text: "시작하지 못했습니다 — 알림 글을 보세요(LLM 연결 · 다른 헤딩 작업 · 문단·라벨 결과)" };
+  }
+  if (name === "heads_apply") { // 조정 「모두 반영」 — 진행 줄 「조정」 의 그 단추와 같은 함수(tpbApply). 카드가 보인 계획의 표시(P.at)를 실어 보낸다 — 그 사이 다시 받은 계획이면 서버가 막는다(409)
+    const S = agwStdSteps();
+    if (!S || !S.can) return { ok: false, text: "반영할 계획 · 자리 맞춤이 없습니다" };
+    const r = await tpbApply(Object.keys(S.P.at).length ? { plans: S.P.at } : {});
+    await agwStdFresh();
+    return agwStdApplied(r);
   }
   if (name === "config_set") {
     if (!args) return { ok: false, text: "입력한 값이 없습니다" };
@@ -277,7 +405,7 @@ async function agentWorkTurn(event, x = {}) { // 진행 턴 하나 — 상태를
   A.busy.timer = setInterval(() => { if (A !== AGENT || !A.busy || !A.el) return; for (const e of A.el.root.querySelectorAll(".ag-run-text.live")) e.textContent = agentBusyText(A.busy); }, 1000);
   let turn = null, err = null, st = null;
   try {
-    st = await agwStatus();
+    st = await agwStatus({ fresh: true });
     if (A === AGENT && epoch === state.epoch) {
       const body = { event, text: x.text || "", steps: st.steps, actions: st.actions, facts: st.facts };
       if (event === "result") Object.assign(body, { ok: x.ok !== false, act: x.act || "" });
@@ -316,7 +444,7 @@ async function agentWorkRun(tid, args, fresh = false) { // 턴의 행동을 실�
     if (W.checking) return;
     W.checking = true;
     let cur = null;
-    try { cur = (await agwStatus()).actions.find((a) => a.name === name) || null; } finally { W.checking = false; }
+    try { cur = (await agwStatus({ fresh: true })).actions.find((a) => a.name === name) || null; } finally { W.checking = false; }
     if (A !== AGENT || epoch !== state.epoch || t.state !== "open" || W.running || A.busy) return;
     const why = !cur ? "지금은 할 수 없는 행동입니다(그 사이 상태가 바뀌었습니다)"
       : (t.act.key && cur.key ? t.act.key !== cur.key : agwLine(cur.does) !== agwLine(t.act.does)) ? "카드를 낸 뒤 계획이 바뀌었습니다" : "";
@@ -354,7 +482,7 @@ async function agentWorkSkip(tid) { const t = agentTurnOf(tid); if (!t || t.stat
 async function agentWorkAnswer(tid, value, label) { // 질문 카드의 답 — 선택지의 값이 행동 이름이면 그 행동을 실행하고, 아니면 답 턴
   const A = AGENT, t = agentTurnOf(tid);
   if (!t || !t.ask || t.state !== "open" || A.busy || agw().running) return;
-  const st = await agwStatus(), act = st.actions.find((a) => a.name === value);
+  const st = await agwStatus({ fresh: true }), act = st.actions.find((a) => a.name === value);
   if (A !== AGENT) return;
   if (act && act.name === "config_set") { t.ask = { kind: "config", text: "프로젝트 구성을 입력해 주세요", options: [] }; agw().form = null; agwDrawAll(); return; } // 값이 필요한 행동 — 폼으로 바꿔 묻는다
   await agwClose(t, "done", label || value);

@@ -25,7 +25,8 @@
 .dash-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 8px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 12px; line-height: 1.5; }
 .dash-note > span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .dash-note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
-.dash-top { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dash-top-why { flex: 1 1 160px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; } /* 「이어서 한 번에」 가 꺼진 까닭(양식 표준화 — 값 확정 전 …) */
 
 /* ---- 묶음 — 머리(번호 알약 · 이름 · 끝난 수 · 「한 번에 진행」) + 단계 카드의 세로 흐름(↓) */
 .dash-groups, .dash-flow { list-style: none; margin: 0; padding: 0; }
@@ -75,6 +76,7 @@
 .dash-sub { color: var(--muted); font-size: 11px; font-weight: 600; }
 .dash-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dash-acts .btn, .dash-acts a.btn { max-width: 100%; }
+.dash-acts .dash-load-sel { flex: 1 1 180px; min-width: 0; max-width: 100%; height: 28px; font-size: 12px; } /* 양식 표준화 「구성 불러오기」 — 「작업 내용」 의 그 목록과 같은 항목(divSourceFill) */
 .dash-more > summary { color: var(--muted); font-size: 11.5px; cursor: pointer; }
 .dash-cond { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; }
 .dash-cond dt { color: var(--muted); }

@@ -627,7 +627,7 @@ def download(doc_id: str):
     with s.lock:
         data = s.doc.save()
         same = data == s.original
-    # 보이는 이름(spec_작업 ② §10 — 과제에 묶인 목적 문서는 과제 이름이 뒤에 붙는다 · 프로젝트 구성을 반영한 양식 맞추기 문서는 프레임 이름 그대로). same = 기준과 같은 바이트 — 기준이 확정본이면 올린 파일과는 다른 파일
+    # 보이는 이름(spec_작업 ② §10 — 과제에 묶인 목적 문서는 과제 이름이 뒤에 붙는다 · 프로젝트 구성을 반영한 양식 표준화 · 양식 맞추기 문서는 프레임 이름 그대로). same = 기준과 같은 바이트 — 기준이 확정본이면 올린 파일과는 다른 파일
     name = _save_name(_shown_of(s), "." + s.fmt, works.work(s.id), bool(s.division.get("applied")), edited=not same or bool(s.base_n))
     # 기록(spec_작업 ② §4·§5): 내려받은 파일(원본과 다르면 outputs/ 에)·마지막 출력파일 검증 파일과 같은 바이트인지
     sha = works.sha256(data) if same else works.add_output(s.id, s.fmt, data)
@@ -1342,7 +1342,7 @@ def _framed(w):
 
 def _shown(w):
     """작업(work.json)의 보이는 이름(② §10 「목적 문서의 보이는 이름」·「별칭」·「프레임 이름」) — 과제에 묶인 목적 문서면 과제 이름을, 별칭이 있으면 「(별칭)」 을 뒤에 붙인 것,
-    프로젝트 구성을 반영한 양식 맞추기 문서면 「<첨부 파일 종류>_<프로젝트>_프레임」, 아니면 올린 이름."""
+    프로젝트 구성을 반영한 양식 표준화 · 양식 맞추기 문서면 「<첨부 파일 종류>_<프로젝트>_프레임」, 아니면 올린 이름."""
     return works.shown_name(w.get("name"), w.get("task"), w.get("alias"), _framed(w))
 
 

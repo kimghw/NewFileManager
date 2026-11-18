@@ -4,7 +4,7 @@
 
 보는 것: 「파일 선택」 = 여러 개 · 목록에 모임(서버에는 아직 안 올림) · 시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 카드 글 「목록으로 시작」 ·
 상단 소개 + 넓은 업로드 · 파일 모양 카드마다 약칭 · 목적 문서를 고르기 전/형식이 안 맞는 TASK는 비활성 · 「TASK 없이 열기」 + 약칭 → 이름 뒤 「(약칭)」 · 이관: 프로젝트 없이 두 문서면 알림 → 프로젝트를 적으면 목적 문서 = 연차보고서(라운드 1) +
-사업계획서를 같은 프로젝트·TASK·라운드로(첨부 파일 칸이 저절로 잇는다) · 쓴 문서는 목록에서 빠짐 · 양식 맞추기: 나머지 문서는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면
+사업계획서를 같은 프로젝트·TASK·라운드로(첨부 파일 칸이 저절로 잇는다) · 쓴 문서는 목록에서 빠짐 · 양식 표준화: 나머지 문서는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면
 「같은 파일 고르기」 창(그 줄은 「그대로 열기」 만 · 목록 줄은 「고르세요」 · 프로젝트 칸) → 「새 작업으로 시작」(spec_작업 ② §1 — 2026-11-18) ·
 약칭은 문서 선택을 바꿔도 유지하고 원본 문서에도 저장 · 파일 삭제 후 하나가 남으면 자동 선택 · 좁은 창에서 목록이 넘치지 않음."""
 import argparse
@@ -190,7 +190,7 @@ try:
               and page.evaluate("() => document.querySelector('#taskCards [data-task=plan_fit] .task-card-go').textContent.trim()").startswith("사업계획서 올려 시작"))
         page.screenshot(path=str(OUT / "3_transfer.png"))
 
-        # ---- 4. 양식 맞추기 — 나머지는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면 새 작업
+        # ---- 4. 양식 표준화 — 나머지는 확인 뒤 목록에 남김 · 같은 파일로 다른 TASK 를 하던 작업이면 새 작업
         go_home(page)
         pick(page, [SMALL, PLAN])
         page.locator("#homeFiles .hf-row").nth(1).locator("input[type=radio]").check()
@@ -199,7 +199,7 @@ try:
         dialogs.clear()
         page.locator("#taskCards [data-task=plan_fit]").click()
         page.wait_for_timeout(300)
-        check("양식 맞추기 · 나머지 문서 있음 → 확인 창(취소면 아무것도 안 올림)", len(dialogs) == 1 and "목적 문서 하나로" in dialogs[0] and "나머지 1개는 목록에 남깁니다" in dialogs[0]
+        check("양식 표준화 · 나머지 문서 있음 → 확인 창(취소면 아무것도 안 올림)", len(dialogs) == 1 and "목적 문서 하나로" in dialogs[0] and "나머지 1개는 목록에 남깁니다" in dialogs[0]
               and len(works()) == n and page.evaluate("() => state.id") is None, dialogs)
         answer["accept"] = True
         page.locator("#taskCards [data-task=plan_fit]").click()

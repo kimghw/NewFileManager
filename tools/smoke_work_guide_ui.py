@@ -2,15 +2,19 @@
 LLM 이 꺼져 있으므로 에이전트의 답은 스크립트 답(`work_guide.fallback`)이다 — 끝점·문서 편집은 모두 진짜.
 
 - 첫 화면: 오른쪽에 에이전트 대화창(#homeAgent — 글 칸 · 「파일」 · 「보내기」) · 글만 보내면 파일을 올리라고 답 · 파일을 올리고 보내면 TASK 를 묻는 질문 카드.
-- 질문 카드에서 「사업계획서 양식 맞추기」 → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(준비 끝남 · 프로젝트 구성 지금).
+- 질문 카드에서 「사업계획서 양식 표준화」 → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(1단계 프로젝트 구성 지금 · 2단계 헤딩 추출 · 3단계 표 남음).
 - 연쇄: 「구성 읽기」(문서에서 읽기 — 바로 실행) → 값이 없어 질문 카드(프로젝트 구성 폼) → 「확정」 → 변경 계획(바로 실행 — 문서 옆 열에 목록) → 실행 카드 「문서에 반영」(문서 바뀜 — 「진행」 을 눌러야).
-- 「진행」 → 문서가 바뀜(편집 차례 +1) → 결과 턴 「모두 끝났습니다」 · 진행 줄이 모두 끝남.
+- 「진행」 → 문서가 바뀜(편집 차례 +1) → 결과 턴 — 1단계 끝남 · 「지금 차례는 「헤딩 LLM 판정 …」」(LLM 끔 — 2 · 3단계 LLM 행동은 내지 않음).
+- 2 · 3단계 행동(spec_양식표준화 ② §5 — LLM 을 쓸 수 있다고 보고 셈 · 실행 함수는 바꿔 끼움 · 분석 상태는 끝점의 답을 흉내): heads_llm(첫째 · 유료) · tables_llm → headsPickRun([l2]|[l3], {asked}) ·
+  헤딩 판정을 거쳤고 계획이 있으면 heads_apply(문서 바뀜 · key = 계획 표시) → tpbApply({plans}).
 - 다시 열어도 대화(진행 턴 · 카드의 끝)가 그대로 · 「작업 설명」 으로 다시 설명 · 패널 폭에서 가로 넘침 없음 · 콘솔 오류 없음.
 
     python -X utf8 tools/smoke_work_guide_ui.py <출력 폴더> [--port 18451]
 """
 import argparse
+import copy
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -64,6 +68,7 @@ TURNS = """() => [...document.querySelectorAll('#paneAgent .agw-turn')].map((t) 
   ask: (t.querySelector('.agw-ask') || { dataset: {} }).dataset.ask || '', act: (t.querySelector('.agw-act') || { dataset: {} }).dataset.act || '', state: (t.querySelector('.agw-card') || { dataset: {} }).dataset.state || '',
   out: (t.querySelector('.agw-card .ag-state') || {}).textContent || '' }))"""
 STEPS = "() => [...document.querySelectorAll('#paneAgent .agw-turn:last-child .agw-step')].map((s) => [s.querySelector('b').textContent, s.dataset.state])"
+FAKE = {"v": None}   # 분석 상태 끝점(GET …/analysis)의 흉내 — None 이면 진짜
 
 
 def main():
@@ -74,6 +79,7 @@ def main():
         page.on("console", lambda m: errors.append(f"[{m.type}] {m.text}") if m.type == "error" and "Failed to load resource" not in m.text else None)
         page.on("pageerror", lambda e: errors.append(f"[pageerror] {e}"))
         page.on("dialog", lambda d: d.accept())
+        page.route(re.compile(r"/api/docs/[^/]+/analysis$"), lambda route: route.continue_() if FAKE["v"] is None else route.fulfill(json=FAKE["v"]))
         page.goto(base)
         page.wait_for_selector("#homeAgent .agh-talk")
         h = page.evaluate("""() => { const a = document.getElementById('homeAgent').getBoundingClientRect(), c = document.querySelector('.home-content').getBoundingClientRect(), box = document.getElementById('empty');
@@ -97,7 +103,7 @@ def main():
         page.wait_for_selector("#homeAgent .agw-ask .agw-opt", timeout=20000)
         opts = page.evaluate("() => [...document.querySelectorAll('#homeAgent .agw-opt')].map((o) => [o.dataset.value, o.querySelector('b').textContent])")
         check("파일을 올리고 보내면 — 질문 카드 「어느 TASK 로 시작할까요?」(시작할 수 있는 TASK 만 · 준비 중인 것 없음)",
-              ["start:plan_fit", "사업계획서 양식 맞추기"] in opts and all(v.startswith("start:") for v, _ in opts) and "start:report_merge" not in [v for v, _ in opts] and len(opts) >= 5, opts)
+              ["start:plan_fit", "사업계획서 양식 표준화"] in opts and all(v.startswith("start:") for v, _ in opts) and "start:report_merge" not in [v for v, _ in opts] and len(opts) >= 5, opts)
         page.screenshot(path=str(OUT / "02_home_ask.png"))
 
         # ---- TASK 를 고르면 작업이 열리고 대화가 패널 「에이전트」 로 이어진다
@@ -108,10 +114,10 @@ def main():
         st = page.evaluate("""() => { const first = document.querySelector('#paneAgent .agw-turn'); return { tool: document.getElementById('panel').dataset.tool, shown: !document.getElementById('paneAgent').hidden,
           carry: [...first.querySelectorAll('.ag-q')].map((x) => x.textContent), steps: [...first.querySelectorAll('.agw-step')].map((s) => [s.querySelector('b').textContent, s.dataset.state]),
           meta: first.querySelector('.ag-meta').textContent, task: (state.task || {}).job, guide: !document.querySelector('[data-ag-act=guide]').hidden }; }""")
-        check("작업이 TASK 「사업계획서 양식 맞추기」 로 열리고 패널 「에이전트」 가 보인다 — 첫 화면의 말이 시작 턴 앞에 이어짐 · 「작업 설명」 단추",
-              st["tool"] == "Agent" and st["shown"] and st["task"] == "plan_fit" and "사업계획서 양식을 맞추고 싶어" in st["carry"][0] and "사업계획서 양식 맞추기" in st["carry"] and st["guide"], st)
-        check("시작 턴 — 설명(스크립트 답) + 진행 줄(준비 끝남 · 프로젝트 구성 지금 · 구조 반영 남음) + 행동 「구성 읽기」(문서에서 읽기)를 바로 실행",
-              turns[0]["event"] == "start" and "「사업계획서 양식 맞추기」" in turns[0]["say"] and st["steps"] == [["준비", "done"], ["프로젝트 구성", "now"], ["구조 반영", "todo"]]
+        check("작업이 TASK 「사업계획서 양식 표준화」 로 열리고 패널 「에이전트」 가 보인다 — 첫 화면의 말이 시작 턴 앞에 이어짐 · 「작업 설명」 단추",
+              st["tool"] == "Agent" and st["shown"] and st["task"] == "plan_fit" and "사업계획서 양식을 맞추고 싶어" in st["carry"][0] and "사업계획서 양식 표준화" in st["carry"] and st["guide"], st)
+        check("시작 턴 — 설명(스크립트 답) + 진행 줄(1단계 프로젝트 구성 지금 · 2단계 헤딩 추출 · 3단계 표 남음) + 행동 「구성 읽기」(문서에서 읽기)를 바로 실행",
+              turns[0]["event"] == "start" and "「사업계획서 양식 표준화」" in turns[0]["say"] and st["steps"] == [["1단계 프로젝트 구성", "now"], ["2단계 헤딩 추출", "todo"], ["3단계 표", "todo"]]
               and turns[0]["act"] == "config_read" and turns[0]["state"] == "done" and turns[0]["out"].startswith("실행함") and "스크립트 답" in st["meta"], [turns[0], st])
         check("결과 턴 — 읽을 값이 없어 질문 카드(프로젝트 구성 폼: 단계 수 · 차년도 수 · 주관 · 공동 · 당해 차년도 · 단추 「확정」 · 「문서에서 보기」 — 2026-11-18 줄인 이름)",
               len(turns) == 2 and turns[1]["event"] == "result" and turns[1]["ask"] == "config" and turns[1]["state"] == "open"
@@ -146,15 +152,49 @@ def main():
                   card["tags"] == ["문서 바뀜"] and card["go"] and card["skip"] and "맞출 자리" in card["does"] and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, card)
             page.screenshot(path=str(OUT / "04_act_card.png"))
             page.click("#paneAgent .agw-turn:last-child [data-agw=go]")
-        page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && /모두 끝났습니다/.test(t.textContent); }", timeout=180000)
+        page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && t.dataset.event === 'result' && /문서에 반영했습니다/.test(t.textContent) && !AGENT.busy; }", timeout=180000)
         turns = page.evaluate(TURNS)
         steps = page.evaluate(STEPS)
         rev1 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
         ap_turn = next((t for t in turns if t["act"] == "apply"), None)
-        check("「진행」 → 문서가 바뀜(편집 차례가 오름) · 카드 「실행함 — 문서에 반영했습니다 …」 · 결과 턴 「모두 끝났습니다」 · 진행 줄이 모두 끝남",
-              rev1 > rev0 and ap_turn is not None and ap_turn["state"] == "done" and "반영했습니다" in ap_turn["out"] and steps == [["준비", "done"], ["프로젝트 구성", "done"], ["구조 반영", "done"]]
-              and not turns[-1]["ask"] and not turns[-1]["act"], [rev0, rev1, turns[-2:], steps])
+        check("「진행」 → 문서가 바뀜(편집 차례가 오름) · 카드 「실행함 — 문서에 반영했습니다 …」 · 결과 턴 — 1단계 끝남 · 「지금」 은 2단계 · 3단계 남음 · 「지금 차례는 「…」」(LLM 끔 — 2 · 3단계 LLM 행동 없음)",
+              rev1 > rev0 and ap_turn is not None and ap_turn["state"] == "done" and "반영했습니다" in ap_turn["out"] and steps == [["1단계 프로젝트 구성", "done"], ["2단계 헤딩 추출", "now"], ["3단계 표", "todo"]]
+              and "지금 차례는 「" in turns[-1]["say"] and not turns[-1]["ask"] and not turns[-1]["act"], [rev0, rev1, turns[-2:], steps])
         page.screenshot(path=str(OUT / "05_done.png"))
+
+        # ---- 2 · 3단계 행동(spec_양식표준화 ② §5) — LLM 을 쓸 수 있다고 보고(AGENT.enabled) 센다 · 실행 함수는 바꿔 끼워 부른 것만 본다(LLM 끔)
+        r = page.evaluate("""async () => { const was = AGENT.enabled; AGENT.enabled = true;
+          try { const st = await agwStatus({ fresh: true }); return { acts: st.actions.map((a) => [a.name, !!a.primary, !!a.paid, a.change]),
+            steps: st.steps.filter((s) => ['headsLlm', 'adjust', 'tablesLlm'].includes(s.key)).map((s) => [s.key, s.state, s.stage]) }; } finally { AGENT.enabled = was; } }""")
+        names = [a[0] for a in r["acts"]]
+        check("1단계를 적용한 뒤 — 행동 heads_llm(첫째 · 유료 · 저장만) · tables_llm(유료) · 조정은 헤딩 판정 전이라 없음 · 진행 줄 단계(헤딩 LLM 판정 지금)",
+              ["heads_llm", True, True, "store"] in r["acts"] and ["tables_llm", False, True, "store"] in r["acts"] and "heads_apply" not in names and names.index("heads_llm") < names.index("tables_llm")
+              and r["steps"][0] == ["headsLlm", "now", "2단계 헤딩 추출"] and r["steps"][1][0] == "adjust" and r["steps"][1][1] in ("todo", "done") and r["steps"][2] == ["tablesLlm", "todo", "3단계 표"], r)
+        r = page.evaluate("""async () => { const o = headsPickRun, C = []; headsPickRun = async (k, opt) => { C.push([k, opt || null]); return { ok: true, text: '검사 단계별 실행' }; };
+          try { const a = await agwExec('heads_llm'), b = await agwExec('tables_llm'); return { C, a, b }; } finally { headsPickRun = o; } }""")
+        check("heads_llm · tables_llm → headsPickRun([l2]) · ([l3]) — {asked: true}(실행 카드의 「진행」 이 그 확인) · 끝 글은 그 실행의 글",
+              r["C"] == [[["l2"], {"asked": True}], [["l3"], {"asked": True}]] and r["a"] == {"ok": True, "text": "검사 단계별 실행"} and r["b"]["ok"], r)
+        real = requests.get(f"{base}/api/docs/{doc}/analysis", timeout=30).json()
+        fa = copy.deepcopy(real)
+        it = {i["key"]: i for i in fa["items"]}
+        it["heads"]["llm"] = {"state": "done", "text": "LLM 판정함 — 검사", "error": None}
+        it["heads"]["undecided"] = 0
+        it["templates"]["hints"] = []
+        it["formats"].update({"state": "done", "levels": 2, "aligned": 1, "place": 0, "apply": {"state": "none", "text": "맞춘 레벨 1/2"},
+                              "llm": {"state": "done", "text": "서식 정리 계획 1/1 템플릿 — 받음 1", "error": None, "need": 1, "planned": 1, "applied": 0, "stale": 0, "done": 0, "change": 3, "moved": 0, "reps": 0,
+                                      "kept": 0, "unanswered": 0, "omitted": 0, "left": {"kept": 0, "unanswered": 0}, "list": [{"tpl": "t1", "no": 1, "state": "planned", "at": 123}], "leftMarked": []}})
+        fa.update({"busy": False, "job": None, "chain": None})
+        FAKE["v"] = fa
+        r = page.evaluate("""async () => { const was = AGENT.enabled, o = tpbApply, C = []; AGENT.enabled = true;
+          tpbApply = async (opt) => { C.push(opt || null); return { templates: [{}], changed: ['a', 'b', 'c'], merged: [] }; };
+          try { const st = await agwStatus({ fresh: true }), a = st.actions.find((x) => x.name === 'heads_apply'), res = a ? await agwExec('heads_apply') : null;
+            return { a: a ? [!!a.primary, a.change, !!a.paid, a.key.startsWith('fmt:'), a.does] : null, names: st.actions.map((x) => x.name), C, res }; }
+          finally { AGENT.enabled = was; tpbApply = o; } }""")
+        FAKE["v"] = None
+        page.evaluate("() => docStatusPing()")
+        check("헤딩 판정을 거쳤고 계획이 있으면 heads_apply(첫째 · 문서 바뀜 · key = 계획 표시 fmt:… · 「대표에 맞출 줄 3」) → tpbApply({plans: 받아 둔 계획의 표시}) · 끝 글 「조정을 반영했습니다 …」",
+              r["a"] is not None and r["a"][:4] == [True, "doc", False, True] and "대표에 맞출 줄 3" in r["a"][4] and "heads_llm" not in r["names"] and "tables_llm" in r["names"]
+              and r["C"] == [{"plans": {"t1": 123}}] and r["res"]["ok"] and r["res"]["text"].startswith("조정을 반영했습니다 — 템플릿 1개 · 바뀐 줄 3"), r)
 
         # ---- 다시 열어도 그대로 · 「작업 설명」 · 좁은 폭
         n = len(turns)
@@ -168,7 +208,7 @@ def main():
         page.click("[data-ag-act=guide]")
         page.wait_for_function(f"() => document.querySelectorAll('#paneAgent .agw-turn').length === {n + 1}", timeout=60000)
         more = page.evaluate(TURNS)[-1]
-        check("「작업 설명」 — 지금 상태로 다시 설명(시작 턴 · 모든 단계가 끝남 · 다음 행동 없음)", more["event"] == "start" and "모두 끝났습니다" in more["say"] and not more["act"] and not more["ask"], more)
+        check("「작업 설명」 — 지금 상태로 다시 설명(시작 턴 · 「지금 차례는 「…」」 · LLM 끔이라 다음 행동 없음)", more["event"] == "start" and "지금 차례는 「" in more["say"] and not more["act"] and not more["ask"], more)
         page.set_viewport_size({"width": 1100, "height": 900})
         page.wait_for_timeout(400)
         w = page.evaluate("""() => { const t = document.querySelector('#paneAgent .ag-talk'), p = document.getElementById('panel').getBoundingClientRect();
