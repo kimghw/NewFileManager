@@ -33,6 +33,7 @@ ap.add_argument("--navigation-only", action="store_true", help="주소 탐색 �
 args = ap.parse_args()
 OUT = Path(args.out).resolve()
 OUT.mkdir(parents=True, exist_ok=True)
+MUST = lambda s: [] if s["auto"] or s["optional"] or s["soon"] else ["필수"]   # 「필수」 꼬리표 — 선택 · 자동 · 준비 중이 아닌 단계(workflow.js must · 2026-11-18 사용자 「꼭 해야하는건 필수 라고 적어줘」)
 tmp = OUT / "srv"
 shutil.rmtree(tmp, ignore_errors=True)
 tmp.mkdir(parents=True, exist_ok=True)
@@ -184,8 +185,8 @@ def diagram_checks(wf, ctx, api, workflow_requests):
           and selected["selected"] == "#common-styles--" + apply["key"] and selected["selectedCount"] == 1,
           [keyboard, selected])
     check("단계의 담당자와 문서 변경 구분 — 서식 선택은 사람·안 바뀜, 적용은 사람+스크립트·바뀜",
-          first["badges"] == [api["by"][b] for b in styles[0]["by"]] and first["impact"] == "안 바뀜"
-          and selected["badges"] == [api["by"][b] for b in apply["by"]] and selected["impact"] == "바뀜",
+          first["badges"] == [api["by"][b] for b in styles[0]["by"]] + MUST(styles[0]) and first["impact"] == "안 바뀜"
+          and selected["badges"] == [api["by"][b] for b in apply["by"]] + MUST(apply) and selected["impact"] == "바뀜",
           [first, selected])
     wf.screenshot(path=str(OUT / "06_diagram_styles.png"))
     navigation_checks(wf, api)
@@ -200,7 +201,7 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     for i, (group, step) in enumerate(sequence):
         state = wait_diagram(wf, step["name"])
         expected = f"#style_copy--{group['id']}--{step['key']}"
-        expected_badges = [api["by"][b] for b in step["by"]] + [label for key, label in (("auto", "저절로"), ("optional", "안 해도 됨"), ("soon", "준비 중")) if step[key]]
+        expected_badges = [api["by"][b] for b in step["by"]] + [label for key, label in (("auto", "자동"), ("must", "필수"), ("optional", "선택"), ("soon", "준비 중")) if (step[key] if key != "must" else not (step["auto"] or step["optional"] or step["soon"]))]
         expected_impact = {"none": "안 바뀜", "doc": "바뀜", "store": "안 바뀜 — 결과만 저장"}[step["change"]]
         if not (state["selected"] == expected and state["selectedCount"] == 1 and state["nodes"] == expected_nodes
                 and state["grouped"] == expected_grouped and state["groupCurrent"] == [f"#style_copy--{group['id']}"] and state["stageRow"] == 0
@@ -351,7 +352,7 @@ def main():
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
               and rows["plan_fit"][2] == ["1단계프로젝트 구성", "2단계헤딩 추출", "3단계표"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
         check("묶음의 점 — 이관 1단계는 점 없음(문서 안 바뀜 · LLM 없음) · 2단계 주황(문서 바뀜) · 3단계 보라+주황(LLM · 문서 바뀜) / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
-              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "저절로", "안 해도 됨"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
+              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "자동", "필수", "선택"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
         wf.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- TASK 절(이관)
@@ -369,9 +370,9 @@ def main():
         check("묶음 넷 — 「1단계 프로젝트 구성」(2) · 「2단계 문서 프레임 작성」(1) · 「3단계 내용 매핑」(8) · 「4단계 문서 정리」(1)",
               ts["stages"] == [["config", "1단계", "프로젝트 구성", 2], ["frame", "2단계", "문서 프레임 작성", 1], ["map", "3단계", "내용 매핑", 8], ["clean", "4단계", "문서 정리", 1]], ts["stages"])
         m = {x[0]: x for x in ts["map"]}
-        check("3단계의 단계 줄 — 헤딩·표 분석 → ② 자리 연결 → LLM 검토(안 해도 됨) → ③ 넣기 계획 → 표 대응 · 빈 자리 검토(LLM) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임",
+        check("3단계의 단계 줄 — 헤딩·표 분석 → ② 자리 연결 → LLM 검토(선택) → ③ 넣기 계획 → 표 대응 · 빈 자리 검토(LLM) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임",
               [x[0] for x in ts["map"]] == ["heads", "link", "llm", "plan", "tableMap", "gaps", "apply", "later"] and [m[k][1] for k in ("link", "plan", "apply", "later")] == ["②", "③", "④", "⑤"]
-              and m["link"][2:4] == ["자리 연결", "스크립트"] and m["llm"][3] == "LLM|안 해도 됨" and m["apply"][3] == "사람|스크립트|문서 바뀜" and m["later"][3] == "스크립트|준비 중"
+              and m["link"][2:4] == ["자리 연결", "스크립트|필수"] and m["llm"][3] == "LLM|선택" and m["apply"][3] == "사람|스크립트|문서 바뀜|필수" and m["later"][3] == "스크립트|준비 중"
               and all(x[4] and not x[5] for x in ts["map"]), ts["map"])
         wf.click("#plan_to_report .wf-step[data-step=llm] > summary")
         d = wf.evaluate("""() => { const d = document.querySelector('#plan_to_report .wf-step[data-step=llm]'), a = d.querySelector('.wf-agent');

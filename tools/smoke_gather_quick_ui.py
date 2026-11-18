@@ -153,18 +153,14 @@ try:
         page.locator("#drop").screenshot(path=str(OUT / "1_panel_narrow.png"))
         page.set_viewport_size({"width": 1400, "height": 960})
 
-        # ---- 2. 확인 창 — 취소면 아무것도 안 올림 · 확인하면 끝까지
-        answer["accept"] = False
-        page.locator("#taskCards [data-task=plan_merge]").click()
-        page.wait_for_timeout(300)
-        msg = dialogs[-1] if dialogs else ""
-        check("확인 창 — 목적 문서 · 기관 문서 차례 · 기준본 · 자동 지정 · LLM 검토(유료) · 덮어쓰지 않음", all(x in msg for x in ("목적 문서(취합본): 취합본_프레임.hwpx", f"1. {J1}_작성본.hwpx", "3. 빈_사본.hwpx", "배포 기준본", "파일 이름에 든 기관", "LLM 검토(유료", "덮어쓰지 않음")), msg)
-        check("취소 → 아무것도 안 올림 · 목록 그대로", len(works()) == n_works and page.evaluate("() => state.id") is None and len(page.evaluate(PANEL)["rows"]) == 4)
+        # ---- 2. 확인 창 없이 바로 끝까지(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 차례를 적은 확인 창 · 취소면 아무것도 안 올림)
+        nd0 = len(dialogs)
         answer["accept"] = True
         t0 = time.time()
         page.locator("#taskCards [data-task=plan_merge]").click()
         page.wait_for_function("() => typeof gqRun !== 'undefined' && !!gqRun && !!gqRun.plan && state.id === gqRun.plan", timeout=180000)
         tid = page.evaluate("() => gqRun.plan")
+        check("자동 진행 — 확인 창 없이 바로 시작", len(dialogs) == nd0, dialogs[nd0:])
         page.wait_for_function("() => (state.name || '').endsWith('(1차 취합).hwpx')", timeout=30000)
         check("시작 → 목적 문서가 열림(사업계획서 취합 · 취합본) · 이름 뒤에 「(별칭)」 · 시작 화면 목록은 빔(올린 문서는 빠짐)",
               page.evaluate("() => state.task.job === 'plan_merge' && state.task.file === 'plan' && document.getElementById('homeFiles').hidden && hf.files.length === 0 && state.name === '취합본_프레임(1차 취합).hwpx'"),

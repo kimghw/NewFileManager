@@ -62,19 +62,22 @@
 .dash-node[data-state="hold"] .dash-st { color: var(--warn); }
 .dash-node[data-state="soon"] .dash-node-main > b { color: var(--muted); }
 
-/* 꼬리표 — 워크플로우 페이지(.wf-tag)와 같은 말 · 같은 색 */
-.dash-tags { display: inline-flex; flex-wrap: wrap; gap: 3px; }
-.dash-tag { padding: 0 5px; line-height: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; white-space: nowrap; }
+/* 꼬리표 — 워크플로우 페이지(.wf-tag)와 같은 말 · 같은 색. 사람 · 스크립트 · LLM · 문서 바뀜은 아이콘 칩(2026-11-18 사용자) */
+.dash-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.dash-tag { display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; line-height: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; white-space: nowrap; box-sizing: border-box; }
+.dash-tag:has(> .ag-icon) { width: 20px; height: 18px; padding: 0; }
 .dash-tag.dash-t-llm { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
 .dash-tag.dash-t-human { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
 .dash-tag.dash-t-doc { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
 .dash-tag.dash-t-soft { border-style: dashed; background: transparent; color: var(--muted); }
+.dash-tag.dash-t-must { border-color: #8d9bb3; background: var(--surface); color: var(--text); font-weight: 600; } /* 필수 — 선택(점선 · 흐림)의 짝: 실선 · 진한 글(workflow.css .wf-t-must 와 같게) */
 
 /* 펼친 세부 — 지금 상태 글 · 단추 · 「하는 일 · 조건」(접힘). 테두리 없이 윗줄 하나 */
 .dash-detail { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px 40px; border-top: 1px solid var(--line); }
 .dash-text { margin: 0; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
 .dash-sub { color: var(--muted); font-size: 11px; font-weight: 600; }
 .dash-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-why { margin: 0; color: var(--muted); font-size: 12px; } /* 꺼진 단추의 까닭(dashDetailEl — 「「모두 반영」 — 지금 진행 중인 작업이 끝나면 …」) */
 .dash-acts .btn, .dash-acts a.btn { max-width: 100%; }
 .dash-acts .dash-load-sel { flex: 1 1 180px; min-width: 0; max-width: 100%; height: 28px; font-size: 12px; } /* 양식 표준화 「구성 불러오기」 — 「작업 내용」 의 그 목록과 같은 항목(divSourceFill) */
 .dash-more > summary { color: var(--muted); font-size: 11.5px; cursor: pointer; }

@@ -4,7 +4,7 @@
 //   줄      zonesBarEl(#zonesBar): 이름 + 노트 · 「구역 표시」 보기/감추기 · 「목록」 / 체크 셋(기관 · 단계 · 차년도 = TASK 옵션 — PUT …/task-options: ② §1) / 값마다 칩
 //   문서    zonesDraw: 띠(.gz-in) · 쪽 오른쪽 여백의 이름표(.gz-tag — 사람이 지정한 띠는 .gz-mark) · 표와 값이 다른 칸(.gz-cell) · 들어온 내용(.gz-put — 출처 색 data-gzo 는 구역 색 data-gz 를 덮지 않는다)
 //   이름 줄 zonesKeyDraw(#zonesKey) · 지정 zonesCtxItems → #zonesPop(떠 있는 작은 입력 — 모달 아님) → POST/PUT/DELETE …/zones/marks(② §3) · 목록 zonesList(문서 옆 2열 kind "zones")
-//   LLM 검토(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」): 줄의 「LLM 검토」 · 「지침」 — 사람이 누를 때만(유료 · 몇 곳을 보내는지 보인 확인 뒤). GET …/zones/llm(보낼 후보 · 쓸 수 있나 · 마지막 결과) →
+//   LLM 검토(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」): 줄의 「LLM 검토」 · 「지침」 — 사람이 누를 때만(유료 · 2026-11-18 부터 확인 창 없이). GET …/zones/llm(보낼 후보 · 쓸 수 있나 · 마지막 결과) →
 //     POST …/zones/llm {docRev, zonesRev}(응답 = 구역 자료 + llm) → LLM 이 지정한 구역(marks[].by "llm")은 이름표에 「LLM」 꼬리 · 목록의 「지정」 묶음에 근거·까닭 · 「LLM 지정 모두 해제」. 문서는 안 바뀐다
 // 자료 = GET /api/docs/<대상 문서>/zones(② §5 의 꼴). 대상 문서 = 지금 문서 — 취합이면 취합본(gather.js gatherPlan: 기관 문서를 보는 중에도 줄은 취합본의 것이고, 문서 표시는 지금 문서가 취합본일 때만).
 // 다시 읽는 때: 문서를 열 때 · TASK 를 바꾼 뒤(zonesReset) · 편집으로 문서 차례가 바뀐 뒤(zonesInvalidate — 잠깐 뒤 한 번) · 옵션·지정을 바꾼 뒤 · 취합 상태를 읽을 때(gather.js gatherLoad) · 프로젝트 구성 값이 바뀐 뒤(znSig).
@@ -325,15 +325,10 @@ function znLlmBtn(Z, fkey, noValues = false) { // 줄 머리의 「LLM 검토」
   }
   return b;
 }
-function znLlmAsk(L) { // 확인 창의 글 — 무엇을 몇 곳 보내는지
-  const kinds = ZN_LLM_KIND.filter(([k]) => (L.kinds || {})[k]).map(([k, name]) => `${name} ${nf(L.kinds[k])}`).join(" · ");
-  return `LLM 에 후보 ${nf(L.candidates)}곳${kinds ? `(${kinds})` : ""}을 보내 기관·차년도를 검토합니다(유료 · 수십 초).${L.truncated ? " 후보가 많아 앞의 150곳만 보냅니다." : ""}\n`
-    + "문서는 바뀌지 않고, LLM 이 정한 것은 「LLM」 지정으로 따로 보입니다. 진행할까요?";
-}
 async function znLlmRun() {
   const Z = zn(), t = znTarget(), L = Z.llm;
   if (!t || Z.llmBusy || !L || !L.available || !L.candidates || L.running) return;
-  if (!confirm(znLlmAsk(L))) return;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 보낼 후보 수를 적은 확인 창: design.md §18 「확인 창」)
   const epoch = state.epoch, mine = t.id === state.id, alive = () => epoch === state.epoch && Z === znState;
   Z.llmBusy = true;
   Z.llmT0 = Date.now();

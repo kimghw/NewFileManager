@@ -532,15 +532,14 @@ try:
         G["frame"] = None   # 기준본을 없애고 2단계 「한 번에 진행」 으로 다시 만든다(① 은 끝나 있어 남은 것은 기준본뿐)
         page.evaluate("() => gatherLoad()")
         page.wait_for_function("() => !gt().view.frame && !gt().loading")
-        dialogs = []
-        page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.accept()))
+        # 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 창이 뜨면 듣는 쪽이 없어 저절로 닫히고(취소) 일이 안 돈다: 아래 검사가 그것을 잡는다)
         n = len(G["calls"])
         page.click("#gatherStage [data-gather-run=frame]")
         page.wait_for_function("() => !gatherRun && !!gatherRunLast", timeout=60000)
         page.wait_for_function(IDLE)
         h1 = page.evaluate(HEAD, "gatherStage")
-        check("2단계 「한 번에 진행」 — 누를 때 한 번 확인(구조만 · 내용은 안 넣음) → 기준본까지 · 끝 글", len(dialogs) == 1 and "내용은 넣지 않습니다" in dialogs[0] and "배포 기준본" in dialogs[0]
-              and [c[:2] for c in G["calls"][n:] if c[0] == "POST"] == [("POST", "/frame")] and h1["kind"] == "done" and "배포 기준본을 만들었습니다" in h1["state"] and h1["count"] == "2/2 완료", (dialogs, h1))
+        check("2단계 「한 번에 진행」 — 확인 창 없이(구조만 · 내용은 안 넣음) → 기준본까지 · 끝 글",
+              [c[:2] for c in G["calls"][n:] if c[0] == "POST"] == [("POST", "/frame")] and h1["kind"] == "done" and "배포 기준본을 만들었습니다" in h1["state"] and h1["count"] == "2/2 완료", h1)
         page.locator("#panel").screenshot(path=str(OUT / "4b_frame_made.png"))
 
         # ---- 5. 2단계 — 기관 문서 줄의 수(② 자리 연결) · LLM 검토 · 강조 단추 하나
@@ -635,15 +634,14 @@ try:
         check("넣기 계획 가로 넘침 없음", page.evaluate("() => { const b = document.getElementById('headsDlgBody'); return b.scrollWidth <= b.clientWidth + 1; }"))
         page.screenshot(path=str(OUT / "7a_fill.png"))
         G["rev"] = page.evaluate("() => state.serverRev")
-        dialogs = []
-        page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.accept()))
+        # 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 창이 뜨면 듣는 쪽이 없어 저절로 닫히고(취소) 일이 안 돈다: 아래 검사가 그것을 잡는다)
         n = len(G["calls"])
         page.locator("#headsDlgFoot button", has_text="반영").click()
         page.wait_for_function(f"() => !!gt().done['{A}'] && !state.busy && ({IDLE})()", timeout=60000)
         after = [c for c in G["calls"][n:] if c[0] != "GET" or c[1] == ""]
         s0, h2 = page.evaluate(STEPS, "gatherStage2")[0], page.evaluate(HEAD, "gatherStage2")
-        check("「반영」 — 확인 뒤 POST …/parts/{id}/apply {planId} → 취합 상태를 다시 읽음 · 열이 닫힘", len(dialogs) == 1 and "취합본에 넣을까요" in dialogs[0] and after[0] == ("POST", f"/parts/{A}/apply", {"planId": "gp1"})
-              and ("GET", "", None) in after[1:] and page.eval_on_selector("#headsDlg", "e => e.hidden"), (dialogs, after))
+        check("「반영」 — 확인 창 없이 POST …/parts/{id}/apply {planId} → 취합 상태를 다시 읽음 · 열이 닫힘", after[0] == ("POST", f"/parts/{A}/apply", {"planId": "gp1"})
+              and ("GET", "", None) in after[1:] and page.eval_on_selector("#headsDlg", "e => e.hidden"), after)
         check("반영 뒤 — 그 문서 줄 완료(넣은 수) · 1/4 완료 · 기관 현황의 반영한 기관", s0["state"] == "done" and s0["badge"] == "완료" and "④ 내용 반영 작성 내용 2 · 문단 2 · 표 1 · 표 칸 3 · 지운 자리표시 줄 1" in s0["text"]
               and h2["count"] == "1/4 완료" and page.evaluate(PARTS)[0]["tag"] == "반영함" and "반영한 기관 1(한국선급)" in page.inner_text("#gatherFlow .gt-orgs"), (s0, h2))
 
@@ -726,8 +724,7 @@ try:
         check("둘째 면 화면은 GET 밖 요청을 안 보냄(끌어 넣기의 요청은 바깥 창이)", not writes, writes[:3])
 
         # ---- 10. 2단계 「한 번에 진행」 — 들어온 차례로, 넣을 것이 남고 반영할 기관이 정해진 문서만: 자리 연결 → (LLM 검토 — 아직 안 한 문서만) → 넣기 계획 → 반영 → 취합 상태 다시 읽기
-        dialogs = []
-        page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.accept()))
+        # 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 창이 뜨면 듣는 쪽이 없어 저절로 닫히고(취소) 일이 안 돈다: 아래 검사가 그것을 잡는다)
         n = len(G["calls"])
         page.click("#gatherStage2 [data-gather-run=map]")
         page.wait_for_function("() => !gatherRun && !!gatherRunLast", timeout=120000)
@@ -736,8 +733,6 @@ try:
         k = run.index(("POST", f"/parts/{C}/links"))
         want = [("POST", f"/parts/{C}/links"), ("POST", f"/parts/{C}/llm"), ("POST", f"/parts/{C}/plan"), ("POST", f"/parts/{C}/apply", {"planId": "gp2"}), ("GET", ""),
                 ("POST", f"/parts/{D}/links"), ("POST", f"/parts/{D}/plan"), ("POST", f"/parts/{D}/apply", {"planId": "gp3"}), ("GET", "")]
-        check("확인은 누를 때 한 번 — 문서 목록과 차례 · 미지정은 건너뜀 · 유료 호출을 그 창에", len(dialogs) == 1 and all(x in dialogs[0] for x in (f"1. {NAMES[A]} — 넣을 것 없음(건너뜀)", f"2. {NAMES[B]} — 반영할 기관 미지정(건너뜀)",
-              "3. 기관C_씨드로닉스.hwpx — 씨드로닉스", f"4. {NAMES[D]} — 유엔젤", "유료", "실행 취소")), dialogs)
         check("차례 — 셋째 문서(연결 → LLM → 계획 → 반영 → 다시 읽기) → 넷째 문서(이미 검토함: LLM 없이) · 앞 문서 반영 뒤에 다음 문서를 계획", run[k:] == want, run[k:])
         check("미지정 문서·끝난 문서에는 아무 요청도 안 보냄", not [c for c in run if f"/parts/{B}" in c[1] or f"/parts/{A}" in c[1]], run)
         h2, st2 = page.evaluate(HEAD, "gatherStage2"), page.evaluate(STEPS, "gatherStage2")
@@ -907,8 +902,7 @@ try:
         check("[진짜] 「넣기 계획」 — 넣을 내용 3곳(문단 2 · 표 칸 1 · 지운 자리표시 줄 2) · 안 넣는 것 없음", "넣을 내용 3곳 — 문단 2 · 표 칸 1 · 지운 자리표시 줄 2" in tools_text
               and "넣지 않는 내용이 없습니다" in page.inner_text("#headsDlgBody"), tools_text)
         rev0 = page.evaluate("() => state.serverRev")
-        dialogs = []
-        page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.accept()))
+        # 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 창이 뜨면 듣는 쪽이 없어 저절로 닫히고(취소) 일이 안 돈다: 아래 검사가 그것을 잡는다)
         page.locator("#headsDlgFoot button", has_text="반영").click()
         page.wait_for_function(f"(id) => !!gt().done[id] && !state.busy && ({IDLE})()", arg=rpart, timeout=300000)
         lap("내용 반영(편집 하나 + 문서 다시 읽기)")
@@ -917,8 +911,8 @@ try:
         flat = [re.sub(r"\s+", " ", b.get("text") or "").strip() for b in tops]
         cells = [re.sub(r"\s+", " ", c.get("text") or "").strip() for b in tops if b["type"] == "table" for c in b["cells"]]
         i, j = flat.index(f"[공동연구개발기관1({ORG})]"), flat.index("□ 필요성")
-        check("[진짜] 「반영」 — 취합본의 그 자리에 그 글(제 라벨 바로 아래 · □ 필요성 바로 아래 · 제 표의 그 칸) · 편집 차례 +1", len(dialogs) == 1 and flat[i + 1] == W["own"] and flat[j + 1] == W["common"]
-              and cells.count(W["cell"]) == 1 and flat.count(W["own"]) == 1 and page.evaluate("() => state.serverRev") == rev0 + 1, (flat[i:i + 3], flat[j:j + 3], dialogs))
+        check("[진짜] 「반영」 — 취합본의 그 자리에 그 글(제 라벨 바로 아래 · □ 필요성 바로 아래 · 제 표의 그 칸) · 편집 차례 +1", flat[i + 1] == W["own"] and flat[j + 1] == W["common"]
+              and cells.count(W["cell"]) == 1 and flat.count(W["own"]) == 1 and page.evaluate("() => state.serverRev") == rev0 + 1, (flat[i:i + 3], flat[j:j + 3]))
         s2, h2 = page.evaluate(STEPS, "gatherStage2")[0], page.evaluate(HEAD, "gatherStage2")
         gv = requests.get(f"{base}/api/docs/{rp}/gather", timeout=120).json()
         check("[진짜] 반영 뒤 — 그 문서 줄 완료 · 1/1 완료 · 「반영함」 · 반영한 기관 · 다시 계획하면 할 일 없음", s2["state"] == "done" and s2["badge"] == "완료" and h2["count"] == "1/1 완료"

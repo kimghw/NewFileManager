@@ -63,23 +63,6 @@ function hraKept(d) {
 }
 const hraUndec = (n) => `헤딩 판정에 미판정 ${nf(n)}곳이 있어(LLM 구간 검증 실패 — 스크립트 초안 그대로) 조정(반영)은 하지 않았습니다 — 받은 계획은 남아 있습니다: 「단계별 실행」 의 헤딩 판정을 다시 돌리거나, 조정 층에서 계획을 확인한 뒤 「모두 반영」 을 누르세요`;
 
-function hraAsk(P) { // 확인 창의 글 — 무엇이 돌고 무엇이 바뀌나
-  const rows = ["전체 실행 — 남은 단계를 조정까지 차례로 돌립니다(이미 거친 단계는 건너뜁니다).", ""];
-  if (P.llm.length) {
-    rows.push("① LLM 판정 · 유료(몇 분):", ...P.llm.map((p) => `   · ${p.name}`));
-    if (P.skip.length) rows.push(`   건너뜀 — ${P.skip.map((p) => HRA_PART[p.key] || p.name).join(" · ")}(이미 거쳤거나 할 것이 없습니다)`);
-    rows.push("② 조정 — 받은 서식 정리 계획을 에이전트가 고른 그대로 모두 반영합니다(템플릿 조정 · 서식 조정).");
-  } else {
-    rows.push("LLM 판정은 이미 거쳐 건너뜁니다.",
-      `조정 — 받아 둔 서식 정리 계획 ${nf(P.plans)}개(템플릿)를 에이전트가 고른 그대로 모두 반영합니다: 대표에 맞출 줄 ${nf(P.change)} · 서식 종속 템플릿으로 뗄 줄 ${nf(P.moved)}${P.reps ? ` · 대표를 바꿀 레벨 ${nf(P.reps)}` : ""}.`);
-  }
-  if (P.sure) rows.push(`   템플릿 종속 — 한 자리에만 매달린 템플릿 ${nf(P.sure)}개를 그 자리의 템플릿 아래로 넣습니다(확실한 것만 — 문서는 안 바뀌고 템플릿만).`);
-  rows.push(`   자리 맞춤(스크립트) — 맞춘 뒤 레터 뒤 빈칸을 묶음 빈칸으로 · 둘째 줄을 글 시작에 맞춥니다${P.place ? `(지금 ${nf(P.place)}줄 + 맞춘 줄)` : ""}.`);
-  rows.push("   문서가 바뀝니다 — 반영 한 번마다 「실행 취소」 한 번으로 되돌립니다.",
-    `   반영으로 새로 생긴 서식 종속 템플릿에 서식이 갈린 레벨이 남으면 그 계획도 이어서 받아 반영합니다(${HRA_MAX}번까지 · 유료).`, "",
-    "계획을 먼저 보고 반영하려면 「취소」 를 누르고 「단계별 실행」 과 조정 층의 「모두 반영」 을 쓰세요. 계속할까요?");
-  return rows.join("\n");
-}
 
 // ---- 단추(상태 줄 — app.js headsResultsSummary 가 그릴 때마다 새로 만든다 · 도는 동안은 「멈추기」)
 function headsRunAllBtn() {
@@ -121,7 +104,7 @@ function headsAllRunning() { // 에이전트 보기의 진행 카드(doc_agent_w
 }
 
 // ---- 실행
-// opt.asked = 부른 쪽이 이미 확인받았다(대시보드의 「이어서 한 번에」 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛴다(LLM 연결 · 멈추는 검사는 그대로).
+// opt.asked = 옛 인자 — 2026-11-18 사용자 「이런 알람좀 주지마」 부터 확인 창이 없어 쓰지 않는다(부르는 쪽 호환으로 받기만 함 · LLM 연결 · 멈추는 검사는 그대로)
 // → {ok, text}(끝까지 감 · 멈춤 — HRA.last 와 같은 글) | undefined(시작하지 않음 — 까닭은 알림 글)
 async function headsRunAll(opt = {}) {
   if (HRA.run || !state.id) return;
@@ -141,7 +124,7 @@ async function headsRunAll(opt = {}) {
   }
   if (!P.llm.length && P.undecided) { toast(hraUndec(P.undecided), true, typeof tplPlanGo === "function" ? { label: "조정 줄 보기", run: () => tplPlanGo() } : null); return; } // 남은 것이 반영뿐인데 헤딩 판정에 미판정이 있다 — 묻지 않고 알린다
   if (P.llm.length && !(await headsLlmReady())) return; // LLM 연결이 없으면 알림은 그 함수가
-  if (epoch !== state.epoch || HRA.run || (!opt.asked && !confirm(hraAsk(P))) || epoch !== state.epoch) return;
+  if (epoch !== state.epoch || HRA.run) return; // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 돌 것 · 바뀔 것을 적은 확인 창: design.md §18 「확인 창」)
   const R = HRA.run = { id, epoch, t0: Date.now(), note: "시작", stop: false, chains: 0, applies: 0, sig: null,
     did: { llm: [], tpls: 0, lines: 0, splits: 0, undo: 0 }, left: [] };
   hraSync();

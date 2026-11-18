@@ -16,7 +16,7 @@ const AG_FILES = ".txt,.md,.csv,.tsv,.xlsx,.docx,.hwpx,.pdf";
 const AG_STALE = "문서가 바뀌었습니다 — 다시 요청하세요";
 const AG_EMPTY = "문서에서 자리를 고르고(문단 끌어 고르기 · 표 누르기 · 커서 두기) 아래에 요청을 적으세요. 에이전트는 제안만 냅니다 — 카드의 「문서에 반영」 을 눌러야 문서가 바뀌고, 도구 줄의 실행 취소로 되돌립니다.";
 // 화면 장식은 같은 선 굵기의 작은 SVG로 — 버튼의 이름과 기존 동작은 그대로 둔다.
-function agentIcon(name) {
+function agentIcon(name, size = 16) {
   const paths = {
     document: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
     library: '<rect x="4" y="3" width="6" height="18" rx="1.5"/><path d="m10 4.5 5.2-1.2a1.5 1.5 0 0 1 1.8 1.1l2.8 11.6a1.5 1.5 0 0 1-1.1 1.8L8.5 20.5"/><path d="M10 15h9.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H7M7 17.5h.01"/>',
@@ -29,11 +29,19 @@ function agentIcon(name) {
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 11h18M7 15h3M14 15h3"/>',
     report: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 15v2M12 12v5M15 9v8"/>', // 「지금 할 수 있는 일」(doc_agent_next.js) — 현황 보고 · LLM 검토 · 서식 반영
     spark: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
-    format: '<path d="M4 7h10M4 12h7M4 17h10"/><path d="m15.5 14.5 4-4 1.5 1.5-4 4H15.5Z"/>'
+    format: '<path d="M4 7h10M4 12h7M4 17h10"/><path d="m15.5 14.5 4-4 1.5 1.5-4 4H15.5Z"/>',
+    // 프로젝트 구성 폼 단추(확인 · 문서 보기 · 닫기) · 단계 꼬리표 칩(사람 · 스크립트 · LLM · 문서 바뀜) — 2026-11-18 사용자 「문서에서 보기는 문서 아이콘에 안경이나 눈알… 닫기는 X · 확정도 아이콘 · 사람, 스크립트, LLM, 문서바뀜 아이콘으로」
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    read: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M14 3v5h5M8 11h4M8 15h2"/><path d="M11.5 17.5c1.2-2.1 2.9-3.2 4.8-3.2s3.6 1.1 4.8 3.2c-1.2 2.1-2.9 3.2-4.8 3.2s-3.6-1.1-4.8-3.2Z"/><circle cx="16.3" cy="17.5" r="1.3"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    human: '<circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>',
+    script: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
+    llm: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
+    doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/><path d="M14 3v5h5M8 12h5M8 16h3"/><path d="m14.5 19.5 5-5 1.8 1.8-5 5H14.5v-1.8Z"/>'
   };
   const icon = el("span", "ag-icon");
   icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.document}</svg>`;
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.document}</svg>`;
   return icon;
 }
 const agentFresh = () => ({ doc: null, loaded: false, loading: false, err: "", enabled: false, hwpx: true, policy: { apply: true, why: "" }, turns: [], materials: [], styles: { table: [], text: [] }, limits: {},

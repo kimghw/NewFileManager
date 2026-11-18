@@ -8,15 +8,6 @@ const GQ_WHY = { assigned: "이미 정해져 있음", tie: "작성 내용이 가
 let gqRun = null;   // 돌린(돌리는) 간단 모드 {job, plan(취합본 작업 id), name, llm, uploadOnly, items[{file, name, pid?, err?, kept?}], auto(Set — 자동 지정할 기관 문서), log{기관 문서 id: {org, by, why, done, skip, llm}}, note, t0, stop, busy, timer, end{ok, text} | null}
 const gqHwp = (f) => /\.hwp$/i.test(f.name);
 
-function gqConfirmText(target, parts, llm) {
-  return `「사업계획서 취합」 을 간단 모드로 끝까지 진행할까요?\n\n목적 문서(취합본): ${target.name}\n기관 문서 ${parts.length}개(이 차례로 — 같은 공통 자리는 앞 문서가 차지):\n`
-    + parts.map((f, i) => `  ${i + 1}. ${f.name}${gqHwp(f) ? " (hwpx 로 바꿔 올림)" : ""}`).join("\n") + "\n\n"
-    + "· 목적 문서의 지금 모습을 기관에 나눠 준 프레임(배포 기준본)으로 고정합니다. 단계·차년도·기관 값이 없으면 문서에서 읽고, 구조가 그 값에 안 맞으면 구조부터 맞춥니다(지워야 할 곳이 있으면 멈춤).\n"
-    + "· 기관 문서마다 반영할 기관을 정합니다 — 파일 이름에 든 기관(하나일 때), 없으면 넣을 수 있는 내용이 가장 많은 기관. 정하지 못한 문서는 넣지 않습니다.\n"
-    + `· 기관 문서마다 자리 연결 → ${llm ? "LLM 검토(유료 · 문서마다 수십 초 — 넣을 것을 줄이기만 함 · 실패하면 검토 없이)" : "(LLM 검토 끔)"} → 넣기 계획 → 반영.\n`
-    + "· 목적 문서에 기관이 쓴 내용이 들어갑니다 — 기관 문서마다 편집 한 번(실행 취소 Ctrl+Z 도 문서마다). 기관 문서는 바뀌지 않습니다.\n"
-    + "· 겹치는 자리·자리가 분명하지 않은 내용은 넣지 않고 남깁니다(덮어쓰지 않음). 끝나면 세부 작업 모드 화면에서 결과를 이어 봅니다.";
-}
 
 // ---- 목적 문서가 열린 뒤 → 차례대로(gqGo) -------------------------------------------------------------------------
 async function gatherQuickRun(planId, name, parts, { llm = true, uploadOnly = false, aliases = new Map() } = {}) { // home_files.js 가 목적 문서(취합본)를 열고 TASK 를 적은 뒤 부른다 — 기관 문서는 목록 차례
@@ -138,8 +129,8 @@ function gatherQuickLineEl() { // gather.js gatherQuickEl 이 부른다 — 간�
     acts.append(stop);
   } else {
     if (R.end && (!R.end.ok || R.items.some((it) => it.aliasErr || (!it.pid && it.err && !it.skip)))) { // 멈춤 · 약칭 저장 실패 · 못 올린 문서가 남음(끝났어도 — 다시 올려 본다)
-      const again = hBtn("이어서", () => { if (confirm(`간단 모드를 이어서 할까요?\n\n남은 기관 문서 올리기 → 1단계(남았으면) → 2단계를 다시 차례대로 합니다.\n앞서 넣은 것은 다시 넣지 않습니다(이미 들어 있음).${R.llm ? "\nLLM 검토는 아직 안 한 문서만(유료)." : ""}`)) gqGo(R); },
-        { cls: "btn sm primary", disabled: !!gatherRun, title: "멈춘 곳부터 남은 일을 이어서 합니다(누를 때 한 번 확인)" });
+      const again = hBtn("이어서", () => gqGo(R), // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」: design.md §18 「확인 창」)
+        { cls: "btn sm primary", disabled: !!gatherRun, title: `멈춘 곳부터 남은 일을 이어서 합니다 — 남은 기관 문서 올리기 → 1단계(남았으면) → 2단계. 앞서 넣은 것은 다시 넣지 않습니다${R.llm ? " · LLM 검토는 아직 안 한 문서만(유료)" : ""}` });
       again.dataset.quickAgain = "1";
       acts.append(again);
     }

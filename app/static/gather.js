@@ -4,7 +4,7 @@
 //   taskRow → gatherFlowEl(첫 카드) · taskFlowLoad → gatherLoad · taskStepsDraw → gatherStepsDraw · docSwitchDraw → gatherWorks · taskFrameHost(#gatherStage 안에 과제 구성 입력) ·
 //   peerDocs/peerLeft/peerSync → gatherPeerDocs/gatherPeerLeft/gatherPeerMark(둘째 면) · outlineGrip 의 dragstart → gatherGripStart(끌어 넣기 출발) · 창의 파일 놓기 → gatherDragIs(이 형식은 안 받음).
 // 첫 카드: 「사업계획서(취합본)」 칸 하나(이관의 칸 그대로 — taskSlot·taskSlotUp) + 기관 문서 줄 N + 「기관 문서 추가」 + 기관 현황 한 줄 + 편집 구역 줄(zones.js zonesBarEl — 전의 기관 구역 줄) + 묶음 셋(1단계 구분 기준 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 — 이관과 같은 모양).
-// 2열(headsDlg): 「기관 작성 내용」(kind gather — 기관 문서마다) · 「넣기 계획」(gatherFill) · 「끌어 넣기」(gatherDrop). 취합본은 사람이 확인한 뒤에만 바뀐다(계획 → 「반영」 · 「한 번에 진행」 은 누를 때 한 번).
+// 2열(headsDlg): 「기관 작성 내용」(kind gather — 기관 문서마다) · 「넣기 계획」(gatherFill) · 「끌어 넣기」(gatherDrop). 취합본은 사람이 확인한 뒤에만 바뀐다(계획 → 「반영」 · 「한 번에 진행」 — 2026-11-18 부터 확인 창 없이, 실행 취소로 되돌림).
 // 화면 말(실무자용): 기관이 쓴 덩어리 = 「기관 작성 내용」, 상태 = 넣을 수 있음·이미 들어 있음·겹침·다른 기관 자리·반영할 기관 미지정·확인 필요·표 구조가 다름·양식 글이 바뀜·지워짐·계산 칸.
 
 const GT_PART = "application/x-nfm-gather-part"; // 기관 문서 줄을 다른 기관 폴더로 끄는 자료 형식(작업 id — ② §5 「기관별 폴더」). 창의 파일 놓기와 가른다(app.js bind 의 own)
@@ -731,7 +731,7 @@ function gatherStageSync1(stage, box) {
   b.className = "btn sm" + (!gatherRun && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 펴면 세부 목록의 「다음 할 일」
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : gatherRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
     : !(files && files.done) ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !runnable.length ? (stage.id === "map" ? "넣을 것이 남은 기관 문서가 없습니다(반영할 기관을 고른 문서만 진행합니다)" : "남은 단계가 없습니다")
-    : `이 묶음의 남은 일을 차례로 한 번에 — ${stage.does}. 누를 때 한 번만 확인하고, 사람 손이 필요한 곳에서는 멈춥니다`;
+    : `이 묶음의 남은 일을 차례로 한 번에 — ${stage.does}. 사람 손이 필요한 곳에서는 멈춥니다`;
   const active = R ? R.key : busy && busy.key;
   for (const li of box.querySelectorAll("ol.dv-flow-steps > li[data-key]")) { // 줄마다 상태 꼬리표(글자로 — 색에만 기대지 않는다)
     const s = all.find((x) => x.key === li.dataset.key);
@@ -975,10 +975,10 @@ async function gatherApplyCall(pid, planId) { // 반영 한 번 — 문서를 �
   await reloadDoc(); // 떨어진 자리 여러 곳이 바뀌어 문서를 다시 읽는다(구분 기준 반영과 같은 길)
   return r;
 }
-async function gatherApply(pid) { // 「반영」 — 확인 창 → 반영 → 결과(다시 계산 필요가 있으면 2열에 남긴다)
+async function gatherApply(pid) { // 「반영」 — 반영(2026-11-18 부터 확인 창 없이) → 결과(다시 계산 필요가 있으면 2열에 남긴다)
   const g = gt(), P = g.plans[pid], p = gatherPart(pid), epoch = state.epoch;
   if (!P || !P.todo || !p || g.applyBusy || !gatherMine()) return;
-  if (!confirm(`「${p.name}」 의 내용을 취합본에 넣을까요?\n\n${gatherPlanText(P)}\n\n한 번의 편집으로 들어가고, 실행 취소(Ctrl+Z) 한 번으로 되돌릴 수 있습니다. 기관 문서는 바뀌지 않습니다.`)) return;
+  // 확인 창 없이 바로 넣는다(2026-11-18 사용자 「이런 알람좀 주지마」 — 실행 취소 한 번으로 되돌림: design.md §18 「확인 창」)
   g.applyBusy = pid;
   state.busy = true;
   refreshToolbar();
@@ -1059,32 +1059,14 @@ function gatherFillList(pid, keep = false) { // 2열 「넣기 계획」(kind "g
   foot.append(hBtn("닫기", () => headsColClose()));
 }
 
-// ---- 한 번에 진행(spec_취합 ② §4-4 · §5 — 이관의 taskRunAll 과 같은 약속: 누를 때 한 번만 확인, 사람 손이 필요한 곳·실패에서 멈춤, 멈추면 세부 목록을 편다)
+// ---- 한 번에 진행(spec_취합 ② §4-4 · §5 — 이관의 taskRunAll 과 같은 약속: 확인 창 없이(2026-11-18), 사람 손이 필요한 곳·실패에서 멈춤, 멈추면 세부 목록을 편다)
 async function gatherRunAll(stageId) {
   if (gatherRun) return;
   const stage = GT_STAGES.find((x) => x.id === stageId), plan = gatherPlan(), V = gt().view;
   if (!stage || !plan) { toast("사업계획서(취합본)를 먼저 고르세요", true); return; }
   const S = gatherCalc(), left = S.filter((s) => s.stage === stageId && !s.done && s.step !== "files");
   if (!left.length) { toast("남은 단계가 없습니다"); return; }
-  let msg;
-  const mapName = `${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」`;
-  if (stageId === "config") { // 1단계 — 확정할 값을 보이고 확인(값이 없으면 취합본에서 읽은 값으로 — 그 값은 누른 뒤에 정해진다)
-    const d = gatherDiv(), where = divConfirmWhere(d && d.sharing);
-    msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n`
-      + (d && d.values ? `확정할 프로젝트 구성:${divValuesText(d.values)}\n\n· 이 값을 ${divConfirmWhat(where)}으로 저장(확정)합니다.` : `· 프로젝트 구성 값이 없어 취합본 「${plan.name}」 에 적힌 단계·차년도·기관을 읽어 ${divConfirmWhat(where)}으로 저장(확정)합니다 — 읽은 값을 먼저 보려면 취소하고 「취합본에서 추출」 을 누르세요.`)
-      + "\n· 문서는 바뀌지 않습니다(구조는 2단계 「문서 프레임 작성」 에서 맞춥니다).\n· 값을 읽지 못하면 멈추고 세부 목록을 폅니다.";
-  } else if (stageId === "frame") msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n남은 단계\n${left.map((s, i) => `  ${gatherStepName(s)}${!i && s.lines.length ? ` — ${s.lines[0][1]}` : ""}`).join("\n")}\n\n`
-    + `· 중간 계획 확인 없이 취합본 「${plan.name}」 의 구조(절·표 행·열)가 1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번.\n· 내용은 넣지 않습니다(${mapName}).\n`
-    + "· 그 뒤 배포 기준본을 만듭니다(그때의 파일과 자리 정보를 고정 — 문서는 안 바뀜). 헤딩·표 분석이 지금 문서의 것이 아니면 먼저 다시 분석합니다(스크립트).\n· 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.";
-  else {
-    const rows = ((V && V.parts) || []).map((p, i) => { const s = S.find((x) => x.part === p.work) || {}, orgs = (p.orgs || []).map((k) => ((V.orgs || []).find((o) => o.key === k) || {}).name || k);
-      return `  ${i + 1}. ${p.name} — ${!orgs.length ? "반영할 기관 미지정(건너뜀)" : s.done ? "넣을 것 없음(건너뜀)" : orgs.length > 3 ? `기관 ${orgs.length}곳` : orgs.join(" · ")}`; });
-    msg = `「${stage.no} ${stage.name}」 을 한 번에 진행할까요?\n\n기관 문서(들어온 차례)\n${rows.join("\n")}\n\n`
-      + "· 문서마다 자리 연결 → LLM 검토(아직 안 한 문서만 — 유료 · 수십 초) → 넣기 계획 → 내용 반영. 앞 문서를 반영한 뒤의 취합본으로 다음 문서를 계획합니다.\n"
-      + `· 중간 계획 확인 없이 취합본 「${plan.name}」 에 기관이 쓴 내용이 들어갑니다 — 기관 문서마다 편집 한 번(실행 취소도 문서마다 한 번). 기관 문서는 바뀌지 않습니다.\n`
-      + "· 겹치는 자리·자리가 분명하지 않은 내용은 넣지 않고 남깁니다(덮어쓰지 않음).\n· 실패하면 그 문서에서 멈추고 세부 목록을 폅니다.";
-  }
-  if (!confirm(msg)) return;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 묶음마다 할 일 · 기관 문서 차례를 적은 확인 창: design.md §18 「확인 창」) — 사람 손이 필요한 곳 · 실패에서 멈추는 것은 그대로
   await gatherRunStage(stage.id, plan);
 }
 // 묶음 하나를 확인 없이 끝까지(「한 번에 진행」 의 몸통 — 간단 모드 gather_quick.js 도 부른다: spec_취합 ② §8-2) → {ok, text, none?}. 남은 단계가 없으면 돌지 않는다(none).

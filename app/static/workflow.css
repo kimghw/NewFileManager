@@ -26,12 +26,16 @@ body.wf { font-size: 13px; }
 .wf-muted { color: var(--muted); }
 .wf-main code { padding: 0 4px; border-radius: 4px; background: #eef1f5; font-family: Consolas, "D2Coding", monospace; font-size: 11.5px; }
 
-/* 꼬리표 — 누가(스크립트·LLM·사람) · 문서 바뀜 · 저절로·안 해도 됨·준비 중 */
-.wf-tag { display: inline-block; padding: 0 6px; line-height: 17px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; font-weight: 400; white-space: nowrap; }
+/* 꼬리표 — 누가(스크립트·LLM·사람) · 문서 바뀜 · 자동·필수·선택·준비 중. 넷은 아이콘 칩(2026-11-18 사용자) */
+.wf-tag { display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; line-height: 17px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; font-weight: 400; white-space: nowrap; box-sizing: border-box; }
+.wf-tag:has(> .wf-icon) { width: 21px; height: 19px; padding: 0; }
+.wf-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; color: inherit; }
+.wf-icon svg { display: block; }
 .wf-tag.wf-t-llm { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
 .wf-tag.wf-t-human { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
 .wf-tag.wf-t-doc { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
 .wf-tag.wf-t-soft { border-style: dashed; background: transparent; color: var(--muted); }
+.wf-tag.wf-t-must { border-color: #8d9bb3; background: var(--surface); color: var(--text); font-weight: 600; } /* 필수 — 선택(점선 · 흐림)의 짝: 실선 · 진한 글 */
 .wf-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 12px; padding: 0; color: var(--muted); font-size: 12px; }
 .wf-legend li { display: inline-flex; align-items: center; gap: 5px; }
 
@@ -195,6 +199,7 @@ a.wf-chip:hover { border-color: #9fb5ea; background: var(--accent-soft); }
 .wf-position { color: var(--accent); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wf-detail > h3 { font-size: 23px; letter-spacing: -.5px; line-height: 1.4; margin: 0 0 12px; }
 .wf-detail > .wf-badges .wf-tag { font-size: 11px; padding: 2px 8px; }
+.wf-detail > .wf-badges .wf-tag:has(> .wf-icon) { width: 23px; height: 21px; padding: 0; }
 .wf-detail h4 { margin: 0 0 8px; color: #57677d; font-size: 11px; font-weight: 600; }
 .wf-explain { margin-top: 28px; }
 .wf-explain p { margin: 0; font-size: 14px; line-height: 1.9; word-break: keep-all; overflow-wrap: anywhere; }

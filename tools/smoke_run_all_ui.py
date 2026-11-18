@@ -9,7 +9,7 @@ LLM 은 **가짜**다(임시 서버 안에서만): 헤딩 그래프(LLM) · 표 
 ④ 「전체 실행」 → 확인 창(돌 LLM 단계 · 문서가 바뀜) — 「취소」 면 아무것도 안 돎 ⑤ 「확인」 → 도는 동안 단추는 「멈추기」 · 에이전트 진행 카드에 보임 → 「멈추기」: 지금 단계가 끝나면 멈추고 **반영하지 않는다**(남은 것을 알림)
 ⑥ 다시 「전체 실행」 → 거친 단계는 건너뛰고 표 · 서식 계획 → 조정(모두 반영)까지 — 반영마다 실행 취소 1 · 받은 계획이 남지 않음 · 조정 칸 ✓ · 끝난 글(한 것 · 남은 것)
 ⑦ 남은 것이 없으면 다시 눌러도 묻지 않고 「남은 단계가 없습니다」 ⑧ 좁은 패널(320 · 388 · 480px)에서 가로 넘침 없음 · 콘솔 오류 없음
-⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 한 번(「취소」 면 고른 것만 남음) → 고른 셋을 진행 줄의 차례로(보낸 요청 = 고른 것만) · 도는 동안 「단계별 실행 2/3 ▾」 · 메뉴의 차례 · 「멈추기」 ·
+⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 없이(2026-11-18) 고른 셋을 진행 줄의 차례로(보낸 요청 = 고른 것만) · 도는 동안 「단계별 실행 2/3 ▾」 · 메뉴의 차례 · 「멈추기」 ·
 진행 줄의 기다림 표시 · 에이전트 진행 카드 → 끝난 글 / 멈추기(뒤는 안 돎) / LLM 이 답을 못 하면 뒤 LLM 단계는 남김 / 스크립트만 고르면 확인 창 없이."""
 import argparse
 import json
@@ -238,26 +238,17 @@ try:
         page.click("#tabHeads")
         page.wait_for_function("() => document.querySelector('#headsOverview .hrun-all')", timeout=30000)
 
-        # ---- ④ 확인 창 — 「취소」 면 아무것도 안 돎
+        # ---- ④ 확인 창 없음(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 돌 것을 적은 확인 창 · 「취소」 면 아무것도 안 돎)
         n0 = len(posts)
-        page.click("#headsOverview .hrun-all")
-        for _ in range(100):
-            if asked:
-                break
-            page.wait_for_timeout(100)
-        page.wait_for_timeout(300)
-        msg = asked[0] if asked else ""
-        check("확인 창: 돌 LLM 단계 셋 · 조정 · 문서가 바뀜 · 실행 취소 · 계획을 먼저 보려면", all(w in msg for w in ("① LLM 판정", "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "표 — 표 구조(LLM)", "서식 — 템플릿 서식 정리 계획",
-                                                                              "② 조정", "문서가 바뀝니다", "「실행 취소」", "단계별 실행")), msg)
-        check("「취소」: 요청 없음 · 도는 것 없음 · 단추 그대로", posts[n0:] == [] and page.evaluate(IDLE) and page.evaluate(META, "#headsOverview")["btns"][0]["text"] == "전체 실행", posts[n0:])
 
-        # ---- ⑤ 「확인」 → 도는 동안 「멈추기」 · 진행 카드 → 멈추기: 반영하지 않음
+
+        # ---- ⑤ 누르면 바로 → 도는 동안 「멈추기」 · 진행 카드 → 멈추기: 반영하지 않음
         accept[0] = True
         undo0 = page.evaluate("() => state.undo || 0")
         page.click("#headsOverview .hrun-all")
         page.wait_for_function("() => { const b = document.querySelector('#headsOverview .hrun-all'); return b && b.textContent === '멈추기' && heads.view && heads.view.job && heads.view.job.status === 'running' && heads.view.job.chain === 'llm'; }", timeout=30000)
         live = page.evaluate("() => { const R = agwRunning(); return R && { kind: R.kind, label: R.label, stop: typeof R.stop }; }")
-        check("도는 동안: 에이전트 진행 카드에 「전체 실행」(agwRunning kind headsAll · 멈춤 있음)", bool(live) and live["kind"] == "headsAll" and "전체 실행" in live["label"] and live["stop"] == "function", live)
+        check("확인 창 없이 바로 돎 · 도는 동안: 에이전트 진행 카드에 「전체 실행」(agwRunning kind headsAll · 멈춤 있음)", not asked and bool(live) and live["kind"] == "headsAll" and "전체 실행" in live["label"] and live["stop"] == "function", live)
         page.click("#headsOverview .hrun-menu")
         page.wait_for_function(MENU_OPEN, timeout=5000)
         mr = page.evaluate(MENU)
@@ -286,8 +277,7 @@ try:
         page.wait_for_function("() => typeof HRA === 'object' && !!HRA.run", timeout=30000)
         page.wait_for_function(IDLE, timeout=300000)
         page.wait_for_timeout(800)
-        msg2 = asked[a1] if len(asked) > a1 else ""
-        check("둘째 확인 창: 돌 것 = 표 · 서식 계획 · 헤딩은 건너뜀", "표 — 표 구조(LLM)" in msg2 and "서식 — 템플릿 서식 정리 계획" in msg2 and "헤딩 · 템플릿 — 헤딩 그래프(LLM)" not in msg2 and "건너뜀 — 헤딩 · 템플릿" in msg2, msg2)
+        check("둘째 「전체 실행」 도 확인 창 없이 바로", len(asked) == a1, asked[a1:])
         seq = posts[n1:]
         chains, applies = seq.count("analysis/llm"), seq.count("outline/agent/apply")
         check("차례: LLM 이어 돌리기 → 반영(반영은 늘 계획을 받은 뒤 · 각각 세 번까지)", 1 <= chains <= 3 and 1 <= applies <= 3 and seq and seq[0] == "analysis/llm" and "outline/agent/apply" in seq
@@ -345,10 +335,10 @@ try:
           const P = hraLeft(v), plain = hraLeft({ ...v, items: v.items.map((i) => (i.key === 'formats' ? { ...i, llm: { ...i.llm, reps: 0 } } : i)) });
           Object.assign(f.llm, { planned: 0, reps: 0, left: { kept: 2, unanswered: 5 } });
           const P2 = hraLeft(v), R = { did: { llm: [], tpls: 1, lines: 0, reps: 1, splits: 0, undo: 1 }, left: [] };
-          return { apply: P.apply, none: plain.apply, ask: hraAsk(P), idle: P2.apply, unseen: hraUnseen(P2), done: hraDone(R, '', P2) };
+          return { apply: P.apply, none: plain.apply, idle: P2.apply, unseen: hraUnseen(P2), done: hraDone(R, '', P2) };
         }""")
-        check("대표만 바꾸는 계획: 「맞출 줄 0 · 대표 변경 1」 도 반영할 것(대표 변경이 없으면 아님) · 확인 창에 「대표를 바꿀 레벨 1」 · 끝난 글에 「맞춘 줄 0 · 대표 변경 1」",
-              rep["apply"] is True and rep["none"] is False and "대표를 바꿀 레벨 1" in rep["ask"] and "맞춘 줄 0 · 대표 변경 1" in rep["done"] and posts[n5:] == [], rep)
+        check("대표만 바꾸는 계획: 「맞출 줄 0 · 대표 변경 1」 도 반영할 것(대표 변경이 없으면 아님) · 끝난 글에 「맞춘 줄 0 · 대표 변경 1」",
+              rep["apply"] is True and rep["none"] is False and "맞춘 줄 0 · 대표 변경 1" in rep["done"] and posts[n5:] == [], rep)
         check("반영한 계획이 남긴 줄: 반영한 뒤에도 남은 것으로 알림(그대로 둔 줄 2 · 답이 없어 안 바꾼 줄 5) — 「남은 것 없음」 이 아니다",
               rep["idle"] is False and any("그대로 둔 줄 2 · 답이 없어 안 바꾼 줄 5" in x for x in rep["unseen"]) and "반영한 계획이 남긴 것" in rep["done"] and "남은 것 없음" not in rep["done"], rep)
 
@@ -372,7 +362,7 @@ try:
                   ([(x["text"], round(x["left"]), round(x["right"]), x["top"]) for x in b], m["inner"], m["overflowX"]))
             page.locator("#paneHeads").screenshot(path=str(OUT / f"8_panel_{w}.png"))
 
-        # ---- ⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 한 번 · 도는 동안 차례 · 멈추기 · LLM 이 답을 못 하면 뒤는 남김 · 스크립트만이면 묻지 않음
+        # ---- ⑩ 「단계별 실행」 — 고른 것만 차례로(heads_run_pick.js): 확인 창 없이(2026-11-18) · 도는 동안 차례 · 멈추기 · LLM 이 답을 못 하면 뒤는 남김 · 스크립트만이면 묻지 않음
         page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); heads.summaryKey = null; headsResultsSummary(heads.view); }")
         page.wait_for_function("() => heads.view && !(heads.view.job && heads.view.job.status === 'running') && !state.busy", timeout=120000)  # 문서가 바뀐 뒤 저절로 도는 1단계 다시 추출이 끝난 뒤에
         page.wait_for_timeout(300)
@@ -388,27 +378,9 @@ try:
         def sent(i):  # 그 뒤로 보낸 POST …/headings 의 (단계, LLM)
             return [(b.get("stage"), b.get("llm")) for b in hbody[i:]]
 
-        accept[0] = False
         n6, a6, h6 = len(posts), len(asked), len(hbody)
-        go = pick(["l3", "s2", "l2"])  # 누른 차례와 달라도 도는 차례는 진행 줄의 차례(스크립트 → LLM)
-        for _ in range(100):
-            if len(asked) > a6:
-                break
-            page.wait_for_timeout(100)
-        page.wait_for_timeout(300)
-        msg = asked[a6] if len(asked) > a6 else ""
-        check("확인 창 한 번: 고른 3개 · 차례(스크립트 헤딩 그래프 → LLM 헤딩 판정 → LLM 표 판정) · 유료 LLM 단계 2개 · 실패하면 뒤는 남김", go["text"] == "고른 3개 실행" and len(asked) == a6 + 1
-              and all(w in msg for w in ("고른 3개를 이 차례로", "1. 스크립트 — 헤딩 그래프 만들기 · 무료", "2. LLM — 헤딩 판정(헤딩 그래프) → 서식 계획 · 유료", "3. LLM — 표 판정(표 구조) · 유료",
-                                         "유료 LLM 단계 2개", "뒤 단계는 돌리지 않고 남깁니다")), (go, msg))
-        page.click("#headsOverview .hrun-menu")
-        page.wait_for_function(MENU_OPEN, timeout=5000)
-        kept = page.evaluate(MENU)
-        page.keyboard.press("Escape")
-        check("「취소」: 요청 없음 · 도는 것 없음 · 고른 것은 남음(다시 열면 「고른 3개 실행」)", posts[n6:] == [] and page.evaluate(PICK_IDLE) and kept["go"]["text"] == "고른 3개 실행"
-              and [x["key"] for x in kept["rows"] if x["on"]] == ["s2", "l2", "l3"], (posts[n6:], kept))
-
-        accept[0] = True
-        pick(["s2", "l2", "l3"])
+        go = pick(["l3", "s2", "l2"])  # 누른 차례와 달라도 도는 차례는 진행 줄의 차례(스크립트 → LLM) · 확인 창 없이 바로(2026-11-18)
+        check("「고른 3개 실행」 — 확인 창 없이 바로 돎", go["text"] == "고른 3개 실행" and len(asked) == a6, (go, asked[a6:]))
         page.wait_for_function("() => HRP.run && HRP.run.i === 1 && heads.view.job && heads.view.job.status === 'running' && heads.view.job.llm", timeout=120000)  # 둘째(LLM 헤딩 판정 — 가짜가 몇 초 쉰다)
         live = page.evaluate("""() => { const R = agwRunning(), b = document.querySelector('#headsOverview .hrun-menu'), all = document.querySelector('#headsOverview .hrun-all');
           return { kind: R && R.kind, label: R && R.label, stop: R && typeof R.stop, btn: b.textContent, on: b.classList.contains('on'), allOff: all.disabled }; }""")
@@ -427,7 +399,7 @@ try:
         page.wait_for_timeout(600)
         t6 = page.evaluate(TOAST)
         check("끝난 글: 「단계별 실행 끝 — 스크립트 헤딩 그래프 → LLM 헤딩 판정 · 서식 계획 → LLM 표 판정」", t6.startswith("단계별 실행 끝 — 스크립트 헤딩 그래프 → LLM 헤딩 판정 · 서식 계획 → LLM 표 판정"), t6)
-        check("보낸 것: 고른 셋만 · 그 차례(헤딩 그래프 스크립트 → 헤딩 그래프 LLM → 표 구조 LLM) · 확인 창은 한 번", sent(h6) == [(2, False), (2, True), (3, True)] and len(asked) == a6 + 2
+        check("보낸 것: 고른 셋만 · 그 차례(헤딩 그래프 스크립트 → 헤딩 그래프 LLM → 표 구조 LLM) · 확인 창 없음", sent(h6) == [(2, False), (2, True), (3, True)] and len(asked) == a6
               and posts[n6:] == ["headings"] * 3, (sent(h6), posts[n6:], len(asked) - a6))
         aft = page.evaluate("""() => { const b = document.querySelector('#headsOverview .hrun-menu');
           return { btn: b.textContent, on: b.classList.contains('on'), title: b.title, s2: headsSource(heads.view, 2).llm, s3: headsSource(heads.view, 3).llm,

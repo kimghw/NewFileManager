@@ -1157,7 +1157,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
       : GD.done ? `${taskCleanupText(GD.done, true)} · 남은 안내 없음` : "지울 안내가 없습니다";
     const list = hBtn("목록 보기", () => taskCleanupList(), { title: "지우는 패턴 목록과 지울 자리를 문서 옆 열에 보입니다 — 줄을 누르면 문서의 그 자리로" });
     guide.acts = n.total ? [onReport(GD.busy ? "지우는 중…" : "작성요령 삭제", () => taskCleanup(), { cls: "btn sm primary", disabled: !!GD.busy,
-      title: `지우는 패턴(${cleanupNames()})에 걸린 양식 안내를 확인 창 뒤 한 번에 지웁니다 — 편집 하나 · 실행 취소 한 번` }), list] : [list];
+      title: `지우는 패턴(${cleanupNames()})에 걸린 양식 안내를 한 번에 지웁니다(확인 창 없이) — 편집 하나 · 실행 취소 한 번` }), list] : [list];
   }
   return [files, config, division, link, planStep, applyStep,
     { key: "later", no: "⑤", name: "합계 계산 → 결과 확인", done: false, soon: true, acts: [], // 2026-11-12 사용자 "합계 계산은 … 어디서 표시하는건지" — 아직 없는 단계라는 것과 지금 계산 칸이 어떻게 되는지를 줄에 적는다
@@ -1533,10 +1533,10 @@ function fillList() { // 2열 「넣기 계획」(kind "fill") — 본문 항목
     hBtn(F.busy ? "반영 중…" : "반영", () => fillApply(), { cls: "btn sm primary", disabled: !p.todo || !!F.busy, title: "이 계획대로 연차보고서에 넣습니다 — 사업계획서는 안 바뀝니다" }), hBtn("닫기", () => headsColClose()));
 }
 
-async function fillApply({ quiet = false } = {}) { // quiet = 확인 창 없이(「한 번에 진행」 — 누를 때 이미 한 번 물었다: taskRunAll)
+async function fillApply({ quiet = false } = {}) { // quiet = 옛 인자(2026-11-18 부터 확인 창이 없다 — 「한 번에 진행」 이 그대로 넘긴다)
   const report = taskSlotDoc("report"), flow = taskFlow, F = flow.fill || {}, p = F.plan, epoch = state.epoch;
   if (!p || !p.todo || F.busy || !report || report.id !== state.id) return;
-  if (!quiet && !confirm(`사업계획서의 내용을 연차보고서에 넣을까요?\n\n${fillCountText(p)}\n\n한 번의 편집으로 들어가고, 실행 취소(Ctrl+Z) 한 번으로 되돌릴 수 있습니다. 사업계획서는 바뀌지 않습니다.`)) return;
+  // 확인 창 없이 바로 넣는다(2026-11-18 사용자 「이런 알람좀 주지마」 — 실행 취소 한 번으로 되돌림: design.md §18 「확인 창」)
   flow.fill = { ...F, busy: true, busyStep: "apply" };
   state.busy = true;
   refreshToolbar();
@@ -1675,7 +1675,7 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
 // ---- 1단계 「문서 프레임 작성」 — 단계 묶음 · 한 번에 진행(spec_작업 ② §14, 2026-11-12 사용자 "이게 1단계로.. 문서 프레임 작성 하고 싶고, 한번에 모든 단계를 진행할 수 있는 버튼을 주고
 // 내부에는 세부적으로 진행할 수 있는 세부 목록도 줘. 접었다 폈다 하면 나오게"). 묶음 = 접는 상자(details#taskStage): 머리 줄 「1단계 문서 프레임 작성 · 끝난 수 · [한 번에 진행]」 +
 // 상태 줄(다음 할 일 · 도는 중 = 동그라미 + 지금 하는 일 + 지난 시간 · 멈춘 까닭) — 펴면 세부 목록(ol#taskSteps — 단계·단추는 전과 같다). 기본 접힘, 펴짐은 이 브라우저에 기억.
-// 한 번에 진행(taskRunAll): 누를 때 한 번만 확인(사용자 답 「시작할 때 한 번만」) → 안 끝난 단계를 차례로 — 구분 기준 맞추기·반영 → 헤딩·표 분석(없는 문서만, 스크립트) → 자리 연결
+// 한 번에 진행(taskRunAll): 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 시작할 때 한 번: 11-12 사용자 답 「시작할 때 한 번만」) → 안 끝난 단계를 차례로 — 구분 기준 맞추기·반영 → 헤딩·표 분석(없는 문서만, 스크립트) → 자리 연결
 // (확인 필요가 있고 검토 전이면 LLM 검토 한 번 — 사용자 답 「넣음」) → 넣기 계획 → 내용 반영. 사람 손이 필요한 곳·실패에서는 멈추고 세부 목록을 편다. 단계의 판정은 taskSteps() 그대로.
 // **묶음은 둘**(같은 날 사용자 — 한 번에 진행한 결과를 보고 "지금 문서 프레임 작업인데 왜 내용을 넣지?" → 물어서 받은 답 「구조까지만」 · "2단계는 내용 넣고, 서식도 맞춰서 … 헤딩추출, 테이블
 // 정보 추출등을 해서 매핑하는거야. 2단계는 내용 매핑이겠지"): 1단계 「문서 프레임 작성」 = 준비 + ① 구분 기준 확인·반영(구조), 2단계 「내용 매핑」 = ② 자리 연결(앞에 헤딩·표 분석) → ③ 넣기 계획 →
@@ -1838,7 +1838,7 @@ function taskStageSync1(stage, box, files, current) {
   b.className = "btn sm" + (!taskRun && next && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 그 세부 목록을 펴면 그 안의 「다음 할 일」 단추가 강조
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : taskRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
     : !(files && files.done) ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !next ? "남은 단계가 없습니다"
-    : `이 묶음의 남은 단계를 차례로 한 번에 — ${stage.does}. 누를 때 한 번만 확인하고, 사람 손이 필요한 곳에서는 멈춥니다`;
+    : `이 묶음의 남은 단계를 차례로 한 번에 — ${stage.does}. 사람 손이 필요한 곳에서는 멈춥니다`;
   // 실행 단계가 바뀔 때·멈출 때에도 상세 줄을 함께 갱신한다. 매초 DOM을 다시 만들지 않아 포커스를 유지한다.
   const active = R ? R.key : busy && busy.key;
   for (const li of box.querySelectorAll("ol.dv-flow-steps > li")) {
@@ -1855,7 +1855,7 @@ function taskStageSync1(stage, box, files, current) {
 }
 
 // ---- 여러 묶음 이어서 한 번에(spec_작업 ② §14 「이어서 한 번에」 — 2026-11-12 사용자 "1,2,3 단계도 한번에 할 수 있는 기능도 넣어줘, 1,2 만 할 수도 있고 3까지 할 수도 있고") — 이관만.
-// 첨부 파일 칸 아래 한 줄 「이어서 한 번에 [1→2단계] [1→3단계]」. 시작 = 할 일이 남은 첫 묶음, 끝 = 고른 묶음. 실행은 taskRunAll(시작, 끝) — 확인은 누를 때 한 번(설계: Fable 답 · 같은 날)
+// 첨부 파일 칸 아래 한 줄 「이어서 한 번에 [1→2단계] [1→3단계]」. 시작 = 할 일이 남은 첫 묶음, 끝 = 고른 묶음. 실행은 taskRunAll(시작, 끝) — 확인 창 없이(2026-11-18 — 전에는 누를 때 한 번: 설계 Fable 답)
 const taskChain = (toId) => { // 이어 돌 묶음 = 처음 ~ toId 가운데 할 일이 남은 것. 둘 이상이고 끝 묶음에 할 일이 남았을 때만(아니면 [] — 그 묶음의 「한 번에 진행」 과 같다)
   const c = TASK_STAGES.slice(0, TASK_STAGES.findIndex((g) => g.id === toId) + 1).filter((g) => taskStageWork(g).some((s) => !s.done));
   return c.length > 1 && c[c.length - 1].id === toId ? c : [];
@@ -1874,7 +1874,7 @@ function taskChainEl() { // 줄 하나 — 글·보임·켜짐은 taskChainSync
     b.onclick = () => taskRunChain(g.id);
     box.append(b);
   }
-  box.append(hHelp("이어서 한 번에 안내", "할 일이 남은 첫 묶음부터 고른 묶음까지 차례로 진행합니다. 누를 때 한 번만 확인하고, 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다(끝난 묶음은 그대로). 남은 묶음이 하나뿐이면 그 묶음의 「한 번에 진행」 을 쓰세요.", { note: true }),
+  box.append(hHelp("이어서 한 번에 안내", "할 일이 남은 첫 묶음부터 고른 묶음까지 차례로 진행합니다. 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다(끝난 묶음은 그대로). 남은 묶음이 하나뿐이면 그 묶음의 「한 번에 진행」 을 쓰세요.", { note: true }),
     el("span", "dv-chain-state"));
   return box;
 }
@@ -1891,7 +1891,7 @@ function taskChainSync(host = document.getElementById("taskChain")) { // taskSta
     b.disabled = !!taskRun || !!taskResetting || busy || !ready;
     b.title = mine ? "이어 진행 중 — 멈추려면 지금 도는 묶음의 「멈춤」" : taskRun ? "지금 진행이 끝난 뒤 쓸 수 있습니다" : taskResetting ? "초기화가 끝난 뒤 쓸 수 있습니다"
       : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다" : !ready ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요"
-      : `${c.map((g) => `${g.no} 「${g.name}」`).join(" → ")} 을 이어서 한 번에 — 누를 때 한 번만 확인하고, 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다`;
+      : `${c.map((g) => `${g.no} 「${g.name}」`).join(" → ")} 을 이어서 한 번에 — 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다`;
   }
   const cur = C && TASK_STAGES.find((g) => g.id === taskRun.stage), st = host.querySelector(".dv-chain-state");
   const msg = cur ? `${C.label} 이어 진행 중 — 지금 ${cur.no} 「${cur.name}」${taskRun.stop ? " · 이 일이 끝나면 멈춥니다(뒤 묶음은 진행 안 함)" : ""}` : "";
@@ -1947,7 +1947,7 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   const at = (key, note) => { // 일 하나를 시작하기 전 — 멈춤 요청·문서 바뀜을 보고, 상태 줄을 바꾼다
     if (run.stop) taskHalt("눌러서 멈췄습니다 — 끝난 단계는 그대로입니다");
     if (key !== "open" && state.id !== report.id) taskHalt("다른 문서를 열어 멈췄습니다");
-    const [p1, r1] = (taskSlots() || []).map((k) => taskSlotDoc(k)); // 누를 때 확인한 쌍 그대로인가 — 도는 중 칸의 문서를 바꾸면 다른 계획서의 내용이 들어갈 수 있다
+    const [p1, r1] = (taskSlots() || []).map((k) => taskSlotDoc(k)); // 누를 때의 쌍 그대로인가 — 도는 중 칸의 문서를 바꾸면 다른 계획서의 내용이 들어갈 수 있다
     if (!p1 || !r1 || p1.id !== plan.id || r1.id !== report.id) taskHalt("도는 중에 사업계획서·연차보고서 칸의 문서가 바뀌어 멈췄습니다 — 다시 누르세요");
     if (key !== "open") run.key = key;
     run.note = note;
@@ -2013,7 +2013,7 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   if (!step("division").done) {
     let A = taskDivOf(plan, true);
     if (!A || !A.values) taskHalt("사업계획서(기준)에 프로젝트 구성 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽은 뒤 다시 누르세요");
-    if (A.read) { // 저장된 값이 없어 문서에서 읽은 값(누를 때 확인 창에 보였다) — 사업계획서 작업의 값으로 저장한다(문서는 그대로)
+    if (A.read) { // 저장된 값이 없어 문서에서 읽은 값(2026-11-18 부터 확인 창 없이 — 끝 글 · 1단계 단계 글에 그 값이 보인다) — 사업계획서 작업의 값으로 저장한다(문서는 그대로)
       at("division", "문서에서 읽은 값을 사업계획서 값으로 저장");
       await api(`/api/docs/${plan.id}/divisions/settings`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ values: A.values }) });
       await flowRead();
@@ -2075,7 +2075,7 @@ async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 �
 
   // ③ 넣기 계획 → ④ 내용 반영 — 계획 뒤 곧바로 반영(사이에 문서가 바뀌면 409: 계획을 한 번만 다시). 반영은 편집 하나(실행 취소 1)
   let gapped = false, gapNote = "";
-  let mapped = false, mapNote = ""; // 표 대응(spec_병합 ② §5-3 10) — 같은 표로 이었는데 칸을 못 맞춘 표가 계획에 있으면 한 번만 LLM 에 묻고 다시 계획한다(유료 · 표마다 십수 초 — 시작할 때 한 번 확인한 범위)
+  let mapped = false, mapNote = ""; // 표 대응(spec_병합 ② §5-3 10) — 같은 표로 이었는데 칸을 못 맞춘 표가 계획에 있으면 한 번만 LLM 에 묻고 다시 계획한다(유료 · 표마다 십수 초 — 「한 번에 진행」 을 누른 범위)
   for (let tries = 0; ; tries++) {
     at("plan", "넣기 계획");
     await fillPlan();
@@ -2112,27 +2112,11 @@ async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 �
   }
 }
 
-function taskRunWhat(stage, report) { // 확인 창 — 그 묶음이 바꾸는 것·안 바꾸는 것·유료 호출. 묶음 하나와 이어 진행이 같이 쓴다
-  if (stage.id === "config") { // 1단계 — 확정할 값(사업계획서 입력 값 · 없으면 문서에서 읽은 값 · 그것도 없으면 누른 뒤 읽음 — spec_작업 ② §18)
-    const plan = taskSlotDoc("plan"), CF = plan ? taskConfigOf(plan) : null, v = CF && (CF.values || CF.read), where = divConfirmWhere(CF && CF.sharing);
-    return (v ? `· 확정할 프로젝트 구성:${divValuesText(v)}${!CF.values ? "(사업계획서에서 읽음 — 확인하세요)" : ""}\n` : "· 프로젝트 구성 값이 없어 사업계획서에 적힌 단계·차년도·기관을 읽어 확정합니다 — 읽은 값을 먼저 보려면 취소하고 「사업계획서에서 추출」.\n")
-      + `· 이 값을 ${divConfirmWhat(where)}으로 저장(확정)합니다 — 문서는 바뀌지 않습니다(구조는 ${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」).\n`;
-  }
-  return stage.id === "clean"
-    ? `· 연차보고서 「${report.name}」 의 양식 안내(지우는 패턴 — ${cleanupNames()})를 중간 확인 없이 지웁니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번.\n`
-      + "· 패턴 목록에 없는 안내 · 본문 색(검정) ※ 줄 · 쓸 자리는 남깁니다. 패턴과 지울 자리를 보려면 취소하고 세부 목록의 「목록 보기」.\n"
-    : stage.id === "frame"
-    ? `· 중간 계획 확인 없이 연차보고서 「${report.name}」 의 구조(절·표 행·열)가 1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞게 바뀝니다 — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
-      + `· 사업계획서의 내용은 넣지 않습니다(${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」).\n`
-    : `· 중간 계획 확인 없이 연차보고서 「${report.name}」 에 사업계획서의 내용이 들어갑니다(구분 기준 자리 + 같은 이름 자리 · 그림 포함 · 표 칸은 글자 모양도) — 편집 한 번, 실행 취소(Ctrl+Z) 한 번. 사업계획서는 바뀌지 않습니다.\n`
-      + "· 헤딩·표 분석이 없거나 구조 반영 전 것이면 먼저 분석합니다(스크립트). 확인 필요한 자리가 있으면 LLM 검토를 한 번 돌립니다(유료 · 수십 초).\n"
-      + "· 그래도 빈 자리가 있으면 빈 자리 검토(LLM)를, 행·열 구성이 다른 표가 있으면 표 대응(LLM)을 한 번씩 돌립니다(유료 · 각 수십 초) — 글은 LLM 이 쓰지 않고 사업계획서의 글을 그대로 옮깁니다.\n";
-}
 function taskRunKeep(stage, plan, report, run, end) { // 그 묶음의 끝을 상태 줄에 남긴다(taskRunEnds — 묶음마다 하나) · taskRunLast = 마지막 것. 끝난 수는 방금 셈한 것(taskStepsLast)
   taskRunLast = taskRunEnds[stage.id] = { ...end, stage: stage.id, report: report.id, plan: plan.id, key: run.key, done: taskStageWork(stage).filter((s) => s.done).length };
 }
 
-// 그 묶음의 「한 번에 진행」 — 누를 때 한 번만 확인(2026-11-12 사용자 답 「시작할 때 한 번만」): 그 뒤로는 중간 계획 확인 없이 반영한다.
+// 그 묶음의 「한 번에 진행」 — 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 누를 때 한 번: 11-12 「시작할 때 한 번만」): 중간 계획 확인 없이 반영한다.
 // toId 가 뒤 묶음이면 stageId 부터 거기까지 이어서(taskRunChain — 「이어서 한 번에」) — 확인은 그때도 한 번, 묶음 경계마다 단계를 다시 셈하고 멈춤 요청·실패에서 전체가 멈춘다
 async function taskRunAll(stageId = "frame", toId = stageId, sure = false) { // sure = 확인 창 없이 — 작업 진행 에이전트의 실행 카드 「진행」 이 그 확인이다(doc_agent_work.js)
   if (taskRun) return;
@@ -2143,15 +2127,7 @@ async function taskRunAll(stageId = "frame", toId = stageId, sure = false) { // 
   const stages = TASK_STAGES.slice(i0, i1 + 1).filter((g) => leftOf(g).length); // 할 일이 남은 묶음만
   if (!stages.length) { toast("남은 단계가 없습니다"); return; }
   const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
-  const lines = (g, first) => leftOf(g).map((s, i) => `  ${taskStepName(s)}${first && !i && s.text ? ` — ${s.text}` : ""}`).join("\n"); // 지금 상태 글은 맨 첫 단계만
-  const ask = chain
-    ? `「${chain.label}」 을 이어서 한 번에 진행할까요? 묶음 사이에 다시 묻지 않습니다.\n\n`
-      + stages.map((g, i) => `■ ${g.no} ${g.name} — 남은 단계\n${lines(g, !i)}\n${taskRunWhat(g, report)}`).join("\n")
-      + `\n· 실행 취소는 묶음마다 따로입니다(한꺼번에 되돌리는 길은 없음 — 필요하면 먼저 확정해 두거나, ${TASK_STAGE_META.frame.no} 「초기화」 로 올린 원본으로).\n`
-      + "· 값이 없거나 실패하면 그 묶음·그 단계에서 전체가 멈추고 세부 목록을 폅니다 — 끝난 묶음은 그대로 남고 뒤 묶음은 진행하지 않습니다."
-    : `「${stages[0].no} ${stages[0].name}」 을 한 번에 진행할까요?\n\n남은 단계\n${lines(stages[0], true)}\n\n${taskRunWhat(stages[0], report)}`
-      + "· 값이 없거나 실패하면 그 단계에서 멈추고 세부 목록을 폅니다.";
-  if (!sure && !confirm(ask)) return;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 남은 단계 · 바뀌는 것 · 유료 호출을 적은 확인 창: design.md §18 「확인 창」). sure 는 부르는 쪽 호환으로만 남김
   const run = (taskRun = { stage: stages[0].id, report: report.id, key: leftOf(stages[0])[0].key, note: "", t0: Date.now(), stop: false, chain });
   taskRunLast = null;
   taskRunEnds = {};
@@ -2271,8 +2247,7 @@ async function taskCleanupRun({ quiet = false, run = null } = {}) { // ⑥ — �
   if (C.error) throw new Error(C.error);
   if (epoch !== state.epoch || flow !== taskFlow || (run && (taskRun !== run || run.stop))) return null;
   if (!C.counts.total) return "지울 안내가 없습니다";
-  const lines = cleanupPatterns().filter((p) => C.counts[p.key]).map((p) => `· ${p.name} ${nf(C.counts[p.key])} — ${p.how || ""}`).join("\n");
-  if (!quiet && !confirm(`연차보고서에서 양식 안내를 지울까요?\n\n${lines}\n\n· 패턴 목록에 없는 안내와 본문 색(검정) ※ 줄은 남깁니다\n\n한 번의 편집으로 지우고, 실행 취소(Ctrl+Z) 한 번으로 되돌릴 수 있습니다. 패턴과 지울 자리를 보려면 취소하고 「목록 보기」.`)) return null;
+  // 확인 창 없이 바로 지운다(2026-11-18 사용자 「이런 알람좀 주지마」 — 실행 취소 한 번으로 되돌림: design.md §18 「확인 창」)
   flow.guide = { busy: true };
   taskStepsDraw();
   state.busy = true;
@@ -6657,19 +6632,14 @@ async function headsLlmRules() {
   const s1 = heads.view && heads.view.stage1;
   if (!s1) return;
   const st = await headsLlmReady();
-  if (!st || !confirm(`LLM 규칙 보강 — 못 맞춤 ${s1.summary.unmatchedGroups}묶음·충돌 ${s1.summary.conflicts}묶음을 ${llmName(st)} 에 보내 규칙식을 제안받고, `
-    + "검증을 통과한 것만 후보 규칙으로 저장합니다.\n유료 호출입니다(보통 $0.2~0.3 · 40초 안팎). 계속할까요?")) return;
+  if (!st) return; // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 유료 · 보통 $0.2~0.3 · 40초 안팎: design.md §18 「확인 창」)
   headsStart(1, true);
 }
 
 async function headsLlmGraph() {
   const st = await headsLlmReady();
-  const s1 = heads.view && heads.view.stage1, left = s1 && s1.summary ? (s1.summary.unmatchedGroups || 0) + (s1.summary.conflicts || 0) : 0;
   // LLM 판정은 스크립트가 판정하지 못한 것(못 맞춤·충돌)까지 본다(spec_헤딩_추출 ② §3, 2026-11-16) — 그래프 전에 규칙 보강을 먼저(이미 답을 받은 묶음은 서버가 다시 묻지 않는다)
-  if (!st || !confirm(`헤딩 그래프(LLM) — 유형 판정·본문 구간별 판정·서식 쌍 판정을 ${llmName(st)} 에 여러 번 묻습니다.\n`
-    + (left ? `스크립트가 판정하지 못한 첫머리 ${left}묶음(못 맞춤·충돌)이 있으면 그 규칙 보강을 먼저 합니다(아직 묻지 않은 묶음만 · $0.2~0.3 더).\n` : "")
-    + "헤딩 판정이 끝나면 이어서 서식이 여러 가지인 템플릿마다 서식 정리 계획을 받습니다(템플릿마다 호출 하나 더 · 계획만 — 문서는 바뀌지 않습니다).\n"
-    + "유료 호출입니다(연구개발계획서 양식 기준 헤딩 판정 약 4분 · $3 안팎 + 서식 계획). 계속할까요?")) return;
+  if (!st) return; // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 유료 · 연구개발계획서 양식 기준 약 4분 · $3 안팎 + 서식 계획: design.md §18 「확인 창」)
   headsStart(2, true);
 }
 
@@ -8117,8 +8087,7 @@ function headsCard3(r, busy) {
 
 async function headsLlmTables() {
   const st = await headsLlmReady();
-  if (!st || !confirm(`표 구조(LLM) — 표를 묶음(칸 500개 안팎)마다 ${llmName(st)} 에 보내 서브 테이블·헤더 행/열·칸 역할을 판정받습니다.\n`
-    + "유료 호출입니다(연구개발계획서 양식 기준 10여 번 · 수 분). 계속할까요?")) return;
+  if (!st) return; // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 유료 · 연구개발계획서 양식 기준 10여 번 · 수 분: design.md §18 「확인 창」)
   headsStart(3, true);
 }
 
@@ -9251,7 +9220,7 @@ function divRunBar(staged) { // 묶음 상자 — staged = TASK 묶음 안(이�
   const press = (run) => () => { if (dv.busy || divRunLocked()) return; dv.keepFocus = true; run(); };
   const btn = (id, label, run, cls = "btn") => { const b = hBtn(label, run, { cls }); b.id = id; b.setAttribute("aria-describedby", "divRunState"); return b; };
   const help = hHelp("프로젝트 구성 반영 안내", `${staged ? "" : "① "}변경 계획 보기 — 바뀔 자리와 지워질 글을 문서 옆 목록으로 봅니다(문서는 안 바뀜).\n${staged ? "" : "② "}반영 — 그 계획대로 이 문서의 구조(절·표 행·열)를 바꿉니다. 실행 취소 한 번으로 되돌립니다.\n계획 다시 열기 — 닫은 목록을 다시 엽니다(다시 계산하지 않음).`
-    + (staged ? "" : "\n한 번에 진행 — 계획을 세우고 바로 반영합니다. 누를 때 한 번만 확인하고, 미해결 자리나 계획 오류가 있으면 반영하지 않고 멈춥니다(지원 안 되는 자리는 그대로 둡니다)."
+    + (staged ? "" : "\n한 번에 진행 — 계획을 세우고 바로 반영합니다. 미해결 자리나 계획 오류가 있으면 반영하지 않고 멈춥니다(지원 안 되는 자리는 그대로 둡니다)."
       + "\n불러오기 — 고른 곳(이 프로젝트 · 문서 · 다른 프로젝트 · 저장한 프로젝트 구성)의 값으로 입력 칸을 채웁니다(문서는 안 바뀜).\n세부 — ①·② 단추와 프로젝트 구성 값(단계·차년도 · 기관) 입력 · 「프로젝트에 저장」 은 접어 둔 「세부」 안에 있습니다."), { note: true });
   if (staged) head.append(totals, help);
   else head.append(el("strong", null, "프로젝트 구성 반영"), help, btn("divRunAll", "한 번에 진행", press(() => divRunAll())), totals);
@@ -9315,7 +9284,7 @@ function divRunSync() { // 묶음의 단추(켜짐 · 강조 · 도움말)와 �
   reopen.title = dv.plan ? "닫은 목록을 문서 옆에 다시 엽니다 — 다시 계산하지 않습니다" : "이 화면에 열 수 있는 계획이 없습니다 — 「변경 계획 보기」 를 누르세요";
   if (all) {
     all.disabled = off || !!why;
-    all.title = off ? wait : why || "변경 계획을 세우고 바로 반영합니다 — 누를 때 한 번만 확인하고, 사람이 봐야 할 자리가 있으면 반영하지 않고 멈춥니다";
+    all.title = off ? wait : why || "변경 계획을 세우고 바로 반영합니다 — 사람이 봐야 할 자리가 있으면 반영하지 않고 멈춥니다";
   }
   // 강조 단추는 하나 — 다음 할 일(계획이 준비됐으면 반영, 아니면 계획). TASK 묶음 안에서는 강조하지 않는다(강조는 그 묶음의 「다음 할 일」 · 「한 번에 진행」 — design.md §11).
   // 묶음 없는 TASK 의 「세부」 가 접혀 있으면 차례 단추가 안 보이므로 강조는 「한 번에 진행」(§11 「접혀 있으면 묶음의 단추, 펴면 세부 목록의 다음 할 일」)
@@ -9354,22 +9323,16 @@ async function divRunFocus() { // 2열 발의 「… 단추로 이동」 — 패
   bar.classList.add("dv-run-flash");
 }
 
-// 「한 번에 진행」(묶음 없는 TASK — 양식 맞추기): 변경 계획 → 반영. 확인은 누를 때 한 번(design.md §11 · 이관 묶음과 같게), 그 뒤로는 묻지 않는다 —
+// 「한 번에 진행」(묶음 없는 TASK — 양식 맞추기): 변경 계획 → 반영. 확인 창 없이(2026-11-18 — design.md §18 「확인 창」 · 이관 묶음과 같게) —
 // 대신 사람이 봐야 할 계획(미해결 · 계획 오류 · 기관 차례가 마지막 반영과 다름)이면 반영하지 않고 목록을 연 채 멈춘다(astra P1 — 수만 보인 확인 창은 검토가 아니다).
-// opt.asked = 부른 쪽이 이미 확인받았다(대시보드의 「이어서 한 번에 1→3단계」 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛰고 멈추는 검사는 그대로다
+// opt.asked = 옛 인자 — 2026-11-18 사용자 「이런 알람좀 주지마」 부터 확인 창이 없어 쓰지 않는다(부르는 쪽 호환으로 받기만 함 · LLM 연결 · 멈추는 검사는 그대로)
 async function divRunAll(opt = {}) {
   if (!state.id || dv.busy || divRunLocked()) return;
   const why = divRunWhy();
   if (why) { toast(why, true); return; }
-  const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" ? st0.plan.summary : null, source = taskDocRole(state.task) === "source";
-  if (!opt.asked && !confirm(`「${state.name}」 의 프로젝트 구성 반영을 한 번에 진행할까요?\n\n`
-    + (source ? "※ 이 문서는 이 TASK 의 원본 문서입니다 — 원본의 구조가 바뀝니다.\n" : "")
-    + `· 값: ${divValuesText(divValues())}\n`
-    + (s0 ? `· 지금 계획 그대로 반영합니다 — 맞출 자리 ${s0.applied}곳 · 항목 추가 ${s0.added} · 지움 ${s0.removed} · 글 바꿈 ${s0.changes} · 지워지는 글 문단 ${s0.deleted}\n`
-      : "· 변경 계획을 세운 뒤 중간 확인 없이 이 문서의 구조(절·표 행·열)를 값에 맞게 바꿉니다 — 줄어드는 항목은 그 안의 글과 함께 지워집니다. 바뀔 자리를 먼저 보려면 취소하고 「세부」 의 「① 변경 계획 보기」.\n")
-    + "· 미해결 자리나 계획 오류가 있으면, 또는 기관의 차례가 마지막 반영과 다르면 반영하지 않고 멈춥니다(목록을 연 채). 지원 안 되는 자리는 그대로 둡니다.\n"
-    + "· 편집 한 번 — 「실행 취소」(Ctrl+Z) 한 번으로 되돌리고, 표준 검사에 걸리면 전부 되돌립니다.")) return;
-  const mine = () => epoch === state.epoch && id === state.id && view === dv;
+  const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" ? st0.plan.summary : null;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 값 · 계획 수를 적은 확인 창: design.md §18 「확인 창」) — 멈추는 검사(미해결 · 계획 오류 · 기관 차례)는 아래 그대로
+  const mine =() => epoch === state.epoch && id === state.id && view === dv;
   const halt = (text) => { view.msg = { kind: "halt", text: `멈춤 — ${text}` }; toast(`한 번에 진행이 멈췄습니다 — ${text}`, true); if (mine()) divRunReveal(); }; // 멈추면 「세부」 를 펴서 다음 단추(② 반영 · 다시 계획)를 보인다(design.md §11)
   view.auto = true;
   view.keepFocus = true;
@@ -9534,14 +9497,13 @@ function divFoot(foot, plan) { // 2열 발 — 그 계획의 요약 글 + 「…
   divRunSync(); // 뺄 자리를 바꾸면 묶음의 「반영」 도 함께 꺼진다
 }
 
-async function divApply({ quiet = false } = {}) { // quiet = 확인 창 없이(「한 번에 진행」 — 누를 때 이미 한 번 물었다: taskRunAll · divRunAll). → true(문서에 반영함) | false
+async function divApply({ quiet = false } = {}) { // quiet = 옛 인자(2026-11-18 부터 확인 창이 없다). → true(문서에 반영함) | false
   const plan = dv.plan;
   if (!plan || dv.busy || !state.id) return false;
   const s = plan.summary, at = divPlanState();
   if (at.kind === "done") return false;
   if (at.kind === "skip") { toast("뺄 자리를 바꿨습니다 — 다시 계획해야 반영됩니다", true); return false; } // 단추가 꺼져 있어도 함수에서 다시 본다(계획을 세우는 사이 체크를 바꾼 경우 — astra)
-  const issues = divPlanIssues(s);
-  if (!quiet && !confirm(`「${state.name}」 에 프로젝트 구성을 반영할까요?\n\n${taskDocRole(state.task) === "source" ? "※ 이 문서는 이 TASK 의 원본 문서입니다 — 원본의 구조가 바뀝니다.\n" : ""}맞출 자리 ${s.applied}곳 — 항목 추가 ${s.added} · 지움 ${s.removed} · 글 바꿈 ${s.changes}\n지워지는 글 문단 ${s.deleted}개(목록의 「지워질 글 보기」에서 확인)${issues ? `\n${issues} — 그 자리는 그대로 남습니다(손으로 맞추세요)` : ""}\n\n한 번에 반영하고 표준 검사에 걸리면 전부 되돌립니다. 반영 뒤 「실행 취소」로 되돌릴 수 있습니다.`)) return false;
+  // 확인 창 없이 바로 반영한다(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 맞출 자리 · 지워지는 글 문단 수를 적은 확인 창: design.md §18 「확인 창」 · 실행 취소 한 번 · 표준 검사에 걸리면 전부 되돌림)
   const id = state.id, epoch = state.epoch, view = dv;
   await flushAll();
   if (epoch !== state.epoch) return false;

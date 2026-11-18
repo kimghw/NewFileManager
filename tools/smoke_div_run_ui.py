@@ -7,7 +7,7 @@ TASK 「사업계획서 양식 표준화」(1단계 프로젝트 구성)에 연�
    접혀 있으면 강조는 「한 번에 진행」, 펴면 다음 할 일 하나 · 320/480px · 「불러오기」 는 입력만 바꾼다.
 ② 차례대로: ① → 목록(2열 발에는 반영 단추가 없다 — 「반영 단추로 이동」 뿐) → ② → 반영 결과 → 실행 취소.
 ③ 계획이 낡는 길(뺄 자리 · 글 고침 · 입력 바꿈)마다 ② 가 꺼지고 까닭이 상태 줄에.
-④ 「한 번에 진행」: 확인 창 한 번 → 계획 → 반영. 사람이 봐야 할 계획(미해결 — 응답을 고쳐 흉내 · 기관 차례 바뀜)이면 반영 요청을 보내지 않고 멈춘다.
+④ 「한 번에 진행」: 확인 창 없이(2026-11-18) 계획 → 반영. 사람이 봐야 할 계획(미해결 — 응답을 고쳐 흉내 · 기관 차례 바뀜)이면 반영 요청을 보내지 않고 멈춘다.
 ⑤ 저장 못 한 문단이 있으면 계획 요청을 보내지 않는다.
 ⑥ 프레임 이름(spec_작업 ② §10 — 2026-11-14): 반영하면 문서 이름이 「사업계획서_<프로젝트>_프레임.hwpx」, 실행 취소하면 올린 이름."""
 import argparse
@@ -226,7 +226,7 @@ try:
         lead.fill("인텍")
         page.wait_for_function("() => dv.values.orgs.lead === '인텍'")
 
-        # ---- 8. ① → ② 반영(확인 창 한 번 — 문서 이름·수) → 결과
+        # ---- 8. ① → ② 반영(확인 창 없이 — 2026-11-18 사용자 「이런 알람좀 주지마」) → 결과
         page.click("#divPlanButton")
         page.wait_for_function(f"() => !!dv.plan && ({IDLE})() && document.getElementById('divRunState').dataset.kind !== 'run'", timeout=240000)
         n = len(dialogs)
@@ -234,8 +234,7 @@ try:
         page.wait_for_function(f"() => !!dv.result && ({IDLE})() && document.getElementById('divRunState').dataset.kind === 'done'", timeout=240000)
         page.wait_for_function("() => !!dv.view && !!dv.view.applied && !!dv.result && dv.view.applied.rev === dv.result.rev && !!document.querySelector('#divAppliedState .dv-undo')", timeout=60000)  # 꼬리표는 지원 안 되는 자리가 있으면 「반영 결과 확인 필요」
         v, f = bar(page), page.evaluate(FOOT)
-        check("② 반영 — 확인 창 한 번(문서 이름 · 맞출 자리 · 지워지는 글 문단) · 반영 요청 1회", len(dialogs) == n + 1 and FORM.name in dialogs[-1] and "프로젝트 구성을 반영할까요" in dialogs[-1] and "맞출 자리" in dialogs[-1]
-              and "지워지는 글 문단" in dialogs[-1] and count("apply") == 1, dialogs[-1][:200] if dialogs else None)
+        check("② 반영 — 확인 창 없이 · 반영 요청 1회", len(dialogs) == n and count("apply") == 1, dialogs[n:])
         check("반영 뒤 — 상태 글 「반영 완료 · 편집 차례 N」 · 강조 없음 · ② 꺼짐 · 「반영 결과 열기」 · 발은 글 + 닫기뿐(실행 취소는 문서 반영 상태에)", v["text"].startswith("반영 완료 · 편집 차례 ") and v["kind"] == "done"
               and not [b for b in v["btns"] if b["primary"]] and v["by"]["divApplyButton"]["off"] and v["by"]["divReopenPlan"]["text"] == "반영 결과 열기" and not v["by"]["divReopenPlan"]["off"]
               and f["text"].startswith("반영 끝 — 편집 차례") and f["btns"] == ["닫기"] and page.locator("#divAppliedState .dv-undo").count() == 1, [v, f])
@@ -258,16 +257,15 @@ try:
         page.wait_for_function("(n) => state.name === n && (worksList.find((w) => w.id === state.id) || {}).name === n", arg=FORM.name, timeout=30000)
         check("프레임 이름 — 그 반영을 실행 취소하면 올린 이름으로 돌아옴", page.inner_text("#toolSource").strip() == FORM.name, page.inner_text("#toolSource"))
 
-        # ---- 10. 「한 번에 진행」 — 확인 창 한 번 → 계획 → 반영
+        # ---- 10. 「한 번에 진행」 — 확인 창 없이(2026-11-18) 계획 → 반영
         n, p0, a0 = len(dialogs), count("plan"), count("apply")
         page.click("#divRunAll")
         page.wait_for_function("() => dv.auto && document.getElementById('divRunState').dataset.kind === 'run'")
         check("한 번에 진행 — 도는 동안 단추는 모두 꺼짐", all(b["off"] for b in bar(page)["btns"]))
         page.wait_for_function(f"() => !!dv.result && ({IDLE})() && document.getElementById('divRunState').dataset.kind === 'done'", timeout=480000)
         v = bar(page)
-        check("한 번에 진행 — 확인 창은 누를 때 한 번뿐(문서 이름 · 값 · 멈추는 조건 · 되돌리는 길) · 계획 1회 + 반영 1회 · 「반영 완료」(지원 안 되는 자리가 있어도 끝까지)", len(dialogs) == n + 1 and "한 번에 진행할까요" in dialogs[n] and FORM.name in dialogs[n]
-              and "주관 인텍" in dialogs[n] and "변경 계획을 세운 뒤 중간 확인 없이" in dialogs[n] and "반영하지 않고 멈춥니다" in dialogs[n] and "실행 취소" in dialogs[n]
-              and count("plan") == p0 + 1 and count("apply") == a0 + 1 and v["text"].startswith("반영 완료"), [dialogs[n][:200] if len(dialogs) > n else None, count("plan") - p0, count("apply") - a0, v["text"]])
+        check("한 번에 진행 — 확인 창 없이 · 계획 1회 + 반영 1회 · 「반영 완료」(지원 안 되는 자리가 있어도 끝까지)", len(dialogs) == n
+              and count("plan") == p0 + 1 and count("apply") == a0 + 1 and v["text"].startswith("반영 완료"), [dialogs[n:], count("plan") - p0, count("apply") - a0, v["text"]])
         page.wait_for_function("() => !!dv.view && !!dv.view.applied && !!dv.result && dv.view.applied.rev === dv.result.rev && !!document.querySelector('#divAppliedState .dv-undo')", timeout=60000)  # 꼬리표는 지원 안 되는 자리가 있으면 「반영 결과 확인 필요」
 
         # ---- 11. 사람이 봐야 할 계획이면 멈춘다 — 반영 요청을 보내지 않는다. ⓐ 미해결(응답을 고쳐 흉내) ⓑ 기관의 차례가 마지막 반영과 다름
@@ -284,7 +282,7 @@ try:
         page.wait_for_function("() => document.getElementById('divRunMore').open && document.getElementById('divApplyButton').checkVisibility()")
         check("멈추면 접어 둔 「세부」 가 저절로 펴짐(② 반영이 보임) · 브라우저에 기억한 접힘은 그대로", page.evaluate("() => localStorage.getItem('nfm.divRunMore')") == "0" and page.evaluate("() => dv.ui.runMore") is True)
         v, f = bar(page), page.evaluate(FOOT)
-        check("ⓐ 미해결 2곳 — 반영 요청 0회 · 상태 줄 「멈춤 — 미해결 2곳 …」 · 목록은 열린 채 · ② 는 켜져 있다(확인한 뒤 사람이 누름)", count("apply") == a0 and len(dialogs) == n + 1 and v["kind"] == "halt" and v["text"].startswith("멈춤 — 미해결 2곳")
+        check("ⓐ 미해결 2곳 — 반영 요청 0회 · 상태 줄 「멈춤 — 미해결 2곳 …」 · 목록은 열린 채 · ② 는 켜져 있다(확인한 뒤 사람이 누름)", count("apply") == a0 and len(dialogs) == n and v["kind"] == "halt" and v["text"].startswith("멈춤 — 미해결 2곳")
               and "「② 반영」" in v["text"] and f["open"] and f["kind"] == "divisions" and not v["by"]["divApplyButton"]["off"] and not page.evaluate("() => !!dv.result"), [v, f])
         page.screenshot(path=str(OUT / "11_halt.png"))
         patch["unresolved"] = 0
@@ -296,8 +294,8 @@ try:
         page.click("#divRunAll")
         page.wait_for_function(f"() => !!dv.msg && dv.msg.kind === 'halt' && ({IDLE})()", timeout=240000)
         v = bar(page)
-        check("ⓑ 기관 차례 바뀜(가나대 ↔ 다라연) — 지금 계획 그대로 반영하려다 멈춤 · 반영 요청 0회 · 까닭에 기관 이름과 자리", count("apply") == a0 and len(dialogs) == n + 1 and "지금 계획 그대로 반영합니다" in dialogs[n]
-              and v["kind"] == "halt" and "의 차례가 마지막 반영과 다릅니다" in v["text"] and "가나대" in v["text"] and "공동 1 → 공동 2" in v["text"], [v, dialogs[n][:160] if len(dialogs) > n else None])
+        check("ⓑ 기관 차례 바뀜(가나대 ↔ 다라연) — 지금 계획 그대로 반영하려다 멈춤 · 반영 요청 0회 · 까닭에 기관 이름과 자리", count("apply") == a0 and len(dialogs) == n
+              and v["kind"] == "halt" and "의 차례가 마지막 반영과 다릅니다" in v["text"] and "가나대" in v["text"] and "공동 1 → 공동 2" in v["text"], [v, dialogs[n:]])
 
         # ---- 12. 값을 되돌려 다시 계획 — 바꿀 것이 없으면 「현재 구성과 맞습니다」(② 꺼짐)
         joint.nth(1).fill("가나대")

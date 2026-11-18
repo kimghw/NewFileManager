@@ -1,14 +1,14 @@
 """대시보드(패널 탭 「대시보드」 — app/static/dashboard.js · spec_작업에이전트 ② §9) 화면 확인 — 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 끝점 · 문서 편집은 모두 진짜.
 
 - 사업계획서 양식 표준화(plan_fit — spec_양식표준화)를 TASK 카드로 시작 → 패널 탭 줄의 첫 탭 「대시보드」 → 누르면 단계 흐름: 묶음 셋(1단계 프로젝트 구성 · 2단계 헤딩 추출 · 3단계 표 — 묶음마다 「한 번에 진행」) ·
-  단계 열넷(워크플로우 등록부 그대로 — 번호 · 이름 · 꼬리표 · 점선 = 안 해도 됨) · 상태(01 끝남 · 04 지금 — 펴짐 · 2 · 3단계는 분석 상태로: 헤딩 · 표 끝남 · LLM 판정은 「할 수 있음」 · 조정은 헤딩 LLM 판정 뒤)
+  단계 열넷(워크플로우 등록부 그대로 — 번호 · 이름 · 꼬리표 · 점선 = 선택) · 상태(01 끝남 · 04 지금 — 펴짐 · 2 · 3단계는 분석 상태로: 헤딩 · 표 끝남 · LLM 판정은 「할 수 있음」 · 조정은 헤딩 LLM 판정 뒤)
   · 머리 「끝남 n/9」(안 해도 되는 단계는 안 셈) · 「이어서 한 번에 1→3단계」 는 값 확정 전이라 꺼짐 + 까닭 글.
 - 1단계(대시보드에서만): 「구성 읽기」(끝 글 · ✓) · 「구성 불러오기」(「작업 내용」 과 같은 목록 · 고른 것이 다시 그려도 그대로 · 「불러오기」 → divSourceLoad) · 「프로젝트 구성 입력 · 확정…」 → 폼 → 「확정」 →
-  「이어서 한 번에 1→3단계」(확인 창 한 번 → divRunAll · headsRunAll · headsPickRun(["l3"]) 차례 · 모두 {asked: true} — 함수는 바꿔 끼워 부른 것만 본다 · 1단계가 적용까지 안 가면 멈추고 뒤 묶음은 시작하지 않음)
+  「이어서 한 번에 1→3단계」(확인 창 없이 — 2026-11-18 → divRunAll · headsRunAll · headsPickRun(["l3"]) 차례 · 모두 {asked: true} — 함수는 바꿔 끼워 부른 것만 본다 · 1단계가 적용까지 안 가면 멈추고 뒤 묶음은 시작하지 않음)
   → 「변경 계획 보기」 → 「문서에 반영」(제 확인 창) → 문서가 바뀜 · 「지금」 이 2단계로.
 - 2 · 3단계 단추(함수는 바꿔 끼움 · 분석 상태는 끝점의 답을 흉내): LLM 판정 → headsPickRun(["l2"]) · 표 판정 → ["l3"] · 결과가 없거나 실패하면 「헤딩 추출(스크립트)」 ["s1","s2"] · 「표 구조(스크립트)」 ["s3"] ·
   조정 「모두 반영」(묻지 않고 → tpbApply({plans})) · 「계획 보기」 · 「템플릿 관계 열기」 · 「테이블 탭 열기」 · 묶음 「한 번에 진행」(headsRunAll · headsPickRun(남은 것)) · 헤딩 작업이 도는 동안은 꺼짐.
-- 05 구분 기준 자리 확인(안 해도 됨): 펴면 「LLM 검토 실행」 → 확인 창 → 끝 글 · 문서 옆 열에 검토 결과 목록 · 남은 문단 후보가 있으면 끝남이 아님 → 「다시 검토」 로 후보가 없으면 「✓ 끝남」(검토 끝점의 답만 흉내 — LLM 끔).
+- 05 구분 기준 자리 확인(선택): 펴면 「LLM 검토 실행」 → 확인 창 → 끝 글 · 문서 옆 열에 검토 결과 목록 · 남은 문단 후보가 있으면 끝남이 아님 → 「다시 검토」 로 후보가 없으면 「✓ 끝남」(검토 끝점의 답만 흉내 — LLM 끔).
 - 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」(등록부의 조건) · 좁은 패널에서 가로 넘침 없음 · 다시 그려도 초점 유지(1초 지켜보기) · 문서 일반 편집(doc_edit)의 흐름 · 「에이전트 보기 열기」 · 콘솔 오류 없음.
 - TASK 가 없는 문서(TASK 없이 올림 → #w=) — 탭은 보이고 「TASK 고르기」 카드 → 「이 TASK 로」 → 문서에 TASK 가 적히고 그 자리에서 단계 흐름(② §9 「TASK 가 없을 때」).
 
@@ -156,10 +156,11 @@ def main():
         check("묶음 셋 — 1단계 프로젝트 구성 · 2단계 헤딩 추출 · 3단계 표(등록부의 번호) · 묶음마다 「한 번에 진행」 · 1단계는 값 확정 전이라 꺼짐",
               [g[:2] for g in h["groups"]] == [["1단계", "프로젝트 구성"], ["2단계", "헤딩 추출"], ["3단계", "표"]] and all(g[2] == "한 번에 진행" for g in h["groups"]) and h["groups"][0][3]
               and "표 판정(LLM)도 같이" in h["groups"][1][4], h["groups"])
-        check("단계 열넷(등록부 그대로) — 01 문서 올리기 … 02 구성 읽기 · 03 구성 불러오기 · 04 프로젝트 구성 확정 · 05 구분 기준 자리 확인 · 06 변경 계획 · 07 적용(문서 바뀜) · 08~11 헤딩 · 12~14 표(점선 = 안 해도 됨)",
+        check("단계 열넷(등록부 그대로) — 01 문서 올리기 … 02 구성 읽기 · 03 구성 불러오기 · 04 프로젝트 구성 확정 · 05 구분 기준 자리 확인 · 06 변경 계획 · 07 적용(문서 바뀜) · 08~11 헤딩 · 12~14 표(점선 = 선택)",
               [n["key"] for n in nodes] == STD_KEYS and [n["no"] for n in nodes] == [f"{i:02d}" for i in range(1, 15)] and {n["key"] for n in nodes if n["opt"]} == STD_OPT
               and by["values"]["name"] == "프로젝트 구성 확정" and by["read"]["name"] == "구성 읽기" and by["load"]["name"] == "구성 불러오기" and "문서 바뀜" in by["apply"]["tags"] and "문서 바뀜" in by["adjust"]["tags"]
-              and "LLM" in by["headsLlm"]["tags"] and "LLM" in by["tablesLlm"]["tags"], nodes)
+              and "LLM" in by["headsLlm"]["tags"] and "LLM" in by["tablesLlm"]["tags"]
+              and "필수" in by["values"]["tags"] and "선택" in by["review"]["tags"] and "필수" not in by["review"]["tags"] and "필수" not in by["heads"]["tags"], nodes)   # 필수 = 선택 · 자동 · 준비 중이 아닌 단계(2026-11-18 사용자 「꼭 해야하는건 필수 라고 적어줘」)
         check("상태 — 01 ✓ 끝남 · 02 구성 읽기 「할 수 있음」 · 03 상태 글 없음 · 04 지금(펴짐 · 「프로젝트 구성 입력 · 확정…」) · 06 · 07 남음 · 헤딩 · 표 ✓(첫 분석) · LLM 판정은 「할 수 있음」(1단계가 남아도) · 조정은 헤딩 LLM 판정 뒤",
               by["open"]["st"] == "✓ 끝남" and by["read"]["state"] == "ready" and by["read"]["st"] == "할 수 있음" and by["load"]["st"] == "" and by["values"]["state"] == "now" and by["values"]["open"]
               and not any(n["open"] for n in nodes if n["key"] != "values") and [a[0] for a in by["values"]["acts"]] == ["프로젝트 구성 입력 · 확정…"] and by["plan"]["state"] == "todo" and by["apply"]["state"] == "todo"
@@ -219,8 +220,13 @@ def main():
         # ---- 대시보드에서만: 값 입력 → 확정
         page.click('#paneDash .dash-node[data-key=values] .dash-acts button:has-text("프로젝트 구성 입력")')
         page.wait_for_selector("#paneDash .agw-form [data-agw=confirm]")
-        names = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-node[data-key=values] .dash-detail button')].map((b) => b.textContent)")
-        check("폼을 편 카드의 단추 셋 — 「확정」 · 「문서에서 보기」(폼) · 「닫기」(단계) — 「구성 읽기」 는 02 단계에", names == ["확정", "문서에서 보기", "닫기"], names)
+        names = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-node[data-key=values] .dash-detail button')].map((b) => b.textContent.trim())")
+        form = page.evaluate("""() => { const f = document.querySelector('#paneDash .agw-form'), top = (s) => { const e = f.querySelector(s); return e ? Math.round(e.getBoundingClientRect().top) : null; };
+          return { row: [top('[data-agw=confirm]'), top('[data-agw=read]'), top('[data-agw=close]')], nums: [top('[data-agw=stages]'), top('[data-agw=years0]'), top('[data-agw=current]')],
+                   joint: f.querySelector('[data-agw=joint]').tagName, wide: f.scrollWidth <= f.clientWidth + 1 }; }""")
+        check("폼을 편 카드의 단추 셋이 폼의 한 줄 — 「확정」 · 「문서에서 보기」 · 「닫기」(2026-11-18 사용자 「확정/문서에서보기,닫기는 한줄로」) · 단계 수 · 차년도 수 · 당해 차년도도 한 줄 · 공동기관은 한 줄 칸(쉼표) · 가로 넘침 없음 — 「구성 읽기」 는 02 단계에",
+              names == ["확정", "문서에서 보기", "닫기"] and len(set(form["row"])) == 1 and None not in form["row"] and len(set(form["nums"])) == 1 and None not in form["nums"]
+              and form["joint"] == "INPUT" and form["wide"], [names, form])
         page.locator("#paneDash .dash-node[data-key=values]").screenshot(path=str(OUT / "01b_form.png"))
         page.fill("#paneDash [data-agw=years0]", "3")
         page.wait_for_timeout(1300)   # 1초 지켜보기가 지나도 폼이 그대로(적는 동안 다시 그리지 않음)
@@ -229,7 +235,7 @@ def main():
         page.wait_for_timeout(1300)
         kept = page.evaluate("() => ({ y: document.querySelector('#paneDash [data-agw=years0]').value, focus: document.activeElement === document.querySelector('#paneDash [data-agw=lead]') })")
         check("폼(에이전트 질문 카드와 같은 폼)이 펼친 카드 안에 · 적는 동안 다시 그려도 값 · 초점이 그대로", kept == {"y": "3", "focus": True}, kept)
-        page.fill("#paneDash [data-agw=joint]", "씨드로닉스\n유엔젤")
+        page.fill("#paneDash [data-agw=joint]", "씨드로닉스, 유엔젤")
         page.click("#paneDash [data-agw=confirm]")
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=values]')?.dataset.state === 'done'", timeout=60000)
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=plan]')?.dataset.state === 'now'", timeout=30000)
@@ -241,14 +247,14 @@ def main():
               and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0 and not h["groups"][0][3] and h["top"] == [["button", "이어서 한 번에 1→3단계", False]], [h, div.get("confirmed")])
         page.screenshot(path=str(OUT / "02_confirmed.png"))
 
-        # ---- 「이어서 한 번에 1→3단계」(spec_양식표준화 ② §4) — 확인 창 한 번 → 묶음의 실행을 차례로(asked) · 1단계가 적용까지 안 가면 멈춤(함수는 바꿔 끼움 — 부른 차례 · 인자만 본다)
+        # ---- 「이어서 한 번에 1→3단계」(spec_양식표준화 ② §4) — 확인 창 없이(2026-11-18) 묶음의 실행을 차례로(asked) · 1단계가 적용까지 안 가면 멈춤(함수는 바꿔 끼움 — 부른 차례 · 인자만 본다)
         page.evaluate("() => { window.__fitOk = true; window.__headsOk = true; }")
         n_dialogs = len(dialogs)
         page.click('#paneDash .dash-top button:has-text("이어서 한 번에")')
         page.wait_for_function("() => /^이어서 한 번에 1→3단계 — 끝남 — /.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=60000)
         h, calls = page.evaluate(HEAD), page.evaluate(CALLS)
-        check("「이어서 한 번에 1→3단계」 → 확인 창 한 번(묶음마다 하는 일 — 1단계 적용 · 2단계 전체 실행 · 3단계 표 판정) → divRunAll · headsRunAll · headsPickRun([l3]) 차례로 · 모두 {asked: true} · 끝 글 「끝남 — 1단계 적용함 / …」",
-              len(dialogs) == n_dialogs + 1 and all(x in dialogs[-1] for x in ("1→3단계", "1단계 프로젝트 구성", "2단계 헤딩 추출", "3단계 표"))
+        check("「이어서 한 번에 1→3단계」 → 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 묶음마다 하는 일은 단추 도움말) → divRunAll · headsRunAll · headsPickRun([l3]) 차례로 · 모두 {asked: true} · 끝 글 「끝남 — 1단계 적용함 / …」",
+              len(dialogs) == n_dialogs
               and calls == [["divRunAll", {"asked": True}], ["headsRunAll", {"asked": True}], ["headsPickRun", ["l3"], {"asked": True}]]
               and h["last"].startswith("이어서 한 번에 1→3단계 — 끝남 — 1단계 적용함 / 2단계 검사 전체 실행 끝 / 3단계 검사 단계별 실행 l3") and not h["lastHalt"], [dialogs[n_dialogs:], calls, h["last"]])
         page.evaluate("() => { window.__fitOk = false; window.__chainApplied = false; window.__headsOk = false; window.__chainHeads = false; }")
@@ -280,7 +286,7 @@ def main():
               h["tool"] == "Dash" and page.evaluate("() => !document.getElementById('headsDlg').hidden") and n5["open"] and any(a[0] == "문서에 반영" for a in n5["acts"]), [h, n5])
         page.screenshot(path=str(OUT / "03_plan.png"))
 
-        # ---- 반영(제 확인 창) → 문서가 바뀜 · 모두 끝남
+        # ---- 반영(확인 창 없이 — 2026-11-18) → 문서가 바뀜 · 모두 끝남
         n_dialogs = len(dialogs)
         page.click('#paneDash .dash-node[data-key=apply] .dash-acts button:has-text("문서에 반영")')
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=apply]')?.dataset.state === 'done'", timeout=180000)
@@ -291,8 +297,8 @@ def main():
         by = {n["key"]: n for n in nodes}
         d1, _ = counted(nodes)
         rev1 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
-        check("「문서에 반영」 → 확인 창 한 번(「작업 내용」 의 ② 반영과 같은 창) → 문서가 바뀜 · 끝 글 「문서에 반영 — 문서에 반영했습니다 …」 · 1단계 「한 번에 진행」 꺼짐 · 「지금」 이 2단계(09 헤딩 LLM 판정 — 펴짐) · 3단계 표 판정은 「할 수 있음」",
-              len(dialogs) == n_dialogs + 1 and rev1 > rev0 and h["last"].startswith("문서에 반영 — 문서에 반영했습니다") and h["groups"][0][3] and by["headsLlm"]["state"] == "now" and by["headsLlm"]["open"]
+        check("「문서에 반영」 → 확인 창 없이(2026-11-18) → 문서가 바뀜 · 끝 글 「문서에 반영 — 문서에 반영했습니다 …」 · 1단계 「한 번에 진행」 꺼짐 · 「지금」 이 2단계(09 헤딩 LLM 판정 — 펴짐) · 3단계 표 판정은 「할 수 있음」",
+              len(dialogs) == n_dialogs and rev1 > rev0 and h["last"].startswith("문서에 반영 — 문서에 반영했습니다") and h["groups"][0][3] and by["headsLlm"]["state"] == "now" and by["headsLlm"]["open"]
               and by["tablesLlm"]["state"] == "ready" and h["count"] == f"끝남 {d1}/9" and d1 >= 6 and h["top"] == [["button", "이어서 한 번에 2→3단계", False]], [dialogs[n_dialogs:], rev0, rev1, h, [(n["key"], n["state"]) for n in nodes]])
         page.screenshot(path=str(OUT / "04_done.png"))
         next_done = h["next"]
@@ -413,9 +419,9 @@ def main():
         page.wait_for_function("() => /^구분 기준 LLM 검토 — /.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=30000)
         h, n3, text3 = page.evaluate(HEAD), node(page, "review"), page.evaluate(TEXT3)
         lst = page.evaluate("() => ({ open: !document.getElementById('headsDlg').hidden, add: [...document.querySelectorAll('#headsDlgBody button')].filter((x) => x.textContent === '자리로 추가').length })")
-        check("「LLM 검토 실행」 → 확인 창 한 번(유료) → 끝 글 「구분 기준 LLM 검토 — 빠진 자리 후보 1 …」 · 문서 옆 열에 검토 결과 목록(「자리로 추가」) · 패널은 대시보드 그대로 · 05 는 펴진 채 「다시 검토」 · 「검토 결과 보기」(강조)"
+        check("「LLM 검토 실행」 → 확인 창 없이(유료 — 2026-11-18) → 끝 글 「구분 기준 LLM 검토 — 빠진 자리 후보 1 …」 · 문서 옆 열에 검토 결과 목록(「자리로 추가」) · 패널은 대시보드 그대로 · 05 는 펴진 채 「다시 검토」 · 「검토 결과 보기」(강조)"
               " — 남은 문단 후보 1곳이라 끝남이 아님 · 머리의 셈 그대로",
-              len(dialogs) == n_dialogs + 1 and "LLM 으로 검토할까요" in dialogs[-1] and h["last"].startswith("구분 기준 LLM 검토 — 빠진 자리 후보 1") and "문단 후보 1곳" in h["last"] and not h["lastHalt"]
+              len(dialogs) == n_dialogs and h["last"].startswith("구분 기준 LLM 검토 — 빠진 자리 후보 1") and "문단 후보 1곳" in h["last"] and not h["lastHalt"]
               and h["tool"] == "Dash" and h["count"] == f"끝남 {d1}/9" and lst == {"open": True, "add": 1} and n3["open"] and n3["st"] == "" and n3["acts"] == [["다시 검토", False, False], ["검토 결과 보기", False, True]]
               and "문단 후보 1곳" in text3, [dialogs[n_dialogs:], h, n3, text3, lst])
         page.locator("#paneDash").screenshot(path=str(OUT / "05b_review.png"))

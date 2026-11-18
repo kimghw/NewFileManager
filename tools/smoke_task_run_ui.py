@@ -177,9 +177,9 @@ try:
         page.click("#taskStage0 [data-task-run]")
         page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=60000)
         s0 = page.evaluate(STAGE0)
-        check("값이 없는(읽을 수도 없는) 사업계획서 — 확인 창 한 번 뒤 구성 확정에서 멈춤 · 세부 목록이 펴짐 · 단추는 다시 「한 번에 진행」", len(dialogs) == n + 1 and "한 번에 진행할까요" in dialogs[-1] and "남은 단계" in dialogs[-1]
+        check("값이 없는(읽을 수도 없는) 사업계획서 — 확인 창 없이(2026-11-18) 구성 확정에서 멈춤 · 세부 목록이 펴짐 · 단추는 다시 「한 번에 진행」", len(dialogs) == n
               and s0["kind"] == "halt" and s0["text"].startswith("멈춤 — 프로젝트 구성 확정") and "읽지 못했습니다" in s0["text"] and s0["open"] and s0["btn"] == "한 번에 진행" and not s0["disabled"] and not s0["spin"]
-              and page.evaluate(OLVIS, "taskStage0") and "1단계 프로젝트 구성" in dialogs[-1] and "문서는 바뀌지 않습니다" in dialogs[-1], [s0, dialogs[-1][:200]])
+              and page.evaluate(OLVIS, "taskStage0"), [s0, dialogs[n:]])
         st, cf = page.evaluate(STEPS), page.evaluate(CONFIG)
         check("멈춘 상세 단계에 멈춤 표시 · 뒤 단계는 대기", cf["status"] == "halt" and cf["badge"] == "멈춤"
               and [x["badge"] for x in st[1:]] == ["대기", "대기", "대기", "대기", "준비 중", "대기"], (cf, st))
@@ -189,10 +189,9 @@ try:
         page.click("#taskChain [data-task-chain=clean]")
         page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=60000)
         s0, s2, last, ends = page.evaluate(STAGE0), page.evaluate(STAGE2), page.evaluate("() => taskRunLast"), page.evaluate("() => taskRunEnds")
-        check("이어서 1→4단계 — 확인 창 한 번(네 묶음의 남은 단계·바뀌는 것) · 값이 없어 1단계 구성 확정에서 전체가 멈춤 · 뒤 묶음은 안 돔", len(dialogs) == n + 1 and "「1→4단계」 을 이어서 한 번에 진행할까요?" in dialogs[-1]
-              and all(f"■ {x}" in dialogs[-1] for x in ("1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "4단계 문서 정리")) and "내용은 넣지 않습니다" in dialogs[-1] and "LLM 검토" in dialogs[-1] and "실행 취소는 묶음마다 따로" in dialogs[-1]
+        check("이어서 1→4단계 — 확인 창 없이(2026-11-18) · 값이 없어 1단계 구성 확정에서 전체가 멈춤 · 뒤 묶음은 안 돔", len(dialogs) == n
               and not last["ok"] and last["stage"] == "config" and list(ends) == ["config"] and s0["kind"] == "halt" and "읽지 못했습니다" in s0["text"] and s2["text"] == "1단계 「프로젝트 구성」 완료 후 진행"
-              and not page.evaluate(CHAIN)["btns"]["clean"]["disabled"], [s0["text"], s2["text"], last, dialogs[-1][:200]])
+              and not page.evaluate(CHAIN)["btns"]["clean"]["disabled"], [s0["text"], s2["text"], last, dialogs[n:]])
 
         # ---- 3. 실제 서식 쌍 — 계획서 양식에 값을 반영해 두고(API), 연차보고서 서식에서 1단계 「한 번에 진행」(구조만) → 2단계 「한 번에 진행」(내용)
         plan, report = upload(PLAN_FORM), upload(REPORT_FORM)
@@ -247,8 +246,7 @@ try:
         last = page.evaluate("() => taskRunLast")
         print("  단계 글:", sorted(x for x in seen if x), flush=True)
         check("2단계(프레임) 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "frame", [last, f"{took:.0f}s"])
-        check("2단계(프레임) 확인 창은 누를 때 한 번뿐(구분 기준 반영의 확인 창 없음) — 구조만 바뀌고 내용은 안 넣는다고 알림", len(dialogs) == n + 1 and "2단계 문서 프레임 작성" in dialogs[n] and "실행 취소" in dialogs[n]
-              and "내용은 넣지 않습니다" in dialogs[n] and "LLM 검토" not in dialogs[n] and "연차보고서" in dialogs[n], dialogs[n:])
+        check("2단계(프레임) — 확인 창 없이(2026-11-18 · 구분 기준 반영의 확인 창도 없음)", len(dialogs) == n, dialogs[n:])
         st, s, s2 = page.evaluate(STEPS), page.evaluate(STAGE), page.evaluate(STAGE2)
         states = {x["step"]: x["state"] for x in st}
         doc1 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
@@ -276,7 +274,7 @@ try:
         last = page.evaluate("() => taskRunLast")
         print("  단계 글:", sorted(x for x in seen if x), flush=True)
         check("3단계(매핑) 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "map", [last, f"{took:.0f}s"])
-        check("3단계 확인 창도 누를 때 한 번뿐(내용 반영의 확인 창 없음)", len(dialogs) == n + 1 and "3단계 내용 매핑" in dialogs[n] and "실행 취소" in dialogs[n] and "LLM 검토" in dialogs[n] and "같은 이름 자리" in dialogs[n], dialogs[n:])
+        check("3단계도 확인 창 없이(2026-11-18 · 내용 반영의 확인 창도 없음)", len(dialogs) == n, dialogs[n:])
         st, s = page.evaluate(STEPS), page.evaluate(STAGE2)
         states = {x["step"]: x["state"] for x in st}
         check("단계 — ①~④ 모두 완료 · 2단계 3/3 완료와 진행률 100%", [states.get(k) for k in ("files", "division", "link", "plan", "apply")] == ["done"] * 5
@@ -304,7 +302,7 @@ try:
         page.locator("#panel").screenshot(path=str(OUT / "3_done.png"))
         page.screenshot(path=str(OUT / "3_done_full.png"))
 
-        # ---- 4. 다시 누르기 — 새로 고치면 ③④ 의 「넣은 수」 는 사라진다(메모리). 다시 눌러도 확인 창 한 번 · 실패 없이 끝나고 LLM 검토는 다시 안 부른다(이미 검토함)
+        # ---- 4. 다시 누르기 — 새로 고치면 ③④ 의 「넣은 수」 는 사라진다(메모리). 다시 눌러도 확인 창 없이 · 실패 없이 끝나고 LLM 검토는 다시 안 부른다(이미 검토함)
         open_work(page, report)
         page.click("#toolTabTask")
         page.wait_for_function(f"() => {{ const s = ({STAGE2})(); return s && s.count === '1/3 완료' && ({STAGE})().count === '1/1 완료' && !taskFlow.linkBusy && !!taskFlow.links; }}", timeout=180000)
@@ -316,14 +314,14 @@ try:
         log2 = requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]
         ev2 = [e["kind"] for e in log2]
         print("  다시 누름:", last, "rev", doc["rev"], "→", doc2["rev"], "기록", [(e["kind"], e.get("rev")) for e in log2 if e["kind"] not in ("create", "verify", "verified", "headings")], flush=True)
-        check("다시 누름 — 확인 창 한 번 · 실패 없이 끝남 · 구분 기준은 다시 반영 안 함 · LLM 검토 다시 안 부름", last["ok"] and len(dialogs) == n + 1 and calls["llm"] == 1
+        check("다시 누름 — 확인 창 없이 · 실패 없이 끝남 · 구분 기준은 다시 반영 안 함 · LLM 검토 다시 안 부름", last["ok"] and len(dialogs) == n and calls["llm"] == 1
               and ev2.count("divisions") == ev.count("divisions"), [last, ev2[:6]])
         # 다시 눌러도 더 들어가지 않는다(2026-11-12 app/merge_tables.py 고침 — 전에는 이어 넣는 표에 행이 또 들어갔다: spec_병합 ③). 편집 차례는 하나 오를 수 있다 — 다시 열 때의 개요 줄 맞춤(outlineAlign), 넣기와 무관
         check("다시 누름 — 넣을 것이 없어 더 넣지 않음(넣기 기록 그대로 1번)", "넣을 것이 없습니다" in last["text"] and ev2.count("mergeFill") == ev.count("mergeFill") == 1, [last["text"], ev2.count("mergeFill")])
         third = requests.post(f"{base}/api/docs/{report}/merge-links/plan", timeout=300).json()
         check("또 계획해도 할 일 0", third.get("todo") == 0, {"todo": third.get("todo"), "tables": {k: third["tables"]["counts"].get(k) for k in ("cells", "rows")}})
 
-        # ---- 5. 이어서 한 번에 1→3단계 — 1단계 초기화(API)로 연차보고서를 올린 원본으로 되돌린 뒤 「1→3단계」 하나로 구조 → 내용 → 작성요령 삭제까지(확인 창 한 번)
+        # ---- 5. 이어서 한 번에 1→3단계 — 1단계 초기화(API)로 연차보고서를 올린 원본으로 되돌린 뒤 「1→3단계」 하나로 구조 → 내용 → 작성요령 삭제까지(확인 창 없이 — 2026-11-18)
         rs = requests.post(f"{base}/api/docs/{report}/merge-links/reset", json={"stage": "frame"}, timeout=300)
         check("1단계 초기화(API — 사전 준비)", rs.status_code == 200, rs.status_code)
         KINDS = ("divisions", "mergeFill", "formCleanup")
@@ -347,9 +345,9 @@ try:
         took = time.time() - t0
         last, ends = page.evaluate("() => taskRunLast"), page.evaluate("() => taskRunEnds")
         print("  이어서 차례:", order, f"{took:.0f}s", {k: v["text"][:90] for k, v in (ends or {}).items()}, flush=True)
-        check("이어서 2→4단계(구성은 확정된 채) — 확인 창 한 번 · 세 묶음이 차례로 끝까지(멈춤 없음)", len(dialogs) == n + 1 and "「2→4단계」 을 이어서 한 번에" in dialogs[n]
+        check("이어서 2→4단계(구성은 확정된 채) — 확인 창 없이 · 세 묶음이 차례로 끝까지(멈춤 없음)", len(dialogs) == n
               and sorted(ends) == ["clean", "frame", "map"] and all(e["ok"] for e in ends.values()) and last["stage"] == "clean" and order == [x for x in ("frame", "map", "clean") if x in order],
-              [order, {k: (v["ok"], v["text"][:80]) for k, v in (ends or {}).items()}, dialogs[n][:120] if len(dialogs) > n else None])
+              [order, {k: (v["ok"], v["text"][:80]) for k, v in (ends or {}).items()}, dialogs[n:]])
         check("도는 동안 — 이어서 줄에 「2→4단계 이어 진행 중 — 지금 …」 · 이어서 단추는 꺼짐", any(t.startswith("2→4단계 이어 진행 중 — 지금") and dis for t, dis in chain_seen), sorted(chain_seen)[:4])
         s, s2, s3 = page.evaluate(STAGE), page.evaluate(STAGE2), page.evaluate(STAGE3)
         check("끝 — 묶음마다 끝 글이 남음(앞 묶음 것도) · 1단계 1/1 · 2단계 3/3", s["text"].startswith("끝남 — 구조를 맞췄습니다") and s2["text"].startswith("끝남 — 연결됨") and s3["kind"] == "done" and "지웠습니다" in s3["text"]

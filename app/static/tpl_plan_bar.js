@@ -116,7 +116,7 @@ function tpbDraw(els) {
   const judgeAct = () => act({ text: "LLM 판정", go: false, off: busy, run: () => tpbJudge(),
     title: busy ? "다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요"
       : "헤딩 판정(LLM)을 아직 안 했습니다 — 조정(서식 정리 계획 · 반영)보다 먼저 LLM 판정을 돌립니다: 헤딩 · 템플릿 → 표 · 서식 정리 계획(이름 줄 진행표의 「LLM 검증·보완」 과 같은 일 · 유료 LLM · 몇 분 · 문서는 안 바뀜).\n누르면 돌 것을 먼저 보이고 묻습니다 — 받은 계획은 이 줄의 두 칸에서 확인한 뒤 「모두 반영」"
-        + (scriptTodo ? `\n스크립트가 맞출 것(${scriptTodo})은 LLM 판정 뒤 「모두 반영」 이 같이 겁니다 — LLM 연결이 없으면 누를 때 그것만 반영할지 묻습니다` : "") });
+        + (scriptTodo ? `\n스크립트가 맞출 것(${scriptTodo})은 LLM 판정 뒤 「모두 반영」 이 같이 겁니다 — LLM 연결이 없으면 알림의 「스크립트로 맞추기」 로 그것만 반영합니다` : "") });
   const fetchAct = (label) => (judged ? planAct(label) : judgeAct());
   const idleAct = () => (judged ? act({ text: "", hide: true }) : judgeAct()); // 지금 반영할 것도 받을 계획도 없다 — 판정을 안 거쳤으면 그것이 남은 일이다
   const restAct = () => { // 받아 둔 계획이 없을 때 — 판정 전에는 「LLM 판정」, 판정 뒤에는 스크립트가 걸 것(자리 맞춤 · 종속)이 있으면 「모두 반영」 · 없으면 감춤
@@ -173,26 +173,10 @@ function tpbDraw(els) {
   restAct();
 }
 
-function tpbAsk(L, P = 0, judged = true, note = "") { // 「모두 반영」 의 확인 창 글 — 무엇이 몇 줄 바뀌고 무엇이 남나. 2026-11-18 사용자 「모두 반영할때... 팝업 알림 확인 받지마」 부터 「모두 반영」 단추는 묻지 않는다 — 이 글은 opt.ask 로 부른 때(LLM 연결이 없는 「LLM 판정」 의 스크립트 반영)만. P = 자리 맞춤이 남은 줄(② §8-8) · judged = 헤딩 판정(LLM)을 거쳤나 · note = 맨 앞 한 줄(「LLM 판정」 이 LLM 없이 넘어온 때)
-  const rows = (note ? [note, ""] : []).concat(L.planned ? [`받아 둔 서식 정리 계획 ${nf(L.planned || 0)}개(템플릿)를 에이전트가 고른 그대로 반영합니다.`, "",
-    `· 서식 조정 — 대표 서식에 맞출 줄 ${nf(L.change || 0)}${L.reps ? ` · 대표를 바꿀 레벨 ${nf(L.reps)}(맞출 줄이 없어도 대표가 바뀝니다)` : ""}`, `· 템플릿 조정 — 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}`]
-    : ["받아 둔 서식 정리 계획은 없습니다 — 스크립트가 맞추는 것만 반영합니다.", ""]);
-  if (P || L.change) rows.push(`· 자리 맞춤(스크립트) — 레터 뒤 빈칸을 묶음 빈칸으로(양쪽 정렬이 늘리지 않음) · 둘째 줄을 글 시작에: 지금 ${nf(P)}줄${L.change ? " + 위에서 맞춘 줄" : ""}`);
-  const left = [L.kept ? `에이전트가 그대로 둔 줄 ${nf(L.kept)}` : "", L.unanswered ? `답이 없어 안 바꾸는 줄 ${nf(L.unanswered)}` : "", L.omitted ? `서식 가짓수가 많아 못 본 서식 ${nf(L.omitted)}가지(반영 뒤 「나머지 받기」)` : ""].filter(Boolean);
-  if (left.length) rows.push(`· 안 바뀌는 것 — ${left.join(" · ")}`);
-  const sure = tpbSure().filter((h) => h.sure);
-  if (sure.length) rows.push(`· 템플릿 종속 — 한 자리에만 매달린 템플릿 ${nf(sure.length)}개를 그 자리의 템플릿 아래로 넣습니다(${tpbRelText(sure)} — 문서는 안 바뀌고 템플릿만)`);
-  const edited = typeof tpaEdited === "function" ? tpaEdited() : null;
-  if (edited != null) rows.push("", `※ 「템플릿 서식 정리」 열에서 T${edited} 의 고르기를 바꿔 두었습니다 — 「모두 반영」 은 바꾼 고르기가 아니라 에이전트가 고른 그대로 반영합니다. 바꾼 대로 하려면 「취소」 를 누르고 그 열의 「적용」 을 쓰세요.`);
-  // 판정을 안 거친 그래프 위의 계획 — 막지는 않고 알린다(템플릿 줄의 ★ 열로 받은 계획 · 이 규칙 전에 받은 계획). LLM 판정은 헤딩 그래프를 다시 지어 이 계획을 새로 받는다
-  if (!judged && L.planned) rows.push("", "※ 헤딩 판정(LLM)을 안 거친 스크립트 헤딩 그래프 위에서 받은 계획입니다 — LLM 판정부터 하려면 「취소」 를 누르고 「전체 실행」 을 쓰세요(헤딩 그래프를 다시 지으면 서식 정리 계획은 새로 받습니다).");
-  rows.push("", "문서가 바뀝니다 — 「실행 취소」 한 번으로 되돌립니다. 계획의 내용은 「템플릿 조정」·「서식 조정」 칸을 누르면 보입니다. 계속할까요?");
-  return rows.join("\n");
-}
 
-// 「모두 반영」 — 지금 문서 차례의 계획 전부를 트랜잭션 하나로(실행 취소 1) → 반영 결과 | null(못 함 — 까닭은 structOp.lastError · 확인 창에서 「취소」 면 lastError 도 null). 「전체 실행」(heads_run_all.js)도 이 함수로 반영한다.
-// opt.note = 확인 창 맨 앞에 실을 한 줄(「LLM 판정」 을 눌렀는데 LLM 연결이 없어 스크립트 반영만 묻는 때 — tpbJudge) ·
-// opt.ask = true 일 때만 확인 창(tpbAsk)을 띄운다 — 「모두 반영」 단추는 묻지 않고 바로 반영(2026-11-18 사용자 「모두 반영할때... 팝업 알림 확인 받지마」 — 실행 취소 한 번 · 무엇이 바뀌었나는 끝난 알림) · opt.plans = 반영할 계획의 표시 {템플릿 id: at}(부른 쪽이 방금 읽은 분석 상태의 것 — 없으면 이 줄이 가진 분석 상태에서).
+// 「모두 반영」 — 지금 문서 차례의 계획 전부를 트랜잭션 하나로(실행 취소 1) → 반영 결과 | null(못 함 — 까닭은 structOp.lastError). 「전체 실행」(heads_run_all.js)도 이 함수로 반영한다.
+// 묻지 않고 바로 반영한다(2026-11-18 사용자 「모두 반영할때... 팝업 알림 확인 받지마」 · 「이런 알람좀 주지마」 — 전의 opt.ask 확인 창(tpbAsk)도 없앰: LLM 연결이 없는 「LLM 판정」 은 알림의 「스크립트로 맞추기」 단추로) ·
+// opt.plans = 반영할 계획의 표시 {템플릿 id: at}(부른 쪽이 방금 읽은 분석 상태의 것 — 없으면 이 줄이 가진 분석 상태에서).
 // 요청에 그 표시를 실어 서버가 「화면이 본 계획 그대로인가」 를 견준다(그 사이 다시 받은 계획이면 409 — 본 것과 다른 계획을 반영하지 않는다).
 async function tpbApply(opt = {}) {
   if (TPB.busy || !state.id) return null;
@@ -207,7 +191,6 @@ async function tpbApply(opt = {}) {
     if (epoch !== state.epoch || TPB.busy) return null;
   }
   const plans = opt.plans || Object.fromEntries((L.list || []).filter((x) => x.state === "planned" && x.at != null).map((x) => [x.tpl, x.at]));
-  if (opt.ask === true && !confirm(tpbAsk(L, P, judged, opt.note || ""))) return null;
   if (epoch !== state.epoch) return null;
   const edited = typeof tpaEdited === "function" ? tpaEdited() : null; // 「템플릿 서식 정리」 열에서 바꿔 둔 고르기 — 반영되지 않는다(확인 창이 알리던 것을 끝난 알림에)
   TPB.busy = true;
@@ -237,8 +220,7 @@ async function tpbApply(opt = {}) {
 
 async function tpbFetch() { // 「계획 받기」 — 서식 정리 계획만(헤딩 · 표 LLM 은 안 돎). 헤딩 작업 자리 하나에서 돈다(진행은 이 줄 · 추출·설정 2단계 · 이름 줄 진행표)
   if (!state.id) return;
-  const L = (tpbFmt() || {}).llm || {}, todo = (L.list || []).filter((x) => x.state === "none" || x.state === "stale").length;
-  if (!confirm(`서식 정리 계획 — 서식이 여러 가지인 템플릿 ${todo || L.need || ""}개를 LLM 에 묻습니다(템플릿마다 호출 하나).\n유료 호출이고 문서는 바뀌지 않습니다 — 받은 계획은 「템플릿 조정」·「서식 조정」 칸에서 확인한 뒤 「모두 반영」 으로 반영합니다. 계속할까요?`)) return;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 유료 · 템플릿마다 호출 하나 · 문서는 안 바뀜: design.md §18 「확인 창」)
   const id = state.id, epoch = state.epoch;
   await flushAll(); // 아직 반영 안 된 글부터 — 계획은 서버 문서를 읽는다
   if (epoch !== state.epoch) return;
@@ -255,7 +237,7 @@ async function tpbFetch() { // 「계획 받기」 — 서식 정리 계획만(�
 }
 
 // 「LLM 판정」 — 헤딩 판정(LLM)을 안 거친 문서의 행동 칸(tpbJudged): 조정(서식 정리 계획 · 반영)보다 먼저 「LLM 검증·보완」 이어 돌리기(헤딩 · 템플릿 → 표 · 서식 정리 계획 같이 —
-// doc_status.js dsLlmRun: 이름 줄 진행표의 단추와 같은 함수 · 같은 끝점). 새 실행 길이 아니다 — 돌 것은 서버의 llmPlan 그대로이고 그 목록을 확인 창에 보인 뒤에 돈다(유료 · 문서는 안 바뀜).
+// doc_status.js dsLlmRun: 이름 줄 진행표의 단추와 같은 함수 · 같은 끝점). 새 실행 길이 아니다 — 돌 것은 서버의 llmPlan 그대로이고 그 목록은 이름 줄 진행표에 보인다(유료 · 문서는 안 바뀜 · 2026-11-18 부터 확인 창 없이).
 // 받은 계획은 이 줄의 두 칸 → 「모두 반영」. 2026-11-17 사용자 「LLM 판정버튼이 없고 계획받기 버튼을 누르도록 되어 있었어」(spec_헤딩_추출 ② §7 「조정 층」)
 async function tpbJudge() {
   if (!state.id || typeof dsLlmRun !== "function") return;
@@ -264,22 +246,18 @@ async function tpbJudge() {
   try { v = await api(`/api/docs/${id}/analysis`); } catch { v = null; }
   if (epoch !== state.epoch) return;
   if (!v) { toast("분석 상태를 읽지 못했습니다 — 잠시 뒤 다시 누르세요", true); return; }
-  const plan = v.llmPlan || [], run = plan.filter((p) => p.run), skip = plan.filter((p) => !p.run);
+  const plan = v.llmPlan || [], run = plan.filter((p) => p.run);
   if (!run.length) { toast("지금 돌 LLM 판정이 없습니다 — 이미 거쳤습니다"); if (typeof docStatusPing === "function") docStatusPing(); return; }
   if (v.busy) { toast("다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요"); return; }
   const L = (tpbFmt(v) || {}).llm || {};
   if (typeof headsLlmReady === "function" && !(await headsLlmReady())) { // LLM 연결이 없다(알림은 그 함수가) — 막다른 길로 두지 않는다: 스크립트가 맞출 것(자리 맞춤 · 확실한 종속)이 있으면 그것만 반영할지 묻는다
     const P = (tpbFmt(v) || {}).place || 0, sure = tpbSure(v).filter((h) => h.sure).length;
-    if (epoch === state.epoch && !L.planned && (P || sure)) await tpbApply({ ask: true, note: "LLM 연결이 없어 LLM 판정은 돌리지 못합니다 — 스크립트가 맞추는 것만 반영할 수 있습니다." });
+    if (epoch === state.epoch && !L.planned && (P || sure)) // 확인 창 대신 알림의 단추(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 tpbAsk 확인 창: design.md §18 「확인 창」)
+      toast("LLM 연결이 없어 LLM 판정은 돌리지 못합니다 — 스크립트가 맞추는 것(자리 맞춤 · 확실한 종속)만 반영할 수 있습니다", true, { label: "스크립트로 맞추기", run: () => tpbApply() });
     return;
   }
   if (epoch !== state.epoch) return;
-  const rows = ["LLM 판정 — 조정(서식 정리 계획 · 반영)보다 먼저, 스크립트가 뽑은 헤딩 · 표를 LLM 이 검증·보완합니다(이름 줄 진행표의 「LLM 검증·보완」 과 같은 일).", "",
-    "돌 것:", ...run.map((p) => `   · ${p.name}`)];
-  if (skip.length) rows.push(`   건너뜀 — ${skip.map((p) => p.name).join(" · ")}(이미 거쳤거나 할 것이 없습니다)`);
-  if (L.done || L.applied || L.planned) rows.push("", "※ 헤딩 그래프를 다시 짓습니다 — 앞서 받은 서식 정리 계획은 새로 받고, 이미 반영한 서식은 문서에 그대로 남습니다.");
-  rows.push("", "유료 LLM · 몇 분 걸립니다 · 문서는 바뀌지 않습니다 — 받은 서식 정리 계획은 「템플릿 조정」·「서식 조정」 칸에서 확인한 뒤 「모두 반영」 으로 반영합니다. 계속할까요?");
-  if (!confirm(rows.join("\n")) || epoch !== state.epoch) return;
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 돌 것(llmPlan) · 건너뛸 것 · 유료를 적은 확인 창: design.md §18 「확인 창」). 돌 것은 이름 줄 진행표에 보인다
   await dsLlmRun();
 }
 

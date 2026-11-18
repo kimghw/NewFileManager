@@ -63,7 +63,7 @@ function hrpBtnDraw(b) {
   b.replaceChildren("단계별", el("span", "hrun-word", " 실행"), R ? ` ${Math.min(R.i + 1, n)}/${n}` : "", " ▾"); // 좁은 패널(370px 아래)에서는 「실행」 을 감춘다(heading-panels.css)
   b.classList.toggle("on", !!R);
   b.title = R ? `단계별 실행 중 — ${R.note}\n누르면 차례와 「멈추기」 를 봅니다`
-    : `단계별 실행 — 돌릴 단계를 여러 개 고른 뒤 「고른 것 실행」 을 누르면 고른 것만 차례로 돌립니다(스크립트 무료 · LLM 유료 — 확인 창은 한 번)${last}`;
+    : `단계별 실행 — 돌릴 단계를 여러 개 고른 뒤 「고른 것 실행」 을 누르면 고른 것만 차례로 돌립니다(스크립트 무료 · LLM 유료 — 누르면 바로)${last}`;
 }
 function hrpSync() { // 실행의 시작 · 끝 · 차례가 바뀜 — 그려 둔 단추 · 열려 있는 메뉴 · 진행 줄의 기다림 표시 · 「전체 실행」 단추를 그 자리에서 다시
   for (const b of document.querySelectorAll(".hrun-menu")) hrpBtnDraw(b);
@@ -144,7 +144,7 @@ function hrpMenuSync() { // 열려 있는 메뉴를 지금 상태로 — 고른 
     go.textContent = busy ? "다른 헤딩 작업이 도는 중" : n ? `고른 ${nf(n)}개 실행` : "돌릴 단계를 고르세요";
     go.disabled = busy || !n;
     go.title = busy ? "도는 작업이 끝난 뒤 고르세요" : n ? `고른 것만 이 차례로 하나씩 돌립니다: ${HRP_STEPS.filter((s) => HRP.pick.has(s.key) && ui.rows.has(s.key)).map((s) => s.short).join(" → ")}`
-      + "\n유료 LLM 단계가 있으면 확인 창을 한 번 보입니다 · 한 단계가 실패하면 뒤는 돌리지 않고 남깁니다" : "위에서 돌릴 단계를 눌러 고르세요(여러 개) — 고른 것만 차례로 돌립니다";
+      + "\n누르면 바로 돕니다(유료 LLM 단계 포함 — 확인 창 없음) · 한 단계가 실패하면 뒤는 돌리지 않고 남깁니다" : "위에서 돌릴 단계를 눌러 고르세요(여러 개) — 고른 것만 차례로 돌립니다";
   }
   ui.detail.textContent = R || busy ? "추출·설정에서 진행 보기" : "추출·설정에서 자세히";
 }
@@ -176,31 +176,9 @@ function headsPickRunning() { // 도는 단계별 실행 | null — 에이전트
   return R ? { label: `단계별 실행 — 고른 ${nf(R.steps.length)}개를 차례로`, note: R.note, t0: R.t0, stopping: R.stop, stop: () => hrpStop() } : null;
 }
 
-// ---- 확인 창(유료 LLM 단계가 있을 때 한 번) — 고른 단계 · 차례 · 어림
-function hrpAsk(steps, st) {
-  const v = heads.view, sm = (v && v.stage1 && v.stage1.summary) || {}, left = hrpLeft(v), has = (k) => steps.some((s) => s.key === k);
-  const judged = (k) => { const src = typeof headsSource === "function" ? headsSource(v, k) : null; return !!(src && src.llm); };
-  const more = {
-    s2: !has("l2") && judged(2) ? "지금 헤딩 그래프는 LLM 판정을 거친 결과입니다 — 스크립트 결과로 바뀝니다" : "",
-    s3: !has("l3") && judged(3) ? "지금 표 구조는 LLM 판정을 거친 결과입니다 — 스크립트 결과로 바뀝니다" : "",
-    l1: `못 맞춤 ${nf(sm.unmatchedGroups || 0)}묶음 · 충돌 ${nf(sm.conflicts || 0)}묶음을 보내 규칙식을 제안받고, 검증을 통과한 것만 후보 규칙으로 저장합니다(보통 $0.2~0.3 · 40초 안팎)`,
-    l2: "헤딩 유형 · 본문 구간을 여러 번 물어 판정하고, 끝나면 이어서 서식이 여러 가지인 템플릿마다 서식 정리 계획을 받습니다(계획만 — 문서는 바뀌지 않습니다 · 연구개발계획서 양식 기준 약 4분 · $3 안팎 + 서식 계획)"
-      + (left && !has("l1") ? `\n     스크립트가 판정하지 못한 첫머리 ${nf(left)}묶음(못 맞춤·충돌)의 규칙 보강을 먼저 합니다(아직 묻지 않은 묶음만 · $0.2~0.3 더)` : ""),
-    l3: "표를 묶음(칸 500개 안팎)마다 보내 서브 테이블·헤더 행/열·칸 역할을 판정받습니다(연구개발계획서 양식 기준 10여 번 · 수 분)",
-  };
-  const rows = [steps.length > 1 ? `단계별 실행 — 고른 ${nf(steps.length)}개를 이 차례로 하나씩 돌립니다(앞 단계가 끝나면 다음).` : "단계별 실행 — 고른 단계를 돌립니다.", ""];
-  steps.forEach((s, i) => {
-    rows.push(`${i + 1}. ${s.name} · ${s.llm ? "유료" : "무료"}`);
-    if (more[s.key]) rows.push(`     ${more[s.key]}`);
-  });
-  const paid = steps.filter((s) => s.llm).length;
-  rows.push("", `유료 LLM 단계 ${nf(paid)}개 — ${llmName(st)} 에 보냅니다.`
-    + (steps.length > 1 ? " 한 단계가 실패하거나 LLM 이 답을 못 하면 뒤 단계는 돌리지 않고 남깁니다(도는 동안 메뉴의 「멈추기」 로도 멈춥니다)." : "") + " 계속할까요?");
-  return rows.join("\n");
-}
 
 // ---- 실행
-// opt.asked = 부른 쪽이 이미 확인받았다(대시보드 · 에이전트 실행 카드 — spec_양식표준화 ② §4) — 확인 창만 건너뛴다(LLM 연결 · 멈추는 곳은 그대로).
+// opt.asked = 옛 인자 — 2026-11-18 사용자 「이런 알람좀 주지마」 부터 확인 창이 없어 쓰지 않는다(부르는 쪽 호환으로 받기만 함 · LLM 연결 · 멈추는 검사는 그대로)
 // → {ok, text}(끝까지 감 · 멈춤 — HRP.last 와 같은 글) | undefined(시작하지 않음 — 까닭은 알림 글)
 async function headsPickRun(keys, opt = {}) {
   if (HRP.run || !state.id) return;
@@ -211,9 +189,9 @@ async function headsPickRun(keys, opt = {}) {
   if (!steps.length) return;
   const busy = () => { if (!hrpBusy()) return false; toast("다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요"); return true; };
   if (busy()) return;
-  if (steps.some((s) => s.llm)) { // 유료 — 확인 창은 한 번(전에는 단계마다 하나씩)
+  if (steps.some((s) => s.llm)) { // 유료 — 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 고른 단계 · 어림을 적은 확인 창 한 번: design.md §18 「확인 창」)
     const st = await headsLlmReady(); // LLM 연결이 없으면 알림은 그 함수가(스크립트만 돌리려면 LLM 단계를 빼고 다시)
-    if (!st || epoch !== state.epoch || HRP.run || (!opt.asked && !confirm(hrpAsk(steps, st))) || epoch !== state.epoch || HRP.run || busy()) return;
+    if (!st || epoch !== state.epoch || HRP.run || busy()) return;
   }
   HRP.pick.clear();
   const R = HRP.run = { id, epoch, t0: Date.now(), steps, i: 0, stop: false, note: "시작" };

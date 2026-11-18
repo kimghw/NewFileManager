@@ -51,13 +51,19 @@
 .agw-form { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .agw-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 8px; align-items: center; min-width: 0; }
 .agw-lab { color: var(--muted); font-size: 11.5px; }
-.agw-form input[type="number"] { width: 58px; height: 28px; padding: 0 6px; border: 1px solid #cbd6e6; border-radius: 6px; font: inherit; font-variant-numeric: tabular-nums; }
+.agw-form input[type="number"] { width: 46px; height: 28px; padding: 0 5px; box-sizing: border-box; border: 1px solid #cbd6e6; border-radius: 6px; font: inherit; font-variant-numeric: tabular-nums; }
 .agw-form input[type="text"], .agw-form textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px 8px; border: 1px solid #cbd6e6; border-radius: 6px; background: var(--surface); font: 12.5px/1.6 "Malgun Gothic", "Segoe UI", sans-serif; }
 .agw-form input[type="text"] { height: 28px; padding: 0 8px; }
 .agw-form textarea { resize: vertical; }
-.agw-years { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
+.agw-years { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .agw-ylab { color: var(--muted); font-size: 11.5px; }
 .agw-row.num { grid-template-columns: 64px max-content minmax(0, 1fr); } /* 수 칸 + 단위 글 */
+.agw-nums { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; } /* 단계 수 · 차년도 수 · 당해 차년도 — 패널 400px 이상이면 한 줄 · 320px 이면 접힘(2026-11-18 사용자) */
+.agw-num { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+.agw-form-acts { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; } /* 확정(체크+글) · 문서에서 보기(아이콘) · 닫기(X, 오른쪽 끝) 한 줄 */
+.agw-form-acts .btn.sm { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; }
+.agw-form-acts [data-agw="read"], .agw-form-acts [data-agw="close"] { width: 28px; padding: 0; flex: none; }
+.agw-form-acts [data-agw="close"] { margin-left: auto; }
 .agw-empty .btn { margin: 4px 0 8px; }
 
 /* ---- 첫 화면: 왼쪽 = 지금의 시작 화면 · 오른쪽 = 에이전트 대화창(붙박이). 1280px 아래에서는 아래로 */

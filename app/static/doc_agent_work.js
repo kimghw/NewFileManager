@@ -565,33 +565,46 @@ function agwConfigForm(t, on = {}) { // 질문 카드 — 프로젝트 구성 �
   // on = 다른 보기가 같은 폼을 쓸 때(대시보드 dashboard.js — t.id "dash"): draw() 다시 그리기 · ok(값) 확정. 없으면 에이전트 대화(agentDrawTalk · agentWorkConfig)
   const draw = on.draw || (() => agentDrawTalk()), done = on.ok || ((x) => agentWorkConfig(t.id, x));
   const W = agw(), v =dv.values ? divValues() : { stages: [1], orgs: { lead: "", joint: [] } };
-  if (!W.form || W.form.turn !== t.id) W.form = { turn: t.id, stages: [...v.stages], lead: v.orgs.lead || "", joint: (v.orgs.joint || []).join("\n"), current: v.current || 1 };
+  // 2026-11-18 사용자 「단계, 차년도, 당해년도는 1줄로 되겠지? 공동기관도 , 로 구분하면 될듯 , 확정/문서에서보기,닫기는 한줄로」: 수 셋은 한 줄(.agw-nums — 좁으면 접힘) · 공동기관은 한 줄 칸에 쉼표로(전의 한 줄에 하나 — 줄바꿈 · 「、」 도 받음)
+  if (!W.form || W.form.turn !== t.id) W.form = { turn: t.id, stages: [...v.stages], lead: v.orgs.lead || "", joint: (v.orgs.joint || []).join(", "), current: v.current || 1 };
   const F = W.form, box = el("div", "agw-form"), row = (label, ...kids) => { const r = el("label", "agw-row"); r.append(el("span", "agw-lab", label), ...kids); box.append(r); return r; };
   const num = (value, min, max, aria, on) => { const i = el("input"); i.type = "number"; i.min = min; i.max = max; i.value = value; i.setAttribute("aria-label", aria); i.oninput = () => on(Math.max(min, Math.min(max, Number(i.value) || min))); return i; };
+  const nums = el("div", "agw-nums"), part = (tag, label, ...kids) => { const g = el(tag, "agw-num"); g.append(el("span", "agw-lab", label), ...kids); nums.append(g); return g; };
   const stages = num(F.stages.length, 1, 10, "단계 수", (n) => { F.stages = Array.from({ length: n }, (_, i) => F.stages[i] || 1); draw(); });
   stages.dataset.agw = "stages";
   stages.onchange = stages.oninput; stages.oninput = null; // 단계 수를 바꾸면 차년도 칸이 다시 그려진다 — 타자 중에는 그리지 않는다
-  row("단계 수", stages).classList.add("num");
+  part("label", "단계 수", stages);
   const years = el("span", "agw-years");
-  F.stages.forEach((n, i) => { const y = num(n, 1, 20, `${i + 1}단계 차년도 수`, (x) => { F.stages[i] = x; }); y.dataset.agw = `years${i}`; years.append(el("span", "agw-ylab", `${i + 1}단계`), y, el("span", "agw-ylab", "년")); });
-  row("차년도 수", years);
+  F.stages.forEach((n, i) => { const y = num(n, 1, 20, `${i + 1}단계 차년도 수`, (x) => { F.stages[i] = x; }); y.dataset.agw = `years${i}`; if (F.stages.length > 1) years.append(el("span", "agw-ylab", `${i + 1}단계`)); years.append(y, el("span", "agw-ylab", "년")); }); // 한 단계면 「1단계」 를 빼 한 줄에 들게
+  part("div", "차년도 수", years);
+  const cur = num(F.current, 1, 20, "당해 차년도", (x) => { F.current = x; }); cur.dataset.agw = "current";
+  part("label", "당해", cur, el("span", "agw-ylab", "차년도"));
+  box.append(nums);
   const lead = el("input"); lead.type = "text"; lead.maxLength = 80; lead.value = F.lead; lead.placeholder = "주관연구개발기관 이름"; lead.dataset.agw = "lead"; lead.oninput = () => { F.lead = lead.value; };
   row("주관기관", lead);
-  const joint = el("textarea"); joint.rows = 3; joint.value = F.joint; joint.placeholder = "공동연구개발기관 — 한 줄에 하나(없으면 비움)"; joint.dataset.agw = "joint"; joint.oninput = () => { F.joint = joint.value; };
+  const joint = el("input"); joint.type = "text"; joint.maxLength = 400; joint.value = F.joint; joint.placeholder = "공동연구개발기관 — 쉼표(,)로 나눔 · 없으면 비움"; joint.dataset.agw = "joint"; joint.oninput = () => { F.joint = joint.value; };
   row("공동기관", joint);
-  const cur = num(F.current, 1, 20, "당해 차년도", (x) => { F.current = x; }); cur.dataset.agw = "current";
-  row("당해 차년도", cur, el("span", "agw-ylab", "차년도")).classList.add("num");
-  const acts = el("div", "ag-acts");
-  // 단추 글 — 2026-11-18 사용자 「확정, 문서에서 보기, 프로젝트 구성 읽기, 닫기 .. 이렇게 하면 될듯」(전의 「이 값으로 확정」 · 「문서에서 읽기」): spec_작업에이전트 ② §5 「화면」
+  const acts = el("div", "ag-acts agw-form-acts");
+  // 단추 글·아이콘 — 2026-11-18 사용자 「확정/문서에서보기,닫기는 한줄로 · 문서에서 보기는 문서 아이콘에 안경이나 눈알… 닫기는 X · 확정도 아이콘」: textContent 는 시험용으로 그대로(.sr-only)
   const read = hBtn("문서에서 보기", async () => { read.disabled = true; await agwExec("config_read"); W.form = null; draw(); }, { title: "문서에 적힌 단계 · 차년도 · 기관을 읽어 이 폼에 채웁니다 — 저장은 「확정」 을 눌러야 합니다" });
   read.dataset.agw = "read";
+  read.setAttribute("aria-label", "문서에서 보기");
+  read.replaceChildren(agentIcon("read", 15), el("span", "sr-only", "문서에서 보기"));
   const ok = hBtn("확정", () => {
     const total = F.stages.reduce((s, n) => s + n, 0);
     if (!F.lead.trim()) { toast("주관기관 이름을 적어 주세요", true); lead.focus(); return; }
-    done({ stages: [...F.stages], lead: F.lead.trim(), joint: F.joint.split("\n").map((x) => x.trim()).filter(Boolean), current: Math.min(F.current, total) });
+    done({ stages: [...F.stages], lead: F.lead.trim(), joint: F.joint.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean), current: Math.min(F.current, total) });
   }, { cls: "btn sm primary", title: "이 값을 프로젝트 구성으로 저장(확정)합니다 — 문서는 바뀌지 않습니다" });
   ok.dataset.agw = "confirm";
+  ok.prepend(agentIcon("check", 15));
   acts.append(ok, read);
+  if (on.close) { // 폼을 닫는 단추도 같은 줄 오른쪽 끝에(대시보드 — 전에는 단계의 단추 줄에 따로 「닫기」)
+    const close = hBtn("닫기", () => on.close(), { title: "프로젝트 구성 입력 칸을 닫습니다 — 적던 값은 확정하지 않습니다" });
+    close.dataset.agw = "close";
+    close.setAttribute("aria-label", "닫기");
+    close.replaceChildren(agentIcon("close", 15), el("span", "sr-only", "닫기"));
+    acts.append(close);
+  }
   box.append(acts);
   return box;
 }

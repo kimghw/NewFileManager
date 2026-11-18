@@ -11,7 +11,26 @@
   const CHANGE = { none: "안 바뀜", doc: "바뀜", store: "안 바뀜 — 결과만 저장" }; // 펼친 세부의 「문서」 줄
   const taskName = (job) => (CAT[job] || {}).name || job;
   const stageLabel = (g) => (g.meta && META[g.meta] ? { no: META[g.meta].no, name: META[g.meta].name } : { no: g.no || "", name: g.name });
-  const tag = (text, kind) => h("span", "wf-tag" + (kind ? " wf-t-" + kind : ""), text); // kind = llm · human · doc · soft(클래스는 모두 wf- 로 — style.css 의 .doc 등과 안 겹치게)
+  const WF_ICONS = { // 꼬리표 아이콘(사람 · 스크립트 · LLM · 문서 바뀜 — doc_agent.js agentIcon 과 같은 경로: 2026-11-18 사용자)
+    script: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
+    llm: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
+    human: '<circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>',
+    doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/><path d="M14 3v5h5M8 12h5M8 16h3"/><path d="m14.5 19.5 5-5 1.8 1.8-5 5H14.5v-1.8Z"/>',
+  };
+  const WF_ICON_BY_TEXT = { "스크립트": "script", LLM: "llm", "사람": "human", "문서 바뀜": "doc" };
+  function wfIcon(name) {
+    const icon = h("span", "wf-icon");
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${WF_ICONS[name] || WF_ICONS.script}</svg>`;
+    return icon;
+  }
+  function tag(text, kind, icon = WF_ICON_BY_TEXT[text]) { // kind = llm · human · doc · soft · must(클래스는 모두 wf- 로 — style.css 의 .doc 등과 안 겹치게). 넷은 아이콘 + .sr-only 글
+    if (!icon || !WF_ICONS[icon]) return h("span", "wf-tag" + (kind ? " wf-t-" + kind : ""), text);
+    const e = h("span", "wf-tag" + (kind ? " wf-t-" + kind : ""));
+    e.title = text;
+    e.append(wfIcon(icon), h("span", "sr-only", text));
+    return e;
+  }
   const link = (href, text, cls) => { const a = h("a", cls || "", text); a.href = href; return a; };
   const plain = (s) => String(s || "").replace(/\*\*|`/g, ""); // 모듈 설명 첫 줄의 마크다운 표시는 뺀다
   let D = null; // 읽은 워크플로우
@@ -35,11 +54,14 @@
     }
   }
 
+  const must = (s) => !s.optional && !s.soon && !s.auto; // 「필수」 — 선택 · 자동 · 준비 중이 아닌 단계(2026-11-18 사용자 「꼭 해야하는건 필수 라고 적어줘」 · dashboard.js dashTags · app/workflow.py step() 과 같은 셈)
+
   function badges(s) {
     const box = h("div", "wf-badges");
-    for (const b of s.by) box.append(tag(D.by[b] || b, b === "script" ? "" : b));
-    if (s.auto) box.append(tag("저절로", "soft"));
-    if (s.optional) box.append(tag("안 해도 됨", "soft"));
+    for (const b of s.by) box.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
+    if (s.auto) box.append(tag("자동", "soft"));
+    if (must(s)) box.append(tag("필수", "must"));
+    if (s.optional) box.append(tag("선택", "soft"));
     if (s.soon) box.append(tag("준비 중", "soft"));
     return box;
   }
@@ -206,10 +228,11 @@
     const d = h("details", "wf-step" + (s.soon ? " wf-soon" : "")), sum = h("summary"), main = h("div"), line = h("div", "wf-line1");
     d.dataset.step = s.key;
     line.append(h("span", "wf-name", s.name));
-    for (const b of s.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b));
-    if (s.change === "doc") line.append(tag(D.change.doc, "doc"));
-    if (s.auto) line.append(tag("저절로", "soft"));
-    if (s.optional) line.append(tag("안 해도 됨", "soft"));
+    for (const b of s.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
+    if (s.change === "doc") line.append(tag(D.change.doc, "doc", "doc"));
+    if (s.auto) line.append(tag("자동", "soft"));
+    if (must(s)) line.append(tag("필수", "must"));
+    if (s.optional) line.append(tag("선택", "soft"));
     if (s.soon) line.append(tag("준비 중", "soft"));
     main.append(line, h("p", "wf-does", s.does));
     const chev = h("span", "wf-chev");
@@ -267,7 +290,7 @@
     if (D.waysNote) { const p = h("p", "wf-lead wf-ways-note", D.waysNote); p.id = "waysNote"; sec.append(p); } // 진행 방식 둘(한 번에 진행 · 단계별) + 에이전트가 보이는 것 — TASK 절의 「진행 방식」 이 TASK 마다 적는다
     const legend = h("ul", "wf-legend");
     for (const [cls, name, text] of [["", D.by.script, "정해진 코드가 계산"], ["llm", D.by.llm, "에이전트가 검토 · 판정"], ["human", D.by.human, "사람이 고르거나 확인"], ["doc", D.change.doc, "이 단계에서 문서가 바뀜"],
-      ["soft", "저절로", "누르지 않아도 돎"], ["soft", "안 해도 됨", "건너뛰어도 다음으로"]]) { const li = h("li"); li.append(tag(name, cls), document.createTextNode(text)); legend.append(li); }
+      ["soft", "자동", "누르지 않아도 돎"], ["must", "필수", "해야 다음으로"], ["soft", "선택", "건너뛰어도 다음으로"]]) { const li = h("li"); li.append(tag(name, cls), document.createTextNode(WF_ICON_BY_TEXT[name] ? `${name} — ${text}` : text)); legend.append(li); } // 아이콘 칩은 이름이 안 보이므로 범례에 이름을 글로
     const lg = h("li");
     lg.append(...dots([{ by: ["llm"], change: "doc" }]), document.createTextNode("묶음에 LLM 단계 · 문서를 바꾸는 단계가 있음"));
     legend.append(lg);

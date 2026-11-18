@@ -623,22 +623,16 @@ try:
         page.wait_for_function("() => { const b = document.querySelector('#zonesBar [data-zones=llm]'); return !!b && !b.disabled; }", timeout=60000)
         lb = page.evaluate(LLM)
         check("LLM 을 쓸 수 있고 후보가 있으면 단추가 켜짐 — 도움말에 몇 곳을 보내는지 · 유료 · 문서는 안 바뀜", lb["shown"] and not lb["off"] and all(s in lb["title"] for s in ("3곳", "유료", "문서는 안 바뀜")) and lb["guide"], lb)
-        dialogs = []
-        page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.dismiss()))
-        page.click("#zonesBar [data-zones=llm]")
-        page.wait_for_timeout(300)
-        check("누르면 확인 창 — 후보 3곳(종류마다 수) · 유료 · 문서는 안 바뀜 · 「LLM」 지정으로 따로 보임 · 「취소」 면 아무것도 안 보냄", len(dialogs) == 1 and "후보 3곳(확인 필요 1 · 기관 모름 1 · 이름표가 있는데 못 읽은 표 1)" in dialogs[0]
-              and all(s in dialogs[0] for s in ("유료", "문서는 바뀌지 않고", "「LLM」 지정", "진행할까요?")) and not M["posts"] and not page.evaluate(LLM)["run"], dialogs)
+        # 누르면 확인 창 없이 바로 보낸다(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 후보 수 · 유료를 적은 확인 창 · 「취소」 면 안 보냄)
         revs = page.evaluate("() => [state.serverRev, zn().data.zonesRev]")
         page.evaluate("""() => { window.__znRun = []; window.__znRunT = setInterval(() => { const b = document.querySelector('#zonesBar [data-zones=llm]');
           if (b && b.classList.contains('run')) window.__znRun.push([b.textContent, b.disabled, getComputedStyle(b, '::before').animationName, [...document.querySelectorAll('#zonesBar input[data-zones-dim]')].every((c) => !c.disabled)]); }, 100); }""")
-        page.once("dialog", lambda dlg: dlg.accept())
         page.click("#zonesBar [data-zones=llm]")
         page.wait_for_function("() => !zn().llmBusy && !!document.querySelector('#doc .sheet > .gz-tag.gz-llm')", timeout=60000)
         page.wait_for_function("() => !!zn().llm && zn().llm.candidates === 1")
         seen_run = page.evaluate("() => { clearInterval(window.__znRunT); return window.__znRun; }")
         lb, t5, bar = page.evaluate(LLM), tag_of(P2), page.evaluate(BAR)
-        check("「진행」 → POST …/zones/llm {docRev, zonesRev}(밀린 편집 뒤의 차례) · 도는 동안 단추 = 돌아가는 동그라미 + 「LLM 검토 중… n초」(꺼짐) · 체크는 그대로 쓸 수 있음", M["posts"] == [{"docRev": revs[0], "zonesRev": revs[1]}]
+        check("누르면 바로 POST …/zones/llm {docRev, zonesRev}(밀린 편집 뒤의 차례) · 도는 동안 단추 = 돌아가는 동그라미 + 「LLM 검토 중… n초」(꺼짐) · 체크는 그대로 쓸 수 있음", M["posts"] == [{"docRev": revs[0], "zonesRev": revs[1]}]
               and len(seen_run) >= 3 and all(re.fullmatch(r"LLM 검토 중… \d+초", x[0]) and x[1] and x[2] == "spin" and x[3] for x in seen_run) and any(x[0].endswith(" 1초") for x in seen_run), (M["posts"], revs, seen_run[:3], seen_run[-1:]))
         check("끝나면 결과 한 줄 「LLM 검토 — 후보 3 · 지정 2 · 그대로 1」(요약은 노트 도움말) · 알림 · 단추는 남은 후보로 다시 켜짐", "LLM 검토 — 후보 3 · 지정 2 · 그대로 1" in lb["last"] and lb["lastHelp"] == SUMMARY
               and "LLM 검토 — 후보 3 · 지정 2 · 그대로 1" in page.evaluate(TOAST) and not lb["off"] and not lb["run"] and lb["text"] == "LLM 검토" and "1곳" in lb["title"], (lb, page.evaluate(TOAST)))
@@ -660,7 +654,7 @@ try:
         check("목록의 「지정」 묶음 — 머리 「지정 — 1(LLM 1)」 + 「LLM 지정 모두 해제」 · 줄에 근거 「LLM」 과 까닭 · 줄마다 「해제」", L2["cap"] == "지정 — 1(LLM 1)" and L2["clear"] == "LLM 지정 모두 해제"
               and L2["rows"] == [["llm", "1단계", "블록 1", "LLM", "윗 제목이 1단계 개발 내용", "해제"]], L2)
         page.screenshot(path=str(OUT / "17_llm_list.png"))
-        dialogs.clear()
+        dialogs = []  # 「LLM 지정 모두 해제」 의 확인 창은 남는다(되돌릴 수 없음 — design.md §18)
         page.once("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.accept()))
         zr = page.evaluate("() => zn().data.zonesRev")
         page.click("#headsDlgBody [data-zones=llm-clear]")

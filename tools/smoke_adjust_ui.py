@@ -159,23 +159,28 @@ try:
         check("칸 title: 템플릿 조정 = 레터가 다른 줄을 종속 템플릿으로 · 서식 조정 = 대표 서식에", "레터가 대표와 다른 줄" in c[6]["title"] and "서식 종속 템플릿" in c[6]["title"] and "대표 서식에 맞춥니다" in c[7]["title"], (c[6]["title"][:80], c[7]["title"][:80]))
         page.locator("#headsOverview").screenshot(path=str(OUT / "1_no_plan.png"))
 
-        # ---- ①-1 LLM 연결이 없는 서버(이 임시 서버)에서 「LLM 판정」 — 막다른 길이 아니다: 스크립트가 맞출 것(자리 맞춤)이 있으면 그것만 반영할지 「모두 반영」 의 확인 창으로 넘긴다(여기서는 그 함수만 바꿔 끼워 넘어온 것을 본다)
+        # ---- ①-1 LLM 연결이 없는 서버(이 임시 서버)에서 「LLM 판정」 — 막다른 길이 아니다: 스크립트가 맞출 것(자리 맞춤)이 있으면 확인 창 대신 알림의 「스크립트로 맞추기」 단추로
+        #      (2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 「모두 반영」 의 확인 창으로 넘겼다). 반영 함수는 바꿔 끼워 넘어온 것만 본다
         page.evaluate("() => { window.__apply0 = tpbApply; window.__applyOpt = null; window.tpbApply = async (o) => { window.__applyOpt = o || {}; return null; }; }")
         page.click('#headsOverview .hprog [data-tpb="act"]')
-        page.wait_for_function("() => window.__applyOpt !== null", timeout=30000)
-        off = page.evaluate("() => ({ note: window.__applyOpt.note || '', ask: window.__applyOpt.ask, toast: document.getElementById('toast').textContent })")
-        check("LLM 연결이 없으면: 「LLM 연결이 없습니다」 알림 + 스크립트 반영만 묻는 길로(확인 창 맨 앞 한 줄 · ask — 「모두 반영」 단추와 달리 이 길은 묻는다) · 요청은 안 나감", "LLM 연결이 없어 LLM 판정은 돌리지 못합니다" in off["note"] and off["ask"] is True and "LLM 연결이 없습니다" in off["toast"]
-              and not asked and "analysis/llm" not in posts and "outline/agent/apply" not in posts, (off, asked, posts))
+        page.wait_for_function("() => { const t = document.getElementById('toast'), b = t && !t.hidden && t.querySelector('.toast-act'); return !!b && b.textContent === '스크립트로 맞추기'; }", timeout=30000)
+        tt, before = page.evaluate("() => [document.getElementById('toast').textContent, window.__applyOpt]")
+        page.click("#toast .toast-act")
+        page.wait_for_function("() => window.__applyOpt !== null", timeout=10000)
+        off = page.evaluate("() => ({ ask: window.__applyOpt.ask === undefined ? null : window.__applyOpt.ask, keys: Object.keys(window.__applyOpt) })")
+        check("LLM 연결이 없으면: 확인 창 없이 알림 「LLM 연결이 없어 …」 + 「스크립트로 맞추기」 단추 — 누를 때만 스크립트 반영(「모두 반영」 과 같은 함수 · 묻는 인자 없음) · 요청은 안 나감",
+              "LLM 연결이 없어 LLM 판정은 돌리지 못합니다" in tt and before is None and off["ask"] is None and off["keys"] == []
+              and not asked and "analysis/llm" not in posts and "outline/agent/apply" not in posts, (tt, before, off, asked, posts))
         page.evaluate("() => { window.tpbApply = window.__apply0; }")
 
-        # ---- ①-2 「LLM 판정」 — 돌 것을 보인 확인 창 뒤에 「LLM 검증·보완」 이어 돌리기(doc_status.js dsLlmRun)를 부른다.
+        # ---- ①-2 「LLM 판정」 — 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」) 「LLM 검증·보완」 이어 돌리기(doc_status.js dsLlmRun)를 부른다.
         #      임시 서버는 LLM 이 꺼져 있어 연결 확인(headsLlmReady)과 그 함수만 바꿔 끼운다 — 요청은 안 나간다
         page.evaluate("() => { window.__keep = { ready: headsLlmReady, run: dsLlmRun }; window.__judge = 0; window.headsLlmReady = async () => ({ available: true });"
                       " window.dsLlmRun = async () => { window.__judge += 1; return true; }; }")
         page.click('#headsOverview .hprog [data-tpb="act"]')
         page.wait_for_function("() => window.__judge === 1", timeout=30000)
-        check("「LLM 판정」: 확인 창에 돌 것(헤딩 · 표 · 서식 정리 계획) · 유료 · 문서는 안 바뀜 → LLM 검증·보완 이어 돌리기 한 번(서식 정리 계획만 부르지 않는다)",
-              len(asked) == 1 and all(w in asked[0] for w in ("돌 것", "헤딩 그래프(LLM)", "표 구조(LLM)", "서식 정리 계획", "유료", "문서는 바뀌지 않습니다")) and "analysis/llm" not in posts, (asked, posts))
+        check("「LLM 판정」: 확인 창 없이 → LLM 검증·보완 이어 돌리기 한 번(서식 정리 계획만 부르지 않는다)",
+              not asked and "analysis/llm" not in posts, (asked, posts))
         page.evaluate("() => { window.headsLlmReady = window.__keep.ready; window.dsLlmRun = window.__keep.run; }")
         asked.clear()
 
@@ -186,11 +191,11 @@ try:
         check("헤딩 판정(LLM)을 거친 문서: 행동 칸 「계획 받기」 · 두 칸 도움말에 판정 안내 없음", (c[8]["text"], c[8]["state"]) == ("계획 받기", "act") and not c[8]["hidden"] and not c[8]["off"] and not c[8]["go"]
               and not any("헤딩 판정(LLM)을 아직 안 했습니다" in x["title"] for x in c[6:8]), c[6:])
 
-        # ---- ② 「계획 받기」 — 서식 정리 계획만(유료 확인 창) → 계획 받음
+        # ---- ② 「계획 받기」 — 서식 정리 계획만(유료 · 확인 창 없이 — 2026-11-18) → 계획 받음
         page.click('#headsOverview .hprog [data-tpb="act"]')
         page.wait_for_function(WAIT_ADJ, arg="모두 반영", timeout=120000)
         f1, v1 = formats(wid)
-        check("확인 창: 유료 · 문서는 안 바뀜 · 템플릿 수", len(asked) == 1 and "유료" in asked[0] and "문서는 바뀌지 않습니다" in asked[0] and str(need) in asked[0], asked)
+        check("「계획 받기」 — 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」)", not asked, asked)
         check("서식 정리 계획만 돎(이어 돌리기 formats — 헤딩 · 표 LLM 은 안 돎)", [(s["key"], s["status"]) for s in v1["chain"]["steps"]] == [("formats", "ok")] and v1["chain"]["name"] == "서식 정리 계획"
               and "analysis/llm" in posts and "headings" not in posts, (v1["chain"], posts))
         L = f1["llm"]
@@ -228,7 +233,7 @@ try:
         m = page.evaluate(SNAP)
         c = m["cells"]
         check("반영: 실행 취소 1 · 문서 차례 +1 · POST …/outline/agent/apply 한 번", m["undo"] == undo0 + 1 and m["rev"] == rev0 + 1 and posts.count("outline/agent/apply") == 1, (m["undo"], undo0, m["rev"], rev0, posts))
-        check("「모두 반영」 은 확인 창 없이 바로(2026-11-18 사용자 「팝업 알림 확인 받지마」) · 끝난 알림에 실행 취소 한 번", len(asked) == 1 and "「실행 취소」 한 번" in page.evaluate("() => document.getElementById('toast').textContent"),
+        check("「모두 반영」 은 확인 창 없이 바로(2026-11-18 사용자 「팝업 알림 확인 받지마」) · 끝난 알림에 실행 취소 한 번", not asked and "「실행 취소」 한 번" in page.evaluate("() => document.getElementById('toast').textContent"),
               (asked, page.evaluate("() => document.getElementById('toast').textContent")))
         check("계획은 모두 반영함(done = 계획 수 — 다 맞춘 템플릿은 「정리할 템플릿」 에서 빠진다) · 대표와 다른 줄이 줄어듦", (f2["llm"]["done"], f2["llm"]["planned"]) == (need, 0) and f2["others"] < others0,
               ({k: f2["llm"][k] for k in ("need", "planned", "applied", "done", "stale")}, f2["others"], others0))

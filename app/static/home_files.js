@@ -67,7 +67,7 @@ function hfCardsSync() { // TASK 카드 아래 글 — 목록이 있으면 「�
     txt.textContent = busy ? "문서 여는 중 " : has && !target ? "목적 문서를 선택하세요 " : unsupported ? "지원하지 않는 파일 형식 " : quick ? "끝까지 자동 진행 " : has ? "목록으로 시작 " : b.dataset.up;
     b.title = busy ? "문서를 여는 중입니다" : has && !target ? "위 파일 카드에서 목적 문서를 하나 고르세요"
       : unsupported ? `이 TASK 는 ${taskAcceptOf(b.dataset.task).join("·")} 문서로 시작합니다`
-      : quick ? `TASK 「${task.name}」 — 목적 문서 「${target.name}」 에 기관 문서 ${hf.files.length - 1}개를 끝까지 한 번에 취합합니다(누를 때 한 번 확인 · 남긴 것은 연 뒤 단계별로 보정)`
+      : quick ? `TASK 「${task.name}」 — 목적 문서 「${target.name}」 에 기관 문서 ${hf.files.length - 1}개를 끝까지 한 번에 취합합니다(남긴 것은 연 뒤 단계별로 보정)`
       : has ? `TASK 「${task.name}」 — 목적 문서 「${target.name}」로 시작합니다(연 뒤 에이전트가 사전 준비 · 다음 단계를 안내합니다)` : b.dataset.tip;
   }
 }
@@ -350,8 +350,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   if (t.gather) {
     if (others.some((f) => !HF_TASK.test(f.name))) { ask("기관 문서도 hwp·hwpx 여야 합니다 — docx 는 목록에서 빼 주세요"); return; }
     if (auto && !others.length) { ask("자동 진행에는 기관 문서가 하나 이상 있어야 합니다 — 「파일 더하기」 로 더하거나 「자동 진행」 을 끄세요", "[data-hf-focus=more]"); return; }
-    if (auto && !confirm(gqConfirmText(target, others, llm))) return;
-    use = others;
+    use = others; // 자동 진행도 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 간단 모드의 차례를 적은 확인 창: design.md §18 「확인 창」)
   } else if (t.files) {
     if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return; }
     if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return; }

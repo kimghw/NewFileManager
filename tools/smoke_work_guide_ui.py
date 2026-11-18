@@ -128,7 +128,7 @@ def main():
         # ---- 프로젝트 구성 입력 → 확정 → 변경 계획(바로) → 실행 카드 「문서에 반영」
         page.fill("#paneAgent [data-agw=years0]", "3")
         page.fill("#paneAgent [data-agw=lead]", "한국선급")
-        page.fill("#paneAgent [data-agw=joint]", "씨드로닉스\n유엔젤")
+        page.fill("#paneAgent [data-agw=joint]", "씨드로닉스, 유엔젤")  # 공동기관은 한 줄 칸에 쉼표(2026-11-18 사용자)
         doc = page.evaluate("state.id")
         rev0 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
         page.click("#paneAgent [data-agw=confirm]")
