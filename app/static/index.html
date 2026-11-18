@@ -450,6 +450,8 @@
       <div class="pane" id="paneHeads" role="tabpanel" aria-labelledby="tabHeads" hidden>
         <p class="hwarn" id="headsPersist" role="status" hidden></p>
         <div class="heads-overview" id="headsOverview" aria-live="polite"></div>
+        <!-- 고친 부분 적용하기(spec_작업 ② §8 — 2026-11-18): 고친 문단이 있을 때만 보이는 줄 · 「고친 문단」 탭의 「확정」 과 같은 일(app.js commitQuickSync 가 채운다) -->
+        <div class="commit-quick" data-cq="헤딩 추출" hidden></div>
         <div class="heads-view-nav" role="tablist" aria-label="헤딩 추출 결과">
           <button type="button" role="tab" id="headsTabTree" aria-controls="headsViewTree" aria-selected="true" data-head-view="Tree">문서 구조</button>
           <button type="button" role="tab" id="headsTabLabels" aria-controls="headsViewLabels" aria-selected="false" tabindex="-1" data-head-view="Labels">서식 라벨</button>
@@ -488,7 +490,7 @@
         </section>
       </div>
       <!-- 표 모듈(spec_헤딩_추출 ② §10 — app/static/tables.js): 문서의 표 목록 · 표 구조 실행 · 공통 지침 · 표마다 ⊞ 엑셀식 보기(2열)·✎ 표 지침 -->
-      <div class="pane" id="paneTables" role="tabpanel" aria-labelledby="tabTables" hidden><div id="tablesBox"></div></div>
+      <div class="pane" id="paneTables" role="tabpanel" aria-labelledby="tabTables" hidden><div class="commit-quick" data-cq="표 점검" hidden></div><div id="tablesBox"></div></div>
       <!-- 에이전트 보기(spec_일반편집 ② §12 — app/static/doc_agent.js): 상태 줄 · 대화(요청·답·제안 카드) · 입력(고른 자리 · 서식 · 자료 · 요청). 2열(#headsDlg 공유): 제안 미리보기 · 지침 · 서식 보관함(style_lib.js) -->
       <div class="pane" id="paneAgent" role="tabpanel" aria-labelledby="tabAgent" hidden><div id="agentBox"></div></div>
       <!-- 대시보드(spec_작업에이전트 ② §9 — 2026-11-18 사용자): TASK 의 단계 흐름(워크플로우 등록부) + 단계마다 지금 상태와 실행 단추. 그리기는 dashboard.js -->

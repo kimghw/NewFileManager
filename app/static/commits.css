@@ -8,6 +8,13 @@
 .commit-row input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--text); }
 .commit-row input:disabled { background: var(--surface-2); color: var(--muted); }
 .commit-row .btn { flex: none; }
+/* 고친 부분 적용하기(② §8 — app.js commitQuickSync): 헤딩 추출 탭 · 「테이블」 탭 · 표 서식 점검 열의 한 줄 — 고친 것이 있을 때만 보인다. 상자를 더 두르지 않고 왼쪽 띠 + 옅은 바탕
+   (design.md §1-1 — 알림은 테두리 없이), 글은 좁으면 줄임표 · 단추는 늘 다 보인다 */
+.commit-quick { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 5px 8px 5px 10px; border-left: 3px solid var(--warn); border-radius: 0 6px 6px 0; background: var(--warn-soft); font-size: 12.5px; line-height: 1.5; }
+.commit-quick[hidden] { display: none; }
+.commit-quick .cq-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.commit-quick .cq-sum .n { color: var(--warn); font-weight: 600; }
+.commit-quick .btn { flex: none; }
 .commit-log { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; font-size: 12.5px; }
 .commit-log > summary { cursor: pointer; color: var(--muted); user-select: none; }
 .commit-log > summary:hover { color: var(--text); }

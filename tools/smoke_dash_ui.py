@@ -340,7 +340,8 @@ def main():
         fake_analysis(page, fa, "A")
         n10 = node(page, "adjust")
         check("헤딩 판정(LLM)을 거쳤고 계획이 있으면 10 조정이 지금 — 「모두 반영」(강조) · 「계획 보기」 · 글에 반영할 것(맞출 줄 3 · 뗄 줄 1)",
-              n10["state"] == "now" and n10["open"] and n10["acts"] == [["모두 반영", False, True], ["계획 보기", False, False]] and "대표에 맞출 줄 3" in node_text(page, "adjust") and "뗄 줄 1" in node_text(page, "adjust"),
+              n10["state"] == "now" and n10["open"] and n10["acts"][:2] == [["모두 반영", False, True], ["계획 보기", False, False]] and [a[0] for a in n10["acts"][2:]] == ["고친 부분 적용하기"]
+              and "대표에 맞출 줄 3" in node_text(page, "adjust") and "뗄 줄 1" in node_text(page, "adjust"),
               [n10, node_text(page, "adjust")])
         n_dialogs = len(dialogs)
         page.click('#paneDash .dash-node[data-key=adjust] .dash-acts button:has-text("모두 반영")')
@@ -433,6 +434,30 @@ def main():
               n3["st"] == "✓ 끝남" and n3["open"] and [a[0] for a in n3["acts"]] == ["다시 검토", "검토 결과 보기"] and not n3["acts"][1][2] and h["count"] == f"끝남 {d1}/9" and h["next"] == next_done
               and h["last"].startswith("구분 기준 LLM 검토 — 빠진 자리 후보 0"), [h, n3])
         page.unroute("**/api/docs/*/divisions/review")
+
+        # ---- 고친 부분 적용하기(spec_작업 ② §8 — 2026-11-18 사용자 「헤딩 추출 및 표 점검 할 때.. 고친 부분 적용하기 버튼 넣어줘」 → 답 「고친 문단 확정」): 문서가 바뀌는 단계(조정 · 템플릿 관계 · 표 점검)의
+        # 단추 · 헤딩 추출 탭과 「테이블」 탭의 줄(고친 것이 있을 때만) → 누르면 확정(고친 문단 0 · 줄이 사라지고 단추는 꺼짐). 이 문서는 1단계 적용으로 고친 문단이 있다
+        CQ = """() => ({ edited: state.edited.size, dirty: isDirty(), base: state.base,
+          strips: [...document.querySelectorAll('.commit-quick')].map((b) => [b.dataset.cq, b.hidden, (b.querySelector('.cq-sum') || {}).textContent || '', (b.querySelector('.cq-btn') || {}).textContent || '']) })"""
+        q0 = page.evaluate(CQ)
+        open_node(page, "tableTools")
+        n14 = node(page, "tableTools")
+        open_node(page, "tree")
+        n11 = node(page, "tree")
+        open_node(page, "adjust")
+        n10 = node(page, "adjust")
+        check("고친 문단이 있으면 — 헤딩 추출 탭 · 「테이블」 탭에 「고친 부분 적용하기」 줄(고친 문단 n) · 10 조정 · 11 템플릿 관계 · 14 표 점검 카드에 그 단추(켜짐)",
+              q0["dirty"] and q0["edited"] > 0 and [s[0] for s in q0["strips"]] == ["헤딩 추출", "표 점검"] and all(not s[1] and "고친 문단" in s[2] and s[3] == "고친 부분 적용하기" for s in q0["strips"])
+              and all(["고친 부분 적용하기", False, False] in n["acts"] for n in (n10, n11, n14)), [q0, n10, n11, n14])
+        n_dialogs = len(dialogs)
+        page.click('#paneDash .dash-node[data-key=adjust] .dash-acts button:has-text("고친 부분 적용하기")')
+        page.wait_for_function("() => state.edited.size === 0 && !isDirty() && !state.commitBusy", timeout=60000)
+        page.wait_for_function("() => /^고친 부분 적용하기 — 확정 1/.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=15000)
+        page.wait_for_function("() => { const b = [...document.querySelectorAll('#paneDash .dash-node[data-key=adjust] .dash-acts button')].find((x) => x.textContent === '고친 부분 적용하기'); return b && b.disabled; }", timeout=15000)
+        q1, n10 = page.evaluate(CQ), node(page, "adjust")
+        check("「고친 부분 적용하기」 → 확인 창 없이 확정 1(고친 문단 0 · 기준 = 확정 1) · 두 줄이 사라짐 · 단추는 꺼짐(까닭 「고친 것이 없습니다」) · 끝 글",
+              len(dialogs) == n_dialogs and q1["edited"] == 0 and q1["base"] == 1 and all(s[1] for s in q1["strips"]) and ["고친 부분 적용하기", True, False] in n10["acts"]
+              and "고친 문단" in page.evaluate(HEAD)["last"], [q1, n10, page.evaluate(HEAD)["last"], dialogs[n_dialogs:]])
 
         # ---- 이관(두 문서) — 「작업 내용」 의 단계 · 묶음 넷 · 등록부의 세부 단계는 「그 단계로」 · 「이어서 한 번에」
         page.goto(base)

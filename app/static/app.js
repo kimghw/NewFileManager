@@ -4570,6 +4570,7 @@ const kindCounts = (c) => Object.keys(KIND_KO).filter((k) => c && c[k]).map((k) 
 const isDirty = () => state.edited.size > 0 || !state.pristine; // 확정하지 않은 변경이 있는지(글은 같아도 파일이 기준과 다르면 변경)
 
 function commitBar() { // 기준·고친 수 한 줄과 단추 상태 — updateEdits() 가 부른다(싸다)
+  commitQuickSync(); // 헤딩 추출 탭 · 「테이블」 탭 · 표 서식 점검 열의 「고친 부분 적용하기」 줄도 같은 때(② §8 「고친 부분 적용하기」)
   const box = $("commitBox");
   if (!box) return;
   box.hidden = !state.id || !state.stored; // 작업 저장이 꺼져 있으면 확정 기능 없음
@@ -4673,24 +4674,73 @@ async function commitReady(what) { // 확정·버리기·복원 앞 — 대기 �
 
 const JSON_POST = (body) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-async function commitDo() { // 확정 — 지금 상태가 새 기준. 문서는 그대로라 다시 그리지 않는다
-  if (!(await commitReady("commit"))) return;
-  if (!isDirty()) { toast("확정할 변경이 없습니다"); return; }
+async function commitDo(msg) { // 확정 — 지금 상태가 새 기준. 문서는 그대로라 다시 그리지 않는다. msg = 메시지 칸이 비었을 때 쓸 글(「고친 부분 적용하기」 가 준다 — 단추의 onclick 으로 불리면 사건 객체라 안 쓴다) → 확정 {n, count} | null
+  if (!(await commitReady("commit"))) return null;
+  if (!isDirty()) { toast("확정할 변경이 없습니다"); return null; }
   const id = state.id, epoch = state.epoch, count = state.edited.size;
   state.commitBusy = "commit";
   commitBar();
   try {
-    const d = await api(`/api/docs/${id}/commits`, JSON_POST({ message: $("commitMsg").value }));
-    if (epoch !== state.epoch) return;
+    const d = await api(`/api/docs/${id}/commits`, JSON_POST({ message: $("commitMsg").value.trim() || (typeof msg === "string" ? msg : "") }));
+    if (epoch !== state.epoch) return null;
     $("commitMsg").value = "";
     state.commitBusy = false;
     adoptBase(d, false);
     toast(`확정 ${d.commit.n} — 고친 문단 ${nf(count)}개를 확정했습니다. 이제 이 상태가 기준입니다`);
+    return { n: d.commit.n, count };
   } catch (e) {
     if (epoch === state.epoch) toast(e.message, true);
+    return null;
   } finally {
     if (epoch === state.epoch) { state.commitBusy = false; commitBar(); commitsLoad(); loadWorks(); logTouched(); }
   }
+}
+
+// 고친 부분 적용하기(spec_작업 ② §8 「고친 부분 적용하기」 — 2026-11-18 사용자 "헤딩 추출 및 표 점검 할 때.. 고친 부분 적용하기 버튼 넣어줘" → 답 「고친 문단 확정」):
+// 헤딩 추출(조정의 「모두 반영」 · 템플릿 관계에서 맞추기)과 표 점검(서식 맞추기 · 빈 필드 지우기)을 하면 고친 문단이 쌓이는데, 확정은 「고친 문단」 탭까지 가야 했다 — 그 일을 하는 화면에
+// 같은 확정을 부르는 단추를 둔다(새 확정 길이 아니다 — commitDo 그대로: 지금 상태가 새 기준 · 가져오기 검증을 새 기준으로 다시 · 실행 취소 기록은 비고 「확정 기록」 의 복원으로 돌아감).
+// 줄(.commit-quick[data-cq=<어디>])은 **고친 것이 있을 때만** 보인다: 「고친 문단 n(모양 n · 글 n)」 + 단추. 자리 = 헤딩 추출 탭(진행 줄 아래) · 「테이블」 탭 맨 위(index.html) · 표 서식 점검 열(table_style.js) ·
+// 대시보드의 양식 표준화 「조정」 · 「템플릿 관계」 · 「표 점검」 단계(dashboard.js — commitQuick). 확정 메시지는 「<어디> — 고친 부분 적용」(「고친 문단」 탭의 메시지 칸에 적어 둔 글이 있으면 그 글).
+const CQ_LABEL = "고친 부분 적용하기";
+const cqTitle = (n) => `고친 문단 ${nf(n)}개를 확정합니다 — 지금 상태가 새 기준이 되고 고친 문단이 0 부터 다시 모입니다(「고친 문단」 탭의 「확정」 과 같음).\n쪽 나눔도 고친 문서로 다시 맞춥니다(가져오기 검증을 새 기준으로 다시 — 배경). 실행 취소 기록은 비워지고, 앞 상태로는 「고친 문단」 탭 「확정 기록」 의 「복원」 으로 돌아갑니다`;
+
+function commitQuickEl(where) { // 줄 하나(빈 채로 — commitQuickSync 가 채우고 보인다). where = 확정 메시지에 적을 곳 이름
+  const box = el("div", "commit-quick");
+  box.dataset.cq = where;
+  box.hidden = true;
+  return box;
+}
+
+function commitQuickSync() {
+  const boxes = document.querySelectorAll(".commit-quick");
+  if (!boxes.length) return;
+  const n = state.edited.size, dirty = !!state.id && !!state.stored && isDirty(), c = {};
+  if (dirty) for (const k of Object.values(state.kinds)) c[k] = (c[k] || 0) + 1;
+  for (const box of boxes) {
+    box.hidden = !dirty;
+    if (!dirty) continue;
+    if (!box.firstChild) { // 처음 한 번 — 글 + 단추
+      const b = el("button", "btn sm primary cq-btn", CQ_LABEL);
+      b.type = "button";
+      b.onclick = () => commitQuick(box.dataset.cq);
+      box.setAttribute("role", "group");
+      box.setAttribute("aria-label", CQ_LABEL);
+      box.append(el("span", "cq-sum"), b);
+    }
+    const sum = box.querySelector(".cq-sum"), b = box.querySelector(".cq-btn");
+    sum.textContent = "";
+    if (n) sum.append(el("b", "n", `고친 문단 ${nf(n)}`), ` (${kindCounts(c)})`); else sum.append("글은 같으나 파일이 기준과 다름");
+    b.disabled = !!state.commitBusy;
+    b.textContent = state.commitBusy === "commit" ? "적용하는 중…" : CQ_LABEL;
+    b.title = cqTitle(n);
+  }
+}
+
+async function commitQuick(where) { // 「고친 부분 적용하기」 — 확정 한 번 → {ok, text}(대시보드의 끝 글 — 알림은 commitDo 가 낸다)
+  if (!state.id || !state.stored) return { ok: false, text: "이 작업은 저장이 꺼져 있어 확정할 수 없습니다" };
+  if (!isDirty()) return { ok: false, text: "고친 것이 없습니다" };
+  const r = await commitDo(`${where || "문서"} — 고친 부분 적용`);
+  return r ? { ok: true, text: `확정 ${r.n} — 고친 문단 ${nf(r.count)}개를 적용했습니다. 이제 이 상태가 기준입니다` } : { ok: false, text: "적용하지 못했습니다 — 알림 글을 확인하세요" };
 }
 
 async function commitRestore(n) { // n = 지금 기준이면 「모두 되돌리기」(확정이 안 생김), 아니면 그 확정 상태로 되돌려 새 확정으로 남김

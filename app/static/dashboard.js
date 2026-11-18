@@ -218,10 +218,14 @@ function dashStdHeads(L, S, groups) { // 2 · 3단계의 상태 · 단추. 「�
       L.steps[k] = { state, text: r.text || "", acts: [] };
     }
   }
+  // 고친 부분 적용하기(spec_작업 ② §8 — 2026-11-18 사용자 「헤딩 추출 및 표 점검 할 때.. 고친 부분 적용하기 버튼 넣어줘」 → 답 「고친 문단 확정」): 문서가 바뀌는 단계(조정 · 템플릿 관계 · 표 점검)에
+  // 고친 문단을 확정하는 단추 — 「고친 문단」 탭의 「확정」 과 같은 함수(app.js commitQuick → commitDo). 고친 것이 없으면 꺼진 채 까닭
+  const noCq = off || (!state.stored ? "이 작업은 저장이 꺼져 있어 확정할 수 없습니다" : !isDirty() ? "고친 것이 없습니다 — 조정의 「모두 반영」 이나 맞추기로 문서를 고친 뒤에 켜집니다" : state.commitBusy ? "적용하는 중입니다" : "");
+  const cq = (where, key) => dashBtn(CQ_LABEL, () => dashExec(CQ_LABEL, () => commitQuick(where)), { disabled: !!noCq, focus: `act:${key}Commit`, title: noCq || cqTitle(state.edited.size) });
   L.steps.tree = { state: "", text: "", acts: [dashBtn("템플릿 관계 열기", () => tplRelOpen(), { focus: "act:tree",
-    title: "문서 옆 열에 「템플릿 관계」 를 엽니다 — 남긴 줄 · 애매한 종속 제안 · 대표가 없는 레벨을 손으로 맞추거나 뗍니다(누른 단추에 따라 문서가 바뀜)" })] };
+    title: "문서 옆 열에 「템플릿 관계」 를 엽니다 — 남긴 줄 · 애매한 종속 제안 · 대표가 없는 레벨을 손으로 맞추거나 뗍니다(누른 단추에 따라 문서가 바뀜)" }), cq("헤딩 추출", "tree")] };
   L.steps.tableTools = { state: "", text: "", acts: [dashBtn("테이블 탭 열기", () => showTab(typeof dsTo === "function" ? dsTo("Tables") : "Tables"), { focus: "act:tableTools",
-    title: "패널 「테이블」 — 표 하나씩 수식 판정 · 검산, 같은 자리(머리행 · 머리열 · 합계행)의 칸 서식 맞추기, 빈 필드 지우기" })] };
+    title: "패널 「테이블」 — 표 하나씩 수식 판정 · 검산, 같은 자리(머리행 · 머리열 · 합계행)의 칸 서식 맞추기, 빈 필드 지우기" }), cq("표 점검", "tableTools")] };
   if (!S || S.none) return;
   const st = (k) => L.steps[k].state, open = (k) => raw(k).state === "todo" || raw(k).state === "fail"; // 단추를 보이는 때 — 결과가 없거나 실패(끝났거나 도는 중이면 없음)
   const hOff = (key) => (heads.view && typeof hrpOff === "function" && typeof hrpStep === "function" ? hrpOff(hrpStep(key)) : ""); // 단계별 실행이 못 돌리는 까닭(문단·라벨 결과 없음 …)
@@ -232,7 +236,7 @@ function dashStdHeads(L, S, groups) { // 2 · 3단계의 상태 · 단추. 「�
   if (st("adjust") !== "done" || S.can) L.steps.adjust.acts.push(dashBtn("모두 반영", () => dashExec("조정 — 모두 반영", dashStdApply), { primary: st("adjust") === "now" && !noApply, disabled: !!noApply, focus: "act:adjustApply",
     title: noApply || `받아 둔 서식 정리 계획을 에이전트가 고른 그대로 한 번에 반영합니다 — ${agwStdApplyText(S.P)}. 묻지 않고 바로 반영합니다(문서가 바뀜 · 실행 취소 한 번 · 계획은 「계획 보기」 에서 먼저)` }));
   L.steps.adjust.acts.push(dashBtn("계획 보기", () => tplPlanGo(), { focus: "act:adjustPlan",
-    title: "헤딩 추출 탭 진행 줄의 「조정」 으로 — 「템플릿 조정」 · 「서식 조정」 칸을 누르면 템플릿 · 레벨마다 맞출 줄 · 뗄 줄 · 남긴 줄이 보입니다(문서는 안 바뀜)" }));
+    title: "헤딩 추출 탭 진행 줄의 「조정」 으로 — 「템플릿 조정」 · 「서식 조정」 칸을 누르면 템플릿 · 레벨마다 맞출 줄 · 뗄 줄 · 남긴 줄이 보입니다(문서는 안 바뀜)" }), cq("헤딩 추출", "adjust"));
   if (open("tables")) L.steps.tables.acts.push(pick("표 구조(스크립트)", ["s3"], "act:tables", "표마다 칸 역할(열헤더 · 행헤더 · 필드)을 스크립트로 다시 뽑습니다(무료 · 1초 안팎 · 문서는 안 바뀜)"));
   if (open("tablesLlm")) L.steps.tablesLlm.acts.push(pick("표 판정(LLM)", ["l3"], "act:tablesLlm", "표 묶음마다 서브 테이블 · 헤더 행/열 · 칸 역할을 LLM 이 칸의 값을 보고 판정합니다(유료 · 수 분 · 문서는 안 바뀜)"));
   const left = (gid) => (groups.find((g) => g.id === gid) || { keys: [] }).keys.some((k) => L.steps[k] && L.steps[k].state !== "done");

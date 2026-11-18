@@ -39,7 +39,9 @@ async function tblStyleView(tid) {
   tools.append(el("span", "muted", "점검은 문서를 바꾸지 않습니다 · 맞추기는 고른 곳만, 실행 취소 한 번으로 되돌립니다 · 장평 · 자간은 칸 폭 맞춤이라 견주지 않습니다"));
   const ident = el("div", "ta-ident"), acts = el("div", "ta-row"), sum = el("p", "hnote tst-sum"), emptyLine = el("p", "hnote tst-empty"), result = el("div", "tst-result");
   acts.append(hBtn("표 자리로", () => tblStyleGo(tid), { title: "문서에서 이 표로" }), hBtn("다시 점검", () => load(), { title: "지금 문서로 다시 봅니다(문서는 안 바뀜)" }));
-  wrap.append(ident, acts, sum, emptyLine, result);
+  const quick = typeof commitQuickEl === "function" ? commitQuickEl("표 서식 점검") : ""; // 고친 부분 적용하기(spec_작업 ② §8 — 맞춘 뒤 고친 문단을 이 열에서 바로 확정 · 고친 것이 있을 때만 보임: app.js)
+  wrap.append(ident, acts, quick, sum, emptyLine, result);
+  if (quick) commitQuickSync();
   let view = null, busy = false;
 
   async function load() {
