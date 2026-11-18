@@ -40,7 +40,8 @@ def _index(g):
     by_para = {}
     for n in outline:
         by_para.setdefault(n["para"], n)
-    return by_para, Counter(n["para"] for n in outline), {n["id"]: n for n in nodes}
+    # 줄 안 레터(「o (제목) ① …」 의 「①」 — spec_헤딩_추출 ② §2)는 문단의 개요 노드 수에 넣지 않는다(그 문단은 첫 노드의 줄 — 「multi」 가 아님)
+    return by_para, Counter(n["para"] for n in outline if not n.get("inline")), {n["id"]: n for n in nodes}
 
 
 def _parent_para(n, by_id):

@@ -223,6 +223,15 @@ function zonesInvalidate(reason = "edit") { // 문서 차례가 바뀜("edit" �
   Promise.resolve().then(() => { if (Z === znState) zonesBarRefresh(); }); // 부르는 쪽이 이 함수 바로 뒤에 문서 차례를 올린다 — 그 뒤에 줄을 다시 그린다(「문서가 바뀜 — 다시 읽는 중」)
   znSoon(reason);
 }
+function zonesHeadsSeen(key) { // 헤딩 추출 결과의 열쇠를 받는다(app.js headsRender — 2단계 그래프 · 3단계 표 구조의 실행 「번호|때」 를 이은 글). 이 문서에서 처음 본 열쇠는 적어만 두고, 바뀌었으면 다시 읽는다
+  // — 그래프는 윗 제목의 기관 근거 · 표 구조는 표의 머리 근거(② §2)라 헤딩 추출을 다시 돌리면(문서 차례는 그대로) 구역이 달라질 수 있다(2026-11-18 사용자 「그게 있어야 구분이 더 잘될거 아냐?」 · ② §6 「다시 읽는 때」)
+  if (PEEK || !state.id) return;
+  const Z = zn();
+  if (!("graphKey" in Z)) { Z.graphKey = key; return; }
+  if (Z.graphKey === key) return;
+  Z.graphKey = key;
+  zonesInvalidate("values"); // 꺼져 있으면(켠 기준 없음 · 표시 감춤) 안 읽는다 — 켤 때 새로 읽는다
+}
 function zonesReset() { // 문서를 열 때 · 닫을 때 · TASK 를 바꾼 뒤(app.js divReset) — 읽어 둔 것을 버리고, 문서가 열려 있으면 곧 다시 읽는다
   znStop(znState);
   znState = null;
@@ -381,7 +390,7 @@ async function znLlmClear() { // 「LLM 지정 모두 해제」 — LLM 이 지�
   }
 }
 
-// ---- 줄(패널 「작업 내용」 — 「구분 기준 자리 표시」 줄 아래 · 취합은 취합 카드 안)
+// ---- 줄(패널 「작업 개요」 — 「구분 기준 자리 표시」 줄 아래 · 취합은 취합 카드 안)
 function zonesBarEl(opts = {}) {
   const gather = !!opts.gather, box = el(gather ? "div" : "section", "zn-bar gt-zones" + (gather ? "" : " zn-card"));
   box.id = "zonesBar";
@@ -607,7 +616,7 @@ function zonesKeyDraw() {
   for (const x of list.slice(0, ZN_KEY_MAX)) { const chip = el("span", "dv-chip zn-key-chip"); chip.dataset.gz = x.color; chip.title = x.name; chip.append(el("span", "zn-key-chip-t", x.name)); box.append(chip); }
   if (list.length > ZN_KEY_MAX) { const more = el("span", "zn-key-more", `외 ${list.length - ZN_KEY_MAX}`); more.title = list.slice(ZN_KEY_MAX).map((x) => x.name).join(" · "); box.append(more); }
   if (marked) box.append(el("span", "zn-key-tone", "점선 이름표 = 지정"));
-  const again = "다시 보려면 「작업 내용」 의 「편집 구역」 에서 「구역 표시 보기」";
+  const again = "다시 보려면 「작업 개요」 의 「편집 구역」 에서 「구역 표시 보기」";
   box.append(hHelp("편집 구역 색 안내", ZN_HELP + "\n" + again + ".", { note: true }));
   box.append(hBtn("감추기", () => { znOnSet(false); zonesDraw(); zonesBarRefresh(); }, { cls: "btn sm dv-key-off", title: "편집 구역 표시 감추기 — " + again }));
 }
@@ -939,7 +948,7 @@ function zonesList(only = null, keep = false) {
   const reasons = D.reasons || [];
   if (reasons.includes("noValues")) body.prepend(el("p", "hnote pad","프로젝트 구성 값이 없어 구역을 셀 수 없습니다 — 「프로젝트 구성」 에서 정하세요"));
   else if (reasons.includes("unsupportedForm")) body.prepend(el("p", "hnote pad","이 문서 형식에는 편집 구역이 없습니다(hwpx 문서만)"));
-  else if (!dims.length) body.prepend(el("p", "hnote pad","「작업 내용」 의 「편집 구역」 에서 기관·단계·차년도를 켜면 그 값의 구역이 여기에 나옵니다"));
+  else if (!dims.length) body.prepend(el("p", "hnote pad","「작업 개요」 의 「편집 구역」 에서 기관·단계·차년도를 켜면 그 값의 구역이 여기에 나옵니다"));
   else if (!groups) body.append(el("p", "hnote pad","구역을 찾지 못했습니다"));
   foot.append(el("span", "muted", "넣은 내용 = 기관 문서에서 넣은 기록 가운데 지금 문서에 남은 것(실행 취소·지움으로 없어지면 빠집니다) · 지정 = 문서에서 오른쪽 단추 「구역 지정…」"),
     hBtn("다시 읽기", () => zonesLoad(true), { disabled: Z.loading }), hBtn("닫기", () => headsColClose()));

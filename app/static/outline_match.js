@@ -402,7 +402,7 @@ function olmPickStale(id, L) { // 고른 뒤 문서가 바뀌었다(서버 409 �
 // · 갈래 번호(olmNos) = 자료의 갈래 차례(대표 = 「대표」 · 그 밖 「다른 서식 1」 …) — 카드 머리와 본문 오른쪽 여백의 꼬리표가 같은 번호다. 고르기·미리보기로는 안 바뀌고 자료를 다시 읽을 때만 바뀐다.
 // · 고르기는 **고른 때의 갈래 구성**(OLM.chkAt — 문서 차례 rev · 그 레벨의 지문 sig)에 묶인다: 갈래를 다시 읽었을 때 지문이 다르면 그 레벨의 고르기를 비우고 한 번 알린다(olmPicksCheck — 갈래 key 는 문단 id 라
 //   편집 뒤에는 같은 key 가 다른 갈래를 가리킬 수 있다: 말없이 옮겨 고르지 않는다). 같으면 차례만 올린다. 「고른 서식 맞추기」 는 그 차례를 보낸다(olmBulkGo). 실행 취소는 문서만 되돌린다 — 고르기는 되살리지 않는다.
-// · 살펴보는 갈래(OLM.look) = 카드의 「본문에서 보기」 · 본문 꼬리표를 눌러 정한 갈래 하나. 고르기와 따로다(고르기를 안 바꾼다): 그 카드에 .sel(다음 살펴보기까지) · 본문의 그 갈래 줄 꼬리표에 강조.
+// · 살펴보는 갈래(OLM.look) = 카드의 「본문에서 보기」 · 본문 꼬리표를 눌러 정한 갈래 하나. 고르기와 따로다(고르기를 안 바꾼다): 그 카드에 .sel(다음 살펴보기 · 다른 곳을 누를 때까지 — 아래 olmLookSet 뒤) · 본문의 그 갈래 줄 꼬리표에 강조.
 //   캐럿 이동·본문 글 누름으로는 열을 움직이지 않는다(꼬리표를 눌렀을 때만).
 const olmPk = (id, L) => `${id}|${+L}`;
 const olmPkOf = (k) => { const i = k.lastIndexOf("|"); return [k.slice(0, i), +k.slice(i + 1)]; };
@@ -566,6 +566,15 @@ function olmLookSet(id, L, key) { // 살펴보는 갈래를 정한다(고르기�
   olmLookPaint();
   if (typeof fmtFocusRel === "function") fmtFocusRel();
 }
+// 살펴보기는 다른 곳을 누르면 풀린다(2026-11-18 사용자 — 본문 꼬리표 「대표」 를 가리키며 "이거 누르면 템플릿 관계 사이드 패널이 뜨는데. 다른 곳을 클릭하면 하이라이트된 부분이 풀리게 해줘"):
+// 본문 꼬리표(.fm-tag) · 살펴보는 카드(li.olm-g.sel) 밖을 누르면 OLM.look 을 거둔다(카드의 .sel · 꼬리표의 진한 테). 그 누름이 살펴보기를 새로 정했으면(「본문에서 보기」 · 이름 줄 「템플릿 관계」) 그대로 둔다 —
+// 누름을 받은 쪽이 전파를 막아도 보도록 잡는 단계에서 그때의 살펴보기를 적어 두고, 누름 처리가 다 끝난 뒤 견준다. 스크롤 막대를 누른 것은 뺀다. 고르기(☐) · 「템플릿만 또렷이」(흐림)는 안 건드린다(그 끄기는 이름 줄 「끄기」)
+document.addEventListener("click", (e) => {
+  const was = OLM.look, t = e.target instanceof Element ? e.target : null;
+  if (!was || (t && t.closest(".fm-tag, li.olm-g.sel"))) return;
+  if (t && t.clientWidth && (e.offsetX >= t.clientWidth || e.offsetY >= t.clientHeight)) return; // 스크롤 막대(clientWidth·clientHeight 는 막대를 뺀 폭·높이)
+  setTimeout(() => { if (OLM.look === was) olmLookSet(null, 0, null); }, 0);
+}, true);
 function olmSeeBtn(id, L, g, no) { // 카드의 「본문에서 보기」 — 카드 → 본문 찾기
   const name = no != null ? olmNoText(no) : "이 서식";
   return hBtn("본문에서 보기", () => olmSee(id, L, g), { cls: "btn sm olm-btn olm-see",

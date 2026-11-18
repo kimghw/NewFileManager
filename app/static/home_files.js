@@ -11,7 +11,7 @@ const hf = { files: [], target: -1, aliases: new WeakMap(), project: "", auto: f
 }; // 약칭은 File 에 붙인다 — 목적 문서를 바꾸거나 앞 파일을 빼도 다른 문서로 옮겨 가지 않는다.
 // hf.zones = 편집 구역에서 가려 볼 기준(TASK 옵션 — spec_구역 ② §1): null = 손대지 않음(그 TASK 의 기본값 — task_catalog.js zones) · 목록 = 사람이 고른 것(빈 목록 = 끔).
 const HF_ZONES = [["org", "기관"], ["stage", "단계"], ["year", "차년도"]]; // 서버 app/zones.py DIMS 의 차례 · 이름
-if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { taskOptions: "편집 구역 기준 정함" }); // 「기록」 탭의 이름 — 편집 구역에서 가려 볼 기준을 사람이 정함(서버 task_options_api 의 작업 기록 `taskOptions`: 이 목록 · 「작업 내용」 의 「편집 구역」 줄)
+if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { taskOptions: "편집 구역 기준 정함" }); // 「기록」 탭의 이름 — 편집 구역에서 가려 볼 기준을 사람이 정함(서버 task_options_api 의 작업 기록 `taskOptions`: 이 목록 · 「작업 개요」 의 「편집 구역」 줄)
 const hfZoneNames = (dims) => HF_ZONES.filter(([d]) => dims.includes(d)).map(([, name]) => name).join(" · ");
 const hfZonesDefaults = () => Object.keys(TASK_CATALOG).filter((job) => taskZonesDefault(job).length) // 기본으로 켜는 TASK 들 — 「사업계획서 취합 = 기관」(task_catalog.js zones)
   .map((job) => `${TASK_CATALOG[job].name} = ${hfZoneNames(taskZonesDefault(job))}`).join(" · ");
@@ -90,7 +90,7 @@ function homeFilesDraw() {
   head.append(h, hHelp("문서 목록 안내", "파일을 고르거나 놓으면 여기에 모입니다(아직 서버에 올리지 않음 — 새로 고치면 사라집니다).\n"
     + "목적 문서(내용을 받는 문서)를 고르고, 필요하면 문서마다 약칭을 적은 뒤 아래 TASK 카드를 누르세요. 파일이 하나면 목적 문서로 자동 선택합니다.\n"
     + "약칭은 문서 이름 뒤에 「(약칭)」 으로 붙습니다. 프로젝트 이름을 적으면 그 프로젝트의 TASK 다음 라운드로 시작합니다.\n"
-    + "프로젝트 이름을 비우면 임시 이름(임시 프로젝트 N)으로 함께 올린 문서를 묶습니다 — 연 뒤 「작업 내용」 의 프로젝트 칸에 이름을 적으면 바뀝니다."), clear);
+    + "프로젝트 이름을 비우면 임시 이름(임시 프로젝트 N)으로 함께 올린 문서를 묶습니다 — 연 뒤 「작업 개요」 의 프로젝트 칸에 이름을 적으면 바뀝니다."), clear);
   const tgt = hf.files[ti], n = hf.files.length - (tgt ? 1 : 0);
   const cap = el("p", "hf-cap", tgt ? `목적 문서 「${tgt.name}」${n ? ` · 원본 문서 ${n}개` : ""} — 아래 TASK 카드를 누르면 시작합니다` : "목적 문서(내용을 받는 문서)를 하나 고르세요 — 그 뒤 아래 TASK 카드를 누릅니다.");
   const rows = el("div", "hf-rows");
@@ -152,9 +152,9 @@ function homeFilesDraw() {
   pin.disabled = busy;
   pin.dataset.hfFocus = "project";
   // 비우면 서버가 임시 이름(「임시 프로젝트 N」)을 붙여 올린 문서들을 한 프로젝트로 묶는다 — 이름은 연 뒤에 정한다(② §17 「임시 프로젝트」, 2026-11-18)
-  pin.title = "적으면 목적 문서가 그 프로젝트의 TASK 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 내용의 프로젝트 칸에 이름을 적으면 바뀝니다";
+  pin.title = "적으면 목적 문서가 그 프로젝트의 TASK 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 개요의 프로젝트 칸에 이름을 적으면 바뀝니다";
   pin.oninput = () => { hf.project = pin.value; };
-  // 고르기 목록 — 작업 내용의 프로젝트 칸과 같은 도우미(project_workspace.js projectComboAttach — 「새 프로젝트」 로 만든 문서 없는 프로젝트도 보인다). 고르면 그 이름을 적어 둔다(저장은 TASK 카드를 누를 때)
+  // 고르기 목록 — 작업 개요의 프로젝트 칸과 같은 도우미(project_workspace.js projectComboAttach — 「새 프로젝트」 로 만든 문서 없는 프로젝트도 보인다). 고르면 그 이름을 적어 둔다(저장은 TASK 카드를 누를 때)
   if (typeof projectComboAttach === "function") projectComboAttach(pin, { list: "homeFilesProjectList", commit: () => { hf.project = pin.value; } });
   else { const dl = el("datalist"); dl.id = "homeFilesProjects"; for (const p of hfProjects()) dl.append(new Option(p)); pin.setAttribute("list", dl.id); pl.append(dl); }
   pl.prepend(el("span", null, "프로젝트"), pin);
@@ -183,7 +183,7 @@ function homeFilesDraw() {
   const zoneState = () => {
     znote.textContent = hf.zones == null ? "TASK 기본값대로" : hf.zones.length ? "" : "모두 끔";
     znote.hidden = !znote.textContent;
-    zg.title = "연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
+    zg.title = "연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 개요」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
       + `손대지 않으면 TASK 의 기본값(${hfZonesDefaults() ? `${hfZonesDefaults()} · 그 밖의 TASK 는 켠 것 없음` : "어느 TASK 도 켠 것 없음"})\n`
       + (hf.zones == null ? "지금: 손대지 않음 — 시작하는 TASK 의 기본값대로 보입니다"
         : hf.zones.length ? `지금 고른 기준: ${hfZoneNames(hf.zones)} — 시작하는 연구개발 TASK 에 이 기준을 적습니다`
@@ -300,7 +300,7 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
       // 사람이 고른 기준만 그 TASK 묶음(프로젝트 · TASK · 라운드)에 적는다 — 손대지 않았으면 안 보낸다(기본값 · 이어 여는 작업은 전에 정한 것 그대로). 못 적어도 TASK 는 시작한다 — 알림만
       if (zones != null) {
         try { await api(`/api/works/${r.docId}/task-options`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ zones: { dims: zones } }) }); }
-        catch (e) { toast(`편집 구역의 기준을 저장하지 못했습니다: ${(e.body && e.body.detail && e.body.detail.message) || e.message} — 연 뒤 「작업 내용」 의 「편집 구역」 줄에서 다시 고르세요`, true); }
+        catch (e) { toast(`편집 구역의 기준을 저장하지 못했습니다: ${(e.body && e.body.detail && e.body.detail.message) || e.message} — 연 뒤 「작업 개요」 의 「편집 구역」 줄에서 다시 고르세요`, true); }
       }
       if (typeof zonesLoad === "function") Promise.resolve().then(() => zonesLoad(true)).catch(() => {}); // TASK 묶음이 정해졌다 — 문서를 열 때 읽은 편집 구역을 그 묶음의 옵션으로 다시 읽는다(zones.js — 못 읽어도 TASK 는 시작한다)
     }
@@ -309,8 +309,8 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
   await loadWorks(); // 보이는 이름(프로젝트 꼬리 · 별칭)도 여기서 맞춘다(docSwitchDraw)
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
   if (fresh) firstRun(); // 새 작업 — 첫 분석(② §9)
-  taskEnter(job); // 그 TASK 가 처음 여는 보기(app.js — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
-  const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 「작업 내용」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
+  taskEnter(job); // 그 TASK 가 처음 여는 보기(app.js — 보통 작업 개요 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
+  const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
   return { id: r.docId, task: state.task, note: [note, named].filter(Boolean).join("\n") };
 }
 
@@ -330,7 +330,7 @@ async function hfAddSource(main, file, role, alias = "") { // 이관의 원본 �
     api(`/api/docs/${d.docId}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) }).catch(() => {}); // 첫 분석(스크립트) — 2단계 자리 연결이 그 결과를 본다
     if (state.id === main.id) await loadWorks();
     toast(`${file.name} — ${name} 칸에 넣었습니다${aliasError}`, !!aliasError);
-  } catch (e) { toast(`${name}를 올리지 못했습니다: ${e.message} — 작업 내용의 ${name} 칸에서 다시 올리세요`, true); }
+  } catch (e) { toast(`${name}를 올리지 못했습니다: ${e.message} — 작업 개요의 ${name} 칸에서 다시 올리세요`, true); }
 }
 
 async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TASK 로 시작(② §15-1 표)
@@ -374,7 +374,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
       return false;
     }
     if (sourceRole && use.length && !(main.task || {}).project) { // 프로젝트로 묶이지 않음(작업 저장이 꺼짐 · 새로 올린 문서가 아닌 작업을 이어 엶) — 원본 문서는 묶을 곳이 없어 목록에 남긴다
-      toast(`${taskName("file", sourceRole)} 「${use[0].name}」 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 내용의 첨부 파일 칸에서 올리세요)`, true);
+      toast(`${taskName("file", sourceRole)} 「${use[0].name}」 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 개요의 첨부 파일 칸에서 올리세요)`, true);
       use = [];
     }
     hfUsed([target, ...use]);

@@ -3,7 +3,7 @@
 - 사업계획서 양식 표준화(plan_fit — spec_양식표준화)를 TASK 카드로 시작 → 패널 탭 줄의 첫 탭 「대시보드」 → 누르면 단계 흐름: 묶음 셋(1단계 프로젝트 구성 · 2단계 헤딩 추출 · 3단계 표 — 묶음마다 「한 번에 진행」) ·
   단계 열넷(워크플로우 등록부 그대로 — 번호 · 이름 · 꼬리표 · 점선 = 선택) · 상태(01 끝남 · 04 지금 — 펴짐 · 2 · 3단계는 분석 상태로: 헤딩 · 표 끝남 · LLM 판정은 「할 수 있음」 · 조정은 헤딩 LLM 판정 뒤)
   · 머리 「끝남 n/9」(안 해도 되는 단계는 안 셈) · 「이어서 한 번에 1→3단계」 는 값 확정 전이라 꺼짐 + 까닭 글.
-- 1단계(대시보드에서만): 「구성 읽기」(끝 글 · ✓) · 「구성 불러오기」(「작업 내용」 과 같은 목록 · 고른 것이 다시 그려도 그대로 · 「불러오기」 → divSourceLoad) · 「프로젝트 구성 입력 · 확정…」 → 폼 → 「확정」 →
+- 1단계(대시보드에서만): 「구성 읽기」(끝 글 · ✓) · 「구성 불러오기」(「작업 개요」 와 같은 목록 · 고른 것이 다시 그려도 그대로 · 「불러오기」 → divSourceLoad) · 「프로젝트 구성 입력 · 확정…」 → 폼 → 「확정」 →
   「이어서 한 번에 1→3단계」(확인 창 없이 — 2026-11-18 → divRunAll · headsRunAll · headsPickRun(["l3"]) 차례 · 모두 {asked: true} — 함수는 바꿔 끼워 부른 것만 본다 · 1단계가 적용까지 안 가면 멈추고 뒤 묶음은 시작하지 않음)
   → 「변경 계획 보기」 → 「문서에 반영」(제 확인 창) → 문서가 바뀜 · 「지금」 이 2단계로.
 - 2 · 3단계 단추(함수는 바꿔 끼움 · 분석 상태는 끝점의 답을 흉내): LLM 판정 → headsPickRun(["l2"]) · 표 판정 → ["l3"] · 결과가 없거나 실패하면 「헤딩 추출(스크립트)」 ["s1","s2"] · 「표 구조(스크립트)」 ["s3"] ·
@@ -139,9 +139,9 @@ def main():
             page.click('#taskCards [data-task="plan_fit"]')
         fc.value.set_files(str(PLAN))
         page.wait_for_selector("#doc .para", timeout=120000)
-        page.wait_for_function("() => !document.getElementById('tabDash').hidden && document.getElementById('panel').dataset.tool === 'Div'", timeout=30000)   # TASK 시작(taskEnter)이 「작업 내용」 을 연 뒤에
+        page.wait_for_function("() => !document.getElementById('tabDash').hidden && document.getElementById('panel').dataset.tool === 'Div'", timeout=30000)   # TASK 시작(taskEnter)이 「작업 개요」 를 연 뒤에
         tabs = page.evaluate("() => [...document.querySelectorAll('#toolTabs button[role=tab]')].filter((b) => !b.hidden).map((b) => b.textContent)")
-        check("탭 줄의 첫 탭 「대시보드」 — 「에이전트」 · 「작업 내용」 앞(2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에」)", tabs[:3] == ["대시보드", "에이전트", "작업 내용"], tabs)
+        check("탭 줄의 첫 탭 「대시보드」 — 「에이전트」 · 「작업 개요」 앞(2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에」)", tabs[:3] == ["대시보드", "에이전트", "작업 개요"], tabs)
 
         page.route(re.compile(r"/api/docs/[^/]+/analysis$"), lambda route: route.continue_() if FAKE["v"] is None else route.fulfill(json=FAKE["v"]))
         page.click("#tabDash")
@@ -203,7 +203,7 @@ def main():
         open_node(page, "load")
         sel = page.evaluate("""() => { const s = document.querySelector('#paneDash .dash-node[data-key=load] .dash-load-sel'), b = document.querySelector('#paneDash .dash-node[data-key=load] .dash-acts button');
           return s ? { first: s.options[0].text, values: [...s.options].map((o) => o.value), groups: [...s.querySelectorAll('optgroup')].map((g) => g.label), btn: b.textContent, off: b.disabled } : null; }""")
-        check("03 구성 불러오기를 펴면 고르기 목록(「작업 내용」 의 「프로젝트 구성 불러오기」 와 같은 항목 — 문서에서 추출 · 파일 올려 추출) + 「불러오기」(고르기 전에는 꺼짐)",
+        check("03 구성 불러오기를 펴면 고르기 목록(「작업 개요」 의 「프로젝트 구성 불러오기」 와 같은 항목 — 문서에서 추출 · 파일 올려 추출) + 「불러오기」(고르기 전에는 꺼짐)",
               sel is not None and sel["first"].startswith("프로젝트 구성 불러오기") and f"doc:{doc}" in sel["values"] and "file" in sel["values"] and "문서에서 추출" in sel["groups"] and sel["btn"] == "불러오기" and sel["off"], sel)
         page.select_option("#paneDash .dash-node[data-key=load] .dash-load-sel", f"doc:{doc}")
         page.wait_for_timeout(1300)   # 1초 다시 그리기가 지나도 고른 것이 그대로
@@ -459,7 +459,7 @@ def main():
               len(dialogs) == n_dialogs and q1["edited"] == 0 and q1["base"] == 1 and all(s[1] for s in q1["strips"]) and ["고친 부분 적용하기", True, False] in n10["acts"]
               and "고친 문단" in page.evaluate(HEAD)["last"], [q1, n10, page.evaluate(HEAD)["last"], dialogs[n_dialogs:]])
 
-        # ---- 이관(두 문서) — 「작업 내용」 의 단계 · 묶음 넷 · 등록부의 세부 단계는 「그 단계로」 · 「이어서 한 번에」
+        # ---- 이관(두 문서) — 「작업 개요」 의 단계 · 묶음 넷 · 등록부의 세부 단계는 「그 단계로」 · 「이어서 한 번에」
         page.goto(base)
         page.wait_for_selector("#taskCards .task-card")
         with page.expect_file_chooser() as fc:
@@ -479,7 +479,7 @@ def main():
               len(h["groups"]) == 4 and h["groups"][0][0] == "1단계" and all(g[2] == "한 번에 진행" for g in h["groups"]) and not h["groups"][0][3] and all(g[3] for g in h["groups"][1:])
               and by["files"]["state"] == "done" and by["config"]["state"] == "now" and by["later"]["state"] == "soon" and by["later"]["st"] == "준비 중", [h, [(n["key"], n["state"]) for n in nodes]])
         top = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-top button')].map((b) => b.textContent)")
-        check("머리 아래 「이어서 한 번에 1→4단계」(「작업 내용」 의 이어 진행과 같은 범위)", top == ["이어서 한 번에 1→4단계"], top)
+        check("머리 아래 「이어서 한 번에 1→4단계」(「작업 개요」 의 이어 진행과 같은 범위)", top == ["이어서 한 번에 1→4단계"], top)
         page.click('#paneDash .dash-node[data-key=llm] .dash-node-head')
         via = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=llm] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
         page.click('#paneDash .dash-node[data-key=llm] .dash-acts button')

@@ -7,7 +7,7 @@
   화면을 다시 읽지 않음. 새로 고쳐도 시작 화면, 최근 작업에서 다시 열면 같은 작업.
 - 묻는 때: 2열에 저장 안 한 표 지침 글 · 서버에 반영 안 된 수정(「취소」 면 그대로, 「확인」 이면 시작 화면).
 - 키보드(초점 + Enter) · Ctrl 누름(새 탭에 시작 화면, 지금 작업은 그대로) · 좁은 창(앱 이름 글이 숨어도 아이콘은 남음).
-- TASK 카드(spec_작업 ② §15 — 7-1): 여섯 장(끝에 「문서 일반 편집」 — spec_일반편집 ② §11)·차례·글·로고(그림·바탕색)·줄 수(넓은 창 6 · 860px 3 · 560px 2 · 400px 1) · 준비 중 카드 · 누르면 파일 고르기 → 그 TASK 로 작업 내용 ·
+- TASK 카드(spec_작업 ② §15 — 7-1): 여섯 장(끝에 「문서 일반 편집」 — spec_일반편집 ② §11)·차례·글·로고(그림·바탕색)·줄 수(넓은 창 6 · 860px 3 · 560px 2 · 400px 1) · 준비 중 카드 · 누르면 파일 고르기 → 그 TASK 로 작업 개요 ·
   같은 파일 고르기(같은 파일로 하던 작업이 있으면 떠 있는 창으로 묻는다 — 같은 TASK·TASK 없음 = 「이어서」·「초기화하고 열기」 · 다른 TASK 를 하던 작업 = 「그대로 열기」 · 「새 작업으로 시작」 · Esc ·
   줄 차례 · Enter — ② §1 · §3-1 · §15, 2026-11-18) ·
   카드에 파일 놓기(docx 안 받음 · hwpx 는 양식 판정대로)."""
@@ -220,7 +220,7 @@ try:
         check("Ctrl 누름 — 지금 탭의 작업은 그대로", h["id"] == wid and h["hash"] == f"#w={wid}" and h["scroller"] and not h["empty"], h)
         tab.close()
 
-        # ---- 7-1. TASK 카드(spec_작업 ② §15) — 다섯 장 · 로고 · 누르면 파일 고르기 → 그 TASK 로 작업 내용 · 카드에 파일 놓기
+        # ---- 7-1. TASK 카드(spec_작업 ② §15) — 다섯 장 · 로고 · 누르면 파일 고르기 → 그 TASK 로 작업 개요 · 카드에 파일 놓기
         h = go_home(page)
         check("TASK 카드 — 시작 화면으로", is_home(h), h)
         CARDS = """() => [...document.querySelectorAll('#taskCards .task-card')].map((b) => { const r = b.getBoundingClientRect(), lg = b.querySelector('.task-logo'), u = lg.querySelector('use');
@@ -297,7 +297,7 @@ try:
         check("그 TASK 로 열림 — 작업 종류 연구개발과제 · 할 일 · 양식 판정이 못 정한 종류는 그 TASK 의 문서 · 이름 없이 시작 → 임시 프로젝트(② §17 「임시 프로젝트」) 라운드 1",
               {k: v for k, v in t["task"].items() if k not in ("project", "round")} == {"kind": "rnd", "file": "plan", "job": "plan_fit"}
               and t["task"]["project"].startswith("임시 프로젝트 ") and t["task"].get("round") == 1 and "임시 이름" in t["toast"], t["task"])
-        check("작업 내용(연구개발과제 패널)이 열리고 「할 일」 칸이 그 TASK", t["tool"] == "Div" and t["pane"] and t["job"] == "plan_fit", t)
+        check("작업 개요(연구개발과제 패널)이 열리고 「할 일」 칸이 그 TASK", t["tool"] == "Div" and t["pane"] and t["job"] == "plan_fit", t)
         check("「이어서」 — 알림에 TASK 이름(고른 뒤라 「새 작업으로 열기」 단추는 없음)", "이어서 엽니다" in t["toast"] and "사업계획서 양식 표준화" in t["toast"] and "새 작업으로 열기" not in t["toast"], t["toast"])
         saved = next((w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid), {})
         check("작업에 저장됨(GET /api/works)", (saved.get("task") or {}).get("job") == "plan_fit" and saved["task"]["kind"] == "rnd", saved.get("task"))
@@ -320,7 +320,7 @@ try:
         t = page.evaluate(TASK)
         new_id = t["id"]
         note = page.evaluate("() => window.__toasts.map((x) => x.m).filter((m) => m.includes('새 작업으로 열었습니다')).pop()")
-        check("「새 작업으로 시작」 — 새 작업이 고른 TASK 로(작업 내용이 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
+        check("「새 작업으로 시작」 — 새 작업이 고른 TASK 로(작업 개요가 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
         check("알림 — 하던 작업은 그대로 · 새 작업의 TASK · 임시 프로젝트(칸을 비움 — ② §17 「임시 프로젝트」)", "TASK 「사업계획서 취합」 · 프로젝트 「임시 프로젝트 " in note and "임시 이름" in note
               and t["task"]["project"].startswith("임시 프로젝트 ")
               and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
@@ -346,7 +346,7 @@ try:
         sf_pick("open", wid)  # 「그대로 열기」 — 그 작업을 그 TASK 그대로 열고 이 TASK 시작은 멈춘다
         page.wait_for_function("(w) => state.id === w && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
         t = page.evaluate(TASK)
-        check("「그대로 열기」 — 그 작업이 그 TASK 그대로 열림(작업 내용) · 작업 수 그대로", t["id"] == wid and t["task"]["job"] == "plan_fit" and t["pane"] and t["job"] == "plan_fit"
+        check("「그대로 열기」 — 그 작업이 그 TASK 그대로 열림(작업 개요) · 작업 수 그대로", t["id"] == wid and t["task"]["job"] == "plan_fit" and t["pane"] and t["job"] == "plan_fit"
               and len(requests.get(f"{base}/api/works", timeout=10).json()) == count, t)
         h = go_home(page)
         with page.expect_file_chooser() as fc:

@@ -77,7 +77,7 @@ def pick(page, kind, wid, want):
     page.wait_for_function(f"(want) => {{ const f = document.getElementById('taskFlow'); return f && !f.dataset.old && f.dataset.key === taskFlowKey() && JSON.stringify(({SLOTS})()) === JSON.stringify(want); }}", arg=want)
 
 def swap_pick(page, kind, wid, want):
-    """지금 문서가 있던 칸에 다른 문서를 고름 — 그 문서가 열리고(작업 내용 = 연구개발과제 내용 그대로) 칸이 want 가 될 때까지."""
+    """지금 문서가 있던 칸에 다른 문서를 고름 — 그 문서가 열리고(작업 개요 = 연구개발과제 내용 그대로) 칸이 want 가 될 때까지."""
     page.select_option(f"#taskFlow select[data-task-file={kind}]", wid)
     page.wait_for_function("(id) => state.id === id && document.querySelector('#doc .sheet .para') != null && document.getElementById('panel').dataset.tool === 'Div'", arg=wid, timeout=120000)
     page.wait_for_function(f"(want) => {{ const f = document.getElementById('taskFlow'); return f && f.dataset.key === taskFlowKey() && JSON.stringify(({SLOTS})()) === JSON.stringify(want); }}", arg=want)
@@ -106,7 +106,7 @@ try:
         # ---- 1. 국가R&D 양식이 아닌 문서 — 작업 종류 없음 · 탭 없음 · 파일 이름 자리 = 문서 목록
         check("작업 종류 = 선택 안 함(패널 머리의 「작업」 목록 — 상단 바의 옛 #taskKind 는 2026-11-11 없앰)", page.eval_on_selector("#panelTask", "e => e.value") == "" and page.evaluate(VIS, "panelTask")
               and page.locator("#taskKind").count() == 0)
-        check("탭 띠에 「연구개발과제」 탭 없음(2026-11-12 없앰) · 패널 머리 탭 「작업 내용」 도 안 보임(「작업 리스트」 는 늘 — ② §17 · 2026-11-16 상단 바 아이콘)", page.locator("#tabDiv").count() == 0
+        check("탭 띠에 「연구개발과제」 탭 없음(2026-11-12 없앰) · 패널 머리 탭 「작업 개요」 도 안 보임(「작업 리스트」 는 늘 — ② §17 · 2026-11-16 상단 바 아이콘)", page.locator("#tabDiv").count() == 0
               and page.eval_on_selector("#toolTabTask", "e => e.hidden") and page.evaluate(VIS, "taskListBtn"))
         page.wait_for_function("() => !document.getElementById('docSwitch').hidden")
         opts = page.eval_on_selector_all("#docSwitch option", "os => os.map(o => o.textContent)")
@@ -125,7 +125,7 @@ try:
         check("고르면 그 내용이 바로 열림 — 탭 띠에 탭은 안 생기고 활성 탭도 없음", page.get_attribute("#panel", "data-tool") == "Div" and page.locator("#tabDiv").count() == 0
               and page.locator("#workspaceNav .tab.active").count() == 0 and page.get_attribute("#toolTabTask", "aria-selected") == "true", page.get_attribute("#panel", "data-tool"))
         page.wait_for_selector("#divMarksBar")
-        check("패널 제목 「작업 내용」 · 꼬리표 「프로젝트 · TASK」(2026-11-12 ② §17 — 접힌 띠 이름)", page.eval_on_selector("#toolTitle", "e => e.textContent.trim()") == "작업 내용"
+        check("패널 제목 「작업 개요」 · 꼬리표 「프로젝트 · TASK」(2026-11-12 ② §17 — 접힌 띠 이름)", page.eval_on_selector("#toolTitle", "e => e.textContent.trim()") == "작업 개요"
               and page.eval_on_selector("#toolTag", "e => e.textContent.trim()") == "프로젝트 · TASK",
               page.eval_on_selector("#toolTitle", "e => e.textContent") + " / " + page.eval_on_selector("#toolTag", "e => e.textContent"))
         labels = page.evaluate("() => { const b = document.getElementById('divBox'); return b.firstElementChild.classList.contains('dv-task') ? [...b.querySelectorAll('.dv-task-field > span')].map((s) => s.textContent) : null; }")
@@ -196,7 +196,7 @@ try:
 
         # ---- 3. 새로 고쳐도 그대로
         open_work(page, a)
-        check("새로 연 화면(검증)에 패널 머리 탭 「작업 내용」 · 「검증」(고름)", page.evaluate(VIS, "toolTabs") and page.inner_text("#toolTabTask").strip() == "작업 내용"
+        check("새로 연 화면(검증)에 패널 머리 탭 「작업 개요」 · 「검증」(고름)", page.evaluate(VIS, "toolTabs") and page.inner_text("#toolTabTask").strip() == "작업 개요"
               and page.get_attribute("#tabVerify", "aria-selected") == "true", page.inner_text("#toolTabs"))  # 「검증」 은 패널 머리의 고정 탭(2026-11-15)
         page.click("#toolTabTask")
         page.wait_for_selector("#divBox .dv-task select")
@@ -206,7 +206,7 @@ try:
         # ---- 4. 선택을 풀면 탭이 사라지고 「검증」 으로
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{a}/task")):
             page.select_option("#panelTask", "")
-        check("패널 머리 탭 「작업 내용」 사라짐 · 검증 탭으로", page.eval_on_selector("#toolTabTask", "e => e.hidden") and page.get_attribute("#panel", "data-tool") == "Verify",
+        check("패널 머리 탭 「작업 개요」 사라짐 · 검증 탭으로", page.eval_on_selector("#toolTabTask", "e => e.hidden") and page.get_attribute("#panel", "data-tool") == "Verify",
               page.get_attribute("#panel", "data-tool"))
         check("오른쪽 단추 메뉴에 구분 기준 항목 없음", page.evaluate("() => divCtxItems({ target: document.querySelector('#doc .para[data-id]') }).length") == 0)
         page.select_option("#panelTask", "rnd")
@@ -331,7 +331,7 @@ try:
         check("과제 없는 문서를 고름 — 과제에 들어옴", task_of(c)["project"] == "시험 과제" and task_of(c)["file"] == "plan", task_of(c))
         # 2026-11-12 사용자 "연차보고서는 빈건데 왜 화면에 보이는 것은 1단계가 진행된 문서로 나오냐?" — 지금 문서가 있던 칸에 다른 문서가 들어오면 그 문서를 열고, 지금 문서는 다른 문서처럼 과제에서 나온다
         swap_pick(page, "report", c, {"plan": "", "report": c})
-        check("지금 문서의 칸에 다른 문서 — 그 문서가 열리고(작업 내용 그대로) 옛 문서는 과제에서 나옴(종류는 그대로)", task_of(a) == {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": ""}
+        check("지금 문서의 칸에 다른 문서 — 그 문서가 열리고(작업 개요 그대로) 옛 문서는 과제에서 나옴(종류는 그대로)", task_of(a) == {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": ""}
               and task_of(c) == {"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "시험 과제"} and page.evaluate("() => state.task.file + '/' + state.task.project") == "report/시험 과제"
               and page.get_attribute("#panel", "data-tool") == "Div", [task_of(a), task_of(c), page.get_attribute("#panel", "data-tool")])
         page.wait_for_function("() => !document.getElementById('docSwitch').hidden || !document.getElementById('fileName').hidden")
@@ -465,7 +465,7 @@ try:
         check("두 문서 모두 헤딩 그래프·표 구조 생김", page.evaluate("() => mergeCompare.error") == "", f"{time.time() - t0:.1f}s")
         check("추출 단추 사라짐", page.locator("#paneCompare .mc-actions button", has_text="추출").count() == 0)
         page.screenshot(path=str(OUT / "7_compare.png"))
-        # ---- 8. ② 자리 연결(spec_작업 ② §11 · API …/merge-links) — 추출 뒤 「연구개발과제」 내용으로 돌아오면(패널 머리 탭 「작업 내용」) 앞 조건(헤딩·표 분석)이 채워지고 서버에 연결 목록을 묻는다
+        # ---- 8. ② 자리 연결(spec_작업 ② §11 · API …/merge-links) — 추출 뒤 「연구개발과제」 내용으로 돌아오면(패널 머리 탭 「작업 개요」) 앞 조건(헤딩·표 분석)이 채워지고 서버에 연결 목록을 묻는다
         page.click("#toolTabTask")
         page.wait_for_function("(ids) => ids.every((i) => taskFlow.heads[i] && taskFlow.heads[i].stage2 && taskFlow.heads[i].stage3) && taskFlow.links && !taskFlow.linkBusy", arg=[a, c], timeout=30000)
         page.evaluate(FAKE_APPLIED)

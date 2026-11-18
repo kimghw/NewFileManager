@@ -1,8 +1,8 @@
 """편집 구역 — 자동 판독 · 지정 · 출처를 입힌 보기의 순수 계산(spec_구역 ② §2~§5). `app.server` · `app.works` · 세션을 import 하지 않는다 — 문서를 안 고치고 LLM 도 안 부른다.
 
 - `read(snap)` = 자동 판독(spec_구역 ② §2 「자동 판독」) → `info{order, kinds, cellsOf, auto, path, text, orgs, stages}`. snap = {blocks, values | None, graph | None, tables | None, hints, prior}
-  (tables = 3단계 표 구조 — 지금은 안 쓴다: 표의 칸은 블록의 격자에서 바로 읽는다).
-  근거는 셋이다: **묶음**(`core.find` 의 구분 기준 묶음 — 기준마다 가장 안쪽 항목) · **윗 제목**(묶음 밖 블록 — 기관 낱말이 든 구분 라벨) · **표의 칸**(이름표 칸 옆·아래의 값 — 「표 안의 값 읽기」).
+  (tables = 3단계 표 구조 — 표의 칸은 블록의 격자에서 바로 읽고, 표 구조의 머리는 그것이 못 읽은 기준만 채운다: `struct_read` · spec_구역 ② §2 「표 구조」).
+  근거는 셋이다: **묶음**(`core.find` 의 구분 기준 묶음 — 기준마다 가장 안쪽 항목) · **윗 제목**(묶음 밖 블록 — 기관 낱말이 든 구분 라벨) · **표의 칸**(이름표 칸 옆·아래의 값 — 「표 안의 값 읽기」 + 표 구조의 머리).
   취합의 느슨한 판독(`merge_gather_frame.make` 의 scope · `merge_pairs._ident`)과 뼈대는 같고 값 읽기만 엄격하다 — 못 읽으면 `unknown`, 근거가 다르면 `conflict` 로 남긴다(짐작하지 않는다).
   기관 이름 읽기는 둘로 가른다: 라벨 줄·윗 제목 = 문장 속 이름 찾기(`_names`) · 표의 값 칸 = 칸의 글이 통째로 그 이름일 때만(`_cell_org` — 「한국선급엔지니어링」 은 「한국선급」 이 아니다).
   큰 문서(최상위 블록 2,000 · 칸 3,000)에서 1초 안팎 — 거의 다 묶음 찾기(`core.find` · `rnd.levels_of`)의 시간이다.
@@ -37,6 +37,7 @@ YEAR_VALUE = re.compile(r"^(?:\(?(\d{1,2})단계\)?[-,·]?)?(\d{1,2})(?:차년�
 COL_MIN = 2    # 값으로 알아보는 기관 열(② §2 「기관 열」 — 기관 이름 · 「개발 내용 … (기관 이름)」 이 행마다 되풀이되는 열)로 보는 칸 수의 하한
 # 기관 열로 보지 않는 열의 머리 — 그 열의 기관은 행을 쓴 기관이 아니라 상대(발행·발급·인증한 곳 · 거래·공급·구매·판매·납품·고객 · 수요처). 2026-11-18 astra 반례(「발행기관 | 인증명」 · 「활동 | 거래처」)
 OTHER_ORG_HEAD = re.compile(r"발행|발급|인증|거래|고객|상대|공급|구매|판매|납품|수요")
+PAST_HEAD = re.compile(r"당시|이전|과거|전직")   # 지난 소속의 머리(「당시 소속기관」 — 연구책임자의 지난 과제 표) — 표 구조 근거(`struct_read`)만 쓴다(낱말 이름표는 낱말 그대로라 이미 안 걸린다)
 _TAIL = re.compile(r"[(（]([^()（）]*)[)）]$")
 ORG_TEXT = {"unknown": "기관 모름", "conflict": "기관 확인 필요"}
 WHY_ORG = ("byNo", "byName", "byGroup", "byPath", "byCell")
@@ -295,8 +296,137 @@ def _tag_kinds(text, keys):
     return ("year",) if YEAR_CELL.fullmatch(word) else ()
 
 
-def _table_read(b, keys, stages, skip=()):
+HEAD_ROLES = ("colhead", "rowhead", "corner")   # 3단계 표 구조의 머리 칸 역할(heading_tables.ROLES)
+
+
+def _struct_index(tables):
+    """3단계 표 구조(snap["tables"] — heading_tables.build 결과) → {표 id: 표} — 본문 최상위 표(깊이 1)만. 없거나 꼴이 틀리면 {}."""
+    out = {}
+    for t in (tables.get("tables") or ()) if isinstance(tables, dict) else ():
+        if isinstance(t, dict) and t.get("id") and (t.get("depth") or 1) == 1 and isinstance(t.get("cells"), list):
+            out[t["id"]] = t
+    return out
+
+
+def _struct_cells(b, t):
+    """지금 표 블록 b 와 3단계 표 t → {칸 id: 3단계 칸} | None — **칸 id 모음이 지금과 같을 때만**(행·열을 늘리거나 줄인 뒤의 낡은 구조는 안 쓴다).
+    머리 칸은 글까지 같아야 쓴다(`_struct_heads` — 고친 머리의 옛 판정을 믿지 않는다)."""
+    now = {c.get("id") for c in b.get("cells") or ()}
+    sc = {c.get("id"): c for c in t.get("cells") or () if isinstance(c, dict)}
+    return sc if now and now == set(sc) else None
+
+
+def _same_text(a, b):
+    return _WS.sub("", str(a or ""))[:60] == _WS.sub("", str(b or ""))[:60]   # 3단계 칸 글은 80자로 잘려 있다
+
+
+def _org_head_bad(t):
+    """기관 머리로 안 보는 글(빈칸 뗀 글) — 역할 낱말(그 표가 누구 것인지가 아니라 「주관이 누구인지」) · 상대 기관 낱말(발행·거래 …) · 지난 소속(「당시 소속기관」 — 연구책임자의 지난 과제 표: ① 2026-11-17 「안 잡는다」)."""
+    return bool(ROLE_CELL.search(t) or OTHER_ORG_HEAD.search(t) or PAST_HEAD.search(t))
+
+
+def _org_run_ok(got, texts):
+    """기관 열(머리 아래 칸들)로 읽어도 되나 — 칸 COL_MIN 개 이상 · 서로 다른 과제 기관 둘 이상 · 글 든 칸의 절반 이상(`_org_cols` 와 같은 문턱: 한 기관뿐인 열 = 표 전체의 일 · 몇 칸만 맞는 열 = 다른 뜻)."""
+    return len(got) >= COL_MIN and len({k for _, k in got}) >= 2 and 2 * len(got) >= texts
+
+
+def _struct_heads(cells, sc, keys, stages, skip):
+    """3단계 표 구조의 머리 칸 → (차년도 이름표 {칸 id: ("year",)}, 기관 열의 칸 [(칸, 열쇠)], 값 머리 {칸 id: {"org"?: 열쇠, "year"?: 전체 차례}}) — 글이 지금과 같은 머리 칸만(spec_구역 ② §2 「표 구조」).
+    - 차년도 이름표 = 3단계가 차년도의 **이름**으로 본 머리(basisKind name — 낱말 목록 YEAR_CELL 밖의 것도) — `_table_read` 의 이름표에 더한다(값은 `_year_value` 로 엄격하게).
+    - 기관 이름 머리(basisKind name)는 이름표로 넣지 않는다 — 「표 전체」 규칙(오른쪽 이웃 값)을 걸지 않고 **그 아래 열**만 본다: 같은 열 · 같은 너비의 필드 칸(다음 머리 칸 앞까지)이 `_org_run_ok` 일 때만 그 칸들이 걸친 행
+      (`_table_read` 의 「행(기관 열)」 과 같은 규칙 — 머리가 열의 뜻을 말해 주므로 첫 열이 아니어도 된다). 역할 · 상대 · 지난 소속 낱말(`_org_head_bad`)이나 과제 기관 이름이 든 머리는 아니다.
+    - 값 머리 = 그 값 자체를 적은 머리 — 차년도는 3단계가 차년도 값으로 본 머리(basisKind value)의 글을 `_year_value` 로 읽은 것 · 기관은 머리 글이 통째로 과제 기관 이름(`_cell_org`)인 것.
+      기관 값 머리는 표 안에 **서로 다른 기관이 둘 이상**일 때만 · 같은 열의 머리에 `_org_head_bad` 낱말이 있으면 아니다.
+    skip = 그 표 안에 묶음이 있는 기준 — 그 기준은 읽지 않는다(엔진이 이미 그 열·행을 값마다의 자리로 읽었다)."""
+    tags, cols, vals, heads = {}, [], {}, []
+    for c in cells:
+        x = sc.get(c.get("id"))
+        if x is not None and x.get("role") in HEAD_ROLES and _same_text(x.get("text"), c.get("text")):
+            heads.append((c, x))
+    by_col = {}
+    for c in cells:
+        by_col.setdefault((c["col"], c.get("colSpan") or 1), []).append(c)
+    bad_cols = [(c["col"], c["col"] + (c.get("colSpan") or 1)) for c, _ in heads if _org_head_bad(core._bare(c.get("text")))]
+    for c, x in heads:
+        t, basis, kind = core._bare(c.get("text")), set(x.get("basis") or ()), x.get("basisKind")
+        if kind == "name" and t and len(t) <= CELL_MAX:
+            if "year" in basis:
+                tags[c["id"]] = ("year",)
+            if "org" in basis and "org" not in skip and x.get("role") == "colhead" and not _org_head_bad(t) and not _names(c.get("text"), keys):
+                below = []
+                for c2 in sorted(by_col.get((c["col"], c.get("colSpan") or 1), ()), key=lambda z: z["row"]):
+                    if c2["row"] < c["row"] + (c.get("rowSpan") or 1):
+                        continue
+                    if (sc.get(c2["id"]) or {}).get("role") != "field":
+                        break   # 다음 머리 · 제목 — 열의 뜻이 바뀐다
+                    below.append(c2)
+                got = [(c2, k) for c2 in below if (k := _cell_org(c2.get("text"), keys))]
+                if _org_run_ok(got, sum(1 for c2 in below if _WS.sub("", c2.get("text") or ""))):
+                    cols += got
+        if "year" not in skip and "year" in basis and kind == "value" and (y := _year_value(c.get("text"), stages)) is not None:
+            vals.setdefault(c["id"], {})["year"] = y
+        if "org" not in skip and (k := _cell_org(c.get("text"), keys)) \
+                and not any(a < c["col"] + (c.get("colSpan") or 1) and c["col"] < e for a, e in bad_cols):
+            vals.setdefault(c["id"], {})["org"] = k
+    if len({v["org"] for v in vals.values() if "org" in v}) < 2:
+        for v in vals.values():
+            v.pop("org", None)
+    return tags, cols, {i: v for i, v in vals.items() if v}
+
+
+def _struct_fields(sc, vals):
+    """값 머리 → {칸 id: {"org"?: (orgKind, 열쇠, why), "year"? | "yearClash"?}} — 필드 칸은 3단계가 적은 머리 경로(rowPath · colPath)의 값 머리에서, 값 머리 칸은 제 값.
+    한 칸의 경로에 기관이 둘 이상이면 conflict · 차년도가 둘 이상이면 엇갈림(`_table_read` 의 행 규칙과 같은 꼴)."""
+    out = {}
+    for cid, x in sc.items():
+        path = [cid] if cid in vals else [h for h in (x.get("rowPath") or []) + (x.get("colPath") or []) if h in vals] if x.get("role") == "field" else []
+        orgs = list(dict.fromkeys(vals[h]["org"] for h in path if "org" in vals[h]))
+        years = sorted({vals[h]["year"] for h in path if "year" in vals[h]})
+        e = {}
+        if orgs:
+            e["org"] = ("org", orgs[0], None) if len(orgs) == 1 else ("conflict", None, {"byCell": orgs})
+        if len(years) == 1:
+            e["year"] = years[0]
+        elif years:
+            e["yearClash"] = years
+        if e:
+            out[cid] = e
+    return out
+
+
+def _fill(ev, add):
+    """칸 근거 ev 에 add 를 **없는 기준만** 채운다(스크립트가 읽은 것이 먼저 — 표 구조는 못 읽은 칸을 메운다). 차년도는 year · yearClash 를 한 기준으로 본다. → 더한 기준 수."""
+    n = 0
+    if "org" in add and "org" not in ev:
+        ev["org"] = add["org"]
+        n += 1
+    if "year" not in ev and "yearClash" not in ev:
+        for k in ("year", "yearClash"):
+            if k in add:
+                ev[k] = add[k]
+                n += 1
+    return n
+
+
+def struct_read(b, t, keys, stages, skip=()):
+    """표 하나의 **표 구조 근거**(spec_구역 ② §2 「표 구조」) → (표 전체 근거 | None, {칸 id: 근거}) — 3단계 표 구조(t)가 지금 표(b)와 맞지 않거나 보탤 것이 없으면 (None, {}).
+    ① 3단계가 머리로 본 이름표(낱말 목록 밖)를 낱말 이름표에 더해 `_table_read` 의 규칙(아래 범위 · 표 전체 · 행)을 그대로 다시 돌리고 ② 값 머리(「2차년도」 열 · 「한국선급」 열)의 값을
+    그 머리 경로에 든 필드 칸에 붙인다. 부르는 쪽(`_scan`)이 스크립트 근거에 없는 기준만 채운다(`_fill`)."""
+    sc = _struct_cells(b, t)
+    if sc is None:
+        return None, {}
+    cells = b.get("cells") or ()
+    tags, cols, vals = _struct_heads(cells, sc, keys, stages, skip)
+    whole, per = _table_read(b, keys, stages, skip, extra=tags, cols=cols) if tags or cols else (None, {})
+    per = {i: dict(e) for i, e in per.items()}
+    for cid, e in _struct_fields(sc, vals).items():
+        _fill(per.setdefault(cid, {}), e)
+    return whole, {i: e for i, e in per.items() if e}
+
+
+def _table_read(b, keys, stages, skip=(), extra=None, cols=None):
     """본문 최상위 표 하나 → (표 전체의 근거 {"org"?: (orgKind, 열쇠, why), "year"?: 전체 차례} | None, {칸 id: 같은 꼴}). 값 칸의 기관은 통째로 일치할 때만(`_cell_org`).
+    extra = 낱말 목록 밖의 이름표 {칸 id: 기준들} · cols = 머리로 알아본 기관 열의 칸 [(칸, 열쇠)](둘 다 `struct_read` — 3단계 표 구조의 머리) — 낱말 이름표·값으로 알아본 기관 열과 같은 규칙으로 읽는다.
     - 이름표의 아래쪽 범위: 그 이름표 바로 아래에 이어진 머리 행(이름표 칸이 있는 행)은 건너뛰고, 그 뒤 **다음 머리 행 앞까지** — 표 중간에서 열의 뜻이 바뀌면 앞 이름표는 거기서 끝난다.
       아래 칸은 이름표와 같은 열 · 같은 너비여야 한다(여러 열을 덮은 머리 아래의 세부 열은 그 머리의 값이 아니다).
     - 표 전체: 이름표 칸의 오른쪽 이웃 칸(같은 행)에 값이 있고 그 이름표 칸 아래(그 범위)에는 값이 없을 때. 그렇게 읽은 기관이 서로 다르면 conflict(차년도가 다르면 비움).
@@ -308,13 +438,13 @@ def _table_read(b, keys, stages, skip=()):
     cells = b.get("cells") or ()
     if not cells:
         return None, {}
-    tags = [(c, k) for c in cells if (k := _tag_kinds(c.get("text"), keys))]
+    tags = [(c, k) for c in cells if (k := tuple(dict.fromkeys(_tag_kinds(c.get("text"), keys) + tuple((extra or {}).get(c.get("id")) or ()))))]
     at = {}
     for c in cells:
         for r in range(c["row"], c["row"] + (c.get("rowSpan") or 1)):
             for k in range(c["col"], c["col"] + (c.get("colSpan") or 1)):
                 at[(r, k)] = c
-    tails = [] if any("org" in k for _, k in tags) else _org_cols(cells, keys, at)
+    tails = ([] if any("org" in k for _, k in tags) else _org_cols(cells, keys, at)) + list(cols or ())
     if not tags and not tails:
         return None, {}
     n_rows, memo = max(r for r, _ in at) + 1, {}
@@ -483,7 +613,7 @@ def _scan(snap, cells=True):
         else:
             text[bid] = _short(b.get("text")) if t != "image" else ""
     info = {"order": order, "kinds": kinds, "cellsOf": cells_of, "auto": {}, "path": {}, "text": text, "orgs": [], "stages": [],
-            "_tableOf": table_of, "_caps": caps, "_derived": {}}   # 밑줄 키 = build 가 쓰는 것(칸 → 표 · 캡션 블록 id · 단계를 차년도에서 채운 id)
+            "_tableOf": table_of, "_caps": caps, "_derived": {}, "_struct": {}}   # 밑줄 키 = build 가 쓰는 것(칸 → 표 · 캡션 블록 id · 단계를 차년도에서 채운 id) · _struct = 표 구조가 근거를 채운 표·칸 id(재기 · 시험)
     values = _values(snap.get("values"))
     nodes = (snap.get("graph") or {}).get("nodes") or ()
     if values is None and not nodes:
@@ -511,6 +641,19 @@ def _scan(snap, cells=True):
                 if whole:
                     cell_ev[b["id"]] = whole
                 cell_ev.update(per)
+        st = _struct_index(snap.get("tables")) if cells else {}
+        if st:   # 표 구조(3단계 — 헤딩 추출의 표)가 있으면 스크립트가 못 읽은 기준만 채운다(② §2 「표 구조」). 구분 기준 판독의 근거(캐시)는 고치지 않는다 — 바꿀 칸만 새 사전으로
+            cell_ev = dict(cell_ev)
+            for b in blocks:
+                t = st.get(b.get("id")) if b.get("type") == "table" and not b.get("captionOf") else None
+                if t is None:
+                    continue
+                whole, per = struct_read(b, t, keys, stages, inside.get(b["id"], ()))
+                for i, e in [(b["id"], whole)] * bool(whole) + list(per.items()):
+                    mine = dict(cell_ev.get(i) or {})
+                    if _fill(mine, e):
+                        cell_ev[i] = mine
+                        info["_struct"][i] = True
     auto, derived, memo, cur = info["auto"], info["_derived"], {}, None   # cur = 지금까지 본 마지막 본문 제목 노드 · memo = 노드 id → (윗 제목 사슬, 윗 제목의 기관)
 
     def put(i, m, org, ev, cell):

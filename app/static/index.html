@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HWPX·DOCX 웹 편집</title>
+  <link rel="manifest" href="/static/app.webmanifest"><!-- 앱으로 설치(PWA 설명 파일 — 이름 · 아이콘 · 따로 선 창: 상단 바 #installBtn · app_install.js — spec_hwpx_웹편집 ② §9 「앱으로 설치」) -->
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/landing.css">
   <link rel="stylesheet" href="/static/divisions.css">
@@ -35,6 +36,7 @@
   <link rel="stylesheet" href="/static/doc_status.css"><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나: spec_작업 ② §20) — document_header.css·divisions.css·fmt_focus.css 다음 -->
   <link rel="stylesheet" href="/static/para_letter.css"><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 단추 아래 메뉴 #plMenu: 개요 레벨 · 번호 · 기호 · 직접 입력 · 레터 빼기 — spec_hwpx_웹편집 ② §8-9) — style.css 다음 -->
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/app_install.css"><!-- 앱으로 설치(상단 바 #installBtn — app_install.js · design.md §9) — document_header.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
 </head>
 <!-- body.no-doc = 문서를 열기 전(시작 화면이 보임) — app.js load() 가 빼고 closeDoc() 이 넣는다. landing.css 의 시작 화면 상단 바 모양이 이 클래스를 본다
@@ -195,7 +197,7 @@
            이 띠 = 문서를 보며 쓰는 도구. 활성 탭이 없으면 Tab 키는 보이는 첫 탭이 받는다(app.js showTab) -->
       <div class="tabs" role="tablist" aria-label="작업별 도구">
         <button type="button" role="tab" class="tab" id="tabEdits" aria-selected="false" aria-controls="paneEdits" tabindex="0" title="변경 내용·확정·되돌리기"><span class="nav-icon" aria-hidden="true">✎</span><span>고친 문단 <span class="badge" id="editsBadge">0</span></span></button>
-        <!-- 에이전트 · 작업 내용 · 헤딩 추출 · 표는 이 띠가 아니라 오른쪽 패널 머리 둘째 줄(#toolTabs)의 탭이다(2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나 … 다른 task 랑 구조가 같아야」 — 어느 TASK 든 같은 자리 ·
+        <!-- 에이전트 · 작업 개요 · 헤딩 추출 · 표는 이 띠가 아니라 오른쪽 패널 머리 둘째 줄(#toolTabs)의 탭이다(2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나 … 다른 task 랑 구조가 같아야」 — 어느 TASK 든 같은 자리 ·
              같은 날 「기본적으로 헤딩추출이나 표 는 탭에 에이전트에 넣어줘야지」 → 답 「띠에서 뺌」 — spec_작업 ② §10 「둘째 줄」). 이 띠 = 고친 문단 · 문서 비교 -->
         <button type="button" role="tab" class="tab nav-compare" id="tabCompare" aria-selected="false" aria-controls="paneCompare" tabindex="-1" title="병합 전 확인"><span class="nav-icon" aria-hidden="true">⇄</span><span>문서 비교</span></button>
       </div>
@@ -301,7 +303,7 @@
             </svg>
             <header class="home-tasks-heading">
               <h2 id="homeTasksTitle">TASK</h2>
-              <span data-note-label="TASK 시작 안내" data-note="위에서 파일을 모으고 목적 문서를 고른 뒤 TASK를 누르세요. 파일 하나는 목적 문서로 자동 선택됩니다. 문서를 열면 에이전트가 사전 준비와 다음 단계를 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다. 단계마다 직접 하려면 패널 「작업 내용」을 씁니다."></span>
+              <span data-note-label="TASK 시작 안내" data-note="위에서 파일을 모으고 목적 문서를 고른 뒤 TASK를 누르세요. 파일 하나는 목적 문서로 자동 선택됩니다. 문서를 열면 에이전트가 사전 준비와 다음 단계를 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다. 단계마다 직접 하려면 패널 「작업 개요」를 씁니다."></span>
               <p id="homeTasksHint" role="status">파일 추가 → 목적 문서 선택 → TASK 실행</p>
             </header>
             <ul class="task-cards" id="taskCards"></ul>
@@ -349,7 +351,7 @@
         <!-- 누른 자리 따라 보기(spec_작업 ② §12 — 2026-11-12): 연차보고서에서 내용이 들어간 곳을 누르면 다른 면이 원본 자리를 보인다. 눌림 = 켬(기억 nfm.peerFollow). 이관의 두 칸이 찼을 때만 보인다 — peer_follow.js -->
         <button class="btn sm peer-follow on" id="peerFollow" type="button" aria-pressed="true" hidden>따라 보기</button>
         <button class="icon" id="peerFold" type="button" aria-controls="peerCol" aria-label="열 접기" title="열 접기 — 오른쪽 띠로(보던 자리 그대로, 띠를 누르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6.5 6 6 6-6 6M13.5 6l6 6-6 6"/></svg></button>
-        <button class="icon" id="peerClose" type="button" aria-label="같이 보기 닫기" title="같이 보기 닫기 — 「작업 내용」의 첨부 파일 칸 오른쪽 단추로 다시 엽니다">✕</button>
+        <button class="icon" id="peerClose" type="button" aria-label="같이 보기 닫기" title="같이 보기 닫기 — 「작업 개요」의 첨부 파일 칸 오른쪽 단추로 다시 엽니다">✕</button>
       </header>
       <iframe id="peerFrame" title="같이 보는 문서"></iframe>
     </section>
@@ -379,7 +381,7 @@
       <button class="col-rail" id="panelRail" type="button" aria-controls="panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg><span class="col-rail-name"></span></button>
       <!-- 패널 머리(spec_작업 ② §10 「패널 머리」, 2026-11-11 사용자 "이 쪽에 작업 목록을 선택할 수 있는 리스트를 넣어주고 …" → "사이드 패널 상단에 저 탭은 중복이잖아" · "그냥 작업에서 연구개발과제를 택하면 지금 내용이 나오는거지"):
            첫 줄 = 작업 종류 목록(#panelTask — 작업 종류를 고르는 곳은 여기: 상단 바의 옛 #taskKind 는 같은 날 없앰 · 「연구개발과제」 를 고르면 그 내용이 열림) · 파일 이름 · ? 도움말 · »
-           둘째 줄 = 탭(#toolTabs — 아래: 에이전트 · 작업 내용 · <도구> | 접는 묶음 검증 · PDF · 기록 — 2026-11-15 검증·PDF·기록, 2026-11-16 에이전트를 탭 띠에서 이리 옮김 · 같은 날 작업 리스트는 상단 바 아이콘 #taskListBtn 으로 뺌). #toolTitle·#toolTag 는 값만(접힌 띠 이름). 탭 띠를 베낀 탭 줄은 없다(한때 넣은 #panelTabs 는 겹쳐서 걷어냄). 설명 글은 ? 도움말로(#toolDescription 은 값만 — app.js showTab) -->
+           둘째 줄 = 탭(#toolTabs — 아래: 에이전트 · 작업 개요 · <도구> | 접는 묶음 검증 · PDF · 기록 — 2026-11-15 검증·PDF·기록, 2026-11-16 에이전트를 탭 띠에서 이리 옮김 · 같은 날 작업 리스트는 상단 바 아이콘 #taskListBtn 으로 뺌). #toolTitle·#toolTag 는 값만(접힌 띠 이름). 탭 띠를 베낀 탭 줄은 없다(한때 넣은 #panelTabs 는 겹쳐서 걷어냄). 설명 글은 ? 도움말로(#toolDescription 은 값만 — app.js showTab) -->
       <header class="tool-heading">
         <div class="tool-task-row">
           <label class="tool-task" title="작업 종류 — 연구개발 프로젝트의 TASK·첨부 파일·프로젝트 구성을 엽니다"><span>작업</span><select id="panelTask" aria-label="작업 종류"></select></label>
@@ -387,13 +389,13 @@
           <span id="toolHelp" class="panel-help-slot"></span>
           <button class="icon" id="panelFold" type="button" aria-controls="panel" aria-label="패널 접기" title="패널 접기 — 오른쪽 띠로(띠를 누르거나 도구 탭을 고르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6.5 6 6 6-6 6M13.5 6l6 6-6 6"/></svg></button>
         </div>
-        <!-- 둘째 줄: 작업 종류가 연구개발과제면 탭 둘 「작업 내용」 · 「<도구>」(#toolTabs — 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추를 바꿈 · 도구 탭 = 마지막으로 본 도구, 처음 검증),
+        <!-- 둘째 줄: 작업 종류가 연구개발과제면 탭 둘 「작업 개요」 · 「<도구>」(#toolTabs — 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추를 바꿈 · 도구 탭 = 마지막으로 본 도구, 처음 검증),
              아니면 도구 이름 + 꼬리표(#toolTitle·#toolTag — 탭일 때도 값은 채워 둔다: 접힌 띠 이름) -->
         <!-- 2026-11-15: 검증 · PDF · 기록은 이 줄의 고정 탭(id 는 옛 탭 띠의 것 그대로 — showTab·toolShown 이 tab<도구> 로 찾는다) · 「<도구>」(#toolTabTool)는 탭 띠에서 마지막으로 고른 도구가 있을 때만(app.js toolTabsDraw) -->
         <!-- 2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나? 검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기 … 다른 task 랑 구조가 같아야」(spec_작업 ② §10 「둘째 줄」):
-             왼쪽 = 「대시보드」(#tabDash — 문서가 열려 있으면 첫 탭: 2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」) · 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든: 문서 위 탭 띠에서 옮김) · 「작업 내용」(연구개발 TASK) · 「<도구>」 /
+             왼쪽 = 「대시보드」(#tabDash — 문서가 열려 있으면 첫 탭: 2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」) · 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든: 문서 위 탭 띠에서 옮김) · 「작업 개요」(연구개발 TASK) · 「<도구>」 /
              오른쪽 = 접는 묶음 .tool-more(검증 · PDF · 기록 — 작업 리스트는 상단 바 #taskListBtn) + 펼치기 단추 #toolMore — 접힌 동안은 고른 탭 하나만 보이고, 펼치면 묶음이 탭 줄 아래 둘째 줄(2026-11-18 — style.css)(app.js toolTabsDraw · 기억 nfm.toolMore) -->
-        <div class="tool-title-row"><div class="tool-tabs" id="toolTabs" role="tablist" aria-label="패널 보기" hidden><div class="tool-main" role="none"><button type="button" role="tab" id="tabDash" aria-selected="false" aria-controls="paneDash" tabindex="-1" hidden title="대시보드 — TASK 단계 흐름 · 단계마다 상태와 실행">대시보드</button><button type="button" role="tab" id="tabAgent" aria-selected="false" aria-controls="paneAgent" tabindex="-1" hidden title="에이전트 — 요청 · 제안 · 작업 진행 안내">에이전트</button><button type="button" role="tab" id="toolTabTask" aria-controls="paneDiv">작업 내용</button><button type="button" role="tab" id="tabHeads" aria-selected="false" aria-controls="paneHeads" tabindex="-1" hidden title="헤딩 추출 — 구조·라벨·템플릿">헤딩 추출</button><button type="button" role="tab" id="tabTables" aria-selected="false" aria-controls="paneTables" tabindex="-1" hidden title="테이블 — 표 식별·엑셀식 보기·표 지침">테이블</button><button type="button" role="tab" id="toolTabTool" hidden>도구</button></div><span class="tool-tabs-gap" aria-hidden="true"></span><button type="button" role="tab" class="tool-more active" id="tabVerify" aria-selected="true" aria-controls="paneVerify" title="검증 — 파일·출력 확인">검증</button><button type="button" role="tab" class="tool-more" id="tabPdf" aria-selected="false" aria-controls="panePdf" title="PDF — 원본·수정본 출력 보기">PDF</button><button type="button" role="tab" class="tool-more" id="tabLog" aria-selected="false" aria-controls="paneLog" title="기록 — 작업 이력">기록</button></div><button class="icon tool-more-btn" id="toolMore" type="button" aria-controls="toolTabs" aria-expanded="false" aria-label="검증 · PDF · 기록 펼치기" title="검증 · PDF · 기록 펼치기" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17.5 6l-6 6 6 6M10.5 6l-6 6 6 6"/></svg></button><h1 id="toolTitle">검증</h1><span class="tool-tag" id="toolTag">파일·출력</span></div>
+        <div class="tool-title-row"><div class="tool-tabs" id="toolTabs" role="tablist" aria-label="패널 보기" hidden><div class="tool-main" role="none"><button type="button" role="tab" id="tabDash" aria-selected="false" aria-controls="paneDash" tabindex="-1" hidden title="대시보드 — TASK 단계 흐름 · 단계마다 상태와 실행">대시보드</button><button type="button" role="tab" id="tabAgent" aria-selected="false" aria-controls="paneAgent" tabindex="-1" hidden title="에이전트 — 요청 · 제안 · 작업 진행 안내">에이전트</button><button type="button" role="tab" id="toolTabTask" aria-controls="paneDiv">작업 개요</button><button type="button" role="tab" id="tabHeads" aria-selected="false" aria-controls="paneHeads" tabindex="-1" hidden title="헤딩 추출 — 구조·라벨·템플릿">헤딩 추출</button><button type="button" role="tab" id="tabTables" aria-selected="false" aria-controls="paneTables" tabindex="-1" hidden title="테이블 — 표 식별·엑셀식 보기·표 지침">테이블</button><button type="button" role="tab" id="toolTabTool" hidden>도구</button></div><span class="tool-tabs-gap" aria-hidden="true"></span><button type="button" role="tab" class="tool-more active" id="tabVerify" aria-selected="true" aria-controls="paneVerify" title="검증 — 파일·출력 확인">검증</button><button type="button" role="tab" class="tool-more" id="tabPdf" aria-selected="false" aria-controls="panePdf" title="PDF — 원본·수정본 출력 보기">PDF</button><button type="button" role="tab" class="tool-more" id="tabLog" aria-selected="false" aria-controls="paneLog" title="기록 — 작업 이력">기록</button></div><button class="icon tool-more-btn" id="toolMore" type="button" aria-controls="toolTabs" aria-expanded="false" aria-label="검증 · PDF · 기록 펼치기" title="검증 · PDF · 기록 펼치기" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17.5 6l-6 6 6 6M10.5 6l-6 6 6 6"/></svg></button><h1 id="toolTitle">검증</h1><span class="tool-tag" id="toolTag">파일·출력</span></div>
         <p id="toolDescription" hidden>원본을 읽고 저장한 결과와 출력파일을 확인합니다.</p>
       </header>
       <div class="pane" id="paneVerify" role="tabpanel" aria-labelledby="tabVerify">
@@ -578,12 +580,13 @@
   <script src="/static/style_lib.js"></script><!-- 서식 보관함(보관한 표·글 서식 목록 · 추출 후보 → 저장 · 문서에 적용 — 2열) — app.js·tables.js·table_make.js·table_menu.js 다음(spec_일반편집 ② §7·§12) -->
   <script src="/static/doc_agent.js"></script><!-- 에이전트 보기(패널 #paneAgent — 요청 → 제안 카드 → 문서에 반영 · 자료 · 2열 제안 미리보기·지침) — style_lib.js·table_fill.js 다음(spec_일반편집 ② §8~§12) -->
   <script src="/static/doc_agent_work.js"></script>
-  <script src="/static/dashboard.js"></script><!-- 대시보드(패널 탭 「대시보드」 — 단계 흐름 · 단계마다 상태 · 실행: 「작업 내용」 · 에이전트의 상태 · 단추와 그 TASK 의 「한 번에 진행」 을 그대로 부름) — doc_agent_work.js 다음(spec_작업에이전트 ② §9) --><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
+  <script src="/static/dashboard.js"></script><!-- 대시보드(패널 탭 「대시보드」 — 단계 흐름 · 단계마다 상태 · 실행: 「작업 개요」 · 에이전트의 상태 · 단추와 그 TASK 의 「한 번에 진행」 을 그대로 부름) — doc_agent_work.js 다음(spec_작업에이전트 ② §9) --><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
   <script src="/static/doc_agent_next.js"></script><!-- 에이전트 빈 화면의 「지금 할 수 있는 일」 — 현황 보고 카드(스크립트) · 헤딩·표 LLM 검토 실행 카드 · 서식 반영(spec_일반편집 ② §12) -->
   <script src="/static/doc_diff.js"></script><!-- 문서에서 고친 곳 보기(깃처럼 — 넣은 글·지운 자리·바뀐 모양 값 꼬리표 · 도구 줄 #ddBtn) — app.js 다음(spec_작업 ② §8 「문서에서 — 고친 곳 보기」) -->
   <script src="/static/fmt_focus.js"></script><!-- 서식 라벨만 또렷이(여백의 서식 라벨 .tm-f 누름 → #doc.fmt-focus · .para.fmt-hit · 이름 줄 설명 #fmtKey) — app.js 다음(spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」) -->
   <script src="/static/doc_quick.js"></script><!-- 문서 이름 줄의 표시 아이콘(#nameTplMarks · #nameFmtMarks — 여백의 템플릿 표시 「T1 L2」 · 서식 라벨 「S41」 켜기/끄기) — app.js 다음(spec_작업 ② §17 「이름 줄 표시 아이콘」) -->
   <script src="/static/doc_status.js"></script><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — GET …/analysis 로 헤딩 · 표 · LLM · 구분 기준 표시 · 「분석」 단추) — app.js 다음(spec_작업 ② §20) -->
+  <script src="/static/app_install.js"></script><!-- 앱으로 설치(PWA — 브라우저가 설치할 수 있다고 알려 주면 상단 바 「에이전트 설정」 다음에 #installBtn: spec_hwpx_웹편집 ② §9 「앱으로 설치」) -->
   <script src="/static/share.js"></script><!-- hwpx 공유 — 주인 화면(상단 바 「공유」 단추를 #downloadBtn 앞에 끼움 · 떠 있는 창 · 손님의 변경을 1.2초마다 받아 반영 · 손님이 작성 중인 문단 표시). 손님 화면은 따로(static/share/) — app.js·panel_help.js 다음(spec_공유 ② §7) -->
 </body>
 </html>

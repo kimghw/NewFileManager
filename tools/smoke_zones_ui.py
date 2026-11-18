@@ -3,7 +3,7 @@
     python -X utf8 tools/smoke_zones_ui.py <그림·임시 폴더> [--port 18397]
 
 연구개발계획서 양식을 TASK 「사업계획서 양식 표준화」(plan_fit — 편집 구역의 기본값은 켠 것 없음) 작업으로 올리고 프로젝트 구성(기관 셋 · 2차년도)을 구분 기준 API 로 반영한 뒤 본다(끝점은 모두 진짜):
-「작업 내용」 의 「편집 구역」 줄(체크 셋 — 기본은 모두 꺼짐 · 안내 한 줄 · 「구분 기준 자리 표시」 줄 아래) · 켠 기준이 없으면 오른쪽 단추 메뉴에 항목 없음 → 기관을 켜면(PUT …/task-options {zones:{dims}, rev}) 칩·띠·오른쪽 여백 이름표 →
+「작업 개요」 의 「편집 구역」 줄(체크 셋 — 기본은 모두 꺼짐 · 안내 한 줄 · 「구분 기준 자리 표시」 줄 아래) · 켠 기준이 없으면 오른쪽 단추 메뉴에 항목 없음 → 기관을 켜면(PUT …/task-options {zones:{dims}, rev}) 칩·띠·오른쪽 여백 이름표 →
 차년도를 더 켜면 이름표 글에 차년도 → 문서 이름 줄의 색 설명(칩 색 = 문서의 띠 색 · 「감추기」 · 줄 높이 그대로 · 「구분 기준 자리」 설명과 함께) → 문단을 골라 「구역 지정…」(떠 있는 작은 입력 #zonesPop — 「그대로」 만이면 안 됨 · Esc)
 으로 기관을 정하면 그 문단의 이름표가 바뀌고 점선 테(.gz-mark) → 「구역 지정 고치기…」 → 표 칸에서는 「이 표를 구역으로 지정…」 → 여러 문단을 골라 차년도 지정 → 「지정 해제」 → 목록(2열 kind zones — 줄을 누르면 그 자리로 · 「해제」) →
 「감추기」 하면 표시가 모두 사라짐(기억) → 글을 고치면 잠깐 뒤 다시 읽음 → 새로 고쳐도 옵션이 남음 → 배율을 바꾼 뒤에도 표시가 다시 달림 → 다른 화면이 옵션을 먼저 바꿨으면 409 → 다시 읽고 알림. 콘솔 오류 0."""
@@ -519,6 +519,18 @@ try:
         page.wait_for_function("() => !!zn().data && !zn().loading && zn().data.rev === state.serverRev", timeout=60000)
         gets = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")]) - n_get
         check("글을 고친 뒤 — 새 문서 차례로 한 번 다시 읽음 · 표시는 남아 있음 · 줄에 「다시 읽는 중」 이 남지 않음", gets == 1 and page.locator("#doc .gz-in").count() > 0 and "다시 읽는 중" not in page.evaluate(BAR)["text"], gets)
+
+        # ---- 12-2. 헤딩 추출을 다시 돌려 그래프 · 표 구조가 바뀌면 다시 읽음(윗 제목의 기관 근거 — spec_구역 ② §6 「다시 읽는 때」) · 같은 그래프면 안 읽음
+        n_get = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")])
+        g0 = page.evaluate("() => zn().graphKey")
+        page.evaluate("(k) => zonesHeadsSeen(k)", g0)
+        page.wait_for_timeout(800)
+        same = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")]) - n_get
+        page.evaluate("(k) => zonesHeadsSeen(`${k}|다시`)", g0)
+        page.wait_for_function("() => !!zn().data && !zn().loading && zn().data.rev === state.serverRev", timeout=60000)
+        page.wait_for_timeout(300)
+        gets = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")]) - n_get
+        check("헤딩 추출 결과(그래프 · 표 구조)가 그대로면 다시 읽지 않고 · 바뀌면 한 번 다시 읽음 · 표시는 남아 있음", same == 0 and gets == 1 and page.locator("#doc .gz-in").count() > 0, (g0, same, gets))
 
         # ---- 13. 새로 고쳐도 옵션(서버)·표시(이 브라우저)가 남음
         open_work()

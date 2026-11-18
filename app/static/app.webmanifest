@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "HWPX·DOCX 웹 편집",
+  "short_name": "웹 편집",
+  "description": "HWPX·DOCX 문서를 웹에서 편집하고 TASK(사업계획서 양식 표준화 · 취합 · 이관 …)를 진행합니다 — 이 PC 의 서버(8114)가 켜져 있어야 열립니다.",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#e9ecf1",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "/static/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

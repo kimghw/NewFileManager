@@ -11,7 +11,7 @@
  4. 모두 풀면 표시가 꺼진다.
  5. 「끄기」 는 표시만 — ☐ 는 남고, ☐ 를 다시 건드리면 다시 보인다.
  6. 두 트리(「템플릿 관계」 열 · 「템플릿」 탭)의 ☐ · 「모두 고르기」 · 단추 글이 같이 바뀐다.
- 7. 꼬리표를 누르면 그 갈래의 카드에 .sel — 31번째 뒤의 줄도 · 열을 다시 짓지 않는다 · 고르기는 안 바뀐다.
+ 7. 꼬리표를 누르면 그 갈래의 카드에 .sel — 31번째 뒤의 줄도 · 열을 다시 짓지 않는다 · 고르기는 안 바뀐다 · 다른 곳(본문 글)을 누르면 .sel · 꼬리표의 진한 테가 풀린다.
  8. 「본문에서 보기」 는 고르기를 안 바꾼다(고른 갈래를 보는 중이면 표시도 그대로 · 꺼져 있으면 레벨 전체로).
  9. 레벨 A 고름 → 끄기 → 레벨 B 고름 → A 의 마지막 ☐ 를 풀어도 B 의 표시는 그대로.
 10. 「고른 서식 맞추기」 가 rev 를 보낸다 · 보낸 고르기와 표시가 비워진다 · 실행 취소 · 고른 뒤 갈래가 바뀌면(화면에서 그 줄의 서식을 바꿈) 맞추지 않고 고르기를 푼다 ·
@@ -311,9 +311,15 @@ def main():
               ok7 and rv["sel"] == [big["key"]] and page.evaluate("() => document.querySelector('#headsDlgBody .tpl-tree')._probe === 1") and page.evaluate(PICKS) == {f"{A[0]}|{A[1]}": [big["key"]]}
               and v["hit"] == sorted(big["paras"]) and v["look"] == big["key"] and all(t["look"] for t in v["tags"] if t["key"] == big["key"]) and any(t["key"] == big["key"] for t in v["tags"]), [rv["sel"], v["look"], page.evaluate(PICKS)])
         page.screenshot(path=str(OUT / "02_tag_to_card.png"))
-        page.wait_for_timeout(4300)  # 레벨 줄의 표시(.olm.sel)는 4초 — 카드의 .sel 은 다음 살펴보기까지 남는다
+        page.wait_for_timeout(4300)  # 레벨 줄의 표시(.olm.sel)는 4초 — 카드의 .sel 은 다음 살펴보기 · 다른 곳을 누를 때까지 남는다
         rv = page.evaluate(ROWV, [COL, *A])
-        check("카드의 .sel 은 4초 뒤에도 남는다(다음 살펴보기까지)", rv["sel"] == [big["key"]] and not page.evaluate("() => !!document.querySelector('#headsDlgBody .olm.sel')"), rv["sel"])
+        check("카드의 .sel 은 4초 뒤에도 남는다(다음 살펴보기 · 다른 곳을 누를 때까지)", rv["sel"] == [big["key"]] and not page.evaluate("() => !!document.querySelector('#headsDlgBody .olm.sel')"), rv["sel"])
+        # 7c. 다른 곳(본문 글)을 누르면 살펴보기가 풀린다(2026-11-18 사용자 「다른 곳을 클릭하면 하이라이트된 부분이 풀리게」) — 카드의 .sel · 꼬리표의 진한 테. 고르기 · 본문 표시는 그대로
+        page.locator(f'#doc .para[data-id="{big["paras"][0]}"]').first.click(position={"x": 4, "y": 4})
+        ok7c = safe(lambda: page.wait_for_function("() => OLM.look === null && !document.querySelector('li.olm-g.sel') && !document.querySelector('.sheet > .fm-tag.look')", timeout=5000), "7c")
+        v = page.evaluate(VIEW)
+        check("7c. 다른 곳(본문 글)을 누르면 살펴보기가 풀린다 — 카드의 .sel · 꼬리표의 진한 테가 걷히고 고르기 · 본문 표시는 그대로",
+              ok7c and page.evaluate(PICKS) == {f"{A[0]}|{A[1]}": [big["key"]]} and v["by"] == "chk" and v["hit"] == sorted(big["paras"]), [v["look"], v["by"], page.evaluate(PICKS)])
         page.click("#headsDlgClose")  # 열이 닫혀 있으면 꼬리표가 열을 연다(그 카드로)
         page.evaluate("(pid) => fmTagGo(pid)", late[-1])
         ok7b = safe(lambda: page.wait_for_function("(k) => { const c = document.getElementById('headsDlg'); const r = document.querySelector('#headsDlgBody .olm.sel'); return !c.hidden && c.dataset.kind === 'templates' && r && [...r.querySelectorAll('li.olm-g.sel')].some((x) => x.dataset.key === k); }",

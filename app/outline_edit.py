@@ -153,7 +153,8 @@ def build_overlay(g, probe, rev=0):
     """2단계 그래프 → 오버레이. probe(pid) -> {"text", "attrs", "spacer"(앞 순수 간격 문단의 attrs | None)} | None(문단이 없음).
     줄 = role heading|title|label + (template, level) + 문단에 노드 하나뿐 + 지금 글 첫머리에 레터 그대로."""
     meta = g.get("meta") or {}
-    per_para = Counter(n["para"] for n in g.get("nodes") or [] if n.get("role") in ROLES and n.get("template") and n.get("level"))
+    # 문단마다 노드 수 — 줄 안 레터(「o (제목) ① …」 의 「①」 — spec_헤딩_추출 ② §2)는 세지 않는다: 그 문단은 첫 노드의 줄 하나이고, 그 노드 아래 줄의 부모는 그 문단 줄이다(아래 inline)
+    per_para = Counter(n["para"] for n in g.get("nodes") or [] if n.get("role") in ROLES and n.get("template") and n.get("level") and not n.get("inline"))
     tpls, by_anchor = {}, {}
     for t in g.get("templates") or []:
         tid = str(t.get("id", t.get("no")))
@@ -176,7 +177,11 @@ def build_overlay(g, probe, rev=0):
             probes[pid] = probe(pid)
         return probes[pid]
 
+    inline = {}
     for n in g.get("nodes") or []:
+        if n.get("inline"):
+            inline[n["id"]] = n["para"]
+            continue
         if n.get("role") not in ROLES or not n.get("template") or not n.get("level") or per_para[n["para"]] != 1:
             continue
         tid = by_anchor.get(n["template"], str(n.get("tplNo")))
@@ -194,6 +199,9 @@ def build_overlay(g, probe, rev=0):
             lines[n["para"]].update(letter="", role=TABLE, table=band.get("table"), name=letter, **({"title": band["title"]} if band.get("title") else {}))
         by_node[n["id"]] = n["para"]
         tpls[tid]["slots"].get(str(int(n["level"])), {}).setdefault("members", []).append(n["para"])
+    for nid, pid in inline.items():  # 줄 안 레터 노드 → 그 노드가 든 문단의 줄(그 문단이 줄일 때만)
+        if pid in lines:
+            by_node[nid] = pid
     for line in lines.values():
         pn = line.pop("_pnode")
         line["parent"] = by_node.get(pn) if pn and pn in by_node else None
@@ -245,12 +253,13 @@ def collect_autos(g, probe, lines, tpls):
     라벨의 꼴 = 그 레벨 레터(대표가 친 레터)의 꼴: 번호형은 번호만 다를 수 있다(「1.」 레벨의 「2.」 · 「3)」 은 아님), 기호는 글자까지 같다(닮은 글자도 아님)).
     부모 = 그래프의 부모 노드 문단이 개요 줄 · 자동 글머리 줄일 때만 · d = 같은 그래프 템플릿이면 그래프 레벨 차이(종속 · 떼기로 부모가 옮기면 따라간다 — auto_slot)."""
     nodes = g.get("nodes") or []
-    per_para = Counter(n["para"] for n in nodes if n.get("role") in ROLES and n.get("template") and n.get("level"))
+    per_para = Counter(n["para"] for n in nodes if n.get("role") in ROLES and n.get("template") and n.get("level") and not n.get("inline"))
     by_anchor = {t.get("anchor"): tid for tid, t in tpls.items() if t.get("anchor")}
     by_id = {n.get("id"): n for n in nodes}
     autos = {}
     for n in nodes:
-        if n.get("role") != "heading" or n.get("band") or not n.get("template") or not n.get("level") or per_para[n["para"]] != 1 or n["para"] in lines:
+        if (n.get("role") != "heading" or n.get("band") or n.get("inline") or not n.get("template") or not n.get("level") or per_para[n["para"]] != 1
+                or n["para"] in lines):
             continue
         tid = by_anchor.get(n["template"], str(n.get("tplNo")))
         t, letter = tpls.get(tid), n.get("letter") or ""

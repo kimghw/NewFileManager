@@ -23,12 +23,12 @@ async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문�
   let end;
   try {
     at("취합 상태 읽기");
-    taskPaneShow(); // 보통 패널 「작업 내용」 — 에이전트 보기가 이끌고 있으면 그대로(app.js: 진행은 에이전트 보기의 진행 카드가 보인다 — spec_작업에이전트 ② §7)
+    taskPaneShow(); // 보통 패널 「작업 개요」 — 에이전트 보기가 이끌고 있으면 그대로(app.js: 진행은 에이전트 보기의 진행 카드가 보인다 — spec_작업에이전트 ② §7)
     for (const it of run.items) if (!it.pid && it.err && !it.skip) it.err = ""; // 「이어서」 — 못 올린 문서는 다시 올려 본다(목적 문서와 같은 파일만 빼고: astra 11-16 — 전에는 한 번 실패하면 다시 올릴 길이 없었다)
     await divShow();
     await gatherLoad();
     const plan = gatherPlan(), V = gt().view;
-    if (!plan || plan.id !== run.plan) gatherHalt("목적 문서가 사업계획서(취합본)로 잡히지 않았습니다 — 작업 내용의 첨부 파일 종류를 확인하세요(양식 판정이 다른 종류로 정했을 수 있음)");
+    if (!plan || plan.id !== run.plan) gatherHalt("목적 문서가 사업계획서(취합본)로 잡히지 않았습니다 — 작업 개요의 첨부 파일 종류를 확인하세요(양식 판정이 다른 종류로 정했을 수 있음)");
     if (!V) gatherHalt(`취합 상태를 읽지 못했습니다${gt().err ? `: ${gt().err}` : ""}`);
     if (V.frame && V.frame.stale) gatherHalt("이 취합본의 배포 기준본이 낡았습니다(기준본 뒤 프로젝트 구성을 다시 반영함) — 2단계 「문서 프레임 작성」 에서 기준본을 새로 만들지 정한 뒤 「이어서」 를 누르세요");
     const todo = run.items.filter((x) => !x.pid && !x.err);

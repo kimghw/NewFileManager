@@ -9,7 +9,7 @@
   진행표 아래 「LLM 검증·보완」 — 「돌 것」 셋을 보이고, 누르면 POST …/analysis/llm 한 번(열기만 해서는 안 부름 · LLM 끔이라 헤딩에서 「LLM 이 꺼져 있습니다」 로 멈춤 → 「LLM 실패」).
   좁은 폭(700px)에서는 옵션 항목(LLM)을 감추고 넷과 ▾ 는 남는다.
 - ㉯ docx: 「헤딩 · 표 분석 없음(hwpx 만)」 한마디(단추 없음).
-- ㉰ 지원 양식 · 연구개발과제: 「구분 기준 안 함」 이 더 보인다 → 누르면 「작업 내용」 + 2열 「구분 기준 — LLM 검토 결과」. 일반 문서로 바꾸면 그 항목이 없다.
+- ㉰ 지원 양식 · 연구개발과제: 「구분 기준 안 함」 이 더 보인다 → 누르면 「작업 개요」 + 2열 「구분 기준 — LLM 검토 결과」. 일반 문서로 바꾸면 그 항목이 없다.
   끼운 응답으로: LLM 을 돌린 문서 = 「헤딩 ✓ LLM ✓ · 표 ✓ LLM 안 함 · 구분 기준 후보 3」 · 도는 중 = 동그라미 + 지난 시간.
 - ㉲ 를 열면 둘째 면 머리에 ㉱ 의 상태가 누를 수 없는 표시로(「분석」 단추 없음) — ㉱ 를 분석하면 「✓」 로 바뀐다.
 - 끼운 응답으로: LLM 검증·보완이 도는 중 = 「◌ LLM 검증·보완 헤딩」 + 진행표의 단계 줄 · 「멈추기」.
@@ -276,7 +276,7 @@ def main():
         check("양식을 열어도 LLM 검토 · 분석을 부르지 않는다", not [x for x in posts if x[0].startswith(form)], posts)
         page.click("#docStatus .ds-chip[data-go=DivReview]")
         page.wait_for_function("() => !document.getElementById('paneDiv').hidden && !document.getElementById('headsDlg').hidden && document.getElementById('headsDlg').dataset.kind === 'divisions-review'", timeout=30000)
-        check("「구분 기준」 → 「작업 내용」 + 2열 「구분 기준 — LLM 검토 결과」(거기 「LLM 검토 실행」)", page.inner_text("#headsDlgTitle").strip() == "구분 기준 — LLM 검토 결과"
+        check("「구분 기준」 → 「작업 개요」 + 2열 「구분 기준 — LLM 검토 결과」(거기 「LLM 검토 실행」)", page.inner_text("#headsDlgTitle").strip() == "구분 기준 — LLM 검토 결과"
               and page.locator("#headsDlgFoot button", has_text="LLM 검토 실행").count() == 1, page.inner_text("#headsDlgTitle"))
         page.screenshot(path=str(OUT / "05_division.png"))
         page.evaluate("() => headsColClose()")

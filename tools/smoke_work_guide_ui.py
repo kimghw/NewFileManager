@@ -216,7 +216,7 @@ def main():
         check("좁은 패널에서 대화가 가로로 넘치지 않는다(카드가 패널 안)", not w["over"] and w["cards"], w)
         page.screenshot(path=str(OUT / "06_narrow.png"))
 
-        # ---- TASK 카드로 시작(LLM 끔) — 전처럼 「작업 내용」 이 열리고, 에이전트 보기에는 「작업 설명 듣기」
+        # ---- TASK 카드로 시작(LLM 끔) — 전처럼 「작업 개요」 가 열리고, 에이전트 보기에는 「작업 설명 듣기」
         page.set_viewport_size({"width": 1600, "height": 1000})
         page.goto(base)
         page.wait_for_selector("#taskCards .task-card")
@@ -228,7 +228,7 @@ def main():
         tool = page.evaluate("document.getElementById('panel').dataset.tool")
         page.click("#tabAgent")
         page.wait_for_selector("#paneAgent [data-agw=start]", timeout=30000)
-        check("LLM 이 꺼져 있을 때 TASK 카드로 시작하면 전처럼 「작업 내용」 — 에이전트 보기의 빈 상태에 「작업 설명 듣기」", tool == "Div" and page.locator("#paneAgent .agw-empty h2").inner_text() == "「연차보고서 양식 맞추기」 진행", tool)
+        check("LLM 이 꺼져 있을 때 TASK 카드로 시작하면 전처럼 「작업 개요」 — 에이전트 보기의 빈 상태에 「작업 설명 듣기」", tool == "Div" and page.locator("#paneAgent .agw-empty h2").inner_text() == "「연차보고서 양식 맞추기」 진행", tool)
         page.click("#paneAgent [data-agw=start]")
         page.wait_for_selector("#paneAgent .agw-turn", timeout=60000)
         first = page.evaluate(TURNS)[0]

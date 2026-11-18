@@ -79,7 +79,7 @@
 .dash-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dash-why { margin: 0; color: var(--muted); font-size: 12px; } /* 꺼진 단추의 까닭(dashDetailEl — 「「모두 반영」 — 지금 진행 중인 작업이 끝나면 …」) */
 .dash-acts .btn, .dash-acts a.btn { max-width: 100%; }
-.dash-acts .dash-load-sel { flex: 1 1 180px; min-width: 0; max-width: 100%; height: 28px; font-size: 12px; } /* 양식 표준화 「구성 불러오기」 — 「작업 내용」 의 그 목록과 같은 항목(divSourceFill) */
+.dash-acts .dash-load-sel { flex: 1 1 180px; min-width: 0; max-width: 100%; height: 28px; font-size: 12px; } /* 양식 표준화 「구성 불러오기」 — 「작업 개요」 의 그 목록과 같은 항목(divSourceFill) */
 .dash-more > summary { color: var(--muted); font-size: 11.5px; cursor: pointer; }
 .dash-cond { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; }
 .dash-cond dt { color: var(--muted); }

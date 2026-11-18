@@ -22,7 +22,7 @@ const agwFit = (job) => job === "plan_fit" || job === "report_fit";
 const agwGuided = (job = agwJob()) => agwFit(job) || job === "plan_to_report" || job === "plan_merge";
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
-// ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 내용」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
+// ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 개요」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
 // 실행은 TASK 마다 제 상태에 있다(이관 taskRun · 취합 gatherRun · 간단 모드 gqRun · 양식 표준화 · 양식 맞추기 dv.auto · 서식 복사 STYLE.save.auto) — 여기서는 **읽기만** 한다(새 실행 길 · 새 상태를 만들지 않는다).
 // 간단 모드(gqRun)와 그 안에서 도는 묶음(gatherRun)은 같은 실행의 부모·자식이다 — 부모를 먼저 본다. 「멈춤」 은 어느 것이든 「지금 하는 일이 끝나면」 이다(바로 끊지 못한다).
 function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 = 모름), stopping, stop() | null} | null
@@ -75,8 +75,8 @@ function agwBegin() { // 시작 턴을 낼 때 — 방금 첫 화면의 간단 �
 }
 
 // ---------------------------------------------------------------- 상태 · 행동(TASK 마다) → {steps, actions, facts}
-function agwCommon(out) { // 어느 TASK 든 — 작업 내용 열기 · 편집 턴으로 넘기기
-  out.actions.push({ name: "open:div", label: "패널 「작업 내용」 열기", does: "이 TASK 의 단계 목록과 세부 단추를 직접 봅니다 — 단계마다 확인하며 하거나, 한 번에 진행이 남긴 것을 보정합니다", change: "none" });
+function agwCommon(out) { // 어느 TASK 든 — 작업 개요 열기 · 편집 턴으로 넘기기
+  out.actions.push({ name: "open:div", label: "패널 「작업 개요」 열기", does: "이 TASK 의 단계 목록과 세부 단추를 직접 봅니다 — 단계마다 확인하며 하거나, 한 번에 진행이 남긴 것을 보정합니다", change: "none" });
   if (AGENT.enabled && AGENT.policy.apply !== false) out.actions.push({ name: "edit", label: "편집 에이전트에 넘기기", does: "글·표를 쓰거나 고쳐 달라는 요청을 편집 에이전트가 받아 제안을 냅니다", change: "none" });
   out.facts.llm = !!AGENT.enabled;
   return out;
@@ -231,9 +231,9 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
   try { await taskFlowLoad(); } catch { /* 못 읽은 것은 단계 글에 */ }
   const out = { steps: [], actions: [], facts: {} }, slots = taskSlots(), docs = (slots || []).map((k) => taskSlotDoc(k));
   if (!slots || docs.some((d) => !d)) {
-    out.steps.push({ stage: `${TASK_STAGES[0].no} ${TASK_STAGES[0].name}`, key: "files", name: "준비 — 사업계획서 · 연차보고서 고르기", state: "now", text: "두 칸(사업계획서 · 연차보고서)에 문서를 골라야 합니다 — 패널 「작업 내용」 의 첨부 파일 칸" });
+    out.steps.push({ stage: `${TASK_STAGES[0].no} ${TASK_STAGES[0].name}`, key: "files", name: "준비 — 사업계획서 · 연차보고서 고르기", state: "now", text: "두 칸(사업계획서 · 연차보고서)에 문서를 골라야 합니다 — 패널 「작업 개요」 의 첨부 파일 칸" });
     out.facts.why = "사업계획서와 연차보고서가 둘 다 있어야 합니다";
-    out.actions.push({ name: "open:div", label: "패널 「작업 내용」 열기", does: "첨부 파일 칸에서 사업계획서와 연차보고서를 고르거나 올립니다", change: "none", primary: true });
+    out.actions.push({ name: "open:div", label: "패널 「작업 개요」 열기", does: "첨부 파일 칸에서 사업계획서와 연차보고서를 고르거나 올립니다", change: "none", primary: true });
     out.facts.llm = !!AGENT.enabled;
     return out;
   }
@@ -257,8 +257,8 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
   try { await gatherLoad(); } catch { /* 못 읽은 것은 단계 글에 */ }
   const out = { steps: [], actions: [], facts: {} }, plan = gatherPlan();
   if (!plan) {
-    out.steps.push({ stage: `${GT_STAGES[0].no} ${GT_STAGES[0].name}`, key: "files", name: "준비 — 취합본 고르기", state: "now", text: "사업계획서(취합본)를 골라야 합니다 — 패널 「작업 내용」" });
-    out.actions.push({ name: "open:div", label: "패널 「작업 내용」 열기", does: "취합본을 고르거나 올립니다", change: "none", primary: true });
+    out.steps.push({ stage: `${GT_STAGES[0].no} ${GT_STAGES[0].name}`, key: "files", name: "준비 — 취합본 고르기", state: "now", text: "사업계획서(취합본)를 골라야 합니다 — 패널 「작업 개요」" });
+    out.actions.push({ name: "open:div", label: "패널 「작업 개요」 열기", does: "취합본을 고르거나 올립니다", change: "none", primary: true });
     out.facts.llm = !!AGENT.enabled;
     return out;
   }
@@ -322,7 +322,7 @@ function agwConfigApply(x) { // 질문 카드(config)의 값 → 입력 값(dv.v
 }
 
 async function agwExec(name, args) {
-  if (name === "open:div") { showTab("Div"); return { ok: true, text: "패널 「작업 내용」 을 열었습니다", silent: true }; }
+  if (name === "open:div") { showTab("Div"); return { ok: true, text: "패널 「작업 개요」 를 열었습니다", silent: true }; }
   if (name === "open:plan") { divList(); return { ok: true, text: "문서 옆 열에 변경 계획 목록을 열었습니다", silent: true }; }
   if (name.startsWith("list:")) { await gatherListOpen(name.slice(5)); return { ok: true, text: "문서 옆 열에 그 기관 문서의 목록을 열었습니다", silent: true }; }
   if (name === "open:target") { // 원본 문서에서 — 목적 문서를 열고 그 문서의 에이전트로 넘긴다(이 대화는 그 문서로 넘어가지 않는다)
@@ -439,7 +439,7 @@ async function agentWorkRun(tid, args, fresh = false) { // 턴의 행동을 실�
   if (!t || !t.act || t.state !== "open" || W.running || A.busy) return;
   const name = t.act.name;
   if (name === "edit") { await agwClose(t, "done", "편집 에이전트에 넘김"); A.draft = t.text || A.draft; agwDrawAll(); agentSend(true); return; }
-  if (agwRunning()) { toast("지금 진행 중인 작업이 끝난 뒤에 누르세요", true); return; } // 같은 문서에 두 실행을 겹치지 않는다(「작업 내용」 의 한 번에 진행 · 간단 모드)
+  if (agwRunning()) { toast("지금 진행 중인 작업이 끝난 뒤에 누르세요", true); return; } // 같은 문서에 두 실행을 겹치지 않는다(「작업 개요」 의 한 번에 진행 · 간단 모드)
   if (fresh && !args) { // 사람이 누른 카드 — 카드를 낸 뒤 상태(계획)가 바뀌었으면 실행하지 않는다: 확인은 그 카드가 보인 계획에 대한 것이다(astra 11-16 P1 — 계획 A 의 카드로 계획 B 를 반영하지 않게)
     if (W.checking) return;
     W.checking = true;
@@ -529,7 +529,7 @@ async function agentWorkEnter(job, entry) { // TASK 를 시작했다(app.js task
   if (!agwGuided(job) || !toolShown("Agent")) { agwCarry = null; return; }
   const id = state.id, epoch = state.epoch;
   let lead = !!(agwCarry && agwCarry.job === job);
-  if (!lead) { try { lead = !!(await api("/api/headings/llm")).available; } catch { lead = false; } } // LLM 이 꺼져 있으면 전처럼 그 TASK 의 보기(작업 내용)로 — 에이전트 보기의 「작업 설명」 으로 스크립트 설명을 볼 수 있다
+  if (!lead) { try { lead = !!(await api("/api/headings/llm")).available; } catch { lead = false; } } // LLM 이 꺼져 있으면 전처럼 그 TASK 의 보기(작업 개요)로 — 에이전트 보기의 「작업 설명」 으로 스크립트 설명을 볼 수 있다
   if (!lead || state.id !== id || state.epoch !== epoch || $("panel").dataset.tool !== entry) return;
   showTab("Agent");
   for (let i = 0; i < 100 && state.epoch === epoch && !(AGENT.loaded && !AGENT.loading); i++) await new Promise((r) => setTimeout(r, 100)); // 에이전트 상태(대화)를 읽을 때까지
@@ -672,7 +672,7 @@ function agwActEl(t) {
 }
 
 // ---------------------------------------------------------------- 진행 카드 — 지금 도는 실행을 에이전트 보기에 보인다(대화의 맨 아래 한 곳 · 저장하지 않는다 — 도는 것의 상태는 화면의 실행 객체가 원본: spec ② §7)
-// 에이전트 카드가 시작한 실행은 그 실행 카드가 보인다 — 여기는 그 밖의 실행(첫 화면의 간단 모드 · 「작업 내용」 의 한 번에 진행 · 서식 복사)과, 첫 화면의 문서 목록이 문서를 준비하는 동안. doc_agent.js agentDrawTalk 이 부른다
+// 에이전트 카드가 시작한 실행은 그 실행 카드가 보인다 — 여기는 그 밖의 실행(첫 화면의 간단 모드 · 「작업 개요」 의 한 번에 진행 · 서식 복사)과, 첫 화면의 문서 목록이 문서를 준비하는 동안. doc_agent.js agentDrawTalk 이 부른다
 function agwLiveEl() {
   const R = agwRunning(), wait = !!agwHold && !!agwWait && agwWait.id === state.id;
   if ((AGENT.work && AGENT.work.running) || (!R && !wait)) return null;
@@ -687,7 +687,7 @@ function agwLiveEl() {
   if (R) {
     const acts = el("div", "ag-acts");
     if (R.stop) { const stop = hBtn(R.stopping ? "멈추는 중…" : "멈춤", () => { R.stop(); agentDrawTalk(); }, { disabled: R.stopping, title: "지금 하는 일이 끝나면 멈춥니다(바로 끊지 않습니다) — 끝난 것은 그대로 남습니다" }); stop.dataset.agw = "stop"; acts.append(stop); }
-    if (R.kind !== "style" && toolShown("Div")) { const div = hBtn("작업 내용에서 보기", () => showTab("Div"), { title: "패널 「작업 내용」 의 단계 목록과 묶음 상태 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); div.dataset.agw = "detail"; acts.append(div); }
+    if (R.kind !== "style" && toolShown("Div")) { const div = hBtn("작업 개요에서 보기", () => showTab("Div"), { title: "패널 「작업 개요」 의 단계 목록과 묶음 상태 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); div.dataset.agw = "detail"; acts.append(div); }
     if (acts.childNodes.length) card.append(acts);
     if (R.kind === "quick" && !(gqRun && gqRun.uploadOnly)) card.append(el("p", "ag-state", "끝나면 무엇을 넣었고 무엇을 남겼는지 여기서 보고합니다."));
   }

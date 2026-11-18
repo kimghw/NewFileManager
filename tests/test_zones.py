@@ -448,6 +448,93 @@ def test_org_columns_known_by_their_values_name_the_org_of_their_rows():
     assert read([["개발 내용", "비고"], [f"설계\n({LEAD})", ""], [f"제작\n({LEAD})", ""]]) == (None, {})
 
 
+def _st3(block, heads):
+    """손으로 만든 3단계 표 구조(heading_tables.build 의 표 꼴 — 편집 구역이 쓰는 키만): heads = {칸 id: (역할, basisKind | None, [basis])} — 나머지 칸은 필드.
+    필드의 rowPath = 같은 행 왼쪽의 행헤더 · colPath = 같은 열 위의 열헤더."""
+    hs = [c for c in block["cells"] if c["id"] in heads]
+    cells = []
+    for c in block["cells"]:
+        x = {"id": c["id"], "row": c["row"], "col": c["col"], "text": c["text"][:80]}
+        if c["id"] in heads:
+            role, kind, basis = heads[c["id"]]
+            x.update(role=role, **({"basisKind": kind} if kind else {}), **({"basis": list(basis)} if basis else {}))
+        else:
+            x.update(role="field", rowPath=[h["id"] for h in hs if heads[h["id"]][0] == "rowhead" and h["row"] == c["row"] and h["col"] < c["col"]],
+                     colPath=[h["id"] for h in hs if heads[h["id"]][0] == "colhead" and h["col"] == c["col"] and h["row"] < c["row"]])
+        cells.append(x)
+    return {"id": block["id"], "depth": 1, "cells": cells}
+
+
+def test_struct_read_fills_what_the_word_list_cannot_read():
+    """표 구조 근거(spec_구역 ② §2 「표 구조」 — 2026-11-18 사용자 「그게 있어야. 구분이 더 잘될거 아냐?」 · 「써줘. 진행해줘」): 3단계 표 구조의 머리 칸이
+    ① 차년도 값 머리(「1차년도」 열) → 그 열의 필드 ② 낱말 목록 밖의 기관 이름 머리(「개발기관」) → 그 아래 열의 행 ③ 기관 이름 그대로인 머리(기관마다 열) → 그 열의 필드.
+    지난 소속 · 한 기관뿐 · 몇 칸만 맞는 열 · 낡은 구조(칸이 바뀜 · 머리 글이 바뀜) · 엔진 묶음이 있는 기준은 읽지 않는다."""
+    sr = lambda b, heads, skip=(), stages=(4,): Z.struct_read(b, _st3(b, heads), KEYS, list(stages), skip)  # noqa: E731
+    C, R, F_ = ("colhead", None, None), ("rowhead", None, None), None
+    yr = lambda: ("colhead", "value", ["year"])  # noqa: E731
+    # ① 차년도 열 — 낱말 이름표가 없는 와이드 표(값마다 열)는 스크립트가 못 읽는다
+    b = _tbl([["비목", "1차년도", "2차년도"], ["인건비", "1", "2"], ["재료비", "3", "4"]])
+    heads = {"t0_0": ("corner", None, None), "t0_1": yr(), "t0_2": yr(), "t1_0": R, "t2_0": R}
+    assert Z._table_read(b, KEYS, [4]) == (None, {})
+    whole, per = sr(b, heads)
+    assert whole is None and {i: e for i, e in per.items()} == {"t0_1": {"year": 1}, "t1_1": {"year": 1}, "t2_1": {"year": 1}, "t0_2": {"year": 2}, "t1_2": {"year": 2}, "t2_2": {"year": 2}}
+    assert sr(b, heads, skip=("year",)) == (None, {})                                                          # 엔진이 그 표의 차년도를 묶음으로 읽었다
+    assert sr(b, heads, stages=(2, 2)) == (None, {})                                                          # 단계가 둘이면 「1차년도」 만으로는 어느 단계인지 모른다
+    gone = {**b, "cells": [c for c in b["cells"] if c["id"] != "t2_2"]}
+    assert Z.struct_read(gone, _st3(b, heads), KEYS, [4]) == (None, {})                                        # 칸이 바뀐 표 — 낡은 구조는 안 쓴다
+    moved = copy.deepcopy(b)
+    next(c for c in moved["cells"] if c["id"] == "t0_2")["text"] = "합계"
+    assert set(Z.struct_read(moved, _st3(b, heads), KEYS, [4])[1]) == {"t0_1", "t1_1", "t2_1"}                  # 머리 글이 바뀐 열 — 옛 판정을 믿지 않는다
+    # ② 낱말 목록 밖의 기관 이름 머리 — 첫 열이 아니어도 그 아래 열의 행
+    org = ("colhead", "name", ["org"])
+    rows = lambda head, a, b_, c: [["번호", head, "역할"], ["1", a, "설계"], ["2", b_, "제작"], ["3", c, "검증"]]  # noqa: E731
+    hh = {"t0_0": C, "t0_1": org, "t0_2": C}
+    b = _tbl(rows("개발기관", J1, J2, LEAD))
+    assert Z._table_read(b, KEYS, [4]) == (None, {})
+    whole, per = sr(b, hh)
+    assert whole is None and {i: e["org"][1] for i, e in per.items()} == {f"t{r}_{c}": k for r, k in ((1, J1), (2, J2), (3, LEAD)) for c in range(3)}
+    for bad in (rows("당시 소속기관", J1, J2, LEAD), rows("발행기관", J1, J2, LEAD), rows("주관기관", J1, J2, LEAD),   # 지난 소속 · 상대 기관 · 역할
+                rows("개발기관", J1, J1, J1), rows("개발기관", J1, "다른회사", "외부기관")):                      # 한 기관뿐 · 열의 절반 미만
+        assert sr(_tbl(bad), hh) == (None, {}), bad[0][1]
+    # ③ 기관마다 열 — 머리 글이 통째로 과제 기관 이름(둘 이상)
+    b = _tbl([["구분", J1, J2], ["인력", "3", "4"], ["장비", "1", "2"]])
+    whole, per = sr(b, {"t0_0": ("corner", None, None), "t0_1": C, "t0_2": C, "t1_0": R, "t2_0": R})
+    assert {i: e["org"][1] for i, e in per.items()} == {"t0_1": J1, "t1_1": J1, "t2_1": J1, "t0_2": J2, "t1_2": J2, "t2_2": J2}
+    assert sr(_tbl([["구분", J1, "합계"], ["인력", "3", "4"]]), {"t0_0": C, "t0_1": C, "t0_2": C, "t1_0": R}) == (None, {})   # 한 기관뿐
+    # 스크립트가 읽은 기준이 먼저 — 없는 기준만 채운다(차년도는 year · yearClash 를 한 기준으로)
+    e = {"org": ("org", J1, None)}
+    assert Z._fill(e, {"org": ("org", J2, None), "year": 2}) == 1 and e == {"org": ("org", J1, None), "year": 2}
+    e = {"yearClash": [1, 2]}
+    assert Z._fill(e, {"year": 3}) == 0 and e == {"yearClash": [1, 2]}
+
+
+def test_read_uses_the_table_structure_only_for_what_the_script_left_empty():
+    """`read` 에 3단계 표 구조를 주면 — 스크립트가 못 읽은 표의 칸만 라벨이 생기고(근거 cell), 표 구조가 없거나 꼴이 틀리면 전과 같다 · 구분 기준 판독의 근거(캐시)를 고치지 않는다."""
+    values = core.norm_values({"stages": [4], "orgs": {"lead": LEAD, "joint": [J1, J2]}})
+    blocks = _doc("1. 개요", [["번호", "개발기관", "역할"], ["1", J1, "설계"], ["2", J2, "제작"]], [["비목", "1차년도", "2차년도"], ["인건비", "1", "2"]])
+    t2, t3 = blocks[1], blocks[2]
+    tables = {"tables": [_st3(t2, {"c2_0_0": ("colhead", None, None), "c2_0_1": ("colhead", "name", ["org"]), "c2_0_2": ("colhead", None, None)}),
+                         _st3(t3, {"c3_0_0": ("corner", None, None), "c3_0_1": ("colhead", "value", ["year"]), "c3_0_2": ("colhead", "value", ["year"]), "c3_1_0": ("rowhead", None, None)})]}
+    was = Z.read(_snap(blocks, values))
+    assert not [i for i in was["auto"] if i.startswith("c2_")] and not was["_struct"]
+    assert {i: (a["year"], a["ev"]) for i, a in was["auto"].items() if i.startswith("c3_")} == {    # 차년도마다 열인 표는 엔진이 이미 묶음으로 읽는다(값 머리는 그 기준을 건너뜀 — skip)
+        "c3_0_1": (1, {"stage": "group", "year": "group"}), "c3_1_1": (1, {"stage": "group", "year": "group"}), "c3_0_2": (2, {"stage": "group", "year": "group"}), "c3_1_2": (2, {"stage": "group", "year": "group"})}
+    for odd in (None, {}, {"tables": "x"}, {"tables": [{"id": "t2"}]}, []):
+        assert Z.read(_snap(blocks, values, tables=odd))["auto"] == was["auto"]
+    info = Z.read(_snap(blocks, values, tables=tables))
+    auto = info["auto"]
+    assert {i: (a["org"], a["ev"]) for i, a in auto.items() if i.startswith("c2_")} == {f"c2_{r}_{c}": (k, {"org": "cell"}) for r, k in ((1, J1), (2, J2)) for c in range(3)}
+    assert {i: a for i, a in auto.items() if i.startswith("c3_")} == {i: a for i, a in was["auto"].items() if i.startswith("c3_")}
+    assert set(info["_struct"]) == {i for i in auto if i.startswith("c2_")}
+    assert Z.read(_snap(blocks, None, tables=tables))["auto"] == {}                                             # 프로젝트 구성 값이 없으면 찾을 이름이 없다
+    sc = Z.read(_snap(blocks, values))   # 구분 기준 판독이 넘기는 꼴(밑줄 키) — 같은 값으로 센 것이면 그 근거를 쓰고, 고치지 않는다
+    scan = {"_values": values, "_best": {}, "_inside": {}, "_cellEv": {"c2_1_2": {"org": ("org", J2, None)}}}
+    frozen = copy.deepcopy(scan["_cellEv"])
+    auto = Z.read(_snap(blocks, values, tables=tables, scan=scan))["auto"]
+    assert scan["_cellEv"] == frozen and auto["c2_1_2"]["org"] == J2 and auto["c2_1_0"]["org"] == J1           # 판독이 읽은 칸은 그대로(스크립트가 먼저) · 나머지는 표 구조로
+    assert sc["auto"] == was["auto"]
+
+
 def test_join_of_group_and_cell_evidence():
     stages = [2, 2]
     lab = lambda m=None, org=None, ev="group", cell=None: Z._auto_label(m, org, ev, cell, stages)[0]  # noqa: E731

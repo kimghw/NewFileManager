@@ -2,8 +2,8 @@
 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 화면에는 `GET /api/headings/llm` 의 `available` 만 true 로 바꿔 돌려준다 —
 「LLM 을 쓸 수 있다」 고 보아 에이전트 보기가 TASK 를 이끌게 한다(서버는 LLM 끔이라 에이전트의 답은 스크립트 답 · 끝점·문서 편집은 모두 진짜).
 
-1. 취합 간단 모드(첫 화면 「자동 진행」) + 에이전트: 패널이 「에이전트」 로 넘어간 뒤 「작업 내용」 으로 되돌아가지 않는다 · 도는 동안 진행 카드(지금 하는 일 · 「멈춤」) · 도는 동안 진행 턴이 따로 돌지 않는다(중복 시작 없음) ·
-   끝나면 결과 턴 하나(「간단 모드 … 끝남」 + 기관 문서마다 한 줄) · 취합 카드의 간단 모드 줄은 그대로(「작업 내용」).
+1. 취합 간단 모드(첫 화면 「자동 진행」) + 에이전트: 패널이 「에이전트」 로 넘어간 뒤 「작업 개요」 로 되돌아가지 않는다 · 도는 동안 진행 카드(지금 하는 일 · 「멈춤」) · 도는 동안 진행 턴이 따로 돌지 않는다(중복 시작 없음) ·
+   끝나면 결과 턴 하나(「간단 모드 … 끝남」 + 기관 문서마다 한 줄) · 취합 카드의 간단 모드 줄은 그대로(「작업 개요」).
 2. 실행 카드는 그 카드가 보인 계획에 묶인다: 양식 표준화에서 「문서에 반영」 카드를 낸 뒤 세부 화면에서 계획을 다시 세우면, 앞 카드의 「진행」 은 반영하지 않고(문서 그대로) 「실행하지 않음」 으로 닫히며 새 계획의 카드가 나온다 → 그 카드의 「진행」 은 반영.
 3. 첫 화면 대화창은 왼쪽 문서 목록 하나를 본다: 대화창의 「파일」 로 고른 파일이 왼쪽 목록에 들고 · 둘 이상이면 목적 문서를 고르라고 말하며(짐작하지 않음) 시작하지 않는다.
 4. 문서 목록의 「자동 진행」 · 「LLM 검토」 는 「사업계획서 취합」 묶음 안에 있다(다른 TASK 의 옵션처럼 보이지 않는다).
@@ -154,7 +154,7 @@ def main():
         (OUT / "quick_trace.json").write_text(json.dumps(seen, ensure_ascii=False, indent=1), encoding="utf-8")
         tools = [s["tool"] for s in seen]
         first_agent = tools.index("Agent") if "Agent" in tools else -1
-        check("패널이 「에이전트」 로 넘어간 뒤 「작업 내용」 으로 되돌아가지 않는다(실행 몸통이 패널을 바꾸지 않음)", first_agent >= 0 and all(t == "Agent" for t in tools[first_agent:]), tools)
+        check("패널이 「에이전트」 로 넘어간 뒤 「작업 개요」 로 되돌아가지 않는다(실행 몸통이 패널을 바꾸지 않음)", first_agent >= 0 and all(t == "Agent" for t in tools[first_agent:]), tools)
         running = [s for s in seen if s["quick"] == "run" and s["tool"] == "Agent"]
         check("도는 동안 에이전트 보기에 진행 카드 — 「간단 모드 — 끝까지 한 번에 진행」 · 지금 하는 일 · 「멈춤」",
               any(s["live"] and s["live"]["kind"] == "quick" and "간단 모드" in s["live"]["head"] and s["live"]["text"] and s["live"]["stop"] for s in running), running[:3])
@@ -169,7 +169,7 @@ def main():
         page.evaluate("() => showTab('Div')")
         page.wait_for_timeout(300)
         q = page.evaluate("() => { const q = document.querySelector('#gatherFlow .gt-quick'); return q && !q.hidden ? { kind: q.dataset.kind, rows: q.querySelectorAll('.gt-quick-row').length } : null; }")
-        check("패널 「작업 내용」 의 간단 모드 줄은 그대로(기관 문서마다 결과 — 세부 작업으로 이어 간다)", q is not None and q["kind"] == "done" and q["rows"] == 2, q)
+        check("패널 「작업 개요」 의 간단 모드 줄은 그대로(기관 문서마다 결과 — 세부 작업으로 이어 간다)", q is not None and q["kind"] == "done" and q["rows"] == 2, q)
 
         # ---- 2. 실행 카드는 그 카드가 보인 계획에 묶인다(양식 표준화 1단계)
         page.goto(base)

@@ -510,7 +510,7 @@ async function gatherToPlan() { // 취합본을 고치는 문서로(두 문서�
     await openWork(plan.id);
     if (state.id !== plan.id) return false; // 바꾸지 않음(저장 안 한 글을 두고 그만둠) · 못 엶
   }
-  taskPaneShow(); // 보통 패널 「작업 내용」 — 에이전트 보기가 이 TASK 를 이끌고 있으면 그대로(app.js — 진행 카드가 거기 있다)
+  taskPaneShow(); // 보통 패널 「작업 개요」 — 에이전트 보기가 이 TASK 를 이끌고 있으면 그대로(app.js — 진행 카드가 거기 있다)
   await divShow();
   if (state.id !== plan.id || !dv.view) return false;
   await gatherLoad();

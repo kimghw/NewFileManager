@@ -158,7 +158,7 @@ function projectListEnsure() {
   create.append(el("summary", null, "+ 새 TASK 시작"));
   const form = el("form", "project-start-form");
   const project = el("input"); project.id = "projectStartName"; project.maxLength = 60; project.placeholder = "프로젝트 이름(비우면 임시 이름)"; // 비우면 서버가 임시 이름(② §17 「임시 프로젝트」)
-  projectComboAttach(project, { list: "projectStartList" }); // 고르기 목록 — 작업 내용의 프로젝트 칸과 같은 도우미(② §19: 지금 프로젝트가 미리 적혀 있어 datalist 로는 다른 프로젝트가 안 보였다)
+  projectComboAttach(project, { list: "projectStartList" }); // 고르기 목록 — 작업 개요의 프로젝트 칸과 같은 도우미(② §19: 지금 프로젝트가 미리 적혀 있어 datalist 로는 다른 프로젝트가 안 보였다)
   const job = el("select"); job.id = "projectStartTask";
   for (const [key, cat] of Object.entries(TASK_CATALOG)) if (!cat.soon) job.append(new Option(cat.name, key));
   for (const [text, input] of [["프로젝트", project], ["TASK", job]]) { const label = el("label", null, text); label.append(input); form.append(label); }
@@ -452,7 +452,7 @@ async function projectUpload(project, job, file) {
     await load(result.docId); await loadWorks(); taskEnter(job);
     firstRun();
     const named = (started.task || {}).project || project;
-    toast(`${named} · ${cat.name} · Round ${started.round} 시작${started.temp ? " — 임시 이름입니다: 「작업 내용」 의 프로젝트 칸이나 이 목록의 「이름 정하기」 로 이름을 정하세요" : ""}`);
+    toast(`${named} · ${cat.name} · Round ${started.round} 시작${started.temp ? " — 임시 이름입니다: 「작업 개요」 의 프로젝트 칸이나 이 목록의 「이름 정하기」 로 이름을 정하세요" : ""}`);
   } catch (e) { toast(`TASK를 시작하지 못했습니다: ${e.message}`, true); }
   finally { projectStarting = false; $("projectStartUpload").disabled = false; projectControlsSync(); }
 }
@@ -500,7 +500,7 @@ function projectEditOpen(name, mode, focus = "") {
 
 function projectTempTag() { // 머리 줄 표지 「임시 이름」(색만으로 가르지 않게 글로 — 「문서 없음」 과 같은 꼴)
   const tag = el("span", "project-temp-tag", "임시 이름");
-  tag.title = "이름 없이 시작해 붙은 임시 이름입니다 — 「이름 정하기」 나 작업 내용의 프로젝트 칸에 이름을 적으면 바뀝니다(문서 모두 함께)";
+  tag.title = "이름 없이 시작해 붙은 임시 이름입니다 — 「이름 정하기」 나 작업 개요의 프로젝트 칸에 이름을 적으면 바뀝니다(문서 모두 함께)";
   return tag;
 }
 
@@ -578,7 +578,7 @@ function projectEditEl(name, all, empty) { // empty = 문서 없는 프로젝트
   return box;
 }
 
-async function projectChange(request, failText, e = projectEdit) { // 진행 중 저장을 마치고 요청 하나를 보낸다. 실패하면 알리고 null — e = 바쁨 표시를 둘 곳(작업 리스트의 펼친 줄 · 작업 내용의 프로젝트 칸은 제 것)
+async function projectChange(request, failText, e = projectEdit) { // 진행 중 저장을 마치고 요청 하나를 보낸다. 실패하면 알리고 null — e = 바쁨 표시를 둘 곳(작업 리스트의 펼친 줄 · 작업 개요의 프로젝트 칸은 제 것)
   if (!e || e.busy) return null;
   if (projectBusy(false)) { toast(PROJECT_WAIT); return null; }
   e.busy = true;
@@ -631,7 +631,7 @@ async function projectRenamed(old, result) { // 이름 변경 · 임시 프로�
   projectInfoLoad(true);
 }
 
-// 작업 내용의 프로젝트 칸(app.js taskRow)에서 임시 프로젝트에 이름을 적음 — 이 문서만 옮기지 않고 임시 프로젝트를 통째로(② §17 「임시 프로젝트」). → 했나
+// 작업 개요의 프로젝트 칸(app.js taskRow)에서 임시 프로젝트에 이름을 적음 — 이 문서만 옮기지 않고 임시 프로젝트를 통째로(② §17 「임시 프로젝트」). → 했나
 async function projectTempName(old, raw) {
   const next = projectNameOf(raw);
   if (!next || next === old || !projectIsTemp(old)) return false;
@@ -686,7 +686,7 @@ async function projectDelete(docs) {
 // ---- 프로젝트 고르기 목록(spec_작업 ② §19, 2026-11-13 사용자 "프로젝트에서트 작업리스트 중 에 있는 프로젝트가 리스트에 있어야 하는데 없어") — 브라우저 datalist 대신 쓰는 자체 목록.
 // 칸(input[role=combobox])을 누르거나 ↓(Alt+↓) · 글자를 치면(포커스만으로는 열지 않는다) → 작업 리스트의 모든 프로젝트(작업 목록의 이름 ∪ GET /api/projects)를 보인다 — 지금 적힌 값으로 거르지 않고, 글자를 고치기 시작하면 그 글자가 든 이름만.
 // 줄 = 이름 + 구분 기준 표지(확정 · 있음 · 없음) + 「버전 N」 + 「지금」 · 어느 이름과도 같지 않은 글이면 끝 줄 「「글」 새 프로젝트로」. ↓↑ 이동 · Enter 고름 · Esc 닫고 값 되돌림 · 바깥 누름·포커스 나감 = 닫음.
-// 목록(div[role=listbox])은 body 에 고정 위치로 띄운다(패널의 overflow 에 안 잘리게) — 한 번에 하나. 쓰는 곳: 작업 내용의 프로젝트 칸(app.js taskRow — #taskProjectList) · 작업 리스트 「새 TASK 시작」(#projectStartList)
+// 목록(div[role=listbox])은 body 에 고정 위치로 띄운다(패널의 overflow 에 안 잘리게) — 한 번에 하나. 쓰는 곳: 작업 개요의 프로젝트 칸(app.js taskRow — #taskProjectList) · 작업 리스트 「새 TASK 시작」(#projectStartList)
 const projectInfo = { map: null, at: 0, busy: false }; // GET /api/projects — 이름 → {settings, confirmed, versions …}(구분 기준 표지 · 들어가기 전 알림)
 const projectComboState = new WeakMap(); // 칸 → {opts, origin 포커스 때의 값(Esc 가 되돌림), sent 정한 뒤(고름·Enter) 아직 글을 안 고침}
 let projectCombo = null; // 열린 목록 {inp, opts, list, rows [{key, name, fresh}], active 고른 줄(-1 = 없음), typed 글자를 고치기 시작함}

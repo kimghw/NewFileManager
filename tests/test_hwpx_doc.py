@@ -496,6 +496,37 @@ def test_inline_objects_in_one_paragraph_share_a_row():
     assert all("inlineRow" not in b for b in images())
 
 
+def test_floating_pictures_side_by_side_share_a_row_at_their_offsets():
+    # 한 문단에 매달린 떠 있는 그림 둘이 같은 높이에 가로로 나란히(연구개발계획서 「실험실 점검표」 BEFORE·AFTER — XML 은 오른쪽 그림이 먼저):
+    # 같은 inlineRow + 단 왼끝에서의 가로 자리 rowAtMm. 블록 차례는 XML 그대로. 세로로 비켜 놓였거나 가로로 겹치면 묶지 않는다(2026-11-18)
+    import copy
+    d = HwpxDoc(_bytes(SMALL))
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 60), "red").save(buf, "PNG")
+    iid = d.insert_image(d.blocks()[1]["id"], buf.getvalue(), "png")
+    pic = d._ids[iid]
+    twin = copy.deepcopy(pic)
+    pic.addnext(twin)
+    def place(o, x, y=1172, w=11338, h=17007):
+        o.set("textWrap", "TOP_AND_BOTTOM")
+        o.find(f"{{{HP}}}pos").attrib.update({"treatAsChar": "0", "vertRelTo": "PARA", "horzRelTo": "COLUMN", "horzAlign": "LEFT",
+                                              "horzOffset": str(x), "vertOffset": str(y)})
+        o.find(f"{{{HP}}}sz").attrib.update({"width": str(w), "height": str(h)})
+    def images():
+        d._blocks_cache = None
+        return [b for b in _walk(d.blocks()) if b.get("type") == "image"]
+    place(pic, 28214)
+    place(twin, 15771)
+    got = images()
+    assert [b.get("inlineRow") for b in got] == [iid, iid] and [b.get("rowAtMm") for b in got] == [99.5, 55.6]
+    place(twin, 15771, y=1172 + 17007 + 100)                # 세로로 비켜 놓임 — 위아래
+    assert all("inlineRow" not in b for b in images())
+    place(twin, 28214 - 5000)                               # 가로로 겹침
+    assert all("inlineRow" not in b for b in images())
+    place(twin, 4294967296 - 1429 - 11338)                  # 음수 자리(부호 없는 32비트) — 단 왼쪽 바깥으로 비어져 나와도 나란히
+    assert [b.get("rowAtMm") for b in images()] == [99.5, -45.0]
+
+
 def test_inline_picture_in_a_text_paragraph_rides_in_the_text():
     # 글이 있는 문단에 글자처럼 취급으로 놓인 그림(글머리 아이콘 「▶ 제목」 — <run><pic/><t> 제목</t></run>): 한글은 글과 같은 줄의 그 자리에 놓는다.
     # 문단 블록에 pics [{id, at(그 그림 앞까지의 글자 수), …}] · 그 그림 블록에 inlineOf(문단 id) — 블록 목록·차례는 그대로이고 그 그림은 inlineRow 를 안 받는다

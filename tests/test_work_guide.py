@@ -152,7 +152,7 @@ def test_fallback_explains_and_proposes_the_primary_action():
     # 도는 실행이 있으면 행동을 권하지 않는다 · 한 번에 진행이 남긴 것은 보정할 곳을 고르게 한다(spec ② §7)
     run = G.fallback({**base, "event": "say" if False else "start", "actions": G.actions_in(PLAN), "facts": {"running": "간단 모드 — 끝까지 한 번에 진행 — 3단계 내용 매핑"}})
     assert run["act"] == "" and run["ask"] is None and "도는 중" in run["reply"]
-    lists = [{"name": "list:aaaaaaaaaaaa", "label": "「가나대_작성본.hwpx」 남긴 것 보기", "does": "겹침 2", "change": "none"}, {"name": "open:div", "label": "패널 「작업 내용」 열기", "does": "", "change": "none"}]
+    lists = [{"name": "list:aaaaaaaaaaaa", "label": "「가나대_작성본.hwpx」 남긴 것 보기", "does": "겹침 2", "change": "none"}, {"name": "open:div", "label": "패널 「작업 개요」 열기", "does": "", "change": "none"}]
     left = G.fallback({"event": "result", "text": "간단 모드(끝까지 한 번에 진행) 끝남 — 기관 문서 2개 반영", "ok": True, "act": "quick", "task": base["task"], "steps": [{**s, "state": "done"} for s in G.steps_in(STEPS)],
                        "actions": G.actions_in(lists), "facts": {"left": "넣지 않고 남긴 것 2곳(겹침 · 확인 필요 · 표 구조 다름) — 기관 문서마다 목록에서 보정합니다"}})
     assert left["reply"].startswith("간단 모드(끝까지 한 번에 진행) 끝남") and "남긴 것 2곳" in left["reply"] and left["ask"]["kind"] == "choice" and [o["value"] for o in left["ask"]["options"]] == ["list:aaaaaaaaaaaa", "open:div"]

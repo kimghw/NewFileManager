@@ -3,7 +3,7 @@
    어디까지 작업이 되었는지 표시하는거지. 기본적으로 헤딩,표 분석은 해야하고 … 헤딩, 표 분석도 스크립트기반, 그리고 LLM 분리, 그리고 구분 기준은 옵션").
    어느 TASK · 어느 패널 탭에서나 같은 자리에 같은 꼴: 「헤딩 ✓ · 표 ✓ · LLM 안 함 · 구분 기준 안 함」 — 기본 분석(헤딩 · 표 — 스크립트, 올리면 저절로) · LLM 판정(사람이 단추로) ·
    구분 기준 LLM 검토(옵션 — 연구개발 문서만). 값은 서버가 센다(GET /api/docs/{id}/analysis — app/analysis.py) — 여기는 그리기와 다시 읽기뿐이다.
-   - 항목은 누르는 표시다 — 그 도구로 간다(헤딩 · LLM → 「헤딩 추출」 · 표 → 「표」 · 구분 기준 → 「작업 내용」 + 2열 검토 결과). 여기서 바로 도는 것은 「분석」 단추 하나(기본 분석이 없을 때 —
+   - 항목은 누르는 표시다 — 그 도구로 간다(헤딩 · LLM → 「헤딩 추출」 · 표 → 「표」 · 구분 기준 → 「작업 개요」 + 2열 검토 결과). 여기서 바로 도는 것은 「분석」 단추 하나(기본 분석이 없을 때 —
      첫 분석과 같은 끝점 · 스크립트만). 유료 LLM 은 그 도구의 단추로만 돈다.
    - 다시 읽는 때: docStatusLoad(app.js taskDraw — 문서를 열 때 · 닫을 때 · TASK 를 고친 뒤) · docStatusPing(headsRender · 구분 기준 검토의 시작과 끝) · docStatusPeer(peerSync — 둘째 면의 문서가 바뀔 때),
      그리고 도는 것이 있는 동안 2초마다. 같은 내용이면 다시 그리지 않는다(포커스 유지 — 지난 시간 글만 1초마다).
@@ -71,7 +71,7 @@ const DS_STEP = { heads: "헤딩", tables: "표", formats: "서식" };
 const DS_ORDER = "헤딩 · 템플릿과 표 판정을 같이, 그 뒤 서식(계획만 — 템플릿끼리 같이)"; // 차례(app/analysis_llm.py — 표 판정 호출은 1단계에만 기대어 헤딩 판정과 같이 돌고, 서식 계획은 헤딩 그래프가 끝난 뒤: 2026-11-17)
 
 function dsDivision(d, main) { // 구분 기준 LLM 검토(옵션)
-  const base = { go: "DivReview" }, how = "저절로 돌지 않습니다 — 「작업 내용」 의 검토 결과 열에서 「LLM 검토 실행」 으로 돌립니다(유료)";
+  const base = { go: "DivReview" }, how = "저절로 돌지 않습니다 — 「작업 개요」 의 검토 결과 열에서 「LLM 검토 실행」 으로 돌립니다(유료)";
   if (d.state === "running" || (main && dsReviewing())) return { ...base, text: "구분 기준 검토 중", spin: true, cls: "run", title: "구분 기준 LLM 검토 중 — 수십 초 걸립니다" };
   if (d.state === "done") return d.found ? { ...base, text: "구분 기준", mark: `후보 ${d.found}`, cls: "found", title: `${d.text}\n후보는 사람이 「자리로 추가」 해야 자리가 됩니다` }
     : d.partial ? { ...base, text: "구분 기준", mark: "일부만", cls: "warn", title: `${d.text}\n두 검토 가운데 답을 못 받은 것이 있습니다 — 다 본 것이 아닙니다(검토 결과 열에서 「다시 검토」)` } // 한쪽만 답함 — 「✓」 로 보이지 않게
@@ -116,7 +116,7 @@ function dsChipEl(c, main) {
   b.append(el("span", "ds-text", c.text));
   if (c.mark) b.append(el("span", "ds-mark", c.mark));
   if (c.since) { const s = el("span", "ds-secs", dsSecs(c.since)); s.dataset.since = c.since; b.append(s); }
-  b.title = c.title + (b.tagName !== "BUTTON" ? "" : c.go === "DivReview" ? "\n누르면 「작업 내용」 과 구분 기준 검토 결과 열이 열립니다" : "\n누르면 분석 진행표(헤딩 · 템플릿 · 서식 · 표 × 스크립트 · LLM 검증·보완 · 문서 반영)가 펼쳐집니다");
+  b.title = c.title + (b.tagName !== "BUTTON" ? "" : c.go === "DivReview" ? "\n누르면 「작업 개요」 와 구분 기준 검토 결과 열이 열립니다" : "\n누르면 분석 진행표(헤딩 · 템플릿 · 서식 · 표 × 스크립트 · LLM 검증·보완 · 문서 반영)가 펼쳐집니다");
   return b;
 }
 

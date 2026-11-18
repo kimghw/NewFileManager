@@ -83,7 +83,7 @@
 .project-name-set { flex: none; }
 .project-name-set.on { background: #edf3ff; }
 .project-edit-note.is-info { color: #475569; }
-#divBox .dv-task-field > .dv-tag.is-temp { width: auto; flex: none; padding: 1px 6px; font-size: 11px; white-space: nowrap; } /* 작업 내용의 프로젝트 칸 뒤 「임시 이름」 — 칸 이름(span)의 폭 규칙을 받지 않게 */
+#divBox .dv-task-field > .dv-tag.is-temp { width: auto; flex: none; padding: 1px 6px; font-size: 11px; white-space: nowrap; } /* 작업 개요의 프로젝트 칸 뒤 「임시 이름」 — 칸 이름(span)의 폭 규칙을 받지 않게 */
 .project-combo-tag.is-now { color: #285fac; background: #edf3ff; }
 .project-combo-empty { padding: 6px 8px; color: #64748b; }
 .tool-tabs { min-width: 0; }

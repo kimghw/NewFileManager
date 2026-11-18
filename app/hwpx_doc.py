@@ -265,7 +265,8 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         out = [self._para_dict(p, text, caption_of)] if text.strip() or not objs else []
         held = self._text_pics(p) if out and objs else {}  # 글 속 그림 — 글이 있는 문단의 줄 안에 놓인 그림(spec_hwpx_웹편집 ② §3-6)
         inline = [o for o in objs if o not in held and (pos := o.find(_p("pos"))) is not None and pos.get("treatAsChar") == "1"]
-        row = None
+        side = self._side_pics(objs)
+        row = srow = None
         for o in objs:
             oid = self._id(o)
             caps = [b for c in o.iterchildren(CAPTION) for s in c.iterchildren(SUBLIST)
@@ -276,9 +277,35 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
                 out[0].setdefault("pics", []).append({"id": oid, "at": held[o], **{k: blk[k] for k in ("media", "widthMm", "heightMm")}})
             elif len(inline) > 1 and o in inline:  # 글자처럼 취급한 개체가 한 문단에 둘 이상 — 한글은 한 줄에 나란히 놓는다
                 blk["inlineRow"] = row = row or oid
+            elif o in side:  # 한 문단에 매달려 같은 높이에 나란히 뜬 그림 — 한글의 가로 자리(rowAtMm)대로 한 줄에(블록 차례는 XML 그대로)
+                blk["inlineRow"] = srow = srow or oid
+                blk["rowAtMm"] = side[o]
             out.append(blk)
             out += caps
         return out
+
+    @staticmethod
+    def _side_pics(objs):
+        """{hp:pic: 단 왼끝에서 그 그림 왼끝까지 mm} — 한 문단에 매달린 떠 있는 그림(글자처럼 취급 아님 · 위아래 배치 · 문단 기준 세로 ·
+        단/문단 기준 왼쪽 가로) 둘 이상이 같은 높이(세로 띠가 겹침)에 서로 안 겹치게 가로로 놓였을 때만. 한글은 그 자리 그대로 나란히 그리는데
+        웹은 블록마다 한 줄씩 쌓아 둘째가 다음 쪽으로 밀렸다(연구개발계획서 「실험실 점검표」 BEFORE·AFTER 40×60mm 둘, 2026-11-18). 아니면 {}."""
+        def num(v):  # 한글은 음수 자리를 부호 없는 32비트로 적는다(4294965867 = -1429)
+            v = int(v or 0)
+            return v - (1 << 32) if v >= 1 << 31 else v
+        got = []
+        for o in objs:
+            pos, sz = o.find(_p("pos")), o.find(_p("sz"))
+            if (o.tag != PIC or pos is None or sz is None or pos.get("treatAsChar") != "0" or o.get("textWrap") != "TOP_AND_BOTTOM"
+                    or pos.get("vertRelTo") != "PARA" or pos.get("horzRelTo") not in ("COLUMN", "PARA") or pos.get("horzAlign") != "LEFT"):
+                continue
+            x, y = num(pos.get("horzOffset")), num(pos.get("vertOffset"))
+            got.append((x, x + num(sz.get("width")), y, y + num(sz.get("height")), o))
+        if len(got) < 2 or max(g[2] for g in got) >= min(g[3] for g in got):  # 세로 띠가 모두 겹치는 데가 없으면 위아래로 놓인 것
+            return {}
+        got.sort(key=lambda g: g[0])
+        if any(b[0] < a[1] - 100 for a, b in zip(got, got[1:])):  # 가로로 겹침(0.35mm 넘게) — 겹쳐 놓은 그림은 나란히가 아니다
+            return {}
+        return {g[4]: round(g[0] * 25.4 / 7200, 1) for g in got}
 
     def _text_pics(self, p):
         """글 속 그림 {hp:pic: 그 그림 앞까지의 글자 수(_text 단위)} — 글자처럼 취급(treatAsChar)하고 캡션이 없는 그림만. 한글은 그런 그림을 글과 같은 줄의

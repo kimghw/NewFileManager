@@ -152,7 +152,7 @@ try:
         page.locator("#toolTabTask").click()
         wait_work(page, report)
         fields = page.locator("#divBox .dv-task > .dv-task-field > span").all_text_contents()
-        check("작업 내용 — 프로젝트가 먼저, TASK가 다음", fields[:2] == ["프로젝트", "TASK"], fields)
+        check("작업 개요 — 프로젝트가 먼저, TASK가 다음", fields[:2] == ["프로젝트", "TASK"], fields)
         check("현재 TASK와 Round 1 표시", page.locator('#divBox select[data-task="job"]').input_value() == "plan_to_report"
               and page.locator('.project-round-label select').input_value() == "1")
         check("구분 기준 프로젝트 공유 안내", "프로젝트 공유" in page.locator(".project-sharing").inner_text())
@@ -223,7 +223,7 @@ try:
         check("삭제 — 버전만 없어지고 지금 구분 기준·확정은 그대로", applied["versions"] == [] and applied["confirmed"]["valid"] and applied["settings"]["values"]["stages"] == [2, 1], applied.get("versions"))
         shared = applied["settings"]  # 아래 「이전 라운드는 구분 기준 보관」 이 견줄 값 — 버전 적용을 거친 지금 설정
 
-        order = page.evaluate("() => [...document.querySelectorAll('#toolTabs [role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => b.id)")  # 보이는 탭 차례(2026-11-16 — 에이전트 · 작업 내용 · <도구> | 검증 · PDF · 기록: 이 검사는 묶음을 펴 둔다 · 작업 리스트는 상단 바 아이콘)
+        order = page.evaluate("() => [...document.querySelectorAll('#toolTabs [role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => b.id)")  # 보이는 탭 차례(2026-11-16 — 에이전트 · 작업 개요 · <도구> | 검증 · PDF · 기록: 이 검사는 묶음을 펴 둔다 · 작업 리스트는 상단 바 아이콘)
         after_task = order[order.index("toolTabTask") + 1] if "toolTabTask" in order[:-1] else ""
         for key, expected in [("ArrowRight", after_task), ("End", order[-1]), ("Home", order[0]), ("ArrowLeft", order[-1])]:
             if key == "ArrowRight":
@@ -514,7 +514,7 @@ try:
         check("삭제 뒤 — 프로젝트 목록(API)과 작업 리스트에서 사라짐", all(p["name"] != "프로젝트 빈" for p in api("GET", "/api/projects").json()["projects"])
               and page.locator('[data-project-menu="프로젝트 빈"]').count() == 0)
         # 새 프로젝트 · 임시 프로젝트(spec_작업 ② §17 「새 프로젝트」·「임시 프로젝트」, 2026-11-18) — 머리 「새 프로젝트」 → 인라인 이름 줄 → 문서 없는 프로젝트 줄 + 「파일 올려 시작」 ·
-        # 이름 없이 시작한 TASK 는 「임시 프로젝트 N」 → 머리 줄 「임시 이름」 + 「이름 정하기」(문서 모두 새 이름) · 작업 내용의 프로젝트 칸에 이미 있는 이름 → 그 프로젝트로 옮김
+        # 이름 없이 시작한 TASK 는 「임시 프로젝트 N」 → 머리 줄 「임시 이름」 + 「이름 정하기」(문서 모두 새 이름) · 작업 개요의 프로젝트 칸에 이미 있는 이름 → 그 프로젝트로 옮김
         made = "새 과제 시험"
         page.locator("#projectMakeBtn").click()
         page.wait_for_selector("#projectMakeName")
@@ -572,10 +572,10 @@ try:
         check("이름 정하기 → 문서 모두 새 이름 · 임시 표지 없음 · 알림", body["join"] is False and set(body["works"]) == {t1["docId"], t1_mate}
               and tasks_now[t1["docId"]]["project"] == tasks_now[t1_mate]["project"] == "정한 과제" and page.locator(f'[data-project-name-set="{n1}"]').count() == 0
               and "이름을 「정한 과제」 으로 정했습니다" in page.locator("#toast").text_content(), (body, page.locator("#toast").text_content()))
-        page.evaluate("id => projectOpen(id)", t2["docId"])  # 작업 내용의 프로젝트 칸 — 임시 이름이면 표지 · 이미 있는 이름(만든 프로젝트)을 적으면 그 프로젝트로 옮김
+        page.evaluate("id => projectOpen(id)", t2["docId"])  # 작업 개요의 프로젝트 칸 — 임시 이름이면 표지 · 이미 있는 이름(만든 프로젝트)을 적으면 그 프로젝트로 옮김
         wait_work(page, t2["docId"])
         field = '#divBox input[data-task="project"]'
-        check("작업 내용의 프로젝트 칸 — 임시 이름 · 칸 뒤 「임시 이름」 표지", page.locator(field).input_value() == n2
+        check("작업 개요의 프로젝트 칸 — 임시 이름 · 칸 뒤 「임시 이름」 표지", page.locator(field).input_value() == n2
               and page.locator("#divBox .dv-task-field .dv-tag.is-temp").inner_text() == "임시 이름")
         page.locator(field).fill(made)
         with page.expect_response(lambda r: "/api/projects/" in r.url and r.request.method == "PUT", timeout=30000) as joined:

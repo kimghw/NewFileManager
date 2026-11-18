@@ -155,7 +155,7 @@ async function openSample(name, fresh = false) {
 }
 
 // ---- 시작 화면의 TASK 카드(spec_작업 ② §15, 2026-11-12 사용자 "여기에 할 일 : TASK 라고 하자 TASK 를 카드로 줘라 그리고 각 task 아이콘/로고를 만들어줘")
-// TASK = 할 일(task.job — ② §10). 카드 한 장 = 그 TASK 로 문서를 올려 시작: 누르면 파일 고르기(카드에 파일을 놓아도 됨) → 올린 작업에 작업 종류 연구개발과제 + 그 할 일을 적고 작업 내용(#paneDiv)을 연다.
+// TASK = 할 일(task.job — ② §10). 카드 한 장 = 그 TASK 로 문서를 올려 시작: 누르면 파일 고르기(카드에 파일을 놓아도 됨) → 올린 작업에 작업 종류 연구개발과제 + 그 할 일을 적고 작업 개요(#paneDiv)을 연다.
 // 이름·차례·문서 조합의 원본은 task_catalog.js TASK_CATALOG — act 동작 낱말(이름의 끝 — 카드는 「문서 / 동작」 두 줄) · doc 로고 바탕색(landing.css .task-logo[data-doc]) ·
 // file 양식 판정이 종류를 못 정했을 때 그 문서의 첨부 파일 종류("" = 안 정함) · up 처음 올릴 문서 · soon 아직 없는 기능(카드는 보이되 시작하지 않는다). 로고 그림은 index.html <symbol id="taskIcon-<키>">
 const HOME_TASKS = TASK_CATALOG; // 카드와 문서 조합이 같은 정의를 읽는다.
@@ -209,7 +209,7 @@ function homeTaskFiles(job, files) { // 카드로 고르거나 놓은 파일들 
   else homeTaskStart(job, list[0]);
 }
 
-async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 「같은 파일 고르기」 로 묻는다 — same_file.js) → 그 TASK 로 적음 → 첫 분석 → 작업 내용
+async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일로 하던 작업이 있으면 「같은 파일 고르기」 로 묻는다 — same_file.js) → 그 TASK 로 적음 → 첫 분석 → 작업 개요
   const t = HOME_TASKS[job];
   if (!file || !t || t.soon || homeTaskBusy) return;
   const accept = taskAcceptOf(job), ext = ((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase(); // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx — hwp 는 서버가 한글로 hwpx 로 바꿔 받는다)
@@ -247,8 +247,8 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     } else kept = await homeTaskApply(job);
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
     if (!r.reused) firstRun(); // 새 작업 · 초기화한 작업 — 첫 분석(② §9)
-    taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
-    const temp = kept && homeTaskTemp ? `\n프로젝트 이름이 없어 임시 이름 「${homeTaskTemp}」 로 묶었습니다 — 「작업 내용」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : ""; // ② §17 「임시 프로젝트」
+    taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 개요 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
+    const temp = kept && homeTaskTemp ? `\n프로젝트 이름이 없어 임시 이름 「${homeTaskTemp}」 로 묶었습니다 — 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : ""; // ② §17 「임시 프로젝트」
     const named = taskProject();
     if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`); // 작업 목록이 낡아 TASK 를 미리 못 본 때만 남는 길
     else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — TASK 「${taskName("job", job)}」 를 올린 원본부터 다시 시작합니다${temp}`);
@@ -309,7 +309,7 @@ async function load(id) {
   $("fileMeta").textContent = fmtSize(d.size) + (state.stored && state.created ? ` · 작업 ${fmtWhen(state.created)}` : "");
   $("fileMeta").title = state.stored ? "편집·검증 기록이 이 작업에 저장됩니다 — 「기록」 탭" : "작업 저장이 꺼져 있어 서버를 끄면 사라집니다";
   $("docSwitch").hidden = true; $("fileName").hidden = false; // 문서 목록은 loadWorks 가 다시 채운다(spec_작업 ② §10) — 그때까지 이름만
-  taskDraw(); // 작업 종류 · 패널 머리 탭 「작업 내용」
+  taskDraw(); // 작업 종류 · 패널 머리 탭 「작업 개요」
   $("logOriginal").href = `/api/works/${id}/file/original`;
   $("tabLog").hidden = !state.stored;
   $("fileInfo").hidden = $("barCtl").hidden = false; // 상단 바 가운데 줄 접기·바꾸기 묶음도 문서가 있을 때만
@@ -655,14 +655,14 @@ async function deleteWork(w) {
 
 // ---- 작업 종류 · 첨부 파일 · 할 일 · 문서 목록(spec_작업 ② §10, 2026-11-11 사용자) — 고르면 작업(work.json task)에 저장. 값은 server.py TASK 와 같게.
 // 상단 바: 문서 목록(파일 이름 자리 — #docSwitch). 작업 종류는 패널 머리(#panelTask — 상단 바의 옛 #taskKind 는 같은 날 없앰: 사용자 "이건 이제 필요 없지 않냐?").
-// 「연구개발과제」 일 때만 그 내용(#paneDiv — 탭 띠에 탭은 없다: 2026-11-12 없앰, 패널 머리의 목록·탭 「작업 내용」 으로 연다)이 열리고 그 패널 첫 카드(taskRow)에 할 일 / 과제·첨부 파일, 아래에 구분 기준.
+// 「연구개발과제」 일 때만 그 내용(#paneDiv — 탭 띠에 탭은 없다: 2026-11-12 없앰, 패널 머리의 목록·탭 「작업 개요」 로 연다)이 열리고 그 패널 첫 카드(taskRow)에 할 일 / 과제·첨부 파일, 아래에 구분 기준.
 const WORK_TASK = {
   kind: [["", "작업 종류 선택"], ["rnd", "연구개발 프로젝트"], ["general", "일반 문서"]], // general = TASK 「문서 일반 편집」 의 작업 종류(spec_일반편집 ② §11)
   file: [["", "선택 안 함"], ["plan", "사업계획서"], ["report", "연차보고서"], ["part", "기관 문서"]], // part = 취합에 들어온 기관 문서(spec_취합 ② §2 — 취합본은 plan)
   job: [["", "선택 안 함"], ...Object.entries(TASK_CATALOG).map(([key, task]) => [key, task.name])],
 };
 const taskRnd = () => !state.task || state.task.kind === "rnd"; // task 가 없으면(시험용 화면 등) 전처럼 연구개발과제로 본다
-const taskGeneral = () => !!state.task && state.task.kind === "general"; // 「일반 문서」 — 처음 여는 보기가 「에이전트」 · 「작업 내용」(Div) 탭은 없다(spec_일반편집 ② §12)
+const taskGeneral = () => !!state.task && state.task.kind === "general"; // 「일반 문서」 — 처음 여는 보기가 「에이전트」 · 「작업 개요」(Div) 탭은 없다(spec_일반편집 ② §12)
 const taskName = (key, v) => (v && (WORK_TASK[key].find((o) => o[0] === v) || [])[1]) || "";
 
 function taskSelect(sel, key) { // select 하나를 선택지로 채우고 지금 값으로 — 바꾸면 저장
@@ -673,7 +673,7 @@ function taskSelect(sel, key) { // select 하나를 선택지로 채우고 지�
   return sel;
 }
 
-function taskDraw() { // 문서를 열 때 · 고른 뒤 — 패널 머리 「작업」(② §10 「패널 머리」) · 탭 「작업 내용」
+function taskDraw() { // 문서를 열 때 · 고른 뒤 — 패널 머리 「작업」(② §10 「패널 머리」) · 탭 「작업 개요」
   const sel = $("panelTask");
   if (sel.options.length) sel.value = (state.task && state.task.kind) || "";
   else { taskSelect(sel, "kind"); sel.onchange = () => panelTaskPick(sel.value); } // 여기서 고르면 그 내용까지 연다
@@ -696,17 +696,17 @@ function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프�
   b.textContent = d ? d[0] : "";
   b.title = d ? `${d[0]} — ${d[2]}\nTASK 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
 }
-// 패널 머리 둘째 줄의 탭 「작업 내용」 · 「<도구>」(#toolTabs — ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추 #taskHome 을 바꿈).
+// 패널 머리 둘째 줄의 탭 「작업 개요」 · 「<도구>」(#toolTabs — ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추 #taskHome 을 바꿈).
 // 2026-11-15 사용자 「검증, 기록, PDF 사이드 패널에 있으니깐 여기에 필요 없어 보이거든」: 검증 · PDF · 기록은 이 줄의 고정 탭(#tabVerify·#tabPdf·#tabLog — 문서 위 탭 띠에서 옮김) →
 // 2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나? 검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기 … 다른 task 랑 구조가 같아야 하는데 다름」 →
-// 줄 = 왼쪽 「대시보드」(#tabDash — 첫 탭: 2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」) · 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든 · 문서 위 탭 띠에서 옮김: 전에는 「일반 문서」 만 「작업 내용」 이 에이전트 보기였다) · 「작업 내용」(연구개발 TASK 의 Div 만) ·
+// 줄 = 왼쪽 「대시보드」(#tabDash — 첫 탭: 2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」) · 「에이전트」(#tabAgent — hwpx 면 어느 TASK 든 · 문서 위 탭 띠에서 옮김: 전에는 「일반 문서」 만 「작업 개요」 가 에이전트 보기였다) · 「작업 개요」(연구개발 TASK 의 Div 만) ·
 // 「<도구>」(탭 띠에서 마지막으로 고른 도구 — 고른 적이 없으면 감춤) / 오른쪽 접는 묶음 = 검증 · PDF · 기록 + 펼치기 단추(#toolMore). 접힌 동안은 그 묶음에서 고른 탭 하나만 보인다.
 // 같은 날 사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」: 「작업 리스트」 는 묶음의 넷째 탭(#toolTabList)에서 상단 바 아이콘 #taskListBtn 으로 — 아래 taskListBtnDraw · taskListToggle.
-// 같은 날 사용자 「기본적으로 헤딩추출이나 표 는 탭에 에이전트에 넣어줘야지」 → 답 「띠에서 뺌」: 「헤딩 추출」·「표」(#tabHeads·#tabTables)는 「작업 내용」 다음의 고정 탭(늘 보임 — 보임은 headsReset·tablesReset 이 정한다) ·
+// 같은 날 사용자 「기본적으로 헤딩추출이나 표 는 탭에 에이전트에 넣어줘야지」 → 답 「띠에서 뺌」: 「헤딩 추출」·「표」(#tabHeads·#tabTables)는 「작업 개요」 다음의 고정 탭(늘 보임 — 보임은 headsReset·tablesReset 이 정한다) ·
 // 「<도구>」 는 이제 탭 띠의 고친 문단 · 문서 비교만(spec_작업 ② §10 「둘째 줄」).
 // 부르는 곳: taskDraw · showTab · divReset · toolMoreSet
 const PANEL_TOOLS = ["Verify", "Pdf", "Log"]; // 패널 머리 오른쪽 접는 묶음의 고정 탭(id tab<이름> — showTab·toolShown 이 그대로 찾는다)
-const PANEL_MAIN = ["Heads", "Tables"]; // 패널 머리 왼쪽의 고정 탭(에이전트 · 작업 내용 다음 — 2026-11-16 탭 띠에서 옮김)
+const PANEL_MAIN = ["Heads", "Tables"]; // 패널 머리 왼쪽의 고정 탭(에이전트 · 작업 개요 다음 — 2026-11-16 탭 띠에서 옮김)
 let toolLast = null; // 탭 띠(고친 문단 · 문서 비교)에서 마지막으로 본 도구
 let toolMoreOpen = (() => { try { return localStorage.getItem("nfm.toolMore") === "1"; } catch { return false; } })(); // 오른쪽 묶음을 펼쳤나 — 처음엔 접힘 · 이 브라우저에 기억
 function toolMoreSet(open) {
@@ -900,7 +900,7 @@ async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선�
       if (!moved && epoch === state.epoch) state.task = r.task;
     }
   } catch (e) { toast(`첨부 파일을 바꾸지 못했습니다: ${e.message}`, true); }
-  if (moved) { // 새 문서가 열렸다 — 옛 문서가 빠진 목록으로 다시 그리고 작업 내용(칸·단계)을 연다
+  if (moved) { // 새 문서가 열렸다 — 옛 문서가 빠진 목록으로 다시 그리고 작업 개요(칸·단계)을 연다
     if (state.id !== wid) return;
     await loadWorks();
     if (state.id === wid) showTab("Div");
@@ -1969,7 +1969,7 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     await openWork(report.id);
     if (state.id !== report.id) taskHalt("연차보고서를 열지 못했습니다(고치던 글을 두고 그만뒀거나 열리지 않음)");
   }
-  taskPaneShow(); // 보통 패널 「작업 내용」 — 에이전트 보기가 이 TASK 를 이끌고 있으면 그대로(진행 카드가 거기 있다)
+  taskPaneShow(); // 보통 패널 「작업 개요」 — 에이전트 보기가 이 TASK 를 이끌고 있으면 그대로(진행 카드가 거기 있다)
   await divShow();
   if (state.id !== report.id || !dv.view) taskHalt("연차보고서의 프로젝트 구성을 읽지 못했습니다");
   await flowRead();
@@ -2699,7 +2699,9 @@ function buildFlow(tops) {
       }
       const g = state.sections[s] || DEFAULT_PAGE;
       const room = g.widthMm - g.marginsMm.l - g.marginsMm.r;
-      const total = tops.slice(i, j).reduce((a, [x]) => a + objWidth(x), 0);
+      const row = tops.slice(i, j).filter(([x]) => x.inlineRow === b.inlineRow).map(([x]) => x);
+      const total = row.every((x) => x.rowAtMm != null) ? Math.max(...row.map((x) => x.rowAtMm + objWidth(x))) // 나란히 뜬 그림 — 가장 오른쪽 그림의 오른끝 자리
+        : tops.slice(i, j).reduce((a, [x]) => a + objWidth(x), 0);
       if (total <= room + 1) { // 한글처럼 한 줄에 나란히 — 들어갈 때만. 넘치면 한글도 줄을 바꾸므로 따로따로(표는 쪽마다 나눌 수 있게)
         const holder = el("div");
         renderList(holder, tops.slice(i, j).map((x) => x[0]));
@@ -3239,7 +3241,7 @@ function renderList(box, blocks) {
     const b = blocks[i];
     let node;
     if (b.inlineRow) {
-      const rid = b.inlineRow, items = new Map();
+      const rid = b.inlineRow, items = new Map(), at = [];
       node = el("div", `inline-row ${b.align || ""}`);
       for (; i < blocks.length; i++) {
         const x = blocks[i];
@@ -3248,11 +3250,21 @@ function renderList(box, blocks) {
           it.append(renderBlock(x));
           items.set(x.id, it);
           node.append(it);
+          if (x.rowAtMm != null) at.push([x.rowAtMm, x.widthMm || 0, it]);
         } else if (x.captionOf && items.has(x.captionOf)) {
           items.get(x.captionOf).append(renderBlock(x));
         } else break;
       }
       i -= 1;
+      if (at.length && at.length === items.size) { // 나란히 뜬 그림(hwpx_doc._side_pics) — 한글의 가로 자리 차례·간격 그대로(단 왼끝에서 mm)
+        node.className = "inline-row at";
+        let end = 0;
+        for (const [x, w, it] of at.sort((p, q) => p[0] - q[0])) {
+          it.style.marginLeft = `${Math.max(0, x - end)}mm`;
+          node.append(it);
+          end = Math.max(end, x) + w;
+        }
+      }
     } else {
       node = renderBlock(b);
     }
@@ -5213,7 +5225,7 @@ const TOOL_INFO = {
   Tables: ["테이블", "표 관리", "문서의 표만 따로 — 소속 헤딩·계산식·엑셀식 보기·표 지침을 다룹니다."], // 탭 이름은 「테이블」(2026-11-16 사용자 「표 아니고 테이블로」 — 전의 「표」 · spec_작업 ② §10 「둘째 줄」)
   Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 관리자에서 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12 · 「서식 관리자」 = spec_서식복사 ② §2)
   Dash: ["대시보드", "TASK 단계 흐름", "이 TASK 의 단계를 워크플로우 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다 — 묶음의 「한 번에 진행」 도 여기서 누릅니다."], // dashboard.js(spec_작업에이전트 ② §9 — 2026-11-18 사용자)
-  Div: ["작업 내용", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
+  Div: ["작업 개요", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
   Tasks: ["작업 리스트", "프로젝트 · TASK · 라운드", "프로젝트별 TASK와 이전 라운드를 열고, 새 TASK나 라운드를 시작합니다."],
   Compare: ["문서 비교", "병합 전 확인", "문서별 라벨과 템플릿을 나란히 비교하고 확인한 문서를 표시합니다."]
 };
@@ -5273,7 +5285,7 @@ function showTab(name) {
     const pane = $(`pane${n}`);
     if (pane) pane.hidden = !on;
   }
-  toolTabsDraw(); // 패널 머리 둘째 줄 탭 — 에이전트 · 작업 내용 · <도구> | 접는 묶음 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘 — 아래 setPanel 이 그 눌림을 그린다)
+  toolTabsDraw(); // 패널 머리 둘째 줄 탭 — 에이전트 · 작업 개요 · <도구> | 접는 묶음 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘 — 아래 setPanel 이 그 눌림을 그린다)
   const strip = [...$("workspaceNav").querySelectorAll('[role="tab"]')].filter((b) => !b.hidden);
   if (strip[0] && !strip.some((b) => b.tabIndex === 0)) strip[0].tabIndex = 0; // 탭 띠에 활성 탭이 없으면 Tab 키는 보이는 첫 탭이 받는다
   const [title, tag, description] = TOOL_INFO[name];
@@ -5298,11 +5310,11 @@ function showTab(name) {
   if (name === "Tasks" && typeof projectListShow === "function") projectListShow();
 }
 
-// 그 TASK 로 들어가기(spec_서식복사 ② §1 — task_catalog.js entry): 보통은 그 패널 도구(작업 내용 Div · 에이전트 Agent). entry 가 "Style"(문서 서식 복사)이면 패널 = hwpx 면 에이전트 보기 · docx 면 검증,
+// 그 TASK 로 들어가기(spec_서식복사 ② §1 — task_catalog.js entry): 보통은 그 패널 도구(작업 개요 Div · 에이전트 Agent). entry 가 "Style"(문서 서식 복사)이면 패널 = hwpx 면 에이전트 보기 · docx 면 검증,
 // 그리고 2열에 서식 관리자의 「서식 복사」 보기(style_lib.js styleSaveOpen). 차례: 패널 도구가 먼저다 — showTab 은 Heads·Div·Tables·Agent 가 아닌 도구로 갈 때 2열을 닫는다.
 // 부르는 곳: TASK 카드(homeTaskStart) · 시작 화면 문서 목록(home_files.js) · 작업 리스트(project_workspace.js). 이 TASK 의 작업을 다시 열 때는 load 끝이 같은 열을 연다
-// 「한 번에 진행」 이 도는 자리(spec_작업에이전트 ② §7): 보통 패널 「작업 내용」(묶음 상태 줄). 에이전트 보기가 그 TASK 를 이끌고 있으면(패널이 「에이전트」 — 진행 카드가 거기 있다) 바꾸지 않는다 —
-// 전에는 실행 몸통(이관 taskRunSteps · 취합 gatherToPlan · 간단 모드 gqGo)이 늘 「작업 내용」 으로 바꿔 에이전트의 진행 표시가 가려졌다(astra 11-16).
+// 「한 번에 진행」 이 도는 자리(spec_작업에이전트 ② §7): 보통 패널 「작업 개요」(묶음 상태 줄). 에이전트 보기가 그 TASK 를 이끌고 있으면(패널이 「에이전트」 — 진행 카드가 거기 있다) 바꾸지 않는다 —
+// 전에는 실행 몸통(이관 taskRunSteps · 취합 gatherToPlan · 간단 모드 gqGo)이 늘 「작업 개요」 로 바꿔 에이전트의 진행 표시가 가려졌다(astra 11-16).
 function taskPaneShow() {
   const tool = $("panel").dataset.tool;
   if (tool === "Div" || tool === "Dash" || (tool === "Agent" && typeof agwGuided === "function" && agwGuided())) return; // 대시보드에서 누른 「한 번에 진행」 도 그 자리에서 본다(대시보드의 진행 줄)
@@ -6139,6 +6151,7 @@ function headsRender(r) {
     if (job && job.stage === k) box.append(headsJob(job, r));
   }
   headsStageSync(r); // 단계 탭 — 고른 단계 · 탭마다 도는 중/오래됨 표시
+  if (typeof zonesHeadsSeen === "function") zonesHeadsSeen([r.stage2, r.stage3].map((s) => (s && s.meta ? `${s.meta.run}|${s.meta.at}` : "")).join("#")); // 편집 구역(zones.js) — 헤딩 그래프(윗 제목)·표 구조(표의 머리)가 바뀌면 구역도 다시 읽는다
   headsMore1(r);
   headsMore2(r);
   headsMore3(r);
@@ -8445,9 +8458,9 @@ function bind() {
   $("nextEdit").onclick = () => stepEdit(1);
   $("showPages").onchange = (e) => { $("doc").classList.toggle("hide-pages", !e.target.checked); tplMarksDraw(); peerViewSync(); }; // 쪽 표시를 끄면 템플릿 표시·여백도 함께 · 둘째 면도 같이(spec_작업 ② §12)
   $("doc").addEventListener("click", (e) => { if (e.target.closest(".sheet-label")) e.stopPropagation(); });
-  const tabs = TOOL_TABS.filter((n) => $(`tab${n}`) && $(`tab${n}`).closest("#workspaceNav")); // 탭 띠에 단추가 있는 도구만 — 에이전트·작업 내용(Div)·검증·PDF·기록은 패널 머리에서 연다(spec_작업 ② §10)
+  const tabs = TOOL_TABS.filter((n) => $(`tab${n}`) && $(`tab${n}`).closest("#workspaceNav")); // 탭 띠에 단추가 있는 도구만 — 에이전트·작업 개요(Div)·검증·PDF·기록은 패널 머리에서 연다(spec_작업 ② §10)
   for (const n of [...PANEL_TOOLS, ...PANEL_MAIN, "Agent", "Dash"]) $(`tab${n}`).onclick = () => showTab(n); // 패널 머리 탭 — 화살표 키는 아래 #toolTabs 의 키 처리가 맡는다
-  $("toolTabTask").onclick = () => showTab("Div"); // 패널 머리 탭(toolTabsDraw) — 연구개발 TASK 의 작업 내용
+  $("toolTabTask").onclick = () => showTab("Div"); // 패널 머리 탭(toolTabsDraw) — 연구개발 TASK 의 작업 개요
   $("toolTabTool").onclick = () => showTab(toolShown(toolLast) ? toolLast : "Verify");
   $("taskListBtn").onclick = taskListToggle; // 상단 바 「작업 리스트」 아이콘(2026-11-16 — 패널 머리 탭에서 옮김)
   $("toolMore").onclick = () => toolMoreSet(!toolMoreOpen); // 오른쪽 묶음(검증 · PDF · 기록) 펼치기·접기
@@ -8567,7 +8580,7 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
   dv = divFresh();
   taskFlow = taskFlowFresh(); // 이관 단계에 읽어 둔 다른 문서 자료(spec_작업 ② §11)
   clearTimeout(divSaveTimer); divSaveTimer = null; divSavePending = null; // 옛 문서의 설정 저장은 끊는다(② §8 자동 저장 — 도는 것은 epoch 로 버려짐)
-  toolTabsDraw(); // 패널 머리 탭 「작업 내용」 · 「<도구>」 — 작업 종류가 연구개발과제일 때만(spec_작업 ② §10)
+  toolTabsDraw(); // 패널 머리 탭 「작업 개요」 · 「<도구>」 — 작업 종류가 연구개발과제일 때만(spec_작업 ② §10)
   if (typeof projectComboClose === "function") projectComboClose(); // 프로젝트 고르기 목록(② §19)은 body 에 떠 있다 — 칸이 사라지면 함께 닫는다
   $("divBox").textContent = "";
   taskFrameForm = null; taskFrameApply = null; // 1·2단계 묶음 안의 입력 칸도 함께 사라졌다
@@ -9815,7 +9828,7 @@ function divKeyPress() { // 이름 줄 칩의 눌림(「그 구분만 또렷이�
   }
 }
 
-// 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 내용」 의 카드에만 있었다 →
+// 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 개요」 의 카드에만 있었다 →
 // 색이 입혀져 있는 동안 문서 이름 줄(#fileInfo, 「편집 중」 앞 #divKey)에 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트 + 「감추기」. 색칠할 자리가 없으면 설명도 없다.
 function divKeyDraw(on) {
   const box = $("divKey"), row = $("fileInfo");
@@ -9843,7 +9856,7 @@ function divKeyDraw(on) {
   }
   divKeyPress();
   box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(이름 줄을 더 쓰지 않는다 — design.md §1)
-  const again = "다시 보려면 「작업 내용」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
+  const again = "다시 보려면 「작업 개요」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
   box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n이 줄의 칩(단계·차년도·기관 …)을 누르면 그 구분의 자리만 또렷이 — 나머지 문단은 흐리게(다시 누르면 풀림).\n" + again + ".", { note: true }));
   box.append(hBtn("감추기", () => { divMarksSet(false); divMarksDraw(); divMarksBarRefresh(); }, { cls: "btn sm dv-key-off", title: "구분 기준 자리 색 감추기 — " + again }));
 }

@@ -270,8 +270,33 @@ def _num_info(doc, ps, block):
     return out
 
 
+INLINE_TITLE_MAX = 40  # 줄 안 레터 앞 괄호 제목의 글자 수(괄호 안) — spec_헤딩_추출 ② §2 「줄 안 레터」
+_INLINE_CLOSE = {"(": ")", "[": "]"}
+
+
+def _inline_letter(head, rest_at, rules, run):
+    """헤딩 꼴 「레터 (제목) 둘째 레터 …」(spec ② §2 「줄 안 레터」 — 2026-11-18 사용자 "O ( 제목) 둥근1... 이게 패턴이라고 헤딩패턴 단순히 레터만 있는게 아니라")
+    → 둘째 레터 구간 {start, kind, rule, family, letter} | None. 첫머리가 기호·번호 레터이고, 그 뒤 첫 줄이 닫힌 괄호 제목(40자까지)으로 시작하고, 빈칸 뒤에
+    다른 계열의 기호·번호 레터 + 글이 올 때만. 둘째 레터 하나만 — 한 문단 안에 늘어놓은 「②」「③」 은 구간이 아니다."""
+    rest = head["rest"].split(R.BR, 1)[0]
+    close = _INLINE_CLOSE.get(rest[:1])
+    if not close:
+        return None
+    j = rest.find(close, 1)
+    if j < 2 or j - 1 > INLINE_TITLE_MAX or not rest[1:j].strip():
+        return None
+    after = rest[j + 1:]
+    if not after[:1].isspace():
+        return None
+    c = R.classify(after, rules, run)
+    if c["kind"] != "marker" or not c["letter"] or c["blank"] or c["family"] == head["family"]:
+        return None
+    return {"start": rest_at + j + 1 + len(c["lead"]), "kind": "marker", "rule": c["rule"], "family": c["family"], "letter": c["letter"]}
+
+
 def _spans(text, head, rules, run):
-    """문단 안 구간: 0 = 첫머리 판정, 그 뒤 「※」 안내가 이어지면 안내 구간, 강제 줄 바꿈(U+2028) 뒤 줄마다 그 줄의 첫머리 판정(글 있는 줄만)."""
+    """문단 안 구간: 0 = 첫머리 판정, 그 뒤 「※」 안내가 이어지면 안내 구간 · 괄호 제목 뒤 둘째 레터면 줄 안 레터 구간(`inline` — _inline_letter),
+    강제 줄 바꿈(U+2028) 뒤 줄마다 그 줄의 첫머리 판정(글 있는 줄만)."""
     spans = [{"i": 0, "start": 0, "kind": head["kind"], "rule": head["rule"], "family": head["family"], "letter": head["letter"],
               "line": 0}]
     if head["kind"] in ("marker", "label") and head["rest"]:
@@ -281,6 +306,10 @@ def _spans(text, head, rules, run):
         if inner["kind"] in ("note", "footnote"):
             spans.append({"i": len(spans), "start": rest_at, "kind": inner["kind"], "rule": inner["rule"], "family": inner["family"],
                           "letter": inner["letter"], "line": 0})
+        elif head["kind"] == "marker":
+            inl = _inline_letter(head, rest_at, rules, run)
+            if inl:
+                spans.append({"i": len(spans), **inl, "line": 0, "inline": True})
     if R.BR in text:
         pos = 0
         for li, line in enumerate(text.split(R.BR)):

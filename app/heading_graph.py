@@ -126,7 +126,12 @@ def candidates(stage1, skip=()):
                         "blank": rec["blank"], "text": (rec["rest"] if kind in ("marker", "label") else rec["text"]).strip().split(R.BR, 1)[0][:80],
                         "outline": rec.get("outlineLevel")})
         for sp in rec["spans"][1:]:
-            if sp["line"] and sp["kind"] in ("marker", "label"):
+            if sp.get("inline") and kind == "marker" and sp["kind"] == "marker":  # 줄 안 레터(spec ② §2 — 「o (제목) ① …」 의 「①」): 그 줄 노드 아래 노드 · 글 = 둘째 레터 뒤
+                after = rec["text"][sp["start"] + len(sp["letter"]):].split(R.BR, 1)[0]
+                out.append({**base, "id": f"{rec['id']}#{sp['i']}", "span": sp["i"], "kind": "marker", "family": sp["family"],
+                            "shape": R.shape_of(sp["family"], sp["letter"]), "letter": sp["letter"], "blank": False, "text": after.strip()[:80],
+                            "outline": None, "inline": True})
+            elif sp["line"] and sp["kind"] in ("marker", "label"):
                 line = rec["text"].split(R.BR)[sp["line"]]
                 out.append({**base, "id": f"{rec['id']}#{sp['i']}", "span": sp["i"], "kind": sp["kind"], "family": sp["family"],
                             "shape": R.shape_of(sp["family"], sp["letter"]), "letter": sp["letter"], "blank": False, "text": line.strip()[:80],
@@ -535,14 +540,26 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
                 dv.append({"id": nd["id"], "cls": cls, "anchor": parent, "type": nd["type"], "label": role == "label", "lead": nd["lead"]})
                 graph[nd["id"]] = g
                 continue
+            if nd.get("inline") and st and st[-1]["id"] == nd["para"] and not st[-1]["label"]:
+                # 줄 안 레터(spec ② §2 「줄 안 레터」 — 「o (제목) ① …」 의 「①」): 한 줄에 적은 것이 곧 부모·자식 — 그 줄의 첫 레터 아래(서열 · A 의 parents 와 상관없이:
+                # 「①」 은 서열로는 「o」 보다 얕다). 뒤에 따로 선 「②」 는 같은 키라 이 노드의 형제(부모 = 그 줄)가 된다.
+                # 스택의 서열은 그 줄보다 한 칸 깊게(sub) — 형제(「②」「③」)도 물려받아, 다음 「o」 줄이 서열로 「③」 아래에 들지 않고 「o」 의 형제가 된다
+                hr = st[-1]["rank"]
+                st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": (hr + 0.5) if hr is not None else _rank(nd), "label": False, "parent": nd["para"],
+                           "anchorRank": None, "band": False, "sub": hr is not None})
+                g.update(parent=nd["para"], division=div(dv), depth=float(len(st)), heuristic=False)
+                graph[nd["id"]] = g
+                continue
             parents = set((roles.get(nd["type"]) or {}).get("parents") or [])
             rk = _rank(nd)
-            parent, heuristic = None, False
+            parent, heuristic, sub = None, False, False
             band = nd["kind"] == HB.KIND  # 띠 표 줄 — 늘 문서 맨 위(열린 줄을 모두 닫는다)
             for i in (() if band else range(len(st) - 1, -1, -1)):
                 e = st[i]
                 if not e["label"] and e["key"] == k:  # 같은 레터 = 형제
                     parent = e["parent"]
+                    if e.get("sub"):  # 줄 안 레터의 형제 — 그 서열(그 줄보다 한 칸 깊게)을 물려받는다
+                        rk, sub = e["rank"], True
                     del st[i:]
                     break
                 if e.get("band"):  # 열린 띠 표 줄 — 다음 띠 표·주 사슬 첫 레터(장)가 올 때까지 그 아래 줄은 모두 그 줄의 것(spec ② §6 「띠 표 줄」)
@@ -567,7 +584,8 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             ids = {e["id"] for e in st}
             while dv and dv[-1]["id"] not in ids:  # 스택에서 빠진 라벨 = 범위 끝
                 dv.pop()
-            st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None, "band": band})
+            st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None, "band": band,
+                       **({"sub": True} if sub else {})})
             g.update(parent=parent, division=div(dv), depth=float(len(st)), heuristic=heuristic)
             graph[nd["id"]] = g
     for g in graph.values():
@@ -913,6 +931,9 @@ def apply_changes(changes, sec, anc, graph, anchors, by_id=None, hints=None):
         if ch.get("role") in ROLES and ch["role"] != g["role"]:
             role, key = _b_role(g, nd, ch["role"], str(ch.get("basis") or "")[:20], hints)
         parent = ch.get("parent") or g["parent"]
+        if nd.get("inline") and g["parent"] == nd.get("para") and parent != g["parent"]:  # 줄 안 레터의 부모는 그 줄(spec ② §2 — draft_parents)
+            rejected.append({"id": nid, "why": "줄 안 레터 — 부모는 그 줄의 첫 레터(스크립트가 정한다)"})
+            continue
         if parent not in allowed:
             rejected.append({"id": nid, "why": f"부모 {parent} 가 구간·조상 밖"})
             continue
@@ -1281,7 +1302,8 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
                           "sourceOutlineLevel": nd.get("outline"), "changed": g.get("changed", False), "undecided": g.get("undecided", False),
                           "heuristic": g.get("heuristic", False), "reason": g.get("reason", ""),
                           **({"basis": g["key"][1:-1]} if g.get("role") == "label" and is_label_key(g.get("key")) else {}),  # 구분 라벨의 구분 기준 이름(3단계 표 소속이 그대로 씀)
-                          **({"band": nd["band"]} if nd.get("band") else {})})  # 띠 표 줄 — {table, title(제목 문단), host}(오버레이가 표 줄로 둔다)
+                          **({"band": nd["band"]} if nd.get("band") else {}),  # 띠 표 줄 — {table, title(제목 문단), host}(오버레이가 표 줄로 둔다)
+                          **({"inline": True} if nd.get("inline") else {})})  # 줄 안 레터(spec ② §2) — 오버레이는 줄로 두지 않고 그 문단 줄에 잇는다
     edges += [{"t": "instance", "from": ins["root"], "to": f"tpl:{ins['template']}"} for ins in fin["instances"]]
     cost = sum((c.get("costUsd") or 0) for c in calls)
     return {"version": 2, "nodes": out_nodes, "containers": list(containers.values()), "edges": edges,

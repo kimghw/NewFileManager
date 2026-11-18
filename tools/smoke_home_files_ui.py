@@ -167,7 +167,7 @@ try:
         check("시작 화면에 돌아오면 남은 목록 그대로(둘 · 목적 문서 풀림)", [r["name"] for r in L["rows"]] == [SMALL, PLAN] and not any(r["on"] for r in L["rows"]), L)
         page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
         check("다른 파일을 열고 돌아와도 남은 문서의 약칭 유지", [r["alias"] for r in L["rows"]] == ["보고", "계획"], L)
-        # 2026-11-18(spec_작업 ② §17 「임시 프로젝트」): 이름을 비워도 막지 않는다 — 임시 이름으로 묶는다(아래 끝에서 본다). 칸은 고르기 목록(작업 내용의 칸과 같은 도우미)
+        # 2026-11-18(spec_작업 ② §17 「임시 프로젝트」): 이름을 비워도 막지 않는다 — 임시 이름으로 묶는다(아래 끝에서 본다). 칸은 고르기 목록(작업 개요의 칸과 같은 도우미)
         pin = page.locator("#homeFiles [data-hf-focus=project]")
         check("프로젝트 칸 — 「비우면 임시 이름」 · 고르기 목록(role=combobox · datalist 없음)", pin.get_attribute("placeholder") == "비우면 임시 이름"
               and pin.get_attribute("role") == "combobox" and pin.get_attribute("list") is None)

@@ -11,7 +11,7 @@
 - 반영: 보낸 몸 = {turn, proposal, expectedRev, requestId}(+ 표 채우기는 picks.fills) → 「반영됨 — 자리로」 · 「엑셀식 보기」 · 「이 표를 서식으로 저장」 / 409 → 「문서가 바뀌었습니다 — 다시 요청하세요」 / 403 → 「원본 문서 — 제안은 보기만」.
 - 자료 붙여넣기 → 칩 · 다음 요청의 materials 에 그 id · 칩을 끄면 빠짐 · × 로 지움. 요청 실패(502) → 그 까닭 + 요청 글이 글상자에 남음. 「비우기」 는 두 번.
 - 폭: 패널 320 · 480px 에서 가로 넘침 없음. 끝점이 없을 때(404) 한 줄 까닭 · 입력 꺼짐.
-- 「일반 문서」 작업(TASK 문서 일반 편집): 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 내용」 탭은 없음) · 오른쪽 묶음(검증 · PDF · 기록 — 작업 리스트는 상단 바 아이콘) 펼치기·접기 · 시작 화면 카드로 시작.
+- 「일반 문서」 작업(TASK 문서 일반 편집): 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 개요」 탭은 없음) · 오른쪽 묶음(검증 · PDF · 기록 — 작업 리스트는 상단 바 아이콘) 펼치기·접기 · 시작 화면 카드로 시작.
 """
 import argparse
 import json
@@ -189,7 +189,7 @@ def styles(route):  # 보관함 목록(「서식 보관함」 단추 — 2열을
 VIS = "(id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; }"
 TOOL = "() => document.getElementById('panel').dataset.tool"
 DT = [["대시보드", "false"]]  # 대시보드(2026-11-18 — 문서가 열려 있으면 늘 보이는 첫 탭 · 「에이전트」 앞: spec_작업에이전트 ② §9)
-HT = [["헤딩 추출", "false"], ["테이블", "false"]]  # 탭 이름 「테이블」(2026-11-16 — 전의 「표」) · 2026-11-16 — 헤딩 추출 · 표는 패널 머리의 고정 탭(에이전트 · 작업 내용 다음 — spec_작업 ② §10 「둘째 줄」)
+HT = [["헤딩 추출", "false"], ["테이블", "false"]]  # 탭 이름 「테이블」(2026-11-16 — 전의 「표」) · 2026-11-16 — 헤딩 추출 · 표는 패널 머리의 고정 탭(에이전트 · 작업 개요 다음 — spec_작업 ② §10 「둘째 줄」)
 TABS = """() => { const t = document.getElementById('toolTabs'); return [...t.querySelectorAll('[role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => [b.textContent, b.getAttribute('aria-selected')]); }"""
 CARDS = """() => [...document.querySelectorAll('#paneAgent .ag-card')].map((c) => { const a = c.querySelector('[data-ag-act=apply]'), q = (s) => [...c.querySelectorAll(s)].map((e) => e.textContent);
   return { prop: c.dataset.prop, type: c.dataset.type, state: c.dataset.state, group: c.dataset.group || '', tag: (c.querySelector('.ag-tag') || {}).textContent, title: (c.querySelector('.ag-title') || {}).textContent,
@@ -544,12 +544,12 @@ try:
               and page.is_enabled("#paneAgent [data-ag-act=paste]") and page.is_enabled("#paneAgent [data-ag-act=library]"))
         S["enabled"] = True
 
-        # ---- 10. 「일반 문서」 작업 — 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 내용」 없음) · 오른쪽 묶음 펼치기·접기 · 원본 문서 정책
+        # ---- 10. 「일반 문서」 작업 — 열면 에이전트 보기부터 · 다른 TASK 와 같은 「에이전트」 탭(「작업 개요」 없음) · 오른쪽 묶음 펼치기·접기 · 원본 문서 정책
         S["turns"] = [turn_body("t1", "앞서 한 요청")]
         S["policy"] = {"apply": False, "why": "원본 문서는 바꾸지 않습니다"}
         open_work(page, g)
         page.wait_for_function("() => AGENT.loaded && document.querySelectorAll('#paneAgent .ag-card').length === 5")
-        check("일반 문서 작업 — 열면 에이전트 보기 · 「에이전트」 탭(고름) · 「작업 내용」 탭 없음 · 묶음은 접힘", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.evaluate(VIS, "tabAgent")
+        check("일반 문서 작업 — 열면 에이전트 보기 · 「에이전트」 탭(고름) · 「작업 개요」 탭 없음 · 묶음은 접힘", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.evaluate(VIS, "tabAgent")
               and not page.evaluate(VIS, "toolTabTask") and page.evaluate(TABS) == [*DT, ["에이전트", "true"], *HT] and page.input_value("#panelTask") == "general"
               and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
         cs = page.evaluate(CARDS)
@@ -564,7 +564,7 @@ try:
         check("접기 — 묶음에서 고른 「검증」 하나만 남음", page.evaluate(TABS) == [*DT, ["에이전트", "false"], *HT, ["검증", "true"]] and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
         page.click("#tabAgent")
         check("「에이전트」 를 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TABS) == [*DT, ["에이전트", "true"], *HT], page.evaluate(TABS))
-        check("일반 문서 작업에는 구분 기준 내용(작업 내용 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")
+        check("일반 문서 작업에는 구분 기준 내용(작업 개요 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")
         # ---- 10-1. 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 원본 문서(반영 금지)에서도 「보관함에 저장」 은 된다 · 문서는 안 바뀜 · 저장 뒤 서식마다 검증 꼬리표 · 「서식 관리자에서 보기」
         page.evaluate("""(tbl) => { AGENT.turns.push({ id: 't9', at: Date.now() / 1000, text: '이 문서의 서식을 저장해 줘', reply: '저장할 서식을 골랐습니다.', notes: [], error: null, dropped: [], call: {}, calls: 1,
           proposals: [{ id: 'sc1', type: 'styleCopy', title: '서식 복사 — 테이블 서식 1 · 템플릿 1 · 문서 서식 1', summary: '', state: 'open', baseRev: 0, choiceGroup: null, preselect: true, warn: [], checks: [],
@@ -609,12 +609,12 @@ try:
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g}/task") and r.request.method == "PUT") as put:
             page.select_option("#panelTask", "rnd")
         page.wait_for_selector("#divBox .dv-task select")
-        check("작업 = 연구개발 프로젝트로 — 저장됨(할 일 비움) · 작업 내용(Div) · 탭 = 「에이전트」 · 「작업 내용」(고름)", put.value.status == 200 and put.value.json()["task"]["job"] == "" and page.evaluate(TOOL) == "Div"
-              and page.evaluate(TABS)[:3] == [*DT, ["에이전트", "false"], ["작업 내용", "true"]], (put.value.status, page.evaluate(TABS)))
+        check("작업 = 연구개발 프로젝트로 — 저장됨(할 일 비움) · 작업 개요(Div) · 탭 = 「에이전트」 · 「작업 개요」(고름)", put.value.status == 200 and put.value.json()["task"]["job"] == "" and page.evaluate(TOOL) == "Div"
+              and page.evaluate(TABS)[:3] == [*DT, ["에이전트", "false"], ["작업 개요", "true"]], (put.value.status, page.evaluate(TABS)))
         with page.expect_response(lambda r: r.url.endswith(f"/api/works/{g}/task") and r.request.method == "PUT") as put:
             page.select_option("#panelTask", "general")
         page.wait_for_function("() => document.getElementById('panel').dataset.tool === 'Agent'")
-        check("작업 = 일반 문서로 — 저장됨 · 에이전트 보기 · 「에이전트」 탭 고름 · 「작업 내용」 탭 없음", put.value.status == 200 and put.value.json()["task"]["kind"] == "general" and page.evaluate(VIS, "tabAgent")
+        check("작업 = 일반 문서로 — 저장됨 · 에이전트 보기 · 「에이전트」 탭 고름 · 「작업 개요」 탭 없음", put.value.status == 200 and put.value.json()["task"]["kind"] == "general" and page.evaluate(VIS, "tabAgent")
               and page.get_attribute("#tabAgent", "aria-selected") == "true" and not page.evaluate(VIS, "toolTabTask"))
         S["policy"] = {"apply": True, "why": ""}
 
