@@ -325,7 +325,22 @@ try:
         page.evaluate(FRAMES)
         s = page.evaluate(STATE)
         two = page.evaluate("() => { const k = document.querySelectorAll('#doc > .sheet'); const a = k[0].getBoundingClientRect(), b = k[1].getBoundingClientRect(); return { sameTop: Math.abs(a.top - b.top) < 2, side: b.left > a.right, gap: Math.round((b.left - a.right) * 100) / 100, z: state.zoom }; }")
-        check("2쪽 보기: 한 번에 바뀜 · 두 쪽이 나란히 · 사이 = 24 × 배율", s["pend"] == 0 and not s["on"] and two["sameTop"] and two["side"] and abs(two["gap"] - 24 * two["z"]) <= 0.6, {"st": s, "two": two})
+        check("2쪽 보기: 한 번에 바뀜 · 두 쪽이 나란히 · 사이 = 8 × 배율(가운데가 붙음)", s["pend"] == 0 and not s["on"] and two["sameTop"] and two["side"] and abs(two["gap"] - 8 * two["z"]) <= 0.6, {"st": s, "two": two})
+        # 넓은 쪽(가로 구역)은 한 줄을 통째로(spec_hwpx_웹편집 ② §2 「2쪽 보기」 — 2026-11-18 사용자 「2페이지 보기면 최대한 가운데가 붙어 있고」: 열 폭이 가로 쪽을 따라 세로 쪽 사이가 벌어지던 것).
+        # 예제에는 가로 구역이 없어 셋째 쪽 상자를 넓은 쪽으로 꾸며 본다(.span2 + 폭 1.4배) → 혼자 한 줄 · 가운데 · 앞뒤 줄의 두 쪽은 그대로 붙음. 구역 폭으로 고르는 셈(wideSecs)은 따로.
+        wide = page.evaluate("""() => {
+          const k = [...document.querySelectorAll('#doc > .sheet')], x = k[2], w0 = x.style.width;
+          x.classList.add('span2'); x.style.width = `calc(${w0} * 1.4)`;
+          const r = (e) => e.getBoundingClientRect(), d = r(document.getElementById('doc')), a = r(k[0]), b = r(k[1]), c = r(x), e4 = r(k[3]), e5 = r(k[4]);
+          const out = { alone: c.top > a.bottom && e4.top > c.bottom, centered: Math.abs((c.left + c.right) / 2 - (a.right + b.left) / 2) <= 1.5, pair: Math.round((b.left - a.right) * 100) / 100,
+            next: Math.abs(e4.top - e5.top) < 2 && Math.round((e5.left - e4.right) * 100) / 100, z: state.zoom, inDoc: c.left >= d.left - 1 };
+          x.classList.remove('span2'); x.style.width = w0;
+          const keep = state.sections; state.sections = [{ widthMm: 210 }, { widthMm: 297 }, { widthMm: 215.9 }, { widthMm: 420 }];
+          out.secs = [...wideSecs()]; state.sections = [{ widthMm: 297 }, { widthMm: 297 }]; out.same = [...wideSecs()]; state.sections = keep;
+          return out; }""")
+        check("2쪽 보기: 넓은 쪽은 혼자 한 줄 · 두 열의 가운데 · 앞뒤 줄의 두 쪽은 그대로 붙음(사이 8 × 배율)",
+              wide["alone"] and wide["centered"] and wide["inDoc"] and abs(wide["pair"] - 8 * wide["z"]) <= 0.6 and wide["next"] is not False and abs(wide["next"] - 8 * wide["z"]) <= 0.6, wide)
+        check("넓은 구역 고르기 — 가장 좁은 용지보다 10% 넘게 넓은 구역만(A4 세로 · 가로 · Letter · A3 가로 → 가로 둘) · 모두 같은 폭이면 없음", wide["secs"] == [1, 3] and wide["same"] == [], wide)
         page.click("#twoUp")
         settle()
         s = page.evaluate(STATE)

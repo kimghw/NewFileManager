@@ -2733,11 +2733,11 @@ function paginate() {
   const m = state.mapping;
   const brk = new Map();
   if (m && m.breaks) for (const x of m.breaks) brk.set(x.kind === "rows" ? `r:${x.id}:${x.row}` : `b:${x.id}`, x.page);
-  const many = state.sections.length > 1;
+  const many = state.sections.length > 1, wide = wideSecs();
   let body = null, num = 0, sec = -1;
   const sheetAt = (n, s) => {
     const g = state.sections[s] || DEFAULT_PAGE, mm = g.marginsMm;
-    const sheet = el("div", "sheet");
+    const sheet = el("div", wide.has(s) ? "sheet span2" : "sheet"); // span2 = 2쪽 보기에서 한 줄을 통째로 쓰는 넓은 쪽(wideSecs — 넘침 나눔 조각은 이 상자의 사본이라 물려받는다)
     sheet.style.zoom = state.zoom; // 배율은 쪽 상자마다(「확대」 절 zoomApply) — 넘침 나눔 조각(overflowSplit)은 이 상자의 사본이라 그대로 물려받는다
     sheet.style.width = `${g.widthMm}mm`;
     sheet.style.minHeight = `${g.heightMm}mm`;
@@ -5671,14 +5671,22 @@ function keepCenter(fn, dy = 0) {
   zoomCover(); // 가운데를 맞추느라 보기에 새로 들어온 쪽
 }
 
+// 2쪽 보기의 넓은 쪽(spec_hwpx_웹편집 ② §2 「2쪽 보기」 — 2026-11-18 사용자 「2페이지 보기면 최대한 가운데가 붙어 있고 … 왼쪽 공간을 최대한 줄여야지」): 격자의 열 폭은 그 열에서 가장 넓은
+// 쪽 상자를 따른다 — 가로 구역이 하나라도 있으면(연구계획서 69쪽) 모든 줄의 세로 쪽이 가로 폭의 열 안에서 왼쪽에 붙어, 두 쪽 사이가 용지 폭의 0.4배만큼 벌어지고 오른쪽 쪽이 창 밖으로 밀렸다.
+// 문서에서 가장 좁은 용지보다 넓은(10% 넘게) 구역의 쪽은 두 열을 통째로 쓰는 한 줄로 둔다(style.css .sheet.span2) — 열 폭 = 좁은 용지 폭이라 나란한 두 쪽이 늘 붙는다. -> Set(넓은 구역 번호)
+function wideSecs() {
+  const ws = state.sections.map((g) => (g || DEFAULT_PAGE).widthMm), base = Math.min(...ws);
+  return new Set(ws.map((w, i) => (w > base * 1.1 ? i : -1)).filter((i) => i >= 0));
+}
+
 function fitWidth() {
   const sheets = document.querySelectorAll(".sheet");
   if (!sheets.length || $("scroller").hidden) return;
   // 쪽 폭은 배율 전 크기(offsetWidth — 쪽 상자의 CSS zoom 과 무관)로 잰다. 예전처럼 배율을 1 로 돌려 재면 그때마다 문서 전체(연구개발계획서 7,500문단·3.8만 요소)의
   // 스타일·배치를 두 번 다시 해서 열 접기·닫기 한 번에 1~1.5초 걸렸다(2026-11-10 사용자 "표구조 접거나 제거할때 엄청 느림"). 배율이 그대로면 setZoom 도 건너뛴다.
-  let widest = 0;
-  for (const s of sheets) widest = Math.max(widest, s.offsetWidth);
-  const need = state.twoUp ? widest * 2 + TWO_UP_GAP : widest; // 2쪽 보기 — 두 쪽과 사이 간격이 창 폭에
+  let widest = 0, col = 0; // col = 2쪽 보기의 열에 드는 쪽(넓은 쪽 .span2 는 한 줄을 통째로 쓴다) 가운데 가장 넓은 것
+  for (const s of sheets) { widest = Math.max(widest, s.offsetWidth); if (!s.classList.contains("span2")) col = Math.max(col, s.offsetWidth); }
+  const need = state.twoUp ? Math.max(col * 2 + TWO_UP_GAP, widest) : widest; // 2쪽 보기 — 나란한 두 쪽과 사이 간격이 창 폭에(넓은 쪽 한 줄이 그보다 넓으면 그 폭)
   const sc = $("scroller"), cs = getComputedStyle(sc);
   const avail = sc.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - 12; // 좌우 padding + 여유 12
   const z = Math.min(1.25, avail / need);
@@ -5687,7 +5695,7 @@ function fitWidth() {
 }
 
 const PX_PER_MM = 96 / 25.4;
-const TWO_UP_GAP = 24; // 2쪽 보기 두 쪽 사이(px, 배율 전) — style.css .doc.two-up 의 column-gap 과 같아야 한다
+const TWO_UP_GAP = 8; // 2쪽 보기 두 쪽 사이(px, 배율 전) — style.css .doc.two-up 의 column-gap 과 같아야 한다(2026-11-18 사용자 「최대한 가운데가 붙어 있고」 — 전에는 24)
 
 function fitHeight(mode, align = false) {
   // 높이 맞춤 = 지금 보는 쪽(창 가운데 줄이 지나는 쪽)의 웹 쪽 상자가 창 높이에 다 들어가게 · 여백 빼고 맞춤 = 그 상자에서 위·아래 쪽 여백을 뺀 높이를 창 높이에(여백은 창 밖).
