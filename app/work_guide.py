@@ -384,7 +384,7 @@ def fallback(data):
             ask_ = {"kind": "choice", "text": "어떻게 할까요?", "options": opts}
     elif primary is not None and primary["name"] == "config_set":
         lines.append("먼저 프로젝트 구성(단계 · 차년도 · 기관)을 정해야 합니다.")
-        ask_ = {"kind": "config", "text": "프로젝트 구성을 입력해 주세요 — 「문서에서 읽기」 로 문서에 적힌 값을 가져올 수 있습니다.", "options": []}
+        ask_ = {"kind": "config", "text": "프로젝트 구성을 입력해 주세요 — 「문서에서 보기」 로 문서에 적힌 값을 가져올 수 있습니다.", "options": []}
     elif primary is not None:
         act = primary["name"]
         lines.append(f"다음으로 「{primary['label']}」 을 " + ("제안합니다" if primary["change"] == "doc" or primary["paid"] else "하겠습니다") + (f" — {primary['does']}" if primary["does"] else "") + ".")

@@ -93,8 +93,10 @@ async function dashFitLive(M) { // 양식 맞추기 — 에이전트가 보는 �
   if (st.facts.moved) M.notes.push({ text: st.facts.moved, warn: true });
   for (const a of st.actions) {
     const opt = { primary: !!a.primary, title: a.does, focus: `act:${a.name}` };
-    if (a.name === "config_read") step("values").acts.push(dashBtn(a.label, () => dashExec(a.label, () => agwExec("config_read")), opt));
-    else if (a.name === "config_set") step("values").acts.push(dashBtn(DASH.form ? "입력 닫기" : `${a.label}…`, () => { DASH.form = !DASH.form; dashDraw(true); }, { ...opt, primary: opt.primary && !DASH.form }));
+    if (a.name === "config_read") step("values").acts.push(dashBtn(a.label, () => dashExec(a.label, async () => { const r = await agwExec("config_read"); agw().form = null; return r; }),
+      { ...opt, primary: opt.primary && !DASH.form })); // 폼이 열려 있으면 읽은 값으로 다시 채운다(폼의 「문서에서 보기」 와 같은 끝) · 폼을 편 동안 파란 단추는 폼의 「확정」 하나
+    else if (a.name === "config_set") step("values").acts.push(dashBtn(DASH.form ? "닫기" : `${a.label}…`, () => { DASH.form = !DASH.form; dashDraw(true); },
+      { ...opt, primary: opt.primary && !DASH.form, ...(DASH.form ? { title: "프로젝트 구성 입력 칸을 닫습니다" } : {}) }));
     else if (a.name === "plan") step("plan").acts.push(dashBtn(a.label, () => dashExec(a.label, () => agwExec("plan")), opt));
     else if (a.name === "open:plan") step("plan").acts.push(dashBtn(a.label, () => divList(), opt));
     else if (a.name === "apply") step("apply").acts.push(dashBtn(a.label, () => dashExec(a.label, async () => { // 「작업 내용」 의 「② 반영」 과 같은 길 — 누를 때 제 확인 창(지금 계획의 요약)

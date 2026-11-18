@@ -2,7 +2,7 @@
 
 - 양식 맞추기(plan_fit)를 TASK 카드로 시작 → 패널 탭 줄에 「대시보드」(에이전트와 작업 내용 사이) → 누르면 단계 흐름: 묶음 셋(준비 · 프로젝트 구성 · 구조 반영) · 단계 다섯(워크플로우 등록부 그대로 — 번호 · 이름 · 꼬리표 · 점선 = 안 해도 됨)
   · 상태(01 끝남 · 02 지금 — 펴짐) · 머리 「끝남 1/4」(안 해도 되는 단계는 안 셈) · 「다음: 02 …」 · 「구조 반영」 의 「한 번에 진행」 은 꺼짐(값 확정 전).
-- 대시보드에서만: 「프로젝트 구성 입력 · 확정…」 → 폼(에이전트 질문 카드와 같은 폼) → 「이 값으로 확정」 → 확정(문서 그대로) · 02 끝남 · 04 지금 → 「변경 계획 보기」 → 끝 글 · 문서 옆 열에 목록(탭은 대시보드 그대로)
+- 대시보드에서만: 「프로젝트 구성 입력 · 확정…」 → 폼(에이전트 질문 카드와 같은 폼 — 단추 「확정」 · 「문서에서 보기」 · 「구성 읽기」 · 「닫기」) → 「확정」 → 확정(문서 그대로) · 02 끝남 · 04 지금 → 「변경 계획 보기」 → 끝 글 · 문서 옆 열에 목록(탭은 대시보드 그대로)
   → 05 「문서에 반영」(제 확인 창) → 문서가 바뀜 · 「모두 끝남」.
 - 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」(등록부의 조건) · 좁은 패널에서 가로 넘침 없음 · 다시 그려도 초점 유지(1초 지켜보기) · 문서 일반 편집(doc_edit)의 흐름 · 「에이전트 보기 열기」 · 콘솔 오류 없음.
 - TASK 가 없는 문서(TASK 없이 올림 → #w=) — 탭은 보이고 「TASK 고르기」 카드 → 「이 TASK 로」 → 문서에 TASK 가 적히고 그 자리에서 단계 흐름(② §9 「TASK 가 없을 때」).
@@ -102,9 +102,9 @@ def main():
         check("단계 다섯(등록부 그대로) — 01 문서 올리기 · 첫 분석 · 02 프로젝트 구성 값 정하기 · 03 구분 기준 자리 확인(점선 · 안 해도 됨) · 04 변경 계획 보기 · 05 반영(문서 바뀜)",
               [n["no"] for n in nodes] == ["01", "02", "03", "04", "05"] and [n["key"] for n in nodes] == ["open", "values", "review", "plan", "apply"]
               and nodes[1]["name"] == "프로젝트 구성 값 정하기" and nodes[2]["opt"] and "안 해도 됨" in nodes[2]["tags"] and "LLM" in nodes[2]["tags"] and "문서 바뀜" in nodes[4]["tags"] and "사람" in nodes[1]["tags"], nodes)
-        check("상태 — 01 ✓ 끝남 · 02 지금(펴짐 · 단추 「문서에서 … 읽기」 · 「프로젝트 구성 입력 · 확정…」) · 04 · 05 남음 · 03 은 상태 글 없음",
+        check("상태 — 01 ✓ 끝남 · 02 지금(펴짐 · 단추 「구성 읽기」 · 「프로젝트 구성 입력 · 확정…」) · 04 · 05 남음 · 03 은 상태 글 없음",
               nodes[0]["state"] == "done" and nodes[0]["st"] == "✓ 끝남" and nodes[1]["state"] == "now" and nodes[1]["open"] and not any(n["open"] for n in nodes if n["key"] != "values")
-              and any("읽기" in a[0] for a in nodes[1]["acts"]) and any(a[0].startswith("프로젝트 구성 입력") for a in nodes[1]["acts"]) and nodes[3]["state"] == "todo" and nodes[4]["state"] == "todo" and nodes[2]["st"] == "", nodes)
+              and [a[0] for a in nodes[1]["acts"]] == ["구성 읽기", "프로젝트 구성 입력 · 확정…"] and nodes[3]["state"] == "todo" and nodes[4]["state"] == "todo" and nodes[2]["st"] == "", nodes)
         check("머리 「끝남 1/4」(안 해도 되는 단계는 안 셈) · 「다음: 02 프로젝트 구성 값 정하기」", h["count"] == "끝남 1/4" and h["next"] == "다음: 02 프로젝트 구성 값 정하기", h)
         page.screenshot(path=str(OUT / "01_dash.png"))
         page.locator("#paneDash").screenshot(path=str(OUT / "01_pane.png"))
@@ -125,6 +125,9 @@ def main():
         rev0 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
         page.click('#paneDash .dash-node[data-key=values] .dash-acts button:has-text("프로젝트 구성 입력")')
         page.wait_for_selector("#paneDash .agw-form [data-agw=confirm]")
+        names = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-node[data-key=values] .dash-detail button')].map((b) => b.textContent)")
+        check("폼을 편 카드의 단추 넷 — 「확정」 · 「문서에서 보기」(폼) · 「구성 읽기」 · 「닫기」(단계): 2026-11-18 사용자가 줄인 이름", names == ["확정", "문서에서 보기", "구성 읽기", "닫기"], names)
+        page.locator("#paneDash .dash-node[data-key=values]").screenshot(path=str(OUT / "01b_form.png"))
         page.fill("#paneDash [data-agw=years0]", "3")
         page.wait_for_timeout(1300)   # 1초 지켜보기가 지나도 폼이 그대로(적는 동안 다시 그리지 않음)
         page.focus("#paneDash [data-agw=lead]")
@@ -138,7 +141,7 @@ def main():
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=plan]')?.dataset.state === 'now'", timeout=30000)
         h = page.evaluate(HEAD)
         div = requests.get(f"{base}/api/docs/{doc}/divisions", timeout=30).json()
-        check("「이 값으로 확정」 → 확정(1단계 3차년도 · 주관 한국선급 · 공동 2 — 문서 그대로) · 끝 글 「프로젝트 구성 확정 — …」 · 02 끝남 · 04 지금 · 머리 「끝남 2/4」",
+        check("「확정」 → 확정(1단계 3차년도 · 주관 한국선급 · 공동 2 — 문서 그대로) · 끝 글 「프로젝트 구성 확정 — …」 · 02 끝남 · 04 지금 · 머리 「끝남 2/4」",
               (div.get("confirmed") or {}).get("values", {}).get("stages") == [3] and div["confirmed"]["values"]["orgs"]["joint"] == ["씨드로닉스", "유엔젤"]
               and h["last"].startswith("프로젝트 구성 확정") and not h["lastHalt"] and h["count"] == "끝남 2/4" and h["next"] == "다음: 04 변경 계획 보기"
               and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0 and not h["groups"][2][3], [h, div.get("confirmed")])

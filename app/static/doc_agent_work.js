@@ -98,7 +98,7 @@ async function agwFitStatus() { // 양식 맞추기 — 프로젝트 구성 값(
   Object.assign(out.facts, { config: has ? text : "", confirmed, plan: planText, supported: !!v.profile.supported });
   if (why) out.facts.why = why;
   if (!confirmed) {
-    out.actions.push({ name: "config_read", label: "문서에서 프로젝트 구성 읽기", does: "문서에 적힌 단계 · 차년도 · 기관을 읽어 입력 값으로 가져옵니다(확정은 따로)", change: "none", primary: !has && !agw().readTried });
+    out.actions.push({ name: "config_read", label: "구성 읽기", does: "문서에 적힌 단계 · 차년도 · 기관을 읽어 입력 값으로 가져옵니다(확정은 따로)", change: "none", primary: !has && !agw().readTried });
     out.actions.push({ name: "config_set", label: "프로젝트 구성 입력 · 확정", does: "단계 · 차년도 · 기관을 입력받아 저장(확정)합니다 — 문서는 바뀌지 않습니다", change: "store", primary: has || agw().readTried });
   } else {
     if (!why && !applied) {
@@ -370,7 +370,7 @@ async function agentWorkAnswer(tid, value, label) { // 질문 카드의 답 — 
   agentWorkTurn("answer", { text: label || value, show: label || value });
 }
 
-async function agentWorkConfig(tid, values) { // 질문 카드(config)의 「이 값으로 확정」 — 행동 config_set 을 그 값으로 실행
+async function agentWorkConfig(tid, values) { // 질문 카드(config)의 「확정」 — 행동 config_set 을 그 값으로 실행
   const t = agentTurnOf(tid);
   if (!t || t.state !== "open" || AGENT.busy || agw().running) return;
   Object.assign(t, { act: { name: "config_set", label: "프로젝트 구성 입력 · 확정", does: "", change: "store", paid: false }, ask: null });
@@ -454,9 +454,10 @@ function agwConfigForm(t, on = {}) { // 질문 카드 — 프로젝트 구성 �
   const cur = num(F.current, 1, 20, "당해 차년도", (x) => { F.current = x; }); cur.dataset.agw = "current";
   row("당해 차년도", cur, el("span", "agw-ylab", "차년도")).classList.add("num");
   const acts = el("div", "ag-acts");
-  const read = hBtn("문서에서 읽기", async () => { read.disabled = true; await agwExec("config_read"); W.form = null; draw(); }, { title: "문서에 적힌 단계 · 차년도 · 기관을 읽어 이 폼에 채웁니다 — 확정은 「이 값으로 확정」" });
+  // 단추 글 — 2026-11-18 사용자 「확정, 문서에서 보기, 프로젝트 구성 읽기, 닫기 .. 이렇게 하면 될듯」(전의 「이 값으로 확정」 · 「문서에서 읽기」): spec_작업에이전트 ② §5 「화면」
+  const read = hBtn("문서에서 보기", async () => { read.disabled = true; await agwExec("config_read"); W.form = null; draw(); }, { title: "문서에 적힌 단계 · 차년도 · 기관을 읽어 이 폼에 채웁니다 — 저장은 「확정」 을 눌러야 합니다" });
   read.dataset.agw = "read";
-  const ok = hBtn("이 값으로 확정", () => {
+  const ok = hBtn("확정", () => {
     const total = F.stages.reduce((s, n) => s + n, 0);
     if (!F.lead.trim()) { toast("주관기관 이름을 적어 주세요", true); lead.focus(); return; }
     done({ stages: [...F.stages], lead: F.lead.trim(), joint: F.joint.split("\n").map((x) => x.trim()).filter(Boolean), current: Math.min(F.current, total) });

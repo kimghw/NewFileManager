@@ -3,7 +3,7 @@ LLM 이 꺼져 있으므로 에이전트의 답은 스크립트 답(`work_guide.
 
 - 첫 화면: 오른쪽에 에이전트 대화창(#homeAgent — 글 칸 · 「파일」 · 「보내기」) · 글만 보내면 파일을 올리라고 답 · 파일을 올리고 보내면 TASK 를 묻는 질문 카드.
 - 질문 카드에서 「사업계획서 양식 맞추기」 → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(준비 끝남 · 프로젝트 구성 지금).
-- 연쇄: 문서에서 읽기(바로 실행) → 값이 없어 질문 카드(프로젝트 구성 폼) → 「이 값으로 확정」 → 변경 계획(바로 실행 — 문서 옆 열에 목록) → 실행 카드 「문서에 반영」(문서 바뀜 — 「진행」 을 눌러야).
+- 연쇄: 「구성 읽기」(문서에서 읽기 — 바로 실행) → 값이 없어 질문 카드(프로젝트 구성 폼) → 「확정」 → 변경 계획(바로 실행 — 문서 옆 열에 목록) → 실행 카드 「문서에 반영」(문서 바뀜 — 「진행」 을 눌러야).
 - 「진행」 → 문서가 바뀜(편집 차례 +1) → 결과 턴 「모두 끝났습니다」 · 진행 줄이 모두 끝남.
 - 다시 열어도 대화(진행 턴 · 카드의 끝)가 그대로 · 「작업 설명」 으로 다시 설명 · 패널 폭에서 가로 넘침 없음 · 콘솔 오류 없음.
 
@@ -110,12 +110,13 @@ def main():
           meta: first.querySelector('.ag-meta').textContent, task: (state.task || {}).job, guide: !document.querySelector('[data-ag-act=guide]').hidden }; }""")
         check("작업이 TASK 「사업계획서 양식 맞추기」 로 열리고 패널 「에이전트」 가 보인다 — 첫 화면의 말이 시작 턴 앞에 이어짐 · 「작업 설명」 단추",
               st["tool"] == "Agent" and st["shown"] and st["task"] == "plan_fit" and "사업계획서 양식을 맞추고 싶어" in st["carry"][0] and "사업계획서 양식 맞추기" in st["carry"] and st["guide"], st)
-        check("시작 턴 — 설명(스크립트 답) + 진행 줄(준비 끝남 · 프로젝트 구성 지금 · 구조 반영 남음) + 행동 「문서에서 읽기」 를 바로 실행",
+        check("시작 턴 — 설명(스크립트 답) + 진행 줄(준비 끝남 · 프로젝트 구성 지금 · 구조 반영 남음) + 행동 「구성 읽기」(문서에서 읽기)를 바로 실행",
               turns[0]["event"] == "start" and "「사업계획서 양식 맞추기」" in turns[0]["say"] and st["steps"] == [["준비", "done"], ["프로젝트 구성", "now"], ["구조 반영", "todo"]]
               and turns[0]["act"] == "config_read" and turns[0]["state"] == "done" and turns[0]["out"].startswith("실행함") and "스크립트 답" in st["meta"], [turns[0], st])
-        check("결과 턴 — 읽을 값이 없어 질문 카드(프로젝트 구성 폼: 단계 수 · 차년도 수 · 주관 · 공동 · 당해 차년도 · 「문서에서 읽기」 · 「이 값으로 확정」)",
+        check("결과 턴 — 읽을 값이 없어 질문 카드(프로젝트 구성 폼: 단계 수 · 차년도 수 · 주관 · 공동 · 당해 차년도 · 단추 「확정」 · 「문서에서 보기」 — 2026-11-18 줄인 이름)",
               len(turns) == 2 and turns[1]["event"] == "result" and turns[1]["ask"] == "config" and turns[1]["state"] == "open"
-              and page.evaluate("() => ['stages', 'years0', 'lead', 'joint', 'current', 'read', 'confirm'].every((k) => document.querySelector(`#paneAgent [data-agw=${k}]`))"), turns)
+              and page.evaluate("() => ['stages', 'years0', 'lead', 'joint', 'current', 'read', 'confirm'].every((k) => document.querySelector(`#paneAgent [data-agw=${k}]`))")
+              and page.evaluate("() => ['confirm', 'read'].map((k) => document.querySelector(`#paneAgent [data-agw=${k}]`).textContent)") == ["확정", "문서에서 보기"], turns)
         page.screenshot(path=str(OUT / "03_config_card.png"))
 
         # ---- 프로젝트 구성 입력 → 확정 → 변경 계획(바로) → 실행 카드 「문서에 반영」
@@ -128,7 +129,7 @@ def main():
         page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && t.querySelector('.agw-act[data-act=apply], .agw-ask[data-ask=choice]'); }", timeout=120000)
         turns = page.evaluate(TURNS)
         div = requests.get(f"{base}/api/docs/{doc}/divisions", timeout=30).json()
-        check("「이 값으로 확정」 → 프로젝트 구성이 저장·확정됨(1단계 3차년도 · 주관 한국선급 · 공동 2) — 문서는 그대로",
+        check("「확정」 → 프로젝트 구성이 저장·확정됨(1단계 3차년도 · 주관 한국선급 · 공동 2) — 문서는 그대로",
               turns[1]["state"] == "done" and "확정했습니다" in turns[1]["out"] and (div.get("confirmed") or {}).get("values", {}).get("stages") == [3]
               and div["confirmed"]["values"]["orgs"]["lead"] == "한국선급" and div["confirmed"]["values"]["orgs"]["joint"] == ["씨드로닉스", "유엔젤"]
               and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, [turns[1], div.get("confirmed")])
