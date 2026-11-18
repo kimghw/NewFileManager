@@ -26,8 +26,12 @@ def page(sect):
         return None
     m = sect.find(W + "pgMar")
     g = lambda k: _mm(m.get(W + k)) if m is not None else 0.0
-    return {"widthMm": _mm(size.get(W + "w")), "heightMm": _mm(size.get(W + "h")),
-            "marginsMm": {"l": round(g("left") + g("gutter"), 2), "r": g("right"), "t": g("top"), "b": g("bottom")}}
+    out = {"widthMm": _mm(size.get(W + "w")), "heightMm": _mm(size.get(W + "h")),
+           "marginsMm": {"l": round(g("left") + g("gutter"), 2), "r": g("right"), "t": g("top"), "b": g("bottom")}}
+    t = sect.find(W + "type")  # how this section starts: continuous = same page (web: unless the paper differs — app.js paginate)
+    if t is not None and t.get(W + "val") == "continuous":
+        out["continuous"] = True
+    return out
 
 
 def _jc(pr):

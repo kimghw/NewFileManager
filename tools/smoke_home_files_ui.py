@@ -167,13 +167,11 @@ try:
         check("시작 화면에 돌아오면 남은 목록 그대로(둘 · 목적 문서 풀림)", [r["name"] for r in L["rows"]] == [SMALL, PLAN] and not any(r["on"] for r in L["rows"]), L)
         page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()
         check("다른 파일을 열고 돌아와도 남은 문서의 약칭 유지", [r["alias"] for r in L["rows"]] == ["보고", "계획"], L)
-        n = len(works())
-        page.locator("#taskCards [data-task=plan_to_report]").click()
-        page.wait_for_timeout(300)
-        L = page.evaluate(LIST)
-        check("이관 · 원본 문서까지 · 프로젝트 없음 → 알림 + 프로젝트 칸에 초점(아무것도 안 올림)", L["id"] is None and "프로젝트 이름이 필요" in L["toast"] and len(works()) == n
-              and page.evaluate("() => document.activeElement && document.activeElement.dataset.hfFocus") == "project", L)
-        page.locator("#homeFiles [data-hf-focus=project]").fill("시험 P")
+        # 2026-11-18(spec_작업 ② §17 「임시 프로젝트」): 이름을 비워도 막지 않는다 — 임시 이름으로 묶는다(아래 끝에서 본다). 칸은 고르기 목록(작업 내용의 칸과 같은 도우미)
+        pin = page.locator("#homeFiles [data-hf-focus=project]")
+        check("프로젝트 칸 — 「비우면 임시 이름」 · 고르기 목록(role=combobox · datalist 없음)", pin.get_attribute("placeholder") == "비우면 임시 이름"
+              and pin.get_attribute("role") == "combobox" and pin.get_attribute("list") is None)
+        pin.fill("시험 P")
         page.locator("#taskCards [data-task=plan_to_report]").click()
         page.wait_for_function("() => state.id && state.task.job === 'plan_to_report' && state.task.file === 'report' && document.getElementById('panel').dataset.tool === 'Div'", timeout=120000)
         rid = page.evaluate("() => state.id")
@@ -232,7 +230,21 @@ try:
         page.locator("#homeFiles .hf-row").nth(1).locator(".hf-del").click()
         L = page.evaluate(LIST)
         check("선택한 파일 삭제 — 남은 하나 자동 선택 · 남은 약칭 유지 · TASK 활성", len(L["rows"]) == 1 and L["rows"][0]["on"] and L["rows"][0]["alias"] == "남길 약칭" and not L["disabled"]["plan_fit"], L)
-        page.locator("#homeFiles .hf-clear").click()
+        # ---- 5. 이름 없이 시작 → 임시 프로젝트(spec_작업 ② §17 「임시 프로젝트」, 2026-11-18) — 같은 파일 고르기 창의 칸도 「비우면 임시 이름」 · 「새 작업으로 시작」 → 「임시 프로젝트 N」 · 알림 · 보이는 이름에 안 붙음
+        page.locator("#homeFiles [data-hf-focus=project]").fill("")
+        page.locator("#taskCards [data-task=plan_fit]").click()
+        page.wait_for_selector(".sf-pop", timeout=120000)   # 기술수요조사서.hwpx 로 하던 작업(3 의 이관)이 있다
+        check("같은 파일 고르기 창의 프로젝트 칸 — 비어 있음 · 「비우면 임시 이름」", page.locator("#sfProject").input_value() == "" and page.locator("#sfProject").get_attribute("placeholder") == "비우면 임시 이름")
+        page.locator('.sf-pop [data-sf="new"]').click()
+        page.wait_for_function("() => state.id && state.task.job === 'plan_fit' && /^임시 프로젝트 [0-9]+$/.test(state.task.project || '') && !hf.busy", timeout=120000)
+        tid = page.evaluate("() => state.id")
+        tw = next(x for x in works() if x["id"] == tid)
+        toast_text = page.evaluate("() => document.getElementById('toast').textContent")
+        check("이름 없이 시작 → 임시 프로젝트 · 라운드 1 · 알림 · 보이는 이름에 임시 이름 없음 · 프로젝트 칸 뒤 「임시 이름」",
+              tw["task"]["project"].startswith("임시 프로젝트 ") and tw["task"].get("round") == 1 and "임시 이름" in toast_text and "임시" not in tw["name"]
+              and page.locator("#divBox .dv-task-field .dv-tag.is-temp").count() == 1, (tw, toast_text))
+        go_home(page)
+        check("시작한 문서는 목록에서 빠짐 → 목록 없음", not page.evaluate(LIST)["vis"])
         page.screenshot(path=str(OUT / "4_home.png"))
         bad = [e for e in errors if "409" not in e]   # 409 = LLM 꺼짐(noLlm) — 기대한 것
         check("콘솔 오류 0(기대한 409 빼고)", not bad, bad[:5])

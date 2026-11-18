@@ -424,13 +424,14 @@ function zonesBarEl(opts = {}) {
   row.append(el("span", "zn-dims-name", "보일 기준"));
   const picked = Z.optBusy && Z.optWant ? Z.optWant : dims; // 저장하는 동안은 방금 고른 대로 보인다(누른 체크가 되돌아가 보이지 않게) — 저장이 끝나면 서버의 값
   for (const k of ZN_DIMS) {
-    const lab = el("label", "zn-dim"), cb = el("input");
+    const lab = el("label", "zn-dim" + (picked.includes(k) ? " on" : "")), cb = el("input");
+    lab.dataset.dv = k;
     cb.type = "checkbox";
     cb.checked = picked.includes(k);
     cb.disabled = Z.optBusy;
     cb.dataset.zonesDim = k;
     fkey(cb, "dim-" + k);
-    cb.onchange = () => zonesOptionsSet(ZN_DIMS.filter((d) => (d === k ? cb.checked : picked.includes(d))));
+    cb.onchange = () => { lab.classList.toggle("on", cb.checked); zonesOptionsSet(ZN_DIMS.filter((d) => (d === k ? cb.checked : picked.includes(d)))); };
     lab.append(cb, el("span", null, ZN_DIM_NAME[k]));
     row.append(lab);
   }

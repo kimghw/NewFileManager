@@ -158,7 +158,7 @@
       b.addEventListener("click", () => navigate(`#${steps[to].path}`));
       controls.append(b);
     }
-    detail.append(controls, h("p", "wf-reading-note", "순서를 살펴보는 화면입니다. 실제 작업 진행 상태와는 별개입니다."));
+    detail.append(controls, h("p", "wf-reading-note", item.job ? "순서를 살펴보는 화면입니다. 실제 진행 상태를 보고 단계를 실행하려면 문서를 연 뒤 패널 「대시보드」 에서 합니다." : "순서를 살펴보는 화면입니다. 실제 작업 진행 상태와는 별개입니다.")); // 대시보드 = 같은 흐름의 진행판(spec_작업에이전트 ② §9)
     board.append(map, detail); diagram.append(board);
   }
 

@@ -239,6 +239,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     const r = got.r;
     await load(r.docId);
     let kept = true;
+    homeTaskTemp = "";
     if (got.act === "new" && got.project && state.stored) { // 창의 프로젝트 칸 — 그 프로젝트의 이 TASK 다음 라운드(② §17 start-task)
       const role = (state.task && state.task.file) || t.file || "";
       const res = await api(`/api/works/${r.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project: got.project, job, file: role }) });
@@ -247,24 +248,36 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
     if (!r.reused) firstRun(); // 새 작업 · 초기화한 작업 — 첫 분석(② §9)
     taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
+    const temp = kept && homeTaskTemp ? `\n프로젝트 이름이 없어 임시 이름 「${homeTaskTemp}」 로 묶었습니다 — 「작업 내용」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : ""; // ② §17 「임시 프로젝트」
+    const named = taskProject();
     if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`); // 작업 목록이 낡아 TASK 를 미리 못 본 때만 남는 길
-    else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — TASK 「${taskName("job", job)}」 를 올린 원본부터 다시 시작합니다`);
-    else if (got.act === "use") toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」`);
-    else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · ${got.project ? `프로젝트 「${got.project}」` : "프로젝트 미지정"}`);
+    else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — TASK 「${taskName("job", job)}」 를 올린 원본부터 다시 시작합니다${temp}`);
+    else if (got.act === "use") toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」${temp}`);
+    else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · ${named ? `프로젝트 「${named}」` : "프로젝트 미지정"}${temp}`);
+    else if (temp) toast(temp.trim());
   } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
   finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); }
 }
 
 // 방금 연 작업에 그 TASK 를 적는다(작업 종류 = 연구개발과제 · 할 일 = job · 첨부 파일 = 양식 판정이 정한 것, 없으면 그 TASK 의 문서) → 적었나.
 // false = 이어 연 작업에 다른 TASK 가 이미 있다 — 바꾸지 않는다(하던 작업의 TASK 는 그 작업 것이다). 2026-11-13 부터 homeTaskStart 가 그런 작업은 미리 새 작업으로 올리므로(② §15) 여기까지 오는 것은 작업 목록을 못 읽었을 때뿐
+let homeTaskTemp = ""; // 마지막 homeTaskApply 가 붙인 임시 프로젝트 이름(알림 — homeTaskStart) · 없으면 ""
 async function homeTaskApply(job) {
   const id = state.id, epoch = state.epoch, cur = { kind: "", file: "", job: "", project: "", ...state.task };
+  homeTaskTemp = "";
   if (cur.job && cur.job !== job) return false;
   state.task = { ...cur, kind: taskKindOf(job), job, file: cur.file || HOME_TASKS[job].file }; // 작업 종류는 TASK 가 정한다(task_catalog.js kind — 서버 TASK_KIND 와 같게)
   taskDraw();
   if (!state.stored) return true; // 작업 저장이 꺼져 있으면 이 화면에서만(taskSet 과 같다)
   try {
-    const r = await api(`/api/works/${id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify(state.task) });
+    let r = null;
+    if (!cur.project) { // 이름 없이 TASK 를 시작 — 서버가 임시 이름(「임시 프로젝트 N」 — spec_작업 ② §17 「임시 프로젝트」, 2026-11-18: 전에는 프로젝트 없이). 새로 올린 문서가 아닌 작업이면(409) 전처럼 프로젝트 없이
+      try {
+        r = await api(`/api/works/${id}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project: "", temp: true, job, file: state.task.file }) });
+        if (r.temp) homeTaskTemp = (r.task || {}).project || "";
+      } catch (e) { if (e.status !== 409) throw e; }
+    }
+    if (!r) r = await api(`/api/works/${id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify(state.task) });
     if (epoch !== state.epoch) return true;
     state.task = r.task;
     taskDraw();
@@ -703,16 +716,18 @@ function toolMoreSet(open) {
 }
 function toolTabsDraw() {
   const cur = $("panel").dataset.tool || "Verify", on = !!state.id;
-  if (!["Agent", "Div", "Tasks", ...PANEL_MAIN, ...PANEL_TOOLS].includes(cur) && TOOL_INFO[cur]) toolLast = cur;
+  if (!["Agent", "Dash", "Div", "Tasks", ...PANEL_MAIN, ...PANEL_TOOLS].includes(cur) && TOOL_INFO[cur]) toolLast = cur;
   $("toolTabs").hidden = $("toolMore").hidden = !on;
   $("toolTitle").hidden = $("toolTag").hidden = on; // 값은 그대로 채운다(접힌 띠 이름 — colRailName)
   if (!on) return;
   const a = $("tabAgent"), t = $("toolTabTask"), u = $("toolTabTool");
   a.hidden = !toolShown("Agent"); // hwpx 만(docx 는 에이전트 보기가 없다)
+  const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): TASK 가 적힌 문서면 에이전트 다음
+  d.hidden = !toolShown("Dash");
   t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
   u.hidden = !toolLast || !toolShown(toolLast);
   if (toolLast) { u.textContent = TOOL_INFO[toolLast][0]; u.setAttribute("aria-controls", `pane${toolLast}`); }
-  const rows = [[a, cur === "Agent"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
+  const rows = [[a, cur === "Agent"], [d, cur === "Dash"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
   for (const [b, sel] of rows) { b.classList.toggle("active", sel); b.setAttribute("aria-selected", sel); b.tabIndex = sel ? 0 : -1; }
   $("toolTabs").classList.toggle("more-folded", !toolMoreOpen); // 접힘 — 묶음(.tool-more)에서 고르지 않은 탭은 CSS 가 감춘다
   const m = $("toolMore"), what = "검증 · PDF · 기록";
@@ -755,11 +770,22 @@ function taskRow() { // 「연구개발과제」 패널 첫 카드 — 할 일 �
   inp.type = "text"; inp.maxLength = 60; inp.value = taskProject(); inp.placeholder = "프로젝트 이름"; inp.dataset.task = "project";
   inp.disabled = (typeof projectBusy === "function" && projectBusy()) || dv.busy; // TASK 실행·저장·취합이 도는 동안은 꺼 둔다(② §19 — 끝나면 projectControlsSync 가 켠다)
   let sent = null; // 이 칸에서 이미 보낸 이름 — Enter 로 정한 뒤 포커스가 나가며(change) 같은 이름을 한 번 더 보내지 않게(저장하면 칸은 새로 만들어진다)
-  const commit = () => { const name = inp.value.trim().replace(/\s+/g, " "); if (name === taskProject() || name === sent) return; sent = name; taskSet("project", name).then((ok) => { if (!ok) sent = null; }, () => { sent = null; }); }; // 고름 · Enter · 포커스를 옮김 — 지금 프로젝트와 같으면 다시 저장하지 않는다
+  // 임시 프로젝트(「임시 프로젝트 N」 — spec_작업 ② §17 「임시 프로젝트」)에 이름을 적으면 이 문서만 옮기지 않고 임시 프로젝트의 이름을 바꾼다(문서 모두 · 이미 있는 이름이면 그 프로젝트로 옮김: project_workspace.js projectTempName). 비우면 전처럼 이 문서만 프로젝트에서 뺀다
+  const temp = typeof projectIsTemp === "function" && projectIsTemp(taskProject());
+  const commit = () => { // 고름 · Enter · 포커스를 옮김 — 지금 프로젝트와 같으면 다시 저장하지 않는다
+    const name = inp.value.trim().replace(/\s+/g, " ");
+    if (name === taskProject() || name === sent) return;
+    sent = name;
+    const run = temp && name && state.stored ? projectTempName(taskProject(), name).then((ok) => { if (!ok) taskDraw(); return ok; }) : taskSet("project", name);
+    run.then((ok) => { if (!ok) sent = null; }, () => { sent = null; });
+  };
   inp.onchange = commit;
   if (typeof projectComboAttach === "function") projectComboAttach(inp, { list: "taskProjectList", commit });
   else inp.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) inp.blur(); };
-  field("프로젝트", "같은 프로젝트의 TASK들이 프로젝트 구성을 공유합니다 — 칸을 누르면 모든 프로젝트가 보입니다", inp);
+  if (temp) inp.addEventListener("focus", () => requestAnimationFrame(() => { if (document.activeElement === inp && inp.value === taskProject()) inp.select(); })); // 임시 이름은 고쳐 쓰는 것이 아니라 새로 적는 것 — 칸에 들어가면 통째로 고름
+  field("프로젝트", temp ? `임시 이름입니다 — 프로젝트 이름을 적으면 이 임시 프로젝트(문서 ${projectDocCount(taskProject()) || 1}개)의 이름이 그 이름으로 바뀝니다 · 이미 있는 프로젝트를 고르면 그 프로젝트로 문서를 모두 옮깁니다`
+    : "같은 프로젝트의 TASK들이 프로젝트 구성을 공유합니다 — 칸을 누르면 모든 프로젝트가 보입니다", inp);
+  if (temp) { const tag = el("span", "dv-tag is-temp", "임시 이름"); tag.title = "이름 없이 시작해 붙은 임시 이름입니다 — 칸에 프로젝트 이름을 적으세요"; row.lastChild.append(tag); }
   field("TASK", "프로젝트 안의 TASK를 선택합니다 — 새 TASK는 작업 리스트에서 파일을 올려 시작합니다", taskSelect(el("select"), "job"));
   if (typeof projectRoundRow === "function") row.append(projectRoundRow());
   const slots = taskSlots(), gather = gatherOn(), inSlot = new Set(gather ? gatherDocIds() : (slots || []).map((k) => (taskSlotDoc(k) || {}).id)); // 이관이면 첨부 파일 칸 둘 + 단계(② §11) — 그 밖에는 이 문서의 종류 하나
@@ -2773,9 +2799,16 @@ function paginate() {
       sheet.append(el("div", "cont-note", "↑ PDF 에서는 앞 쪽의 문단이 이 쪽 위까지 이어집니다(웹은 문단·칸 안 표 안에서 나누지 않아 앞 쪽에 함께 보임)"));
     }
   };
+  // 구역이 바뀌면 새 쪽 — 한글의 구역은 늘 새 쪽, Word 는 「이어서」 구역(page.continuous)이고 용지가 같을 때만 같은 쪽. 매핑이 있어도: 가로 구역의 첫 블록이 빈 줄·그림뿐이면
+  // PDF 쪽 나눔(breaks)에 없어 앞 세로 쪽 상자에 들어가 그림이 쪽 밖으로 넘쳤다(2026-11-18 사용자 "와이드페이지도 동일하게 볼 수 있도록" — 69쪽 가로 체계도)
+  const newSec = (it) => {
+    if (sec < 0 || it.sec === sec) return false;
+    const a = state.sections[sec] || DEFAULT_PAGE, b = state.sections[it.sec] || DEFAULT_PAGE;
+    return !(b.continuous && a.widthMm === b.widthMm && a.heightMm === b.heightMm);
+  };
   const startsAt = (it, key, first) => {
-    if (m) { const p = brk.get(key); return p && p > num ? p : 0; }
-    return first && (it.pageStart || it.sec !== sec) ? num + 1 : 0;
+    if (m) { const p = brk.get(key); return p && p > num ? p : first && newSec(it) ? num + 1 : 0; }
+    return first && (it.pageStart || newSec(it)) ? num + 1 : 0;
   };
   for (const it of state.flow) {
     if (it.kind === "node") {
@@ -5145,7 +5178,7 @@ function showPdf() {
   img.src = `/api/docs/${state.id}/pdf/${which}/${state.pdfPage}.png?v=${which === "edited" ? state.pdfVer : `b${state.base}`}`; // 기준 PDF 는 확정마다 다른 파일 — 주소도 다르게(브라우저 캐시)
 }
 
-const TOOL_TABS = ["Verify", "Edits", "Pdf", "Log", "Heads", "Tables", "Agent", "Div", "Compare", "Tasks"];
+const TOOL_TABS = ["Verify", "Edits", "Pdf", "Log", "Heads", "Tables", "Agent", "Dash", "Div", "Compare", "Tasks"];
 const TOOL_INFO = {
   Verify: ["검증", "파일·출력", "원본을 읽고 저장한 결과와 출력파일을 확인합니다."],
   Edits: ["고친 문단", "변경·확정", "고친 부분을 기준(마지막 확정)과 비교하고, 확정하거나 되돌립니다."],
@@ -5154,6 +5187,7 @@ const TOOL_INFO = {
   Heads: ["헤딩 추출", "구조 분석", "문서와 나란히 보며 라벨, 템플릿과 판단 근거를 확인합니다."],
   Tables: ["테이블", "표 관리", "문서의 표만 따로 — 소속 헤딩·계산식·엑셀식 보기·표 지침을 다룹니다."], // 탭 이름은 「테이블」(2026-11-16 사용자 「표 아니고 테이블로」 — 전의 「표」 · spec_작업 ② §10 「둘째 줄」)
   Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 관리자에서 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12 · 「서식 관리자」 = spec_서식복사 ② §2)
+  Dash: ["대시보드", "TASK 단계 흐름", "이 TASK 의 단계를 워크플로우 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다 — 묶음의 「한 번에 진행」 도 여기서 누릅니다."], // dashboard.js(spec_작업에이전트 ② §9 — 2026-11-18 사용자)
   Div: ["작업 내용", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
   Tasks: ["작업 리스트", "프로젝트 · TASK · 라운드", "프로젝트별 TASK와 이전 라운드를 열고, 새 TASK나 라운드를 시작합니다."],
   Compare: ["문서 비교", "병합 전 확인", "문서별 라벨과 템플릿을 나란히 비교하고 확인한 문서를 표시합니다."]
@@ -5196,10 +5230,10 @@ async function panelTaskPick(v) {
 
 // 탭 띠에 단추가 없는 도구 = 「연구개발과제」(Div — 2026-11-12 탭을 없앰): 작업 종류가 연구개발과제일 때만 열린다(전의 탭 보임 조건 그대로)
 // 에이전트(Agent — spec_일반편집 ② §12)는 탭(패널 머리 첫 탭 #tabAgent)의 보임과 상관없이 hwpx 문서면 열린다 — 탭의 보임은 toolTabsDraw 가 이 값으로 정한다
-const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
+const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; if (n === "Dash") return typeof dashShown === "function" && dashShown(); const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
 function showTab(name) {
   if (!TOOL_INFO[name] || !toolShown(name)) return;
-  if (!["Heads", "Div", "Tables", "Agent"].includes(name) && !headsColClose()) return;
+  if (!["Heads", "Div", "Tables", "Agent", "Dash"].includes(name) && !headsColClose()) return; // 대시보드도 문서 옆 열(변경 계획 목록 · 서식 복사 …)을 닫지 않는다 — 그 단추가 그 열을 연다
   panelHelpClose();
   $("panel").dataset.tool = name;
   const workspace = document.querySelector(".workspace");
@@ -5234,6 +5268,7 @@ function showTab(name) {
   if (name === "Div") divShow(); // 구분 기준(spec_구분_기준 ② §8)
   if (name === "Tables" && typeof tablesShow === "function") tablesShow(); // 표 모듈(tables.js, spec_헤딩_추출 ② §10)
   if (name === "Agent" && typeof agentShow === "function") agentShow(); // 에이전트 보기(doc_agent.js, spec_일반편집 ② §12)
+  if (name === "Dash" && typeof dashShow === "function") dashShow(); // 대시보드(dashboard.js, spec_작업에이전트 ② §9)
   if (name === "Compare" && typeof compareShow === "function") compareShow();
   if (name === "Tasks" && typeof projectListShow === "function") projectListShow();
 }
@@ -5245,7 +5280,7 @@ function showTab(name) {
 // 전에는 실행 몸통(이관 taskRunSteps · 취합 gatherToPlan · 간단 모드 gqGo)이 늘 「작업 내용」 으로 바꿔 에이전트의 진행 표시가 가려졌다(astra 11-16).
 function taskPaneShow() {
   const tool = $("panel").dataset.tool;
-  if (tool === "Div" || (tool === "Agent" && typeof agwGuided === "function" && agwGuided())) return;
+  if (tool === "Div" || tool === "Dash" || (tool === "Agent" && typeof agwGuided === "function" && agwGuided())) return; // 대시보드에서 누른 「한 번에 진행」 도 그 자리에서 본다(대시보드의 진행 줄)
   showTab("Div");
 }
 
@@ -8359,7 +8394,7 @@ function bind() {
   $("showPages").onchange = (e) => { $("doc").classList.toggle("hide-pages", !e.target.checked); tplMarksDraw(); peerViewSync(); }; // 쪽 표시를 끄면 템플릿 표시·여백도 함께 · 둘째 면도 같이(spec_작업 ② §12)
   $("doc").addEventListener("click", (e) => { if (e.target.closest(".sheet-label")) e.stopPropagation(); });
   const tabs = TOOL_TABS.filter((n) => $(`tab${n}`) && $(`tab${n}`).closest("#workspaceNav")); // 탭 띠에 단추가 있는 도구만 — 에이전트·작업 내용(Div)·검증·PDF·기록은 패널 머리에서 연다(spec_작업 ② §10)
-  for (const n of [...PANEL_TOOLS, ...PANEL_MAIN, "Agent"]) $(`tab${n}`).onclick = () => showTab(n); // 패널 머리 탭 — 화살표 키는 아래 #toolTabs 의 키 처리가 맡는다
+  for (const n of [...PANEL_TOOLS, ...PANEL_MAIN, "Agent", "Dash"]) $(`tab${n}`).onclick = () => showTab(n); // 패널 머리 탭 — 화살표 키는 아래 #toolTabs 의 키 처리가 맡는다
   $("toolTabTask").onclick = () => showTab("Div"); // 패널 머리 탭(toolTabsDraw) — 연구개발 TASK 의 작업 내용
   $("toolTabTool").onclick = () => showTab(toolShown(toolLast) ? toolLast : "Verify");
   $("taskListBtn").onclick = taskListToggle; // 상단 바 「작업 리스트」 아이콘(2026-11-16 — 패널 머리 탭에서 옮김)
@@ -8472,7 +8507,8 @@ const divFresh = () => ({ view: null, values: null, plan: null, result: null, bu
   projects: undefined, projectsAt: 0, projectsBusy: false, // 다른 프로젝트의 구성(GET /api/projects — 「프로젝트 구성 불러오기」 목록)
   savedKey: null, // 작업에 마지막으로 저장한 설정(divCanon) — 자동 저장(② §8)
   marks: { data: null, index: null, loading: false, seq: 0, err: null, llm: false, llmLast: null, missing: false, missingLast: null, // 문서 표시·추가한 자리(spec_구분_기준 ② §11) · 빠진 자리 검토(§13)
-    reviewing: false, reviewOwn: false, review: null } }); // LLM 검토(두 검토를 함께 — ② §14): 도는 중 · 이 화면이 부른 것 · 마지막 취합 결과
+    reviewing: false, reviewOwn: false, review: null, // LLM 검토(두 검토를 함께 — ② §14): 도는 중 · 이 화면이 부른 것 · 마지막 취합 결과
+    only: null } }); // 「그 구분만 또렷이」 — 이름 줄 칩으로 고른 구분 키(divOnlySet · ② §11) · 문서를 열거나 닫으면 풀림
 let dv = divFresh();
 
 function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
@@ -8575,6 +8611,7 @@ function divRender() {
     return head;
   };
   const stages = el("section", "dv-card");
+  stages.dataset.dv = "stage";
   stages.append(sectionHead("1", "단계·차년도", "각 단계가 몇 년 동안 진행되는지 정하세요.", "divYearCount"));
   const stageList = el("div", "dv-stage-list");
   v.stages.forEach((n, i) => {
@@ -8606,6 +8643,7 @@ function divRender() {
   config.append(stages);
 
   const orgs = el("section", "dv-card");
+  orgs.dataset.dv = "org";
   orgs.append(sectionHead("2", "기관 구성", "참여 기관과 비영리 여부를 입력하세요.\n이름을 쓰고 Enter 를 치면 바로 아래에 공동기관이 추가됩니다. 이름을 비우면 ‘주관기관(미입력)’, ‘참여기관1’처럼 표시됩니다.", "divOrgCount"));
   const orgList = el("div", "dv-org-list");
   const orgLine = (index, name) => {
@@ -8669,6 +8707,7 @@ function divRender() {
   }
   extra.append(dates);
   const currentLabel = el("div", "dv-field"), currentHead = el("div", "dv-field-label"), currentName = el("label", null, "당해 차년도");
+  currentLabel.dataset.dv = "year";
   currentName.htmlFor = "divCurrentYear";
   currentHead.append(currentName, hHelp("당해 차년도 안내", "신청·협약 대상 연도입니다. 전체 차년도 순서로 선택하세요.", { note: true }));
   currentLabel.append(currentHead);
@@ -9531,7 +9570,7 @@ const DV_KEY_ORDER = ["stage", "stageYear", "year", "sub", "org", "other"]; // �
 const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 문서 이름 줄의 노트가 같은 글
   "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」), 옅은 색 = 그 자리 안의 글·표 칸.\n" +
   "여러 자리에 겹치면 바탕은 가장 안쪽 것의 색이고, 왼쪽 띠가 든 자리마다 하나씩 겉에서 안 차례로 붙습니다(단계 › 차년도 › 기관 — 2줄·3줄). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
-  "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
+  "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴, 기관 이름만 적은 줄(「o 기관 이름」 이 기관마다 되풀이되는 곳)처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
   "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
 function divMarksOn() { try { return taskRnd() && localStorage.getItem(DV_MARKS_KEY) === "on"; } catch { return false; } } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10)
 function divMarksSet(on) { try { localStorage.setItem(DV_MARKS_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
@@ -9628,7 +9667,7 @@ function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽 — 바탕), d
     e.lines.push({ rank: 9, line: `추가한 자리(${h.by === "llm" ? "LLM" : "사용자"}) — ${h.dimName || h.dim} 「${h.value || "?"}」${h.engine ? " · 묶음의 라벨" : " · 표시만(아직 묶음 아님)"}${h.reason ? ` · ${h.reason}` : ""}${h.note ? ` · 메모 ${h.note}` : ""}` });
   }
   // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕 없음(같은 구분의 엔진 자리 안이면 엔진 자리대로)
-  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", table: "표 안 판독" };
+  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", table: "표 안 판독" }; // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
   for (const x of r.reads || []) {
     for (const pid of x.paras || []) {
       const e = entry(pid, x.dim, 5);
@@ -9667,9 +9706,10 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
     if (p.dataset.dvTitle) { p.removeAttribute("title"); delete p.dataset.dvTitle; }
   }
   const on = typeof dv !== "undefined" && divMarksOn() && dv.marks.data && dv.marks.index;
+  if (!on && typeof dv !== "undefined") dv.marks.only = null; // 색을 감추면 「그 구분만 또렷이」 도 푼다
   doc.classList.toggle("dv-marks", !!on);
   divKeyDraw(!!on);
-  if (!on) return;
+  if (!on) { divOnlyDraw(); return; }
   for (const p of doc.querySelectorAll(".para[data-id]")) {
     const e = dv.marks.index.get(p.dataset.id);
     if (!e) continue;
@@ -9680,6 +9720,52 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
     if (e.lab || e.dims.length > 1 || e.readOnly) { p.dataset.dvs = e.dims.join(" "); p.style.setProperty("--dv-stripes", divStripes(e.dims, e.thin)); } // 띠 — 든 구분마다(겉 → 안)
     if (e.hint) p.classList.add(e.hint === "llm" ? "dv-hint-llm" : "dv-hint");
     if (!p.title) { p.title = "구분 기준 자리(겉 → 안)\n" + e.lines.map((x) => x.line).join("\n"); p.dataset.dvTitle = "1"; }
+  }
+  divOnlyDraw(); // 쪽을 다시 나누거나 문서를 다시 읽으면 문단 요소가 새것 — 「그 구분만 또렷이」 표지도 다시
+}
+
+// 그 구분만 또렷이(② §11 「그 구분만 또렷이」, 2026-11-18 사용자 "이거 단계/차년도/기관 클릭하면 화면에 그 부분만 볼 수 있도록 해줘"): 이름 줄의 칩을 누르면 그 구분에 든 문단(겉 → 안 어느 자리든 —
+// 띠·바탕이 그 구분인 문단)은 그대로 두고 나머지 문단을 흐리게(#doc.dv-only · .dv-hit — divisions.css). 감추지 않는다(design.md §1 「한 가지만 골라 볼 때는 나머지를 흐리게」 · 편집 구역의
+// 「식별이지 거르기가 아니다」 — 둘 다 사용자 말) · 보기만(문서·쪽 나눔·내보내기 그대로). 자리 = 표시 자료(divMembersIndex 의 dims) — 다시 계산하지 않는다.
+function divOnlyDraw() {
+  const doc = $("doc");
+  if (!doc) return;
+  const k = typeof dv !== "undefined" && doc.classList.contains("dv-marks") && dv.marks.index ? dv.marks.only : null;
+  for (const p of doc.querySelectorAll(".para.dv-hit")) p.classList.remove("dv-hit");
+  doc.classList.toggle("dv-only", !!k);
+  if (!k) return;
+  for (const p of doc.querySelectorAll(".para.dv-in")) { const e = dv.marks.index.get(p.dataset.id); if (e && e.dims.includes(k)) p.classList.add("dv-hit"); }
+}
+
+function divOnlySet(k) { // k = 구분 키(그 구분만 또렷이) | null(풂). 켰는데 창에 그 구분의 문단이 없으면 지금 자리 뒤의 첫 문단(없으면 앞의 마지막)으로
+  k = k || null;
+  if (dv.marks.only === k) return;
+  dv.marks.only = k;
+  divOnlyDraw();
+  divKeyPress();
+  const sc = $("scroller");
+  if (!k || sc.hidden) return;
+  const o = sc.getBoundingClientRect();
+  let before = null, after = null;
+  for (const p of $("doc").querySelectorAll(".para.dv-hit")) { // 문서 차례 = 위에서 아래
+    const r = p.getBoundingClientRect();
+    if (!r.height) continue;
+    if (r.bottom > o.top && r.top < o.bottom) return; // 창에 이미 있음 — 그대로
+    if (r.top >= o.bottom) { after = p; break; }
+    before = p;
+  }
+  const to = after || before;
+  if (to) sc.scrollTop += to.getBoundingClientRect().top - o.top - 40;
+}
+
+function divKeyPress() { // 이름 줄 칩의 눌림(「그 구분만 또렷이」) — 칩을 다시 만들지 않고 상태·풍선 도움말만
+  const k = typeof dv !== "undefined" ? dv.marks.only : null;
+  for (const c of document.querySelectorAll("#divKey .dv-chip")) {
+    const on = c.dataset.dv === k, name = c.textContent;
+    c.classList.toggle("on", on);
+    c.setAttribute("aria-pressed", on ? "true" : "false");
+    c.title = on ? `「${name}」 자리만 또렷이 보는 중 — 다시 누르면 풀림`
+      : `「${name}」 자리만 또렷이 — 그 구분에 든 문단은 그대로, 나머지 문단은 흐리게(감추지 않음 · 문서는 그대로 · 다시 누르면 풀림)`;
   }
 }
 
@@ -9696,16 +9782,23 @@ function divKeyDraw(on) {
     for (const x of d.reads || []) put(x.dim, x.dimName);
   }
   const keys = [...dims.keys()].sort((a, b) => DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
+  if (on && dv.marks.only && !dims.has(dv.marks.only)) dv.marks.only = null; // 고른 구분의 자리가 문서에서 없어졌다 — 문서 전체로(divMarksDraw 끝의 divOnlyDraw 가 푼다)
   const sig = keys.map((k) => k + "=" + dims.get(k)).join("|");
   row.classList.toggle("has-dv-key", !!sig);
-  if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게)
+  if (box.dataset.sig === sig && box.hidden === !sig) { divKeyPress(); return; } // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게) · 칩의 눌림만
   box.dataset.sig = sig; box.hidden = !sig; box.textContent = "";
   if (!sig) return;
   box.append(el("span", "dv-key-name", "구분 기준 자리"));
-  for (const k of keys) { const chip = el("span", "dv-chip", dims.get(k)); chip.dataset.dv = k; box.append(chip); }
+  for (const k of keys) { // 칩 = 「그 구분만 또렷이」 단추(② §11 — 다시 누르면 풀림)
+    const chip = el("button", "dv-chip", dims.get(k));
+    chip.type = "button"; chip.dataset.dv = k;
+    chip.onclick = () => divOnlySet(dv.marks.only === k ? null : k);
+    box.append(chip);
+  }
+  divKeyPress();
   box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(이름 줄을 더 쓰지 않는다 — design.md §1)
   const again = "다시 보려면 「작업 내용」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
-  box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n" + again + ".", { note: true }));
+  box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n이 줄의 칩(단계·차년도·기관 …)을 누르면 그 구분의 자리만 또렷이 — 나머지 문단은 흐리게(다시 누르면 풀림).\n" + again + ".", { note: true }));
   box.append(hBtn("감추기", () => { divMarksSet(false); divMarksDraw(); divMarksBarRefresh(); }, { cls: "btn sm dv-key-off", title: "구분 기준 자리 색 감추기 — " + again }));
 }
 

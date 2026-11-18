@@ -173,7 +173,7 @@ function tpbDraw(els) {
   restAct();
 }
 
-function tpbAsk(L, P = 0, judged = true, note = "") { // 「모두 반영」 의 확인 창 글 — 무엇이 몇 줄 바뀌고 무엇이 남나(2026-11-16: 전에는 확인 없이 바로 문서를 바꿨다). P = 자리 맞춤이 남은 줄(② §8-8) · judged = 헤딩 판정(LLM)을 거쳤나 · note = 맨 앞 한 줄(「LLM 판정」 이 LLM 없이 넘어온 때)
+function tpbAsk(L, P = 0, judged = true, note = "") { // 「모두 반영」 의 확인 창 글 — 무엇이 몇 줄 바뀌고 무엇이 남나. 2026-11-18 사용자 「모두 반영할때... 팝업 알림 확인 받지마」 부터 「모두 반영」 단추는 묻지 않는다 — 이 글은 opt.ask 로 부른 때(LLM 연결이 없는 「LLM 판정」 의 스크립트 반영)만. P = 자리 맞춤이 남은 줄(② §8-8) · judged = 헤딩 판정(LLM)을 거쳤나 · note = 맨 앞 한 줄(「LLM 판정」 이 LLM 없이 넘어온 때)
   const rows = (note ? [note, ""] : []).concat(L.planned ? [`받아 둔 서식 정리 계획 ${nf(L.planned || 0)}개(템플릿)를 에이전트가 고른 그대로 반영합니다.`, "",
     `· 서식 조정 — 대표 서식에 맞출 줄 ${nf(L.change || 0)}${L.reps ? ` · 대표를 바꿀 레벨 ${nf(L.reps)}(맞출 줄이 없어도 대표가 바뀝니다)` : ""}`, `· 템플릿 조정 — 서식 종속 템플릿으로 뗄 줄 ${nf(L.moved || 0)}`]
     : ["받아 둔 서식 정리 계획은 없습니다 — 스크립트가 맞추는 것만 반영합니다.", ""]);
@@ -192,7 +192,7 @@ function tpbAsk(L, P = 0, judged = true, note = "") { // 「모두 반영」 의
 
 // 「모두 반영」 — 지금 문서 차례의 계획 전부를 트랜잭션 하나로(실행 취소 1) → 반영 결과 | null(못 함 — 까닭은 structOp.lastError · 확인 창에서 「취소」 면 lastError 도 null). 「전체 실행」(heads_run_all.js)도 이 함수로 반영한다.
 // opt.note = 확인 창 맨 앞에 실을 한 줄(「LLM 판정」 을 눌렀는데 LLM 연결이 없어 스크립트 반영만 묻는 때 — tpbJudge) ·
-// opt.ask = false 면 확인 창을 건너뛴다(전체 실행은 시작할 때 이미 물었다) · opt.plans = 반영할 계획의 표시 {템플릿 id: at}(부른 쪽이 방금 읽은 분석 상태의 것 — 없으면 이 줄이 가진 분석 상태에서).
+// opt.ask = true 일 때만 확인 창(tpbAsk)을 띄운다 — 「모두 반영」 단추는 묻지 않고 바로 반영(2026-11-18 사용자 「모두 반영할때... 팝업 알림 확인 받지마」 — 실행 취소 한 번 · 무엇이 바뀌었나는 끝난 알림) · opt.plans = 반영할 계획의 표시 {템플릿 id: at}(부른 쪽이 방금 읽은 분석 상태의 것 — 없으면 이 줄이 가진 분석 상태에서).
 // 요청에 그 표시를 실어 서버가 「화면이 본 계획 그대로인가」 를 견준다(그 사이 다시 받은 계획이면 409 — 본 것과 다른 계획을 반영하지 않는다).
 async function tpbApply(opt = {}) {
   if (TPB.busy || !state.id) return null;
@@ -207,8 +207,9 @@ async function tpbApply(opt = {}) {
     if (epoch !== state.epoch || TPB.busy) return null;
   }
   const plans = opt.plans || Object.fromEntries((L.list || []).filter((x) => x.state === "planned" && x.at != null).map((x) => [x.tpl, x.at]));
-  if (opt.ask !== false && !confirm(tpbAsk(L, P, judged, opt.note || ""))) return null;
+  if (opt.ask === true && !confirm(tpbAsk(L, P, judged, opt.note || ""))) return null;
   if (epoch !== state.epoch) return null;
+  const edited = typeof tpaEdited === "function" ? tpaEdited() : null; // 「템플릿 서식 정리」 열에서 바꿔 둔 고르기 — 반영되지 않는다(확인 창이 알리던 것을 끝난 알림에)
   TPB.busy = true;
   tplPlanBarSync(true);
   const r = await structOp("outline/agent/apply", Object.keys(plans).length ? { rev: state.serverRev, plans } : { rev: state.serverRev }); // 표시가 없으면(서버가 옛 판) 전처럼 차례만
@@ -221,7 +222,8 @@ async function tpbApply(opt = {}) {
     const reps = ts.reduce((a, t) => a + (t.levels || []).filter((x) => x.repChanged).length, 0); // 대표를 바꾼 레벨 — 맞춘 줄이 0 이어도 한 일이다
     toast(r.nothing ? "바꿀 줄이 없습니다 — 계획이 모두 「그대로」 입니다" : !ts.length && !placed && rel ? `템플릿 종속을 넣었습니다 —${rel.slice(2)} · 문서는 안 바뀜 · 「실행 취소」 한 번으로 되돌립니다`
       : !ts.length && placed ? `자리를 맞췄습니다 — ${put}${rel} · 「실행 취소」 한 번으로 되돌립니다`
-      : `계획대로 반영했습니다 — 템플릿 ${nf(ts.length)}개 · ${[made.length ? `템플릿 조정: 서식 종속 템플릿 ${made.slice(0, 6).join(" · ")}${made.length > 6 ? " …" : ""}` : "", n ? `서식 조정: 맞춘 줄 ${nf(n)}` : "", reps ? `대표 변경 ${nf(reps)}` : "", put].filter(Boolean).join(" · ") || "대표만 바뀜"}${rel} · 「실행 취소」 한 번으로 되돌립니다`);
+      : `계획대로 반영했습니다 — 템플릿 ${nf(ts.length)}개 · ${[made.length ? `템플릿 조정: 서식 종속 템플릿 ${made.slice(0, 6).join(" · ")}${made.length > 6 ? " …" : ""}` : "", n ? `서식 조정: 맞춘 줄 ${nf(n)}` : "", reps ? `대표 변경 ${nf(reps)}` : "", put].filter(Boolean).join(" · ") || "대표만 바뀜"}${rel} · 「실행 취소」 한 번으로 되돌립니다`
+      + (edited != null ? ` · ※ 「템플릿 서식 정리」 열에서 T${edited} 에 바꿔 둔 고르기는 반영하지 않았습니다(에이전트가 고른 그대로 — 바꾼 대로 하려면 실행 취소 뒤 그 열의 「적용」)` : ""));
   } else {
     const e = structOp.lastError; // 까닭은 structOp 이 이미 알렸다 — 옛 서버만 따로
     if (e && e.status === 404 && /not found/i.test(e.message || "")) toast("서버가 옛 판이라 「모두 반영」 을 모릅니다 — 서버(8114)를 다시 시작한 뒤 쓰세요", true);
@@ -268,7 +270,7 @@ async function tpbJudge() {
   const L = (tpbFmt(v) || {}).llm || {};
   if (typeof headsLlmReady === "function" && !(await headsLlmReady())) { // LLM 연결이 없다(알림은 그 함수가) — 막다른 길로 두지 않는다: 스크립트가 맞출 것(자리 맞춤 · 확실한 종속)이 있으면 그것만 반영할지 묻는다
     const P = (tpbFmt(v) || {}).place || 0, sure = tpbSure(v).filter((h) => h.sure).length;
-    if (epoch === state.epoch && !L.planned && (P || sure)) await tpbApply({ note: "LLM 연결이 없어 LLM 판정은 돌리지 못합니다 — 스크립트가 맞추는 것만 반영할 수 있습니다." });
+    if (epoch === state.epoch && !L.planned && (P || sure)) await tpbApply({ ask: true, note: "LLM 연결이 없어 LLM 판정은 돌리지 못합니다 — 스크립트가 맞추는 것만 반영할 수 있습니다." });
     return;
   }
   if (epoch !== state.epoch) return;

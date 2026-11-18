@@ -187,7 +187,8 @@ def test_start_task_validates_fields_and_preserves_assigned_work(client):
         assert client.post(f"/api/works/{wid}/start-task", json={**body, **bad}).status_code == 400
     started = client.post(f"/api/works/{wid}/start-task", json={**body, "project": " 프로젝트   A "})
     assert started.status_code == 200, started.text
-    assert started.json() == {"docId": wid, "round": 1, "division": "none",   # division = 들어감 알림의 근거(② §10·§19) — work_task 응답에서 따라 나온다
+    # division = 들어감 알림의 근거(② §10·§19) — work_task 응답에서 따라 나온다 · temp = 임시 이름을 받았나(② §17 「임시 프로젝트」)
+    assert started.json() == {"docId": wid, "round": 1, "division": "none", "temp": False,
                               "task": {"kind": "rnd", "file": "plan", "job": "plan_fit", "project": "프로젝트 A", "round": 1}}
     before = works.work(wid)["task"]
     assert client.post(f"/api/works/{wid}/start-task", json={**body, "project": "프로젝트 B"}).status_code == 409
@@ -254,11 +255,11 @@ def test_rename_project_rejects_conflicts_and_bad_names(client):
         assert client.put(project_url("프로젝트 A"), json=bad).status_code == 400
     assert client.put(project_url("없는 프로젝트"), json={"name": "새 이름"}).status_code == 404
     same = client.put(project_url("프로젝트 A"), json={"name": " 프로젝트   A "})
-    assert same.status_code == 200 and same.json() == {"name": "프로젝트 A", "works": []}
+    assert same.status_code == 200 and same.json() == {"name": "프로젝트 A", "works": [], "join": False, "tasks": {}}
     assert works.work(a)["task"] == before
     assert works.work(b)["task"]["project"] == "프로젝트 B"
     moved = client.put(project_url("프로젝트 C"), json={"name": "프로젝트 D"})  # 기록만 있는 프로젝트도 옮긴다
-    assert moved.status_code == 200 and moved.json() == {"name": "프로젝트 D", "works": []}
+    assert moved.status_code == 200 and moved.json() == {"name": "프로젝트 D", "works": [], "join": False, "tasks": {}}
     assert projects.get("프로젝트 C") is None and projects.get("프로젝트 D") is not None
 
 
@@ -467,7 +468,7 @@ def test_project_without_documents_is_listed_renamed_and_deleted(client):
     assert set(by["프로젝트 B"]["works"]) == {moved, stay}
     # 이름 변경 — 기록만 옮긴다
     renamed = client.put(project_url("프로젝트 A"), json={"name": "빈 프로젝트"})
-    assert renamed.status_code == 200 and renamed.json() == {"name": "빈 프로젝트", "works": []}
+    assert renamed.status_code == 200 and renamed.json() == {"name": "빈 프로젝트", "works": [], "join": False, "tasks": {}}
     by = {item["name"]: item for item in listed(client)}
     assert set(by) == {"빈 프로젝트", "프로젝트 B"} and by["빈 프로젝트"]["works"] == [] and [v["name"] for v in by["빈 프로젝트"]["versions"]] == ["1차년도"]
     assert client.put(project_url("빈 프로젝트"), json={"name": "프로젝트 B"}).status_code == 409   # 합치지 않는다
@@ -577,3 +578,125 @@ def test_reset_project_rejects_missing_broken_and_skips_unopenable_work(client, 
     assert response.json() == {"name": "프로젝트 A", "docs": "reset", "works": [good], "skipped": [bad]}
     assert projects.get("프로젝트 A") is None and server.DOCS[good].division["settings"] is None
     assert server.DOCS[bad].division["settings"] == saved and "resetProject" not in log_text(bad)   # 건너뛴 작업의 값은 그대로 남는다
+
+
+# ---- 새 프로젝트 · 임시 프로젝트(spec_작업 ② §17 「새 프로젝트」·「임시 프로젝트」 — 2026-11-18) ----
+
+def start_temp(client, job="plan_fit", role="plan"):
+    """이름 없이 TASK 를 시작(시작 화면의 프로젝트 칸을 비움) → 응답."""
+    wid = bare(client)
+    response = client.post(f"/api/works/{wid}/start-task", json={"project": "", "temp": True, "job": job, "file": role})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_start_without_a_name_gets_the_next_temp_project(client):
+    first, second = start_temp(client), start_temp(client, job="plan_to_report")
+    assert first["temp"] is True and first["task"]["project"] == "임시 프로젝트 1" and first["round"] == 1
+    assert second["task"]["project"] == "임시 프로젝트 2"
+    assert {p["name"]: p["temp"] for p in listed(client)} == {"임시 프로젝트 1": True, "임시 프로젝트 2": True}
+    assert '"temp":true' in log_text(first["docId"])
+    # 이름이 있으면 temp 를 보내도 그 이름 · 이름도 temp 도 없으면 전처럼 400
+    named = client.post(f"/api/works/{bare(client)}/start-task", json={"project": "프로젝트 A", "temp": True, "job": "plan_fit", "file": "plan"})
+    assert named.status_code == 200 and named.json()["task"]["project"] == "프로젝트 A" and named.json()["temp"] is False
+    assert client.post(f"/api/works/{bare(client)}/start-task", json={"project": "", "job": "plan_fit", "file": "plan"}).status_code == 400
+    # 번호는 쓰인 것의 최댓값 + 1 — 기록만 남은 임시 이름도 센다
+    projects.settings("임시 프로젝트 7", settings(client, first["docId"], VALUES))
+    assert start_temp(client)["task"]["project"] == "임시 프로젝트 8"
+    assert projects.is_temp(" 임시   프로젝트 3 ") and not projects.is_temp("임시 프로젝트") and not projects.is_temp("임시 프로젝트 0") and not projects.is_temp("임시 프로젝트 2 사본")
+    sample = client.post(f"/api/samples/{quote(SAMPLE.name)}?new=1").json()["docId"]   # 예제로 연 문서도 이름 없이 시작하면 임시 프로젝트
+    got = client.post(f"/api/works/{sample}/start-task", json={"project": "", "temp": True, "job": "plan_fit", "file": "plan"})
+    assert got.status_code == 200 and got.json()["task"]["project"] == "임시 프로젝트 9"
+    copied = branch(client, sample)["docId"]   # 새 라운드로 만든 작업은 안 된다(그 라운드에 묶인 것)
+    put_task(client, copied, project="", job="plan_fit")
+    assert client.post(f"/api/works/{copied}/start-task", json={"project": "", "temp": True, "job": "plan_fit", "file": "plan"}).status_code == 409
+
+
+def test_naming_a_temp_project_renames_it_or_joins_an_existing_one(client):
+    temp = start_temp(client, job="plan_to_report")
+    wid, name = temp["docId"], temp["task"]["project"]
+    mate = bare(client)
+    put_task(client, mate, project=name, file="report")   # 같은 묶음의 둘째 문서(이관의 원본 문서처럼)
+    saved = settings(client, wid, VALUES)
+    renamed = client.put(project_url(name), json={"name": "  과제 가 "})
+    assert renamed.status_code == 200, renamed.text
+    body = renamed.json()
+    assert body["name"] == "과제 가" and body["join"] is False and set(body["works"]) == {wid, mate}
+    assert body["tasks"][wid]["project"] == "과제 가" and works.work(mate)["task"]["project"] == "과제 가"
+    assert projects.get(name) is None and projects.get("과제 가")["settings"] == saved
+    # 이름 있는 프로젝트는 임시 이름 꼴로 바꾸지 못한다
+    assert client.put(project_url("과제 가"), json={"name": "임시 프로젝트 9"}).status_code == 400
+    # 이미 있는 이름이면 임시 프로젝트의 문서를 모두 그 프로젝트로(합치기는 임시 프로젝트만)
+    owner = upload(client, project="프로젝트 B")
+    newer = branch(client, owner)["docId"]   # 프로젝트 B · 이관의 최신 라운드 = 2
+    theirs = settings(client, newer, CHANGED)
+    second = start_temp(client, job="plan_to_report")
+    other = start_temp(client, job="plan_fit")   # 같은 임시 프로젝트의 다른 TASK 를 만들려고 따로 시작한 뒤 옮긴다
+    put_task(client, other["docId"], project=second["task"]["project"], job="plan_fit", round=3)
+    settings(client, second["docId"], VALUES)
+    joined = client.put(project_url(second["task"]["project"]), json={"name": "프로젝트 B"})
+    assert joined.status_code == 200, joined.text
+    body = joined.json()
+    assert body["join"] is True and set(body["works"]) == {second["docId"], other["docId"]}
+    assert works.work(second["docId"])["task"]["round"] == 2   # B 에 있는 TASK — 그 TASK 의 최신 라운드로(프로젝트 칸과 같다)
+    assert works.work(other["docId"])["task"]["round"] == 3 and works.work(other["docId"])["task"]["project"] == "프로젝트 B"   # B 에 없는 TASK — 라운드 그대로
+    assert projects.get(second["task"]["project"]) is None and projects.get("프로젝트 B")["settings"] == theirs   # B 의 구성이 이긴다
+    assert divisions(client, second["docId"])["settings"] == theirs
+    assert '"kind":"joinProject"' in log_text(second["docId"])
+    # 구성이 없는 프로젝트(새 프로젝트)로 옮기면 임시 프로젝트의 구성 · 확정 · 버전이 따라간다
+    assert client.post("/api/projects", json={"name": "빈 과제"}).status_code == 200
+    third = start_temp(client)
+    mine = settings(client, third["docId"], VALUES)
+    assert client.post(f"/api/docs/{third['docId']}/divisions/confirm", json={}).status_code == 200
+    assert client.post(f"/api/docs/{third['docId']}/divisions/versions", json={"name": "1차년도"}).status_code == 200
+    assert client.put(project_url(third["task"]["project"]), json={"name": "빈 과제"}).json()["join"] is True
+    got = projects.get("빈 과제")
+    assert got["settings"] == mine and got["confirmed"]["values"] == mine["values"] and [v["name"] for v in got["versions"]] == ["1차년도"] and "created" in got
+
+
+def test_temp_project_without_documents_is_not_kept(client):
+    moved = start_temp(client)
+    settings(client, moved["docId"], VALUES)   # 문서의 구성이 임시 프로젝트 기록으로 올라감
+    name = moved["task"]["project"]
+    assert projects.get(name) is not None
+    put_task(client, moved["docId"], project="프로젝트 A", job="plan_fit")   # 마지막 문서가 나감
+    assert projects.get(name) is None and name not in {p["name"] for p in listed(client)}
+    gone = start_temp(client)
+    settings(client, gone["docId"], VALUES)
+    assert client.delete(f"/api/works/{gone['docId']}").status_code == 200   # 마지막 문서를 지움
+    assert projects.get(gone["task"]["project"]) is None
+    kept = upload(client, project="이름 있는 과제")
+    settings(client, kept, VALUES)
+    assert client.delete(f"/api/works/{kept}").status_code == 200
+    assert projects.get("이름 있는 과제") is not None   # 이름 있는 프로젝트는 전처럼 「문서 없음」 으로 남는다
+
+
+def test_create_project_makes_an_empty_record_that_documents_can_join(client):
+    made = client.post("/api/projects", json={"name": "  새   과제 "})
+    assert made.status_code == 200 and made.json() == {"name": "새 과제"}
+    item = next(p for p in listed(client) if p["name"] == "새 과제")
+    assert item["works"] == [] and item["tasks"] == [] and item["settings"] is None and item["temp"] is False and item["versions"] == []
+    upload(client, project="프로젝트 A")
+    for bad, code in (({"name": "새 과제"}, 409), ({"name": "프로젝트 A"}, 409), ({"name": "  "}, 400), ({}, 400), ({"name": 3}, 400), ({"name": "임시 프로젝트 4"}, 400)):
+        assert client.post("/api/projects", json=bad).status_code == code, bad
+    joiner = bare(client)
+    mine = settings(client, joiner, VALUES)
+    assert put_task(client, joiner, project="새 과제")["division"] == "seeded"   # 기록은 있어도 구성이 없다 — 받은 것이 아니라 올린 것
+    assert projects.get("새 과제")["settings"] == mine and "created" in projects.get("새 과제")
+    empty = bare(client)
+    assert client.post("/api/projects", json={"name": "다른 과제"}).status_code == 200
+    assert put_task(client, empty, project="다른 과제")["division"] == "none" and divisions(client, empty)["settings"] is None
+    assert client.post(f"/api/docs/{empty}/divisions/versions", json={"name": "1차년도", "values": VALUES}).status_code == 200   # 구성 없는 기록에 버전 — 그 값이 입력이 된다
+    assert projects.get("다른 과제")["settings"]["values"] == divisions(client, empty)["settings"]["values"]
+    path = works.root() / "projects.json"
+    path.write_text("{broken", encoding="utf-8")
+    assert client.post("/api/projects", json={"name": "또 다른 과제"}).status_code == 409
+    assert path.read_text("utf-8") == "{broken"
+
+
+def test_temp_project_name_is_not_put_into_document_names():
+    task = {"kind": "rnd", "job": "plan_to_report", "file": "report", "project": "임시 프로젝트 3"}
+    assert works.shown_name("보고서.hwpx", task, "보고") == "보고서(보고).hwpx"   # 임시 이름은 안 붙임 — 이름을 정하면 그때
+    assert works.shown_name("보고서.hwpx", {**task, "project": "과제 가"}) == "보고서_과제 가.hwpx"
+    fit = {"kind": "rnd", "job": "plan_fit", "file": "plan", "project": "임시 프로젝트 3"}
+    assert works.frame_stem(fit, True) is None and works.frame_stem({**fit, "project": "과제 가"}, True) == "사업계획서_과제 가_프레임"

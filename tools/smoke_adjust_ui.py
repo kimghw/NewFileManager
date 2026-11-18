@@ -163,8 +163,8 @@ try:
         page.evaluate("() => { window.__apply0 = tpbApply; window.__applyOpt = null; window.tpbApply = async (o) => { window.__applyOpt = o || {}; return null; }; }")
         page.click('#headsOverview .hprog [data-tpb="act"]')
         page.wait_for_function("() => window.__applyOpt !== null", timeout=30000)
-        off = page.evaluate("() => ({ note: window.__applyOpt.note || '', toast: document.getElementById('toast').textContent })")
-        check("LLM 연결이 없으면: 「LLM 연결이 없습니다」 알림 + 스크립트 반영만 묻는 길로(확인 창 맨 앞 한 줄) · 요청은 안 나감", "LLM 연결이 없어 LLM 판정은 돌리지 못합니다" in off["note"] and "LLM 연결이 없습니다" in off["toast"]
+        off = page.evaluate("() => ({ note: window.__applyOpt.note || '', ask: window.__applyOpt.ask, toast: document.getElementById('toast').textContent })")
+        check("LLM 연결이 없으면: 「LLM 연결이 없습니다」 알림 + 스크립트 반영만 묻는 길로(확인 창 맨 앞 한 줄 · ask — 「모두 반영」 단추와 달리 이 길은 묻는다) · 요청은 안 나감", "LLM 연결이 없어 LLM 판정은 돌리지 못합니다" in off["note"] and off["ask"] is True and "LLM 연결이 없습니다" in off["toast"]
               and not asked and "analysis/llm" not in posts and "outline/agent/apply" not in posts, (off, asked, posts))
         page.evaluate("() => { window.tpbApply = window.__apply0; }")
 
@@ -228,6 +228,8 @@ try:
         m = page.evaluate(SNAP)
         c = m["cells"]
         check("반영: 실행 취소 1 · 문서 차례 +1 · POST …/outline/agent/apply 한 번", m["undo"] == undo0 + 1 and m["rev"] == rev0 + 1 and posts.count("outline/agent/apply") == 1, (m["undo"], undo0, m["rev"], rev0, posts))
+        check("「모두 반영」 은 확인 창 없이 바로(2026-11-18 사용자 「팝업 알림 확인 받지마」) · 끝난 알림에 실행 취소 한 번", len(asked) == 1 and "「실행 취소」 한 번" in page.evaluate("() => document.getElementById('toast').textContent"),
+              (asked, page.evaluate("() => document.getElementById('toast').textContent")))
         check("계획은 모두 반영함(done = 계획 수 — 다 맞춘 템플릿은 「정리할 템플릿」 에서 빠진다) · 대표와 다른 줄이 줄어듦", (f2["llm"]["done"], f2["llm"]["planned"]) == (need, 0) and f2["others"] < others0,
               ({k: f2["llm"][k] for k in ("need", "planned", "applied", "done", "stale")}, f2["others"], others0))
         left = [x for x in f2["llm"]["list"] if x["state"] in ("none", "stale")]   # 반영으로 새로 생긴 서식 종속 템플릿에 아직 서식이 갈린 레벨이 있으면 「나머지 받기」

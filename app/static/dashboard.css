@@ -1,0 +1,98 @@
+/* 대시보드(패널 탭 「대시보드」 #paneDash — dashboard.js · spec_작업에이전트 ② §9 · design.md §17): TASK 의 단계 흐름(묶음 › 단계 카드)과 단계마다 지금 상태 · 단추.
+   워크플로우 페이지의 「단계 흐름」(workflow.css .wf-node)과 같은 꼴 — 번호 동그라미 · 이름 · 꼬리표(스크립트 · LLM · 사람 · 문서 바뀜) · 점선 = 안 해도 되는 단계.
+   상자는 2겹까지(design.md §1-1): 패널 › 단계 카드. 묶음 머리 · 펼친 세부 · 기관 문서 줄은 테두리 없이 줄 간격 · 1px 선으로. 320px 패널에서 가로 넘침 없음(줄은 flex-wrap · 긴 글은 overflow-wrap).
+   doc_agent.css 다음에 읽힌다 — 도는 동그라미는 .ag-spin, 값 입력 폼은 doc_agent_work.css 의 .agw-form 을 그대로 쓴다. 보라 = LLM · 파랑 = 사람 · 주황 = 문서가 바뀜(design.md §6·§13). */
+
+#paneDash { padding: 10px 12px 16px; container-type: inline-size; }
+.dash { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 13px; }
+.dash .muted { color: var(--muted); }
+
+/* ---- 머리 — TASK 이름 · 끝난 수 · 도움말 · 워크플로우 링크 / 다음 할 일 한 줄 */
+.dash-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dash-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.dash-title > b { font-size: 14px; overflow-wrap: anywhere; }
+.dash-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dash-wf { margin-left: auto; color: var(--accent); font-size: 12px; text-decoration: none; white-space: nowrap; }
+.dash-wf:hover { text-decoration: underline; }
+.dash-next { margin: 0; color: #45505f; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* ---- 지금 도는 것 · 마지막 실행의 끝 · 알림 · 머리 아래 단추 */
+.dash-live { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border: 1px dashed #b8c8f0; border-radius: 6px; background: var(--accent-soft); font-size: 12px; }
+.dash-live b { font-weight: 600; overflow-wrap: anywhere; }
+.dash-live-text { flex: 1 1 140px; min-width: 0; color: #45505f; overflow-wrap: anywhere; }
+.dash-last { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ok); background: #f3faf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.dash-last.halt { border-left-color: var(--warn); background: var(--warn-soft); }
+.dash-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 8px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 12px; line-height: 1.5; }
+.dash-note > span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.dash-note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+.dash-top { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---- 묶음 — 머리(번호 알약 · 이름 · 끝난 수 · 「한 번에 진행」) + 단계 카드의 세로 흐름(↓) */
+.dash-groups, .dash-flow { list-style: none; margin: 0; padding: 0; }
+.dash-group + .dash-group { margin-top: 12px; }
+.dash-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; min-width: 0; }
+.dash-gno { flex: none; min-width: 12px; padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; white-space: nowrap; }
+.dash-gname { flex: 0 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.dash-gcount { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.dash-ghead .btn { margin-left: auto; }
+.dash-gend { margin: -2px 0 6px; padding: 2px 8px; border-left: 3px solid var(--ok); background: #f3faf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; } /* 묶음의 「한 번에 진행」 끝 · 멈춤 */
+.dash-gend.halt { border-left-color: var(--warn); background: var(--warn-soft); }
+.dash-flow > li { position: relative; }
+.dash-flow > li + li { margin-top: 14px; }
+.dash-flow > li + li::before { content: "↓"; position: absolute; top: -14px; left: 17px; color: #8a9bb5; font-size: 12px; line-height: 14px; }
+
+/* ---- 단계 카드 — 머리(단추: 번호 · 이름 + 꼬리표 · 상태 글) + 펼친 세부 */
+.dash-node { border: 1px solid #ccd5e3; border-radius: 8px; background: white; }
+.dash-node.opt { border-style: dashed; }
+.dash-node.soon { background: var(--surface-2); }
+.dash-node-head { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.dash-node-head:hover { background: #f6f9ff; }
+.dash-node-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dash-node.open { border-color: var(--accent); box-shadow: 0 0 0 2px #2458d614; } /* 편 카드 */
+.dash-no { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: #edf1f7; color: #5e718d; font-size: 11px; font-weight: 700; }
+.dash-node-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; flex: 1 1 auto; min-width: 0; }
+.dash-node-main > b { font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.dash-st { flex: none; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.dash-node[data-state="done"] .dash-no { background: #e3f3e8; color: var(--ok); }
+.dash-node[data-state="done"] .dash-st { color: var(--ok); }
+.dash-node[data-state="now"] .dash-no, .dash-node[data-state="run"] .dash-no { background: var(--accent); color: white; }
+.dash-node[data-state="now"] .dash-st, .dash-node[data-state="run"] .dash-st { color: var(--accent); font-weight: 600; }
+.dash-node[data-state="ready"] .dash-st { color: var(--accent); }
+.dash-node[data-state="hold"] .dash-st { color: var(--warn); }
+.dash-node[data-state="soon"] .dash-node-main > b { color: var(--muted); }
+
+/* 꼬리표 — 워크플로우 페이지(.wf-tag)와 같은 말 · 같은 색 */
+.dash-tags { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.dash-tag { padding: 0 5px; line-height: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; white-space: nowrap; }
+.dash-tag.dash-t-llm { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
+.dash-tag.dash-t-human { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
+.dash-tag.dash-t-doc { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.dash-tag.dash-t-soft { border-style: dashed; background: transparent; color: var(--muted); }
+
+/* 펼친 세부 — 지금 상태 글 · 단추 · 「하는 일 · 조건」(접힘). 테두리 없이 윗줄 하나 */
+.dash-detail { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px 40px; border-top: 1px solid var(--line); }
+.dash-text { margin: 0; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.dash-sub { color: var(--muted); font-size: 11px; font-weight: 600; }
+.dash-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-acts .btn, .dash-acts a.btn { max-width: 100%; }
+.dash-more > summary { color: var(--muted); font-size: 11.5px; cursor: pointer; }
+.dash-cond { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; }
+.dash-cond dt { color: var(--muted); }
+.dash-cond dd { margin: 0; overflow-wrap: anywhere; }
+.dash-detail .agw-form { margin: 0; }
+
+/* ---- 취합 3단계 — 기관 문서 줄(테두리 없이 1px 선) */
+.dash-parts { margin-top: 8px; }
+.dash-parts-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 4px; font-size: 12px; }
+.dash-parts-head .btn { margin-left: auto; }
+.dash-part-list { list-style: none; margin: 0; padding: 0; }
+.dash-part { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.dash-part-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.dash-part-top b { flex: 1 1 120px; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.dash-part .dash-no { width: 20px; height: 20px; font-size: 10.5px; }
+.dash-part[data-state="done"] .dash-st { color: var(--ok); }
+.dash-part[data-state="now"] .dash-st, .dash-part[data-state="run"] .dash-st { color: var(--accent); font-weight: 600; }
+.dash-part[data-state="hold"] .dash-st { color: var(--warn); }
+.dash-part > .dash-text, .dash-part > .dash-acts { margin-left: 28px; }
+
+@container (max-width: 360px) { .dash-detail { padding-left: 8px; } .dash-part > .dash-text, .dash-part > .dash-acts { margin-left: 0; } }

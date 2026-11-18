@@ -325,7 +325,7 @@ async function tpaRun() { // 「정리 계획 받기」 — 고친 스킬은 먼
 const tpaSkillKey = () => (typeof TPA.key === "string" && TPA.key && TPA.key !== TPA_NEW ? TPA.key : "tidy"); // 이어 돌리기(LLM 검증·보완 · 헤딩 그래프(LLM) · 계획 받기)가 쓸 스킬 — 이 열에서 고른 것(없으면 기본)
 const TPA_SFX = "abcdefghijklmnopqrstuvwxyz";
 const tpaKey = (lv, g) => `${lv.level}|${g.group}`;
-function tpaEdited() { // 이 화면에서 고르기를 에이전트가 고른 것과 다르게 바꿔 둔 계획의 템플릿 번호 | null — 「모두 반영」 의 확인 창이 알린다(tpl_plan_bar.js): 바꾼 고르기는 화면에만 있어 이 열의 「적용」 으로만 반영된다
+function tpaEdited() { // 이 화면에서 고르기를 에이전트가 고른 것과 다르게 바꿔 둔 계획의 템플릿 번호 | null — 「모두 반영」 의 끝난 알림이 알린다(tpl_plan_bar.js — 2026-11-18 부터 확인 창 없음): 바꾼 고르기는 화면에만 있어 이 열의 「적용」 으로만 반영된다
   const P = TPA.plan;
   if (!P || !P.plan || TPA.done) return null;
   for (const lv of P.plan.levels) for (const row of tpaRows(lv)) if ((TPA.choice.get(tpaKey(lv, row.g)) || row.was) !== row.was) return P.no;

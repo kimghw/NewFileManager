@@ -188,6 +188,7 @@ def styles(route):  # 보관함 목록(「서식 보관함」 단추 — 2열을
 
 VIS = "(id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; }"
 TOOL = "() => document.getElementById('panel').dataset.tool"
+DT = [["대시보드", "false"]]  # 대시보드(2026-11-18 — TASK 가 적힌 문서면 「에이전트」 다음 탭: spec_작업에이전트 ② §9)
 HT = [["헤딩 추출", "false"], ["테이블", "false"]]  # 탭 이름 「테이블」(2026-11-16 — 전의 「표」) · 2026-11-16 — 헤딩 추출 · 표는 패널 머리의 고정 탭(에이전트 · 작업 내용 다음 — spec_작업 ② §10 「둘째 줄」)
 TABS = """() => { const t = document.getElementById('toolTabs'); return [...t.querySelectorAll('[role=tab]')].filter((b) => !b.hidden && b.getClientRects().length).map((b) => [b.textContent, b.getAttribute('aria-selected')]); }"""
 CARDS = """() => [...document.querySelectorAll('#paneAgent .ag-card')].map((c) => { const a = c.querySelector('[data-ag-act=apply]'), q = (s) => [...c.querySelectorAll(s)].map((e) => e.textContent);
@@ -549,20 +550,20 @@ try:
         open_work(page, g)
         page.wait_for_function("() => AGENT.loaded && document.querySelectorAll('#paneAgent .ag-card').length === 5")
         check("일반 문서 작업 — 열면 에이전트 보기 · 「에이전트」 탭(고름) · 「작업 내용」 탭 없음 · 묶음은 접힘", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.evaluate(VIS, "tabAgent")
-              and not page.evaluate(VIS, "toolTabTask") and page.evaluate(TABS) == [["에이전트", "true"], *HT] and page.input_value("#panelTask") == "general"
+              and not page.evaluate(VIS, "toolTabTask") and page.evaluate(TABS) == [["에이전트", "true"], *DT, *HT] and page.input_value("#panelTask") == "general"
               and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
         cs = page.evaluate(CARDS)
         check("원본 문서 정책(apply: false) — 「원본 문서 — 제안은 보기만」 · 반영 단추 꺼짐 · 미리보기는 됨", page.inner_text("#paneAgent .ag-policy") == "원본 문서 — 제안은 보기만" and all(c["off"] for c in cs)
               and page.is_enabled("#paneAgent .ag-card[data-prop=p1] [data-ag-act=preview]"), [(c["prop"], c["off"]) for c in cs])
         page.click("#toolMore")
-        check("펼치기 — 오른쪽에 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘) · 기억(nfm.toolMore)", page.evaluate(TABS) == [["에이전트", "true"], *HT, ["검증", "false"], ["PDF", "false"], ["기록", "false"]]
+        check("펼치기 — 오른쪽에 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘) · 기억(nfm.toolMore)", page.evaluate(TABS) == [["에이전트", "true"], *DT, *HT, ["검증", "false"], ["PDF", "false"], ["기록", "false"]]
               and page.get_attribute("#toolMore", "aria-expanded") == "true" and page.evaluate("() => localStorage.getItem('nfm.toolMore')") == "1", page.evaluate(TABS))
         page.click("#tabVerify")
-        check("다른 도구(검증)를 보면 「에이전트」 가 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["에이전트", "false"], *HT, ["검증", "true"], ["PDF", "false"], ["기록", "false"]], page.evaluate(TABS))
+        check("다른 도구(검증)를 보면 「에이전트」 가 풀림", page.evaluate(TOOL) == "Verify" and page.evaluate(TABS) == [["에이전트", "false"], *DT, *HT, ["검증", "true"], ["PDF", "false"], ["기록", "false"]], page.evaluate(TABS))
         page.click("#toolMore")
-        check("접기 — 묶음에서 고른 「검증」 하나만 남음", page.evaluate(TABS) == [["에이전트", "false"], *HT, ["검증", "true"]] and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
+        check("접기 — 묶음에서 고른 「검증」 하나만 남음", page.evaluate(TABS) == [["에이전트", "false"], *DT, *HT, ["검증", "true"]] and page.get_attribute("#toolMore", "aria-expanded") == "false", page.evaluate(TABS))
         page.click("#tabAgent")
-        check("「에이전트」 를 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TABS) == [["에이전트", "true"], *HT], page.evaluate(TABS))
+        check("「에이전트」 를 누르면 에이전트 보기로(대화 그대로)", page.evaluate(TOOL) == "Agent" and page.locator("#paneAgent .ag-card").count() == 5 and page.evaluate(TABS) == [["에이전트", "true"], *DT, *HT], page.evaluate(TABS))
         check("일반 문서 작업에는 구분 기준 내용(작업 내용 Div)이 안 열린다", page.evaluate("() => { showTab('Div'); return document.getElementById('panel').dataset.tool; }") == "Agent")
         # ---- 10-1. 서식 복사 제안(type styleCopy — spec_서식복사 ② §6): 원본 문서(반영 금지)에서도 「보관함에 저장」 은 된다 · 문서는 안 바뀜 · 저장 뒤 서식마다 검증 꼬리표 · 「서식 관리자에서 보기」
         page.evaluate("""(tbl) => { AGENT.turns.push({ id: 't9', at: Date.now() / 1000, text: '이 문서의 서식을 저장해 줘', reply: '저장할 서식을 골랐습니다.', notes: [], error: null, dropped: [], call: {}, calls: 1,

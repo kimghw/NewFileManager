@@ -294,7 +294,9 @@ try:
         page.wait_for_function("(w) => state.id === w && document.getElementById('panel').dataset.tool === 'Div' && !!document.querySelector('#paneDiv select[data-task=job]')", arg=wid, timeout=60000)
         page.wait_for_function("() => state.task.job === 'plan_fit' && worksList.some((w) => w.id === state.id && (w.task || {}).job === 'plan_fit')", timeout=30000)
         t = page.evaluate(TASK)
-        check("그 TASK 로 열림 — 작업 종류 연구개발과제 · 할 일 · 양식 판정이 못 정한 종류는 그 TASK 의 문서", t["task"] == {"kind": "rnd", "file": "plan", "job": "plan_fit", "project": ""}, t["task"])
+        check("그 TASK 로 열림 — 작업 종류 연구개발과제 · 할 일 · 양식 판정이 못 정한 종류는 그 TASK 의 문서 · 이름 없이 시작 → 임시 프로젝트(② §17 「임시 프로젝트」) 라운드 1",
+              {k: v for k, v in t["task"].items() if k not in ("project", "round")} == {"kind": "rnd", "file": "plan", "job": "plan_fit"}
+              and t["task"]["project"].startswith("임시 프로젝트 ") and t["task"].get("round") == 1 and "임시 이름" in t["toast"], t["task"])
         check("작업 내용(연구개발과제 패널)이 열리고 「할 일」 칸이 그 TASK", t["tool"] == "Div" and t["pane"] and t["job"] == "plan_fit", t)
         check("「이어서」 — 알림에 TASK 이름(고른 뒤라 「새 작업으로 열기」 단추는 없음)", "이어서 엽니다" in t["toast"] and "사업계획서 양식 맞추기" in t["toast"] and "새 작업으로 열기" not in t["toast"], t["toast"])
         saved = next((w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid), {})
@@ -319,7 +321,8 @@ try:
         new_id = t["id"]
         note = page.evaluate("() => window.__toasts.map((x) => x.m).filter((m) => m.includes('새 작업으로 열었습니다')).pop()")
         check("「새 작업으로 시작」 — 새 작업이 고른 TASK 로(작업 내용이 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
-        check("알림 — 하던 작업은 그대로 · 새 작업의 TASK · 프로젝트 미지정(칸을 비움)", note.endswith("TASK 「사업계획서 취합」 · 프로젝트 미지정") and t["task"]["project"] == ""
+        check("알림 — 하던 작업은 그대로 · 새 작업의 TASK · 임시 프로젝트(칸을 비움 — ② §17 「임시 프로젝트」)", "TASK 「사업계획서 취합」 · 프로젝트 「임시 프로젝트 " in note and "임시 이름" in note
+              and t["task"]["project"].startswith("임시 프로젝트 ")
               and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
         check("앞 작업의 TASK 는 그대로", next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]["job"] == "plan_fit")
         page.evaluate("() => { toast = window.__toast0; }")
@@ -425,6 +428,10 @@ try:
         check("과제 이름 적음(PUT …/task)", r.ok and r.json()["task"]["project"] == "시험 과제", r.text[:200])
         with (ROOT / "samples" / "기술수요조사서.docx").open("rb") as f:  # TASK 없는 작업 하나(국가R&D 양식이 아니라 짐작도 없음)
             plain = requests.post(f"{base}/api/docs?new=1", files={"file": ("기술수요조사서.docx", f)}, timeout=120).json()["docId"]
+        # 이름 없이 TASK 를 시작하면 이제 임시 프로젝트다(② §17) — 「프로젝트 이름 없음」 줄(옛 작업 · 프로젝트 칸을 비운 작업)을 보려고 이어 연 작업의 프로젝트를 비운다
+        r = requests.put(f"{base}/api/works/{wid}/task", json={"kind": "rnd", "file": "plan", "job": "plan_fit", "project": ""}, timeout=10)
+        check("프로젝트 비움(PUT …/task) — 문서가 다 빠진 임시 프로젝트는 남지 않음", r.ok and r.json()["task"]["project"] == ""
+              and not any(x["works"] == [] and x["temp"] for x in requests.get(f"{base}/api/projects", timeout=10).json()["projects"]), r.text[:200])
         page.evaluate("() => loadWorks()")
         page.wait_for_function("(p) => !!document.querySelector(`#workList .recent-work-open[title$='작업 ${p}']`)", arg=plain, timeout=30000)
         ROWS = """() => [...document.querySelectorAll('#workList .recent-work-open')].map((b) => { const q = (s) => b.querySelector(s), tx = (s) => (q(s) || {}).textContent || '', lg = q('.task-logo'), u = lg && lg.querySelector('use');
@@ -455,7 +462,7 @@ try:
         dlg = page.evaluate("""() => [...document.querySelectorAll('#workListDlg .work-open')].map((b) => ({ name: b.querySelector('.work-name').textContent, task: b.querySelector('.work-task').textContent,
             tagH: Math.max(...[...b.querySelectorAll('.vtag, .recent-task')].map((x) => Math.round(x.getBoundingClientRect().height))) }))""")
         check("작업 목록 창에도 프로젝트 · TASK · 라운드 · 역할 줄", any(x["task"] == "프로젝트 「시험 과제」사업계획서 → 연차보고서 이관Round 1 · 사업계획서" for x in dlg) and any(x["task"] == "TASK 없음" for x in dlg)
-              and any(x["task"] == "프로젝트 미지정사업계획서 취합Round 1 · 취합본" for x in dlg), dlg)
+              and any(x["task"].startswith("프로젝트 「임시 프로젝트 ") and x["task"].endswith("」사업계획서 취합Round 1 · 취합본") for x in dlg), dlg)
         check("작업 목록 창 — 표지(검증 · TASK) 높이 24px 이하(빈 목록 줄의 여백이 안 붙음)", all(x["tagH"] <= 24 for x in dlg), [x["tagH"] for x in dlg])
         page.screenshot(path=str(OUT / "7_recent_dialog.png"))
         page.evaluate("() => document.getElementById('worksDlg').close()")

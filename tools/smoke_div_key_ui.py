@@ -163,12 +163,41 @@ try:
         page.click("#fileFold")
         check("파일명 줄 폄 — 설명 다시", page.evaluate(KEY)["shown"])
 
+        # ---- 6b. 그 구분만 또렷이(② §11 「그 구분만 또렷이」, 2026-11-18): 칩 = 단추 — 누르면 그 구분에 든 문단은 그대로 · 나머지 문단은 흐리게(감추지 않음) · 다시 누르면 풀림
+        ONLY = """(k) => { const doc = document.getElementById('doc'), paras = [...doc.querySelectorAll('.para[data-id]')], vis = (e) => e.getClientRects().length > 0;
+          const want = (p) => { const e = dv.marks.index.get(p.dataset.id); return !!e && e.dims.includes(k); }, op = (p) => +getComputedStyle(p).opacity;
+          const hits = paras.filter((p) => p.classList.contains('dv-hit'));
+          return { cls: doc.classList.contains('dv-only'), hits: hits.length, want: paras.filter(want).length, wrong: paras.filter((p) => p.classList.contains('dv-hit') !== want(p)).length,
+                   hitOp: hits.slice(0, 50).every((p) => op(p) === 1), dimOp: paras.filter((p) => !p.classList.contains('dv-hit') && p !== document.activeElement).slice(0, 50).every((p) => Math.abs(op(p) - 0.42) < 0.01),
+                   allVis: [...doc.querySelectorAll(':scope > .sheet')].every(vis) && paras.filter((p) => !vis(p)).length === 0,
+                   pressed: [...document.querySelectorAll('#divKey .dv-chip')].filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.dv),
+                   tags: [...document.querySelectorAll('#divKey .dv-chip')].every((c) => c.tagName === 'BUTTON') }; }"""
+        a, b = dims[0], dims[-1]
+        page.click(f'#divKey .dv-chip[data-dv="{b}"]')
+        o = page.evaluate(ONLY, b)
+        check(f"칩 「{NAMES[b]}」 누름 → 그 구분에 든 문단만 또렷이(빠짐·남음 없음) · 나머지 흐리게 0.42 · 감춘 것 없음 · 칩 눌림",
+              o["cls"] and o["tags"] and o["hits"] == o["want"] > 0 and o["wrong"] == 0 and o["hitOp"] and o["dimOp"] and o["allVis"] and o["pressed"] == [b], o)
+        page.screenshot(path=str(OUT / "6b_only.png"))
+        page.click(f'#divKey .dv-chip[data-dv="{a}"]')
+        o = page.evaluate(ONLY, a)
+        check(f"다른 칩 「{NAMES[a]}」 → 그 구분으로 바뀜(한 번에 하나)", o["cls"] and o["wrong"] == 0 and o["hits"] == o["want"] > 0 and o["pressed"] == [a], o)
+        page.evaluate("() => paginate()")  # 쪽을 다시 나누면(편집) 문단 요소가 새것 — 표지를 다시
+        o = page.evaluate(ONLY, a)
+        check("쪽을 다시 나눠도 그대로", o["cls"] and o["wrong"] == 0 and o["hits"] == o["want"] > 0, o)
+        page.click(f'#divKey .dv-chip[data-dv="{a}"]')
+        o = page.evaluate(ONLY, a)
+        check("같은 칩 다시 → 풀림(흐린 문단 없음 · 눌림 없음 · 색은 그대로)", not o["cls"] and o["hits"] == 0 and not o["pressed"]
+              and page.evaluate("() => document.querySelectorAll('#doc .para.dv-in').length") > 0, o)
+        page.click(f'#divKey .dv-chip[data-dv="{b}"]')  # 켠 채로 「감추기」 — 아래 7 에서 함께 풀리는지
+
         # ---- 7. 「감추기」 — 색·설명 함께 사라지고 카드 단추는 「보기」 · 기억
         page.click("#divKey .dv-key-off")
         k = page.evaluate(KEY)
         check("「감추기」 → 문단 색 없음 · 설명 없음 · 「편집 중」 다시 · 카드 단추 「보기」 · 기억(off)", not k["shown"] and not k["has"] and k["mode"]
               and page.evaluate("() => document.querySelectorAll('#doc .para.dv-in').length") == 0 and page.inner_text("#divMarksBar .dv-marks-toggle").strip() == "보기"
               and page.evaluate("() => localStorage.getItem('nfm.divMarks')") == "off", k)
+        o = page.evaluate(ONLY, b)
+        check("「그 구분만 또렷이」 중 「감추기」 → 함께 풀림", not o["cls"] and o["hits"] == 0 and page.evaluate("() => dv.marks.only") is None, o)
         page.click("#divMarksBar .dv-marks-toggle")
         page.wait_for_function("() => document.querySelectorAll('#doc .para.dv-in').length > 0", timeout=60000)
         check("카드에서 다시 「보기」 → 설명 다시", page.evaluate(KEY)["shown"] and len(page.evaluate(KEY)["chips"]) == len(dims))

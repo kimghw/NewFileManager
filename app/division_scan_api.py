@@ -132,8 +132,8 @@ def scan_post(doc_id: str, body: dict = Body(default={})):
 # ---- 「구분 기준 자리 표시」 에 보탤 판독(② §23 「표시」) ----------------------------------------------------------------------
 
 def reads(e, orgs=None, stages=None):
-    """판독 항목 → 「구분 기준 자리 표시」 의 보탬 [{kind: label|table, dim, dimName, value, src, inGroup, table?, paras[문단 id], text?}] —
-    엔진 묶음의 라벨이 아닌 괄호 줄(pattern · name) + 표 안 귀속(표·값마다 한 줄). 엔진 묶음은 members 의 groups 가 그대로 낸다."""
+    """판독 항목 → 「구분 기준 자리 표시」 의 보탬 [{kind: label|scope|table, dim, dimName, value, src, inGroup, table?, paras[문단 id], text?}] —
+    엔진 묶음의 라벨이 아닌 괄호 줄(pattern · name) + 기관 이름 줄(nameLine — 그 줄은 label · 그 아래 내용은 scope) + 표 안 귀속(표·값마다 한 줄). 엔진 묶음은 members 의 groups 가 그대로 낸다."""
     if not e:
         return []
     r = e["result"]
@@ -143,8 +143,11 @@ def reads(e, orgs=None, stages=None):
     for x in r.get("extra") or ():
         if x["src"] == "name" and not names:
             continue
-        out.append({"kind": "label", "dim": x["dim"], "dimName": rnd.DIM_NAME.get(x["dim"], x["dim"]), "value": names.get(x.get("value"), x.get("value") or ""),
-                    "src": x["src"], "inGroup": bool(x.get("inGroup")), "paras": [x["para"]], "text": x.get("text") or ""})
+        row = {"kind": "label", "dim": x["dim"], "dimName": rnd.DIM_NAME.get(x["dim"], x["dim"]), "value": names.get(x.get("value"), x.get("value") or ""),
+               "src": x["src"], "inGroup": bool(x.get("inGroup")), "paras": [x["para"]], "text": x.get("text") or ""}
+        out.append(row)
+        if x.get("paras"):   # 기관 이름 줄(nameLine)의 자리 — 그 줄 아래의 내용(표 칸의 문단까지): 라벨 줄이 아닌 「자리 안」 으로
+            out.append({**row, "kind": "scope", "paras": list(x["paras"])})
     groups = {}
 
     def add(tid, dim, value, paras):

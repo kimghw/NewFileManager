@@ -35,6 +35,9 @@
   파일 번호 = spine 순서를 유지, manifest item·spine itemref 추가, secCnt 갱신. 새 구역 첫 문단 첫 런에 `hp:ctrl/hp:colPr` +
   `hp:secPr` 사본을 넣는다(방향만 바꾸려면 `pagePr landscape` WIDELY↔NARROWLY). 섹션 파일마다 secPr 는 하나.
   @rhwp/core 렌더로 확인(연구계획서_공동2: 163→165쪽, 그 자리에 가로 쪽) — 한글 실물은 미검증. 구현 `app/wide_pages.py`.
+- **구역은 새 쪽에서 시작한다**(2026-11-18 한글 PDF 실측 — 사용자 연구계획서 210쪽: section4 = `landscape="NARROWLY"` 빈 줄 + 글자처럼 그림 하나 → PDF 69쪽 혼자, 앞 구역 끝은 68쪽 · 다음 구역 첫 글은 70쪽).
+  가로 구역의 첫 블록이 빈 줄·그림뿐이면 PDF 쪽 맨 위 글로 쪽을 맞추는 매핑에는 그 쪽의 나눔이 없다(쪽 표지 blank) — 쪽 나눔을 구역 경계로도 세워야 한다(app.js `paginate` `newSec`).
+  `NARROWLY` 의 width/height 는 세로 기준으로 적힌 값이다(59528 × 84188 그대로 → 보이는 쪽은 297 × 210mm). Word 는 다르다 — `w:sectPr/w:type continuous` 구역은 같은 쪽에 잇는다([DOCX_포맷.md](DOCX_포맷.md)).
 - 그림 바이너리는 `BinData/imageN.ext`. 목록은 **`Contents/content.hpf` manifest 에만** 있다
   (`<opf:item id="imageN" href="BinData/imageN.png" media-type="image/png" isEmbeded="1"/>`, 철자 `isEmbeded`).
   `META-INF/manifest.xml` 은 빈 요소, header.xml 에 binData 목록 없음.

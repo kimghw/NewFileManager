@@ -66,6 +66,65 @@ def test_name_labels_need_values_a_whole_line_and_a_single_current_org():
     assert DS.scan(blocks, None, _vals())["extra"] == []                           # 귀속 값이 없으면 이름 라벨 없음
 
 
+# ---- 기관 이름 줄(② §23 「기관 이름 줄」 — 사용자 2026-11-18 「o 랩오투원」 이 기관으로 식별이 안 됨) -----------------------------
+
+def _t(tid, *cells):
+    return {"id": tid, "type": "table", "nRows": 1, "nCols": len(cells),
+            "cells": [{"id": f"{tid}c{i}", "row": 0, "col": i, "rowSpan": 1, "colSpan": 1, "text": t, "blocks": [_p(f"{tid}c{i}p", t)]} for i, t in enumerate(cells)]}
+
+
+def _lines(r):
+    return [(x["run"], x["para"], x["value"], x["scope"]) for x in r["extra"] if x["src"] == "nameLine"]
+
+
+def _vals3():
+    return core.norm_values({"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대", "다라"]}})
+
+
+def test_name_lines_are_sibling_bullets_that_only_name_an_org_each_with_content_below():
+    blocks = [_p("h", " 5-4. 경제적 성과 창출계획"), _p("a", "  o 가나대"), _t("ta", "매출", "1"), _p("b", "  o 다라"), _t("tb", "매출", "2"), _p("e", ""),
+              _p("n", "  (2) 본 과제를 통한 투자 계획"), _p("a2", "  o 가나대 "), _t("ta2", "투자", "1"), _p("b2", "  o 다라"), _t("tb2", "투자", "2"), _p("x", "  (3) 사업화 전략")]
+    r = DS.scan(blocks, _vals3(), None)
+    assert _lines(r) == [(1, "a", "가나대", ["ta"]), (1, "b", "다라", ["tb"]), (2, "a2", "가나대", ["ta2"]), (2, "b2", "다라", ["tb2"])]   # 번호 꼴 줄 · 같은 기관이 다시 나오면 새 묶음 · 끝의 빈 줄은 뗀다
+    assert r["counts"]["nameLine"] == 4 and all(x["known"] and x["dim"] == core.ORG and x["basis"] == "기관" for x in r["extra"] if x["src"] == "nameLine")
+    assert [x for x in r["extra"] if x["para"] == "a"][0]["paras"] == ["tac0p", "tac1p"]            # 자리 안의 문단(표 칸의 문단까지 — 표시가 쓴다)
+    assert r["labels"]["a"][0]["src"] == "nameLine" and "scope" not in r["labels"]["a"][0]         # 라벨 근거에는 범위를 싣지 않는다(헤딩 고정에 그대로 간다)
+    assert r["_best"]["ta"]["org"] == (2, ("org", "가나대", None)) and r["_best"]["b2"]["org"][1][1] == "다라"   # 구성의 이름이면 편집 구역의 귀속 근거
+    assert len(r["_groups"]) == len(core.find(blocks, __import__("app.division_profiles.rnd", fromlist=["levels_of"]).levels_of(blocks), _vals3()))   # 엔진은 그대로
+
+
+def test_name_lines_need_two_different_orgs_and_some_content():
+    one = [_p("a", "o 가나대"), _t("ta", "x"), _p("z", "o 그 밖의 줄"), _t("tz", "y")]
+    assert _lines(DS.scan(one, _vals3(), None)) == []                                                # 하나뿐 — 같은 글머리의 이름 아닌 줄이 묶음을 끊는다
+    bare = [_p("h", "참여 기관"), _p("a", "o 가나대"), _p("b", "o 다라"), _p("c", "o 인텍"), _p("n", "(2) 다음")]
+    assert _lines(DS.scan(bare, _vals3(), None)) == []                                               # 이름만 나열한 목록(아래에 내용이 없다) — 기관 자리가 아니다
+    more = [_p("a", "o 가나대 연구 내용"), _t("ta", "x"), _p("b", "o 다라"), _t("tb", "y")]
+    assert _lines(DS.scan(more, _vals3(), None)) == []                                               # 이름 뒤에 글이 더 있는 줄은 이름 줄이 아니다
+    mixed = [_p("a", "o 가나대"), _t("ta", "x"), _p("b", "- 다라"), _t("tb", "y")]
+    assert _lines(DS.scan(mixed, _vals3(), None)) == []                                              # 글머리가 다르면 형제가 아니다(안쪽 줄)
+
+
+def test_name_line_scope_keeps_inner_bullets_and_the_last_one_stops_at_an_unseen_kind():
+    blocks = [_p("a", "o 가나대"), _p("a1", "- 매출 계획"), _t("ta", "x"), _p("b", "o 다라"), _p("b1", "- 매출 계획"), _t("tb", "y"), _p("tail", "위 계획은 협약 뒤 조정할 수 있다."), _p("n", "(2) 다음")]
+    assert _lines(DS.scan(blocks, _vals3(), None)) == [(1, "a", "가나대", ["a1", "ta"]), (1, "b", "다라", ["b1", "tb"])]   # 앞 줄에 없던 종류(보통 글)에서 끝난다 — 뒤의 절 글을 삼키지 않는다
+    cut = [_p("a", "o 가나대"), _t("ta", "x"), _p("s", "[1차년도 목표]"), _p("b", "o 다라"), _t("tb", "y")]
+    assert _lines(DS.scan(cut, _vals3(), None)) == []                                                # 괄호 줄이 사이에 있으면 끊는다
+
+
+def test_name_lines_read_the_documents_own_org_names_when_there_are_no_values():
+    blocks = [_p("l0", "[주관연구개발기관(인텍)]"), _p("l1", "[공동연구개발기관1(가나대)]"), _p("l2", "[공동연구개발기관2(다라)]"), _p("h", " 5-4. 경제적 성과"),
+              _p("a", "o 가나대"), _t("ta", "x"), _p("b", "o 다라"), _t("tb", "y")]
+    assert sorted(DS.doc_org_keys(blocks)) == ["가나대", "다라", "인텍"]
+    r = DS.scan(blocks, None, _vals())
+    assert [(x[1], x[2]) for x in _lines(r)] == [("a", "가나대"), ("b", "다라")] and not any(x["known"] for x in r["extra"] if x["src"] == "nameLine")
+    assert r["_best"] == {} and r["_values"] is None                                                 # 구성이 없으면 식별만 — 편집 구역의 귀속 근거는 아니다
+    e = {"result": r}
+    rows = [x for x in DSA.reads(e) if x["src"] == "nameLine"]
+    assert [(x["kind"], x["paras"], x["value"]) for x in rows] == [("label", ["a"], "가나대"), ("scope", ["tac0p"], "가나대"), ("label", ["b"], "다라"), ("scope", ["tbc0p"], "다라")]
+    assert all(not x["inGroup"] and x["dimName"] == "기관" for x in rows)                            # 판독만(가는 띠) — 그 줄은 라벨 · 아래 내용은 자리 안
+    assert _lines(DS.scan(blocks[3:], None, _vals())) == []                                          # 문서에 기관 이름이 없으면 명단이 없다
+
+
 def _nd(nid, para, letter, typ, kind="label", text=""):
     return {"id": nid, "para": para, "letter": letter, "type": typ, "kind": kind, "text": text}
 

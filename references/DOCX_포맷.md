@@ -104,6 +104,9 @@
   요소 하나만 가로 쪽으로: 앞에 원래 sectPr 사본을 단 빈 문단, 뒤에 `pgSz` w/h 교환 + `w:orient="landscape"`·`w:type` 없음
   (= 새 쪽) 사본을 단 빈 문단 — 그 뒤 내용은 원래 구역 sectPr 이 계속 맡는다. `w:` 접두로 만든 문단은 lxml 이 문서의
   기존 xmlns 선언을 재사용한다(`ns0:` 생기지 않음).
+- 구역의 시작 방식: 그 구역 sectPr 의 `w:type w:val` — `nextPage`(없을 때 기본 · 새 쪽) · `continuous`(앞 구역과 같은 쪽에 이어서) · `evenPage`·`oddPage`(짝·홀 쪽부터).
+  `w:type` 은 **그 sectPr 가 맡는 구역**이 어떻게 시작하는지다(앞 구역과의 경계). python-docx `add_section(WD_SECTION.CONTINUOUS)` 가 새 구역에 `continuous` 를 단다(2026-11-18 `tests/test_docx_layout_sections.py`).
+  한글의 구역은 이런 값 없이 늘 새 쪽이다([HWPX_포맷.md](HWPX_포맷.md)).
 - 표 크기: 열 너비 `w:tblGrid/w:gridCol w:w`(트윕) — 칸 너비 = 걸친 gridCol 합, 행 높이 `w:trPr/w:trHeight w:val`(+ `hRule` exact/atLeast),
   표 정렬 `w:tblPr/w:jc`. `w:trHeight` 가 없는 행은 Word 가 내용 높이로 정한다(자동) — 한글 `cellSz` 처럼 모든 행에 값이 있지 않으므로 행 높이를
   같게·맞출 때는 값이 있는 행만 기준이 된다(2026-11-01 매직 브러쉬 DOCX). 기술수요조사서.docx 는 20행 중 6행만 trHeight(라벨 행). python-docx

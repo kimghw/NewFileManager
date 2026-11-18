@@ -39,6 +39,27 @@ def normalize_name(value):
     return " ".join(value.split())[:60]
 
 
+# ---- 임시 프로젝트(spec_작업 ② §17 「임시 프로젝트」 — 2026-11-18 사용자 "파일을 올릴 때 프로젝트 이름을 넣지 않으면 임시이름을 넣어주고 프로젝트 명을 입력하면 그때 이름을 바꿔주는 식으로") ----
+# 이름이 곧 표시다(따로 기록하지 않는다) — 「임시 프로젝트 N」. 화면 app/static/project_workspace.js PROJECT_TEMP_RE 와 같은 꼴.
+TEMP_PREFIX = "임시 프로젝트 "
+TEMP_RE = works.TEMP_PROJECT_RE   # 원본은 works(보이는 이름이 임시 이름을 안 붙인다 — works 가 projects 를 가져다 쓸 수 없어 거기 둔다)
+
+
+def is_temp(name):
+    """「임시 프로젝트 N」 꼴의 이름인가(정규화한 뒤)."""
+    return isinstance(name, str) and bool(TEMP_RE.fullmatch(" ".join(name.split())))
+
+
+def temp_name(rows=None):
+    """다음 임시 이름 — 작업의 프로젝트 이름과 projects.json 기록에 쓰인 임시 번호의 **최댓값 + 1**(번호 차례가 올린 차례와 같다 · 비어 있는 작은 번호를 메우지 않는다).
+    기록만 남은 임시 이름도 쓰인 것으로 센다 — 그 이름을 다시 주면 옛 프로젝트 구성을 물려받는다. ROUND_LOCK 안에서 부르고 바로 적는다."""
+    used = {group_key(w.get("task"))[0] for w in (works.list_works() if rows is None else rows)}
+    with _LOCK:
+        used |= set(_read()["projects"]) if _path() is not None else set()
+    numbers = [int(n[len(TEMP_PREFIX):]) for n in used if is_temp(n)]
+    return f"{TEMP_PREFIX}{max(numbers, default=0) + 1}"
+
+
 def round_of(task):
     value = (task or {}).get("round", 1)
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 1
@@ -78,10 +99,11 @@ def _read():
         if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("projects"), dict):
             raise ValueError("지원하지 않는 저장 형식")
         for name, record in data["projects"].items():
-            if not isinstance(name, str) or not isinstance(record, dict) or not isinstance(record.get("settings"), dict):
+            if not isinstance(name, str) or not isinstance(record, dict):
                 raise ValueError("프로젝트 설정 형식 오류")
-            settings = record["settings"]
-            if settings.get("schemaVersion") != 1 or not isinstance(settings.get("profileId"), str) or not isinstance(settings.get("values"), dict):
+            settings = record.get("settings")   # 없어도 된다 — 「새 프로젝트」 로 만든 문서·구성 없는 프로젝트(spec_작업 ② §17 「새 프로젝트」)
+            if settings is not None and (not isinstance(settings, dict) or settings.get("schemaVersion") != 1
+                                         or not isinstance(settings.get("profileId"), str) or not isinstance(settings.get("values"), dict)):
                 raise ValueError("프로젝트 구성 설정 형식 오류")
             if record.get("confirmed") is not None and not isinstance(record["confirmed"], dict):   # 1단계 확정(spec_작업 ② §18) — 없어도 된다
                 raise ValueError("프로젝트 구성 확정 형식 오류")
@@ -107,12 +129,12 @@ def settings(name, value=None, *, seed=False):
     with _LOCK:
         data = _read()
         old = data["projects"].get(name)
-        if value is not None and (not seed or old is None):
-            if old is None or old["settings"] != value:
+        if value is not None and (not seed or old is None or old.get("settings") is None):   # 구성 없는 기록(새 프로젝트)에도 문서의 값으로 시작한다
+            if old is None or old.get("settings") != value:
                 old = {**(old or {}), "settings": copy.deepcopy(value), "updated": time.time()}   # 확정(confirmed)은 남긴다 — 맞는지는 hash 로 따진다(② §18)
                 data["projects"][name] = old
                 works._write_json(_path(), data)
-        return copy.deepcopy(old["settings"]) if old else None
+        return copy.deepcopy(old.get("settings")) if old else None
 
 
 def confirm(name, settings):
@@ -198,7 +220,10 @@ def version_save(name, title, settings, *, replace=False):
             while not item["id"] or item["id"] in used:
                 item["id"] = secrets.token_hex(4)
             rows.append(item)
-        data["projects"][name] = {**(record or {"settings": copy.deepcopy(settings)}), "versions": rows, "updated": now}
+        base = dict(record or {})
+        if base.get("settings") is None:   # 기록이 없거나 구성 없는 기록(새 프로젝트) — 버전의 값을 그 프로젝트의 입력으로
+            base["settings"] = copy.deepcopy(settings)
+        data["projects"][name] = {**base, "versions": rows, "updated": now}
         works._write_json(_path(), data)
         return copy.deepcopy(item)
 
@@ -243,7 +268,7 @@ def listing():
             entries.append({"job": job, "round": number, "latest": latest,
                             "status": "in_progress" if latest else "previous", "docId": main["id"],
                             "works": [w["id"] for w in members]})
-        result.append({"name": name, "settings": copy.deepcopy(record.get("settings")),
+        result.append({"name": name, "temp": is_temp(name), "settings": copy.deepcopy(record.get("settings")),
                        "confirmed": copy.deepcopy(record["confirmed"]) if isinstance(record.get("confirmed"), dict) else None,   # 1단계 확정(② §18)
                        "versions": [{k: copy.deepcopy(v[k]) for k in ("id", "name", "at", "values")} for v in record.get("versions") or []],   # 구분 기준 버전(② §19)
                        "updated": max([record.get("updated", 0), *(w.get("updated", 0) for members in tasks.values() for w in members)]),
@@ -261,6 +286,38 @@ def rename(old, new):
             return False
         record["updated"] = time.time()
         data["projects"][new] = record
+        works._write_json(_path(), data)
+        return True
+
+
+def create(name):
+    """「새 프로젝트」(spec_작업 ② §17) — 문서·구성 없는 기록 {created, updated} 을 만든다. 이미 기록이 있으면 False(부르는 쪽이 작업의 이름까지 보고 409).
+    저장 파일이 깨졌으면 ValueError(덮지 않는다)."""
+    name = normalize_name(name)
+    if not name or _path() is None:
+        return False
+    with _LOCK:
+        data = _read()
+        if name in data["projects"]:
+            return False
+        now = time.time()
+        data["projects"][name] = {"created": now, "updated": now}
+        works._write_json(_path(), data)
+        return True
+
+
+def absorb(src, dst):
+    """임시 프로젝트를 이미 있는 프로젝트로 옮길 때(spec_작업 ② §17 「임시 프로젝트」) — src 의 기록을 지운다. dst 에 구성이 없으면(기록 없음 · 새 프로젝트)
+    src 의 구성 · 확정 · 버전을 dst 로 옮겨 붙이고, 있으면 dst 것을 그대로 둔다(문서들은 다음 맞춤에서 dst 의 구성을 받는다). → src 기록이 있었나."""
+    with _LOCK:
+        data = _read()
+        record = data["projects"].pop(src, None)
+        if record is None:
+            return False
+        cur = data["projects"].get(dst)
+        if record.get("settings") is not None and (cur is None or cur.get("settings") is None):
+            carry = {k: copy.deepcopy(record[k]) for k in ("settings", "confirmed", "versions") if k in record}
+            data["projects"][dst] = {**(cur or {}), **carry, "updated": time.time()}
         works._write_json(_path(), data)
         return True
 

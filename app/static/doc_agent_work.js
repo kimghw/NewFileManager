@@ -433,12 +433,14 @@ function agwTags(a) {
   return box;
 }
 
-function agwConfigForm(t) { // 질문 카드 — 프로젝트 구성 폼(단계 수 · 단계마다 차년도 수 · 주관 · 공동 · 당해 차년도). 처음 값 = 지금 입력 값(dv.values — 문서에서 읽었으면 그 값)
-  const W = agw(), v = dv.values ? divValues() : { stages: [1], orgs: { lead: "", joint: [] } };
+function agwConfigForm(t, on = {}) { // 질문 카드 — 프로젝트 구성 폼(단계 수 · 단계마다 차년도 수 · 주관 · 공동 · 당해 차년도). 처음 값 = 지금 입력 값(dv.values — 문서에서 읽었으면 그 값)
+  // on = 다른 보기가 같은 폼을 쓸 때(대시보드 dashboard.js — t.id "dash"): draw() 다시 그리기 · ok(값) 확정. 없으면 에이전트 대화(agentDrawTalk · agentWorkConfig)
+  const draw = on.draw || (() => agentDrawTalk()), done = on.ok || ((x) => agentWorkConfig(t.id, x));
+  const W = agw(), v =dv.values ? divValues() : { stages: [1], orgs: { lead: "", joint: [] } };
   if (!W.form || W.form.turn !== t.id) W.form = { turn: t.id, stages: [...v.stages], lead: v.orgs.lead || "", joint: (v.orgs.joint || []).join("\n"), current: v.current || 1 };
   const F = W.form, box = el("div", "agw-form"), row = (label, ...kids) => { const r = el("label", "agw-row"); r.append(el("span", "agw-lab", label), ...kids); box.append(r); return r; };
   const num = (value, min, max, aria, on) => { const i = el("input"); i.type = "number"; i.min = min; i.max = max; i.value = value; i.setAttribute("aria-label", aria); i.oninput = () => on(Math.max(min, Math.min(max, Number(i.value) || min))); return i; };
-  const stages = num(F.stages.length, 1, 10, "단계 수", (n) => { F.stages = Array.from({ length: n }, (_, i) => F.stages[i] || 1); agentDrawTalk(); });
+  const stages = num(F.stages.length, 1, 10, "단계 수", (n) => { F.stages = Array.from({ length: n }, (_, i) => F.stages[i] || 1); draw(); });
   stages.dataset.agw = "stages";
   stages.onchange = stages.oninput; stages.oninput = null; // 단계 수를 바꾸면 차년도 칸이 다시 그려진다 — 타자 중에는 그리지 않는다
   row("단계 수", stages).classList.add("num");
@@ -452,12 +454,12 @@ function agwConfigForm(t) { // 질문 카드 — 프로젝트 구성 폼(단계 
   const cur = num(F.current, 1, 20, "당해 차년도", (x) => { F.current = x; }); cur.dataset.agw = "current";
   row("당해 차년도", cur, el("span", "agw-ylab", "차년도")).classList.add("num");
   const acts = el("div", "ag-acts");
-  const read = hBtn("문서에서 읽기", async () => { read.disabled = true; await agwExec("config_read"); W.form = null; agentDrawTalk(); }, { title: "문서에 적힌 단계 · 차년도 · 기관을 읽어 이 폼에 채웁니다 — 확정은 「이 값으로 확정」" });
+  const read = hBtn("문서에서 읽기", async () => { read.disabled = true; await agwExec("config_read"); W.form = null; draw(); }, { title: "문서에 적힌 단계 · 차년도 · 기관을 읽어 이 폼에 채웁니다 — 확정은 「이 값으로 확정」" });
   read.dataset.agw = "read";
   const ok = hBtn("이 값으로 확정", () => {
     const total = F.stages.reduce((s, n) => s + n, 0);
     if (!F.lead.trim()) { toast("주관기관 이름을 적어 주세요", true); lead.focus(); return; }
-    agentWorkConfig(t.id, { stages: [...F.stages], lead: F.lead.trim(), joint: F.joint.split("\n").map((x) => x.trim()).filter(Boolean), current: Math.min(F.current, total) });
+    done({ stages: [...F.stages], lead: F.lead.trim(), joint: F.joint.split("\n").map((x) => x.trim()).filter(Boolean), current: Math.min(F.current, total) });
   }, { cls: "btn sm primary", title: "이 값을 프로젝트 구성으로 저장(확정)합니다 — 문서는 바뀌지 않습니다" });
   ok.dataset.agw = "confirm";
   acts.append(ok, read);

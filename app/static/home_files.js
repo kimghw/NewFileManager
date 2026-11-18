@@ -89,7 +89,8 @@ function homeFilesDraw() {
   clear.onclick = () => { hf.files = []; hf.target = -1; hf.aliases = new WeakMap(); hf.err = ""; homeFilesDraw(); $("pickBtn").focus(); };
   head.append(h, hHelp("문서 목록 안내", "파일을 고르거나 놓으면 여기에 모입니다(아직 서버에 올리지 않음 — 새로 고치면 사라집니다).\n"
     + "목적 문서(내용을 받는 문서)를 고르고, 필요하면 문서마다 약칭을 적은 뒤 아래 TASK 카드를 누르세요. 파일이 하나면 목적 문서로 자동 선택합니다.\n"
-    + "약칭은 문서 이름 뒤에 「(약칭)」 으로 붙습니다. 프로젝트 이름을 적으면 그 프로젝트의 TASK 다음 라운드로 시작합니다."), clear);
+    + "약칭은 문서 이름 뒤에 「(약칭)」 으로 붙습니다. 프로젝트 이름을 적으면 그 프로젝트의 TASK 다음 라운드로 시작합니다.\n"
+    + "프로젝트 이름을 비우면 임시 이름(임시 프로젝트 N)으로 함께 올린 문서를 묶습니다 — 연 뒤 「작업 내용」 의 프로젝트 칸에 이름을 적으면 바뀝니다."), clear);
   const tgt = hf.files[ti], n = hf.files.length - (tgt ? 1 : 0);
   const cap = el("p", "hf-cap", tgt ? `목적 문서 「${tgt.name}」${n ? ` · 원본 문서 ${n}개` : ""} — 아래 TASK 카드를 누르면 시작합니다` : "목적 문서(내용을 받는 문서)를 하나 고르세요 — 그 뒤 아래 TASK 카드를 누릅니다.");
   const rows = el("div", "hf-rows");
@@ -143,19 +144,20 @@ function homeFilesDraw() {
     line.append(al, shown);
     row.append(line);
   });
-  const opts = el("div", "hf-opts"), pl = el("label", "hf-project"), pin = el("input"), dl = el("datalist");
-  dl.id = "homeFilesProjects";
-  for (const p of hfProjects()) dl.append(new Option(p));
+  const opts = el("div", "hf-opts"), pl = el("label", "hf-project"), pin = el("input");
   pin.type = "text";
   pin.maxLength = 60;
   pin.value = hf.project;
-  pin.placeholder = "프로젝트 이름(선택)";
-  pin.setAttribute("list", dl.id);
+  pin.placeholder = "비우면 임시 이름";
   pin.disabled = busy;
   pin.dataset.hfFocus = "project";
-  pin.title = "적으면 목적 문서가 그 프로젝트의 TASK 다음 라운드로 시작합니다 — 이관에 사업계획서까지 함께 시작하려면 필요(두 문서를 같은 프로젝트로 묶음)";
+  // 비우면 서버가 임시 이름(「임시 프로젝트 N」)을 붙여 올린 문서들을 한 프로젝트로 묶는다 — 이름은 연 뒤에 정한다(② §17 「임시 프로젝트」, 2026-11-18)
+  pin.title = "적으면 목적 문서가 그 프로젝트의 TASK 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 내용의 프로젝트 칸에 이름을 적으면 바뀝니다";
   pin.oninput = () => { hf.project = pin.value; };
-  pl.append(el("span", null, "프로젝트"), pin, dl);
+  // 고르기 목록 — 작업 내용의 프로젝트 칸과 같은 도우미(project_workspace.js projectComboAttach — 「새 프로젝트」 로 만든 문서 없는 프로젝트도 보인다). 고르면 그 이름을 적어 둔다(저장은 TASK 카드를 누를 때)
+  if (typeof projectComboAttach === "function") projectComboAttach(pin, { list: "homeFilesProjectList", commit: () => { hf.project = pin.value; } });
+  else { const dl = el("datalist"); dl.id = "homeFilesProjects"; for (const p of hfProjects()) dl.append(new Option(p)); pin.setAttribute("list", dl.id); pl.append(dl); }
+  pl.prepend(el("span", null, "프로젝트"), pin);
   const check = (text, key, title, off) => {
     const lab = el("label", "hf-check"), cb = el("input");
     cb.type = "checkbox";
@@ -278,10 +280,17 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
   const note = { use: "같은 파일로 하던 작업을 이어서 엽니다", reset: "작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다", new: "같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다" }[got.act] || "";
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
   const cur = { ...blank, ...state.task }, role = cat.target || cur.file || cat.file; // 목적 문서 종류: 이관 = 연차보고서 · 취합 = 취합본 · 양식 맞추기 = 양식 판정(못 정하면 그 TASK 의 문서)
+  let temp = "";
   if (state.stored) {
-    const res = project && !cur.project
-      ? await api(`/api/works/${r.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project, job, file: role }) }) // 그 프로젝트의 그 TASK 다음 라운드(② §17)
-      : await api(`/api/works/${r.docId}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...cur, kind: taskKindOf(job), job, file: role }) }); // 작업 종류는 TASK 가 정한다(task_catalog.js — 「문서 일반 편집」 = 일반 문서)
+    const put = () => api(`/api/works/${r.docId}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...cur, kind: taskKindOf(job), job, file: role }) }); // 작업 종류는 TASK 가 정한다(task_catalog.js — 「문서 일반 편집」 = 일반 문서)
+    let res;
+    if (cur.project) res = await put(); // 프로젝트에 든 작업을 이어 엶 — 그 프로젝트 그대로
+    else {
+      // 그 프로젝트의 그 TASK 다음 라운드(② §17) — 이름을 비웠으면 서버가 임시 이름(「임시 프로젝트 N」 — ② §17 「임시 프로젝트」, 2026-11-18: 전에는 프로젝트 없이 문서마다 따로 보였다)
+      try { res = await api(`/api/works/${r.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify(project ? { project, job, file: role } : { project: "", temp: true, job, file: role }) }); }
+      catch (e) { if (project || e.status !== 409) throw e; res = await put(); } // 새로 올린 문서가 아닌 작업(새 라운드로 만든 것 등) — 이름을 안 적었으면 전처럼 프로젝트 없이
+      if (res.temp) temp = (res.task || {}).project || "";
+    }
     if (state.id === r.docId) state.task = res.task;
     if (alias) { // 별칭을 못 적어도 TASK 는 시작한다(서버가 별칭 끝점을 모르는 옛 서버일 때 등) — 알림만
       try { await api(`/api/works/${r.docId}/alias`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ alias }) }); }
@@ -301,7 +310,8 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
   if (state.id !== r.docId) throw new Error("그 사이 다른 문서를 열었습니다");
   if (fresh) firstRun(); // 새 작업 — 첫 분석(② §9)
   taskEnter(job); // 그 TASK 가 처음 여는 보기(app.js — 보통 작업 내용 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
-  return { id: r.docId, task: state.task, note };
+  const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 「작업 내용」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
+  return { id: r.docId, task: state.task, note: [note, named].filter(Boolean).join("\n") };
 }
 
 async function hfAddSource(main, file, role, alias = "") { // 이관의 원본 문서(사업계획서) — 늘 새 작업으로 올려 같은 프로젝트·TASK·라운드의 그 종류로 적는다(첨부 파일 칸이 저절로 잇는다 — ② §11)
@@ -345,8 +355,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   } else if (t.files) {
     if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return; }
     if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return; }
-    if (others.length && !project) { ask(`${taskName("file", sourceRole)}까지 함께 시작하려면 프로젝트 이름이 필요합니다 — 두 문서를 같은 프로젝트로 묶습니다`, "[data-hf-focus=project]"); return; }
-    use = others;
+    use = others; // 프로젝트 이름을 비워도 된다 — 임시 이름으로 두 문서를 같은 프로젝트에 묶는다(② §17 「임시 프로젝트」 · 2026-11-18 전에는 이름을 적어야 시작했다)
   } else if (others.length && !confirm(`TASK 「${t.name}」 은 목적 문서 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return;
   if (!confirmDiscard()) return;
   const card = document.querySelector(`#taskCards [data-task="${job}"]`);
@@ -364,6 +373,10 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
       hfBusy("");
       if (!state.id) refreshSaveState();
       return false;
+    }
+    if (sourceRole && use.length && !(main.task || {}).project) { // 프로젝트로 묶이지 않음(작업 저장이 꺼짐 · 새로 올린 문서가 아닌 작업을 이어 엶) — 원본 문서는 묶을 곳이 없어 목록에 남긴다
+      toast(`${taskName("file", sourceRole)} 「${use[0].name}」 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 내용의 첨부 파일 칸에서 올리세요)`, true);
+      use = [];
     }
     hfUsed([target, ...use]);
     if (main.note) toast(main.note);

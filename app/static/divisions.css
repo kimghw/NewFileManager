@@ -1,76 +1,83 @@
 /* 구분 기준: 단계·기관 설정과 검토 행동을 분리한 문서 도구 패널. */
 /* 패널 안쪽 여백 = 12px(design.md §1-2 「카드·섹션 좌우 ≤ 12px」 — 헤딩 추출 패널 #paneHeads 와 같은 값). 2026-11-12 사용자 "사이드 패널에 필요 없는 여백이 있음": 전에는 .pane 의 16px 20px 24px 그대로라
    카드 바깥 회색 띠만 좌우 20px(카드 테두리·안쪽 여백까지 한쪽 31px) · 카드 사이 14px */
-#paneDiv { container-type: inline-size; background: #f6f8fc; padding: 12px 12px 16px; }
-#divBox { color: #1e293b; font-size: 13px; line-height: 1.55; display: flex; flex-direction: column; gap: 10px; }
+#paneDiv { container-type: inline-size; background: #f6f8fc; padding: 10px 12px 16px; }
+#divBox { color: #1e293b; font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
 #divBox *, #divBox *::before, #divBox *::after { box-sizing: border-box; }
 #divBox h3, #divBox p { margin: 0; }
-#divBox .dv-caption { color: #64748b; font-size: 12px; line-height: 1.6; font-weight: 400; overflow-wrap: anywhere; }
-#divBox .dv-profile { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; border: 1px solid #dfe5ee; border-bottom: 0; border-radius: 8px 8px 0 0; background: #fff; }
+#divBox .panel-help { width: 22px; height: 22px; color: #64748b; flex: none; }
+#divBox .dv-caption { color: #64748b; font-size: 12px; line-height: 1.5; font-weight: 400; overflow-wrap: anywhere; }
+#divBox .dv-profile { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px 8px; border: 1px solid #dfe5ee; border-bottom: 0; border-radius: 8px 8px 0 0; background: #fff; }
 #divBox .dv-profile-copy { min-width: 0; }
-#divBox .dv-profile-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
-#divBox .dv-profile-title strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-profile-title { display: flex; align-items: center; gap: 6px; min-height: 24px; min-width: 0; }
+#divBox .dv-profile-title strong { min-width: 0; font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #divBox .dv-profile-title .panel-help { flex: none; }
-#divBox .dv-tag { display: inline-flex; align-items: center; flex-shrink: 0; border-radius: 5px; padding: 3px 7px; background: #e9eef5; color: #536278; font-size: 11px; font-weight: 600; line-height: 1.5; }
+#divBox .dv-tag { display: inline-flex; align-items: center; flex-shrink: 0; border: 0; border-radius: 5px; padding: 2px 7px; background: #eef2f7; color: #475569; font-size: 11px; font-weight: 600; line-height: 1.5; }
 #divBox .dv-tag.is-ready { color: #16734d; background: #e8f5ed; }
 #divBox .dv-tag.is-warning, #divBox .dv-count.is-warning { color: #9a5b0c; background: #fff2dc; }
-#divBox .dv-config { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+#divBox .dv-config { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 #divBox .dv-config:disabled { opacity: .65; }
-#divBox .dv-card { padding: 20px; border: 1px solid #dfe5ee; border-radius: 12px; background: #fff; box-shadow: 0 2px 5px #253b6010; }
-#divBox .dv-section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 17px; flex-wrap: wrap; }
-#divBox .dv-section-copy { flex: 1; min-width: 130px; }
-#divBox .dv-section-copy h3 { font-size: 15px; font-weight: 700; line-height: 1.5; margin-bottom: 3px; }
-#divBox .dv-step { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; background: #edf2ff; color: #315fd3; border-radius: 8px; font-size: 12px; font-weight: 700; }
-#divBox .dv-count { font-size: 11px; font-weight: 600; white-space: nowrap; padding: 4px 8px; background: #f0f3f8; border-radius: 6px; color: #51627b; margin-top: 2px; }
-#divBox .dv-stage-list, #divBox .dv-org-list { display: grid; gap: 8px; }
-#divBox .dv-stage-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #f7f9fc; border: 1px solid #e8ecf3; border-radius: 8px; }
-#divBox .dv-stage-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
-#divBox .dv-stage-copy strong { font-size: 13px; font-weight: 600; }
-#divBox .dv-stage-range { font-size: 12px; color: #64748b; }
-#divBox .dv-year-field { display: flex; align-items: center; gap: 8px; color: #64748b; flex-shrink: 0; }
-#divBox input:not([type="checkbox"]), #divBox select { min-width: 0; height: 38px; border: 1px solid #ccd5e2; border-radius: 7px; background: #fff; color: #24334b; padding: 7px 10px; font: inherit; box-shadow: 0 1px 2px #1d355705; }
+#divBox .dv-card { padding: 10px 12px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; box-shadow: none; }
+#divBox .dv-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+#divBox .dv-section-copy { flex: 1; min-width: 110px; }
+#divBox .dv-section-copy h3 { font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; margin: 0; display: inline-flex; align-items: center; gap: 5px; }
+#divBox .dv-card[data-dv] .dv-section-copy h3::before, #divBox .dv-field[data-dv] .dv-field-label label::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
+#divBox .dv-field[data-dv] .dv-field-label label { display: inline-flex; align-items: center; gap: 5px; }
+#divBox .dv-step { display: none; }
+#divBox .dv-count { font-size: 12px; font-weight: 400; white-space: nowrap; padding: 0; background: none; border-radius: 0; color: #64748b; margin: 0 0 0 auto; }
+#divBox .dv-count.is-warning { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+#divBox .dv-stage-list, #divBox .dv-org-list { display: grid; gap: 0; }
+#divBox .dv-stage-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; background: none; border: 0; border-top: 1px solid #eef2f7; border-radius: 0; }
+#divBox .dv-stage-row:first-child { border-top: 0; padding-top: 0; }
+#divBox .dv-stage-copy { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+#divBox .dv-stage-copy strong { font-size: 12.5px; font-weight: 600; color: #1e293b; }
+#divBox .dv-stage-range { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #64748b; }
+#divBox .dv-stage-range::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dvc-year); }
+#divBox .dv-year-field { display: flex; align-items: center; gap: 5px; color: #64748b; font-size: 12px; flex-shrink: 0; }
+#divBox input:not([type="checkbox"]), #divBox select { min-width: 0; height: 28px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b; padding: 0 8px; font: inherit; font-size: 12px; box-shadow: none; }
 #divBox input::placeholder { color: #8a96a8; }
-#divBox input:focus-visible, #divBox select:focus-visible, #divBox button:focus-visible, #divBox summary:focus-visible { outline: 3px solid #8babf7; outline-offset: 2px; }
-#divBox .dv-year-field input { width: 66px; text-align: center; font-weight: 600; padding-right: 5px; }
-#divBox .btn { min-height: 34px; border-radius: 7px; font-size: 12px; padding: 7px 12px; white-space: normal; }
+#divBox input:focus-visible, #divBox select:focus-visible, #divBox button:focus-visible, #divBox summary:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
+#divBox .dv-year-field input { width: calc(2ch + 20px); text-align: center; font-weight: 600; padding: 0 4px; }
+#divBox .btn { height: 28px; min-height: 28px; border-radius: 6px; font-size: 12px; padding: 0 10px; white-space: nowrap; }
 #divBox .dv-read { flex-shrink: 0; background: #fff; }
-#divBox .dv-remove { display: grid; place-items: center; background: transparent; color: #8a96a8; border: 0; width: 28px; height: 32px; border-radius: 5px; font-size: 20px; cursor: pointer; flex-shrink: 0; }
+#divBox .dv-remove { display: grid; place-items: center; background: transparent; color: #8a96a8; border: 0; width: 24px; height: 24px; border-radius: 5px; font-size: 16px; cursor: pointer; flex-shrink: 0; margin-left: auto; }
 #divBox .dv-remove:hover { color: #b63b40; background: #fff0f0; }
-#divBox .dv-add { width: 100%; margin-top: 10px; background: #fff; border: 1px dashed #c7d3e5; color: #3e67bb; min-height: 36px; }
+#divBox .dv-add { width: 100%; margin-top: 6px; background: #fff; border: 1px dashed #c7d3e5; color: #3e67bb; height: 28px; min-height: 28px; }
 #divBox .dv-add:hover { background: #f3f6ff; border-color: #7296e6; }
-#divBox .dv-org-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e8ecf3; border-radius: 8px; background: #fafbfd; }
-#divBox .dv-org-field { min-width: 0; display: flex; align-items: center; gap: 8px; }
+#divBox .dv-org-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 6px; padding: 5px 0; border: 0; border-top: 1px solid #eef2f7; border-radius: 0; background: none; }
+#divBox .dv-org-row:first-child { border-top: 0; padding-top: 0; }
+#divBox .dv-org-field { min-width: 0; display: flex; align-items: center; gap: 6px; }
 #divBox .dv-org-role { color: #64748b; font-size: 11px; font-weight: 600; width: 26px; flex-shrink: 0; white-space: nowrap; }
-#divBox .dv-org-row > .dv-remove { width: 24px; }
+#divBox .dv-org-row > .dv-remove { width: 24px; margin-left: 0; }
 #divBox .dv-org-role.is-lead { color: #315fd3; }
 #divBox .dv-org-field input { width: 100%; }
-#divBox .dv-nonprofit { display: flex; align-items: center; gap: 5px; color: #64748b; font-size: 12px; white-space: nowrap; cursor: pointer; }
-#divBox input[type="checkbox"] { accent-color: #315fd3; width: 15px; height: 15px; margin: 0; }
-#divBox .dv-hint { margin-top: 10px; font-size: 11px; }
-#divBox .dv-field-error, #divBox .dv-notice { color: #9a5b0c; font-size: 12px; padding-top: 9px; }
+#divBox .dv-nonprofit { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; white-space: nowrap; cursor: pointer; }
+#divBox input[type="checkbox"] { accent-color: #315fd3; width: 14px; height: 14px; margin: 0; }
+#divBox .dv-hint { margin-top: 6px; font-size: 11px; }
+#divBox .dv-field-error, #divBox .dv-notice { color: #9a5b0c; font-size: 12px; padding-top: 6px; }
 #divBox .dv-field-error[hidden] { display: none; }
 #divBox .dv-disclosure { border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; overflow: hidden; }
-#divBox .dv-disclosure summary { display: flex; align-items: center; gap: 6px; min-height: 34px; list-style: none; cursor: pointer; padding: 6px 10px; }
+#divBox .dv-disclosure summary { display: flex; align-items: center; gap: 6px; min-height: 28px; list-style: none; cursor: pointer; padding: 4px 10px; }
 #divBox .dv-disclosure summary::-webkit-details-marker { display: none; }
-#divBox .dv-disclosure summary strong { font-size: 12px; white-space: nowrap; }
+#divBox .dv-disclosure summary strong { font-size: 12.5px; font-weight: 600; color: #1e293b; white-space: nowrap; }
 #divBox .dv-disclosure summary .dv-caption { font-size: 11px; }
-#divBox .dv-chevron { margin-left: auto; font-size: 18px; color: #70809a; line-height: 1; }
+#divBox .dv-chevron { margin-left: auto; font-size: 16px; color: #70809a; line-height: 1; }
 #divBox .dv-disclosure[open] .dv-chevron { transform: rotate(180deg); }
 #divBox .dv-disclosure[open] summary { border-bottom: 1px solid #edf0f5; }
 #divBox .dv-extra-fields { padding: 8px 10px; display: grid; gap: 6px; }
-#divBox .dv-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #475569; font-weight: 500; min-width: 0; }
+#divBox .dv-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569; font-weight: 500; min-width: 0; }
 #divBox .dv-field input, #divBox .dv-field select { width: 100%; }
 #divBox .dv-extra-fields > .dv-field { display: grid; grid-template-columns: 148px minmax(0, 1fr); align-items: center; gap: 6px; }
 #divBox .dv-extra-fields .dv-field-label { gap: 4px; }
 #divBox .dv-extra-fields .dv-field-label label { min-width: 0; word-break: keep-all; }
-#divBox .dv-extra-fields input, #divBox .dv-extra-fields select { height: 28px; padding: 3px 6px; border-radius: 6px; font-size: 12px; }
+#divBox .dv-extra-fields input, #divBox .dv-extra-fields select { height: 28px; padding: 0 6px; border-radius: 6px; font-size: 12px; }
 #divBox .dv-field small { font-size: 11px; }
 #divBox .dv-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 2px; }
 #divBox .dv-date-fields .dv-field { gap: 4px; }
 /* 저장한 과제 구성(spec_구분_기준 ② §8, 2026-11-11) — 설정 맨 위 두 줄(고르기·불러오기 / 상태·저장·⋯), ⋯ 로 셋째 줄 · 이름 입력·삭제 확인은 인라인 줄. design.md §1(패딩 ≤ 12px, 상자 2겹, 컨트롤 28px) */
-#divBox .dv-presets { display: grid; gap: 8px; padding: 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
+#divBox .dv-presets { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
 #divBox .dv-presets .dv-preset-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-#divBox .dv-presets select, #divBox .dv-presets input { flex: 1; width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .dv-presets select, #divBox .dv-presets input { flex: 1; width: 0; height: 28px; padding: 0 8px; font-size: 12px; text-overflow: ellipsis; }
 #divBox .dv-presets .btn { height: 28px; min-height: 28px; padding: 0 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 #divBox .dv-presets .dv-more { width: 28px; padding: 0; font-size: 14px; line-height: 1; }
 #divBox .dv-presets .dv-more.on { background: #edf2ff; color: #315fd3; border-color: #b9cbf2; }
@@ -78,87 +85,88 @@
 #divBox .dv-preset-status .dv-preset-name { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #divBox .dv-preset-status .dv-caption { flex-basis: 100%; }
 #divBox .dv-preset-status .dv-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-#divBox .dv-preset-save { padding-top: 8px; border-top: 1px solid #edf0f5; }
+#divBox .dv-preset-save { padding-top: 6px; border-top: 1px solid #edf0f5; }
 #divBox .dv-preset-extra { flex-wrap: wrap; }
 #divBox .dv-preset-extra .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 #divBox .dv-preset-note { font-size: 11px; color: #9a5b0c; }
 #divBox .dv-preset-note:empty { display: none; }
 #divBox .dv-delete { color: #ae4b52; border-color: transparent; background: transparent; }
-#divBox .dv-applied { border: 1px solid #e0e6ef; border-radius: 8px; padding: 8px 10px; background: #eef2f8; }
-#divBox .dv-applied-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-#divBox .dv-applied-head:last-child { margin-bottom: 0; }
-#divBox .dv-applied-head h3 { font-size: 12px; font-weight: 600; margin-right: auto; }
-#divBox .dv-applied-values { font-size: 12px; color: #465974; margin-bottom: 4px; overflow-wrap: anywhere; }
-#divBox .dv-plan-note { color: #76613a; font-size: 11px; margin-top: 7px; }
-#divBox .dv-undo { margin-top: 10px; background: #fff; font-size: 11px; }
+#divBox .dv-applied { border: 1px solid #dfe5ee; border-radius: 8px; padding: 10px 12px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
+#divBox .dv-applied-head { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-height: 24px; }
+#divBox .dv-applied-head h3 { order: 0; font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; }
+#divBox .dv-applied-head .panel-help { order: 1; }
+#divBox .dv-applied-head .dv-tag { order: 2; margin-left: auto; }
+#divBox .dv-applied-values { font-size: 12px; color: #465974; overflow-wrap: anywhere; }
+#divBox .dv-plan-note { color: #76613a; font-size: 12px; }
+#divBox .dv-undo { align-self: flex-start; background: #fff; font-size: 12px; }
 /* 실행 묶음 #divRunBar(app.js divRunBar·divRunSync — spec_구분_기준 ② §22 · design.md §11 「차례가 있는 단추는 한 묶음에」, 2026-11-13 사용자 "이 메뉴를 순차적으로 누를 수 있게 붙어 있어야지"):
-   머리 줄(이름 · 노트 · 「한 번에 진행」 · 지금 값 요약) / 차례 줄(「① 변경 계획 보기 › ② 반영」 + 「계획 다시 열기」 — 좁으면 열기가 다음 줄로) / 상태 한 줄. 패널 맨 위(첫 카드 다음) — 붙박이 아님.
+   머리 줄(이름 · 노트 · 지금 값 요약 · 「한 번에 진행」) / 차례 줄(「① 변경 계획 보기 › ② 반영」 + 「계획 다시 열기」 — 좁으면 열기가 다음 줄로) / 상태 한 줄. 패널 맨 위(첫 카드 다음) — 붙박이 아님.
    단추 28px · 왼쪽부터 붙임(design.md §1-3·§1-4). 강조(.primary)는 다음 할 일 하나 — app.js 가 옮긴다 */
-#divBox .dv-run { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+#divBox .dv-run { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
 #divBox .dv-run-head, #divBox .dv-run-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-#divBox .dv-run-head strong { font-size: 12px; font-weight: 600; white-space: nowrap; }
-#divBox .dv-run-values { min-width: 0; font-size: 11px; color: #718098; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-run-head { min-height: 28px; gap: 5px; }
+#divBox .dv-run-head strong { order: 0; font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; white-space: nowrap; }
+#divBox .dv-run-head .panel-help { order: 1; }
+#divBox .dv-run-values { order: 2; margin-left: auto; min-width: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-run[data-staged="1"] .dv-run-values { order: 0; margin-left: 0; }
+#divBox .dv-run-head #divRunAll { order: 3; margin-left: 2px; }
 #divBox .dv-run-head .btn, #divBox .dv-run-steps .btn, #divBox .dv-run-load .btn { flex: none; height: 28px; min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; } /* 묶음의 제 단추만 — 「세부」 안으로 들어온 구성 입력의 단추는 제 모양 그대로 */
-#divBox .dv-run-head .btn:disabled, #divBox .dv-run-steps .btn:disabled, #divBox .dv-run-load .btn:disabled { opacity: .5; }
+#divBox .dv-run-head .btn:disabled, #divBox .dv-run-steps .btn:disabled, #divBox .dv-run-load .btn:disabled { opacity: .45; }
 /* 묶음 없는 TASK 의 카드 하나(app.js divRunFold — spec_구분_기준 ② §22 「카드 하나」, 2026-11-14 사용자 "이거 합치고 … 한번에 진행, 불러오기 2개 메뉴가 있고, 다른 것은 접혀있어야 하고"):
    머리 줄(「한 번에 진행」) / 불러오기 줄(고르기 목록 + 「불러오기」) / 상태 한 줄 / 접어 둔 「세부」(차례 줄 ① › ② · 확정·저장 · 단계·차년도 · 기관 구성 · 추가 설정 — 묶음 안 입력 꼴 .dv-phase-form). 상자를 더 두르지 않는다(design.md §1-1) */
 #divBox .dv-run-load { display: flex; align-items: center; gap: 6px; min-width: 0; }
-#divBox .dv-run-load select { flex: 1; width: 0; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .dv-run-load select { flex: 1; width: 0; min-width: 0; height: 28px; padding: 0 8px; font-size: 12px; text-overflow: ellipsis; }
 #divBox .dv-run-more { min-width: 0; padding-top: 6px; border-top: 1px solid #edf0f5; }
-#divBox .dv-run-more > summary { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 22px; cursor: pointer; list-style: none; color: #475569; font-size: 12px; }
+#divBox .dv-run-more > summary { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 24px; cursor: pointer; list-style: none; color: #334155; font-size: 12px; }
 #divBox .dv-run-more > summary::-webkit-details-marker { display: none; }
 #divBox .dv-run-more > summary::before { content: "▸"; flex: none; width: 10px; color: #64748b; font-size: 11px; }
 #divBox .dv-run-more[open] > summary::before { content: "▾"; }
 #divBox .dv-run-more > summary strong { font-weight: 600; white-space: nowrap; }
-#divBox .dv-run-more > summary .dv-caption { min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#divBox .dv-run-more > summary .dv-caption { min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #divBox .dv-run-more-body { margin-top: 6px; }
 #divBox .dv-run-arrow { flex: none; color: #94a3b8; font-size: 13px; line-height: 1; }
-#divBox .dv-run-reopen { color: #475569; }
-#divBox .dv-run-state { min-width: 0; margin: 0; font-size: 11px; line-height: 1.5; color: #475569; overflow-wrap: anywhere; }
+#divBox .dv-run-reopen { color: #475569; margin-left: auto; }
+#divBox .dv-run-state { min-width: 0; margin: 0; font-size: 11px; line-height: 1.5; color: #64748b; word-break: keep-all; overflow-wrap: anywhere; } /* 낱말 안에서 꺾지 않는다(「세 / 부」) — 한 줄에 안 드는 낱말만 꺾임 */
 #divBox .dv-run-state[data-kind="run"] { color: var(--accent); }
 #divBox .dv-run-state[data-kind="halt"] { color: var(--warn); }
 #divBox .dv-run-state[data-kind="done"] { color: #16734d; }
 #divBox .dv-run.dv-run-flash { animation: dv-run-flash 1.4s ease-out 1; } /* 2열 발의 「… 단추로 이동」 — 어디로 왔는지 한 번 보인다 */
 @keyframes dv-run-flash { from { box-shadow: 0 0 0 3px #2d5be366; } to { box-shadow: 0 0 0 3px #2d5be300; } }
-@container (max-width: 520px) {
-  #divBox .dv-card { padding: 17px 15px; }
-  #divBox .dv-nonprofit { min-height: 38px; }
-  #divBox .dv-remove { height: 38px; }
-  #divBox .dv-disclosure summary { flex-wrap: wrap; gap: 4px 6px; }
-  #divBox .dv-disclosure summary .dv-caption { order: 3; flex-basis: 100%; }
+@container (max-width: 400px) {
+  #divBox .dv-run-values { display: none; } /* 좁으면 값 요약은 감춘다 — 위 첫 카드의 프로젝트 구성 줄·아래 입력에 있다(줄 수를 아낀다) */
+  #divBox .dv-run-head #divRunAll { margin-left: auto; }
 }
 @container (max-width: 350px) {
   #divBox .dv-profile { flex-direction: column; align-items: stretch; }
   #divBox .dv-date-fields { grid-template-columns: 1fr; }
   #divBox .dv-date-fields .dv-field { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 6px; }
-  #divBox .dv-card { padding: 14px 12px; }
-  #divBox .dv-section-head { gap: 8px; }
-  #divBox .dv-count { margin-left: 36px; }
-  #divBox .dv-stage-row { padding: 10px; gap: 6px; }
-  #divBox .dv-stage-copy { flex-direction: column; gap: 1px; }
-  #divBox .dv-run-values { display: none; } /* 좁으면 값 요약은 감춘다 — 위 첫 카드의 프로젝트 구성 줄·아래 입력에 있다(줄 수를 아낀다) */
+  #divBox .dv-extra-fields > .dv-field { grid-template-columns: 112px minmax(0, 1fr); }
+  #divBox .dv-run-reopen { margin-left: 0; }
 }
 
 /* ---- 문서 표시 · 추가한 자리(spec_구분_기준 ② §11, 2026-11-10) ----
    탭 맨 위 줄(.dv-marks)·범례(.dv-chip)·떠 있는 입력(.dv-pop)·2열 LLM 결과(.dv-llm-last). 문서 쪽 색은 아래 .para 규칙 — :where() 로 우선순위를 0 으로 낮춰
    .para.edited(고친 문단)·.para:hover·:focus 의 바탕이 이긴다(상태 표시가 더 중요). 색 = 구분별 변수(--dv-bg·--dv-line), 라벨 문단은 진한 바탕 + 왼쪽 띠(배경 그림). */
-#divBox .dv-marks { border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+#divBox .dv-marks { border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 #divBox .dv-marks.on { border-color: #c5d3ed; }
 #divBox .dv-marks .btn, #divBox .dv-profile .btn { height: 28px; min-height: 28px; padding: 0 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
-#divBox .dv-marks-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#divBox .dv-marks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 #divBox .dv-marks-copy { display: flex; align-items: center; gap: 5px; min-width: 0; }
-#divBox .dv-marks-copy strong { font-size: 12.5px; }
+#divBox .dv-marks-copy strong { font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; }
 #divBox .dv-marks-toggle { min-width: 52px; flex-shrink: 0; }
-#divBox .dv-marks-toggle.on { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
+#divBox .dv-marks-toggle.on { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); font-weight: 600; }
 #divBox .dv-legend { display: flex; flex-wrap: wrap; gap: 5px; }
 #divBox .dv-marks-note { font-size: 11px; }
-#divBox .dv-marks-acts { display: flex; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid #edf0f5; }
-#divBox .dv-marks-acts .dv-marks-reload { margin-left: auto; color: #64748b; border-color: transparent; background: transparent; }
+#divBox .dv-marks-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid #edf0f5; }
+#divBox .dv-marks-acts .dv-marks-reload { margin-left: auto; color: #475569; border-color: #d8e0ec; background: #fff; }
+#divBox .dv-marks-acts .dv-marks-reload:hover:not(:disabled) { background: #f8fafc; border-color: #b9c9e0; color: #1e293b; }
 #divBox .dv-marks-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-#divBox .dv-marks-lists .btn { min-width: 0; background: #f8fafc; border-color: #e2e8f0; color: #475569; }
-#divBox .dv-marks-lists .btn:hover { background: #eef3fa; border-color: #b9c9e0; }
+#divBox .dv-marks-lists .btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; padding: 0 9px; background: #f8fafc; border-color: #d8e0ec; color: #334155; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+#divBox .dv-marks-lists .btn::after { content: "›"; flex: none; color: #94a3b8; font-size: 13px; line-height: 1; }
+#divBox .dv-marks-lists .btn:hover { background: #eef3fa; border-color: #b9c9e0; color: #1e293b; }
 .dv-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 18px; padding: 0 7px 0 5px; border-radius: 9px; border: 1px solid var(--dv-line, #cbd5e1); background: var(--dv-bg, #f1f5f9); color: #1e293b; white-space: nowrap; }
-.dv-chip::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
+#divBox .dv-chip { gap: 5px; height: 22px; font-weight: 500; line-height: 20px; padding: 0 8px 0 6px; border-radius: 999px; } /* 패널 안 칩만 한 치수 크게 — 문서 이름 줄(#divKey · 구역 색 설명)의 칩은 위 그대로(그 줄은 높이를 늘리지 않는다: smoke_div_key_ui) */
+.dv-chip::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
 .dv-chip.hint { --dv-line: #b45309; --dv-bg: #fff7ed; border-style: dashed; }
 .dv-chip.hint-llm { --dv-line: #6d28d9; --dv-bg: #f5f3ff; border-style: dotted; }
 /* 구분별 색(바깥 → 안): 단계 파랑 · 단계-차년도 청록 · 차년도 초록 · 세부과제 보라 · 기관 주황 · 기타 자주. --dvc-<구분> = 여러 띠(app.js divStripes)가 쓰는 같은 색 */
@@ -191,6 +199,15 @@
 .dv-key-tone::before { content: ""; width: 14px; height: 10px; border-radius: 1px; background: linear-gradient(to right, #64748b 0 3px, #cbd3de 3px); } /* 라벨 줄 꼴: 왼쪽 띠 + 진한 바탕 */
 .dv-key .panel-help { width: 22px; height: 22px; }
 .dv-key .dv-key-off { height: 22px; min-height: 22px; padding: 0 7px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
+/* 이름 줄의 칩 = 「그 구분만 또렷이」 단추(② §11 「그 구분만 또렷이」, 2026-11-18 사용자): 누른 칩은 그 구분의 색으로 채운다 */
+#divKey button.dv-chip { font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
+#divKey button.dv-chip:hover { border-width: 1px; box-shadow: 0 0 0 1px var(--dv-line, #94a3b8); }
+#divKey button.dv-chip:focus-visible { outline: 2px solid var(--dv-line, #94a3b8); outline-offset: 1px; }
+#divKey button.dv-chip.on { background: var(--dv-line, #64748b); color: #fff; font-weight: 600; }
+#divKey button.dv-chip.on::before { background: #fff; }
+/* 그 구분만 또렷이(app.js divOnlyDraw): 그 구분에 든 문단(.dv-hit)은 그대로 · 나머지 문단은 흐리게 — 감추지 않는다(design.md §1 「한 가지만 골라 볼 때는 나머지를 흐리게」 —
+   서식 라벨만 또렷이(fmt_focus.css)와 같은 0.42 · 표 괘선·칸 바탕·여백 표시는 그대로 · 글을 쓰는 문단은 흐리지 않음) */
+#doc.dv-only .para:not(.dv-hit):not(:focus) { opacity: .42; }
 @container docname (max-width: 760px) { .dv-key-name, .dv-key-tone { display: none; } }
 @container docname (max-width: 560px) { .has-dv-key > .document-mode, .has-dv-key > .file-meta { display: none; } }
 .dv-badge.hinted { background: #fff7ed; border-color: #f4c48a; color: #9a3412; }
@@ -215,9 +232,9 @@
 .dv-llm-last.dv-pending li.go:hover, .dv-llm-last.dv-pending li.go:focus-visible { text-decoration: underline; }
 
 /* 첫 줄 — 첨부 파일 · 할 일(spec_작업 ② §10, 2026-11-11): 이 문서가 무엇이고 무엇을 할지. 좁으면 두 줄. design.md §1(패딩 ≤ 12px, 컨트롤 28px) */
-#divBox .dv-task { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+#divBox .dv-task { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 10px 12px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
 #divBox .dv-task-field { flex: 1 1 170px; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; white-space: nowrap; }
-#divBox .dv-task-field select, #divBox .dv-task-field input { flex: 1; width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
+#divBox .dv-task-field select, #divBox .dv-task-field input { flex: 1; width: 0; height: 28px; padding: 0 8px; font-size: 12px; text-overflow: ellipsis; }
 /* 칸 = 할 일 · 과제 (· 첨부 파일 — 이관이 아닐 때): 넓으면 한 줄에 둘씩. 「작업」 칸은 2026-11-12 패널 머리로 옮겨 여기 없다(처음엔 첫 줄 = 작업 · 할 일 — 11-11 사용자 "작업이랑 할일") */
 #divBox .dv-task-mates { flex-basis: 100%; }
 /* 할 일의 차례(spec_작업 ② §11, 2026-11-11) — 이관: 첨부 파일 칸(종류마다 한 줄 — 열이 맞는 격자 하나) + 단계 목록(테두리 없는 줄, 지금 단계만 짙게). design.md §1-1·§1-5 */
@@ -313,23 +330,25 @@
 #divBox .dv-phase-frame[hidden] { display: none; }
 #divBox .dv-phase-frame-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #divBox .dv-phase-frame .btn { flex: none; height: 24px; min-height: 0; padding: 0 8px; font-size: 11px; white-space: nowrap; }
-#divBox .dv-phase-form { min-width: 0; margin-top: 2px; padding-top: 10px; border-top: 1px solid #e8edf3; display: flex; flex-direction: column; gap: 10px; white-space: normal; }
+#divBox .dv-phase-form { min-width: 0; margin-top: 2px; padding-top: 8px; border-top: 1px solid #e8edf3; display: flex; flex-direction: column; gap: 8px; white-space: normal; }
 #divBox .dv-phase-form-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; min-width: 0; }
-#divBox .dv-phase-form-head strong { font-size: 12px; font-weight: 600; color: #1e293b; }
+#divBox .dv-phase-form-head strong { font-size: 13px; font-weight: 700; color: #1e293b; }
 #divBox .dv-phase-form-head .dv-caption { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-#divBox .dv-phase-form .dv-config { gap: 10px; }
-#divBox .dv-phase-form .dv-card { padding: 10px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; box-shadow: none; } /* 카드(첫 카드) 안의 카드 — 테두리 상자 대신 윗줄만(상자는 줄 상자까지 2겹) */
+#divBox .dv-phase-form .dv-config { gap: 8px; }
+#divBox .dv-phase-form .dv-presets, #divBox .dv-phase-form .dv-card { padding: 8px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; box-shadow: none; } /* 카드(첫 카드) 안의 카드 — 테두리 상자 대신 윗줄만(상자는 줄 상자까지 2겹) */
+#divBox .dv-run-more-body > .dv-config > .dv-presets { border-top: 0; padding-top: 0; }
+#divBox .dv-run-more-body > .dv-config > .dv-presets > .dv-preset-save { border-top: 1px solid #e8edf3; padding-top: 6px; }
 /* 이관의 1단계 묶음 안으로 옮긴 구분 기준 자리 표시 · 지원 양식 줄 · 코멘트(spec_작업 ② §14 — 2026-11-12 사용자 답 「1단계 안으로 옮김」): 위 카드와 같이 테두리 상자 대신 윗줄만 */
-#divBox .dv-phase-form .dv-marks, #divBox .dv-phase-form .dv-marks.on, #divBox .dv-phase-form .dv-comments { padding: 10px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; box-shadow: none; }
-#divBox .dv-phase-form .dv-profile { padding: 10px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; }
+#divBox .dv-phase-form .dv-marks, #divBox .dv-phase-form .dv-marks.on, #divBox .dv-phase-form .dv-comments { padding: 8px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; box-shadow: none; }
+#divBox .dv-phase-form .dv-profile { padding: 8px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; }
 #divBox .dv-phase-form .dv-marks-toggle.on { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); } /* 켜짐 = 눌림 바탕(design.md §9) — 묶음 안에서 꽉 찬 파랑은 강조 단추로 읽힌다 */
-#divBox .dv-phase-form .dv-section-head { margin-bottom: 10px; gap: 8px; }
+#divBox .dv-phase-form .dv-section-head { margin-bottom: 6px; gap: 6px; }
 #divBox .dv-phase-form .dv-section-copy h3 { font-size: 13px; }
-#divBox .dv-phase-form .dv-stage-row { padding: 8px 10px; }
-#divBox .dv-phase-form .dv-disclosure { border-radius: 8px; }
-#divBox .dv-phase-form .dv-disclosure summary { padding: 6px 10px; }
+#divBox .dv-phase-form .dv-stage-row { padding: 5px 0; }
+#divBox .dv-phase-form .dv-disclosure { border-radius: 6px; }
+#divBox .dv-phase-form .dv-disclosure summary { padding: 4px 10px; }
 #divBox .dv-phase-form .dv-extra-fields { padding: 8px 10px; gap: 6px; }
-#divBox .dv-phase-form .dv-applied { padding: 8px 10px; border-radius: 8px; }
+#divBox .dv-phase-form .dv-applied { padding: 8px 0 0; border: 0; border-top: 1px solid #e8edf3; border-radius: 0; background: none; }
 #divBox .dv-phase-form .dv-run { padding: 0; border: 0; border-radius: 0; background: none; } /* TASK 묶음 안의 실행 묶음 — 상자를 더 두르지 않는다(design.md §1-1) · 「한 번에 진행」 은 그 묶음 머리에 */
 /* LLM 지침·프롬프트 보기(2열 kind "llmGuide" — app.js llmGuideOpen · spec_작업 ② §13, 2026-11-12 사용자 "각 LLM이 검토나 작업할때 '지침' 이나 프롬프트를 확인할 수 있으면"):
    함께 보내는 글마다 접는 절(제목 · 파일 경로 · 글 pre — 줄바꿈 유지, 가로 스크롤 없음) + 마지막으로 보낸 프롬프트(단위마다 한 줄 — 누르면 그 아래에 전체 글과 답) */
@@ -364,15 +383,15 @@
 .hd-body tr.lk-items li.go:hover, .hd-body tr.lk-items li.go:focus-visible { text-decoration: underline; }
 
 /* 양식별 코멘트 줄(spec_구분_기준 ② §18, 2026-11-11) — 양식 줄 바로 아래: 입력 칸(2줄)·「코멘트 남기기」 / 상태 한 줄 / 「코멘트 N건」 접이식 목록. design.md §1(패딩 ≤ 12px, 컨트롤 28px)·§7(상태 한 줄) */
-#divBox .dv-comments { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
-#divBox .dv-profile + .dv-comments { margin-top: -10px; padding-top: 2px; border-top: 0; border-radius: 0 0 8px 8px; }
-#divBox .dv-phase-form .dv-profile + .dv-comments { padding-top: 8px; border-radius: 0; }
-#divBox .dv-comment-label { color: #64748b; font-size: 12px; }
+#divBox .dv-comments { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; min-width: 0; }
+#divBox .dv-profile + .dv-comments { margin-top: -8px; padding-top: 8px; border-top: 1px solid #eef2f7; border-radius: 0 0 8px 8px; }
+#divBox .dv-phase-form .dv-profile + .dv-comments { margin-top: 0; padding: 8px 0 0; border-top: 1px solid #eef2f7; border-radius: 0; }
+#divBox .dv-comment-label { color: #475569; font-size: 12px; font-weight: 500; }
 #divBox .dv-comment-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; min-width: 0; }
-#divBox .dv-comments textarea { flex: 1 1 100%; width: 100%; min-width: 0; min-height: 52px; max-height: 200px; resize: vertical; border: 1px solid #ccd5e2; border-radius: 6px; background: #fff; color: #24334b; padding: 5px 8px; font: inherit; font-size: 12px; line-height: 1.5; }
+#divBox .dv-comments textarea { flex: 1 1 100%; width: 100%; min-width: 0; min-height: 48px; max-height: 200px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b; padding: 5px 8px; font: inherit; font-size: 12px; line-height: 1.5; }
 #divBox .dv-comments textarea::placeholder { color: #8a96a8; }
-#divBox .dv-comments textarea:focus-visible { outline: 3px solid #8babf7; outline-offset: 2px; }
-#divBox .dv-comments .btn { height: 28px; min-height: 0; padding: 0 9px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+#divBox .dv-comments textarea:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
+#divBox .dv-comments .btn { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
 #divBox .dv-comment-status { font-size: 11px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #divBox .dv-comment-status.fail { color: var(--fail); }
 #divBox .dv-comment-status:empty { display: none; }

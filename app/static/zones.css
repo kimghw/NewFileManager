@@ -25,19 +25,24 @@
    머리 = 이름 + 노트 · 「구역 표시」 보기/감추기 · 「목록」 / 체크 셋(보일 기준 — 꺼져 있어도 늘 보인다) / 값마다 칩. 조작 28px(design.md §1-3) */
 .gt-zones { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 0 2px; border-top: 1px solid var(--line, #e2e8f0); }
 .gt-zones[hidden] { display: none; }
-#divBox .zn-bar.zn-card { padding: 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
-.gt-zones-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+#divBox .zn-bar.zn-card { padding: 10px 12px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+.gt-zones-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 28px; }
 .zn-copy { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin-right: auto; }
-.zn-copy strong { font-size: 12.5px; white-space: nowrap; }
+.zn-copy strong { font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; white-space: nowrap; }
 #divBox .zn-bar .gt-zones-head .btn { height: 28px; min-height: 28px; padding: 0 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
-.gt-zones-toggle.on { background: var(--accent-soft, #e8eefc); border-color: #9fb5ea; color: var(--accent, #2458d6); } /* 켜짐 = 옅은 눌림 바탕(design.md §9) */
-.zn-dims { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; font-size: 12px; color: #475569; }
-.zn-dims-name { font-size: 11px; color: #64748b; white-space: nowrap; }
-.zn-dim { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
-.zn-dim input { flex: none; width: 14px; height: 14px; margin: 0; }
+.gt-zones-toggle.on { background: var(--accent-soft, #e8eefc); border-color: #9fb5ea; color: var(--accent, #2458d6); font-weight: 600; } /* 켜짐 = 옅은 눌림 바탕(design.md §9) */
+.zn-dims { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; font-size: 12px; color: #475569; }
+.zn-dims-name { font-size: 12px; color: #64748b; white-space: nowrap; margin-right: 2px; }
+.zn-dim { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 7px; border-radius: 999px; border: 1px solid #d8e0ec; background: #f8fafc; color: #334155; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.zn-dim:hover { border-color: var(--dv-line, #94a3b8); background: var(--dv-bg, #f1f5f9); }
+.zn-dim.on { background: var(--dv-bg, #edf2ff); border-color: var(--dv-line, #315fd3); color: #1e293b; font-weight: 600; }
+.zn-dim::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
+.zn-dim input { order: -1; flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--dv-line, #315fd3); }
 .gt-zones-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .zn-bar[data-zn="off"] .gt-zones-chips { opacity: .6; } /* 표시를 꺼 둔 동안의 칩(마지막으로 읽은 것) */
 .gz-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); cursor: pointer; font: inherit; font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.gz-chip[data-stage]:not([data-gz]) { --dv-line: var(--dvc-stage); --dv-bg: rgba(49, 95, 211, .11); }
+.gz-chip[data-year]:not([data-gz]) { --dv-line: var(--dvc-year); --dv-bg: rgba(15, 138, 95, .12); }
 .gz-chip:hover, .gz-chip:focus-visible { border-color: var(--gz-c, #64748b); text-decoration: underline; }
 .gz-chip.zn-chip-mark { border-style: dashed; } /* 지정한 구역(사람 · LLM) — 문서의 점선 이름표와 같은 꼴 */
 /* 「LLM 검토」(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」) — 머리의 보통 단추(강조 아님). 도는 동안은 돌아가는 동그라미(style.css @keyframes spin) + 「LLM 검토 중… n초」(design.md §7) · 아래에 마지막 결과 한 줄 */

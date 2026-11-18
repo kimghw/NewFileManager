@@ -148,6 +148,17 @@ def find_same(name, fmt, sha, job=None) -> dict | None:
 
 TARGET_FILE = {"plan_to_report": "report", "plan_merge": "plan"}  # 할 일 → 목적 문서(내용을 받는 문서)의 첨부 파일 종류: 이관의 연차보고서 · 취합의 취합본(spec_작업 ② §10 「목적 문서의 보이는 이름」)
 _NOT_IN_FILE_NAME = re.compile(r'[\\/:*?"<>|]+')
+# 임시 프로젝트 이름(spec_작업 ② §17 「임시 프로젝트」 — 이름 없이 TASK 를 시작하면 서버가 붙이는 「임시 프로젝트 N」). 원본은 여기 — projects.TEMP_RE 가 이것이다(projects 가 works 를 가져다 쓰므로 여기 둔다).
+# 보이는 이름 · 프레임 이름에는 붙이지 않는다 — 임시 이름이 문서 이름 · 내려받는 파일 이름에 남지 않게(이름을 정하면 그때 붙는다)
+TEMP_PROJECT_RE = re.compile(r"임시 프로젝트 [1-9][0-9]{0,8}")
+
+
+def _named_project(task) -> str:
+    """보이는 이름에 붙일 프로젝트 이름 — 파일 이름에 못 쓰는 글자는 「_」, 임시 이름이면 ""."""
+    project = " ".join(str((task or {}).get("project") or "").split())
+    return "" if TEMP_PROJECT_RE.fullmatch(project) else _NOT_IN_FILE_NAME.sub("_", project).strip()
+
+
 # 프레임 이름(spec_작업 ② §10 「프레임 이름」 — 2026-11-14 사용자 "프로젝트 구성 반영이 완료 하면 사업계획서_{프로젝트이름}_프레임 .. 이라고 파일명을 저장하도록"):
 # 양식 맞추기 TASK → 맞추는 문서의 첨부 파일 종류. 그 문서에 프로젝트 구성을 반영하면 그것이 그 프로젝트의 프레임이다. 이관·취합의 문서는 뒤에 내용이 들어가므로 여기 없다.
 FRAME_FILE = {"plan_fit": "plan", "report_fit": "report"}
@@ -170,7 +181,7 @@ def frame_stem(task, framed) -> str | None:
     framed = 그 문서에 프로젝트 구성을 반영한 기록이 있음. 양식 맞추기 TASK 의 맞추는 문서이고 프로젝트 이름이 있을 때만."""
     t = task if isinstance(task, dict) else {}
     kind = FRAME_FILE.get(t.get("job") or "")
-    project = _NOT_IN_FILE_NAME.sub("_", t.get("project") or "").strip()
+    project = _named_project(t)   # 임시 이름이면 "" — 프레임 이름을 안 쓴다(이름을 정하면 그때)
     if not framed or not kind or t.get("file") != kind or not project:
         return None
     return f"{FILE_LABEL[kind]}_{project}_{FRAME_TAIL}"
@@ -182,7 +193,7 @@ def shown_name(name, task, alias=None, framed=False) -> str:
     저장된 이름(work.json `name`)은 안 바꾼다 — 같은 파일 이어 열기(find_same)·양식 판정(파일 이름 꼴)이 올린 이름을 본다. 이미 그 꼬리로 끝나면 두 번 안 붙인다."""
     t = task if isinstance(task, dict) else {}
     kind = TARGET_FILE.get(t.get("job") or "")
-    project = _NOT_IN_FILE_NAME.sub("_", t.get("project") or "").strip()
+    project = _named_project(t)   # 임시 이름이면 "" — 올린 이름 뒤에 붙이지 않는다
     tag = _NOT_IN_FILE_NAME.sub("_", alias).strip() if isinstance(alias, str) else ""
     frame = frame_stem(t, framed) if name else None
     if not name or ((not kind or t.get("file") != kind or not project) and not tag and not frame):

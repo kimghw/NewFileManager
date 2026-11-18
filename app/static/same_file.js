@@ -123,7 +123,7 @@ function sameFilePick(r, opts = {}) {
       input.id = id;
       lab.htmlFor = id;
       input.maxLength = 60;
-      input.placeholder = "비우면 프로젝트 없이";
+      input.placeholder = "비우면 임시 이름"; // 비우면 서버가 「임시 프로젝트 N」 을 붙인다(spec_작업 ② §17 「임시 프로젝트」 — home_files.js hfOpenTarget)
       input.value = opts.project || "";
       input.setAttribute("list", "sfProjects");
       const dl = el("datalist");
@@ -134,7 +134,7 @@ function sameFilePick(r, opts = {}) {
       foot.append(row);
     }
     const fresh = hBtn("새 작업으로 시작", () => sfClose({ act: "new", project: input ? input.value.trim() : "" }),
-      { cls: "btn sm", title: "올린 원본부터 새 작업을 만듭니다" + (opts.job ? " — 프로젝트 칸에 적으면 그 프로젝트의 이 TASK 다음 라운드로" : "") });
+      { cls: "btn sm", title: "올린 원본부터 새 작업을 만듭니다" + (opts.job ? " — 프로젝트 칸에 적으면 그 프로젝트의 이 TASK 다음 라운드로 · 비우면 임시 이름(임시 프로젝트 N)으로" : "") });
     fresh.dataset.sf = "new";
     const acts = el("div", "sf-new-acts");
     acts.append(fresh, el("span", "sf-note", "하던 작업은 목록에 그대로 남습니다"));

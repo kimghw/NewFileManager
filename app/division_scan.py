@@ -3,7 +3,8 @@
 한 방향: 판독 → 헤딩 추출(괄호 줄의 구분 라벨 근거) · 판독 + 헤딩 → 편집 구역. 판독은 헤딩 추출 결과를 읽지 않는다(절 경계는 엔진의 간이 레벨 `rnd.levels_of`).
 엔진(`core.find` — 계획·반영의 입력)은 바꾸지 않는다. 판독은 엔진의 묶음에 **식별만 하는 근거**를 보탠다(반영 대상이 되지 않는다):
 - 구조 라벨 근거 `labels` — 문단마다 [{dim, value, src, text}]. src = engine(엔진 묶음의 라벨) · hint(사람·LLM 이 추가한 자리) · pattern(헤딩의 엄격한 괄호 꼴 `heading_graph.value_basis`) ·
-  name(괄호 안 글이 지금 구성의 기관 이름 하나와 통째로 같음). 넓은 표 칸 후보 규칙(`heading_calc.label_basis`)은 확정 근거로 쓰지 않는다(2026-11-18 astra P1).
+  name(괄호 안 글이 지금 구성의 기관 이름 하나와 통째로 같음) · nameLine(**기관 이름 줄** — 글머리·번호 + 기관 이름뿐인 줄이 형제로 되풀이되는 곳 「o 씨드로닉스 · o 유엔젤 · o 랩오투원」: `name_runs`).
+  넓은 표 칸 후보 규칙(`heading_calc.label_basis`)은 확정 근거로 쓰지 않는다(2026-11-18 astra P1).
 - 표 안 귀속 `cells`·`tables` — 편집 구역의 「표 안의 값 읽기」(`zones._table_read` — 이름표 칸 · 기관 열)를 이 단계에서 한다. 값은 원래 꼴(열쇠 · 전체 차례 · conflict · 엇갈림)을 그대로.
 - 원형 자료(밑줄 키 — JSON 으로 내보내지 않는다): `_groups`(엔진 묶음 그대로 — 값·범위·문맥) · `_best`·`_inside`(묶음 소속) · `_cellEv`(표 안 판독) — 편집 구역이 다시 계산하지 않고 쓴다.
 
@@ -12,6 +13,7 @@
 import re
 
 from app import division_terms as DT
+from app import headings
 from app import merge_gather_frame as F
 from app import merge_pairs as P
 from app import zones as Z
@@ -19,8 +21,8 @@ from app.division_profiles import _structure as structure
 from app.division_profiles import rnd
 from app.division_profiles.rnd import core
 
-VERSION = 1
-SRC = ("engine", "hint", "pattern", "name")
+VERSION = 2   # 2 = 기관 이름 줄(nameLine — 2026-11-18)
+SRC = ("engine", "hint", "pattern", "name", "nameLine")
 # 엔진의 구분 → 헤딩의 구분 기준 이름(heading_graph.BASES). 세부과제는 헤딩의 구분 기준 목록에 없어 헤딩 근거로는 안 쓴다(표시에는 씀)
 BASIS = {core.STAGE: "단계", core.YEAR: "차년도", core.STAGE_YEAR: "단계-차년도", core.ORG: "기관"}
 _LEAD_BRACKET = re.compile(r"^\s*([\[【][^\]】\n]*[\]】])")
@@ -44,18 +46,121 @@ def name_key(letter, keys):
     return next(iter(hits)) if len(hits) == 1 else None
 
 
+# ---- 기관 이름 줄(spec_구분_기준 ② §23 「기관 이름 줄」) -----------------------------------------------------------------------
+# 2026-11-18 사용자(「T1 L4 · o 랩오투원」 줄을 가리키며) "근데 일단 구분기준으로 기관으로 식별이 안되었어" — 「5-4. 경제적 성과 창출계획」 아래 「o 씨드로닉스 · 표 / o 유엔젤 · 표 / o 랩오투원 · 표」 처럼
+# 기관 낱말(「공동연구개발기관」) 없이 **이름만 적은 줄**이 기관마다 되풀이되는 자리. 엔진(`core.find`)은 넓히지 않는다 — 식별만(판독만 · 가는 띠).
+BULLETS = frozenset("□○oㅇ△-·▫*")   # headings._MARKERS 의 글머리(기호) 종류 — 번호 꼴(「(N)」·「가.」 …)이 아닌 것
+
+
+def _bullet(kind):
+    k = kind[5:] if isinstance(kind, str) and kind.startswith("list:") else kind
+    return k in BULLETS or (isinstance(k, str) and len(k) == 1 and not k.isalnum())
+
+
+def doc_org_keys(blocks, groups=()):
+    """문서가 스스로 적은 과제 기관 이름(「주관/공동연구개발기관k(이름)」·「… : 이름」 라벨의 이름 자리 — `core._read_orgs`: 「문서에서 읽기」 와 같은 읽기) → 열쇠 목록(긴 것 먼저).
+    구성(귀속 값)에 기관 이름이 없을 때 이름 줄 판독의 명단 — 「어느 기관」 의 정체가 아니라 「기관 자리」 라는 식별에만 쓴다(편집 구역의 귀속은 구성의 이름으로만)."""
+    got = core._read_orgs(blocks, list(groups or ()))
+    names = [got.get("lead") or "", *(got.get("joint") or ())]
+    return sorted({k for n in names if isinstance(n, str) and (k := P.org_key(n))}, key=len, reverse=True)
+
+
+def _line_kind(b, letters):
+    """최상위 문단 하나 → (글머리·번호 종류 | None, 레터 뒤의 글 | None). 친 글머리(`headings.split_marker`) · 자동 번호·글머리(list — 글이 통째로 제목) ·
+    판별 모양·글 없는 글머리(레터만 안다 — 글 None) · 고정헤딩("outline" — 글 None). 보통 글은 (None, None)."""
+    text = b.get("text") or ""
+    kind, _, title = headings.split_marker(text)
+    if kind:
+        return kind, title
+    if b.get("list"):
+        return letters.get(b["id"]) or "list:", text.strip()
+    if b["id"] in letters:
+        return letters[b["id"]], None
+    return ("outline", None) if b.get("outlineLevel") else (None, None)
+
+
+def name_runs(blocks, letters, keys, skip=()):
+    """기관 이름 줄의 묶음 → [[{para, key, kind, text, scope[그 줄 아래의 최상위 블록 id]}, …], …] — 본문 최상위 문단 가운데 **글머리·번호 + 명단의 기관 이름 하나뿐**인 줄이
+    같은 글머리로 **둘 이상(서로 다른 기관)** 잇달아 나오고 그 가운데 하나라도 아래에 내용(표 · 그림 · 글)이 있는 곳. 묶음을 끊는 것: 절·장 제목 · 괄호 줄 · 번호 꼴 줄 · 고정헤딩 ·
+    같은 글머리의 이름 아닌 줄 · 같은 기관이 다시 나옴(새 묶음의 시작) · skip 에 든 줄(엔진 라벨 · 같은 구분의 엔진 항목 안). 줄 사이의 다른 **글머리** 줄(「-」·「·」)과 보통 글 · 표 · 그림은 그 줄의 것.
+    마지막 줄의 범위는 앞 줄들에서 본 내용의 종류(표 · 그림 · 글 · 글머리 종류)까지만 — 처음 보는 종류에서 끝난다(뒤의 절 글을 삼키지 않게: 못 읽으면 남긴다)."""
+    keys = [k for k in keys or () if k]
+    if not keys:
+        return []
+    skip = set(skip or ())
+    runs, cur = [], []
+
+    def close():
+        nonlocal cur
+        if len(cur) >= 2:
+            seen = {t for it in cur[:-1] for _, t in it["_body"] if t}
+            last, keep = cur[-1], []
+            for bid, t in last["_body"]:
+                if t and t not in seen:
+                    break
+                keep.append((bid, t))
+            last["_body"] = keep
+            for it in cur:
+                while it["_body"] and it["_body"][-1][1] is None:   # 끝의 빈 줄은 범위에서 뗀다
+                    it["_body"].pop()
+            if any(t for it in cur for _, t in it["_body"]):
+                runs.append([{"para": it["para"], "key": it["key"], "kind": it["kind"], "text": it["text"], "scope": [bid for bid, _ in it["_body"]]} for it in cur])
+        cur = []
+
+    for b in blocks or ():
+        bid, typ = b.get("id"), b.get("type")
+        if bid is None:
+            continue
+        if b.get("captionOf"):   # 캡션 블록은 표·그림에 딸려 간다 — 새 종류로 세지 않는다(표 위 캡션 = 빈 줄처럼 · 아래 캡션 = 앞 블록의 종류)
+            if cur:
+                cur[-1]["_body"].append((bid, cur[-1]["_body"][-1][1] if cur[-1]["_body"] else None))
+            continue
+        if typ != "paragraph":
+            if cur:
+                cur[-1]["_body"].append((bid, "tbl" if typ == "table" else "pic"))
+            continue
+        text = b.get("text") or ""
+        if not text.strip():
+            if cur:
+                cur[-1]["_body"].append((bid, None))
+            continue
+        if core.SECTION.match(text) or P._CHAPTER.match(text) or bracket_of(text):
+            close()
+            continue
+        kind, title = _line_kind(b, letters)
+        if kind is None:
+            if cur:
+                cur[-1]["_body"].append((bid, "p"))
+            continue
+        k = P.org_key(core.NOTE.sub("", title).strip()) if title else ""
+        hit = {x for x in keys if x == k} if k else set()
+        if cur and kind != cur[0]["kind"] and _bullet(kind) and bid not in skip:
+            cur[-1]["_body"].append((bid, kind))   # 그 줄 아래의 다른 글머리 줄(이름만 적힌 줄이어도 — 안쪽 줄이 바깥 묶음을 끊지 않는다)
+        elif len(hit) == 1 and bid not in skip:
+            key = next(iter(hit))
+            if cur and (kind != cur[0]["kind"] or any(it["key"] == key for it in cur)):
+                close()
+            cur.append({"para": bid, "key": key, "kind": kind, "text": _short(text), "_body": []})
+        else:
+            close()   # 같은 글머리의 이름 아닌 줄 · 번호 꼴 · 고정헤딩 · 엔진 라벨
+    close()
+    return runs
+
+
 def _value_text(dim, v):
     return rnd.value_text(dim, v)
 
 
 def scan(blocks, values=None, find_values=None, hints=None, prior=None):
-    """→ {version, labels{para: [근거 …]}, extra[엔진 묶음 밖의 라벨 문단 — pattern·name], tables{표 id: {org?, year?}}, cells{칸 id: {org?, year?, yearClash?}},
+    """→ {version, labels{para: [근거 …]}, extra[엔진 묶음 밖의 라벨 문단 — pattern·name · 기관 이름 줄 nameLine(+ run · known(구성의 이름인가) · scope[그 줄 아래 블록] · paras[그 안의 문단])],
+    tables{표 id: {org?, year?}}, cells{칸 id: {org?, year?, yearClash?}},
     cellParas{칸 id: [문단 id]}, counts, _groups, _best, _inside, _cellEv}. values·find_values = norm_values 꼴 | None. hints = 추가한 자리 [{para, dim, value, by, …}]."""
     blocks = list(blocks or ())
     hints = [h for h in hints or () if isinstance(h, dict) and h.get("para")]
     fv = values or find_values
     idx = structure.index_blocks(blocks)
-    groups = core.find(blocks, rnd.levels_of(blocks), fv, hints=[h["para"] for h in hints] or None, prior=prior) if fv else []
+    an = headings.levels(blocks)   # 간이 레벨(`rnd.levels_of` 와 같은 것) + 문단마다의 레터(기관 이름 줄이 쓴다)
+    groups = core.find(blocks, an["levels"], fv, hints=[h["para"] for h in hints] or None, prior=prior) if fv else []
     labels, cell_paras = {}, {}
 
     def paras_of(i):
@@ -114,10 +219,28 @@ def scan(blocks, values=None, find_values=None, hints=None, prior=None):
             ev["inGroup"] = True
         put(b["id"], ev)
         extra.append({"para": b["id"], **ev})
+    # 3-2. 기관 이름 줄(「o 씨드로닉스 · o 유엔젤 · o 랩오투원」 — name_runs). 명단 = 지금 구성의 기관 이름, 없으면 문서가 스스로 적은 이름(식별만 — known False).
+    #      엔진 라벨 · 추가한 자리 · 기관 묶음 항목 안의 줄은 엔진 자리대로 둔다(이름 줄로 다시 읽지 않는다)
+    org_in = {x for x, dims in scope.items() if core.ORG in dims}
+    lines = []
+    for n, run in enumerate(name_runs(blocks, an["letters"], keys or doc_org_keys(blocks, groups), skip=set(labels) | org_in), 1):
+        for it in run:
+            ev = {"dim": core.ORG, "value": it["key"], "src": "nameLine", "text": it["text"], "basis": "기관"}
+            put(it["para"], ev)
+            lines.append({"para": it["para"], **ev, "run": n, "known": it["key"] in keys, "scope": it["scope"], "paras": [p for bid in it["scope"] for p in paras_of(bid)]})
+    extra.extend(lines)
     # 4. 표 안 귀속(편집 구역의 판독 — 귀속 값이 있을 때만)
     best, inside, cell_ev, tables, cells, table_of = {}, {}, {}, {}, {}, {}
     if values:
         best, inside = Z._memberships(groups, values, keys, Z.old_keys(prior, keys))
+        for x in lines:   # 기관 이름 줄의 자리 — 구성의 기관 이름일 때만 귀속 근거(가장 안쪽 = 작은 항목이 이긴다: `_memberships` 와 같은 규칙)
+            if not x["known"]:
+                continue
+            ids = {x["para"], *x["scope"]}
+            for i in ids:
+                was = best.setdefault(i, {})
+                if "org" not in was or len(ids) < was["org"][0]:
+                    was["org"] = (len(ids), ("org", x["value"], None))
         for b in blocks:
             if b.get("type") == "table" and not b.get("captionOf") and b.get("id") is not None:
                 whole, per = Z._table_read(b, keys, values["stages"], inside.get(b["id"], ()))
@@ -136,7 +259,7 @@ def scan(blocks, values=None, find_values=None, hints=None, prior=None):
     n_lab = sum(1 for rows in labels.values() if rows)
     counts = {"groups": len(groups), "labels": n_lab, "engine": sum(1 for rows in labels.values() if any(r["src"] == "engine" for r in rows)),
               "hint": sum(1 for rows in labels.values() if any(r["src"] == "hint" for r in rows)),
-              "pattern": sum(1 for x in extra if x["src"] == "pattern"), "name": sum(1 for x in extra if x["src"] == "name"),
+              "pattern": sum(1 for x in extra if x["src"] == "pattern"), "name": sum(1 for x in extra if x["src"] == "name"), "nameLine": len(lines),
               "tables": len(set(tables) | set(table_of.values())), "cells": len(cells)}
     return {"version": VERSION, "labels": labels, "extra": extra, "tables": tables, "cells": cells, "cellParas": cell_paras, "cellTable": table_of, "counts": counts,
             "_groups": groups, "_best": best, "_inside": inside, "_cellEv": cell_ev, "_values": values}

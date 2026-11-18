@@ -1421,6 +1421,10 @@ def _work_task(wid, body, locked=False):
     else:
         with projects.ROUND_LOCK:
             old, record = store()
+    left = projects.group_key(old)[0]
+    if left != t["project"] and projects.is_temp(left) and not locked:   # 임시 프로젝트의 마지막 문서가 나감 — 남은 기록·TASK 옵션을 걷는다(② §17 「임시 프로젝트」)
+        with projects.ROUND_LOCK:
+            _temp_tidy(left)
     out = {"task": t}
     s = DOCS.get(wid)
     if s is not None:
@@ -1428,7 +1432,8 @@ def _work_task(wid, body, locked=False):
             sharing = _project_settings_sync(s)
             entered = bool(t["project"]) and projects.group_key(old)[0] != t["project"]   # 프로젝트가 바뀌어 이름 있는 프로젝트에 들어감
             if entered and sharing and sharing["shared"]:   # 들어감 알림의 근거(② §19) — 이전 라운드·일반 문서·세션 없음은 칸 없음
-                out["division"] = "adopted" if record is not None else "seeded" if s.division.get("settings") is not None else "none"
+                # 기록이 있어도 구성이 없으면(「새 프로젝트」 로 만든 기록 — ② §17) 받은 것이 없다
+                out["division"] = "adopted" if record is not None and record.get("settings") is not None else "seeded" if s.division.get("settings") is not None else "none"
         _persist_safe(s, force=True)
     return out
 
@@ -1457,6 +1462,50 @@ def projects_list():
         return {"projects": projects.listing()}
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+def _project_taken(name, rows=None):
+    """ROUND_LOCK 안. 그 이름을 프로젝트 기록이나 작업이 쓰고 있나(저장 파일이 깨졌으면 409)."""
+    try:
+        if projects.get(name) is not None:
+            return True
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return any(projects.group_key(w.get("task"))[0] == name for w in (works.list_works() if rows is None else rows))
+
+
+def _temp_tidy(name):
+    """ROUND_LOCK 안. 임시 프로젝트(② §17 「임시 프로젝트」)에 문서가 하나도 안 남았으면 그 기록(문서가 올린 구성)과 TASK 옵션을 지운다 — 문서 없는 임시 프로젝트는 남기지 않는다.
+    못 해도(저장 파일 손상) 본 일은 막지 않는다 — 서버 로그에만."""
+    if not projects.is_temp(name) or any(projects.group_key(w.get("task"))[0] == name for w in works.list_works()):
+        return
+    try:
+        projects.remove(name)
+    except ValueError as exc:
+        log.warning("[임시 프로젝트] %s 의 기록을 지우지 못함: %r", name, exc)
+    _task_options_follow("drop_project", name)
+
+
+@app.post("/api/projects")
+def project_create(body: dict = Body(...)):
+    """{name} → {name}. 「새 프로젝트」(spec_작업 ② §17) — 문서·구성 없는 프로젝트 기록을 만든다(작업 리스트에 「문서 없음」 으로 보이고, 파일을 올려 첫 TASK 를 시작한다).
+    400 = 이름 없음 · 임시 이름 꼴 · 409 = 이미 쓰는 이름(기록이나 작업) · 저장 파일 손상."""
+    name = body.get("name")
+    if not isinstance(name, str) or not projects.normalize_name(name):
+        raise HTTPException(400, "프로젝트 이름을 입력하세요")
+    name = projects.normalize_name(name)
+    if projects.is_temp(name):
+        raise HTTPException(400, f"「{projects.TEMP_PREFIX}N」 은 이름 없이 올린 문서에 붙이는 임시 이름입니다 — 다른 이름을 넣으세요")
+    if not works.enabled():
+        raise HTTPException(400, "작업 저장을 켠 뒤 프로젝트를 만들 수 있습니다")
+    with projects.ROUND_LOCK:
+        if _project_taken(name):
+            raise HTTPException(409, "같은 이름의 프로젝트가 이미 있습니다")
+        try:
+            projects.create(name)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    return {"name": name}
 
 
 def _project_found(name):
@@ -1497,7 +1546,9 @@ def _task_options_follow(fn, *args):
 
 @app.put("/api/projects/{name:path}")
 def project_rename(name: str, body: dict = Body(...)):
-    """{name}. 프로젝트의 모든 TASK·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다."""
+    """{name} → {name, works, join, tasks}. 프로젝트의 모든 TASK·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다.
+    단 **임시 프로젝트**(「임시 프로젝트 N」 — ② §17 「임시 프로젝트」)는 이름을 정하는 것이라, 이미 있는 이름이면 그 프로젝트로 문서를 모두 옮긴다(join: true — _temp_join).
+    tasks = 바뀐 작업마다의 새 task(화면이 지금 문서의 프로젝트·라운드를 맞춘다)."""
     new = body.get("name")
     if not isinstance(new, str) or not projects.normalize_name(new):
         raise HTTPException(400, "새 프로젝트 이름을 입력하세요")
@@ -1505,18 +1556,58 @@ def project_rename(name: str, body: dict = Body(...)):
     with projects.ROUND_LOCK:
         old, members, rows = _project_found(name)
         if new == old:
-            return {"name": old, "works": []}
-        if projects.get(new) is not None or any(projects.group_key(w.get("task"))[0] == new for w in rows):
-            raise HTTPException(409, "같은 이름의 프로젝트가 이미 있습니다. 프로젝트는 합치지 않습니다")
-        changed = []
+            return {"name": old, "works": [], "join": False, "tasks": {}}
+        if _project_taken(new, rows):
+            if not projects.is_temp(old):
+                raise HTTPException(409, "같은 이름의 프로젝트가 이미 있습니다. 프로젝트는 합치지 않습니다")
+            return _temp_join(old, new, members, rows)
+        if projects.is_temp(new):
+            raise HTTPException(400, f"「{projects.TEMP_PREFIX}N」 은 이름 없이 올린 문서에 붙이는 임시 이름입니다 — 다른 이름을 넣으세요")
+        changed, tasks = [], {}
         for w in members:  # 작업 먼저 — 기록을 먼저 옮기면 열린 세션이 옛 이름으로 기록을 다시 만든다
-            if works.update(w["id"], task={**w["task"], "project": new}) is not None:
+            task = {**w["task"], "project": new}
+            if works.update(w["id"], task=task) is not None:
                 works.log(w["id"], "renameProject", old=old, new=new)
                 changed.append(w["id"])
+                tasks[w["id"]] = task
         projects.rename(old, new)
         _task_options_follow("rename_project", old, new)   # 그 프로젝트 묶음들의 TASK 옵션도 새 이름으로
         _project_sessions_refresh(changed)
-        return {"name": new, "works": changed}
+        return {"name": new, "works": changed, "join": False, "tasks": tasks}
+
+
+def _temp_join(old, new, members, rows):
+    """ROUND_LOCK 안. 임시 프로젝트 old 의 문서를 모두 이미 있는 프로젝트 new 로 옮긴다(② §17 「임시 프로젝트」).
+    라운드: new 에 그 TASK 가 있으면 그 TASK 의 최신 라운드로(프로젝트 칸으로 옮길 때와 같다 — ② §19 「이미 있는 라운드」), 없으면 임시 프로젝트의 라운드 번호 그대로.
+    기록: new 에 구성이 없으면 old 의 구성·확정·버전을 옮겨 붙이고, 있으면 new 것을 쓴다(projects.absorb) · TASK 옵션은 new 에 없는 묶음만 잇는다."""
+    latest = {}
+    for w in rows:
+        project, job, number = projects.group_key(w.get("task"))
+        if project == new:
+            latest[job] = max(latest.get(job, 0), number)
+    changed, tasks, moved = [], {}, []
+    for w in members:
+        before = dict(w.get("task") or {})
+        _, job, number = projects.group_key(before)
+        task = {**before, "project": new, "round": latest.get(job) or number}
+        if works.update(w["id"], task=task) is not None:
+            works.log(w["id"], "joinProject", old=old, new=new, round=task["round"])
+            changed.append(w["id"])
+            tasks[w["id"]] = task
+            moved.append((before, task))
+    try:
+        projects.absorb(old, new)
+    except ValueError as exc:
+        log.warning("[임시 프로젝트] %s 의 기록을 %s 로 옮기지 못함: %r", old, new, exc)
+    seen = set()
+    for before, after in moved:   # 묶음마다 한 번 — new 쪽에 이미 정한 옵션이 있으면 안 덮는다(copy_round)
+        key = projects.group_key(before)
+        if key not in seen:
+            seen.add(key)
+            _task_options_follow("copy_round", before, after)
+    _task_options_follow("drop_project", old)
+    _project_sessions_refresh(changed)
+    return {"name": new, "works": changed, "join": True, "tasks": tasks}
 
 
 @app.delete("/api/projects/{name:path}")
@@ -1609,21 +1700,29 @@ def _freeze_latest_project_round(project, job, rows):
 
 @app.post("/api/works/{wid}/start-task")
 def work_start_task(wid: str, body: dict = Body(...)):
-    """새로 올린 무소속 문서를 프로젝트의 다음 TASK 라운드로 배정한다."""
+    """새로 올린 무소속 문서를 프로젝트의 다음 TASK 라운드로 배정한다.
+    {temp: true} 이고 프로젝트 이름이 비었으면 서버가 임시 이름(「임시 프로젝트 N」 — spec_작업 ② §17 「임시 프로젝트」)을 정해 그 프로젝트의 첫 라운드로 둔다."""
     project, job, role = body.get("project"), body.get("job"), body.get("file", "")
-    if not isinstance(project, str) or not projects.normalize_name(project):
+    temp = body.get("temp") is True and (project is None or (isinstance(project, str) and not projects.normalize_name(project)))
+    if not temp and (not isinstance(project, str) or not projects.normalize_name(project)):
         raise HTTPException(400, "프로젝트 이름을 먼저 입력하세요")
     if not isinstance(job, str) or not job or job not in TASK["job"] or role not in TASK["file"]:
         raise HTTPException(400, "모르는 TASK 또는 문서 종류입니다")
-    project = projects.normalize_name(project)
+    project = "" if temp else projects.normalize_name(project)
     with projects.ROUND_LOCK:
         work = _work_or_404(wid)
-        if work.get("source") != "upload" or projects.group_key(work.get("task"))[0]:
+        # 올린 문서 · 예제로 연 문서(무소속)만 — 새 라운드로 만든 작업(source round)은 그 라운드에 묶인 것이다. 예제는 2026-11-18 부터(이름 없이 TASK 를 시작하면 임시 프로젝트 — ② §17)
+        if work.get("source") not in ("upload", "sample") or projects.group_key(work.get("task"))[0]:
             raise HTTPException(409, "새로 올린 무소속 문서로 시작하세요. 기존 프로젝트 작업은 그대로 보관합니다")
+        if temp:
+            try:
+                project = projects.temp_name()
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
         latest = _freeze_latest_project_round(project, job, works.list_works())
         result = _work_task(wid, {"kind": TASK_KIND.get(job, "rnd"), "file": role, "job": job, "project": project, "round": latest + 1}, locked=True)
-        works.log(wid, "startTask", project=project, job=job, round=latest + 1)
-        return {**result, "docId": wid, "round": latest + 1}
+        works.log(wid, "startTask", project=project, job=job, round=latest + 1, **({"temp": True} if temp else {}))
+        return {**result, "docId": wid, "round": latest + 1, "temp": temp}
 
 
 def _round_uploaded_original(member):
@@ -1764,10 +1863,14 @@ def work_file(wid: str, which: str):
 
 @app.delete("/api/works/{wid}")
 def work_delete(wid: str):
+    project = projects.group_key((works.work(wid) or {}).get("task"))[0]
     s = DOCS.pop(wid, None)
     gone = works.delete(wid)
     if s is None and not gone:
         raise HTTPException(404, "그런 작업이 없습니다")
+    if projects.is_temp(project):   # 임시 프로젝트의 마지막 문서였으면 그 기록도 걷는다(② §17 「임시 프로젝트」 — 문서 없는 임시 프로젝트는 남기지 않는다)
+        with projects.ROUND_LOCK:
+            _temp_tidy(project)
     return {"ok": True}
 
 

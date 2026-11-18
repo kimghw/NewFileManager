@@ -5,6 +5,12 @@ let projectEdit = null; // 펼친 프로젝트 하나: {name, mode: "menu"|"rena
 let projectFocusWant = "", projectComposing = null, projectRedrawLater = false; // 다시 그린 뒤 포커스 줄 곳 · 한글 조합 중인 입력칸 · 미룬 다시 그리기
 const PROJECT_WAIT = "진행 중인 작업이 끝난 뒤 프로젝트를 바꿀 수 있습니다";
 const projectNameOf = (v) => (v || "").trim().replace(/\s+/g, " ").slice(0, 60); // 서버 normalize_name 과 같게
+// 임시 프로젝트(spec_작업 ② §17 「임시 프로젝트」 — 2026-11-18): 이름 없이 TASK 를 시작하면 서버가 붙이는 「임시 프로젝트 N」(서버 app/projects.py TEMP_RE 와 같은 꼴 — 이름이 곧 표시다).
+// 이름을 적으면 그 임시 프로젝트의 이름이 바뀐다(문서 모두) — 이미 있는 이름이면 그 프로젝트로 문서를 모두 옮긴다(PUT /api/projects/{임시 이름} — 응답 join)
+const PROJECT_TEMP_RE = /^임시 프로젝트 [1-9][0-9]{0,8}$/;
+const projectIsTemp = (name) => PROJECT_TEMP_RE.test(projectNameOf(name));
+const projectDocCount = (name) => worksList.filter((w) => ((w.task || {}).project || "") === name).length;
+let projectMake = null; // 「새 프로젝트」 이름 줄: {draft, busy} | null(닫힘)
 const projectNameTaken = (n, except) => !!n && n !== except && (worksList.some((w) => ((w.task || {}).project || "") === n) || !!(projectInfo.map && projectInfo.map.has(n))); // 문서 없는 프로젝트(기록만 남음)의 이름도 쓰는 이름이다(서버 409)
 const projectBusy = (includeTaskSave = true) => projectStarting || (includeTaskSave && taskSaveCount > 0) || state.busy || !!taskRun || (typeof gatherRun !== "undefined" && !!gatherRun);
 
@@ -138,14 +144,20 @@ function projectListEnsure() {
   if (box.childElementCount) return;
   const head = el("div", "project-list-head"), title = el("strong", null, "프로젝트별 TASK");
   const refresh = hBtn("새로고침", () => { loadWorks(); projectInfoLoad(true); }, { cls: "btn sm" });
-  head.append(title, refresh);
+  refresh.id = "projectRefresh";
+  // 「새 프로젝트」(② §17 「새 프로젝트」) — 머리 아래 인라인 이름 줄(모달 없음 · Enter 만들기 · Esc 닫기) → 문서 없는 프로젝트로 목록에 들어가고, 그 줄의 「파일 올려 시작」 으로 첫 TASK
+  const make = hBtn("새 프로젝트", () => projectMakeSet(projectMake ? null : { draft: "", busy: false }), { cls: "btn sm", title: "이름만 정해 프로젝트를 만듭니다 — 파일은 그 뒤에 올려 TASK 를 시작합니다" });
+  make.id = "projectMakeBtn";
+  const tools = el("span", "project-list-tools"); tools.append(make, refresh);
+  head.append(title, tools);
+  const makeBox = el("div", "project-make"); makeBox.id = "projectMake"; makeBox.hidden = true;
   const filter = el("input", "project-search"); filter.type = "search"; filter.placeholder = "프로젝트·TASK·파일 찾기"; filter.setAttribute("aria-label", filter.placeholder);
   filter.id = "projectSearch"; filter.oninput = projectListDraw;
   const list = el("div", "project-list"); list.id = "projectList";
   const create = el("details", "project-create"); create.id = "projectCreate";
   create.append(el("summary", null, "+ 새 TASK 시작"));
   const form = el("form", "project-start-form");
-  const project = el("input"); project.id = "projectStartName"; project.maxLength = 60; project.required = true; project.placeholder = "프로젝트 이름";
+  const project = el("input"); project.id = "projectStartName"; project.maxLength = 60; project.placeholder = "프로젝트 이름(비우면 임시 이름)"; // 비우면 서버가 임시 이름(② §17 「임시 프로젝트」)
   projectComboAttach(project, { list: "projectStartList" }); // 고르기 목록 — 작업 내용의 프로젝트 칸과 같은 도우미(② §19: 지금 프로젝트가 미리 적혀 있어 datalist 로는 다른 프로젝트가 안 보였다)
   const job = el("select"); job.id = "projectStartTask";
   for (const [key, cat] of Object.entries(TASK_CATALOG)) if (!cat.soon) job.append(new Option(cat.name, key));
@@ -155,13 +167,71 @@ function projectListEnsure() {
   form.onsubmit = (e) => {
     e.preventDefault();
     const name = project.value.trim().replace(/\s+/g, " ");
-    if (!name || projectBusy()) return;
+    if (projectBusy()) return;
     const picker = el("input"); picker.type = "file"; picker.accept = taskAcceptOf(job.value).filter((x) => x !== "pdf").map((x) => `.${x}`).join(","); // 그 TASK 가 받는 문서(task_catalog.js — 보통 hwp·hwpx · 문서 서식 복사는 docx 도). PDF 는 작업을 만들지 않으므로 여기서는 뺀다
     picker.onchange = () => projectUpload(name, job.value, picker.files[0]); picker.click();
   };
   create.append(form);
   const round = el("section", "project-new-round"); round.id = "projectNewRound"; round.hidden = true;
-  box.append(head, filter, list, create, round);
+  box.append(head, makeBox, filter, list, create, round);
+}
+
+// ---- 새 프로젝트(spec_작업 ② §17 「새 프로젝트」, 2026-11-18 사용자 "새로운 프로젝트 만들기 기능을 추가 해줘") — 머리 아래 인라인 이름 줄. POST /api/projects {name}
+function projectMakeSet(next, focus = true) {
+  if (projectMake && projectMake.busy) return;
+  projectMake = next;
+  projectMakeDraw(focus);
+}
+
+function projectMakeDraw(focus = false) {
+  const box = $("projectMake"), m = projectMake, btn = $("projectMakeBtn");
+  if (!box) return;
+  if (btn) { btn.setAttribute("aria-expanded", String(!!m)); btn.classList.toggle("on", !!m); }
+  box.hidden = !m; box.textContent = "";
+  if (!m) return;
+  const row = el("div", "project-edit-row"), inp = el("input"), note = el("p", "project-note project-edit-note");
+  inp.type = "text"; inp.maxLength = 60; inp.value = m.draft; inp.placeholder = "새 프로젝트 이름"; inp.id = "projectMakeName"; inp.setAttribute("aria-label", "새 프로젝트 이름"); inp.disabled = m.busy;
+  note.setAttribute("role", "status");
+  const save = hBtn("만들기", () => projectMakeRun(), { cls: "btn sm primary" }); save.id = "projectMakeSave";
+  const cancel = hBtn("취소", () => { projectMakeSet(null); const b = $("projectMakeBtn"); if (b) b.focus(); }, { cls: "btn sm", disabled: m.busy });
+  const check = () => { // 이미 쓰는 이름 · 임시 이름 꼴은 만들지 않는다(서버 409 · 400)
+    m.draft = inp.value;
+    const n = projectNameOf(inp.value), why = projectNameTaken(n) ? "같은 이름의 프로젝트가 이미 있습니다" : projectIsTemp(n) ? "「임시 프로젝트 N」 은 이름 없이 올린 문서에 붙이는 임시 이름입니다 — 다른 이름을 넣으세요" : "";
+    note.textContent = why; note.hidden = !why;
+    save.disabled = m.busy || !n || !!why;
+  };
+  inp.oninput = check;
+  inp.onkeydown = (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === "Enter") { e.preventDefault(); projectMakeRun(); } else if (e.key === "Escape") { e.preventDefault(); cancel.click(); } };
+  check();
+  row.append(inp, save, cancel);
+  box.append(row, note, el("p", "project-note", "이름만 정해 둡니다 — 만든 뒤 그 프로젝트 줄의 「파일 올려 시작」 으로 첫 TASK 를 시작합니다."));
+  if (focus) inp.focus();
+}
+
+async function projectMakeRun() {
+  const m = projectMake, name = m && projectNameOf(m.draft);
+  if (!m || m.busy || !name || projectNameTaken(name) || projectIsTemp(name)) return;
+  m.busy = true; projectMakeDraw();
+  try {
+    const r = await api("/api/projects", { method: "POST", headers: H_JSON, body: JSON.stringify({ name }) });
+    m.busy = false; projectMake = null; projectMakeDraw();
+    toast(`프로젝트 「${r.name}」 을(를) 만들었습니다 — 「파일 올려 시작」 으로 첫 TASK 를 시작하세요`);
+    projectFocusWant = `start:${r.name}`;
+    if (!projectInfo.map) projectInfo.map = new Map(); // 읽는 중이면 projectInfoLoad 가 건너뛴다 — 만든 것은 바로 보이게 먼저 넣는다(서버 listing 과 같은 꼴)
+    projectInfo.map.set(r.name, { name: r.name, temp: false, settings: null, confirmed: null, versions: [], works: [], tasks: [] });
+    projectListDraw();
+    await projectInfoLoad(true);
+  } catch (e) { m.busy = false; projectMakeDraw(true); toast(`프로젝트를 만들지 못했습니다: ${e.message}`, true); }
+}
+
+function projectStartIn(name) { // 「파일 올려 시작」 — 그 프로젝트 이름을 넣고 「새 TASK 시작」 을 펴서 TASK 고르기로
+  const create = $("projectCreate");
+  if (!create) return;
+  create.open = true;
+  $("projectStartName").value = name;
+  projectDraft = taskScopeKey(); // 다시 그려도 넣은 이름을 지금 프로젝트로 되돌리지 않게
+  create.scrollIntoView({ block: "nearest" });
+  $("projectStartTask").focus();
 }
 
 function projectListDraw() {
@@ -182,7 +252,10 @@ function projectListDraw() {
   const projects = [...new Set(groups.map((g) => g.project))].sort((a, b) => a === taskProject() ? -1 : b === taskProject() ? 1 : a.localeCompare(b, "ko"));
   for (const name of projects) {
     const section = el("section", "project-group"), items = groups.filter((g) => g.project === name), head = el("div", "project-group-title");
-    head.append(el("strong", null, name || "프로젝트 미지정"), el("span", null, `진행 TASK ${items.filter((g) => g.latest).length}`)); section.append(head);
+    head.append(el("strong", null, name || "프로젝트 미지정"));
+    if (projectIsTemp(name)) head.append(projectTempTag());
+    head.append(el("span", null, `진행 TASK ${items.filter((g) => g.latest).length}`)); section.append(head);
+    if (name && projectIsTemp(name)) head.append(projectNameBtn(name)); // 임시 프로젝트 — 「이름 정하기」 를 머리 줄에 바로(⋯ 의 「이름 변경」 과 같은 줄을 연다)
     if (name) { head.append(projectMenuBtn(name, false)); if (projectEdit && projectEdit.name === name) section.append(projectEditEl(name, all, false)); }
     const active = items.filter((g) => g.latest), previous = items.filter((g) => !g.latest).sort((a, b) => b.round - a.round);
     for (const g of active) section.append(projectGroupEl(g, open, drop));
@@ -202,7 +275,11 @@ function projectListDraw() {
     head.append(el("strong", null, name), el("span", "project-empty-tag", "문서 없음"), projectMenuBtn(name, true));
     section.append(head);
     if (projectEdit && projectEdit.name === name) section.append(projectEditEl(name, all, true));
-    section.append(el("p", "project-note", `문서가 없는 프로젝트입니다 — 프로젝트 구성${vers ? `(버전 ${vers}개)` : ""}만 남아 있습니다`));
+    const fresh = !info.settings && !vers; // 구성도 버전도 없음 — 「새 프로젝트」 로 만들고 아직 파일을 안 올린 것(② §17 「새 프로젝트」)
+    section.append(el("p", "project-note", fresh ? "아직 문서가 없습니다 — 파일을 올려 첫 TASK 를 시작하세요" : `문서가 없는 프로젝트입니다 — 프로젝트 구성${vers ? `(버전 ${vers}개)` : ""}만 남아 있습니다`));
+    const go = hBtn("파일 올려 시작", () => projectStartIn(name), { cls: "btn sm", disabled: projectBusy(), title: `「${name}」 에 TASK 를 고르고 파일을 올려 시작합니다(아래 「새 TASK 시작」)` });
+    go.dataset.projectEdit = `start:${name}`; go.dataset.projectAct = "on"; go.dataset.projectStart = name;
+    section.append(go);
     list.append(section);
   }
   if (!groups.length && !shownEmpty.length) list.append(el("p", "project-note", query ? "찾는 작업이 없습니다." : "파일을 올려 프로젝트의 첫 TASK를 시작하세요."));
@@ -369,11 +446,13 @@ async function projectUpload(project, job, file) {
     const result = await api("/api/docs?new=1", { method: "POST", body: fd });
     const doc = await api(`/api/docs/${result.docId}`), guessed = (doc.work && doc.work.task || {}).file;
     const cat = TASK_CATALOG[job], role = cat.file || guessed || "";
-    const started = await api(`/api/works/${result.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify({ project, job, file: role }) });
+    // 이름을 비우면 서버가 임시 이름(「임시 프로젝트 N」 — ② §17 「임시 프로젝트」)을 붙인다
+    const started = await api(`/api/works/${result.docId}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify(project ? { project, job, file: role } : { project: "", temp: true, job, file: role }) });
     if (epoch !== state.epoch) return;
     await load(result.docId); await loadWorks(); taskEnter(job);
     firstRun();
-    toast(`${project} · ${cat.name} · Round ${started.round} 시작`);
+    const named = (started.task || {}).project || project;
+    toast(`${named} · ${cat.name} · Round ${started.round} 시작${started.temp ? " — 임시 이름입니다: 「작업 내용」 의 프로젝트 칸이나 이 목록의 「이름 정하기」 로 이름을 정하세요" : ""}`);
   } catch (e) { toast(`TASK를 시작하지 못했습니다: ${e.message}`, true); }
   finally { projectStarting = false; $("projectStartUpload").disabled = false; projectControlsSync(); }
 }
@@ -407,7 +486,7 @@ function projectFocusKeep(list) { // 다시 그리기 전에 부르고, 돌려�
 function projectEditSet(name, mode, focus = "") { // mode "" = 닫기
   if (projectEdit && projectEdit.busy) return;
   if (mode && projectDrop && !projectDrop.busy) projectDrop = null; // 확인 줄은 한 번에 하나 — TASK·문서 지우기 확인 줄을 닫는다(② §7 「작업 지우기」)
-  projectEdit = mode ? { name, mode, draft: name, busy: false } : null;
+  projectEdit = mode ? { name, mode, draft: projectIsTemp(name) ? "" : name, busy: false } : null; // 임시 프로젝트는 빈 칸에서 — 새 이름을 적는다
   projectFocusWant = focus;
   projectListDraw();
 }
@@ -417,6 +496,21 @@ function projectEditOpen(name, mode, focus = "") {
   if (projectEdit && projectEdit.name === name && projectEdit.mode === mode) return;
   projectEditSet(name, mode, focus);
   projectInfoLoad(true); // 삭제 확인 줄에 쓸 그 프로젝트의 구분 기준 버전 수(② §19) — ⋯ 를 열 때부터 읽어 둔다
+}
+
+function projectTempTag() { // 머리 줄 표지 「임시 이름」(색만으로 가르지 않게 글로 — 「문서 없음」 과 같은 꼴)
+  const tag = el("span", "project-temp-tag", "임시 이름");
+  tag.title = "이름 없이 시작해 붙은 임시 이름입니다 — 「이름 정하기」 나 작업 내용의 프로젝트 칸에 이름을 적으면 바뀝니다(문서 모두 함께)";
+  return tag;
+}
+
+function projectNameBtn(name) { // 임시 프로젝트 머리 줄의 「이름 정하기」 — ⋯ → 「이름 변경」 과 같은 이름 줄
+  const on = !!projectEdit && projectEdit.name === name && projectEdit.mode === "rename";
+  const b = hBtn("이름 정하기", () => (on ? projectEditSet(name, "", `name:${name}`) : projectEditOpen(name, "rename", "name")), { cls: "btn sm project-name-set" + (on ? " on" : ""), disabled: !on && projectBusy(), title: `「${name}」 의 이름을 정합니다 — 문서 ${projectDocCount(name)}개가 함께 옮겨 갑니다 · 이미 있는 프로젝트 이름이면 그 프로젝트로 옮깁니다` });
+  b.setAttribute("aria-expanded", String(on));
+  b.dataset.projectEdit = `name:${name}`; b.dataset.projectNameSet = name;
+  if (!on) b.dataset.projectAct = "on";
+  return b;
 }
 
 function projectMenuBtn(name, empty) { // empty = 문서 없는 프로젝트(이름 변경 · 삭제만 — 초기화는 없다)
@@ -447,15 +541,18 @@ function projectEditEl(name, all, empty) { // empty = 문서 없는 프로젝트
   }
   menu.append(del); box.append(menu);
   if (e.mode === "rename") { // 이름 줄 — Enter 저장 · Esc 취소
-    const row = el("div", "project-edit-row"), note = el("p", "project-note project-edit-note"), inp = el("input");
-    inp.type = "text"; inp.maxLength = 60; inp.value = e.draft; inp.placeholder = "새 프로젝트 이름"; inp.setAttribute("aria-label", `${name} 프로젝트의 새 이름`); inp.dataset.projectEdit = "name";
+    const row = el("div", "project-edit-row"), note = el("p", "project-note project-edit-note"), inp = el("input"), temp = projectIsTemp(name);
+    inp.type = "text"; inp.maxLength = 60; inp.value = e.draft; inp.placeholder = temp ? "프로젝트 이름(정할 이름)" : "새 프로젝트 이름"; inp.setAttribute("aria-label", `${name} 프로젝트의 새 이름`); inp.dataset.projectEdit = "name";
     note.setAttribute("role", "status");
     const save = act("저장", "save", () => projectRename(), { cls: "btn sm primary" });
-    const check = () => {
+    const check = () => { // 임시 프로젝트는 이미 있는 이름도 된다 — 그 프로젝트로 문서를 모두 옮긴다(② §17 「임시 프로젝트」). 이름 있는 프로젝트는 전처럼 합치지 않는다
       e.draft = inp.value;
-      const n = projectNameOf(inp.value), taken = projectNameTaken(n, name);
-      note.textContent = taken ? "같은 이름의 프로젝트가 이미 있습니다" : ""; note.hidden = !taken;
-      save.dataset.projectAct = !n || taken ? "off" : "on"; save.disabled = projectBusy() || !n || taken;
+      const n = projectNameOf(inp.value), taken = projectNameTaken(n, name), join = temp && taken, bad = (taken && !temp) || (!taken && projectIsTemp(n) && n !== name);
+      note.textContent = join ? `이미 있는 프로젝트입니다 — 「옮기기」 를 누르면 이 임시 프로젝트의 문서 ${projectDocCount(name)}개를 「${n}」 로 옮깁니다`
+        : bad ? (taken ? "같은 이름의 프로젝트가 이미 있습니다" : "「임시 프로젝트 N」 은 임시 이름입니다 — 다른 이름을 넣으세요") : "";
+      note.hidden = !note.textContent; note.classList.toggle("is-info", join);
+      save.textContent = join ? "옮기기" : "저장";
+      save.dataset.projectAct = !n || bad ? "off" : "on"; save.disabled = projectBusy() || !n || bad;
     };
     inp.oninput = check; check();
     inp.onkeydown = (ev) => { if (ev.isComposing || ev.keyCode === 229) return; if (ev.key === "Enter") { ev.preventDefault(); projectRename(); } else if (ev.key === "Escape") { ev.preventDefault(); projectEditSet(name, "menu", "rename"); } };
@@ -481,8 +578,7 @@ function projectEditEl(name, all, empty) { // empty = 문서 없는 프로젝트
   return box;
 }
 
-async function projectChange(request, failText) { // 진행 중 저장을 마치고 요청 하나를 보낸다. 실패하면 알리고 null
-  const e = projectEdit;
+async function projectChange(request, failText, e = projectEdit) { // 진행 중 저장을 마치고 요청 하나를 보낸다. 실패하면 알리고 null — e = 바쁨 표시를 둘 곳(작업 리스트의 펼친 줄 · 작업 내용의 프로젝트 칸은 제 것)
   if (!e || e.busy) return null;
   if (projectBusy(false)) { toast(PROJECT_WAIT); return null; }
   e.busy = true;
@@ -496,12 +592,12 @@ async function projectChange(request, failText) { // 진행 중 저장을 마치
   finally { projectStarting = false; e.busy = false; projectControlsSync(); }
 }
 
-async function projectApplied(ids, patch) { // 지금 연 문서가 대상이면 화면의 task 를 맞추고 목록을 다시 읽는다
+async function projectApplied(ids, patch, regroup = !patch.project) { // 지금 연 문서가 대상이면 화면의 task 를 맞추고 목록을 다시 읽는다 — regroup = 같은 프로젝트의 문서가 바뀜(떠남 · 임시 프로젝트를 다른 프로젝트로 옮김)
   const mine = ids.includes(state.id), epoch = state.epoch;
   if (mine) {
     state.task = { ...state.task, ...patch };
     taskDraw(); divReset();
-    if (!patch.project) { // 프로젝트를 떠나면 같은 프로젝트 문서에 기대던 화면도 걷는다(taskSetNow 와 같게)
+    if (regroup) { // 프로젝트를 떠나거나 다른 프로젝트로 옮기면 같은 프로젝트 문서에 기대던 화면도 걷는다(taskSetNow 와 같게)
       if (typeof peerPick !== "undefined") peerPick = null;
       if (typeof gatherState !== "undefined") gatherState = null;
       if (typeof compareReset === "function") compareReset();
@@ -514,16 +610,36 @@ async function projectApplied(ids, patch) { // 지금 연 문서가 대상이면
 async function projectRename() {
   const e = projectEdit;
   if (!e || e.mode !== "rename") return;
-  const name = e.name, next = projectNameOf(e.draft);
-  if (!next || projectNameTaken(next, name)) return;
+  const name = e.name, next = projectNameOf(e.draft), temp = projectIsTemp(name);
+  if (!next || (!temp && projectNameTaken(next, name)) || (projectIsTemp(next) && next !== name && !projectNameTaken(next, name))) return;
   if (next === name) { projectEditSet(name, "menu", "rename"); return; }
-  const result = await projectChange(() => api(`/api/projects/${encodeURIComponent(name)}`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ name: next }) }), "프로젝트 이름을 바꾸지 못했습니다");
+  const result = await projectChange(() => projectRenameSend(name, next), temp ? "프로젝트 이름을 정하지 못했습니다" : "프로젝트 이름을 바꾸지 못했습니다");
   if (!result) return;
   projectEdit = null; projectFocusWant = `menu:${result.name}`;
-  if (projectInfo.map) projectInfo.map.delete(name); // 옛 이름의 정보는 버린다 — 새 이름은 아래에서 다시 읽는다
-  toast(`프로젝트 이름을 「${result.name}」으로 바꿨습니다`);
-  await projectApplied(result.works, { project: result.name });
+  await projectRenamed(name, result);
+}
+
+const projectRenameSend = (name, next) => api(`/api/projects/${encodeURIComponent(name)}`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ name: next }) });
+
+async function projectRenamed(old, result) { // 이름 변경 · 임시 프로젝트 이름 정하기의 뒤처리 — 알림 · 지금 문서의 task(옮겨 가면 라운드도 바뀐다 — 응답 tasks) · 목록
+  if (projectInfo.map) projectInfo.map.delete(old); // 옛 이름의 정보는 버린다 — 새 이름은 아래에서 다시 읽는다
+  const n = result.works.length;
+  toast(result.join ? `임시 프로젝트 「${old}」 의 문서 ${n}개를 프로젝트 「${result.name}」 로 옮겼습니다`
+    : projectIsTemp(old) ? `프로젝트 이름을 「${result.name}」 으로 정했습니다 — 문서 ${n}개` : `프로젝트 이름을 「${result.name}」으로 바꿨습니다`);
+  const mine = result.tasks && result.tasks[state.id];
+  await projectApplied(result.works, mine ? { project: mine.project, round: mine.round || 1 } : { project: result.name }, !!result.join);
   projectInfoLoad(true);
+}
+
+// 작업 내용의 프로젝트 칸(app.js taskRow)에서 임시 프로젝트에 이름을 적음 — 이 문서만 옮기지 않고 임시 프로젝트를 통째로(② §17 「임시 프로젝트」). → 했나
+async function projectTempName(old, raw) {
+  const next = projectNameOf(raw);
+  if (!next || next === old || !projectIsTemp(old)) return false;
+  if (projectIsTemp(next) && !projectNameTaken(next, old)) { toast("「임시 프로젝트 N」 은 임시 이름입니다 — 다른 이름을 넣으세요", true); return false; }
+  const result = await projectChange(() => projectRenameSend(old, next), "프로젝트 이름을 정하지 못했습니다", { busy: false });
+  if (!result) return false;
+  await projectRenamed(old, result);
+  return true;
 }
 
 async function projectReset() { // 「초기화」 의 확인 — 프로젝트 구성(구성 값·확정·버전)만 지운다: DELETE /api/projects/{이름}?docs=reset(spec_작업 ② §17). 문서·프로젝트 소속·이미 반영한 내용은 그대로

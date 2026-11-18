@@ -481,7 +481,7 @@ try:
         api("POST", f"/api/docs/{lonely}/divisions/versions", json={"name": "남은 버전"})
         api("DELETE", f"/api/works/{lonely}")
         show_list(page)
-        page.locator("#projectWorkspace .project-list-head button").click()  # 새로고침 — 작업 목록 + 프로젝트 정보
+        page.locator("#projectRefresh").click()  # 새로고침 — 작업 목록 + 프로젝트 정보
         page.wait_for_selector('#projectList [data-project-empty="프로젝트 빈"]', timeout=30000)
         empty_text = page.locator('#projectList [data-project-empty="프로젝트 빈"]').inner_text()
         check("문서 없는 프로젝트가 작업 리스트에 — 이름 · 「문서 없음」 · 남은 것(프로젝트 구성 · 버전 수) · 문서 있는 프로젝트 뒤", "프로젝트 빈" in empty_text and "문서 없음" in empty_text
@@ -513,12 +513,86 @@ try:
         page.wait_for_function("() => !document.querySelector('#projectList [data-project-empty]') && !projectStarting", timeout=30000)
         check("삭제 뒤 — 프로젝트 목록(API)과 작업 리스트에서 사라짐", all(p["name"] != "프로젝트 빈" for p in api("GET", "/api/projects").json()["projects"])
               and page.locator('[data-project-menu="프로젝트 빈"]').count() == 0)
+        # 새 프로젝트 · 임시 프로젝트(spec_작업 ② §17 「새 프로젝트」·「임시 프로젝트」, 2026-11-18) — 머리 「새 프로젝트」 → 인라인 이름 줄 → 문서 없는 프로젝트 줄 + 「파일 올려 시작」 ·
+        # 이름 없이 시작한 TASK 는 「임시 프로젝트 N」 → 머리 줄 「임시 이름」 + 「이름 정하기」(문서 모두 새 이름) · 작업 내용의 프로젝트 칸에 이미 있는 이름 → 그 프로젝트로 옮김
+        made = "새 과제 시험"
+        page.locator("#projectMakeBtn").click()
+        page.wait_for_selector("#projectMakeName")
+        check("새 프로젝트 — 머리 아래 인라인 이름 줄 · 포커스", page.evaluate("() => document.activeElement && document.activeElement.id === 'projectMakeName'")
+              and page.get_attribute("#projectMakeBtn", "aria-expanded") == "true")
+        page.locator("#projectMakeName").fill("프로젝트 A")
+        taken_note = page.locator("#projectMake .project-edit-note").inner_text()
+        page.locator("#projectMakeName").fill("임시 프로젝트 5")
+        temp_note = page.locator("#projectMake .project-edit-note").inner_text()
+        check("이미 있는 이름 · 임시 이름 꼴은 「만들기」 꺼짐 + 까닭", "이미 있습니다" in taken_note and "임시 이름" in temp_note and page.locator("#projectMakeSave").is_disabled(), (taken_note, temp_note))
+        page.locator("#projectMakeName").fill(made)
+        with page.expect_response(lambda r: r.url.endswith("/api/projects") and r.request.method == "POST", timeout=30000) as created:
+            page.locator("#projectMakeName").press("Enter")
+        check("새 프로젝트 API 성공(POST /api/projects)", created.value.status == 200 and created.value.json() == {"name": made}, created.value.status)
+        page.wait_for_selector(f'#projectList [data-project-empty="{made}"]', timeout=30000)
+        made_text = page.locator(f'#projectList [data-project-empty="{made}"]').inner_text()
+        check("만든 프로젝트 — 문서 없음 줄 · 「아직 문서가 없습니다」 · 「파일 올려 시작」 · 이름 줄 닫힘", "아직 문서가 없습니다" in made_text and page.locator(f'[data-project-start="{made}"]').count() == 1
+              and page.locator("#projectMake").is_hidden() and page.evaluate(overflow) <= 1, made_text)
+        page.locator(f'[data-project-start="{made}"]').click()
+        check("「파일 올려 시작」 — 새 TASK 시작이 펴지고 이름이 들어감 · TASK 고르기로", page.locator("#projectCreate").evaluate("e => e.open") and page.locator("#projectStartName").input_value() == made
+              and page.evaluate("() => document.activeElement && document.activeElement.id === 'projectStartTask'"))
+        page.locator("#panel").screenshot(path=str(OUT / "07b_project_new.png"))
+
+        def temp_start(job="plan_fit", role="plan"):  # 올린 문서(source upload)로 — 시작 화면에서 파일을 올린 것과 같다
+            with (ROOT / "samples" / "기술수요조사서.hwpx").open("rb") as f:
+                wid = api("POST", "/api/docs?new=1", files={"file": ("기술수요조사서.hwpx", f)}).json()["docId"]
+            return api("POST", f"/api/works/{wid}/start-task", json={"project": "", "temp": True, "job": job, "file": role}).json()
+        t1 = temp_start("plan_to_report", "report")
+        t1_mate = api("POST", "/api/samples/" + quote("기술수요조사서.hwpx") + "?new=1").json()["docId"]
+        api("PUT", f"/api/works/{t1_mate}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": t1["task"]["project"], "round": 1})
+        t2 = temp_start()
+        n1, n2 = t1["task"]["project"], t2["task"]["project"]
+        check("이름 없이 시작 → 임시 프로젝트 N(차례로)", t1["temp"] and n1.startswith("임시 프로젝트 ") and n2 == "임시 프로젝트 " + str(int(n1.split()[-1]) + 1), (n1, n2))
+        page.locator("#projectRefresh").click()
+        page.wait_for_selector(f'[data-project-name-set="{n1}"]', timeout=30000)
+        head1 = page.locator(f'[data-project-name-set="{n1}"]').locator("xpath=..").inner_text()
+        check("임시 프로젝트 머리 줄 — 「임시 이름」 표지 · 「이름 정하기」 · 두 문서가 한 TASK 묶음", "임시 이름" in head1 and page.locator(f'[data-project-work="{t1["docId"]}"]').count() == 1
+              and "2개 문서" in page.locator(f'[data-project-work="{t1["docId"]}"]').inner_text(), head1)
+        page.locator(f'[data-project-name-set="{n1}"]').click()
+        name_inp = page.locator('#projectList input[data-project-edit="name"]')
+        check("이름 정하기 — 빈 칸에서 시작 · 포커스", name_inp.input_value() == "" and page.evaluate("() => document.activeElement && document.activeElement.dataset.projectEdit === 'name'"))
+        name_inp.fill("프로젝트 A")
+        join_note = page.locator("#projectList .project-edit-note").inner_text()
+        check("이미 있는 이름 — 막지 않고 「옮기기」 + 옮길 문서 수 안내", "문서 2개" in join_note and "옮깁니다" in join_note and page.locator('#projectList [data-project-edit="save"]').inner_text() == "옮기기"
+              and page.locator('#projectList [data-project-edit="save"]').is_enabled(), join_note)
+        page.locator(f'[data-project-name-set="{n1}"]').scroll_into_view_if_needed()
+        check("임시 프로젝트 이름 줄 — 320px 에서 넘치지 않음", page.evaluate(overflow) <= 1)
+        page.locator("#panel").screenshot(path=str(OUT / "07c_project_temp.png"))
+        name_inp.fill("정한 과제")
+        with page.expect_response(lambda r: "/api/projects/" in r.url and r.request.method == "PUT", timeout=30000) as named:
+            name_inp.press("Enter")
+        body = named.value.json()
+        page.wait_for_function("() => !!document.querySelector('[data-project-menu=\"정한 과제\"]') && !projectStarting", timeout=30000)
+        tasks_now = {w["id"]: w["task"] for w in api("GET", "/api/works").json()}
+        check("이름 정하기 → 문서 모두 새 이름 · 임시 표지 없음 · 알림", body["join"] is False and set(body["works"]) == {t1["docId"], t1_mate}
+              and tasks_now[t1["docId"]]["project"] == tasks_now[t1_mate]["project"] == "정한 과제" and page.locator(f'[data-project-name-set="{n1}"]').count() == 0
+              and "이름을 「정한 과제」 으로 정했습니다" in page.locator("#toast").text_content(), (body, page.locator("#toast").text_content()))
+        page.evaluate("id => projectOpen(id)", t2["docId"])  # 작업 내용의 프로젝트 칸 — 임시 이름이면 표지 · 이미 있는 이름(만든 프로젝트)을 적으면 그 프로젝트로 옮김
+        wait_work(page, t2["docId"])
+        field = '#divBox input[data-task="project"]'
+        check("작업 내용의 프로젝트 칸 — 임시 이름 · 칸 뒤 「임시 이름」 표지", page.locator(field).input_value() == n2
+              and page.locator("#divBox .dv-task-field .dv-tag.is-temp").inner_text() == "임시 이름")
+        page.locator(field).fill(made)
+        with page.expect_response(lambda r: "/api/projects/" in r.url and r.request.method == "PUT", timeout=30000) as joined:
+            page.locator(field).press("Enter")
+        page.wait_for_function("p => state.task.project === p && !projectStarting && !document.querySelector('#divBox .dv-tag.is-temp')", arg=made, timeout=30000)
+        check("이미 있는 이름(만든 프로젝트) → 그 프로젝트로 옮김 · 지금 문서도 · 알림", joined.value.json()["join"] is True
+              and api("GET", f"/api/works").json() and {w["id"]: w["task"] for w in api("GET", "/api/works").json()}[t2["docId"]]["project"] == made
+              and f"「{made}」 로 옮겼습니다" in page.locator("#toast").text_content() and all(p["name"] != n2 for p in api("GET", "/api/projects").json()["projects"]), page.locator("#toast").text_content())
+        page.evaluate("id => projectOpen(id)", current)
+        wait_work(page, current)
+        show_list(page)
         # TASK · 문서 지우기(spec_작업 ② §7 「작업 지우기」 · §17, 2026-11-16) — TASK 줄 끝 「지우기」 = 그 라운드의 문서 전부 · 문서 줄 끝 × = 그 문서 하나 → 줄 아래 확인 줄(창 없음). 320px 폭 그대로.
         gone = "프로젝트 지움"
         g_plan, g_report, g_extra = upload(project=gone), upload("report", project=gone), upload(project=gone)  # 이관 Round 1 — 문서 셋
         g_fit = upload(project=gone, job="plan_fit")  # 양식 맞추기 Round 1 → 아래에서 Round 2 를 만든다(이전 라운드가 남는다는 글)
         g_fit2 = api("POST", f"/api/works/{g_fit}/round", json={"source": "original"}).json()["docId"]
-        page.locator("#projectWorkspace .project-list-head button").click()  # 새로고침
+        page.locator("#projectRefresh").click()  # 새로고침
         page.wait_for_selector(f'[data-project-work="{g_report}"]', timeout=30000)
         g_round, g_key = f'round:["{gone}","plan_to_report",1]', lambda wid: f"file:{wid}"
         drop_btn = lambda key: page.locator("#projectList [data-project-drop]").evaluate_all("(list, key) => list.findIndex((b) => b.dataset.projectDrop === key)", key)
