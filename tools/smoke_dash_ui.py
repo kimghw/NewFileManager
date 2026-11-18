@@ -4,6 +4,7 @@
   · 상태(01 끝남 · 02 지금 — 펴짐) · 머리 「끝남 1/4」(안 해도 되는 단계는 안 셈) · 「다음: 02 …」 · 「구조 반영」 의 「한 번에 진행」 은 꺼짐(값 확정 전).
 - 대시보드에서만: 「프로젝트 구성 입력 · 확정…」 → 폼(에이전트 질문 카드와 같은 폼 — 단추 「확정」 · 「문서에서 보기」 · 「구성 읽기」 · 「닫기」) → 「확정」 → 확정(문서 그대로) · 02 끝남 · 04 지금 → 「변경 계획 보기」 → 끝 글 · 문서 옆 열에 목록(탭은 대시보드 그대로)
   → 05 「문서에 반영」(제 확인 창) → 문서가 바뀜 · 「모두 끝남」.
+- 03 구분 기준 자리 확인(안 해도 됨): 펴면 「LLM 검토 실행」 → 확인 창 → 끝 글 · 문서 옆 열에 검토 결과 목록 · 남은 문단 후보가 있으면 끝남이 아님 → 「다시 검토」 로 후보가 없으면 「✓ 끝남」(검토 끝점의 답만 흉내 — LLM 끔).
 - 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」(등록부의 조건) · 좁은 패널에서 가로 넘침 없음 · 다시 그려도 초점 유지(1초 지켜보기) · 문서 일반 편집(doc_edit)의 흐름 · 「에이전트 보기 열기」 · 콘솔 오류 없음.
 - TASK 가 없는 문서(TASK 없이 올림 → #w=) — 탭은 보이고 「TASK 고르기」 카드 → 「이 TASK 로」 → 문서에 TASK 가 적히고 그 자리에서 단계 흐름(② §9 「TASK 가 없을 때」).
 
@@ -180,6 +181,42 @@ def main():
         page.click("#tabDash")
         page.wait_for_selector("#paneDash .dash-node[data-key=apply][data-state=done]", timeout=30000)
         check("다른 탭에 갔다 와도 같은 상태(모두 끝남)", page.evaluate(HEAD)["next"] == "모두 끝남")
+
+        # ---- 03 구분 기준 자리 확인 — 이 단계에서 바로 「LLM 검토 실행」(2026-11-18 사용자 「LLM 검토할 수 있도록 해야 하는데 그 기능이 없잖아」 — 전에는 「검토 목록 열기」 뿐이라 문서 옆 목록을 열어야 돌릴 수 있었다).
+        # 이 서버는 LLM 이 꺼져 있어 검토 끝점(POST …/divisions/review)의 답만 흉내 낸다 — 단추 · 확인 창 · divReview · 결과 목록 · 상태 셈은 진짜
+        TEXT3 = "() => (document.querySelector('#paneDash .dash-node[data-key=review] .dash-detail > .dash-text') || {}).textContent || ''"
+        page.click('#paneDash .dash-node[data-key=review] .dash-node-head')
+        page.wait_for_selector('#paneDash .dash-node[data-key=review] .dash-detail')
+        n3, text3 = node(page, "review"), page.evaluate(TEXT3)
+        check("03 을 펴면 「LLM 검토 실행」 단추가 그 카드에 · 검토 전에는 상태 글 없음 · 「아직 하지 않았습니다 … 하지 않아도 다음 단계로」",
+              [a[:2] for a in n3["acts"]] == [["LLM 검토 실행", False]] and n3["st"] == "" and "아직 하지 않았습니다" in text3 and "하지 않아도 다음 단계로" in text3, [n3, text3])
+        cand = page.evaluate("() => ({ id: document.querySelector('#doc .para[data-id]').dataset.id, rev: state.serverRev })")
+        fake = {"items": [{"id": cand["id"], "kind": "paragraph", "dim": "org", "dimName": "기관", "sources": ["missing"], "confidence": "high", "text": "검사용 문단 후보", "pattern": "기관마다 되풀이", "reason": "검사", "path": []}]}
+
+        def review(route):
+            route.fulfill(json={"at": time.time(), "rev": cand["rev"], "ran": {"review": False, "missing": True}, "why": {"review": "표시한 자리가 없습니다"}, "errors": {}, "review": None,
+                                "missing": {"missing": fake["items"], "skipped": [], "summary": "검사용 답", "sent": {"tables": 0, "paragraphs": 1}, "call": None},
+                                "items": fake["items"], "pending": None, "form": None, "costUsd": 0, "ms": 1200, "hints": [], "detail": None})
+        page.route("**/api/docs/*/divisions/review", review)
+        n_dialogs = len(dialogs)
+        page.click('#paneDash .dash-node[data-key=review] .dash-acts button:has-text("LLM 검토 실행")')
+        page.wait_for_function("() => /^구분 기준 LLM 검토 — /.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=30000)
+        h, n3, text3 = page.evaluate(HEAD), node(page, "review"), page.evaluate(TEXT3)
+        lst = page.evaluate("() => ({ open: !document.getElementById('headsDlg').hidden, add: [...document.querySelectorAll('#headsDlgBody button')].filter((x) => x.textContent === '자리로 추가').length })")
+        check("「LLM 검토 실행」 → 확인 창 한 번(유료) → 끝 글 「구분 기준 LLM 검토 — 빠진 자리 후보 1 …」 · 문서 옆 열에 검토 결과 목록(「자리로 추가」) · 패널은 대시보드 그대로 · 03 은 펴진 채 「다시 검토」 · 「검토 결과 보기」(강조)"
+              " — 남은 문단 후보 1곳이라 끝남이 아님 · 머리 「끝남 4/4」 그대로",
+              len(dialogs) == n_dialogs + 1 and "LLM 으로 검토할까요" in dialogs[-1] and h["last"].startswith("구분 기준 LLM 검토 — 빠진 자리 후보 1") and "문단 후보 1곳" in h["last"] and not h["lastHalt"]
+              and h["tool"] == "Dash" and h["count"] == "끝남 4/4" and lst == {"open": True, "add": 1} and n3["open"] and n3["st"] == "" and n3["acts"] == [["다시 검토", False, False], ["검토 결과 보기", False, True]]
+              and "문단 후보 1곳" in text3, [dialogs[n_dialogs:], h, n3, text3, lst])
+        page.locator("#paneDash").screenshot(path=str(OUT / "05b_review.png"))
+        fake["items"] = []
+        page.click('#paneDash .dash-node[data-key=review] .dash-acts button:has-text("다시 검토")')
+        page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=review]')?.dataset.state === 'done'", timeout=30000)
+        h, n3 = page.evaluate(HEAD), node(page, "review")
+        check("「다시 검토」 — 남은 문단 후보가 없으면 03 「✓ 끝남」(안 해도 되는 단계라 머리 「끝남 4/4」 에는 안 셈 · 「모두 끝남」 그대로) · 카드는 펴진 채",
+              n3["st"] == "✓ 끝남" and n3["open"] and [a[0] for a in n3["acts"]] == ["다시 검토", "검토 결과 보기"] and not n3["acts"][1][2] and h["count"] == "끝남 4/4" and h["next"] == "모두 끝남"
+              and h["last"].startswith("구분 기준 LLM 검토 — 빠진 자리 후보 0"), [h, n3])
+        page.unroute("**/api/docs/*/divisions/review")
 
         # ---- 이관(두 문서) — 「작업 내용」 의 단계 · 묶음 넷 · 등록부의 세부 단계는 「그 단계로」 · 「이어서 한 번에」
         page.goto(base)

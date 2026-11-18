@@ -58,7 +58,7 @@ COMMON = (
                 agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent"),
                 modules=("analysis_llm", "heading_runs", "tpl_agent_api"), spec=(SP_WORK, "② §20")),
              _s("division", "구분 기준 LLM 검토(옵션)", ("human", "llm"), "연구개발과제 문서(지원 양식)에만 있는 항목입니다. 저절로 돌지 않습니다 — 이름 줄의 「구분 기준」 표시로 검토 결과 열을 열거나 프로젝트 구성의 「LLM 검토」 로 "
-                "열어 「LLM 검토 실행」 을 눌러 돌립니다(유료). 일반 문서(문서 일반 편집 · 문서 서식 복사)에는 항목이 없습니다.", out="빠진 자리 후보 · 재검토", change="store", optional=True, uses=("division",), agents=("div_review", "div_missing"),
+                "열어 「LLM 검토 실행」 을 눌러 돌립니다(유료) — 양식 맞추기는 대시보드의 「구분 기준 자리 확인」 단계에서 바로 돌릴 수 있습니다. 일반 문서(문서 일반 편집 · 문서 서식 복사)에는 항목이 없습니다.", out="빠진 자리 후보 · 재검토", change="store", optional=True, uses=("division",), agents=("div_review", "div_missing"),
                 modules=("division_llm",), spec=(SP_WORK, "② §20")),
          )),
     dict(id="headings", name="헤딩 추출", where="패널 탭 「헤딩 추출」(에이전트 옆 — 머리의 「전체 실행」(조정까지 한 번에) · 「단계별 실행 ▾」 · 하위 탭 「추출·설정」 의 단계 카드)",
@@ -394,7 +394,8 @@ def _fit(job, doc):
                            stop="값이 없으면 에이전트가 문서에서 읽고, 읽은 값도 질문 카드로 확인받습니다(값을 지어내지 않습니다). 에이전트는 확정한 뒤에만 변경 계획으로 갑니다."),
                         _s("review", "구분 기준 자리 확인", ("script", "llm"), "값만큼 되풀이될 자리(절 · 표 행 · 표 열)를 문서 위 표시로 확인합니다. LLM 검토가 빠진 자리 후보를 내면 사람이 「자리로 추가」 합니다.", change="store", optional=True,
                            uses=("division",), agents=("div_review", "div_missing"), modules=("division_model", "division_llm"), spec=(SP_DIV, "② §11·§13·§14"),
-                           need="지원 양식의 문서. LLM 검토는 LLM 을 쓸 수 있을 때 사람이 단추로 돌립니다(유료).", done="안 해도 됩니다 — 끝남을 따로 세지 않습니다.",
+                           need="지원 양식의 문서. LLM 검토는 LLM 을 쓸 수 있을 때 사람이 단추로 돌립니다(유료) — 대시보드의 이 단계 「LLM 검토 실행」(누를 때 확인) 또는 「작업 내용」 의 「LLM 검토」 로 연 검토 결과 열의 같은 단추.",
+                           done="안 해도 됩니다 — 끝난 수에 넣지 않습니다. 대시보드는 LLM 검토를 했고 「자리로 추가」 를 기다리는 문단 후보가 없을 때 이 단계를 「끝남」 으로 보입니다(답을 못 받은 검토가 있으면 아님).",
                            left="LLM 이 낸 빠진 자리 후보는 사람이 「자리로 추가」 해야 자리가 됩니다."),
                     ), name="프로젝트 구성", does="단계 · 차년도 · 기관 값을 정함 — 문서는 안 바뀜"),
                     _g("frame", (

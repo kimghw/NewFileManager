@@ -84,6 +84,26 @@ async function dashOpen(id) { // 목적 문서로 — 그 문서에서도 대시
 // ---------------------------------------------------------------- TASK 마다의 지금 상태 → L = {steps: {등록부 단계 key: {state, text, lines, acts[요소], via}}, runs: {묶음 id: 단추}, parts?: [기관 문서 줄]}
 // M = 그릴 것 전체(notes 알림 · top 머리 아래 단추) — 가지가 더한다
 
+function dashReviewSum(r) { // 마지막 구분 기준 LLM 검토(dv.marks.review — server divisions_review 의 답) → {text 무엇이 나왔나, left 「자리로 추가」 를 기다리는 문단 후보 수, bad 답을 못 받은 검토가 있나}
+  const parts = [r.review ? `재검토 반영 ${(r.review.applied || []).length}` : "", r.missing ? `빠진 자리 후보 ${(r.missing.missing || []).length}` : ""].filter(Boolean);
+  const errs = Object.entries(r.errors || {}).map(([k, v]) => `${k === "review" ? "재검토" : "빠진 자리 검토"} — ${v}`);
+  return { text: (parts.join(" · ") || `돌릴 검토가 없었습니다(${Object.values(r.why || {}).join(" · ") || "까닭 모름"})`) + (errs.length ? ` · 답을 못 받은 검토: ${errs.join(" · ")}` : ""),
+    left: (r.items || []).filter((x) => divCandAdd(x) && !divHintOf(x.id)).length, bad: errs.length > 0 }; // 문단 후보 · 추가했나 = 검토 결과 목록의 「자리로 추가」 단추와 같은 셈(app.js divCandAdd · divHintOf)
+}
+
+async function dashReview() { // 양식 맞추기 03 의 「LLM 검토 실행」 — 검토 결과 목록의 그 단추와 같은 함수(app.js divReview: 새 실행 길이 아니다 — 끝나면 목록이 문서 옆 열에 열린다). 유료라 누를 때 확인(DASH_HELP). → dashExec 의 끝 글 | null(그만둠)
+  const m = dv.marks, before = m.review ? m.review.at : 0;
+  if (!confirm(`「${state.name}」 의 구분 기준 자리를 LLM 으로 검토할까요?\n\n`
+    + "· 유료 LLM 호출입니다 — 수십 초 걸립니다.\n"
+    + "· 표시한 자리가 있으면 그 자리를 다시 보고(형제 자리 찾기 · 구분 고침), 스크립트가 묶음에 넣지 못한 표 · 문단에서 빠진 자리를 찾습니다.\n"
+    + "· 문서는 바뀌지 않습니다 — 빠진 자리 후보는 문서 옆 목록에서 「자리로 추가」 해야 자리가 됩니다.")) return null;
+  await divReview(); // 못 하면 알림 글(toast)만 남기고 결과는 그대로다
+  const r = m.review;
+  if (!r || r.at === before) return { ok: false, text: "LLM 검토를 하지 못했습니다(알림 글 참고)" };
+  const sum = dashReviewSum(r);
+  return { ok: !sum.bad, text: `${sum.text} — ${sum.left ? `문단 후보 ${sum.left}곳은 문서 옆 목록에서 「자리로 추가」 해야 자리가 됩니다` : "결과 목록은 문서 옆 열에 있습니다"}` };
+}
+
 async function dashFitLive(M) { // 양식 맞추기 — 에이전트가 보는 상태 · 행동 그대로(agwFitStatus): 준비 › 프로젝트 구성 값 › (구분 기준 자리 확인) › 변경 계획 › 반영
   const st = await agwStatus(), L = { steps: {}, runs: {} }, by = {};
   for (const s of st.steps) by[s.key] = s;
@@ -105,9 +125,17 @@ async function dashFitLive(M) { // 양식 맞추기 — 에이전트가 보는 �
       return { ok: true, text: `문서에 반영했습니다 — 절 · 표 행 · 표 열을 프로젝트 구성에 맞췄습니다${left ? ` · 미해결 ${left}곳은 손으로 맞춰야 합니다` : ""}(실행 취소로 되돌릴 수 있습니다)` };
     }), opt));
   }
-  const m = dv.marks || {}; // 구분 기준 자리 확인(안 해도 됨) — 검토 목록(문서 옆 열)을 연다. 유료 「LLM 검토 실행」 은 그 목록의 단추
-  L.steps.review = { state: "", text: m.reviewing ? "LLM 검토 중…" : m.review ? `LLM 검토 결과 ${(m.review.items || []).length}곳 — 목록에서 보고 「자리로 추가」` : "LLM 검토는 하지 않았습니다 — 안 해도 됩니다",
-    acts: [dashBtn("검토 목록 열기", () => divReviewList(), { title: "문서 옆 열에 구분 기준 자리 검토 목록을 엽니다 — 「LLM 검토 실행」(유료 · 수십 초)은 그 목록의 단추로", focus: "act:review" })] };
+  // 구분 기준 자리 확인(안 해도 됨) — 「LLM 검토 실행」 을 이 단계에서 바로(2026-11-18 사용자 「LLM 검토할 수 있도록 해야 하는데 그 기능이 없잖아」 — 전에는 「검토 목록 열기」 뿐이라 문서 옆 목록을 열어야 돌릴 수 있었다).
+  // 끝남은 검토했고 「자리로 추가」 를 기다리는 문단 후보가 없을 때만(답을 못 받은 검토가 있으면 아님 — 이름 줄의 「일부만」 과 같게). 남은 후보는 수와 보정할 곳을 글로(② §7 ⓐ)
+  const m = dv.marks || {}, rv = m.review || null, sum = rv ? dashReviewSum(rv) : null, noRun = m.reviewing ? "LLM 검토가 돌고 있습니다" : dv.busy ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : "";
+  L.steps.review = { state: m.reviewing ? "run" : sum && !sum.left && !sum.bad ? "done" : "", acts: [],
+    text: m.reviewing ? "LLM 검토 중 — 수십 초 걸립니다" : !sum ? "LLM 검토는 아직 하지 않았습니다 — 스크립트가 찾지 못한 자리(묶음 밖의 표 · 문단)를 LLM 이 찾습니다. 하지 않아도 다음 단계로 갈 수 있습니다"
+      : `LLM 검토함(${fmtWhen(rv.at)}) — ${sum.text}${sum.left ? ` · 문단 후보 ${sum.left}곳은 「검토 결과 보기」 의 목록에서 「자리로 추가」 해야 자리가 됩니다` : ""}${sum.bad ? " · 다 본 것이 아닙니다 — 「다시 검토」" : ""}`
+        + (rv.rev !== state.serverRev ? " · 검토한 뒤 문서가 바뀌었습니다 — 「다시 검토」 할 수 있습니다" : "") };
+  L.steps.review.acts.push(dashBtn(m.reviewing ? "LLM 검토 중…" : rv ? "다시 검토" : "LLM 검토 실행", () => dashExec("구분 기준 LLM 검토", dashReview), { disabled: !!noRun, focus: "act:reviewRun",
+    title: noRun || "구분 기준 자리를 LLM 이 검토합니다(유료 · 수십 초 — 누를 때 확인합니다): 표시한 자리의 재검토와 빠진 자리 검토를 함께 돌리고 결과 목록을 문서 옆 열에 엽니다. 문서는 바뀌지 않습니다" }));
+  if (rv) L.steps.review.acts.push(dashBtn("검토 결과 보기", () => divReviewList(), { primary: !!sum.left && !m.reviewing, focus: "act:review",
+    title: "문서 옆 열에 구분 기준 LLM 검토 결과 목록을 엽니다 — 줄을 누르면 그 자리로 · 문단 후보는 「자리로 추가」 해야 자리가 됩니다" }));
   if (dv.msg && dv.msg.kind === "halt") L.ends = { frame: { ok: false, text: dv.msg.text } }; // 「한 번에 진행」 · 반영이 멈춘 까닭(「작업 내용」 의 상태 줄과 같은 글)
   const why = divRunWhy(), locked = !!dv.busy || divRunLocked(), applied = L.steps.apply.state === "done";
   const no = !st.facts.confirmed ? "프로젝트 구성 값을 먼저 확정하세요" : applied ? "남은 단계가 없습니다" : why || (locked ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : "");
@@ -438,7 +466,7 @@ async function dashDraw(force = false) {
   let M;
   try { M = await dashModel(); } catch (e) { console.error(e); M = { job: agwJob(), name: "대시보드", reg: null, notes: [{ text: `상태를 읽지 못했습니다: ${e.message}`, warn: true }], top: [], groups: [], R: null }; }
   if (seq !== DASH.seq) return;
-  const nowKey = (M.groups.flatMap((g) => g.nodes).find((n) => n.state === "run" || n.state === "now") || {}).key || "";
+  const nowKey = (M.groups.flatMap((g) => g.nodes).find((n) => !n.optional && (n.state === "run" || n.state === "now")) || {}).key || ""; // 안 해도 되는 단계가 도는 것은 차례가 아니다 — 그 카드를 펴고 돌린 LLM 검토가 끝나도 카드가 그대로(결과 단추가 보이게)
   if (nowKey !== DASH.nowKey) { if (DASH.nowKey) DASH.open = null; DASH.nowKey = nowKey; } // 차례가 나아가면 펼친 카드도 새 「지금」 으로(사람이 편 카드는 차례가 그대로인 동안만)
   const sig = dashSig(M);
   if (!force && sig === DASH.sig) { // 그대로 — 도는 글만
