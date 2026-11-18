@@ -14,6 +14,7 @@ PROBE = 24
 FIXED_MIN = 12
 DIFF_DPI = 72
 DIFF_LEVEL = 40  # 회색조 차이가 이보다 크면 「다른 픽셀」(차이 그림·비율용)
+PIC_MIN = 30     # pt — 이보다 작은 그림(글머리·아이콘)은 쪽의 그림으로 세지 않는다
 
 
 def key_text(text):
@@ -82,7 +83,10 @@ def read_pdf(path, halves=False, chars=False):
                     line = _line(bi, ln, stroked)
                     if line["text"].strip():
                         lines.append(line)
-            pages.append({"w": page.rect.width, "h": page.rect.height, "lines": lines, "sheet": i})
+            # pics = 그 장의 그림 상자(글머리·아이콘 크기는 뺌 · 같은 자리에 겹쳐 찍힌 것은 하나) — 글이 없어 매핑이 자리를 모르는 그림의 쪽을 정한다(paginate 「쪽 맨 위 그림」·「글 없는 쪽」)
+            pics = sorted({tuple(round(v) for v in im["bbox"]) for im in page.get_image_info()
+                           if im["bbox"][2] - im["bbox"][0] >= PIC_MIN and im["bbox"][3] - im["bbox"][1] >= PIC_MIN})
+            pages.append({"w": page.rect.width, "h": page.rect.height, "lines": lines, "sheet": i, "pics": [list(b) for b in pics]})
             if chars:  # Type3 글꼴(한글 HFT 「T1」 등): 굵게를 글꼴·긋기로 알 수 없다
                 pages[-1]["type3"] = {f[3] for f in page.get_fonts() if f[2] == "Type3"} | {f[4] for f in page.get_fonts() if f[2] == "Type3"}
     if halves:
@@ -347,6 +351,11 @@ def _first_text(ps):
     return [p for p in ps if (p.get("text") or "").strip()][:1]
 
 
+def _pics(bs):
+    """블록들 안의 그림 블록 수(칸 안 표까지)."""
+    return sum(int(b.get("type") == "image") + sum(_pics(c.get("blocks") or []) for c in b.get("cells") or ()) for b in bs)
+
+
 def _rows_unit(table, cells, r0, r1):
     """표 행 묶음 단위 — heads = 칸마다 첫 글 문단(쪽 맨 위 줄이 이것들이면 그 행이 이 쪽에서 시작, 칸의 뒤 문단이면 앞 쪽에서 이어진 행)."""
     return {"kind": "rows", "id": table["id"], "r0": r0, "r1": r1,
@@ -381,6 +390,39 @@ def paginate(blocks, pages, located):
     labs = [[key_text(((p.get("list") or {}).get("label") or "") + (p.get("text") or "")) if (p.get("list") or {}).get("label") else ""
              for p in u["heads"]] for u in us]
     raw = [sorted({pg for p in u["paras"] for pg in located.get(p["id"], ())}) for u in us]
+    # 단위의 긴 글(5자 넘음 — 짧은 칸 글은 「가까운 자리」 매핑이라 쪽이 틀릴 수 있다)이 찍힌 가장 뒤 쪽 — 앞 쪽에서 이어진 단위가 이 쪽 뒤까지 가는지 본다
+    reach = [max((pg for p in u["paras"] if len(key_text(p.get("text"))) > 5 for pg in located.get(p["id"], ())), default=0) for u in us]
+    # 단위의 **한 번뿐인 긴 글**이 찍힌 첫 쪽(lo)·끝 쪽(hi) — 맨 위 줄의 글로 고른 단위가 매핑과 어긋나는지 본다(아래 「매핑으로 거름」). 문서 블록에도 PDF 에도 한 번뿐인
+    # 글(5자 넘음)만 쓴다: 같은 글이 되풀이되는 표(기관마다 같은 서식 · 같은 머리 행)의 칸은 앞 표의 자리로 잘못 잡히는 일이 있어(연구개발계획서 양식 31쪽 「구분 · 구체적인 내용」
+    # 표 둘 — 뒤 표의 칸이 모두 앞 쪽으로 · 유엔젤 계획서 16쪽 「성과 및 차별성」 머리 17번) 그 쪽을 믿으면 맞던 나눔을 틀리게 고친다. 첫 쪽의 차례가 맞는 단위만 믿고,
+    # 끝 쪽은 그다음 믿는 단위의 첫 쪽을 넘지 않게 자른다. 0 = 모름(그런 글이 없거나 자리를 못 찾음)
+    stream = "".join(key_text(ln["text"]) for p in pages for ln in p["lines"])
+    probes = Counter(x[:PROBE] for row in keys for x in row if len(x) > 5)
+
+    def once(x):
+        return len(x) > 5 and probes[x[:PROBE]] == 1 and (at := stream.find(x[:PROBE])) >= 0 and stream.find(x[:PROBE], at + 1) < 0
+
+    long_pg = [[located[p["id"]] for p, x in zip(u["paras"], keys[k]) if located.get(p["id"]) and once(x)] for k, u in enumerate(us)]
+    sure = dict(_lis([(k, min(pg[0] for pg in x)) for k, x in enumerate(long_pg) if x], strict=False))
+    lo, hi, after_lo = [sure.get(k, 0) for k in range(len(us))], [0] * len(us), 0
+    for k in range(len(us) - 1, -1, -1):
+        if lo[k]:
+            top = max(pg[-1] for pg in long_pg[k])
+            hi[k], after_lo = max(lo[k], min(top, after_lo) if after_lo else top), lo[k]
+    first_of, at_block = {}, {}  # 표 id → 그 표의 첫 단위(머리 행) · 블록 id → 그 블록의 단위
+    for k, u in enumerate(us):
+        (first_of if u["kind"] == "rows" else at_block).setdefault(u["id"], k)
+    cap_of = {b["id"]: b["captionOf"] for b in blocks if b.get("type") == "paragraph" and b.get("captionOf")}  # 캡션 문단 → 그 표·그림
+    top_block = {b["id"]: b for b in blocks if b.get("id") is not None}  # 최상위 블록(글 없는 그림 쪽 — 블록의 종류·pageStart)
+
+    def pic_count(j):
+        """글 없는 단위 j 의 그림 수 — 그림 블록 1 · 표 행 묶음 = 그 행 칸 안의 그림 · 빈 문단 0 | None(글이 있는 단위 · 글 속 그림 = 앞 문단에 딸린 것: 거기서 멈춘다)."""
+        if any(keys[j]):
+            return None
+        u, b = us[j], top_block.get(us[j]["id"]) or {}
+        if u["kind"] == "block":
+            return None if b.get("inlineOf") else int(b.get("type") == "image")
+        return sum(_pics(c.get("blocks") or []) for c in b.get("cells") or () if u["r0"] <= c["row"] <= u["r1"])
     seq = [(k, r[0]) for k, r in enumerate(raw) if r]
     trusted = dict(_lis(seq, strict=False))
     start, cur = {}, 0
@@ -460,6 +502,19 @@ def paginate(blocks, pages, located):
                     break
         k0 = start.get(pg)
         if not tops:
+            if k0 is None and not top_text and pages[pg - 1].get("pics", True):
+                # 글이 없는 쪽(쪽 가득한 그림 — 증빙 서류·도면): 매핑은 글로만 찾으므로 이 쪽에서 시작하는 단위를 모른다. 앞 쪽을 시작한 단위 뒤에서(앞 쪽에 찍힌 글의 단위는 건너)
+                # 처음 나오는 글 없는 개체(그림·글 없는 표)나 한글이 쪽 처음으로 저장한 빈 블록(pageStart)부터 이 쪽 — 전에는 그림 쪽들이 앞 쪽 상자에 쌓였다
+                # (2026-11-18 연구계획서 200쪽 상자 = 용지의 5.8배 · 201~205쪽은 빈 쪽 표지). 자리 모르는 글·이 쪽 뒤의 글을 만나면 그만둔다(짐작하지 않는다)
+                for j in range(prev + 1, len(us)):
+                    if any(keys[j]):
+                        if raw[j] and raw[j][-1] < pg:
+                            continue
+                        break
+                    b = top_block.get(us[j]["id"]) or {}
+                    if (us[j]["kind"] == "block" or us[j]["r0"] == 0) and (b.get("type") != "paragraph" or b.get("pageStart")):
+                        k0 = j
+                        break
             checks.append({"page": pg, "status": "blank" if not top_text else "short", "top": top_text, "unit": text_of(k0) if k0 is not None else ""})
             if k0 is not None and k0 > prev:
                 breaks[pg], prev, prev_page = k0, k0, pg
@@ -470,6 +525,7 @@ def paginate(blocks, pages, located):
         starts = [k for k in span if match(k, tops) == "start"]
         best = max((score(k, tops) for k in starts), default=0)
         starts = [k for k in starts if score(k, tops) == best]  # 맨 위 줄 글을 가장 많이 맞춘 단위만(「일련」만 같은 다른 일정표는 빼다)
+        cand0 = starts  # 범위 안의 후보 모두(아래 「매핑으로 거름」 이 다시 고를 때)
         # 이어진 단위: 맨 위 줄이 단위의 첫 문단이 아닌 곳에 있음 — 매핑이 이 쪽 시작으로 잡은 단위(k0) 자신도(세로 병합 행 묶음이 앞 쪽에서 시작한 경우)
         insides = [k for k in span if k <= (k0 if k0 is not None else limit - 1) and match(k, tops) == "inside"]
         # 같은 글의 표·제목이 되풀이되는 문서(같은 칸의 일정표 여러 개): 앞 쪽(앞 나눔 쪽 ~ 이 쪽 앞)의 PDF 글에 맨 위 줄 글이 몇 번 나왔는지 세어
@@ -492,6 +548,54 @@ def paginate(blocks, pages, located):
             repeat = nxt_row is not None and raw[nxt_row][0] < pg
         if hit is not None and hit <= prev and not repeat:
             hit = next((k for k in starts if k > prev), None)
+        # ---- 매핑으로 거름(2026-11-18 사용자 「페이지 매칭은 왜 이렇게 잘 안맞냐」 — 연구계획서 210쪽): 맨 위 줄의 글만으로는 같은 글의 단위를 못 가린다(같은 머리 행의 표 둘 ·
+        # 행마다 같은 글로 시작하는 칸 · 표 위 캡션 · 범위 밖에 있는 되풀이 머리). 긴 글이 찍힌 쪽(lo·hi)으로 「이 쪽의 첫 단위일 수 없는 후보」 를 거르고 다시 고른다.
+        # own = 매핑으로 이 쪽 맨 위에 걸리는 단위: 앞 쪽을 시작한 단위부터 처음으로 긴 글이 이 쪽(또는 뒤)까지 가는 단위. 그것이 뒤 쪽에서 시작하면(이 쪽의 단위를 매핑이 모름) 없음
+        reach0 = next((j for j in range(prev, len(us)) if hi[j] >= pg), None)
+        own = reach0 if reach0 is not None and lo[reach0] <= pg else None
+
+        def free(c):
+            """c 가 이 쪽의 첫 단위일 수 있는가(매핑이 「아니다」 라고 하지 않는가) — lo·hi 는 한 번뿐인 글만의 쪽이라 단위의 실제 범위보다 좁다(lo ≥ 시작 쪽 · hi ≤ 끝 쪽).
+            그래서 확실한 것만 본다: ① c 앞(앞 쪽을 시작한 단위부터)에 이 쪽·뒤 쪽에 찍힌 글이 있는 단위가 있으면 c 는 이 쪽 맨 위가 아니다
+            ② c 부터 처음 자리를 아는 단위에 앞 쪽에 찍힌 글이 있으면 c 는 앞 쪽에서 시작했다. 둘 다 아니면(모르는 것 포함) 그럴 수 있다."""
+            first = next((lo[j] for j in range(c, min(len(us), c + WINDOW)) if lo[j]), 0)
+            return not (first and first < pg) and (reach0 is None or reach0 >= c)
+
+        def after(j):
+            """앞 쪽에서 이 쪽으로 이어진 단위 j 의 다음 단위 — 그것부터 이 쪽 | None(이 쪽에서 시작하는 단위 없음: 다음 단위가 뒤 쪽에서 시작).
+            다음 단위의 자리를 모르면(글 없는 빈 행·빈 줄·그림) 이어진 단위가 이 쪽 뒤까지 가는지로 본다 — 가면 이 쪽에서 시작하는 단위는 없다.
+            전에는 모르는 단위를 이 쪽 시작으로 잡아 나눔이 큰 행을 건너뛰었고, 그 뒤 쪽들(그 행이 이어지는 쪽)은 찾는 범위에서 그 행이 빠져
+            「none」·「miss」 → 화면이 그 쪽 몫을 못 잘라 앞 쪽 상자가 용지보다 길어졌다(2026-11-18 연구계획서 요약문 표 — 「연구개발 목표 및 내용」 행
+            2~6쪽 뒤의 빈 행: 5쪽 상자에 6쪽 몫이 함께)"""
+            nxt = j + 1
+            later = nxt < len(us) and (raw[nxt][0] > pg if raw[nxt] else reach[j] > pg)
+            return nxt if nxt < len(us) and not later else None
+
+        def head_of(j):
+            """j 가 표 행이고 그 표의 머리 행이 이 쪽 맨 위 줄이면 그 머리 단위 — 그 표가 이 쪽으로 이어지며 머리 행을 다시 찍었다(되풀이)."""
+            if j is None or us[j]["kind"] != "rows":
+                return None
+            h = first_of[us[j]["id"]]
+            return h if h < j and us[h]["r0"] == 0 and match(h, tops) == "start" else None
+
+        if not repeat and hit is not None and hit > prev:
+            # 맨 위 줄이 캡션 문단(블록 차례는 늘 그 표·그림 뒤): 캡션은 개체에 붙어 다닌다 — 그림 아래 캡션이 쪽의 첫 글이면 그 그림이 이 쪽 맨 위이고(그림에는 글이 없어
+            # 맨 위 줄로 안 잡힌다), 표 위 캡션이면 그 표가 이 쪽에서 시작한다. 캡션에서 나누면 그림·표가 앞 쪽 상자에 남는다(연구계획서 16쪽 상자 = 용지의 1.17배 · 14쪽에 15쪽 표)
+            obj = cap_of.get(us[hit]["id"]) if us[hit]["kind"] == "block" else None
+            head = first_of.get(obj, at_block.get(obj)) if obj else None
+            if head is not None and prev < head < hit and free(head):
+                hit = head
+            elif not free(hit):
+                frees = [c for c in cand0 if c > prev and free(c)]
+                if frees:
+                    hit = k0 if k0 in frees else frees[0]  # 같은 글의 다른 후보 가운데 매핑과 맞는 것(같은 머리 행의 표 둘 · 행마다 같은 글의 칸)
+                elif (h := head_of(own)) is not None:
+                    repeat, hit = True, h  # 이 쪽 맨 위는 앞에서 이어진 표 — 맨 위 줄은 그 표의 되풀이 머리(같은 머리의 뒤 표를 시작으로 잡았던 것)
+        elif repeat and hit is not None and us[hit]["kind"] == "rows":
+            if own is not None and own < hit and us[own]["id"] != us[hit]["id"] and (h := head_of(own)) is not None:
+                hit = h  # 되풀이 머리의 표를 잘못 고름 — 매핑으로 이 쪽 맨 위에 걸리는 행은 그 앞의 다른 표(머리가 같은 표 둘)
+        elif not insides and (h := head_of(own)) is not None:
+            repeat, hit = True, h  # 머리 행이 찾는 범위(앞 쪽을 시작한 단위) 앞에 있는 표가 여러 쪽 이어질 때 — 전에는 「못 맞춤」(화면이 그 쪽 몫을 안 잘랐다)
         if repeat and hit is not None and us[hit]["kind"] == "rows":
             # 이 쪽에서 시작하는 행 = 되풀이 머리 아래 첫 행 무리(PDF 둘째 행)의 글이 첫머리인 그 표의 행 — 글로 못 찾으면 매핑(이 쪽 이상에 찍힌 첫 행)
             tid = us[hit]["id"]
@@ -500,17 +604,40 @@ def paginate(blocks, pages, located):
                 if us[j]["id"] != tid:
                     break
                 cands.append(j)
-            second = [t for t in (page_rows[pg - 1][first_row + 1] if len(page_rows[pg - 1]) > first_row + 1 else []) if len(t) >= 2]
-            by_text = [j for j in cands if second and sum(strength(j, t) > 0 for t in second) * 2 >= len(second)]
-            nxt = by_text[0] if by_text else next((j for j in cands if raw[j] and raw[j][0] >= pg), None)
-            status, k = "repeat", (nxt if nxt is not None else (k0 if k0 is not None and k0 > prev else None))
+            if own is not None and us[own]["id"] == tid and lo[own] < pg:
+                # 이 표의 행(세로 병합 묶음)이 앞 쪽에서 이 쪽으로 넘어온다(되풀이 머리 아래는 그 행의 뒷부분) — 이 쪽에서 시작하는 단위는 그 바로 뒤(화면이 그 행을 쪽에서 자른다:
+                # 「행 안 나눔」 은 앞 쪽 상자의 마지막이 표 조각이어야 하므로 표 뒤 빈 줄도 이 쪽으로 — 매핑이 아는 뒤 문단(k0)에서 나누면 빈 줄이 앞 쪽에 남아 못 자른다)
+                status, k = "repeat", after(own)
+            else:
+                second = [t for t in (page_rows[pg - 1][first_row + 1] if len(page_rows[pg - 1]) > first_row + 1 else []) if len(t) >= 2]
+                by_text = [j for j in cands if second and sum(strength(j, t) > 0 for t in second) * 2 >= len(second)]
+                by_text = [j for j in by_text if not (lo[j] and lo[j] < pg)] or by_text  # 같은 글로 시작하는 행이 여럿이면 앞 쪽에 찍힌 (한 번뿐인) 글이 있는 행은 뒤로
+                # 매핑: 글이 모두 이 쪽 이상에 찍힌 첫 행이 **이 쪽**이면 그 행. 뒤 쪽이면 이 쪽에서 시작하는 행이 없다(이 쪽은 앞 행이 통째로 차지 — 전에는 뒤 쪽의 행을
+                # 이 쪽 시작으로 잡아 그 표의 나눔이 한 쪽씩 밀렸다: 연구계획서_공통 118·119쪽 「연구재료제작비」 표의 1~129행 묶음)
+                nxt = by_text[0] if by_text else next((j for j in cands if raw[j] and raw[j][0] >= pg), None)
+                if not by_text and nxt is not None and raw[nxt][0] > pg:
+                    nxt = None
+                status, k = "repeat", (nxt if nxt is not None else (k0 if k0 is not None and k0 > prev else None))
         elif hit is not None and hit > prev:
+            # 쪽 맨 위 그림: 그림에는 글이 없어 매핑이 자리를 모른다 — 쪽의 첫 글 단위에서 나누면 그 위의 그림(그림 블록 · 사진만 든 표 행)이 앞 쪽 상자에 남는다(연구계획서 24·35·39·51쪽
+            # 상자가 용지보다 김). PDF 이 쪽의 첫 글 줄보다 위에 그림이 n개면, 첫 글 단위 앞의 글 없는 단위를 거슬러 그림 수가 꼭 n이 되는 단위부터 이 쪽(수가 안 맞으면 그대로 — 짐작하지 않는다).
+            # 이미 그 단위부터 첫 글 단위 앞까지 든 그림(캡션으로 옮긴 그림)은 뺀다
+            ys = [ln["bbox"][1] for ln in pages[pg - 1]["lines"] if key_text(ln["text"])]
+            need = sum(b[3] <= min(ys) + TOP_TOL for b in pages[pg - 1].get("pics") or ()) if ys else 0
+            j = hit
+            while need > 0 and j < len(us) and (c := pic_count(j)) is not None:
+                need, j = need - c, j + 1
+            j, best = hit, hit
+            while need > 0 and j - 1 > prev and (c := pic_count(j - 1)) is not None and c <= need:
+                need, j = need - c, j - 1
+                if c:
+                    best = j
+            if need == 0:
+                hit = best
             status, k = ("ok" if hit == k0 else "moved"), hit
         elif insides:
             # 맨 위 줄은 앞 쪽에서 이어진 문단·표 행 — 그 다음 단위부터 이 쪽(그 단위가 이 쪽보다 뒤에서 시작하면 나눔 없음)
-            inside = insides[-1]
-            nxt = inside + 1
-            status, k = "split", (nxt if nxt < len(us) and not (raw[nxt] and raw[nxt][0] > pg) else None)
+            status, k = "split", after(insides[-1])
         else:
             status, k = ("miss" if k0 is not None else "none"), k0
         if k is not None and k > prev:

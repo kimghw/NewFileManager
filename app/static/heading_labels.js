@@ -69,7 +69,7 @@ function divlFill(box) {
       (r.role === "label" ? `구분 라벨 · 기준 ${r.basis}` : "괄호 소제목(구분 기준 값이 아닌 괄호 글)") + (r.n > 1 ? ` · 첫 줄 「${r.text}」` : "")));
     const all = it && it.count > r.n ? it.count : r.n;
     line.append(el("span", "muted", ` ×${nf(r.n)}${all > r.n ? ` · 문서 전체 같은 꼴 ${nf(all)}곳` : ""}`));
-    if (r.role === "label") line.append(el("span", "hb div", `기준 ${r.basis}`));
+    if (r.role === "label") line.append(typeof dvTag === "function" ? dvTag(el("span", "hb div", `기준 ${r.basis}`), r.basis) : el("span", "hb div", `기준 ${r.basis}`)); // 배지 색 = 그 구분의 「구분 기준 자리」 색(app.js dvKeyOf)
     if (hint) {
       const b = el("span", "hb divl-by", "지정");
       b.title = `사용자가 ${hint.role === "label" ? `구분 라벨(기준 ${hint.basis})` : "괄호 소제목"}(으)로 지정함 — 「자동 판정으로」 를 누르면 지정을 지웁니다`;

@@ -2,7 +2,8 @@
 // 표 모듈(spec_헤딩_추출 ② §10 「모듈」) — 본문(app.js)과 따로, 문서의 표만 다룬다(사용자 2026-11-10 "본문 따로, 테이블 따로"):
 // 표 식별 표지(.tbl-mark) · 엑셀식 보기(2열 kind "xl" · 문서 자리 .xl-wrap — A1 격자 · 수식 엔진 · 문서에 반영) · 표 지침(2열 kind "tableAgent", 표 에이전트 입력) · 「표」 탭(#paneTables).
 // app.js 가 주는 것: state·heads(view·tbl·xl·dlg·seq)·$·el·api·toast·hBtn·hTable·hCell·hFoot·headsDlg·headsColClose·headsGo·headsShow·headsStart·headsLlmTables·headsTables·headsParaLink·
-// headsCard3·colLetter·basisNames·ownerLabel·short·oneLine·nf·hasBlock·renderPara·applyServer·refreshSaveState·updateEdits·fmtWhen·H_JSON·LS·gutterSync·sheetMarginPx.
+// headsCard3·colLetter·basisNames·ownerLabel·short·oneLine·nf·hasBlock·renderPara·applyServer·refreshSaveState·updateEdits·fmtWhen·H_JSON·LS·gutterSync·sheetMarginPx·
+// dvKeyOf·dvTag·dvOfDivision(구분 라벨의 색 = 그 구분의 「구분 기준 자리」 색).
 // app.js 가 부르는 것(typeof 검사 뒤): tblMarksDraw(paginate 끝·headsRender 끝·setTwoUp) · tblMarksPlace(tplMarksDraw 끝 — 「TN Lk」 표를 피해 자리 다시) ·
 // tblMarksOn/tblMarksToggle(3단계 카드) · tblAgentView·xlColumn(표 보기 격자) · tblAgentLeave·xlColumnClosed(headsColClose) · tablesShow(탭 열 때)·tablesReset(문서 열고 닫을 때).
 // 서버 짝은 app/tables_api.py(끝점)·app/table_agent.py(저장·묶음 글)·heading_tables.table_notes(작성요령). index.html 이 app.js 다음에 읽는다.
@@ -382,10 +383,13 @@ function tblMark(tid, t, rec, inplace, hasStage3) { // 표지 하나 — ⊞ 엑
         (t.basis || []).length ? `구분 ${basisNames(t.basis)}` : "", t.unit ? `단위 ${t.unit}` : "",
         `출처 ${o.source === "stage2" ? "2단계 그래프" : "1단계 어림(2단계 그래프 없음)"}`, hasBlock(o.para) ? "누르면 문서의 그 헤딩으로" : ""].filter(Boolean).join("\n");
       b.onclick = (e) => { e.stopPropagation(); headsGo(o.para); };
+      const dvk = dvKeyOf(dvOfDivision(o.division)); // 구분 라벨의 색 = 그 구분의 「구분 기준 자리」 색(app.js dvKeyOf — 단계 파랑 · 차년도 초록 · 기관 주황)
+      if (isLbl && dvk) b.dataset.dv = dvk;
       m.append(b);
       if (o.division && !isLbl) {
         const d = el("span", "tm-div", (o.division.basis || []).length ? `[${basisNames(o.division.basis)}]` : short(o.division.text, 12));
         d.title = `구분 라벨 ${oneLine(o.division.text)}`;
+        if (dvk) d.dataset.dv = dvk;
         m.append(d);
       }
     } else {
@@ -1464,7 +1468,7 @@ async function tblAgentView(tid) {
     if (o && !o.root) {
       owner.append(el("span", "muted", "소속"), hasBlock(o.para) ? hBtn(ownerLabel(o), () => headsGo(o.para), { title: (o.path || []).concat([o.text]).join(" › ") || "문서의 그 헤딩으로" }) : el("b", null, ownerLabel(o)));
       if ((o.path || []).length) { const path = el("span", "ta-owner-path", o.path.join(" › ")); path.title = path.textContent; owner.append(path); }
-      if (o.division) owner.append(el("span", "hb div", `구분 라벨 ${o.division.text}`));
+      if (o.division) owner.append(dvTag(el("span", "hb div", `구분 라벨 ${o.division.text}`), dvOfDivision(o.division)));
     } else owner.append(el("span", "muted", o && o.root ? "소속: 문서 뿌리(위에 헤딩 없음)" : "소속: 모름"));
     if ((t.basis || []).length) ident.append(el("span", "hb", `구분 ${basisNames(t.basis)}`));
     if (t.unit) ident.append(el("span", "hb", `단위 ${t.unit}`));
@@ -1858,7 +1862,7 @@ function tablesDraw() {
       const link = hasBlock(o.para) ? hBtn(label, () => headsGo(o.para), { cls: "tp-owner-link", title: path }) : el("span", "tp-owner-text", label);
       link.title = path;
       owner.append(link);
-      if (o.division && o.role !== "label") owner.append(el("span", "hb div", (o.division.basis || []).length ? `[${basisNames(o.division.basis)}]` : short(o.division.text, 14)));
+      if (o.division && o.role !== "label") owner.append(dvTag(el("span", "hb div", (o.division.basis || []).length ? `[${basisNames(o.division.basis)}]` : short(o.division.text, 14)), dvOfDivision(o.division)));
     } else owner.append(el("span", "tp-owner-text", o && o.root ? "문서 최상위" : t ? "소속 없음" : !supported ? "표 구조 미지원"
       : s3 ? (b.cells === 1 ? "1칸 표(표 구조 없음)" : "새 표 · 표 구조를 만든 뒤 생김") : "표 구조 미분석")); // 옛 「표 구조에 없음」 — 까닭을 그대로 적는다(문서 표지와 같은 말 — tblMark)
     row.append(owner);

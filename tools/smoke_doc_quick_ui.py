@@ -143,6 +143,22 @@ def main():
         page.screenshot(path=str(OUT / "01_row.png"), clip={"x": row["x"], "y": row["y"] - 40, "width": row["width"], "height": 120})
         tpl0, grips0 = m["tpl"], m["grips"]
 
+        # 구분 라벨 표시의 색 = 그 구분의 「구분 기준 자리」 색(spec_구분_기준 ② §11 「라벨 표시의 색」 — 2026-11-18 사용자 「라벨링이랑 구분 기준 자리 색상좀 매칭」: 전에는 어느 구분이든 청록 하나)
+        lab = page.evaluate("""() => {
+          const want = (k) => { const e = document.createElement('i'); e.style.color = `var(--dvc-${k})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; };
+          const rows = [...document.querySelectorAll('#doc .tpl-mark.lbl')].map((m) => { const t = m.querySelector('.tm-lab');
+            return { dv: m.dataset.dv || '', key: (m.textContent.match(/\\[[^\\]]+\\]/) || [''])[0], color: getComputedStyle(m).color, border: getComputedStyle(m).borderTopColor,
+              lab: t ? t.dataset.dv + ' ' + getComputedStyle(t).color : '' }; });
+          return { rows, want: { org: want('org'), year: want('year'), stage: want('stage') } };
+        }""")
+        KEY = {"[기관]": "org", "[차년도]": "year", "[단계]": "stage"}
+        known = [r for r in lab["rows"] if r["key"] in KEY]
+        check("구분 라벨 표시 「TN Lk [기관]」 — 구분 키가 붙고 글 색이 그 구분의 「구분 기준 자리」 색(기관 주황 · 차년도 초록 · 단계 파랑) · 식별자 글도 같은 색",
+              len(known) > 0 and any(r["key"] == "[기관]" for r in known)
+              and all(r["dv"] == KEY[r["key"]] and r["color"] == lab["want"][r["dv"]] and r["lab"] == f"{r['dv']} {lab['want'][r['dv']]}" and r["border"] != r["color"] for r in known)
+              and len(set(lab["want"].values())) == 3,
+              {"n": len(lab["rows"]), "known": len(known), "want": lab["want"], "bad": [r for r in known if r["dv"] != KEY[r["key"]] or r["color"] != lab["want"].get(r["dv"])][:3]})
+
         # 서식 라벨 켜기 — 「TN Lk」 아래(또는 같은 줄 뒤)에 「S…」
         page.click("#nameFmtMarks")
         m = marks_when(page, "f > 0")

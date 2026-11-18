@@ -6953,6 +6953,28 @@ const TPL_MARKS_KEY = "nfm.headsMarks";
 const TPL_MARK_H = 17; // 표 한 줄 높이(화면 px — style.css .tpl-mark 15px + 테두리)
 const tplRef = (no, name) => (no ? `T${no}` : String(name || "").slice(0, 12)); // 템플릿 표기 「TN」(번호 없는 옛 결과는 이름 앞부분) — 유형 번호 「T28」 과 달리 늘 L줄이 뒤따름
 const tplLabelId = (x) => (x.key || "").trim() || "[라벨]"; // 구분 라벨의 식별자 = 정규 라벨 키 「[기관]」(A 호출 basis) — 값(「[한국선급]」)이 아니라 구분 기준
+// 구분 라벨 표시의 색 = 그 구분의 「구분 기준 자리」 색(divisions.css 의 [data-dv] — 단계 파랑 · 차년도 초록 · 기관 주황 …: 2026-11-18 사용자 「라벨링이랑 구분 기준 자리 색상좀 매칭해 주고」 —
+// 전에는 라벨 표시가 어느 구분이든 청록 하나라 「[기관]」 이 초록인 「차년도」 자리처럼 보였다 · spec_구분_기준 ② §11 「라벨 표시의 색」). x = 라벨 키 「[기관]」 · 구분 기준 이름 「단계-차년도」 ·
+// 표 소속의 구분 목록 ["stage", "year"] -> 구분 키(stage · stageYear · year · sub · org · other = 사용자가 더한 이름) | ""(구분 기준을 모름 — 전의 청록 그대로).
+// 겹친 이름은 「단계-차년도」 만 제 색, 그 밖은 가장 안쪽 구분의 색(구분 기준 자리의 바탕색과 같은 규칙 — divMembersIndex)
+const DV_NAME_KEY = { 단계: "stage", 차년도: "year", 기관: "org", 세부과제: "sub" };
+function dvKeyOf(x) {
+  const ks = (Array.isArray(x) ? x : String(x || "").replace(/^\[|\]$/g, "").split("-")).map((s) => String(s).trim())
+    .filter((s) => s && !["라벨", "…", "N", "가", "period", "total", "ratio"].includes(s)).map((s) => DV_NAME_KEY[s] || (DV_KEY_ORDER.includes(s) ? s : "other")); // 「[라벨]」(기준 모름) · 괄호 소제목 「[…]」 · 번호 레터 「[N]」「[가]」 · 표 머리의 합계·비율은 구분이 아니다
+  if (!ks.length) return "";
+  if (ks.length === 2 && ks.includes("stage") && ks.includes("year")) return "stageYear";
+  return ks.reduce((a, k) => (DV_KEY_ORDER.indexOf(k) > DV_KEY_ORDER.indexOf(a) ? k : a));
+}
+const dvTag = (e, x) => { const k = dvKeyOf(x); if (k) e.dataset.dv = k; return e; }; // 구분 라벨을 보이는 요소(여백 표 · 표 표지 · 패널 배지 .hb.div)에 그 구분의 색 키
+const dvOfDivision = (d) => (d ? ((d.basis || []).length ? d.basis : d.key) : ""); // 표 소속의 구분 라벨(heading_calc _node_owner 의 division) → dvKeyOf 의 입력
+function tplMarkText(box, text, m) { // 표기 글 「TN Lk [기관]」 을 box 에 — 구분 라벨 식별자는 그 구분의 색 글(.tm-lab[data-dv]: 한 표에 라벨 아닌 줄이 섞여도 식별자만은 제 색)
+  const i = m && m.lab && m.dv ? text.indexOf(m.lab) : -1;
+  if (i < 0) { box.append(text); return box; }
+  const s = el("span", "tm-lab", m.lab);
+  s.dataset.dv = m.dv;
+  box.append(text.slice(0, i), s, text.slice(i + m.lab.length));
+  return box;
+}
 function tplMarksOn() { try { return localStorage.getItem(TPL_MARKS_KEY) !== "off"; } catch { return true; } }
 function tplMarksToggle() {
   try { localStorage.setItem(TPL_MARKS_KEY, tplMarksOn() ? "off" : "on"); } catch { /* 기억만 안 함 */ }
@@ -7005,7 +7027,7 @@ function tplMarksBuild(g) { // 그래프 → Map(문단 id → {text, title, no,
     if (!x.template || !x.level || !hasBlock(x.para) || (x.role !== "heading" && x.role !== "title" && !isRooted(x.role))) continue; // 구분 라벨·괄호 소제목도 제 템플릿의 L1(가지 규칙)
     const t = tplName.get(x.template) || {};
     const no = x.tplNo || t.no;
-    const lab = x.role === "label" ? tplLabelId(x) : ""; // 녹색 「[기관]」 은 구분 라벨만 — 괄호 소제목은 보통 색 「TN L1」
+    const lab = x.role === "label" ? tplLabelId(x) : ""; // 식별자 「[기관]」 과 구분의 색(dvKeyOf)은 구분 라벨만 — 괄호 소제목은 보통 색 「TN L1」
     const text = `${tplRef(no, x.template)} L${x.level}${lab ? ` ${lab}` : ""}`;
     const slot = (t.slots || []).find((s) => s.level === x.level);
     const title = `템플릿 ${tplRef(no, x.template)} ${x.template}(${H_TPL[t.kind] || t.kind || "?"}) · ${x.level}번째 줄(레벨 ${x.level})`
@@ -7017,7 +7039,7 @@ function tplMarksBuild(g) { // 그래프 → Map(문단 id → {text, title, no,
     if (was) {
       if (!was.text.includes(text)) { was.text += ` ${text}`; was.title += `\n—\n${title}`; }
       if (x.fmt && !was.fmt.includes(x.fmt)) was.fmt.push(x.fmt);
-    } else marks.set(x.para, { text, title, no, und: !!x.undecided, lbl: !!lab, fmt: x.fmt ? [x.fmt] : [] }); // fmt = 서식 라벨(「S41」) — 「서식 라벨 보기」 가 템플릿 표 아래에 그린다
+    } else marks.set(x.para, { text, title, no, und: !!x.undecided, lbl: !!lab, lab, dv: lab ? dvKeyOf(x.basis || lab) : "", fmt: x.fmt ? [x.fmt] : [] }); // fmt = 서식 라벨(「S41」) — 「서식 라벨 보기」 가 템플릿 표 아래에 그린다 · dv = 구분 라벨의 구분 키(색)
   }
   return marks;
 }
@@ -7039,7 +7061,7 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
   const repFmt = sl.rep ? fmts[sl.rep] || "" : "";
   const own = fmts[pid] ? [fmts[pid]] : gm && gm.fmt ? gm.fmt : [];
   const fmt = repFmt && own.length === 1 && own[0] === repFmt ? [] : own;
-  return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, fmt, focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
+  return { text, title, no: ol.no, tpl: ol.tpl, level: ol.level, para: pid, und: !!(gm && gm.und), lbl: !!lab, lab, dv: lab ? dvKeyOf(lab) : "", fmt, focus: /^\d+$/.test(String(ol.tpl)) ? +ol.tpl : String(ol.tpl) };
 }
 
 // 「템플릿 관계」 열을 연다 — 그래프(2단계)를 아직 안 읽었으면(헤딩 탭을 안 연 작업 · TASK 와 무관) 그때 읽는다. at = {tpl, level, para}: 그 레벨을 펴고 그 줄의 서식 갈래를 표시(outline_match.js)
@@ -7112,6 +7134,8 @@ function tplMarksDraw() {
       const dr = r.items.some((m) => m.drift); // 뼈대 밖 문단이 든 줄 — 주황, 누르면 뼈대 밖 목록(② §17)
       const cm = r.items.find((m) => m.cap); // 캡션 줄 「C1」(caption_tpl.js) — 그 줄뿐인 표는 보라, 누르면 「템플릿 관계」 의 캡션 템플릿
       const s = el("span", "tpl-mark" + (r.und ? " und" : "") + (r.lbl ? " lbl" : "") + (r.temp ? " temp" : "") + (dr ? " drift" : "") + (cm && r.items.every((m) => m.cap) ? " cap" : ""));
+      const dvs = r.lbl ? new Set(r.items.map((m) => m.dv || "")) : null; // 구분 라벨 줄뿐인 표 — 줄들의 구분이 하나면 표의 테두리·바탕도 그 구분의 색(dvKeyOf)
+      if (dvs && dvs.size === 1 && !dvs.has("")) s.dataset.dv = [...dvs][0];
       const cnt = new Map(); // 같은 표기(표 한 행의 같은 템플릿·레벨 칸들)는 「T11 L2 ×2」 로 모은다 — 표기 → {n, m(그 표기의 첫 줄)}
       for (const m of r.items) { const c = cnt.get(m.text); if (c) c.n += 1; else cnt.set(m.text, { n: 1, m }); }
       const texts = [...cnt].map(([t, c]) => ({ text: c.n > 1 ? `${t} ×${c.n}` : t, m: c.m }));
@@ -7127,8 +7151,8 @@ function tplMarksDraw() {
       };
       texts.slice(0, 3).forEach((x, i) => { // 글은 전과 같다 — 「A · B · C +n」
         if (i) s.append(" · ");
-        if (!focusable || x.m.tpl == null) { s.append(x.text); return; }
-        const b = el("span", "tm-t", x.text);
+        if (!focusable || x.m.tpl == null) { tplMarkText(s, x.text, x.m); return; }
+        const b = tplMarkText(el("span", "tm-t"), x.text, x.m);
         b.dataset.tpl = String(x.m.tpl);
         b.dataset.level = String(x.m.level);
         b.setAttribute("role", "button");
@@ -7324,7 +7348,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
         const li = el("li");
         const node = rel.node.get(i.root) || {};
         li.append(`${i.no ?? "?"}. `, headsParaLink(node.para || i.root, `${(node.letter || "").trim()} ${i.text || node.text || ""}`.trim() || "(빈 글)", 36, i.path ? `자리 ${i.path}` : ""));
-        if (i.basis) li.append(" ", el("span", "hb div", i.basis));
+        if (i.basis) li.append(" ", dvTag(el("span", "hb div", i.basis), i.basis));
         if (i.deviates) li.append(" ", el("span", "hb und", `빠진 줄 ${(i.missing || []).map((L) => `L${L}`).join("·") || "있음"}`));
         ul.append(li);
       }
@@ -7345,6 +7369,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     tog.setAttribute("aria-expanded", "false");
     const num = el("button", "hb tplno", `T${t.no ?? id}`);
     num.type = "button";
+    if (t.kind === "label") dvTag(num, (t.chain || [])[0]); // 구분 라벨 템플릿의 번호 배지 = 그 구분의 「구분 기준 자리」 색(문서 여백의 「TN L1 [기관]」 과 같은 색 — spec_구분_기준 ② §11 「라벨 표시의 색」)
     num.title = `앵커 ${t.anchor || t.name || "—"} · 누르면 레벨(줄) 펼치기·접기`;
     const ins = rel.inst.get(id) || [];
     const name = el("span", "trel-name", t.displayName || (t.chain || []).join(" › ") || t.name || "");
@@ -8216,7 +8241,7 @@ function headsTableGrid(t) {
     own.append(el("span", "muted", "소속"), o.para && hasBlock(o.para) ? hBtn(ownerLabel(o), () => headsGo(o.para), { title: (o.path || []).concat([o.text]).join(" › ") || "문서의 그 헤딩으로" })
       : el("b", null, ownerLabel(o)));
     if (o.path && o.path.length) own.append(el("span", "muted", `(${o.path.join(" › ")})`));
-    if (o.division) own.append(el("span", "hb div", `구분 라벨 ${o.division.text}`));
+    if (o.division) own.append(dvTag(el("span", "hb div", `구분 라벨 ${o.division.text}`), dvOfDivision(o.division)));
   } else own.append(el("span", "muted", o && o.root ? "소속: 문서 뿌리(위에 헤딩 없음)" : "소속: 모름(2단계 그래프 없음)"));
   if ((t.basis || []).length) own.append(el("span", "hb", `구분 ${basisNames(t.basis)}`));
   if (t.unit) own.append(el("span", "hb", `단위 ${t.unit}`));
