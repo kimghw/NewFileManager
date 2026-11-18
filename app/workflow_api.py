@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import Response
 
-from app import workflow
+from app import workflow, workflow_runs
 
 router = APIRouter()
+router.include_router(workflow_runs.router)
 STATIC = Path(__file__).with_name("static")
 VERSIONED = ("style.css", "workflow.css", "task_catalog.js", "workflow.js")   # 주소에 수정 시각을 붙이는 파일(시작 화면 server.index 와 같은 규칙 — 고친 뒤 새로 고침만으로 새 파일)
 

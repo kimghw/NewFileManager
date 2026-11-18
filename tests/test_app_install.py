@@ -26,7 +26,7 @@ def test_index_links_manifest_and_script():
     assert "/static/app_install.css" in html
     assert "/static/app_install.js" in html
     # 단추를 끼우는 자리(app_install.js 가 #panelBtn 앞에 넣는다)
-    assert 'id="panelBtn"' in html and 'id="agentsLink"' in html
+    assert 'id="panelBtn"' in html and 'id="agentBtn"' in html   # 에이전트 아이콘(전의 「에이전트 설정」 링크 자리 — 2026-11-18) 다음 · 패널 여닫기 앞
 
 
 def test_manifest_meets_install_criteria():

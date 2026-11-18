@@ -27,6 +27,7 @@ const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open
 // 간단 모드(gqRun)와 그 안에서 도는 묶음(gatherRun)은 같은 실행의 부모·자식이다 — 부모를 먼저 본다. 「멈춤」 은 어느 것이든 「지금 하는 일이 끝나면」 이다(바로 끊지 못한다).
 function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 = 모름), stopping, stop() | null} | null
   if (!state.id) return null;
+  if (typeof DWF !== "undefined" && DWF.busy) return { kind: "workflow", label: "워크플로우 선택", note: "목록·진행 기록 저장 중", t0: 0, stopping: false, stop: null };
   const stage = (list, id) => { const g = list.find((x) => x.id === id); return g ? `${g.no} ${g.name}` : ""; };
   const Q = typeof gqRun !== "undefined" ? gqRun : null, G = typeof gatherRun !== "undefined" ? gatherRun : null, T = typeof taskRun !== "undefined" ? taskRun : null;
   if (Q && Q.busy) return { kind: "quick", label: Q.uploadOnly ? "기관 문서 올리기 · 등록" : "간단 모드 — 끝까지 한 번에 진행", note: Q.note || "진행 중", t0: Q.t0, stopping: !!Q.stop,
@@ -421,7 +422,7 @@ async function agentWorkTurn(event, x = {}) { // 진행 턴 하나 — 상태를
   else { A.lost = { text: x.show || "(작업 진행)", error: agentErr(err || new Error("서버가 턴을 돌려주지 않았습니다")) }; if (event === "say" && !A.draft.trim()) A.draft = x.text || ""; }
   agwDrawAll(true);
   if (turn && A.el) { const last = A.el.talk.querySelector(".ag-turn:last-child"); if (last) A.el.talk.scrollTop += last.getBoundingClientRect().top - A.el.talk.getBoundingClientRect().top - 8; }
-  if (turn && $("paneAgent").hidden && (turn.ask || agwAsk(turn.act))) toast("에이전트가 답을 기다립니다 — 패널 「에이전트」 에서 확인하세요");
+  if (turn && $("paneAgent").hidden && (turn.ask || agwAsk(turn.act))) toast(`에이전트가 답을 기다립니다 — ${typeof agentFloatOn === "function" && agentFloatOn() ? "상단 바의 에이전트 아이콘을 눌러" : "패널 「에이전트」 에서"} 확인하세요`);
   if (turn && turn.act && !agwAsk(turn.act)) { // 문서가 안 바뀌고 무료인 행동은 바로 실행(연쇄 한도 안에서)
     if (agw().chain < AGW_CHAIN_MAX) agentWorkRun(turn.id);
     else toast("에이전트가 여러 단계를 이어서 했습니다 — 계속하려면 카드의 「진행」 을 누르세요");

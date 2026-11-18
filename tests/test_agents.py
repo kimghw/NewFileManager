@@ -162,8 +162,13 @@ def test_page_and_the_start_page_link():
     assert 'id="agNav"' in p.text and 'id="agMain"' in p.text and 'href="/workflow"' in p.text
     assert not {"overview", "runs"} & set(A.BY_ID)
     html = c.get("/").text
-    m = re.search(r'<a class="btn ags-link" id="agentsLink" href="/agents" target="_blank"[^>]*>', html)
-    assert m and 'aria-label="에이전트 설정"' in m.group(0) and 'rel="noopener"' in m.group(0)
-    assert "agentsBtn" not in html and "/static/agents.js" not in html and "/static/agents.css" not in html
+    # 2026-11-18 사용자 「… 워크플로우 아이콘 옆 에이전트아이콘으로 하고 지금 그 아이콘 내부 내용은 거기서 설정창 아이콘을 누르면 …」: 상단 바의 「에이전트 설정」 링크는
+    # 에이전트 아이콘(#agentBtn — 에이전트 창을 엶)이 되고, 설정(/agents · 새 탭)은 그 창 머리의 톱니(agent_float.js agfSettingsLink)가 연다
+    m = re.search(r'<button class="btn agent-btn" id="agentBtn" type="button"[^>]*>', html)
+    assert m and 'aria-label="에이전트"' in m.group(0) and 'aria-pressed="false"' in m.group(0)
+    assert 'id="agentsLink"' not in html and "agentsBtn" not in html and "/static/agents.js" not in html and "/static/agents.css" not in html
+    af = (server.STATIC / "agent_float.js").read_text(encoding="utf-8")
+    assert 'a.href = "/agents"' in af and 'a.target = "_blank"' in af and 'a.rel = "noopener"' in af and '"에이전트 설정"' in af
+    assert html.index('src="/static/agent_float.js"') < html.index('src="/static/doc_agent.js"')   # doc_agent.js 끝(문서가 먼저 열린 경우)이 에이전트의 자리를 본다
     js = (server.STATIC / "agents.js").read_text(encoding="utf-8")
     assert "headsDlg" not in js and "hHelp" not in js   # app.js 없이 혼자 돈다

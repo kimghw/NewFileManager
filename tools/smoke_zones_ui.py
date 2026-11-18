@@ -4,9 +4,9 @@
 
 연구개발계획서 양식을 TASK 「사업계획서 양식 표준화」(plan_fit — 편집 구역의 기본값은 켠 것 없음) 작업으로 올리고 프로젝트 구성(기관 셋 · 2차년도)을 구분 기준 API 로 반영한 뒤 본다(끝점은 모두 진짜):
 「작업 개요」 의 「편집 구역」 줄(체크 셋 — 기본은 모두 꺼짐 · 안내 한 줄 · 「구분 기준 자리 표시」 줄 아래) · 켠 기준이 없으면 오른쪽 단추 메뉴에 항목 없음 → 기관을 켜면(PUT …/task-options {zones:{dims}, rev}) 칩·띠·오른쪽 여백 이름표 →
-차년도를 더 켜면 이름표 글에 차년도 → 문서 이름 줄의 색 설명(칩 색 = 문서의 띠 색 · 「감추기」 · 줄 높이 그대로 · 「구분 기준 자리」 설명과 함께) → 문단을 골라 「구역 지정…」(떠 있는 작은 입력 #zonesPop — 「그대로」 만이면 안 됨 · Esc)
+차년도를 더 켜면 이름표 글에 차년도 → 문서 이름 줄의 색 설명(칩 색 = 문서의 띠 색 · 끄는 길 = 이름 줄 아이콘 「편집 구역 표시」 · 줄 높이 그대로 · 「구분 기준 자리」 설명과 함께) → 문단을 골라 「구역 지정…」(떠 있는 작은 입력 #zonesPop — 「그대로」 만이면 안 됨 · Esc)
 으로 기관을 정하면 그 문단의 이름표가 바뀌고 점선 테(.gz-mark) → 「구역 지정 고치기…」 → 표 칸에서는 「이 표를 구역으로 지정…」 → 여러 문단을 골라 차년도 지정 → 「지정 해제」 → 목록(2열 kind zones — 줄을 누르면 그 자리로 · 「해제」) →
-「감추기」 하면 표시가 모두 사라짐(기억) → 글을 고치면 잠깐 뒤 다시 읽음 → 새로 고쳐도 옵션이 남음 → 배율을 바꾼 뒤에도 표시가 다시 달림 → 다른 화면이 옵션을 먼저 바꿨으면 409 → 다시 읽고 알림. 콘솔 오류 0."""
+이름 줄 아이콘으로 끄면 표시가 모두 사라짐(기억) → 글을 고치면 잠깐 뒤 다시 읽음 → 새로 고쳐도 옵션이 남음 → 배율을 바꾼 뒤에도 표시가 다시 달림 → 다른 화면이 옵션을 먼저 바꿨으면 409 → 다시 읽고 알림. 콘솔 오류 0."""
 import argparse
 import json
 import os
@@ -65,9 +65,10 @@ DOC = """() => ({ ins: document.querySelectorAll('#doc .gz-in').length, tags: [.
   tips: [...document.querySelectorAll('#doc .gz-in')].slice(0, 40).map((e) => e.title) })"""
 KEY = """() => { const k = document.getElementById('zonesKey'), row = document.getElementById('fileInfo'), vis = (e) => !!e && e.getClientRects().length > 0, rr = row.getBoundingClientRect();
   const inside = (e) => { const r = e.getBoundingClientRect(); return r.left >= rr.left - 1 && r.right <= rr.right + 1 && r.top >= rr.top - 1 && r.bottom <= rr.bottom + 1; };
-  const parts = [...k.querySelectorAll('.zn-key-chip, .panel-help, .dv-key-off')].filter(vis);
+  const ic = document.getElementById('nameZones'), parts = [...k.querySelectorAll('.zn-key-chip, .panel-help'), ic].filter(vis);  // ic = 이름 줄 아이콘 「편집 구역 표시」(2026-11-18 — 설명 끝의 「감추기」 를 이리 옮김)
   return { shown: vis(k), has: row.classList.contains('has-zn-key'), chips: [...k.querySelectorAll('.zn-key-chip')].filter(vis).map((c) => [c.dataset.gz, c.textContent]),
-    name: vis(k.querySelector('.dv-key-name')) ? k.querySelector('.dv-key-name').textContent : '', tone: vis(k.querySelector('.zn-key-tone')), off: (k.querySelector('.dv-key-off') || {}).textContent || '',
+    name: vis(k.querySelector('.dv-key-name')) ? k.querySelector('.dv-key-name').textContent : '', tone: vis(k.querySelector('.zn-key-tone')), off: [...k.querySelectorAll('button')].map((b) => b.textContent.trim()).join('|'),
+    icon: ic.getAttribute('aria-pressed'), iconIn: vis(ic) && inside(ic),
     help: (k.querySelector('.panel-help') || { dataset: {} }).dataset.help || '', inside: parts.length > 0 && parts.every(inside), rowH: Math.round(rr.height), over: row.scrollWidth > row.clientWidth + 1,
     beforeDiv: !!k.nextElementSibling && k.nextElementSibling.id === 'divKey' }; }"""
 MENU = "() => { const m = document.querySelector('.ctx-menu'); return m && !m.hidden ? [...m.querySelectorAll('button')].map((b) => b.textContent) : []; }"
@@ -160,7 +161,7 @@ try:
         # ---- 1. 줄 — 체크 셋(기본은 모두 꺼짐) · 안내 한 줄 · 「구분 기준 자리 표시」 줄 아래 · 문서에는 아무 표시 없음
         b0, d0, k0 = page.evaluate(BAR), page.evaluate(DOC), page.evaluate(KEY)
         check("「편집 구역」 줄 — 「구분 기준 자리 표시」 줄 아래 · 이름 + 노트 · 「구역 표시」 보기/감추기(기본 켬) · 「목록」", b0["shown"] and "zn-bar" in b0["cls"] and "gt-zones" in b0["cls"] and b0["after"] == "divMarksBar"
-              and b0["title"] == "편집 구역" and b0["toggle"] == "true" and b0["toggleText"] == "구역 표시 감추기" and b0["list"] and not b0["over"], b0)
+              and b0["title"] == "편집 구역" and b0["toggle"] == "true" and b0["toggleText"] == "감추기" and b0["list"] and not b0["over"], b0)
         check("체크 셋(기관 · 단계 · 차년도) — 기본은 모두 꺼짐 · 꺼져 있어도 보임 · 칩 대신 안내 한 줄", b0["dims"] == [["org", False, False], ["stage", False, False], ["year", False, False]]
               and b0["names"] == ["기관", "단계", "차년도"] and "기관·단계·차년도를 켜면 문서에서 그 값의 구역을 가려 보입니다" in b0["text"] and not b0["chips"], (b0["dims"], b0["text"]))
         check("노트 — 무엇을 보이나 · 화면 표시일 뿐(파일은 그대로) · 「구역 지정…」 · 취합으로 들어온 내용", all(s in b0["help"] for s in ("어느 기관·단계·차년도의 것인지", "화면 표시일 뿐", "내려받는 파일은 그대로", "「구역 지정…」", "어느 기관 문서에서 왔는지")), b0["help"][:200])
@@ -220,17 +221,18 @@ try:
         page.evaluate("() => document.getElementById('panel').style.removeProperty('--panel')")
         page.wait_for_timeout(250)
 
-        # ---- 4. 문서 이름 줄의 색 설명 — 「편집 구역」 + 지금 문서에 있는 값의 칩(문서의 띠 색) + 노트 + 「감추기」 · 줄 높이 그대로
+        # ---- 4. 문서 이름 줄의 색 설명 — 「편집 구역」 + 지금 문서에 있는 값의 칩(문서의 띠 색) + 노트 · 줄 높이 그대로 · 끄는 길 = 이름 줄 아이콘 「편집 구역 표시」(눌림)
         k = page.evaluate(KEY)
         same = page.evaluate("""() => [...document.querySelectorAll('#zonesKey .zn-key-chip')].every((c) => { const p = document.querySelector(`#doc .gz-in[data-gz="${c.dataset.gz}"]`);
           return !!p && getComputedStyle(c).getPropertyValue('--gz-c').trim() === getComputedStyle(p).getPropertyValue('--gz-c').trim() && getComputedStyle(c, '::before').backgroundColor !== 'rgba(0, 0, 0, 0)'; })""")
-        check("이름 줄 색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색) · 노트 · 「감추기」 · 「구분 기준 자리」 설명 앞", k["shown"] and k["has"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == [LEAD, SEED, UANGEL]
-              and [c[0] for c in k["chips"]] == ["0", "1", "2"] and same and k["off"] == "감추기" and "화면 표시일 뿐" in k["help"] and "다시 보려면" in k["help"] and k["beforeDiv"], k)
-        check("줄을 더 쓰지 않음 — 이름 줄 높이 그대로 · 넘침 없음 · 칩·노트·감추기가 줄 안", k["rowH"] == k0["rowH"] and not k["over"] and k["inside"], (k0["rowH"], k["rowH"]))
+        check("이름 줄 색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색) · 노트(감추고 다시 켜는 곳 = 아이콘) · 설명 안에 단추 없음 · 아이콘 눌림 · 「구분 기준 자리」 설명 앞",
+              k["shown"] and k["has"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == [LEAD, SEED, UANGEL] and k["off"] == "" and k["icon"] == "true"
+              and [c[0] for c in k["chips"]] == ["0", "1", "2"] and same and "화면 표시일 뿐" in k["help"] and "다시 보려면" in k["help"] and "「편집 구역 표시」 아이콘" in k["help"] and k["beforeDiv"], k)
+        check("줄을 더 쓰지 않음 — 이름 줄 높이 그대로 · 넘침 없음 · 칩·노트·아이콘이 줄 안", k["rowH"] == k0["rowH"] and not k["over"] and k["inside"] and k["iconIn"], (k0["rowH"], k["rowH"]))
         page.click("#divMarksBar .dv-marks-toggle")   # 「구분 기준 자리」 색 설명과 함께
         page.wait_for_function("() => !document.getElementById('divKey').hidden && document.querySelectorAll('#doc .para.dv-in').length > 0", timeout=120000)
         kb = page.evaluate(KEY)
-        check("「구분 기준 자리」 설명과 함께 있어도 넘치지 않음 — 두 설명 모두 보이고 칩·노트·감추기가 줄 안", kb["shown"] and not kb["over"] and kb["inside"] and page.evaluate("() => document.getElementById('divKey').getClientRects().length > 0"), kb)
+        check("「구분 기준 자리」 설명과 함께 있어도 넘치지 않음 — 두 설명 모두 보이고 칩·노트·아이콘이 줄 안", kb["shown"] and not kb["over"] and kb["inside"] and page.evaluate("() => document.getElementById('divKey').getClientRects().length > 0"), kb)
         page.screenshot(path=str(OUT / "4_key_both.png"), clip={"x": 0, "y": 0, "width": 1600, "height": 300})
         page.click("#divMarksBar .dv-marks-toggle")
         page.wait_for_function("() => document.getElementById('divKey').hidden")
@@ -238,7 +240,7 @@ try:
             page.set_viewport_size({"width": width, "height": 900})
             page.wait_for_timeout(350)
             kw = page.evaluate(KEY)
-            check(f"창 {width}px — 색 설명이 넘치지 않고 칩·노트·감추기가 줄 안", kw["shown"] and not kw["over"] and kw["inside"] and len(kw["chips"]) >= 1, kw)
+            check(f"창 {width}px — 색 설명이 넘치지 않고 칩·노트·아이콘이 줄 안", kw["shown"] and not kw["over"] and kw["inside"] and len(kw["chips"]) >= 1, kw)
         page.set_viewport_size({"width": 1600, "height": 900})
         page.wait_for_timeout(350)
 
@@ -493,12 +495,12 @@ try:
         page.wait_for_function("() => state.failed.size === 0 && !state.inflight && !state.timers.size", timeout=60000)
         page.wait_for_function("() => !zn().loading && !!znShown() && zn().data.rev === state.serverRev", timeout=60000)
 
-        # ---- 11. 「감추기」 — 표시가 모두 사라짐 · 기억 · 다시 「보기」
-        page.click("#zonesKey .dv-key-off")
+        # ---- 11. 이름 줄 아이콘 「편집 구역 표시」 로 끄기(2026-11-18 — 설명 끝의 「감추기」 를 옮김) — 표시가 모두 사라짐 · 기억 · 다시 「보기」
+        page.click("#nameZones")
         page.wait_for_function(f"() => !document.querySelector('{ZONE_SEL}')")
         b, k = page.evaluate(BAR), page.evaluate(KEY)
-        check("이름 줄의 「감추기」 → 띠·이름표·칸 표시 모두 사라짐 · 색 설명 없음 · 줄의 단추 = 「구역 표시 보기」(눌림 풀림) · 체크는 그대로 · 기억(off)", not k["shown"] and not k["has"] and b["toggle"] == "false"
-              and b["toggleText"] == "구역 표시 보기" and [x[1] for x in b["dims"]] == [True, False, True] and page.evaluate("() => localStorage.getItem('nfm.zones')") == "off", (b["toggle"], b["toggleText"], k["shown"]))
+        check("이름 줄 아이콘으로 끔 → 띠·이름표·칸 표시 모두 사라짐 · 색 설명 없음 · 아이콘 안 눌림 · 줄의 단추 = 「보기」(눌림 풀림) · 체크는 그대로 · 기억(off)", not k["shown"] and not k["has"] and b["toggle"] == "false" and k["icon"] == "false"
+              and b["toggleText"] == "보기" and [x[1] for x in b["dims"]] == [True, False, True] and page.evaluate("() => localStorage.getItem('nfm.zones')") == "off", (b["toggle"], b["toggleText"], k["shown"]))
         n_get = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")])
         page.evaluate("() => zonesInvalidate('edit')")
         page.wait_for_timeout(1300)
@@ -506,7 +508,8 @@ try:
         page.click("#zonesBar [data-zones=toggle]")
         page.wait_for_function("() => !!document.querySelector('#doc .gz-in') && !!document.querySelector('#doc .sheet > .gz-tag')", timeout=120000)
         page.wait_for_function(READY)
-        check("줄의 「구역 표시 보기」 → 다시 읽어 표시 · 색 설명 다시", page.evaluate(KEY)["shown"] and page.evaluate(BAR)["toggle"] == "true" and page.evaluate("() => localStorage.getItem('nfm.zones')") == "on")
+        check("줄의 「보기」 → 다시 읽어 표시 · 색 설명 다시 · 아이콘도 눌림(같은 값)", page.evaluate(KEY)["shown"] and page.evaluate(BAR)["toggle"] == "true" and page.evaluate("() => localStorage.getItem('nfm.zones')") == "on"
+              and page.evaluate(KEY)["icon"] == "true")
 
         # ---- 12. 글을 고치면 — 문서 차례가 바뀐 뒤 잠깐 뒤 한 번 다시 읽음(표시는 그대로)
         rev0 = page.evaluate("() => state.serverRev")

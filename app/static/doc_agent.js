@@ -1,5 +1,6 @@
 "use strict";
-// 에이전트 보기(spec_일반편집 ② §8 한 턴 · §9 반영·엑셀 검증 · §10 자료 · §12 화면) — 공통 모듈: 어느 TASK 든(hwpx) 패널 머리 탭 「에이전트」(2026-11-18 부터 대시보드 다음 — 전에는 첫 탭)로 같은 보기를 연다(2026-11-16 — 전에는 「문서 일반 편집」 만 「작업 개요」 탭이 이 보기였다 · R6).
+// 에이전트 보기(spec_일반편집 ② §8 한 턴 · §9 반영·엑셀 검증 · §10 자료 · §12 화면) — 공통 모듈: 어느 TASK 든(hwpx) 같은 보기를 연다(2026-11-16 — 전에는 「문서 일반 편집」 만 「작업 개요」 탭이 이 보기였다 · R6).
+// 자리(2026-11-18 사용자 — agent_float.js): 상단 바 에이전트 아이콘이 여는 떠 있는 창(기본) 또는 패널 머리 탭 「에이전트」(대시보드 다음 — 창 머리의 「패널에 넣기」 로 고름). 같은 #paneAgent 노드를 옮긴다.
 // 사용자 2026-11-13 "우측열에 에이전트 사이드열을 주고 여기서 요청하면 관련 자료를 작성할 수 있도록 … 에이전트에 자료주면 테이블에 넣어주고 … 어떤 테이블 구조가 좋은지 에이전트가 제시".
 // 패널(3열) #paneAgent: 상태 줄(LLM 쓸 수 있나 · 「서식 보관함」 · 「비우기」) → 대화(턴마다 요청 글 · 답 · 제안 카드 · 호출 줄 + 「지침」) → 입력(아래 붙박이: 고른 자리 한 줄 · 표/글 서식 고르기 · 자료 칩 · 요청 글상자 · 「보내기」).
 // 에이전트가 하는 일은 **제안까지**다 — 카드의 「문서에 반영」 을 눌러야 서버에 저장된 그 제안이 한 번의 편집(실행 취소 1개)으로 들어간다. 스크립트가 확인한 제안만 강조 단추(preselect),
@@ -113,6 +114,7 @@ function agentReset() { // 문서를 열거나 닫을 때(app.js load·closeDoc)
   agentHit(null);
   const box = $("agentBox");
   if (box) box.textContent = "";
+  if (typeof agentFloatSync === "function") agentFloatSync(); // 떠 있는 에이전트 창 — 문서를 닫으면 닫고, 다른 문서를 열면 그 문서의 에이전트로(agent_float.js)
 }
 
 function agentShow() { // showTab("Agent")
@@ -161,6 +163,7 @@ function agentFrame() {
   E.guide = hBtn("작업 설명", () => { if (typeof agentWorkStart === "function") agentWorkStart(true); }, { title: "이 TASK 의 사전 준비 · 진행 상황 · 다음 단계를 지금 상태로 다시 설명합니다(작업 진행 에이전트)" });
   E.guide.dataset.agAct = "guide";
   E.status.append(el("span", "ag-dot"), E.statusText, E.guide, E.lib, E.clear);
+  if (typeof agentFloatTools === "function") E.status.append(agentFloatTools()); // 패널 탭 자리일 때만 보이는 「에이전트 설정」 · 「창으로 띄우기」(agent_float.js — 떠 있는 창에서는 창 머리에 같은 것)
   E.talk = el("div", "ag-talk");
   E.talk.setAttribute("role", "log");
   E.talk.setAttribute("aria-label", "에이전트 대화");

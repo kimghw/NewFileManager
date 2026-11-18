@@ -1,5 +1,5 @@
 "use strict";
-/* 문서 이름 줄의 표시 아이콘 둘(index.html #nameQuick — spec_작업 ② §17 「이름 줄 표시 아이콘」).
+/* 문서 이름 줄의 표시 아이콘(index.html #nameQuick — spec_작업 ② §17 「이름 줄 표시 아이콘」 — 여백 표시 셋 + 문단 색 표시 둘: 아래 DOC_QUICK).
    2026-11-16 사용자 "템플릿, 서식 보여주고 있는데 이걸 안볼려면 어떻게 해야 하냐? 나는 애초에 이 2개 아이콘을 이걸 봤다 안봤다 하는 용도로 쓰고 싶었거든" —
    #nameTplMarks = 문서 왼쪽 여백의 **템플릿 표시** 「T1 L2」(+ 「TEMP」·「새 레터」 표시) 켜기/끄기(app.js tplMarksToggle) ·
    #nameFmtMarks = **서식 라벨** 「S41」 켜기/끄기(app.js tplFmtToggle). 둘은 따로다 — 템플릿 표시를 끄고 서식 라벨만 볼 수도 있다(app.js tplMarksDraw).
@@ -7,7 +7,8 @@
    표시할 것이 없는 문서(헤딩 추출 2단계 결과가 없는 hwpx · docx)에서는 꺼져 있고 까닭을 이름(title)에 적는다 — 문서를 열고 오버레이·그래프를 읽을 때마다 app.js tplMarksDraw 가 docQuickSync 를 부른다.
    (2026-11-15 에 만든 처음 것은 「템플릿 관계」·「서식 관리자」 열을 여는 대리 단추였다 — 사용자가 뜻한 것이 아니었다. 그 두 열은 도구 줄 「서식」 묶음의 #tbTplRel · #tbStyleLib 로 연다.)
    2026-11-16 셋째 #nameTblMarks = **표 라벨**(표 옆 여백의 「⊞ ✎ t43 / 소속」 — tables.js .tbl-mark) 켜기/끄기 — 사용자 "테이블에 있는 라벨도 보였다 안보였다 하게 해줘"(spec_헤딩_추출 ② §10 「표 라벨 켜기/끄기」).
-   app.js 다음에 읽힌다($ · heads · tplMarksOn · tplFmtOn · tempMarkCount · driftMarkCount · tables.js 의 tblMarksOn · tblMarksToggle 을 쓴다). */
+   app.js 다음에 읽힌다($ · heads · state · taskRnd · tplMarksOn · tplFmtOn · tempMarkCount · driftMarkCount · divMarksOn · divMarksToggle · tables.js 의 tblMarksOn · tblMarksToggle ·
+   zones.js 의 zonesOn · zonesToggle · zonesOffered · zonesDims 를 쓴다). */
 const DOC_QUICK = [
   { id: "nameTplMarks", name: "템플릿 표시", what: "문서 왼쪽 여백의 「T1 L2」(템플릿 번호 · 개요 레벨)", on: () => tplMarksOn(), toggle: () => tplMarksToggle(),
     have: () => !!(heads.outline || (heads.marks && heads.marks.size) || (typeof tempMarkCount === "function" && tempMarkCount()) || (typeof driftMarkCount === "function" && driftMarkCount())) },
@@ -17,14 +18,26 @@ const DOC_QUICK = [
   // 표가 있는 문서면 켤 수 있다(hwpx · docx — 헤딩 추출과 무관). tables.js tblMarksDraw 가 그릴 때마다 docQuickSync 를 부른다
   { id: "nameTblMarks", name: "표 라벨 표시", what: "문서의 표 옆 여백에 붙는 표 라벨(엑셀식 보기 ⊞ · 표 지침 ✎ · 표 id · 소속)", on: () => typeof tblMarksOn === "function" && tblMarksOn(), toggle: () => tblMarksToggle(),
     have: () => typeof tblMarksToggle === "function" && !!document.querySelector("#doc table.tbl[data-tbl], #doc .xl-wrap[data-tbl]"), none: "이 문서에는 표가 없습니다" },
+  // 넷째 · 다섯째(2026-11-18 사용자 "구분자리 표기, 편집구역 아이콘 각각 넣어 주고, 활성화 하고 마웃 갖어다 대면 어떤 건지 보이게 해줘"): 문단에 입히는 색 표시 둘.
+  // 값은 하나다 — 「구분 기준 자리 표시」 = 「작업 개요」 카드의 「보기/감추기」 · 문서 오른쪽 단추 메뉴 · 이름 줄 설명의 「감추기」 와 같은 nfm.divMarks(기본 끔 — app.js divMarksOn · divMarksToggle) ·
+  // 「편집 구역 표시」 = 「편집 구역」 줄의 「보기/감추기」 와 같은 nfm.zones(기본 켬 — zones.js zonesOn · zonesToggle). 둘 다 연구개발과제 TASK 의 것이라 다른 TASK 에서는 세우지 않는다(show — design.md §9 「해당 없는 항목은 세우지 않는다」).
+  // app.js divKeyDraw · divMarksBarRefresh 와 zones.js zonesKeyDraw 가 그릴 때마다 docQuickSync 를 부른다(다른 곳에서 켜고 꺼도 눌림이 따라온다)
+  { id: "nameDivMarks", name: "구분 기준 자리 표시", what: "문단의 구분 기준 자리 색(단계 · 차년도 · 기관이 걸린 글의 바탕색과 왼쪽 띠)",
+    show: () => !!state.id && taskRnd(), on: () => divMarksOn(), toggle: () => divMarksToggle(), have: () => !!state.id && taskRnd() },
+  { id: "nameZones", name: "편집 구역 표시", what: "편집 구역(어느 기관 · 단계 · 차년도의 것인지 — 블록 옆 색 띠와 쪽 오른쪽 여백의 이름표 「한국선급 · 2차년도」)",
+    show: () => !!state.id && taskRnd() && typeof zonesToggle === "function", on: () => zonesOn(), toggle: () => zonesToggle(), have: () => zonesOffered() && zonesDims().length > 0,
+    none: () => (!zonesOffered() ? "편집 구역은 저장된 HWPX 문서에서만 씁니다" : "보일 기준(기관 · 단계 · 차년도)이 하나도 켜져 있지 않습니다 — 「작업 개요」 의 「편집 구역」 에서 고르세요") },
 ];
 function docQuickSync() { // 눌림 · 꺼짐 · 도움말 — 바뀐 것만 쓴다(tplMarksDraw 가 그릴 때마다 부른다)
   for (const q of DOC_QUICK) {
     const b = $(q.id);
     if (!b) continue;
-    const have = q.have(), on = have && q.on();
+    const show = !q.show || q.show();
+    if (b.hidden !== !show) b.hidden = !show;
+    if (!show) continue;
+    const have = q.have(), on = have && q.on(), none = typeof q.none === "function" ? q.none() : q.none;
     const title = have ? `${q.name} ${on ? "켜짐" : "꺼짐"} — 누르면 ${q.what} 을 ${on ? "숨깁니다" : "보입니다"}(이 브라우저에 기억)`
-      : `${q.name} — ${q.none || "이 문서에는 아직 표시할 것이 없습니다(HWPX 문서에서 헤딩 추출 2단계(헤딩 그래프)까지 돌리면 생깁니다)"}`;
+      : `${q.name} — ${none || "이 문서에는 아직 표시할 것이 없습니다(HWPX 문서에서 헤딩 추출 2단계(헤딩 그래프)까지 돌리면 생깁니다)"}`;
     if (b.disabled !== !have) b.disabled = !have;
     if (b.getAttribute("aria-pressed") !== String(on)) b.setAttribute("aria-pressed", String(on));
     if (b.title !== title) b.title = title;

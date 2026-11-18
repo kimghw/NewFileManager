@@ -230,6 +230,31 @@ def mark(wid, **fields) -> dict | None:
         return w
 
 
+def workflow_update(wid, job, **fields) -> dict | None:
+    """문서의 워크플로우 한 항목만 합친다. 다른 항목·문서 요약을 덮지 않고 같은 진행 상태는 다시 쓰지 않는다."""
+    d = folder(wid)
+    if d is None:
+        return None
+    with _lock(wid):
+        w = work(wid)
+        if w is None:
+            return None
+        rows = list(w.get("workflows") or [])
+        index = next((i for i, row in enumerate(rows) if row.get("job") == job), None)
+        old = rows[index] if index is not None else None
+        row = {**(old or {"job": job, "status": "ready", "done": 0, "total": 0}), **fields}
+        if old == row:
+            return w
+        row["updated"] = time.time()
+        if index is None:
+            rows.append(row)
+        else:
+            rows[index] = row
+        w["workflows"] = rows
+        _write_json(d / "work.json", w)
+        return w
+
+
 RESET_KEEP = ("work.json", "log.jsonl", "commits", "outputs", "reset")   # 작업 내용 초기화가 제자리에 두는 것(spec_작업 ② §3-1) — 올린 원본(original.<ext>)과 함께
 
 

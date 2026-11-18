@@ -332,7 +332,9 @@ async function load(id) {
   if (typeof tablesReset === "function") tablesReset(); // 표 탭(tables.js)
   if (typeof compareReset === "function") compareReset();
   if (typeof agentReset === "function") agentReset(); // 에이전트 보기(doc_agent.js — spec_일반편집 ② §12)
-  showTab(!PEEK && taskGeneral() && toolShown("Agent") ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(② §12) — 그 밖에는 검증
+  const agentFirst = !PEEK && taskGeneral() && toolShown("Agent");
+  showTab(agentFirst && !agentFloatOn() ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(② §12) — 그 밖에는 검증
+  if (agentFirst && agentFloatOn()) showTab("Agent"); // 에이전트가 떠 있는 창 자리면 패널은 검증 · 에이전트는 그 창에(agent_float.js)
   colFold("panel", colFoldLoad("panel"), false); // » 로 접어 둔 3열은 새 문서도 접힌 채(기억한 대로 — 도구 탭을 고르면 펴짐)
   renderVerify({});
   poll();
@@ -717,11 +719,12 @@ function toolMoreSet(open) {
 function toolTabsDraw() {
   const cur = $("panel").dataset.tool || "Verify", on = !!state.id;
   if (!["Agent", "Dash", "Div", "Tasks", ...PANEL_MAIN, ...PANEL_TOOLS].includes(cur) && TOOL_INFO[cur]) toolLast = cur;
+  if (typeof agentFloatSync === "function") agentFloatSync(); // 상단 바 에이전트 아이콘의 눌림 · 다른 문서를 열거나 닫았을 때의 에이전트 창(agent_float.js)
   $("toolTabs").hidden = $("toolMore").hidden = !on;
   $("toolTitle").hidden = $("toolTag").hidden = on; // 값은 그대로 채운다(접힌 띠 이름 — colRailName)
   if (!on) return;
   const a = $("tabAgent"), t = $("toolTabTask"), u = $("toolTabTool");
-  a.hidden = !toolShown("Agent"); // hwpx 만(docx 는 에이전트 보기가 없다)
+  a.hidden = !toolShown("Agent") || agentFloatOn(); // hwpx 만(docx 는 에이전트 보기가 없다) · 에이전트가 떠 있는 창 자리면 탭이 없다(상단 바 아이콘으로 엶 — 2026-11-18 사용자: agent_float.js)
   const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): 문서가 열려 있으면 늘(TASK 가 없으면 TASK 고르기) · 첫 탭(2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」)
   d.hidden = !toolShown("Dash");
   t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
@@ -745,6 +748,7 @@ function taskListBtnDraw() {
   const b = $("taskListBtn");
   b.hidden = !state.id;
   b.setAttribute("aria-pressed", String(taskListOn()));
+  if (typeof agentFloatSync === "function") agentFloatSync(true); // 패널 탭 자리의 에이전트도 패널이 닫히거나 접히면 「안 보임」 — 상단 바 에이전트 아이콘의 눌림(agent_float.js)
 }
 function taskListToggle() {
   if (!taskListOn()) {
@@ -5268,8 +5272,18 @@ async function panelTaskPick(v) {
 // 탭 띠에 단추가 없는 도구 = 「연구개발과제」(Div — 2026-11-12 탭을 없앰): 작업 종류가 연구개발과제일 때만 열린다(전의 탭 보임 조건 그대로)
 // 에이전트(Agent — spec_일반편집 ② §12)는 탭(패널 머리 탭 #tabAgent — 대시보드 다음)의 보임과 상관없이 hwpx 문서면 열린다 — 탭의 보임은 toolTabsDraw 가 이 값으로 정한다
 const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; if (n === "Dash") return typeof dashShown === "function" && dashShown(); const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
+// 에이전트 보기의 자리(2026-11-18 사용자 「대시보드 옆 에이전트는 워크플로우 아이콘 옆 에이전트아이콘으로 … 팝업으로 … 대시보드 옆으로 들어 갈 수 있도록」 — agent_float.js):
+// 떠 있는 창(기본)이면 showTab("Agent") 은 패널을 바꾸지 않고 그 창을 연다 — 부르는 쪽(대시보드 · 작업 진행 에이전트 · TASK 들어가기)은 그대로 「에이전트 보기를 연다」 로 쓴다
+function agentFloatOn() { return typeof agentFloating === "function" && agentFloating(); } // 함수 선언 — toolTabsDraw(위)가 이 줄보다 먼저 불려도 되게
+const PANEL_BACK = ["Dash", "Div", "Heads", "Tables", "Verify"]; // 패널이 에이전트를 보이다 그 자리를 잃을 때(창으로 띄움) 갈 도구 — 앞의 넷은 2열을 닫지 않는다(showTab 의 headsColClose)
 function showTab(name) {
   if (!TOOL_INFO[name] || !toolShown(name)) return;
+  if (name === "Agent" && agentFloatOn()) {
+    agentFloatOpen();
+    const cur = $("panel").dataset.tool, back = PANEL_BACK.find((n) => toolShown(n));
+    if ((!cur || cur === "Agent" || !toolShown(cur)) && back) showTab(back); // 패널이 볼 것이 없으면(처음 · 에이전트를 보이던 패널) 대시보드부터
+    return;
+  }
   if (!["Heads", "Div", "Tables", "Agent", "Dash"].includes(name) && !headsColClose()) return; // 대시보드도 문서 옆 열(변경 계획 목록 · 서식 복사 …)을 닫지 않는다 — 그 단추가 그 열을 연다
   panelHelpClose();
   $("panel").dataset.tool = name;
@@ -5283,7 +5297,7 @@ function showTab(name) {
       if (tab.closest("#workspaceNav")) tab.tabIndex = on ? 0 : -1;
     }
     const pane = $(`pane${n}`);
-    if (pane) pane.hidden = !on;
+    if (pane && !(n === "Agent" && agentFloatOn())) pane.hidden = !on; // 떠 있는 창의 에이전트 보기는 패널 도구와 따로 — 창을 여닫을 때만(agent_float.js)
   }
   toolTabsDraw(); // 패널 머리 둘째 줄 탭 — 에이전트 · 작업 개요 · <도구> | 접는 묶음 검증 · PDF · 기록(작업 리스트는 상단 바 아이콘 — 아래 setPanel 이 그 눌림을 그린다)
   const strip = [...$("workspaceNav").querySelectorAll('[role="tab"]')].filter((b) => !b.hidden);
@@ -9633,6 +9647,12 @@ const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파�
   "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
 function divMarksOn() { try { return taskRnd() && localStorage.getItem(DV_MARKS_KEY) === "on"; } catch { return false; } } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10)
 function divMarksSet(on) { try { localStorage.setItem(DV_MARKS_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
+function divMarksToggle() { // 보기/감추기 — 「작업 개요」 카드 단추 · 문서 오른쪽 단추 메뉴 · 이름 줄 아이콘 #nameDivMarks(doc_quick.js)가 함께 쓴다(값 하나 nfm.divMarks)
+  const on = divMarksOn();
+  divMarksSet(!on);
+  if (!on) divMembersLoad(); else divMarksDraw();
+  divMarksBarRefresh();
+}
 
 function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구분별 색·묶음 수) · 다시 읽기 · 추가한 자리 N · LLM 재검토
   const m = dv.marks, on = divMarksOn(), d = m.data;
@@ -9641,7 +9661,7 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
   const copy = el("div", "dv-marks-copy");
   copy.append(el("strong", null, "구분 기준 자리 표시")); // 2026-11-12 사용자 "문서표지는 뭘 이야기 하는지 모르겠다" — 처음 이름 「문서 표시」
   copy.append(hHelp("구분 기준 자리 표시 안내", "문서에서 단계·차년도·기관이 걸린 자리를 색으로 보여 줍니다.\n" + DV_KEY_HELP, { note: true }));
-  const tg = hBtn(on ? "감추기" : "보기", () => { divMarksSet(!on); if (!on) divMembersLoad(); else divMarksDraw(); divMarksBarRefresh(); },
+  const tg = hBtn(on ? "감추기" : "보기", () => divMarksToggle(),
     { cls: "btn sm dv-marks-toggle" + (on ? " on" : ""), title: "문서의 문단에 구분 기준 자리 색 보이기/감추기(이 브라우저에 기억) · 라벨 문단은 왼쪽 띠, 마우스를 올리면 겉→안 소속" });
   tg.setAttribute("aria-pressed", String(on));
   head.append(copy, tg);
@@ -9678,7 +9698,11 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
   bar.append(acts, lists);
   return bar;
 }
-function divMarksBarRefresh() { const old = document.getElementById("divMarksBar"); if (old) old.replaceWith(divMarksBar()); }
+function divMarksBarRefresh() {
+  const old = document.getElementById("divMarksBar");
+  if (old) old.replaceWith(divMarksBar());
+  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘 「구분 기준 자리 표시」(doc_quick.js #nameDivMarks)의 눌림 — 카드·메뉴로 켜고 꺼도 따라온다
+}
 
 async function divMembersLoad(force = false) { // 표시 자료 읽기 — 같은 편집 차례면 다시 안 읽음
   if (!state.id) return;
@@ -9831,6 +9855,7 @@ function divKeyPress() { // 이름 줄 칩의 눌림(「그 구분만 또렷이�
 // 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 개요」 의 카드에만 있었다 →
 // 색이 입혀져 있는 동안 문서 이름 줄(#fileInfo, 「편집 중」 앞 #divKey)에 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트 + 「감추기」. 색칠할 자리가 없으면 설명도 없다.
 function divKeyDraw(on) {
+  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘(doc_quick.js) — 문서·TASK 가 바뀌면 「구분 기준 자리 표시」·「편집 구역 표시」 를 세울지가 여기서 바뀐다(쪽을 다시 나눌 때마다 불림)
   const box = $("divKey"), row = $("fileInfo");
   if (!box || !row) return;
   const dims = new Map(); // 구분 키 → 이름
@@ -9856,9 +9881,9 @@ function divKeyDraw(on) {
   }
   divKeyPress();
   box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(이름 줄을 더 쓰지 않는다 — design.md §1)
-  const again = "다시 보려면 「작업 개요」 의 「구분 기준 자리 표시」 에서 「보기」(문단의 오른쪽 단추 메뉴에도 있음)";
+  // 감추기 · 다시 보기 = 이 줄 앞의 아이콘 #nameDivMarks(doc_quick.js — 2026-11-18 사용자 "구분자리 표기 … 아이콘 … 활성화"). 설명 끝의 「감추기」 단추는 뺐다 — 같은 줄에 같은 일을 하는 아이콘이 있다(design.md §10)
+  const again = "감추거나 다시 보려면 이 줄 앞의 「구분 기준 자리 표시」 아이콘을 누르세요(「작업 개요」 의 「구분 기준 자리 표시」 「보기/감추기」 · 문단의 오른쪽 단추 메뉴에도 있음)";
   box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n이 줄의 칩(단계·차년도·기관 …)을 누르면 그 구분의 자리만 또렷이 — 나머지 문단은 흐리게(다시 누르면 풀림).\n" + again + ".", { note: true }));
-  box.append(hBtn("감추기", () => { divMarksSet(false); divMarksDraw(); divMarksBarRefresh(); }, { cls: "btn sm dv-key-off", title: "구분 기준 자리 색 감추기 — " + again }));
 }
 
 // ---- 추가한 자리(hint) — 문서에서 오른쪽 단추
@@ -9870,7 +9895,7 @@ function divCtxItems(e) { // 오른쪽 단추 메뉴 항목(앞에 구분선) �
   const h = divHintOf(p.dataset.id);
   const items = [null, [h ? "구분 기준 자리 표시 고치기…" : "구분 기준 자리로 추가…", "", () => divHintPop(p, e, h)]];
   if (h) items.push(["이 자리 표시 지우기", "", () => divHintDelete(h.id)]);
-  items.push([divMarksOn() ? "구분 기준 표시 감추기" : "구분 기준 표시 보기", "", () => { divMarksSet(!divMarksOn()); if (divMarksOn()) divMembersLoad(); else divMarksDraw(); divMarksBarRefresh(); }]);
+  items.push([divMarksOn() ? "구분 기준 표시 감추기" : "구분 기준 표시 보기", "", () => divMarksToggle()]);
   return [...items, ...zone];
 }
 function divContextMenu(e) { // 표 밖 문단 — 표 칸은 tselContextMenu 가 맡는다

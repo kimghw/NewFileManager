@@ -129,6 +129,7 @@ def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         page = b.new_page(viewport={"width": 1600, "height": 1000}, device_scale_factor=1)
+        page.add_init_script("try { localStorage.setItem('nfm.agentDock', 'panel'); } catch (e) {}")  # 에이전트 보기를 패널 탭 자리로(창 머리 「패널에 넣기」 와 같음) — 「에이전트 보기 열기」 → 패널 · 떠 있는 창(기본)은 smoke_agent_float_ui.py
         page.on("console", lambda m: errors.append(f"[{m.type}] {m.text}") if m.type == "error" and "Failed to load resource" not in m.text else None)
         page.on("pageerror", lambda e: errors.append(f"[pageerror] {e}"))
         dialogs = []
@@ -179,11 +180,20 @@ def main():
         # ---- 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」
         page.click('#paneDash .dash-node[data-key=apply] .dash-node-head')
         page.wait_for_selector('#paneDash .dash-node[data-key=apply] .dash-detail')
-        cond = page.evaluate("""() => { const d = document.querySelector('#paneDash .dash-node[data-key=apply] .dash-detail'); d.querySelector('.dash-more').open = true;
-          return { dts: [...d.querySelectorAll('.dash-cond dt')].map((x) => x.textContent), need: (d.querySelector('.dash-text .dash-sub') || {}).textContent || '', values: !!document.querySelector('#paneDash .dash-node[data-key=values] .dash-detail'),
-            expanded: document.querySelector('#paneDash .dash-node[data-key=apply] .dash-node-head').getAttribute('aria-expanded') }; }""")
-        check("다른 단계를 누르면 그 카드만 펴짐(aria-expanded) — 차례가 아니면 「하려면」 · 「하는 일 · 조건」 에 등록부의 조건(하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것)",
-              cond["expanded"] == "true" and not cond["values"] and cond["need"] == "하려면" and cond["dts"][:2] == ["하는 일", "나오는 것"] and {"하려면", "끝난 것으로 보는 때", "멈추는 때", "남기는 것 · 보정"} <= set(cond["dts"]), cond)
+        cond = page.evaluate("""() => { const n = document.querySelector('#paneDash .dash-node[data-key=apply]'), d = n.querySelector('.dash-detail'), m = n.querySelector('.dash-node-top .dash-node-main .dash-memo');
+          return { dts: (m ? m.dataset.help : '').split('\\n').map((x) => x.split(' — ')[0]), memoLabel: m ? m.getAttribute('aria-label') : '', inHead: !!(m && m.closest('.dash-node-head')), rows: document.querySelectorAll('#paneDash details.dash-more').length,
+            memos: document.querySelectorAll('#paneDash .dash-node').length - document.querySelectorAll('#paneDash .dash-node .dash-memo').length,
+            need: (d.querySelector('.dash-text .dash-sub') || {}).textContent || '', values: !!document.querySelector('#paneDash .dash-node[data-key=values] .dash-detail'),
+            expanded: n.querySelector('.dash-node-head').getAttribute('aria-expanded') }; }""")
+        check("다른 단계를 누르면 그 카드만 펴짐(aria-expanded) — 차례가 아니면 「하려면」 · 「하는 일 · 조건」 은 줄이 아니라 이름 옆 메모 아이콘(모든 카드 · 단추 밖)에 등록부의 조건(하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것)",
+              cond["expanded"] == "true" and not cond["values"] and cond["need"] == "하려면" and cond["rows"] == 0 and cond["memos"] == 0 and not cond["inHead"] and cond["memoLabel"].endswith("하는 일 · 조건")
+              and cond["dts"][:2] == ["하는 일", "나오는 것"] and {"하려면", "끝난 것으로 보는 때", "멈추는 때", "남기는 것 · 보정"} <= set(cond["dts"]), cond)
+        page.click('#paneDash .dash-node[data-key=apply] .dash-memo')   # 메모를 눌러도 카드는 그대로(풍선만) — 머리 줄의 다른 곳(번호)은 펴고 접음
+        memo = page.evaluate("""() => ({ tip: !!document.querySelector('#panelHelpTooltip:not([hidden])') && document.querySelector('#panelHelpTooltip').textContent.startsWith('하는 일 — '),
+          open: !!document.querySelector('#paneDash .dash-node[data-key=apply] .dash-detail') })""")
+        page.click('#paneDash .dash-node[data-key=apply] .dash-no')
+        page.wait_for_selector('#paneDash .dash-node[data-key=apply] .dash-detail', state="detached")
+        check("메모를 누르면 「하는 일 — …」 풍선만 뜨고 카드는 펴진 그대로 · 번호 동그라미를 누르면 접힘", memo["tip"] and memo["open"], memo)
         page.click('#paneDash .dash-node[data-key=values] .dash-node-head')
         page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail')
 

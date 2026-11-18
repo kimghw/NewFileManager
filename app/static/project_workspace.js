@@ -12,7 +12,7 @@ const projectIsTemp = (name) => PROJECT_TEMP_RE.test(projectNameOf(name));
 const projectDocCount = (name) => worksList.filter((w) => ((w.task || {}).project || "") === name).length;
 let projectMake = null; // 「새 프로젝트」 이름 줄: {draft, busy} | null(닫힘)
 const projectNameTaken = (n, except) => !!n && n !== except && (worksList.some((w) => ((w.task || {}).project || "") === n) || !!(projectInfo.map && projectInfo.map.has(n))); // 문서 없는 프로젝트(기록만 남음)의 이름도 쓰는 이름이다(서버 409)
-const projectBusy = (includeTaskSave = true) => projectStarting || (includeTaskSave && taskSaveCount > 0) || state.busy || !!taskRun || (typeof gatherRun !== "undefined" && !!gatherRun);
+const projectBusy = (includeTaskSave = true) => projectStarting || (includeTaskSave && taskSaveCount > 0) || state.busy || !!taskRun || (typeof gatherRun !== "undefined" && !!gatherRun) || (typeof DWF !== "undefined" && DWF.busy);
 
 function projectControlsSync() {
   const disabled = !taskProject() || !(state.task || {}).job || projectBusy();

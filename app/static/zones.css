@@ -29,15 +29,29 @@
 .gt-zones-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 28px; }
 .zn-copy { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin-right: auto; }
 .zn-copy strong { font-size: 13px; font-weight: 700; color: #1e293b; line-height: 1.4; white-space: nowrap; }
+.zn-head-llm, .zn-head-acts { display: inline-flex; align-items: center; gap: 6px; flex: none; min-width: 0; }
 #divBox .zn-bar .gt-zones-head .btn { height: 28px; min-height: 28px; padding: 0 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
-.gt-zones-toggle.on { background: var(--accent-soft, #e8eefc); border-color: #9fb5ea; color: var(--accent, #2458d6); font-weight: 600; } /* 켜짐 = 옅은 눌림 바탕(design.md §9) */
-.zn-dims { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; font-size: 12px; color: #475569; }
-.zn-dims-name { font-size: 12px; color: #64748b; white-space: nowrap; margin-right: 2px; }
-.zn-dim { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 7px; border-radius: 999px; border: 1px solid #d8e0ec; background: #f8fafc; color: #334155; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+#divBox .zn-bar .gt-zones-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 52px; border-color: #cbd5e1; background: #f8fafc; color: #334155; font-weight: 500; flex-shrink: 0; }
+#divBox .zn-bar .gt-zones-toggle::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
+#divBox .zn-bar .gt-zones-toggle:hover:not(:disabled) { background: #eef3fa; border-color: #9fb5ea; color: #1e293b; }
+#divBox .zn-bar .gt-zones-toggle.on, .gt-zones-toggle.on { background: var(--accent-soft, #e8eefc); border-color: #9fb5ea; color: var(--accent, #2458d6); font-weight: 600; } /* 켜짐 = 옅은 눌림 바탕(design.md §9) */
+#divBox .zn-bar .gt-zones-toggle.on::before { background: var(--accent, #2458d6); }
+.zn-dims { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; font-size: 12px; color: #475569; }
+.zn-dims-name { font-size: 12px; color: #64748b; white-space: nowrap; margin-right: 1px; }
+.zn-dim { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 6px; border-radius: 999px; border: 1px solid #d8e0ec; background: #f8fafc; color: #334155; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .zn-dim:hover { border-color: var(--dv-line, #94a3b8); background: var(--dv-bg, #f1f5f9); }
 .zn-dim.on { background: var(--dv-bg, #edf2ff); border-color: var(--dv-line, #315fd3); color: #1e293b; font-weight: 600; }
 .zn-dim::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
 .zn-dim input { order: -1; flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--dv-line, #315fd3); }
+@container (max-width: 395px) {
+  .gt-zones-head .zn-copy { order: 0; }
+  .gt-zones-head .zn-head-acts { order: 1; margin-left: auto; gap: 5px; }
+  .gt-zones-head .zn-head-llm { order: 2; flex-basis: 100%; gap: 6px; }
+  #divBox .zn-bar .gt-zones-head .btn { padding: 0 8px; }
+  .zn-dims { flex-wrap: nowrap; gap: 4px; }
+  .zn-dims-name { font-size: 11.5px; margin-right: 0; }
+  .zn-dim { gap: 3px; padding: 0 6px 0 5px; font-size: 11.5px; }
+}
 .gt-zones-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .zn-bar[data-zn="off"] .gt-zones-chips { opacity: .6; } /* 표시를 꺼 둔 동안의 칩(마지막으로 읽은 것) */
 .gz-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); cursor: pointer; font: inherit; font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

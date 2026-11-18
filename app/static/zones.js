@@ -406,9 +406,9 @@ function zonesBarEl(opts = {}) {
     else if (sig != null && sig !== Z.sig && !gather) { Z.sig = sig; zonesInvalidate("values"); } // 지문을 먼저 맞춰 둔다 — 무효로 만든 뒤 줄을 다시 그릴 때 되풀이하지 않게
   }
 
-  const head = el("div", "gt-zones-head"), copy = el("span", "zn-copy");
+  const head = el("div", "gt-zones-head"), copy = el("span", "zn-copy"), acts = el("span", "zn-head-acts");
   copy.append(el("strong", null, "편집 구역"), hHelp("편집 구역 안내", ZN_HELP, { note: true }));
-  const tg = fkey(hBtn(on ? "구역 표시 감추기" : "구역 표시 보기", () => zonesToggle(),
+  const tg = fkey(hBtn(on ? "감추기" : "보기", () => zonesToggle(), // 글 = 「구분 기준 자리 표시」 카드의 보기/감추기와 같은 꼴(2026-11-18 사용자 "디자인 매칭좀 해줘라 보이기 감추기" — design.md §12)
     { cls: "btn sm gt-zones-toggle" + (on ? " on" : ""), title: "문서의 구역 띠 · 이름표 · 넣은 내용 표시 보이기/감추기(이 브라우저에 기억)" }), "toggle");
   tg.setAttribute("aria-pressed", String(on));
   tg.dataset.zones = "toggle";
@@ -417,10 +417,13 @@ function zonesBarEl(opts = {}) {
   head.append(copy);
   const llmOn = dims.length > 0 && !Z.llmMissing && (!!Z.llm || Z.llmBusy || !!Z.llmErr); // 「LLM 검토」 · 「지침」 — 켠 기준이 있을 때만(체크만 있는 줄에는 없다) · 끝점이 없는 서버에서는 안 보인다
   if (llmOn) {
-    head.append(znLlmBtn(Z, fkey, ((D && D.reasons) || []).includes("noValues")));
-    if (typeof llmGuideBtn === "function") head.append(fkey(llmGuideBtn("zones", t.id), "guide")); // 보내는 계약·판단 지침·마지막 프롬프트(app.js — 다른 LLM 검토의 「지침」 과 같은 열)
+    const llm = el("span", "zn-head-llm");
+    llm.append(znLlmBtn(Z, fkey, ((D && D.reasons) || []).includes("noValues")));
+    if (typeof llmGuideBtn === "function") llm.append(fkey(llmGuideBtn("zones", t.id), "guide")); // 보내는 계약·판단 지침·마지막 프롬프트(app.js — 다른 LLM 검토의 「지침」 과 같은 열)
+    head.append(llm);
   }
-  head.append(tg, list);
+  acts.append(tg, list);
+  head.append(acts);
 
   const row = el("div", "zn-dims"); // 체크 셋 — 꺼져 있어도 늘 보인다(꺼진 TASK 에서 다시 켤 길)
   row.setAttribute("role", "group");
@@ -455,7 +458,7 @@ function zonesBarEl(opts = {}) {
   else if (stale || (Z.ahead && !D)) cap(Z.ahead ? "문서가 다른 곳에서 바뀌었습니다 — 이 화면의 문서를 다시 읽은 뒤에 구역을 볼 수 있습니다" : "문서가 바뀜 — 다시 읽는 중"); // 옛 문서 차례의 구역은 보이지 않는다
   else if (Z.loading && !D) cap("구역을 세는 중…");
   else if (Z.err && !D) cap(Z.missing ? "편집 구역은 서버를 다시 시작한 뒤에 볼 수 있습니다(새 기능)" : `구역을 읽지 못했습니다: ${Z.err}`);
-  else if (!D) cap(on ? "구역을 아직 읽지 않았습니다" : "구역 표시가 꺼져 있습니다 — 「구역 표시 보기」 를 누르면 문서에서 구역을 셉니다");
+  else if (!D) cap(on ? "구역을 아직 읽지 않았습니다" : "구역 표시가 꺼져 있습니다 — 「보기」 를 누르면 문서에서 구역을 셉니다");
   else if (reasons.includes("unsupportedForm")) cap("이 문서 형식에는 편집 구역이 없습니다(hwpx 문서만)");
   else {
     const staged = gather || (typeof taskSlots === "function" && !!taskSlots());
@@ -589,6 +592,7 @@ function zonesDraw() {
 
 // ---- 문서 이름 줄의 색 설명(#zonesKey — design.md §4 「색 설명은 문서 바로 위 이름 줄에」): 표시가 켜져 있고 띠가 있을 때만 — 「편집 구역」 + 지금 문서에 있는 값의 칩(색 네모 + 이름) + 노트 + 「감추기」
 function zonesKeyDraw() {
+  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘 「편집 구역 표시」(doc_quick.js #nameZones)의 눌림 · 꺼짐(옵션을 읽은 뒤 · 줄의 「보기/감추기」 · 설명의 「감추기」 뒤에도 따라온다)
   const box = typeof $ === "function" ? $("zonesKey") : null, row = box && $("fileInfo");
   if (!box || !row) return;
   const D = znShown(), dims = D ? zonesDims() : [], axis = znAxis(dims), items = new Map();
@@ -616,9 +620,9 @@ function zonesKeyDraw() {
   for (const x of list.slice(0, ZN_KEY_MAX)) { const chip = el("span", "dv-chip zn-key-chip"); chip.dataset.gz = x.color; chip.title = x.name; chip.append(el("span", "zn-key-chip-t", x.name)); box.append(chip); }
   if (list.length > ZN_KEY_MAX) { const more = el("span", "zn-key-more", `외 ${list.length - ZN_KEY_MAX}`); more.title = list.slice(ZN_KEY_MAX).map((x) => x.name).join(" · "); box.append(more); }
   if (marked) box.append(el("span", "zn-key-tone", "점선 이름표 = 지정"));
-  const again = "다시 보려면 「작업 개요」 의 「편집 구역」 에서 「구역 표시 보기」";
+  // 감추기 · 다시 보기 = 이 줄 앞의 아이콘 #nameZones(doc_quick.js — 2026-11-18 사용자 "… 편집구역 아이콘 … 활성화"). 설명 끝의 「감추기」 단추는 뺐다 — 같은 줄에 같은 일을 하는 아이콘이 있다(design.md §10)
+  const again = "감추거나 다시 보려면 이 줄 앞의 「편집 구역 표시」 아이콘을 누르세요(「작업 개요」 의 「편집 구역」 「보기/감추기」 에도 있음)";
   box.append(hHelp("편집 구역 색 안내", ZN_HELP + "\n" + again + ".", { note: true }));
-  box.append(hBtn("감추기", () => { znOnSet(false); zonesDraw(); zonesBarRefresh(); }, { cls: "btn sm dv-key-off", title: "편집 구역 표시 감추기 — " + again }));
 }
 
 // ---- 지정(② §3) — 문서에서 오른쪽 단추 → 「구역 지정…」 → 떠 있는 작은 입력(#zonesPop). 대상은 본문 최상위 문단·표(칸 안이면 그 표 — 항목 글이 그렇게 말한다) · 그림·캡션은 아니다
@@ -786,7 +790,7 @@ async function znMarkSave({ mark, ids, label, note, held }) { // → true = 입�
     const r = await api(`/api/docs/${id}/zones/marks${mark ? "/" + encodeURIComponent(mark.id) : ""}`, { method: mark ? "PUT" : "POST", headers: H_JSON, body: JSON.stringify(body) });
     if (epoch !== state.epoch) return true;
     znApply(r, id);
-    toast(`${mark ? "구역 지정 고침" : "구역 지정"} — ${znMarkText(label, r)} · 블록 ${nf(ids.length)}${zonesOn() ? "" : " · 「구역 표시 보기」 를 누르면 문서에 보입니다"}`);
+    toast(`${mark ? "구역 지정 고침" : "구역 지정"} — ${znMarkText(label, r)} · 블록 ${nf(ids.length)}${zonesOn() ? "" : " · 「편집 구역」 의 「보기」 를 누르면 문서에 보입니다"}`);
     return true;
   } catch (e) {
     if (epoch !== state.epoch) return true;

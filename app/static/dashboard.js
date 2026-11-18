@@ -16,7 +16,7 @@ const DASH = { reg: null, regErr: "", regLoad: null, doc: "", primed: "", open: 
 const DASH_ST = { done: "끝남", now: "지금", ready: "할 수 있음", todo: "남음", hold: "기관 미지정", run: "진행 중", soon: "준비 중" }; // 글로 구별한다(design.md §11 — 색에만 기대지 않음). 「기관 문서마다」(each) · 따로 안 셈("")은 꼬리표 없음
 const DASH_COUNTED = new Set(["done", "now", "ready", "todo", "hold", "run"]);
 const dashCounted = (n) => !n.optional && DASH_COUNTED.has(n.state); // 끝난 수에 넣는 단계 — 안 해도 되는 단계 · 따로 세지 않는 단계 · 준비 중은 뺀다(design.md §11)
-const DASH_HELP = "이 TASK 의 단계를 워크플로우의 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다. 단계를 누르면 펴지고, 펴면 지금 상태 · 단추 · 「하는 일 · 조건」 이 보입니다.\n"
+const DASH_HELP = "이 TASK 의 단계를 워크플로우의 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다. 단계를 누르면 펴지고, 펴면 지금 상태 · 단추가 보입니다. 단계 이름 옆 메모 아이콘에 그 단계의 「하는 일 · 조건」 이 있습니다.\n"
   + "단추는 패널 「작업 개요」 · 에이전트와 같은 기능을 부릅니다 — 누르면 확인 창 없이 바로 합니다(문서를 바꾼 것은 실행 취소로 되돌리고, 유료 LLM 을 부르는 단추는 풍선 도움말에 그렇게 적습니다).\n"
   + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 합니다(사람이 봐야 할 곳에서는 멈추거나 넣지 않고 남김).\n"
   + "머리 아래 「이어서 한 번에」 는 남은 묶음을 차례로 잇습니다(앞 묶음이 끝나지 않으면 뒤 묶음은 시작하지 않고 한 것 · 멈춘 까닭 · 남은 것을 머리에 적음).\n"
@@ -47,28 +47,41 @@ function dashRegLoad() { // 워크플로우 등록부 — 페이지에 한 번 �
 async function dashPrime() { // 그 TASK 의 상태를 문서마다 처음 한 번 읽는다 — 그 뒤는 화면이 들고 있는 값으로 센다(1초마다 서버를 다시 읽지 않는다)
   const job = agwJob(), key = `${dashKey()}|${job}`;
   if (DASH.primed === key) return;
-  DASH.primed = key;
-  try {
+  if (DASH.primeLoad && DASH.primeLoad.key === key) return DASH.primeLoad.promise;
+  DASH.primed = "";
+  const prime = { key, promise: null };
+  DASH.primeLoad = prime;
+  prime.promise = (async () => { try {
     if (agwFit(job) || job === "plan_to_report" || job === "plan_merge") { if (!dv.view) await divShow(); }
     if (job === "plan_fit") { await agwHeadsView(); if (!agwStdView()) await agwStdFresh(); } // 양식 표준화 2 · 3단계 — 헤딩 요약(단계별 실행이 1단계 결과를 본다 · 추출을 저절로 시작하지 않음) · 분석 상태
     if (job === "plan_to_report" && !Object.keys(taskFlow.div || {}).length) await taskFlowLoad();
     if (job === "plan_merge" && typeof gt === "function" && !gt().view) await gatherLoad();
-  } catch (e) { console.error(e); }
+    if (key !== `${dashKey()}|${agwJob()}`) return;
+    if ((agwFit(job) || job === "plan_to_report" || job === "plan_merge") && !dv.view) return;
+    if (job === "plan_fit" && !agwStdView()) return;
+    if (job === "plan_merge" && !gt().view) return;
+    DASH.primed = key; // 읽기가 끝난 뒤에만 진행 요약을 저장한다(로딩 중 빈 값으로 완료 기록을 덮지 않음).
+  } catch (e) { console.error(e); } finally { if (DASH.primeLoad === prime) DASH.primeLoad = null; } })();
+  return prime.promise;
 }
 
 async function dashShow() { // app.js showTab("Dash")
   if (!state.id) return;
+  const doc = dashKey(), job = agwJob();
+  dwfReset();
   if (DASH.doc !== dashKey()) Object.assign(DASH, { doc: dashKey(), open: null, nowKey: "", form: false, last: null, busy: null });
   DASH.sig = "";
   await dashDraw(true);
   await dashRegLoad();
-  if (DASH.doc !== dashKey()) return;
+  if (doc !== dashKey() || job !== agwJob()) return;
+  await dwfLoad();
+  if (doc !== dashKey() || job !== agwJob()) return;
   await dashPrime();
-  if (DASH.doc === dashKey()) await dashDraw(true);
+  if (doc === dashKey() && job === agwJob()) await dashDraw(true);
 }
 
 async function dashExec(label, fn) { // 이 보기가 부르는 행동 하나(에이전트의 행동 · 기존 함수) → 끝 글을 머리 아래 한 줄에 남긴다. fn → {ok, text} | null(그만둠 — 남기지 않음)
-  if (DASH.busy) return;
+  if (DASH.busy || DWF.busy) return;
   if (agwRunning()) { toast("지금 진행 중인 작업이 끝난 뒤에 누르세요", true); return; } // 같은 문서에 두 실행을 겹치지 않는다(에이전트 카드와 같은 약속)
   const doc = dashKey();
   DASH.busy = { label, t0: Date.now() };
@@ -441,7 +454,7 @@ function dashStyleLive() { // 서식 복사 — 문서 옆 「서식 복사」 �
 }
 
 function dashEditLive() { // 문서 일반 편집 — 단계의 끝을 세지 않는다(요청 → 제안 → 반영의 되풀이). 단추는 그 일을 하는 곳을 연다
-  const agent = (focus) => (toolShown("Agent") ? [dashBtn("에이전트 보기 열기", () => showTab("Agent"), { title: "패널 「에이전트」 — 자료를 주고 글로 요청하면 제안이 나옵니다", focus })] : []);
+  const agent = (focus) => (toolShown("Agent") ? [dashBtn("에이전트 보기 열기", () => showTab("Agent"), { title: "에이전트 창(상단 바의 에이전트 아이콘과 같음) — 자료를 주고 글로 요청하면 제안이 나옵니다", focus })] : []);
   return { runs: {}, steps: { open: { state: "done", text: "" }, material: { state: "", acts: agent("act:material") }, turn: { state: "", acts: agent("act:turn") }, check: { state: "", text: "제안마다 저절로 돕니다" },
     apply: { state: "", text: "제안 카드의 「문서에 반영」 을 누른 제안만 들어갑니다", acts: agent("act:apply") },
     styleSave: { state: "", acts: [dashBtn("서식 관리자 열기", () => styleLibOpen(), { title: "반영한 표나 이 문서의 서식을 저장해 다시 씁니다", focus: "act:styleSave" })] },
@@ -504,18 +517,20 @@ function dashDetailEl(n, id) {
   if (n.acts.length) { const acts = el("div", "dash-acts"); acts.append(...n.acts); d.append(acts); }
   const off = n.acts.find((b) => b.tagName === "BUTTON" && b.disabled && b.title); // 꺼진 단추의 까닭을 글로(title 만으로는 안 보인다 — 2026-11-18 사용자: 「모두 반영」 이 왜 꺼졌는지 안 보였다 · dashStdTop 의 .dash-top-why 와 같은 생각)
   if (off) d.append(el("p", "dash-text dash-why", `「${off.textContent.trim()}」 — ${off.title}`));
-  const more = el("details", "dash-more"), dl = el("dl", "dash-cond");
-  more.append(el("summary", null, "하는 일 · 조건"));
-  dl.append(el("dt", null, "하는 일"), el("dd", null, n.does));
-  if (n.out) dl.append(el("dt", null, "나오는 것"), el("dd", null, n.out));
-  for (const c of n.cond || []) dl.append(el("dt", null, c.name), el("dd", null, c.text));
-  more.append(dl);
-  d.append(more);
   return d;
 }
 
-function dashNodeEl(n, gid, openKey) {
-  const li = el("li", "dash-node" + (n.optional ? " opt" : "") + (n.soon ? " soon" : "") + (n.key === openKey ? " open" : "")), open = n.key === openKey, id = `dashD-${gid}-${n.key}`, head = el("button", "dash-node-head");
+function dashMemoEl(n) { // 「하는 일 · 조건」 — 카드 머리 이름 옆 메모 아이콘(노트 도움말 · design.md §1-6). 2026-11-18 사용자 「하는 일 조건은 이렇게 줄을 넣지 말고 메모 아이콘 해서 제목 쪽에 넣어줘」(전에는 펼친 카드 맨 아래 접은 줄)
+  const rows = [["하는 일", n.does], ...(n.out ? [["나오는 것", n.out]] : []), ...(n.cond || []).map((c) => [c.name, c.text])];
+  const b = hHelp(`${n.name} — 하는 일 · 조건`, rows.map(([k, v]) => `${k} — ${v}`).join("\n"));
+  b.classList.add("dash-memo");
+  b.dataset.dashFocus = `memo:${n.key}`; // 다시 그려도 초점이 메모로 돌아온다(dashDraw)
+  b.title = ""; // 카드 머리 줄의 풍선(title)이 메모 위에서 겹쳐 뜨지 않게
+  return b;
+}
+
+function dashNodeEl(n, gid, openKey) { // 머리 줄(.dash-node-top) = 번호 · 이름(펴고 접는 단추) + 꼬리표 + 메모 · 상태 글. 줄 어디를 눌러도 펴고 접는다(메모는 제 풍선만 — hHelp 가 누름을 멈춘다)
+  const li = el("li", "dash-node" + (n.optional ? " opt" : "") + (n.soon ? " soon" : "") + (n.key === openKey ? " open" : "")), open = n.key === openKey, id = `dashD-${gid}-${n.key}`, top = el("div", "dash-node-top"), head = el("button", "dash-node-head");
   li.dataset.key = n.key;
   li.dataset.state = n.state || "none";
   head.type = "button";
@@ -524,12 +539,13 @@ function dashNodeEl(n, gid, openKey) {
   if (open) head.setAttribute("aria-controls", id);
   if (n.state === "now" || n.state === "run") head.setAttribute("aria-current", "step");
   const main = el("span", "dash-node-main"), st = DASH_ST[n.state] || "";
-  main.append(el("b", null, n.name), dashTags(n));
-  head.append(el("span", "dash-no", String(n.idx).padStart(2, "0")), main);
-  if (st) head.append(el("span", "dash-st", n.state === "done" ? `✓ ${st}` : st));
-  head.title = `${n.name}${st ? ` — ${st}` : ""}${n.text ? `\n${n.text}` : ""}`;
-  head.onclick = () => { DASH.open = open ? "" : n.key; dashDraw(true); };
-  li.append(head);
+  head.append(el("b", null, n.name));
+  main.append(head, dashTags(n), dashMemoEl(n));
+  top.append(el("span", "dash-no", String(n.idx).padStart(2, "0")), main);
+  if (st) { const s = el("span", "dash-st", n.state === "done" ? `✓ ${st}` : st); s.id = `${id}-st`; head.setAttribute("aria-describedby", s.id); top.append(s); }
+  top.title = `${n.name}${st ? ` — ${st}` : ""}${n.text ? `\n${n.text}` : ""}`;
+  top.onclick = (e) => { if (e.target.closest(".panel-help")) return; DASH.open = open ? "" : n.key; dashDraw(true); }; // 단추의 누름(Enter · Space 포함)도 여기로 올라온다
+  li.append(top);
   if (open) li.append(dashDetailEl(n, id));
   return li;
 }
@@ -606,17 +622,20 @@ function dashEl(M) {
   if (!dashHasTask(M.job)) return dashPickEl();
   const root = el("section", "dash"), head = el("header", "dash-head"), title = el("div", "dash-title");
   root.setAttribute("aria-label", "대시보드");
-  const nodes = M.groups.flatMap((g) => g.nodes), counted = nodes.filter(dashCounted), done = counted.filter((n) => n.state === "done").length;
+  const nodes = M.groups.flatMap((g) => g.nodes), counted = nodes.filter(dashCounted), summary = M.job === "plan_merge" ? dwfSnapshot(M) : null;
+  const done = summary ? summary.done : counted.filter((n) => n.state === "done").length, total = summary ? summary.total : counted.length;
   const wf = el("a", "dash-wf", "워크플로우 ↗");
   wf.href = `/workflow#${encodeURIComponent(M.job)}`; wf.target = "_blank"; wf.rel = "noopener"; wf.title = "워크플로우 페이지에서 이 TASK 의 과정 보기(새 탭)";
-  title.append(el("b", null, M.name), ...(counted.length ? [el("span", "dash-count", `끝남 ${done}/${counted.length}`)] : []), hHelp("대시보드 도움말", DASH_HELP), wf);
+  title.append(dwfToggleEl(M), ...(total && M.job !== "doc_edit" ? [el("span", "dash-count", `끝남 ${done}/${total}`)] : []), hHelp("대시보드 도움말", DASH_HELP), wf);
   const run = nodes.find((n) => n.state === "run"), now = nodes.find((n) => n.state === "now"), next = el("p", "dash-next");
   next.setAttribute("role", "status");
   next.textContent = M.R ? `진행 중 — ${M.R.label}` : run ? `진행 중 — ${String(run.idx).padStart(2, "0")} ${run.name}` : now ? `다음: ${String(now.idx).padStart(2, "0")} ${now.name}`
-    : counted.length && done === counted.length ? "모두 끝남" : "";
+    : M.job !== "doc_edit" && total && done === total ? "모두 끝남" : M.job === "plan_merge" && summary ? "기관 문서별 진행 상태를 확인하세요" : "";
   head.append(title);
   if (next.textContent) head.append(next);
   root.append(head);
+  const workflows = dwfListEl(M);
+  if (workflows) root.append(workflows);
   const live = dashLiveEl(M);
   if (live) root.append(live);
   if (DASH.last) { const p = el("p", "dash-last" + (DASH.last.ok ? "" : " halt")); p.append(el("b", null, DASH.last.label), ` — ${DASH.last.text}`); root.append(p); }
@@ -648,7 +667,7 @@ function dashEl(M) {
 function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜짐 · 강조)가 같으면 도는 글만 바꾼다(1초마다 · 초점 유지)
   const b = (x) => (x ? `${x.textContent}|${x.disabled ? 1 : 0}|${x.className}|${x.title}` : "");
   // busy 이름 — 「이어서 한 번에」 가 묶음을 넘어갈 때 바뀐다
-  return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
+  return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
     M.notes.map((n) => [n.text, b(n.act)]), M.top.map(b),
     M.groups.map((g) => [b(g.run), g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.text, n.lines, n.acts.map(b)])])]);
 }
@@ -656,10 +675,11 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
 async function dashDraw(force = false) {
   const box = $("dashBox");
   if (!box || !state.id) return;
-  const seq = ++DASH.seq;
+  const seq = ++DASH.seq, doc = dashKey(), job = agwJob();
   let M;
   try { M = await dashModel(); } catch (e) { console.error(e); M = { job: agwJob(), name: "대시보드", reg: null, notes: [{ text: `상태를 읽지 못했습니다: ${e.message}`, warn: true }], top: [], groups: [], R: null }; }
-  if (seq !== DASH.seq) return;
+  if (seq !== DASH.seq || doc !== dashKey() || job !== agwJob()) return;
+  if (!DWF.busy) dwfObserve(M);
   const nowKey = (M.groups.flatMap((g) => g.nodes).find((n) => !n.optional && (n.state === "run" || n.state === "now")) || {}).key || ""; // 안 해도 되는 단계가 도는 것은 차례가 아니다 — 그 카드를 펴고 돌린 LLM 검토가 끝나도 카드가 그대로(결과 단추가 보이게)
   if (nowKey !== DASH.nowKey) { if (DASH.nowKey) DASH.open = null; DASH.nowKey = nowKey; } // 차례가 나아가면 펼친 카드도 새 「지금」 으로(사람이 편 카드는 차례가 그대로인 동안만)
   const sig = dashSig(M);
@@ -670,7 +690,9 @@ async function dashDraw(force = false) {
   }
   DASH.sig = sig;
   const a = document.activeElement, focus = a && box.contains(a) ? a.dataset.dashFocus || "" : "", ring = !!(focus && a.matches(":focus-visible")); // 키보드로 온 초점이었나
+  if (typeof panelHelpOwner !== "undefined" && panelHelpOwner && box.contains(panelHelpOwner)) panelHelpClose(); // 떼어 낼 메모 · 도움말의 풍선이 주인 없이 남지 않게
   box.replaceChildren(dashEl(M));
+  if (DWF.busy) for (const control of box.querySelectorAll(".dash-groups button, .dash-groups input, .dash-groups select, .dash-top button")) control.disabled = true;
   // 다시 그려도 초점은 그 단추에 — 초점 테두리는 키보드로 온 초점일 때만(2026-11-18 사용자 「왜 계획 보기는 위치가 그렇냐」: 마우스로 누른 단추가 다시 그릴 때 테두리(2px · 2px 밖)를 얻어 커지고 어긋나 보였다)
   if (focus) { const f = [...box.querySelectorAll("[data-dash-focus]")].find((x) => x.dataset.dashFocus === focus && !x.disabled); if (f) f.focus({ preventScroll: true, focusVisible: ring }); }
 }

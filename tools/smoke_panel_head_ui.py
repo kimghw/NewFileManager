@@ -97,6 +97,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page.add_init_script("try { localStorage.setItem('nfm.agentDock', 'panel'); } catch (e) {}")  # 에이전트 보기를 패널 탭 자리로(창 머리 「패널에 넣기」 와 같음) — 탭 줄의 「에이전트」 를 본다 · 떠 있는 창(기본)은 smoke_agent_float_ui.py
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
         page.goto(base)

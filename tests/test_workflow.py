@@ -189,4 +189,4 @@ def test_start_page_links_to_the_workflow_page_in_a_new_tab():
     html = TestClient(server.app).get("/").text
     m = re.search(r'<a class="btn wf-link" id="workflowLink" href="/workflow" target="_blank"[^>]*>', html)
     assert m and 'aria-label="TASK 워크플로우"' in m.group(0)
-    assert html.index('id="workflowLink"') < html.index('id="agentsLink"')   # 「에이전트 설정」 앞(상단 바의 맨 끝은 그 링크 — smoke_agents_ui)
+    assert html.index('id="workflowLink"') < html.index('id="agentBtn"')   # 에이전트 아이콘 앞(2026-11-18 — 전의 「에이전트 설정」 링크 자리 · smoke_agents_ui)

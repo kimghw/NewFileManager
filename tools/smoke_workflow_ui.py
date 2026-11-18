@@ -1,7 +1,7 @@
 """TASK 워크플로우 페이지(spec_워크플로우 — app/workflow.py · app/workflow_api.py · app/static/workflow.html·js·css) 화면 확인 — 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright.
 끝점은 모두 진짜(흉내 없음).
 
-- 시작 화면: 상단 바 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 — 2026-11-16) — 맨 끝은 그대로 「에이전트 설정」(링크 a#agentsLink — /agents).
+- 시작 화면: 상단 바 에이전트 아이콘 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 — 2026-11-16) — 맨 끝은 에이전트 아이콘(#agentBtn — 2026-11-18 전의 「에이전트 설정」 링크 자리).
 - /workflow: 목차(전체 보기 · TASK 일곱 · 공통 모듈 아홉) · 전체 보기(TASK 마다 한 줄 — 이관 = 1~4단계 사슬 · 준비 중 TASK) · 범례.
 - 기본 다이어그램: 단계 노드 선택 · 이전/다음 순차 탐색 · 단계 묶음 이동 · 상세 주소 · 키보드 · 준비 중 · 기술 상세 · 관련 모듈 · 읽기 전용.
 - TASK 절(이관): 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 · 전제(할 일 프롬프트) · 묶음 넷(「N단계」 = TASK_STAGE_META) · 단계 줄(이름 · 누가 · 문서 바뀜 · 하는 일이 펴지 않아도 보임) ·
@@ -317,9 +317,9 @@ def main():
         t = page.evaluate("""() => { const a = document.getElementById('workflowLink'), r = a.getBoundingClientRect(), kids = [...a.parentElement.children].filter((e) => e.offsetWidth > 0);
           return { direct: a.parentElement.classList.contains('topbar'), href: a.getAttribute('href'), target: a.target, rel: a.rel, label: a.getAttribute('aria-label'), icon: !!a.querySelector('svg'),
             text: a.textContent.trim() !== '', tip: a.title, w: Math.round(r.width), h: Math.round(r.height), last: kids.pop().id, before: kids.pop().id, deco: getComputedStyle(a).textDecorationLine, top: r.top }; }""")
-        check("시작 화면 상단 바 — 「에이전트 설정」 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 32×32 · 이름은 도움말 · 밑줄 없음) · 맨 끝은 그대로 「에이전트 설정」(링크)",
+        check("시작 화면 상단 바 — 에이전트 아이콘 앞에 링크 「워크플로우」(/workflow · 새 탭 · 글 없이 아이콘만 32×32 · 이름은 도움말 · 밑줄 없음) · 맨 끝은 에이전트 아이콘(2026-11-18 — 전의 「에이전트 설정」 링크 자리)",
               t["direct"] and t["href"] == "/workflow" and t["target"] == "_blank" and "noopener" in t["rel"] and t["label"] == "TASK 워크플로우" and t["icon"] and not t["text"] and t["tip"].startswith("TASK 워크플로우 — ") and t["w"] == 32 and t["h"] == 32
-              and t["last"] == "agentsLink" and t["before"] == "workflowLink" and t["deco"] == "none" and t["top"] < 40, t)
+              and t["last"] == "agentBtn" and t["before"] == "workflowLink" and t["deco"] == "none" and t["top"] < 40, t)
         with ctx.expect_page() as fresh:
             page.click("#workflowLink")
         wf = fresh.value

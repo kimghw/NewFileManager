@@ -65,7 +65,7 @@ AGENTS = (
          where="도구 줄 「표 만들기 · 서식 변환」 — 「LLM 정리」", data="원본(글 또는 표 격자) + 고른 표 양식의 구조"),
     dict(id="doc_agent", no="16", group="문서 편집", name="문서 에이전트", run="manual", effort=None, contract=("app.doc_agent", "CONTRACT"), parts=(("merge", "agent"), ("job", "*")),
          role="사람의 요청과 받은 자료를 읽고 문서에 넣을 것(글 · 새 표 · 표 채우기 · 서식 입히기 · 서식 복사)을 제안하거나 물음에 답합니다. 제안은 스크립트 검사를 거쳐 사람이 고른 것만 반영됩니다.",
-         where="에이전트 보기(패널 「에이전트」 · 일반 문서의 「작업 개요」) — 요청을 보낼 때마다", data="요청 · 고른 자리 · 문서 개요 · 받은 자료 · 서식 목록 · 앞선 대화"),
+         where="에이전트 보기(상단 바 에이전트 아이콘의 창 · 패널 「에이전트」 탭에 넣었으면 그 탭) — 요청을 보낼 때마다", data="요청 · 고른 자리 · 문서 개요 · 받은 자료 · 서식 목록 · 앞선 대화"),
     dict(id="style_review", no="17", group="서식", name="서식 복사 검토", run="manual", effort=None, contract=("app.style_extract", "CONTRACT_TABLES"), parts=(("job", "style_copy"),),
          more=(("테이블 서식 후보", ("app.style_extract", "CONTRACT_TABLES")), ("내용·문단 서식 후보", ("app.style_extract", "CONTRACT_TEXTS")), ("쪽 설정·표지 후보", ("app.style_extract", "CONTRACT_PAGES"))),
          role="스크립트가 문서에서 뽑은 서식 후보(표지 · 내용 · 테이블 · 문단 · 쪽 설정)를 검토합니다 — 이름·역할·저장할 만한가. 서식 값은 만들지 않고 스크립트가 보낸 후보·id·코드 가운데 고릅니다.",
@@ -79,7 +79,7 @@ AGENTS = (
          more=(("작업 화면(TASK 진행)", ("app.work_guide", "CONTRACT")), ("첫 화면(TASK 정하기)", ("app.work_guide", "HOME_CONTRACT"))),
          role="TASK 를 시작하면 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고, 입력이 필요하면 질문 카드로 묻습니다. 절차는 참조 글(workflow.md · 그 TASK 의 TASK 문서 · 할 일 프롬프트)에서 확인하고, "
               "무슨 일이 있었는지는 로그(작업 기록 · 검증 · 에이전트 대화 · LLM 호출 · 서버 경고)를 읽어 설명합니다. 화면이 보낸 「지금 할 수 있는 행동」 가운데서만 고릅니다 — 실행은 화면이 하고, 문서를 바꾸는 행동은 사람이 카드에서 확인해야 실행됩니다.",
-         where="에이전트 보기(패널 「에이전트」)와 첫 화면 오른쪽 대화창 — TASK 를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때",
+         where="에이전트 보기(상단 바 에이전트 아이콘의 창 · 패널 탭에 넣었으면 그 탭)와 첫 화면 오른쪽 대화창 — TASK 를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때",
          data="사건(시작 · 글 · 답 · 결과) · TASK · 단계의 지금 상태 · 지금 할 수 있는 행동 · 사실(프로젝트 구성 · 계획 요약) · 앞선 대화 · 로그(목록 · 작업 기록의 끝 몇 줄 · 에이전트가 청해 읽은 줄)"),
     dict(id="verify_review", no="20", group="검증", name="검증 LLM 검토", run="auto", effort="medium", contract=("app.verify_llm", "CONTRACT"), parts=(("merge", "verify"),),
          role="가져오기 검증 · 출력파일 검증에서 스크립트가 주의 · 실패로 판정한 단계를 다시 보고, 그 다름이 실제 문제(웹이 문서를 잘못 읽음 · 저장본이 잘못됨)인지 기준 PDF 쪽 사정(한글 · Word 가 PDF 를 찍는 방식)인지 가립니다. "
