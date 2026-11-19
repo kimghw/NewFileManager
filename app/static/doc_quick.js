@@ -8,7 +8,8 @@
    (2026-11-15 에 만든 처음 것은 「템플릿 관계」·「서식 관리자」 열을 여는 대리 단추였다 — 사용자가 뜻한 것이 아니었다. 그 두 열은 도구 줄 「서식」 묶음의 #tbTplRel · #tbStyleLib 로 연다.)
    2026-11-16 셋째 #nameTblMarks = **표 라벨**(표 옆 여백의 「⊞ ✎ t43 / 소속」 — tables.js .tbl-mark) 켜기/끄기 — 사용자 "테이블에 있는 라벨도 보였다 안보였다 하게 해줘"(spec_헤딩_추출 ② §10 「표 라벨 켜기/끄기」).
    app.js 다음에 읽힌다($ · heads · state · taskRnd · tplMarksOn · tplFmtOn · tempMarkCount · driftMarkCount · divMarksOn · divMarksToggle · tables.js 의 tblMarksOn · tblMarksToggle ·
-   zones.js 의 zonesOn · zonesToggle · zonesOffered · zonesDims 를 쓴다). */
+   zones.js 의 zonesOn · zonesToggle · zonesOffered · zonesDims 를 쓴다 · 둘째 면 아이콘은 PEEK · peerShown · #peerFrame 도).
+   2026-11-19 둘째 면(같이 보기) 이름 줄에도 같은 다섯(#peerQuick — 아래 「둘째 면」 절) · 값은 문서마다(app.js quickKey — spec_작업 ② §12 「도구는 문서마다」). */
 const DOC_QUICK = [
   { id: "nameTplMarks", name: "템플릿 표시", what: "문서 왼쪽 여백의 「T1 L2」(템플릿 번호 · 개요 레벨)", on: () => tplMarksOn(), toggle: () => tplMarksToggle(),
     have: () => !!(heads.outline || (heads.marks && heads.marks.size) || (typeof tempMarkCount === "function" && tempMarkCount()) || (typeof driftMarkCount === "function" && driftMarkCount())) },
@@ -29,20 +30,77 @@ const DOC_QUICK = [
     show: () => !!state.id && taskRnd() && typeof zonesToggle === "function", on: () => zonesOn(), toggle: () => zonesToggle(), have: () => zonesOffered() && zonesDims().length > 0,
     none: () => (!zonesOffered() ? "편집 구역은 저장된 HWPX 문서에서만 씁니다" : "보일 기준(기관 · 단계 · 차년도)이 하나도 켜져 있지 않습니다 — 「작업 개요」 의 「편집 구역」 에서 고르세요") },
 ];
+function dqView(q) { // 아이콘 하나의 지금 상태 → {id, show(세울지), have(켤 수 있나), on(눌림), title}
+  const show = !q.show || q.show();
+  if (!show) return { id: q.id, show, have: false, on: false, title: "" };
+  const have = q.have(), on = have && q.on(), none = typeof q.none === "function" ? q.none() : q.none;
+  const title = have ? `${q.name} ${on ? "켜짐" : "꺼짐"} — 누르면 ${q.what} 을 ${on ? "숨깁니다" : "보입니다"}(문서마다 따로 — 이 브라우저에 기억)`
+    : `${q.name} — ${none || "이 문서에는 아직 표시할 것이 없습니다(HWPX 문서에서 헤딩 추출 2단계(헤딩 그래프)까지 돌리면 생깁니다)"}`;
+  return { id: q.id, show, have, on, title };
+}
+function dqPaint(b, v) { // 단추에 상태를 — 바뀐 것만 쓴다
+  if (b.hidden !== !v.show) b.hidden = !v.show;
+  if (!v.show) return;
+  if (b.disabled !== !v.have) b.disabled = !v.have;
+  if (b.getAttribute("aria-pressed") !== String(v.on)) b.setAttribute("aria-pressed", String(v.on));
+  if (b.title !== v.title) b.title = v.title;
+}
 function docQuickSync() { // 눌림 · 꺼짐 · 도움말 — 바뀐 것만 쓴다(tplMarksDraw 가 그릴 때마다 부른다)
+  for (const q of DOC_QUICK) { const b = $(q.id); if (b) dqPaint(b, dqView(q)); }
+  if (PEEK) dqPeerPing(); // 둘째 면 화면 — 바깥 이름 줄의 이 면 아이콘(#peerQuick)을 맞추게 알린다
+}
+
+// ---- 둘째 면(같이 보기)의 이름 줄 아이콘 #peerQuick(2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게 해야지" · 이름 줄 "이 행도 … 요청사항과 맞게" — spec_작업 ② §12 「도구는 문서마다」):
+// 위 다섯과 같은 그림(첫째 면 단추를 베낌 — design.md §9 「같은 기능의 아이콘은 한 그림」) · 그 면의 문서에만 듣는다(값도 문서마다 — app.js quickKey: 원본 · 목적 문서의 키가 따로).
+// 상태는 둘째 면 화면(iframe — 같은 앱의 PEEK)이 위 DOC_QUICK 으로 계산하고(docQuickState) 누름도 그 화면이 받는다(docQuickPress — 그 화면의 문서에 켜고 끈다) — 바깥은 그리기만(peerQuickSync).
+// 둘째 면 화면은 제 표시를 다시 그릴 때마다(docQuickSync) 바깥의 peerQuickSync 를 부른다(한 프레임에 한 번 — dqPeerPing). 구분 기준 자리 · 편집 구역도 그 면에서 읽기만 한다(GET — app.js divReset · zones.js zonesOffered)
+function docQuickState() { return { id: state.id || "", list: DOC_QUICK.map(dqView) }; } // 둘째 면 화면에서 바깥이 부른다
+function docQuickPress(id) { // 둘째 면 화면에서 바깥이 부른다 — 그 문서의 표시 켜기/끄기
+  const q = DOC_QUICK.find((x) => x.id === id), v = q && dqView(q);
+  if (!v || !v.show || !v.have) return;
+  q.toggle();
+  docQuickSync();
+}
+let dqPing = 0;
+function dqPeerPing() {
+  if (dqPing) return;
+  dqPing = requestAnimationFrame(() => { dqPing = 0; try { if (parent !== window && typeof parent.peerQuickSync === "function") parent.peerQuickSync(); } catch { /* 바깥이 준비 전 */ } });
+}
+function peerQuickWin() { // 둘째 면 화면 — 지금 떠 있는 문서를 다 그린 화면일 때만(다른 문서로 넘어가는 동안의 옛 화면에 묻지 않는다)
+  const pid = typeof peerShown === "function" ? peerShown() : "";
+  if (!pid) return null;
+  try { const w = $("peerFrame").contentWindow; return w && typeof w.docQuickState === "function" && w.docQuickState().id === pid ? w : null; } catch { return null; }
+}
+function peerQuickBuild(box) { // 첫째 면 단추를 베껴 만든다(한 번) — id 는 name… → peer…
+  if (box.children.length) return;
   for (const q of DOC_QUICK) {
-    const b = $(q.id);
-    if (!b) continue;
-    const show = !q.show || q.show();
-    if (b.hidden !== !show) b.hidden = !show;
-    if (!show) continue;
-    const have = q.have(), on = have && q.on(), none = typeof q.none === "function" ? q.none() : q.none;
-    const title = have ? `${q.name} ${on ? "켜짐" : "꺼짐"} — 누르면 ${q.what} 을 ${on ? "숨깁니다" : "보입니다"}(이 브라우저에 기억)`
-      : `${q.name} — ${none || "이 문서에는 아직 표시할 것이 없습니다(HWPX 문서에서 헤딩 추출 2단계(헤딩 그래프)까지 돌리면 생깁니다)"}`;
-    if (b.disabled !== !have) b.disabled = !have;
-    if (b.getAttribute("aria-pressed") !== String(on)) b.setAttribute("aria-pressed", String(on));
-    if (b.title !== title) b.title = title;
+    const src = $(q.id);
+    if (!src) continue;
+    const b = src.cloneNode(true);
+    b.id = "peer" + q.id.slice(4);
+    b.dataset.quick = q.id;
+    b.hidden = true;
+    b.onclick = () => peerQuickPress(q.id);
+    box.append(b);
   }
+}
+function peerQuickSync() { // 바깥 — 둘째 면 이름 줄의 아이콘을 그 면의 문서 상태로(peerSync · 그 화면의 알림 · 누른 뒤)
+  if (PEEK) return;
+  const box = $("peerQuick");
+  if (!box) return;
+  peerQuickBuild(box);
+  const w = peerQuickWin(), list = w ? w.docQuickState().list : [];
+  const any = list.some((v) => v.show);
+  if (box.hidden !== !any) box.hidden = !any;
+  for (const b of box.children) {
+    const v = list.find((x) => x.id === b.dataset.quick) || { show: false };
+    dqPaint(b, v.show ? { ...v, title: `${v.title}\n— 이 면의 문서에만 듣습니다(옆 문서의 표시는 따로)` } : v);
+  }
+}
+function peerQuickPress(id) {
+  const w = peerQuickWin();
+  if (w) { try { w.docQuickPress(id); } catch { /* 아직 여는 중 */ } }
+  peerQuickSync();
 }
 (() => {
   for (const q of DOC_QUICK) {

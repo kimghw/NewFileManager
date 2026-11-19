@@ -39,9 +39,9 @@ function xlIsPh(s) { // 칸 글이 숫자 자리표시인가(뒤 코드·단위�
   return !!t && XL_PH.test(t);
 }
 const xlRefOf = (row, col) => `${colLetter(col)}${row + 1}`;
-function tblMarksOn() { try { return localStorage.getItem(TBL_MARKS_KEY) !== "off"; } catch { return true; } }
+function tblMarksOn() { return quickGet(TBL_MARKS_KEY) !== "off"; } // 문서마다 따로 기억(app.js quickKey — 원본 · 목적 문서: spec_작업 ② §12 「도구는 문서마다」)
 function tblMarksToggle() {
-  try { localStorage.setItem(TBL_MARKS_KEY, tblMarksOn() ? "off" : "on"); } catch { /* 기억만 안 함 */ }
+  quickSet(TBL_MARKS_KEY, tblMarksOn() ? "off" : "on");
   tblMarksDraw();
   if (heads.view) headsCard3(heads.view, !!(heads.view.job && heads.view.job.status === "running")); // 단추 글(표시/끄기) 바꿈
 }

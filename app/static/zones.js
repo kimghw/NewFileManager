@@ -48,8 +48,9 @@ function znTarget() { // 자료를 읽을 문서 {id, name} | null — 취합이
   if (typeof gatherOn === "function" && gatherOn() && typeof gatherPlan === "function") return gatherPlan();
   return { id: state.id, name: state.name };
 }
-function zonesOffered() { // 이 문서에 편집 구역을 낼 수 있나 — 연구개발 TASK · 저장된 hwpx 작업 · 둘째 면 아님(② §0 「대상」)
-  if (PEEK || !state.id || !state.stored || state.format === "docx" || !taskRnd()) return false;
+function zonesOffered() { // 이 문서에 편집 구역을 낼 수 있나 — 연구개발 TASK · 저장된 hwpx 작업(② §0 「대상」).
+  // 둘째 면(같이 보기 — PEEK)도 보이기만 한다(2026-11-19 spec_작업 ② §12 「도구는 문서마다」 — 그 면의 이름 줄 아이콘으로 켬): 읽기(GET)뿐 — 지정 · LLM 검토 · 옵션 바꾸기는 첫째 면에서만(아래 PEEK 가드)
+  if (!state.id || !state.stored || state.format === "docx" || !taskRnd()) return false;
   const o = zn().opt;
   return !(o && o.offered === false);
 }
@@ -59,10 +60,10 @@ function zonesDims() { // 지금 옵션의 켠 기준(늘 ZN_DIMS 차례) — �
     : typeof taskZonesDefault === "function" ? taskZonesDefault(job) : ((typeof TASK_CATALOG === "object" && TASK_CATALOG[job]) || {}).zones || [];
   return ZN_DIMS.filter((k) => d.includes(k));
 }
-function zonesOn() { // 「구역 표시」 가 켜져 있나
-  try { const v = localStorage.getItem(ZN_KEY); return (v != null ? v : localStorage.getItem(ZN_KEY_OLD)) !== "off"; } catch { return true; }
+function zonesOn() { // 「구역 표시」 가 켜져 있나 — 문서마다 따로 기억(app.js quickKey — 원본 · 목적 문서: spec_작업 ② §12 「도구는 문서마다」)
+  try { const v = quickGet(ZN_KEY); return (v != null ? v : localStorage.getItem(ZN_KEY_OLD)) !== "off"; } catch { return true; }
 }
-function znOnSet(on) { try { localStorage.setItem(ZN_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
+function znOnSet(on) { quickSet(ZN_KEY, on ? "on" : "off"); }
 const znWanted = () => heads.dlg === "zones" || (zonesOn() && zonesDims().length > 0); // 구역을 셀 까닭이 있나 — 목록이 열려 있거나, 표시가 켜져 있고 켠 기준이 있음(켠 기준이 없는 TASK 는 문서를 열 때도 · 고칠 때도 세지 않는다)
 function znStale(t) { // 읽어 둔 자료가 그 문서의 것이지만 지금 문서 차례의 것이 아닌가 — 편집 뒤 다시 읽기 전(지금 문서를 보는 중일 때만 견줄 수 있다)
   const Z = zn();
@@ -155,8 +156,8 @@ async function znOptionsLoad(force = false) { // 구역을 세지 않을 때(표
   Z.opt = r;
   znRedraw();
 }
-async function zonesLoad(force = false) { // GET …/zones → 상태 → 줄 · 문서 표시 · 색 설명(문서 위에 떠 있는 상자) · 열려 있는 목록. force = 표시가 꺼져 있어도 읽는다(지정 · 목록)
-  if (PEEK || !state.id) return;
+async function zonesLoad(force = false) { // GET …/zones → 상태 → 줄 · 문서 표시 · 색 설명(문서 위에 떠 있는 상자) · 열려 있는 목록. force = 표시가 꺼져 있어도 읽는다(지정 · 목록). 둘째 면도(읽기만 — zonesOffered)
+  if (!state.id) return;
   const Z = zn(), t = znTarget();
   clearTimeout(Z.timer); Z.timer = null;
   if (!t || !zonesOffered()) { znRedraw(); return; }
@@ -237,7 +238,7 @@ function zonesReset() { // 문서를 열 때 · 닫을 때 · TASK 를 바꾼 �
   znState = null;
   znPopClose();
   if (typeof heads !== "undefined" && heads.dlg === "zones") headsColClose(true);
-  if (PEEK || !state.id) return;
+  if (!state.id) return; // 둘째 면도 곧 읽는다(그 면에 켜 둔 표시 — 읽기만)
   const Z = zn();
   Z.timer = setTimeout(() => { // load() 가 끝난 뒤에(divReset 은 그 가운데서 불린다)
     Z.timer = null;

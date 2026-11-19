@@ -698,6 +698,15 @@ function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프�
   b.textContent = d ? d[0] : "";
   b.title = d ? `${d[0]} — ${d[2]}\nTASK 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
 }
+// 표시 켜고 끄기의 기억 — 문서마다 따로(spec_작업 ② §12 「도구는 문서마다」, 2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게 해야지"):
+// 이름 줄의 표시 아이콘(doc_quick.js — 템플릿 · 서식 라벨 · 표 라벨 · 구분 기준 자리 · 편집 구역)은 TASK 의 원본 · 목적 문서가 저마다 제 값을 기억한다(키 뒤에 「@source」 · 「@target」 —
+// 둘째 면에서 켜도 첫째 면은 그대로, 도구를 쓸 문서를 바꿔도 값은 문서를 따라간다). 역할이 없는 문서는 공통 키(둘째 면에 뜬 역할 없는 문서는 「@peek」 — 첫째 면의 값을 바꾸지 않게).
+// 제 값이 아직 없으면 공통 키의 값을 쓴다(처음엔 전과 같게 보인다). 부르는 곳: tplMarksOn · tplFmtOn · divMarksOn(이 파일) · tblMarksOn(tables.js) · zonesOn(zones.js)과 그 켜고 끄기
+function quickKey(base) { const r = state.id ? taskDocRole(state.task) || (PEEK ? "peek" : "") : ""; return r ? `${base}@${r}` : base; }
+function quickGet(base) { // 기억한 값 | null — 제 키에 없으면 공통 키
+  try { const k = quickKey(base), v = localStorage.getItem(k); return v != null || k === base ? v : localStorage.getItem(base); } catch { return null; }
+}
+function quickSet(base, v) { try { localStorage.setItem(quickKey(base), v); } catch { /* 기억만 안 함 */ } }
 // 패널 머리 둘째 줄의 탭 「작업 개요」 · 「<도구>」(#toolTabs — ② §10 「패널 머리」, 2026-11-12 사용자 "작업내용, 검증 탭으로 줘라 그냥 구지 이상하게 하지 말고": 전의 「↩ 작업 내용」 단추 #taskHome 을 바꿈).
 // 2026-11-15 사용자 「검증, 기록, PDF 사이드 패널에 있으니깐 여기에 필요 없어 보이거든」: 검증 · PDF · 기록은 이 줄의 고정 탭(#tabVerify·#tabPdf·#tabLog — 문서 위 탭 띠에서 옮김) →
 // 2026-11-16 사용자 「왜 탭에 에이전트가 없고 작업 내용이란 곳에 있나? 검증/PDF/기록/작업리스트는 우측에 접어두고 클릭하면 펼치기 … 다른 task 랑 구조가 같아야 하는데 다름」 →
@@ -2545,7 +2554,7 @@ function docNameSync(name) { // 지금 문서의 보이는 이름(spec_작업 �
   if (!name || name === state.name) return false;
   state.name = name;
   $("fileName").textContent = $("fileName").title = name;
-  if ($("panel").dataset.tool !== "Compare") $("toolSource").textContent = $("toolSource").title = name;
+  toolDocDraw(); // 패널 머리 「작업」 옆 문서 자리(도움말 = 이 이름)
   return true;
 }
 
@@ -2559,7 +2568,7 @@ function docSwitchDraw(list) { // 상단 바 문서 목록 — 파일 이름 자
   sel.title = (cur ? `${cur.name}\n` : "") + (taskProject() ? `프로젝트 「${taskProject()}」 의 문서 목록 — 고르면 그 문서를 엽니다(다른 문서는 「작업」 단추)` : "올린 문서(작업) 목록 — 고르면 그 문서를 엽니다"); // 첫 줄 = 지금 문서의 전체 이름(칸이 210px 라 잘린다 — document_header.css)
   sel.hidden = !cur || !others.length;
   $("fileName").hidden = !sel.hidden;
-  sel.onchange = () => { const id = sel.value; sel.value = state.id; if (id !== state.id) openWork(id); }; // 못 열면(취소 등) 지금 문서 그대로
+  sel.onchange = () => { const id = sel.value; sel.value = state.id; if (id !== state.id) { if (id === peerShown()) toolDocSet(id); else openWork(id); } }; // 못 열면(취소 등) 지금 문서 그대로 · 옆에 떠 있는 문서면 「도구」 로 고른 것과 같게(두 면이 바꿈 — 보던 곳 그대로)
   const flow = document.getElementById("taskFlow"); // 이관의 칸(② §11) — 목록이 늦게 왔거나 칸의 문서가 달라졌으면 다시 그리고 읽는다
   if (flow && taskSlots() && flow.dataset.key !== taskFlowKey()) { flow.replaceWith(taskFlowEl()); taskFlowLoad(); }
   if (gatherOn()) gatherWorks(); // 취합 — 문서를 열었거나 취합본 칸의 문서가 달라졌으면 취합 상태를 다시 읽는다(둘째 면의 탭이 그것을 본다 — gather.js)
@@ -2595,6 +2604,7 @@ function peerSync() { // 옆 열을 지금 상태에 맞춘다 — 작업 목록
   peerOpenMark();
   for (const b of document.querySelectorAll("[data-task-peer]")) peerBtn(b);
   if (typeof gatherPeerMark === "function") gatherPeerMark(); // 취합의 같이 보기 단추 · 둘째 면의 문서가 바뀌면 끌어 넣기 표시를 걷는다(gather.js)
+  if (typeof peerQuickSync === "function") peerQuickSync(); // 둘째 면 이름 줄의 표시 아이콘(doc_quick.js — 그 면의 문서가 바뀌면 그 화면이 다 그린 뒤 다시 알린다)
 }
 function peerSet(on) { // 켜고 끔(기억) — 켤 때는 접힌 열도 편다
   try { localStorage.setItem(PEER_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ }
@@ -2655,6 +2665,7 @@ function peerOpenMark() { // 둘째 면이 펴져 있는지를 .workspace 에 �
   const col = $("peerCol"), ws = document.querySelector(".workspace"), open = !col.hidden && !col.classList.contains("folded");
   ws.classList.toggle("peer-open", open);
   ws.classList.toggle("peer-left", open && peerLeft()); // 두 면의 좌우 = 이관의 칸 차례(style.css .peer-left) — 어느 문서를 고치고 있든 사업계획서 왼쪽 · 연차보고서 오른쪽
+  toolDocDraw(); // 상단 바 「도구」 · 패널 머리의 문서 자리 — 두 문서가 나란히 보일 때만 단추 둘(② §12 「도구는 문서마다」)
 }
 function peerLeft() { // 둘째 면이 왼쪽에 올 때 = 떠 있는 문서가 지금 문서보다 앞 칸(사업계획서)일 때(2026-11-11 사용자 "구지 순서를 바꿀 필요가 있을까?" — 고치는 문서를 바꿔도 두 문서의 자리는 그대로). 둘 다 칸의 문서일 때만
   if (gatherOn()) return gatherPeerLeft(); // 취합 — 취합본이 늘 왼쪽(둘째 면에 뜬 것이 취합본일 때만 둘째 면이 왼쪽 — gather.js)
@@ -2666,7 +2677,10 @@ function peerLeft() { // 둘째 면이 왼쪽에 올 때 = 떠 있는 문서가 
 function peerViewSync() { // 둘째 면의 보기 = 첫째 면의 보기(같은 크기) — 배율이 바뀐 뒤(setZoom 끝) · 2쪽 보기·쪽 번호·휠 쪽 넘김을 바꾼 뒤 · 둘째 면 화면이 문서를 다 그린 뒤(그 화면이 parent 로 부름)
   if (PEEK || $("peerCol").hidden || !state.id) return;
   const view = { zoom: state.zoom, twoUp: state.twoUp, pages: !$("doc").classList.contains("hide-pages"), wheel: state.wheelFlip };
-  try { $("peerFrame").contentWindow.viewFollow(view); } catch { /* 아직 여는 중 — 다 그리면 그 화면이 다시 부른다 */ }
+  let fw = null;
+  try { fw = $("peerFrame").contentWindow; fw.viewFollow(view); } catch { return; /* 아직 여는 중 — 다 그리면 그 화면이 다시 부른다 */ }
+  const want = peerSpotWant; // 도구를 쓸 문서를 바꾼 뒤(toolDocSet) — 둘째 면이 옛 첫째 면의 문서를 다 그렸으면 그 보던 곳으로
+  if (want && want.w === peerShown()) { try { if (fw.peekId() === want.w) { peerSpotWant = null; fw.spotHold(want.at); } } catch { /* 다음 부름에 */ } }
 }
 function viewFollow(v) { // 둘째 면 화면(PEEK)에서만: 바깥(첫째 면)의 보기를 그대로 — 배율은 맞춤 없이 그 값(제 폭으로 다시 맞추지 않는다 — 두 면의 쪽 크기가 같게). 맨 위에 있었으면 맨 위 그대로
   if (!PEEK || !state.id || $("scroller").hidden) return;
@@ -2681,6 +2695,119 @@ function viewFollow(v) { // 둘째 면 화면(PEEK)에서만: 바깥(첫째 면)
 function peerGo(w, id) { // 옆 문서가 w 면 그 자리(문단·칸 id)로 — 연결 목록에서. 아직 여는 중이면 지나간다
   if (!w || !id || peerShown() !== w.id) return;
   try { $("peerFrame").contentWindow.divGo({ key: id }); } catch { /* 아직 여는 중 */ }
+}
+function peekId() { return state.id || ""; } // 둘째 면 화면이 지금 그린 문서(바깥이 묻는다 — iframe 이 다른 문서로 넘어가는 동안 옛 화면에 말하지 않게)
+
+// ---- 도구를 쓸 문서(② §12 「도구는 문서마다」 — 2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게 해야지" →
+// "어차피 task 옆에 문서 넣을 수 있는 곳이 있지.. 구지 꼭풀 네임을 넣을 필요 없어. 그리고 여기 상단에 도구를 문서별로 돌릴 수 있는 기능도 넣어주면 될듯" · 이름 줄 "이 행도 … 요청사항과 맞게"):
+// 두 면에 문서가 떠 있으면 상단 바 「도구」(#toolDocBar — 줄 접기 묶음 옆)와 패널 머리 「작업」 옆(#toolSource — 전의 긴 파일 이름 자리)에 두 문서의 짧은 이름 단추(「원본」 · 「목적」 — 화면 차례).
+// 눌린 문서 = 도구(편집 도구 줄 · 패널 탭 · 진행표)를 쓰는 문서 = 고치는 문서(첫째 면). 다른 문서를 누르면 두 면이 문서를 바꾼다(toolDocSet) — 좌우 자리 · 두 문서의 보던 곳 · 패널에서 보던 탭은 그대로.
+// 두 곳은 늘 같은 값이다(toolDocDraw 한 함수가 함께 그린다 — design.md §10 「같은 것을 두 곳에」 의 예외: 사용자가 두 자리를 다 말함). 이름 줄의 표시 아이콘은 면마다 그 문서에 듣는다(doc_quick.js · quickKey)
+let toolDocBusy = false; // 바꾸는 중(두 문서를 다시 읽는 동안 단추를 끈다)
+let peerSpotWant = null; // {w, at} — 문서를 바꾼 뒤 둘째 면이 w 를 다 그리면 갈 자리(viewSpot — 바꾸기 전 첫째 면에서 보던 곳)
+function toolDocList() { // [{id, short, title, on}] — 두 면의 문서(화면 왼쪽 → 오른쪽). 둘째 면이 없거나 띠로 접혀 있으면 [](두 문서가 나란히 보일 때만)
+  const pid = peerShown();
+  if (PEEK || !state.id || !pid || pid === state.id || $("peerCol").classList.contains("folded")) return []; // pid === state.id = 막 바꾼 사이(둘째 면이 아직 옛 문서 — 곧 peerSync)
+  const job = (state.task || {}).job, pw = worksList.find((w) => w.id === pid) || { id: pid, name: $("peerName").textContent || "", task: null };
+  const one = (id, name, t, on, label = "") => {
+    const r = taskDocRole(t, job), d = DOC_ROLE[r];
+    return { id, on, short: label || (d ? d[1] : name), title: `${d ? `${d[0]} — ` : ""}${name}\n` + (on ? "지금 도구(편집 도구 줄 · 패널 · 진행표)를 쓰는 문서입니다(고치는 문서)"
+      : "누르면 도구(편집 도구 줄 · 패널 · 진행표)를 이 문서에 씁니다 — 이 문서가 고치는 문서가 되고, 지금 문서는 옆에 읽기 전용으로. 두 문서의 자리 · 보던 곳 · 패널 탭은 그대로") };
+  };
+  const plabel = peerLabel(pw), mine = one(state.id, state.name, state.task, true), peer = one(pid, pw.name, pw.task, false, plabel !== pw.name ? plabel : ""); // 취합의 기관 문서는 반영할 기관 이름(peerLabel)
+  return document.querySelector(".workspace").classList.contains("peer-left") ? [peer, mine] : [mine, peer];
+}
+function toolDocBtns(list) { // 단추 묶음 — 상단 바 · 패널 머리가 같은 꼴
+  return list.map((d) => {
+    const b = el("button", "btn sm tool-doc-btn" + (d.on ? " on" : ""), d.short);
+    b.type = "button";
+    b.dataset.toolDoc = d.id;
+    b.title = d.title;
+    b.setAttribute("aria-pressed", String(d.on));
+    b.disabled = toolDocBusy;
+    b.onclick = () => toolDocSet(d.id);
+    return b;
+  });
+}
+function toolDocDraw() { // 상단 바 「도구」 · 패널 머리의 문서 자리 — peerOpenMark(peerSync · 둘째 면 접기) · showTab · docNameSync · 바꾸는 동안
+  if (PEEK) return;
+  const bar = $("toolDocBar"), src = $("toolSource");
+  if (!state.id) { bar.hidden = true; src.replaceChildren(); src.removeAttribute("data-key"); return; } // 문서를 닫음(시작 화면) — 이 줄 아래의 let 들보다 먼저 불릴 수 있다(스크립트를 읽는 동안)
+  const list = toolDocList(), cmp = $("panel").dataset.tool === "Compare";
+  const role = state.id ? taskDocRole(state.task) : "", key = JSON.stringify([list, toolDocBusy, cmp, state.id, state.name, role]);
+  if (src.dataset.key === key) return;
+  src.dataset.key = key;
+  bar.hidden = !list.length;
+  bar.replaceChildren(el("span", "tool-doc-name", "도구"), ...toolDocBtns(list));
+  src.replaceChildren();
+  src.classList.toggle("tool-doc", !cmp && list.length > 0);
+  if (!cmp && list.length) { src.title = ""; src.setAttribute("role", "group"); src.setAttribute("aria-label", "도구를 쓸 문서"); src.append(...toolDocBtns(list)); return; }
+  src.removeAttribute("role"); src.removeAttribute("aria-label");
+  const d = DOC_ROLE[role]; // 문서 하나 — TASK 의 원본 · 목적 문서면 그 이름(「목적 문서」 — 긴 파일 이름은 문서 위 이름 줄에 있다), 아니면 파일 이름
+  src.textContent = cmp ? "여러 문서 · 저장된 분석 결과" : d ? d[0] : state.name || "";
+  src.title = cmp ? "작업 목록에서 비교할 문서를 선택하세요" : state.name || "";
+}
+async function toolDocSet(id, then = null) { // 도구를 쓸 문서를 둘째 면의 문서 id 로 — 두 면이 문서를 바꾼다. then = 바꾼 뒤 할 일(둘째 면 이름 줄의 분석 상태를 누른 것 — doc_status.js)
+  if (PEEK || toolDocBusy || !state.id || !id) return;
+  if (id === state.id) { if (then) then(); return; }
+  if (id !== peerShown()) return;
+  let atPeer = null;
+  try { const fw = $("peerFrame").contentWindow; if (fw.peekId() === id) atPeer = fw.viewSpot(); } catch { /* 아직 여는 중 — 맨 위부터 */ }
+  const was = state.id, atMine = viewSpot(), tool = $("panel").dataset.tool, pick0 = peerPick, kind0 = peerKind, z0 = state.zoom, fit0 = state.fit; // 배율도 그대로(문서를 열면 손으로 정한 배율은 폭 맞춤으로 간다 — load)
+  const ds = typeof docStatusSnap === "function" ? docStatusSnap() : null;
+  toolDocBusy = true;
+  toolDocDraw();
+  try {
+    peerPick = was; peerKind = null; // 둘째 면 = 지금 문서(문서 이름 탭으로 고른 것처럼)
+    peerSpotWant = { w: was, at: atMine };
+    await openWork(id);
+    if (state.id !== id) { peerSpotWant = null; peerPick = pick0; peerKind = kind0; return; } // 못 엶(묻는 창에서 취소 · 오류) — 그대로
+    peerSync(); // 작업 목록을 다시 읽기 전에 — 둘째 면이 곧 옛 문서를 읽는다
+    if (ds && typeof docStatusCarry === "function") docStatusCarry(ds); // 이름 줄의 분석 상태도 면을 바꿔 바로(다시 읽는 동안 비지 않게)
+    if (tool && tool !== $("panel").dataset.tool && toolShown(tool)) showTab(tool); // 패널에서 보던 탭 그대로(문서를 열면 검증으로 간다 — load)
+    if (fit0 === null && state.zoom !== z0) setZoom(z0, null); // 손으로 정한 배율 그대로(맞춤 배율은 load 의 refit 이 같은 폭으로 다시 잰다) — 둘째 면도 따라온다(setZoom → peerViewSync)
+    spotHold(atPeer);
+    if (then) then();
+  } finally { toolDocBusy = false; toolDocDraw(); }
+}
+// 보던 곳 — 창 가운데 줄에 놓인 블록(data-id — 같은 문서를 다시 그려도 찾는다: 쪽을 넘는 표·문단은 몇째 조각인지)과 그 안의 높이 비율, 블록이 없으면 쪽 번호와 비율
+function viewSpot() {
+  const sc = $("scroller"), kids = sc.hidden ? [] : [...$("doc").children];
+  if (!kids.length) return null;
+  const at = viewAnchor(sc, kids), o = sc.getBoundingClientRect(), y = o.top + o.height / 2;
+  let b = at.el.closest("[data-id]");
+  if (!b || b === at.sheet || !at.sheet.contains(b)) { // 가운데 줄이 블록에 안 걸림(쪽 여백 · 블록 사이 · 떠 있는 상자 밑) — 그 쪽에서 가운데 줄에 가장 가까운 블록(같은 문서를 다시 그려도 같은 블록이 잡히게)
+    let gap = Infinity;
+    b = null;
+    for (const c of at.sheet.querySelectorAll("[data-id]")) {
+      const r = c.getBoundingClientRect();
+      if (!r.height) continue;
+      const d = r.top <= y && y <= r.bottom ? 0 : Math.min(Math.abs(r.top - y), Math.abs(r.bottom - y));
+      if (d < gap || (d === gap && b && r.height < b.getBoundingClientRect().height)) { gap = d; b = c; } // 같은 거리면 작은 것(바깥 표보다 그 안의 문단)
+    }
+  }
+  if (b) {
+    const r = b.getBoundingClientRect(), nth = [...$("doc").querySelectorAll(`[data-id="${CSS.escape(b.dataset.id)}"]`)].indexOf(b);
+    return { id: b.dataset.id, nth: Math.max(0, nth), f: r.height ? (y - r.top) / r.height : 0 };
+  }
+  const sheets = [...$("doc").querySelectorAll(":scope > .sheet")];
+  return { page: Math.max(0, sheets.indexOf(at.sheet)), f: at.f }; // 블록이 없는 쪽(빈 쪽 · 그림만)
+}
+function viewSpotGo(s) { // viewSpot 의 자리를 창 가운데 줄에 — 그 블록이 없으면 그대로
+  const sc = $("scroller");
+  if (!s || sc.hidden) return;
+  const all = s.id ? $("doc").querySelectorAll(`[data-id="${CSS.escape(s.id)}"]`) : null, e = all ? all[s.nth] || all[0] : $("doc").querySelectorAll(":scope > .sheet")[s.page];
+  if (e) viewHold(sc, { el: e, f: s.f });
+}
+let spotKeep = null; // {s, until} — 문서를 바꾼 뒤 잠깐 쪽을 다시 나눠도(글꼴 · 쪽 나눔 자료가 늦게 옴 — paginate 끝) 보던 곳을 지킨다
+function spotHold(s) { // 그 자리로 가고 6초 동안 지킨다 — 사람이 굴리거나 누르거나 키를 치면 그만(둘째 면 화면도 바깥이 이것을 부른다 — peerViewSync)
+  spotKeep = s ? { s, until: Date.now() + 6000 } : null;
+  if (!s) return;
+  viewSpotGo(s);
+  const stop = () => { spotKeep = null; };
+  $("scroller").addEventListener("wheel", stop, { once: true, passive: true });
+  $("scroller").addEventListener("pointerdown", stop, { once: true, passive: true });
+  window.addEventListener("keydown", stop, { once: true });
 }
 
 function closeDoc() {
@@ -3050,6 +3177,7 @@ function paginate() {
   markUnmapped();
   refit();
   $("scroller").scrollTop = keep;
+  if (spotKeep) { if (Date.now() < spotKeep.until) viewSpotGo(spotKeep.s); else spotKeep = null; } // 도구를 쓸 문서를 바꾼 직후 — 다시 나눈 쪽에서도 보던 곳(toolDocSet · spotHold)
   if (act && act.isConnected && document.activeElement !== act) {
     act.focus({ preventScroll: true });
     if (actSel) setCaret(act, actSel.start, actSel.end);
@@ -5524,8 +5652,7 @@ function showTab(name) {
   $("toolDescription").textContent = description; // 설명 줄은 없앰(2026-11-11 패널 머리 — 값만) — 어느 도구든 ? 도움말로
   $("toolHelp").replaceChildren(hHelp(`${title} 도움말`, `${title} — ${tag}\n${description}`
     + (name === "Heads" ? " 결과 탭에서 문서 구조·라벨·템플릿을 확인하고, 추출·설정에서 다시 분석할 수 있습니다." : name === "Tables" ? " 표 목록에서 소속을 대조하고, 각 표의 격자와 지침을 열 수 있습니다." : "")));
-  $("toolSource").textContent = name === "Compare" ? "여러 문서 · 저장된 분석 결과" : state.name;
-  $("toolSource").title = name === "Compare" ? "작업 목록에서 비교할 문서를 선택하세요" : state.name;
+  toolDocDraw(); // 「작업」 옆 문서 자리 — 두 문서가 나란히면 도구를 쓸 문서 단추(원본 · 목적), 하나면 「목적 문서」 같은 짧은 이름(② §12 「도구는 문서마다」 — 긴 파일 이름은 문서 위 이름 줄에)
   setPanel(true);
   colsApply();
   if (name === "Pdf") showPdf();
@@ -7246,9 +7373,9 @@ function tplMarkText(box, text, m) { // 표기 글 「TN Lk [기관]」 을 box 
   box.append(text.slice(0, i), s, text.slice(i + m.lab.length));
   return box;
 }
-function tplMarksOn() { try { return localStorage.getItem(TPL_MARKS_KEY) !== "off"; } catch { return true; } }
+function tplMarksOn() { return quickGet(TPL_MARKS_KEY) !== "off"; } // 문서마다 따로 기억(quickKey — 원본 · 목적 문서)
 function tplMarksToggle() {
-  try { localStorage.setItem(TPL_MARKS_KEY, tplMarksOn() ? "off" : "on"); } catch { /* 기억만 안 함 */ }
+  quickSet(TPL_MARKS_KEY, tplMarksOn() ? "off" : "on");
   tplMarksDraw();
   tplMarkBtnSync();
 }
@@ -7257,9 +7384,9 @@ function tplMarksToggle() {
 // 2026-11-16 사용자 「이 2개 아이콘을 이걸 봤다 안봤다 하는 용도로」 — 템플릿 표시와 **따로** 켜고 끈다(전에는 템플릿 표시를 끄면 같이 안 보였다): 템플릿 표시를 끄고 이것만 켜면
 // 그 줄 자리에 서식 라벨만 보인다. 이름 줄의 아이콘 둘(doc_quick.js)과 「템플릿 관계」 열 위의 「문서 표시」·「서식 라벨」 단추가 같은 값을 켜고 끈다.
 const TPL_FMT_KEY = "nfm.headsMarksFmt";
-function tplFmtOn() { try { return localStorage.getItem(TPL_FMT_KEY) === "on"; } catch { return false; } }
+function tplFmtOn() { return quickGet(TPL_FMT_KEY) === "on"; } // 문서마다 따로 기억(quickKey)
 function tplFmtToggle() {
-  try { localStorage.setItem(TPL_FMT_KEY, tplFmtOn() ? "off" : "on"); } catch { /* 기억만 안 함 */ }
+  quickSet(TPL_FMT_KEY, tplFmtOn() ? "off" : "on");
   tplMarkBtnSync();
   tplMarksDraw();
   tplFmtGraph();
@@ -8817,8 +8944,9 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
   if (typeof zonesReset === "function") zonesReset(); // 편집 구역(zones.js) — 읽어 둔 구역을 버리고, 문서가 열려 있으면 새 문서·새 TASK 의 것으로 곧 다시 읽는다(문서를 열 때 · 닫을 때 · TASK 를 바꾼 뒤)
   divMarksDraw(); // 옛 문서의 구분 기준 표시 지움(② §11)
   // 표시가 켜져 있으면(nfm.divMarks — 기억) 문서를 연 뒤 곧 자리를 읽는다(② §11 「색 설명」, 2026-11-19): 전에는 「작업 개요」 를 열어야(divShow) 읽어서, 다시 연 문서는 이름 줄 아이콘이 눌려 있는데도
-  // 색도 떠 있는 설명도 없었다(아이콘을 껐다 켜야 보임). 편집 구역(zones.js zonesReset)과 같은 꼴 — load() 가 끝난 뒤에 · 둘째 면은 전처럼 안 읽는다
-  if (state.id && !PEEK) {
+  // 색도 떠 있는 설명도 없었다(아이콘을 껐다 켜야 보임). 편집 구역(zones.js zonesReset)과 같은 꼴 — load() 가 끝난 뒤에.
+  // 둘째 면(같이 보기)도 읽는다(2026-11-19 ② §12 「도구는 문서마다」 — 그 면의 이름 줄 아이콘으로 그 문서에 켠 것: 읽기만 · GET)
+  if (state.id) {
     const view = dv, epoch = state.epoch;
     setTimeout(() => { if (view === dv && epoch === state.epoch && divMarksOn() && !dv.marks.data && !dv.marks.loading) divMembersLoad(); }, 0);
   }
@@ -9884,8 +10012,8 @@ const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파�
   "여러 자리에 겹치면 바탕은 가장 안쪽 것의 색이고, 왼쪽 띠가 든 자리마다 하나씩 겉에서 안 차례로 붙습니다(단계 › 차년도 › 기관 — 2줄·3줄). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
   "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴, 기관 이름만 적은 줄(「o 기관 이름」 이 기관마다 되풀이되는 곳)처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
   "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
-function divMarksOn() { try { return taskRnd() && localStorage.getItem(DV_MARKS_KEY) === "on"; } catch { return false; } } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10)
-function divMarksSet(on) { try { localStorage.setItem(DV_MARKS_KEY, on ? "on" : "off"); } catch { /* 기억만 안 함 */ } }
+function divMarksOn() { return taskRnd() && quickGet(DV_MARKS_KEY) === "on"; } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10) · 문서마다 따로 기억(quickKey — ② §12 「도구는 문서마다」)
+function divMarksSet(on) { quickSet(DV_MARKS_KEY, on ? "on" : "off"); }
 function divMarksToggle() { // 보기/감추기 — 「작업 개요」 카드 단추 · 문서 오른쪽 단추 메뉴 · 이름 줄 아이콘 #nameDivMarks(doc_quick.js)가 함께 쓴다(값 하나 nfm.divMarks)
   const on = divMarksOn();
   divMarksSet(!on);

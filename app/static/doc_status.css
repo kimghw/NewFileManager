@@ -80,9 +80,9 @@ button.ds-cell:focus-visible { outline: 2px solid var(--accent); outline-offset:
 @container docname (max-width: 520px) { .document-name-row > .doc-status ~ .file-meta { display: none; } }
 @container docname (max-width: 400px) { .doc-status .ds-secs { display: none; } }
 
-/* 둘째 면(같이 보기) 머리 — 누를 수 없는 표시(읽기 전용 면). 문서 이름 탭이 먼저 줄고, 머리 줄이 좁으면 옵션 항목 → 표시 통째 차례로 감춘다.
-   기준은 여기도 창이 아니라 그 줄의 폭(design.md §3 — 패널·2열을 열면 면이 좁아진다): 머리 줄을 컨테이너로 둔다 */
+/* 둘째 면(같이 보기) 머리 — 2026-11-19 부터 누를 수 있다(누르면 도구를 그 문서로 바꾸고 그 도구로 — doc_status.js dsChipEl · spec_작업 ② §12 「도구는 문서마다」). 문서 이름 탭이 먼저 줄고, 머리 줄이 좁으면 옵션 항목 → 표시 통째 차례로 감춘다.
+   기준은 여기도 창이 아니라 그 줄의 폭(design.md §3 — 패널·2열을 열면 면이 좁아진다): 머리 줄을 컨테이너로 둔다. 같은 날 표시 아이콘 다섯(#peerQuick — 약 140px)이 이 줄에 들어와 기준을 그만큼 올림(560 → 760 · 420 → 520) */
 .workspace > .peer-col > header { container: peerhead / inline-size; }
 .peer-col > header > .doc-status { margin-left: 4px; }
-@container peerhead (max-width: 560px) { .peer-col > header > .doc-status .ds-opt { display: none; } }
-@container peerhead (max-width: 420px) { .peer-col > header > .doc-status { display: none; } }
+@container peerhead (max-width: 760px) { .peer-col > header > .doc-status .ds-opt { display: none; } }
+@container peerhead (max-width: 520px) { .peer-col > header > .doc-status { display: none; } }

@@ -109,14 +109,19 @@ function dsTidyOpen() { // 서식의 LLM · 반영 칸 — 계획이 남은 첫 
   if (typeof tplAgentOpen === "function") tplAgentOpen(pick ? pick.tpl : null);
 }
 
+// 둘째 면(같이 보기) 머리의 표시도 누를 수 있다(2026-11-19 spec_작업 ② §12 「도구는 문서마다」 — 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로" · 이름 줄 "이 행도 … 요청사항과 맞게"):
+// 누르면 도구를 그 문서로 바꾸고(app.js toolDocSet — 두 면이 문서를 바꿈 · 보던 곳 그대로) 첫째 면에서와 같은 곳으로(진행표 · 구분 기준 검토)
+const dsPeerGo = () => !PEEK && typeof toolDocSet === "function" && !!dsState.peerId;
 function dsChipEl(c, main) {
-  const b = el(main && c.go ? "button" : "span", `ds-chip ${c.cls || ""}${c.opt ? " ds-opt" : ""}`);
-  if (b.tagName === "BUTTON") { b.type = "button"; b.dataset.go = c.go; b.onclick = (e) => { e.stopPropagation(); dsGo(c.go); }; }
+  const go = !!c.go && (main || dsPeerGo());
+  const b = el(go ? "button" : "span", `ds-chip ${c.cls || ""}${c.opt ? " ds-opt" : ""}`);
+  if (go) { b.type = "button"; b.dataset.go = c.go; b.onclick = (e) => { e.stopPropagation(); if (main) dsGo(c.go); else toolDocSet(dsState.peerId, () => dsGo(c.go)); }; }
   if (c.spin) b.append(el("i", "ds-spin"));
   b.append(el("span", "ds-text", c.text));
   if (c.mark) b.append(el("span", "ds-mark", c.mark));
   if (c.since) { const s = el("span", "ds-secs", dsSecs(c.since)); s.dataset.since = c.since; b.append(s); }
-  b.title = c.title + (b.tagName !== "BUTTON" ? "" : c.go === "DivReview" ? "\n누르면 「작업 개요」 와 구분 기준 검토 결과 열이 열립니다" : "\n누르면 분석 진행표(헤딩 · 템플릿 · 서식 · 표 × 스크립트 · LLM 검증·보완 · 문서 반영)가 펼쳐집니다");
+  b.title = c.title + (!go ? "" : (main ? "\n" : "\n누르면 도구를 이 문서로 바꾸고(이 문서가 고치는 문서가 됩니다 — 두 문서의 자리 · 보던 곳은 그대로) ")
+    + (c.go === "DivReview" ? `${main ? "누르면 " : ""}「작업 개요」 와 구분 기준 검토 결과 열이 열립니다` : `${main ? "누르면 " : ""}분석 진행표(헤딩 · 템플릿 · 서식 · 표 × 스크립트 · LLM 검증·보완 · 문서 반영)가 펼쳐집니다`));
   return b;
 }
 
@@ -401,4 +406,12 @@ function docStatusPeer(id) { // 둘째 면에 떠 있는 문서(app.js peerSync 
   dsState.peer = null;
   dsDraw("peer");
   docStatusPing();
+}
+// 도구를 쓸 문서를 바꿀 때(app.js toolDocSet — 두 면이 문서를 바꿈): 바꾸기 전의 두 표시를 적어 두었다가(docStatusSnap) 바꾼 뒤 면을 바꿔 바로 그린다(docStatusCarry — 다시 읽는 동안 비지 않게 ·
+// 둘째 면 표시를 눌러 바꾼 경우 진행표를 곧바로 펼 수 있게). 다시 읽기(docStatusPing)는 그대로 돈다
+function docStatusSnap() { return { main: dsState.main, peer: dsState.peer, mainId: dsState.mainId, peerId: dsState.peerId }; }
+function docStatusCarry(s) {
+  if (PEEK || !s) return;
+  if (dsState.mainId === s.peerId && !dsState.main && s.peer) { dsState.main = s.peer; dsDraw("main"); }
+  if (dsState.peerId === s.mainId && !dsState.peer && s.main) { dsState.peer = s.main; dsDraw("peer"); }
 }

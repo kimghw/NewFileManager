@@ -15,6 +15,6 @@
 .key-float > .kf-grip { flex: none; width: 8px; height: 12px; margin: 0 1px 0 2px; opacity: .7; background-image: radial-gradient(circle, #64748b 1px, transparent 1.3px); background-size: 4px 4px; }
 .key-float:hover > .kf-grip, .key-float.kf-moving > .kf-grip { opacity: 1; }
 .key-float > .dv-key-name { color: #334155; } /* 상자의 이름 — 이름 줄 안에 있을 때(옅은 회색)보다 또렷이 */
-/* 시작 화면 · 둘째 면(같이 보기 — 이름 줄도 없는 읽기 전용 면) · 인쇄에는 없다 */
-body.no-doc .key-float, body.peek .key-float { display: none; }
+/* 시작 화면 · 인쇄에는 없다. 둘째 면(같이 보기 — body.peek)에는 있다(2026-11-19 spec_작업 ② §12 「도구는 문서마다」: 그 면의 이름 줄 아이콘으로 켠 색의 설명 — 자리는 그 면만 따로 기억, key_float.js) */
+body.no-doc .key-float { display: none; }
 @media print { .key-float { display: none; } }

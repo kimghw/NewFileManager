@@ -269,6 +269,99 @@ try:
         fr = peek(page)
         check("탭 — 사업계획서로 돌아옴", f"peek={plan}" in fr.url and page.evaluate(BTN, "plan")["pressed"] == "true", fr.url)
 
+        # ---- 3-4. 도구는 문서마다(② §12 「도구는 문서마다」 — 2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게" ·
+        #      "task 옆에 문서 넣을 수 있는 곳이 있지.. 구지 꼭풀 네임을 넣을 필요 없어. 그리고 여기 상단에 도구를 문서별로 돌릴 수 있는 기능도" · 이름 줄 "이 행도 … 요청사항과 맞게")
+        TOOLDOC = """() => { const q = (sel) => [...document.querySelectorAll(sel)].map((b) => [b.dataset.toolDoc, b.textContent, b.getAttribute('aria-pressed') === 'true', b.getClientRects().length > 0]);
+            const bar = document.getElementById('toolDocBar'), src = document.getElementById('toolSource');
+            return { bar: bar.getClientRects().length > 0, label: (bar.querySelector('.tool-doc-name') || {}).textContent || '', top: q('#toolDocBar .tool-doc-btn'), panel: q('#toolSource .tool-doc-btn'), text: src.textContent }; }"""
+        td = page.evaluate(TOOLDOC)
+        want = [[plan, "원본", False, True], [report, "목적", True, True]]
+        check("상단 바 「도구」 — 두 문서의 짧은 이름 단추(화면 차례 원본 · 목적) · 눌림 = 고치는 문서(연차보고서)", td["bar"] and td["label"] == "도구" and td["top"] == want, td)
+        check("패널 머리 「작업」 옆 — 긴 파일 이름 대신 같은 단추(같은 값)", td["panel"] == want and "기술수요조사서" not in td["text"], td)
+        PQ = """() => { const box = document.getElementById('peerQuick'), head = document.querySelector('#peerCol > header'), ro = head.querySelector('.peer-ro'), vis = (e) => e.getClientRects().length > 0;
+            return { shown: vis(box), icons: [...box.children].map((b) => [b.dataset.quick, vis(b), b.disabled, b.getAttribute('aria-pressed')]),
+                     ro: vis(ro), roCut: vis(ro) && ro.scrollWidth > ro.clientWidth + 1, over: head.scrollWidth > head.clientWidth + 1, w: (() => { const cs = getComputedStyle(head); return Math.round(head.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)); })(),  // 컨테이너 질의가 재는 폭(내용 상자)
+                     order: [...head.children].filter(vis).map((e) => e.id || e.className) }; }"""
+        page.wait_for_function("() => !document.getElementById('peerQuick').hidden && document.querySelector('#peerQuick #peerDivMarks:not([disabled])') != null", timeout=30000)
+        page.wait_for_function("() => { const h = document.getElementById('peerStatus'); return !h.hidden && !!h.querySelector('.ds-chip'); }", timeout=30000)
+        pq = page.evaluate(PQ)
+        check("둘째 면 이름 줄 — 첫째 면과 같은 차례(탭 · 표시 아이콘 다섯 · 분석 상태) · 「읽기 전용」 은 안 잘림(이 폭이면 감춤 — 680px 이하) · 줄 넘침 없음",
+              pq["shown"] and [i[0] for i in pq["icons"]] == ["nameTplMarks", "nameFmtMarks", "nameTblMarks", "nameDivMarks", "nameZones"] and all(i[1] for i in pq["icons"])
+              and pq["order"][:3] == ["peerTabs", "peerQuick", "peerStatus"] and not pq["roCut"] and pq["ro"] == (pq["w"] > 680) and not pq["over"], pq)
+        page.screenshot(path=str(OUT / "3_4_tool_doc.png"), clip={"x": 0, "y": 0, "width": 1900, "height": 130})
+        page.set_viewport_size({"width": 2400, "height": 900})
+        page.wait_for_timeout(400)
+        pq = page.evaluate(PQ)
+        check("넓은 창 — 「읽기 전용」 이 보이고 안 잘림 · 줄 넘침 없음", pq["ro"] and not pq["roCut"] and not pq["over"] and pq["w"] > 680, pq)
+        page.screenshot(path=str(OUT / "3_4_tool_doc_wide.png"), clip={"x": 0, "y": 0, "width": 2400, "height": 130})
+        page.set_viewport_size({"width": 1900, "height": 900})
+        page.wait_for_timeout(400)
+        # 둘째 면의 「구분 기준 자리 표시」 를 켬 — 그 면(사업계획서 = 원본)에만 · 기억도 원본의 키에만(첫째 면 · 공통 키는 그대로)
+        page.click("#peerDivMarks")
+        page.wait_for_function("() => document.getElementById('peerDivMarks').getAttribute('aria-pressed') === 'true'", timeout=30000)
+        ls = page.evaluate("() => [localStorage.getItem('nfm.divMarks'), localStorage.getItem('nfm.divMarks@source'), localStorage.getItem('nfm.divMarks@target')]")
+        check("둘째 면 아이콘 = 그 문서에만 — 둘째 면 켜짐 · 첫째 면 그대로 꺼짐 · 기억은 「@source」 키에만",
+              fr.evaluate("() => divMarksOn()") is True and page.evaluate("() => divMarksOn()") is False and page.get_attribute("#nameDivMarks", "aria-pressed") == "false"
+              and ls == [None, "on", None], ls)
+        fr.wait_for_function("() => !dv.marks.loading && !!dv.marks.data", timeout=30000)
+        check("둘째 면도 구분 기준 자리를 읽는다(GET 만 — 끝의 「GET 밖 요청 0」 이 본다)", fr.evaluate("() => !!dv.marks.data && document.getElementById('doc').classList.contains('dv-marks')"))
+        # 두 면에서 보던 곳을 다르게 둔 뒤 「도구」 의 원본을 누름 → 두 면이 문서를 바꾼다(자리 · 보던 곳 · 패널 탭 · 손으로 정한 배율 그대로).
+        # 견본은 한 쪽짜리라 200% 로 키워 굴릴 자리를 만든다 — 연차보고서(첫째 면)는 맨 위 · 사업계획서(둘째 면)는 맨 아래
+        page.evaluate("() => setZoom(2, null)")
+        page.wait_for_function("() => { const w = document.getElementById('peerFrame').contentWindow; return state.zoom === 2 && w.eval('state.zoom') === 2; }", timeout=30000)
+        page.wait_for_timeout(600)
+        page.evaluate("() => { document.getElementById('scroller').scrollTop = 0; }")
+        fr.evaluate("() => { const sc = document.getElementById('scroller'); sc.scrollTop = sc.scrollHeight; }")
+        page.wait_for_timeout(400)
+        at_main, at_peer, tool0 = page.evaluate("() => viewSpot()"), fr.evaluate("() => viewSpot()"), page.evaluate("() => document.getElementById('panel').dataset.tool")
+        check("(준비) 두 면의 보던 곳이 다름", at_main != at_peer, (at_main, at_peer))
+        page.click(f"#toolDocBar [data-tool-doc='{plan}']")
+        page.wait_for_function(f"([a, b]) => state.id === a && ({SHOWN})() === b", arg=[plan, report], timeout=120000)
+        page.wait_for_function("(id) => { const w = document.getElementById('peerFrame').contentWindow; return w.location.search.includes(id) && !!w.document.querySelector('#doc .sheet .para') && w.peekId() === id; }", arg=report, timeout=120000)
+        page.wait_for_timeout(1500)
+        fr = peek(page)
+        v, p = page.evaluate(RECT, "viewer"), page.evaluate(RECT, "peerCol")
+        td = page.evaluate(TOOLDOC)
+        check("「도구」 원본 → 사업계획서가 고치는 문서 · 연차보고서가 둘째 면 · 자리는 그대로(사업계획서 왼쪽) · 눌림이 원본으로(두 곳 같이)",
+              v["r"] <= p["l"] + 1 and td["top"] == [[plan, "원본", True, True], [report, "목적", False, True]] and td["panel"] == td["top"], (v, p, td))
+        check("패널에서 보던 탭 그대로", page.evaluate("() => document.getElementById('panel').dataset.tool") == tool0, tool0)
+        s1, s2 = page.evaluate("() => viewSpot()"), fr.evaluate("() => viewSpot()")
+        same_spot = lambda a, b: bool(a and b) and a.get("id") == b.get("id") and a.get("nth") == b.get("nth") and a.get("page") == b.get("page") and abs(a["f"] - b["f"]) < 0.08
+        check("보던 곳 그대로 — 사업계획서는 둘째 면에서 보던 곳 · 연차보고서는 첫째 면에서 보던 곳", same_spot(s1, at_peer) and same_spot(s2, at_main), (at_main, at_peer, s1, s2))
+        zz = page.evaluate("() => [state.zoom, state.fit, document.getElementById('peerFrame').contentWindow.eval('state.zoom')]")
+        check("손으로 정한 배율(200%) 그대로 — 두 면 모두", zz == [2, None, 2], zz)
+        check("표시 값은 문서를 따라감 — 사업계획서(이제 첫째 면) 켜짐 · 연차보고서(둘째 면) 꺼짐",
+              page.evaluate("() => divMarksOn()") is True and page.get_attribute("#nameDivMarks", "aria-pressed") == "true" and fr.evaluate("() => divMarksOn()") is False, page.get_attribute("#nameDivMarks", "aria-pressed"))
+        page.wait_for_function("() => document.getElementById('peerDivMarks').getAttribute('aria-pressed') === 'false'", timeout=30000)
+        page.screenshot(path=str(OUT / "3_4_swapped.png"))
+        # 패널 머리의 「목적」 → 다시 바꿈
+        page.click(f"#toolSource [data-tool-doc='{report}']")
+        page.wait_for_function(f"([a, b]) => state.id === a && ({SHOWN})() === b", arg=[report, plan], timeout=120000)
+        page.wait_for_function("(id) => { const w = document.getElementById('peerFrame').contentWindow; return !!w.document.querySelector('#doc .sheet .para') && w.peekId() === id; }", arg=plan, timeout=120000)
+        check("패널 머리의 「목적」 → 연차보고서가 다시 고치는 문서(사업계획서는 왼쪽 둘째 면)", page.evaluate("() => document.querySelector('.workspace').classList.contains('peer-left')")
+              and page.evaluate(TOOLDOC)["top"] == want)
+        # 둘째 면 이름 줄의 분석 상태를 누름 → 도구를 그 문서로 바꾸고 진행표
+        page.wait_for_function("() => document.querySelector('#peerStatus button.ds-chip') != null", timeout=30000)
+        page.click("#peerStatus button.ds-chip")
+        page.wait_for_function(f"([a, b]) => state.id === a && ({SHOWN})() === b", arg=[plan, report], timeout=120000)
+        page.wait_for_function("() => { const t = document.getElementById('dsTable'); return !!t && !t.hidden; }", timeout=30000)
+        check("둘째 면의 분석 상태를 누름 → 그 문서(사업계획서)가 고치는 문서 · 진행표가 펼쳐짐", page.evaluate("() => state.id") == plan)
+        page.keyboard.press("Escape")
+        page.click(f"#toolDocBar [data-tool-doc='{report}']")
+        page.wait_for_function(f"([a, b]) => state.id === a && ({SHOWN})() === b", arg=[report, plan], timeout=120000)
+        page.wait_for_function("(id) => { const w = document.getElementById('peerFrame').contentWindow; return !!w.document.querySelector('#doc .sheet .para') && w.peekId() === id; }", arg=plan, timeout=120000)
+        fr = peek(page)
+        page.click("#zoomFit")  # 뒤 절은 폭 맞춤에서 본다
+        page.wait_for_timeout(400)
+        page.evaluate("() => { document.getElementById('scroller').scrollTop = 0; }")
+        fr.evaluate("() => { document.getElementById('scroller').scrollTop = 0; }")
+        # 둘째 면을 접으면 「도구」 단추는 없다(두 문서가 나란히 보일 때만) · 펴면 다시
+        page.click("#peerFold")
+        td = page.evaluate(TOOLDOC)
+        check("둘째 면을 접으면 「도구」 없음 · 패널 머리는 「목적 문서」(긴 파일 이름 아님)", not td["bar"] and not td["panel"] and td["text"] == "목적 문서", td)
+        page.click("#peerRail")
+        check("펴면 다시 「도구」", page.evaluate(TOOLDOC)["top"] == want)
+
         # ---- 4. 옆 문서를 그 자리로(연결 목록이 부르는 peerGo) — 바깥 화면은 안 밀림
         last = fr.evaluate("() => [...document.querySelectorAll('#doc .para')].pop().dataset.id")
         page.evaluate("([w, id]) => peerGo({ id: w }, id)", [plan, last])

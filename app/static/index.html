@@ -64,6 +64,9 @@
       <button class="btn sm on" type="button" id="barFold" aria-controls="docBar" aria-pressed="true" title="편집 도구 줄 접기">편집 ▴</button>
       <button class="btn sm on" type="button" id="fileFold" aria-controls="fileInfo peerFileHeader" aria-pressed="true" title="파일명 줄 접기">파일명 ▴</button>
     </div>
+    <!-- 도구를 쓸 문서(spec_작업 ② §12 「도구는 문서마다」, 2026-11-19 사용자 "여기 상단에 도구를 문서별로 돌릴 수 있는 기능도 넣어주면 될듯"): 두 면에 문서가 나란히 떠 있을 때만 — 「도구」 + 두 문서의 짧은 이름 단추(화면 차례 · 눌림 = 도구를 쓰는 문서).
+         다른 문서를 누르면 두 면이 문서를 바꾼다(보던 곳 · 패널 탭 그대로). 패널 머리 「작업」 옆(#toolSource)도 같은 단추 — 두 곳은 같은 값(app.js toolDocDraw · toolDocSet) -->
+    <div class="bar-ctl tool-doc" id="toolDocBar" role="group" aria-label="도구를 쓸 문서" hidden></div>
     <div class="spacer"></div>
     <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
     <button class="btn" id="worksBtn" type="button" title="작업 목록 — 파일을 올릴 때마다 작업이 생기고 편집·검증 기록이 저장됩니다" aria-haspopup="dialog">작업</button>
@@ -361,8 +364,11 @@
       <button class="col-rail" id="peerRail" type="button" aria-controls="peerCol"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg><span class="col-rail-name"></span></button>
       <header id="peerFileHeader">
         <div class="tabs peer-tabs" id="peerTabs" role="tablist" aria-label="둘째 면에 띄울 문서"></div>
-        <span class="doc-status" id="peerStatus" role="group" aria-label="둘째 면 문서의 분석 상태 — 헤딩 · 표 · LLM · 구분 기준" hidden></span><!-- 둘째 면 문서의 분석 상태(spec_작업 ② §20 — 누를 수 없는 표시: doc_status.js docStatusPeer) -->
-        <strong id="peerName" hidden></strong><span class="recent-note" title="둘째 면의 문서는 보기만 합니다 — 고치려면 편집 문서 위 파일명 목록에서 그 문서를 여세요">읽기 전용</span>
+        <!-- 표시 아이콘(2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로" · "이 행도 … 요청사항과 맞게" — spec_작업 ② §12 「도구는 문서마다」): 첫째 면 이름 줄 #nameQuick 과 같은 다섯(그림은 그것을 베낌 — doc_quick.js peerQuickBuild).
+             이 면의 문서에만 듣고 값도 문서마다 기억한다(app.js quickKey). 상태 · 누름은 둘째 면 화면(iframe)이 맡는다(docQuickState · docQuickPress) -->
+        <span class="name-quick" id="peerQuick" role="group" aria-label="둘째 면 문서의 템플릿 · 서식 · 표 라벨 · 구분 기준 자리 · 편집 구역 표시 켜기/끄기" hidden></span>
+        <span class="doc-status" id="peerStatus" role="group" aria-label="둘째 면 문서의 분석 상태 — 헤딩 · 표 · LLM · 구분 기준" hidden></span><!-- 둘째 면 문서의 분석 상태(spec_작업 ② §20 — doc_status.js docStatusPeer · 누르면 도구를 이 문서로 바꾸고 그 도구로: ② §12 「도구는 문서마다」) -->
+        <strong id="peerName" hidden></strong><span class="recent-note peer-ro" title="이 면의 문서는 보기만 합니다 — 도구(편집 도구 줄 · 패널)를 이 문서에 쓰려면 상단 바 「도구」 나 패널 머리 「작업」 옆에서 이 문서를 고르세요(두 문서의 자리 · 보던 곳은 그대로)">읽기 전용</span>
         <!-- 누른 자리 따라 보기(spec_작업 ② §12 — 2026-11-12): 연차보고서에서 내용이 들어간 곳을 누르면 다른 면이 원본 자리를 보인다. 눌림 = 켬(기억 nfm.peerFollow). 이관의 두 칸이 찼을 때만 보인다 — peer_follow.js -->
         <button class="btn sm peer-follow on" id="peerFollow" type="button" aria-pressed="true" hidden>따라 보기</button>
         <button class="icon" id="peerFold" type="button" aria-controls="peerCol" aria-label="열 접기" title="열 접기 — 오른쪽 띠로(보던 자리 그대로, 띠를 누르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6.5 6 6 6-6 6M13.5 6l6 6-6 6"/></svg></button>
@@ -400,7 +406,7 @@
       <header class="tool-heading">
         <div class="tool-task-row">
           <label class="tool-task" title="작업 종류 — 연구개발 프로젝트의 TASK·첨부 파일·프로젝트 구성을 엽니다"><span>작업</span><select id="panelTask" aria-label="작업 종류"></select></label>
-          <div class="tool-source" id="toolSource"></div>
+          <div class="tool-source" id="toolSource"></div><!-- 문서 자리(2026-11-19 사용자 "task 옆에 문서 넣을 수 있는 곳이 있지.. 구지 꼭풀 네임을 넣을 필요 없어"): 두 문서가 나란히면 도구를 쓸 문서 단추(원본 · 목적 — 상단 바 #toolDocBar 와 같은 값), 하나면 「목적 문서」 같은 짧은 이름(역할이 없으면 파일 이름) — app.js toolDocDraw -->
           <span id="toolHelp" class="panel-help-slot"></span>
           <button class="icon" id="panelFold" type="button" aria-controls="panel" aria-label="패널 접기" title="패널 접기 — 오른쪽 띠로(띠를 누르거나 도구 탭을 고르면 펴짐)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6.5 6 6 6-6 6M13.5 6l6 6-6 6"/></svg></button>
         </div>

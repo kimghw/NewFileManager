@@ -85,6 +85,24 @@ body.peek .workspace-tools { display: none; }
 .workspace.file-names-folded > .document-name-row,
 .workspace.file-names-folded > .peer-col > header,
 body.peek .document-name-row { display: none; }
+/* 둘째 면 이름 줄도 첫째 면 줄과 같은 꼴(2026-11-19 사용자 "이 행도 … 요청사항과 맞게" — spec_작업 ② §12 「도구는 문서마다」): 문서 이름 탭 · 표시 아이콘 다섯(#peerQuick — 이 면의 문서에만) · 분석 상태(누르면 도구를 이 문서로) · 「읽기 전용」.
+   「읽기 전용」 은 줄지 않는다 — 2열 머리 규칙(.heads-col > header .recent-note — 줄임표)이 이겨 「읽…」 으로 잘렸다. 좁으면(머리 680px 이하) 통째로 감춘다(탭의 「원본」 꼬리표 · 상단 바 「도구」 가 같은 것을 말한다) */
+.workspace > .peer-col > header > .name-quick { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.workspace > .peer-col > header > .recent-note { flex: none; overflow: visible; }
+@container peerhead (max-width: 680px) { .peer-col > header > .peer-ro { display: none; } }
+
+/* 도구를 쓸 문서(spec_작업 ② §12 「도구는 문서마다」, 2026-11-19 사용자 "여기 상단에 도구를 문서별로 돌릴 수 있는 기능도 넣어주면 될듯" ·
+   "task 옆에 문서 넣을 수 있는 곳이 있지.. 구지 꼭풀 네임을 넣을 필요 없어"): 상단 바 #toolDocBar(줄 접기 묶음 .bar-ctl 과 같은 꼴 — 「도구」 + 단추 둘, 눌림 .on = 도구를 쓰는 문서) ·
+   패널 머리 「작업」 옆 #toolSource.tool-doc(같은 단추 — 24px · 이름이 길면 줄임표). 두 문서가 나란히 보일 때만(app.js toolDocDraw) */
+.bar-ctl.tool-doc { gap: 2px; }
+.bar-ctl.tool-doc > .tool-doc-name { flex: none; padding: 0 5px 0 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.tool-doc-btn { max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .bar-ctl.tool-doc > .tool-doc-name { display: none; } }
+@media (max-width: 960px) { .topbar > #toolDocBar { display: none; } } /* 상단 바가 넘치기 전에 비킨다 — 패널 머리 「작업」 옆의 같은 단추가 남는다(둘째 면은 820px 아래에서 없다) */
+.tool-source.tool-doc { display: flex; align-items: center; gap: 2px; overflow: visible; }
+.tool-source.tool-doc > .tool-doc-btn { flex: 0 1 auto; min-width: 0; height: 24px; min-height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px; color: var(--muted); background: var(--surface); }
+.tool-source.tool-doc > .tool-doc-btn:hover:not(:disabled) { color: var(--text); }
+.tool-source.tool-doc > .tool-doc-btn.on { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); font-weight: 600; }
 
 .workspace.compare-mode > .workspace-tools { grid-column: 1 / -1; }
 .workspace.compare-mode .workspace-tools > .doc-bar,

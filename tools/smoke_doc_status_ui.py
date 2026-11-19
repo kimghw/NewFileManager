@@ -11,7 +11,7 @@
 - ㉯ docx: 「헤딩 · 표 분석 없음(hwpx 만)」 한마디(단추 없음).
 - ㉰ 지원 양식 · 연구개발과제: 「구분 기준 안 함」 이 더 보인다 → 누르면 「작업 개요」 + 2열 「구분 기준 — LLM 검토 결과」. 일반 문서로 바꾸면 그 항목이 없다.
   끼운 응답으로: LLM 을 돌린 문서 = 「헤딩 ✓ LLM ✓ · 표 ✓ LLM 안 함 · 구분 기준 후보 3」 · 도는 중 = 동그라미 + 지난 시간.
-- ㉲ 를 열면 둘째 면 머리에 ㉱ 의 상태가 누를 수 없는 표시로(「분석」 단추 없음) — ㉱ 를 분석하면 「✓」 로 바뀐다.
+- ㉲ 를 열면 둘째 면 머리에 ㉱ 의 상태가(「분석」 단추 없음 · 누르면 도구를 그 문서로 바꾸는 단추 — 2026-11-19) — ㉱ 를 분석하면 「✓」 로 바뀐다.
 - 끼운 응답으로: LLM 검증·보완이 도는 중 = 「◌ LLM 검증·보완 헤딩」 + 진행표의 단계 줄 · 「멈추기」.
 - 콘솔 오류 없음.
 
@@ -370,15 +370,18 @@ def main():
         page.wait_for_function("() => { const h = document.getElementById('peerStatus'); return !h.hidden && h.querySelector('.ds-chip') != null; }", timeout=30000)
         page.wait_for_timeout(500)
         pv, mv = page.evaluate(STATUS, "peerStatus"), page.evaluate(STATUS, "docStatus")
-        check("둘째 면 머리 — 사업계획서의 상태 「헤딩 없음 · 표 없음 · LLM 안 함」 · 누를 수 없는 표시 · 「분석」 없음",
-              pv["texts"][:3] == ["헤딩 없음", "표 없음", "LLM 안 함"] and all(c["tag"] == "SPAN" for c in pv["chips"]) and pv["go"] is None, pv)
+        # 2026-11-19 부터 둘째 면의 표시도 누른다 — 누르면 도구를 그 문서로 바꾸고 진행표로(spec_작업 ② §12 「도구는 문서마다」 — smoke_peer_ui 3-4 가 바꾸기를 본다)
+        # 같은 날 그 머리에 표시 아이콘 다섯이 들어와 옵션 항목(LLM · 구분 기준)은 머리 줄 760px 이하에서 감춘다(첫째 면 이름 줄과 같은 기준) — 글은 감춘 것까지(all) 본다
+        check("둘째 면 머리 — 사업계획서의 상태 「헤딩 없음 · 표 없음 · LLM 안 함」 · 누르면 도구를 그 문서로(단추 · 도움말) · 「분석」 없음",
+              pv["all"][:3] == ["헤딩 없음", "표 없음", "LLM 안 함"] and pv["texts"][:2] == ["헤딩 없음", "표 없음"] and all(c["tag"] == "BUTTON" and c["go"] for c in pv["chips"])
+              and all("도구를 이 문서로" in c["title"] for c in pv["chips"]) and pv["go"] is None, pv)
         check("둘째 면 머리 — 표시는 머리 줄 안 · 넘침 없음", all(c["inside"] for c in pv["chips"] if c["shown"]) and not pv["over"], pv)
         check("첫째 면(연차보고서)은 제 상태 + 「분석」", mv["texts"][:2] == ["헤딩 없음", "표 없음"] and bool(mv["go"]), mv)
         requests.post(f"{base}/api/docs/{plan}/headings", json={"first": True}, timeout=30).raise_for_status()
         page.evaluate("() => docStatusPing()")
         page.wait_for_function("() => document.getElementById('peerStatus').dataset.base === 'done'", timeout=180000)
         pv, mv = page.evaluate(STATUS, "peerStatus"), page.evaluate(STATUS, "docStatus")
-        check("옆 문서를 분석하면 둘째 면 표시가 「헤딩 ✓ · 템플릿 · 서식 · 표 ✓」 — 첫째 면은 그대로 「없음」 · 둘째 면에는 ▾ 없음(누를 수 없는 표시)",
+        check("옆 문서를 분석하면 둘째 면 표시가 「헤딩 ✓ · 템플릿 · 서식 · 표 ✓」 — 첫째 면은 그대로 「없음」 · 둘째 면에는 ▾ 없음(진행표는 첫째 면의 것)",
               pv["texts"][0] == "헤딩 ✓" and "표 ✓" in pv["texts"] and pv["more"] is None and mv["texts"][:2] == ["헤딩 없음", "표 없음"], [pv["texts"], mv["texts"]])
         page.screenshot(path=str(OUT / "07_peer.png"), clip={"x": 0, "y": 0, "width": 1700, "height": 160})
         page.evaluate("() => closeDoc()")

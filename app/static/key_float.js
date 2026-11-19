@@ -8,7 +8,8 @@
      옮긴 자리는 이 브라우저에 기억(nfm.keyFloat — 상자마다 문서 창 왼쪽 위에서의 px). 창이 줄어 밖으로 나가면 보이는 자리만 안으로 당기고 기억한 값은 그대로 둔다(창이 넓어지면 돌아간다).
    · 두 번 누르면 제자리(기억을 지움).
    app.js · zones.js 다음에 읽힌다($ 를 쓴다). 그 둘은 설명을 다시 그린 뒤 keyFloatPlace() 를 부른다(내용이 바뀌면 폭이 바뀐다). */
-const KEY_FLOAT = { ids: ["zonesKey", "divKey"], store: "nfm.keyFloat", at: {}, edge: 6, top: 8, gap: 6 }; // ids = 제자리에 놓는 차례(왼쪽 → 오른쪽 · 위 → 아래)
+// ids = 제자리에 놓는 차례(왼쪽 → 오른쪽 · 위 → 아래) · store = 옮긴 자리의 기억 — 둘째 면(같이 보기 PEEK)은 따로(그 면에서 옮겨도 첫째 면의 상자는 그대로 — spec_작업 ② §12 「도구는 문서마다」)
+const KEY_FLOAT = { ids: ["zonesKey", "divKey"], store: typeof PEEK !== "undefined" && PEEK ? "nfm.keyFloat@peek" : "nfm.keyFloat", at: {}, edge: 6, top: 8, gap: 6 };
 const KEY_FLOAT_TIP = "끌어서 옮기기 · 두 번 누르면 제자리로";
 
 function keyFloatSave() { try { if (Object.keys(KEY_FLOAT.at).length) localStorage.setItem(KEY_FLOAT.store, JSON.stringify(KEY_FLOAT.at)); else localStorage.removeItem(KEY_FLOAT.store); } catch { /* 기억만 안 함 */ } }
