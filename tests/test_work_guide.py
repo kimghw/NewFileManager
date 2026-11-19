@@ -55,7 +55,7 @@ def test_agent_is_registered_and_its_prompt_shows_the_workflow():
 def test_workflow_part_cuts_the_task_section_and_the_common_modules_it_uses():
     p = G.workflow_part("plan_fit")
     assert "## 한눈에" in p and "### 사업계획서 양식 표준화 — `plan_fit`" in p and "### 프로젝트 구성(구분 기준) — `division`" in p and "### 문서 올리기 · 첫 분석 — `intake`" in p
-    assert "`plan_to_report`" not in p.split("## 한눈에", 1)[1].split("공통 모듈:", 1)[1]   # 다른 TASK 의 절은 없다(「한눈에」 표에는 이름이 있다)
+    assert "`plan_to_report`" not in p.split("## 한눈에", 1)[1].split("도구:", 1)[1]   # 다른 TASK 의 절은 없다(「한눈에」 표에는 이름이 있다)
     assert "### 서식 관리자(서식 보관함) — `styles`" not in p and len(p) < len(G.workflow_text())   # 그 TASK 가 안 쓰는 공통 모듈은 없다
     assert "### 표 도구 — `tables`" in p                                                                    # 양식 표준화 3단계(표 점검 · 서식 맞추기)가 쓴다 — spec_양식표준화 ② §1
     home = G.workflow_part(None)

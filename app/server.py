@@ -506,7 +506,7 @@ async def upload(file: UploadFile = File(...), new: bool = False, job: str = "",
     if name.lower().endswith(".hwp"):
         from starlette.concurrency import run_in_threadpool
         name, data = await run_in_threadpool(_from_hwp, name, data)   # 한글 변환은 수 초~수십 초 — 이벤트 루프 밖에서
-    return _open(name, data, new=new, job=job if job and job in TASK["job"] else None, ask=ask, use=use or None)
+    return _open(name, data, new=new, job=job if job and _job_ok(job) else None, ask=ask, use=use or None)
 
 
 def _from_hwp(name, data):
@@ -1327,6 +1327,12 @@ def owpml_now(doc_id: str):
 WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task", "roundParent", "alias")  # roundParent = 분기한 이전 라운드의 문서 id · alias = 별칭(② §10)
 TASK = {"kind": ("", "rnd", "general"), "file": ("", "plan", "report", "part"),
         "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit", "style_copy")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+def _job_ok(job):
+    """그 할 일 키를 아는가 — 붙박이(TASK["job"]) 또는 화면에서 조립한 TASK(app/custom_tasks.py — spec_워크플로우 ② §14: 키 `u_…`)."""
+    from app import custom_tasks
+    return job in TASK["job"] or custom_tasks.is_key(job)
+
+
 TASK_KIND = {"doc_edit": "general", "style_copy": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」(spec_일반편집 ② §11)·「문서 서식 복사」(spec_서식복사 ② §1)는 일반 문서(general)의 일. 다른 조합은 저장하지 않는다(work_task)
 
 
@@ -1398,7 +1404,7 @@ def _work_task(wid, body, locked=False):
     """work_task 의 몸통. locked = 부르는 쪽이 projects.ROUND_LOCK 을 이미 잡음(work_start_task — 재진입이 안 되는 잠금이라 여기서 다시 잡지 않는다).
     round 를 안 보낸 요청은 최신 라운드를 읽어 적는 동안 ROUND_LOCK 을 잡는다(새 라운드·새 TASK 시작의 번호 배정과 같은 잠금) — 세션 잠금·저장은 그 밖에서."""
     t = {k: body.get(k) or "" for k in TASK}
-    if any(t[k] not in TASK[k] for k in TASK) or not isinstance(body.get("project") or "", str):
+    if any(t[k] not in TASK[k] for k in TASK if k != "job") or not _job_ok(t["job"]) or not isinstance(body.get("project") or "", str):
         raise HTTPException(400, "모르는 작업 종류 값입니다")
     # 할 일과 작업 종류의 조합(spec_일반편집 ② §11): 작업 종류가 정해진 할 일(TASK_KIND — 문서 일반 편집 = general)은 그 종류여야 하고(비워도 안 됨 — 비우면 화면·프로젝트 구분 기준 공유가 연구개발로 본다),
     # 그 밖의 할 일은 연구개발(rnd) — 작업 종류를 비운 채 할 일만 남기는 것은 전처럼 된다
@@ -1720,7 +1726,7 @@ def work_start_task(wid: str, body: dict = Body(...)):
     temp = body.get("temp") is True and (project is None or (isinstance(project, str) and not projects.normalize_name(project)))
     if not temp and (not isinstance(project, str) or not projects.normalize_name(project)):
         raise HTTPException(400, "프로젝트 이름을 먼저 입력하세요")
-    if not isinstance(job, str) or not job or job not in TASK["job"] or role not in TASK["file"]:
+    if not isinstance(job, str) or not job or not _job_ok(job) or role not in TASK["file"]:
         raise HTTPException(400, "모르는 TASK 또는 문서 종류입니다")
     project = "" if temp else projects.normalize_name(project)
     with projects.ROUND_LOCK:
@@ -2373,6 +2379,7 @@ app.include_router(heading_drift_api.router)
 from app import merge_api  # noqa: E402
 
 app.include_router(merge_api.router)
+app.include_router(__import__("app.custom_tasks_api", fromlist=["router"]).router)   # 조립한 TASK(화면 /workflow 의 「TASK 조립」 — 단계를 골라 만든 TASK: 목록 · 만들기 · 고치기 · 지우기 · 화면이 읽는 tasks.js) 끝점은 app/custom_tasks_api.py(spec_워크플로우 ② §14)
 app.include_router(__import__("app.form_guides_api", fromlist=["router"]).router)   # 작성 지침 저장(작성 요령 표 · <참고 N> 자료 · ※ 안내를 헤딩/표별로 — 지우기 전에 남김) 끝점은 app/form_guides_api.py(spec_작업 ② §21 「작성 지침 저장」)
 app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)

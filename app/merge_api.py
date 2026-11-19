@@ -50,15 +50,16 @@ def _source_allowed(to_id, from_id):
 
 
 def _mate(to_id, saved):
-    """(프로젝트 이름, 원본 작업 id | None) — 같은 프로젝트·TASK·라운드의 사업계획서."""
+    """(프로젝트 이름, 원본 작업 id | None) — 같은 프로젝트·TASK·라운드의 원본 문서(이관 = 사업계획서 · 조립한 TASK 는 제 원본 종류: app/custom_tasks.py)."""
+    from app import custom_tasks
     task = (works.work(to_id) or {}).get("task") or {}
-    project = task.get("project") or ""
+    project, source = task.get("project") or "", custom_tasks.source_file(task.get("job") or "")
     if saved.get("from") and works.work(saved["from"]):
         # 명시한 원본이 다른 라운드로 이동했으면 멈춘다. 앞 원본의 연결 기록을 다른 문서에 적용하지 않는다.
         return project, saved["from"] if _source_allowed(to_id, saved["from"]) else None
     for w in works.list_works() if project else ():
         t = w.get("task") or {}
-        if w["id"] != to_id and projects.group_key(t) == projects.group_key(task) and t.get("file") == "plan":
+        if w["id"] != to_id and projects.group_key(t) == projects.group_key(task) and t.get("file") == source:
             return project, w["id"]
     return project, None
 

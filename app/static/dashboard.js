@@ -52,12 +52,12 @@ async function dashPrime() { // 그 TASK 의 상태를 문서마다 처음 한 �
   const prime = { key, promise: null };
   DASH.primeLoad = prime;
   prime.promise = (async () => { try {
-    if (agwFit(job) || job === "plan_to_report" || job === "plan_merge") { if (!dv.view) await divShow(); }
+    if (agwFit(job) || taskIsRelay(job) || job === "plan_merge") { if (!dv.view) await divShow(); }
     if (job === "plan_fit") { await agwHeadsView(); if (!agwStdView()) await agwStdFresh(); } // 양식 표준화 2 · 3단계 — 헤딩 요약(단계별 실행이 1단계 결과를 본다 · 추출을 저절로 시작하지 않음) · 분석 상태
-    if (job === "plan_to_report" && !Object.keys(taskFlow.div || {}).length) await taskFlowLoad();
+    if (taskIsRelay(job) && !Object.keys(taskFlow.div || {}).length) await taskFlowLoad();
     if (job === "plan_merge" && typeof gt === "function" && !gt().view) await gatherLoad();
     if (key !== `${dashKey()}|${agwJob()}`) return;
-    if ((agwFit(job) || job === "plan_to_report" || job === "plan_merge") && !dv.view) return;
+    if ((agwFit(job) || taskIsRelay(job) || job === "plan_merge") && !dv.view) return;
     if (job === "plan_fit" && !agwStdView()) return;
     if (job === "plan_merge" && !gt().view) return;
     DASH.primed = key; // 읽기가 끝난 뒤에만 진행 요약을 저장한다(로딩 중 빈 값으로 완료 기록을 덮지 않음).
@@ -349,7 +349,9 @@ function dashRelayLive(M) { // 이관 — 「작업 개요」 의 단계(taskSte
   const L = { steps: {}, runs: {} };
   if (!taskSlots()) { M.notes.push({ text: "이 작업에는 이관의 첨부 파일 칸이 없습니다" }); return L; }
   let open = true;
-  const steps = taskSteps().map((s) => { // 셈은 app.js taskStepsCalc 와 같다 — 그쪽의 taskStepsLast 를 건드리지 않으려고 따로 센다(단추도 새로 받은 것)
+  taskStagesSync(); // 이 TASK 의 묶음(조립한 TASK 는 고른 것만 — app.js)
+  const mine = new Set(TASK_STAGES.flatMap((g) => g.keys));
+  const steps = taskSteps().filter((s) => mine.has(s.key)).map((s) => { // 셈은 app.js taskStepsCalc 와 같다 — 그쪽의 taskStepsLast 를 건드리지 않으려고 따로 센다(단추도 새로 받은 것)
     const st = s.soon ? "soon" : s.done ? "done" : open ? "now" : s.early ? "ready" : "todo";
     if (!s.done && !s.soon) open = false;
     return { ...s, st };
@@ -360,8 +362,9 @@ function dashRelayLive(M) { // 이관 — 「작업 개요」 의 단계(taskSte
     acts.forEach((b, i) => { b.dataset.dashFocus = `act:${s.key}:${i}`; });
     L.steps[s.key] = { state: active === s.key ? "run" : s.st, text: s.st === "todo" ? "" : dashHere(s.text), acts: [...acts] };
   }
-  // 등록부의 선택 단계(LLM) — 「작업 개요」 는 그 줄의 단추로 함께 한다: 헤딩 · 표의 LLM 검증·보완 = 분석 줄(heads · reheads — spec_작업 ② §21) · 자리 연결 LLM 검토 = ② · 표 대응 · 빈 자리 검토 = ③
-  Object.assign(L.steps, { headsLlm: { via: "heads" }, reheadsLlm: { via: "reheads" }, llm: { via: "link" }, tableMap: { via: "plan" }, gaps: { via: "plan" } });
+  // 등록부의 선택 단계 — 「작업 개요」 는 그 줄의 단추로 함께 한다: 구성 불러오기 = 「프로젝트 구성 확정」 줄(spec_작업 ② §21) · 자리 연결 LLM 검토 = ② · 표 대응 · 빈 자리 검토 = ③.
+  // 헤딩 · 표의 LLM 검증·보완(headsLlm · reheadsLlm)은 제 줄이 있는 단계다(위 taskSteps 의 줄 그대로)
+  Object.assign(L.steps, { configLoad: { via: "config" }, llm: { via: "link" }, tableMap: { via: "plan" }, gaps: { via: "plan" } });
   const files = steps.find((s) => s.key === "files");
   if (files && !files.done) L.steps.files.acts.push(dashBtn("「작업 개요」 의 칸 열기", () => showTab("Div"), { primary: true, title: "첨부 파일 칸에서 사업계획서 · 연차보고서를 고르거나 올립니다", focus: "act:files" }));
   const config = steps.find((s) => s.key === "config");
@@ -465,7 +468,7 @@ function dashEditLive() { // 문서 일반 편집 — 단계의 끝을 세지 �
 async function dashLive(job, M) {
   if (job === "plan_fit") return dashStdLive(M);
   if (agwFit(job)) return dashFitLive(M);
-  if (job === "plan_to_report") return dashRelayLive(M);
+  if (taskIsRelay(job)) return dashRelayLive(M); // 이관형 — 붙박이 이관 · 화면에서 조립한 TASK(spec_워크플로우 ② §14)
   if (job === "plan_merge") return dashGatherLive(M);
   if (job === "style_copy") return dashStyleLive();
   if (job === "doc_edit") return dashEditLive();

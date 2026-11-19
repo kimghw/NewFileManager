@@ -160,7 +160,7 @@ def _sections(text):
         if m:
             cur = m[1]
             secs[cur] = [line]
-        elif line.strip() in ("## TASK", "## 공통 모듈"):
+        elif line.strip() in ("## TASK", "## 단계", "## 도구", "## 공통 모듈"):   # 「도구」 = 전의 「공통 모듈」(2026-11-19 — 화면 말) · 「단계」 = TASK 가 조립하는 일반 단계
             cur = "#skip"   # 그 머리 줄 ~ 첫 ### 사이의 글은 버린다
         elif cur == "#head":
             head.append(line)

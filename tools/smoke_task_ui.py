@@ -57,7 +57,7 @@ def open_work(page, wid):
 
 VIS = "(id) => { const e = document.getElementById(id); return !e.hidden && e.getClientRects().length > 0; }"
 SLOTS = "() => Object.fromEntries([...document.querySelectorAll('#taskFlow select[data-task-file]')].map((s) => [s.dataset.taskFile, s.value]))"  # 이관의 첨부 파일 칸(② §11) → {plan, report: 작업 id | ''}
-STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config]):not([data-step=heads]):not([data-step=reheads])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
+STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config]):not([data-step=heads]):not([data-step=reheads]):not([data-step=headsLlm]):not([data-step=reheadsLlm])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
   status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent,
   name: li.querySelector('.dv-flow-title strong').textContent, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }))"""
 CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 1단계 「구성 확정」(spec_작업 ② §18)
@@ -183,7 +183,7 @@ try:
           return !!f && f.parentElement === s && !document.getElementById('taskStage0') && f.previousElementSibling.matches('ol.dv-flow-steps') && a.previousElementSibling === f
             && [...document.querySelectorAll('#taskSteps > details')].map((d) => d.dataset.stage).join() === 'review,frame,map,clean' && f.querySelectorAll('fieldset.dv-config .dv-card').length === 2 && !!f.querySelector('#divSourceSel')
             && !!a && a.parentElement === s && !!a.querySelector('#divAppliedState') && !!a.querySelector('#divRunBar #divPlanButton') && !!a.querySelector('#divRunBar #divApplyButton') && !a.querySelector('#divRunAll') && !document.querySelector('#divBox > fieldset.dv-config, #divBox > #divAppliedState, #divBox > #divRunBar')
-            && !document.getElementById('divPlanButton').classList.contains('primary') && [...document.querySelectorAll('#taskSteps li')].map((li) => li.dataset.step).join() === 'files,heads,config,division,reheads,link,plan,apply,later,guide'; }"""))
+            && !document.getElementById('divPlanButton').classList.contains('primary') && [...document.querySelectorAll('#taskSteps li')].map((li) => li.dataset.step).join() === 'files,heads,headsLlm,config,division,reheads,reheadsLlm,link,plan,apply,later,guide'; }"""))
         check("⑤ 합계 계산 줄 — 아직 없는 단계라는 글(상태는 「준비 중」 그대로)", "아직 없는 단계입니다" in st[5]["text"] and "계산 칸" in st[5]["text"] and st[5]["badge"] == "준비 중", st[5])
         page.screenshot(path=str(OUT / "2_rnd.png"))
         NOLAP = """() => { const t = document.querySelector('.topbar'), r = [...t.children].filter((e) => e.getClientRects().length && !e.classList.contains('spacer')).map((e) => e.getBoundingClientRect());
@@ -375,7 +375,7 @@ try:
         # ---- 6-2. 단계(② §11) — ① 구분 기준 확인: 사업계획서가 기준. 값 없음 → 다름(맞추기) → 같음·반영 전 → 반영됨 → ② 자리 연결(먼저 헤딩·표 분석)
         page.wait_for_function(f"() => {{ const c = ({CONFIG})(); return !!c && c.text.includes('프로젝트 구성(단계·차년도·기관)이 없습니다'); }}")
         st, cf = page.evaluate(STEPS), page.evaluate(CONFIG)
-        check("구성 확정 — 사업계획서에 값 없음 → 「사업계획서에서 추출」(분석이 없어 1단계가 지금이어도 누를 수 있다 = 진행 가능) · ① 은 대기(확정 뒤)", cf["state"] == "ready" and cf["acts"] == ["사업계획서에서 추출"]
+        check("구성 확정 — 사업계획서에 값 없음 → 「사업계획서에서 추출」(분석이 없어 1단계가 지금이어도 누를 수 있다 = 진행 가능) · ① 은 대기(확정 뒤)", cf["state"] == "ready" and cf["acts"] == ["사업계획서에서 추출", "구성 불러오기"]   # 「구성 불러오기」 = 2단계의 선택 단계(파일 · 저장된 곳 — §21)
               and [s["state"] for s in st][:6] == ["done", "todo", "todo", "todo", "todo", "soon"] and not st[1]["acts"], (cf, st))
         hd = page.evaluate(STEP, "heads")
         check("1단계 「헤딩 · 표 분석」 이 지금 — 두 문서에 분석 없음 · 「분석」(강조 · 스크립트)", hd["state"] == "now" and "사업계획서 없음 · 연차보고서 없음" in hd["text"] and hd["acts"] == ["분석"]
@@ -478,6 +478,63 @@ try:
         st = page.evaluate(STEPS)
         check("② 실제 서버 답 — 낼 수 없는 까닭을 문서별로(연차보고서: 구분 기준 반영 전) · 「다시 읽기」", [s["state"] for s in st][:6] == ["done", "done", "now", "todo", "todo", "soon"]
               and "연결 목록을 낼 수 없습니다" in st[2]["text"] and "연차보고서: 프로젝트 구성 반영 전" in st[2]["text"] and "사업계획서:" not in st[2]["text"] and st[2]["acts"] == ["다시 읽기"], st[2])
+        # ---- 8-0. LLM 검증·보완 줄(spec_작업 ② §21 — 2026-11-19 사용자 "1단계 문서 검토에서 LLM 도 들어 가야지"). 이 서버는 LLM 이 꺼져 있어 지금까지 두 LLM 줄은 「건너뜀」 이었다 —
+        # LLM 을 쓸 수 있는 것으로 바꿔(화면 값) 줄의 상태 · 「건너뛰기」 · 「LLM 검증·보완」(끝점은 흉내: POST …/analysis/llm 202 · 그 문서의 헤딩 요약에 LLM 을 거친 표시)을 본다
+        hl0, rl0 = page.evaluate(STEP, "headsLlm"), page.evaluate(STEP, "reheadsLlm")
+        check("LLM 을 쓸 수 없는 서버 — 두 LLM 줄(1단계 「LLM 검증·보완」 · 2단계 「다시 문서 검토(LLM)」)은 건너뜀으로 끝남 · 단추 없음", hl0["state"] == "done" and "LLM 을 쓸 수 없어 건너뜁니다" in hl0["text"] and not hl0["acts"]
+              and rl0["state"] == "done" and "건너뜀" in rl0["text"] and not rl0["acts"] and "다시 문서 검토(LLM)" in rl0["text"], (hl0, rl0))
+        page.evaluate("() => { taskLlmOk = true; taskStepsDraw(); }")
+        hl, st = page.evaluate(STEP, "headsLlm"), page.evaluate(STEPS)
+        check("LLM 을 쓸 수 있으면 — 1단계 「LLM 검증·보완」 이 지금(원본 문서 = 사업계획서 · 유료) · 「LLM 검증·보완」(강조) · 「건너뛰기」 · ② 는 대기(이관 조건: 1 · 2단계가 먼저)",
+              hl["state"] == "now" and hl["acts"] == ["LLM 검증·보완", "건너뛰기"] and "사업계획서의 헤딩 · 템플릿" in hl["text"] and "유료" in hl["text"] and st[2]["state"] == "todo"
+              and page.evaluate("() => document.querySelector('#taskSteps li[data-step=headsLlm] button').classList.contains('primary')")
+              and page.evaluate(STEP, "reheadsLlm")["state"] == "todo" and [x[1] for x in page.evaluate(JOURNEY)] == ["done", "now", "todo", "todo", "todo"], (hl, st[2], page.evaluate(JOURNEY)))
+        page.locator("#taskSteps li[data-step=headsLlm] button", has_text="건너뛰기").click()
+        hl, rl = page.evaluate(STEP, "headsLlm"), page.evaluate(STEP, "reheadsLlm")
+        check("「건너뛰기」 — 그 문서는 스크립트 분석만으로(건너뜀 · 「건너뛰기 취소」 · 이 브라우저에 기억) → 다음은 2단계의 「다시 문서 검토(LLM)」(목적 문서 = 연차보고서)",
+              hl["state"] == "done" and "건너뜀 — 사업계획서는 스크립트 분석만으로" in hl["text"] and hl["acts"] == ["건너뛰기 취소"] and page.evaluate("(id) => JSON.parse(localStorage.getItem('nfm.relayLlmSkip')).includes(id)", c)
+              and rl["state"] == "now" and rl["acts"] == ["LLM 검증·보완", "건너뛰기"] and "연차보고서의 헤딩 · 템플릿" in rl["text"], (hl, rl))
+        llm_calls = []
+
+        def analysis_route(route):  # 「LLM 검증·보완」 의 끝점 흉내 — 걸면 202(도는 작업), 그 뒤 그 문서의 헤딩 요약은 「LLM 을 거침 · 끝남」
+            req = route.request
+            if req.method == "POST" and req.url.endswith("/analysis/llm"):
+                llm_calls.append(req.url.split("/api/docs/")[1].split("/")[0])
+                return route.fulfill(status=202, content_type="application/json", body=json.dumps({"stage": 2, "llm": True, "chain": "llm", "status": "running", "error": None, "started": time.time(), "steps": []}))
+            if req.method == "GET" and req.url.endswith("/headings") and llm_calls and f"/api/docs/{llm_calls[-1]}/" in req.url:
+                got = requests.get(req.url, timeout=60).json()
+                for k in ("stage2", "stage3"):
+                    got[k]["llm"] = {**(got[k].get("llm") or {}), "requested": True, "fallback": False}
+                got["job"] = None
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps(got, ensure_ascii=False))
+            return route.continue_()
+        page.route(re.compile(r"/api/docs/[^/]+/(analysis/llm|headings)$"), analysis_route)
+        was_open = page.evaluate("() => { const b = document.getElementById('taskStage'), was = b.open; b.open = true; return was; }")   # 2단계 묶음은 위에서 접어 뒀다 — 줄의 단추를 누르려면 편다
+        page.locator("#taskSteps li[data-step=reheadsLlm] button", has_text="LLM 검증·보완").click()
+        page.wait_for_function(f"() => {{ const s = ({STEP})('reheadsLlm'); return !!s && s.state === 'done' && s.text.includes('LLM 검증·보완을 거쳤습니다'); }}", timeout=60000)
+        rl, st = page.evaluate(STEP, "reheadsLlm"), page.evaluate(STEPS)
+        check("「LLM 검증·보완」 — 그 문서(연차보고서)로 한 번 걸고(POST …/analysis/llm) 끝나면 줄이 「LLM 검증·보완을 거쳤습니다」 · 단추 없음 → 1 · 2단계가 끝나 ② 가 지금",
+              llm_calls == [a] and rl["state"] == "done" and not rl["acts"] and st[2]["state"] == "now", (llm_calls, rl, st[2]))
+        page.unroute(re.compile(r"/api/docs/[^/]+/(analysis/llm|headings)$"))
+        page.evaluate("(open) => { document.getElementById('taskStage').open = open; }", was_open)
+        page.locator("#taskSteps li[data-step=headsLlm] button", has_text="건너뛰기 취소").click()
+        check("「건너뛰기 취소」 — 다시 1단계의 할 일(지금) · 기억에서 빠짐", page.evaluate(STEP, "headsLlm")["state"] == "now" and page.evaluate("() => localStorage.getItem('nfm.relayLlmSkip')") == "[]", page.evaluate(STEP, "headsLlm"))
+        # 묶음의 「한 번에 진행」 도 LLM 단계를 한다(taskRunLlm — 걸고 끝날 때까지 읽음): 1단계에 「LLM 검증·보완」(사업계획서)이 남았다 → 누르면 그 문서로 한 번 걸고 끝 글에 적는다
+        llm_calls.clear()
+        page.route(re.compile(r"/api/docs/[^/]+/(analysis/llm|headings)$"), analysis_route)
+        page.evaluate("() => { taskRunLast = null; document.getElementById('taskStageR').open = false; }")
+        r1 = page.evaluate("() => { const b = document.querySelector('#taskStageR [data-task-run]'); return { disabled: b.disabled, state: document.querySelector('#taskStageR .dv-phase-state').textContent }; }")
+        page.click("#taskStageR [data-task-run]")
+        page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=120000)
+        last = page.evaluate("() => taskRunLast")
+        check("1단계 「한 번에 진행」 — 남은 일이 LLM 검증·보완뿐: 사업계획서로 한 번 걸고(문서는 안 바뀜) 끝 글 「… 사업계획서 LLM 검증·보완을 거쳤습니다」 · 그 줄이 끝남", not r1["disabled"] and r1["state"].startswith("다음: LLM 검증·보완")
+              and last["ok"] and last["stage"] == "review" and "사업계획서 LLM 검증·보완을 거쳤습니다" in last["text"] and llm_calls == [c]
+              and page.evaluate(STEP, "headsLlm")["state"] == "done" and "LLM 검증·보완을 거쳤습니다" in page.evaluate(STEP, "headsLlm")["text"], (r1, last, llm_calls))
+        page.unroute(re.compile(r"/api/docs/[^/]+/(analysis/llm|headings)$"))
+        page.evaluate("() => { taskRunLast = null; taskRunEnds = {}; document.getElementById('taskStageR').open = true; }")
+        page.evaluate("() => { taskLlmOk = false; return taskFlowLoad(); }")   # 뒤 검사는 LLM 이 꺼진 서버 그대로(두 LLM 줄은 건너뜀)
+        page.evaluate(FAKE_APPLIED)   # 「한 번에 진행」 이 프로젝트 구성을 다시 읽었다 — 화면에 얹은 반영 기록을 다시
+        page.wait_for_function(f"() => !taskFlow.linkBusy && !!taskFlow.links && ({STEP})('reheadsLlm').state === 'done' && ({STEP})('headsLlm').state === 'done'", timeout=60000)
         # 연결 목록이 나온 화면은 가짜 응답으로(반영은 지원 양식에서만) — 묶음 넷(연결됨 · 확인 필요 · 후보 없음 · 원본에만), PUT 은 고른 대로 바꿔 돌려준다. 응답 꼴은 app/merge_api.py
         pid = page.evaluate("() => document.querySelector('#doc .para[data-id]').dataset.id")
         cand = [{"key": "p900", "path": ["연구개발비 사용에 관한 계획", "연구개발기관별 사용계획"], "label": "주관연구개발기관 : ]", "score": 0.664},

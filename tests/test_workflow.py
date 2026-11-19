@@ -48,9 +48,19 @@ def test_stage_groups_and_steps_are_well_formed():
     relay = W.BY_JOB["plan_to_report"]["stages"]
     assert [g["id"] for g in relay] == ["review", "frame", "map", "clean"]   # 이관 = 1~4단계(spec_작업 ② §21 — 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)
     assert {g["id"]: {"no": g["no"], "name": g["name"]} for g in relay} == RELAY_META and all(g["meta"] is None for g in relay)   # 이름은 화면의 RELAY_STAGE_META 와 같다(취합의 TASK_STAGE_META 를 안 쓴다)
-    keys = {g["id"]: [s["key"] for s in g["steps"] if not s["optional"]] for g in relay}   # 선택 단계(LLM)를 뺀 차례 — 화면의 TASK_STAGES.keys(app.js)와 같다
-    assert keys == {"review": ["files", "heads"], "frame": ["config", "division", "reheads"], "map": ["link", "plan", "apply", "later"], "clean": ["guide"]}
-    assert [s["key"] for g in relay for s in g["steps"] if s["optional"]] == ["headsLlm", "reheadsLlm", "llm", "tableMap", "gaps"]
+    keys = {g["id"]: [s["key"] for s in g["steps"] if not s["optional"]] for g in relay}   # 선택 단계를 뺀 차례 — 화면의 TASK_STAGES.keys(app.js)와 같다(헤딩 · 표의 LLM 검증·보완은 제 줄이 있는 단계다 — §21)
+    assert keys == {"review": ["files", "heads", "headsLlm"], "frame": ["config", "division", "reheads", "reheadsLlm"], "map": ["link", "plan", "apply", "later"], "clean": ["guide"]}
+    assert [s["key"] for g in relay for s in g["steps"] if s["optional"]] == ["configLoad", "llm", "tableMap", "gaps"]   # 구성 불러오기(선택) · 3단계의 LLM 검토들
+    # 단계 모듈(spec_워크플로우 ② §13 — 2026-11-19 사용자 "각 단계를 , 여기 모듈로 두고,, task 모듈로 조립할 수 있도록"): 이관의 묶음 넷 = 단계 모듈 넷을 조립한 것
+    mods = {c["id"]: c for c in W.COMMON if c.get("kind") == "stage"}
+    assert [m[0] for m in W.STAGE_MODULES] == list(mods) == [c["id"] for c in W.COMMON[:4]] == ["stage_review", "stage_fit", "stage_fill", "stage_clean"]   # 공통 모듈 목록의 맨 앞 넷
+    assert [g["module"] for g in relay] == list(mods) and all(W.assembled(m) == ["plan_to_report"] for m in mods)
+    for g in relay:   # 묶음의 단계 = (그 TASK 만의 앞 단계 — 이관의 「준비」) + 모듈의 단계: key · 이름이 같고 글은 문서 이름만 다르다
+        own, mk = list(g["steps"]), list(mods[g["module"]]["steps"])
+        own = own[len(own) - len(mk):]
+        assert [x["key"] for x in own] == [x["key"] for x in mk] and [x["name"] for x in own] == [x["name"] for x in mk] and g["name"] == mods[g["module"]]["name"], g["id"]
+        assert all(x["does"].replace("사업계획서", "원본 문서").replace("연차보고서", "목적 문서") == y["does"] for x, y in zip(own, mk)), g["id"]
+    assert all(g.get("module") is None for t in W.TASKS if t["job"] != "plan_to_report" for g in t["stages"])   # 다른 TASK 는 아직 조립하지 않았다(제 묶음 그대로)
     assert [g["id"] for g in W.BY_JOB["plan_merge"]["stages"]] == ["config", "frame", "map"]                # 취합 = 1~3단계
     ids = [c["id"] for c in W.COMMON]
     assert len(ids) == len(set(ids)) and all(c["name"] and c["does"] and c["where"] and c["steps"] for c in W.COMMON)
@@ -128,7 +138,7 @@ def test_task_docs_are_the_registry_written_out():
         for c in t.get("entry") or ():
             assert c["name"] in md and c["does"] in md and c["miss"] in md, (t["job"], c["key"])
     relay = docs[W.task_md("plan_to_report")]
-    assert "### TASK 를 시작할 때" in relay and "### 저절로 돌지 않는 것" in relay and "  - 안 맞으면: " in relay and "  - 끝난 것으로 보는 때: " in relay and "## 쓰는 공통 모듈" in relay
+    assert "### TASK 를 시작할 때" in relay and "### 저절로 돌지 않는 것" in relay and "  - 안 맞으면: " in relay and "  - 끝난 것으로 보는 때: " in relay and "## 쓰는 도구" in relay and "공통 모듈" not in relay   # 화면 말 「도구」(2026-11-19 사용자 "모듈이라고 하지 말고 공통 모듈을 도구라고 하자")
     assert "에이전트: 09 자리 연결 검토" in relay and "`jobs/plan_to_report.md`" in relay and "#### " not in relay   # 묶음은 ### (workflow.md 의 #### 보다 한 층 위 — 문서 하나가 TASK 하나)
     wf = W.markdown()   # 전체 지도는 TASK 문서를 가리키기만 한다(머리에 — 첫 화면 에이전트가 머리만 읽는다)
     head = wf.split("### 사업계획서 양식 표준화 — `plan_fit`", 1)[1].split("\n#### ", 1)[0]

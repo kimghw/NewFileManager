@@ -19,7 +19,7 @@ const agw = () => (AGENT.work || (AGENT.work = { chain: 0, running: null, readTr
 const agwJob = () => (state.task && state.task.job) || "";
 const agwFit = (job) => job === "plan_fit" || job === "report_fit";
 // 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 표준화 · 양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
-const agwGuided = (job = agwJob()) => agwFit(job) || job === "plan_to_report" || job === "plan_merge";
+const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || job === "plan_merge"; // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js)
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
 // ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 개요」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
@@ -254,8 +254,11 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
     return agwCommon(out);
   }
   // key = 이 카드가 가리키는 일(그 묶음의 남은 단계) — 「진행」 을 누를 때 지금과 견준다(agentWorkRun)
-  // 꼬리표 — 1단계 「문서 검토」(헤딩·표 분석 · 작성 지침 저장: 문서 안 바뀜 · 스크립트)는 「저장만」 이라 카드 없이 바로, 뒤 묶음은 「문서 바뀜」(3단계 「내용 넣기」 는 유료 LLM 도) — spec_작업 ② §21
-  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "review" ? "store" : "doc", paid: g.id === "map", primary: true,
+  // 꼬리표 — 1단계 「문서 검토」 는 문서를 안 바꾼다(「저장만」). 유료 = LLM 검증·보완이 남은 묶음(1단계의 headsLlm · 2단계의 reheadsLlm)과 3단계 「내용 넣기」 — 유료면 카드로 묻는다(agwAsk): spec_작업 ② §21.
+  // LLM 을 쓸 수 없거나 사람이 건너뛴 문서의 LLM 단계는 끝난 것이라(건너뜀) 유료가 아니다 — 그때 1단계는 카드 없이 바로 한다
+  const llmLeft = (key) => calc.some((s) => s.key === key && !s.done);
+  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "review" ? "store" : "doc",
+    paid: g.id === "map" || (g.id === "review" && llmLeft("headsLlm")) || (g.id === "frame" && llmLeft("reheadsLlm")), primary: true,
     key: `${docs.map((d) => d.id).join(">")}:${g.id}:${taskStageWork(g).filter((s) => !s.done).map((s) => s.key).join(",")}` });
   return agwCommon(out);
 }
@@ -303,7 +306,7 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
 async function agwStatusOf(job, opt = {}) {
   try {
     if (agwFit(job)) return await agwFitStatus(opt);
-    if (job === "plan_to_report") return await agwRelayStatus();
+    if (taskIsRelay(job)) return await agwRelayStatus();
     if (job === "plan_merge") return await agwGatherStatus();
   } catch (e) { console.error(e); return agwCommon({ steps: [], actions: [], facts: { why: `단계 상태를 읽지 못했습니다: ${e.message}` } }); }
   return agwCommon({ steps: [], actions: [], facts: {} });

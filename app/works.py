@@ -146,7 +146,27 @@ def find_same(name, fmt, sha, job=None) -> dict | None:
     return rows[0] if rows else None
 
 
-TARGET_FILE = {"plan_to_report": "report", "plan_merge": "plan"}  # 할 일 → 목적 문서(내용을 받는 문서)의 첨부 파일 종류: 이관의 연차보고서 · 취합의 취합본(spec_작업 ② §10 「목적 문서의 보이는 이름」)
+class _Targets(dict):
+    """할 일 → 목적 문서의 첨부 파일 종류. 붙박이 TASK 는 사전의 값이고, **조립한 TASK**(app/custom_tasks.py — spec_워크플로우 ② §14)는 그 저장소에서 읽는다 —
+    `TARGET_FILE.get(job)` · `job in TARGET_FILE` · `TARGET_FILE[job]` 을 쓰는 곳이 조립한 TASK 를 따로 알 필요가 없다. 사전의 내용(견줌 · 돌기)은 붙박이 것 그대로다."""
+
+    def get(self, job, default=None):
+        if dict.__contains__(self, job):
+            return dict.__getitem__(self, job)
+        from app import custom_tasks   # 가벼운 모듈(다른 app 모듈을 안 가져온다)
+        return custom_tasks.target_file(job) or default
+
+    def __contains__(self, job):
+        return self.get(job) is not None
+
+    def __getitem__(self, job):
+        got = self.get(job)
+        if got is None:
+            raise KeyError(job)
+        return got
+
+
+TARGET_FILE = _Targets({"plan_to_report": "report", "plan_merge": "plan"})  # 할 일 → 목적 문서(내용을 받는 문서)의 첨부 파일 종류: 이관의 연차보고서 · 취합의 취합본(spec_작업 ② §10 「목적 문서의 보이는 이름」)
 _NOT_IN_FILE_NAME = re.compile(r'[\\/:*?"<>|]+')
 # 임시 프로젝트 이름(spec_작업 ② §17 「임시 프로젝트」 — 이름 없이 TASK 를 시작하면 서버가 붙이는 「임시 프로젝트 N」). 원본은 여기 — projects.TEMP_RE 가 이것이다(projects 가 works 를 가져다 쓰므로 여기 둔다).
 # 보이는 이름 · 프레임 이름에는 붙이지 않는다 — 임시 이름이 문서 이름 · 내려받는 파일 이름에 남지 않게(이름을 정하면 그때 붙는다)

@@ -21,7 +21,7 @@
       <button id="wfViewDiagram" type="button" aria-pressed="true">다이어그램</button>
       <button id="wfViewList" type="button" aria-pressed="false">목록</button>
     </div>
-    <button class="btn sm" id="wfOpenAll" type="button" hidden title="모든 단계의 세부(에이전트 · 모듈 · 사양 자리)를 폅니다">모두 펼치기</button>
+    <button class="btn sm" id="wfOpenAll" type="button" hidden title="모든 단계의 세부(에이전트 · 코드 · 사양 자리)를 폅니다">모두 펼치기</button>
     <button class="btn sm" id="wfCloseAll" type="button" hidden>모두 접기</button>
   </header>
   <div class="wf-wrap">
@@ -31,6 +31,7 @@
     </main>
   </div>
   <script src="/static/task_catalog.js"></script><!-- TASK 이름·한 줄 설명(TASK_CATALOG) · 이관·취합의 단계 이름(TASK_STAGE_META) — 원본 -->
+  <script src="/api/tasks.js"></script><!-- 화면에서 조립한 TASK 를 TASK 목록에 더한다(taskCatalogCustom — task_catalog.js 다음 · app.js 앞: spec_워크플로우 ② §14). 저장소 = 서버(app/custom_tasks.py) · 캐시 안 함 -->
   <script src="/static/workflow.js"></script>
 </body>
 </html>

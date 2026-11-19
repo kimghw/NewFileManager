@@ -20,6 +20,7 @@ GATES = {
     "workspace": ("smoke_workspace_ui.py", False, "문서 위 공용 도구행 · 파일명 행"),
     "task": ("smoke_task_ui.py", True, "작업 종류 · 이관 단계 · 연결 목록 · 넣기 계획"),
     "task_run": ("smoke_task_run_ui.py", True, "이관의 묶음 넷(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리) · 한 번에 진행 · 작성 지침 저장(실제 서식 쌍)"),
+    "custom_task": ("smoke_custom_task_ui.py", True, "조립한 TASK — /workflow 의 「TASK 조립」(단계를 골라 만들기 · 고치기 · 지우기) · TASK 카드 · 그 TASK 의 작업 개요가 고른 묶음만 · 한 번에 진행 · 대시보드"),
     "panel_head": ("smoke_panel_head_ui.py", True, "패널 머리 — 작업 목록 · 도구 이름 줄"),
     "peer": ("smoke_peer_ui.py", True, "같이 보기 — 두 면"),
     "peer_follow": ("smoke_peer_follow_ui.py", True, "같이 보기 — 누른 자리 따라 보기(원본 자리 지도는 흉내)"),
@@ -110,7 +111,8 @@ def free_port(start, taken):
 def start(name, port):
     log = (OUT / f"{name}.log").open("w", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "tools" / GATES[name][0]), str(OUT / name), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
-                            env={**os.environ, "PYTHONUTF8": "1"}, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                            env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(OUT / name / "tasks.json")},   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     return {"name": name, "port": port, "proc": proc, "log": log, "t0": time.time()}
 
 

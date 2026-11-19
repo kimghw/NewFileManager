@@ -30,6 +30,11 @@ def _work(wid):
 def _job(value, work):
     if not isinstance(value, str):
         raise HTTPException(400, "워크플로우를 선택하세요")
+    from app import custom_tasks
+    if custom_tasks.is_key(value):   # 화면에서 조립한 TASK(spec_워크플로우 ② §14) — 이관과 같은 형식(hwp · hwpx)
+        if work.get("format") not in ("hwp", "hwpx"):
+            raise HTTPException(400, "이 문서 형식으로 사용할 수 없는 워크플로우입니다")
+        return value
     task = next((t for t in workflow.TASKS if t["job"] == value), None)
     catalog = workflow.catalog()[0]
     if task is None or task.get("soon") or value not in catalog:
@@ -106,7 +111,7 @@ def workflow_runs_activate(wid: str, body: dict = Body(...)):
         role = current.get("file") or ""
         if job in works.FRAME_FILE:
             role = works.FRAME_FILE[job]
-        elif job == "plan_to_report":
+        elif job == "plan_to_report" or __import__("app.custom_tasks", fromlist=["is_key"]).is_key(job):   # 이관형(붙박이 이관 · 조립한 TASK) — 원본 · 목적 문서 어느 쪽이든 제 역할 그대로
             role = role if role in ("plan", "report") else ""
         elif job in works.TARGET_FILE:
             role = works.TARGET_FILE[job]

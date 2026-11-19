@@ -31,8 +31,8 @@ def _s(key, name, by, does, *, no="", out="", change="none", modules=(), agents=
                 spec=spec, auto=auto, optional=optional, soon=soon, need=need, done=done, stop=stop, left=left)   # need·done·stop·left = 단계마다 조건(COND — TASK 의 단계에만 적는다: ② §10)
 
 
-def _g(gid, steps, *, meta=None, no="", name="", does=""):
-    return dict(id=gid, meta=meta, no=no, name=name, does=does, steps=tuple(steps))
+def _g(gid, steps, *, meta=None, no="", name="", does="", module=None):
+    return dict(id=gid, meta=meta, no=no, name=name, does=does, steps=tuple(steps), module=module)   # module = 이 묶음이 조립한 단계 모듈의 id(STAGE_MODULES — spec_워크플로우 ② §13) | None
 
 
 # ---------------------------------------------------------------- 공통 모듈 — TASK 에 묶이지 않고 여러 TASK 가 쓰는 과정
@@ -579,8 +579,124 @@ def _config(base, files, ready):
 # 이관의 준비 · 프로젝트 구성 확정(§21 — 준비는 1단계 「문서 검토」, 확정은 2단계 「구성 맞추기」 의 첫 단계)
 _RELAY_FILES, _RELAY_CONFIG = _config_steps("사업계획서", "같은 프로젝트 · TASK · 라운드의 사업계획서와 연차보고서를 첨부 파일 칸에서 고릅니다(없으면 올립니다).", "사업계획서 칸과 연차보고서 칸이 모두 찼을 때.",
                                             then="「프로젝트 구성 반영」 으로")
-# 헤딩 · 표의 LLM 검증·보완(선택 — 공통 모듈의 이어 돌리기를 그 문서로 부른다: spec_작업 ② §20 · §21)이 부르는 에이전트
+# 헤딩 · 표의 LLM 검증·보완(공통 모듈의 이어 돌리기를 그 문서로 부른다: spec_작업 ② §20 · §21)이 부르는 에이전트
 _ANALYSIS_LLM_AGENTS = ("heading_rules", "heading_types", "heading_section", "heading_review", "heading_tables", "tpl_agent")
+
+
+# ---------------------------------------------------------------- 단계 모듈 — TASK 가 조립하는 일반 단계(spec_워크플로우 ② §13 · spec_작업 ② §21)
+# 2026-11-19 사용자 "각 단계를 , 여기 모듈로 두고,, task 모듈로 조립할 수 있도록 task 워크플로우를 구성해줘" · "1,2,3,4 단게로로 하고 근데 이건 일반적인 단게고,, 각 단계별로 사업 보고서마다 다 다르겠지?":
+# 일반 단계 넷 — 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리 — 을 **단계 모듈**로 둔다. 모듈 하나 = 단계를 만드는 함수 하나(`_st_*` — 원본 문서 · 목적 문서의 이름을 받는다).
+# 공통 모듈 목록(COMMON)의 그 모듈 절은 같은 함수에 일반 이름(「원본 문서」 · 「목적 문서」)을 넣어 만든 것이고, TASK 는 `_stage(모듈 id, 묶음 id, 번호, 원본 이름, 목적 이름)` 로 조립한다 —
+# 단계의 글은 한 곳(그 함수)에만 있다. TASK 마다 다른 것(문서 이름 · 그 TASK 만의 앞 단계 · 묶음의 한 줄 설명)은 조립할 때 준다. 지금 조립한 TASK = 이관(plan_to_report).
+def _st_review(S, D):
+    """단계 모듈 「문서 검토」 — 헤딩 · 표 분석(스크립트) → LLM 검증·보완. S·D = 원본 · 목적 문서의 이름."""
+    return (
+        _s("heads", "헤딩 · 표 분석", "script", f"문서({S} · {D})에 헤딩 그래프 · 표 구조가 있는지 보고, 없는 문서만 스크립트로 분석합니다(LLM 호출 없음 — 올릴 때 저절로 돈 기본 분석). "
+           "끝나면 양식의 작성 지침(작성 요령 표 · 「<참고 N>」 자료 · ※ 안내 · 각주 번호가 가리키는 작성 요령 항목)을 어느 헤딩 · 어느 표의 것인지와 함께 저장합니다.",
+           out="문서마다의 헤딩 그래프 · 표 구조 · 헤딩/표별 작성 지침", change="store", uses=("headings",), modules=("heading_runs", "form_guides"), spec=(SP_WORK, "② §21"),
+           need=f"{S} · {D}(hwpx).", done="문서마다 헤딩 그래프 · 표 구조가 있을 때 — 문서를 고친 뒤에도 있던 분석을 씁니다(다시 하라고 하지 않습니다).",
+           stop="분석이 실패하면 까닭을 알리고 멈춥니다 — 「헤딩 추출」 탭에서 확인합니다.",
+           left="작성 지침은 작업에 저장돼 「문서 정리」 가 문서에서 지운 뒤에도 남습니다 — 줄의 「작성 지침」 으로 헤딩별 · 표별 목록을 봅니다."),
+        _s("headsLlm", "LLM 검증·보완", ("human", "llm"), f"{S}(원본 — 이 TASK 에서 바뀌지 않는 문서)의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다(유료 · 몇 분). 문서는 바뀌지 않습니다. "
+           f"{D}의 LLM 검증·보완은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 합니다 — 구조 반영 전에 받은 판정은 반영 뒤 옛것이 됩니다.",
+           out=f"LLM 검증·보완을 거친 {S}의 헤딩 그래프 · 표 구조", change="store", uses=("headings",), agents=_ANALYSIS_LLM_AGENTS, modules=("analysis_llm", "heading_runs"), spec=(SP_WORK, "② §20·§21"),
+           need=f"{S}의 헤딩 · 표 분석 · LLM 연결(유료 — 줄의 「LLM 검증·보완」 · 묶음의 「한 번에 진행」).",
+           done=f"{S}의 헤딩 · 표가 LLM 검증·보완을 거쳤을 때 — LLM 을 쓸 수 없거나 사람이 「건너뛰기」 를 누르면 「건너뜀」 으로 끝난 것으로 봅니다(스크립트 분석만으로 진행).",
+           stop="LLM 이 답을 못 하면 멈춥니다 — 다시 누르거나 그 줄의 「건너뛰기」 로 스크립트 분석만으로 진행합니다.", left="건너뛴 문서는 스크립트 분석만으로 갑니다 — 그 줄의 「건너뛰기 취소」 로 되돌립니다."),
+    )
+
+
+def _st_fit(S, D):
+    """단계 모듈 「구성 맞추기」 — 구성 불러오기(선택) → 프로젝트 구성 확정 → 프로젝트 구성 반영 → 다시 문서 검토(스크립트 → LLM)."""
+    config = _config_steps(S, "", "", then="「프로젝트 구성 반영」 으로")[1]
+    return (
+        _s("configLoad", "구성 불러오기", "human", "프로젝트 구성을 불러옵니다 — 파일에서(이 프로젝트의 문서에서 추출 · 파일 올려 추출) 또는 저장된 곳에서(이 프로젝트의 확정본 · 다른 프로젝트 · 저장한 구성). "
+           "입력 칸만 바뀌고 문서와 확정은 그대로입니다.", change="store", optional=True, uses=("division",), modules=("division_model", "projects"), spec=(SP_WORK, "② §18·§21"),
+           need="「프로젝트 구성 확정」 줄의 「구성 불러오기」(구성 입력 칸의 「프로젝트 구성 불러오기」 목록).", done="안 해도 됩니다 — 끝남을 따로 세지 않습니다.",
+           left="불러온 값은 확인한 뒤 「프로젝트 구성 확정」 에서 저장해야 기준이 됩니다."),
+        config,
+        _s("division", "프로젝트 구성 반영", ("script", "human"), f"{D}의 값을 {S} 기준으로 맞추고 변경 계획(바뀔 자리)을 확인한 뒤 반영합니다 — 절 · 표 행 · 표 열만 늘리고 줄입니다. {S}의 내용은 넣지 않습니다.", no="①",
+           out=f"구조를 맞춘 {D}", change="doc", uses=("division",), modules=("division_plan", "division_model"), spec=(SP_WORK, "② §11·§14"),
+           need=f"프로젝트 구성 확정 · {S}(기준)의 프로젝트 구성 값.", done=f"{D}의 값이 {S}와 같고 그 값이 {D}에 반영됐을 때.",
+           stop="계획을 못 세웠거나 · 계획 오류 · 미해결 자리가 있거나 · 기관의 차례가 마지막 반영과 다르면 「한 번에 진행」 이 반영하지 않고 멈춥니다.", left="지원 안 되는 자리는 그대로 둡니다."),
+        _s("reheads", "다시 문서 검토", "script", f"구조 반영으로 바뀐 문서({D})를 다시 검토합니다 — 늘어난 절 · 표가 분석에 들어가게 헤딩 그래프 → 표 구조를 다시 분석합니다(스크립트 · LLM 호출 없음). 끝나면 작성 지침을 다시 저장합니다.",
+           out=f"구조 반영 뒤의 {D} 분석", change="store", uses=("headings",), modules=("heading_runs", "form_guides"), spec=(SP_WORK, "② §21"),
+           need=f"① 프로젝트 구성 반영이 끝난 {D}.", done=f"{D}의 분석이 마지막 구조 반영 뒤의 것일 때 — 구조 반영 밖의 편집은 따지지 않습니다.",
+           stop="분석이 실패하면 까닭을 알리고 멈춥니다.",
+           left="구조 반영 전의 분석이 LLM 판정을 거친 결과여도 다시 분석합니다(다음 단계가 LLM 검증·보완을 다시 받습니다) — LLM 을 쓸 수 없을 때만 그 결과를 그대로 두고 알립니다."),
+        _s("reheadsLlm", "다시 문서 검토(LLM)", ("human", "llm"), f"구조를 맞춘 {D}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다(유료 · 몇 분). 문서는 바뀌지 않습니다.",
+           out=f"LLM 검증·보완을 거친 {D}의 헤딩 그래프 · 표 구조", change="store", uses=("headings",), agents=_ANALYSIS_LLM_AGENTS, modules=("analysis_llm", "heading_runs"), spec=(SP_WORK, "② §20·§21"),
+           need=f"구조 반영 뒤의 {D} 분석 · LLM 연결(유료 — 줄의 「LLM 검증·보완」 · 묶음의 「한 번에 진행」).",
+           done=f"{D}의 헤딩 · 표가 LLM 검증·보완을 거쳤을 때 — LLM 을 쓸 수 없거나 사람이 「건너뛰기」 를 누르면 「건너뜀」 으로 끝난 것으로 봅니다.",
+           stop="LLM 이 답을 못 하면 멈춥니다 — 다시 누르거나 그 줄의 「건너뛰기」 로 스크립트 분석만으로 진행합니다.", left="건너뛴 문서는 스크립트 분석만으로 갑니다."),
+    )
+
+
+def _st_fill(S, D):
+    """단계 모듈 「내용 넣기」 — 자리 연결 → (LLM 검토) → 넣기 계획 → (표 대응 · 빈 자리 검토) → 내용 반영 → (합계 계산 — 준비 중)."""
+    return (
+        _s("link", "자리 연결", "script", "두 문서의 자리(문단 묶음 · 표)를 구분 기준 값과 이름으로 잇습니다 — 연결됨 · 확인 필요 · 후보 없음. 같은 서식 쌍에 저장해 둔 짝이 있으면 그것을 먼저 씁니다.", no="②",
+           out="연결 목록", change="store", modules=("merge_pairs", "merge_fixed", "merge_saved", "merge_api"), spec=(SP_MERGE, "② §0-1·§4·§5-1"),
+           need=f"「문서 검토」 의 헤딩 · 표 분석 · 「구성 맞추기」 로 구조를 맞춘 {D} — 서버가 목록을 못 내는 까닭(분석 없음 · 값 없음 · 반영 전 · 값이 {S}와 다름)이 없을 때.",
+           done="연결 목록에 확인 필요가 없거나, LLM 검토를 한 번 했을 때.",
+           left="LLM 검토 뒤에도 남은 확인 필요 자리는 넣지 않고 비워 둡니다(각 기관이 이어서 작성) — 「연결 목록」 에서 후보를 골라 보정합니다."),
+        _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리와 같은 표인지 못 정한 표를 LLM 이 쪽 묶음마다 판정합니다. 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다.", change="store", optional=True,
+           agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
+           need="연결 목록에 확인 필요 · 후보 없음 자리나 같은 표인지 못 정한 표가 있을 때 · LLM(유료 — 단추나 확인을 받은 「한 번에 진행」 안에서).",
+           done="한 번 검토했을 때 — 안 해도 넣기 계획은 세울 수 있습니다.", left="한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다."),
+        _s("plan", "표 안 연결 · 넣기 계획", "script", "이어진 자리마다 넣을 본문 블록 · 표 칸 · 늘릴 행과 못 넣는 까닭을 셉니다. 문서는 바뀌지 않습니다.", no="③", out="넣기 계획",
+           modules=("merge_fill", "merge_tables"), spec=(SP_MERGE, "② §5·§6"),
+           need="이어진 자리(연결됨 · 같은 이름 자리)가 하나라도 있을 때 — ② 에 확인 필요가 남아 있어도 세울 수 있습니다.",
+           done="넣기 계획이 있거나 · 이미 반영했거나 · 이어진 자리가 없어 계획할 것이 없거나 · 지난 반영 기록이 남아 있을 때.", left="못 넣는 자리는 까닭과 함께 셉니다."),
+        _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다 — 글은 LLM 이 쓰지 않고 {S} 칸의 글을 옮깁니다.", change="store",
+           optional=True, agents=("merge_table_map",), modules=("merge_table_map",), spec=(SP_MERGE, "② §5-3"),
+           need="같은 표로 이었지만 행 · 열 구성이 달라 칸을 못 맞춘 표가 있을 때 · LLM(유료).", done="칸을 못 맞춘 표가 남지 않았을 때 — 안 해도 됩니다.", left=f"글은 LLM 이 쓰지 않습니다 — {S} 칸의 글을 옮깁니다."),
+        _s("gaps", "빈 자리 검토(LLM)", "llm", f"다른 길이 못 채운 빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄을 모아 {S}의 어디에서 가져올지 LLM 이 찾습니다(없으면 없다고 답합니다).", change="store",
+           optional=True, agents=("merge_gaps",), modules=("merge_gaps",), spec=(SP_MERGE, "② §5-4"),
+           need="넣기 계획이 있고 다른 길이 못 채운 빈 자리가 있을 때 · LLM(유료).", done="아직 묻지 않은 빈 자리가 남지 않았을 때 — 안 해도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
+        _s("apply", "내용 반영", ("human", "script"), f"「계획 보기」 에서 확인하고 「반영」 을 누르면 {S}의 글 · 표 · 그림이 그 자리에 들어갑니다 — 서식은 {D}의 틀에 맞추고, 넣는 내용의 개요가 자리보다 깊으면 "
+           "넘친 개요 레벨로 처리합니다.", no="④", out=f"내용이 들어간 {D}", change="doc", modules=("merge_fill", "merge_tables", "merge_convert", "merge_over", "merge_origins", "outline_conform"),
+           spec=(SP_MERGE, "② §5-2·§5-5·§6"),
+           need="넣기 계획 — 「계획 보기」 에서 확인하고 「반영」.", done="반영했거나 · 넣을 것이 없거나(이미 넣었거나 넣을 자리가 없음) · 지난 반영 기록이 남아 있을 때.",
+           left="같은 자리인지 분명하지 않은 자리는 비워 둡니다(초안 — 실패가 아닙니다)."),
+        _s("later", "합계 계산 → 결과 확인", "script", "아직 없는 단계입니다 — 넣은 값으로 합계 · 소계 · 비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다.",
+           no="⑤", soon=True),
+    )
+
+
+def _st_clean(S, D):
+    """단계 모듈 「문서 정리」 — 양식 안내 지우기(지우기 전에 작성 지침 저장)."""
+    return (
+        _s("guide", "작성요령 삭제", ("script", "human"), "지우는 패턴 목록에 걸린 양식 안내(작성 요령 표 · 「<참고 N>」 자료 · 안내 색 ※ 글 · 위첨자 각주 번호)를 한 번에 지웁니다(확인 창 없이 · 실행 취소 한 번). 내용과 쓸 자리는 남깁니다. "
+           "지우기 바로 전에 작성 지침을 헤딩/표별로 한 번 더 저장합니다.",
+           no="⑥", out=f"안내를 지운 {D}", change="doc", modules=("form_cleanup", "form_guides"), spec=(SP_WORK, "② §14·§21"),
+           need=f"④ 내용 반영이 끝난 {D}.", done="④ 가 끝났고 지울 안내가 남지 않았을 때.",
+           stop="한 번에 지웁니다 — 멈춤을 요청했거나 그 사이 다른 문서를 열었으면 지우지 않고 멈춤으로 보고합니다.",
+           left="지우는 패턴 목록에 없는 안내와 내용 · 쓸 자리는 남깁니다. 지운 작성 지침은 작업에 저장돼 있습니다(「헤딩 · 표 분석」 줄의 「작성 지침」)."),
+    )
+
+
+_GENERIC = ("원본 문서", "목적 문서")   # 단계 모듈 절의 문서 이름(일반) — TASK 가 조립할 때 제 문서 이름으로 바뀐다(이관 = 사업계획서 · 연차보고서)
+_STAGE_WHERE = "패널 「작업 개요」 의 그 묶음 · 대시보드 — 이 모듈을 조립한 TASK 에서"
+# 단계 모듈 등록부 — id → (이름, 단계를 만드는 함수, 한 줄 설명). 차례 = 일반 단계의 차례(1 → 4)
+STAGE_MODULES = (
+    ("stage_review", "문서 검토", _st_review,
+     "TASK 의 첫 일반 단계입니다 — 문서마다 헤딩 · 표를 분석하고(스크립트) LLM 으로 검증 · 보완합니다. 양식의 작성 지침을 헤딩/표별로 저장합니다. 문서는 바뀌지 않습니다. 문서마다 따로 하는 일이라 원본 · 목적 문서에서 같이 진행할 수 있습니다."),
+    ("stage_fit", "구성 맞추기", _st_fit,
+     "프로젝트 구성(단계 · 차년도 · 기관)을 불러오거나 추출해 확정하고, 목적 문서의 구조(절 · 표 행 · 표 열)를 그 값에 맞춘 뒤 바뀐 문서를 다시 검토합니다. 내용은 넣지 않습니다."),
+    ("stage_fill", "내용 넣기", _st_fill,
+     "원본 문서의 내용을 목적 문서의 같은 자리에 넣습니다 — 자리 연결 → 넣기 계획 → 내용 반영. 앞의 두 단계(문서 검토 · 구성 맞추기)를 마친 문서끼리만 합니다(이관 · 취합의 조건)."),
+    ("stage_clean", "문서 정리", _st_clean,
+     "양식이 글쓴이에게 주는 안내(작성 요령 표 · 「<참고 N>」 자료 · ※ 안내 · 각주 번호)를 지웁니다 — 지우기 전에 작성 지침을 헤딩/표별로 저장합니다."),
+)
+_STAGE_BY = {m[0]: m for m in STAGE_MODULES}
+
+
+def _stage(module, gid, no, S, D, *, does, first=()):
+    """TASK 의 묶음 하나 = 단계 모듈을 조립한 것. module = 단계 모듈 id · gid = 그 TASK 의 묶음 id(화면 · 서버가 쓰는 키) · no = 번호(「1단계」) · S·D = 그 TASK 의 원본 · 목적 문서 이름 ·
+    first = 모듈의 단계 앞에 두는 그 TASK 만의 단계(이관의 「준비」) · does = 그 TASK 에서의 한 줄 설명."""
+    _, name, make, _ = _STAGE_BY[module]
+    return _g(gid, tuple(first) + make(S, D), no=no, name=name, does=does, module=module)
 
 
 TASKS = (
@@ -667,13 +783,15 @@ TASKS = (
     dict(job="plan_to_report", inputs="사업계획서(내용이 든 연구개발계획서 — 원본 문서) + 연차보고서 서식(빈 파일 — 목적 문서)", output="계획서의 내용이 들어간 연차보고서 초안",
          note="값도 내용도 기준은 사업계획서입니다. 결과는 초안입니다 — 모든 자리를 채우는 것이 목표가 아니고, 같은 자리인지 분명하지 않으면 잇지 않고 비워 둡니다(그 뒤 각 기관이 이어서 작성). 사업계획서(원본)는 바뀌지 않습니다.",
          ways=_ways(
-             quick="에이전트가 묶음마다 「한 번에 진행」 을 제안합니다 — 1단계 문서 검토(두 문서의 헤딩 · 표 분석 — 스크립트 · 문서 안 바뀜)는 바로 하고, 2단계 구성 맞추기(프로젝트 구성 확정 → 구조 반영 → 연차보고서 다시 분석) · "
-                   "3단계 내용 넣기(자리 연결 → 넣기 — 유료 LLM) · 4단계 문서 정리(양식 안내 지우기)는 묶음마다 실행 카드에서 확인받습니다. "
+             quick="에이전트가 묶음마다 「한 번에 진행」 을 제안하고 실행 카드에서 확인받습니다 — 1단계 문서 검토(두 문서의 헤딩 · 표 분석 → 사업계획서의 LLM 검증·보완: 유료 · 문서 안 바뀜) · "
+                   "2단계 구성 맞추기(프로젝트 구성 확정 → 구조 반영 → 다시 문서 검토: 연차보고서의 다시 분석 → LLM 검증·보완) · 3단계 내용 넣기(자리 연결 → 넣기 — 유료 LLM) · 4단계 문서 정리(양식 안내 지우기). "
+                   "LLM 을 쓸 수 없으면 LLM 단계는 건너뛰고 스크립트 분석만으로 갑니다. "
                    "패널 「작업 개요」 의 「이어서 한 번에」 는 남은 묶음을 누르면 바로 잇습니다(확인 창 없음 · 실행 취소는 묶음마다 따로).",
              asks="사업계획서와 연차보고서(둘 다 있어야 시작합니다) · 프로젝트 이름(비우면 임시 이름으로 두 문서를 묶음) · 프로젝트 구성(사업계획서에서 읽지 못하면).",
              stops="2단계는 계획 오류 · 미해결 자리가 있거나 기관의 차례가 다르면 구조를 반영하지 않고 멈춥니다. 3단계는 같은 자리인지 분명하지 않으면 잇지 않고 비워 둡니다(초안 — 실패가 아닙니다): "
                    "연결 목록의 「확인 필요」 와 넣기 계획의 못 넣는 까닭에서 보정합니다. 4단계(지우기)는 3단계가 끝난 문서에서만 합니다 — 지우기 전에 작성 지침을 헤딩/표별로 남깁니다.",
-             detail="패널 「작업 개요」 의 묶음마다 세부 목록 — 헤딩 · 표의 LLM 검증·보완(선택 · 유료: 사업계획서는 1단계, 연차보고서는 2단계의 다시 분석 줄에서)을 돌리거나, 자리 연결을 고치거나 LLM 검토 · 표 대응 · 넣기 계획을 따로 볼 때."),
+             detail="패널 「작업 개요」 의 묶음마다 세부 목록 — 분석만 먼저 하거나(「분석」 · 「다시 분석」 은 그 단계만), LLM 검증·보완을 건너뛰거나(「건너뛰기」), 구성을 불러오거나(「구성 불러오기」 — 파일 · 저장된 곳), "
+                    "자리 연결을 고치거나 LLM 검토 · 표 대응 · 넣기 계획을 따로 볼 때. 구성 확정과 구조 반영은 원본의 LLM 검증·보완이 도는 동안에도 누를 수 있습니다(1 · 2단계는 두 문서에서 같이)."),
          entry=(   # 시작 점검(② §10) — 근거: home_files.js homeFilesGo·hfAddSource · doc_agent_work.js agwRelayStatus · app.js taskSteps
              _c_format(), _C_TARGET,
              _c("source", "start", "사업계획서 · 프로젝트 이름", "목적 문서는 연차보고서입니다. 문서 목록의 나머지 문서가 사업계획서 하나까지인지, hwp · hwpx 인지 봅니다. 두 문서는 같은 프로젝트로 묶습니다 — 프로젝트 이름을 비우면 임시 이름(임시 프로젝트 N)으로.",
@@ -690,6 +808,8 @@ TASKS = (
                 "원본을 열었으면 실행 행동을 내지 않고 「연차보고서 열기」 를 카드로 묻습니다(원본은 바뀌지 않습니다).", uses=("agent",), spec=(SP_GUIDE, "② §7")),
              _c("heads", "enter", "헤딩 · 표 분석", "두 문서에 헤딩 그래프 · 표 구조가 있는지 봅니다 — 문서를 고친 뒤에도 있던 분석을 씁니다. 분석이 도는 중이면 5초마다 다시 읽습니다.",
                 "없으면 1단계 「문서 검토」 가 지금 차례입니다(「한 번에 진행」 이 없는 문서만 스크립트로 분석).", uses=("headings",), spec=(SP_WORK, "② §21")),
+             _c("llmOk", "enter", "LLM 을 쓸 수 있나 · 건너뛴 문서", "서버의 LLM 을 쓸 수 있는지(한 번)와, 사람이 LLM 검증·보완을 건너뛴 문서인지(이 브라우저의 기억)를 봅니다.",
+                "LLM 을 쓸 수 없거나 건너뛴 문서면 그 문서의 LLM 단계(「LLM 검증·보완」 · 「다시 문서 검토(LLM)」)는 「건너뜀」 으로 끝난 것으로 봅니다 — 스크립트 분석만으로 진행합니다.", uses=("headings",), spec=(SP_WORK, "② §21")),
              _c("guides", "enter", "작성 지침 저장", "연차보고서에 분석은 있는데 저장한 작성 지침이 없으면 한 번 모아 저장합니다 — 작성 요령 표 · 「<참고 N>」 자료 · ※ 안내를 어느 헤딩 · 어느 표의 것인지와 함께(스크립트 · 문서 안 바뀜).",
                 "모으지 못하면 그대로 넘어갑니다 — 4단계 「작성요령 삭제」 가 지우기 바로 전에 다시 남깁니다.", spec=(SP_WORK, "② §21")),
              _c("config", "enter", "프로젝트 구성 확정", "사업계획서 기준의 프로젝트 구성을 프로젝트에 확정했는지 봅니다 — 저장된 값이 없으면 사업계획서에서 읽어 보입니다.",
@@ -697,7 +817,12 @@ TASKS = (
              _c("division", "enter", "연차보고서의 구조", "연차보고서의 값이 사업계획서와 같은지, 그 값이 연차보고서에 반영됐는지 봅니다(당해 차년도는 견주지 않고, 다르면 글로 보입니다).",
                 "값이 다르면 「사업계획서 기준으로 맞추기」, 반영 전이면 「변경 계획 보기」 가 다음 차례입니다.", uses=("division",), spec=(SP_WORK, "② §11·§14")),
              _c("reheads", "enter", "구조 반영 뒤의 분석", "연차보고서의 헤딩 · 표 분석이 마지막 구조 반영 뒤의 것인지 봅니다 — 구조 반영 밖의 편집은 따지지 않습니다.",
-                "구조 반영 전의 분석이면 2단계의 「헤딩 · 표 다시 분석」 이 남습니다(「한 번에 진행」 이 스크립트로). LLM 판정을 거친 분석이면 저절로 덮지 않고 그대로 두었다고 알립니다.", uses=("headings",), spec=(SP_WORK, "② §21")),
+                "구조 반영 전의 분석이면 2단계의 「다시 문서 검토」 가 남습니다(「한 번에 진행」 이 스크립트로 다시 분석 → LLM 검증·보완). LLM 판정을 거친 분석이어도 다시 분석합니다 — LLM 을 쓸 수 없을 때만 그대로 두었다고 알립니다.",
+                uses=("headings",), spec=(SP_WORK, "② §21")),
+             _c("cond", "enter", "이관 조건", "3단계(내용 넣기)는 두 문서가 1 · 2단계를 마친 뒤에만 진행합니다 — 원본 문서(사업계획서): 헤딩 · 표 분석 · LLM 검증·보완 · 프로젝트 구성 확정 / "
+                "목적 문서(연차보고서): 헤딩 · 표 분석 · 구조 반영 · 다시 문서 검토. 1 · 2단계는 문서마다의 준비라 두 문서에서 같이 진행할 수 있습니다(원본의 LLM 검증·보완이 도는 동안 목적 문서의 구성을 맞춤).",
+                "덜 끝난 조건이 있으면 3단계의 「한 번에 진행」 이 꺼지고 묶음 머리에 「N단계 … 완료 후 진행」 이 보입니다 — ② 자리 연결 줄은 서버가 본 까닭(분석 없음 · 값 없음 · 반영 전 · 값이 다름)을 문서별로 보입니다.",
+                spec=(SP_WORK, "② §21")),
              _c("links", "enter", "연결 목록", "분석이 있으면 두 문서의 자리를 이은 연결 목록을 읽습니다(연결됨 · 확인 필요 · 후보 없음 · 같은 이름 자리) — 같은 서식 쌍에 저장해 둔 짝이 있으면 먼저 씁니다.",
                 "서버가 목록을 낼 수 없으면 까닭을 그대로 보입니다(헤딩·표 분석 없음 · 프로젝트 구성 값 없음 · 반영 전 · 값이 사업계획서와 다름 · hwpx 가 아님).", spec=(SP_MERGE, "② §0-1·§4")),
              _c("kept", "enter", "지난 반영 기록", "이 연차보고서에 앞서 넣은 자리의 기록이 남아 있는지 봅니다.", "있으면 넣기 계획 · 내용 반영을 끝난 것으로 보고, 더 넣을 것은 「넣기 계획 다시」 가 셉니다.",
@@ -708,75 +833,15 @@ TASKS = (
              _C_RUNNING,
              _C_LLM, _C_DIVLLM, _C_ZONELLM, _c_task_llm("자리 연결 LLM 검토 · 표 대응 · 빈 자리 검토", "단계의 단추나, 확인을 받은 3단계 「한 번에 진행」 안에서 돕니다"),
          ),
-         # 묶음 넷(spec_작업 ② §21 — 2026-11-19 사용자 "문서 검토 … 단계가 있어야 하겠구나 헤딩/테이불 분석, 그 다음에 문서구성 그다음에 매핑" · "단계로 하면 구성 맞추기, 내용 넣기"). 이름의 원본은 화면의
+         # 묶음 넷 = 단계 모듈 넷을 조립한 것(spec_작업 ② §21 · spec_워크플로우 ② §13 — 2026-11-19 사용자 "각 단계를 , 여기 모듈로 두고,, task 모듈로 조립할 수 있도록"). 묶음 이름의 원본은 화면의
          # task_catalog.js RELAY_STAGE_META — 여기 no·name 과 같아야 한다(tests/test_workflow.py). 취합은 TASK_STAGE_META(meta) 그대로
          stages=(
-             _g("review", (
-                 _RELAY_FILES,
-                 _s("heads", "헤딩 · 표 분석", "script", "두 문서(사업계획서 · 연차보고서)에 헤딩 그래프 · 표 구조가 있는지 보고, 없는 문서만 스크립트로 분석합니다(LLM 호출 없음 — 올릴 때 저절로 돈 기본 분석). "
-                    "끝나면 양식의 작성 지침(작성 요령 표 · 「<참고 N>」 자료 · ※ 안내 · 각주 번호가 가리키는 작성 요령 항목)을 어느 헤딩 · 어느 표의 것인지와 함께 저장합니다.",
-                    out="두 문서의 헤딩 그래프 · 표 구조 · 헤딩/표별 작성 지침", change="store", uses=("headings",), modules=("heading_runs", "form_guides"), spec=(SP_WORK, "② §21"),
-                    need="사업계획서 · 연차보고서 두 문서(hwpx).", done="두 문서에 헤딩 그래프 · 표 구조가 있을 때 — 문서를 고친 뒤에도 있던 분석을 씁니다(다시 하라고 하지 않습니다).",
-                    stop="분석이 실패하면 까닭을 알리고 멈춥니다 — 「헤딩 추출」 탭에서 확인합니다.",
-                    left="작성 지침은 작업에 저장돼 4단계가 문서에서 지운 뒤에도 남습니다 — 줄의 「작성 지침」 으로 헤딩별 · 표별 목록을 봅니다."),
-                 _s("headsLlm", "LLM 검증·보완 — 사업계획서", ("human", "llm"), "사업계획서(원본 — 바뀌지 않는 문서)의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다(유료 · 몇 분). 문서는 바뀌지 않습니다. "
-                    "연차보고서의 LLM 검증·보완은 구조 반영 뒤(2단계의 다시 분석 줄)에 합니다 — 반영 전에 받은 판정은 반영 뒤 옛것이 됩니다.", change="store", optional=True, uses=("headings",),
-                    agents=_ANALYSIS_LLM_AGENTS, modules=("analysis_llm", "heading_runs"), spec=(SP_WORK, "② §20·§21"),
-                    need="사업계획서의 헤딩 · 표 분석 · LLM 연결(유료 — 「헤딩 · 표 분석」 줄의 단추. 「한 번에 진행」 은 부르지 않습니다).", done="안 해도 됩니다 — 끝남을 따로 세지 않습니다(했는지는 분석 줄에 보입니다).",
-                    left="LLM 이 답을 못 하면 스크립트 결과로 남습니다."),
-             ), no="1단계", name="문서 검토", does="두 문서의 헤딩 · 표를 분석하고 양식의 작성 지침을 헤딩/표별로 저장 — 문서는 안 바뀜"),
-             _g("frame", (
-                 _RELAY_CONFIG,
-                 _s("division", "프로젝트 구성 반영", ("script", "human"), "연차보고서의 값을 사업계획서 기준으로 맞추고 변경 계획(바뀔 자리)을 확인한 뒤 반영합니다 — 절 · 표 행 · 표 열만 늘리고 줄입니다. 계획서의 내용은 넣지 않습니다.", no="①",
-                    out="구조를 맞춘 연차보고서", change="doc", uses=("division",), modules=("division_plan", "division_model"), spec=(SP_WORK, "② §11·§14"),
-                    need="프로젝트 구성 확정 · 사업계획서(기준)의 프로젝트 구성 값.", done="연차보고서의 값이 사업계획서와 같고 그 값이 연차보고서에 반영됐을 때.",
-                    stop="계획을 못 세웠거나 · 계획 오류 · 미해결 자리가 있거나 · 기관의 차례가 마지막 반영과 다르면 「한 번에 진행」 이 반영하지 않고 멈춥니다.", left="지원 안 되는 자리는 그대로 둡니다."),
-                 _s("reheads", "헤딩 · 표 다시 분석", "script", "구조 반영으로 늘어난 절 · 표가 분석에 들어가게 연차보고서를 다시 분석합니다(헤딩 그래프 → 표 구조 — 스크립트 · LLM 호출 없음). 끝나면 작성 지침을 다시 저장합니다.",
-                    out="구조 반영 뒤의 연차보고서 분석", change="store", uses=("headings",), modules=("heading_runs", "form_guides"), spec=(SP_WORK, "② §21"),
-                    need="① 프로젝트 구성 반영이 끝난 연차보고서.", done="연차보고서의 분석이 마지막 구조 반영 뒤의 것일 때 — 구조 반영 밖의 편집은 따지지 않습니다.",
-                    stop="분석이 실패하면 까닭을 알리고 멈춥니다.",
-                    left="구조 반영 전의 분석이 LLM 판정을 거친 결과면 저절로 덮지 않습니다(유료 결과) — 끝난 것으로 보되 그대로 두었다고 알리고, 「다시 분석」 을 누르면 스크립트 분석으로 바뀝니다."),
-                 _s("reheadsLlm", "LLM 검증·보완 — 연차보고서", ("human", "llm"), "구조를 맞춘 연차보고서의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다(유료 · 몇 분). 문서는 바뀌지 않습니다.", change="store", optional=True,
-                    uses=("headings",), agents=_ANALYSIS_LLM_AGENTS, modules=("analysis_llm", "heading_runs"), spec=(SP_WORK, "② §20·§21"),
-                    need="구조 반영 뒤의 연차보고서 분석 · LLM 연결(유료 — 「헤딩 · 표 다시 분석」 줄의 단추. 「한 번에 진행」 은 부르지 않습니다).", done="안 해도 됩니다 — 끝남을 따로 세지 않습니다(했는지는 그 줄에 보입니다).",
-                    left="LLM 이 답을 못 하면 스크립트 결과로 남습니다."),
-             ), no="2단계", name="구성 맞추기", does="프로젝트 구성을 확정하고 연차보고서의 구조를 값에 맞춘 뒤 다시 분석 — 내용은 넣지 않음"),
-             _g("map", (
-                 _s("link", "자리 연결", "script", "두 문서의 자리(문단 묶음 · 표)를 구분 기준 값과 이름으로 잇습니다 — 연결됨 · 확인 필요 · 후보 없음. 같은 서식 쌍에 저장해 둔 짝이 있으면 그것을 먼저 씁니다.", no="②",
-                    out="연결 목록", change="store", modules=("merge_pairs", "merge_fixed", "merge_saved", "merge_api"), spec=(SP_MERGE, "② §0-1·§4·§5-1"),
-                    need="1단계의 헤딩 · 표 분석 · 2단계에서 구조를 맞춘 연차보고서 — 서버가 목록을 못 내는 까닭(분석 없음 · 값 없음 · 반영 전 · 값이 사업계획서와 다름)이 없을 때.",
-                    done="연결 목록에 확인 필요가 없거나, LLM 검토를 한 번 했을 때.",
-                    left="LLM 검토 뒤에도 남은 확인 필요 자리는 넣지 않고 비워 둡니다(각 기관이 이어서 작성) — 「연결 목록」 에서 후보를 골라 보정합니다."),
-                 _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리와 같은 표인지 못 정한 표를 LLM 이 쪽 묶음마다 판정합니다. 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다.", change="store", optional=True,
-                    agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
-                    need="연결 목록에 확인 필요 · 후보 없음 자리나 같은 표인지 못 정한 표가 있을 때 · LLM(유료 — 단추나 확인을 받은 3단계 「한 번에 진행」 안에서).",
-                    done="한 번 검토했을 때 — 안 해도 넣기 계획은 세울 수 있습니다.", left="한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다."),
-                 _s("plan", "표 안 연결 · 넣기 계획", "script", "이어진 자리마다 넣을 본문 블록 · 표 칸 · 늘릴 행과 못 넣는 까닭을 셉니다. 문서는 바뀌지 않습니다.", no="③", out="넣기 계획",
-                    modules=("merge_fill", "merge_tables"), spec=(SP_MERGE, "② §5·§6"),
-                    need="이어진 자리(연결됨 · 같은 이름 자리)가 하나라도 있을 때 — ② 에 확인 필요가 남아 있어도 세울 수 있습니다.",
-                    done="넣기 계획이 있거나 · 이미 반영했거나 · 이어진 자리가 없어 계획할 것이 없거나 · 지난 반영 기록이 남아 있을 때.", left="못 넣는 자리는 까닭과 함께 셉니다."),
-                 _s("tableMap", "표 대응(LLM)", "llm", "같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다 — 글은 LLM 이 쓰지 않고 사업계획서 칸의 글을 옮깁니다.", change="store",
-                    optional=True, agents=("merge_table_map",), modules=("merge_table_map",), spec=(SP_MERGE, "② §5-3"),
-                    need="같은 표로 이었지만 행 · 열 구성이 달라 칸을 못 맞춘 표가 있을 때 · LLM(유료).", done="칸을 못 맞춘 표가 남지 않았을 때 — 안 해도 됩니다.", left="글은 LLM 이 쓰지 않습니다 — 사업계획서 칸의 글을 옮깁니다."),
-                 _s("gaps", "빈 자리 검토(LLM)", "llm", "다른 길이 못 채운 빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄을 모아 사업계획서의 어디에서 가져올지 LLM 이 찾습니다(없으면 없다고 답합니다).", change="store",
-                    optional=True, agents=("merge_gaps",), modules=("merge_gaps",), spec=(SP_MERGE, "② §5-4"),
-                    need="넣기 계획이 있고 다른 길이 못 채운 빈 자리가 있을 때 · LLM(유료).", done="아직 묻지 않은 빈 자리가 남지 않았을 때 — 안 해도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
-                 _s("apply", "내용 반영", ("human", "script"), "「계획 보기」 에서 확인하고 「반영」 을 누르면 계획서의 글 · 표 · 그림이 그 자리에 들어갑니다 — 서식은 연차보고서의 틀에 맞추고, 넣는 내용의 개요가 자리보다 깊으면 "
-                    "넘친 개요 레벨로 처리합니다.", no="④", out="내용이 들어간 연차보고서", change="doc", modules=("merge_fill", "merge_tables", "merge_convert", "merge_over", "merge_origins", "outline_conform"),
-                    spec=(SP_MERGE, "② §5-2·§5-5·§6"),
-                    need="넣기 계획 — 「계획 보기」 에서 확인하고 「반영」.", done="반영했거나 · 넣을 것이 없거나(이미 넣었거나 넣을 자리가 없음) · 지난 반영 기록이 남아 있을 때.",
-                    left="같은 자리인지 분명하지 않은 자리는 비워 둡니다(초안 — 실패가 아닙니다)."),
-                 _s("later", "합계 계산 → 결과 확인", "script", "아직 없는 단계입니다 — 넣은 값으로 합계 · 소계 · 비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다.",
-                    no="⑤", soon=True),
-             ), no="3단계", name="내용 넣기", does="두 문서의 자리를 잇고, 계획서의 내용을 그 자리에 넣음(서식 맞춤)"),
-             _g("clean", (
-                 _s("guide", "작성요령 삭제", ("script", "human"), "지우는 패턴 목록에 걸린 양식 안내(작성 요령 표 · 「<참고 N>」 자료 · 안내 색 ※ 글 · 위첨자 각주 번호)를 한 번에 지웁니다(확인 창 없이 · 실행 취소 한 번). 내용과 쓸 자리는 남깁니다. "
-                    "지우기 바로 전에 작성 지침을 헤딩/표별로 한 번 더 저장합니다.",
-                    no="⑥", out="안내를 지운 연차보고서", change="doc", modules=("form_cleanup", "form_guides"), spec=(SP_WORK, "② §14·§21"),
-                    need="④ 내용 반영이 끝난 연차보고서.", done="④ 가 끝났고 지울 안내가 남지 않았을 때.",
-                    stop="한 번에 지웁니다 — 멈춤을 요청했거나 그 사이 다른 문서를 열었으면 지우지 않고 멈춤으로 보고합니다.",
-                    left="지우는 패턴 목록에 없는 안내와 내용 · 쓸 자리는 남깁니다. 지운 작성 지침은 작업에 저장돼 있습니다(1단계 「헤딩 · 표 분석」 줄의 「작성 지침」)."),
-             ), no="4단계", name="문서 정리", does="연차보고서 서식이 글쓴이에게 주는 안내를 지움 — 지우기 전에 작성 지침을 저장"),
+             _stage("stage_review", "review", "1단계", "사업계획서", "연차보고서", first=(_RELAY_FILES,),
+                    does="두 문서의 헤딩 · 표를 분석하고(스크립트) 원본 문서를 LLM 으로 검증 · 보완 — 양식의 작성 지침을 헤딩/표별로 저장 · 문서는 안 바뀜"),
+             _stage("stage_fit", "frame", "2단계", "사업계획서", "연차보고서",
+                    does="프로젝트 구성을 확정하고(불러오기는 선택) 연차보고서의 구조를 값에 맞춘 뒤 다시 문서 검토 — 내용은 넣지 않음"),
+             _stage("stage_fill", "map", "3단계", "사업계획서", "연차보고서", does="두 문서의 자리를 잇고, 계획서의 내용을 그 자리에 넣음(서식 맞춤)"),
+             _stage("stage_clean", "clean", "4단계", "사업계획서", "연차보고서", does="연차보고서 서식이 글쓴이에게 주는 안내를 지움 — 지우기 전에 작성 지침을 저장"),
          )),
     _fit("report_fit", "연차보고서"),
     dict(job="report_merge", inputs="연차보고서(취합본) + 기관 문서들", output="기관의 내용을 모은 연차보고서 하나", soon=True,
@@ -871,8 +936,30 @@ TASKS = (
              ), name="다시 쓰기", does="저장한 서식을 서식 관리자로 적용"),
          )),
 )
+# 단계 모듈의 절 = 공통 모듈 목록의 맨 앞 넷(화면 `/workflow` 의 「공통 모듈」 · workflow.md) — 같은 함수에 일반 이름을 넣어 만든다(kind "stage")
+COMMON = tuple(dict(id=mid, kind="stage", name=name, where=_STAGE_WHERE, does=does, steps=make(*_GENERIC)) for mid, name, make, does in STAGE_MODULES) + COMMON
 BY_JOB = {t["job"]: t for t in TASKS}
 BY_COMMON = {c["id"]: c for c in COMMON}
+
+
+def custom():
+    """화면에서 조립한 TASK(app/custom_tasks.py — ② §14) → 등록부의 TASK 꼴들. 고른 단계를 일반 단계의 차례로 조립한다 — 번호는 1부터 다시, 묶음 id 는 이관 실행의 것(review · frame · map · clean),
+    맨 앞 묶음에 「준비」(문서 고르기)를 둔다. 저장소(이 PC 의 사용자 설정)의 것이라 workflow.md · TASK 문서에는 들지 않는다(붙박이 등록부 TASKS 만)."""
+    from app import custom_tasks
+    out = []
+    for c in custom_tasks.all():
+        S, D = custom_tasks.FILES[c["source"]], custom_tasks.FILES[c["target"]]
+        stages = tuple(_stage(mid, custom_tasks.STAGE_GROUP[mid], f"{i + 1}단계", S, D, does=_STAGE_BY[mid][3], first=(_RELAY_FILES,) if i == 0 else ()) for i, mid in enumerate(c["stages"]))
+        out.append(dict(job=c["key"], custom=True, name=c["name"], desc=c["desc"], premise=c["premise"], base=custom_tasks.BASE, stages=stages, entry=(),
+                        inputs=f"{S}(원본 문서) + {D}(목적 문서)", output=f"고른 단계({' → '.join(_STAGE_BY[m][1] for m in c['stages'])})를 마친 {D}",
+                        note="화면의 「TASK 조립」 에서 만든 TASK 입니다 — 단계의 뜻과 실행은 일반 단계 그대로이고, 고른 단계만 섭니다. "
+                             + ("전제는 조립할 때 적은 글입니다." if c["premise"] else f"전제는 틀이 같은 TASK(`jobs/{custom_tasks.BASE}.md`)의 것을 씁니다.")))
+    return out
+
+
+def assembled(module):
+    """그 단계 모듈을 조립한 TASK 의 키들(차례대로)."""
+    return [t["job"] for t in TASKS if any(g.get("module") == module for g in _groups(t))]
 
 
 def _groups(t):
@@ -946,14 +1033,21 @@ def listing():
                 for u in s["uses"]:
                     if u in used and t["job"] not in used[u]:
                         used[u].append(t["job"])
+    made = custom()   # 화면에서 조립한 TASK(② §14) — 붙박이 뒤에 선다
+    for c in COMMON:   # 단계 — 그 단계를 조립한 TASK(묶음의 module): 붙박이 + 조립한 TASK
+        if c.get("kind") == "stage":
+            used[c["id"]] = assembled(c["id"]) + [t["job"] for t in made if any(g.get("module") == c["id"] for g in _groups(t))]
+        else:
+            used[c["id"]] += [t["job"] for t in made if any(c["id"] in s["uses"] for g in _groups(t) for s in g["steps"]) and t["job"] not in used[c["id"]]]
     tasks = [{"job": t["job"], "inputs": t["inputs"], "output": t["output"], "note": t.get("note", ""), "soon": bool(t.get("soon")),
+              **({"custom": True, "name": t["name"], "desc": t["desc"], "premise": t["premise"], "base": t["base"]} if t.get("custom") else {}),   # 조립한 TASK — 이름 · 설명은 저장소의 것(화면의 TASK_CATALOG 에 없을 수 있다)
               "ways": [{"key": k, "name": name, "text": t["ways"][k]} for k, name in WAYS] if t.get("ways") else [],   # 진행 방식(한 번에 · 묻는 것 · 남기는 곳 · 단계별)
-              "prompt": f"jobs/{t['job']}.md" if (ROOT / "jobs" / f"{t['job']}.md").is_file() else None,
-              "doc": f"{TASK_DIR.name}/{t['job']}.md",   # TASK 문서(② §10 — 이 TASK 의 세부: 시작 점검 · 단계마다 조건)
+              "prompt": None if t.get("custom") else f"jobs/{t['job']}.md" if (ROOT / "jobs" / f"{t['job']}.md").is_file() else None,
+              "doc": "" if t.get("custom") else f"{TASK_DIR.name}/{t['job']}.md",   # TASK 문서(② §10 — 이 TASK 의 세부: 시작 점검 · 단계마다 조건). 조립한 TASK 는 만든 글이 없다(등록부가 저장소에 있다)
               "entry": [{"when": w, "name": name, "note": note, "items": [{"key": c["key"], "name": c["name"], "by": list(c["by"]), "does": c["does"], "miss": c["miss"], "uses": list(c["uses"]), "spec": _spec(c["spec"])}
                                                                     for c in items]} for w, name, note, items in entry(t)],
-              "stages":[{"id": g["id"], "meta": g["meta"], "no": g["no"], "name": g["name"], "does": g["does"], "steps": [_step(s, ags) for s in g["steps"]]} for g in _groups(t)]} for t in TASKS]
-    common = [{"id": c["id"], "name": c["name"], "does": c["does"], "where": c["where"], "usedBy": used[c["id"]], "steps": [_step(s, ags) for s in c["steps"]]} for c in COMMON]
+              "stages":[{"id": g["id"], "meta": g["meta"], "no": g["no"], "name": g["name"], "does": g["does"], "module": g.get("module"), "steps": [_step(s, ags) for s in g["steps"]]} for g in _groups(t)]} for t in list(TASKS) + made]
+    common = [{"id": c["id"], "kind": c.get("kind") or "", "name": c["name"], "does": c["does"], "where": c["where"], "usedBy": used[c["id"]], "steps": [_step(s, ags) for s in c["steps"]]} for c in COMMON]   # kind "stage" = 단계 모듈(TASK 가 조립 — ② §13)
     return {"tasks": tasks, "common": common, "by": dict(BY), "change": dict(CHANGE), "waysNote": WAYS_NOTE.replace("**", "")}
 
 
@@ -1002,9 +1096,9 @@ def _md_tools():
         if s["agents"]:
             more.append("에이전트: " + " · ".join(agent(a) for a in s["agents"]))
         if s["uses"]:
-            more.append("공통 모듈: " + " · ".join(BY_COMMON[u]["name"] for u in s["uses"]))
+            more.append("도구: " + " · ".join(BY_COMMON[u]["name"] for u in s["uses"]))   # 화면 말 「도구」 = 등록부의 COMMON(전의 「공통 모듈」 — 2026-11-19 사용자 "모듈이라고 하지 말고 공통 모듈을 도구라고 하자")
         if s["modules"]:
-            more.append("모듈: " + " · ".join(f"`{m}`" for m in s["modules"]))
+            more.append("코드: " + " · ".join(f"`{m}`" for m in s["modules"]))
         if s["spec"]:
             more.append(f"사양: {s['spec'][0]} {s['spec'][1]}")
         head = f"- **{' '.join(x for x in (s['no'], s['name']) if x)}** — {' · '.join(tags)}. {s['does']}"
@@ -1024,35 +1118,45 @@ def _md_tools():
     return cat, name, label, step, head
 
 
+def mod(g):
+    """묶음이 조립한 단계 모듈을 적는 줄(없으면 빈 목록) — workflow.md · TASK 문서의 묶음 머리 아래."""
+    m = BY_COMMON.get(g.get("module") or "")
+    return [f"조립한 단계: {m['name']}(`{m['id']}`)", ""] if m else []
+
+
 def markdown():
     """등록부 → workflow.md 의 글. 사람의 설정(에이전트 설정에서 고친 작업 번호·모델)과 모듈 설명 글에 기대지 않는다 — 어느 PC 에서나, 등록부·task_catalog.js·에이전트 등록부·jobs/ 가 같으면 같은 글."""
     cat, name, label, step, head = _md_tools()
-    used = {c["id"]: [t["job"] for t in TASKS if any(c["id"] in s["uses"] for g in _groups(t) for s in g["steps"])] for c in COMMON}
+    used = {c["id"]: assembled(c["id"]) if c.get("kind") == "stage" else [t["job"] for t in TASKS if any(c["id"] in s["uses"] for g in _groups(t) for s in g["steps"])] for c in COMMON}
     out = ["# TASK 워크플로우", "",
            "> 이 파일은 워크플로우 등록부 `app/workflow.py` 에서 **만든 글**이다(화면 `/workflow` 와 같은 내용) — 손으로 고치지 않는다.",
            "> 등록부를 고치면 `python -X utf8 tools/workflow_md.py` 로 다시 만든다(안 맞으면 `tests/test_workflow.py` 가 떨어진다). 사양 [spec/spec_워크플로우.md](spec/spec_워크플로우.md) ② §8.",
            ">",
            "> TASK 는 여러 모듈을 정해진 차례로 쓰는 일이다. 스크립트가 계산하고 LLM 은 검토 · 판정만 하며, 문서는 사람이 확인(「반영」 · 「한 번에 진행」)한 뒤에만 바뀐다.",
            "> " + WAYS_NOTE,
-           "> 읽는 법 — 단계 = `번호 이름 — 누가(차례대로) · 문서가 바뀌나 · 자동/필수/선택/준비 중. 하는 일`, 그 아래 `→` 줄 = 나오는 것 | 에이전트(작업 번호 이름) | 공통 모듈 | 모듈(`app/<이름>.py`) | 사양 자리.",
+           "> 읽는 법 — 단계 = `번호 이름 — 누가(차례대로) · 문서가 바뀌나 · 자동/필수/선택/준비 중. 하는 일`, 그 아래 `→` 줄 = 나오는 것 | 에이전트(작업 번호 이름) | 도구 | 코드(`app/<이름>.py`) | 사양 자리.",
            f"> 이 글은 모든 TASK 의 차례를 보이는 **전체 지도**다 — TASK 하나의 세부(시작할 때 저절로 확인하는 것 · 단계마다 조건)는 그 TASK 의 **TASK 문서** `{TASK_DIR.name}/<TASK 키>.md` 에 있다(같은 등록부에서 만든 글).",
            "", "## 한눈에", "", "| TASK | 키 | 단계 묶음 |", "|---|---|---|"]
     for t in TASKS:
         out.append(f"| {name(t['job'])} | `{t['job']}` | {' › '.join(label(g) for g in _groups(t)) or '준비 중'} |")
-    out += ["", "공통 모듈: " + " · ".join(f"{c['name']}(`{c['id']}`)" for c in COMMON), "", "## TASK"]
+    out += ["", "단계: " + " · ".join(f"{c['name']}(`{c['id']}`)" for c in COMMON if c.get("kind") == "stage"),
+            "", "도구: " + " · ".join(f"{c['name']}(`{c['id']}`)" for c in COMMON if c.get("kind") != "stage"), "", "## TASK"]
     for t in TASKS:
         out += ["", f"### {name(t['job'])} — `{t['job']}`" + (" (준비 중)" if t.get("soon") else ""), ""]
         if (cat.get(t["job"]) or {}).get("desc"):
             out += [cat[t["job"]]["desc"], ""]
         out += head(t)   # 받는 문서 · 산출물 · 알아 둘 것 · 진행 방식 넷 · 전제 · 시작 점검 한 줄 · TASK 문서 경로 — TASK 머리(첫 단계 묶음 앞)에 둔다
         for g in _groups(t):
-            out += ["", f"#### {label(g)} — {g['does']}", ""]
+            out += ["", f"#### {label(g)} — {g['does']}", ""] + mod(g)
             for s in g["steps"]:
                 out += step(s)
-    out += ["", "## 공통 모듈", "", "TASK 에 묶이지 않고 여러 TASK 가 쓰는 과정 — TASK 의 단계가 「공통 모듈」 로 가리킨다."]
-    for c in COMMON:
+    heads = {True: ["", "## 단계", "", "TASK 가 조립하는 일반 단계(문서 검토 → 구성 맞추기 → 내용 넣기 → 문서 정리) — TASK 의 묶음이 「조립한 단계」 로 가리킨다. 이 절의 단계 글은 문서 이름만 일반 이름(원본 문서 · 목적 문서)이다."],
+             False: ["", "## 도구", "", "TASK 에 묶이지 않고 여러 TASK 가 쓰는 과정 — TASK 의 단계가 「도구」 로 가리킨다."]}
+    for c in COMMON:   # 단계 넷이 먼저(COMMON 의 맨 앞), 그 뒤 도구
+        stage = c.get("kind") == "stage"
+        out += heads.pop(stage, [])
         out += ["", f"### {c['name']} — `{c['id']}`", "", c["does"], "", f"- 여는 곳: {c['where']}",
-                f"- 쓰는 TASK: {' · '.join(name(j) for j in used[c['id']]) or '어느 TASK 의 문서에서나 연다(단계에 묶이지 않음)'}", ""]
+                f"- {'조립한 TASK' if stage else '쓰는 TASK'}: {' · '.join(name(j) for j in used[c['id']]) or ('아직 없음' if stage else '어느 TASK 의 문서에서나 연다(단계에 묶이지 않음)')}", ""]
         for s in c["steps"]:
             out += step(s)
     return "\n".join(out) + "\n"
@@ -1081,23 +1185,23 @@ def task_markdown(job):
     if t.get("soon") or not _groups(t):
         return "\n".join(out) + "\n"
     out += ["", "## 시작 점검 — 시작할 때 저절로 확인하는 것", "",
-            "읽는 법 — 항목 = `이름 — 누가. 무엇을 확인하나`, 그 아래 `안 맞으면` = 그때 어떻게 되나, `→` 줄 = 공통 모듈 | 사양 자리. 사람이 누르지 않아도 보는 것만 적는다(끝의 「저절로 돌지 않는 것」 은 헷갈리기 쉬운 것을 따로 적은 것)."]
+            "읽는 법 — 항목 = `이름 — 누가. 무엇을 확인하나`, 그 아래 `안 맞으면` = 그때 어떻게 되나, `→` 줄 = 도구 | 사양 자리. 사람이 누르지 않아도 보는 것만 적는다(끝의 「저절로 돌지 않는 것」 은 헷갈리기 쉬운 것을 따로 적은 것)."]
     for _, wname, note, items in entry(t):
         out += ["", f"### {wname}", "", note, ""]
         for c in items:
-            more = (["공통 모듈: " + " · ".join(BY_COMMON[u]["name"] for u in c["uses"])] if c["uses"] else []) + ([f"사양: {c['spec'][0]} {c['spec'][1]}"] if c["spec"] else [])
+            more = (["도구: " + " · ".join(BY_COMMON[u]["name"] for u in c["uses"])] if c["uses"] else []) + ([f"사양: {c['spec'][0]} {c['spec'][1]}"] if c["spec"] else [])
             out += [f"- **{c['name']}** — {' → '.join(BY[b] for b in c['by'])}. {c['does']}"] + ([f"  - 안 맞으면: {c['miss']}"] if c["miss"] else []) + ([f"  → {' | '.join(more)}"] if more else [])
     out += ["", "## 단계마다 조건", "",
             "읽는 법 — 단계 = `번호 이름 — 누가(차례대로) · 문서가 바뀌나 · 자동/필수/선택/준비 중. 하는 일`, 그 아래 " + " · ".join(f"`{cname}`" for _, cname in COND)
-            + "(적을 것이 있을 때만), `→` 줄 = 나오는 것 | 에이전트(작업 번호 이름) | 공통 모듈 | 모듈(`app/<이름>.py`) | 사양 자리.",
+            + "(적을 것이 있을 때만), `→` 줄 = 나오는 것 | 에이전트(작업 번호 이름) | 도구 | 코드(`app/<이름>.py`) | 사양 자리.",
             "「끝난 것으로 보는 때」 는 화면이 지금 문서의 상태로 셈한다 — 단추를 눌렀다는 사실로 끝남을 적지 않는다."]
     for g in _groups(t):
-        out += ["", f"### {label(g)} — {g['does']}", ""]
+        out += ["", f"### {label(g)} — {g['does']}", ""] + mod(g)
         for s in g["steps"]:
             out += step(s, cond=True)
     uses = list(dict.fromkeys(u for g in _groups(t) for s in g["steps"] for u in s["uses"]))
     if uses:
-        out += ["", "## 쓰는 공통 모듈", "", "단계가 「공통 모듈」 로 가리키는 과정 — 그 과정의 단계는 [workflow.md](../workflow.md) 의 「공통 모듈」 절에 있다.", ""]
+        out += ["", "## 쓰는 도구", "", "단계가 「도구」 로 가리키는 과정 — 그 과정의 단계는 [workflow.md](../workflow.md) 의 「도구」 절에 있다.", ""]
         out += [f"- **{BY_COMMON[u]['name']}**(`{u}`) — {BY_COMMON[u]['does']}" for u in uses]
     return "\n".join(out) + "\n"
 

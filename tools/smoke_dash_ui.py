@@ -489,13 +489,14 @@ def main():
         by = {n["key"]: n for n in nodes}
         check("이관 — 묶음 넷(1단계 문서 검토 · 2단계 구성 맞추기 · 3단계 내용 넣기 · 4단계 문서 정리) · 묶음마다 「한 번에 진행」(할 일이 남은 첫 묶음 = 2단계만 켜짐) · 준비 · 헤딩·표 분석 끝남 · 프로젝트 구성 확정이 지금",
               [g[0] for g in h["groups"]] == ["1단계", "2단계", "3단계", "4단계"] and all(g[2] == "한 번에 진행" for g in h["groups"]) and [bool(g[3]) for g in h["groups"]] == [True, False, True, True]
-              and [n["key"] for n in nodes] == ["files", "heads", "headsLlm", "config", "division", "reheads", "reheadsLlm", "link", "llm", "plan", "tableMap", "gaps", "apply", "later", "guide"]
+              and [n["key"] for n in nodes] == ["files", "heads", "headsLlm", "configLoad", "config", "division", "reheads", "reheadsLlm", "link", "llm", "plan", "tableMap", "gaps", "apply", "later", "guide"]
+              and by["headsLlm"]["state"] == "done"   # LLM 을 쓸 수 없는 서버 — 1단계의 LLM 검증·보완은 건너뜀(끝난 것으로 봄)
               and by["files"]["state"] == "done" and by["heads"]["state"] == "done" and by["config"]["state"] == "now" and by["later"]["state"] == "soon" and by["later"]["st"] == "준비 중", [h, [(n["key"], n["state"]) for n in nodes]])
         top = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-top button')].map((b) => b.textContent)")
         check("머리 아래 「이어서 한 번에 2→4단계」(「작업 개요」 의 이어 진행과 같은 범위 — 1단계는 끝남)", top == ["이어서 한 번에 2→4단계"], top)
-        page.click('#paneDash .dash-node[data-key=headsLlm] .dash-node-head')
-        via0 = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=headsLlm] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
-        check("선택 단계 「LLM 검증·보완 — 사업계획서」 는 「「헤딩 · 표 분석」 의 단추로 함께」(그 줄의 「사업계획서 LLM 검증·보완」)", "「헤딩 · 표 분석」" in via0["text"] and via0["btn"] == "그 단계로", via0)
+        page.click('#paneDash .dash-node[data-key=configLoad] .dash-node-head')
+        via0 = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=configLoad] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
+        check("선택 단계 「구성 불러오기」 는 「「프로젝트 구성 확정」 의 단추로 함께」(그 줄의 「구성 불러오기」 — 파일 · 저장된 곳)", "「프로젝트 구성 확정」" in via0["text"] and via0["btn"] == "그 단계로", via0)
         page.click('#paneDash .dash-node[data-key=llm] .dash-node-head')
         via = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=llm] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
         page.click('#paneDash .dash-node[data-key=llm] .dash-acts button')

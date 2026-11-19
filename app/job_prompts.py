@@ -41,6 +41,14 @@ def get(job):
     d = jobs_dir()
     if d is None or not isinstance(job, str) or not KEY.fullmatch(job):
         return None
+    from app import custom_tasks   # 가벼운 모듈
+    custom = custom_tasks.get(job)   # 화면에서 조립한 TASK(spec_워크플로우 ② §14) — 전제는 조립할 때 적은 글이고, 비웠으면 틀이 같은 붙박이 TASK(이관)의 전제 파일을 쓴다
+    if custom is not None:
+        if custom["premise"]:
+            text = custom["premise"]
+            return {"job": job, "name": custom["name"], "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": ""}
+        base = get(custom_tasks.BASE)
+        return base and {**base, "job": job, "name": f"{custom['name']}({base['name']}의 전제)"}
     p = d / f"{job}.md"
     try:
         text = p.read_text(encoding="utf-8")

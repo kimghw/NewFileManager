@@ -785,9 +785,9 @@ try:
         page.click("#toolTabTask")
         page.wait_for_selector("#taskFlow #taskSteps li[data-step=files]", state="attached")   # 이관의 묶음은 기본 접힘(세부 목록은 안 보임)
         slots = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('#taskFlow select[data-task-file]')].map((s) => [s.dataset.taskFile, s.value]))")
-        check("이관 — 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서) · 단계 여덟(1단계 구성 확정 · 4단계 ⑥ 포함) · 취합 화면 없음", slots == {"plan": plan, "report": ""} and page.locator("#gatherFlow").count() == 0
+        check("이관 — 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서) · 단계 열둘(묶음 넷: 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리 — spec_작업 ② §21) · 취합 화면 없음", slots == {"plan": plan, "report": ""} and page.locator("#gatherFlow").count() == 0
               and page.eval_on_selector_all("#taskFlow .dv-flow-files label > span", "xs => xs.map(x => x.textContent)") == ["사업계획서(기준)", "연차보고서"]
-              and page.eval_on_selector_all("#taskSteps li", "ls => ls.map(l => l.dataset.step)") == ["files", "config", "division", "link", "plan", "apply", "later", "guide"]
+              and page.eval_on_selector_all("#taskSteps li", "ls => ls.map(l => l.dataset.step)") == ["files", "heads", "headsLlm", "config", "division", "reheads", "reheadsLlm", "link", "plan", "apply", "later", "guide"]
               and page.locator("#taskStage [data-task-run=frame]").count() == 1 and page.evaluate("() => !gatherOn() && taskSlots().join() === 'plan,report'"), slots)
         page.wait_for_timeout(500)
         check("이관으로 바꾼 뒤에는 /gather 를 부르지 않음 · 둘째 면은 이관의 규칙(칸 문서 → 같은 과제 문서)", not G["calls"][n:] and other in page.evaluate("() => peerDocs().map((w) => w.id)"), G["calls"][n:])

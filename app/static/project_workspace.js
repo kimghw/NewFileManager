@@ -38,7 +38,7 @@ function projectGroups() {
   const result = [...groups.values()];
   for (const g of result) {
     g.latest = !g.project || !result.some((x) => x.project === g.project && x.job === g.job && x.round > g.round);
-    const target = g.job === "plan_to_report" ? "report" : (TASK_CATALOG[g.job] || {}).file;
+    const target = taskIsRelay(g.job) ? (TASK_CATALOG[g.job] || {}).target : (TASK_CATALOG[g.job] || {}).file; // 이관형(붙박이 이관 · 조립한 TASK) = 그 TASK 의 목적 문서
     g.main = g.docs.find((w) => (w.task || {}).file === target) || g.docs[0];
     g.current = g.docs.some((w) => w.id === state.id);
   }

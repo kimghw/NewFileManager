@@ -1,6 +1,8 @@
 // TASK 워크플로우 페이지(spec_워크플로우 ② §3·§7) — GET /api/workflow 등록부를 다이어그램(기본)·목록으로 그린다. 읽기만 한다(실행·진행 상태 없음).
 // TASK 이름·한 줄 설명 = TASK_CATALOG · 이관·취합의 「N단계 이름」 = TASK_STAGE_META(task_catalog.js — 이 파일보다 먼저 읽힌다: 원본 하나).
-// 절의 id: 전체 보기 `overview` · TASK `<job>`(묶음 `<job>--<묶음 id>`) · 공통 모듈 `common-<id>` — 주소의 # 로 바로 열린다.
+// 절의 id: 전체 보기 `overview` · TASK `<job>`(묶음 `<job>--<묶음 id>`) · 단계 · 도구 `common-<id>` — 주소의 # 로 바로 열린다.
+// 화면 말(2026-11-19 사용자 "모듈이라고 하지 말고 공통 모듈을 도구라고 하자"): 등록부의 COMMON = **「도구」**(전의 「공통 모듈」) · 그 가운데 kind "stage" = **「단계」**(TASK 가 조립하는 일반 단계) · 코드 파일(app/<이름>.py) = 「코드」.
+// TASK 조립(spec_워크플로우 ② §14 — 같은 날 "배치를 내가 할 수 없네?" → 답 「새 TASK 만들기」): 전체 보기 아래 「TASK 조립」 절에서 단계를 골라 TASK 를 만든다 — 저장은 서버(/api/tasks), 읽기 전용이던 이 페이지에서 고치는 것은 그것 하나다.
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -9,7 +11,7 @@
   const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5" }; // 에이전트 설정 페이지(agents.js MODEL)와 같은 이름
   const SOURCE = { user: "에이전트 설정에서 정함", pin: "이 에이전트에 고정", force: "서버 전체 설정", code: "코드가 정함", default: "서버 기본" };
   const CHANGE = { none: "안 바뀜", doc: "바뀜", store: "안 바뀜 — 결과만 저장" }; // 펼친 세부의 「문서」 줄
-  const taskName = (job) => (CAT[job] || {}).name || job;
+  const taskName = (job) => (CAT[job] || {}).name || ((D && D.tasks.find((t) => t.job === job)) || {}).name || job; // 조립한 TASK 의 이름은 등록부(서버 저장소)에도 있다
   const stageLabel = (g) => (g.meta && META[g.meta] ? { no: META[g.meta].no, name: META[g.meta].name } : { no: g.no || "", name: g.name });
   const WF_ICONS = { // 꼬리표 아이콘(사람 · 스크립트 · LLM · 문서 바뀜 — doc_agent.js agentIcon 과 같은 경로: 2026-11-18 사용자)
     script: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
@@ -70,7 +72,7 @@
     const { flow, index } = route, { item, groups, steps } = flow, selected = steps[index];
     const diagram = $("wfDiagram"), title = item.job ? taskName(item.job) : item.name;
     const head = h("div", "wf-diagram-head"), heading = h("div");
-    heading.append(h("p", "wf-eyebrow", item.job ? "TASK / 순서 살펴보기" : "공통 모듈 / 순서 살펴보기"), h("h2", "", title));
+    heading.append(h("p", "wf-eyebrow", item.job ? "TASK / 순서 살펴보기" : item.kind === "stage" ? "단계 / 순서 살펴보기" : "도구 / 순서 살펴보기"), h("h2", "", title));
     head.append(heading, link("#overview", "전체 흐름 보기 ↗", "wf-back"));
     const lead = h("p", "wf-lead", item.job ? (CAT[item.job] || {}).desc : item.does);
     const context = h("details", "wf-context"), info = h("dl", "wf-io");
@@ -84,7 +86,7 @@
       row(info, "여는 곳", item.where);
       const related = h("div", "wf-links");
       for (const job of item.usedBy) related.append(link(`#${job}`, taskName(job), "wf-chip"));
-      row(info, "쓰는 TASK", item.usedBy.length ? related : "어느 TASK의 문서에서나 엽니다.");
+      row(info, item.kind === "stage" ? "조립한 TASK" : "쓰는 TASK", item.usedBy.length ? related : item.kind === "stage" ? "아직 이 단계를 조립한 TASK 가 없습니다." : "어느 TASK의 문서에서나 엽니다.");
     }
     context.append(info);
     diagram.replaceChildren(head, lead, context);
@@ -162,16 +164,16 @@
     if (selected.s.soon) detail.append(h("p", "wf-pending", "준비 중인 단계입니다. 현재 사용할 수 있는 기능은 아닙니다."));
     if (selected.s.uses.length) {
       const related = h("div", "wf-related"), links = h("div", "wf-links");
-      related.append(h("h4", "", "연결된 공통 모듈"));
+      related.append(h("h4", "", "연결된 도구"));
       for (const id of selected.s.uses) { const c = D.common.find((x) => x.id === id); links.append(link(`#common-${id}`, c ? c.name : id, "wf-chip")); }
       related.append(links); detail.append(related);
     }
     // 기존 상세 렌더러를 재사용하되 기술 정보만 접어 둔다.
     const technical = stepEl(selected.s).querySelector(".wf-more");
-    for (const dt of [...technical.querySelectorAll("dt")]) if (!["에이전트", "모듈", "사양"].includes(dt.textContent)) { dt.nextElementSibling.remove(); dt.remove(); }
+    for (const dt of [...technical.querySelectorAll("dt")]) if (!["에이전트", "코드", "사양"].includes(dt.textContent)) { dt.nextElementSibling.remove(); dt.remove(); }
     if (technical.childElementCount) {
       const tech = h("details", "wf-tech");
-      tech.append(h("summary", "", "기술 상세 · 에이전트 / 모듈 / 사양"), technical); detail.append(tech);
+      tech.append(h("summary", "", "기술 상세 · 에이전트 / 코드 / 사양"), technical); detail.append(tech);
     }
     const controls = h("div", "wf-reader-controls");
     for (const [id, text, to] of [["wfPrev", "← 이전", index - 1], ["wfNext", "다음 →", index + 1]]) {
@@ -244,7 +246,7 @@
     if (s.uses.length) {
       const box = h("div", "wf-links");
       for (const u of s.uses) { const c = D.common.find((x) => x.id === u); box.append(link(`#common-${u}`, c ? c.name : u, "wf-chip")); }
-      row(more, "공통 모듈", box);
+      row(more, "도구", box);
     }
     if (s.agents.length) row(more, "에이전트", s.agents.map((a) => {
       const box = h("div", "wf-agent"), head = h("div", "wf-agent-head");
@@ -257,7 +259,7 @@
       if (a.role) box.append(h("p", "wf-role", a.role));
       return box;
     }));
-    if (s.modules.length) row(more, "모듈", s.modules.map((m) => {
+    if (s.modules.length) row(more, "코드", s.modules.map((m) => {
       const box = h("div", "wf-mod");
       box.append(h("code", "", m.path || m.name));
       if (m.doc) box.append(h("span", "", " " + plain(m.doc)));
@@ -286,7 +288,7 @@
     const sec = h("section", "wf-sec");
     sec.id = "overview";
     sec.append(h("h2", "", "전체 보기"),
-      h("p", "wf-lead", "TASK 는 여러 모듈을 정해진 차례로 쓰는 일입니다. 스크립트가 계산하고 LLM 은 검토 · 판정만 하며, 문서는 사람이 확인(「반영」 · 「한 번에 진행」)한 뒤에만 바뀝니다. 아래에서 TASK 나 단계 묶음을 누르면 그 과정으로 갑니다."));
+      h("p", "wf-lead", "TASK 는 단계를 정해진 차례로 밟는 일이고, 단계는 도구를 씁니다. 스크립트가 계산하고 LLM 은 검토 · 판정만 하며, 문서는 사람이 확인(「반영」 · 「한 번에 진행」)한 뒤에만 바뀝니다. 아래에서 TASK 나 단계 묶음을 누르면 그 과정으로 갑니다."));
     if (D.waysNote) { const p = h("p", "wf-lead wf-ways-note", D.waysNote); p.id = "waysNote"; sec.append(p); } // 진행 방식 둘(한 번에 진행 · 단계별) + 에이전트가 보이는 것 — TASK 절의 「진행 방식」 이 TASK 마다 적는다
     const legend = h("ul", "wf-legend");
     for (const [cls, name, text] of [["", D.by.script, "정해진 코드가 계산"], ["llm", D.by.llm, "에이전트가 검토 · 판정"], ["human", D.by.human, "사람이 고르거나 확인"], ["doc", D.change.doc, "이 단계에서 문서가 바뀜"],
@@ -312,10 +314,13 @@
       list.append(li);
     }
     sec.append(list);
-    const commons = h("div", "wf-commons");
-    commons.append(h("span", "wf-muted", "공통 모듈"));
-    for (const c of D.common) commons.append(link(`#common-${c.id}`, c.name, "wf-chip"));
-    sec.append(commons);
+    for (const [label, stage] of [["단계", true], ["도구", false]]) { // 단계(TASK 가 조립하는 일반 단계) · 도구(여러 TASK 가 쓰는 과정)
+      const commons = h("div", "wf-commons");
+      commons.dataset.kind = stage ? "stage" : "tool";
+      commons.append(h("span", "wf-muted", label));
+      for (const c of D.common) if ((c.kind === "stage") === stage) commons.append(link(`#common-${c.id}`, c.name, "wf-chip"));
+      sec.append(commons);
+    }
     return sec;
   }
 
@@ -325,8 +330,17 @@
     h2.append(h("span", "wf-kind", "TASK"), document.createTextNode(taskName(t.job)));
     if (t.soon) h2.append(tag("준비 중", "soft"));
     sec.append(h2);
-    if (c.desc) sec.append(h("p", "wf-lead", c.desc));
+    if (t.custom) h2.append(tag("조립한 TASK", "soft"));
+    if (c.desc || t.desc) sec.append(h("p", "wf-lead", t.desc || c.desc));
     const io = h("dl", "wf-io");
+    if (t.custom) { // 화면에서 조립한 TASK(② §14) — 고치기 · 지우기는 「TASK 조립」 절에서
+      const edit = h("button", "btn sm", "고치기");
+      edit.type = "button";
+      edit.dataset.wfCompose = t.job;
+      edit.addEventListener("click", () => composeOpen(t.job));
+      row(io, "조립", [document.createTextNode("화면에서 단계를 골라 만든 TASK 입니다 — "), edit]);
+      row(io, "전제", t.premise ? "조립할 때 적은 글(이 TASK 의 LLM 호출이 읽습니다)" : `틀이 같은 TASK(${taskName(t.base)})의 전제를 씁니다`);
+    }
     row(io, "받는 문서", t.inputs);
     row(io, "산출물", t.output);
     if (t.note) row(io, "알아 둘 것", t.note);
@@ -353,6 +367,11 @@
       li.dataset.stage = g.id;
       head.append(h("h3", "", L.name));
       if (g.does) head.append(h("p", "", g.does));
+      if (g.module) { // 이 묶음이 조립한 단계(spec_워크플로우 ② §13 — 등록부의 module: 그 단계의 절로)
+        const m = D.common.find((x) => x.id === g.module), p = h("p", "wf-stage-module", "조립한 단계 ");
+        p.append(link(`#common-${g.module}`, m ? m.name : g.module, "wf-chip"));
+        head.append(p);
+      }
       box.append(head, stepsEl(g.steps, `${t.job}--${g.id}`));
       li.append(h("span", "wf-stage-no" + (L.no ? "" : " wf-plain"), L.no || String(i + 1)), box);
       ol.append(li);
@@ -364,11 +383,12 @@
   function commonSec(c) { // 공통 모듈 절 — 하는 일 · 여는 곳 · 쓰는 TASK + 단계
     const sec = h("section", "wf-sec wf-common"), h2 = h("h2"), io = h("dl", "wf-io"), box = h("div", "wf-box");
     sec.id = `common-${c.id}`;
-    h2.append(h("span", "wf-kind", "공통 모듈"), document.createTextNode(c.name));
+    const stage = c.kind === "stage", used = stage ? "조립한 TASK" : "쓰는 TASK"; // 단계 모듈 = TASK 가 조립하는 일반 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리 — ② §13)
+    h2.append(h("span", "wf-kind", stage ? "단계" : "도구"), document.createTextNode(c.name));
     sec.append(h2, h("p", "wf-lead", c.does));
     row(io, "여는 곳", c.where);
-    if (c.usedBy.length) { const links = h("div", "wf-links"); for (const job of c.usedBy) links.append(link(`#${job}`, taskName(job), "wf-chip")); row(io, "쓰는 TASK", links); }
-    else row(io, "쓰는 TASK", "어느 TASK 의 문서에서나 엽니다(단계에 묶이지 않음)");
+    if (c.usedBy.length) { const links = h("div", "wf-links"); for (const job of c.usedBy) links.append(link(`#${job}`, taskName(job), "wf-chip")); row(io, used, links); }
+    else row(io, used, stage ? "아직 이 단계를 조립한 TASK 가 없습니다" : "어느 TASK 의 문서에서나 엽니다(단계에 묶이지 않음)");
     box.append(stepsEl(c.steps, `common-${c.id}`));
     box.style.marginTop = "10px";
     sec.append(io, box);
@@ -377,8 +397,14 @@
 
   function navDraw() {
     const nav = $("wfNav");
-    nav.replaceChildren(link("#overview", "전체 보기"), h("h2", "", "TASK"), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : "")),
-      h("h2", "", "공통 모듈"), ...D.common.map((c) => link(`#common-${c.id}`, c.name)));
+    const make = h("button", "btn sm wf-nav-make", "＋ TASK 조립"); // 단계를 골라 새 TASK 를 만든다(② §14) — 전체 보기 아래 「TASK 조립」 절의 폼으로
+    make.type = "button";
+    make.dataset.wfCompose = "new";
+    make.title = "단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 새 TASK 를 만듭니다";
+    make.addEventListener("click", () => composeOpen(""));
+    nav.replaceChildren(link("#overview", "전체 보기"), h("h2", "", "TASK"), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
+      h("h2", "", "단계"), ...D.common.filter((c) => c.kind === "stage").map((c) => link(`#common-${c.id}`, c.name)),
+      h("h2", "", "도구"), ...D.common.filter((c) => c.kind !== "stage").map((c) => link(`#common-${c.id}`, c.name)));
   }
 
   function navSync() { // 목차의 지금 절 — 본문 스크롤 자리로(본문이 혼자 스크롤한다)
@@ -403,7 +429,7 @@
     const oldOwner = (routes.get(current) || {}).flow?.id, route = routes.get(id), main = $("wfMain"), diagram = $("wfDiagram");
     const focusKey = document.activeElement?.dataset.wfFocus;
     current = id;
-    for (const sec of main.querySelectorAll(".wf-sec")) sec.hidden = view === "diagram" && (id !== "overview" || sec.id !== "overview");
+    for (const sec of main.querySelectorAll(".wf-sec")) sec.hidden = view === "diagram" && (id !== "overview" || (sec.id !== "overview" && sec.id !== "wfCompose")); // 「TASK 조립」 절은 전체 보기와 함께
     diagram.hidden = view !== "diagram" || !route;
     if (view === "diagram") {
       if (route) {
@@ -441,8 +467,130 @@
     go(`#${current}`);
   }
 
+  // ---- TASK 조립(spec_워크플로우 ② §14) — 단계를 골라 새 TASK 를 만든다 · 조립한 TASK 를 고치고 지운다. 저장소 = 서버(GET·POST /api/tasks · PUT·DELETE /api/tasks/{key}).
+  // 지금 조립할 수 있는 틀은 이관형(원본 문서 하나 → 목적 문서 하나)이고 문서 쌍은 서버가 주는 것(pairs)뿐이다 — 아직 안 되는 틀은 까닭과 함께 보인다(blocked). 단계의 차례는 일반 단계의 차례로 고정(고르는 것은 쓰느냐뿐).
+  let T = null; // GET /api/tasks — {tasks, stages, pairs, blocked, base, limits} | null(못 읽음 — 옛 서버)
+  let composing = null; // 펴 둔 폼 {key("" = 새로), name, desc, pair, stages: Set, premise, err, busy}
+  async function tasksLoad() {
+    try { const r = await fetch("/api/tasks", { headers: { Accept: "application/json" } }); T = r.ok ? await r.json() : null; } catch { T = null; }
+    if (T && typeof taskCatalogCustom === "function") taskCatalogCustom(T.tasks); // 이 페이지의 TASK 이름도 지금 저장소의 것으로
+  }
+  function composeOpen(key) { // "" = 새 TASK · 키 = 그 TASK 고치기 — 전체 보기의 「TASK 조립」 절로 가서 폼을 편다
+    if (!T) return;
+    const t = key ? T.tasks.find((x) => x.key === key) : null, pair = T.pairs[0] || {};
+    composing = t ? { key, name: t.name, desc: t.desc, pair: `${t.source}>${t.target}`, stages: new Set(t.stages), premise: t.premise, err: "", busy: false }
+      : { key: "", name: "", desc: "", pair: `${pair.source}>${pair.target}`, stages: new Set(T.stages.map((x) => x.id)), premise: "", err: "", busy: false };
+    if (view === "diagram") navigate("#overview"); else go("#overview");
+    composeDraw();
+    const box = $("wfCompose"), first = box && box.querySelector("input[name=name]");
+    if (box) box.scrollIntoView({ block: "start" });
+    if (first) first.focus({ preventScroll: true });
+  }
+  async function composeSave() {
+    const c = composing;
+    if (!c || c.busy) return;
+    const [source, target] = c.pair.split(">"), body = { name: c.name, desc: c.desc, stages: T.stages.map((x) => x.id).filter((id) => c.stages.has(id)), premise: c.premise, ...(c.key ? {} : { source, target }) };
+    c.busy = true; c.err = "";
+    composeDraw();
+    let got = null;
+    try {
+      const r = await fetch(c.key ? `/api/tasks/${encodeURIComponent(c.key)}` : "/api/tasks", { method: c.key ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      got = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(got.detail || `HTTP ${r.status}`);
+    } catch (e) { c.busy = false; c.err = e.message; composeDraw(); return; }
+    composing = null;
+    await load(); // 등록부 · 저장소를 다시 읽어 목차 · 절을 새로
+    navigate(`#${got.task.key}`);
+  }
+  async function composeDelete(t) {
+    if (!confirm(`조립한 TASK 「${t.name}」 을 지울까요?\n\n단계 · 도구는 그대로이고 이 TASK(이름 · 고른 단계 · 전제)만 지웁니다. 되돌릴 수 없습니다.`)) return;
+    let msg = "";
+    try { const r = await fetch(`/api/tasks/${encodeURIComponent(t.key)}`, { method: "DELETE" }); if (!r.ok) msg = ((await r.json().catch(() => ({}))).detail) || `HTTP ${r.status}`; }
+    catch (e) { msg = e.message; }
+    if (msg) { alert(`지우지 못했습니다 — ${msg}`); return; }
+    if (composing && composing.key === t.key) composing = null;
+    await load();
+    navigate("#overview");
+  }
+  function composeSec() { // 「TASK 조립」 절 — 전체 보기 아래(다이어그램 · 목록 어느 보기에서나 전체 보기와 함께 보인다)
+    const sec = h("section", "wf-sec wf-compose");
+    sec.id = "wfCompose";
+    return sec;
+  }
+  function composeDraw() {
+    const sec = $("wfCompose");
+    if (!sec) return;
+    const h2 = h("h2");
+    h2.append(h("span", "wf-kind", "TASK 조립"), document.createTextNode("단계를 골라 새 TASK 만들기"));
+    sec.replaceChildren(h2);
+    if (!T) { sec.append(h("p", "wf-lead", "TASK 조립은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능).")); return; }
+    sec.append(h("p", "wf-lead", "단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 이름을 붙이면 새 TASK 가 됩니다 — 시작 화면의 TASK 카드 · 이 지도 · 대시보드에 서고, 고른 단계만 진행합니다. 단계의 차례는 바뀌지 않습니다."));
+    const list = h("ul", "wf-made-list");
+    for (const t of T.tasks) {
+      const li = h("li"), chips = h("span", "wf-links"), edit = h("button", "btn sm", "고치기"), del = h("button", "btn sm", "지우기");
+      li.dataset.task = t.key;
+      for (const id of t.stages) chips.append(h("span", "wf-chip", (T.stages.find((x) => x.id === id) || {}).name || id));
+      edit.type = del.type = "button";
+      edit.addEventListener("click", () => composeOpen(t.key));
+      del.disabled = t.inUse > 0;
+      del.title = t.inUse ? `이 TASK 로 하던 작업이 ${t.inUse}개 있어 지울 수 없습니다 — 그 작업의 TASK 를 바꾸거나 작업을 지운 뒤에` : "이 TASK 를 지웁니다(단계 · 도구는 그대로)";
+      del.addEventListener("click", () => composeDelete(t));
+      li.append(link(`#${t.key}`, t.name, "wf-over-name"), h("span", "wf-muted", `${t.sourceName} → ${t.targetName}`), chips, edit, del);
+      list.append(li);
+    }
+    if (T.tasks.length) sec.append(list);
+    if (!composing) {
+      const make = h("button", "btn primary", "새 TASK 조립");
+      make.type = "button";
+      make.dataset.wfCompose = "open";
+      make.addEventListener("click", () => composeOpen(""));
+      sec.append(make);
+    } else sec.append(composeForm());
+    const no = h("details", "wf-blocked"), ul = h("ul");
+    no.append(h("summary", "", "아직 조립할 수 없는 것"));
+    for (const b of T.blocked) { const li = h("li"); li.append(h("b", "", b.name), document.createTextNode(` — ${b.why}`)); ul.append(li); }
+    no.append(ul);
+    sec.append(no);
+  }
+  function composeForm() {
+    const c = composing, form = h("form", "wf-form"), field = (label, control, note) => { const f = h("label", "wf-field"); f.append(h("span", "wf-field-name", label), control); if (note) f.append(h("span", "wf-muted", note)); return f; };
+    form.addEventListener("submit", (e) => { e.preventDefault(); composeSave(); });
+    const name = h("input"), desc = h("input"), pair = h("select"), premise = h("textarea");
+    name.name = "name"; name.required = true; name.maxLength = T.limits.name; name.value = c.name; name.placeholder = "예: 연차보고서 구성만 맞추기";
+    name.addEventListener("input", () => { c.name = name.value; });
+    desc.name = "desc"; desc.maxLength = T.limits.desc; desc.value = c.desc; desc.placeholder = "TASK 카드에 보이는 한 줄 설명(비워도 됩니다)";
+    desc.addEventListener("input", () => { c.desc = desc.value; });
+    for (const p of T.pairs) pair.append(new Option(p.name, `${p.source}>${p.target}`));
+    pair.name = "pair"; pair.value = c.pair; pair.disabled = !!c.key; // 만든 뒤에는 문서 쌍을 못 고친다(그 TASK 로 하던 작업의 문서 역할이 달라진다)
+    pair.addEventListener("change", () => { c.pair = pair.value; });
+    premise.name = "premise"; premise.rows = 4; premise.maxLength = T.limits.premise; premise.value = c.premise;
+    premise.placeholder = `이 TASK 의 전제 · 기준(LLM 호출이 읽는 글). 비우면 「${taskName(T.base)}」 의 전제를 씁니다.`;
+    premise.addEventListener("input", () => { c.premise = premise.value; });
+    const stages = h("fieldset", "wf-stage-pick");
+    stages.append(h("legend", "", "단계 — 쓸 것을 고릅니다(차례는 위에서 아래로 고정)"));
+    T.stages.forEach((st, i) => {
+      const lab = h("label", "wf-stage-opt"), box = h("input"), text = h("span");
+      box.type = "checkbox"; box.name = "stage"; box.value = st.id; box.checked = c.stages.has(st.id);
+      box.addEventListener("change", () => { if (box.checked) c.stages.add(st.id); else c.stages.delete(st.id); });
+      text.append(h("b", "", `${i + 1}. ${st.name}`), h("span", "wf-muted", ` — ${st.does}`), h("span", "wf-stage-steps", st.steps.map((x) => x.name + (x.optional ? "(선택)" : "")).join(" › ")));
+      lab.append(box, text);
+      stages.append(lab);
+    });
+    const save = h("button", "btn primary", c.busy ? "저장 중…" : c.key ? "고친 것 저장" : "TASK 만들기"), cancel = h("button", "btn", "취소"), acts = h("div", "wf-form-acts");
+    save.type = "submit"; save.disabled = c.busy;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => { composing = null; composeDraw(); });
+    acts.append(save, cancel);
+    if (c.err) { const e = h("p", "wf-err", c.err); e.setAttribute("role", "alert"); acts.append(e); }
+    form.append(h("h3", "", c.key ? `「${c.name}」 고치기` : "새 TASK"), field("이름", name), field("한 줄 설명", desc),
+      field("문서 쌍(원본 → 목적)", pair, c.key ? "만든 뒤에는 고칠 수 없습니다" : T.pairs.length > 1 ? "" : "지금 조립할 수 있는 쌍은 이것 하나입니다 — 까닭은 아래 「아직 조립할 수 없는 것」"),
+      stages, field("전제(선택)", premise), acts);
+    return form;
+  }
+
   async function load() {
     const main = $("wfMain");
+    await tasksLoad();
     try {
       const r = await fetch("/api/workflow", { headers: { Accept: "application/json" } });
       if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
@@ -458,7 +606,8 @@
     navDraw();
     indexRoutes();
     const diagram = h("section", "wf-diagram"); diagram.id = "wfDiagram"; diagram.hidden = true;
-    main.replaceChildren(diagram, overview(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
+    main.replaceChildren(diagram, overview(), composeSec(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
+    composeDraw();
     go(location.hash);
   }
 
