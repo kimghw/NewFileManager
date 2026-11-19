@@ -873,6 +873,12 @@ def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
         found = form_cleanup.find(s.doc)
         if not found["counts"]["total"]:
             return {"nothing": True, **s.state()}
+        try:   # 지우기 바로 전에 작성 지침(작성 요령 표 · <참고 N> 자료 · ※ 안내 · 각주 번호의 항목)을 헤딩/표별로 남긴다 — 어느 길로 지워도 지침이 남게(spec_작업 ② §21 「작성 지침 저장」)
+            from app import form_guides_api
+            form_guides_api.keep(s, found)
+        except Exception:   # noqa: BLE001 — 못 남겨도 지우기는 한다(올린 원본이 작업 폴더에 있다)
+            import logging
+            logging.getLogger("uvicorn.error").exception("[작성 지침] 지우기 전에 저장하지 못했습니다")
         chk = s.kit["check"]
         pre = chk.counts(chk.check_doc(s.doc))   # 편집 바로 전 문서의 위반 종류·개수
         done = {}

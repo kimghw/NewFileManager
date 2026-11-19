@@ -8,7 +8,7 @@
 // **TASK 의 단계나 그 단계의 실행 함수를 바꾸면 아래 dash<TASK>Live 의 그 TASK 가지도 함께 본다**(CLAUDE.md — agwStatus · agwExec 와 같은 약속).
 // 읽히는 차례: doc_agent_work.js 다음(agwJob · agwFit · agwStatus · agwExec · agwRunning · agwLiveText · agwConfigForm · agwFitApplied · agwStd*). app.js: state · $ · el · hBtn · toast · api · showTab · openWork · dv · div* · task* · TASK_STAGES · heads ·
 //   heads_run_all.js(headsRunAll) · heads_run_pick.js(headsPickRun · hrpOff · hrpStep) · tpl_plan_bar.js(tpbApply · tplPlanGo) · doc_status.js(dsTo) ·
-//   gather.js(gt · gatherPlan · gatherSteps · gatherActEl · gatherRunAll · gatherUrl · gatherPickFiles · gatherUploadMany · GT_STAGES) · gather_quick.js(gqRun) · style_lib.js(STYLE · styleSave* · slStepState · styleLibOpen) · task_catalog.js(TASK_CATALOG · TASK_STAGE_META).
+//   gather.js(gt · gatherPlan · gatherSteps · gatherActEl · gatherRunAll · gatherUrl · gatherPickFiles · gatherUploadMany · GT_STAGES) · gather_quick.js(gqRun) · style_lib.js(STYLE · styleSave* · slStepState · styleLibOpen) · task_catalog.js(TASK_CATALOG · TASK_STAGE_META — 취합의 묶음 이름. 이관의 묶음 이름은 등록부의 no·name 으로 온다: RELAY_STAGE_META 와 같은 값).
 
 const DASH = { reg: null, regErr: "", regLoad: null, doc: "", primed: "", open: null, nowKey: "", form: false, busy: null, last: null, sig: "", seq: 0, loadKey: "", projTried: "" };
 // open = 편 단계 key(null = 「지금」 단계를 저절로 · "" = 모두 접음 — 「지금」 이 바뀌면 null 로) · nowKey = 마지막으로 그린 「지금」(도는 중) 단계 · form = 프로젝트 구성 입력 폼을 폈나(양식 표준화 · 양식 맞추기) · busy = 이 보기가 부른 행동 {label, t0} · last = 그 끝 {label, ok, text}
@@ -360,7 +360,8 @@ function dashRelayLive(M) { // 이관 — 「작업 개요」 의 단계(taskSte
     acts.forEach((b, i) => { b.dataset.dashFocus = `act:${s.key}:${i}`; });
     L.steps[s.key] = { state: active === s.key ? "run" : s.st, text: s.st === "todo" ? "" : dashHere(s.text), acts: [...acts] };
   }
-  Object.assign(L.steps, { heads: { via: "link" }, llm: { via: "link" }, tableMap: { via: "plan" }, gaps: { via: "plan" } }); // 등록부의 세부 단계 — 「작업 개요」 는 ②·③ 줄의 단추로 함께 한다
+  // 등록부의 선택 단계(LLM) — 「작업 개요」 는 그 줄의 단추로 함께 한다: 헤딩 · 표의 LLM 검증·보완 = 분석 줄(heads · reheads — spec_작업 ② §21) · 자리 연결 LLM 검토 = ② · 표 대응 · 빈 자리 검토 = ③
+  Object.assign(L.steps, { headsLlm: { via: "heads" }, reheadsLlm: { via: "reheads" }, llm: { via: "link" }, tableMap: { via: "plan" }, gaps: { via: "plan" } });
   const files = steps.find((s) => s.key === "files");
   if (files && !files.done) L.steps.files.acts.push(dashBtn("「작업 개요」 의 칸 열기", () => showTab("Div"), { primary: true, title: "첨부 파일 칸에서 사업계획서 · 연차보고서를 고르거나 올립니다", focus: "act:files" }));
   const config = steps.find((s) => s.key === "config");

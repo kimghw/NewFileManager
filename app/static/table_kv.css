@@ -1,0 +1,106 @@
+/* 표의 키-값 보기 · 매핑(2열 kind tblKv — spec_테이블매니저 ② §7 「키-값 추출과 매핑」). 폭 · 여백 · 컨트롤 크기는 design.md 를 따른다.
+   틀(.ta-wrap · .ta-ident · .ta-row · h3 · .hnote · table.mini · .hb)은 표 지침 · 표 서식 점검 열 것(style.css · table-fill.css)을 같이 쓴다 — 목록은 표 서식 점검(.tst-list)과 같은 꼴.
+   td.tkv-hit = 줄에 올린 동안 문서의 이 표 칸(스크립트라 LLM 보라가 아닌 고르기 파랑 — td.tst-hit 와 같은 색) · td.tkv-src = 값을 가져올 원본 표의 칸(점선).
+   상자는 겹치지 않는다(design.md §1 규칙 1): 묶음은 1px 윗줄로만 나누고, 되풀이 줄은 표 · 목록의 구분선으로. */
+.tkv-wrap .tkv-sum { color: var(--text); font-weight: 600; }
+.tkv-wrap .tkv-held { color: var(--warn); }
+.tkv-wrap .hlink { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.tkv-wrap .hlink:hover, .tkv-wrap .hlink:focus-visible { text-decoration: underline; }
+
+/* 묶음 제목 줄 — 제목 + 노트 도움말(+ 요약 글) */
+.tkv-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 12px 0 4px; padding-top: 9px; border-top: 1px solid var(--line); }
+.tkv-h h3 { margin: 0; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.tkv-h .muted { min-width: 0; font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* 원본 표 고르기 — 이름 · 찾기 · 「가져오기」 · 고른 수가 왼쪽부터 붙고, 그 아래 체크 목록(여럿 고름 — 높이를 정해 두고 안에서 굴린다: 표가 백 개가 넘는 문서에서도 계획이 밀려 내려가지 않게) */
+.tkv-from .ta-row, .tkv-split .ta-row { gap: 6px; }
+.tkv-lab { flex: none; color: var(--muted); font-size: 12px; }
+.tkv-from .tkv-find, .tkv-split .tkv-find, .tkv-values select, .tkv-rename { height: 28px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--text); padding: 0 6px; }
+.tkv-from .tkv-find, .tkv-split .tkv-find { flex: 0 1 10em; min-width: 5em; }
+.tkv-from .btn.tkv-get, .tkv-split .btn.tkv-split-get { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tkv-count { font-size: 11.5px; }
+.tkv-srcs, .tkv-tgts { max-height: 150px; margin: 4px 0 0; padding: 2px 0; overflow: auto; list-style: none; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+:is(.tkv-srcs, .tkv-tgts) li label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 8px; font-size: 12px; line-height: 20px; cursor: pointer; }
+:is(.tkv-srcs, .tkv-tgts) li label:hover { background: var(--surface-2); }
+:is(.tkv-srcs, .tkv-tgts) li input { flex: none; margin: 0; }
+:is(.tkv-srcs, .tkv-tgts) li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 여러 원본 · 구분 기준으로 묶어 넣기 — 원본마다 「어느 값의 것」 줄 · 값마다 묶은 계획(묶음은 1px 윗줄로만 나눈다) */
+table.mini:is(.tkv-sources, .tkv-targets) td { vertical-align: middle; }
+table.mini:is(.tkv-sources, .tkv-targets) td:last-child { text-align: right; }
+.tkv-values select.tkv-value { max-width: 12em; }
+.tkv-warn { color: var(--warn); }
+.tkv-group, .tkv-sgroup { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+:is(.tkv-group, .tkv-sgroup) > summary { cursor: pointer; font-size: 12.5px; }
+/* 값을 더해서 넣기 — 합의 풀이 「(= 500 + 700)」 · 다른 표로 나눠 넣기(이 표에 기준이 있을 때만 보이는 묶음 — 계획은 받을 표마다) */
+.tkv-how { color: var(--muted); }
+/* 구분 기준의 값 고르기 — 계획 위의 값 표지 줄(기준 이름 · 값 표지 · 모두 · 모두 풀기). 켜진 표지 = 옅은 파란 바탕 · 꺼 둔 값의 짝 줄은 흐리게 */
+.tkv-divs { margin: 6px 0 2px; }
+.tkv-div { gap: 4px 6px; margin: 2px 0; }
+.tkv-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 24px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer; }
+.tkv-chip.on { border-color: #9fb5ea; background: var(--accent-soft); color: var(--text); }
+.tkv-chip input { flex: none; margin: 0; }
+.tkv-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tkv-kept { font-size: 12px; white-space: nowrap; }
+.tkv-oppick { margin-left: 4px; font-size: 11px; opacity: .55; }
+tr:hover .tkv-oppick, .tkv-oppick:focus-visible { opacity: 1; }
+.tkv-ops, .tkv-recalc { margin: 10px 0 4px; }
+.tkv-recalc:empty { display: none; }
+.tkv-recalcrest { margin-top: 6px; }
+table.mini.tkv-pairs tr.tkv-out td { opacity: .45; }
+.tkv-splitplan .tkv-splitsum { margin-top: 4px; }
+table.mini.tkv-list td.tkv-srccol { color: var(--muted); white-space: nowrap; }
+
+/* 계획 머리 · 요약 · 넣기 줄 */
+.tkv-planhead { margin: 10px 0 0; }
+.tkv-planhead .tkv-name { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.tkv-plan .tkv-plansum { margin-top: 4px; }
+.tkv-bar, .tkv-splitbar { margin: 6px 0 4px; }
+
+/* 목록(키-값 · 짝 · 짝 없는 항목) */
+table.mini.tkv-list td { vertical-align: top; }
+table.mini.tkv-list td:first-child { white-space: nowrap; }
+table.mini.tkv-list td:first-child .hb { margin-left: 4px; vertical-align: 1px; }
+table.mini.tkv-pairs td:first-child, table.mini.tkv-pickable td:first-child { width: 18px; padding-right: 0; }
+table.mini.tkv-pairs td:nth-child(2) { white-space: nowrap; }
+table.mini.tkv-list td.tkv-key { min-width: 7em; }
+table.mini.tkv-list td.tkv-val { min-width: 9em; white-space: pre-wrap; }
+table.mini.tkv-list tr.tkv-empty td.tkv-val, table.mini.tkv-list tr.tkv-dim td { color: var(--muted); }
+table.mini.tkv-pairs tr.tkv-clash td { background: var(--warn-soft); }
+table.mini.tkv-pairs tr:is(.tkv-same, .tkv-calc, .tkv-emptySrc) td.tkv-key { color: var(--muted); }
+.tkv-now { color: var(--muted); }
+.tkv-arrow, .tkv-lab2 { color: var(--muted); }
+.tkv-new { color: var(--text); font-weight: 600; }
+.tkv-why { display: block; color: var(--muted); font-size: 11.5px; }
+.tkv-list .hb { max-width: none; }
+
+/* 매핑 규칙 — 쓰인 규칙 줄(✕) */
+.tkv-rule-list, .tkv-map-list { margin: 4px 0 0; padding: 0; list-style: none; }
+.tkv-rule { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tkv-rule:last-child { border-bottom: 0; }
+.tkv-rule .hb { flex: none; max-width: none; }
+.tkv-rule-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tkv-x { flex: none; width: 22px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
+.tkv-x:hover, .tkv-x:focus-visible { border-color: var(--line-strong); background: var(--surface-2); color: var(--fail); }
+
+/* 짝 없는 항목 — 원본 하나 · 이 표 하나를 골라 짝짓기 */
+.tkv-left, .tkv-items, .tkv-maps { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.tkv-left > summary, .tkv-items > summary, .tkv-maps > summary { cursor: pointer; font-size: 12.5px; }
+.tkv-side { margin: 8px 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.tkv-pairbar { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 6px 0; border-top: 1px solid var(--line); background: var(--surface); font-size: 12px; }
+.tkv-pairbar .ta-row { margin: 0; }
+.tkv-pairbar .btn.sm { height: auto; min-height: 28px; max-width: 100%; padding: 3px 10px; white-space: normal; text-align: left; }
+.tkv-pick { overflow-wrap: anywhere; }
+.tkv-pairbar .btn.tkv-go { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); font-weight: 600; } /* 꽉 찬 파랑은 이 열의 주된 일 「고른 n칸 넣기」 하나 — 짝짓기는 옅은 파란 바탕(design.md §1 규칙 12) */
+
+/* 저장된 매핑 규칙(서버 전체) — 이름 · 두 표 · 규칙 수 · 이름 바꾸기 · 지우기 */
+.tkv-map { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tkv-map:last-child { border-bottom: 0; }
+.tkv-map-top { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.tkv-map-name { min-width: 0; overflow-wrap: anywhere; }
+.tkv-map-meta { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.tkv-map-acts { display: inline-flex; gap: 4px; }
+.tkv-rename { flex: 1 1 10em; min-width: 0; }
+
+#doc table.tbl td.tkv-hit { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .12); outline: 2px solid rgba(36, 88, 214, .7); outline-offset: -2px; }
+#doc table.tbl td.tkv-src { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .06); outline: 2px dashed rgba(36, 88, 214, .7); outline-offset: -2px; }

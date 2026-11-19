@@ -262,7 +262,8 @@ def diagram_checks(wf, ctx, api, workflow_requests):
           and bool(ent["entry"]) and ent["entry"]["open"] is False and f"{auto}가지" in ent["entry"]["summary"] and ent["entry"]["doc"] == relay["doc"] == "tasks/plan_to_report.md"
           and ent["entry"]["groups"] == [[g["when"], len(g["items"]), True] for g in relay["entry"]] and [g["when"] for g in relay["entry"]] == ["start", "upload", "enter", "manual"], ent)
     wf.screenshot(path=str(OUT / "07_diagram_transfer.png"))
-    wf.click("#wfDiagram .wf-node[href='#plan_to_report--map--heads']")
+    wf.click("#wfDiagram .wf-stage-link[href='#plan_to_report--review']")   # 헤딩 · 표 분석은 1단계 「문서 검토」 의 단계다(spec_작업 ② §21 — 전에는 3단계 안)
+    wf.click("#wfDiagram .wf-node[href='#plan_to_report--review--heads']")
     wf.click("#wfDiagram .wf-related a[href='#common-headings']")
     related = wait_diagram(wf, common["headings"]["steps"][0]["name"])
     check("관련 공통 모듈로 이동 — 첫 단계부터 확인", related["selected"] == "#common-headings--" + common["headings"]["steps"][0]["key"], related)
@@ -347,12 +348,12 @@ def main():
           dots: [...document.querySelectorAll('.wf-over > li[data-job=plan_to_report] .wf-chain > li')].map((c) => [...c.querySelectorAll('.wf-dot')].map((d) => d.className.replace('wf-dot wf-d-', '')).join('+')),
           legend: [...document.querySelectorAll('.wf-legend .wf-tag')].map((x) => x.textContent), commons: document.querySelectorAll('.wf-commons a').length, cur: document.querySelector('#wfNav a[aria-current=true]').textContent })""")
         rows = {r[0]: r for r in ov["rows"]}
-        check("전체 보기 — TASK 마다 한 줄: 이관 = 「1단계 프로젝트 구성 › 2단계 문서 프레임 작성 › 3단계 내용 매핑 › 4단계 문서 정리」 · 취합 = 1~3단계 · 「연차보고서 취합」 은 준비 중",
-              len(ov["rows"]) == 7 and rows["plan_to_report"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑", "4단계문서 정리"]
+        check("전체 보기 — TASK 마다 한 줄: 이관 = 「1단계 문서 검토 › 2단계 구성 맞추기 › 3단계 내용 넣기 › 4단계 문서 정리」(spec_작업 ② §21) · 취합 = 1~3단계(그대로) · 「연차보고서 취합」 은 준비 중",
+              len(ov["rows"]) == 7 and rows["plan_to_report"][2] == ["1단계문서 검토", "2단계구성 맞추기", "3단계내용 넣기", "4단계문서 정리"]
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
               and rows["plan_fit"][2] == ["1단계프로젝트 구성", "2단계헤딩 추출", "3단계표"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
-        check("묶음의 점 — 이관 1단계는 점 없음(문서 안 바뀜 · LLM 없음) · 2단계 주황(문서 바뀜) · 3단계 보라+주황(LLM · 문서 바뀜) / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
-              ov["dots"] == ["", "doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "자동", "필수", "선택"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
+        check("묶음의 점 — 이관 1단계는 보라(선택 LLM 검증·보완 — 문서 안 바뀜) · 2단계 · 3단계 보라+주황(LLM · 문서 바뀜) · 4단계 주황 / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
+              ov["dots"] == ["llm", "llm+doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "자동", "필수", "선택"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
         wf.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- TASK 절(이관)
@@ -367,11 +368,11 @@ def main():
         check("이관 절 — 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 → 알아 둘 것 → 전제(jobs/plan_to_report.md) · 그 절로 스크롤(#plan_to_report)",
               ts["h2"] == "TASK사업계획서 → 연차보고서 이관" and "연차보고서로 옮깁니다" in ts["lead"] and ts["io"] == ["받는 문서", "산출물", "알아 둘 것", "전제", "한 번에 진행", "에이전트가 묻는 것", "멈추거나 남기는 곳 · 보정", "단계별(세부 작업)"] and ts["prompt"] == "jobs/plan_to_report.md"
               and ts["hash"] == "#plan_to_report" and -2 <= ts["top"] <= 20, ts)
-        check("묶음 넷 — 「1단계 프로젝트 구성」(2) · 「2단계 문서 프레임 작성」(1) · 「3단계 내용 매핑」(8) · 「4단계 문서 정리」(1)",
-              ts["stages"] == [["config", "1단계", "프로젝트 구성", 2], ["frame", "2단계", "문서 프레임 작성", 1], ["map", "3단계", "내용 매핑", 8], ["clean", "4단계", "문서 정리", 1]], ts["stages"])
+        check("묶음 넷 — 「1단계 문서 검토」(3) · 「2단계 구성 맞추기」(4) · 「3단계 내용 넣기」(7) · 「4단계 문서 정리」(1)",
+              ts["stages"] == [["review", "1단계", "문서 검토", 3], ["frame", "2단계", "구성 맞추기", 4], ["map", "3단계", "내용 넣기", 7], ["clean", "4단계", "문서 정리", 1]], ts["stages"])
         m = {x[0]: x for x in ts["map"]}
-        check("3단계의 단계 줄 — 헤딩·표 분석 → ② 자리 연결 → LLM 검토(선택) → ③ 넣기 계획 → 표 대응 · 빈 자리 검토(LLM) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임",
-              [x[0] for x in ts["map"]] == ["heads", "link", "llm", "plan", "tableMap", "gaps", "apply", "later"] and [m[k][1] for k in ("link", "plan", "apply", "later")] == ["②", "③", "④", "⑤"]
+        check("3단계의 단계 줄 — ② 자리 연결 → LLM 검토(선택) → ③ 넣기 계획 → 표 대응 · 빈 자리 검토(LLM) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임(헤딩·표 분석은 1단계 · 다시 분석은 2단계 — §21)",
+              [x[0] for x in ts["map"]] == ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"] and [m[k][1] for k in ("link", "plan", "apply", "later")] == ["②", "③", "④", "⑤"]
               and m["link"][2:4] == ["자리 연결", "스크립트|필수"] and m["llm"][3] == "LLM|선택" and m["apply"][3] == "사람|스크립트|문서 바뀜|필수" and m["later"][3] == "스크립트|준비 중"
               and all(x[4] and not x[5] for x in ts["map"]), ts["map"])
         wf.click("#plan_to_report .wf-step[data-step=llm] > summary")

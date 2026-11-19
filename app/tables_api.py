@@ -450,9 +450,11 @@ def _prune_hwpx(s):
 @router.post("/api/docs/{doc_id}/tables/{tid}/prune")
 def table_prune_lines(doc_id: str, tid: str, body: dict = Body(default={})):
     """필드가 모두 빈 행·열 지우기(`app/table_prune.py`). hwpx 만.
-    `{dry: true}` → 미리보기(문서 안 바뀜) `{table, rows, cols, fields, emptyFields, allEmpty, emptyRows[], emptyCols[], skipRows[], skipCols[], rowNames, colNames, note?, rev}`.
-    `{rows?: bool(기본 true), cols?: bool(기본 false), rev?}` → 지우기 — 한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tablePrune`),
-    응답 = 구조 편집 응답 + `pruned {table, rows[], cols[], skipRows[], skipCols[]}`. rev 가 지금 문서와 다르면 409(미리보기 뒤 문서가 바뀜), 지울 줄이 없으면 400."""
+    `{dry: true}` → 미리보기(문서 안 바뀜) `{table, rows, cols, fields, emptyFields, allEmpty, emptyRows[], emptyCols[], skipRows[], skipCols[], rowNames, colNames, why, note?, held[], rev}`.
+    `{rows?: bool(기본 true), cols?: bool(기본 false), rev}` → 지우기 — 한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tablePrune`),
+    응답 = 구조 편집 응답 + `pruned {table, rows[], cols[], skipRows[], skipCols[]}`. rev 가 지금 문서와 다르면 409(미리보기 뒤 문서가 바뀜), 지울 줄이 없으면 400.
+    spec_테이블매니저 ② §4 「지우거나 쓰는 도구」: 칸 역할 = 스크립트 초안 + **유효한** 사람 헤더 지정(`_heads_now`) — 보류된 지정(`held`)이 있으면 지우기는 409, 미리보기는 `held` 를 싣는다 ·
+    지우기 요청에 `rev`(미리보기가 준 것)가 없으면 400(미리 본 문서와 지금 문서가 같은지 볼 수 없다 — 화면은 늘 보낸다)."""
     from app import server, table_prune
     body = body if isinstance(body, dict) else {}
     if body.get("dry") is True:
@@ -460,12 +462,14 @@ def table_prune_lines(doc_id: str, tid: str, body: dict = Body(default={})):
         with s.lock:
             _prune_hwpx(s)
             _live_table(s, tid)
+            user, held = _heads_now(s, tid, _table_now(s, tid)[1])
             try:
-                out = table_prune.plan(s.doc, tid, doc_key=getattr(s, "doc_key", None), roles=_heads(s, tid))
+                out = table_prune.plan(s.doc, tid, doc_key=getattr(s, "doc_key", None), roles=user)
             except ValueError as e:
                 raise HTTPException(400, str(e)) from e
             if out is None:
                 raise HTTPException(404, "그 표가 지금 문서에 없습니다")
+            out["held"] = held
             out["rev"] = s.rev
         return out
     rows, cols, rev = body.get("rows", True), body.get("cols", False), body.get("rev")
@@ -476,12 +480,16 @@ def table_prune_lines(doc_id: str, tid: str, body: dict = Body(default={})):
     def make(s):
         _prune_hwpx(s)
         _live_table(s, tid)
-        if rev is not None and rev != s.rev:
+        if not _is_rev(rev):
+            raise HTTPException(400, "rev 가 필요합니다 — 미리보기({dry: true})가 준 rev 를 같이 보내세요")
+        if rev != s.rev:
             raise HTTPException(409, "미리 본 뒤 문서가 바뀌었습니다 — 표 메뉴에서 「빈 필드 제거하기」 를 다시 누르세요")
+        user, held = _heads_now(s, tid, _table_now(s, tid)[1])
+        _held_stop(held)
         el = s.doc._ids[tid]
 
         def run():
-            r = table_prune.apply(s.doc, tid, rows=rows, cols=cols, doc_key=getattr(s, "doc_key", None), roles=_heads(s, tid))
+            r = table_prune.apply(s.doc, tid, rows=rows, cols=cols, doc_key=getattr(s, "doc_key", None), roles=user)
             if not r["rows"] and not r["cols"]:
                 raise ValueError("지울 빈 행·열이 없습니다" + ("(합친 칸에 걸려 못 지움)" if r["skipRows"] or r["skipCols"] else ""))
             pruned.update(table=tid, **r)
@@ -495,9 +503,40 @@ def table_prune_lines(doc_id: str, tid: str, body: dict = Body(default={})):
 
 # ---- 헤더 지정 · 표 판정 · 표 나누기(spec_owpml_편집 ② §5-3·§5-4) -----------------------------------------------------------------------------------
 def _heads(s, tid):
-    """그 표의 사용자 헤더 지정 {칸 id: 역할} — 없으면 None."""
+    """그 표의 사용자 헤더 지정 {칸 id: 역할} — 없으면 None. **모든** 지정(보류 여부를 안 본다 — 엑셀화 · 표 채우기 · 표 나누기 · 표 메뉴 판정: 다음 걸음에 `_heads_now` 로).
+    문서에서 지우거나 칸 글을 쓰는 길(표 서식 점검 · 빈 필드 제거)은 `_heads_now` 의 유효한 지정만 쓴다."""
     from app import table_heads
     return table_heads.get(s.id, tid) or None
+
+
+def _is_rev(v):
+    """문서 차례(rev) 꼴인가 — 정수(참/거짓 아님)."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _table_now(s, tid, cap=True):
+    """지금 문서의 그 표 → (1단계 꼴 레코드 | None(표가 아님), `heading_tables.collect` 꼴의 표 | None(1칸 표 · 상자)). 세션 잠금 안에서 부른다.
+    칸의 글 · 문단 목록 · 자리는 **지금 문서의 것**이다(테이블 매니저 · 헤더 지정의 도장이 견줄 표). cap = 너무 큰 표(`table_excel.MAX_CELLS`)는 400."""
+    from app import heading_tables, table_excel
+    stage1 = table_excel.records(s.doc, tid, None, getattr(s, "doc_key", None))
+    tb = next((t for t in heading_tables.collect(stage1) if t["id"] == tid), None) if stage1 is not None else None
+    if cap and tb is not None and len(tb["cells"]) > table_excel.MAX_CELLS:
+        raise HTTPException(400, f"표가 너무 큽니다(칸 {len(tb['cells'])} > {table_excel.MAX_CELLS})")
+    return stage1, tb
+
+
+def _heads_now(s, tid, tb):
+    """그 표의 사람 헤더 지정을 지금 표(tb — `_table_now` 의 표 | None)와 견줘 → (유효 {칸 id: 역할} | None, 보류 [{cell, role, why}])
+    (spec_테이블매니저 ② §3 「사람의 헤더 지정」 — `table_heads.check`). 지정한 뒤 그 칸의 자리나 글이 바뀐 지정은 보류다: 쓰지 않고, 버리지도 않는다."""
+    from app import table_heads
+    valid, held = table_heads.check(s.id, tid, tb)
+    return valid or None, held
+
+
+def _held_stop(held):
+    """보류된 헤더 지정이 있는 표는 문서를 바꾸지 않는다 — 409(spec_테이블매니저 ② §3 「사람의 헤더 지정」: 잘못 붙은 지정으로 지우거나 쓰지 않게)."""
+    if held:
+        raise HTTPException(409, f"헤더 지정 {len(held)}칸이 지금 표와 맞지 않습니다 — 표 메뉴에서 다시 지정하거나 풀어 주세요")
 
 
 def _heads_hwpx(s):
@@ -514,7 +553,8 @@ def table_heads_all(doc_id: str):
 
 @router.put("/api/docs/{doc_id}/tables/{tid}/heads")
 def table_heads_put(doc_id: str, tid: str, body: dict = Body(...)):
-    """{cells: [칸 id…], role: rowhead|colhead|field|null(지정 풀기)} → {table, roles: 그 표의 지정, layout}. 문서는 안 바뀐다. 그 표의 칸이 아니면 400."""
+    """{cells: [칸 id…], role: rowhead|colhead|field|null(지정 풀기)} → {table, roles: 그 표의 지정, layout}. 문서는 안 바뀐다. 그 표의 칸이 아니면 400.
+    지정하는 칸마다 **도장**(지금 그 칸의 자리 · 글 — `table_heads.stamp`)을 같이 적는다(spec_테이블매니저 ② §3 「사람의 헤더 지정」): 뒤에 그 칸이 다른 칸이 되면(구조 편집 · 실행 취소 · 글 바뀜) 그 지정은 보류된다."""
     from app import table_heads
     s = _sess(doc_id)
     with s.lock:
@@ -524,8 +564,12 @@ def table_heads_put(doc_id: str, tid: str, body: dict = Body(...)):
         cells = body.get("cells")
         if isinstance(cells, list) and any(c not in alive for c in cells):
             raise HTTPException(400, "그 표의 칸이 아닌 것이 있습니다 — 칸을 다시 고르세요")
+        stamps = None
+        if body.get("role") is not None and isinstance(cells, list):
+            now = {x["id"]: x for x in (_table_now(s, tid, cap=False)[1] or {}).get("cells") or ()}
+            stamps = {c: table_heads.stamp(now[c]) for c in cells if isinstance(c, str) and c in now}
         try:
-            roles = table_heads.put(s.id, tid, cells, body.get("role"), alive)
+            roles = table_heads.put(s.id, tid, cells, body.get("role"), alive, stamps=stamps)
             lay = table_heads.layout(s.doc, tid, roles, doc_key=getattr(s, "doc_key", None))
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
@@ -762,38 +806,43 @@ def _style_hwpx(s):
 
 
 def _style_tb(s, tid):
-    """표 서식의 칸 역할 → (표, 출처). 3단계 결과에 그 표가 있고 칸이 지금 문서와 같으면 그것(표 판정 LLM 이 고친 역할 포함 — 출처 stage3),
-    아니면 그 표만의 스크립트 초안(`table_heads.table` — draft). 어느 쪽이든 지금의 사람 헤더 지정을 덮는다(3단계 결과는 복사해서 — 캐시를 바꾸지 않게)."""
-    from app import table_heads
-    user = table_heads.get(s.id, tid) or None
-    alive = {s.doc._id(x.el) for x in s.doc._tgrid(s.doc._ids[tid])[1]}
-    t3 = heading_runs.tables(s)
-    tb = next((t for t in (t3 or {}).get("tables") or [] if t.get("id") == tid), None)
-    if tb is not None and {c["id"] for c in tb.get("cells") or []} == alive:
-        tb = {**tb, "cells": [dict(c) for c in tb["cells"]]}
-        table_heads.apply(tb, user)
-        return tb, "stage3"
-    try:
-        tb = table_heads.table(s.doc, tid, user, doc_key=getattr(s, "doc_key", None))
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+    """표 서식의 칸 역할 = 테이블 매니저의 「지금 판정」(spec_테이블매니저 ② §2 「지금 판정」 · ② §4 「지우거나 쓰는 도구」) → (판정, 보류, 빈 값 표시를 볼 칸 id | None).
+    판정 = `table_manager.judge`(지금 레코드 + 끝난 3단계 결과의 그 표 + 유효한 사람 지정) — 그 `table` 은 **새** 표다: 칸의 글 · 문단 목록은 지금 문서의 것이고,
+    3단계 결과에서 다시 쓰는 것은 자동 역할 · 띠뿐(다시 쓸 수 있을 때만 — 출처 stage3, 아니면 그 표만의 스크립트 초안 draft). 저장된 결과는 고치지 않는다.
+    (전에는 3단계 결과의 표를 통째로 다시 써서, 그 뒤 칸에 더 쓴 문단을 못 보고 「빈 값 표시 맞추기」 가 그 글을 지웠고, 지정을 풀어도 옛 역할이 남았다.)
+    보류 = 지금 표와 안 맞는 사람 지정(`_heads_now` — 판정에 안 쓴다). 빈 값 표시를 볼 칸 = 「초안 + 유효한 사람 지정」 에서 필드인 칸(출처가 draft 면 None — 판정이 곧 그것).
+    **양식의 확정본**(spec_테이블매니저 ② §10 「양식의 표 판정」 — 이 표와 구조가 꼭 같은 것 하나: `table_types_api.template_for`)이 있으면 자동 역할 · 띠를 거기서 가져온다(출처 template · 판정에 `template {id, rev}`).
+    사람이 표 전체를 보고 확정한 것이라 초안보다 앞이다 — 빈 값 표시도 그 판정의 필드 칸 그대로 본다(None). 확정본의 역할에는 `user` 가 붙지 않는다(그 작업의 헤더 지정과 따로 선 층).
+    1칸 표 · 상자 · 너무 큰 표는 400."""
+    from app import table_manager, table_types_api
+    stage1, tb = _table_now(s, tid)
     if tb is None:
         raise HTTPException(400, "칸 역할을 읽지 못한 표입니다(1칸 표 · 상자)")
-    return tb, "draft"
+    user, held = _heads_now(s, tid, tb)
+    t3 = heading_runs.tables(s) or {}
+    stored = next((t for t in t3.get("tables") or [] if t.get("id") == tid), None)
+    j = table_manager.judge(stage1, tid, stored=stored, user=user, same_doc=(t3.get("meta") or {}).get("rev") == s.rev, template=table_types_api.template_for(s, tb))
+    marks = None
+    if j["source"] == "stage3":   # 칸 글을 쓰는 항목(빈 값 표시)만은 LLM 이 고친 역할이 아니라 초안 + 유효한 사람 지정에서 필드인 칸에 한한다(출처가 draft · template 이면 판정이 곧 그것)
+        marks = frozenset(x["id"] for x in table_manager.judge(stage1, tid, user=user)["table"]["cells"] if x["role"] == "field")
+    return j, held, marks
 
 
 def _style_report(s, tid):
-    """그 표의 점검(문서 안 바뀜) — 개요 줄(템플릿이 다룸)은 견주지 않는다."""
+    """그 표의 점검(문서 안 바뀜) — 개요 줄(템플릿이 다룸)은 견주지 않는다. `table_style.check` 결과 + `reuse {ok, why}`(3단계 결과를 다시 썼나 · 까닭) · `held`(보류된 헤더 지정) ·
+    `template {id, rev} | None`(쓴 양식의 확정본 — spec_테이블매니저 ② §10 「양식의 표 판정」: 항목의 `sig` 에도 든다 — 확정본이 바뀌면 맞추기가 건너뛴다)."""
     from app import server, table_style
-    tb, source = _style_tb(s, tid)
+    j, held, marks = _style_tb(s, tid)
     ov = server._outline_ov(s) or {}
     skip = {k for part in ("lines", "autos") for k in (ov.get(part) or ()) if isinstance(k, str)}  # 개요 줄 · 자동 글머리 줄(템플릿 대표에 맞추는 줄 — spec_hwpx_웹편집 ② §8-8)
-    return table_style.check(s.doc, tb, skip=frozenset(skip), source=source)
+    return {**table_style.check(s.doc, j["table"], skip=frozenset(skip), source=j["source"], mark_cells=marks, template=j.get("template")), "reuse": j["reuse"], "held": held,
+            "template": j.get("template")}
 
 
 @router.get("/api/docs/{doc_id}/tables/{tid}/style")
 def table_style_get(doc_id: str, tid: str):
-    """표 하나의 서식 점검 — 자리(머리행 · 머리열 · 합계행 · 열 · 빈 값)마다 대표 서식과 다른 서식, 그 표의 빈 값 표시. 문서는 안 바뀐다. hwpx 만 · 표 없음 404."""
+    """표 하나의 서식 점검 — 자리(머리행 · 머리열 · 합계행 · 열 · 빈 값)마다 대표 서식과 다른 서식(항목마다 `sig`), 그 표의 빈 값 표시. 문서는 안 바뀐다. hwpx 만 · 표 없음 404.
+    `source`(template | stage3 | draft) · `template {id, rev} | null`(쓴 양식의 확정본) · `reuse {ok, why}` · `held [{cell, role, why}]`(보류된 헤더 지정 — 있으면 맞추기는 409) · `rev`."""
     s = _sess(doc_id)
     with s.lock:
         _style_hwpx(s)
@@ -803,26 +852,36 @@ def table_style_get(doc_id: str, tid: str):
 
 @router.post("/api/docs/{doc_id}/tables/{tid}/style/apply")
 def table_style_apply(doc_id: str, tid: str, body: dict = Body(...)):
-    """고른 다른 서식을 그 자리의 대표로 — {keys: [항목 키 「무엇:칸 id:문단 id」…]}(1~2,000개). 맞출 때 다시 점검해 지금도 다른 것만 바꾼다(그 밖은 skipped).
+    """고른 다른 서식을 그 자리의 대표로 — {keys: [항목 키 「무엇:칸 id:문단 id」…], rev?, sigs?: {키: sig}}(키 1~2,000개). 맞출 때 다시 점검해 지금도 다른 것만 바꾼다(그 밖은 skipped).
     한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tableStyle`). 응답 = 구조 편집 응답 + `styled {table, done[키], skipped[{key, why}], formatted}`.
-    400 키 꼴 · docx · 409 맞출 것이 하나도 안 남음 · 404 표 없음."""
+    묶기(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」 — 화면은 rev 와 sigs 를 늘 보낸다): `rev` 가 지금 문서와 다르면 409 · `sigs` 가 있으면 지금 점검의 `sig` 와 다른 항목은 건너뜀
+    (`skipped` why 「달라짐 — 다시 점검」 — 같은 키여도 지금 값 · 맞출 값 · 대표가 본 것과 다르다) · 보류된 헤더 지정이 있으면 409.
+    400 키 · rev · sigs 꼴 · docx · 409 맞출 것이 하나도 안 남음 · 404 표 없음."""
     from app import server, table_style
     keys = body.get("keys") if isinstance(body, dict) else None
     if not isinstance(keys, list) or not keys or len(keys) > STYLE_KEYS_MAX or not all(isinstance(k, str) and table_style.KEY_RE.match(k) for k in keys):
         raise HTTPException(400, f"keys 는 1~{STYLE_KEYS_MAX}개의 항목 키(「무엇:칸 id:문단 id」)")
+    rev, sigs = body.get("rev"), body.get("sigs")
+    if rev is not None and not _is_rev(rev):
+        raise HTTPException(400, "rev 는 점검이 준 문서 차례(정수)")
+    if sigs is not None and not (isinstance(sigs, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in sigs.items())):
+        raise HTTPException(400, "sigs 는 {항목 키: 점검이 준 sig}")
     done = {}
 
     def make(s):
         _style_hwpx(s)
         _live_table(s, tid, "서식을 맞출 표")
+        if rev is not None and rev != s.rev:
+            raise HTTPException(409, "점검한 뒤 문서가 바뀌었습니다 — 다시 점검하세요")
         tbl = s.doc._ids[tid]
         report = _style_report(s, tid)
-        live = {o["key"] for p in report["places"] for o in p["odd"]}
-        if not any(k in live for k in keys):
+        _held_stop(report["held"])
+        live = {o["key"]: o["sig"] for p in report["places"] for o in p["odd"]}
+        if not any(k in live and (sigs is None or sigs.get(k) == live[k]) for k in keys):
             raise HTTPException(409, "맞출 것이 없습니다 — 점검한 뒤 문서가 바뀌었습니다. 다시 점검하세요")
 
         def run():
-            r = table_style.conform(s.doc, report, keys)
+            r = table_style.conform(s.doc, report, keys, sigs)
             done.update(table=tid, done=r["done"], skipped=r["skipped"], formatted=len(r["formatted"]))
             return {"hosts": [tbl], "anchor": tid, "focus": None, "formatted": set(r["formatted"]),
                     "log": {"table": tid, "done": len(r["done"]), "skipped": len(r["skipped"]), "formatted": len(r["formatted"])}}

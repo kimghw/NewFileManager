@@ -114,6 +114,9 @@ table.mini.tfl-list td.tfl-why { min-width: 9em; color: var(--muted); }
 /* ---- 표 서식 점검(spec_헤딩_추출 ② §19 — table_style.js tblStyleView · 2열 kind "tblStyle"). 목록은 표 채우기(.tfl-list)와 같은 꼴 ·
    td.tst-hit = 줄에 올린 동안 문서의 그 칸(스크립트 점검이라 LLM 보라가 아닌 고르기 파랑). ---- */
 .tst-wrap .tst-sum { color: var(--text); font-weight: 600; }
+/* 보류된 헤더 지정(spec_테이블매니저 ② §3 「사람의 헤더 지정」) — 지금 표와 안 맞는 지정이 있을 때만: 요약 줄 바로 아래 한 줄 · 맞추기 단추는 꺼진다 */
+.tst-wrap .tst-held { margin-top: 4px; color: var(--warn); }
+.tst-held .hlink { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .tst-place { margin-top: 8px; }
 .tst-place > summary { cursor: pointer; font-size: 12.5px; }
 .tst-place .tst-rep { margin: 2px 0 4px; }

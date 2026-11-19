@@ -1673,6 +1673,8 @@ function tablesReset() { // 문서를 열거나 닫을 때(app.js load·closeDoc
   const box = $("tablesBox");
   if (box) box.textContent = "";
   tpView = "List"; // 하위 탭은 문서를 열 때마다 「표 목록」 부터
+  tpKinds.key = tpKinds.map = tpKinds.wait = null;
+  if (typeof tblTypesReset === "function") tblTypesReset(); // 양식의 표 판정 표지(table_types.js — spec_테이블매니저 ② §10 「양식의 표 판정」)
 }
 
 async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)이 없으면 헤딩 상태를 읽고(1단계 자동 — 헤딩 추출 탭과 같음), 저장된 지침을 읽은 뒤 그린다
@@ -1683,6 +1685,61 @@ async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)�
   await xlStore();
   if (epoch !== state.epoch) return;
   tablesDraw();
+  tpKindsLoad(true); // 병합 방식 표지 — 탭을 열 때마다 다시 읽는다(편집 구역 · 프로젝트 구성이 그 사이 바뀌었을 수 있다). 그려 둔 목록에 표지만 채운다
+  if (typeof tblTypesLoad === "function") tblTypesLoad(true); // 양식의 표 판정 표지 「확정됨」 — 탭을 열 때마다 다시 읽는다(다른 작업에서 확정본이 생기거나 지워졌을 수 있다). 그려 둔 목록에 표지만 채운다
+}
+
+// ---- 병합 방식 표지(spec_테이블매니저 ② §5 「병합 방식」) — 여러 기관의 문서를 모을 때 그 표(서브 테이블)를 어떻게 모으는 표인지: 표 목록의 줄마다 꼬리표.
+// GET /api/docs/{id}/tables/kinds(app/table_kinds_api.py — 연구개발과제 문서만 · 스크립트 · 문서는 안 바뀜). 식별만 한다 — 취합 · 이관의 넣기는 그대로.
+// 일반 문서(gate none) · 표 구조 없음(404) · 읽기 실패에서는 아무것도 안 보이고 알림도 띄우지 않는다. 문서가 바뀐 뒤의 낡은 결과(stale)도 그대로 보인다(다시 돌리라고 조르지 않는다 — spec_헤딩_추출 ② §17).
+const TP_KIND = { perOrg: "기관마다 작성", byDivision: "구분 기준에 따라 병합", sum: "셀 값 합산", common: "공통" }; // 화면 말 = 사용자의 말 그대로(app/table_kinds.py KIND_KO 와 같다)
+const tpKinds = { key: null, map: null, wait: null }; // key = 읽은 것의 열쇠(문서 · 3단계 결과) · map = Map(표 id → {kind, subs[]}) | null(해당 없음) · wait = 읽는 중인 열쇠
+const tpKindsKey = () => `${state.id}|${state.epoch}|${xlStageKey()}`;
+function tpKindsLoad(force = false) { // 3단계 결과가 바뀐 뒤의 첫 그리기 · 탭을 열 때(force)
+  if (!state.id || state.format === "docx") return;
+  const key = tpKindsKey();
+  if (tpKinds.wait === key || (!force && tpKinds.key === key)) return;
+  tpKinds.wait = key;
+  api(`/api/docs/${encodeURIComponent(state.id)}/tables/kinds`).catch(() => null).then((v) => {
+    if (tpKinds.wait !== key) return; // 그 사이 다른 문서를 열었거나 3단계 결과가 바뀌어 새로 읽는 중
+    tpKinds.wait = null;
+    if (key !== tpKindsKey()) return;
+    tpKinds.key = key;
+    tpKinds.map = v && v.gate === "rnd" && Array.isArray(v.tables) ? new Map(v.tables.map((t) => [t.table, t])) : null;
+    tpKindsFill();
+  });
+}
+const TP_KIND_QUIET = new Set(["common"]); // 섞인 표에서 표지를 따로 세우지 않는 방식 — 표 수준에서 빼고 보는 띠(app/table_kinds.py QUIET 와 같다). 풍선 도움말에는 적는다
+function tpKindTags(tid) { // 표 하나의 표지들 — 표의 방식(서버가 정한 t.kind: 공통인 띠는 빼고 본 것)이 하나로 정해졌으면 표지 하나, 섞였으면(mixed) 공통 말고 방식마다(앞에 서브 테이블 id).
+  // 끝의 「?」 = 그 방식의 서브 테이블 가운데 머리글의 꼴만 보고 정한 것이 있다(sure 아님) · 풍선 도움말 = 서브 테이블마다의 방식과 근거(why — 공통인 띠도). 표지가 여럿이어도 도움말은 같다
+  const t = tpKinds.map && tpKinds.key === tpKindsKey() ? tpKinds.map.get(tid) : null, out = [];
+  if (!t || !Array.isArray(t.subs)) return out;
+  const subs = t.subs.filter((s) => TP_KIND[s.kind]);
+  if (!subs.length) return out;
+  const all = [...new Set(subs.map((s) => s.kind))], varied = all.length > 1;
+  let kinds = TP_KIND[t.kind] ? [t.kind] : all.filter((k) => !TP_KIND_QUIET.has(k));
+  if (!kinds.length) kinds = all;
+  const someSure = subs.some((s) => s.sure) && subs.some((s) => !s.sure); // 같은 방식인데 확실함이 갈리면 어느 서브 테이블이 「?」 인지 적는다
+  const title = subs.map((s) => (subs.length > 1
+    ? `서브 테이블 ${s.sub}${!varied && someSure && !s.sure ? "(?)" : ""}: ${varied ? `${TP_KIND[s.kind]}${s.sure ? "" : "?"} — ` : ""}${s.why}` : s.why)).join("\n")
+    + (subs.some((s) => !s.sure) ? "\n「?」 = 머리글의 꼴만 보고 정했습니다(프로젝트 구성의 값으로는 확인하지 못했습니다)" : "");
+  for (const k of kinds) {
+    const mine = subs.filter((s) => s.kind === k);
+    if (!mine.length) continue;
+    const sure = mine.every((s) => s.sure);
+    const tag = el("span", "tp-tag tp-kind", `${kinds.length > 1 ? `${mine.map((s) => s.sub).join("·")} ` : ""}${TP_KIND[k]}${sure ? "" : "?"}`);
+    tag.dataset.kind = k;
+    tag.dataset.sure = sure ? "1" : "0";
+    tag.title = title;
+    out.push(tag);
+  }
+  return out;
+}
+function tpKindsFill() { // 그려 둔 표 목록의 표지 자리(.tp-kinds)만 다시 채운다 — 목록을 통째로 다시 그리지 않는다(스크롤 · 초점 그대로)
+  for (const slot of document.querySelectorAll("#tablesBox .tp-row .tp-kinds")) {
+    const row = slot.closest(".tp-row");
+    slot.replaceChildren(...tpKindTags(row && row.dataset.tableId));
+  }
 }
 
 // 꼴은 헤딩 추출과 같은 틀(2026-11-16 사용자 「헤딩 추출이랑 표랑 uiux 가 유사했으면 좋겠어」 → 답 「표를 헤딩 추출 꼴로」 — spec_헤딩_추출 ② §10 「「표」 탭」):
@@ -1700,6 +1757,7 @@ function tpViewSet(v, focus = false) {
 function tablesDraw() {
   const box = $("tablesBox"), pane = $("paneTables");
   if (!box || !pane || pane.hidden || !state.id) return;
+  tpKindsLoad(); // 병합 방식 표지 — 이 문서 · 이 3단계 결과의 것을 아직 안 읽었으면 읽는다(오면 tpKindsFill 이 표지 자리만 채운다)
   box.textContent = "";
   const s3 = heads.view && heads.view.stage3, byId = new Map(((s3 && s3.tables) || []).map((t) => [t.id, t]));
   const store = (heads.xl.store && heads.xl.store.tables) || {}, common = heads.xl.store && heads.xl.store.common;
@@ -1867,6 +1925,12 @@ function tablesDraw() {
       : s3 ? (b.cells === 1 ? "1칸 표(표 구조 없음)" : "새 표 · 표 구조를 만든 뒤 생김") : "표 구조 미분석")); // 옛 「표 구조에 없음」 — 까닭을 그대로 적는다(문서 표지와 같은 말 — tblMark)
     row.append(owner);
     const meta = el("div", "tp-row-meta");
+    const kindSlot = el("span", "tp-kinds"); // 병합 방식 표지 자리(spec_테이블매니저 ② §5 「병합 방식」) — 꼬리표 줄 맨 앞 · 해당 없으면 빈 채로(자리를 차지하지 않는다)
+    kindSlot.append(...tpKindTags(b.id));
+    meta.append(kindSlot);
+    const typeSlot = el("span", "tp-types"); // 양식의 표 판정 표지 자리(spec_테이블매니저 ② §10 「양식의 표 판정」 — table_types.js) — 확정된 표에만 「확정됨」 · 그 밖에는 빈 채로(자리를 차지하지 않는다)
+    if (typeof tblTypeTags === "function") typeSlot.append(...tblTypeTags(b.id));
+    meta.append(typeSlot);
     if (b.depth > 1) meta.append(el("span", "tp-tag", "표 안 표"));
     const basis = t && basisNames(t.basis);
     if (basis) meta.append(el("span", "tp-tag", `구분 ${basis}`));

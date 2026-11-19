@@ -1,0 +1,62 @@
+/* 양식의 표 판정(2열 kind tblType · 「테이블」 탭의 상태 표지 — spec_테이블매니저 ② §10 「양식의 표 판정」). 폭 · 여백 · 컨트롤 크기는 design.md 를 따른다.
+   틀(.ta-wrap · .ta-ident · .ta-row · h3 · .hnote · .hb · .hblock)은 표 지침 · 표 서식 점검 · 키-값 열 것(style.css · table-fill.css)을 같이 쓰고, 판정 격자는 「표 구조」 격자(table.hgrid — 역할마다 같은 색)를 그대로 쓴다.
+   td.tty-hit = 격자 · 목록의 칸에 올린 동안 문서의 그 칸(스크립트라 LLM 보라가 아닌 고르기 파랑 — td.tst-hit · td.tkv-hit 와 같은 색).
+   상자는 겹치지 않는다(design.md §1 규칙 1): 묶음은 1px 윗줄로만 나누고, 되풀이 줄은 목록의 구분선으로. */
+.tty-wrap .tty-sum { color: var(--text); font-weight: 600; }
+.tty-wrap .tty-held { margin-top: 4px; color: var(--warn); }
+.tty-wrap .tty-also { margin-top: 4px; overflow-wrap: anywhere; }   /* 같이 쓰이는 표 — 표 번호(누르면 그 표의 판정 화면) · 다른 칸이 있는 표는 주의색 */
+.tty-wrap .tty-barnote { margin: 2px 0 0; overflow-wrap: anywhere; } /* 고치기와 따로 확정 — 두 단추 아래의 한 줄 */
+.tty-wrap .tty-warn { color: var(--warn); }
+.tty-wrap .hlink { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.tty-wrap .hlink:hover, .tty-wrap .hlink:focus-visible { text-decoration: underline; }
+.tty-wrap .tty-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 상태 꼬리표 — 확정됨만 초록, 안 맞음 · 둘 이상은 주의색, 확정 안 됨은 다른 꼬리표와 같은 회색 */
+.tty-wrap .hb.tty-state[data-state="confirmed"] { border-color: #b5dfc7; background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.tty-wrap .hb.tty-state:is([data-state="changed"], [data-state="ambiguous"]) { border-color: #f0d9b0; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+
+/* 지금 판정 — 제목 + 범례가 한 줄, 그 아래 격자(넓은 표는 안에서 굴린다 — 열 폭을 넘기지 않는다) */
+.tty-grid { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.tty-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; }
+.tty-h h3 { margin: 0; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.tty-grid .hgrid-scroll { max-height: 46vh; }
+.tty-grid table.hgrid td.tty-user { box-shadow: inset 0 0 0 2px var(--text); }               /* 이 작업의 헤더 지정 */
+.tty-grid table.hgrid td.tty-varcell { outline: 2px dashed var(--accent); outline-offset: -3px; } /* 가변 머리글 */
+.tty-grid table.hgrid td.tty-differs { box-shadow: inset 0 0 0 2px #e08a00; }                /* 확정본이 없었다면 다르게 읽었을 칸 */
+.tty-grid table.hgrid td.tty-user.tty-differs { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #e08a00; }
+.tty-grid .tty-marks { margin-top: 6px; font-size: 11.5px; }
+
+/* 접는 묶음(확정본과 다른 칸 · 가변 머리글 · 이 타입의 확정본) */
+.tty-diff, .tty-var, .tty-variants { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.tty-diff > summary, .tty-var > summary, .tty-variants > summary { cursor: pointer; font-size: 12.5px; }
+.tty-list, .tty-vars, .tty-entries { margin: 4px 0 0; padding: 0; list-style: none; }
+.tty-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 12px; overflow-wrap: anywhere; }
+.tty-list li:last-child, .tty-vars li:last-child, .tty-entry:last-child { border-bottom: 0; }
+.tty-vars { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.tty-vars li { border-bottom: 1px solid var(--line); }
+.tty-vars label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 8px; font-size: 12px; line-height: 20px; cursor: pointer; }
+.tty-vars label:hover { background: var(--surface-2); }
+.tty-vars input { flex: none; margin: 0; }
+.tty-vars .tty-ref { flex: none; min-width: 2.4em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tty-vars .tty-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tty-vars .hb { flex: none; max-width: none; }
+.tty-text { color: var(--text); }
+
+/* 확정 줄 — 꽉 찬 파랑은 이 열의 주된 일 「이 판정으로 확정」 하나(design.md §1 규칙 12) */
+.tty-bar { margin: 10px 0 2px; }
+
+/* 이 타입의 확정본 */
+.tty-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tty-entry-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tty-entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tty-entry-top .hb { flex: none; max-width: none; }
+.tty-entry-acts { grid-column: 2; grid-row: 1 / span 2; }
+.tty-entry-meta { grid-column: 1; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.tty-entry-why { grid-column: 1 / -1; color: var(--warn); font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* 문서의 칸 표시 */
+#doc table.tbl td.tty-hit { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .12); outline: 2px solid rgba(36, 88, 214, .7); outline-offset: -2px; }
+
+/* 「테이블」 탭의 상태 표지(tables.js 의 .tp-types 자리 — 병합 방식 표지 .tp-kinds 와 같은 꼴: 상자를 만들지 않는다) — 확정된 표에만 */
+#tablesBox .tp-types { display: contents; }
+#tablesBox .tp-tag.tp-type { background: var(--ok-soft); color: var(--ok); cursor: help; }

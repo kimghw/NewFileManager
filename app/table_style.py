@@ -1,10 +1,15 @@
 """표 서식(spec_헤딩_추출 ② §19) — 표 **하나씩**, 같은 자리(머리행 · 머리열 · 합계행 · 열 · 빈 값)의 칸끼리 서식이 같은지 보고(점검), 다른 것을 그 자리의 대표에 맞춘다(맞추기).
 
-- 칸 역할은 부르는 쪽이 준다(`tables_api._style_tb` — 3단계 결과의 그 표 | 그 표만의 초안 · 둘 다 사람의 헤더 지정을 덮음). 꼴 = heading_tables.collect 의 표(칸마다 id · row · col · rs · cs · role · sub? · paras).
+- 칸 역할은 부르는 쪽이 준다(`tables_api._style_tb` — 테이블 매니저의 「지금 판정」: 다시 쓸 수 있으면 3단계의 자동 역할 · 아니면 그 표만의 초안, 그 위에 **유효한** 사람 헤더 지정).
+  꼴 = heading_tables.collect 의 표(칸마다 id · row · col · rs · cs · role · sub? · paras — 문단 목록은 **지금 문서의 것**이어야 한다: 옛 목록이면 그 뒤 더 쓴 문단을 못 본다).
+- **묶기 · 칸 전체 확인**(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」): 다른 서식 항목마다 `sig`(키 · 지금 값 · 맞출 값 · 대표의 해시) — 맞출 때 점검 때의 `sig` 와 다르면 건너뛴다.
+  빈 값 표시 항목(`mark` · `blank`)은 칸 글을 쓰는 항목이라 「스크립트 초안 + 유효한 사람 지정」 에서 필드인 칸에만 내고(`check(mark_cells=)`), 쓰기 직전에 그 칸 전체를 문서에서 다시 본다(`_fix_mark`).
 - 견주는 서식 = 문단의 서식 요약(글꼴 · 크기 · 굵게 … · 정렬 · 줄 간격 · 문단 여백 — `doc.get_format`) + 칸의 세로 정렬 · 칸 여백(`doc.get_cell_format`). 음영 · 괘선은 안 본다(표 모양 — § 11).
 - **빈 값 표시**: 표마다 글이 빈 값 표시뿐인 필드(빈 칸 · 줄표 홀로 · 「해당없음」 …) — 가장 많이 쓴 보이는 표시가 그 표의 표시. 줄표 글자가 다른 칸 · (조건이 맞으면) 빈 칸이 다른 서식.
 - **맞추기**(`conform`)는 역변환 스크립트다 — 무엇을 맞출지는 사람(뒤에 LLM 계획)이 고르고, 바꾸는 것은 여기 하나다. 문서를 바꾸므로 부르는 쪽이 트랜잭션(`server._edit`) 안에서 부른다.
 hwpx 만(칸 역할 판정이 hwpx 레코드 기반). 끝점은 `app/tables_api.py`, 화면은 `app/static/table_style.js`."""
+import hashlib
+import json
 import re
 from collections import Counter
 
@@ -30,6 +35,8 @@ _ALIGN = {"left": "왼쪽", "center": "가운데", "right": "오른쪽", "justif
 _VALIGN = {"top": "위", "center": "가운데", "bottom": "아래"}
 _SIDES = (("l", "왼"), ("r", "오"), ("t", "위"), ("b", "아래"))
 TEXT_MAX = 40  # 화면에 보이는 칸 글
+STALE_WHY = "달라짐 — 다시 점검"            # 점검 때의 sig 와 지금 sig 가 다른 항목(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」)
+OTHER_TEXT_WHY = "칸에 다른 글이 있습니다"   # 빈 값 표시를 쓰려는 칸에 표시 말고 다른 글 · 개체가 있음(같은 절)
 
 
 # ---- 빈 값 표시 · 값 꼴 ---------------------------------------------------------------------------------------------
@@ -134,6 +141,16 @@ def _paras(doc, cell):
     return out
 
 
+def cell_now(doc, cid):
+    """칸의 **지금** 글 전체 → (글, 개체가 있나) | None(칸이 없어짐). 저장된 문단 목록이 아니라 문서에서 — 칸 아래의 모든 문단(칸 안 상자 · 표의 글도)을 읽는다.
+    빈 값 표시를 쓰기 직전의 확인(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」)이 쓴다: 문단 목록이 낡았어도 그 뒤 더 쓴 글을 본다."""
+    tc = doc._ids.get(cid)
+    if tc is None or not doc._attached(tc):
+        return None
+    ps = list(tc.iter(P))
+    return " ".join(t for t in (doc._text(p).strip() for p in ps) if t), any(doc._has_object(p) for p in ps)
+
+
 def places(doc, tb):
     """칸 → 자리. → (자리 키 → {kind, sub, col?, name, cells[칸…]}(문서 순), 칸 id → 그 칸의 지금 글).
     역할이 colhead·corner → 머리행, rowhead → 머리열, field 가운데 빈 값 표시뿐 → 빈 값(표 하나), 합계 행의 필드 → 합계행, 나머지 필드 → 열(서브 테이블 · 격자 열)."""
@@ -196,10 +213,23 @@ def _rep(counts, order):
     return next(s for s in order if counts[s] == top)
 
 
-def check(doc, tb, skip=frozenset(), source="stage3"):
-    """표 하나의 점검 → {table, rows, cols, source, empty{…}, places[…], counts{places, odd, check}} — 문서는 안 바뀐다.
-    skip = 견주지 않을 문단 id(개요 줄 — 템플릿이 다룬다). 빈 값 칸의 문단은 skip 이어도 본다(값 칸 — 「-」 홀로 줄)."""
+def _item_sig(o, rep, origin=None):
+    """다른 서식 항목의 묶기 값 — 그 항목의 키 · 지금 값 · 맞출 값 · 대표(무엇에 맞추나)의 해시(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」).
+    점검한 뒤 그 칸의 값이나 그 자리의 대표가 달라지면 값이 달라진다 — 같은 키여도 본 것과 다른 것을 맞추지 않게.
+    origin = 그 점검이 쓴 판정의 [출처, 양식 확정본의 id, 그 판](spec_테이블매니저 ② §10 「양식의 표 판정」) — 문서는 그대로인데 확정본이 생기거나 고쳐지거나 지워지면(다른 작업에서도) 값이 달라진다."""
+    cell = o["what"] == "cell"
+    src = [o["key"], [[d["key"], d["now"], d["want"]] for d in o["diff"]], rep["cell"] if cell else rep["para"], rep["cellLook"] if cell else rep["look"], origin]
+    return hashlib.sha1(json.dumps(src, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def check(doc, tb, skip=frozenset(), source="stage3", mark_cells=None, template=None):
+    """표 하나의 점검 → {table, rows, cols, source, empty{…}, places[…], counts{places, odd, check}} — 문서는 안 바뀐다. 다른 서식 항목마다 `sig`(`_item_sig`).
+    skip = 견주지 않을 문단 id(개요 줄 — 템플릿이 다룬다). 빈 값 칸의 문단은 skip 이어도 본다(값 칸 — 「-」 홀로 줄).
+    mark_cells = 빈 값 표시(표시 정하기 · `mark` · `blank` 항목)를 볼 칸 id — 「초안 + 유효한 사람 지정」 에서 필드인 칸(None = tb 의 역할 그대로: tb 가 그 판정일 때).
+    서식 견주기(글을 안 바꾼다)는 tb 의 역할 그대로다.
+    template = 그 판정이 쓴 양식의 확정본 {id, rev} | None — source 와 함께 항목의 `sig` 에 든다(`_item_sig` 의 origin)."""
     pls, texts = places(doc, tb)
+    origin = [source, (template or {}).get("id"), (template or {}).get("rev")]
     fmt_cache = {}
 
     def fmt(pid):
@@ -237,15 +267,16 @@ def check(doc, tb, skip=frozenset(), source="stage3"):
                 odd.append({"key": f"cell:{x['id']}:", "what": "cell", "cell": x["id"], "para": None, "ref": ref(x["row"], x["col"]), "row": x["row"], "col": x["col"],
                             "text": _short(texts.get(x["id"], "")), "diff": diff(lk, rc[1]), "check": False, "why": ""})
         if empty:
-            odd += _empty_odd(pl, texts, empty_info)
+            odd += _empty_odd(pl, texts, empty_info, mark_cells)
         odd.sort(key=lambda o: (o["what"] in ("mark", "blank"), o["row"], o["col"], WHAT.index(o["what"])))  # 서식은 칸 차례로, 빈 값 표시는 뒤에
         total += len(odd)
         checks += sum(1 for o in odd if o["check"])
+        rep = {"para": rp[1] if rp else None, "cell": rc[0]["id"] if rc else None, "look": rp[2] if rp else None,
+               "cellLook": rc[1] if rc else None, "text": summary_text(rp[2]) if rp else ""}
+        for o in odd:
+            o["sig"] = _item_sig(o, rep, origin)
         out.append({"key": pl["key"], "kind": pl["kind"], "kindName": KINDS[pl["kind"]], "name": pl["name"], "sub": pl["sub"], "cells": len(pl["cells"]),
-                    "paras": len(paras), "looks": len(pc), "cellLooks": len(cc),
-                    "rep": {"para": rp[1] if rp else None, "cell": rc[0]["id"] if rc else None, "look": rp[2] if rp else None,
-                            "cellLook": rc[1] if rc else None, "text": summary_text(rp[2]) if rp else ""},
-                    "odd": odd})
+                    "paras": len(paras), "looks": len(pc), "cellLooks": len(cc), "rep": rep, "odd": odd})
     order = {"head": 0, "stub": 1, "col": 2, "foot": 3, "empty": 4}
     out.sort(key=lambda p: (order[p["kind"]], str(p["sub"]), min((c["col"] for c in pls[p["key"]]["cells"]), default=0)))
     return {"table": tb.get("id"), "rows": tb.get("rows"), "cols": tb.get("cols"), "source": source, "empty": empty_info, "places": out,
@@ -260,9 +291,10 @@ def _big(now, want):
     return ""
 
 
-def _empty_odd(pl, texts, info):
-    """빈 값 자리 → 표시가 다른 칸(`mark`) · 표시를 넣을 빈 칸(`blank` — 확인)의 다른 서식. info 를 채운다."""
-    seen = [(x, empty_mark(texts.get(x["id"], ""))) for x in pl["cells"]]
+def _empty_odd(pl, texts, info, allow=None):
+    """빈 값 자리 → 표시가 다른 칸(`mark`) · 표시를 넣을 빈 칸(`blank` — 확인)의 다른 서식. info 를 채운다.
+    allow = 빈 값 표시를 볼 칸 id(`check` 의 mark_cells — None = 자리의 칸 모두): 그 밖의 칸은 표시를 세지도, 항목으로 내지도 않는다(칸 글을 쓰는 항목이라 초안 역할 기준)."""
+    seen = [(x, empty_mark(texts.get(x["id"], ""))) for x in pl["cells"] if allow is None or x["id"] in allow]
     seen = [(x, m) for x, m in seen if m is not None]
     visible = [(x, m) for x, m in seen if m[0] != "blank"]
     blanks = [x for x, m in seen if m[0] == "blank"]
@@ -322,13 +354,17 @@ def _fix_cell(doc, pl, o):
 
 
 def _fix_mark(doc, report, pl, o):
-    """빈 값 칸의 글을 그 표의 표시로 + 빈 값 대표 문단의 서식."""
+    """빈 값 칸의 글을 그 표의 표시로 + 빈 값 대표 문단의 서식.
+    쓰기 직전에 **지금 그 칸 전체**를 문서에서 다시 본다(`cell_now` — 점검의 문단 목록이 아니라): 글이 빈 값 표시 하나뿐(또는 빈 칸)이고 개체가 없을 때만 쓴다.
+    아니면 ValueError(`OTHER_TEXT_WHY` — 그 항목은 건너뜀): 표시 아래에 더 쓴 글을 표시 하나로 덮어 지우지 않게(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」)."""
     mark = report["empty"].get("mark")
     if not mark:
         raise ValueError("이 표의 빈 값 표시가 없습니다")
-    tc = doc._ids.get(o["cell"])
-    if tc is None or not doc._attached(tc):
+    now = cell_now(doc, o["cell"])
+    if now is None:
         raise ValueError("그 칸이 없어졌습니다")
+    if now[1] or empty_mark(now[0]) is None:
+        raise ValueError(OTHER_TEXT_WHY)
     doc.set_text(o["cell"], mark)
     rid = pl["rep"]["para"]
     rel = doc._ids.get(rid) if rid else None
@@ -341,9 +377,10 @@ def _fix_mark(doc, report, pl, o):
     return ids
 
 
-def conform(doc, report, keys):
+def conform(doc, report, keys, sigs=None):
     """고른 다른 서식(항목 키)을 그 자리의 대표로 → {done[키], skipped[{key, why}], formatted[문단 id]}.
-    report = 같은 문서 상태에서 막 낸 `check` 결과(요청 직전에 다시 점검한 것 — 그 사이 같아진 항목은 건너뜀). 차례: 문단 · 칸 → 빈 값 표시(칸 글을 바꾸므로 뒤)."""
+    report = 같은 문서 상태에서 막 낸 `check` 결과(요청 직전에 다시 점검한 것 — 그 사이 같아진 항목은 건너뜀). 차례: 문단 · 칸 → 빈 값 표시(칸 글을 바꾸므로 뒤).
+    sigs = {키: 화면이 본 점검의 sig} | None — 주면 지금 점검의 `sig` 와 다른 항목(지금 값 · 맞출 값 · 대표가 달라짐 — sig 를 안 준 키도)은 건너뛴다(`STALE_WHY`)."""
     items = {o["key"]: (pl, o) for pl in report["places"] for o in pl["odd"]}
     todo = list(dict.fromkeys(keys))
     todo.sort(key=lambda k: k.split(":", 1)[0] in ("mark", "blank"))
@@ -353,6 +390,9 @@ def conform(doc, report, keys):
             skipped.append({"key": k, "why": "이미 같거나 없어졌습니다"})
             continue
         pl, o = items[k]
+        if sigs is not None and sigs.get(k) != o.get("sig"):
+            skipped.append({"key": k, "why": STALE_WHY})
+            continue
         try:
             if o["what"] == "para":
                 ids = _fix_para(doc, pl, o)

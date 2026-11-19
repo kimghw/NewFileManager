@@ -83,9 +83,15 @@ function agwCommon(out) { // 어느 TASK 든 — 작업 개요 열기 · 편집 
   return out;
 }
 
+// 표 하나만의 계획(plan.only — 표 메뉴 「프로젝트 구성에 맞추기…」: spec_테이블매니저 ② §9)은 TASK 의 「문서 전체 계획」 이 아니다 — 에이전트 · 대시보드는 그것을 「다시 계획해야 하는 계획」(skip 과 같은 꼴)으로 본다:
+// 그 계획으로 「문서에 반영」 카드를 내거나 그 반영을 1단계의 끝남으로 세지 않는다(반영은 그 표의 메뉴 → 패널 「반영」 에서 사람이 한다).
+function agwTaskPlan(st = divPlanState()) { return st.plan && st.plan.only != null ? { kind: st.kind === "none" ? "none" : "skip", plan: st.plan } : st; }
 function agwFitApplied(st = divPlanState(), v = dv.view) { // 1단계 「적용(반영)」 이 끝났나 → {applied, same} — 반영함 · 이미 구성에 맞음 · 마지막으로 반영한 값이 지금 값과 같음(agwFitStatus · 대시보드 「이어서 한 번에」 가 같이 본다)
+  st = agwTaskPlan(st);
   const s = st.plan && st.plan.summary, same = st.kind === "same" && divSameText(s).ok, values = dv.values ? divValues() : null;
-  return { same, applied: st.kind === "done" || same || (st.kind === "none" && !!v && !!v.applied && !!v.applied.values && !!values && divConfirmKey(v.applied.values) === divConfirmKey(values)) };
+  // 전체 반영 뒤에 다른 값으로 「한 자리만 반영」 한 문서는 더는 그 값 그대로가 아니다(v.partial — spec_테이블매니저 ② §9 「한 자리만 반영한 기록」: 전체 반영이 그 기록을 지운다) — 「마지막 반영 = 지금 값」 만으로 끝남으로 세지 않는다
+  const mixed = !!v && !!v.applied && (v.partial || []).some((p) => p.values && divConfirmKey(p.values) !== divConfirmKey(v.applied.values));
+  return { same, applied: st.kind === "done" || same || (st.kind === "none" && !mixed && !!v && !!v.applied && !!v.applied.values && !!values && divConfirmKey(v.applied.values) === divConfirmKey(values)) };
 }
 
 // 양식 맞추기(report_fit) · 양식 표준화(plan_fit — spec_양식표준화: 1단계 프로젝트 구성 + 2 · 3단계 헤딩 추출 · 표는 agwStdStatus) — 프로젝트 구성 값(확정) → ① 변경 계획 → ② 반영.
@@ -95,7 +101,7 @@ async function agwFitStatus(opt = {}) {
   const std = agwJob() === "plan_fit", g1 = std ? { open: AGW_STD.config, config: AGW_STD.config, frame: AGW_STD.config } : { open: "준비", config: "프로젝트 구성", frame: "구조 반영" }; // 진행 줄의 묶음 이름(등록부 _std · _fit 의 묶음)
   const out = { steps: [{ stage: g1.open, key: "open", name: "문서 올리기 · 기본 분석", state: "done", text: "" }], actions: [], facts: {} }, v = dv.view;
   if (!v || !dv.values) { out.facts.why = "프로젝트 구성 상태를 읽지 못했습니다"; return agwCommon(out); }
-  const values = divValues(), text = divValuesText(values), confirmed = divConfirmValid(dv.values, v.confirmed), why = divRunWhy(), st = divPlanState(), s = st.plan && st.plan.summary;
+  const values = divValues(), text = divValuesText(values), confirmed = divConfirmValid(dv.values, v.confirmed), why = divRunWhy(), st = agwTaskPlan(divPlanState()), s = st.plan && st.plan.summary;
   const has = !!(values.orgs.lead || values.orgs.joint.length || values.stages.length > 1 || values.stages[0] > 1);
   const { same, applied } = agwFitApplied(st, v);
   const issues = s && (st.kind === "ready" || st.kind === "same") ? divPlanIssues(s, false) : "";
@@ -248,7 +254,8 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
     return agwCommon(out);
   }
   // key = 이 카드가 가리키는 일(그 묶음의 남은 단계) — 「진행」 을 누를 때 지금과 견준다(agentWorkRun)
-  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "config" ? "store" : "doc", paid: g.id === "map", primary: true,
+  // 꼬리표 — 1단계 「문서 검토」(헤딩·표 분석 · 작성 지침 저장: 문서 안 바뀜 · 스크립트)는 「저장만」 이라 카드 없이 바로, 뒤 묶음은 「문서 바뀜」(3단계 「내용 넣기」 는 유료 LLM 도) — spec_작업 ② §21
+  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "review" ? "store" : "doc", paid: g.id === "map", primary: true,
     key: `${docs.map((d) => d.id).join(">")}:${g.id}:${taskStageWork(g).filter((s) => !s.done).map((s) => s.key).join(",")}` });
   return agwCommon(out);
 }

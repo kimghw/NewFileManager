@@ -340,6 +340,75 @@ def test_members_and_hints():
     server.DOCS.clear()
 
 
+def _table_sizes(c, d):
+    """{표 id: (행 수, 열 수)} — 칸 안 표까지."""
+    out = {}
+
+    def walk(blocks):
+        for b in blocks:
+            if b["type"] == "table":
+                out[b["id"]] = (b["nRows"], b["nCols"])
+                for cell in b["cells"]:
+                    walk(cell.get("blocks") or [])
+    walk(c.get(f"/api/docs/{d}").json()["blocks"])
+    return out
+
+
+def test_members_targets_and_one_place_plan():
+    """표 메뉴 「프로젝트 구성에 맞추기…」 가 쓰는 것(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」):
+    ① members?targets=1 — 읽기 전용: 자리(묶음 key)마다 프로젝트 구성에 맞춘 수. 안 청하면 응답에 없고, 프로젝트 구성 값이 없으면 None(기본값으로 센 수를 내지 않는다).
+    ② 그 입구가 타는 기존 길 — 계획 {only: 묶음 key} → 반영: 그 자리와 그 안쪽 자리만 바뀌고 다른 표는 그대로다."""
+    server.DOCS.clear()
+    c = TestClient(server.app)
+    d = _open_form(c)
+    assert "targets" not in c.get(f"/api/docs/{d}/divisions/members").json()
+    assert c.get(f"/api/docs/{d}/divisions/members?targets=1").json()["targets"] is None
+    assert c.put(f"/api/docs/{d}/divisions/settings", json={"values": VALUES}).status_code == 200
+    m = c.get(f"/api/docs/{d}/divisions/members?targets=1").json()
+    t = m["targets"]
+    assert {g["key"] for g in m["groups"]} <= set(t) and all(set(x) == {"target", "done", "reason", "why"} for x in t.values())
+    assert any(x["target"] is None and x["why"] for x in t.values())   # 못 맞추는 자리에는 까닭 글(차례를 어긴 라벨 · 지워질 단계 안 …)
+    by = {}
+    for g in m["groups"]:
+        if g["where"]["table"]:
+            by.setdefault(g["where"]["table"], []).append(g)
+    # 기관 행 2개 · 단계-차년도 행 4개가 든 표 하나(기관 행 안에 단계-차년도 행) — 값은 기관 3(주관 + 공동 2) · 차년도 5(2 + 3)
+    tid, gs = next((k, v) for k, v in by.items() if sorted((g["dim"], g["kind"], g["count"]) for g in v) == [("org", "rows", 2), ("stageYear", "rows", 4)])
+    org, sy = (next(g for g in gs if g["dim"] == dim) for dim in ("org", "stageYear"))
+    assert t[org["key"]] == {"target": 3, "done": False, "reason": None, "why": None}
+    assert t[sy["key"]]["target"] == 5 and t[sy["key"]]["done"] is False
+    before = _table_sizes(c, d)
+    rev = c.get(f"/api/docs/{d}/divisions").json()["rev"]
+    p = c.post(f"/api/docs/{d}/divisions/plan", json={"only": org["key"]}).json()
+    st = {x["key"]: x["status"] for x in p["candidates"]}
+    assert p["only"] == org["key"] and p["baseRev"] == rev and st[org["key"]] == "applied" and st[sy["key"]] == "applied"
+    # 손대지 않은 다른 자리는 「미해결」 이 아니라 「제외 — 이번엔 한 자리만 반영」 이다(전에는 85곳이 미해결로 나와 계획 · 반영 알림에 그대로 떴다)
+    assert p["summary"]["unresolved"] == len(p["errors"]) == 0 and p["unresolved"] == [] and p["summary"]["excluded"] > 50, p["summary"]
+    assert {x["statusMessage"] for x in p["candidates"] if x["status"] == "excluded"} == {"이번엔 한 자리만 반영"}
+    assert _table_sizes(c, d) == before   # 계획은 문서를 바꾸지 않는다
+    a = c.post(f"/api/docs/{d}/divisions/apply", json={"planId": p["planId"], "expectRev": p["baseRev"]})
+    assert a.status_code == 200 and a.json()["rev"] == rev + 1 and a.json()["undo"] == 1, a.text
+    # 한 자리만 반영한 것은 문서 전체를 반영한 것으로 적지 않는다 — TASK 의 「프로젝트 구성 반영」 이 끝남으로 보이거나 다음 전체 계획이 자리표시를 다시 안 본뜨게 되지 않게
+    assert a.json()["applied"] is None and c.get(f"/api/docs/{d}/divisions").json()["applied"] is None
+    after = _table_sizes(c, d)
+    assert after[tid][0] > before[tid][0] and after[tid][1] == before[tid][1]               # 그 표의 행이 늘었다
+    assert {k: v for k, v in after.items() if k in before and k != tid} == {k: v for k, v in before.items() if k != tid}   # 다른 표는 그대로
+    t2 = c.get(f"/api/docs/{d}/divisions/members?targets=1").json()["targets"]
+    assert t2[org["key"]]["done"] and t2[org["key"]]["target"] == 3 and t2[sy["key"]]["done"] and t2[sy["key"]]["target"] == 5
+    # 대신 「한 자리만 반영한 기록」 에 따로 남는다(② §9 — 기관의 차례 검사 · 「반영」 단계의 끝남 셈이 본다: astra 4차) · 실행 취소하면 같이 되돌아가고, 전체 반영이 끝나면 지워진다
+    view = c.get(f"/api/docs/{d}/divisions").json()
+    assert [(x["only"], x["values"] == view["settings"]["values"], x["rev"]) for x in view["partial"]] == [(org["key"], True, rev + 1)]
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200 and c.get(f"/api/docs/{d}/divisions").json()["partial"] == []
+    p2 = c.post(f"/api/docs/{d}/divisions/plan", json={"only": org["key"]}).json()   # 같은 자리를 다시 반영 — 같은 자리의 기록은 하나만
+    assert c.post(f"/api/docs/{d}/divisions/apply", json={"planId": p2["planId"], "expectRev": p2["baseRev"]}).status_code == 200
+    assert [x["only"] for x in c.get(f"/api/docs/{d}/divisions").json()["partial"]] == [org["key"]]
+    full = c.post(f"/api/docs/{d}/divisions/plan", json={}).json()
+    done = c.post(f"/api/docs/{d}/divisions/apply", json={"planId": full["planId"], "expectRev": full["baseRev"]})
+    assert done.status_code == 200 and done.json()["applied"]["values"] == view["settings"]["values"], done.text
+    assert c.get(f"/api/docs/{d}/divisions").json()["partial"] == []
+    server.DOCS.clear()
+
+
 def test_llm_review_applies_revisions(monkeypatch):
     """LLM 재검토 — 응답의 add/change/remove 를 지금 문서의 문단 id 에 대고 검증해 hint 층에만 반영, 호출 기록·로그."""
     from app import division_llm

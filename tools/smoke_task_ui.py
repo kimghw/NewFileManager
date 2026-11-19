@@ -57,10 +57,11 @@ def open_work(page, wid):
 
 VIS = "(id) => { const e = document.getElementById(id); return !e.hidden && e.getClientRects().length > 0; }"
 SLOTS = "() => Object.fromEntries([...document.querySelectorAll('#taskFlow select[data-task-file]')].map((s) => [s.dataset.taskFile, s.value]))"  # 이관의 첨부 파일 칸(② §11) → {plan, report: 작업 id | ''}
-STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
+STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config]):not([data-step=heads]):not([data-step=reheads])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
   status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent,
   name: li.querySelector('.dv-flow-title strong').textContent, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }))"""
 CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 1단계 「구성 확정」(spec_작업 ② §18)
+STEP = "(k) => { const li = document.querySelector('#taskSteps li[data-step=' + k + ']'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 줄 하나 — 1단계 「헤딩 · 표 분석」(heads) · 2단계 「헤딩 · 표 다시 분석」(reheads): spec_작업 ② §21
 JOURNEY = "() => [...document.querySelectorAll('#taskFlow [data-journey]')].map(b => [b.dataset.journey, b.dataset.state, b.getAttribute('aria-current')])"
 
 
@@ -100,7 +101,7 @@ try:
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
         page.goto(base)
-        page.evaluate("() => { localStorage.setItem('nfm.taskStageOpen0', '1'); localStorage.setItem('nfm.taskStageOpen', '1'); localStorage.setItem('nfm.taskStageOpen2', '1'); }")  # 단계 목록은 「1단계 문서 프레임 작성」 묶음 안(기본 접힘 — spec_작업 ② §14): 이 검사는 세부 목록의 단추를 누르므로 펴 둔다(묶음·한 번에 진행은 tools/smoke_task_run_ui.py)
+        page.evaluate("() => { localStorage.setItem('nfm.taskStageOpenR', '1'); localStorage.setItem('nfm.taskStageOpen', '1'); localStorage.setItem('nfm.taskStageOpen2', '1'); }")  # 단계 목록은 「1단계 문서 프레임 작성」 묶음 안(기본 접힘 — spec_작업 ② §14): 이 검사는 세부 목록의 단추를 누르므로 펴 둔다(묶음·한 번에 진행은 tools/smoke_task_run_ui.py)
         open_work(page, a)
 
         # ---- 1. 국가R&D 양식이 아닌 문서 — 작업 종류 없음 · 탭 없음 · 파일 이름 자리 = 문서 목록
@@ -163,7 +164,7 @@ try:
               and "프로젝트 이름을 적으면" in st[0]["text"] and [s["name"] for s in st[1:]] == ["프로젝트 구성 반영", "자리 연결", "표 안 연결 · 넣기 계획", "내용 반영", "합계 계산 → 결과 확인", "작성요령 삭제"]
               and [s["no"] for s in st] == ["·", "①", "②", "③", "④", "⑤", "⑥"] and [s["badge"] for s in st] == ["다음 작업", "대기", "대기", "대기", "대기", "준비 중", "대기"]
               and [s["step"] for s in st] == ["files", "division", "link", "plan", "apply", "later", "guide"], st)
-        check("TASK 순서 — 준비가 현재 · 프레임과 내용 매핑·문서 정리는 대기", page.evaluate(JOURNEY) == [["prepare", "now", "step"], ["config", "todo", None], ["frame", "todo", None], ["map", "todo", None], ["clean", "todo", None]], page.evaluate(JOURNEY))
+        check("TASK 순서 — 준비가 현재 · 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리는 대기(묶음 넷 — spec_작업 ② §21)", page.evaluate(JOURNEY) == [["prepare", "now", "step"], ["review", "todo", None], ["frame", "todo", None], ["map", "todo", None], ["clean", "todo", None]], page.evaluate(JOURNEY))
         page.click('#taskFlow [data-journey="prepare"]')
         check("준비 길찾기 — 첫 문서 선택칸으로 키보드 초점", page.evaluate("() => document.activeElement === document.querySelector('#taskFlow select[data-task-file=plan]')"))
         page.evaluate("() => { document.getElementById('taskStage2').open = false; }")
@@ -177,11 +178,12 @@ try:
         page.keyboard.press('Escape')
         page.evaluate("() => { document.getElementById('taskStage').open = true; }")
         # 2026-11-12 사용자 "1단계에서는 단계, 차년도, 기관구성이 들어가야 하지 … UI가 너무 떨어져 있네": 이관이면 과제 구성 입력이 1단계 묶음 안(세부 목록 아래 #taskFrameForm)
-        check("이관 — 구성 입력은 1단계 「구분 기준」 묶음 안 · 문서 반영 상태·변경 계획은 2단계 「문서 프레임 작성」 묶음 안 · 패널에는 없음 · 「변경 계획 보기」 는 강조 아님", page.evaluate("""() => {
-          const f = document.getElementById('taskFrameForm'), s0 = document.getElementById('taskStage0'), a = document.getElementById('taskFrameApply'), s = document.getElementById('taskStage');
-          return !!f && f.parentElement === s0 && f.previousElementSibling.matches('ol.dv-flow-steps') && f.querySelectorAll('fieldset.dv-config .dv-card').length === 2 && !!f.querySelector('#divSourceSel')
+        check("이관 — 구성 입력 · 문서 반영 상태·변경 계획이 2단계 「구성 맞추기」 묶음 안(입력 → 반영 차례 — §21: 전의 1단계 묶음 #taskStage0 은 없다) · 패널에는 없음 · 「변경 계획 보기」 는 강조 아님", page.evaluate("""() => {
+          const f = document.getElementById('taskFrameForm'), a = document.getElementById('taskFrameApply'), s = document.getElementById('taskStage');
+          return !!f && f.parentElement === s && !document.getElementById('taskStage0') && f.previousElementSibling.matches('ol.dv-flow-steps') && a.previousElementSibling === f
+            && [...document.querySelectorAll('#taskSteps > details')].map((d) => d.dataset.stage).join() === 'review,frame,map,clean' && f.querySelectorAll('fieldset.dv-config .dv-card').length === 2 && !!f.querySelector('#divSourceSel')
             && !!a && a.parentElement === s && !!a.querySelector('#divAppliedState') && !!a.querySelector('#divRunBar #divPlanButton') && !!a.querySelector('#divRunBar #divApplyButton') && !a.querySelector('#divRunAll') && !document.querySelector('#divBox > fieldset.dv-config, #divBox > #divAppliedState, #divBox > #divRunBar')
-            && !document.getElementById('divPlanButton').classList.contains('primary') && document.querySelectorAll('#taskSteps li').length === 8 && !!document.querySelector('#taskSteps li[data-step=config]'); }"""))
+            && !document.getElementById('divPlanButton').classList.contains('primary') && [...document.querySelectorAll('#taskSteps li')].map((li) => li.dataset.step).join() === 'files,heads,config,division,reheads,link,plan,apply,later,guide'; }"""))
         check("⑤ 합계 계산 줄 — 아직 없는 단계라는 글(상태는 「준비 중」 그대로)", "아직 없는 단계입니다" in st[5]["text"] and "계산 칸" in st[5]["text"] and st[5]["badge"] == "준비 중", st[5])
         page.screenshot(path=str(OUT / "2_rnd.png"))
         NOLAP = """() => { const t = document.querySelector('.topbar'), r = [...t.children].filter((e) => e.getClientRects().length && !e.classList.contains('spacer')).map((e) => e.getBoundingClientRect());
@@ -373,8 +375,11 @@ try:
         # ---- 6-2. 단계(② §11) — ① 구분 기준 확인: 사업계획서가 기준. 값 없음 → 다름(맞추기) → 같음·반영 전 → 반영됨 → ② 자리 연결(먼저 헤딩·표 분석)
         page.wait_for_function(f"() => {{ const c = ({CONFIG})(); return !!c && c.text.includes('프로젝트 구성(단계·차년도·기관)이 없습니다'); }}")
         st, cf = page.evaluate(STEPS), page.evaluate(CONFIG)
-        check("1단계 구성 확정 — 사업계획서에 값 없음 → 「사업계획서에서 추출」 · ① 은 대기(1단계 뒤)", cf["state"] == "now" and cf["acts"] == ["사업계획서에서 추출"]
+        check("구성 확정 — 사업계획서에 값 없음 → 「사업계획서에서 추출」(분석이 없어 1단계가 지금이어도 누를 수 있다 = 진행 가능) · ① 은 대기(확정 뒤)", cf["state"] == "ready" and cf["acts"] == ["사업계획서에서 추출"]
               and [s["state"] for s in st][:6] == ["done", "todo", "todo", "todo", "todo", "soon"] and not st[1]["acts"], (cf, st))
+        hd = page.evaluate(STEP, "heads")
+        check("1단계 「헤딩 · 표 분석」 이 지금 — 두 문서에 분석 없음 · 「분석」(강조 · 스크립트)", hd["state"] == "now" and "사업계획서 없음 · 연차보고서 없음" in hd["text"] and hd["acts"] == ["분석"]
+              and page.evaluate("() => document.querySelector('#taskSteps li[data-step=heads] button').classList.contains('primary')"), hd)
         plan_values = {"stages": [2, 1], "orgs": {"lead": "가 기관", "joint": ["나 기관"]}, "current": 2}
         requests.put(f"{base}/api/docs/{c}/divisions/settings", json={"values": plan_values}, timeout=30).raise_for_status()
         conf = requests.post(f"{base}/api/docs/{c}/divisions/confirm", json={}, timeout=30).json()["confirmed"]   # 1단계 — 프로젝트에 확정(spec_작업 ② §18)
@@ -398,22 +403,23 @@ try:
         page.locator("#panel").screenshot(path=str(OUT / "6b_step2_shared.png"))
         st = page.evaluate(STEPS)
         check("① 값 같음 · 반영 전 → 「변경 계획 보기」", "값은 사업계획서와 같음" in st[1]["text"] and "반영 전" in st[1]["text"] and st[1]["acts"] == ["변경 계획 보기"], st[1])
-        check("구성 확정 뒤 — 프레임 작성이 현재 · 내용 매핑은 대기", [x[1] for x in page.evaluate(JOURNEY)] == ["done", "done", "now", "todo", "todo"] and page.evaluate(CONFIG)["state"] == "done", page.evaluate(JOURNEY))
+        check("구성 확정 뒤 — 분석이 아직 없어 문서 검토가 현재 · 뒤 묶음은 대기(① 은 진행 가능 — 단계별로는 누를 수 있다)", [x[1] for x in page.evaluate(JOURNEY)] == ["done", "now", "todo", "todo", "todo"] and page.evaluate(CONFIG)["state"] == "done"
+              and st[1]["state"] == "ready", (page.evaluate(JOURNEY), st[1]))
         page.evaluate("() => { window.journeyButton = document.querySelector('#taskFlow [data-journey=frame]'); window.journeyButton.focus(); taskStepsDraw(); }")
         check("순서 상태 갱신 — 이동 버튼과 키보드 초점 유지", page.evaluate("() => window.journeyButton.isConnected && document.activeElement === window.journeyButton"))
         # 2026-11-12 — 1단계 머리의 프레임 값 요약(기준 = 사업계획서 값) · 「구성 고치기」 · 입력하는 동안 단계 목록이 다시 그려져도 폼은 그대로(포커스 유지)
-        fr = page.evaluate("() => { const f = document.querySelector('#taskStage0 .dv-phase-frame'); return { hidden: f.hidden, text: f.firstChild.textContent, title: f.firstChild.title, vis: f.checkVisibility() }; }")
+        fr = page.evaluate("() => { const f = document.querySelector('#taskStage .dv-phase-frame'); return { hidden: f.hidden, text: f.firstChild.textContent, title: f.firstChild.title, vis: f.checkVisibility() }; }")
         check("1단계 「구분 기준」 머리에 구성 요약 — 단계·차년도 · 주관 · 공동(접혀 있어도 보임)", not fr["hidden"] and fr["vis"] and fr["text"] == "1단계(1–2차년도) · 2단계(3차년도) · 주관 가 기관 · 공동 1(나 기관)"
               and "사업계획서" in fr["title"], fr)
-        page.evaluate("() => { document.getElementById('taskStage0').open = false; }")
-        page.click("#taskStage0 [data-task-frame-edit]")
-        page.wait_for_function("() => document.getElementById('taskStage0').open && document.getElementById('taskFrameForm').contains(document.activeElement)")
+        page.evaluate("() => { document.getElementById('taskStage').open = false; }")
+        page.click("#taskStage [data-task-frame-edit]")
+        page.wait_for_function("() => document.getElementById('taskStage').open && document.getElementById('taskFrameForm').contains(document.activeElement)")
         check("「구성 고치기」 — 1단계가 펴지고 과제 구성 입력으로 포커스", page.evaluate("() => document.getElementById('taskFrameForm').checkVisibility() && ['SELECT', 'INPUT'].includes(document.activeElement.tagName)"))
-        page.evaluate("() => { const i = document.querySelector('#taskFrameForm .dv-org-field input'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); window.frameInput = i; window.frameOl = document.querySelector('#taskStage0 ol.dv-flow-steps'); }")
+        page.evaluate("() => { const i = document.querySelector('#taskFrameForm .dv-org-field input'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); window.frameInput = i; window.frameOl = document.querySelector('#taskStage ol.dv-flow-steps'); }")
         page.keyboard.type("X")
         page.wait_for_function(f"() => ({CONFIG})().text.includes('확정한 뒤 값이 바뀌었습니다')")
         check("입력 중 — 단계 목록은 다시 그려지고(1단계 「구성 확정」 이 바로 「확정 뒤 바뀜」) 폼 노드·포커스는 그대로", page.evaluate("""() => document.activeElement === window.frameInput && window.frameInput.isConnected && window.frameInput.value === '가 기관X'
-          && document.querySelector('#taskStage0 ol.dv-flow-steps') !== window.frameOl && dv.values.orgs.lead === '가 기관X' && document.getElementById('divReviewSummary').isConnected"""),
+          && document.querySelector('#taskStage ol.dv-flow-steps') !== window.frameOl && dv.values.orgs.lead === '가 기관X' && document.getElementById('divReviewSummary').isConnected"""),
               page.evaluate("() => [document.activeElement && document.activeElement.tagName, window.frameInput.isConnected, window.frameInput.value, dv.values.orgs.lead]"))
         page.keyboard.press("Backspace")
         page.wait_for_function(f"() => ({STEPS})()[1].text.includes('값은 사업계획서와 같음')")
@@ -425,7 +431,7 @@ try:
               return t.scrollWidth <= t.clientWidth + 1 && f.scrollWidth <= f.clientWidth + 1 && a.scrollWidth <= a.clientWidth + 1 && [...f.querySelectorAll('input, select, button, .dv-card'), ...a.querySelectorAll('.dv-applied, .dv-run, button'), ...t.querySelectorAll('#taskStage0 summary > *, #taskStage summary > *')]
                 .filter((e) => e.checkVisibility()).every((e) => { const b = e.getBoundingClientRect(); return b.left >= r.left - 1 && b.right <= r.right + 1; }); }"""))
             page.locator("#panel").screenshot(path=str(OUT / f"6b2_frame_form_{width}.png"))
-        page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); document.getElementById('taskStage0').open = false; document.getElementById('taskStage').open = false; }")
+        page.evaluate("() => { document.getElementById('panel').style.removeProperty('--panel'); document.getElementById('taskStage').open = false; }")
         st = page.evaluate(STEPS)
         page.evaluate("() => { dv.values.stages = [2, 2]; divTouched(); divRender(); }")
         st = page.evaluate(STEPS)
@@ -434,10 +440,11 @@ try:
         FAKE_APPLIED = "() => { dv.view.applied = { values: JSON.parse(divCanon(dv.values)), rev: state.serverRev, at: Date.now() / 1000 }; taskStepsDraw(); }"  # 반영은 지원 양식에서만 — 반영 기록을 화면에 얹어 본다
         page.evaluate(FAKE_APPLIED)
         st = page.evaluate(STEPS)
-        check("프레임 반영 뒤 — 완료 단계 다음인 내용 매핑을 현재로 표시(당해 차년도만 바꾼 것은 확정을 안 풂)", page.evaluate(JOURNEY) == [["prepare", "done", None], ["config", "done", None], ["frame", "done", None], ["map", "now", "step"], ["clean", "todo", None]], page.evaluate(JOURNEY))
-        check("① 반영됨(당해 차년도는 안 견줌 — 다르면 글로 보임) → ② 자리 연결이 지금 — 먼저 헤딩·표 분석 · 「문서 비교에서 추출」", [s["state"] for s in st][:6] == ["done", "done", "now", "todo", "todo", "soon"] and "연차보고서에 반영됨" in st[1]["text"]
+        check("구조 반영 뒤에도 분석이 없으면 문서 검토가 현재(당해 차년도만 바꾼 것은 확정을 안 풂 — ① 은 끝남)", page.evaluate(JOURNEY) == [["prepare", "done", None], ["review", "now", "step"], ["frame", "todo", None], ["map", "todo", None], ["clean", "todo", None]]
+              and page.evaluate(CONFIG)["state"] == "done" and st[1]["state"] == "done", page.evaluate(JOURNEY))
+        check("① 반영됨(당해 차년도는 안 견줌 — 다르면 글로 보임) → 분석이 없어 ② 는 대기 · 1단계 「헤딩 · 표 분석」 이 지금(「분석」) · 다시 분석 줄도 대기", [s["state"] for s in st][:6] == ["done", "done", "todo", "todo", "todo", "soon"] and "연차보고서에 반영됨" in st[1]["text"]
               and "당해 차년도는 연차보고서 3차년도(사업계획서 2차년도)" in st[1]["text"]
-              and "먼저 헤딩·표 분석" in st[2]["text"] and "사업계획서 없음 · 연차보고서 없음" in st[2]["text"] and st[2]["acts"] == ["문서 비교에서 추출"], st)
+              and not st[2]["acts"] and page.evaluate(STEP, "heads")["state"] == "now" and page.evaluate(STEP, "heads")["acts"] == ["분석"] and page.evaluate(STEP, "reheads")["state"] == "todo", (st, page.evaluate(STEP, "heads"), page.evaluate(STEP, "reheads")))
         page.locator("#panel").screenshot(path=str(OUT / "6c_step3.png"))
         for width in (320, 480):  # 패널 최소 폭·보통 폭에서 가로 넘침 없음(design.md §1-8)
             page.evaluate("(w) => document.getElementById('panel').style.setProperty('--panel', w + 'px')", width)
@@ -445,8 +452,7 @@ try:
             check(f"첫 카드 가로 넘침 없음(패널 {width}px)", page.evaluate("() => { const t = document.querySelector('#divBox .dv-task'); return t.scrollWidth <= t.clientWidth + 1 && [...t.querySelectorAll('select, button')].every((e) => e.getBoundingClientRect().right <= t.getBoundingClientRect().right + 1); }"))
             page.locator("#panel").screenshot(path=str(OUT / f"6d_panel_{width}.png"))
         page.evaluate("() => document.getElementById('panel').style.removeProperty('--panel')")
-        page.locator("#taskSteps button", has_text="문서 비교에서 추출").click()
-        check("「문서 비교에서 추출」 → 문서 비교 탭", page.get_attribute("#panel", "data-tool") == "Compare", page.get_attribute("#panel", "data-tool"))
+        check("② 줄에 「문서 비교에서 추출」 단추 없음 — 분석은 1단계의 몫(§21)", page.locator("#taskSteps button", has_text="문서 비교에서 추출").count() == 0)
 
         # ---- 7. 문서 비교 — 같은 과제 문서를 처음부터 함께 고름 · 분석 없는 것을 함께 추출(스크립트만) · 목록에 과제·첨부 파일 종류
         page.click("#tabCompare")
@@ -672,7 +678,7 @@ try:
         check("완료 뒤에도 번호 ①~⑥ 유지 · 완료와 준비 중을 글자로 구별 · ④ 뒤 ⑥ 작성요령 삭제", [s["no"] for s in st[1:]] == ["①", "②", "③", "④", "⑤", "⑥"]
               and [s["badge"] for s in st[1:6]] == ["완료", "완료", "완료", "완료", "준비 중"] and st[6]["state"] in ("now", "done"), st)
         page.evaluate("() => { window.journeyValues = structuredClone(dv.values); dv.values.orgs.lead += ' 변경'; taskStepsDraw(); }")
-        check("완료 뒤 구성 값 변경 — 이전 매핑 결과가 있어도 선행 단계 먼저(1단계 「구분 기준」 이 현재)", page.evaluate("""() => taskFlow.fill.done && document.querySelector('#taskFlow [data-journey=config]').dataset.state === 'now'
+        check("완료 뒤 구성 값 변경 — 이전 넣기 결과가 있어도 선행 단계 먼저(2단계 「구성 맞추기」 가 현재)", page.evaluate("""() => taskFlow.fill.done && document.querySelector('#taskFlow [data-journey=frame]').dataset.state === 'now'
           && document.querySelector('#taskFlow [data-journey=map]').dataset.state === 'todo' && document.querySelector('#taskStage2 .dv-phase-state').textContent.includes('완료 후 진행')
           && document.querySelector('#taskStage2 [data-task-run]').disabled"""), page.evaluate(JOURNEY))
         page.evaluate("() => { dv.values = window.journeyValues; delete window.journeyValues; taskStepsDraw(); }")

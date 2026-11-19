@@ -484,6 +484,12 @@ def table_payload(tb, occ, bs, before=""):
             "draft": [{k: b[k] for k in ("id", "rows", "cols", "kind", "headerRows", "headerCols")} for b in bs], "grid": rows}
 
 
+def input_key(tb, occ, bs):
+    """그 표로 LLM 에 보내는 자료(초안 띠 + 격자 토막 — 칸 id · 크기 · 음영/굵게/문단 종류 · 글 30자 · 초안 역할)의 해시 — 「판정에 들어간 입력이 같은가」 의 열쇠
+    (spec_테이블매니저 ② §2 「지금 판정」). **초안을 지은 바로 뒤**(LLM 답 · 사람 지정을 얹기 전)에 불러야 한다 — 토막에 그때의 역할이 든다. 표 앞 문단은 넣지 않는다."""
+    return hashlib.sha1(json.dumps(table_payload(tb, occ, bs), ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def _before_text(stage1, tb, skip=()):
     """표 바로 앞의 글 있는 문단(이 표 안이 아닌 것) — 표 제목 맥락. 앞 39문단까지 본다. skip = 건너뛸 문단 id(TEMP 표 안의 문단 — spec ② §15:
     「작성 요령」 표의 글이 뒤 표의 제목 맥락이 되지 않게; 건너뛴 문단은 39문단 한도에 세지 않는다)."""
@@ -738,6 +744,7 @@ def finish_band(tb, occ, band):
 
 def _out_cell(x):
     return {k: x.get(k) for k in ("id", "row", "col", "rs", "cs", "fill", "shaded", "bold", "kinds", "text", "paras", "n", "nested", "nature", "draft", "role",
+                                  "auto",  # 사람 지정이 덮은 칸에만 — 덮기 전 역할(spec_테이블매니저 ② §2 「지금 판정」: 지정을 풀면 풀리게)
                                   "sub", "parent", "rowPath", "colPath", "changed", "reason",
                                   "basis", "basisKind", "code", "expr", "subtotal", "num", "pct", "dec", "dash", "placeholder", "div", "formulas")  # §9
             if x.get(k) is not None or k in ("role", "draft", "text")}
@@ -826,6 +833,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
     owner_fn = HC.owners_index(stage1, stage2)
     for tb in tables:
         bs, occ = drafts[tb["id"]]
+        key = input_key(tb, occ, bs)  # 초안 그대로일 때의 자료 열쇠 — 아래에서 LLM 답 · 사람 지정을 얹기 전에(spec_테이블매니저 ② §2 「지금 판정」)
         ans = answers.get(tb["id"]) if use_llm else None
         if use_llm and sendable(tb):
             tb["llm"]["sent"] = True
@@ -842,6 +850,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
         mine = (roles or {}).get(tb["id"]) or {}
         for x in tb["cells"]:
             if mine.get(x["id"]) in ("rowhead", "colhead", "field"):  # 사용자 헤더 지정 — 초안·LLM 답보다 앞
+                x["auto"] = x["role"]  # 덮기 전 역할(자동 역할)을 남긴다 — 지정을 푼 뒤 이 결과를 다시 쓸 수 있게
                 x["role"], x["reason"] = mine[x["id"]], "사용자 지정"
                 x["changed"] = x["role"] != x["draft"]
             x.setdefault("changed", False)
@@ -857,7 +866,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
         out_tables.append({"id": tb["id"], "n": tb["n"], "host": tb["host"], "before": before[:60], "depth": tb["depth"],
                            "parentCell": tb["parentCell"], "rows": tb["rows"], "cols": tb["cols"],
                            "cells": [_out_cell(x) for x in tb["cells"]], "subtables": subs, "counts": dict(counts),
-                           "issues": [i for s in subs for i in s["issues"]][:100], "llm": tb["llm"], "notes": notes, **sem})
+                           "issues": [i for s in subs for i in s["issues"]][:100], "llm": tb["llm"], "notes": notes, "inputKey": key, **sem})
     rep = [{"signature": k, "count": len(v), "where": v[:50]} for k, v in repeats.items() if len(v) >= 2]
     rep.sort(key=lambda r: -r["count"])
     roles = Counter(x["role"] for t in out_tables for x in t["cells"])

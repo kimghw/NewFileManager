@@ -23,6 +23,7 @@
 #doc table.tbl.tmn-active, #doc .xl-wrap.tmn-active { outline: 1px solid rgba(36, 88, 214, .65); outline-offset: 1px; } /* 고른 표(누른 표) — 쪽마다 나뉜 조각 모두 */
 #doc table.tbl td.tmn-hit { box-shadow: inset 0 0 0 300mm rgba(200, 30, 30, .2); outline: 1px solid rgba(200, 30, 30, .6); outline-offset: -1px; } /* 지울 칸 — 고른 칸(td.sel)과 같은 방식(칸 음영 위에 비침) */
 #doc table.tbl.tmn-tpl-hit { outline: 2px solid #f59e0b; outline-offset: 1px; } /* 마우스를 올린 표 양식(화면에 보일 때) */
+#doc table.tbl td.tmn-div-hit { box-shadow: inset 0 0 0 300mm rgba(36, 88, 214, .14); outline: 1px solid rgba(36, 88, 214, .6); outline-offset: -1px; } /* 「프로젝트 구성에 맞추기」 — 마우스를 올린 자리의 항목 머리 칸(지울 칸의 빨강과 다르게 파랑: 지우는 표시가 아니다) */
 
 /* ---- 표 칸 메뉴 · 미리보기 · 헤더 지정 표시(spec_owpml_편집 ② §5-4·§5-5 — table_edit.js): 공용 .ctx-menu 에 data-by="tsel"(하위 목록은 같은 자리에서 내용만 바뀜 — 분류 줄 .tmn-sec ·
    돌아가기 .tmn-back · 안내 .tmn-note · 지금 값 .tmn-on) · 문서 미리보기(td.tp + tp-*: 메뉴 항목·도구 줄 단추에 올린 동안만) · 직접 지정한 헤더 칸의 왼쪽 위 귀퉁이(td.hd-user).

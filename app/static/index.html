@@ -13,6 +13,8 @@
   <link rel="stylesheet" href="/static/table-panel.css">
   <link rel="stylesheet" href="/static/table-menu.css"><!-- 표 메뉴(표 모서리 손잡이 — spec_헤딩_추출 ② §16) -->
   <link rel="stylesheet" href="/static/table-fill.css"><!-- 작성요령 세 묶음 · 표 채우기(spec_헤딩_추출 ② §18) -->
+  <link rel="stylesheet" href="/static/table_kv.css"><!-- 표의 키-값 보기 · 매핑(2열 kind tblKv — spec_테이블매니저 ② §7 「키-값 추출과 매핑」) -->
+  <link rel="stylesheet" href="/static/table_types.css"><!-- 양식의 표 판정(2열 kind tblType · 「테이블」 탭의 상태 표지 — spec_테이블매니저 ② §10 「양식의 표 판정」) -->
   <link rel="stylesheet" href="/static/shortcuts.css"><!-- 단축키 설명(도구 줄 단추 → 2열 목록 — spec_hwpx_웹편집 ② §2) -->
   <link rel="stylesheet" href="/static/heading-drift.css"><!-- 뼈대 유지(새 레터·새 서식·새 표 표시 — spec_헤딩_추출 ② §17) — style.css·heading-panels.css 다음 -->
   <link rel="stylesheet" href="/static/heading-llm-diff.css"><!-- LLM 이 바꾼 것(2열 kind llmDiff — spec_헤딩_추출 ② §7) — style.css 다음 -->
@@ -565,6 +567,8 @@
   <script src="/static/table_make.js"></script><!-- 표 만들기 · 서식 변환(표 양식 · LLM 정리 · 문서에 넣기) — tables.js·table_edit.js 다음(spec_헤딩_추출 ② §11) -->
   <script src="/static/table_menu.js"></script><!-- 표 메뉴(표 모서리 손잡이 → 빈 필드 제거 · 엑셀식 보기 · 서식으로 변환) — tables.js·table_make.js 다음(spec_헤딩_추출 ② §16) -->
   <script src="/static/table_style.js"></script><!-- 표 서식 점검 · 맞추기(표 메뉴 「표 서식 점검…」 — 2열 kind tblStyle) — table_menu.js 다음(spec_헤딩_추출 ② §19) -->
+  <script src="/static/table_kv.js"></script><!-- 표의 키-값 보기 · 다른 표에서 가져오기(표 메뉴 「키-값으로 보기 · 매핑…」 — 2열 kind tblKv) — table_style.js 다음(spec_테이블매니저 ② §7 「키-값 추출과 매핑」) -->
+  <script src="/static/table_types.js"></script><!-- 양식의 표 판정(표 메뉴 「양식의 표 판정…」 — 2열 kind tblType · 「테이블」 탭의 상태 표지) — table_kv.js 다음(spec_테이블매니저 ② §10 「양식의 표 판정」) -->
   <script src="/static/table_fill.js"></script><!-- 표 채우기(표 메뉴 「에이전트로 표 채우기」 — 작성요령·지침·칸 입력 규칙 + 자료 → LLM 제안 → 고른 칸만 문서에) — tables.js·table_menu.js 다음(spec_헤딩_추출 ② §18) -->
   <script src="/static/heading_temp.js"></script><!-- TEMP 라벨(표 안 작성요령·쓸 자리 — 2·3단계에서 빼고 나중에 지움: 목록·문서 표시·지정/해제) — app.js·tables.js 다음(spec_헤딩_추출 ② §15) -->
   <script src="/static/heading_drift.js"></script><!-- 뼈대 유지(문서가 바뀌어도 2·3단계를 다시 만들라고 하지 않고 새 레터·새 서식·새 표만 알림 — 상태 줄·카드 줄·문서 여백 표시·목록) — app.js·tables.js 다음(spec_헤딩_추출 ② §17) -->
@@ -582,6 +586,7 @@
   <script src="/static/heads_run_all.js"></script><!-- 「전체 실행」(헤딩 추출 탭 상태 줄 — 남은 LLM 단계 → 서식 정리 계획 → 조정 「모두 반영」 까지 한 번에 · 「단계별 실행 ▾」 앞) — tpl_plan_bar.js 다음(spec_헤딩_추출 ② §7 「전체 실행」) -->
   <script src="/static/heads_run_pick.js"></script><!-- 「단계별 실행 ▾」 의 고르기 목록 — 고른 단계만 차례로(확인 창 한 번 · 멈추기 · 진행 줄의 기다림 표시) — heads_run_all.js 다음(spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」) -->
   <script src="/static/shortcuts.js"></script><!-- 단축키 설명(도구 줄 「단축키」 단추 → 2열에 키·마우스 조작 목록) — app.js 다음(spec_hwpx_웹편집 ② §2 「단축키 설명」) -->
+  <script src="/static/form_guides.js"></script><!-- 작성 지침 목록(작업에 저장한 작성 요령 표 · <참고 N> 자료 · ※ 안내를 헤딩별 · 표별로 — 2열 kind formGuides: 이관 「헤딩 · 표 분석」 줄의 「작성 지침」) — app.js 다음(spec_작업 ② §21 「작성 지침 저장」) -->
   <script src="/static/merge_over.js"></script><!-- 넘친 개요 레벨(넣기 계획 안의 한 절 — 덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿 · 넣은 줄에 다시 맞추기) — app.js 다음 · gather.js 앞(spec_병합 ② §5-5 9) -->
   <script src="/static/zones.js"></script><!-- 편집 구역(기관·단계·차년도 값마다의 구역 — 「편집 구역」 줄 · 구역 띠·이름표 · 「구역 지정…」 · 목록: 어느 연구개발 TASK 에서나) — app.js 다음 · gather.js 앞(취합 카드가 이 줄을 쓴다: spec_구역 ② §6) -->
   <script src="/static/gather.js"></script><!-- 취합(할 일 「사업계획서 취합」 plan_merge — 취합본 칸·기관 문서 줄 · 묶음 둘 · 2열 「기관 작성 내용」·「넣기 계획」 · 둘째 면 · 끌어 넣기) — app.js 다음(spec_취합 ② §5) -->

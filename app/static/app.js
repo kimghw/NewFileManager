@@ -984,6 +984,7 @@ async function taskFlowLoad() { // 단계 ①② 에 쓸 다른 문서 쪽 자�
   taskStepsDraw();
   if (plan && report && !err) linksCall(report); // ② 자리 연결 — 연결 목록(또는 문서별 까닭)을 읽는다. 큰 문서는 처음 몇 초(서버가 요약을 기억)
   if (plan && report && !err) taskCleanupLoad(report); // ⑥ 작성요령 삭제 — 지울 안내 수(지금 문서에서 스크립트로 셈 — 1초 안팎)
+  if (plan && report && !err) { taskGuidesLoad(report); taskHeadsWatch(); } // 저장한 작성 지침 · 분석이 도는 중이면 요약을 5초마다(spec_작업 ② §21)
 }
 
 function taskDivOf(w, basis = false) { // 문서의 구분 기준 {values | null(값 없음), applied, read?} — 지금 문서는 화면 값, 다른 문서는 읽어 둔 것. undefined = 아직 못 읽음. basis = 기준 문서(반영 값이 먼저)
@@ -1053,11 +1054,35 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const files = { key: "files", no: "", name: "준비", done: !lack.length, acts: [], // 단계 이름·번호 = 공통 차례(spec_병합 ② §0-1, 2026-11-11 사용자 확정): 준비 → ① 구분 기준 확인 → ② 자리 연결 → …
     text: lack.length ? `${lack.join(" · ")}를 위 칸에서 고르세요` + (taskProject() ? "" : " — 프로젝트 이름을 적으면 다른 문서를 고를 수 있습니다") : "사업계획서 · 연차보고서" };
 
-  // 1단계 「프로젝트 구성 확정」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1"): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
-  const config = { key: "config", no: "", name: "프로젝트 구성 확정", done: false, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」)
+  // 1단계 「문서 검토」 — 헤딩 · 표 분석(spec_작업 ② §21, 2026-11-19 사용자 "문서 검토 … 단계가 있어야 하겠구나 헤딩/테이불 분석, 그 다음에 문서구성 그다음에 매핑"): 두 문서에 헤딩 그래프·표 구조(기본 분석 — 올릴 때 저절로)가 있는가.
+  // 저장된 분석이 있으면 됨 — 문서가 그 뒤 바뀌었어도 다시 하라고 하지 않는다(뼈대 유지, spec_헤딩_추출 ② §17). LLM 검증·보완은 선택(이 줄의 단추 — 「한 번에 진행」 은 안 부른다)
+  const got = (w) => { const h = taskFlow.heads[w.id]; return h ? !!(h.stage2 && h.stage3) : null; }; // 읽어 둔 요약(GET …/headings) — 2·3단계 결과가 있나
+  const hp = both ? got(plan) : null, hr = both ? got(report) : null, word = (x) => (x ? "있음" : "없음");
+  const llmDid = (w) => { const h = taskFlow.heads[w.id] || {}; return [h.stage2, h.stage3].some((x) => x && (x.llm || {}).requested); }; // LLM 판정을 거친 결과가 있나(헤딩 · 표 가운데 하나라도)
+  const llmWord = (w) => (taskHeadsRunning(w) && taskHeadsJob(w).chain ? "하는 중" : llmDid(w) ? "함" : "안 함");
+  const llmBtn = (w, name) => hBtn(`${name} LLM 검증·보완`, () => taskHeadsLlm(w), { disabled: !!taskRun || taskHeadsRunning(w) || PEEK,
+    title: `${name}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다 — 유료 · 몇 분 · 문서는 바뀌지 않습니다(선택 — 「한 번에 진행」 은 부르지 않습니다)` });
+  const heads = { key: "heads", no: "", name: "헤딩 · 표 분석", done: !!(hp && hr), keep: true, acts: [], text: "" };
+  if (!both) { /* 준비가 먼저 */ }
+  else if (hp == null || hr == null) heads.text = "분석 결과를 읽는 중…";
+  else {
+    const run = [[plan, "사업계획서"], [report, "연차보고서"]].filter(([w]) => taskHeadsRunning(w)), fail = [[plan, "사업계획서"], [report, "연차보고서"]].find(([w]) => !got(w) && taskHeadsJob(w).error);
+    const GS = (taskFlow.guides || {}).saved, gc = GS && GS.counts; // 저장한 작성 지침(연차보고서 — spec_작업 ② §21 「작성 지침 저장」)
+    heads.busy = !heads.done && !!run.length; // 첫 분석이 도는 중 — LLM 검증·보완이 도는 것은 이 묶음을 막지 않는다(글로만 보인다)
+    heads.text = `헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`
+      + (run.length ? ` · ${run.map(([w, n]) => `${n} ${taskHeadsJob(w).chain ? "LLM 검증·보완" : "분석"} 중…`).join(" · ")}` : fail ? ` · ${fail[1]} 분석 실패 — ${taskHeadsJob(fail[0]).error}` : "")
+      + (heads.done ? ` · LLM 검증·보완: 사업계획서 ${llmWord(plan)} · 연차보고서 ${llmWord(report)}` : "")
+      + (gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)}${gc.marks ? ` · 각주 번호 ${nf(gc.marksLinked)}/${nf(gc.marks)}` : ""})` : "");
+    heads.acts = [...(heads.done ? [] : [hBtn("분석", () => taskRunAll("review"), { cls: "btn sm primary", disabled: !!taskRun || !!run.length, title: "헤딩 그래프·표 구조가 없는 문서만 스크립트로 분석합니다 — LLM 호출 없음 · 문서는 바뀌지 않습니다" })]),
+      ...(hp ? [llmBtn(plan, "사업계획서")] : []),
+      ...(gc && (gc.items || gc.marks) && typeof formGuidesList === "function" ? [hBtn("작성 지침", () => formGuidesList(report), { title: "저장한 작성 지침(작성 요령 표 · <참고 N> 자료 · ※ 안내 · 각주 번호의 항목)을 헤딩별 · 표별로 문서 옆 열에 보입니다 — 4단계가 문서에서 지운 뒤에도 남습니다" })] : [])];
+  }
+
+  // 「프로젝트 구성 확정」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1" · §21 부터 2단계 「구성 맞추기」 의 첫 단계): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
+  const config = { key: "config", no: "", name: "프로젝트 구성 확정", done: false, early: !!both, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」) · early = 분석이 도는 동안에도 확정할 수 있다(값 확정은 분석과 무관)
   const csum = (v) => `${v.stages.length}단계 · 전체 ${divTotalYears(v)}년 · 기관 ${((v.orgs || {}).joint || []).length + 1}곳`, where = divConfirmWhere(CF && CF.sharing);
   const confirmBtn = (values) => { const b = hBtn(`${where}에 저장`, () => taskConfigConfirm(plan, values), { cls: "btn sm primary", disabled: dv.busy,
-    title: `${values ? "사업계획서에서 읽은" : "지금 입력"} 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다. 확정해야 2단계 「문서 프레임 작성」 으로 갑니다` }); b.dataset.taskConfirm = "1"; return b; };
+    title: `${values ? "사업계획서에서 읽은" : "지금 입력"} 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다. 확정해야 「프로젝트 구성 반영」 으로 갑니다` }); b.dataset.taskConfirm = "1"; return b; };
   if (!both) { /* 준비가 먼저 */ }
   else if (taskFlow.err) config.text = `다른 문서를 읽지 못했습니다: ${taskFlow.err}`;
   else if (!CF) config.text = "사업계획서의 프로젝트 구성을 읽는 중…";
@@ -1069,8 +1094,8 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     acts: [confirmBtn(null), ...(dv.view ? [hBtn("확정본으로 되돌리기", () => divConfirmRevert(CF.confirmed), { disabled: dv.busy, title: `입력 칸을 확정한 값(${csum(CF.confirmed.values)})으로 되돌립니다` })] : [])] });
   else Object.assign(config, { text: `${csum(CF.values)} — 확인한 뒤 ${where}에 저장(확정)하세요`, acts: [confirmBtn(null)] });
 
-  const division = { key: "division", no: "①", name: "프로젝트 구성 반영", done: false, text: "", acts: [] }, A = both && taskDivOf(plan, true), B = both && taskDivOf(report);
-  if (!both || !config.done) { /* 준비 · 1단계(프로젝트 구성 확정)가 먼저 */ }
+  const division = { key: "division", no: "①", name: "프로젝트 구성 반영", done: false, early: !!both && config.done, text: "", acts: [] }, A = both && taskDivOf(plan, true), B = both && taskDivOf(report); // early = 확정만 끝났으면 분석(1단계)이 도는 동안에도 단계별로 누를 수 있다(구조 반영은 분석과 무관 — 묶음의 「한 번에 진행」 은 차례대로)
+  if (!both || !config.done) { /* 준비 · 프로젝트 구성 확정이 먼저 */ }
   else if (taskFlow.err) Object.assign(division, { text: `다른 문서를 읽지 못했습니다: ${taskFlow.err}`, acts: [hBtn("다시 읽기", () => { taskFlow.err = ""; taskStepsDraw(); taskFlowLoad(); })] });
   else if (!A || !B) division.text = "두 문서의 프로젝트 구성을 읽는 중…";
   else if (!A.values) Object.assign(division, { text: "사업계획서(기준)에 프로젝트 구성 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽으세요",
@@ -1090,14 +1115,28 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     else Object.assign(division, { done: true, text: `사업계획서와 같음 · 연차보고서에 반영됨 — ${sum}${year}` });
   }
 
-  // ② 자리 연결(spec_병합 ② §0-1 — API …/merge-links). 그 앞에 필요한 헤딩 그래프·표 구조가 두 문서에 있는지부터: 저장된 분석이 있으면 됨 — 문서가 그 뒤 바뀌었어도 다시 하라고 하지 않는다(뼈대 유지, spec_헤딩_추출 ② §17)
-  const got = (w) => { const h = taskFlow.heads[w.id]; return h ? !!(h.stage2 && h.stage3) : null; }; // 읽어 둔 요약(GET …/headings) — 2·3단계 결과가 있나
-  const hp = both ? got(plan) : null, hr = both ? got(report) : null, word = (x) => (x ? "있음" : "없음"), L = taskFlow.links;
+  // 「헤딩 · 표 다시 분석」(2단계 「구성 맞추기」 의 끝 — spec_작업 ② §21, 2026-11-19 사용자 "프로젝트 구성 및 프레임 작성을 하고 다시 헤딩추출/테이블 작업을 하고 그 다음에 매핑"):
+  // 구조 반영으로 늘어난 절·표가 분석에 들어가게 연차보고서를 다시 분석한다. 끝남 = 구조 반영이 끝났고 연차보고서의 분석이 그 반영 뒤의 것(taskHeadsOld 가 거짓 — 구조 반영 밖의 편집은 따지지 않는다).
+  // 구조 반영 전의 분석이 LLM 판정을 거친 결과면 저절로 덮지 않는다(taskHeadsKept — 끝난 것으로 보고 글로 알림 · 「다시 분석」 을 누르면 스크립트 분석으로 바뀐다)
+  const reheads = { key: "reheads", no: "", name: "헤딩 · 표 다시 분석", done: false, keep: true, acts: [], text: "" };
+  if (both && division.done && hr != null) {
+    const old = hr ? taskHeadsOld(report) : true, kept = !!hr && taskHeadsKept(report), run = taskHeadsRunning(report);
+    reheads.done = !!hr && !old;
+    reheads.busy = run && !reheads.done;
+    reheads.text = run ? `연차보고서 ${taskHeadsJob(report).chain ? "LLM 검증·보완" : "분석"} 중…` : !hr ? "연차보고서의 헤딩·표 분석이 없습니다 — 다시 분석(스크립트)"
+      : old ? "연차보고서의 분석이 구조 반영 전 것입니다 — 늘어난 절·표가 분석에 없습니다(다시 분석 — 스크립트)"
+      : kept ? "구조 반영 전 분석(LLM 결과라 그대로 둠 — 늘어난 절·표는 못 이을 수 있음)" : `구조 반영 뒤의 분석 · LLM 검증·보완 ${llmWord(report)}`;
+    reheads.acts = [...(reheads.done && !kept ? [] : [onReport("다시 분석", () => taskRunAll("frame", "frame", false, kept ? "reheads" : ""), { cls: "btn sm" + (reheads.done ? "" : " primary"), disabled: !!taskRun || run,
+      title: "연차보고서의 헤딩 그래프 → 표 구조를 스크립트로 다시 분석합니다 — LLM 호출 없음 · 문서는 바뀌지 않습니다" + (kept ? "\nLLM 판정을 거친 지금 결과는 스크립트 분석으로 바뀝니다" : "") })]),
+      ...(hr && !old ? [llmBtn(report, "연차보고서")] : [])];
+  }
+
+  // ② 자리 연결(spec_병합 ② §0-1 — API …/merge-links). 그 앞에 필요한 헤딩 그래프·표 구조는 1단계 「문서 검토」 의 몫이다(§21 — 없으면 그 줄을 가리킨다)
+  const L = taskFlow.links;
   const link = { key: "link", no: "②", name: "자리 연결", done: false, keep: true, acts: [], text: "" }, again = () => hBtn("다시 읽기", () => taskFlowLoad(), { disabled: !!taskFlow.linkBusy });
   if (!both) { /* 준비가 먼저 */ }
   else if (hp == null || hr == null) link.text = "분석 결과를 읽는 중…";
-  else if (!(hp && hr)) Object.assign(link, { text: `먼저 헤딩·표 분석 — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`,
-    acts: [hBtn("문서 비교에서 추출", () => showTab("Compare"), { title: "「문서 비교」 탭에서 두 문서를 비교하면 「분석 없는 문서 추출」 단추가 나옵니다(스크립트만 — LLM 호출 없음)" })] });
+  else if (!(hp && hr)) link.text = `먼저 ${RELAY_STAGE_META.review.no} 「${RELAY_STAGE_META.review.name}」 의 헤딩·표 분석 — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`;
   else if (!L) link.text = "연결 목록을 만드는 중…";
   else if (L.error) Object.assign(link, L.missing ? { text: "자리 연결은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" } : { text: `연결 목록을 읽지 못했습니다: ${L.error}`, acts: [again()] });
   else {
@@ -1110,7 +1149,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
       const first = !!L.counts.ambiguous && !L.llm, busy = taskFlow.llmBusy || taskFlow.linkBusy, openT = linksOpenTables(L); // openT = 후보는 있는데 같은 표인지 못 정한 표(LLM 검토가 본다 — spec_병합 ② §5-1 「표 짝 검토」)
       const list = hBtn("연결 목록", () => linksList(), { title: "문서 옆 열에 연결 목록을 엽니다 — 확인 필요한 자리의 원본을 후보에서 고를 수 있습니다(안 골라도 됩니다)" });
       const hint = busy ? "" : first ? " — 다음: 「LLM 검토」 로 확인 필요한 자리를 정리합니다" : L.counts.ambiguous ? ` — 남은 확인 필요 ${L.counts.ambiguous}곳은 넣지 않고 비워 둡니다(각 기관이 작성 · 고르려면 「연결 목록」)` : openT && !L.llm ? ` — 같은 표인지 못 정한 표 ${openT}개(「LLM 검토」 가 기관·차년도를 가려 봅니다)` : "";
-      const old = !busy && taskHeadsOld(report) ? ` · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(${TASK_STAGE_META.map.no} 「한 번에 진행」 이 다시 분석 — 스크립트)` : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다)
+      const old = !busy && taskHeadsOld(report) ? ` · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(${RELAY_STAGE_META.frame.no} 「헤딩 · 표 다시 분석」)` : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다 — 그 줄이 맡는다: §21)
       const guide = PEEK ? [] : [llmGuideBtn("merge-links", report.id), // 이 LLM 검토에 보내는 지침·TASK 프롬프트·마지막 프롬프트 보기(2026-11-12 사용자 — 목록이 나온 뒤면 늘 보인다 · 강조 아님)
         hBtn(`연결 코멘트${(L.comments || []).length ? ` ${L.comments.length}` : ""}`, () => linkNotes(), { title: "어느 표·단락을 사업계획서의 어디와 이을지 글로 남깁니다 — 연차보고서 양식 정보의 「자리 연결」 절에 쌓이고 LLM 검토·표 대응이 읽습니다(문서 옆 열)" })]; // 연결 코멘트(spec_병합 ② §5-3 1 — 2026-11-12 사용자 "어디어디 테이블이나 단락을 연결해 주라고 코멘트를")
       Object.assign(link, { done: !L.counts.ambiguous || !!L.llm, text: linksCountText(L) + linksLlmText(L) + (taskFlow.llmBusy ? " · LLM 검토 중…" : taskFlow.linkBusy ? " · 읽는 중…" : "") + hint + old,
@@ -1132,7 +1171,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   // 빈 자리 검토(spec_병합 ② §5-4 — 2026-11-12 사용자 "여기 들어가지 않은 것들은 LLM 이 검토하고 넣어주는 기능 없나?"): 다른 길이 못 채운 빈 표·빈 칸·빈 라벨 줄 가운데 아직 안 물은 수(넣기 계획이 센다)
   const GC = (F.plan && F.plan.gaps && F.plan.gaps.counts) || {}, gapOpen = GC.open || 0, gapN = (GC.cells || 0) + (GC.lines || 0) + (GC.tables || 0);
   const gapActs = !ready || PEEK || !F.plan ? [] : [...(gapOpen || gapN ? [onReport(taskFlow.gapBusy ? "빈 자리 검토 중…" : gapOpen ? "빈 자리 검토(LLM)" : "빈 자리 검토 다시", () => fillGaps({ again: !gapOpen }), { cls: "btn sm", disabled: !!(F.busy || taskFlow.gapBusy || taskFlow.mapBusy),
-    title: "내용 매핑이 못 채운 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 LLM(Opus)에 묻습니다 — 수십 초 · 유료. 글은 LLM 이 쓰지 않고 고른 자리의 글을 그대로 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" }),
+    title: "내용 넣기가 못 채운 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 LLM(Opus)에 묻습니다 — 수십 초 · 유료. 글은 LLM 이 쓰지 않고 고른 자리의 글을 그대로 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" }),
     llmGuideBtn("gaps", report.id)] : [])];
   if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : prior ? `지난 반영으로 넣은 자리 ${K.applied}곳 — 더 넣을 것은 「넣기 계획 다시」 가 셉니다` : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다")
       + (taskFlow.mapBusy ? " · 표 대응 중…" : mapOpen ? ` · 칸을 못 맞춘 표 ${mapOpen}개 — 「표 대응(LLM)」 이 행·열을 맞춥니다` : "")
@@ -1163,7 +1202,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     guide.acts = n.total ? [onReport(GD.busy ? "지우는 중…" : "작성요령 삭제", () => taskCleanup(), { cls: "btn sm primary", disabled: !!GD.busy,
       title: `지우는 패턴(${cleanupNames()})에 걸린 양식 안내를 한 번에 지웁니다(확인 창 없이) — 편집 하나 · 실행 취소 한 번` }), list] : [list];
   }
-  return [files, config, division, link, planStep, applyStep,
+  return [files, heads, config, division, reheads, link, planStep, applyStep, // 차례 = 묶음 넷(TASK_STAGES — §21): 문서 검토(files · heads) → 구성 맞추기(config · division · reheads) → 내용 넣기(link …) → 문서 정리(guide)
     { key: "later", no: "⑤", name: "합계 계산 → 결과 확인", done: false, soon: true, acts: [], // 2026-11-12 사용자 "합계 계산은 … 어디서 표시하는건지" — 아직 없는 단계라는 것과 지금 계산 칸이 어떻게 되는지를 줄에 적는다
       text: "아직 없는 단계입니다 — 넣은 값으로 합계·소계·비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다(넣기 계획의 「계산 칸」)" },
     guide];
@@ -1685,13 +1724,17 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
 // 정보 추출등을 해서 매핑하는거야. 2단계는 내용 매핑이겠지"): 1단계 「문서 프레임 작성」 = 준비 + ① 구분 기준 확인·반영(구조), 2단계 「내용 매핑」 = ② 자리 연결(앞에 헤딩·표 분석) → ③ 넣기 계획 →
 // ④ 내용 반영(서식 맞춤 포함). 묶음마다 「한 번에 진행」 — 2단계 것은 1단계가 끝나야 켜진다. 단계 번호·key 는 그대로(공통 차례 — spec_병합 ② §0-1).
 // 2026-11-13(spec_작업 ② §18 — 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"): 맨 앞에 1단계 「구분 기준」(준비 + 프로젝트 구성 확정 — 문서를 안 바꿈)을 더하고 번호를 하나씩 민다. 있던 묶음의 id·dom·store 는 그대로
+// 2026-11-19(spec_작업 ② §21 — 사용자 "내용을 먼저 헤딩이랑 테이블 검토 작업을 하고, 프로젝트 구성 및 프레임 작성을 하고 다시 헤딩추출/테이블 작업을 하고 그 다음에 매핑 … 단계로 하면 구성 맞추기, 내용 넣기" ·
+// "문서 검토 … 단계가 있어야 하겠구나"): **묶음 넷** — 1단계 「문서 검토」(준비 + 헤딩·표 분석) · 2단계 「구성 맞추기」(프로젝트 구성 확정 + ① 반영 + 헤딩·표 다시 분석) · 3단계 「내용 넣기」 · 4단계 「문서 정리」.
+// 이름의 원본 = task_catalog.js RELAY_STAGE_META(취합은 TASK_STAGE_META 그대로). 전의 config 묶음(#taskStage0)은 없어지고 그 구성 입력 칸은 frame 묶음(#taskStage) 안으로 — frame·map·clean 의 id·dom·store 는 그대로
 const TASK_STAGES = [
-  { id: "config", ...TASK_STAGE_META.config, keys: ["files", "config"], dom: "taskStage0", store: "nfm.taskStageOpen0", short: "프로젝트 구성", noReset: true,
-    does: "프로젝트 구성(단계·차년도·기관)만 정하기 — 사업계획서에서 추출하거나 불러와 확인한 뒤 프로젝트에 저장(확정) · 문서는 안 바뀜" },
-  { id: "frame", ...TASK_STAGE_META.frame, keys: ["division"], dom: "taskStage", store: "nfm.taskStageOpen", short: "프레임 작성", does: "프로젝트 구성 반영(절·표 행·열 — 구조만)" },
-  { id: "map", ...TASK_STAGE_META.map, keys: ["link", "plan", "apply", "later"], dom: "taskStage2", store: "nfm.taskStageOpen2", short: "내용 매핑", does: "헤딩·표 분석 → 자리 연결(LLM 검토 포함) → 넣기 계획 → 내용 반영(서식 맞춤)" },
-  // 4단계 「문서 정리」(2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" — 11-13 번호 4): ⑥ 작성요령 삭제 하나 — 초기화 단추는 없다(지운 작성요령은 프레임·매핑 초기화가 원본으로 되돌린다)
-  { id: "clean", ...TASK_STAGE_META.clean, keys: ["guide"], dom: "taskStage3", store: "nfm.taskStageOpen3", short: "문서 정리", get does() { return `작성요령 삭제(지우는 패턴 — ${cleanupNames()} · 내용은 남김)`; }, noReset: true },
+  { id: "review", ...RELAY_STAGE_META.review, keys: ["files", "heads"], dom: "taskStageR", store: "nfm.taskStageOpenR", short: "문서 검토", noReset: true,
+    does: "두 문서의 헤딩·표 분석(없는 문서만 — 스크립트) → 양식의 작성 지침을 헤딩/표별로 저장 · 문서는 안 바뀜" },
+  { id: "frame", ...RELAY_STAGE_META.frame, keys: ["config", "division", "reheads"], dom: "taskStage", store: "nfm.taskStageOpen", short: "구성 맞추기",
+    does: "프로젝트 구성 확정(사업계획서에서 추출하거나 불러와 프로젝트에 저장) → 프로젝트 구성 반영(절·표 행·열 — 구조만) → 연차보고서 헤딩·표 다시 분석" },
+  { id: "map", ...RELAY_STAGE_META.map, keys: ["link", "plan", "apply", "later"], dom: "taskStage2", store: "nfm.taskStageOpen2", short: "내용 넣기", does: "자리 연결(LLM 검토 포함) → 넣기 계획 → 내용 반영(서식 맞춤)" },
+  // 4단계 「문서 정리」(2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" — 11-13 번호 4): ⑥ 작성요령 삭제 하나 — 초기화 단추는 없다(지운 작성요령은 구성 맞추기·내용 넣기 초기화가 원본으로 되돌린다)
+  { id: "clean", ...RELAY_STAGE_META.clean, keys: ["guide"], dom: "taskStage3", store: "nfm.taskStageOpen3", short: "문서 정리", get does() { return `작성요령 삭제(지우는 패턴 — ${cleanupNames()} · 내용은 남김 · 지우기 전에 작성 지침을 저장)`; }, noReset: true },
 ];
 let taskStepsLast = null; // 마지막으로 셈한 단계(taskStepsCalc — 상태 st 포함) — 묶음 머리가 다시 세지 않게
 let taskRun = null; // 한 번에 진행 — 도는 중 {stage 지금 도는 묶음 id(이어 진행이면 묶음마다 바뀜), report 연차보고서 id, key 지금 단계, note 지금 하는 일, t0 그 묶음을 시작한 때, stop 멈춤 요청, timer, chain 이어 진행이면 {to 끝 묶음 id, label 「1→3단계」} · 아니면 null}
@@ -1725,18 +1768,18 @@ function taskStageEl(stage) { // 묶음 상자 하나 — taskFlowEl 이 넣는�
   progress.setAttribute("aria-label", "세부 작업 완료");
   sum.append(el("span", "dv-phase-no", stage.no), el("strong", null, stage.name), hHelp(`${stage.name} 안내`, stage.does + ". 세부 목록을 펴서 단계마다 진행할 수 있습니다.", { note: true }), el("span", "dv-phase-count"), run, ...(reset ? [reset] : []), progress, st);
   box.append(sum, taskStepsEl(stage));
-  if (stage.id === "config") { // 1단계 = 구분 기준(단계·차년도 · 기관 구성): 머리에 그 값 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 구성 입력(divRender 가 만든 #taskFrameForm — spec_작업 ② §18)
+  if (stage.id === "frame") { // 2단계 「구성 맞추기」: 머리에 프로젝트 구성(단계·차년도 · 기관) 값 요약 한 줄(접혀 있어도 보임) + 펴면 세부 목록 아래에 구성 입력(divRender 가 만든 #taskFrameForm — spec_작업 ② §18 · §21: 전에는 1단계 「프로젝트 구성」 묶음 안)
     const frame = el("span", "dv-phase-frame"), edit = el("button", "btn sm", "프로젝트 구성 고치기");
     frame.hidden = true;
     edit.type = "button";
     edit.dataset.taskFrameEdit = "1";
-    edit.title = "1단계를 펴고 프로젝트 구성 입력(불러오기·확정 · 단계·차년도 · 기관 구성)으로 갑니다";
+    edit.title = "이 묶음을 펴고 프로젝트 구성 입력(불러오기·확정 · 단계·차년도 · 기관 구성)으로 갑니다";
     edit.onclick = (e) => { e.preventDefault(); e.stopPropagation(); taskFrameEdit(box); }; // summary 안이라 — 누름이 접기·펴기로 넘어가지 않게
     frame.append(el("span", "dv-phase-frame-text"), edit);
     sum.append(frame);
     if (taskFrameForm && taskFrameForm.isConnected) box.append(taskFrameForm); // 칸만 다시 그릴 때(loadWorks) — 입력 중인 폼 노드를 그대로 옮긴다(다시 만들지 않음)
   }
-  if (stage.id === "frame" && taskFrameApply && taskFrameApply.isConnected) box.append(taskFrameApply); // 2단계 = 문서 반영 상태 · 변경 계획 보기(+ 자리 표시 · 지원 양식) — 같은 까닭으로 그대로 옮긴다
+  if (stage.id === "frame" && taskFrameApply && taskFrameApply.isConnected) box.append(taskFrameApply); // 구성 입력 아래 = 문서 반영 상태 · 변경 계획 보기(+ 자리 표시 · 지원 양식) — 같은 까닭으로 그대로 옮긴다
   taskStageSync(stage, box);
   return box;
 }
@@ -1747,12 +1790,12 @@ function taskStageEl(stage) { // 묶음 상자 하나 — taskFlowEl 이 넣는�
 let taskFrameForm = null; // 지금 패널의 #taskFrameForm(divRender 가 정함 — 없으면 null) — 1단계 「구분 기준」 묶음 안의 구성 입력
 let taskFrameApply = null; // 지금 패널의 #taskFrameApply — 2단계 「문서 프레임 작성」 묶음 안의 문서 반영 상태 · 변경 계획 보기(spec_작업 ② §18)
 function taskFrameHost(box) { // divRender 가 부른다 — 구성 입력을 붙일 곳(이관·취합 = 1단계 묶음 안의 새 칸, 아니면 box 그대로)
-  const stage = taskSlots() ? box.querySelector("#taskStage0") : gatherOn() ? box.querySelector("#gatherStage0") : null; // 취합도 1단계 묶음 안(gather.js 의 #gatherStage0)
+  const stage = taskSlots() ? box.querySelector("#taskStage") : gatherOn() ? box.querySelector("#gatherStage0") : null; // 이관 = 2단계 「구성 맞추기」 묶음 안(§21 — 반영 상태·변경 계획 #taskFrameApply 가 그 아래) · 취합 = 1단계 묶음 안(gather.js 의 #gatherStage0)
   if (!stage) return box;
   const host = el("div", "dv-phase-form"), head = el("div", "dv-phase-form-head"), mine = (taskSlots() || []).find((k) => (taskSlotDoc(k) || {}).id === state.id);
   host.id = "taskFrameForm";
   head.append(el("strong", null, "프로젝트 구성 — 단계·차년도 · 기관"),
-    hHelp("프로젝트 구성 안내",`지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 프로젝트 구성(단계·차년도 · 기관)입니다. 같은 프로젝트의 TASK 들이 같이 쓰고, 「프로젝트에 저장」 으로 확정해야 2단계(문서 프레임 작성)로 갑니다.\n「프로젝트 구성 불러오기」 — 이 프로젝트에 확정한 구성 · 문서에서 추출(이 프로젝트 문서 · 파일 올리기) · 다른 프로젝트 · 저장한 프로젝트 구성.`, { note: true }));
+    hHelp("프로젝트 구성 안내",`지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 프로젝트 구성(단계·차년도 · 기관)입니다. 같은 프로젝트의 TASK 들이 같이 쓰고, 「프로젝트에 저장」 으로 확정해야 ${taskSlots() ? "프로젝트 구성 반영으로" : "2단계(문서 프레임 작성)로"} 갑니다.\n「프로젝트 구성 불러오기」 — 이 프로젝트에 확정한 구성 · 문서에서 추출(이 프로젝트 문서 · 파일 올리기) · 다른 프로젝트 · 저장한 프로젝트 구성.`, { note: true }));
   host.append(head);
   stage.append(host);
   taskFrameForm = host;
@@ -1763,7 +1806,7 @@ function taskFrameApplyHost(box) { // divRender 가 부른다 — 문서 반영 
   if (!stage) return null;
   const host = el("div", "dv-phase-form"), head = el("div", "dv-phase-form-head");
   host.id = "taskFrameApply";
-  head.append(el("strong", null, "구조 반영 — 확정한 프로젝트 구성으로"), hHelp("구조 반영 안내", "1단계에서 확정한 프로젝트 구성(단계·차년도·기관)에 맞춰 이 문서의 절·표 행·열을 늘리고 줄입니다. 변경 계획을 보고 「반영」 을 눌러야 문서가 바뀝니다.", { note: true }));
+  head.append(el("strong", null, "구조 반영 — 확정한 프로젝트 구성으로"), hHelp("구조 반영 안내", `${taskSlots() ? "위에서" : "1단계에서"} 확정한 프로젝트 구성(단계·차년도·기관)에 맞춰 이 문서의 절·표 행·열을 늘리고 줄입니다. 변경 계획을 보고 「반영」 을 눌러야 문서가 바뀝니다.`, { note: true }));
   host.append(head);
   stage.append(host);
   taskFrameApply = host;
@@ -1810,7 +1853,7 @@ function taskStageSync1(stage, box, files, current) {
   progress.setAttribute("aria-valuetext", `세부 작업 ${work.length}개 중 ${completed}개 완료`);
   const st = box.querySelector(".dv-phase-state"), key = (k) => taskStepName(steps.find((s) => s.key === k));
   let kind = "next", msg = "";
-  if (taskResetting && (taskResetting === stage.id || taskResetting === "frame")) { kind = "run"; msg = taskResetting === "frame" ? "초기화 — 연차보고서를 올린 원본으로 되돌리는 중" : "초기화 — 원본으로 되돌리고 구조를 다시 반영하는 중"; } // 1단계 초기화는 2단계도 함께
+  if (taskResetting && stage.id !== "review" && (taskResetting === stage.id || taskResetting === "frame")) { kind = "run"; msg = taskResetting === "frame" ? "초기화 — 연차보고서를 올린 원본으로 되돌리는 중" : "초기화 — 원본으로 되돌리고 구조를 다시 반영하는 중"; } // 구성 맞추기 초기화는 뒤 묶음도 함께(문서 검토의 분석은 그대로 — §21)
   else if (R) { kind = "run"; msg = `${key(R.key)}${R.note ? ` — ${R.note}` : ""} · ${fmtDur((Date.now() - R.t0) / 1000)}${R.stop ? " · 이 일이 끝나면 멈춥니다" : ""}`; }
   else if (busy) { kind = "run"; msg = `${taskStepName(busy)} — 진행 중`; }
   else if (before) msg = `${before.no} 「${before.name}」 완료 후 진행`; // 이전 결과가 남아 있어도 지금 선행 조건이 먼저다.
@@ -1836,8 +1879,8 @@ function taskStageSync1(stage, box, files, current) {
     rb.textContent = taskResetting === stage.id ? "초기화 중…" : "초기화";
     rb.disabled = !!taskRun || !!taskResetting || !!busy || !can.ok;
     rb.title = taskRun ? "한 번에 진행이 끝난 뒤 쓸 수 있습니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다" : !can.ok ? `초기화할 것이 없습니다 — ${can.why}`
-      : stage.id === "frame" ? "프레임·매핑 초기화 — 연차보고서를 올린 원본으로 되돌리고 내용 매핑 기록(자리 연결 · LLM 검토 · 넣은 기록)을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴 · 1단계의 확정한 프로젝트 구성은 그대로). 누를 때 한 번 확인합니다"
-      : "내용 매핑 초기화 — 연차보고서를 원본으로 되돌린 뒤 프레임 구조를 같은 프로젝트 구성 값으로 다시 반영하고 내용 매핑 기록을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴). 누를 때 한 번 확인합니다";
+      : stage.id === "frame" ? "구성 맞추기·내용 넣기 초기화 — 연차보고서를 올린 원본으로 되돌리고 내용 넣기 기록(자리 연결 · LLM 검토 · 넣은 기록)을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴 · 확정한 프로젝트 구성과 헤딩·표 분석은 그대로). 누를 때 한 번 확인합니다"
+      : "내용 넣기 초기화 — 연차보고서를 원본으로 되돌린 뒤 구조를 같은 프로젝트 구성 값으로 다시 반영하고 내용 넣기 기록을 지웁니다(문서 정리에서 지운 작성요령도 돌아옴). 누를 때 한 번 확인합니다";
   }
   b.className = "btn sm" + (!taskRun && next && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 그 세부 목록을 펴면 그 안의 「다음 할 일」 단추가 강조
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : taskRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
@@ -1921,6 +1964,45 @@ const taskHeadsKept = (report) => { // 구조 반영 전의 분석인데 LLM 을
   return rev != null && parts.some((x) => ((x.meta || {}).rev ?? rev) < rev) && parts.some((x) => (x.llm || {}).requested);
 };
 
+// ---- 문서 검토의 도우미(spec_작업 ② §21) — 그 문서의 헤딩 작업이 도는가 · 도는 동안 요약만 다시 읽기 · LLM 검증·보완 걸기 · 작성 지침 저장
+const taskHeadsJob = (w) => (taskFlow.heads[w.id] || {}).job || {}; // 그 문서의 마지막 헤딩 작업(요약 GET …/headings 의 job — 없으면 {}) · chain = 이어 돌리기(「LLM 검증·보완」)
+const taskHeadsRunning = (w) => taskHeadsJob(w).status === "running";
+let taskHeadsTimer = 0;
+async function taskHeadsWatch(now = false) { // 두 문서의 헤딩 요약만 다시 읽는다(가벼움 — 연결 목록은 안 읽음): 분석 · LLM 검증·보완이 도는 동안 5초마다. 끝나면 이관 자료를 한 번 다시 읽는다(연결 목록 · 작성 지침)
+  clearTimeout(taskHeadsTimer);
+  const slots = gatherOn() ? null : taskSlots(), docs = (slots || []).map((k) => taskSlotDoc(k)).filter(Boolean);
+  if (docs.length < 2 || taskRun) return; // 「한 번에 진행」 이 도는 동안은 그 몸통이 스스로 읽는다(taskRunAnalyze · flowRead) — 여기서 같이 읽으면 그 읽기가 밀린다(flow.seq)
+  const flow = taskFlow, epoch = state.epoch, was = docs.some((w) => taskHeadsRunning(w));
+  if (now || was) {
+    const got = await Promise.all(docs.map((w) => api(`/api/docs/${w.id}/headings`).catch(() => null)));
+    if (epoch !== state.epoch || flow !== taskFlow || taskRun) return;
+    docs.forEach((w, i) => { if (got[i]) flow.heads[w.id] = got[i]; });
+  }
+  if (docs.some((w) => taskHeadsRunning(w))) { taskStepsDraw(); taskHeadsTimer = setTimeout(() => taskHeadsWatch(), 5000); }
+  else if (now || was) taskFlowLoad(); // 끝났다(또는 방금 건 일이 벌써 끝남) — 연결 목록 · 작성 지침까지 새로
+}
+async function taskHeadsLlm(w) { // 헤딩 · 표의 「LLM 검증·보완」 을 그 문서로 — 공통 모듈의 이어 돌리기(spec_작업 ② §20: 헤딩 · 템플릿 → 표 → 서식 정리 계획만 · 문서는 안 바뀜 · 유료). 누르면 바로(단추가 확인 — design.md §18)
+  const epoch = state.epoch;
+  if (w.id === state.id && typeof dsLlmRun === "function") await dsLlmRun(); // 지금 문서 — 이름 줄 · 진행표 · 헤딩 탭이 같이 따라온다(doc_status.js)
+  else {
+    try {
+      await api(`/api/docs/${w.id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill: typeof tpaSkillKey === "function" ? tpaSkillKey() : "tidy" }) });
+      toast(`${w.name} — LLM 검증·보완을 시작했습니다(몇 분 — 진행은 「헤딩 · 표 분석」 줄에 보입니다)`);
+    } catch (e) { toast(e.status === 409 ? "그 문서의 헤딩 작업이 이미 돌고 있습니다 — 끝난 뒤 다시 누르세요" : `LLM 검증·보완을 시작하지 못했습니다: ${e.message}`, true); }
+  }
+  if (epoch === state.epoch) taskHeadsWatch(true);
+}
+async function taskGuidesLoad(report, collect = false) { // 저장한 작성 지침(spec_작업 ② §21 「작성 지침 저장」) → taskFlow.guides. 분석은 있는데 저장본이 없으면 한 번 모아 저장한다(스크립트 — 1초 안팎) · collect = 지금 문서에서 다시 모아 저장
+  const flow = taskFlow, h = flow.heads[report.id], url = `/api/docs/${report.id}/form-guides`;
+  try {
+    let g = collect ? null : await api(url);
+    if (collect || (!g.saved && h && h.stage2 && h.stage3 && !flow.guidesAsked)) { flow.guidesAsked = true; g = await api(url, { method: "POST" }); }
+    flow.guides = g;
+  } catch (e) { flow.guides = { error: e.message }; } // 못 읽어도 단계는 그대로(글에 안 적는다) — 「작성요령 삭제」 가 지우기 바로 전에 다시 남긴다
+  if (flow === taskFlow) taskStepsDraw();
+  return flow.guides;
+}
+
 async function taskRunReanalyze(id, run) { // 다시 분석(구조 반영 전의 분석 — taskHeadsOld): 2단계(헤딩 그래프 — 1단계는 스스로 뽑는다) → 3단계(표 구조), 스크립트만
   for (const stage of [2, 3]) {
     await taskRunAnalyze(id, run, { stage, llm: false });
@@ -1966,8 +2048,10 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   };
 
   // 연차보고서를 고치는 문서로(taskSteps 의 onReport 와 같은 길 — 두 문서의 자리는 그대로)
-  run.key = run.stage === "config" ? "config" : run.stage === "frame" ? "division" : run.stage === "clean" ? "guide" : "link";
-  const SN = (id) => `${TASK_STAGE_META[id].no} 「${TASK_STAGE_META[id].name}」`; // 묶음 이름(번호는 TASK_STAGE_META — spec_작업 ② §18)
+  run.key = run.stage === "review" ? "heads" : run.stage === "frame" ? (run.redo || "config") : run.stage === "clean" ? "guide" : "link";
+  const SN = (id) => `${RELAY_STAGE_META[id].no} 「${RELAY_STAGE_META[id].name}」`; // 묶음 이름(이관의 묶음 넷 — RELAY_STAGE_META: spec_작업 ② §21)
+  const got = (w) => { const h = taskFlow.heads[w.id]; return !!(h && h.stage2 && h.stage3); }; // 그 문서에 헤딩 그래프 · 표 구조가 있나
+  const guidesKeep = async () => { try { await taskGuidesLoad(report, true); } catch (e) { console.warn(e); } }; // 작성 지침을 헤딩/표별로 저장(스크립트 — 못 해도 멈추지 않는다: 「작성요령 삭제」 가 지우기 전에 다시 남긴다)
   at("open", "연차보고서 여는 중");
   if (state.id !== report.id) {
     await openWork(report.id);
@@ -1987,32 +2071,47 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     if (cleaned == null) taskHalt("양식 안내를 지우지 않고 멈췄습니다(멈춤을 눌렀거나 다른 문서를 열었습니다)");
     return cleaned;
   }
-  if (run.stage === "map") { // 3단계 「내용 매핑」 — 구조(2단계)가 끝난 문서에서만
+  if (run.stage === "map") { // 3단계 「내용 넣기」 — 구조(2단계)가 끝난 문서에서만
     const s = step("division");
     if (!s.done) taskHalt(`${SN("frame")} 이 먼저입니다 — ${s.text || step("config").text}`);
     return taskRunMap(run, plan, report, at, step, flowRead);
   }
-  if (run.stage === "config") { // 1단계 「구분 기준」 — 사업계획서의 구성을(값이 없으면 문서에서 읽어) 프로젝트에 확정. 문서는 안 바뀐다(spec_작업 ② §18)
-    at("config", "사업계획서의 프로젝트 구성 확인");
-    if (!step("config").done) {
-      const CF = taskConfigOf(plan);
-      let values = CF && (CF.values || CF.read);
-      if (!values) { // 저장한 값도 읽어 둔 값도 없음 — 사업계획서에 적힌 값
-        at("config", "사업계획서에서 단계·차년도·기관 읽기");
-        try { values = taskReadValues((await api(`/api/docs/${plan.id}/divisions/read`)).read); } catch (e) { console.warn(e); }
-        if (!values) taskHalt("사업계획서에서 단계·차년도·기관을 읽지 못했습니다 — 1단계의 프로젝트 구성 입력 칸에 넣거나 「프로젝트 구성 불러오기」 로 불러온 뒤 다시 누르세요");
-      }
-      at("config", "프로젝트에 저장(확정)");
-      if (!(await taskConfigConfirm(plan, values))) taskHalt("프로젝트 구성을 확정하지 못했습니다(알림 글 참고)");
+  if (run.stage === "review") { // 1단계 「문서 검토」 — 두 문서의 헤딩·표 분석(없는 문서만 · 스크립트) → 작성 지침을 헤딩/표별로 저장. 문서는 안 바뀐다(spec_작업 ② §21)
+    at("heads", "헤딩·표 분석 확인");
+    const lack = [plan, report].filter((w) => !got(w));
+    if (lack.length) {
+      at("heads", `헤딩·표 분석(스크립트) — ${lack.map((w) => (w.id === plan.id ? "사업계획서" : "연차보고서")).join(" · ")}`);
+      await Promise.all(lack.map((w) => taskRunAnalyze(w.id, run)));
+      if (lack.some((w) => w.id === state.id)) headsPeek(); // 지금 문서면 쪽 여백 표시·헤딩 탭도 새 결과로
+      at("heads", "분석 결과 읽기");
       await flowRead();
-      const s = step("config");
-      if (!s.done) taskHalt(`프로젝트 구성이 확정되지 않았습니다 — ${s.text}`);
+      if (!got(plan) || !got(report)) taskHalt("헤딩·표 분석 결과가 생기지 않았습니다 — 「헤딩 추출」 탭에서 확인하세요");
     }
-    return `프로젝트 구성을 확정했습니다 —${step("config").text} · 구조는 ${SN("frame")} 에서 맞춥니다`;
+    at("heads", "작성 지침 저장(헤딩/표별)");
+    await guidesKeep();
+    const gc = ((taskFlow.guides || {}).saved || {}).counts;
+    return `두 문서의 헤딩 그래프·표 구조가 있습니다${gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)})` : ""} — 구성은 ${SN("frame")} 에서 맞춥니다`;
   }
 
-  // 2단계 「문서 프레임 작성」 = ① 구분 기준 확인 — 기준은 사업계획서(1단계에서 확정한 프로젝트 구성): 값을 맞추고(당해 차년도도 — taskDivFit 과 같은 값) 계획 → 반영. 반영은 편집 하나(실행 취소 1). 내용은 넣지 않는다(3단계)
-  if (!step("config").done) taskHalt(`${SN("config")} 이 먼저입니다 — ${step("config").text || "프로젝트 구성을 확정하세요"}`);
+  // 2단계 「구성 맞추기」(§21) = 프로젝트 구성 확정 → ① 프로젝트 구성 반영 → 헤딩·표 다시 분석. 내용은 넣지 않는다(3단계)
+  // 프로젝트 구성 확정 — 사업계획서의 구성을(값이 없으면 문서에서 읽어) 프로젝트에 확정. 문서는 안 바뀐다(spec_작업 ② §18 — 전에는 따로 선 1단계)
+  at("config", "사업계획서의 프로젝트 구성 확인");
+  if (!step("config").done) {
+    const CF = taskConfigOf(plan);
+    let values = CF && (CF.values || CF.read);
+    if (!values) { // 저장한 값도 읽어 둔 값도 없음 — 사업계획서에 적힌 값
+      at("config", "사업계획서에서 단계·차년도·기관 읽기");
+      try { values = taskReadValues((await api(`/api/docs/${plan.id}/divisions/read`)).read); } catch (e) { console.warn(e); }
+      if (!values) taskHalt(`사업계획서에서 단계·차년도·기관을 읽지 못했습니다 — ${SN("frame")} 의 프로젝트 구성 입력 칸에 넣거나 「프로젝트 구성 불러오기」 로 불러온 뒤 다시 누르세요`);
+    }
+    at("config", "프로젝트에 저장(확정)");
+    if (!(await taskConfigConfirm(plan, values))) taskHalt("프로젝트 구성을 확정하지 못했습니다(알림 글 참고)");
+    await flowRead();
+    const s = step("config");
+    if (!s.done) taskHalt(`프로젝트 구성이 확정되지 않았습니다 — ${s.text}`);
+  }
+
+  // ① 프로젝트 구성 반영 — 기준은 사업계획서(위에서 확정한 프로젝트 구성): 값을 맞추고(당해 차년도도 — taskDivFit 과 같은 값) 계획 → 반영. 반영은 편집 하나(실행 취소 1)
   at("division", "사업계획서 값과 견주기");
   if (!step("division").done) {
     let A = taskDivOf(plan, true);
@@ -2043,12 +2142,30 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     const s = step("division");
     if (!s.done) taskHalt(`프로젝트 구성이 반영되지 않았습니다 — ${s.text}`);
   }
-  return `구조를 맞췄습니다 — ${step("division").text} · 내용은 ${SN("map")} 에서 넣습니다`;
+
+  // 헤딩·표 다시 분석 — 구조 반영으로 늘어난 절·표가 분석에 들어가게(§21 — 전에는 3단계 「한 번에 진행」 안에 숨어 있었다). 스크립트만: 2단계(헤딩 그래프) → 3단계(표 구조).
+  // LLM 판정을 거친 구조 반영 전 분석(taskHeadsKept)은 저절로 덮지 않는다 — run.redo(「다시 분석」 을 사람이 누름)일 때만 다시 돈다
+  at("reheads", "헤딩·표 분석 확인(구조 반영 뒤)");
+  let again = "";
+  if (!got(report) || taskHeadsOld(report) || run.redo === "reheads") {
+    at("reheads", "연차보고서 헤딩·표 다시 분석(스크립트)");
+    await (got(report) ? taskRunReanalyze(report.id, run) : taskRunAnalyze(report.id, run));
+    if (taskRun !== run || run.stop) taskHalt("눌러서 멈췄습니다 — 끝난 단계는 그대로입니다");
+    headsPeek(); // 쪽 여백 표시·헤딩 탭도 새 결과로
+    at("reheads", "분석 결과 읽기");
+    await flowRead();
+    const s = step("reheads");
+    if (!s.done) taskHalt(`연차보고서를 다시 분석하지 못했습니다 — ${s.text || "「헤딩 추출」 탭에서 확인하세요"}`);
+    again = " · 연차보고서를 다시 분석했습니다";
+    at("reheads", "작성 지침 저장(헤딩/표별)");
+    await guidesKeep(); // 구조 반영으로 자리가 바뀌었다 — 새 분석으로 다시 저장
+  } else if (taskHeadsKept(report)) again = " · 연차보고서의 분석은 구조 반영 전 것(LLM 결과라 그대로 둠 — 늘어난 절·표는 못 이을 수 있음: 「다시 분석」)";
+  return `구조를 맞췄습니다 — ${step("division").text}${again} · 내용은 ${SN("map")} 에서 넣습니다`;
 }
 
-async function taskRunMap(run, plan, report, at, step, flowRead) { // 2단계 「내용 매핑」 — 헤딩·표 분석 → ② 자리 연결(LLM 검토) → ③ 넣기 계획 → ④ 내용 반영
-  // ② 자리 연결 — 앞 조건(두 문서의 헤딩 그래프·표 구조)이 없으면 먼저 분석(스크립트). 이미 있는 분석은 다시 돌리지 않는다(뼈대 유지 — spec_헤딩_추출 ② §17) —
-  // 단, 연차보고서의 분석이 구조 반영 전 것이고 스크립트만 돈 것이면 다시 분석한다(taskHeadsOld — 늘어난 절·표가 분석에 없으면 그 자리를 못 잇는다)
+async function taskRunMap(run, plan, report, at, step, flowRead) { // 3단계 「내용 넣기」 — (안전망: 헤딩·표 분석) → ② 자리 연결(LLM 검토) → ③ 넣기 계획 → ④ 내용 반영
+  // ② 자리 연결 — 앞 조건(두 문서의 헤딩 그래프·표 구조)은 1단계 「문서 검토」 · 2단계의 「다시 분석」 이 끝내 둔다(§21). 그래도 없거나 구조 반영 전 것이면 여기서 분석한다(안전망 — 스크립트):
+  // 이미 있는 분석은 다시 돌리지 않는다(뼈대 유지 — spec_헤딩_추출 ② §17). 연차보고서의 분석이 구조 반영 전 것이고 스크립트만 돈 것이면 다시 분석한다(taskHeadsOld — 늘어난 절·표가 분석에 없으면 그 자리를 못 잇는다)
   at("link", "헤딩·표 분석 확인");
   const got = (w) => { const h = taskFlow.heads[w.id]; return !!(h && h.stage2 && h.stage3); };
   const old = taskHeadsOld(report), lack = [plan, report].filter((w) => !got(w) && !(old && w.id === report.id)); // 구조 반영 전의 분석이 하나라도 있으면 2단계부터 다시(첫 분석은 있는 단계를 건너뛴다)
@@ -2122,17 +2239,17 @@ function taskRunKeep(stage, plan, report, run, end) { // 그 묶음의 끝을 �
 
 // 그 묶음의 「한 번에 진행」 — 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 누를 때 한 번: 11-12 「시작할 때 한 번만」): 중간 계획 확인 없이 반영한다.
 // toId 가 뒤 묶음이면 stageId 부터 거기까지 이어서(taskRunChain — 「이어서 한 번에」) — 확인은 그때도 한 번, 묶음 경계마다 단계를 다시 셈하고 멈춤 요청·실패에서 전체가 멈춘다
-async function taskRunAll(stageId = "frame", toId = stageId, sure = false) { // sure = 확인 창 없이 — 작업 진행 에이전트의 실행 카드 「진행」 이 그 확인이다(doc_agent_work.js)
+async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo = "") { // sure = 확인 창 없이 — 작업 진행 에이전트의 실행 카드 「진행」 이 그 확인이다(doc_agent_work.js) · redo = 끝난 단계를 다시(지금은 "reheads" — 「다시 분석」: §21)
   if (taskRun) return;
   const i0 = TASK_STAGES.findIndex((g) => g.id === stageId), i1 = TASK_STAGES.findIndex((g) => g.id === toId), slots = taskSlots(), [plan, report] = (slots || []).map((k) => taskSlotDoc(k));
   if (i0 < 0 || i1 < i0 || !plan || !report) { toast("두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요", true); return; }
   if (!taskStepsLast) taskStepsCalc();
-  const leftOf = (g) => taskStageWork(g).filter((s) => !s.done);
-  const stages = TASK_STAGES.slice(i0, i1 + 1).filter((g) => leftOf(g).length); // 할 일이 남은 묶음만
+  const leftOf = (g) => taskStageWork(g).filter((s) => !s.done), again = (g) => !!redo && g.id === stageId; // again = 남은 단계가 없어도 도는 묶음(redo 의 단계가 든 것)
+  const stages = TASK_STAGES.slice(i0, i1 + 1).filter((g) => leftOf(g).length || again(g)); // 할 일이 남은 묶음만
   if (!stages.length) { toast("남은 단계가 없습니다"); return; }
   const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
   // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 남은 단계 · 바뀌는 것 · 유료 호출을 적은 확인 창: design.md §18 「확인 창」). sure 는 부르는 쪽 호환으로만 남김
-  const run = (taskRun = { stage: stages[0].id, report: report.id, key: leftOf(stages[0])[0].key, note: "", t0: Date.now(), stop: false, chain });
+  const run = (taskRun = { stage: stages[0].id, report: report.id, key: (leftOf(stages[0])[0] || { key: redo }).key, note: "", t0: Date.now(), stop: false, chain, redo });
   taskRunLast = null;
   taskRunEnds = {};
   if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(② §19)
@@ -2148,9 +2265,9 @@ async function taskRunAll(stageId = "frame", toId = stageId, sure = false) { // 
       if (skip) break;
     }
     const left = leftOf(g);
-    if (!left.length) continue; // 앞 묶음을 도는 사이 이미 끝난 묶음
+    if (!left.length && !again(g)) continue; // 앞 묶음을 도는 사이 이미 끝난 묶음
     stage = g;
-    Object.assign(run, { stage: g.id, key: left[0].key, note: "", t0: Date.now() });
+    Object.assign(run, { stage: g.id, key: (left[0] || { key: redo }).key, note: "", t0: Date.now() });
     taskStageSync();
     try { end = { ok: true, text: await taskRunSteps(run, plan, report) }; }
     catch (e) { end = { ok: false, text: e instanceof TaskHalt ? e.message : `오류 — ${e.message}` }; if (!(e instanceof TaskHalt)) console.error(e); }
@@ -2179,18 +2296,19 @@ function taskResetCan(stage) { // → {ok, why} — 되돌릴 것이 있는가(�
   if (!report) return { ok: false, why: "연차보고서 칸이 비어 있습니다" };
   const B = taskDivOf(report), K = (taskFlow.links && taskFlow.links.kept) || {}, F = taskFlow.fill || {};
   const framed = !!(B && B.applied), mapped = !!(K.links || K.tables || K.maps || K.applied || K.llm || F.plan || F.done);
-  if (stage.id === "map") return framed ? (mapped ? { ok: true } : { ok: false, why: "2단계 기록(자리 연결에서 고른 것 · LLM 검토 · 넣은 내용)이 없습니다" }) : { ok: false, why: "1단계(구조 반영) 전입니다" };
+  if (stage.id === "map") return framed ? (mapped ? { ok: true } : { ok: false, why: "내용 넣기 기록(자리 연결에서 고른 것 · LLM 검토 · 넣은 내용)이 없습니다" }) : { ok: false, why: "구조 반영 전입니다" };
   const edited = report.id === state.id ? !!(state.base || isDirty()) : !!(report.edited || report.commits);
-  return framed || mapped || edited ? { ok: true } : { ok: false, why: "연차보고서가 올린 원본 그대로이고 2단계 기록도 없습니다" };
+  return framed || mapped || edited ? { ok: true } : { ok: false, why: "연차보고서가 올린 원본 그대로이고 내용 넣기 기록도 없습니다" };
 }
 const TASK_RESET_KEEP = "그대로 남는 것: 사업계획서 · 프로젝트 구성 입력 값 · 헤딩·표 분석 · 확정 기록";
 async function taskReset(stageId) {
   const stage = TASK_STAGES.find((g) => g.id === stageId), report = taskSlotDoc("report");
   if (!stage || !report || taskRun || taskResetting) return;
-  const gone = "· 2단계 기록(자리 연결에서 고른 것 · LLM 검토 결과 · 표 짝 · 표 대응 · 넣은 기록)을 지웁니다.\n";
+  const RN = (id) => `${RELAY_STAGE_META[id].no} 「${RELAY_STAGE_META[id].name}」`; // 묶음 이름(§21 — 전의 글은 「1단계 · 2단계 · 3단계」 로 박혀 있었다)
+  const gone = `· ${RELAY_STAGE_META.map.name} 기록(자리 연결에서 고른 것 · LLM 검토 결과 · 표 짝 · 표 대응 · 넣은 기록)을 지웁니다.\n`;
   const ask = stageId === "frame"
-    ? `1단계 · 2단계를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌립니다 — 구조 반영 · 넣은 내용 · 직접 고친 글이 모두 없어지고, 3단계에서 지운 작성요령은 돌아옵니다.\n${gone}`
-    : `2단계(내용 매핑)를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌린 뒤 1단계 구조를 지금 반영된 프로젝트 구성 값으로 다시 반영합니다 — 넣은 내용 · 직접 고친 글이 없어지고, 3단계에서 지운 작성요령은 돌아옵니다.\n${gone}`;
+    ? `${RN("frame")} · ${RN("map")} 를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌립니다 — 구조 반영 · 넣은 내용 · 직접 고친 글이 모두 없어지고, ${RELAY_STAGE_META.clean.name}에서 지운 작성요령은 돌아옵니다.\n${gone}`
+    : `${RN("map")} 를 처음으로 되돌릴까요?\n\n· 연차보고서 「${report.name}」 를 올린 원본으로 되돌린 뒤 구조를 지금 반영된 프로젝트 구성 값으로 다시 반영합니다 — 넣은 내용 · 직접 고친 글이 없어지고, ${RELAY_STAGE_META.clean.name}에서 지운 작성요령은 돌아옵니다.\n${gone}`;
   if (!confirm(`${ask}\n${TASK_RESET_KEEP}\n\n실행 취소로 되돌릴 수 없습니다 — 지금 상태가 필요하면 취소하고 먼저 「저장」으로 받아 두거나 「고친 문단」 탭에서 확정하세요.`)) return;
   if (state.id !== report.id) { // 연차보고서를 고치는 문서로(「한 번에 진행」·onReport 와 같은 길 — 두 문서의 자리는 그대로)
     await openWork(report.id);
@@ -2212,10 +2330,10 @@ async function taskReset(stageId) {
     taskRunEnds = {};
     if (heads.dlg === "links" || heads.dlg === "fill") headsColClose(true); // 지운 연결 목록 · 넣기 계획
     adoptBase(d, true); // 문서·기준·구분 기준 적용 상태가 바뀜 — 다시 그리고 이관 자료(taskFlow)를 새로 읽는다(divReset)
-    const FR = `${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」`, MP = `${TASK_STAGE_META.map.no} 「${TASK_STAGE_META.map.name}」`;
+    const FR = RN("frame"), MP = RN("map");
     if (reframe.error) toast(`원본으로 되돌렸지만 구조를 다시 반영하지 못했습니다: ${reframe.error} — ${FR}부터 다시 진행하세요`, true);
     else if (!r.restored && !(r.cleared || []).length) toast("이미 처음 상태입니다 — 바뀐 것이 없습니다");
-    else toast(stageId === "frame" ? `${FR}·${MP}를 처음으로 되돌렸습니다 — 연차보고서는 올린 원본입니다(확정한 프로젝트 구성은 그대로)` : `${MP}를 처음으로 되돌렸습니다 — 연차보고서는 프레임 구조만 반영된 상태입니다`);
+    else toast(stageId === "frame" ? `${FR}·${MP}를 처음으로 되돌렸습니다 — 연차보고서는 올린 원본입니다(확정한 프로젝트 구성 · 헤딩·표 분석은 그대로)` : `${MP}를 처음으로 되돌렸습니다 — 연차보고서는 구조만 반영된 상태입니다(${FR} 의 「헤딩 · 표 다시 분석」 이 남습니다)`);
   } catch (e) {
     if (epoch === state.epoch) toast(`초기화하지 못했습니다: ${e.message}`, true);
   } finally {
@@ -9173,7 +9291,7 @@ function divPresetRefresh() { // 상태 줄(확정 — spec_작업 ② §18)·�
   if (st.from) { const f = el("span", "dv-caption", st.from); f.title = "마지막으로 입력 칸을 채운 곳(이 화면에서만)"; status.append(f); }
   save.textContent = `${dv.view.projectSharing && dv.view.projectSharing.shared ? "프로젝트" : "이 문서"}에 저장`;
   save.disabled = dv.busy || valid;
-  save.title = valid ? `지금 값이 ${where}에 확정한 구성과 같습니다` : `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다(1단계 「프로젝트 구성」 의 끝)`;
+  save.title = valid ? `지금 값이 ${where}에 확정한 구성과 같습니다` : `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다(${taskSlots() ? "「프로젝트 구성 확정」" : "1단계 「프로젝트 구성」"} 의 끝)`;
 }
 
 function divPresetNaming(on) { dv.preset.naming = on; dv.preset.confirming = ""; if (!on) dv.preset.nameDraft = null; divRender(); }
@@ -9279,7 +9397,7 @@ function divRunWhy() { // 계획·반영을 할 수 없는 까닭("" = 할 수 �
   if (!v || !view) return "프로젝트 구성을 읽는 중입니다";
   if (!view.profile.supported) return "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다";
   if (divTotalYears(v) > 20) return "전체 차년도는 20년 이하여야 합니다";
-  if (taskFrameApply && !divConfirmValid(v, view.confirmed)) return `1단계 「프로젝트 구성」 이 먼저입니다 — ${divConfirmWhere(view.projectSharing)}에 저장(확정)한 뒤 변경 계획을 봅니다`; // TASK 묶음 안(spec_작업 ② §18)
+  if (taskFrameApply && !divConfirmValid(v, view.confirmed)) return `${taskSlots() ? "「프로젝트 구성 확정」 이" : "1단계 「프로젝트 구성」 이"} 먼저입니다 —${divConfirmWhere(view.projectSharing)}에 저장(확정)한 뒤 변경 계획을 봅니다`; // TASK 묶음 안(spec_작업 ② §18)
   return "";
 }
 const divRunLocked = () => !!dv.auto || !!taskRun || !!taskResetting || (typeof gatherRun !== "undefined" && !!gatherRun) || (typeof gqRun !== "undefined" && !!gqRun && gqRun.busy); // 다른 실행이 도는 동안(이 묶음의 한 번에 진행 · TASK 묶음의 한 번에 진행 · 초기화 · 취합 간단 모드 — 묶음 사이의 틈도) — 단추만 끈다(그 실행이 부르는 divPlan·divApply 는 그대로 돈다)
@@ -9291,12 +9409,16 @@ function divAutoStops() {
   return divPlanIssues(s, false) || divOrgsMoved();
 }
 function divOrgsMoved() { // 마지막 반영 때 이름이 있던 기관의 차례가 달라졌는가 → 까닭 글 | "". 엔진은 남는 항목에 자리 차례대로 이름을 쓴다(② §5·§19) — 차례가 바뀌거나 가운데가 빠지면 쓴 내용이 다른 이름 아래에 남을 수 있다
-  const a = dv.view && dv.view.applied;
-  if (!a || !a.values || !a.values.orgs) return "";
-  const names = (v) => [v.orgs.lead || "", ...(v.orgs.joint || [])].map((n) => String(n).trim()), was = names(a.values), now = names(divValues()), role = (i) => (i ? `공동 ${i}` : "주관");
-  for (let i = 0; i < was.length; i++) {
-    const j = was[i] ? now.indexOf(was[i]) : -1;
-    if (j >= 0 && j !== i) return `기관 「${was[i]}」 의 차례가 마지막 반영과 다릅니다(${role(i)} → ${role(j)})`;
+  // 견줄 반영 = 마지막 전체 반영 + 그 뒤의 「한 자리만 반영」(표 메뉴 「프로젝트 구성에 맞추기」 — spec_테이블매니저 ② §9 「한 자리만 반영한 기록」: 전체 반영이 없던 문서에서 한 표만 맞춘 뒤 차례를 바꿔도 그 표의 값은 다른 이름 아래에 남는다)
+  const a = dv.view && dv.view.applied, parts = (dv.view && dv.view.partial) || [];
+  const names = (v) => [v.orgs.lead || "", ...(v.orgs.joint || [])].map((n) => String(n).trim()), now = names(divValues()), role = (i) => (i ? `공동 ${i}` : "주관");
+  for (const [v, what] of [[a && a.values, "마지막 반영"], ...parts.map((p) => [p.values, "표 하나만 맞춘 반영"])]) {
+    if (!v || !v.orgs) continue;
+    const was = names(v);
+    for (let i = 0; i < was.length; i++) {
+      const j = was[i] ? now.indexOf(was[i]) : -1;
+      if (j >= 0 && j !== i) return `기관 「${was[i]}」 의 차례가 ${what}과 다릅니다(${role(i)} → ${role(j)})`;
+    }
   }
   return "";
 }
@@ -9421,7 +9543,7 @@ async function divRunAll(opt = {}) {
   if (!state.id || dv.busy || divRunLocked()) return;
   const why = divRunWhy();
   if (why) { toast(why, true); return; }
-  const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" ? st0.plan.summary : null;
+  const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" && st0.plan.only == null ? st0.plan.summary : null; // 한 자리만의 계획(표 메뉴 「프로젝트 구성에 맞추기…」 — divPlan 의 opt.only)은 이어 쓰지 않는다 — 문서 전체로 다시 계획한다
   // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 값 · 계획 수를 적은 확인 창: design.md §18 「확인 창」) — 멈추는 검사(미해결 · 계획 오류 · 기관 차례)는 아래 그대로
   const mine =() => epoch === state.epoch && id === state.id && view === dv;
   const halt = (text) => { view.msg = { kind: "halt", text: `멈춤 — ${text}` }; toast(`한 번에 진행이 멈췄습니다 — ${text}`, true); if (mine()) divRunReveal(); }; // 멈추면 「세부」 를 펴서 다음 단추(② 반영 · 다시 계획)를 보인다(design.md §11)
@@ -9448,7 +9570,9 @@ async function divRunAll(opt = {}) {
   }
 }
 
-async function divPlan() { // → true(계획을 세워 2열에 엶) | false(못 세움 — 전의 계획이 남아 있을 수 있다: 부른 쪽은 dv.plan 이 아니라 이 값을 본다)
+// opt(안 주면 전과 같다 — 문서 전체 계획): only = 묶음 key — 그 자리와 그 안쪽 자리만의 계획(서버 끝점의 `only` — spec_구분_기준 ② §7) · table = {id, ids(그 표와 그 안의 표 · 칸 id Set)} — 목록을 그 표의 자리로 좁혀 연다(divList).
+// 표 메뉴 「프로젝트 구성에 맞추기…」(table_menu.js tmnDivision — spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」)만 넘긴다. 계획 → 확인 → 반영의 길 · 멈추는 조건은 그대로다(새 길이 아니라 입구)
+async function divPlan(opt = {}) { // → true(계획을 세워 2열에 엶) | false(못 세움 — 전의 계획이 남아 있을 수 있다: 부른 쪽은 dv.plan 이 아니라 이 값을 본다)
   if (!state.id || dv.busy) return false;
   const id = state.id, epoch = state.epoch, view = dv;
   await flushAll(); // 아직 반영 안 된 글부터 — 계획은 서버 문서 차례(rev)에 묶인다
@@ -9461,8 +9585,9 @@ async function divPlan() { // → true(계획을 세워 2열에 엶) | false(못
   divRender();
   let ok = false;
   try {
-    const r = await api(`/api/docs/${id}/divisions/plan`, { method: "POST", headers: H_JSON, body: JSON.stringify({ values: divValues(), skip: [...dv.skip] }) });
+    const r = await api(`/api/docs/${id}/divisions/plan`, { method: "POST", headers: H_JSON, body: JSON.stringify({ values: divValues(), skip: [...dv.skip], ...(opt.only ? { only: opt.only } : {}) }) });
     if (epoch !== state.epoch) return false;
+    if (opt.table) r.table = opt.table; // 화면만의 표시(서버의 계획에는 없다) — 목록이 그 표의 자리만 보인다
     dv.plan = r;
     dv.dirty = false;
     dv.result = null;
@@ -9501,19 +9626,29 @@ function divList() {
   if (!plan) { toast("먼저 「변경 계획 보기」를 누르세요"); return; }
   divListPlan = plan;
   const res = dv.result;
+  // 표 메뉴 「프로젝트 구성에 맞추기…」 로 세운 계획(divPlan 의 opt.table — spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」)은 그 표(와 그 안의 표 · 칸)의 자리만 보인다 — 도구 줄의 단추로 모든 자리와 오간다(계획은 그대로)
+  const narrow = plan.table && !plan.tableAll ? plan.table : null;
   const { tools, body, foot } = headsDlg("divisions", res ? "프로젝트 구성 — 반영 결과" : "프로젝트 구성 — 바꿀 자리",
-    `${res ? `편집 차례 ${res.rev} 에 반영` : `편집 차례 ${plan.baseRev} 기준 계획`} · 누르면 문서의 그 자리로`);
+    `${res ? `편집 차례 ${res.rev} 에 반영` : `편집 차례 ${plan.baseRev} 기준 계획`}${plan.only ? " · 고른 자리와 그 안쪽 자리만의 계획" : ""} · 누르면 문서의 그 자리로`);
   const statusOf = (c) => (res && res.status[c.key]) || c.status;
   const filt = el("span", "dv-filter");
   for (const [k, label] of [["all", "모두"], ["work", "바꿀 자리"], ["issue", "지원 안 됨·미해결"], ["already", "이미 맞음"]]) {
     filt.append(hBtn(label, () => { dv.filter = k; divList(); }, { cls: "btn sm" + (dv.filter === k ? " on" : "") }));
   }
   tools.append(filt);
+  if (plan.table) {
+    const only = hBtn(`표 ${plan.table.id} 의 자리만`, () => { plan.tableAll = !plan.tableAll; divList(); },
+      { cls: "btn sm" + (narrow ? " on" : ""), title: "표 메뉴 「프로젝트 구성에 맞추기…」 로 연 계획입니다 — 누르면 이 표의 자리만 보기 ↔ 문서의 모든 자리 보기(계획은 그대로)" });
+    only.id = "divListTable";
+    only.setAttribute("aria-pressed", String(!!narrow));
+    tools.append(only);
+  }
   const cbL = el("label", "hd-field"); const cb = el("input"); cb.type = "checkbox"; cb.checked = dv.showDrop; cb.onchange = () => { dv.showDrop = cb.checked; divList(); };
   cbL.append(cb, "지워질 글 보기"); tools.append(cbL);
   tools.append(divSummary(plan.summary));
   const [tbl, tb] = hTable(["", "상태", "구분", "종류", "라벨(처음 3)", "수→목표", "자리"]);
   const rows = plan.candidates.filter((c) => {
+    if (narrow && !(c.where && (narrow.ids.has(c.where.table) || narrow.ids.has(c.where.cell)))) return false;
     const st = statusOf(c);
     return dv.filter === "all" || (dv.filter === "work" && (st === "applied" || st === "excluded")) || (dv.filter === "issue" && (st === "unsupported" || st === "unresolved")) || (dv.filter === "already" && st === "already");
   });

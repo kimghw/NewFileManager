@@ -6,17 +6,22 @@
 //   → 고른 것만 「맞추기」(한 트랜잭션 — 실행 취소 1개). 「확인」 이 붙은 것(글꼴 · 크기 · 굵게가 크게 다름 · 빈 칸에 표시 넣기)은 처음엔 고르지 않은 채다.
 // app.js 가 주는 것: state·heads·el·api·toast·structOp·flushAll·headsDlg·hBtn·hFoot·hTable·nf·H_JSON. tables.js: xlBlock. 전역 이름은 tblStyle…·TST_… 만 쓴다.
 // 서버 짝: app/tables_api.py `GET …/tables/{tid}/style` · `POST …/style/apply`, 판정 · 맞추기 app/table_style.py. index.html 이 table_fill.js 다음에 읽는다 — 이 파일이 없어도 다른 기능은 돈다.
+// 묶기 · 보류(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」 · ② §3 「사람의 헤더 지정」): 맞추기 요청에 점검의 rev 와 항목마다의 sig 를 늘 같이 보낸다(본 것과 달라진 항목은 서버가 건너뜀 · 문서 차례가 다르면 409 → 다시 점검).
+//   점검 응답의 held(지금 표와 안 맞는 헤더 지정)가 있으면 요약 줄 아래에 한 줄로 알리고 맞추기 단추를 끈다(서버도 409). 칸 역할의 출처는 source · reuse.why(표 구조 결과를 못 쓴 까닭 — 풍선 도움말).
 
-const TST_SOURCE = { stage3: "칸 역할: 표 구조(3단계) 결과", draft: "칸 역할: 이 표의 스크립트 초안(표 구조를 아직 안 돌렸거나 그 뒤 표가 바뀜)" };
+const TST_SOURCE = { stage3: "칸 역할: 표 구조(3단계) 결과 — 칸의 글 · 문단은 지금 문서에서 읽습니다\n빈 값 표시는 이 표의 스크립트 초안에서도 필드인 칸만 봅니다", draft: "칸 역할: 이 표의 스크립트 초안(표 구조를 아직 안 돌렸거나 그 뒤 표가 바뀜)",
+  template: "칸 역할: 양식의 확정본(사람이 이 양식의 이 표 판정을 확정한 것 — 구조가 꼭 같은 표라 그대로 씁니다) — 칸의 글 · 문단은 지금 문서에서 읽습니다\n표 메뉴 「양식의 표 판정…」 에서 보고 고칩니다" }; // template = spec_테이블매니저 ② §10 「양식의 표 판정」
+const TST_ROLE = { rowhead: "행헤더", colhead: "열헤더", field: "필드" };
+const TST_HELD_TIP = "지정한 뒤 그 칸의 자리나 글이 바뀐 헤더 지정입니다 — 어느 칸의 지정인지 분명하지 않아 점검에 쓰지 않았습니다\n이런 지정이 있는 동안은 「맞추기」 를 하지 않습니다(다른 칸을 잘못 바꾸지 않게)";
 const tblStyle = { doc: null, picked: {} }; // picked[표 id] = Set(항목 키) — 문서를 다시 열기 전까지(열을 닫았다 열어도 고른 것이 남는다)
 if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { tableStyle: "표 서식 맞추기" }); // 「기록」 탭의 이름
 
 const tblStyleUrl = (tid, tail = "") => `/api/docs/${encodeURIComponent(state.id)}/tables/${encodeURIComponent(tid)}/style${tail}`;
 
-function tblStyleHit(cid) { // 줄에 올린 동안 문서의 그 칸을 칠한다(null = 걷기) — td.tst-hit — table-fill.css
+function tblStyleHit(cid) { // 줄에 올린 동안 문서의 그 칸(여럿이면 배열)을 칠한다(null = 걷기) — td.tst-hit — table-fill.css
   for (const e of document.querySelectorAll("#doc td.tst-hit")) e.classList.remove("tst-hit");
-  if (!cid) return;
-  for (const e of document.querySelectorAll(`#doc td[data-cell="${CSS.escape(cid)}"]`)) e.classList.add("tst-hit");
+  for (const id of [].concat(cid || []))
+    for (const e of document.querySelectorAll(`#doc td[data-cell="${CSS.escape(id)}"]`)) e.classList.add("tst-hit");
 }
 function tblStyleGo(tid, cid = null) { // 문서에서 그 칸(없으면 표)으로 — 열은 그대로(나란히 보기)
   const target = (cid && document.querySelector(`#doc td[data-cell="${CSS.escape(cid)}"]`)) || document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"]`);
@@ -24,6 +29,13 @@ function tblStyleGo(tid, cid = null) { // 문서에서 그 칸(없으면 표)으
   target.scrollIntoView({ block: cid ? "center" : "start", behavior: "smooth" });
 }
 const tblStyleDiff = (o) => o.diff.map((x) => `${x.label} 지금 ${x.now} → 대표 ${x.want}`).join(" · ");
+function tblStyleRef(cid) { // 칸 id → 칸 주소 「B3」(문서의 그 칸 td 의 격자 좌표 data-r · data-c — 화면에 없으면 칸 id 그대로)
+  const td = document.querySelector(`#doc td[data-cell="${CSS.escape(cid)}"]`);
+  if (!td || td.dataset.r == null || td.dataset.c == null) return cid;
+  let c = Number(td.dataset.c) + 1, s = "";
+  for (; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + ((c - 1) % 26)) + s;
+  return `${s}${Number(td.dataset.r) + 1}`;
+}
 
 async function tblStyleView(tid) {
   if (!state.id) return;
@@ -37,10 +49,13 @@ async function tblStyleView(tid) {
   const wrap = el("div", "ta-wrap tst-wrap");
   body.append(wrap);
   tools.append(el("span", "muted", "점검은 문서를 바꾸지 않습니다 · 맞추기는 고른 곳만, 실행 취소 한 번으로 되돌립니다 · 장평 · 자간은 칸 폭 맞춤이라 견주지 않습니다"));
-  const ident = el("div", "ta-ident"), acts = el("div", "ta-row"), sum = el("p", "hnote tst-sum"), emptyLine = el("p", "hnote tst-empty"), result = el("div", "tst-result");
+  const ident = el("div", "ta-ident"), acts = el("div", "ta-row"), sum = el("p", "hnote tst-sum"), heldLine = el("p", "hnote tst-held"), emptyLine = el("p", "hnote tst-empty"), result = el("div", "tst-result");
+  heldLine.hidden = true; // 보류된 헤더 지정이 있을 때만 — 요약 줄 바로 아래
+  heldLine.addEventListener("mouseenter", () => tblStyleHit(((view && view.held) || []).map((h) => h.cell)));
+  heldLine.addEventListener("mouseleave", () => tblStyleHit(null));
   acts.append(hBtn("표 자리로", () => tblStyleGo(tid), { title: "문서에서 이 표로" }), hBtn("다시 점검", () => load(), { title: "지금 문서로 다시 봅니다(문서는 안 바뀜)" }));
   const quick = typeof commitQuickEl === "function" ? commitQuickEl("표 서식 점검") : ""; // 고친 부분 적용하기(spec_작업 ② §8 — 맞춘 뒤 고친 문단을 이 열에서 바로 확정 · 고친 것이 있을 때만 보임: app.js)
-  wrap.append(ident, acts, quick, sum, emptyLine, result);
+  wrap.append(ident, acts, quick, sum, heldLine, emptyLine, result);
   if (quick) commitQuickSync();
   let view = null, busy = false;
 
@@ -59,15 +74,27 @@ async function tblStyleView(tid) {
     } catch (e) {
       if (!live()) return;
       sum.textContent = e.status === 404 && e.message === "Not Found" ? "서버가 옛 판입니다 — 서버를 다시 켜야 「표 서식 점검」 을 쓸 수 있습니다" : `점검하지 못했습니다: ${e.message}`;
+      heldLine.hidden = true;
       result.textContent = "";
       hFoot(sum.textContent);
     }
   }
 
   function draw() {
-    const r = view, k = r.counts, e = r.empty || {}, picked = tblStyle.picked[tid];
-    ident.replaceChildren(el("b", null, tid), el("span", null, `${r.rows}×${r.cols}`), el("span", "hb", r.source === "stage3" ? "표 구조 결과" : "초안"));
-    ident.lastChild.title = TST_SOURCE[r.source] || "";
+    const r = view, k = r.counts, e = r.empty || {}, picked = tblStyle.picked[tid], held = r.held || [];
+    ident.replaceChildren(el("b", null, tid), el("span", null, `${r.rows}×${r.cols}`), el("span", "hb", r.source === "template" ? "양식의 확정본" : r.source === "stage3" ? "표 구조 결과" : "초안"));
+    ident.lastChild.title = (TST_SOURCE[r.source] || "") + (r.source === "draft" && r.reuse && r.reuse.why ? `\n표 구조 결과를 쓰지 않은 까닭: ${r.reuse.why}` : "");
+    heldLine.hidden = !held.length;
+    heldLine.replaceChildren();
+    if (held.length) { // 지금 표와 안 맞는 헤더 지정 — 알리고 맞추기를 끈다(서버도 409)
+      heldLine.append(`헤더 지정 ${nf(held.length)}칸이 지금 표와 맞지 않습니다 — 표 메뉴에서 다시 지정하거나 풀어 주세요`);
+      heldLine.title = `${TST_HELD_TIP}\n${held.map((h) => `${tblStyleRef(h.cell)} · ${TST_ROLE[h.role] || h.role} 지정 — ${h.why}`).join("\n")}`;
+      const go = el("button", "hlink", "칸 보기");
+      go.type = "button";
+      go.title = "문서에서 그 칸으로(여럿이면 첫 칸)";
+      go.onclick = () => tblStyleGo(tid, held[0].cell);
+      heldLine.append(" ", go);
+    }
     const withOdd = r.places.filter((p) => p.odd.length);
     sum.textContent = k.odd ? `자리 ${nf(k.places)} · 다른 서식 ${nf(k.odd)}곳(자리 ${nf(withOdd.length)})${k.check ? ` · 확인 ${nf(k.check)}` : ""}` : `자리 ${nf(k.places)} — 다른 서식이 없습니다`;
     sum.title = "자리 = 같은 서식을 쓸 칸의 묶음 — 머리행 · 머리열 · 합계행 · 열(값 칸) · 빈 값\n대표 = 그 자리에서 가장 많이 쓴 서식 · 다른 서식 = 대표와 다른 문단 · 칸\n확인 = 글꼴 · 크기 · 굵게가 크게 다르거나(제목 · 강조일 수 있음) 빈 칸에 표시를 넣는 것 — 처음엔 고르지 않습니다";
@@ -83,10 +110,11 @@ async function tblStyleView(tid) {
     const bar = el("div", "ta-row tst-bar"), count = el("span", "muted");
     const applyBtn = hBtn("", () => apply(), { cls: "btn sm primary", title: "고른 곳을 그 자리의 대표 서식으로 바꿉니다 — 한 번의 편집(도구 줄 「실행 취소」 로 한꺼번에 되돌림). 점검한 뒤 바뀐 곳은 건너뜁니다" });
     const boxes = [];
+    if (held.length) applyBtn.title = "지금 표와 맞지 않는 헤더 지정이 있어 맞추지 않습니다 — 표 메뉴에서 그 지정을 다시 하거나 푼 뒤 「다시 점검」 을 누르세요";
     const sync = () => {
       const n = boxes.filter(([cb]) => cb.checked).length;
       applyBtn.textContent = `고른 ${nf(n)}곳 맞추기`;
-      applyBtn.disabled = !n || busy || state.busy;
+      applyBtn.disabled = !n || busy || state.busy || held.length > 0;
       count.textContent = `${nf(n)} / ${nf(k.odd)}`;
     };
     const pick = (fn) => { for (const [cb, o] of boxes) { cb.checked = fn(o); if (cb.checked) picked.add(o.key); else picked.delete(o.key); } sync(); };
@@ -131,14 +159,22 @@ async function tblStyleView(tid) {
     sync();
 
     async function apply() {
-      const keys = boxes.filter(([cb]) => cb.checked).map(([, o]) => o.key);
-      if (!keys.length || busy) return;
+      const chosen = boxes.filter(([cb]) => cb.checked).map(([, o]) => o);
+      const keys = chosen.map((o) => o.key);
+      if (!keys.length || busy || held.length) return;
       busy = true;
       sync();
       tblStyleHit(null);
-      const out = await structOp(`tables/${encodeURIComponent(tid)}/style/apply`, { keys }); // 대기 중 글 반영 → 서버 편집(OWPML 검사) → 바뀐 블록만 다시 그림 · 실패는 structOp 가 알림
+      structOp.lastError = null;
+      // 본 것에 묶는다: rev = 이 점검의 문서 차례(다르면 409) · sigs = 항목마다 본 값(지금 값 · 맞출 값 · 대표 — 달라진 항목은 서버가 건너뜀)
+      const out = await structOp(`tables/${encodeURIComponent(tid)}/style/apply`, { keys, rev: r.rev, sigs: Object.fromEntries(chosen.map((o) => [o.key, o.sig])) }); // 대기 중 글 반영 → 서버 편집(OWPML 검사) → 바뀐 블록만 다시 그림 · 실패는 structOp 가 알림
       busy = false;
-      if (!out || !out.styled) { if (live()) sync(); return; }
+      if (!out || !out.styled) {
+        if (!live()) return;
+        if (!out && structOp.lastError && structOp.lastError.status === 409) load(); // 점검한 뒤 문서 · 지정이 바뀜 — 알림은 structOp 가 했고, 목록을 지금 문서로 다시 그린다
+        else sync();
+        return;
+      }
       const st = out.styled;
       for (const kk of st.done || []) picked.delete(kk);
       toast(`표 ${tid} — ${nf((st.done || []).length)}곳을 대표 서식에 맞췄습니다${(st.skipped || []).length ? ` · 건너뜀 ${nf(st.skipped.length)}(${st.skipped[0].why})` : ""} · 도구 줄의 실행 취소로 되돌릴 수 있습니다`);

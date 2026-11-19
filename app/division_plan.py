@@ -42,11 +42,16 @@ def make(kit, original, doc, rev, settings, profile, *, only=None, skip=(), rebu
     after_by_key = {c["key"]: c for c in after}
     errors = {e["key"]: e["message"] for e in report.get("errors") or () if e.get("key")}
     attached = set(idx_after)
+    touched = {g.get("key") for g in report.get("groups") or ()}   # 모의 실행이 실제로 손댄 묶음(고른 자리와 그 안쪽 자리)
     cands = []
     for c in before:
         status, message = model.status_of(c, after_by_key, attached, errors, skip)
         if only is not None and status == "applied" and c["key"] != only and not c.get("nested"):
             status, message = ("already", "이미 맞음") if c.get("done") else ("excluded", "이번엔 한 자리만 반영")
+        elif only is not None and status == "unresolved" and c["key"] != only and c["key"] not in errors and c["key"] not in touched:
+            # 한 자리만의 계획에서 손대지 않은 다른 자리 — 「반영 뒤에도 수가 맞지 않음」 이 아니라 이번에 안 한 것이다
+            # (2026-11-19 표 메뉴 「프로젝트 구성에 맞추기」 가 이 길을 처음 쓰며 드러남: 견본 양식에서 한 자리 계획에 미해결 85 — spec_테이블매니저 ② §9)
+            status, message = "excluded", "이번엔 한 자리만 반영"
         cands.append({**c, "status": status, "statusMessage": message, "dimName": profile.DIM_NAME.get(c["dim"], c["dim"]),
                       "kindName": profile.KIND_NAME.get(c["kind"], c["kind"])})
     deleted = [{"id": i, "text": _short(b.get("text"))} for i, b in idx_before.items()

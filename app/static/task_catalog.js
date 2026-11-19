@@ -38,3 +38,11 @@ const TASK_STAGE_META = Object.freeze({
   map: { no: "3단계", name: "내용 매핑" },
   clean: { no: "4단계", name: "문서 정리" }, // 이관만(spec_작업 ② §14 「3단계」 — 2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" · 2026-11-13 번호 4)
 });
+// 이관의 묶음 이름(spec_작업 ② §21 — 2026-11-19 사용자 "문서 검토 … 단계가 있어야 하겠구나 헤딩/테이불 분석, 그 다음에 문서구성 그다음에 매핑" · "단계로 하면 구성 맞추기, 내용 넣기").
+// 취합은 위 TASK_STAGE_META 그대로. 묶음 id 는 review(새) · frame · map · clean(그대로 — 서버 …/merge-links/reset 의 stage 값). 등록부 app/workflow.py 의 그 묶음 no·name 과 같아야 한다(tests/test_workflow.py).
+const RELAY_STAGE_META = Object.freeze({
+  review: { no: "1단계", name: "문서 검토" },
+  frame: { no: "2단계", name: "구성 맞추기" },
+  map: { no: "3단계", name: "내용 넣기" },
+  clean: { no: "4단계", name: "문서 정리" },
+});

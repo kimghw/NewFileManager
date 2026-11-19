@@ -630,7 +630,10 @@ def _sum_record(f, h, i, path, axis, other, fields, heads, by_id):
     tail = tail_of(path[i + 1:])
     pk = "_effc" if axis == "col" else "_effr"
     ok = "_effr" if axis == "col" else "_effc"
-    same_pct = lambda g: bool(g.get("pct")) == bool(f.get("pct")) or g.get("num") is None  # noqa: E731 — % 값은 금액 합의 피연산자가 아님
+    # 그 줄(합계 칸과 같은 가로지르는 경로)의 머리글 단위가 % 면(「가중치 (%)」 열의 「계」) 그 줄의 칸은 「%」 를 적었든 안 적었든 모두 % 값이다 — 「%」 표시로 거르지 않는다
+    # (거르면 합계 칸이 빈 표에서 「10%」 는 빠지고 「15」 만 더해 일부만의 합이 나온다: 「계산 칸 다시 계산」 이 그 값을 넣는다 — spec_테이블매니저 ② §7 「계산 칸 다시 계산」)
+    unit_pct = any((by_id.get(c) or {}).get("pctUnit") for c in other)
+    same_pct = lambda g: unit_pct or bool(g.get("pct")) == bool(f.get("pct")) or g.get("num") is None  # noqa: E731 — % 값은 금액 합의 피연산자가 아님
     ops = []
     for s in _sum_operand_heads(h, heads, by_id):
         under = [g for g in fields if g is not f and len(g[pk]) > i and g[pk][:i] == path[:i] and g[pk][i] == s["id"] and tuple(g[ok]) == tuple(other) and same_pct(g)]

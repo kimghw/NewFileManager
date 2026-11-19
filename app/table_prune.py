@@ -6,6 +6,13 @@
   자리표시 줄 아래에 글을 써 넣은 칸은 채워진 칸이다(`cell_empty`). 행헤더·열헤더·제목·안내 칸의 글과 칸 음영은 「채워짐」 으로 세지 않는다 — 필드만 본다.
 - **빈 행(열)** = 그 줄에 걸친 **채우는 필드**(수식으로 셈하는 칸 — 합계·비율 — 을 뺀 필드)가 하나 이상 있고 모두 빈 줄. 헤더뿐인 줄·제목·안내·간격 줄,
   합계·비율 헤더가 걸친 줄(「계」 행·「비율」 열)은 대상이 아니다. 필드가 하나도 안 채워진 표(빈 양식)는 지울 줄을 정하지 않는다(`allEmpty`).
+- **작성 글 보호**(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」 ⓐ — `_written`·`_guard`): 역할이 헤더(열헤더·행헤더·귀퉁이)여도 **성격이 필드인 칸**(긴 글·문장·값 — `nature == "field"`)에
+  글이 있으면(자리표시뿐이 아님) 그 칸의 줄은 채워진 줄이다 — 「내용」 열 아래 사람이 쓴 긴 글이 헤더 열 낱말 규칙으로 행헤더가 되어도 그 행을 지우지 않는다.
+  사람이 그 칸의 역할을 지정했으면(`roles`) 지정이 먼저다(보호하지 않는다). 에이전트 판단 둘(2026-11-19 샘플 양식에서 잰 것 — 코디네이터 확인 전):
+  ⓘ 순번 칸(「1」·「①」·「가」 — 초안이 순번이라서 헤더 열로 본 값)은 작성 글이 아니라 보호하지 않는다(번호 붙은 표의 빈 줄이 모두 후보에서 빠진다)
+  ⓙ 여러 줄에 걸친 칸은 걸친 줄이 **모두** 지울 줄일 때(= 칸이 통째로 없어질 때)만 막는다 — 남는 줄이 있으면 칸이 줄어들 뿐 글은 남는다
+  (양식의 묶음 제목 「참여 연구자 (기존)」 = 짧은 글 3문단이라 성격이 필드 — 걸친 줄을 다 막으면 그 표의 빈 사람 줄이 후보에서 빠진다).
+- **빈 것으로 본 까닭**(같은 절 ⓑ — `_why`): 결과의 `why {rows: {줄: [자리표시 글…]}, cols}` — 줄마다 그 줄의 빈 필드에 든 자리표시 글(「00%」·「0,000」 은 값일 수도 있다 — 화면이 줄 이름 옆에 보인다).
 - **지우기**는 뒤에서부터 이어진 묶음마다. 지울 행에서 시작해 아래로 넘어가는 합친 칸(행 묶음 제목)은 글째 남기고 남은 행으로 줄인다(`delete_rows(cols=…)` —
   `table_grid.drop_band`). 그래도 합친 칸에 걸려 못 지우는 줄은 건너뛴다(`skip*`). 열을 지운 폭은 남은 열이 나눠 가져 표 폭은 그대로.
 """
@@ -16,6 +23,10 @@ from app import table_grid as grid
 from app import table_heads, table_ops
 
 _SUM_KINDS = ("total", "ratio")
+_HEADS = ("colhead", "rowhead", "corner")
+_USER_ROLES = ("rowhead", "colhead", "field")  # 사람의 헤더 지정으로 쓰이는 값(`table_excel._analyze` 와 같다)
+WHY_MAX = 3      # 줄마다 보이는 자리표시 글 수
+WHY_TEXT = 24    # 자리표시 글 하나의 길이(줄 이름 `_names` 와 같다)
 
 
 def cell_empty(x):
@@ -36,6 +47,30 @@ def _span(x, axis):
     return (x["row"], x["rs"]) if axis == "r" else (x["col"], x["cs"])
 
 
+def _written(cells, roles=None):
+    """작성 글 보호(spec_테이블매니저 ② §4 ⓐ)의 대상 칸 id — 역할은 헤더(열헤더·행헤더·귀퉁이)인데 **성격이 필드**(긴 글·문장·값 — `heading_tables.nature`)이고
+    글이 있는(자리표시뿐이 아닌) 칸. 빼는 것: 사람이 역할을 지정한 칸(roles — 지정이 먼저: 헤더로 지정했으면 전처럼 헤더) ·
+    순번 칸(`heading_tables._ORDINAL` 꼴 「1」·「①」·「가」 — 초안이 순번이라서 헤더 열로 본 값이지 작성 글이 아니다: 번호 붙은 목록 표의 빈 줄은 전처럼 지울 줄)."""
+    user = {i for i, r in (roles or {}).items() if r in _USER_ROLES}
+    return {x["id"] for x in cells if x.get("role") in _HEADS and x.get("nature") == "field" and x["id"] not in user
+            and not cell_empty(x) and not HT._ORDINAL.match(x.get("textFull") or "")}
+
+
+def _guard(cells, kept, lines, n, axis):
+    """lines(지울 줄)를 지우면 **통째로 없어지는** 작성 글 칸(kept — `_written`)이 걸친 줄 집합 — 이 줄들은 채워진 줄이다(지울 줄에서 뺀다).
+    한 줄짜리 칸은 그 줄이 지울 줄이면 곧 없어지는 칸이다. 여러 줄에 걸친 칸(행 묶음 제목 꼴)은 걸친 줄이 **모두** 지울 줄일 때만 — 남는 줄이 있으면
+    칸은 그 줄로 줄어들 뿐 글은 남으므로(`table_grid.drop_band`·위에서 내려온 합친 칸) 막지 않는다: 양식의 묶음 제목 「참여 연구자 (기존)」(짧은 글 3문단 = 성격 필드)
+    아래 빈 사람 줄은 전처럼 지울 줄. 지울 줄이 줄면 없어지는 칸도 줄 뿐이라 한 번 보면 된다."""
+    gone, out = set(lines), set()
+    for x in cells:
+        if x["id"] in kept:
+            a, k = _span(x, axis)
+            span = range(max(0, a), min(n, a + k))
+            if len(span) and all(i in gone for i in span):
+                out.update(span)
+    return out
+
+
 def _empty_lines(cells, inputs, empty, n, axis):
     """축(axis "r" 행 · "c" 열)의 빈 줄 번호 — 채우는 필드가 걸쳐 있고 모두 비었으며 합계·비율 헤더가 안 걸친 줄."""
     has, filled, summed = [False] * n, [False] * n, [False] * n
@@ -53,9 +88,10 @@ def _empty_lines(cells, inputs, empty, n, axis):
     return [i for i in range(n) if has[i] and not filled[i] and not summed[i]]
 
 
-def _grow_groups(cells, rows, n):
+def _grow_groups(cells, rows, n, keep=()):
     """행 묶음째 비었으면 딸린 줄도 함께 — 여러 행에 걸친 행헤더(묶음 제목)가 빈 행에서 시작하고, 걸친 나머지 행이 모두 빈 행이거나 **딸린 줄**
-    (그 줄에서 시작하는 칸이 안내·간격뿐 — 항목 아래 「작성 가이드라인」 줄)이면 그 행들도 빈 행으로 센다. 값 줄만 지워 제목과 안내만 남는 것을 막는다."""
+    (그 줄에서 시작하는 칸이 안내·간격뿐 — 항목 아래 「작성 가이드라인」 줄)이면 그 행들도 빈 행으로 센다. 값 줄만 지워 제목과 안내만 남는 것을 막는다.
+    keep = 작성 글 때문에 남기는 행(`_guard`) — 그런 행이 낀 묶음은 키우지 않는다(보호된 줄이 묶음에 딸려 지워지지 않게)."""
     starts = [[] for _ in range(n)]
     for x in cells:
         if 0 <= x["row"] < n:
@@ -68,6 +104,8 @@ def _grow_groups(cells, rows, n):
             if x.get("role") != "rowhead" or x["rs"] < 2 or x["row"] not in out:
                 continue
             ext = range(x["row"], min(n, x["row"] + x["rs"]))
+            if any(i in keep for i in ext):
+                continue
             if all(i in out or dep[i] for i in ext) and not all(i in out for i in ext):
                 out.update(ext)
                 changed = True
@@ -85,6 +123,24 @@ def _names(cells, lines, axis, limit=24):
         pick = max(heads, key=lambda x: _span(x, other)[0]) if heads else next((x for x in sorted(on, key=lambda x: _span(x, other)[0]) if _span(x, axis)[0] == i), None)
         if pick is not None:
             out[str(i)] = " ".join(pick["textFull"].split())[:limit]
+    return out
+
+
+def _why(cells, empty, lines, axis):
+    """줄 번호 → 그 줄을 빈 줄로 보게 한 **자리표시 글**(spec_테이블매니저 ② §4 ⓑ) — 그 줄에 걸친 빈 필드에 든 글을 칸 차례로, 중복 없이 WHY_MAX 개까지.
+    글이 아예 없는 칸뿐인 줄(딸린 안내 줄 포함)은 빈 목록. 열쇠 꼴은 `_names` 와 같다. 「00%」·「0,000」 같은 수 자리표시 꼴은 사람이 쓴 값일 수도 있어 화면이 줄 이름 옆에 보인다."""
+    out = {str(i): [] for i in lines}
+    for x in cells:
+        if x["id"] not in empty:
+            continue
+        text = " ".join((x.get("textFull") or "").split())[:WHY_TEXT]
+        if not text:
+            continue
+        a, k = _span(x, axis)
+        for i in range(a, a + k):
+            got = out.get(str(i))
+            if got is not None and text not in got and len(got) < WHY_MAX:
+                got.append(text)
     return out
 
 
@@ -123,30 +179,45 @@ def band(cells, nc, r0, r1):
 
 
 def analyze(doc, tid, store=None, doc_key=None, roles=None):
-    """표의 빈 필드 줄 → {table, rows, cols, fields(채우는 필드 수), emptyFields, allEmpty, emptyRows[], emptyCols[], rowNames{줄: 헤더 글}, colNames, note?} —
-    지울 수 있는지는 아직 안 본다. 표가 아니면 None, 너무 크면 ValueError. roles = 사용자 헤더 지정(spec_owpml_편집 ② §5-4 — `table_excel._analyze`)."""
+    """표의 빈 필드 줄 → {table, rows, cols, fields(채우는 필드 수), emptyFields, allEmpty, emptyRows[], emptyCols[], rowNames{줄: 헤더 글}, colNames,
+    why{rows: {줄: [자리표시 글…]}, cols}, note?} — 지울 수 있는지는 아직 안 본다. 표가 아니면 None, 너무 크면 ValueError.
+    roles = 사용자 헤더 지정(spec_owpml_편집 ② §5-4 — `table_excel._analyze`)."""
     stage1 = TX.records(doc, tid, store, doc_key)
     if stage1 is None:
         return None
-    tb = next((t for t in HT.collect(stage1) if t["id"] == tid), None)
-    out = {"table": tid, "rows": 1, "cols": 1, "fields": 0, "emptyFields": 0, "allEmpty": False, "emptyRows": [], "emptyCols": [], "rowNames": {}, "colNames": {}}
+    return analyze_table(next((t for t in HT.collect(stage1) if t["id"] == tid), None), tid, roles)
+
+
+def analyze_table(tb, tid, roles=None):
+    """`analyze` 의 몸통(문서 없이) — tb = `heading_tables.collect` 꼴의 표(1칸 표면 None). 여기서 초안 역할·표 의미를 매긴다(`table_excel._analyze` — tb 의 칸에 적힌다)."""
+    out = {"table": tid, "rows": 1, "cols": 1, "fields": 0, "emptyFields": 0, "allEmpty": False, "emptyRows": [], "emptyCols": [], "rowNames": {}, "colNames": {},
+           "why": {"rows": {}, "cols": {}}}
     if tb is None:
         return {**out, "note": "1칸 표(글상자)에는 필드가 없습니다"}
     if len(tb["cells"]) > TX.MAX_CELLS:
         raise ValueError(f"표가 너무 큽니다(칸 {len(tb['cells'])} > {TX.MAX_CELLS})")
     _subs, sem = TX._analyze(tb, roles)
+    cells = tb["cells"]
     targets = {f["cell"] for f in sem["formulas"]}  # 수식으로 셈하는 칸(합계·비율·코드 식) — 사람이 채우는 칸이 아니다
-    inputs = {x["id"] for x in tb["cells"] if x.get("role") == "field" and x["id"] not in targets}
-    empty = {x["id"] for x in tb["cells"] if x["id"] in inputs and cell_empty(x)}
+    inputs = {x["id"] for x in cells if x.get("role") == "field" and x["id"] not in targets}
+    empty = {x["id"] for x in cells if x["id"] in inputs and cell_empty(x)}
     out.update(rows=tb["rows"], cols=tb["cols"], fields=len(inputs), emptyFields=len(empty))
     if not inputs:
         return {**out, "note": "채우는 필드가 없는 표입니다"}
     if len(empty) == len(inputs):
         return {**out, "allEmpty": True, "note": "필드가 모두 비어 있습니다(빈 양식) — 지울 줄을 정하지 않습니다"}
-    out["emptyRows"] = _grow_groups(tb["cells"], _empty_lines(tb["cells"], inputs, empty, tb["rows"], "r"), tb["rows"])
-    out["emptyCols"] = _empty_lines(tb["cells"], inputs, empty, tb["cols"], "c")
-    out["rowNames"] = _names(tb["cells"], out["emptyRows"], "r")
-    out["colNames"] = _names(tb["cells"], out["emptyCols"], "c")
+    kept = _written(cells, roles)  # 작성 글이 든 헤더 역할 칸 — 이 칸이 통째로 없어지게 되는 줄은 채워진 줄(`_guard`)
+    base = _empty_lines(cells, inputs, empty, tb["rows"], "r")
+    rows = _grow_groups(cells, base, tb["rows"])
+    keep = _guard(cells, kept, rows, tb["rows"], "r")
+    if keep:
+        rows = _grow_groups(cells, [i for i in base if i not in keep], tb["rows"], keep)
+    cols = _empty_lines(cells, inputs, empty, tb["cols"], "c")
+    keep = _guard(cells, kept, cols, tb["cols"], "c")
+    out["emptyRows"], out["emptyCols"] = rows, [i for i in cols if i not in keep]
+    out["rowNames"] = _names(cells, out["emptyRows"], "r")
+    out["colNames"] = _names(cells, out["emptyCols"], "c")
+    out["why"] = {"rows": _why(cells, empty, out["emptyRows"], "r"), "cols": _why(cells, empty, out["emptyCols"], "c")}
     return out
 
 

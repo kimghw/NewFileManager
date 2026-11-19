@@ -250,10 +250,10 @@ try:
         sharing = page.evaluate(SHARING)
         check("구분 기준 없음 줄 — 표지 · 안내 · 「새로 만들기」 · 버전 추가는 꺼짐(입력 값 없음)", sharing["kind"] == "none" and "프로젝트 구성 없음" in sharing["text"] and "새로 만드세요" in sharing["text"]
               and page.locator("[data-division-new]").is_visible() and page.locator("[data-version-add]").is_disabled(), sharing)
-        page.evaluate("() => { document.getElementById('taskStage0').open = false; }")
+        page.evaluate("() => { document.getElementById('taskStage').open = false; }")
         page.locator("[data-division-new]").click()
         page.wait_for_timeout(200)
-        check("「새로 만들기」 — 1단계 「구분 기준」 을 펴고 구성 입력 칸으로 포커스", page.evaluate("() => document.getElementById('taskStage0').open && document.getElementById('taskFrameForm').contains(document.activeElement)"))
+        check("「새로 만들기」 — 2단계 「구성 맞추기」 를 펴고 구성 입력 칸으로 포커스(spec_작업 ② §21 — 구성 입력은 그 묶음 안)", page.evaluate("() => document.getElementById('taskStage').open && document.getElementById('taskFrameForm').contains(document.activeElement)"))
         select_work(page, report)
         page.locator('[data-new-round="1"]').click()
         check("새 라운드는 처음 올린 원본이 기본 · 현재 수정본도 선택 가능", page.locator("#projectRoundSource").input_value() == "original"

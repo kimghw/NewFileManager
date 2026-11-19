@@ -5,7 +5,8 @@
 // 사용자 2026-11-10 "테이블 우측에 여백에 놔도 될거 같아": 처음의 왼쪽 위 모서리는 표 첫 칸과 왼쪽 여백의 표지를 가렸다). 손잡이를 누르면 표 메뉴:
 //   빈 필드 제거하기 ▸(필드가 모두 빈 행·열 — 서버가 찾아 주고, 고른 줄만 한 번에 지움) · 엑셀식 보기(2열 A1 격자 — 칸을 끌어 골랐으면 그 범위) ·
 //   서식으로 변환하기 ▸(표 양식 목록 — 누르면 그 표의 서식만 바로 입힘) · 표 나누기 ▸ ·
-//   에이전트로 표 채우기…(2열 — table_fill.js tblFillView, ② §18) · 이 표를 표 양식으로 지정.
+//   에이전트로 표 채우기…(2열 — table_fill.js tblFillView, ② §18) · 이 표를 표 양식으로 지정 ·
+//   프로젝트 구성에 맞추기… ▸(연구개발과제 문서만 — 이 표의 구분 기준 자리를 보이고 고른 자리만 기존 「변경 계획 보기 → 반영」 으로: 아래 tmnDivision, spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」).
 // 손잡이 **바로 아래**에 둘째 아이콘(.tbl-corner-guide — 연필)이 함께 선다: 「작성요령 · 표 지침」(2열 — tables.js tblAgentView) 을 바로 연다.
 // 사용자 2026-11-12 "테이블 모서리에 아이콘 있는데 작성요령, 표지침을 꺼내서 아이콘 2개로" — 메뉴 안에 있던 항목을 꺼낸 것이라 메뉴에는 없다.
 // 메뉴 상자는 app.js 의 공용 오른쪽 단추 메뉴(ctxOpen — 하나뿐)를 빌려 쓴다: 하위 목록은 같은 자리에서 내용만 바꾸고(‹ 로 돌아감), 항목에 마우스를 올리면 문서에 미리 보인다.
@@ -195,9 +196,10 @@ function tmnOpen(items) { // items: [글, 꼬리, 실행, 꺼짐, {title, cls, e
     }
   }
 }
-function tmnPreview(v) { // v = null(걷기) | {table, rows, cols}(지울 칸 — 그 줄 안에 통째로 든 칸) | {table}(표 양식으로 쓸 표)
-  for (const e of document.querySelectorAll("#doc .tmn-hit, #doc .tmn-tpl-hit")) e.classList.remove("tmn-hit", "tmn-tpl-hit");
+function tmnPreview(v) { // v = null(걷기) | {table, rows, cols}(지울 칸 — 그 줄 안에 통째로 든 칸) | {table}(표 양식으로 쓸 표) | {table, cells}(프로젝트 구성 자리의 항목 머리 칸 — 칸 id 들: tmnDivision)
+  for (const e of document.querySelectorAll("#doc .tmn-hit, #doc .tmn-tpl-hit, #doc .tmn-div-hit")) e.classList.remove("tmn-hit", "tmn-tpl-hit", "tmn-div-hit");
   if (!v || !tmnOk(v.table)) return;
+  if (v.cells) { for (const id of v.cells) for (const td of document.querySelectorAll(`#doc td[data-cell="${CSS.escape(id)}"]`)) td.classList.add("tmn-div-hit"); return; }
   if (!v.rows && !v.cols) { for (const t of document.querySelectorAll(`#doc table.tbl[data-tbl="${v.table}"]`)) t.classList.add("tmn-tpl-hit"); return; }
   const rows = new Set(v.rows || []), cols = new Set(v.cols || []);
   const inside = (a, n, set) => { for (let i = a; i < a + n; i += 1) if (!set.has(i)) return false; return true; };
@@ -239,6 +241,11 @@ function tmnMenu(tid) {
     // 「작성요령 · 표 지침」 은 같은 날 메뉴에서 꺼내 손잡이 아래의 둘째 아이콘이 되었다(tmnBtn 의 .tbl-corner-guide)
     [rg ? `에이전트로 표 채우기 — 고른 칸 ${xlRangeName(rg)}…` : "에이전트로 표 채우기…", "", () => tblFillView(tid, rg), !hwpx || typeof tblFillView !== "function",
       { title: `작성요령 · 지침 · 칸 입력 규칙에 맞춰 빈 칸에 넣을 값을 LLM 이 자료에서 찾아 제안합니다(문서 옆 열) — 고른 제안만 문서에 들어갑니다(실행 취소로 되돌림)\n표 칸을 끌어 고른 뒤 열면 그 범위만${only}` }],
+    ["키-값으로 보기 · 매핑…", "", () => tblKvView(tid), !hwpx || typeof tblKvView !== "function", { title: `값 칸마다 어느 머리글 아래의 칸인지(키)와 그 글(값)을 봅니다(문서 옆 열) — 다른 표의 같은 키 칸에서 값을 가져옵니다: 고른 빈 칸만 넣고 겹치면 덮지 않습니다(실행 취소로 되돌림) · 머리글이 다른 표는 매핑 규칙으로${only}` }], // table_kv.js — spec_테이블매니저 ② §7 「키-값 추출과 매핑」
+    ["양식의 표 판정…", "", () => tblTypeView(tid), !hwpx || typeof tblTypeView !== "function", { title: `이 표의 판정(모든 칸의 역할)을 보고 양식의 확정본으로 저장합니다(문서 옆 열) — 같은 양식의 문서에서 구조가 꼭 같은 표는 값을 채워도 이 판정으로 읽습니다(문서는 안 바뀜 · 양식이 정해진 문서에서만)${only}` }], // table_types.js — spec_테이블매니저 ② §10 「양식의 표 판정」
+    // 연구개발과제 문서(hwpx · 작업 종류 연구개발과제)에서만 — 일반 문서 · docx 에는 항목 자체가 없다(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」 — 아래 tmnDivision)
+    ...(hwpx && typeof taskRnd === "function" && taskRnd() ? [["프로젝트 구성에 맞추기…", "▸", () => tmnDivision(tid), state.busy || typeof divPlan !== "function",
+      { title: "이 표에 든 구분 기준 자리(단계 · 차년도 · 기관마다 되풀이되는 행 · 열)를 프로젝트 구성에 맞춰 늘리고 줄입니다 — 자리마다 지금 수 → 프로젝트 구성의 수를 보이고, 고른 자리만 변경 계획을 세워 확인한 뒤 반영합니다(실행 취소로 되돌림)" }]] : []),
     null,
     ["이 표를 표 양식으로 지정", "", () => tmnSetTemplate(tid), !hwpx,
       { title: `이 표를 서식을 따올 표(표 양식)로 기억합니다 — 다른 표의 「서식으로 변환하기」 목록 맨 위에 나옵니다${only}` }],
@@ -257,9 +264,22 @@ function tmnSpans(lines, name, max = 4) { // [3,4,5,8] → 「4~6 · 9」 — �
   }
   return runs.slice(0, max).map(([a, b]) => (a === b ? name(a) : `${name(a)}~${name(b)}`)).join(" · ") + (runs.length > max ? " …" : "");
 }
-function tmnLines(lines, names, name, max = 24) { // 도움말 — 줄마다 「4행 「연구활동비」」
-  const out = lines.slice(0, max).map((i) => `${name(i)}${names && names[i] ? ` 「${names[i]}」` : ""}`);
+// 빈 것으로 본 까닭(spec_테이블매니저 ② §4 ⓑ — 서버 `why {rows: {줄: [자리표시 글…]}, cols}`): 그 줄의 빈 필드에 든 자리표시 글. 「00%」·「0,000」 은 사람이 쓴 값일 수도 있어 줄 이름 옆에 보인다.
+// 글이 없는 칸뿐인 줄(빈 목록)·옛 서버(why 없음)에는 아무것도 더하지 않는다.
+const tmnWhyOf = (why, i) => (why && Array.isArray(why[i]) ? why[i].filter((s) => typeof s === "string" && s) : []);
+const tmnWhyText = (texts, sep = " · ") => texts.map((s) => `「${s}」`).join(sep);
+function tmnLines(lines, names, name, why, max = 24) { // 도움말 — 줄마다 「4행 「연구활동비」」 · 자리표시 글이 든 줄은 「3행 「재료비」 — 자리표시 「00%」」
+  const out = lines.slice(0, max).map((i) => {
+    const w = tmnWhyOf(why, i);
+    return `${name(i)}${names && names[i] ? ` 「${names[i]}」` : ""}${w.length ? ` — 자리표시 ${tmnWhyText(w)}` : ""}`;
+  });
   return out.join("\n") + (lines.length > max ? `\n… 외 ${lines.length - max}줄` : "");
+}
+function tmnWhyNote(rows, cols, why, max = 4) { // 목록의 안내 줄 — 자리표시 글이 든 줄만 「2행 「00%」 · C열 「0,000」」(없으면 "")
+  const out = [];
+  for (const i of rows) { const w = tmnWhyOf(why && why.rows, i); if (w.length) out.push(`${i + 1}행 ${tmnWhyText(w, " ")}`); }
+  for (const i of cols) { const w = tmnWhyOf(why && why.cols, i); if (w.length) out.push(`${colLetter(i)}열 ${tmnWhyText(w, " ")}`); }
+  return out.slice(0, max).join(" · ") + (out.length > max ? ` … 외 ${out.length - max}줄` : "");
 }
 async function tmnPrune(tid) {
   const seq = ++tmn.seq, epoch = state.epoch;
@@ -275,20 +295,32 @@ async function tmnPrune(tid) {
   if (err) { items.push([err, "", tmnNoop, true]); tmnOpen(items); return; }
   const rows = p.emptyRows || [], cols = p.emptyCols || [];
   const rowName = (i) => `${i + 1}`, colName = (i) => colLetter(i);
+  const why = p.why || {}; // 줄마다 빈 것으로 본 까닭(자리표시 글) — 옛 서버면 없음
+  const held = (p.held || []).length; // 지금 표와 맞지 않아 보류된 헤더 지정(spec_테이블매니저 ② §3 「사람의 헤더 지정」) — 있으면 서버가 지우기를 409 로 막는다: 여기서 미리 끄고 까닭을 보인다
+  const off = state.busy || held > 0;
+  if (held) {
+    items.push([`헤더 지정 ${nf(held)}칸이 지금 표와 맞지 않습니다 — 표 메뉴에서 다시 지정하거나 풀어 주세요`, "", tmnNoop, true,
+      { cls: "tmn-note", title: "지정한 칸의 자리나 글이 그 뒤 바뀌었습니다 — 어느 칸의 지정인지 분명하지 않아 쓰지 않고 남겨 두었습니다\n다시 지정하거나 풀 때까지 이 표의 빈 필드 제거는 멈춥니다(아래는 그 지정 없이 본 것)" }]);
+  }
   const kept = "\n\n빈 필드 = 글이 없거나 자리표시(0,000 · ○○)뿐인 값 칸 — 합계·비율 줄, 헤더·안내 줄은 대상이 아닙니다\n누르면 바로 지웁니다 · 도구 줄의 실행 취소로 되돌립니다";
   if (rows.length) {
-    items.push([`빈 행 ${nf(rows.length)}개 지우기 — ${tmnSpans(rows, rowName)}행`, "", () => tmnPruneRun(tid, true, false, p), state.busy,
-      { title: tmnLines(rows, p.rowNames, (i) => `${i + 1}행`) + kept, enter: () => tmnPreview({ table: tid, rows }) }]);
+    items.push([`빈 행 ${nf(rows.length)}개 지우기 — ${tmnSpans(rows, rowName)}행`, "", () => tmnPruneRun(tid, true, false, p), off,
+      { title: tmnLines(rows, p.rowNames, (i) => `${i + 1}행`, why.rows) + kept, enter: () => tmnPreview({ table: tid, rows }) }]);
   }
   if (cols.length) {
-    items.push([`빈 열 ${nf(cols.length)}개 지우기 — ${tmnSpans(cols, colName)}열`, "", () => tmnPruneRun(tid, false, true, p), state.busy,
-      { title: tmnLines(cols, p.colNames, (i) => `${colLetter(i)}열`) + "\n지운 폭은 남은 열이 나눠 가집니다(표 폭 그대로)" + kept, enter: () => tmnPreview({ table: tid, cols }) }]);
+    items.push([`빈 열 ${nf(cols.length)}개 지우기 — ${tmnSpans(cols, colName)}열`, "", () => tmnPruneRun(tid, false, true, p), off,
+      { title: tmnLines(cols, p.colNames, (i) => `${colLetter(i)}열`, why.cols) + "\n지운 폭은 남은 열이 나눠 가집니다(표 폭 그대로)" + kept, enter: () => tmnPreview({ table: tid, cols }) }]);
   }
   if (rows.length && cols.length) {
-    items.push(["빈 행·열 모두 지우기", "", () => tmnPruneRun(tid, true, true, p), state.busy,
+    items.push(["빈 행·열 모두 지우기", "", () => tmnPruneRun(tid, true, true, p), off,
       { title: `빈 행 ${rows.length}개를 지운 뒤 남은 표에서 빈 열을 다시 찾아 지웁니다` + kept, enter: () => tmnPreview({ table: tid, rows, cols }) }]);
   }
   if (!rows.length && !cols.length) items.push([p.allEmpty ? "필드가 모두 비어 있는 표(빈 양식) — 지울 줄을 정하지 않습니다" : p.note || "필드가 모두 빈 행·열이 없습니다", "", tmnNoop, true, { cls: "tmn-note" }]);
+  const whyNote = tmnWhyNote(rows, cols, why); // 자리표시 글이 든 줄 — 도움말을 안 봐도 지우기 전에 보이게(누르면 바로 지운다)
+  if (whyNote) {
+    items.push([`자리표시로 보아 빈 칸으로 센 글 — ${whyNote}`, "", tmnNoop, true,
+      { cls: "tmn-note", title: "양식의 자리표시 꼴(0,000 · 00% · ○○)인 글은 빈 필드로 셉니다 — 사람이 쓴 값이면 그 줄은 지우지 마세요\n줄마다의 글은 위 항목의 도움말에도 보입니다(「3행 「재료비」 — 자리표시 「00%」」)" }]);
+  }
   const skipR = p.skipRows || [], skipC = p.skipCols || [];
   if (skipR.length || skipC.length) {
     items.push([`합친 칸에 걸려 못 지움 — ${[skipR.length ? `${tmnSpans(skipR, rowName)}행` : "", skipC.length ? `${tmnSpans(skipC, colName)}열` : ""].filter(Boolean).join(" · ")}`, "", tmnNoop, true,
@@ -305,6 +337,89 @@ async function tmnPruneRun(tid, rows, cols, p) {
   if ((d.cols || []).length) parts.push(`빈 열 ${nf(d.cols.length)}개`);
   const skip = (d.skipRows || []).length + (d.skipCols || []).length;
   toast(`표 ${tid} — ${parts.join(" · ")}를 지웠습니다${skip ? `(합친 칸에 걸린 ${skip}줄은 그대로)` : ""} · 도구 줄의 실행 취소로 되돌릴 수 있습니다`);
+}
+
+// ---- 프로젝트 구성에 맞추기(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」 — 구성 개선 묶음 · 연구개발과제 문서만) ------------------------------------------
+// **입구**일 뿐이다 — 이 표에 든 구분 기준 자리(행 · 열 묶음 · 칸 안의 문단 묶음)를 「지금 n개 → 프로젝트 구성 m개」 로 보이고, 고른 자리는 「프로젝트 구성 반영」 의 기존 길로 간다:
+//   divPlan({only, table}) = 「변경 계획 보기」(그 자리와 그 안쪽 자리만 · 문서는 안 바뀜 · 문서 옆 목록은 이 표의 자리만) → 목록 발의 「반영 단추로 이동」 → 패널 실행 묶음의 「반영」(divApply).
+// 새 반영 끝점 · 새 계획 계산 · 새 안전 검사를 만들지 않는다 — 할 수 없는 까닭(divRunWhy) · 다른 실행이 도는 동안(divRunLocked) · 계획에 묶인 반영(planId · 문서 차례)은 그 길의 것 그대로다.
+// 자리 목록 = GET …/divisions/members?targets=1(읽기 전용): 묶음마다 where.table · where.cell, targets[묶음 key] = {target(프로젝트 구성에 맞춘 수), done, reason, why} · 프로젝트 구성 값이 없으면 targets = null.
+// app.js 가 주는 것(파일 머리의 것에 더해): dv · divShow · divRunWhy · divRunLocked · divPlan · divSettingsFlush · showTab · taskRnd.
+const TMN_DIV_KIND = { rows: "행", cols: "열", list: "목록 행", paragraph: "문단 묶음(칸 안)" }; // 자리의 종류 — 표 안에서 부르는 이름(「차년도 행」 · 「기관 열」)
+const tmnDivCut = (s, n = 12) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+function tmnDivIds(tid, deep) { // 그 표의 id + 칸 id(deep = 칸 안 표와 그 칸까지) — 자리의 where.table · where.cell 과 견준다
+  const ids = new Set();
+  const walk = (t) => {
+    ids.add(t.id);
+    for (const c of t.cells || []) { ids.add(c.id); if (deep) for (const b of c.blocks || []) if (b.type === "table") walk(b); }
+  };
+  const b = xlBlock(tid);
+  if (b) walk(b);
+  return ids;
+}
+async function tmnDivision(tid) {
+  const seq = ++tmn.seq, epoch = state.epoch, what = "프로젝트 구성에 맞추기";
+  const head = [`‹ ${what} · ${tid}`, "", () => tmnMenu(tid), false, { cls: "tmn-back", title: "표 메뉴로" }];
+  tmnOpen([head, null, ["이 표의 자리를 찾는 중…", "", tmnNoop, true]]);
+  let m = null, err = "";
+  try {
+    await flushAll(); // 타자 중인 글을 서버에 먼저 — 서버 문서에서 자리를 찾는다
+    if (typeof divSettingsFlush === "function") await divSettingsFlush(); // 입력 중인 프로젝트 구성 값도 작업에 — 「프로젝트 구성 m개」 는 서버의 값으로 센다
+    m = await api(`/api/docs/${encodeURIComponent(state.id)}/divisions/members?targets=1`);
+    if (epoch === state.epoch && (!dv.view || !dv.values)) await divShow(); // 프로젝트 구성 화면을 아직 안 열었으면 그 상태부터 읽는다 — 아래 divRunWhy 와 divPlan 이 화면의 값을 쓴다
+  } catch (e) { err = tmnErr(e, what); }
+  if (seq !== tmn.seq || epoch !== state.epoch || !tmnMine()) return; // 그 사이 메뉴를 닫았거나 다른 목록을 엶
+  const items = [head, null], note = (text, title = "") => items.push([text, "", tmnNoop, true, { cls: "tmn-note", title }]);
+  if (err) { items.push([err, "", tmnNoop, true]); tmnOpen(items); return; }
+  if (!("targets" in m)) { note(`서버가 옛 판입니다 — 서버를 다시 켜야 「${what}」 를 쓸 수 있습니다`); tmnOpen(items); return; }
+  if (m.supported === false) { note("이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다"); tmnOpen(items); return; }
+  const own = tmnDivIds(tid, false);
+  const places = (m.groups || []).filter((g) => g.where && (own.has(g.where.table) || own.has(g.where.cell))); // 이 표의 행 · 열 묶음 + 이 표의 칸 안 문단 묶음(칸 안 표의 자리는 그 표의 메뉴에서)
+  if (!places.length) {
+    note("이 표에는 프로젝트 구성으로 늘리고 줄일 자리가 없습니다", "단계 · 차년도 · 기관마다 되풀이되는 행 · 열(구분 기준 자리)이 이 표에서 잡히지 않았습니다");
+    tmnOpen(items);
+    return;
+  }
+  const targets = m.targets, ready = !!dv.view && !!dv.values; // targets null = 프로젝트 구성 값이 아직 없음
+  const why = targets && ready ? divRunWhy() : "", busy = state.busy || dv.busy || divRunLocked();
+  const go = ["프로젝트 구성 열기", "", () => showTab("Div"), false, { title: "패널의 프로젝트 구성으로 갑니다 — 단계 · 차년도 · 기관을 정한(확정한) 뒤 이 메뉴를 다시 여세요" }];
+  if (!targets) note("프로젝트 구성을 먼저 정하세요", "단계 · 차년도 · 기관을 정해야 이 표의 자리를 몇 개로 맞출지 압니다 — 아래에는 지금 수만 보입니다");
+  else if (why) note(`지금은 변경 계획을 세울 수 없습니다 — ${why}`);
+  else items.push([`이 표의 자리 ${nf(places.length)}곳 — 누르면 그 자리만 변경 계획을 봅니다`, "", tmnNoop, true, { cls: "tmn-sec" }]);
+  const names = places.map((g) => `${g.dimName || g.dim} ${TMN_DIV_KIND[g.kind] || g.kindName || g.kind}`);
+  let can = 0;
+  places.forEach((g, i) => {
+    const labels = (g.items || []).map((it) => tmnDivCut(it.text, 40)).filter(Boolean), cells = (g.items || []).map((it) => it.label).filter(Boolean);
+    const twin = names.filter((n) => n === names[i]).length > 1; // 같은 이름의 자리가 이 표에 여럿이면 첫 항목의 글로 가른다
+    const name = names[i] + (twin && labels.length ? ` 「${tmnDivCut(labels[0])}」` : ""), now = `지금 ${nf(g.count)}개`;
+    const list = labels.length ? `항목 — ${labels.slice(0, 8).map((s) => `「${s}」`).join(" · ")}${labels.length > 8 ? ` … (${nf(labels.length)}개)` : ""}` : "";
+    const enter = () => tmnPreview({ table: tid, cells }); // 올리면 문서에서 그 자리의 항목 머리 칸을 칠한다
+    const off = (text, title = "") => items.push([`${name} — ${text}`, "", tmnNoop, true, { cls: "tmn-note", title: [list, title].filter(Boolean).join("\n"), enter }]);
+    const t = targets ? targets[g.key] : null;
+    if (!targets) { off(now); return; }
+    if (!t) { off(`${now} · 프로젝트 구성에 맞춘 수를 읽지 못했습니다`); return; }
+    if (t.done) { off(`${now} · 이미 프로젝트 구성에 맞습니다`); return; }
+    const to = t.target == null ? "" : ` → 프로젝트 구성 ${nf(t.target)}개`;
+    if (t.target == null || (t.reason && t.reason !== "nested")) { off(`${now}${to} · 맞추지 못합니다${t.why ? ` — ${t.why}` : ""}`, "이 자리는 지금 자동으로 늘리고 줄이지 못합니다 — 손으로 맞추세요"); return; }
+    can += 1;
+    items.push([`${name} — ${t.target === g.count ? `${now} · 프로젝트 구성 ${nf(t.target)}개(수는 같음 — 항목의 글 · 꼴을 맞춥니다)` : `${now}${to}`}`, "", () => tmnDivisionPlan(tid, g.key), busy || !!why,
+      { title: [list, busy ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : why || "누르면 이 자리와 그 안쪽 자리만의 변경 계획을 세워 문서 옆 목록에 보입니다 — 문서는 바뀌지 않습니다(몇 초)\n반영은 그 목록을 확인한 뒤 패널의 「반영」 단추로 · 실행 취소로 되돌립니다",
+        t.reason === "nested" ? "바깥 자리 안에 든 자리입니다 — 바깥 자리를 맞출 때 함께 맞춰집니다" : ""].filter(Boolean).join("\n"), enter }]);
+  });
+  if (!targets || why) items.push(null, go);
+  else if (can) note("반영은 변경 계획 목록을 확인한 뒤 패널의 「반영」 단추로 합니다(목록 아래 「반영 단추로 이동」) · 실행 취소로 되돌립니다");
+  tmnOpen(items);
+}
+async function tmnDivisionPlan(tid, key) { // 그 자리만의 「변경 계획 보기」 — 기존 divPlan 을 부를 뿐이다(계획은 문서를 바꾸지 않는다 · 반영은 패널 실행 묶음의 「반영」)
+  const id = state.id, epoch = state.epoch;
+  if (!dv.view || !dv.values) await divShow(); // divPlan 은 화면의 값(divValues)을 서버에 보낸다 — 안 읽은 채 부르면 기본값이 간다
+  if (epoch !== state.epoch || id !== state.id) return;
+  if (!dv.view || !dv.values) { toast("프로젝트 구성 상태를 읽지 못했습니다 — 패널의 프로젝트 구성을 연 뒤 다시 하세요", true); return; }
+  const why = divRunWhy(); // 패널의 「변경 계획 보기」 단추와 같은 검사(지원 양식 · 차년도 수 · TASK 의 프로젝트 구성 확정)
+  if (why) { toast(why, true); return; }
+  if (dv.busy || divRunLocked()) { toast("지금 진행 중인 작업이 끝나면 쓸 수 있습니다", true); return; }
+  toast(`표 ${tid} — 고른 자리의 변경 계획을 세우는 중…(문서는 바뀌지 않습니다)`);
+  await divPlan({ only: key, table: { id: tid, ids: tmnDivIds(tid, true) } });
 }
 
 // ---- 서식으로 변환하기 — 표 양식 목록 ---------------------------------------------------------------------------------------

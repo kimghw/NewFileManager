@@ -12,7 +12,10 @@ ROOT = Path(__file__).parents[1]
 CATALOG = (ROOT / "app" / "static" / "task_catalog.js").read_text(encoding="utf-8")
 CATALOG_JOBS = re.findall(r'^  (\w+): \{ name: "', CATALOG, re.M)                 # TASK_CATALOG 의 키(차례대로)
 CATALOG_SOON = set(re.findall(r'^  (\w+): \{ name: "[^\n]*\bsoon: true', CATALOG, re.M))
-STAGE_META = set(re.findall(r'^  (\w+): \{ no: "', CATALOG, re.M))                 # TASK_STAGE_META 의 키
+_META_ROW = r'^  (\w+): \{ no: "([^"]*)", name: "([^"]*)"'
+_block = lambda name: re.search(rf"const {name} = Object\.freeze\(\{{(.*?)\n\}}\);", CATALOG, re.S)[1]  # noqa: E731
+STAGE_META = {m[0] for m in re.findall(_META_ROW, _block("TASK_STAGE_META"), re.M)}                 # TASK_STAGE_META 의 키(취합의 묶음 이름)
+RELAY_META = {m[0]: {"no": m[1], "name": m[2]} for m in re.findall(_META_ROW, _block("RELAY_STAGE_META"), re.M)}   # 이관의 묶음 이름(spec_작업 ② §21) — 등록부의 no·name 과 같아야 한다
 
 
 def test_catalog_is_read_the_way_this_test_expects():
@@ -42,7 +45,12 @@ def test_stage_groups_and_steps_are_well_formed():
                 assert g["meta"] in STAGE_META and g["meta"] == g["id"], (t["job"], g["id"])   # 이름은 화면이 TASK_STAGE_META 에서 읽는다
             else:
                 assert g["name"], (t["job"], g["id"])
-    assert [g["id"] for g in W.BY_JOB["plan_to_report"]["stages"]] == ["config", "frame", "map", "clean"]   # 이관 = 1~4단계
+    relay = W.BY_JOB["plan_to_report"]["stages"]
+    assert [g["id"] for g in relay] == ["review", "frame", "map", "clean"]   # 이관 = 1~4단계(spec_작업 ② §21 — 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)
+    assert {g["id"]: {"no": g["no"], "name": g["name"]} for g in relay} == RELAY_META and all(g["meta"] is None for g in relay)   # 이름은 화면의 RELAY_STAGE_META 와 같다(취합의 TASK_STAGE_META 를 안 쓴다)
+    keys = {g["id"]: [s["key"] for s in g["steps"] if not s["optional"]] for g in relay}   # 선택 단계(LLM)를 뺀 차례 — 화면의 TASK_STAGES.keys(app.js)와 같다
+    assert keys == {"review": ["files", "heads"], "frame": ["config", "division", "reheads"], "map": ["link", "plan", "apply", "later"], "clean": ["guide"]}
+    assert [s["key"] for g in relay for s in g["steps"] if s["optional"]] == ["headsLlm", "reheadsLlm", "llm", "tableMap", "gaps"]
     assert [g["id"] for g in W.BY_JOB["plan_merge"]["stages"]] == ["config", "frame", "map"]                # 취합 = 1~3단계
     ids = [c["id"] for c in W.COMMON]
     assert len(ids) == len(set(ids)) and all(c["name"] and c["does"] and c["where"] and c["steps"] for c in W.COMMON)
@@ -169,7 +177,8 @@ def test_workflow_md_is_the_registry_written_out():
     assert all(f"— `{t['job']}`" in md for t in W.TASKS) and all(f"— `{c['id']}`" in md for c in W.COMMON)
     for where, s in W.steps():
         assert s["name"] in md and s["does"] in md, (where, s["key"])
-    assert "에이전트: 09 자리 연결 검토" in md and "`jobs/plan_to_report.md`" in md and "1단계 프로젝트 구성 › 2단계 문서 프레임 작성 › 3단계 내용 매핑 › 4단계 문서 정리" in md
+    assert "에이전트: 09 자리 연결 검토" in md and "`jobs/plan_to_report.md`" in md and "1단계 문서 검토 › 2단계 구성 맞추기 › 3단계 내용 넣기 › 4단계 문서 정리" in md
+    assert "1단계 프로젝트 구성 › 2단계 문서 프레임 작성 › 3단계 내용 매핑" in md and "2단계 문서 프레임 작성 › 3단계 내용 매핑 › 4단계" not in md   # 취합은 그대로 · 이관의 옛 묶음 이름은 없다
 
 
 def test_api_and_page():

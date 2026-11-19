@@ -5,10 +5,13 @@
 
 기술수요조사서.hwpx 를 새 작업으로 열고 → 도는 중에 다시 연 작업은 헤딩 탭을 안 열어도 끝날 때까지 읽음 → 표 칸을 누르면 고른 표 테두리 + 모서리 손잡이(아이콘 2개 —
 표 메뉴 · 그 아래 작성요령 · 표 지침) → 둘째 아이콘 → 「작성요령 · 표 지침」 열 → 손잡이 → 표 메뉴 → 「빈 필드 제거하기」(찾은 줄 · 문서 미리보기 · 지우기 · 실행 취소) → 「엑셀식 보기」 → 「서식으로 변환하기」(표 양식 목록 · 바로 입히기 · 최근 쓴 표 양식) →
-「이 표를 표 양식으로 지정」 → 손잡이 다시 누르면 닫힘 → docx 는 hwpx 전용 항목이 꺼짐 · 콘솔 오류.
+「이 표를 표 양식으로 지정」 → 손잡이 다시 누르면 닫힘 → 「프로젝트 구성에 맞추기…」(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」 — 연구개발과제 문서에서만 항목 ·
+지원 양식이 아니면 까닭 글 · 일반 문서에는 항목 없음 · 연구개발계획서 양식에서 자리 목록 「지금 n개 → 프로젝트 구성 m개」 · 자리가 없는 표 · 프로젝트 구성 값이 없을 때 ·
+고른 자리만의 변경 계획(문서 옆 목록이 그 표의 자리만) → 패널의 「반영」 → 실행 취소) → docx 는 hwpx 전용 항목이 꺼짐(「프로젝트 구성에 맞추기…」 는 항목 없음) · 콘솔 오류.
 상단 바 LLM 단계 동그라미·「작업에 자동 저장」 글은 2026-11-11 없앰 — 없는지만 본다."""
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +28,8 @@ ap.add_argument("--port", type=int, default=18176)
 args = ap.parse_args()
 OUT = Path(args.out).resolve()
 SMALL, DOCX = "기술수요조사서.hwpx", "기술수요조사서.docx"
+FORM = ROOT / "samples" / "연구개발계획서_양식.hwpx"   # 「프로젝트 구성에 맞추기…」 — 구분 기준 자리가 든 표가 있는 지원 양식
+VALUES = {"stages": [2, 3], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"], "nonprofit": [False, True, False]}}   # 기관 3 · 차년도 5
 
 OUT.mkdir(parents=True, exist_ok=True)
 tmp = OUT / "srv"
@@ -67,6 +72,13 @@ def corner(page, tid):
     page.wait_for_selector(f".tbl-corner[data-for='{tid}']")
     page.locator(".tbl-corner").click()
     page.wait_for_selector(".ctx-menu[data-by='tmn']:not([hidden])")
+
+
+def corner_far(page, tid):
+    """긴 문서의 먼 표 — 그 표로 굴린 뒤 손잡이를 누른다(table_kv 검사의 corner 와 같게)."""
+    page.locator(f"#doc table.tbl[data-tbl='{tid}'] td .para").first.scroll_into_view_if_needed()
+    page.wait_for_timeout(1500)
+    corner(page, tid)
 
 
 FIRST_DONE = "() => typeof heads !== 'undefined' && heads.view && heads.view.stage2 && heads.view.stage3 && !(heads.view.job && heads.view.job.status === 'running')"
@@ -289,6 +301,126 @@ try:
         page.evaluate("() => { document.getElementById('scroller').scrollTop = 0; }")
         page.wait_for_timeout(400)
 
+        # ---- 7b. 프로젝트 구성에 맞추기…(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」) — 연구개발과제 문서에서만 항목이 있다 · 지원 양식이 아니면 까닭 글 · 일반 문서에는 항목 없음
+        DIV = "프로젝트 구성에 맞추기"
+        corner(page, big["id"])
+        m = menu(page)
+        # 이 견본(기술수요조사서)은 양식을 못 읽어 작업 종류가 비어 있다(연구개발과제가 아님) — 항목이 없어야 한다
+        check("작업 종류가 빈 문서(양식을 못 읽음) — 「프로젝트 구성에 맞추기…」 항목 자체가 없음", not page.evaluate("() => taskRnd()") and not any(x["text"].startswith(DIV) for x in m), [x["text"] for x in m])
+        page.keyboard.press("Escape")
+        page.evaluate("() => { window.__task = state.task; state.task = { ...(state.task || {}), kind: 'rnd' }; }")   # 작업 종류만 연구개발과제로(양식은 여전히 지원 밖) — 까닭 글의 길
+        corner(page, big["id"])
+        m = menu(page)
+        check("연구개발과제 문서 — 표 메뉴에 「프로젝트 구성에 맞추기…」(▸)", page.evaluate("() => taskRnd()") and any(x["text"] == f"{DIV}…▸" for x in m), [x["text"] for x in m])
+        item(page, f"{DIV}…").click()
+        page.wait_for_selector(".ctx-menu[data-by='tmn'] button.tmn-note", timeout=120000)
+        m = menu(page)
+        check("지원 양식이 아닌 문서(기술수요조사서) — 자리 대신 까닭 글 · 머리는 ‹ 돌아가기",
+              m[0]["text"] == f"‹ {DIV} · {big['id']}" and any("프로젝트 구성 자동 반영을 지원하지 않습니다" in x["text"] for x in m), [x["text"] for x in m])
+        item(page, f"‹ {DIV}").click()
+        check("‹ 로 표 메뉴로 돌아감(프로젝트 구성에 맞추기)", any(x["text"] == "엑셀식 보기" for x in (menu(page) or [])))
+        page.keyboard.press("Escape")
+        page.evaluate("() => { state.task = { ...(state.task || {}), kind: 'general' }; }")   # 원래 값(window.__task)은 위에서 떠 두었다
+        corner(page, big["id"])
+        check("일반 문서(작업 종류 = 일반 문서) — 「프로젝트 구성에 맞추기…」 항목 자체가 없음", not any(x["text"].startswith(DIV) for x in menu(page)), [x["text"] for x in menu(page)])
+        page.keyboard.press("Escape")
+        page.evaluate("() => { state.task = window.__task; }")
+
+        # ---- 7c. 연구개발계획서 양식(지원 양식) — 진짜 끝점으로: 자리 목록 → 그 자리만의 변경 계획(문서는 그대로) → 패널의 「반영」(기존 길) → 실행 취소
+        fid = requests.post(f"{base}/api/docs?new=1", files={"file": (FORM.name, FORM.read_bytes())}, timeout=300).json()["docId"]
+        mem0 = requests.get(f"{base}/api/docs/{fid}/divisions/members?targets=1", timeout=300).json()
+        check("프로젝트 구성 값이 없으면 서버의 targets 는 null(기본값으로 센 수를 내지 않는다)", mem0["targets"] is None and mem0["supported"], mem0.get("targets"))
+        requests.put(f"{base}/api/docs/{fid}/divisions/settings", json={"values": VALUES}, timeout=120).raise_for_status()   # 화면이 문서를 열기 전에 — 화면의 값(dv.values)이 이 값으로 읽힌다
+        by = {}
+        for g in mem0["groups"]:
+            if g["where"]["table"]:
+                by.setdefault(g["where"]["table"], []).append(g)
+        # 기관 행 2개 + 단계-차년도 행 4개가 든 표(기관 행 안에 단계-차년도 행) — 값에 맞추면 기관 3 · 차년도 5
+        ftid, gs = next((k, v) for k, v in by.items() if sorted((g["dim"], g["kind"], g["count"]) for g in v) == [("org", "rows", 2), ("stageYear", "rows", 4)])
+        org = next(g for g in gs if g["dim"] == "org")
+        used = {"tables": sorted(by), "cells": sorted({g["where"]["cell"] for g in mem0["groups"] if g["where"]["cell"]})}
+        page.evaluate("(w) => { location.hash = `w=${w}`; }", fid)
+        page.reload()
+        page.wait_for_function("""(a) => typeof state !== 'undefined' && state.id === a.id && !!document.querySelector(`#doc table.tbl[data-tbl="${a.tid}"] td .para`)""", arg={"id": fid, "tid": ftid}, timeout=300000)
+        page.wait_for_timeout(1500)
+        none = page.evaluate("""(u) => { const b = xlBlocks().find((b) => b.depth === 1 && b.rows * b.cols > 1 && !u.tables.includes(b.id) && !(xlBlock(b.id).cells || []).some((c) => u.cells.includes(c.id)));
+            return b ? b.id : null; }""", used)
+        check("양식에서 구분 기준 자리가 없는 표를 하나 찾음(검사 준비)", bool(none), none)
+        if none:
+            corner_far(page, none)
+            item(page, f"{DIV}…").click()
+            page.wait_for_selector(".ctx-menu[data-by='tmn'] button.tmn-note", timeout=120000)
+            check("자리가 없는 표 — 「이 표에는 프로젝트 구성으로 늘리고 줄일 자리가 없습니다」",
+                  any(x["text"] == "이 표에는 프로젝트 구성으로 늘리고 줄일 자리가 없습니다" for x in menu(page)), [x["text"] for x in menu(page)])
+            page.keyboard.press("Escape")
+        # 프로젝트 구성 값이 없을 때의 목록 — 응답의 targets 만 null 로 바꿔 흉내(값은 위에서 넣어 두었다)
+        members_url = re.compile(r"/divisions/members\?targets=1")
+
+        def no_config(route):
+            resp = route.fetch()
+            body = resp.json()
+            body["targets"] = None
+            route.fulfill(response=resp, json=body)
+        page.route(members_url, no_config)
+        corner_far(page, ftid)
+        item(page, f"{DIV}…").click()
+        page.wait_for_selector(".ctx-menu[data-by='tmn'] button:has-text('프로젝트 구성 열기')", timeout=120000)
+        texts = [x["text"] for x in menu(page)]
+        check("프로젝트 구성 값이 없을 때 — 「프로젝트 구성을 먼저 정하세요」 · 자리는 지금 수만 · 「프로젝트 구성 열기」",
+              "프로젝트 구성을 먼저 정하세요" in texts and "기관 행 — 지금 2개" in texts and "단계-차년도 행 — 지금 4개" in texts and not any("→ 프로젝트 구성" in t for t in texts), texts)
+        page.keyboard.press("Escape")
+        page.unroute(members_url)
+        # 자리 목록(진짜 응답) — 「지금 n개 → 프로젝트 구성 m개」
+        corner_far(page, ftid)
+        item(page, f"{DIV}…").click()
+        page.wait_for_selector(".ctx-menu[data-by='tmn'] button:has-text('→ 프로젝트 구성')", timeout=120000)
+        m = menu(page)
+        texts, off = [x["text"] for x in m], {x["text"]: x["disabled"] for x in m}
+        check("자리 목록 — 「기관 행 — 지금 2개 → 프로젝트 구성 3개」 · 「단계-차년도 행 — 지금 4개 → 프로젝트 구성 5개」(누를 수 있음) · 「이 표의 자리 2곳」",
+              off.get("기관 행 — 지금 2개 → 프로젝트 구성 3개") is False and off.get("단계-차년도 행 — 지금 4개 → 프로젝트 구성 5개") is False and any(t.startswith("이 표의 자리 2곳") for t in texts), texts)
+        item(page, "기관 행 — 지금 2개").hover()
+        hit = page.evaluate("() => ({div: document.querySelectorAll('#doc td.tmn-div-hit').length, red: document.querySelectorAll('#doc .tmn-hit').length})")
+        check("올리면 그 자리의 항목 머리 칸을 문서에 칠함(파랑 — 지울 칸의 빨강이 아님)", hit["div"] >= 2 and hit["red"] == 0, hit)
+        page.screenshot(path=str(OUT / "7c_places.png"))
+        sizes_js = "() => ({rev: state.serverRev, undo: state.undo, sizes: Object.fromEntries(xlBlocks().map((b) => [b.id, [b.rows, b.cols]]))})"
+        before = page.evaluate(sizes_js)
+        with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/divisions/plan"), timeout=120000) as req:
+            item(page, "기관 행 — 지금 2개").click()
+        sent = req.value.post_data_json
+        check("고른 자리의 key 로 기존 계획 끝점을 부름(only) · 값은 화면이 읽은 프로젝트 구성",
+              sent.get("only") == org["key"] and sent.get("skip") == [] and sent["values"]["stages"] == [2, 3] and sent["values"]["orgs"]["lead"] == "인텍", sent)
+        page.wait_for_function("() => heads.dlg === 'divisions' && !!dv.plan && !dv.busy && !!document.getElementById('divListTable')", timeout=240000)
+        rows_js = "() => document.querySelectorAll('#headsDlgBody table.mini tbody tr.go').length"
+        v = page.evaluate("""() => ({only: dv.plan.only, table: dv.plan.table && dv.plan.table.id, all: dv.plan.candidates.length, rows: document.querySelectorAll('#headsDlgBody table.mini tbody tr.go').length,
+            pressed: document.getElementById('divListTable').getAttribute('aria-pressed'), label: document.getElementById('divListTable').textContent, note: document.getElementById('headsDlgNote').textContent,
+            title: document.getElementById('headsDlgTitle').textContent, rev: state.serverRev, undo: state.undo, kind: divPlanState().kind, hit: document.querySelectorAll('#doc td.tmn-div-hit').length})""")
+        check("변경 계획 — 문서 옆 목록(기존 「바꿀 자리」)이 이 표의 자리만 · 「고른 자리 … 만의 계획」 · 반영할 수 있음",
+              v["only"] == org["key"] and v["table"] == ftid and 2 <= v["rows"] < v["all"] and v["pressed"] == "true" and v["label"] == f"표 {ftid} 의 자리만"
+              and v["title"] == "프로젝트 구성 — 바꿀 자리" and "고른 자리와 그 안쪽 자리만의 계획" in v["note"] and v["kind"] == "ready", v)
+        check("계획은 문서를 바꾸지 않음(문서 차례 · 실행 취소 수 그대로) · 메뉴가 닫히면 미리보기도 걷힘", v["rev"] == before["rev"] and v["undo"] == before["undo"] and v["hit"] == 0 and page.evaluate(sizes_js)["sizes"] == before["sizes"], v)
+        page.screenshot(path=str(OUT / "7c_plan.png"))
+        page.click("#divListTable")
+        page.wait_for_function("() => document.getElementById('divListTable').getAttribute('aria-pressed') === 'false'")
+        check("단추를 누르면 문서의 모든 자리(계획은 그대로)", page.evaluate(rows_js) == v["all"], [page.evaluate(rows_js), v["all"]])
+        page.click("#divListTable")
+        page.wait_for_function("() => document.getElementById('divListTable').getAttribute('aria-pressed') === 'true'")
+        page.click("#headsDlgFoot [data-div-go]")   # 반영 단추는 패널의 실행 묶음 하나뿐 — 목록의 발은 그리로 보낸다(spec_구분_기준 ② §22)
+        page.wait_for_function("() => document.activeElement && document.activeElement.id === 'divApplyButton'", timeout=30000)
+        page.click("#divApplyButton")
+        page.wait_for_function("(a) => !!dv.result && !dv.busy && state.inflight === 0 && !!xlBlock(a.tid) && xlBlock(a.tid).nRows > a.rows", arg={"tid": ftid, "rows": before["sizes"][ftid][0]}, timeout=240000)
+        page.wait_for_timeout(500)
+        after = page.evaluate(sizes_js)
+        res = page.evaluate("() => ({title: document.getElementById('headsDlgTitle').textContent, rows: document.querySelectorAll('#headsDlgBody table.mini tbody tr.go').length})")
+        check("패널의 「반영」(기존 길) — 이 표의 행만 늘고 다른 표는 그대로 · 실행 취소 1개",
+              after["sizes"][ftid][0] > before["sizes"][ftid][0] and after["sizes"][ftid][1] == before["sizes"][ftid][1]
+              and all(after["sizes"].get(k) == s for k, s in before["sizes"].items() if k != ftid) and after["undo"] == before["undo"] + 1,
+              {"표": [before["sizes"][ftid], after["sizes"][ftid]], "undo": [before["undo"], after["undo"]]})
+        check("반영 결과 목록도 이 표의 자리만", res["title"] == "프로젝트 구성 — 반영 결과" and res["rows"] == v["rows"], res)
+        page.screenshot(path=str(OUT / "7c_applied.png"))
+        page.click("#undoBtn")
+        page.wait_for_function("(a) => state.undo === a.undo && !!xlBlock(a.tid) && xlBlock(a.tid).nRows === a.rows", arg={"tid": ftid, "rows": before["sizes"][ftid][0], "undo": before["undo"]}, timeout=120000)
+        check("실행 취소로 되돌아옴(그 표의 행 수)", True)
+
         # ---- 8. docx — hwpx 전용 항목은 꺼짐
         page.evaluate("() => closeDoc()")
         open_sample(page, DOCX)
@@ -299,6 +431,7 @@ try:
         dis = {x["text"].replace("▸", ""): x["disabled"] for x in m}
         check("docx — 빈 필드 제거·서식 변환·표 양식 지정은 꺼짐, 엑셀식 보기는 켜짐",
               dis.get("빈 필드 제거하기") and dis.get("서식으로 변환하기") and dis.get("이 표를 표 양식으로 지정") and dis.get("엑셀식 보기") is False, dis)
+        check("docx — 「프로젝트 구성에 맞추기…」 는 항목 자체가 없음(연구개발과제 hwpx 문서만)", not any(k.startswith("프로젝트 구성에 맞추기") for k in dis), dis)
         page.keyboard.press("Escape")
         page.locator(".tbl-corner-guide").click()
         page.wait_for_function("() => heads.dlg === 'tableAgent' && !!document.querySelector('.ta-wrap')", timeout=30000)

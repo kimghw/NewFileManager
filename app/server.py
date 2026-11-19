@@ -290,6 +290,7 @@ def _persist(s, force=False):
                      "division": {"settings": s.division["settings"], "applied": s.division["applied"], "hints": s.division.get("hints") or [],  # spec_구분_기준 ② §4·§11
                                   "review": s.division.get("review"),  # 마지막 LLM 검토(② §14)
                                   "confirmed": s.division.get("confirmed"),  # 1단계 구성 확정(spec_작업 ② §18)
+                                  **({"partial": s.division["partial"]} if s.division.get("partial") else {}),  # 한 자리만 반영한 기록(spec_테이블매니저 ② §9)
                                   **({"prior": s.division["prior"]} if s.division.get("prior") is not None else {})},  # 앞서 반영한 값들(② §19) — 아직 안 모았으면 키 없음
                      "outline": s.outline,  # 개요 편집 오버레이(spec_hwpx_웹편집 ② §8)
                      "zones": copy.deepcopy(s.zones)}  # 편집 구역의 지정·출처(spec_구역 ② §7 「저장 · 읽는 길 · 등록」) — 사본(쓰기는 잠금 밖: 그 사이 지정을 잇는 편집이 목록을 고친다)
@@ -378,7 +379,8 @@ def _restore_state(s, got):
     s.division = {"settings": dv.get("settings"), "applied": dv.get("applied"), "plan": None, "hints": [h for h in dv.get("hints") or [] if isinstance(h, dict)],
                   "review": dv.get("review") if isinstance(dv.get("review"), dict) else None, "reviewing": False,
                   "prior": [v for v in dv["prior"] if isinstance(v, dict)] if isinstance(dv.get("prior"), list) else None,   # ② §19 — 키가 없으면(옛 작업) 처음 쓸 때 모음
-                  "confirmed": dv.get("confirmed") if isinstance(dv.get("confirmed"), dict) else None}   # 1단계 구성 확정(spec_작업 ② §18) — 옛 작업은 없음
+                  "confirmed": dv.get("confirmed") if isinstance(dv.get("confirmed"), dict) else None,   # 1단계 구성 확정(spec_작업 ② §18) — 옛 작업은 없음
+                  "partial": _division_partial(dv.get("partial"))}   # 한 자리만 반영한 기록(spec_테이블매니저 ② §9) — 옛 작업은 없음
     s.outline = st.get("outline") if isinstance(st.get("outline"), dict) else None
     from app import zones_api
     s.zones = zones_api.load(st.get("zones"))   # 편집 구역의 지정·출처(spec_구역 ② §7 「저장 · 읽는 길 · 등록」) — 옛 작업(키 없음)은 빈 것
@@ -389,7 +391,17 @@ def _commit_state(s, extra):
     """확정 때의 구분 기준 적용 상태·개요 오버레이를 세션에(spec_작업 ② §8) — 편집 상태 파일이 있으면 _restore_state 가 그 뒤에 덮는다."""
     extra = extra or {}
     s.division["applied"] = extra["division"] if isinstance(extra.get("division"), dict) else None
+    s.division["partial"] = _division_partial(extra.get("divisionPartial"))   # 한 자리만 반영한 기록(spec_테이블매니저 ② §9)
     s.outline = extra["outline"] if isinstance(extra.get("outline"), dict) else None
+
+
+PARTIAL_MAX = 20   # 한 자리만 반영한 기록의 수(spec_테이블매니저 ② §9 「한 자리만 반영한 기록」)
+
+
+def _division_partial(v):
+    """저장된 「한 자리만 반영한 기록」 → [{values, only, rev, at, planId}] | None(없음). 꼴이 틀린 줄은 버린다."""
+    rows = [r for r in v if isinstance(r, dict) and isinstance(r.get("values"), dict) and isinstance(r.get("only"), str)] if isinstance(v, list) else []
+    return rows[-PARTIAL_MAX:] or None
 
 
 def _base_session(w, n, original):
@@ -747,6 +759,7 @@ def _snap(s):
     return {"doc": s.kit["struct"].snapshot(s.doc), "texts": dict(s.texts), "unrestored": set(s.unrestored),
             "formatted": set(s.formatted), "struct": set(s.struct), "removed": set(s.removed), "origin": dict(s.origin),
             "division": copy.deepcopy(s.division["applied"]),  # 구분 기준 적용 상태도 실행 취소와 함께(spec_구분_기준 ② §4)
+            "divisionPartial": copy.deepcopy(s.division.get("partial")),  # 한 자리만 반영한 기록도(spec_테이블매니저 ② §9)
             "outline": copy.deepcopy(s.outline),  # 개요 편집 오버레이도(spec_hwpx_웹편집 ② §8)
             "owpml_ok": set(s.owpml_ok),  # 받아들인 위반 종류도(owpml_allow) — 가져온 정의가 되돌려지면 허용도 되돌린다
             "zones": __import__("app.zones_api", fromlist=["snap"]).snap(s)}  # 편집 구역의 출처(취합으로 들어온 내용의 기록)도 — 넣은 편집이 되돌려지면 함께(spec_구역 ② §4 「출처 — 취합으로 들어온 내용」). 지정은 안 넣는다
@@ -758,6 +771,7 @@ def _rollback(s, snap):
     s.texts, s.unrestored, s.formatted = dict(snap["texts"]), set(snap["unrestored"]), set(snap["formatted"])
     s.struct, s.removed, s.origin = set(snap["struct"]), set(snap["removed"]), dict(snap["origin"])
     s.division["applied"], s.division["plan"] = copy.deepcopy(snap.get("division")), None  # 계획은 문서 버전에 묶여 있어 되돌리면 무효
+    s.division["partial"] = copy.deepcopy(snap.get("divisionPartial"))
     s.outline = copy.deepcopy(snap.get("outline"))
     # 편집 구역(spec_구역 ② §3 「지정 — 사람이 고른 블록」): 출처는 그 묶음의 것으로 · 되돌린 문서에 없는 블록은 지정에서 뺀다(번호표도 되돌아가 같은 번호가 다른 새 문단에 다시 쓰인다 — 옛 지정을 물려받지 않게)
     __import__("app.zones_api", fromlist=["rollback"]).rollback(s, snap.get("zones"))
@@ -1771,8 +1785,9 @@ def work_round(wid: str, body: dict = Body(default={})):
                     applied = copy.deepcopy(original_session.division.get("applied"))
                     if applied:
                         applied.update(rev=0, inheritedFrom=member["id"])  # 새 문서의 기준은 지금 구조: 이전 rev를 들고 오면 새 분석이 늘 오래된 것으로 보인다.
+                    partial = [{**r, "rev": 0} for r in copy.deepcopy(original_session.division.get("partial") or [])] or None   # 한 자리만 반영한 기록도 지금 구조의 것(spec_테이블매니저 ② §9)
                 else:
-                    data, applied = _round_uploaded_original(member), None
+                    data, applied, partial = _round_uploaded_original(member), None, None
                 local_settings = copy.deepcopy(original_session.division.get("settings"))
             _persist(original_session, force=True)  # 새 최대 round가 생기기 전에 이전 설정을 고정한다.
             fresh = Session(member["name"], data)
@@ -1782,6 +1797,7 @@ def work_round(wid: str, body: dict = Body(default={})):
                 raise HTTPException(409, str(exc)) from exc
             fresh.division["settings"] = shared_settings or local_settings
             fresh.division["applied"] = applied
+            fresh.division["partial"] = partial
             prepared.append((member, fresh, data))
         created, mapping = [], {}
         try:
@@ -2132,7 +2148,7 @@ def commit_create(doc_id: str, body: dict = Body(default={})):
         counts = _commit_counts(changes)
         try:
             doc, ids = _open_at(s, data, s.doc.id_state())  # 확정본을 다시 연 문서 = 새 기준(같은 블록 id)
-            extra = {"ids": ids, "division": s.division["applied"], "outline": s.outline, "changes": changes}
+            extra = {"ids": ids, "division": s.division["applied"], "divisionPartial": s.division.get("partial"), "outline": s.outline, "changes": changes}
             c = works.add_commit(s.id, s.fmt, data, {"message": message, "counts": counts, "parent": s.base_n}, extra)
         except (OSError, TypeError, ValueError, RuntimeError) as e:
             raise HTTPException(500, f"확정을 작업 폴더에 쓰지 못했습니다: {e}") from e
@@ -2339,6 +2355,9 @@ app.include_router(__import__("app.para_letter_api", fromlist=["router"]).router
 app.include_router(__import__("app.caption_tpl_api", fromlist=["router"]).router)   # 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — 템플릿 · 대표 정하기 · 대표에 맞추기) 끝점은 app/caption_tpl_api.py(spec_hwpx_웹편집 ② §8-10)
 app.include_router(__import__("app.division_scan_api", fromlist=["router"]).router)   # 구분 기준 판독(연구개발과제 문서 — 헤딩 추출 앞 · 지연 계산 · 다시 판독) 끝점은 app/division_scan_api.py(spec_구분_기준 ② §23)
 app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)   # 작업 진행 에이전트(진행 턴 · 카드의 끝 · 첫 화면) 끝점은 app/work_guide_api.py(spec_작업에이전트 ② §4)
+app.include_router(__import__("app.table_kinds_api", fromlist=["router"]).router)   # 표의 병합 방식 식별(기관마다 작성 · 구분 기준에 따라 병합 · 셀 값 합산 · 공통 — 띠마다) 끝점은 app/table_kinds_api.py(spec_테이블매니저 ② §5 「병합 방식」)
+app.include_router(__import__("app.table_kv_api", fromlist=["router"]).router)   # 표의 키-값 추출 · 다른 표에 매핑(계획 · 고른 칸만 넣기) 끝점은 app/table_kv_api.py(spec_테이블매니저 ② §7 「키-값 추출과 매핑」)
+app.include_router(__import__("app.table_types_api", fromlist=["router"]).router)   # 양식의 표 판정(사람이 확정한 표 판정을 양식에 저장 · 구조가 같은 표에 다시 씀) 끝점은 app/table_types_api.py(spec_테이블매니저 ② §10 「양식의 표 판정」)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
 app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
@@ -2354,6 +2373,7 @@ app.include_router(heading_drift_api.router)
 from app import merge_api  # noqa: E402
 
 app.include_router(merge_api.router)
+app.include_router(__import__("app.form_guides_api", fromlist=["router"]).router)   # 작성 지침 저장(작성 요령 표 · <참고 N> 자료 · ※ 안내를 헤딩/표별로 — 지우기 전에 남김) 끝점은 app/form_guides_api.py(spec_작업 ② §21 「작성 지침 저장」)
 app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
 app.include_router(__import__("app.zones_api", fromlist=["router"]).router)   # 편집 구역(기관·단계·차년도 값마다의 구역 — 자동 판독 · 지정 · 취합 출처) 끝점은 app/zones_api.py(spec_구역 ② §5)
@@ -2551,6 +2571,7 @@ def _division_view(s):
                         "supportedForms": sorted(PROFILE.SUPPORTED)},
             "settings": settings, "dimensions": PROFILE.dimensions(settings["values"]) if settings else None,
             "applied": s.division["applied"], "plan": division_plan.brief(plan) if plan else None,
+            "partial": s.division.get("partial") or [],   # 한 자리만 반영한 기록(spec_테이블매니저 ② §9) — 기관의 차례 검사 · 「반영」 단계의 끝남 셈이 같이 본다
             "hints": s.division.get("hints") or [],   # 추가한 자리(② §11) — 수·출처만 쓰고 상세는 members
             "review": s.division.get("review"), "reviewing": bool(s.division.get("reviewing")),   # 마지막 LLM 검토(취합)·도는 중(② §14)
             "stale": bool(plan) and plan["baseRev"] != s.rev, "rev": s.rev, "projectSharing": sharing,
@@ -2831,6 +2852,7 @@ def divisions_adopt(doc_id: str, body: dict = Body(default={})):
         s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]
         s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
                                  "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": summary, "adopted": True}
+        s.division["partial"] = None   # 문서 전체가 지금 값에 맞다고 확인됐다 — 한 자리만 반영한 기록은 더 볼 것이 없다(spec_테이블매니저 ② §9)
         applied = s.division["applied"]
     _persist_safe(s, force=True)   # rev 가 안 바뀌어도 반영 기록은 작업에 남긴다
     works.log(s.id, "divisionAdopt", rev=rev, planId=plan["planId"], settingsHash=plan["settingsHash"], summary=summary)
@@ -2865,8 +2887,14 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
         if after is None:
             return out
         s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]   # 반영한 값 쌓기(② §19)
-        s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
-                                 "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": plan["summary"]}
+        if plan["only"] is None:   # 한 자리만 반영한 것(only — 표 메뉴 「프로젝트 구성에 맞추기」: spec_테이블매니저 ② §9)은 문서 전체를 그 값으로 반영한 것이 아니다 — `applied` 를 그대로 둔다
+            #                        (적으면 TASK 의 「프로젝트 구성 반영」 단계가 끝남으로 보이고, 다음 전체 계획이 자리표시를 다시 본뜨지 않는다 — rebuild=False)
+            s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
+                                     "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": plan["summary"]}
+            s.division["partial"] = None   # 문서가 다시 한 값으로 맞았다
+        else:   # 따로 적어 둔다(② §9 「한 자리만 반영한 기록」) — 기관의 차례 검사가 이때의 차례와도 견주고, 전체 반영 뒤 다른 값으로 한 자리만 바꾼 문서를 「반영 끝남」 으로 세지 않게
+            rows = [r for r in s.division.get("partial") or [] if r.get("only") != plan["only"]]
+            s.division["partial"] = (rows + [{"values": plan["values"], "only": plan["only"], "rev": s.rev, "at": time.time(), "planId": plan["planId"]}])[-PARTIAL_MAX:]
         detail = works.add_detail(s.id, "divisions", plan["planId"], {**division_plan.view(plan), "appliedRev": s.rev})
         return {"applied": s.division["applied"], "detail": detail, "summary": plan["summary"], "unresolved": plan["unresolved"],
                 "candidates": [{k: c[k] for k in ("key", "status", "statusMessage")} for c in plan["candidates"]], **s.state()}
@@ -2923,16 +2951,36 @@ def _division_values(s):
     return settings["values"] if settings else PROFILE.norm_values(DIVISION_DEFAULT_VALUES)
 
 
+def _division_targets(s, blocks, levels):
+    """(세션 잠금 안 · _project_settings_sync 뒤) 자리(묶음 key)마다 {target: 프로젝트 구성에 맞춘 항목 수 | None(지금 못 맞춤), done: 이미 맞음, reason: 엔진의 까닭 코드 | None,
+    why: 못 맞추는 까닭 글 | None} — 프로젝트 구성 값이 아직 없으면 None(기본값으로 센 수를 보이지 않는다). **읽기 전용**: 표 메뉴 「프로젝트 구성에 맞추기…」 가 그 표의 자리를
+    「지금 n개 → 프로젝트 구성 m개」 로 보일 때 쓴다(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」). 계획 끝점(divisions_plan)이 후보를 셀 때와 같은 값 · rebuild · hints · prior 로
+    엔진의 자리 요약(preview)만 읽는다 — 계획을 만들지도 저장하지도 않는다."""
+    settings = s.division["settings"]
+    if settings is None:
+        return None
+    applied = s.division["applied"]
+    rebuild = not (applied and applied.get("values") == settings["values"])
+    hints = [h["para"] for h in s.division.get("hints") or [] if h.get("para")]
+    spots = PROFILE.preview(blocks, levels, settings["values"], rebuild=rebuild, hints=hints, prior=list(_division_prior(s)))
+    return {sp["key"]: {"target": sp["target"], "done": bool(sp["done"]), "reason": sp["reason"],
+                        "why": sp.get("message") or division_model.UNSUPPORTED_REASONS.get(sp["reason"])} for sp in spots}
+
+
 @app.get("/api/docs/{doc_id}/divisions/members")
-def divisions_members(doc_id: str):
+def divisions_members(doc_id: str, targets: bool = False):
     """문서 표시 자료(② §11) — 계획 없이 find 만: 묶음마다 항목 안 문단 id 전부 + 추가한 자리(hint) 행. 문서는 그대로.
-    + reads = 구분 기준 판독(② §23 — 연구개발과제 문서만)이 보탠 자리: 엔진 묶음의 라벨이 아닌 괄호 줄 · 표 안의 기관·차년도(판독만 — 반영 대상이 아니다). scan = 그 판독의 요약."""
+    + reads = 구분 기준 판독(② §23 — 연구개발과제 문서만)이 보탠 자리: 엔진 묶음의 라벨이 아닌 괄호 줄 · 표 안의 기관·차년도(판독만 — 반영 대상이 아니다). scan = 그 판독의 요약.
+    + `?targets=1` 일 때만 targets = 자리(묶음 key)마다 프로젝트 구성에 맞춘 수(_division_targets — 읽기 전용 · find 를 한 번 더 돈다) | None(프로젝트 구성 값 없음)."""
     s = _sess(doc_id)
     with s.lock:
         blocks = s.doc.blocks()
         form = PROFILE.form_of(blocks)
-        m = PROFILE.members(blocks, PROFILE.levels_of(blocks), _division_values(s), s.division.get("hints") or [], prior=_division_prior(s))
+        lv = PROFILE.levels_of(blocks)
+        m = PROFILE.members(blocks, lv, _division_values(s), s.division.get("hints") or [], prior=_division_prior(s))
         out = {**m, "rev": s.rev, "form": form, "supported": PROFILE.supported(form)}
+        if targets:
+            out["targets"] = _division_targets(s, blocks, lv)
     from app import division_scan_api as DSA
     e = DSA.ensure(s)
     if e is not None and e["rev"] == out["rev"]:   # 판독이 같은 문서 차례의 것일 때만 보탠다(그 사이 고쳤으면 다음 읽기에)

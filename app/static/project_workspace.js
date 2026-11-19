@@ -113,7 +113,7 @@ function projectSharingSync() { // 입력이 바뀌거나(divPresetRefresh) 입�
 }
 
 function projectDivisionNew() { // 「새로 만들기」 — 구성 입력 칸으로: 이관·취합은 1단계 묶음을 펴고 「구성 고치기」 와 같은 곳(taskFrameEdit), 양식 맞추기는 패널의 구성 입력 칸
-  const stage = document.getElementById("taskStage0") || document.getElementById("gatherStage0");
+  const stage = (taskFrameForm && taskFrameForm.isConnected && taskFrameForm.closest("details")) || document.getElementById("gatherStage0"); // 구성 입력 칸이 든 묶음 — 이관 = 2단계 「구성 맞추기」(#taskStage: spec_작업 ② §21) · 취합 = 1단계(#gatherStage0)
   if (stage) { taskFrameEdit(stage); return; }
   if (typeof divRunReveal === "function") divRunReveal(); // 양식 맞추기 — 구성 입력은 실행 묶음의 접어 둔 「세부」 안(spec_구분_기준 ② §22 「카드 하나」): 펴고 「불러오기」 고르기 목록으로
   const config = document.querySelector("#divBox fieldset.dv-config"), to = document.querySelector("#divBox #divSourceSel:not(:disabled)") || (config && config.querySelector(".dv-year-field input"));
