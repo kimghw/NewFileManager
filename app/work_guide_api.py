@@ -26,12 +26,14 @@ def _sess(doc_id):
 
 
 def _task(s):
-    """그 작업의 TASK → {job, name, project, round, role} — role: target(목적 문서) · source(원본 문서) · ""(그 TASK 에 목적 문서 종류가 없음 · TASK 없음)."""
+    """그 작업의 TASK → {job, name, project, round, role} — role: target(목적 문서) · source(원본 문서) · ""(그 TASK 에 목적 문서 종류가 없음 · TASK 없음).
+    name = 화면의 이름(task_catalog.js — 조립한 워크플로우는 저장소의 이름: 키를 이름으로 내지 않는다)."""
+    from app import custom_tasks   # 가벼운 모듈
     t = ((works.work(s.id) or {}).get("task") or {})
     job = t.get("job") or ""
     target = works.TARGET_FILE.get(job)
     cat = workflow.catalog()[0]
-    return {"job": job, "name": (cat.get(job) or {}).get("name") or job, "project": t.get("project") or "", "round": t.get("round") or 1,
+    return {"job": job, "name": (cat.get(job) or {}).get("name") or (custom_tasks.get(job) or {}).get("name") or job, "project": t.get("project") or "", "round": t.get("round") or 1,
             "role": ("target" if t.get("file") == target else "source") if target and t.get("file") else ""}
 
 
@@ -133,16 +135,20 @@ def guide_close(doc_id: str, turn: str, body: dict = Body(...)):
 
 
 def _tasks():
-    """첫 화면에 보낼 TASK 목록 [{job, name, desc, accept, soon}] — 이름·설명은 task_catalog.js, 받는 확장자도 그 파일의 accept(없으면 hwp·hwpx)."""
+    """첫 화면에 보낼 워크플로우 목록 [{job, name, desc, accept, soon}] — 붙박이는 이름·설명이 task_catalog.js, 받는 확장자도 그 파일의 accept(없으면 hwp·hwpx).
+    그 뒤에 화면에서 조립한 워크플로우(app/custom_tasks.py — 만든 차례): 이름 = 저장소의 이름 · 설명 = 적은 한 줄 설명(비웠으면 등록부가 실제 배정에서 지은 글 — workflow.custom_desc) ·
+    받는 형식 = 이관과 같은 hwp · hwpx(spec_워크플로우 ② §14)."""
+    from app import custom_tasks   # 가벼운 모듈
     cat = workflow.catalog()[0]
     return [{"job": t["job"], "name": (cat.get(t["job"]) or {}).get("name") or t["job"], "desc": (cat.get(t["job"]) or {}).get("desc") or "",
-             "accept": list((cat.get(t["job"]) or {}).get("accept") or ACCEPT), "soon": bool(t.get("soon"))} for t in workflow.TASKS]
+             "accept": list((cat.get(t["job"]) or {}).get("accept") or ACCEPT), "soon": bool(t.get("soon"))} for t in workflow.TASKS] \
+        + [{"job": c["key"], "name": c["name"], "desc": c["desc"] or workflow.custom_desc(c), "accept": list(ACCEPT), "soon": False} for c in custom_tasks.all()]
 
 
 @router.post("/api/agent/guide")
 def guide_home(body: dict = Body(...)):
     """첫 화면(문서 없음) — {text?, files?[{name, ext, size}], history?[{who, text}]} → {reply, ask | null, act: "start:<job>" | "", llm, notes[], tasks[…]}.
-    행동은 「그 TASK 로 시작」 뿐이다(파일이 있을 때 · 준비 중인 TASK 제외 · 그 확장자를 받는 TASK 만). 저장하지 않는다."""
+    행동은 「그 워크플로우로 시작」 뿐이다(파일이 있을 때 · 준비 중인 워크플로우 제외 · 그 확장자를 받는 워크플로우만). 저장하지 않는다."""
     text = _text(body)
     files = []
     for f in body.get("files") if isinstance(body.get("files"), list) else ():

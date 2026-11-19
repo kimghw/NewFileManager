@@ -237,7 +237,7 @@ def merge_pairs_post(doc_id: str, body: dict = Body(default={})):
         if not works.work(body["from"]):
             raise HTTPException(404, "그런 작업이 없습니다")
         if not _source_allowed(doc_id, body["from"]):
-            raise HTTPException(400, "같은 프로젝트·TASK·라운드의 원본 문서를 고르세요")
+            raise HTTPException(400, "같은 프로젝트·워크플로우·라운드의 원본 문서를 고르세요")
         _store(doc_id, {**_store(doc_id), "from": body["from"]})
     return _view(doc_id, fresh=True)[0]
 
@@ -698,7 +698,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
     if not _source_allowed(doc_id, plan["from"]) or ("scope" in plan and plan["scope"] != _source_scope(doc_id, plan["from"])):
         _PLANS.pop(doc_id, None)
-        raise HTTPException(409, "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 계획하세요")
+        raise HTTPException(409, "계획을 세운 뒤 프로젝트·워크플로우·라운드가 바뀌었습니다 — 다시 계획하세요")
     to, frm = _read(doc_id, target=True), _read(plan["from"])
     s, src = server._sess(doc_id), server._sess(plan["from"])
     first, second = sorted((s, src), key=lambda x: x.id)   # 원본도 같이 잠근다(차례 = id — 서로 맞물리지 않게): 반영 중 원본이 바뀌면 칸 글은 계획 때 것, 본문은 바뀐 것이 섞인다(astra P2-12)

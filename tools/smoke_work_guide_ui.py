@@ -4,6 +4,7 @@ LLM 이 꺼져 있으므로 에이전트의 답은 스크립트 답(`work_guide.
 - 첫 화면: 오른쪽에 에이전트 대화창(#homeAgent — 글 칸 · 「파일」 · 「보내기」) · 글만 보내면 파일을 올리라고 답 · 파일을 올리고 보내면 TASK 를 묻는 질문 카드.
 - 질문 카드에서 「사업계획서 양식 표준화」 → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(1단계 프로젝트 구성 지금 · 2단계 헤딩 추출 · 3단계 표 남음).
 - 연쇄: 「구성 읽기」(문서에서 읽기 — 바로 실행) → 값이 없어 질문 카드(프로젝트 구성 폼) → 「확정」 → 변경 계획(바로 실행 — 문서 옆 열에 목록) → 실행 카드 「문서에 반영」(문서 바뀜 — 「진행」 을 눌러야).
+  계획에 미해결 자리가 있어 스크립트 답이 질문 카드로 고르게 하면 — 고른 「문서에 반영」 도 바로 돌지 않고 실행 카드로 묻는다(고른 것은 승인이 아니다).
 - 「진행」 → 문서가 바뀜(편집 차례 +1) → 결과 턴 — 1단계 끝남 · 「지금 차례는 「헤딩 LLM 판정 …」」(LLM 끔 — 2 · 3단계 LLM 행동은 내지 않음).
 - 2 · 3단계 행동(spec_양식표준화 ② §5 — LLM 을 쓸 수 있다고 보고 셈 · 실행 함수는 바꿔 끼움 · 분석 상태는 끝점의 답을 흉내): heads_llm(첫째 · 유료) · tables_llm → headsPickRun([l2]|[l3], {asked}) ·
   헤딩 판정을 거쳤고 계획이 있으면 heads_apply(문서 바뀜 · key = 계획 표시) → tpbApply({plans}).
@@ -103,7 +104,7 @@ def main():
         page.click("[data-agh=send]")
         page.wait_for_selector("#homeAgent .agw-ask .agw-opt", timeout=20000)
         opts = page.evaluate("() => [...document.querySelectorAll('#homeAgent .agw-opt')].map((o) => [o.dataset.value, o.querySelector('b').textContent])")
-        check("파일을 올리고 보내면 — 질문 카드 「어느 TASK 로 시작할까요?」(시작할 수 있는 TASK 만 · 준비 중인 것 없음)",
+        check("파일을 올리고 보내면 — 질문 카드 「어느 워크플로우로 시작할까요?」(시작할 수 있는 워크플로우만 · 준비 중인 것 없음)",
               ["start:plan_fit", "사업계획서 양식 표준화"] in opts and all(v.startswith("start:") for v, _ in opts) and "start:report_merge" not in [v for v, _ in opts] and len(opts) >= 5, opts)
         page.screenshot(path=str(OUT / "02_home_ask.png"))
 
@@ -146,13 +147,17 @@ def main():
         last = turns[-1]
         if last["ask"] == "choice":   # 계획에 사람이 볼 것(미해결 자리)이 있으면 스크립트 답은 고르게 한다 — 「문서에 반영」 을 고른다
             page.click('#paneAgent .agw-turn:last-child .agw-opt[data-value="apply"]')
-        else:
-            card = page.evaluate("""() => { const c = [...document.querySelectorAll('#paneAgent .agw-act[data-act=apply]')].pop(); return { tags: [...c.querySelectorAll('.agw-tag')].map((x) => x.textContent), go: !!c.querySelector('[data-agw=go]'),
-              skip: !!c.querySelector('[data-agw=skip]'), does: c.querySelector('.agw-does').textContent }; }""")
-            check("문서를 바꾸는 행동은 실행 카드로 멈춘다 — 「문서에 반영」 · 꼬리표 「문서 바뀜」 · 「진행」 · 「건너뛰기」(누르기 전에는 문서가 그대로)",
-                  card["tags"] == ["문서 바뀜"] and card["go"] and card["skip"] and "맞출 자리" in card["does"] and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, card)
-            page.screenshot(path=str(OUT / "04_act_card.png"))
-            page.click("#paneAgent .agw-turn:last-child [data-agw=go]")
+            # 고른 것은 승인이 아니다 — 문서를 바꾸는 행동이면 그 턴이 실행 카드로 바뀌어 「진행」 을 기다린다(선택지에는 꼬리표 · 문서 바뀜이 안 보인다: spec_워크플로우 ② §15 「실행」)
+            page.wait_for_selector("#paneAgent .agw-turn:last-child .agw-act[data-act=apply] [data-agw=go]:not([disabled])", timeout=60000)
+            notes = page.evaluate("() => [...[...document.querySelectorAll('#paneAgent .agw-turn')].pop().querySelectorAll('.ag-note')].map((x) => x.textContent)")
+            check("질문 카드에서 고른 「문서에 반영」 — 바로 돌지 않고 실행 카드로 묻는다(「고른 일은 문서를 바꾸거나 유료 LLM 을 불러 실행 카드로 확인합니다」 · 누르기 전에는 문서가 그대로)",
+                  "고른 일은 문서를 바꾸거나 유료 LLM 을 불러 실행 카드로 확인합니다" in notes and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, notes)
+        card = page.evaluate("""() => { const c = [...document.querySelectorAll('#paneAgent .agw-act[data-act=apply]')].pop(); return { tags: [...c.querySelectorAll('.agw-tag')].map((x) => x.textContent), go: !!c.querySelector('[data-agw=go]'),
+          skip: !!c.querySelector('[data-agw=skip]'), does: c.querySelector('.agw-does').textContent }; }""")
+        check("문서를 바꾸는 행동은 실행 카드로 멈춘다 — 「문서에 반영」 · 꼬리표 「문서 바뀜」 · 「진행」 · 「건너뛰기」(누르기 전에는 문서가 그대로)",
+              card["tags"] == ["문서 바뀜"] and card["go"] and card["skip"] and "맞출 자리" in card["does"] and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, card)
+        page.screenshot(path=str(OUT / "04_act_card.png"))
+        page.click("#paneAgent .agw-turn:last-child [data-agw=go]")
         page.wait_for_function("() => { const t = [...document.querySelectorAll('#paneAgent .agw-turn')].pop(); return t && t.dataset.event === 'result' && /문서에 반영했습니다/.test(t.textContent) && !AGENT.busy; }", timeout=180000)
         turns = page.evaluate(TURNS)
         steps = page.evaluate(STEPS)

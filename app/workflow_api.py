@@ -23,7 +23,7 @@ def workflow_get():
 
 @router.get("/workflow")
 def workflow_page():
-    """TASK 워크플로우 페이지 — 따로 선 페이지(문서 화면과 다른 탭)."""
+    """워크플로우 페이지 — 따로 선 페이지(문서 화면과 다른 탭)."""
     html = (STATIC / "workflow.html").read_text(encoding="utf-8")
     for name in VERSIONED:
         html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={int((STATIC / name).stat().st_mtime)}"')

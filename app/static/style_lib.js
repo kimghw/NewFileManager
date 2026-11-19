@@ -66,7 +66,7 @@ const SL_CHECK = { render: "출력", pages: "쪽 수", text: "칸 글", fontSize
   pageSize: "쪽 크기", marginLeft: "왼쪽 여백", marginTop: "위쪽 여백" }; // 뒤 셋 = 문서 서식(profile page-v1 — spec_서식복사 ② §7)
 const SL_STATUS = { pass: "통과", fail: "실패", unknown: "모름", unsupported: "재지 못함" };
 const SL_BANDS = [["headerRows", "머리행", "위쪽 열 제목 행 수"], ["headerCols", "머리열", "왼쪽 행 제목 열 수"], ["footRows", "합계행", "아래쪽 합계·소계 행 수"]];
-const SL_KEEP_HELP = "기본은 자료값을 저장하지 않습니다 — 머리 칸(머리행·머리열)의 글은 그대로 두고, 나머지 칸·문단의 글은 견본(「0」·「가나다」·「견본 글입니다」)으로 바꿔 저장합니다.\n켜면 원래 글을 그대로 저장합니다 — 보관함은 서버 전체에서 보이므로 다른 문서·TASK 에서 열어도 그 글이 보입니다.";
+const SL_KEEP_HELP = "기본은 자료값을 저장하지 않습니다 — 머리 칸(머리행·머리열)의 글은 그대로 두고, 나머지 칸·문단의 글은 견본(「0」·「가나다」·「견본 글입니다」)으로 바꿔 저장합니다.\n켜면 원래 글을 그대로 저장합니다 — 보관함은 서버 전체에서 보이므로 다른 문서·워크플로우에서 열어도 그 글이 보입니다.";
 // 한 번 읽어 둔 것(보관함은 문서와 무관 — 문서를 바꿔도 남는다). save = 추출 후보 열의 상태(문서·파일마다)
 // tab = 고른 갈래(문서를 바꿔도 남는다 — 처음 내용 서식) · pdfDocx = Word 출력이 되나 · dual = 서버가 두 형식을 안다(목록 응답에 pdfDocx 가 있음 — 옛 서버면 docx 꼬리표·받기·Word 출력 그림을 내지 않는다) ·
 // picSrc[sid] = 그 서식 그림의 원천(web | hwpx | docx — 사람이 고른 것: 출력이 끝나도 저절로 안 바꾼다) · big = 「크게」 로 편 그림(서식 `lib|sid` · 후보 `cand|…`) · manage = 「⋯ 더보기」 를 편 서식 · proofs = 출력 그림 요소(다시 그려도 다시 안 읽게)
@@ -116,7 +116,7 @@ function slGo(id) { // 문서에서 그 블록으로 — 열은 그대로 둔다
   if (id && paraEl(id)) { scrollToBlock(id); return true; }
   const t = slBlockEls(id)[0];
   if (!t) { toast("그 자리가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)"); return false; }
-  t.scrollIntoView({ block: "center", behavior: "smooth" });
+  t.scrollIntoView({ block: "center", behavior: scrollHow() });
   if (t.dataset.tbl && typeof tmnActivate === "function") tmnActivate(t.dataset.tbl);
   return true;
 }
@@ -466,7 +466,7 @@ function slSrcTitle(s) {
   const src = s.source || {}, seen = s.seenIn || [];
   if (!src.name) return "";
   const task = (x) => (typeof taskName === "function" && x.job ? taskName("job", x.job) : "") || x.job || "";
-  const one = (x) => [x.name, x.project ? `프로젝트 ${x.project}` : "", task(x) ? `TASK ${task(x)}` : "", x.round ? `라운드 ${x.round}` : "", x.where || "", x.at ? slWhen(x.at) : ""].filter(Boolean).join(" · ");
+  const one = (x) => [x.name, x.project ? `프로젝트 ${x.project}` : "", task(x) ? `워크플로우 ${task(x)}` : "", x.round ? `라운드 ${x.round}` : "", x.where || "", x.at ? slWhen(x.at) : ""].filter(Boolean).join(" · ");
   return [`이 서식을 뽑은 문서 — ${one(src)}${src.work ? "" : " (파일에서 바로 뽑음)"}`, ...(seen.length ? ["같은 서식이 나온 다른 문서:", ...seen.map((x) => `· ${one(x)}`)] : [])].join("\n");
 }
 

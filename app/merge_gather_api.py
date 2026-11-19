@@ -206,7 +206,7 @@ def _part_scope(to_id, pid):
     target = projects.group_key((works.work(to_id) or {}).get("task"))
     source = projects.group_key((works.work(pid) or {}).get("task"))
     if pid == to_id or (source[0] and source != target):
-        raise _Why("badPart", "다른 프로젝트·TASK·라운드의 문서는 이 취합에 넣을 수 없습니다")
+        raise _Why("badPart", "다른 프로젝트·워크플로우·라운드의 문서는 이 취합에 넣을 수 없습니다")
     return target, source
 
 
@@ -794,7 +794,7 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
     try:
         src = _part_sess(part, doc_id)
         if "scope" in plan and plan["scope"] != _part_scope(doc_id, part):
-            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 계획하세요")
+            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·워크플로우·라운드가 바뀌었습니다 — 다시 계획하세요")
     except _Why as e:
         raise _err(409, "stalePlan", e.message) from e
     s = server._sess(doc_id)
@@ -886,7 +886,7 @@ def gather_drop_apply(doc_id: str, body: dict = Body(...)):
     try:
         src = _part_sess(plan["from"], doc_id)
         if "scope" in plan and plan["scope"] != _part_scope(doc_id, plan["from"]):
-            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·TASK·라운드가 바뀌었습니다 — 다시 끌어 놓아 주세요")
+            raise _Why("stalePlan", "계획을 세운 뒤 프로젝트·워크플로우·라운드가 바뀌었습니다 — 다시 끌어 놓아 주세요")
     except _Why as e:
         raise _err(409, "stalePlan", e.message) from e
     s = server._sess(doc_id)

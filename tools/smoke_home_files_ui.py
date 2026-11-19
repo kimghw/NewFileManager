@@ -134,7 +134,7 @@ try:
         page.evaluate(DROP, [[[b64(sample(DOCX)), DOCX], [b64(b"x"), "메모.txt"]], "#empty"])
         page.wait_for_timeout(300)
         L = page.evaluate(LIST)
-        check("시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 그 밖의 형식은 알림", len(L["rows"]) == 3 and L["rows"][2]["ext"] == "DOCX" and "TASK 없이 열기 · 서식 복사" in L["rows"][2]["tag"]
+        check("시작 화면에 놓아도 목록 · 같은 파일은 한 번 · 그 밖의 형식은 알림", len(L["rows"]) == 3 and L["rows"][2]["ext"] == "DOCX" and "워크플로우 없이 열기 · 서식 복사" in L["rows"][2]["tag"]
               and "메모.txt" in L["toast"] and works() == [], L)
         page.screenshot(path=str(OUT / "1_list.png"))
         for width in (400, 320):
@@ -199,15 +199,15 @@ try:
         dialogs.clear()
         page.locator("#taskCards [data-task=plan_fit]").click()
         page.wait_for_timeout(300)
-        check("양식 표준화 · 나머지 문서 있음 → 확인 창(취소면 아무것도 안 올림)", len(dialogs) == 1 and "목적 문서 하나로" in dialogs[0] and "나머지 1개는 목록에 남깁니다" in dialogs[0]
+        check("양식 표준화 · 나머지 문서 있음 → 확인 창(문서 하나인 워크플로우 = 「작업 문서 하나로」 · 취소면 아무것도 안 올림)", len(dialogs) == 1 and "작업 문서 하나로" in dialogs[0] and "나머지 1개는 목록에 남깁니다" in dialogs[0]
               and len(works()) == n and page.evaluate("() => state.id") is None, dialogs)
         answer["accept"] = True
         page.locator("#taskCards [data-task=plan_fit]").click()
         page.wait_for_selector(".sf-pop", timeout=120000)  # 「같은 파일 고르기」(spec_작업 ② §1 「같은 파일은 묻고 연다」 — 2026-11-18: 전에는 묻지 않고 새 작업)
         sf = page.evaluate("""() => ({ rows: [...document.querySelectorAll('.sf-pop .sf-row')].map((r) => [r.dataset.work, [...r.querySelectorAll('.sf-acts [data-sf]')].map((b) => b.dataset.sf),
             (r.querySelector('.sf-why') || {}).textContent || '']), project: (document.getElementById('sfProject') || {}).value, busy: hf.busy, id: state.id })""")
-        check("같은 파일로 다른 TASK(이관의 사업계획서)를 하던 작업 → 「같은 파일 고르기」(그 줄은 「그대로 열기」 만 · 프로젝트 칸 · 목록 줄은 「고르세요」 · 아직 안 열림)",
-              len(sf["rows"]) == 1 and sf["rows"][0][0] == pid and sf["rows"][0][1] == ["open"] and "다른 TASK" in sf["rows"][0][2] and sf["project"] == page.evaluate("() => hfNorm(hf.project, 60)")
+        check("같은 파일로 다른 워크플로우(이관의 사업계획서)를 하던 작업 → 「같은 파일 고르기」(그 줄은 「그대로 열기」 만 · 프로젝트 칸 · 목록 줄은 「고르세요」 · 아직 안 열림)",
+              len(sf["rows"]) == 1 and sf["rows"][0][0] == pid and sf["rows"][0][1] == ["open"] and "다른 워크플로우" in sf["rows"][0][2] and sf["project"] == page.evaluate("() => hfNorm(hf.project, 60)")
               and "고르세요" in sf["busy"] and sf["id"] is None, sf)
         page.locator('.sf-pop [data-sf="new"]').click()
         page.wait_for_function("() => state.id && state.task.job === 'plan_fit' && document.getElementById('panel').dataset.tool === 'Div'", timeout=120000)

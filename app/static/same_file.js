@@ -7,7 +7,7 @@
 let sfOpen = null; // 열린 창 {box, done(값)} — 한 번에 하나
 
 const SF_RESET_LOSE = "고친 문단 · 헤딩/표 분석 · LLM 결과 · 서식 정리 계획 · 에이전트 대화 · 검증 기록";
-const SF_RESET_KEEP = "올린 원본 · 확정 기록 · 작업 기록 · 프로젝트 · TASK · 라운드 · 프로젝트 구성";
+const SF_RESET_KEEP = "올린 원본 · 확정 기록 · 작업 기록 · 프로젝트 · 워크플로우 · 라운드 · 프로젝트 구성";
 
 // file 을 올린다 — 같은 파일로 하던 작업이 있으면 묻는다. → 고른 것 | null(창을 닫음 — 아무것도 열지 않음)
 //   {act: "fresh", r}  같은 파일 작업이 없어 새 작업을 만들었다(r = 올리기 응답 · reused false)
@@ -94,7 +94,7 @@ function sameFilePick(r, opts = {}) {
           rs.setAttribute("aria-expanded", String(confirmAt === w.id));
           acts.append(go, rs);
         } else {
-          const open = hBtn("그대로 열기", () => sfClose({ act: "open", id: w.id }), { cls: "btn sm", title: "그 작업을 그 TASK 그대로 엽니다 — 이 TASK 시작은 멈춥니다" });
+          const open = hBtn("그대로 열기", () => sfClose({ act: "open", id: w.id }), { cls: "btn sm", title: "그 작업을 그 워크플로우 그대로 엽니다 — 이 워크플로우 시작은 멈춥니다" });
           open.dataset.sf = "open";
           acts.append(open);
         }
@@ -134,7 +134,7 @@ function sameFilePick(r, opts = {}) {
       foot.append(row);
     }
     const fresh = hBtn("새 작업으로 시작", () => sfClose({ act: "new", project: input ? input.value.trim() : "" }),
-      { cls: "btn sm", title: "올린 원본부터 새 작업을 만듭니다" + (opts.job ? " — 프로젝트 칸에 적으면 그 프로젝트의 이 TASK 다음 라운드로 · 비우면 임시 이름(임시 프로젝트 N)으로" : "") });
+      { cls: "btn sm", title: "올린 원본부터 새 작업을 만듭니다" + (opts.job ? " — 프로젝트 칸에 적으면 그 프로젝트의 이 워크플로우 다음 라운드로 · 비우면 임시 이름(임시 프로젝트 N)으로" : "") });
     fresh.dataset.sf = "new";
     const acts = el("div", "sf-new-acts");
     acts.append(fresh, el("span", "sf-note", "하던 작업은 목록에 그대로 남습니다"));

@@ -285,7 +285,7 @@ def _markable(t):
     if not t["hwpx"]:
         raise _err(400, "badMark", "hwpx 문서에서만 구역을 지정할 수 있습니다")
     if not task_options.resolve(_work(t["id"])).get("offered"):
-        raise _err(400, "badMark", "연구개발 TASK 의 문서에서만 구역을 지정할 수 있습니다")
+        raise _err(400, "badMark", "연구개발 워크플로우의 문서에서만 구역을 지정할 수 있습니다")
 
 
 def _why_not(i, info, blocks):

@@ -250,7 +250,7 @@ try:
         check("준비 중인 TASK 는 「연차보고서 취합」 하나", [c["key"] for c in cards if c["soon"]] == ["report_merge"] and cards[4]["go"] == "준비 중" and cards[0]["go"].startswith("사업계획서 올려 시작"),
               [(c["key"], c["soon"], c["go"]) for c in cards])
         order = page.evaluate("""() => ['.home-intro', '#homeTasks', '.home-capabilities', '#recent'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top))""")
-        check("자리 — 올리기 묶음 아래 · 기능 소개 줄 위 · 제목 「TASK」", order == sorted(order) and len(set(order)) == 4 and page.evaluate("() => document.getElementById('homeTasksTitle').textContent") == "TASK", order)
+        check("자리 — 올리기 묶음 아래 · 기능 소개 줄 위 · 제목 「워크플로우」", order == sorted(order) and len(set(order)) == 4 and page.evaluate("() => document.getElementById('homeTasksTitle').textContent") == "워크플로우", order)
         page.screenshot(path=str(OUT / "7_tasks.png"), full_page=True)
         for width, cols in ((1200, 4), (860, 4), (560, 2), (400, 1)):  # 좁은 창 — 카드 줄 수가 준다(가로 넘침 없음): 한 줄 7(시작 화면 폭 1192px 부터) → 4 → 2(760px 이하) → 1(430px 이하)
             page.set_viewport_size({"width": width, "height": 900})
@@ -312,8 +312,8 @@ try:
         fc.value.set_files(str(ROOT / "samples" / SMALL))
         page.wait_for_selector(".sf-pop", timeout=60000)
         sf = page.evaluate(SF)
-        check("다른 TASK 를 하던 작업 — 그 줄은 「그대로 열기」 만 · 까닭(다른 TASK 의 이름)", sf and [r["id"] for r in sf["rows"]] == [wid] and sf["rows"][0]["acts"] == ["open"]
-              and "다른 TASK" in sf["rows"][0]["why"] and "사업계획서 양식 표준화" in sf["rows"][0]["why"] and sf["focus"] == "open", sf)
+        check("다른 워크플로우를 하던 작업 — 그 줄은 「그대로 열기」 만 · 까닭(다른 워크플로우의 이름)", sf and [r["id"] for r in sf["rows"]] == [wid] and sf["rows"][0]["acts"] == ["open"]
+              and "다른 워크플로우" in sf["rows"][0]["why"] and "사업계획서 양식 표준화" in sf["rows"][0]["why"] and sf["focus"] == "open", sf)
         sf_pick("new")
         page.wait_for_function("""(w) => state.id && state.id !== w && state.task.job === 'plan_merge' && document.getElementById('panel').dataset.tool === 'Div'
             && !!document.querySelector('#paneDiv select[data-task=job]') && window.__toasts.some((x) => x.m.includes('새 작업으로 열었습니다'))""", arg=wid, timeout=60000)
@@ -321,7 +321,7 @@ try:
         new_id = t["id"]
         note = page.evaluate("() => window.__toasts.map((x) => x.m).filter((m) => m.includes('새 작업으로 열었습니다')).pop()")
         check("「새 작업으로 시작」 — 새 작업이 고른 TASK 로(작업 개요가 열림)", new_id != wid and t["task"]["job"] == "plan_merge" and t["task"]["kind"] == "rnd" and t["pane"] and t["job"] == "plan_merge", t)
-        check("알림 — 하던 작업은 그대로 · 새 작업의 TASK · 임시 프로젝트(칸을 비움 — ② §17 「임시 프로젝트」)", "TASK 「사업계획서 취합」 · 프로젝트 「임시 프로젝트 " in note and "임시 이름" in note
+        check("알림 — 하던 작업은 그대로 · 새 작업의 워크플로우 · 임시 프로젝트(칸을 비움 — ② §17 「임시 프로젝트」)", "워크플로우 「사업계획서 취합」 · 프로젝트 「임시 프로젝트 " in note and "임시 이름" in note
               and t["task"]["project"].startswith("임시 프로젝트 ")
               and not any("하던 작업입니다" in x["m"] for x in page.evaluate("() => window.__toasts.map((x) => ({ m: x.m }))")), note)
         check("앞 작업의 TASK 는 그대로", next(w for w in requests.get(f"{base}/api/works", timeout=10).json() if w["id"] == wid)["task"]["job"] == "plan_fit")
@@ -449,19 +449,19 @@ try:
         check("작업 이름 = 프로젝트 이름 — 없으면 흐린 「프로젝트 이름 없음」", d.get("title") == "시험 과제" and not d.get("dim") and a.get("title") == "프로젝트 이름 없음" and a.get("dim"), (a, d))
         check("둘째 줄 = 이 문서의 역할 + 파일 이름(취합의 사업계획서는 「취합본」)", (a.get("role"), m.get("role"), d.get("role")) == ("사업계획서", "취합본", "사업계획서")
               and a.get("name") == SMALL and d.get("name", "").startswith(PLAN.rsplit(".", 1)[0]), (a, m, d))
-        check("TASK 없는 줄 — 파일 형식 그림 · 첫 줄 = 파일 이름 · 「TASK 없음」 · 역할 줄 없음", p.get("file") and p.get("logo") is None and p.get("title") == "기술수요조사서.docx" and p.get("chip") == "TASK 없음"
+        check("워크플로우 없는 줄 — 파일 형식 그림 · 첫 줄 = 파일 이름 · 「워크플로우 없음」 · 역할 줄 없음", p.get("file") and p.get("logo") is None and p.get("title") == "기술수요조사서.docx" and p.get("chip") == "워크플로우 없음"
               and p.get("role") == "" and p.get("name") == "", p)
-        check("흐린 표시(.none — 「TASK 없음」 · 「프로젝트 이름 없음」 · 「검증 전」)에 빈 목록 줄의 큰 여백이 안 붙음 · 표지 높이 24px 이하",
+        check("흐린 표시(.none — 「워크플로우 없음」 · 「프로젝트 이름 없음」 · 「검증 전」)에 빈 목록 줄의 큰 여백이 안 붙음 · 표지 높이 24px 이하",
               all(v <= 8 for x in (a, m, d, p) for v in x.get("pads", [99])) and all(x.get("chipH", 99) <= 24 for x in (a, m, d, p)), [(x.get("pads"), x.get("chipH")) for x in (a, m, d, p)])
-        check("읽는 이름(aria-label)에 프로젝트 · TASK · 라운드 · 역할", d.get("label", "").startswith("프로젝트 「시험 과제」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 · 사업계획서")
-              and a.get("label", "").startswith("프로젝트 미지정 · TASK 「사업계획서 양식 표준화」") and "TASK 없음" in p.get("label", ""), (d.get("label"), a.get("label"), p.get("label")))
+        check("읽는 이름(aria-label)에 프로젝트 · 워크플로우 · 라운드 · 역할", d.get("label", "").startswith("프로젝트 「시험 과제」 · 워크플로우 「사업계획서 → 연차보고서 이관」 · Round 1 · 사업계획서")
+              and a.get("label", "").startswith("프로젝트 미지정 · 워크플로우 「사업계획서 양식 표준화」") and "워크플로우 없음" in p.get("label", ""), (d.get("label"), a.get("label"), p.get("label")))
         page.locator("#recent").scroll_into_view_if_needed()
         page.screenshot(path=str(OUT / "7_recent.png"))
         page.locator("#recentAll").click()
         page.wait_for_selector("#worksDlg[open] #workListDlg .work-task")
         dlg = page.evaluate("""() => [...document.querySelectorAll('#workListDlg .work-open')].map((b) => ({ name: b.querySelector('.work-name').textContent, task: b.querySelector('.work-task').textContent,
             tagH: Math.max(...[...b.querySelectorAll('.vtag, .recent-task')].map((x) => Math.round(x.getBoundingClientRect().height))) }))""")
-        check("작업 목록 창에도 프로젝트 · TASK · 라운드 · 역할 줄", any(x["task"] == "프로젝트 「시험 과제」사업계획서 → 연차보고서 이관Round 1 · 사업계획서" for x in dlg) and any(x["task"] == "TASK 없음" for x in dlg)
+        check("작업 목록 창에도 프로젝트 · 워크플로우 · 라운드 · 역할 줄", any(x["task"] == "프로젝트 「시험 과제」사업계획서 → 연차보고서 이관Round 1 · 사업계획서" for x in dlg) and any(x["task"] == "워크플로우 없음" for x in dlg)
               and any(x["task"].startswith("프로젝트 「임시 프로젝트 ") and x["task"].endswith("」사업계획서 취합Round 1 · 취합본") for x in dlg), dlg)
         check("작업 목록 창 — 표지(검증 · TASK) 높이 24px 이하(빈 목록 줄의 여백이 안 붙음)", all(x["tagH"] <= 24 for x in dlg), [x["tagH"] for x in dlg])
         page.screenshot(path=str(OUT / "7_recent_dialog.png"))
@@ -566,7 +566,7 @@ try:
               and set(g.get("works", [])) == {drop_id, g2} and f"문서 「{g3_name}」을(를) 지웠습니다" in page.locator("#toast").text_content(), (page.locator("#toast").text_content(), g))
         x_of(g2).click()
         d = page.evaluate(DEL, g2)
-        check("묶음 줄의 × — 「프로젝트 · TASK · Round 의 문서 N개」 + 문서 이름 목록", "프로젝트 「시험 과제」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in d["text"]
+        check("묶음 줄의 × — 「프로젝트 · 워크플로우 · Round 의 문서 N개」 + 문서 이름 목록", "프로젝트 「시험 과제」 · 워크플로우 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in d["text"]
               and len(d["names"]) == 2 and "이전 라운드" not in d["text"] and d["fit"], d)
         page.set_viewport_size({"width": 400, "height": 900})
         page.wait_for_timeout(250)

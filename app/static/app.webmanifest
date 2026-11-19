@@ -2,7 +2,7 @@
   "id": "/",
   "name": "HWPX·DOCX 웹 편집",
   "short_name": "웹 편집",
-  "description": "HWPX·DOCX 문서를 웹에서 편집하고 TASK(사업계획서 양식 표준화 · 취합 · 이관 …)를 진행합니다 — 이 PC 의 서버(8114)가 켜져 있어야 열립니다.",
+  "description": "HWPX·DOCX 문서를 웹에서 편집하고 워크플로우(사업계획서 양식 표준화 · 취합 · 이관 …)를 진행합니다 — 이 PC 의 서버(8114)가 켜져 있어야 열립니다.",
   "lang": "ko",
   "start_url": "/",
   "scope": "/",

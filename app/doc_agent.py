@@ -703,11 +703,15 @@ def stale(doc, proposal):
 
 def policy(task, name=None):
     """서버 정책(프롬프트가 아니라 서버가 막는다 — spec ② §8) → {"apply": bool, "why"}. 그 TASK 의 **원본 문서**(할 일에 목적 문서 종류가 정해져 있고(`works.TARGET_FILE`)
-    이 문서의 첨부 파일 종류가 그것과 다름 — 이관의 사업계획서 · 취합의 기관 문서)는 반영 금지. 턴·제안 보기는 된다. 그 밖의 문서는 모두 허용."""
+    이 문서의 첨부 파일 종류가 그것과 다름 — 이관의 사업계획서 · 취합의 기관 문서)는 반영 금지. 턴·제안 보기는 된다. 그 밖의 문서는 모두 허용.
+    조립한 워크플로우의 키 꼴(`u_` + 16진 8자)인데 정의를 못 찾으면(저장 파일이 깨짐 · 지워짐 — works.TARGET_FILE 이 비어 보호가 풀린다) 조립할 수 있는 유일한 문서 쌍
+    (custom_tasks.PAIRS 의 첫 짝 — 사업계획서 → 연차보고서)으로 보고 원본 문서를 지킨다(works.TARGET_FILE 은 그대로 — 다른 곳이 그 값으로 키가 있는지 본다)."""
+    from app import custom_tasks   # 가벼운 모듈
     t = task if isinstance(task, dict) else {}
-    target = works.TARGET_FILE.get(t.get("job") or "")
+    job = t.get("job") or ""
+    target = works.TARGET_FILE.get(job) or (custom_tasks.PAIRS[0][1] if isinstance(job, str) and custom_tasks.KEY.fullmatch(job) else None)
     if target and t.get("file") and t["file"] != target:
-        return {"apply": False, "why": "원본 문서는 바꾸지 않습니다 — 이 TASK 에서 내용을 받는 문서(목적 문서)에만 반영할 수 있습니다. 제안은 볼 수 있습니다"}
+        return {"apply": False, "why": "원본 문서는 바꾸지 않습니다 — 이 워크플로우에서 내용을 받는 문서(목적 문서)에만 반영할 수 있습니다. 제안은 볼 수 있습니다"}
     return {"apply": True, "why": ""}
 
 

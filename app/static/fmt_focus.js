@@ -600,7 +600,7 @@ function fmNavStep(dir) {
   if (land) to = Math.max(0, Math.min(sc.scrollHeight - h, Math.round(to)));
   if (!land || Math.abs(to - y) < 2) { fmNavBump(dir); return false; }
   FMN.to = to; FMN.at = now;
-  sc.scrollTo({ top: to, behavior: "smooth" });
+  sc.scrollTo({ top: to, behavior: scrollHow() });
   fmNavLand(land);
   return true;
 }

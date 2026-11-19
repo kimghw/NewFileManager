@@ -226,7 +226,7 @@ function sharePopDraw() {
   x.setAttribute("aria-label", "닫기");
   pop.textContent = "";
   if (!st.active) {
-    head.append(el("strong", null, "공유"), hHelp("공유 설명", "링크와 키를 받은 사람이 브라우저로 들어와 이 문서를 같이 씁니다. 손님은 문단 글을 고치고 줄을 나누고 합칠 수 있습니다 — 서식 · 표 구조 · LLM · TASK 는 주인만 합니다.\n문서의 저장본과 링크 바로가기가 공유폴더에 놓입니다(같은 이름의 파일은 덮지 않습니다).\n키는 들어와서 쓰는 것을 막습니다 — 공유폴더의 저장본은 그 폴더를 볼 수 있는 사람이면 키 없이 읽습니다(SharePoint 폴더 권한이 정합니다)."), el("span", "spacer"), x);
+    head.append(el("strong", null, "공유"), hHelp("공유 설명", "링크와 키를 받은 사람이 브라우저로 들어와 이 문서를 같이 씁니다. 손님은 문단 글을 고치고 줄을 나누고 합칠 수 있습니다 — 서식 · 표 구조 · LLM · 워크플로우는 주인만 합니다.\n문서의 저장본과 링크 바로가기가 공유폴더에 놓입니다(같은 이름의 파일은 덮지 않습니다).\n키는 들어와서 쓰는 것을 막습니다 — 공유폴더의 저장본은 그 폴더를 볼 수 있는 사람이면 키 없이 읽습니다(SharePoint 폴더 권한이 정합니다)."), el("span", "spacer"), x);
     const folder = shareInput("shareFolder", typed.shareFolder ?? st.folder, { placeholder: (st.roots && st.roots[0] ? st.roots[0] : "C:\\Users\\…\\OneDrive") + "\\공유 폴더" });
     const host = shareInput("shareHost", typed.shareHost ?? st.host, { placeholder: "손님에게 보일 이름" });
     host.maxLength = 20;

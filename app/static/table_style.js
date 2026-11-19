@@ -26,7 +26,7 @@ function tblStyleHit(cid) { // 줄에 올린 동안 문서의 그 칸(여럿이�
 function tblStyleGo(tid, cid = null) { // 문서에서 그 칸(없으면 표)으로 — 열은 그대로(나란히 보기)
   const target = (cid && document.querySelector(`#doc td[data-cell="${CSS.escape(cid)}"]`)) || document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"]`);
   if (!target) { toast("그 표가 지금 화면에 없습니다"); return; }
-  target.scrollIntoView({ block: cid ? "center" : "start", behavior: "smooth" });
+  target.scrollIntoView({ block: cid ? "center" : "start", behavior: scrollHow() });
 }
 const tblStyleDiff = (o) => o.diff.map((x) => `${x.label} 지금 ${x.now} → 대표 ${x.want}`).join(" · ");
 function tblStyleRef(cid) { // 칸 id → 칸 주소 「B3」(문서의 그 칸 td 의 격자 좌표 data-r · data-c — 화면에 없으면 칸 id 그대로)

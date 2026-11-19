@@ -736,6 +736,14 @@ def test_policy_blocks_source_documents_of_a_task():
     assert A.policy({"job": "plan_merge", "file": "part"})["apply"] is False               # 취합의 기관 문서
     for task in ({"job": "plan_to_report", "file": "report"}, {"job": "plan_merge", "file": "plan"}, {"job": "plan_merge", "file": ""}, {"job": "doc_edit", "file": ""}, {"job": "", "file": "plan"}, {}, None):
         assert A.policy(task) == {"apply": True, "why": ""}, task
+    # S5 — 조립한 워크플로우: 정의가 있으면 그 목적 문서 종류로 · 키 꼴인데 정의를 못 찾으면(저장 파일이 깨짐 · 지워짐) 조립할 수 있는 유일한 쌍(사업계획서 → 연차보고서)으로 보고 원본을 지킨다
+    from app import custom_tasks as C
+    key = C.create({"name": "넣기만", "assign": {"source": [], "target": ["stage_fill"]}})["key"]
+    assert A.policy({"job": key, "file": "plan"})["apply"] is False and A.policy({"job": key, "file": "report"})["apply"] is True
+    assert C.get("u_0000dead") is None and works.TARGET_FILE.get("u_0000dead") is None   # 정의 없음 — works.TARGET_FILE 은 그대로(비어 있다)
+    gone = A.policy({"job": "u_0000dead", "file": "plan"})
+    assert gone["apply"] is False and gone["why"].startswith("원본 문서는 바꾸지 않습니다 — 이 워크플로우에서") and A.policy({"job": "u_0000dead", "file": "report"})["apply"] is True
+    assert A.policy({"job": "u_nothex!", "file": "plan"})["apply"] is True   # 키 꼴이 아니면 모르는 할 일 — 전과 같다
 
 
 # ---- 자료 ----------------------------------------------------------------------------------------------------------------

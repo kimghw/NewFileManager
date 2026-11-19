@@ -275,7 +275,7 @@ function dsTableDraw() {
   const head = el("div", "ds-table-head");
   const x = el("button", "icon ds-table-x", "✕");
   x.type = "button"; x.setAttribute("aria-label", "진행표 닫기"); x.onclick = (e) => { e.stopPropagation(); dsTableClose(); };
-  head.append(el("strong", "", "분석 진행"), el("span", "ds-table-note", "어느 문서 · 어느 TASK 든 같은 네 가지 일 — 스크립트는 올리면 저절로, LLM 은 단추로"), x);
+  head.append(el("strong", "", "분석 진행"), el("span", "ds-table-note", "어느 문서 · 어느 워크플로우든 같은 네 가지 일 — 스크립트는 올리면 저절로, LLM 은 단추로"), x);
   const grid = el("div", "ds-grid");
   grid.append(el("span", "ds-col"), el("span", "ds-col", "스크립트"), el("span", "ds-col", "LLM 검증·보완"), el("span", "ds-col", "문서 반영"));
   for (const [k, n] of DS_FOUR) if (by[k]) grid.append(...dsRow(k, n, by[k]));

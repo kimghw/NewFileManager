@@ -177,10 +177,10 @@ function homeTasksDraw() { // 한 번(bind) — WORK_TASK.job 차례(= 일의 �
     if (!t.soon) { const arrow = el("span", null, "→"); arrow.setAttribute("aria-hidden", "true"); go.append(arrow); }
     b.append(logo, el("span", "task-card-doc", doc), el("strong", "task-card-name", doc ? t.act : name), go);
     if (t.soon) b.setAttribute("aria-disabled", "true");
-    b.title = t.soon ? `TASK 「${name}」 — 준비 중인 기능입니다`
-      : `TASK 「${name}」 — ${t.quick ? "문서를 여러 개" : t.up}(${taskAcceptOf(key).join("·")}) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`; // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx)
+    b.title = t.soon ? `워크플로우 「${name}」 — 준비 중인 기능입니다`
+      : `워크플로우 「${name}」 — ${t.quick ? "문서를 여러 개" : t.up}(${taskAcceptOf(key).join("·")}) 올려 시작 · 파일을 이 카드에 놓아도 됩니다${t.hint ? "\n" + t.hint : ""}`; // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx)
     // 시작 화면의 문서 목록(home_files.js — ② §15-1)이 있으면 카드 = 그 목록으로 시작, 없으면 전처럼 파일 고르기
-    b.onclick = () => (t.soon ? toast(`TASK 「${name}」 — 준비 중입니다`) : typeof hfHas === "function" && hfHas() ? homeFilesGo(key) : homeTaskPick(key));
+    b.onclick = () => (t.soon ? toast(`워크플로우 「${name}」 — 준비 중입니다`) : typeof hfHas === "function" && hfHas() ? homeFilesGo(key) : homeTaskPick(key));
     // 카드에 놓은 파일은 그 TASK 로 연다 — 창의 파일 놓기(bind — 그냥 열기)보다 먼저 받는다
     b.addEventListener("dragover", (e) => { if (!files(e)) return; e.preventDefault(); e.stopPropagation(); $("drop").classList.remove("over"); if (t.soon) e.dataTransfer.dropEffect = "none"; else b.classList.add("over"); });
     b.addEventListener("dragleave", (e) => { if (!b.contains(e.relatedTarget)) b.classList.remove("over"); });
@@ -213,7 +213,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
   const t = HOME_TASKS[job];
   if (!file || !t || t.soon || homeTaskBusy) return;
   const accept = taskAcceptOf(job), ext = ((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase(); // 받는 확장자 = task_catalog.js accept(없으면 hwp·hwpx — hwp 는 서버가 한글로 hwpx 로 바꿔 받는다)
-  if (!accept.includes(ext)) { toast(`TASK 는 ${accept.join("·")} 문서로 시작합니다`, true); return; }
+  if (!accept.includes(ext)) { toast(`워크플로우는 ${accept.join("·")} 문서로 시작합니다`, true); return; }
   if (ext === "pdf") { // 작업을 만들지 않는다(spec_서식복사 ② §1) — 서식 관리자의 파일 추출: 시작 화면 옆 2열에 「서식 복사」 보기(style_lib.js styleFileExtract)
     if (typeof styleFileExtract === "function") styleFileExtract(file); else toast("서식 관리자를 읽지 못했습니다 — 새로 고친 뒤 다시 놓으세요", true);
     return;
@@ -229,11 +229,11 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     // 다른 TASK 를 하던 작업은 「그대로 열기」 만 — 그 작업의 TASK 를 바꾸지 않는다(② §15 · §19, 2026-11-13 사용자 "사업 계획서 양식 맞추기 했는데 task 에서는 이관 으로 되어 있음").
     // 전(11-13~11-17)에는 그런 작업이면 묻지 않고 새 작업으로 열었다 — 이제 새 작업은 창의 「새 작업으로 시작」 으로.
     const got = fresh ? { act: "new", r: await api("/api/docs?new=1", { method: "POST", body: fd }), project: "" }
-      : await sameFileUpload(file, { job, fit: (w) => (!(w.task || {}).job || w.task.job === job ? true : `다른 TASK(「${taskName("job", w.task.job) || w.task.job}」)`) });
+      : await sameFileUpload(file, { job, fit: (w) => (!(w.task || {}).job || w.task.job === job ? true : `다른 워크플로우(「${taskName("job", w.task.job) || w.task.job}」)`) });
     if (!got) { refreshSaveState(); return; } // 창을 닫음 — 아무것도 열지 않는다
     if (got.act === "open") { // 「그대로 열기」 — 그 작업을 그 TASK 그대로 연다
       await (typeof projectOpen === "function" ? projectOpen(got.id) : openWork(got.id));
-      toast("하던 작업을 그 TASK 그대로 엽니다 — 이 TASK 로 시작하려면 다시 올려 「새 작업으로 시작」 을 고르세요");
+      toast("하던 작업을 그 워크플로우 그대로 엽니다 — 이 워크플로우로 시작하려면 다시 올려 「새 작업으로 시작」 을 고르세요");
       return;
     }
     const r = got.r;
@@ -250,10 +250,10 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 개요 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
     const temp = kept && homeTaskTemp ? `\n프로젝트 이름이 없어 임시 이름 「${homeTaskTemp}」 로 묶었습니다 — 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : ""; // ② §17 「임시 프로젝트」
     const named = taskProject();
-    if (!kept) toast(`이 문서는 하던 작업입니다(TASK 「${taskName("job", state.task.job)}」) — TASK 를 바꾸지 않고 이어서 엽니다`); // 작업 목록이 낡아 TASK 를 미리 못 본 때만 남는 길
-    else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — TASK 「${taskName("job", job)}」 를 올린 원본부터 다시 시작합니다${temp}`);
-    else if (got.act === "use") toast(`같은 파일로 하던 작업을 이어서 엽니다 — TASK 「${taskName("job", job)}」${temp}`);
-    else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — TASK 「${taskName("job", job)}」 · ${named ? `프로젝트 「${named}」` : "프로젝트 미지정"}${temp}`);
+    if (!kept) toast(`이 문서는 하던 작업입니다(워크플로우 「${taskName("job", state.task.job)}」) — 워크플로우를 바꾸지 않고 이어서 엽니다`); // 작업 목록이 낡아 TASK 를 미리 못 본 때만 남는 길
+    else if (got.act === "reset") toast(`작업 내용을 초기화했습니다 — 워크플로우 「${taskName("job", job)}」 ${typeof taskJosa === "function" ? taskJosa(taskName("job", job), "을", "를") : "를"} 올린 원본부터 다시 시작합니다${temp}`);
+    else if (got.act === "use") toast(`같은 파일로 하던 작업을 이어서 엽니다 — 워크플로우 「${taskName("job", job)}」${temp}`);
+    else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — 워크플로우 「${taskName("job", job)}」 · ${named ? `프로젝트 「${named}」` : "프로젝트 미지정"}${temp}`);
     else if (temp) toast(temp.trim());
   } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
   finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); }
@@ -282,7 +282,7 @@ async function homeTaskApply(job) {
     state.task = r.task;
     taskDraw();
     await loadWorks();
-  } catch (e) { toast(`TASK 를 저장하지 못했습니다: ${e.message}`, true); }
+  } catch (e) { toast(`워크플로우를 저장하지 못했습니다: ${e.message}`, true); }
   return true;
 }
 
@@ -392,7 +392,7 @@ async function loadWorks() {
 function workTaskInfo(w) {
   const t = w.task || {}, cat = (t.kind && t.kind === taskKindOf(t.job) && TASK_CATALOG[t.job]) || null, g = cat && cat.gather; // 작업 종류가 그 TASK 의 것일 때만(연구개발 프로젝트의 TASK · 일반 문서의 「문서 일반 편집」)
   const role = !t.file ? "" : g && t.file === g.base ? "취합본" : taskName("file", t.file);
-  const what = cat ? `${t.project ? `프로젝트 「${t.project}」` : "프로젝트 미지정"} · TASK 「${cat.name}」 · Round ${taskRound(t)}${role ? ` · ${role}` : ""}` : "TASK 없음";
+  const what = cat ? `${t.project ? `프로젝트 「${t.project}」` : "프로젝트 미지정"} · 워크플로우 「${cat.name}」 · Round ${taskRound(t)}${role ? ` · ${role}` : ""}` : "워크플로우 없음";
   return { job: cat ? t.job : "", name: cat ? cat.name : "", doc: cat ? cat.doc : "", project: (cat && t.project) || "", role, what };
 }
 function taskLogoEl(key, doc) { // TASK 로고(시작 화면 카드와 같은 그림·색 — design.md §12)
@@ -403,7 +403,7 @@ function taskLogoEl(key, doc) { // TASK 로고(시작 화면 카드와 같은 �
   return logo;
 }
 function taskChipEl(T) { // TASK 이름 표지 — 글자·바탕은 로고와 같은 문서 색, TASK 가 없으면 흐린 「TASK 없음」
-  const c = el("span", "recent-task" + (T.job ? "" : " none"), T.job ? T.name : "TASK 없음");
+  const c = el("span", "recent-task" + (T.job ? "" : " none"), T.job ? T.name : "워크플로우 없음");
   if (T.job) c.dataset.doc = T.doc;
   return c;
 }
@@ -452,7 +452,7 @@ function renderRecentWorks(ul, rows) {
     const li = el("li", "recent-work" + (many ? " recent-group" : "") + (docs.some((d) => d.id === state.id) ? " current" : "")); // 「group」 은 안 됨 — style.css 의 전역 .group(flex)
     li.dataset.works = docs.map((d) => d.id).join(" "); // 이 줄에 든 작업 id 들 — 화면 검사가 [data-works~='<id>'] 로 찾는다
     const open = el("button", "recent-work-open"), icon = T.job ? taskLogoEl(T.job, T.doc) : el("span", `recent-file-icon ${format === "docx" ? "docx" : "hwpx"}`, format.toUpperCase() || "문서");
-    const note = many ? `이 TASK 의 문서 ${docs.length}개 중 마지막에 고친 문서` : "";
+    const note = many ? `이 워크플로우의 문서 ${docs.length}개 중 마지막에 고친 문서` : "";
     open.type = "button";
     open.title = `${T.what}\n${many ? note + "\n" : ""}${w.name} · 작업 ${w.id}`; // 끝 「작업 <id>」 = 이 줄을 누르면 여는 문서 — 화면 검사가 이것으로 찾는다
     open.setAttribute("aria-label", `${T.what} · ${many ? note + " · " : ""}${w.name} · ${fmtWhen(w.created)} 시작 · 작업 ${w.id} 이어서 열기`);
@@ -493,7 +493,7 @@ function renderRecentWorks(ul, rows) {
     // 줄 끝 × = 이 줄에 든 문서 지우기(② §7 「작업 지우기」) — 단추 안에 단추를 둘 수 없어 여는 단추 위에 겹쳐 놓는다(.recent-work-row). 누르면 줄 아래 확인 줄(창 없음)
     const key = li.dataset.works, dropOn = !!recentDrop && recentDrop.key === key, row = el("div", "recent-work-row"), del = el("button", "icon recent-work-del", "×");
     del.type = "button";
-    del.title = many ? `이 TASK 의 문서 ${docs.length}개 지우기` : "이 작업 지우기";
+    del.title = many ? `이 워크플로우의 문서 ${docs.length}개 지우기` : "이 작업 지우기";
     del.setAttribute("aria-label", `${T.job && T.project ? `${T.project} · ${T.name}${many ? ` · 문서 ${docs.length}개` : ""}` : w.name} 지우기`);
     del.setAttribute("aria-expanded", String(dropOn));
     del.disabled = !!recentDrop && recentDrop.busy;
@@ -576,7 +576,7 @@ function recentDropSet(key, focus = "") { // key "" = 닫기 · focus: "cancel" 
 }
 function recentDropEl(r) { // 그 줄 아래 확인 줄 — 무엇을 몇 개 · 되살릴 수 없음 · 「지우기」·「취소」(Esc = 취소)
   const docs = r.docs, T = workTaskInfo(docs[0]), busy = recentDrop.busy, box = el("div", "recent-work-drop");
-  const what = `프로젝트 「${T.project}」 · TASK 「${T.name}」 · Round ${r.round}`, notes = worksDropNotes(docs, true), names = worksDropNames(docs);
+  const what = `프로젝트 「${T.project}」 · 워크플로우 「${T.name}」 · Round ${r.round}`, notes = worksDropNotes(docs, true), names = worksDropNames(docs);
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", "지우기 확인");
   box.append(el("p", "work-drop-text", worksDropText(docs, what) + (notes ? ` — ${notes}` : "")));
@@ -685,7 +685,7 @@ function taskDraw() { // 문서를 열 때 · 고른 뒤 — 패널 머리 「�
 }
 // 목적 문서 표시(spec_작업 ② §10 「목적 문서 표시」, 2026-11-13 사용자 "여기 목적문서 인지 아닌지 간단하 표시가 있으면 좋겠는데") — 첫째 면 이름 줄(#docRole) · 둘째 면 탭(data-role — peerTabsDraw).
 // 목적 문서 = TASK 의 target 종류(task_catalog.js = server works.TARGET_FILE: 이관의 연차보고서 · 취합의 취합본), 같은 TASK 의 다른 종류 = 원본. 목적 문서가 없는 TASK·종류를 안 고른 문서는 표시 없음.
-const DOC_ROLE = { target: ["목적 문서", "목적", "이 TASK 에서 내용을 받아 고치는 문서"], source: ["원본 문서", "원본", "이 TASK 에서 내용을 가져오는 문서(바뀌지 않음)"] };
+const DOC_ROLE = { target: ["목적 문서", "목적", "이 워크플로우에서 내용을 받아 고치는 문서"], source: ["원본 문서", "원본", "이 워크플로우에서 내용을 가져오는 문서(바뀌지 않음)"] };
 function taskDocRole(t, job) { // "target" | "source" | "" — job = 작업에 할 일이 안 적혀 있을 때 쓸 값(둘째 면 탭: 지금 문서의 할 일). 원본 = 그 TASK 의 문서 종류 가운데 목적 문서 아닌 것(취합에 든 연차보고서 같은 남의 종류는 표시 없음)
   const c = TASK_CATALOG[(t && t.job) || job || ""] || {}, file = (t && t.file) || "";
   if (!c.target || !file) return "";
@@ -696,7 +696,7 @@ function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프�
   b.hidden = !d;
   b.dataset.role = role;
   b.textContent = d ? d[0] : "";
-  b.title = d ? `${d[0]} — ${d[2]}\nTASK 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
+  b.title = d ? `${d[0]} — ${d[2]}\n워크플로우 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
 }
 // 표시 켜고 끄기의 기억 — 문서마다 따로(spec_작업 ② §12 「도구는 문서마다」, 2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게 해야지"):
 // 이름 줄의 표시 아이콘(doc_quick.js — 템플릿 · 서식 라벨 · 표 라벨 · 구분 기준 자리 · 편집 구역)은 TASK 의 원본 · 목적 문서가 저마다 제 값을 기억한다(키 뒤에 「@source」 · 「@target」 —
@@ -797,9 +797,11 @@ function taskRow() { // 「연구개발과제」 패널 첫 카드 — 할 일 �
   else inp.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) inp.blur(); };
   if (temp) inp.addEventListener("focus", () => requestAnimationFrame(() => { if (document.activeElement === inp && inp.value === taskProject()) inp.select(); })); // 임시 이름은 고쳐 쓰는 것이 아니라 새로 적는 것 — 칸에 들어가면 통째로 고름
   field("프로젝트", temp ? `임시 이름입니다 — 프로젝트 이름을 적으면 이 임시 프로젝트(문서 ${projectDocCount(taskProject()) || 1}개)의 이름이 그 이름으로 바뀝니다 · 이미 있는 프로젝트를 고르면 그 프로젝트로 문서를 모두 옮깁니다`
-    : "같은 프로젝트의 TASK들이 프로젝트 구성을 공유합니다 — 칸을 누르면 모든 프로젝트가 보입니다", inp);
+    : "같은 프로젝트의 워크플로우들이 프로젝트 구성을 공유합니다 — 칸을 누르면 모든 프로젝트가 보입니다", inp);
   if (temp) { const tag = el("span", "dv-tag is-temp", "임시 이름"); tag.title = "이름 없이 시작해 붙은 임시 이름입니다 — 칸에 프로젝트 이름을 적으세요"; row.lastChild.append(tag); }
-  field("TASK", "프로젝트 안의 TASK를 선택합니다 — 새 TASK는 작업 리스트에서 파일을 올려 시작합니다", taskSelect(el("select"), "job"));
+  field("워크플로우", "프로젝트 안의 워크플로우를 선택합니다 — 새 워크플로우는 작업 리스트에서 파일을 올려 시작합니다", taskSelect(el("select"), "job"));
+  const lost = taskLostWhy((state.task || {}).job); // 조립한 워크플로우가 목록에 없음(지워짐 · 저장 파일을 못 읽음 — spec_워크플로우 ② §15 「실행」): 빈 칸 · 사라진 단계로 두지 않고 워크플로우 칸 아래 한 줄(job 값은 다른 워크플로우를 고를 때까지 그대로)
+  if (lost) { const p = el("p", "dv-caption dv-task-lost"); p.setAttribute("role", "status"); p.append(el("span", "dv-tag is-warning", "확인 필요"), " ", lost); row.append(p); }
   if (typeof projectRoundRow === "function") row.append(projectRoundRow());
   const slots = taskSlots(), gather = gatherOn(), inSlot = new Set(gather ? gatherDocIds() : (slots || []).map((k) => (taskSlotDoc(k) || {}).id)); // 이관이면 첨부 파일 칸 둘 + 단계(② §11) — 그 밖에는 이 문서의 종류 하나
   if (!gather && !slots) field("첨부 파일", "이 문서가 어떤 첨부 파일인지 — 처음에는 양식 판정으로 채웁니다 · 작업에 저장", taskSelect(el("select"), "file"));
@@ -820,10 +822,16 @@ function taskSet(key, value) {
   return taskSetPending;
 }
 async function taskSetNow(key, value) {
-  if (typeof projectBusy === "function" && projectBusy(false)) { taskDraw(); if (dv.view) divRender(); toast("진행 중인 작업이 끝난 뒤 프로젝트나 TASK를 바꿀 수 있습니다"); return false; }
+  if (typeof projectBusy === "function" && projectBusy(false)) { taskDraw(); if (dv.view) divRender(); toast("진행 중인 작업이 끝난 뒤 프로젝트나 워크플로우를 바꿀 수 있습니다"); return false; }
   const id = state.id, epoch = state.epoch;
   await divSettingsFlush();
   if (epoch !== state.epoch) return;
+  if (key === "job" && value && value !== (state.task || {}).job) { // 조립한 워크플로우를 고르면 그 정의를 서버에서 다시 읽는다(taskCatalogRefresh — 붙박이는 안 읽음): 지워졌으면 고르지 않고, 바뀌었으면 새 정의로 그린다
+    const R = await taskCatalogRefresh(value);
+    if (epoch !== state.epoch) return;
+    if (R && R.gone) { taskDraw(); if (dv.view) divRender(); toast(R.why, true); return false; }
+    if (R && R.changed) toast(TASK_DEF_PICKED);
+  }
   const previous = state.task;
   // 프로젝트·TASK 를 바꿀 때는 round 를 보내지 않는다 — 서버가 새 묶음의 최신 라운드로 둔다(spec_작업 ② §10·§19, 2026-11-13: 전에는 늘 1 을 보내 최신 라운드가 2 이상인 프로젝트에 들어가면
   // 이전 라운드가 되어 구분 기준이 공유되지 않았다). 화면의 값은 응답(r.task)이 올 때까지 1 로 본다(저장이 꺼진 화면은 그대로 1)
@@ -853,19 +861,20 @@ async function taskSetNow(key, value) {
     if (r.division && epoch === state.epoch && typeof projectEnterNote === "function") projectEnterNote(r.division); // 프로젝트에 들어간 직후 알림 — 갈래는 서버가 알려 준다(adopted · seeded · none: ② §19). 칸이 없으면 알림도 없다
     if (epoch === state.epoch && typeof agentStylesRefresh === "function") agentStylesRefresh(); // 에이전트 보기의 반영 정책(원본 문서는 보기만 — spec_일반편집 ② §8)은 TASK·첨부 파일 종류를 따른다: 바꾼 뒤 다시 읽는다
     return true;
-  } catch (e) { if (epoch === state.epoch) { state.task = previous; taskDraw(); if (dv.view) divRender(); } toast(`프로젝트·TASK를 저장하지 못했습니다: ${e.message}`, true); return false; }
+  } catch (e) { if (epoch === state.epoch) { state.task = previous; taskDraw(); if (dv.view) divRender(); } toast(`프로젝트·워크플로우를 저장하지 못했습니다: ${e.message}`, true); return false; }
 }
 
 // ---- 할 일의 차례(spec_작업 ② §11, 2026-11-11 사용자 "할일이 정해지면 순차적으로 작업이 진행되어야") — 이관을 고르면 첫 카드에 첨부 파일 칸 둘(사업계획서 = 기준 · 연차보고서)과 단계(준비 → ① 구분 기준 확인 → ② 자리 연결 → … — 공통 차례는 spec_병합 ② §0-1).
 // 새 API 없음: 다른 문서의 구분 기준은 GET …/divisions(+ …/read), 두 문서의 분석 준비는 GET …/headings(요약). 지금 문서의 구분 기준은 화면 값(dv).
-const TASK_FILES = Object.fromEntries(Object.entries(TASK_CATALOG).filter(([, task]) => task.files).map(([key, task]) => [key, task.files])); // 칸 차례 — 앞이 기준
+// 이관의 칸 차례(앞이 기준)는 TASK_CATALOG[job].files 를 그때그때 읽는다(taskSlots — 전에는 읽을 때 한 번 만든 표 TASK_FILES): 조립한 워크플로우는 정의를 다시 읽으면(taskCatalogRefresh) 목록이 바뀐다 —
+// 지워진 정의가 표에 남아 붙박이 이관의 묶음 넷으로 그려지지 않게(spec_워크플로우 ② §15 「실행」)
 // 취합(spec_취합 ② §5)은 칸의 꼴이 다르다 — 취합본 하나(base) + 기관 문서 여럿(parts): 첫 카드·단계·한 번에 진행·둘째 면을 gather.js 가 그린다. 아래 이관의 함수(taskFlowLoad·taskSteps·taskRun*·links*·fill*)는
 // 두 칸([사업계획서, 연차보고서])을 전제하므로 취합에서는 부르지 않는다 — 가지마다 gatherOn() 으로 가른다(taskSlots() 는 취합에서 null)
 const TASK_GATHER = Object.fromEntries(Object.entries(TASK_CATALOG).filter(([, task]) => task.gather).map(([key, task]) => [key, task.gather]));
 const gatherOn = () => !!(state.stored && state.task && TASK_GATHER[state.task.job] && typeof gatherFlowEl === "function");
 const taskFlowFresh = () => ({ seq: 0, div: {}, heads: {}, err: "" }); // 읽어 둔 것: div[작업 id] = {values | null, applied} · heads[작업 id] = 헤딩 요약 {stage2, stage3, …}
 let taskFlow = taskFlowFresh();
-const taskSlots = () => (state.stored && state.task && TASK_FILES[state.task.job]) || null;
+const taskSlots = () => (state.stored && state.task && (TASK_CATALOG[state.task.job] || {}).files) || null;
 const taskDocs = () => [{ ...(worksList.find((w) => w.id === state.id) || { id: state.id, name: state.name }), task: state.task }, ...worksList.filter((w) => w.id !== state.id)]; // 지금 문서가 맨 앞 — 그 task 는 화면 것
 function taskSlotDoc(kind, docs = taskDocs()) { // 그 칸의 문서 — 지금 문서가 그 종류면 지금 문서, 아니면 같은 프로젝트의 그 종류 첫 문서
   const P = taskProject();
@@ -898,7 +907,7 @@ async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선�
   const swap = !!(me && neu) && confirmDiscard(); // 그 자리에 다른 문서가 들어온다 → 그 문서로 화면을 바꾼다(반영 안 된 수정이 있으면 먼저 묻는다)
   let moved = false; // 새 문서를 실제로 열었나
   try {
-    if (neu && neu.id !== id && neu.task && neu.task.project && !taskSameScope(neu)) throw new Error("다른 프로젝트·TASK·라운드의 문서는 첨부할 수 없습니다");
+    if (neu && neu.id !== id && neu.task && neu.task.project && !taskSameScope(neu)) throw new Error("다른 프로젝트·워크플로우·라운드의 문서는 첨부할 수 없습니다");
     for (const w of docs.filter((w) => w.id !== wid && w.id !== id && (w.task || {}).file === kind && P && taskSameScope(w))) await put(w, { project: "", round: 1 });
     if (neu) {
       const r = await put(neu, { kind: "rnd", file: kind, project: P, job: state.task.job, round: taskRound() });
@@ -1110,7 +1119,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   }
 
   // 1단계의 LLM 검증·보완 = 원본 문서(사업계획서 — 이 TASK 에서 안 바뀌는 문서). 목적 문서(연차보고서)는 구조를 맞춘 뒤 2단계의 「다시 문서 검토(LLM)」 가 한다 — 구조 반영 전에 받은 판정은 반영 뒤 옛것이 된다(같은 문서에 두 번 물지 않는다)
-  // 화면에서 조립한 TASK 는 docsL(taskReviewOf): 목적 문서가 「문서 검토」 를 골랐고 「구성 맞추기」 는 안 골랐으면 목적 문서도 여기서 · 할 문서가 없으면 이 줄은 그 TASK 에 서지 않는다(빈 줄 — taskStepsOf 가 뺀다)
+  // 화면에서 조립한 TASK 는 docsL(taskReviewOf — 저장된 배정의 llm): 목적 문서가 들어 있으면 목적 문서도 여기서 · 할 문서가 없으면 이 줄은 그 TASK 에 서지 않는다(빈 줄 — taskStepsOf 가 뺀다)
   const [lw, lwho] = docsL[0] || [plan, "사업계획서"];
   const headsLlm = docsL.length > 1 ? llmMany("headsLlm", "LLM 검증·보완", docsL) : llmStep("headsLlm", "LLM 검증·보완", lw, lwho, !!docsL.length && !!hOf(lw));
 
@@ -1182,8 +1191,8 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   else if (hp == null || hr == null) link.text = "분석 결과를 읽는 중…";
   else if (!(hp && hr)) { // 빠진 분석을 1단계가 하나 — 「문서 검토」 는 그 TASK 가 고른 문서만 한다(docsH — spec_워크플로우 ② §15). 아니면 이 묶음 「한 번에 진행」 의 안전망(taskRunMap)이 스크립트로
     const byReview = taskHasStage("review") && [[plan, hp], [report, hr]].every(([w, h]) => h || docsH.some(([x]) => x === w));
-    link.text = (byReview ? `먼저 ${taskStageName("review")} 의 헤딩·표 분석` : taskHasStage("review") ? "헤딩·표 분석이 없습니다(이 TASK 의 「문서 검토」 는 그 문서를 검토하지 않아 「한 번에 진행」 이 스크립트로 분석합니다)"
-      : "헤딩·표 분석이 없습니다(이 TASK 에는 「문서 검토」 가 없어 「한 번에 진행」 이 스크립트로 분석합니다)") + ` — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`;
+    link.text = (byReview ? `먼저 ${taskStageName("review")} 의 헤딩·표 분석` : taskHasStage("review") ? "헤딩·표 분석이 없습니다(이 워크플로우의 「문서 검토」 는 그 문서를 검토하지 않아 「한 번에 진행」 이 스크립트로 분석합니다)"
+      : "헤딩·표 분석이 없습니다(이 워크플로우에는 「문서 검토」 가 없어 「한 번에 진행」 이 스크립트로 분석합니다)") + ` — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`;
   }
   else if (!L) link.text = "연결 목록을 만드는 중…";
   else if (L.error) Object.assign(link, L.missing ? { text: "자리 연결은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" } : { text: `연결 목록을 읽지 못했습니다: ${L.error}`, acts: [again()] });
@@ -1208,7 +1217,10 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   // ③ 넣기 계획 → ④ 내용 반영(spec_병합 ② §0-1 · §6 — API …/merge-links/plan · …/apply). 이어진 자리가 하나라도 있으면 ② 에 확인 필요가 남아 있어도 계획을 세울 수 있다(early — 못 정한 자리는 안 넣을 뿐)
   const targets = !!(L && !L.error && L.counts && (L.counts.paired || linksFixedN(L) || linksFixedErr(L))); // 넣을 자리 = 이어진 묶음 + 같은 이름 자리(고정 자리 — spec_병합 ② §5-1)
   const F = taskFlow.fill || {}, ready = !!(targets && L.from && !L.from.reasons.length && !L.to.reasons.length);
-  const noTargets = !!(division.done && link.done && L && !L.error && L.counts && !targets && L.from && !L.from.reasons.length && L.to && !L.to.reasons.length);
+  // 정상 0건 — 서버가 전제를 확인한 빈 연결 목록(linksNone). 구성 맞추기 · 자리 연결 줄의 끝남과 따로 본다 — 전에는 division.done 까지 보아 구성 맞추기를 뺀 TASK 는 「한 번에 진행」 이 「넣을 내용이 없습니다」 로
+  // 성공해도 이 둘이 끝나지 않아 「문서 정리」 로 못 갔다(astra P1 ⓒ). 「한 번에 진행」(taskRunMap)과 같은 판정이 되게 그것이 판정 전에 하는 일까지 본다 — 두 문서의 분석이 있음(hp · hr) ·
+  // 목적 문서의 분석이 구조 반영 전 것(스크립트만 — taskHeadsOld)이 아님(그러면 실행이 다시 분석한 뒤의 목록으로 판정한다)
+  const noTargets = !!(both && hp && hr) && !taskHeadsOld(report) && linksNone(L);
   const K = (L && !L.error && L.kept) || {}, prior = !F.done && !F.plan && (K.applied || 0) > 0; // 지난 반영 — 넣은 기록이 지금 문서에 남아 있다(서버 merge.json · 다시 열어도 — 이 화면의 F 는 메모리만)
   const planStep = { key: "plan", no: "③", name: "표 안 연결 · 넣기 계획", done: !!(F.plan || F.done || noTargets || prior), skipped: noTargets, early: ready, keep: true, busy: !!F.busy && F.busyStep === "plan", acts: [], text: noTargets ? "이어진 자리가 없어 계획할 내용이 없습니다" : "" };
   // 표 대응(spec_병합 ② §5-3 — 2026-11-12 사용자 "그 테이블을 저테이블에 매핑해주는 에이전트를 하나 호출해서"): 같은 표로 이었는데 두 서식의 행·열 구성이 달라 칸을 못 맞춘 표 수. 계획이 있으면 그 수(표 묶음 쪽 포함), 없으면 연결 목록의 수
@@ -1263,6 +1275,10 @@ const LINK_REASON = { noHeadings: "헤딩·표 분석 없음", noValues: "프로
 const LINK_KIND = { paragraph: "본문", rows: "표 행", cols: "표 열", list: "목록 행" };
 const linksFixedErr = (L) => ((L && L.fixed) || {}).error || ""; // 서버가 같은 이름 자리를 못 셈 — 「0」 이 아니라 「모름」: 넣기 계획은 세울 수 있게 둔다(거기서 까닭이 드러난다)
 const linksFixedN = (L) => ((L && L.fixed) || {}).todo || 0; // 같은 이름 자리(구분 기준이 안 걸린 표지·요약문 칸 · 「[최종목표]」 같은 라벨)에 넣을 수 — 묶음 수와 따로 센다
+// 「정상 0건」(spec_워크플로우 ② §15 — astra P1 ⓒ): 서버가 두 문서의 전제를 확인하고(막는 까닭 없음) 낸 연결 목록에 넣을 자리(이어진 묶음 · 같은 이름 자리)가 하나도 없다 — 「내용 넣기」 의 넣기 계획 · 내용 반영은
+// 이것으로 끝난다(「대상 없음」 — 구성 맞추기 묶음이 이 TASK 에 있든 없든: 구조가 맞았는지는 서버의 까닭 notApplied · valuesDiffer 가 본다). 전제 없음(까닭이 있음 · 같은 프로젝트에서 문서를 못 찾음)과
+// 판정 실패(목록을 못 읽음 · 같은 이름 자리를 못 셈 — linksFixedErr)는 0건이 아니다. 화면의 단계 셈(taskSteps 의 noTargets)과 「한 번에 진행」 의 성공 반환(taskRunMap)이 이것 하나를 쓴다
+const linksNone = (L) => !!(L && !L.error && L.counts && L.from && L.to && !L.from.reasons.length && !L.to.reasons.length && !L.counts.paired && !linksFixedN(L) && !linksFixedErr(L));
 const linksSameTables = (L) => { // 같은 표로 이은 표 짝(fixed.counts.tables — 그 가운데 LLM 이 이은 수 tablesLlm) → 「 · 같은 표 T(LLM t)」 | ""(없음 · 못 셈)
   const c = ((L && L.fixed) || {}).counts || {};
   return c.tables ? ` · 같은 표 ${c.tables}${c.tablesLlm ? `(LLM ${c.tablesLlm})` : ""}` : "";
@@ -1371,7 +1387,7 @@ function linksList(keep = false) { // 2열 「자리 연결 — 연결 목록」
 }
 
 // ---- ② LLM 검토(spec_병합 ② §4 — POST …/merge-links/llm): 못 정한 자리를 연차보고서의 챕터별(20쪽 이내)로 나눠 병렬로 Opus 에 묻는다. 사람이 누를 때만 돈다
-const linksLlmText = (L) => (!L.llm ? "" : ` · LLM 검토함(${L.llm.units.filter((u) => u.call).length}단위${L.llm.units.some((u) => u.call && u.call.error) ? " — 일부 실패" : ""}${L.llm.tables && (L.llm.tables.paired || L.llm.tables.none) ? ` · 표 ${L.llm.tables.paired}개 이음 · ${L.llm.tables.none}개 비움` : ""}${L.llm.job ? " · TASK 프롬프트 함께 보냄" : ""})`); // job = 함께 보낸 TASK 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)
+const linksLlmText = (L) => (!L.llm ? "" : ` · LLM 검토함(${L.llm.units.filter((u) => u.call).length}단위${L.llm.units.some((u) => u.call && u.call.error) ? " — 일부 실패" : ""}${L.llm.tables && (L.llm.tables.paired || L.llm.tables.none) ? ` · 표 ${L.llm.tables.paired}개 이음 · ${L.llm.tables.none}개 비움` : ""}${L.llm.job ? " · 워크플로우 프롬프트 함께 보냄" : ""})`); // job = 함께 보낸 TASK 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)
 function linksLlmBtn(L, primary = false) { // primary = 지금 할 일(확인 필요가 있고 아직 검토 전 — taskSteps ②)
   return hBtn(taskFlow.llmBusy ? "LLM 검토 중…" : L.llm ? "LLM 다시 검토" : "LLM 검토", () => linksLlm(), { cls: "btn sm" + (primary ? " primary" : ""), disabled: !!(taskFlow.llmBusy || taskFlow.linkBusy),
     title: "못 정한 자리(확인 필요·후보 없음)와 못 정한 표(같은 표인지 · 어느 기관·차년도의 표인지)를 연차보고서의 챕터별(20쪽 이내)로 나눠 LLM(Opus)에 묻습니다 — 수십 초. 사람이 고른 연결은 안 바꾸고, LLM 이 이은 것은 「LLM」 꼬리표로 보입니다. 판단 기준은 「지침」 에서 봅니다" });
@@ -1451,7 +1467,7 @@ const LLM_GUIDE_STEPS = { "merge-links": "자리 연결 LLM 검토", "division-r
 const LLM_GUIDE_SWAP = { "division-review": "division-missing", "division-missing": "division-review" }; // 「구분 기준 자리 표시」 줄의 「지침」 하나로 두 검토의 지침을 오간다
 const LLM_GUIDE_OPEN = new Set(["guide", "job"]); // 처음부터 펴 두는 절 — 사람이 관리하는 글(판단 지침 · TASK 프롬프트). 계약·양식 정보는 접어 둔다
 function llmGuideBtn(step, docId, q = "") { // 「지침」 — 보통 단추(강조 아님: 강조 단추는 카드에 하나). q = 끝점에 붙일 질의(취합 「part=<기관 문서 id>」 — 기관 문서마다 다른 프롬프트)
-  const b = hBtn("지침", () => llmGuideOpen(step, docId, q), { title: "이 LLM 검토에 함께 보내는 지침·TASK 프롬프트·양식 정보와 마지막으로 보낸 프롬프트를 봅니다" });
+  const b = hBtn("지침", () => llmGuideOpen(step, docId, q), { title: "이 LLM 검토에 함께 보내는 지침·워크플로우 프롬프트·양식 정보와 마지막으로 보낸 프롬프트를 봅니다" });
   b.dataset.llmGuide = step;
   return b;
 }
@@ -1699,7 +1715,7 @@ function taskStepsDraw() { // 두 묶음의 세부 목록을 다시 그린다 �
 // 갱신할 때 버튼을 보존해 진행 중에도 키보드 초점이 사라지지 않는다.
 function taskJourneyEl() {
   const nav = el("nav", "dv-journey");
-  nav.setAttribute("aria-label", "TASK 진행 순서");
+  nav.setAttribute("aria-label", "워크플로우 진행 순서");
   nav.append(el("ol"));
   return nav;
 }
@@ -1800,22 +1816,49 @@ function taskStagesSync() {
   if (taskStagesFor === job) return;
   taskStagesFor = job;
   const pick = cat.custom ? RELAY_STAGES.filter((g) => (cat.groups || []).includes(g.id)) : RELAY_STAGES;
+  // 조립한 워크플로우의 묶음 설명 = 서버가 실제 배정에서 만든 글(cat.does[묶음 id] — 등록부 custom() 과 같은 글: spec_워크플로우 ② §15) · 옛 서버(does 를 안 보냄)면 「문서 검토」 만 문서마다 고른 대로(taskReviewDoes) · 그 밖은 붙박이의 글
+  const does = (g) => { const d = (cat.does || {})[g.id]; return typeof d === "string" && d.trim() ? d : g.id === "review" && cat.assign ? taskReviewDoes(job) : ""; };
   TASK_STAGES.length = 0;
-  TASK_STAGES.push(...(cat.custom ? pick.map((g, i) => Object.create(g, { no: { value: `${i + 1}단계`, enumerable: true },
-    keys: { value: i === 0 && !g.keys.includes("files") ? ["files", ...g.keys] : g.keys, enumerable: true },
-    ...(g.id === "review" && cat.assign ? { does: { value: taskReviewDoes(job), enumerable: true } } : {}) })) : pick)); // 「문서 검토」 의 설명은 문서마다 고른 대로(taskReviewDoes)
+  TASK_STAGES.push(...(cat.custom ? pick.map((g, i) => { const d = does(g); return Object.create(g, { no: { value: `${i + 1}단계`, enumerable: true },
+    keys: { value: i === 0 && !g.keys.includes("files") ? ["files", ...g.keys] : g.keys, enumerable: true }, ...(d ? { does: { value: d, enumerable: true } } : {}) }); }) : pick));
+}
+// 조립한 워크플로우의 정의를 서버에서 다시 읽는다(spec_워크플로우 ② §15 「실행」 — 열어 둔 화면의 정의가 그 사이 바뀌거나 지워졌을 수 있다: 다른 탭의 「워크플로우 조립」).
+// 부르는 때: ① 그 키를 지금 워크플로우로 고를 때(taskSetNow · 대시보드 dwfSelect) ② 사람이 실행을 시작할 때(taskRunAll) ③ 에이전트 턴(doc_agent_work.js agwStatus 의 fresh). 붙박이 워크플로우는 다시 읽지 않는다.
+// GET /api/tasks 로 목록을 다시 담고(taskCatalogCustom — broken 도) 그 키의 단계 표지(task_catalog.js taskSigSame — 서버의 sig, 없으면 배정 · 단계로 지은 것)를 전의 것과 견준다.
+// → null(다시 읽지 않음 · 못 읽음 — 옛 서버 · 끊김: 지금처럼 돈다) | {gone(목록에 없음), changed(있는데 단계가 바뀜), moved(이번에 읽어 달라짐 — 전부터 없던 것은 아님), why}.
+// 바뀌었거나 없어졌으면 그 자리에서 다시 그린다(묶음 · 「작업 개요」 · 대시보드의 단계 흐름) — 실행을 막는 것은 부른 쪽이다
+const TASK_DEF_CHANGED = "이 워크플로우의 단계가 바뀌어 다시 읽었습니다 — 바뀐 단계를 보고 다시 누르세요"; // 실행을 누른 뒤 알았다 — 실행하지 않는다
+const TASK_DEF_PICKED = "이 워크플로우의 단계가 바뀌어 다시 읽었습니다 — 바뀐 단계를 보고 진행하세요"; // 고를 때 알았다 — 고르는 것은 그대로(새 정의로 그린다)
+const TASK_DEF_GONE = "이 워크플로우는 지워졌습니다 — 다른 워크플로우를 고르세요";
+let taskRunChecking = false; // taskRunAll 이 시작하기 전에 정의를 다시 읽는 중 — 그동안 또 눌러 둘이 시작하지 않게
+async function taskCatalogRefresh(job) {
+  if (!taskCustomKey(job) || taskRun) return null; // 도는 실행은 시작할 때의 정의로 끝까지 간다(도중에 묶음을 갈아 끼우지 않는다)
+  let data = null;
+  try { data = await api("/api/tasks"); } catch (e) { console.warn("조립한 워크플로우 목록을 다시 읽지 못했습니다", e); return null; }
+  if (!data || !Array.isArray(data.tasks) || taskRun) return null;
+  const was = TASK_CATALOG[job] || null;
+  taskCatalogCustom(data.tasks, { broken: !!data.broken });
+  const now = TASK_CATALOG[job] || null, moved = !was !== !now || (!!was && !!now && !taskSigSame(was, now));
+  if (moved) {
+    if (job === ((state.task || {}).job || "")) { taskStagesFor = ""; taskStagesSync(); taskStepsLast = null; if (dv.view) { divRender(); taskFlowLoad(); } } // 지금 워크플로우 — 묶음 · 「작업 개요」 를 새 정의로(없어졌으면 칸 · 묶음 없이 까닭 한 줄)
+    if (typeof dashCatalogChanged === "function") dashCatalogChanged(); // 대시보드의 단계 흐름(등록부 GET /api/workflow — 조립한 정의가 든다)도 다시 읽는다
+  }
+  return { gone: !now, changed: !!now && moved, moved, why: !now ? (taskCatalogBroken ? taskLostWhy(job) : TASK_DEF_GONE) : moved ? TASK_DEF_CHANGED : "" };
 }
 const taskHasStage = (id) => TASK_STAGES.some((g) => g.id === id); // 이 TASK 에 그 묶음이 있나(조립한 TASK 는 고른 것만)
 const taskStageName = (id) => { const g = TASK_STAGES.find((x) => x.id === id); return g ? `${g.no} 「${g.name}」` : `「${RELAY_STAGE_META[id].name}」`; }; // 묶음을 가리키는 글 — 이 TASK 에 없는 묶음은 번호 없이
 // 「문서 검토」 의 단계마다 할 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 2026-11-19 사용자 "워크플로우에서 task 정할때 목적문서랑 원본문서에 대해서 각각 task 를 할당할 수 있도록"):
 // → {heads: [칸 키…], llm: [칸 키…]} — 칸 키 = 첨부 파일 칸(그 TASK 의 files: 앞 = 원본 문서 · 뒤 = 목적 문서). 문서마다의 셈은 이 함수 하나다(단계 셈 taskStepsOf · 「한 번에 진행」 · 대시보드 · 에이전트가 같이 쓴다).
 // 붙박이 이관(assign 없음) = 「헤딩 · 표 분석」 두 문서 · 「LLM 검증·보완」 원본(전과 같다). 화면에서 조립한 TASK(TASK_CATALOG[job].assign — task_catalog.js) = 「헤딩 · 표 분석」 은 「문서 검토」 를 고른 문서만 ·
-// 「LLM 검증·보완」 은 원본(골랐으면) + 목적(「문서 검토」 를 골랐고 「구성 맞추기」 는 안 골랐을 때 — 고르면 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서). 할 문서가 없는 단계는 그 TASK 에 서지 않는다(taskStepsOf)
+// 「LLM 검증·보완」 은 저장된 배정의 llm(문서 역할 — 서버 app/custom_tasks.py 가 정한다: 옛 정의는 원본만 · 배정을 고쳐 저장하면 원본(골랐으면) + 목적(「문서 검토」 를 골랐고 「구성 맞추기」 는 안 골랐을 때) — astra P1 ⓐ)
+// 가운데 「문서 검토」 를 고른 문서. llm 을 안 보내는 옛 서버면 그 규칙을 여기서 셈한다. 할 문서가 없는 단계는 그 TASK 에 서지 않는다(taskStepsOf)
 function taskReviewDocs(job = (state.task || {}).job || "") {
   const cat = TASK_CATALOG[job] || {}, [S, T] = cat.files || ["plan", "report"], A = cat.assign, has = (list, id) => Array.isArray(list) && list.includes(id);
   if (!A) return { heads: [S, T], llm: [S] };
   const src = has(A.source, "stage_review"), tgt = has(A.target, "stage_review");
-  return { heads: [...(src ? [S] : []), ...(tgt ? [T] : [])], llm: [...(src ? [S] : []), ...(tgt && !has(A.target, "stage_fit") ? [T] : [])] };
+  const llm = Array.isArray(A.llm) ? [...(src && A.llm.includes("source") ? [S] : []), ...(tgt && A.llm.includes("target") ? [T] : [])]
+    : [...(src ? [S] : []), ...(tgt && !has(A.target, "stage_fit") ? [T] : [])];
+  return { heads: [...(src ? [S] : []), ...(tgt ? [T] : [])], llm };
 }
 const taskReviewOf = (plan, report) => { // taskReviewDocs → 이관의 함수들(taskSteps · taskRunSteps)이 쓰는 꼴 {heads: [[문서, 이름]…], llm: […]} — plan · report = 두 칸의 문서(taskSlots 의 차례)
   const R = taskReviewDocs(), slots = taskSlots() || [], duo = [[plan, "사업계획서"], [report, "연차보고서"]], pick = (ks) => duo.filter((x, i) => ks.includes(slots[i]));
@@ -1886,7 +1929,7 @@ function taskFrameHost(box) { // divRender 가 부른다 — 구성 입력을 �
   const host = el("div", "dv-phase-form"), head = el("div", "dv-phase-form-head"), mine = (taskSlots() || []).find((k) => (taskSlotDoc(k) || {}).id === state.id);
   host.id = "taskFrameForm";
   head.append(el("strong", null, "프로젝트 구성 — 단계·차년도 · 기관"),
-    hHelp("프로젝트 구성 안내",`지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 프로젝트 구성(단계·차년도 · 기관)입니다. 같은 프로젝트의 TASK 들이 같이 쓰고, 「프로젝트에 저장」 으로 확정해야 ${taskSlots() ? "프로젝트 구성 반영으로" : "2단계(문서 프레임 작성)로"} 갑니다.\n「프로젝트 구성 불러오기」 — 이 프로젝트에 확정한 구성 · 문서에서 추출(이 프로젝트 문서 · 파일 올리기) · 다른 프로젝트 · 저장한 프로젝트 구성.`, { note: true }));
+    hHelp("프로젝트 구성 안내",`지금 문서${mine ? `(${taskName("file", mine)}${mine === "plan" ? " — 기준" : ""})` : ""}의 프로젝트 구성(단계·차년도 · 기관)입니다. 같은 프로젝트의 워크플로우들이 같이 쓰고, 「프로젝트에 저장」 으로 확정해야 ${taskSlots() ? "프로젝트 구성 반영으로" : "2단계(문서 프레임 작성)로"} 갑니다.\n「프로젝트 구성 불러오기」 — 이 프로젝트에 확정한 구성 · 문서에서 추출(이 프로젝트 문서 · 파일 올리기) · 다른 프로젝트 · 저장한 프로젝트 구성.`, { note: true }));
   host.append(head);
   stage.append(host);
   taskFrameForm = host;
@@ -1949,7 +1992,7 @@ function taskStageSync1(stage, box, files, current) {
   else if (busy) { kind = "run"; msg = `${taskStepName(busy)} — 진행 중`; }
   else if (before) msg = `${before.no} 「${before.name}」 완료 후 진행`; // 이전 결과가 남아 있어도 지금 선행 조건이 먼저다.
   else if (last && !last.ok) { kind = "halt"; msg = `멈춤 — ${key(last.key)}: ${last.text}`; }
-  else if (last) { kind = "done"; msg = `끝남 — ${last.text}`; }
+  else if (last && !next) { kind = "done"; msg = `끝남 — ${last.text}`; } // 끝남은 남은 단계로 정한다 — 「분석」 처럼 단계 하나만 돈 실행이 성공해도 남은 단계가 있으면 아래 「다음」(astra 11-19: 마지막 성공 기록이 먼저 보이지 않게)
   else if (!next) { kind = "done"; msg = "모두 끝남"; }
   else msg = `다음: ${taskStepName(next)}${!box.open && next.text ? ` — ${next.text}` : ""}`;
   st.dataset.kind = kind;
@@ -1975,7 +2018,7 @@ function taskStageSync1(stage, box, files, current) {
   }
   b.className = "btn sm" + (!taskRun && next && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 그 세부 목록을 펴면 그 안의 「다음 할 일」 단추가 강조
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : taskRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
-    : !(files && files.done) ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !next ? "남은 단계가 없습니다"
+    : !(files && files.done) ? "두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 ${typeof taskJosa === "function" ? taskJosa(before.name, "을", "를") : "을"} 먼저 끝내세요` : !next ? "남은 단계가 없습니다"
     : `이 묶음의 남은 단계를 차례로 한 번에 — ${stage.does}. 사람 손이 필요한 곳에서는 멈춥니다`;
   // 실행 단계가 바뀔 때·멈출 때에도 상세 줄을 함께 갱신한다. 매초 DOM을 다시 만들지 않아 포커스를 유지한다.
   const active = R ? R.key : busy && busy.key;
@@ -2067,11 +2110,12 @@ const taskLlmDone = (w) => { // 그 문서의 헤딩 · 표가 LLM 검증·보�
   const h = taskFlow.heads[w.id] || {}, ok = (x) => !!(x && (x.llm || {}).requested && !(x.llm || {}).fallback);
   return ok(h.stage2) && ok(h.stage3);
 };
-let taskLlmOk = null, taskLlmAsked = false; // 서버의 LLM 을 쓸 수 있나(GET /api/headings/llm 의 available — null = 아직 모름). 못 쓰면 LLM 단계는 「건너뜀」 으로 끝난 것으로 본다
-function taskLlmLoad() {
-  if (taskLlmAsked) return;
+let taskLlmOk = null, taskLlmAsked = false, taskLlmAsk = null; // 서버의 LLM 을 쓸 수 있나(GET /api/headings/llm 의 available — null = 아직 모름). 못 쓰면 LLM 단계는 「건너뜀」 으로 끝난 것으로 본다 · taskLlmAsk = 그 물음의 약속
+function taskLlmLoad() { // 한 번만 묻는다 → 약속(끝나면 taskLlmOk 가 정해져 있다 — 못 읽으면 false). 에이전트가 유료로 부를 문서를 세기 전에 기다린다(doc_agent_work.js agwRelayStatus)
+  if (taskLlmAsked) return taskLlmAsk || Promise.resolve();
   taskLlmAsked = true;
-  api("/api/headings/llm").then((st) => { taskLlmOk = !!st.available; }).catch(() => { taskLlmOk = false; }).finally(() => { if (taskSlots() && !gatherOn()) taskStepsDraw(); });
+  taskLlmAsk = api("/api/headings/llm").then((st) => { taskLlmOk = !!st.available; }).catch(() => { taskLlmOk = false; }).finally(() => { if (taskSlots() && !gatherOn()) taskStepsDraw(); });
+  return taskLlmAsk;
 }
 const TASK_LLM_SKIP = "nfm.relayLlmSkip"; // 사람이 LLM 검증·보완을 건너뛴 문서 id 들(이 브라우저에 기억 — 「건너뛰기 취소」 로 되돌림)
 function taskLlmSkips() { try { const v = JSON.parse(localStorage.getItem(TASK_LLM_SKIP) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } }
@@ -2081,6 +2125,18 @@ function taskLlmSkip(w, on) {
   if (on) ids.push(w.id);
   try { localStorage.setItem(TASK_LLM_SKIP, JSON.stringify(ids.slice(-200))); } catch { /* 기억만 안 함 */ }
   taskStepsDraw();
+}
+// 그 묶음의 「한 번에 진행」 이 유료 LLM 검증·보완을 부를 문서(spec_워크플로우 ② §15 — astra P1 ⓑ) → [[문서, 이름]…](칸 차례). steps = 셈한 단계(taskStepsOf — 이 TASK 에 서는 단계만).
+// 1단계 「LLM 검증·보완」(headsLlm) = 그 줄의 문서(taskReviewOf) 가운데 아직 거치지 않았고 사람이 건너뛰지 않은 문서 — 스크립트 분석이 아직 없어도 센다(실행이 분석한 뒤 부른다).
+// 2단계 「다시 문서 검토(LLM)」(reheadsLlm) = 그 줄이 끝나지 않았고 건너뛰지 않은 목적 문서(구조 반영 · 다시 분석으로 지금의 LLM 결과가 옛것이 되는 것까지 그 줄이 본다). LLM 을 쓸 수 없으면 없음(아직 모르면 쓸 수 있는 것으로 센다).
+// 3단계 「내용 넣기」 의 LLM(자리 연결 검토 · 표 대응 · 빈 자리 검토)은 문서마다의 단계가 아니라 여기 없다(묶음째 유료 — 전과 같다). 에이전트의 실행 카드(doc_agent_work.js agwRelayStatus)가
+// 이 문서를 카드 글 · 행동 key 에 적고, 카드에서 시작한 실행은 이 문서에만 유료 호출을 건다(taskRunAll 의 paid → taskRunSteps llmPart)
+function taskPaidDocs(stageId, steps = taskStepsLast || taskStepsCalc()) {
+  const [plan, report] = (taskSlots() || []).map((k) => taskSlotDoc(k)), step = (key) => steps.find((s) => s.key === key);
+  if (!plan || !report || taskLlmOk === false) return [];
+  if (stageId === "review") return step("headsLlm") ? taskReviewOf(plan, report).llm.filter(([w]) => !taskLlmSkipped(w) && !taskLlmDone(w)) : [];
+  if (stageId === "frame") { const s = step("reheadsLlm"); return s && !s.done && !taskLlmSkipped(report) ? [[report, "연차보고서"]] : []; }
+  return [];
 }
 async function taskRunLlm(id, run) { // 「한 번에 진행」 안의 LLM 검증·보완 — 그 문서로 걸고(POST …/analysis/llm: 이미 거친 것은 서버가 건너뜀) 끝날 때까지 2초마다 읽는다 → "" | 못 끝낸 까닭(글). 문서는 안 바뀐다
   const url = `/api/docs/${id}/analysis/llm`, post = () => api(url, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill: typeof tpaSkillKey === "function" ? tpaSkillKey() : "tidy" }) });
@@ -2186,6 +2242,8 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     const one = (s) => (s.per && s.per[w.id]) || s; // 줄 하나에 문서 여럿이면(taskSteps llmMany — 조립한 TASK: spec_워크플로우 ② §15) 그 문서의 몫
     const s0 = one(step(key));
     if (s0.done) return s0.skipped ? ` · ${who} LLM 검증·보완은 건너뜀(${taskLlmOk === false ? "LLM 을 쓸 수 없음" : "건너뛰기"})` : "";
+    // 에이전트의 실행 카드가 시작한 실행은 카드가 승인한 문서에만 유료 호출을 건다(run.paid — taskPaidDocs · astra P1 ⓑ: 도는 사이 다른 탭에서 「건너뛰기」 를 풀어도) — 그 밖의 문서는 하지 않고 남긴다(다음 카드가 다시 묻는다)
+    if (run.paid && !run.paid.has(w.id)) return ` · ${who} LLM 검증·보완은 하지 않음(실행 카드에서 승인한 유료 호출이 아님 — 남은 단계)`;
     at(key, `${who} LLM 검증·보완 — 헤딩 · 템플릿 → 표 → 서식 정리 계획(유료 · 몇 분)`);
     const why = await taskRunLlm(w.id, run);
     if (w.id === state.id) headsPeek(); // 지금 문서면 쪽 여백 표시·헤딩 탭도 새 결과로
@@ -2347,7 +2405,7 @@ async function taskRunMap(run, plan, report, at, step, flowRead) { // 3단계 �
     if (!taskFlow.links.llm) llm = " · LLM 검토는 못 함(확인 필요한 자리는 비워 둠)"; // 실패해도 멈추지 않는다 — 이어진 자리만 넣는다
   }
   const L = taskFlow.links, linked = `연결됨 ${L.counts.paired || 0}${L.counts.ambiguous ? ` · 확인 필요 ${L.counts.ambiguous}(비워 둠)` : ""}${llm}${taskHeadsKept(report) ? " · 헤딩·표 분석은 구조 반영 전 것(LLM 결과라 다시 안 돌림 — 늘어난 절·표는 못 이었을 수 있음)" : ""}`; // 같은 이름 자리의 수는 넣은 결과 글(fillDoneText)에 있다
-  if (!L.counts.paired && !linksFixedN(L) && !linksFixedErr(L)) return `이어진 자리가 없어 넣을 내용이 없습니다(${linked})`;
+  if (linksNone(L)) return `이어진 자리가 없어 넣을 내용이 없습니다(${linked})`; // 정상 0건(linksNone — 화면의 넣기 계획 · 내용 반영도 같은 판정으로 끝난다: 위 linkBad 가 전제 없음 · 판정 실패를 먼저 멈춘다)
 
   // ③ 넣기 계획 → ④ 내용 반영 — 계획 뒤 곧바로 반영(사이에 문서가 바뀌면 409: 계획을 한 번만 다시). 반영은 편집 하나(실행 취소 1)
   let gapped = false, gapNote = "";
@@ -2394,8 +2452,19 @@ function taskRunKeep(stage, plan, report, run, end) { // 그 묶음의 끝을 �
 
 // 그 묶음의 「한 번에 진행」 — 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 누를 때 한 번: 11-12 「시작할 때 한 번만」): 중간 계획 확인 없이 반영한다.
 // toId 가 뒤 묶음이면 stageId 부터 거기까지 이어서(taskRunChain — 「이어서 한 번에」) — 확인은 그때도 한 번, 묶음 경계마다 단계를 다시 셈하고 멈춤 요청·실패에서 전체가 멈춘다
-async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo = "", only = "") { // sure = 확인 창 없이 — 작업 진행 에이전트의 실행 카드 「진행」 이 그 확인이다(doc_agent_work.js) · redo = 끝난 단계를 다시(지금은 "reheads" — 「다시 분석」: §21)
-  if (taskRun) return;
+async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo = "", only = "", paid = null) { // sure = 확인 창 없이 — 작업 진행 에이전트의 실행 카드 「진행」 이 그 확인이다(doc_agent_work.js) · redo = 끝난 단계를 다시(지금은 "reheads" — 「다시 분석」: §21)
+  // paid = 유료 LLM 검증·보완을 걸어도 되는 문서 id 들(에이전트의 실행 카드가 승인한 것 — taskPaidDocs: 그 밖의 문서는 llmPart 가 하지 않고 남긴다) · null = 제한 없음(사람이 「한 번에 진행」 을 직접 누름 — 전과 같다)
+  // → 시작하지 않은 까닭 {ok: false, text}(정의가 바뀜 · 지워짐 — 에이전트의 agwExec 가 그 글로 끝낸다) | undefined(그 밖 — 끝은 taskRunLast)
+  if (taskRun || taskRunChecking) return;
+  const job = (state.task || {}).job || "", epoch = state.epoch;
+  if (taskCustomKey(job)) { // 조립한 워크플로우 — 시작하기 전에 그 정의를 서버에서 다시 읽는다(taskCatalogRefresh · 붙박이는 안 읽음): 바뀌었거나 지워졌으면 실행하지 않는다(다시 그린 단계를 보고 다시 누른다)
+    taskRunChecking = true;
+    let R = null;
+    try { R = await taskCatalogRefresh(job); } finally { taskRunChecking = false; }
+    if (taskRun || epoch !== state.epoch) return { ok: false, text: "그 사이 다른 진행이 시작됐거나 다른 문서를 열어 시작하지 않았습니다" };
+    const why = R && (R.gone || R.changed) ? R.why : taskLostWhy(job); // 못 읽었으면(R null) 지금 목록으로 — 목록에 없는 키면 그 까닭
+    if (why) { toast(why, true); return { ok: false, text: why }; }
+  }
   taskStagesSync();
   const i0 = TASK_STAGES.findIndex((g) => g.id === stageId), i1 = TASK_STAGES.findIndex((g) => g.id === toId), slots = taskSlots(), [plan, report] = (slots || []).map((k) => taskSlotDoc(k));
   if (i0 < 0 || i1 < i0 || !plan || !report) { toast("두 칸(사업계획서 · 연차보고서)에 문서를 먼저 고르세요", true); return; }
@@ -2405,18 +2474,29 @@ async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo 
   if (!stages.length) { toast("남은 단계가 없습니다"); return; }
   const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
   // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 남은 단계 · 바뀌는 것 · 유료 호출을 적은 확인 창: design.md §18 「확인 창」). sure 는 부르는 쪽 호환으로만 남김
-  const run = (taskRun = { stage: stages[0].id, report: report.id, key: (leftOf(stages[0])[0] || { key: redo }).key, note: "", t0: Date.now(), stop: false, chain, redo, only }); // only = 그 단계만 하고 끝(줄의 「분석」 · 「다시 분석」 단추 — 뒤의 LLM 단계는 안 돈다)
+  const run = (taskRun = { stage: stages[0].id, report: report.id, key: (leftOf(stages[0])[0] || { key: redo }).key, note: "", t0: Date.now(), stop: false, chain, redo, only, // only = 그 단계만 하고 끝(줄의 「분석」 · 「다시 분석」 단추 — 뒤의 LLM 단계는 안 돈다)
+    paid: Array.isArray(paid) ? new Set(paid) : null });
   taskRunLast = null;
   taskRunEnds = {};
   if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(② §19)
   run.timer = setInterval(() => taskStageSync(), 1000); // 지난 시간 — 글만 바꾼다
-  let stage = null, end = null, skip = ""; // stage·end = 마지막으로 돈 묶음과 그 끝 · skip = 다음 묶음으로 안 넘어간 까닭
+  let stage = null, end = null, skip = "", slow = ""; // stage·end = 마지막으로 돈 묶음과 그 끝 · skip = 다음 묶음으로 안 넘어간 까닭 · slow = 묶음 경계에서 자리 연결 목록을 다시 읽지 못함
   for (const g of stages) {
     if (stage) { // 묶음 경계 — 앞 묶음의 결과를 다시 셈해 끝 글을 남기고, 넘어가도 되는지 본다(taskRun 은 그대로 — 초기화·다른 단추는 계속 꺼져 있다)
+      // 앞 묶음의 LLM 검증·보완이 분석을 바꿨을 수 있다 — 다른 문서 쪽 자료를 다시 읽고(taskFlowLoad — 자리 연결 목록 다시 읽기를 건다) 그 다시 읽기가 끝나기를 기다린 뒤(상한 3분) 그 목록으로 센다.
+      // 전에는 다시 읽기 전의 목록으로 세어, 그 목록이 「정상 0건」(linksNone)이면 「내용 넣기」 의 넣기 계획 · 내용 반영을 끝난 것으로 보고 그 묶음을 건너뛰었다(HEAD 부터 — 2차의 정상 0건 판정으로 넓어짐)
+      if (!run.stop && state.id === report.id) {
+        run.note = "다음 묶음 셈 — 자리 연결 목록 다시 읽기";
+        taskStageSync();
+        await taskFlowLoad();
+        if (!(await taskWait(() => !taskFlow.linkBusy || run.stop, 180000))) slow = "자리 연결 목록을 다시 읽는 데 너무 오래 걸립니다 — 잠시 뒤 다시 누르세요"; // 「멈춤」 을 누르면 기다리지 않고 아래에서 멈춘다
+      }
       taskStepsDraw();
+      if (!document.getElementById("taskSteps")) taskStepsCalc(); // 「작업 개요」 가 그려져 있지 않아도 셈은 지금 것으로(leftOf 가 읽는 taskStepsLast)
       taskRunKeep(stage, plan, report, run, end);
       const before = TASK_STAGES.slice(0, TASK_STAGES.indexOf(g)).find((p) => leftOf(p).length);
       if (run.stop) skip = "눌러서 멈췄습니다";
+      else if (slow) skip = slow;
       else if (before) skip = `${before.no} 「${before.name}」 이 덜 끝났습니다`;
       if (skip) break;
     }
@@ -4950,7 +5030,7 @@ async function revert(id) {
 function scrollToBlock(id, focus = false) {
   const p = paraEl(id);
   if (!p) return;
-  p.scrollIntoView({ block: "center", behavior: "smooth" });
+  p.scrollIntoView({ block: "center", behavior: scrollHow() });
   p.classList.remove("flash");
   void p.offsetWidth;
   p.classList.add("flash");
@@ -5466,7 +5546,7 @@ function pageCheckList(checks) {
 
 function goPage(n) {
   const box = document.querySelector(`#doc [data-page="${n}"]`);
-  if (box) box.scrollIntoView({ block: "start", behavior: "smooth" });
+  if (box) box.scrollIntoView({ block: "start", behavior: scrollHow() });
   const m = state.mapping;
   state.pdfWhich = "original";
   syncSeg();
@@ -5621,9 +5701,9 @@ const TOOL_INFO = {
   Heads: ["헤딩 추출", "구조 분석", "문서와 나란히 보며 라벨, 템플릿과 판단 근거를 확인합니다."],
   Tables: ["테이블", "표 관리", "문서의 표만 따로 — 소속 헤딩·계산식·엑셀식 보기·표 지침을 다룹니다."], // 탭 이름은 「테이블」(2026-11-16 사용자 「표 아니고 테이블로」 — 전의 「표」 · spec_작업 ② §10 「둘째 줄」)
   Agent: ["에이전트", "요청 · 제안", "문서에서 자리를 고르고 요청하면 글·표·표 채우기·서식 입히기를 제안합니다. 제안은 「문서에 반영」 을 눌러야 들어가고, 서식 관리자에서 서식을 저장해 다시 씁니다."], // doc_agent.js(spec_일반편집 ② §12 · 「서식 관리자」 = spec_서식복사 ② §2)
-  Dash: ["대시보드", "TASK 단계 흐름", "이 TASK 의 단계를 워크플로우 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다 — 묶음의 「한 번에 진행」 도 여기서 누릅니다."], // dashboard.js(spec_작업에이전트 ② §9 — 2026-11-18 사용자)
-  Div: ["작업 개요", "프로젝트 · TASK", "프로젝트 구성과 TASK 라운드의 첨부 파일·진행 단계를 관리합니다."],
-  Tasks: ["작업 리스트", "프로젝트 · TASK · 라운드", "프로젝트별 TASK와 이전 라운드를 열고, 새 TASK나 라운드를 시작합니다."],
+  Dash: ["대시보드", "워크플로우 단계 흐름", "이 워크플로우의 단계를 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다 — 묶음의 「한 번에 진행」 도 여기서 누릅니다."], // dashboard.js(spec_작업에이전트 ② §9 — 2026-11-18 사용자)
+  Div: ["작업 개요", "프로젝트 · 워크플로우", "프로젝트 구성과 워크플로우 라운드의 첨부 파일·진행 단계를 관리합니다."],
+  Tasks: ["작업 리스트", "프로젝트 · 워크플로우 · 라운드", "프로젝트별 워크플로우와 이전 라운드를 열고, 새 워크플로우나 라운드를 시작합니다."],
   Compare: ["문서 비교", "병합 전 확인", "문서별 라벨과 템플릿을 나란히 비교하고 확인한 문서를 표시합니다."]
 };
 
@@ -5924,6 +6004,10 @@ const ZOOM_ALL = 24;   // 바꿀 쪽 상자가 이 수 이하면 한 번에(작�
 const ZOOM_NEAR = 300; // 보기 위·아래 이만큼(화면 px)까지는 바로 바꾼다
 const ZOOM_SLICE = 16; // 뒤에서 한 번에 쓰는 시간(ms)
 const zoomJob = { on: false, timer: 0, carry: 0, dirty: false, at: null, until: 0, hint: null }; // on = 뒤에서 바꾸는 중 · dirty = 표시를 그린 뒤에 바꾼 쪽이 있다(끝나면 다시 그림) · at = 보는 쪽과 그 자리(zoomSeen)
+// 문서(#scroller)를 「그 자리로」 옮기는 스크롤의 방식 — 배율을 뒤에서 바꾸는 중에는 바로("instant"). 부드러운 스크롤은 그동안의 자리 지키기(zoomStep·zoomCover 의 scrollTop 쓰기)가 끊어 가다 만다:
+// 옆 열을 연 직후(쪽 맞춤 배율이 바뀜) 목록 줄을 누르면 강조는 붙는데 문서는 제자리였다. 바로 간 자리는 그 뒤의 자리 지키기가 그대로 둔다. 「그 자리로」 를 새로 만들 때 behavior 를 이것으로 준다
+// (spec_hwpx_웹편집 ② §2 「배율 — 쪽 상자마다 · 보이는 쪽부터」 「그 자리로」)
+const scrollHow = () => (zoomJob.on ? "instant" : "smooth");
 
 function zoomPut(k, z) { // 쪽 상자 하나의 배율 → 바꿨으면 true
   const z0 = +k.style.zoom;
@@ -6324,7 +6408,7 @@ function flipPage(dir) {
   }
   to = Math.max(0, Math.min(sc.scrollHeight - h, Math.round(to)));
   flip = { at: now, to };
-  sc.scrollTo({ top: to, behavior: "smooth" });
+  sc.scrollTo({ top: to, behavior: scrollHow() });
 }
 
 function bindWheelFlip() {
@@ -9554,7 +9638,7 @@ function divPresetRefresh() { // 상태 줄(확정 — spec_작업 ② §18)·�
   if (dv.view.presetsBroken) {
     const t = el("span", "dv-tag is-warning", "저장 파일 손상"); t.title = "저장한 프로젝트 구성 파일이 손상되어 비어 보입니다(.broken 사본) — 파일을 고치거나 옮긴 뒤 다시"; status.append(t);
   }
-  const name = el("span", "dv-preset-name", `${divConfirmWhat(where)}`); name.title = `${divConfirmWhat(where)} — 같은 프로젝트의 TASK 들이 같이 씁니다`; status.append(name);
+  const name = el("span", "dv-preset-name", `${divConfirmWhat(where)}`); name.title = `${divConfirmWhat(where)} — 같은 프로젝트의 워크플로우들이 같이 씁니다`; status.append(name);
   const tag = valid ? el("span", "dv-tag is-ready", "확정함") : cf ? el("span", "dv-tag is-warning", "확정 뒤 바뀜") : el("span", "dv-tag", "확정 전");
   tag.dataset.confirm = valid ? "valid" : cf ? "changed" : "none";
   if (cf && cf.at) tag.title = `확정 ${fmtWhen(cf.at)} — ${divValuesText(cf.values)}`;
@@ -10479,7 +10563,7 @@ const DV_CONF = { high: ["applied", "높음"], medium: ["already", "중간"], lo
 function divMissingGo(x) { // 후보의 문단, 또는 표(쪽 조각이면 첫 조각)로
   if (x.kind !== "table") { if (paraEl(x.id)) scrollToBlock(x.id, true); else toast("그 문단이 지금 문서에 없습니다"); return; }
   const t = document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(x.id)}"]`);
-  if (t) t.scrollIntoView({ block: "center", behavior: "smooth" }); else toast("그 표가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
+  if (t) t.scrollIntoView({ block: "center", behavior: scrollHow() }); else toast("그 표가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
 }
 // LLM 후보 목록을 볼 차례로(spec_구분_기준 ② §13·§14 「후보 줄 차례」, 2026-11-11 사용자 「자리로 추가 버튼이 어디있냐?」 — 표 후보 41줄 아래 5,000px 에 묻혀 있었다):
 // 「자리로 추가」 할 수 있는 문단 후보가 맨 위(이미 추가한 것은 그 다음), 재검토 줄, 나머지 문단, 표 후보 차례. 같은 꼴 표 후보(구분 + 제목 첫 마디가 같음 —

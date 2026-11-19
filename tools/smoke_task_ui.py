@@ -126,11 +126,11 @@ try:
         check("고르면 그 내용이 바로 열림 — 탭 띠에 탭은 안 생기고 활성 탭도 없음", page.get_attribute("#panel", "data-tool") == "Div" and page.locator("#tabDiv").count() == 0
               and page.locator("#workspaceNav .tab.active").count() == 0 and page.get_attribute("#toolTabTask", "aria-selected") == "true", page.get_attribute("#panel", "data-tool"))
         page.wait_for_selector("#divMarksBar")
-        check("패널 제목 「작업 개요」 · 꼬리표 「프로젝트 · TASK」(2026-11-12 ② §17 — 접힌 띠 이름)", page.eval_on_selector("#toolTitle", "e => e.textContent.trim()") == "작업 개요"
-              and page.eval_on_selector("#toolTag", "e => e.textContent.trim()") == "프로젝트 · TASK",
+        check("패널 제목 「작업 개요」 · 꼬리표 「프로젝트 · 워크플로우」(2026-11-12 ② §17 — 접힌 띠 이름)", page.eval_on_selector("#toolTitle", "e => e.textContent.trim()") == "작업 개요"
+              and page.eval_on_selector("#toolTag", "e => e.textContent.trim()") == "프로젝트 · 워크플로우",
               page.eval_on_selector("#toolTitle", "e => e.textContent") + " / " + page.eval_on_selector("#toolTag", "e => e.textContent"))
         labels = page.evaluate("() => { const b = document.getElementById('divBox'); return b.firstElementChild.classList.contains('dv-task') ? [...b.querySelectorAll('.dv-task-field > span')].map((s) => s.textContent) : null; }")
-        check("패널 첫 카드 = 프로젝트 · TASK · 첨부 파일(「작업」 칸은 패널 머리에만 — 2026-11-12 · 프로젝트가 먼저 ② §17)", labels == ["프로젝트", "TASK", "첨부 파일"]
+        check("패널 첫 카드 = 프로젝트 · 워크플로우 · 첨부 파일(「작업」 칸은 패널 머리에만 — 2026-11-12 · 프로젝트가 먼저 ② §17)", labels == ["프로젝트", "워크플로우", "첨부 파일"]
               and page.locator("#divBox .dv-task select[data-task=kind]").count() == 0 and page.input_value("#panelTask") == "rnd", labels)
         # 2026-11-12 — 이관이 아니면 과제 구성 입력(단계·차년도 · 기관 구성 …)은 전처럼 패널에 바로 · 표시 줄 이름 = 「구분 기준 자리 표시」(처음엔 「문서 표시」 — 사용자 "뭘 이야기 하는지 모르겠다")
         # 2026-11-14 — 묶음 없는 TASK 는 구성 입력도 실행 묶음(카드 하나)의 접어 둔 「세부」 안(spec_구분_기준 ② §22 「카드 하나」 — 사용자 "한번에 진행, 불러오기 2개 메뉴가 있고, 다른 것은 접혀있어야 하고")

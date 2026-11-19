@@ -152,7 +152,7 @@ try:
         page.locator("#toolTabTask").click()
         wait_work(page, report)
         fields = page.locator("#divBox .dv-task > .dv-task-field > span").all_text_contents()
-        check("작업 개요 — 프로젝트가 먼저, TASK가 다음", fields[:2] == ["프로젝트", "TASK"], fields)
+        check("작업 개요 — 프로젝트가 먼저, 워크플로우가 다음", fields[:2] == ["프로젝트", "워크플로우"], fields)
         check("현재 TASK와 Round 1 표시", page.locator('#divBox select[data-task="job"]').input_value() == "plan_to_report"
               and page.locator('.project-round-label select').input_value() == "1")
         check("구분 기준 프로젝트 공유 안내", "프로젝트 공유" in page.locator(".project-sharing").inner_text())
@@ -624,7 +624,7 @@ try:
               and "문서 「기술수요조사서.hwpx」을(를) 지웠습니다" in page.locator("#toast").text_content() and bool(opened) and page.evaluate("id => state.id === id", opened), (page.locator("#toast").text_content(), opened, page.evaluate("() => state.id")))
         drop(g_round).click()
         drop_text = page.locator("#projectList .project-drop").inner_text()
-        check("TASK 줄 「지우기」 — 「프로젝트 · TASK · Round 의 문서 N개」 + 문서 이름 목록", f"프로젝트 「{gone}」 · TASK 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in drop_text
+        check("워크플로우 줄 「지우기」 — 「프로젝트 · 워크플로우 · Round 의 문서 N개」 + 문서 이름 목록", f"프로젝트 「{gone}」 · 워크플로우 「사업계획서 → 연차보고서 이관」 · Round 1 의 문서 2개를 지울까요?" in drop_text
               and page.locator("#projectList .project-drop .work-drop-names > li").count() == 2 and "시작 화면으로" not in drop_text and "이전 라운드" not in drop_text, drop_text)
         check("320px — 라운드 지우기 확인 줄 가로 넘침 없음", page.evaluate(overflow) <= 1, page.evaluate(overflow))
         page.locator("#panel").screenshot(path=str(OUT / "09_task_drop_round.png"))

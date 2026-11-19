@@ -160,7 +160,7 @@ function agentFrame() {
   E.lib.prepend(agentIcon("library"));
   E.clear = hBtn("비우기", () => agentClear(), { title: "이 문서의 대화(요청·답·제안)와 자료를 모두 지웁니다 — 문서는 그대로 · 한 번 더 눌러야 지웁니다" });
   E.clear.dataset.agAct = "clear";
-  E.guide = hBtn("작업 설명", () => { if (typeof agentWorkStart === "function") agentWorkStart(true); }, { title: "이 TASK 의 사전 준비 · 진행 상황 · 다음 단계를 지금 상태로 다시 설명합니다(작업 진행 에이전트)" });
+  E.guide = hBtn("작업 설명", () => { if (typeof agentWorkStart === "function") agentWorkStart(true); }, { title: "이 워크플로우의 사전 준비 · 진행 상황 · 다음 단계를 지금 상태로 다시 설명합니다(작업 진행 에이전트)" });
   E.guide.dataset.agAct = "guide";
   E.status.append(el("span", "ag-dot"), E.statusText, E.guide, E.lib, E.clear);
   if (typeof agentFloatTools === "function") E.status.append(agentFloatTools()); // 패널 탭 자리일 때만 보이는 「에이전트 설정」 · 「창으로 띄우기」(agent_float.js — 떠 있는 창에서는 창 머리에 같은 것)
@@ -417,7 +417,7 @@ function agentActsEl(t, p, inCol = false) { // 카드의 단추 줄(2열 미리�
     if (table && (p.type === "tableNew" || p.type === "tableFill")) {
       btn("excel", hBtn("엑셀식 보기", () => { if (typeof xlColumn === "function") xlColumn(table); }, { title: "문서 옆 열에 이 표의 A1 격자 — 수식 자리 판정 · 계산 · 엑셀로 받기" }));
       btn("saveStyle", hBtn("이 표를 서식으로 저장", () => { if (typeof styleSaveOpen === "function") styleSaveOpen({ table, blueprint: true }); },
-        { title: "이 표의 서식과 구조를 서식 보관함에 저장합니다 — 다른 문서·TASK 에서 「빈 표 넣기」 로 다시 씁니다" }));
+        { title: "이 표의 서식과 구조를 서식 보관함에 저장합니다 — 다른 문서·워크플로우에서 「빈 표 넣기」 로 다시 씁니다" }));
     }
     if (ap.note) acts.append(el("span", "ag-state", ap.note));
     return acts;
@@ -525,7 +525,7 @@ function agentDrawInput() {
   const A = AGENT, E = A.el;
   if (!E) return;
   E.policy.hidden = A.policy.apply !== false;
-  E.policy.title = A.policy.why || "이 TASK 의 원본 문서는 바꾸지 않습니다 — 제안은 볼 수 있지만 문서에 반영할 수 없습니다";
+  E.policy.title = A.policy.why || "이 워크플로우의 원본 문서는 바꾸지 않습니다 — 제안은 볼 수 있지만 문서에 반영할 수 없습니다";
   agentSelDraw();
   agentDrawMats();
   E.paste.hidden = !A.paste.open;

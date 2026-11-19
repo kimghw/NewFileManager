@@ -132,7 +132,7 @@ function tmkTableName(b) { // 「t12 · 4×3 · 첫 칸 글」
 }
 function tmkGoTable(tid) {
   const t = document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"], #doc .xl-wrap[data-tbl="${CSS.escape(tid)}"]`);
-  if (t) t.scrollIntoView({ block: "center", behavior: "smooth" }); else toast("그 표가 지금 문서에 없습니다");
+  if (t) t.scrollIntoView({ block: "center", behavior: scrollHow() }); else toast("그 표가 지금 문서에 없습니다");
 }
 
 // ---- 붙여 넣은 표(HTML) → 격자 ----------------------------------------------------------------------------------------

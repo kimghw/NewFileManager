@@ -39,7 +39,7 @@ function tblTypeHit(cid = null) { // 격자 · 목록의 칸에 올린 동안 �
 function tblTypeGo(tid, cid = null) { // 문서에서 그 칸(없으면 표)으로 — 열은 그대로(나란히 보기)
   const target = (cid && document.querySelector(`#doc td[data-cell="${CSS.escape(cid)}"]`)) || document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"]`);
   if (!target) { toast("그 표가 지금 화면에 없습니다"); return; }
-  target.scrollIntoView({ block: cid ? "center" : "start", behavior: "smooth" });
+  target.scrollIntoView({ block: cid ? "center" : "start", behavior: scrollHow() });
 }
 
 // ---- 「테이블」 탭의 상태 표지 — 확정된 표에만 「확정됨」(확정 안 된 표 · 양식이 없는 문서에는 아무것도 없다) -------------------------------------------

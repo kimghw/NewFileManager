@@ -500,7 +500,7 @@ def open_sample(name: str, new: bool = False):
 @app.post("/api/docs")
 async def upload(file: UploadFile = File(...), new: bool = False, job: str = "", ask: bool = False, use: str = ""):
     """?new=1 이면 같은 파일 작업이 있어도 새 작업(spec_작업 ② §1). hwp(바이너리)는 한글로 hwpx 로 바꿔 hwpx 작업으로 받는다.
-    ?job=<TASK> = 올릴 때 고른 TASK(② §15) — 같은 파일 작업이 여럿이면 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다. 모르는 값은 없는 것으로 본다.
+    ?job=<워크플로우 키> = 올릴 때 고른 워크플로우(② §15) — 같은 파일 작업이 여럿이면 그 워크플로우의 작업 → 워크플로우가 빈 작업 → 그 밖의 가장 최근 작업 차례로 이어 연다. 모르는 값은 없는 것으로 본다.
     ?ask=1 = 같은 파일 작업이 있으면 열지 않고 {ask: true, name, size, same[…]} 으로 묻는다 · ?use=<작업 id> = 그 가운데 고른 작업을 이어 엶(② §1 「같은 파일은 묻고 연다」)."""
     name, data = file.filename or "document.hwpx", await file.read()
     if name.lower().endswith(".hwp"):
@@ -1393,9 +1393,9 @@ def works_list():
 
 @app.put("/api/works/{wid}/task")
 def work_task(wid: str, body: dict = Body(...)):
-    """{kind, file, job, project, round?} → {task, division?}. 프로젝트 아래 TASK·라운드별로 문서를 묶는다.
-    다른 TASK 또는 라운드의 작업 분류는 바꾸지 않는다. 기존 round 없는 작업은 1라운드.
-    round 를 안 보냈고 묶음(프로젝트·TASK)이 바뀌면 새 묶음에 이미 있는 다른 작업들의 최신 라운드로 둔다(없으면 번호 없음 = 1 — spec_작업 ② §10·§19).
+    """{kind, file, job, project, round?} → {task, division?}. 프로젝트 아래 워크플로우·라운드별로 문서를 묶는다.
+    다른 워크플로우 또는 라운드의 작업 분류는 바꾸지 않는다. 기존 round 없는 작업은 1라운드.
+    round 를 안 보냈고 묶음(프로젝트·워크플로우)이 바뀌면 새 묶음에 이미 있는 다른 작업들의 최신 라운드로 둔다(없으면 번호 없음 = 1 — spec_작업 ② §10·§19).
     프로젝트가 바뀌어 이름 있는 프로젝트에 들어갔고 작업이 열려 있고 공유 중이면 division: adopted(프로젝트의 구분 기준을 받음) | seeded(이 문서의 값을 프로젝트에 올림) | none(둘 다 없음)."""
     return _work_task(wid, body)
 
@@ -1409,7 +1409,7 @@ def _work_task(wid, body, locked=False):
     # 할 일과 작업 종류의 조합(spec_일반편집 ② §11): 작업 종류가 정해진 할 일(TASK_KIND — 문서 일반 편집 = general)은 그 종류여야 하고(비워도 안 됨 — 비우면 화면·프로젝트 구분 기준 공유가 연구개발로 본다),
     # 그 밖의 할 일은 연구개발(rnd) — 작업 종류를 비운 채 할 일만 남기는 것은 전처럼 된다
     if t["job"] and (t["kind"] != TASK_KIND[t["job"]] if t["job"] in TASK_KIND else t["kind"] not in ("", "rnd")):
-        raise HTTPException(400, "이 TASK 와 작업 종류가 맞지 않습니다 — 작업 종류를 바꾸려면 TASK 를 먼저 비우세요")
+        raise HTTPException(400, "이 워크플로우와 작업 종류가 맞지 않습니다 — 작업 종류를 바꾸려면 워크플로우를 먼저 비우세요")
     _work_or_404(wid)
     t["project"] = projects.normalize_name(body.get("project") or "")
     if "round" in body and (not isinstance(body["round"], int) or isinstance(body["round"], bool) or not 1 <= body["round"] <= 1000000):
@@ -1508,7 +1508,7 @@ def _temp_tidy(name):
 
 @app.post("/api/projects")
 def project_create(body: dict = Body(...)):
-    """{name} → {name}. 「새 프로젝트」(spec_작업 ② §17) — 문서·구성 없는 프로젝트 기록을 만든다(작업 리스트에 「문서 없음」 으로 보이고, 파일을 올려 첫 TASK 를 시작한다).
+    """{name} → {name}. 「새 프로젝트」(spec_작업 ② §17) — 문서·구성 없는 프로젝트 기록을 만든다(작업 리스트에 「문서 없음」 으로 보이고, 파일을 올려 첫 워크플로우를 시작한다).
     400 = 이름 없음 · 임시 이름 꼴 · 409 = 이미 쓰는 이름(기록이나 작업) · 저장 파일 손상."""
     name = body.get("name")
     if not isinstance(name, str) or not projects.normalize_name(name):
@@ -1566,7 +1566,7 @@ def _task_options_follow(fn, *args):
 
 @app.put("/api/projects/{name:path}")
 def project_rename(name: str, body: dict = Body(...)):
-    """{name} → {name, works, join, tasks}. 프로젝트의 모든 TASK·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다.
+    """{name} → {name, works, join, tasks}. 프로젝트의 모든 워크플로우·라운드 작업과 공유 구분 기준을 새 이름으로 옮긴다(spec_작업 ② §17). 이미 쓰는 이름과는 합치지 않는다 — 라운드 번호가 겹친다.
     단 **임시 프로젝트**(「임시 프로젝트 N」 — ② §17 「임시 프로젝트」)는 이름을 정하는 것이라, 이미 있는 이름이면 그 프로젝트로 문서를 모두 옮긴다(join: true — _temp_join).
     tasks = 바뀐 작업마다의 새 task(화면이 지금 문서의 프로젝트·라운드를 맞춘다)."""
     new = body.get("name")
@@ -1720,14 +1720,14 @@ def _freeze_latest_project_round(project, job, rows):
 
 @app.post("/api/works/{wid}/start-task")
 def work_start_task(wid: str, body: dict = Body(...)):
-    """새로 올린 무소속 문서를 프로젝트의 다음 TASK 라운드로 배정한다.
+    """새로 올린 무소속 문서를 프로젝트의 다음 워크플로우 라운드로 배정한다.
     {temp: true} 이고 프로젝트 이름이 비었으면 서버가 임시 이름(「임시 프로젝트 N」 — spec_작업 ② §17 「임시 프로젝트」)을 정해 그 프로젝트의 첫 라운드로 둔다."""
     project, job, role = body.get("project"), body.get("job"), body.get("file", "")
     temp = body.get("temp") is True and (project is None or (isinstance(project, str) and not projects.normalize_name(project)))
     if not temp and (not isinstance(project, str) or not projects.normalize_name(project)):
         raise HTTPException(400, "프로젝트 이름을 먼저 입력하세요")
     if not isinstance(job, str) or not job or not _job_ok(job) or role not in TASK["file"]:
-        raise HTTPException(400, "모르는 TASK 또는 문서 종류입니다")
+        raise HTTPException(400, "모르는 워크플로우 또는 문서 종류입니다")
     project = "" if temp else projects.normalize_name(project)
     with projects.ROUND_LOCK:
         work = _work_or_404(wid)
@@ -1777,7 +1777,7 @@ def work_round(wid: str, body: dict = Body(default={})):
         task = work.get("task") or {}
         project, job, number = projects.group_key(task)
         if not project or not job:
-            raise HTTPException(400, "프로젝트와 TASK를 먼저 선택하세요")
+            raise HTTPException(400, "프로젝트와 워크플로우를 먼저 선택하세요")
         rows = works.list_works()
         members = [w for w in rows if projects.group_key(w.get("task")) == (project, job, number)]
         next_round = _freeze_latest_project_round(project, job, rows) + 1
@@ -1951,7 +1951,7 @@ def _reset_forget(wid):
 @app.post("/api/works/{wid}/reset")
 def work_reset(wid: str):
     """작업 내용 초기화(spec_작업 ② §3-1) — 같은 작업을 올린 직후로: 문서 = 올린 원본, 고친 문단 · 실행 취소 · 분석 · LLM 결과 · 대화 · 검증 기록은 reset/<n>/ 으로 옮긴다.
-    남김: 올린 원본 · 확정(있으면 「작업 내용 초기화 — 올린 원본으로」 확정 하나를 더함 — 기준이 뒤로 가지 않게 §8) · 작업 기록 · 양식 선택 · 취합본의 기관 문서 등록 · 프로젝트 구성 값·확정 · TASK 옵션.
+    남김: 올린 원본 · 확정(있으면 「작업 내용 초기화 — 올린 원본으로」 확정 하나를 더함 — 기준이 뒤로 가지 않게 §8) · 작업 기록 · 양식 선택 · 취합본의 기관 문서 등록 · 프로젝트 구성 값·확정 · 워크플로우 옵션.
     편집 차례는 이어 센다. 메모리의 세션은 버리고 작업 폴더에서 다시 연다(가져오기 검증이 돈다 — 첫 분석은 화면이 부른다).
     → GET /api/docs/{id} 꼴 + reset {n, archive, commit, skipped}. 400 저장 끔 · 404 없는 작업 · 409 공유 중 · 도는 LLM 일 · 500 옮기지 못함."""
     if not works.enabled():

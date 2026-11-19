@@ -485,6 +485,10 @@ def main():
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=files]')?.dataset.state === 'done'", timeout=60000)
         # 1단계 「문서 검토」 의 헤딩 · 표 분석 — 올릴 때 저절로 돈 기본 분석이 끝나면 그 줄이 「끝남」 이 된다(도는 동안 5초마다 요약을 다시 읽는다 — spec_작업 ② §21)
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=heads]')?.dataset.state === 'done'", timeout=600000)
+        # LLM 을 쓸 수 있는지(GET /api/headings/llm — 두 칸이 찬 뒤 한 번 묻는다: app.js taskLlmLoad)를 안 뒤에 본다 — 분석으로 서버가 바쁘면 그 답이 분석 끝보다 늦어
+        # 1단계 「LLM 검증·보완」 이 잠깐 「LLM 을 쓸 수 있는지 확인하는 중…」(지금)으로 보인다(같이 돌린 검사에서 이 자리가 떨어졌다 — HEAD 도 같음 · 혼자는 통과: 2026-11-19)
+        page.wait_for_function("() => taskLlmOk !== null", timeout=60000)
+        page.wait_for_timeout(1300)   # 대시보드의 1초 다시 그리기
         h, nodes = page.evaluate(HEAD), page.evaluate(NODES)
         by = {n["key"]: n for n in nodes}
         check("이관 — 묶음 넷(1단계 문서 검토 · 2단계 구성 맞추기 · 3단계 내용 넣기 · 4단계 문서 정리) · 묶음마다 「한 번에 진행」(할 일이 남은 첫 묶음 = 2단계만 켜짐) · 준비 · 헤딩·표 분석 끝남 · 프로젝트 구성 확정이 지금",
@@ -514,16 +518,16 @@ def main():
         picks = page.evaluate("""() => ({ title: (document.querySelector('#paneDash .dash-title b') || {}).textContent, next: (document.querySelector('#paneDash .dash-next') || {}).textContent || '',
           jobs: [...document.querySelectorAll('#paneDash .dash-pick')].map((p) => p.dataset.job), flow: (document.querySelector('#paneDash .dash-pick[data-job=plan_merge] .dash-text.muted') || {}).textContent || '',
           btn: (document.querySelector('#paneDash .dash-pick[data-job=plan_fit] button') || {}).textContent || '', over: document.getElementById('paneDash').scrollWidth > document.getElementById('paneDash').clientWidth + 1 })""")
-        check("TASK 가 없는 문서 — 탭 「대시보드」 가 보이고 누르면 「TASK 고르기」: hwpx 로 할 수 있는 TASK 카드(준비 중인 연차보고서 취합은 없음) · 묶음 차례 · 「이 TASK 로」",
-              picks["title"] == "TASK 고르기" and "TASK 가 없습니다" in picks["next"] and {"plan_fit", "plan_merge", "plan_to_report", "doc_edit", "style_copy"} <= set(picks["jobs"]) and "report_merge" not in picks["jobs"]
-              and picks["flow"] == "프로젝트 구성 › 문서 프레임 작성 › 내용 매핑" and picks["btn"] == "이 TASK 로" and not picks["over"], picks)
+        check("워크플로우가 없는 문서 — 탭 「대시보드」 가 보이고 누르면 「워크플로우 고르기」: hwpx 로 할 수 있는 워크플로우 카드(준비 중인 연차보고서 취합은 없음) · 묶음 차례 · 「이 워크플로우로」",
+              picks["title"] == "워크플로우 고르기" and "워크플로우가 없습니다" in picks["next"] and {"plan_fit", "plan_merge", "plan_to_report", "doc_edit", "style_copy"} <= set(picks["jobs"]) and "report_merge" not in picks["jobs"]
+              and picks["flow"] == "프로젝트 구성 › 문서 프레임 작성 › 내용 매핑" and picks["btn"] == "이 워크플로우로" and not picks["over"], picks)
         page.locator("#paneDash").screenshot(path=str(OUT / "07_pick.png"))
         page.click('#paneDash .dash-pick[data-job=plan_fit] button')
         page.wait_for_function("() => (state.task || {}).job === 'plan_fit' && !!document.querySelector('#paneDash .dash-node[data-key=values]')", timeout=60000)
         h = page.evaluate(HEAD)
         lst = requests.get(f"{base}/api/works", timeout=30).json()
         saved = next((w for w in (lst if isinstance(lst, list) else lst.get("works", [])) if w.get("id") == bare), {})
-        check("「이 TASK 로」 → 문서에 TASK 가 적힘(서버) · 패널은 대시보드 그대로 · 그 자리에서 양식 표준화 단계 흐름(세 묶음)",
+        check("「이 워크플로우로」 → 문서에 워크플로우가 적힘(서버) · 패널은 대시보드 그대로 · 그 자리에서 양식 표준화 단계 흐름(세 묶음)",
               (saved.get("task") or {}).get("job") == "plan_fit" and h["tool"] == "Dash" and h["title"] == "사업계획서 양식 표준화" and [g[1] for g in h["groups"]] == ["프로젝트 구성", "헤딩 추출", "표"], [saved.get("task"), h])
         page.locator("#paneDash").screenshot(path=str(OUT / "08_picked.png"))
 

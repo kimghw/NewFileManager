@@ -64,10 +64,59 @@ def test_workflow_part_cuts_the_task_section_and_the_common_modules_it_uses():
     # 참조 글(spec ② §8) — 작업 화면의 그 TASK 절은 TASK 문서(tasks/<job>.md): workflow.md 의 절과 같은 글 + 시작 점검 + 단계마다 조건
     assert G.task_doc_text("plan_fit") == W.task_md("plan_fit").read_text(encoding="utf-8") and G.task_doc_text("nope") == ""
     fit = W.BY_JOB["plan_fit"]
-    assert "#### 시작 점검 — 시작할 때 저절로 확인하는 것" in p and "##### TASK 를 시작할 때" in p and "#### 단계마다 조건" in p and "  - 끝난 것으로 보는 때: " in p and "  - 안 맞으면: " in p
+    assert "#### 시작 점검 — 시작할 때 저절로 확인하는 것" in p and "##### 워크플로우를 시작할 때" in p and "#### 단계마다 조건" in p and "  - 끝난 것으로 보는 때: " in p and "  - 안 맞으면: " in p
     assert all(s["does"] in p and s["done"] in p for g in fit["stages"] for s in g["steps"]) and all(c["does"] in p for c in fit["entry"])
     assert "만든 글" not in p.split("### 사업계획서 양식 표준화 — `plan_fit`", 1)[1].split("#### 시작 점검", 1)[0]   # 파일 머리의 알림(> 줄)은 싣지 않는다
-    assert "시작 점검(시작할 때 저절로 확인하는 것): TASK 를 시작할 때 — 문서 형식" in home and "`tasks/plan_fit.md`" in home and "  - 안 맞으면: " not in home   # 첫 화면은 이름만
+    assert "시작 점검(시작할 때 저절로 확인하는 것): 워크플로우를 시작할 때 — 문서 형식" in home and "`tasks/plan_fit.md`" in home and "  - 안 맞으면: " not in home   # 첫 화면은 이름만
+
+
+def test_assembled_workflow_gets_its_own_section_and_the_selected_steps_line(monkeypatch):
+    """ⓗ 조립한 워크플로우(app/custom_tasks.py 의 키 — spec_워크플로우 ② §14 · §15): task_markdown 이 그 키도 만든다(고른 단계만 · 파일로 쓰지 않음) · 작업 진행 에이전트의 프롬프트에
+    그 글이 들고(붙박이 TASK 들의 머리가 아니라) · 전제를 물려받았으면 「고른 단계 · 고르지 않은 단계는 하지 않는다」 한 줄이 할 일 프롬프트의 맨 앞에 든다 · 첫 화면 목록 · 이름은 그대로."""
+    from app import custom_tasks as C
+    monkeypatch.setenv("NFM_JOBS", str(Path(__file__).parents[1] / "jobs"))   # 저장소의 jobs/(물려받을 전제 — conftest 는 임시 폴더로 돌려 둔다)
+    t = C.create({"name": "목적만 검토 · 구성", "assign": {"source": [], "target": ["stage_review", "stage_fit"]}})
+    md = W.task_markdown(t["key"])
+    assert md.startswith(f"# 목적만 검토 · 구성 — `{t['key']}`") and "## 단계마다 조건" in md and "### 1단계 문서 검토 — " in md and "### 2단계 구성 맞추기 — " in md
+    assert "- **LLM 검증·보완**" not in md and "- **다시 문서 검토(LLM)**" in md and "### 3단계" not in md and "- 산출물: 구조를 프로젝트 구성에 맞춘 연차보고서\n" in md   # 고른 단계만 · 실제 산출물
+    assert "- 문서마다 단위문서 TASK — 원본 문서(사업계획서): 없음 / 목적 문서(연차보고서): 1단계 문서 검토(「헤딩 · 표 분석」) › 2단계 구성 맞추기(" in md
+    assert "- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 문서 검토(「준비」) › 2단계 구성 맞추기(「구성 불러오기」 › 「프로젝트 구성 확정」) — 구성의 기준: 원본 문서(사업계획서)" in md
+    assert "`jobs/plan_to_report.md`(틀이 같은 워크플로우의 것 — 그 글의 단계 설명 가운데 고르지 않은 단계는 하지 않는다)" in md and md.startswith(f"# 목적만 검토 · 구성 — `{t['key']}`\n") and "- 조립: 화면에서 단계를 골라 만든 워크플로우입니다" in md
+    # T8 — 시작 점검을 가리키기만 하지 않고 그 글을 싣는다(붙박이 이관의 시작 점검을 이 조립의 묶음 번호로 — 없는 묶음의 일만 보는 항목은 뺌)
+    entry = md.split("## 시작 점검 — 시작할 때 저절로 확인하는 것", 1)[1].split("## 단계마다 조건", 1)[0]
+    assert "### 워크플로우를 시작할 때" in entry and "- **사업계획서 · 프로젝트 이름**" in entry and "- **구조 반영 뒤의 분석**" in entry and "2단계의 「다시 문서 검토」 가 남습니다" in entry
+    assert "- **이관 조건**" not in entry and "- **지울 양식 안내**" not in entry and "- **연결 목록**" not in entry and "3단계" not in entry and "4단계" not in entry and "`tasks/plan_to_report.md`" not in md
+    assert not W.task_md(t["key"]).exists() and set(W.task_docs()) == {W.task_md(x["job"]) for x in W.TASKS}   # 파일로 쓰지 않는다(만든 글은 붙박이만)
+    with pytest.raises(KeyError):
+        W.task_markdown("u_00000000")
+    assert G.task_doc_text(t["key"]) == md and G.task_doc_text("u_00000000") == ""
+    p = G.workflow_part(t["key"])
+    assert f"### 목적만 검토 · 구성 — `{t['key']}`" in p and "#### 단계마다 조건" in p and "### 프로젝트 구성(구분 기준) — `division`" in p   # 그 글 + 그 단계가 쓰는 도구의 절
+    assert "#### 시작 점검 — 시작할 때 저절로 확인하는 것" in p and "- **구조 반영 뒤의 분석**" in p and "- **이관 조건**" not in p   # 에이전트 프롬프트에도 그 조립의 시작 점검(T8)
+    assert "### 사업계획서 → 연차보고서 이관 — `plan_to_report`" not in p and "### 문서 서식 복사 — `style_copy`" not in p   # 붙박이 이관의 절 · 첫 화면의 머리 목록이 아니다
+    prompt = G.content({"event": "start", "actions": []}, t["key"])
+    line = W.picked_line(C.get(t["key"]))
+    assert line.startswith("이 워크플로우는 조립한 것 — 고른 단계: [원본 문서(사업계획서): 없음 / 목적 문서(연차보고서): 「문서 검토」 › 「구성 맞추기」]") and line.endswith("고르지 않은 단계는 하지 않는다.")   # 단계 사이 「 › 」(= 다음 — F7)
+    head = prompt.split("## 할 일 — ", 1)[1]
+    assert head.startswith("목적만 검토 · 구성(사업계획서 → 연차보고서 이관의 전제)") and head.split("\n\n", 1)[1].startswith(line)   # 할 일 프롬프트의 맨 앞(머리 문장 다음)
+    own = C.create({"name": "제 전제", "assign": {"source": ["stage_review"], "target": []}, "premise": "원본만 본다"})
+    assert "조립한 것" not in G.content({"event": "start", "actions": []}, own["key"]).split("## 할 일 — ", 1)[1]   # 적은 전제에는 붙이지 않는다
+    # 이름 — 작업 진행 에이전트에 보내는 task.name 은 저장소의 이름(키를 이름으로 내지 않는다)
+    c = TestClient(server.app)
+    d = c.post("/api/docs", files={"file": (SMALL.name, SMALL.read_bytes())}).json()["docId"]
+    assert c.put(f"/api/works/{d}/task", json={"kind": "rnd", "file": "report", "job": t["key"], "project": "조립"}).status_code == 200
+    assert API._task(server._sess(d))["name"] == "목적만 검토 · 구성" and API._task(server._sess(d))["role"] == "target"
+    turn = c.post(f"/api/docs/{d}/agent/guide", json={"event": "start", "steps": STEPS, "actions": ACTS}).json()["turn"]
+    assert "「목적만 검토 · 구성」" in turn["reply"] and t["key"] not in turn["reply"]   # LLM 없는 스크립트 답도 이름으로
+
+
+def test_section_cutting_reads_both_task_and_workflow_headings():
+    """ⓗ 절 자르기는 「## TASK」 와 「## 워크플로우」 를 둘 다 읽는다(만든 글의 절 머리는 「## 워크플로우」 — spec_워크플로우 ② §15 「화면 말」 · 옛 머리 「## TASK」 의 글도 같게 자른다)."""
+    text = W.markdown()
+    head, secs = G._sections(text)
+    head2, secs2 = G._sections(text.replace("\n## 워크플로우\n", "\n## TASK\n", 1))
+    assert "\n## 워크플로우\n" in text and "\n## TASK\n" not in text and secs2 == secs and head2 == head and "plan_to_report" in secs and "## 한눈에" in head
+    assert all(t["job"] in secs for t in W.TASKS) and all(c["id"] in secs for c in W.COMMON)
 
 
 def test_agent_asks_for_logs_and_the_endpoint_reads_them(monkeypatch):
@@ -202,7 +251,7 @@ def test_llm_answer_is_checked_against_the_sent_actions(monkeypatch):
     t = c.post(f"/api/docs/{d}/agent/guide", json={"event": "say", "text": "다 해줘", "steps": STEPS, "actions": PLAN, "facts": {"config": "1단계(1–3차년도)"}}).json()["turn"]
     assert t["llm"] and t["act"] is None and t["state"] == "done" and "wipe" in t["notes"][0] and t["text"] == "다 해줘"
     assert seen["job"] == "plan_fit" and seen["data"]["task"]["name"] == "사업계획서 양식 표준화" and seen["data"]["facts"] == {"config": "1단계(1–3차년도)"}
-    assert G.CONTRACT in seen["prompt"] and "## 워크플로우 (workflow.md)" in seen["prompt"] and "### 사업계획서 양식 표준화 — `plan_fit`" in seen["prompt"]
+    assert G.CONTRACT in seen["prompt"] and "## 워크플로우 전체 지도 (workflow.md)" in seen["prompt"] and "### 사업계획서 양식 표준화 — `plan_fit`" in seen["prompt"]
     full = c.get(f"/api/docs/{d}/agent/turns/{t['id']}").json()
     assert full["parts"][0]["text"] == seen["prompt"] and full["response"]["act"] == "wipe"
     # 못 쓰는 답이면 스크립트가 답한다
@@ -230,3 +279,17 @@ def test_home_guide_picks_or_asks_for_a_task():
     assert r["act"] == "" and r["ask"] is None and "목적 문서" in r["reply"] and "2개" in r["reply"]
     r = c.post("/api/agent/guide", json={"files": [{**two[0], "target": True}, two[1]], "list": {"target": "취합본.hwpx", "project": "수소", "auto": True}}).json()
     assert r["ask"]["kind"] == "choice" and "start:plan_merge" in [o["value"] for o in r["ask"]["options"]]   # 목적 문서(hwpx)의 형식만 본다 — 원본(docx)은 화면이 TASK 마다 따로 검사
+
+
+def test_home_guide_offers_assembled_workflows_too():
+    """I9 — 첫 화면 가이드의 후보에 조립한 워크플로우도 든다(붙박이 뒤 · 같은 꼴): 이름 = 저장소의 이름 · 설명 = 적은 한 줄 설명(비웠으면 등록부가 실제 배정에서 지은 글) · 받는 형식 hwp · hwpx."""
+    from app import custom_tasks as C
+    a = C.create({"name": "넣기만", "assign": {"source": [], "target": ["stage_fill"]}})
+    b = C.create({"name": "설명 있음", "desc": "계획 쪽만 옮김", "assign": {"source": ["stage_review"], "target": []}})
+    c = TestClient(server.app)
+    r = c.post("/api/agent/guide", json={"files": [{"name": "연차보고서.hwpx", "size": 10}]}).json()
+    rows = {t["job"]: t for t in r["tasks"]}
+    assert [t["job"] for t in r["tasks"]] == [t["job"] for t in W.TASKS] + [a["key"], b["key"]] and all(set(x) == {"job", "name", "desc", "accept", "soon"} for x in r["tasks"])
+    assert rows[a["key"]] == {"job": a["key"], "name": "넣기만", "desc": W.custom_desc(C.get(a["key"])), "accept": ["hwp", "hwpx"], "soon": False} and "옮깁니다" in rows[a["key"]]["desc"]
+    assert rows[b["key"]]["desc"] == "계획 쪽만 옮김" and "검토합니다" in W.custom_desc(C.get(b["key"]))   # 「내용 넣기」 가 없으면 「옮깁니다」 라 하지 않는다
+    assert f"start:{a['key']}" in [o["value"] for o in r["ask"]["options"]]   # hwpx 를 받는 후보로 고를 수 있다

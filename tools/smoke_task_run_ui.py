@@ -110,7 +110,7 @@ try:
 
         # ---- 1. 묶음 모양 — 접힌 상자 · 머리 줄 · 상태 줄 · 준비가 안 끝나면 단추 꺼짐
         labels = page.eval_on_selector_all("#divBox .dv-task-field > span", "xs => xs.map(x => x.textContent)")
-        check("첫 카드에 「작업」 칸 없음(패널 머리에만) — 프로젝트 · TASK(② §17 — 「할 일」 → TASK · 「과제」 → 프로젝트)", labels == ["프로젝트", "TASK"] and page.locator("#divBox .dv-task select[data-task=kind]").count() == 0
+        check("첫 카드에 「작업」 칸 없음(패널 머리에만) — 프로젝트 · 워크플로우(② §17 — 「할 일」 → TASK → 화면 말 「워크플로우」 · 「과제」 → 프로젝트)", labels == ["프로젝트", "워크플로우"] and page.locator("#divBox .dv-task select[data-task=kind]").count() == 0
               and page.input_value("#panelTask") == "rnd", labels)
         s0, s = page.evaluate(STAGE0), page.evaluate(STAGE)
         check("묶음 = 접힌 상자 · 「1단계 문서 검토」(0/2 — 헤딩·표 분석 · LLM 검증·보완) · 「2단계 구성 맞추기」(0/4 — 구성 확정 · 반영 · 다시 문서 검토 · 그 LLM)와 진행률 · 세부 목록은 안 보임", s0["open"] is False and "1단계" in s0["head"] and "문서 검토" in s0["head"] and s0["count"] == "0/2 완료"

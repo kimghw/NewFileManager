@@ -26,6 +26,9 @@
 .dash-workflow-heading { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 6px 5px; font-size: 11px; }
 .dash-workflow-list, .dash-workflow-library { margin: 0; padding: 0; list-style: none; }
 .dash-workflow-list > li + li { border-top: 1px solid var(--line); }
+.dash-workflow-list > li { display: flex; align-items: center; gap: 6px; min-width: 0; } /* 줄 단추 + (지금 워크플로우가 아닌 줄의) 「목록에서 빼기」 — 단추 안에 단추를 두지 않는다 */
+.dash-workflow-list > li > .dash-workflow-row { flex: 1 1 auto; }
+.dash-workflow-drop { flex: none; margin-right: 6px; } /* 28px 보통 단추(.btn.sm — 「목록에 추가」 와 같은 꼴) · 좁으면 줄 단추가 줄어든다(이름이 꺾임) */
 .dash-workflow-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 9px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
 .dash-workflow-row:hover { background: var(--surface-2); }
 .dash-workflow-row[aria-current="true"] { background: var(--accent-soft); }

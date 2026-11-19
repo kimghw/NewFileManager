@@ -275,6 +275,25 @@ def workflow_update(wid, job, **fields) -> dict | None:
         return w
 
 
+def workflow_remove(wid, job) -> dict | None:
+    """문서의 워크플로우 목록에서 그 워크플로우의 줄(job 이 같은 줄 — 모두)을 뺀다 → 고친 작업 | None(작업 없음). 문서 · 분석 · 다른 줄은 그대로(진행 요약 줄만 — 대시보드
+    「이 문서의 워크플로우」). 그런 줄이 없으면 쓰지 않고 그대로 돌려준다 — 있는지 · 지금 워크플로우인지는 부르는 쪽이 먼저 본다(app/workflow_runs.py). workflow_update 와 같은 잠금 · 같은 저장."""
+    d = folder(wid)
+    if d is None:
+        return None
+    with _lock(wid):
+        w = work(wid)
+        if w is None:
+            return None
+        rows = list(w.get("workflows") or [])
+        keep = [row for row in rows if not (isinstance(row, dict) and row.get("job") == job)]
+        if len(keep) == len(rows):
+            return w
+        w["workflows"] = keep
+        _write_json(d / "work.json", w)
+        return w
+
+
 RESET_KEEP = ("work.json", "log.jsonl", "commits", "outputs", "reset")   # 작업 내용 초기화가 제자리에 두는 것(spec_작업 ② §3-1) — 올린 원본(original.<ext>)과 함께
 
 

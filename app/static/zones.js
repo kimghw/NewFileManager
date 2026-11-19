@@ -21,7 +21,7 @@ const ZN_KIND = { added: "더한 내용", filled: "채운 자리", cells: "표 �
 const ZN_KEY_MAX = 6; // 색 설명(문서 위에 떠 있는 상자 #zonesKey)에 보일 값 칩 수(넘으면 「외 n」)
 const ZN_HELP = "문서의 문단·표·표 칸이 어느 기관·단계·차년도의 것인지 보입니다 — 구역의 블록 옆에 색 띠, 구역이 시작하는 곳의 쪽 오른쪽 여백에 이름표(「한국선급 · 2차년도」).\n" +
   "화면 표시일 뿐입니다 — 저장·PDF·내려받는 파일은 그대로입니다.\n" +
-  "「보일 기준」(기관 · 단계 · 차년도)은 이 TASK 의 옵션입니다 — 같은 TASK 묶음의 문서가 함께 씁니다.\n" +
+  "「보일 기준」(기관 · 단계 · 차년도)은 이 워크플로우의 옵션입니다 — 같은 워크플로우 묶음의 문서가 함께 씁니다.\n" +
   "문서에서 오른쪽 단추 「구역 지정…」 으로 사람이 정할 수 있습니다(이름표가 점선 테로 보입니다).\n" +
   "「LLM 검토」 — 스크립트가 기관·차년도를 못 정한 표·자리를 LLM 에 물어 지정합니다(누를 때만 · 유료 · 문서는 안 바뀜). LLM 이 정한 것은 이름표 끝에 「LLM」 이 붙고, 「목록」 에서 하나씩 또는 모두 해제할 수 있습니다.\n" +
   "취합으로 들어온 내용은 어느 기관 문서에서 왔는지 남습니다 — 그 기관 색의 옅은 바탕(구역의 띠 색과 따로 보입니다).\n" +
@@ -428,7 +428,7 @@ function zonesBarEl(opts = {}) {
 
   const row = el("div", "zn-dims"); // 체크 셋 — 꺼져 있어도 늘 보인다(꺼진 TASK 에서 다시 켤 길)
   row.setAttribute("role", "group");
-  row.setAttribute("aria-label", "보일 기준 — 이 TASK 의 옵션");
+  row.setAttribute("aria-label", "보일 기준 — 이 워크플로우의 옵션");
   row.append(el("span", "zn-dims-name", "보일 기준"));
   const picked = Z.optBusy && Z.optWant ? Z.optWant : dims; // 저장하는 동안은 방금 고른 대로 보인다(누른 체크가 되돌아가 보이지 않게) — 저장이 끝나면 서버의 값
   for (const k of ZN_DIMS) {

@@ -1376,7 +1376,7 @@ def style_apply_doc(doc_id: str, sid: str, body: dict = Body(...)):
     spec_서식복사 ② §14: + {mode: "cover"}(hwpx — 표지 서식의 블록들을 문서의 **맨 앞**에 → 응답에 covered {blocks: n}: 화면은 문서를 다시 읽는다 · docx 문서는 아래 400) ·
     spec_서식복사 ② §9: + {mode: "page"}(hwpx — 문서 서식의 쪽 설정을 모든 구역에 → 응답에 paged {sections: n}: 화면은 문서를 통째로 다시 읽는다) ·
     **docx 문서**는 `tableBlank`·`format` 만(그 밖은 400 「docx 문서에는 빈 표 넣기 · 문단에 입히기만 됩니다」 — 쓰기 정책 403 은 같다). 아래는 hwpx 문서의 네 모드.
-    그 TASK 의 **원본 문서**(이관의 사업계획서 · 취합의 기관 문서 — `doc_agent.policy`)는 403 「원본 문서는 바꾸지 않습니다」. 운반 문서의 정의 참조가 끊어져 있으면 400(아무것도 안 가져온다).
+    그 워크플로우의 **원본 문서**(이관의 사업계획서 · 취합의 기관 문서 — `doc_agent.policy`)는 403 「원본 문서는 바꾸지 않습니다」. 운반 문서의 정의 참조가 끊어져 있으면 400(아무것도 안 가져온다).
     {mode: "tableMake", grid, after, replace?: {first, last} | {table}} | {mode: "tableBlank", after} | {mode: "tableRestyle", table, bands?} |
     {mode: "format", item: 항목 key, paras: [ids], keepNumbering?} → 구조 편집 응답 + made {table, rows, cols} | formatted {paras: n}. after 는 본문 최상위 블록만."""
     from app import server, tables_api  # 트랜잭션(_edit)·세션은 server 것 — 부를 때 가져온다(순환 import 피함)

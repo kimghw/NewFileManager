@@ -1,4 +1,5 @@
-"""TASK 옵션 끝점(GET·PUT /api/works/{wid}/task-options — spec_구역 ② §1 「TASK 옵션 — TASK 묶음마다」). server.py 가 include 한다. 저장소·규칙은 app/task_options.py.
+"""워크플로우 옵션 끝점(GET·PUT /api/works/{wid}/task-options). server.py 가 include 한다. 저장소·규칙은 app/task_options.py.
+원본 spec_구역 ② §1 「TASK 옵션 — TASK 묶음마다」(첫 줄은 /workflow 의 코드 옆 글이라 화면 말로 — 사양서의 절 이름은 그대로).
 
 작업의 `task`(`PUT …/task`)는 안 건드린다 — 옵션은 그 작업의 TASK 묶음(프로젝트 · TASK · 라운드)에 따로 적힌다. `app.server` 를 import 하지 않는다(작업은 works.work 로 읽는다)."""
 from fastapi import APIRouter, Body, HTTPException
@@ -20,15 +21,15 @@ def _work(wid):
 
 @router.get("/api/works/{wid}/task-options")
 def task_options_get(wid: str):
-    """그 작업의 TASK 옵션 → {scope, offered, zones: {dims[org|stage|year — 늘 이 차례], defaulted}, rev}.
-    scope = 옵션이 적히는 TASK 묶음(`p:<프로젝트>|<job>|<라운드>` | `w:<작업 id>`) · offered = 연구개발 문서인가 · defaulted = 사람이 정한 적 없음(그 TASK 의 기본값 — 취합 = 기관) · rev = 저장된 판(없으면 0).
+    """그 작업의 워크플로우 옵션 → {scope, offered, zones: {dims[org|stage|year — 늘 이 차례], defaulted}, rev}.
+    scope = 옵션이 적히는 워크플로우 묶음(`p:<프로젝트>|<job>|<라운드>` | `w:<작업 id>`) · offered = 연구개발 문서인가 · defaulted = 사람이 정한 적 없음(그 워크플로우의 기본값 — 취합 = 기관) · rev = 저장된 판(없으면 0).
     읽기만 한다. 404 없는 작업."""
     return task_options.resolve(_work(wid))
 
 
 @router.put("/api/works/{wid}/task-options")
 def task_options_put(wid: str, body: dict = Body(...)):
-    """{zones: {dims: [...]}, rev?, scope?} → GET 과 같은 꼴(defaulted false · rev +1). 그 작업의 TASK 묶음에 적는다 — 같은 묶음의 다른 문서도 같은 옵션을 본다. 빈 목록 = 사람이 끔.
+    """{zones: {dims: [...]}, rev?, scope?} → GET 과 같은 꼴(defaulted false · rev +1). 그 작업의 워크플로우 묶음에 적는다 — 같은 묶음의 다른 문서도 같은 옵션을 본다. 빈 목록 = 사람이 끔.
     rev 를 보내면 저장된 판과 같을 때만 적는다(시작 화면처럼 안 보내면 그냥 적는다). 문서도 작업의 task 도 안 바뀐다 · 작업 기록 `taskOptions`.
     400 zones.dims 없음 · 모르는 기준 · 연구개발 문서가 아님 · 404 없는 작업 · 409 {reason: "staleOptions", message, options(지금 옵션)} 판이 다름 · 409 {reason: "brokenOptions", message} 저장 파일이 깨짐(덮어쓰지 않는다)."""
     work = _work(wid)

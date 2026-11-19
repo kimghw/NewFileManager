@@ -27,7 +27,7 @@ function tblFillHit(cid) { // 제안 줄에 올린 동안 문서의 그 칸을 �
 function tblFillGo(tid, cid = null) { // 문서에서 그 칸(없으면 표)으로 — 열은 그대로 둔다(나란히 보기)
   const target = (cid && tblFillCellEl(cid)) || document.querySelector(`#doc table.tbl[data-tbl="${CSS.escape(tid)}"]`);
   if (!target) { toast("그 표가 지금 화면에 없습니다"); return; }
-  target.scrollIntoView({ block: cid ? "center" : "start", behavior: "smooth" });
+  target.scrollIntoView({ block: cid ? "center" : "start", behavior: scrollHow() });
   if (typeof tmnActivate === "function") tmnActivate(tid);
 }
 

@@ -601,8 +601,8 @@ try:
               and page.locator("#headsDlg .sl-levels [data-sl-item]").count() == 2 and "자동 번호" in page.inner_text("#headsDlg .sl-levels") and x1["tab"] == "content"
               and page.locator("#headsDlg .sl-levels [data-sl-item]").all_inner_texts() == ["글자·문단 모양 입히기"] * 2 and "레벨 2" in x1["src"], x1)
         tip = x1["srcTip"].split("\n")
-        check("원본 문서 줄(spec_서식복사 ② §17) — 「원본 문서 · 프로젝트 · 자리 외 N개 문서」 + 풍선에 TASK · 라운드 · 같은 서식이 나온 다른 문서",
-              x1["src"].startswith("원본 보고서.docx · 프로젝트 갑 과제 · 개요템플릿 1 외 2개 문서 · ") and tip[0].startswith("이 서식을 뽑은 문서 — 보고서.docx · 프로젝트 갑 과제 · TASK ")
+        check("원본 문서 줄(spec_서식복사 ② §17) — 「원본 문서 · 프로젝트 · 자리 외 N개 문서」 + 풍선에 워크플로우 · 라운드 · 같은 서식이 나온 다른 문서",
+              x1["src"].startswith("원본 보고서.docx · 프로젝트 갑 과제 · 개요템플릿 1 외 2개 문서 · ") and tip[0].startswith("이 서식을 뽑은 문서 — 보고서.docx · 프로젝트 갑 과제 · 워크플로우 ")
               and "라운드 2" in tip[0] and "개요템플릿 1" in tip[0] and tip[1] == "같은 서식이 나온 다른 문서:" and tip[2].startswith("· 작년 보고서.hwpx · 프로젝트 을 과제 · 개요템플릿 2") and tip[3] == "· 공고문.pdf", (x1["src"], tip))
         for width in (520, 480, 320):
             size(page, "headsDlg", width)

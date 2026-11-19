@@ -4,7 +4,9 @@
 - 파일: `<저장소>/jobs/<할 일 키>.md`(env `NFM_JOBS` 가 폴더, `off`·`0` = 없음). 파일 하나가 원본 — 코드 에이전트(CLAUDE.md 가 가리킴)와 앱의 LLM 호출이 같은 글을 읽는다.
   부를 때마다 읽는다(고친 글이 다음 실행에 바로).
 - 첫 「# 」 줄 = 제목(「— 」 뒤가 표시 이름). 그 줄과 HTML 주석(`<!-- … -->` — 사람·코드 에이전트만 보는 메모)을 뺀 나머지가 LLM 프롬프트에 들어간다(`body`).
-- 읽는 곳: 자리 연결 LLM 검토(`merge_llm` — 계약 바로 뒤 한 절, `part`) · 표 채우기(`tables_api.table_fill_propose` — `part(p, table_fill.JOB_NOTE)`, spec_헤딩_추출 ② §18)."""
+- 읽는 곳: 자리 연결 LLM 검토(`merge_llm` — 계약 바로 뒤 한 절, `part`) · 표 채우기(`tables_api.table_fill_propose` — `part(p, table_fill.JOB_NOTE)`, spec_헤딩_추출 ② §18).
+- 조립한 워크플로우(app/custom_tasks.py 의 키 — spec_워크플로우 ② §14)는 조립할 때 적은 글, 비웠으면 틀이 같은 붙박이의 파일(`custom_tasks.BASE`) + 그 글 맨 앞의 한 줄
+  (고른 단계 · 「전제의 단계 설명 가운데 고르지 않은 단계는 하지 않는다」 — `workflow.picked_line` · ② §15)."""
 import hashlib
 import os
 import re
@@ -36,6 +38,12 @@ def body(text):
     return re.sub(r"\n{3,}", "\n\n", _TITLE.sub("", _COMMENT.sub("", text or ""), count=1)).strip()
 
 
+def _lead(text, line):
+    """글의 맨 앞(첫 줄이 제목이면 그 뒤)에 한 줄을 넣는다 — body() 가 제목 · 주석을 뺀 뒤 그 줄이 맨 앞에 온다. 첫 줄이 제목이 아니면 끝에 붙인다(제목 읽기를 흐트리지 않게)."""
+    m = _TITLE.match(text)
+    return f"{text[:m.end()]}\n{line}\n{text[m.end():]}" if m else f"{text.rstrip()}\n\n{line}\n"
+
+
 def get(job):
     """할 일 키 → {job, name, sha1, text, path} | None(폴더 끔 · 모르는 꼴의 키 · 파일 없음 · 못 읽음 · 너무 긴 글)."""
     d = jobs_dir()
@@ -48,7 +56,12 @@ def get(job):
             text = custom["premise"]
             return {"job": job, "name": custom["name"], "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": ""}
         base = get(custom_tasks.BASE)
-        return base and {**base, "job": job, "name": f"{custom['name']}({base['name']}의 전제)"}
+        if not base:
+            return None
+        # 물려받은 전제는 붙박이 이관의 네 단계를 모두 적고 있다 — 고른 단계와 「고르지 않은 단계는 하지 않는다」 한 줄을 그 글의 맨 앞(제목 줄 뒤)에 넣는다(spec_워크플로우 ② §15)
+        from app import workflow   # 단계 이름의 원본(STAGE_MODULES) — 이 모듈을 가져오지 않는다
+        text = _lead(base["text"], workflow.picked_line(custom))
+        return {**base, "job": job, "name": f"{custom['name']}({base['name']}의 전제)", "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text}
     p = d / f"{job}.md"
     try:
         text = p.read_text(encoding="utf-8")

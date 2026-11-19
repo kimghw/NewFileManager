@@ -191,7 +191,7 @@ function agentFloatSync(quick) {
     else { const id = state.id; setTimeout(() => { if (AGF.open && state.id === id) agentFloatOpen(); }, 0); } // load 가 끝난 뒤(이 줄은 load 의 showTab 안에서 불린다)
   }
   b.setAttribute("aria-pressed", String(agentVisible()));
-  b.title = `에이전트 — 문서에서 자리를 고르고 요청하면 글·표·서식을 제안하고, TASK 의 진행을 안내합니다 · ${agfDock ? "패널 「대시보드」 옆 탭" : "떠 있는 창"}으로 엽니다(창 머리에서 자리 바꾸기 · 톱니 = 에이전트 설정)`;
+  b.title = `에이전트 — 문서에서 자리를 고르고 요청하면 글·표·서식을 제안하고, 워크플로우의 진행을 안내합니다 · ${agfDock ? "패널 「대시보드」 옆 탭" : "떠 있는 창"}으로 엽니다(창 머리에서 자리 바꾸기 · 톱니 = 에이전트 설정)`;
 }
 
 // ---- 자리 · 크기 ---------------------------------------------------------------------------------------------------------------

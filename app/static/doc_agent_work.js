@@ -6,6 +6,8 @@
 //   고른 행동도 이 파일이 기존 함수로 실행한다(agwExec — divPlan · divApply · taskRunAll · gatherRunStage · headsPickRun · tpbApply …: 새 실행 길을 만들지 않는다).
 //   양식 표준화(plan_fit)의 2 · 3단계(헤딩 추출 · 표) 상태는 agwStdSteps — 대시보드(dashboard.js)와 같이 쓴다(spec_양식표준화 ② §2·§5).
 // 한 번의 연쇄: 턴(POST …/agent/guide) → 행동이 있으면 ⓐ 문서가 안 바뀌고 무료면 바로 실행 → 결과 턴 ⓑ 문서가 바뀌거나 유료면 실행 카드의 「진행」 을 기다림. 질문 카드는 답을 기다린다. 6턴까지.
+// 어느 쪽이든 실행 직전에 상태를 다시 세어 행동이 달라졌으면(key · 글 · 저절로 하던 것이 유료 · 문서 바뀜이 됨) 실행하지 않고 다시 묻는다(agentWorkRun).
+// 질문 카드에서 고른 행동도 같다 — 유료이거나 문서를 바꾸는 행동이면 고른 것을 승인으로 보지 않고 실행 카드로 묻는다(선택지에는 유료 꼬리표 · 부를 문서 · 문서 바뀜이 안 보인다: agentWorkAnswer).
 // doc_agent.js 다음에 읽힌다(AGENT · agentUrl · agentErr · agentDraw* · agentSend · agentTurnOf · agentWhen · agentIcon). app.js: state · dv · div* · task* · showTab · toolShown · api · el · hBtn · toast · nf · H_JSON · homeTaskStart · heads · headsRender · headsPoll.
 // 부를 때 찾는 것(양식 표준화 2 · 3단계): doc_status.js(dsState · dsDraw · dsRunning) · heads_run_all.js(hraLeft · hraUnseen · headsAllRunning) · heads_run_pick.js(headsPickRun · headsPickRunning) · tpl_plan_bar.js(tpbApply).
 
@@ -19,6 +21,8 @@ const agw = () => (AGENT.work || (AGENT.work = { chain: 0, running: null, readTr
 const agwJob = () => (state.task && state.task.job) || "";
 const agwFit = (job) => job === "plan_fit" || job === "report_fit";
 // 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 표준화 · 양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
+// 목록에 없는 조립한 워크플로우(지워짐 · 저장 파일을 못 읽음 — task_catalog.js taskLostWhy)는 맡지 않는다(HEAD 처럼 — 입력 칸의 글 · 표 요청은 바로 편집 에이전트로: 진행 에이전트가 받으면 할 행동도 넘길 행동도 없다).
+// 그 까닭 한 줄은 작업 개요 · 대시보드가 보이고, 맡던 때 낸 카드를 누르면 agwStatusOf 가 행동 없이 그 까닭으로 실행하지 않는다
 const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || job === "plan_merge"; // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js)
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
@@ -77,7 +81,7 @@ function agwBegin() { // 시작 턴을 낼 때 — 방금 첫 화면의 간단 �
 
 // ---------------------------------------------------------------- 상태 · 행동(TASK 마다) → {steps, actions, facts}
 function agwCommon(out) { // 어느 TASK 든 — 작업 개요 열기 · 편집 턴으로 넘기기
-  out.actions.push({ name: "open:div", label: "패널 「작업 개요」 열기", does: "이 TASK 의 단계 목록과 세부 단추를 직접 봅니다 — 단계마다 확인하며 하거나, 한 번에 진행이 남긴 것을 보정합니다", change: "none" });
+  out.actions.push({ name: "open:div", label: "패널 「작업 개요」 열기", does: "이 워크플로우의 단계 목록과 세부 단추를 직접 봅니다 — 단계마다 확인하며 하거나, 한 번에 진행이 남긴 것을 보정합니다", change: "none" });
   if (AGENT.enabled && AGENT.policy.apply !== false) out.actions.push({ name: "edit", label: "편집 에이전트에 넘기기", does: "글·표를 쓰거나 고쳐 달라는 요청을 편집 에이전트가 받아 제안을 냅니다", change: "none" });
   out.facts.llm = !!AGENT.enabled;
   return out;
@@ -236,6 +240,12 @@ function agwStdApplied(r) { // tpbApply 의 결과 → 끝 글 {ok, text}(에이
 async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 「한 번에 진행」
   if (!dv.view) await divShow();
   try { await taskFlowLoad(); } catch { /* 못 읽은 것은 단계 글에 */ }
+  // LLM 을 쓸 수 있는지 아직 모르면(taskLlmOk null) 단계와 유료로 부를 문서를 세기 전에 물음이 끝나기를 기다린다(상한 5초 — 넘으면 쓸 수 있는 것으로 센다: 카드로 묻는 쪽).
+  // 모른 채 세면 쓸 수 없는 LLM 을 유료로 적어 카드로 묻고, 알게 된 뒤 key 가 달라져 그 카드를 실행하지 않고 다시 묻는다(app.js taskLlmLoad 가 그 약속을 돌려준다)
+  if (taskLlmOk == null && typeof taskLlmLoad === "function") {
+    const ask = taskLlmLoad();
+    if (ask && typeof ask.then === "function") await Promise.race([ask, new Promise((r) => setTimeout(r, 5000))]);
+  }
   const out = { steps: [], actions: [], facts: {} }, slots = taskSlots(), docs = (slots || []).map((k) => taskSlotDoc(k));
   if (!slots || docs.some((d) => !d)) {
     out.steps.push({ stage: `${TASK_STAGES[0].no} ${TASK_STAGES[0].name}`, key: "files", name: "준비 — 사업계획서 · 연차보고서 고르기", state: "now", text: "두 칸(사업계획서 · 연차보고서)에 문서를 골라야 합니다 — 패널 「작업 개요」 의 첨부 파일 칸" });
@@ -253,15 +263,18 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
     out.actions.push({ name: "open:target", label: `연차보고서 「${report.name}」 열기`, does: "이관은 연차보고서(목적 문서)에서 진행합니다 — 그 문서를 열면 에이전트가 이어서 안내합니다(이 문서는 바뀌지 않습니다)", change: "none", primary: true });
     return agwCommon(out);
   }
-  // key = 이 카드가 가리키는 일(그 묶음의 남은 단계) — 「진행」 을 누를 때 지금과 견준다(agentWorkRun)
-  // 꼬리표 — 1단계 「문서 검토」 는 문서를 안 바꾼다(「저장만」). 유료 = LLM 검증·보완이 남은 묶음(1단계의 headsLlm · 2단계의 reheadsLlm)과 3단계 「내용 넣기」 — 유료면 카드로 묻는다(agwAsk): spec_작업 ② §21.
-  // LLM 을 쓸 수 없거나 사람이 건너뛴 문서의 LLM 단계는 끝난 것이라(건너뜀) 유료가 아니다 — 그때 1단계는 카드 없이 바로 한다
-  // 셈은 그 묶음의 남은 단계(left — taskStepsCalc 가 이 TASK 에 서는 단계만 센다): 화면에서 조립한 TASK 에서 할 문서가 없어 빠진 단계(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 —
-  // 예: 원본은 「문서 검토」 를 안 고르고 목적은 「구성 맞추기」 를 고른 TASK 의 1단계 LLM)는 유료로 세지 않는다. 문서 바뀜(change)은 묶음마다 같다 — 빠질 수 있는 단계(헤딩 · 표 분석 · 그 LLM)는 모두 「저장만」 이다
-  const left = g ? taskStageWork(g).filter((s) => !s.done) : [], llmLeft = (key) => left.some((s) => s.key === key);
-  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "review" ? "store" : "doc",
-    paid: g.id === "map" || (g.id === "review" && llmLeft("headsLlm")) || (g.id === "frame" && llmLeft("reheadsLlm")), primary: true,
-    key: `${docs.map((d) => d.id).join(">")}:${g.id}:${left.map((s) => s.key).join(",")}` });
+  // key = 이 카드가 가리키는 일(그 묶음의 남은 단계 + 유료로 부를 문서) — 「진행」 을 누를 때 · 무료 행동을 저절로 하기 직전에 지금과 견준다(agentWorkRun)
+  // 꼬리표 — 1단계 「문서 검토」 는 문서를 안 바꾼다(「저장만」). 유료 = 그 묶음의 LLM 검증·보완(1단계 headsLlm · 2단계 reheadsLlm)이 실제로 부를 문서가 있을 때(taskPaidDocs — 아직 거치지 않았고
+  // 사람이 건너뛰지 않은 문서 · LLM 을 쓸 수 있을 때: spec_워크플로우 ② §15 · astra P1 ⓑ)와 3단계 「내용 넣기」(묶음째 — 전과 같다) — 유료면 카드로 묻는다(agwAsk): spec_작업 ② §21.
+  // 부를 문서가 없으면(모두 거침 · 건너뜀 · LLM 을 쓸 수 없음) 1단계는 카드 없이 바로 한다. 카드 글 머리에 「유료 — 사업계획서 · 연차보고서 (2개)」 를 적고 key 에 그 문서 id 를 넣는다 —
+  // 카드를 낸 뒤 다른 탭에서 「건너뛰기」 를 풀면 key 가 달라져 실행하지 않고 다시 묻는다(무료였던 행동이 유료가 되면 저절로 하지 않음). 실행은 그 문서에만 유료 호출을 건다(paidIds → taskRunAll 의 paid)
+  const left = g ? taskStageWork(g).filter((s) => !s.done) : [], P = g ? taskPaidDocs(g.id, calc) : [], ids = P.map(([w]) => w.id);
+  const paidText = P.length ? `유료 — ${P.map(([, n]) => n).join(" · ")} (${P.length}개)` : "", bind = g && (g.id === "review" || g.id === "frame"); // bind = 유료로 부를 문서를 문서마다 셈하는 묶음
+  // 조립한 워크플로우는 key 에 그 정의의 단계 표지(task_catalog.js taskCatalogSig — 서버의 sig 또는 이 화면이 지은 것)를 넣는다 — 정의가 바뀌기 전에 낸 카드는 실행하지 않고 다시 묻는다(spec_워크플로우 ② §15 「실행」 · 서버 KEY_MAX 160 안). 붙박이는 그대로
+  const cat = TASK_CATALOG[agwJob()] || {}, sig = cat.custom ? taskCatalogSig(cat) : "";
+  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: paidText ? `${paidText} · ${g.does}` : g.does, change: g.id === "review" ? "store" : "doc",
+    paid: g.id === "map" || !!P.length, primary: true, paidIds: ids, // paidIds = 화면만 쓴다(서버는 안 받음 — work_guide.actions_in)
+    key: `${docs.map((d) => d.id).join(">")}:${g.id}:${left.map((s) => s.key).join(",")}${bind ? `:paid=${ids.join(",")}` : ""}${sig ? `:sig=${sig}` : ""}` });
   return agwCommon(out);
 }
 
@@ -306,6 +319,11 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
 }
 
 async function agwStatusOf(job, opt = {}) {
+  // 목록에 없는 조립한 워크플로우(지워짐 · 저장 파일을 못 읽음 — task_catalog.js taskLostWhy): 행동 없이 그 까닭 한 줄만(아무 실행도 내지 않는다 · job 값은 그대로).
+  // 진행 에이전트는 그런 문서를 맡지 않지만(agwGuided) 맡던 때 낸 실행 카드 · 질문 카드를 누르면 여기서 다시 센다(agentWorkRun · agentWorkAnswer — 그 까닭으로 실행하지 않음).
+  // 단계 칸에도 같은 글을 둔다 — LLM 없이 답할 때(work_guide.fallback)도 그 줄이 「지금 차례」 로 읽힌다
+  const lost = taskLostWhy(job);
+  if (lost) return { steps: [{ stage: "준비", key: "workflow", name: "워크플로우 다시 고르기", state: "now", text: lost }], actions: [], facts: { why: lost, llm: !!AGENT.enabled } };
   try {
     if (agwFit(job)) return await agwFitStatus(opt);
     if (taskIsRelay(job)) return await agwRelayStatus();
@@ -314,7 +332,11 @@ async function agwStatusOf(job, opt = {}) {
   return agwCommon({ steps: [], actions: [], facts: {} });
 }
 async function agwStatus(opt = {}) { // 도는 것이 있는 동안에는 보기만 — 실행·저장하는 행동을 내지 않는다(같은 문서에 두 실행이 겹치지 않게: 에이전트의 무료 행동은 바로 실행된다). opt.fresh = 에이전트 턴(분석 상태를 다시 읽음 — agwFitStatus)
+  // 에이전트 턴이면(fresh) 조립한 워크플로우의 정의를 서버에서 다시 읽는다(app.js taskCatalogRefresh — 붙박이 · 도는 실행이 있으면 안 읽음): 바뀌었으면 새 정의로 세고(행동 key 의 단계 표지가 달라져
+  // 그 전에 낸 카드는 실행하지 않고 다시 묻는다 — agentWorkRun) facts.reread 에 그 까닭을 적는다(이번에 읽어 달라졌을 때만 — 전부터 목록에 없던 것은 facts.why: agwStatusOf)
+  const reread = opt.fresh && !agwRunning() && typeof taskCatalogRefresh === "function" ? await taskCatalogRefresh(agwJob()) : null;
   const out = await agwStatusOf(agwJob(), opt), R = agwRunning();
+  if (reread && reread.moved) out.facts.reread = reread.gone ? reread.why : "이 워크플로우의 단계가 바뀌어 다시 읽었습니다";
   if (R) {
     out.actions = out.actions.filter((a) => a.name === "open:div" || a.name.startsWith("list:"));
     out.facts.running = `${R.label} — ${R.note}`;
@@ -334,7 +356,7 @@ function agwConfigApply(x) { // 질문 카드(config)의 값 → 입력 값(dv.v
   divRender();
 }
 
-async function agwExec(name, args) {
+async function agwExec(name, args, cur = null) { // cur = 실행 직전에 다시 센 이 행동(agentWorkRun — 이관의 run: 은 그 paidIds 로 유료 호출을 묶는다) · 다른 곳(대시보드)이 부를 때는 없음
   if (name === "open:div") { showTab("Div"); return { ok: true, text: "패널 「작업 개요」 를 열었습니다", silent: true }; }
   if (name === "open:plan") { divList(); return { ok: true, text: "문서 옆 열에 변경 계획 목록을 열었습니다", silent: true }; }
   if (name.startsWith("list:")) { await gatherListOpen(name.slice(5)); return { ok: true, text: "문서 옆 열에 그 기관 문서의 목록을 열었습니다", silent: true }; }
@@ -399,7 +421,8 @@ async function agwExec(name, args) {
       const g = GT_STAGES.find((x) => x.id === id), r = await gatherRunStage(id, gatherPlan());
       return { ok: !!r.ok, text: `${g ? g.name : id} — ${r.text}` };
     }
-    await taskRunAll(id, id, true); // true = 확인 창 없이(실행 카드의 「진행」 이 그 확인이다)
+    const not = await taskRunAll(id, id, true, "", "", (cur && cur.paidIds) || []); // true = 확인 창 없이(실행 카드의 「진행」 이 그 확인이다) · 유료 LLM 검증·보완은 카드가 승인한 문서에만(cur = 실행 직전에 다시 센 이 행동 — agentWorkRun)
+    if (not && not.ok === false) return { ok: false, text: not.text }; // 시작하지 않음(조립한 워크플로우의 정의가 그 사이 바뀜 · 지워짐 — taskRunAll 이 다시 읽었다): 지난 실행의 끝 글을 이번 것으로 보고하지 않는다
     const g = TASK_STAGES.find((x) => x.id === id), end = taskRunLast;
     return end ? { ok: !!end.ok, text: `${g ? g.name : id} — ${end.text}` } : { ok: false, text: "진행하지 못했습니다(알림 글 참고)" };
   }
@@ -430,6 +453,11 @@ async function agentWorkTurn(event, x = {}) { // 진행 턴 하나 — 상태를
   if (A !== AGENT || epoch !== state.epoch) return null;
   A.busy = null;
   if (turn && turn.act && !turn.act.key) { const a = st.actions.find((y) => y.name === turn.act.name); if (a && a.key) turn.act.key = a.key; } // 카드가 가리키는 계획(옛 서버는 key 를 안 돌려준다 — 화면이 붙여 둔다)
+  if (turn && turn.ask && Array.isArray(turn.ask.options)) { // 질문 카드의 선택지가 행동이면 카드를 보일 때의 그 행동(key · 유료 · 문서 바뀜)을 적어 둔다 — 고를 때 지금 행동과 견준다(agentWorkAnswer).
+    const seen = {}; // 이 화면에만 있다(서버에 안 적음) — 다시 읽은 대화의 카드는 「적어 둔 것이 없는 옛 카드」 다
+    for (const o of turn.ask.options) { const a = o && st.actions.find((y) => y.name === o.value); if (a) seen[a.name] = { key: a.key || "", paid: !!a.paid, change: a.change || "none" }; }
+    turn.askSeen = seen;
+  }
   if (turn) A.turns.push(turn);
   else { A.lost = { text: x.show || "(작업 진행)", error: agentErr(err || new Error("서버가 턴을 돌려주지 않았습니다")) }; if (event === "say" && !A.draft.trim()) A.draft = x.text || ""; }
   agwDrawAll(true);
@@ -453,20 +481,25 @@ async function agentWorkRun(tid, args, fresh = false) { // 턴의 행동을 실�
   const name = t.act.name;
   if (name === "edit") { await agwClose(t, "done", "편집 에이전트에 넘김"); A.draft = t.text || A.draft; agwDrawAll(); agentSend(true); return; }
   if (agwRunning()) { toast("지금 진행 중인 작업이 끝난 뒤에 누르세요", true); return; } // 같은 문서에 두 실행을 겹치지 않는다(「작업 개요」 의 한 번에 진행 · 간단 모드)
-  if (fresh && !args) { // 사람이 누른 카드 — 카드를 낸 뒤 상태(계획)가 바뀌었으면 실행하지 않는다: 확인은 그 카드가 보인 계획에 대한 것이다(astra 11-16 P1 — 계획 A 의 카드로 계획 B 를 반영하지 않게)
+  let cur = null; // 실행 직전에 다시 센 이 행동 — 이관의 「한 번에 진행」 은 그 paidIds(카드가 승인한 유료 호출의 문서)에만 유료 호출을 건다(agwExec)
+  if (!args) { // 실행 직전에 다시 센다 — 사람이 누른 카드(fresh)든 저절로 하는 무료 행동이든: 카드를 낸 뒤 상태(계획 · 유료로 부를 문서)가 바뀌었으면 실행하지 않는다.
+    // 확인은 그 카드가 보인 계획에 대한 것이다(astra 11-16 P1 — 계획 A 의 카드로 계획 B 를 반영하지 않게) · 답을 기다리는 사이 다른 탭에서 「건너뛰기」 를 풀면 무료였던 행동이 유료 LLM 을 부른다 —
+    // 행동 key 에 유료로 부를 문서가 들어 있어(agwRelayStatus) key 가 달라지고, 저절로 하려던 행동이 그 사이 카드로 물을 행동(agwAsk)이 됐으면 저절로 하지 않는다(astra 11-19 P1 ⓑ)
     if (W.checking) return;
     W.checking = true;
-    let cur = null;
-    try { cur = (await agwStatus({ fresh: true })).actions.find((a) => a.name === name) || null; } finally { W.checking = false; }
+    let st = null;
+    try { st = await agwStatus({ fresh: true }); cur = st.actions.find((a) => a.name === name) || null; } finally { W.checking = false; }
     if (A !== AGENT || epoch !== state.epoch || t.state !== "open" || W.running || A.busy) return;
-    const why = !cur ? "지금은 할 수 없는 행동입니다(그 사이 상태가 바뀌었습니다)"
+    const moved = !cur ? "지금은 할 수 없는 행동입니다(그 사이 상태가 바뀌었습니다)"
+      : !fresh && agwAsk(cur) ? "그 사이 유료 LLM 을 부르거나 문서를 바꾸는 일이 되어 카드로 묻습니다"
       : (t.act.key && cur.key ? t.act.key !== cur.key : agwLine(cur.does) !== agwLine(t.act.does)) ? "카드를 낸 뒤 계획이 바뀌었습니다" : "";
+    const why = !moved ? "" : (st && st.facts && st.facts.reread) || taskLostWhy(agwJob()) || moved; // 조립한 워크플로우의 정의를 방금 다시 읽었더니 바뀜 · 지워짐(agwStatus) · 전부터 목록에 없음 — 그 까닭으로 말한다
     if (why) {
       await agwClose(t, "skipped", `실행하지 않음 — ${why}`);
       if (A !== AGENT || epoch !== state.epoch) return;
-      W.chain = 0;
+      W.chain = fresh ? 0 : W.chain + 1; // 저절로 하려던 것 — 연쇄 한도 안에서만 다시 묻는다(상태가 자꾸 바뀌어도 되풀이가 끝나게)
       agwDrawAll();
-      agentWorkTurn("result", { text: `「${t.act.label}」 카드는 실행하지 않았습니다 — ${why}. 지금 상태로 다시 확인합니다.`, ok: true, act: "" });
+      agentWorkTurn("result", { text: `「${t.act.label}」 ${fresh ? "카드는" : "은 저절로"} 실행하지 않았습니다 — ${why}. 지금 상태로 다시 확인합니다.`, ok: true, act: "" });
       return;
     }
   }
@@ -474,7 +507,7 @@ async function agentWorkRun(tid, args, fresh = false) { // 턴의 행동을 실�
   W.running = { turn: tid, name, t0: performance.now(), timer: setInterval(() => { const e = A.el && A.el.root.querySelector(".agw-run-text"); if (e && W.running) e.textContent = agwRunText(t.act, W.running); }, 1000) };
   agwDrawAll();
   let res;
-  try { res = await agwExec(name, args); } catch (e) { console.error(e); res = { ok: false, text: `오류 — ${e.message}` }; }
+  try { res = await agwExec(name, args, cur); } catch (e) { console.error(e); res = { ok: false, text: `오류 — ${e.message}` }; }
   clearInterval(W.running.timer);
   W.running = null;
   if (A !== AGENT || epoch !== state.epoch) return;
@@ -492,18 +525,33 @@ const agwRunText = (a, r) => { // 실행 카드의 도는 글 — 지금 하는 
 
 async function agentWorkSkip(tid) { const t = agentTurnOf(tid); if (!t || t.state !== "open" || agw().running) return; await agwClose(t, "skipped", "건너뜀"); agwDrawAll(); }
 
-async function agentWorkAnswer(tid, value, label) { // 질문 카드의 답 — 선택지의 값이 행동 이름이면 그 행동을 실행하고, 아니면 답 턴
-  const A = AGENT, t = agentTurnOf(tid);
-  if (!t || !t.ask || t.state !== "open" || A.busy || agw().running) return;
-  const st = await agwStatus({ fresh: true }), act = st.actions.find((a) => a.name === value);
-  if (A !== AGENT) return;
+const AGW_ASK_MOVED = "고른 뒤 계획이 바뀌어 다시 묻습니다"; // 질문 카드에서 고른 행동이 카드를 보일 때와 달라졌다(key · 유료 · 문서 바뀜) — 실행 카드로
+const AGW_ASK_PAID = "고른 일은 문서를 바꾸거나 유료 LLM 을 불러 실행 카드로 확인합니다"; // 고른 행동이 유료이거나 문서를 바꾼다 — 선택지에는 유료 꼬리표 · 부를 문서 · 문서 바뀜이 안 보여 고른 것을 승인으로 보지 않는다(실행 카드의 「진행」 이 그 확인)
+const AGW_ASK_OLD = "문서를 바꾸거나 유료 LLM 을 부르는 일이라 실행 카드로 다시 묻습니다"; // 같은 까닭 — 카드를 보일 때의 행동을 적어 두지 않은 옛 카드(다시 읽은 대화)
+async function agentWorkAnswer(tid, value, label) { // 질문 카드의 답 — 선택지의 값이 행동 이름이면 그 행동을 턴의 행동으로 삼아(유료 · 문서 바뀜 · 카드를 보인 뒤 바뀐 것은 실행 카드로 묻고, 그 밖은 바로 실행), 아니면 답 턴
+  const A = AGENT, W = agw(), t = agentTurnOf(tid);
+  if (!t || !t.ask || t.state !== "open" || A.busy || W.running || W.checking) return;
+  W.checking = true; // 지금 상태를 세는 동안 또 고르거나 「진행」 을 눌러 둘이 돌지 않게
+  let st = null;
+  try { st = await agwStatus({ fresh: true }); } finally { W.checking = false; }
+  if (A !== AGENT || t.state !== "open" || !t.ask) return;
+  const act = st ? st.actions.find((a) => a.name === value) : null;
   if (act && act.name === "config_set") { t.ask = { kind: "config", text: "프로젝트 구성을 입력해 주세요", options: [] }; agw().form = null; agwDrawAll(); return; } // 값이 필요한 행동 — 폼으로 바꿔 묻는다
-  await agwClose(t, "done", label || value);
+  // 고른 행동을 실행 카드(「진행」 을 눌러야 하는 카드 — agwAsk 의 길)로 묻는 때:
+  // ⓐ 카드를 보일 때의 그 행동이 아니다 — 적어 둔 것(agentWorkTurn 의 askSeen: key · 유료 · 문서 바뀜)과 지금 상태로 다시 지은 행동을 견줘
+  //    key 가 다르거나(계획 · 유료로 부를 문서 · 조립한 워크플로우의 정의가 바뀜) 그 사이 유료 · 문서를 바꾸는 일이 됐다(AGW_ASK_MOVED)
+  // ⓑ 유료이거나 문서를 바꾸는 행동이다 — 적어 둔 것과 같아도(선택지에는 유료 꼬리표 · 부를 문서 · 문서 바뀜이 안 보인다: AGW_ASK_PAID · 적어 둔 것이 없는 옛 카드는 AGW_ASK_OLD).
+  // 무료 · 읽기만 · 저장만인 행동은 고른 것이 곧 확인이다 — 바로 한다(그때도 agentWorkRun 이 실행 직전에 다시 센다)
+  const seen = act && t.askSeen ? t.askSeen[act.name] : null;
+  const moved = !!seen && (seen.key !== (act.key || "") || (!seen.paid && !!act.paid) || (seen.change !== "doc" && act.change === "doc"));
+  const ask = !act ? "" : moved ? AGW_ASK_MOVED : act.paid || act.change === "doc" ? (seen ? AGW_ASK_PAID : AGW_ASK_OLD) : "";
+  await agwClose(t, "done", ask ? `${label || value} — ${ask}` : label || value);
   if (A !== AGENT) return;
-  if (act) { // 사람이 고른 행동 — 그 턴의 행동으로 삼아 바로 실행(고른 것이 곧 확인이다)
+  if (act) { // 사람이 고른 행동 — 그 턴의 행동으로 삼는다: 물을 것이면 실행 카드로만(「진행」 을 누르면 그때 다시 견주고 실행 — agentWorkRun) · 아니면 바로 실행
     const run = { id: t.id, act: { name: act.name, label: act.label, does: act.does, change: act.change, paid: !!act.paid, key: act.key }, state: "open" };
-    Object.assign(t, { act: run.act, state: "open", ask: null, outcome: "" });
+    Object.assign(t, { act: run.act, state: "open", ask: null, outcome: "", ...(ask ? { notes: [...(t.notes || []), ask] } : {}) });
     agwDrawAll();
+    if (ask) return;
     return agentWorkRun(t.id, undefined, true);
   }
   agw().chain = 0;
@@ -693,7 +741,7 @@ function agwLiveEl() {
   const text = el("span", "agw-live-text", R ? agwLiveText(R) : "문서를 준비하는 중 — 끝나면 설명을 시작합니다");
   card.dataset.state = "running";
   card.dataset.live = R ? R.kind : "prepare";
-  head.append(el("b", null, R ? R.label : "TASK 준비"));
+  head.append(el("b", null, R ? R.label : "워크플로우 준비"));
   text.setAttribute("role", "status");
   run.append(el("span", "ag-spin"), text);
   card.append(head, run);
@@ -734,16 +782,16 @@ function agentWorkTurnEl(t) { // 진행 턴 — (첫 화면에서 이어 온 말
   if (t.ask) box.append(agwAskEl(t)); else if (t.act) box.append(agwActEl(t));
   const meta = el("div", "ag-meta");
   meta.append(el("span", null, [agentWhen(t.at), t.llm ? "" : "스크립트 답(LLM 안 씀)", c.ms != null ? `${(c.ms / 1000).toFixed(1)}초` : "", c.costUsd != null ? `$${Number(c.costUsd).toFixed(3)}` : "", c.model || ""].filter(Boolean).join(" · ")));
-  if (t.llm) { const g = hBtn("지침", () => agentGuideOpen(t.id), { title: "이 턴에 보낸 글(계약 · 워크플로우 · 할 일 프롬프트 · 자료)과 LLM 의 답을 문서 옆 열에서 봅니다" }); g.dataset.agGuide = t.id; meta.append(g); }
+  if (t.llm) { const g = hBtn("지침", () => agentGuideOpen(t.id), { title: "이 턴에 보낸 글(계약 · 워크플로우 전체 지도 · 할 일 프롬프트 · 자료)과 LLM 의 답을 문서 옆 열에서 봅니다" }); g.dataset.agGuide = t.id; meta.append(g); }
   box.append(meta);
   return box;
 }
 
-function agentWorkEmptyEl() { // 빈 대화 — 단계가 있는 TASK: 설명을 청하는 단추
-  const box = el("section", "ag-empty agw-empty"), heading = el("div", "ag-empty-heading"), name = (TASK_CATALOG[agwJob()] || {}).name || "이 TASK";
+function agentWorkEmptyEl() { // 빈 대화 — 단계가 있는 TASK: 설명을 청하는 단추(목록에 없는 조립한 워크플로우의 문서는 진행 에이전트가 맡지 않아 여기 오지 않는다 — agwGuided)
+  const box = el("section", "ag-empty agw-empty"), heading = el("div", "ag-empty-heading"), name = (TASK_CATALOG[agwJob()] || {}).name || "이 워크플로우";
   heading.append(agentIcon("document"), el("h2", null, `「${name}」 진행`));
-  box.append(heading, el("p", "ag-empty-intro", "에이전트가 이 TASK 의 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고 실행합니다. 문서를 바꾸는 단계는 카드의 「진행」 을 눌러야 실행됩니다."));
-  const b = hBtn("작업 설명 듣기", () => agentWorkStart(true), { cls: "btn sm primary", title: "지금 상태로 이 TASK 의 준비 · 진행 상황 · 다음 단계를 설명합니다" });
+  box.append(heading, el("p", "ag-empty-intro", "에이전트가 이 워크플로우의 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고 실행합니다. 문서를 바꾸는 단계는 카드의 「진행」 을 눌러야 실행됩니다."));
+  const b = hBtn("작업 설명 듣기", () => agentWorkStart(true), { cls: "btn sm primary", title: "지금 상태로 이 워크플로우의 준비 · 진행 상황 · 다음 단계를 설명합니다" });
   b.dataset.agw = "start";
   box.append(b, el("p", "ag-empty-note", "글·표를 써 달라는 요청은 아래 입력 칸에 적으면 편집 에이전트가 제안을 냅니다."));
   return box;
@@ -760,7 +808,7 @@ function homeAgentDraw() {
   const E = AGH.el;
   if (!E) return;
   E.talk.textContent = "";
-  if (!AGH.talk.length) E.talk.append(el("p", "agh-hint", "파일을 올리거나 하려는 일을 적어 주세요 — 예: 「사업계획서 초안으로 양식을 맞추고 싶어」. 에이전트가 왼쪽 문서 목록을 보고 TASK 를 정해 시작하고, 필요한 것은 물어봅니다. "
+  if (!AGH.talk.length) E.talk.append(el("p", "agh-hint", "파일을 올리거나 하려는 일을 적어 주세요 — 예: 「사업계획서 초안으로 양식을 맞추고 싶어」. 에이전트가 왼쪽 문서 목록을 보고 워크플로우를 정해 시작하고, 필요한 것은 물어봅니다. "
     + "문서를 연 뒤에는 사전 준비 · 진행 상황 · 다음 단계를 에이전트가 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다."));
   for (const m of AGH.talk) E.talk.append(el("p", m.who === "me" ? "ag-q" : "ag-a agw-say", m.text));
   if (AGH.ask && !AGH.busy) {
@@ -776,7 +824,7 @@ function homeAgentDraw() {
     card.append(list);
     E.talk.append(card);
   }
-  if (AGH.busy) { const run = el("div", "ag-run"); run.append(el("span", "ag-spin"), el("span", null, "TASK 를 확인하는 중…")); E.talk.append(run); }
+  if (AGH.busy) { const run = el("div", "ag-run"); run.append(el("span", "ag-spin"), el("span", null, "워크플로우를 확인하는 중…")); E.talk.append(run); }
   E.talk.scrollTop = E.talk.scrollHeight;
   E.files.textContent = ""; // 문서 목록의 요약(파일은 왼쪽 목록에 있다 — 빼기 · 목적 문서 · 약칭은 거기서)
   const list = aghFiles(), ti = typeof hfTarget === "function" ? hfTarget() : -1;
@@ -798,7 +846,7 @@ async function homeAgentAct(act) { // 「start:<job>」 — 그 TASK 로 시작:
   const name = TASK_CATALOG[job].name;
   if (!list.length) { say(`「${name}」 에 쓸 문서를 먼저 올려 주세요 — 이 대화창이나 왼쪽 카드에 놓으면 문서 목록에 듭니다.`); return; }
   if (hfTarget() < 0) { // 둘 이상인데 목적 문서를 안 골랐다 — 잘못 고르면 다른 문서가 바뀌므로 짐작하지 않는다
-    say(`문서가 ${list.length}개입니다 — 왼쪽 문서 목록에서 목적 문서(내용을 받는 문서)를 고른 뒤 다시 보내거나 TASK 카드 「${name}」 을 누르면 시작합니다.`);
+    say(`문서가 ${list.length}개입니다 — 왼쪽 문서 목록에서 목적 문서(내용을 받는 문서)를 고른 뒤 다시 보내거나 워크플로우 카드 「${name}」 을 누르면 시작합니다.`);
     const r = document.querySelector("#homeFiles input[type=radio]");
     if (r) r.focus();
     return;

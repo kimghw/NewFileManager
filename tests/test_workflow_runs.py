@@ -118,6 +118,24 @@ def test_format_missing_and_unavailable_workflow_checks(client):
     assert client.post(missing + "/activate", json={"job": "style_copy"}).status_code == 404
 
 
+def test_a_row_can_be_removed_from_the_list_but_not_the_current_one(client):
+    """C4 — DELETE /api/works/{wid}/workflows/{job}: 그 줄을 문서의 워크플로우 목록에서 뺀다(문서 · 분석 · 다른 줄은 그대로 — 진행 요약 줄만) → GET 과 같은 꼴.
+    지금 워크플로우 400 · 그런 줄이 없음 404 · 작업이 없음 404 · 키는 따지지 않는다(모르는 키의 줄도 뺀다)."""
+    works.update(WID, task=task(), rev=4)
+    for job in ("plan_merge", "u_0000dead"):   # 모르는 키(지워진 조립한 워크플로우 등)의 줄도
+        works.workflow_update(WID, job, status="progress", done=1, total=3)
+    before = works.work(WID)
+    cur = client.delete(url() + "/plan_fit")
+    assert cur.status_code == 400 and cur.json()["detail"] == "지금 워크플로우는 목록에서 뺄 수 없습니다 — 다른 워크플로우로 바꾼 뒤에 빼세요" and works.work(WID) == before
+    assert client.delete(url() + "/doc_edit").json() == {"detail": "목록에 그 워크플로우가 없습니다"} and works.work(WID) == before
+    gone = client.delete(url() + "/u_0000dead")
+    assert gone.status_code == 200 and gone.json() == client.get(url()).json() and [i["job"] for i in gone.json()["items"]] == ["plan_fit", "plan_merge"]
+    after = works.work(WID)
+    assert after["task"] == task() and after["rev"] == 4 and [r["job"] for r in after["workflows"]] == ["plan_merge"] and (works.folder(WID) / "original.hwpx").read_bytes() == b"original document"
+    assert client.delete(url() + "/u_0000dead").status_code == 404 and client.delete(url("000000000001") + "/plan_merge").status_code == 404
+    assert any(e["kind"] == "workflowRemove" and e.get("job") == "u_0000dead" for e in works.events(WID))
+
+
 def test_independent_workflow_updates_do_not_overwrite_each_other(client):
     jobs = ("plan_fit", "plan_merge", "plan_to_report", "report_fit", "doc_edit", "style_copy")
     with ThreadPoolExecutor(max_workers=6) as pool:

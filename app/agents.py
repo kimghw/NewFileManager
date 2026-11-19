@@ -44,16 +44,16 @@ AGENTS = (
          where="프로젝트 구성(구분 기준) 「LLM 검토」 · 「빠진 자리 검토(LLM)」 — 옵션(저절로 돌지 않음 · 2026-11-15 부터 첫 분석이 부르지 않는다)", data="문서 개요와 이미 잡힌 자리 목록"),
     dict(id="merge_links", no="09", group="이관 · 취합", name="자리 연결 검토", run="manual", effort="medium", contract=("app.merge_llm", "CONTRACT"), model=("app.merge_llm", "MODEL"), parts=(("merge", "links"), ("job", "plan_to_report"), ("form",)),
          role="사업계획서(원본 문서)의 내용을 연차보고서(목적 문서)에 옮길 때 어느 자리가 어느 자리인지 — 묶음 짝·표 짝·서식 — 를 스크립트가 잇지 못한 곳에서 판정합니다. 입력에 있는 key 만 고릅니다.",
-         where="TASK 사업계획서 → 연차보고서 이관 · 3단계 내용 넣기 「자리 연결 LLM 검토」(쪽 묶음마다)", data="두 문서의 자리 목록(개요 경로·글머리·표 머리) + 스크립트가 이은 짝"),
+         where="워크플로우 사업계획서 → 연차보고서 이관 · 3단계 내용 넣기 「자리 연결 LLM 검토」(쪽 묶음마다)", data="두 문서의 자리 목록(개요 경로·글머리·표 머리) + 스크립트가 이은 짝"),
     dict(id="merge_table_map", no="10", group="이관 · 취합", name="표 대응 연결", run="manual", effort="medium", contract=("app.merge_table_map", "CONTRACT"), model=("app.merge_table_map", "MODEL"), parts=(("merge", "table_map"), ("job", "plan_to_report")),
          role="서식이 서로 다른 원본 표와 목적 표 사이에서 어느 행·열·칸이 서로 같은 것인지 대응을 정합니다. 값은 옮기지 않고 대응만 답합니다.",
-         where="TASK 이관 · 3단계 내용 넣기 「표 대응 연결」(표 쌍마다)", data="두 표의 격자와 머리 경로"),
+         where="워크플로우 이관 · 3단계 내용 넣기 「표 대응 연결」(표 쌍마다)", data="두 표의 격자와 머리 경로"),
     dict(id="merge_gaps", no="11", group="이관 · 취합", name="빈 자리 검토", run="manual", effort="medium", contract=("app.merge_gaps", "CONTRACT"), model=("app.merge_gaps", "MODEL"), parts=(("merge", "gaps"), ("job", "plan_to_report")),
          role="내용을 옮긴 뒤에도 빈 채로 남은 목적 문서의 자리마다, 원본 문서에서 그 자리에 들어갈 내용이 있는 곳을 찾습니다. 없으면 없다고 답합니다.",
-         where="TASK 이관 · 3단계 내용 넣기 「빈 자리 검토(LLM)」", data="빈 자리 목록 + 원본 문서의 아직 안 쓴 자리"),
+         where="워크플로우 이관 · 3단계 내용 넣기 「빈 자리 검토(LLM)」", data="빈 자리 목록 + 원본 문서의 아직 안 쓴 자리"),
     dict(id="gather", no="12", group="이관 · 취합", name="취합 검토", run="manual", effort="medium", contract=("app.merge_gather_llm", "CONTRACT"), model=("app.merge_gather_llm", "MODEL"), parts=(("merge", "gather"), ("job", "plan_merge")),
          role="기관이 채워 돌려준 문서에서 스크립트가 취합본에 넣기로 한 「기관 작성 내용」 이 실제로 기관이 쓴 내용인지, 양식의 안내 글·빈 틀인지 판정합니다. 겹치는 자리는 덮지 않습니다.",
-         where="TASK 사업계획서 취합 · 「기관 작성 내용」 LLM 검토(기관 문서마다)", data="기관 문서의 넣을 묶음(글·표) + 배포 기준본의 같은 자리"),
+         where="워크플로우 사업계획서 취합 · 「기관 작성 내용」 LLM 검토(기관 문서마다)", data="기관 문서의 넣을 묶음(글·표) + 배포 기준본의 같은 자리"),
     dict(id="table_formula", no="13", group="표", name="표 수식 판정", run="manual", effort=None, contract=("app.table_excel_llm", "CONTRACT"), parts=(("table",),),
          role="표 하나를 엑셀 시트로 옮길 때 어느 칸이 다른 칸들로 계산되는 칸(합계·소계·비율)인지와 그 수식을 판정합니다. 계산·검산은 스크립트가 합니다.",
          where="표 메뉴 「엑셀식 보기」 — 「LLM 수식 판정」", data="표 격자(칸 주소·글·수) + 스크립트가 이미 찾은 수식"),
@@ -69,18 +69,18 @@ AGENTS = (
     dict(id="style_review", no="17", group="서식", name="서식 복사 검토", run="manual", effort=None, contract=("app.style_extract", "CONTRACT_TABLES"), parts=(("job", "style_copy"),),
          more=(("테이블 서식 후보", ("app.style_extract", "CONTRACT_TABLES")), ("내용·문단 서식 후보", ("app.style_extract", "CONTRACT_TEXTS")), ("쪽 설정·표지 후보", ("app.style_extract", "CONTRACT_PAGES"))),
          role="스크립트가 문서에서 뽑은 서식 후보(표지 · 내용 · 테이블 · 문단 · 쪽 설정)를 검토합니다 — 이름·역할·저장할 만한가. 서식 값은 만들지 않고 스크립트가 보낸 후보·id·코드 가운데 고릅니다.",
-         where="TASK 문서 서식 복사 · 「② LLM 검토」(후보 종류마다 한 번씩)", data="후보 목록(종류마다 — 서식 요약 · 견본 글 · 쓰인 곳)"),
+         where="워크플로우 문서 서식 복사 · 「② LLM 검토」(후보 종류마다 한 번씩)", data="후보 목록(종류마다 — 서식 요약 · 견본 글 · 쓰인 곳)"),
     dict(id="tpl_agent", no="18", group="서식", name="템플릿 서식 정리", run="manual", effort="medium", contract=("app.tpl_agent", "CONTRACT"), model=("app.tpl_agent", "MODEL"), pin=True, parts=(("skill",),),
          role="개요 템플릿 하나의 레벨마다 쓰인 서식을 보고 대표로 삼을 서식 · 그 대표에 맞출 서식 · 서식 종속 템플릿으로 뗄 서식 · 그대로 둘 서식을 정합니다(기본 스킬의 기준: 레터가 대표와 같으면 맞추고 다르면 뗌 · 표 안의 줄은 표마다 — 다른 표의 서식은 맞추지 않고 표마다 뗌). "
               "문서에 있는 서식 가운데 고르기만 하고, 계획은 사람이 반영해야 문서에 들어갑니다.",
          where="「헤딩 그래프(LLM)」 이 헤딩 판정 뒤에 이어서(템플릿마다) · 진행표의 「LLM 검증·보완」 · 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」 · 템플릿 트리(헤딩 추출 「템플릿」 탭 · 「템플릿 관계」 열)의 별 아이콘 → 「정리 계획 받기」",
          data="템플릿의 레벨마다 쓰인 서식(값 · 줄 수 · 견본 글)"),
     dict(id="work_guide", no="19", group="문서 편집", name="작업 진행", run="manual", effort="low", contract=("app.work_guide", "CONTRACT"), parts=(("workflow",), ("taskdoc", "*"), ("job", "*"), ("logs",)),
-         more=(("작업 화면(TASK 진행)", ("app.work_guide", "CONTRACT")), ("첫 화면(TASK 정하기)", ("app.work_guide", "HOME_CONTRACT"))),
-         role="TASK 를 시작하면 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고, 입력이 필요하면 질문 카드로 묻습니다. 절차는 참조 글(workflow.md · 그 TASK 의 TASK 문서 · 할 일 프롬프트)에서 확인하고, "
+         more=(("작업 화면(워크플로우 진행)", ("app.work_guide", "CONTRACT")), ("첫 화면(워크플로우 정하기)", ("app.work_guide", "HOME_CONTRACT"))),
+         role="워크플로우를 시작하면 사전 준비와 진행 상황을 설명하고, 다음 단계를 제안하고, 입력이 필요하면 질문 카드로 묻습니다. 절차는 참조 글(workflow.md · 워크플로우 상세 문서 · 할 일 프롬프트)에서 확인하고, "
               "무슨 일이 있었는지는 로그(작업 기록 · 검증 · 에이전트 대화 · LLM 호출 · 서버 경고)를 읽어 설명합니다. 화면이 보낸 「지금 할 수 있는 행동」 가운데서만 고릅니다 — 실행은 화면이 하고, 문서를 바꾸는 행동은 사람이 카드에서 확인해야 실행됩니다.",
-         where="에이전트 보기(상단 바 에이전트 아이콘의 창 · 패널 탭에 넣었으면 그 탭)와 첫 화면 오른쪽 대화창 — TASK 를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때",
-         data="사건(시작 · 글 · 답 · 결과) · TASK · 단계의 지금 상태 · 지금 할 수 있는 행동 · 사실(프로젝트 구성 · 계획 요약) · 앞선 대화 · 로그(목록 · 작업 기록의 끝 몇 줄 · 에이전트가 청해 읽은 줄)"),
+         where="에이전트 보기(상단 바 에이전트 아이콘의 창 · 패널 탭에 넣었으면 그 탭)와 첫 화면 오른쪽 대화창 — 워크플로우를 시작할 때 · 글을 보낼 때 · 카드에 답하거나 행동이 끝날 때",
+         data="사건(시작 · 글 · 답 · 결과) · 워크플로우 · 단계의 지금 상태 · 지금 할 수 있는 행동 · 사실(프로젝트 구성 · 계획 요약) · 앞선 대화 · 로그(목록 · 작업 기록의 끝 몇 줄 · 에이전트가 청해 읽은 줄)"),
     dict(id="verify_review", no="20", group="검증", name="검증 LLM 검토", run="auto", effort="medium", contract=("app.verify_llm", "CONTRACT"), parts=(("merge", "verify"),),
          role="가져오기 검증 · 출력파일 검증에서 스크립트가 주의 · 실패로 판정한 단계를 다시 보고, 그 다름이 실제 문제(웹이 문서를 잘못 읽음 · 저장본이 잘못됨)인지 기준 PDF 쪽 사정(한글 · Word 가 PDF 를 찍는 방식)인지 가립니다. "
               "판정에 따라 그 단계의 상태를 바꾸되 스크립트보다 무겁게 올리지 않고, 스크립트의 원래 판정은 옆에 남깁니다.",
@@ -89,7 +89,7 @@ AGENTS = (
     dict(id="zone_review", no="21", group="프로젝트 구성", name="편집 구역 검토", run="manual", effort="medium", contract=("app.zones_llm", "CONTRACT"), parts=(("merge", "zones"),),
          role="편집 구역(문서의 표·문단이 어느 기관 · 단계 · 차년도의 것인지)에서 스크립트가 값을 못 정했거나 근거가 서로 달랐던 표·문단을 다시 봅니다 — 기관 이름표 칸 옆의 이름 · 윗 제목 · 앞뒤 구역을 보고 그 기관·그 차년도의 것인지 가립니다. "
               "보낸 후보 · 보낸 기관 · 범위 안의 번호 가운데 고르기만 하고(근거가 약하면 그대로 둡니다), 고른 값은 「LLM 이 지정」 으로 적혀 사람이 하나씩 또는 모두 해제할 수 있습니다. 문서는 바뀌지 않고 사람이 지정한 구역도 바뀌지 않습니다.",
-         where="패널 「작업 개요」 의 「편집 구역」 줄(취합에서는 취합 카드 안) — 「LLM 검토」 단추(저절로 돌지 않음 · 연구개발 TASK 의 hwpx 문서)",
+         where="패널 「작업 개요」 의 「편집 구역」 줄(취합에서는 취합 카드 안) — 「LLM 검토」 단추(저절로 돌지 않음 · 연구개발 워크플로우의 hwpx 문서)",
          data="과제 기관(열쇠 · 이름 · 역할) · 단계마다 차년도 수 + 후보(표·문단마다 종류 · 윗 제목 · 앞뒤 블록의 구역 · 스크립트가 읽은 값과 근거 · 표의 머리 줄·첫 열·이름표 칸과 그 옆 칸 — 줄인 글) · "
               "스크립트가 판정하지 못한 것 = 후보 자체(근거가 서로 다름 · 기관 모름 · 값이 안 붙었는데 낌새가 있는 표 · 같은 꼴의 이웃 표 가운데 혼자 빠진 표)"),
 )
@@ -180,18 +180,18 @@ def _parts(a):
                 if p is None and part[1] == "*":
                     continue
                 out.append({"kind": "job", "name": k, "title": f"할 일 프롬프트 — {(p or {}).get('name') or JOB_NAMES.get(k, k)}", "source": _rel(p["path"]) if p else f"jobs/{k}.md(없음)", "editable": False,
-                            "text": job_prompts.body(p["text"]) if p else "", "note": ("작업의 TASK 가 이것일 때만 붙습니다 · " if part[1] == "*" or len(keys) > 1 else "") + "저장소의 이 파일이 원본입니다(TASK 의 전제·기준)"})
+                            "text": job_prompts.body(p["text"]) if p else "", "note": ("작업의 워크플로우가 이것일 때만 붙습니다 · " if part[1] == "*" or len(keys) > 1 else "") + "저장소의 이 파일이 원본입니다(워크플로우의 전제·기준)"})
         elif kind == "workflow":
             from app import work_guide
-            out.append({"kind": "workflow", "title": "워크플로우 — workflow.md", "source": "workflow.md", "editable": False, "text": work_guide.workflow_text(),
-                        "note": "워크플로우 등록부(app/workflow.py)에서 만든 글입니다 — 부를 때 이 가운데 「한눈에」 와 그 TASK 가 쓰는 공통 모듈의 절만 붙습니다(그 TASK 의 절은 아래 TASK 문서가 대신합니다 · 첫 화면은 「한눈에」 와 TASK 마다의 머리)"})
+            out.append({"kind": "workflow", "title": "워크플로우 전체 지도 — workflow.md", "source": "workflow.md", "editable": False, "text": work_guide.workflow_text(),
+                        "note": "워크플로우 등록부(app/workflow.py)에서 만든 글입니다 — 부를 때 이 가운데 「한눈에」 와 그 워크플로우가 쓰는 도구의 절만 붙습니다(그 워크플로우의 절은 아래 워크플로우 상세 문서가 대신합니다 · 첫 화면은 「한눈에」 와 워크플로우마다의 머리 · 맨 위 「업무 흐름」 절은 사용자가 직접 쓴 글이고 붙지 않습니다)"})
         elif kind == "taskdoc":   # 참조 글 — 그 TASK 의 TASK 문서(tasks/<job>.md: 시작 점검 · 단계마다 조건 — spec_워크플로우 ② §10 · spec_작업에이전트 ② §8)
             from app import work_guide, workflow
             cat = workflow.catalog()[0]
             for t in workflow.TASKS:
-                out.append({"kind": "taskdoc", "name": t["job"], "title": f"TASK 문서 — {(cat.get(t['job']) or {}).get('name') or t['job']}", "source": f"{workflow.TASK_DIR.name}/{t['job']}.md", "editable": False,
+                out.append({"kind": "taskdoc", "name": t["job"], "title": f"워크플로우 상세 문서 — {(cat.get(t['job']) or {}).get('name') or t['job']}", "source": f"{workflow.TASK_DIR.name}/{t['job']}.md", "editable": False,
                             "text": work_guide.task_doc_text(t["job"]),
-                            "note": "작업의 TASK 가 이것일 때만 붙습니다(작업 화면) · 워크플로우 등록부에서 만든 글입니다 — 그 TASK 의 절(머리 · 단계)에 시작 점검(시작할 때 저절로 확인하는 것)과 단계마다 조건을 더한 글"})
+                            "note": "작업의 워크플로우가 이것일 때만 붙습니다(작업 화면) · 워크플로우 등록부에서 만든 글입니다 — 그 워크플로우의 절(머리 · 단계)에 시작 점검(시작할 때 저절로 확인하는 것)과 단계마다 조건을 더한 글"})
         elif kind == "logs":      # 로그 — 글이 아니라 읽을 수 있는 기록의 목록(spec_작업에이전트 ② §8)
             from app import work_logs
             out.append({"kind": "logs", "title": "로그 — 문서마다", "source": "app/work_logs.py", "editable": False,

@@ -21,6 +21,10 @@ const hfNorm = (s, n) => String(s || "").split(/\s+/).filter(Boolean).join(" ").
 const hfExt = (f) => ((f.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase();
 const hfShown = (f, alias) => { const m = f.name.match(/^(.*?)(\.\w+)?$/), stem = m[1] || f.name, ext = /\.hwp$/i.test(f.name) ? ".hwpx" : m[2] || ""; return `${stem}${alias ? `(${alias.replace(/[\\/:*?"<>|]+/g, "_")})` : ""}${ext}`; };
 const hfProjects = () => [...new Set((typeof worksList !== "undefined" ? worksList : []).map((w) => (w.task || {}).project).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+// 그 워크플로우에서 고른 문서의 화면 이름(spec_워크플로우 ② §15 「말」 — 등록부 roles 의 title 과 같게): 문서 여럿(취합 · 이관 · 조립한 것) = 목적 문서 · 문서 하나 = 작업 문서 · 서식 복사 = 서식을 가져올 문서.
+// 워크플로우를 아는 글(카드의 시작 풍선 도움말 · 나머지 문서 확인 · 올리는 중 · 실패)만 쓴다 — 목록(homeFilesDraw)은 워크플로우를 고르기 전에 그려 고르는 문서를 「목적 문서」 로 부른다
+const hfDocName = (job) => { const t = TASK_CATALOG[job]; return !t || t.gather || t.files ? "목적 문서" : job === "style_copy" ? "서식을 가져올 문서" : "작업 문서"; };
+const hfJosa = (word, a, b, old) => (typeof taskJosa === "function" ? taskJosa(word, a, b) : old); // 이름 뒤 조사(task_catalog.js taskJosa — 받침이 있으면 a · 없으면 b) · 없으면 옛 글(old)
 
 function homeFilesAdd(files, job) { // 「파일 선택」 · 놓기 · 목록이 있을 때 카드에 놓기 · 카드로 여럿을 고름 — hwp·hwpx·docx 만, 같은 이름·크기는 한 번
   if (hf.busy || homeTaskBusy) return;
@@ -34,7 +38,7 @@ function homeFilesAdd(files, job) { // 「파일 선택」 · 놓기 · 목록�
   hf.err = "";
   homeFilesDraw();
   const t = job && TASK_CATALOG[job];
-  if (t && hfTarget() < 0) toast(`문서 ${hf.files.length}개를 목록에 올렸습니다 — 목적 문서를 고르고 TASK 「${t.name}」 카드를 누르세요`);
+  if (t && hfTarget() < 0) toast(`문서 ${hf.files.length}개를 목록에 올렸습니다 — 목적 문서를 고르고 워크플로우 「${t.name}」 카드를 누르세요`);
   const box = $("homeFiles");
   if (box) box.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
@@ -52,8 +56,8 @@ function hfCardsSync() { // TASK 카드 아래 글 — 목록이 있으면 「�
   const has = hfHas(), target = hf.files[hfTarget()], busy = !!hf.busy || homeTaskBusy;
   $("homeTasks").classList.toggle("has-files", has);
   const hint = $("homeTasksHint");
-  if (hint) hint.textContent = busy ? "문서를 준비하고 있습니다" : has && !target ? "파일 카드에서 목적 문서를 선택하면 TASK 를 실행할 수 있습니다"
-    : target ? `목적 문서: ${target.name} · 실행할 TASK 를 선택하세요` : "파일 추가 → 목적 문서 선택 → TASK 실행";
+  if (hint) hint.textContent = busy ? "문서를 준비하고 있습니다" : has && !target ? "파일 카드에서 목적 문서를 선택하면 워크플로우를 실행할 수 있습니다"
+    : target ? `목적 문서: ${target.name} · 실행할 워크플로우를 선택하세요` : "파일 추가 → 목적 문서 선택 → 워크플로우 실행";
   for (const b of document.querySelectorAll("#taskCards .task-card")) {
     const task = TASK_CATALOG[b.dataset.task];
     if (!task || task.soon) continue;
@@ -66,9 +70,9 @@ function hfCardsSync() { // TASK 카드 아래 글 — 목록이 있으면 「�
     const quick = !!task.gather && hf.auto && hf.files.length > 1; // 취합 + 「자동 진행」 + 기관 문서 — 이 카드가 끝까지 한 번에 한다(간단 모드)
     txt.textContent = busy ? "문서 여는 중 " : has && !target ? "목적 문서를 선택하세요 " : unsupported ? "지원하지 않는 파일 형식 " : quick ? "끝까지 자동 진행 " : has ? "목록으로 시작 " : b.dataset.up;
     b.title = busy ? "문서를 여는 중입니다" : has && !target ? "위 파일 카드에서 목적 문서를 하나 고르세요"
-      : unsupported ? `이 TASK 는 ${taskAcceptOf(b.dataset.task).join("·")} 문서로 시작합니다`
-      : quick ? `TASK 「${task.name}」 — 목적 문서 「${target.name}」 에 기관 문서 ${hf.files.length - 1}개를 끝까지 한 번에 취합합니다(남긴 것은 연 뒤 단계별로 보정)`
-      : has ? `TASK 「${task.name}」 — 목적 문서 「${target.name}」로 시작합니다(연 뒤 에이전트가 사전 준비 · 다음 단계를 안내합니다)` : b.dataset.tip;
+      : unsupported ? `이 워크플로우는 ${taskAcceptOf(b.dataset.task).join("·")} 문서로 시작합니다`
+      : quick ? `워크플로우 「${task.name}」 — 목적 문서 「${target.name}」 에 기관 문서 ${hf.files.length - 1}개를 끝까지 한 번에 취합합니다(남긴 것은 연 뒤 단계별로 보정)`
+      : has ? `워크플로우 「${task.name}」 — ${hfDocName(b.dataset.task)} 「${target.name}」로 시작합니다(연 뒤 에이전트가 사전 준비 · 다음 단계를 안내합니다)` : b.dataset.tip;
   }
 }
 
@@ -88,18 +92,18 @@ function homeFilesDraw() {
   clear.title = "목록을 비웁니다(아직 서버에 올린 것은 없습니다)";
   clear.onclick = () => { hf.files = []; hf.target = -1; hf.aliases = new WeakMap(); hf.err = ""; homeFilesDraw(); $("pickBtn").focus(); };
   head.append(h, hHelp("문서 목록 안내", "파일을 고르거나 놓으면 여기에 모입니다(아직 서버에 올리지 않음 — 새로 고치면 사라집니다).\n"
-    + "목적 문서(내용을 받는 문서)를 고르고, 필요하면 문서마다 약칭을 적은 뒤 아래 TASK 카드를 누르세요. 파일이 하나면 목적 문서로 자동 선택합니다.\n"
-    + "약칭은 문서 이름 뒤에 「(약칭)」 으로 붙습니다. 프로젝트 이름을 적으면 그 프로젝트의 TASK 다음 라운드로 시작합니다.\n"
+    + "목적 문서(내용을 받는 문서)를 고르고, 필요하면 문서마다 약칭을 적은 뒤 아래 워크플로우 카드를 누르세요. 파일이 하나면 목적 문서로 자동 선택합니다.\n"
+    + "약칭은 문서 이름 뒤에 「(약칭)」 으로 붙습니다. 프로젝트 이름을 적으면 그 프로젝트의 워크플로우 다음 라운드로 시작합니다.\n"
     + "프로젝트 이름을 비우면 임시 이름(임시 프로젝트 N)으로 함께 올린 문서를 묶습니다 — 연 뒤 「작업 개요」 의 프로젝트 칸에 이름을 적으면 바뀝니다."), clear);
   const tgt = hf.files[ti], n = hf.files.length - (tgt ? 1 : 0);
-  const cap = el("p", "hf-cap", tgt ? `목적 문서 「${tgt.name}」${n ? ` · 원본 문서 ${n}개` : ""} — 아래 TASK 카드를 누르면 시작합니다` : "목적 문서(내용을 받는 문서)를 하나 고르세요 — 그 뒤 아래 TASK 카드를 누릅니다.");
+  const cap = el("p", "hf-cap", tgt ? `목적 문서 「${tgt.name}」${n ? ` · 원본 문서 ${n}개` : ""} — 아래 워크플로우 카드를 누르면 시작합니다` : "목적 문서(내용을 받는 문서)를 하나 고르세요 — 그 뒤 아래 워크플로우 카드를 누릅니다.");
   const rows = el("div", "hf-rows");
   rows.setAttribute("role", "radiogroup");
   rows.setAttribute("aria-label", "목적 문서 고르기");
   hf.files.forEach((f, i) => {
     const on = i === ti, row = el("div", "hf-row" + (on ? " on" : "")), lab = el("label", "hf-pick"), r = el("input"), icon = el("span", "hf-file-icon"), ext = el("span", "hf-ext", hfExt(f).toUpperCase()), name = el("span", "hf-name", f.name), del = el("button", "icon hf-del", "×");
-    const tag = el("span", "hf-tag", [on ? "목적 문서" : ti >= 0 ? "원본 문서" : "목적 문서로 선택", /\.hwp$/i.test(f.name) ? "hwpx 로 변환" : "", /\.docx$/i.test(f.name) ? "TASK 없이 열기 · 서식 복사" : ""].filter(Boolean).join(" · "));
-    if (/\.docx$/i.test(f.name)) tag.title = "docx — 「TASK 없이 열기」 로 열거나, TASK 「문서 서식 복사」 의 목적 문서(서식을 뽑을 문서)로만 시작합니다"; // spec_서식복사 ② §1 — 그 TASK 는 docx 도 된다
+    const tag = el("span", "hf-tag", [on ? "목적 문서" : ti >= 0 ? "원본 문서" : "목적 문서로 선택", /\.hwp$/i.test(f.name) ? "hwpx 로 변환" : "", /\.docx$/i.test(f.name) ? "워크플로우 없이 열기 · 서식 복사" : ""].filter(Boolean).join(" · "));
+    if (/\.docx$/i.test(f.name)) tag.title = "docx — 「워크플로우 없이 열기」 로 열거나, 워크플로우 「문서 서식 복사」 의 서식을 가져올 문서로만 시작합니다"; // spec_서식복사 ② §1 — 그 TASK 는 docx 도 된다
     row.dataset.hfFile = String(i);
     icon.dataset.ext = hfExt(f);
     icon.setAttribute("aria-hidden", "true");
@@ -152,7 +156,7 @@ function homeFilesDraw() {
   pin.disabled = busy;
   pin.dataset.hfFocus = "project";
   // 비우면 서버가 임시 이름(「임시 프로젝트 N」)을 붙여 올린 문서들을 한 프로젝트로 묶는다 — 이름은 연 뒤에 정한다(② §17 「임시 프로젝트」, 2026-11-18)
-  pin.title = "적으면 목적 문서가 그 프로젝트의 TASK 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 개요의 프로젝트 칸에 이름을 적으면 바뀝니다";
+  pin.title = "적으면 목적 문서가 그 프로젝트의 워크플로우 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 개요의 프로젝트 칸에 이름을 적으면 바뀝니다";
   pin.oninput = () => { hf.project = pin.value; };
   // 고르기 목록 — 작업 개요의 프로젝트 칸과 같은 도우미(project_workspace.js projectComboAttach — 「새 프로젝트」 로 만든 문서 없는 프로젝트도 보인다). 고르면 그 이름을 적어 둔다(저장은 TASK 카드를 누를 때)
   if (typeof projectComboAttach === "function") projectComboAttach(pin, { list: "homeFilesProjectList", commit: () => { hf.project = pin.value; } });
@@ -173,7 +177,7 @@ function homeFilesDraw() {
   const quick = el("span", "hf-group");
   quick.setAttribute("role", "group");
   quick.setAttribute("aria-label", "사업계획서 취합의 진행 방식");
-  quick.title = "사업계획서 취합에만 쓰입니다 — 다른 TASK 는 문서를 연 뒤 에이전트가 사전 준비 · 다음 단계를 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다";
+  quick.title = "사업계획서 취합에만 쓰입니다 — 다른 워크플로우는 문서를 연 뒤 에이전트가 사전 준비 · 다음 단계를 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다";
   quick.append(el("span", "hf-group-name", "사업계획서 취합"),
     check("자동 진행", "auto", "사업계획서 취합 — 켜고 카드를 누르면 확인 한 번 뒤 끝까지 한 번에 취합합니다(간단 모드 — 넣지 않고 남긴 것은 연 뒤 단계별로 보정). 끄면 올리고 등록만 해서 단계별로 진행합니다(세부 작업 모드)"),
     check("LLM 검토", "llm", "자동 진행 때 넣을 수 있다고 본 내용을 LLM 이 한 번 더 봅니다(문서마다 수십 초 · 유료) — 넣을 것을 줄이기만 합니다", !hf.auto));
@@ -181,13 +185,13 @@ function homeFilesDraw() {
   // 하나라도 누르면 그때부터 사람이 고른 것(모두 끄면 끔)이고 TASK 를 시작한 뒤 한 번 적는다(hfOpenTarget). 손대지 않은 것과 모두 끈 것은 체크가 같아 보여 옆에 글로 가른다(「TASK 기본값대로」 · 「모두 끔」)
   const zg = el("span", "hf-group hf-zones"), znote = el("span", "hf-zones-note");
   const zoneState = () => {
-    znote.textContent = hf.zones == null ? "TASK 기본값대로" : hf.zones.length ? "" : "모두 끔";
+    znote.textContent = hf.zones == null ? "워크플로우 기본값대로" : hf.zones.length ? "" : "모두 끔";
     znote.hidden = !znote.textContent;
-    zg.title = "연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 개요」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
-      + `손대지 않으면 TASK 의 기본값(${hfZonesDefaults() ? `${hfZonesDefaults()} · 그 밖의 TASK 는 켠 것 없음` : "어느 TASK 도 켠 것 없음"})\n`
-      + (hf.zones == null ? "지금: 손대지 않음 — 시작하는 TASK 의 기본값대로 보입니다"
-        : hf.zones.length ? `지금 고른 기준: ${hfZoneNames(hf.zones)} — 시작하는 연구개발 TASK 에 이 기준을 적습니다`
-          : "지금: 모두 끔 — 시작하는 연구개발 TASK 에서 편집 구역을 보이지 않습니다(기본값 대신 끈 것으로 적습니다)");
+    zg.title = "연구개발 워크플로우(양식 표준화 · 양식 맞추기 · 취합 · 이관)에서 문서의 문단·표가 어느 기관·단계·차년도의 것인지 가려 보입니다 — 화면 표시일 뿐 파일은 그대로 · 연 뒤 「작업 개요」 의 「편집 구역」 줄에서 바꿀 수 있습니다.\n"
+      + `손대지 않으면 워크플로우의 기본값(${hfZonesDefaults() ? `${hfZonesDefaults()} · 그 밖의 워크플로우는 켠 것 없음` : "어느 워크플로우도 켠 것 없음"})\n`
+      + (hf.zones == null ? "지금: 손대지 않음 — 시작하는 워크플로우의 기본값대로 보입니다"
+        : hf.zones.length ? `지금 고른 기준: ${hfZoneNames(hf.zones)} — 시작하는 연구개발 워크플로우에 이 기준을 적습니다`
+          : "지금: 모두 끔 — 시작하는 연구개발 워크플로우에서 편집 구역을 보이지 않습니다(기본값 대신 끈 것으로 적습니다)");
   };
   const zoneCheck = ([dim, name]) => {
     const lab = el("label", "hf-check"), cb = el("input");
@@ -208,7 +212,7 @@ function homeFilesDraw() {
   zg.append(el("span", "hf-group-name", "편집 구역"), ...HF_ZONES.map(zoneCheck), znote);
   zoneState();
   opts.append(pl, quick, zg);
-  const foot = el("div", "hf-foot"), more = el("button", "btn sm", "파일 더하기"), plain = el("button", "btn sm", "TASK 없이 열기");
+  const foot = el("div", "hf-foot"), more = el("button", "btn sm", "파일 더하기"), plain = el("button", "btn sm", "워크플로우 없이 열기");
   more.type = plain.type = "button";
   more.disabled = busy;
   more.dataset.hfFocus = "more";
@@ -216,9 +220,9 @@ function homeFilesDraw() {
   more.onclick = homeFilesPick;
   plain.disabled = busy || !tgt;
   plain.dataset.hfPlain = "1";
-  plain.title = tgt ? `「${tgt.name}」 을 TASK 없이 그냥 엽니다(편집 · 검증 — docx 도)` : "목적 문서를 먼저 고르세요";
+  plain.title = tgt ? `「${tgt.name}」 을 워크플로우 없이 그냥 엽니다(편집 · 검증 — docx 도)` : "목적 문서를 먼저 고르세요";
   plain.onclick = homeFilesPlain;
-  foot.append(more, plain, el("span", "hf-next", "↓ 아래 TASK 카드를 누르면 시작합니다 — 연 뒤에는 에이전트가 다음 단계를 안내합니다"));
+  foot.append(more, plain, el("span", "hf-next", "↓ 아래 워크플로우 카드를 누르면 시작합니다 — 연 뒤에는 에이전트가 다음 단계를 안내합니다"));
   box.append(head, cap, rows, opts, foot);
   if (hf.busy || hf.err) {
     const st = el("p", "hf-status" + (hf.err ? " err" : ""));
@@ -264,7 +268,7 @@ async function hfOpenTarget(job, file, { project, alias, zones = null }) { // zo
   const cat = TASK_CATALOG[job], blank = { kind: "", file: "", job: "", project: "" };
   const fit = (w) => {
     const t = { ...blank, ...(w.task || {}) };
-    if (t.job && t.job !== job) return `다른 TASK(「${taskName("job", t.job) || t.job}」)`;
+    if (t.job && t.job !== job) return `다른 워크플로우(「${taskName("job", t.job) || t.job}」)`;
     if (t.file === "part") return "기관 문서로 쓰던 작업";
     if (cat.target && t.job === job && t.file && t.file !== cat.target) return `다른 역할(${taskName("file", t.file)})`;
     if (project && t.project && t.project !== project) return `다른 프로젝트(「${t.project}」)`;
@@ -336,12 +340,12 @@ async function hfAddSource(main, file, role, alias = "") { // 이관의 원본 �
 async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TASK 로 시작(② §15-1 표)
   const t = TASK_CATALOG[job];
   if (!t || hf.busy || homeTaskBusy) return;
-  if (t.soon) { toast(`TASK 「${t.name}」 — 준비 중입니다`); return; }
+  if (t.soon) { toast(`워크플로우 「${t.name}」 — 준비 중입니다`); return; }
   const ti = hfTarget(), target = hf.files[ti];
   const ask = (msg, sel) => { toast(msg, true); const to = sel && $("homeFiles").querySelector(sel); if (to) to.focus(); };
   if (!target) { ask("목적 문서를 먼저 고르세요 — 내용을 받는 문서(이관 = 연차보고서 · 취합 = 취합본 · 양식 표준화 · 양식 맞추기 = 맞출 문서)", "input[type=radio]"); return; }
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 그 TASK 의 목적 문서 형식(task_catalog.js accept — 보통 hwp·hwpx · 「문서 서식 복사」 는 docx 도: spec_서식복사 ② §1). PDF 는 목록에 없다
-  if (!exts.includes(hfExt(target))) { ask(`TASK 는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「TASK 없이 열기」 로 엽니다(TASK 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return; }
+  if (!exts.includes(hfExt(target))) { ask(`워크플로우는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「워크플로우 없이 열기」 로 엽니다(워크플로우 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return; }
   const others = hf.files.filter((_, i) => i !== ti), project = hfNorm(hf.project, 60), alias = hfNorm(hf.alias, 40), auto = hf.auto, llm = hf.llm;
   const zones = hf.zones && [...hf.zones]; // 편집 구역의 기준 — 누를 때의 고름(null = 손대지 않음 → 그 TASK 의 기본값)
   const aliases = new Map(hf.files.map((file) => [file, hfNorm(hf.aliases.get(file), 40)]));
@@ -355,10 +359,10 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
     if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return; }
     if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return; }
     use = others; // 프로젝트 이름을 비워도 된다 — 임시 이름으로 두 문서를 같은 프로젝트에 묶는다(② §17 「임시 프로젝트」 · 2026-11-18 전에는 이름을 적어야 시작했다)
-  } else if (others.length && !confirm(`TASK 「${t.name}」 은 목적 문서 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return;
+  } else if (others.length && !confirm(`워크플로우 「${t.name}」 ${hfJosa(t.name, "은", "는", "은")} ${hfDocName(job)} 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return;
   if (!confirmDiscard()) return;
   const card = document.querySelector(`#taskCards [data-task="${job}"]`);
-  hfBusy(`TASK 「${t.name}」 — 목적 문서 「${target.name}」 올리는 중…${/\.hwp$/i.test(target.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
+  hfBusy(`워크플로우 「${t.name}」 — ${hfDocName(job)} 「${target.name}」 올리는 중…${/\.hwp$/i.test(target.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
   homeTaskBusy = true;
   if (card) card.classList.add("busy");
   setSaveState("busy", `${target.name} 여는 중…`);
@@ -385,7 +389,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   }
   catch (e) { // 문서는 열렸는데 TASK·별칭 저장에서 실패했을 수도 있다 — 시작 화면의 까닭 줄은 그때 안 보이므로 알림도
     setSaveState("err", "열지 못함");
-    hfFail(main ? `TASK 「${t.name}」의 원본 문서를 준비하지 못했습니다: ${e.message}` : `목적 문서를 TASK 「${t.name}」 로 열지 못했습니다: ${e.message}`);
+    hfFail(main ? `워크플로우 「${t.name}」의 원본 문서를 준비하지 못했습니다: ${e.message}` : `${hfDocName(job)}를 워크플로우 「${t.name}」 ${hfJosa(t.name, "으로", "로", "로")} 열지 못했습니다: ${e.message}`);
     toast(hf.err, true);
     return !!main; // 목적 문서는 열렸다(원본 문서만 못 올림) — 시작한 것으로 본다
   } finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); homeFilesDraw(); if (typeof agentWorkHold === "function") agentWorkHold(false); }

@@ -16,26 +16,57 @@ const TASK_CATALOG = ({ // 얼리지 않는다 — 화면에서 조립한 TASK(t
   report_merge: { name: "연차보고서 취합", act: "취합", doc: "report", file: "report", up: "취합본", soon: true, desc: "기관이 나눠 쓴 문서의 내용을 연차보고서 하나로 모읍니다." },
   // 문서 일반 편집(spec_일반편집 ② §11) — kind = 작업 종류 「일반 문서」(다른 TASK 는 rnd) · entry = 처음 여는 패널 보기(에이전트 — 다른 TASK 는 작업 개요 Div). 어느 문서든(doc "any" — 로고 바탕 옅은 회색)
   doc_edit: { name: "문서 일반 편집", act: "일반 편집", doc: "any", file: "", up: "문서", kind: "general", entry: "Agent", desc: "에이전트에 요청해 글·표를 쓰고, 표·글 서식을 보관함에 저장해 다시 씁니다.",
-    hint: "hwp·hwpx 문서 하나 — 오른쪽 에이전트에 자료를 주고 요청하면 제안을 냅니다(「문서에 반영」 을 눌러야 문서가 바뀝니다). 서식 관리자는 어느 TASK 의 문서에서나 도구 줄 「서식」 묶음으로 엽니다." },
+    hint: "hwp·hwpx 문서 하나 — 오른쪽 에이전트에 자료를 주고 요청하면 제안을 냅니다(「문서에 반영」 을 눌러야 문서가 바뀝니다). 서식 관리자는 어느 워크플로우의 문서에서나 도구 줄 「서식」 묶음으로 엽니다." },
   // 문서 서식 복사(spec_서식복사 ② §1) — accept = 이 TASK 의 카드가 받는 확장자(없으면 hwp·hwpx: taskAcceptOf) · entry "Style" = 처음 여는 것이 패널 도구가 아니라 서식 관리자의 「서식 복사」 보기(2열 — app.js taskEnter).
   // pdf 는 작업을 만들지 않고 서식 관리자의 파일 후보로 간다(app.js homeTaskStart). 문서는 바뀌지 않는다
   style_copy: { name: "문서 서식 복사", act: "서식 복사", doc: "any", file: "", up: "문서", kind: "general", entry: "Style", accept: ["hwp", "hwpx", "docx", "pdf"],
     desc: "문서에서 템플릿·문서 서식·테이블 서식을 뽑아 서식 관리자에 저장하고 PDF 로 검증합니다.",
-    hint: "hwp·hwpx·docx 문서 하나 — 문서 옆 「서식 복사」 열에서 후보를 고르거나 「한 번에 진행」 을 누릅니다(문서는 바뀌지 않습니다). PDF 는 작업을 만들지 않고 서식 후보만 찾습니다. 저장한 서식은 다른 문서·TASK 에서 서식 관리자로 다시 씁니다." },
+    hint: "hwp·hwpx·docx 문서 하나 — 문서 옆 「서식 복사」 열에서 후보를 고르거나 「한 번에 진행」 을 누릅니다(문서는 바뀌지 않습니다). PDF 는 작업을 만들지 않고 서식 후보만 찾습니다. 저장한 서식은 다른 문서·워크플로우에서 서식 관리자로 다시 씁니다." },
 });
 // 화면에서 조립한 TASK(spec_워크플로우 ② §14 — 2026-11-19 사용자 "배치를 내가 할 수 없네?" → 답 「새 TASK 만들기」): 서버 저장소(app/custom_tasks.py)의 것을 이 목록 뒤에 더한다.
 // `GET /api/tasks.js`(이 파일 다음 · app.js 앞에 읽는 스크립트)가 부른다 — app.js 가 이 목록에서 만드는 것(TASK 이름 · 문서 칸 · 카드)이 처음부터 조립한 TASK 를 안다.
 // 조립한 TASK = 이관형(원본 문서 하나 → 목적 문서 하나): files = [원본, 목적] 칸 · target = 목적 문서 · groups = 고른 단계의 묶음 id(review · frame · map · clean — app.js taskStagesSync 가 그것만 세운다) · icon = 이관의 로고.
-// assign = 문서마다 고른 단계 {source: [단계 id…], target: [단계 id…]}(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 묶음 안에서 어느 문서에 하는지: app.js taskReviewDocs) · 서버가 안 보냈으면 null(붙박이 이관처럼).
-function taskCatalogCustom(defs) {
+// assign = 문서마다 고른 단계 {source: [단계 id…], target: [단계 id…], llm: [문서 역할…] | null}(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 묶음 안에서 어느 문서에 하는지: app.js taskReviewDocs) · 서버가 안 보냈으면 null(붙박이 이관처럼).
+//   llm = 1단계 「LLM 검증·보완」 을 할 문서 역할(source · target — 서버 app/custom_tasks.py 가 정한다: 옛 정의는 원본만) · 옛 서버가 안 보냈으면 null(taskReviewDocs 가 전의 규칙으로 셈).
+// does = 묶음 id → 그 조립한 워크플로우의 묶음 설명(서버가 실제 배정에서 만든 글 — 등록부 custom() 과 같은 글: app.js taskStagesSync 가 묶음 머리 · 「한 번에 진행」 · 에이전트 카드에 쓴다) · 없으면 null.
+// desc = 사람이 적은 한 줄 설명 → 없으면 등록부가 실제 배정에서 지은 한 줄(descAuto — 「내용 넣기」 가 없으면 「옮깁니다」 라 하지 않는다) → 그것도 없으면(옛 서버) 기본 글.
+// sig = 그 정의의 단계 표지(서버가 보낸 것 — 저장된 정의의 단계(배정 · 단계)가 바뀔 때만 바뀐다: 이름 · 설명 · 전제만 고치면 그대로) · sigLocal = 이 화면이 같은 값(정리한 배정 · 단계)으로 지은 짧은 표지(옛 서버 — sig 가 없을 때 견줄 것).
+//   열어 둔 화면의 정의가 낡았나를 견주고(app.js taskCatalogRefresh — spec_워크플로우 ② §15 「실행」) 에이전트 실행 카드의 key 에 든다(doc_agent_work.js agwRelayStatus — 정의가 바뀌기 전에 낸 카드는 실행하지 않고 다시 묻는다).
+// opt = {broken} — 서버가 조립한 워크플로우 저장 파일(tasks.json)을 못 읽었나(GET /api/tasks.js 의 둘째 인자 · GET /api/tasks 의 broken). 작업의 워크플로우가 목록에 없을 때 그 까닭을 가른다(taskLostWhy) — 안 보냈으면(옛 서버) 못 읽은 것이 아닌 것으로 본다.
+let taskCatalogBroken = false;
+function taskCatalogCustom(defs, opt = null) {
+  taskCatalogBroken = !!(opt && opt.broken);
   for (const key of Object.keys(TASK_CATALOG)) if (TASK_CATALOG[key].custom) delete TASK_CATALOG[key];
   for (const d of Array.isArray(defs) ? defs : []) {
     if (!d || typeof d.key !== "string" || TASK_CATALOG[d.key]) continue;
     const A = d.assign && typeof d.assign === "object" ? d.assign : null, ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
-    TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
-      hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 TASK)`,
-      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages: d.stages || [], assign: A ? { source: ids(A.source), target: ids(A.target) } : null, icon: "plan_to_report" };
+    const llm = A && Array.isArray(A.llm) ? ids(A.llm).filter((r) => r === "source" || r === "target") : null;
+    const does = d.does && typeof d.does === "object" && !Array.isArray(d.does) ? Object.fromEntries(Object.entries(d.does).filter(([, v]) => typeof v === "string" && v.trim())) : null;
+    const assign = A ? { source: ids(A.source), target: ids(A.target), llm } : null, stages = d.stages || [], auto = typeof d.descAuto === "string" && d.descAuto.trim() ? d.descAuto : "";
+    TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
+      hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
+      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign, does,
+      sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(assign, stages), icon: "plan_to_report" };
   }
+}
+// 조립한 워크플로우의 키 꼴(서버 app/custom_tasks.py KEY 와 같게 — u_ + 16진 8자). 목록에 없어도 이 꼴이면 조립한 것으로 본다(지워졌거나 저장 파일을 못 읽음 — taskLostWhy)
+const taskCustomKey = (job) => typeof job === "string" && /^u_[0-9a-f]{8}$/.test(job);
+function taskSigLocal(assign, stages) { // 정리한 배정(source · target · llm) + 단계 → 짧은 표지(「c」 + 36진 — 서버의 sig 와 섞이지 않게)
+  const s = JSON.stringify([assign ? [assign.source, assign.target, assign.llm] : null, stages]);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) | 0;
+  return `c${(h >>> 0).toString(36)}`;
+}
+const taskCatalogSig = (c) => (c && (c.sig || c.sigLocal)) || ""; // 단계 표지 — 서버의 sig, 없으면 이 화면이 지은 것
+const taskSigSame = (a, b) => (a.sig && b.sig ? a.sig === b.sig : a.sigLocal === b.sigLocal); // 같은 정의인가 — 둘 다 서버의 sig 가 있을 때만 그것으로(서버가 새 판으로 바뀐 것을 단계가 바뀐 것으로 읽지 않게)
+// 작업의 워크플로우가 조립한 것(키 꼴)인데 목록에 없다 → 그 까닭 한 줄 | ""(spec_워크플로우 ② §15 「실행」 — 빈 칸 · 사라진 단계로 두지 않는다).
+// 작업 개요(워크플로우 칸 아래) · 대시보드가 보인다 — 그 작업에서는 아무 실행도 내지 않고, job 값은 사람이 다른 워크플로우를 고를 때까지 그대로 둔다.
+// 에이전트는 그 작업의 진행을 맡지 않고(입력 칸의 글은 편집 에이전트로 — doc_agent_work.js agwGuided) 맡던 때 낸 카드를 누르면 이 까닭으로 실행하지 않는다(agwStatusOf).
+// 저장 파일 글이 가리키는 곳 = /workflow 의 절 「워크플로우 조립」(workflow.js composeSec 의 머리 · 목차의 「＋ 워크플로우 조립」)
+function taskLostWhy(job) {
+  if (!taskCustomKey(job) || TASK_CATALOG[job]) return "";
+  return taskCatalogBroken ? "조립한 워크플로우 저장 파일(tasks.json)을 읽지 못했습니다 — 워크플로우 페이지의 「워크플로우 조립」 에서 확인하세요"
+    : "이 작업의 워크플로우(조립한 것)가 지워졌습니다 — 다른 워크플로우를 고르세요";
 }
 // 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다
 const taskIsRelay = (job) => !!(TASK_CATALOG[job] || {}).files;
@@ -45,6 +76,16 @@ const taskEntryOf = (job) => (TASK_CATALOG[job] || {}).entry || "Div";
 const taskAcceptOf = (job) => (TASK_CATALOG[job] || {}).accept || ["hwp", "hwpx"]; // 그 TASK 의 카드가 받는 확장자(spec_서식복사 ② §1 — 다른 TASK 는 전과 같이 hwp·hwpx)
 // 그 TASK 가 편집 구역에서 기본으로 켤 기준(사람이 정한 적 없을 때 — spec_구역 ② §1). 서버 app/task_options.py ZONES_DEFAULT 와 같아야 한다(tests/test_task_catalog.py)
 const taskZonesDefault = (job) => (TASK_CATALOG[job] || {}).zones || [];
+// 이름 뒤 조사 — 끝 글자에 받침이 있으면 a, 없으면 b(서버 app/custom_tasks.py _eun · dashboard_workflows.js dwfEul 과 같은 셈: 한글 · 숫자의 끝 글자로 가린다 — 그 밖의 글자는 b).
+// 「으로/로」(a 가 「으로…」)는 ㄹ 받침이면 b(「로」). 이름 뒤에 조사를 박아 두지 않고 이것으로 붙인다(spec_워크플로우 ② §15 「화면 말」 — 「워크플로우」 · 이름이 바뀌면 받침도 바뀐다).
+// 예: taskJosa("구성 · 넣기 · 정리", "을", "를") → "를" · taskJosa("이관", "을", "를") → "을" · taskJosa("이관", "으로", "로") → "으로" · taskJosa("문서 검토", "으로", "로") → "로" · taskJosa("사본 7", "으로", "로") → "로"(칠 — ㄹ 받침)
+function taskJosa(word, a, b) {
+  const c = String(word == null ? "" : word).slice(-1);
+  const jong = c >= "가" && c <= "힣" ? (c.charCodeAt(0) - 0xac00) % 28 // 받침 번호 — 0 없음 · 8 ㄹ
+    : /[0-9]/.test(c) ? [21, 8, 0, 16, 0, 0, 1, 8, 8, 0][Number(c)] : 0; // 숫자는 읽는 소리(영 · 일 · 이 · 삼 · 사 · 오 · 육 · 칠 · 팔 · 구) — 받침 = 0 1 3 6 7 8
+  if (!jong) return b;
+  return jong === 8 && String(a).startsWith("으로") ? b : a;
+}
 
 // 이관·취합이 공유하는 사용자 단계 이름. 단계별 실행·완료 조건은 각 흐름이 정의한다.
 // config = 구성(단계·차년도·기관)만 추출해 프로젝트에 확정 — 문서를 안 바꾼다(spec_작업 ② §18, 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"). 묶음 id·저장 키는 번호와 따로(frame·map·clean 그대로).

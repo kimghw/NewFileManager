@@ -1,4 +1,5 @@
-"""TASK 옵션 — TASK 묶음(프로젝트 · TASK · 라운드)마다 따로 두는 저장소(spec_구역 ② §1 「TASK 옵션 — TASK 묶음마다」). 지금 옵션 = 편집 구역이 보이는 기준(zones.dims).
+"""워크플로우 옵션 — 워크플로우 묶음(프로젝트 · 워크플로우 · 라운드)마다 따로 두는 저장소. 지금 옵션 = 편집 구역이 보이는 기준(zones.dims).
+원본 spec_구역 ② §1 「TASK 옵션 — TASK 묶음마다」(첫 줄은 /workflow 의 코드 옆 글이라 화면 말로 — 사양서의 절 이름은 그대로).
 
 작업의 `task`(work.json — `PUT …/task` 가 정해진 키만 남긴다)에 넣지 않는다: 묶음에 문서가 여럿이라(이관의 두 문서 · 취합본과 기관 문서) 문서마다 값이 갈릴 수 있고,
 task 를 통째로 다시 적는 길(TASK 시작 · 기관 문서 등록 · 이관 원본 등록 · 새 라운드 …)마다 옵션을 실어 날라야 한다.
@@ -97,7 +98,7 @@ def _load():
     data = works._read_json(path)   # 못 읽음 · JSON 아님 = None(바꿔 넣는 중인 파일은 몇 번 다시 읽는다 — works)
     if (not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("scopes"), dict)
             or not all(isinstance(k, str) and _record_ok(v) for k, v in data["scopes"].items())):
-        raise Broken("TASK 옵션 저장 파일(task_options.json)을 읽지 못했습니다. 기존 파일을 확인하세요")
+        raise Broken("워크플로우 옵션 저장 파일(task_options.json)을 읽지 못했습니다. 기존 파일을 확인하세요")
     return data
 
 
@@ -155,14 +156,14 @@ def set_zones(work, dims, rev=None, scope=None) -> dict:
     ValueError = 모르는 기준 · 목록 아님(zones.norm_dims) · 연구개발 문서가 아님 · Stale = rev 를 줬는데 저장된 판과 다름 · **scope 를 줬는데 그 작업의 지금 묶음과 다름** · Broken = 저장 파일이 깨짐(덮어쓰지 않는다).
     scope = 화면이 옵션을 읽을 때의 묶음(astra 결과 검토 7): 읽은 뒤 작업이 다른 프로젝트·TASK·라운드로 옮겨졌으면 판(rev)이 우연히 같아도 다른 묶음의 옵션을 덮지 않는다."""
     if not _offered(work):
-        raise ValueError("이 TASK 에는 편집 구역 옵션이 없습니다 — 연구개발 TASK(양식 표준화 · 양식 맞추기 · 취합 · 이관)의 문서에서만 씁니다")
+        raise ValueError("이 워크플로우에는 편집 구역 옵션이 없습니다 — 연구개발 워크플로우(양식 표준화 · 양식 맞추기 · 취합 · 이관)의 문서에서만 씁니다")
     try:
         dims = list(getattr(zones, "norm_dims", _norm_dims)(dims))
     except TypeError as exc:   # 목록 안에 글자가 아닌 것(목록 · 사전) — 모르는 기준과 같은 400
         raise ValueError("모르는 기준입니다 — 기관(org) · 단계(stage) · 차년도(year) 가운데서 고릅니다") from exc
     want, scope = scope, scope_of(work)
     if scope == "w:":   # 프로젝트도 작업 id 도 없다 — 어느 묶음의 옵션인지 알 수 없다
-        raise ValueError("작업이 없어 TASK 옵션을 저장할 수 없습니다")
+        raise ValueError("작업이 없어 워크플로우 옵션을 저장할 수 없습니다")
     if want is not None and want != scope:
         raise Stale(scope)
     with _LOCK:

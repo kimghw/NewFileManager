@@ -57,7 +57,7 @@ function projectRoundRow() {
   const rounds = groups.filter((g) => g.project === taskProject() && g.job === t.job).sort((a, b) => b.round - a.round);
   const label = el("label", "project-round-label"), select = el("select");
   label.append(el("span", null, "라운드"));
-  select.setAttribute("aria-label", "TASK 라운드");
+  select.setAttribute("aria-label", "워크플로우 라운드");
   if (!rounds.some((g) => g.round === taskRound())) select.append(new Option(`Round ${taskRound()}`, String(taskRound())));
   for (const g of rounds) select.append(new Option(`Round ${g.round}${g.latest ? " · 최신" : " · 이전"}`, String(g.round)));
   select.value = String(taskRound());
@@ -103,7 +103,7 @@ function projectSharingFill(box) {
   part("dv-tag" + (kind === "confirmed" ? " is-ready" : ""), kind === "confirmed" ? "프로젝트 구성 확정" : "프로젝트 구성 있음",
     kind === "confirmed" ? "지금 값이 이 프로젝트에 확정한 구성과 같습니다" : "이 프로젝트에 구성이 있습니다 — 아직 확정 전이거나 확정한 뒤 값이 바뀌었습니다(「프로젝트에 저장」 으로 확정)");
   part("project-sharing-text", text, `프로젝트 「${sh.project}」 의 구성\n${text}`);
-  part("project-sharing-note", "프로젝트 공유", "같은 프로젝트의 TASK 들(최신 라운드)이 이 프로젝트 구성을 같이 씁니다");
+  part("project-sharing-note", "프로젝트 공유", "같은 프로젝트의 워크플로우들(최신 라운드)이 이 프로젝트 구성을 같이 씁니다");
 }
 
 function projectSharingSync() { // 입력이 바뀌거나(divPresetRefresh) 입력 설정이 저장된 뒤(divSettingsSave) — 있음/없음 줄과 버전 줄만 맞춘다(칸·포커스는 그대로)
@@ -142,28 +142,28 @@ function projectListShow() {
 function projectListEnsure() {
   const box = $("projectWorkspace");
   if (box.childElementCount) return;
-  const head = el("div", "project-list-head"), title = el("strong", null, "프로젝트별 TASK");
+  const head = el("div", "project-list-head"), title = el("strong", null, "프로젝트별 워크플로우");
   const refresh = hBtn("새로고침", () => { loadWorks(); projectInfoLoad(true); }, { cls: "btn sm" });
   refresh.id = "projectRefresh";
   // 「새 프로젝트」(② §17 「새 프로젝트」) — 머리 아래 인라인 이름 줄(모달 없음 · Enter 만들기 · Esc 닫기) → 문서 없는 프로젝트로 목록에 들어가고, 그 줄의 「파일 올려 시작」 으로 첫 TASK
-  const make = hBtn("새 프로젝트", () => projectMakeSet(projectMake ? null : { draft: "", busy: false }), { cls: "btn sm", title: "이름만 정해 프로젝트를 만듭니다 — 파일은 그 뒤에 올려 TASK 를 시작합니다" });
+  const make = hBtn("새 프로젝트", () => projectMakeSet(projectMake ? null : { draft: "", busy: false }), { cls: "btn sm", title: "이름만 정해 프로젝트를 만듭니다 — 파일은 그 뒤에 올려 워크플로우를 시작합니다" });
   make.id = "projectMakeBtn";
   const tools = el("span", "project-list-tools"); tools.append(make, refresh);
   head.append(title, tools);
   const makeBox = el("div", "project-make"); makeBox.id = "projectMake"; makeBox.hidden = true;
-  const filter = el("input", "project-search"); filter.type = "search"; filter.placeholder = "프로젝트·TASK·파일 찾기"; filter.setAttribute("aria-label", filter.placeholder);
+  const filter = el("input", "project-search"); filter.type = "search"; filter.placeholder = "프로젝트·워크플로우·파일 찾기"; filter.setAttribute("aria-label", filter.placeholder);
   filter.id = "projectSearch"; filter.oninput = projectListDraw;
   const list = el("div", "project-list"); list.id = "projectList";
   const create = el("details", "project-create"); create.id = "projectCreate";
-  create.append(el("summary", null, "+ 새 TASK 시작"));
+  create.append(el("summary", null, "+ 새 워크플로우 시작"));
   const form = el("form", "project-start-form");
   const project = el("input"); project.id = "projectStartName"; project.maxLength = 60; project.placeholder = "프로젝트 이름(비우면 임시 이름)"; // 비우면 서버가 임시 이름(② §17 「임시 프로젝트」)
   projectComboAttach(project, { list: "projectStartList" }); // 고르기 목록 — 작업 개요의 프로젝트 칸과 같은 도우미(② §19: 지금 프로젝트가 미리 적혀 있어 datalist 로는 다른 프로젝트가 안 보였다)
   const job = el("select"); job.id = "projectStartTask";
   for (const [key, cat] of Object.entries(TASK_CATALOG)) if (!cat.soon) job.append(new Option(cat.name, key));
-  for (const [text, input] of [["프로젝트", project], ["TASK", job]]) { const label = el("label", null, text); label.append(input); form.append(label); }
+  for (const [text, input] of [["프로젝트", project], ["워크플로우", job]]) { const label = el("label", null, text); label.append(input); form.append(label); }
   const start = el("button", "btn", "파일 올려 시작"); start.type = "submit"; start.id = "projectStartUpload";
-  form.append(start, el("p", "project-note", "기존 작업을 남기고 새 파일로 시작합니다. 같은 TASK가 있으면 다음 라운드가 됩니다."));
+  form.append(start, el("p", "project-note", "기존 작업을 남기고 새 파일로 시작합니다. 같은 워크플로우가 있으면 다음 라운드가 됩니다."));
   form.onsubmit = (e) => {
     e.preventDefault();
     const name = project.value.trim().replace(/\s+/g, " ");
@@ -204,7 +204,7 @@ function projectMakeDraw(focus = false) {
   inp.onkeydown = (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === "Enter") { e.preventDefault(); projectMakeRun(); } else if (e.key === "Escape") { e.preventDefault(); cancel.click(); } };
   check();
   row.append(inp, save, cancel);
-  box.append(row, note, el("p", "project-note", "이름만 정해 둡니다 — 만든 뒤 그 프로젝트 줄의 「파일 올려 시작」 으로 첫 TASK 를 시작합니다."));
+  box.append(row, note, el("p", "project-note", "이름만 정해 둡니다 — 만든 뒤 그 프로젝트 줄의 「파일 올려 시작」 으로 첫 워크플로우를 시작합니다."));
   if (focus) inp.focus();
 }
 
@@ -215,7 +215,7 @@ async function projectMakeRun() {
   try {
     const r = await api("/api/projects", { method: "POST", headers: H_JSON, body: JSON.stringify({ name }) });
     m.busy = false; projectMake = null; projectMakeDraw();
-    toast(`프로젝트 「${r.name}」 을(를) 만들었습니다 — 「파일 올려 시작」 으로 첫 TASK 를 시작하세요`);
+    toast(`프로젝트 「${r.name}」 을(를) 만들었습니다 — 「파일 올려 시작」 으로 첫 워크플로우를 시작하세요`);
     projectFocusWant = `start:${r.name}`;
     if (!projectInfo.map) projectInfo.map = new Map(); // 읽는 중이면 projectInfoLoad 가 건너뛴다 — 만든 것은 바로 보이게 먼저 넣는다(서버 listing 과 같은 꼴)
     projectInfo.map.set(r.name, { name: r.name, temp: false, settings: null, confirmed: null, versions: [], works: [], tasks: [] });
@@ -254,7 +254,7 @@ function projectListDraw() {
     const section = el("section", "project-group"), items = groups.filter((g) => g.project === name), head = el("div", "project-group-title");
     head.append(el("strong", null, name || "프로젝트 미지정"));
     if (projectIsTemp(name)) head.append(projectTempTag());
-    head.append(el("span", null, `진행 TASK ${items.filter((g) => g.latest).length}`)); section.append(head);
+    head.append(el("span", null, `진행 워크플로우 ${items.filter((g) => g.latest).length}`)); section.append(head);
     if (name && projectIsTemp(name)) head.append(projectNameBtn(name)); // 임시 프로젝트 — 「이름 정하기」 를 머리 줄에 바로(⋯ 의 「이름 변경」 과 같은 줄을 연다)
     if (name) { head.append(projectMenuBtn(name, false)); if (projectEdit && projectEdit.name === name) section.append(projectEditEl(name, all, false)); }
     const active = items.filter((g) => g.latest), previous = items.filter((g) => !g.latest).sort((a, b) => b.round - a.round);
@@ -276,13 +276,13 @@ function projectListDraw() {
     section.append(head);
     if (projectEdit && projectEdit.name === name) section.append(projectEditEl(name, all, true));
     const fresh = !info.settings && !vers; // 구성도 버전도 없음 — 「새 프로젝트」 로 만들고 아직 파일을 안 올린 것(② §17 「새 프로젝트」)
-    section.append(el("p", "project-note", fresh ? "아직 문서가 없습니다 — 파일을 올려 첫 TASK 를 시작하세요" : `문서가 없는 프로젝트입니다 — 프로젝트 구성${vers ? `(버전 ${vers}개)` : ""}만 남아 있습니다`));
-    const go = hBtn("파일 올려 시작", () => projectStartIn(name), { cls: "btn sm", disabled: projectBusy(), title: `「${name}」 에 TASK 를 고르고 파일을 올려 시작합니다(아래 「새 TASK 시작」)` });
+    section.append(el("p", "project-note", fresh ? "아직 문서가 없습니다 — 파일을 올려 첫 워크플로우를 시작하세요" : `문서가 없는 프로젝트입니다 — 프로젝트 구성${vers ? `(버전 ${vers}개)` : ""}만 남아 있습니다`));
+    const go = hBtn("파일 올려 시작", () => projectStartIn(name), { cls: "btn sm", disabled: projectBusy(), title: `「${name}」 에 워크플로우를 고르고 파일을 올려 시작합니다(아래 「새 워크플로우 시작」)` });
     go.dataset.projectEdit = `start:${name}`; go.dataset.projectAct = "on"; go.dataset.projectStart = name;
     section.append(go);
     list.append(section);
   }
-  if (!groups.length && !shownEmpty.length) list.append(el("p", "project-note", query ? "찾는 작업이 없습니다." : "파일을 올려 프로젝트의 첫 TASK를 시작하세요."));
+  if (!groups.length && !shownEmpty.length) list.append(el("p", "project-note", query ? "찾는 작업이 없습니다." : "파일을 올려 프로젝트의 첫 워크플로우를 시작하세요."));
   refocus();
 }
 
@@ -295,10 +295,10 @@ function projectEmptyNames() { // 문서 없는 프로젝트의 이름들(GET /a
 function projectGroupEl(g, open, target) { // target = 지우기 확인 줄을 편 곳(projectDropTarget — 없으면 null)
   const row = el("div", "project-task-item" + (g.current ? " current" : ""));
   const button = el("button", "project-task-open"); button.type = "button"; button.dataset.projectWork = g.main.id;
-  const label = `${g.project || "프로젝트 미지정"} · ${(TASK_CATALOG[g.job] || {}).name || "TASK 미지정"} · Round ${g.round}`;
+  const label = `${g.project || "프로젝트 미지정"} · ${(TASK_CATALOG[g.job] || {}).name || "워크플로우 미지정"} · Round ${g.round}`;
   button.setAttribute("aria-label", `${label} 열기`);
   if (g.current) button.setAttribute("aria-current", "true");
-  const title = el("span", "project-task-name", (TASK_CATALOG[g.job] || {}).name || "TASK 미지정");
+  const title = el("span", "project-task-name", (TASK_CATALOG[g.job] || {}).name || "워크플로우 미지정");
   const meta = el("span", "project-task-meta", `Round ${g.round} · ${g.docs.length}개 문서${g.current ? " · 현재 작업" : g.latest ? " · 진행 작업" : " · 이전 라운드"}`);
   button.append(title, meta); button.onclick = () => projectOpen(g.main.id);
   // 줄 끝 「지우기」 = 그 라운드의 문서 전부 · 문서 줄 끝 × = 그 문서 하나(문서가 둘 이상인 묶음에만) — 누르면 그 아래 확인 줄(창 없음 · spec_작업 ② §7 「작업 지우기」)
@@ -323,7 +323,7 @@ function projectGroupEl(g, open, target) { // target = 지우기 확인 줄을 �
 // ---- TASK · 문서 지우기(spec_작업 ② §7 「작업 지우기」 · §17, 2026-11-16 사용자 "작업 삭제 기능이 없네.") — TASK 줄 끝 「지우기」(그 라운드의 문서 전부) · 문서 줄 끝 ×(그 문서 하나) → 그 아래 인라인 확인 줄(창 없음).
 // 글·지우기 몸통·알림은 시작 화면 최근 작업 줄과 같은 것(app.js worksDropText · worksDelete · worksDropToast). 프로젝트를 통째로 지우는 것은 머리 줄 ⋯ → 삭제(위 projectDelete — 프로젝트 구성 기록도 지운다)
 let projectDrop = null; // 확인 줄을 편 곳 하나: {key: "round:<묶음 키>" | "file:<작업 id>", busy}
-const projectDropWhat = (g) => `${g.project ? `프로젝트 「${g.project}」 · ` : ""}TASK 「${(TASK_CATALOG[g.job] || {}).name || "TASK 미지정"}」 · Round ${g.round}`;
+const projectDropWhat = (g) => `${g.project ? `프로젝트 「${g.project}」 · ` : ""}워크플로우 「${(TASK_CATALOG[g.job] || {}).name || "워크플로우 미지정"}」 · Round ${g.round}`;
 
 function projectDropTarget(groups = projectGroups()) { // 확인 줄을 편 곳 → {g: 묶음, docs: 지울 문서, round: 라운드를 통째로 지우나} · 그 사이 없어졌으면 null
   const d = projectDrop;
@@ -436,7 +436,7 @@ async function projectNewRound(id, source) {
 async function projectUpload(project, job, file) {
   if (!file || projectBusy() || !confirmDiscard()) return;
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf"); // 보통 hwp·hwpx(전과 같다) — 「문서 서식 복사」 는 docx 도(spec_서식복사 ② §1)
-  if (!exts.includes(((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase())) { toast(`TASK는 ${exts.join("·")} 파일로 시작합니다`, true); return; }
+  if (!exts.includes(((file.name.match(/\.(\w+)$/) || [])[1] || "").toLowerCase())) { toast(`워크플로우는 ${exts.join("·")} 파일로 시작합니다`, true); return; }
   const epoch = state.epoch;
   projectStarting = true; $("projectStartUpload").disabled = true;
   try {
@@ -453,7 +453,7 @@ async function projectUpload(project, job, file) {
     firstRun();
     const named = (started.task || {}).project || project;
     toast(`${named} · ${cat.name} · Round ${started.round} 시작${started.temp ? " — 임시 이름입니다: 「작업 개요」 의 프로젝트 칸이나 이 목록의 「이름 정하기」 로 이름을 정하세요" : ""}`);
-  } catch (e) { toast(`TASK를 시작하지 못했습니다: ${e.message}`, true); }
+  } catch (e) { toast(`워크플로우를 시작하지 못했습니다: ${e.message}`, true); }
   finally { projectStarting = false; $("projectStartUpload").disabled = false; projectControlsSync(); }
 }
 
@@ -947,7 +947,7 @@ function projectVersionsFill(box) {
     sel.onchange = () => { st.pick = sel.value; st.deleting = false; projectVersionsDraw("select[data-division-version]"); };
     controls.append(sel,
       act("적용", "versionApply", () => projectVersionApply(st.pick), { disabled: off || !picked,
-        title: "고른 버전을 지금 프로젝트 구성으로 — 입력 값이 그 값이 되고 프로젝트에 확정합니다(같은 프로젝트의 최신 라운드 TASK 들이 함께 바뀜 · 문서는 변경 계획 → 반영으로)" }));
+        title: "고른 버전을 지금 프로젝트 구성으로 — 입력 값이 그 값이 되고 프로젝트에 확정합니다(같은 프로젝트의 최신 라운드 워크플로우들이 함께 바뀜 · 문서는 변경 계획 → 반영으로)" }));
     const actions = el("div", "project-versions-actions");
     actions.append(add,
       act("삭제", "versionDelete", () => { st.deleting = true; st.naming = false; projectVersionsDraw("[data-version-delete-cancel]"); }, { disabled: off || !picked, title: "고른 버전을 지웁니다 — 지금 프로젝트 구성·확정은 그대로" }));

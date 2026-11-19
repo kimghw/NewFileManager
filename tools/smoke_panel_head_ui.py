@@ -199,7 +199,7 @@ try:
             page.select_option("#panelTask", "rnd")
         page.wait_for_selector("#divBox .dv-task select")
         check("연구개발 프로젝트 선택 — 저장·작업 개요 열림 · 작업 개요/검증 표시", put.value.status == 200 and page.evaluate(TOOL) == "Div" and page.evaluate(VIS, "paneDiv")
-              and page.evaluate(NO_TAB) and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="task") and not page.evaluate(VIS, "toolTitle") and page.evaluate(HEAD) == ["작업 개요", "프로젝트 · TASK"], page.evaluate(TABS))
+              and page.evaluate(NO_TAB) and page.evaluate(TABS) == tabs_for(tool="고친 문단", selected="task") and not page.evaluate(VIS, "toolTitle") and page.evaluate(HEAD) == ["작업 개요", "프로젝트 · 워크플로우"], page.evaluate(TABS))
         check("활성 탭이 없어도 Tab 키는 탭 띠의 보이는 첫 탭(고친 문단)이 받는다", page.evaluate("() => [...document.querySelectorAll('#workspaceNav .tab')].filter((t) => t.tabIndex === 0).map((t) => t.id)") == ["tabEdits"])
         g = page.evaluate(GEO)
         check("연구개발과제 내용 — 머리 높이 그대로", g["head"] == g0["head"] and g["pane"][1] == g["head"][3], g["head"])

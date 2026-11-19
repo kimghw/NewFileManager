@@ -1,4 +1,4 @@
-"""대시보드의 워크플로우 목록·불러오기·전환 화면 검사.
+"""대시보드의 워크플로우 목록·불러오기·전환·목록에서 빼기 화면 검사.
 
 작은 실제 HWPX + 격리 서버(PDF·LLM 끔)를 사용한다. 단계 완료는 화면 모델만
 흉내 내고, 목록 저장·전환·다시 열기는 실제 API로 확인한다. 사용자 작업은 안 건드린다.
@@ -90,8 +90,13 @@ def workflow_button(page, job):
 def select_workflow(page, wid, job):
     open_list(page)
     workflow_button(page, job).click()
-    page.wait_for_function("([id, job]) => state.id === id && state.task.job === job && !!document.querySelector('#paneDash .dash-node')",
-                           arg=[wid, job], timeout=60000)
+    # state.task.job 은 전환 응답 바로 뒤에 바뀌고 대시보드 · 목록은 그 뒤에 다시 그려진다 — 그것만 기다리면 옛 목록(옛 「선택됨」)을 읽는다(같이 돌 때만 떨어지던 경합).
+    # 전환이 끝나고(DWF.busy 풀림) 대시보드가 새 워크플로우로 다시 그려진 것(머리의 「워크플로우 ↗」 링크가 그 워크플로우)을 기다린 뒤, 목록도 새 「선택됨」 으로 다시 그려진 것을 본다
+    page.wait_for_function("""([id, job]) => state.id === id && state.task.job === job && !DWF.busy
+      && document.querySelector('#paneDash .dash-wf')?.getAttribute('href') === '/workflow#' + encodeURIComponent(job)
+      && !!document.querySelector('#paneDash .dash-node')""", arg=[wid, job], timeout=60000)
+    open_list(page)
+    page.wait_for_selector(f'{LIST} .dash-workflow-row[data-job="{job}"][aria-current="true"]', timeout=30000)
 
 
 def rows(page):
@@ -255,10 +260,11 @@ def main():
         measure = page.evaluate("""() => {
           const pane = document.getElementById('paneDash'), panel = document.getElementById('panel'), r = pane.getBoundingClientRect();
           return {width: Math.round(panel.getBoundingClientRect().width), overflow: pane.scrollWidth > pane.clientWidth + 1,
-            inside: [...pane.querySelectorAll('.dash-workflow-row, .dash-workflow-add, .dash-workflow-toggle')]
+            drops: pane.querySelectorAll('.dash-workflow-drop').length,
+            inside: [...pane.querySelectorAll('.dash-workflow-row, .dash-workflow-drop, .dash-workflow-add, .dash-workflow-toggle')]
               .every(e => {const b = e.getBoundingClientRect(); return b.right <= r.right + 1 && b.left >= r.left - 1;})};
         }""")
-        check("320px 패널에서 목록·불러오기 가로 넘침 없음", measure["width"] == 320 and not measure["overflow"] and measure["inside"], measure)
+        check("320px 패널에서 목록(줄 옆 「목록에서 빼기」 포함)·불러오기 가로 넘침 없음", measure["width"] == 320 and not measure["overflow"] and measure["inside"] and measure["drops"] >= 1, measure)
         page.locator("#paneDash").screenshot(path=str(OUT / "02_narrow_320.png"))
 
         # 파일 형식 필터만 docx 상태로 흉내 낸다(문서 파일에는 쓰지 않는다).
@@ -312,6 +318,54 @@ def main():
         saved_style = next(item for item in api("GET", f"/api/works/{wid}/workflows")["items"] if item["job"] == "style_copy")
         check("아직 열지 않은 서식 복사의 임시 상태로 저장된 완료 기록을 덮지 않음", style_guard["snapshot"] is None and style_guard["row"]["status"] == "done"
               and saved_style["status"] == "done" and (saved_style["done"], saved_style["total"]) == (4, 4), [style_guard, saved_style])
+
+        # 「목록에서 빼기」(spec_워크플로우 ② §15 — DELETE /api/works/{wid}/workflows/{job}): 지금 워크플로우가 아닌 줄에만 · 누르면 그 줄만 빠짐 · 문서 · 지금 워크플로우 · 다른 줄은 그대로.
+        # 이름 끝에 받침이 있는 줄(「사업계획서 → 연차보고서 이관」 — 조사 「을」)도 하나 넣어 풍선 도움말 · 알림의 조사를 본다(「… 표준화」 · 「… 복사」 는 「를」)
+        api("PUT", f"/api/works/{wid}/workflows", json={"job": "plan_to_report"})
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        page.evaluate("() => { DWF.library = false; return dwfLoad(true).then(() => dashDraw(true)); }")
+        open_list(page)
+        page.wait_for_selector(f'{LIST} .dash-workflow-row[data-job="plan_to_report"]', timeout=30000)
+        doc_before = api("GET", f"/api/docs/{wid}")
+        lis = page.evaluate("""() => [...document.querySelectorAll('#dashWorkflowList .dash-workflow-list > li')].map((li) => {
+          const row = li.querySelector('.dash-workflow-row'), drop = li.querySelector('.dash-workflow-drop');
+          return {job: row && row.dataset.job, current: row && row.getAttribute('aria-current'), inRow: !!li.querySelector('.dash-workflow-row .dash-workflow-drop'),
+            drop: drop && {job: drop.dataset.job, text: drop.textContent, label: drop.getAttribute('aria-label'), title: drop.title}};
+        })""")
+        check("「목록에서 빼기」 — 지금 워크플로우가 아닌 줄에만(그 줄의 워크플로우 · 줄 단추 밖) · 지금 워크플로우 줄에는 없음",
+              sorted(x["job"] for x in lis) == ["doc_edit", "plan_fit", "plan_to_report", "style_copy"] and all((x["drop"] is None) == (x["current"] == "true") for x in lis)
+              and all(x["drop"]["job"] == x["job"] and x["drop"]["text"] == "목록에서 빼기" and not x["inRow"] for x in lis if x["drop"]), lis)
+        names = {"plan_fit": ("사업계획서 양식 표준화", "를"), "plan_to_report": ("사업계획서 → 연차보고서 이관", "을"), "style_copy": ("문서 서식 복사", "를")}
+        want_titles = {job: f"「{name}」 {josa} 이 문서의 워크플로우 목록에서 뺍니다(다시 「＋ 워크플로우 불러오기」 로 넣을 수 있음) — 문서와 분석은 그대로이고, "
+                       "그 줄의 진행 요약과 그 워크플로우로 돌아올 때 쓰던 기억(문서 역할 · 라운드)이 없어집니다" for job, (name, josa) in names.items()}
+        got_titles = {x["job"]: x["drop"]["title"] for x in lis if x["drop"]}
+        check("풍선 도움말 — 빼면 없어지는 것(그 줄의 진행 요약 · 그 워크플로우로 돌아올 때 쓰던 기억(문서 역할 · 라운드)) · 이름 뒤 조사는 받침대로(「… 이관」 을 · 「… 표준화」 를)",
+              got_titles == want_titles, got_titles)
+        drop_url = re.compile(r"/api/works/[^/]+/workflows/plan_to_report$")   # 받침이 있는 이름부터 — 알림의 조사 「을」
+        with page.expect_response(lambda response: bool(drop_url.search(response.url)) and response.request.method == "DELETE", timeout=60000) as dropped:
+            page.locator(f'{LIST} .dash-workflow-drop[data-job="plan_to_report"]').click()
+        page.wait_for_function("() => !DWF.busy && !document.querySelector('#dashWorkflowList .dash-workflow-row[data-job=plan_to_report]')", timeout=30000)
+        toast_text = page.locator("#toast").text_content() or ""
+        check("알림의 조사도 받침대로(「… 이관」을 이 문서의 워크플로우 목록에서 뺐습니다)",
+              dropped.value.status == 200 and toast_text == "「사업계획서 → 연차보고서 이관」을 이 문서의 워크플로우 목록에서 뺐습니다", [dropped.value.status, toast_text])
+        drop_url = re.compile(r"/api/works/[^/]+/workflows/plan_fit$")
+        with page.expect_response(lambda response: bool(drop_url.search(response.url)) and response.request.method == "DELETE", timeout=60000) as dropped:
+            page.locator(f'{LIST} .dash-workflow-drop[data-job="plan_fit"]').click()
+        page.wait_for_function("() => !DWF.busy && !document.querySelector('#dashWorkflowList .dash-workflow-row[data-job=plan_fit]')", timeout=30000)
+        after = rows(page)
+        saved_after, doc_after = api("GET", f"/api/works/{wid}/workflows"), api("GET", f"/api/docs/{wid}")
+        toast_text = page.locator("#toast").text_content() or ""
+        check("누르면 그 줄만 빠짐(DELETE 200 · 화면 목록 · 서버 목록) — 문서(차례 · 블록) · 지금 워크플로우 · 다른 줄의 완료 기록은 그대로 · 알림(「… 표준화」를)",
+              dropped.value.status == 200 and sorted(row["job"] for row in after) == ["doc_edit", "style_copy"]
+              and sorted(item["job"] for item in saved_after["items"]) == ["doc_edit", "style_copy"] and saved_after["active"] == "doc_edit"
+              and page.evaluate("[state.id, state.task.job]") == [wid, "doc_edit"] and next(row for row in after if row["job"] == "style_copy")["status"] == "done"
+              and doc_after["work"]["rev"] == doc_before["work"]["rev"] and doc_after["blocks"] == doc_before["blocks"]
+              and toast_text == "「사업계획서 양식 표준화」를 이 문서의 워크플로우 목록에서 뺐습니다",
+              [dropped.value.status, after, saved_after, doc_before["work"]["rev"], doc_after["work"]["rev"], toast_text])
+        open_library(page)
+        again = page.locator(f'{LIBRARY} .dash-workflow-add[data-job="plan_fit"]')
+        check("뺀 워크플로우는 「＋ 워크플로우 불러오기」 에서 다시 넣을 수 있음", again.count() == 1 and again.is_enabled() and again.inner_text() == "목록에 추가", again.count())
+        page.locator("#paneDash").screenshot(path=str(OUT / "03_drop_row.png"))
         check("콘솔 오류 없음", not errors, errors[:5])
         browser.close()
 

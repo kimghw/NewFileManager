@@ -1,7 +1,9 @@
-"""대시보드의 문서별 워크플로우 목록·진행 요약·TASK 전환.
+"""대시보드의 문서별 워크플로우 목록·진행 요약·워크플로우 전환.
 
 단계 실행은 기존 TASK 기능을 쓴다. 목록의 진행 요약은 화면이 마지막으로 확인한 값이며,
 문서나 분석 상태를 복제하지 않는다. TASK 문맥만 보관해 돌아올 때 역할·라운드를 복원한다.
+목록에서 한 줄을 빼는 끝점(DELETE …/workflows/{job})은 그 진행 요약 줄만 뺀다 — 문서 · 분석은 그대로이고, 지금 워크플로우의 줄은 빼지 않는다
+(목록에만 든 조립한 워크플로우는 그 줄을 빼야 지울 수 있다 — app/custom_tasks_api.py).
 """
 import threading
 
@@ -69,7 +71,7 @@ def _remember(wid, task):
 
 @router.get("/api/works/{wid}/workflows")
 def workflow_runs_get(wid: str):
-    """목록과 현재 TASK. 옛 작업은 현재 TASK를 읽기 응답에 포함한다(조회만으로 저장하지 않음)."""
+    """목록과 현재 워크플로우. 옛 작업은 현재 워크플로우를 읽기 응답에 포함한다(조회만으로 저장하지 않음)."""
     return _view(_work(wid))
 
 
@@ -94,9 +96,26 @@ def workflow_runs_put(wid: str, body: dict = Body(...)):
         return _view(saved)
 
 
+@router.delete("/api/works/{wid}/workflows/{job}")
+def workflow_runs_delete(wid: str, job: str):
+    """그 워크플로우의 줄을 문서의 워크플로우 목록에서 뺀다 → GET 과 같은 꼴. 문서 · 분석은 그대로(진행 요약 줄만).
+    400 = 지금 워크플로우(목록에서 뺄 수 없음 — 다른 워크플로우로 바꾼 뒤) · 404 = 작업이 없음 · 목록에 그 줄이 없음. 키는 따지지 않는다(지운 · 모르는 워크플로우의 줄도 뺀다)."""
+    with _lock(wid):
+        work = _work(wid)
+        if (work.get("task") or {}).get("job") == job:
+            raise HTTPException(400, "지금 워크플로우는 목록에서 뺄 수 없습니다 — 다른 워크플로우로 바꾼 뒤에 빼세요")
+        if not any(isinstance(row, dict) and row.get("job") == job for row in work.get("workflows") or []):
+            raise HTTPException(404, "목록에 그 워크플로우가 없습니다")
+        saved = works.workflow_remove(wid, job)
+        if saved is None:
+            raise HTTPException(404, "그런 작업이 없습니다")
+        works.log(wid, "workflowRemove", job=job)
+        return _view(saved)
+
+
 @router.post("/api/works/{wid}/workflows/activate")
 def workflow_runs_activate(wid: str, body: dict = Body(...)):
-    """{job}: 같은 문서에서 TASK를 전환하고, 앞 TASK의 역할·라운드와 진행 요약을 남긴다."""
+    """{job}: 같은 문서에서 워크플로우를 전환하고, 앞 워크플로우의 역할·라운드와 진행 요약을 남긴다."""
     from app import server  # server가 router를 넣은 뒤 요청 때 읽는다(순환 import 방지).
 
     with _lock(wid):
