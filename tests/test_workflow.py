@@ -16,10 +16,26 @@ _META_ROW = r'^  (\w+): \{ no: "([^"]*)", name: "([^"]*)"'
 _block = lambda name: re.search(rf"const {name} = Object\.freeze\(\{{(.*?)\n\}}\);", CATALOG, re.S)[1]  # noqa: E731
 STAGE_META = {m[0] for m in re.findall(_META_ROW, _block("TASK_STAGE_META"), re.M)}                 # TASK_STAGE_META 의 키(취합의 묶음 이름)
 RELAY_META = {m[0]: {"no": m[1], "name": m[2]} for m in re.findall(_META_ROW, _block("RELAY_STAGE_META"), re.M)}   # 이관의 묶음 이름(spec_작업 ② §21) — 등록부의 no·name 과 같아야 한다
+_TASK_BLOCK = re.search(r"const TASK_CATALOG = \(\{.*?\n(.*?)\n\}\);", CATALOG, re.S)[1]   # 붙박이 TASK 줄들(조립한 TASK 를 더하는 함수 앞까지)
+
+
+def _catalog_docs():
+    """task_catalog.js 의 TASK 마다 문서 칸 → {job: {files, gather, target, file}} — 등록부 roles 의 kind 를 견줄 원본(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」)."""
+    heads = list(re.finditer(r'^  (\w+): \{ name: "', _TASK_BLOCK, re.M))
+    out = {}
+    for i, m in enumerate(heads):
+        seg = _TASK_BLOCK[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(_TASK_BLOCK)]
+        files, gather = re.search(r"\bfiles: \[([^\]]*)\]", seg), re.search(r'\bgather: \{ base: "(\w*)", parts: "(\w*)" \}', seg)
+        target, file = re.search(r'\btarget: "(\w*)"', seg), re.search(r'\bfile: "(\w*)"', seg)
+        out[m[1]] = {"files": re.findall(r'"(\w+)"', files[1]) if files else [], "gather": {"base": gather[1], "parts": gather[2]} if gather else None,
+                     "target": target[1] if target else None, "file": file[1] if file else ""}
+    return out
 
 
 def test_catalog_is_read_the_way_this_test_expects():
     assert CATALOG_JOBS[:2] == ["plan_fit", "plan_merge"] and "report_merge" in CATALOG_SOON and STAGE_META >= {"config", "frame", "map", "clean"}
+    docs = _catalog_docs()
+    assert list(docs) == CATALOG_JOBS and docs["plan_to_report"]["files"] == ["plan", "report"] and docs["plan_merge"]["gather"] == {"base": "plan", "parts": "part"} and docs["plan_fit"]["file"] == "plan"
 
 
 def test_tasks_are_exactly_the_server_tasks_in_catalog_order():
@@ -67,6 +83,79 @@ def test_stage_groups_and_steps_are_well_formed():
     for where, s in W.steps():
         assert s["name"] and s["does"] and s["by"] and set(s["by"]) <= set(W.BY) and s["change"] in W.CHANGE, (where, s["key"])
         assert len(s["does"]) <= 320, (where, s["key"])   # 한두 줄 — 길어지면 사양서로
+
+
+# 붙박이 둘의 하는 문서 — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 의 표 그대로(근거 = 실행 코드: 이관 app.js taskSteps · taskRunSteps / 취합 gather.js · merge_gather_api)
+ON_TABLE = {
+    "plan_to_report": {"files": "both", "heads": "both", "headsLlm": "source", "configLoad": "source", "config": "source", "division": "target", "reheads": "target", "reheadsLlm": "target",
+                       **dict.fromkeys(("link", "llm", "plan", "tableMap", "gaps", "apply", "later"), "pair"), "guide": "target"},
+    "plan_merge": {"files": "target", "config": "target", "division": "target", "frame": "target", "hand": "target", "part": "source", "heads": "source",
+                   **dict.fromkeys(("link", "llm", "plan", "apply", "drop"), "pair")},
+}
+
+
+def test_document_roles_and_what_each_step_works_on():
+    """문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 2026-11-19 사용자 "목적문서랑 원본문서에 대해서 각각 task 를 할당할 수 있도록 해줘"):
+    워크플로우의 문서 역할(roles — 원본 → 목적) · 단계의 하는 문서(on). 문서 여럿인 워크플로우의 단계는 모두 on 이 있고, 문서 하나인 워크플로우 · 공통 모듈의 단계는 비어 있다.
+    roles 의 kind 는 화면(task_catalog.js)의 문서 칸(files · gather · target · file)과 같다."""
+    docs = _catalog_docs()
+    for t in W.TASKS:
+        rs, k = t["roles"], docs[t["job"]]
+        assert [r["role"] for r in rs] in (["target"], ["source", "target"]) and all(r["name"] and isinstance(r["many"], bool) for r in rs), t["job"]
+        multi, by = len(rs) == 2, {r["role"]: r for r in rs}
+        for g in t["stages"]:
+            for s in g["steps"]:
+                assert (s["on"] in W.ON) if multi else s["on"] == "", (t["job"], s["key"], s["on"])
+        assert by["target"]["kind"] == (k["target"] or k["file"]) and not by["target"]["many"], t["job"]   # 목적 문서 = 카탈로그의 target(없으면 그 TASK 의 문서 file) — 늘 하나
+        if k["files"]:   # 이관형 — 문서 칸 = [원본, 목적]
+            assert [r["kind"] for r in rs] == k["files"] and k["target"] == k["files"][1] and not by["source"]["many"], t["job"]
+        elif k["gather"]:   # 취합 — 취합본 + 기관 문서 여럿
+            assert (by["source"]["kind"], by["source"]["many"], by["target"]["kind"]) == (k["gather"]["parts"], True, k["gather"]["base"]), t["job"]
+        elif t.get("soon"):   # 준비 중인 취합형(연차보고서 취합) — 카탈로그에 기관 문서 칸이 아직 없다
+            assert (by["source"]["kind"], by["source"]["many"]) == ("part", True) and not t["stages"], t["job"]
+        else:
+            assert not multi, t["job"]   # 문서 하나 — 그 문서가 목적 문서
+    for job, want in ON_TABLE.items():
+        assert {s["key"]: s["on"] for g in W.BY_JOB[job]["stages"] for s in g["steps"]} == want, job
+    assert all(s["on"] == "" for c in W.COMMON for s in c["steps"])   # 공통 모듈(단계 절 포함)의 단계는 하는 문서를 적지 않는다 — 그 단계를 조립한 워크플로우에만
+    assert [r["name"] for r in W.BY_JOB["plan_to_report"]["roles"]] == ["사업계획서", "연차보고서"] and [r["name"] for r in W.BY_JOB["plan_merge"]["roles"]] == ["기관 문서", "취합본"]   # 「취합 대상」 이라 하지 않는다
+    assert W.on_label("pair") == "원본 → 목적" and W.on_label("pair", many=True) == "원본 문서마다 → 목적" and W.on_label("target", many=True) == "목적 문서" and W.on_label("") == ""
+
+
+def test_unit_tasks_are_the_steps_that_touch_each_document():
+    """문서마다의 단위문서 TASK = 그 역할의 문서에 닿는 단계(on 이 그 역할 · both · 목적 문서면 pair 도)를 묶음 차례로 — 닿는 단계가 있는 묶음만(② §15)."""
+    keys = lambda t, role: [(g["id"], [s["key"] for s in hit]) for g, hit in W.unit(t, role)]  # noqa: E731
+    relay, gather, fit = W.BY_JOB["plan_to_report"], W.BY_JOB["plan_merge"], W.BY_JOB["plan_fit"]
+    assert keys(relay, "source") == [("review", ["files", "heads", "headsLlm"]), ("frame", ["configLoad", "config"])]   # 원본 문서 = 문서 검토 + 구성의 기준(문서는 안 바뀜)
+    assert keys(relay, "target") == [("review", ["files", "heads"]), ("frame", ["division", "reheads", "reheadsLlm"]),
+                                     ("map", ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"]), ("clean", ["guide"])]   # 내용 넣기는 원본 → 목적(목적 문서가 받음)
+    assert keys(gather, "source") == [("map", ["part", "heads"])]   # 기관 문서마다(여럿)
+    assert keys(gather, "target") == [("config", ["files", "config"]), ("frame", ["division", "frame", "hand"]), ("map", ["link", "llm", "plan", "apply", "drop"])]
+    assert keys(fit, "target") == [(g["id"], [s["key"] for s in g["steps"]]) for g in fit["stages"]] and keys(fit, "source") == []   # 문서 하나 — 그 워크플로우가 곧 그 문서의 단위문서 TASK
+    assert keys(W.BY_JOB["report_merge"], "source") == keys(W.BY_JOB["report_merge"], "target") == []   # 준비 중 — 단계가 없다
+    for t in W.TASKS:   # 모든 단계가 어느 문서의 단위문서 TASK 에든 든다(빠지는 단계 없음)
+        hit = {s["key"] for r in t["roles"] for _, ss in W.unit(t, r["role"]) for s in ss}
+        assert hit == {s["key"] for g in t["stages"] for s in g["steps"]}, t["job"]
+
+
+def test_review_module_follows_the_documents_it_is_given():
+    """「문서 검토」 단계 모듈의 선택지(② §15 — 조립한 워크플로우가 문서마다 고른 대로): 기본 = 붙박이 이관과 같은 글 · 헤딩 · 표 분석 = 고른 문서 ·
+    LLM 검증·보완 = 원본(골랐으면) + 목적(골랐고 「구성 맞추기」 가 없으면) · 닿는 문서가 없는 단계는 서지 않고, 글에는 그 단계를 하는 문서의 이름만 든다."""
+    S, D = "가문서", "나문서"
+    assert W._st_review(S, D) == W._st_review(S, D, src=True, dst=True, dst_llm=False)
+    want = {(True, True, False): [("heads", "both"), ("headsLlm", "source")], (True, False, False): [("heads", "source"), ("headsLlm", "source")],
+            (False, True, False): [("heads", "target")], (False, True, True): [("heads", "target"), ("headsLlm", "target")],
+            (True, True, True): [("heads", "both"), ("headsLlm", "both")], (False, False, True): []}
+    for (src, dst, dst_llm), steps in want.items():
+        got = W._st_review(S, D, src=src, dst=dst, dst_llm=dst_llm)
+        assert [(s["key"], s["on"]) for s in got] == steps, (src, dst, dst_llm)
+        for s in got:
+            text = " ".join(s[k] for k in ("does", "out", "need", "done", "left"))
+            if s["on"] == "source":   # 원본 문서만의 단계 — 목적 문서의 이름은 기본 글(「다시 문서 검토(LLM)」 를 가리킴)에만
+                assert S in text and (D not in text or (dst and not dst_llm and s["key"] == "headsLlm")), (src, dst, s["key"])
+            if s["on"] == "target":
+                assert D in text and S not in text, (src, dst, s["key"])
+            assert ("작성 지침" in s["out"]) == (s["key"] == "heads" and dst), (src, dst, s["key"])   # 작성 지침 저장은 양식(목적 문서)의 일 — 목적 문서가 검토할 때만
 
 
 def _spec_exists(where, spec):
@@ -174,6 +263,42 @@ def test_listing_adds_module_docs_agent_numbers_and_users_of_common_modules():
     item = next(c for c in groups[2]["items"] if c["key"] == "slots")
     assert item["name"] == "두 문서가 있는가" and item["by"] == ["script"] and item["does"] and item["miss"] and item["spec"] == {"file": "spec/spec_작업.md", "at": "② §11·§17"}
     assert [c["key"] for c in link["cond"]] == ["need", "done", "left"] and link["cond"][1]["name"] == "끝난 것으로 보는 때" and places["cond"] == []
+
+
+def test_listing_carries_roles_with_unit_tasks_and_step_documents():
+    """GET /api/workflow(② §15 「문서마다 단위문서 TASK」): 워크플로우마다 roles[{role, name, kind, many, unit[{stage, steps}]}](원본 → 목적) · 단계마다 on — 등록부 · unit() 과 같다."""
+    L = W.listing()
+    by = {t["job"]: t for t in L["tasks"]}
+    for t in W.TASKS:
+        assert by[t["job"]]["roles"] == [{"role": r["role"], "name": r["name"], "kind": r["kind"], "many": r["many"],
+                                          "unit": [{"stage": g["id"], "steps": [s["key"] for s in hit]} for g, hit in W.unit(t, r["role"])]} for r in t["roles"]], t["job"]
+        assert [s["on"] for g in by[t["job"]]["stages"] for s in g["steps"]] == [s["on"] for g in t["stages"] for s in g["steps"]], t["job"]
+    assert by["plan_to_report"]["roles"][0] == {"role": "source", "name": "사업계획서", "kind": "plan", "many": False,
+                                                "unit": [{"stage": "review", "steps": ["files", "heads", "headsLlm"]}, {"stage": "frame", "steps": ["configLoad", "config"]}]}
+    assert by["plan_fit"]["roles"] == [{"role": "target", "name": "사업계획서", "kind": "plan", "many": False,
+                                        "unit": [{"stage": g["id"], "steps": [s["key"] for s in g["steps"]]} for g in W.BY_JOB["plan_fit"]["stages"]]}]
+    assert by["report_merge"]["roles"] == [{"role": "source", "name": "기관 문서", "kind": "part", "many": True, "unit": []},
+                                           {"role": "target", "name": "연차보고서(취합본)", "kind": "report", "many": False, "unit": []}]
+    assert all(s["on"] == "" for c in L["common"] for s in c["steps"]) and all("on" in s for t in L["tasks"] for g in t["stages"] for s in g["steps"])
+
+
+def test_written_out_docs_show_unit_tasks_and_step_documents():
+    """만든 글(workflow.md · TASK 문서 — ② §15): 문서 여럿인 TASK 의 머리에 「문서마다 단위문서 TASK」 한 줄(원본 문서(이름): 묶음(단계 …) › … / 목적 문서(이름): …) ·
+    단계 줄 끝에 하는 문서. 문서 하나인 TASK 는 그 줄 · 표지가 없다(그 TASK 가 곧 그 문서의 단위문서 TASK)."""
+    wf = W.markdown()
+    head = lambda title: wf.split(title, 1)[1].split("\n#### ", 1)[0]  # noqa: E731 — TASK 머리(첫 단계 묶음 앞 — 첫 화면 에이전트가 읽는 곳)
+    relay, gather, fit = head("### 사업계획서 → 연차보고서 이관 — `plan_to_report`"), head("### 사업계획서 취합 — `plan_merge`"), head("### 사업계획서 양식 표준화 — `plan_fit`")
+    assert ("- 문서마다 단위문서 TASK — 원본 문서(사업계획서): 1단계 문서 검토(「준비」 · 「헤딩 · 표 분석」 · 「LLM 검증·보완」) › 2단계 구성 맞추기(「구성 불러오기」 · 「프로젝트 구성 확정」)"
+            " / 목적 문서(연차보고서): 1단계 문서 검토(「준비」 · 「헤딩 · 표 분석」) › 2단계 구성 맞추기(「프로젝트 구성 반영」 · 「다시 문서 검토」 · 「다시 문서 검토(LLM)」)") in relay
+    assert "› 3단계 내용 넣기(← 원본 문서: 「자리 연결」 · 「자리 연결 LLM 검토」 · " in relay and "› 4단계 문서 정리(「작성요령 삭제」)\n- 알아 둘 것: " in relay   # 산출물 다음 · 알아 둘 것 앞의 한 줄
+    assert ("- 문서마다 단위문서 TASK — 원본 문서(기관 문서 — 문서마다): 3단계 내용 매핑(「기관 문서 올리기 · 반영할 기관 지정」 · 「헤딩 · 표 분석」)"
+            " / 목적 문서(취합본): 1단계 프로젝트 구성(「준비」 · 「프로젝트 구성 확정」)") in gather and "3단계 내용 매핑(← 원본 문서마다: 「자리 연결 · 기관 작성 내용 판정」" in gather
+    assert "단위문서 TASK" not in fit and "단위문서 TASK" not in head("### 연차보고서 취합 — `report_merge` (준비 중)")   # 문서 하나 · 단계 없는 준비 중
+    assert "- **② 자리 연결** — 스크립트 · 저장만 · 필수 · 원본 → 목적. " in wf and "- **LLM 검증·보완** — 사람 → LLM · 저장만 · 필수 · 원본 문서. " in wf   # 단계 줄 끝에 하는 문서
+    assert "- **헤딩 · 표 분석** — 스크립트 · 저장만 · 필수 · 두 문서. " in wf and "- **기관 문서 올리기 · 반영할 기관 지정** — 사람 · 저장만 · 필수 · 원본 문서마다. " in wf
+    assert "- **⑥ 작성요령 삭제** — 스크립트 → 사람 · 문서 바뀜 · 필수 · 목적 문서. " in wf and "- **헤딩 · 템플릿 추출** — 스크립트 · 저장만 · 자동. " in wf   # 문서 하나인 TASK 는 표지 없음
+    doc, one = W.task_markdown("plan_to_report"), W.task_markdown("plan_fit")
+    assert "- 문서마다 단위문서 TASK — 원본 문서(사업계획서): " in doc and "· 하는 문서. 하는 일`" in doc and "하는 문서" not in one and "단위문서 TASK" not in one
 
 
 def test_workflow_md_is_the_registry_written_out():

@@ -256,10 +256,12 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
   // key = 이 카드가 가리키는 일(그 묶음의 남은 단계) — 「진행」 을 누를 때 지금과 견준다(agentWorkRun)
   // 꼬리표 — 1단계 「문서 검토」 는 문서를 안 바꾼다(「저장만」). 유료 = LLM 검증·보완이 남은 묶음(1단계의 headsLlm · 2단계의 reheadsLlm)과 3단계 「내용 넣기」 — 유료면 카드로 묻는다(agwAsk): spec_작업 ② §21.
   // LLM 을 쓸 수 없거나 사람이 건너뛴 문서의 LLM 단계는 끝난 것이라(건너뜀) 유료가 아니다 — 그때 1단계는 카드 없이 바로 한다
-  const llmLeft = (key) => calc.some((s) => s.key === key && !s.done);
+  // 셈은 그 묶음의 남은 단계(left — taskStepsCalc 가 이 TASK 에 서는 단계만 센다): 화면에서 조립한 TASK 에서 할 문서가 없어 빠진 단계(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 —
+  // 예: 원본은 「문서 검토」 를 안 고르고 목적은 「구성 맞추기」 를 고른 TASK 의 1단계 LLM)는 유료로 세지 않는다. 문서 바뀜(change)은 묶음마다 같다 — 빠질 수 있는 단계(헤딩 · 표 분석 · 그 LLM)는 모두 「저장만」 이다
+  const left = g ? taskStageWork(g).filter((s) => !s.done) : [], llmLeft = (key) => left.some((s) => s.key === key);
   if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "review" ? "store" : "doc",
     paid: g.id === "map" || (g.id === "review" && llmLeft("headsLlm")) || (g.id === "frame" && llmLeft("reheadsLlm")), primary: true,
-    key: `${docs.map((d) => d.id).join(">")}:${g.id}:${taskStageWork(g).filter((s) => !s.done).map((s) => s.key).join(",")}` });
+    key: `${docs.map((d) => d.id).join(">")}:${g.id}:${left.map((s) => s.key).join(",")}` });
   return agwCommon(out);
 }
 

@@ -15,8 +15,9 @@ VERSIONED = ("style.css", "workflow.css", "task_catalog.js", "workflow.js")   # 
 
 @router.get("/api/workflow")
 def workflow_get():
-    """{tasks[{job, inputs, output, note, soon, prompt, stages[{id, meta, no, name, does, steps[단계]}]}], common[{id, name, does, where, usedBy[job…], steps[단계]}], by, change}
-    — 단계 = {key, no, name, by[…], does, out, change, auto, optional, soon, uses[…], spec{file, at} | null, modules[{name, path, doc}], agents[{id, no, name, group, role, run, model{id, source}}]}."""
+    """{tasks[{job, inputs, output, note, soon, prompt, roles[…], stages[{id, meta, no, name, does, steps[단계]}]}], common[{id, name, does, where, usedBy[job…], steps[단계]}], by, change}
+    — 단계 = {key, no, name, by[…], does, out, change, auto, optional, soon, on, uses[…], spec{file, at} | null, modules[{name, path, doc}], agents[{id, no, name, group, role, run, model{id, source}}]}.
+    roles = 문서 역할마다 {role, name, kind, many, unit[{stage, steps[단계 key…]}]}(원본 → 목적) · on = 그 단계가 하는 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」)."""
     return workflow.listing()
 
 

@@ -26,13 +26,15 @@ const TASK_CATALOG = ({ // 얼리지 않는다 — 화면에서 조립한 TASK(t
 // 화면에서 조립한 TASK(spec_워크플로우 ② §14 — 2026-11-19 사용자 "배치를 내가 할 수 없네?" → 답 「새 TASK 만들기」): 서버 저장소(app/custom_tasks.py)의 것을 이 목록 뒤에 더한다.
 // `GET /api/tasks.js`(이 파일 다음 · app.js 앞에 읽는 스크립트)가 부른다 — app.js 가 이 목록에서 만드는 것(TASK 이름 · 문서 칸 · 카드)이 처음부터 조립한 TASK 를 안다.
 // 조립한 TASK = 이관형(원본 문서 하나 → 목적 문서 하나): files = [원본, 목적] 칸 · target = 목적 문서 · groups = 고른 단계의 묶음 id(review · frame · map · clean — app.js taskStagesSync 가 그것만 세운다) · icon = 이관의 로고.
+// assign = 문서마다 고른 단계 {source: [단계 id…], target: [단계 id…]}(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 묶음 안에서 어느 문서에 하는지: app.js taskReviewDocs) · 서버가 안 보냈으면 null(붙박이 이관처럼).
 function taskCatalogCustom(defs) {
   for (const key of Object.keys(TASK_CATALOG)) if (TASK_CATALOG[key].custom) delete TASK_CATALOG[key];
   for (const d of Array.isArray(defs) ? defs : []) {
     if (!d || typeof d.key !== "string" || TASK_CATALOG[d.key]) continue;
+    const A = d.assign && typeof d.assign === "object" ? d.assign : null, ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 TASK)`,
-      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages: d.stages || [], icon: "plan_to_report" };
+      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages: d.stages || [], assign: A ? { source: ids(A.source), target: ids(A.target) } : null, icon: "plan_to_report" };
   }
 }
 // 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다

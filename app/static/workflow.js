@@ -3,6 +3,8 @@
 // 절의 id: 전체 보기 `overview` · TASK `<job>`(묶음 `<job>--<묶음 id>`) · 단계 · 도구 `common-<id>` — 주소의 # 로 바로 열린다.
 // 화면 말(2026-11-19 사용자 "모듈이라고 하지 말고 공통 모듈을 도구라고 하자"): 등록부의 COMMON = **「도구」**(전의 「공통 모듈」) · 그 가운데 kind "stage" = **「단계」**(TASK 가 조립하는 일반 단계) · 코드 파일(app/<이름>.py) = 「코드」.
 // TASK 조립(spec_워크플로우 ② §14 — 같은 날 "배치를 내가 할 수 없네?" → 답 「새 TASK 만들기」): 전체 보기 아래 「TASK 조립」 절에서 단계를 골라 TASK 를 만든다 — 저장은 서버(/api/tasks), 읽기 전용이던 이 페이지에서 고치는 것은 그것 하나다.
+// 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 같은 날 사용자 "각문서에 대한걸 단위문서 task 라고 하고 전체를 워크플로우라"): TASK 절의 「문서마다 단위문서 TASK」 표
+// (등록부의 roles — 원본 → 목적 · 단계의 on) · 단계 세부의 「하는 문서」 · 조립 폼의 문서 역할 × 단계 표(GET /api/tasks 의 stages[].cells · 저장은 assign). 여러 문서 쪽은 「원본 문서」(「취합 대상」 은 쓰지 않는다).
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -13,6 +15,19 @@
   const CHANGE = { none: "안 바뀜", doc: "바뀜", store: "안 바뀜 — 결과만 저장" }; // 펼친 세부의 「문서」 줄
   const taskName = (job) => (CAT[job] || {}).name || ((D && D.tasks.find((t) => t.job === job)) || {}).name || job; // 조립한 TASK 의 이름은 등록부(서버 저장소)에도 있다
   const stageLabel = (g) => (g.meta && META[g.meta] ? { no: META[g.meta].no, name: META[g.meta].name } : { no: g.no || "", name: g.name });
+  // 문서 역할 — 등록부 roles[{role, name, kind, many, unit[{stage, steps[key…]}]}] · 단계의 on(source 원본 · target 목적 · both 문서마다 · pair 원본 → 목적 · "" = 문서 하나인 TASK · 도구의 단계)
+  const ROLES = ["source", "target"], ROLE = { source: "원본 문서", target: "목적 문서" };
+  const roleOf = (roles, role) => (roles || []).find((r) => r.role === role) || null;
+  const rolesSorted = (roles) => [...(roles || [])].sort((a, b) => ROLES.indexOf(a.role) - ROLES.indexOf(b.role)); // 차례 원본 → 목적
+  function onText(on, roles) { // 단계의 「하는 문서」 한 줄 — on 이 비었거나 문서 역할을 모르면 ""(줄 없음 · 옛 서버)
+    const src = roleOf(roles, "source"), dst = roleOf(roles, "target"), many = !!(src && src.many);
+    if (!on || !dst || (on !== "target" && !src)) return "";
+    if (on === "source") return `원본 문서 — ${src.name}` + (many ? "(문서마다)" : "");
+    if (on === "target") return `목적 문서 — ${dst.name}`;
+    if (on === "both") return many ? `목적 문서와 원본 문서마다 — ${dst.name} · ${src.name}` : `두 문서 — ${src.name} · ${dst.name}`;
+    if (on === "pair") return `${many ? "원본 문서마다" : "원본"} → 목적 — ${src.name} → ${dst.name}`;
+    return "";
+  }
   const WF_ICONS = { // 꼬리표 아이콘(사람 · 스크립트 · LLM · 문서 바뀜 — doc_agent.js agentIcon 과 같은 경로: 2026-11-18 사용자)
     script: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
     llm: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
@@ -75,8 +90,8 @@
     heading.append(h("p", "wf-eyebrow", item.job ? "TASK / 순서 살펴보기" : item.kind === "stage" ? "단계 / 순서 살펴보기" : "도구 / 순서 살펴보기"), h("h2", "", title));
     head.append(heading, link("#overview", "전체 흐름 보기 ↗", "wf-back"));
     const lead = h("p", "wf-lead", item.job ? (CAT[item.job] || {}).desc : item.does);
-    const context = h("details", "wf-context"), info = h("dl", "wf-io");
-    context.append(h("summary", "", item.job ? "입력·산출물과 전제 보기" : "여는 곳 · 쓰는 TASK 보기"));
+    const context = h("details", "wf-context"), info = h("dl", "wf-io"), docs = item.job ? docsEl(item) : null; // 문서마다 단위문서 TASK — 받는 문서 · 산출물 줄 아래(목록 보기의 TASK 절과 같은 표)
+    context.append(h("summary", "", item.job ? (docs ? "입력·산출물 · 전제 · 문서마다 단위문서 TASK 보기" : "입력·산출물과 전제 보기") : "여는 곳 · 쓰는 TASK 보기"));
     if (item.job) {
       row(info, "받는 문서", item.inputs);
       row(info, "산출물", item.output);
@@ -89,6 +104,7 @@
       row(info, item.kind === "stage" ? "조립한 TASK" : "쓰는 TASK", item.usedBy.length ? related : item.kind === "stage" ? "아직 이 단계를 조립한 TASK 가 없습니다." : "어느 TASK의 문서에서나 엽니다.");
     }
     context.append(info);
+    if (docs) context.append(docs);
     diagram.replaceChildren(head, lead, context);
     if (item.job && (item.entry || []).length) { // 시작 점검(② §10) — 접어 두고, 펴면 때마다 묶음이 열린 채로
       const ent = h("details", "wf-context wf-entry-context"), note = h("p", "wf-entry-doc", "이 TASK 의 세부(시작 점검 · 단계마다 조건)는 TASK 문서 ");
@@ -149,6 +165,8 @@
     readHead.append(h("span", "wf-eyebrow", "지금 확인하는 단계"), position);
     const name = h("h3", "", selected.s.name); name.id = "wfDetailTitle"; name.tabIndex = -1;
     detail.append(readHead, name, badges(selected.s));
+    const onDoc = item.job ? onText(selected.s.on, item.roles) : ""; // 이 단계가 하는 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 문서 하나인 TASK · 도구의 단계는 없음
+    if (onDoc) { const p = h("p", "wf-ondoc"); p.append(h("span", "", "하는 문서"), h("strong", "", onDoc)); detail.append(p); }
     const description = h("div", "wf-explain");
     description.append(h("h4", "", "이 단계에서 하는 일"), h("p", "", selected.s.does));
     detail.append(description);
@@ -169,7 +187,7 @@
       related.append(links); detail.append(related);
     }
     // 기존 상세 렌더러를 재사용하되 기술 정보만 접어 둔다.
-    const technical = stepEl(selected.s).querySelector(".wf-more");
+    const technical = stepEl(selected.s, item.roles).querySelector(".wf-more");
     for (const dt of [...technical.querySelectorAll("dt")]) if (!["에이전트", "코드", "사양"].includes(dt.textContent)) { dt.nextElementSibling.remove(); dt.remove(); }
     if (technical.childElementCount) {
       const tech = h("details", "wf-tech");
@@ -226,7 +244,7 @@
   }
   const entryCount = (t) => (t.entry || []).reduce((n, g) => n + (g.when === "manual" ? 0 : g.items.length), 0); // 저절로 확인하는 것의 수(「저절로 돌지 않는 것」 은 빼고 센다)
 
-  function stepEl(s) { // 단계 한 줄 — 이름 · 누가 · 문서 바뀜 · 하는 일은 늘 보이고, 누르면 세부(조건 · 나오는 것 · 공통 모듈 · 에이전트 · 모듈 · 사양 자리)
+  function stepEl(s, roles) { // 단계 한 줄 — 이름 · 누가 · 문서 바뀜 · 하는 일은 늘 보이고, 누르면 세부(조건 · 하는 문서 · 나오는 것 · 공통 모듈 · 에이전트 · 모듈 · 사양 자리). roles = 그 TASK 의 문서 역할(도구의 단계는 없음)
     const d = h("details", "wf-step" + (s.soon ? " wf-soon" : "")), sum = h("summary"), main = h("div"), line = h("div", "wf-line1");
     d.dataset.step = s.key;
     line.append(h("span", "wf-name", s.name));
@@ -240,7 +258,8 @@
     const chev = h("span", "wf-chev");
     chev.setAttribute("aria-hidden", "true");
     sum.append(h("span", "wf-no" + (s.no ? "" : " wf-none"), s.no || ""), main, chev);
-    const more = h("dl", "wf-more");
+    const more = h("dl", "wf-more"), onDoc = onText(s.on, roles);
+    if (onDoc) row(more, "하는 문서", onDoc); // 이 단계가 하는 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 원본 · 목적 · 두 문서 · 원본 → 목적
     if (s.out) row(more, "나오는 것", s.out);
     row(more, "문서", CHANGE[s.change] || s.change);
     if (s.uses.length) {
@@ -271,10 +290,75 @@
     return d;
   }
 
-  function stepsEl(steps, prefix) {
+  function stepsEl(steps, prefix, roles) {
     const ol = h("ol", "wf-steps");
-    for (const s of steps) { const li = h("li"), step = stepEl(s); if (prefix) step.dataset.wfPath = `${prefix}--${s.key}`; li.append(step); ol.append(li); }
+    for (const s of steps) { const li = h("li"), step = stepEl(s, roles); if (prefix) step.dataset.wfPath = `${prefix}--${s.key}`; li.append(step); ol.append(li); }
     return ol;
+  }
+
+  function docsEl(t) { // 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 열 = 문서 역할(원본 → 목적) · 행 = 단계 묶음 · 칸 = 그 문서에 하는 단계(누르면 그 단계로) | null(옛 서버 — roles 없음)
+    const roles = rolesSorted(t.roles);
+    if (!roles.length) return null;
+    const box = h("div", "wf-docs-box"), head = h("h3", "wf-docs-head", "문서마다 단위문서 TASK");
+    box.append(head);
+    if (roles.length === 1) { // 문서 하나인 TASK — 그 TASK 가 곧 그 문서(목적 문서)의 단위문서 TASK
+      const p = h("p", "wf-docs-one"), r = roles[0];
+      p.append(h("b", "", "문서 하나"), document.createTextNode(" — 이 워크플로우가 그 문서의 단위문서 TASK 입니다"));
+      if (r.name) p.append(h("span", "wf-muted", ` · ${ROLE[r.role] || r.role} — ${r.name}`));
+      box.append(p);
+      return box;
+    }
+    const src = roleOf(roles, "source"), many = !!(src && src.many), pairs = t.stages.some((g) => g.steps.some((s) => s.on === "pair"));
+    head.append(h("span", "wf-muted", "문서마다 차례로 하는 단계" + (pairs ? " — 「← 원본 문서」 는 원본 문서의 내용을 받는 단계" : "") + (many ? " · 원본 문서가 여럿이면 원본 문서마다 되풀이합니다" : "")));
+    const table = h("table", "wf-docs"), thead = h("thead"), hr = h("tr"), tbody = h("tbody"), th0 = h("th", "", "단계");
+    table.setAttribute("aria-label", "문서마다 단위문서 TASK");
+    th0.scope = "col";
+    hr.append(th0);
+    const label = (r) => `${ROLE[r.role] || r.role} — ${r.name}` + (r.many ? "(문서마다)" : ""); // 칸의 문서 이름표(좁은 폭에서 칸 위에 — 표 머리 대신)
+    for (const r of roles) {
+      const th = h("th");
+      th.scope = "col";
+      th.dataset.role = r.role;
+      th.append(h("b", "", ROLE[r.role] || r.role), document.createTextNode(` — ${r.name}`));
+      if (r.many) th.append(h("span", "wf-muted", "(문서마다)"));
+      hr.append(th);
+    }
+    thead.append(hr);
+    for (const g of t.stages) {
+      const L = stageLabel(g), tr = h("tr"), th = h("th"), a = link(`#${t.job}--${g.id}`, "", "wf-docs-stage");
+      tr.dataset.stage = g.id;
+      th.scope = "row";
+      if (L.no) a.append(h("b", "", L.no), document.createTextNode(" "));
+      a.append(document.createTextNode(L.name));
+      th.append(a);
+      tr.append(th);
+      for (const r of roles) {
+        const td = h("td"), keys = ((r.unit || []).find((u) => u.stage === g.id) || {}).steps || [];
+        td.dataset.role = r.role;
+        td.dataset.label = label(r);
+        if (!keys.length) td.append(h("span", "wf-docs-none", "—"));
+        else {
+          const ol = h("ol", "wf-docs-steps");
+          let run = false; // 원본 → 목적 잇기(pair)가 이어지는 동안 — 그 첫 단계 앞에 「← 원본 문서」 한 번
+          for (const k of keys) {
+            const s = g.steps.find((x) => x.key === k) || { key: k, name: k }, pair = r.role === "target" && s.on === "pair", li = h("li");
+            if (pair && !run) { const from = h("span", "wf-docs-from", many ? "← 원본 문서마다" : "← 원본 문서"); from.title = `원본 문서(${src ? src.name : ""})의 내용을 이 문서가 받는 단계`; li.append(from); }
+            run = pair;
+            const step = link(`#${t.job}--${g.id}--${s.key}`, s.name, "wf-docs-step" + (s.optional ? " wf-optional" : "") + (s.soon ? " wf-soon" : ""));
+            if (s.soon || s.optional) step.title = s.soon ? "준비 중인 단계" : "선택 단계";
+            li.append(step);
+            ol.append(li);
+          }
+          td.append(ol);
+        }
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    if (!t.stages.length) { const tr = h("tr"), td = h("td", "wf-docs-none", "준비 중 — 아직 단계가 없습니다"); td.colSpan = roles.length + 1; tr.append(td); tbody.append(tr); }
+    table.append(thead, tbody);
+    box.append(table);
+    return box;
   }
 
   function dots(steps) { // 묶음의 점 — LLM 이 도는 묶음(보라) · 문서를 바꾸는 묶음(주황)
@@ -346,6 +430,8 @@
     if (t.note) row(io, "알아 둘 것", t.note);
     if (t.prompt) row(io, "전제", [h("code", "", t.prompt), document.createTextNode(" — 이 TASK 의 전제 · 기준을 적은 할 일 프롬프트(에이전트가 먼저 읽는 글)")]);
     sec.append(io);
+    const docs = docsEl(t); // 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 받는 문서 · 산출물 줄 아래 · 진행 방식 위
+    if (docs) sec.append(docs);
     if ((t.ways || []).length) { // 진행 방식(spec_작업에이전트 ② §7) — 한 번에 진행 · 에이전트가 묻는 것 · 멈추거나 남기는 곳 · 단계별
       const ways = h("dl", "wf-io wf-ways");
       ways.id = `${t.job}--ways`;
@@ -372,7 +458,7 @@
         p.append(link(`#common-${g.module}`, m ? m.name : g.module, "wf-chip"));
         head.append(p);
       }
-      box.append(head, stepsEl(g.steps, `${t.job}--${g.id}`));
+      box.append(head, stepsEl(g.steps, `${t.job}--${g.id}`, t.roles));
       li.append(h("span", "wf-stage-no" + (L.no ? "" : " wf-plain"), L.no || String(i + 1)), box);
       ol.append(li);
     });
@@ -400,7 +486,7 @@
     const make = h("button", "btn sm wf-nav-make", "＋ TASK 조립"); // 단계를 골라 새 TASK 를 만든다(② §14) — 전체 보기 아래 「TASK 조립」 절의 폼으로
     make.type = "button";
     make.dataset.wfCompose = "new";
-    make.title = "단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 새 TASK 를 만듭니다";
+    make.title = "원본 문서 · 목적 문서마다 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 새 TASK 를 만듭니다";
     make.addEventListener("click", () => composeOpen(""));
     nav.replaceChildren(link("#overview", "전체 보기"), h("h2", "", "TASK"), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
       h("h2", "", "단계"), ...D.common.filter((c) => c.kind === "stage").map((c) => link(`#common-${c.id}`, c.name)),
@@ -469,17 +555,34 @@
 
   // ---- TASK 조립(spec_워크플로우 ② §14) — 단계를 골라 새 TASK 를 만든다 · 조립한 TASK 를 고치고 지운다. 저장소 = 서버(GET·POST /api/tasks · PUT·DELETE /api/tasks/{key}).
   // 지금 조립할 수 있는 틀은 이관형(원본 문서 하나 → 목적 문서 하나)이고 문서 쌍은 서버가 주는 것(pairs)뿐이다 — 아직 안 되는 틀은 까닭과 함께 보인다(blocked). 단계의 차례는 일반 단계의 차례로 고정(고르는 것은 쓰느냐뿐).
+  // 고르는 곳 = 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」): 칸 = 서버의 stages[].cells[역할] — pick(체크) · follow(다른 역할이 그 단계를 고르면 따라오는 글) · no(고를 수 없음 — 까닭).
+  // 저장 = assign {source, target}(일반 차례) + 두 문서의 합집합 stages(옛 서버가 읽는 꼴 — 서버는 assign 이 먼저).
   let T = null; // GET /api/tasks — {tasks, stages, pairs, blocked, base, limits} | null(못 읽음 — 옛 서버)
-  let composing = null; // 펴 둔 폼 {key("" = 새로), name, desc, pair, stages: Set, premise, err, busy}
+  let composing = null; // 펴 둔 폼 {key("" = 새로), name, desc, pair, assign: {source: Set, target: Set}, premise, err, busy}
+  const cellOf = (st, role) => (st.cells && st.cells[role]) || { mode: role === "target" || st.id === "stage_review" ? "pick" : "no", text: "" }; // 옛 서버(cells 없음) — 원본은 문서 검토만 고른다
+  const stageName = (id) => ((T && T.stages.find((x) => x.id === id)) || {}).name || id;
+  const ordered = (ids) => { const on = new Set(ids); return T.stages.map((x) => x.id).filter((id) => on.has(id)); }; // 일반 단계의 차례로
+  function assignOf(t) { // 조립한 TASK 의 문서마다 고른 단계 — 옛 줄(assign 없음)은 원본 = 문서 검토가 있으면 그것 · 목적 = 고른 단계 전부(전의 동작 그대로)
+    if (t.assign) return { source: [...(t.assign.source || [])], target: [...(t.assign.target || [])] };
+    return { source: (t.stages || []).includes("stage_review") ? ["stage_review"] : [], target: [...(t.stages || [])] };
+  }
+  function pairNames(value) { // 문서 쌍("plan>report") → {source, target} 문서 이름 — 서버의 쌍 이름(「사업계획서 → 연차보고서」)에서
+    const p = T.pairs.find((x) => `${x.source}>${x.target}` === value) || T.pairs[0] || {};
+    if (p.sourceName && p.targetName) return { source: p.sourceName, target: p.targetName };
+    const [source, target] = String(p.name || "").split(" → ");
+    return { source: source || "", target: target || "" };
+  }
   async function tasksLoad() {
     try { const r = await fetch("/api/tasks", { headers: { Accept: "application/json" } }); T = r.ok ? await r.json() : null; } catch { T = null; }
     if (T && typeof taskCatalogCustom === "function") taskCatalogCustom(T.tasks); // 이 페이지의 TASK 이름도 지금 저장소의 것으로
   }
   function composeOpen(key) { // "" = 새 TASK · 키 = 그 TASK 고치기 — 전체 보기의 「TASK 조립」 절로 가서 폼을 편다
     if (!T) return;
-    const t = key ? T.tasks.find((x) => x.key === key) : null, pair = T.pairs[0] || {};
-    composing = t ? { key, name: t.name, desc: t.desc, pair: `${t.source}>${t.target}`, stages: new Set(t.stages), premise: t.premise, err: "", busy: false }
-      : { key: "", name: "", desc: "", pair: `${pair.source}>${pair.target}`, stages: new Set(T.stages.map((x) => x.id)), premise: "", err: "", busy: false };
+    const t = key ? T.tasks.find((x) => x.key === key) : null, pair = T.pairs[0] || {}, all = T.stages.map((x) => x.id);
+    const a = t ? assignOf(t) : { source: all, target: all }; // 새 TASK = 고를 수 있는 칸 모두(원본 = 문서 검토 · 목적 = 넷)
+    const picked = (role) => new Set(T.stages.filter((st) => cellOf(st, role).mode === "pick" && a[role].includes(st.id)).map((st) => st.id));
+    composing = { key: t ? key : "", name: t ? t.name : "", desc: t ? t.desc : "", pair: t ? `${t.source}>${t.target}` : `${pair.source}>${pair.target}`,
+      assign: { source: picked("source"), target: picked("target") }, premise: t ? t.premise : "", err: "", busy: false };
     if (view === "diagram") navigate("#overview"); else go("#overview");
     composeDraw();
     const box = $("wfCompose"), first = box && box.querySelector("input[name=name]");
@@ -489,7 +592,8 @@
   async function composeSave() {
     const c = composing;
     if (!c || c.busy) return;
-    const [source, target] = c.pair.split(">"), body = { name: c.name, desc: c.desc, stages: T.stages.map((x) => x.id).filter((id) => c.stages.has(id)), premise: c.premise, ...(c.key ? {} : { source, target }) };
+    const [source, target] = c.pair.split(">"), assign = { source: ordered(c.assign.source), target: ordered(c.assign.target) };
+    const body = { name: c.name, desc: c.desc, assign, stages: ordered([...assign.source, ...assign.target]), premise: c.premise, ...(c.key ? {} : { source, target }) }; // stages = 두 문서의 합집합(옛 꼴)
     c.busy = true; c.err = "";
     composeDraw();
     let got = null;
@@ -524,12 +628,20 @@
     h2.append(h("span", "wf-kind", "TASK 조립"), document.createTextNode("단계를 골라 새 TASK 만들기"));
     sec.replaceChildren(h2);
     if (!T) { sec.append(h("p", "wf-lead", "TASK 조립은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능).")); return; }
-    sec.append(h("p", "wf-lead", "단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 이름을 붙이면 새 TASK 가 됩니다 — 시작 화면의 TASK 카드 · 이 지도 · 대시보드에 서고, 고른 단계만 진행합니다. 단계의 차례는 바뀌지 않습니다."));
+    sec.append(h("p", "wf-lead", "원본 문서 · 목적 문서마다 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 이름을 붙이면 새 TASK 가 됩니다 — 문서마다 고른 단계가 그 문서의 단위문서 TASK 입니다. "
+      + "시작 화면의 TASK 카드 · 이 지도 · 대시보드에 서고, 고른 단계만 진행합니다. 단계의 차례는 바뀌지 않습니다."));
     const list = h("ul", "wf-made-list");
     for (const t of T.tasks) {
-      const li = h("li"), chips = h("span", "wf-links"), edit = h("button", "btn sm", "고치기"), del = h("button", "btn sm", "지우기");
+      const li = h("li"), chips = h("span", "wf-links"), edit = h("button", "btn sm", "고치기"), del = h("button", "btn sm", "지우기"), a = assignOf(t);
       li.dataset.task = t.key;
-      for (const id of t.stages) chips.append(h("span", "wf-chip", (T.stages.find((x) => x.id === id) || {}).name || id));
+      for (const role of ROLES) { // 문서마다 고른 단계 — 「원본: 문서 검토 · 목적: 문서 검토 · 구성 맞추기 …」
+        const grp = h("span", "wf-made-role"), ids = ordered(a[role]);
+        grp.dataset.role = role;
+        grp.append(h("span", "wf-muted", role === "source" ? "원본:" : "목적:"));
+        if (!ids.length) grp.append(h("span", "wf-muted", "—"));
+        for (const id of ids) grp.append(h("span", "wf-chip", stageName(id)));
+        chips.append(grp);
+      }
       edit.type = del.type = "button";
       edit.addEventListener("click", () => composeOpen(t.key));
       del.disabled = t.inUse > 0;
@@ -562,20 +674,64 @@
     desc.addEventListener("input", () => { c.desc = desc.value; });
     for (const p of T.pairs) pair.append(new Option(p.name, `${p.source}>${p.target}`));
     pair.name = "pair"; pair.value = c.pair; pair.disabled = !!c.key; // 만든 뒤에는 문서 쌍을 못 고친다(그 TASK 로 하던 작업의 문서 역할이 달라진다)
-    pair.addEventListener("change", () => { c.pair = pair.value; });
+    pair.addEventListener("change", () => { c.pair = pair.value; sync(); });
     premise.name = "premise"; premise.rows = 4; premise.maxLength = T.limits.premise; premise.value = c.premise;
     premise.placeholder = `이 TASK 의 전제 · 기준(LLM 호출이 읽는 글). 비우면 「${taskName(T.base)}」 의 전제를 씁니다.`;
     premise.addEventListener("input", () => { c.premise = premise.value; });
-    const stages = h("fieldset", "wf-stage-pick");
-    stages.append(h("legend", "", "단계 — 쓸 것을 고릅니다(차례는 위에서 아래로 고정)"));
+    // 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 행 = 일반 단계 넷(차례 고정) · 열 = 원본 문서 · 목적 문서 · 칸 = 서버의 cells(pick 체크 · follow 따라오는 글 · no 까닭)
+    const pick = h("fieldset", "wf-stage-pick"), table = h("table", "wf-assign"), thead = h("thead"), hr = h("tr"), tbody = h("tbody"), th0 = h("th", "", "단계"), heads = {}, follows = [];
+    pick.append(h("legend", "", "문서마다 단위문서 TASK — 원본 문서 · 목적 문서에 쓸 단계를 고릅니다(차례는 위에서 아래로 고정)"));
+    th0.scope = "col";
+    hr.append(th0);
+    for (const role of ROLES) { const th = h("th"); th.scope = "col"; th.dataset.role = role; heads[role] = th; hr.append(th); }
+    thead.append(hr);
     T.stages.forEach((st, i) => {
-      const lab = h("label", "wf-stage-opt"), box = h("input"), text = h("span");
-      box.type = "checkbox"; box.name = "stage"; box.value = st.id; box.checked = c.stages.has(st.id);
-      box.addEventListener("change", () => { if (box.checked) c.stages.add(st.id); else c.stages.delete(st.id); });
-      text.append(h("b", "", `${i + 1}. ${st.name}`), h("span", "wf-muted", ` — ${st.does}`), h("span", "wf-stage-steps", st.steps.map((x) => x.name + (x.optional ? "(선택)" : "")).join(" › ")));
-      lab.append(box, text);
-      stages.append(lab);
+      const tr = h("tr"), th = h("th"), nm = h("b", "", `${i + 1}. ${st.name}`);
+      tr.dataset.stage = st.id;
+      th.scope = "row";
+      nm.title = st.does;
+      th.append(nm, h("span", "wf-stage-steps", st.steps.map((x) => x.name + (x.optional ? "(선택)" : "")).join(" › ")));
+      tr.append(th);
+      for (const role of ROLES) {
+        const cell = cellOf(st, role), td = h("td");
+        td.dataset.role = role;
+        td.dataset.mode = cell.mode;
+        if (cell.mode === "pick") {
+          const lab = h("label", "wf-assign-opt"), box = h("input");
+          box.type = "checkbox"; box.name = `assign-${role}`; box.value = st.id; box.checked = c.assign[role].has(st.id);
+          box.addEventListener("change", () => { if (box.checked) c.assign[role].add(st.id); else c.assign[role].delete(st.id); sync(); });
+          if (!cell.text) box.setAttribute("aria-label", `${ROLE[role]} — ${st.name}`);
+          lab.append(box, h("span", "wf-assign-text", cell.text || ""));
+          td.append(lab);
+        } else if (cell.mode === "follow") { // 다른 역할이 이 단계를 골랐을 때만 그 글 — 아니면 「—」
+          const other = role === "source" ? "target" : "source", span = h("span", "wf-assign-follow");
+          span.title = `${ROLE[other]}가 이 단계를 고르면 따라옵니다`;
+          follows.push({ span, id: st.id, other, text: cell.text || "" });
+          td.append(span);
+        } else td.append(h("span", "wf-assign-no", cell.text || "—"));
+        tr.append(td);
+      }
+      tbody.append(tr);
     });
+    table.append(thead, tbody);
+    const units = h("ul", "wf-assign-units"), warn = h("p", "wf-assign-warn", "목적 문서에 「구성 맞추기」 없이 「내용 넣기」 — 목적 문서가 이미 프로젝트 구성에 맞아야 자리 연결이 섭니다");
+    units.setAttribute("aria-label", "문서마다 단위문서 TASK");
+    warn.setAttribute("role", "status");
+    pick.append(table, units, warn);
+    function sync() { // 문서 이름(문서 쌍) · 따라오는 칸 · 문서마다 단위문서 TASK 줄 · 경고(막지 않음)를 지금 고른 것으로
+      const names = pairNames(c.pair), docName = (role) => `${ROLE[role]}${names[role] ? " — " + names[role] : ""}`;
+      for (const role of ROLES) heads[role].replaceChildren(h("b", "", ROLE[role]), document.createTextNode(names[role] ? ` — ${names[role]}` : ""));
+      for (const td of tbody.querySelectorAll("td")) td.dataset.label = docName(td.dataset.role); // 좁은 폭 — 표 머리 대신 칸 위에
+      for (const f of follows) { const on = c.assign[f.other].has(f.id); f.span.textContent = on ? f.text || "—" : "—"; f.span.dataset.active = on ? "1" : "0"; }
+      units.replaceChildren(...ROLES.map((role) => {
+        const li = h("li"), ids = ordered(c.assign[role]);
+        li.dataset.role = role;
+        li.append(h("b", "", docName(role)), document.createTextNode(": " + (ids.length ? ids.map(stageName).join(" · ") : "—")));
+        return li;
+      }));
+      warn.hidden = !(c.assign.target.has("stage_fill") && !c.assign.target.has("stage_fit"));
+    }
+    sync();
     const save = h("button", "btn primary", c.busy ? "저장 중…" : c.key ? "고친 것 저장" : "TASK 만들기"), cancel = h("button", "btn", "취소"), acts = h("div", "wf-form-acts");
     save.type = "submit"; save.disabled = c.busy;
     cancel.type = "button";
@@ -584,7 +740,7 @@
     if (c.err) { const e = h("p", "wf-err", c.err); e.setAttribute("role", "alert"); acts.append(e); }
     form.append(h("h3", "", c.key ? `「${c.name}」 고치기` : "새 TASK"), field("이름", name), field("한 줄 설명", desc),
       field("문서 쌍(원본 → 목적)", pair, c.key ? "만든 뒤에는 고칠 수 없습니다" : T.pairs.length > 1 ? "" : "지금 조립할 수 있는 쌍은 이것 하나입니다 — 까닭은 아래 「아직 조립할 수 없는 것」"),
-      stages, field("전제(선택)", premise), acts);
+      pick, field("전제(선택)", premise), acts);
     return form;
   }
 

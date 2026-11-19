@@ -348,14 +348,8 @@ async function dashStdChain(rest, label) {
 function dashRelayLive(M) { // 이관 — 「작업 개요」 의 단계(taskSteps)와 묶음(TASK_STAGES)
   const L = { steps: {}, runs: {} };
   if (!taskSlots()) { M.notes.push({ text: "이 작업에는 이관의 첨부 파일 칸이 없습니다" }); return L; }
-  let open = true;
-  taskStagesSync(); // 이 TASK 의 묶음(조립한 TASK 는 고른 것만 — app.js)
-  const mine = new Set(TASK_STAGES.flatMap((g) => g.keys));
-  const steps = taskSteps().filter((s) => mine.has(s.key)).map((s) => { // 셈은 app.js taskStepsCalc 와 같다 — 그쪽의 taskStepsLast 를 건드리지 않으려고 따로 센다(단추도 새로 받은 것)
-    const st = s.soon ? "soon" : s.done ? "done" : open ? "now" : s.early ? "ready" : "todo";
-    if (!s.done && !s.soon) open = false;
-    return { ...s, st };
-  });
+  // 셈은 app.js taskStepsCalc 와 같은 함수(taskStepsOf — 이 TASK 의 묶음 · 문서마다 고른 대로 할 문서가 있는 단계만: spec_워크플로우 ② §15) — 그쪽의 taskStepsLast 를 건드리지 않으려고 따로 센다(단추도 새로 받은 것)
+  const steps = taskStepsOf();
   const active = taskRun ? taskRun.key : (steps.find((s) => s.busy) || {}).key;
   for (const s of steps) {
     const acts = s.st === "now" || s.st === "ready" || (s.keep && s.st === "done") ? s.acts : []; // 단추를 보이는 때 — taskStepsEl 과 같다

@@ -1067,9 +1067,11 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   // 저장된 분석이 있으면 됨 — 문서가 그 뒤 바뀌었어도 다시 하라고 하지 않는다(뼈대 유지, spec_헤딩_추출 ② §17). LLM 검증·보완은 선택(이 줄의 단추 — 「한 번에 진행」 은 안 부른다)
   const got = (w) => { const h = taskFlow.heads[w.id]; return h ? !!(h.stage2 && h.stage3) : null; }; // 읽어 둔 요약(GET …/headings) — 2·3단계 결과가 있나
   const hp = both ? got(plan) : null, hr = both ? got(report) : null, word = (x) => (x ? "있음" : "없음");
+  // 문서 검토를 할 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — taskReviewOf): 붙박이 이관 = 헤딩 · 표 분석 두 문서 · LLM 검증·보완 원본(전과 같다) · 화면에서 조립한 TASK = 문서마다 고른 대로
+  const RV = taskReviewOf(plan, report), docsH = RV.heads, docsL = RV.llm, hOf = (w) => (w === plan ? hp : hr); // [[문서, 이름]…] · hOf = 그 문서의 분석이 있나(못 읽었으면 null)
   // LLM 검증·보완 줄(§21 — 2026-11-19 사용자 "1단계 문서 검토에서 LLM 도 들어 가야지"): 그 문서(w)의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 검증·보완(공통 모듈의 이어 돌리기 — 문서 안 바뀜 · 유료).
-  // 끝남 = 그 문서의 헤딩 · 표가 LLM 을 거침 | LLM 을 쓸 수 없음 | 사람이 건너뜀(뒤 둘은 「건너뜀」 — 스크립트 분석만으로 간다: 막다른 길을 만들지 않는다). ready = 앞의 스크립트 분석이 끝났나
-  const llmStep = (key, name, w, who, ready) => {
+  // 끝남 = 그 문서의 헤딩 · 표가 LLM 을 거침 | LLM 을 쓸 수 없음 | 사람이 건너뜀(뒤 둘은 「건너뜀」 — 스크립트 분석만으로 간다: 막다른 길을 만들지 않는다). ready = 앞의 스크립트 분석이 끝났나 · tag = 단추 이름 앞의 문서 이름(줄 하나에 문서 여럿 — llmMany)
+  const llmStep = (key, name, w, who, ready, tag = "") => {
     const s = { key, no: "", name, done: false, keep: true, skipWord: "건너뜀", acts: [], text: "" };
     if (!both || !ready) return s;
     const J = taskHeadsJob(w), run = taskHeadsRunning(w) && !!J.chain, did = taskLlmDone(w), off = taskLlmOk === false, skip = taskLlmSkipped(w);
@@ -1079,27 +1081,38 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     s.text = run ? `${who} — LLM 검증·보완 중…(헤딩 · 템플릿 → 표 → 서식 정리 계획 · 몇 분)` : did ? `${who} — LLM 검증·보완을 거쳤습니다` : off ? "LLM 을 쓸 수 없어 건너뜁니다 — 스크립트 분석만으로 진행합니다"
       : skip ? `건너뜀 — ${who}는 스크립트 분석만으로 진행합니다` : taskLlmOk == null ? "LLM 을 쓸 수 있는지 확인하는 중…"
       : `${who}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 검증·보완합니다 — 유료 · 몇 분 · 문서는 바뀌지 않습니다` + (J.chain && J.error ? ` · 지난 실행 실패 — ${J.error}` : "");
-    s.acts = did || off || taskLlmOk == null ? [] : skip ? [hBtn("건너뛰기 취소", () => taskLlmSkip(w, false), { title: "이 문서의 LLM 검증·보완을 다시 이 단계의 할 일로 둡니다" })]
-      : [hBtn("LLM 검증·보완", () => taskHeadsLlm(w), { cls: "btn sm primary", disabled: !!taskRun || taskHeadsRunning(w) || PEEK, title: `${who}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다 — 유료 · 몇 분 · 문서는 바뀌지 않습니다(묶음의 「한 번에 진행」 도 이것을 합니다)` }),
-        hBtn("건너뛰기", () => taskLlmSkip(w, true), { disabled: !!taskRun || run, title: `${who}는 LLM 검증·보완 없이 스크립트 분석만으로 진행합니다(이 브라우저에 기억 — 「건너뛰기 취소」 로 되돌립니다)` })];
+    s.acts = did || off || taskLlmOk == null ? [] : skip ? [hBtn(`${tag}건너뛰기 취소`, () => taskLlmSkip(w, false), { title: "이 문서의 LLM 검증·보완을 다시 이 단계의 할 일로 둡니다" })]
+      : [hBtn(`${tag}LLM 검증·보완`, () => taskHeadsLlm(w), { cls: "btn sm primary", disabled: !!taskRun || taskHeadsRunning(w) || PEEK, title: `${who}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 차례로 검증 · 보완합니다 — 유료 · 몇 분 · 문서는 바뀌지 않습니다(묶음의 「한 번에 진행」 도 이것을 합니다)` }),
+        hBtn(`${tag}건너뛰기`, () => taskLlmSkip(w, true), { disabled: !!taskRun || run, title: `${who}는 LLM 검증·보완 없이 스크립트 분석만으로 진행합니다(이 브라우저에 기억 — 「건너뛰기 취소」 로 되돌립니다)` })];
     return s;
   };
-  const heads = { key: "heads", no: "", name: "헤딩 · 표 분석", done: !!(hp && hr), keep: true, acts: [], text: "" };
+  // 문서 여럿의 LLM 검증·보완 — 화면에서 조립한 TASK 에서 원본 · 목적 문서가 함께 「문서 검토」 를 고르고 목적 문서는 「구성 맞추기」 를 안 고른 때(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」).
+  // 줄 하나에 문서마다의 상태 · 단추(이름을 붙임 · 강조는 앞 문서의 것 하나). 끝남 = 모든 문서가 거침 · 건너뜀(「건너뛰기」 기억은 문서마다 — taskLlmSkip) · per = 문서 id → 그 문서의 몫(「한 번에 진행」 의 llmPart 가 문서마다 본다)
+  const llmMany = (key, name, list) => {
+    const per = list.map(([w, who]) => llmStep(key, name, w, who, !!hOf(w), `${who} `)), acts = per.flatMap((x) => x.acts);
+    acts.filter((b) => b.classList.contains("primary")).slice(1).forEach((b) => b.classList.remove("primary"));
+    return { key, no: "", name, done: per.every((x) => x.done), skipped: per.every((x) => x.skipped), busy: per.some((x) => x.busy), keep: true, skipWord: "건너뜀", acts,
+      text: [...new Set(per.map((x) => x.text).filter(Boolean))].join(" · "), per: Object.fromEntries(list.flatMap(([w], i) => (w ? [[w.id, per[i]]] : []))) }; // 빈 칸(준비 전)의 문서는 몫이 없다
+  };
+  // 헤딩 · 표 분석 — 「문서 검토」 를 할 문서(docsH)만 본다(붙박이 이관은 두 문서 — 전과 같은 글)
+  const heads = { key: "heads", no: "", name: "헤딩 · 표 분석", done: !!both && docsH.every(([w]) => got(w)), keep: true, acts: [], text: "" };
   if (!both) { /* 준비가 먼저 */ }
-  else if (hp == null || hr == null) heads.text = "분석 결과를 읽는 중…";
+  else if (docsH.some(([w]) => got(w) == null)) heads.text = "분석 결과를 읽는 중…";
   else {
-    const run = [[plan, "사업계획서"], [report, "연차보고서"]].filter(([w]) => taskHeadsRunning(w)), fail = [[plan, "사업계획서"], [report, "연차보고서"]].find(([w]) => !got(w) && taskHeadsJob(w).error);
+    const run = docsH.filter(([w]) => taskHeadsRunning(w)), fail = docsH.find(([w]) => !got(w) && taskHeadsJob(w).error);
     const GS = (taskFlow.guides || {}).saved, gc = GS && GS.counts; // 저장한 작성 지침(연차보고서 — spec_작업 ② §21 「작성 지침 저장」)
     heads.busy = !heads.done && !!run.length; // 첫 분석이 도는 중 — LLM 검증·보완이 도는 것은 이 묶음을 막지 않는다(글로만 보인다)
-    heads.text = `헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`
+    heads.text = `헤딩 그래프·표 구조: ${docsH.map(([w, n]) => `${n} ${word(got(w))}`).join(" · ")}`
       + (run.length ? ` · ${run.map(([w, n]) => `${n} ${taskHeadsJob(w).chain ? "LLM 검증·보완" : "분석"} 중…`).join(" · ")}` : fail ? ` · ${fail[1]} 분석 실패 — ${taskHeadsJob(fail[0]).error}` : "")
       + (gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)}${gc.marks ? ` · 각주 번호 ${nf(gc.marksLinked)}/${nf(gc.marks)}` : ""})` : "");
-    heads.acts = [...(heads.done ? [] : [hBtn("분석", () => taskRunAll("review", "review", false, "", "heads"), { cls: "btn sm primary", disabled: !!taskRun || !!run.length, title: "헤딩 그래프·표 구조가 없는 문서만 스크립트로 분석합니다 — LLM 호출 없음 · 문서는 바뀌지 않습니다(이 단계만 — LLM 검증·보완은 다음 줄)" })]),
+    heads.acts = [...(heads.done ? [] : [hBtn("분석", () => taskRunAll("review", "review", false, "", "heads"), { cls: "btn sm primary", disabled: !!taskRun || !!run.length, title: `헤딩 그래프·표 구조가 없는 문서만 스크립트로 분석합니다 — LLM 호출 없음 · 문서는 바뀌지 않습니다(이 단계만${docsL.length ? " — LLM 검증·보완은 다음 줄" : ""})` })]),
       ...(gc && (gc.items || gc.marks) && typeof formGuidesList === "function" ? [hBtn("작성 지침", () => formGuidesList(report), { title: "저장한 작성 지침(작성 요령 표 · <참고 N> 자료 · ※ 안내 · 각주 번호의 항목)을 헤딩별 · 표별로 문서 옆 열에 보입니다 — 4단계가 문서에서 지운 뒤에도 남습니다" })] : [])];
   }
 
   // 1단계의 LLM 검증·보완 = 원본 문서(사업계획서 — 이 TASK 에서 안 바뀌는 문서). 목적 문서(연차보고서)는 구조를 맞춘 뒤 2단계의 「다시 문서 검토(LLM)」 가 한다 — 구조 반영 전에 받은 판정은 반영 뒤 옛것이 된다(같은 문서에 두 번 물지 않는다)
-  const headsLlm = llmStep("headsLlm", "LLM 검증·보완", plan, "사업계획서", !!hp);
+  // 화면에서 조립한 TASK 는 docsL(taskReviewOf): 목적 문서가 「문서 검토」 를 골랐고 「구성 맞추기」 는 안 골랐으면 목적 문서도 여기서 · 할 문서가 없으면 이 줄은 그 TASK 에 서지 않는다(빈 줄 — taskStepsOf 가 뺀다)
+  const [lw, lwho] = docsL[0] || [plan, "사업계획서"];
+  const headsLlm = docsL.length > 1 ? llmMany("headsLlm", "LLM 검증·보완", docsL) : llmStep("headsLlm", "LLM 검증·보완", lw, lwho, !!docsL.length && !!hOf(lw));
 
   // 「프로젝트 구성 확정」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1" · §21 부터 2단계 「구성 맞추기」 의 첫 단계): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
   const config = { key: "config", no: "", name: "프로젝트 구성 확정", done: false, early: !!both, keep: true, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」) · early = 분석이 도는 동안에도 확정할 수 있다(값 확정은 분석과 무관)
@@ -1167,7 +1180,11 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const link = { key: "link", no: "②", name: "자리 연결", done: false, keep: true, acts: [], text: "" }, again = () => hBtn("다시 읽기", () => taskFlowLoad(), { disabled: !!taskFlow.linkBusy });
   if (!both) { /* 준비가 먼저 */ }
   else if (hp == null || hr == null) link.text = "분석 결과를 읽는 중…";
-  else if (!(hp && hr)) link.text = (taskHasStage("review") ? `먼저 ${taskStageName("review")} 의 헤딩·표 분석` : "헤딩·표 분석이 없습니다(이 TASK 에는 「문서 검토」 가 없어 「한 번에 진행」 이 스크립트로 분석합니다)") + ` — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`;
+  else if (!(hp && hr)) { // 빠진 분석을 1단계가 하나 — 「문서 검토」 는 그 TASK 가 고른 문서만 한다(docsH — spec_워크플로우 ② §15). 아니면 이 묶음 「한 번에 진행」 의 안전망(taskRunMap)이 스크립트로
+    const byReview = taskHasStage("review") && [[plan, hp], [report, hr]].every(([w, h]) => h || docsH.some(([x]) => x === w));
+    link.text = (byReview ? `먼저 ${taskStageName("review")} 의 헤딩·표 분석` : taskHasStage("review") ? "헤딩·표 분석이 없습니다(이 TASK 의 「문서 검토」 는 그 문서를 검토하지 않아 「한 번에 진행」 이 스크립트로 분석합니다)"
+      : "헤딩·표 분석이 없습니다(이 TASK 에는 「문서 검토」 가 없어 「한 번에 진행」 이 스크립트로 분석합니다)") + ` — 헤딩 그래프·표 구조: 사업계획서 ${word(hp)} · 연차보고서 ${word(hr)}`;
+  }
   else if (!L) link.text = "연결 목록을 만드는 중…";
   else if (L.error) Object.assign(link, L.missing ? { text: "자리 연결은 서버를 다시 시작한 뒤에 쓸 수 있습니다(새 기능)" } : { text: `연결 목록을 읽지 못했습니다: ${L.error}`, acts: [again()] });
   else {
@@ -1636,15 +1653,20 @@ async function fillApply({ quiet = false } = {}) { // quiet = 옛 인자(2026-11
   }
 }
 
-function taskStepsCalc() { // 단계와 그 상태 — 두 묶음(1단계·2단계)이 같이 쓴다: 첫 안 끝난 단계가 「지금」(묶음을 넘어 하나)
+function taskStepsOf() { // 이 TASK 에 서는 단계와 그 상태 — 첫 안 끝난 단계가 「지금」(묶음을 넘어 하나). 저장하지 않는다(대시보드 dashRelayLive 가 이것으로 따로 센다 — 단추도 새로 받은 것)
   let open = true;
   taskStagesSync();
-  const mine = new Set(TASK_STAGES.flatMap((g) => g.keys)); // 이 TASK 의 묶음에 든 단계만 — 조립한 TASK 에서 뺀 묶음의 단계가 「지금」 을 막지 않게
-  taskStepsLast = taskSteps().filter((s) => mine.has(s.key)).map((s) => { // 셈한 단계는 묶음 머리(taskStageSync)도 쓴다
+  const mine = new Set(TASK_STAGES.flatMap((g) => g.keys)), R = taskReviewDocs(); // 이 TASK 의 묶음에 든 단계만 — 조립한 TASK 에서 뺀 묶음의 단계가 「지금」 을 막지 않게
+  if (!R.heads.length) mine.delete("heads"); // 할 문서가 없는 단계도 뺀다(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 등록부 custom() 이 그 단계를 안 세우는 것과 같게)
+  if (!R.llm.length) mine.delete("headsLlm");
+  return taskSteps().filter((s) => mine.has(s.key)).map((s) => {
     const st = s.soon ? "soon" : s.done ? "done" : open ? "now" : s.early ? "ready" : "todo"; // early = 앞 단계가 덜 끝나도 진행 가능, 다음 작업과 구별
     if (!s.done && !s.soon) open = false;
     return { ...s, st };
   });
+}
+function taskStepsCalc() { // 단계와 그 상태 — 두 묶음(1단계·2단계)이 같이 쓴다: 첫 안 끝난 단계가 「지금」(묶음을 넘어 하나)
+  taskStepsLast = taskStepsOf(); // 셈한 단계는 묶음 머리(taskStageSync)도 쓴다
   return taskStepsLast;
 }
 function taskStepsEl(stage) { // 묶음 하나의 세부 목록. 순서 번호는 완료 뒤에도 유지 — 이름·명시적 상태 / 설명 / 단추를 나눠 정렬한다
@@ -1780,10 +1802,31 @@ function taskStagesSync() {
   const pick = cat.custom ? RELAY_STAGES.filter((g) => (cat.groups || []).includes(g.id)) : RELAY_STAGES;
   TASK_STAGES.length = 0;
   TASK_STAGES.push(...(cat.custom ? pick.map((g, i) => Object.create(g, { no: { value: `${i + 1}단계`, enumerable: true },
-    keys: { value: i === 0 && !g.keys.includes("files") ? ["files", ...g.keys] : g.keys, enumerable: true } })) : pick));
+    keys: { value: i === 0 && !g.keys.includes("files") ? ["files", ...g.keys] : g.keys, enumerable: true },
+    ...(g.id === "review" && cat.assign ? { does: { value: taskReviewDoes(job), enumerable: true } } : {}) })) : pick)); // 「문서 검토」 의 설명은 문서마다 고른 대로(taskReviewDoes)
 }
 const taskHasStage = (id) => TASK_STAGES.some((g) => g.id === id); // 이 TASK 에 그 묶음이 있나(조립한 TASK 는 고른 것만)
 const taskStageName = (id) => { const g = TASK_STAGES.find((x) => x.id === id); return g ? `${g.no} 「${g.name}」` : `「${RELAY_STAGE_META[id].name}」`; }; // 묶음을 가리키는 글 — 이 TASK 에 없는 묶음은 번호 없이
+// 「문서 검토」 의 단계마다 할 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 2026-11-19 사용자 "워크플로우에서 task 정할때 목적문서랑 원본문서에 대해서 각각 task 를 할당할 수 있도록"):
+// → {heads: [칸 키…], llm: [칸 키…]} — 칸 키 = 첨부 파일 칸(그 TASK 의 files: 앞 = 원본 문서 · 뒤 = 목적 문서). 문서마다의 셈은 이 함수 하나다(단계 셈 taskStepsOf · 「한 번에 진행」 · 대시보드 · 에이전트가 같이 쓴다).
+// 붙박이 이관(assign 없음) = 「헤딩 · 표 분석」 두 문서 · 「LLM 검증·보완」 원본(전과 같다). 화면에서 조립한 TASK(TASK_CATALOG[job].assign — task_catalog.js) = 「헤딩 · 표 분석」 은 「문서 검토」 를 고른 문서만 ·
+// 「LLM 검증·보완」 은 원본(골랐으면) + 목적(「문서 검토」 를 골랐고 「구성 맞추기」 는 안 골랐을 때 — 고르면 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서). 할 문서가 없는 단계는 그 TASK 에 서지 않는다(taskStepsOf)
+function taskReviewDocs(job = (state.task || {}).job || "") {
+  const cat = TASK_CATALOG[job] || {}, [S, T] = cat.files || ["plan", "report"], A = cat.assign, has = (list, id) => Array.isArray(list) && list.includes(id);
+  if (!A) return { heads: [S, T], llm: [S] };
+  const src = has(A.source, "stage_review"), tgt = has(A.target, "stage_review");
+  return { heads: [...(src ? [S] : []), ...(tgt ? [T] : [])], llm: [...(src ? [S] : []), ...(tgt && !has(A.target, "stage_fit") ? [T] : [])] };
+}
+const taskReviewOf = (plan, report) => { // taskReviewDocs → 이관의 함수들(taskSteps · taskRunSteps)이 쓰는 꼴 {heads: [[문서, 이름]…], llm: […]} — plan · report = 두 칸의 문서(taskSlots 의 차례)
+  const R = taskReviewDocs(), slots = taskSlots() || [], duo = [[plan, "사업계획서"], [report, "연차보고서"]], pick = (ks) => duo.filter((x, i) => ks.includes(slots[i]));
+  return { heads: pick(R.heads), llm: pick(R.llm) };
+};
+function taskReviewDoes(job) { // 조립한 TASK 의 「문서 검토」 묶음 설명(묶음 머리 · 「한 번에 진행」 의 풍선 도움말 · 에이전트의 실행 카드) — 문서마다 고른 대로. 두 문서 분석 + 원본 LLM 이면 붙박이 이관의 글(RELAY_STAGES)과 같다
+  const [S, T] = (TASK_CATALOG[job] || {}).files || ["plan", "report"], R = taskReviewDocs(job);
+  const who = (ks) => (ks.length > 1 ? "두 문서" : ks[0] === T ? `목적 문서(${taskName("file", T)})` : `원본 문서(${taskName("file", S)})`);
+  return `${who(R.heads)}의 헤딩·표 분석(없는 문서만 — 스크립트)${R.heads.includes(T) ? " → 양식의 작성 지침을 헤딩/표별로 저장" : ""}`
+    + `${R.llm.length ? ` → ${who(R.llm)}의 LLM 검증·보완(유료 · 몇 분 — LLM 을 쓸 수 없으면 건너뜀)` : ""} · 문서는 안 바뀜`;
+}
 let taskStepsLast = null; // 마지막으로 셈한 단계(taskStepsCalc — 상태 st 포함) — 묶음 머리가 다시 세지 않게
 let taskRun = null; // 한 번에 진행 — 도는 중 {stage 지금 도는 묶음 id(이어 진행이면 묶음마다 바뀜), report 연차보고서 id, key 지금 단계, note 지금 하는 일, t0 그 묶음을 시작한 때, stop 멈춤 요청, timer, chain 이어 진행이면 {to 끝 묶음 id, label 「1→3단계」} · 아니면 null}
 let taskRunLast = null; // 마지막 실행의 끝 {stage, report, ok, key, text, done 그때 그 묶음의 끝난 단계 수} — 마지막으로 돈 묶음의 것(화면 검사가 읽는다)
@@ -2140,14 +2183,15 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
   const got = (w) => { const h = taskFlow.heads[w.id]; return !!(h && h.stage2 && h.stage3); }; // 그 문서에 헤딩 그래프 · 표 구조가 있나
   const llmPart = async (key, w, who) => { // LLM 검증·보완 단계(§21 — headsLlm · reheadsLlm): 이미 끝난 것으로 보면(거침 · LLM 을 쓸 수 없음 · 사람이 건너뜀) 글만 낸다. 못 끝내면 멈춘다 — 그 줄의 「건너뛰기」 로 스크립트 분석만으로 갈 수 있다(막다른 길 없음)
     if (taskLlmOk == null) await taskWait(() => taskLlmOk != null, 10000);
-    const s0 = step(key);
+    const one = (s) => (s.per && s.per[w.id]) || s; // 줄 하나에 문서 여럿이면(taskSteps llmMany — 조립한 TASK: spec_워크플로우 ② §15) 그 문서의 몫
+    const s0 = one(step(key));
     if (s0.done) return s0.skipped ? ` · ${who} LLM 검증·보완은 건너뜀(${taskLlmOk === false ? "LLM 을 쓸 수 없음" : "건너뛰기"})` : "";
     at(key, `${who} LLM 검증·보완 — 헤딩 · 템플릿 → 표 → 서식 정리 계획(유료 · 몇 분)`);
     const why = await taskRunLlm(w.id, run);
     if (w.id === state.id) headsPeek(); // 지금 문서면 쪽 여백 표시·헤딩 탭도 새 결과로
     at(key, "검증 결과 읽기"); // 멈춤을 눌렀으면 여기서 멈춘다
     await flowRead();
-    if (!step(key).done) taskHalt(`${who}의 LLM 검증·보완을 끝내지 못했습니다${why ? ` — ${why}` : ""} · 다시 누르거나 그 줄의 「건너뛰기」 로 스크립트 분석만으로 진행하세요`);
+    if (!one(step(key)).done) taskHalt(`${who}의 LLM 검증·보완을 끝내지 못했습니다${why ? ` — ${why}` : ""} · 다시 누르거나 그 줄의 「건너뛰기」 로 스크립트 분석만으로 진행하세요`);
     return ` · ${who} LLM 검증·보완을 거쳤습니다`;
   };
   const guidesKeep = async () => { try { await taskGuidesLoad(report, true); } catch (e) { console.warn(e); } }; // 작성 지침을 헤딩/표별로 저장(스크립트 — 못 해도 멈추지 않는다: 「작성요령 삭제」 가 지우기 전에 다시 남긴다)
@@ -2176,23 +2220,28 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     return taskRunMap(run, plan, report, at, step, flowRead);
   }
   if (run.stage === "review") { // 1단계 「문서 검토」 — 두 문서의 헤딩·표 분석(없는 문서만 · 스크립트) → 작성 지침을 헤딩/표별로 저장. 문서는 안 바뀐다(spec_작업 ② §21)
+    // 할 문서 = 「문서 검토」 를 고른 문서(taskReviewOf — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」: 붙박이 이관 = 분석 두 문서 · LLM 원본). 할 문서가 없는 단계는 건너뛴다(그 TASK 에 서지 않는 단계 — taskStepsOf)
+    const RV = taskReviewOf(plan, report), mine = RV.heads.map(([w]) => w);
     at("heads", "헤딩·표 분석 확인");
-    const lack = [plan, report].filter((w) => !got(w));
+    const lack = mine.filter((w) => !got(w));
     if (lack.length) {
       at("heads", `헤딩·표 분석(스크립트) — ${lack.map((w) => (w.id === plan.id ? "사업계획서" : "연차보고서")).join(" · ")}`);
       await Promise.all(lack.map((w) => taskRunAnalyze(w.id, run)));
       if (lack.some((w) => w.id === state.id)) headsPeek(); // 지금 문서면 쪽 여백 표시·헤딩 탭도 새 결과로
       at("heads", "분석 결과 읽기");
       await flowRead();
-      if (!got(plan) || !got(report)) taskHalt("헤딩·표 분석 결과가 생기지 않았습니다 — 「헤딩 추출」 탭에서 확인하세요");
+      if (mine.some((w) => !got(w))) taskHalt("헤딩·표 분석 결과가 생기지 않았습니다 — 「헤딩 추출」 탭에서 확인하세요");
     }
-    at("heads", "작성 지침 저장(헤딩/표별)");
-    await guidesKeep();
+    if (mine.includes(report)) { // 작성 지침(목적 문서의 양식 — 연차보고서)은 목적 문서를 검토할 때 저장한다(붙박이 이관은 늘 · 목적 문서가 「문서 검토」 를 안 고른 조립한 TASK 는 「다시 문서 검토」 · 「작성요령 삭제」 가 남긴다)
+      at("heads", "작성 지침 저장(헤딩/표별)");
+      await guidesKeep();
+    }
     const gc = ((taskFlow.guides || {}).saved || {}).counts;
-    const base = `두 문서의 헤딩 그래프·표 구조가 있습니다${gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)})` : ""}`;
-    if (run.only === "heads") return `${base} — 다음은 「LLM 검증·보완」 입니다`; // 「분석」 단추 — 이 단계만
-    const llm = await llmPart("headsLlm", plan, "사업계획서"); // 원본 문서의 LLM 검증·보완(목적 문서는 구조를 맞춘 뒤 2단계의 「다시 문서 검토(LLM)」)
-    return `${base}${llm} — 구성은 ${SN("frame")} 에서 맞춥니다`;
+    const base = `${RV.heads.length === 1 ? RV.heads[0][1] : "두 문서"}의 헤딩 그래프·표 구조가 있습니다${gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)})` : ""}`;
+    if (run.only === "heads") return RV.llm.length ? `${base} — 다음은 「LLM 검증·보완」 입니다` : base; // 「분석」 단추 — 이 단계만
+    let llm = "";
+    for (const [w, who] of RV.llm) llm += await llmPart("headsLlm", w, who); // 원본 문서의 LLM 검증·보완(목적 문서는 구조를 맞춘 뒤 2단계의 「다시 문서 검토(LLM)」 — 조립한 TASK 에서 목적 문서가 「구성 맞추기」 를 안 골랐으면 여기서 이어서)
+    return `${base}${llm}${taskHasStage("frame") ? ` — 구성은 ${SN("frame")} 에서 맞춥니다` : ""}`;
   }
 
   // 2단계 「구성 맞추기」(§21) = 프로젝트 구성 확정 → ① 프로젝트 구성 반영 → 헤딩·표 다시 분석. 내용은 넣지 않는다(3단계)
