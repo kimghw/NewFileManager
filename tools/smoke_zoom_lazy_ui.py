@@ -5,7 +5,7 @@
 작은 문서(기술수요조사서 — 쪽 1개): 배율을 한 번에 바꾼다(뒤에서 도는 일 없음).
 큰 문서(연구개발계획서 양식 — 쪽 74개): 배율이 #doc 이 아니라 쪽 상자마다 · 옛 방식(#doc 한 곳)과 배치가 같음 · 옆 열을 열면 보이는 쪽만 바로 바뀌고 나머지는 뒤에서 ·
 바꾸는 동안 보기에 옛 배율 쪽이 그려지지 않음 · 창 가운데 자리 그대로 · 바꾸는 중 스크롤해도 보이는 쪽은 새 배율 · 자리 지키기 스크롤로는 오른쪽 단추 메뉴가 안 닫힘(사용자 스크롤은 닫음) ·
-끝나면 묶어 둔 폭·가로 스크롤이 풀리고 쪽 여백 표시가 화면 크기 그대로 · −/+ · 폭/높이/여백 빼고 맞춤 · 2쪽 보기(한 번에) · 창 크기 · 콘솔 오류.
+끝나면 가로 스크롤이 풀리고(#doc 폭은 묶지 않음) 쪽 여백 표시가 화면 크기 그대로 · −/+ · 폭/높이/여백 빼고 맞춤 · 1쪽 보기의 넓은 쪽이 다른 쪽을 안 밈 · 2쪽 보기(한 번에) · 창 크기 · 콘솔 오류.
 끝에 옆 열 열기·닫기 시간(첫 그리기 · 다 끝남)을 적는다(같이 도는 검사가 있으면 부푼다 — 한도는 넉넉히)."""
 import argparse
 import json
@@ -220,7 +220,8 @@ try:
         first, total, st = timed(OPEN, SHOWN)
         t_open = (first, total)
         check("옆 열을 열면: 배율이 바뀌고, 첫 그리기 때 보기에 걸친 쪽은 모두 새 배율", st["z"] != zfit and st["seen"] == 0, st)
-        check("옆 열을 열면: 나머지 쪽은 뒤에서(첫 그리기 때 아직 남아 있거나 방금 끝남) · 그동안 #doc 폭을 끝 폭으로 묶음", (st["on"] and st["pend"] > 0 and st["width"].startswith("max(")) or (not st["on"] and st["pend"] == 0), st)
+        # #doc 폭은 묶지 않는다(2026-11-19 — #doc 은 창 폭 · 쪽마다 safe center: 옛 배율의 넓은 쪽은 넘칠 뿐 보이는 쪽을 밀지 않는다. 전에는 끝 폭 max(…) 로 묶었다)
+        check("옆 열을 열면: 나머지 쪽은 뒤에서(첫 그리기 때 아직 남아 있거나 방금 끝남) · 그동안 #doc 폭은 묶지 않음", ((st["on"] and st["pend"] > 0) or (not st["on"] and st["pend"] == 0)) and st["width"] == "", st)
         check("바꾸는 동안 가로 스크롤 막대가 생기지 않음(폭 맞춤)", not st["hbar"], st)
         s = page.evaluate(STATE)
         check("다 끝남: 모든 쪽이 새 배율 · 폭·가로 스크롤 풀림", s["pend"] == 0 and s["width"] == "" and s["ox"] == "" and s["docZoom"] == "", s)
@@ -308,6 +309,24 @@ try:
         settle()
         s = page.evaluate(STATE)
         check("폭 맞춤: 처음 배율로 · 가로 스크롤 없음", s["fit"] == "width" and s["z"] == zfit and s["pend"] == 0 and not s["hbar"], s)
+        # 1쪽 보기의 넓은 쪽(가로 구역 · 창보다 넓은 쪽)은 다른 쪽을 밀지 않는다(2026-11-19 사용자 「왼쪽 여백이 있는데도 한쪽에 치우쳐져 있어 가림이 심함」 — 옆 문서의 세로 쪽이
+        # 가로 쪽 폭의 가운데로 밀려 창 밖으로 잘렸다: style.css .doc safe center). 셋째 쪽 상자를 창보다 넓게 꾸며 → 다른 쪽은 그대로 창 가운데 · 넓은 쪽은 왼쪽 여백에서 시작 ·
+        # 가로 스크롤이 넓은 쪽 끝 너머(틈)까지 닿음 · 되돌리면 가로 스크롤 없음
+        one = page.evaluate("""() => {
+          const sc = document.getElementById('scroller'), o = sc.getBoundingClientRect(), cs = getComputedStyle(sc);
+          const pl = parseFloat(cs.paddingLeft) || 0, cw = sc.clientWidth - pl - (parseFloat(cs.paddingRight) || 0);
+          const k = [...document.querySelectorAll('#doc > .sheet')], x = k[2], w0 = x.style.width;
+          const L = (e) => e.getBoundingClientRect().left - o.left + sc.scrollLeft, r1 = (v) => Math.round(v * 10) / 10;
+          const before = L(k[0]);
+          x.style.width = `calc(${w0} * 3)`;
+          const out = { before: r1(before), after: r1(L(k[0])), center: r1(pl + (cw - k[0].getBoundingClientRect().width) / 2), pl,
+            wideLeft: r1(L(x)), wideRight: Math.round(L(x) + x.getBoundingClientRect().width), sw: sc.scrollWidth, clientW: sc.clientWidth };
+          x.style.width = w0;
+          out.swBack = sc.scrollWidth;
+          return out; }""")
+        check("1쪽 보기: 창보다 넓은 쪽이 있어도 다른 쪽은 창 가운데 그대로 · 넓은 쪽은 왼쪽 여백에서 시작 · 가로 스크롤이 그 쪽 끝 너머까지 · 되돌리면 가로 스크롤 없음",
+              abs(one["after"] - one["before"]) <= 0.5 and abs(one["after"] - one["center"]) <= 1 and abs(one["wideLeft"] - one["pl"]) <= 1
+              and one["sw"] > one["wideRight"] and one["swBack"] <= one["clientW"], one)
 
         # 높이 맞춤 · 여백 빼고 맞춤 — 보던 쪽이 창 맨 위에, 창 높이에 들어감
         for mode, top in (("height", 24), ("body", None)):

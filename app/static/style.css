@@ -244,11 +244,17 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .scroller { flex: 1; min-height: 0; overflow: auto; padding: 28px 76px 80px 32px; }
 /* 배율(zoom)은 #doc 이 아니라 쪽 상자(.sheet·.gap-page)마다 — #doc 의 gap·padding-top 은 app.js zoomApply 가 배율을 곱해 inline 으로 덮는다(여기 값 = 배율 100% · app.js DOC_GAP·DOC_PAD_TOP 과 같아야 한다) */
-.doc { display: flex; flex-direction: column; align-items: center; gap: 30px; width: max-content; min-width: 100%; padding-top: 6px; }
+/* 1쪽 보기의 가운데 = 창(스크롤 상자의 안 폭)의 가운데(2026-11-19 사용자 「왼쪽 여백이 있는데도 한쪽에 치우쳐져 있어 가림이 심함」): #doc 은 창 폭이고 쪽마다 safe center —
+   창에 드는 쪽은 창 가운데, 창보다 넓은 쪽만 왼쪽에 붙어 오른쪽으로 넘친다(가로 스크롤). 전에는 #doc 이 가장 넓은 쪽의 폭(max-content)이라 가로 구역이 하나라도 있으면
+   (연구계획서 216쪽 중 1쪽) 모든 세로 쪽이 그 넓은 폭의 가운데에 놓여 오른쪽으로 밀리고 창 밖으로 잘렸다 — 옆 문서(같은 배율 · 폭 맞춤 아님)에서 128px 밀려 40px 잘림 */
+.doc { display: flex; flex-direction: column; align-items: safe center; gap: 30px; padding-top: 6px; }
+/* 창보다 넓은 쪽은 #doc 밖으로 넘쳐 스크롤 상자의 오른쪽 여백(76px)이 그 뒤에 붙지 않는다 — 쪽 오른쪽에 보이지 않는 틈을 두어 끝까지 밀어도 쪽 끝·그림자가 창 끝에 붙지 않게.
+   틈은 쪽 배율을 따른다(25px × 배율 — 30~300% 에서 화면 8~75px): 300% 에서도 76px 아래라 창에 드는 쪽에서는 스크롤 상자의 오른쪽 여백 안 — 가로 스크롤이 생기지 않는다 */
+.doc:not(.two-up) > .sheet::after { content: ""; position: absolute; left: 100%; top: 0; width: 25px; height: 1px; pointer-events: none; }
 /* 2쪽 보기 — 두 열 격자(1·2, 3·4 …), 줄마다 위끝 맞춤. 열 간격 8px 은 app.js TWO_UP_GAP 과 같아야 폭 맞춤이 맞는다(2026-11-18 사용자 「최대한 가운데가 붙어 있고」 — 전에는 24px).
    넓은 쪽(.span2 — 문서의 가장 좁은 용지보다 넓은 구역의 쪽: app.js wideSecs)은 두 열을 통째로 쓰는 한 줄(가운데): 열 폭은 그 열의 가장 넓은 쪽 상자를 따르므로, 가로 구역이 하나라도 열에 들면
    모든 줄의 세로 쪽이 가로 폭의 열 안에서 왼쪽에 붙어 두 쪽 사이가 벌어졌다 */
-.doc.two-up { display: grid; grid-template-columns: repeat(2, max-content); justify-content: center; align-items: start; column-gap: 8px; row-gap: 30px; }
+.doc.two-up { display: grid; grid-template-columns: repeat(2, max-content); justify-content: center; align-items: start; column-gap: 8px; row-gap: 30px; width: max-content; min-width: 100%; } /* 격자는 전처럼 쪽 폭(넘치면 가로 스크롤 — 가운데로 넘쳐 왼쪽이 안 닿는 일이 없게) */
 .doc.two-up > .sheet.span2 { grid-column: 1 / -1; justify-self: center; }
 .doc.two-up .gap-page { width: auto; margin: 0; align-self: center; }
 

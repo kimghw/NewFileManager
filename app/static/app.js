@@ -5687,9 +5687,9 @@ function zoomApply() { // state.zoom 을 쪽 상자들에 — 보기에 걸친 �
   }
   if (!pend) return;
   if (!lazy) { for (const k of kids) zoomPut(k, z); zoomEnd(zoomJob.dirty); return; } // 뒤에서 돌던 것이 있었으면 여기서 끝 — 미뤄 둔 표시 다시 그리기가 있으면 지금
-  // 바꾸는 동안 #doc 폭 = 끝났을 때의 폭 — 아직 옛 배율인 넓은 쪽이 #doc(max-content)을 넓혀 보이는 쪽이 옆으로 밀리지 않게. 끝 폭이 보기에 들어가면 가로 스크롤 막대도 그동안 숨긴다
+  // 끝 폭이 보기에 들어가면 바꾸는 동안 가로 스크롤 막대를 숨긴다(아직 옛 배율인 넓은 쪽이 넘쳐 막대가 생겼다 없어지지 않게). #doc 폭은 묶지 않는다 — #doc 은 창 폭이고 넓은 쪽은
+  // 넘칠 뿐 다른 쪽을 밀지 않는다(style.css .doc safe center — 2026-11-19). 전에는 #doc 이 max-content 라 끝 폭으로 묶었는데, 지금 묶으면 세로 쪽이 넓은 폭의 가운데로 밀렸다가 끝나면 돌아온다
   const cs = getComputedStyle(sc), avail = sc.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-  doc.style.width = `max(100%, ${widest * z}px)`;
   sc.style.overflowX = widest * z <= avail ? "hidden" : "";
   zoomJob.on = true;
   zoomJob.carry = 0;
