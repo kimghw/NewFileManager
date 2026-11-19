@@ -355,6 +355,7 @@
     astra 가 문제없다고 확인한 것: 같은 계획을 다시 보내면 409(`sig` 에 받을 칸의 지금 글 · 방식 · 원본 · 확정본의 판) · 나눠 넣기가 중간에 실패하면 문서 전체가 복구됨 · 규칙의 `part` 는 조각 전체와 견줌 · 꺼 둔 값이 서버에서 안 걸리는 것은 사양대로 · 헤더 지정을 풀면 확정본으로 돌아감 · 한 자리 반영이 다른 표를 안 건드림.
   - 시험: 고친 곳에 닿는 pytest **21파일 355 통과**(`test_table_kv` 54 · `test_table_maps` 44 · `test_table_types` 31 · `test_table_manager` 7 · `test_divisions` · `test_headings_calc` · `test_table_excel` · `test_workflow` …) · 사양 관리 점검 통과.
     화면 검사: `table_kv` 90(더해서 넣기 · 나눠 넣기 · 값 고르기 · 꺼 둔 값 기억 · 넣는 방식 · 다시 계산 · 기대는 칸 갈래 — 이 묶음에서 처음 돌린 것) · `table_types` 37(같이 쓰이는 표 · 고치기/따로 확정 · 되돌리기 포함) · `table_menu` 61 · `table_style` 21 · `table_fill` 44 · `div_run` 36 — **모두 통과**(기록 `artifacts/ui_gates_tables_2026-11-19f` · `…19g` · `…19h`).
+  - 커밋 `c39a72e`(사용자 「커밋하고 푸쉬해줘」 — 같은 파일에 섞인 다른 세션의 이관 변경과 협의해 한 커밋으로 · 푸시함) 뒤 **8114 를 다시 켬**(열린 작업 2 · 실행 취소 기록 0 · 도는 실행 없음을 확인하고 — 셋째 · 넷째 묶음의 서버 코드가 이제 듣는다: `/api/table-maps/offs` · `…/kv/recalc/*` · `…/kv/split/*` · `…/tables/{tid}/type` · `divisions` 의 `partial`).
   - 화면 글: 키-값 열 머리의 안내에 「넣는 방식을 따로 정한 칸만 그 방식대로」 를 더함 · 등록부 「표 도구」 에 단계 「넣는 방식 · 계산 칸 다시 계산」 → `workflow.md` · `tasks/*.md` 다시 만듦 · `CLAUDE.md`(넣는 방식 · 다시 계산 · 꺼 둔 값 · 양식의 표 판정).
 
 ## ④ 미결/후속
