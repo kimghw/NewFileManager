@@ -71,11 +71,12 @@ button.ds-cell:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .ds-plan li.numbered::before { content: none; } /* 번호가 있으면 ▸ · – 대신 번호(건너뜀은 흐린 글로 갈린다) — 줄이 꺾여도 번호 · 「같이」 는 첫 줄에 */
 
 /* 좁으면 옵션 항목(LLM · 구분 기준)부터 감추고 헤딩 · 표는 남긴다 — 기준은 창이 아니라 줄의 폭(design.md §3). 파일 이름(.file-name flex 1 1 auto)이 먼저 줄고 줄은 꺾이지 않는다.
-   색 설명(#fmtKey · #divKey)이 줄에 떠 있는 동안은 그 설명이 먼저다(그 줄의 「폭 480px 이상이면 한 줄」 약속 — divisions.css · fmt_focus.css): 옵션 항목은 늘 감추고, 줄 폭 1000px 이하면 표시를 통째로 감춘다
-   (설명을 끄면 다시 보인다). 아주 좁으면 파일 크기 글도 감춘다(표시가 자리를 쓴 만큼) */
+   설명(#fmtKey — 서식 라벨만 또렷이)이 줄에 떠 있는 동안은 그 설명이 먼저다(그 줄의 「폭 480px 이상이면 한 줄」 약속 — fmt_focus.css): 옵션 항목은 늘 감추고, 줄 폭 1000px 이하면 표시를 통째로 감춘다
+   (설명을 끄면 다시 보인다). 아주 좁으면 파일 크기 글도 감춘다(표시가 자리를 쓴 만큼).
+   구분 기준 자리 · 편집 구역의 색 설명(#divKey · #zonesKey)은 2026-11-19 부터 이 줄에 없다(문서 위에 떠 있는 상자 — key_float.css): 그 둘이 떠 있어도 이 표시는 그대로다 */
 @container docname (max-width: 760px) { .doc-status .ds-opt { display: none; } }
-.has-fm-key > .doc-status .ds-opt, .has-dv-key > .doc-status .ds-opt { display: none; }
-@container docname (max-width: 1000px) { .has-fm-key > .doc-status, .has-dv-key > .doc-status { display: none; } }
+.has-fm-key > .doc-status .ds-opt { display: none; }
+@container docname (max-width: 1000px) { .has-fm-key > .doc-status { display: none; } }
 @container docname (max-width: 520px) { .document-name-row > .doc-status ~ .file-meta { display: none; } }
 @container docname (max-width: 400px) { .doc-status .ds-secs { display: none; } }
 

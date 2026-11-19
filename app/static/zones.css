@@ -1,4 +1,4 @@
-/* 편집 구역(spec_구역 ② §6 「화면」 — zones.js): 패널의 「편집 구역」 줄(취합은 취합 카드 안) · 문서의 구역 띠·오른쪽 여백 이름표·들어온 내용 바탕 · 문서 이름 줄의 색 설명 · 「구역 지정…」 입력 · 문서 옆 목록.
+/* 편집 구역(spec_구역 ② §6 「화면」 — zones.js): 패널의 「편집 구역」 줄(취합은 취합 카드 안) · 문서의 구역 띠·오른쪽 여백 이름표·들어온 내용 바탕 · 문서 위에 떠 있는 색 설명 ·「구역 지정…」 입력 · 문서 옆 목록.
    취합의 「기관 구역」 스타일(gather.css — spec_취합 ② §9-2)을 옮겨 넓힌 것. 화면 표시일 뿐이다(내보내는 파일에는 아무것도 안 쓴다) — 표시는 요소마다(#doc·body 에 클래스를 달지 않는다: design.md §8).
    색 = 색 축 하나의 값 차례(기관을 켰으면 기관 주관 → 공동, 아니면 차년도, 아니면 단계 — 8색을 돌려 씀) · u = 기관 모름·확인 필요·값 없음. 색만으로 가르지 않고 이름표·칩 글을 같이 둔다(design.md §15).
    **구역 색(data-gz → --gz-c)과 출처 색(data-gzo → --gzo-c)은 따로 건다** — A 구역에 B 기관 문서의 내용이 들어와도 띠는 A 색 · 바탕만 B 색이다(하나가 다른 것을 덮지 않는다) */
@@ -92,20 +92,14 @@
 .sheet > .gz-tag.gz-mark.gz-llm { outline-style: dotted; font-style: italic; } /* LLM 이 지정한 띠 — 글 끝의 「· LLM」 꼬리가 말하고(색·테만으로 가르지 않는다) 테는 점점이 */
 @media print { .sheet > .gz-tag { display: none; } }
 
-/* 문서 이름 줄의 색 설명(#zonesKey.dv-key.zn-key — 꼴은 divisions.css 의 .dv-key): 표시가 켜져 있고 띠가 있는 동안만(zones.js zonesKeyDraw 가 줄에 .has-zn-key).
-   줄을 더 쓰지 않는다 — 좁으면 줄 폭(@container docname)으로 이름 → 뒤쪽 칩 → 「편집 중」·파일 크기 차례로 감추고, 그래도 안 들어가면 설명만 다음 줄로 접힌다(「구분 기준 자리」 설명과 같은 규칙) */
-.document-name-row.has-zn-key { flex-wrap: wrap; row-gap: 3px; }
-.document-name-row.has-zn-key > .file-name { flex-basis: 6em; }
+/* 색 설명(#zonesKey.dv-key.zn-key — 안의 꼴은 divisions.css 의 .dv-key): 표시가 켜져 있고 띠가 있는 동안만(zones.js zonesKeyDraw).
+   2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 문서 이름 줄이 아니라 문서 위에 떠 있는 상자다 — 상자의 꼴 · 자리 · 끌기는 key_float.css · key_float.js.
+   이름 줄을 꺾고 좁은 줄에서 칩 · 글을 감추던 규칙(.has-zn-key · @container docname)은 뺐다 — 상자는 문서 창 폭 안에서 칩을 다음 줄로 넘긴다 */
 .zn-key-chip { --dv-line: var(--gz-c); --dv-bg: var(--gz-bg); flex: none; max-width: 9em; }
 .zn-key-chip-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .zn-key-more, .zn-key-tone { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .zn-key-tone { display: inline-flex; align-items: center; gap: 4px; }
 .zn-key-tone::before { content: ""; width: 12px; height: 9px; box-sizing: border-box; border: 1px dashed #64748b; border-left: 3px solid #64748b; } /* 점선 이름표 꼴 */
-.has-zn-key > .doc-status .ds-opt { display: none; }
-@container docname (max-width: 1000px) { .has-zn-key > .doc-status { display: none; } .zn-key-chip:nth-of-type(n+6), .zn-key-more { display: none; } } /* 칩 넷까지(첫 span 은 이름) */
-@container docname (max-width: 760px) { .zn-key .dv-key-name, .zn-key-tone { display: none; } .zn-key-chip { max-width: 6em; } .zn-key-chip:nth-of-type(n+5) { display: none; } } /* 칩 셋까지 */
-@container docname (max-width: 560px) { .has-zn-key > .document-mode, .has-zn-key > .file-meta { display: none; } }
-@container docname (max-width: 520px) { .has-zn-key > .name-quick > #nameTblMarks { display: none; } }
 
 /* 「구역 지정…」 입력(#zonesPop.dv-pop.zn-pop — 꼴은 divisions.css 의 .dv-pop: 떠 있는 작은 창 · 모달 아님) */
 .zn-pop .dv-pop-text { font-weight: 600; color: #334155; }

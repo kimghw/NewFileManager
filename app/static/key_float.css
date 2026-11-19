@@ -1,0 +1,20 @@
+/* 떠 있는 색 설명(key_float.js — index.html #viewer 안의 #zonesKey 「편집 구역」 · #divKey 「구분 기준 자리」: design.md §4 「색 설명은 문서 위에 떠 있는 상자로」).
+   2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게" — 전에는 문서 이름 줄 안의 설명이었다(줄이 두 줄로 꺾이고 문서 이름을 밀어냈다).
+   문서 창(.viewer — position: relative) 위에 겹쳐 뜬다 — 쪽을 밀지 않고 문서를 굴려도 그 자리. 자리(left · top)는 key_float.js 가 넣는다(제자리 = 문서 위 가운데 · 끌어 옮긴 자리는 기억).
+   안의 칩 · 이름 · 노트의 꼴은 divisions.css(.dv-key · .dv-chip) · zones.css(.zn-key-chip) 그대로 — 여기는 상자와 손잡이만. 이 파일은 그 둘 다음에 읽힌다. */
+.viewer > .key-float {
+  position: absolute; left: 6px; top: 8px; z-index: 8; box-sizing: border-box;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; width: max-content; max-width: calc(100% - 12px); min-height: 30px;
+  padding: 3px 5px 3px 4px; border: 1px solid #c9d3e3; border-radius: 8px; background: #fff; box-shadow: 0 4px 14px rgba(20, 35, 70, .16);
+  cursor: grab; user-select: none; touch-action: none; /* 상자의 빈 곳 어디서나 끈다(손가락으로도 — 끄는 동안 문서가 굴러가지 않게) */
+}
+.viewer > .key-float[hidden] { display: none; }
+.viewer > .key-float.kf-moving { cursor: grabbing; box-shadow: 0 8px 22px rgba(20, 35, 70, .26); }
+.key-float :is(button, a) { cursor: pointer; }
+/* 손잡이 — 점 여섯(2 × 3). 끌기는 상자의 빈 곳 어디서나 되고 이 그림은 「옮길 수 있다」 는 표시(도움말 「끌어서 옮기기 · 두 번 누르면 제자리로」) */
+.key-float > .kf-grip { flex: none; width: 8px; height: 12px; margin: 0 1px 0 2px; opacity: .7; background-image: radial-gradient(circle, #64748b 1px, transparent 1.3px); background-size: 4px 4px; }
+.key-float:hover > .kf-grip, .key-float.kf-moving > .kf-grip { opacity: 1; }
+.key-float > .dv-key-name { color: #334155; } /* 상자의 이름 — 이름 줄 안에 있을 때(옅은 회색)보다 또렷이 */
+/* 시작 화면 · 둘째 면(같이 보기 — 이름 줄도 없는 읽기 전용 면) · 인쇄에는 없다 */
+body.no-doc .key-float, body.peek .key-float { display: none; }
+@media print { .key-float { display: none; } }

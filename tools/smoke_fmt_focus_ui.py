@@ -116,7 +116,7 @@ VIEW = """() => { const doc = document.getElementById('doc'), row = document.get
     outer: document.querySelectorAll('.tpl-mark.fm-on').length,
     key: { shown: vis(key), chip: (key.querySelector('.fm-key-chip') || {}).textContent || '', text: vis(key.querySelector('.fm-key-text')), count: (key.querySelector('.fm-key-count') || {}).textContent || '',
       countShown: vis(key.querySelector('.fm-key-count')), btns: [...key.querySelectorAll('button')].map((b) => b.textContent), inside: parts.length > 0 && parts.every((e) => vis(e) && inside(e)),
-      h: Math.max(0, ...parts.map((e) => Math.round(e.getBoundingClientRect().height))), next: (key.nextElementSibling || {}).id || '' },
+      h: Math.max(0, ...parts.map((e) => Math.round(e.getBoundingClientRect().height))), next: (key.nextElementSibling || {}).id || (key.nextElementSibling || {}).className || '' },
     rowH: Math.round(rr.height), over: row.scrollWidth > row.clientWidth + 1 }; }"""
 # 화면에 보이는 여백 라벨 가운데 그 라벨(없으면 아무 라벨)의 글 하나를 누른다 -> 누른 라벨
 CLICK = """(want) => { const all = [...document.querySelectorAll('.tpl-mark .tm-f')]; const b = all.find((x) => (want ? x.dataset.fmt === want : true)); if (!b) return null;
@@ -236,7 +236,7 @@ def main():
 
         v, labels = page.evaluate(VIEW), page.evaluate(LABELS)
         check("누르기 전 — 흐린 문단 없음 · 이름 줄 설명 없음 · 여백의 서식 라벨은 라벨마다 눌리는 글", not v["on"] and not v["hit"] and v["missOp"] == [1] and not v["key"]["shown"] and not v["marks"]
-              and len(labels) >= 2 and all(l.startswith("S") for l, _ in labels) and v["rowH"] == 35 and v["key"]["next"] == "zonesKey", [v["key"], labels[:6]])  # 다음 = 「편집 구역」 색 설명(565dded 부터 #fmtKey 와 #divKey 사이)
+              and len(labels) >= 2 and all(l.startswith("S") for l, _ in labels) and v["rowH"] == 35 and v["key"]["next"] == "document-mode", [v["key"], labels[:6]])  # 다음 = 「편집 중」(2026-11-19 — 그 사이에 있던 색 설명 #zonesKey · #divKey 는 문서 위에 떠 있는 상자로 나갔다: key_float.js)
         first, second = labels[0][0], labels[1][0]
         want, total = label_ids(plan, first)
 

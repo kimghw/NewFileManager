@@ -180,7 +180,7 @@
 #divBox .dv-marks-lists .btn::after { content: "›"; flex: none; color: #94a3b8; font-size: 13px; line-height: 1; }
 #divBox .dv-marks-lists .btn:hover { background: #eef3fa; border-color: #b9c9e0; color: #1e293b; }
 .dv-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 18px; padding: 0 7px 0 5px; border-radius: 9px; border: 1px solid var(--dv-line, #cbd5e1); background: var(--dv-bg, #f1f5f9); color: #1e293b; white-space: nowrap; }
-#divBox .dv-chip { gap: 5px; height: 22px; font-weight: 500; line-height: 20px; padding: 0 8px 0 6px; border-radius: 999px; } /* 패널 안 칩만 한 치수 크게 — 문서 이름 줄(#divKey · 구역 색 설명)의 칩은 위 그대로(그 줄은 높이를 늘리지 않는다: smoke_div_key_ui) */
+#divBox .dv-chip { gap: 5px; height: 22px; font-weight: 500; line-height: 20px; padding: 0 8px 0 6px; border-radius: 999px; } /* 패널 안 칩만 한 치수 크게 — 문서 위에 떠 있는 색 설명(#divKey · 구역 색 설명 #zonesKey)의 칩은 위 그대로 */
 .dv-chip::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--dv-line, #94a3b8); }
 .dv-chip.hint { --dv-line: #b45309; --dv-bg: #fff7ed; border-style: dashed; }
 .dv-chip.hint-llm { --dv-line: #6d28d9; --dv-bg: #f5f3ff; border-style: dotted; }
@@ -200,12 +200,11 @@
 :where(#doc.dv-marks .para.dv-in.dv-read) { background-color: transparent; }
 #doc.dv-marks .para.dv-hint { outline: 1.5px dashed #b45309; outline-offset: -1px; }        /* 사용자가 표시한 자리 */
 #doc.dv-marks .para.dv-hint-llm { outline: 1.5px dotted #6d28d9; outline-offset: -1px; }    /* LLM 재검토가 넣은 자리 */
-/* 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여") — 문서 이름 줄(#fileInfo.document-name-row — document_header.css)의 「편집 중」 앞 #divKey: 색이 문서에 입혀져 있는 동안만
-   (app.js divKeyDraw 가 줄에 .has-dv-key). 줄을 더 쓰지 않는다 — 좁으면 줄 폭(@container docname)으로 「구분 기준 자리」·「진한 줄 = 라벨」 → 「편집 중」·파일 크기 차례로 감추고,
-   그래도 안 들어가면 설명만 다음 줄로 접힌다(파일 이름이 6em 까지 줄어든 뒤에 — flex-basis 6em 이라 긴 이름만으로는 안 접힘). 칩 색은 위 [data-dv] 변수. */
+/* 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여") — #divKey: 색이 문서에 입혀져 있는 동안만(app.js divKeyDraw). 칩 색은 위 [data-dv] 변수.
+   2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 문서 이름 줄(#fileInfo)이 아니라 **문서 위에 떠 있는 상자**다 —
+   상자의 꼴 · 자리 · 끌기는 key_float.css · key_float.js, 여기는 안의 이름 · 칩 · 「진한 줄 = 라벨」 의 꼴만. 이름 줄을 꺾고 좁은 줄에서 글을 감추던 규칙(.has-dv-key · @container docname 760 · 560px)은 뺐다.
+   이름 줄의 container(docname)는 그 줄의 다른 표시(분석 상태 · 서식 라벨 설명 #fmtKey · 표시 아이콘)가 쓴다 */
 .workspace > .document-name-row { container: docname / inline-size; }
-.document-name-row.has-dv-key { flex-wrap: wrap; row-gap: 3px; }
-.document-name-row.has-dv-key > .file-name { flex-basis: 6em; }
 .dv-key { flex: none; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .dv-key[hidden] { display: none; }
 .dv-key-name, .dv-key-tone { color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -213,7 +212,7 @@
 .dv-key-tone { display: inline-flex; align-items: center; gap: 4px; }
 .dv-key-tone::before { content: ""; width: 14px; height: 10px; border-radius: 1px; background: linear-gradient(to right, #64748b 0 3px, #cbd3de 3px); } /* 라벨 줄 꼴: 왼쪽 띠 + 진한 바탕 */
 .dv-key .panel-help { width: 22px; height: 22px; }
-/* 이름 줄의 칩 = 「그 구분만 또렷이」 단추(② §11 「그 구분만 또렷이」, 2026-11-18 사용자): 누른 칩은 그 구분의 색으로 채운다 */
+/* 색 설명의 칩 = 「그 구분만 또렷이」 단추(② §11 「그 구분만 또렷이」, 2026-11-18 사용자): 누른 칩은 그 구분의 색으로 채운다 */
 #divKey button.dv-chip { font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
 #divKey button.dv-chip:hover { border-width: 1px; box-shadow: 0 0 0 1px var(--dv-line, #94a3b8); }
 #divKey button.dv-chip:focus-visible { outline: 2px solid var(--dv-line, #94a3b8); outline-offset: 1px; }
@@ -222,8 +221,6 @@
 /* 그 구분만 또렷이(app.js divOnlyDraw): 그 구분에 든 문단(.dv-hit)은 그대로 · 나머지 문단은 흐리게 — 감추지 않는다(design.md §1 「한 가지만 골라 볼 때는 나머지를 흐리게」 —
    서식 라벨만 또렷이(fmt_focus.css)와 같은 0.42 · 표 괘선·칸 바탕·여백 표시는 그대로 · 글을 쓰는 문단은 흐리지 않음) */
 #doc.dv-only .para:not(.dv-hit):not(:focus) { opacity: .42; }
-@container docname (max-width: 760px) { .dv-key-name, .dv-key-tone { display: none; } }
-@container docname (max-width: 560px) { .has-dv-key > .document-mode, .has-dv-key > .file-meta { display: none; } }
 .dv-badge.hinted { background: #fff7ed; border-color: #f4c48a; color: #9a3412; }
 .dv-pop { position: fixed; z-index: 40; width: 300px; max-width: calc(100vw - 16px); padding: 12px 14px; background: #fff; border: 1px solid #c9d3e3; border-radius: 10px;
   box-shadow: 0 10px 30px rgba(20, 35, 70, .22); font-size: 12.5px; color: #1e293b; display: flex; flex-direction: column; gap: 8px; }

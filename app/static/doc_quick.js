@@ -19,12 +19,13 @@ const DOC_QUICK = [
   { id: "nameTblMarks", name: "표 라벨 표시", what: "문서의 표 옆 여백에 붙는 표 라벨(엑셀식 보기 ⊞ · 표 지침 ✎ · 표 id · 소속)", on: () => typeof tblMarksOn === "function" && tblMarksOn(), toggle: () => tblMarksToggle(),
     have: () => typeof tblMarksToggle === "function" && !!document.querySelector("#doc table.tbl[data-tbl], #doc .xl-wrap[data-tbl]"), none: "이 문서에는 표가 없습니다" },
   // 넷째 · 다섯째(2026-11-18 사용자 "구분자리 표기, 편집구역 아이콘 각각 넣어 주고, 활성화 하고 마웃 갖어다 대면 어떤 건지 보이게 해줘"): 문단에 입히는 색 표시 둘.
-  // 값은 하나다 — 「구분 기준 자리 표시」 = 「작업 개요」 카드의 「보기/감추기」 · 문서 오른쪽 단추 메뉴 · 이름 줄 설명의 「감추기」 와 같은 nfm.divMarks(기본 끔 — app.js divMarksOn · divMarksToggle) ·
+  // 값은 하나다 — 「구분 기준 자리 표시」 = 「작업 개요」 카드의 「보기/감추기」 · 문서 오른쪽 단추 메뉴와 같은 nfm.divMarks(기본 끔 — app.js divMarksOn · divMarksToggle) ·
   // 「편집 구역 표시」 = 「편집 구역」 줄의 「보기/감추기」 와 같은 nfm.zones(기본 켬 — zones.js zonesOn · zonesToggle). 둘 다 연구개발과제 TASK 의 것이라 다른 TASK 에서는 세우지 않는다(show — design.md §9 「해당 없는 항목은 세우지 않는다」).
   // app.js divKeyDraw · divMarksBarRefresh 와 zones.js zonesKeyDraw 가 그릴 때마다 docQuickSync 를 부른다(다른 곳에서 켜고 꺼도 눌림이 따라온다)
-  { id: "nameDivMarks", name: "구분 기준 자리 표시", what: "문단의 구분 기준 자리 색(단계 · 차년도 · 기관이 걸린 글의 바탕색과 왼쪽 띠)",
+  // 2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 이 둘을 켜면 그 색의 설명이 문서 위에 떠 있는 상자로 뜬다(key_float.js — 전에는 이 줄 안의 설명이라 줄이 꺾였다)
+  { id: "nameDivMarks", name: "구분 기준 자리 표시", what: "문단의 구분 기준 자리 색(단계 · 차년도 · 기관이 걸린 글의 바탕색과 왼쪽 띠)과 문서 위에 뜨는 색 설명(끌어서 옮김)",
     show: () => !!state.id && taskRnd(), on: () => divMarksOn(), toggle: () => divMarksToggle(), have: () => !!state.id && taskRnd() },
-  { id: "nameZones", name: "편집 구역 표시", what: "편집 구역(어느 기관 · 단계 · 차년도의 것인지 — 블록 옆 색 띠와 쪽 오른쪽 여백의 이름표 「한국선급 · 2차년도」)",
+  { id: "nameZones", name: "편집 구역 표시", what: "편집 구역(어느 기관 · 단계 · 차년도의 것인지 — 블록 옆 색 띠와 쪽 오른쪽 여백의 이름표 「한국선급 · 2차년도」)과 문서 위에 뜨는 색 설명(끌어서 옮김)",
     show: () => !!state.id && taskRnd() && typeof zonesToggle === "function", on: () => zonesOn(), toggle: () => zonesToggle(), have: () => zonesOffered() && zonesDims().length > 0,
     none: () => (!zonesOffered() ? "편집 구역은 저장된 HWPX 문서에서만 씁니다" : "보일 기준(기관 · 단계 · 차년도)이 하나도 켜져 있지 않습니다 — 「작업 개요」 의 「편집 구역」 에서 고르세요") },
 ];

@@ -8587,7 +8587,7 @@ const divFresh = () => ({ view: null, values: null, plan: null, result: null, bu
   savedKey: null, // 작업에 마지막으로 저장한 설정(divCanon) — 자동 저장(② §8)
   marks: { data: null, index: null, loading: false, seq: 0, err: null, llm: false, llmLast: null, missing: false, missingLast: null, // 문서 표시·추가한 자리(spec_구분_기준 ② §11) · 빠진 자리 검토(§13)
     reviewing: false, reviewOwn: false, review: null, // LLM 검토(두 검토를 함께 — ② §14): 도는 중 · 이 화면이 부른 것 · 마지막 취합 결과
-    only: null } }); // 「그 구분만 또렷이」 — 이름 줄 칩으로 고른 구분 키(divOnlySet · ② §11) · 문서를 열거나 닫으면 풀림
+    only: null } }); // 「그 구분만 또렷이」 — 색 설명(문서 위에 떠 있는 상자 #divKey)의 칩으로 고른 구분 키(divOnlySet · ② §11) · 문서를 열거나 닫으면 풀림
 let dv = divFresh();
 
 function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
@@ -8600,6 +8600,12 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
   taskFrameForm = null; taskFrameApply = null; // 1·2단계 묶음 안의 입력 칸도 함께 사라졌다
   if (typeof zonesReset === "function") zonesReset(); // 편집 구역(zones.js) — 읽어 둔 구역을 버리고, 문서가 열려 있으면 새 문서·새 TASK 의 것으로 곧 다시 읽는다(문서를 열 때 · 닫을 때 · TASK 를 바꾼 뒤)
   divMarksDraw(); // 옛 문서의 구분 기준 표시 지움(② §11)
+  // 표시가 켜져 있으면(nfm.divMarks — 기억) 문서를 연 뒤 곧 자리를 읽는다(② §11 「색 설명」, 2026-11-19): 전에는 「작업 개요」 를 열어야(divShow) 읽어서, 다시 연 문서는 이름 줄 아이콘이 눌려 있는데도
+  // 색도 떠 있는 설명도 없었다(아이콘을 껐다 켜야 보임). 편집 구역(zones.js zonesReset)과 같은 꼴 — load() 가 끝난 뒤에 · 둘째 면은 전처럼 안 읽는다
+  if (state.id && !PEEK) {
+    const view = dv, epoch = state.epoch;
+    setTimeout(() => { if (view === dv && epoch === state.epoch && divMarksOn() && !dv.marks.data && !dv.marks.loading) divMembersLoad(); }, 0);
+  }
 }
 
 const divDefault = () => ({ stages: [1], orgs: { lead: "", joint: [], nonprofit: [false] } });
@@ -9640,7 +9646,7 @@ const DV_MARKS_KEY = "nfm.divMarks";
 const DV_DIM_RANK = { stage: 0, stageYear: 0, year: 1, sub: 2, org: 3 }; // 구분 순서(바깥 → 안, core.RANK) — 기타(사용자 이름)는 가장 안쪽
 const DV_DIM_NAME = { stage: "단계", year: "차년도", stageYear: "단계-차년도", sub: "세부과제", org: "기관" };
 const DV_KEY_ORDER = ["stage", "stageYear", "year", "sub", "org", "other"]; // 색 설명의 칩 차례(겉 → 안)
-const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 문서 이름 줄의 노트가 같은 글
+const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 색 설명(문서 위에 떠 있는 상자 #divKey)의 노트가 같은 글
   "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」), 옅은 색 = 그 자리 안의 글·표 칸.\n" +
   "여러 자리에 겹치면 바탕은 가장 안쪽 것의 색이고, 왼쪽 띠가 든 자리마다 하나씩 겉에서 안 차례로 붙습니다(단계 › 차년도 › 기관 — 2줄·3줄). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
   "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴, 기관 이름만 적은 줄(「o 기관 이름」 이 기관마다 되풀이되는 곳)처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
@@ -9807,7 +9813,7 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
   divOnlyDraw(); // 쪽을 다시 나누거나 문서를 다시 읽으면 문단 요소가 새것 — 「그 구분만 또렷이」 표지도 다시
 }
 
-// 그 구분만 또렷이(② §11 「그 구분만 또렷이」, 2026-11-18 사용자 "이거 단계/차년도/기관 클릭하면 화면에 그 부분만 볼 수 있도록 해줘"): 이름 줄의 칩을 누르면 그 구분에 든 문단(겉 → 안 어느 자리든 —
+// 그 구분만 또렷이(② §11 「그 구분만 또렷이」, 2026-11-18 사용자 "이거 단계/차년도/기관 클릭하면 화면에 그 부분만 볼 수 있도록 해줘"): 색 설명(문서 위에 떠 있는 상자 — 2026-11-19 전에는 이름 줄)의 칩을 누르면 그 구분에 든 문단(겉 → 안 어느 자리든 —
 // 띠·바탕이 그 구분인 문단)은 그대로 두고 나머지 문단을 흐리게(#doc.dv-only · .dv-hit — divisions.css). 감추지 않는다(design.md §1 「한 가지만 골라 볼 때는 나머지를 흐리게」 · 편집 구역의
 // 「식별이지 거르기가 아니다」 — 둘 다 사용자 말) · 보기만(문서·쪽 나눔·내보내기 그대로). 자리 = 표시 자료(divMembersIndex 의 dims) — 다시 계산하지 않는다.
 function divOnlyDraw() {
@@ -9841,7 +9847,7 @@ function divOnlySet(k) { // k = 구분 키(그 구분만 또렷이) | null(풂).
   if (to) sc.scrollTop += to.getBoundingClientRect().top - o.top - 40;
 }
 
-function divKeyPress() { // 이름 줄 칩의 눌림(「그 구분만 또렷이」) — 칩을 다시 만들지 않고 상태·풍선 도움말만
+function divKeyPress() { // 색 설명(#divKey — 문서 위에 떠 있는 상자) 칩의 눌림(「그 구분만 또렷이」) — 칩을 다시 만들지 않고 상태·풍선 도움말만
   const k = typeof dv !== "undefined" ? dv.marks.only : null;
   for (const c of document.querySelectorAll("#divKey .dv-chip")) {
     const on = c.dataset.dv === k, name = c.textContent;
@@ -9853,11 +9859,13 @@ function divKeyPress() { // 이름 줄 칩의 눌림(「그 구분만 또렷이�
 }
 
 // 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 개요」 의 카드에만 있었다 →
-// 색이 입혀져 있는 동안 문서 이름 줄(#fileInfo, 「편집 중」 앞 #divKey)에 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트 + 「감추기」. 색칠할 자리가 없으면 설명도 없다.
+// 색이 입혀져 있는 동안 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트를 보인다(#divKey). 색칠할 자리가 없으면 설명도 없다.
+// 2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 설명은 문서 이름 줄이 아니라 **문서 위에 떠 있는 상자**다(#viewer 안 — 자리 · 끌어 옮기기 · 기억은 key_float.js).
+// 이름 줄에는 켜고 끄는 아이콘(#nameDivMarks)만 남는다 — 그 아이콘으로 켜면 뜨고 끄면 사라진다.
 function divKeyDraw(on) {
   if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘(doc_quick.js) — 문서·TASK 가 바뀌면 「구분 기준 자리 표시」·「편집 구역 표시」 를 세울지가 여기서 바뀐다(쪽을 다시 나눌 때마다 불림)
-  const box = $("divKey"), row = $("fileInfo");
-  if (!box || !row) return;
+  const box = $("divKey");
+  if (!box) return;
   const dims = new Map(); // 구분 키 → 이름
   if (on) {
     const d = dv.marks.data, put = (dim, name) => { const k = dim in DV_DIM_NAME ? dim : "other"; if (!dims.has(k)) dims.set(k, DV_DIM_NAME[k] || name || "기타"); };
@@ -9868,10 +9876,11 @@ function divKeyDraw(on) {
   const keys = [...dims.keys()].sort((a, b) => DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
   if (on && dv.marks.only && !dims.has(dv.marks.only)) dv.marks.only = null; // 고른 구분의 자리가 문서에서 없어졌다 — 문서 전체로(divMarksDraw 끝의 divOnlyDraw 가 푼다)
   const sig = keys.map((k) => k + "=" + dims.get(k)).join("|");
-  row.classList.toggle("has-dv-key", !!sig);
-  if (box.dataset.sig === sig && box.hidden === !sig) { divKeyPress(); return; } // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게) · 칩의 눌림만
+  if (box.dataset.sig === sig && box.hidden === !sig) { divKeyPress(); return; } // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게 · 옮긴 자리도 그대로) · 칩의 눌림만
   box.dataset.sig = sig; box.hidden = !sig; box.textContent = "";
-  if (!sig) return;
+  const place = () => { if (typeof keyFloatPlace === "function") keyFloatPlace(); }; // 떠 있는 상자의 자리(key_float.js) — 이 설명이 사라지면 옆 상자(편집 구역)가 가운데로 온다
+  if (!sig) { place(); return; }
+  if (typeof keyFloatGrip === "function") box.append(keyFloatGrip()); // 손잡이(끌어서 옮기기)
   box.append(el("span", "dv-key-name", "구분 기준 자리"));
   for (const k of keys) { // 칩 = 「그 구분만 또렷이」 단추(② §11 — 다시 누르면 풀림)
     const chip = el("button", "dv-chip", dims.get(k));
@@ -9880,10 +9889,12 @@ function divKeyDraw(on) {
     box.append(chip);
   }
   divKeyPress();
-  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(이름 줄을 더 쓰지 않는다 — design.md §1)
-  // 감추기 · 다시 보기 = 이 줄 앞의 아이콘 #nameDivMarks(doc_quick.js — 2026-11-18 사용자 "구분자리 표기 … 아이콘 … 활성화"). 설명 끝의 「감추기」 단추는 뺐다 — 같은 줄에 같은 일을 하는 아이콘이 있다(design.md §10)
-  const again = "감추거나 다시 보려면 이 줄 앞의 「구분 기준 자리 표시」 아이콘을 누르세요(「작업 개요」 의 「구분 기준 자리 표시」 「보기/감추기」 · 문단의 오른쪽 단추 메뉴에도 있음)";
-  box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n이 줄의 칩(단계·차년도·기관 …)을 누르면 그 구분의 자리만 또렷이 — 나머지 문단은 흐리게(다시 누르면 풀림).\n" + again + ".", { note: true }));
+  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(상자의 글을 늘리지 않는다 — design.md §1)
+  // 감추기 · 다시 보기 = 문서 이름 줄의 아이콘 #nameDivMarks(doc_quick.js — 2026-11-18 사용자 "구분자리 표기 … 아이콘 … 활성화"). 설명 안에 「감추기」 단추는 없다 — 같은 일을 하는 아이콘이 있다(design.md §10)
+  const again = "감추거나 다시 보려면 문서 이름 줄의 「구분 기준 자리 표시」 아이콘을 누르세요(「작업 개요」 의 「구분 기준 자리 표시」 「보기/감추기」 · 문단의 오른쪽 단추 메뉴에도 있음)";
+  const move = "이 상자는 끌어서 옮길 수 있습니다(자리는 이 브라우저에 기억 · 두 번 누르면 제자리).";
+  box.append(hHelp("구분 기준 자리 색 안내", DV_KEY_HELP + "\n이 상자의 칩(단계·차년도·기관 …)을 누르면 그 구분의 자리만 또렷이 — 나머지 문단은 흐리게(다시 누르면 풀림).\n" + again + ".\n" + move, { note: true }));
+  place();
 }
 
 // ---- 추가한 자리(hint) — 문서에서 오른쪽 단추

@@ -63,13 +63,19 @@ BAR = """() => { const b = document.getElementById('zonesBar'), prev = b && b.pr
 DOC = """() => ({ ins: document.querySelectorAll('#doc .gz-in').length, tags: [...document.querySelectorAll('#doc .sheet > .gz-tag')].map((t) => ({ text: t.textContent, gz: t.dataset.gz, mark: t.classList.contains('gz-mark'), title: t.title })),
   cells: document.querySelectorAll('#doc td.gz-cell').length, puts: document.querySelectorAll('#doc .gz-put').length, cls: [document.getElementById('doc').className, document.body.className].join(' '),
   tips: [...document.querySelectorAll('#doc .gz-in')].slice(0, 40).map((e) => e.title) })"""
-KEY = """() => { const k = document.getElementById('zonesKey'), row = document.getElementById('fileInfo'), vis = (e) => !!e && e.getClientRects().length > 0, rr = row.getBoundingClientRect();
-  const inside = (e) => { const r = e.getBoundingClientRect(); return r.left >= rr.left - 1 && r.right <= rr.right + 1 && r.top >= rr.top - 1 && r.bottom <= rr.bottom + 1; };
-  const ic = document.getElementById('nameZones'), parts = [...k.querySelectorAll('.zn-key-chip, .panel-help'), ic].filter(vis);  // ic = 이름 줄 아이콘 「편집 구역 표시」(2026-11-18 — 설명 끝의 「감추기」 를 이리 옮김)
-  return { shown: vis(k), has: row.classList.contains('has-zn-key'), chips: [...k.querySelectorAll('.zn-key-chip')].filter(vis).map((c) => [c.dataset.gz, c.textContent]),
-    name: vis(k.querySelector('.dv-key-name')) ? k.querySelector('.dv-key-name').textContent : '', tone: vis(k.querySelector('.zn-key-tone')), off: [...k.querySelectorAll('button')].map((b) => b.textContent.trim()).join('|'),
-    icon: ic.getAttribute('aria-pressed'), iconIn: vis(ic) && inside(ic),
-    help: (k.querySelector('.panel-help') || { dataset: {} }).dataset.help || '', inside: parts.length > 0 && parts.every(inside), rowH: Math.round(rr.height), over: row.scrollWidth > row.clientWidth + 1,
+# 색 설명(#zonesKey) = 문서 창(#viewer) 위에 떠 있는 상자(2026-11-19 — key_float.js) · 이름 줄(#fileInfo)에는 켜고 끄는 아이콘만. x·y = 문서 창 왼쪽 위에서의 px · mid = 문서 창 가운데에서 벗어난 px
+KEY = """() => { const k = document.getElementById('zonesKey'), d = document.getElementById('divKey'), row = document.getElementById('fileInfo'), view = document.getElementById('viewer'), vis = (e) => !!e && e.getClientRects().length > 0;
+  const rr = row.getBoundingClientRect(), vr = view.getBoundingClientRect(), kr = k.getBoundingClientRect(), dr = d.getBoundingClientRect();
+  const inside = (e, o) => { const r = e.getBoundingClientRect(); return r.left >= o.left - 1 && r.right <= o.right + 1 && r.top >= o.top - 1 && r.bottom <= o.bottom + 1; };
+  const ic = document.getElementById('nameZones'), parts = [...k.querySelectorAll('.kf-grip, .dv-key-name, .zn-key-chip, .panel-help')];  // ic = 이름 줄 아이콘 「편집 구역 표시」(켜고 끄는 길)
+  return { shown: vis(k), inRow: row.contains(k), inView: k.parentElement === view, pos: getComputedStyle(k).position, chips: [...k.querySelectorAll('.zn-key-chip')].filter(vis).map((c) => [c.dataset.gz, c.textContent]),
+    name: vis(k.querySelector('.dv-key-name')) ? k.querySelector('.dv-key-name').textContent : '', tone: vis(k.querySelector('.zn-key-tone')), grip: vis(k.querySelector('.kf-grip')), off: [...k.querySelectorAll('button')].map((b) => b.textContent.trim()).join('|'),
+    icon: ic.getAttribute('aria-pressed'), iconIn: vis(ic) && inside(ic, rr),
+    help: (k.querySelector('.panel-help') || { dataset: {} }).dataset.help || '', inside: vis(k) && inside(k, vr) && parts.length >= 4 && parts.every((e) => vis(e) && inside(e, kr)),   // 상자가 문서 창 안 · 손잡이·이름·칩·노트가 상자 안
+    x: Math.round(kr.left - vr.left), y: Math.round(kr.top - vr.top), w: Math.round(kr.width), h: Math.round(kr.height), mid: Math.round(kr.left + kr.width / 2 - vr.left - vr.width / 2),
+    rowH: Math.round(rr.height), over: row.scrollWidth > row.clientWidth + 1,
+    div: vis(d) ? { x: Math.round(dr.left - vr.left), y: Math.round(dr.top - vr.top), w: Math.round(dr.width), in: inside(d, vr), apart: dr.left >= kr.right - 1 || dr.top >= kr.bottom - 1,   // 「구분 기준 자리」 상자 — 안 겹침(오른쪽 또는 아래)
+      mid: Math.round((Math.min(kr.left, dr.left) + Math.max(kr.right, dr.right)) / 2 - vr.left - vr.width / 2) } : null,
     beforeDiv: !!k.nextElementSibling && k.nextElementSibling.id === 'divKey' }; }"""
 MENU = "() => { const m = document.querySelector('.ctx-menu'); return m && !m.hidden ? [...m.querySelectorAll('button')].map((b) => b.textContent) : []; }"
 POP = """() => { const p = document.getElementById('zonesPop'); if (!p) return null;
@@ -165,7 +171,7 @@ try:
         check("체크 셋(기관 · 단계 · 차년도) — 기본은 모두 꺼짐 · 꺼져 있어도 보임 · 칩 대신 안내 한 줄", b0["dims"] == [["org", False, False], ["stage", False, False], ["year", False, False]]
               and b0["names"] == ["기관", "단계", "차년도"] and "기관·단계·차년도를 켜면 문서에서 그 값의 구역을 가려 보입니다" in b0["text"] and not b0["chips"], (b0["dims"], b0["text"]))
         check("노트 — 무엇을 보이나 · 화면 표시일 뿐(파일은 그대로) · 「구역 지정…」 · 취합으로 들어온 내용", all(s in b0["help"] for s in ("어느 기관·단계·차년도의 것인지", "화면 표시일 뿐", "내려받는 파일은 그대로", "「구역 지정…」", "어느 기관 문서에서 왔는지")), b0["help"][:200])
-        check("켠 기준이 없으면 문서에 표시 없음 · 이름 줄 설명 없음 · #doc·body 에 표시용 클래스 없음", d0["ins"] == 0 and not d0["tags"] and not k0["shown"] and not k0["has"] and "gz" not in d0["cls"] and "zn" not in d0["cls"], (d0["ins"], k0))
+        check("켠 기준이 없으면 문서에 표시 없음 · 색 설명 없음 · #doc·body 에 표시용 클래스 없음", d0["ins"] == 0 and not d0["tags"] and not k0["shown"] and "gz" not in d0["cls"] and "zn" not in d0["cls"], (d0["ins"], k0))
         gets = [s[1] for s in sent if s[0] == "GET"]
         check("켠 기준이 없으면 구역을 세지 않음 — 문서를 열 때 옵션만 읽음(GET …/task-options · GET …/zones 없음)", f"works/{a}/task-options" in gets and not any(g.endswith("/zones") for g in gets), gets)
         items = menu_at(P1)
@@ -221,28 +227,58 @@ try:
         page.evaluate("() => document.getElementById('panel').style.removeProperty('--panel')")
         page.wait_for_timeout(250)
 
-        # ---- 4. 문서 이름 줄의 색 설명 — 「편집 구역」 + 지금 문서에 있는 값의 칩(문서의 띠 색) + 노트 · 줄 높이 그대로 · 끄는 길 = 이름 줄 아이콘 「편집 구역 표시」(눌림)
+        # ---- 4. 색 설명 = 문서 위에 떠 있는 상자(2026-11-19 사용자 "각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 … 움직일 수 있게") — 「편집 구역」 + 지금 문서에 있는 값의 칩(문서의 띠 색) + 노트 ·
+        #        이름 줄은 한 줄 그대로 · 끄는 길 = 이름 줄 아이콘 「편집 구역 표시」(눌림)
+        page.evaluate("() => { try { localStorage.removeItem('nfm.keyFloat'); } catch (e) {} }")
         k = page.evaluate(KEY)
         same = page.evaluate("""() => [...document.querySelectorAll('#zonesKey .zn-key-chip')].every((c) => { const p = document.querySelector(`#doc .gz-in[data-gz="${c.dataset.gz}"]`);
           return !!p && getComputedStyle(c).getPropertyValue('--gz-c').trim() === getComputedStyle(p).getPropertyValue('--gz-c').trim() && getComputedStyle(c, '::before').backgroundColor !== 'rgba(0, 0, 0, 0)'; })""")
-        check("이름 줄 색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색) · 노트(감추고 다시 켜는 곳 = 아이콘) · 설명 안에 단추 없음 · 아이콘 눌림 · 「구분 기준 자리」 설명 앞",
-              k["shown"] and k["has"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == [LEAD, SEED, UANGEL] and k["off"] == "" and k["icon"] == "true"
-              and [c[0] for c in k["chips"]] == ["0", "1", "2"] and same and "화면 표시일 뿐" in k["help"] and "다시 보려면" in k["help"] and "「편집 구역 표시」 아이콘" in k["help"] and k["beforeDiv"], k)
-        check("줄을 더 쓰지 않음 — 이름 줄 높이 그대로 · 넘침 없음 · 칩·노트·아이콘이 줄 안", k["rowH"] == k0["rowH"] and not k["over"] and k["inside"] and k["iconIn"], (k0["rowH"], k["rowH"]))
+        check("색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색) · 노트(감추고 다시 켜는 곳 = 이름 줄 아이콘 · 끌어서 옮김) · 설명 안에 단추 없음 · 아이콘 눌림",
+              k["shown"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == [LEAD, SEED, UANGEL] and k["off"] == "" and k["icon"] == "true"
+              and [c[0] for c in k["chips"]] == ["0", "1", "2"] and same and "화면 표시일 뿐" in k["help"] and "다시 보려면" in k["help"] and "문서 이름 줄의 「편집 구역 표시」 아이콘" in k["help"]
+              and "끌어서 옮길 수 있습니다" in k["help"] and k["beforeDiv"], k)
+        check("문서 위에 떠 있는 상자 — 문서 창 안(이름 줄 밖) · 위 가운데(위에서 8px) · 손잡이 · 손잡이·이름·칩·노트가 상자 안",
+              k["inView"] and not k["inRow"] and k["pos"] == "absolute" and k["grip"] and k["y"] == 8 and abs(k["mid"]) <= 1 and k["inside"], {x: k[x] for x in ("x", "y", "w", "h", "mid", "pos", "inside")})
+        check("이름 줄은 그대로 — 높이 35px(두 줄로 안 꺾임) · 넘침 없음 · 아이콘이 줄 안", k["rowH"] == k0["rowH"] == 35 and not k["over"] and k["iconIn"], (k0["rowH"], k["rowH"]))
         page.click("#divMarksBar .dv-marks-toggle")   # 「구분 기준 자리」 색 설명과 함께
         page.wait_for_function("() => !document.getElementById('divKey').hidden && document.querySelectorAll('#doc .para.dv-in').length > 0", timeout=120000)
         kb = page.evaluate(KEY)
-        check("「구분 기준 자리」 설명과 함께 있어도 넘치지 않음 — 두 설명 모두 보이고 칩·노트·아이콘이 줄 안", kb["shown"] and not kb["over"] and kb["inside"] and page.evaluate("() => document.getElementById('divKey').getClientRects().length > 0"), kb)
+        check("「구분 기준 자리」 설명과 함께 — 두 상자가 한 줄에 나란히(편집 구역 → 구분 기준 자리 · 안 겹침 · 둘이 함께 가운데) · 문서 창 안 · 이름 줄은 한 줄 그대로",
+              kb["shown"] and kb["inside"] and kb["div"] and kb["div"]["in"] and kb["div"]["apart"] and kb["div"]["y"] == kb["y"] == 8 and kb["div"]["x"] >= kb["x"] + kb["w"] and abs(kb["div"]["mid"]) <= 1
+              and kb["rowH"] == 35 and not kb["over"], kb)
         page.screenshot(path=str(OUT / "4_key_both.png"), clip={"x": 0, "y": 0, "width": 1600, "height": 300})
+        page.set_viewport_size({"width": 900, "height": 900})   # 좁은 문서 창 — 한 줄에 안 들어가면 아래로 쌓음
+        page.wait_for_timeout(350)
+        ks = page.evaluate(KEY)
+        check("좁은 창(900px) — 두 상자가 안 겹침(한 줄에 안 들어가면 아래로 쌓음) · 둘 다 문서 창 안", ks["shown"] and ks["inside"] and ks["div"] and ks["div"]["in"] and ks["div"]["apart"], ks)
+        page.screenshot(path=str(OUT / "4_key_both_narrow.png"), clip={"x": 0, "y": 0, "width": 900, "height": 300})
+        page.set_viewport_size({"width": 1600, "height": 900})
+        page.wait_for_timeout(350)
         page.click("#divMarksBar .dv-marks-toggle")
         page.wait_for_function("() => document.getElementById('divKey').hidden")
+        ka = page.evaluate(KEY)
+        check("「구분 기준 자리」 를 끄면 남은 상자가 다시 가운데로", ka["shown"] and ka["div"] is None and abs(ka["mid"]) <= 1 and ka["y"] == 8, ka)
         for width in (1280, 1000):
             page.set_viewport_size({"width": width, "height": 900})
             page.wait_for_timeout(350)
             kw = page.evaluate(KEY)
-            check(f"창 {width}px — 색 설명이 넘치지 않고 칩·노트·아이콘이 줄 안", kw["shown"] and not kw["over"] and kw["inside"] and len(kw["chips"]) >= 1, kw)
+            check(f"창 {width}px — 상자가 문서 창 안 가운데 · 칩·노트 다 보임 · 이름 줄 한 줄", kw["shown"] and not kw["over"] and kw["inside"] and len(kw["chips"]) == 3 and abs(kw["mid"]) <= 1 and kw["rowH"] == 35, kw)
         page.set_viewport_size({"width": 1600, "height": 900})
         page.wait_for_timeout(350)
+        # 끌어서 옮기기 — 상자의 빈 곳(칩도 — 편집 구역의 칩은 단추가 아니다)을 끌면 옮겨짐 · 기억 · 두 번 누르면 제자리
+        chip = page.locator("#zonesKey .zn-key-chip").first.bounding_box()
+        page.mouse.move(chip["x"] + chip["width"] / 2, chip["y"] + chip["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(chip["x"] + chip["width"] / 2 + 150, chip["y"] + chip["height"] / 2 + 240, steps=6)
+        page.mouse.up()
+        km = page.evaluate(KEY)
+        check("칩을 잡고 끌면 상자가 옮겨짐(오른쪽 150 · 아래 240) · 기억(nfm.keyFloat.zonesKey) · 문서 창 안", abs(km["x"] - (ka["x"] + 150)) <= 1 and abs(km["y"] - (ka["y"] + 240)) <= 1 and km["inside"]
+              and page.evaluate("() => JSON.parse(localStorage.getItem('nfm.keyFloat') || '{}').zonesKey") == {"x": km["x"], "y": km["y"]}, (ka["x"], ka["y"], km["x"], km["y"]))
+        page.evaluate("() => zonesDraw()")
+        check("다시 그려도 옮긴 자리 그대로", (page.evaluate(KEY)["x"], page.evaluate(KEY)["y"]) == (km["x"], km["y"]))
+        page.dblclick("#zonesKey .dv-key-name")
+        kh = page.evaluate(KEY)
+        check("두 번 누르면 제자리(문서 위 가운데) · 기억 지움", abs(kh["mid"]) <= 1 and kh["y"] == 8 and page.evaluate("() => localStorage.getItem('nfm.keyFloat')") is None, kh)
 
         # ---- 5. 「구역 지정…」 — 문단에서 오른쪽 단추 → 떠 있는 작은 입력(모달 아님) → 기관을 정하면 이름표가 바뀌고 점선 테
         t_before = tag_of(P1)
@@ -499,7 +535,7 @@ try:
         page.click("#nameZones")
         page.wait_for_function(f"() => !document.querySelector('{ZONE_SEL}')")
         b, k = page.evaluate(BAR), page.evaluate(KEY)
-        check("이름 줄 아이콘으로 끔 → 띠·이름표·칸 표시 모두 사라짐 · 색 설명 없음 · 아이콘 안 눌림 · 줄의 단추 = 「보기」(눌림 풀림) · 체크는 그대로 · 기억(off)", not k["shown"] and not k["has"] and b["toggle"] == "false" and k["icon"] == "false"
+        check("이름 줄 아이콘으로 끔 → 띠·이름표·칸 표시 모두 사라짐 · 떠 있는 색 설명 없음 · 아이콘 안 눌림 · 줄의 단추 = 「보기」(눌림 풀림) · 체크는 그대로 · 기억(off)", not k["shown"] and b["toggle"] == "false" and k["icon"] == "false"
               and b["toggleText"] == "보기" and [x[1] for x in b["dims"]] == [True, False, True] and page.evaluate("() => localStorage.getItem('nfm.zones')") == "off", (b["toggle"], b["toggleText"], k["shown"]))
         n_get = len([s for s in sent if s[0] == "GET" and s[1].endswith("/zones")])
         page.evaluate("() => zonesInvalidate('edit')")

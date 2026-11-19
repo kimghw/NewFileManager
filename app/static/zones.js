@@ -3,7 +3,7 @@
 // app.js 다음 · gather.js 앞에 읽는다. 화면 표시일 뿐이다 — 내보내는 hwpx·docx 에는 아무것도 쓰지 않는다(지정·출처는 작업 폴더에만: ② §0 · §7).
 //   줄      zonesBarEl(#zonesBar): 이름 + 노트 · 「구역 표시」 보기/감추기 · 「목록」 / 체크 셋(기관 · 단계 · 차년도 = TASK 옵션 — PUT …/task-options: ② §1) / 값마다 칩
 //   문서    zonesDraw: 띠(.gz-in) · 쪽 오른쪽 여백의 이름표(.gz-tag — 사람이 지정한 띠는 .gz-mark) · 표와 값이 다른 칸(.gz-cell) · 들어온 내용(.gz-put — 출처 색 data-gzo 는 구역 색 data-gz 를 덮지 않는다)
-//   이름 줄 zonesKeyDraw(#zonesKey) · 지정 zonesCtxItems → #zonesPop(떠 있는 작은 입력 — 모달 아님) → POST/PUT/DELETE …/zones/marks(② §3) · 목록 zonesList(문서 옆 2열 kind "zones")
+//   색 설명 zonesKeyDraw(#zonesKey — 문서 위에 떠 있는 상자: key_float.js) · 지정 zonesCtxItems → #zonesPop(떠 있는 작은 입력 — 모달 아님) → POST/PUT/DELETE …/zones/marks(② §3) · 목록 zonesList(문서 옆 2열 kind "zones")
 //   LLM 검토(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」): 줄의 「LLM 검토」 · 「지침」 — 사람이 누를 때만(유료 · 2026-11-18 부터 확인 창 없이). GET …/zones/llm(보낼 후보 · 쓸 수 있나 · 마지막 결과) →
 //     POST …/zones/llm {docRev, zonesRev}(응답 = 구역 자료 + llm) → LLM 이 지정한 구역(marks[].by "llm")은 이름표에 「LLM」 꼬리 · 목록의 「지정」 묶음에 근거·까닭 · 「LLM 지정 모두 해제」. 문서는 안 바뀐다
 // 자료 = GET /api/docs/<대상 문서>/zones(② §5 의 꼴). 대상 문서 = 지금 문서 — 취합이면 취합본(gather.js gatherPlan: 기관 문서를 보는 중에도 줄은 취합본의 것이고, 문서 표시는 지금 문서가 취합본일 때만).
@@ -18,7 +18,7 @@ const ZN_DIMS = ["org", "stage", "year"]; // 기준의 차례(app/zones.py DIMS 
 const ZN_DIM_NAME = { org: "기관", stage: "단계", year: "차년도" };
 const ZN_ROLE = { lead: "주관", joint: "공동" };
 const ZN_KIND = { added: "더한 내용", filled: "채운 자리", cells: "표 칸", rows: "표 행", drop: "끌어 넣음" }; // 출처의 종류(② §4) → 화면 말
-const ZN_KEY_MAX = 6; // 이름 줄 설명에 보일 값 칩 수(넘으면 「외 n」)
+const ZN_KEY_MAX = 6; // 색 설명(문서 위에 떠 있는 상자 #zonesKey)에 보일 값 칩 수(넘으면 「외 n」)
 const ZN_HELP = "문서의 문단·표·표 칸이 어느 기관·단계·차년도의 것인지 보입니다 — 구역의 블록 옆에 색 띠, 구역이 시작하는 곳의 쪽 오른쪽 여백에 이름표(「한국선급 · 2차년도」).\n" +
   "화면 표시일 뿐입니다 — 저장·PDF·내려받는 파일은 그대로입니다.\n" +
   "「보일 기준」(기관 · 단계 · 차년도)은 이 TASK 의 옵션입니다 — 같은 TASK 묶음의 문서가 함께 씁니다.\n" +
@@ -155,7 +155,7 @@ async function znOptionsLoad(force = false) { // 구역을 세지 않을 때(표
   Z.opt = r;
   znRedraw();
 }
-async function zonesLoad(force = false) { // GET …/zones → 상태 → 줄 · 문서 표시 · 이름 줄 설명 · 열려 있는 목록. force = 표시가 꺼져 있어도 읽는다(지정 · 목록)
+async function zonesLoad(force = false) { // GET …/zones → 상태 → 줄 · 문서 표시 · 색 설명(문서 위에 떠 있는 상자) · 열려 있는 목록. force = 표시가 꺼져 있어도 읽는다(지정 · 목록)
   if (PEEK || !state.id) return;
   const Z = zn(), t = znTarget();
   clearTimeout(Z.timer); Z.timer = null;
@@ -590,11 +590,13 @@ function zonesDraw() {
   }
 }
 
-// ---- 문서 이름 줄의 색 설명(#zonesKey — design.md §4 「색 설명은 문서 바로 위 이름 줄에」): 표시가 켜져 있고 띠가 있을 때만 — 「편집 구역」 + 지금 문서에 있는 값의 칩(색 네모 + 이름) + 노트 + 「감추기」
+// ---- 색 설명(#zonesKey — design.md §4 「색 설명은 문서 위에 떠 있는 상자로」): 표시가 켜져 있고 띠가 있을 때만 — 「편집 구역」 + 지금 문서에 있는 값의 칩(색 네모 + 이름) + 노트.
+// 2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 문서 이름 줄이 아니라 문서 위에 떠 있는 상자다(#viewer 안 — 자리 · 끌어 옮기기 · 기억은 key_float.js).
+// 이름 줄에는 켜고 끄는 아이콘(#nameZones)만 남는다 — 그 아이콘으로 켜면 뜨고 끄면 사라진다
 function zonesKeyDraw() {
-  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘 「편집 구역 표시」(doc_quick.js #nameZones)의 눌림 · 꺼짐(옵션을 읽은 뒤 · 줄의 「보기/감추기」 · 설명의 「감추기」 뒤에도 따라온다)
-  const box = typeof $ === "function" ? $("zonesKey") : null, row = box && $("fileInfo");
-  if (!box || !row) return;
+  if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄 아이콘 「편집 구역 표시」(doc_quick.js #nameZones)의 눌림 · 꺼짐(옵션을 읽은 뒤 · 줄의 「보기/감추기」 뒤에도 따라온다)
+  const box = typeof $ === "function" ? $("zonesKey") : null;
+  if (!box) return;
   const D = znShown(), dims = D ? zonesDims() : [], axis = znAxis(dims), items = new Map();
   let marked = false;
   if (D && axis) {
@@ -610,19 +612,22 @@ function zonesKeyDraw() {
   }
   const list = [...items.values()].sort((a, b) => a.at - b.at);
   const sig = list.length ? list.map((x) => x.color + "=" + x.name).join("|") + (marked ? "|지정" : "") : "";
-  row.classList.toggle("has-zn-key", !!sig);
-  if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게)
+  if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게 · 옮긴 자리도 그대로)
   box.dataset.sig = sig;
   box.hidden = !sig;
   box.textContent = "";
-  if (!sig) return;
+  const place = () => { if (typeof keyFloatPlace === "function") keyFloatPlace(); }; // 떠 있는 상자의 자리(key_float.js) — 이 설명이 사라지면 옆 상자(구분 기준 자리)가 가운데로 온다
+  if (!sig) { place(); return; }
+  if (typeof keyFloatGrip === "function") box.append(keyFloatGrip()); // 손잡이(끌어서 옮기기)
   box.append(el("span", "dv-key-name", "편집 구역"));
   for (const x of list.slice(0, ZN_KEY_MAX)) { const chip = el("span", "dv-chip zn-key-chip"); chip.dataset.gz = x.color; chip.title = x.name; chip.append(el("span", "zn-key-chip-t", x.name)); box.append(chip); }
   if (list.length > ZN_KEY_MAX) { const more = el("span", "zn-key-more", `외 ${list.length - ZN_KEY_MAX}`); more.title = list.slice(ZN_KEY_MAX).map((x) => x.name).join(" · "); box.append(more); }
   if (marked) box.append(el("span", "zn-key-tone", "점선 이름표 = 지정"));
-  // 감추기 · 다시 보기 = 이 줄 앞의 아이콘 #nameZones(doc_quick.js — 2026-11-18 사용자 "… 편집구역 아이콘 … 활성화"). 설명 끝의 「감추기」 단추는 뺐다 — 같은 줄에 같은 일을 하는 아이콘이 있다(design.md §10)
-  const again = "감추거나 다시 보려면 이 줄 앞의 「편집 구역 표시」 아이콘을 누르세요(「작업 개요」 의 「편집 구역」 「보기/감추기」 에도 있음)";
-  box.append(hHelp("편집 구역 색 안내", ZN_HELP + "\n" + again + ".", { note: true }));
+  // 감추기 · 다시 보기 = 문서 이름 줄의 아이콘 #nameZones(doc_quick.js — 2026-11-18 사용자 "… 편집구역 아이콘 … 활성화"). 설명 안에 「감추기」 단추는 없다 — 같은 일을 하는 아이콘이 있다(design.md §10)
+  const again = "감추거나 다시 보려면 문서 이름 줄의 「편집 구역 표시」 아이콘을 누르세요(「작업 개요」 의 「편집 구역」 「보기/감추기」 에도 있음)";
+  const move = "이 상자는 끌어서 옮길 수 있습니다(자리는 이 브라우저에 기억 · 두 번 누르면 제자리).";
+  box.append(hHelp("편집 구역 색 안내", ZN_HELP + "\n" + again + ".\n" + move, { note: true }));
+  place();
 }
 
 // ---- 지정(② §3) — 문서에서 오른쪽 단추 → 「구역 지정…」 → 떠 있는 작은 입력(#zonesPop). 대상은 본문 최상위 문단·표(칸 안이면 그 표 — 항목 글이 그렇게 말한다) · 그림·캡션은 아니다

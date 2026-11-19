@@ -80,7 +80,7 @@ button.fm-tag { margin: 0; appearance: none; text-align: left; }
 .tpl-mark .tm-t.part { color: var(--accent); font-weight: 700; text-decoration: underline dotted; text-underline-offset: 2px; }
 .tpl-mark.fm-part { border-color: var(--accent); border-style: dashed; z-index: 5; }
 
-/* 이름 줄의 설명(#fmtKey — 「편집 중」·구분 기준 색 설명 앞): 칩 · 「이 서식만 또렷이」·「이 템플릿만 또렷이」 · 수 · (서식) 「목록」 / (템플릿) 색 설명 칩 「여백 다름 n」·「서식 다름 n」 · 「템플릿 관계」 · 「끄기」
+/* 이름 줄의 설명(#fmtKey — 「편집 중」 앞 · 구분 기준 자리 · 편집 구역의 색 설명은 2026-11-19 부터 이 줄이 아니라 문서 위에 떠 있는 상자: key_float.css): 칩 · 「이 서식만 또렷이」·「이 템플릿만 또렷이」 · 수 · (서식) 「목록」 / (템플릿) 색 설명 칩 「여백 다름 n」·「서식 다름 n」 · 「템플릿 관계」 · 「끄기」
    — 조작 22px(줄 높이 35px 그대로), 좁으면 줄 폭으로 글부터 감춘다(칩·단추는 남김).
    고른 갈래만 볼 때(「템플릿 관계」 의 ☐ — .tpl 그대로): 칩 · 「고른 서식만 또렷이」 · 「고른 서식 n가지 · 줄 m개」 · 「템플릿 관계」 · 「끄기」 — 색 설명 칩이 없어 레벨 전체 설명보다 짧다 */
 .fm-key { flex: none; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }

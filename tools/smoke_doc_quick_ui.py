@@ -259,14 +259,19 @@ def main():
         page.wait_for_function("() => document.querySelectorAll('#doc .para.dv-in').length > 0 && !document.getElementById('divKey').hidden", timeout=120000)
         page.wait_for_timeout(200)
         v = page.evaluate(ROW)
-        check("「구분 기준 자리 표시」 → 문단에 자리 색 · 이름 줄 색 설명(#divKey) · 눌림 · 도움말 「켜짐 — 누르면 … 숨깁니다」 · 기억(nfm.divMarks) · 2열 안 열림",
+        # 색 설명(#divKey)은 이름 줄이 아니라 문서 위에 떠 있는 상자(2026-11-19 사용자 "각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 … 움직일 수 있게" — key_float.js): 아이콘을 누르면 뜨고 다시 누르면 사라진다
+        fl = page.evaluate("""() => { const k = document.getElementById('divKey'), row = document.getElementById('fileInfo'), view = document.getElementById('viewer'), kr = k.getBoundingClientRect(), vr = view.getBoundingClientRect();
+          return { inRow: row.contains(k), inView: k.parentElement === view, pos: getComputedStyle(k).position, grip: !!k.querySelector('.kf-grip'), y: Math.round(kr.top - vr.top), mid: Math.round(kr.left + kr.width / 2 - vr.left - vr.width / 2),
+                   inside: kr.left >= vr.left && kr.right <= vr.right && kr.top >= vr.top && kr.bottom <= vr.bottom }; }""")
+        check("「구분 기준 자리 표시」 → 문단에 자리 색 · 색 설명(#divKey)이 문서 위에 뜸(문서 창 안 가운데 · 이름 줄 밖 · 손잡이) · 눌림 · 도움말 「켜짐 — 누르면 … 숨깁니다」 · 기억(nfm.divMarks) · 2열 안 열림",
               v["div"]["pressed"] == "true" and v["div"]["title"].startswith("구분 기준 자리 표시 켜짐") and "숨깁니다" in v["div"]["title"]
-              and page.evaluate("() => localStorage.getItem('nfm.divMarks')") == "on" and not page.evaluate(MARKS)["col"], v["div"])
-        check("설명이 뜬 줄 — 줄 높이 35px · 넘침 없음 · 아이콘 줄 안(꺼진 「편집 구역 표시」 · 표 라벨은 줄이 좁으면 접힘 — 설명이 먼저)",
-              v["rowH"] == 35 and not v["over"] and all(v[k]["inside"] for k in ("tpl", "fmt", "div")) and all(v[k]["inside"] or not v[k]["shown"] for k in ("tbl", "zn")), v)
+              and fl["inView"] and not fl["inRow"] and fl["pos"] == "absolute" and fl["grip"] and fl["inside"] and fl["y"] == 8 and abs(fl["mid"]) <= 1
+              and page.evaluate("() => localStorage.getItem('nfm.divMarks')") == "on" and not page.evaluate(MARKS)["col"], [v["div"], fl])
+        check("색 설명이 떠 있어도 이름 줄은 그대로 — 줄 높이 35px · 넘침 없음 · 아이콘 다섯 다 줄 안(설명이 줄에 없어 접히는 아이콘 없음)",
+              v["rowH"] == 35 and not v["over"] and all(v[k]["inside"] for k in ("tpl", "fmt", "tbl", "div", "zn")), v)
         row = page.locator("#fileInfo").bounding_box()
-        page.screenshot(path=str(OUT / "06_div_on.png"), clip={"x": row["x"], "y": row["y"] - 40, "width": row["width"], "height": 120})
-        check("설명(#divKey) 안에 「감추기」 단추 없음 — 끄는 길은 이 아이콘(같은 줄에 두 번 두지 않음) · 노트가 아이콘을 가리킴",
+        page.screenshot(path=str(OUT / "06_div_on.png"), clip={"x": row["x"], "y": row["y"] - 40, "width": row["width"], "height": 160})
+        check("설명(#divKey) 안에 「감추기」 단추 없음 — 끄는 길은 이름 줄의 이 아이콘(두 곳에 두지 않음) · 노트가 아이콘을 가리킴",
               page.evaluate("() => [...document.querySelectorAll('#divKey button')].every((b) => b.classList.contains('dv-chip') || b.classList.contains('panel-help'))")
               and "「구분 기준 자리 표시」 아이콘" in (page.get_attribute("#divKey .panel-help", "data-help") or ""))
         page.click("#nameDivMarks")
@@ -315,7 +320,7 @@ def main():
         page.click("#nameZones")
         page.wait_for_function("() => !zonesOn() && document.querySelectorAll('#doc .gz-in').length === 0 && document.getElementById('zonesKey').hidden", timeout=20000)
         v = page.evaluate(ROW)
-        check("「편집 구역 표시」 → 끔(띠·이름 줄 설명 없음) · 안 눌림 · 도움말 「꺼짐 — 누르면 … 보입니다」 · 기억(nfm.zones off)",
+        check("「편집 구역 표시」 → 끔(띠·떠 있는 색 설명 없음) · 안 눌림 · 도움말 「꺼짐 — 누르면 … 보입니다」 · 기억(nfm.zones off)",
               v["zn"]["pressed"] == "false" and "꺼짐" in v["zn"]["title"] and "보입니다" in v["zn"]["title"] and page.evaluate("() => localStorage.getItem('nfm.zones')") == "off", v["zn"])
         page.click("#nameZones")
         page.wait_for_function("() => zonesOn() && document.getElementById('nameZones').getAttribute('aria-pressed') === 'true'", timeout=20000)
