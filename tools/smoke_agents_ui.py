@@ -246,8 +246,14 @@ def main():
         doc = r.json()["docId"]
         run_stage(doc, 1)
         run_stage(doc, 2)
-        assert requests.get(f"{base}/api/docs/{doc}/outline", timeout=120).status_code == 200
-        pr = requests.post(f"{base}/api/docs/{doc}/outline/agent/3/plan", json={"skill": "tidy"}, timeout=120)
+        ov = requests.get(f"{base}/api/docs/{doc}/outline", timeout=120)
+        assert ov.status_code == 200, ov.text
+        # 서식이 둘 이상인 템플릿 하나를 **찾아서** 부른다 — 견본의 템플릿 번호는 헤딩 그래프 규칙이 바뀌면 달라진다(전에 박아 둔 3번은 「잇닿은 사슬」 뒤 서식이 한 가지뿐인 템플릿이 됐다:
+        # 그러면 422 「정리할 것이 없습니다」 로 LLM 을 안 불러 실행 기록이 안 생긴다). dry = LLM 을 안 부르고 자료의 레벨 · 서식 수만
+        dry = lambda t: requests.post(f"{base}/api/docs/{doc}/outline/agent/{t}/plan", json={"skill": "tidy", "dry": True}, timeout=120).json()  # noqa: E731
+        tid = next((t for t in ov.json()["templates"] if (lambda j: j.get("groups", 0) > j.get("levels", 0) > 0)(dry(t))), None)
+        assert tid is not None, "견본에 서식이 둘 이상인 템플릿이 없습니다"
+        pr = requests.post(f"{base}/api/docs/{doc}/outline/agent/{tid}/plan", json={"skill": "tidy"}, timeout=120)
         ag.goto(base + "/agents#overview")
         ag.wait_for_selector(ROW("tpl_agent") + " .ags-last", timeout=20000)
         last = ag.locator(ROW("tpl_agent") + " .ags-last").inner_text()

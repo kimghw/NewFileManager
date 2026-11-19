@@ -367,7 +367,7 @@ def test_api_page_style_is_saved_in_two_formats(client, page_mod, monkeypatch):
     assert r.status_code == 201, r.text
     m = r.json()
     sid = m["id"]
-    assert (m["kind"], m["name"], m["fidelity"], m["page"], m["body"]) == ("page", "기술수요조사서 문서 서식", "native", PAGE, BODY) and m["source"]["block"] is None and m["source"]["format"] == "hwpx"
+    assert (m["kind"], m["name"], m["fidelity"], m["page"], m["body"]) == ("page", "기술수요조사서: page", "native", PAGE, BODY) and m["source"]["block"] is None and m["source"]["format"] == "hwpx"   # 기본 이름 = 「<문서 이름>: page」(② §19-2 ⓒ)
     assert m["docx"] == {"sha256": style_lib.sha256(b"DOCX-page"), "losses": ["자동 번호"]} and m["verify"] is None and m["verifyDocx"] is None and built == ["page"]
     assert client.get(f"/api/docs/{d}").json()["pristine"] is True                                     # 문서는 안 바뀐다
     got = client.get("/api/styles").json()
@@ -471,9 +471,9 @@ def test_api_name_file_names_held_candidates(client, monkeypatch):
     assert client.post("/api/styles/name-file", json={"token": "gone"}).status_code == 410
     r = client.post("/api/styles/name-file", json={"token": "tok"})
     assert r.status_code == 200, r.text
-    assert r.json() == {"tables": [{"key": "f:1", "rows": 3, "cols": 2, "name": "예산표", "keep": True, "bands": BANDS, "bandsChanged": False}], "texts": [], "paras": [], "covers": [],
-                        "pages": [{**entry["pages"][0], "name": "보고서 문서 서식", "keep": True}], "note": "하나", "call": {"backend": "api", "error": None},
-                        "calls": [{"backend": "api", "error": None}]}   # 옛 `name` 은 문서 서식을 안 묻는다 — 추천 · paras·covers·calls = ② §16
+    assert r.json() == {"tables": [{"key": "f:1", "rows": 3, "cols": 2, "defaultName": "보고서: table1", "name": "예산표", "keep": True, "bands": BANDS, "bandsChanged": False}], "texts": [], "paras": [], "covers": [],
+                        "pages": [{**entry["pages"][0], "defaultName": "보고서: page", "keep": True}], "note": "하나", "call": {"backend": "api", "error": None},
+                        "calls": [{"backend": "api", "error": None}]}   # 옛 `name` 은 문서 서식을 안 묻는다 — 추천 · paras·covers·calls = ② §16 · 이름 = 후보의 defaultName(파일 이름의 문서 종류 낱말 — ② §19-2), LLM 의 name 은 설명이라 쪽 설정에 name 을 채우지 않는다
     assert seen == [["covers", "pages", "paras", "tables", "texts"]]
     monkeypatch.setattr(style_api, "_mod", lambda n: None)
     assert client.post("/api/styles/name-file", json={"token": "tok"}).status_code == 501
@@ -707,7 +707,7 @@ def test_api_cover_style_save_view_and_apply(client, cover_mod, monkeypatch):
     assert r.status_code == 201, r.text
     m = r.json()
     sid = m["id"]
-    assert (m["kind"], m["name"], m["fidelity"], m["page"], m["source"]["block"], m["source"]["format"]) == ("cover", "기술수요조사서 표지", "native", PAGE, ids[0], "hwpx")
+    assert (m["kind"], m["name"], m["fidelity"], m["page"], m["source"]["block"], m["source"]["format"]) == ("cover", "기술수요조사서: cover", "native", PAGE, ids[0], "hwpx")   # 기본 이름 = 「<문서 이름>: cover」(② §19-2 ⓒ)
     assert [(p["key"], p["role"], p["sample"]) for p in m["parts"]] == [("p1", "title", "원문")] and m["losses"] == ["그림은 옮기지 않았습니다"] and m["requirements"] == {"fonts": ["맑은 고딕"]}
     assert cover_mod.calls[-1] == (ids[:1], {ids[0]: "title"}, True) and kicked == [sid]                  # end 로 줄인 범위 · 범위 밖 블록의 역할은 버린다 · 저장하면 검증을 건다
     assert client.get(f"/api/docs/{d}").json()["pristine"] is True and "styleSave" in _log_kinds(client, d)
@@ -764,9 +764,9 @@ def test_api_candidates_merge_the_review_into_five_kinds(client, monkeypatch):
              "covers": [{"key": "cover", "blocks": ["p1", "p2"], "end": "p2", "parts": [], "sample": "표지", "doubts": []}]}
     rv = lambda seen, fixed=(), doubts=(): {"by": "llm", "seen": list(seen), "fixed": list(fixed), "doubts": list(doubts)}  # noqa: E731
     answer = {"tables": {"t:1": {"name": "수요조사 양식", "keep": True, "role": "form", "bands": BANDS, "bandsChanged": False, "bandsWider": {"headerRows": 2, "headerCols": 0, "footRows": 0},
-                                 "review": rv(["이름", "띠 수", "역할"])}},
-              "texts": {"tpl1": {"name": "개요 3레벨", "keep": True, "rep": {"1": "p9"}, "review": rv(["이름", "레벨"], [{"what": "rep", "from": "p1", "to": "p9"}], [{"code": "mixedSlot", "text": "한 레벨에 서식이 여럿", "by": "script"}])}},
-              "paras": {"g1": {"name": "본문 글", "keep": True, "role": "caption", "sameAs": "g2", "review": rv(["이름", "역할"])}},
+                                 "review": rv(["설명", "띠 수", "역할"])}},
+              "texts": {"tpl1": {"name": "개요 3레벨", "keep": True, "rep": {"1": "p9"}, "review": rv(["설명", "레벨"], [{"what": "rep", "from": "p1", "to": "p9"}], [{"code": "mixedSlot", "text": "한 레벨에 서식이 여럿", "by": "script"}])}},
+              "paras": {"g1": {"name": "본문 글", "keep": True, "role": "caption", "sameAs": "g2", "review": rv(["설명", "역할"])}},
               "pages": {"page": {"keep": True, "bodyKey": "b2", "review": rv(["바탕 글"], [{"what": "bodyKey", "from": "b1", "to": "b2"}])}},
               "covers": {"cover": {"keep": False, "isCover": True, "end": "p1", "roles": {"p1": "title"}, "review": rv(["범위", "역할"])}, "ghost": {"keep": True}},
               "note": "셋으로 나눠 봄", "call": {"backend": "api", "model": "m", "ms": 5, "costUsd": 0.01, "error": None},
@@ -781,13 +781,15 @@ def test_api_candidates_merge_the_review_into_five_kinds(client, monkeypatch):
     _mods(monkeypatch, style_extract=fake)
     d = _upload(client, SMALL)
     plain = client.post(f"/api/docs/{d}/styles/candidates", json={}).json()
-    assert {k: plain[k] for k in ("tables", "texts", "paras", "pages", "covers")} == cands and "call" not in plain   # 스크립트 후보 그대로 — doubts 도 온 그대로
+    tails = {"tables": "table1", "texts": "T1", "paras": "body1", "pages": "page", "covers": "cover"}   # 기본 이름 「<문서 이름>: <갈래><번호>」(② §19-2 ⓑ — 템플릿 번호가 없는 글 후보는 T<차례>)
+    named = {k: [{**c, "defaultName": f"기술수요조사서: {tails[k]}"} for c in cands[k]] for k in tails}
+    assert {k: plain[k] for k in ("tables", "texts", "paras", "pages", "covers")} == named and "call" not in plain   # 스크립트 후보 그대로(+ 기본 이름) — doubts 도 온 그대로
     monkeypatch.setattr("app.llm.status", lambda: {"available": True})
     n = client.post(f"/api/docs/{d}/styles/candidates", json={"llm": True}).json()
     assert seen["keys"] == ["covers", "pages", "paras", "tables", "texts"]
-    assert n["tables"] == [{**cands["tables"][0], **answer["tables"]["t:1"]}] and n["texts"] == [{**cands["texts"][0], **answer["texts"]["tpl1"]}] and n["paras"] == [{**cands["paras"][0], **answer["paras"]["g1"]}]
-    assert n["pages"] == [{**cands["pages"][0], **answer["pages"]["page"], "name": "기술수요조사서 문서 서식"}]                 # 쪽 설정 — 이름은 기본 이름
-    assert n["covers"] == [{**cands["covers"][0], **answer["covers"]["cover"], "name": "기술수요조사서 표지"}]                 # 표지 — keep 은 검토의 답 그대로(false)
+    assert n["tables"] == [{**named["tables"][0], **answer["tables"]["t:1"]}] and n["texts"] == [{**named["texts"][0], **answer["texts"]["tpl1"]}] and n["paras"] == [{**named["paras"][0], **answer["paras"]["g1"]}]   # 검토의 name 은 설명 — defaultName 을 덮지 않는다
+    assert n["pages"] == [{**named["pages"][0], **answer["pages"]["page"]}]                 # 쪽 설정 — 이름은 defaultName(검토가 name 을 안 주면 name 을 채우지 않는다)
+    assert n["covers"] == [{**named["covers"][0], **answer["covers"]["cover"]}]                 # 표지 — keep 은 검토의 답 그대로(false)
     assert n["call"] == answer["call"] and n["calls"] == answer["calls"] and n["note"] == "셋으로 나눠 봄" and "prompt" not in n and "prompts" not in n
     ev = [e for e in client.get(f"/api/works/{d}/log").json()["events"] if e["kind"] == "styleName"]
     assert len(ev) == 1 and (ev[0]["named"], ev[0]["reviewed"], ev[0]["calls"], ev[0]["costUsd"]) == (3, 6, 2, 0.03) and str(ev[0]["detail"]).startswith("styles/name_")
@@ -802,9 +804,10 @@ def test_api_candidates_merge_the_review_into_five_kinds(client, monkeypatch):
     # 파일 후보도 같은 꼴(name-file)
     entry = {"name": "보고서.hwpx", "format": "hwpx", **cands}
     fake.held = lambda token: entry if token == "tok" else None
-    answer.update(paras={"g1": {"name": "본문 글", "keep": True, "role": "body", "review": rv(["이름"])}}, calls=[{"backend": "api", "error": None}], call={"backend": "api", "error": None})
+    answer.update(paras={"g1": {"name": "본문 글", "keep": True, "role": "body", "review": rv(["설명"])}}, calls=[{"backend": "api", "error": None}], call={"backend": "api", "error": None})
     f = client.post("/api/styles/name-file", json={"token": "tok"})
-    assert f.status_code == 200 and f.json()["paras"][0]["review"]["by"] == "llm" and f.json()["covers"][0]["name"] == "보고서 표지" and f.json()["pages"][0]["name"] == "보고서 문서 서식"
+    assert f.status_code == 200 and f.json()["paras"][0]["review"]["by"] == "llm" and f.json()["covers"][0]["defaultName"] == "보고서: cover" and f.json()["pages"][0]["defaultName"] == "보고서: page"   # 파일 이름의 문서 종류 낱말로(② §19-2)
+    assert "name" not in f.json()["covers"][0] and "name" not in f.json()["pages"][0] and f.json()["paras"][0]["defaultName"] == "보고서: body1"
     assert set(f.json()) == {"tables", "texts", "paras", "pages", "covers", "note", "call", "calls"}
 
 
@@ -834,7 +837,7 @@ def test_api_file_picks_paras_roles_and_covers(client, cover_mod, monkeypatch):
     assert made.status_code == 200, made.text
     a, b, c = made.json()["styles"]
     assert (a["role"], b["role"], b["name"]) == ("caption", "note", "주석 글")                            # 역할 = pick 의 것 → 없으면 후보에 스크립트가 붙인 것
-    assert (c["kind"], c["name"], c["fidelity"], c["source"]["block"], c["source"]["sha256"], c["source"]["work"]) == ("cover", "보고서 표지", "native", ids[0], "s" * 64, None)
+    assert (c["kind"], c["name"], c["fidelity"], c["source"]["block"], c["source"]["sha256"], c["source"]["work"]) == ("cover", "보고서: cover", "native", ids[0], "s" * 64, None)   # 이름을 안 준 pick = 그 후보의 기본 이름(② §19-2)
     assert cover_mod.calls[-1] == (ids[:2], {ids[0]: "title"}, False) and [p["role"] for p in c["parts"]] == ["title", "other"]
     assert client.post("/api/styles/preview-file", json={"token": "tok", "pick": {"kind": "cover", "key": "cover"}}).json()["kind"] == "cover"
     for bad in ({"kind": "text", "key": "g1", "role": "제목"}, {"kind": "cover", "key": "nope"}, {"kind": "cover", "key": "cover", "end": "p99999"}, {"kind": "text", "key": "nope"}):

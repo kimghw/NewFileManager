@@ -159,9 +159,9 @@ def test_save_table_keep_text_and_blueprint(client):
     d = _upload(client, SMALL)
     kept = _save(client, d, kind="table", table="t8", keepText=True, bands={"headerRows": 0, "headerCols": 0, "footRows": 0})
     grid = client.get(f"/api/styles/{kept['id']}").json()["view"]["grid"]
-    assert kept["name"] == "표 18×11" and kept["labels"] == [] and "전력변환시스템" in grid["rows"][0]["cells"][1]["text"] and grid["headerCols"] == 0  # keepText = 글 그대로 · 이름 기본값은 라벨 칸의 글에서만(띠가 없으면 크기)
+    assert kept["name"] == "기술수요조사서: table1" and kept["labels"] == [] and "전력변환시스템" in grid["rows"][0]["cells"][1]["text"] and grid["headerCols"] == 0  # keepText = 글 그대로 · 이름 기본값 = 「<문서 이름>: <갈래><번호>」(spec_서식복사 ② §19-2 ⓒ — 추출 모듈이 없어 후보에 안 든 표 = 그 갈래의 다음 번호: 표의 글·크기는 이름에 안 쓴다)
     named = _save(client, d, kind="table", table="t8")
-    assert named["name"] == "제안기술 분류 표" and named["labels"][0] == [0, 0] and all(c == 0 for _, c in named["labels"])  # 이름 기본값 = 첫 라벨 칸의 글 · labels = 글을 남긴 칸(머리열)
+    assert named["name"] == "기술수요조사서: table1" and named["labels"][0] == [0, 0] and all(c == 0 for _, c in named["labels"])  # 이름 기본값은 같은 표면 같은 이름(라벨 칸의 글을 이름으로 쓰지 않는다 — ② §19-2) · labels = 글을 남긴 칸(머리열)
     m = _save(client, d, kind="table", table="t8", blueprint=True, name="구조까지")
     cells = m["blueprint"]["cells"]
     assert len(cells) == len(next(b for b in client.get(f"/api/docs/{d}").json()["blocks"] if b["id"] == "t8")["cells"]) and m["blueprint"]["formulas"] == []
@@ -185,7 +185,7 @@ def test_save_text_from_paras_and_template(client, monkeypatch):
     tokens = list(dict.fromkeys(doc.get_format(i)["token"] for i in paras))
     assert 1 < len(tokens) < len(paras)
     m = _save(client, d, kind="text", paras=paras)
-    assert m["kind"] == "text" and m["name"] == "문단 서식" and len(m["items"]) == len(tokens) and [i["key"] for i in m["items"]] == [f"i{n}" for n in range(1, len(tokens) + 1)]
+    assert m["kind"] == "text" and m["name"] == "기술수요조사서: body1" and len(m["items"]) == len(tokens) and [i["key"] for i in m["items"]] == [f"i{n}" for n in range(1, len(tokens) + 1)]
     assert all(i["level"] is None and i["origin"]["template"] is None for i in m["items"]) and m["items"][0]["origin"]["para"] == paras[0]  # 서식이 같은 문단은 하나로 · 레벨은 지어내지 않는다
     v = client.get(f"/api/styles/{m['id']}").json()["view"]
     assert len(v["paras"]) == len(tokens) and v["items"] == m["items"] and m["source"]["block"] == paras[0]
@@ -206,7 +206,7 @@ def test_save_text_from_paras_and_template(client, monkeypatch):
     t = _save(client, d, kind="text", template=3, name="개요템플릿 글")
     assert [(i["level"], i["origin"], i["name"]) for i in t["items"]] == [(1, {"template": 3, "slot": 1, "para": paras[0]}, "1수준 N."), (2, {"template": 3, "slot": 2, "para": paras[2]}, "2수준 □")]
     assert client.post(f"/api/docs/{d}/styles", json={"kind": "text", "template": 9}).status_code == 404
-    assert _save(client, d, kind="text", template="3")["name"] == "템플릿 3 글 서식"
+    assert _save(client, d, kind="text", template="3")["name"] == "기술수요조사서: T3"  # 템플릿의 기본 이름 = 「<문서 이름>: T<no>」(② §19-2)
 
 
 def test_para_style_role_is_saved_listed_and_edited(client):
@@ -276,7 +276,7 @@ def test_saved_table_template_carries_no_source_values(client):
     made = client.post(f"/api/docs/{d}/styles/builtin/apply", json={"mode": "tableMake", "after": "t8", "grid": people})  # 음영·굵게 없는 표
     assert made.status_code == 200, made.text
     m = _save(client, d, kind="table", table=made.json()["made"]["table"], blueprint=True)
-    assert m["name"] == "표 2×2" and m["bands"]["headerRows"] == 1 and m["labels"] == []  # 띠 수는 관례대로 첫 행(서식의 구역) — 글을 남길 라벨은 없다
+    assert m["name"] == "기술수요조사서: table1" and m["bands"]["headerRows"] == 1 and m["labels"] == []  # 띠 수는 관례대로 첫 행(서식의 구역) — 글을 남길 라벨은 없다 · 기본 이름에는 표의 글이 안 든다(② §19-2)
     assert [(c["role"], c["label"]) for c in m["blueprint"]["cells"]] == [("input", None)] * 4
     full = client.get(f"/api/styles/{m['id']}").json()
     shown = [c["text"] for g in (m["preview"]["grid"], full["view"]["grid"]) for r in g["rows"] for c in r["cells"]] + [c["text"] for c in full["view"]["spec"]["cells"]]
@@ -529,20 +529,21 @@ def test_candidates_and_file_routes_use_the_extract_module(client, monkeypatch):
                                  hold=lambda entry: held.setdefault("tok", entry) and "tok", held=lambda token: held.get(token))
     monkeypatch.setattr(style_api, "_mod", lambda n: fake if n == "style_extract" else None)
     r = client.post(f"/api/docs/{d}/styles/candidates", json={"llm": False})
-    assert r.status_code == 200 and r.json() == {"rev": 0, "stage2": False, "texts": [{"key": "x:1"}], "tables": candidates(None)["tables"], "pages": [], "paras": [], "covers": [], "format": "hwpx",
+    tabs = [{**c, "defaultName": f"기술수요조사서: table{n}"} for n, c in enumerate(candidates(None)["tables"], 1)]  # 후보마다 기본 이름 「<문서 이름>: <갈래><번호>」(spec_서식복사 ② §19-2 ⓑ — 번호 = 후보 차례 · 템플릿 번호가 없는 글 후보는 T<차례>)
+    assert r.status_code == 200 and r.json() == {"rev": 0, "stage2": False, "texts": [{"key": "x:1", "defaultName": "기술수요조사서: T1"}], "tables": tabs, "pages": [], "paras": [], "covers": [], "format": "hwpx",
                                                  "fidelity": "native"} and seen["graph"] is None  # pages·format·fidelity = spec_서식복사 ② §8(이 가짜 모듈은 script_graph 가 없어 stage2 false) · paras·covers = ② §16(옛 모듈이 안 내면 빈 목록)
     assert client.post(f"/api/docs/{d}/styles/candidates", json={"llm": True}).status_code == 503  # LLM 꺼짐
     monkeypatch.setattr("app.llm.status", lambda: {"available": True})
     n = client.post(f"/api/docs/{d}/styles/candidates", json={"llm": True}).json()
-    assert n["tables"][0] == {**candidates(None)["tables"][0], "name": "수요조사 양식", "keep": True, "bands": {"headerRows": 1, "headerCols": 1, "footRows": 0}, "bandsChanged": True}
-    assert n["tables"][1] == {"key": "t:2", "table": "t1"} and n["call"]["backend"] == "api" and n["note"] == "하나만" and "prompt" not in n
+    assert n["tables"][0] == {**tabs[0], "name": "수요조사 양식", "keep": True, "bands": {"headerRows": 1, "headerCols": 1, "footRows": 0}, "bandsChanged": True}  # LLM 의 name 은 설명 — 기본 이름(defaultName)을 덮지 않는다
+    assert n["tables"][1] == tabs[1] and n["call"]["backend"] == "api" and n["note"] == "하나만" and "prompt" not in n
     assert n["calls"] == [n["call"]] and n["paras"] == [] and n["covers"] == []  # calls = 호출마다의 기록(② §16 — 옛 `name` 은 한 번)
     ev = [e for e in client.get(f"/api/works/{d}/log").json()["events"] if e["kind"] == "styleName"]
     assert len(ev) == 1 and ev[0]["named"] == 1 and ev[0]["costUsd"] == 0.01 and str(ev[0]["detail"]).startswith("styles/name_")
     # 파일에서 — 토큰과 후보 key 만 오간다
     assert client.post("/api/styles/extract-file", files={"file": ("a.hwpx", b"not a zip")}).status_code == 400
     up = client.post("/api/styles/extract-file", files={"file": (SMALL.name, SMALL.read_bytes())})
-    assert up.status_code == 200 and up.json() == {"token": "tok", "name": SMALL.name, "format": "hwpx", "tables": [{"key": "f:1", "rows": 18, "cols": 11}], "texts": [], "pages": [],
+    assert up.status_code == 200 and up.json() == {"token": "tok", "name": SMALL.name, "format": "hwpx", "tables": [{"key": "f:1", "rows": 18, "cols": 11, "defaultName": "기술수요조사서: table1"}], "texts": [], "pages": [],
                                                    "paras": [], "covers": [], "losses": ["뺀 것"]}
     pv = client.post("/api/styles/preview-file", json={"token": "tok", "pick": {"kind": "table", "key": "f:1", "bands": {"headerCols": 1}}})  # 견본(② §13) — 저장과 같은 생성 함수(build_pick), 보관함에는 안 쓴다
     assert pv.status_code == 200 and set(pv.json()) == {"rev", "kind", "view", "losses", "fidelity"} and (pv.json()["rev"], pv.json()["kind"], pv.json()["fidelity"]) == (None, "table", "native")

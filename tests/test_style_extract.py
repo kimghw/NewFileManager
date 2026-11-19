@@ -85,7 +85,7 @@ def test_text_candidates_follow_the_graph_but_not_blindly():
                    {"level": 4, "letter": "·", "count": 1, "format": "S9", "rep": "p999999"}]},  # 문서에 없는 문단
         {"id": 2, "no": 2, "name": "cell:[N]", "displayName": "표 안 번호", "chain": ["[N]"], "slots": []}]}
     texts = X.candidates(doc, graph)["texts"]
-    assert len(texts) == 1 and texts[0]["key"] == "tpl1" and texts[0]["template"] == {"id": 1, "no": 1, "name": "body:N.›□", "chain": ["N.", "□", "-"]}
+    assert len(texts) == 1 and texts[0]["key"] == "tpl1" and texts[0]["template"] == {"id": 1, "no": 1, "name": "body:N.›□", "anchor": None, "chain": ["N.", "□", "-"]}   # anchor = 이름 키(② §19-2·§19-7 — 이 그래프에는 앵커가 없다)
     items = texts[0]["items"]
     assert [(i["para"], i["level"], i["letter"]) for i in items] == [(a, 1, "N."), (b, 2, "□")]
     assert items[0]["sample"] == "1. 연구개발의 필요성" and len(items[1]["sample"]) == 60 and items[1]["sample"].endswith("…")
@@ -142,11 +142,11 @@ def test_name_cleans_the_answer():
     assert out["tables"] == {
         "t1": {"name": "예산 총괄표 — 머리 1행·합계행", "keep": True, "role": "data", "bands": {"headerRows": 1, "headerCols": 0, "footRows": 0}, "bandsChanged": False,
                "bandsWider": {"headerRows": 4, "headerCols": 1, "footRows": 0},
-               "review": {"by": "llm", "seen": ["이름", "띠 수", "역할"], "fixed": [], "doubts": [{"code": "bandsUnsure", "text": X.DOUBTS["bandsUnsure"], "by": "llm"}]}},
+               "review": {"by": "llm", "seen": ["설명", "띠 수", "역할"], "fixed": [], "doubts": [{"code": "bandsUnsure", "text": X.DOUBTS["bandsUnsure"], "by": "llm"}]}},   # 본 것의 말 = 「설명」(② §19-2 — LLM 의 name 은 설명이다)
         "t2": {"keep": False, "role": "sign", "bands": {"headerRows": 1, "headerCols": 0, "footRows": 0}, "bandsChanged": False,   # 이름이 없으면 R 에 name 이 없다(스크립트의 기본 이름으로)
-               "review": {"by": "llm", "seen": ["이름", "띠 수", "역할"], "fixed": [], "doubts": []}}}
+               "review": {"by": "llm", "seen": ["설명", "띠 수", "역할"], "fixed": [], "doubts": []}}}
     assert out["texts"] == {"tpl1": {"name": "개요 1. › □ — 본문 2레벨", "keep": False,
-                                     "review": {"by": "llm", "seen": ["이름", "레벨"], "fixed": [], "doubts": [{"code": "guideText", "text": X.DOUBTS["guideText"], "by": "llm"}]}}}
+                                     "review": {"by": "llm", "seen": ["설명", "레벨"], "fixed": [], "doubts": [{"code": "guideText", "text": X.DOUBTS["guideText"], "by": "llm"}]}}}
     assert out["paras"] == out["pages"] == out["covers"] == {} and out["note"] == "표 요약 글 요약"
     assert out["call"] == {**rec, "effort": "low"} and out["calls"] == [{"part": "tables", **rec, "effort": "low"}, {"part": "texts", **rec, "effort": "low"}]
     assert out["response"]["note"] == "표 요약" and set(out["responses"]) == {"tables", "texts"} and out["responses"]["texts"]["note"] == "글 요약"
@@ -567,13 +567,13 @@ def test_review_rechecks_every_pick_of_the_answer():
     assert set(out["texts"]) == {"tplA", "tplB"}                                # 답에서 빠진 후보(tplC) · 모르는 key(tplZ)는 결과가 없다
     a, b = out["texts"]["tplA"], out["texts"]["tplB"]
     assert "name" not in a and a["keep"] is True and a["rep"] == {"1": "p7"} and a["sameAs"] == "tplB"   # 연도가 든 이름은 버린다 · rep = 그 레벨의 others 안의 id 만(레벨마다 첫 것)
-    assert a["review"] == {"by": "llm", "seen": ["이름", "레벨"], "fixed": [{"what": "대표 문단", "level": 1, "from": "p1", "to": "p7"}],
+    assert a["review"] == {"by": "llm", "seen": ["설명", "레벨"], "fixed": [{"what": "대표 문단", "level": 1, "from": "p1", "to": "p7"}],
                            "doubts": [{"code": "repAtypical", "text": X.DOUBTS["repAtypical"], "by": "script"}, {"code": "levelOrder", "text": X.DOUBTS["levelOrder"], "by": "llm"}]}
     assert "name" not in b and b["keep"] is False and "rep" not in b and "sameAs" not in b and b["review"]["fixed"] == []   # 6자리 넘는 수 · keep 빠짐 · 슬롯 밖 rep · 서식이 다른 sameAs
     assert set(out["paras"]) == {"p20", "p21", "p22"} and out["paras"]["p20"]["name"] == "캡션 — 가운데 정렬"
     assert out["paras"]["p20"]["role"] == "caption" and out["paras"]["p20"]["review"]["fixed"] == [{"what": "역할", "from": "body", "to": "caption"}]
     assert out["paras"]["p21"]["role"] == "toc" and out["paras"]["p21"]["review"]["fixed"] == []      # 모르던 역할을 채운 것은 고침이 아니다
-    assert "role" not in out["paras"]["p22"] and out["paras"]["p22"]["keep"] is False and out["paras"]["p22"]["review"]["seen"] == ["이름", "역할"]   # 모르는 역할 코드는 버린다
+    assert "role" not in out["paras"]["p22"] and out["paras"]["p22"]["keep"] is False and out["paras"]["p22"]["review"]["seen"] == ["설명", "역할"]   # 모르는 역할 코드는 버린다
     page, cover = out["pages"]["page"], out["covers"]["cover"]
     assert page["keep"] is True and page["bodyKey"] == "b2" and page["review"]["fixed"] == [{"what": "바탕 글", "from": "b1", "to": "b2"}]
     assert page["review"]["doubts"] == [{"code": "bodyClose", "text": X.DOUBTS["bodyClose"], "by": "script"}] and page["review"]["seen"] == ["바탕 글"]

@@ -256,8 +256,8 @@ try:
         page.wait_for_function("() => AGENT.loaded && !!document.querySelector('#paneAgent .ag-status[data-llm=on]')")
         check("탭을 누르면 패널에 에이전트 보기 · 탭이 고른 꼴 · 접힌 묶음(검증·PDF·기록)은 다 감춤", page.evaluate(TOOL) == "Agent" and page.evaluate(VIS, "paneAgent") and page.get_attribute("#tabAgent", "aria-selected") == "true"
               and page.evaluate(TABS) == [*DT, ["에이전트", "true"], *HT] and page.evaluate(VIS, "toolMore"), page.evaluate(TABS))
-        st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].filter((b) => !b.hidden).map((b) => [b.textContent, b.disabled]) })")   # 「작업 설명」(작업 진행 에이전트)은 단계가 있는 TASK 에서만 보인다 — 일반 편집에는 없다
-        check("상태 줄 — LLM 사용 가능 · 「서식 관리자」 · 「비우기」(대화가 없어 꺼짐)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 관리자", False], ["비우기", True]], st)
+        st = page.evaluate("() => ({ text: document.querySelector('#paneAgent .ag-status-text').textContent, btns: [...document.querySelectorAll('#paneAgent .ag-status button')].filter((b) => !b.hidden).map((b) => [b.textContent || b.getAttribute('aria-label'), b.disabled]) })")   # 「작업 설명」(작업 진행 에이전트)은 단계가 있는 TASK 에서만 보인다 — 일반 편집에는 없다 · 글 없는 아이콘 단추는 aria-label 이 이름
+        check("상태 줄 — LLM 사용 가능 · 「서식 관리자」 · 「비우기」(대화가 없어 꺼짐) · 끝에 「창으로 띄우기」(패널 탭 자리 — agent_float.js)", "LLM 사용 가능" in st["text"] and st["btns"] == [["서식 관리자", False], ["비우기", True], ["창으로 띄우기", False]], st)
         check("빈 대화 안내 · 「보내기」 는 글이 없어 꺼짐", "제안만 냅니다" in page.inner_text("#paneAgent .ag-empty") and page.is_disabled("#paneAgent [data-ag-act=send]"))
         picks = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-pick select')].map((s) => [...s.options].map((o) => [o.value, o.textContent]))")
         check("서식 고르기 — 표: 정하지 않음 · 기본 표 · 보관한 표 서식 / 글: 자리 둘레 서식 · 보관한 글 서식", picks == [[["", "정하지 않음"], ["builtin", "기본 표"], ["s_tbl1", "예산 총괄표"]], [["", "자리 둘레 서식"], ["s_txt1", "본문 글머리"]]], picks)
