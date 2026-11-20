@@ -2448,6 +2448,7 @@ from app import agent_notes, agent_notes_api  # noqa: E402
 app.include_router(agent_notes_api.router)   # 에이전트에 덧붙이는 글(범용 · 워크플로우 전용) · 줄마다 쓰는 에이전트 끝점은 app/agent_notes_api.py(spec_에이전트 ② §6 · 화면 spec_워크플로우 ② §18-16)
 app.add_middleware(agent_notes_api.Scope)   # 주소의 작업 id → 그 요청의 「지금 워크플로우」 맥락(그 요청이 부르는 LLM 호출에 그 워크플로우 전용 글이 붙는다 — 작업은 부를 때만 읽는다)
 app.include_router(__import__("app.tool_names_api", fromlist=["router"]).router)   # 도구 이름 고치기(사람이 화면에서 고친 도구 이름 — 모든 워크플로우의 화면에) 끝점은 app/tool_names_api.py(spec_워크플로우 ② §18-19)
+app.include_router(__import__("app.user_reqs_api", fromlist=["router"]).router)   # 사용자 요구사항(도구 · 단계 · 워크플로우마다 사용자가 말한 것 — 저장소 파일 reqs/requirements.json · /workflow 의 「요구사항」 열) 끝점은 app/user_reqs_api.py(spec_워크플로우 ② §18-20)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
 app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
 app.include_router(__import__("app.analysis_api", fromlist=["router"]).router)   # 분석 상태(GET /api/docs/{id}/analysis — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나) 끝점은 app/analysis_api.py(spec_작업 ② §20)

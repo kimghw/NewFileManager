@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/workflow.css"><!-- TASK 워크플로우 페이지(spec_워크플로우 ② §3) — style.css 다음 -->
   <link rel="stylesheet" href="/static/workflow_agents.css"><!-- 조립 화면의 「에이전트」 열(② §18-16) — workflow.css 다음(세 칸 · 접힌 띠의 규칙이 설명 열의 규칙 뒤에 온다) -->
   <link rel="stylesheet" href="/static/workflow_names.css"><!-- 「도구 설명」 열의 「이름 바꾸기」(② §18-19) — workflow.css 다음 -->
+  <link rel="stylesheet" href="/static/workflow_reqs.css"><!-- 「요구사항」 열 · 우클릭 메뉴 · 아이콘(② §18-20) — workflow.css 다음 -->
 </head>
 <!-- TASK 워크플로우(spec_워크플로우 — app/workflow.py 등록부 · GET /api/workflow): TASK 마다 어떤 차례로 무엇을 하는지 보는 따로 선 페이지. 읽기만 한다(실행·진행 상태 없음).
      주소는 /workflow(app/workflow_api.py 가 아래 파일 주소에 ?v= 를 붙인다). #<job> · #common-<id> 로 그 절이 바로 열린다 -->
@@ -38,6 +39,7 @@
   <script src="/static/panel_help.js"></script><!-- hHelp(노트 도움말) — workflow.js 앞 -->
   <script src="/static/workflow_agents.js"></script><!-- 조립 화면의 「에이전트」 열(WfAgents — 줄이 쓰는 에이전트의 스킬 · 도구 · 프롬프트 · 덧붙이는 글: spec_워크플로우 ② §18-16) — workflow.js 앞(혼자 선다) -->
   <script src="/static/workflow_names.js"></script><!-- 도구 이름 고치기(WfNames — 「도구 설명」 열의 「이름 바꾸기」: spec_워크플로우 ② §18-19) — workflow.js 앞(혼자 선다) -->
+  <script src="/static/workflow_reqs.js"></script><!-- 「요구사항」(WfReqs — 도구 · 단계 · 워크플로우마다 사용자가 말한 요구사항: 오른쪽 단추 · 아이콘 → 오른쪽 열 · spec_워크플로우 ② §18-20) — workflow.js 앞(혼자 선다) -->
   <script src="/static/workflow.js"></script>
 </body>
 </html>

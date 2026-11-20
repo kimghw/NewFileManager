@@ -365,8 +365,8 @@ def diagram_checks(wf, ctx, api, workflow_requests):
             bad.append((width, overflow))
     check("다이어그램 — 1500·900·480·360px에서 기술 상세 · 시작 점검 · 문서마다 단위문서 TASK 를 펴도 가로 넘침 없음", not bad, bad)
     wf.screenshot(path=str(OUT / "08_diagram_mobile.png"))
-    check("다이어그램 탐색은 읽기만 — API 요청은 GET /api/workflow · 조립한 TASK 읽기(GET /api/tasks · /api/tasks.js) · 저장한 양식 읽기(GET /api/form-files — 양식 더하기가 펴져 있으면 /api/works · /api/samples)뿐",
-          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0] in tuple(base + x for x in ("/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples")) for method, url in workflow_requests), workflow_requests)
+    check("다이어그램 탐색은 읽기만 — API 요청은 GET /api/workflow · 조립한 TASK 읽기(GET /api/tasks · /api/tasks.js) · 저장한 양식 읽기(GET /api/form-files — 양식 더하기가 펴져 있으면 /api/works · /api/samples) · 요구사항 읽기(GET /api/reqs · 고친 도구 이름 /api/tool-names — 아이콘의 수: ② §18-20)뿐",
+          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0] in tuple(base + x for x in ("/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples", "/api/reqs", "/api/tool-names")) for method, url in workflow_requests), workflow_requests)
     wf.set_viewport_size({"width": 1500, "height": 1000})
     wf.click("#wfViewList")
     # 상세 주소로 목록을 열며 펼쳐진 단계가 기존 목록 검사의 초기 상태에 섞이지 않게 한다.

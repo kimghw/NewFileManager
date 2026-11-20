@@ -1,0 +1,98 @@
+/* 「요구사항」 열 · 우클릭 메뉴 · 아이콘(spec_워크플로우 ② §18-20 · design.md §24 — workflow_reqs.js). workflow.css · workflow_agents.css 다음에 읽는다.
+   열 = 목차 | 본문 | 요구사항(380px) — 조립 폼이 펴져 있거나(그 폼의 오른쪽에 제 열이 있다) 창이 좁으면(1100px 아래) 본문을 좁히지 않고 오른쪽에 겹쳐 선다(body.wf-reqs-over · 좁은 창).
+   색: 열의 윗금 = 청록(도구 설명 = 파랑 · 에이전트 = 보라와 겹치지 않게) · 상태 = 요청 주황 · 반영 초록 · 보류 회색. 넓은 절은 클래스로 가린다(:has() 를 쓰지 않는다). */
+body.wf-reqs-on:not(.wf-reqs-over) .wf-wrap { grid-template-columns: 244px minmax(0, 1fr) 380px; }
+.wf-reqs { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border-left: 1px solid var(--line); border-top: 3px solid #5fb3a6; font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; word-break: keep-all; }
+body.wf-reqs-over .wf-reqs { position: fixed; z-index: 40; top: var(--wf-reqs-top, 44px); right: 0; bottom: 0; width: min(380px, 100vw); box-shadow: -8px 0 24px #1c23301f; }
+@media (max-width: 1100px) {
+  body.wf-reqs-on .wf-wrap { grid-template-columns: 244px minmax(0, 1fr); }
+  .wf-reqs { position: fixed; z-index: 40; top: var(--wf-reqs-top, 44px); right: 0; bottom: 0; width: min(380px, 100vw); box-shadow: -8px 0 24px #1c23301f; }
+}
+@media (max-width: 900px) { body.wf-reqs-on .wf-wrap { grid-template-columns: minmax(0, 1fr); } }
+.wf-reqs-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px 14px; border-bottom: 1px solid var(--line); }
+.wf-reqs-head h3 { flex: 1; margin: 0; font-size: 14px; }
+.wf-reqs-head h3:focus { outline: none; }
+.wf-reqs-who { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.wf-reqs-who > b { font-size: 13.5px; line-height: 1.35; }
+.wf-reqs-kind { padding: 0 7px; line-height: 18px; border: 1px solid #a9d6ce; border-radius: 9px; background: #e9f6f3; color: #1f6f63; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.wf-reqs-group { color: var(--muted); font-size: 11.5px; }
+.wf-reqs-who > .btn, .wf-reqs-who > select { margin-left: auto; }
+.wf-reqs-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 12px; }
+.wf-reqs-hint, .wf-reqs-off { margin: 4px 0; padding: 0; color: var(--muted); line-height: 1.6; }
+.wf-reqs > .wf-reqs-hint, .wf-reqs > .wf-reqs-off { padding: 12px 14px; }
+.wf-reqs-off { color: var(--warn); }
+.wf-reqs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wf-reqs-item { padding: 9px 10px 8px; border: 1px solid var(--line); border-left: 3px solid #e2b25c; border-radius: 6px; background: var(--surface); }
+.wf-reqs-item[data-state="done"] { border-left-color: #6fbf8a; }
+.wf-reqs-item[data-state="hold"] { border-left-color: #b3bac6; }
+.wf-reqs-item-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 5px; }
+.wf-reqs-date { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.wf-reqs-state { padding: 0 7px; line-height: 17px; border: 1px solid; border-radius: 9px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.wf-reqs-open { border-color: #ecc98a; background: var(--warn-soft); color: var(--warn); }
+.wf-reqs-done { border-color: #a9d8b8; background: var(--ok-soft); color: var(--ok); }
+.wf-reqs-hold { border-color: var(--line-strong); background: var(--surface-2); color: var(--skip); }
+.wf-reqs-src { margin-left: auto; color: #8b95a5; font-size: 10.5px; }
+.wf-reqs-said { margin: 0; padding: 0 0 0 9px; border-left: 2px solid var(--line-strong); color: var(--text); line-height: 1.6; white-space: pre-wrap; }
+.wf-reqs-note, .wf-reqs-spec { margin: 6px 0 0; color: #45505f; line-height: 1.55; white-space: pre-wrap; }
+.wf-reqs-note > b, .wf-reqs-spec > b, .wf-reqs-others > b { margin-right: 6px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.wf-reqs-spec { font-size: 11.5px; color: var(--muted); }
+.wf-reqs-others { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 7px 0 0; }
+.wf-reqs-others > b { flex: 0 0 100%; margin: 0; }
+.wf-reqs-more { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.wf-reqs-to { padding: 1px 8px; font-size: 11px; cursor: pointer; white-space: normal; text-align: left; }
+.wf-reqs-to:hover { border-color: var(--accent); background: var(--accent-soft); }
+.wf-reqs-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 7px; }
+.wf-reqs-acts .btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.wf-reqs-ask { margin-right: auto; color: var(--fail); font-size: 12px; }
+.wf-reqs-state-sel, .wf-reqs-pick { height: 24px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; font-size: 11.5px; }
+.wf-reqs-acts > .wf-reqs-state-sel { margin-right: auto; }
+.wf-reqs-pick { width: 100%; height: 28px; }
+.wf-reqs-editing { display: flex; flex-direction: column; gap: 7px; border-left-color: var(--accent); background: #fbfcff; }
+.wf-reqs-field { display: flex; flex-direction: column; gap: 3px; }
+.wf-reqs-field > span { color: var(--muted); font-size: 11px; font-weight: 600; }
+.wf-reqs textarea, .wf-reqs-field > input { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.55; resize: vertical; }
+.wf-reqs-field > input { height: 28px; padding: 0 8px; }
+.wf-reqs textarea:focus, .wf-reqs-field > input:focus, .wf-reqs select:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; border-color: var(--focus); }
+.wf-reqs-group-sec { margin: 0 0 16px; }
+.wf-reqs-group-sec > h4 { margin: 0 0 7px; font-size: 12.5px; }
+.wf-reqs-index > h5 { margin: 9px 0 2px; padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.wf-reqs-rows { list-style: none; margin: 0; padding: 0; }
+.wf-reqs-go { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 4px 6px; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.wf-reqs-go:hover, .wf-reqs-go:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.wf-reqs-go-name { flex: 1; min-width: 0; }
+.wf-reqs-count { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wf-reqs-count[data-open] { color: var(--warn); font-weight: 600; }
+.wf-reqs-warn { flex: none; margin: 0; padding: 7px 14px; border-top: 1px solid #f3c4c4; background: var(--fail-soft); color: var(--fail); }
+.wf-reqs-add { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 8px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.wf-reqs-add > .btn { align-self: flex-end; }
+.wf-reqs-foot { flex: none; margin: 0; padding: 0 14px 10px; background: var(--surface-2); color: #8b95a5; font-size: 11px; line-height: 1.5; }
+
+/* 아이콘 — 절 머리 · 「도구 설명」 열의 머리 · 요구사항이 있는 줄 카드 · 다이어그램의 묶음 머리(span). 수가 있으면 수가 함께 · 「요청」 이 남아 있으면 주황 */
+.wf-req-ico { display: inline-flex; align-items: center; gap: 3px; flex: none; height: 20px; min-width: 22px; padding: 0 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #8b95a5; font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1; vertical-align: middle; cursor: pointer; box-sizing: border-box; }
+.wf-req-ico:hover { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); }
+.wf-req-ico:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.wf-req-ico svg { display: block; flex: none; }
+.wf-req-ico .wf-req-n:empty { display: none; }
+.wf-req-ico:not([data-n="0"]) { border-color: #a9d6ce; background: #e9f6f3; color: #1f6f63; }
+.wf-req-ico[data-open] { border-color: #ecc98a; background: var(--warn-soft); color: var(--warn); }
+.wf-req-ico[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.wf-sec > h2 > .wf-req-ico, .wf-stage-head > h3 > .wf-req-ico, .wf-diagram-head h2 > .wf-req-ico { margin-left: 6px; }
+.wf-help-head > .wf-req-ico { margin-left: auto; }
+.wf-help-head > .wf-req-ico + .wf-help-back { margin-left: 0; }
+.wf-stage-link > .wf-req-ico { margin-left: auto; }
+.wf-stage-link > .wf-req-ico + small { margin-left: 0; }
+.wf-req-dot { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 15px; height: 15px; padding: 0 3px; border: 1px solid #a9d6ce; border-radius: 8px; background: #e9f6f3; color: #1f6f63; font-size: 9.5px; font-weight: 700; line-height: 1; box-sizing: border-box; }
+.wf-req-dot[data-open] { border-color: #ecc98a; background: var(--warn-soft); color: var(--warn); }
+.wf-req-top { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.wf-req-top .wf-req-n:empty { display: none; }
+.wf-req-top .wf-req-n { padding: 0 5px; line-height: 16px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.wf-req-top[aria-pressed="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
+
+/* 우클릭 메뉴 — 누른 자리에 뜨는 작은 목록(머리 = 무엇을 눌렀나) */
+.wf-req-menu { position: fixed; z-index: 60; min-width: 190px; max-width: 320px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #1c233033; font-size: 12.5px; }
+.wf-req-menu-head { padding: 5px 9px 6px; margin-bottom: 3px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.wf-req-menu-foot { padding: 5px 9px 3px; margin-top: 3px; border-top: 1px solid var(--line); color: #8b95a5; font-size: 10.5px; }
+.wf-req-menu > button { display: block; width: 100%; padding: 6px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.wf-req-menu > button:hover:not(:disabled), .wf-req-menu > button:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.wf-req-menu > button:disabled { color: #a3abb8; cursor: default; }
+@media print { .wf-reqs, .wf-req-menu, .wf-req-ico, .wf-req-top { display: none !important; } }

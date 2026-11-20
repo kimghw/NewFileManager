@@ -33,6 +33,8 @@ GATES = {
     "gather_compose": ("smoke_gather_compose_ui.py", True, "조립 화면의 「N → 1」 취합형 — 틀을 고르면 취합의 묶음 · 줄 · 서버 검사의 거절(차례 · 기관 문서마다의 덩이) · 저장 = shape gather + flow · 고치기 · 앱이 취합형으로 다룸(화면의 묶음 → 정의의 묶음) · 「한 번에 진행」 = 서버 실행(진짜 끝점)"),
     "single_compose": ("smoke_single_compose_ui.py", True, "조립 화면의 「1」 문서 하나 — 틀을 고르면 그 틀의 줄(한 칸) · 저장 = shape single + flow · 앱이 문서 하나로 다룸(이관 · 취합이 아님) · 첫 화면 대시보드의 서버 실행 · 문서 화면이 서버 실행을 따라감(서버 상태의 대시보드 · 거울 · 3초 확인 = 고치던 글 보고 · 읽기 전용 띠 · 끝난 뒤 다시 읽기) · 붙박이 양식 표준화는 그대로 화면 실행(진짜 끝점 — 서버 쪽 실행기)"),
     "nav_tools": ("smoke_nav_tools_ui.py", True, "/workflow 목차의 「워크플로우 도구」 — 분류(일반 · 문서 전용) · 누르면 새 조립 폼 + 도구 설명 · 끌어서 조립 폼의 묶음에 넣기(행 사이 · 빈칸 = 같은 차례 · 원본 칸 · 쌍 줄 · 앞 도구가 없으면 서버 검사의 거절) · 틀을 바꾸면 그 틀의 도구 · 좁은 창에서는 안 섬(진짜 끝점)"),
+    "reqs": ("smoke_reqs_ui.py", True, "/workflow 의 「요구사항」 — 도구 · 단계 · 워크플로우를 오른쪽 단추로(메뉴) · 아이콘(수) · 오른쪽 열(본문 옆 · 조립 폼에서는 겹쳐 선다) · 적기 · 상태 · 고치기 · 지우기 · 모든 요구사항 · 단계 줄 = 그 줄의 도구"),
+    "tool_names": ("smoke_tool_names_ui.py", True,"조립 화면의 「도구 이름 고치기」 — 「도구 설명」 열의 「이름 바꾸기」 · 카드 이름 두 번 누르기 · 카드 · 목차 · 넣기 고르기 · 붙박이 워크플로우 절이 새 이름 · 기본 이름으로 · 서버의 거절 글 · 이관형 · 취합형이 같이 쓰는 도구는 같이 · 열어 둔 폼은 그대로(진짜 끝점)"),
     "compose_agents": ("smoke_compose_agents_ui.py", True, "조립 화면의 「에이전트」 열 — 줄이 쓰는 에이전트 · 보내는 글의 차례(범위 꼬리표) · 쓰는 도구 · 범용 글(헤딩 지침) 고치기 · 덧붙이는 글 두 칸(범용 · 이 워크플로우 전용 — 새 워크플로우는 저장할 때 함께 · 복제 · 지우기) · 세 칸 / 28px 띠 / 한 칸(진짜 끝점)"),
     "home_files": ("smoke_home_files_ui.py", True, "시작 화면 문서 목록 — 모아 두기 · 목적 문서 · 별칭 · 워크플로우 없이 열기 · 이관 두 문서 · 양식 표준화"),
     "home_dash": ("smoke_home_dash_ui.py", True, "첫 화면의 대시보드 — 오른쪽 열의 탭 둘(대시보드 · 에이전트) · 대시보드 칸(워크플로우 고르기 · 단계 흐름 · 문서 칸) · 「워크플로우 시작」(문서 화면을 열지 않는 준비 · 취합은 문서 화면으로) · 서버가 맡은 묶음의 「한 번에 진행」 · 안 맡은 묶음의 「한 번에 진행」(문서 화면에서) · 「멈춤」(다른 탭에서도 같은 실행) · 끝 글 · 기억(새 탭) · 「대시보드 자세히 보기」 · 「다른 워크플로우」 · 같은 파일 「이어서」 · 좁은 폭(진짜 끝점 — 서버 쪽 실행기)"),
@@ -121,6 +123,7 @@ def start(name, port):
                             env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(OUT / name / "tasks.json"),   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
                                  "NFM_FORM_FILES": str(OUT / name / "form_files"),   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
                                  "NFM_AGENT_NOTES": str(OUT / name / "agent_notes.json"),   # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 검사마다 임시 파일 — 사용자가 적어 둔 글이 검사에 섞이거나 검사가 그 파일을 고치지 않게
+                                 "NFM_REQS": str(OUT / name / "requirements.json"),   # 사용자 요구사항(spec_워크플로우 ② §18-20)도 검사마다 임시 파일 — 저장소의 reqs/requirements.json 을 검사가 고치지 않고, 적힌 요구사항의 수 · 아이콘이 다른 검사에 섞이지 않게
                                  "NFM_TOOL_NAMES": str(OUT / name / "tool_names.json")},   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     return {"name": name, "port": port, "proc": proc, "log": log, "t0": time.time()}

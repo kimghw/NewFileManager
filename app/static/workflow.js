@@ -251,7 +251,9 @@
   function stepEl(s) { // 단계 한 줄 — 이름 · 누가 · 문서 바뀜 · 하는 일은 늘 보이고, 누르면 세부(조건 · 하는 문서 · 나오는 것 · 도구 · 에이전트 · 코드 · 사양 자리)
     const d = h("details", "wf-step" + (s.soon ? " wf-soon" : "")), sum = h("summary"), main = h("div"), line = h("div", "wf-line1");
     d.dataset.step = s.key;
-    line.append(h("span", "wf-name", s.name));
+    const nm = h("span", "wf-name", s.name);
+    if (s.baseName) nm.title = `기본 이름 「${s.baseName}」 — 조립 화면의 「도구 설명」 에서 고친 이름입니다`; // 사람이 이름을 고친 도구(② §18-19) — 가리키면 기본 이름
+    line.append(nm);
     for (const b of s.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
     if (s.change === "doc") line.append(tag(D.change.doc, "doc", "doc"));
     if (s.auto) line.append(tag("자동", "soft"));
@@ -1998,6 +2000,7 @@
     cols.append(form, aside);
     // 「에이전트」 열(spec_워크플로우 ② §18-16 — workflow_agents.js: 설명 열의 오른쪽 형제 · 고른 줄이 쓰는 에이전트의 스킬 · 도구 · 프롬프트 · 덧붙이는 글) — 고름은 설명 열과 같다(c.help)
     if (window.WfAgents) WfAgents.mount(cols, c, sec, { unit: (k) => unitOf(k, c), units: () => unitsOf(c), family: () => (shapeBox(c) ? c.shape : "relay"), pick: (k) => helpPick(c, k), workflow: !c.single });
+    if (window.WfReqs) WfReqs.mount(cols, { family: () => (shapeBox(c) ? c.shape : "relay") }); // 「요구사항」(② §18-20 — workflow_reqs.js: 줄 카드 · 목차의 도구를 오른쪽 단추로 누르면 그 도구의 요구사항) — 이 폼의 틀만 알려 준다(도구의 키 = 틀 + 줄 key)
     helpSync(c);
     return cols;
   }
