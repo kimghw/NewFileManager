@@ -417,6 +417,7 @@
     for (const t of D.tasks) {
       const li = h("li"), chain = h("ol", "wf-chain");
       li.dataset.job = t.job;
+      if (t.soon || !t.stages.length) li.className = "wf-soon";
       li.append(link(`#${t.job}`, taskName(t.job), "wf-over-name"));
       if (!t.stages.length) { const c = h("li"); c.append(tag("준비 중", "soft")); chain.append(c); }
       for (const g of t.stages) {
@@ -430,13 +431,15 @@
       list.append(li);
     }
     sec.append(list);
+    const commonsBox = h("div", "wf-commons-box");
     for (const [label, stage] of [["단계", true], ["도구", false]]) { // 단계(TASK 가 조립하는 일반 단계) · 도구(여러 TASK 가 쓰는 과정)
-      const commons = h("div", "wf-commons");
+      const commons = h("div", "wf-commons"), chips = h("div", "wf-commons-chips");
       commons.dataset.kind = stage ? "stage" : "tool";
-      commons.append(h("span", "wf-muted", label));
-      for (const c of D.common) if ((c.kind === "stage") === stage) commons.append(link(`#common-${c.id}`, c.name, "wf-chip"));
-      sec.append(commons);
+      for (const c of D.common) if ((c.kind === "stage") === stage) chips.append(link(`#common-${c.id}`, c.name, "wf-chip"));
+      commons.append(h("span", "wf-muted", label), chips);
+      commonsBox.append(commons);
     }
+    sec.append(commonsBox);
     return sec;
   }
 
@@ -521,16 +524,19 @@
 
   function navDraw() {
     const nav = $("wfNav");
+    const head = (text, count) => { const e = h("h2", "", text); e.dataset.count = String(count); return e; };
     const make = h("button", "btn sm wf-nav-make", "＋ 워크플로우 조립"); // 단계를 골라 새 워크플로우를 만든다(② §14) — 전체 보기 아래 「워크플로우 조립」 절의 폼으로(폼을 못 여는 서버면 그 절의 안내로)
     make.type = "button";
     make.dataset.wfCompose = "new";
     make.title = "원본 문서 · 목적 문서마다 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 새 워크플로우를 만듭니다";
     make.addEventListener("click", () => composeOpen(""));
-    nav.replaceChildren(link("#overview", "전체 보기"), h("h2", "", "워크플로우"), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
-      link("#wfForms", "저장한 양식", "wf-nav-forms"), // 목적 문서 칸에 넣을 양식 파일(② §18-9) — 전체 보기와 함께 서는 절
-
-      h("h2", "", "단계"), ...D.common.filter((c) => c.kind === "stage").map((c) => link(`#common-${c.id}`, c.name)),
-      h("h2", "", "도구"), ...D.common.filter((c) => c.kind !== "stage").map((c) => link(`#common-${c.id}`, c.name)));
+    const formsWrap = h("div", "wf-nav-sep");
+    formsWrap.append(link("#wfForms", "저장한 양식", "wf-nav-forms")); // 목적 문서 칸에 넣을 양식 파일(② §18-9) — 전체 보기와 함께 서는 절
+    const stages = D.common.filter((c) => c.kind === "stage"), tools = D.common.filter((c) => c.kind !== "stage");
+    nav.replaceChildren(link("#overview", "전체 보기"), head("워크플로우", D.tasks.length), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
+      formsWrap,
+      head("단계", stages.length), ...stages.map((c) => link(`#common-${c.id}`, c.name)),
+      head("도구", tools.length), ...tools.map((c) => link(`#common-${c.id}`, c.name)));
   }
 
   function navSync() { // 목차의 지금 절 — 본문 스크롤 자리로(본문이 혼자 스크롤한다)
@@ -1079,8 +1085,9 @@
     name.maxLength = 60; name.placeholder = "양식 이름(비우면 파일 이름)"; name.setAttribute("aria-label", "새 양식의 이름");
     for (const [v, label] of Object.entries(FF_KIND)) kind.append(new Option(v ? `문서 종류: ${label}` : "문서 종류: 짐작", v));
     kind.setAttribute("aria-label", "새 양식의 문서 종류");
-    const common = h("div", "wf-ff-add-row");
-    common.append(name, kind);
+    const common = h("div", "wf-ff-add-row wf-ff-add-head"), pair = h("div", "wf-ff-add-pair");
+    pair.append(name, kind);
+    common.append(pair);
     const rowOf = (label, control, btn) => { const r = h("div", "wf-ff-add-row"); r.append(h("span", "wf-field-name", label), control, btn); return r; };
     const file = h("input"), up = h("button", "btn sm primary", ffAdd.busy ? "저장 중…" : "올려 저장");
     file.type = "file"; file.accept = ".hwp,.hwpx,.docx"; file.setAttribute("aria-label", "양식 파일 고르기");
