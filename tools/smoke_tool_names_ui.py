@@ -12,7 +12,8 @@
 - ④ 카드의 이름을 두 번 누르면 입력 칸이 바로 열린다 · 못 쓰는 이름(「 」)은 서버의 거절 글이 그 자리에(입력 칸은 그대로).
 - ⑤ 「기본 이름으로」 → 기본 이름으로 되돌아가고 저장소에서 지워진다.
 - ⑥ 이관형 · 취합형이 같이 쓰는 도구(줄 key · 기본 이름이 같음)는 같이 바뀐다 — 이관형에서 고치고 틀을 「N → 1」 로 바꾸면 취합형의 그 카드도 새 이름.
-- ⑦ 「사람이 하는 일」 에는 「이름 바꾸기」 가 없다 · 콘솔 오류 없음."""
+- ⑦ 「사람이 하는 일」 에는 「이름 바꾸기」 가 없다 · 콘솔 오류 없음.
+- ⑧ 카드의 우클릭 메뉴(요구사항 관리 — ② §18-20 의 메뉴가 있을 때)에 「이름 바꾸기…」 — 누르면 그 도구의 설명이 열리고 입력 칸이 바로."""
 import argparse
 import os
 import shutil
@@ -207,6 +208,20 @@ def main():
             names = [n for u, n in v["cards"] if u == twin]
             check("⑥ 틀을 「N → 1」 로 바꾸면 취합형의 그 카드도 새 이름 · 목차의 도구 이름도", names and all(n == NEW2 for n in names) and v["nav"].get(twin) == NEW2, [v["cards"], v["nav"]])
             page.screenshot(path=str(OUT / "05_gather.png"))
+
+        # ---- ⑧ 카드의 우클릭 메뉴(요구사항 관리의 메뉴 — ② §18-20: 있을 때만)에 「이름 바꾸기…」
+        if page.evaluate("() => !!(window.WfReqs && typeof WfReqs.menu === 'function')"):
+            k8 = next(u for u, _n in page.evaluate(VIEW)["cards"] if u != "hand")
+            page.click(card(k8), button="right")
+            page.wait_for_selector(".wf-req-menu")
+            items = page.evaluate("() => [...document.querySelectorAll('.wf-req-menu button')].map((b) => [b.textContent, b.disabled])")
+            check("⑧ 카드를 오른쪽 단추로 누르면 메뉴에 「이름 바꾸기…」(켜짐)", ["이름 바꾸기…", False] in items, items)
+            page.click(".wf-req-menu button:has-text('이름 바꾸기…')")
+            page.wait_for_selector("#wfCompose .wf-name-input")
+            page.wait_for_timeout(80)
+            v = page.evaluate(VIEW)
+            check("⑧ 메뉴의 「이름 바꾸기…」 → 그 도구의 설명이 열리고 입력 칸이 바로(초점)", v["help"] == k8 and v["row"] == "edit" and v["focused"], v)
+            page.keyboard.press("Escape")
 
         # ---- ⑦ 사람이 하는 일에는 없다
         hand = page.evaluate("""() => { const b = document.querySelector('#wfNav .wf-nav-tool[data-tool=hand]'); if (!b) return null; b.click(); return true; }""")

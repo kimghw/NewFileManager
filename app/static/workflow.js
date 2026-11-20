@@ -2288,6 +2288,13 @@
     await load();
     main.scrollTop = top;
   }
+  // 우클릭 메뉴(② §18-20 — workflow_reqs.js 의 문 WfReqs.menu)에 「이름 바꾸기…」 를 얹는다 — 도구(줄 카드 · 목차의 도구 · 설명 열의 이름)를 눌렀을 때. 그 틀의 폼이 열려 있어야 고친다(설명 열이 폼 옆에 선다 — 없으면 꺼 두고 까닭을 적는다).
+  if (window.WfNames && window.WfReqs && typeof WfReqs.menu === "function") WfReqs.menu((info) => {
+    if (!info || info.kind !== "tool" || !info.unit || info.unit === "hand") return [];
+    const c = navForm(), u = c && (shapeBox(c) ? c.shape : "relay") === info.family ? unitOf(info.unit, c) : null, off = !nameCan(u);
+    return [{ label: "이름 바꾸기…", run: () => nameStart(c, info.unit), off,
+      title: off ? "조립 폼에서 이 도구의 틀(문서 입출력)을 열면 이름을 고칠 수 있습니다" : "이 도구의 이름을 고칩니다 — 이 도구를 쓰는 모든 워크플로우의 화면에 그 이름으로 보입니다" }];
+  });
 
   async function load() {
     const main = $("wfMain");
