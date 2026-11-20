@@ -1,9 +1,10 @@
 "use strict";
-// 첫 화면의 대시보드(#homeDash — 첫 화면 오른쪽 열 aside#homeAgent 의 머리 아래 · 에이전트 대화 위: spec_작업에이전트 ② §10 「첫 화면의 대시보드」 · design.md §20).
+// 첫 화면의 대시보드(#homeDash — 첫 화면 오른쪽 열 aside#homeAgent 의 탭 「대시보드」 칸(탭 「에이전트」 와 따로 — 2026-11-20): spec_작업에이전트 ② §10 「첫 화면의 대시보드」 · design.md §20).
 // 2026-11-20 사용자 "우측에 에이전트가 있는데 여기에 워크플로우를 실행하는 워크플로우 실행 플로우를 넣고 세부적인 내용은 보지않고 실행할 수 있도록 해줘, 근데 이건 '대쉬보드' 라는 것과 동일해야함"
 //   → 답 「첫 화면에 머문다」 · 「첫 화면 오른쪽」. 패널 탭 「대시보드」(dashboard.js)와 **같은 것**의 간단한 꼴이다 — 이름 · 말 · 모양(dashboard.css 의 .dash …)이 같고, 단계는 펴지지 않는다(번호 · 이름 · 꼬리표 · 상태 글만 한 줄).
 // **실행을 눌러도 첫 화면에 머문다**: 문서 화면을 열지 않고 작업을 준비하고(home_files.js homeFilesStart), 실행은 서버 쪽 실행기가 돈다(workflow_exec.js flowStart · flowStop — 창을 닫아도 이어진다).
-// **상태는 서버가 센다**(flowGet — GET /api/works/{wid}/flow): 이 파일은 단계의 상태를 세지 않는다. 서버가 아직 맡지 않은 묶음(server: false)은 「문서 화면에서 진행합니다」 로만 보인다(그 묶음의 상태를 여기서 지어내지 않는다).
+// **상태는 서버가 센다**(flowGet — GET /api/works/{wid}/flow): 이 파일은 단계의 상태를 세지 않는다. 서버가 아직 맡지 않은 묶음(server: false)은 「문서 화면에서 진행합니다」 로 보인다(그 묶음의 상태를 여기서 지어내지 않는다) —
+//   그래도 그 묶음의 「한 번에 진행」 은 누르면 돈다: 문서 화면을 열고 그 화면의 대시보드 단추를 누른다(hdAway — 2026-11-20 사용자 "실제 실행할 수 있는 버튼이 있는 워크플로우야. 그림만 보여주는게 아냐"). 취합의 「워크플로우 시작」 도 문서 화면으로(homeFilesGo).
 // 상태 넷(hdState): pick = 워크플로우를 안 골랐다(고르기 목록) · ready = 골랐고 시작 전(등록부의 단계 흐름 · 문서 칸 · 「워크플로우 시작」) · live = 시작한 뒤(서버 상태 — 묶음의 「한 번에 진행」 · 「멈춤」 · 「대시보드 자세히 보기」) ·
 //   gone = 그 작업을 못 찾음(지웠거나 서버가 옛 판). wait = 시작한 묶음의 상태를 아직 못 읽음(처음 한 번).
 // 읽히는 차례: dashboard.js · workflow_exec.js 다음. 기대는 이름 — app.js: state · $ · el · hBtn · toast · openWork · showTab · fmtDur · PEEK · homeTaskBusy / panel_help.js: hHelp · panelHelpOwner · panelHelpClose /
@@ -11,14 +12,15 @@
 //   home_files.js: hf · hfTarget · hfExt · homeFilesStart. doc_agent_work.js 의 homeAgentBind 가 상자(#homeDash)를 만들고, homeAgentDraw · homeAgentAct 가 homeDashDraw · homeDashPick 을 부른다.
 
 // job = 고른 워크플로우 · wid = 시작한 묶음의 목적 문서 작업 id · view = 서버가 센 상태(flowGet) · gone = 그 작업이 없다(404) · err = 상태를 못 읽은 까닭 · note = 머리 아래 알림 {text, warn}(거절 글 · 시작의 알림) ·
-// busy = 이 보기가 보낸 요청("start" · "run:<묶음>" · "stop") · sig = 마지막으로 그린 것의 서명 · at = 마지막으로 상태를 읽은 때 · reading/again/living = 읽는 중 · 끝나면 한 번 더 · 확인 폴링 중 ·
+// busy = 이 보기가 보낸 요청("start" · "run:<묶음>" · "away:<묶음>"(문서 화면을 여는 중) · "stop") · sig = 마지막으로 그린 것의 서명 · at = 마지막으로 상태를 읽은 때 · reading/again/living = 읽는 중 · 끝나면 한 번 더 · 확인 폴링 중 ·
 // seq = 고름 · 비움의 차례(늦게 온 답을 버린다) · away = 문서 화면에 다녀왔다(돌아오면 바로 다시 읽는다) · regWait = 등록부를 읽는 중 · regTried = 등록부에 없어 다시 읽어 본 워크플로우
-const HD = { job: "", wid: "", view: null, gone: false, err: "", note: null, busy: "", sig: "", at: 0, reading: false, again: false, living: false, seq: 0, away: false, regWait: false, regTried: "" };
+// form = 목적 문서 칸을 저장한 양식으로 할지 사람이 고른 것(true 양식 · false 목록의 파일 · undefined 저절로 — home_files.js hfUseForm: 고정이면 늘 양식 · 기본값이면 목록에서 목적 문서를 직접 안 골랐을 때)
+const HD = { job: "", wid: "", view: null, gone: false, err: "", note: null, busy: "", sig: "", at: 0, reading: false, again: false, living: false, seq: 0, away: false, regWait: false, regTried: "", form: undefined };
 const HD_KEY = "nfm.homeDash"; // 시작한 묶음의 기억(이 브라우저 — {job, wid}): 첫 화면을 다시 열어도 그 대시보드가 보인다 · 「다른 워크플로우」 로 비운다
 const HD_HELP = "대시보드에서 워크플로우의 단계와 진행 상황을 보고 바로 실행할 수 있습니다.\n"
   + "실행을 눌러도 이 화면에 머뭅니다 — 세부(단계마다의 확인 · 보정)는 「대시보드 자세히 보기」 로 문서 화면에서 봅니다.\n"
   + "「워크플로우 시작」 은 왼쪽 문서 목록으로 문서를 준비합니다(올리기 · 프로젝트로 묶기 · 기본 분석) — 실행은 그 뒤 묶음의 「한 번에 진행」 을 누를 때만 하고, 누르면 확인 창 없이 바로 합니다(유료 LLM · 문서가 바뀌는 묶음은 단추의 풍선 도움말에 적습니다).\n"
-  + "「문서 화면에서 진행합니다」 라고 적힌 묶음은 아직 이 화면에서 실행할 수 없습니다 — 「대시보드 자세히 보기」 로 엽니다.\n"
+  + "「문서 화면에서 진행합니다」 라고 적힌 묶음은 아직 서버가 맡지 않은 묶음입니다 — 그 묶음의 「한 번에 진행」 은 문서 화면을 열고 그 화면의 대시보드에서 진행합니다(취합의 「워크플로우 시작」 도 문서 화면을 엽니다).\n"
   + "꼬리표 아이콘 — 사람(파랑) · 스크립트(</>) · LLM(보라 반짝임) · 문서 바뀜(주황 문서+연필) — 마우스를 올리면 이름이 보입니다. 점선 단계(「선택」)는 안 해도 되는 단계입니다.";
 
 const hdBox = () => $("homeDash");
@@ -44,9 +46,11 @@ function hdMemo(v) { // 시작한 묶음의 기억 — 값을 주면 적고(null
 
 function hdClear(job = "") { // 고른 것 · 시작한 것을 비운다 — 문서 · 작업 · 도는 실행은 그대로다(이 보기만)
   HD.seq += 1;
-  Object.assign(HD, { job, wid: "", view: null, gone: false, err: "", note: null, busy: "", at: 0, reading: false, again: false, living: false });
+  Object.assign(HD, { job, wid: "", view: null, gone: false, err: "", note: null, busy: "", at: 0, reading: false, again: false, living: false, form: undefined });
   hdMemo(null);
 }
+const hdSlot = (job) => (typeof hfSlot === "function" ? hfSlot(job) : null); // 그 워크플로우의 목적 문서 칸에 건 양식(home_files.js — 저장한 양식: spec_워크플로우 ② §18-9) | null
+const hdUseForm = (job) => !!(typeof hfUseForm === "function" && !(hdCat(job) || {}).gather && hfUseForm(job, HD.form)); // 취합은 양식으로 시작하지 않는다(취합의 「워크플로우 시작」 은 워크플로우 카드의 길 — hdStart)
 
 // 워크플로우를 고른다(고르기 목록 · 첫 화면 에이전트의 start:<job>) → 골랐나. 문서 화면으로 넘어가지 않고 아직 아무것도 올리지 않는다 — 등록부의 단계 흐름과 「워크플로우 시작」 이 보인다.
 // 이 보기가 문서를 준비하는 동안(「워크플로우 시작」 — 같은 파일 고르기 창을 기다리는 중일 수도)에는 고르지 않는다(그 준비를 다른 워크플로우로 덮지 않는다)
@@ -55,6 +59,8 @@ function homeDashPick(job) {
   if (!cat || cat.soon || HD.busy === "start") return false;
   hdClear(job);
   homeDashDraw(true);
+  if (typeof homeFilesDraw === "function") homeFilesDraw(); // 왼쪽 목록의 꼬리표 — 목적 문서 칸이 양식이면 목록의 문서는 모두 원본 문서
+  if (typeof hfFormsLoad === "function") hfFormsLoad(); // 그 워크플로우의 양식 설정을 다시 읽는다(10초 안의 것은 그대로 — 읽으면 다시 그린다)
   return true;
 }
 
@@ -62,6 +68,7 @@ function homeDashReset() { // 「다른 워크플로우」 — 이 대시보드�
   if (HD.busy === "start") return;
   hdClear("");
   homeDashDraw(true);
+  if (typeof homeFilesDraw === "function") homeFilesDraw();
 }
 
 function hdFocus(keys, ring = false) { // 그린 뒤 초점을 옮긴다 — 누른 단추가 사라지는 바뀜(고름 · 「다른 워크플로우」)에서 초점이 문서 밖으로 떨어지지 않게. keys = 차례대로 찾는 data-hd-focus · 초점 테두리는 키보드로 온 초점일 때만
@@ -115,8 +122,17 @@ async function hdStart() {
   if (HD.busy || !job || typeof homeFilesStart !== "function") return;
   Object.assign(HD, { busy: "start", note: null });
   homeDashDraw(true);
+  if ((hdCat(job) || {}).gather) { // 취합 — 첫 화면에서 준비하는 길(homeFilesStart)이 아직 없다: 워크플로우 카드의 길로 문서 화면을 열고 시작한다(기관 문서 올리기 · 등록 · 자동 진행은 그 길 — gather_quick.js).
+    let ok = false; // 시작했으면 그 작업을 기억한다 — 첫 화면으로 돌아오면 이 대시보드가 그 작업의 상태를 보인다
+    try { ok = !!(await homeFilesGo(job)); } catch (e) { toast(`워크플로우를 시작하지 못했습니다: ${e.message}`, true); }
+    if (seq !== HD.seq) return;
+    HD.busy = "";
+    if (ok && state.id) { Object.assign(HD, { wid: state.id, view: null, gone: false, err: "", away: true }); hdMemo({ job, wid: state.id }); }
+    homeDashDraw(true);
+    return;
+  }
   let r = null;
-  try { r = await homeFilesStart(job); } catch (e) { toast(`워크플로우를 시작하지 못했습니다: ${e.message}`, true); }
+  try { r = await homeFilesStart(job, { form: hdUseForm(job) }); } catch (e) { toast(`워크플로우를 시작하지 못했습니다: ${e.message}`, true); } // 목적 문서 칸 = 저장한 양식이면 그 양식으로(서버의 「워크플로우 시작」 이 고정 · 기본값을 견준다)
   if (seq !== HD.seq) return;
   HD.busy = "";
   if (!r) { homeDashDraw(true); return; } // 그만둠 · 거절 — 까닭은 알림 · 왼쪽 목록의 줄
@@ -177,6 +193,43 @@ async function hdMore(wid) { // 「대시보드 자세히 보기」 — 그 목�
   if (state.id === wid) showTab("Dash");
 }
 
+// 서버가 아직 맡지 않은 묶음의 「한 번에 진행」(2026-11-20 사용자 "그 워크플로우는 실제 실행할 수 있는 버튼이 있는 워크플로우야. 그림만 보여주는게 아냐"):
+// 그 목적 문서를 열고 패널 탭 「대시보드」 의 **같은 묶음 단추를 누른다** — 그 단추의 검사 · 실행 그대로다(새 실행 길이 아니다 · dashboard.js 의 run:<묶음 id>).
+// 첫 화면에 머물지 못하는 것은 그 묶음을 아직 서버 실행기가 맡지 않아서다 — 맡으면(spec_워크플로우 ② §18-10 의 걸음) hdRunBtn 이 첫 화면에서 돌린다.
+// 패널의 단추가 꺼져 있으면(앞 묶음이 안 끝남 …) 누르지 않고 그 까닭을 알린다 · 그 묶음에 「한 번에 진행」 이 없으면(단계마다 하는 묶음) 그 묶음을 보이고 알린다
+async function hdAway(g, wid) {
+  if (HD.busy || !wid) return;
+  HD.busy = `away:${g.id}`;
+  homeDashDraw(true);
+  try { await openWork(wid); } finally { HD.busy = ""; }
+  if (state.id !== wid) { homeDashDraw(true); return; } // 열지 않았다(저장 안 한 글을 두고 그만둠 · 못 읽음 — 까닭은 openWork 의 알림)
+  showTab("Dash");
+  const gid = CSS.escape(g.id), at = Date.now();
+  let li = null, b = null, seen = 0;
+  while (state.id === wid && Date.now() - at < 12000) { // 패널 대시보드가 문서를 읽고 그 묶음을 그릴 때까지 — 묶음이 보인 뒤에도 4초는 단추가 붙고 켜지기를 기다린다
+    li = document.querySelector(`#dashBox .dash-group[data-group="${gid}"]`); // (묶음 줄은 등록부로 먼저 그려지고 단추는 그 워크플로우의 상태를 읽은 뒤에 붙는다 — 취합: 기관 문서 보기를 읽은 뒤)
+    b = li && li.querySelector(`.dash-ghead [data-dash-focus="run:${gid}"]`);
+    if (b && !b.disabled) { b.click(); return; }
+    if (li && !seen) seen = Date.now();
+    if (li && Date.now() - seen > 4000) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (state.id !== wid) return;
+  if (li) li.scrollIntoView({ block: "nearest" });
+  const eun = typeof taskJosa === "function" ? taskJosa(g.name, "은", "는") : "은";
+  toast(!li ? `대시보드에서 「${g.name}」 묶음을 찾지 못했습니다 — 패널 「대시보드」 에서 진행하세요` : !b ? `「${g.name}」 ${eun} 단계마다 진행합니다 — 대시보드의 단계 카드에서 누르세요`
+    : `「${g.name}」 의 「한 번에 진행」 을 지금 누를 수 없습니다 — ${b.title || "대시보드의 까닭을 보세요"}`, !li || !!b);
+}
+
+function hdAwayBtn(g, wid, active) { // 서버가 아직 맡지 않은 묶음의 「한 번에 진행」 — 문서 화면을 열고 그 화면의 대시보드에서 돌린다(hdAway). 켜는 조건 · 꺼진 까닭은 그 화면의 단추가 정한다
+  const sending = HD.busy === `away:${g.id}`, why = active ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : HD.busy ? "요청을 보내는 중입니다" : "";
+  const tip = why || [`${g.no} 「${g.name}」 의 남은 단계를 차례로 한 번에 진행합니다 — 이 묶음은 아직 서버가 맡지 않아 문서 화면을 열고 그 화면의 대시보드에서 진행합니다(첫 화면에 머물지 않습니다). 사람이 봐야 할 곳에서는 멈추거나 남깁니다.`,
+    g.does ? `하는 일 — ${g.does}` : ""].filter(Boolean).join("\n");
+  const b = hBtn(sending ? "문서를 여는 중…" : "한 번에 진행", () => hdAway(g, wid), { cls: "btn sm", disabled: !!why, title: tip });
+  b.dataset.hdFocus = `away:${g.id}`;
+  return b;
+}
+
 // ---------------------------------------------------------------- 그릴 것 — 묶음 › 단계(등록부의 차례 · 이름 · 꼬리표 + 서버가 센 상태)
 // V 가 없으면 등록부만(시작 전 — 문서를 읽기 전이라 끝난 수 · 상태 글이 없다), 있으면 서버가 낸 묶음에 등록부의 꼬리표 · 준비 중인 단계를 얹는다. 상태(st · done · 건너뜀 · 끝난 수 · 할 수 있나)는 서버 것 그대로다
 function hdGroups(reg, V) {
@@ -194,7 +247,8 @@ function hdGroups(reg, V) {
 function hdSig() { // 다시 그릴지 — 상태 · 글 · 단추가 같으면 도는 글(지난 시간)만 바꾼다(초점 · 스크롤 유지 — 패널 대시보드의 dashSig 와 같은 방식)
   const st = hdState(), V = HD.view, list = st === "pick" || st === "ready";
   return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
-    list ? [hdFiles().map((f) => `${f.name}:${f.size}`), typeof hfTarget === "function" ? hfTarget() : -1, !!homeTaskBusy || !!(typeof hf === "object" && hf.busy), Object.keys(TASK_CATALOG)] : 0,
+    list ? [hdFiles().map((f) => `${f.name}:${f.size}`), typeof hfTarget === "function" ? hfTarget() : -1, !!homeTaskBusy || !!(typeof hf === "object" && hf.busy), Object.keys(TASK_CATALOG),
+      HD.job ? [hdSlot(HD.job), HD.form, hdUseForm(HD.job), (hdResume(HD.job) || {}).id || "", typeof hf === "object" ? hf.project : ""] : 0] : 0,
     st === "live" ? [V.job, V.sig, V.ready, V.why, V.docs, V.stages.map((g) => [g.id, g.no, g.name, g.server, g.done, g.total, g.left, g.can, g.why, (g.paid || []).length, g.change, (g.steps || []).map((s) => [s.key, s.st, s.done, s.skipped, s.text])]),
       V.run ? [V.run.n, V.run.status, V.run.stopping, (V.run.now || {}).stage, (V.run.now || {}).key, (V.run.now || {}).note, flowBy(V.run)] : 0, V.last ? [V.last.n, V.last.status, (V.last.end || {}).text] : 0] : 0]);
 }
@@ -233,10 +287,40 @@ function hdDocsEl(rows) { // 문서 칸 — 역할마다 한 줄 「목적 문�
   return ul;
 }
 
-function hdListDocs(reg) { // 시작 전 — 문서 칸에 들 파일(왼쪽 문서 목록의 목적 고르기대로: 고른 것 = 목적 문서 · 나머지 = 원본 문서)
-  const list = hdFiles(), ti = typeof hfTarget === "function" ? hfTarget() : -1, target = list[ti] || null, others = list.filter((_, i) => i !== ti);
+function hdListDocs(reg, job) { // 시작 전 — 문서 칸에 들 파일(왼쪽 문서 목록의 목적 고르기대로: 고른 것 = 목적 문서 · 나머지 = 원본 문서) · 목적 칸이 저장한 양식이면 그 양식(목록의 문서는 모두 원본 문서)
+  const list = hdFiles(), form = hdUseForm(job) ? (hdSlot(job) || {}).form : null, ti = form ? -1 : typeof hfTarget === "function" ? hfTarget() : -1;
+  const target = list[ti] || null, others = form ? list : list.filter((_, i) => i !== ti);
   return (reg.roles || []).map((r) => [r.role, `${r.title} — ${r.name}${r.many ? "(문서마다)" : ""}:`,
-    r.role === "target" ? (target ? target.name : "") : !target || !others.length ? "" : r.many ? `문서 ${others.length}개` : others.length > 1 ? `문서 ${others.length}개 — 하나만 둘 수 있습니다` : others[0].name]);
+    r.role === "target" ? (form ? hfFormLabel(form) : target ? target.name : "") : (!target && !form) || !others.length ? "" : r.many ? `문서 ${others.length}개` : others.length > 1 ? `문서 ${others.length}개 — 하나만 둘 수 있습니다` : others[0].name]);
+}
+
+// 같은 프로젝트에 이 워크플로우로 하던 작업(목적 문서) — 양식으로 시작할 때만 본다(양식으로 만든 작업은 같은 파일 고르기에 걸리지 않고 늘 새 작업: spec_워크플로우 ② §18-11 ⓕ)
+const hdResume = (job) => (hdUseForm(job) && typeof hfFormResume === "function" ? hfFormResume(job) : null);
+function hdResumeGo(w) { // 「이어서」 — 그 작업의 대시보드(문서 화면을 열지 않는다 — 「그대로 열기」 와 같은 뜻)
+  if (HD.busy || !w) return;
+  Object.assign(HD, { wid: w.id, view: null, gone: false, err: "", note: { text: `프로젝트 「${(w.task || {}).project || ""}」 에 하던 작업을 이어서 봅니다`, warn: false } });
+  hdMemo({ job: HD.job, wid: w.id });
+  homeDashDraw(true);
+  hdRead();
+}
+
+function hdFormRowEl(job) { // 목적 문서 칸의 양식(워크플로우 설정 — 저장한 양식: 기본값 · 고정) 한 줄 + (기본값이면) 양식 ↔ 목록의 파일 바꾸기 · (고정이면) 까닭 | null(설정 없음)
+  const s = hdSlot(job);
+  if (!s || (hdCat(job) || {}).gather) return null;
+  const box = el("div", "home-dash-form" + (s.form ? "" : " warn")), use = hdUseForm(job), busy = HD.busy === "start";
+  box.dataset.mode = s.mode;
+  box.dataset.use = use ? "form" : "list";
+  box.append(el("span", "dash-tag " + (s.mode === "fixed" ? "dash-t-doc" : "dash-t-soft"), `양식: ${HF_FORM_MODE[s.mode]}`), " ");
+  if (!s.form) { box.append(el("span", null, "건 양식을 찾지 못했습니다 — 워크플로우 페이지 「문서 칸」 에서 다시 거세요")); return box; }
+  if (!use) box.append(el("span", "home-dash-form-name", hfFormLabel(s.form))); // 양식을 쓰면 이름 · 저장한 날은 위 문서 칸의 목적 줄에 있다(두 번 적지 않는다)
+  if (s.mode === "fixed") box.append(el("p", "dash-text muted", "고정 — 목적 문서 칸에 목록의 파일을 넣을 수 없습니다(바꾸려면 워크플로우 페이지의 「문서 칸」). 목록의 문서는 원본 문서로 씁니다"));
+  else {
+    const flip = hBtn(use ? "목록의 파일로" : "양식으로", () => { HD.form = !use; homeDashDraw(true); homeFilesDraw(); hdFocus(["form"]); }, { cls: "btn sm", disabled: busy, // 왼쪽 목록의 꼬리표(목적 · 원본)도 따라 바뀐다
+      title: use ? "목적 문서 칸을 왼쪽 목록에서 고른 문서로 바꿉니다(기본값 — 바꿀 수 있습니다)" : "목적 문서 칸을 저장한 양식으로 되돌립니다(이 워크플로우의 기본값)" });
+    flip.dataset.hdFocus = "form";
+    box.append(" ", flip, el("p", "dash-text muted", use ? "기본값 — 목록의 문서는 원본 문서로 씁니다. 목록의 문서를 목적 문서로 하려면 「목록의 파일로」" : "목록에서 고른 목적 문서로 시작합니다 — 기본값은 저장한 양식입니다"));
+  }
+  return box;
 }
 
 function hdLiveDocs(reg, V) { // 시작한 뒤 — 서버가 본 문서 칸(그 묶음의 목적 문서 · 원본 문서)
@@ -269,7 +353,7 @@ function hdRunBtn(g, primary, active) { // 묶음의 「한 번에 진행」 —
   return b;
 }
 
-function hdGroupsEl(groups, V) { // 묶음 머리(번호 · 이름 · 끝난 수 · 「한 번에 진행」) + 단계 줄 — 서버가 센 묶음만 끝난 수 · 상태 글 · 단추가 있다
+function hdGroupsEl(groups, V) { // 묶음 머리(번호 · 이름 · 끝난 수 · 「한 번에 진행」) + 단계 줄 — 서버가 센 묶음만 끝난 수 · 상태 글이 있다(「한 번에 진행」 은 시작한 뒤 모든 묶음에 — 서버가 안 맡은 묶음은 문서 화면에서: hdAwayBtn)
   const ol = el("ol", "dash-groups"), active = !!(V && flowActive(V.run)), first = V && !active ? groups.find((g) => g.served && g.sv.can) : null;
   ol.setAttribute("aria-label", "워크플로우 단계 묶음과 단계");
   for (const g of groups) {
@@ -282,11 +366,11 @@ function hdGroupsEl(groups, V) { // 묶음 머리(번호 · 이름 · 끝난 수
       if ((g.sv.paid || []).length) { const t = el("span", "dash-tag dash-t-llm", `유료 LLM · 문서 ${g.sv.paid.length}개`); t.title = "이 묶음의 「한 번에 진행」 은 유료 LLM 을 부릅니다(문서마다 몇 분)"; gh.append(t); }
       if (g.sv.change) { const t = el("span", "dash-tag dash-t-doc", "문서 바뀜"); t.title = "이 묶음의 「한 번에 진행」 은 문서를 바꿉니다"; gh.append(t); }
       gh.append(hdRunBtn(g, g === first, active));
-    }
+    } else if (V) gh.append(hdAwayBtn(g, (V.docs && V.docs.target && V.docs.target.id) || HD.wid, active)); // 아직 서버가 맡지 않은 묶음도 누르면 돈다 — 문서 화면에서(2026-11-20)
     flow.setAttribute("aria-label", `${g.name}의 단계`);
     for (const n of g.nodes) flow.append(hdNodeEl(n));
     li.append(gh);
-    if (V && !g.served) li.append(el("p", "dash-text muted home-dash-away", "문서 화면에서 진행합니다")); // 아직 서버가 맡지 않은 묶음 — 상태를 여기서 지어내지 않는다
+    if (V && !g.served) li.append(el("p", "dash-text muted home-dash-away", "문서 화면에서 진행합니다 — 「한 번에 진행」 이 문서를 엽니다")); // 아직 서버가 맡지 않은 묶음 — 상태를 여기서 지어내지 않는다
     li.append(flow);
     ol.append(li);
   }
@@ -330,7 +414,18 @@ function hdPickParts() { // ① 워크플로우를 안 골랐다 — 고르기 �
 function hdStartWhy(job) { // 「워크플로우 시작」 을 미리 끄는 까닭 | "" — 검사 자체는 homeFilesStart 가 한다(워크플로우 카드의 시작 길과 같은 검사 · 같은 글)
   const cat = hdCat(job), list = hdFiles(), target = list[typeof hfTarget === "function" ? hfTarget() : -1] || null;
   if (!cat) return "이 워크플로우를 찾지 못했습니다 — 「다른 워크플로우」 로 다시 고르세요";
-  if (cat.gather) return "이 워크플로우는 아직 대시보드에서 시작할 수 없습니다 — 왼쪽 워크플로우 카드로 시작하세요";
+  if (cat.gather) { // 취합 — 워크플로우 카드의 길(homeFilesGo — 문서 화면을 열고 시작)로 시작한다: 검사는 그 길의 것 가운데 미리 알 수 있는 것만(2026-11-20 — 전에는 꺼 두고 「왼쪽 워크플로우 카드로」)
+    if (!list.length) return "왼쪽에 문서를 넣으세요 — 취합본(목적 문서)과 기관 문서";
+    if (!target) return "왼쪽 문서 목록에서 목적 문서(취합본)를 고르세요";
+    if (!taskAcceptOf(job).filter((x) => x !== "pdf").includes(hfExt(target))) return `목적 문서 「${target.name}」 로는 시작할 수 없습니다 — hwp·hwpx 문서여야 합니다`;
+    return homeTaskBusy || hf.busy ? "문서를 준비하고 있습니다" : "";
+  }
+  const slot = hdSlot(job);
+  if (slot && slot.mode === "fixed" && !slot.form) return "고정한 양식을 찾지 못했습니다 — 워크플로우 페이지 「문서 칸」 에서 다시 거세요";
+  if (hdUseForm(job)) { // 목적 문서 칸 = 저장한 양식 — 목록의 문서는 원본 문서(이관 = 하나까지 · 없어도 시작한다: 원본 문서는 연 뒤 「작업 개요」 의 첨부 파일 칸에서도 올린다)
+    if (cat.files && list.length > 1) return `원본 문서는 하나만 둘 수 있습니다 — 목록에 문서가 ${list.length}개입니다`;
+    return homeTaskBusy || hf.busy ? "문서를 준비하고 있습니다" : "";
+  }
   if (!list.length) return "왼쪽에 문서를 넣으세요 — 넣은 뒤 목적 문서를 고르면 켜집니다";
   if (!target) return "왼쪽 문서 목록에서 목적 문서를 고르세요";
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf");
@@ -340,15 +435,29 @@ function hdStartWhy(job) { // 「워크플로우 시작」 을 미리 끄는 까
 }
 
 function hdReadyParts() { // ② 골랐고 시작 전 — 등록부의 단계 흐름(끝난 수 · 상태 글 없음: 문서를 읽기 전) · 문서 칸 · 「워크플로우 시작」
-  const job = HD.job, reg = hdReg(job), busy = HD.busy === "start", why = busy ? "" : hdStartWhy(job);
-  const parts = [hdHeadEl(hdName(job), { job, next: busy ? "문서를 준비하는 중 — 올리기 · 프로젝트로 묶기 · 기본 분석" : "시작 전 — 「워크플로우 시작」 을 누르면 문서를 준비합니다" })];
+  const job = HD.job, reg = hdReg(job), busy = HD.busy === "start", why = busy ? "" : hdStartWhy(job), form = hdUseForm(job), resume = busy ? null : hdResume(job);
+  const gather = !!(hdCat(job) || {}).gather; // 취합 — 「워크플로우 시작」 이 문서 화면을 열고 시작한다(hdStart)
+  const parts = [hdHeadEl(hdName(job), { job, next: busy ? "문서를 준비하는 중 — 올리기 · 프로젝트로 묶기 · 기본 분석" : gather ? "시작 전 — 「워크플로우 시작」 을 누르면 문서 화면을 열고 시작합니다" : "시작 전 — 「워크플로우 시작」 을 누르면 문서를 준비합니다" })];
   if (HD.note) parts.push(hdNoteEl(HD.note.text, HD.note.warn));
-  if (reg) parts.push(hdDocsEl(hdListDocs(reg)));
+  if (reg) parts.push(hdDocsEl(hdListDocs(reg, job)));
+  const formRow = hdFormRowEl(job); // 목적 문서 칸의 양식(기본값 · 고정) — 설정이 있을 때만
+  if (formRow) parts.push(formRow);
+  let again = null;
+  if (resume) { // 양식으로 시작하면 늘 새 작업(다음 라운드)이다 — 같은 프로젝트에 하던 작업이 있으면 「이어서」 를 먼저(② §18-11 ⓕ)
+    const p = (resume.task || {}).project || "", box = el("div", "dash-note");
+    again = hBtn("이어서", () => hdResumeGo(resume), { cls: "btn sm primary", title: `프로젝트 「${p}」 에 이 워크플로우로 하던 작업(${resume.name || resume.id})의 대시보드를 봅니다 — 새 작업을 만들지 않습니다` });
+    again.dataset.hdFocus = "resume";
+    box.dataset.resume = resume.id;
+    box.append(el("span", null, `프로젝트 「${p}」 에 이 워크플로우로 하던 작업이 있습니다 — 「이어서」 로 그 작업을 보거나, 「새로 시작」 으로 양식에서 다음 라운드를 만듭니다`));
+    parts.push(box);
+  }
   parts.push(hdFlowEl(job, null));
-  const start = hBtn(busy ? "문서 준비 중…" : "워크플로우 시작", () => hdStart(), { cls: "btn sm primary", disabled: busy || !!why,
-    title: why || "왼쪽 문서 목록으로 문서를 준비합니다 — 올리기 · 프로젝트로 묶기 · 기본 분석(스크립트). 문서 화면으로 넘어가지 않고, 실행은 그 뒤 묶음의 「한 번에 진행」 을 누를 때만 합니다" });
+  const tip = gather ? "목적 문서(취합본)를 열고 나머지 문서를 기관 문서로 올립니다 — 취합은 아직 첫 화면에서 준비할 수 없어 문서 화면으로 넘어갑니다(왼쪽 워크플로우 카드와 같은 길). 「자동 진행」 을 켰으면 그 화면에서 끝까지 진행합니다"
+    : form ? `목적 문서를 ${hfFormLabel(hdSlot(job).form)}으로 만들고(문서 화면으로 넘어가지 않음) 왼쪽 목록의 문서를 원본 문서로 올립니다 — 기본 분석(스크립트)까지. 실행은 그 뒤 묶음의 「한 번에 진행」 을 누를 때만 합니다`
+    : "왼쪽 문서 목록으로 문서를 준비합니다 — 올리기 · 프로젝트로 묶기 · 기본 분석(스크립트). 문서 화면으로 넘어가지 않고, 실행은 그 뒤 묶음의 「한 번에 진행」 을 누를 때만 합니다";
+  const start = hBtn(busy ? "문서 준비 중…" : resume ? "새로 시작" : "워크플로우 시작", () => hdStart(), { cls: "btn sm" + (resume ? "" : " primary"), disabled: busy || !!why, title: why || tip });
   start.dataset.hdFocus = "start";
-  parts.push(hdFootEl(start, hdOtherBtn("워크플로우를 다시 고릅니다 — 문서 목록은 그대로입니다", busy), why ? el("p", "dash-text dash-why", why) : null));
+  parts.push(hdFootEl(...(again ? [again] : []), start, hdOtherBtn("워크플로우를 다시 고릅니다 — 문서 목록은 그대로입니다", busy), why ? el("p", "dash-text dash-why", why) : null));
   return parts;
 }
 

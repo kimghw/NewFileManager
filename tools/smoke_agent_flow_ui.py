@@ -105,6 +105,7 @@ def main():
         b = p.chromium.launch()
         page = b.new_page(viewport={"width": 1600, "height": 1000}, device_scale_factor=1)
         page.add_init_script("try { localStorage.setItem('nfm.agentDock', 'panel'); } catch (e) {}")  # 에이전트 보기를 패널 탭 자리로(창 머리 「패널에 넣기」 와 같음) — 떠 있는 창(기본)은 smoke_agent_float_ui.py
+        page.add_init_script("try { localStorage.setItem('nfm.homeTab', 'agent'); } catch (e) {}")  # 첫 화면 오른쪽 열의 탭 「에이전트」 부터(기본은 「대시보드」 — 2026-11-20 탭 둘)
         page.on("console", lambda m: errors.append(f"[{m.type}] {m.text}") if m.type == "error" and "Failed to load resource" not in m.text else None)
         page.on("pageerror", lambda e: errors.append(f"[pageerror] {e}"))
         page.on("dialog", lambda d: d.accept())
