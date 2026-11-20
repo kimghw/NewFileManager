@@ -1,0 +1,106 @@
+"""단위문서 TASK 의 문(spec_워크플로우 ② §17-3 「단위문서 TASK 의 문」 — app/unit_steps.py): 문서 쌍 · 판정 재료 · 분석 시작 → 끝 · 작성 지침 · 건너뛰기 · 실행 기록 저장 · Outcome 의 꼴."""
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+import merge_data as M
+from app import task_options, unit_steps as U, works
+
+
+@pytest.fixture
+def client():
+    from app import merge_api, server
+    server.DOCS.clear()
+    merge_api._CACHE.clear()
+    return TestClient(server.app)
+
+
+def _upload(c, path):
+    r = c.post("/api/docs?new=1", files={"file": (path.name, path.read_bytes())})
+    assert r.status_code == 200, r.text
+    return r.json()["docId"]
+
+
+def _task(c, wid, **task):
+    assert c.put(f"/api/works/{wid}/task", json={"kind": "rnd", "job": "plan_to_report", "project": "시험 과제", **task}).status_code == 200
+
+
+def test_pair_is_the_same_from_either_document(client):
+    """어느 칸의 문서에서 불러도 같은 쌍 — 목적 문서 = 그 워크플로우의 목적 종류 · 원본 = 자리 연결이 쓰는 원본."""
+    plan, report, alone = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM), _upload(client, M.REPORT_FORM)
+    _task(client, plan, file="plan")
+    _task(client, report, file="report")
+    a, b = U.pair(plan), U.pair(report)
+    assert (a["target"]["id"], a["source"]["id"]) == (b["target"]["id"], b["source"]["id"]) == (report, plan)
+    assert a["job"] == "plan_to_report" and a["scope"] == ["시험 과제", "plan_to_report", 1] and (a["file"], b["file"]) == ("plan", "report") and a["kinds"] == {"target": "report", "source": "plan"}
+    assert a["target"]["format"] == "hwpx" and a["target"]["name"]
+    _task(client, plan, file="plan", round=2)   # 다른 라운드로 간 원본 — 그 묶음의 원본이 아니다
+    assert U.pair(report)["source"] is None and U.pair(plan)["target"] is None and U.pair(plan)["source"]["id"] == plan
+    lone = U.pair(alone)   # 워크플로우가 없는 문서 — 그 문서 하나
+    assert lone["job"] == "" and lone["target"]["id"] == alone and lone["source"] is None
+    assert U.pair("nope") is None and U.work("nope") is None and U.facts("nope") is None
+
+
+def test_analysis_runs_to_the_end_and_guides_are_kept(client):
+    report = _upload(client, M.REPORT_FORM)
+    f = U.facts(report)
+    assert f["fmt"] == "hwpx" and f["heads"] == {"s2": False, "s3": False, "rev2": None, "rev3": None, "llm": False, "job": None} and f["guides"] is None
+    got = U.start_heads(report, "first")
+    assert got.ok and got.code == "ok" and got.data["status"] in ("running", "done") and got.data["first"] is True
+    again = U.start_heads(report, "first")
+    assert again.code in ("busy", "ok")   # 도는 중이면 busy(끝났으면 다시 받는다)
+    t0 = time.time()
+    while (U.job(report).data or {}).get("status") == "running" and time.time() - t0 < 240:
+        time.sleep(0.1)
+    job = U.job(report)
+    assert job.code == "ok" and job.data["status"] == "done" and job.rev == 0   # 분석은 문서를 바꾸지 않는다
+    f = U.facts(report)
+    assert f["heads"]["s2"] and f["heads"]["s3"] and f["heads"]["llm"] is False and f["heads"]["job"]["status"] == "done"
+    kept = U.guides_keep(report)
+    assert kept.ok and "saved" in kept.data and isinstance(U.facts(report)["guides"], int)
+    assert U.stop_llm(report).code == "nothing"   # 도는 LLM 검증·보완이 없음
+    assert U.touch(report) is True and U.touch("nope") is False
+
+
+def test_outcome_codes_follow_the_endpoint_status(client):
+    assert U.start_heads("nope").code == "missing" and U.job("nope").code == "missing" and not U.job("nope").ok
+    assert U.start_heads(_upload(client, M.REPORT_FORM), 7).code == "invalid"   # 400 — 모르는 단계
+    assert U.Outcome().ok and U.Outcome("nothing").ok and not U.Outcome("stale").ok and set(U.CODES) >= {"ok", "busy", "stale", "blocked", "rejected", "invalid", "missing", "error"}
+
+    def boom():
+        raise RuntimeError("x")
+    assert U._run(boom).code == "error" and "RuntimeError" in U._run(boom).text
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+
+    def stale():
+        raise HTTPException(409, {"reason": "stalePlan", "message": "계획이 낡았습니다"})
+    got = U._run(stale, on409="stale")
+    assert got.code == "stale" and got.text == "계획이 낡았습니다" and got.data["detail"]["reason"] == "stalePlan"
+    back = U._run(lambda: JSONResponse({"detail": "표준 검사에 걸렸습니다"}, status_code=422))   # _transact 가 되돌리고 **돌려준** 응답
+    assert back.code == "rejected" and back.text == "표준 검사에 걸렸습니다"
+
+
+def test_skips_live_in_the_workflow_options_of_the_bundle(client):
+    """「건너뛰기」 = 워크플로우 옵션(묶음마다 — 모든 화면 · 실행이 같이 본다) · 편집 구역 기준의 판과 따로 · 초기화 뒷정리가 지운다."""
+    plan, report = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    _task(client, plan, file="plan")
+    _task(client, report, file="report")
+    assert U.skips(report) == [] and U.skip_set(report, plan, True).data == [plan] and U.skips(plan) == [plan]   # 같은 묶음 — 어느 문서에서 읽어도
+    assert task_options.resolve(works.work(report))["rev"] == 0   # 편집 구역 기준의 판은 그대로(그 화면의 「다른 화면이 먼저 바꿈」 이 안 걸린다)
+    assert task_options.set_zones(works.work(report), ["org"])["rev"] == 1 and U.skips(report) == [plan]
+    assert U.skip_set(report, "nope", True).code == "missing"
+    assert task_options.flow_forget(plan) == 1 and U.skips(report) == []
+    assert U.skip_set(report, plan, True).ok and U.skip_set(report, plan, False).data == []
+
+
+def test_run_records_are_written_under_the_work_folder(client):
+    wid = _upload(client, M.REPORT_FORM)
+    assert U.store.enabled(wid) and U.store.numbers(wid) == [] and U.store.read(wid, 1) is None
+    assert U.store.write(wid, 2, {"n": 2, "status": "running"}) and U.store.write(wid, 10, {"n": 10})
+    assert U.store.numbers(wid) == [2, 10] and U.store.read(wid, 2) == {"n": 2, "status": "running"}
+    assert works.folder(wid).joinpath(U.RUNS, "2.json").is_file()
+    U.store.log(wid, event="start", n=2)
+    assert [e for e in works.events(wid) if e.get("kind") == U.LOG_KIND][0]["event"] == "start"
+    assert not U.store.enabled("nope") and U.store.write("nope", 1, {}) is False

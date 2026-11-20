@@ -20,6 +20,7 @@ ZONES_DEFAULT = {"plan_merge": ["org"]}   # TASK(job) → 기본으로 켤 기�
 FILE = "task_options.json"
 _LOCK = threading.RLock()   # 읽고-고치고-쓰기를 묶는다(프로세스 안 하나)
 _MEMORY = {}                # 작업 저장이 꺼져 있을 때의 scopes
+_MEMORY_FLOW = {}           # 작업 저장이 꺼져 있을 때의 flow(실행의 옵션 — 아래 「실행의 옵션」)
 _warned = False             # 깨진 저장 파일을 기록에 알렸나(resolve)
 
 
@@ -92,7 +93,7 @@ def _load():
     """→ {"version": 1, "scopes": {…}} — _LOCK 안에서 부른다. 파일이 없으면 빈 것, 작업 저장이 꺼져 있으면 메모리의 것. 깨졌으면 Broken(부르는 쪽이 덮어쓰지 않는다)."""
     path = _path()
     if path is None:
-        return {"version": 1, "scopes": _MEMORY}
+        return {"version": 1, "scopes": _MEMORY, "flow": _MEMORY_FLOW}
     if not path.exists():
         return {"version": 1, "scopes": {}}
     data = works._read_json(path)   # 못 읽음 · JSON 아님 = None(바꿔 넣는 중인 파일은 몇 번 다시 읽는다 — works)
@@ -177,18 +178,83 @@ def set_zones(work, dims, rev=None, scope=None) -> dict:
         return {"scope": scope, "offered": True, "zones": {"dims": _ordered(dims), "defaulted": False}, "rev": rec["rev"]}
 
 
+# ---- 실행의 옵션(spec_워크플로우 ② §17-6 「건너뛰기」) -------------------------------------------------------
+# 워크플로우 실행이 읽는 묶음마다의 값 — 지금 `llmSkip`(사람이 「LLM 검증·보완」 을 건너뛴 문서 id 들: 스크립트 분석만으로 진행). 편집 구역 기준(scopes)과 **따로** 둔다(파일 머리의 `flow` 사전 — 같은 범위 열쇠):
+# 그 판(rev)을 같이 올리지 않고(편집 구역 화면의 「다른 화면이 먼저 바꿈」 이 걸리지 않게), 옛 판의 코드가 읽어도 scopes 의 꼴이 그대로다(머리의 모르는 키는 그대로 다시 쓰인다).
+# 새 라운드로 잇지 않는다(문서 id 가 다르다) · 사람이 정한 것만 적는다(빈 목록이 되면 그 열쇠를 지운다).
+
+def _flow_of(data):
+    f = data.get("flow")
+    if not isinstance(f, dict):
+        f = data["flow"] = {}
+    return f
+
+
+def _skip_ids(rec):
+    ids = rec.get("llmSkip") if isinstance(rec, dict) else None
+    return [x for x in ids if isinstance(x, str)] if isinstance(ids, list) else []
+
+
+def flow(work) -> dict:
+    """그 묶음의 실행 옵션 → {llmSkip: [문서 id …]}(없으면 빈 목록). 저장 파일이 깨졌으면 빈 것으로 읽는다(덮어쓰지 않는다)."""
+    scope = scope_of(work)
+    with _LOCK:
+        try:
+            return {"llmSkip": _skip_ids(_flow_of(_load()).get(scope))}
+        except Broken:
+            return {"llmSkip": []}
+
+
+def flow_skip(work, doc_id, on) -> list:
+    """그 묶음의 「건너뛰기」 에 문서를 넣거나(on) 뺀다 → 지금 건너뛴 문서 id 들. Broken = 저장 파일이 깨짐(덮어쓰지 않는다) · ValueError = 작업이 없어 묶음을 알 수 없음."""
+    scope = scope_of(work)
+    if scope == "w:" or not isinstance(doc_id, str) or not doc_id:
+        raise ValueError("작업이 없어 워크플로우 옵션을 저장할 수 없습니다")
+    with _LOCK:
+        data = _load()
+        box = _flow_of(data)
+        ids = _skip_ids(box.get(scope))
+        new = [x for x in ids if x != doc_id] + ([doc_id] if on else [])
+        if new != ids:
+            if new:
+                box[scope] = {**(box.get(scope) if isinstance(box.get(scope), dict) else {}), "llmSkip": new, "updated": _now()}
+            else:
+                box.pop(scope, None)
+            _save(data)
+        return new
+
+
+def flow_forget(doc_id) -> int:
+    """작업 내용 초기화 · 작업 지우기 — 그 문서의 「건너뛰기」 를 모든 묶음에서 뺀다 → 뺀 수(뒷정리라 예외를 내지 않는다)."""
+    def change(box):
+        n = 0
+        for k in list(box):
+            ids = _skip_ids(box[k])
+            if doc_id in ids:
+                n += 1
+                left = [x for x in ids if x != doc_id]
+                if left:
+                    box[k] = {**box[k], "llmSkip": left}
+                else:
+                    del box[k]
+        return n
+    return _tidy(f"건너뛰기 지우기({doc_id})", lambda scopes: 0, change)
+
+
 # ---- 뒷정리 — 프로젝트 이름 변경 · 새 라운드 · 프로젝트 삭제(server.py 가 부른다) -----------------------------------
 # 옵션은 보이는 것을 고르는 값일 뿐이라 이 셋은 예외를 내지 않는다(프로젝트 이름 변경·새 라운드가 옵션 파일 때문에 중간에 끊기지 않게) — 못 하면 기록에 남기고 0·False.
 
-def _tidy(what, change):
-    """_LOCK 안에서 change(scopes) → 바뀐 수. 0 이 아니면 저장한다. 깨진 파일 · 못 쓴 파일은 그대로 두고 0."""
+def _tidy(what, change, more=None):
+    """_LOCK 안에서 change(scopes) → 바뀐 수. 0 이 아니면 저장한다. 깨진 파일 · 못 쓴 파일은 그대로 두고 0.
+    more(flow) = 실행의 옵션(머리의 flow — 같은 범위 열쇠)도 같이 고친다 → 바뀐 수(scopes 가 안 바뀌었으면 이 수를 돌려준다)."""
     with _LOCK:
         try:
             data = _load()
             n = change(data["scopes"])
-            if n:
+            m = more(data["flow"]) if more is not None and isinstance(data.get("flow"), dict) and data["flow"] else 0
+            if n or m:
                 _save(data)
-            return n
+            return n or m
         except (Broken, OSError) as exc:
             log.warning("[TASK 옵션] %s 을(를) 하지 못했습니다: %r", what, exc)
             return 0
@@ -212,7 +278,7 @@ def rename_project(old, new) -> int:
             rec = scopes.pop(k)
             scopes.setdefault(_key(new, job, number), rec)   # 새 이름으로 이미 정한 것이 있으면 그것을 둔다
         return len(moved)
-    return _tidy(f"프로젝트 이름 변경({old} → {new})", change)
+    return _tidy(f"프로젝트 이름 변경({old} → {new})", change, change)   # 실행의 옵션(flow)도 같은 열쇠 — 같이 옮긴다
 
 
 def drop_project(name) -> int:
@@ -229,7 +295,7 @@ def drop_project(name) -> int:
         for k in gone:
             del scopes[k]
         return len(gone)
-    return _tidy(f"프로젝트 삭제({name})", change)
+    return _tidy(f"프로젝트 삭제({name})", change, change)   # 실행의 옵션(flow)도 같이 지운다
 
 
 def copy_round(task_from, task_to) -> bool:

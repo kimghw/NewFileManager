@@ -160,9 +160,13 @@ def tasks_delete(key: str):
     if n + m:   # 지금 워크플로우로 둔 작업 + 목록에만 든 작업(지우면 그 줄이 모르는 키로 남는다) — 화면의 deleteWhy 와 같은 글
         raise HTTPException(409, custom_tasks.DELETE_IN_USE.format(n=n + m))
     try:
-        return {"deleted": custom_tasks.delete(key)}
+        gone = custom_tasks.delete(key)
     except custom_tasks.Refused as e:
         raise HTTPException(409, str(e)) from e
+    if gone:
+        from app import form_files
+        form_files.forget_job(key)   # 그 워크플로우에 건 양식 설정도 푼다(spec_워크플로우 ② §18-9 — 지운 키의 설정이 남아 양식을 못 지우지 않게)
+    return {"deleted": gone}
 
 
 @router.get("/api/tasks.js")

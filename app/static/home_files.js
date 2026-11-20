@@ -334,7 +334,8 @@ async function hfAddSource(main, file, role, alias = "") { // 이관의 원본 �
     api(`/api/docs/${d.docId}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) }).catch(() => {}); // 첫 분석(스크립트) — 2단계 자리 연결이 그 결과를 본다
     if (state.id === main.id) await loadWorks();
     toast(`${file.name} — ${name} 칸에 넣었습니다${aliasError}`, !!aliasError);
-  } catch (e) { toast(`${name}를 올리지 못했습니다: ${e.message} — 작업 개요의 ${name} 칸에서 다시 올리세요`, true); }
+    return true; // 올렸다(약칭만 못 적은 것도) — 첫 화면의 대시보드 준비 길(homeFilesStart)이 본다 · homeFilesGo 는 전처럼 알림만 쓴다
+  } catch (e) { toast(`${name}를 올리지 못했습니다: ${e.message} — 작업 개요의 ${name} 칸에서 다시 올리세요`, true); return false; }
 }
 
 async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TASK 로 시작(② §15-1 표)
@@ -393,4 +394,96 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
     toast(hf.err, true);
     return !!main; // 목적 문서는 열렸다(원본 문서만 못 올림) — 시작한 것으로 본다
   } finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); homeFilesDraw(); if (typeof agentWorkHold === "function") agentWorkHold(false); }
+}
+
+// 「워크플로우 시작」 — 첫 화면의 대시보드(home_dash.js · spec_작업에이전트 ② §10 「첫 화면의 대시보드」 의 「시작」): **문서 화면을 열지 않고** 이 문서 목록으로 작업을 만든다.
+// homeFilesGo 와 같은 검사(그 글 그대로) · 같은 끝점(올리기 · 같은 파일 고르기 · start-task | task · 약칭 · 편집 구역 기준 · 기본 분석 · 원본 문서 올리기)이고, 편집기의 load() · taskEnter · firstRun 만 하지 않는다 —
+// 올린(또는 이어 하는) 작업의 지금 task 는 작업 목록(GET /api/works)에서 읽는다(GET /api/docs/{id} 는 문서를 통째로 읽는다 — 부르지 않는다). 준비까지다: 실행은 대시보드에서 묶음의 「한 번에 진행」 을 사람이 누를 때만.
+// → {id(목적 문서 작업 id), task, sources[원본 문서 작업 id], failed[못 올린 파일 이름], note} | {opened: 작업 id}(같은 파일 고르기의 「그대로 열기」 — 시작은 멈춤) | null(그만둠 · 거절 — 까닭은 알림).
+// 이번 범위 = 이관형(TASK_CATALOG[job].files — 붙박이 이관 · 조립한 것)과 문서 하나인 워크플로우. 취합은 아직 여기서 시작하지 않는다(기관 문서 올리기 · 등록은 문서 화면의 길 — gather_quick.js).
+// **homeFilesGo · hfOpenTarget 의 검사 · 글을 고치면 여기도 함께 본다**(두 길이 같은 검사여야 한다 — 검사를 한 함수로 묶는 것은 뒤로 미룸).
+async function homeFilesStart(job) {
+  const t = TASK_CATALOG[job];
+  if (!t || hf.busy || homeTaskBusy) return null;
+  if (t.soon) { toast(`워크플로우 「${t.name}」 — 준비 중입니다`); return null; }
+  if (t.gather) { toast("이 워크플로우는 아직 대시보드에서 시작할 수 없습니다 — 왼쪽 워크플로우 카드로 시작하세요", true); return null; }
+  const ti = hfTarget(), target = hf.files[ti];
+  const ask = (msg, sel) => { toast(msg, true); const to = sel && $("homeFiles").querySelector(sel); if (to) to.focus(); };
+  if (!target) { ask("목적 문서를 먼저 고르세요 — 내용을 받는 문서(이관 = 연차보고서 · 취합 = 취합본 · 양식 표준화 · 양식 맞추기 = 맞출 문서)", "input[type=radio]"); return null; }
+  const exts = taskAcceptOf(job).filter((x) => x !== "pdf");
+  if (!exts.includes(hfExt(target))) { ask(`워크플로우는 ${exts.join("·")} 문서로 시작합니다 — docx 는 「워크플로우 없이 열기」 로 엽니다(워크플로우 「문서 서식 복사」 는 docx 도 됩니다)`, "[data-hf-plain]"); return null; }
+  const others = hf.files.filter((_, i) => i !== ti), alias = hfNorm(hf.alias, 40), zones = hf.zones && [...hf.zones]; // 누를 때의 고름(약칭 · 편집 구역 기준 — null = 손대지 않음)
+  const aliases = new Map(hf.files.map((file) => [file, hfNorm(hf.aliases.get(file), 40)])), sourceRole = (t.files || []).find((k) => k !== t.target) || "";
+  let project = hfNorm(hf.project, 60), use = [];
+  if (t.files) {
+    if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return null; }
+    if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return null; }
+    use = others; // 프로젝트 이름을 비워도 된다 — 임시 이름으로 두 문서를 같은 프로젝트에 묶는다(② §17 「임시 프로젝트」)
+  } else if (others.length && !confirm(`워크플로우 「${t.name}」 ${hfJosa(t.name, "은", "는", "은")} ${hfDocName(job)} 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return null; // 고른 것과 다른 일을 하게 되는 물음 — 남긴다(design.md §18)
+  const blank = { kind: "", file: "", job: "", project: "" };
+  const fit = (w) => { // hfOpenTarget 의 fit 과 같다 — 다른 워크플로우 · 기관 문서 · 다른 역할 · 다른 프로젝트였던 작업의 줄은 「그대로 열기」 만
+    const x = { ...blank, ...(w.task || {}) };
+    if (x.job && x.job !== job) return `다른 워크플로우(「${taskName("job", x.job) || x.job}」)`;
+    if (x.file === "part") return "기관 문서로 쓰던 작업";
+    if (t.target && x.job === job && x.file && x.file !== t.target) return `다른 역할(${taskName("file", x.file)})`;
+    if (project && x.project && x.project !== project) return `다른 프로젝트(「${x.project}」)`;
+    return true;
+  };
+  hfBusy(`워크플로우 「${t.name}」 — ${hfDocName(job)} 「${target.name}」 올리는 중…${/\.hwp$/i.test(target.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
+  homeTaskBusy = true;
+  try {
+    const got = await sameFileUpload(target, { job, project, fit, onAsk: () => hfBusy(`「${target.name}」 — 같은 파일로 하던 작업이 있습니다. 떠 있는 창에서 고르세요`) });
+    if (!got) { hfBusy(""); return null; } // 창을 닫음 — 목록은 그대로
+    if (got.act === "open") { hfBusy(""); return { opened: got.id }; } // 「그대로 열기」 — 이 워크플로우의 시작은 멈춘다(그 작업을 어떻게 보일지는 대시보드가 정한다)
+    if (got.act === "new") project = got.project; // 창의 프로젝트 칸이 목록의 칸보다 먼저(사람이 마지막에 고친 값)
+    const r = got.r, id = r.docId, fresh = !r.reused;
+    const note = { use: "같은 파일로 하던 작업을 이어서 합니다", reset: "작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다", new: "같은 파일로 하던 작업은 그대로 두고 새 작업으로 시작했습니다" }[got.act] || "";
+    hfBusy(`워크플로우 「${t.name}」 — ${hfDocName(job)} 「${target.name}」 준비하는 중…`);
+    const row = (await api("/api/works")).find((w) => w.id === id); // 그 작업의 지금 task(이어 하는 작업이면 프로젝트 · 라운드가 있다) — 문서는 읽지 않는다
+    if (!row) throw new Error("작업 저장이 꺼져 있어 문서 화면을 열지 않고는 시작할 수 없습니다 — 왼쪽 워크플로우 카드로 시작하세요");
+    const cur = { ...blank, ...(row.task || {}) }, role = t.target || cur.file || t.file; // 목적 문서 종류: 이관 = 연차보고서 · 그 밖 = 그 작업에 적힌 종류(없으면 그 워크플로우의 문서)
+    const put = () => api(`/api/works/${id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...cur, kind: taskKindOf(job), job, file: role }) });
+    let res, temp = "";
+    // 이미 그 프로젝트의 이 워크플로우 · 이 종류로 적힌 작업을 이어 함 — 적을 것이 없다(같은 값을 다시 보내지 않는다: 그 묶음의 「한 번에 진행」 이 서버에서 도는 동안에는 칸을 못 바꿔 409 — 도는 작업의 대시보드로 돌아오지 못한다)
+    if (cur.project && cur.job === job && cur.file === role && cur.kind === taskKindOf(job)) res = { task: row.task };
+    else if (cur.project) res = await put(); // 프로젝트에 든 작업을 이어 함 — 그 프로젝트 그대로
+    else {
+      // 그 프로젝트의 그 워크플로우 다음 라운드(② §17) — 이름을 비웠으면 서버가 임시 이름(「임시 프로젝트 N」)
+      try { res = await api(`/api/works/${id}/start-task`, { method: "POST", headers: H_JSON, body: JSON.stringify(project ? { project, job, file: role } : { project: "", temp: true, job, file: role }) }); }
+      catch (e) { if (project || e.status !== 409) throw e; res = await put(); } // 새로 올린 문서가 아닌 작업 — 이름을 안 적었으면 전처럼 프로젝트 없이(hfOpenTarget 과 같다)
+      if (res.temp) temp = (res.task || {}).project || "";
+    }
+    const task = res.task || {};
+    if (alias) { // 약칭을 못 적어도 시작한다 — 알림만
+      try { await api(`/api/works/${id}/alias`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ alias }) }); }
+      catch (e) { toast(`약칭을 저장하지 못했습니다: ${e.message}`, true); }
+    }
+    if (taskKindOf(job) === "rnd" && zones != null) { // 편집 구역의 기준(워크플로우 옵션 — spec_구역 ② §1) — 사람이 고른 것만 그 묶음에 적는다 · 못 적어도 시작한다
+      try { await api(`/api/works/${id}/task-options`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ zones: { dims: zones } }) }); }
+      catch (e) { toast(`편집 구역의 기준을 저장하지 못했습니다: ${(e.body && e.body.detail && e.body.detail.message) || e.message} — 연 뒤 「작업 개요」 의 「편집 구역」 줄에서 다시 고르세요`, true); }
+    }
+    if (fresh && !/\.docx$/i.test(target.name)) { // 새 작업 · 초기화한 작업 — 기본 분석(헤딩 · 표: 스크립트만 — app.js firstRun 과 같은 끝점 · docx 는 없다). 이미 도는 분석이 있으면(409) 그대로 둔다
+      try { await api(`/api/docs/${id}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) }); }
+      catch (e) { if (e.status !== 409) console.warn("기본 분석(헤딩 · 표)을 시작하지 못했습니다:", e.message); } // 못 돌려도 시작한다 — 대시보드의 「문서 검토」 가 분석부터 한다
+    }
+    const failed = [];
+    if (sourceRole && use.length && !task.project) { // homeFilesGo 와 같다 — 목적 문서가 프로젝트에 묶이지 않아(새로 올린 문서가 아닌 작업을 이어 함) 원본 문서는 묶을 곳이 없다: 목록에 남긴다
+      toast(`${taskName("file", sourceRole)} 「${use[0].name}」 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 개요의 첨부 파일 칸에서 올리세요)`, true);
+      failed.push(use[0].name);
+      use = [];
+    } else if (sourceRole && use.length) {
+      hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 「${use[0].name}」 올리는 중…${/\.hwp$/i.test(use[0].name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
+      if (!(await hfAddSource({ id, task }, use[0], sourceRole, aliases.get(use[0])))) { failed.push(use[0].name); use = []; } // 못 올린 원본 문서는 목록에 남는다(까닭은 hfAddSource 의 알림)
+    }
+    hfUsed([target, ...use]); // 올린 문서는 목록에서 뺀다
+    await loadWorks();
+    const same = (w) => { const x = w.task || {}; return w.id !== id && x.file === sourceRole && x.job === task.job && x.project === task.project && (x.round || 1) === (task.round || 1); };
+    const sources = use.length ? worksList.filter(same).slice(0, 1).map((w) => w.id) : []; // 방금 올린 원본 문서(작업 목록은 최근 바뀐 차례 — 같은 묶음의 그 종류 가운데 맨 앞)
+    const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 문서를 연 뒤 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
+    return { id, task, sources, failed, note: [note, named].filter(Boolean).join("\n") };
+  } catch (e) {
+    hfFail(`${hfDocName(job)}를 워크플로우 「${t.name}」 ${hfJosa(t.name, "으로", "로", "로")} 준비하지 못했습니다: ${e.message}`);
+    toast(hf.err, true);
+    return null;
+  } finally { homeTaskBusy = false; if (!state.id) setSaveState("", ""); homeFilesDraw(); } // 같은 파일 고르기가 남긴 「… 여는 중…」(상단 바)을 걷는다 — 문서를 열지 않았다
 }

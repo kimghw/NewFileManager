@@ -1,0 +1,205 @@
+"""저장한 양식 · 워크플로우마다의 양식 설정 · 양식으로 시작하기의 끝점(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧). 저장은 app/form_files.py(가벼운 모듈), server.py 가 include 한다.
+
+- `GET /api/form-files` → {files[{id, name, file, fmt, kind, sha256, size, at, usedBy[{job, name, role, mode}]}], slots{워크플로우 키: {target: {file, mode}}}, rev(설정의 판), broken, jobs[{job, name, kind(목적 문서 종류 | ""), formats}](양식을 걸 수 있는 워크플로우)}
+- `POST /api/form-files`(multipart file · name? · kind?) → 201 {file, made} — hwp 는 한글로 hwpx 로 바꿔 저장 · 열 수 없는 파일은 400 · 같은 내용이면 있던 양식(made false). kind 를 비우면 양식 이름 문단으로 짐작(연구개발계획서 → plan · 연차보고서 → report).
+- `PUT /api/form-files/{id}` {name?, kind?} → {file} · `DELETE /api/form-files/{id}` → {deleted}(설정에 쓰는 양식은 409) · `GET /api/form-files/{id}/file` → 그 파일.
+- `PUT /api/workflow-slots/{job}` {target: {file, mode: "default" | "fixed"} | null} → {slot, rev} — 400 = 양식을 걸 수 없는 워크플로우 · 문서 종류 · 형식이 안 맞음 · 404 = 없는 양식.
+- `POST /api/workflow-start` {job, request(같은 시작을 다시 보낼 때의 열쇠), project?, temp?, target: {form(양식 id), sha256?, rev?}} → {docId, name, task, round, temp, form{id, name, mode}} —
+  **고정 · 기본값은 여기서 지킨다**(② §18-12 ⑧): 서버가 워크플로우 · 양식 · 해시 · 설정의 판을 견준 뒤 그 양식으로 **새 작업**을 만들어 그 워크플로우의 다음 라운드로 묶고, 그 작업에 쓴 양식을 적는다(work.json `form`). 같은 request 를 다시 보내면 같은 작업을 돌려준다.
+  409 = 고정된 양식과 다름(fixedForm) · 양식이 바뀜(staleForm) · 설정이 바뀜(staleSlots). 올린 파일로 시작하는 길은 지금 것 그대로이고(`start-task`), 고정 설정이 있으면 그 끝점이 거절한다(server.work_start_task)."""
+import threading
+from pathlib import PurePath
+
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response
+
+from app import form_files
+
+router = APIRouter()
+NO_FORM = {"style_copy": "서식을 가져올 문서는 내용을 받는 문서가 아니라 양식을 걸지 않습니다"}   # 목적 문서 칸이 없는 워크플로우(② §18-12 ⑧)
+FORM_GUESS = {"연구개발계획서": "plan", "연차보고서": "report"}
+_STARTS, _STARTS_LOCK, STARTS_MAX = {}, threading.Lock(), 200   # request → 결과(같은 시작을 다시 보내면 같은 작업)
+
+
+def rule(job):
+    """그 워크플로우의 목적 문서 칸 → {job, name, kind(목적 문서 종류 | ""), formats} — 양식을 걸 수 없으면 HTTPException 400."""
+    from app import custom_tasks, server, workflow, works
+    task = workflow.task_of(job) if isinstance(job, str) and job else None
+    if task is None or task.get("soon") or not server._job_ok(job):
+        raise HTTPException(400, "양식을 걸 수 없는 워크플로우입니다(모르는 워크플로우 · 준비 중)")
+    if job in NO_FORM:
+        raise HTTPException(400, NO_FORM[job])
+    role = next((r for r in task.get("roles") or () if r["role"] == "target"), None)
+    if role is None:
+        raise HTTPException(400, "이 워크플로우에는 목적 문서 칸이 없습니다")
+    name = task.get("name") or (workflow.catalog()[0].get(job) or {}).get("name") or job
+    kind = works.TARGET_FILE.get(job) or (role.get("kind") if role.get("kind") in form_files.KINDS else "") or ""
+    formats = ["hwpx", "docx"] if server.TASK_KIND.get(job) == "general" and not custom_tasks.is_key(job) else ["hwpx"]
+    return {"job": job, "name": name, "kind": kind, "formats": formats}
+
+
+def fits(f, r):
+    """그 양식을 그 워크플로우의 목적 칸에 걸 수 있나 → 까닭 글 | ""."""
+    if f["fmt"] not in r["formats"]:
+        return f"워크플로우 「{r['name']}」 은 {' · '.join(r['formats'])} 문서로 합니다 — 이 양식은 {f['fmt']} 입니다"
+    if r["kind"] and f["kind"] != r["kind"]:
+        from app import works
+        return f"워크플로우 「{r['name']}」 의 목적 문서는 {works.FILE_LABEL.get(r['kind'], r['kind'])}입니다 — 이 양식의 문서 종류가 다릅니다(양식의 문서 종류를 먼저 고치세요)"
+    return ""
+
+
+def _jobs():
+    from app import custom_tasks, server
+    out = []
+    for job in [j for j in server.TASK["job"] if j] + [t["key"] for t in custom_tasks.all()]:
+        try:
+            out.append(rule(job))
+        except HTTPException:
+            continue
+    return out
+
+
+def _refused(e):
+    return HTTPException(409 if isinstance(e, form_files.Refused) else 400, str(e))
+
+
+@router.get("/api/form-files")
+def form_files_get():
+    """저장한 양식 목록 · 워크플로우마다의 양식 설정 · 양식을 걸 수 있는 워크플로우."""
+    got, jobs = form_files.listing(), _jobs()
+    names = {j["job"]: j["name"] for j in jobs}
+    used = {}
+    for job, box in got["slots"].items():
+        for role, v in box.items():
+            used.setdefault(v["file"], []).append({"job": job, "name": names.get(job, job), "role": role, "mode": v["mode"]})
+    return {**got, "files": [{**f, "usedBy": used.get(f["id"], [])} for f in got["files"]], "jobs": jobs}
+
+
+@router.post("/api/form-files", status_code=201)
+async def form_files_post(file: UploadFile = File(...), name: str = Form(""), kind: str = Form("")):
+    """양식 파일을 저장한다 — 올린 그대로(hwp 는 hwpx 로 바꿔서). 문서로 열리는지 확인한 뒤에 저장한다."""
+    from starlette.concurrency import run_in_threadpool
+
+    from app import server
+    shown, blob = file.filename or "양식.hwpx", await file.read()
+    if shown.lower().endswith(".hwp"):
+        shown, blob = await run_in_threadpool(server._from_hwp, shown, blob)   # 바꾼 뒤의 이름 · 바이트로 저장한다(② §18-12 ⑧)
+    fmt = server.fmt_of(shown)
+    if fmt is None:
+        raise HTTPException(400, "양식은 hwp · hwpx · docx 파일로 저장합니다")
+    if len(blob) > server.MAX_MB * 2 ** 20:
+        raise HTTPException(413, f"{server.MAX_MB} MB 보다 큰 파일은 저장할 수 없습니다")
+
+    def check():
+        doc = server.FORMATS[fmt]["cls"](blob)
+        return doc.blocks()
+    try:
+        blocks = await run_in_threadpool(check)
+    except Exception as e:  # noqa: BLE001 — 열 수 없는 파일은 양식으로 저장하지 않는다
+        raise HTTPException(400, f"{fmt} 문서로 열 수 없는 파일입니다: {e}") from e
+    if kind == "" and fmt == "hwpx":
+        kind = FORM_GUESS.get(server.PROFILE.form_of(blocks), "")
+    try:
+        f, made = form_files.add(name.strip() or PurePath(shown).stem, shown, fmt, blob, kind)
+    except ValueError as e:
+        raise _refused(e) from e
+    return {"file": {**f, "usedBy": [{"job": j, "role": r, "mode": m} for j, r, m in form_files.uses(f["id"])]}, "made": made}
+
+
+@router.put("/api/form-files/{fid}")
+def form_files_put(fid: str, body: dict = Body(...)):
+    try:
+        f = form_files.update(fid, name=body.get("name") if "name" in body else None, kind=body.get("kind") if "kind" in body else None)
+    except ValueError as e:
+        raise _refused(e) from e
+    if f is None:
+        raise HTTPException(404, "그런 양식이 없습니다")
+    return {"file": f}
+
+
+@router.delete("/api/form-files/{fid}")
+def form_files_delete(fid: str):
+    try:
+        if not form_files.delete(fid):
+            raise HTTPException(404, "그런 양식이 없습니다")
+    except ValueError as e:
+        raise _refused(e) from e
+    return {"deleted": True}
+
+
+@router.get("/api/form-files/{fid}/file")
+def form_files_file(fid: str):
+    from app import server
+    f, blob = form_files.get(fid), form_files.data(fid)
+    if f is None or blob is None:
+        raise HTTPException(404, "그런 양식이 없습니다")
+    from urllib.parse import quote
+    name = f"{PurePath(f['file'] or f['name']).stem}.{f['fmt']}"
+    return Response(blob, media_type=server.FORMATS[f["fmt"]]["mime"], headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+@router.put("/api/workflow-slots/{job}")
+def workflow_slots_put(job: str, body: dict = Body(...)):
+    """워크플로우 설정 — 목적 문서 칸에 양식을 건다(기본값 · 고정) · 푼다(null)."""
+    r, want = rule(job), body.get("target")
+    try:
+        if want is None:
+            rev = form_files.slot_set(job, "target", None)
+        else:
+            if not isinstance(want, dict) or not isinstance(want.get("file"), str):
+                raise HTTPException(400, "target 은 {file, mode} 또는 null")
+            f = form_files.get(want["file"])
+            if f is None:
+                raise HTTPException(404, "그런 양식이 없습니다")
+            why = fits(f, r)
+            if why:
+                raise HTTPException(400, why)
+            rev = form_files.slot_set(job, "target", f["id"], want.get("mode") or "default")
+    except ValueError as e:
+        raise _refused(e) from e
+    return {"slot": form_files.slot(job), "rev": rev}
+
+
+@router.post("/api/workflow-start")
+def workflow_start(body: dict = Body(...)):
+    """저장한 양식으로 워크플로우를 새로 시작한다 — 그 양식으로 새 작업을 만들어 그 워크플로우의 다음 라운드로 묶는다(목적 문서). 문서 화면을 열지 않는다(화면이 받은 작업 id 로 잇는다)."""
+    from app import server, works
+    job, req, want = body.get("job"), body.get("request"), body.get("target")
+    if not isinstance(req, str) or not 8 <= len(req) <= 64 or not isinstance(want, dict) or not isinstance(want.get("form"), str):
+        raise HTTPException(400, "request(8~64자) · target{form} 이 있어야 합니다")
+    r = rule(job)
+    with _STARTS_LOCK:
+        if req in _STARTS:
+            return _STARTS[req]   # 같은 시작을 다시 보냄 — 같은 작업
+        f, slot = form_files.get(want["form"]), form_files.slot(job)
+        if f is None:
+            raise HTTPException(404, "그런 양식이 없습니다")
+        if slot and slot["mode"] == "fixed" and slot["file"] != f["id"]:
+            return JSONResponse({"reason": "fixedForm", "message": f"워크플로우 「{r['name']}」 의 목적 문서는 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다"}, status_code=409)
+        if "rev" in want and want["rev"] != form_files.listing()["rev"]:
+            return JSONResponse({"reason": "staleSlots", "message": "워크플로우의 양식 설정이 바뀌었습니다 — 다시 읽은 뒤 시작하세요"}, status_code=409)
+        if want.get("sha256") and want["sha256"] != f["sha256"]:
+            return JSONResponse({"reason": "staleForm", "message": "양식이 바뀌었습니다 — 다시 읽은 뒤 시작하세요"}, status_code=409)
+        why = fits(f, r)
+        if why:
+            raise HTTPException(400, why)
+        blob = form_files.data(f["id"])
+        if blob is None:
+            raise HTTPException(500, "양식 파일을 읽지 못했습니다")
+        mode = slot["mode"] if slot and slot["file"] == f["id"] else ""
+        opened = server._open(f"{PurePath(f['file'] or f['name']).stem}.{f['fmt']}", blob, source="form", new=True)
+        wid = opened["docId"]
+        works.update(wid, form={"id": f["id"], "sha256": f["sha256"], "name": f["name"], "mode": mode})   # 그 작업에 쓴 양식을 적는다
+        try:
+            started = server.work_start_task(wid, {"project": body.get("project"), "job": job, "file": r["kind"], "temp": body.get("temp") is True})
+        except HTTPException:
+            try:
+                server.work_delete(wid)   # 묶지 못한 작업은 남기지 않는다
+            except HTTPException:
+                pass
+            raise
+        out = {"docId": wid, "name": opened["name"], "task": started["task"], "round": started["round"], "temp": started["temp"], "form": {"id": f["id"], "name": f["name"], "mode": mode}}
+        _STARTS[req] = out
+        while len(_STARTS) > STARTS_MAX:
+            _STARTS.pop(next(iter(_STARTS)))
+        return out

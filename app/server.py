@@ -181,8 +181,10 @@ def _start(sess, kind, fn, *args, revision=None, output=None):
 
 
 def _admit(sess):
+    from app import workflow_exec
+    keep = workflow_exec.pinned()   # 도는 워크플로우 실행이 지금 일하는 문서(많아야 둘)는 비우지 않는다 — 다 그렇다면 전처럼(spec_워크플로우 ② §17-7 「기다림」)
     while len(DOCS) >= MAX_DOCS:  # 가장 오래 안 쓴 문서부터 비운다(열린 순서가 아니라 마지막 요청 시각) — 작업 폴더에 먼저 쓴다
-        old = min(DOCS.values(), key=lambda x: x.touched)
+        old = min([x for x in DOCS.values() if x.id not in keep] or DOCS.values(), key=lambda x: x.touched)
         _persist_safe(old)
         DOCS.pop(old.id, None)
     DOCS[sess.id] = sess
@@ -1354,6 +1356,15 @@ def _work_or_404(wid):
     return w
 
 
+def _flow_busy(wid=None, project=None):
+    """바쁨 막이(spec_워크플로우 ② §17-6 「바쁨 막이」) — 도는 워크플로우 실행(서버 쪽 「한 번에 진행」)에 든 문서 · 그 프로젝트면 409.
+    초기화 · 지우기 · 칸 바꾸기(워크플로우 · 프로젝트 · 라운드 · 문서 종류) · 새 라운드 · 묶음 초기화 · 프로젝트 이름 바꾸기 · 지우기가 함수 안에서 묻는다(URL 목록으로 가르지 않는다 — 끝점이 늘어도 빠지지 않게)."""
+    from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
+    why = workflow_exec.busy_text(wid, project)
+    if why:
+        raise HTTPException(409, why)
+
+
 def _framed(w):
     """프로젝트 구성을 반영한 문서인가(② §10 「프레임 이름」) — 열려 있으면 세션의 지금 상태(반영·실행 취소 바로 뒤에도 맞게), 닫혀 있으면 작업에 적어 둔 것(work.json `framed` — _persist)."""
     s = DOCS.get(w.get("id"))
@@ -1406,6 +1417,7 @@ def _work_task(wid, body, locked=False):
     t = {k: body.get(k) or "" for k in TASK}
     if any(t[k] not in TASK[k] for k in TASK if k != "job") or not _job_ok(t["job"]) or not isinstance(body.get("project") or "", str):
         raise HTTPException(400, "모르는 작업 종류 값입니다")
+    _flow_busy(wid)   # 도는 워크플로우 실행에 든 문서의 칸(워크플로우 · 프로젝트 · 라운드 · 문서 종류)은 못 바꾼다
     # 할 일과 작업 종류의 조합(spec_일반편집 ② §11): 작업 종류가 정해진 할 일(TASK_KIND — 문서 일반 편집 = general)은 그 종류여야 하고(비워도 안 됨 — 비우면 화면·프로젝트 구분 기준 공유가 연구개발로 본다),
     # 그 밖의 할 일은 연구개발(rnd) — 작업 종류를 비운 채 할 일만 남기는 것은 전처럼 된다
     if t["job"] and (t["kind"] != TASK_KIND[t["job"]] if t["job"] in TASK_KIND else t["kind"] not in ("", "rnd")):
@@ -1575,6 +1587,7 @@ def project_rename(name: str, body: dict = Body(...)):
     new = projects.normalize_name(new)
     with projects.ROUND_LOCK:
         old, members, rows = _project_found(name)
+        _flow_busy(project=old)
         if new == old:
             return {"name": old, "works": [], "join": False, "tasks": {}}
         if _project_taken(new, rows):
@@ -1639,6 +1652,7 @@ def project_delete(name: str, docs: str = "keep"):
         raise HTTPException(400, "docs 는 keep · delete · reset 가운데 하나여야 합니다")
     with projects.ROUND_LOCK:
         project, members, _ = _project_found(name)
+        _flow_busy(project=project)
         ids = [w["id"] for w in members]
         if docs == "reset":
             done, skipped = _project_reset(project, members)
@@ -1731,9 +1745,15 @@ def work_start_task(wid: str, body: dict = Body(...)):
     project = "" if temp else projects.normalize_name(project)
     with projects.ROUND_LOCK:
         work = _work_or_404(wid)
-        # 올린 문서 · 예제로 연 문서(무소속)만 — 새 라운드로 만든 작업(source round)은 그 라운드에 묶인 것이다. 예제는 2026-11-18 부터(이름 없이 TASK 를 시작하면 임시 프로젝트 — ② §17)
-        if work.get("source") not in ("upload", "sample") or projects.group_key(work.get("task"))[0]:
+        # 올린 문서 · 예제로 연 문서(무소속)만 — 새 라운드로 만든 작업(source round)은 그 라운드에 묶인 것이다. 예제는 2026-11-18 부터(이름 없이 TASK 를 시작하면 임시 프로젝트 — ② §17) ·
+        # 저장한 양식으로 만든 작업(source form — spec_워크플로우 ② §18-9: app/form_files_api.py workflow_start)도 2026-11-20 부터
+        if work.get("source") not in ("upload", "sample", "form") or projects.group_key(work.get("task"))[0]:
             raise HTTPException(409, "새로 올린 무소속 문서로 시작하세요. 기존 프로젝트 작업은 그대로 보관합니다")
+        # 고정한 양식(워크플로우 설정 — ② §18-9 · §18-12 ⑧): 그 워크플로우의 목적 문서로 새로 시작하는 작업은 그 양식으로 만든 것이어야 한다(올리기 길로 고정을 돌아가지 못하게)
+        from app import form_files
+        slot, tkind = form_files.slot(job), works.TARGET_FILE.get(job)
+        if slot and slot["mode"] == "fixed" and (tkind is None or role == tkind) and (work.get("form") or {}).get("id") != slot["file"]:
+            raise HTTPException(409, f"이 워크플로우의 목적 문서는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
         if temp:
             try:
                 project = projects.temp_name()
@@ -1775,6 +1795,7 @@ def work_round(wid: str, body: dict = Body(default={})):
     with projects.ROUND_LOCK:
         work = _work_or_404(wid)
         task = work.get("task") or {}
+        _flow_busy(wid, projects.group_key(task)[0])
         project, job, number = projects.group_key(task)
         if not project or not job:
             raise HTTPException(400, "프로젝트와 워크플로우를 먼저 선택하세요")
@@ -1885,6 +1906,7 @@ def work_file(wid: str, which: str):
 
 @app.delete("/api/works/{wid}")
 def work_delete(wid: str):
+    _flow_busy(wid)
     project = projects.group_key((works.work(wid) or {}).get("task"))[0]
     s = DOCS.pop(wid, None)
     gone = works.delete(wid)
@@ -1946,6 +1968,9 @@ def _reset_forget(wid):
             for k in [k for k in d if isinstance(k, tuple) and k and k[0] == wid]:
                 d.pop(k, None)
     merge_over_api.forget(wid)
+    from app import task_options, workflow_exec
+    workflow_exec.forget(wid)   # 실행 기록의 메모리 사본(작업 폴더의 flowruns/ 는 reset/<n>/ 으로 옮겨졌다)
+    task_options.flow_forget(wid)   # 그 문서의 「건너뛰기」(spec_워크플로우 ② §17-6)
 
 
 @app.post("/api/works/{wid}/reset")
@@ -1957,6 +1982,7 @@ def work_reset(wid: str):
     if not works.enabled():
         raise HTTPException(400, "작업 저장이 꺼져 있어 작업 내용을 초기화할 수 없습니다")
     w = _work_or_404(wid)
+    _flow_busy(wid)   # 세션이 메모리에 없어도 — 도는 워크플로우 실행에 든 문서
     from app import share
     try:
         shared = share.by_doc(wid)
@@ -2387,9 +2413,12 @@ app.include_router(__import__("app.zones_api", fromlist=["router"]).router)   # 
 app.include_router(__import__("app.task_options_api", fromlist=["router"]).router)   # TASK 옵션(TASK 묶음마다 — 편집 구역이 보이는 기준) 끝점은 app/task_options_api.py(spec_구역 ② §1)
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
+app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다
 __import__("app.share_api", fromlist=["attach"]).attach(app, session=_sess, loaded=DOCS.get, name=_shown_of, doc=get_doc, patch=patch_block, split=split, merge=merge,
                                                         media=media, bumped=BUMPED, store=works.root, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))
+# 워크플로우 실행 층(서버 쪽 「한 번에 진행」 · 실행 기록 — spec_워크플로우 ② §17 · §18): 끝점은 app/workflow_exec_api.py. 그 층은 이 파일을 import 하지 않는다 — 문서의 일은 문(app/unit_steps.py)으로만 시킨다
+__import__("app.workflow_exec_api", fromlist=["attach"]).attach(app, unit=__import__("app.unit_steps", fromlist=["store"]))
 
 
 def _rules_view():

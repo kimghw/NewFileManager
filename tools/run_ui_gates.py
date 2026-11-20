@@ -29,7 +29,8 @@ GATES = {
     "over": ("smoke_over_ui.py", True, "넘친 개요 레벨 — 넣기 계획의 절 · 처리 셋(덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿) · 넣은 줄에 다시 맞추기(이관·취합 — 끝점은 흉내)"),
     "gather_quick": ("smoke_gather_quick_ui.py", True, "취합 간단 모드 — 시작 화면 목록에서 목적 문서 고르기 → 자동 진행이면 끝까지(진짜 끝점) · 끄면 올리고 등록만"),
     "home_files": ("smoke_home_files_ui.py", True, "시작 화면 문서 목록 — 모아 두기 · 목적 문서 · 별칭 · 워크플로우 없이 열기 · 이관 두 문서 · 양식 표준화"),
-    "first_run": ("smoke_first_run_ui.py", True, "첫 분석(헤딩 · 표 스크립트만 — 구분 기준 LLM 검토는 안 부름) · 구분 기준 LLM 검토 취합"),
+    "home_dash": ("smoke_home_dash_ui.py", True, "첫 화면의 대시보드 — 오른쪽 열의 대시보드 상자(워크플로우 고르기 · 단계 흐름 · 문서 칸) · 「워크플로우 시작」(문서 화면을 열지 않는 준비) · 서버가 맡은 묶음의 「한 번에 진행」 · 「멈춤」(다른 탭에서도 같은 실행) · 끝 글 · 기억(새 탭) · 「대시보드 자세히 보기」 · 「다른 워크플로우」 · 같은 파일 「이어서」 · 좁은 폭(진짜 끝점 — 서버 쪽 실행기)"),
+    "first_run": ("smoke_first_run_ui.py", True,"첫 분석(헤딩 · 표 스크립트만 — 구분 기준 LLM 검토는 안 부름) · 구분 기준 LLM 검토 취합"),
     "doc_status": ("smoke_doc_status_ui.py", True, "분석 상태 — 문서 이름 줄의 「헤딩 · 템플릿 · 서식 · 표 · LLM · 구분 기준」 표시(없음 → 「분석」 → ✓ · 누르면 진행표 → 칸은 그 도구로 · 「LLM 검증·보완」(LLM 끔 → 멈춤) · 도는 중 · docx · 구분 기준 옵션 · 좁은 폭 · 둘째 면 머리)"),
     "heading_progress": ("smoke_heading_progress_ui.py", True, "헤딩 추출 진행 줄 — 스크립트(문단·라벨 · 헤딩 그래프 · 표 구조) · LLM(규칙 보강 · 헤딩 판정 · 표 판정) 두 층 · 누르면 그 단계 탭 · 1단계 카드 · 흉내 낸 상태(끝남 · 도는 중 · 실패 · 할 것 없음) · 좁은 폭"),
     "run_all": ("smoke_run_all_ui.py", True, "헤딩 추출 「전체 실행」(조정까지) · 「단계별 실행 ▾」 — 상태 줄 단추 둘 · 확인 창(취소) · 도는 동안 「멈추기」(반영 안 함 · 남은 것 알림) · 다시 누르면 거친 단계는 건너뛰고 표 · 서식 계획 → 「모두 반영」 까지 · 실행 취소 · 「단계별 실행」 고르기 목록(고른 것만 차례로 · 확인 창 한 번 · 멈추기 · LLM 답 없음이면 뒤는 남김)(LLM 은 가짜 · 끝점은 진짜)"),
@@ -111,7 +112,8 @@ def free_port(start, taken):
 def start(name, port):
     log = (OUT / f"{name}.log").open("w", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "tools" / GATES[name][0]), str(OUT / name), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
-                            env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(OUT / name / "tasks.json")},   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
+                            env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(OUT / name / "tasks.json"),   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
+                                 "NFM_FORM_FILES": str(OUT / name / "form_files")},   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     return {"name": name, "port": port, "proc": proc, "log": log, "t0": time.time()}
 

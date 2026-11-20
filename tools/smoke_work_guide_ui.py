@@ -2,7 +2,8 @@
 LLM 이 꺼져 있으므로 에이전트의 답은 스크립트 답(`work_guide.fallback`)이다 — 끝점·문서 편집은 모두 진짜.
 
 - 첫 화면: 오른쪽에 에이전트 대화창(#homeAgent — 글 칸 · 「파일」 · 「보내기」) · 글만 보내면 파일을 올리라고 답 · 파일을 올리고 보내면 TASK 를 묻는 질문 카드.
-- 질문 카드에서 「사업계획서 양식 표준화」 → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(1단계 프로젝트 구성 지금 · 2단계 헤딩 추출 · 3단계 표 남음).
+- 질문 카드에서 「사업계획서 양식 표준화」 → **문서 화면으로 넘어가지 않고** 위 대시보드(#homeDash)에 그 워크플로우가 골라짐 + 대화에 한 줄(spec_작업에이전트 ② §10 — 2026-11-20: 전에는 그 작업이 바로 열렸다).
+- 문서 화면으로 바로 시작하는 길(왼쪽 워크플로우 카드) → 그 작업이 열리고 패널 「에이전트」 로 대화가 이어짐(첫 화면의 말 + 시작 턴) · 진행 줄(1단계 프로젝트 구성 지금 · 2단계 헤딩 추출 · 3단계 표 남음).
 - 연쇄: 「구성 읽기」(문서에서 읽기 — 바로 실행) → 값이 없어 질문 카드(프로젝트 구성 폼) → 「확정」 → 변경 계획(바로 실행 — 문서 옆 열에 목록) → 실행 카드 「문서에 반영」(문서 바뀜 — 「진행」 을 눌러야).
   계획에 미해결 자리가 있어 스크립트 답이 질문 카드로 고르게 하면 — 고른 「문서에 반영」 도 바로 돌지 않고 실행 카드로 묻는다(고른 것은 승인이 아니다).
 - 「진행」 → 문서가 바뀜(편집 차례 +1) → 결과 턴 — 1단계 끝남 · 「지금 차례는 「헤딩 LLM 판정 …」」(LLM 끔 — 2 · 3단계 LLM 행동은 내지 않음).
@@ -108,8 +109,20 @@ def main():
               ["start:plan_fit", "사업계획서 양식 표준화"] in opts and all(v.startswith("start:") for v, _ in opts) and "start:report_merge" not in [v for v, _ in opts] and len(opts) >= 5, opts)
         page.screenshot(path=str(OUT / "02_home_ask.png"))
 
-        # ---- TASK 를 고르면 작업이 열리고 대화가 패널 「에이전트」 로 이어진다
+        # ---- 워크플로우를 고르면 — 문서 화면으로 넘어가지 않고 위 대시보드에 그 워크플로우가 골라진다(spec_작업에이전트 ② §10 「첫 화면의 대시보드」 — 2026-11-20: 전에는 그 작업이 문서 화면으로 열렸다)
         page.click('#homeAgent .agw-opt[data-value="start:plan_fit"]')
+        page.wait_for_selector("#homeDash[data-state=ready] .dash-group", timeout=20000)
+        pk = page.evaluate("""() => { const d = document.getElementById('homeDash'), says = [...document.querySelectorAll('#homeAgent .agh-talk .agw-say')].map((x) => x.textContent), b = d.querySelector('[data-hd-focus=start]') || {};
+          return { title: d.querySelector('.dash-title b').textContent, groups: [...d.querySelectorAll('.dash-gname')].map((x) => x.textContent), start: b.textContent, off: b.disabled, say: says[says.length - 1],
+            home: document.body.classList.contains('no-doc'), id: state.id, files: hf.files.length, ask: !!document.querySelector('#homeAgent .agw-ask') }; }""")
+        check("질문 카드에서 워크플로우를 고르면 — 문서 화면으로 넘어가지 않고 위 대시보드에 「사업계획서 양식 표준화」 가 골라진다(단계 흐름 · 「워크플로우 시작」) · 대화에 한 줄 · 아직 아무것도 안 올림",
+              pk["title"] == "사업계획서 양식 표준화" and pk["groups"] == ["프로젝트 구성", "헤딩 추출", "표"] and pk["start"] == "워크플로우 시작" and not pk["off"]
+              and pk["say"] == "대시보드에 「사업계획서 양식 표준화」 를 골랐습니다 — 위 「워크플로우 시작」 을 누르면 문서를 준비합니다(문서 화면으로 바로 시작하려면 왼쪽 워크플로우 카드)."
+              and pk["home"] and pk["id"] is None and pk["files"] == 1 and not pk["ask"] and requests.get(f"{base}/api/works", timeout=10).json() == [], pk)
+        page.screenshot(path=str(OUT / "02b_home_dash_pick.png"))
+
+        # ---- 문서 화면으로 바로 시작하는 길은 전처럼 왼쪽 워크플로우 카드 — 그 작업이 열리고 대화가 패널 「에이전트」 로 이어진다(첫 화면에서 나눈 말을 그 시작 턴이 가져간다)
+        page.click('#taskCards [data-task="plan_fit"]')
         page.wait_for_selector("#doc .para", timeout=120000)
         page.wait_for_selector('#paneAgent .agw-ask[data-ask="config"] [data-agw=confirm]', timeout=90000)   # 시작 턴 → 문서에서 읽기(바로) → 결과 턴 = 프로젝트 구성 폼
         turns = page.evaluate(TURNS)

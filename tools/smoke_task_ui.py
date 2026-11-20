@@ -29,7 +29,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 tmp = OUT / "srv"
 shutil.rmtree(tmp, ignore_errors=True)
 tmp.mkdir(parents=True, exist_ok=True)
-env = {**os.environ, "NFM_PDF": "off", "NFM_LLM_BACKEND": "off", "NFM_WORKS": str(tmp / "works"), "NFM_RENDER": str(tmp / "render"),
+# NFM_FLOW_EXEC=client — 이 검사는 끝점을 브라우저에서 흉내 내어(분석 · LLM 검증·보완 · 자리 연결 …) **화면의 실행 길**을 본다(묶음 연쇄 · 서버가 아직 맡지 않은 묶음이 그 길로 돈다).
+# 서버 쪽 실행기(1단계 「문서 검토」 — spec_워크플로우 ② §18-10)는 흉내 낸 끝점을 모르므로 끈다 — 서버가 도는 길은 smoke_task_run_ui.py · smoke_home_dash_ui.py(진짜 끝점)와 tests/test_workflow_exec.py 가 본다
+env = {**os.environ, "NFM_FLOW_EXEC": "client", "NFM_PDF": "off", "NFM_LLM_BACKEND": "off", "NFM_WORKS": str(tmp / "works"), "NFM_RENDER": str(tmp / "render"),
        "NFM_HEADINGS": str(tmp / "headings"), "NFM_FORMS": str(tmp / "forms"), "NFM_DIVISION_PRESETS": str(tmp / "presets.json"), "PYTHONUTF8": "1"}
 log = (OUT / "server.log").open("w", encoding="utf-8")
 proc = subprocess.Popen([sys.executable, "-X", "utf8", "-m", "uvicorn", "app.server:app", "--host", "127.0.0.1", "--port", str(args.port)],

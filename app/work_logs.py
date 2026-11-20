@@ -3,7 +3,7 @@
 에이전트(`app/work_guide.py`)가 「무슨 일이 있었나 · 왜 멈췄나」 를 설명할 때 읽는 **읽기 전용** 창구다. 로그를 새로 만들지 않는다 — 이미 남는 기록을 한 꼴(글 줄)로 읽어 줄 뿐이다.
 
 - 로그의 종류는 `SOURCES`(이름 · 화면 말 · 무엇이 적히나): `work` 작업 기록(log.jsonl) · `peers` 함께 쓰는 문서의 작업 기록 · `verify` 검증 기록 · `agent` 에이전트 대화 기록 ·
-  `zones` 편집 구역 LLM 검토 기록(마지막 실행 — 작업 폴더 `zones/llm-last.json`) ·
+  `zones` 편집 구역 LLM 검토 기록(마지막 실행 — 작업 폴더 `zones/llm-last.json`) · `flows` 워크플로우 실행 기록(서버가 돈 「한 번에 진행」 마다 — 작업 폴더 `flowruns/<n>.json`) ·
   `llm` LLM 호출 기록(서버를 켠 뒤) · `server` 서버 로그(경고 · 오류 — 서버를 켠 뒤, `install()` 이 붙인 듣는 이가 모은다).
 - `index(wid)` = 로그마다 지금 몇 줄인가(프롬프트의 `logs.index`) · `recent(wid)` = 작업 기록의 끝 몇 줄(프롬프트에 늘 싣는다) · `read(wid, name, n, find)` = 그 로그의 끝 n 줄(find 가 있으면 그 글이 든 줄만).
 - 한 줄은 `LINE` 자까지, 한 번에 `N_MAX` 줄까지 — 문단 글(글 고침 기록의 before · after)은 짧게 줄이고, 키처럼 보이는 글(`sk-…`)은 가린다. 문서 · 기록은 바꾸지 않는다.
@@ -29,6 +29,7 @@ SOURCES = (
     ("verify", "검증 기록", "가져오기 검증 · 출력파일 검증의 실행마다 결과(상태 · 걸린 시간 · 단계마다 상태)"),
     ("agent", "에이전트 대화 기록", "이 문서의 에이전트 턴(작업 진행 · 편집) — 사람의 글 · 에이전트의 답 · 고른 행동 · 끝(실행함 · 멈춤 · 건너뜀) · 오류"),
     ("zones", "편집 구역 LLM 검토 기록", "이 문서의 마지막 편집 구역 LLM 검토 — 보낸 후보 수 · 지정 · 그대로 · 버린 답 · 요약, 후보마다 LLM 이 정한 값(또는 그대로)과 까닭, 버린 답과 까닭"),
+    ("flows", "워크플로우 실행 기록", "이 문서(목적 문서)에서 서버가 돈 「한 번에 진행」 마다 — 누가 · 범위 · 끝(끝남 · 남김 · 멈춤 · 끊김)과 단계마다 한 일 · 남긴 것 · 멈춘 까닭"),
     ("llm", "LLM 호출 기록", "서버를 켠 뒤의 모든 LLM 호출(어느 에이전트 · 모델 · 걸린 시간 · 비용 · 오류) — 문서를 가리지 않는다"),
     ("server", "서버 로그", "서버를 켠 뒤의 경고 · 오류(Traceback 포함) — 문서를 가리지 않는다"),
 )
@@ -146,6 +147,30 @@ def _zones(wid):
     return out
 
 
+def _flows(wid):
+    """워크플로우 실행 기록(작업 폴더 `flowruns/<n>.json` — app/workflow_exec.py 가 남긴다: spec_워크플로우 ② §17-6 「데이터」) → 실행마다 머리 한 줄 + 단계마다 한 줄 + 남긴 것 · 멈춘 까닭.
+    파일을 바로 읽는다(실행기를 가져오지 않는다 — 이 모듈은 가볍게). 기록은 목적 문서의 작업 폴더에 있다(원본 문서의 작업 기록에는 `flowRun` 줄만)."""
+    d = works.folder(wid)
+    box = d / "flowruns" if d is not None else None
+    if box is None or not box.is_dir():
+        return []
+    out = []
+    for p in sorted((x for x in box.iterdir() if x.suffix == ".json" and x.stem.isdigit()), key=lambda x: int(x.stem)):
+        rec = works._read_json(p)
+        if not isinstance(rec, dict):
+            continue
+        R, O = rec.get("range") or {}, rec.get("origin") or {}
+        span = R.get("from") if R.get("from") == R.get("to") else f"{R.get('from')}→{R.get('to')}"
+        out.append(_clip(f"{_when(rec.get('started'))} 실행 {rec.get('n')} 범위={span}" + (f"(줄 {R['only']})" if R.get("only") else "") + f" 누가={ {'agent': '에이전트', 'human': '사람'}.get(O.get('by'), O.get('by')) }"
+                         + f" 상태={rec.get('status')}" + (f" — {(rec.get('end') or {}).get('text')}" if rec.get("end") else ""), LINE * 2))
+        for s in rec.get("steps") or ():
+            if isinstance(s, dict):
+                out.append(_clip(f"{_when(s.get('t1'))} 실행 {rec.get('n')} {s.get('stage')}.{s.get('key') or '-'} {s.get('status')} — {s.get('text') or ''}"))
+        if isinstance(rec.get("halt"), dict):
+            out.append(_clip(f"{_when(rec.get('ended'))} 실행 {rec.get('n')} 멈춘 까닭({rec['halt'].get('code')}) — {rec['halt'].get('text') or ''}"))
+    return out
+
+
 def _llm(_wid):
     rows = list(reversed(agent_settings.runs(None, agent_settings.RUNS_MAX)))   # 옛 것부터
     return [_clip(f"{_when(r.get('t'))} #{r.get('n')} {r.get('agent') or '(등록 안 된 호출)'}({r.get('what')}) 모델={r.get('model')} {r.get('ms')}ms"
@@ -186,7 +211,7 @@ def _server(_wid):
         return list(_SERVER)
 
 
-_READ = {"work": _work, "peers": _peers, "verify": _verify, "agent": _agent, "zones": _zones, "llm": _llm, "server": _server}
+_READ = {"work": _work, "peers": _peers, "verify": _verify, "agent": _agent, "zones": _zones, "flows": _flows, "llm": _llm, "server": _server}
 assert tuple(_READ) == NAMES
 
 

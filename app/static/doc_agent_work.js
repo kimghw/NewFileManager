@@ -799,8 +799,10 @@ function agentWorkEmptyEl() { // 빈 대화 — 단계가 있는 TASK: 설명을
 
 // ---------------------------------------------------------------- 첫 화면 오른쪽 대화창(#homeAgent — spec ② §5)
 // 파일은 **왼쪽 문서 목록 하나**(home_files.js hf.files)에만 있다 — 대화창에 놓거나 고른 파일도 그 목록에 든다(2026-11-16: 전에는 대화창이 제 파일을 따로 들어, 대화창에 파일이 있는데 왼쪽은 「문서를 놓아주세요」 였다 — astra).
-// 대화창은 그 목록의 안내자다: 목록(파일 · 목적 문서 · 프로젝트)을 보고 TASK 를 정하고, 모자란 것(목적 문서 …)은 목록에서 고르라고 알린다. 시작은 TASK 카드와 같은 길(homeFilesGo).
-const AGH = { el: null, talk: [], busy: false, ask: null, gen: 0 }; // gen = 대화 세대(「새 대화」 · 시작) — 늦게 온 답을 버린다
+// 대화창은 그 목록의 안내자다: 목록(파일 · 목적 문서 · 프로젝트)을 보고 TASK 를 정하고, 모자란 것(목적 문서 …)은 목록에서 고르라고 알린다.
+// 2026-11-20(spec ② §10 「첫 화면의 대시보드」): 같은 열의 머리 아래 · 대화 위에 **대시보드**(#homeDash — home_dash.js)가 있다. 에이전트가 정한 워크플로우(start:<job>)는 그 대시보드에 고르고(homeAgentAct),
+// 문서 준비 · 실행은 대시보드의 단추가 한다(문서 화면으로 넘어가지 않는다) — 전에는 워크플로우 카드와 같은 길(homeFilesGo)로 그 작업을 열었다.
+const AGH ={ el: null, talk: [], busy: false, ask: null, gen: 0 }; // gen = 대화 세대(「새 대화」 · 시작) — 늦게 온 답을 버린다
 const aghFiles = () => (typeof hf === "object" ? hf.files : []);
 const aghSig = () => `${aghFiles().map((f) => `${f.name}:${f.size}`).join("|")}#${typeof hfTarget === "function" ? hfTarget() : -1}`; // 목록의 모습 — 답을 기다리는 사이 목록이 바뀌면 그 답의 행동은 쓰지 않는다(A 를 보고 낸 답으로 B 를 열지 않게)
 
@@ -808,7 +810,7 @@ function homeAgentDraw() {
   const E = AGH.el;
   if (!E) return;
   E.talk.textContent = "";
-  if (!AGH.talk.length) E.talk.append(el("p", "agh-hint", "파일을 올리거나 하려는 일을 적어 주세요 — 예: 「사업계획서 초안으로 양식을 맞추고 싶어」. 에이전트가 왼쪽 문서 목록을 보고 워크플로우를 정해 시작하고, 필요한 것은 물어봅니다. "
+  if (!AGH.talk.length) E.talk.append(el("p", "agh-hint", "파일을 올리거나 하려는 일을 적어 주세요 — 예: 「사업계획서 초안으로 양식을 맞추고 싶어」. 에이전트가 왼쪽 문서 목록을 보고 워크플로우를 정해 위 대시보드에 고르고, 필요한 것은 물어봅니다. "
     + "문서를 연 뒤에는 사전 준비 · 진행 상황 · 다음 단계를 에이전트가 안내하고, 문서를 바꾸는 단계는 카드에서 확인받습니다."));
   for (const m of AGH.talk) E.talk.append(el("p", m.who === "me" ? "ag-q" : "ag-a agw-say", m.text));
   if (AGH.ask && !AGH.busy) {
@@ -833,6 +835,7 @@ function homeAgentDraw() {
   if (list.length > 1) E.files.append(el("span", "agh-list-note", ti >= 0 ? `목적 문서 「${list[ti].name}」` : "목적 문서를 왼쪽 목록에서 고르세요"));
   E.send.disabled = AGH.busy || (!E.text.value.trim() && !list.length);
   E.text.disabled = AGH.busy;
+  if (typeof homeDashDraw === "function") homeDashDraw(); // 위 대시보드도 같은 문서 목록을 본다(고르기 목록 · 문서 칸 · 「워크플로우 시작」 — home_dash.js: 바뀐 것이 없으면 다시 그리지 않는다)
 }
 
 function homeAgentAdd(files) { // 대화창에 놓거나 고른 파일 → 왼쪽 문서 목록에(home_files.js — 받는 형식 · 같은 파일 한 번 · PDF 안내는 그쪽 규칙 그대로)
@@ -840,9 +843,12 @@ function homeAgentAdd(files) { // 대화창에 놓거나 고른 파일 → 왼�
   homeAgentDraw();
 }
 
-async function homeAgentAct(act) { // 「start:<job>」 — 그 TASK 로 시작: TASK 카드를 누른 것과 같은 길(homeFilesGo — 목적 문서 · 형식 · 프로젝트 검사도 그쪽 것). 모자란 것은 목록에서 고르라고 알린다
+// 「start:<job>」 — 그 워크플로우를 **위 대시보드에 고른다**(home_dash.js homeDashPick — spec ② §10 「첫 화면의 대시보드」 의 「에이전트」, 2026-11-20): 문서 화면으로 넘어가지 않고 아직 아무것도 올리지 않는다.
+// 문서 준비는 대시보드의 「워크플로우 시작」(home_files.js homeFilesStart — 검사도 그쪽 것), 문서 화면으로 바로 시작하는 길은 전처럼 왼쪽 워크플로우 카드(homeFilesGo)다. 모자란 것(문서 · 목적 문서)은 목록에서 고르라고 알린다.
+// 전(2026-11-15~19)에는 여기서 homeFilesGo 를 불러 그 작업을 문서 화면으로 열었다
+async function homeAgentAct(act) {
   const job = String(act || "").replace(/^start:/, ""), list = aghFiles(), say = (text) => { AGH.talk.push({ who: "agent", text }); homeAgentDraw(); };
-  if (!job || !TASK_CATALOG[job] || TASK_CATALOG[job].soon || typeof homeFilesGo !== "function") { homeAgentDraw(); return; }
+  if (!job || !TASK_CATALOG[job] || TASK_CATALOG[job].soon || typeof homeDashPick !== "function") { homeAgentDraw(); return; }
   const name = TASK_CATALOG[job].name;
   if (!list.length) { say(`「${name}」 에 쓸 문서를 먼저 올려 주세요 — 이 대화창이나 왼쪽 카드에 놓으면 문서 목록에 듭니다.`); return; }
   if (hfTarget() < 0) { // 둘 이상인데 목적 문서를 안 골랐다 — 잘못 고르면 다른 문서가 바뀌므로 짐작하지 않는다
@@ -851,14 +857,11 @@ async function homeAgentAct(act) { // 「start:<job>」 — 그 TASK 로 시작:
     if (r) r.focus();
     return;
   }
-  const gen = (AGH.gen += 1);
-  agwCarry = { job, talk: AGH.talk.slice(-12) }; // 첫 화면에서 나눈 말 — 그 작업의 시작 턴이 가져간다(파일이 여럿이어도)
   AGH.ask = null;
-  say(`「${name}」 로 시작합니다 — 목적 문서 「${list[hfTarget()].name}」 를 여는 중…`);
-  const ok = await homeFilesGo(job);
-  if (ok) return;
-  if (agwCarry && agwCarry.job === job) agwCarry = null; // 시작하지 못했다(확인 창 취소 · 형식 · 프로젝트 이름 …) — 말은 넘기지 않는다
-  if (gen === AGH.gen) say("시작하지 못했습니다 — 왼쪽 문서 목록의 알림을 확인해 주세요(목적 문서 · 파일 형식 · 프로젝트 이름).");
+  if (!homeDashPick(job)) { say("지금은 대시보드에 고르지 못했습니다 — 문서를 준비하는 중이면 끝난 뒤 다시 보내 주세요."); return; } // 대시보드가 「워크플로우 시작」 을 하는 중(그 준비를 다른 워크플로우로 덮지 않는다)
+  // 첫 화면에서 나눈 말 — 이 워크플로우를 문서 화면에서 시작할 때(왼쪽 워크플로우 카드 · 연 뒤 에이전트 보기의 「작업 설명 듣기」) 그 시작 턴이 가져간다(파일이 여럿이어도). 「새 대화」 는 이것도 버린다
+  agwCarry = { job, talk: AGH.talk.slice(-12) };
+  say(`대시보드에 「${name}」 ${typeof taskJosa === "function" ? taskJosa(name, "을", "를") : "을"} 골랐습니다 — 위 「워크플로우 시작」 을 누르면 문서를 준비합니다(문서 화면으로 바로 시작하려면 왼쪽 워크플로우 카드).`); // 이름 뒤 조사는 박아 두지 않는다(task_catalog.js taskJosa)
 }
 
 async function homeAgentSend() {
@@ -880,7 +883,7 @@ async function homeAgentSend() {
   if (r.act) homeAgentAct(r.act); else homeAgentDraw();
 }
 
-function homeAgentReset() { AGH.gen += 1; AGH.talk = []; AGH.ask = null; AGH.busy = false; if (AGH.el) AGH.el.text.value = ""; homeAgentDraw(); } // 대화만 지운다 — 문서 목록은 왼쪽의 「비우기」
+function homeAgentReset() { AGH.gen += 1; AGH.talk = []; AGH.ask = null; AGH.busy = false; agwCarry = null; if (AGH.el) AGH.el.text.value = ""; homeAgentDraw(); } // 대화만 지운다(시작 턴에 넘기려던 말도) — 문서 목록은 왼쪽의 「비우기」 · 대시보드는 그 안의 「다른 워크플로우」
 
 function homeAgentBind() {
   const box = $("homeAgent");
@@ -889,6 +892,10 @@ function homeAgentBind() {
   title.prepend(agentIcon("document"));
   const clear = hBtn("새 대화", () => homeAgentReset(), { title: "이 대화를 지우고 처음부터" });
   head.append(title, el("span", "agh-sub", "파일을 올리면 작업 절차를 확인해 진행합니다"), clear);
+  // 대시보드 상자(머리 아래 · 대화 위 — spec ② §10 「첫 화면의 대시보드」 · design.md §20): 여기서는 자리만 만든다 — 그리기 · 실행은 home_dash.js(homeDashDraw: 이 파일보다 뒤에 읽힌다)
+  E.dash = el("section", "dash home-dash");
+  E.dash.id = "homeDash";
+  E.dash.setAttribute("aria-label", "대시보드");
   E.talk = el("div", "agh-talk");
   E.talk.setAttribute("role", "log");
   E.talk.setAttribute("aria-label", "에이전트 대화");
@@ -906,7 +913,7 @@ function homeAgentBind() {
   E.send.dataset.agh = "send";
   row.append(pick, el("span", "agh-spacer"), E.send);
   input.append(E.files, E.text, row);
-  box.append(head, E.talk, input);
+  box.append(head, E.dash, E.talk, input);
   const files = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files"); // 대화창에 놓은 파일은 여기서 받는다(창의 파일 놓기 — 그냥 열기 — 보다 먼저)
   box.addEventListener("dragover", (e) => { if (!files(e)) return; e.preventDefault(); e.stopPropagation(); box.classList.add("over"); });
   box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("over"); });

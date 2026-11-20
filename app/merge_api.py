@@ -802,6 +802,7 @@ def merge_reset(doc_id: str, body: dict = Body(default={})):
     stage = body.get("stage") or "frame"
     if stage not in ("frame", "map"):
         raise HTTPException(400, "stage 는 frame 또는 map")
+    server._flow_busy(doc_id)   # 도는 워크플로우 실행에 든 문서의 묶음은 초기화하지 않는다(spec_워크플로우 ② §17-6 「바쁨 막이」)
     server._commits_on()
     s = server._sess(doc_id)
     with s.lock:

@@ -2124,6 +2124,8 @@ function taskLlmSkip(w, on) {
   const ids = taskLlmSkips().filter((x) => x !== w.id);
   if (on) ids.push(w.id);
   try { localStorage.setItem(TASK_LLM_SKIP, JSON.stringify(ids.slice(-200))); } catch { /* 기억만 안 함 */ }
+  const target = typeof flowSkip === "function" && taskSlots() ? taskSlotDoc(taskSlots()[1]) : null; // 서버 쪽 실행기 · 첫 화면의 대시보드도 같이 보게 — 워크플로우 옵션에도 적는다(spec_워크플로우 ② §17-6 「건너뛰기」)
+  if (target) flowSkip(target.id, w.id, on);
   taskStepsDraw();
 }
 // 그 묶음의 「한 번에 진행」 이 유료 LLM 검증·보완을 부를 문서(spec_워크플로우 ② §15 — astra P1 ⓑ) → [[문서, 이름]…](칸 차례). steps = 셈한 단계(taskStepsOf — 이 TASK 에 서는 단계만).
@@ -2473,6 +2475,16 @@ async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo 
   const stages = TASK_STAGES.slice(i0, i1 + 1).filter((g) => leftOf(g).length || again(g)); // 할 일이 남은 묶음만
   if (!stages.length) { toast("남은 단계가 없습니다"); return; }
   const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
+  // 묶음 하나만 도는 실행은 먼저 서버 쪽 실행기에 맡긴다(workflow_exec.js taskRunServer — spec_워크플로우 ② §18-10 걸음 1: 지금 서버가 맡는 묶음 = 「문서 검토」). 서버가 돌면 창을 닫아도 이어지고
+  // 다른 화면 · 첫 화면의 대시보드가 같은 실행을 본다 — 이 화면의 taskRun 은 그 실행의 거울이다. 서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치면(null) 아래 화면 실행 그대로. 묶음 연쇄(이어서 한 번에)는 아직 화면이 돈다
+  if (!chain && typeof taskRunServer === "function") {
+    taskRunChecking = true; // 시작 요청이 돌아올 때까지 — 그동안 또 눌러 둘이 시작하지 않게
+    let served = null;
+    try { served = await taskRunServer(stages[0], plan, report, { redo, only, paid }); } finally { taskRunChecking = false; }
+    if (served && served.follow) return taskRun ? { ok: false, text: "그 사이 다른 진행이 시작됐습니다" } : served.follow();
+    if (served) return served; // 서버가 거절(남은 단계 없음 · 문서 칸이 다름 · 정의가 바뀜 …) — 그 글이 알림으로 나갔다
+    if (taskRun || epoch !== state.epoch) return { ok: false, text: "그 사이 다른 진행이 시작됐거나 다른 문서를 열어 시작하지 않았습니다" };
+  }
   // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 남은 단계 · 바뀌는 것 · 유료 호출을 적은 확인 창: design.md §18 「확인 창」). sure 는 부르는 쪽 호환으로만 남김
   const run = (taskRun = { stage: stages[0].id, report: report.id, key: (leftOf(stages[0])[0] || { key: redo }).key, note: "", t0: Date.now(), stop: false, chain, redo, only, // only = 그 단계만 하고 끝(줄의 「분석」 · 「다시 분석」 단추 — 뒤의 LLM 단계는 안 돈다)
     paid: Array.isArray(paid) ? new Set(paid) : null });
