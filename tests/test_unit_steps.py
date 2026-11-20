@@ -45,7 +45,7 @@ def test_pair_is_the_same_from_either_document(client):
 def test_analysis_runs_to_the_end_and_guides_are_kept(client):
     report = _upload(client, M.REPORT_FORM)
     f = U.facts(report)
-    assert f["fmt"] == "hwpx" and f["heads"] == {"s2": False, "s3": False, "rev2": None, "rev3": None, "llm": False, "job": None} and f["guides"] is None
+    assert f["fmt"] == "hwpx" and f["heads"] == {"s2": False, "s3": False, "rev2": None, "rev3": None, "llm": False, "asked": False, "job": None} and f["guides"] is None
     got = U.start_heads(report, "first")
     assert got.ok and got.code == "ok" and got.data["status"] in ("running", "done") and got.data["first"] is True
     again = U.start_heads(report, "first")
@@ -104,3 +104,66 @@ def test_run_records_are_written_under_the_work_folder(client):
     U.store.log(wid, event="start", n=2)
     assert [e for e in works.events(wid) if e.get("kind") == U.LOG_KIND][0]["event"] == "start"
     assert not U.store.enabled("nope") and U.store.write("nope", 1, {}) is False
+
+
+# ---------------------------------------------------------------- 걸음 2 — 구성 · 구조 반영의 문(확정 → 계획(같은 검사) → 반영 · 낡은 계획 → 다시 분석)
+def _wait_heads(doc, seconds=240):
+    t0 = time.time()
+    while (U.job(doc).data or {}).get("status") == "running" and time.time() - t0 < seconds:
+        time.sleep(0.1)
+    return U.job(doc).data
+
+
+def test_config_and_division_doors_on_a_real_pair(client):
+    plan, report = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    _task(client, plan, file="plan")
+    _task(client, report, file="report")
+    d0 = U.div_facts(report)
+    assert d0["input"] is None and d0["applied"] is None and d0["form"] and d0["sharing"]["shared"] and d0["sharing"]["project"] == "시험 과제"
+    assert U.config_save(plan, M.SMALL_VALUES).ok
+    got = U.config_confirm(report, U.div_facts(plan)["input"])
+    assert got.ok and U.div_facts(report)["confirmed"]["values"] == U.div_facts(plan)["input"]   # 같은 프로젝트 — 공유 입력 · 확정
+    plan_ = U.division_plan(report, U.div_facts(report)["input"])
+    assert plan_.ok and plan_.data["planId"] and isinstance(plan_.data["autoStops"], str) and plan_.data["autoStopsKind"] in ("", "issues", "orgs")
+    rev0 = U.facts(report)["rev"]
+    old = U.division_plan(report, U.div_facts(report)["input"]).data   # 계획을 다시 세우면 앞 계획은 버린다 — 낡은 계획의 반영은 stale(다시 계획하지 않는 것은 실행기의 몫)
+    assert U.division_apply(report, plan_.data["planId"], plan_.data["baseRev"]).code == "stale"
+    done = U.division_apply(report, old["planId"], old["baseRev"])
+    assert done.code in ("ok", "nothing"), done
+    if done.code == "ok":
+        assert U.facts(report)["rev"] == rev0 + 1 and U.div_facts(report)["applied"]["values"] == U.div_facts(report)["input"]
+    assert U.division_apply(report, old["planId"], old["baseRev"]).code == "stale"   # 같은 계획을 두 번 — 이미 버려졌다
+    assert U.division_plan("nope", M.SMALL_VALUES).code == "missing" and U.div_facts("nope") is None
+    assert U.config_read(plan).code == "ok"   # 빈 양식이면 읽은 값이 없다(data None) — 끝점은 그대로
+
+
+def test_frame_stage_runs_on_the_server_to_the_end_with_llm_off(client, monkeypatch):
+    """실제 쌍 — 1단계(헤딩 · 표 분석 · LLM 을 못 써 「건너뜀」) → 2단계(확정 → 울타리 → 계획 → 반영 → 다시 분석 → 작성 지침 → LLM 「건너뜀」)가 창 없이 끝까지."""
+    from app import workflow_exec as X
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()
+    X.configure(U)
+    monkeypatch.setattr(U, "llm_ok", lambda: False)
+    monkeypatch.setitem(X.WAIT, "poll", 0.05)
+    monkeypatch.setitem(X.FENCE_WAIT, "settle", 0.2)
+    plan, report = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    _task(client, plan, file="plan")
+    _task(client, report, file="report")
+    assert U.config_save(plan, M.SMALL_VALUES).ok
+
+    def run(body):
+        X.start(report, body)
+        t0 = time.time()
+        while report in X.RUNS and time.time() - t0 < 400:
+            time.sleep(0.1)
+        return X.last(report)
+    rec = run({"from": "review"})
+    assert rec["status"] == "done", rec["end"]
+    rec = run({"from": "frame"})
+    assert rec["status"] == "done", rec["end"]
+    assert rec["end"]["text"].startswith("끝남 — 구조를 맞췄습니다 — 사업계획서와 같음 · 연차보고서에 반영됨 — ") and "연차보고서 LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)" in rec["end"]["text"]
+    assert rec["end"]["text"].endswith(" · 내용은 3단계 「내용 넣기」 에서 넣습니다")
+    f, d = U.facts(report), U.div_facts(report)
+    assert d["applied"] and d["applied"]["values"] == d["input"] and f["heads"]["rev2"] == f["heads"]["rev3"] == d["applied"]["rev"]   # 분석이 구조 반영 뒤의 것
+    frame = X.status_of(report)["stages"][1]
+    assert frame["left"] == 0 and frame["why"] == "남은 단계가 없습니다" and not X.FENCE and not X.NOTICE
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()

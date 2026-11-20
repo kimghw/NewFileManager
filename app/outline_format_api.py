@@ -15,6 +15,7 @@ def align_edited(doc_id: str):
     from app import server
     s = server._sess(doc_id)
     with s.lock:
+        server._fenced(s)   # 워크플로우 실행이 이 문서를 바꾸는 동안은 409(울타리 — spec_워크플로우 ② §17-8)
         ov = server._outline_ov(s) if s.fmt == "hwpx" else None
         formats = {}
         if ov:

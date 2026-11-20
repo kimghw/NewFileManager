@@ -578,6 +578,7 @@ def _patch(doc_id, block_id, text, kind):
     """문단 글 고침 — kind 는 기록 종류(text = 입력, revert = 「되돌리기」)."""
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         el = s.doc._ids.get(block_id)
         if block_id not in s.texts or el is None or el.tag != s.kit["para"] or not s.doc._attached(el):
             raise HTTPException(404, "편집할 수 있는 문단이 아닙니다")
@@ -624,6 +625,7 @@ def revert_block(doc_id: str, block_id: str):
     if block_id not in s.formatted:
         return _patch(doc_id, block_id, s.orig_texts[block_id], "revert")
     with s.lock:  # 모양을 바꾼 문단: 글을 되놓고 원본 문단 XML(런·글자 모양·문단 모양·줄 배치)로
+        _fenced(s)
         before = s.texts[block_id]
         s.doc.set_text(block_id, s.orig_texts[block_id])
         s.texts[block_id] = s.doc._text(s.doc._ids[block_id])
@@ -834,6 +836,7 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
     local = 편집이 닿는 최상위 문단들(편집 전 — _edit 가 준다): 주면 편집 뒤 문서 전체(blocks())를 다시 읽지 않고 **닿은 최상위 문단의 블록만** 읽어(HwpxDoc.host_blocks)
     글 사전을 그만큼만 고치고, 돌려주는 블록도 그것뿐이다(spec_owpml_편집 ② §3 「닿은 블록만 다시 읽기」 — 연구개발계획서 12,700문단에서 개요 줄 Enter 한 번에 1 s 들던 것).
     문서 순서로 세는 값(번호 문단·자동 번호 — order_bound)이 닿은 문단에 있거나 docx·전체 검사(check)면 전처럼 문서 전체."""
+    _fenced(s)   # 워크플로우 실행이 이 문서를 바꾸는 동안은 사람 편집을 409 로(실행 스레드만 지남 — 울타리)
     st, chk = s.kit["struct"], s.kit["check"]
     snap = _snap(s)
     part = local is not None and check is None and hasattr(s.doc, "host_blocks") and not s.doc.order_bound(local)
@@ -1004,6 +1007,7 @@ def undo(doc_id: str):
     """마지막 구조·서식 편집 직전으로 — 그 뒤 고친 글도 함께 돌아간다. 응답 = GET /api/docs/{id}(블록 전체)."""
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         if not s.undo:
             raise HTTPException(400, "되돌릴 구조·서식 편집이 없습니다")
         _rollback(s, s.undo.pop())
@@ -1361,6 +1365,15 @@ def _flow_busy(wid=None, project=None):
     초기화 · 지우기 · 칸 바꾸기(워크플로우 · 프로젝트 · 라운드 · 문서 종류) · 새 라운드 · 묶음 초기화 · 프로젝트 이름 바꾸기 · 지우기가 함수 안에서 묻는다(URL 목록으로 가르지 않는다 — 끝점이 늘어도 빠지지 않게)."""
     from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
     why = workflow_exec.busy_text(wid, project)
+    if why:
+        raise HTTPException(409, why)
+
+
+def _fenced(s):
+    """울타리(spec_워크플로우 ② §17-8) — 워크플로우 실행이 이 문서를 바꾸는 동안(구조 반영 · 내용 반영 · 작성요령 삭제의 몇 초~20초) 사람 편집을 409 로 거절한다(그 실행 스레드만 지남 · 공유 손님 포함).
+    **`_bump` 를 부르는 편집 입구는 모두 세션 잠금 안에서 먼저 이것을 부른다** — 새 편집 길이 빠지지 않게 tests/test_workflow_exec.py 가 AST 로 본다. 그 층은 잠금 없이 사전 한 번만 읽는다(교착 없음)."""
+    from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
+    why = workflow_exec.fence_why(s.id)
     if why:
         raise HTTPException(409, why)
 
@@ -2190,6 +2203,7 @@ def commit_create(doc_id: str, body: dict = Body(default={})):
     message = " ".join(message.split())[:200]
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)   # 문서를 새 기준으로 다시 연다(실행 취소 · 구분 기준 계획을 비움) — 워크플로우 실행이 이 문서를 바꾸는 동안은 409(_bump 는 안 부르지만 울타리 안의 계획을 버리게 된다)
         if not _dirty(s):
             raise HTTPException(400, "확정할 변경이 없습니다")
         s.doc.blocks()  # 모든 블록에 id 를 붙여 둔다 — 자리표에서 빠지는 요소가 없게
@@ -2218,6 +2232,7 @@ def commit_restore(doc_id: str, n: int, body: dict = Body(default={})):
     _commits_on()
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         dirty, count = _dirty(s), len(s.edited())
         if n == s.base_n and not dirty:
             raise HTTPException(400, "이미 그 확정 상태입니다")
@@ -2692,6 +2707,7 @@ def divisions_settings(doc_id: str, body: dict = Body(...)):
     settings = _division_settings(body)
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)   # 워크플로우 실행이 이 문서의 구조를 맞추는 동안은 값을 바꾸지 않는다(그 실행의 계획이 버려진다 — 울타리)
         _project_settings_sync(s, settings)
         view = _division_view(s)
     _persist_safe(s, force=True)  # rev 가 안 바뀌어도 설정은 작업에 남긴다
@@ -2706,6 +2722,7 @@ def divisions_confirm(doc_id: str, body: dict = Body(default={})):
     settings = _division_settings(body) if body.get("values") is not None else None
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         sharing = _project_settings_sync(s, settings)
         settings = s.division["settings"]
         if settings is None:
@@ -2821,7 +2838,8 @@ def divisions_plan_get(doc_id: str):
         plan = s.division.get("plan")
         if plan is None:
             raise HTTPException(404, "계획이 없습니다")
-        return {**division_plan.view(plan), "stale": plan["baseRev"] != s.rev, "rev": s.rev}
+        stops, stops_kind = division_plan.auto_stops(plan["summary"], plan["values"], s.division["applied"], s.division.get("partial"))
+        return {**division_plan.view(plan), "stale": plan["baseRev"] != s.rev, "rev": s.rev, "autoStops": stops, "autoStopsKind": stops_kind}
 
 
 @app.post("/api/docs/{doc_id}/divisions/plan")
@@ -2836,6 +2854,7 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
     settings = _division_settings(body) if body.get("values") is not None else None
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)   # 워크플로우 실행이 이 문서를 바꾸는 동안 사람이 계획을 세우면 그 실행의 계획을 밀어낸다(계획 자리는 하나) — 실행 스레드만 지남
         before = copy.deepcopy(s.division["settings"])
         _project_settings_sync(s, settings)
         settings = s.division["settings"]
@@ -2856,18 +2875,20 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
     with s.lock:
         _project_settings_sync(s)
         settings_changed = division_model.settings_hash(s.division["settings"]) != plan["settingsHash"]
-        s.division["plan"] = None if settings_changed else plan
-        stale = plan["baseRev"] != s.rev or settings_changed
+        hints_changed = [h["para"] for h in s.division.get("hints") or [] if h.get("para")] != hints   # 계산하는 사이 추가한 자리가 바뀜 — 옛 자리로 세운 계획을 걸지 않는다(astra 2026-11-20)
+        s.division["plan"] = None if settings_changed or hints_changed else plan
+        stale = plan["baseRev"] != s.rev or settings_changed or hints_changed
         a = s.division["applied"]
         # 지금 규칙(프로파일 판)으로 다시 계획했는데 할 일이 없음 = 마지막 반영이 새 규칙에도 맞는다 — 판을 올려 화면의 「새 규칙 — 계획 확인」 을 끈다(② §16). 자리를 빼거나 한 자리만 본 계획은 아님
         confirmed = bool(a and not stale and only is None and not skip and a.get("values") == plan["values"] and a.get("profileVersion") != plan["profileVersion"]
                          and not plan["_report"]["groups"] and not plan["_report"]["changes"])
         if confirmed:
             s.division["applied"] = {**a, "profileVersion": plan["profileVersion"]}
+        stops, stops_kind = division_plan.auto_stops(plan["summary"], plan["values"], s.division["applied"], s.division.get("partial"))   # 같은 검사(spec_워크플로우 ② §17-7) — 화면 · 서버 실행기가 이 값을 읽는다
     if confirmed or changed:   # 설정이 바뀌었으면 작업에도 — 문서 차례가 그대로면 주기 저장이 건너뛰어 계획만 본 값이 디스크에 안 남았음(② §8 자동 저장, 2026-11-11 astra P1)
         _persist_safe(s, force=True)
     works.log(s.id, "divisionPlan", rev=rev, planId=plan["planId"], settingsHash=plan["settingsHash"], only=only, skip=skip, summary=plan["summary"])
-    return {**division_plan.view(plan), "stale": stale, "rev": s.rev}
+    return {**division_plan.view(plan), "stale": stale, "rev": s.rev, "autoStops": stops, "autoStopsKind": stops_kind}
 
 
 @app.post("/api/docs/{doc_id}/divisions/adopt")
@@ -2920,6 +2941,7 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
     plan_id, expect = body.get("planId"), body.get("expectRev")
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         _project_settings_sync(s)
         plan = s.division.get("plan")
         if plan is None or plan["planId"] != plan_id:
@@ -3055,6 +3077,7 @@ def divisions_hint_put(doc_id: str, body: dict = Body(...)):
     """추가한 자리 하나 넣기·고치기 {id?, para, dim, value?, note?}(② §11) — 같은 문단의 표시가 있으면 그것을 고친다. 계획은 버린다(후보가 달라짐)."""
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)   # 추가한 자리는 계획의 입력이다 — 워크플로우 실행이 이 문서의 구조를 맞추는 동안은 바꾸지 않는다(울타리)
         hints = s.division.setdefault("hints", [])
         idx = division_llm.index(s.doc.blocks())
         old = next((h for h in hints if h.get("id") == body.get("id")), None) or next((h for h in hints if h.get("para") == body.get("para")), None)
@@ -3077,6 +3100,7 @@ def divisions_hint_put(doc_id: str, body: dict = Body(...)):
 def divisions_hint_delete(doc_id: str, hid: str):
     s = _sess(doc_id)
     with s.lock:
+        _fenced(s)
         hints = s.division.setdefault("hints", [])
         h = next((x for x in hints if x.get("id") == hid), None)
         if h is None:

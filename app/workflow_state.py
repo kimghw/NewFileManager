@@ -45,15 +45,22 @@ def lines(task):
             for g in task.get("stages") or () for s in g["steps"] if not s["soon"]]
 
 
+def relay_pair(task):
+    """이관형(원본 문서 하나 → 목적 문서 하나)인가 — 지금 서버 실행기가 돌릴 수 있는 틀은 이것뿐이다(취합형은 걸음 5 · 문서 하나는 걸음 6).
+    단계 key 는 워크플로우마다 겹친다(취합의 「프로젝트 구성 확정」 config · 양식 맞추기의 plan · apply …) — 틀을 보지 않으면 그 묶음을 이관의 처리 함수로 돌리게 된다."""
+    roles = {r["role"]: r for r in task.get("roles") or ()}
+    return family(task) == "relay" and set(roles) == {"source", "target"} and not roles["source"].get("many")
+
+
 def served(task, gid):
-    """그 묶음을 서버 실행기가 맡는가 — 준비 중이 아닌 모든 줄에 서버가 돌릴 수 있는 단위가 있을 때."""
+    """그 묶음을 서버 실행기가 맡는가 — 이관형 워크플로우이고(relay_pair) 준비 중이 아닌 모든 줄에 서버가 돌릴 수 있는 단위가 있을 때."""
     mine = [x for x in lines(task) if x["stage"] == gid]
-    return bool(mine) and all(x["unit"] is not None and x["unit"]["server"] for x in mine)
+    return relay_pair(task) and bool(mine) and all(x["unit"] is not None and x["unit"]["server"] for x in mine)
 
 
 def need(task):
     """재료를 읽어야 하는 문서 역할들(차례 = 원본 → 목적) — 서버가 맡는 묶음의 줄이 닿는 역할만(안 닿는 문서는 열지 않는다)."""
-    got = {r for x in lines(task) if served(task, x["stage"]) for r in U.roles_of(x["on"])}
+    got = {r for x in lines(task) if served(task, x["stage"]) for r in (*U.roles_of(x["on"]), *((x["unit"] or {}).get("reads") or ()))}   # 줄이 닿는 문서 + 상태를 셀 때 함께 읽는 문서(구성 · 구조 반영 — 단위의 reads)
     return [r for r in U.ROLES if r in got]
 
 
@@ -79,12 +86,21 @@ def ready(task, pair):
     return True, [], ""
 
 
+def context(task, pair, facts, *, llm=None, skip=()):
+    """줄의 상태 함수(workflow_units.state)가 읽는 재료 — {ready, lack, llm, skip, pair{역할: {role, title(문서 이름), id, facts}}}(docs 는 줄마다 view 가 더한다).
+    실행기의 처리 함수도 이것으로 그 줄의 지금 상태를 센다(화면에 보이는 셈과 같은 재료 · 같은 식)."""
+    ok, lack, _ = ready(task, pair)
+    both = {r["role"]: {"role": r["role"], "title": r["name"], "id": d["id"], "facts": facts.get(d["id"])}   # 그 묶음의 문서마다 — 두 문서를 함께 보는 줄(구성 · 구조 반영)이 읽는다
+            for r in task.get("roles") or () for d in [((pair or {}).get(r["role"]) or None)] if d}
+    return {"ready": ok, "lack": lack, "llm": llm, "skip": set(skip or ()), "pair": both}
+
+
 def view(task, pair, facts, *, llm=None, skip=(), running=None):
     """지금 상태 → {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[…] | None, total, done, left, can, why, paid[문서 id], change}]}.
     facts = {문서 id: unit_steps.facts 의 값 | None(못 읽음)}(need 의 역할 문서) · llm = LLM 을 쓸 수 있나(None = 모름) · skip = 건너뛴 문서 id 들 · running = 도는 실행의 요약({stage, key} | None — 그 줄을 「진행 중」 으로).
     단계의 st = done · now(그 묶음의 첫 남은 줄) · todo · run(도는 중) · blocked · failed, skipped = 「건너뜀」 으로 끝남. 끝난 수 = 필수 줄만(준비 · 선택 줄은 빼고 — 대시보드의 셈과 같다)."""
-    fam, ok, lack, why = family(task), *ready(task, pair)
-    ctx0 = {"ready": ok, "lack": lack, "llm": llm, "skip": set(skip or ())}
+    fam, (ok, _lack, why) = family(task), ready(task, pair)
+    ctx0 = context(task, pair, facts, llm=llm, skip=skip)
     stages, before = [], None
     for g in task.get("stages") or ():
         mine = [s for s in g["steps"] if not s["soon"]]

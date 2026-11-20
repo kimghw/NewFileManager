@@ -506,3 +506,19 @@ def test_slim_keeps_in_text_pictures():
                           {"id": "p3", "type": "paragraph", "text": "그림 없는 문단", "format": None}])
     assert out[0] == {"id": "p1", "type": "paragraph", "text": " 제목", "format": {"sizePt": 13}, "pics": [pic]}
     assert out[1]["inlineOf"] == "p1" and "pics" not in out[2]
+
+
+def test_guests_get_409_while_a_workflow_run_fences_the_document(client, tmp_path):
+    """울타리(spec_워크플로우 ② §17-8) — 워크플로우 실행이 이 문서를 바꾸는 동안 손님의 글 고침 · 줄 나누기도 409(손님 앱은 고치지 않음 · 손님 화면의 409 = 다시 시도) · 걷으면 다시 된다."""
+    from app import workflow_exec
+    doc, st = _start(client, tmp_path)
+    sid = st["id"]
+    g, _ = _guest(st)
+    p = _first_para(g.get(f"/s/{sid}/doc").json()["blocks"])
+    workflow_exec.FENCE[doc] = {"target": doc, "n": 1, "thread": -1}
+    try:
+        assert g.patch(f"/s/{sid}/blocks/{p['id']}", json={"text": "울타리 안"}, headers=X).status_code == 409
+        assert g.post(f"/s/{sid}/split", json={"id": p["id"], "offset": 1}, headers=X).status_code == 409
+    finally:
+        workflow_exec.FENCE.clear()
+    assert g.patch(f"/s/{sid}/blocks/{p['id']}", json={"text": "울타리 밖"}, headers=X).status_code == 200

@@ -134,6 +134,7 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   - 같은 날 사용자(b6 에) "현재 진행하는 세션들이 일관성 측면에서 잘 하고 있는데 한번씩 검토해줘" → 도는 네 세션(A 1a · B 60 · C de + 분담 뒤에 연 **05** = 첫 화면 열의 탭 「대시보드」 · 「에이전트」 — 원본 [spec_작업에이전트.md](spec_작업에이전트.md) ①)의 작업 트리를 읽기만으로 검토(11:20 기준):
     주인 밖 파일은 모두 상대에 알리고 고쳤고 층 규칙 · 울타리(`_bump` 입구 6곳) · 같은 검사 · 유료 승인은 맞음. 짚은 것 = `workflow_exec.py` 의 `_analyze` 가 A · B 절에 둘(뒤 정의가 덮어 B 의 안전망 호출이 깨짐 — 두 세션에 알림) ·
     등록부 3단계 줄 차례(표 대응 → 빈 자리)가 단위의 고정 차례와 반대(B 가 고칠 차례) · 「구조 반영 전 분석」 식 두 벌(merge_api · workflow_units) · 분담 기록(handoff.md · 위 줄)에 05 와 그 화면 검사 포트가 없음 · design.md §21 을 가리키는 주석(절 없음). 세션마다 알림 — 고치는 것은 주인 세션.
+  - 같은 날(newfilemanager-1a — 갈래 A) **걸음 2 를 넘겨받아 구현** — 2단계 「구성 맞추기」 를 서버로 · 같은 검사 · 울타리 → ② §17-8 · §18-2 · ③ 같은 날. b6 의 확인 물음(원본의 반영 값 ≠ 입력 값이면 확정과 반영의 값이 갈림)은 astra 결과 검토(artifacts/flow_step2_astra_2026-11-20/ — 판정 「보류」 · P1 6)에서도 짚혀 계획 전에 멈추게 고침 → ③ 같은 날.
 
 ## ② 확정 사양
 
@@ -596,7 +597,8 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   10초 안에 0 이 안 되면 **문서를 바꾸기 전에** `halted` 「그 문서를 연 화면에 서버에 반영하지 못한 글이 있습니다 — 「고친 문단」 탭에서 다시 반영한 뒤 「이어서」」(지금 `divPlan` 의 `state.failed` 검사를 화면 사이로 옮긴 것).
 - **편집 입구**: `_bump` 를 부르는 함수 모두(`_patch` · `revert_block` · `_transact` · `undo` · `commit_restore` · `outline_format_api`)가 세션 잠금 안에서 먼저 `fence_why(s.id)` 를 본다 — 시험이 AST 로 `_bump(` 을 부르는 함수마다 그 검사가 있는지 본다(새 편집 길이 빠지지 않게).
 - 공유 손님도 그동안 409 를 받는다(손님 앱은 고치지 않음) · 확인 폴링을 안 하는 옛 화면은 보고에 안 들고, 울타리에 걸린 글은 그 화면의 「반영 실패」 로 남는다(조용히 사라지지 않음) · 울타리는 그 단계 동안만(길어야 20초 안팎 — 구조 반영 계획 7.5–13 s + 반영 1.6 s).
-- 화면의 꼴(띠 · 상태 줄의 글)은 [design.md](../design.md) 에 한 절.
+- 화면의 꼴(띠 · 상태 줄의 글)은 [design.md](../design.md) §22.
+- **구현된 꼴**(걸음 2 — 2026-11-20): 실행기 `Run.fence(문서 id)`(context manager — 문서를 바꾸는 처리 함수는 `with run.fence(d): …` 안에서 문을 부른다 · 몸에 들어가기 전에 `_Halt("dirty")` · 멈춤이면 `_Stop` · 나올 때 예외여도 내림) · `fence_why(d)`(server `_fenced(s)` 가 묻는다 — 실행 스레드의 ident 로 가름) · 보고 = 확인 폴링 `GET …/flow/live?screen=&dirty=`(→ `{run, notice{key, since, fenced}, rev}` — rev = 메모리의 문서 차례: 알림이 내린 뒤 다시 읽을지) · 「받았음」 = 화면이 알림의 key 를 되돌린 보고(`&ack=` — 화면은 입력을 막고 `flushAll` 이 끝난 뒤에야 싣는다: 알림을 보기 전에 잰 0 은 받았음이 아니다 · astra 결과 검토) · 「기다릴 화면」 = 알림 전 8초 안에 보고하던 화면 + 알림 뒤에 보고한 화면(모두 받았음을 보내면 바로 · 알림 뒤로 아무 보고도 없는 화면만 남으면 4초 뒤 · 알림 뒤의 보고인지는 시각이 아니라 차례 번호로 — Windows 시계는 15 ms 단위 · 판정과 울타리 올리기는 한 잠금) · 화면(`workflow_exec.js`)은 알림을 받으면 `flushAll` + 읽기 전용 띠 + 문서 입력(글 · Enter · 붙여넣기 · 잘라내기 · 끌어 놓기)을 막고, 내리면 띠를 걷고 차례가 다르면 문서를 다시 읽는다(`reloadDoc` → `divShow` → `taskFlowLoad` — 고치던 글이 있으면 다시 읽지 않고 알림).
 
 #### 17-9. 화면 · 대시보드 · 에이전트
 - **확인 폴링**(`workflow_exec.js`): 서버가 도는 묶음이 있는 워크플로우의 문서를 연 화면은 `…/flow/live` 를 3초마다(그 묶음의 실행이 돌면 1초마다) — 화면 id · 고치던 글 수를 싣는다.
@@ -708,11 +710,11 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   | `files` 준비 | (맨 앞 묶음) | flow | pick | — | — | — | slots | 실행기는 안 한다 — 칸이 비면 시작이 409 `notReady` | 1 |
   | `heads` 헤딩 · 표 분석 | 문서 검토 | doc(원본 · 목적) | auto | store | — | slots | heads@d | 배경 일 · 목적 문서면 끝에 작성 지침 저장 | 1 |
   | `headsLlm` LLM 검증·보완 | 문서 검토 | doc(원본 · 목적) | auto | store | doc | heads@d | checked@d | 배경 일 · LLM 을 못 쓰거나 건너뛰면 「건너뜀」 으로 끝남 | 1 |
-  | `configLoad` 구성 불러오기 | 구성 맞추기 | flow | pick | store | — | — | — | 선택 — 실행기는 지나감 | 2 |
-  | `config` 프로젝트 구성 확정 | 구성 맞추기 | flow | auto | store | — | slots | config | 값이 없으면 구성의 기준 문서에서 읽어 확정(지금과 같다) · 읽지 못하면 멈춤 | 2 |
-  | `division` 프로젝트 구성 반영 | 구성 맞추기 | doc(목적) | auto | **doc** | — | config | fit@목적 | fresh@목적 을 무름 · 같은 검사(`auto_stops`) · 울타리 | 2 |
-  | `reheads` 다시 문서 검토 | 구성 맞추기 | doc(목적) | auto | store | — | fit@목적 | fresh@목적 · heads@목적 | 배경 일 · 끝에 작성 지침 저장 | 2 |
-  | `reheadsLlm` 다시 문서 검토(LLM) | 구성 맞추기 | doc(목적) | auto | store | doc | fresh@목적 | checked@목적 | 배경 일 | 2 |
+  | `configLoad` 구성 불러오기 | 구성 맞추기 | flow | pick | store | — | — | — | 선택 — 실행기는 지나감 | 2 ✓ |
+  | `config` 프로젝트 구성 확정 | 구성 맞추기 | flow | auto | store | — | slots | config | 값 = 원본(구성의 기준)의 입력 값 · 없으면 문서에 적힌 값 → 목적 문서에서 확정(화면 실행과 같다 — 공유 중이면 프로젝트의 확정) · 읽지 못하면 멈춤 · 끝남 = 목적 문서의 입력 값이 확정과 같음(당해 차년도 빼고 — 화면 `divConfirmValid`) | 2 ✓ |
+  | `division` 프로젝트 구성 반영 | 구성 맞추기 | doc(목적) | auto | **doc** | — | config | fit@목적 | fresh@목적 을 무름 · 울타리 안에서 계획 → 같은 검사(`auto_stops` — 계획의 응답 `autoStops`) → 반영을 **다시 계획 없이 한 번**(409 · 422 = 멈춤) · 끝남 = 두 문서의 값이 같고(화면 `taskDivDiff`) 목적 문서의 지금 값이 반영됨 | 2 ✓ |
+  | `reheads` 다시 문서 검토 | 구성 맞추기 | doc(목적) | auto | store | — | fit@목적 | fresh@목적 · heads@목적 | 배경 일(분석이 있으면 2 → 3단계 · 없으면 첫 분석) · 끝에 작성 지침 저장 · 반영 전 LLM 결과는 LLM 을 못 쓸 때만 그대로(keep — `redo` 면 그래도 다시) | 2 ✓ |
+  | `reheadsLlm` 다시 문서 검토(LLM) | 구성 맞추기 | doc(목적) | auto | store | doc | fresh@목적 | checked@목적 | 배경 일 · 유료 대상은 앞 줄이 아직이어도 센다(화면 `taskPaidDocs`) | 2 ✓ |
   | `link` 자리 연결 | 내용 넣기 | pair | auto | store | — | heads@원본 · heads@목적 · fresh@목적 | links | 서버의 까닭(분석 없음 · 값 없음 · 반영 전 · 값이 다름)이 있으면 막힘 | 3 |
   | `llm` 자리 연결 LLM 검토 | 내용 넣기 | pair | auto · once · optional | store | stage | links(확인 필요 · 못 정한 표가 있을 때만) | — | links 를 다시 읽음 · via `link` | 3 |
   | `plan` 넣기 계획 | 내용 넣기 | pair | auto | none | — | links | plan | 넣을 자리 0 = 대상 없음(정상 0건 — §15) | 3 |
@@ -1039,6 +1041,32 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   - 시험: `tests/test_form_files.py` 15(+2 — `PUT …/task` 고정 검사 · 작업의 원본 · 예제에서 저장) · 새 화면 검사 `smoke_form_files_ui.py`(`form_files` — 14: 저장한 양식 절 · 문서 칸 · 고정 시작 · 「이어서」 · 기본값 ↔ 목록 · 카드로 양식 시작 · 작업의 원본을 양식으로 · 400px) · `workflow` · `custom_task` 의 구조 단언을 새 줄 · 새 목차 링크 · 읽기 요청에 맞춤.
   - 아직(④): 첫 화면의 워크플로우 카드를 **파일 없이** 누르는 길(`app.js` `homeTaskPick` — 파일 고르기 창)은 양식을 모른다(고정이면 서버가 409 로 막음 — 양식으로 시작하려면 대시보드나 목록이 있는 카드로) · 양식 설정이 있는 워크플로우의 첫 화면 「문서 넣기」 칸(§18-8 — 역할마다의 칸 · 지금은 목록 + 목적 고르기) ·
     목록이 비었을 때 프로젝트 이름을 적을 칸(문서 하나 + 고정 양식이면 늘 임시 이름) · 「빈 양식이라 예시 칸을 덮어도 됨」 을 양식 정보와 따로 다루는 것(§18-12 ⑧ — 지금은 양식 정보의 일 그대로).
+- 2026-11-20 (newfilemanager-1a — 갈래 A, f3 의 넘김) **걸음 2 — 2단계 「구성 맞추기」 를 서버로 · 같은 검사 · 울타리**(② §17-8 · §17-10 걸음 2 · §18-2 · §18-4 — 화면 꼴 [design.md](../design.md) §22):
+  - **울타리**(§17-8): `workflow_exec.Run.fence(문서 id)` · `fence_why` · `report`(확인 폴링의 고치던 글 보고) · `notice_of` — `GET …/flow/live?screen=&dirty=` 가 보고를 받고 `{run, notice, rev}` 를 돌려준다(`unit_steps.rev_now` — 메모리만) ·
+    편집 입구 `server._fenced(s)`(`_patch` · `revert_block` · `_transact` 맨 앞 · `undo` · `commit_restore` · `outline_format_api.align_edited` — 시험이 AST 로 `_bump` 를 부르는 함수마다 본다).
+  - **같은 검사**(§17-7): `division_plan.auto_stops(summary, values, applied, partial)` → (글, 종류 issues | orgs) — `POST · GET …/divisions/plan` 응답의 `autoStops` · `autoStopsKind` ·
+    화면 `divAutoStops` · `divOrgsMoved` · `divRunAll`(양식 맞추기) · 이관 2단계 · 취합 2단계(`gather.js` 는 고치지 않음 — `divAutoStops` 를 그대로 부른다)가 그 값을 읽는다(옛 서버면 화면 식).
+  - **단위 · 상태**(§18-2): `configLoad` · `config` · `division` · `reheads` · `reheadsLlm` 의 `server` 참 · 새 선언 `reads`(상태를 셀 때 그 줄 밖에서 읽는 문서 역할 — 구성 확정 · 구조 반영 · 다시 문서 검토는 두 문서) ·
+    상태 식 = 화면 `taskSteps` 그대로(`confirm_valid` = 당해 차년도 뺀 견줌 · `div_diff` = 정리한 꼴 전체 · `basis_values` = 원본은 반영 값 먼저 · `target_values` = 목적은 입력 값 먼저 · `heads_stale` · `heads_kept`) ·
+    `workflow_state.context()`(줄 상태의 재료 — `pair{역할: {title, id, facts}}`: view 와 처리 함수가 같은 ctx) · `need()` 가 `reads` 도 본다.
+  - **문**(§17-3): `unit_steps` 끝 절 — `div_facts` · `config_read` · `config_save` · `config_confirm` · `division_plan` · `division_apply` · `facts.heads.asked`(어느 단계든 LLM 을 부른 결과).
+  - **처리 함수**: `_do_config`(원본의 입력 값 · 없으면 문서에서 읽어 목적 문서에서 확정) · `_do_division`(값 맞춤 → 울타리 → 계획(`skip` = 시작 몸의 「반영에서 빼기」) → `autoStops` → 멈춤 요청 → 반영 — 다시 계획 없이 한 번) · `_do_reheads`(2 → 3단계 · 첫 분석 · 작성 지침 · keep · `only`) · `_do_reheads_llm` ·
+    끝 글 = 화면 `taskRunSteps` 의 frame 가지 그대로(「구조를 맞췄습니다 — … · 내용은 3단계 「내용 넣기」 에서 넣습니다」 · 「다시 분석」 은 「구조를 맞춘 문서의 헤딩·표 … — 다음은 「다시 문서 검토(LLM)」 입니다」) ·
+    뼈대: `_llm_job`(LLM 걸고 기다림 — 1단계와 같이 씀) · `MATERIALS`(재료 덧붙이기) · `_TAILS`(묶음 끝 글 꼬리) · 처리 함수의 셋째 돌려줌(묶음 끝 글의 몫 — 갈래 B 의 청) · 줄 하나(`only`)는 앞 묶음 차례를 안 따진다(화면 「early」 와 같게).
+  - **화면**(`workflow_exec.js`): `flowLive` 가 이 화면이 연 문서면 고치던 글 수를 싣고 알림을 받는다 · 알림 = `flushAll` + 읽기 전용 띠(`#flowFenceBand` — `style.css`) + 문서 입력 막음 · 내리면 차례가 다를 때 다시 읽기(`flowReload`) ·
+    `taskRunFollow` 의 첫 단계 key(묶음마다) · 멈춘 단계 = 기록의 `halt.key` · 멈추면 세부 목록을 편다 · 끝난 뒤 한 번 견줘 다시 읽기(알림을 놓친 경우).
+  - 시험: `tests/test_workflow_units.py` +5(확정 유효 · 값 견줌 · 반영 줄 · 다시 문서 검토 · 2단계 보기) · `tests/test_workflow_exec.py` +10(2단계 끝까지 · 고치던 글이면 문서를 바꾸기 전에 멈춤 · 기다릴 화면 · 같은 검사 · 409 · 422 다시 계획 없음 · 문서에서 읽기 · 「다시 분석」 · 승인 밖 · AST 편집 입구 · 진짜 서버 409) ·
+    `tests/test_unit_steps.py` +2(실제 쌍의 문 · LLM 끔으로 1 → 2단계가 서버에서 끝까지).
+  - **astra 결과 검토**(artifacts/flow_step2_astra_2026-11-20/ — 판정 「보류」 · P1 6 · P2 8)로 고친 것: ⓐ 확정과 다른 값으로 문서를 바꾸지 않는다(계획 **전**에 `confirm_valid` — 전에는 반영한 뒤 멈춤: 화면 실행도 같은 틈이 있다) ·
+    ⓑ 울타리의 「받았음」 = 화면이 알림 key 를 되돌린 보고만(`report(…, ack)` · 화면은 입력을 막고 `flushAll` 이 끝난 뒤에 key 를 싣는다 — 알림을 보기 전에 잰 0 을 받았음으로 쓰지 않음) · 마지막 판정과 울타리 올리기를 한 잠금에서 · 알림마다 다른 key ·
+    ⓒ 쓰기 직전 `run.guard()`(계획하는 사이 원본 칸이 바뀌면 멈춤) · 계획을 세우는 사이 추가한 자리가 바뀌면 그 계획을 걸지 않음(`divisions_plan`) · 사람의 계획 · 구성 저장 · 확정 · 추가한 자리 넣기/지우기 · 확정(commit) 도 울타리 안에서 409 ·
+    ⓓ 반영 409 · 422 는 상태를 다시 세지 않고 바로 멈춤 · 「반영에서 빼기」 목록을 자르지 않고 너무 길면 400 · 화면의 구성 입력을 저장하지 못했으면 시작 안 함 · 시작 요청의 답을 못 받으면 화면 실행으로 가지 않음(도는 실행이 있으면 따라감) ·
+    ⓔ 화면: 다시 읽는 동안 띠(입력 막음)를 그대로 · 읽기 직전에 고치던 글을 다시 봄 · 숨긴 탭이 실행을 통째로 놓쳤으면(live 의 `lastRun` 번호가 바뀜) 차례가 다를 때 다시 읽음 · 다른 문서로 옮기면 띠를 걷음 · Alt+↑/↓ 도 막음 ·
+    ⓕ 옛 저장본의 값을 정리한 꼴로 견줌(`div_facts` — 위탁 키 없는 값) · 같은 이름이 같은 자리에 있으면 기관 차례가 바뀐 것이 아님(서버 · 화면 둘 다) · 서식 정리 스킬을 시작 몸에 · 칸이 비면 유료 대상 없음 · 「다시 분석」 남김의 끝 글.
+    검토 밖에서 찾은 것: 단계 key 가 워크플로우마다 겹쳐 취합 1단계(files · config) · 연차보고서 양식 맞추기(plan · apply)가 서버 실행으로 셈됐다 → `workflow_state.relay_pair`(원본 하나 + 목적 하나인 이관형만 서버가 맡음).
+  - 아직(④): 에이전트 실행 카드 key 의 `:skip=`(「반영에서 빼기」 자리의 해시)와 서버 쪽 key 견줌(`moved`) · 프로젝트에 묶이지 않은 쌍(공유 아님)에서 확정 상태를 목적 문서로 세는 것(화면은 그 화면의 문서로 센다 — 공유 중이면 같다) ·
+    astra 가 짚고 이번에 안 고친 것 — 문단 PATCH 에 기준 판이 없어 놓친 화면이 살아남은 문단을 옛 글로 덮을 수 있음 · 반영 실패 글의 원문을 DOM 밖에 남기기(앱 전체의 편집 길) · IME 조합 중 · 도구 줄 · 오른쪽 단추 메뉴의 편집은 입력 막음을 안 거침(서버 409 로만) ·
+    전체 반영 뒤 한 자리만 다른 값으로 맞춘 문서(`partial`)를 「반영 끝남」 으로 셈(화면 `taskSteps` 도 같다 — 둘을 함께 고친다) · 같은 검사로 멈춘 계획을 화면이 열어 보지 못함(사람이 다시 계획 — 멈춤 기록에 planId) · 서버를 끄는 도중 도는 실행의 쓰기와 끊김 기록의 경합.
 
 ## ④ 미결/후속
 - (② §17 워크플로우 층 — 2026-11-19 사용자 승인 · 11-20 설계) **걸음 1 → 6**(§17-10 — 걸음마다 그 걸음이 바꾸는 사양서의 ① · ② · ③ 을 함께 · 착수 전 다른 세션과 파일 · 절 나누기) · §17-11 「권장대로 정한 것」 ⓐ~ⓕ 는 사용자 확인 전 ·

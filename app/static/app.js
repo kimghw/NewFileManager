@@ -9774,19 +9774,25 @@ function divRunWhy() { // 계획·반영을 할 수 없는 까닭("" = 할 수 �
 const divRunLocked = () => !!dv.auto || !!taskRun || !!taskResetting || (typeof gatherRun !== "undefined" && !!gatherRun) || (typeof gqRun !== "undefined" && !!gqRun && gqRun.busy); // 다른 실행이 도는 동안(이 묶음의 한 번에 진행 · TASK 묶음의 한 번에 진행 · 초기화 · 취합 간단 모드 — 묶음 사이의 틈도) — 단추만 끈다(그 실행이 부르는 divPlan·divApply 는 그대로 돈다)
 // 「한 번에 진행」 류가 지금 계획을 사람 확인 없이 반영해도 되는가 → 멈출 까닭 글 | ""(spec_작업에이전트 ② §7 — astra 11-16: 같은 「구조 반영」 인데 TASK 마다 검사가 달랐다).
 // 양식 맞추기(divRunAll) · 이관 2단계(taskRunSteps) · 취합 2단계(gather.js gatherRunFrame)가 같이 본다: 계획 오류 · 미해결 자리 · 기관의 차례가 마지막 반영과 다름. 지원 안 되는 자리는 그대로 두고 간다(빈 양식에도 있다 — divPlanIssues)
+// 판정은 서버 한 곳(app/division_plan.py auto_stops — spec_워크플로우 ② §17-7 「같은 검사」: 서버 쪽 실행기도 그것으로 멈춘다)이 계획의 응답에 싣는 값(autoStops · autoStopsKind)을 읽는다 — 옛 서버(그 키 없음)일 때만 아래 식으로 센다
+const divAutoStopsOf = (plan) => (plan && typeof plan.autoStops === "string" ? { text: plan.autoStops, kind: plan.autoStopsKind || (plan.autoStops ? "issues" : "") } : null);
 function divAutoStops() {
   const st = divPlanState(), s = st.plan && st.plan.summary;
   if (!s || st.kind !== "ready") return "";
-  return divPlanIssues(s, false) || divOrgsMoved();
+  const srv = divAutoStopsOf(st.plan);
+  return srv ? srv.text : divPlanIssues(s, false) || divOrgsMoved();
 }
 function divOrgsMoved() { // 마지막 반영 때 이름이 있던 기관의 차례가 달라졌는가 → 까닭 글 | "". 엔진은 남는 항목에 자리 차례대로 이름을 쓴다(② §5·§19) — 차례가 바뀌거나 가운데가 빠지면 쓴 내용이 다른 이름 아래에 남을 수 있다
   // 견줄 반영 = 마지막 전체 반영 + 그 뒤의 「한 자리만 반영」(표 메뉴 「프로젝트 구성에 맞추기」 — spec_테이블매니저 ② §9 「한 자리만 반영한 기록」: 전체 반영이 없던 문서에서 한 표만 맞춘 뒤 차례를 바꿔도 그 표의 값은 다른 이름 아래에 남는다)
+  const st = divPlanState(), srv = st.kind === "ready" ? divAutoStopsOf(st.plan) : null; // 반영할 수 있는 지금 계획이 있으면 서버가 그 계획의 값으로 센 것(같은 검사)
+  if (srv) return srv.kind === "orgs" ? srv.text : "";
   const a = dv.view && dv.view.applied, parts = (dv.view && dv.view.partial) || [];
   const names = (v) => [v.orgs.lead || "", ...(v.orgs.joint || [])].map((n) => String(n).trim()), now = names(divValues()), role = (i) => (i ? `공동 ${i}` : "주관");
   for (const [v, what] of [[a && a.values, "마지막 반영"], ...parts.map((p) => [p.values, "표 하나만 맞춘 반영"])]) {
     if (!v || !v.orgs) continue;
     const was = names(v);
     for (let i = 0; i < was.length; i++) {
+      if (now[i] === was[i]) continue; // 같은 자리에 같은 이름 — 같은 이름이 둘 있어도 첫 자리로 견주지 않는다(서버 division_plan.orgs_moved 와 같다)
       const j = was[i] ? now.indexOf(was[i]) : -1;
       if (j >= 0 && j !== i) return `기관 「${was[i]}」 의 차례가 ${what}과 다릅니다(${role(i)} → ${role(j)})`;
     }
@@ -9924,16 +9930,16 @@ async function divRunAll(opt = {}) {
   try {
     if (!s0 && !(await divPlan())) { if (mine() && !view.msg) halt("변경 계획을 세우지 못했습니다(알림 글 참고)"); return; }
     if (!mine()) return;
-    const st = divPlanState(), s = st.plan && st.plan.summary, stops = s ? divPlanIssues(s, false) : "";
+    const st = divPlanState(), s = st.plan && st.plan.summary;
     if (st.kind === "same") { // 바꿀 것이 없다 — 「이미 맞음」 과 「못 맞춤」 을 가른다
       const same = divSameText(s);
       if (same.ok) { view.msg = { kind: "done", text: same.text }; toast(same.text); } else halt(same.text);
       return;
     }
     if (st.kind !== "ready") { halt(st.kind === "skip" ? "뺄 자리가 바뀌었습니다 · 다시 계획하세요" : "계획을 세우는 사이 문서가 바뀌었습니다 · 다시 계획하세요"); return; }
-    const moved = divOrgsMoved();
-    if (stops) { halt(`${stops} — 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
-    if (moved) { halt(`${moved} — 쓴 내용이 다른 기관 이름 아래에 남을 수 있습니다. 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
+    const stops = divAutoStops(), moved = stops && stops === divOrgsMoved(); // 같은 검사(서버가 계획에 실은 값 — divAutoStops) · moved = 그 까닭이 기관의 차례
+    if (stops && !moved) { halt(`${stops} — 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
+    if (moved) { halt(`${stops} — 쓴 내용이 다른 기관 이름 아래에 남을 수 있습니다. 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
     if (!(await divApply({ quiet: true })) && mine() && !view.msg) halt("반영하지 못했습니다(알림 글 참고)");
   } finally {
     view.auto = false;

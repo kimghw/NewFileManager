@@ -108,13 +108,13 @@ PAIR = {"target": {"id": "b", "name": "보고서.hwpx", "format": "hwpx"}, "sour
 def test_view_of_the_built_in_relay():
     task = S.definition("plan_to_report")
     assert S.family(task) == "relay" and S.need(task) == ["source", "target"]
-    assert [(g["id"], S.served(task, g["id"])) for g in task["stages"]] == [("review", True), ("frame", False), ("map", False), ("clean", False)]
+    assert [(g["id"], S.served(task, g["id"])) for g in task["stages"]] == [("review", True), ("frame", True), ("map", False), ("clean", False)]
     v = S.view(task, PAIR, {"a": _facts("a", True), "b": _facts("b", False)}, llm=True)
     assert v["ready"] and v["job"] == "plan_to_report" and v["sig"] == S.sig(task) and v["docs"]["target"]["id"] == "b"
     review, frame = v["stages"][0], v["stages"][1]
     assert [(s["key"], s["st"]) for s in review["steps"]] == [("files", "done"), ("heads", "now"), ("headsLlm", "todo")]
     assert (review["done"], review["total"], review["left"], review["can"], review["paid"]) == (0, 2, 2, True, ["a"])
-    assert frame["server"] is False and frame["steps"] is None and frame["can"] is False   # 아직 화면이 세는 묶음 — 서버는 지어내지 않는다
+    assert frame["server"] and [s["key"] for s in frame["steps"]] == ["configLoad", "config", "division", "reheads", "reheadsLlm"] and frame["can"] is False and frame["why"] == "1단계 「문서 검토」 이 먼저입니다"   # 걸음 2 — 서버가 센다
     done = S.view(task, PAIR, {"a": _facts("a", True, llm=True), "b": _facts("b", True)}, llm=True)["stages"][0]
     assert (done["done"], done["total"], done["can"], done["why"]) == (2, 2, False, "남은 단계가 없습니다")
     live = S.view(task, PAIR, {"a": _facts("a", True), "b": _facts("b", True)}, llm=True, running={"stage": "review", "key": "headsLlm"})["stages"][0]
@@ -136,3 +136,92 @@ def test_signature_changes_only_with_the_lines():
     assert len(S.sig(task)) == 10 and S.sig(task) == S.sig(workflow.task_of("plan_to_report"))
     assert S.sig(S.definition("plan_merge")) != S.sig(task)
     assert S.definition("") is None and S.definition("nope") is None
+
+
+# ---------------------------------------------------------------- 걸음 2 — 「구성 맞추기」 의 상태 식(화면 app.js taskSteps 의 config · division · reheads · reheadsLlm 그대로)
+V2 = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대"], "nonprofit": [False, False], "outside": [], "overseas": [], "entrust": []}, "subs": [], "current": 1}
+
+
+def _div(inp=None, applied=None, confirmed=None, read=None, project="시험 과제"):
+    return {"input": inp, "applied": applied, "confirmed": confirmed, "partial": [], "form": "연구개발계획서", "supported": True, "rev": 3, "read": read,
+            "sharing": {"project": project, "shared": True} if project else None}
+
+
+def _fit(sdiv, tdiv, *, theads=(True, 3, 3), tasked=False, tjob=None, llm=True, skip=(), tllm=False):
+    got, r2, r3 = theads
+    pair = {"source": {"role": "source", "title": "사업계획서", "id": "a", "facts": {"id": "a", "heads": {"s2": True, "s3": True, "llm": True, "job": None}, "div": sdiv}},
+            "target": {"role": "target", "title": "연차보고서", "id": "b", "facts": {"id": "b", "heads": {"s2": got, "s3": got, "rev2": r2, "rev3": r3, "llm": tllm, "asked": tasked, "job": tjob}, "div": tdiv}}}
+    return {"ready": True, "lack": [], "llm": llm, "skip": set(skip), "pair": pair}
+
+
+def test_confirm_is_valid_without_the_current_year_like_the_screen():
+    """확정 유효 = 당해 차년도를 뺀 값이 같음(화면 divConfirmValid) — 서버 confirmed.valid(settings 전체의 해시)와 뜻이 다르다."""
+    cf = {"values": V2, "at": 1}
+    assert U.confirm_valid({**V2, "current": 2}, cf) and not U.confirm_valid({**V2, "stages": [3]}, cf) and not U.confirm_valid(None, cf) and not U.confirm_valid(V2, None)
+    assert U._config(_fit(None, _div(V2, confirmed={**cf, "valid": False})))["st"] == "done"   # 서버 valid 가 거짓이어도(당해 차년도만 다름) 끝남
+    assert U._config(_fit(None, _div({**V2, "current": 2}, confirmed=cf)))["text"].startswith("프로젝트 「시험 과제」에 확정함(")
+    assert "확정한 뒤 값이 바뀌었습니다" in U._config(_fit(None, _div({**V2, "stages": [3]}, confirmed=cf)))["text"]
+    assert U._config(_fit(None, _div(None)))["text"].startswith("프로젝트 구성(단계·차년도·기관)이 없습니다 — 사업계획서에서 추출")
+    assert U._config(_fit(None, _div(V2, project="")))["text"] == "1단계 · 전체 2년 · 기관 2곳 — 확인한 뒤 이 문서에 저장(확정)하세요"
+    assert U._config(_fit(None, None))["st"] == "blocked"
+
+
+def test_values_differ_like_the_screen_not_like_the_merge_pairs():
+    """두 문서의 값 견줌 = 정리한 꼴 전체(화면 taskDivDiff — 단계 · 기관 이름 · 구분 · 사업기간 · 세부과제) — 당해 차년도는 안 견준다."""
+    assert U.div_diff(V2, {**V2, "current": 2}) == []
+    assert U.div_diff(V2, {**V2, "stages": [1, 1]}) == ["단계·차년도(2년 ↔ 1+1년)"]
+    assert U.div_diff(V2, {**V2, "orgs": {**V2["orgs"], "nonprofit": [False, True]}}) == ["기관 이름·구분"]   # 비영리만 달라도(서버 values_diff 는 이름 모음만 본다)
+    assert U.div_diff(V2, {**V2, "orgs": {**V2["orgs"], "joint": ["가나대", "다라연"]}}) == ["공동 기관(1곳 ↔ 2곳)"]
+    assert U.div_diff(V2, {**V2, "subs": ["x"], "period": {"start": "2026-01-01", "end": "2027-12-31"}}) == ["사업기간", "세부과제"]
+
+
+def test_division_line_follows_the_screen_rules():
+    cf = {"values": V2, "at": 1}
+    applied = {"values": V2, "rev": 5}
+    assert U._division(_fit(_div(V2), _div(V2)))["st"] == "todo" and U._division(_fit(_div(V2), _div(V2)))["text"] == ""   # 확정이 먼저
+    got = U._division(_fit(_div(V2), _div({**V2, "stages": [3]}, confirmed={"values": {**V2, "stages": [3]}})))
+    assert got["st"] == "todo" and got["text"] == "사업계획서(1단계 · 전체 2년 · 기관 2곳)와 다름 — 단계·차년도(2년 ↔ 3년)"
+    got = U._division(_fit(_div(V2), _div(V2, confirmed=cf)))
+    assert got["text"] == "값은 사업계획서와 같음(1단계 · 전체 2년 · 기관 2곳) · 연차보고서에 아직 반영 전"
+    got = U._division(_fit(_div(V2, applied=applied), _div({**V2, "current": 2}, confirmed=cf, applied={"values": {**V2, "current": 2}, "rev": 5})))
+    assert got["st"] == "done" and got["text"] == "사업계획서와 같음 · 연차보고서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳 · 당해 차년도는 연차보고서 2차년도(사업계획서 1차년도)"
+    got = U._division(_fit(_div(V2), _div({**V2, "current": 2}, confirmed=cf, applied={"values": V2, "rev": 5})))   # 반영한 값이 지금 값과 다르다(당해 차년도) — 반영 전
+    assert got["st"] == "todo" and "아직 반영 전" in got["text"]
+    got = U._division(_fit(_div(None, read=V2), _div(V2, confirmed=cf)))   # 원본에 저장한 값이 없어 문서에서 읽음
+    assert got["st"] == "todo" and got["text"].startswith("사업계획서에 저장된 값이 없어 문서에서 읽었습니다(")
+    assert U._division(_fit(_div(None), _div(V2, confirmed=cf)))["text"].startswith("사업계획서(기준)에 프로젝트 구성 값이 없습니다")
+
+
+def test_reheads_lines_follow_the_screen_rules():
+    cf = {"values": V2, "at": 1}
+    fit = lambda **k: _fit(_div(V2, applied={"values": V2, "rev": 5}), _div(V2, confirmed=cf, applied={"values": V2, "rev": 5}), **k)  # noqa: E731
+    assert U._reheads(fit(theads=(True, 5, 5)))["st"] == "done" and U._reheads(fit(theads=(True, 5, 5)))["text"] == "헤딩 그래프·표 구조가 구조 반영 뒤의 것입니다"
+    stale = U._reheads(fit(theads=(True, 3, 5)))
+    assert stale["st"] == "todo" and "구조 반영 전 것입니다" in stale["text"] and "LLM 판정은" not in stale["text"]
+    kept = U._reheads(fit(theads=(True, 3, 3), tasked=True))
+    assert kept["st"] == "todo" and "LLM 판정은 다음 줄에서 다시 받습니다" in kept["text"]
+    keep = U._reheads(fit(theads=(True, 3, 3), tasked=True, llm=False))   # LLM 을 쓸 수 없으면 반영 전 LLM 결과를 그대로 둔다
+    assert keep["st"] == "done" and keep["keep"] and keep["text"].startswith("구조 반영 전 분석(LLM 판정을 거친 결과")
+    assert U._reheads(fit(theads=(False, None, None)))["text"].endswith("분석이 없습니다 — 다시 분석(스크립트)")
+    assert U._reheads(fit(theads=(True, 3, 5), tjob={"status": "running", "chain": None}))["st"] == "busy"
+    # LLM — 앞 줄이 끝나야 셈하지만 유료 대상은 미리 센다(화면 taskPaidDocs)
+    early = U._reheads_llm(fit(theads=(True, 3, 3)))
+    assert early["st"] == "todo" and early["paid"] == ["b"] and early["text"] == ""
+    assert U._reheads_llm(fit(theads=(True, 3, 3), skip=["b"]))["paid"] == [] and U._reheads_llm(fit(theads=(True, 3, 3), llm=False))["paid"] == []
+    todo = U._reheads_llm(fit(theads=(True, 5, 5)))
+    assert todo["st"] == "todo" and todo["paid"] == ["b"] and "유료" in todo["text"]
+    did = U._reheads_llm(fit(theads=(True, 5, 5), tllm=True))
+    assert did["st"] == "done" and not did["skipped"] and did["paid"] == []
+    off = U._reheads_llm(fit(theads=(True, 3, 3), tasked=True, llm=False))   # keep 이고 LLM 을 못 씀 — 「건너뜀」
+    assert off["st"] == "done" and off["skipped"]
+
+
+def test_view_of_the_frame_stage_reads_both_documents():
+    task = S.definition("plan_to_report")
+    assert set(S.need(task)) == {"source", "target"} and all(U.unit(k)["server"] for k in ("configLoad", "config", "division", "reheads", "reheadsLlm"))
+    cf = {"values": V2, "at": 1}
+    facts = {"a": {"id": "a", "heads": {"s2": True, "s3": True, "llm": True, "job": None}, "div": _div(V2, applied={"values": V2, "rev": 5})},
+             "b": {"id": "b", "heads": {"s2": True, "s3": True, "rev2": 5, "rev3": 5, "llm": True, "asked": True, "job": None}, "div": _div(V2, confirmed=cf, applied={"values": V2, "rev": 5})}}
+    frame = S.view(task, PAIR, facts, llm=True)["stages"][1]
+    assert [(s["key"], s["done"]) for s in frame["steps"]] == [("configLoad", False), ("config", True), ("division", True), ("reheads", True), ("reheadsLlm", True)]
+    assert (frame["done"], frame["total"], frame["left"]) == (4, 4, 0) and frame["change"] is True

@@ -123,6 +123,7 @@ def facts(doc_id):
     saved = form_guides_api.load(doc_id) if s.fmt == "hwpx" else None
     return {"id": s.id, "name": s.name, "rev": s.rev, "fmt": s.fmt,
             "heads": {"s2": bool(s2), "s3": bool(s3), "rev2": ((s2 or {}).get("meta") or {}).get("rev"), "rev3": ((s3 or {}).get("meta") or {}).get("rev"), "llm": done(s2) and done(s3),
+                      "asked": any(bool(((x or {}).get("llm") or {}).get("requested")) for x in (s2, s3)),   # 어느 단계든 LLM 을 부른 결과인가(화면 taskHeadsKept — 구조 반영 전 분석을 다시 돌릴지)
                       "job": {k: jv.get(k) for k in ("status", "chain", "first", "stage", "error", "stopping", "started", "ended")} if jv else None},
             "guides": (len(saved["items"]) + len(saved["marks"])) if saved else None}
 
@@ -153,6 +154,13 @@ def skip_set(wid, doc_id, on):
     except task_options.Broken as e:
         return Outcome("blocked", str(e))
     return Outcome("ok", "", got)
+
+
+def rev_now(doc_id):
+    """메모리의 그 세션의 문서 차례 | None(메모리에 없음) — 확인 폴링이 싣는다(세션을 열지 않는다: 울타리를 내린 뒤 화면이 다시 읽을지 견준다)."""
+    from app import server
+    s = server.DOCS.get(doc_id)
+    return s.rev if s is not None else None
 
 
 def touch(doc_id):
@@ -242,3 +250,91 @@ class store:   # noqa: N801 — 함수 묶음(unit.store.write …)
         """작업 기록(log.jsonl)에 실행 사건 한 줄(시작 · 묶음 · 멈춤 · 끝 · 끊김 — 단계 사건 · 확인 폴링은 적지 않는다)."""
         from app import works
         works.log(wid, LOG_KIND, **fields)
+
+
+# ---------------------------------------------------------------- 구성 · 구조 반영(걸음 2 — 「구성 맞추기」: spec_워크플로우 ② §17-10 걸음 2)
+# 프로젝트 구성 확정 · 구조 반영 · 다시 문서 검토의 재료와 일. 판정 · 편집은 지금 끝점 그대로(…/divisions · read · settings · confirm · plan · apply) — 여기는 꼴만 맞춘다.
+_READ = {}   # 문서 id → (rev, 문서에서 읽은 값 | None) — 저장한 값이 없는 문서의 「문서에서 읽기」 는 상태를 셀 때마다 다시 읽지 않는다
+
+
+def _read_values(got):
+    """문서에서 읽은 값(…/divisions/read 의 read) → 정리한 구분 값 | None — 단계나 기관 이름이 읽혔을 때만(자리표시뿐인 빈 양식은 None: 화면 app.js taskReadValues 와 같은 기준)."""
+    from app import server
+    o = (got or {}).get("orgs") or {}
+    if not got or not (got.get("stages") or o.get("lead") or any(o.get("joint") or ())):
+        return None
+    base = {"stages": [1], "orgs": {"lead": "", "joint": [], "nonprofit": [False]}}
+    try:
+        return server.PROFILE.norm_values({**base, **got, "orgs": {**base["orgs"], **o}})
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def div_facts(doc_id):
+    """그 문서의 프로젝트 구성 재료 → {input(입력 값 | None), applied(마지막 전체 반영 {values, rev, …} | None), confirmed({values, valid, scope} | None), partial[한 자리만 반영 기록],
+    form(양식 이름 | ""), supported, read(저장한 값 · 반영 값이 없을 때 문서에 적힌 값 | None)} | None(못 엶). 값은 서버가 정리한 꼴(norm_values) — 상태 식이 그대로 견준다."""
+    from fastapi import HTTPException
+
+    from app import server
+    try:
+        s = server._sess(doc_id)
+        with s.lock:
+            v = server._division_view(s)
+            rev = s.rev
+    except HTTPException:
+        return None
+    def norm(x):   # 옛 저장본(키가 빠진 값 — 위탁 entrust 없음 …)도 지금 꼴로 — 화면 divCanon 이 같다고 보는 것을 상태 식도 같다고 보게(astra 2026-11-20)
+        if not isinstance(x, dict):
+            return x
+        try:
+            return server.PROFILE.norm_values(x)
+        except (ValueError, KeyError, TypeError):
+            return x
+    rec = lambda r: {**r, "values": norm(r.get("values"))} if isinstance(r, dict) else r  # noqa: E731
+    settings, applied = v.get("settings"), rec(v.get("applied"))
+    out = {"input": norm((settings or {}).get("values")), "applied": applied, "confirmed": rec(v.get("confirmed")), "partial": [rec(p) for p in v.get("partial") or ()],
+           "form": (v.get("profile") or {}).get("form") or "", "supported": bool((v.get("profile") or {}).get("supported")), "rev": rev, "read": None,
+           "sharing": v.get("projectSharing")}   # 확정이 놓이는 곳(프로젝트 · 이 문서 — 화면 divConfirmWhere)
+    if out["input"] is None and not applied and out["form"]:
+        hit = _READ.get(doc_id)
+        if hit is None or hit[0] != rev:
+            got = config_read(doc_id)
+            hit = _READ[doc_id] = (rev, got.data if got.ok else None)
+        out["read"] = hit[1]
+    return out
+
+
+def config_read(doc_id):
+    """문서에 적힌 단계 · 차년도 · 기관을 읽는다(문서 · 저장은 그대로 — GET …/divisions/read) → Outcome(data = 정리한 값 | None — 읽을 수 있는 값이 없음)."""
+    from app import server
+    got = _run(server.divisions_read, doc_id, on409="blocked")
+    return Outcome(got.code, got.text, _read_values(got.data.get("read")) if got.ok and isinstance(got.data, dict) else None)
+
+
+def config_save(doc_id, values):
+    """그 문서의 입력 값(프로젝트 구성)을 저장 — 문서는 그대로(PUT …/divisions/settings). 공유 중이면 프로젝트의 입력이 바뀐다."""
+    from app import server
+    return _run(server.divisions_settings, doc_id, {"values": values}, on409="blocked")
+
+
+def config_confirm(doc_id, values=None):
+    """프로젝트 구성 확정 — values 가 있으면 먼저 그 값을 입력으로 저장(POST …/divisions/confirm). 문서는 안 바뀐다. 409 = 프로젝트 저장 파일 손상(blocked)."""
+    from app import server
+    return _run(server.divisions_confirm, doc_id, {"values": values} if values else {}, on409="blocked")
+
+
+def division_plan(doc_id, values, skip=()):
+    """구조 반영 계획(POST …/divisions/plan — 작업용 사본에서 모의 실행: 문서는 그대로) → Outcome(data = 계획 {planId, baseRev, summary, autoStops, autoStopsKind, stale, …}).
+    values 는 입력 값으로도 저장된다(그 끝점이 지금처럼). 지원하지 않는 양식 · 값 오류 = invalid."""
+    from app import server
+    return _run(server.divisions_plan, doc_id, {"values": values, "skip": [x for x in skip or () if isinstance(x, str)]}, on409="stale")
+
+
+def division_apply(doc_id, plan_id, expect_rev):
+    """[문서 바뀜] 그 계획대로 구조 반영(POST …/divisions/apply — 편집 하나 · 실행 취소 1 · 표준 검사에 걸리면 전부 되돌림) → Outcome:
+    ok(data = 반영 결과 · rev) · nothing(할 일 없음 — 이미 그 값에 맞음) · stale(409 — 계획 뒤 문서가 바뀜 · 계획이 없음) · rejected(422 — 표준 검사로 되돌림)."""
+    from app import server
+    got = _run(server.divisions_apply, doc_id, {"planId": plan_id, "expectRev": expect_rev}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "할 일이 없습니다 — 이미 그 값에 맞습니다", got.data, got.data.get("rev"))
+    return Outcome(got.code, got.text, got.data, (got.data or {}).get("rev") if isinstance(got.data, dict) else None)

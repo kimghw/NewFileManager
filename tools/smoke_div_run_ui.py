@@ -99,6 +99,10 @@ try:
                 return route.fulfill(response=resp)
             body = resp.json()
             body["summary"]["unresolved"] = patch["unresolved"]
+            s = body["summary"]
+            if "autoStops" in body and (s.get("groups") or s.get("changes") if s.get("groups") is not None else s.get("applied")):   # 같은 검사는 서버가 계획에 싣는다(app/division_plan.py auto_stops — 화면은 그 값을 읽는다): 고친 수로 서버가 낼 값을 함께
+                body["autoStops"] = " · ".join(x for x in (f"계획 오류 {s['errors']}건" if s.get("errors") else "", f"미해결 {s['unresolved']}곳") if x)
+                body["autoStopsKind"] = "issues"
             route.fulfill(response=resp, json=body)
         page.route(re.compile(r"/api/docs/[^/]+/divisions/plan$"), plan_route)
         page.goto(base)

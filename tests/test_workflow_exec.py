@@ -24,6 +24,7 @@ class Fake:
         self.fail, self.evict, self.files = set(), set(), {}
         self.logs, self.source = [], {"id": "s", "name": "계획서.hwpx", "format": "hwpx"}
         self.store = self   # unit.store.write …
+        self.divs = {}      # 문서 → 프로젝트 구성 재료(div_facts — 2단계 시험이 채운다 · 없으면 None)
 
     # 읽기
     def pair(self, wid):
@@ -37,6 +38,10 @@ class Fake:
 
     def llm_ok(self):
         return self.ok
+
+    def div_facts(self, doc):
+        d = self.divs.get(doc)
+        return dict(d) if d is not None else None
 
     def skips(self, wid):
         return list(self.skip)
@@ -191,7 +196,7 @@ def test_refusals_before_starting(fake):
         X.start("t", {"from": "review"})
     assert e.value.reason == "notReady" and "사업계획서" in e.value.message
     fake.source = {"id": "s", "name": "계획서.hwpx", "format": "hwpx"}
-    for body, reason in (({"from": "frame"}, "client"), ({"from": "review", "to": "map"}, "client"), ({"from": "review", "docs": {"target": "t", "source": "zz"}}, "docs")):
+    for body, reason in (({"from": "review", "to": "map"}, "client"), ({"from": "review", "docs": {"target": "t", "source": "zz"}}, "docs")):
         with pytest.raises(X.Refuse) as e:
             X.start("t", body)
         assert e.value.reason == reason, body
@@ -300,7 +305,8 @@ def test_flow_endpoints_run_the_script_analysis_on_the_server(client, monkeypatc
     assert v["job"] == "plan_to_report" and v["ready"] and (v["docs"]["target"]["id"], v["docs"]["source"]["id"]) == (report, plan)
     review = v["stages"][0]
     assert review["server"] and review["can"] and [s["key"] for s in review["steps"]] == ["files", "heads", "headsLlm"] and review["steps"][1]["st"] == "now"
-    assert all(g["server"] is False and g["steps"] is None for g in v["stages"][1:])
+    assert v["stages"][1]["server"] and v["stages"][1]["steps"] is not None   # 2단계 「구성 맞추기」 도 서버가 센다(걸음 2)
+    assert all(g["server"] is False and g["steps"] is None for g in v["stages"][2:])
     assert client.post(f"/api/works/{plan}/flow/runs", json={}).status_code == 400
     assert client.post(f"/api/works/{plan}/flow/runs", json={"from": "map"}).json()["reason"] == "client"
     r = client.post(f"/api/works/{plan}/flow/runs", json={"from": "review", "only": "heads", "where": "home"})
@@ -345,3 +351,300 @@ def test_busy_documents_refuse_the_changes_that_would_pull_the_rug(client):
     finally:
         X.RUNS.clear(); X.BUSY.clear()
     assert client.put(f"/api/works/{plan}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "시험 과제"}).status_code == 200
+
+
+# ================================================================ 걸음 2 — 「구성 맞추기」 · 울타리 · 같은 검사(spec_워크플로우 ② §17-8 · §17-10 걸음 2 · §18-4)
+V2 = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대"], "nonprofit": [False, False], "outside": [], "overseas": [], "entrust": []}, "subs": [], "current": 1}
+
+
+class FitFake(Fake):
+    """가짜 문 + 프로젝트 구성(두 문서 · 같은 프로젝트의 공유 입력 · 확정) · 구조 반영(계획 → 반영 — 반영하면 목적 문서의 차례가 오른다)."""
+
+    def __init__(self):
+        super().__init__()
+        self.heads.update(s=True, t=True)
+        self.llm.update(s=True)
+        self.rev = {"s": 0, "t": 0}
+        self.hrev = {"s": 0, "t": 0}                       # 헤딩 분석을 한 때의 문서 차례
+        self.asked = {"s": True, "t": False}
+        self.readv, self.stops, self.apply_code, self.seen = V2, "", "ok", []
+        for d in ("s", "t"):
+            self.divs[d] = {"input": None, "applied": None, "confirmed": None, "partial": [], "form": "연구개발계획서", "supported": True, "rev": 0, "read": None,
+                            "sharing": {"project": "시험", "shared": True}}
+        self.divs["s"]["input"] = V2
+
+    def facts(self, doc):
+        f = super().facts(doc)
+        f["rev"] = self.rev[doc]
+        f["heads"].update(rev2=self.hrev[doc], rev3=self.hrev[doc], asked=self.asked[doc])
+        return f
+
+    def job(self, doc):
+        was = (self.jobs.get(doc) or {}).get("status")
+        got = super().job(doc)
+        if was == "running" and (self.jobs.get(doc) or {}).get("status") == "done" and not self.jobs[doc]["chain"]:
+            self.hrev[doc], self.asked[doc] = self.rev[doc], False   # 스크립트 분석 — 지금 차례의 것
+        return got
+
+    def start_heads(self, doc, how="first"):
+        self.calls.append(("how", doc, how))
+        return self._begin(doc, "heads")
+
+    def config_read(self, doc):
+        self.calls.append(("read", doc))
+        return Outcome("ok", "", self.readv)
+
+    def config_save(self, doc, values):
+        self.calls.append(("save", doc))
+        self.divs[doc]["input"] = values
+        return Outcome("ok", "", {})
+
+    def config_confirm(self, doc, values=None):
+        self.calls.append(("confirm", doc))
+        for d in ("s", "t"):   # 공유 중 — 프로젝트의 입력 · 확정
+            self.divs[d].update(input=values, confirmed={"values": values, "at": time.time(), "valid": True})
+        return Outcome("ok", "", {})
+
+    def division_plan(self, doc, values, skip=()):
+        self.calls.append(("plan", doc, tuple(skip)))
+        self.seen.append(("plan", X.fence_why(doc), doc in X.FENCE, (X.NOTICE.get(doc) or {}).get("key")))
+        out = []
+        th = threading.Thread(target=lambda: out.append(X.fence_why(doc)))   # 다른 스레드(사람 편집)에는 울타리
+        th.start()
+        th.join()
+        self.seen.append(("other", out[0]))
+        self.divs[doc]["input"] = values
+        return Outcome("ok", "", {"planId": "p1", "baseRev": self.rev[doc], "summary": {"groups": 2}, "autoStops": self.stops, "autoStopsKind": "issues" if self.stops else "", "stale": False})
+
+    def division_apply(self, doc, plan_id, expect):
+        self.calls.append(("apply", doc, plan_id, expect))
+        if self.apply_code != "ok":
+            return Outcome(self.apply_code, "표준 검사에 걸려 되돌렸습니다" if self.apply_code == "rejected" else "계획이 낡았습니다")
+        self.rev[doc] += 1
+        self.divs[doc]["applied"] = {"values": self.divs[doc]["input"], "rev": self.rev[doc]}
+        return Outcome("ok", "", {"rev": self.rev[doc]}, self.rev[doc])
+
+
+@pytest.fixture
+def fit(monkeypatch):
+    f = FitFake()
+    monkeypatch.setattr(X, "UNIT", f)
+    monkeypatch.setitem(X.WAIT, "poll", 0.005)
+    for k, v in (("settle", 0.3), ("limit", 0.8), ("poll", 0.01)):
+        monkeypatch.setitem(X.FENCE_WAIT, k, v)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+        d.clear()
+    yield f
+    _done("t", 5)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+        d.clear()
+
+
+def test_frame_runs_confirm_fit_reanalysis_and_llm_on_the_server(fit):
+    """확정(원본의 값 → 목적 문서에서) → 울타리 안에서 계획 → 같은 검사 → 반영(다시 계획 없이 한 번) → 다시 분석(2 → 3단계) → 작성 지침 → LLM — 끝 글은 화면 실행의 글 그대로."""
+    X.start("t", {"from": "frame", "skip": ["k1"]})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    order = [c for c in fit.calls if c[0] in ("confirm", "plan", "apply", "how", "guides", "llm")]
+    assert order == [("confirm", "t"), ("plan", "t", ("k1",)), ("apply", "t", "p1", 0), ("how", "t", 2), ("how", "t", 3), ("guides", "t"), ("llm", "t")], order
+    assert fit.seen[0][:3] == ("plan", "", True) and fit.seen[0][3].startswith("t:1:") and fit.seen[1] == ("other", X.FENCE_TEXT)   # 실행 스레드는 지나고 다른 스레드(사람 편집)는 409 · 알림이 걸려 있다
+    assert not X.FENCE and not X.NOTICE   # 끝나면 내림
+    assert [s["key"] for s in rec["steps"]] == ["config", "division", "reheads", "reheadsLlm"] and rec["skip"] == ["k1"]
+    assert rec["end"]["text"] == ("끝남 — 구조를 맞췄습니다 — 사업계획서와 같음 · 연차보고서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳 · 연차보고서를 다시 분석했습니다 · 연차보고서 LLM 검증·보완을 거쳤습니다"
+                                  " · 내용은 3단계 「내용 넣기」 에서 넣습니다")
+    v = X.status_of("t")["stages"][1]
+    assert v["server"] and v["left"] == 0 and v["why"] == "남은 단계가 없습니다"
+
+
+def test_frame_halts_before_changing_the_document_when_a_screen_has_unsent_text(fit):
+    """울타리 — 그 문서를 연 화면에 서버에 반영하지 못한 글이 있으면 문서를 바꾸기 전에 멈춘다(계획도 세우지 않음)."""
+    X.report("t", "scr-a", 0)   # 알림 전부터 보고하던 화면
+    stop = threading.Event()
+
+    def screen():   # 알림을 본 뒤에도 고치던 글이 남는 화면(반영 실패)
+        while not stop.is_set():
+            X.report("t", "scr-a", 1)
+            time.sleep(0.02)
+    th = threading.Thread(target=screen, daemon=True)
+    th.start()
+    try:
+        X.start("t", {"from": "frame"})
+        rec = _done("t")
+    finally:
+        stop.set()
+        th.join()
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "dirty" and rec["end"]["text"] == "멈춤 — " + X.DIRTY_TEXT
+    assert not [c for c in fit.calls if c[0] in ("plan", "apply")] and not X.FENCE and not X.NOTICE
+
+
+def test_fence_waits_for_the_screens_that_were_reporting(fit):
+    """알림 전에 보고하던 화면이 알림 뒤에 0 을 보고하면 바로 · 보고가 끊긴 화면은 settle 뒤에(닫힌 화면) · 그동안 멈춤이면 _Stop."""
+    run = X.Run({"n": 7, "docs": {"target": {"id": "t"}}, "stopping": False}, None, {}, None)
+    X.report("t", "a", 0)
+
+    def screen(acks=True):   # 알림을 받고(입력을 막고 보낸 뒤) 그 key 를 되돌려 0 을 보고하는 화면 — 받기 전에 잰 0 은 받았음이 아니다
+        t0 = time.time()
+        while "t" not in X.NOTICE and time.time() - t0 < 2:
+            time.sleep(0.005)
+        X.report("t", "a", 0)   # 알림을 아직 못 본 보고(ack 없음) — 받았음으로 세지 않는다
+        time.sleep(0.05)
+        if acks:
+            X.report("t", "a", 0, X.NOTICE["t"]["key"])
+    threading.Thread(target=screen).start()
+    t0 = time.time()
+    with run.fence("t"):
+        assert X.notice_of("t")["fenced"] and X.notice_of("t")["key"].startswith("t:7:")
+    assert time.time() - t0 < X.FENCE_WAIT["settle"] and X.notice_of("t") is None and X.fence_why("t") == ""
+    X.report("t", "a", 0)
+    threading.Thread(target=lambda: screen(acks=False)).start()   # 알림 뒤에 보고는 하는데 받았음을 안 보내는 화면 — settle 이 지나도 기다리다 멈춘다(입력을 아직 못 막은 화면)
+    with pytest.raises(X._Halt) as e:
+        with run.fence("t"):
+            pass
+    assert e.value.code == "dirty"
+    X.REPORTS.clear()
+    X.report("t", "gone", 0)
+    t0 = time.time()
+    with run.fence("t"):
+        pass
+    assert time.time() - t0 >= X.FENCE_WAIT["settle"] - 0.05
+    run.rec["stopping"] = True
+    with pytest.raises(X._Stop):
+        with run.fence("t"):
+            pass
+    assert not X.FENCE and not X.NOTICE
+
+
+@pytest.mark.parametrize("case", ["stops", "rejected", "stale"])
+def test_frame_halts_on_the_same_check_and_on_a_failed_apply_without_replanning(fit, case):
+    """같은 검사(autoStops)에 걸리면 반영하지 않고 멈춤 · 반영이 409 · 422 면 다시 계획하지 않고 멈춤(② §18-4 「다시 계획 없이 한 번」)."""
+    if case == "stops":
+        fit.stops = "미해결 2곳"
+    else:
+        fit.apply_code = case
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and len([c for c in fit.calls if c[0] == "plan"]) == 1, rec["end"]
+    if case == "stops":
+        assert rec["halt"]["code"] == "stops" and not [c for c in fit.calls if c[0] == "apply"]
+        assert rec["end"]["text"] == "멈춤 — 미해결 2곳 — 저절로 반영하지 않습니다. 2단계 「구성 맞추기」 의 변경 계획 목록에서 확인한 뒤 「② 반영」 을 누르세요"
+    else:
+        assert rec["halt"]["code"] == case and rec["end"]["text"].startswith("멈춤 — 프로젝트 구성이 반영되지 않았습니다 — ")
+    assert not X.FENCE and not X.NOTICE and fit.rev["t"] == 0
+
+
+def test_frame_reads_the_values_from_the_document_when_none_are_saved(fit):
+    fit.divs["s"]["input"] = None
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "done" and ("read", "s") in fit.calls and fit.calls.index(("read", "s")) < fit.calls.index(("confirm", "t"))
+    for d in ("s", "t"):
+        fit.divs[d].update(input=None, applied=None, confirmed=None)
+    fit.readv = None
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "noValues" and "사업계획서에서 단계·차년도·기관을 읽지 못했습니다" in rec["end"]["text"]
+
+
+def test_reheads_button_only_does_the_script_line_and_keeps_an_llm_result_when_llm_is_off(fit):
+    """「다시 분석」 단추(only reheads) — 그 줄만(뒤의 LLM 을 시작하지 않음) · 앞 묶음이 덜 끝나도(줄의 단추) · LLM 을 못 쓰면 반영 전 LLM 결과를 그대로 둔다(redo 면 그래도 다시)."""
+    fit.llm["s"] = False   # 1단계가 덜 끝남(원본의 LLM)
+    for d in ("s", "t"):
+        fit.divs[d].update(input=V2, confirmed={"values": V2, "at": 1}, applied={"values": V2, "rev": 2})
+    fit.rev["t"], fit.hrev["t"], fit.asked["t"], fit.ok = 2, 1, True, False
+    X.start("t", {"from": "frame", "only": "reheads"})
+    rec = _done("t")
+    assert rec["status"] == "done" and not [c for c in fit.calls if c[0] == "how"]
+    assert rec["end"]["text"] == ("끝남 — 구조를 맞춘 문서의 헤딩·표 — 연차보고서의 분석은 구조 반영 전 것(LLM 결과 — LLM 을 쓸 수 없어 그대로 둠 · 늘어난 절·표는 못 이을 수 있음: 「다시 분석」)"
+                                  " — 다음은 「다시 문서 검토(LLM)」 입니다")
+    X.start("t", {"from": "frame", "only": "reheads", "redo": "reheads"})
+    rec = _done("t")
+    assert rec["status"] == "done" and [c for c in fit.calls if c[0] == "how"] == [("how", "t", 2), ("how", "t", 3)] and ("llm", "t") not in fit.calls
+    assert rec["end"]["text"] == "끝남 — 구조를 맞춘 문서의 헤딩·표 — 연차보고서를 다시 분석했습니다 — 다음은 「다시 문서 검토(LLM)」 입니다"
+
+
+def test_frame_agent_run_leaves_the_unapproved_llm(fit):
+    X.start("t", {"from": "frame", "by": "agent", "paid": []})
+    rec = _done("t")
+    assert rec["status"] == "left" and ("llm", "t") not in fit.calls and "연차보고서 LLM 검증·보완은 하지 않음(실행 카드에서 승인한 유료 호출이 아님 — 남은 단계)" in rec["end"]["text"]
+
+
+def test_every_edit_entry_that_bumps_checks_the_fence():
+    """`_bump` 를 부르는 함수마다 울타리 검사(`_fenced`)가 있다 — 새 편집 길이 빠지지 않게(② §17-8 「편집 입구」)."""
+    import ast
+    from pathlib import Path
+    app_dir, found = Path(X.__file__).parent, []
+    for path in sorted(app_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            names = {(c.func.attr if isinstance(c.func, ast.Attribute) else getattr(c.func, "id", "")) for c in ast.walk(fn) if isinstance(c, ast.Call)}
+            if "_bump" in names and fn.name != "_bump":
+                found.append(f"{path.name}:{fn.name}")
+                assert "_fenced" in names, f"{path.name}:{fn.name} 가 _bump 를 부르는데 울타리 검사(_fenced)가 없습니다"
+    assert {"server.py:_patch", "server.py:_transact", "server.py:undo", "server.py:revert_block", "server.py:commit_restore", "outline_format_api.py:align_edited"} <= set(found), found
+
+
+def test_the_fence_refuses_human_edits_on_the_real_server(client):
+    """진짜 서버 — 울타리 동안 사람 편집(글 · 실행 취소)은 409 · 확인 폴링은 고치던 글을 보고하고 알림을 받는다 · 같은 검사는 계획의 응답에 실린다."""
+    plan, report = _pair(client)
+    doc = client.get(f"/api/docs/{report}").json()
+    para = next(b for b in doc["blocks"] if b.get("type") == "paragraph" and b.get("text"))
+    X.NOTICE[report] = {"key": f"{report}:1", "since": time.time()}
+    X.FENCE[report] = {"target": report, "n": 1, "thread": -1}
+    try:
+        r = client.patch(f"/api/docs/{report}/blocks/{para['id']}", json={"text": para["text"] + "x"})
+        assert r.status_code == 409 and r.json()["detail"] == X.FENCE_TEXT
+        assert client.post(f"/api/docs/{report}/undo").status_code == 409
+        live = client.get(f"/api/works/{report}/flow/live", params={"screen": "scr1", "dirty": 2, "ack": f"{report}:1"}).json()
+        assert live["notice"]["fenced"] and live["notice"]["key"] == f"{report}:1" and X.REPORTS[report]["scr1"][0] == 2 and X.REPORTS[report]["scr1"][3] == f"{report}:1"
+        assert client.post(f"/api/docs/{report}/divisions/plan", json={"values": M.SMALL_VALUES}).status_code == 409   # 사람의 계획은 실행의 계획 자리를 밀어내지 않게 — 409
+        assert "rev" in live and "lastRun" in live
+        for path in ("divisions/settings", "divisions/hints"):
+            assert (client.put if path.endswith("settings") else client.post)(f"/api/docs/{report}/{path}", json={"values": M.SMALL_VALUES} if path.endswith("settings") else {"para": para["id"], "dim": "org"}).status_code == 409
+    finally:
+        X.FENCE.clear()
+        X.NOTICE.clear()
+        X.REPORTS.clear()
+    assert client.get(f"/api/works/{report}/flow/live").json()["notice"] is None
+    assert client.patch(f"/api/docs/{report}/blocks/{para['id']}", json={"text": para["text"] + "x"}).status_code == 200
+    got = client.post(f"/api/docs/{report}/divisions/plan", json={"values": M.SMALL_VALUES}).json()
+    assert isinstance(got["autoStops"], str) and got["autoStopsKind"] in ("", "issues", "orgs")
+
+
+# ---- astra 결과 검토(2026-11-20 — artifacts/flow_step2_astra_2026-11-20/answer.md)로 더한 것
+def test_frame_never_changes_the_document_with_values_other_than_the_confirmed_ones(fit):
+    """원본의 반영 값(기준 — 반영 값이 먼저)이 확정과 다르면 계획(입력 값 저장)도 반영도 하지 않고 멈춘다(P1 — 전에는 반영한 뒤 멈췄다)."""
+    v1 = {**V2, "stages": [1]}
+    fit.divs["s"].update(input=V2, applied={"values": v1, "rev": 1})
+    fit.divs["t"].update(input=V2, confirmed={"values": V2, "at": 1})
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "unconfirmed" and "확정한 프로젝트 구성과 다릅니다" in rec["end"]["text"]
+    assert not [c for c in fit.calls if c[0] in ("plan", "apply")] and fit.rev["t"] == 0 and fit.divs["t"]["input"] == V2
+
+
+def test_frame_refuses_a_cut_exclusion_list(fit):
+    """「반영에서 빼기」 목록을 자르지 않는다 — 너무 길면 시작을 거절(잘라 쓰면 사람이 뺀 자리가 반영된다 · astra P1)."""
+    with pytest.raises(ValueError):
+        X.start("t", {"from": "frame", "skip": ["k"] * (X.SKIP_MAX + 1)})
+    with pytest.raises(ValueError):
+        X.start("t", {"from": "frame", "skip": "k1"})
+
+
+def test_same_check_does_not_flag_a_duplicate_name_that_kept_its_place():
+    """같은 이름이 둘 — 자리가 그대로면 기관 차례가 바뀐 것이 아니다(astra P2 · 화면 divOrgsMoved 도 같게 고침)."""
+    from app import division_plan as P
+    v = {"orgs": {"lead": "A", "joint": ["B", "B"]}}
+    assert P.orgs_moved(v, {"values": v}, []) == ""
+    assert P.orgs_moved({"orgs": {"lead": "A", "joint": ["C", "B"]}}, {"values": {"orgs": {"lead": "A", "joint": ["B", "C"]}}}, []).startswith("기관 「B」 의 차례가 마지막 반영과 다릅니다(공동 1 → 공동 2)")
+    assert P.auto_stops({"groups": 0, "changes": 0, "unresolved": 3}, v, None, []) == ("", "")   # 바꿀 것이 없는 계획은 멈추지 않는다
+    assert P.auto_stops({"groups": 1, "unresolved": 3, "errors": 1}, v, None, []) == ("계획 오류 1건 · 미해결 3곳", "issues")
+
+
+def test_only_the_relay_pair_workflows_are_served():
+    """단계 key 가 워크플로우마다 겹친다 — 취합 · 양식 맞추기의 config · plan · apply 를 이관의 처리 함수로 돌리지 않는다."""
+    from app import workflow_state as S
+    for job in ("plan_merge", "report_fit", "plan_fit", "doc_edit", "style_copy"):
+        task = S.definition(job)
+        assert not S.relay_pair(task) and not any(S.served(task, g["id"]) for g in task["stages"]), job
+    task = S.definition("plan_to_report")
+    assert S.relay_pair(task) and S.served(task, "review") and S.served(task, "frame")

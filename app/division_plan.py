@@ -75,6 +75,51 @@ def view(plan):
     return {k: v for k, v in plan.items() if not k.startswith("_")}
 
 
+# ---------------------------------------------------------------- 같은 검사 — 사람 확인 없이 구조를 반영해도 되나(spec_워크플로우 ② §17-7 「같은 검사」 · spec_작업에이전트 ② §7)
+# 사람 확인 없이 구조를 반영하는 길(양식 맞추기 · 이관 2단계 · 취합 2단계 · 양식 표준화 1단계 — 화면의 「한 번에 진행」 과 서버 쪽 실행기)이 **이것 하나**로 멈춘다.
+# 화면 app.js divAutoStops(= divPlanIssues(summary, false) || divOrgsMoved())를 옮긴 것 — POST …/divisions/plan 의 응답 `autoStops` · `autoStopsKind` 로도 실어 화면이 그 값을 읽는다(두 벌로 두지 않는다).
+def changes(summary):
+    """계획에 바꿀 것이 있나(화면 divPlanState 의 ready · same 과 같은 식 — 바뀔 묶음 · 글이 있나: 후보 상태 수가 아니라)."""
+    s = summary or {}
+    return bool(s.get("groups") or s.get("changes")) if s.get("groups") is not None else bool(s.get("applied"))
+
+
+def issues(summary):
+    """「한 번에 진행」 이 멈추는 계획의 문제 글 | "" — 계획 오류 · 미해결 자리(지원 안 되는 자리는 미리 아는 자리라 그대로 두고 간다 — 화면 divPlanIssues(s, false))."""
+    s = summary or {}
+    return " · ".join(x for x in (f"계획 오류 {s['errors']}건" if s.get("errors") else "", f"미해결 {s['unresolved']}곳" if s.get("unresolved") else "") if x)
+
+
+def orgs_moved(values, applied, partial):
+    """마지막 반영(과 그 뒤 「한 자리만 반영」 — spec_테이블매니저 ② §9) 때 이름이 있던 기관의 차례가 지금 값에서 달라졌나 → 까닭 글 | "".
+    엔진은 남는 항목에 자리 차례대로 이름을 쓴다 — 차례가 바뀌거나 가운데가 빠지면 쓴 내용이 다른 이름 아래에 남을 수 있다(화면 divOrgsMoved)."""
+    names = lambda v: [str(n or "").strip() for n in [(v.get("orgs") or {}).get("lead") or "", *((v.get("orgs") or {}).get("joint") or [])]]  # noqa: E731
+    role = lambda i: f"공동 {i}" if i else "주관"  # noqa: E731
+    now = names(values or {})
+    for v, what in [((applied or {}).get("values"), "마지막 반영"), *(((p or {}).get("values"), "표 하나만 맞춘 반영") for p in partial or ())]:
+        if not isinstance(v, dict) or not v.get("orgs"):
+            continue
+        for i, was in enumerate(names(v)):
+            if i < len(now) and now[i] == was:
+                continue   # 같은 자리에 같은 이름 — 같은 이름이 둘 있어도 첫 자리로 견주지 않는다(astra 2026-11-20)
+            j = now.index(was) if was and was in now else -1
+            if j >= 0 and j != i:
+                return f"기관 「{was}」 의 차례가 {what}과 다릅니다({role(i)} → {role(j)})"
+    return ""
+
+
+def auto_stops(summary, values, applied, partial):
+    """사람 확인 없이 반영하면 안 되는 까닭 → (글, 종류 "issues" | "orgs" | "") — 바꿀 것이 없는 계획은 멈추지 않는다(반영이 할 일 없음으로 끝난다).
+    summary = 계획의 summary · values = 계획의 값(정리한 꼴) · applied = 마지막 전체 반영 기록 · partial = 한 자리만 반영한 기록들."""
+    if not changes(summary):
+        return "", ""
+    text = issues(summary)
+    if text:
+        return text, "issues"
+    text = orgs_moved(values, applied, partial)
+    return text, ("orgs" if text else "")
+
+
 def brief(plan):
     """GET …/divisions 가 보이는 요약(후보·변경 목록 없이)."""
     return {k: plan[k] for k in ("planId", "baseRev", "sha256", "profileId", "profileVersion", "settingsHash", "only", "skip", "form", "createdAt", "summary")}

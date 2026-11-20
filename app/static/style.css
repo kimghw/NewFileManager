@@ -1310,3 +1310,8 @@ button.hb.temp { height: auto; }
 .src-chip b { font-weight: 600; color: var(--text); }
 .src-chip.llm { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; } /* 아이콘만 보이는 단추·꼬리표의 글(시험·읽기 프로그램용 — 2026-11-18 사용자) */
+
+/* 울타리 — 워크플로우 실행이 이 문서를 바꾸는 동안의 읽기 전용 띠(workflow_exec.js flowBand · design.md §22 · spec_워크플로우 ② §17-8) */
+.flow-fence-band { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 60; max-width: min(720px, calc(100vw - 32px)); padding: 6px 14px; border: 1px solid var(--warn); border-radius: 6px;
+  background: var(--warn-soft); color: var(--warn); font-size: 13px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0, 0, 0, .12); pointer-events: none; }
+body.flow-fenced #doc { opacity: .72; }

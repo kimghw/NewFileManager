@@ -18,9 +18,76 @@ async function flowGet(wid) {
   try { return await api(flowUrl(wid)); } catch (e) { if (e.status === 404) return null; throw e; }
 }
 
-async function flowLive(wid) {
-  try { return (await api(flowUrl(wid, "/live"))).run || null; } catch { return null; } // 확인 폴링 — 못 읽으면 도는 것이 없는 것으로(다음 읽기가 바로잡는다)
+async function flowLive(wid) { // 확인 폴링 — 못 읽으면 도는 것이 없는 것으로(다음 읽기가 바로잡는다). 이 화면이 연 문서면 고치던 글 수를 싣고 울타리 알림을 받는다(spec_워크플로우 ② §17-8)
+  const mine = typeof state !== "undefined" && state.id === wid, epoch = mine ? state.epoch : null;
+  const ack = mine && flowFence && flowFence.id === wid && flowFence.ready ? flowFence.key : ""; // 받았음 — 입력을 막고 고친 글을 보낸 뒤에만(서버는 이 key 를 되돌린 보고만 센다)
+  let r = null;
+  try { r = await api(flowUrl(wid, `/live${mine ? `?screen=${FLOW_SCREEN}&dirty=${flowDirty()}${ack ? `&ack=${encodeURIComponent(ack)}` : ""}` : ""}`)); } catch { return null; }
+  if (mine && state.id === wid && state.epoch === epoch) flowNoticeSync(wid, r); // 그 사이 다른 문서를 열었으면 그 문서에 띠를 세우지 않는다
+  return (r && r.run) || null;
 }
+
+// ---------------------------------------------------------------- 울타리(spec_워크플로우 ② §17-8) — 서버 실행이 이 문서를 바꾸는 동안(구조 반영 · 내용 반영 · 작성요령 삭제의 몇 초~20초)
+// 알림을 받으면 ① 고치던 글을 보내고(flushAll — 남은 수는 다음 확인에 보고) ② 읽기 전용 띠를 보이고 입력을 막는다 → 알림이 내리면 띠를 걷고, 고치던 글이 없으면 문서를 다시 읽는다(있으면 다시 읽지 않고 알림).
+// 서버는 보고한 화면이 모두 0 이 된 뒤에야 울타리를 올리고(사람 편집 409) 문서를 바꾼다 — 10초 안에 0 이 안 되면 문서를 바꾸기 전에 멈춘다.
+const flowDirty = () => (typeof state === "undefined" || !state.id ? 0 : (state.timers ? state.timers.size : 0) + (state.inflight || 0) + (state.failed ? state.failed.size : 0)); // 서버에 아직 반영하지 못한 글(보낼 차례 · 보내는 중 · 반영 실패)
+let flowFence = null; // 이 화면이 받은 알림 {id(문서), key}
+function flowBand(on) { // 읽기 전용 띠(design.md §21) — 문서 위에 한 줄
+  let band = document.getElementById("flowFenceBand");
+  if (!on) { if (band) band.remove(); document.body.classList.remove("flow-fenced"); return; }
+  if (!band) {
+    band = document.createElement("div");
+    band.id = "flowFenceBand";
+    band.className = "flow-fence-band";
+    band.setAttribute("role", "status");
+    band.textContent = "워크플로우가 이 문서를 바꿉니다 — 고친 글을 반영하는 중 · 끝나면 문서를 다시 읽습니다(그동안 글을 고칠 수 없습니다)";
+    document.body.append(band);
+  }
+  document.body.classList.add("flow-fenced");
+}
+const flowLastRun = {}; // 문서 id → 이 화면이 본 마지막 실행 번호(그 문서가 목적 문서인 것) — 실행을 통째로 놓쳤는지(숨긴 탭)
+function flowNoticeSync(id, r) {
+  const n = r && r.notice;
+  if (flowFence && flowFence.id !== id) { flowFence = null; flowBand(false); } // 다른 문서의 띠 — 걷는다
+  if (n && (!flowFence || flowFence.key !== n.key)) {
+    const fence = (flowFence = { id, key: n.key, ready: false });
+    flowBand(true); // 입력부터 막는다
+    const sent = typeof flushAll === "function" ? flushAll().catch(() => {}) : Promise.resolve();
+    sent.finally(() => { fence.ready = true; }); // 고친 글을 보낸 뒤에야 「받았음」 — 다음 확인(1초)이 그 key 와 남은 수를 보고한다
+    return;
+  }
+  const seen = r ? r.lastRun : undefined, missed = seen != null && flowLastRun[id] !== undefined && flowLastRun[id] !== seen; // 이 화면이 모르는 사이 끝난 실행
+  if (r && seen !== undefined) flowLastRun[id] = seen;
+  if (!n && (flowFence || missed)) {
+    const was = flowFence;
+    flowFence = null;
+    if (typeof state === "undefined" || state.id !== id) { flowBand(false); return; }
+    if (flowDirty()) { flowBand(false); if (was) toast("워크플로우가 이 문서를 바꿨지만 고치던 글이 있어 문서를 다시 읽지 않았습니다 — 「고친 문단」 탭에서 다시 반영한 뒤 새로 고치세요", true); return; }
+    if (r && r.rev != null && r.rev !== state.serverRev) flowReload(id).finally(() => { if (!flowFence) flowBand(false); }); // 다시 읽는 동안에도 띠(입력 막음)는 그대로 — 그 사이 친 글이 새 문서에 덮이지 않게
+    else flowBand(false);
+  }
+}
+async function flowReload(id) { // 서버 실행이 바꾼 문서를 다시 읽는다(구조 반영 뒤 — divApply 의 reloadDoc 과 같은 길) · 프로젝트 구성 상태도
+  try {
+    if (state.id !== id || flowDirty()) return; // 읽기 직전에도 — 고치던 글이 있으면 덮지 않는다
+    await reloadDoc();
+    if (state.id !== id) return;
+    if (typeof dv !== "undefined" && dv.plan && dv.plan.baseRev !== state.serverRev) { dv.plan = null; dv.result = null; } // 서버가 반영한 뒤의 옛 계획 — 화면의 계획은 버린다
+    if (typeof divShow === "function") await divShow();
+    if (typeof taskSlots === "function" && taskSlots() && typeof taskFlowLoad === "function") taskFlowLoad();
+  } catch (e) { console.warn(e); }
+}
+function flowFenceKeys(e) { // 울타리 동안 문서의 입력을 막는다(읽기 · 옮겨 다니기는 그대로) — 서버도 409 로 막는다(이 화면이 그 사이 보낸 글이 「반영 실패」 로 남지 않게 먼저 막는다)
+  if (!flowFence || !e.target || !e.target.closest || !e.target.closest("#doc")) return;
+  if (e.type === "keydown") {
+    const nav = !e.altKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Escape", "Shift", "Control", "Alt", "Meta"].includes(e.key); // Alt+↑/↓ 는 개요 레벨을 바꾼다 — 막는다
+    const copy = (e.ctrlKey || e.metaKey) && ["c", "a", "f"].includes((e.key || "").toLowerCase());
+    if (nav || copy) return;
+  }
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}
+for (const t of ["beforeinput", "keydown", "paste", "cut", "drop"]) document.addEventListener(t, flowFenceKeys, true);
 
 const flowActive = (run) => !!run && run.status === "running";
 
@@ -78,7 +145,8 @@ const flowBy = (run) => (!run ? "" : (run.origin || {}).screen === FLOW_SCREEN ?
 if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { flowRun: "워크플로우 실행" }); // 「기록」 탭의 이름 — 서버가 돈 「한 번에 진행」 의 시작 · 묶음 · 끝(작업 기록 `flowRun`)
 
 async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", only = "" } = {}) { // 그 실행을 끝까지 따라간다(거울) → {ok, text, run} — 끝나면 단계를 다시 읽고 묶음 상태 줄에 끝 글을 남긴다
-  const run = (taskRun = { stage: g.id, report: report.id, key: only || "heads", note: "", t0: Date.now(), stop: false, chain: null, redo, only, paid: null, server: true, n, by: "" });
+  const first = { review: "heads", frame: redo || "config", map: "link", clean: "guide" }[g.id] || ""; // 첫 확인 전의 단계(화면 taskRunSteps 의 run.key 와 같다) — 다음 확인이 서버의 지금 단계로 바꾼다
+  const run = (taskRun = { stage: g.id, report: report.id, key: only || first, note: "", t0: Date.now(), stop: false, chain: null, redo, only, paid: null, server: true, n, by: "" });
   taskRunLast = null;
   taskRunEnds = {};
   if (typeof projectControlsSync === "function") projectControlsSync();
@@ -88,24 +156,38 @@ async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", onl
   try {
     rec = await flowWatch(report.id, n, (live) => {
       const now = live.now || {};
+      const moved = (now.stage || run.stage) !== run.stage || (now.key || run.key) !== run.key || (now.note || "") !== run.note;
       Object.assign(run, { stage: now.stage || run.stage, key: now.key || run.key, note: now.note || "", by: flowBy(live), ...(live.started ? { t0: live.started * 1000 } : {}) });
+      if (moved) taskStageSync(); // 단계가 바뀌면 바로 — 상태 줄 · 「진행 중」 표시(화면 실행의 at() 과 같다)
       if (run.stop && !run.stopSent) { run.stopSent = true; flowStop(report.id, n); } // 「멈춤」 — 지금 하는 일이 끝나면(서버가 멈춘다)
     });
   } finally {
     clearInterval(run.timer);
+  }
+  // 거울(taskRun)은 끝 글을 남기는 그 순간까지 둔다 — 다시 읽기 · 단계 재료 읽기를 기다리는 동안 「!taskRun」 을 보는 쪽(검사 · 에이전트 agwRunning)이 끝 글 없이 끝난 것으로 보지 않게(단추는 그동안 꺼진 채)
+  try {
+    if (state.id === report.id && !flowDirty()) { // 서버 실행이 이 문서를 바꿨는데(구조 반영 …) 알림을 놓쳤으면 — 끝난 뒤 한 번 견줘 다시 읽는다
+      const now = await api(flowUrl(report.id, "/live")).catch(() => null);
+      if (now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(report.id);
+    }
+    const same = () => { const s = taskSlots(), now = (s || []).map((k) => taskSlotDoc(k)); return !!s && !gatherOn() && now[0] && now[1] && now[0].id === plan.id && now[1].id === report.id; };
+    if (same()) { try { await taskFlowLoad(); if (typeof taskGuidesLoad === "function") await taskGuidesLoad(report); } catch (e) { console.warn(e); } } // 「문서 검토」 의 분석 · LLM 은 문서의 차례를 안 올린다 — 단계 셈의 재료(분석 요약 · 저장한 작성 지침)를 다시 읽는다
+    if (!same()) return { ok: false, text: "그 사이 문서 칸이 바뀌었습니다", run: rec };
+    const E = flowEnd(rec), stage = TASK_STAGES.find((x) => x.id === g.id) || g;
+    const end = E ? { ok: E.ok, text: E.text.replace(/^(끝남|남김|멈춤|오류|끊김) — /, "") } : { ok: false, text: "실행 기록을 읽지 못했습니다" };
+    if (rec && rec.halt && rec.halt.key) run.key = rec.halt.key; // 멈춘 단계 — 그 줄에 「멈춤」 을 보인다(확인 사이에 끝난 짧은 실행도)
+    if (taskRun === run) taskRun = null; // 끝 글과 같은 틈(동기)에 — 사이에 보는 쪽이 없다
+    taskStepsDraw();
+    taskRunKeep(stage, plan, report, run, end);
+    const box = stage.dom && document.getElementById(stage.dom);
+    if (box && !end.ok) box.open = true; // 멈춘 곳이 보이게 세부 목록을 편다(화면 실행 taskRunAll 과 같다)
+    taskStageSync();
+    if (!quiet) toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
+    return { ...end, run: rec };
+  } finally {
     if (taskRun === run) taskRun = null;
     if (typeof projectControlsSync === "function") projectControlsSync();
   }
-  const same = () => { const s = taskSlots(), now = (s || []).map((k) => taskSlotDoc(k)); return !!s && !gatherOn() && now[0] && now[1] && now[0].id === plan.id && now[1].id === report.id; };
-  if (same()) { try { await taskFlowLoad(); if (typeof taskGuidesLoad === "function") await taskGuidesLoad(report); } catch (e) { console.warn(e); } } // 「문서 검토」 의 분석 · LLM 은 문서의 차례를 안 올린다 — 단계 셈의 재료(분석 요약 · 저장한 작성 지침)를 다시 읽는다
-  if (!same()) return { ok: false, text: "그 사이 문서 칸이 바뀌었습니다", run: rec };
-  taskStepsDraw();
-  const E = flowEnd(rec), stage = TASK_STAGES.find((x) => x.id === g.id) || g;
-  const end = E ? { ok: E.ok, text: E.text.replace(/^(끝남|남김|멈춤|오류|끊김) — /, "") } : { ok: false, text: "실행 기록을 읽지 못했습니다" };
-  taskRunKeep(stage, plan, report, run, end);
-  taskStageSync();
-  if (!quiet) toast(end.ok ? `${stage.name} — ${end.text}` : `${stage.name}이 멈췄습니다 — ${end.text}`, !end.ok);
-  return { ...end, run: rec };
 }
 
 // 그 묶음을 서버 쪽 실행기로 시작한다 → {follow()}(서버가 돈다 — follow 가 끝까지 따라가 {ok, text, run} 을 돌려준다) | {ok: false, text}(서버가 거절 — 까닭) |
@@ -113,9 +195,27 @@ async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", onl
 async function taskRunServer(g, plan, report, { redo = "", only = "", paid = null } = {}) {
   const cat = TASK_CATALOG[(state.task || {}).job] || {};
   for (const w of [plan, report]) if (typeof taskLlmSkipped === "function" && taskLlmSkipped(w)) await flowSkip(report.id, w.id, true); // 이 브라우저에 기억해 둔 「건너뛰기」 — 서버가 같이 보게(워크플로우 옵션)
-  const r = await flowStart(report.id, { from: g.id, only, redo, where: "panel", docs: { target: report.id, source: plan.id }, ...(Array.isArray(paid) ? { by: "agent", paid } : {}),
-    ...(cat.custom && typeof taskCatalogSig === "function" && cat.sig ? { sig: cat.sig } : {}) });
-  if (!r.ok && (r.reason === "client" || r.reason === "old" || r.reason === "error")) return null; // 화면이 돈다(전과 같다)
+  const changes = ["frame", "map", "clean"].includes(g.id) && only !== "reheads"; // 문서를 바꾸는 묶음(구조 반영 · 내용 반영 · 작성요령 삭제) — 화면의 약속(spec_워크플로우 ② §17-7 「시작」): 고친 글 · 구성 입력을 먼저 서버에
+  let skip = [];
+  if (changes && (state.id === report.id || state.id === plan.id)) {
+    await flushAll();
+    if (state.failed.size) { const why = "서버에 반영하지 못한 문단이 있어 시작하지 않았습니다 — 「고친 문단」 탭에서 먼저 다시 반영하세요"; toast(why, true); return { ok: false, text: why, run: null }; }
+    if (typeof divSettingsFlush === "function") await divSettingsFlush();
+    if (typeof dv !== "undefined" && dv.values && dv.dirty && typeof divCanon === "function" && divCanon(divValues()) !== dv.savedKey) { // 구성 입력을 저장하지 못함(틀린 값 400 은 저장이 조용히 건너뛴다) — 옛 값으로 문서를 바꾸지 않게(astra 2026-11-20)
+      const why = "프로젝트 구성 입력 칸의 값을 저장하지 못해 시작하지 않았습니다 — 입력 칸의 값(사업기간 · 차년도 …)을 확인한 뒤 다시 누르세요"; toast(why, true); return { ok: false, text: why, run: null };
+    }
+    if (state.id === report.id && typeof dv !== "undefined" && dv.skip) skip = [...dv.skip]; // 「반영에서 빼기」 — 화면에만 있던 입력(② §17-11 ⓙ)
+  }
+  const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : ""; // 서식 정리 스킬(LLM 검증·보완의 셋째 — 화면 실행 taskRunLlm 과 같다)
+  const r = await flowStart(report.id, { from: g.id, only, redo, where: "panel", docs: { target: report.id, source: plan.id }, ...(Array.isArray(paid) ? { by: "agent", paid } : {}), ...(skip.length ? { skip } : {}),
+    ...(skill ? { skill } : {}), ...(cat.custom && typeof taskCatalogSig === "function" && cat.sig ? { sig: cat.sig } : {}) });
+  if (!r.ok && (r.reason === "client" || r.reason === "old")) return null; // 서버가 맡지 않는 묶음 · 옛 서버 — 화면이 돈다(전과 같다)
+  if (!r.ok && r.reason === "error") { // 시작 요청의 답을 못 받음 — 서버가 이미 시작했을 수 있어 화면 실행으로 가지 않는다(같은 문서에 두 실행이 걸리지 않게 — astra 2026-11-20)
+    const live = await flowLive(report.id);
+    if (flowActive(live)) return { follow: () => taskRunFollow(g, plan, report, live.n, { redo, only }) };
+    toast(`시작하지 못했습니다 — ${r.message || "서버 응답 없음"} · 다시 누르세요`, true);
+    return { ok: false, text: r.message || "서버 응답 없음", run: null };
+  }
   if (!r.ok && r.reason === "busy" && r.run) { toast("다른 화면에서 진행 중입니다 — 그 실행을 따라 보입니다"); return { follow: () => taskRunFollow(g, plan, report, r.run.n, { quiet: true }) }; }
   if (!r.ok) { toast(r.message, true); return { ok: false, text: r.message, run: null }; }
   return { follow: () => taskRunFollow(g, plan, report, r.run.n, { redo, only }) };
