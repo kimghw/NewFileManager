@@ -35,7 +35,7 @@ def test_workflow_setting_points_a_target_slot_at_a_form():
     assert F.slot("plan_to_report") == {"file": f["id"], "mode": "default", "form": f} and F.uses(f["id"]) == [("plan_to_report", "target", "default")]
     assert F.slot_set("plan_to_report", "target", f["id"], "default") == 1   # 그대로 — 판이 안 오른다
     assert F.slot_set("plan_to_report", "target", f["id"], "fixed") == 2 and F.slot("plan_to_report")["mode"] == "fixed"
-    for bad in (("plan_to_report", "source", f["id"], "fixed"), ("plan_to_report", "target", "f_00000000", "fixed"), ("plan_to_report", "target", f["id"], "always"), ("", "target", f["id"], "fixed")):
+    for bad in (("plan_to_report", "part", f["id"], "fixed"), ("plan_to_report", "target", "f_00000000", "fixed"), ("plan_to_report", "target", f["id"], "always"), ("", "target", f["id"], "fixed")):
         with pytest.raises(ValueError):
             F.slot_set(*bad)
     with pytest.raises(F.Refused) as e:   # 설정에 쓰는 양식은 못 지우고 종류도 못 바꾼다
@@ -111,10 +111,14 @@ def test_forms_are_stored_through_the_endpoint_and_set_on_a_workflow(client):
     listing = client.get("/api/form-files").json()
     jobs = {j["job"]: j for j in listing["jobs"]}
     assert [x["id"] for x in listing["files"]] == [f["id"], plan["id"]] and listing["rev"] == 0 and not listing["broken"]
-    assert jobs["plan_to_report"] == {"job": "plan_to_report", "name": "사업계획서 → 연차보고서 이관", "kind": "report", "formats": ["hwpx"]} and jobs["plan_merge"]["kind"] == "plan"
+    assert {k: v for k, v in jobs["plan_to_report"].items() if k != "roles"} == {"job": "plan_to_report", "name": "사업계획서 → 연차보고서 이관", "kind": "report", "formats": ["hwpx"]} and jobs["plan_merge"]["kind"] == "plan"
+    # 양식을 걸 수 있는 칸 = 수가 1인 칸(② §18-9 — 2026-11-20 사용자 "각 1이 되는것들은 특정 문서로 지정할 수 있도록"): 이관 = 원본 · 목적 · 취합 = 목적만(기관 문서는 여럿) · 문서 하나 = 그 문서
+    assert [(x["role"], x["kind"], x["title"]) for x in jobs["plan_to_report"]["roles"]] == [("source", "plan", "원본 문서"), ("target", "report", "목적 문서")]
+    assert [x["role"] for x in jobs["plan_merge"]["roles"]] == ["target"] and [x["role"] for x in jobs["plan_fit"]["roles"]] == ["target"]
     assert "style_copy" not in jobs and "report_merge" not in jobs and jobs["doc_edit"]["formats"] == ["hwpx", "docx"]
     r = client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": f["id"], "mode": "default"}})
-    assert r.status_code == 200 and r.json() == {"slot": {"file": f["id"], "mode": "default", "form": {k: f[k] for k in f if k != "usedBy"}}, "rev": 1}
+    want = {"file": f["id"], "mode": "default", "form": {k: f[k] for k in f if k != "usedBy"}}
+    assert r.status_code == 200 and r.json() == {"slot": want, "slots": {"target": want, "source": None}, "rev": 1}
     assert client.get("/api/form-files").json()["files"][0]["usedBy"] == [{"job": "plan_to_report", "name": "사업계획서 → 연차보고서 이관", "role": "target", "mode": "default"}]
     for job, body, code in (("plan_to_report", {"target": {"file": plan["id"], "mode": "fixed"}}, 400), ("style_copy", {"target": {"file": f["id"]}}, 400), ("nope", {"target": None}, 400),
                             ("plan_to_report", {"target": {"file": "f_00000000"}}, 404), ("plan_to_report", {"target": {"file": f["id"], "mode": "always"}}, 400), ("plan_to_report", {"target": "x"}, 400)):
@@ -122,7 +126,7 @@ def test_forms_are_stored_through_the_endpoint_and_set_on_a_workflow(client):
     assert client.delete(f"/api/form-files/{f['id']}").status_code == 409 and client.put(f"/api/form-files/{f['id']}", json={"kind": "plan"}).status_code == 409
     assert client.put(f"/api/form-files/{f['id']}", json={"name": "연차보고서 표준 서식"}).json()["file"]["name"] == "연차보고서 표준 서식"
     assert client.get(f"/api/form-files/{f['id']}/file").content == M.REPORT_FORM.read_bytes()
-    assert client.put("/api/workflow-slots/plan_to_report", json={"target": None}).json() == {"slot": None, "rev": 2}
+    assert client.put("/api/workflow-slots/plan_to_report", json={"target": None}).json() == {"slot": None, "slots": {"target": None, "source": None}, "rev": 2}
     assert client.delete(f"/api/form-files/{f['id']}").json() == {"deleted": True} and client.delete(f"/api/form-files/{f['id']}").status_code == 404
 
 
@@ -199,3 +203,53 @@ def test_a_form_is_saved_from_the_first_original_of_a_work_and_from_a_sample(cli
     assert client.post("/api/form-files/from-sample/..%5Cx.hwpx", json={}).status_code == 404
     assert client.post("/api/form-files/from-sample/none.hwpx", json={}).status_code == 404
     assert client.post(f"/api/form-files/from-work/{wid}", json={"kind": "part"}).status_code == 400
+
+
+def test_a_source_slot_is_set_only_where_the_source_is_a_single_document(client):
+    """원본 칸의 양식(② §18-9 — 수가 1인 칸마다): 이관의 원본(사업계획서) 칸에는 걸고, 원본이 여럿인 칸(취합의 기관 문서) · 없는 칸 · 종류가 다른 양식은 거절.
+    두 칸을 한 번에 보내면 모두 검사한 뒤에 쓴다(하나가 틀리면 아무것도 안 바꿈)."""
+    import merge_data as M
+    plan, report = _put_form(client, M.PLAN_FORM)["file"], _put_form(client, M.REPORT_FORM)["file"]
+    r = client.put("/api/workflow-slots/plan_to_report", json={"source": {"file": plan["id"], "mode": "default"}})
+    assert r.status_code == 200 and r.json()["slots"]["source"]["file"] == plan["id"] and r.json()["slot"] is None   # slot = 목적 칸(옛 꼴)
+    assert F.uses(plan["id"]) == [("plan_to_report", "source", "default")]
+    bad = client.put("/api/workflow-slots/plan_to_report", json={"source": {"file": report["id"]}})
+    assert bad.status_code == 400 and "원본 문서는 사업계획서" in bad.json()["detail"]
+    for job, body in (("plan_merge", {"source": {"file": plan["id"]}}), ("plan_fit", {"source": {"file": plan["id"]}}), ("plan_to_report", {}), ("plan_to_report", {"part": None})):
+        assert client.put(f"/api/workflow-slots/{job}", json=body).status_code == 400, (job, body)
+    rev = F.listing()["rev"]
+    both = client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": report["id"], "mode": "fixed"}, "source": {"file": report["id"]}})
+    assert both.status_code == 400 and F.slot("plan_to_report") is None and F.listing()["rev"] == rev   # 원본 칸이 틀려 목적 칸도 안 바뀜
+    ok = client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": report["id"], "mode": "fixed"}, "source": None}).json()
+    assert ok["slots"]["target"]["mode"] == "fixed" and ok["slots"]["source"] is None
+
+
+def test_the_source_slot_is_filled_from_a_form_into_the_target_bundle(client):
+    """원본 칸을 양식으로(POST /api/workflow-start/source): 목적 작업의 묶음(프로젝트 · 워크플로우 · 라운드)에 원본 종류로 · 쓴 양식을 적음 · 같은 요청은 같은 작업 ·
+    목적 문서가 프로젝트에 안 묶였으면 409 · 고정이면 올린 파일을 원본 칸에 못 넣는다(PUT …/task 409)."""
+    import merge_data as M
+    from app import works
+    plan, report = _put_form(client, M.PLAN_FORM)["file"], _put_form(client, M.REPORT_FORM)["file"]
+    main = client.post("/api/workflow-start", json={"job": "plan_to_report", "request": "req-main-1", "project": "원본 양식", "target": {"form": report["id"]}}).json()
+    body = {"job": "plan_to_report", "main": main["docId"], "request": "req-src-01", "source": {"form": plan["id"], "sha256": plan["sha256"]}}
+    r = client.post("/api/workflow-start/source", json=body)
+    assert r.status_code == 200, r.text
+    got = r.json()
+    w = works.work(got["docId"])
+    assert w["source"] == "form" and w["form"]["id"] == plan["id"] and got["form"] == {"id": plan["id"], "name": plan["name"], "mode": ""}
+    assert (w["task"]["job"], w["task"]["file"], w["task"]["project"], w["task"].get("round") or 1) == ("plan_to_report", "plan", "원본 양식", main["round"])
+    assert client.post("/api/workflow-start/source", json=body).json()["docId"] == got["docId"]   # 다시 보낸 요청 — 같은 작업
+    loose = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    nt = client.post("/api/workflow-start/source", json={**body, "request": "req-src-02", "main": loose})
+    assert nt.status_code == 409 and nt.json()["reason"] == "notTarget"
+    for bad, code in (({**body, "request": "short"}, 400), ({**body, "request": "req-src-03", "main": "000000000000"}, 404), ({**body, "request": "req-src-04", "source": {"form": report["id"]}}, 400),
+                      ({**body, "request": "req-src-05", "job": "plan_merge"}, 400), ({**body, "request": "req-src-06", "source": {"form": plan["id"], "sha256": "x"}}, 409)):
+        assert client.post("/api/workflow-start/source", json=bad).status_code == code, bad
+    n = len(works.list_works())
+    assert client.put("/api/workflow-slots/plan_to_report", json={"source": {"file": plan["id"], "mode": "fixed"}}).status_code == 200
+    up = client.post("/api/docs?new=1", files={"file": (M.PLAN_FORM.name, M.PLAN_FORM.read_bytes())}).json()["docId"]
+    put = client.put(f"/api/works/{up}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "원본 양식"})
+    assert put.status_code == 409 and "원본 문서는 저장한 양식" in put.json()["detail"]   # 고정 — 올린 파일을 원본 칸에 못 넣음
+    assert client.post(f"/api/works/{up}/start-task", json={"project": "원본 양식", "job": "plan_to_report", "file": "plan"}).status_code == 409
+    assert client.post("/api/workflow-start/source", json={**body, "request": "req-src-07", "source": {"form": plan["id"]}}).status_code == 200   # 고정한 그 양식은 된다
+    assert len(works.list_works()) == n + 2

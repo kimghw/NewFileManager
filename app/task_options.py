@@ -17,6 +17,14 @@ from app import projects, works, zones
 log = logging.getLogger(__name__)
 
 ZONES_DEFAULT = {"plan_merge": ["org"]}   # TASK(job) → 기본으로 켤 기준 — 그 밖의 job 은 []. 화면 task_catalog.js 의 TASK 항목 `zones` 와 같아야 한다(tests/test_task_catalog.py)
+
+
+def _zones_default(job):
+    """그 워크플로우의 기본 기준 — 붙박이는 ZONES_DEFAULT · 취합형으로 조립한 것은 붙박이 취합과 같게(기관 — 화면 task_catalog.js taskCatalogCustom 의 `zones` 와 같다)."""
+    if job in ZONES_DEFAULT:
+        return ZONES_DEFAULT[job]
+    from app import custom_tasks   # 가벼운 모듈
+    return ZONES_DEFAULT["plan_merge"] if custom_tasks.is_gather(job) else []
 FILE = "task_options.json"
 _LOCK = threading.RLock()   # 읽고-고치고-쓰기를 묶는다(프로세스 안 하나)
 _MEMORY = {}                # 작업 저장이 꺼져 있을 때의 scopes
@@ -148,7 +156,7 @@ def resolve(work) -> dict:
                 log.warning("[TASK 옵션] %s — 기본값으로 읽습니다", exc)
             _warned = True
     if rec is None:
-        return {"scope": scope, "offered": True, "zones": {"dims": _ordered(ZONES_DEFAULT.get(job, [])), "defaulted": True}, "rev": 0}
+        return {"scope": scope, "offered": True, "zones": {"dims": _ordered(_zones_default(job)), "defaulted": True}, "rev": 0}
     return {"scope": scope, "offered": True, "zones": {"dims": _ordered(rec["zones"]["dims"]), "defaulted": False}, "rev": rec["rev"]}
 
 

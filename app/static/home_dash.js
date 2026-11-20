@@ -246,7 +246,7 @@ function hdGroups(reg, V) {
 
 function hdSig() { // 다시 그릴지 — 상태 · 글 · 단추가 같으면 도는 글(지난 시간)만 바꾼다(초점 · 스크롤 유지 — 패널 대시보드의 dashSig 와 같은 방식)
   const st = hdState(), V = HD.view, list = st === "pick" || st === "ready";
-  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
+  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, HD.hands ? HD.hands.lines.map((x) => [x.key, x.done, x.ver]) : 0, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
     list ? [hdFiles().map((f) => `${f.name}:${f.size}`), typeof hfTarget === "function" ? hfTarget() : -1, !!homeTaskBusy || !!(typeof hf === "object" && hf.busy), Object.keys(TASK_CATALOG),
       HD.job ? [hdSlot(HD.job), HD.form, hdUseForm(HD.job), (hdResume(HD.job) || {}).id || "", typeof hf === "object" ? hf.project : ""] : 0] : 0,
     st === "live" ? [V.job, V.sig, V.ready, V.why, V.docs, V.stages.map((g) => [g.id, g.no, g.name, g.server, g.done, g.total, g.left, g.can, g.why, (g.paid || []).length, g.change, (g.steps || []).map((s) => [s.key, s.st, s.done, s.skipped, s.text])]),
@@ -290,8 +290,11 @@ function hdDocsEl(rows) { // 문서 칸 — 역할마다 한 줄 「목적 문�
 function hdListDocs(reg, job) { // 시작 전 — 문서 칸에 들 파일(왼쪽 문서 목록의 목적 고르기대로: 고른 것 = 목적 문서 · 나머지 = 원본 문서) · 목적 칸이 저장한 양식이면 그 양식(목록의 문서는 모두 원본 문서)
   const list = hdFiles(), form = hdUseForm(job) ? (hdSlot(job) || {}).form : null, ti = form ? -1 : typeof hfTarget === "function" ? hfTarget() : -1;
   const target = list[ti] || null, others = form ? list : list.filter((_, i) => i !== ti);
+  const ss = typeof hfSourceSlot === "function" ? hfSourceSlot(job) : null; // 원본 칸에 건 양식(이관형 — spec_워크플로우 ② §18-9: 고정이면 늘 · 기본값이면 목록에 원본으로 쓸 파일이 없을 때)
+  const srcForm = ss && (ss.mode === "fixed" || !others.length) ? `${hfFormLabel(ss.form)} · 양식: ${HF_FORM_MODE[ss.mode]}${ss.mode === "fixed" && others.length ? ` — 목록의 문서 ${others.length}개는 빼세요` : ""}` : "";
   return (reg.roles || []).map((r) => [r.role, `${r.title} — ${r.name}${r.many ? "(문서마다)" : ""}:`,
-    r.role === "target" ? (form ? hfFormLabel(form) : target ? target.name : "") : (!target && !form) || !others.length ? "" : r.many ? `문서 ${others.length}개` : others.length > 1 ? `문서 ${others.length}개 — 하나만 둘 수 있습니다` : others[0].name]);
+    r.role === "target" ? (form ? hfFormLabel(form) : target ? target.name : "") : !r.many && srcForm ? srcForm
+      : (!target && !form) || !others.length ? "" : r.many ? `문서 ${others.length}개` : others.length > 1 ? `문서 ${others.length}개 — 하나만 둘 수 있습니다` : others[0].name]);
 }
 
 // 같은 프로젝트에 이 워크플로우로 하던 작업(목적 문서) — 양식으로 시작할 때만 본다(양식으로 만든 작업은 같은 파일 고르기에 걸리지 않고 늘 새 작업: spec_워크플로우 ② §18-11 ⓕ)
@@ -339,8 +342,38 @@ function hdNodeEl(n) { // 단계 한 줄 — 번호 · 이름 · 꼬리표 · �
   top.append(el("span", "dash-no", hdPad(n.idx)), main);
   if (word) top.append(el("span", "dash-st", n.state === "done" && !(n.live && n.live.skipped) ? `✓ ${word}` : word));
   top.title = `${n.name}${word ? ` — ${word}` : ""}${n.live && n.live.text ? `\n${n.live.text}` : ""}`;
+  const hand = /^hand[1-9][0-9]?$/.test(n.key) && n.live && HD.hands && HD.hands.wid === HD.wid ? HD.hands.lines.find((x) => x.key === n.key) : null; // 사람이 하는 일(정의 v2 — spec_워크플로우 ② §18-7) — 「했음」 · 「했음 취소」 는 이 화면에서도(사람의 단추)
+  if (hand) {
+    const b = hBtn(hand.done ? "했음 취소" : "했음", () => hdHand(hand, !hand.done), { cls: "btn sm" + (hand.done ? "" : " primary"), disabled: !!HD.busy,
+      title: hand.done ? "「했음」 을 되돌립니다 — 다음 실행이 이 줄에서 다시 멈춥니다" : `사람이 할 일 — ${hand.does}\n마쳤으면 누릅니다 — 묶음의 「한 번에 진행」 이 이 줄을 지나 다음 줄로 갑니다` });
+    b.dataset.hdFocus = `hand:${n.key}`;
+    top.append(b);
+  }
   li.append(top);
   return li;
+}
+
+async function hdHands(force = false) { // 사람이 하는 일 줄의 판 · 끝남(GET /api/works/{wid}/flow/hand — 3초 안의 것은 다시 읽지 않는다) — 읽으면 다시 그린다
+  const wid = HD.wid, H = HD.hands;
+  if (!wid || HD.handsWait || (!force && H && H.wid === wid && Date.now() - H.at < 3000)) return;
+  HD.handsWait = true;
+  let lines = [];
+  try { lines = (await api(`/api/works/${wid}/flow/hand`)).lines || []; } catch { lines = []; }
+  HD.handsWait = false;
+  if (HD.wid !== wid) return;
+  HD.hands = { wid, at: Date.now(), lines };
+  homeDashDraw(true);
+}
+
+async function hdHand(line, on) { // 「했음」 · 「했음 취소」 — 사람의 단추(에이전트 행동에는 없다)
+  if (HD.busy || !HD.wid) return;
+  HD.busy = `hand:${line.key}`;
+  homeDashDraw(true);
+  try { await api(`/api/works/${HD.wid}/flow/hand/${encodeURIComponent(line.key)}`, on ? { method: "POST", headers: H_JSON, body: JSON.stringify({ ver: line.ver }) } : { method: "DELETE" }); }
+  catch (e) { HD.note = { text: `${on ? "「했음」" : "「했음 취소」"}을 적지 못했습니다 — ${e.message}`, warn: true }; }
+  HD.busy = "";
+  await hdHands(true);
+  hdRead();
 }
 
 function hdRunBtn(g, primary, active) { // 묶음의 「한 번에 진행」 — 켜는 조건 · 꺼진 까닭은 서버의 것(can · why). active = 도는 실행이 있다(방금 시작해 서버 상태를 다시 읽기 전에도 꺼 둔다 — 서버의 글과 같은 까닭)
@@ -420,9 +453,10 @@ function hdStartWhy(job) { // 「워크플로우 시작」 을 미리 끄는 까
     if (!taskAcceptOf(job).filter((x) => x !== "pdf").includes(hfExt(target))) return `목적 문서 「${target.name}」 로는 시작할 수 없습니다 — hwp·hwpx 문서여야 합니다`;
     return homeTaskBusy || hf.busy ? "문서를 준비하고 있습니다" : "";
   }
-  const slot = hdSlot(job);
+  const slot = hdSlot(job), ss = typeof hfSourceSlot === "function" ? hfSourceSlot(job) : null, fixedSrc = ss && ss.mode === "fixed" ? `원본 문서 칸은 ${hfFormLabel(ss.form)}으로 고정돼 있습니다` : ""; // 원본 칸의 양식(spec_워크플로우 ② §18-9 — 고정이면 목록의 문서를 원본으로 못 넣음: homeFilesStart 의 hfSourceFixedAsk 와 같은 검사)
   if (slot && slot.mode === "fixed" && !slot.form) return "고정한 양식을 찾지 못했습니다 — 워크플로우 페이지 「문서 칸」 에서 다시 거세요";
   if (hdUseForm(job)) { // 목적 문서 칸 = 저장한 양식 — 목록의 문서는 원본 문서(이관 = 하나까지 · 없어도 시작한다: 원본 문서는 연 뒤 「작업 개요」 의 첨부 파일 칸에서도 올린다)
+    if (fixedSrc && list.length) return `${fixedSrc} — 목록의 문서를 빼세요`;
     if (cat.files && list.length > 1) return `원본 문서는 하나만 둘 수 있습니다 — 목록에 문서가 ${list.length}개입니다`;
     return homeTaskBusy || hf.busy ? "문서를 준비하고 있습니다" : "";
   }
@@ -430,6 +464,7 @@ function hdStartWhy(job) { // 「워크플로우 시작」 을 미리 끄는 까
   if (!target) return "왼쪽 문서 목록에서 목적 문서를 고르세요";
   const exts = taskAcceptOf(job).filter((x) => x !== "pdf");
   if (!exts.includes(hfExt(target))) return `이 워크플로우는 ${exts.join("·")} 문서로 시작합니다 — 목적 문서 「${target.name}」 로는 시작할 수 없습니다`;
+  if (fixedSrc && list.length > 1) return `${fixedSrc} — 목록에는 목적 문서만 두세요`;
   if (homeTaskBusy || hf.busy) return "문서를 준비하고 있습니다";
   return "";
 }
@@ -464,6 +499,7 @@ function hdReadyParts() { // ② 골랐고 시작 전 — 등록부의 단계 �
 function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로: 머리 · 도는 실행 · 지난 실행의 끝 · 알림 · 문서 칸 · 묶음 › 단계 · 「대시보드 자세히 보기」
   const V = HD.view, job = V.job || HD.job, reg = hdReg(job), groups = hdGroups(reg, V), run = V.run, active = flowActive(run), served = groups.filter((g) => g.served);
   const total = served.reduce((s, g) => s + g.sv.total, 0), done = served.reduce((s, g) => s + g.sv.done, 0), nodes = groups.flatMap((g) => g.nodes);
+  if (nodes.some((n) => /^hand[1-9][0-9]?$/.test(n.key))) hdHands(); // 사람이 하는 일 줄 — 그 판 · 끝남을 읽어 둔다(「했음」 단추 — hdNodeEl)
   const runNode = nodes.find((n) => n.state === "run"), nowNode = nodes.find((n) => n.state === "now"), badNode = nodes.find((n) => n.state === "failed" || n.state === "blocked");
   const runGroup = active ? groups.find((g) => g.id === ((run.now || {}).stage || (run.range || {}).from)) : null, left = served.some((g) => g.sv.left > 0);
   // 한 줄 — 도는 실행 · 진행 중인 단계(올린 직후의 기본 분석 …) · 다음 단계 · 실패 · 막힌 단계 / 서버가 맡은 묶음이 다 끝났으면 「모두 끝남」(모든 묶음을 서버가 셀 때만) · 「N단계 끝남 — 그 밖의 묶음은 …」

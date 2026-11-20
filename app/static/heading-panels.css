@@ -1,12 +1,5 @@
 /* 템플릿 관계와 헤딩 결과: 같은 밀도의 제목·탭·목록, 필요할 때 읽는 설명. */
-.panel-help-slot { display: inline-flex; flex: none; align-items: center; }
-.panel-help-slot:empty { display: none; }
-.panel-help { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #7b8493; cursor: help; vertical-align: middle; }
-.panel-help:hover, .panel-help:focus-visible { color: #2758c7; background: #edf2fb; }
-.panel-help:focus-visible { outline: 2px solid #6b94e8; outline-offset: 2px; }
-.panel-help.is-warning { color: #aa651a; background: #fff5e6; }
-.panel-help svg { pointer-events: none; }
-.panel-help-tooltip { position: fixed; inset: auto; margin: 0; z-index: 10000; width: max-content; max-width: min(340px, calc(100vw - 20px)); max-height: min(300px, calc(100vh - 20px)); overflow: auto; box-sizing: border-box; padding: 12px 14px; border: 1px solid #4a5565; border-radius: 10px; background: #253042; color: #fff; box-shadow: 0 8px 28px #17203326; font: 13px/1.7 "Segoe UI", "Malgun Gothic", sans-serif; white-space: pre-line; overflow-wrap: anywhere; overscroll-behavior: contain; }
+@import url("/static/panel_help.css");   /* 노트 도움말의 꼴 — 따로 선 파일(워크플로우 페이지도 읽는다) */
 .hd-heading-copy { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* 패널(3열) 머리는 2026-11-11 부터 도구마다 같은 꼴(작업 목록 줄 + 도구 이름 줄 — style.css 「패널 머리」 절, spec_작업 ② §10)이라 헤딩 추출·표 전용 머리 규칙은 걷어냄.

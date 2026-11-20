@@ -48,9 +48,9 @@ function dwfSnapshot(M) {
     if (!source || source.key !== `doc|${state.id}|${state.epoch}` || source.loading || source.err || !styleSaveOn()) return null;
   }
   // 일반 편집은 요청→반영을 반복한다. 자동 '문서 열기' 1/1을 완료로 세지 않는다.
-  const repeat = M.job === "doc_edit", parts = M.job === "plan_merge" ? M.groups.flatMap((g) => g.parts?.rows || []) : [];
+  const repeat = M.job === "doc_edit", gathers = typeof taskIsGather === "function" ? taskIsGather(M.job) : M.job === "plan_merge", parts = gathers ? M.groups.flatMap((g) => g.parts?.rows || []) : []; // 취합형(붙박이 · 취합형으로 조립한 것)
   // 취합은 기관 문서 줄마다 별도 실행이다. 기준본만 만든 상태/기관 문서가 아직 없는 상태는 완료가 아니다.
-  const partTotal = M.job === "plan_merge" ? Math.max(1, parts.length) : 0;
+  const partTotal = gathers ? Math.max(1, parts.length) : 0;
   const total = repeat ? 0 : counted.length + partTotal, done = repeat ? 0 : counted.filter((n) => n.state === "done").length + parts.filter((r) => r.state === "done").length;
   const started = nodes.some((n) => n.key !== "open" && n.state === "done") || parts.some((r) => r.state === "done" || r.state === "run") || !!M.R || !!DASH.busy;
   return { job: M.job, status: !repeat && total && done === total ? "done" : started || repeat ? "progress" : "ready", done, total };

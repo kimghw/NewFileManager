@@ -23,7 +23,7 @@ const agwFit = (job) => job === "plan_fit" || job === "report_fit";
 // 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 표준화 · 양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
 // 목록에 없는 조립한 워크플로우(지워짐 · 저장 파일을 못 읽음 — task_catalog.js taskLostWhy)는 맡지 않는다(HEAD 처럼 — 입력 칸의 글 · 표 요청은 바로 편집 에이전트로: 진행 에이전트가 받으면 할 행동도 넘길 행동도 없다).
 // 그 까닭 한 줄은 작업 개요 · 대시보드가 보이고, 맡던 때 낸 카드를 누르면 agwStatusOf 가 행동 없이 그 까닭으로 실행하지 않는다
-const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || job === "plan_merge"; // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js)
+const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || taskIsGather(job); // taskIsGather = 취합형(붙박이 취합 · 취합형으로 조립한 것) // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js)
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
 // ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 개요」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
@@ -290,7 +290,8 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
   }
   const calc = gatherCalc();
   for (const g of GT_STAGES) for (const s of calc.filter((x) => x.stage === g.id)) out.steps.push({ stage: `${g.no} ${g.name}`, key: s.key, name: gatherStepName(s), state: s.st === "done" || s.st === "now" ? s.st : "todo", text: ((s.lines || [])[0] || [])[1] || "" });
-  const g = GT_STAGES.find((x) => calc.some((s) => s.stage === x.id && !s.done && s.step !== "files"));
+  // 다음에 돌릴 묶음 — 남은 단계가 있는 첫 묶음(취합형으로 조립한 워크플로우는 그 정의에 그 줄이 든 묶음만: 없는 묶음은 세부 단추로 — task_catalog.js gatherDefStage)
+  const g = GT_STAGES.find((x) => { const left = calc.filter((s) => s.stage === x.id && !s.done && s.step !== "files"); return left.length > 0 && !!gatherDefStage(x.id, agwJob(), left[0].key); });
   out.facts.plan = plan.name;
   if (plan.id !== state.id) { // 이 문서는 기관 문서(원본) — 취합은 취합본에서 진행한다(이관의 원본 문서와 같은 까닭)
     out.facts.why = "이 문서는 기관 문서입니다 — 취합은 취합본(목적 문서)에서 진행합니다";
@@ -327,7 +328,7 @@ async function agwStatusOf(job, opt = {}) {
   try {
     if (agwFit(job)) return await agwFitStatus(opt);
     if (taskIsRelay(job)) return await agwRelayStatus();
-    if (job === "plan_merge") return await agwGatherStatus();
+    if (taskIsGather(job)) return await agwGatherStatus();
   } catch (e) { console.error(e); return agwCommon({ steps: [], actions: [], facts: { why: `단계 상태를 읽지 못했습니다: ${e.message}` } }); }
   return agwCommon({ steps: [], actions: [], facts: {} });
 }
@@ -361,7 +362,7 @@ async function agwExec(name, args, cur = null) { // cur = 실행 직전에 다�
   if (name === "open:plan") { divList(); return { ok: true, text: "문서 옆 열에 변경 계획 목록을 열었습니다", silent: true }; }
   if (name.startsWith("list:")) { await gatherListOpen(name.slice(5)); return { ok: true, text: "문서 옆 열에 그 기관 문서의 목록을 열었습니다", silent: true }; }
   if (name === "open:target") { // 원본 문서에서 — 목적 문서를 열고 그 문서의 에이전트로 넘긴다(이 대화는 그 문서로 넘어가지 않는다)
-    const job = agwJob(), to = job === "plan_merge" ? gatherPlan() : taskSlotDoc("report");
+    const job = agwJob(), to = taskIsGather(job) ? gatherPlan() : taskSlotDoc("report");
     if (!to) return { ok: false, text: "목적 문서를 찾지 못했습니다" };
     await openWork(to.id);
     if (state.id === to.id) taskEnter(job);
@@ -417,7 +418,7 @@ async function agwExec(name, args, cur = null) { // cur = 실행 직전에 다�
   }
   if (name.startsWith("run:")) {
     const id = name.slice(4);
-    if (agwJob() === "plan_merge") {
+    if (taskIsGather(agwJob())) {
       const g = GT_STAGES.find((x) => x.id === id), r = await gatherRunStage(id, gatherPlan());
       return { ok: !!r.ok, text: `${g ? g.name : id} — ${r.text}` };
     }

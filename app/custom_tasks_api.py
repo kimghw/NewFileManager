@@ -1,6 +1,7 @@
 """조립한 TASK 끝점(spec_워크플로우 ② §14) — 화면 `/workflow` 의 「TASK 조립」 이 쓴다. 저장 · 검사는 `app/custom_tasks.py`(가벼운 모듈), 단계의 뜻은 등록부 `app/workflow.py` `STAGE_MODULES`.
 
 - `GET /api/tasks` → {tasks[조립한 워크플로우…], stages[고를 수 있는 단계 — id · 이름 · 하는 일 · 묶음 · 단계 줄 · cells(문서 역할마다의 칸)], pairs[조립할 수 있는 문서 쌍], blocked[아직 조립할 수 없는 틀과 까닭],
+  shapes[문서 입출력의 틀 — id · io(「1」 · 「1 → 1」 · 「N → 1」) · name · slots[{role, title, many, kinds[{id, name}]}] · soon(아직 못 여는 까닭 | "") — custom_tasks.SHAPES 그대로: spec_워크플로우 ② §18-8 「문서 입출력」],
   base(전제를 물려받는 붙박이 키), limits, broken(저장 파일을 못 읽음 — 그동안 목록은 비고 쓰기는 409), warn{fillNoFit(목적 문서에 「구성 맞추기」 없이 「내용 넣기」 를 고를 때의 경고 뒷부분 —
   등록부 app/workflow.py FILL_NO_FIT)}}
 - `POST /api/tasks` {name, desc?, source?, target?, assign?{source[], target[], llm?[]}, stages?[](옛 꼴 — assign 이 없을 때만), premise?} → 201 {task} · `PUT /api/tasks/{key}`(보낸 키만 — 문서 쌍은 못 고침) → {task} ·
@@ -16,22 +17,22 @@
   does = 그 정의의 묶음 설명(등록부 app/workflow.py assemble 과 같은 글 — 화면 실행이 묶음 머리 · 「한 번에 진행」 · 실행 카드에 그대로 쓴다).
 - **쓰는 곳**(`_uses` — 작업마다 한 번: 셈 · 작업 목록을 같은 한 번의 작업 읽기에서) = 그 키를 지금 워크플로우로 둔 작업(task.job — inUse: 단계를 못 바꾸고 못 지움) · 문서의 워크플로우 목록(works 의 workflows[].job — 대시보드의
   「이 문서의 워크플로우」)에만 그 키가 든 작업(listed: 단계는 고치지만 못 지움 — 목록에서 빼면 지운다: DELETE /api/works/{wid}/workflows/{job}).
+- **내가 만든 단계**(spec_워크플로우 ② §18-14 — app/custom_stages.py): `GET /api/tasks` 의 `userStages[{key, name, desc, steps, at, lines}]` · `stages[].lines`(붙박이 단계의 표준 줄) · `stagesBroken` ·
+  `POST /api/stages/check {steps}` → {errors, steps} · `POST /api/stages {name, desc?, steps}` → 201 {stage} · `PUT /api/stages/{key}` · `DELETE /api/stages/{key}` — 400 = 값이 틀림 · 404 = 없음 · 409 = 저장 파일을 못 읽음.
 - `GET /api/tasks.js` → 화면이 스크립트로 읽는 글(`taskCatalogCustom([...], {broken})` — task_catalog.js 다음 · app.js 앞: 화면의 목록 · 문서 칸이 처음부터 조립한 워크플로우를 안다 ·
   꼴은 view 그대로(쓰는 곳은 빼고 — 앱 화면은 그것을 쓰지 않고, 읽을 때마다 작업을 모두 훑지 않게) · broken = 저장 파일을 못 읽음). 캐시 안 함."""
 import json
 
 from fastapi import APIRouter, Body, HTTPException, Response
 
-from app import custom_tasks, works
+from app import custom_stages, custom_tasks, works
 
 router = APIRouter()
 
-# 아직 조립할 수 없는 틀 — 화면이 까닭과 함께 보인다(고를 수 없는 것을 감추지 않는다)
+# 아직 조립할 수 없는 것 — 화면이 까닭과 함께 보인다(고를 수 없는 것을 감추지 않는다). 아직 못 여는 틀(「1」 문서 하나 · 「N → 1」 취합)은 조립 폼의 「문서 입출력」 이 그 틀의 까닭(custom_tasks.SHAPES soon)과 함께 보인다 — 여기 겹쳐 적지 않는다.
 BLOCKED = (
     {"name": "다른 문서 쌍(사업계획서 → 사업계획서 · 연차보고서 → 연차보고서 · 연차보고서 → 사업계획서)",
      "why": "문서의 역할을 문서 종류(사업계획서 · 연차보고서 · 기관 문서)로만 가르고 있어 같은 종류끼리는 원본 · 목적을 가를 수 없고, 이관 실행의 글과 판정이 사업계획서 → 연차보고서에 맞춰져 있습니다."},
-    {"name": "취합형(원본 문서 여럿 → 목적 문서 하나 — 예: 연차보고서 취합)",
-     "why": "취합의 실행(기관 문서마다 되풀이 · 배포 기준본)이 사업계획서 취합의 묶음에 묶여 있습니다 — 그 실행을 이 단계 틀로 옮긴 뒤에 조립할 수 있습니다."},
 )
 
 
@@ -65,8 +66,11 @@ def view(t, used=None):
     does = {묶음 id: 그 정의의 묶음 설명} — 등록부(app/workflow.py assemble)가 실제 배정에서 지은 글 그대로(화면 실행이 그대로 쓴다) · sig = custom_tasks.sig · descAuto = workflow.custom_desc.
     used = _uses() 의 값이면 쓰는 곳(inUse · listed · editWhy · deleteWhy — PUT 409 · DELETE 409 와 같은 글 · uses · usesMore — 그 작업들)도 더한다."""
     from app import workflow
-    v = {**t, "sourceName": custom_tasks.FILES[t["source"]], "targetName": custom_tasks.FILES[t["target"]], "groups": [custom_tasks.STAGE_GROUP[s] for s in t["stages"]],
+    groups = [g["id"] for g in t["flow"]] if t.get("flow") is not None else [custom_tasks.STAGE_GROUP[s] for s in t["stages"]]
+    v = {**t, "sourceName": custom_tasks.kind_name(t["source"]), "targetName": custom_tasks.kind_name(t["target"]), "groups": groups,   # 문서 종류의 이름(취합형의 원본 = 기관 문서)
          "does": {g["id"]: g["does"] for g in workflow.assemble(t)["stages"]}, "sig": custom_tasks.sig(t), "descAuto": workflow.custom_desc(t)}
+    if t.get("flow") is None:   # 옛 꼴(표준 차례) — 조립 화면이 줄 목록으로 연다(등록부가 그 배정으로 짓는 것 그대로: ② §18-12 ⑤)
+        v.update(flow=custom_tasks.flow_of(t), shape="relay", v=1)
     if used is not None:
         n, m, rows = used[0].get(t["key"], 0), used[1].get(t["key"], 0), used[2].get(t["key"], [])
         v.update(inUse=n, listed=m, editWhy=custom_tasks.IN_USE.format(n=n) if n else None, deleteWhy=custom_tasks.DELETE_IN_USE.format(n=n + m) if n + m else None,
@@ -111,14 +115,135 @@ def in_use(key):
 _NO_TASK = "그런 워크플로우가 없습니다"   # 없는 키(API 404 — 화면에 그대로)
 
 
-@router.get("/api/tasks")
-def tasks_get():
+def units():
+    """조립 화면의 고를 줄(② §18-5 「API」) — 이관형 · 공통 단위(준비는 빼고 — 맨 앞 묶음에 저절로) · 이름 · 사는 단계 · 놓을 자리 · 하는 문서 · 꼴 · 문서 바뀜 · 유료 · 선택 · 서버가 돌리나."""
+    from app import workflow_units as WU
+    names, homes = custom_tasks.unit_names(), custom_tasks.unit_homes()
+    out = []
+    for fam, box in (("common", WU.COMMON), ("relay", WU.RELAY)):
+        for k, u in box.items():
+            if k in custom_tasks.AUTO_UNITS:
+                continue
+            out.append({"key": k, "family": fam, "home": homes.get(k, u["home"]), "name": names.get(k, k), "place": u["place"], "roles": list(u["roles"]), "kind": u["kind"], "change": u["change"],
+                        "paid": u["paid"], "needs": list(u["needs"]), "gives": list(u["gives"]), "optional": u["optional"], "server": u["server"],
+                        "uses": custom_tasks.uses_of(u)})   # 먼저 있어야 할 줄 — 그 줄이 쓰는 앞 줄들(② §18-6 「대상 잇기」 의 (나): 화면이 이것만 읽는다)
+    order = {m: i for i, m in enumerate((*custom_tasks.STAGES, "hand"))}
+    return sorted(out, key=lambda x: order.get(x["home"], 9))   # 사는 일반 단계의 차례(문서 검토 → 구성 맞추기 → 내용 넣기 → 문서 정리 → 사람이 하는 일) · 그 안은 등록부의 줄 차례
+
+
+def gather_units():
+    """취합형(N → 1)의 고를 줄 — 등록부 「사업계획서 취합」 의 줄 차례(custom_tasks.GATHER_UNITS) + 「사람이 하는 일」 → (줄들, 묶음들 [{id, name}]).
+    줄의 home = 붙박이 취합에서 그 줄이 사는 묶음(gather_config · gather_frame · gather_map — 화면의 고르기 목록이 그 이름으로 묶는다) · each = 기관 문서마다 도는 줄(한 묶음에 잇달아 놓는다)."""
     from app import workflow
+    from app import workflow_state as WS
+    from app import workflow_units as WU
+    names, base = custom_tasks.unit_names("gather"), workflow.BY_JOB["plan_merge"]
+    home = {s["key"]: f"gather_{g['id']}" for g in base["stages"] for s in g["steps"]}
+    out = []
+    for k in custom_tasks.GATHER_UNITS:
+        u = WU.unit(k, "gather")
+        out.append({"key": k, "family": "gather", "home": home.get(k, "gather_map"), "name": names.get(k, k), "place": u["place"], "roles": list(WU.roles_in(u, "gather")), "kind": u["kind"], "change": u["change"],
+                    "paid": u["paid"], "needs": list(u["needs"]), "gives": list(u["gives"]), "optional": u["optional"], "server": u["server"], "each": bool(u.get("each")),
+                    "uses": custom_tasks.uses_of(u, "gather")})   # 먼저 있어야 할 줄(② §18-6 「대상 잇기」 의 (나))
+    h = WU.COMMON["hand"]
+    out.append({"key": "hand", "family": "common", "home": "hand", "name": names["hand"], "place": h["place"], "roles": list(h["roles"]), "kind": h["kind"], "change": h["change"], "paid": h["paid"],
+                "needs": [], "gives": [], "optional": h["optional"], "server": h["server"], "each": False, "uses": []})
+    homes = [{"id": f"gather_{g['id']}", "name": " ".join(x for x in WS.stage_label(g) if x)} for g in base["stages"]] + [{"id": "hand", "name": "사람이 하는 일"}]
+    return out, homes
+
+
+def gather_lines():
+    """취합형의 처음 줄 목록(조립 폼이 「N → 1」 을 고르면 이것으로 채운다) — 붙박이 「사업계획서 취합」 의 묶음 · 줄 그대로(준비 · 기관에 배포 · 회수는 빼고)."""
+    from app import workflow
+    from app import workflow_state as WS
+    from app import workflow_units as WU
+    flow = []
+    for g in workflow.BY_JOB["plan_merge"]["stages"]:
+        steps = [{"unit": s["key"], "on": list(WU.roles_of(s["on"]))} for s in g["steps"] if s["key"] in custom_tasks.GATHER_UNITS and s["key"] != "drop"]
+        if steps:
+            flow.append({"name": WS.stage_label(g)[1] or g["id"], "steps": steps})
+    return flow
+
+
+def _v2(v):
+    """GET 의 판 — `?v=2` 면 줄 목록 정의(v2)도 싣는다. 옛 탭(판 없이 읽음)에는 표준 정의만 — 옛 화면의 이관 실행 코드가 v2 를 표준 차례로 돌리지 못하게(② §18-12 ⑤)."""
+    return str(v or "") == "2"
+
+
+# ---------------------------------------------------------------- 내가 만든 단계(spec_워크플로우 ② §18-14 「단계 만들기」 — app/custom_stages.py: 있는 줄을 골라 이름 붙여 둔 묶음 · 조립의 「＋ 단계 넣기…」 가 넣는다)
+def _stage_names():
+    """붙박이 단계의 이름들(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리) — 내가 만든 단계가 같은 이름을 못 쓰게."""
+    from app import workflow
+    return [name for _mid, name, _make, _does in workflow.STAGE_MODULES]
+
+
+def _stage_lines():
+    """붙박이 단계마다의 표준 줄 {단계 id: [{unit, on}]} — 두 문서에 모두 고른 표준 차례의 그 묶음(조립의 「＋ 단계 넣기…」 가 붙박이 단계도 같은 꼴로 넣는다)."""
+    A = {"source": ["stage_review"], "target": list(custom_tasks.STAGES)}
+    A["llm"] = custom_tasks.llm_rule(A)
+    flow = custom_tasks.flow_of({"key": "u_00000000", "name": "_", "desc": "", "source": custom_tasks.PAIRS[0][0], "target": custom_tasks.PAIRS[0][1], "assign": A,
+                                 "stages": custom_tasks.union(A), "premise": "", "at": 0})
+    by = {g["id"]: g["steps"] for g in flow}
+    return {mid: by.get(custom_tasks.STAGE_GROUP[mid], []) for mid in custom_tasks.STAGES}
+
+
+def stage_view(s):
+    """내가 만든 단계의 꼴 = {key, name, desc, steps[{unit, on …}], at, lines[줄 이름 — 화면의 요약]}."""
+    names = custom_tasks.unit_names()
+    return {**s, "lines": [x.get("name") or names.get(x["unit"], x["unit"]) for x in s["steps"]]}
+
+
+def _stage_call(fn):
+    try:
+        return fn()
+    except custom_stages.Refused as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.post("/api/stages/check")
+def stages_check(body: dict = Body(...)):
+    """단계의 줄 검사(저장 전 미리 보기) {steps} → {errors[], steps(정리한 줄 | None)} — 조립과 같은 규칙에서 단계 하나로 볼 수 있는 것만(custom_stages.check)."""
+    return custom_stages.check(body.get("steps"))
+
+
+@router.post("/api/stages", status_code=201)
+def stages_post(body: dict = Body(...)):
+    """{name, desc?, steps[{unit, on}]} → 201 {stage} — 400 = 값이 틀림(글이 화면에 그대로) · 409 = 저장 파일을 못 읽음."""
+    return {"stage": stage_view(_stage_call(lambda: custom_stages.create(body, _stage_names())))}
+
+
+@router.put("/api/stages/{key}")
+def stages_put(key: str, body: dict = Body(...)):
+    s = _stage_call(lambda: custom_stages.update(key, body, _stage_names()))
+    if s is None:
+        raise HTTPException(404, "그런 단계가 없습니다")
+    return {"stage": stage_view(s)}
+
+
+@router.delete("/api/stages/{key}")
+def stages_delete(key: str):
+    if not _stage_call(lambda: custom_stages.delete(key)):
+        raise HTTPException(404, "그런 단계가 없습니다")
+    return {"deleted": True}
+
+
+@router.get("/api/tasks")
+def tasks_get(v: str = ""):
+    from app import workflow
+    lines = _stage_lines()
     stages = [{"id": mid, "name": name, "does": does, "group": custom_tasks.STAGE_GROUP[mid], "steps": [{"key": s["key"], "name": s["name"], "optional": s["optional"]} for s in steps],
-               "cells": cells(mid, steps)}   # 문서 역할 × 단계 표의 칸(② §15)
+               "cells": cells(mid, steps), "lines": lines.get(mid, [])}   # cells = 문서 역할 × 단계 표의 칸(② §15) · lines = 그 단계의 표준 줄(조립의 「＋ 단계 넣기…」)
               for mid, name, make, does in workflow.STAGE_MODULES for steps in [make(*workflow._GENERIC)]]
     used = _uses()
-    return {"tasks": [view(t, used) for t in custom_tasks.all()], "stages": stages,
+    g_units, g_homes = gather_units()
+    return {"tasks": [view(t, used) for t in custom_tasks.all() if _v2(v) or t.get("flow") is None], "stages": stages, "units": units(), "shapes": [dict(x) for x in custom_tasks.SHAPES],
+            # 틀마다의 고를 줄 · 처음 줄 목록 · 문서 종류 짝(units · pairs 는 이관형의 것 그대로 — 옛 화면) — 취합형(N → 1: spec_워크플로우 ② §18-13 갈래 「라」 ⓶)
+            "byShape": {"gather": {"units": g_units, "homes": g_homes, "flow": gather_lines(),
+                                   "pairs": [{"source": a, "target": b, "name": f"{custom_tasks.kind_name(a)} → {custom_tasks.kind_name(b)}"} for a, b in custom_tasks.GATHER_PAIRS]}},
+            "userStages": [stage_view(s) for s in custom_stages.all()], "stagesBroken": custom_stages.broken(),   # 내가 만든 단계(② §18-14)
+            "hidden": 0 if _v2(v) else sum(1 for t in custom_tasks.all() if t.get("flow") is not None),
             "pairs": [{"source": a, "target": b, "name": f"{custom_tasks.FILES[a]} → {custom_tasks.FILES[b]}"} for a, b in custom_tasks.PAIRS], "blocked": list(BLOCKED), "base": custom_tasks.BASE,
             "limits": {"name": custom_tasks.NAME_MAX, "desc": custom_tasks.DESC_MAX, "premise": custom_tasks.PREMISE_MAX, "tasks": custom_tasks.TASKS_MAX},
             "broken": custom_tasks.broken(), "warn": {"fillNoFit": workflow.FILL_NO_FIT}}
@@ -132,6 +257,29 @@ def tasks_post(body: dict = Body(...)):
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.post("/api/tasks/check")
+def tasks_check(body: dict = Body(...)):
+    """조립 검사(저장 전 미리 보기 — ② §18-5 「API」): {flow, shape?, source?, target?, key?(고치는 정의 — 문서 쌍 · 틀을 그것에서)} → {errors[], warns[], flow(정리한 꼴 · 묶음 id), std(표준 차례인가), sig}.
+    화면은 셈하지 않고 이것을 그대로 보인다 — POST · PUT 도 같은 검사를 지난다."""
+    old = custom_tasks.get(body.get("key")) if isinstance(body.get("key"), str) else None
+    shape = body.get("shape") or (old or {}).get("shape") or "relay"
+    pair = custom_tasks.pairs_of(shape)[0]   # 그 틀의 문서 종류 짝(안 보냈을 때의 값)
+    source, target = body.get("source") or (old or {}).get("source") or pair[0], body.get("target") or (old or {}).get("target") or pair[1]
+    flow = body.get("flow")
+    if "flow" not in body and isinstance(body.get("assign"), dict):   # 표준 차례로 채우기(조립 화면의 문서 역할 × 단계 표) — 그 배정으로 등록부가 짓는 줄 목록을 검사한다
+        a = body["assign"]
+        core = {r: [s for s in custom_tasks.ROLE_STAGES[r] if isinstance(a.get(r), list) and s in a[r]] for r in custom_tasks.ROLES}
+        A = {**core, "llm": custom_tasks._llm_of(a["llm"], core) if isinstance(a.get("llm"), list) else custom_tasks.llm_rule(core)}
+        if not custom_tasks.union(A):
+            return {"errors": ["단계를 하나 이상 고르세요"], "warns": [], "flow": None, "std": False, "sig": None}
+        flow = custom_tasks.flow_of({"key": "u_00000000", "name": "_", "desc": "", "source": source, "target": target, "assign": A, "stages": custom_tasks.union(A), "premise": "", "at": 0})
+    got = custom_tasks.check(shape, source, target, flow)
+    s = None
+    if got["flow"] is not None and not got["errors"]:
+        s = custom_tasks.sig({"assign": got["std"], "stages": custom_tasks.union(got["std"])} if got["std"] is not None else {"flow": got["flow"], "shape": shape, "source": source, "target": target})
+    return {"errors": got["errors"], "warns": got["warns"], "flow": got["flow"], "std": got["std"] is not None, "sig": s}
 
 
 @router.put("/api/tasks/{key}")
@@ -170,10 +318,10 @@ def tasks_delete(key: str):
 
 
 @router.get("/api/tasks.js")
-def tasks_js():
+def tasks_js(v: str = ""):
     """화면의 워크플로우 목록에 조립한 워크플로우를 더하는 스크립트 — task_catalog.js 의 `taskCatalogCustom(목록, {broken})` 을 부른다(그 함수가 없으면 아무 일도 안 함).
     목록의 꼴 = view(쓰는 곳은 빼고) · broken = 저장 파일을 못 읽음(그동안 목록은 비어 있다 — 화면이 까닭을 보일 수 있게)."""
-    made, broken = [view(t) for t in custom_tasks.all()], custom_tasks.broken()
+    made, broken = [view(t) for t in custom_tasks.all() if _v2(v) or t.get("flow") is None], custom_tasks.broken()   # 판 없이 읽는 옛 탭에는 표준 정의만(② §18-12 ⑤)
     body = ("if (typeof taskCatalogCustom === \"function\") taskCatalogCustom(" + json.dumps(made, ensure_ascii=False).replace("</", "<\\/")
             + ", " + json.dumps({"broken": broken}) + ");\n")
     return Response(body, media_type="text/javascript; charset=utf-8", headers={"Cache-Control": "no-store"})

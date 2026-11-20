@@ -400,12 +400,18 @@
     return out;
   }
 
+  // 절의 설명 글 — 본문에 두지 않고 절 머리의 노트 아이콘(누르면 · 가리키면 풍선)으로(2026-11-20 사용자 「이런 설명은 아이콘 클릭하면 보여주게 해줘」 — design.md §1-6 노트 도움말 · panel_help.js hHelp).
+  // 상태 · 거절 · 빈 목록 글은 본문에 그대로 둔다. hHelp 가 없으면(옛 캐시) 본문 글로.
+  function headHelp(sec, h2, label, text) {
+    if (typeof hHelp === "function") { const b = hHelp(label, text); b.classList.add("wf-head-help"); h2.append(b); }
+    else sec.append(h("p", "wf-lead", text));
+  }
   function overview() { // 전체 보기 — TASK 마다 한 줄: 이름 + 단계 묶음의 사슬
-    const sec = h("section", "wf-sec");
+    const sec = h("section", "wf-sec"), h2 = h("h2", "", "전체 보기");
     sec.id = "overview";
-    sec.append(h("h2", "", "전체 보기"),
-      h("p", "wf-lead", "워크플로우는 단계를 정해진 차례로 밟는 일이고, 단계는 도구를 씁니다. 스크립트가 계산하고 LLM 은 검토 · 판정만 하며, 문서는 사람이 확인(「반영」 · 「한 번에 진행」)한 뒤에만 바뀝니다. 아래에서 워크플로우나 단계 묶음을 누르면 그 과정으로 갑니다."));
-    if (D.waysNote) { const p = h("p", "wf-lead wf-ways-note", D.waysNote); p.id = "waysNote"; sec.append(p); } // 진행 방식 둘(한 번에 진행 · 단계별) + 에이전트가 보이는 것 — TASK 절의 「진행 방식」 이 TASK 마다 적는다
+    sec.append(h2);
+    headHelp(sec, h2, "전체 보기 — 설명", ["워크플로우는 단계를 정해진 차례로 밟는 일이고, 단계는 도구를 씁니다. 스크립트가 계산하고 LLM 은 검토 · 판정만 하며, 문서는 사람이 확인(「반영」 · 「한 번에 진행」)한 뒤에만 바뀝니다. 아래에서 워크플로우나 단계 묶음을 누르면 그 과정으로 갑니다.",
+      D.waysNote || ""].filter(Boolean).join("\n\n")); // 진행 방식 둘(한 번에 진행 · 단계별) + 에이전트가 보이는 것 — TASK 절의 「진행 방식」 이 TASK 마다 적는다
     const legend = h("ul", "wf-legend");
     for (const [cls, name, text] of [["", D.by.script, "정해진 코드가 계산"], ["llm", D.by.llm, "에이전트가 검토 · 판정"], ["human", D.by.human, "사람이 고르거나 확인"], ["doc", D.change.doc, "이 단계에서 문서가 바뀜"],
       ["soft", "자동", "누르지 않아도 돎"], ["must", "필수", "해야 다음으로"], ["soft", "선택", "건너뛰어도 다음으로"]]) { const li = h("li"); li.append(tag(name, cls), document.createTextNode(WF_ICON_BY_TEXT[name] ? `${name} — ${text}` : text)); legend.append(li); } // 아이콘 칩은 이름이 안 보이므로 범례에 이름을 글로
@@ -533,9 +539,21 @@
     const formsWrap = h("div", "wf-nav-sep");
     formsWrap.append(link("#wfForms", "저장한 양식", "wf-nav-forms")); // 목적 문서 칸에 넣을 양식 파일(② §18-9) — 전체 보기와 함께 서는 절
     const stages = D.common.filter((c) => c.kind === "stage"), tools = D.common.filter((c) => c.kind !== "stage");
+    const mine = (T && Array.isArray(T.userStages) ? T.userStages : []).map((s) => { // 내가 만든 단계(② §18-14) — 누르면 그 단계의 폼(「단계 만들기」 절)
+      const a = link("#wfStage", s.name, "wf-made wf-mine");
+      a.dataset.stage = s.key;
+      a.addEventListener("click", (e) => { e.preventDefault(); stageOpen(s.key); });
+      return a;
+    });
+    const makeStage = h("button", "btn sm wf-nav-make", "＋ 단계 만들기"); // 있는 줄을 골라 내 단계를 만든다(사용자 「이 단계 만들기도 있어야 하는거 아니냐?」)
+    makeStage.type = "button";
+    makeStage.dataset.wfStage = "new";
+    makeStage.title = "있는 줄(헤딩 · 표 분석 · 자리 연결 …)을 골라 이름 붙인 내 단계를 만듭니다 — 워크플로우 조립에서 꺼내 씁니다";
+    makeStage.disabled = !(T && Array.isArray(T.userStages)); // 옛 서버
+    makeStage.addEventListener("click", () => stageOpen(""));
     nav.replaceChildren(link("#overview", "전체 보기"), head("워크플로우", D.tasks.length), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
       formsWrap,
-      head("단계", stages.length), ...stages.map((c) => link(`#common-${c.id}`, c.name)),
+      head("단계", stages.length + mine.length), ...stages.map((c) => link(`#common-${c.id}`, c.name)), ...mine, makeStage,
       head("도구", tools.length), ...tools.map((c) => link(`#common-${c.id}`, c.name)));
   }
 
@@ -584,7 +602,7 @@
     if (anchor && $(anchor)) $(anchor).scrollIntoView({ block: "start" });
     navSync();
   }
-  const OVER_SECS = new Set(["wfCompose", "wfForms"]); // 전체 보기와 함께 서는 절 — 주소 #wfForms 로 바로 열린다
+  const OVER_SECS = new Set(["wfCompose", "wfStage", "wfForms"]); // 전체 보기와 함께 서는 절 — 주소 #wfForms 로 바로 열린다
 
   function navigate(hash) {
     // 주소는 남기되 브라우저의 기본 fragment 스크롤과 상세 자동 펼침은 피한다.
@@ -612,7 +630,7 @@
   // 까닭 글은 서버의 것 그대로(화면이 따로 짓지 않는다) — editWhy · deleteWhy 를 안 주는 옛 서버만 inUse(목록 줄까지 센 수)로 지은 글. broken = 저장 파일을 못 읽음(서버가 쓰지 않는다) — 까닭을 폼 위에.
   // 그 작업들 = 서버의 uses[{wid, name, project, round, active}](지금 워크플로우로 둔 것 먼저 · 앞 20개) + usesMore(나머지 수) — 목록 줄의 셈 아래에 작업마다 그 작업을 여는 링크(새 탭 · 앱의 #w=<작업 id>) +
   // 꼬리표 「지금 워크플로우」 · 「목록에만」(madeWorks — 셈만 보이면 어느 문서에서 바꾸거나 빼야 하는지 모른다: 3차 검토). uses 를 안 주는 옛 서버면 셈만.
-  let T = null; // GET /api/tasks — {tasks, stages, pairs, blocked, base, limits, broken, warn} | null(못 읽음 — 옛 서버)
+  let T = null; // GET /api/tasks — {tasks, stages(붙박이 단계 — lines = 표준 줄), userStages(내가 만든 단계 — ② §18-14), pairs, blocked, base, limits, broken, warn} | null(못 읽음 — 옛 서버)
   let composing = null; // 펴 둔 폼 {key("" = 새로), name, desc, pair, assign: {source: Set, target: Set}, from(연 때의 배정 — 견줌), llm(연 때 서버가 준 llm | null), locked(단계를 못 바꾸는 까닭 글 — "" 이면 단계를 고침), copyOf(복제한 워크플로우 이름), premise, err, busy}
   const NO_COMPOSE = "조립은 서버를 다시 켠 뒤에 쓸 수 있습니다"; // cells 를 주지 않는 서버(옛 서버) · /api/tasks 를 못 읽음
   const why = (v) => (typeof v === "string" ? v : ""); // 서버의 까닭 글(null = 할 수 있음)
@@ -623,7 +641,7 @@
   // 조립 폼의 경고(막지 않음 — 목적 문서에 「구성 맞추기」 없이 「내용 넣기」) 뒷부분 = 서버의 warn.fillNoFit(등록부의 글이 원본 — 묶음 설명도 그 글을 쓴다) · 안 주는 옛 서버면 같은 글을 여기에
   const FILL_NO_FIT = "목적 문서에 구조 반영 기록이 있고 두 문서의 프로젝트 구성 값이 같아야 자리 연결이 섭니다(손으로 맞춘 구조는 「반영 전」 으로 멈춤)";
   const fillNoFit = () => { const w = T && T.warn && T.warn.fillNoFit; return typeof w === "string" && w.trim() ? w : FILL_NO_FIT; };
-  const composable = () => !!T && Array.isArray(T.stages) && T.stages.length > 0 && T.stages.every((st) => st.cells && st.cells.source && st.cells.target);
+  const composable = () => !!T && Array.isArray(T.stages) && T.stages.length > 0 && T.stages.every((st) => st.cells && st.cells.source && st.cells.target) && Array.isArray(T.units); // units = 고를 줄(정의 v2 — 없으면 옛 서버)
   const cellOf = (st, role) => st.cells[role]; // 폼은 composable() 일 때만 그린다
   const stageName = (id) => ((T && T.stages.find((x) => x.id === id)) || {}).name || id;
   const ordered = (ids) => { const on = new Set(ids); return T.stages.map((x) => x.id).filter((id) => on.has(id)); }; // 일반 단계의 차례로
@@ -646,7 +664,7 @@
     return make(" 사본");
   }
   async function tasksLoad() {
-    try { const r = await fetch("/api/tasks", { headers: { Accept: "application/json" } }); T = r.ok ? await r.json() : null; } catch { T = null; }
+    try { const r = await fetch("/api/tasks?v=2", { headers: { Accept: "application/json" } }); T = r.ok ? await r.json() : null; } catch { T = null; } // v=2 = 줄 목록 정의(v2)도(판 없이 읽는 옛 탭에는 표준 정의만 — spec_워크플로우 ② §18-12 ⑤)
     if (T && typeof taskCatalogCustom === "function") taskCatalogCustom(T.tasks, { broken: !!T.broken }); // 이 페이지의 워크플로우 이름도 지금 저장소의 것으로(/api/tasks.js 와 같은 꼴 — 둘째 인자 = 저장 파일을 못 읽음)
   }
   function composeOpen(key, copy) { // "" = 새 워크플로우 · 키 = 그 워크플로우 고치기 · copy = 복제할 워크플로우(같은 배정 · 설명 · 전제 + 이름 「<이름> 사본」 의 새 폼) — 전체 보기의 「워크플로우 조립」 절로 가서 폼을 편다
@@ -655,9 +673,12 @@
       const t = copy || (key ? T.tasks.find((x) => x.key === key) : null), edit = !!(t && !copy), pair = T.pairs[0] || {}, all = T.stages.map((x) => x.id);
       const a = t ? assignOf(t) || { source: [], target: [...(t.stages || [])], llm: null } : { source: all, target: all, llm: null }; // 새 워크플로우 = 고를 수 있는 칸 모두(원본 = 문서 검토 · 목적 = 넷)
       const picked = (role) => new Set(T.stages.filter((st) => cellOf(st, role).mode === "pick" && a[role].includes(st.id)).map((st) => st.id));
-      composing = { key: edit ? t.key : "", name: copy ? copyName(t.name) : edit ? t.name : "", desc: t ? t.desc || "" : "", pair: t ? `${t.source}>${t.target}` : `${pair.source}>${pair.target}`,
-        assign: { source: picked("source"), target: picked("target") }, llm: t ? a.llm : null, locked: edit ? lockOf(t) : "", copyOf: copy ? t.name : "", premise: t ? t.premise || "" : "", err: "", busy: false };
+      composing = { key: edit ? t.key : "", name: copy ? copyName(t.name) : edit ? t.name : "", desc: t ? t.desc || "" : "", pair: t ? `${t.source}>${t.target}` : `${pair.source}>${pair.target}`, shape: (t && t.shape) || "relay", slots: {},
+        assign: { source: picked("source"), target: picked("target") }, llm: t ? a.llm : null, locked: edit ? lockOf(t) : "", copyOf: copy ? t.name : "", premise: t ? t.premise || "" : "", err: "", busy: false,
+        flow: t && Array.isArray(t.flow) ? flowCopy(t.flow) : null, mode: t && t.v === 2 ? "lines" : "std", check: null, checking: false }; // flow = 묶음 › 줄(정의 v2) · mode = std(표에서 채운 표준 차례 — 옛 꼴로 저장) | lines(줄을 고침 — 줄 목록으로 저장)
       composing.from = { source: [...composing.assign.source], target: [...composing.assign.target] };
+      if (composing.flow) composeCheck(composing, { flow: composing.flow, key: composing.key || undefined }).then(() => linesDraw(composing));
+      else stdFill(composing);
     }
     if (view === "diagram") navigate("#overview"); else go("#overview");
     composeDraw();
@@ -673,13 +694,16 @@
     c.assign = { source: new Set(a.source), target: new Set(a.target) };
     c.from = { source: [...a.source], target: [...a.target] };
     c.llm = a.llm;
+    if (Array.isArray(t.flow)) { c.flow = flowCopy(t.flow); c.mode = t.v === 2 ? "lines" : "std"; }
   }
   async function composeSave() {
     const c = composing;
     if (!c || c.busy) return;
     const [source, target] = c.pair.split(">"), assign = { source: ordered(c.assign.source), target: ordered(c.assign.target) };
     if (c.llm && sameAssign(assign, c.from)) assign.llm = [...c.llm]; // 고른 단계가 연 때 그대로 — 서버가 준 llm 을 그대로 돌려준다(바뀌었으면 안 보냄: 서버가 규칙으로 다시 정한다)
-    const body = { name: c.name, desc: c.desc, premise: c.premise, ...(c.locked ? {} : { assign }), ...(c.key ? {} : { source, target }) }; // 합집합 stages 는 안 보낸다 · 쓰는 중이면 assign 도 안 보낸다(이름 · 설명 · 전제만)
+    // 단계 = 표에서 채운 표준 차례면 assign(옛 꼴 — 옛 서버 · 옛 화면도 그대로) · 줄을 고쳤으면 flow(줄 목록 — 표준 차례와 같으면 서버가 옛 꼴로 저장: spec_워크플로우 ② §18-12 ⑤) · 쓰는 중이면 둘 다 안 보낸다(이름 · 설명 · 전제만)
+    const steps = c.locked ? {} : c.mode === "lines" && c.flow ? { flow: c.flow } : { assign };
+    const body = { name: c.name, desc: c.desc, premise: c.premise, ...steps, ...(c.key ? {} : { source, target, shape: c.shape }) }; // 합집합 stages 는 안 보낸다
     c.busy = true; c.err = "";
     composeDraw();
     let got = null, status = 0;
@@ -695,6 +719,13 @@
       return;
     }
     composing = null;
+    const slots = c.key ? {} : Object.fromEntries(Object.entries(c.slots || {}).filter(([, v]) => v && v.mode && v.file).map(([role, v]) => [role, { file: v.file, mode: v.mode }])); // 새 워크플로우의 문서 칸 양식 — 만든 뒤에 건다(설정은 정의와 따로: 고치기는 그 칸에서 바로)
+    if (Object.keys(slots).length) {
+      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(got.task.key)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify(slots) });
+      if (!r.ok) alert(`워크플로우는 만들었지만 문서 칸의 기본 문서를 걸지 못했습니다 — ${r.msg}
+
+그 워크플로우 절의 「문서 칸」 에서 다시 거세요.`);
+    }
     await load(); // 등록부 · 저장소를 다시 읽어 목차 · 절을 새로
     navigate(`#${got.task.key}`);
   }
@@ -746,8 +777,10 @@
     sec.replaceChildren(h2);
     if (!can) composing = null;
     if (!T) { sec.append(off()); return; }
-    sec.append(h("p", "wf-lead", "원본 문서 · 목적 문서마다 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 이름을 붙이면 새 워크플로우가 됩니다 — 문서마다 고른 단계가 그 문서의 단위문서 TASK 입니다. "
-      + "시작 화면의 카드 · 이 지도 · 대시보드에 서고, 고른 단계만 진행합니다. 단계의 차례는 바뀌지 않습니다."));
+    headHelp(sec, h2, "워크플로우 조립 — 설명", "문서 입출력(「1」 · 「1 → N」 · 「N → 1」)을 고르고, 단계를 묶음 › 줄로 놓아 이름을 붙이면 새 워크플로우가 됩니다 — 줄은 위에서 아래로 차례대로 돌고, 하는 문서(원본 · 목적)를 줄마다 고릅니다. "
+      + "문서마다 하는 줄은 그 문서 칸에만 놓이고 다른 칸은 빈칸입니다(차례가 위에서 아래로 보입니다). 상대 문서가 있어야 하는 줄(자리 연결 · 넣기 계획 · 내용 반영 …)은 두 칸에 쌍으로 놓입니다 — 어느 칸에서 골라도 쌍으로 들어갑니다. "
+      + "문서끼리의 차례는 자유이고, 「…와 같이」 는 다른 문서가 하는 줄을 이 문서에도 따로 넣어 줍니다. "
+      + "맨 앞 묶음에는 「준비」(문서 칸)가 저절로 섭니다. 수가 1인 문서 칸에는 기본 문서(저장한 양식 — 기본값 · 고정)를 걸 수 있습니다. 만든 워크플로우는 시작 화면의 카드 · 이 지도 · 대시보드에 섭니다.");
     if (T.broken) { // 저장 파일을 못 읽음 — 서버는 목록을 비워 보내고 그 파일을 덮지 않으려고 쓰지 않는다(만들기 · 고치기 · 지우기 모두 409)
       const p = h("p", "wf-compose-broken", "저장 파일(tasks.json)을 읽지 못했습니다 — 조립한 워크플로우가 목록에 보이지 않고, 그 파일을 덮지 않으려고 서버가 새로 만들거나 고친 것을 저장하지 않습니다. 파일을 고치거나 옮긴 뒤 이 페이지를 다시 읽으세요.");
       p.setAttribute("role", "alert");
@@ -765,6 +798,10 @@
         if (!ids.length) grp.append(h("span", "wf-muted", "—"));
         for (const id of ids) grp.append(h("span", "wf-chip", stageName(id)));
         chips.append(grp);
+      } else if (t.v === 2 && Array.isArray(t.flow)) { // 줄 목록으로 조립한 것(배정 없음 — 취합형 · 표준 차례가 아닌 이관형) — 묶음 이름을 차례대로
+        const grp = h("span", "wf-made-role");
+        grp.append(h("span", "wf-muted", "묶음:"), ...t.flow.map((g) => h("span", "wf-chip", g.name || g.id)));
+        chips.append(grp);
       } else { // assign 을 모르는 옛 서버 — 고른 단계(합집합)만 그대로
         const grp = h("span", "wf-made-role");
         grp.append(h("span", "wf-muted", "단계:"), ...ordered(t.stages || []).map((id) => h("span", "wf-chip", stageName(id))));
@@ -777,7 +814,8 @@
       del.disabled = !!no;
       del.title = no || "이 워크플로우를 지웁니다(단계 · 도구는 그대로)"; // 까닭 = 서버의 deleteWhy 그대로(DELETE 409 와 같은 글 — 목록에만 든 작업도 센다: 목록 줄은 워크플로우를 바꿔도 남는다)
       del.addEventListener("click", () => composeDelete(t));
-      li.append(link(`#${t.key}`, t.name, "wf-over-name"), h("span", "wf-muted", `${t.sourceName} → ${t.targetName}`), chips);
+      const io = ((Array.isArray(T.shapes) ? T.shapes : []).find((x) => x && x.id === (t.shape || "relay")) || {}).io; // 문서 입출력의 꼴(「1 → 1」 — ② §18-8)
+      li.append(link(`#${t.key}`, t.name, "wf-over-name"), h("span", "wf-muted", `${io ? `${io} · ` : ""}${t.sourceName} → ${t.targetName}`), chips);
       for (const [use, k, text, tip] of [["current", n, `하던 작업 ${n}개`, t.listed !== undefined ? "이 워크플로우를 지금 워크플로우로 둔 작업" : "이 워크플로우로 하던 작업(문서의 워크플로우 목록에 든 것 포함)"],
         ["listed", m, `목록에 든 작업 ${m}개`, "문서의 워크플로우 목록(대시보드 「이 문서의 워크플로우」)에만 든 작업 — 지금 워크플로우는 다른 것입니다. 그 목록에서 빼면 지울 수 있습니다"]]) { // 0 이면 안 보임
         if (!k) continue;
@@ -806,23 +844,487 @@
     no.append(ul);
     sec.append(no);
   }
-  function slotField(c, field) { // 조립 폼의 「문서 칸」 — 워크플로우 절의 그 줄과 같은 것(고치기: 그 워크플로우의 설정을 바로 바꾼다 · 정의와 따로라 지문이 안 바뀐다 · 새로 만들 때는 만든 뒤에)
-    const t = c.key && D ? D.tasks.find((x) => x.job === c.key) : null, box = h("div", "wf-compose-slots");
-    if (t) box.append(slotEl(t));
-    else box.append(h("span", "wf-muted", "목적 문서 칸의 양식(없음 · 기본값 · 고정)은 만든 뒤 그 워크플로우 절의 「문서 칸」 에서 겁니다 — 정의와 따로 두는 설정이라 하던 작업이 있어도 바꿀 수 있습니다"));
-    return field("문서 칸", box);
+  // ---- 단계(묶음 › 줄) — 정의 v2(spec_워크플로우 ② §18-5 · §18-6 · design.md §22): 묶음마다 이름 · 차례 · 줄(＋ 줄 · 하는 문서 · ▲▼ · 빼기) · 「＋ 묶음」.
+  // 고를 줄 = 서버의 units(GET /api/tasks?v=2 — 사는 단계 · 놓을 자리 · 하는 문서 · 유료 · 문서 바뀜 · 서버가 돌리나) · 검사는 늘 서버(POST /api/tasks/check — 화면은 셈하지 않고 거절 · 경고를 그대로 보인다).
+  // 표(문서 역할 × 단계 — 아래 「표준 차례로 채우기」)에서 고르면 줄 목록이 그 표준 차례로 다시 채워진다(mode std — 저장은 옛 꼴 assign). 줄을 고치면 mode lines(저장은 flow).
+  const flowCopy = (flow) => (flow || []).map((g) => ({ ...g, steps: (g.steps || []).map((s) => ({ ...s, on: [...(s.on || [])] })) }));
+  // 틀마다의 고를 줄(spec_워크플로우 ② §18-13 갈래 「라」 ⓶) — 취합형(N → 1)은 서버의 byShape.gather{units, homes, flow(처음 줄 목록), pairs} · 이관형은 units · stages 그대로. 같은 key 의 줄도 틀마다 다르다(취합의 「프로젝트 구성 반영」 은 목적 문서에만) — 줄은 늘 그 폼의 틀로 찾는다
+  const shapeBox = (c) => (c && !c.single && c.shape && T && T.byShape && T.byShape[c.shape]) || null;
+  const unitsOf = (c) => { const b = shapeBox(c); return b && Array.isArray(b.units) ? b.units : T && Array.isArray(T.units) ? T.units : []; };
+  const unitOf = (k, c) => unitsOf(c).find((u) => u.key === k) || null;
+  const lineName = (s, c) => s.name || (unitOf(s.unit, c) || {}).name || s.unit;
+  function shapeFlow(c) { // 틀을 바꿈 — 줄 목록을 그 틀의 처음 것으로: 취합형 = 서버의 처음 줄 목록(붙박이 「사업계획서 취합」 의 묶음 · 줄 — 줄 목록으로 저장) · 이관형 = 표에서 고른 표준 차례(stdFill 이 채운다)
+    const b = shapeBox(c);
+    if (b && Array.isArray(b.flow)) { c.flow = flowCopy(b.flow); c.mode = "lines"; } else c.mode = "std";
+  }
+  const ROLE_SHORT = { source: "원본", target: "목적" };
+  let checkTimer = 0;
+  async function composeCheck(c, body) { // 서버의 조립 검사 → c.check {errors, warns, flow, std, sig} — 기다리는 동안 「검사하는 중」
+    c.checking = true;
+    if (c.linesBox) linesDraw(c);
+    let got = null;
+    try { const r = await fetch("/api/tasks/check", { method: "POST", headers: JSON_H, body: JSON.stringify(body) }); got = r.ok ? await r.json() : null; } catch { got = null; }
+    if (composing !== c) return null;
+    c.checking = false;
+    c.check = got || { errors: ["조립 검사를 읽지 못했습니다 — 서버를 다시 켠 뒤에 쓸 수 있습니다"], warns: [], flow: null, std: false };
+    return got;
+  }
+  async function stdFill(c) { // 표에서 고른 배정 → 그 표준 차례의 줄 목록(서버가 등록부로 짓는 것 그대로)
+    const [source, target] = c.pair.split(">"), assign = { source: ordered(c.assign.source), target: ordered(c.assign.target) };
+    if (c.llm && sameAssign(assign, c.from)) assign.llm = [...c.llm]; // 연 때 그대로 — 서버가 준 llm(옛 줄의 「원본만」 도)
+    const got = await composeCheck(c, { assign, source, target, shape: c.shape });
+    if (composing !== c) return;
+    if (got && got.flow) c.flow = flowCopy(got.flow);
+    c.mode = "std";
+    linesDraw(c);
+  }
+  function linesChanged(c) { // 줄을 고침 — 줄 목록으로 저장(mode lines) · 잠깐 뒤 서버 검사
+    c.mode = "lines";
+    clearTimeout(checkTimer);
+    c.checking = true;
+    linesDraw(c);
+    if (c.single) { checkTimer = setTimeout(async () => { await stageCheck(c); linesDraw(c); }, 250); return; } // 단계 폼 — 단계의 검사(POST /api/stages/check)
+    checkTimer = setTimeout(async () => { await composeCheck(c, { flow: c.flow, key: c.key || undefined, ...(c.key ? {} : { source: c.pair.split(">")[0], target: c.pair.split(">")[1], shape: c.shape }) }); linesDraw(c); }, 250);
+  }
+  function lineBtn(text, label, fn, off) {
+    const b = h("button", "btn sm wf-lines-btn", text);
+    b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.disabled = !!off;
+    b.addEventListener("click", fn);
+    return b;
+  }
+  // 줄 하나 = 문서 하나의 줄(spec_워크플로우 ② §18-6 「같이 · 따로」 · design.md §22 — 2026-11-20 사용자 「왼쭉은 예로 목적문서이면 우측은 원본문서 별로 도구 설정을 하도록 해야지. 공통은 공통으로 두고」 ·
+  // 「원본 문서는 왜 네 맘대로 빼냐? 목적문서랑 원본 문서도 분리해서 따로 따로 하게 해줘야지」 · 「프로젝트 구성 반영을 왜 한줄에 놓냐, 따로따로 넣도록해야지. 왜 같이 묶냐고」 ·
+  // 「프로젝트 구성을 완료하고 문서 검토하고 다른문서 프로젝트 구성할 수도 있잖아」): 차례는 위에서 아래로 하나이고 문서끼리의 차례는 자유다.
+  // 번호 | 목적 문서 칸 | 원본 문서 칸 | ▲▼ 빼기. 문서 줄 = 그 문서의 칸만 채운다(이름 + 꼬리표 — 다른 문서 칸은 빈칸: 체크 · 꺼진 이름 · 줄마다의 「같이」 단추는 없다) ·
+  // 문서마다의 줄이 아닌 줄(원본 → 목적 · 워크플로우 전체)은 **쌍 줄** — 두 문서 칸에 하나씩 그린다(아래 「대상 잇기」 — 전의 두 칸에 걸친 「공통」 한 칸은 없앴다) · 사람이 하는 일은 아래에 이름 · 글.
+  // 저장 꼴은 그대로다(줄의 on) — 두 문서를 하는 저장 줄 하나(표준 차례의 「헤딩 · 표 분석」 …)는 **두 줄**(원본 문서 줄 → 목적 문서 줄: 실행 차례)로 보이고, 그 한 몫을 옮기면 그때 저장 줄도 문서 하나씩 둘로 나뉜다(안 건드리면 저장 줄 그대로 — 표준 차례가 유지된다).
+  // 넣기도 문서마다 따로(addRowEl — 「＋ 목적 문서 줄 넣기…」 · 「＋ 원본 문서 줄 넣기…」: 그 묶음에 줄 하나 — 그 줄이 쓰는 앞 줄이 그 묶음에 있으면 그 뒤 · 없으면 끝 / 쌍 줄은 어느 칸의 고르기에서든) · 「…와 같이」 는 다른 문서가 하는 줄을 이 문서에도 따로 넣어 주는 한 번짜리 단추.
+  const LINE_COLS = ["target", "source"]; // 열의 차례 — 왼쪽 목적 문서 · 오른쪽 원본 문서(사용자 말 — 저장하는 on 의 차례는 그대로 원본 → 목적)
+  function lineHalf(g, si, r) { // 두 문서 줄의 한 몫을 옮기기 전에 — 그 저장 줄을 문서 하나씩 두 줄로(원본 → 목적 · 사람이 하는 일의 둘째 줄은 새 줄이라 id 를 비운다: 서버가 새로 붙인다) → 그 몫(r)의 새 자리
+    const s = g.steps[si], roles = ROLES.filter((x) => s.on.includes(x));
+    if (roles.length < 2) return si;
+    g.steps.splice(si, 1, ...roles.map((x, i) => (i ? { ...s, on: [x], ...(s.unit === "hand" ? { id: "" } : {}) } : Object.assign(s, { on: [x] }))));
+    return si + roles.indexOf(r);
+  }
+  // 대상 잇기(spec_워크플로우 ② §18-6 「대상 잇기」 — 2026-11-20 사용자 「이것들 어떤 도구는 대상이 있어야 사용할 수 있는게 있어 잘 연결될 수 있도록」 ·
+  // 「열을 분할해줘, 대상이 있어야 하는 경우에는 2개를 쌍으로 넣을 수 있게 해주면 되잖아. .. 순차적임을 표현하기 위해 한쪽은 공백을 두고 다른 한쪽은 도구를 주고」): **대상 = 상대 문서**.
+  // 상대 문서가 있어야 하는 줄(문서마다의 줄이 아닌 줄 — 원본 → 목적 · 워크플로우 전체)은 **쌍 줄**: 같은 줄을 목적 문서 칸과 원본 문서 칸 두 칸에 하나씩 그린다(전의 두 칸에 걸친 「공통」 한 칸 · 「＋ 공통 줄 넣기…」 는 없앴다) ·
+  // 문서 줄은 한 칸만 채우고 다른 칸은 빈칸(차례가 위에서 아래로 보이게) · 두 문서 칸 사이에는 세로 금(workflow.css). 쌍 줄은 두 문서 칸의 고르기 어디서든 넣는다(옵션 글 「… (쌍)」 — 저장은 `{unit, on: []}` 한 줄 그대로).
+  // 넣기의 자리 · 꺼짐 까닭(그 줄이 쓰는 앞 줄)은 **서버의 `units[].uses`**([{unit(그 줄이 쓰는 결과를 만드는 줄의 key), must(앞에 없으면 서버 검사가 거절)}])만 읽는다 — 규칙을 화면에 새로 적지 않는다(없으면 빈 것: 옛 서버 · 그 값을 안 주는 틀).
+  const usesOf = (u) => (u && Array.isArray(u.uses) ? u.uses : []).filter((x) => x && typeof x.unit === "string");
+  const usesHit = (c, p, x, role) => { // 저장 줄 p 가 x 가 가리키는 앞 줄인가 — 그 줄이 문서마다의 줄이면 같은 문서(role)에 닿는 것(쌍 줄이 쓰면 어느 문서든)
+    const pu = unitOf(x.unit, c);
+    return p.unit === x.unit && (!(pu && pu.place === "doc") || !role || p.on.includes(role));
+  };
+  function lineEl(c, gi, si, s, role, no, lock) { // role = 이 줄의 문서(target | source) | null(쌍 줄 — 문서마다의 줄이 아닌 줄 · 문서 줄인데 할 문서가 없는 옛 줄도) · si = 저장 줄의 자리(두 문서 줄이면 두 줄이 같은 si)
+    const flow = c.flow, g = flow[gi], u = unitOf(s.unit, c), li = h("li", "wf-line"), top = h("div", "wf-line-top");
+    const half = !!role && s.on.length > 1; // 두 문서를 하는 저장 줄의 한 몫
+    const none = !role && !!u && u.place === "doc"; // 문서 줄인데 할 문서가 없는 옛 줄(서버 검사가 「할 문서를 고르세요」 로 거절한다)
+    li.dataset.unit = s.unit;
+    li.dataset.role = role || (none ? "none" : "pair");
+    const badge = () => { // 이름 + 꼬리표(칸마다 새로 — 같은 노드를 두 칸에 둘 수 없다)
+      const nm = h("span", "wf-line-name"), tags = h("span", "wf-badges");
+      nm.append(h("b", "", lineName(s, c)));
+      if (u && u.kind === "hand") tags.append(tag("사람", "human", "human"));
+      if (u && u.paid) tags.append(tag("LLM", "llm", "llm"));
+      if (u && u.change === "doc") tags.append(tag("문서 바뀜", "doc", "doc"));
+      if (u && u.optional) tags.append(tag("선택", "soft"));
+      nm.append(tags);
+      return nm;
+    };
+    top.append(h("span", "wf-line-no", String(no).padStart(2, "0")));
+    if (none) { // 할 문서가 없는 옛 문서 줄 — 두 칸에 걸친 한 칸에 까닭 글
+      const cell = h("div", "wf-line-cell wf-line-none");
+      cell.append(badge(), h("span", "wf-muted", "할 문서가 없습니다 — 빼고 문서 칸에서 다시 넣으세요"));
+      top.append(cell);
+    } else if (!role) { // 쌍 줄 — 상대 문서가 있어야 하는 줄: 같은 줄을 두 문서 칸에 하나씩(원본 → 목적 = 원본 칸 「→ 목적 문서로」 · 목적 칸 「← 원본 문서에서」 / 워크플로우 전체 = 두 칸 모두)
+      const flowWide = !!u && u.place !== "pair";
+      for (const r of LINE_COLS) {
+        const cell = h("div", "wf-line-cell wf-line-pair");
+        cell.dataset.role = r;
+        cell.dataset.on = "1";
+        cell.append(badge(), h("span", "wf-line-hint", flowWide ? "워크플로우 전체" : r === "source" ? "→ 목적 문서로" : "← 원본 문서에서"));
+        top.append(cell);
+      }
+    } else for (const r of LINE_COLS) { // 문서 줄 — 그 문서의 칸만 채우고 다른 문서 칸은 빈칸(한 줄에 두 문서를 묶지 않는다 · 차례가 위에서 아래로 보인다)
+      const cell = h("div", r === role ? "wf-line-cell" : "wf-line-cell wf-line-blank");
+      cell.dataset.role = r;
+      if (r === role) { cell.dataset.on = "1"; cell.append(badge()); } else cell.setAttribute("aria-hidden", "true");
+      top.append(cell);
+    }
+    const who = role ? `${ROLE[role]}의 ` : ""; // 단추의 이름 — 어느 문서의 줄인지 함께
+    const prev = si > 0 || gi > 0 || (half && role === "target"), next = si < g.steps.length - 1 || gi < flow.length - 1 || (half && role === "source"); // 두 문서 줄의 두 몫은 서로를 넘을 수 있다(원본 줄이 위)
+    const move = (d) => { // ▲▼ — 묶음 안에서 한 칸 · 묶음 끝이면 옆 묶음으로 넘어간다. 두 문서 줄의 한 몫이면 먼저 저장 줄을 문서 하나씩 둘로 나눈다
+      const at = role ? lineHalf(g, si, role) : si, x = g.steps[at];
+      g.steps.splice(at, 1);
+      if (d < 0 && at === 0) flow[gi - 1].steps.push(x); else if (d > 0 && at === g.steps.length) flow[gi + 1].steps.unshift(x); else g.steps.splice(at + d, 0, x);
+      linesChanged(c);
+    };
+    const drop = () => { if (half) s.on = s.on.filter((x) => x !== role); else g.steps.splice(si, 1); linesChanged(c); }; // 빼기 — 두 문서 줄의 한 몫이면 그 문서만 뺀다(다른 문서의 줄은 남는다)
+    const acts = h("span", "wf-line-acts");
+    acts.append(lineBtn("▲", `${who}「${lineName(s, c)}」 위로`, () => move(-1), lock || !prev), lineBtn("▼", `${who}「${lineName(s, c)}」 아래로`, () => move(1), lock || !next),
+      lineBtn("빼기", `${who}「${lineName(s, c)}」 빼기`, drop, lock));
+    top.append(acts);
+    for (const b of top.querySelectorAll("button")) b.dataset.lf = `${b.textContent}:${gi}:${si}:${role || "c"}`;
+    li.append(top);
+    if (s.unit === "hand") { // 사람이 하는 일 — 이름 · 사람에게 보일 글(200자)
+      const more = h("div", "wf-line-hand"), name = h("input"), note = h("input");
+      name.value = s.name || ""; name.maxLength = 30; name.placeholder = "이름(예: 결과 확인)"; name.disabled = lock; name.setAttribute("aria-label", "사람이 하는 일의 이름");
+      note.value = s.note || ""; note.maxLength = 200; note.placeholder = "사람에게 보일 글(예: 원본의 헤딩 판정을 보고 맞으면 「했음」)"; note.disabled = lock; note.setAttribute("aria-label", "사람에게 보일 글");
+      name.addEventListener("change", () => { s.name = name.value.trim(); linesChanged(c); });
+      note.addEventListener("change", () => { s.note = note.value.trim(); linesChanged(c); });
+      more.append(name, note);
+      li.append(more);
+    }
+    return li;
+  }
+  function addRowEl(c, gi, lock) { // 묶음의 넣기 줄 — 줄과 같은 격자에: 목적 문서 칸 「＋ 목적 문서 줄 넣기…」 · 원본 문서 칸 「＋ 원본 문서 줄 넣기…」 · 끝 칸은 비움(고르면 그 묶음에 줄 하나 · 자리 = 그 줄이 쓰는 앞 줄이 이 묶음에 있으면 그 뒤, 없으면 묶음 끝: placeAt)
+    // 고를 줄 = 그 틀의 줄(unitsOf — 그 문서에 놓을 수 있는 문서 줄 + 사람이 하는 일 + **쌍 줄**(원본 → 목적 · 워크플로우 전체 — 두 칸의 고르기 모두에 · 옵션 글 「… (쌍)」: 어느 칸에서 골라도 쌍으로 들어간다 — spec ② §18-6 「대상 잇기」)).
+    // 아직 못 고르는 줄 · 그 문서에(쌍 줄은 흐름에) 이미 놓은 줄 · 꼭 있어야 하는 앞 줄(서버의 uses — must)이 이 묶음 · 앞 묶음에 없는 줄은 까닭과 함께 꺼짐(사람이 하는 일은 여럿 놓는다)
+    const box = shapeBox(c), homes = Object.fromEntries(box && Array.isArray(box.homes) ? box.homes.map((x) => [x.id, x.name]) : (T.stages || []).map((st) => [st.id, st.name])); // 줄이 사는 단계의 이름 — 취합형은 붙박이 취합의 묶음(1단계 프로젝트 구성 …)
+    const units = unitsOf(c), g = c.flow[gi];
+    const has = (unit, r) => (c.flow || []).some((x) => x.steps.some((s) => s.unit === unit && (!r || s.on.includes(r)))); // 흐름에 그 줄이 (그 문서에) 이미 있나
+    // 그 줄이 쓰는 앞 줄(서버의 units[].uses 만 읽는다 — lineEl 위 「대상 잇기」 주석): 꺼짐 까닭 · 넣는 자리
+    const isPair = (u) => u.place !== "doc"; // 쌍 줄(문서마다의 줄이 아닌 줄 — 원본 → 목적 · 워크플로우 전체)
+    const roleOfKind = (u, kind) => (isPair(u) ? "" : kind); // 앞 줄을 찾을 문서 — 문서 줄은 그 문서 · 쌍 줄은 어느 문서든
+    const lacks = (u, kind) => usesOf(u).filter((x) => x.must && !(c.flow || []).slice(0, gi + 1).some((x2) => x2.steps.some((p) => usesHit(c, p, x, roleOfKind(u, kind))))); // 꼭 있어야 하는 앞 줄 가운데 이 묶음 · 앞 묶음에 없는 것(문서 줄은 그 문서에 닿는 것) — 있으면 그 줄은 아직 못 고른다
+    const placeAt = (u, kind) => { // 넣는 자리 — 이 묶음 안의 마지막 「그 줄이 쓰는 앞 줄」 바로 뒤에서 시작해, 잇달아 선 「같은 앞 줄을 쓰고 · 서버의 줄 차례(units 의 자리)가 새 줄보다 앞인」 줄을 건너뛴 자리 · 그 앞 줄이 이 묶음에 없으면 묶음 끝
+      // 꼭 있어야 하는 앞 줄(must)은 늘 따르고, 아닌 것은 문서마다의 줄(같은 문서)일 때만 따른다 — 워크플로우 전체 · 원본 → 목적의 줄(프로젝트 구성 확정 …)이 한 문서의 줄을 다른 문서의 줄들 위로 끌어올리지 않게(문서끼리의 차례는 자유 — 따로 넣은 줄은 묶음 끝에)
+      const r = roleOfKind(u, kind), order = (k) => units.findIndex((x) => x.key === k), mine = order(u.key);
+      let last = -1, key = "";
+      for (const x of usesOf(u)) {
+        const pu = unitOf(x.unit, c);
+        if (!x.must && !(pu && pu.place === "doc" && r)) continue;
+        g.steps.forEach((p, i) => { if (i >= last && usesHit(c, p, x, r)) { last = i; key = x.unit; } }); // 두 문서를 하는 저장 줄(on 둘)이 그 앞 줄이면 그 저장 줄 뒤
+      }
+      if (last < 0) return g.steps.length;
+      let at = last + 1;
+      for (; at < g.steps.length; at++) { const v = unitOf(g.steps[at].unit, c); if (!v || order(v.key) >= mine || !usesOf(v).some((x) => x.unit === key)) break; }
+      return at;
+    };
+    const pick = (kind) => { // kind = target | source — 그 문서 칸의 고르기(문서 줄 + 사람이 하는 일 + 쌍 줄)
+      const sel = h("select", "wf-lines-add"), groups = {}, label = `${ROLE[kind]} 줄`;
+      sel.dataset.add = kind;
+      sel.dataset.lf = `add:${gi}:${kind}`;
+      sel.setAttribute("aria-label", `${gi + 1}단계에 ${label} 넣기`);
+      sel.disabled = lock;
+      sel.append(new Option(`＋ ${label} 넣기…`, ""));
+      for (const u of units) {
+        const pair = isPair(u);
+        if (!pair && !u.roles.includes(kind)) continue; // 문서 줄은 그 문서에 놓을 수 있는 것만 · 쌍 줄은 두 칸의 고르기 모두에
+        const home = u.kind === "hand" ? "사람이 하는 일" : homes[u.home] || u.home, og = groups[home] || (groups[home] = h("optgroup"));
+        og.label = home;
+        const full = u.kind !== "hand" && has(u.key, pair ? "" : kind); // 쌍 줄은 흐름에 이미 있으면 · 문서 줄은 그 문서에 이미 있으면
+        const lack = lacks(u, kind).map((x) => (unitOf(x.unit, c) || {}).name || x.unit); // 꼭 있어야 하는 앞 줄이 아직 없는 줄 — 먼저 넣을 줄의 이름(「아직 서버가 못 돌림」 · 「이미 놓음」 까닭이 먼저)
+        const why = !u.server ? (u.kind === "hand" ? " — 아직(실행기가 멈추는 길을 만드는 중)" : " — 아직 서버가 못 돌림") : full ? " — 이미 놓음"
+          : lack.length ? ` — 먼저 ${lack.map((n) => `「${n}」`).join(" · ")} ${josa(lack[lack.length - 1], "을", "를")} 넣으세요` : "";
+        const o = new Option(u.name + (pair ? " (쌍)" : "") + why, u.key);
+        o.disabled = !!why;
+        if (pair) o.dataset.pair = "1";
+        og.append(o);
+      }
+      sel.append(...Object.values(groups));
+      sel.addEventListener("change", () => {
+        const u = unitOf(sel.value, c);
+        if (!u) return;
+        const on = isPair(u) ? [] : [kind]; // 쌍 줄은 어느 칸에서 골라도 한 줄({unit, on: []}) — 두 칸에 쌍으로 보인다
+        g.steps.splice(placeAt(u, kind), 0, u.kind === "hand" ? { unit: "hand", on, name: "사람이 하는 일", note: "" } : { unit: u.key, on }); // 그 줄이 쓰는 앞 줄이 이 묶음에 있으면 그 뒤 · 없으면 묶음 끝
+        linesChanged(c);
+      });
+      return sel;
+    };
+    const same = (r) => { // 「…와 같이」(한 번짜리) — 다른 문서 o 가 이 묶음에서 하는 줄 가운데 이 문서 r 에 없는 것을, 그 줄 바로 아래에 이 문서의 줄로 따로 넣는다(사람이 하는 일은 줄마다 다른 일이라 안 넣는다)
+      const o = ROLES.find((x) => x !== r);
+      const todo = () => g.steps.filter((s) => { const u = unitOf(s.unit, c); return !!u && u.kind !== "hand" && s.unit !== "hand" && u.place === "doc" && s.on.includes(o) && !s.on.includes(r) && u.roles.includes(r) && !has(s.unit, r); });
+      const list = todo(), what = `${ROLE[o]}가 이 묶음에서 하는 줄 가운데 ${ROLE[r]}에 없는 것을, 그 줄 바로 아래에 ${ROLE[r]}의 줄로 따로 넣습니다`;
+      const b = lineBtn(`${ROLE[o]}와 같이`, list.length ? `${what} — ${list.map((s) => lineName(s, c)).join(" · ")}` : `${what} — 지금은 넣을 줄이 없습니다`,
+        () => { for (const s of todo().reverse()) g.steps.splice(g.steps.indexOf(s) + 1, 0, { unit: s.unit, on: [r] }); linesChanged(c); }, lock || !list.length);
+      b.classList.add("wf-lines-same");
+      b.dataset.same = r;
+      b.dataset.lf = `same:${gi}:${r}`;
+      return b;
+    };
+    const docSource = units.some((u) => u.place === "doc" && u.roles.includes("source")); // 그 틀에 원본 문서에 놓을 문서 줄이 있나
+    const hasSource = docSource || units.some((u) => isPair(u)); // 원본 칸의 고르기 — 원본 문서 줄이 없어도 쌍 줄이 있으면 그린다(쌍 줄은 두 칸의 고르기 모두에)
+    const canSame = docSource && units.some((u) => u.place === "doc" && u.kind !== "hand" && u.roles.length === 2); // 두 문서에 다 놓을 수 있는 줄이 있을 때만 「…와 같이」(취합형은 문서마다의 줄이 모두 한 문서뿐)
+    const cellOf = (r) => { const d = h("div", "wf-lines-addcell"); d.dataset.role = r; d.append(pick(r), ...(canSame ? [same(r)] : [])); return d; };
+    const row = h("div", "wf-lines-addrow");
+    row.append(h("span", "wf-lines-addpad"), cellOf("target"), hasSource ? cellOf("source") : h("span", "wf-lines-addpad"), h("span", "wf-lines-addpad")); // 끝 칸(줄의 단추 자리)은 비운다 — 전의 「＋ 공통 줄 넣기…」 는 없앴다(쌍 줄은 문서 칸의 고르기에서)
+    return row;
+  }
+  function checkEl(c) { // 서버 검사의 결과 — 표준 차례인가 · 거절(빨강 — 저장 단추가 꺼짐) · 경고(주황 — 저장은 됨)
+    const box = h("div", "wf-lines-check");
+    box.setAttribute("role", "status");
+    if (c.checking) { box.append(h("p", "wf-muted", "검사하는 중…")); return box; }
+    const k = c.check;
+    if (!k) return box;
+    if (!k.errors.length && !c.single) box.append(h("p", "wf-lines-std", k.std ? "표준 차례 — 저장하면 옛 꼴로 둡니다(옛 화면 · 옛 서버도 그대로 읽습니다)" : "줄 목록으로 조립한 워크플로우 — 서버 실행기가 정한 차례 그대로 돌립니다"));
+    if (k.errors.length) { const ul = h("ul", "wf-lines-err"); ul.setAttribute("role", "alert"); for (const e of k.errors) ul.append(h("li", "", e)); box.append(ul); }
+    if (k.warns.length) { const ul = h("ul", "wf-lines-warn"); for (const w of k.warns) ul.append(h("li", "", w)); box.append(ul); }
+    return box;
+  }
+  function linesDraw(c) { // 줄 목록을 다시 그린다(초점은 같은 자리의 컨트롤로) · 저장 단추의 켜짐도
+    const box = c.linesBox;
+    if (!box) return;
+    const a = document.activeElement, focus = a && box.contains(a) ? a.dataset.lf || "" : "", lock = !!c.locked, flow = c.flow || [];
+    box.replaceChildren();
+    if (!c.flow) { box.append(h("p", "wf-muted", "줄 목록을 읽는 중…")); return; }
+    const ol = h("ol", "wf-lines-groups");
+    let no = 0;
+    flow.forEach((g, gi) => {
+      const li = h("li", "wf-lines-group"), head = h("div", "wf-lines-ghead"), nm = h("input"), steps = h("ol", "wf-lines-steps");
+      li.dataset.group = g.id || `new${gi}`;
+      nm.value = g.name; nm.maxLength = 20; nm.disabled = lock; nm.dataset.lf = `gname:${gi}`; nm.setAttribute("aria-label", `${gi + 1}단계 묶음의 이름`);
+      nm.addEventListener("change", () => { g.name = nm.value.trim() || `묶음 ${gi + 1}`; linesChanged(c); });
+      const swap = (d) => { const [x] = flow.splice(gi, 1); flow.splice(gi + d, 0, x); linesChanged(c); };
+      head.append(h("span", "wf-lines-no", `${gi + 1}단계`), nm, lineBtn("▲", `${gi + 1}단계 묶음 위로`, () => swap(-1), lock || gi === 0), lineBtn("▼", `${gi + 1}단계 묶음 아래로`, () => swap(1), lock || gi === flow.length - 1),
+        lineBtn("묶음 빼기", `${gi + 1}단계 묶음 빼기(그 줄도 함께)`, () => { flow.splice(gi, 1); linesChanged(c); }, lock || flow.length === 1));
+      for (const b of head.querySelectorAll("button")) b.dataset.lf = `g${b.textContent}:${gi}`;
+      { // 열 머리 — 왼쪽 목적 문서 · 오른쪽 원본 문서(줄의 칸과 같은 격자). 줄이 없어도 그린다 — 아래 넣기 줄의 칸 이름이기도 하다
+        const cols = h("li", "wf-line-cols");
+        cols.setAttribute("aria-hidden", "true");
+        cols.append(h("span", ""), ...LINE_COLS.map((r) => h("span", "wf-line-colname", ROLE[r])), h("span", ""));
+        steps.append(cols);
+      }
+      g.steps.forEach((s, si) => { // 보이는 줄 — 저장 줄을 차례대로: 쌍 줄(문서마다의 줄이 아닌 줄)은 한 줄에 두 칸 · 문서 줄은 문서마다 한 줄(두 문서를 하는 저장 줄 = 원본 문서 줄 → 목적 문서 줄 두 줄 · 번호 = 보이는 줄의 차례)
+        const u = unitOf(s.unit, c), roles = u && u.place === "doc" ? ROLES.filter((r) => s.on.includes(r)) : [];
+        for (const r of roles.length ? roles : [null]) steps.append(lineEl(c, gi, si, s, r, ++no, lock));
+      });
+      if (!g.steps.length) steps.append(h("li", "wf-muted wf-line-empty", c.single ? "줄이 없습니다 — 아래에서 넣으세요" : "줄이 없습니다 — 아래에서 넣거나 묶음을 빼세요"));
+      li.append(...(c.single ? [] : [head]), steps, addRowEl(c, gi, lock)); // 단계 폼(single) = 묶음 하나 — 묶음 머리(이름 · 차례 · 빼기)가 없다
+      ol.append(li);
+    });
+    const addG = lineBtn("＋ 묶음", "묶음을 끝에 더합니다", () => { flow.push({ name: `묶음 ${flow.length + 1}`, steps: [] }); linesChanged(c); }, lock || flow.length >= 8);
+    addG.dataset.lf = "addGroup";
+    box.append(ol, ...(c.single ? [] : shapeBox(c) ? [addG] : [addG, addStageEl(c, lock)]), checkEl(c)); // 「＋ 단계 넣기…」 의 단계(기본 넷 · 내가 만든 단계)는 이관형의 줄이라 취합형에는 두지 않는다 // 「위에서 아래로 차례대로 · 맨 앞 묶음의 준비」 설명은 절 머리의 노트 아이콘에(사용자 「아래 설명들은 빼고」)
+    if (focus) { const to = [...box.querySelectorAll("[data-lf]")].find((x) => x.dataset.lf === focus && !x.disabled); if (to) to.focus({ preventScroll: true }); }
+    if (c.saveBtn) c.saveBtn.disabled = c.busy || (!lock && c.mode === "lines" && (c.checking || !c.check || c.check.errors.length > 0));
+  }
+  // ---- 단계 넣기 · 단계 만들기(spec_워크플로우 ② §18-14 — 2026-11-20 사용자 「이 단계 만들기도 있어야 하는거 아니냐?」)
+  // 단계 = 줄의 묶음: 붙박이 넷(서버 stages[].lines — 그 단계의 표준 줄) + 내가 만든 단계(userStages — 있는 줄을 골라 이름 붙여 저장: POST · PUT · DELETE /api/stages).
+  // 조립 폼의 「＋ 단계 넣기…」 = 그 줄들을 묶음 하나로 끝에 넣는다(이미 놓은 줄 · 문서는 빼고 — 넣은 뒤에는 그 워크플로우의 줄이다: 단계를 고쳐도 만든 워크플로우는 안 바뀐다).
+  // 「단계 만들기」 절(#wfStage — 전체 보기와 함께) = 내가 만든 단계 목록(고치기 · 지우기) + 폼(이름 · 한 줄 설명 · 줄 — 조립의 줄 편집기를 묶음 하나로: c.single). 검사는 서버(POST /api/stages/check). 새 종류의 줄은 화면에서 못 만든다(줄은 코드).
+  let staging = null; // 펴 둔 단계 폼 {key("" = 새로), name, desc, flow: [{name, steps}](묶음 하나), single: true, mode: "lines", check, checking, busy, err, locked: ""}
+  function stageRest(c, steps) { // 그 단계의 줄 가운데 지금 줄 목록에 더 놓을 수 있는 것(이미 놓은 줄 · 문서를 뺌 — 사람이 하는 일은 늘)
+    const used = {};
+    for (const g of c.flow || []) for (const s of g.steps) { const set = used[s.unit] || (used[s.unit] = new Set()); if (s.on.length) s.on.forEach((r) => set.add(r)); else set.add("*"); }
+    const out = [];
+    for (const s of steps || []) {
+      const u = unitOf(s.unit, c), taken = used[s.unit];
+      if (!u) continue;
+      if (u.kind === "hand") { out.push({ unit: "hand", on: [...(s.on || [])], name: s.name || "사람이 하는 일", note: s.note || "" }); continue; }
+      if (u.place !== "doc") { if (!taken) out.push({ unit: s.unit, on: [...(s.on || [])] }); continue; }
+      const on = (s.on || []).filter((r) => !(taken && taken.has(r)));
+      if (on.length) out.push({ unit: s.unit, on });
+    }
+    return out;
+  }
+  function addStageEl(c, lock) { // 「＋ 단계 넣기…」 — 붙박이 단계 · 내가 만든 단계의 줄들을 묶음 하나로 끝에
+    const sel = h("select", "wf-lines-add wf-lines-addstage"), groups = [["기본 단계", (T.stages || []).filter((st) => Array.isArray(st.lines)).map((st) => ({ id: st.id, name: st.name, steps: st.lines }))],
+      ["내가 만든 단계", (T.userStages || []).map((s) => ({ id: s.key, name: s.name, steps: s.steps }))]];
+    sel.setAttribute("aria-label", "단계를 묶음으로 넣기");
+    sel.dataset.lf = "addStage";
+    sel.disabled = lock || (c.flow || []).length >= 8;
+    sel.append(new Option("＋ 단계 넣기…", ""));
+    const by = {};
+    for (const [label, list] of groups) {
+      if (!list.length) continue;
+      const og = h("optgroup");
+      og.label = label;
+      for (const st of list) {
+        const rest = stageRest(c, st.steps), o = new Option(st.name + (rest.length ? "" : " — 이미 놓음"), st.id);
+        o.disabled = !rest.length;
+        by[st.id] = { name: st.name, rest };
+        og.append(o);
+      }
+      sel.append(og);
+    }
+    sel.addEventListener("change", () => {
+      const st = by[sel.value];
+      if (!st || !st.rest.length) return;
+      c.flow.push({ name: String(st.name).slice(0, 20), steps: st.rest });
+      linesChanged(c);
+    });
+    return sel;
+  }
+  async function stageCheck(c) { // 서버의 단계 검사 → c.check {errors, warns: [], std: false}
+    c.checking = true;
+    let got = null;
+    try { const r = await fetch("/api/stages/check", { method: "POST", headers: JSON_H, body: JSON.stringify({ steps: c.flow[0].steps }) }); got = r.ok ? await r.json() : null; } catch { got = null; }
+    if (staging !== c) return;
+    c.checking = false;
+    c.check = got ? { errors: got.errors || [], warns: [], std: false } : { errors: ["단계 검사를 읽지 못했습니다 — 서버를 다시 켠 뒤에 쓸 수 있습니다"], warns: [], std: false };
+  }
+  function stageOpen(key) { // "" = 새 단계 · 키 = 그 단계 고치기 — 「단계 만들기」 절로 가서 폼을 편다
+    const s = key ? ((T && T.userStages) || []).find((x) => x.key === key) : null;
+    staging = T && Array.isArray(T.userStages) && Array.isArray(T.units)
+      ? { key: s ? s.key : "", name: s ? s.name : "", desc: s ? s.desc || "" : "", flow: [{ name: "단계", steps: s ? flowCopy([{ steps: s.steps }])[0].steps : [] }], single: true, mode: "lines", check: null, checking: false, busy: false, err: "", locked: "" } : null;
+    if (view === "diagram") navigate("#overview"); else go("#overview");
+    stageDraw();
+    if (staging) stageCheck(staging).then(() => { if (staging) linesDraw(staging); });
+    const box = $("wfStage"), first = box && box.querySelector("input[name=stage-name]");
+    if (box) box.scrollIntoView({ block: "start" });
+    if (first) first.focus({ preventScroll: true });
+  }
+  async function stageSave() {
+    const c = staging;
+    if (!c || c.busy) return;
+    c.busy = true; c.err = "";
+    stageDraw();
+    const r = await ffSend(c.key ? `/api/stages/${encodeURIComponent(c.key)}` : "/api/stages", { method: c.key ? "PUT" : "POST", headers: JSON_H, body: JSON.stringify({ name: c.name, desc: c.desc, steps: c.flow[0].steps }) });
+    if (!r.ok) { c.busy = false; c.err = r.msg; if (staging === c) stageDraw(); return; } // 서버의 글 그대로(400 값이 틀림 · 409 저장 파일을 못 읽음)
+    staging = null;
+    await load(); // 저장소를 다시 읽어 목차 · 절 · 조립 폼의 「＋ 단계 넣기…」 를 새로
+    const box = $("wfStage");
+    if (box) box.scrollIntoView({ block: "start" });
+  }
+  async function stageDelete(s) {
+    if (!confirm(`내가 만든 단계 「${s.name}」 ${josa(s.name, "을", "를")} 지울까요?\n\n이미 이 단계를 넣어 만든 워크플로우는 그대로입니다(넣은 줄은 그 워크플로우의 것). 되돌릴 수 없습니다.`)) return;
+    const r = await ffSend(`/api/stages/${encodeURIComponent(s.key)}`, { method: "DELETE" });
+    if (!r.ok) { alert(`지우지 못했습니다 — ${r.msg}`); return; }
+    if (staging && staging.key === s.key) staging = null;
+    await load();
+  }
+  function stageSec() { const sec = h("section", "wf-sec wf-compose wf-stage-make"); sec.id = "wfStage"; return sec; }
+  function stageDraw() {
+    const sec = $("wfStage");
+    if (!sec) return;
+    const h2 = h("h2"), can = !!(T && Array.isArray(T.userStages) && Array.isArray(T.units));
+    h2.append(h("span", "wf-kind", "단계 만들기"), document.createTextNode("줄을 골라 내 단계 만들기"));
+    sec.replaceChildren(h2);
+    if (!can) { staging = null; const p = h("p", "wf-lead wf-compose-off", NO_COMPOSE); p.setAttribute("role", "status"); sec.append(p); return; }
+    headHelp(sec, h2, "단계 만들기 — 설명", "있는 줄(헤딩 · 표 분석 · 프로젝트 구성 반영 · 자리 연결 …)을 골라 차례대로 놓고 이름을 붙이면 내 단계가 됩니다. 워크플로우 조립의 「＋ 단계 넣기…」 가 그 줄들을 묶음 하나로 넣습니다 — "
+      + "넣은 뒤에는 그 워크플로우의 줄이라, 단계를 고치거나 지워도 이미 만든 워크플로우는 바뀌지 않습니다. 새 종류의 줄(새로운 일)은 화면에서 만들 수 없습니다 — 기본 단계 넷(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)의 줄 가운데서 고릅니다.");
+    if (T.stagesBroken) { const p = h("p", "wf-compose-broken", "내가 만든 단계의 저장 파일을 읽지 못했습니다 — 목록이 보이지 않고, 그 파일을 덮지 않으려고 서버가 새로 저장하거나 고치지 않습니다."); p.setAttribute("role", "alert"); sec.append(p); }
+    const list = h("ul", "wf-made-list");
+    for (const s of T.userStages) {
+      const li = h("li"), chips = h("span", "wf-links"), edit = h("button", "btn sm", "고치기"), del = h("button", "btn sm", "지우기");
+      li.dataset.stage = s.key;
+      for (const n of s.lines || []) chips.append(h("span", "wf-chip", n));
+      edit.type = del.type = "button";
+      edit.addEventListener("click", () => stageOpen(s.key));
+      del.addEventListener("click", () => stageDelete(s));
+      li.append(h("b", "wf-over-name", s.name), ...(s.desc ? [h("span", "wf-muted", s.desc)] : []), chips, edit, del);
+      list.append(li);
+    }
+    if (T.userStages.length) sec.append(list);
+    if (!staging) {
+      const make = h("button", "btn primary", "새 단계 만들기");
+      make.type = "button";
+      make.dataset.wfStage = "open";
+      make.addEventListener("click", () => stageOpen(""));
+      sec.append(make);
+      return;
+    }
+    const c = staging, form = h("form", "wf-form"), field = (label, control) => { const f = h("label", "wf-field"); f.append(h("span", "wf-field-name", label), control); return f; };
+    const name = h("input"), desc = h("input"), lines = h("div", "wf-lines"), blockF = h("div", "wf-field wf-field-block"), acts = h("div", "wf-form-acts");
+    form.addEventListener("submit", (e) => { e.preventDefault(); stageSave(); });
+    name.name = "stage-name"; name.required = true; name.maxLength = 20; name.value = c.name; name.placeholder = "예: 원본만 검토";
+    name.addEventListener("input", () => { c.name = name.value; });
+    desc.name = "stage-desc"; desc.maxLength = 200; desc.value = c.desc; desc.placeholder = "이 단계가 하는 일 한 줄(비워도 됩니다)";
+    desc.addEventListener("input", () => { c.desc = desc.value; });
+    const save = h("button", "btn primary", c.busy ? "저장 중…" : c.key ? "고친 것 저장" : "단계 만들기"), cancel = h("button", "btn", "취소");
+    save.type = "submit";
+    c.saveBtn = save;
+    c.linesBox = lines;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => { staging = null; stageDraw(); });
+    acts.append(save, cancel);
+    if (c.err) { const e = h("p", "wf-err", c.err); e.setAttribute("role", "alert"); acts.append(e); }
+    blockF.append(h("span", "wf-field-name", "줄"), lines);
+    form.append(h("h3", "", c.key ? `「${c.name}」 고치기` : "새 단계"), field("이름", name), field("한 줄 설명", desc), blockF, acts);
+    sec.append(form);
+    linesDraw(c);
+  }
+
+  // 「문서 입출력」(spec_워크플로우 ② §18-8 「문서 입출력」 · §18-9 — 2026-11-20 사용자 "1->N, N-1 문서 입출력 … 입력을 설정할 수 있어야 … 각 1이 되는것들은 특정 문서로 지정할 수 있도록, default 로"):
+  // 틀 = 서버의 shapes 그대로(「1」 문서 하나 · 「1 → 1」 이관 · 「N → 1」 취합 — 아직 못 여는 틀은 까닭과 함께 꺼 둔다: 감추지 않는다) → 고른 틀의 문서 칸(역할 · 수 · 문서 종류) ·
+  // 수가 1인 칸마다 기본 문서(저장한 양식 — 없음 · 기본값 · 고정). 새 워크플로우는 고른 것을 만든 뒤에 걸고(composeSave), 고치기는 그 워크플로우의 설정을 바로 바꾼다(워크플로우 절의 「문서 칸」 과 같은 끝점 — 정의와 따로라 지문이 안 바뀐다).
+  // 만든 뒤에는 틀 · 문서 종류를 못 고친다(그 워크플로우로 하던 작업의 문서 역할이 달라진다). shapes 를 안 주는 옛 서버면 전의 문서 쌍 고르기(pairs).
+  const pairOf = (sh) => { const k = (role) => (((sh.slots || []).find((s) => s.role === role) || {}).kinds || [])[0]; return `${(k("source") || {}).id || ""}>${(k("target") || {}).id || ""}`; };
+  function ioEl(c, onChange) {
+    const box = h("div", "wf-iobox"), shapes = Array.isArray(T.shapes) ? T.shapes.filter((x) => x && x.id) : [];
+    if (!shapes.length) { // 옛 서버 — 문서 쌍 고르기
+      const pair = h("select");
+      for (const p of T.pairs) pair.append(new Option(p.name, `${p.source}>${p.target}`));
+      pair.name = "pair"; pair.value = c.pair; pair.disabled = !!c.key;
+      pair.setAttribute("aria-label", "문서 쌍(원본 → 목적)");
+      pair.addEventListener("change", () => { c.pair = pair.value; onChange(); });
+      box.append(pair);
+      return box;
+    }
+    const opts = h("div", "wf-io-shapes");
+    opts.setAttribute("role", "radiogroup");
+    opts.setAttribute("aria-label", "문서 입출력");
+    let slots = null;
+    for (const sh of shapes) {
+      const lab = h("label", "wf-io-opt"), r = h("input"), [what] = String(sh.name || sh.id).split(" — ");
+      r.type = "radio"; r.name = "shape"; r.value = sh.id; r.checked = c.shape === sh.id; r.disabled = !!c.key || !!sh.soon;
+      lab.dataset.shape = sh.id;
+      if (sh.soon) lab.dataset.soon = "1";
+      if (r.checked) lab.dataset.on = "1"; // 고른 틀 — 테두리(:has() 를 쓰지 않고 표지로)
+      r.addEventListener("change", () => { if (!r.checked) return; for (const x of opts.children) delete x.dataset.on; lab.dataset.on = "1"; c.shape = sh.id; c.pair = pairOf(sh); c.slots = {}; shapeFlow(c); const next = ioSlots(c, sh, onChange); slots.replaceWith(next); slots = next; onChange(); });
+      const soon = sh.soon ? h("span", "wf-io-soon", "준비 중") : null; // 설명 글은 두지 않는다(2026-11-20 사용자 「설명 빼줘」) — 아직 못 여는 까닭은 꼬리표의 풍선 글로만
+      if (soon) soon.title = sh.soon;
+      lab.append(r, h("b", "wf-io-form", sh.io || sh.id), h("span", "wf-io-name", what), ...(soon ? [soon] : []));
+      opts.append(lab);
+    }
+    slots = ioSlots(c, shapes.find((x) => x.id === c.shape) || shapes.find((x) => !x.soon) || shapes[0], onChange);
+    box.append(opts, slots); // 아래 설명 글은 두지 않는다(사용자 「아래 설명들은 빼고」)
+    return box;
+  }
+  function ioSlots(c, sh, onChange) { // 고른 틀의 문서 칸 — 칸마다 역할 · 수(1 | N) · 기본 문서(수가 1인 칸 — 저장한 양식). 설명 글 · 문서 종류 이름은 두지 않는다(사용자 「아래 설명들은 빼고 … 확정적인 이름은 빼줘」)
+    const ul = h("ul", "wf-slot-list wf-io-slots"), [src, tgt] = c.pair.split(">");
+    ul.dataset.shape = sh.id;
+    for (const s of sh.slots || []) {
+      const li = h("li", "wf-slot"), head = h("span", "wf-slot-role"), kinds = s.kinds || [], kind = (s.role === "source" ? src : tgt) || (kinds[0] || {}).id || ""; // kind = 양식 고르기를 추리는 종류(보이지 않음 — 서버의 짝)
+      li.dataset.role = s.role;
+      head.append(h("b", "", s.title || ROLE[s.role] || s.role), h("span", "wf-io-count", s.many ? "N" : "1"));
+      li.append(head);
+      if (!s.many && !sh.soon) li.append(c.key ? ioLive(c, s) : slotDraft(c, s, kind));
+      ul.append(li);
+    }
+    return ul;
+  }
+  function ioLive(c, s) { // 고치기 — 그 워크플로우의 그 칸 설정을 바로(워크플로우 절의 「문서 칸」 과 같은 고르기)
+    const t = D ? D.tasks.find((x) => x.job === c.key) : null, j = ffJob(c.key), jr = j ? ((j.roles || []).find((x) => x.role === s.role) || (s.role === "target" && !j.roles ? j : null)) : null;
+    if (!FF) return h("span", "wf-muted", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "기본 문서는 서버를 다시 켠 뒤에 걸 수 있습니다");
+    if (!t || !jr) return h("span", "wf-muted", "이 칸에는 기본 문서를 걸지 않습니다");
+    return slotPick(t, jr, (FF.slots && FF.slots[c.key] && FF.slots[c.key][s.role]) || null, s.role, s.title, true);
+  }
+  function slotDraft(c, s, kind) { // 새 워크플로우의 그 칸 — 기본 문서를 골라 둔다(만든 뒤에 건다: composeSave · 걸 수 있는지는 그때 서버가 다시 본다)
+    const wrap = h("span", "wf-slot-pick");
+    if (!FF) { wrap.append(h("span", "wf-muted", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "기본 문서는 서버를 다시 켠 뒤에 걸 수 있습니다")); return wrap; }
+    const mode = h("select"), form = h("select"), j = { formats: ["hwpx"], kind }, fits = (FF.files || []).filter((f) => ffFits(f, j)), cur = c.slots[s.role] || null;
+    mode.name = `draft-mode-${s.role}`;
+    mode.setAttribute("aria-label", `${s.title} 칸의 기본 문서 — 양식`);
+    for (const [v, label] of Object.entries(FF_MODE)) mode.append(new Option(`양식: ${label}`, v));
+    mode.value = cur ? cur.mode : "";
+    form.name = `draft-form-${s.role}`;
+    form.setAttribute("aria-label", `${s.title} 칸에 넣을 저장한 양식`);
+    for (const f of fits) form.append(new Option(`${f.name}${ffDate(f.at) ? ` (${ffDate(f.at)})` : ""}`, f.id));
+    if (!fits.length) form.append(new Option("걸 수 있는 양식이 없음", ""));
+    form.value = cur && fits.some((f) => f.id === cur.file) ? cur.file : (fits[0] || {}).id || "";
+    const sync = () => {
+      form.disabled = !mode.value || !fits.length;
+      c.slots[s.role] = mode.value && form.value ? { mode: mode.value, file: form.value } : null;
+    };
+    mode.disabled = !fits.length;
+    mode.addEventListener("change", sync);
+    form.addEventListener("change", sync);
+    sync();
+    wrap.append(mode, form); // 설명 글 없음(고르기 글 「걸 수 있는 양식이 없음」 이 그 몫)
+    return wrap;
   }
   function composeForm() {
     const c = composing, form = h("form", "wf-form"), field = (label, control, note) => { const f = h("label", "wf-field"); f.append(h("span", "wf-field-name", label), control); if (note) f.append(h("span", "wf-muted", note)); return f; };
+    const block = (label, control) => { const f = h("div", "wf-field wf-field-block"); f.append(h("span", "wf-field-name", label), control); return f; };
     form.addEventListener("submit", (e) => { e.preventDefault(); composeSave(); });
-    const name = h("input"), desc = h("input"), pair = h("select"), premise = h("textarea");
+    const name = h("input"), desc = h("input"), premise = h("textarea");
     name.name = "name"; name.required = true; name.maxLength = limit("name", 40); name.value = c.name; name.placeholder = "예: 연차보고서 구성만 맞추기";
     name.addEventListener("input", () => { c.name = name.value; });
     desc.name = "desc"; desc.maxLength = limit("desc", 200); desc.value = c.desc; desc.placeholder = "시작 화면의 카드에 보이는 한 줄 설명(비워도 됩니다)";
     desc.addEventListener("input", () => { c.desc = desc.value; });
-    for (const p of T.pairs) pair.append(new Option(p.name, `${p.source}>${p.target}`));
-    pair.name = "pair"; pair.value = c.pair; pair.disabled = !!c.key; // 만든 뒤에는 문서 쌍을 못 고친다(그 워크플로우로 하던 작업의 문서 역할이 달라진다)
-    pair.addEventListener("change", () => { c.pair = pair.value; sync(); });
     premise.name = "premise"; premise.rows = 4; premise.maxLength = limit("premise", 8000); premise.value = c.premise;
     premise.placeholder = `이 워크플로우의 전제 · 기준(LLM 호출이 읽는 글). 비우면 「${taskName(T.base)}」 의 전제를 씁니다.`;
     premise.addEventListener("input", () => { c.premise = premise.value; });
@@ -847,7 +1349,7 @@
         if (cell.mode === "pick") {
           const lab = h("label", "wf-assign-opt"), box = h("input");
           box.type = "checkbox"; box.name = `assign-${role}`; box.value = st.id; box.checked = c.assign[role].has(st.id);
-          box.addEventListener("change", () => { if (box.checked) c.assign[role].add(st.id); else c.assign[role].delete(st.id); sync(); });
+          box.addEventListener("change", () => { if (box.checked) c.assign[role].add(st.id); else c.assign[role].delete(st.id); sync(); stdFill(c); }); // 표에서 고르면 줄 목록을 그 표준 차례로 다시 채운다
           if (!cell.text) box.setAttribute("aria-label", `${ROLE[role]} — ${st.name}`);
           lab.append(box, h("span", "wf-assign-text", cell.text || ""));
           td.append(lab);
@@ -903,13 +1405,20 @@
     sync();
     const save = h("button", "btn primary", c.busy ? "저장 중…" : c.key ? "고친 것 저장" : "워크플로우 만들기"), cancel = h("button", "btn", "취소"), acts = h("div", "wf-form-acts");
     save.type = "submit"; save.disabled = c.busy;
+    c.saveBtn = save;
+    const std = h("details", "wf-std-pick"), lines = h("div", "wf-lines"); // 표 = 표준 차례로 채우기(문서마다 단계 고르기 — 고르면 줄 목록이 그 표준 차례로) · 줄 목록 = 묶음 › 줄(정의 v2)
+    std.open = c.mode === "std";
+    std.hidden = !!shapeBox(c); // 표(문서 역할 × 단계)는 이관형의 표준 차례 — 취합형에는 두지 않는다(줄 목록만)
+    std.append(h("summary", "", "표준 차례로 채우기 — 문서마다 단계 고르기"), pick);
+    c.linesBox = lines;
+    linesDraw(c);
     cancel.type = "button";
     cancel.addEventListener("click", () => { composing = null; composeDraw(); });
     acts.append(save, cancel);
     if (c.err) { const e = h("p", "wf-err", c.err); e.setAttribute("role", "alert"); acts.append(e); }
     form.append(h("h3", "", c.key ? `「${c.name}」 고치기` : c.copyOf ? `새 워크플로우 — 「${c.copyOf}」 복제` : "새 워크플로우"), field("이름", name), field("한 줄 설명", desc),
-      field("문서 쌍(원본 → 목적)", pair, c.key ? "만든 뒤에는 고칠 수 없습니다" : T.pairs.length > 1 ? "" : "지금 조립할 수 있는 쌍은 이것 하나입니다 — 까닭은 아래 「아직 조립할 수 없는 것」"),
-      ...(lock ? [lock] : []), pick, slotField(c, field), field("전제(선택)", premise), acts);
+      block("문서 입출력", ioEl(c, () => { sync(); std.hidden = !!shapeBox(c); std.open = c.mode === "std"; if (c.mode === "std") stdFill(c); else linesChanged(c); })), // 문서 입출력이 바뀌면 문서 이름 · 줄 목록(틀의 처음 것 — shapeFlow) · 서버 검사를 새로
+      ...(lock ? [lock] : []), block("단계(묶음 › 줄)", lines), std, field("전제(선택)", premise), acts); // 여러 컨트롤이 든 칸은 label 이 아니라 div(누르면 첫 컨트롤로 가지 않게)
     return form;
   }
 
@@ -939,8 +1448,9 @@
     formsDraw();
     for (const box of document.querySelectorAll(".wf-slots[data-job]")) { const t = D && D.tasks.find((x) => x.job === box.dataset.job); if (t) box.replaceWith(slotEl(t)); }
   }
-  function slotEl(t) { // 「문서 칸」 — 역할마다 한 줄(원본 → 목적): 원본 문서 = 실행마다 사람이 넣음 · 목적 문서 = 양식 설정(없음 · 기본값 · 고정 + 저장한 양식)
-    const box = h("div", "wf-slots"), roles = rolesSorted(t.roles), j = ffJob(t.job), cur = FF && FF.slots && FF.slots[t.job] && FF.slots[t.job].target;
+  function slotEl(t) { // 「문서 칸」 — 역할마다 한 줄(원본 → 목적): 수가 1인 칸 = 양식 설정(없음 · 기본값 · 고정 + 저장한 양식 — ② §18-9: 걸 수 있는 칸은 서버의 jobs[].roles) · 여럿인 칸 = 문서마다 사람이 넣음
+    const box = h("div", "wf-slots"), roles = rolesSorted(t.roles), j = ffJob(t.job), box0 = (FF && FF.slots && FF.slots[t.job]) || {};
+    const jrOf = (role) => (!j ? null : Array.isArray(j.roles) ? j.roles.find((x) => x.role === role) || null : role === "target" ? j : null); // roles 를 안 주는 옛 서버 = 목적 칸만
     box.dataset.job = t.job;
     const ul = h("ul", "wf-slot-list");
     for (const r of roles.length ? roles : [{ role: "target", title: "목적 문서", name: "" }]) {
@@ -948,24 +1458,26 @@
       li.dataset.role = r.role;
       head.append(h("b", "", roleTitle(r)), document.createTextNode(r.name ? ` — ${r.name}` : ""), ...(r.many ? [h("span", "wf-muted", "(여럿)")] : []));
       li.append(head);
-      if (r.role !== "target") li.append(h("span", "wf-muted", "실행마다 사람이 넣습니다(양식은 목적 문서 칸에만 겁니다)"));
+      const jr = jrOf(r.role);
+      if (r.many) li.append(h("span", "wf-muted", "문서마다 사람이 넣습니다(여럿인 칸에는 양식을 걸지 않습니다)"));
       else if (!FF) li.append(h("span", "wf-muted", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "양식 설정은 서버를 다시 켠 뒤에 쓸 수 있습니다"));
       else if (!j) li.append(h("span", "wf-muted", (FF.noForm || {})[t.job] || (t.soon ? "준비 중인 워크플로우라 양식을 걸지 않습니다" : "이 워크플로우는 양식을 걸지 않습니다")));
-      else li.append(slotPick(t, j, cur));
+      else if (!jr) li.append(h("span", "wf-muted", "실행마다 사람이 넣습니다"));
+      else li.append(slotPick(t, jr, box0[r.role] || null, r.role, roleTitle(r)));
       ul.append(li);
     }
     box.append(ul);
     return box;
   }
-  function slotPick(t, j, cur) { // 목적 문서 칸의 양식 설정 — [없음 | 기본값 | 고정] [저장한 양식 ▾] + 저장한 날 · 거절 글
+  function slotPick(t, j, cur, role = "target", title = "목적 문서", quiet = false) { // 그 칸(수가 1 — 목적 · 이관의 원본)의 양식 설정 — [없음 | 기본값 | 고정] [저장한 양식 ▾] + 저장한 날 · 거절 글. j = 그 칸의 규칙(서버 jobs[].roles 의 하나 — formats · kind) · quiet = 설명 글 없이(조립 폼)
     const wrap = h("span", "wf-slot-pick"), mode = h("select"), form = h("select"), note = h("span", "wf-muted"), err = h("span", "wf-slot-err"); // 줄 아래 거절 글(.wf-err 는 조립 폼의 저장 거절 글 — 섞지 않는다)
-    const fits = (FF.files || []).filter((f) => ffFits(f, j)), now = cur ? (FF.files || []).find((f) => f.id === cur.file) : null;
-    mode.name = `slot-mode-${t.job}`;
-    mode.setAttribute("aria-label", `${taskName(t.job)} — 목적 문서 칸의 양식`);
+    const fits = (FF.files || []).filter((f) => ffFits(f, j)), now = cur ? (FF.files || []).find((f) => f.id === cur.file) : null, tail = role === "target" ? "" : `-${role}`; // 목적 칸의 이름은 전 그대로(화면 검사 · 옛 고르기)
+    mode.name = `slot-mode-${t.job}${tail}`;
+    mode.setAttribute("aria-label", `${taskName(t.job)} — ${title} 칸의 양식`);
     for (const [v, label] of Object.entries(FF_MODE)) mode.append(new Option(`양식: ${label}`, v));
     mode.value = cur ? cur.mode : "";
-    form.name = `slot-form-${t.job}`;
-    form.setAttribute("aria-label", `${taskName(t.job)} — 목적 문서 칸에 넣을 저장한 양식`);
+    form.name = `slot-form-${t.job}${tail}`;
+    form.setAttribute("aria-label", `${taskName(t.job)} — ${title} 칸에 넣을 저장한 양식`);
     for (const f of fits) form.append(new Option(`${f.name}${ffDate(f.at) ? ` (${ffDate(f.at)})` : ""}`, f.id));
     if (now && !fits.includes(now)) form.append(new Option(`${now.name} — 지금은 걸 수 없음`, now.id));
     if (!form.options.length) form.append(new Option("걸 수 있는 양식이 없음", ""));
@@ -974,14 +1486,14 @@
     const need = [j.formats.join(" · "), j.kind ? FF_KIND[j.kind] || j.kind : ""].filter(Boolean).join(" · ");
     const sync = () => {
       note.textContent = !fits.length ? `걸 수 있는 양식이 없습니다 — 아래 「저장한 양식」 에서 ${need} 양식을 올리세요`
-        : !mode.value ? "시작할 때 목적 문서를 사람이 넣습니다"
-          : mode.value === "fixed" ? "늘 이 양식으로 시작합니다 — 시작의 목적 칸에 다른 파일을 넣을 수 없습니다" : "시작할 때 이 양식이 미리 들어가 있고, 다른 파일로 바꿀 수 있습니다";
+        : !mode.value ? `시작할 때 ${title}를 사람이 넣습니다`
+          : mode.value === "fixed" ? `늘 이 양식으로 시작합니다 — 시작의 ${title} 칸에 다른 파일을 넣을 수 없습니다` : "시작할 때 이 양식이 미리 들어가 있고, 다른 파일로 바꿀 수 있습니다";
     };
     const send = async () => {
       if (mode.value && !form.value) { sync(); return; }
       mode.disabled = form.disabled = true;
       err.textContent = "";
-      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ target: mode.value ? { file: form.value, mode: mode.value } : null }) });
+      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ [role]: mode.value ? { file: form.value, mode: mode.value } : null }) });
       if (!r.ok) { err.textContent = `바꾸지 못했습니다 — ${r.msg}`; mode.disabled = false; form.disabled = !mode.value || !fits.length; return; }
       await formsLoad();
       ffRedraw();
@@ -991,7 +1503,7 @@
     mode.disabled = !fits.length && !cur;
     sync();
     err.setAttribute("role", "alert");
-    wrap.append(mode, form, note, err);
+    wrap.append(mode, form, ...(quiet ? [] : [note]), err);
     return wrap;
   }
 
@@ -1044,8 +1556,8 @@
     h2.append(h("span", "wf-kind", "저장한 양식"), document.createTextNode("워크플로우의 목적 문서 칸에 넣을 양식"));
     sec.replaceChildren(h2);
     if (!FF) { const p = h("p", "wf-lead", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "저장한 양식은 서버를 다시 켠 뒤에 쓸 수 있습니다"); p.setAttribute("role", "status"); sec.append(p); return; }
-    sec.append(h("p", "wf-lead", "워크플로우 절의 「문서 칸」 에서 목적 문서 칸에 양식을 겁니다 — 기본값(시작할 때 미리 들어가 있고 다른 파일로 바꿀 수 있음) · 고정(늘 그 양식). "
-      + "양식 파일은 올린 그대로 두고 고치지 않습니다(고치려면 새로 올립니다). 이미 하던 작업의 문서는 설정을 바꿔도 그대로입니다."));
+    headHelp(sec, h2, "저장한 양식 — 설명", "워크플로우 절의 「문서 칸」 에서 수가 1인 문서 칸(목적 문서 · 이관의 원본 문서)에 양식을 겁니다 — 기본값(시작할 때 미리 들어가 있고 다른 파일로 바꿀 수 있음) · 고정(늘 그 양식). "
+      + "양식 파일은 올린 그대로 두고 고치지 않습니다(고치려면 새로 올립니다). 이미 하던 작업의 문서는 설정을 바꿔도 그대로입니다.");
     if (FF.broken) { const p = h("p", "wf-compose-broken", "저장한 양식의 목록 파일을 읽지 못했습니다 — 목록이 보이지 않고, 그 파일을 덮지 않으려고 서버가 새로 저장하거나 고치지 않습니다."); p.setAttribute("role", "alert"); sec.append(p); }
     const list = h("ul", "wf-ff-list");
     for (const f of FF.files || []) {
@@ -1131,8 +1643,9 @@
     navDraw();
     indexRoutes();
     const diagram = h("section", "wf-diagram"); diagram.id = "wfDiagram"; diagram.hidden = true;
-    main.replaceChildren(diagram, overview(), composeSec(), formsSec(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
+    main.replaceChildren(diagram, overview(), composeSec(), stageSec(), formsSec(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
     composeDraw();
+    stageDraw();
     formsDraw();
     go(location.hash);
   }

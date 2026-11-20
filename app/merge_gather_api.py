@@ -86,6 +86,13 @@ class _Why(Exception):
         self.code, self.message = code, message or MSG.get(code) or code
 
 
+def _free(doc_id):
+    """바쁨 막이 — 서버 쪽 워크플로우 실행(「한 번에 진행」)이 이 취합본에서 도는 동안 사람이 누른 배포 기준본 · 등록 · 반영할 기관 · 결정 · LLM 검토 · 넣기 계획 · 반영 · 끌어 넣기를 409 로 거절한다
+    (그 실행이 스스로 부르는 것은 지나간다 — server._flow_busy_other: spec_워크플로우 ② §18-13 갈래 「다」). 그 사이 등록 · 결정 · 계획이 바뀌면 실행이 세운 계획이 낡는다."""
+    from app import server
+    server._flow_busy_other(doc_id)
+
+
 def _err(status, code, message=None):
     return HTTPException(status, {"reason": code, "message": message or MSG.get(code) or code})
 
@@ -467,6 +474,7 @@ def gather_get(doc_id: str):
 def gather_frame(doc_id: str):
     """배포 기준본 만들기 — 저장 바이트와 자리 정보를 **같은 잠금 안에서** 뜬다(그 사이 편집이 끼면 기록과 나눠 준 파일이 어긋난다 — astra). 문서는 안 바뀐다. 한 번 만든 판은 안 바꾼다(다시 만들면 새 frameId)."""
     from app import server
+    _free(doc_id)
     s = server._sess(doc_id)
     with s.lock:
         server._project_settings_sync(s)
@@ -520,6 +528,7 @@ def _part_id(part):
 def gather_part_put(doc_id: str, part: str, body: dict = Body(default={})):
     """기관 문서를 취합에 넣거나(없던 문서) 반영할 기관·공통 자리 포함을 바꾼다. `orgs: []` = 미지정(아무것도 안 넣음 — 「가리지 않음」 이 아니다)."""
     from app import server
+    _free(doc_id)
     _part_id(part)
     orgs, common = body.get("orgs"), body.get("common")
     if (orgs is not None and not (isinstance(orgs, list) and all(isinstance(x, str) and x for x in orgs))) or (common is not None and not isinstance(common, bool)):
@@ -569,6 +578,7 @@ def gather_part_put(doc_id: str, part: str, body: dict = Body(default={})):
 def gather_part_delete(doc_id: str, part: str):
     """취합에서 뺀다 — 넣은 내용은 취합본에 그대로(되돌리려면 실행 취소). 문서 자체는 안 지운다."""
     from app import server
+    _free(doc_id)
     server._sess(doc_id)
 
     def fn(G):
@@ -616,6 +626,7 @@ def _name_org(name, keys, base="", others=()):
 def gather_part_auto(doc_id: str, part: str):
     """간단 모드의 반영할 기관 자동 지정(spec ② §8-3) → 취합 상태 몸통 + auto{part, org, by, why}. 이미 지정돼 있으면(사람이 고름 · 앞서 정함) 안 바꾼다."""
     _part_id(part)
+    _free(doc_id)
     s, G, frame, stale = _ctx(doc_id)
     rec = _rec(G, part)
     if rec.get("orgs"):
@@ -667,6 +678,7 @@ def gather_decide(doc_id: str, part: str, key: str, body: dict = Body(...)):
     value = body.get("value")
     if value not in ("keep", "skip", None):
         raise _err(400, "badValue", "value 는 keep · skip · null")
+    _free(doc_id)
     view = _links_view(doc_id, part)
     if key not in {it["key"] for it in view["items"]}:
         raise _err(404, "noKey")
@@ -697,6 +709,7 @@ def gather_llm(doc_id: str, part: str):
     받은 결정은 source llm 로 저장: 사람 것은 그대로 · 이제 없는 열쇠의 앞선 LLM 결정은 버림 · 이번 답으로 갈아 끼움. 요약은 parts[part].llm, 프롬프트·답은 `gather/llm-<part>.json`.
     ponytail: 요청 하나가 끝까지 기다린다(merge_api.merge_links_llm 과 같다) — 분 단위가 되면 배경 작업 + 폴링으로."""
     from app import job_prompts
+    _free(doc_id)
     s, G, frame, stale = _ctx(doc_id)
     rec = _rec(G, part)
     why = _blocked(rec, frame, stale)
@@ -757,6 +770,7 @@ def _tx(s, src, run, op, req, code):
 def gather_plan(doc_id: str, part: str):
     """넣기 계획 — 넣을 수 있고(ready) 결정이 skip·check 가 아닌 작성 내용마다 넣을 것을 센다. **문서는 안 바뀐다**. 계획에 적어 두는 것 = 두 문서의 차례 · 기준 판 · 취합 설정의 판 · 분석 실행(반영이 다시 본다).
     (2026-11-13 — spec_병합 ② §5-5) 취합본 틀보다 깊게 쓴 줄(넘친 개요 레벨)은 저장된 처리(merge_over.json)대로 미리 풀어 계획에 싣고, 사례가 있으면 응답에 `over{version, cases[], templates[], records}`."""
+    _free(doc_id)
     s, G, frame, stale = _ctx(doc_id)
     why = _blocked(_rec(G, part), frame, stale)
     if why:
@@ -787,6 +801,7 @@ def gather_plan(doc_id: str, part: str):
 def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
     """{planId} → 그 계획을 취합본에 반영: 편집 하나(실행 취소 1 · rev +1 · 기록 `gatherFill`). 기관 문서는 안 바뀐다. 넣은 것은 parts[part].applied 에(판은 안 올린다 — 문서 차례가 바뀌어 계획은 어차피 낡는다)."""
     from app import server
+    _free(doc_id)
     with _LOCK:
         plan = _PLANS.get((doc_id, part))
     if plan is None or plan["planId"] != body.get("planId"):
@@ -878,6 +893,7 @@ def gather_drop_plan(doc_id: str, body: dict = Body(...)):
 def gather_drop_apply(doc_id: str, body: dict = Body(...)):
     """{planId, convert(틀 맞춤 — 기본 켬)} → 계획대로 넣는다: 편집 하나(실행 취소 1 · rev +1 · 기록 `gatherDrop`). 계획 때와 같은 두 그래프(실행 번호가 같음)로 다시 풀어 계획과 다르면 409."""
     from app import server
+    _free(doc_id)
     with _LOCK:
         plan = _DROPS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):

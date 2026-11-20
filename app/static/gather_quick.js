@@ -12,7 +12,7 @@ const gqHwp = (f) => /\.hwp$/i.test(f.name);
 // ---- 목적 문서가 열린 뒤 → 차례대로(gqGo) -------------------------------------------------------------------------
 async function gatherQuickRun(planId, name, parts, { llm = true, uploadOnly = false, aliases = new Map() } = {}) { // home_files.js 가 목적 문서(취합본)를 열고 TASK 를 적은 뒤 부른다 — 기관 문서는 목록 차례
   if (state.id !== planId) return;
-  gqRun = { job: "plan_merge", plan: planId, name, llm, uploadOnly, items: parts.map((f) => ({ file: f, name: f.name, alias: aliases.get(f) || "" })), auto: new Set(), log: {}, note: "", t0: Date.now(), stop: false, busy: false, end: null };
+  gqRun = { job: (state.task && state.task.job) || "plan_merge", plan: planId, name, llm, uploadOnly, items: parts.map((f) => ({ file: f, name: f.name, alias: aliases.get(f) || "" })), auto: new Set(), log: {}, note: "", t0: Date.now(), stop: false, busy: false, end: null };
   await gqGo(gqRun);
 }
 async function gqGo(run) { // 목적 문서가 열린 뒤 — 남은 기관 문서 올리기 → (등록만이면 끝) → 1단계 → 2단계. 「이어서」 도 이것

@@ -99,10 +99,22 @@ def pair(wid):
             out["source"] = _doc(w)
         return out
     out["target"] = _doc(target)
+    if _gather(job):   # 취합형 — 원본 문서 = 그 목적 문서의 취합에 등록한 문서들(gather.json 의 order — 등록한 차례: 문서 종류 part 는 후보일 뿐이다 · ② §18-12 ⑥). 원본 하나(source)는 없다
+        from app import merge_gather_api
+        out["kinds"]["source"] = "part"
+        out["sources"] = [_doc(x) for x in (works.work(p) for p in merge_gather_api._store(target["id"])["order"]) if x]
+        return out
     src = merge_api._mate(target["id"], merge_api._store(target["id"]))[1]
     sw = works.work(src) if src else None
     out["source"] = _doc(sw) if sw else None
     return out
+
+
+def _gather(job):
+    """그 워크플로우가 취합형(원본 문서 여럿 → 목적 문서 하나)인가 — 등록부의 틀로(붙박이 키를 견주지 않는다)."""
+    from app import workflow_state
+    task = workflow_state.definition(job)
+    return bool(task) and workflow_state.family(task) == "gather"
 
 
 def facts(doc_id):
@@ -294,7 +306,8 @@ def div_facts(doc_id):
     settings, applied = v.get("settings"), rec(v.get("applied"))
     out = {"input": norm((settings or {}).get("values")), "applied": applied, "confirmed": rec(v.get("confirmed")), "partial": [rec(p) for p in v.get("partial") or ()],
            "form": (v.get("profile") or {}).get("form") or "", "supported": bool((v.get("profile") or {}).get("supported")), "rev": rev, "read": None,
-           "sharing": v.get("projectSharing")}   # 확정이 놓이는 곳(프로젝트 · 이 문서 — 화면 divConfirmWhere)
+           "sharing": v.get("projectSharing"),   # 확정이 놓이는 곳(프로젝트 · 이 문서 — 화면 divConfirmWhere)
+           "plan": v.get("plan"), "stale": bool(v.get("stale"))}   # 지금 계획의 요약({planId, baseRev, only, skip, summary …} | None — 서버 메모리) · 계획 뒤 문서가 바뀜(문서 하나의 「변경 계획 보기」 줄이 읽는다 — 상태 조회는 계획을 세우지 않는다)
     if out["input"] is None and not applied and out["form"]:
         hit = _READ.get(doc_id)
         if hit is None or hit[0] != rev:
@@ -330,11 +343,234 @@ def division_plan(doc_id, values, skip=()):
     return _run(server.divisions_plan, doc_id, {"values": values, "skip": [x for x in skip or () if isinstance(x, str)]}, on409="stale")
 
 
-def division_apply(doc_id, plan_id, expect_rev):
+def division_apply(doc_id, plan_id, expect_rev, adopt=False):
     """[문서 바뀜] 그 계획대로 구조 반영(POST …/divisions/apply — 편집 하나 · 실행 취소 1 · 표준 검사에 걸리면 전부 되돌림) → Outcome:
-    ok(data = 반영 결과 · rev) · nothing(할 일 없음 — 이미 그 값에 맞음) · stale(409 — 계획 뒤 문서가 바뀜 · 계획이 없음) · rejected(422 — 표준 검사로 되돌림)."""
+    ok(data = 반영 결과 · rev) · nothing(바꿀 것이 없는 계획 — data.summary 로 「이미 맞음」 과 「못 맞춤」 을 가른다) · stale(409 — 계획 뒤 문서가 바뀜 · 계획이 없음) · rejected(422 — 표준 검사로 되돌림).
+    adopt = 바꿀 것이 없는 문서 전체 계획이 「구조가 이미 이 값에 맞음」 이면 그 확인을 반영 기록으로 남긴다(data.adopted — 끝남을 문서의 기록에서 다시 세려고: ② §18-13)."""
     from app import server
-    got = _run(server.divisions_apply, doc_id, {"planId": plan_id, "expectRev": expect_rev}, on409="stale")
+    got = _run(server.divisions_apply, doc_id, {"planId": plan_id, "expectRev": expect_rev, **({"adopt": True} if adopt else {})}, on409="stale")
     if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
         return Outcome("nothing", "할 일이 없습니다 — 이미 그 값에 맞습니다", got.data, got.data.get("rev"))
     return Outcome(got.code, got.text, got.data, (got.data or {}).get("rev") if isinstance(got.data, dict) else None)
+
+
+def division_adopt(doc_id, values=None):
+    """구조 확인(POST …/divisions/adopt — 문서 안 바뀜): 한 번도 반영한 적 없는 문서의 구조가 이미 값에 맞으면 반영 기록을 적는다 → Outcome(data = {adopted, why(applied · changes · unresolved · noCandidates | None), summary, applied, rev}).
+    409 = 확인하는 동안 문서나 값이 바뀜(stale). 취합의 「프로젝트 구성 반영」 이 계획 앞에 먼저 부른다(구조를 맞춘 프레임을 새로 올린 문서 — 울타리 없이)."""
+    from app import server
+    return _run(server.divisions_adopt, doc_id, {"values": values} if values else {}, on409="stale")
+
+
+# ---------------------------------------------------------------- 자리 연결 · 넣기 · 정리(걸음 3 — 이관형 3 · 4단계: spec_워크플로우 ② §18-12 ② · ③) — 끝점은 app/merge_api.py · 문서 id = 목적 문서
+def fill_facts(target):
+    """「내용 넣기 · 문서 정리」 줄의 재료(merge_api.fill_summary — 문서 안 바뀜 · 계획을 세우지 않음) | None(문서를 못 엶)."""
+    from app import merge_api
+    got = merge_api.fill_summary(target)
+    return None if "links" not in got else got
+
+
+def fill_ver(target):
+    """지금 입력의 판(16자 — 두 문서의 차례 · 분석 · 연결 · 표 짝 · 표 대응 · 빈 자리) | None — 유료 호출의 시도를 (줄 · 문서 쌍 · 판)에 묶는다(② §18-4 「한 번」)."""
+    from app import merge_api
+    return merge_api.inputs_now(target)
+
+
+def links(target):
+    """연결 목록(GET …/merge-links — 사람이 고친 것 · 저장된 짝 그대로) → Outcome(data = 그 몸통)."""
+    from app import merge_api
+    return _run(merge_api.merge_get, target)
+
+
+def links_llm(target):
+    """자리 연결 LLM 검토(동기 · 유료 · 수십 초 — POST …/merge-links/llm) → Outcome(data = 다시 읽은 연결 목록). 409 = 막는 까닭이 생김(blocked)."""
+    from app import merge_api
+    return _run(merge_api.merge_links_llm, target, on409="blocked")
+
+
+def fill_plan(target):
+    """넣기 계획(문서 안 바뀜 — POST …/merge-links/plan · 옛 계획은 버린다) → Outcome(data = 계획 보기 {planId, todo, body, tables, fixed, maps, gaps …})."""
+    from app import merge_api
+    return _run(merge_api.merge_plan, target, on409="blocked")
+
+
+def fill_gaps(target):
+    """빈 자리 검토(동기 · 유료 — POST …/merge-links/gaps · 이미 답이 있는 자리는 다시 안 물음) → Outcome(data = {asked, found, tables, slots, …})."""
+    from app import merge_api
+    return _run(merge_api.merge_gaps_post, target, {}, on409="blocked")
+
+
+def fill_maps(target):
+    """표 대응(동기 · 유료 — POST …/merge-links/table-map · 쓸 수 있는 대응이 있는 표는 다시 안 물음) → Outcome(data = {asked, mapped, tables[…]})."""
+    from app import merge_api
+    return _run(merge_api.merge_table_map_post, target, {}, on409="blocked")
+
+
+def fill_apply(target, plan_id):
+    """그 계획을 반영(문서를 바꾼다 — 울타리 안에서 부른다: POST …/merge-links/apply) → Outcome — 409 = 낡은 계획(stale) · 422 = 표준 검사가 되돌림(rejected) · 넣을 것 0 = nothing."""
+    from app import merge_api
+    got = _run(merge_api.merge_apply, target, {"planId": plan_id}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "넣을 것이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+def cleanup_count(target):
+    """지울 양식 안내(GET …/form-cleanup — 문서 안 바뀜) → Outcome(data = {counts{total, …}, patterns[{key, name}], rev, …})."""
+    from app import merge_api
+    return _run(merge_api.form_cleanup_get, target)
+
+
+def cleanup(target, rev):
+    """양식 안내를 한 번에 지운다(문서를 바꾼다 — 울타리 안에서 · 지우기 전에 작성 지침 저장: 못 하면 지우지 않음) → Outcome — 409 = 센 뒤 문서가 바뀜(stale) · 지울 것 없음 = nothing."""
+    from app import merge_api
+    got = _run(merge_api.form_cleanup_post, target, {"expectRev": rev}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "지울 안내가 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+# ---------------------------------------------------------------- 사람이 하는 일(갈래 C — spec_워크플로우 ② §18-7 · §18-12 ⑦) — 확인 기록은 app/flow_hands.py · 「했음」 끝점은 app/flow_hands_api.py
+def hand_ver(task, line_key):
+    """그 줄의 판 — 정의의 지문(workflow_state.sig) + 줄 key · 이름 · 사람에게 보일 글(등록부 줄의 does)의 sha1 앞 10자. 글을 고치면 판이 바뀌어 앞의 「했음」 은 무효다."""
+    import hashlib
+    import json
+
+    from app import workflow_state
+    step = next((s for g in task.get("stages") or () for s in g["steps"] if s["key"] == line_key), None) or {}
+    core = [workflow_state.sig(task), line_key, step.get("name") or "", step.get("does") or ""]
+    return hashlib.sha1(json.dumps(core, ensure_ascii=False).encode("utf-8")).hexdigest()[:10]
+
+
+def hand_done(target_id, line_key, ver):
+    """그 묶음의 목적 문서에 그 줄이 그 판으로 「했음」 으로 적혀 있나."""
+    from app import flow_hands
+    return flow_hands.done(target_id, line_key, ver)
+
+
+# ---------------------------------------------------------------- 문서 하나의 헤딩 추출 · 조정 · 표(걸음 6 의 2 · 3단계 — spec_워크플로우 ② §18-13 갈래 「나」) — 끝점은 app/analysis_api.py · tpl_agent_api.py · server.headings_start
+_STD = {}   # 문서 id → (읽은 때, 문서 차례, 분석 상태) — 상태 조회가 잇달아 올 때 서식 갈래 · 자리 셈을 되풀이하지 않게 잠깐 든다(화면도 도는 동안 2초마다 읽는다)
+STD_KEEP = 2.0
+
+
+def analysis(doc_id, fresh=True):
+    """분석 상태(GET …/analysis — 문서 이름 줄 · 진행표와 같은 값: 헤딩 · 템플릿 · 서식 · 표의 스크립트 · LLM · 반영, llmPlan, busy) | None(못 엶 · 없는 문서).
+    fresh False = 방금(STD_KEEP 초 안) 읽은 것이 있고 문서 차례가 같으면 그것(상태 조회용 — 실행의 판단은 늘 새로 읽는다: 화면에 보이는 「끝남」 을 성공 조건으로 쓰지 않는다)."""
+    from fastapi import HTTPException
+
+    from app import analysis_api, server
+    now = time.time()
+    if not fresh:
+        hit, s = _STD.get(doc_id), server.DOCS.get(doc_id)
+        if hit is not None and s is not None and now - hit[0] <= STD_KEEP and hit[1] == s.rev:
+            return hit[2]
+    try:
+        got = analysis_api.analysis_get(doc_id)
+    except HTTPException:
+        _STD.pop(doc_id, None)
+        return None
+    _STD[doc_id] = (now, got.get("rev"), got)
+    if len(_STD) > 64:
+        for k in [k for k, v in _STD.items() if now - v[0] > STD_KEEP]:
+            _STD.pop(k, None)
+    return got
+
+
+def start_formats(doc_id, skill=None):
+    """서식 정리 계획만 받기(배경 · 유료 — 계획이 없거나 옛것인 템플릿만: POST …/analysis/llm {only: "formats"}). 문서는 안 바뀐다. 도는 중이면 busy."""
+    from app import analysis_api
+    return _run(analysis_api.analysis_llm_start, doc_id, {"only": "formats", **({"skill": skill} if skill else {})})
+
+
+def start_tables_llm(doc_id):
+    """표 판정(LLM)을 시작(배경 · 유료 — POST …/headings {stage: 3, llm: true}). 문서는 안 바뀐다. 도는 중이면 busy."""
+    from app import server
+    return _run(server.headings_start, doc_id, {"stage": 3, "llm": True})
+
+
+def adjust_apply(doc_id, rev, plans=None):
+    """[문서 바뀜] 조정 「모두 반영」(POST …/outline/agent/apply — 받아 둔 서식 정리 계획 · 확실한 종속 · 자리 맞춤을 트랜잭션 하나로 · 실행 취소 1) → Outcome:
+    ok(data = 반영 결과 {templates, changed, placed, left, merged …}) · nothing(반영할 것이 없음 — 409 NO_PLANS · 바꿀 줄이 없는 계획) · stale(409 — 그 사이 문서 · 계획이 바뀜) ·
+    blocked(409 — 헤딩 그래프 없음) · rejected(422 — 표준 검사가 되돌림). rev = 계획을 본 문서 차례 · plans = 본 계획의 표시 {템플릿 id: at}(그 계획들만 · 그대로일 때만)."""
+    from app import tpl_agent_api
+    got = _run(tpl_agent_api.apply_plans, doc_id, {"rev": rev, **({"plans": plans} if plans else {})}, on409="stale")
+    detail = (got.data or {}).get("detail") if isinstance(got.data, dict) else None
+    if got.code == "stale" and detail == tpl_agent_api.NO_PLANS:
+        return Outcome("nothing", got.text, got.data)
+    if got.code == "stale" and isinstance(detail, str) and detail.startswith("헤딩 추출 2단계"):
+        return Outcome("blocked", got.text, got.data)
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "바꿀 줄이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+# ---------------------------------------------------------------- 취합(걸음 5 — spec_워크플로우 ② §18-13 갈래 「다」) — 끝점은 app/merge_gather_api.py · 문서 id = 목적 문서(취합본) · part = 원본 문서(기관 문서)
+def reason(got):
+    """Outcome 의 까닭 열쇠(취합 끝점의 409 `detail.reason` — noHeadings · noMatch · frameDiffers · staleHeadings · stalePlan · noLlm …) | ""."""
+    d = (got.data or {}).get("detail") if isinstance(got.data, dict) else None
+    return str(d.get("reason") or "") if isinstance(d, dict) else ""
+
+
+def gather(target):
+    """취합 상태(GET …/gather — {frame{frameId, at, stale} | None, reasons, orgs, parts[{work, name, orgs, counts, todo, llm, reasons, state}], version}) | None(못 엶).
+    모든 기관 문서의 판정을 다시 본다(읽어 둔 것이 지금 것이면 그 문서를 열지 않는다) — 상태 조회용. 실행 중의 처리 함수는 그 문서 하나만 읽는 `gather_row` 를 쓴다."""
+    from fastapi import HTTPException
+
+    from app import merge_gather_api
+    try:
+        return merge_gather_api.gather_get(target)
+    except HTTPException:
+        return None
+
+
+def gather_row(target, part):
+    """그 기관 문서 한 줄(취합 상태의 parts[] 한 줄 — 그 문서 하나만 판정) | None(취합에서 뺀 문서 · 못 엶)."""
+    from fastapi import HTTPException
+
+    from app import merge_gather_api as GA
+    try:
+        s, G, frame, stale = GA._ctx(target)
+    except HTTPException:
+        return None
+    if part not in G["parts"]:
+        return None
+    return GA._part_view(s, G, frame, stale, part)[0]
+
+
+def gather_frame(target):
+    """배포 기준본 만들기(POST …/gather/frame — 문서 안 바뀜) → Outcome(data = 취합 상태). 409 = 만들 수 없는 까닭(blocked — reason(): unsupportedForm · noValues · notApplied · staleHeadings)."""
+    from app import merge_gather_api
+    return _run(merge_gather_api.gather_frame, target, on409="blocked")
+
+
+def gather_auto(target, part):
+    """반영할 기관 자동 지정(POST …/parts/{part}/auto — 파일 이름 → 추천 · 이미 지정돼 있으면 안 바꾼다) → Outcome(data = 취합 상태 + auto{org, by, why})."""
+    from app import merge_gather_api
+    return _run(merge_gather_api.gather_part_auto, target, part, on409="blocked")
+
+
+def gather_links(target, part, fresh=False):
+    """자리 연결 · 기관 작성 내용 판정(GET …/links · fresh = 다시 맞춤 POST) → Outcome(data = {part, counts, todo, items, llm, reasons}). 409 = 못 내는 까닭(blocked — reason())."""
+    from app import merge_gather_api
+    return _run(merge_gather_api.gather_links_post if fresh else merge_gather_api.gather_links, target, part, on409="blocked")
+
+
+def gather_llm(target, part):
+    """기관 작성 내용의 LLM 검토(동기 · 유료 · 수십 초 — POST …/parts/{part}/llm) → Outcome(data = 다시 읽은 연결 목록). 409 = 막는 까닭 · LLM 꺼짐(blocked — reason() noLlm)."""
+    from app import merge_gather_api
+    return _run(merge_gather_api.gather_llm, target, part, on409="blocked")
+
+
+def gather_plan(target, part):
+    """넣기 계획(POST …/parts/{part}/plan — 문서 안 바뀜) → Outcome(data = {planId, todo, counts, items …}). 409 = 못 내는 까닭(blocked)."""
+    from app import merge_gather_api
+    return _run(merge_gather_api.gather_plan, target, part, on409="blocked")
+
+
+def gather_apply(target, part, plan_id):
+    """[문서 바뀜] 그 계획을 취합본에 반영(POST …/parts/{part}/apply — 울타리 안에서 부른다 · 편집 하나 · 실행 취소 1) → Outcome: ok(data = {counts, calc, dropped, skipped}) ·
+    nothing(넣을 것 0) · stale(409 stalePlan — 계획 뒤 문서 · 설정이 바뀜) · rejected(422 — 표준 검사가 되돌림)."""
+    from app import merge_gather_api
+    got = _run(merge_gather_api.gather_apply, target, part, {"planId": plan_id}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "넣을 것이 없습니다", got.data, got.data.get("rev"))
+    return got

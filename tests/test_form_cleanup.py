@@ -102,6 +102,27 @@ def test_api_list_apply_undo(client):
     assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 94
 
 
+def test_api_does_not_delete_when_the_guides_cannot_be_kept(client, monkeypatch):
+    """지우기 전 작성 지침 저장이 실패하면 지우지 않는다(지운 지침이 어디에도 안 남게 하지 않는다 — spec_워크플로우 ② §18-12 ② · 전에는 지웠다)."""
+    from app import form_guides_api
+    d = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    v = client.get(f"/api/docs/{d}/form-cleanup").json()
+
+    def boom(s, found=None):
+        raise OSError("디스크가 가득 참")
+    real_keep = form_guides_api.keep
+    monkeypatch.setattr(form_guides_api, "keep", boom)
+    r = client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"]})
+    assert r.status_code == 503 and "지우지 않았습니다" in r.json()["detail"]
+    after = client.get(f"/api/docs/{d}/form-cleanup").json()
+    assert after["counts"]["total"] == v["counts"]["total"] and after["rev"] == v["rev"]   # 문서는 그대로
+    monkeypatch.setattr(form_guides_api, "keep", real_keep)
+    monkeypatch.setattr(form_guides_api, "_path", lambda wid: None)   # 저장할 곳이 없다(작업 저장 끔) — keep 은 예외 없이 쓰지 않고 돌아온다
+    r = client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"]})
+    assert r.status_code == 503 and "저장할 곳이 없어" in r.json()["detail"]
+    assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == v["counts"]["total"]
+
+
 def test_api_baseline_is_the_document_before_the_edit(client, monkeypatch):
     """2단계 내용 반영이 사업계획서에서 옮겨 온 위반 종류(그림의 renderingInfo 등)는 이 지우기 탓이 아니다 — 올린 원본에 없던 종류가 이미 있어도 지운다
     (2026-11-12 실측: 원본 기준선만 보는 전체 검사 편집(TEMP 삭제)이 반영 뒤 문서에서 422). 흉내: 원본 기준선을 비워 지금 문서의 위반이 모두 「원본에 없던 종류」 가 되게."""

@@ -1339,6 +1339,12 @@ def _job_ok(job):
     return job in TASK["job"] or custom_tasks.is_key(job)
 
 
+def _gather_job(job):
+    """취합인가 — 붙박이 「사업계획서 취합」 또는 취합형으로 조립한 워크플로우(원본 문서 여럿 → 목적 문서 하나). 취합인지를 붙박이 키 글자만으로 가르지 않는다(spec_워크플로우 ② §18-13 갈래 「라」 ⓷)."""
+    from app import custom_tasks
+    return job == "plan_merge" or custom_tasks.is_gather(job)
+
+
 TASK_KIND = {"doc_edit": "general", "style_copy": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」(spec_일반편집 ② §11)·「문서 서식 복사」(spec_서식복사 ② §1)는 일반 문서(general)의 일. 다른 조합은 저장하지 않는다(work_task)
 
 
@@ -1365,6 +1371,15 @@ def _flow_busy(wid=None, project=None):
     초기화 · 지우기 · 칸 바꾸기(워크플로우 · 프로젝트 · 라운드 · 문서 종류) · 새 라운드 · 묶음 초기화 · 프로젝트 이름 바꾸기 · 지우기가 함수 안에서 묻는다(URL 목록으로 가르지 않는다 — 끝점이 늘어도 빠지지 않게)."""
     from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
     why = workflow_exec.busy_text(wid, project)
+    if why:
+        raise HTTPException(409, why)
+
+
+def _flow_busy_other(wid):
+    """바쁨 막이 — 도는 워크플로우 실행이 **스스로도 부르는** 끝점(취합의 배포 기준본 · 반영할 기관 · 결정 · LLM 검토 · 넣기 계획 · 반영 — app/merge_gather_api.py)에서: 그 실행의 스레드는 지나가고
+    사람의 요청만 409(그 사이 등록 · 결정 · 계획이 바뀌면 실행이 세운 계획이 낡는다 — spec_워크플로우 ② §18-13 갈래 「다」)."""
+    from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
+    why = workflow_exec.busy_other(wid)
     if why:
         raise HTTPException(409, why)
 
@@ -1425,21 +1440,19 @@ def work_task(wid: str, body: dict = Body(...)):
 
 
 def _fixed_form_check(work, job, role):
-    """고정한 양식(워크플로우 설정 — spec_워크플로우 ② §18-9 · §18-12 ⑧): 그 워크플로우의 목적 문서로 **새로 들어오는** 작업은 그 양식으로 만든 것이어야 한다 — 409.
-    이미 그 워크플로우 · 그 역할이던 작업(하던 작업을 이어 함 · 라운드 · 프로젝트만 바꿈)은 막지 않는다(고정이어도 하던 작업의 문서는 안 바꾼다 — ② §18-11 ⓒ). 원본 문서(목적 종류가 아닌 칸)는 사람이 준다."""
+    """고정한 양식(워크플로우 설정 — spec_워크플로우 ② §18-9 · §18-12 ⑧): 그 워크플로우의 그 칸(목적 문서 · 이관의 원본 문서 — 수가 1인 칸)으로 **새로 들어오는** 작업은 그 양식으로 만든 것이어야 한다 — 409.
+    이미 그 워크플로우 · 그 역할이던 작업(하던 작업을 이어 함 · 라운드 · 프로젝트만 바꿈)은 막지 않는다(고정이어도 하던 작업의 문서는 안 바꾼다 — ② §18-11 ⓒ). 칸은 문서 종류로 가린다(form_files_api.fixed_slot)."""
     if not job:
         return
-    from app import form_files
-    slot = form_files.slot(job)
-    if not slot or slot["mode"] != "fixed":
+    from app import form_files_api
+    slot = form_files_api.fixed_slot(job, role)
+    if slot is None:
         return
     tkind, old = works.TARGET_FILE.get(job), work.get("task") or {}
-    if tkind is not None and role != tkind:
-        return
     if old.get("job") == job and (tkind is None or old.get("file") == role):
         return
     if (work.get("form") or {}).get("id") != slot["file"]:
-        raise HTTPException(409, f"이 워크플로우의 목적 문서는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
+        raise HTTPException(409, f"이 워크플로우의 {slot['title']}는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
 
 
 def _work_task(wid, body, locked=False):
@@ -1781,10 +1794,10 @@ def work_start_task(wid: str, body: dict = Body(...)):
         if work.get("source") not in ("upload", "sample", "form") or projects.group_key(work.get("task"))[0]:
             raise HTTPException(409, "새로 올린 무소속 문서로 시작하세요. 기존 프로젝트 작업은 그대로 보관합니다")
         # 고정한 양식(워크플로우 설정 — ② §18-9 · §18-12 ⑧): 그 워크플로우의 목적 문서로 새로 시작하는 작업은 그 양식으로 만든 것이어야 한다(올리기 길로 고정을 돌아가지 못하게)
-        from app import form_files
-        slot, tkind = form_files.slot(job), works.TARGET_FILE.get(job)
-        if slot and slot["mode"] == "fixed" and (tkind is None or role == tkind) and (work.get("form") or {}).get("id") != slot["file"]:
-            raise HTTPException(409, f"이 워크플로우의 목적 문서는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
+        from app import form_files_api
+        slot = form_files_api.fixed_slot(job, role)   # 칸마다(목적 · 이관의 원본 — ② §18-9)
+        if slot and (work.get("form") or {}).get("id") != slot["file"]:
+            raise HTTPException(409, f"이 워크플로우의 {slot['title']}는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
         if temp:
             try:
                 project = projects.temp_name()
@@ -1876,7 +1889,7 @@ def work_round(wid: str, body: dict = Body(default={})):
             # 취합의 참조 선택만 복사하고 분석·반영 기록은 새 라운드에서 시작한다.
             from app import merge_gather_api
             for member, fresh, data in prepared:
-                if (member.get("task") or {}).get("file") == "plan" and job == "plan_merge":
+                if (member.get("task") or {}).get("file") == "plan" and _gather_job(job):   # 취합(붙박이 · 취합형으로 조립한 것)
                     old_gather = merge_gather_api._store(member["id"])
                     for part in old_gather.get("order") or []:
                         if part in mapping:
@@ -1986,6 +1999,10 @@ def _reset_keep(wid, s):
 def _reset_forget(wid):
     """작업 id 로 묶어 둔 메모리의 기억을 버린다 — 옮긴 결과를 다시 내지 않게(열쇠가 달라 안 쓰일 것도 함께). 도는 에이전트 턴은 저장되지 않는다(「비우기」 와 같은 차례 올림)."""
     from app import doc_agent, doc_agent_api, merge_api, merge_gather_api, merge_over_api, zones_api
+    try:   # 사람이 하는 일의 「했음」 기록(app/flow_hands.py — spec_워크플로우 ② §18-12 ⑦: 초기화 세대가 바뀌면 앞 확인은 무효)
+        __import__("app.flow_hands", fromlist=["forget"]).forget(wid)
+    except (ImportError, AttributeError, OSError):
+        pass
     gens = getattr(doc_agent, "_GENS", None)
     if isinstance(gens, dict):
         gens[wid] = gens.get(wid, 0) + 1
@@ -2447,6 +2464,7 @@ app.include_router(__import__("app.task_options_api", fromlist=["router"]).route
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
+app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)   # 사람이 하는 일의 「했음」(조립한 워크플로우의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦) 끝점은 app/flow_hands_api.py
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다
 __import__("app.share_api", fromlist=["attach"]).attach(app, session=_sess, loaded=DOCS.get, name=_shown_of, doc=get_doc, patch=patch_block, split=split, merge=merge,
                                                         media=media, bumped=BUMPED, store=works.root, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))
@@ -2937,7 +2955,16 @@ def divisions_adopt(doc_id: str, body: dict = Body(default={})):
 @app.post("/api/docs/{doc_id}/divisions/apply")
 def divisions_apply(doc_id: str, body: dict = Body(...)):
     """{planId, expectRev?} → 고정된 계획만 반영(spec_구분_기준 ② §4): 계획의 사본 문서를 세션 문서로 바꿔 넣고 문서 전체 검사 → 실패면 복원·422,
-    성공이면 undo 1·rev +1·기록 1줄 + 상세 결과 파일. 계획이 없거나 문서가 계획 뒤에 바뀌었으면 409(다시 계획). 화면은 문서를 다시 읽는다."""
+    성공이면 undo 1·rev +1·기록 1줄 + 상세 결과 파일. 계획이 없거나 문서가 계획 뒤에 바뀌었으면 409(다시 계획). 화면은 문서를 다시 읽는다.
+    adopt: true(워크플로우 실행기의 문 unit_steps.division_apply 만 — spec_워크플로우 ② §18-13) = 할 일이 없는 **문서 전체** 계획이 「구조가 이미 이 값에 맞음」 이면(이미 맞은 자리가 있고 미해결 · 계획 오류가 없음)
+    그 확인을 반영 기록으로 남긴다(`applied.adopted` — 문서는 안 바뀜 · 답의 `adopted`). 화면의 「이미 맞음」 은 화면이 든 계획으로 세지만 서버 실행은 끝남을 문서의 기록에서 다시 세기 때문이다."""
+    out = _divisions_apply(doc_id, body)
+    if isinstance(out, dict) and out.get("adopted"):
+        _persist_safe(_sess(doc_id), force=True)   # rev 가 안 바뀌어도 반영 기록은 작업에 남긴다(…/divisions/adopt 와 같다)
+    return out
+
+
+def _divisions_apply(doc_id, body):
     plan_id, expect = body.get("planId"), body.get("expectRev")
     s = _sess(doc_id)
     with s.lock:
@@ -2952,7 +2979,16 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
             raise HTTPException(409, "프로파일이 바뀌었습니다 — 다시 계획하세요")
         if not plan["_report"]["groups"] and not plan["_report"]["changes"]:  # 할 일 없음 — undo·rev 를 늘리지 않는다
             s.division["plan"] = None
-            return {"nothing": True, "applied": s.division["applied"], "summary": plan["summary"], **s.state()}
+            sm, a = plan["summary"], s.division["applied"]
+            adopted = body.get("adopt") is True and plan["only"] is None and not plan["skip"] and bool(sm.get("already")) and not sm.get("unresolved") and not sm.get("errors")
+            if adopted:
+                if not (a and a.get("values") == plan["values"]):   # 같은 값의 반영 기록이 이미 있으면 그 기록은 그대로 둔다
+                    s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]
+                    s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
+                                             "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": sm, "adopted": True}
+                s.division["partial"] = None   # 문서 전체가 지금 값에 맞다고 확인됐다 — 한 자리만 반영한 기록은 더 볼 것이 없다(…/divisions/adopt 와 같다)
+                works.log(s.id, "divisionAdopt", rev=s.rev, planId=plan["planId"], settingsHash=plan["settingsHash"], summary=sm)
+            return {"nothing": True, "adopted": adopted, "applied": s.division["applied"], "summary": plan["summary"], **s.state()}
 
         def run():
             s.doc = plan["_doc"]

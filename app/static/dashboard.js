@@ -59,14 +59,14 @@ async function dashPrime() { // 그 TASK 의 상태를 문서마다 처음 한 �
   const prime = { key, promise: null };
   DASH.primeLoad = prime;
   prime.promise = (async () => { try {
-    if (agwFit(job) || taskIsRelay(job) || job === "plan_merge") { if (!dv.view) await divShow(); }
+    if (agwFit(job) || taskIsRelay(job) || taskIsGather(job)) { if (!dv.view) await divShow(); } // taskIsGather = 취합형(붙박이 취합 · 취합형으로 조립한 것 — task_catalog.js)
     if (job === "plan_fit") { await agwHeadsView(); if (!agwStdView()) await agwStdFresh(); } // 양식 표준화 2 · 3단계 — 헤딩 요약(단계별 실행이 1단계 결과를 본다 · 추출을 저절로 시작하지 않음) · 분석 상태
     if (taskIsRelay(job) && !Object.keys(taskFlow.div || {}).length) await taskFlowLoad();
-    if (job === "plan_merge" && typeof gt === "function" && !gt().view) await gatherLoad();
+    if (taskIsGather(job) && typeof gt === "function" && !gt().view) await gatherLoad();
     if (key !== `${dashKey()}|${agwJob()}`) return;
-    if ((agwFit(job) || taskIsRelay(job) || job === "plan_merge") && !dv.view) return;
+    if ((agwFit(job) || taskIsRelay(job) || taskIsGather(job)) && !dv.view) return;
     if (job === "plan_fit" && !agwStdView()) return;
-    if (job === "plan_merge" && !gt().view) return;
+    if (taskIsGather(job) && !gt().view) return;
     DASH.primed = key; // 읽기가 끝난 뒤에만 진행 요약을 저장한다(로딩 중 빈 값으로 완료 기록을 덮지 않음).
   } catch (e) { console.error(e); } finally { if (DASH.primeLoad === prime) DASH.primeLoad = null; } })();
   return prime.promise;
@@ -423,11 +423,12 @@ function dashGatherLive(M) { // 취합 — 「작업 개요」 의 단계(gather
     M.notes.push({ text: `간단 모드 ${Q.end.ok ? "끝남" : "멈춤"} — ${Q.end.text}`, warn: !Q.end.ok, act: dashBtn("간단 모드 이어서", () => dashExec("간단 모드 이어서", () => agwExec("quick:resume")), { title: `${does} — 취합본이 바뀝니다(기관 문서마다 실행 취소 한 번)`, focus: "act:quick" }) }); // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」)
   }
   const E = typeof gatherRunLast !== "undefined" ? gatherRunLast : null; // 마지막 「한 번에 진행」 의 끝 — 그 뒤 더 나아가지 않았을 때만(gather.js 상태 줄과 같은 조건)
-  if (E && !gatherRun && plan && E.plan === plan.id && E.done === steps.filter((s) => s.stage === E.stage && s.step !== "files" && s.done).length) L.ends = { [E.stage]: { ok: !!E.ok, text: E.text } };
+  if (E && !gatherRun && plan && E.plan === plan.id && E.done === steps.filter((s) => s.stage === E.stage && s.step !== "files" && s.done).length) L.ends = { [gatherDefStage(E.stage, agwJob()) || E.stage]: { ok: !!E.ok, text: E.text } };
   GT_STAGES.forEach((g, i) => { // 묶음 머리의 「한 번에 진행」 — gatherRunAll(확인 창 없이)
     const left = (x) => steps.filter((s) => s.stage === x.id && !s.done && s.step !== "files"), before = GT_STAGES.slice(0, i).find((x) => left(x).length);
     const no = gatherRun ? "다른 묶음이 진행 중입니다" : Q && Q.busy ? "간단 모드가 도는 중입니다" : !plan ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 ${typeof taskJosa === "function" ? taskJosa(before.name, "을", "를") : "을"} 먼저 끝내세요` : !left(g).length ? "남은 단계가 없습니다" : "";
-    L.runs[g.id] = dashBtn("한 번에 진행", () => gatherRunAll(g.id), { disabled: !!no, focus: `run:${g.id}`, title: no || `이 묶음의 남은 단계를 차례로 한 번에 — ${g.does}. 사람 손이 필요한 곳에서는 멈춥니다` });
+    const gid = gatherDefStage(g.id, agwJob()); // 그 묶음의 등록부 id — 붙박이는 그대로 · 취합형으로 조립한 것은 그 일을 하는 줄이 든 묶음(없으면 단추를 달지 않는다)
+    if (gid) L.runs[gid] = dashBtn("한 번에 진행", () => gatherRunAll(g.id), { disabled: !!no, focus: `run:${gid}`, title: no || `이 묶음의 남은 단계를 차례로 한 번에 — ${g.does}. 사람 손이 필요한 곳에서는 멈춥니다` });
   });
   return L;
 }
@@ -466,11 +467,35 @@ function dashEditLive() { // 문서 일반 편집 — 단계의 끝을 세지 �
     tables: { state: "", text: "표 손잡이(표 오른쪽 여백)의 메뉴에서 엽니다" } } };
 }
 
+// 사람이 하는 일(정의 v2 의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦): 상태 · 판은 서버(GET /api/works/{wid}/flow/hand — 3초 안의 것은 다시 읽지 않는다) · 「했음」 · 「했음 취소」 는 사람의 단추만(에이전트 행동에는 없다).
+// 끝남 = 그 줄이 지금 판(정의 지문 + 줄의 글)으로 「했음」 — 글을 고치면 다시 눌러야 한다. 실행은 그 줄에서 멈추고(「사람이 할 일 — …」) 「했음」 뒤 「이어서」 로 지나간다(서버 실행기).
+const dashHandKey = (k) => /^hand[1-9][0-9]?$/.test(k);
+async function dashHands(M, L) {
+  if (!state.id || !M.reg || !M.reg.stages.some((g) => g.steps.some((s) => dashHandKey(s.key)))) return;
+  const H = DASH.hands;
+  if (!H || H.id !== state.id || Date.now() - H.at > 3000) {
+    try { DASH.hands = { id: state.id, at: Date.now(), lines: (await api(`/api/works/${state.id}/flow/hand`)).lines || [] }; } catch { DASH.hands = { id: state.id, at: Date.now(), lines: [] }; }
+  }
+  for (const ln of DASH.hands.lines) {
+    const act = ln.done ? dashBtn("했음 취소", () => dashHand(ln, false), { focus: `hand:${ln.key}`, title: "「했음」 을 되돌립니다 — 다음 실행이 이 줄에서 다시 멈춥니다" })
+      : dashBtn("했음", () => dashHand(ln, true), { primary: true, focus: `hand:${ln.key}`, title: "이 일을 마쳤으면 누릅니다 — 묶음의 「한 번에 진행」(이어서)이 이 줄을 지나 다음 줄로 갑니다" });
+    L.steps[ln.key] = { state: ln.done ? "done" : "now", text: ln.done ? `${ln.name} — 사람이 확인함` : `사람이 할 일 — ${ln.does}`, acts: [act] };
+  }
+}
+async function dashHand(ln, on) {
+  DASH.hands = null; // 누른 뒤 다시 읽는다
+  return dashExec(on ? `「${ln.name}」 했음` : `「${ln.name}」 했음 취소`, async () => {
+    try { await api(`/api/works/${state.id}/flow/hand/${encodeURIComponent(ln.key)}`, on ? { method: "POST", headers: H_JSON, body: JSON.stringify({ ver: ln.ver }) } : { method: "DELETE" }); }
+    catch (e) { return { ok: false, text: `${on ? "「했음」" : "「했음 취소」"}을 적지 못했습니다 — ${e.message}` }; }
+    return { ok: true, text: on ? `「${ln.name}」 — 했음(이어서 진행하면 다음 줄로 갑니다)` : `「${ln.name}」 — 했음을 취소했습니다` };
+  });
+}
+
 async function dashLive(job, M) {
   if (job === "plan_fit") return dashStdLive(M);
   if (agwFit(job)) return dashFitLive(M);
-  if (taskIsRelay(job)) return dashRelayLive(M); // 이관형 — 붙박이 이관 · 화면에서 조립한 TASK(spec_워크플로우 ② §14)
-  if (job === "plan_merge") return dashGatherLive(M);
+  if (taskIsRelay(job)) { const L = dashRelayLive(M); await dashHands(M, L); return L; } // 이관형 — 붙박이 이관 · 화면에서 조립한 TASK(spec_워크플로우 ② §14) · 조립한 것의 「사람이 하는 일」 줄(정의 v2)
+  if (taskIsGather(job)) return dashGatherLive(M); // 취합형 — 붙박이 취합 · 취합형으로 조립한 것(같은 줄 key · 묶음은 그 정의의 것: dashGatherLive 가 줄이 든 묶음으로 잇는다)
   if (job === "style_copy") return dashStyleLive();
   if (job === "doc_edit") return dashEditLive();
   return { steps: {}, runs: {} };
@@ -630,7 +655,7 @@ function dashEl(M) {
   if (!dashHasTask(M.job)) return dashPickEl();
   const root = el("section", "dash"), head = el("header", "dash-head"), title = el("div", "dash-title");
   root.setAttribute("aria-label", "대시보드");
-  const nodes = M.groups.flatMap((g) => g.nodes), counted = nodes.filter(dashCounted), summary = M.job === "plan_merge" ? dwfSnapshot(M) : null;
+  const nodes = M.groups.flatMap((g) => g.nodes), counted = nodes.filter(dashCounted), summary = taskIsGather(M.job) ? dwfSnapshot(M) : null;
   const done = summary ? summary.done : counted.filter((n) => n.state === "done").length, total = summary ? summary.total : counted.length;
   const wf = el("a", "dash-wf", "워크플로우 ↗");
   wf.href = `/workflow#${encodeURIComponent(M.job)}`; wf.target = "_blank"; wf.rel = "noopener"; wf.title = "워크플로우 페이지에서 이 워크플로우의 과정 보기(새 탭)";
@@ -638,7 +663,7 @@ function dashEl(M) {
   const run = nodes.find((n) => n.state === "run"), now = nodes.find((n) => n.state === "now"), next = el("p", "dash-next");
   next.setAttribute("role", "status");
   next.textContent = M.R ? `진행 중 — ${M.R.label}` : run ? `진행 중 — ${String(run.idx).padStart(2, "0")} ${run.name}` : now ? `다음: ${String(now.idx).padStart(2, "0")} ${now.name}`
-    : M.job !== "doc_edit" && total && done === total ? "모두 끝남" : M.job === "plan_merge" && summary ? "기관 문서별 진행 상태를 확인하세요" : "";
+    : M.job !== "doc_edit" && total && done === total ? "모두 끝남" : taskIsGather(M.job) && summary ? "기관 문서별 진행 상태를 확인하세요" : "";
   head.append(title);
   if (next.textContent) head.append(next);
   root.append(head);

@@ -304,7 +304,8 @@ try:
               and any(x.startswith("reheads — ") for x in seen) and h1["stage2"]["meta"]["rev"] >= rev0 + 1 and h1["stage3"]["meta"]["rev"] >= rev0 + 1
               and rh["state"] == "done" and "구조 반영 뒤의 것입니다" in rh["text"] and rh["acts"] == [] and "다시 문서 검토" in rh["text"]
               and page.evaluate(STEP, "reheadsLlm")["badge"] == "건너뜀", [s["text"], rh, page.evaluate(STEP, "reheadsLlm"), h1["stage3"]["meta"].get("rev")])
-        check("3단계가 켜짐 — 0/3 완료 · 다음은 ② · 강조 단추가 3단계로 옮겨 감", s2["count"] == "0/3 완료" and s2["text"].startswith("다음: ② 자리 연결") and not s2["disabled"] and s2["primary"] and not s["primary"], s2)
+        # 이 검사의 서버는 LLM 이 꺼져 있다 — 「자리 연결」 은 확인 필요가 남아도 「건너뜀」 으로 끝(서버 실행기의 상태 식과 같다: 막다른 길 없음) → 1/3 · 다음은 ③
+        check("3단계가 켜짐 — 1/3 완료(LLM 을 못 써 자리 연결은 건너뜀) · 다음은 ③ · 강조 단추가 3단계로 옮겨 감", s2["count"] == "1/3 완료" and s2["text"].startswith("다음: ③ 표 안 연결") and not s2["disabled"] and s2["primary"] and not s["primary"], s2)
         ch = page.evaluate(CHAIN)
         check("2단계가 끝나면 이어서 단추는 실제 범위 「3→4단계」 하나(3단계까지는 3단계 단추와 같아 숨김)", ch["shown"] and ch["btns"]["frame"]["hidden"] and ch["btns"]["map"]["hidden"] and ch["btns"]["clean"]["text"] == "3→4단계"
               and not ch["btns"]["clean"]["disabled"], ch)
@@ -321,6 +322,8 @@ try:
                 break
             page.wait_for_timeout(1000)
         took = time.time() - t0
+        # 서버 실행의 거울(workflow_exec.js taskRunFollow)은 taskRun 을 먼저 비우고 끝 글을 남긴 뒤 자료를 다시 읽는다 — 끝 글과 다시 읽기(연결 목록)를 기다린다
+        page.wait_for_function("() => !taskRun && !!taskRunLast && !taskFlow.linkBusy && !!taskFlow.links", timeout=180000)
         last = page.evaluate("() => taskRunLast")
         print("  단계 글:", sorted(x for x in seen if x), flush=True)
         check("3단계(매핑) 끝남 — 멈추지 않고 끝까지", bool(last) and last["ok"] and last["stage"] == "map", [last, f"{took:.0f}s"])
@@ -328,11 +331,11 @@ try:
         st, s = page.evaluate(STEPS), page.evaluate(STAGE2)
         states = {x["step"]: x["state"] for x in st}
         check("단계 — ①~④ 모두 완료 · 2단계 3/3 완료와 진행률 100%", [states.get(k) for k in ("files", "division", "link", "plan", "apply")] == ["done"] * 5
-              and s["count"] == "3/3 완료" and s["progress"] == [3, 3] and s["kind"] == "done" and s["text"].startswith("끝남 — 연결됨") and "본문 블록" in s["text"] and "같은 이름 자리" in s["text"]
+              and s["count"] == "3/3 완료" and s["progress"] == [3, 3] and s["kind"] == "done" and last["text"].startswith("연결됨") and "본문 블록" in last["text"] and "같은 이름 자리" in last["text"]   # 끝 글 = 서버 실행의 묶음 글(거울의 taskRunLast — 상태 줄은 다시 읽기 뒤 「모두 끝남」 일 수 있다: workflow_exec.js 쪽)
               and s["btn"] == "한 번에 진행" and s["disabled"] and not s["spin"], [states, s])
         check("3단계까지 끝나면 이어서 줄이 숨음(남은 묶음이 하나 이하)", not page.evaluate(CHAIN)["shown"], page.evaluate(CHAIN))
         check("실행 종료 뒤 진행 중·멈춤 표시 없음 · 번호와 완료·준비 중 표시 유지", not any(x["status"] in ("run", "halt") for x in st)
-              and [x["no"] for x in st[1:]] == ["①", "②", "③", "④", "⑤", "⑥"] and [x["badge"] for x in st[1:6]] == ["완료", "완료", "완료", "완료", "준비 중"]
+              and [x["no"] for x in st[1:]] == ["①", "②", "③", "④", "⑤", "⑥"] and [x["badge"] for x in st[1:6]] == ["완료", "건너뜀", "완료", "완료", "준비 중"]   # ② = LLM 을 못 써 「건너뜀」
               and st[6]["badge"] in ("다음 작업", "완료"), st)   # ⑥ 작성요령 삭제(3단계) — 2단계가 끝났으니 다음 작업(지울 안내가 있으면)
         doc = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         ev = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
@@ -344,31 +347,36 @@ try:
         links = requests.get(f"{base}/api/docs/{report}/merge-links", timeout=300).json()
         fill_ev = next(e for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"] if e["kind"] == "mergeFill")
         check("같은 이름 자리(고정 자리)도 연결 목록·넣기 기록에 따로 실림", isinstance((links.get("fixed") or {}).get("counts"), dict) and "fixed" in fill_ev and "shaped" in fill_ev["tables"], [links.get("fixed"), {k: fill_ev.get(k) for k in ("tables", "fixed")}])
-        check("LLM 검토 — 확인 필요가 있어 한 번만 부름(가짜 응답 — 이 쌍은 확인 필요 9)", calls["llm"] == 1 and links["counts"]["ambiguous"] > 0, [calls, links["counts"]])
-        # 빈 자리 검토(spec_병합 ② §5-4 8): 넣기 계획에 아직 안 물은 빈 자리(「추진목표」 칸 · 「- (정의)」 줄)가 있어 한 번 부른다 — 서버의 LLM 이 꺼져 있어 못 찾지만 멈추지 않고 끝까지 간다.
+        # 3단계는 서버 실행기가 돈다(spec_워크플로우 ② §18-10 걸음 3) — 유료 LLM 셋(자리 연결 검토 · 빈 자리 검토 · 표 대응)은 서버가 부르고, 이 검사의 서버는 LLM 이 꺼져 있어 부르지 않고 글로 남긴다
+        # (화면의 가짜 응답 · 요청 셈은 안 탄다 — 한 번만 부르는 규칙 · 결과 불명은 tests/test_workflow_fill.py 의 가짜 문이 본다). 확인 필요 자리는 비워 둔다
+        check("LLM 검토 — 서버가 돈다(LLM 이 꺼진 서버: 부르지 않고 「LLM 검토는 못 함」 · 확인 필요는 비워 둠)", calls["llm"] == 0 and links["counts"]["ambiguous"] > 0 and "LLM 검토는 못 함" in last["text"], [calls, links["counts"], last["text"][:120]])
+        # 빈 자리 검토(spec_병합 ② §5-4 8): 넣기 계획에 아직 안 물은 빈 자리(「추진목표」 칸 · 「- (정의)」 줄)가 있다 — 서버의 LLM 이 꺼져 있어 부르지 않지만 멈추지 않고 끝까지 간다.
         # 단추가 부르는 함수가 실제로 있는지도 본다(2026-11-12 — 「표 대응(LLM)」 단추의 fillMap 이 없어 표 대응이 한 번도 안 돌았다)
-        check("빈 자리 검토 — 한 번에 진행이 한 번 부름(못 찾아도 멈추지 않음) · 단추의 함수가 있음", calls["gaps"] == 1 and "빈 자리 검토" in last["text"]
+        check("빈 자리 검토 — 「빈 자리 검토는 못 함」(LLM 꺼짐 — 멈추지 않음) · 단추의 함수가 있음", calls["gaps"] == 0 and "빈 자리 검토는 못 함" in last["text"]
               and page.evaluate("() => typeof fillMap === 'function' && typeof fillGaps === 'function'"), [calls, last["text"]])
         check("사업계획서는 그대로(사전 반영의 편집 1뿐)", requests.get(f"{base}/api/docs/{plan}", timeout=300).json()["rev"] == ap1.json()["rev"])
         page.locator("#panel").screenshot(path=str(OUT / "3_done.png"))
         page.screenshot(path=str(OUT / "3_done_full.png"))
 
-        # ---- 4. 다시 누르기 — 새로 고치면 ③④ 의 「넣은 수」 는 사라진다(메모리). 다시 눌러도 확인 창 없이 · 실패 없이 끝나고 LLM 검토는 다시 안 부른다(이미 검토함)
+        # ---- 4. 다시 열기 — 지난 반영의 표식(서버 merge.json `filled` — 걸음 3: 표 칸만 채운 반영도 「내용 넣기」 의 끝)이 남아 3단계가 끝난 채다
+        # (전에는 ③④ 의 「넣은 수」 가 화면 메모리라 다시 열면 1/3 으로 돌아가 「한 번에 진행」 을 다시 누를 수 있었다). 다시 돌릴 것이 없다 — 서버에 3단계를 시작시켜도 시작하지 않는다
         open_work(page, report)
         page.click("#toolTabTask")
-        page.wait_for_function(f"() => {{ const s = ({STAGE2})(); return s && s.count === '1/3 완료' && ({STAGE})().count === '4/4 완료' && !taskFlow.linkBusy && !!taskFlow.links; }}", timeout=180000)
-        check("다시 열면 — 2단계는 끝난 채(단추 꺼짐) · 3단계 1/3(넣은 수는 메모리라 사라짐)", page.evaluate(STAGE)["disabled"] and not page.evaluate(STAGE2)["disabled"])
+        page.wait_for_function(f"() => {{ const s = ({STAGE2})(); return s && s.count === '3/3 완료' && ({STAGE})().count === '4/4 완료' && !taskFlow.linkBusy && !!taskFlow.links; }}", timeout=180000)
+        st4 = {x["step"]: x for x in page.evaluate(STEPS)}
+        check("다시 열면 — 2 · 3단계 모두 끝난 채(단추 꺼짐) · ③④ 는 「지난 반영이 끝나 있습니다」(본문 자리에 넣은 것이 없는 반영 — 「넣은 자리 0곳」 이라 적지 않는다) · 「넣기 계획 다시」",
+              page.evaluate(STAGE)["disabled"] and page.evaluate(STAGE2)["disabled"] and st4["plan"]["text"].startswith("③표 안 연결 · 넣기 계획완료지난 반영이 끝나 있습니다") and "지난 반영이 끝나 있습니다" in st4["apply"]["text"]
+              and "0곳" not in st4["plan"]["text"] + st4["apply"]["text"] and "넣기 계획 다시" in st4["plan"]["text"], [st4["plan"], st4["apply"]])
         n = len(dialogs)
-        page.click("#taskStage2 [data-task-run]")
-        page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=600000)
-        last, doc2 = page.evaluate("() => taskRunLast"), requests.get(f"{base}/api/docs/{report}", timeout=300).json()
+        again = requests.post(f"{base}/api/works/{report}/flow/runs", json={"from": "map"}, timeout=120)
+        doc2 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         log2 = requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]
         ev2 = [e["kind"] for e in log2]
-        print("  다시 누름:", last, "rev", doc["rev"], "→", doc2["rev"], "기록", [(e["kind"], e.get("rev")) for e in log2 if e["kind"] not in ("create", "verify", "verified", "headings")], flush=True)
-        check("다시 누름 — 확인 창 없이 · 실패 없이 끝남 · 구분 기준은 다시 반영 안 함 · LLM 검토 다시 안 부름", last["ok"] and len(dialogs) == n and calls["llm"] == 1
-              and ev2.count("divisions") == ev.count("divisions"), [last, ev2[:6]])
-        # 다시 눌러도 더 들어가지 않는다(2026-11-12 app/merge_tables.py 고침 — 전에는 이어 넣는 표에 행이 또 들어갔다: spec_병합 ③). 편집 차례는 하나 오를 수 있다 — 다시 열 때의 개요 줄 맞춤(outlineAlign), 넣기와 무관
-        check("다시 누름 — 넣을 것이 없어 더 넣지 않음(넣기 기록 그대로 1번)", "넣을 것이 없습니다" in last["text"] and ev2.count("mergeFill") == ev.count("mergeFill") == 1, [last["text"], ev2.count("mergeFill")])
+        print("  다시 돌리기:", again.status_code, again.json(), "rev", doc["rev"], "→", doc2["rev"], "기록", [(e["kind"], e.get("rev")) for e in log2 if e["kind"] not in ("create", "verify", "verified", "headings")], flush=True)
+        check("다시 돌리기(서버에 3단계 시작 요청) — 남은 단계가 없어 시작하지 않음(409 noWork) · 확인 창 없음 · 구분 기준은 다시 반영 안 함 · 화면은 LLM 검토를 부르지 않음",
+              again.status_code == 409 and again.json().get("reason") == "noWork" and len(dialogs) == n and calls["llm"] == 0 and ev2.count("divisions") == ev.count("divisions"), [again.status_code, again.text[:200], ev2[:6]])
+        # 더 들어가지 않는다(2026-11-12 app/merge_tables.py 고침 — 전에는 이어 넣는 표에 행이 또 들어갔다: spec_병합 ③). 편집 차례는 하나 오를 수 있다 — 다시 열 때의 개요 줄 맞춤(outlineAlign), 넣기와 무관
+        check("다시 돌리기 — 더 넣지 않음(넣기 기록 그대로 1번)", ev2.count("mergeFill") == ev.count("mergeFill") == 1, ev2.count("mergeFill"))
         third = requests.post(f"{base}/api/docs/{report}/merge-links/plan", timeout=300).json()
         check("또 계획해도 할 일 0", third.get("todo") == 0, {"todo": third.get("todo"), "tables": {k: third["tables"]["counts"].get(k) for k in ("cells", "rows")}})
 
@@ -400,9 +408,12 @@ try:
               and sorted(ends) == ["clean", "frame", "map"] and all(e["ok"] for e in ends.values()) and last["stage"] == "clean" and order == [x for x in ("frame", "map", "clean") if x in order],
               [order, {k: (v["ok"], v["text"][:80]) for k, v in (ends or {}).items()}, dialogs[n:]])
         check("도는 동안 — 이어서 줄에 「2→4단계 이어 진행 중 — 지금 …」 · 이어서 단추는 꺼짐", any(t.startswith("2→4단계 이어 진행 중 — 지금") and dis for t, dis in chain_seen), sorted(chain_seen)[:4])
+        # 서버 실행의 거울은 taskRun 을 먼저 비우고 끝 글을 남긴 뒤 자료(연결 목록 · 지울 안내)를 다시 읽는다 — 다시 읽기가 끝난 뒤의 묶음 상태를 본다(끝 글 = 거울이 묶음마다 남긴 taskRunEnds: 상태 줄은 다시 읽은 뒤 「모두 끝남」 일 수 있다)
+        page.wait_for_function(f"() => {{ const a = ({STAGE})(), b = ({STAGE2})(), c = ({STAGE3})(); return !taskRun && !taskFlow.linkBusy && !!taskFlow.links && a && b && c && a.kind === 'done' && b.kind === 'done' && c.kind === 'done'; }}", timeout=180000)
         s, s2, s3 = page.evaluate(STAGE), page.evaluate(STAGE2), page.evaluate(STAGE3)
-        check("끝 — 묶음마다 끝 글이 남음(앞 묶음 것도) · 2단계 4/4(되돌린 뒤의 구조 반영이라 다시 분석도 함) · 3단계 3/3", s["text"].startswith("끝남 — 구조를 맞췄습니다") and "연차보고서를 다시 분석했습니다" in s["text"] and s2["text"].startswith("끝남 — 연결됨") and s3["kind"] == "done" and "지웠습니다" in s3["text"]
-              and s["count"] == "4/4 완료" and s2["count"] == "3/3 완료", [s["text"][:60], s2["text"][:60], s3["text"][:90], s3["count"]])
+        check("끝 — 묶음마다 끝 글이 남음(앞 묶음 것도) · 2단계 4/4(되돌린 뒤의 구조 반영이라 다시 분석도 함) · 3단계 3/3 · 4단계 끝", ends["frame"]["text"].startswith("구조를 맞췄습니다") and "연차보고서를 다시 분석했습니다" in ends["frame"]["text"]
+              and ends["map"]["text"].startswith("연결됨") and "지웠습니다" in ends["clean"]["text"] and s3["kind"] == "done"
+              and s["count"] == "4/4 완료" and s2["count"] == "3/3 완료", [s["text"][:60], s2["text"][:60], s3["text"][:90], s["count"], s2["count"], s3["count"]])
         ev5 = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
         check("연차보고서 — 구조 반영 · 내용 반영 · 작성요령 삭제가 한 번씩 더(기록)", all(ev5.count(k) == ev_r.count(k) + 1 for k in KINDS), {k: (ev_r.count(k), ev5.count(k)) for k in KINDS})
         check("끝나면 이어서 줄이 숨음(남은 묶음 하나 이하)", not page.evaluate(CHAIN)["shown"], page.evaluate(CHAIN))

@@ -421,7 +421,7 @@ def main():
               and [x[0] for x in nav["links"][1:8]] == ["#" + j for j in jobs] and nav["links"][3][1] == "사업계획서 → 연차보고서 이관" and nav["links"][5][2] == "wf-soon"
               and nav["links"][8][:2] == ["#wfForms", "저장한 양식"]   # 저장한 양식(spec_워크플로우 ② §18-9) — 「＋ 워크플로우 조립」 아래
               and [x[:2] for x in nav["links"][9:13]] == [["#common-stage_review", "문서 검토"], ["#common-stage_fit", "구성 맞추기"], ["#common-stage_fill", "내용 넣기"], ["#common-stage_clean", "문서 정리"]]   # 단계 모듈 넷이 공통 모듈의 맨 앞(spec_워크플로우 ② §13 — TASK 가 조립하는 일반 단계)
-              and nav["links"][13][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview", "wfCompose", "wfForms"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)   # 「TASK 조립」 절이 전체 보기 아래(spec_워크플로우 ② §14)
+              and nav["links"][13][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview", "wfCompose", "wfStage", "wfForms"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)   # 「TASK 조립」 절이 전체 보기 아래(spec_워크플로우 ② §14)
         ov = wf.evaluate("""() => ({ rows: [...document.querySelectorAll('.wf-over > li')].map((li) => [li.dataset.job, li.querySelector('.wf-over-name').textContent, [...li.querySelectorAll('.wf-chain > li')].map((c) => c.textContent)]),
           dots: [...document.querySelectorAll('.wf-over > li[data-job=plan_to_report] .wf-chain > li')].map((c) => [...c.querySelectorAll('.wf-dot')].map((d) => d.className.replace('wf-dot wf-d-', '')).join('+')),
           legend: [...document.querySelectorAll('.wf-legend .wf-tag')].map((x) => x.textContent), commons: document.querySelectorAll('.wf-commons a').length, cur: document.querySelector('#wfNav a[aria-current=true]').textContent })""")
@@ -458,8 +458,8 @@ def main():
         check("묶음 넷 — 「1단계 문서 검토」(3) · 「2단계 구성 맞추기」(5 — 구성 불러오기(선택) 포함) · 「3단계 내용 넣기」(7) · 「4단계 문서 정리」(1)",
               ts["stages"] == [["review", "1단계", "문서 검토", 3], ["frame", "2단계", "구성 맞추기", 5], ["map", "3단계", "내용 넣기", 7], ["clean", "4단계", "문서 정리", 1]], ts["stages"])
         m = {x[0]: x for x in ts["map"]}
-        check("3단계의 단계 줄 — ② 자리 연결 → LLM 검토(선택) → ③ 넣기 계획 → 표 대응 · 빈 자리 검토(LLM) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임(헤딩·표 분석은 1단계 · 다시 분석은 2단계 — §21)",
-              [x[0] for x in ts["map"]] == ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"] and [m[k][1] for k in ("link", "plan", "apply", "later")] == ["②", "③", "④", "⑤"]
+        check("3단계의 단계 줄 — ② 자리 연결 → LLM 검토(선택) → ③ 넣기 계획 → 빈 자리 검토 · 표 대응(LLM — 실행 차례: spec_워크플로우 ② §18-4) → ④ 내용 반영(사람 · 문서 바뀜) → ⑤ 준비 중 · 하는 일은 펴지 않아도 보임(헤딩·표 분석은 1단계 · 다시 분석은 2단계 — §21)",
+              [x[0] for x in ts["map"]] == ["link", "llm", "plan", "gaps", "tableMap", "apply", "later"] and [m[k][1] for k in ("link", "plan", "apply", "later")] == ["②", "③", "④", "⑤"]
               and m["link"][2:4] == ["자리 연결", "스크립트|필수"] and m["llm"][3] == "LLM|선택" and m["apply"][3] == "사람|스크립트|문서 바뀜|필수" and m["later"][3] == "스크립트|준비 중"
               and all(x[4] and not x[5] for x in ts["map"]), ts["map"])
         # ---- 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 2026-11-19 사용자 "각문서에 대한걸 단위문서 task 라고 하고 전체를 워크플로우라"): 받는 문서 · 산출물 줄 아래 · 진행 방식 위의 표
@@ -479,7 +479,7 @@ def main():
               "3단계는 「← 원본 문서」 로 시작(원본 → 목적 잇기) · 4단계 작성요령 삭제 · 「준비」 는 어느 칸에도 없음",
               bool(got) and [got[g]["source"]["steps"] for g in ("review", "frame", "map", "clean")] == [["heads", "headsLlm"], [], [], []]
               and all(got[g]["source"]["none"] for g in ("frame", "map", "clean")) and got["review"]["target"]["steps"] == ["heads"] and got["frame"]["target"]["steps"] == ["division", "reheads", "reheadsLlm"]
-              and got["map"]["target"]["from"] == ["← 원본 문서"] and got["map"]["target"]["steps"] == ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"]
+              and got["map"]["target"]["from"] == ["← 원본 문서"] and got["map"]["target"]["steps"] == ["link", "llm", "plan", "gaps", "tableMap", "apply", "later"]
               and got["clean"]["target"]["steps"] == ["guide"] and not got["clean"]["target"]["from"] and not got["review"]["target"]["from"] and got["map"]["source"]["label"] == f"원본 문서 — {S}"
               and not any(k in v["steps"] for r in got.values() for v in r.values() for k in ("files", "configLoad", "config")), got)
         fw, fb = flow_want(relay, dr["rows"] if dr else [])

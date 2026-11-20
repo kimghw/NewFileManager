@@ -5,7 +5,7 @@
 ⓪ 저장 파일(spec_워크플로우 ② §15 「저장」 — 2차): 옛 줄(assign 없이 stages 만)을 tasks.json 에 직접 적으면 — 서버가 읽어 채운 assign(원본 = 문서 검토 · 목적 = 고른 단계 · llm = 원본만: 옛 뜻) ·
    그 워크플로우 절의 표(1단계 LLM 검증·보완은 원본 칸에만) · 「구성 맞추기」 가 없어 구성의 기준이 없음(base null — 워크플로우 전체 줄에 「구성의 기준」 을 안 적음) · 설명을 비워 등록부가 지은 글(descAuto) ·
    고치기 폼의 LLM 줄(저장된 값) · 이름만 고쳐도 llm 이 그대로. 깨진 파일 — 폼 위에 까닭(broken) · 목록 없음 · 만들기는 409(서버의 글 그대로) · 파일은 그대로.
-① /workflow 의 「워크플로우 조립」: 목차의 「＋ 워크플로우 조립」 → 폼(이름 · 한 줄 설명 · 문서 쌍 · 문서 역할 × 단계 표 · 전제 — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」):
+① /workflow 의 「워크플로우 조립」: 목차의 「＋ 워크플로우 조립」 → 폼(이름 · 한 줄 설명 · 문서 입출력(② §18-8 — 「1」 · 「1 → 1」 · 「N → 1」 + 문서 칸) · 문서 역할 × 단계 표 · 전제 — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」):
    표의 칸 = 서버의 cells(체크 assign-source · assign-target · 따라오는 글 · 고를 수 없는 까닭) · 표 아래 「직접 고른 단계」(단계 사이 「 › 」) · 경고(목적 문서에 구성 맞추기 없이 내용 넣기 — 막지 않음 · 뒷부분 = 서버의 warn.fillNoFit)
    → 원본은 끄고 목적 문서에 단계 둘만 골라 만들기(저장 몸 = assign 만 — 합집합 stages 없음 · 저장한 assign 에 서버가 정한 llm) → 그 워크플로우 절(조립한 것 · 고른 단계만 · 번호는 1부터 · 문서마다 단위문서 TASK 표 +
    워크플로우 전체 줄 「워크플로우 전체(문서마다가 아니라 한 번): 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: …」) · 목차 · 단계 절.
@@ -205,12 +205,17 @@ try:
         wf.click("#wfNav [data-wf-compose]")
         wf.wait_for_selector("#wfCompose form.wf-form")
         f0 = wf.evaluate("""() => { const f = document.querySelector('#wfCompose form.wf-form');
-          return { title: f.querySelector('h3').textContent, fields: [...f.querySelectorAll('.wf-field-name')].map((x) => x.textContent), pairs: [...f.querySelectorAll('select[name=pair] option')].map((o) => o.textContent),
+          return { title: f.querySelector('h3').textContent, fields: [...f.querySelectorAll('.wf-field-name')].map((x) => x.textContent),
+            shapes: [...f.querySelectorAll('.wf-io-opt')].map((l) => [l.dataset.shape, l.querySelector('.wf-io-form').textContent, l.querySelector('input').disabled, l.querySelector('input').checked, (l.querySelector('.wf-io-soon') || {}).textContent || ""]),
+            slots: [...f.querySelectorAll('.wf-io-slots > li')].map((li) => [li.dataset.role, li.querySelector('.wf-io-count').textContent, !!li.querySelector('select[name^=draft-mode-]'), li.textContent]),
+            ioText: f.querySelector('.wf-iobox').textContent, help: !!document.querySelector('#wfCompose h2 .panel-help') && !document.querySelector('#wfCompose > .wf-lead'),
             old: f.querySelectorAll('.wf-stage-opt, input[name=stage]').length,
             focus: document.activeElement === f.querySelector('input[name=name]'), premise: f.querySelector('textarea').placeholder, blocked: [...document.querySelectorAll('#wfCompose .wf-blocked li b')].map((b) => b.textContent) }; }""")
-        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 쌍(지금은 사업계획서 → 연차보고서 하나) · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 둘 · 「단계 넷 체크」 는 없어짐(문서 역할 × 단계 표로)",
-              f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 쌍(원본 → 목적)", "문서 칸", "전제(선택)"] and f0["pairs"] == ["사업계획서 → 연차보고서"] and f0["focus"] and f0["old"] == 0
-              and "사업계획서 → 연차보고서 이관" in f0["premise"] and len(f0["blocked"]) == 2 and "취합형" in f0["blocked"][1], f0)
+        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 입출력(「1」 · 「1 → N」 고름 · 「N → 1」 — 아직 못 여는 「1」 만 꺼짐 + 「준비 중」) · 문서 칸(원본 1 = 기본 문서 고르기 · 목적 N) · 설명 글 · 문서 종류 이름 없음 · 절 설명은 머리의 노트 아이콘 · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 하나(다른 문서 쌍)",
+              f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 입출력", "단계(묶음 › 줄)", "전제(선택)"] and f0["focus"] and f0["old"] == 0
+              and f0["shapes"] == [["single", "1", True, False, "준비 중"], ["relay", "1 → N", False, True, ""], ["gather", "N → 1", False, False, ""]]   # 「N → 1」 취합은 2026-11-20 엶(tools/smoke_gather_compose_ui.py 가 그 조립을 본다) · 「1」 문서 하나는 아직
+              and [x[:3] for x in f0["slots"]] == [["source", "1", True], ["target", "N", False]] and not any(w in f0["ioText"] for w in ("사업계획서", "연차보고서", "올리세요", "기본값 =")) and f0["help"]
+              and "사업계획서 → 연차보고서 이관" in f0["premise"] and len(f0["blocked"]) == 1 and "다른 문서 쌍" in f0["blocked"][0], f0)
         # 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 칸은 서버(GET /api/tasks 의 stages[].cells)가 정한다
         cells = {st["id"]: st.get("cells") or {} for st in requests.get(f"{base}/api/tasks", timeout=30).json()["stages"]}   # 없으면(옛 서버) 아래 검사가 떨어진다
         ctext = lambda sid: ((cells.get(sid) or {}).get("source") or {}).get("text")   # noqa: E731 — 원본 칸의 서버 글
@@ -332,10 +337,10 @@ try:
         wf.locator(f"#wfCompose .wf-made-list li[data-task={key}] button", has_text="고치기").click()
         wf.wait_for_selector("#wfCompose form.wf-form")
         e0 = wf.evaluate("""() => { const f = document.querySelector('#wfCompose form.wf-form'), on = (n) => [...f.querySelectorAll('input[name=' + n + ']')].filter((i) => i.checked).map((i) => i.value);
-          return { title: f.querySelector('h3').textContent, name: f.querySelector('input[name=name]').value, pairOff: f.querySelector('select[name=pair]').disabled, source: on('assign-source'), target: on('assign-target'),
+          return { title: f.querySelector('h3').textContent, name: f.querySelector('input[name=name]').value, pairOff: [...f.querySelectorAll('input[name=shape]')].every((i) => i.disabled), source: on('assign-source'), target: on('assign-target'),
             units: [...f.querySelectorAll('.wf-assign-units > li')].map((li) => li.textContent), save: f.querySelector('button[type=submit]').textContent,
             llm: !f.querySelector('.wf-assign-llm').hidden, lock: !!f.querySelector('.wf-assign-lock'), off: f.querySelector('fieldset.wf-stage-pick').disabled }; }""")
-        check("「고치기」 — 그 워크플로우의 값(저장한 assign)으로 폼: 원본 체크 없음 · 목적 구성 맞추기 · 내용 넣기 · 직접 고른 단계 줄 · 문서 쌍은 못 고침 · 단추 「고친 것 저장」 · 문서 검토가 없어 LLM 줄 없음 · 하던 작업이 없어 잠금 없음",
+        check("「고치기」 — 그 워크플로우의 값(저장한 assign)으로 폼: 원본 체크 없음 · 목적 구성 맞추기 · 내용 넣기 · 직접 고른 단계 줄 · 문서 입출력은 못 고침 · 단추 「고친 것 저장」 · 문서 검토가 없어 LLM 줄 없음 · 하던 작업이 없어 잠금 없음",
               e0 == {"title": "「구성 맞추고 넣기」 고치기", "name": "구성 맞추고 넣기", "pairOff": True, "source": [], "target": ["stage_fit", "stage_fill"],
                      "units": ["원본 문서 — 사업계획서: —", "목적 문서 — 연차보고서: 구성 맞추기 › 내용 넣기"], "save": "고친 것 저장", "llm": False, "lock": False, "off": False}, e0)
         wf.fill("#wfCompose input[name=name]", "구성 · 넣기 · 정리")

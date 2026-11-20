@@ -55,7 +55,7 @@ def get(job):
         if custom["premise"]:
             text = custom["premise"]
             return {"job": job, "name": custom["name"], "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": ""}
-        base = get(custom_tasks.BASE)
+        base = get(custom_tasks.base_of(custom))   # 틀이 같은 붙박이의 전제(이관형 = 이관 · 취합형 = 사업계획서 취합)
         if not base:
             return None
         # 물려받은 전제는 붙박이 이관의 네 단계를 모두 적고 있다 — 고른 단계와 「고르지 않은 단계는 하지 않는다」 한 줄을 그 글의 맨 앞(제목 줄 뒤)에 넣는다(spec_워크플로우 ② §15)

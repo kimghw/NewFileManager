@@ -590,9 +590,15 @@ try:
         page.route(LINKS_URL, links_route)
         LINKS_DONE = "() => taskFlow.links && taskFlow.links.groups && !taskFlow.linkBusy"
         ROWS = "() => [...document.querySelectorAll('#headsDlgBody tr[data-link]')].map((tr) => ({ id: tr.dataset.link, status: tr.dataset.status, text: tr.textContent, sel: (tr.querySelector('select') || {}).value }))"
+        # 이 절은 LLM 검토 화면을 흉내 낸다 — 검사 서버의 LLM 은 꺼져 있어도 쓸 수 있는 것으로(못 쓰면 「자리 연결」 은 「건너뜀」 — 바로 아래) · 두 문서의 LLM 검증·보완 줄은 「건너뛰기」 로 끝난 채(앞 절과 같은 차례)
+        page.evaluate("() => { taskLlmOk = true; taskLlmAsked = true; taskLlmSkip(taskSlotDoc('plan'), true); taskLlmSkip(taskSlotDoc('report'), true); }")
         page.evaluate("() => taskFlowLoad()")
         page.wait_for_function("() => taskFlow.links && taskFlow.links.groups && taskFlow.links.groups.length === 4 && !taskFlow.linkBusy")
         page.evaluate(FAKE_APPLIED)
+        page.evaluate("() => { taskLlmOk = false; taskStepsDraw(); }")
+        off = page.evaluate(STEPS)[2]
+        check("② LLM 을 쓸 수 없으면 「자리 연결」 은 「건너뜀」 으로 끝 — 확인 필요는 비워 둔다(서버 실행기의 상태 식과 같다 · 막다른 길 없음)", off["state"] == "done" and off["badge"] == "건너뜀" and "LLM 을 쓸 수 없어 확인 필요 1곳은 넣지 않고 비워 둡니다" in off["text"], off)
+        page.evaluate("() => { taskLlmOk = true; taskStepsDraw(); }")
         st = page.evaluate(STEPS)
         PRIMARY = "(step) => [...document.querySelectorAll(`#taskSteps li[data-step=${step}] button`)].map((b) => b.classList.contains('primary'))"  # 그 단계 단추들의 강조 여부
         check("② 연결 목록이 나옴 — 다음 작업은 LLM 검토 · ③은 먼저 진행 가능", [s["state"] for s in st][:6] == ["done", "done", "now", "ready", "todo", "soon"]

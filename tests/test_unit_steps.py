@@ -167,3 +167,49 @@ def test_frame_stage_runs_on_the_server_to_the_end_with_llm_off(client, monkeypa
     frame = X.status_of(report)["stages"][1]
     assert frame["left"] == 0 and frame["why"] == "남은 단계가 없습니다" and not X.FENCE and not X.NOTICE
     X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()
+
+
+def test_fill_and_clean_doors_and_the_whole_relay_chain_on_a_real_pair(client, monkeypatch):
+    """실제 쌍 — 「이어서 한 번에」 1 → 4단계가 서버에서 창 없이 끝까지(LLM 끔): 분석 → 구성 확정 → 구조 반영 → 다시 분석 → 자리 연결 → 넣기 계획 → 반영 → 작성요령 삭제.
+    그 뒤 넣기 · 정리의 문(fill_facts · fill_ver · links · fill_plan · fill_apply · cleanup_count · cleanup)의 꼴(spec_워크플로우 ② §18-12 ② · ③)."""
+    from app import merge_api
+    from app import workflow_exec as X
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()
+    X.configure(U)
+    monkeypatch.setattr(U, "llm_ok", lambda: False)
+    monkeypatch.setitem(X.WAIT, "poll", 0.05)
+    monkeypatch.setitem(X.FENCE_WAIT, "settle", 0.2)
+    plan, report = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    _task(client, plan, file="plan")
+    _task(client, report, file="report")
+    assert U.config_save(plan, M.SMALL_VALUES).ok
+    X.start(report, {"from": "review", "to": "clean"})
+    t0 = time.time()
+    while report in X.RUNS and time.time() - t0 < 600:
+        time.sleep(0.1)
+    rec = X.last(report)
+    assert rec["status"] in ("done", "left"), rec["end"]
+    assert [g["id"] for g in rec["stages"]] == ["review", "frame", "map", "clean"], rec["stages"]
+    by = {g["id"]: g for g in rec["stages"]}
+    assert by["frame"]["text"].startswith("구조를 맞췄습니다") and (by["map"]["text"].startswith("연결됨 ") or by["map"]["text"].startswith("이어진 자리가 없어 넣을 내용이 없습니다(연결됨 ")), by["map"]
+    assert by["clean"]["text"].endswith("지웠습니다") or "지웠습니다 · " in by["clean"]["text"] or by["clean"]["text"] == "지울 안내가 없습니다", by["clean"]
+    assert not X.FENCE and not X.NOTICE and not [t for t in rec.get("tries") or () if t["status"] == "started"]   # LLM 끔 — 유료 호출 없음
+    assert U.cleanup_count(report).data["counts"]["total"] == 0 and U.facts(plan)["rev"] == 0   # 원본은 그대로
+    # 문의 꼴
+    F = U.fill_facts(report)
+    assert set(F) >= {"links", "plan", "heads", "cleanup", "filled"} and F["links"]["error"] is None and F["heads"] == {"old": False, "kept": False, "stale": False}
+    assert F["filled"] is not None or (F["links"]["kept"] or {}).get("applied") or by["map"]["text"].startswith("이어진 자리가 없어")   # 「내용 넣기」 의 끝은 문서의 표식으로
+    ver = U.fill_ver(report)
+    assert isinstance(ver, str) and len(ver) == 16 and U.fill_ver(report) == ver
+    L = U.links(report)
+    assert L.ok and L.data["counts"] == F["links"]["counts"]
+    p = U.fill_plan(report)
+    assert p.ok and p.data["planId"] and U.fill_facts(report)["plan"]["fresh"] is True
+    got = U.fill_apply(report, p.data["planId"])
+    assert got.code in ("ok", "nothing"), got
+    assert U.fill_apply(report, p.data["planId"]).code == "stale"   # 같은 계획을 두 번 — 이미 버려졌다
+    c = U.cleanup_count(report)
+    assert c.ok and U.cleanup(report, c.data["rev"]).code == "nothing"
+    assert U.fill_facts("nope") is None and U.fill_ver("nope") is None and U.links("nope").code == "missing"
+    assert merge_api.inputs_now(plan) is None   # 원본 문서에는 넣기 계획이 없다(그 문서를 받는 원본이 없음)
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()

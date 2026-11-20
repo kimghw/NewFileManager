@@ -66,7 +66,7 @@ def test_stage_groups_and_steps_are_well_formed():
     assert {g["id"]: {"no": g["no"], "name": g["name"]} for g in relay} == RELAY_META and all(g["meta"] is None for g in relay)   # 이름은 화면의 RELAY_STAGE_META 와 같다(취합의 TASK_STAGE_META 를 안 쓴다)
     keys = {g["id"]: [s["key"] for s in g["steps"] if not s["optional"]] for g in relay}   # 선택 단계를 뺀 차례 — 화면의 TASK_STAGES.keys(app.js)와 같다(헤딩 · 표의 LLM 검증·보완은 제 줄이 있는 단계다 — §21)
     assert keys == {"review": ["files", "heads", "headsLlm"], "frame": ["config", "division", "reheads", "reheadsLlm"], "map": ["link", "plan", "apply", "later"], "clean": ["guide"]}
-    assert [s["key"] for g in relay for s in g["steps"] if s["optional"]] == ["configLoad", "llm", "tableMap", "gaps"]   # 구성 불러오기(선택) · 3단계의 LLM 검토들
+    assert [s["key"] for g in relay for s in g["steps"] if s["optional"]] == ["configLoad", "llm", "gaps", "tableMap"]   # 구성 불러오기(선택) · 3단계의 LLM 검토들(빈 자리 검토 → 표 대응 = 실행 차례: spec_워크플로우 ② §18-4)
     # 단계 모듈(spec_워크플로우 ② §13 — 2026-11-19 사용자 "각 단계를 , 여기 모듈로 두고,, task 모듈로 조립할 수 있도록"): 이관의 묶음 넷 = 단계 모듈 넷을 조립한 것
     mods = {c["id"]: c for c in W.COMMON if c.get("kind") == "stage"}
     assert [m[0] for m in W.STAGE_MODULES] == list(mods) == [c["id"] for c in W.COMMON[:4]] == ["stage_review", "stage_fit", "stage_fill", "stage_clean"]   # 공통 모듈 목록의 맨 앞 넷
@@ -143,7 +143,7 @@ def test_unit_tasks_are_the_steps_that_touch_each_document():
     relay, gather, fit = W.BY_JOB["plan_to_report"], W.BY_JOB["plan_merge"], W.BY_JOB["plan_fit"]
     assert keys(relay, "source") == [("review", ["heads", "headsLlm"])]   # 원본 문서 = 문서 검토(분석 · LLM 검증·보완 — 문서는 안 바뀜)
     assert keys(relay, "target") == [("review", ["heads"]), ("frame", ["division", "reheads", "reheadsLlm"]),
-                                     ("map", ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"]), ("clean", ["guide"])]   # 내용 넣기는 원본 → 목적(목적 문서가 받음)
+                                     ("map", ["link", "llm", "plan", "gaps", "tableMap", "apply", "later"]), ("clean", ["guide"])]   # 내용 넣기는 원본 → 목적(목적 문서가 받음)
     assert flow(relay) == [("review", ["files"]), ("frame", ["configLoad", "config"])]   # 워크플로우 전체 — 구성의 기준은 원본(base)
     assert keys(gather, "source") == [("map", ["part", "heads"])]   # 기관 문서마다(여럿)
     assert keys(gather, "target") == [("frame", ["division", "frame", "hand"]), ("map", ["link", "llm", "plan", "apply", "drop"])] and flow(gather) == [("config", ["files", "config"])]

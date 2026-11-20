@@ -242,6 +242,9 @@ def plan(doc_id: str, tpl: str, body: dict = Body(default={})):
     return plan_one(server, server._sess(doc_id), tpl, key if isinstance(key, str) else "", request, dry=dry)
 
 
+NO_PLANS = "반영할 서식 계획이 없습니다 — 계획을 받지 않았거나, 받은 뒤 문서가 바뀌었거나, 이미 반영했습니다"   # 409 가운데 「할 일 없음」 — 워크플로우 실행기의 문(unit_steps.adjust_apply)이 이 글로 「그 사이 바뀜」 과 가른다(spec_워크플로우 ② §18-13)
+
+
 @router.post("/api/docs/{doc_id}/outline/agent/apply")
 def apply_plans(doc_id: str, body: dict = Body(default={})):
     """{rev(화면이 계획을 본 문서 차례), tpls?([템플릿 id] — 없으면 모두)} — 받아 둔 서식 정리 계획 가운데 **지금 문서 차례에서 받은 것(state planned) 모두**를 에이전트가 고른 그대로
@@ -294,7 +297,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
         if settle is not None and not pend and sure:  # 종속만 남은 반영 — 넣은 **뒤의** 대표로 보면 안 걸린 줄이 생기는가(② §8-8): 생기면 아래에서 문서 편집 트랜잭션으로(같은 반영에서 확정 서식 · 실행 취소 1)
             pend = OM._pend_after(s, ov, [], True, settle)
     if not recs and not sure and not pend:
-        raise HTTPException(409, "반영할 서식 계획이 없습니다 — 계획을 받지 않았거나, 받은 뒤 문서가 바뀌었거나, 이미 반영했습니다")
+        raise HTTPException(409, NO_PLANS)
     jobs = [(tid, lv) for tid, lv in ((tid, A.todo(rec["plan"])["levels"]) for tid, rec in recs) if lv]  # 바꿀 것이 있는 계획만 — 「바꿀 줄 없음」 인 계획은 아래에서 반영함으로만 적는다
 
     def log(per, doc):  # changed = 완전히 맞춘 줄 · left = 표지 때문에 모양만 맞춘 줄(spec_hwpx_웹편집 ② §8-8 「짝 표지가 든 줄」)

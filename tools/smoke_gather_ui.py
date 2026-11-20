@@ -37,7 +37,10 @@ tmp = OUT / "srv"
 shutil.rmtree(tmp, ignore_errors=True)
 tmp.mkdir(parents=True, exist_ok=True)
 env = {**os.environ, "NFM_PDF": "off", "NFM_LLM_BACKEND": "off", "NFM_WORKS": str(tmp / "works"), "NFM_RENDER": str(tmp / "render"),
-       "NFM_HEADINGS": str(tmp / "headings"), "NFM_FORMS": str(tmp / "forms"), "NFM_DIVISION_PRESETS": str(tmp / "presets.json"), "PYTHONUTF8": "1"}
+       "NFM_HEADINGS": str(tmp / "headings"), "NFM_FORMS": str(tmp / "forms"), "NFM_DIVISION_PRESETS": str(tmp / "presets.json"), "PYTHONUTF8": "1",
+       # 이 검사는 취합 API 를 브라우저에서 흉내 낸다(gather_route — 흉내 상태 G) — 서버 쪽 실행기가 「한 번에 진행」 을 돌면 진짜 문서에서 돌아 흉내 상태와 어긋난다.
+       # 그래서 끄는 스위치로 화면 실행(서버가 맡지 않을 때의 길 — gather.js gatherRunConfig · gatherRunFrame · gatherRunMap)을 본다. 서버 실행은 진짜 서버로 도는 gather_quick · pytest test_workflow_gather 가 본다(spec_워크플로우 ② §18-13 갈래 「라」 ⓵)
+       "NFM_FLOW_EXEC": "client"}
 log = (OUT / "server.log").open("w", encoding="utf-8")
 proc = subprocess.Popen([sys.executable, "-X", "utf8", "-m", "uvicorn", "app.server:app", "--host", "127.0.0.1", "--port", str(args.port)],
                         stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)

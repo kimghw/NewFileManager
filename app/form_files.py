@@ -1,11 +1,12 @@
-"""저장한 양식 — 워크플로우의 목적 문서 칸에 넣을 양식 파일과, 워크플로우마다의 설정(고정 · 기본값)을 서버 전체에 둔다(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧).
+"""저장한 양식 — 워크플로우의 문서 칸(수가 1인 칸)에 넣을 양식 파일과, 워크플로우마다의 설정(고정 · 기본값)을 서버 전체에 둔다(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧).
 
 2026-11-20 사용자 "템플릿은 워크플로우 설정에서 고정 또는 default 값을로 넣을 수 있는 것 까지" → 물어서 받은 답 「양식 파일」. **가벼운 저장 모듈** — 다른 app 코드를 가져오지 않는다(끝점 · 검사는 app/form_files_api.py).
 - 자리 = `%LOCALAPPDATA%\\NewFileManager\\form_files\\`(env `NFM_FORM_FILES` 가 폴더 · `off`·`0` 이면 메모리만 — 양식 정보 폴더 `NFM_FORMS` 와 다른 것) =
   `index.json {version, files: [{id, name, file, fmt, kind, sha256, size, at}], slots: {워크플로우 키: {역할: {file, mode}}}, rev}` + 파일 `<id>.<fmt>`.
   id = `f_` + 16진 8자 · name = 화면 이름(1~60자) · file = 올린 파일 이름(보이는 용) · fmt = hwpx · docx(hwp 는 올릴 때 hwpx 로 바꿔서 — 끝점이) · kind = 문서 종류(plan · report · "") · rev = 설정(slots)의 판(바뀔 때마다 +1 — 시작 요청이 읽은 판과 견준다).
 - **파일의 내용은 고치지 않는다**(양식은 올린 그대로 — 고치려면 새로 올린다). 파일을 다 쓴 뒤에 목록에 올린다(목록에 있는데 파일이 없는 양식을 만들지 않는다). 같은 내용(sha256 · 형식)을 다시 올리면 있던 양식을 돌려준다.
-- 워크플로우 설정(`slots`) = 그 워크플로우의 문서 칸(지금 목적 문서 칸 `target` 만)에 건 양식 `{file, mode}` — mode = `default`(시작의 칸에 미리 들어가 있고 바꿀 수 있음) · `fixed`(늘 그 양식). 정의(조립한 워크플로우)와 따로 둔다 — 붙박이도 건다.
+- 워크플로우 설정(`slots`) = 그 워크플로우의 문서 칸(목적 문서 `target` · 원본 문서 `source` — 수가 1인 칸만: 2026-11-20 사용자 "각 1이 되는것들은 특정 문서로 지정할 수 있도록, default 로")에 건 양식 `{file, mode}` —
+  mode = `default`(시작의 칸에 미리 들어가 있고 바꿀 수 있음) · `fixed`(늘 그 양식). 그 칸이 그 워크플로우에서 수가 1인지는 끝점(app/form_files_api.py rule)이 본다. 정의(조립한 워크플로우)와 따로 둔다 — 붙박이도 건다.
 - **저장 파일 보호**(app/custom_tasks.py 와 같은 규칙): 목록 파일이 있는데 못 읽으면 읽기는 빈 것(`broken`)이고 쓰지 않는다(`Refused` — 끝점 409). 설정에 쓰는 양식은 못 지운다(`Refused`)."""
 import hashlib
 import json
@@ -21,7 +22,7 @@ ID = re.compile(r"f_[0-9a-f]{8}")
 FMTS = ("hwpx", "docx")
 KINDS = ("", "plan", "report")
 MODES = ("default", "fixed")
-ROLES = ("target",)   # 양식을 걸 수 있는 문서 칸 — 목적 문서(양식은 내용을 받는 쪽이다 · 원본 문서는 실행마다 사람이 준다)
+ROLES = ("target", "source")   # 양식을 걸 수 있는 문서 칸 — 목적 문서 · 원본 문서(수가 1인 칸만 — 끝점이 본다: spec_워크플로우 ② §18-9)
 NAME_MAX, FILES_MAX, SIZE_MAX = 60, 200, 200 * 2 ** 20
 BROKEN = "저장한 양식의 목록 파일({name})을 읽지 못해 쓰지 않습니다 — 파일을 고치거나 옮긴 뒤 다시 하세요"
 IN_USE = "이 양식을 건 워크플로우 설정이 {n}개 있어 지울 수 없습니다 — 그 설정을 먼저 푸세요"
@@ -258,7 +259,7 @@ def slot_set(job, role, fid, mode="default"):
     """워크플로우 설정을 정하거나(fid) 푼다(fid None) → 지금 설정의 판(rev). 그 워크플로우 · 칸 · 종류가 맞는지는 부르는 쪽(끝점)이 본다.
     ValueError = 모르는 칸 · mode · 없는 양식 · Refused = 목록 파일을 못 읽음."""
     if role not in ROLES:
-        raise ValueError("양식은 목적 문서 칸에만 걸 수 있습니다")
+        raise ValueError("양식은 목적 문서 · 원본 문서 칸에만 걸 수 있습니다")
     if not isinstance(job, str) or not job:
         raise ValueError("워크플로우를 고르세요")
     with _LOCK:

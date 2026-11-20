@@ -106,9 +106,12 @@ try:
         page.wait_for_selector("#taskCards [data-task=plan_fit]")
         L = page.evaluate(LIST)
         check("처음 — 목록 없음 · 「파일 선택」 보임 · 카드 글은 전처럼 「… 올려 시작」", not L["vis"] and not L["has"] and L["pick"] and L["go"]["plan_fit"].startswith("사업계획서 올려 시작"), L)
-        layout = page.evaluate("""() => { const r = (s) => document.querySelector(s).getBoundingClientRect(), intro = r('.home-heading'), drop = r('#drop'), hero = r('.home-intro');
-          return { above: intro.bottom <= drop.top, wide: drop.width >= hero.width * .95, width: drop.width, hero: hero.width }; }""")
-        check("넓은 창 — 소개는 상단 · 파일 입력 영역은 본문 폭 전체", layout["above"] and layout["wide"], layout)
+        # 소개 머리는 없다(2026-11-20 사용자 "이런거 안봐도 될듯 그리고 우측 사이드 패널과 맞춰줘 상단을") — 왼쪽 열은 파일 놓는 카드부터 · 그 위 끝 = 오른쪽 열(대시보드 · 에이전트)의 위 끝
+        layout = page.evaluate("""() => { const r = (s) => document.querySelector(s).getBoundingClientRect(), drop = r('#drop'), hero = r('.home-intro'), side = r('#homeAgent'), box = r('.home-content');
+          return { heading: !!document.querySelector('.home-heading, .home-eyebrow, .home-subtitle, .home-format-note'), first: Math.abs(drop.top - box.top) < 1, level: Math.abs(drop.top - side.top) < 1, beside: side.left >= drop.right,
+            wide: drop.width >= hero.width * .95, width: drop.width, hero: hero.width, top: [drop.top, side.top] }; }""")
+        check("넓은 창 — 소개 머리 없음 · 파일 입력 영역이 맨 위 · 본문 폭 전체 · 위 끝이 오른쪽 열과 같음",
+              not layout["heading"] and layout["first"] and layout["level"] and layout["beside"] and layout["wide"], layout)
         page.screenshot(path=str(OUT / "0_home_wide.png"))
 
         # ---- 1. 「파일 선택」 = 여러 개 → 목록(서버에는 안 올림) · 시작 화면에 놓아도 목록 · 같은 파일은 한 번

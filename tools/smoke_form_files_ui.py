@@ -5,7 +5,7 @@
 
 보는 것:
 - ① /workflow#wfForms — 목차의 「저장한 양식」 · 절(머리 · 안내 · 없을 때 「양식 더하기」 가 펴져 있음) → 파일 올리기 → 목록 줄(이름 · 파일 · 형식 · 저장한 날 · 문서 종류 짐작 = 연차보고서) · 같은 파일 다시 = 「이미 있습니다」.
-- ② 목록 보기의 워크플로우 절 「문서 칸」 — 이관: 원본 문서 = 사람이 넣음 · 목적 문서 = 「양식: 없음 · 기본값 · 고정」 + 걸 수 있는 양식 → 「고정」 → 저장한 양식 줄에 「쓰는 워크플로우: … · 고정」 · 지우기 · 문서 종류가 꺼짐 /
+- ② 목록 보기의 워크플로우 절 「문서 칸」 — 이관: 수가 1인 칸마다(② §18-9) 원본 문서 = 「양식: …」(사업계획서 양식이 없어 꺼짐) · 목적 문서 = 「양식: 없음 · 기본값 · 고정」 + 걸 수 있는 양식 · 취합의 기관 문서 = 문서마다 사람이 넣음 → 「고정」 → 저장한 양식 줄에 「쓰는 워크플로우: … · 고정」 · 지우기 · 문서 종류가 꺼짐 /
   취합(목적 = 사업계획서)은 걸 수 있는 양식이 없음 · 서식 복사는 서버의 까닭 글. 작업의 처음 올린 원본을 「양식으로 저장」.
 - ③ 첫 화면 — 고정: 대시보드의 문서 칸 목적 = 양식 이름 · 저장한 날 · 「양식: 고정」 · 바꾸는 단추 없음 · 워크플로우 카드 글 「양식으로 시작」 → 「워크플로우 시작」 → 문서 화면으로 넘어가지 않고
   목적 문서 = 그 양식으로 만든 새 작업(source form · form.id · mode fixed) · 원본 문서 = 목록의 사업계획서(같은 프로젝트 · 라운드).
@@ -109,9 +109,9 @@ def main():
         page.wait_for_selector("#wfForms .wf-ff-add[open]")
         s = page.evaluate("""() => { const sec = document.getElementById('wfForms'), r = sec.getBoundingClientRect();
           return { hidden: sec.hidden, nav: [...document.querySelectorAll('#wfNav a')].some((a) => a.getAttribute('href') === '#wfForms' && a.textContent === '저장한 양식'),
-            head: sec.querySelector('h2').textContent, lead: (sec.querySelector('.wf-lead') || {}).textContent || '', empty: /저장한 양식이 없습니다/.test(sec.textContent), top: Math.round(r.top) }; }""")
-        check("① 목차 「저장한 양식」 · #wfForms 로 바로 그 절(전체 보기와 함께) · 머리 · 안내(기본값 · 고정 · 올린 그대로) · 없음 · 「양식 더하기」 펴짐",
-              not s["hidden"] and s["nav"] and s["head"].startswith("저장한 양식") and "기본값" in s["lead"] and "고정" in s["lead"] and "올린 그대로" in s["lead"] and s["empty"] and 0 <= s["top"] < 900, s)
+            head: sec.querySelector('h2').textContent, lead: ((sec.querySelector('h2 .panel-help') || {}).dataset || {}).help || '', plain: !!sec.querySelector(':scope > .wf-lead'), empty: /저장한 양식이 없습니다/.test(sec.textContent), top: Math.round(r.top) }; }""")
+        check("① 목차 「저장한 양식」 · #wfForms 로 바로 그 절(전체 보기와 함께) · 머리 · 안내는 머리의 노트 아이콘(기본값 · 고정 · 올린 그대로 — 본문 글 없음) · 없음 · 「양식 더하기」 펴짐",
+              not s["hidden"] and s["nav"] and s["head"].startswith("저장한 양식") and "기본값" in s["lead"] and "고정" in s["lead"] and "올린 그대로" in s["lead"] and not s["plain"] and s["empty"] and 0 <= s["top"] < 900, s)
         page.locator("#wfForms .wf-ff-add input[type=file]").set_input_files(str(REPORT))
         page.locator("#wfForms .wf-ff-add button", has_text="올려 저장").click()
         page.wait_for_selector("#wfForms .wf-ff-row[data-form]", timeout=60000)
@@ -134,14 +134,15 @@ def main():
         sl = page.evaluate("""() => { const box = (j) => document.querySelector(`section#${j} .wf-slots`), rows = (j) => [...box(j).querySelectorAll('.wf-slot')].map((li) => [li.dataset.role, li.textContent]);
           const sel = (j, n) => box(j).querySelector(`select[name="slot-${n}-${j}"]`);
           return { relay: rows('plan_to_report'), modes: [...sel('plan_to_report', 'mode').options].map((o) => o.textContent), forms: [...sel('plan_to_report', 'form').options].map((o) => o.value),
+            srcOff: box('plan_to_report').querySelector('select[name="slot-mode-plan_to_report-source"]').disabled,
             merge: rows('plan_merge'), mergeOff: sel('plan_merge', 'mode').disabled, copy: box('style_copy') ? box('style_copy').textContent : '' }; }""")
-        check("② 문서 칸 — 이관: 원본 문서(사람이 넣음) → 목적 문서(「양식: 없음 · 기본값 · 고정」 + 이 양식) / 취합: 걸 수 있는 양식이 없음(꺼짐) / 서식 복사: 서버의 까닭 글",
-              [r for r, _ in sl["relay"]] == ["source", "target"] and "실행마다 사람이 넣습니다" in sl["relay"][0][1] and sl["modes"] == ["양식: 없음", "양식: 기본값", "양식: 고정"]
-              and sl["forms"] == [fid] and "걸 수 있는 양식이 없습니다" in sl["merge"][-1][1] and sl["mergeOff"] and "내용을 받는 문서가 아니라" in sl["copy"], sl)
+        check("② 문서 칸 — 이관: 원본 문서(수가 1 — 「양식: …」 · 사업계획서 양식이 없어 꺼짐) → 목적 문서(「양식: 없음 · 기본값 · 고정」 + 이 양식) / 취합: 기관 문서 = 문서마다 사람이 넣음 · 목적 = 걸 수 있는 양식이 없음(꺼짐) / 서식 복사: 서버의 까닭 글",
+              [r for r, _ in sl["relay"]] == ["source", "target"] and "사업계획서 양식을 올리세요" in sl["relay"][0][1] and sl["srcOff"] and sl["modes"] == ["양식: 없음", "양식: 기본값", "양식: 고정"]
+              and sl["forms"] == [fid] and "문서마다 사람이 넣습니다" in sl["merge"][0][1] and "걸 수 있는 양식이 없습니다" in sl["merge"][-1][1] and sl["mergeOff"] and "내용을 받는 문서가 아니라" in sl["copy"], sl)
         page.select_option(f'section#{JOB} select[name="slot-mode-{JOB}"]', "fixed")
         page.wait_for_selector("#wfForms .wf-ff-row a[data-use=fixed]", timeout=30000)
         used = page.evaluate("""() => { const r = document.querySelector('#wfForms .wf-ff-row'); return { chip: r.querySelector('a[data-use]').textContent, del: r.querySelector('button').disabled, kind: r.querySelector('select').disabled,
-          note: document.querySelector('section#plan_to_report .wf-slot-pick .wf-muted').textContent, mode: document.querySelector('section#plan_to_report select[name="slot-mode-plan_to_report"]').value }; }""")
+          note: document.querySelector('section#plan_to_report .wf-slot[data-role=target] .wf-slot-pick .wf-muted').textContent, mode: document.querySelector('section#plan_to_report select[name="slot-mode-plan_to_report"]').value }; }""")
         st = forms()["slots"].get(JOB, {}).get("target")
         check("② 「고정」 → 서버 설정 · 저장한 양식 줄에 「쓰는 워크플로우: … · 고정」 · 지우기 · 문서 종류가 꺼짐 · 「늘 이 양식으로」",
               st == {"file": fid, "mode": "fixed"} and used["chip"].endswith("· 고정") and used["del"] and used["kind"] and "늘 이 양식으로" in used["note"] and used["mode"] == "fixed", [st, used])
@@ -242,8 +243,49 @@ def main():
         ff = forms()["files"]
         check("작업(사업계획서)의 처음 올린 원본을 「양식으로 저장」 → 새 양식(문서 종류 = 사업계획서)", len(ff) == 2 and ff[1]["kind"] == "plan" and ff[1]["fmt"] == "hwpx", ff)
 
-        # ---- ⑦ 좁은 폭
+        # ---- ⑥b 원본 칸 = 저장한 양식(② §18-9 — 수가 1인 칸마다: 2026-11-20 사용자 "각 1이 되는것들은 특정 문서로 지정할 수 있도록, default 로")
+        pid = ff[1]["id"] if len(ff) > 1 else ""
+        sel_src = f'section#{JOB} select[name="slot-mode-{JOB}-source"]'
+        page.locator("#wfViewList").click()
+        page.wait_for_selector(f"{sel_src}:not([disabled])", timeout=30000)
+        page.select_option(sel_src, "default")
+        page.wait_for_function("(s) => { const x = document.querySelector(s); return !!x && x.value === 'default' && !x.disabled; }", arg=sel_src, timeout=30000)
+        ss = forms()["slots"].get(JOB, {})
+        check("⑥b /workflow 문서 칸 — 원본 칸에 「양식: 기본값」 + 사업계획서 양식 → 서버 설정(원본 칸 · 목적 칸은 고정 그대로)",
+              ss.get("source") == {"file": pid, "mode": "default"} and (ss.get("target") or {}).get("mode") == "fixed", ss)
+        home.goto(base)
+        home.wait_for_selector("#homeDash[data-state]", timeout=30000)
+        if home.evaluate("() => document.getElementById('homeDash').dataset.state") != "pick":
+            home.locator('#homeDash [data-hd-focus="other"]').click()
+        home.wait_for_selector("#homeDash[data-state=pick] select", timeout=30000)
+        home.evaluate("() => hfFormsLoad(true)")   # 목록이 비어 프로젝트 칸이 없다 — 임시 프로젝트로 묶인다(새 작업은 앞뒤 목록의 차이로 찾는다)
+        home.select_option("#homeDash select", JOB)
+        home.wait_for_selector("#homeDash[data-state=ready] .home-dash-docs li[data-role=source]", timeout=30000)
+        h = home.evaluate(HOME)
+        src_line = dict(h["docs"]).get("source", "")
+        check("⑥b 첫 화면 — 목록이 비어도 원본 줄 = 「양식 「…」(저장한 날 …) · 양식: 기본값」 · 목적 = 고정 양식 · 「워크플로우 시작」 켜짐",
+              "양식 「" in src_line and "양식: 기본값" in src_line and "양식 「" in dict(h["docs"]).get("target", "") and h["start"] and not h["start"]["off"], h)
+        n2, before = len(works()), {w["id"] for w in works()}
+        home.locator('#homeDash [data-hd-focus="start"]').click()
+        home.wait_for_selector("#homeDash[data-state=live]", timeout=120000)
+        home.wait_for_function("() => !hf.busy && !homeTaskBusy", timeout=120000)
+        mw = [w for w in works() if w["id"] not in before]
+        sx = next((w for w in mw if w["task"].get("file") == "plan"), None)
+        tx = next((w for w in mw if w["task"].get("file") == "report"), None)
+        sj = json.loads((tmp / "works" / sx["id"] / "work.json").read_text(encoding="utf-8")) if sx else {}
+        check("⑥b 「워크플로우 시작」 → 목적 = 고정 양식 · 원본 = 사업계획서 양식으로 만든 새 작업(같은 프로젝트 · 라운드 · source form · 기본값)",
+              len(works()) == n2 + 2 and sx is not None and tx is not None and (sx["task"].get("round") or 1) == (tx["task"].get("round") or 1) and sx["task"].get("project") == tx["task"].get("project") != ""
+              and sj.get("source") == "form" and (sj.get("form") or {}).get("id") == pid and (sj.get("form") or {}).get("mode") == "default", [[(w["id"], w.get("task")) for w in mw], {k: sj.get(k) for k in ("source", "form")}])
+        home.screenshot(path=str(OUT / "06b_source_form.png"))
+
+        # ---- ⑦ 좁은 폭(조립 폼의 「문서 입출력」 도)
         page.set_viewport_size({"width": 400, "height": 900})
+        page.goto(f"{base}/workflow#overview")
+        page.wait_for_selector("#wfCompose [data-wf-compose=open]", timeout=30000)
+        page.locator("#wfCompose [data-wf-compose=open]").click()
+        page.wait_for_selector("#wfCompose .wf-io-slots", timeout=30000)
+        io = page.evaluate("() => { const m = document.getElementById('wfMain'), b = document.querySelector('#wfCompose .wf-iobox').getBoundingClientRect(); return { over: m.scrollWidth > m.clientWidth + 1, right: b.right <= m.getBoundingClientRect().right + 1, src: [...document.querySelector('#wfCompose .wf-io-slots li[data-role=source] select[name=draft-form-source]').options].map((o) => o.value) }; }")
+        check("⑦ 400px — 조립 폼의 「문서 입출력」 이 가로로 넘치지 않음 · 원본 칸의 기본 문서 고르기에 사업계획서 양식", not io["over"] and io["right"] and io["src"] == [pid], io)
         page.goto(f"{base}/workflow#wfForms")
         page.wait_for_selector("#wfForms .wf-ff-row")
         fit = page.evaluate("() => { const m = document.getElementById('wfMain'); return { over: m.scrollWidth > m.clientWidth + 1, doc: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 }; }")

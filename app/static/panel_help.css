@@ -1,0 +1,9 @@
+/* 노트 도움말(panel_help.js — design.md §1-6): 아이콘 · 풍선. 앱 화면 · 워크플로우 페이지가 같이 쓴다(2026-11-20 — 전에는 heading-panels.css 머리에 있었다). */
+.panel-help-slot { display: inline-flex; flex: none; align-items: center; }
+.panel-help-slot:empty { display: none; }
+.panel-help { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #7b8493; cursor: help; vertical-align: middle; }
+.panel-help:hover, .panel-help:focus-visible { color: #2758c7; background: #edf2fb; }
+.panel-help:focus-visible { outline: 2px solid #6b94e8; outline-offset: 2px; }
+.panel-help.is-warning { color: #aa651a; background: #fff5e6; }
+.panel-help svg { pointer-events: none; }
+.panel-help-tooltip { position: fixed; inset: auto; margin: 0; z-index: 10000; width: max-content; max-width: min(340px, calc(100vw - 20px)); max-height: min(300px, calc(100vh - 20px)); overflow: auto; box-sizing: border-box; padding: 12px 14px; border: 1px solid #4a5565; border-radius: 10px; background: #253042; color: #fff; box-shadow: 0 8px 28px #17203326; font: 13px/1.7 "Segoe UI", "Malgun Gothic", sans-serif; white-space: pre-line; overflow-wrap: anywhere; overscroll-behavior: contain; }

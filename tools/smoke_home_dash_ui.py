@@ -473,15 +473,22 @@ def main():
         page.wait_for_function("() => document.body.classList.contains('no-doc') && state.id == null")
         page.wait_for_selector("#homeDash[data-state=live] .dash-group", timeout=60000)
         s = snap(page)
-        check("첫 화면으로 돌아오면 취합의 대시보드(시작한 뒤) — 모든 묶음에 「한 번에 진행」(서버가 아직 안 맡음 — 문서 화면에서)",
-              s["title"] == "사업계획서 취합" and s["groups"] and all(not g["served"] and g["away"] == AWAY and g["run"] and g["run"]["text"] == "한 번에 진행" and not g["run"]["off"] for g in s["groups"]), s)
-        page.locator('#homeDash [data-hd-focus="away:config"]').click()
-        page.wait_for_function("""(id) => state.id === id && ((typeof gatherRunLast !== 'undefined' && !!gatherRunLast && gatherRunLast.stage === 'config' && !gatherRun)
-          || (!document.getElementById('toast').hidden && /「한 번에 진행」|단계마다|찾지 못했습니다/.test(document.getElementById('toast').textContent)))""", arg=gid, timeout=180000)   # 끝 글 — 또는 누르지 못한 까닭(실패할 때 그 글이 보이게)
-        t = page.evaluate("""() => { const b = document.querySelector('#dashBox .dash-group[data-group="config"] [data-dash-focus="run:config"]');
-          return { tool: document.getElementById('panel').dataset.tool, last: gatherRunLast, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, btn: b ? [b.disabled, b.title] : null }; }""")
-        check("취합 「1단계 프로젝트 구성」 의 「한 번에 진행」(첫 화면) → 목적 문서를 열고 그 묶음을 실제로 진행(문서 화면의 실행 — 끝 글이 남음)", t["tool"] == "Dash" and (t["last"] or {}).get("stage") == "config" and (t["last"] or {}).get("plan") == gid, t)
-        page.screenshot(path=str(OUT / "11_gather_away_run.png"))
+        # 2026-11-20 취합의 틀을 열었다(spec_워크플로우 ② §18-13 갈래 「라」 ⓵) — 취합 묶음도 서버가 세고 첫 화면에 머문 채 돈다(전에는 「문서 화면에서 진행합니다」 · 누르면 문서 화면으로 넘어갔다)
+        check("첫 화면으로 돌아오면 취합의 대시보드(시작한 뒤) — 묶음 셋을 서버가 센다(번호 · 이름 · 「한 번에 진행」 · 「문서 화면에서 진행」 줄 없음)",
+              s["title"] == "사업계획서 취합" and len(s["groups"]) == 3 and all(g["served"] and not g["away"] and g["run"] and g["run"]["text"] == "한 번에 진행" for g in s["groups"]) and not s["groups"][0]["run"]["off"], s)
+        page.locator(run_btn("config")).click()
+        t0 = time.time()
+        runs = []
+        while time.time() - t0 < 180:   # 서버가 돈다 — 끝날 때까지(실행 기록이 생기고 도는 실행이 없을 때)
+            runs = requests.get(f"{base}/api/works/{gid}/flow/runs", timeout=60).json()["runs"]
+            if runs and runs[0]["status"] != "running":
+                break
+            time.sleep(0.5)
+        page.wait_for_function("() => !document.querySelector('#homeDash .dash-live') && !!document.querySelector('#homeDash .dash-last')", timeout=60000)
+        t = page.evaluate("() => ({ id: state.id, home: document.body.classList.contains('no-doc'), last: (document.querySelector('#homeDash .dash-last') || {}).textContent || '' })")
+        check("취합 「1단계 프로젝트 구성」 의 「한 번에 진행」(첫 화면) → 첫 화면에 머문 채 서버가 그 묶음을 돈다(실행 기록 · 끝 글 — 문서 화면으로 넘어가지 않음)",
+              t["home"] and t["id"] is None and bool(runs) and runs[0]["range"]["from"] == "config" and runs[0]["origin"]["where"] == "home" and runs[0]["status"] in ("done", "left", "halted") and bool(t["last"]), [t, runs[:1]])
+        page.screenshot(path=str(OUT / "11_gather_home_run.png"))
         real = [e for e in errors if "409" not in e]
         check("콘솔 오류 없음", not real, real[:5])
         br.close()

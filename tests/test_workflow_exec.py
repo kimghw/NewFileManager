@@ -43,6 +43,9 @@ class Fake:
         d = self.divs.get(doc)
         return dict(d) if d is not None else None
 
+    def fill_facts(self, doc):   # 3 · 4단계 재료(넣기 · 정리 — tests/test_workflow_fill.py 의 가짜 문이 채운다 · 없으면 None)
+        return getattr(self, "fills", {}).get(doc)
+
     def skips(self, wid):
         return list(self.skip)
 
@@ -196,7 +199,7 @@ def test_refusals_before_starting(fake):
         X.start("t", {"from": "review"})
     assert e.value.reason == "notReady" and "사업계획서" in e.value.message
     fake.source = {"id": "s", "name": "계획서.hwpx", "format": "hwpx"}
-    for body, reason in (({"from": "review", "to": "map"}, "client"), ({"from": "review", "docs": {"target": "t", "source": "zz"}}, "docs")):
+    for body, reason in (({"from": "review", "docs": {"target": "t", "source": "zz"}}, "docs"),):   # 묶음 넷 모두 서버가 맡는다(걸음 3) — 「화면이 돈다」 는 끄는 스위치 시험이 본다
         with pytest.raises(X.Refuse) as e:
             X.start("t", body)
         assert e.value.reason == reason, body
@@ -306,9 +309,10 @@ def test_flow_endpoints_run_the_script_analysis_on_the_server(client, monkeypatc
     review = v["stages"][0]
     assert review["server"] and review["can"] and [s["key"] for s in review["steps"]] == ["files", "heads", "headsLlm"] and review["steps"][1]["st"] == "now"
     assert v["stages"][1]["server"] and v["stages"][1]["steps"] is not None   # 2단계 「구성 맞추기」 도 서버가 센다(걸음 2)
-    assert all(g["server"] is False and g["steps"] is None for g in v["stages"][2:])
+    assert all(g["server"] and g["steps"] is not None for g in v["stages"][2:])   # 3단계 「내용 넣기」 · 4단계 「문서 정리」 도 서버가 센다(걸음 3)
+    assert [s["key"] for s in v["stages"][2]["steps"]] == ["link", "llm", "plan", "gaps", "tableMap", "apply"] and v["stages"][2]["steps"][0]["st"] == "now" and "먼저 1단계 「문서 검토」 의 헤딩·표 분석" in v["stages"][2]["steps"][0]["text"]
     assert client.post(f"/api/works/{plan}/flow/runs", json={}).status_code == 400
-    assert client.post(f"/api/works/{plan}/flow/runs", json={"from": "map"}).json()["reason"] == "client"
+    assert client.post(f"/api/works/{plan}/flow/runs", json={"from": "map", "to": "review"}).status_code == 400   # 뒤 묶음부터 앞 묶음으로는 없다
     r = client.post(f"/api/works/{plan}/flow/runs", json={"from": "review", "only": "heads", "where": "home"})
     assert r.status_code == 202 and r.json()["run"]["n"] == 1
     busy = client.post(f"/api/works/{report}/flow/runs", json={"from": "review"})
@@ -368,6 +372,7 @@ class FitFake(Fake):
         self.hrev = {"s": 0, "t": 0}                       # 헤딩 분석을 한 때의 문서 차례
         self.asked = {"s": True, "t": False}
         self.readv, self.stops, self.apply_code, self.seen = V2, "", "ok", []
+        self.stops_kind, self.already = "issues", True   # 같은 검사의 까닭 종류 · 바꿀 것이 없는 계획이 「이미 맞음」 인가(apply_code "nothing")
         for d in ("s", "t"):
             self.divs[d] = {"input": None, "applied": None, "confirmed": None, "partial": [], "form": "연구개발계획서", "supported": True, "rev": 0, "read": None,
                             "sharing": {"project": "시험", "shared": True}}
@@ -414,10 +419,15 @@ class FitFake(Fake):
         th.join()
         self.seen.append(("other", out[0]))
         self.divs[doc]["input"] = values
-        return Outcome("ok", "", {"planId": "p1", "baseRev": self.rev[doc], "summary": {"groups": 2}, "autoStops": self.stops, "autoStopsKind": "issues" if self.stops else "", "stale": False})
+        return Outcome("ok", "", {"planId": "p1", "baseRev": self.rev[doc], "summary": {"groups": 2}, "autoStops": self.stops, "autoStopsKind": self.stops_kind if self.stops else "", "stale": False})
 
-    def division_apply(self, doc, plan_id, expect):
+    def division_apply(self, doc, plan_id, expect, adopt=False):
         self.calls.append(("apply", doc, plan_id, expect))
+        if self.apply_code == "nothing":   # 바꿀 것이 없는 계획 — adopt 면 「구조가 이미 값에 맞음」 을 반영 기록으로(문서는 그대로)
+            fits = bool(adopt and self.already)
+            if fits:
+                self.divs[doc]["applied"] = {"values": self.divs[doc]["input"], "rev": self.rev[doc], "adopted": True}
+            return Outcome("nothing", "할 일이 없습니다", {"nothing": True, "adopted": fits, "summary": {"already": 3 if self.already else 0, "unsupported": 1}, "rev": self.rev[doc]}, self.rev[doc])
         if self.apply_code != "ok":
             return Outcome(self.apply_code, "표준 검사에 걸려 되돌렸습니다" if self.apply_code == "rejected" else "계획이 낡았습니다")
         self.rev[doc] += 1
@@ -641,10 +651,133 @@ def test_same_check_does_not_flag_a_duplicate_name_that_kept_its_place():
 
 
 def test_only_the_relay_pair_workflows_are_served():
-    """단계 key 가 워크플로우마다 겹친다 — 취합 · 양식 맞추기의 config · plan · apply 를 이관의 처리 함수로 돌리지 않는다."""
+    """단계 key 가 워크플로우마다 겹친다 — 취합 · 양식 맞추기의 config · plan · apply 를 이관의 처리 함수로 돌리지 않는다(틀이 닫힌 워크플로우는 서버가 맡지 않고, 연 틀은 제 가족의 처리 함수로)."""
     from app import workflow_state as S
-    for job in ("plan_merge", "report_fit", "plan_fit", "doc_edit", "style_copy"):
+    from app import workflow_units as U
+    for job in ("report_fit", "plan_fit", "doc_edit", "style_copy"):
         task = S.definition(job)
         assert not S.relay_pair(task) and not any(S.served(task, g["id"]) for g in task["stages"]), job
     task = S.definition("plan_to_report")
     assert S.relay_pair(task) and S.served(task, "review") and S.served(task, "frame")
+    gather = S.definition("plan_merge")   # 취합 — 2026-11-20 틀을 엶: 이관의 것이 아니라 취합 가족의 단위 · 처리 함수로
+    assert not S.relay_pair(gather) and S.served(gather, "map") and all(X._handler(gather, x) is not X._do_apply for x in S.lines(gather) if x["key"] == "apply")
+    assert next(x["unit"] for x in S.lines(gather) if x["key"] == "plan") is U.GATHER["plan"]
+
+
+# ---- 사람이 하는 일(hand1 …) — 「했음」 이 없으면 멈추고 있으면 지나간다(② §18-12 ⑦ · 갈래 C 의 확인 기록 문 hand_ver · hand_done)
+def test_hand_lines_halt_until_a_person_marks_them_done(fit, monkeypatch):
+    import copy
+    from app import workflow_state as S
+    from app import workflow_units as U
+    base = S.definition("plan_to_report")
+    task = copy.deepcopy(base)
+    review = task["stages"][0]
+    review["steps"] = [*review["steps"], {**review["steps"][-1], "key": "hand1", "name": "결과 확인", "does": "두 문서의 분석을 사람이 훑어봅니다", "by": ["human"], "optional": False, "soon": False, "on": "target", "change": "none"}]
+    monkeypatch.setattr(S, "definition", lambda job: task if job == "plan_to_report" else None)
+    marks = {}
+    fit.hand_ver = lambda t, key: f"v-{key}"
+    fit.hand_done = lambda target, key, ver: marks.get((target, key)) == ver
+    assert U.hand_key("hand1") and U.unit("hand1")["kind"] == "hand" and not U.hand_key("handy") and S.served(task, "review")
+    v = X.status_of("t")["stages"][0]
+    line = next(s for s in v["steps"] if s["key"] == "hand1")
+    assert line["st"] == "now" and not line["done"] and "사람이 할 일" in line["text"] and v["left"] == 1
+    X.start("t", {"from": "review", "redo": "review"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "hand" and rec["halt"]["key"] == "hand1"
+    assert rec["end"]["text"] == "멈춤 — 사람이 할 일 — 결과 확인: 두 문서의 분석을 사람이 훑어봅니다 · 마친 뒤 그 줄의 「했음」 을 누르고 「이어서」"
+    marks[("t", "hand1")] = "v-hand1"
+    v = X.status_of("t")["stages"][0]
+    assert next(s for s in v["steps"] if s["key"] == "hand1")["done"] and v["left"] == 0
+    X.start("t", {"from": "review", "redo": "review"})
+    rec = _done("t")
+    assert rec["status"] == "done" and "결과 확인 — 사람이 확인함" in rec["end"]["text"]
+
+
+# ---- 원본 문서에 놓는 줄(② §18-2 「원본 문서에 놓는 줄」 — 2026-11-20 사용자 「원본 문서는 왜 네 맘대로 빼냐? 목적문서랑 원본 문서도 분리해서 따로 따로 하게 … 동일하게 같이 작업」)
+def _fit_on(monkeypatch, **on):
+    """붙박이 이관의 「구성 맞추기」 줄의 하는 문서를 바꾼 정의(조립한 정의가 그 줄을 원본 문서에도 놓은 꼴) — on = {줄 key: source | target | both}."""
+    import copy
+    from app import workflow_state as S
+    task = copy.deepcopy(S.definition("plan_to_report"))
+    frame = next(g for g in task["stages"] if g["id"] == "frame")
+    frame["steps"] = [{**s, "on": on.get(s["key"], s["on"])} for s in frame["steps"]]
+    monkeypatch.setattr(S, "definition", lambda job: task if job == "plan_to_report" else None)
+    return task
+
+
+def test_fit_lines_run_on_the_source_document_too_when_placed_together(fit, monkeypatch):
+    """같이(한 줄이 두 문서) — 원본 → 목적 차례: 원본 문서는 제 값을 제 구조에(구조 확인 → 계획 → 반영 — 목적 문서 화면의 「반영에서 빼기」 는 넘기지 않는다) · 목적 문서는 그 구조를 기준으로 ·
+    다시 문서 검토 · LLM 도 문서마다(작성 지침 저장은 목적 문서만). 끝 글은 문서마다의 글을 차례로."""
+    _fit_on(monkeypatch, division="both", reheads="both", reheadsLlm="both")
+    heads0 = fit.start_heads
+    fit.start_heads = lambda doc, how="first": (fit.llm.__setitem__(doc, False), heads0(doc, how))[1]   # 스크립트로 다시 분석하면 LLM 을 거친 결과가 아니다(실제 문서처럼)
+    fit.division_adopt = lambda doc, values=None: fit.calls.append(("adopt", doc)) or Outcome("ok", "", {"adopted": False})
+    v = X.status_of("t")["stages"][1]
+    assert v["server"] and [s["on"] for s in v["steps"] if s["key"] in ("division", "reheads", "reheadsLlm")] == ["both"] * 3 and sorted(v["paid"]) == ["s", "t"]
+    X.start("t", {"from": "frame", "skip": ["k1"]})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    order = [c for c in fit.calls if c[0] in ("confirm", "adopt", "plan", "apply", "how", "guides", "llm")]
+    assert order == [("confirm", "t"), ("adopt", "s"), ("plan", "s", ()), ("apply", "s", "p1", 0), ("plan", "t", ("k1",)), ("apply", "t", "p1", 0),
+                     ("how", "s", 2), ("how", "s", 3), ("how", "t", 2), ("how", "t", 3), ("guides", "t"), ("llm", "s"), ("llm", "t")], order
+    assert rec["end"]["text"] == ("끝남 — 구조를 맞췄습니다 — 사업계획서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳 · 사업계획서와 같음 · 연차보고서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳"
+                                  " · 사업계획서를 다시 분석했습니다 · 연차보고서를 다시 분석했습니다 · 사업계획서 LLM 검증·보완을 거쳤습니다 · 연차보고서 LLM 검증·보완을 거쳤습니다"
+                                  " · 내용은 3단계 「내용 넣기」 에서 넣습니다")
+    v = X.status_of("t")["stages"][1]
+    line = next(s for s in v["steps"] if s["key"] == "division")
+    assert v["left"] == 0 and line["done"] and [(p["doc"], p["role"], p["st"]) for p in line["per"]] == [("s", "source", "done"), ("t", "target", "done")]
+    assert not X.FENCE and not X.NOTICE
+
+
+def test_a_source_document_that_already_fits_is_confirmed_without_a_change(fit, monkeypatch):
+    """한 번도 반영한 적 없는 원본 문서의 구조가 이미 값에 맞으면 확인만(문서 안 바뀜 — 계획 · 반영을 부르지 않는다). 원본 문서만 고른 줄은 목적 문서를 건드리지 않는다(따로)."""
+    _fit_on(monkeypatch, division="source", reheads="source", reheadsLlm="source")
+
+    def adopt(doc, values=None):
+        fit.calls.append(("adopt", doc))
+        fit.divs[doc]["applied"] = {"values": fit.divs[doc]["input"], "rev": fit.rev[doc], "adopted": True}
+        return Outcome("ok", "", {"adopted": True})
+    fit.division_adopt = adopt
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert [c for c in fit.calls if c[0] in ("confirm", "adopt", "plan", "apply", "how", "guides", "llm")] == [("confirm", "t"), ("adopt", "s")]   # 구조가 안 바뀌었으니 분석도 그대로(원본의 LLM 은 이미 거침)
+    assert rec["end"]["text"].startswith("끝남 — 구조를 맞췄습니다 — 사업계획서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳(구조가 이미 값에 맞음 — 확인함)")
+    assert fit.divs["t"]["applied"] is None and fit.rev == {"s": 0, "t": 0}
+
+
+def test_the_target_document_may_be_fitted_before_the_source_document(fit, monkeypatch):
+    """문서끼리의 차례는 자유(사용자 「프로젝트 구성을 완료하고 문서 검토하고 다른문서 프로젝트 구성할 수도 있잖아」) — 목적 문서의 구성 반영 · 다시 문서 검토를 끝낸 뒤 원본 문서의 구성 반영.
+    원본 문서도 구조 반영하는 정의에서는 목적 문서가 원본의 **제 값**(입력)에 맞춘다 — 원본의 옛 구조(반영 값)에 맞추지 않는다(workflow_units.basis_of)."""
+    import copy
+    from app import workflow_state as S
+    task = copy.deepcopy(S.definition("plan_to_report"))
+    frame = next(g for g in task["stages"] if g["id"] == "frame")
+    div = next(s for s in frame["steps"] if s["key"] == "division")
+    frame["steps"] = [*frame["steps"], {**div, "on": "source"}]   # 구성 불러오기 · 확정 · 구성 반영(목적) · 다시 문서 검토(목적) · LLM(목적) → 구성 반영(원본)
+    monkeypatch.setattr(S, "definition", lambda job: task if job == "plan_to_report" else None)
+    old = {**V2, "stages": [3]}
+    fit.divs["s"]["applied"] = {"values": old, "rev": 0}   # 원본 문서의 지금 구조는 옛 값 — 입력(확정할 값)은 V2
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    order = [c for c in fit.calls if c[0] in ("confirm", "plan", "apply", "how", "guides", "llm")]
+    assert order == [("confirm", "t"), ("plan", "t", ()), ("apply", "t", "p1", 0), ("how", "t", 2), ("how", "t", 3), ("guides", "t"), ("llm", "t"), ("plan", "s", ()), ("apply", "s", "p1", 0)], order
+    assert fit.divs["t"]["applied"]["values"] == V2 and fit.divs["s"]["applied"]["values"] == V2   # 두 문서가 같은 확정 값으로(목적 문서가 원본의 옛 구조 [3] 에 맞춰지지 않았다)
+    assert [s["key"] for s in rec["steps"]] == ["config", "division", "reheads", "reheadsLlm", "division"]
+    assert "사업계획서와 같음 · 연차보고서에 반영됨" in rec["end"]["text"] and "사업계획서에 반영됨" in rec["end"]["text"]
+    v = X.status_of("t")["stages"][1]
+    assert v["left"] == 0 and [(s["key"], s["on"], s["done"]) for s in v["steps"] if s["key"] == "division"] == [("division", "target", True), ("division", "source", True)]
+
+
+def test_the_source_document_is_not_changed_with_values_other_than_the_confirmed_ones(fit, monkeypatch):
+    """원본 문서의 값이 확정한 프로젝트 구성과 다르면 그 문서를 바꾸지 않고 멈춘다(계획도 세우지 않는다)."""
+    _fit_on(monkeypatch, division="both")
+    fit.division_adopt = lambda doc, values=None: Outcome("ok", "", {"adopted": False})
+    other = {**V2, "stages": [3]}
+    fit.config_confirm = lambda doc, values=None: (fit.divs["t"].update(input=values, confirmed={"values": values, "at": time.time(), "valid": True}), Outcome("ok", "", {}))[1]   # 공유하지 않는 두 문서 — 확정은 목적 문서에만
+    fit.divs["t"].update(input=other, confirmed={"values": other, "at": time.time(), "valid": True})
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "unconfirmed" and "사업계획서의 값(1단계 · 전체 2년 · 기관 2곳)이 확정한 프로젝트 구성과 다릅니다" in rec["end"]["text"]
+    assert not [c for c in fit.calls if c[0] in ("plan", "apply")]

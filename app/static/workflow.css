@@ -362,6 +362,7 @@ td.wf-docs-none { color: var(--muted); }
 .wf-nav-make:hover:not(:disabled) { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 #wfNav a.wf-made::after { content: "조립"; margin-left: auto; flex: none; padding: 1px 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.3; }
 #wfNav a.wf-made[aria-current="true"]::after { border-color: #b8c8f0; background: var(--surface); color: var(--accent); }
+#wfNav a.wf-mine::after { content: "내 단계"; }   /* 내가 만든 단계(spec_워크플로우 ② §18-14) — 목차의 「단계」 아래 */
 @media (max-width: 900px) {
   .wf-nav-make { flex: none; width: auto; margin: 0 4px; height: 26px; padding: 0 8px; }
   #wfNav a.wf-made::after { margin-left: 6px; }
@@ -441,6 +442,19 @@ td.wf-docs-none { color: var(--muted); }
 .wf-slot-pick select, .wf-ff-top select, .wf-ff-top input, .wf-ff-add-row select, .wf-ff-add-row input:not([type=file]) { height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--text); max-width: 100%; min-width: 0; }
 .wf-slot-pick select { height: 26px; padding: 0 6px; }
 .wf-slot-pick .wf-muted { font-size: 12px; }
+/* 조립 폼의 「문서 입출력」(spec_워크플로우 ② §18-8 · design.md §22) — 틀 셋(「1」 · 「1 → 1」 · 「N → 1」: 아직 못 여는 틀은 흐리게 + 까닭) › 고른 틀의 문서 칸(역할 · 수 · 문서 종류 · 기본 문서) */
+.wf-iobox { min-width: 0; display: flex; flex-direction: column; gap: 8px; }   /* .wf-io 는 절의 「받는 문서 · 산출물」 목록(dl) — 이름을 겹치지 않는다 */
+.wf-io-shapes { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wf-io-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; min-width: 0; cursor: pointer; }
+.wf-io-opt[data-on] { border-color: var(--accent); background: var(--accent-soft); }
+.wf-io-opt[data-soon] { cursor: default; color: var(--muted); }
+.wf-io-opt input { margin: 0; align-self: center; }
+.wf-io-form { min-width: 52px; font-variant-numeric: tabular-nums; }
+.wf-io-name { font-weight: 600; }
+.wf-io-soon { padding: 0 6px; border: 1px dashed var(--line-strong); border-radius: 9px; font-size: 11.5px; color: var(--muted); cursor: help; }
+.wf-io-slots { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.wf-io-count { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--chip, #eef1f5); font-size: 11.5px; color: var(--muted); }
+.wf-head-help { margin-left: 6px; vertical-align: middle; }   /* 절 머리의 노트 도움말(설명 글 — panel_help.css 의 .panel-help) */
 .wf-slot-err, .wf-ff-row .wf-err, .wf-ff-add .wf-err { color: var(--fail); font-size: 12px; }
 .wf-slot-err:empty, .wf-ff-row .wf-err:empty { display: none; }
 .wf-ff-list { list-style: none; margin: 0 0 12px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -472,3 +486,57 @@ td.wf-docs-none { color: var(--muted); }
   .wf-ff-add-pair { grid-column: 1; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .wf-ff-add-row .btn { width: auto; justify-self: start; }
 }
+
+/* ---- 조립 — 단계(묶음 › 줄 — 정의 v2: spec_워크플로우 ② §18-6 · design.md §22). 묶음 = 옅은 상자 하나(머리 = 「N단계」 알약 · 이름 · ▲▼ · 묶음 빼기) › 줄(번호 · 이름 · 꼬리표 · 하는 문서 · ▲▼ · 빼기) · 「＋ 줄 넣기…」 ·
+   아래 「＋ 묶음」 · 서버 검사(표준인가 — 초록 글 · 거절 — 빨강 목록 · 경고 — 주황 목록). 표(문서 역할 × 단계)는 「표준 차례로 채우기」 펼침 안. */
+.wf-field-block { align-items: start; }
+.wf-lines { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.wf-lines-note { margin: 0; font-size: 12px; }
+.wf-lines-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wf-lines-group { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.wf-lines-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.wf-lines-ghead input { height: 26px; flex: 1 1 140px; min-width: 0; max-width: 260px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 13px; font-weight: 600; }
+.wf-lines-no { padding: 0 7px; line-height: 20px; border-radius: 10px; background: var(--surface-2); color: #53647f; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.wf-lines-steps { position: relative; list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-line { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; min-width: 0; }
+/* 줄 = 문서 하나의 줄(design.md §22 「같이 · 따로」 · 「대상 잇기」 — 2026-11-20 사용자 「왼쪽은 목적문서 · 우측은 원본문서 …」 · 「왜 한줄에 놓냐, 따로따로 넣도록」 ·
+   「열을 분할해줘, 대상이 있어야 하는 경우에는 2개를 쌍으로 … 한쪽은 공백을 두고 다른 한쪽은 도구를 주고」): 번호 | 목적 문서 칸 | 원본 문서 칸 | ▲▼ 빼기 —
+   문서 줄은 그 문서의 칸만 채우고 다른 문서 칸은 빈칸(.wf-line-blank) · 상대 문서가 있어야 하는 줄은 두 칸에 하나씩인 쌍 줄(.wf-line-pair — 전의 두 칸에 걸친 「공통」 한 칸은 없앴다) */
+.wf-line-top, .wf-line-cols { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 180px; align-items: center; gap: 4px 8px; } /* 끝 칸(▲ ▼ 빼기)은 폭을 못 박는다 — 문서 칸이 열 머리 · 넣기 줄과 한 줄로 선다 */
+.wf-line-cols { padding: 0 6px; font-size: 11.5px; color: var(--muted); }
+.wf-line-colname { font-weight: 600; }
+.wf-line-cell { min-width: 0; padding: 2px 6px; border-radius: 5px; }
+.wf-line-cell[data-on="1"] { background: var(--accent-soft); }
+.wf-line-blank { min-height: 20px; } /* 다른 문서의 칸 — 빈칸(그 문서의 줄은 따로 넣는다 · 차례가 위에서 아래로 보인다) */
+/* 쌍 줄 — 같은 줄을 두 문서 칸에 하나씩(문서 줄의 옅은 강조 바탕과 다른 회색 바탕) · 칸마다 흐린 작은 글(원본 칸 「→ 목적 문서로」 · 목적 칸 「← 원본 문서에서」 · 워크플로우 전체 줄은 두 칸 모두 「워크플로우 전체」) */
+.wf-line-cell.wf-line-pair[data-on="1"] { background: var(--surface-2); }
+.wf-line-hint { margin-left: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.wf-line-none { grid-column: 2 / 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; background: var(--surface-2); } /* 할 문서가 없는 옛 문서 줄 — 두 칸에 걸친 까닭 글 */
+.wf-line-acts { display: inline-flex; gap: 4px; justify-content: flex-end; }
+/* 열 분할 — 두 문서 칸 사이(원본 칸의 왼쪽 자리)의 세로 가는 금: 열 머리 · 줄 · 넣기 줄에 같은 자리로 이어진다. 자리 = 격자의 둘째 · 셋째 칸 사이 8px 틈의 가운데
+   (줄 = 테두리 1 + 안쪽 6 + 번호 22 + 틈 8 + 칸 + 4 = 50% − 79px — 열 머리(안쪽 6 · 테두리 없음) · 넣기 줄(안쪽 7)도 같은 값) · 줄 위에 얹되 누르는 것은 막지 않는다 */
+.wf-lines-steps::before, .wf-lines-addrow::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(50% - 79px); width: 1px; background: var(--line-strong); pointer-events: none; }
+.wf-lines-steps::before { bottom: -6px; } /* 아래 넣기 줄까지(줄 목록의 아래 여백 6px) 이어지게 */
+/* 넣기 줄 — 줄과 같은 격자: 목적 문서 칸(고르기 + 「원본 문서와 같이」) | 원본 문서 칸(고르기 + 「목적 문서와 같이」) | 끝 칸은 비움(쌍 줄은 두 칸의 고르기 모두에 — 「… (쌍)」). 고르기는 칸의 남는 폭 */
+.wf-lines-addrow { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 180px; align-items: center; gap: 4px 8px; padding: 0 7px; }
+.wf-lines-addcell { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.wf-lines-addcell > .wf-lines-add { flex: 1 1 0; }
+.wf-lines-same { flex: none; white-space: nowrap; }
+@media (max-width: 600px) { .wf-lines-addrow { grid-template-columns: minmax(0, 1fr); padding: 0; } .wf-lines-addpad { display: none; } .wf-lines-addrow::before { display: none; } .wf-lines-steps::before { left: calc(50% + 13px); bottom: 0; } } /* 좁으면 단추가 줄 아래로 내려가 칸이 넓어진다(금의 자리 = 50% + 13px) · 넣기 줄은 세로로 쌓여 금이 없다 */
+.wf-line-name { min-width: 0; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; overflow-wrap: anywhere; }
+.wf-line-name > b { font-size: 13px; }
+.wf-line-no { width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--surface-2); color: #53647f; font-size: 10.5px; flex: none; }
+@media (max-width: 600px) { .wf-line-top, .wf-line-cols { grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr); } .wf-line-acts { grid-column: 2 / 4; justify-content: flex-end; } .wf-line-cols > span:last-child { display: none; } }
+.wf-line-hand { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
+.wf-line-hand input { height: 26px; flex: 1 1 180px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12.5px; }
+.wf-line-empty { padding: 2px 4px; font-size: 12px; }
+.wf-lines-btn { min-width: 26px; padding: 0 6px; }
+.wf-lines-add { height: 26px; max-width: 100%; min-width: 0; padding: 0 6px; border: 1px dashed var(--line-strong); border-radius: 6px; background: #fff; font: inherit; font-size: 12.5px; color: var(--text); }
+.wf-lines-check { font-size: 12.5px; line-height: 1.55; }
+.wf-lines-check p, .wf-lines-check ul { margin: 2px 0; }
+.wf-lines-check ul { padding-left: 18px; }
+.wf-lines-std { color: var(--ok, #1f7a4d); }
+.wf-lines-err { color: var(--fail); }
+.wf-lines-warn { color: var(--warn); }
+.wf-std-pick > summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; }
+

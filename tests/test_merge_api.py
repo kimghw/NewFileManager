@@ -234,8 +234,32 @@ def test_plan_apply_through_transaction(client, monkeypatch):
     assert texts.count(M.SMALL_MARK) >= plan["body"]["counts"]["todo"]
     assert server._sess(ids["from"]).rev == 0   # 원본은 그대로
     assert client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": plan["planId"]}).status_code == 409   # 같은 계획을 두 번 못 쓴다
+    mark = merge_api._store(to)["filled"]
+    assert mark["planId"] == plan["planId"] and mark["nothing"] is False and mark["rev"] == out["rev"] and mark["ids"]   # 반영 표식 — 「내용 넣기」 의 끝(spec_워크플로우 ② §18-12 ②)
+    assert merge_api.fill_summary(to)["filled"]["nothing"] is False
     again = client.post(f"/api/docs/{to}/merge-links/plan").json()
     assert again["body"]["counts"].get("todo", 0) == 0, again["body"]["counts"]   # 같은 내용을 두 번 넣지 않는다
+    # 계획의 판(② §18-12 ③) — 계획 뒤 사람이 연결을 바꾸면(문서 차례는 그대로) 그 계획은 못 쓴다 · 새 계획을 청하다 실패해도 옛 계획이 남지 않는다
+    assert merge_api.fill_summary(to)["plan"]["fresh"] is True
+    assert client.put(f"/api/docs/{to}/merge-links/{g['id']}", json={"reset": True}).status_code == 200
+    assert merge_api.fill_summary(to)["plan"]["fresh"] is False
+    moved = client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": again["planId"]})
+    assert moved.status_code == 409 and "자리 연결" in moved.json()["detail"]
+    third = client.post(f"/api/docs/{to}/merge-links/plan").json()
+    real_view = merge_api._view
+    monkeypatch.setattr(merge_api, "_view", lambda doc_id, fresh=False: ({}, None))   # 막는 까닭이 생김 — 새 계획은 409
+    assert client.post(f"/api/docs/{to}/merge-links/plan").status_code == 409
+    monkeypatch.setattr(merge_api, "_view", real_view)
+    assert client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": third["planId"]}).json()["detail"].startswith("계획이 없거나")   # 옛 계획은 버려졌다
+    # 계획 뒤 사람이 다른 원본(같은 묶음의 다른 사업계획서)을 골랐다 — 옛 원본의 계획은 넣지 않는다(astra 결과 검토)
+    fourth = client.post(f"/api/docs/{to}/merge-links/plan").json()
+    real_mate = merge_api._mate
+    monkeypatch.setattr(merge_api, "_mate", lambda to_id, saved: (real_mate(to_id, saved)[0], "다른원본"))   # merge.json 의 from 이 그 사이 다른 원본으로(사람이 고름)
+    swapped = client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": fourth["planId"]})
+    assert swapped.status_code == 409 and "원본 문서가 바뀌었습니다" in swapped.json()["detail"]
+    assert merge_api.fill_summary(to)["filled"] is None   # 반영 표식은 원본에 묶였다 — 다른 원본이면 「내용 넣기」 의 끝이 아니다
+    monkeypatch.setattr(merge_api, "_mate", real_mate)
+    assert merge_api.fill_summary(to)["filled"]["nothing"] is False
 
 
 def test_llm_endpoint_runs_real_review(client, monkeypatch, tmp_path):

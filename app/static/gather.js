@@ -47,7 +47,7 @@ let gatherRunLast = null; // 마지막 실행의 끝 {stage, plan, ok, key, text
 class GatherHalt extends Error {} // 멈춤(사람 손이 필요함 · 실패) — 글이 상태 줄에 그대로 보인다
 const gatherHalt = (msg) => { throw new GatherHalt(msg); };
 
-const gatherSpec = () => (state.task && TASK_GATHER[state.task.job]) || null; // {base: 취합본의 종류(plan — 문서 하나), parts: 기관 문서의 종류(part — 여럿)}
+const gatherSpec = () => (state.task && taskGatherOf(state.task.job)) || null; // {base: 취합본의 종류(plan — 문서 하나), parts: 기관 문서의 종류(part — 여럿)}
 const gatherPlan = () => { const s = gatherSpec(); return s ? taskSlotDoc(s.base) : null; }; // 취합본 = 그 칸의 문서(지금 문서가 그 종류면 지금 문서, 아니면 같은 프로젝트의 첫 문서)
 const gatherMine = () => { const p = gatherPlan(); return !!p && p.id === state.id; }; // 취합본을 고치는 중인가
 const gatherPart = (pid) => ((gt().view || {}).parts || []).find((p) => p.work === pid) || null;
@@ -724,13 +724,16 @@ function gatherStageSync1(stage, box) {
     if (t.textContent !== f.text) t.textContent = f.text;
     if (t.title !== f.title) t.title = f.title;
   }
-  const b = box.querySelector("[data-gather-run]"), ready = !!files && files.done && !before && runnable.length > 0;
+  // 취합형으로 조립한 워크플로우 — 그 정의에 이 묶음의 줄이 없으면 「한 번에 진행」 은 끈다(세부 단추로는 할 수 있다 — 붙박이는 늘 있다: task_catalog.js gatherDefStage)
+  const lacks = runnable.length > 0 && !gatherDefStage(stage.id, (state.task && state.task.job) || "", runnable[0].key);
+  const b = box.querySelector("[data-gather-run]"), ready = !!files && files.done && !before && runnable.length > 0 && !lacks;
   b.textContent = R ? (R.stop ? "멈추는 중…" : "멈춤") : "한 번에 진행";
   b.setAttribute("aria-label", `${stage.no} ${stage.name} ${b.textContent}`);
   b.disabled = R ? R.stop : !!gatherRun || !!busy || !ready;
   b.className = "btn sm" + (!gatherRun && ready && !box.open && current === stage ? " primary" : ""); // 강조 단추는 카드에 하나 — 할 일이 남은 첫 묶음의 것, 펴면 세부 목록의 「다음 할 일」
   b.title = R ? "지금 하는 일이 끝나면 멈춥니다 — 끝난 단계는 그대로 남습니다" : gatherRun ? "다른 묶음이 진행 중입니다" : busy ? "지금 진행 중인 작업이 끝나면 사용할 수 있습니다"
     : !(files && files.done) ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 을 먼저 끝내세요` : !runnable.length ? (stage.id === "map" ? "넣을 것이 남은 기관 문서가 없습니다(반영할 기관을 고른 문서만 진행합니다)" : "남은 단계가 없습니다")
+    : lacks ? "이 워크플로우(조립한 것)에는 이 묶음의 줄이 없습니다 — 아래 세부 단추로 진행하세요"
     : `이 묶음의 남은 일을 차례로 한 번에 — ${stage.does}. 사람 손이 필요한 곳에서는 멈춥니다`;
   const active = R ? R.key : busy && busy.key;
   for (const li of box.querySelectorAll("ol.dv-flow-steps > li[data-key]")) { // 줄마다 상태 꼬리표(글자로 — 색에만 기대지 않는다)
@@ -1073,9 +1076,16 @@ async function gatherRunAll(stageId) {
 // opt: config — (값이 없으면 늘 문서에서 읽음) / frame — quick(구조 맞춤에 지움이 있으면 멈춤) / map — auto(Set: 미지정이면 자동 지정할 기관 문서) · llm(false = LLM 검토 안 함) · log({기관 문서 id: 결과}) / quiet(끝 알림 없음)
 async function gatherRunStage(stageId, plan, opt = {}) {
   const stage = GT_STAGES.find((x) => x.id === stageId);
-  if (gatherRun) return { ok: false, text: "다른 묶음이 진행 중입니다" };
+  if (gatherRun || gatherRunStarting) return { ok: false, text: "다른 묶음이 진행 중입니다" };
   const left = gatherCalc().filter((s) => s.stage === stageId && !s.done && s.step !== "files");
   if (!stage || !plan || !left.length) return { ok: true, text: "남은 단계가 없습니다", none: true };
+  // 서버 쪽 실행기가 이 묶음을 맡으면 서버가 돈다(workflow_exec.js gatherRunServer — 창을 닫거나 다른 문서를 열어도 끝까지: spec_워크플로우 ② §18-13 갈래 「라」) — 맡지 않으면(null · 옛 서버 · 끄는 스위치) 아래 화면 실행 그대로
+  if (typeof gatherRunServer === "function") {
+    gatherRunStarting = true; // 시작 요청을 기다리는 동안 겹쳐 누르지 못하게
+    let via = null;
+    try { via = await gatherRunServer(stage, plan, opt, left[0].key); } finally { gatherRunStarting = false; }
+    if (via) return via;
+  }
   const run = (gatherRun = { stage: stage.id, plan: plan.id, key: left[0].key, note: "", t0: Date.now(), stop: false });
   gatherRunLast = null;
   if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(spec_작업 ② §19)
@@ -1085,7 +1095,11 @@ async function gatherRunStage(stageId, plan, opt = {}) {
   try { end = { ok: true, text: await (stage.id === "config" ? gatherRunConfig(run, plan, opt) : stage.id === "frame" ? gatherRunFrame(run, plan, opt) : gatherRunMap(run, plan, opt)) }; }
   catch (e) { end = { ok: false, text: e instanceof GatherHalt ? e.message : `오류 — ${gatherErr(e)}` }; if (!(e instanceof GatherHalt)) console.warn(e); }
   clearInterval(run.timer);
-  gatherRun = null;
+  return gatherRunEnd(stage, plan, run, end, opt);
+}
+let gatherRunStarting = false; // 서버 쪽 실행의 시작 요청을 기다리는 중(gatherRunStage)
+function gatherRunEnd(stage, plan, run, end, opt = {}) { // 묶음 실행의 끝 — 상태 줄에 끝 글을 남기고 · 멈춘 곳을 펴고 · 알린다(화면 실행과 서버 실행의 거울 workflow_exec.js gatherRunFollow 가 같이 쓴다) → end
+  if (gatherRun === run) gatherRun = null;
   if (typeof projectControlsSync === "function") projectControlsSync(); // 끝났다 — 꺼 둔 프로젝트 칸·버전 줄을 다시 켠다
   gatherDraw();
   gatherRunLast = { ...end, stage: stage.id, plan: plan.id, key: run.key, done: (gatherStepsLast || []).filter((s) => s.stage === stage.id && s.step !== "files" && s.done).length };

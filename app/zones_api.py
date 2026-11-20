@@ -238,7 +238,8 @@ def _respond(t, auto=None):
     w = _work(t["id"])
     opts = task_options.resolve(w)
     origins = list(t["zones"]["origins"])
-    if t["hwpx"] and (w.get("task") or {}).get("job") == "plan_merge":   # 취합 TASK 의 문서 — 출처 이벤트가 생기기 전에 넣은 옛 기록도 출처로(§4 — legacy)
+    job = (w.get("task") or {}).get("job")
+    if t["hwpx"] and (job == "plan_merge" or __import__("app.custom_tasks", fromlist=["is_gather"]).is_gather(job)):   # 취합 TASK 의 문서(붙박이 · 취합형으로 조립한 것) — 출처 이벤트가 생기기 전에 넣은 옛 기록도 출처로(§4 — legacy)
         from app import merge_gather_api
         origins += merge_gather_api.legacy_origins(t["id"])
     view = zones.build(info, t["zones"]["marks"], origins, opts["zones"]["dims"])

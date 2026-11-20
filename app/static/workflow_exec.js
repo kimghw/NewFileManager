@@ -144,9 +144,11 @@ const flowBy = (run) => (!run ? "" : (run.origin || {}).screen === FLOW_SCREEN ?
 // app.js 의 이름: state · taskRun · taskRunLast · taskRunEnds · taskRunKeep · taskStageSync · taskStepsDraw · taskFlowLoad · taskSlots · taskSlotDoc · TASK_STAGES · taskStagesSync · gatherOn · projectControlsSync · toast · TASK_CATALOG · taskCatalogSig.
 if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { flowRun: "워크플로우 실행" }); // 「기록」 탭의 이름 — 서버가 돈 「한 번에 진행」 의 시작 · 묶음 · 끝(작업 기록 `flowRun`)
 
-async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", only = "" } = {}) { // 그 실행을 끝까지 따라간다(거울) → {ok, text, run} — 끝나면 단계를 다시 읽고 묶음 상태 줄에 끝 글을 남긴다
+const FLOW_CHAIN = true; // 묶음 연쇄(「이어서 한 번에」)를 서버에 from → to 로 맡길 수 있다(app.js taskRunAll 이 본다 — spec_워크플로우 ② §18-4 「범위의 세 진입」)
+
+async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", only = "", chain = null } = {}) { // 그 실행을 끝까지 따라간다(거울) → {ok, text, run} — 끝나면 단계를 다시 읽고 묶음 상태 줄에 끝 글을 남긴다 · chain = 연쇄({to, label})
   const first = { review: "heads", frame: redo || "config", map: "link", clean: "guide" }[g.id] || ""; // 첫 확인 전의 단계(화면 taskRunSteps 의 run.key 와 같다) — 다음 확인이 서버의 지금 단계로 바꾼다
-  const run = (taskRun = { stage: g.id, report: report.id, key: only || first, note: "", t0: Date.now(), stop: false, chain: null, redo, only, paid: null, server: true, n, by: "" });
+  const run = (taskRun = { stage: g.id, report: report.id, key: only || first, note: "", t0: Date.now(), stop: false, chain, redo, only, paid: null, server: true, n, by: "" });
   taskRunLast = null;
   taskRunEnds = {};
   if (typeof projectControlsSync === "function") projectControlsSync();
@@ -178,6 +180,22 @@ async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", onl
     if (rec && rec.halt && rec.halt.key) run.key = rec.halt.key; // 멈춘 단계 — 그 줄에 「멈춤」 을 보인다(확인 사이에 끝난 짧은 실행도)
     if (taskRun === run) taskRun = null; // 끝 글과 같은 틈(동기)에 — 사이에 보는 쪽이 없다
     taskStepsDraw();
+    if (chain) { // 연쇄 — 서버가 돈 묶음마다 상태 줄에 끝 글을 남긴다(화면 실행 taskRunAll 이 경계마다 남기던 것) · 마지막 묶음이 끝 글 · 알림의 주인
+      const done = ((rec && rec.stages) || []).filter((x) => TASK_STAGES.some((y) => y.id === x.id));
+      for (const x of done) taskRunKeep(TASK_STAGES.find((y) => y.id === x.id), plan, report, run, { ok: x.status === "done" || x.status === "left", text: x.text || "" });
+      const lastG = done.length ? done[done.length - 1] : null, lastStage = lastG ? TASK_STAGES.find((y) => y.id === lastG.id) : stage;
+      const steps = (rec && rec.steps) || [], cut = steps.length && steps[steps.length - 1].key === "" && steps[steps.length - 1].status === "left" ? steps[steps.length - 1].text : ""; // 경계에서 앞 묶음이 덜 끝나 멈춘 까닭
+      const box = lastStage.dom && document.getElementById(lastStage.dom);
+      if (box && !end.ok) box.open = true;
+      taskStageSync();
+      const lastText = lastG ? lastG.text || "" : end.text;
+      if (!quiet) {
+        if (!end.ok) toast(`${chain.label} 이어 진행이 ${lastStage.no} 「${lastStage.name}」 에서 멈췄습니다 — ${rec && rec.halt ? rec.halt.text : end.text}`, true);
+        else if (cut) toast(`${chain.label} 이어 진행을 ${lastStage.no}까지만 했습니다 — ${cut}`, true);
+        else toast(`${chain.label} 이어 진행 끝 — ${lastStage.name}: ${lastText}`);
+      }
+      return { ok: end.ok, text: lastText, run: rec };
+    }
     taskRunKeep(stage, plan, report, run, end);
     const box = stage.dom && document.getElementById(stage.dom);
     if (box && !end.ok) box.open = true; // 멈춘 곳이 보이게 세부 목록을 편다(화면 실행 taskRunAll 과 같다)
@@ -192,10 +210,12 @@ async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", onl
 
 // 그 묶음을 서버 쪽 실행기로 시작한다 → {follow()}(서버가 돈다 — follow 가 끝까지 따라가 {ok, text, run} 을 돌려준다) | {ok: false, text}(서버가 거절 — 까닭) |
 // null(서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치 — 부르는 쪽이 화면 실행으로 간다). paid = 에이전트의 실행 카드가 승인한 문서 id 들(있으면 by agent). 시작(POST)까지만 기다린다 — app.js taskRunAll 이 그동안 겹쳐 누르지 못하게 막는다
-async function taskRunServer(g, plan, report, { redo = "", only = "", paid = null } = {}) {
+async function taskRunServer(g, plan, report, { redo = "", only = "", paid = null, to = "", chain = null } = {}) { // to · chain = 묶음 연쇄(「이어서 한 번에」 — 서버가 경계마다 최신 상태로 그 묶음을 할지 정한다)
   const cat = TASK_CATALOG[(state.task || {}).job] || {};
   for (const w of [plan, report]) if (typeof taskLlmSkipped === "function" && taskLlmSkipped(w)) await flowSkip(report.id, w.id, true); // 이 브라우저에 기억해 둔 「건너뛰기」 — 서버가 같이 보게(워크플로우 옵션)
-  const changes = ["frame", "map", "clean"].includes(g.id) && only !== "reheads"; // 문서를 바꾸는 묶음(구조 반영 · 내용 반영 · 작성요령 삭제) — 화면의 약속(spec_워크플로우 ② §17-7 「시작」): 고친 글 · 구성 입력을 먼저 서버에
+  const ids = TASK_STAGES.map((x) => x.id), i0 = ids.indexOf(g.id), i1 = to ? ids.indexOf(to) : i0;
+  const span = i0 >= 0 && i1 >= i0 ? ids.slice(i0, i1 + 1) : [g.id]; // 범위의 묶음들 — 문서를 바꾸는 묶음이 하나라도 들면 화면의 약속을 지킨다
+  const changes = span.some((id) => ["frame", "map", "clean"].includes(id)) && only !== "reheads"; // 문서를 바꾸는 묶음(구조 반영 · 내용 반영 · 작성요령 삭제) — 화면의 약속(spec_워크플로우 ② §17-7 「시작」): 고친 글 · 구성 입력을 먼저 서버에
   let skip = [];
   if (changes && (state.id === report.id || state.id === plan.id)) {
     await flushAll();
@@ -207,7 +227,7 @@ async function taskRunServer(g, plan, report, { redo = "", only = "", paid = nul
     if (state.id === report.id && typeof dv !== "undefined" && dv.skip) skip = [...dv.skip]; // 「반영에서 빼기」 — 화면에만 있던 입력(② §17-11 ⓙ)
   }
   const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : ""; // 서식 정리 스킬(LLM 검증·보완의 셋째 — 화면 실행 taskRunLlm 과 같다)
-  const r = await flowStart(report.id, { from: g.id, only, redo, where: "panel", docs: { target: report.id, source: plan.id }, ...(Array.isArray(paid) ? { by: "agent", paid } : {}), ...(skip.length ? { skip } : {}),
+  const r = await flowStart(report.id, { from: g.id, ...(span.length > 1 ? { to: span[span.length - 1] } : {}), only, redo, where: "panel", docs: { target: report.id, source: plan.id }, ...(Array.isArray(paid) ? { by: "agent", paid } : {}), ...(skip.length ? { skip } : {}),
     ...(skill ? { skill } : {}), ...(cat.custom && typeof taskCatalogSig === "function" && cat.sig ? { sig: cat.sig } : {}) });
   if (!r.ok && (r.reason === "client" || r.reason === "old")) return null; // 서버가 맡지 않는 묶음 · 옛 서버 — 화면이 돈다(전과 같다)
   if (!r.ok && r.reason === "error") { // 시작 요청의 답을 못 받음 — 서버가 이미 시작했을 수 있어 화면 실행으로 가지 않는다(같은 문서에 두 실행이 걸리지 않게 — astra 2026-11-20)
@@ -218,7 +238,7 @@ async function taskRunServer(g, plan, report, { redo = "", only = "", paid = nul
   }
   if (!r.ok && r.reason === "busy" && r.run) { toast("다른 화면에서 진행 중입니다 — 그 실행을 따라 보입니다"); return { follow: () => taskRunFollow(g, plan, report, r.run.n, { quiet: true }) }; }
   if (!r.ok) { toast(r.message, true); return { ok: false, text: r.message, run: null }; }
-  return { follow: () => taskRunFollow(g, plan, report, r.run.n, { redo, only }) };
+  return { follow: () => taskRunFollow(g, plan, report, r.run.n, { redo, only, chain: span.length > 1 ? chain : null }) };
 }
 
 setInterval(async () => { // 다른 화면 · 첫 화면의 대시보드 · 에이전트가 시작한 서버 실행 — 이 문서가 그 묶음에 들었으면 거울로 따라간다(3초마다 · 메모리만 읽는 확인)
@@ -231,4 +251,104 @@ setInterval(async () => { // 다른 화면 · 첫 화면의 대시보드 · 에�
   if (typeof taskStagesSync === "function") taskStagesSync();
   const g = TASK_STAGES.find((x) => x.id === ((live.now || {}).stage || (live.range || {}).from));
   if (g) taskRunFollow(g, plan, report, live.n, { quiet: true });
+}, 3000);
+
+// ---------------------------------------------------------------- 취합(걸음 5 — spec_워크플로우 ② §18-13 갈래 「라」) — 「한 번에 진행」 · 간단 모드의 묶음 실행이 서버 실행을 쓴다
+// gather.js gatherRunStage 가 묶음을 돌리기 전에 gatherRunServer 로 먼저 묻는다: 서버가 맡으면 gather.js 의 `gatherRun` 을 그 실행의 **거울**로 채워 끝까지 따라가고(진행 줄 · 멈춤 · 끝 글 — gatherRunEnd),
+// 맡지 않으면(null) 화면이 전처럼 돈다. 거울 덕에 단추를 끄는 곳(divRunLocked) · 진행 줄(gatherStageSync) · 대시보드 · 에이전트의 진행 카드(agwRunning)는 고치지 않아도 따라온다.
+// 따라가는 동안 1초마다의 확인(flowLive)이 이 화면의 고치던 글 수를 서버에 알리고 울타리 알림을 받는다(취합본을 연 화면 — ② §17-8). 실행은 취합본을 열고 있지 않아도 돈다(기관 문서를 보고 있어도 · 창을 닫아도).
+// gather.js 의 이름: gatherRun · gatherRunLast · gatherRunEnd · gatherStageSync · gatherLoad · gatherPlan · gatherOn · GT_STAGES. app.js: state · flushAll · divSettingsFlush · divShow · dv · divCanon · divValues · projectControlsSync · toast.
+const gatherRunKey = (now) => (now && now.doc && GATHER_EACH_UNITS.includes(now.key) ? `part:${now.doc}` : (now && now.key) || ""); // 서버의 지금 단계 → 화면의 줄 key(기관 문서마다 도는 줄은 문서마다 한 줄 — 묶음 id 가 아니라 줄로 가른다: 취합형으로 조립한 것은 묶음 id 가 g1 …)
+const gatherJobNow = () => (typeof state !== "undefined" && state.task && state.task.job) || ""; // 지금 문서의 워크플로우(취합본 · 기관 문서가 같은 묶음이라 같은 값)
+const gatherRunStageOf = (now) => gatherScreenStage(now, gatherJobNow()); // 서버의 지금 단계 → 취합 화면의 묶음 id | ""(task_catalog.js — 조립한 것은 줄로 잇는다)
+
+function gatherRunLog(rec, log) { // 간단 모드의 문서별 결과(gather_quick.js gqRowText 가 읽는 log{기관 문서 id: {done | skip | llm}}) — 서버 실행의 줄 기록(steps[].doc)에서
+  for (const s of (rec && rec.steps) || []) {
+    if (!s.doc) continue;
+    const text = s.text && s.text.includes(" — ") ? s.text.slice(s.text.indexOf(" — ") + 3) : s.text || "";
+    const row = (log[s.doc] = log[s.doc] || {});
+    if (s.key === "apply" && s.status === "done") row.done = text;
+    else if (s.key === "llm" && /LLM 검토는 못 함/.test(text)) row.llm = "LLM 검토 못 함"; // LLM 을 쓸 수 없음 · 답을 못 받음 — 스크립트가 넣을 수 있다고 본 것만 넣었다
+    else if (s.status === "left") row.skip = text;
+  }
+}
+
+async function gatherRunFollow(stage, plan, n, opt = {}, first = "") { // 그 실행을 끝까지 따라간다 → 끝 {ok, text}(gatherRunEnd 가 상태 줄 · 알림까지)
+  const run = (gatherRun = { stage: stage.id, plan: plan.id, key: first, note: "", t0: Date.now(), stop: false, server: true, n, by: "" });
+  gatherRunLast = null;
+  if (typeof projectControlsSync === "function") projectControlsSync();
+  run.timer = setInterval(() => gatherStageSync(), 1000); // 지난 시간 — 글만 바꾼다
+  gatherStageSync();
+  let rec = null;
+  try {
+    rec = await flowWatch(plan.id, n, (live) => {
+      const now = live.now || {}, key = gatherRunKey(now) || run.key, at = gatherRunStageOf(now) || run.stage; // at = 화면의 묶음(조립한 것은 서버의 묶음 id 가 다르다)
+      const moved = key !== run.key || (now.note || "") !== run.note || at !== run.stage;
+      Object.assign(run, { stage: at, key, note: now.note || "", by: flowBy(live), ...(live.started ? { t0: live.started * 1000 } : {}) });
+      if (moved) gatherStageSync(); // 단계가 바뀌면 바로 — 상태 줄 · 「진행 중」 표시
+      if (run.stop && !run.stopSent) { run.stopSent = true; flowStop(plan.id, n); } // 「멈춤」 — 지금 하는 일이 끝나면(서버가 멈춘다)
+    });
+  } finally { clearInterval(run.timer); }
+  try { // 서버 실행이 취합본을 바꿨는데 알림을 놓쳤으면 끝난 뒤 한 번 견줘 다시 읽는다 · 구성 상태(확정 · 반영)와 취합 상태를 새로
+    if (state.id === plan.id && !flowDirty()) {
+      // 서버 실행이 프로젝트 구성을 읽어 저장 · 확정했다 — 손대지 않은 입력 칸(dv.values)은 서버의 값을 따른다(divShow 는 저장한 값과 같은 입력만 새로 받는다: 처음의 기본값은 그대로 두므로 비워 준다)
+      const keep = typeof dv !== "undefined" && dv ? dv.values : null, view = typeof dv !== "undefined" ? dv : null;
+      if (view && !view.dirty) view.values = null;
+      const now = await api(flowUrl(plan.id, "/live")).catch(() => null);
+      if (now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(plan.id);
+      else if (typeof divShow === "function") await divShow();
+      if (view && view === dv && !view.values) { view.values = keep; if (typeof divRender === "function" && keep) divRender(); } // 못 읽었으면 쥐고 있던 값으로
+    }
+    const cur = gatherPlan();
+    if (cur && cur.id === plan.id) await gatherLoad();
+  } catch (e) { console.warn(e); }
+  const E = flowEnd(rec), end = E ? { ok: E.ok, text: E.text.replace(/^(끝남|남김|멈춤|오류|끊김) — /, "") } : { ok: false, text: "실행 기록을 읽지 못했습니다" };
+  const last = ((rec && rec.steps) || []).slice(-1)[0];
+  if (rec && rec.halt && rec.halt.key) run.key = gatherRunKey({ stage: rec.halt.stage, key: rec.halt.key, doc: last && last.doc }) || run.key; // 멈춘 단계 — 그 줄에 보인다
+  if (opt.log && rec) gatherRunLog(rec, opt.log);
+  run.stage = stage.id; // 끝 글은 누른 묶음의 상태 줄에
+  return gatherRunEnd(stage, plan, run, end, opt);
+}
+
+// 그 묶음을 서버 쪽 실행기로 시작한다 → 끝 {ok, text, none?}(서버가 돌았다 — 끝까지 따라간 뒤) | null(서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치 — 부르는 쪽이 화면 실행으로 간다).
+// opt = gatherRunStage 의 것: quick(구조 맞춤에 지움이 있으면 멈춤) · auto(Set — 이번에 올린 문서: 미지정이면 반영할 기관을 자동 지정) · llm(false = LLM 검토 안 함) · log · quiet
+async function gatherRunServer(stage, plan, opt = {}, first = "") {
+  if (state.id === plan.id) { // 화면의 약속(spec_워크플로우 ② §17-7 「시작」) — 고친 글 · 구성 입력을 먼저 서버에(서버 실행은 서버의 문서 · 값으로 돈다)
+    await flushAll();
+    if (state.failed.size) { const why = "서버에 반영하지 못한 문단이 있어 시작하지 않았습니다 — 「고친 문단」 탭에서 먼저 다시 반영하세요"; if (!opt.quiet) toast(why, true); return { ok: false, text: why }; }
+    if (typeof divSettingsFlush === "function") await divSettingsFlush();
+    if (typeof dv !== "undefined" && dv.values && dv.dirty && typeof divCanon === "function" && divCanon(divValues()) !== dv.savedKey) {
+      const why = "프로젝트 구성 입력 칸의 값을 저장하지 못해 시작하지 않았습니다 — 입력 칸의 값(사업기간 · 차년도 …)을 확인한 뒤 다시 누르세요"; if (!opt.quiet) toast(why, true); return { ok: false, text: why };
+    }
+  }
+  // 취합형으로 조립한 워크플로우 — 화면의 묶음을 그 정의의 묶음으로(지금 할 줄이 든 묶음: task_catalog.js gatherDefStage) · 서버 실행기만 돌린다(화면의 취합 실행은 붙박이의 차례라 그 정의를 모른다: ② §18-12 ⑤)
+  const job = gatherJobNow(), made = !!(TASK_CATALOG[job] || {}).custom, from = gatherDefStage(stage.id, job, first);
+  if (!from) { const why = `이 워크플로우에는 「${stage.short || stage.name}」 의 줄이 없습니다 — 워크플로우 페이지의 「워크플로우 조립」 에서 줄을 넣거나, 단계별 단추로 진행하세요`; if (!opt.quiet) toast(why, true); return { ok: false, text: why }; }
+  const r = await flowStart(plan.id, { from, where: "panel", docs: { target: plan.id }, ...(opt.quick ? { quick: true } : {}), ...(opt.auto && opt.auto.size ? { auto: [...opt.auto] } : {}), ...(opt.llm === false ? { llm: false } : {}) });
+  if (!r.ok && (r.reason === "client" || r.reason === "old")) { // 서버가 맡지 않는 묶음 · 옛 서버 — 화면이 돈다(전과 같다) · 조립한 것은 화면이 돌리지 않는다
+    if (!made) return null;
+    const why = "이 워크플로우는 서버가 돌립니다 — 서버가 이 묶음을 맡지 못했습니다(서버를 새 판으로 켠 뒤 다시 누르세요)"; if (!opt.quiet) toast(why, true); return { ok: false, text: why };
+  }
+  if (!r.ok && r.reason === "noWork") return { ok: true, text: "남은 단계가 없습니다", none: true };
+  let n = r.ok ? r.run.n : 0, quiet = !!opt.quiet;
+  if (!r.ok && r.reason === "busy" && r.run) { toast("다른 화면에서 진행 중입니다 — 그 실행을 따라 보입니다"); n = r.run.n; quiet = true; }
+  else if (!r.ok && r.reason === "error") { // 시작 요청의 답을 못 받음 — 서버가 이미 시작했을 수 있어 화면 실행으로 가지 않는다(같은 문서에 두 실행이 걸리지 않게)
+    const live = await flowLive(plan.id);
+    if (!flowActive(live)) { const why = `시작하지 못했습니다 — ${r.message || "서버 응답 없음"} · 다시 누르세요`; toast(why, true); return { ok: false, text: why }; }
+    n = live.n;
+  } else if (!r.ok) { if (!opt.quiet) toast(r.message, true); return { ok: false, text: r.message }; }
+  return gatherRunFollow(stage, plan, n, { ...opt, quiet }, first);
+}
+
+setInterval(async () => { // 다른 화면 · 첫 화면의 대시보드가 시작한 취합의 서버 실행 — 이 화면이 그 취합을 보고 있으면 거울로 따라간다(3초마다 · 메모리만 읽는 확인: 고치던 글 보고 · 울타리 알림도 이 확인이 한다)
+  if (typeof state === "undefined" || !state.id || document.hidden || typeof gatherOn !== "function" || !gatherOn() || typeof gatherRun === "undefined" || gatherRun || (typeof PEEK !== "undefined" && PEEK)) return;
+  if (typeof gatherRunStarting !== "undefined" && gatherRunStarting) return;
+  const id = state.id, live = await flowLive(id);
+  if (!flowActive(live) || gatherRun || state.id !== id) return;
+  const plan = gatherPlan();
+  if (!plan || ((live.docs || {}).target || {}).id !== plan.id) return;
+  const job = gatherJobNow(), from = (live.range || {}).from; // 화면의 묶음 — 지금 줄로, 아직 없으면 시작한 묶음으로(조립한 것은 정의의 묶음 id 를 화면의 묶음으로 되짚는다)
+  const at = gatherRunStageOf(live.now) || ((TASK_CATALOG[job] || {}).custom ? GT_STAGES.map((x) => x.id).find((id) => gatherDefStage(id, job) === from) : from);
+  const stage = GT_STAGES.find((x) => x.id === at) || ((TASK_CATALOG[job] || {}).custom ? GT_STAGES[GT_STAGES.length - 1] : null); // 조립한 것 — 화면의 묶음에 없는 줄(사람이 하는 일)에서 도는 중이어도 따라간다
+  if (stage) gatherRunFollow(stage, plan, live.n, { quiet: true }, gatherRunKey(live.now));
 }, 3000);

@@ -493,7 +493,7 @@ def main():
         by = {n["key"]: n for n in nodes}
         check("이관 — 묶음 넷(1단계 문서 검토 · 2단계 구성 맞추기 · 3단계 내용 넣기 · 4단계 문서 정리) · 묶음마다 「한 번에 진행」(할 일이 남은 첫 묶음 = 2단계만 켜짐) · 준비 · 헤딩·표 분석 끝남 · 프로젝트 구성 확정이 지금",
               [g[0] for g in h["groups"]] == ["1단계", "2단계", "3단계", "4단계"] and all(g[2] == "한 번에 진행" for g in h["groups"]) and [bool(g[3]) for g in h["groups"]] == [True, False, True, True]
-              and [n["key"] for n in nodes] == ["files", "heads", "headsLlm", "configLoad", "config", "division", "reheads", "reheadsLlm", "link", "llm", "plan", "tableMap", "gaps", "apply", "later", "guide"]
+              and [n["key"] for n in nodes] == ["files", "heads", "headsLlm", "configLoad", "config", "division", "reheads", "reheadsLlm", "link", "llm", "plan", "gaps", "tableMap", "apply", "later", "guide"]
               and by["headsLlm"]["state"] == "done"   # LLM 을 쓸 수 없는 서버 — 1단계의 LLM 검증·보완은 건너뜀(끝난 것으로 봄)
               and by["files"]["state"] == "done" and by["heads"]["state"] == "done" and by["config"]["state"] == "now" and by["later"]["state"] == "soon" and by["later"]["st"] == "준비 중", [h, [(n["key"], n["state"]) for n in nodes]])
         top = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-top button')].map((b) => b.textContent)")

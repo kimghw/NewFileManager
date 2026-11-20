@@ -43,9 +43,19 @@ function taskCatalogCustom(defs, opt = null) {
     const llm = A && Array.isArray(A.llm) ? ids(A.llm).filter((r) => r === "source" || r === "target") : null;
     const does = d.does && typeof d.does === "object" && !Array.isArray(d.does) ? Object.fromEntries(Object.entries(d.does).filter(([, v]) => typeof v === "string" && v.trim())) : null;
     const assign = A ? { source: ids(A.source), target: ids(A.target), llm } : null, stages = d.stages || [], auto = typeof d.descAuto === "string" && d.descAuto.trim() ? d.descAuto : "";
+    // v2 = 줄 목록으로 조립한 정의(spec_워크플로우 ② §18-5 — 표준 차례가 아님: assign · stages 없음 · groups = g1 …) — 서버 실행기만 돌린다(화면의 이관 실행 코드는 그 묶음을 모른다 · 서버가 못 맡으면 409)
+    const v2 = d.v === 2;
+    if (d.shape === "gather") { // 취합형으로 조립한 것(원본 = 기관 문서 여럿 → 목적 = 취합본 하나 — spec_워크플로우 ② §18-13 갈래 「라」): 붙박이 「사업계획서 취합」 과 같은 칸(gather) · 같은 기본 구역(기관) · 늘 줄 목록(v2)
+      // stageOf = 취합 화면의 묶음(config · frame · map — gather.js GT_STAGES) → 이 정의의 묶음 id(그 일을 하는 줄이 든 묶음 — 서버가 준 것 | 없으면 그 묶음이 이 정의에 없다)
+      TASK_CATALOG[d.key] = { name: d.name, act: "취합", doc: "plan", file: d.target, up: "취합본", upMany: "문서 여러 개", quick: true, desc: d.desc || auto || "기관이 나눠 쓴 문서의 내용을 취합본 하나로 모읍니다 — 정한 차례대로 진행합니다.",
+        hint: "취합본과 기관 문서를 위 목록에 올리고 목적 문서(취합본)를 고른 뒤 이 카드를 누릅니다(화면에서 조립한 워크플로우 — 묶음은 대시보드에서 진행합니다)",
+        gather: { base: d.target, parts: d.source }, target: d.target, zones: ["org"], custom: true, groups: d.groups || [], stages: [], assign: null, does, v2: true,
+        ...gatherDefMap(d.flow), sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(null, d.groups || []), icon: "plan_merge" };
+      continue;
+    }
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
-      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign, does,
+      files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign: v2 ? null : assign, does, v2,
       sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(assign, stages), icon: "plan_to_report" };
   }
 }
@@ -70,6 +80,35 @@ function taskLostWhy(job) {
 }
 // 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다
 const taskIsRelay = (job) => !!(TASK_CATALOG[job] || {}).files;
+// 취합형 TASK 인가 — 취합본 하나 + 기관 문서 여럿(붙박이 「사업계획서 취합」 · 취합형으로 조립한 것). 화면의 「취합이면」 가지는 키(plan_merge)를 견주지 않고 이것으로 가른다(spec_워크플로우 ② §18-13 갈래 「라」 ⓷)
+const taskGatherOf = (job) => (TASK_CATALOG[job] || {}).gather || null; // {base: 취합본의 종류, parts: 기관 문서의 종류} | null — 그때그때 읽는다(조립한 워크플로우는 정의를 다시 읽으면 바뀐다)
+const taskIsGather = (job) => !!taskGatherOf(job);
+// 취합 화면의 묶음(config · frame · map — gather.js GT_STAGES)마다의 줄(실행 단위 key — 화면의 줄이 그 묶음에 서는 대로: gather.js gatherSteps). 「기관 문서마다」 = 기관 문서 하나에 차례로 도는 줄(화면은 문서마다 한 줄 part:<id>)
+const GATHER_SCREEN_UNITS = { config: ["config"], frame: ["division", "frame"], map: ["part", "heads", "link", "llm", "plan", "apply", "drop"] };
+const GATHER_EACH_UNITS = ["part", "heads", "link", "llm", "plan", "apply"];
+// 취합형으로 조립한 정의의 줄 목록(flow [{id, steps[{unit}]}]) → {unitAt{줄 key: 그 줄이 든 묶음 id}, stageOf{화면의 묶음: 그 묶음의 줄이 처음 나오는 정의의 묶음 id}} — 화면의 묶음을 정의의 묶음으로 잇는 표(조립한 것만 — 붙박이는 같은 id)
+function gatherDefMap(flow) {
+  const unitAt = {}, stageOf = {};
+  for (const g of Array.isArray(flow) ? flow : []) for (const s of (g && Array.isArray(g.steps) ? g.steps : [])) {
+    if (!s || typeof s.unit !== "string" || unitAt[s.unit]) continue;
+    unitAt[s.unit] = g.id;
+    for (const [id, units] of Object.entries(GATHER_SCREEN_UNITS)) if (units.includes(s.unit) && !stageOf[id]) stageOf[id] = g.id;
+  }
+  return { unitAt, stageOf };
+}
+// 취합 화면의 묶음(+ 그 묶음에서 지금 할 줄의 key — 「part:<id>」 = 기관 문서마다의 줄) → 그 워크플로우의 묶음 id: 붙박이는 그대로 · 취합형으로 조립한 것은 그 줄이 든 묶음(g1 …) | ""(그 정의에 그 묶음의 줄이 없다).
+// 서버 실행(workflow_exec.js gatherRunServer)과 대시보드(dashboard.js dashGatherLive)가 화면의 묶음을 정의의 묶음으로 잇는다
+const gatherDefStage = (id, job, key = "") => {
+  const c = TASK_CATALOG[job] || {};
+  if (!c.custom) return id;
+  const unit = key.startsWith("part:") ? GATHER_EACH_UNITS.find((u) => (c.unitAt || {})[u]) || "" : key;
+  return (c.unitAt || {})[unit] || (c.stageOf || {})[id] || "";
+};
+// 서버 실행의 지금 줄(key) → 취합 화면의 묶음 id | ""(화면의 묶음에 없는 줄 — 「사람이 하는 일」: 부르는 쪽이 보던 묶음을 그대로 둔다). 붙박이는 서버의 묶음 id 가 곧 화면의 것
+const gatherScreenStage = (now, job) => {
+  if (!(TASK_CATALOG[job] || {}).custom) return (now && now.stage) || "";
+  return (Object.entries(GATHER_SCREEN_UNITS).find(([, units]) => units.includes((now && now.key) || "")) || [""])[0];
+};
 // 그 TASK 의 작업 종류(kind — 없으면 연구개발 프로젝트 rnd: server.py TASK_KIND 와 같게)와 처음 여는 패널 보기(entry — 없으면 작업 개요 Div). 화면의 TASK 시작 길은 「rnd」·「Div」 를 박아 두지 않고 이것을 읽는다(spec_일반편집 ② §11).
 const taskKindOf = (job) => (TASK_CATALOG[job] || {}).kind || "rnd";
 const taskEntryOf = (job) => (TASK_CATALOG[job] || {}).entry || "Div";

@@ -871,7 +871,7 @@ async function taskSetNow(key, value) {
 // 취합(spec_취합 ② §5)은 칸의 꼴이 다르다 — 취합본 하나(base) + 기관 문서 여럿(parts): 첫 카드·단계·한 번에 진행·둘째 면을 gather.js 가 그린다. 아래 이관의 함수(taskFlowLoad·taskSteps·taskRun*·links*·fill*)는
 // 두 칸([사업계획서, 연차보고서])을 전제하므로 취합에서는 부르지 않는다 — 가지마다 gatherOn() 으로 가른다(taskSlots() 는 취합에서 null)
 const TASK_GATHER = Object.fromEntries(Object.entries(TASK_CATALOG).filter(([, task]) => task.gather).map(([key, task]) => [key, task.gather]));
-const gatherOn = () => !!(state.stored && state.task && TASK_GATHER[state.task.job] && typeof gatherFlowEl === "function");
+const gatherOn = () => !!(state.stored && state.task && taskGatherOf(state.task.job) && typeof gatherFlowEl === "function"); // 취합형인가는 목록에서 그때그때(taskGatherOf — 취합형으로 조립한 워크플로우도: TASK_GATHER 는 읽을 때의 붙박이 것)
 const taskFlowFresh = () => ({ seq: 0, div: {}, heads: {}, err: "" }); // 읽어 둔 것: div[작업 id] = {values | null, applied} · heads[작업 id] = 헤딩 요약 {stage2, stage3, …}
 let taskFlow = taskFlowFresh();
 const taskSlots = () => (state.stored && state.task && (TASK_CATALOG[state.task.job] || {}).files) || null;
@@ -1209,7 +1209,10 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
       const old = !busy && taskHeadsOld(report) ? ` · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(${taskHasStage("frame") ? `${taskStageName("frame")} 의 ` : ""}「다시 문서 검토」)` : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다 — 그 줄이 맡는다: §21)
       const guide = PEEK ? [] : [llmGuideBtn("merge-links", report.id), // 이 LLM 검토에 보내는 지침·TASK 프롬프트·마지막 프롬프트 보기(2026-11-12 사용자 — 목록이 나온 뒤면 늘 보인다 · 강조 아님)
         hBtn(`연결 코멘트${(L.comments || []).length ? ` ${L.comments.length}` : ""}`, () => linkNotes(), { title: "어느 표·단락을 사업계획서의 어디와 이을지 글로 남깁니다 — 연차보고서 양식 정보의 「자리 연결」 절에 쌓이고 LLM 검토·표 대응이 읽습니다(문서 옆 열)" })]; // 연결 코멘트(spec_병합 ② §5-3 1 — 2026-11-12 사용자 "어디어디 테이블이나 단락을 연결해 주라고 코멘트를")
-      Object.assign(link, { done: !L.counts.ambiguous || !!L.llm, text: linksCountText(L) + linksLlmText(L) + (taskFlow.llmBusy ? " · LLM 검토 중…" : taskFlow.linkBusy ? " · 읽는 중…" : "") + hint + old,
+      // LLM 을 쓸 수 없으면 「건너뜀」 으로 끝(남은 확인 필요는 비워 둔다 — 서버 실행기의 상태 식 workflow_units._link 과 같다: 막다른 길을 만들지 않는다)
+      const off = !!L.counts.ambiguous && !L.llm && taskLlmOk === false;
+      Object.assign(link, { done: !L.counts.ambiguous || !!L.llm || off, skipped: off, skipWord: "건너뜀", text: linksCountText(L) + linksLlmText(L) + (taskFlow.llmBusy ? " · LLM 검토 중…" : taskFlow.linkBusy ? " · 읽는 중…" : "")
+        + (off ? ` — LLM 을 쓸 수 없어 확인 필요 ${L.counts.ambiguous}곳은 넣지 않고 비워 둡니다(고르려면 「연결 목록」)` : hint) + old,
         acts: first ? [linksLlmBtn(L, true), list, ...guide] : [list, ...(L.counts.ambiguous || L.counts.toOnly || openT ? [linksLlmBtn(L)] : []), ...guide] }); // 못 정한 자리가 있을 때만 LLM 검토(사람이 누를 때만 돈다 — 비용)
     }
   }
@@ -1221,7 +1224,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   // 성공해도 이 둘이 끝나지 않아 「문서 정리」 로 못 갔다(astra P1 ⓒ). 「한 번에 진행」(taskRunMap)과 같은 판정이 되게 그것이 판정 전에 하는 일까지 본다 — 두 문서의 분석이 있음(hp · hr) ·
   // 목적 문서의 분석이 구조 반영 전 것(스크립트만 — taskHeadsOld)이 아님(그러면 실행이 다시 분석한 뒤의 목록으로 판정한다)
   const noTargets = !!(both && hp && hr) && !taskHeadsOld(report) && linksNone(L);
-  const K = (L && !L.error && L.kept) || {}, prior = !F.done && !F.plan && (K.applied || 0) > 0; // 지난 반영 — 넣은 기록이 지금 문서에 남아 있다(서버 merge.json · 다시 열어도 — 이 화면의 F 는 메모리만)
+  const K = (L && !L.error && L.kept) || {}, prior = !F.done && !F.plan && ((K.applied || 0) > 0 || !!K.filled); // 지난 반영 — 넣은 기록 · 마지막 반영 표식이 지금 문서에 남아 있다(서버 merge.json · 다시 열어도 — 이 화면의 F 는 메모리만 · 서버 실행기가 넣은 것도)
   const planStep = { key: "plan", no: "③", name: "표 안 연결 · 넣기 계획", done: !!(F.plan || F.done || noTargets || prior), skipped: noTargets, early: ready, keep: true, busy: !!F.busy && F.busyStep === "plan", acts: [], text: noTargets ? "이어진 자리가 없어 계획할 내용이 없습니다" : "" };
   // 표 대응(spec_병합 ② §5-3 — 2026-11-12 사용자 "그 테이블을 저테이블에 매핑해주는 에이전트를 하나 호출해서"): 같은 표로 이었는데 두 서식의 행·열 구성이 달라 칸을 못 맞춘 표 수. 계획이 있으면 그 수(표 묶음 쪽 포함), 없으면 연결 목록의 수
   const mapOpen = (F.plan && F.plan.maps ? F.plan.maps.counts.open : linksMapOpen(L)) || 0, mapN = (F.plan && F.plan.maps ? F.plan.maps.counts.tables : linksMapN(L)) || 0;
@@ -1233,7 +1236,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const gapActs = !ready || PEEK || !F.plan ? [] : [...(gapOpen || gapN ? [onReport(taskFlow.gapBusy ? "빈 자리 검토 중…" : gapOpen ? "빈 자리 검토(LLM)" : "빈 자리 검토 다시", () => fillGaps({ again: !gapOpen }), { cls: "btn sm", disabled: !!(F.busy || taskFlow.gapBusy || taskFlow.mapBusy),
     title: "내용 넣기가 못 채운 자리(빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄)를 모아 사업계획서의 어디에서 가져올지 LLM(Opus)에 묻습니다 — 수십 초 · 유료. 글은 LLM 이 쓰지 않고 고른 자리의 글을 그대로 옮깁니다. 문서는 「반영」 을 눌러야 바뀝니다" }),
     llmGuideBtn("gaps", report.id)] : [])];
-  if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : prior ? `지난 반영으로 넣은 자리 ${K.applied}곳 — 더 넣을 것은 「넣기 계획 다시」 가 셉니다` : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다")
+  if (ready) Object.assign(planStep, { text: (F.plan ? fillCountText(F.plan) : F.done ? "" : prior ? `${K.applied > 0 ? `지난 반영으로 넣은 자리 ${K.applied}곳` : "지난 반영이 끝나 있습니다"} — 더 넣을 것은 「넣기 계획 다시」 가 셉니다` : "이어진 자리에 넣을 본문·표 칸·행을 셉니다 — 문서는 안 바뀝니다") // 넣은 자리 수(kept.applied)는 본문 자리의 것 — 표 칸만 채운 반영 · 확인된 「넣을 것 0」(표식 kept.filled)에 「0곳」 이라 적지 않는다
       + (taskFlow.mapBusy ? " · 표 대응 중…" : mapOpen ? ` · 칸을 못 맞춘 표 ${mapOpen}개 — 「표 대응(LLM)」 이 행·열을 맞춥니다` : "")
       + (taskFlow.gapBusy ? " · 빈 자리 검토 중…" : gapOpen ? ` · 아직 빈 자리 ${gapOpen}곳 — 「빈 자리 검토(LLM)」 가 사업계획서에서 찾습니다` : ""),
     acts: [onReport(planStep.busy ? "계획 중…" : F.plan || F.done || prior ? "넣기 계획 다시" : "넣기 계획", () => fillPlan(), { cls: "btn sm" + (F.plan || F.done || prior || !link.done ? "" : " primary"), disabled: !!F.busy, // 강조 단추는 카드에 하나 — ② 에 확인 필요가 남았으면 「연결 목록」 쪽
@@ -1241,7 +1244,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const nothing = !!(noTargets || (F.plan && F.plan.todo === 0));
   const applyStep = { key: "apply", no: "④", name: "내용 반영", done: !!F.done || nothing || prior, skipped: !F.done && nothing && !prior, early: !!F.plan, keep: true, busy: !!F.busy && F.busyStep === "apply",
     acts: F.plan ? [hBtn("계획 보기", () => fillList(), { cls: "btn sm" + (F.plan.todo && link.done ? " primary" : ""), disabled: !!F.busy })] : [],
-    text: F.done ? fillDoneText(F.done) : nothing ? "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)" : F.plan ? "「계획 보기」 에서 확인하고 「반영」 을 누르세요" : prior ? `지난 반영 — 넣은 자리 ${K.applied}곳` : "" };
+    text: F.done ? fillDoneText(F.done) : nothing ? "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)" : F.plan ? "「계획 보기」 에서 확인하고 「반영」 을 누르세요" : prior ? (K.applied > 0 ? `지난 반영 — 넣은 자리 ${K.applied}곳` : "지난 반영이 끝나 있습니다 — 본문 자리에 넣은 것은 없습니다(표 칸을 채웠거나 넣을 것이 없었음)") : "" };
   division.busy = !!dv.busy && !!report && state.id === report.id;
   link.busy = !!(taskFlow.llmBusy || (division.done && hp && hr && taskFlow.linkBusy));
 
@@ -1834,7 +1837,7 @@ let taskRunChecking = false; // taskRunAll 이 시작하기 전에 정의를 다
 async function taskCatalogRefresh(job) {
   if (!taskCustomKey(job) || taskRun) return null; // 도는 실행은 시작할 때의 정의로 끝까지 간다(도중에 묶음을 갈아 끼우지 않는다)
   let data = null;
-  try { data = await api("/api/tasks"); } catch (e) { console.warn("조립한 워크플로우 목록을 다시 읽지 못했습니다", e); return null; }
+  try { data = await api("/api/tasks?v=2"); } catch (e) { console.warn("조립한 워크플로우 목록을 다시 읽지 못했습니다", e); return null; } // v=2 = 줄 목록 정의(조립 v2)까지 — 판 없이 읽으면 표준 정의만(옛 탭용: spec_워크플로우 ② §18-12 ⑤)
   if (!data || !Array.isArray(data.tasks) || taskRun) return null;
   const was = TASK_CATALOG[job] || null;
   taskCatalogCustom(data.tasks, { broken: !!data.broken });
@@ -2476,11 +2479,14 @@ async function taskRunAll(stageId = "frame", toId = stageId, sure = false, redo 
   if (!stages.length) { toast("남은 단계가 없습니다"); return; }
   const chain = stages.length > 1 ? { to: toId, label: taskChainLabel(stages) } : null;
   // 묶음 하나만 도는 실행은 먼저 서버 쪽 실행기에 맡긴다(workflow_exec.js taskRunServer — spec_워크플로우 ② §18-10 걸음 1: 지금 서버가 맡는 묶음 = 「문서 검토」). 서버가 돌면 창을 닫아도 이어지고
-  // 다른 화면 · 첫 화면의 대시보드가 같은 실행을 본다 — 이 화면의 taskRun 은 그 실행의 거울이다. 서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치면(null) 아래 화면 실행 그대로. 묶음 연쇄(이어서 한 번에)는 아직 화면이 돈다
-  if (!chain && typeof taskRunServer === "function") {
+  // 다른 화면 · 첫 화면의 대시보드가 같은 실행을 본다 — 이 화면의 taskRun 은 그 실행의 거울이다. 서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치면(null) 아래 화면 실행 그대로.
+  // 묶음 연쇄(「이어서 한 번에」 — 걸음 3)도 서버에 from → to 로 맡긴다: 경계마다 최신 상태로 그 묶음을 할지 서버가 정한다(spec_워크플로우 ② §18-4 「범위의 세 진입」) — workflow_exec.js 가 연쇄를 받을 때만(FLOW_CHAIN)
+  if ((!chain || typeof FLOW_CHAIN !== "undefined") && typeof taskRunServer === "function") {
     taskRunChecking = true; // 시작 요청이 돌아올 때까지 — 그동안 또 눌러 둘이 시작하지 않게
     let served = null;
-    try { served = await taskRunServer(stages[0], plan, report, { redo, only, paid }); } finally { taskRunChecking = false; }
+    // 서버에는 요청한 끝(toId)까지 — 지금 남은 묶음이 하나여도: 앞 묶음이 뒤 묶음에 일을 만들면 서버가 경계에서 그 묶음도 한다(astra 결과 검토 · ② §18-4)
+    const span = typeof FLOW_CHAIN !== "undefined" && toId !== stages[0].id && i1 > TASK_STAGES.indexOf(stages[0]) ? { to: toId, chain: chain || { to: toId, label: taskChainLabel(TASK_STAGES.slice(TASK_STAGES.indexOf(stages[0]), i1 + 1)) } } : {};
+    try { served = await taskRunServer(stages[0], plan, report, { redo, only, paid, ...span }); } finally { taskRunChecking = false; }
     if (served && served.follow) return taskRun ? { ok: false, text: "그 사이 다른 진행이 시작됐습니다" } : served.follow();
     if (served) return served; // 서버가 거절(남은 단계 없음 · 문서 칸이 다름 · 정의가 바뀜 …) — 그 글이 알림으로 나갔다
     if (taskRun || epoch !== state.epoch) return { ok: false, text: "그 사이 다른 진행이 시작됐거나 다른 문서를 열어 시작하지 않았습니다" };

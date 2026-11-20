@@ -41,9 +41,17 @@ def test_units_are_well_formed_and_closed():
             assert set(u["needs"]) | set(u["gives"]) | set(u["spoils"]) | set(u["redo"]) <= set(U.FACTS), where
             assert set(u["needs"]) <= givers and set(u["spoils"]) <= givers and set(u["redo"]) <= givers, where   # 먼저 있어야 할 것 · 무르는 것마다 그것을 주는 단위가 있다
             assert not u["via"] or U.unit(u["via"], fam) is not None, where
-            assert u["change"] != "doc" or "source" not in u["roles"], where   # 문서를 바꾸는 줄은 원본 문서에 놓을 수 없다(원본은 바뀌지 않는다)
+            # 원본 문서도 바꾸는 줄 = 같이 쓰는 구조 · 정리 줄(SOURCE_FIT)뿐이고(2026-11-20 사용자 「원본 문서는 왜 네 맘대로 빼냐 … 따로 따로 하게」 — 사람이 원본 문서 칸에 놓을 때만: ② §18-2 「원본 문서에 놓는 줄」),
+            # 그것도 이관형에서만이다(roles_in — 취합의 원본 = 기관 문서는 바뀌지 않는다)
+            assert u["change"] != "doc" or "source" not in u["roles"] or (fam == "common" and key in U.SOURCE_FIT), where
+            assert not (fam == "common" and key in U.SOURCE_FIT) or (U.roles_in(u, "relay") == U.ROLES and U.roles_in(u, "gather") == ("target",)), where
             assert not u["paid"] or u["kind"] == "auto", where
-    assert not set(U.RELAY) & set(U.COMMON) and not set(U.GATHER) & set(U.COMMON)   # 한 워크플로우 안에서 key 는 하나
+    assert not set(U.RELAY) & set(U.COMMON)   # 이관형은 같이 쓰는 단위와 key 가 겹치지 않는다(한 워크플로우 안에서 key 는 하나)
+    # 문서 하나 · 취합형은 같이 쓰는 단위와 key 가 겹치는 줄이 있다(뜻이 다르다 — 가족의 것이 먼저: unit) → 그 가족은 제 상태 표를 지녀 같은 key 의 다른 틀 식으로 새지 않는다(② §18-13)
+    for fam in ("single", "gather"):
+        over = set(U.FAMILIES[fam]) & (set(U.COMMON) | set(U.RELAY))
+        assert over and fam in U._STATE_BY and all(U.unit(k, fam) is U.FAMILIES[fam][k] for k in over), fam
+        assert all(k in U._STATE_BY[fam] or U.FAMILIES[fam][k]["kind"] == "pick" for k in U.FAMILIES[fam]), fam   # 실행기가 하는 줄마다 제 상태 식
 
 
 def test_every_registry_step_of_the_relay_has_a_unit_that_agrees():
@@ -99,7 +107,7 @@ def test_review_lines_follow_the_screen_rules():
     assert run["st"] == "busy"   # 거친 결과가 있어도 도는 동안은 끝이 아니다
     both = U.state("headsLlm", {**base, "skip": ["b"], "docs": _docs(_facts("a", True, llm=True), _facts("b", True))})
     assert both["st"] == "done" and not both["skipped"] and [p["skipped"] for p in both["per"]] == [False, True]
-    assert U.state("link", base) is None   # 서버가 아직 세지 않는 줄
+    assert U.state("link", base) == {"st": "todo", "text": ""} and U.state("hand", base) == {"st": "todo", "text": ""}   # 넣기 줄은 서버가 센다(걸음 3 — 문서가 없으면 셀 것 없음) · 사람이 하는 일은 아직(걸음 4)
 
 
 PAIR = {"target": {"id": "b", "name": "보고서.hwpx", "format": "hwpx"}, "source": {"id": "a", "name": "계획서.hwpx", "format": "hwpx"}}
@@ -108,7 +116,7 @@ PAIR = {"target": {"id": "b", "name": "보고서.hwpx", "format": "hwpx"}, "sour
 def test_view_of_the_built_in_relay():
     task = S.definition("plan_to_report")
     assert S.family(task) == "relay" and S.need(task) == ["source", "target"]
-    assert [(g["id"], S.served(task, g["id"])) for g in task["stages"]] == [("review", True), ("frame", True), ("map", False), ("clean", False)]
+    assert [(g["id"], S.served(task, g["id"])) for g in task["stages"]] == [("review", True), ("frame", True), ("map", True), ("clean", True)]   # 걸음 3 — 묶음 넷 모두 서버가 돈다
     v = S.view(task, PAIR, {"a": _facts("a", True), "b": _facts("b", False)}, llm=True)
     assert v["ready"] and v["job"] == "plan_to_report" and v["sig"] == S.sig(task) and v["docs"]["target"]["id"] == "b"
     review, frame = v["stages"][0], v["stages"][1]

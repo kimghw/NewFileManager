@@ -130,7 +130,7 @@ def workflow_runs_activate(wid: str, body: dict = Body(...)):
         role = current.get("file") or ""
         if job in works.FRAME_FILE:
             role = works.FRAME_FILE[job]
-        elif job == "plan_to_report" or __import__("app.custom_tasks", fromlist=["is_key"]).is_key(job):   # 이관형(붙박이 이관 · 조립한 TASK) — 원본 · 목적 문서 어느 쪽이든 제 역할 그대로
+        elif job == "plan_to_report" or (__import__("app.custom_tasks", fromlist=["is_key"]).is_key(job) and not __import__("app.custom_tasks", fromlist=["is_gather"]).is_gather(job)):   # 이관형(붙박이 이관 · 조립한 TASK) — 원본 · 목적 문서 어느 쪽이든 제 역할 그대로 · 취합형으로 조립한 것은 아래(목적 문서 종류 — 붙박이 취합과 같다)
             role = role if role in ("plan", "report") else ""
         elif job in works.TARGET_FILE:
             role = works.TARGET_FILE[job]

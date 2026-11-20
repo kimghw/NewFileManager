@@ -98,7 +98,8 @@ def test_premise_is_the_written_text_or_the_base_tasks(monkeypatch):
 def test_api_lists_creates_edits_and_the_registry_assembles_it(client):
     v = client.get("/api/tasks").json()
     assert v["tasks"] == [] and [s["id"] for s in v["stages"]] == list(C.STAGES) and [s["name"] for s in v["stages"]] == ["문서 검토", "구성 맞추기", "내용 넣기", "문서 정리"]
-    assert v["pairs"] == [{"source": "plan", "target": "report", "name": "사업계획서 → 연차보고서"}] and len(v["blocked"]) == 2 and v["base"] == "plan_to_report"
+    assert v["pairs"] == [{"source": "plan", "target": "report", "name": "사업계획서 → 연차보고서"}] and len(v["blocked"]) == 1 and v["base"] == "plan_to_report"   # 취합 · 문서 하나는 shapes 의 soon 으로(② §18-8 「문서 입출력」)
+    assert client.post("/api/tasks", json={"name": "취합 옛 꼴", "shape": "gather", "assign": {"source": ["stage_review"], "target": ["stage_fill"]}}).status_code == 400   # 옛 꼴(assign)로 다른 틀을 이관으로 저장하지 않는다
     assert v["warn"] == {"fillNoFit": workflow.FILL_NO_FIT} and workflow.FILL_NO_FIT == "목적 문서에 구조 반영 기록이 있고 두 문서의 프로젝트 구성 값이 같아야 자리 연결이 섭니다(손으로 맞춘 구조는 「반영 전」 으로 멈춤)"
     assert client.put("/api/tasks/u_00000000", json={"name": "x"}).json()["detail"] == "그런 워크플로우가 없습니다" and client.delete("/api/tasks/u_00000000").json()["detail"] == "그런 워크플로우가 없습니다"
     assert client.post("/api/tasks", json={"name": "", "stages": ["stage_fit"]}).status_code == 400
@@ -328,7 +329,7 @@ def test_api_view_has_assign_and_cells_and_the_registry_builds_unit_tasks(client
     b = client.post("/api/tasks", json={"name": "목적만 검토", "assign": {"source": [], "target": ["stage_review", "stage_fill"]}}).json()["task"]
     c = client.post("/api/tasks", json={"name": "두 문서 검토", "assign": {"source": ["stage_review"], "target": ["stage_review", "stage_fit", "stage_fill"]}}).json()["task"]
     assert set(a) == {"key", "name", "desc", "source", "target", "assign", "stages", "premise", "at", "sourceName", "targetName", "groups", "does",
-                      "sig", "descAuto", "inUse", "listed", "editWhy", "deleteWhy", "uses", "usesMore"}   # C1 — 단계의 지문 · 지은 한 줄 설명 · 쓰는 곳(POST · PUT 의 응답에도 — D1 그 작업들)
+                      "sig", "descAuto", "inUse", "listed", "editWhy", "deleteWhy", "uses", "usesMore", "flow", "shape", "v"}   # C1 — 단계의 지문 · 지은 한 줄 설명 · 쓰는 곳(POST · PUT 의 응답에도 — D1 그 작업들) · 줄 목록(옛 꼴도 — 조립 화면이 줄로 연다: 정의 v2)
     assert a["uses"] == [] and a["usesMore"] == 0   # 새 정의 — 쓰는 작업이 없다
     assert a["assign"] == {"source": [], "target": ["stage_review", "stage_fit"], "llm": []} and a["stages"] == ["stage_review", "stage_fit"] and a["groups"] == ["review", "frame"]
     assert a["does"] == {g["id"]: g["does"] for g in workflow.assemble(C.get(a["key"]))["stages"]} and "LLM" not in a["does"]["review"]   # 묶음 설명 = 등록부의 글(LLM 이 없는 1단계)
@@ -346,7 +347,7 @@ def test_api_view_has_assign_and_cells_and_the_registry_builds_unit_tasks(client
         {"role": "source", "name": "사업계획서", "title": "원본 문서", "kind": "plan", "many": False, "unit": []},
         {"role": "target", "name": "연차보고서", "title": "목적 문서", "kind": "report", "many": False, "unit": [{"stage": "review", "steps": ["heads"]}, {"stage": "frame", "steps": ["division", "reheads", "reheadsLlm"]}]}]
     assert L[a["key"]]["flow"] == [{"stage": "review", "steps": ["files"]}, {"stage": "frame", "steps": ["configLoad", "config"]}] and L[a["key"]]["base"] == "source"
-    assert L[c["key"]]["roles"][1]["unit"][-1] == {"stage": "map", "steps": ["link", "llm", "plan", "tableMap", "gaps", "apply", "later"]}
+    assert L[c["key"]]["roles"][1]["unit"][-1] == {"stage": "map", "steps": ["link", "llm", "plan", "gaps", "tableMap", "apply", "later"]}
     assert L[c["key"]]["output"] == "원본(사업계획서)의 내용이 들어간 연차보고서 초안(구조를 프로젝트 구성에 맞춤)" and L[a["key"]]["output"] == "구조를 프로젝트 구성에 맞춘 연차보고서"   # 실제로 바뀌는 것
     e = client.put(f"/api/tasks/{b['key']}", json={"assign": {"source": ["stage_review"], "target": ["stage_review"]}}).json()["task"]
     assert e["stages"] == ["stage_review"] and e["groups"] == ["review"] and e["assign"] == {"source": ["stage_review"], "target": ["stage_review"], "llm": ["source", "target"]}
@@ -535,3 +536,187 @@ def test_malformed_rows_survive_the_next_write(client):
     many = [{**good, "key": f"u_{i:08x}", "name": f"줄 {i}"} for i in range(C.TASKS_MAX + 2)]   # 한도 뒤의 줄도 지우지 않는다(안 보일 뿐)
     p.write_text(json.dumps({"version": 1, "tasks": many}, ensure_ascii=False), encoding="utf-8")
     assert len(C.all()) == C.TASKS_MAX and C.update(many[0]["key"], {"desc": "x"}) and len(json.loads(p.read_text(encoding="utf-8"))["tasks"]) == C.TASKS_MAX + 2
+
+
+# ---------------------------------------------------------------- 정의 v2 — 문서 칸 + 묶음 › 줄(spec_워크플로우 ② §18-5 · 고친 규칙 ② §18-12 ④ · ⑤)
+def _c(A):
+    return {"key": "u_00000000", "name": "x", "desc": "", "source": "plan", "target": "report", "assign": A, "stages": C.union(A), "premise": "", "at": 0}
+
+
+def _allowed():
+    """허용되는 배정 전부(원본 [] · [문서 검토] × 목적 넷의 부분집합 × llm = 규칙의 부분집합 — 옛 줄의 「원본만」 포함) — 원본 문서를 쓰는 단계가 없는 것은 뺀다."""
+    for src in ([], ["stage_review"]):
+        for dst in _ROLE_SETS:
+            core = {"source": src, "target": dst}
+            if not C.union({**core, "llm": []}) or (not src and not any(s in dst for s in C.SOURCE_USE)):
+                continue
+            rule = C.llm_rule(core)
+            for n in range(len(rule) + 1):
+                for llm in itertools.combinations(rule, n):
+                    yield {**core, "llm": list(llm)}
+
+
+def _pair(*keys):
+    return [{"unit": k} for k in keys]
+
+
+def test_every_standard_assignment_round_trips_through_the_line_list():
+    """⑤ 옛 줄을 읽는 기준 = 지금 등록부(assemble)가 그 배정으로 짓는 줄 목록 — 그 줄 목록을 다시 검사하면 같은 배정(llm 까지 — 유료 대상이 그대로)이고 묶음 id 는 표준 것."""
+    n = 0
+    for A in _allowed():
+        flow = C.flow_of(_c(A))
+        got = C.check("relay", "plan", "report", flow)
+        assert not got["errors"] and got["std"] == A, (A, got["errors"], got["std"])
+        assert [g["id"] for g in got["flow"]] == [C.STAGE_GROUP[m] for m in C.STAGES if m in C.union(A)], A
+        n += 1
+    assert n >= 28
+    # 옛 줄(assign 없이 stages 만)도 — 읽은 배정(from_stages: 1단계 LLM 은 원본만)으로 지은 줄이 표준
+    for stages in (["stage_review", "stage_fill"], ["stage_fit"], ["stage_review", "stage_fit", "stage_fill", "stage_clean"]):
+        old = C._clean_one({"key": "u_0000000a", "name": "옛", "source": "plan", "target": "report", "stages": stages})
+        assert C.check("relay", "plan", "report", C.flow_of(old))["std"] == old["assign"], stages
+
+
+def test_a_changed_order_is_not_standard_and_wrong_orders_are_refused():
+    """표준이 아닌 것: 묶음을 쪼갬 · 묶음 이름을 바꿈 · 묶음을 뺌. 거절: 효과의 차례(구조 반영은 연결 · 넣기 · 정리 앞 · 정리는 반영 뒤) · 먼저 있어야 할 것 · 놓을 수 없는 문서 · 같은 문서에 두 번 ·
+    원본을 쓰는 줄 없음 · 준비 줄 · 빈 묶음 · 아직 못 여는 틀(취합형) · 사람이 하는 일(실행기가 멈추는 길이 서기 전) · 하는 문서 없음."""
+    std = C.flow_of(_c({"source": ["stage_review"], "target": list(C.STAGES), "llm": ["source"]}))
+    split = [dict(std[0], steps=std[0]["steps"][:1]), dict(std[0], steps=std[0]["steps"][1:]), *std[1:]]
+    renamed = [dict(std[0], name="처음"), *std[1:]]
+    for flow in (split, renamed):
+        got = C.check("relay", "plan", "report", flow)
+        assert not got["errors"] and got["std"] is None and [g["id"] for g in got["flow"]] == [f"g{i + 1}" for i in range(len(flow))], got
+    assert C.check("relay", "plan", "report", std[:-1])["std"] is not None   # 마지막 묶음(문서 정리)을 통째로 뺀 것은 다른 표준 배정
+    bad = {
+        "구성 반영」 은 「자리 연결」": [{"name": "a", "steps": _pair("link", "plan", "apply") + [{"unit": "division", "on": ["target"]}]}],
+        "「내용 반영」 뒤에": [{"name": "a", "steps": _pair("link", "plan") + [{"unit": "guide", "on": ["target"]}] + _pair("apply")}],
+        "원본 문서의 「다시 문서 검토(LLM)」 은 그 문서의": [{"name": "a", "steps": [{"unit": "config"}, {"unit": "division", "on": ["source", "target"]}, {"unit": "reheads", "on": ["target"]},
+                                                                     {"unit": "reheadsLlm", "on": ["source", "target"]}]}],
+        "「다시 문서 검토」 에는 「프로젝트 구성 반영」": [{"name": "a", "steps": [{"unit": "config"}, {"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["source", "target"]}]}],   # 원본 문서의 구조 반영 없이 원본을 다시 검토
+        "「자리 연결」 뒤에": [{"name": "a", "steps": _pair("plan", "link")}],
+        "「표 안 연결 · 넣기 계획」": [{"name": "a", "steps": _pair("link", "apply")}],
+        "「다시 문서 검토」 뒤에": [{"name": "a", "steps": [{"unit": "config"}, {"unit": "division", "on": ["target"]}, {"unit": "reheadsLlm", "on": ["target"]}]}],
+        "같은 문서에 두 번": [{"name": "a", "steps": [{"unit": "heads", "on": ["source"]}, {"unit": "heads", "on": ["source", "target"]}]}],
+        "원본 문서를 쓰는 줄이 없습니다": [{"name": "a", "steps": [{"unit": "heads", "on": ["target"]}, {"unit": "guide", "on": ["target"]}]}],
+        "놓을 수 없는 줄": [{"name": "a", "steps": [{"unit": "files"}, {"unit": "heads", "on": ["source"]}]}],
+        "줄이 없습니다": [{"name": "빈 묶음", "steps": []}, {"name": "b", "steps": [{"unit": "heads", "on": ["source"]}]}],
+        "할 문서를 고르세요": [{"name": "a", "steps": [{"unit": "heads", "on": []}]}],
+    }
+    for word, flow in bad.items():
+        got = C.check("relay", "plan", "report", flow)
+        assert any(word in e for e in got["errors"]), (word, got["errors"])
+    got = C.check("gather", "plan", "report", std)   # 취합형은 2026-11-20 엶(② §18-13 갈래 「라」 — 그 조립은 tests/test_workflow_gather.py) — 이관의 문서 쌍 · 이관의 줄은 그 틀에 놓지 못한다
+    assert any("기관 문서 → 사업계획서" in e for e in got["errors"]) and any("놓을 수 없는 줄" in e for e in got["errors"]) and not any("취합은 아직" in e for e in got["errors"]), got["errors"]
+    assert any("문서 하나 워크플로우는 아직" in e for e in C.check("single", "plan", "report", std)["errors"])
+    assert C.check("relay", "plan", "report", "x")["errors"] == ["묶음을 하나 이상 두세요"]
+    # 사람이 하는 일(⑦ — 실행기가 그 줄에서 멈추고 「했음」 을 기다린다): 놓을 수 있고 여럿도 되고 표준이 아니다 · 줄 id 는 hand1 · hand2 …(겹치면 새로)
+    got = C.check("relay", "plan", "report", [{"name": "a", "steps": [{"unit": "heads", "on": ["source"]}, {"unit": "hand", "on": ["target"], "name": "확인", "id": "hand1"},
+                                                                    {"unit": "hand", "on": ["target"], "name": "또 확인", "id": "hand1"}]}])
+    assert not got["errors"] and got["std"] is None and [s.get("id") for s in got["flow"][0]["steps"]] == [None, "hand1", "hand2"], got
+    # 경고(막지 않음) — 원본만 검토 → 이미 구성된 목적 문서에 내용 넣기(⑤ 의 끝: 표준 네 묶음으로는 나타낼 수 없던 정의)
+    got = C.check("relay", "plan", "report", [{"name": "원본 검토", "steps": [{"unit": "heads", "on": ["source"]}, {"unit": "headsLlm", "on": ["source"]}]},
+                                                {"name": "넣기", "steps": _pair("link", "plan", "apply")}])
+    assert not got["errors"] and got["std"] is None, got
+    assert any("목적 문서의 「헤딩 · 표 분석」" in w for w in got["warns"]) and any("「프로젝트 구성 반영」 이 없습니다" in w for w in got["warns"]) and any(w.startswith("유료 LLM") for w in got["warns"])
+
+
+def test_document_lines_go_on_the_source_document_too_apart_or_together():
+    """2026-11-20 사용자 「원본 문서는 왜 네 맘대로 빼냐? 목적문서랑 원본 문서도 분리해서 따로 따로 하게 해줘야지. 다만 동일하게 같이 작업해야 한다는 기능이 있으면 더 좋겠지」(② §18-2 「원본 문서에 놓는 줄」):
+    구성 반영 · 다시 문서 검토 · 작성요령 삭제를 원본 문서에도 놓는다 — 한 줄에 두 문서(같이) · 문서마다 다른 줄(따로: 원본이 앞). 표준 차례가 아니고(v2), 바꾸는 문서를 문서마다 알린다 · 등록부의 줄 · 글이 그 문서를 따른다."""
+    from app import workflow
+    both = ["source", "target"]
+    together = [{"name": "검토", "steps": [{"unit": "heads", "on": both}]},
+                {"name": "구성", "steps": [{"unit": "config"}, {"unit": "division", "on": both}, {"unit": "reheads", "on": both}, {"unit": "reheadsLlm", "on": ["source"]}]},
+                {"name": "넣기", "steps": _pair("link", "plan", "apply") + [{"unit": "guide", "on": both}]}]
+    got = C.check("relay", "plan", "report", together)
+    assert not got["errors"] and got["std"] is None, got
+    assert "목적 문서를 바꾸는 줄: 프로젝트 구성 반영 · 내용 반영 · 작성요령 삭제" in got["warns"] and "원본 문서를 바꾸는 줄: 프로젝트 구성 반영 · 작성요령 삭제" in got["warns"], got["warns"]
+    assert not any("다시 문서 검토」 가" in w for w in got["warns"])   # 두 문서 다 구조 반영 뒤 다시 검토가 있다
+    apart = [{"name": "a", "steps": [{"unit": "heads", "on": both}, {"unit": "config"}, {"unit": "division", "on": ["source"]}, {"unit": "reheads", "on": ["source"]},
+                                     {"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}] + _pair("link", "plan", "apply")}]
+    assert not C.check("relay", "plan", "report", apart)["errors"]
+    # 문서끼리의 차례는 자유다(사용자 「프로젝트 구성을 완료하고 문서 검토하고 다른문서 프로젝트 구성할 수도 있잖아」) — 목적 문서의 구성 반영 · 다시 검토를 끝낸 뒤 원본 문서의 구성 반영 · 다시 검토
+    later = [{"name": "a", "steps": [{"unit": "heads", "on": both}, {"unit": "config"}, {"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}, {"unit": "reheadsLlm", "on": ["target"]},
+                                     {"unit": "division", "on": ["source"]}, {"unit": "reheads", "on": ["source"]}] + _pair("link", "plan", "apply")}]
+    got = C.check("relay", "plan", "report", later)
+    assert not got["errors"] and got["std"] is None, got
+    only =[{"name": "a", "steps": [{"unit": "heads", "on": both}, {"unit": "config"}, {"unit": "division", "on": ["source"]}] + _pair("link", "plan", "apply")}]   # 원본 문서만 구조 반영 · 다시 검토 없이 자리 연결
+    got = C.check("relay", "plan", "report", only)
+    assert not got["errors"] and any(w.startswith("원본 문서의 구조를 바꾼 뒤 원본 문서의 「다시 문서 검토」 가 「자리 연결」 앞에 없습니다") for w in got["warns"]), got
+    assert any("「프로젝트 구성 반영」 을 원본 문서에만 합니다" in w for w in got["warns"])
+    # 등록부 꼴 — 줄의 하는 문서 · 글 · 묶음이 바꾸는 문서 · 원본이 바뀐다는 글(「바뀌지 않는 문서」 라는 말은 싣지 않는다)
+    c = {"key": "u_0000000b", "name": "두 문서 구성", "desc": "", "source": "plan", "target": "report", "shape": "relay", "flow": C.check("relay", "plan", "report", together)["flow"], "premise": "", "at": 0}
+    t = workflow.assemble(c)
+    steps = {s["key"]: s for g in t["stages"] for s in g["steps"]}
+    assert [steps[k]["on"] for k in ("division", "reheads", "reheadsLlm", "guide")] == ["both", "both", "source", "both"]
+    assert steps["division"]["does"].startswith("사업계획서의 구조를 그 문서의 프로젝트 구성 값") and "연차보고서의 값을 사업계획서 기준으로" in steps["division"]["does"]
+    assert steps["reheadsLlm"]["out"] == "LLM 검증·보완을 거친 사업계획서의 헤딩 그래프 · 표 구조" and steps["guide"]["out"] == "안내를 지운 두 문서(사업계획서 · 연차보고서)"
+    assert t["stages"][1]["does"].endswith(" · 원본 문서 · 목적 문서가 바뀜") and t["stages"][0]["does"].endswith(" · 문서는 안 바뀜")
+    assert "사업계획서(원본)도 바뀝니다 — 원본 문서에 놓은 줄: 프로젝트 구성 반영 · 작성요령 삭제." in t["note"] and "바뀌지 않는 문서" not in json.dumps(t, ensure_ascii=False, default=str)
+    assert workflow.custom_desc(c).endswith("원본 문서(사업계획서)도 바꿉니다 — 프로젝트 구성 반영 · 작성요령 삭제.")
+    # 목적 문서만의 줄은 전과 같은 글(붙박이 이관의 글 그대로)
+    std = workflow.assemble({**c, "flow": C.flow_of(_c({"source": ["stage_review"], "target": list(C.STAGES), "llm": ["source"]}))})
+    base = {s["key"]: s for g in workflow.task_of("plan_to_report")["stages"] for s in g["steps"]}
+    assert all({s["key"]: s for g in std["stages"] for s in g["steps"]}[k]["does"] == base[k]["does"] for k in ("division", "reheads", "reheadsLlm", "guide"))
+    assert "사업계획서(원본)는 바뀌지 않습니다." in std["note"]
+
+
+def test_the_lines_a_line_needs_first_agree_with_the_check():
+    """먼저 있어야 할 줄(units[].uses — spec ② §18-6 「대상 잇기」 의 (나)): 화면이 읽는 것과 조립 검사의 판정이 같다 — must 인 앞 줄이 없으면 거절 · must 가 아니면 거절하지 않는다. 취합형은 GATHER_USES."""
+    from app import custom_tasks_api as A
+    from app import workflow_units as WU
+    by = {u["key"]: u["uses"] for u in A.units()}
+    assert by["llm"] == by["plan"] == [{"unit": "link", "must": True}] and by["gaps"] == by["tableMap"] == by["apply"] == [{"unit": "plan", "must": True}]
+    assert by["reheads"] == [{"unit": "division", "must": True}] and by["reheadsLlm"] == [{"unit": "reheads", "must": True}]
+    assert by["headsLlm"] == [{"unit": "heads", "must": False}] and by["division"] == [{"unit": "config", "must": False}] and by["guide"] == [{"unit": "apply", "must": False}]
+    assert by["link"] == [{"unit": "heads", "must": False}, {"unit": "reheads", "must": False}] and by["heads"] == by["config"] == by["hand"] == []
+    names = C.unit_names()
+    for key, uses in by.items():   # 그 줄 하나만 놓은 정의(원본 문서를 쓰는 줄 하나를 곁들임) — must 인 앞 줄이 없으면 그 줄 이름이 든 거절이 있고, 아니면 그런 거절이 없다
+        u = WU.unit(key, "relay")
+        line = {"unit": key, "on": ["target"]} if u["place"] == "doc" else {"unit": key}
+        got = C.check("relay", "plan", "report", [{"name": "a", "steps": [{"unit": "heads", "on": ["source"]}, line] if key != "heads" else [line]}])
+        hit = [e for e in got["errors"] if f"「{names[key]}」" in e and ("앞에 있어야" in e or "뒤에 와야" in e)]
+        assert bool(hit) == any(x["must"] for x in uses), (key, uses, got["errors"])
+    g = {u["key"]: u["uses"] for u in A.gather_units()[0]}
+    assert g["apply"] == [{"unit": "plan", "must": True}] and g["plan"] == g["llm"] == [{"unit": "link", "must": True}] and g["link"] == g["division"] == g["hand"] == []
+
+
+def test_line_lists_are_stored_as_v2_or_as_the_old_form_and_old_reads_do_not_see_v2(client):
+    """⑤ 한 표현만: 표준 차례면 옛 꼴(assign · stages)로 · 아니면 v2(shape · v · flow — assign · stages 없음: 옛 서버는 숨기고 그대로 둔다). 판 없는 읽기(옛 탭)에는 표준 정의만 ·
+    옛 화면이 v2 정의의 단계를 고치면 409 · 묶음 이름만 고치면 지문 그대로 · 쓰는 중이면 줄을 못 바꿈(409) · 표준 차례로 되돌리면 옛 꼴로."""
+    f2 = [{"name": "원본 검토", "steps": [{"unit": "heads", "on": ["source", "target"]}, {"unit": "headsLlm", "on": ["source"]}]},
+          {"name": "넣기", "steps": [{"unit": "link"}, {"unit": "plan"}, {"unit": "apply"}, {"unit": "guide", "on": ["target"]}]}]
+    chk = client.post("/api/tasks/check", json={"flow": f2}).json()
+    r = client.post("/api/tasks", json={"name": "원본 검토 뒤 넣기", "flow": f2})
+    assert r.status_code == 201, r.text
+    t = r.json()["task"]
+    assert t["v"] == 2 and t["assign"] is None and t["groups"] == ["g1", "g2"] and t["sig"] == chk["sig"] and not chk["std"] and "정한 차례대로" in t["descAuto"]
+    row = next(x for x in json.loads(C.path().read_text(encoding="utf-8"))["tasks"] if x["key"] == t["key"])
+    assert "assign" not in row and "stages" not in row and row["v"] == 2 and row["flow"][1]["steps"][0] == {"unit": "link", "on": ["source", "target"]}
+    assert t["key"] not in [x["key"] for x in client.get("/api/tasks").json()["tasks"]] and client.get("/api/tasks").json()["hidden"] == 1
+    assert t["key"] in [x["key"] for x in client.get("/api/tasks?v=2").json()["tasks"]] and t["key"] not in client.get("/api/tasks.js").text and t["key"] in client.get("/api/tasks.js?v=2").text
+    W = next(x for x in client.get("/api/workflow").json()["tasks"] if x["job"] == t["key"])
+    assert [(g["id"], g["no"], g["name"], [(s["key"], s["on"]) for s in g["steps"]]) for g in W["stages"]] == [
+        ("g1", "1단계", "원본 검토", [("files", "flow"), ("heads", "both"), ("headsLlm", "source")]), ("g2", "2단계", "넣기", [("link", "pair"), ("plan", "pair"), ("apply", "pair"), ("guide", "target")])]
+    assert "정한 차례: [원본 검토: 「헤딩 · 표 분석」" in workflow.picked_line(C.get(t["key"]))
+    put = client.put(f"/api/tasks/{t['key']}", json={"assign": {"source": ["stage_review"], "target": ["stage_fill"]}})
+    assert put.status_code == 409 and put.json()["detail"] == C.FLOW_LOCKED
+    renamed = client.put(f"/api/tasks/{t['key']}", json={"name": "새 이름", "flow": [dict(f2[0], name="검토"), f2[1]]}).json()["task"]
+    assert renamed["name"] == "새 이름" and renamed["sig"] == t["sig"] and renamed["flow"][0]["name"] == "검토"   # 묶음 이름은 지문에 안 든다
+    with pytest.raises(C.Refused):
+        C.update(t["key"], {"flow": [f2[0], dict(f2[1], steps=f2[1]["steps"][:3])]}, busy=1)
+    std = C.flow_of(_c({"source": ["stage_review"], "target": ["stage_fill"], "llm": ["source"]}))
+    back = client.put(f"/api/tasks/{t['key']}", json={"flow": std}).json()["task"]
+    row = next(x for x in json.loads(C.path().read_text(encoding="utf-8"))["tasks"] if x["key"] == t["key"])
+    assert back["v"] == 1 and back["assign"] == {"source": ["stage_review"], "target": ["stage_fill"], "llm": ["source"]} and "flow" not in row and "v" not in row and row["stages"] == ["stage_review", "stage_fill"]
+    bad = client.post("/api/tasks", json={"name": "거꾸로", "flow": [{"name": "a", "steps": [{"unit": "plan"}, {"unit": "link"}]}]})
+    assert bad.status_code == 400 and "뒤에 와야" in bad.json()["detail"]
+    tasks = client.get("/api/tasks?v=2").json()
+    assert {u["key"] for u in tasks["units"]} >= {"heads", "headsLlm", "config", "division", "link", "apply", "guide", "hand"} and "files" not in {u["key"] for u in tasks["units"]}
+    # 문서 입출력(② §18-8 — 2026-11-20 사용자 "1->N, N-1 문서 입출력"): 꼴 「1」 · 「1 → 1」 · 「N → 1」 · 칸(원본 → 목적 · 수 · 종류) — 아직 못 여는 틀은 까닭과 함께
+    sh = {s["id"]: s for s in tasks["shapes"]}
+    assert [s["id"] for s in tasks["shapes"]] == ["single", "relay", "gather"] and [s["io"] for s in tasks["shapes"]] == ["1", "1 → N", "N → 1"]   # 이관 = 1 → N(사용자 「이관은 1-N으로」)
+    assert sh["single"]["soon"] and not sh["gather"]["soon"] and not sh["relay"]["soon"]   # 취합형은 2026-11-20 엶(② §18-13 갈래 「라」) · 문서 하나는 아직
+    assert [(x["role"], x["many"], [k["id"] for k in x["kinds"]]) for x in sh["relay"]["slots"]] == [("source", False, ["plan"]), ("target", True, ["report"])]
+    assert [(x["role"], x["many"], [k["name"] for k in x["kinds"]]) for x in sh["gather"]["slots"]] == [("source", True, ["기관 문서"]), ("target", False, ["사업계획서"])]   # 목적 = 취합본(사업계획서)뿐 — 지금 조립할 수 있는 짝(custom_tasks.GATHER_PAIRS)
+    assert {u["key"] for u in tasks["byShape"]["gather"]["units"]} == {*C.GATHER_UNITS, "hand"} and [g["name"] for g in tasks["byShape"]["gather"]["flow"]] == ["프로젝트 구성", "문서 프레임 작성", "내용 매핑"]   # 틀마다의 고를 줄 · 처음 줄 목록
+    assert [x["role"] for x in sh["single"]["slots"]] == ["target"]
