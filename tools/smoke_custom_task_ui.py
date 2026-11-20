@@ -8,7 +8,7 @@
 ① /workflow 의 「워크플로우 조립」: 목차의 「＋ 워크플로우 조립」 → 폼(이름 · 한 줄 설명 · 문서 입출력(② §18-8 — 「1」 · 「1 → 1」 · 「N → 1」 + 문서 칸) · 문서 역할 × 단계 표 · 전제 — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」):
    표의 칸 = 서버의 cells(체크 assign-source · assign-target · 따라오는 글 · 고를 수 없는 까닭) · 표 아래 「직접 고른 단계」(단계 사이 「 › 」) · 경고(목적 문서에 구성 맞추기 없이 내용 넣기 — 막지 않음 · 뒷부분 = 서버의 warn.fillNoFit)
    → 원본은 끄고 목적 문서에 단계 둘만 골라 만들기(저장 몸 = assign 만 — 합집합 stages 없음 · 저장한 assign 에 서버가 정한 llm) → 그 워크플로우 절(조립한 것 · 고른 단계만 · 번호는 1부터 · 문서마다 단위문서 TASK 표 +
-   워크플로우 전체 줄 「워크플로우 전체(문서마다가 아니라 한 번): 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: …」) · 목차 · 단계 절.
+   워크플로우 전체 줄 「워크플로우 전체(문서마다가 아니라 한 번): 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: …」) · 목차 · 단계 절.
 ② 같은 이름 · 원본 문서를 쓰는 단계가 없는 배정이면 서버의 까닭(400)이 폼에 그대로(「워크플로우」 라 함 — 「TASK」 가 아님) · 「고치기」(폼에 저장한 assign 이 채워짐)로 이름 · 단계를 바꿈(sig 가 바뀜) ·
    cells 를 주지 않는 서버(흉내)면 폼을 열지 않음(「조립은 서버를 다시 켠 뒤에 쓸 수 있습니다」).
 ③ 고치는 사이 그 워크플로우로 작업을 시작하면 단계를 바꾼 저장은 409(서버의 글 그대로 = editWhy — 폼이 잠기고 잠금 글도 그 글 · 「복제」) · 앱: 시작 화면의 카드 · 그 워크플로우로 연 문서의 「작업 개요」 가 고른 묶음만(번호 1부터 · 맨 앞 묶음에 준비) ·
@@ -198,8 +198,8 @@ try:
         wf.reload()
         wf.wait_for_selector("#wfNav [data-wf-compose]")
         nav = wf.evaluate(NAV)
-        check("목차 — 워크플로우 · 단계 · 도구(화면 말 — ② §15) · 「＋ 워크플로우 조립」 단추 · 조립한 워크플로우 없음 · 깨진 파일 글 없음",
-              nav["heads"] == ["워크플로우", "단계", "도구"] and not any("wf-made" in x[2] for x in nav["links"]) and wf.inner_text("#wfNav [data-wf-compose]") == "＋ 워크플로우 조립"
+        check("목차 — 워크플로우 · 단계 · 워크플로우 도구(② §18-18) · 도구(화면 말 — ② §15) · 「＋ 워크플로우 조립」 단추 · 조립한 워크플로우 없음 · 깨진 파일 글 없음",
+              nav["heads"] == ["워크플로우", "단계", "워크플로우 도구", "도구"] and not any("wf-made" in x[2] for x in nav["links"]) and wf.inner_text("#wfNav [data-wf-compose]") == "＋ 워크플로우 조립"
               and wf.locator("#wfCompose").is_visible() and wf.locator("#wfCompose .wf-made-list").count() == 0 and wf.locator("#wfCompose .wf-compose-broken").count() == 0
               and wf.locator("#wfCompose [data-wf-compose=open]").inner_text() == "새 워크플로우 조립", nav["heads"])
         wf.click("#wfNav [data-wf-compose]")
@@ -211,10 +211,10 @@ try:
             ioText: f.querySelector('.wf-iobox').textContent, help: !!document.querySelector('#wfCompose h2 .panel-help') && !document.querySelector('#wfCompose > .wf-lead'),
             old: f.querySelectorAll('.wf-stage-opt, input[name=stage]').length,
             focus: document.activeElement === f.querySelector('input[name=name]'), premise: f.querySelector('textarea').placeholder, blocked: [...document.querySelectorAll('#wfCompose .wf-blocked li b')].map((b) => b.textContent) }; }""")
-        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 입출력(「1」 · 「1 → N」 고름 · 「N → 1」 — 아직 못 여는 「1」 만 꺼짐 + 「준비 중」) · 문서 칸(원본 1 = 기본 문서 고르기 · 목적 N) · 설명 글 · 문서 종류 이름 없음 · 절 설명은 머리의 노트 아이콘 · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 하나(다른 문서 쌍)",
+        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 입출력(「1」 · 「1 → N」 고름 · 「N → 1」 — 셋 다 켜짐: 「준비 중」 없음) · 문서 칸(원본 1 · 목적 N — 둘 다 기본 문서 고르기: 목적 칸은 수가 N 이어도 양식을 건다) · 설명 글 · 문서 종류 이름 없음 · 절 설명은 머리의 노트 아이콘 · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 하나(다른 문서 쌍)",
               f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 입출력", "단계(묶음 › 줄)", "전제(선택)"] and f0["focus"] and f0["old"] == 0
-              and f0["shapes"] == [["single", "1", True, False, "준비 중"], ["relay", "1 → N", False, True, ""], ["gather", "N → 1", False, False, ""]]   # 「N → 1」 취합은 2026-11-20 엶(tools/smoke_gather_compose_ui.py 가 그 조립을 본다) · 「1」 문서 하나는 아직
-              and [x[:3] for x in f0["slots"]] == [["source", "1", True], ["target", "N", False]] and not any(w in f0["ioText"] for w in ("사업계획서", "연차보고서", "올리세요", "기본값 =")) and f0["help"]
+              and f0["shapes"] == [["single", "1", False, False, ""], ["relay", "1 → N", False, True, ""], ["gather", "N → 1", False, False, ""]]   # 「N → 1」 취합은 2026-11-20 엶(tools/smoke_gather_compose_ui.py 가 그 조립을 본다) · 「1」 문서 하나도 같은 날 엶(tools/smoke_single_compose_ui.py)
+              and [x[:3] for x in f0["slots"]] == [["source", "1", True], ["target", "N", True]] and not any(w in f0["ioText"] for w in ("사업계획서", "연차보고서", "올리세요", "기본값 =")) and f0["help"]
               and "사업계획서 → 연차보고서 이관" in f0["premise"] and len(f0["blocked"]) == 1 and "다른 문서 쌍" in f0["blocked"][0], f0)
         # 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 칸은 서버(GET /api/tasks 의 stages[].cells)가 정한다
         cells = {st["id"]: st.get("cells") or {} for st in requests.get(f"{base}/api/tasks", timeout=30).json()["stages"]}   # 없으면(옛 서버) 아래 검사가 떨어진다
@@ -225,7 +225,7 @@ try:
         check("문서 역할 × 단계 표 — 열 = 원본 문서 — 사업계획서 · 목적 문서 — 연차보고서 · 행 = 일반 단계 넷(차례 · 그 단계의 줄들) · 칸 = 서버의 cells(원본: 문서 검토만 체크 · 구성 맞추기 · 내용 넣기는 따라오는 글 · 문서 정리는 고를 수 없음 / 목적: 넷 모두 체크)",
               f1["legend"].startswith("문서마다 단위문서 TASK") and f1["head"] == ["단계", "원본 문서 — 사업계획서", "목적 문서 — 연차보고서"]
               and [r["id"] for r in f1["rows"]] == list(STAGE_IDS) and [r["name"] for r in f1["rows"]] == ["1. 문서 검토", "2. 구성 맞추기", "3. 내용 넣기", "4. 문서 정리"]
-              and rows["stage_fit"]["steps"] == "구성 불러오기(선택) › 프로젝트 구성 확정 › 프로젝트 구성 반영 › 다시 문서 검토 › 다시 문서 검토(LLM)"
+              and rows["stage_fit"]["steps"] == "구성 불러오기(선택) › 프로젝트 구성 추출 › 프로젝트 구성 반영 › 다시 문서 검토 › 다시 문서 검토(LLM)"
               and modes == {i: {k: v["mode"] for k, v in c.items()} for i, c in cells.items()}
               and [modes[i]["source"] for i in STAGE_IDS] == ["pick", "follow", "follow", "no"] and all(modes[i]["target"] == "pick" for i in STAGE_IDS), [f1, cells])
         check("새 워크플로우의 처음 값 — 원본 = 문서 검토 · 목적 = 넷 모두(체크 이름 assign-source · assign-target) · 따라오는 칸은 목적이 골랐으니 그 글 · 고를 수 없는 칸은 까닭(원본은 바꾸지 않습니다) · "
@@ -291,13 +291,13 @@ try:
         want = [[g["id"], {r["role"]: next((u["steps"] for u in r["unit"] if u["stage"] == g["id"]), []) for r in wt.get("roles") or []}] for g in wt["stages"]]
         fl1 = wf.evaluate(FLOW, key)   # 목록 보기 — 절이 보여 CSS 의 이음 기호까지 읽힌다
         check("그 워크플로우 절의 「문서마다 단위문서 TASK」 — 열 = 원본 문서 — 사업계획서 · 목적 문서 — 연차보고서(서버의 title) · 행 = 고른 묶음(구성 맞추기 · 내용 넣기) · 칸 = 등록부의 단위문서 TASK · "
-              "원본은 문서 검토를 안 골라 헤딩 · 표 분석이 없음 · 표 아래 줄 = 「워크플로우 전체(문서마다가 아니라 한 번): 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서(사업계획서)」"
+              "원본은 문서 검토를 안 골라 헤딩 · 표 분석이 없음 · 표 아래 줄 = 「워크플로우 전체(문서마다가 아니라 한 번): 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서(사업계획서)」"
               "(목적 문서에 「구성 맞추기」 가 있어 base = source · 단계 사이 「 › 」 · 단계는 괄호 안)",
               bool(docs) and docs["cols"] == ["단계", "원본 문서 — 사업계획서", "목적 문서 — 연차보고서"] and docs["rows"] == want and [r[0] for r in docs["rows"]] == ["frame", "map"]
               and not any(k in r[1].get(role, []) for r in docs["rows"] for role in ("source", "target") for k in ("heads", "headsLlm", "files", "configLoad", "config"))
               and wt.get("flow") == [{"stage": "frame", "steps": ["files", "configLoad", "config"]}] and wt.get("base") == "source"
               and bool(docs["flow"]) and docs["flow"]["groups"] == [["frame", ["files", "configLoad", "config"]]] and docs["flow"]["base"] == " — 구성의 기준: 원본 문서(사업계획서)"
-              and bool(fl1) and fl1["name"] == FLOW_HEAD and fl1["line"] == f"{FLOW_HEAD}: 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서(사업계획서)",
+              and bool(fl1) and fl1["name"] == FLOW_HEAD and fl1["line"] == f"{FLOW_HEAD}: 1단계 구성 맞추기(준비 › 구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서(사업계획서)",
               [docs, want, wt.get("flow"), wt.get("base"), fl1])
         nav, made = wf.evaluate(NAV), wf.evaluate(MADE)
         used = wf.evaluate("() => Object.fromEntries(['stage_review', 'stage_fit', 'stage_fill', 'stage_clean'].map((id) => [id, [...document.querySelectorAll('#common-' + id + ' .wf-io .wf-chip')].map((a) => a.textContent)]))")
@@ -422,7 +422,7 @@ try:
         check("「작업 개요」 — 고른 묶음 셋만(문서 검토 없음) · 번호는 1부터 · 맨 앞 묶음(구성 맞추기)이 준비를 가짐 · 단계는 일반 단계 그대로",
               [(s["id"], s["head"]) for s in st] == [("frame", "1단계 구성 맞추기"), ("map", "2단계 내용 넣기"), ("clean", "3단계 문서 정리")] and page.locator("#taskStageR").count() == 0
               and st[0]["steps"] == ["files", "config", "division", "reheads", "reheadsLlm"] and st[1]["steps"] == ["link", "plan", "apply", "later"] and st[2]["steps"] == ["guide"]
-              and st[0]["count"] == "0/4 완료" and st[0]["state"].startswith("다음: 프로젝트 구성 확정") and not st[0]["off"] and st[1]["state"] == "1단계 「구성 맞추기」 완료 후 진행" and st[1]["off"], st)
+              and st[0]["count"] == "0/4 완료" and st[0]["state"].startswith("다음: 프로젝트 구성 추출") and not st[0]["off"] and st[1]["state"] == "1단계 「구성 맞추기」 완료 후 진행" and st[1]["off"], st)
         chain = page.evaluate("() => [...document.querySelectorAll('#taskChain [data-task-chain]')].map((b) => [b.dataset.taskChain, b.textContent, b.hidden])")
         check("이어서 한 번에 — 이 TASK 의 묶음 범위(1→2단계 · 1→3단계)", chain == [["map", "1→2단계", False], ["clean", "1→3단계", False]], chain)
         page.locator("#panel").screenshot(path=str(OUT / "3_panel.png"))
@@ -471,10 +471,10 @@ try:
         wt2 = next((t for t in requests.get(f"{base}/api/workflow", timeout=30).json()["tasks"] if t["job"] == key2), {})
         fl2 = wf.evaluate(FLOW, key2)
         check("설명을 비워 둔 조립 — 절 · 다이어그램의 설명 = 등록부가 실제 배정에서 지은 글(descAuto — 「내용 넣기」 가 없어 「옮깁니다」 라 하지 않음) · "
-              "목적 문서에 「구성 맞추기」 가 있어 구성의 기준 = 원본(base source — 워크플로우 전체 줄 「1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서(사업계획서)」)",
+              "목적 문서에 「구성 맞추기」 가 있어 구성의 기준 = 원본(base source — 워크플로우 전체 줄 「1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서(사업계획서)」)",
               isinstance(t2.get("descAuto"), str) and t2["descAuto"].strip() != "" and "옮깁니다" not in t2["descAuto"] and s2["lead"] == t2["descAuto"].strip() == diag2["lead"]
               and diag2["title"] == "목적만 검토 · 구성" and wt2.get("base") == "source" and bool(fl2)
-              and fl2["line"] == f"{FLOW_HEAD}: 1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서(사업계획서)",
+              and fl2["line"] == f"{FLOW_HEAD}: 1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서(사업계획서)",
               [t2.get("descAuto"), s2.get("lead"), diag2, wt2.get("base"), fl2])
         e = upload(small)
         r = requests.put(f"{base}/api/works/{e}/task", json={"kind": "rnd", "file": "report", "job": key2, "project": "조립 시험 2"}, timeout=30)

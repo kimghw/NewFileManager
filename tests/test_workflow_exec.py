@@ -718,8 +718,10 @@ def test_fit_lines_run_on_the_source_document_too_when_placed_together(fit, monk
     rec = _done("t")
     assert rec["status"] == "done", rec["end"]
     order = [c for c in fit.calls if c[0] in ("confirm", "adopt", "plan", "apply", "how", "guides", "llm")]
-    assert order == [("confirm", "t"), ("adopt", "s"), ("plan", "s", ()), ("apply", "s", "p1", 0), ("plan", "t", ("k1",)), ("apply", "t", "p1", 0),
-                     ("how", "s", 2), ("how", "s", 3), ("how", "t", 2), ("how", "t", 3), ("guides", "t"), ("llm", "s"), ("llm", "t")], order
+    # 구조 반영은 차례로(원본 → 목적 — 목적 문서가 원본의 구조를 기준으로 맞춘다) · 다시 문서 검토 · LLM 은 두 문서를 함께(2026-11-20 「병렬로 처리」 — 문서마다의 차례는 그대로 · 두 문서 사이의 차례는 정해져 있지 않다)
+    assert order[:6] == [("confirm", "t"), ("adopt", "s"), ("plan", "s", ()), ("apply", "s", "p1", 0), ("plan", "t", ("k1",)), ("apply", "t", "p1", 0)], order
+    assert sorted(order[6:11]) == sorted([("how", "s", 2), ("how", "s", 3), ("how", "t", 2), ("how", "t", 3), ("guides", "t")]) and sorted(order[11:]) == [("llm", "s"), ("llm", "t")], order
+    assert [c for c in order if c[0] == "how" and c[1] == "s"] == [("how", "s", 2), ("how", "s", 3)] and [c for c in order if c[1] == "t" and c[0] in ("how", "guides")] == [("how", "t", 2), ("how", "t", 3), ("guides", "t")], order
     assert rec["end"]["text"] == ("끝남 — 구조를 맞췄습니다 — 사업계획서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳 · 사업계획서와 같음 · 연차보고서에 반영됨 — 1단계 · 전체 2년 · 기관 2곳"
                                   " · 사업계획서를 다시 분석했습니다 · 연차보고서를 다시 분석했습니다 · 사업계획서 LLM 검증·보완을 거쳤습니다 · 연차보고서 LLM 검증·보완을 거쳤습니다"
                                   " · 내용은 3단계 「내용 넣기」 에서 넣습니다")
@@ -781,3 +783,101 @@ def test_the_source_document_is_not_changed_with_values_other_than_the_confirmed
     rec = _done("t")
     assert rec["status"] == "halted" and rec["halt"]["code"] == "unconfirmed" and "사업계획서의 값(1단계 · 전체 2년 · 기관 2곳)이 확정한 프로젝트 구성과 다릅니다" in rec["end"]["text"]
     assert not [c for c in fit.calls if c[0] in ("plan", "apply")]
+
+
+# ---- 같은 차례(한 행)의 두 문서 일은 함께 돈다(② §18-4 「같은 차례 — 함께 돌기」 — 2026-11-20 사용자 「이런 경우 병렬로 처리 하도록 해줘」: 전에는 원본 문서의 것 다음에 목적 문서의 것)
+def _review_as(monkeypatch, steps):
+    """붙박이 이관의 「문서 검토」 줄을 바꾼 정의 — steps = [(줄 key, 하는 문서, 앞 줄과 같은 차례인가)](조립한 정의가 그렇게 놓은 꼴)."""
+    import copy
+    from app import workflow_state as S
+    task = copy.deepcopy(S.definition("plan_to_report"))
+    review = task["stages"][0]
+    by = {s["key"]: s for s in review["steps"]}
+    review["steps"] = [by["files"], *[{**by[k], "on": on, **({"beside": True} if beside else {})} for k, on, beside in steps]]
+    monkeypatch.setattr(S, "definition", lambda job: task if job == "plan_to_report" else None)
+    return task
+
+
+def test_lines_of_one_turn_on_two_documents_run_together(fake, monkeypatch):
+    """원본 문서의 「LLM 검증·보완」 과 목적 문서의 「헤딩 · 표 분석」 을 같은 차례에 — 함께 돈다: 목적 문서의 분석은 원본 문서의 LLM 이 걸린 뒤에야 시작하게 막아 두어도 끝난다(차례로 돌면 못 끝난다).
+    줄마다의 기록 · 끝 글은 그대로이고, 일하는 문서는 스레드마다 따로 센다."""
+    _review_as(monkeypatch, [("headsLlm", "source", False), ("heads", "target", True)])
+    fake.heads["s"] = True
+    seen, met, working = threading.Event(), [], []
+    heads0, llm0 = fake.start_heads, fake.start_llm
+    fake.start_llm = lambda doc, skill=None: (seen.set(), llm0(doc, skill))[1]
+    fake.start_heads = lambda doc, how="first": (met.append(seen.wait(2)), working.append(set(X.pinned())), heads0(doc, how))[2]   # 원본의 LLM 이 걸릴 때까지 기다린다 — 함께 돌 때만 온다
+    X.start("t", {"from": "review"})
+    rec = _done("t")
+    assert rec["status"] == "done" and met == [True], (rec["end"], met)
+    assert sorted(c for c in fake.calls if c[0] in ("llm", "heads")) == [("heads", "t"), ("llm", "s")] and ("guides", "t") in fake.calls
+    assert sorted((s["key"], s["status"]) for s in rec["steps"]) == [("heads", "done"), ("headsLlm", "done")]
+    assert "사업계획서 LLM 검증·보완을 거쳤습니다" in rec["end"]["text"] and "연차보고서의 헤딩 그래프·표 구조가 있습니다" in rec["end"]["text"]
+    assert not X.pinned() and not X.BUSY   # 끝나면 일하는 문서가 남지 않는다
+
+
+def test_one_line_on_two_documents_calls_the_llm_together(fake, monkeypatch):
+    """한 줄이 두 문서를 하는 「LLM 검증·보완」 — 두 문서의 유료 호출을 함께 건다(원본의 것이 끝나기를 기다리지 않는다) · 글은 원본 → 목적 차례."""
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "both", False)])
+    fake.heads.update(s=True, t=True)
+    seen, met = threading.Event(), []
+    llm0 = fake.start_llm
+    fake.start_llm = lambda doc, skill=None: (met.append(seen.wait(2)) if doc == "s" else seen.set(), llm0(doc, skill))[1]   # 원본의 호출은 목적 문서의 호출이 걸릴 때까지 기다린다
+    X.start("t", {"from": "review"})
+    rec = _done("t")
+    assert rec["status"] == "done" and met == [True] and sorted(c for c in fake.calls if c[0] == "llm") == [("llm", "s"), ("llm", "t")], (rec["end"], met)
+    assert rec["steps"][-1]["text"] == "사업계획서 LLM 검증·보완을 거쳤습니다 · 연차보고서 LLM 검증·보완을 거쳤습니다"
+
+
+def test_two_hand_lines_of_one_turn_halt_once_with_both(fit, monkeypatch):
+    """사람이 하는 일 둘을 같은 차례에 — 한 번 멈추고 두 일을 함께 알린다(전에는 하나씩 두 번) · 멈춘 줄 = 앞의 것 · 둘 다 「했음」 이면 지나간다."""
+    task = _review_as(monkeypatch, [("heads", "both", False)])
+    last = task["stages"][0]["steps"][-1]
+    hand = lambda key, name, on, beside: {**last, "key": key, "name": name, "does": f"{name}을 봅니다", "by": ["human"], "optional": False, "soon": False, "on": on, "change": "none", **({"beside": True} if beside else {})}  # noqa: E731
+    task["stages"][0]["steps"] += [hand("hand1", "원본 확인", "source", False), hand("hand2", "목적 확인", "target", True)]
+    marks = {}
+    fit.hand_ver = lambda t, key: f"v-{key}"
+    fit.hand_done = lambda target, key, ver: marks.get((target, key)) == ver
+    X.start("t", {"from": "review", "redo": "review"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "hand" and rec["halt"]["key"] == "hand1" and rec["halt"]["stage"] == "review", rec["halt"]
+    assert "사람이 할 일 — 원본 확인: 원본 확인을 봅니다" in rec["end"]["text"] and "사람이 할 일 — 목적 확인: 목적 확인을 봅니다" in rec["end"]["text"], rec["end"]["text"]
+    marks[("t", "hand1")] = "v-hand1"   # 하나만 「했음」 — 남은 하나에서 멈춘다(지난 것은 기록에)
+    X.start("t", {"from": "review", "redo": "review"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["key"] == "hand2" and "원본 확인" not in rec["end"]["text"] and ("hand1", "nothing") in [(s["key"], s["status"]) for s in rec["steps"]]
+    marks[("t", "hand2")] = "v-hand2"
+    X.start("t", {"from": "review", "redo": "review"})
+    assert _done("t")["status"] == "done"
+
+
+def test_lines_that_touch_each_others_document_keep_their_turn():
+    """함께 도는 조건 — 앞 줄과 같은 차례(beside)이고 · 문서가 서로 다른 문서 하나의 줄이며 · 한쪽이 **바꾸는** 문서를 다른 쪽이 읽지 않을 때. 아니면 전처럼 차례로."""
+    from app import workflow_state as S
+    from app import workflow_units as U
+    task = S.definition("plan_to_report")
+    line = lambda key, on, beside=False: {"key": key, "on": on, "unit": U.unit(key, "relay"), "beside": beside}  # noqa: E731
+    ok = lambda a, b: X._together(task, a, b)  # noqa: E731
+    assert ok(line("heads", "source"), line("headsLlm", "target", True)) and ok(line("headsLlm", "source"), line("guide", "target", True)) and ok(line("hand1", "source"), line("hand2", "target", True))
+    assert ok(line("heads", "source"), line("division", "target", True))            # 구조 반영(목적) ∥ 분석(원본) — 원본 문서는 안 바뀐다
+    assert ok(line("reheads", "source"), line("reheadsLlm", "target", True))        # 다시 문서 검토끼리 — 문서를 바꾸지 않는다
+    assert not ok(line("heads", "source"), line("headsLlm", "target"))              # 같은 차례가 아니다
+    assert not ok(line("guide", "source"), line("division", "target", True))        # 원본을 바꾸는 줄 ∥ 원본을 기준으로 보는 줄 — 차례로
+    assert not ok(line("division", "source"), line("reheads", "target", True)) and not ok(line("reheads", "source"), line("division", "target", True))
+    assert not ok(line("heads", "target"), line("headsLlm", "target", True))        # 같은 문서
+    assert not ok(line("heads", "both"), line("headsLlm", "target", True)) and not ok(line("link", "pair"), line("hand1", "target", True)) and not ok(line("config", "flow"), line("heads", "source", True))
+
+
+def test_a_line_button_runs_that_line_only_unless_the_whole_turn_is_asked(fake, monkeypatch):
+    """줄 하나만(only) — 같은 차례에 선 옆 줄은 돌지 않는다(유료 줄이 따라 시작하지 않게) · row 를 함께 주면 그 차례(행)째 돈다. 상태 · 목록에는 같은 차례 표시(beside)가 실린다."""
+    _review_as(monkeypatch, [("headsLlm", "source", False), ("heads", "target", True)])
+    fake.heads["s"] = True
+    v = X.status_of("t")["stages"][0]
+    assert [bool(s.get("beside")) for s in v["steps"] if s["key"] != "files"] == [False, True]
+    X.start("t", {"from": "review", "only": "heads"})
+    rec = _done("t")
+    assert rec["status"] == "done" and ("llm", "s") not in fake.calls and [s["key"] for s in rec["steps"]] == ["heads"] and "row" not in rec["range"]
+    fake.heads["t"] = False
+    X.start("t", {"from": "review", "only": "heads", "row": True})
+    rec = _done("t")
+    assert rec["status"] == "done" and ("llm", "s") in fake.calls and sorted(s["key"] for s in rec["steps"]) == ["heads", "headsLlm"] and rec["range"]["row"] is True

@@ -77,7 +77,8 @@ LINES = """() => { const box = document.querySelector('#wfCompose .wf-lines'); i
     std: (box.querySelector('.wf-lines-std') || {}).textContent || '', errs: [...box.querySelectorAll('.wf-lines-err li')].map((x) => x.textContent), warns: [...box.querySelectorAll('.wf-lines-warn li')].map((x) => x.textContent),
     save: save ? { off: save.disabled, text: save.textContent } : null, table: std ? !std.hidden && std.getBoundingClientRect().height > 0 : false, addStage: !!box.querySelector('.wf-lines-addstage'),
     homes: [...new Set(adds.flatMap((a) => [...a.querySelectorAll('optgroup')].map((o) => o.label)))],
-    opts: adds.flatMap((a) => [...a.querySelectorAll('option')].filter((o) => o.value).map((o) => [o.value, o.disabled])) }; }"""
+    opts: adds.flatMap((a) => [...a.querySelectorAll('option')].filter((o) => o.value).map((o) => [o.value, o.disabled])),
+    again: adds.flatMap((a) => [...a.querySelectorAll('option')].filter((o) => o.value && o.dataset.again === '1').map((o) => [o.value, o.disabled, / — 한 번 더$/.test(o.textContent)])) }; }"""   # 이미 놓은 줄의 옵션(한 번 더 놓을 수 있다 — 꺼지지 않음)
 SHAPES = """() => [...document.querySelectorAll('#wfCompose .wf-io-opt')].map((l) => [l.dataset.shape, l.querySelector('.wf-io-form').textContent, l.querySelector('input').disabled, l.querySelector('input').checked,
   (l.querySelector('.wf-io-soon') || {}).textContent || ''])"""
 SLOTS = "() => [...document.querySelectorAll('#wfCompose .wf-io-slots > li')].map((li) => [li.dataset.role, li.querySelector('.wf-io-count').textContent, !!li.querySelector('select[name^=draft-mode-]')])"
@@ -127,14 +128,18 @@ def main():
         g1, g2, g3 = (x["lines"] for x in s["groups"])
         # 쌍 줄(data-role=pair — 2026-11-20 사용자 「열을 분할해줘, 대상이 있어야 하는 경우에는 2개를 쌍으로」: 걸친 「공통」 칸을 없애고 두 문서 칸에 하나씩 · spec_워크플로우 ② §18-6 「대상 잇기」 — 옛 꼴의 common 도 읽는다)
         PAIR = ("pair", "common")
-        check("① 줄이 놓인 문서 — 구성 확정 = 쌍(두 문서 칸) · 구성 반영 · 배포 기준본 = 목적 문서 · 기관 문서 올리기 · 헤딩 · 표 분석 = 원본 문서 · 자리 연결 … 내용 반영 = 쌍",
-              g1[0][1] in PAIR and g2[0][1] == "target" and g2[1][1] == "target" and g3[0][1] == "source" and g3[1][1] == "source" and all(x[1] in PAIR for x in g3[2:]), [g1, g2, g3])
+        check("① 줄이 놓인 문서 — 구성 확정 = 목적 문서 칸의 한 칸 카드(워크플로우 전체 줄 — 취합본이 구성의 기준: 2026-11-20 두 칸에 걸친 쌍에서 바꿈) · 구성 반영 · 배포 기준본 = 목적 문서 · "
+              "기관 문서 올리기 · 헤딩 · 표 분석 = 원본 문서 · 자리 연결 … 내용 반영 = 쌍",
+              g1[0][1] == "target" and g2[0][1] == "target" and g2[1][1] == "target" and g3[0][1] == "source" and g3[1][1] == "source" and all(x[1] in PAIR for x in g3[2:]), [g1, g2, g3])
         check("① 서버 검사 — 거절 없음 · 「줄 목록으로 조립한 워크플로우」 · 경고(유료 LLM 줄 · 취합본을 바꾸는 줄) · 저장 켜짐",
               not s["errs"] and s["std"].startswith("줄 목록으로 조립한") and any("유료 LLM" in w and "LLM 검토" in w for w in s["warns"]) and any("목적 문서(취합본)를 바꾸는 줄" in w for w in s["warns"])
               and not s["save"]["off"], [s["errs"], s["std"], s["warns"], s["save"]])
-        check("① 「＋ 줄 넣기…」 — 묶음 = 취합의 묶음 이름(1단계 프로젝트 구성 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 · 사람이 하는 일) · 이미 놓은 줄은 꺼짐 · 「끌어 넣기」 는 고를 수 있다",
-              set(s["homes"]) == {"1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "사람이 하는 일"} and ["config", True] in s["opts"] and ["apply", True] in s["opts"] and ["drop", False] in s["opts"]
-              and not any(k in ("reheads", "guide", "headsLlm") for k, _ in s["opts"]), [s["homes"], s["opts"]])
+        # 이미 놓은 줄도 꺼지지 않는다(2026-11-20 사용자 「도구는 1번 이상 선택할 수 있어야지 한번 하고 두번 선택이 안되냐」 — 옵션 글 끝 「 — 한 번 더」: 전에는 「이미 놓음」 으로 꺼짐) ·
+        # 꺼지는 것은 앞 줄이 이 묶음 · 앞 묶음에 없는 줄뿐(첫 묶음에서 「내용 반영」 — 「넣기 계획」 이 뒤 묶음에 있다)
+        check("① 「＋ 줄 넣기…」 — 묶음 = 취합의 묶음 이름(1단계 프로젝트 구성 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 · 사람이 하는 일) · 이미 놓은 줄도 고를 수 있다(「 — 한 번 더」) · "
+              "앞 줄이 아직 없는 줄(첫 묶음의 「내용 반영」)만 꺼짐 · 「끌어 넣기」 는 고를 수 있다",
+              set(s["homes"]) == {"1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "사람이 하는 일"} and ["config", False, True] in s["again"] and ["apply", True] in s["opts"] and ["drop", False] in s["opts"]
+              and not any(k in ("reheads", "guide", "headsLlm") for k, _ in s["opts"]), [s["homes"], s["opts"], s["again"]])
         page.screenshot(path=str(OUT / "01_gather.png"), full_page=False)
 
         # ---- ② 서버의 거절 — 차례 · 기관 문서마다의 덩이
@@ -240,10 +245,10 @@ def main():
         check("⑥ 1단계 「한 번에 진행」 = 서버 실행 — 시작 요청의 from = g1(그 정의의 묶음) · 실행 기록이 남음(그 워크플로우 · g1 부터) · 화면 실행으로 가지 않음",
               len(starts) == 1 and starts[0].get("from") == "g1" and len(runs) == 1 and (rec.get("range") or {}).get("from") == "g1" and "서버가 이 묶음을 맡지 못했습니다" not in (last.get("text") or ""),
               [starts, runs, last])
-        # 이 검사의 취합본은 빈 양식이라 값(단계 · 차년도 · 기관)을 못 읽는다 — 서버 실행이 그 정의의 첫 줄 「프로젝트 구성 확정」 에서 멈추고 그 글이 1단계의 상태 줄에 선다
+        # 이 검사의 취합본은 빈 양식이라 값(단계 · 차년도 · 기관)을 못 읽는다 — 서버 실행이 그 정의의 첫 줄 「프로젝트 구성 추출」 에서 멈추고 그 글이 1단계의 상태 줄에 선다
         # (끝까지 도는 것 — 구성 확정 → 구조 확인 → 배포 기준본 · 기관 문서 한 덩이 — 은 진짜 모듈로 tests/test_workflow_gather.py 가 본다)
         keys, halt = [x.get("key") for x in rec.get("steps") or []], rec.get("halt") or {}
-        check("⑥ 그 실행 — 그 묶음의 줄만: 첫 줄 「프로젝트 구성 확정」 에서 멈춤(빈 양식 — 값을 못 읽음) · 그 글이 1단계의 끝 글 · 기관 문서마다의 줄은 돌지 않음",
+        check("⑥ 그 실행 — 그 묶음의 줄만: 첫 줄 「프로젝트 구성 추출」 에서 멈춤(빈 양식 — 값을 못 읽음) · 그 글이 1단계의 끝 글 · 기관 문서마다의 줄은 돌지 않음",
               (keys[:1] == ["config"] or halt.get("key") == "config") and not any(k in ("part", "link", "apply") for k in keys) and last.get("stage") == "config" and (rec.get("status") != "halted" or "읽지 못했습니다" in (last.get("text") or "")),
               [keys, halt, last])
         app.screenshot(path=str(OUT / "03_app.png"), full_page=False)

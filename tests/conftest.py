@@ -13,6 +13,8 @@ def _no_hangul(tmp_path, monkeypatch):
     monkeypatch.setenv("NFM_FORMS", str(tmp_path / "forms"))  # 양식 정보(spec_헤딩_추출 ② §12)도 임시 폴더 — 저장소 forms/ 의 글이 시험 프롬프트에 섞이지 않게
     monkeypatch.setenv("NFM_JOBS", str(tmp_path / "jobs"))  # 할 일 프롬프트(spec_작업 ② §13)도 — 저장소 jobs/ 의 글은 그것을 보는 시험만 직접 읽는다
     monkeypatch.setenv("NFM_AGENTS", str(tmp_path / "agents.json"))  # 에이전트 설정(spec_에이전트 ② §2)도 시험마다 임시 파일 — 사용자가 정한 모델·생각 깊이가 시험의 LLM 호출에 섞이지 않게
+    monkeypatch.setenv("NFM_AGENT_NOTES", str(tmp_path / "agent_notes.json"))  # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 시험마다 임시 파일 — 사용자가 적어 둔 글이 시험의 프롬프트에 붙지 않게
+    monkeypatch.setenv("NFM_TOOL_NAMES", str(tmp_path / "tool_names.json"))  # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 시험마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 시험에 섞이지 않게
     monkeypatch.setenv("NFM_STYLES", str(tmp_path / "styles"))  # 서식 보관함(spec_일반편집 ② §2)도 시험마다 임시 폴더 — 사용자 보관함(%LOCALAPPDATA%)을 안 건드린다
     monkeypatch.setenv("NFM_TASKS", str(tmp_path / "tasks.json"))  # 화면에서 조립한 TASK(spec_워크플로우 ② §14)도 시험마다 임시 파일 — 사용자가 만든 TASK 가 등록부 · TASK 검사에 섞이지 않게
     monkeypatch.setenv("NFM_FORM_FILES", str(tmp_path / "form_files"))  # 저장한 양식 · 워크플로우마다의 양식 설정(spec_워크플로우 ② §18-9)도 시험마다 임시 폴더 — 사용자가 건 고정 양식이 시작 길의 시험에 섞이지 않게

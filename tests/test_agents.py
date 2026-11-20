@@ -52,15 +52,16 @@ def test_registry_lists_role_place_prompt_for_every_agent(monkeypatch):
     assert by["tpl_agent"]["model"] == {"id": "claude-opus-5-5", "source": "pin"} and by["tpl_agent"]["pin"]
     assert by["merge_links"]["model"] == {"id": "claude-opus-5-5", "source": "code"} and by["heading_rules"]["model"]["source"] == "default"
     assert by["heading_rules"]["effort"] == {"id": "low", "source": "code"} and by["doc_agent"]["effort"]["source"] == "default"
-    for a in ags:  # 에이전트마다 계약 글이 있고 프롬프트의 차례가 계약 → … → 자료
+    for a in ags:  # 에이전트마다 계약 글이 있고 프롬프트의 차례가 계약 → … → 자료 → 덧붙이는 글(범용 — 2026-11-20: spec_에이전트 ② §6)
         d = A.detail(a["id"])
         kinds = [p["kind"] for p in d["prompt"]]
-        assert kinds[0] == "contract" and kinds[-1] == "data" and all(p["text"] for p in d["prompt"] if p["kind"] == "contract"), a["id"]
+        assert kinds[0] == "contract" and kinds[-2:] == ["data", "note"] and all(p["text"] for p in d["prompt"] if p["kind"] == "contract"), a["id"]
+        assert d["prompt"][-1]["editable"] and d["prompt"][-1]["api"] == f"/api/agent-notes/{a['id']}" and d["prompt"][-1]["text"] == ""
         assert all(p["title"] and p["source"] for p in d["prompt"]) and d["prompt"][-1]["note"]
     hp = A.detail("heading_types")["prompt"]
     hg = [p for p in hp if p["kind"] == "heading"]
     assert [p["name"] for p in hg] == ["graph", "templates", "tolerance"] and all(p["editable"] and p["text"] and p["api"] == f"/api/headings/guides/{p['name']}" for p in hg) and not hp[0]["editable"]
-    assert [p["kind"] for p in hp] == ["contract", "heading", "heading", "heading", "form", "data"]
+    assert [p["kind"] for p in hp] == ["contract", "heading", "heading", "heading", "form", "data", "note"]
     m = [p for p in A.detail("merge_links")["prompt"] if p["kind"] in ("merge", "job")]
     assert [p["source"] for p in m] == ["app/merge_guides_default/links.md", "jobs/plan_to_report.md"] and all(p["text"] and not p["editable"] for p in m)
     assert [p["title"] for p in A.detail("style_review")["prompt"] if p["kind"] == "contract"] == ["계약 — 테이블 서식 후보", "계약 — 내용·문단 서식 후보", "계약 — 쪽 설정·표지 후보"]

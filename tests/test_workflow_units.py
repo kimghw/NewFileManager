@@ -233,3 +233,19 @@ def test_view_of_the_frame_stage_reads_both_documents():
     frame = S.view(task, PAIR, facts, llm=True)["stages"][1]
     assert [(s["key"], s["done"]) for s in frame["steps"]] == [("configLoad", False), ("config", True), ("division", True), ("reheads", True), ("reheadsLlm", True)]
     assert (frame["done"], frame["total"], frame["left"]) == (4, 4, 0) and frame["change"] is True
+
+
+def test_a_hand_line_a_person_placed_halts_in_every_shape():
+    """사람이 놓은 「사람이 하는 일」 줄(hand1 …)은 어느 틀에서나 같이 쓰는 단위 hand(「했음」 이 없으면 멈춤)다 — 취합 붙박이의 번호 없는 hand(기관에 배포 · 회수: 실행기가 지나감)와 갈린다.
+    2026-11-20 검토에서 짚은 것: 취합형에 놓은 hand1 이 그 지나가는 단위로 읽혀 「했음」 없이 지나갔다."""
+    from app import workflow_units as U
+    for fam in ("relay", "gather", "single"):
+        u = U.unit("hand1", fam)
+        assert u is U.COMMON["hand"] and u["kind"] == "hand", fam
+    assert U.unit("hand", "gather") is U.GATHER["hand"] and U.unit("hand", "gather")["kind"] == "pick"   # 붙박이 취합의 배포 · 회수 — 지나간다
+    assert U.unit("hand", "relay") is U.COMMON["hand"]
+    ctx = {"ready": True, "lack": [], "llm": None, "skip": set(), "pair": {"target": {"role": "target", "title": "취합본", "id": "t", "facts": {"hands": {}}}}, "base": "target", "docs": []}
+    got = U.state("hand1", ctx, "gather")
+    assert got and got["st"] != "done" and not got.get("skipped"), got   # 「했음」 전 — 끝남도 건너뜀도 아니다
+    done = U.state("hand1", {**ctx, "pair": {"target": {**ctx["pair"]["target"], "facts": {"hands": {"hand1": True}}}}}, "gather")
+    assert done and done["st"] == "done", done

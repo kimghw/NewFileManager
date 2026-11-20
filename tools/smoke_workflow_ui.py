@@ -8,7 +8,7 @@
 - TASK 절(이관): 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 · 전제(할 일 프롬프트) · 묶음 넷(「N단계」 = TASK_STAGE_META) · 단계 줄(이름 · 누가 · 문서 바뀜 · 하는 일이 펴지 않아도 보임) ·
   줄을 누르면 세부(에이전트 작업 번호·이름·모델 · 모듈 파일 + 설명 · 사양 자리 · 공통 모듈 링크).
 - 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」): TASK 절의 표(.wf-docs — 열 머리 = 역할의 title — 문서 이름 · 행 = 묶음 · 칸 = 그 문서에 하는 단계 · pair 는 목적 칸에 「← 원본 문서」) ·
-  표 아래 「워크플로우 전체(문서마다가 아니라 한 번)」 줄(등록부의 flow — 준비 · 구성 불러오기 · 프로젝트 구성 확정은 어느 칸에도 없음 · 구성의 기준 = base 역할 ·
+  표 아래 「워크플로우 전체(문서마다가 아니라 한 번)」 줄(등록부의 flow — 준비 · 구성 불러오기 · 프로젝트 구성 추출은 어느 칸에도 없음 · 구성의 기준 = base 역할 ·
   꼴 「<번호> <이름>(<단계> › <단계>)」 · 묶음 사이도 「 › 」 — 눈에 보이는 글(CSS 의 이음 기호까지)로 견줌 · 표 칸 안의 단계 이음도 「 › 」) · 취합의 원본 = 「(문서마다)」 ·
   문서 하나인 워크플로우는 한 줄(「… · 작업 문서 — 사업계획서」 · 서식 복사 = 「서식을 가져올 문서」) · 단계 세부(목록 · 다이어그램)의 「하는 문서」 = 서버의 onText 그대로(도구 · 문서 하나인 워크플로우는 없음).
 - 공통 모듈 절: 「쓰는 TASK」 → 누르면 그 TASK 로(목차의 지금 절 표시) · 묶음 사슬을 누르면 그 묶음으로 · 주소 #<job> 로 바로 열기.
@@ -335,7 +335,7 @@ def diagram_checks(wf, ctx, api, workflow_requests):
         s = step_of(relay, key, gid)
         wf.click(f"#wfDiagram .wf-node[href='#plan_to_report--{gid}--{key}']")
         ons.append([key, s.get("on", ""), wait_diagram(wf, s["name"])["on"], s.get("onText")])
-    check("다이어그램의 「하는 문서」 = 서버의 onText 그대로 — 준비 · 프로젝트 구성 확정 = 「워크플로우 전체 — 문서마다가 아니라 한 번」 · 프로젝트 구성 반영 = 목적 문서 · LLM 검증·보완 = 원본 문서 · 헤딩 · 표 분석 = 두 문서",
+    check("다이어그램의 「하는 문서」 = 서버의 onText 그대로 — 준비 · 프로젝트 구성 추출 = 「워크플로우 전체 — 문서마다가 아니라 한 번」 · 프로젝트 구성 반영 = 목적 문서 · LLM 검증·보완 = 원본 문서 · 헤딩 · 표 분석 = 두 문서",
           [x[:2] for x in ons] == [["files", "flow"], ["config", "flow"], ["division", "target"], ["headsLlm", "source"], ["heads", "both"]] and all(x[2] == x[3] for x in ons)
           and [x[2] for x in ons] == [FLOW_ON, FLOW_ON, f"목적 문서 — {D}", f"원본 문서 — {S}", f"두 문서 — {S} · {D}"], ons)
     wf.click("#wfDiagram .wf-related a[href='#common-headings']")
@@ -417,7 +417,7 @@ def main():
           secs: [...document.querySelectorAll('#wfMain .wf-sec')].map((s) => s.id), title: document.querySelector('.wf-title').textContent })""")
         jobs = [t["job"] for t in api["tasks"]]
         check("목차 — 전체 보기 · TASK 일곱(이름 = TASK_CATALOG · 준비 중은 흐리게) · 공통 모듈 아홉 / 본문의 절이 같은 차례",
-              nav["title"] == "워크플로우" and nav["heads"] == ["워크플로우", "단계", "도구"] and nav["make"] == "＋ 워크플로우 조립" and len(nav["links"]) == 2 + len(jobs) + len(api["common"]) and nav["links"][0][:2] == ["#overview", "전체 보기"]   # 공통 모듈 수는 등록부에서(편집 구역 · 대시보드 · 공유가 더해져 열하나) · 페이지 이름 · 목차 머리 · 조립 단추는 「워크플로우」(② §15 「화면 말」)
+              nav["title"] == "워크플로우" and nav["heads"] == ["워크플로우", "단계", "워크플로우 도구", "도구"] and nav["make"] == "＋ 워크플로우 조립" and len(nav["links"]) == 2 + len(jobs) + len(api["common"]) and nav["links"][0][:2] == ["#overview", "전체 보기"]   # 공통 모듈 수는 등록부에서(편집 구역 · 대시보드 · 공유가 더해져 열하나) · 페이지 이름 · 목차 머리 · 조립 단추는 「워크플로우」(② §15 「화면 말」)
               and [x[0] for x in nav["links"][1:8]] == ["#" + j for j in jobs] and nav["links"][3][1] == "사업계획서 → 연차보고서 이관" and nav["links"][5][2] == "wf-soon"
               and nav["links"][8][:2] == ["#wfForms", "저장한 양식"]   # 저장한 양식(spec_워크플로우 ② §18-9) — 「＋ 워크플로우 조립」 아래
               and [x[:2] for x in nav["links"][9:13]] == [["#common-stage_review", "문서 검토"], ["#common-stage_fit", "구성 맞추기"], ["#common-stage_fill", "내용 넣기"], ["#common-stage_clean", "문서 정리"]]   # 단계 모듈 넷이 공통 모듈의 맨 앞(spec_워크플로우 ② §13 — TASK 가 조립하는 일반 단계)
@@ -475,7 +475,7 @@ def main():
               and [r.get("title") for r in relay.get("roles") or []] == ["원본 문서", "목적 문서"]
               and [[r[0], r[1]] for r in dr["rows"]] == [["review", "1단계 문서 검토"], ["frame", "2단계 구성 맞추기"], ["map", "3단계 내용 넣기"], ["clean", "4단계 문서 정리"]]
               and [[r[0], {k: v["steps"] for k, v in r[2].items()}] for r in dr["rows"]] == want_rows, [place, dr])
-        check("이관의 원본 칸 — 1단계 헤딩 · 표 분석 · LLM 검증·보완 / 2 · 3 · 4단계 「—」(구성 불러오기 · 프로젝트 구성 확정은 워크플로우 전체 줄) · 목적 칸 — 1단계 헤딩 · 표 분석(LLM 검증·보완 없음) · 2단계 구조 반영 · 다시 문서 검토 · "
+        check("이관의 원본 칸 — 1단계 헤딩 · 표 분석 · LLM 검증·보완 / 2 · 3 · 4단계 「—」(구성 불러오기 · 프로젝트 구성 추출은 워크플로우 전체 줄) · 목적 칸 — 1단계 헤딩 · 표 분석(LLM 검증·보완 없음) · 2단계 구조 반영 · 다시 문서 검토 · "
               "3단계는 「← 원본 문서」 로 시작(원본 → 목적 잇기) · 4단계 작성요령 삭제 · 「준비」 는 어느 칸에도 없음",
               bool(got) and [got[g]["source"]["steps"] for g in ("review", "frame", "map", "clean")] == [["heads", "headsLlm"], [], [], []]
               and all(got[g]["source"]["none"] for g in ("frame", "map", "clean")) and got["review"]["target"]["steps"] == ["heads"] and got["frame"]["target"]["steps"] == ["division", "reheads", "reheadsLlm"]
@@ -483,13 +483,13 @@ def main():
               and got["clean"]["target"]["steps"] == ["guide"] and not got["clean"]["target"]["from"] and not got["review"]["target"]["from"] and got["map"]["source"]["label"] == f"원본 문서 — {S}"
               and not any(k in v["steps"] for r in got.values() for v in r.values() for k in ("files", "configLoad", "config")), got)
         fw, fb = flow_want(relay, dr["rows"] if dr else [])
-        check("이관 — 표 아래 「워크플로우 전체(문서마다가 아니라 한 번)」 줄: 「1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서(사업계획서)」"
+        check("이관 — 표 아래 「워크플로우 전체(문서마다가 아니라 한 번)」 줄: 「1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서(사업계획서)」"
               "(눈에 보이는 글 — 묶음 사이 · 단계 사이 모두 「 › 」 · 단계는 괄호 안) · 등록부의 flow · base 그대로 · 단계의 on = flow · 표 칸 안의 단계 이음도 「 › 」(2단계 목적 칸)",
               relay.get("flow") == [{"stage": "review", "steps": ["files"]}, {"stage": "frame", "steps": ["configLoad", "config"]}] and relay.get("base") == "source"
               and all(step_of(relay, k)["on"] == "flow" for k in ("files", "configLoad", "config"))
               and bool(dr and dr["flow"]) and dr["flow"]["name"] == FLOW_HEAD and dr["flow"]["groups"] == fw
               and [g[1] for g in dr["flow"]["groups"]] == ["1단계 문서 검토", "2단계 구성 맞추기"] and dr["flow"]["base"] == fb == f" — 구성의 기준: 원본 문서({S})"
-              and dr["flow"]["line"] == flow_line_want(relay, dr["rows"]) == f"{FLOW_HEAD}: 1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 확정) — 구성의 기준: 원본 문서({S})"
+              and dr["flow"]["line"] == flow_line_want(relay, dr["rows"]) == f"{FLOW_HEAD}: 1단계 문서 검토(준비) › 2단계 구성 맞추기(구성 불러오기 › 프로젝트 구성 추출) — 구성의 기준: 원본 문서({S})"
               and got["frame"]["target"]["line"] == " › ".join(got["frame"]["target"]["names"]) == "프로젝트 구성 반영 › 다시 문서 검토 › 다시 문서 검토(LLM)"
               and dr["flow"]["baseRole"] == "source" and dr["flow"]["afterTable"], [relay.get("flow"), relay.get("base"), dr and dr["flow"], got.get("frame")])
         gat = next(t for t in api["tasks"] if t["job"] == "plan_merge")
@@ -498,7 +498,7 @@ def main():
         gm = {r[0]: r[2] for r in dg["rows"]} if dg else {}
         gfw, gfb = flow_want(gat, dg["rows"] if dg else [])
         part = wf.evaluate("() => [...document.querySelectorAll('#plan_merge .wf-step[data-step=part] .wf-more > *')].slice(0, 2).map((x) => x.textContent)")
-        check("취합 절 — 원본 문서가 여럿(「원본 문서 — 기관 문서(문서마다)」 — 「취합 대상」 이라 하지 않음) → 목적 문서(취합본) · 1단계는 두 칸 「—」(준비 · 프로젝트 구성 확정은 워크플로우 전체 줄 「1단계 프로젝트 구성(준비 › 프로젝트 구성 확정)」 — 구성의 기준: 목적 문서(취합본)) · "
+        check("취합 절 — 원본 문서가 여럿(「원본 문서 — 기관 문서(문서마다)」 — 「취합 대상」 이라 하지 않음) → 목적 문서(취합본) · 1단계는 두 칸 「—」(준비 · 프로젝트 구성 추출은 워크플로우 전체 줄 「1단계 프로젝트 구성(준비 › 프로젝트 구성 추출)」 — 구성의 기준: 목적 문서(취합본)) · "
               "원본 칸 = 3단계(기관 문서 올리기 · 헤딩 · 표 분석)만 · 3단계 목적 칸 「← 원본 문서마다」 · 단계 세부의 「하는 문서」 = 「원본 문서마다 — 기관 문서」(서버의 onText)",
               bool(dg) and [r["role"] for r in gat.get("roles") or [] if r["many"]] == ["source"] and dg["cols"] == g_cols and dg["cols"][1][1] == f"원본 문서 — {GS}(문서마다)" and dg["cols"][2][1] == f"목적 문서 — {GD}"
               and "취합 대상" not in str(dg) and [[r[0], r[1]] for r in dg["rows"]] == [["config", "1단계 프로젝트 구성"], ["frame", "2단계 문서 프레임 작성"], ["map", "3단계 내용 매핑"]]
@@ -507,7 +507,7 @@ def main():
               and gm["frame"]["target"]["steps"] == ["division", "frame", "hand"] and gm["map"]["target"]["from"] == ["← 원본 문서마다"] and gm["map"]["target"]["steps"] == ["link", "llm", "plan", "apply", "drop"]
               and gat.get("flow") == [{"stage": "config", "steps": ["files", "config"]}] and gat.get("base") == "target" and dg["flow"] and dg["flow"]["groups"] == gfw
               and dg["flow"]["base"] == gfb == f" — 구성의 기준: 목적 문서({GD})" and dg["flow"]["name"] == FLOW_HEAD
-              and dg["flow"]["line"] == flow_line_want(gat, dg["rows"]) == f"{FLOW_HEAD}: 1단계 프로젝트 구성(준비 › 프로젝트 구성 확정) — 구성의 기준: 목적 문서({GD})"
+              and dg["flow"]["line"] == flow_line_want(gat, dg["rows"]) == f"{FLOW_HEAD}: 1단계 프로젝트 구성(준비 › 프로젝트 구성 추출) — 구성의 기준: 목적 문서({GD})"
               and part == ["하는 문서", step_of(gat, "part").get("onText")] and part[1] == f"원본 문서마다 — {GS}", [dg, part])
         singles = [t for t in api["tasks"] if len(t.get("roles") or []) == 1]
         one, rmt = {t["job"]: wf.evaluate(DOCS, f"#{t['job']}") for t in singles}, next(t for t in api["tasks"] if t["job"] == "report_merge")

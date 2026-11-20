@@ -269,6 +269,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
     s = server._sess(doc_id)
     if s.fmt != "hwpx":
         raise HTTPException(400, "템플릿 서식 정리는 HWPX 에서만 됩니다(헤딩 그래프가 HWPX 만)")
+    server._flow_busy_other(doc_id, "single")  # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 누른 「모두 반영」 은 409(그 실행이 스스로 부르는 것은 지나간다 — spec_워크플로우 ② §18-13)
     with s.lock:
         ov = server._outline_ov(s)
         if ov is None:

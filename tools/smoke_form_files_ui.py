@@ -11,10 +11,14 @@
   목적 문서 = 그 양식으로 만든 새 작업(source form · form.id · mode fixed) · 원본 문서 = 목록의 사업계획서(같은 프로젝트 · 라운드).
 - ④ 같은 프로젝트로 다시 고르면 「이어서」 가 먼저(강조) · 「새로 시작」 → 「이어서」 = 그 작업의 대시보드(새 작업 없음).
 - ⑤ 기본값: 목록에서 목적 문서를 안 고르면 양식 · 「목록의 파일로」 ↔ 「양식으로」 · ⑥ 고정 + 워크플로우 카드 → 양식으로 시작해 문서 화면이 열림.
-- ⑦ 좁은 폭(400px)에서 /workflow 의 저장한 양식 절 · 문서 칸이 가로로 넘치지 않음 · 콘솔 오류 없음."""
+- ⑦ 좁은 폭(400px)에서 /workflow 의 저장한 양식 절 · 문서 칸이 가로로 넘치지 않음.
+- ⑧ 그 칸에서 바로 양식 올리기(② §18-9 「그 칸에서 올리기」) — 저장한 양식이 없으면 꺼진 고르기 둘 대신 「양식 올리기…」 만 → 올리면 저장한 양식(문서 종류 = 그 칸의 종류)이 되고 그 칸에 걸림(조립 폼 = 골라 둠 · 워크플로우 절 = 서버 설정) ·
+  받지 않는 형식은 올리지 않고 까닭.
+- ⑨ 조립 폼(새 워크플로우 · 이관 「1 → N」)의 목적 문서 칸 「N」 에도 양식 고르기 · 「양식 올리기…」 → 「기본값」 으로 골라 만들면 만든 워크플로우의 목적 칸에 걸림 · 콘솔 오류 없음."""
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -142,10 +146,15 @@ def main():
         page.select_option(f'section#{JOB} select[name="slot-mode-{JOB}"]', "fixed")
         page.wait_for_selector("#wfForms .wf-ff-row a[data-use=fixed]", timeout=30000)
         used = page.evaluate("""() => { const r = document.querySelector('#wfForms .wf-ff-row'); return { chip: r.querySelector('a[data-use]').textContent, del: r.querySelector('button').disabled, kind: r.querySelector('select').disabled,
-          note: document.querySelector('section#plan_to_report .wf-slot[data-role=target] .wf-slot-pick .wf-muted').textContent, mode: document.querySelector('section#plan_to_report select[name="slot-mode-plan_to_report"]').value }; }""")
+          note: document.querySelector('section#plan_to_report .wf-slot[data-role=target] .wf-slot-pick .wf-muted').textContent, mode: document.querySelector('section#plan_to_report select[name="slot-mode-plan_to_report"]').value,
+          saved: (document.querySelector('section#plan_to_report .wf-slot[data-role=target] .wf-slot-saved') || {}).textContent || '',   // 고르는 즉시 저장 — 저장 단추 대신 「✓ 저장됨 HH:MM」(2026-11-21 사용자 「워크플로우 설정에 저장버튼이 없냐」)
+          tip: document.querySelector('section#plan_to_report select[name="slot-mode-plan_to_report"]').title,
+          srcSaved: (document.querySelector('section#plan_to_report .wf-slot[data-role=source] .wf-slot-saved') || {}).textContent || '' }; }""")
         st = forms()["slots"].get(JOB, {}).get("target")
         check("② 「고정」 → 서버 설정 · 저장한 양식 줄에 「쓰는 워크플로우: … · 고정」 · 지우기 · 문서 종류가 꺼짐 · 「늘 이 양식으로」",
               st == {"file": fid, "mode": "fixed"} and used["chip"].endswith("· 고정") and used["del"] and used["kind"] and "늘 이 양식으로" in used["note"] and used["mode"] == "fixed", [st, used])
+        check("② 고른 칸 옆에 「✓ 저장됨 HH:MM」(저장 단추가 없는 칸 — 다시 그려도 남음) · 고르기의 풍선 글 「고르면 바로 저장됩니다」 · 안 고친 칸(원본)에는 없음",
+              re.fullmatch(r"✓ 저장됨 \d\d:\d\d", used["saved"]) is not None and used["tip"].startswith("고르면 바로 저장됩니다") and used["srcSaved"] == "", used)
         page.screenshot(path=str(OUT / "02_slots.png"))
 
         # ---- ③ 첫 화면 — 고정: 목적 문서 칸 = 양식 → 「워크플로우 시작」
@@ -295,6 +304,72 @@ def main():
         fit2 = page.evaluate("() => { const m = document.getElementById('wfMain'), b = document.querySelector('section#plan_to_report .wf-slots').getBoundingClientRect(); return { over: m.scrollWidth > m.clientWidth + 1, right: b.right <= m.getBoundingClientRect().right + 1 }; }")
         page.screenshot(path=str(OUT / "07_narrow.png"))
         check("⑦ 400px — 저장한 양식 절 · 문서 칸이 가로로 넘치지 않음", not fit["over"] and not fit["doc"] and not fit2["over"] and fit2["right"], [fit, fit2])
+
+        # ---- ⑧ 그 칸에서 바로 양식 올리기(② §18-9 「그 칸에서 올리기」 — 2026-11-20 사용자 "이거 클릭도 안되고 왜 아무것도 안해?": 저장한 양식이 없으면 그 칸에 꺼진 고르기 둘뿐이었다)
+        requests.put(f"{base}/api/workflow-slots/{JOB}", json={"target": None, "source": None}, timeout=10)
+        for x in forms()["files"]:
+            requests.delete(f"{base}/api/form-files/{x['id']}", timeout=10)
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.goto(f"{base}/workflow#overview")
+        page.reload()   # 주소의 # 만 바뀌면 새로 읽지 않는다 — ⑦ 에서 펴 둔 조립 폼 · 지운 양식의 옛 목록을 버리고 새로
+        page.wait_for_selector("#wfCompose [data-wf-compose=open]", timeout=30000)
+        page.locator("#wfCompose [data-wf-compose=open]").click()
+        SRC = "#wfCompose .wf-io-slots li[data-role=source]"
+        page.wait_for_selector(f"{SRC} button[name=draft-up-source]", timeout=30000)
+        PICK = """(s) => { const li = document.querySelector(s), vis = (e) => !!e && e.getClientRects().length > 0, q = (x) => li.querySelector(x), m = q('select[name*=-mode-]'), f = q('select[name*=-form-]'), u = q('.wf-slot-up button');
+          return { mode: vis(m), form: vis(f), up: vis(u), upOff: !u || u.disabled, upText: u ? u.textContent : '', modeVal: m ? m.value : null, modeOff: !m || m.disabled, formVal: f ? f.value : null, formOff: !f || f.disabled,
+            err: (q('.wf-slot-up .wf-slot-err') || {}).textContent || '', note: (q('.wf-slot-pick > .wf-muted') || {}).textContent || '', rows: document.querySelectorAll('#wfForms .wf-ff-row').length }; }"""
+        d0 = page.evaluate(PICK, SRC)
+        check("⑧ 저장한 양식이 없을 때 — 조립 폼의 원본 칸: 꺼진 고르기 둘은 안 보이고 「양식 올리기…」 만(켜짐)",
+              not forms()["files"] and not d0["mode"] and not d0["form"] and d0["up"] and not d0["upOff"] and d0["upText"] == "양식 올리기…", d0)
+        page.screenshot(path=str(OUT / "08_slot_upload_empty.png"))
+        page.locator(f"{SRC} input[type=file]").set_input_files(str(PLAN))
+        page.wait_for_function("(s) => { const m = document.querySelector(s + ' select[name=draft-mode-source]'); return !!m && !m.hidden && m.value === 'default'; }", arg=SRC, timeout=60000)
+        f8, d1 = forms()["files"], page.evaluate(PICK, SRC)
+        check("⑧ 「양식 올리기…」 → 저장한 양식(문서 종류 = 그 칸의 종류: 사업계획서) · 그 칸에 「양식: 기본값」 + 올린 양식이 골라짐(고르기 켜짐) · 「저장한 양식」 절에도 그 줄 · 단추는 그대로(또 올릴 수 있다)",
+              len(f8) == 1 and f8[0]["kind"] == "plan" and d1["mode"] and d1["form"] and d1["modeVal"] == "default" and not d1["modeOff"] and d1["formVal"] == f8[0]["id"] and not d1["formOff"] and d1["up"] and not d1["upOff"]
+              and d1["rows"] == 1 and not d1["err"], [f8, d1])
+        page.screenshot(path=str(OUT / "08_slot_upload_done.png"))
+        page.locator("#wfViewList").click()
+        TGT = f"section#{JOB} .wf-slots .wf-slot[data-role=target]"
+        page.wait_for_selector(f'{TGT} button[name="slot-up-{JOB}"]', timeout=30000)
+        l0, ls = page.evaluate(PICK, TGT), page.evaluate(PICK, f"section#{JOB} .wf-slots .wf-slot[data-role=source]")
+        check("⑧ 워크플로우 절의 「문서 칸」 — 목적 칸(연차보고서 양식 없음): 고르기 둘은 안 보이고 「양식 올리기…」 + 까닭 글 / 원본 칸(방금 올린 사업계획서 양식): 고르기 켜짐",
+              not l0["mode"] and not l0["form"] and l0["up"] and not l0["upOff"] and "「양식 올리기…」 로" in l0["note"] and "연차보고서 양식을 올리세요" in l0["note"] and ls["mode"] and not ls["modeOff"] and ls["modeVal"] == "", [l0, ls])
+        page.locator(f"{TGT} input[type=file]").set_input_files(str(REPORT))
+        page.wait_for_function("(s) => { const m = document.querySelector(s + ' select[name*=-mode-]'); return !!m && !m.hidden && m.value === 'default' && !m.disabled; }", arg=TGT, timeout=60000)
+        f9, l1, st8 = forms()["files"], page.evaluate(PICK, TGT), forms()["slots"].get(JOB, {})
+        rid = next((x["id"] for x in f9 if x["kind"] == "report"), "")
+        check("⑧ 그 칸에서 올리면 바로 건다 — 서버 설정(목적 칸 = 올린 양식 · 기본값 · 원본 칸은 그대로 없음) · 그 칸의 고르기에 그 양식 · 「저장한 양식」 절 두 줄",
+              len(f9) == 2 and rid != "" and st8.get("target") == {"file": rid, "mode": "default"} and not st8.get("source") and l1["modeVal"] == "default" and l1["formVal"] == rid and not l1["formOff"] and l1["rows"] == 2 and not l1["err"], [f9, st8, l1])
+        page.locator(f"{TGT} input[type=file]").set_input_files(str(ROOT / "README.md") if (ROOT / "README.md").is_file() else str(Path(__file__)))
+        page.wait_for_function("(s) => ((document.querySelector(s + ' .wf-slot-up .wf-slot-err') || {}).textContent || '') !== ''", arg=TGT, timeout=30000)
+        l2 = page.evaluate(PICK, TGT)
+        check("⑧ 받지 않는 형식의 파일 — 올리지 않고 그 칸에 까닭(「… 파일만 받습니다」) · 단추는 다시 켜짐 · 설정 · 양식은 그대로",
+              "파일만 받습니다" in l2["err"] and not l2["upOff"] and l2["upText"] == "양식 올리기…" and len(forms()["files"]) == 2 and forms()["slots"].get(JOB, {}).get("target") == {"file": rid, "mode": "default"}, l2)
+
+        # ---- ⑨ 조립 폼의 목적 문서 칸 — 이관 「1 → N」 의 목적은 수가 「N」 이어도 양식을 건다(② §18-9 — 2026-11-20 사용자 "여기 목적문서 양식 넣는게 없네? 왜 없냐?": 전에는 수가 1인 칸만이라 그 칸에 고르기 · 올리기가 없었다)
+        page.goto(f"{base}/workflow#overview")
+        page.reload()
+        page.wait_for_selector("#wfCompose [data-wf-compose=open]", timeout=30000)
+        page.locator("#wfCompose [data-wf-compose=open]").click()
+        DT = "#wfCompose .wf-io-slots li[data-role=target]"
+        page.wait_for_selector(f"{DT} button[name=draft-up-target]", timeout=30000)
+        t0 = page.evaluate(PICK, DT)
+        t0["count"] = page.evaluate("(s) => document.querySelector(s + ' .wf-io-count').textContent", DT)
+        t0["opts"] = page.evaluate("(s) => [...document.querySelector(s + ' select[name=draft-form-target]').options].map((o) => o.value)", DT)
+        check("⑨ 조립 폼(새 워크플로우 · 「1 → N」)의 목적 문서 칸 「N」 — 「양식: 없음」 고르기 + 걸 수 있는 양식(연차보고서 양식만) + 「양식 올리기…」(켜짐)",
+              t0["count"] == "N" and t0["mode"] and t0["modeVal"] == "" and not t0["modeOff"] and t0["form"] and t0["formOff"] and t0["opts"] == [rid] and t0["up"] and not t0["upOff"] and t0["upText"] == "양식 올리기…", t0)
+        page.select_option(f"{DT} select[name=draft-mode-target]", "default")
+        page.fill("#wfCompose input[name=name]", "목적 양식 워크플로우")
+        page.screenshot(path=str(OUT / "09_draft_target_form.png"))
+        page.click("#wfCompose form button[type=submit]")
+        page.wait_for_function("() => /^#u_[0-9a-f]{8}$/.test(location.hash)", timeout=30000)
+        key9 = page.evaluate("() => location.hash.slice(1)")
+        page.wait_for_function("(k) => !!document.getElementById(k)", arg=key9, timeout=30000)
+        st9 = forms()["slots"].get(key9, {})
+        check("⑨ 「워크플로우 만들기」 → 만든 워크플로우의 목적 칸에 고른 양식이 걸림(기본값) · 걸지 못했다는 알림 없음",
+              st9.get("target") == {"file": rid, "mode": "default"} and not st9.get("source") and not any("걸지 못했습니다" in d for d in dialogs), [key9, st9, dialogs[-2:]])
         real = [e for e in errors if "409" not in e]
         check("콘솔 오류 없음", not real, real[:5])
         br.close()

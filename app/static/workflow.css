@@ -125,7 +125,7 @@ td.wf-docs-none { color: var(--muted); }
 .wf-docs-one { max-width: 1040px; margin: 6px 0 0; padding: 8px 14px; box-sizing: border-box; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid #9fb5ea; border-radius: var(--radius); color: #45505f; line-height: 1.55; }
 .wf-docs-one b { color: var(--text); }
 .wf-context .wf-docs-head { margin-top: 10px; }
-/* 워크플로우 전체(문서마다가 아니라 한 번)의 단계 — 단위문서 TASK 표 아래 한 줄(등록부의 flow · base: 준비 · 구성 불러오기 · 프로젝트 구성 확정 — 어느 문서의 칸에도 안 듦):
+/* 워크플로우 전체(문서마다가 아니라 한 번)의 단계 — 단위문서 TASK 표 아래 한 줄(등록부의 flow · base: 준비 · 구성 불러오기 · 프로젝트 구성 추출 — 어느 문서의 칸에도 안 듦):
    「<번호> <이름>(<단계> › <단계>)」 · 묶음 사이도 「›」(= 다음 — 표 칸 안의 단계 이음과 같은 기호 · 괄호가 묶음과 단계를 가른다) · 끝에 구성의 기준(없으면 안 적음) */
 .wf-docs-flow { max-width: 1040px; margin: 6px 0 0; padding: 7px 12px; box-sizing: border-box; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius); color: #45505f; font-size: 12.5px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
 .wf-docs-flow > b { color: var(--text); font-weight: 600; }
@@ -367,6 +367,27 @@ td.wf-docs-none { color: var(--muted); }
   .wf-nav-make { flex: none; width: auto; margin: 0 4px; height: 26px; padding: 0 8px; }
   #wfNav a.wf-made::after { margin-left: 6px; }
 } /* 좁은 폭 — 목차가 위 가로 줄(높이 ≤ 44px): 단추도 그 줄 높이 안에 */
+/* 목차의 「워크플로우 도구」(spec_워크플로우 ② §18-18 · design.md §23) — 분류(일반 · 문서 전용)마다 작은 머리 + 도구 줄(끌 손잡이 · 이름 · 꼬리표). 끌어서 조립 폼의 묶음에 놓는다 · 누르면 설명 */
+.wf-nav-hint { margin: 0 10px 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.wf-nav-group { margin: 2px 0 6px; }
+.wf-nav-group-name { display: flex; align-items: center; gap: 5px; margin: 8px 10px 2px; font-size: 11px; font-weight: 600; line-height: 1.4; color: #5b6575; }
+.wf-nav-group-name::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 2px; background: #c3cad5; }
+.wf-nav-group:not([data-kind="general"]):not([data-kind="home"]) .wf-nav-group-name::before { background: #6f7f9c; } /* 문서 전용 분류 — 전용 꼬리표(진한 회청)와 같은 계열(home = 전용 이름을 안 주는 옛 서버 — 사는 단계로 묶음) */
+.wf-nav-tool-list { list-style: none; margin: 0; padding: 0; }
+.wf-nav-tool { display: flex; align-items: center; gap: 5px; width: 100%; min-height: 27px; padding: 3px 6px 3px 4px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.35; text-align: left; cursor: pointer; transition: background-color .1s, color .1s; }
+.wf-nav-tool[draggable="true"] { cursor: grab; }
+.wf-nav-tool:hover { background: var(--surface-2); }
+.wf-nav-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wf-nav-tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wf-nav-tool.wf-off { color: var(--muted); }
+.wf-nav-tool-grip { flex: none; display: inline-flex; justify-content: center; width: 12px; color: #b3bbc7; opacity: .55; transition: opacity .1s, color .1s; }
+.wf-nav-tool:not([draggable="true"]) .wf-nav-tool-grip { opacity: .2; }
+.wf-nav-tool[draggable="true"]:hover .wf-nav-tool-grip, .wf-nav-tool[draggable="true"]:focus-visible .wf-nav-tool-grip { opacity: 1; color: var(--accent); }
+.wf-nav-tool-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.wf-nav-tool-tags { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.wf-nav-tool-tags .wf-tag { width: 18px; height: 16px; padding: 0; }
+.wf-nav-tool-pair { padding: 0 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: #5b6575; font-size: 10px; font-weight: 500; line-height: 14px; }
+@media (max-width: 900px) { .wf-nav-tools { display: none; } } /* 목차가 가로 한 줄 — 끌어 넣을 수 없는 폭이라 서지 않는다(넣기 고르기는 그대로) */
 .wf-made-list { list-style: none; margin: 0 0 12px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .wf-made-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 14px; }
 .wf-made-list > li + li { border-top: 1px solid var(--line); }
@@ -442,6 +463,10 @@ td.wf-docs-none { color: var(--muted); }
 .wf-slot-pick select, .wf-ff-top select, .wf-ff-top input, .wf-ff-add-row select, .wf-ff-add-row input:not([type=file]) { height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--text); max-width: 100%; min-width: 0; }
 .wf-slot-pick select { height: 26px; padding: 0 6px; }
 .wf-slot-pick .wf-muted { font-size: 12px; }
+.wf-slot-pick select:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }   /* 꺼진 고르기는 꺼진 것으로 보인다 — 전에는 켜진 것과 같은 꼴이라 눌러도 반응이 없는 것처럼 보였다(2026-11-20 사용자 「클릭도 안되고」) */
+.wf-slot-pick select[hidden] { display: none; }   /* 고를 양식이 없을 때 — 「양식 올리기…」 만 보인다 */
+.wf-slot-up { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }   /* 그 칸에서 바로 양식 올리기(단추 + 까닭 글 — ② §18-9 「그 칸에서 올리기」) */
+.wf-slot-up .btn { height: 26px; }
 /* 조립 폼의 「문서 입출력」(spec_워크플로우 ② §18-8 · design.md §22) — 틀 셋(「1」 · 「1 → 1」 · 「N → 1」: 아직 못 여는 틀은 흐리게 + 까닭) › 고른 틀의 문서 칸(역할 · 수 · 문서 종류 · 기본 문서) */
 .wf-iobox { min-width: 0; display: flex; flex-direction: column; gap: 8px; }   /* .wf-io 는 절의 「받는 문서 · 산출물」 목록(dl) — 이름을 겹치지 않는다 */
 .wf-io-shapes { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -457,6 +482,72 @@ td.wf-docs-none { color: var(--muted); }
 .wf-head-help { margin-left: 6px; vertical-align: middle; }   /* 절 머리의 노트 도움말(설명 글 — panel_help.css 의 .panel-help) */
 .wf-slot-err, .wf-ff-row .wf-err, .wf-ff-add .wf-err { color: var(--fail); font-size: 12px; }
 .wf-slot-err:empty, .wf-ff-row .wf-err:empty { display: none; }
+.wf-slot-saved { align-self: center; color: var(--ok); font-size: 12px; font-weight: 600; white-space: nowrap; } /* 「문서 칸」 은 고르는 즉시 저장 — 저장 단추 대신 「✓ 저장됨 HH:MM」(spec_워크플로우 ② §18-9) */
+.wf-slot-saved:empty { display: none; }
+/* 문서 칸 줄 디자인(2026-11-20 사용자 「이 부분 디자인 좀」 — Antigravity) */
+.wf-slot-list { gap: 0; }
+.wf-slot-list:not(.wf-io-slots) > .wf-slot { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: start; gap: 4px 12px; padding: 6px 0; }
+.wf-slot-list:not(.wf-io-slots) > .wf-slot:first-child { padding-top: 1px; }
+.wf-slot-list:not(.wf-io-slots) > .wf-slot:last-child { padding-bottom: 1px; }
+.wf-slot-list:not(.wf-io-slots) > .wf-slot + .wf-slot { border-top: 1px solid var(--line); }
+.wf-slot-list:not(.wf-io-slots) .wf-slot-role { min-width: 0; padding: 3px 0; line-height: 20px; overflow-wrap: anywhere; }
+.wf-slot-list:not(.wf-io-slots) > .wf-slot > .wf-muted { padding: 3px 0; font-size: 12px; line-height: 20px; }
+.wf-io-slots { padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.wf-io-slots > .wf-slot { position: relative; display: grid; grid-template-columns: 118px minmax(0, 1fr); align-items: start; gap: 4px 12px; min-height: 38px; padding: 6px 12px 6px 28px; }
+.wf-io-slots > .wf-slot:first-child { border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; }
+.wf-io-slots > .wf-slot:last-child { border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px); }
+.wf-io-slots > .wf-slot:only-child { border-radius: calc(var(--radius) - 1px); }
+.wf-io-slots > .wf-slot[data-role="source"] { background: #fafbfd; }
+.wf-io-slots > .wf-slot + .wf-slot { border-top: 1px solid #e5e9f0; }
+.wf-io-slots > .wf-slot::before { content: ""; position: absolute; left: 10px; top: 15px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid #8a99b2; background: var(--surface); z-index: 1; }
+.wf-io-slots > .wf-slot[data-role="target"]::before { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 2.5px var(--accent-soft); }
+.wf-io-slots > .wf-slot:not(:last-child)::after { content: ""; position: absolute; left: 13px; top: 23px; bottom: 0; width: 2px; background: #c0cee4; pointer-events: none; }
+.wf-io-slots > .wf-slot + .wf-slot::after { content: ""; position: absolute; left: 9px; top: -1px; width: 10px; height: 14px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' fill='none'%3E%3Cpath d='M5 0v10.5' stroke='%238aa4d8' stroke-width='1.8'/%3E%3Cpath d='M2 7.8 5 11.2 8 7.8' stroke='%232458d6' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; pointer-events: none; z-index: 1; }
+.wf-io-slots .wf-slot-role { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 26px; min-width: 0; padding-right: 2px; }
+.wf-io-slots .wf-slot-role > b { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.wf-io-slots > .wf-slot[data-role="source"] .wf-slot-role > b { color: #364152; }
+.wf-io-slots .wf-io-count { display: inline-flex; align-items: center; justify-content: center; flex: none; margin-left: auto; min-width: 22px; height: 20px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 11.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.wf-io-slots .wf-io-count[data-count="N"] { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); box-shadow: 2px 2px 0 -1px var(--surface), 2px 2px 0 0 #b8caf2; }
+.wf-slot-pick { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px 6px; min-width: 0; min-height: 26px; }
+.wf-slot-combo { display: inline-flex; align-items: stretch; flex: 0 1 auto; height: 26px; min-width: 0; max-width: min(520px, calc(100% - 118px)); border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); transition: border-color .12s, box-shadow .12s, background-color .12s; }
+.wf-slot-combo[hidden] { display: none; }
+.wf-slot-combo:hover { border-color: var(--line-strong); }
+.wf-slot-combo:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(36, 88, 214, .14); }
+.wf-slot-pick[data-mode="default"] .wf-slot-combo { border-color: #9fb5ea; background: var(--surface); box-shadow: 0 1px 2px rgba(36, 88, 214, .07); }
+.wf-slot-pick[data-mode="default"] .wf-slot-combo:hover { border-color: var(--accent); }
+.wf-slot-pick[data-mode="fixed"] .wf-slot-combo { border-color: var(--accent); background: var(--surface); box-shadow: 0 1px 2px rgba(36, 88, 214, .12); }
+.wf-slot-combo select { height: 24px; border: 0; border-radius: 0; background: transparent; font-size: 12.5px; line-height: 24px; min-width: 0; max-width: 100%; transition: background-color .12s, color .12s; }
+.wf-slot-combo select:focus { outline: none; }
+.wf-slot-combo select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wf-slot-combo option { background: var(--surface); color: var(--text); font-weight: 400; }
+.wf-slot-pick select.wf-slot-mode { flex: 0 0 auto; padding: 0 5px 0 8px; border-right: 1px solid var(--line); border-radius: 5px 0 0 5px; background: var(--surface-2); color: var(--muted); font-weight: 500; cursor: pointer; }
+.wf-slot-pick[data-mode="default"] select.wf-slot-mode { border-right-color: #c6d7f7; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wf-slot-pick[data-mode="fixed"] select.wf-slot-mode { border-right-color: #a9c0f3; background: #dce7ff; color: #173d9c; font-weight: 700; }
+.wf-slot-pick select.wf-slot-form { flex: 0 1 auto; max-width: 420px; padding: 0 6px 0 8px; border-radius: 0 5px 5px 0; background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+.wf-slot-pick select.wf-slot-form:disabled { max-width: 185px; background: var(--surface-2); color: #8c96a6; font-weight: 400; cursor: not-allowed; }
+.wf-slot-pick select.wf-slot-mode:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+.wf-slot-up { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.wf-slot-up .btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-color: var(--line); background: var(--surface-2); color: #45505f; font-size: 12px; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-slot-up .btn::before { content: ""; flex: none; width: 13px; height: 13px; background-color: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 10.5V3M5 5.5 8 2.5l3 3M2.5 11.5v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1.5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 10.5V3M5 5.5 8 2.5l3 3M2.5 11.5v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1.5'/%3E%3C/svg%3E") center / contain no-repeat; }
+.wf-slot-up .btn:hover:not(:disabled) { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); }
+.wf-slot-pick[data-empty="1"] .wf-slot-up .btn { border-style: dashed; border-color: var(--line-strong); background: var(--surface-2); color: var(--muted); }
+.wf-slot-pick[data-empty="1"] .wf-slot-up .btn:hover:not(:disabled) { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.wf-slot-pick > .wf-muted { flex: 1 1 220px; min-width: 0; padding: 3px 0; font-size: 12px; line-height: 20px; }
+.wf-slot-pick .wf-slot-err { max-width: 100%; padding: 3px 8px; border-left: 2px solid var(--fail); border-radius: 0 4px 4px 0; background: var(--fail-soft); color: var(--fail); font-size: 12px; line-height: 1.45; }
+.wf-slot-pick > .wf-slot-err { flex: 1 0 100%; margin-top: 2px; }
+.wf-slot-pick .wf-slot-err:empty { display: none; }
+@media (max-width: 560px) {
+  .wf-slot-list:not(.wf-io-slots) > .wf-slot { grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 7px 0; }
+  .wf-slot-list:not(.wf-io-slots) .wf-slot-role, .wf-slot-list:not(.wf-io-slots) > .wf-slot > .wf-muted { padding: 0; }
+  .wf-io-slots > .wf-slot { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 10px 8px 28px; }
+  .wf-io-slots .wf-slot-role { min-height: 22px; max-width: 112px; }
+  .wf-slot-combo { display: grid; grid-template-columns: auto minmax(0, 1fr); width: 100%; max-width: 100%; }
+  .wf-slot-pick select.wf-slot-form, .wf-slot-pick select.wf-slot-form:disabled { width: 100%; max-width: none; }
+  .wf-slot-pick > .wf-muted { flex-basis: 100%; padding: 0; line-height: 1.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-slot-combo, .wf-slot-combo select, .wf-slot-up .btn { transition: none; }
+}
 .wf-ff-list { list-style: none; margin: 0 0 12px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .wf-ff-row { padding: 10px 14px; }
 .wf-ff-row + .wf-ff-row { border-top: 1px solid var(--line); }
@@ -490,48 +581,151 @@ td.wf-docs-none { color: var(--muted); }
 /* ---- 조립 — 단계(묶음 › 줄 — 정의 v2: spec_워크플로우 ② §18-6 · design.md §22). 묶음 = 옅은 상자 하나(머리 = 「N단계」 알약 · 이름 · ▲▼ · 묶음 빼기) › 줄(번호 · 이름 · 꼬리표 · 하는 문서 · ▲▼ · 빼기) · 「＋ 줄 넣기…」 ·
    아래 「＋ 묶음」 · 서버 검사(표준인가 — 초록 글 · 거절 — 빨강 목록 · 경고 — 주황 목록). 표(문서 역할 × 단계)는 「표준 차례로 채우기」 펼침 안. */
 .wf-field-block { align-items: start; }
-.wf-lines { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.wf-lines { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .wf-lines-note { margin: 0; font-size: 12px; }
-.wf-lines-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.wf-lines-group { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); min-width: 0; }
-.wf-lines-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
-.wf-lines-ghead input { height: 26px; flex: 1 1 140px; min-width: 0; max-width: 260px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 13px; font-weight: 600; }
-.wf-lines-no { padding: 0 7px; line-height: 20px; border-radius: 10px; background: var(--surface-2); color: #53647f; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.wf-lines-steps { position: relative; list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.wf-line { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; min-width: 0; }
+.wf-lines-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wf-lines-group { padding: 9px 10px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); min-width: 0; }
+.wf-lines-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-bottom: 6px; padding-bottom: 7px; border-bottom: 1px solid #e2e7f0; }
+.wf-lines-ghead input { height: 26px; flex: 1 1 140px; min-width: 0; max-width: 260px; padding: 0 7px; border: 1px solid #cfd7e4; border-radius: 6px; background: var(--surface); font: inherit; font-size: 13px; font-weight: 600; color: var(--text); transition: border-color .12s, box-shadow .12s; }
+.wf-lines-ghead input:hover:not(:disabled) { border-color: var(--line-strong); }
+.wf-lines-ghead input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(36, 88, 214, .14); }
+.wf-lines-no { padding: 0 8px; line-height: 22px; border-radius: 11px; background: var(--accent-soft); color: var(--accent); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.wf-lines-ghead .wf-lines-btn { height: 26px; border-color: #d4dce8; background: var(--surface); color: #475569; font-size: 11.5px; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-lines-ghead .wf-lines-btn.wf-act-ico { display: inline-flex; align-items: center; justify-content: center; width: 26px; min-width: 26px; padding: 0; }
+.wf-lines-ghead .wf-lines-btn.wf-gact-del:hover:not(:disabled) { border-color: #f3c6c6; background: var(--fail-soft); color: var(--fail); }
+.wf-lines-steps { position: relative; list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wf-line { position: relative; padding: 3px 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; min-width: 0; transition: background-color .12s, border-color .12s; }
+.wf-line[data-role="both"] { background: rgba(36, 88, 214, .05); border-color: #d3e1f9; } /* 같은 차례 — 두 칸의 카드를 한 묶음 띠로 */
 /* 줄 = 문서 하나의 줄(design.md §22 「같이 · 따로」 · 「대상 잇기」 — 2026-11-20 사용자 「왼쪽은 목적문서 · 우측은 원본문서 …」 · 「왜 한줄에 놓냐, 따로따로 넣도록」 ·
    「열을 분할해줘, 대상이 있어야 하는 경우에는 2개를 쌍으로 … 한쪽은 공백을 두고 다른 한쪽은 도구를 주고」): 번호 | 목적 문서 칸 | 원본 문서 칸 | ▲▼ 빼기 —
    문서 줄은 그 문서의 칸만 채우고 다른 문서 칸은 빈칸(.wf-line-blank) · 상대 문서가 있어야 하는 줄은 두 칸에 하나씩인 쌍 줄(.wf-line-pair — 전의 두 칸에 걸친 「공통」 한 칸은 없앴다) */
-.wf-line-top, .wf-line-cols { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 180px; align-items: center; gap: 4px 8px; } /* 끝 칸(▲ ▼ 빼기)은 폭을 못 박는다 — 문서 칸이 열 머리 · 넣기 줄과 한 줄로 선다 */
-.wf-line-cols { padding: 0 6px; font-size: 11.5px; color: var(--muted); }
-.wf-line-colname { font-weight: 600; }
-.wf-line-cell { min-width: 0; padding: 2px 6px; border-radius: 5px; }
-.wf-line-cell[data-on="1"] { background: var(--accent-soft); }
-.wf-line-blank { min-height: 20px; } /* 다른 문서의 칸 — 빈칸(그 문서의 줄은 따로 넣는다 · 차례가 위에서 아래로 보인다) */
-/* 쌍 줄 — 같은 줄을 두 문서 칸에 하나씩(문서 줄의 옅은 강조 바탕과 다른 회색 바탕) · 칸마다 흐린 작은 글(원본 칸 「→ 목적 문서로」 · 목적 칸 「← 원본 문서에서」 · 워크플로우 전체 줄은 두 칸 모두 「워크플로우 전체」) */
-.wf-line-cell.wf-line-pair[data-on="1"] { background: var(--surface-2); }
-.wf-line-hint { margin-left: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
-.wf-line-none { grid-column: 2 / 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; background: var(--surface-2); } /* 할 문서가 없는 옛 문서 줄 — 두 칸에 걸친 까닭 글 */
-.wf-line-acts { display: inline-flex; gap: 4px; justify-content: flex-end; }
+/* 행 × 두 칸(design.md §22 「행 × 두 칸」 — 2026-11-20 사용자 「좌우가 같이 움직이잖아」 · 「마우스로 클릭 해서 드래그 해서 움직일 수도 있고 다음단계는 공백/즉 다른문서만 작업하고 기다릴 수도 있게」 ·
+   「이걸 같이 실행할 수 있는 기능이 없음」): 번호 | 목적 문서 칸 | 원본 문서 칸 — 전의 끝 칸(▲ ▼ 빼기 180px)은 없앴다(단추는 카드마다). 칸 = 카드(.wf-card — 머리 .wf-card-head: 끌 손잡이 · 이름 · 꼬리표 · ▲ ▼ 빼기)나
+   빈칸(.wf-line-blank — 그 문서는 이 차례에 기다린다 · 끌어 놓을 자리). 한 행의 두 칸에 카드가 서면 같은 차례 */
+.wf-line-top, .wf-line-cols { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; gap: 4px 8px; }
+.wf-line-top { position: relative; }
+.wf-line:not(:last-child) .wf-line-top::before { content: ""; position: absolute; left: 10px; top: 27px; bottom: -21px; width: 2px; background: #dce2ec; pointer-events: none; } /* 차례 흐름선 — 번호 동그라미 사이를 위에서 아래로 잇는다 */
+.wf-line-top > .wf-line-no { justify-self: center; align-self: start; margin-top: 7px; }
+.wf-line-cols { align-items: center; padding: 3px 6px 5px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.wf-line-colname { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: #475569; }
+.wf-line-colname::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; background: #8a99b2; }
+.wf-line-colname[data-role="target"]::before { background: var(--accent); }
+.wf-line-cell { position: relative; min-width: 0; padding: 5px 7px; border: 1px dashed transparent; border-radius: 6px; transition: border-color .12s, background-color .12s, box-shadow .12s; }
+.wf-line-cell[data-on="1"] { background: var(--surface); }
+.wf-line-cell.wf-card[data-on="1"] { border: 1px solid #c9d6ec; background: var(--surface); padding-left: 9px; box-shadow: inset 3px 0 0 #7da2ee, 0 1px 2px rgba(24, 46, 92, .05); }
+.wf-line-cell.wf-card[data-on="1"]:hover, .wf-line-cell.wf-card[data-on="1"]:focus-within { border-color: #8fb0ea; background: #fcfdff; box-shadow: inset 3px 0 0 var(--accent), 0 2px 6px rgba(36, 88, 214, .11); }
+.wf-line-blank { align-self: stretch; min-height: 34px; border-color: #dce2ec; background: rgba(255, 255, 255, .42); } /* 빈칸 — 그 문서는 이 차례에 기다린다(은은한 점선 상자 + 가운데 세로 점선 · 끄는 동안 놓을 자리) */
+.wf-line-blank::after { content: ""; position: absolute; left: 50%; top: 6px; bottom: 6px; width: 0; border-left: 1.5px dashed #cfd7e4; transform: translateX(-50%); pointer-events: none; transition: opacity .12s, border-color .12s; }
+.wf-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; min-height: 24px; }
+.wf-card-head[draggable="true"] { cursor: grab; }
+.wf-card-head[draggable="true"]:active { cursor: grabbing; }
+.wf-card-grip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 10px; height: 14px; color: #9aa7bc; user-select: none; transition: color .12s, opacity .12s; }
+.wf-card-grip svg { display: block; }
+.wf-card-head:not([draggable="true"]) .wf-card-grip { opacity: .25; }
+.wf-card:hover .wf-card-grip, .wf-card:focus-within .wf-card-grip { color: #5b78b8; }
+.wf-card-head[draggable="true"]:active .wf-card-grip { color: var(--accent); }
+.wf-card-head > .wf-line-name { flex: 1 1 110px; }
+.wf-card-head > .wf-line-acts { flex: none; margin-left: auto; }
+.wf-line-acts { display: inline-flex; gap: 2px; justify-content: flex-end; opacity: .28; transition: opacity .12s; }
+.wf-card:hover .wf-line-acts, .wf-card:focus-within .wf-line-acts,
+.wf-line[data-role="pair"]:hover .wf-line-acts, .wf-line[data-role="pair"]:focus-within .wf-line-acts,
+.wf-line-none:hover .wf-line-acts, .wf-line-none:focus-within .wf-line-acts { opacity: 1; }
+.wf-line-acts .wf-lines-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; min-width: 22px; padding: 0; border-color: transparent; border-radius: 5px; background: transparent; color: var(--muted); font-size: 11.5px; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-line-acts .wf-lines-btn:hover:not(:disabled) { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+.wf-line-acts .wf-lines-btn.wf-act-del:hover:not(:disabled) { border-color: #f3c6c6; background: var(--fail-soft); color: var(--fail); }
+.wf-line-acts .wf-lines-btn:disabled { opacity: .28; cursor: default; }
+/* 끌어 놓기 — 끄는 동안 빈칸에 점선 · 놓을 자리: 빈칸(강조 테두리 — 그 행의 줄과 같은 차례로) · 행 사이(굵은 금 — 제 행으로: 그 문서 칸의 폭 · 쌍 줄은 두 칸 폭) */
+.wf-dragging .wf-line-blank { border-color: #7ea3eb; background: #f1f6ff; }
+.wf-dragging .wf-line-blank::after { border-left-color: #b4caf5; }
+.wf-dragging .wf-line-empty { border-color: #7ea3eb; background: #f1f6ff; color: var(--accent); }
+.wf-dragging .wf-line-acts { opacity: 0; pointer-events: none; }
+.wf-line-cell[data-drop="in"], .wf-line-empty[data-drop="in"] { border: 1px solid var(--accent); background: #dce8ff; box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px rgba(36, 88, 214, .14); }
+.wf-line-blank[data-drop="in"]::after { opacity: 0; }
+.wf-line-blank[data-drop="in"]::before { content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); pointer-events: none; background: linear-gradient(var(--accent), var(--accent)) center / 12px 2px no-repeat, linear-gradient(var(--accent), var(--accent)) center / 2px 12px no-repeat; }
+.wf-line[data-drop="before"]::before, .wf-line[data-drop="after"]::after { content: ""; position: absolute; left: 36px; right: 6px; height: 3px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 2px rgba(36, 88, 214, .2); pointer-events: none; z-index: 4; }
+.wf-line[data-drop="before"]::before { top: -5px; }
+.wf-line[data-drop="after"]::after { bottom: -5px; }
+.wf-line[data-drop-col="target"]::before, .wf-line[data-drop-col="target"]::after { right: calc(50% - 10px); }
+.wf-line[data-drop-col="source"]::before, .wf-line[data-drop-col="source"]::after { left: calc(50% + 18px); }
+/* 쌍 줄 — 같은 줄을 두 문서 칸에 걸친 한 띠로 이어 보이게(문서 카드의 흰 바탕과 다른 옅은 회색 띠 · 가운데 점선 이음 · 오른칸 손잡이는 숨김) · 칸마다 작은 글(원본 칸 「→ 목적 문서로」 · 목적 칸 「← 원본 문서에서」 · 워크플로우 전체 줄은 두 칸 모두 「워크플로우 전체」) */
+.wf-line-cell.wf-line-pair[data-on="1"] { border: 1px solid #cfd7e4; background: #edf1f7; }
+.wf-line-cell.wf-line-pair[data-role="target"] { margin-right: -4px; border-right: 1px dashed #c5cfdf; border-radius: 6px 0 0 6px; padding-left: 9px; box-shadow: inset 3px 0 0 #8a99b2, 0 1px 2px -1px rgba(24, 46, 92, .12); }
+.wf-line-cell.wf-line-pair[data-role="source"] { margin-left: -4px; border-left: 0; border-radius: 0 6px 6px 0; padding-left: 9px; box-shadow: 0 1px 2px -1px rgba(24, 46, 92, .12); }
+.wf-line-cell.wf-line-pair[data-role="source"] .wf-card-grip { display: none; }
+.wf-line[data-role="pair"]:hover .wf-line-pair, .wf-line[data-role="pair"]:focus-within .wf-line-pair { border-color: #a9b6cb; background: #e7ecf5; }
+.wf-line[data-role="pair"]:hover .wf-line-pair[data-role="target"], .wf-line[data-role="pair"]:focus-within .wf-line-pair[data-role="target"] { box-shadow: inset 3px 0 0 #5b6e8c, 0 2px 4px -1px rgba(24, 46, 92, .14); }
+.wf-line[data-role="pair"]:hover .wf-line-pair[data-role="source"], .wf-line[data-role="pair"]:focus-within .wf-line-pair[data-role="source"] { box-shadow: 0 2px 4px -1px rgba(24, 46, 92, .14); }
+.wf-line[data-role="pair"]:hover .wf-card-grip, .wf-line[data-role="pair"]:focus-within .wf-card-grip { color: #475569; }
+.wf-line-hint { padding: 0 6px; border-radius: 9px; background: rgba(255, 255, 255, .68); font-size: 11px; line-height: 18px; color: #5b697e; white-space: nowrap; }
+.wf-line-none { grid-column: 2 / 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border: 1px solid var(--line-strong); background: var(--surface-2); } /* 할 문서가 없는 옛 문서 줄 — 두 칸에 걸친 까닭 글 */
+.wf-line-none > .wf-card-head { flex: 1 1 auto; }
 /* 열 분할 — 두 문서 칸 사이(원본 칸의 왼쪽 자리)의 세로 가는 금: 열 머리 · 줄 · 넣기 줄에 같은 자리로 이어진다. 자리 = 격자의 둘째 · 셋째 칸 사이 8px 틈의 가운데
-   (줄 = 테두리 1 + 안쪽 6 + 번호 22 + 틈 8 + 칸 + 4 = 50% − 79px — 열 머리(안쪽 6 · 테두리 없음) · 넣기 줄(안쪽 7)도 같은 값) · 줄 위에 얹되 누르는 것은 막지 않는다 */
-.wf-lines-steps::before, .wf-lines-addrow::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(50% - 79px); width: 1px; background: var(--line-strong); pointer-events: none; }
+   (줄 = 테두리 1 + 안쪽 6 + 번호 22 + 틈 8 + 칸 + 4 = 50% + 15px — 열 머리(안쪽 6 · 테두리 없음) · 넣기 줄(안쪽 7)도 같은 값: workflow.js dropFind 가 같은 자리로 칸을 가른다) · 줄 위에 얹되 누르는 것은 막지 않는다 */
+.wf-lines-steps::before, .wf-lines-addrow::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(50% + 15px); width: 1px; background: var(--line); pointer-events: none; }
 .wf-lines-steps::before { bottom: -6px; } /* 아래 넣기 줄까지(줄 목록의 아래 여백 6px) 이어지게 */
+/* 문서 하나의 틀(「1」 — 줄 편집기가 한 칸: workflow.js oneDoc · linesDraw 가 .wf-one 을 붙인다) — 번호 | 목적 문서 칸 · 가운데 세로 금 없음 · 놓을 자리 금은 칸 폭 전체 */
+.wf-one .wf-line-top, .wf-one .wf-line-cols, .wf-one .wf-lines-addrow { grid-template-columns: 22px minmax(0, 1fr); }
+.wf-one .wf-lines-steps::before, .wf-one .wf-lines-addrow::before { display: none; }
+.wf-one .wf-line[data-drop-col="target"]::before, .wf-one .wf-line[data-drop-col="target"]::after { right: 6px; }
+/* 목적 문서의 종류 고르기(문서 하나의 틀 — 받는 문서 종류가 여럿일 때만: workflow.js ioEl kindSync) */
+.wf-io-kind { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0; font-size: 13px; }
+.wf-io-kind[hidden] { display: none; }
+.wf-io-kind select { height: 26px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; font: inherit; font-size: 13px; }
+.wf-io-kind select:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
 /* 넣기 줄 — 줄과 같은 격자: 목적 문서 칸(고르기 + 「원본 문서와 같이」) | 원본 문서 칸(고르기 + 「목적 문서와 같이」) | 끝 칸은 비움(쌍 줄은 두 칸의 고르기 모두에 — 「… (쌍)」). 고르기는 칸의 남는 폭 */
-.wf-lines-addrow { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 180px; align-items: center; gap: 4px 8px; padding: 0 7px; }
+.wf-lines-addrow { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 4px 8px; padding: 7px 7px 1px; border-top: 1px dashed #d4dce8; }
 .wf-lines-addcell { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .wf-lines-addcell > .wf-lines-add { flex: 1 1 0; }
-.wf-lines-same { flex: none; white-space: nowrap; }
-@media (max-width: 600px) { .wf-lines-addrow { grid-template-columns: minmax(0, 1fr); padding: 0; } .wf-lines-addpad { display: none; } .wf-lines-addrow::before { display: none; } .wf-lines-steps::before { left: calc(50% + 13px); bottom: 0; } } /* 좁으면 단추가 줄 아래로 내려가 칸이 넓어진다(금의 자리 = 50% + 13px) · 넣기 줄은 세로로 쌓여 금이 없다 */
+.wf-lines-same { flex: none; height: 26px; padding: 0 8px; border-color: #cbd4e1; background: var(--surface); color: #3d4d66; font-size: 11.5px; white-space: nowrap; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-lines-same:hover:not(:disabled) { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); }
+.wf-lines-same:disabled { opacity: .42; background: transparent; }
 .wf-line-name { min-width: 0; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; overflow-wrap: anywhere; }
-.wf-line-name > b { font-size: 13px; }
-.wf-line-no { width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--surface-2); color: #53647f; font-size: 10.5px; flex: none; }
-@media (max-width: 600px) { .wf-line-top, .wf-line-cols { grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr); } .wf-line-acts { grid-column: 2 / 4; justify-content: flex-end; } .wf-line-cols > span:last-child { display: none; } }
-.wf-line-hand { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
-.wf-line-hand input { height: 26px; flex: 1 1 180px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12.5px; }
-.wf-line-empty { padding: 2px 4px; font-size: 12px; }
+.wf-line-name > b { font-size: 13px; line-height: 1.35; }
+.wf-line-name > .wf-badges:empty { display: none; }
+.wf-line-no { position: relative; z-index: 1; width: 20px; height: 20px; line-height: 18px; text-align: center; border: 1px solid #cfd7e4; border-radius: 50%; background: var(--surface); color: #53647f; font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
+.wf-line[data-role="both"] .wf-line-no { border-color: #9fb8ec; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.wf-line[data-role="pair"] .wf-line-no { border-color: #c4cddc; background: #e9edf4; color: #475569; }
+.wf-line-hand { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 1px; padding-top: 6px; border-top: 1px solid #e6ebf3; } /* 사람이 하는 일 — 카드 아래에 이름 · 글(칸 폭에 맞춰 줄 바꿈) */
+.wf-line-hand input { height: 26px; min-width: 0; padding: 0 7px; border: 1px solid #cfd7e4; border-radius: 5px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; transition: border-color .12s, background-color .12s, box-shadow .12s; }
+.wf-line-hand input:first-child { flex: 1 1 92px; max-width: 150px; font-weight: 600; }
+.wf-line-hand input:last-child { flex: 2.2 1 140px; }
+.wf-line-hand input::placeholder { color: #8c96a6; }
+.wf-line-hand input:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface); }
+.wf-line-hand input:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px rgba(36, 88, 214, .14); }
+.wf-line-empty { padding: 10px 12px; border: 1px dashed #cfd7e4; border-radius: 6px; background: rgba(255, 255, 255, .6); font-size: 12px; text-align: center; transition: border-color .12s, background-color .12s, color .12s; }
 .wf-lines-btn { min-width: 26px; padding: 0 6px; }
-.wf-lines-add { height: 26px; max-width: 100%; min-width: 0; padding: 0 6px; border: 1px dashed var(--line-strong); border-radius: 6px; background: #fff; font: inherit; font-size: 12.5px; color: var(--text); }
+.wf-lines > .wf-lines-btn { height: 28px; border-style: dashed; border-color: var(--line-strong); background: var(--surface-2); color: #45505f; font-weight: 600; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-lines > .wf-lines-btn:hover:not(:disabled) { border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.wf-lines-add { height: 26px; max-width: 100%; min-width: 0; padding: 0 7px; border: 1px dashed var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12px; color: #475569; cursor: pointer; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-lines-add:hover:not(:disabled) { border-style: solid; border-color: var(--accent); background: #fafcff; color: var(--accent); }
+.wf-lines-add:focus-visible { border-style: solid; border-color: var(--accent); }
+.wf-lines-add:disabled { opacity: .5; cursor: default; }
+@media (hover: none) { .wf-line-acts { opacity: .75; } }
+@media (max-width: 600px) {
+  .wf-lines-group { padding: 8px 8px 7px; }
+  .wf-line-top, .wf-line-cols { grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr); }
+  .wf-line-no { width: 18px; height: 18px; line-height: 16px; font-size: 10px; }
+  .wf-line:not(:last-child) .wf-line-top::before { left: 8px; top: 25px; }
+  .wf-line-cell { padding: 4px 5px; }
+  .wf-line-cell.wf-card[data-on="1"], .wf-line-cell.wf-line-pair[data-role="target"] { padding-left: 7px; }
+  .wf-line-cell.wf-line-pair[data-role="source"] { padding-left: 6px; }
+  .wf-card-head { gap: 3px 4px; }
+  .wf-card-head > .wf-line-name { flex: 1 1 calc(100% - 18px); }
+  .wf-line-name > b { font-size: 12.5px; }
+  .wf-line-hint { font-size: 10.5px; padding: 0 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .wf-line-acts { opacity: .72; }
+  .wf-line-hand input:first-child, .wf-line-hand input:last-child { flex: 1 1 100%; max-width: none; }
+  .wf-lines-addrow { grid-template-columns: minmax(0, 1fr); padding: 7px 0 1px; }
+  .wf-lines-addpad { display: none; }
+  .wf-lines-addrow::before { display: none; }
+  .wf-lines-steps::before { left: calc(50% + 13px); bottom: 0; }
+  .wf-line[data-drop-col="target"]::before, .wf-line[data-drop-col="target"]::after { right: calc(50% - 8px); }
+  .wf-line[data-drop-col="source"]::before, .wf-line[data-drop-col="source"]::after { left: calc(50% + 16px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-lines-ghead input, .wf-lines-ghead .wf-lines-btn, .wf-line, .wf-line-cell, .wf-line-blank::after,
+  .wf-card-grip, .wf-line-acts, .wf-line-acts .wf-lines-btn, .wf-line-hand input, .wf-lines-add, .wf-lines-same, .wf-lines > .wf-lines-btn, .wf-line-empty { transition: none; }
+}
 .wf-lines-check { font-size: 12.5px; line-height: 1.55; }
 .wf-lines-check p, .wf-lines-check ul { margin: 2px 0; }
 .wf-lines-check ul { padding-left: 18px; }
@@ -539,4 +733,71 @@ td.wf-docs-none { color: var(--muted); }
 .wf-lines-err { color: var(--fail); }
 .wf-lines-warn { color: var(--warn); }
 .wf-std-pick > summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; }
+
+/* ---- 도구 설명 열(spec_워크플로우 ② §18-15 · design.md §22 — workflow.js helpWrap): 조립 폼 · 단계 폼의 오른쪽 열. 줄(도구) 카드를 누르면 그 도구의 설명, 안 골랐으면 그 틀의 도구 목록.
+   두 칸 = 폼 | 설명 열(320px). 폼이 펴진 절만 넓어진다(폼 1080 + 사이 16 + 열 320 — 목록 · 다이어그램 두 보기 모두: 절의 다른 줄(제목 · 목록 · 단추)은 전의 폭 그대로).
+   넓은 절 = `.wf-sec.wf-wide`(helpWrap 이 붙이고 composeDraw · stageDraw 가 뗀다 — `:has()` 는 쓰지 않는다: design.md).
+   설명 열은 본문(.wf-main)이 스크롤해도 붙어 있다(sticky) · 길면 제 안에서 스크롤. 좁은 창(1360px 아래)은 한 칸 — 설명 열이 폼 위에 붙어 선다(카드를 누른 자리에서 바로 읽게 · 높이 38vh 까지). */
+.wf-sec.wf-wide, .wf-diagram-mode .wf-sec.wf-wide { max-width: 1416px; }
+.wf-sec.wf-wide > :not(.wf-compose-cols) { max-width: 1080px; }
+@media (min-width: 1360px) { .wf-sec.wf-wide .wf-field-block { grid-template-columns: minmax(0, 1fr); } } /* 두 칸일 때 — 여러 컨트롤이 든 칸(문서 입출력 · 단계)은 이름을 위에: 설명 열이 선 만큼 줄 편집기가 좁아지지 않게(1500px 창에서 647 → 807px · 전 886px) */
+.wf-compose-cols { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.wf-help { position: sticky; top: 12px; box-sizing: border-box; max-height: calc(100vh - 44px - 30px); overflow-y: auto; padding: 12px 14px 14px; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid #9fb5ea; border-radius: var(--radius); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.wf-help-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.wf-help-head h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .2px; color: var(--muted); }
+.wf-help-back { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.wf-help-hint { margin: 0 0 10px; color: var(--muted); }
+.wf-help-group { margin-top: 10px; }
+.wf-help-group h5, .wf-help-sec h5 { margin: 0 0 3px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.wf-help-group ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+.wf-help-group li + li { border-top: 1px solid var(--line); }
+.wf-help-item { display: block; width: 100%; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background-color .12s; }
+.wf-help-item:hover { background: var(--accent-soft); }
+.wf-help-item:focus-visible, .wf-help-go:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wf-help-item-top { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 5px; }
+.wf-help-item-top b { font-weight: 600; }
+.wf-help-item-easy { display: block; margin-top: 1px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.wf-help-name { margin: 2px 0 6px; font-size: 16px; line-height: 1.35; letter-spacing: -.2px; }
+.wf-help-easy { margin: 0 0 10px; font-size: 13.5px; line-height: 1.6; font-weight: 600; color: var(--text); }
+.wf-help-sec { margin: 0 0 10px; }
+.wf-help-sec p { margin: 0; }
+.wf-help-eg { padding: 6px 9px; border-left: 3px solid #9fb5ea; border-radius: 0 6px 6px 0; background: var(--accent-soft); color: #2b3a55; }
+.wf-help-facts { list-style: none; margin: 0 0 10px; padding: 7px 9px; display: grid; gap: 5px; border-radius: 6px; background: var(--surface-2); }
+.wf-help-facts li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 8px; align-items: start; }
+.wf-help-label { font-size: 11.5px; font-weight: 700; color: var(--muted); line-height: 1.7; }
+.wf-help-fact { display: inline-flex; align-items: flex-start; gap: 5px; min-width: 0; }
+.wf-help-fact .wf-icon { flex: none; margin-top: 4px; }
+.wf-help-fact.wf-t-llm { color: #6d28d9; }
+.wf-help-fact.wf-t-doc { color: var(--warn); font-weight: 600; }
+.wf-help-fact.wf-t-human { color: var(--accent); }
+.wf-help-order { margin: 4px 0 0; }
+.wf-help-order dt { margin-top: 5px; font-size: 11.5px; color: var(--muted); }
+.wf-help-order dd { margin: 3px 0 0; min-width: 0; }
+.wf-help-now { margin-top: 3px !important; font-size: 12px; }
+.wf-help-hands { margin: 0; padding-left: 16px; }
+.wf-help-hands b { font-weight: 600; }
+.wf-help-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-help-go { cursor: pointer; font: inherit; font-size: 12px; white-space: normal; text-align: left; }
+.wf-help-go:hover { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); }
+.wf-help-off { margin: 0 0 10px; padding: 6px 9px; border-left: 3px solid var(--line-strong); border-radius: 0 6px 6px 0; background: var(--surface-2); color: var(--muted); }
+.wf-help[data-unit=""] .wf-help-back { display: none; } /* 넓은 창 — 목록은 늘 펴져 있다(펴고 접는 단추는 좁은 창에서만) */
+.wf-help-fold { display: none; height: 24px; padding: 0 8px; font-size: 11.5px; } /* 「설명 접기」 — 좁은 창에서만(폼 위의 띠를 한 줄로) */
+.wf-help-head h3 { margin-right: auto; }
+.wf-help-name:focus { outline: none; }
+.wf-help-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+/* 줄 편집기 쪽 — 설명을 보고 있는 도구의 카드(파란 테두리) · 카드 이름은 누를 수 있다 */
+.wf-lines .wf-line-cell[data-on="1"][data-help="1"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent), 0 0 0 2px rgba(36, 88, 214, .2); }
+.wf-line-name > b[data-help-for] { cursor: pointer; border-radius: 3px; }
+.wf-line-name > b[data-help-for]:hover { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.wf-line-name > b[data-help-for]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 1359px) {
+  .wf-compose-cols { grid-template-columns: minmax(0, 1fr); }
+  .wf-help { order: -1; top: 0; z-index: 5; max-height: 38vh; box-shadow: 0 4px 14px rgba(24, 46, 92, .12); }
+  .wf-help[data-unit=""] .wf-help-back { display: inline-flex; align-items: center; } /* 좁은 창 — 도구 목록은 접어 둔다(폼을 가리지 않게): 한 줄 안내 + 「이 틀의 도구 보기」 */
+  .wf-help-fold { display: inline-flex; align-items: center; }
+  .wf-help[data-unit=""][data-list="closed"] .wf-help-list { display: none; }
+  .wf-help[data-unit=""][data-list="closed"] .wf-help-hint { margin-bottom: 0; }
+  .wf-help-head { margin-bottom: 4px; }
+}
+@media print { .wf-help { position: static; max-height: none; overflow: visible; } }
 

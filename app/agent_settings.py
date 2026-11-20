@@ -5,7 +5,7 @@
   없는 키 = 기본(코드 등록값). 이 PC 의 모든 문서가 같이 쓴다. 고친 시각 기준으로 다시 읽는다(다른 프로세스가 고쳐도 다음 호출에 반영).
 - `override(what)` — `llm.call` 의 `what`(호출 이름 「merge-llm-3」·「heading_section#2」)을 에이전트 id 로 바꿔 그 에이전트의 모델·생각 깊이 설정을 준다.
   사용자가 여기서 정한 모델은 서버 전체 설정(`NFM_LLM_MODEL_FORCE`)·코드가 정한 모델보다 **먼저**다(에이전트 하나에 대해 사람이 직접 고른 값).
-- `record(what, out)` — 모든 `llm.call` 의 결과 한 줄을 메모리 고리(최근 300)에 남긴다: 실행 번호(서버를 켠 뒤 1부터) · 시각 · 에이전트 · 모델 · 길 · 걸린 시간 · 비용 · 오류. 파일에는 안 남긴다."""
+- `record(what, out)` — 모든 `llm.call` 의 결과 한 줄을 메모리 고리(최근 300)에 남긴다: 실행 번호(서버를 켠 뒤 1부터) · 시각 · 에이전트 · 모델 · 길 · 걸린 시간 · 비용 · 오류. · 붙은 덧붙이는 글(notes — 있을 때만). 파일에는 안 남긴다."""
 import collections
 import json
 import os
@@ -183,7 +183,7 @@ def record(what, out):
             _SEQ[0] += 1
             _RUNS.append({"n": _SEQ[0], "t": round(time.time(), 3), "agent": agent_of(what), "what": str(what)[:80], "model": out.get("model"), "effort": out.get("effort"),
                           "backend": out.get("backend"), "ms": out.get("ms") or 0, "costUsd": out.get("costUsd"), "error": (str(out["error"])[:300] if out.get("error") else None),
-                          "ok": out.get("data") is not None})
+                          "ok": out.get("data") is not None, **({"notes": list(out["notes"])} if out.get("notes") else {})})  # notes = 붙은 덧붙이는 글(agent_notes — all · job:<키>)
     except Exception:  # noqa: BLE001
         pass
 

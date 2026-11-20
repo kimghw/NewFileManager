@@ -78,7 +78,8 @@ def pair(wid):
     """그 문서가 든 묶음(프로젝트 · 워크플로우 · 라운드)의 문서 쌍 → {job, scope[project, job, round], file(이 문서의 종류), kinds{target, source},
     target{id, name, format} | None, source{…} | None} | None(그런 작업이 없음). **어느 칸의 문서에서 불러도 같은 쌍**이다.
     목적 문서 = 그 묶음에서 종류가 그 워크플로우의 목적 종류(`works.TARGET_FILE` — 조립한 것도 본다)인 문서 · 원본 문서 = 자리 연결 · 넣기가 쓰는 것과 같은 함수(`merge_api._mate` — `merge.json` 의 from 이 먼저).
-    목적 종류가 없는 워크플로우(문서 하나)는 이 문서가 목적이고 원본은 없다."""
+    목적 종류가 없는 워크플로우(문서 하나)는 이 문서가 목적이고 원본은 없다. **문서 하나로 조립한 워크플로우**(custom_tasks.is_single — 목적 종류는 정의에 있지만 원본이 없다)도 붙박이 문서 하나와 같은 꼴이다:
+    이 문서가 곧 목적 문서이고 짝 문서를 찾으러 가지 않는다(이관의 `_mate` 길을 타지 않는다)."""
     from app import custom_tasks, merge_api, projects, works
     w = works.work(wid)
     if w is None:
@@ -87,6 +88,8 @@ def pair(wid):
     job, kind = task.get("job") or "", task.get("file") or ""
     scope = list(projects.group_key(task))
     tkind = works.TARGET_FILE.get(job) if job else None
+    if tkind is not None and custom_tasks.is_single(job):   # 문서 하나로 조립한 것 — 문서 칸이 하나다(붙박이 양식 표준화 · 양식 맞추기와 같은 꼴: kinds 는 비운다)
+        tkind = None
     out = {"job": job, "scope": scope, "file": kind, "kinds": {"target": tkind, "source": custom_tasks.source_file(job) if tkind else None}, "target": None, "source": None}
     if tkind is None:
         out["target"] = _doc(w)
@@ -265,7 +268,7 @@ class store:   # noqa: N801 — 함수 묶음(unit.store.write …)
 
 
 # ---------------------------------------------------------------- 구성 · 구조 반영(걸음 2 — 「구성 맞추기」: spec_워크플로우 ② §17-10 걸음 2)
-# 프로젝트 구성 확정 · 구조 반영 · 다시 문서 검토의 재료와 일. 판정 · 편집은 지금 끝점 그대로(…/divisions · read · settings · confirm · plan · apply) — 여기는 꼴만 맞춘다.
+# 프로젝트 구성 추출 · 구조 반영 · 다시 문서 검토의 재료와 일. 판정 · 편집은 지금 끝점 그대로(…/divisions · read · settings · confirm · plan · apply) — 여기는 꼴만 맞춘다.
 _READ = {}   # 문서 id → (rev, 문서에서 읽은 값 | None) — 저장한 값이 없는 문서의 「문서에서 읽기」 는 상태를 셀 때마다 다시 읽지 않는다
 
 
@@ -284,7 +287,8 @@ def _read_values(got):
 
 def div_facts(doc_id):
     """그 문서의 프로젝트 구성 재료 → {input(입력 값 | None), applied(마지막 전체 반영 {values, rev, …} | None), confirmed({values, valid, scope} | None), partial[한 자리만 반영 기록],
-    form(양식 이름 | ""), supported, read(저장한 값 · 반영 값이 없을 때 문서에 적힌 값 | None)} | None(못 엶). 값은 서버가 정리한 꼴(norm_values) — 상태 식이 그대로 견준다."""
+    form(양식 이름 | ""), supported, read(저장한 값 · 반영 값이 없을 때 문서에 적힌 값 | None), plan · stale(지금 계획의 요약 · 낡음), hash(입력의 판 | None), hints[추가한 자리의 문단 id]} | None(못 엶).
+    값은 서버가 정리한 꼴(norm_values) — 상태 식이 그대로 견준다. 반영 기록(applied)에는 그 반영의 범위(hints · skip — server._division_scope)가 함께 있다(이 변경 전의 기록에는 없다)."""
     from fastapi import HTTPException
 
     from app import server
@@ -304,10 +308,13 @@ def div_facts(doc_id):
             return x
     rec = lambda r: {**r, "values": norm(r.get("values"))} if isinstance(r, dict) else r  # noqa: E731
     settings, applied = v.get("settings"), rec(v.get("applied"))
+    from app import division_model
     out = {"input": norm((settings or {}).get("values")), "applied": applied, "confirmed": rec(v.get("confirmed")), "partial": [rec(p) for p in v.get("partial") or ()],
            "form": (v.get("profile") or {}).get("form") or "", "supported": bool((v.get("profile") or {}).get("supported")), "rev": rev, "read": None,
            "sharing": v.get("projectSharing"),   # 확정이 놓이는 곳(프로젝트 · 이 문서 — 화면 divConfirmWhere)
-           "plan": v.get("plan"), "stale": bool(v.get("stale"))}   # 지금 계획의 요약({planId, baseRev, only, skip, summary …} | None — 서버 메모리) · 계획 뒤 문서가 바뀜(문서 하나의 「변경 계획 보기」 줄이 읽는다 — 상태 조회는 계획을 세우지 않는다)
+           "plan": v.get("plan"), "stale": bool(v.get("stale")),   # 지금 계획의 요약({planId, baseRev, only, skip, summary …} | None — 서버 메모리) · 계획 뒤 문서가 바뀜(문서 하나의 「변경 계획 보기」 줄이 읽는다 — 상태 조회는 계획을 세우지 않는다)
+           "hash": division_model.settings_hash(settings) if settings is not None else None,   # 입력의 판(설정 해시 — 당해 차년도까지): 실행이 울타리 안에서 확정을 확인한 그 입력으로만 계획하게(division_plan 의 expect)
+           "hints": sorted(h["para"] for h in v.get("hints") or () if isinstance(h, dict) and h.get("para"))}   # 추가한 자리(문단 id 들) — 반영 기록의 hints 와 견준다(그 뒤 바뀌었으면 옛 확인은 지금 후보의 것이 아니다: workflow_units.fit_done)
     if out["input"] is None and not applied and out["form"]:
         hit = _READ.get(doc_id)
         if hit is None or hit[0] != rev:
@@ -324,23 +331,29 @@ def config_read(doc_id):
     return Outcome(got.code, got.text, _read_values(got.data.get("read")) if got.ok and isinstance(got.data, dict) else None)
 
 
-def config_save(doc_id, values):
-    """그 문서의 입력 값(프로젝트 구성)을 저장 — 문서는 그대로(PUT …/divisions/settings). 공유 중이면 프로젝트의 입력이 바뀐다."""
+def config_save(doc_id, values, if_empty=False):
+    """그 문서의 입력 값(프로젝트 구성)을 저장 — 문서는 그대로(PUT …/divisions/settings). 공유 중이면 프로젝트의 입력이 바뀐다.
+    if_empty = **입력이 아직 비어 있을 때만** 저장한다(끝점의 ifEmpty — 문서 · 프로젝트 저장 쪽이 한 잠금 안에서 본다): 그 사이 입력이 생겼으면 덮지 않고 `nothing`(문서에서 읽은 값을 채우는 「구성 읽기」)."""
     from app import server
-    return _run(server.divisions_settings, doc_id, {"values": values}, on409="blocked")
+    got = _run(server.divisions_settings, doc_id, {"values": values, **({"ifEmpty": True} if if_empty else {})}, on409="blocked")
+    if if_empty and got.ok and isinstance(got.data, dict) and got.data.get("saved") is False:
+        return Outcome("nothing", "입력 값이 이미 있습니다 — 읽은 값으로 바꾸지 않았습니다", got.data)
+    return got
 
 
 def config_confirm(doc_id, values=None):
-    """프로젝트 구성 확정 — values 가 있으면 먼저 그 값을 입력으로 저장(POST …/divisions/confirm). 문서는 안 바뀐다. 409 = 프로젝트 저장 파일 손상(blocked)."""
+    """프로젝트 구성 추출 — values 가 있으면 먼저 그 값을 입력으로 저장(POST …/divisions/confirm). 문서는 안 바뀐다. 409 = 프로젝트 저장 파일 손상(blocked)."""
     from app import server
     return _run(server.divisions_confirm, doc_id, {"values": values} if values else {}, on409="blocked")
 
 
-def division_plan(doc_id, values, skip=()):
-    """구조 반영 계획(POST …/divisions/plan — 작업용 사본에서 모의 실행: 문서는 그대로) → Outcome(data = 계획 {planId, baseRev, summary, autoStops, autoStopsKind, stale, …}).
-    values 는 입력 값으로도 저장된다(그 끝점이 지금처럼). 지원하지 않는 양식 · 값 오류 = invalid."""
+def division_plan(doc_id, values, skip=(), expect=None):
+    """구조 반영 계획(POST …/divisions/plan — 작업용 사본에서 모의 실행: 문서는 그대로) → Outcome(data = 계획 {planId, baseRev, settingsHash, summary, autoStops, autoStopsKind, stale, …}).
+    values 는 입력 값으로도 저장된다(그 끝점이 지금처럼) — **None 이면 값을 싣지 않는다**(저장된 입력 그대로 계획 — 앞에서 읽은 값으로 최신 공유 입력을 덮지 않게).
+    expect = 입력의 판(div_facts 의 hash) — 지금 입력이 그 판이 아니면 계획하지 않고 stale(끝점의 expectSettings). 지원하지 않는 양식 · 값 오류 = invalid."""
     from app import server
-    return _run(server.divisions_plan, doc_id, {"values": values, "skip": [x for x in skip or () if isinstance(x, str)]}, on409="stale")
+    body = {"skip": [x for x in skip or () if isinstance(x, str)], **({"values": values} if values is not None else {}), **({"expectSettings": expect} if expect else {})}
+    return _run(server.divisions_plan, doc_id, body, on409="stale")
 
 
 def division_apply(doc_id, plan_id, expect_rev, adopt=False):
@@ -355,7 +368,7 @@ def division_apply(doc_id, plan_id, expect_rev, adopt=False):
 
 
 def division_adopt(doc_id, values=None):
-    """구조 확인(POST …/divisions/adopt — 문서 안 바뀜): 한 번도 반영한 적 없는 문서의 구조가 이미 값에 맞으면 반영 기록을 적는다 → Outcome(data = {adopted, why(applied · changes · unresolved · noCandidates | None), summary, applied, rev}).
+    """구조 확인(POST …/divisions/adopt — 문서 안 바뀜): 한 번도 반영한 적 없는 문서의 구조가 이미 값에 맞으면 반영 기록을 적는다 → Outcome(data = {adopted, why(applied · changes · unresolved · named · noCandidates | None), summary, applied, rev, named?(why 가 named 일 때 — 구분 값에 없는 기관 이름이 적힌 자리 수)}).
     409 = 확인하는 동안 문서나 값이 바뀜(stale). 취합의 「프로젝트 구성 반영」 이 계획 앞에 먼저 부른다(구조를 맞춘 프레임을 새로 올린 문서 — 울타리 없이)."""
     from app import server
     return _run(server.divisions_adopt, doc_id, {"values": values} if values else {}, on409="stale")
@@ -487,12 +500,30 @@ def start_tables_llm(doc_id):
     return _run(server.headings_start, doc_id, {"stage": 3, "llm": True})
 
 
-def adjust_apply(doc_id, rev, plans=None):
+def graph_key(doc_id):
+    """지금 헤딩 그래프(2단계 결과)의 표시 [실행 번호, 만든 때] | None(그래프 없음 · 못 엶) — 분석 상태 헤딩 항목의 run · at 과 같은 값(개요 오버레이의 run 도 이것)."""
+    from fastapi import HTTPException
+
+    from app import heading_runs, server
+    try:
+        s = server._sess(doc_id)
+    except HTTPException:
+        return None
+    g = heading_runs.graph(s) if s.fmt == "hwpx" else None
+    meta = (g or {}).get("meta") or {}
+    return [meta.get("run"), meta.get("at")] if g is not None else None
+
+
+def adjust_apply(doc_id, rev, plans=None, graph=None):
     """[문서 바뀜] 조정 「모두 반영」(POST …/outline/agent/apply — 받아 둔 서식 정리 계획 · 확실한 종속 · 자리 맞춤을 트랜잭션 하나로 · 실행 취소 1) → Outcome:
     ok(data = 반영 결과 {templates, changed, placed, left, merged …}) · nothing(반영할 것이 없음 — 409 NO_PLANS · 바꿀 줄이 없는 계획) · stale(409 — 그 사이 문서 · 계획이 바뀜) ·
-    blocked(409 — 헤딩 그래프 없음) · rejected(422 — 표준 검사가 되돌림). rev = 계획을 본 문서 차례 · plans = 본 계획의 표시 {템플릿 id: at}(그 계획들만 · 그대로일 때만)."""
+    blocked(409 — 헤딩 그래프 없음) · rejected(422 — 표준 검사가 되돌림). rev = 계획을 본 문서 차례 · plans = 본 계획의 표시 {템플릿 id: at}(그 계획들만 · 그대로일 때만 —
+    **빈 {} 도 그대로 보낸다**: 「계획은 반영하지 않고 확실한 종속 · 자리 맞춤만」 이다. 안 보내면 끝점이 그 사이 도착한 계획까지 고른다) ·
+    graph = 판정을 본 헤딩 그래프의 표시(graph_key — 분석 상태 헤딩 항목의 [run, at]): 지금 그래프가 그것이 아니면 반영하지 않고 stale(그 사이 헤딩을 다시 뽑았다 — 판정 전의 그래프 위에 반영하지 않게)."""
     from app import tpl_agent_api
-    got = _run(tpl_agent_api.apply_plans, doc_id, {"rev": rev, **({"plans": plans} if plans else {})}, on409="stale")
+    if graph is not None and graph_key(doc_id) != list(graph):
+        return Outcome("stale", "헤딩 그래프가 그 사이에 바뀌었습니다 — 판정을 본 그래프가 아닙니다")
+    got = _run(tpl_agent_api.apply_plans, doc_id, {"rev": rev, **({"plans": plans} if plans is not None else {})}, on409="stale")
     detail = (got.data or {}).get("detail") if isinstance(got.data, dict) else None
     if got.code == "stale" and detail == tpl_agent_api.NO_PLANS:
         return Outcome("nothing", got.text, got.data)

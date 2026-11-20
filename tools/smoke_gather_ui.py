@@ -463,7 +463,7 @@ try:
 
         # ---- 4. 1단계 「구분 기준」(준비 · 구성 확정 — 문서는 안 바뀜) → 2단계 「문서 프레임 작성」(① 구분 기준 확인 → 배포 기준본). 기관 문서와 무관하게 끝낼 수 있다(spec_작업 ② §18 · spec_취합 ② §9-1)
         st0 = page.evaluate(STEPS, "gatherStage0")
-        check("1단계 세부 목록 = 준비 · 구성 확정 — 값이 없으면 구성 확정이 다음 작업(「취합본에서 추출」)", [(s["step"], s["no"], s["name"]) for s in st0] == [("files", "·", "준비"), ("config", "·", "프로젝트 구성 확정")]
+        check("1단계 세부 목록 = 준비 · 구성 확정 — 값이 없으면 구성 확정이 다음 작업(「취합본에서 추출」)", [(s["step"], s["no"], s["name"]) for s in st0] == [("files", "·", "준비"), ("config", "·", "프로젝트 구성 추출")]
               and [s["state"] for s in st0] == ["done", "now"] and "프로젝트 구성(단계·차년도·기관)이 없습니다" in st0[1]["text"] and st0[1]["acts"] == ["취합본에서 추출"] and st0[1]["badge"] == "다음 작업"
               and "사업계획서_취합본_GATHER.hwpx" in st0[0]["text"], st0)   # 취합본 = 목적 문서 — 이름 뒤에 과제 이름(spec_작업 ② §10)
         check("구성 입력이 1단계 묶음 안(#taskFrameForm — 구성 불러오기·확정) · 반영 상태·변경 계획은 2단계 묶음 안(#taskFrameApply) · 「구성 고치기」", page.evaluate("""() => { const f = document.getElementById('taskFrameForm'), s0 = document.getElementById('gatherStage0'),

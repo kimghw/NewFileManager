@@ -176,7 +176,7 @@ def _start(sess, kind, fn, *args, revision=None, output=None):
         finally:
             if view.live():  # 도는 중에 기준이 바뀐 검증은 기록하지 않는다 — 새 기준의 검증이 따로 돈다
                 _record(sess, kind, job)
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=agent_notes.carry(run), daemon=True).start()   # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위 — spec_에이전트 ② §6)를 새 스레드로: 검증 LLM 검토
     return job
 
 
@@ -1375,11 +1375,13 @@ def _flow_busy(wid=None, project=None):
         raise HTTPException(409, why)
 
 
-def _flow_busy_other(wid):
+def _flow_busy_other(wid, family=None):
     """바쁨 막이 — 도는 워크플로우 실행이 **스스로도 부르는** 끝점(취합의 배포 기준본 · 반영할 기관 · 결정 · LLM 검토 · 넣기 계획 · 반영 — app/merge_gather_api.py)에서: 그 실행의 스레드는 지나가고
-    사람의 요청만 409(그 사이 등록 · 결정 · 계획이 바뀌면 실행이 세운 계획이 낡는다 — spec_워크플로우 ② §18-13 갈래 「다」)."""
+    사람의 요청만 409(그 사이 등록 · 결정 · 계획이 바뀌면 실행이 세운 계획이 낡는다 — spec_워크플로우 ② §18-13 갈래 「다」).
+    family = 그 틀(가족)의 실행일 때만 막는다 — "single"(문서 하나): 헤딩 추출 시작 · 「LLM 검증·보완」 · 조정 「모두 반영」 · 표 판정(LLM) · 프로젝트 구성 변경 계획 · 반영(화면의 실행이 도는 서버 실행과 같은 문서에서 겹치지 않게).
+    이관형 · 취합의 실행 동안 그 끝점들은 전과 같다(헤딩 작업 자리 Busy · 낡은 계획 409 · 울타리로 견딘다)."""
     from app import workflow_exec   # 그 층은 이 파일을 import 하지 않는다(server → 워크플로우 층 한 방향)
-    why = workflow_exec.busy_other(wid)
+    why = workflow_exec.busy_other(wid, family)
     if why:
         raise HTTPException(409, why)
 
@@ -2340,6 +2342,7 @@ def headings_start(doc_id: str, body: dict = Body(default={})):
     2026-11-16 사용자 답 「헤딩 LLM 판정에 늘 이어서」). 계획만 받는다 — 문서는 안 바뀐다. skill = 서식 정리 스킬 키(기본 "tidy" · 없는 키면 404)."""
     s = _sess(doc_id)
     _heads_hwpx(s)
+    _flow_busy_other(doc_id, "single")   # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 건 헤딩 추출 · 표 판정(LLM)은 409(그 실행이 스스로 거는 것은 지나간다 — spec_워크플로우 ② §18-13)
     first = body.get("first") is True
     stage, use_llm = (3, False) if first else (body.get("stage", 1), body.get("llm", False))
     if type(stage) is not int or stage not in (1, 2, 3):  # true·1.0·"1" 은 거절
@@ -2441,6 +2444,10 @@ app.include_router(__import__("app.table_kinds_api", fromlist=["router"]).router
 app.include_router(__import__("app.table_kv_api", fromlist=["router"]).router)   # 표의 키-값 추출 · 다른 표에 매핑(계획 · 고른 칸만 넣기) 끝점은 app/table_kv_api.py(spec_테이블매니저 ② §7 「키-값 추출과 매핑」)
 app.include_router(__import__("app.table_types_api", fromlist=["router"]).router)   # 양식의 표 판정(사람이 확정한 표 판정을 양식에 저장 · 구조가 같은 표에 다시 씀) 끝점은 app/table_types_api.py(spec_테이블매니저 ② §10 「양식의 표 판정」)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
+from app import agent_notes, agent_notes_api  # noqa: E402
+app.include_router(agent_notes_api.router)   # 에이전트에 덧붙이는 글(범용 · 워크플로우 전용) · 줄마다 쓰는 에이전트 끝점은 app/agent_notes_api.py(spec_에이전트 ② §6 · 화면 spec_워크플로우 ② §18-16)
+app.add_middleware(agent_notes_api.Scope)   # 주소의 작업 id → 그 요청의 「지금 워크플로우」 맥락(그 요청이 부르는 LLM 호출에 그 워크플로우 전용 글이 붙는다 — 작업은 부를 때만 읽는다)
+app.include_router(__import__("app.tool_names_api", fromlist=["router"]).router)   # 도구 이름 고치기(사람이 화면에서 고친 도구 이름 — 모든 워크플로우의 화면에) 끝점은 app/tool_names_api.py(spec_워크플로우 ② §18-19)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
 app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
 app.include_router(__import__("app.analysis_api", fromlist=["router"]).router)   # 분석 상태(GET /api/docs/{id}/analysis — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나) 끝점은 app/analysis_api.py(spec_작업 ② §20)
@@ -2616,6 +2623,33 @@ def _division_prior(s):
     return prior
 
 
+def _division_named(plan):
+    """그 계획에 **값이 다르다고 이미 확인된 자리**가 몇 곳 남았나 — 구분 값에도 앞서 반영한 이름에도 없는 기관 이름이 적힌 자리(`unsupported` · 까닭 named: 엔진이 작성한 문서로 보고 그대로 둔다).
+    그런 자리가 남은 문서를 「구조가 이미 값에 맞음」 으로 적지 않는다(…/divisions/adopt · …/divisions/apply 의 adopt — 다른 기관의 이름이 남았다는 근거를 버리면 다음 단계가 잘못 열린다: spec_워크플로우 ② §18-13 · astra A1).
+    그 밖의 지원 안 됨(차례를 어긴 라벨 · 병합 칸 · 정하지 않은 값)은 전처럼 막지 않는다."""
+    text = division_model.UNSUPPORTED_REASONS["named"]
+    return sum(1 for c in plan.get("candidates") or () if c.get("status") == "unsupported" and (c.get("reason") == "named" or c.get("statusMessage") == text))
+
+
+def _division_scope(plan):
+    """반영 기록에 남기는 그 계획의 범위 — hints(계획이 본 추가한 자리의 문단 id 들) · skip(반영에서 뺀 자리 key 들). 「구조 반영이 끝났나」 를 문서의 기록에서 다시 셀 때
+    추가한 자리가 그 뒤에 바뀌었는지 · 뺀 자리가 있는 반영인지를 본다(workflow_units.fit_done — spec_워크플로우 ② §18-13 · astra A3 · A4). 값을 견주는 다른 셈(이관 · 취합의 「반영됨」)은 이 키를 읽지 않는다."""
+    return {"hints": list(plan.get("hints") or ()), "skip": list(plan.get("skip") or ())}
+
+
+def _division_seed(s, settings):
+    """(세션 잠금 안) 입력이 **아직 비어 있을 때만** settings 를 입력으로 둔다 → 두었나. 공유 중(프로젝트의 최신 라운드)이면 프로젝트의 입력도 비어 있을 때만 —
+    프로젝트 저장소의 한 잠금 안에서 본다(projects.settings 의 seed). 문서에 적힌 값을 읽어 채우는 사이 다른 화면 · 같은 프로젝트의 다른 문서가 저장 · 확정한 입력을 덮지 않게
+    (PUT …/divisions/settings 의 ifEmpty — 워크플로우 실행기의 「구성 읽기」: spec_워크플로우 ② §18-13 · astra A6)."""
+    _project_settings_sync(s)   # 프로젝트의 지금 입력을 먼저 받는다(그 사이 생겼으면 그것이 이 문서의 입력이다)
+    if s.division.get("settings") is not None:
+        return False
+    s.division["settings"] = copy.deepcopy(settings)
+    s.saved_rev = -1   # 문서 차례가 그대로여도 다음 저장에 남긴다
+    _project_settings_sync(s)   # 공유 중이면 프로젝트에 입력이 없을 때만 이 값으로 시작한다(seed) — 그 틈에 생겼으면 그 값을 받는다
+    return s.division.get("settings") == settings
+
+
 def _project_settings_sync(s, settings=None):
     """세션 잠금 안. 최신 TASK 라운드는 프로젝트 설정, 이전 라운드는 저장한 설정을 쓴다."""
     task = (works.work(s.id) or {}).get("task") or {}
@@ -2721,15 +2755,20 @@ def divisions_get(doc_id: str):
 
 @app.put("/api/docs/{doc_id}/divisions/settings")
 def divisions_settings(doc_id: str, body: dict = Body(...)):
-    """입력 중 설정 {values} (또는 FMM v1 값 그대로) — 저장만(문서는 그대로). 값이 달라지면 지금 계획은 버린다."""
+    """입력 중 설정 {values} (또는 FMM v1 값 그대로) — 저장만(문서는 그대로). 값이 달라지면 지금 계획은 버린다.
+    ifEmpty: true(워크플로우 실행기의 문 unit_steps.config_save 만 — 「구성 읽기」) = **입력이 아직 비어 있을 때만** 저장한다(_division_seed) — 답에 `saved`(저장했나 · 거짓 = 그 사이 입력이 생겨 그대로 둠)."""
     settings = _division_settings(body)
+    only_empty = body.get("ifEmpty") is True
     s = _sess(doc_id)
     with s.lock:
         _fenced(s)   # 워크플로우 실행이 이 문서의 구조를 맞추는 동안은 값을 바꾸지 않는다(그 실행의 계획이 버려진다 — 울타리)
-        _project_settings_sync(s, settings)
+        if only_empty:
+            saved = _division_seed(s, settings)
+        else:
+            _project_settings_sync(s, settings)
         view = _division_view(s)
     _persist_safe(s, force=True)  # rev 가 안 바뀌어도 설정은 작업에 남긴다
-    return view
+    return {**view, "saved": saved} if only_empty else view
 
 
 @app.post("/api/docs/{doc_id}/divisions/confirm")
@@ -2863,16 +2902,26 @@ def divisions_plan_get(doc_id: str):
 @app.post("/api/docs/{doc_id}/divisions/plan")
 def divisions_plan(doc_id: str, body: dict = Body(default={})):
     """{values?, only?: 묶음 key, skip?: [key]} → 계획(spec_구분_기준 ② §3·§7). 문서는 그대로 — 작업용 사본에서 모의 실행(잠금 밖, 사본만 만짐).
-    values 가 없으면 입력 중 설정. 지원하지 않는 양식이면 400."""
-    only, skip = body.get("only"), body.get("skip") or []
+    values 가 없으면 입력 중 설정. 지원하지 않는 양식이면 400.
+    expectSettings?(입력 설정의 해시 — 워크플로우 실행기의 문 unit_steps.division_plan 만) = 지금 입력이 그 판일 때만 계획한다(아니면 409 — 값을 저장하기 **전에** 본다):
+    실행이 울타리 안에서 확정을 확인한 그 입력으로만 계획하고, 계획 요청이 앞에서 읽은 값으로 최신 공유 입력을 덮지 않게(spec_워크플로우 ② §18-13 · astra A5)."""
+    only, skip, expect = body.get("only"), body.get("skip") or [], body.get("expectSettings")
     if only is not None and not isinstance(only, str):
         raise HTTPException(400, "only 는 묶음 key")
     if not isinstance(skip, list) or not all(isinstance(x, str) for x in skip):
         raise HTTPException(400, "skip 은 key 목록")
+    if expect is not None and not isinstance(expect, str):
+        raise HTTPException(400, "expectSettings 는 입력 설정의 해시")
     settings = _division_settings(body) if body.get("values") is not None else None
+    _flow_busy_other(doc_id, "single")   # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 세우는 계획은 409(그 실행의 계획을 밀어낸다 — 계획 자리는 하나 · 그 실행의 스레드는 지남)
     s = _sess(doc_id)
     with s.lock:
         _fenced(s)   # 워크플로우 실행이 이 문서를 바꾸는 동안 사람이 계획을 세우면 그 실행의 계획을 밀어낸다(계획 자리는 하나) — 실행 스레드만 지남
+        if expect is not None:
+            _project_settings_sync(s)   # 프로젝트의 지금 입력을 받은 뒤 견준다(아래에서 값을 저장하기 전에)
+            now = s.division["settings"]
+            if now is None or division_model.settings_hash(now) != expect:
+                raise HTTPException(409, "프로젝트 구성 값이 그 사이에 바뀌었습니다 — 값과 확정을 확인한 뒤 다시 누르세요")
         before = copy.deepcopy(s.division["settings"])
         _project_settings_sync(s, settings)
         settings = s.division["settings"]
@@ -2913,7 +2962,8 @@ def divisions_plan(doc_id: str, body: dict = Body(default={})):
 def divisions_adopt(doc_id: str, body: dict = Body(default={})):
     """구조 확인(spec_취합 ② §8-4) — {values?} → {adopted, why, summary, applied, rev}. 문서는 안 바뀐다.
     한 번도 반영한 적 없는 문서의 구조가 이미 지금 값에 맞으면(전체 계획에 바뀔 것·못 정한 자리가 없고 이미 맞은 자리가 있음) 반영 기록을 적는다(adopted) —
-    구조를 맞춘 프레임을 새로 올리면 반영 끝점은 할 일이 없어 기록을 안 남기고, 그러면 취합의 배포 기준본이 notApplied 로 막힌다. 계획은 rebuild=False(채워진 자리를 다시 본뜨지 않음) · 저장하지 않는다."""
+    구조를 맞춘 프레임을 새로 올리면 반영 끝점은 할 일이 없어 기록을 안 남기고, 그러면 취합의 배포 기준본이 notApplied 로 막힌다. 계획은 rebuild=False(채워진 자리를 다시 본뜨지 않음) · 저장하지 않는다.
+    why = applied(이미 반영 기록이 있음) · changes(바뀔 것이 있음) · unresolved(못 정한 자리) · named(구분 값에 없는 기관 이름이 적힌 자리가 남음 — 값이 다르다고 확인된 문서: 2026-11-20) · noCandidates(맞은 자리가 없음)."""
     settings = _division_settings(body) if body.get("values") is not None else None
     s = _sess(doc_id)
     with s.lock:
@@ -2932,8 +2982,10 @@ def divisions_adopt(doc_id: str, body: dict = Body(default={})):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     summary = plan["summary"]
+    # named = 구분 값에 없는 기관 이름이 적힌 자리가 남음 — 값이 다르다고 이미 확인된 자리라 「이미 맞음」 으로 적지 않는다(_division_named — 기존 기록은 그대로)
+    named = _division_named(plan)
     why = ("changes" if plan["_report"]["groups"] or plan["_report"]["changes"] else "unresolved" if summary.get("unresolved") else
-           "noCandidates" if not summary.get("already") else None)
+           "named" if named else "noCandidates" if not summary.get("already") else None)
     with s.lock:
         _project_settings_sync(s)
         if s.rev != rev or division_model.settings_hash(s.division["settings"]) != key:
@@ -2941,10 +2993,10 @@ def divisions_adopt(doc_id: str, body: dict = Body(default={})):
         if s.division.get("applied"):
             return {"adopted": False, "why": "applied", "summary": summary, "applied": s.division["applied"], "rev": s.rev}
         if why:
-            return {"adopted": False, "why": why, "summary": summary, "applied": None, "rev": s.rev}
+            return {"adopted": False, "why": why, "summary": summary, "applied": None, "rev": s.rev, **({"named": named} if why == "named" else {})}
         s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]
         s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
-                                 "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": summary, "adopted": True}
+                                 "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": summary, "adopted": True, **_division_scope(plan)}
         s.division["partial"] = None   # 문서 전체가 지금 값에 맞다고 확인됐다 — 한 자리만 반영한 기록은 더 볼 것이 없다(spec_테이블매니저 ② §9)
         applied = s.division["applied"]
     _persist_safe(s, force=True)   # rev 가 안 바뀌어도 반영 기록은 작업에 남긴다
@@ -2956,8 +3008,9 @@ def divisions_adopt(doc_id: str, body: dict = Body(default={})):
 def divisions_apply(doc_id: str, body: dict = Body(...)):
     """{planId, expectRev?} → 고정된 계획만 반영(spec_구분_기준 ② §4): 계획의 사본 문서를 세션 문서로 바꿔 넣고 문서 전체 검사 → 실패면 복원·422,
     성공이면 undo 1·rev +1·기록 1줄 + 상세 결과 파일. 계획이 없거나 문서가 계획 뒤에 바뀌었으면 409(다시 계획). 화면은 문서를 다시 읽는다.
-    adopt: true(워크플로우 실행기의 문 unit_steps.division_apply 만 — spec_워크플로우 ② §18-13) = 할 일이 없는 **문서 전체** 계획이 「구조가 이미 이 값에 맞음」 이면(이미 맞은 자리가 있고 미해결 · 계획 오류가 없음)
-    그 확인을 반영 기록으로 남긴다(`applied.adopted` — 문서는 안 바뀜 · 답의 `adopted`). 화면의 「이미 맞음」 은 화면이 든 계획으로 세지만 서버 실행은 끝남을 문서의 기록에서 다시 세기 때문이다."""
+    adopt: true(워크플로우 실행기의 문 unit_steps.division_apply 만 — spec_워크플로우 ② §18-13) = 할 일이 없는 **문서 전체** 계획이 「구조가 이미 이 값에 맞음」 이면(이미 맞은 자리가 있고 미해결 · 계획 오류가 없고
+    **구분 값에 없는 기관 이름이 적힌 자리가 남지 않음** — 남았으면 답의 `named` 에 그 수: 기존 기록은 그대로) 그 확인을 반영 기록으로 남긴다(`applied.adopted` — 문서는 안 바뀜 · 답의 `adopted`).
+    화면의 「이미 맞음」 은 화면이 든 계획으로 세지만 서버 실행은 끝남을 문서의 기록에서 다시 세기 때문이다. 반영 기록에는 그 계획의 범위도 남긴다(`hints` 추가한 자리 · `skip` 뺀 자리 — _division_scope)."""
     out = _divisions_apply(doc_id, body)
     if isinstance(out, dict) and out.get("adopted"):
         _persist_safe(_sess(doc_id), force=True)   # rev 가 안 바뀌어도 반영 기록은 작업에 남긴다(…/divisions/adopt 와 같다)
@@ -2966,6 +3019,7 @@ def divisions_apply(doc_id: str, body: dict = Body(...)):
 
 def _divisions_apply(doc_id, body):
     plan_id, expect = body.get("planId"), body.get("expectRev")
+    _flow_busy_other(doc_id, "single")   # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 누른 반영은 409(그 실행의 스레드는 지남 — spec_워크플로우 ② §18-13)
     s = _sess(doc_id)
     with s.lock:
         _fenced(s)
@@ -2980,15 +3034,21 @@ def _divisions_apply(doc_id, body):
         if not plan["_report"]["groups"] and not plan["_report"]["changes"]:  # 할 일 없음 — undo·rev 를 늘리지 않는다
             s.division["plan"] = None
             sm, a = plan["summary"], s.division["applied"]
-            adopted = body.get("adopt") is True and plan["only"] is None and not plan["skip"] and bool(sm.get("already")) and not sm.get("unresolved") and not sm.get("errors")
+            # 값이 다르다고 이미 확인된 자리(구분 값에 없는 기관 이름 — _division_named)가 남았으면 「이미 맞음」 으로 적지 않는다: 기존 반영 기록 · 한 자리만 반영한 기록을 그대로 둔다(답의 named = 그 자리 수).
+            # 뺀 자리가 있는 계획(skip)도 적되 그 범위를 기록에 남긴다(_division_scope) — 뺀 자리를 풀면 다시 계획해야 하는지는 그 기록으로 가린다(workflow_units.fit_done)
+            named = _division_named(plan)
+            adopted = body.get("adopt") is True and plan["only"] is None and bool(sm.get("already")) and not sm.get("unresolved") and not sm.get("errors") and not named
             if adopted:
-                if not (a and a.get("values") == plan["values"]):   # 같은 값의 반영 기록이 이미 있으면 그 기록은 그대로 둔다
+                if a and a.get("values") == plan["values"]:   # 같은 값의 반영 기록이 이미 있으면 그 기록은 그대로 — 이번 확인이 본 범위(추가한 자리 · 뺀 자리)만 고쳐 적는다
+                    s.division["applied"] = {**a, **_division_scope(plan)}
+                else:
                     s.division["prior"] = ([v for v in _division_prior(s) if v != plan["values"]] + [plan["values"]])[-PRIOR_MAX:]
                     s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
-                                             "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": sm, "adopted": True}
-                s.division["partial"] = None   # 문서 전체가 지금 값에 맞다고 확인됐다 — 한 자리만 반영한 기록은 더 볼 것이 없다(…/divisions/adopt 와 같다)
-                works.log(s.id, "divisionAdopt", rev=s.rev, planId=plan["planId"], settingsHash=plan["settingsHash"], summary=sm)
-            return {"nothing": True, "adopted": adopted, "applied": s.division["applied"], "summary": plan["summary"], **s.state()}
+                                             "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": sm, "adopted": True, **_division_scope(plan)}
+                if not plan["skip"]:
+                    s.division["partial"] = None   # 문서 전체가 지금 값에 맞다고 확인됐다 — 한 자리만 반영한 기록은 더 볼 것이 없다(…/divisions/adopt 와 같다 · 뺀 자리가 있으면 전체를 본 것이 아니라 그대로 둔다)
+                works.log(s.id, "divisionAdopt", rev=s.rev, planId=plan["planId"], settingsHash=plan["settingsHash"], summary=sm, **({"skip": plan["skip"]} if plan["skip"] else {}))
+            return {"nothing": True, "adopted": adopted, **({"named": named} if named else {}), "applied": s.division["applied"], "summary": plan["summary"], **s.state()}
 
         def run():
             s.doc = plan["_doc"]
@@ -3002,7 +3062,7 @@ def _divisions_apply(doc_id, body):
         if plan["only"] is None:   # 한 자리만 반영한 것(only — 표 메뉴 「프로젝트 구성에 맞추기」: spec_테이블매니저 ② §9)은 문서 전체를 그 값으로 반영한 것이 아니다 — `applied` 를 그대로 둔다
             #                        (적으면 TASK 의 「프로젝트 구성 반영」 단계가 끝남으로 보이고, 다음 전체 계획이 자리표시를 다시 본뜨지 않는다 — rebuild=False)
             s.division["applied"] = {"values": plan["values"], "settingsHash": plan["settingsHash"], "profileVersion": plan["profileVersion"],
-                                     "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": plan["summary"]}
+                                     "rev": s.rev, "at": time.time(), "planId": plan["planId"], "summary": plan["summary"], **_division_scope(plan)}   # hints · skip = 이 반영의 범위(추가한 자리 · 뺀 자리)
             s.division["partial"] = None   # 문서가 다시 한 값으로 맞았다
         else:   # 따로 적어 둔다(② §9 「한 자리만 반영한 기록」) — 기관의 차례 검사가 이때의 차례와도 견주고, 전체 반영 뒤 다른 값으로 한 자리만 바꾼 문서를 「반영 끝남」 으로 세지 않게
             rows = [r for r in s.division.get("partial") or [] if r.get("only") != plan["only"]]
@@ -3304,7 +3364,8 @@ def divisions_review(doc_id: str, body: dict = Body(default={})):
             except Exception as e:  # noqa: BLE001
                 return {"data": None, "prompt": "", "call": {"error": f"{type(e).__name__}: {e}"}}
         with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="division-review") as ex:
-            f_r, f_m = ex.submit(ask, division_llm.ask, p_review), ex.submit(ask, division_llm.ask_missing, p_missing)
+            keep = agent_notes.carry(ask)   # 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위)를 일꾼 스레드로
+            f_r, f_m = ex.submit(keep, division_llm.ask, p_review), ex.submit(keep, division_llm.ask_missing, p_missing)
             res_r, res_m = f_r.result(), f_m.result()
         why, errors = {}, {}
         if p_review is None:

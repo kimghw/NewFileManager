@@ -15,6 +15,7 @@ import time
 import traceback
 import zlib
 
+from app import agent_notes
 from app import heading_extract as E
 from app import heading_forms as F
 from app import heading_graph as HG
@@ -301,7 +302,7 @@ class TablesAhead:
                 self._out = HT.ask_tables(s1, pinned=guides0, temp=self.temp, progress=tick)
             except Exception as e:  # 묻다가 난 오류 — run_stage3 이 제 손으로 다시 묻는다
                 self._err = e
-        self._thread = threading.Thread(target=work, daemon=True, name="tables-ahead")
+        self._thread = threading.Thread(target=agent_notes.carry(work), daemon=True, name="tables-ahead")  # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위)를 새 스레드로
         self._thread.start()
 
     def take(self, s1):
@@ -517,7 +518,7 @@ def start(sess, stage, use_llm, first=False, chain=None, runner=None):
             works.log(sess.id, "headings", stage=job.stage, llm=use_llm, status="failed", error=job.error[:300], **({"chain": job.chain} if job.chain else {}))
         finally:
             job.ended = time.time()
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=agent_notes.carry(run), daemon=True).start()  # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위 — spec_에이전트 ② §6)를 새 스레드로
     return job
 
 

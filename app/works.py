@@ -148,7 +148,9 @@ def find_same(name, fmt, sha, job=None) -> dict | None:
 
 class _Targets(dict):
     """할 일 → 목적 문서의 첨부 파일 종류. 붙박이 TASK 는 사전의 값이고, **조립한 TASK**(app/custom_tasks.py — spec_워크플로우 ② §14)는 그 저장소에서 읽는다 —
-    `TARGET_FILE.get(job)` · `job in TARGET_FILE` · `TARGET_FILE[job]` 을 쓰는 곳이 조립한 TASK 를 따로 알 필요가 없다. 사전의 내용(견줌 · 돌기)은 붙박이 것 그대로다."""
+    `TARGET_FILE.get(job)` · `job in TARGET_FILE` · `TARGET_FILE[job]` 을 쓰는 곳이 조립한 TASK 를 따로 알 필요가 없다. 사전의 내용(견줌 · 돌기)은 붙박이 것 그대로다.
+    **문서 하나로 조립한 것**(custom_tasks.is_single — 원본 없음)도 그 문서의 종류를 준다(그 문서가 곧 목적 문서다 — 보이는 이름 · 고정 양식의 칸 · 전환할 때의 문서 종류가 이것을 읽는다).
+    붙박이 문서 하나(양식 표준화 · 양식 맞추기)는 여기 없다(None) — 「목적 종류가 있으면 원본 문서도 있다」 고 읽는 곳(문서 쌍 unit_steps.pair)은 is_single 로 가른다."""
 
     def get(self, job, default=None):
         if dict.__contains__(self, job):

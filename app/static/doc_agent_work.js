@@ -23,7 +23,7 @@ const agwFit = (job) => job === "plan_fit" || job === "report_fit";
 // 진행 에이전트가 맡는 TASK — 단계가 있고 화면이 상태·행동을 계산할 수 있는 것(양식 표준화 · 양식 맞추기 · 이관 · 취합). 일반 편집은 단계가 없고, 서식 복사는 2열 「서식 복사」 가 그 진행을 맡는다(④)
 // 목록에 없는 조립한 워크플로우(지워짐 · 저장 파일을 못 읽음 — task_catalog.js taskLostWhy)는 맡지 않는다(HEAD 처럼 — 입력 칸의 글 · 표 요청은 바로 편집 에이전트로: 진행 에이전트가 받으면 할 행동도 넘길 행동도 없다).
 // 그 까닭 한 줄은 작업 개요 · 대시보드가 보이고, 맡던 때 낸 카드를 누르면 agwStatusOf 가 행동 없이 그 까닭으로 실행하지 않는다
-const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || taskIsGather(job); // taskIsGather = 취합형(붙박이 취합 · 취합형으로 조립한 것) // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js)
+const agwGuided = (job = agwJob()) => agwFit(job) || taskIsRelay(job) || taskIsGather(job) || taskIsSingle(job); // taskIsGather = 취합형(붙박이 취합 · 취합형으로 조립한 것) // taskIsRelay = 이관형(붙박이 이관 · 화면에서 조립한 TASK — task_catalog.js) // taskIsSingle = 문서 하나로 조립한 것(서버가 센 상태로 — agwSingleStatus)
 const agwAsk = (a) => !!a && (a.change === "doc" || !!a.paid || a.name === "open:target"); // 카드로 물어야 하는 행동(문서가 바뀜 · 유료 LLM · 다른 문서로 옮겨 감 — 원본 문서를 보려고 연 사람을 저절로 목적 문서로 데려가지 않는다)
 
 // ---------------------------------------------------------------- 지금 도는 「한 번에 진행」 — 누가 시작했든(에이전트 카드 · 「작업 개요」 의 단추 · 첫 화면 간단 모드) 에이전트 보기가 한 꼴로 본다(spec ② §7)
@@ -37,6 +37,10 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
   if (Q && Q.busy) return { kind: "quick", label: Q.uploadOnly ? "기관 문서 올리기 · 등록" : "간단 모드 — 끝까지 한 번에 진행", note: Q.note || "진행 중", t0: Q.t0, stopping: !!Q.stop,
     stop: () => { Q.stop = true; if (typeof gatherRun !== "undefined" && gatherRun) gatherRun.stop = true; if (typeof gqDraw === "function") gqDraw(); } };
   if (G) return { kind: "gather", label: `${stage(GT_STAGES, G.stage)} — 한 번에 진행`, note: G.note || "진행 중", t0: G.t0, stopping: !!G.stop, stop: () => { G.stop = true; gatherStageSync(); } };
+  if (T && T.single) { // 문서 하나로 조립한 워크플로우의 서버 실행(workflow_exec.js singleRunFollow 의 거울 — 이관의 거울과 같은 변수) — 묶음은 그 정의의 것(g1 …: 이관의 묶음 TASK_STAGES 가 아니다). 멈춤은 거울이 서버에 건다(1초 안)
+    const g = agwSingleStage(T.stage), name = g ? `${g.no || ""} ${g.name || ""}`.trim() : "";
+    return { kind: "single", label: `${name || "워크플로우"} — ${T.only ? "이 단계만 진행" : "한 번에 진행"}`, note: [T.by, T.note || "진행 중"].filter(Boolean).join(" · "), t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; } };
+  }
   if (T) return { kind: "relay", label: `${stage(TASK_STAGES, T.stage)} — 한 번에 진행`, note: T.note || "진행 중", t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; taskStageSync(); } };
   if (typeof dv !== "undefined" && dv && dv.auto) return { kind: "fit", label: "프로젝트 구성 반영 — 한 번에 진행", note: "변경 계획 → 반영", t0: 0, stopping: false, stop: null };
   const S = typeof STYLE !== "undefined" && STYLE.save && STYLE.save.auto ? STYLE.save : null; // 서식 복사(2열 「서식 복사」 의 「한 번에 진행」 — 문서는 안 바뀐다)
@@ -51,6 +55,11 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
   return null;
 }
 const agwLiveText = (R) => `${R.note}${R.t0 ? ` · ${typeof fmtDur === "function" ? fmtDur((Date.now() - R.t0) / 1000) : `${Math.round((Date.now() - R.t0) / 1000)}초`}` : ""}${R.stopping ? " · 이 일이 끝나면 멈춥니다" : ""}`;
+// 문서 하나로 조립한 워크플로우의 묶음(id g1 …) → {no, name} | null — 대시보드가 읽어 둔 서버 상태(dashboard.js DASH.flow) → 등록부(DASH.reg)에서(둘 다 없으면 이름 없이 보인다)
+function agwSingleStage(gid) {
+  const D = typeof DASH !== "undefined" ? DASH : null, V = D && D.flow && D.flow.id === state.id ? D.flow.view : null, reg = D && D.reg ? D.reg.tasks.find((t) => t.job === agwJob()) : null;
+  return ((V && V.stages) || []).find((g) => g.id === gid) || ((reg && reg.stages) || []).find((g) => g.id === gid) || null;
+}
 
 // 첫 화면의 문서 목록이 TASK 를 시작하는 동안(목적 문서 열기 → 원본·기관 문서 올리기 → 간단 모드: home_files.js homeFilesGo) 시작 턴을 **붙들어 둔다** — 준비가 끝난 상태로 한 번만 낸다.
 // 전에는 문서를 열자마자 시작 턴이 따로 돌아, 원본 문서가 붙기 전의 상태(「두 칸에 문서를 골라야 합니다」)를 설명하거나 간단 모드가 도는 중에 「다음 단계」 를 제안·실행했다(astra 11-16 P1 · 확인 probe_overlap.py).
@@ -112,7 +121,7 @@ async function agwFitStatus(opt = {}) {
   const planText = !s ? "" : st.kind === "stale" || st.kind === "skip" ? "계획이 낡았습니다 — 다시 계획해야 합니다"
     : st.kind === "same" ? divSameText(s).text : `맞출 자리 ${s.applied}곳 · 항목 추가 ${s.added} · 지움 ${s.removed} · 글 바꿈 ${s.changes} · 지워지는 글 문단 ${s.deleted}${issues ? ` · ${issues}` : ""}`;
   const planned = st.kind === "ready" || st.kind === "same" || st.kind === "done";
-  out.steps.push({ stage: g1.config, key: "values", name: std ? "프로젝트 구성 확정" : "프로젝트 구성 값 정하기 · 확정", state: confirmed ? "done" : "now", text: confirmed ? text : has ? `입력됨(확정 전) — ${text}` : "아직 값이 없습니다" },
+  out.steps.push({ stage: g1.config, key: "values", name: std ? "프로젝트 구성 추출" :"프로젝트 구성 값 정하기 · 확정", state: confirmed ? "done" : "now", text: confirmed ? text : has ? `입력됨(확정 전) — ${text}` : "아직 값이 없습니다" },
     { stage: g1.frame, key: "plan", name: "① 변경 계획 보기", state: applied || (confirmed && planned) ? "done" : confirmed ? "now" : "todo", text: planText },
     { stage: g1.frame, key: "apply", name: std ? "② 적용(문서에 반영)" : "② 반영", state: applied ? "done" : confirmed && st.kind === "ready" ? "now" : "todo", text: applied ? (same ? "이미 프로젝트 구성에 맞습니다" : "문서 구조를 프로젝트 구성에 맞췄습니다") : "" });
   Object.assign(out.facts, { config: has ? text : "", confirmed, plan: planText, supported: !!v.profile.supported });
@@ -319,6 +328,35 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
   return agwCommon(out);
 }
 
+// 문서 하나로 조립한 워크플로우(task_catalog.js taskIsSingle — spec_워크플로우 ② §18-13 걸음 6의 화면 · 2026-11-20 사용자 「조립한 것만 서버로」) — **서버가 센 상태** 그대로
+// (GET /api/works/{wid}/flow — workflow_exec.js flowGet: 대시보드와 같은 것): 묶음 › 줄의 상태와 다음 묶음의 「한 번에 진행」(서버 쪽 실행기 — agwExec 의 run: → singleRunServer). 화면이 단계를 세지 않고 화면 실행으로 가지 않는다
+// (붙박이 양식 표준화 · 양식 맞추기의 agwFitStatus 와 다른 가지 — 그쪽은 그대로: 조립한 것을 이관 · 취합 · 붙박이 문서 하나로 읽지 않는다).
+// 실행 카드는 그 묶음에 묶는다 — 행동의 key = 문서 · 묶음 · 남은 줄 · 유료로 부를 문서 · 정의의 지문 · 「반영에서 빼기」 자리: 그 사이 달라지면 실행하지 않고 다시 묻는다(agentWorkRun).
+// 특정 계획(planId)을 승인하는 카드는 내지 않는다 — 서버 실행의 구조 반영은 울타리 안에서 제 계획을 세우고 같은 검사(계획 오류 · 미해결 · 기관 차례)로 멈춘다(본 계획과 다른 계획을 「승인한 것」 으로 반영하지 않게)
+async function agwSingleStatus() {
+  const out = { steps: [], actions: [], facts: {} }, id = state.id;
+  let V = null;
+  try { V = typeof flowGet === "function" ? await flowGet(id) : null; } catch (e) { out.facts.why = `단계 상태를 읽지 못했습니다: ${e.message}`; return agwCommon(out); }
+  if (state.id !== id) return agwCommon(out);
+  if (!V || !(V.stages || []).length) { out.facts.why = (V && V.why) || "이 작업의 워크플로우 상태를 읽지 못했습니다"; return agwCommon(out); }
+  for (const g of V.stages) for (const s of g.steps || []) out.steps.push({ stage: `${g.no || ""} ${g.name || ""}`.trim(), key: s.key, name: s.name, state: s.done ? "done" : s.st === "now" || s.st === "run" ? "now" : "todo",
+    text: `${s.done && s.skipped ? "건너뜀 — " : s.st === "blocked" ? "막힘 — " : s.st === "failed" ? "실패 — " : ""}${s.text || ""}` });
+  const served = V.stages.filter((g) => g.server && g.steps), active = flowActive(V.run);
+  if (!served.length) { out.facts.why = SINGLE_NOT_SERVED; return agwCommon(out); } // 조립한 것은 화면이 돌리지 않는다 — 서버가 못 맡으면 행동을 내지 않고 그 까닭만
+  if (!V.ready && V.why) out.facts.why = V.why;
+  const E = active ? null : flowEnd(V.last);
+  if (E && E.text && (!E.ok || E.left)) out.facts.lastRun = E.text; // 지난 실행이 멈춤 · 남김 · 끊김으로 끝났다 — 무엇이 · 어디서(서버가 지은 글 그대로)
+  const g = served.find((x) => x.left > 0); // 다음에 돌릴 묶음 — 남은 줄이 있는 첫 묶음
+  if (g && g.can && !active && !taskRun) {
+    const left = g.steps.filter((s) => !s.done && !s.optional).map((s) => s.key), ids = g.paid || [], name = `${g.no || ""} ${g.name || ""}`.trim();
+    const skip = g.change && dv.skip && dv.skip.size ? `:skip=${agwHash([...dv.skip].sort().join(","))}` : ""; // 「반영에서 빼기」 로 뺀 자리(화면에만 있는 입력 — 시작할 때 서버에 싣는다)
+    out.actions.push({ name: `run:${g.id}`, label: `${name} — 한 번에 진행`, does: `${ids.length ? `유료 LLM — 문서 ${ids.length}개 · ` : ""}${g.does || ""}`, change: g.change ? "doc" : "store", paid: !!ids.length, primary: true,
+      paidIds: ids, sig: V.sig || "", // paidIds · sig = 화면만 쓴다(서버는 안 받음 — work_guide.actions_in): 실행은 그 문서에만 유료 호출을 걸고 그 정의일 때만 시작한다
+      key: `${id}:${g.id}:${agwHash(left.join(","))}:paid=${ids.join(",")}:sig=${V.sig || ""}${skip}` });
+  } else if (g && !g.can && g.why && !active) out.facts.next = `${g.no || ""} ${g.name || ""} — ${g.why}`.trim(); // 다음 묶음을 지금 못 하는 까닭(서버의 글 — 앞 묶음이 먼저 · 문서 칸이 빔)
+  return agwCommon(out);
+}
+
 async function agwStatusOf(job, opt = {}) {
   // 목록에 없는 조립한 워크플로우(지워짐 · 저장 파일을 못 읽음 — task_catalog.js taskLostWhy): 행동 없이 그 까닭 한 줄만(아무 실행도 내지 않는다 · job 값은 그대로).
   // 진행 에이전트는 그런 문서를 맡지 않지만(agwGuided) 맡던 때 낸 실행 카드 · 질문 카드를 누르면 여기서 다시 센다(agentWorkRun · agentWorkAnswer — 그 까닭으로 실행하지 않음).
@@ -326,6 +364,7 @@ async function agwStatusOf(job, opt = {}) {
   const lost = taskLostWhy(job);
   if (lost) return { steps: [{ stage: "준비", key: "workflow", name: "워크플로우 다시 고르기", state: "now", text: lost }], actions: [], facts: { why: lost, llm: !!AGENT.enabled } };
   try {
+    if (taskIsSingle(job)) return await agwSingleStatus(); // 문서 하나로 조립한 것 — 서버가 센 상태(이관 · 취합 · 붙박이 문서 하나의 가지로 읽지 않는다)
     if (agwFit(job)) return await agwFitStatus(opt);
     if (taskIsRelay(job)) return await agwRelayStatus();
     if (taskIsGather(job)) return await agwGatherStatus();
@@ -418,6 +457,10 @@ async function agwExec(name, args, cur = null) { // cur = 실행 직전에 다�
   }
   if (name.startsWith("run:")) {
     const id = name.slice(4);
+    if (taskIsSingle(agwJob())) { // 문서 하나로 조립한 것 — 서버 쪽 실행기만(workflow_exec.js singleRunServer: 화면 실행으로 가지 않는다). 유료 줄은 카드가 승인한 문서에만(by agent · paid) · 카드가 본 정의일 때만(sig)
+      const r = await singleRunServer(id, { paid: (cur && cur.paidIds) || [], sig: (cur && cur.sig) || "", quiet: true });
+      return { ok: !!r.ok, text: (r.run && r.full) || r.text };
+    }
     if (taskIsGather(agwJob())) {
       const g = GT_STAGES.find((x) => x.id === id), r = await gatherRunStage(id, gatherPlan());
       return { ok: !!r.ok, text: `${g ? g.name : id} — ${r.text}` };
@@ -749,7 +792,9 @@ function agwLiveEl() {
   if (R) {
     const acts = el("div", "ag-acts");
     if (R.stop) { const stop = hBtn(R.stopping ? "멈추는 중…" : "멈춤", () => { R.stop(); agentDrawTalk(); }, { disabled: R.stopping, title: "지금 하는 일이 끝나면 멈춥니다(바로 끊지 않습니다) — 끝난 것은 그대로 남습니다" }); stop.dataset.agw = "stop"; acts.append(stop); }
-    if (R.kind !== "style" && toolShown("Div")) { const div = hBtn("작업 개요에서 보기", () => showTab("Div"), { title: "패널 「작업 개요」 의 단계 목록과 묶음 상태 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); div.dataset.agw = "detail"; acts.append(div); }
+    if (R.kind === "single") { // 문서 하나로 조립한 워크플로우 — 묶음 › 줄의 진행은 패널 「대시보드」 에 있다(「작업 개요」 에는 그 정의의 묶음이 없다)
+      if (toolShown("Dash")) { const d = hBtn("대시보드에서 보기", () => showTab("Dash"), { title: "패널 「대시보드」 의 단계 흐름과 진행 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); d.dataset.agw = "detail"; acts.append(d); }
+    } else if (R.kind !== "style" && toolShown("Div")) { const div = hBtn("작업 개요에서 보기", () => showTab("Div"), { title: "패널 「작업 개요」 의 단계 목록과 묶음 상태 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); div.dataset.agw = "detail"; acts.append(div); }
     if (acts.childNodes.length) card.append(acts);
     if (R.kind === "quick" && !(gqRun && gqRun.uploadOnly)) card.append(el("p", "ag-state", "끝나면 무엇을 넣었고 무엇을 남겼는지 여기서 보고합니다."));
   }

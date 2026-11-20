@@ -20,7 +20,8 @@ ZONES_DEFAULT = {"plan_merge": ["org"]}   # TASK(job) → 기본으로 켤 기�
 
 
 def _zones_default(job):
-    """그 워크플로우의 기본 기준 — 붙박이는 ZONES_DEFAULT · 취합형으로 조립한 것은 붙박이 취합과 같게(기관 — 화면 task_catalog.js taskCatalogCustom 의 `zones` 와 같다)."""
+    """그 워크플로우의 기본 기준 — 붙박이는 ZONES_DEFAULT · 취합형으로 조립한 것은 붙박이 취합과 같게(기관 — 화면 task_catalog.js taskCatalogCustom 의 `zones` 와 같다) ·
+    이관형 · 문서 하나로 조립한 것은 그 틀의 붙박이처럼 없음(붙박이 이관 · 양식 표준화 · 양식 맞추기 = [])."""
     if job in ZONES_DEFAULT:
         return ZONES_DEFAULT[job]
     from app import custom_tasks   # 가벼운 모듈

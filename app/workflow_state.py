@@ -6,6 +6,7 @@
 - `definition(job)` = 그 워크플로우의 등록부 꼴(붙박이 · 조립한 것) | None · `sig(task)` = 정의의 지문(조립한 것 = custom_tasks.sig · 붙박이 = 묶음 id · 단계 key 의 sha1 10자).
 - `need(task)` = 재료를 읽어야 하는 문서 역할(서버가 세는 묶음의 줄이 닿는 역할) — 부르는 쪽이 그 문서만 연다.
 - `view(task, pair, facts, llm, skip)` = 화면에 내는 상태 `{job, sig, docs, ready, why, stages[…]}`(② §17-5 의 `GET …/flow`)."""
+import contextvars
 import hashlib
 import json
 
@@ -16,13 +17,22 @@ WORD = {"done": "끝남", "now": "지금", "ready": "할 수 있음", "todo": "�
 
 
 def definition(job):
-    """키 → 등록부의 워크플로우(붙박이 · 조립한 것) | None(모르는 키 · 워크플로우 없음)."""
-    return workflow.task_of(job) if job else None
+    """키 → 등록부의 워크플로우(붙박이 · 조립한 것) | None(모르는 키 · 워크플로우 없음).
+    사람이 화면에서 고친 도구 이름(spec_워크플로우 ② §18-19 「도구 이름 고치기」)을 얹은 꼴이다 — 줄의 `name` 이 실행 상태 · 실행 기록에 보일 이름(줄 key · 차례 · 지문은 그대로 · 고친 것이 없으면 등록부의 것 그대로).
+    얹는 것은 등록부가 한다(`workflow.shown_of` — 이 층은 정의와 단위만 가져온다: tests/test_workflow_units.py 의 가져오기 경계)."""
+    return workflow.shown_of(job) if job else None
+
+
+# 실행기가 지금 도는 줄 = (가족, 줄 key) | None — 맥락 변수(스레드 · 실행마다 따로). `workflow_exec._line` 이 처리 함수를 부르는 동안 건다.
+# 읽는 곳 = app/agent_notes.py: 그 줄이 부르는 LLM 호출에 **그 도구에 적어 둔 내용**(도구 공통 · 이 워크플로우 전용 — spec_에이전트 ② §6)을 붙인다. 실행 층은 그 모듈을 가져오지 않는다(이 변수만 건다).
+LINE = contextvars.ContextVar("nfm_flow_line", default=None)
 
 
 OPEN = {"relay", "gather"}   # 서버 실행기를 연 틀(가족) — 화면(실행의 거울 · 두 대시보드 · 울타리의 고치던 글 보고)이 그 틀을 따라올 때 더한다: gather(취합 — 걸음 5)는 2026-11-20 갈래 「라」 에서 엶
 #                    (거울 = workflow_exec.js gatherRunServer · gatherRunFollow) · single(문서 하나 — 걸음 6)은 아직(검토 의견의 P1 을 본 뒤 — spec ④).
 #                    닫힌 틀의 묶음은 `server: false`(화면이 돈다) — 화면이 따라오기 전에 열면 문서 화면이 그 실행을 못 보고(거울 없음) 고치던 글을 보고하지 않아 울타리가 지켜 주지 못한다. 시험은 이 집합을 넓혀 본다
+OPEN_CUSTOM = {"single"}   # **조립한 워크플로우에만** 서버 실행기를 연 틀(가족) — 2026-11-20 사용자 「그리고 문서 하나는 왜 안되냐?」 → 답 「조립한 것만 서버로」: 조립 폼에서 만든 문서 하나만 서버가 돈다(같은 날 켬 —
+#                       화면이 따라옴: workflow_exec.js singleRunServer · 3초 확인의 고치던 글 보고 · dashboard.js dashSingleLive). OPEN 에 single 을 넣지 않는다 — 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 가 같이 열린다(그 둘은 지금처럼 화면에서 돈다)
 
 
 def family(task):
@@ -78,15 +88,16 @@ def stage_label(g):
 
 
 def lines(task):
-    """정의의 줄들(준비 중인 줄은 뺀다) → [{stage, key, name, on, optional, unit(단위 | None)}] — 묶음 차례 · 줄 차례."""
+    """정의의 줄들(준비 중인 줄은 뺀다) → [{stage, key, name, on, optional, unit(단위 | None), beside}] — 묶음 차례 · 줄 차례.
+    beside = 앞 줄과 같은 차례(조립한 정의의 같은 행 — spec_워크플로우 ② §18-6 「행 × 두 칸」: 실행기가 그 두 줄을 함께 돌지 본다 — workflow_exec._together)."""
     fam = family(task)
-    return [{"stage": g["id"], "key": s["key"], "name": s["name"], "on": s["on"], "optional": s["optional"], "unit": U.unit(s["key"], fam)}
+    return [{"stage": g["id"], "key": s["key"], "name": s["name"], "on": s["on"], "optional": s["optional"], "unit": U.unit(s["key"], fam), "beside": bool(s.get("beside"))}
             for g in task.get("stages") or () for s in g["steps"] if not s["soon"]]
 
 
 def relay_pair(task):
     """이관형(원본 문서 하나 → 목적 문서 하나)인가 — 지금 서버 실행기가 돌릴 수 있는 틀은 이것뿐이다(취합형은 걸음 5 · 문서 하나는 걸음 6).
-    단계 key 는 워크플로우마다 겹친다(취합의 「프로젝트 구성 확정」 config · 양식 맞추기의 plan · apply …) — 틀을 보지 않으면 그 묶음을 이관의 처리 함수로 돌리게 된다."""
+    단계 key 는 워크플로우마다 겹친다(취합의 「프로젝트 구성 추출」 config · 양식 맞추기의 plan · apply …) — 틀을 보지 않으면 그 묶음을 이관의 처리 함수로 돌리게 된다."""
     roles = {r["role"]: r for r in task.get("roles") or ()}
     return family(task) == "relay" and set(roles) == {"source", "target"} and not roles["source"].get("many")
 
@@ -100,9 +111,12 @@ def framed(task):
 
 
 def served(task, gid):
-    """그 묶음을 서버 실행기가 맡는가 — 서버 실행기를 연 틀(OPEN)이고 · 문서 칸이 그 틀이고(framed) · 준비 중이 아닌 모든 줄에 서버가 돌릴 수 있는 단위가 있을 때."""
+    """그 묶음을 서버 실행기가 맡는가 — 서버 실행기를 연 틀(OPEN)이고 · 문서 칸이 그 틀이고(framed) · 준비 중이 아닌 모든 줄에 서버가 돌릴 수 있는 단위가 있을 때.
+    조립한 워크플로우(`custom`)는 조립한 것에만 연 틀(OPEN_CUSTOM)이어도 맡는다 — 나머지 조건은 같다(같은 가족의 붙박이는 그대로 화면이 돈다)."""
     mine = [x for x in lines(task) if x["stage"] == gid]
-    return family(task) in OPEN and framed(task) and bool(mine) and all(x["unit"] is not None and x["unit"]["server"] for x in mine)
+    fam = family(task)
+    opened = fam in OPEN or (fam in OPEN_CUSTOM and bool(task.get("custom")))
+    return opened and framed(task) and bool(mine) and all(x["unit"] is not None and x["unit"]["server"] for x in mine)
 
 
 def need(task):
@@ -180,7 +194,9 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
                 if not done and not s["optional"]:
                     opened = False
                 steps.append({"key": s["key"], "name": s["name"], "on": s["on"], "optional": s["optional"], "st": st, "done": done, "skipped": bool(got.get("skipped")), "busy": got["st"] == "busy",
-                              "text": got.get("text") or "", **({"per": got["per"]} if got.get("per") else {}), **({"paid": got["paid"]} if got.get("paid") else {})})
+                              "text": got.get("text") or "", **({"per": got["per"]} if got.get("per") else {}), **({"paid": got["paid"]} if got.get("paid") else {}),
+                              "kind": (U.unit(s["key"], fam) or {}).get("kind") or "",   # 그 줄을 누가 하나(auto 실행기가 한다 · pick 사람이 고르는 줄 — 실행기는 지나감 · hand 사람이 하고 「했음」) — 화면이 「이 단계만 진행」 을 둘 줄을 이것으로 가른다
+                              **({"beside": True} if s.get("beside") else {})})   # 앞 줄과 같은 차례(조립한 정의의 같은 행 — 화면이 한 차례로 묶어 보인다)
             work = [x for x in steps if x["key"] != "files" and not x["optional"]]   # 세는 줄 — 준비 · 선택 줄은 뺀다
             row.update(steps=steps, total=len(work), done=sum(1 for x in work if x["done"]), left=sum(1 for x in work if not x["done"]),
                        paid=sorted({d for x in steps for d in x.get("paid") or ()}))

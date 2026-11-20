@@ -184,18 +184,18 @@ try:
         check("1단계 「한 번에 진행」 — 확인 창 없이 두 문서를 분석하고 끝남(LLM 을 쓸 수 없어 LLM 검증·보완은 건너뜀) · 2/2 완료 · 2단계 단추가 켜지고 강조가 옮겨 감 · 문서는 그대로(rev)", len(dialogs) == n and last["ok"] and last["stage"] == "review"
               and s0["kind"] == "done" and s0["count"] == "2/2 완료" and s0["text"].startswith("끝남 — 두 문서의 헤딩 그래프·표 구조가 있습니다") and "사업계획서 LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)" in s0["text"] and s0["disabled"]
               and hd["state"] == "done" and "사업계획서 있음 · 연차보고서 있음" in hd["text"] and hl["state"] == "done" and hl["badge"] == "건너뜀" and "LLM 을 쓸 수 없어 건너뜁니다" in hl["text"] and hl["acts"] == []
-              and not s["disabled"] and s["primary"] and s["text"].startswith("다음: 프로젝트 구성 확정")
+              and not s["disabled"] and s["primary"] and s["text"].startswith("다음: 프로젝트 구성 추출")
               and all(requests.get(f"{base}/api/docs/{w}", timeout=60).json()["rev"] == 0 for w in (a, c)), [s0, hd, s, last])
         g0 = requests.get(f"{base}/api/docs/{a}/form-guides", timeout=60).json()
         check("1단계가 작성 지침을 저장함(이 작은 문서에도 ※ 안내 하나 — 표 하나의 것 · 헤딩은 본문 헤딩이 앞에 없어 비움) · 줄에 수와 「작성 지침」 단추", g0["saved"] is not None and g0["saved"]["counts"]["items"] == 1 and g0["saved"]["counts"]["tables"] == 1
               and "작성 지침 1개 저장" in hd["text"] and hd["acts"] == ["작성 지침"], [g0.get("saved") and g0["saved"]["counts"], hd])
         n = len(dialogs)
         page.evaluate("() => { taskRunLast = null; }")
-        page.click("#taskStage [data-task-run]")   # 2단계 「구성 맞추기」 — 첫 단계(프로젝트 구성 확정)에서 멈춘다
+        page.click("#taskStage [data-task-run]")   # 2단계 「구성 맞추기」 — 첫 단계(프로젝트 구성 추출)에서 멈춘다
         page.wait_for_function("() => !taskRun && !!taskRunLast", timeout=60000)
         s0 = page.evaluate(STAGE)
         check("값이 없는(읽을 수도 없는) 사업계획서 — 확인 창 없이(2026-11-18) 구성 확정에서 멈춤 · 세부 목록이 펴짐 · 단추는 다시 「한 번에 진행」", len(dialogs) == n
-              and s0["kind"] == "halt" and s0["text"].startswith("멈춤 — 프로젝트 구성 확정") and "읽지 못했습니다" in s0["text"] and s0["open"] and s0["btn"] == "한 번에 진행" and not s0["disabled"] and not s0["spin"]
+              and s0["kind"] == "halt" and s0["text"].startswith("멈춤 — 프로젝트 구성 추출") and "읽지 못했습니다" in s0["text"] and s0["open"] and s0["btn"] == "한 번에 진행" and not s0["disabled"] and not s0["spin"]
               and page.evaluate(OLVIS, "taskStage"), [s0, dialogs[n:]])
         st, cf = page.evaluate(STEPS), page.evaluate(CONFIG)
         check("멈춘 상세 단계에 멈춤 표시 · 뒤 단계는 대기", cf["status"] == "halt" and cf["badge"] == "멈춤"

@@ -24,7 +24,7 @@ LLM 자리(llm — NFM_LLM_SLOTS)는 서버 전체가 나눠 쓴다 — 같이 �
 import concurrent.futures
 import threading
 
-from app import analysis, heading_runs, llm, tpl_agent, works
+from app import agent_notes, analysis, heading_runs, llm, tpl_agent, works
 
 PARTS = (("heads", "헤딩 · 템플릿 — 헤딩 그래프(LLM)"), ("tables", "표 — 표 구조(LLM)"), ("formats", "서식 — 템플릿 서식 정리 계획"))  # 차례 번호는 analysis.part_nos(헤딩이 도느냐에 따라 — 같은 번호 = 같이 돎)
 PLAN_WORKERS = None  # 서식 정리 계획을 같이 받는 템플릿 수 — None = LLM 자리 수(llm.slots_n: 자리는 서버 전체가 나눠 쓴다 — 표 판정이 아직 돌면 자리를 기다릴 뿐이다) · 시험이 수로 바꾼다
@@ -119,8 +119,8 @@ def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True
     if "tables" in rest:
         job.stage = 3
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(rest), thread_name_prefix="llm-check") as ex:
-        ft = ex.submit(_tables, sess, job, st, rebuilt) if "tables" in rest else None
-        ff = ex.submit(_formats, sess, job, outline, plans, plan) if "formats" in rest else None
+        ft = ex.submit(agent_notes.carry(_tables), sess, job, st, rebuilt) if "tables" in rest else None   # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위)를 일꾼 스레드로
+        ff = ex.submit(agent_notes.carry(_formats), sess, job, outline, plans, plan) if "formats" in rest else None
     err = (ft.exception() if ft else None) or (ff.exception() if ff else None)  # 둘 다 끝난 뒤 — 실패는 표가 먼저(작업 오류 글 하나)
     if err is not None:
         raise err
@@ -240,7 +240,7 @@ def _formats(sess, job, outline, plans, plan):
                 bad[tid] = why
             show()
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(todo), PLAN_WORKERS or llm.slots_n()), thread_name_prefix="tpl-plan") as ex:
-        list(ex.map(one, todo))
+        list(ex.map(agent_notes.carry(one), todo))   # carry = 지금 워크플로우를 일꾼 스레드로(같은 함수를 여러 스레드가 함께 불러도 된다)
     got_ok = [tag[t] for t in todo if t in ok]  # 템플릿 차례로(끝난 차례가 아니라)
     got_bad = [f"{tag[t]}: {bad[t]}" for t in todo if t in bad]
     left = len(todo) - len(got_ok) - len(got_bad)

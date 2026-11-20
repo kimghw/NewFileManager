@@ -1,0 +1,20 @@
+/* 조립 화면의 「도구 설명」 열 — 도구 이름 고치기(spec_워크플로우 ② §18-19 · design.md §22): 도구 이름(h4) 바로 아래의 한 줄.
+   닫힌 꼴 = 「이름 바꾸기」 단추 + (고친 도구) 기본 이름 · 고치는 꼴 = 입력 칸 + 저장 · 기본 이름으로 · 취소 + 한 줄 안내. 크기는 그 열의 다른 컨트롤과 같게(단추 24px · 입력 칸 26px). */
+.wf-name { margin: -2px 0 9px; }
+.wf-name-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.wf-name-go { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; font-size: 11.5px; color: var(--muted); }
+.wf-name-go:hover:not(:disabled) { color: var(--accent); }
+.wf-name-go svg { flex: none; }
+.wf-name-base { min-width: 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.wf-name[data-state="renamed"] .wf-name-base { padding: 1px 7px; border-radius: 10px; background: var(--surface-2); }
+.wf-name-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wf-name-input { flex: 1 1 150px; min-width: 0; height: 26px; box-sizing: border-box; padding: 0 7px; border: 1px solid #cfd7e4; border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; transition: border-color .12s, box-shadow .12s; }
+.wf-name-input:hover:not(:disabled) { border-color: var(--line-strong); }
+.wf-name-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(36, 88, 214, .14); }
+.wf-name-acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-name-acts .btn { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.wf-name-hint, .wf-name-msg, .wf-name-err { margin: 5px 0 0; font-size: 11.5px; line-height: 1.55; }
+.wf-name-hint { color: var(--muted); }
+.wf-name-msg { color: #1f7a45; }
+.wf-name-err { color: var(--bad, #b42318); }
+/* 줄 편집기의 카드 · 목차 — 고친 이름의 도구는 가리키면 기본 이름이 보인다(글은 title — 꼴은 그대로) */

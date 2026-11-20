@@ -154,8 +154,9 @@ def main():
               d["hash"] == "#merge_links" and head == ["09", "자리 연결 검토"] and d["title"].startswith("작업 09 · 자리 연결 검토") and d["cur"] == "merge_links" and d["two"] and d["no"] == "09" and d["role"].startswith("사업계획서")
               and d["model"][0] == "따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)" and d["model"][1:] == ["Fable 5.2", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"] and d["effort"] == "따로 정하지 않음 — 지금 medium"
               and d["saved"] == "기본값 그대로" and d["save"] and [s[0] for s in d["secs"]] == ["①", "②", "③", "④", "⑤"] and d["helps"] == 5, [head, d])
-        check("④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료",
-              [x[0] for x in d["parts"]] == ["k-contract", "k-merge", "k-job", "k-form", "k-data"] and d["parts"][0][3] == "읽기만" and d["parts"][1][2] == "app/merge_guides_default/links.md"
+        check("④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료 → 덧붙이는 글(범용 — 고칠 수 있음: spec_에이전트 ② §6)",
+              [x[0] for x in d["parts"]] == ["k-contract", "k-merge", "k-job", "k-form", "k-data", "k-note"] and d["parts"][0][3] == "읽기만" and d["parts"][1][2] == "app/merge_guides_default/links.md"
+              and d["parts"][5][1] == "덧붙이는 글 — 범용(모든 워크플로우)" and d["parts"][5][3] == "고칠 수 있음"
               and d["parts"][2][2] == "jobs/plan_to_report.md" and "자리 연결" in d["parts"][1][1], d["parts"])
         ag.locator("#agMain .agp.k-contract summary").click()
         check("계약 글은 읽기 전용으로 펼쳐 본다", ag.evaluate("() => { const t = document.querySelector('.agp.k-contract .agp-text'); return t.readOnly && t.value.length > 500 && !document.querySelector('.agp.k-contract .agp-acts'); }"))

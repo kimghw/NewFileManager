@@ -28,7 +28,7 @@ COMMON = {u["key"]: u for u in (
     _u("heads", "stage_review", "doc", roles=ROLES, change="store", needs=("slots",), gives=("heads",), server=True),       # 헤딩 · 표 분석(배경 일 · 목적 문서면 끝에 작성 지침 저장)
     _u("headsLlm", "stage_review", "doc", roles=ROLES, change="store", paid="doc", needs=("heads",), gives=("checked",), server=True),   # LLM 검증·보완(배경 일 — 못 쓰거나 건너뛰면 「건너뜀」)
     _u("configLoad", "stage_fit", "flow", kind="pick", change="store", optional=True, server=True),                         # 구성 불러오기(선택 — 실행기는 지나감)
-    _u("config", "stage_fit", "flow", change="store", needs=("slots",), gives=("config",), server=True, reads=ROLES),        # 프로젝트 구성 확정(값 = 원본(구성의 기준) · 확정 = 목적 문서에서 — 화면 실행과 같다)
+    _u("config", "stage_fit", "flow", change="store", needs=("slots",), gives=("config",), server=True, reads=ROLES),        # 프로젝트 구성 추출(값 = 원본(구성의 기준) · 확정 = 목적 문서에서 — 화면 실행과 같다)
     # 문서마다의 줄은 원본 · 목적 문서 어느 쪽에도 놓는다(2026-11-20 사용자 「원본 문서는 왜 네 맘대로 빼냐? 목적문서랑 원본 문서도 분리해서 따로 따로 하게 해줘야지」 — 전에는 구성 반영 · 다시 문서 검토 · 작성요령 삭제가 목적 문서만이었다:
     # ② §18-2 「원본 문서에 놓는 줄」). 사실(fit · fresh · clean)은 문서마다다 — 원본 문서의 반영은 그 문서 자신의 값(own_values)을 제 구조에 맞춘다.
     _u("division", "stage_fit", "doc", roles=ROLES, change="doc", needs=("config",), gives=("fit",), spoils=("fresh",), server=True, reads=ROLES),   # 프로젝트 구성 반영(같은 검사 · 울타리)
@@ -46,7 +46,7 @@ RELAY = {u["key"]: u for u in (
     _u("tableMap", "stage_fill", "pair", change="store", paid="stage", needs=("plan",), spoils=("plan",), once=True, optional=True, via="plan", server=True),
     _u("apply", "stage_fill", "pair", change="doc", needs=("plan",), gives=("filled",), redo=("plan",), server=True),                                          # 울타리 · 낡은 계획(409)이면 한 번만 다시 계획
 )}
-# 취합형(걸음 5 — ② §18-13 갈래 「다」: app/merge_gather_api.py) — 원본 문서(기관 문서) 여럿 → 목적 문서(취합본) 하나 · 구성의 기준 = 목적 문서(준비 files · 프로젝트 구성 확정 config 는 같이 쓰는 단위가 base 를 따른다).
+# 취합형(걸음 5 — ② §18-13 갈래 「다」: app/merge_gather_api.py) — 원본 문서(기관 문서) 여럿 → 목적 문서(취합본) 하나 · 구성의 기준 = 목적 문서(준비 files · 프로젝트 구성 추출 config 는 같이 쓰는 단위가 base 를 따른다).
 # 같이 쓰는 단위와 key 가 겹치는 것(division · hand · heads)은 가족의 것이 먼저다 — 뜻이 다르다: division = 구조가 이미 맞으면 확인만(adopt) · 간단 모드는 지울 것이 있으면 멈춤 /
 # hand = 기관에 배포 · 회수(앱 밖의 일 — 「했음」 을 받지 않는다: 들어온 문서로 본다) / heads = 원본 문서 하나씩(열어 둘 수 있는 문서 수에 묶인다).
 GATHER = {u["key"]: u for u in (
@@ -67,7 +67,7 @@ SINGLE = {u["key"]: u for u in (
     _u("open", "", "flow", kind="pick", change="store", gives=("slots",), server=True),                                     # 준비 — 문서를 올리면 끝난 것(실행기는 지나간다)
     _u("read", "stage_fit", "doc", roles=("target",), change="store", optional=True, server=True, reads=("target",)),       # 구성 읽기(선택) — 입력 값이 없을 때만 문서에 적힌 값을 입력으로(확정하지 않는다)
     _u("load", "stage_fit", "flow", kind="pick", change="store", optional=True, server=True),                               # 구성 불러오기(선택 — 사람이 고른다)
-    _u("values", "stage_fit", "flow", change="store", needs=("slots",), gives=("config",), server=True, reads=("target",)),  # 프로젝트 구성 확정 — **관문**: 사람이 확정한다(실행기는 저절로 확정하지 않고 확정 전이면 멈춘다 — 이관의 config 와 다르다)
+    _u("values", "stage_fit", "flow", change="store", needs=("slots",), gives=("config",), server=True, reads=("target",)),  # 프로젝트 구성 추출 — **관문**: 사람이 확정한다(실행기는 저절로 확정하지 않고 확정 전이면 멈춘다 — 이관의 config 와 다르다)
     _u("review", "stage_fit", "doc", roles=("target",), kind="pick", change="store", optional=True, server=True),          # 구분 기준 LLM 검토(선택 · 유료 — 사람이 단추로만: 분석 상태의 규칙 「저절로 안 돎」)
     _u("plan", "stage_fit", "doc", roles=("target",), kind="pick", needs=("config",), via="apply", server=True, reads=("target",)),   # 변경 계획 보기 — 사람이 목록으로 본다(실행기의 계획은 반영 줄이 울타리 안에서 세운다)
     _u("apply", "stage_fit", "doc", roles=("target",), change="doc", needs=("config",), gives=("fit",), spoils=("fresh",), server=True, reads=("target",)),   # 구조 반영(울타리 안: 계획 → 같은 검사 → 반영 한 번)
@@ -89,9 +89,11 @@ def hand_key(key):
 
 
 def unit(key, family="relay"):
-    """(가족, key) → 단위 | None — 가족의 것이 먼저, 없으면 두 틀이 같이 쓰는 것. 사람이 하는 일의 줄(`hand1` …)은 단위 `hand`."""
-    if hand_key(key):
-        key = "hand"
+    """(가족, key) → 단위 | None — 가족의 것이 먼저, 없으면 두 틀이 같이 쓰는 것. 사람이 놓은 「사람이 하는 일」 줄(`hand1` …)은 **어느 틀에서나 같이 쓰는 단위 `hand`**(「했음」 이 없으면 실행이 멈춘다).
+    번호 없는 `hand` 는 가족의 것이 먼저다 — 취합 붙박이의 「기관에 배포 · 회수」(앱 밖의 일 — 실행기는 지나간다)가 그 key 다. 둘을 가르지 않으면 취합형에 놓은 「사람이 하는 일」 이 그 지나가는 단위로 읽혀
+    「했음」 없이 지나갔다(2026-11-20 검토에서 짚음 — 「내용 반영」 앞에 사람 확인을 둔 정의가 확인 없이 문서를 바꿈)."""
+    if hand_key(key) and key != "hand":
+        return COMMON["hand"]
     return FAMILIES.get(family, {}).get(key) or COMMON.get(key)
 
 
@@ -267,7 +269,7 @@ def target_values(div):
 
 
 def _config(ctx):
-    """프로젝트 구성 확정 — 목적 문서의 입력 값이 확정한 값과 같으면 끝남(화면 실행이 목적 문서에서 확정한다 · 공유 중이면 두 문서가 같은 확정)."""
+    """프로젝트 구성 추출 — 목적 문서의 입력 값이 확정한 값과 같으면 끝남(화면 실행이 목적 문서에서 확정한다 · 공유 중이면 두 문서가 같은 확정)."""
     (s, _sf), (t, tf) = _pair_of(ctx, "source"), _pair_of(ctx, "target")
     if not ctx.get("ready") or not t:
         return {"st": "todo", "text": ""}
@@ -347,7 +349,7 @@ def _division_src(ctx):
     if read:
         return {"st": "todo", "text": f"{S}에 저장된 값이 없어 문서에서 읽었습니다({total}) — 맞으면 {S}의 값으로 저장하세요(틀리면 {S}를 열어 고칩니다)"}
     if not confirm_valid(a, B.get("confirmed")):
-        return {"st": "todo", "text": f"{S}의 값({total})이 확정한 프로젝트 구성과 다릅니다 — {S}의 값을 맞추거나 「프로젝트 구성 확정」 을 다시 하세요"}
+        return {"st": "todo", "text": f"{S}의 값({total})이 확정한 프로젝트 구성과 다릅니다 — {S}의 값을 맞추거나 「프로젝트 구성 추출」 을 다시 하세요"}
     if not (A.get("applied") and A["applied"].get("values") == a):
         return {"st": "todo", "text": f"{S}에 아직 반영 전 — {total}"}
     return {"st": "done", "text": f"{S}에 반영됨 — {total}"}
@@ -773,12 +775,42 @@ def _one(ctx):
     return t, ((tf or {}).get("div") if tf else None)
 
 
-def fit_done(div):
-    """구조 반영이 끝났나(화면 agwFitApplied) — 마지막 전체 반영의 값이 지금 입력 값과 같고(당해 차년도 빼고 — divConfirmKey) 그 뒤 다른 값으로 「한 자리만 반영」 한 기록이 없다."""
-    a, v = (div or {}).get("applied") or {}, (div or {}).get("input")
-    if not (a.get("values") and v) or _no_cur(a["values"]) != _no_cur(v):
+def _cur(v):
+    """당해 차년도(정리한 꼴 — 없으면 1: 프로파일의 기본값)."""
+    try:
+        return int((v or {}).get("current") or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def same_fit(a, b):
+    """두 **반영값**이 같은가 — 당해 차년도까지 견준다(연차보고서의 「N단계-N차년도」 자리는 당해 차년도로 맞춘다: 그 값만 달라도 구조가 다르다). 확정의 유효성(confirm_valid)은 당해 차년도를 빼고 견준다 — 뜻이 다르다."""
+    return isinstance(a, dict) and isinstance(b, dict) and _no_cur(a) == _no_cur(b) and _cur(a) == _cur(b)
+
+
+def plan_pending(div):
+    """지금 문서의 전체 계획에 **실제로 바뀔 것**이 남았나 — 서버 메모리의 계획(div.plan: 값이 바뀌면 서버가 버린다)이 문서 전체의 것(only 없음)이고 낡지 않았고 바뀔 묶음 · 글이 있다.
+    그러면 지난 반영 기록보다 이 계획이 먼저다(구조 반영은 끝난 것이 아니다 — 화면도 반영할 수 있는 계획을 들고 있으면 반영 전으로 센다)."""
+    p = (div or {}).get("plan")
+    if not p or p.get("only") is not None or (div or {}).get("stale"):
         return False
-    return not any(p.get("values") and _no_cur(p["values"]) != _no_cur(a["values"]) for p in div.get("partial") or ())
+    s = p.get("summary") or {}
+    return bool(s.get("groups") or s.get("changes"))
+
+
+def fit_done(div):
+    """구조 반영이 끝났나 — 문서의 기록으로: 마지막 전체 반영(구조가 이미 맞아 확인만 한 것 포함)의 값이 지금 입력 값과 같고(**당해 차년도까지** — same_fit) · 그 뒤 다른 값으로 「한 자리만 반영」 한 기록이 없고 ·
+    추가한 자리(hints)가 그 반영 뒤에 바뀌지 않았고(바뀌었으면 옛 확인은 지금 후보의 것이 아니다) · 그 반영이 뺀 자리(skip)를 이번 실행이 여전히 뺀다(div.excl = 이번 실행의 뺀 자리 — 그 자리를 풀었으면 다시 계획해야 한다 ·
+    excl 이 없으면(상태 조회 · 뺀 자리를 모르는 화면이 시작한 실행) 지난 반영의 뺀 자리를 그대로 둔 것으로 본다).
+    화면 agwFitApplied 는 당해 차년도를 안 견준다(divConfirmKey) — 그 식은 「당해 차년도만 바꾼 뒤」 를 끝남으로 잘못 센다(spec_워크플로우 ④ 검토 의견 A2: 화면도 같은 식으로 고쳐야 한다)."""
+    a, v = (div or {}).get("applied") or {}, (div or {}).get("input")
+    if not (a.get("values") and v) or not same_fit(a["values"], v):
+        return False
+    if any(p.get("values") and not same_fit(p["values"], a["values"]) for p in div.get("partial") or ()):
+        return False
+    if sorted(a.get("hints") or ()) != sorted(div.get("hints") or ()):
+        return False
+    return div.get("excl") is None or set(a.get("skip") or ()) <= set(div["excl"])
 
 
 def plan_issues(s, every=True):
@@ -820,11 +852,11 @@ def _s_read(ctx):
     if div.get("input"):
         return {"st": "done", "text": ""}
     r = div.get("read")
-    return {"st": "todo", "text": f"문서에 적힌 값 — {summary_text(r)}(입력 칸에 채웁니다 — 확정은 「프로젝트 구성 확정」 에서)" if r else "문서에 적힌 단계 · 차년도 · 기관을 읽어 입력 칸에 채웁니다 — 확정은 「프로젝트 구성 확정」 에서 합니다"}
+    return {"st": "todo", "text": f"문서에 적힌 값 — {summary_text(r)}(입력 칸에 채웁니다 — 확정은 「프로젝트 구성 추출」 에서)" if r else "문서에 적힌 단계 · 차년도 · 기관을 읽어 입력 칸에 채웁니다 — 확정은 「프로젝트 구성 추출」 에서 합니다"}
 
 
 def _s_values(ctx):
-    """프로젝트 구성 확정 — 끝남 = 입력 값이 확정한 값과 같음(당해 차년도 빼고 — _config 와 같은 식: 구성의 기준 = 이 문서). 지원하지 않는 양식은 구조 반영을 할 수 없어 「건너뜀」(헤딩 · 표 묶음을 막지 않는다)."""
+    """프로젝트 구성 추출 — 끝남 = 입력 값이 확정한 값과 같음(당해 차년도 빼고 — _config 와 같은 식: 구성의 기준 = 이 문서). 지원하지 않는 양식은 구조 반영을 할 수 없어 「건너뜀」(헤딩 · 표 묶음을 막지 않는다)."""
     t, div = _one(ctx)
     got = _config({**ctx, "base": "target"})
     if got["st"] != "done" and div is not None and ctx.get("ready") and not div.get("supported"):
@@ -833,7 +865,8 @@ def _s_values(ctx):
 
 
 def _s_apply(ctx):
-    """구조 반영 — 끝남 = 마지막 전체 반영의 값이 지금 입력 값과 같음(당해 차년도 빼고 · 구조가 이미 맞아 확인만 한 것 포함 — fit_done). 지원하지 않는 양식 = 「건너뜀」."""
+    """구조 반영 — 끝남 = 마지막 전체 반영의 값이 지금 입력 값과 같음(당해 차년도까지 · 구조가 이미 맞아 확인만 한 것 포함 — fit_done)이고 **지금 문서의 전체 계획에 바뀔 것이 남지 않음**(plan_pending —
+    추가한 자리를 더했거나 문서를 고친 뒤 세운 계획에 바뀔 것이 있으면 지난 반영 기록보다 그 계획이 먼저다). 지원하지 않는 양식 = 「건너뜀」. 뺀 자리가 있는 반영은 끝남의 글에 그 수를 적는다."""
     t, div = _one(ctx)
     if not ctx.get("ready") or not t:
         return {"st": "todo", "text": ""}
@@ -841,9 +874,10 @@ def _s_apply(ctx):
         return {"st": "blocked", "text": "문서를 읽지 못했습니다"}
     if not div.get("supported"):
         return {"st": "done", "skipped": True, "text": NO_FORM}
-    if _s_values(ctx)["st"] != "done" or not fit_done(div):
+    if _s_values(ctx)["st"] != "done" or not fit_done(div) or plan_pending(div):
         return {"st": "todo", "text": ""}
-    return {"st": "done", "text": "이미 프로젝트 구성에 맞습니다" if (div.get("applied") or {}).get("adopted") else "문서 구조를 프로젝트 구성에 맞췄습니다"}
+    a = div.get("applied") or {}
+    return {"st": "done", "text": ("이미 프로젝트 구성에 맞습니다" if a.get("adopted") else "문서 구조를 프로젝트 구성에 맞췄습니다") + (f" · 반영에서 뺀 자리 {nf(len(a['skip']))}곳은 그대로" if a.get("skip") else "")}
 
 
 def _s_plan(ctx):
@@ -994,10 +1028,12 @@ def _s_adjust(ctx):
         return {"st": "todo", "text": "헤딩 LLM 판정 뒤에 합니다" + (f" — 지금 {ap['text']}" if ap.get("text") else "")}
     if fl.get("state") in ("running", "wait"):
         return {"st": "busy", "text": fl.get("text") or "서식 정리 계획을 받는 중"}
+    paid = [t["id"]] if P["need"] and ctx.get("llm") is not False else []   # 받을 계획이 남았으면 실행이 그것부터 받는다(유료) — 반영할 것이 함께 있어도 부른다(화면에 보이는 유료 문서 = 실제로 부를 문서)
+    need = f"서식 정리 계획을 받지 않은 템플릿 {nf(len(P['need']))}개" if P["need"] else ""
     if P["apply"]:
-        return {"st": "todo", "text": std_undecided_text(P["undecided"]) if P["undecided"] else f"반영할 것 — {std_apply_text(P)}"}
+        return {"st": "todo", "text": (std_undecided_text(P["undecided"]) if P["undecided"] else f"반영할 것 — {std_apply_text(P)}") + (f" · {need}(계획 받기 — 유료)" if need else ""), "paid": paid}
     if P["need"]:
-        return {"st": "todo", "text": f"서식 정리 계획을 받지 않은 템플릿 {nf(len(P['need']))}개 — 「계획 보기」 의 「계획 받기」(유료)", "paid": [] if ctx.get("llm") is False else [t["id"]]}
+        return {"st": "todo", "text": f"{need} — 「계획 보기」 의 「계획 받기」(유료)", "paid": paid}
     left = std_unseen(P, True)
     return {"st": "done", "text": "반영할 것이 남지 않았습니다" + (f" — {ap['text']}" if ap.get("text") else "") + (f" · 남긴 것: {' / '.join(left)}" if left else "")}
 

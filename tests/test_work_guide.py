@@ -46,7 +46,7 @@ def test_agent_is_registered_and_its_prompt_shows_the_workflow():
     a = agents.BY_ID["work_guide"]
     assert a["no"] == "19" and a["group"] == "문서 편집" and G.WHAT == "work-guide" and llm.EFFORTS and G.EFFORT in llm.EFFORTS
     kinds = [p["kind"] for p in agents.detail("work_guide")["prompt"]]
-    assert kinds[:3] == ["contract", "contract", "workflow"] and kinds[-1] == "data"   # 할 일 프롬프트(job)는 jobs/ 폴더가 켜져 있을 때 그 사이에 붙는다
+    assert kinds[:3] == ["contract", "contract", "workflow"] and kinds[-2:] == ["data", "note"]   # 할 일 프롬프트(job)는 jobs/ 폴더가 켜져 있을 때 그 사이에 붙는다 · 맨 끝 = 덧붙이는 글(범용 — spec_에이전트 ② §6)
     wf = next(p for p in agents.detail("work_guide")["prompt"] if p["kind"] == "workflow")
     assert wf["source"] == "workflow.md" and wf["text"] == W.MD.read_text(encoding="utf-8") and not wf["editable"]
     assert any("work_guide" in s["agents"] for _, s in W.steps())   # 워크플로우 등록부에도 적혀 있다
@@ -80,7 +80,7 @@ def test_assembled_workflow_gets_its_own_section_and_the_selected_steps_line(mon
     assert md.startswith(f"# 목적만 검토 · 구성 — `{t['key']}`") and "## 단계마다 조건" in md and "### 1단계 문서 검토 — " in md and "### 2단계 구성 맞추기 — " in md
     assert "- **LLM 검증·보완**" not in md and "- **다시 문서 검토(LLM)**" in md and "### 3단계" not in md and "- 산출물: 구조를 프로젝트 구성에 맞춘 연차보고서\n" in md   # 고른 단계만 · 실제 산출물
     assert "- 문서마다 단위문서 TASK — 원본 문서(사업계획서): 없음 / 목적 문서(연차보고서): 1단계 문서 검토(「헤딩 · 표 분석」) › 2단계 구성 맞추기(" in md
-    assert "- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 문서 검토(「준비」) › 2단계 구성 맞추기(「구성 불러오기」 › 「프로젝트 구성 확정」) — 구성의 기준: 원본 문서(사업계획서)" in md
+    assert "- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 문서 검토(「준비」) › 2단계 구성 맞추기(「구성 불러오기」 › 「프로젝트 구성 추출」) — 구성의 기준: 원본 문서(사업계획서)" in md
     assert "`jobs/plan_to_report.md`(틀이 같은 워크플로우의 것 — 그 글의 단계 설명 가운데 고르지 않은 단계는 하지 않는다)" in md and md.startswith(f"# 목적만 검토 · 구성 — `{t['key']}`\n") and "- 조립: 화면에서 단계를 골라 만든 워크플로우입니다" in md
     # T8 — 시작 점검을 가리키기만 하지 않고 그 글을 싣는다(붙박이 이관의 시작 점검을 이 조립의 묶음 번호로 — 없는 묶음의 일만 보는 항목은 뺌)
     entry = md.split("## 시작 점검 — 시작할 때 저절로 확인하는 것", 1)[1].split("## 단계마다 조건", 1)[0]

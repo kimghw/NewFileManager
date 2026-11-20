@@ -483,7 +483,7 @@ async function gatherUploadMany(files, org = null) { // 폴더 단추·폴더에
   for (const f of ok) if (epoch !== state.epoch || !(await gatherUpload(f, org))) break;
 }
 
-// ---- 단계(spec_취합 ② §5 · §9-1 「묶음 셋」) — 1단계 = 준비 · 프로젝트 구성 확정, 2단계 = ① 구분 기준 확인 · 배포 기준본, 3단계 = 기관 문서마다 한 줄(② 자리 연결 → LLM 검토 → ③ 넣기 계획 → ④ 내용 반영)
+// ---- 단계(spec_취합 ② §5 · §9-1 「묶음 셋」) — 1단계 = 준비 · 프로젝트 구성 추출, 2단계 = ① 구분 기준 확인 · 배포 기준본, 3단계 = 기관 문서마다 한 줄(② 자리 연결 → LLM 검토 → ③ 넣기 계획 → ④ 내용 반영)
 function gatherDiv() { // 취합본의 구분 기준 {values | null, applied | null, ok(지원 양식), confirmed(확정 — spec_작업 ② §18) | null, sharing} — 지금 문서면 화면 값(dv), 아니면 읽어 둔 것. undefined = 아직 못 읽음
   const plan = gatherPlan();
   if (!plan) return undefined;
@@ -492,7 +492,7 @@ function gatherDiv() { // 취합본의 구분 기준 {values | null, applied | n
   return { values: dv.view.settings || dv.view.applied || dv.dirty ? divValues() : null, applied: dv.view.applied || null, ok: !!dv.view.profile.supported,
     confirmed: dv.view.confirmed || null, sharing: dv.view.projectSharing || null };
 }
-const gatherConfirmed = (d) => divConfirmValid(d && d.values, d && d.confirmed); // 1단계 「프로젝트 구성 확정」 끝남 — 지금 입력 값이 확정한 값과 같다(app.js divConfirmValid)
+const gatherConfirmed = (d) => divConfirmValid(d && d.values, d && d.confirmed); // 1단계 「프로젝트 구성 추출」 끝남 — 지금 입력 값이 확정한 값과 같다(app.js divConfirmValid)
 const gatherDivDone = (d) => !!(d && d.values && d.applied && divCanon(d.applied.values) === divCanon(d.values)); // 입력 값이 문서에 반영돼 있다(반영 뒤 글을 고쳤다고 「다시」 를 요구하지 않는다)
 function gatherFrameText() { // 프레임 값 요약(1단계 머리 — 접혀 있어도 보임) → {text, title} · 값이 없으면 text ""
   const d = gatherDiv(), v = d && d.values;
@@ -528,8 +528,8 @@ function gatherSteps() { // → [{stage, step(files|division|frame|part), key, p
   if (!plan) files.lines.push(["", "사업계획서(취합본)를 위 칸에서 고르세요" + (taskProject() ? "" : " — 프로젝트 이름을 적으면 다른 문서를 고를 수 있습니다")]);
   else files.lines.push(["", plan.name]);
 
-  // 1단계 「프로젝트 구성 확정」 — 단계·차년도·기관 구성만 정해 프로젝트에 저장(확정). 문서는 안 바뀐다(spec_작업 ② §18 · spec_취합 ② §9-1)
-  const config = { stage: "config", step: "config", key: "config", no: "", name: "프로젝트 구성 확정", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
+  // 1단계 「프로젝트 구성 추출」 — 단계·차년도·기관 구성만 정해 프로젝트에 저장(확정). 문서는 안 바뀐다(spec_작업 ② §18 · spec_취합 ② §9-1)
+  const config = { stage: "config", step: "config", key: "config", no: "", name: "프로젝트 구성 추출", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
   const cf = d && d.confirmed, where = divConfirmWhere(d && d.sharing);
   if (!files.done) { /* 준비가 먼저 */ }
   else if (d === undefined) config.lines.push(["", "취합본의 프로젝트 구성 값을 읽는 중…"]);
@@ -546,7 +546,7 @@ function gatherSteps() { // → [{stage, step(files|division|frame|part), key, p
 
   // ① 구분 기준 확인 — 취합본에 과제 구성 값이 반영돼 있다(구분 기준의 계획 → 반영 그대로 — 기관 문서 없이 할 수 있다)
   const division = { stage: "frame", step: "division", key: "division", no: "①", name: "프로젝트 구성 반영", done: false, lines: [], acts: [], busy: !!dv.busy && mine };
-  if (!config.done) { /* 1단계(프로젝트 구성 확정)가 먼저 */ }
+  if (!config.done) { /* 1단계(프로젝트 구성 추출)가 먼저 */ }
   else if (gatherDivDone(d)) Object.assign(division, { done: true, lines: [["", `${d.applied.adopted ? "구조가 이미 값에 맞음(확인함)" : "취합본에 반영됨"} — ${sum(d.values)}`]] }); // adopted = 구조 확인(② §8-4)
   else if (d.ok === false) division.lines.push(["", "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다(연구개발계획서 양식만)"]);
   else Object.assign(division, { lines: [["", d.applied ? "입력한 값이 마지막으로 반영한 값과 다릅니다 — 변경 계획을 확인하고 반영하세요" : "값이 아직 취합본에 반영되지 않았습니다 — 바뀔 자리를 확인한 뒤 반영합니다(절·표 행·열 — 구조만)"]],
@@ -1190,7 +1190,7 @@ async function gatherRunMap(run, plan, opt = {}) { // 3단계 — 들어온 차�
   at("open", "취합본 여는 중");
   if (!(await gatherToPlan())) gatherHalt("취합본을 열지 못했습니다(고치던 글을 두고 그만뒀거나 열리지 않음)");
   const view = () => { const V = gt().view; if (!V) gatherHalt(`취합 상태를 읽지 못했습니다${gt().err ? `: ${gt().err}` : ""}`); return V; };
-  if (gatherCalc().some((s) => (s.stage === "config" || s.stage === "frame") && s.step !== "files" && !s.done)) gatherHalt(`${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」 이 먼저입니다(프로젝트 구성 확정 · 프로젝트 구성 반영 · 배포 기준본)`);
+  if (gatherCalc().some((s) => (s.stage === "config" || s.stage === "frame") && s.step !== "files" && !s.done)) gatherHalt(`${TASK_STAGE_META.frame.no} 「${TASK_STAGE_META.frame.name}」 이 먼저입니다(프로젝트 구성 추출 · 프로젝트 구성 반영 · 배포 기준본)`);
   const order = view().parts.map((p) => p.work), unassigned = [], blocked = [], done = [], notes = [], sum = {};
   const link = async (pid, p, key, method) => { // 자리 연결 → L | false(저절로 넣을 수 없는 문서 — 건너뜀) | null(응답을 버림 — 문서가 바뀜). 기관 문서의 분석이 없으면 한 번 걸고 다시
     for (let tries = 0; ; tries++) {

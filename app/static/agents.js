@@ -276,6 +276,8 @@
     return det;
   }
 
+  // 실행 기록의 notes 꼬리표 → 글: all = 에이전트 범용 · tool:<틀>.<줄> = 도구 공통 · jobtool:<키>/<줄> = 도구 · 그 워크플로우 전용 · job:<키> = 에이전트 · 그 워크플로우 전용 · tools-digest = 도구마다 적어 둔 내용의 요약(작업 진행)
+  const noteTag = (x) => { const s = String(x); return s === "all" ? "에이전트 범용" : s === "tools-digest" ? "도구마다의 내용 요약" : s.startsWith("tool:") ? `도구 공통(${s.slice(5)})` : s.startsWith("jobtool:") ? `도구 전용(${s.slice(8)})` : `에이전트 전용(${s.replace(/^job:/, "")})`; };
   function runTable(rows, withAgent) { // 실행 기록 표 — 번호 · 시각 · (에이전트) · 모델 · 시간 · 결과
     const t = el("table", "ags-runs"), head = el("tr"), names = new Map(((S.list && S.list.agents) || []).map((a) => [a.id, a]));
     for (const h of ["실행", "시각", ...(withAgent ? ["에이전트"] : []), "모델", "시간", "결과"]) head.append(el("th", null, h));
@@ -285,7 +287,7 @@
       const tr = el("tr", r.ok ? null : "bad"), a = names.get(r.agent);
       tr.append(el("td", "num", `#${r.n}`), el("td", null, when(r.t)));
       if (withAgent) { const td = el("td"); if (a) td.append(link(`#${a.id}`, `${a.no} ${a.name}`, "ags-runlink")); else td.textContent = r.what; tr.append(td); }
-      const m = el("td", null, `${modelName(r.model)}${r.effort ? ` · ${r.effort}` : ""}`); m.title = `${r.what}${r.backend ? ` · 길 ${r.backend}` : ""}${r.costUsd != null ? ` · $${(+r.costUsd).toFixed(4)}` : ""}`;
+      const m = el("td", null, `${modelName(r.model)}${r.effort ? ` · ${r.effort}` : ""}`); m.title = `${r.what}${r.backend ? ` · 길 ${r.backend}` : ""}${r.costUsd != null ? ` · $${(+r.costUsd).toFixed(4)}` : ""}${Array.isArray(r.notes) && r.notes.length ? ` · 덧붙이는 글: ${r.notes.map(noteTag).join(" + ")}` : ""}`; // notes = 그 호출에 붙은 덧붙이는 글(spec_에이전트 ② §6)
       const res = el("td", r.ok ? "ok" : "bad", r.ok ? "성공" : r.error === "off" ? "LLM 꺼짐" : r.error === "busy" ? "자리 없음" : "실패"); if (r.error) res.title = r.error;
       tr.append(m, el("td", "num", secs(r.ms)), res);
       tb.append(tr);

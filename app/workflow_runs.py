@@ -46,6 +46,13 @@ def _job(value, work):
     return value
 
 
+def _relay_made(job):
+    """이관형으로 조립한 워크플로우인가(원본 문서 하나 → 목적 문서 — 문서의 역할이 둘이라 전환할 때 제 역할을 지킨다). 취합형 · 문서 하나로 조립한 것은 아니다
+    (그 문서는 목적 문서 종류로 둔다 — 문서 하나는 그 문서가 곧 목적 문서다: custom_tasks.is_single)."""
+    from app import custom_tasks
+    return custom_tasks.is_key(job) and not custom_tasks.is_gather(job) and not custom_tasks.is_single(job)
+
+
 def _view(work):
     active = (work.get("task") or {}).get("job") or ""
     items = [{k: row[k] for k in _FIELDS} for row in work.get("workflows") or []]
@@ -130,7 +137,7 @@ def workflow_runs_activate(wid: str, body: dict = Body(...)):
         role = current.get("file") or ""
         if job in works.FRAME_FILE:
             role = works.FRAME_FILE[job]
-        elif job == "plan_to_report" or (__import__("app.custom_tasks", fromlist=["is_key"]).is_key(job) and not __import__("app.custom_tasks", fromlist=["is_gather"]).is_gather(job)):   # 이관형(붙박이 이관 · 조립한 TASK) — 원본 · 목적 문서 어느 쪽이든 제 역할 그대로 · 취합형으로 조립한 것은 아래(목적 문서 종류 — 붙박이 취합과 같다)
+        elif job == "plan_to_report" or _relay_made(job):   # 이관형(붙박이 이관 · 조립한 TASK) — 원본 · 목적 문서 어느 쪽이든 제 역할 그대로 · 취합형 · 문서 하나로 조립한 것은 아래(목적 문서 종류 — 붙박이 취합 · 양식 표준화와 같다)
             role = role if role in ("plan", "report") else ""
         elif job in works.TARGET_FILE:
             role = works.TARGET_FILE[job]

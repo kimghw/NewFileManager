@@ -15,7 +15,7 @@ from collections import Counter
 
 import copy
 
-from app import docx_check, headings, owpml_check, pdf_map, pdf_render, pdf_style, verify_llm, zip_guard
+from app import agent_notes, docx_check, headings, owpml_check, pdf_map, pdf_render, pdf_style, verify_llm, zip_guard
 from app.docx_doc import DocxDoc
 from app.hwpx_doc import HwpxDoc
 
@@ -282,7 +282,7 @@ def run_flow(job, fns, deps):
                         state[k] = blocked
                     elif all(d in state for d in before):
                         running.add(k)
-                        threading.Thread(target=worker, args=(k,), daemon=True, name=f"verify-{k}").start()
+                        threading.Thread(target=agent_notes.carry(worker), args=(k,), daemon=True, name=f"verify-{k}").start()  # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위)를 새 스레드로
                     else:
                         continue
                     pending.remove(k)

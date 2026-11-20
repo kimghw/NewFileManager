@@ -993,7 +993,7 @@ async function taskFlowLoad() { // 단계 ①② 에 쓸 다른 문서 쪽 자�
         // 기준 문서(사업계획서)의 값 = 반영 값 → 입력 값(자리 연결 API merge_api._read 와 같은 차례 — 문서가 실제로 맞춰진 값이 먼저), 견줄 문서는 입력 값 → 반영 값
         let values = ((w === plan ? r.applied || r.settings : r.settings || r.applied) || {}).values || null, read = false;
         if (!values && w === plan && r.profile.form) { values = taskReadValues((await api(`/api/docs/${w.id}/divisions/read`)).read); read = !!values; } // 저장된 값이 없으면 문서에 적힌 값 — 사람이 확인해 저장해야 기준이 된다
-        div[w.id] = { values, applied: r.applied, read, input: (r.settings || {}).values || null, confirmed: r.confirmed || null, sharing: r.projectSharing || null }; // input·confirmed = 1단계 「프로젝트 구성 확정」(spec_작업 ② §18)
+        div[w.id] = { values, applied: r.applied, read, input: (r.settings || {}).values || null, confirmed: r.confirmed || null, sharing: r.projectSharing || null }; // input·confirmed = 1단계 「프로젝트 구성 추출」(spec_작업 ② §18)
       }));
     } catch (e) { err = e.message; }
   }
@@ -1011,7 +1011,7 @@ function taskDivOf(w, basis = false) { // 문서의 구분 기준 {values | null
   if (basis && dv.view.applied) return { values: dv.view.applied.values, applied: dv.view.applied };
   return { values: dv.view.settings || dv.view.applied || dv.dirty ? divValues() : null, applied: dv.view.applied };
 }
-function taskConfigOf(w) { // 1단계 「프로젝트 구성 확정」(spec_작업 ② §18) — 기준 문서(사업계획서)의 {values(입력 값 | null), confirmed, sharing, read(값이 없어 문서에서 읽은 값 | null)}. undefined = 아직 못 읽음
+function taskConfigOf(w) { // 1단계 「프로젝트 구성 추출」(spec_작업 ② §18) — 기준 문서(사업계획서)의 {values(입력 값 | null), confirmed, sharing, read(값이 없어 문서에서 읽은 값 | null)}. undefined = 아직 못 읽음
   if (w.id === state.id) return dv.view && dv.values ? { values: dv.view.settings || dv.dirty ? divValues() : null, confirmed: dv.view.confirmed || null, sharing: dv.view.projectSharing || null, read: null } : undefined;
   const D = taskFlow.div[w.id];
   return D && { values: D.input, confirmed: D.confirmed, sharing: D.sharing, read: !D.input && D.read ? D.values : null };
@@ -1123,8 +1123,8 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
   const [lw, lwho] = docsL[0] || [plan, "사업계획서"];
   const headsLlm = docsL.length > 1 ? llmMany("headsLlm", "LLM 검증·보완", docsL) : llmStep("headsLlm", "LLM 검증·보완", lw, lwho, !!docsL.length && !!hOf(lw));
 
-  // 「프로젝트 구성 확정」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1" · §21 부터 2단계 「구성 맞추기」 의 첫 단계): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
-  const config = { key: "config", no: "", name: "프로젝트 구성 확정", done: false, early: !!both, keep: true, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」) · early = 분석이 도는 동안에도 확정할 수 있다(값 확정은 분석과 무관)
+  // 「프로젝트 구성 추출」(spec_작업 ② §18 — 2026-11-13 사용자 "구분 기준만 추출하는 단계를 1" · §21 부터 2단계 「구성 맞추기」 의 첫 단계): 기준 = 사업계획서. 구성만 추출해 프로젝트에 저장(확정) — 문서는 안 바뀐다
+  const config = { key: "config", no: "", name: "프로젝트 구성 추출", done: false, early: !!both, keep: true, text: "", acts: [] }, CF = both ? taskConfigOf(me(report) ? report : plan) : undefined; // 지금 문서가 칸 문서면 그 입력 칸(같은 프로젝트 구성 — 고치면 바로 「확정 뒤 바뀜」) · early = 분석이 도는 동안에도 확정할 수 있다(값 확정은 분석과 무관)
   const csum = (v) => `${v.stages.length}단계 · 전체 ${divTotalYears(v)}년 · 기관 ${((v.orgs || {}).joint || []).length + 1}곳`, where = divConfirmWhere(CF && CF.sharing);
   const confirmBtn = (values) => { const b = hBtn(`${where}에 저장`, () => taskConfigConfirm(plan, values), { cls: "btn sm primary", disabled: dv.busy,
     title: `${values ? "사업계획서에서 읽은" : "지금 입력"} 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다. 확정해야 「프로젝트 구성 반영」 으로 갑니다` }); b.dataset.taskConfirm = "1"; return b; };
@@ -1144,7 +1144,7 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     title: "프로젝트 구성을 불러옵니다 — 파일에서(이 프로젝트의 문서에서 추출 · 파일 올려 추출) 또는 저장된 곳에서(이 프로젝트의 확정본 · 다른 프로젝트 · 저장한 구성). 입력 칸만 바뀌고 문서 · 확정은 그대로입니다(선택 — 안 해도 됩니다)" })];
 
   const division = { key: "division", no: "①", name: "프로젝트 구성 반영", done: false, early: !!both && config.done, text: "", acts: [] }, A = both && taskDivOf(plan, true), B = both && taskDivOf(report); // early = 확정만 끝났으면 분석(1단계)이 도는 동안에도 단계별로 누를 수 있다(구조 반영은 분석과 무관 — 묶음의 「한 번에 진행」 은 차례대로)
-  if (!both || !config.done) { /* 준비 · 프로젝트 구성 확정이 먼저 */ }
+  if (!both || !config.done) { /* 준비 · 프로젝트 구성 추출이 먼저 */ }
   else if (taskFlow.err) Object.assign(division, { text: `다른 문서를 읽지 못했습니다: ${taskFlow.err}`, acts: [hBtn("다시 읽기", () => { taskFlow.err = ""; taskStepsDraw(); taskFlowLoad(); })] });
   else if (!A || !B) division.text = "두 문서의 프로젝트 구성을 읽는 중…";
   else if (!A.values) Object.assign(division, { text: "사업계획서(기준)에 프로젝트 구성 값이 없습니다 — 사업계획서에서 값을 넣거나 문서에서 읽으세요",
@@ -1797,15 +1797,15 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
 // **묶음은 둘**(같은 날 사용자 — 한 번에 진행한 결과를 보고 "지금 문서 프레임 작업인데 왜 내용을 넣지?" → 물어서 받은 답 「구조까지만」 · "2단계는 내용 넣고, 서식도 맞춰서 … 헤딩추출, 테이블
 // 정보 추출등을 해서 매핑하는거야. 2단계는 내용 매핑이겠지"): 1단계 「문서 프레임 작성」 = 준비 + ① 구분 기준 확인·반영(구조), 2단계 「내용 매핑」 = ② 자리 연결(앞에 헤딩·표 분석) → ③ 넣기 계획 →
 // ④ 내용 반영(서식 맞춤 포함). 묶음마다 「한 번에 진행」 — 2단계 것은 1단계가 끝나야 켜진다. 단계 번호·key 는 그대로(공통 차례 — spec_병합 ② §0-1).
-// 2026-11-13(spec_작업 ② §18 — 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"): 맨 앞에 1단계 「구분 기준」(준비 + 프로젝트 구성 확정 — 문서를 안 바꿈)을 더하고 번호를 하나씩 민다. 있던 묶음의 id·dom·store 는 그대로
+// 2026-11-13(spec_작업 ② §18 — 사용자 "구분 기준만 추출하는 단계를 1, 프레임 작성 2, 내용 매핑 3"): 맨 앞에 1단계 「구분 기준」(준비 + 프로젝트 구성 추출 — 문서를 안 바꿈)을 더하고 번호를 하나씩 민다. 있던 묶음의 id·dom·store 는 그대로
 // 2026-11-19(spec_작업 ② §21 — 사용자 "내용을 먼저 헤딩이랑 테이블 검토 작업을 하고, 프로젝트 구성 및 프레임 작성을 하고 다시 헤딩추출/테이블 작업을 하고 그 다음에 매핑 … 단계로 하면 구성 맞추기, 내용 넣기" ·
-// "문서 검토 … 단계가 있어야 하겠구나"): **묶음 넷** — 1단계 「문서 검토」(준비 + 헤딩·표 분석) · 2단계 「구성 맞추기」(프로젝트 구성 확정 + ① 반영 + 헤딩·표 다시 분석) · 3단계 「내용 넣기」 · 4단계 「문서 정리」.
+// "문서 검토 … 단계가 있어야 하겠구나"): **묶음 넷** — 1단계 「문서 검토」(준비 + 헤딩·표 분석) · 2단계 「구성 맞추기」(프로젝트 구성 추출 + ① 반영 + 헤딩·표 다시 분석) · 3단계 「내용 넣기」 · 4단계 「문서 정리」.
 // 이름의 원본 = task_catalog.js RELAY_STAGE_META(취합은 TASK_STAGE_META 그대로). 전의 config 묶음(#taskStage0)은 없어지고 그 구성 입력 칸은 frame 묶음(#taskStage) 안으로 — frame·map·clean 의 id·dom·store 는 그대로
 const RELAY_STAGES = [
   { id: "review", ...RELAY_STAGE_META.review, keys: ["files", "heads", "headsLlm"], dom: "taskStageR", store: "nfm.taskStageOpenR", short: "문서 검토", noReset: true,
     does: "두 문서의 헤딩·표 분석(없는 문서만 — 스크립트) → 양식의 작성 지침을 헤딩/표별로 저장 → 원본 문서(사업계획서)의 LLM 검증·보완(유료 · 몇 분 — LLM 을 쓸 수 없으면 건너뜀) · 문서는 안 바뀜" },
   { id: "frame", ...RELAY_STAGE_META.frame, keys: ["config", "division", "reheads", "reheadsLlm"], dom: "taskStage", store: "nfm.taskStageOpen", short: "구성 맞추기",
-    does: "프로젝트 구성 확정(사업계획서에서 추출하거나 불러와 프로젝트에 저장 — 「구성 불러오기」 는 선택) → 프로젝트 구성 반영(절·표 행·열 — 구조만) → 다시 문서 검토(구조를 맞춘 문서의 헤딩·표 다시 분석 → LLM 검증·보완)" },
+    does: "프로젝트 구성 추출(사업계획서에서 추출하거나 불러와 프로젝트에 저장 — 「구성 불러오기」 는 선택) → 프로젝트 구성 반영(절·표 행·열 — 구조만) → 다시 문서 검토(구조를 맞춘 문서의 헤딩·표 다시 분석 → LLM 검증·보완)" },
   { id: "map", ...RELAY_STAGE_META.map, keys: ["link", "plan", "apply", "later"], dom: "taskStage2", store: "nfm.taskStageOpen2", short: "내용 넣기", does: "자리 연결(LLM 검토 포함) → 넣기 계획 → 내용 반영(서식 맞춤)" },
   // 4단계 「문서 정리」(2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" — 11-13 번호 4): ⑥ 작성요령 삭제 하나 — 초기화 단추는 없다(지운 작성요령은 구성 맞추기·내용 넣기 초기화가 원본으로 되돌린다)
   { id: "clean", ...RELAY_STAGE_META.clean, keys: ["guide"], dom: "taskStage3", store: "nfm.taskStageOpen3", short: "문서 정리", get does() { return `작성요령 삭제(지우는 패턴 — ${cleanupNames()} · 내용은 남김 · 지우기 전에 작성 지침을 저장)`; }, noReset: true },
@@ -2307,8 +2307,8 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
     return `${base}${llm}${taskHasStage("frame") ? ` — 구성은 ${SN("frame")} 에서 맞춥니다` : ""}`;
   }
 
-  // 2단계 「구성 맞추기」(§21) = 프로젝트 구성 확정 → ① 프로젝트 구성 반영 → 헤딩·표 다시 분석. 내용은 넣지 않는다(3단계)
-  // 프로젝트 구성 확정 — 사업계획서의 구성을(값이 없으면 문서에서 읽어) 프로젝트에 확정. 문서는 안 바뀐다(spec_작업 ② §18 — 전에는 따로 선 1단계)
+  // 2단계 「구성 맞추기」(§21) = 프로젝트 구성 추출 → ① 프로젝트 구성 반영 → 헤딩·표 다시 분석. 내용은 넣지 않는다(3단계)
+  // 프로젝트 구성 추출 — 사업계획서의 구성을(값이 없으면 문서에서 읽어) 프로젝트에 확정. 문서는 안 바뀐다(spec_작업 ② §18 — 전에는 따로 선 1단계)
   at("config", "사업계획서의 프로젝트 구성 확인");
   if (!step("config").done) {
     const CF = taskConfigOf(plan);
@@ -9361,7 +9361,7 @@ function divRefreshDerived() {
   current.value = String(Math.min(v.current || 1, max));
   $("divReviewSummary").textContent = v.stages.length + "단계 · 전체 " + total + "년 · 기관 " + (v.orgs.joint.length + 1) + "곳";
   $("divReviewSummary").title = `지금 입력 값 — ${divValuesText(divValues())}`; // 입력이 접혀 있어도(실행 묶음의 「세부」) 불러온 값을 올려서 확인
-  divRunSync(); // 실행 묶음의 단추·상태 줄(② §22) — TASK 묶음 안이면 1단계(프로젝트 구성 확정)가 끝나야 변경 계획(spec_작업 ② §18: divRunWhy)
+  divRunSync(); // 실행 묶음의 단추·상태 줄(② §22) — TASK 묶음 안이면 1단계(프로젝트 구성 추출)가 끝나야 변경 계획(spec_작업 ② §18: divRunWhy)
   divPresetRefresh(); // 「X」 수정됨 · 「저장」 켜짐(② §8)
   divRenderApplied();
   taskStepsDraw(); // 이관 단계 ① 구분 기준 확인 — 지금 문서의 입력 값으로 다시 견준다(spec_작업 ② §11)
@@ -9480,7 +9480,7 @@ function divReadApply(got, from) { // 읽은 값(…/divisions/read 꼴) → 입
   toast(names.length ? `${from}에서 읽음: ${names.join(" · ")} — 확인한 뒤 「${divConfirmWhere(dv.view && dv.view.projectSharing)}에 저장」` : `${from}에서 읽을 수 있는 값이 없습니다(자리표시뿐)`);
 }
 
-// ---- 프로젝트 구성 확정(spec_작업 ② §18 — 2026-11-13 사용자 "현재 프로젝트에 구성을 저장하고 사용할 수 있도록"): 1단계 「구분 기준」 의 끝 = 입력 값이 확정한 값과 같음.
+// ---- 프로젝트 구성 추출(spec_작업 ② §18 — 2026-11-13 사용자 "현재 프로젝트에 구성을 저장하고 사용할 수 있도록"): 1단계 「구분 기준」 의 끝 = 입력 값이 확정한 값과 같음.
 // 확정은 프로젝트에 하나(공유 중인 작업) · 프로젝트가 없거나 이전 라운드면 그 작업에. 입력은 전처럼 자동 공유되고, 바꾸면 확정이 풀린다(valid 아님).
 const divConfirmKey = (v) => { const o = JSON.parse(divCanon(v)); delete o.current; return JSON.stringify(o); }; // 확정 비교 — 당해 차년도는 안 견준다(보고서마다 다를 수 있음 — taskDivDiff 와 같은 규칙)
 const divConfirmValid = (values, cf) => !!(values && cf && cf.values && divConfirmKey(cf.values) === divConfirmKey(values));
@@ -9668,7 +9668,7 @@ function divPresetRefresh() { // 상태 줄(확정 — spec_작업 ② §18)·�
   if (st.from) { const f = el("span", "dv-caption", st.from); f.title = "마지막으로 입력 칸을 채운 곳(이 화면에서만)"; status.append(f); }
   save.textContent = `${dv.view.projectSharing && dv.view.projectSharing.shared ? "프로젝트" : "이 문서"}에 저장`;
   save.disabled = dv.busy || valid;
-  save.title = valid ? `지금 값이 ${where}에 확정한 구성과 같습니다` : `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다(${taskSlots() ? "「프로젝트 구성 확정」" : "1단계 「프로젝트 구성」"} 의 끝)`;
+  save.title = valid ? `지금 값이 ${where}에 확정한 구성과 같습니다` : `지금 입력 값(단계·차년도·기관)을 ${divConfirmWhat(where)}으로 확정합니다 — 문서는 바뀌지 않습니다(${taskSlots() ? "「프로젝트 구성 추출」" : "1단계 「프로젝트 구성」"} 의 끝)`;
 }
 
 function divPresetNaming(on) { dv.preset.naming = on; dv.preset.confirming = ""; if (!on) dv.preset.nameDraft = null; divRender(); }
@@ -9774,7 +9774,7 @@ function divRunWhy() { // 계획·반영을 할 수 없는 까닭("" = 할 수 �
   if (!v || !view) return "프로젝트 구성을 읽는 중입니다";
   if (!view.profile.supported) return "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다";
   if (divTotalYears(v) > 20) return "전체 차년도는 20년 이하여야 합니다";
-  if (taskFrameApply && !divConfirmValid(v, view.confirmed)) return `${taskSlots() ? "「프로젝트 구성 확정」 이" : "1단계 「프로젝트 구성」 이"} 먼저입니다 —${divConfirmWhere(view.projectSharing)}에 저장(확정)한 뒤 변경 계획을 봅니다`; // TASK 묶음 안(spec_작업 ② §18)
+  if (taskFrameApply && !divConfirmValid(v, view.confirmed)) return `${taskSlots() ? "「프로젝트 구성 추출」 이" : "1단계 「프로젝트 구성」 이"} 먼저입니다 —${divConfirmWhere(view.projectSharing)}에 저장(확정)한 뒤 변경 계획을 봅니다`; // TASK 묶음 안(spec_작업 ② §18)
   return "";
 }
 const divRunLocked = () => !!dv.auto || !!taskRun || !!taskResetting || (typeof gatherRun !== "undefined" && !!gatherRun) || (typeof gqRun !== "undefined" && !!gqRun && gqRun.busy); // 다른 실행이 도는 동안(이 묶음의 한 번에 진행 · TASK 묶음의 한 번에 진행 · 초기화 · 취합 간단 모드 — 묶음 사이의 틈도) — 단추만 끈다(그 실행이 부르는 divPlan·divApply 는 그대로 돈다)
@@ -9924,6 +9924,8 @@ async function divRunFocus() { // 2열 발의 「… 단추로 이동」 — 패
 // opt.asked = 옛 인자 — 2026-11-18 사용자 「이런 알람좀 주지마」 부터 확인 창이 없어 쓰지 않는다(부르는 쪽 호환으로 받기만 함 · LLM 연결 · 멈추는 검사는 그대로)
 async function divRunAll(opt = {}) {
   if (!state.id || dv.busy || divRunLocked()) return;
+  // 문서 하나로 조립한 워크플로우(task_catalog.js taskIsSingle — 붙박이 양식 표준화 · 양식 맞추기는 아니다)는 화면이 돌리지 않는다 — 그 정의의 구조 반영 줄을 서버 쪽 실행기로(workflow_exec.js singleRunAll: spec_워크플로우 ② §18-12 ⑤)
+  if (typeof taskIsSingle === "function" && taskIsSingle((state.task || {}).job) && typeof singleRunAll === "function") return singleRunAll();
   const why = divRunWhy();
   if (why) { toast(why, true); return; }
   const id = state.id, epoch = state.epoch, view = dv, st0 = divPlanState(), s0 = st0.kind === "ready" && st0.plan.only == null ? st0.plan.summary : null; // 한 자리만의 계획(표 메뉴 「프로젝트 구성에 맞추기…」 — divPlan 의 opt.only)은 이어 쓰지 않는다 — 문서 전체로 다시 계획한다

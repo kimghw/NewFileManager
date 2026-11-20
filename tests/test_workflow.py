@@ -86,7 +86,7 @@ def test_stage_groups_and_steps_are_well_formed():
 
 
 # 붙박이 둘의 하는 문서 — spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 의 표 그대로(근거 = 실행 코드: 이관 app.js taskSteps · taskRunSteps / 취합 gather.js · merge_gather_api)
-# flow = 워크플로우 전체(문서마다가 아니라 한 번 — 준비 · 구성 불러오기 · 프로젝트 구성 확정: 문서마다 두 번 하는 일이 아니다 · 2차 고침 — astra 검토 P2)
+# flow = 워크플로우 전체(문서마다가 아니라 한 번 — 준비 · 구성 불러오기 · 프로젝트 구성 추출: 문서마다 두 번 하는 일이 아니다 · 2차 고침 — astra 검토 P2)
 ON_TABLE = {
     "plan_to_report": {"files": "flow", "heads": "both", "headsLlm": "source", "configLoad": "flow", "config": "flow", "division": "target", "reheads": "target", "reheadsLlm": "target",
                        **dict.fromkeys(("link", "llm", "plan", "tableMap", "gaps", "apply", "later"), "pair"), "guide": "target"},
@@ -137,7 +137,7 @@ def test_document_roles_and_what_each_step_works_on():
 
 def test_unit_tasks_are_the_steps_that_touch_each_document():
     """문서마다의 단위문서 TASK = 그 역할의 문서에 닿는 단계(on 이 그 역할 · both · 목적 문서면 pair 도)를 묶음 차례로 — 닿는 단계가 있는 묶음만(② §15).
-    워크플로우 전체의 단계(on flow — 준비 · 구성 불러오기 · 프로젝트 구성 확정)는 어느 문서의 것도 아니다 — flow_of 로 따로(문서마다가 아니라 한 번)."""
+    워크플로우 전체의 단계(on flow — 준비 · 구성 불러오기 · 프로젝트 구성 추출)는 어느 문서의 것도 아니다 — flow_of 로 따로(문서마다가 아니라 한 번)."""
     keys = lambda t, role: [(g["id"], [s["key"] for s in hit]) for g, hit in W.unit(t, role)]  # noqa: E731
     flow = lambda t: [(g["id"], [s["key"] for s in hit]) for g, hit in W.flow_of(t)]  # noqa: E731
     relay, gather, fit = W.BY_JOB["plan_to_report"], W.BY_JOB["plan_merge"], W.BY_JOB["plan_fit"]
@@ -184,7 +184,7 @@ def test_review_module_follows_the_documents_it_is_given():
 
 def test_entry_words_and_conditions_follow_the_document_roles():
     """3차 고침(검토 둘) — T6 문서 하나인 워크플로우의 시작 점검은 그 문서를 「목적 문서」 라 부르지 않는다(「작업 문서」 · 서식 복사 = 「서식을 가져올 문서」 — 문서 여럿이면 「목적 문서」 그대로) ·
-    T5 이관 조건 = 문서마다의 준비(원본 · 목적) + 워크플로우 전체에 한 번(프로젝트 구성 확정 — 원본 문서의 준비 목록이 아니다) · I5 넣기 계획 · 내용 반영의 끝남 = 정상 0건도(화면 linksNone) ·
+    T5 이관 조건 = 문서마다의 준비(원본 · 목적) + 워크플로우 전체에 한 번(프로젝트 구성 추출 — 원본 문서의 준비 목록이 아니다) · I5 넣기 계획 · 내용 반영의 끝남 = 정상 0건도(화면 linksNone) ·
     T4 「구성 맞추기」 없는 「내용 넣기」 의 조건 글은 상수 하나(FILL_NO_FIT) · 붙박이 이관의 시작 점검 = _relay_entry() 그대로."""
     names = {t["job"]: {c["key"]: c for c in t.get("entry") or ()} for t in W.TASKS}
     single = {"plan_fit": "작업 문서", "report_fit": "작업 문서", "doc_edit": "작업 문서", "style_copy": "서식을 가져올 문서"}
@@ -197,13 +197,13 @@ def test_entry_words_and_conditions_follow_the_document_roles():
     cond = names["plan_to_report"]["cond"]["does"]
     src, dst, whole = cond.split(" — ", 1)[1].split(" / ")
     assert src == "원본 문서(사업계획서): 헤딩 · 표 분석 › LLM 검증·보완" and dst == "목적 문서(연차보고서): 헤딩 · 표 분석 › 구조 반영 › 다시 문서 검토"
-    assert whole.startswith("워크플로우 전체(문서마다가 아니라 한 번): 프로젝트 구성 확정 — 구성의 기준: 원본 문서(사업계획서). 1 · 2단계의 문서마다 하는 단계는 두 문서에서 같이 진행할 수 있습니다") and len(cond) <= 320
+    assert whole.startswith("워크플로우 전체(문서마다가 아니라 한 번): 프로젝트 구성 추출 — 구성의 기준: 원본 문서(사업계획서). 1 · 2단계의 문서마다 하는 단계는 두 문서에서 같이 진행할 수 있습니다") and len(cond) <= 320
     # F6 — 「워크플로우 전체」 조각은 만든 글의 흐름 줄과 같은 머리(FLOW_HEAD) · 같은 꼬리(base_text — 그 워크플로우의 구성의 기준 역할)를 쓴다(세 꼴로 갈라지지 않게)
     relay = W.BY_JOB["plan_to_report"]
     base = next(r for r in relay["roles"] if r["role"] == relay["base"])
     flow_line = next(x for x in W.task_markdown("plan_to_report").splitlines() if x.startswith("- 워크플로우 전체"))
     assert W.FLOW_HEAD == "워크플로우 전체(문서마다가 아니라 한 번)" == f"{W.ON['flow']}({W.FLOW_ONCE})" and W.base_text(base) == " — 구성의 기준: 원본 문서(사업계획서)" and W.base_text(None) == ""
-    assert flow_line.startswith(f"- {W.FLOW_HEAD}: ") and flow_line.endswith(W.base_text(base)) and whole.startswith(f"{W.FLOW_HEAD}: 프로젝트 구성 확정{W.base_text(base)}. ")
+    assert flow_line.startswith(f"- {W.FLOW_HEAD}: ") and flow_line.endswith(W.base_text(base)) and whole.startswith(f"{W.FLOW_HEAD}: 프로젝트 구성 추출{W.base_text(base)}. ")
     assert W.BY_JOB["plan_to_report"]["entry"] == W._relay_entry() == W._relay_entry(dict(W._RELAY_NO)) == W._relay_entry(roles=W._relay_roles())   # 조립한 워크플로우와 같은 함수 — 붙박이는 묶음 넷의 번호
     assert relay["roles"] == W._relay_roles()   # 붙박이 이관의 문서 역할 = 시작 점검의 기본 역할(같은 함수)
     fill = {s["key"]: s for g in W.BY_JOB["plan_to_report"]["stages"] for s in g["steps"]}
@@ -360,10 +360,10 @@ def test_written_out_docs_show_unit_tasks_and_step_documents():
     assert ("- 문서마다 단위문서 TASK — 원본 문서(사업계획서): 1단계 문서 검토(「헤딩 · 표 분석」 › 「LLM 검증·보완」)"
             " / 목적 문서(연차보고서): 1단계 문서 검토(「헤딩 · 표 분석」) › 2단계 구성 맞추기(「프로젝트 구성 반영」 › 「다시 문서 검토」 › 「다시 문서 검토(LLM)」)") in relay
     assert "› 3단계 내용 넣기(← 원본 문서: 「자리 연결」 › 「자리 연결 LLM 검토」 › " in relay and "› 4단계 문서 정리(「작성요령 삭제」)\n- 워크플로우 전체(문서마다가 아니라 한 번): " in relay   # 산출물 다음 줄 · 그 다음 워크플로우 전체
-    assert ("\n- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 문서 검토(「준비」) › 2단계 구성 맞추기(「구성 불러오기」 › 「프로젝트 구성 확정」) — 구성의 기준: 원본 문서(사업계획서)\n- 알아 둘 것: ") in relay
+    assert ("\n- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 문서 검토(「준비」) › 2단계 구성 맞추기(「구성 불러오기」 › 「프로젝트 구성 추출」) — 구성의 기준: 원본 문서(사업계획서)\n- 알아 둘 것: ") in relay
     assert ("- 문서마다 단위문서 TASK — 원본 문서(기관 문서 — 문서마다): 3단계 내용 매핑(「기관 문서 올리기 · 반영할 기관 지정」 › 「헤딩 · 표 분석」)"
             " / 목적 문서(취합본): 2단계 문서 프레임 작성(「프로젝트 구성 반영」") in gather and "3단계 내용 매핑(← 원본 문서마다: 「자리 연결 · 기관 작성 내용 판정」" in gather
-    assert "\n- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 프로젝트 구성(「준비」 › 「프로젝트 구성 확정」) — 구성의 기준: 목적 문서(취합본)\n" in gather
+    assert "\n- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 프로젝트 구성(「준비」 › 「프로젝트 구성 추출」) — 구성의 기준: 목적 문서(취합본)\n" in gather
     assert "」 · 「" not in relay.split("\n- 알아 둘 것", 1)[0] and "」 · 「" not in gather.split("\n- 알아 둘 것", 1)[0]   # 단계 사이에 「 · 」 를 쓰지 않는다
     assert "단위문서 TASK" not in fit and "워크플로우 전체(" not in fit and "단위문서 TASK" not in head("### 연차보고서 취합 — `report_merge` (준비 중)")   # 문서 하나 · 단계 없는 준비 중
     assert "- **② 자리 연결** — 스크립트 · 저장만 · 필수 · 원본 → 목적. " in wf and "- **LLM 검증·보완** — 사람 → LLM · 저장만 · 필수 · 원본 문서. " in wf   # 단계 줄 끝에 하는 문서(같은 셈의 짧은 꼴)

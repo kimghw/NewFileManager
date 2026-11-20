@@ -7,10 +7,12 @@
 - ① 첫 화면 오른쪽 열의 탭 둘(「대시보드」 · 「에이전트」 — 2026-11-20 「각각 별도의 탭으로」: 탭을 바꾸면 칸이 바뀌고 · 화살표 · 기억) · 대시보드 칸(#homeDash) — 머리 「대시보드」 · 도움말 · 한 줄 안내 · 워크플로우 고르기 목록(준비 중인 것 없음 · 목적 문서의 형식으로 할 수 있는 것만).
 - ② 견본 두 파일(사업계획서 양식 · 연차보고서 서식)을 목록에 넣고 연차보고서를 목적 문서로 → 「사업계획서 → 연차보고서 이관」 을 고름 → 단계 흐름(묶음 넷 · 끝난 수 · 상태 글 없음) · 문서 칸 두 줄 · 「워크플로우 시작」 ·
   아직 아무것도 안 올림 · 문서가 셋이면 시작하지 않고 워크플로우 카드의 시작 길과 같은 알림.
+  **묶음 안은 두 열**(2026-11-20 「얇은 열에 순서만 놓고 … 원본/목적 문서에 대한 카드만 위아래로」): 왼쪽 차례 번호 01~16(시작 전이라 꺼짐) · 오른쪽 문서 카드(두 문서에 하는 줄은 「원본 문서」 · 「목적 문서」 둘) · 카드는 패널 대시보드의 단계 카드(메모 · 누르면 펴짐).
 - ③ 「워크플로우 시작」 → **문서 화면으로 넘어가지 않는다**(no-doc 그대로 · state.id 없음) · 두 문서가 같은 프로젝트(임시 이름) · 워크플로우 · 라운드로 올라감 · 묶음 1 에 끝난 수 · 상태 글 · 「한 번에 진행」,
-  묶음 2~4 에 「문서 화면에서 진행합니다 …」 + 「한 번에 진행」(문서 화면에서) · 이 브라우저에 기억. 올린 직후의 기본 분석이 끝나면 저절로 「끝남 2/2」(검사 서버는 LLM 이 없어 LLM 검증·보완은 「건너뜀」).
+  서버가 안 맡은 묶음에 「문서 화면에서 진행합니다 …」 + 「한 번에 진행」(문서 화면에서) · 이 브라우저에 기억. 올린 직후의 기본 분석이 끝나면 저절로 「3/3」(준비 줄 포함 — 패널 대시보드의 셈 · 검사 서버는 LLM 이 없어 LLM 검증·보완은 「건너뜀」).
 - ④ 「한 번에 진행」: 두 작업을 초기화(진짜 끝점)해 남은 단계를 만든 뒤 — 도는 줄(지금 하는 일 · 지난 시간 · 「멈춤」) · 다른 탭의 대시보드에 같은 실행(「다른 화면에서 진행 중」) · 그 탭에서 「멈춤」 → 「멈춤 — …」(주황) /
-  다시 초기화 → 「한 번에 진행」 → 끝 글 「끝남 — …」(초록) · 「끝남 2/2」 · 그동안 문서 화면으로 넘어가지 않음.
+  ④-2 차례 번호 02 를 누름(「그 번호를 누르면 그 순위에 있는게 자동 실행되고.. 실행된건 실행표기」) → 그 줄만 서버 실행(실행 기록 `range.only`) → 번호에 초록 ✓ /
+  다시 초기화 → 「한 번에 진행」 → 끝 글 「끝남 — …」(초록) · 「3/3」 · 그동안 문서 화면으로 넘어가지 않음.
 - ⑤ 새 탭(같은 브라우저 컨텍스트)에서 첫 화면을 열면 같은 대시보드 · 같은 끝 글(기억 + 서버 상태).
 - ⑥ 「대시보드 자세히 보기」 → 그 목적 문서가 열리고 패널 탭 「대시보드」 ⑦ 로고로 첫 화면에 돌아오면 대시보드가 그대로 ⑦-2 서버가 안 맡은 묶음의 「한 번에 진행」 → 문서 화면을 열고 그 화면의 같은 단추(꺼져 있으면 까닭 알림 · 켜져 있으면 실제로 진행) ⑧ 「다른 워크플로우」 → 고르기로(기억도 비움) ⑨ 좁은 폭(820 · 400 · 320px)에서 가로 넘침 없음.
 - 그 밖: 같은 파일로 다시 시작 → 「같은 파일 고르기」 의 「이어서」 → 같은 작업의 대시보드 · 문서 하나인 워크플로우(연차보고서 양식 맞추기 — 모든 묶음 「문서 화면에서 진행합니다 …」 + 「한 번에 진행」) · 취합은 「워크플로우 시작」 이 켜짐(문서 화면을 열고 시작)."""
@@ -68,9 +70,9 @@ def flow(wid):
 
 
 def served_counts(wid):
-    """서버가 맡은 묶음의 (끝난 수, 단계 수) 합 — 머리의 「끝남 n/m」 과 같은 셈(home_dash.js hdLiveParts). 묶음을 서버로 옮길 때마다 수가 바뀌어 박지 않는다."""
-    st = [g for g in flow(wid)["stages"] if g["server"]]
-    return sum(g["done"] for g in st), sum(g["total"] for g in st)
+    """서버가 센 줄 가운데 필수 줄의 (끝난 수, 줄 수) — 머리의 「끝남 n/m」 과 같은 셈(home_dash.js HD_CTX.counted: 준비 줄 포함 · 선택 줄 빼고 = 패널 대시보드의 셈). 묶음을 서버로 옮길 때마다 수가 바뀌어 박지 않는다."""
+    st = [x for g in flow(wid)["stages"] if g["server"] for x in g["steps"] if not x["optional"]]
+    return sum(1 for x in st if x["done"]), len(st)
 
 
 def head_count(wid):
@@ -87,8 +89,10 @@ DASH = """() => { const d = document.getElementById('homeDash'), q = (s) => d.qu
     docs: [...d.querySelectorAll('.home-dash-docs li')].map((li) => li.textContent), opts: [...d.querySelectorAll('.home-dash-pick option')].map((o) => o.value),
     groups: [...d.querySelectorAll('.dash-group')].map((g) => ({ id: g.dataset.group, served: g.dataset.served === '1', no: g.querySelector('.dash-gno').textContent, name: g.querySelector('.dash-gname').textContent,
       count: g.querySelector('.dash-gcount').textContent, run: btn(g.querySelector('.dash-ghead button')), away: (g.querySelector('.home-dash-away') || {}).textContent || '', tags: [...g.querySelectorAll('.dash-ghead > .dash-tag')].map((x) => x.textContent),
-      nodes: [...g.querySelectorAll('.dash-node')].map((n) => ({ key: n.dataset.key, state: n.dataset.state, no: n.querySelector('.dash-no').textContent, name: n.querySelector('.dash-node-head b').textContent,
-        st: (n.querySelector('.dash-st') || {}).textContent || '', tags: n.querySelectorAll('.dash-tag').length, kids: n.children.length })) })),
+      rows: [...g.querySelectorAll('.hd-row')].map((r) => ({ key: r.dataset.key, state: r.dataset.state, no: r.querySelector('.hd-go').textContent, go: btn(r.querySelector('.hd-go')),   // 차례 = [번호 단추 | 문서 카드(위아래로)]
+        cards: [...r.querySelectorAll('.dash-node')].map((n) => ({ key: n.dataset.key, state: n.dataset.state, role: (n.querySelector('.hd-role') || {}).textContent || '', name: n.querySelector('.dash-node-head b').textContent,
+          st: (n.querySelector('.dash-st') || {}).textContent || '', tags: n.querySelectorAll('.dash-tag').length, memo: !!n.querySelector('.dash-memo'), open: n.classList.contains('open'), numbered: !!n.querySelector('.dash-no'),
+          acts: [...n.querySelectorAll('.dash-acts button')].map((b) => b.textContent) })) })) })),
     foot: [...d.querySelectorAll('.home-dash-foot button')].map(btn), why: t('.home-dash-foot .dash-why'),
     home: document.body.classList.contains('no-doc'), id: state.id, memo: (() => { try { return JSON.parse(localStorage.getItem('nfm.homeDash') || 'null'); } catch (e) { return 'err'; } })(),
     toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, files: hf.files.map((f) => f.name) }; }"""
@@ -169,7 +173,8 @@ def main():
               and tk["tabs"][0][1] == "true" and tk["dash"] and not tk["pane"] and tk["memo"] == "dash" and page.evaluate("() => document.activeElement.id") == "homeTabDash", [ta, tk])
         check("① 고르기 — 머리 「대시보드」 · 도움말(첫 문장 · 「대시보드 자세히 보기」) · 한 줄 안내 · 워크플로우 고르기 목록(준비 중인 것 없음) · 첫 화면 그대로",
               s["state"] == "pick" and s["title"] == "대시보드" and s["help"].startswith("대시보드에서 워크플로우의 단계와 진행 상황을 보고 바로 실행할 수 있습니다.")
-              and "실행을 눌러도 이 화면에 머뭅니다 — 세부(단계마다의 확인 · 보정)는 「대시보드 자세히 보기」 로 문서 화면에서 봅니다." in s["help"]
+              and "왼쪽 번호는 차례입니다 — 누르면 그 차례만 실행하고, 끝난 차례는 초록 ✓ 로 표시합니다." in s["help"]
+              and "실행을 눌러도 이 화면에 머뭅니다 — 단계마다의 확인 · 보정 단추는 문서가 열려 있어야 해서, 편 카드의 「문서 화면에서 열기」 나 「대시보드 자세히 보기」 로 문서 화면에서 합니다." in s["help"]
               and s["next"] == "왼쪽에 문서를 넣고 목적 문서를 고른 뒤 워크플로우를 고르세요" and lay["sel"] == "워크플로우 고르기"
               and s["opts"] == ["", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "doc_edit", "style_copy"] and JOB_NAME in lay["names"] and s["home"] and s["memo"] is None and not s["groups"], [s, lay])
         page.screenshot(path=str(OUT / "01_pick.png"))
@@ -184,16 +189,32 @@ def main():
         page.select_option("#homeDash select", JOB)
         page.wait_for_selector("#homeDash[data-state=ready] .dash-group")
         s = snap(page)
-        nodes = [n for g in s["groups"] for n in g["nodes"]]
-        check("② 고르면 단계 흐름 — 묶음 넷(등록부의 번호 · 이름) · 단계 열여섯(번호 01~16 · 꼬리표) · 끝난 수 · 상태 글 없음(문서를 읽기 전 — 「준비 중」 인 단계만 그 글) · 단추 없음 · 한 줄씩(펴지지 않음)",
+        rows = [r for g in s["groups"] for r in g["rows"]]
+        cards = [c for r in rows for c in r["cards"]]
+        by_key = {r["key"]: r for r in rows}
+        check("② 고르면 단계 흐름 — 묶음 넷(등록부의 번호 · 이름) · 차례 열여섯(왼쪽 얇은 열의 번호 01~16 — 시작 전이라 꺼져 있고 까닭은 풍선 도움말) · 끝난 수 · 상태 글 없음(「준비 중」 인 단계만 그 글) · 묶음의 「한 번에 진행」 도 꺼져 있음",
               s["state"] == "ready" and s["title"] == JOB_NAME and [[g["no"], g["name"]] for g in s["groups"]] == [["1단계", "문서 검토"], ["2단계", "구성 맞추기"], ["3단계", "내용 넣기"], ["4단계", "문서 정리"]]
-              and [n["no"] for n in nodes] == [f"{i:02d}" for i in range(1, 17)] and all(n["tags"] >= 1 and n["kids"] == 1 for n in nodes) and not s["count"]
-              and all("/" not in g["count"] and g["count"].startswith("단계 ") and g["run"] is None and not g["away"] for g in s["groups"])
-              and all(n["state"] in ("none", "soon") and n["st"] in ("", "준비 중") for n in nodes) and [n["key"] for n in nodes if n["state"] == "soon"] == ["later"] and s["wf"].endswith("/workflow#plan_to_report"), s)
+              and [r["no"] for r in rows] == [f"{i:02d}" for i in range(1, 17)] and all(r["go"]["off"] for r in rows) and all("워크플로우 시작" in r["go"]["title"] for r in rows if r["state"] != "soon") and not s["count"]
+              and all("/" not in g["count"] and g["count"].endswith("개 단계") and g["run"] and g["run"]["off"] and "워크플로우 시작" in g["run"]["title"] and not g["away"] for g in s["groups"])
+              and all(r["state"] in ("none", "soon") for r in rows) and [r["key"] for r in rows if r["state"] == "soon"] == ["later"] and s["wf"].endswith("/workflow#plan_to_report"), s)
+        check("② 차례마다 문서 카드(2026-11-20 「원본/목적 문서에 대한 카드만 위아래로」) — 두 문서에 하는 줄은 「원본 문서」 · 「목적 문서」 카드 둘(원본 먼저) · 「워크플로우 전체」 · 「원본 → 목적」 줄은 카드 하나 · "
+              "카드 = 패널 대시보드의 단계 카드(꼬리표 · 메모 「하는 일 · 조건」 · 접혀 있음 · 번호 동그라미는 왼쪽 열에만)",
+              [c["role"] for c in by_key["heads"]["cards"]] == ["원본 문서", "목적 문서"] and [c["role"] for c in by_key["files"]["cards"]] == ["워크플로우 전체"] and [c["role"] for c in by_key["link"]["cards"]] == ["원본 → 목적"]
+              and all(c["role"] and c["tags"] >= 1 and c["memo"] and not c["open"] and not c["numbered"] and c["st"] in ("", "준비 중") for c in cards)
+              and all(len(r["cards"]) in (1, 2) for r in rows), [[r["key"], [c["role"] for c in r["cards"]]] for r in rows])
         check("② 문서 칸 — 역할마다 한 줄(원본 → 목적 · 문서가 셋이라 원본 칸은 「하나만 둘 수 있습니다」) · 「워크플로우 시작」(강조) · 「다른 워크플로우」 · 아직 아무것도 안 올림",
               s["docs"] == ["원본 문서 — 사업계획서: 문서 2개 — 하나만 둘 수 있습니다", f"목적 문서 — 연차보고서: {REPORT.name}"] and [b["text"] for b in s["foot"]] == ["워크플로우 시작", "다른 워크플로우"]
               and s["foot"][0]["primary"] and not s["foot"][0]["off"] and not s["why"] and works() == [] and s["home"] and s["memo"] is None
               and page.evaluate("() => (document.activeElement.dataset || {}).hdFocus") == "start", s)   # 고른 뒤 초점은 「워크플로우 시작」 으로(고르기 목록이 사라져도 초점이 떨어지지 않는다)
+        # 카드를 누르면 펴진다(패널 대시보드의 단계 카드와 같다) — 시작 전에는 등록부의 「하는 일」 · 「하려면」 · 다시 누르면 접힌다
+        page.locator('#homeDash .hd-row[data-key="heads"] .dash-node-head').first.click()
+        op = page.evaluate("""() => { const n = document.querySelector('#homeDash .hd-row[data-key="heads"] .dash-node'), d = n.querySelector('.dash-detail');
+          return { open: n.classList.contains('open'), exp: n.querySelector('.dash-node-head').getAttribute('aria-expanded'), text: d ? d.textContent : '', opened: document.querySelectorAll('#homeDash .dash-node.open').length,
+            focus: (document.activeElement.dataset || {}).hdFocus || '', acts: d ? d.querySelectorAll('button').length : -1 }; }""")
+        page.locator('#homeDash .hd-row[data-key="heads"] .dash-node-head').first.click()
+        check("② 카드를 누르면 그 카드만 펴진다 — 「하는 일 …」(등록부의 글 · 시작 전이라 단추 없음) · 초점은 그 카드에 · 다시 누르면 접힘",
+              op["open"] and op["exp"] == "true" and op["text"].startswith("하는 일") and op["opened"] == 1 and op["focus"].startswith("node:heads@source") and op["acts"] == 0
+              and page.evaluate("() => document.querySelectorAll('#homeDash .dash-node.open').length") == 0, op)
         page.locator('#homeDash [data-hd-focus="start"]').click()
         page.wait_for_function("() => !document.getElementById('toast').hidden")
         s = snap(page)
@@ -223,21 +244,24 @@ def main():
               and plan.get("task") == {"kind": "rnd", "file": "plan", "job": JOB, "project": proj, "round": 1} and s["memo"] == {"job": JOB, "wid": rid}
               and any("임시 이름" in n[0] and not n[1] for n in s["notes"]), [ws, s["memo"], s["notes"]])
         g1, rest = s["groups"][0], s["groups"][1:]
-        check("③ 묶음 1(서버가 맡음) — 끝난 수 n/2 · 단계마다 상태 글 · 「한 번에 진행」 / 묶음 2~4 — 「문서 화면에서 진행합니다 …」 · 끝난 수 · 상태 글 없음 · 그래도 「한 번에 진행」(문서 화면에서 — 2026-11-20 「그림만 보여주는게 아냐」)",
-              s["title"] == JOB_NAME and g1["served"] and g1["count"] in ("0/2", "1/2", "2/2") and g1["run"] and g1["run"]["text"] == "한 번에 진행" and all(n["st"] for n in g1["nodes"])
-              and g1["nodes"][0]["st"] == "✓ 끝남" and len(rest) == 3 and all(g["run"] and g["run"]["text"] == "한 번에 진행" for g in rest)   # 모든 묶음에 「한 번에 진행」 — 서버가 맡았나와 상관없이
+        cards1 = [c for r in g1["rows"] for c in r["cards"]]
+        check("③ 묶음 1(서버가 맡음) — 끝난 수 n/3(준비 줄 포함 — 패널 대시보드의 셈) · 카드마다 상태 글 · 「한 번에 진행」 / 서버가 안 맡은 묶음 — 「문서 화면에서 진행합니다 …」 · 끝난 수 · 상태 글 없음 · 그래도 「한 번에 진행」(문서 화면에서 — 2026-11-20 「그림만 보여주는게 아냐」)",
+              s["title"] == JOB_NAME and g1["served"] and g1["count"] in ("1/3", "2/3", "3/3") and g1["run"] and g1["run"]["text"] == "한 번에 진행" and all(c["st"] for c in cards1)
+              and cards1[0]["st"] == "✓ 끝남" and g1["rows"][0]["state"] == "done" and len(rest) == 3 and all(g["run"] and g["run"]["text"] == "한 번에 진행" for g in rest)   # 모든 묶음에 「한 번에 진행」 — 서버가 맡았나와 상관없이
               and all(not g["away"] if g["served"] else (g["away"] == AWAY and not g["run"]["primary"] and "문서 화면을 열고" in g["run"]["title"] and "/" not in g["count"]
-                                                        and all(n["st"] in ("", "준비 중") for n in g["nodes"])) for g in rest)   # 안 맡은 묶음(걸음 2 · 3 이 들어가기 전) — 머리 아래 한 줄 · 상태 글 없음
+                                                        and all(c["st"] in ("", "준비 중") for r in g["rows"] for c in r["cards"])) for g in rest)   # 안 맡은 묶음 — 머리 아래 한 줄 · 상태 글 없음
               and s["count"].startswith("끝남 ") and s["count"].endswith(f"/{served_counts(rid)[1]}")
               and s["docs"] == [f"원본 문서 — 사업계획서: {plan.get('name')}", f"목적 문서 — 연차보고서: {rep.get('name')}"]
               and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다른 워크플로우"], s)
         page.screenshot(path=str(OUT / "03_started.png"))
-        # 올린 직후의 기본 분석(스크립트)이 끝나면 — LLM 이 없는 검사 서버에서는 LLM 검증·보완이 「건너뜀」 이라 저절로 2/2(3초마다 다시 읽는다)
-        page.wait_for_function("() => (document.querySelector('#homeDash .dash-group[data-group=review] .dash-gcount') || {}).textContent === '2/2'", timeout=240000)
+        # 올린 직후의 기본 분석(스크립트)이 끝나면 — LLM 이 없는 검사 서버에서는 LLM 검증·보완이 「건너뜀」 이라 저절로 3/3(3초마다 다시 읽는다)
+        page.wait_for_function("() => (document.querySelector('#homeDash .dash-group[data-group=review] .dash-gcount') || {}).textContent === '3/3'", timeout=240000)
         s = snap(page)
         g1 = s["groups"][0]
-        check("③ 기본 분석이 끝나면 저절로 「끝남 2/2」 — 02 「✓ 끝남」 · 03 「건너뜀」(LLM 없음) · 「한 번에 진행」 은 꺼지고 까닭 「남은 단계가 없습니다」 · 강조는 「대시보드 자세히 보기」 · 첫 화면 그대로",
-              [n["st"] for n in g1["nodes"]] == ["✓ 끝남", "✓ 끝남", "건너뜀"] and [n["state"] for n in g1["nodes"]] == ["done", "done", "done"] and g1["count"] == "2/2" and g1["run"]["off"]
+        st1 = [[c["role"], c["st"]] for r in g1["rows"] for c in r["cards"]]
+        check("③ 기본 분석이 끝나면 저절로 「3/3」 — 차례 셋 모두 끝남(번호 단추는 꺼지고 「✓ 끝난 차례입니다」) · 02 의 두 문서 카드 「✓ 끝남」 · 03 「건너뜀」(LLM 없음) · 「한 번에 진행」 은 꺼지고 까닭 「남은 단계가 없습니다」 · 첫 화면 그대로",
+              st1 == [["워크플로우 전체", "✓ 끝남"], ["원본 문서", "✓ 끝남"], ["목적 문서", "✓ 끝남"], ["원본 문서", "건너뜀"]] and [r["state"] for r in g1["rows"]] == ["done", "done", "done"]
+              and all(r["go"]["off"] and "끝난 차례" in r["go"]["title"] for r in g1["rows"]) and g1["count"] == "3/3" and g1["run"]["off"]
               and g1["run"]["title"] == "남은 단계가 없습니다" and s["home"]
               and (s["next"] == "1단계 끝남 — 그 밖의 묶음은 문서 화면에서 진행합니다" and s["foot"][0]["primary"]   # 뒤 묶음을 서버가 아직 안 맡을 때
                    or s["next"].startswith("다음: ") and any(g["served"] and g["run"] and not g["run"]["off"] for g in s["groups"][1:]))   # 2단계부터 서버가 맡으면(걸음 2) — 그 묶음의 다음 단계 · 단추가 켜짐
@@ -255,9 +279,13 @@ def main():
         page2.wait_for_function(on, timeout=30000)
         s = snap(page)
         g1 = s["groups"][0]
-        check("④ 초기화한 뒤(다른 곳에서 바뀐 상태를 다시 읽음) — 0/2 · 「다음: 02 헤딩 · 표 분석」 · 「한 번에 진행」 이 켜지고 강조 · 풍선 도움말(이 화면에 머뭅니다 · 문서는 바뀌지 않습니다)",
-              g1["count"] == "0/2" and s["count"] == head_count(rid) and s["next"] == "다음: 02 헤딩 · 표 분석" and [n["state"] for n in g1["nodes"]] == ["done", "now", "todo"] and g1["run"]["primary"]
+        r2 = g1["rows"][1]
+        check("④ 초기화한 뒤(다른 곳에서 바뀐 상태를 다시 읽음) — 1/3 · 「다음: 02 헤딩 · 표 분석」 · 「한 번에 진행」 이 켜지고 강조 · 풍선 도움말(이 화면에 머뭅니다 · 문서는 바뀌지 않습니다)",
+              g1["count"] == "1/3" and s["count"] == head_count(rid) and s["next"] == "다음: 02 헤딩 · 표 분석" and [r["state"] for r in g1["rows"]] == ["done", "now", "todo"] and g1["run"]["primary"]
               and "눌러도 이 화면에 머뭅니다" in g1["run"]["title"] and "문서는 바뀌지 않습니다" in g1["run"]["title"] and not s["foot"][0]["primary"] and not g1["tags"], s)
+        check("④ 「지금」 차례 — 번호 단추가 켜짐(「이 차례만 실행합니다 …」) · 그 차례의 첫 카드가 저절로 펴져 있고(패널 대시보드와 같다) 편 카드에 「문서 화면에서 열기」",
+              not r2["go"]["off"] and "이 차례만 실행합니다" in r2["go"]["title"] and "문서는 바뀌지 않습니다" in r2["go"]["title"] and [c["open"] for c in r2["cards"]] == [True, False]
+              and r2["cards"][0]["acts"] == ["문서 화면에서 열기"] and [c["st"] for c in r2["cards"]] == ["지금", "지금"], r2)
         n0 = len(dialogs)
         page.locator(run_btn()).click()
         page.wait_for_selector("#homeDash .dash-live", timeout=30000)
@@ -286,8 +314,29 @@ def main():
         reset_pair([rid, pid])
         page.wait_for_function(f"() => {{ const b = document.querySelector('{run_btn()}'); return b && !b.disabled; }}", timeout=30000)
         s = snap(page)
-        check("④ 초기화한 작업 — 지난 실행의 끝 글도 사라진다(실행 기록은 초기화가 옮긴다 — 서버의 상태 그대로) · 다시 0/2 · 「한 번에 진행」 강조",
+        check("④ 초기화한 작업 — 지난 실행의 끝 글도 사라진다(실행 기록은 초기화가 옮긴다 — 서버의 상태 그대로) · 다시 1/3 · 「한 번에 진행」 강조",
               not s["last"] and not s["live"] and s["count"] == head_count(rid) and s["groups"][0]["run"]["primary"], s)
+        # ---- ④-2 차례 번호 단추 — 그 차례만 서버 실행(2026-11-20 사용자 「그 번호를 누르면 그 순위에 있는게 자동 실행되고.. 실행된건 실행표기」)
+        go = '#homeDash [data-hd-focus="go:review:2"]'
+        n0 = len(dialogs)
+        page.locator(go).click()
+        page.wait_for_selector("#homeDash .dash-live", timeout=30000)
+        s = snap(page)
+        check("④-2 차례 번호 02 를 누르면 — 확인 창 없이 그 차례만 서버 실행 · 도는 줄 「02 헤딩 · 표 분석 — 이 차례만」 · 「진행 중 — 02 헤딩 · 표 분석」 · 그동안 번호 단추들은 꺼짐 · 첫 화면 그대로",
+              len(dialogs) == n0 and s["live"] and s["live"]["head"] == "02 헤딩 · 표 분석 — 이 차례만" and s["next"] == "진행 중 — 02 헤딩 · 표 분석" and all(r["go"]["off"] for r in s["groups"][0]["rows"])
+              and s["home"] and s["id"] is None, s)
+        page.wait_for_function("() => !document.querySelector('#homeDash .dash-live') && !!document.querySelector('#homeDash .dash-last')", timeout=240000)
+        page.wait_for_function("() => (document.querySelector('#homeDash .hd-row[data-key=heads]') || { dataset: {} }).dataset.state === 'done'", timeout=60000)
+        s = snap(page)
+        runs = requests.get(f"{base}/api/works/{rid}/flow/runs", timeout=10).json()["runs"]
+        r2 = s["groups"][0]["rows"][1]
+        mark = page.evaluate("() => { const b = document.querySelector('#homeDash .hd-row[data-key=heads] > .hd-go'); return getComputedStyle(b, '::after').content; }")
+        check("④-2 끝나면 — 실행 기록의 범위가 그 줄 하나(only heads · 첫 화면에서 시작) · 02 차례에 실행 표시(초록 ✓ — 번호 단추는 꺼지고 「✓ 끝난 차례입니다」) · 두 문서 카드 「✓ 끝남」 · 문서 화면으로 넘어가지 않음",
+              runs[0]["range"]["only"] == "heads" and runs[0]["range"]["from"] == "review" and runs[0]["origin"]["where"] == "home" and runs[0]["status"] == "done" and r2["state"] == "done" and r2["go"]["off"]
+              and "끝난 차례" in r2["go"]["title"] and "✓" in mark and [c["st"] for c in r2["cards"]] == ["✓ 끝남", "✓ 끝남"] and s["home"] and s["id"] is None and not page.evaluate("() => window.__opened"), [s, runs[:1], mark])
+        page.screenshot(path=str(OUT / "04b_order_done.png"))
+        reset_pair([rid, pid])
+        page.wait_for_function(f"() => {{ const b = document.querySelector('{run_btn()}'); return b && !b.disabled && !document.querySelector('#homeDash .dash-last'); }}", timeout=30000)
         page.locator(run_btn()).click()
         page.wait_for_selector("#homeDash .dash-live", timeout=30000)
         page.set_viewport_size({"width": 1600, "height": 700})   # 탭 칸이 열 전체라 1000px 창에서는 넘치지 않을 수 있다 — 낮은 창에서 발이 붙는지 본다
@@ -300,9 +349,9 @@ def main():
         s = snap(page)
         end = s["last"]
         rec = flow(rid)
-        check("④ 끝까지 — 끝 글 「끝남 — …」(초록: 두 문서의 헤딩 그래프·표 구조가 있습니다 · LLM 검증·보완은 건너뜀 — 문서 화면의 끝 글과 같은 글) · 「끝남 2/2」 · 03 「건너뜀」 · 서버의 상태와 같음 · 그동안 문서 화면으로 넘어가지 않음",
-              end.startswith("끝남 — 두 문서의 헤딩 그래프·표 구조가 있습니다") and "사업계획서 LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)" in end and not s["halt"] and s["count"] == head_count(rid) and s["groups"][0]["count"] == "2/2"
-              and [n["st"] for n in s["groups"][0]["nodes"]] == ["✓ 끝남", "✓ 끝남", "건너뜀"] and rec["last"]["status"] == "done" and rec["last"]["end"]["text"] == end and rec["stages"][0]["done"] == 2
+        check("④ 끝까지 — 끝 글 「끝남 — …」(초록: 두 문서의 헤딩 그래프·표 구조가 있습니다 · LLM 검증·보완은 건너뜀 — 문서 화면의 끝 글과 같은 글) · 「3/3」 · 03 「건너뜀」 · 서버의 상태와 같음 · 그동안 문서 화면으로 넘어가지 않음",
+              end.startswith("끝남 — 두 문서의 헤딩 그래프·표 구조가 있습니다") and "사업계획서 LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)" in end and not s["halt"] and s["count"] == head_count(rid) and s["groups"][0]["count"] == "3/3"
+              and [c["st"] for r in s["groups"][0]["rows"] for c in r["cards"]] == ["✓ 끝남", "✓ 끝남", "✓ 끝남", "건너뜀"] and rec["last"]["status"] == "done" and rec["last"]["end"]["text"] == end and rec["stages"][0]["done"] == 2
               and rec["last"]["origin"]["where"] == "home" and s["home"] and s["id"] is None and not page.evaluate("() => window.__opened"), [s, rec.get("last")])
         page.screenshot(path=str(OUT / "05_done.png"))
 
@@ -341,6 +390,16 @@ def main():
         s = snap(page)
         check("⑦ 로고로 첫 화면에 돌아오면 대시보드가 그대로 — 같은 워크플로우 · 끝난 수 · 끝 글 · 기억",
               s["state"] == "live" and s["title"] == JOB_NAME and s["count"] == head_count(rid) and s["last"] == end and s["memo"] == {"job": JOB, "wid": rid} and s["home"], s)
+        # 편 카드의 「문서 화면에서 열기」 → 목적 문서 + 패널 「대시보드」 에서 같은 단계가 펴져 있다(단계마다의 확인 · 보정 단추는 거기)
+        page.evaluate("() => { const n = document.querySelector('#homeDash .hd-row[data-key=\"config\"] .dash-node'); if (!n.classList.contains('open')) n.querySelector('.dash-node-head').click(); }")
+        page.locator('#homeDash .hd-row[data-key="config"] .dash-node.open [data-hd-focus^="open:config@"]').click()
+        page.wait_for_function("(id) => state.id === id && document.getElementById('panel').dataset.tool === 'Dash' && !!document.querySelector('#paneDash .dash-node.open[data-key=config] .dash-detail')", arg=rid, timeout=180000)
+        check("⑦ 편 카드의 「문서 화면에서 열기」 → 목적 문서가 열리고 패널 「대시보드」 에서 같은 단계(프로젝트 구성 추출) 카드가 펴져 있음",
+              page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-node.open')].map((n) => n.dataset.key)") == ["config"], "")
+        page.locator("#homeLink").click()
+        page.wait_for_function("() => document.body.classList.contains('no-doc') && state.id == null")
+        page.wait_for_timeout(2500)
+        page.evaluate("() => { window.__opened = false; }")
 
 
         # ---- ⑧ 「다른 워크플로우」 → 고르기로(기억도 비움 — 문서 · 작업은 그대로)

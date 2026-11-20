@@ -26,6 +26,7 @@ const TASK_CATALOG = ({ // 얼리지 않는다 — 화면에서 조립한 TASK(t
 // 화면에서 조립한 TASK(spec_워크플로우 ② §14 — 2026-11-19 사용자 "배치를 내가 할 수 없네?" → 답 「새 TASK 만들기」): 서버 저장소(app/custom_tasks.py)의 것을 이 목록 뒤에 더한다.
 // `GET /api/tasks.js`(이 파일 다음 · app.js 앞에 읽는 스크립트)가 부른다 — app.js 가 이 목록에서 만드는 것(TASK 이름 · 문서 칸 · 카드)이 처음부터 조립한 TASK 를 안다.
 // 조립한 TASK = 이관형(원본 문서 하나 → 목적 문서 하나): files = [원본, 목적] 칸 · target = 목적 문서 · groups = 고른 단계의 묶음 id(review · frame · map · clean — app.js taskStagesSync 가 그것만 세운다) · icon = 이관의 로고.
+//   (틀이 다른 것: shape "gather" = 취합형 — gather 칸 · shape "single" = 문서 하나 — file 하나 + single 표지: 아래 가지 · taskIsGather · taskIsSingle)
 // assign = 문서마다 고른 단계 {source: [단계 id…], target: [단계 id…], llm: [문서 역할…] | null}(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」 — 묶음 안에서 어느 문서에 하는지: app.js taskReviewDocs) · 서버가 안 보냈으면 null(붙박이 이관처럼).
 //   llm = 1단계 「LLM 검증·보완」 을 할 문서 역할(source · target — 서버 app/custom_tasks.py 가 정한다: 옛 정의는 원본만) · 옛 서버가 안 보냈으면 null(taskReviewDocs 가 전의 규칙으로 셈).
 // does = 묶음 id → 그 조립한 워크플로우의 묶음 설명(서버가 실제 배정에서 만든 글 — 등록부 custom() 과 같은 글: app.js taskStagesSync 가 묶음 머리 · 「한 번에 진행」 · 에이전트 카드에 쓴다) · 없으면 null.
@@ -53,6 +54,17 @@ function taskCatalogCustom(defs, opt = null) {
         ...gatherDefMap(d.flow), sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(null, d.groups || []), icon: "plan_merge" };
       continue;
     }
+    if (d.shape === "single") { // 문서 하나로 조립한 것(원본 문서 없음 — 그 문서가 곧 목적 문서: spec_워크플로우 ② §18-13 걸음 6 · 2026-11-20 사용자 "그리고 문서 하나는 왜 안되냐?" → 답 「조립한 것만 서버로」)
+      // 칸의 꼴은 붙박이 문서 하나(양식 표준화 · 양식 맞추기)와 같다 — 문서 종류 하나(file · 문서 칸 둘 files 도 취합 칸 gather 도 없다: taskIsRelay · taskIsGather 가 거짓) · target = 그 종류(서버 custom_tasks.target_file 과 같게).
+      // single = 가르는 표지(taskIsSingle — 붙박이 문서 하나에는 없다: 그것은 화면이 돈다) · 늘 줄 목록(v2) · **서버 실행기만 돌린다**(workflow_exec.js singleRunServer — 묶음 g1 … 은 대시보드에서: 처음 여는 보기 entry "Dash")
+      const report = d.target === "report", kind = d.targetName || (report ? "연차보고서" : "사업계획서");
+      TASK_CATALOG[d.key] = { name: d.name, act: report ? "양식 맞추기" : "양식 표준화", doc: report ? "report" : "plan", file: d.target, up: kind, entry: "Dash",
+        desc: d.desc || auto || "줄 목록으로 조립한 문서 하나 워크플로우입니다 — 정한 차례대로 서버에서 진행합니다.",
+        hint: `${kind} 하나 — 올린 뒤 묶음은 대시보드에서 진행합니다(화면에서 조립한 워크플로우 — 서버에서 진행)`,
+        target: d.target, custom: true, single: true, groups: d.groups || [], stages: [], assign: null, does, v2: true,
+        sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(null, d.groups || []), icon: report ? "report_fit" : "plan_fit" };
+      continue;
+    }
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
       files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign: v2 ? null : assign, does, v2,
@@ -78,8 +90,11 @@ function taskLostWhy(job) {
   return taskCatalogBroken ? "조립한 워크플로우 저장 파일(tasks.json)을 읽지 못했습니다 — 워크플로우 페이지의 「워크플로우 조립」 에서 확인하세요"
     : "이 작업의 워크플로우(조립한 것)가 지워졌습니다 — 다른 워크플로우를 고르세요";
 }
-// 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다
-const taskIsRelay = (job) => !!(TASK_CATALOG[job] || {}).files;
+// 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 이관형으로 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다(문서 하나로 조립한 것은 문서 칸 둘이 없다 — 이관형이 아니다)
+const taskIsRelay = (job) => { const c = TASK_CATALOG[job] || {}; return !!c.files && !c.single; };
+// 문서 하나로 조립한 워크플로우인가(조립 폼의 「1」 — 원본 문서 없이 그 문서 하나에 정한 줄을 차례로: 서버 실행기만 돌린다). **붙박이 문서 하나(사업계획서 양식 표준화 · 연차보고서 양식 맞추기)는 아니다** — 그것은 화면이 돈다.
+// 화면의 「조립한 문서 하나면」 가지(서버 실행의 거울 · 3초 확인 = 고치던 글 보고 · 대시보드 · 에이전트)는 키를 견주지 않고 이것으로 가른다 — 이 표지가 참인 워크플로우에서 taskIsRelay · taskIsGather 는 거짓이다
+const taskIsSingle = (job) => !!(TASK_CATALOG[job] || {}).single;
 // 취합형 TASK 인가 — 취합본 하나 + 기관 문서 여럿(붙박이 「사업계획서 취합」 · 취합형으로 조립한 것). 화면의 「취합이면」 가지는 키(plan_merge)를 견주지 않고 이것으로 가른다(spec_워크플로우 ② §18-13 갈래 「라」 ⓷)
 const taskGatherOf = (job) => (TASK_CATALOG[job] || {}).gather || null; // {base: 취합본의 종류, parts: 기관 문서의 종류} | null — 그때그때 읽는다(조립한 워크플로우는 정의를 다시 읽으면 바뀐다)
 const taskIsGather = (job) => !!taskGatherOf(job);

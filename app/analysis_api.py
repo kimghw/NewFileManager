@@ -88,6 +88,7 @@ def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
     only = body.get("only")
     if only not in (None, "formats"):
         raise HTTPException(400, 'only 는 "formats" 뿐입니다')
+    server._flow_busy_other(doc_id, "single")   # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 건 「LLM 검증·보완」 은 409(그 실행이 스스로 거는 것은 지나간다 — spec_워크플로우 ② §18-13)
     return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill")).view()
 
 

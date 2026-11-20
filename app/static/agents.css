@@ -91,7 +91,7 @@ body.ags-page { font-size: 13px; background: #f4f6fa; }
 /* 프롬프트 조각 — 접는 줄(차례 · 이름 · 출처 · 글자 수 · 꼬리표) */
 .agp { margin: 0 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-width: 0; }
 .agp.k-contract { background: var(--surface-2); }
-.agp.k-heading, .agp.k-skill { border-left: 3px solid #7c3aed; }
+.agp.k-heading, .agp.k-skill, .agp.k-note { border-left: 3px solid #7c3aed; } /* k-note = 덧붙이는 글(범용 — 여기서 고침 · 전용은 읽기만: spec_에이전트 ② §6) */
 .agp > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 8px 10px; cursor: pointer; min-width: 0; }
 .agp > summary:hover { background: #f8fafd; }
 .agp.k-contract > summary:hover { background: #eff2f6; }

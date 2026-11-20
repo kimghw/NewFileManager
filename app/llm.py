@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from app import agent_settings
+from app import agent_notes, agent_settings
 
 log = logging.getLogger(__name__)
 BACKENDS = ("auto", "sdk", "cli", "api", "off")
@@ -204,9 +204,13 @@ def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=F
     자리는 NFM_LLM_WAIT초(기본 900) 기다린다 — 기다린 시간은 ms 에 안 넣는다.
     pin=True 면 준 model 이 NFM_LLM_MODEL_FORCE 보다 먼저다 — 사용자가 그 일의 모델을 따로 정한 호출만(템플릿 서식 정리 에이전트 = Opus 5.5:
     2026-11-15 사용자 "opus5.5 가 템플릿의 서식을 직접 조정" — spec_hwpx_웹편집 ② §8-4).
+    프롬프트 끝에는 그 에이전트에 사람이 **덧붙여 둔 글**(범용 + 지금 워크플로우 전용)이 붙는다(`agent_notes.attach` — 지금 워크플로우는 맥락 변수: 스레드를 새로 띄우는 곳은 `agent_notes.carry`).
     모델·생각 깊이의 차례(뒤가 이김): env 기본 → 호출이 준 model·effort → NFM_LLM_MODEL_FORCE(pin 이면 건너뜀) → **「에이전트 설정」 에서 그 에이전트에 사람이 정한 값**
     (what 으로 에이전트를 찾는다 — `agent_settings.override`, spec_에이전트 ② §2). 모든 호출은 실행 기록에 한 줄 남는다(`agent_settings.record`)."""
+    content, notes = agent_notes.attach(content, what)  # 그 에이전트에 사람이 덧붙여 둔 글(범용 · 지금 워크플로우 전용 — spec_에이전트 ② §6): 프롬프트 맨 끝에
     out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin)
+    if notes:
+        out["notes"] = notes  # 붙인 것의 꼬리표(["all", "job:<워크플로우 키>"]) — 실행 기록에 남는다
     agent_settings.record(what, out)
     return out
 
@@ -274,10 +278,12 @@ def ask_all(jobs, workers=None, retry_workers=2, progress=None):
         except Exception as e:  # call 은 예외를 안 내지만 시험의 가짜 call 등
             return {"data": None, "backend": None, "ms": 0, "costUsd": None, "error": f"예외: {e}"}
 
+    keep = agent_notes.carry(one)  # 일꾼 스레드에도 지금 워크플로우(덧붙이는 글의 전용 범위)를 넘긴다 — 새 스레드는 맥락을 물려받지 않는다
+
     def run(idx, n, tick=None):
         res = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(n, len(idx)))) as ex:
-            futs = {ex.submit(one, jobs[i]): i for i in idx}
+            futs = {ex.submit(keep, jobs[i]): i for i in idx}
             for f in concurrent.futures.as_completed(futs):
                 res[futs[f]] = f.result()
                 if tick is not None:

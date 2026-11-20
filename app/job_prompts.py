@@ -55,8 +55,8 @@ def get(job):
         if custom["premise"]:
             text = custom["premise"]
             return {"job": job, "name": custom["name"], "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": ""}
-        base = get(custom_tasks.base_of(custom))   # 틀이 같은 붙박이의 전제(이관형 = 이관 · 취합형 = 사업계획서 취합)
-        if not base:
+        base = get(custom_tasks.base_of(custom))   # 틀이 같은 붙박이의 전제(이관형 = 이관 · 취합형 = 사업계획서 취합 · 문서 하나 = 그 문서 종류의 양식 표준화 · 양식 맞추기 — 이관의 전제를 물려받지 않는다)
+        if not base:   # 물려받을 전제 파일이 없다(문서 하나의 붙박이에는 지금 전제 파일이 없다) — 전제 없음
             return None
         # 물려받은 전제는 붙박이 이관의 네 단계를 모두 적고 있다 — 고른 단계와 「고르지 않은 단계는 하지 않는다」 한 줄을 그 글의 맨 앞(제목 줄 뒤)에 넣는다(spec_워크플로우 ② §15)
         from app import workflow   # 단계 이름의 원본(STAGE_MODULES) — 이 모듈을 가져오지 않는다

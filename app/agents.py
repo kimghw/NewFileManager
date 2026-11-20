@@ -4,6 +4,7 @@
 - `AGENTS` = 코드 등록값(차례 = 화면 차례): id · 작업 번호(기본) · 묶음 · 이름 · 역할 · 쓰는 곳 · 도는 때 · 코드가 정한 모델·생각 깊이 · 계약(코드의 CONTRACT — 답의 꼴과 한 몸이라 고칠 수 없음) ·
   프롬프트에 붙는 글들(parts — 지침·스킬·할 일 프롬프트·양식 정보·표 지침). 새 LLM 호출을 만들면 여기와 `agent_settings.PREFIX` 에 한 줄씩 더한다.
 - 사용자가 고치는 것(`agent_settings` — `agents.json`): 작업 번호 · 역할 글 · 모델 · 생각 깊이. 프롬프트의 고칠 수 있는 글(헤딩 지침 · 템플릿 정리 스킬)은 제 저장소의 끝점으로 고친다.
+  **덧붙이는 글**(`agent_notes` — 범용 · 워크플로우 전용: 프롬프트 맨 끝에 붙는 사람의 글)은 `_notes` 가 조각 `note` 로 싣는다(spec_에이전트 ② §6).
 - `listing()`(목록) · `detail(id)`(프롬프트 글 포함) · `update(id, patch)`(작업 번호가 다른 에이전트와 겹치면 ValueError)."""
 import importlib
 from pathlib import Path
@@ -211,6 +212,36 @@ def _parts(a):
                             "text": sk["text"], "custom": sk["custom"], "builtin": sk["builtin"], "version": sk["version"], "skillName": sk["name"], "api": f"/api/outline/agent/skills/{sk['key']}",
                             "note": "부를 때 고른 스킬 하나가 붙습니다 — 새 스킬은 「템플릿 서식 정리」 열에서 만듭니다"})
     out.append({"kind": "data", "title": "자료 (JSON)", "source": "스크립트가 만듦", "editable": False, "text": "", "note": a["data"]})
+    return out + _notes(a)
+
+
+def _notes(a):
+    """덧붙이는 글(app/agent_notes.py — spec_에이전트 ② §6): 프롬프트 맨 끝(자료 뒤)에 붙는 사람의 글 — 이 에이전트의 범용 글 하나(여기서 고침) + 이 에이전트를 쓰는 도구에 적어 둔 내용(도구 공통 · 워크플로우 전용) +
+    이 에이전트에만 적은 워크플로우 전용 글(읽기만 — 워크플로우 조립 화면에서 고친다). 차례 = 붙는 차례(넓은 것부터)."""
+    from app import agent_notes
+    data = agent_notes.load()
+    every = data["all"].get(a["id"], "")
+    out = [{"kind": "note", "name": "", "title": "덧붙이는 글 — 범용(모든 워크플로우)", "source": "내가 적은 글" if every else "아직 없음", "editable": True, "text": every, "custom": bool(every), "builtin": True,
+            "version": data["version"], "api": f"/api/agent-notes/{a['id']}",
+            "note": "이 에이전트를 부를 때마다 프롬프트 맨 끝에 붙는 글입니다(어느 워크플로우에서든). 계약(답의 꼴 · 입력에 있는 key 만 고르기)은 이 글로 바뀌지 않습니다. "
+                    "한 워크플로우에서만 붙일 글은 워크플로우 페이지의 조립 화면 「에이전트」 열에서 적습니다."}]
+    FAM = {"relay": "이관형", "gather": "취합형", "single": "문서 하나"}
+    for fam, rows in agent_notes.tool_map().items():   # 이 에이전트를 쓰는 도구에 적어 둔 내용 — 도구 공통 → 그 도구 · 워크플로우 전용(읽기만 — 조립 화면에서 고친다)
+        for unit, row in rows.items():
+            if a["id"] not in row["agents"]:
+                continue
+            common = data["tools"].get(agent_notes.tool_key(fam, unit), "")
+            if common:
+                out.append({"kind": "note", "name": f"tool:{fam}.{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 공통({FAM[fam]})", "source": "워크플로우 조립 화면에서 고침", "editable": False, "text": common,
+                            "note": "이 도구를 쓰는 모든 워크플로우에서, 이 도구가 이 에이전트를 부를 때 붙습니다 — 워크플로우 페이지의 조립 화면 「에이전트」 열에서 고칩니다"})
+            for job, box in data["jobTools"].items():
+                if box.get(unit) and agent_notes.family_of(job)[0] == fam:
+                    out.append({"kind": "note", "name": f"jobtool:{job}/{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 · 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침",
+                                "editable": False, "text": box[unit], "note": "이 워크플로우에서 이 도구가 이 에이전트를 부를 때만 붙습니다 — 조립 화면 「에이전트」 열에서 고칩니다"})
+    for job, box in data["jobs"].items():
+        if box.get(a["id"]):
+            out.append({"kind": "note", "name": job, "title": f"덧붙이는 글 — 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침", "editable": False, "text": box[a["id"]],
+                        "note": "이 워크플로우로 하는 작업에서 부를 때만 범용 글 뒤에 붙습니다 — 워크플로우 페이지의 조립 화면 「에이전트」 열에서 고칩니다"})
     return out
 
 

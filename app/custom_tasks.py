@@ -28,6 +28,7 @@
 - **지금 조립할 수 있는 틀 = 이관형 하나**(원본 문서 하나 → 목적 문서 하나) · **문서 쌍 = `PAIRS`**(지금 사업계획서 → 연차보고서 하나):
   문서의 역할을 첨부 파일 종류(plan · report · part)로만 가르고 있어 같은 종류끼리(계획서 → 계획서)는 원본 · 목적을 가를 수 없고, 화면 · 서버의 이관 실행이 두 종류의 이름에 묶여 있다 —
   다른 쌍 · 취합형(원본 여럿)은 그 묶임을 푼 뒤에 더한다(사양 ④).
+  (그 뒤에 더한 틀 — 아래 「정의 v2」 절: 취합형 「N → 1」 = 기관 문서 → 사업계획서(GATHER_*) · 문서 하나 「1」 = 원본 없이 사업계획서 | 연차보고서 하나(SINGLE_* — 스위치 SINGLE_OPEN 이 켜져 있을 때만 조립한다). 둘 다 늘 줄 목록으로 저장한다.)
 - 키 = `u_` + 16진 8자(server.TASK["job"] 의 붙박이 키와 겹치지 않는다). 단계는 일반 단계의 차례(`STAGES`)로만 선다 — 고르는 것은 「쓰느냐」 뿐이다.
 - 전제(`premise` — 그 TASK 의 LLM 호출이 읽는 글)는 비우면 틀이 같은 붙박이 TASK 의 전제(`BASE` — jobs/plan_to_report.md)를 쓴다(app/job_prompts.py)."""
 import hashlib
@@ -116,20 +117,38 @@ GATHER_PAIRS = (("part", "plan"),)
 GATHER_UNITS = ("config", "division", "frame", "part", "heads", "link", "llm", "plan", "apply", "drop")   # 취합형에 놓을 수 있는 줄 — 이 차례가 곧 놓는 차례(등록부 「사업계획서 취합」 의 줄 차례 · 「기관에 배포 · 회수」 는 앱 밖의 일이라 줄로 놓지 않는다 — 확인이 필요하면 「사람이 하는 일」)
 GATHER_EACH = ("기관 문서마다 도는 줄(반영할 기관 지정 · 헤딩 · 표 분석 · 자리 연결 · LLM 검토 · 넣기 계획 · 내용 반영)은 한 묶음에 잇달아 놓으세요 — "
                "기관 문서 하나를 끝낸 뒤 다음 문서로 갑니다(사이에 다른 줄을 둘 수 없습니다)")
+# 문서 하나(「1」 — 2026-11-20 사용자 「그리고 문서 하나는 왜 안되냐?」 → 답 「조립한 것만 서버로」: spec_워크플로우 ② §18-13 걸음 6): 목적 문서 하나 — **원본이 없다**(저장하는 source = 빈 글 "").
+# 조립 폼에서 만든 것만 서버 실행기가 돈다(app/workflow_state.py OPEN_CUSTOM) — 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 는 지금처럼 화면에서 돈다(그 동작을 바꾸지 않는다).
+SINGLE_OPEN = True   # 「1」 문서 하나 틀을 조립에 여는 스위치 — 거짓이면 「준비 중」(shape_soon 의 글 — shapes · check · create 가 그 글로 거절). 2026-11-20 켬(사용자 답 「조립한 것만 서버로」 — 화면 · 실행기가 함께 따라옴: spec_워크플로우 ② §18-13 갈래 「라」 — 문서 하나 · workflow_state.OPEN_CUSTOM 과 함께)
+SINGLE_PAIRS = (("", "plan"), ("", "report"))   # (원본 없음, 목적 문서 종류) — 사업계획서 하나 · 연차보고서 하나
+SINGLE_BASE = {"plan": "plan_fit", "report": "report_fit"}   # 목적 문서 종류 → 그 종류의 붙박이 문서 하나 워크플로우(줄의 글 · 시작 점검 · 문서 역할 · 처음 줄 목록을 거기서 — app/workflow.py _assemble_single)
+# 문서 하나에 놓을 수 있는 줄 — 이 차례가 곧 고르기 목록의 차례(등록부 「사업계획서 양식 표준화」 의 줄 차례 = app/workflow_units.py SINGLE 에서 맨 앞 묶음에 저절로 서는 「준비」 open 을 뺀 것) + 「사람이 하는 일」.
+# **이 밖의 줄은 놓지 못한다** — workflow_units.unit(key, "single") 은 가족에 없는 key 를 같이 쓰는 단위(config · division · reheads · guide · configLoad …)로 넘기는데, 문서 하나에서 자동 확정 · 이관의 구조 반영이 돌면 안 된다.
+SINGLE_UNITS = ("read", "load", "values", "review", "plan", "apply", "heads", "headsLlm", "adjust", "tree", "tables", "tablesLlm", "tableTools", "hand")
+# 사실 → 그것을 주는 줄(문서 하나 — 단위의 needs · gives 에서: tests/test_custom_single.py 가 맞춘다). 「checked」 는 헤딩 · 표의 LLM 판정이 둘 다 주지만 그것을 요구하는 줄은 「조정」 하나이고 조정이 기대는 것은 헤딩 LLM 판정이다.
+SINGLE_NEED = {"config": "values", "heads": "heads", "tables": "tables", "checked": "headsLlm"}
 
 
 def pairs_of(shape):
-    """그 틀에서 조립할 수 있는 (원본, 목적) 문서 종류 짝들 — 이관형 PAIRS · 취합형 GATHER_PAIRS."""
-    return GATHER_PAIRS if shape == "gather" else PAIRS
+    """그 틀에서 조립할 수 있는 (원본, 목적) 문서 종류 짝들 — 이관형 PAIRS · 취합형 GATHER_PAIRS · 문서 하나 SINGLE_PAIRS(원본 = 빈 글)."""
+    return GATHER_PAIRS if shape == "gather" else SINGLE_PAIRS if shape == "single" else PAIRS
+
+
+def _pair_error(shape):
+    """그 틀의 문서 종류 짝이 아닐 때의 거절 글(화면에 그대로) — 문서 하나는 원본이 없어 목적 문서의 종류만 적는다."""
+    pairs = pairs_of(shape)
+    if shape == "single":
+        return "문서 하나 워크플로우의 목적 문서는 " + " · ".join(kind_name(b) for _a, b in pairs) + " 가운데 하나입니다(원본 문서는 없습니다)"
+    return "지금 조립할 수 있는 문서 쌍은 " + " · ".join(f"{kind_name(a)} → {kind_name(b)}" for a, b in pairs) + " 입니다"
 
 
 def kind_name(kind):
     return KIND_NAMES.get(kind, kind)
 SHAPES = (
     {"id": "single", "io": "1", "name": "문서 하나 — 목적 문서 하나를 분석 · 구조화", "family": "single", "many": False,
-     "slots": [{"role": "target", "title": "목적 문서", "many": False, "kinds": _kinds(("plan", "report"))}],
+     "slots": [{"role": "target", "title": "목적 문서", "many": False, "kinds": _kinds(dict.fromkeys(b for _, b in SINGLE_PAIRS))}],
      "soon": "문서 하나 워크플로우는 아직 조립할 수 없습니다 — 문서 하나에 하는 일(헤딩 추출 · 표 · 조정)을 서버가 차례로 돌리게 된 뒤에 엽니다 · "
-             "지금은 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 로 합니다"},   # 그 뒤 = spec_워크플로우 ② §18-10 걸음 6
+             "지금은 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 로 합니다"},   # 그 뒤 = spec_워크플로우 ② §18-10 걸음 6 · 이 글은 스위치(SINGLE_OPEN)가 꺼져 있을 때만 쓴다 — 읽는 곳은 shape_soon · shapes
     {"id": "relay", "io": "1 → N", "name": "이관 — 원본 문서 하나 → 목적 문서 여럿", "family": "relay", "many": False,   # 2026-11-20 사용자 「이관은 1-N으로 해줘」 — 실행은 지금 목적 문서 하나씩(spec ② §18-8 · ④)
      "slots": [{"role": "source", "title": "원본 문서", "many": False, "kinds": _kinds(dict.fromkeys(a for a, _ in PAIRS))},
                {"role": "target", "title": "목적 문서", "many": True, "kinds": _kinds(dict.fromkeys(b for _, b in PAIRS))}], "soon": ""},
@@ -137,11 +156,35 @@ SHAPES = (
      "slots": [{"role": "source", "title": "원본 문서", "many": True, "kinds": _kinds(("part",))},
                {"role": "target", "title": "목적 문서", "many": False, "kinds": _kinds(dict.fromkeys(b for _, b in GATHER_PAIRS))}], "soon": ""},   # 2026-11-20 엶(② §18-13 갈래 「라」 — 서버가 원본 문서마다의 덩이 · 배포 기준본을 돈다) · 목적 = 사업계획서(취합본)뿐
 )
+
+
+def shape_soon(shape):
+    """그 틀(id 또는 SHAPES 의 줄)을 아직 못 여는 까닭 | ""(열려 있음 · 모르는 틀). **`soon` 은 여기서만 읽는다** — 문서 하나의 틀은 스위치(SINGLE_OPEN)를 따른다(켜면 빈 글)."""
+    sh = shape if isinstance(shape, dict) else next((x for x in SHAPES if x["id"] == shape), None)
+    if sh is None or (sh["id"] == "single" and SINGLE_OPEN):
+        return ""
+    return sh["soon"]
+
+
+def shapes():
+    """화면에 내는 틀 목록(GET /api/tasks 의 shapes) — SHAPES 그대로이되 `soon` 은 지금 열려 있는지를 따른다(shape_soon)."""
+    return [{**x, "soon": shape_soon(x)} for x in SHAPES]
+
+
 GROUPS_MAX, LINES_MAX, GROUP_NAME_MAX, HAND_NAME_MAX, HAND_NOTE_MAX = 8, 40, 20, 30, 200
 AUTO_UNITS = ("files",)   # 맨 앞 묶음에 저절로 서는 줄(준비 — 문서 칸) — 사람이 놓지 않는다
+SINGLE_AUTO = ("open",)   # 문서 하나의 그 줄(문서 올리기 · 첫 분석 — 이관형 · 취합형의 files 자리)
+
+
+def auto_units(family="relay"):
+    """그 가족에서 맨 앞 묶음에 저절로 서는 줄(사람이 놓지 않는다) — 이관형 · 취합형 = files · 문서 하나 = open."""
+    return SINGLE_AUTO if family == "single" else AUTO_UNITS
+
+
 HAND_ID = re.compile(r"hand[1-9][0-9]?")
 TOOL_ID = re.compile(r"[a-z][a-z0-9_]{0,39}")
-NO_SOURCE_FLOW = "원본 문서를 쓰는 줄이 없습니다 — 원본 문서의 「헤딩 · 표 분석」 이나 「프로젝트 구성 확정」(구성의 기준) · 「자리 연결」 같은 원본 → 목적 줄을 넣으세요"
+AGAIN = " — 뒤의 줄은 그 차례에 와서 다시 봅니다(그때 할 것이 없으면 지나갑니다)"   # 같은 줄을 두 번 넘게 놓았을 때의 경고 꼬리(실행기의 처리 함수는 줄마다 「할 필요가 있나」 를 문서에서 다시 본다 — ② §18-4)
+NO_SOURCE_FLOW ="원본 문서를 쓰는 줄이 없습니다 — 원본 문서의 「헤딩 · 표 분석」 이나 「프로젝트 구성 추출」(구성의 기준) · 「자리 연결」 같은 원본 → 목적 줄을 넣으세요"
 FLOW_LOCKED = "이 워크플로우는 줄 목록으로 조립한 것이라 이 화면에서 단계를 고칠 수 없습니다 — 워크플로우 페이지를 새로 읽은 뒤 고치세요"   # 옛 화면(assign 꼴)이 v2 정의를 고치려 할 때(409)
 # 먼저 있어야 할 줄(spec_워크플로우 ② §18-6 「대상 잇기」 의 (나) — 2026-11-20 「잘 연결될 수 있도록」 에 에이전트가 더한 것: 사용자의 「대상」 은 상대 문서다 — 그 절의 (가) 쌍 줄): 줄이 쓰는 앞 줄 = 단위의 needs 를 그것을 주는 줄로 옮긴 것.
 # 조립 화면이 이것(GET /api/tasks 의 units[].uses)만 읽어 그 앞 줄이 없는 줄을 고르기에서 끄고(「먼저 「…」 을 넣으세요」) · 그 앞 줄 뒤 제자리에 넣는다 — 화면에 규칙을 새로 적지 않는다. 거절 · 경고의 판정은 아래 check 그대로다(시험이 둘을 맞춘다).
@@ -152,17 +195,38 @@ GATHER_USES = {"apply": ("plan",), "plan": ("link",), "llm": ("link",)}   # 취�
 
 
 def uses_of(u, family="relay"):
-    """그 줄(단위 u)이 쓰는 앞 줄 → [{unit(그 결과를 만드는 줄의 key), must(그 줄이 앞에 없으면 조립 검사가 거절)}] — 차례 = 단위의 needs 차례. 취합형은 GATHER_USES."""
+    """그 줄(단위 u)이 쓰는 앞 줄 → [{unit(그 결과를 만드는 줄의 key), must(그 줄이 앞에 없으면 조립 검사가 거절)}] — 차례 = 단위의 needs 차례. 취합형은 GATHER_USES.
+    문서 하나(family single)는 SINGLE_NEED — 모두 must 가 아니다(그 앞 줄이 정의에 없으면 경고일 뿐이다: 시작할 때 이미 되어 있으면 된다 · 정의에 있는데 뒤에 있으면 거절 — _single_rules)."""
     if family == "gather":
         return [{"unit": k, "must": True} for k in GATHER_USES.get(u["key"], ())]
+    if family == "single":
+        return [{"unit": SINGLE_NEED[f], "must": False} for f in u["needs"] if f in SINGLE_NEED]
     return [{"unit": NEED_UNIT[f], "must": f not in NEED_SOFT or (u["key"], NEED_UNIT[f]) in NEED_MUST} for f in u["needs"] if f in NEED_UNIT]
 
 
-def unit_names(family="relay"):
-    """줄(단위 key) → 화면 이름 — 등록부의 일반 단계가 만든 줄의 이름(app/workflow.py STAGE_MODULES) + 「사람이 하는 일」. 줄의 글은 등록부에만 둔다.
-    취합형(family gather)은 등록부 「사업계획서 취합」 의 줄 이름(그 줄들이 취합형의 단위다 — 「기관에 배포 · 회수」 자리의 hand 는 조립에서는 「사람이 하는 일」)."""
+def unit_names(family="relay", kind="", base=False):
+    """줄(단위 key) → 화면 이름 — 등록부의 줄 이름(_base_names — 기본 이름)에 사람이 화면에서 고친 도구 이름(app/tool_names.py — spec_워크플로우 ② §18-19 「도구 이름 고치기」)을 얹은 것.
+    base=True = 기본 이름만(만든 글 · LLM 프롬프트의 글을 짓는 곳 — 그 글은 어느 PC 에서나 같아야 한다). 「사람이 하는 일」 은 고치지 않는다(줄마다 이름이 따로 있다)."""
+    out = _base_names(family, kind)
+    if not base:
+        from app import tool_names
+        out.update({k: n for k, n in tool_names.names(family).items() if k in out and k not in tool_names.FIXED})
+    return out
+
+
+def _base_names(family="relay", kind=""):
+    """줄(단위 key) → 기본 이름 — 등록부의 일반 단계가 만든 줄의 이름(app/workflow.py STAGE_MODULES) + 「사람이 하는 일」. 줄의 글은 등록부에만 둔다.
+    취합형(family gather)은 등록부 「사업계획서 취합」 의 줄 이름(그 줄들이 취합형의 단위다 — 「기관에 배포 · 회수」 자리의 hand 는 조립에서는 「사람이 하는 일」).
+    문서 하나(family single)는 그 문서 종류(kind — plan · report)의 붙박이 줄 이름이 먼저이고 거기 없는 줄은 「사업계획서 양식 표준화」 의 것(등록부가 그 정의를 짓는 것과 같은 차례 — workflow._assemble_single)."""
     from app import workflow
     out = {}
+    if family == "single":
+        for job in dict.fromkeys((SINGLE_BASE.get(kind if isinstance(kind, str) else "", "plan_fit"), "plan_fit")):
+            for g in workflow.BY_JOB[job]["stages"]:
+                for s in g["steps"]:
+                    out.setdefault(s["key"], s["name"])
+        out["hand"] = "사람이 하는 일"
+        return out
     if family == "gather":
         for g in workflow.BY_JOB["plan_merge"]["stages"]:
             for s in g["steps"]:
@@ -187,14 +251,51 @@ def unit_homes():
     return out
 
 
-def _flow_in(raw):
-    """보낸 · 저장된 줄 목록 → 정리한 꼴(꼴만 본다 — 뜻의 검사는 check). ValueError = 꼴이 틀림(화면에 그대로).
-    묶음 = {id(저장소가 정함 — 받은 것은 견줄 때만), name(1~20자 · 비면 「묶음 N」), steps} · 줄 = {unit, on[역할 — 차례 원본 → 목적]} + 사람이 하는 일은 {id(hand1 … — 겹치거나 비면 차례로 새로), name, note, tool}."""
+def family_of(shape):
+    """틀 id → 가족(relay · gather · single) — 모르는 틀은 relay."""
+    return next((x["family"] for x in SHAPES if x["id"] == shape), "relay")
+
+
+def col_of(unit_key, family="relay"):
+    """워크플로우 전체 줄(place flow)이 조립 화면에서 **처음 서는 문서 칸**(spec_워크플로우 ② §18-6 「행 × 두 칸」 「워크플로우 전체 줄」 — 2026-11-20 사용자 「양쪽에 걸쳐 있는 것들은 왜 분리가 안되고 붙어 있나? 의미가 없는데」 ·
+    「원본문서에서는 프로젝트 구조화 … 목적 문서에서는 프로젝트 구성 불러와서 프로젝트 구성 반영이 순서가 맞지」): 「프로젝트 구성 추출」 = 구성의 기준 문서 칸(이관 = 원본 · 취합 = 목적) · 그 밖(구성 불러오기)은 목적 문서 칸.
+    다른 칸에 놓으면 줄에 `col` 을 적는다(보이는 꼴 — 실행 · 지문 밖)."""
+    return BASE_ROLE if family == "relay" and unit_key == "config" else "target"
+
+
+def _lane(s, family):
+    """줄이 조립 화면에서 서는 문서 칸 | None(두 칸을 다 쓰는 줄 — 원본 → 목적 줄 · 두 문서를 하는 줄 · 할 문서가 없는 줄). 문서 줄 = 그 문서 · 워크플로우 전체 줄 = 적힌 칸(col) · 없으면 처음 서는 칸(col_of)."""
+    if s["on"]:
+        return s["on"][0] if len(s["on"]) == 1 else None
+    from app import workflow_units as WU
+    u = None if s["unit"] in auto_units(family) else WU.unit(s["unit"], family)
+    return (s.get("col") or col_of(s["unit"], family)) if u is not None and u["place"] == "flow" else None
+
+
+def _beside_fix(steps, family="relay"):
+    """「앞 줄과 같은 차례」 표시(줄의 `beside` — 조립 화면의 같은 행: spec_워크플로우 ② §18-6 「행 × 두 칸」)를 꼴로 정리한다(그 자리에서 고침).
+    남기는 때 = 한 칸에 서는 줄(문서 하나의 줄 · 워크플로우 전체 줄 — _lane)이 **바로 앞의 다른 칸에 선 줄** 옆에 설 때만 — 묶음의 첫 줄 · 두 칸을 다 쓰는 줄(두 문서 줄 · 원본 → 목적 줄) · 같은 칸의 줄 뒤 ·
+    앞 줄이 이미 옆에 선 줄(그 행은 두 칸이 찼다)이면 지운다. 지문(sig)에 들지 않는다 — 어느 줄을 어느 문서에 어느 차례로 하는가는 그대로다(실행기는 이 표시로 그 두 줄을 함께 돌지만 본다: workflow_exec._together)."""
+    prev = None
+    for s in steps:
+        a, b = _lane(s, family), (_lane(prev, family) if prev is not None else None)
+        if s.get("beside") and a and b and a != b and not prev.get("beside"):
+            s["beside"] = True
+        else:
+            s.pop("beside", None)
+        prev = s
+
+
+def _flow_in(raw, family="relay"):
+    """보낸 · 저장된 줄 목록 → 정리한 꼴(꼴만 본다 — 뜻의 검사는 check). ValueError = 꼴이 틀림(화면에 그대로). family = 그 정의의 틀의 가족(워크플로우 전체 줄이 처음 서는 칸이 가족마다 다르다 — col_of).
+    묶음 = {id(저장소가 정함 — 받은 것은 견줄 때만), name(1~20자 · 비면 「묶음 N」), steps} · 줄 = {unit, on[역할 — 차례 원본 → 목적]} + 사람이 하는 일은 {id(hand1 … — 겹치거나 비면 차례로 새로), name, note, tool}
+    + 앞 줄과 같은 차례(같은 행)에 선 줄은 `beside: true`(꼴이 안 맞으면 지운다 — _beside_fix) + 워크플로우 전체 줄을 처음 서는 칸이 아닌 문서 칸에 놓았으면 `col`(역할 — 그 밖의 줄의 것은 check 가 지운다).
+    문서 하나의 틀(family single)은 문서 칸이 하나다 — 줄의 `on` 은 늘 빈 목록(그 문서가 곧 목적 문서: workflow_state.roles_on)이고 `beside` · `col` 은 지운다(받은 on 은 꼴만 보고 버린다)."""
     if not isinstance(raw, list) or not raw:
         raise ValueError("묶음을 하나 이상 두세요")
     if len(raw) > GROUPS_MAX:
         raise ValueError(f"묶음은 {GROUPS_MAX}개까지입니다")
-    out, n = [], 0
+    out, n, one = [], 0, family == "single"
     for i, g in enumerate(raw):
         if not isinstance(g, dict) or not isinstance(g.get("steps"), list):
             raise ValueError("묶음의 꼴이 틀립니다")
@@ -205,11 +306,16 @@ def _flow_in(raw):
             on = s.get("on", [])
             if not isinstance(on, list) or any(r not in ROLES for r in on):
                 raise ValueError("줄의 「하는 문서」 꼴이 틀립니다")
-            line = {"unit": s["unit"], "on": [r for r in ROLES if r in on]}
+            line = {"unit": s["unit"], "on": [] if one else [r for r in ROLES if r in on]}
             if s["unit"] == "hand":
                 line.update(id=s["id"] if isinstance(s.get("id"), str) and HAND_ID.fullmatch(s["id"]) else "", name=" ".join(str(s.get("name") or "").split())[:HAND_NAME_MAX],
                             note=" ".join(str(s.get("note") or "").split())[:HAND_NOTE_MAX], tool=s["tool"] if isinstance(s.get("tool"), str) and TOOL_ID.fullmatch(s["tool"]) else "")
+            if s.get("beside") is True and not one:
+                line["beside"] = True
+            if s.get("col") in ROLES and not line["on"] and not one:
+                line["col"] = s["col"]
             steps.append(line)
+        _beside_fix(steps, family)
         n += len(steps)
         name = " ".join(str(g.get("name") or "").split())[:GROUP_NAME_MAX] or f"묶음 {i + 1}"
         out.append({"id": g["id"] if isinstance(g.get("id"), str) else "", "name": name, "steps": steps})
@@ -256,7 +362,7 @@ def _plain(flow):
 
 def standard(source, target, flow):
     """줄 목록이 표준 차례인가 → 그 배정(assign — llm 포함) | None. 후보 배정으로 등록부가 짓는 줄 목록과 묶음 이름 · 경계 · 줄 · 하는 문서 · 차례가 모두 같을 때만(② §18-12 ⑤ — 같은 줄을 두 묶음으로 쪼개면 표준이 아니다)."""
-    if any(s["unit"] == "hand" for g in flow for s in g["steps"]):
+    if any(s["unit"] == "hand" or s.get("beside") or s.get("col") for g in flow for s in g["steps"]):   # 같은 차례로 놓은 줄(beside) · 다른 칸에 놓은 워크플로우 전체 줄(col)은 옛 꼴(assign)이 지니지 못한다 — 줄 목록으로
         return None
     A = guess_assign(flow)
     if not union(A) or (not A["source"] and not any(s in A["target"] for s in SOURCE_USE)):
@@ -283,24 +389,27 @@ def _facts_of(s, u, key):
 
 def check(shape, source, target, raw_flow):
     """조립 검사(② §18-3 을 § 18-12 ④ 로 고친 것 — 규칙은 서버 한 곳) → {errors[], warns[], flow(정리한 꼴 | None), std(표준이면 그 배정 | None)}. 글은 화면에 그대로.
-    거절: 꼴 · 모르는 줄 · 그 틀에 없는 줄 · 놓을 수 없는 문서 · 같은 대상에 같은 줄 두 번 · 먼저 있어야 할 것을 주는 줄보다 앞 · 효과의 차례(구조 반영은 연결 · 넣기 · 정리보다 앞 · 작성요령 삭제는 내용 반영 뒤) ·
-    원본 문서를 쓰는 줄이 없음 · 서버가 아직 못 돌리는 줄 · 아직 못 여는 틀. 경고(저장은 됨): 먼저 있어야 할 것을 주는 줄이 정의에 없음 · 구조를 바꾼 뒤 다시 검토가 없음 · 유료 줄 · 문서를 바꾸는 줄."""
+    거절: 꼴 · 모르는 줄 · 그 틀에 없는 줄 · 놓을 수 없는 문서 · 먼저 있어야 할 것을 주는 줄보다 앞 · 효과의 차례(구조 반영은 연결 · 넣기 · 정리보다 앞 · 작성요령 삭제는 내용 반영 뒤) ·
+    원본 문서를 쓰는 줄이 없음 · 서버가 아직 못 돌리는 줄 · 아직 못 여는 틀. 경고(저장은 됨): 먼저 있어야 할 것을 주는 줄이 정의에 없음 · 구조를 바꾼 뒤 다시 검토가 없음 · 유료 줄 · 문서를 바꾸는 줄 ·
+    같은 줄을 (같은 문서에) 두 번 넘게 놓음(2026-11-20 사용자 「도구는 1번 이상 선택할 수 있어야지」 — 전에는 거절: 뒤의 줄은 그 차례에 다시 본다 · AGAIN).
+    줄의 `beside`(앞 줄과 같은 차례 — 조립 화면의 같은 행)는 꼴만 정리한다(_beside_fix — 차례 · 사실의 검사는 저장한 차례 그대로).
+    틀마다 제 규칙: 취합형 = _gather_rules · 문서 하나 = _single_rules(놓을 수 있는 줄은 SINGLE_UNITS 뿐 · 줄의 on 은 늘 빈 목록 · 문서 짝 = 원본 없이 목적 종류 하나) — 둘 다 늘 줄 목록(v2)으로 저장한다(std None)."""
     from app import workflow_units as WU
     errors, warns = [], []
+    sh = next((x for x in SHAPES if x["id"] == shape), None)
+    soon = shape_soon(sh) if sh else ""   # 아직 못 여는 틀(문서 하나 = 스위치 SINGLE_OPEN 이 꺼져 있을 때)
+    fam = sh["family"] if sh and not soon else "relay"   # 아직 못 여는 틀은 그 거절 하나로(줄마다 겹쳐 적지 않는다)
     try:
-        flow = _flow_in(raw_flow)
+        flow = _flow_in(raw_flow, fam)
     except ValueError as e:
         return {"errors": [str(e)], "warns": [], "flow": None, "std": None}
-    sh = next((x for x in SHAPES if x["id"] == shape), None)
     if sh is None:
         errors.append("모르는 틀입니다")
-    elif sh["soon"]:
-        errors.append(sh["soon"])
-    pairs = pairs_of(shape)   # 그 틀의 문서 종류 짝(이관형 = 사업계획서 → 연차보고서 · 취합형 = 기관 문서 → 사업계획서)
-    if (source, target) not in pairs:
-        errors.append("지금 조립할 수 있는 문서 쌍은 " + " · ".join(f"{kind_name(a)} → {kind_name(b)}" for a, b in pairs) + " 입니다")
-    fam = sh["family"] if sh and not sh["soon"] else "relay"   # 아직 못 여는 틀은 그 거절 하나로(줄마다 겹쳐 적지 않는다)
-    names, docs = unit_names(fam), {"source": "원본 문서", "target": "목적 문서"}
+    elif soon:
+        errors.append(soon)
+    if not soon and (source, target) not in pairs_of(shape):   # 그 틀의 문서 종류 짝(이관형 = 사업계획서 → 연차보고서 · 취합형 = 기관 문서 → 사업계획서 · 문서 하나 = 원본 없이 사업계획서 | 연차보고서)
+        errors.append(_pair_error(shape))
+    names, docs, auto = unit_names(fam, target if fam == "single" else ""), {"source": "원본 문서", "target": "목적 문서"}, auto_units(fam)
     nm = lambda s: s.get("name") or names.get(s["unit"], s["unit"])  # noqa: E731
     q = lambda s, a, b: f"「{nm(s)}」 {_jo(nm(s), a, b)}"  # noqa: E731 — 「이름」 + 조사(받침으로)
     seq, seen = [], set()
@@ -309,13 +418,19 @@ def check(shape, source, target, raw_flow):
             errors.append(f"「{g['name']}」 에 줄이 없습니다 — 줄을 넣거나 묶음을 빼세요")
         for s in g["steps"]:
             # 「사람이 하는 일」(hand)은 어느 틀에서나 같은 단위다(취합 등록부의 「기관에 배포 · 회수」 도 key 가 hand 지만 그것은 줄로 놓지 않는다) · 취합형에 놓을 수 있는 줄은 GATHER_UNITS 뿐(같이 쓰는 「다시 문서 검토」 · 「작성요령 삭제」 는 이관형의 것)
-            u = None if s["unit"] in AUTO_UNITS else WU.COMMON["hand"] if s["unit"] == "hand" else WU.unit(s["unit"], fam)
+            u = None if s["unit"] in auto else WU.COMMON["hand"] if s["unit"] == "hand" else WU.unit(s["unit"], fam)
             if u is not None and fam == "gather" and s["unit"] != "hand" and s["unit"] not in GATHER_UNITS:
                 u = None
+            if u is not None and fam == "single" and (s["unit"] not in SINGLE_UNITS or (s["unit"] != "hand" and WU.SINGLE.get(s["unit"]) is not u)):
+                u = None   # 문서 하나에 놓을 수 있는 줄은 SINGLE_UNITS 뿐 — 같이 쓰는 단위(프로젝트 구성 추출 config · 구성 반영 division · 작성요령 삭제 guide …)로 새지 않게(자동 확정 · 이관의 구조 반영이 돌면 안 된다)
             if u is None:
-                errors.append(f"놓을 수 없는 줄입니다 — {names.get(s['unit'], s['unit'])}" + (" (맨 앞 묶음에 저절로 섭니다)" if s["unit"] in AUTO_UNITS else ""))
+                errors.append(f"놓을 수 없는 줄입니다 — {names.get(s['unit'], s['unit'])}" + (" (맨 앞 묶음에 저절로 섭니다)" if s["unit"] in auto else ""))
                 continue
-            if u["place"] == "doc":
+            if fam == "single":   # 문서 하나 — 그 문서가 곧 목적 문서다: 줄의 on 은 늘 빈 목록이고 칸이 하나라 같은 차례(beside) · 줄의 칸(col)이 없다
+                s["on"] = []
+                s.pop("beside", None)
+                s.pop("col", None)
+            elif u["place"] == "doc":
                 roles = WU.roles_in(u, fam)   # 그 틀에서 놓을 수 있는 문서 — 구조 · 정리 줄을 원본 문서에 놓는 것은 이관형뿐(취합의 원본 = 기관 문서는 바뀌지 않는다)
                 bad = [r for r in s["on"] if r not in roles]
                 if not s["on"]:
@@ -324,17 +439,33 @@ def check(shape, source, target, raw_flow):
                     errors.append(f"{q(s, '은', '는')} {' · '.join(docs[r] for r in roles)}에만 놓을 수 있습니다")
             else:
                 s["on"] = list(ROLES) if u["place"] == "pair" else []
+            if u["place"] != "flow" or s.get("col") == col_of(s["unit"], fam):   # 줄의 칸(col)은 워크플로우 전체 줄이 처음 서는 칸이 아닌 칸에 놓였을 때만 남긴다
+                s.pop("col", None)
             if u["kind"] == "hand":
                 if not u["server"]:
                     errors.append(f"「{nm(s)}」 — 사람이 하는 일은 아직 놓을 수 없습니다(실행기가 그 줄에서 멈추는 길을 만드는 중)")
             elif not u["server"]:
                 errors.append(f"{q(s, '은', '는')} 아직 서버가 돌리지 못하는 줄입니다")
-            if u["kind"] != "hand":
-                for tgt in (s["on"] if u["place"] == "doc" else [u["place"]]):
+            if u["kind"] != "hand":   # 같은 줄을 한 번 더 — 막지 않는다(2026-11-20 사용자 「도구는 1번 이상 선택할 수 있어야지 한번 하고 두번 선택이 안되냐」: 전에는 거절) · 뒤의 줄이 어떻게 도는지만 알린다
+                for tgt in ([""] if fam == "single" else s["on"] if u["place"] == "doc" else [u["place"]]):   # 문서 하나 — 문서가 하나라 줄마다 한 번만 센다(on 이 비어 있다)
                     if (s["unit"], tgt) in seen:
-                        errors.append(f"{q(s, '을', '를')} 같은 문서에 두 번 놓았습니다" if u["place"] == "doc" else f"{q(s, '을', '를')} 두 번 놓았습니다")
+                        warns.append((f"{q(s, '을', '를')} {docs[tgt]}에 두 번 넘게 놓았습니다" if u["place"] == "doc" and tgt else f"{q(s, '을', '를')} 두 번 넘게 놓았습니다") + AGAIN)
                     seen.add((s["unit"], tgt))
             seq.append((gi, s, u))
+        _beside_fix(g["steps"], fam)   # 원본 → 목적 줄의 on 을 채우고 줄의 칸을 정리한 뒤 한 번 더(두 칸을 다 쓰는 줄 옆에는 못 선다)
+    if fam == "single":   # 문서 하나 — 줄의 차례만(_single_rules): 이관형의 사실 걷기 · 효과의 차례 · 「원본 문서를 쓰는 줄」 · 취합의 규칙을 타지 않는다
+        _single_rules(seq, names, errors, warns)
+        paid = [nm(s) for _, s, u in seq if u["paid"]]
+        if paid:
+            warns.append("유료 LLM 을 부르는 줄: " + " · ".join(dict.fromkeys(paid)))
+        more = [nm(s) for _, s, u in seq if s["unit"] == "adjust" and not u["paid"]]   # 조정은 단위에 유료 표시가 없지만 받을 서식 정리 계획이 남아 있으면 그 계획을 다시 받는다(app/workflow_exec.py _do_std_adjust)
+        if more:
+            warns.append(f"「{more[0]}」 {_jo(more[0], '은', '는')} 서식 정리 계획을 받지 않은 템플릿이 남아 있으면 그 계획을 다시 받습니다(유료 LLM)")
+        change = [nm(s) for _, s, u in seq if u["change"] == "doc" and u["kind"] == "auto"]   # 사람이 손으로 하는 줄(템플릿 관계 · 표 점검)은 사람이 할 때만 바뀐다
+        if change:
+            warns.append("문서를 바꾸는 줄: " + " · ".join(dict.fromkeys(change)))
+        _ids(flow, None)
+        return {"errors": list(dict.fromkeys(errors)), "warns": list(dict.fromkeys(warns)), "flow": flow, "std": None}   # 문서 하나도 늘 줄 목록(v2)으로 저장한다(표준 차례의 옛 꼴은 이관형의 것)
     if fam == "gather":   # 취합형 — 줄의 차례 · 기관 문서마다 도는 덩이(② §18-12 ⑥): 아래의 사실 걷기 · 효과의 차례는 이관형의 것이라 타지 않는다
         _gather_rules(seq, names, errors, warns)
         paid = [nm(s) for _, s, u in seq if u["paid"]]
@@ -367,7 +498,7 @@ def check(shape, source, target, raw_flow):
             elif f == "fresh@source":
                 warns.append(f"원본 문서의 구조를 바꾼 뒤 원본 문서의 「다시 문서 검토」 가 「{nm(s)}」 앞에 없습니다 — 그 줄이 분석을 쓸 때 스크립트로 다시 분석합니다(LLM 검증·보완은 하지 않음)")
             elif f == "config":
-                warns.append(f"이 워크플로우에는 「프로젝트 구성 확정」 이 없습니다 — 「{nm(s)}」 은 시작할 때 이미 확정돼 있어야 하고, 아니면 그 줄에서 멈춥니다")
+                warns.append(f"이 워크플로우에는 「프로젝트 구성 추출」 이 없습니다 — 「{nm(s)}」 은 시작할 때 이미 확정돼 있어야 하고, 아니면 그 줄에서 멈춥니다")
             elif f == "filled":
                 pass   # 「문서 정리」 만 고른 정의는 된다(내용 넣기 줄이 없으면 반영을 기다리지 않는다 — ② §18-12 ②)
             else:
@@ -395,7 +526,7 @@ def check(shape, source, target, raw_flow):
     # 원본 문서도 구조 반영하는 정의에서는 목적 문서가 원본의 제 값에 맞춘다 — workflow_units.basis_of: 차례와 무관하게 두 문서가 같은 확정 값으로)
     on_at = lambda key, role: [i for i in unit_at(key) if role in seq[i][1]["on"]]  # noqa: E731
     if "config" in [s["unit"] for _, s, _u in seq] and any(j > min(unit_at("config")) for j in unit_at("configLoad")):
-        warns.append("「구성 불러오기」 는 「프로젝트 구성 확정」 앞에 두세요 — 뒤에 두면 불러온 값이 이번 확정에 들지 않습니다")
+        warns.append("「구성 불러오기」 는 「프로젝트 구성 추출」 앞에 두세요 — 뒤에 두면 불러온 값이 이번 확정에 들지 않습니다")
     if "link" in [s["unit"] for _, s, _u in seq] and not on_at("division", "target"):
         from app import workflow
         warns.append(f"이 워크플로우에는 「프로젝트 구성 반영」 이 없습니다 — {workflow.FILL_NO_FIT}" if not unit_at("division")
@@ -416,7 +547,7 @@ def check(shape, source, target, raw_flow):
 
 
 def _gather_rules(seq, names, errors, warns):
-    """취합형의 조립 검사(② §18-12 ⑥ · §18-13 갈래 「라」 ⓶) — seq = [(묶음 자리, 줄, 단위)]. 거절: 차례가 거꾸로(프로젝트 구성 확정 → 구성 반영 → 배포 기준본 → 기관 문서마다: 반영할 기관 → 헤딩 · 표 분석 →
+    """취합형의 조립 검사(② §18-12 ⑥ · §18-13 갈래 「라」 ⓶) — seq = [(묶음 자리, 줄, 단위)]. 거절: 차례가 거꾸로(프로젝트 구성 추출 → 구성 반영 → 배포 기준본 → 기관 문서마다: 반영할 기관 → 헤딩 · 표 분석 →
     자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영 → 끌어 넣기) · 기관 문서마다 도는 줄이 한 묶음에 잇달아 있지 않음(원본 문서 하나를 끝내는 범위를 쪼갠 배치) · 앞 줄 없이 놓은 줄(반영 ← 계획 ← 자리 연결).
     경고: 그 줄이 기대는 것을 만드는 줄이 정의에 없음(시작할 때 이미 되어 있어야 하고, 아니면 그 줄에서 멈춘다). 「사람이 하는 일」 은 어디에나 놓는다(기관 문서마다의 덩이 안만 빼고)."""
     order = {k: i for i, k in enumerate(GATHER_UNITS)}
@@ -444,6 +575,29 @@ def _gather_rules(seq, names, errors, warns):
         warns.append(f"이 워크플로우에는 {nm('frame')} 가 없습니다 — 배포 기준본이 이미 있어야 하고, 없으면 {nm('link')} 에서 멈춥니다")
     if "link" in has and "part" not in has:
         warns.append(f"이 워크플로우에는 {nm('part')} 줄이 없습니다 — 반영할 기관이 이미 정해진 기관 문서만 넣습니다")
+
+
+def _single_rules(seq, names, errors, warns):
+    """문서 하나의 조립 검사(spec_워크플로우 ② §18-13 걸음 6 — 조립 폼의 「1」 문서 하나) — seq = [(묶음 자리, 줄, 단위)]. 규칙은 단위의 needs · gives 에서 온다(사실 → 그것을 주는 줄 = SINGLE_NEED).
+    거절: **차례가 거꾸로** — 그 줄이 기대는 것을 만드는 줄이 정의 안에 있는데 그 줄보다 뒤에만 있음(「「…」 은 「…」 뒤에 와야 합니다」: 사람이 보는 줄 「변경 계획 보기」 도 — 확정한 값으로 세운 계획이다).
+    경고(저장은 됨): 그것을 만드는 줄이 정의에 없음 — 실행기가 하는 줄만(시작할 때 이미 되어 있어야 하고, 아니면 그 줄에서 멈추거나 그 줄을 남긴다: 구조 반영은 확정 전이면 멈추고 · LLM 판정 · 조정은 앞의 결과가 없으면 하지 않고 남긴다 — app/workflow_exec.py).
+    그 밖의 차례는 자유다 — 헤딩 · 표의 줄을 프로젝트 구성보다 앞에 둘 수 있다(붙박이 「양식 표준화」 의 묶음 규칙과 같다: workflow_state._feeds). 「원본 문서를 쓰는 줄」 은 보지 않는다(원본이 없다)."""
+    nm = lambda k: "「" + names.get(k, k) + "」"  # noqa: E731
+    jo = lambda k, a, b: _jo(names.get(k, k), a, b)  # noqa: E731
+    at = {}
+    for i, (_gi, s, _u) in enumerate(seq):
+        at.setdefault(s["unit"], []).append(i)
+    for i, (_gi, s, u) in enumerate(seq):
+        if u["kind"] == "hand":
+            continue
+        for f in u["needs"]:
+            k = SINGLE_NEED.get(f)
+            if k is None or k == s["unit"] or any(j < i for j in at.get(k, ())):
+                continue
+            if at.get(k):
+                errors.append(f"{nm(s['unit'])} {jo(s['unit'], '은', '는')} {nm(k)} 뒤에 와야 합니다")
+            elif u["kind"] == "auto":
+                warns.append(f"이 워크플로우에는 {nm(k)} {jo(k, '이', '가')} 없습니다 — 시작할 때 이미 되어 있어야 하고, 아니면 {nm(s['unit'])} 에서 멈추거나 그 줄을 하지 않고 남깁니다")
 
 
 def _ids(flow, std):
@@ -505,7 +659,7 @@ def _copy(t):
 
 def _flow_text(flow):
     """줄 목록의 글(묶음 이름 · 사람이 하는 일의 이름 · 글 · 도구) — 지문에 안 드는 것이 바뀌었나 견줄 때."""
-    return None if flow is None else [[g["name"], [[s.get("name", ""), s.get("note", ""), s.get("tool", "")] for s in g["steps"]]] for g in flow]
+    return None if flow is None else [[g["name"], [[s.get("name", ""), s.get("note", ""), s.get("tool", ""), bool(s.get("beside")), s.get("col", "")] for s in g["steps"]]] for g in flow]   # 같은 차례 표시(beside) · 줄의 칸(col)도 — 지문 밖
 
 
 def _flow_copy(flow):
@@ -524,7 +678,7 @@ def _clean_one(t):
         if "assign" in t or "stages" in t or t.get("shape", "relay") not in [s["id"] for s in SHAPES]:
             return None
         try:
-            flow = _flow_in(t.get("flow"))
+            flow = _flow_in(t.get("flow"), family_of(t.get("shape", "relay")))
         except ValueError:
             return None
         return {"key": t["key"], "name": t["name"].strip()[:NAME_MAX], "desc": str(t.get("desc") or "")[:DESC_MAX], "source": t["source"], "target": t["target"], "assign": None, "stages": [],
@@ -655,13 +809,13 @@ def is_key(job):
 
 
 def source_file(job):
-    """그 TASK 의 원본 문서 종류 — 조립한 TASK 는 제 것, 그 밖(붙박이 이관)은 사업계획서."""
+    """그 TASK 의 원본 문서 종류 — 조립한 TASK 는 제 것(문서 하나로 조립한 것은 원본이 없다 — None), 그 밖(붙박이 이관)은 사업계획서."""
     t = get(job)
-    return t["source"] if t else "plan"
+    return (t["source"] or None) if t else "plan"
 
 
 def target_file(job):
-    """조립한 TASK 의 목적 문서 종류 | None(조립한 TASK 가 아님 — 붙박이는 works.TARGET_FILE)."""
+    """조립한 TASK 의 목적 문서 종류 | None(조립한 TASK 가 아님 — 붙박이는 works.TARGET_FILE). 문서 하나로 조립한 것도 그 문서의 종류다(그 문서가 곧 목적 문서)."""
     t = get(job)
     return t["target"] if t else None
 
@@ -673,9 +827,20 @@ def is_gather(job):
     return bool(t) and t.get("shape") == "gather"
 
 
+def is_single(job):
+    """그 키가 문서 하나로 조립한 워크플로우인가(목적 문서 하나 · 원본 없음 — 틀 shape single). 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 는 아니다
+    (조립한 것만 서버 실행기가 돈다 — workflow_state.OPEN_CUSTOM). 「조립한 것 = 이관 아니면 취합」 으로 가르던 곳이 이것으로 문서 하나를 가른다(그 문서가 곧 목적 문서 — 짝 문서를 찾지 않는다)."""
+    t = get(job)
+    return bool(t) and t.get("shape") == "single"
+
+
 def base_of(t):
-    """조립한 정의가 전제를 비웠을 때 물려받는 붙박이 워크플로우의 키 — 취합형 = 사업계획서 취합 · 그 밖(이관형) = BASE."""
-    return "plan_merge" if (t or {}).get("shape") == "gather" else BASE
+    """조립한 정의와 틀이 같은 붙박이 워크플로우의 키(전제를 비웠을 때 물려받는 곳 · 줄의 글의 바탕) — 취합형 = 사업계획서 취합 · 문서 하나 = 그 문서 종류의 것(사업계획서 양식 표준화 · 연차보고서 양식 맞추기) ·
+    그 밖(이관형) = BASE."""
+    shape = (t or {}).get("shape")
+    if shape == "single":
+        return SINGLE_BASE.get((t or {}).get("target"), "plan_fit")
+    return "plan_merge" if shape == "gather" else BASE
 
 
 def _llm_kept(core, old):
@@ -751,7 +916,7 @@ def _head(body, taken, old=None, shape="relay"):
     source = body.get("source") if "source" in body else (old or {}).get("source") or pairs[0][0]
     target = body.get("target") if "target" in body else (old or {}).get("target") or pairs[0][1]
     if (source, target) not in pairs:
-        raise ValueError("지금 조립할 수 있는 문서 쌍은 " + " · ".join(f"{kind_name(a)} → {kind_name(b)}" for a, b in pairs) + " 입니다")
+        raise ValueError(_pair_error(shape))
     premise = str(body.get("premise") if "premise" in body else (old or {}).get("premise") or "").strip()
     if len(premise) > PREMISE_MAX:
         raise ValueError(f"전제 글은 {PREMISE_MAX}자까지입니다")
@@ -783,7 +948,7 @@ def create(body, builtin_names=()):
         taken = set(builtin_names) | {x["name"] for x in data["tasks"]}
         if isinstance(body, dict) and "flow" not in body and body.get("shape", "relay") != "relay":   # 옛 꼴(assign)은 이관의 표준 차례뿐 — 다른 틀을 조용히 이관으로 저장하지 않는다
             sh = next((x for x in SHAPES if x["id"] == body.get("shape")), None)
-            raise ValueError(sh["soon"] if sh and sh["soon"] else "이 틀은 줄 목록으로 조립합니다 — 줄을 놓아 보내세요" if sh else "모르는 틀입니다")
+            raise ValueError(shape_soon(sh) or "이 틀은 줄 목록으로 조립합니다 — 줄을 놓아 보내세요" if sh else "모르는 틀입니다")
         t = _checked_flow(body, taken) if "flow" in body else _checked(body, taken)
         keys = {r.get("key") for r in data["rows"] if isinstance(r, dict)}   # 안 보이는 줄(꼴이 틀림 · 겹침)의 키와도 겹치지 않게
         key = next(k for k in (f"u_{uuid.uuid4().hex[:8]}" for _ in range(100)) if k not in keys)

@@ -157,9 +157,9 @@ def main():
         check("묶음 셋 — 1단계 프로젝트 구성 · 2단계 헤딩 추출 · 3단계 표(등록부의 번호) · 묶음마다 「한 번에 진행」 · 1단계는 값 확정 전이라 꺼짐",
               [g[:2] for g in h["groups"]] == [["1단계", "프로젝트 구성"], ["2단계", "헤딩 추출"], ["3단계", "표"]] and all(g[2] == "한 번에 진행" for g in h["groups"]) and h["groups"][0][3]
               and "표 판정(LLM)도 같이" in h["groups"][1][4], h["groups"])
-        check("단계 열넷(등록부 그대로) — 01 문서 올리기 … 02 구성 읽기 · 03 구성 불러오기 · 04 프로젝트 구성 확정 · 05 구분 기준 자리 확인 · 06 변경 계획 · 07 적용(문서 바뀜) · 08~11 헤딩 · 12~14 표(점선 = 선택)",
+        check("단계 열넷(등록부 그대로) — 01 문서 올리기 … 02 구성 읽기 · 03 구성 불러오기 · 04 프로젝트 구성 추출 · 05 구분 기준 자리 확인 · 06 변경 계획 · 07 적용(문서 바뀜) · 08~11 헤딩 · 12~14 표(점선 = 선택)",
               [n["key"] for n in nodes] == STD_KEYS and [n["no"] for n in nodes] == [f"{i:02d}" for i in range(1, 15)] and {n["key"] for n in nodes if n["opt"]} == STD_OPT
-              and by["values"]["name"] == "프로젝트 구성 확정" and by["read"]["name"] == "구성 읽기" and by["load"]["name"] == "구성 불러오기" and "문서 바뀜" in by["apply"]["tags"] and "문서 바뀜" in by["adjust"]["tags"]
+              and by["values"]["name"] == "프로젝트 구성 추출" and by["read"]["name"] == "구성 읽기" and by["load"]["name"] == "구성 불러오기" and "문서 바뀜" in by["apply"]["tags"] and "문서 바뀜" in by["adjust"]["tags"]
               and "LLM" in by["headsLlm"]["tags"] and "LLM" in by["tablesLlm"]["tags"]
               and "필수" in by["values"]["tags"] and "선택" in by["review"]["tags"] and "필수" not in by["review"]["tags"] and "필수" not in by["heads"]["tags"], nodes)   # 필수 = 선택 · 자동 · 준비 중이 아닌 단계(2026-11-18 사용자 「꼭 해야하는건 필수 라고 적어줘」)
         check("상태 — 01 ✓ 끝남 · 02 구성 읽기 「할 수 있음」 · 03 상태 글 없음 · 04 지금(펴짐 · 「프로젝트 구성 입력 · 확정…」) · 06 · 07 남음 · 헤딩 · 표 ✓(첫 분석) · LLM 판정은 「할 수 있음」(1단계가 남아도) · 조정은 헤딩 LLM 판정 뒤",
@@ -172,7 +172,7 @@ def main():
             page.click('#paneDash .dash-node[data-key=values] .dash-node-head')
             page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail')
         d0, n0 = counted(nodes)
-        check("머리 「끝남 n/9」(세는 단계 아홉 — 안 해도 되는 단계는 안 셈) · 「다음: 04 프로젝트 구성 확정」", n0 == 9 and h["count"] == f"끝남 {d0}/9" and h["next"] == "다음: 04 프로젝트 구성 확정", [h, d0, n0])
+        check("머리 「끝남 n/9」(세는 단계 아홉 — 안 해도 되는 단계는 안 셈) · 「다음: 04 프로젝트 구성 추출」", n0 == 9 and h["count"] == f"끝남 {d0}/9" and h["next"] == "다음: 04 프로젝트 구성 추출", [h, d0, n0])
         check("머리 아래 「이어서 한 번에 1→3단계」 — 값 확정 전이라 꺼짐 + 까닭 글 「프로젝트 구성 값을 먼저 확정하세요」", h["top"] == [["button", "이어서 한 번에 1→3단계", True], ["note", "프로젝트 구성 값을 먼저 확정하세요", False]], h["top"])
         page.screenshot(path=str(OUT / "01_dash.png"))
         page.locator("#paneDash").screenshot(path=str(OUT / "01_pane.png"))
@@ -251,9 +251,9 @@ def main():
         page.wait_for_function("() => document.querySelector('#paneDash .dash-node[data-key=plan]')?.dataset.state === 'now'", timeout=30000)
         h = page.evaluate(HEAD)
         div = requests.get(f"{base}/api/docs/{doc}/divisions", timeout=30).json()
-        check("「확정」 → 확정(1단계 3차년도 · 주관 한국선급 · 공동 2 — 문서 그대로) · 끝 글 「프로젝트 구성 확정 — …」 · 04 끝남 · 06 지금 · 머리 끝남 하나 더 · 1단계 「한 번에 진행」 켜짐",
+        check("「확정」 → 확정(1단계 3차년도 · 주관 한국선급 · 공동 2 — 문서 그대로) · 끝 글 「프로젝트 구성 추출 — …」 · 04 끝남 · 06 지금 · 머리 끝남 하나 더 · 1단계 「한 번에 진행」 켜짐",
               (div.get("confirmed") or {}).get("values", {}).get("stages") == [3] and div["confirmed"]["values"]["orgs"]["joint"] == ["씨드로닉스", "유엔젤"]
-              and h["last"].startswith("프로젝트 구성 확정") and not h["lastHalt"] and h["count"] == f"끝남 {d0 + 1}/9" and h["next"] == "다음: 06 변경 계획 보기"
+              and h["last"].startswith("프로젝트 구성 추출") and not h["lastHalt"] and h["count"] == f"끝남 {d0 + 1}/9" and h["next"] == "다음: 06 변경 계획 보기"
               and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0 and not h["groups"][0][3] and h["top"] == [["button", "이어서 한 번에 1→3단계", False]], [h, div.get("confirmed")])
         page.screenshot(path=str(OUT / "02_confirmed.png"))
 
@@ -491,7 +491,7 @@ def main():
         page.wait_for_timeout(1300)   # 대시보드의 1초 다시 그리기
         h, nodes = page.evaluate(HEAD), page.evaluate(NODES)
         by = {n["key"]: n for n in nodes}
-        check("이관 — 묶음 넷(1단계 문서 검토 · 2단계 구성 맞추기 · 3단계 내용 넣기 · 4단계 문서 정리) · 묶음마다 「한 번에 진행」(할 일이 남은 첫 묶음 = 2단계만 켜짐) · 준비 · 헤딩·표 분석 끝남 · 프로젝트 구성 확정이 지금",
+        check("이관 — 묶음 넷(1단계 문서 검토 · 2단계 구성 맞추기 · 3단계 내용 넣기 · 4단계 문서 정리) · 묶음마다 「한 번에 진행」(할 일이 남은 첫 묶음 = 2단계만 켜짐) · 준비 · 헤딩·표 분석 끝남 · 프로젝트 구성 추출이 지금",
               [g[0] for g in h["groups"]] == ["1단계", "2단계", "3단계", "4단계"] and all(g[2] == "한 번에 진행" for g in h["groups"]) and [bool(g[3]) for g in h["groups"]] == [True, False, True, True]
               and [n["key"] for n in nodes] == ["files", "heads", "headsLlm", "configLoad", "config", "division", "reheads", "reheadsLlm", "link", "llm", "plan", "gaps", "tableMap", "apply", "later", "guide"]
               and by["headsLlm"]["state"] == "done"   # LLM 을 쓸 수 없는 서버 — 1단계의 LLM 검증·보완은 건너뜀(끝난 것으로 봄)
@@ -500,7 +500,7 @@ def main():
         check("머리 아래 「이어서 한 번에 2→4단계」(「작업 개요」 의 이어 진행과 같은 범위 — 1단계는 끝남)", top == ["이어서 한 번에 2→4단계"], top)
         page.click('#paneDash .dash-node[data-key=configLoad] .dash-node-head')
         via0 = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=configLoad] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
-        check("선택 단계 「구성 불러오기」 는 「「프로젝트 구성 확정」 의 단추로 함께」(그 줄의 「구성 불러오기」 — 파일 · 저장된 곳)", "「프로젝트 구성 확정」" in via0["text"] and via0["btn"] == "그 단계로", via0)
+        check("선택 단계 「구성 불러오기」 는 「「프로젝트 구성 추출」 의 단추로 함께」(그 줄의 「구성 불러오기」 — 파일 · 저장된 곳)", "「프로젝트 구성 추출」" in via0["text"] and via0["btn"] == "그 단계로", via0)
         page.click('#paneDash .dash-node[data-key=llm] .dash-node-head')
         via = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=llm] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
         page.click('#paneDash .dash-node[data-key=llm] .dash-acts button')
