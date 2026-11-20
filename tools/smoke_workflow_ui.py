@@ -365,8 +365,8 @@ def diagram_checks(wf, ctx, api, workflow_requests):
             bad.append((width, overflow))
     check("다이어그램 — 1500·900·480·360px에서 기술 상세 · 시작 점검 · 문서마다 단위문서 TASK 를 펴도 가로 넘침 없음", not bad, bad)
     wf.screenshot(path=str(OUT / "08_diagram_mobile.png"))
-    check("다이어그램 탐색은 읽기만 — API 요청은 GET /api/workflow 와 조립한 TASK 읽기(GET /api/tasks · /api/tasks.js)뿐",
-          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0] in (base + "/api/workflow", base + "/api/tasks", base + "/api/tasks.js") for method, url in workflow_requests), workflow_requests)
+    check("다이어그램 탐색은 읽기만 — API 요청은 GET /api/workflow · 조립한 TASK 읽기(GET /api/tasks · /api/tasks.js) · 저장한 양식 읽기(GET /api/form-files — 양식 더하기가 펴져 있으면 /api/works · /api/samples)뿐",
+          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0] in tuple(base + x for x in ("/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples")) for method, url in workflow_requests), workflow_requests)
     wf.set_viewport_size({"width": 1500, "height": 1000})
     wf.click("#wfViewList")
     # 상세 주소로 목록을 열며 펼쳐진 단계가 기존 목록 검사의 초기 상태에 섞이지 않게 한다.
@@ -417,10 +417,11 @@ def main():
           secs: [...document.querySelectorAll('#wfMain .wf-sec')].map((s) => s.id), title: document.querySelector('.wf-title').textContent })""")
         jobs = [t["job"] for t in api["tasks"]]
         check("목차 — 전체 보기 · TASK 일곱(이름 = TASK_CATALOG · 준비 중은 흐리게) · 공통 모듈 아홉 / 본문의 절이 같은 차례",
-              nav["title"] == "워크플로우" and nav["heads"] == ["워크플로우", "단계", "도구"] and nav["make"] == "＋ 워크플로우 조립" and len(nav["links"]) == 1 + len(jobs) + len(api["common"]) and nav["links"][0][:2] == ["#overview", "전체 보기"]   # 공통 모듈 수는 등록부에서(편집 구역 · 대시보드 · 공유가 더해져 열하나) · 페이지 이름 · 목차 머리 · 조립 단추는 「워크플로우」(② §15 「화면 말」)
+              nav["title"] == "워크플로우" and nav["heads"] == ["워크플로우", "단계", "도구"] and nav["make"] == "＋ 워크플로우 조립" and len(nav["links"]) == 2 + len(jobs) + len(api["common"]) and nav["links"][0][:2] == ["#overview", "전체 보기"]   # 공통 모듈 수는 등록부에서(편집 구역 · 대시보드 · 공유가 더해져 열하나) · 페이지 이름 · 목차 머리 · 조립 단추는 「워크플로우」(② §15 「화면 말」)
               and [x[0] for x in nav["links"][1:8]] == ["#" + j for j in jobs] and nav["links"][3][1] == "사업계획서 → 연차보고서 이관" and nav["links"][5][2] == "wf-soon"
-              and [x[:2] for x in nav["links"][8:12]] == [["#common-stage_review", "문서 검토"], ["#common-stage_fit", "구성 맞추기"], ["#common-stage_fill", "내용 넣기"], ["#common-stage_clean", "문서 정리"]]   # 단계 모듈 넷이 공통 모듈의 맨 앞(spec_워크플로우 ② §13 — TASK 가 조립하는 일반 단계)
-              and nav["links"][12][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview", "wfCompose"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)   # 「TASK 조립」 절이 전체 보기 아래(spec_워크플로우 ② §14)
+              and nav["links"][8][:2] == ["#wfForms", "저장한 양식"]   # 저장한 양식(spec_워크플로우 ② §18-9) — 「＋ 워크플로우 조립」 아래
+              and [x[:2] for x in nav["links"][9:13]] == [["#common-stage_review", "문서 검토"], ["#common-stage_fit", "구성 맞추기"], ["#common-stage_fill", "내용 넣기"], ["#common-stage_clean", "문서 정리"]]   # 단계 모듈 넷이 공통 모듈의 맨 앞(spec_워크플로우 ② §13 — TASK 가 조립하는 일반 단계)
+              and nav["links"][13][:2] == ["#common-intake", "문서 올리기 · 첫 분석"] and nav["secs"] == ["overview", "wfCompose", "wfForms"] + jobs + ["common-" + c["id"] for c in api["common"]], nav)   # 「TASK 조립」 절이 전체 보기 아래(spec_워크플로우 ② §14)
         ov = wf.evaluate("""() => ({ rows: [...document.querySelectorAll('.wf-over > li')].map((li) => [li.dataset.job, li.querySelector('.wf-over-name').textContent, [...li.querySelectorAll('.wf-chain > li')].map((c) => c.textContent)]),
           dots: [...document.querySelectorAll('.wf-over > li[data-job=plan_to_report] .wf-chain > li')].map((c) => [...c.querySelectorAll('.wf-dot')].map((d) => d.className.replace('wf-dot wf-d-', '')).join('+')),
           legend: [...document.querySelectorAll('.wf-legend .wf-tag')].map((x) => x.textContent), commons: document.querySelectorAll('.wf-commons a').length, cur: document.querySelector('#wfNav a[aria-current=true]').textContent })""")
@@ -452,7 +453,7 @@ def main():
               [...d.querySelectorAll('summary .wf-tag')].map((x) => x.textContent).join('|'), d.querySelector('.wf-does').offsetHeight > 0, d.open]),
             top: Math.round(s.getBoundingClientRect().top - document.getElementById('wfMain').getBoundingClientRect().top), hash: location.hash }; }""")
         check("이관 절 — 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 → 알아 둘 것 → 전제(jobs/plan_to_report.md) · 그 절로 스크롤(#plan_to_report)",
-              ts["h2"] == "워크플로우사업계획서 → 연차보고서 이관" and "연차보고서로 옮깁니다" in ts["lead"] and ts["io"] == ["받는 문서", "산출물", "알아 둘 것", "전제", "한 번에 진행", "에이전트가 묻는 것", "멈추거나 남기는 곳 · 보정", "단계별(세부 작업)"] and ts["prompt"] == "jobs/plan_to_report.md"
+              ts["h2"] == "워크플로우사업계획서 → 연차보고서 이관" and "연차보고서로 옮깁니다" in ts["lead"] and ts["io"] == ["받는 문서", "문서 칸", "산출물", "알아 둘 것", "전제", "한 번에 진행", "에이전트가 묻는 것", "멈추거나 남기는 곳 · 보정", "단계별(세부 작업)"] and ts["prompt"] == "jobs/plan_to_report.md"
               and ts["hash"] == "#plan_to_report" and -2 <= ts["top"] <= 20, ts)
         check("묶음 넷 — 「1단계 문서 검토」(3) · 「2단계 구성 맞추기」(5 — 구성 불러오기(선택) 포함) · 「3단계 내용 넣기」(7) · 「4단계 문서 정리」(1)",
               ts["stages"] == [["review", "1단계", "문서 검토", 3], ["frame", "2단계", "구성 맞추기", 5], ["map", "3단계", "내용 넣기", 7], ["clean", "4단계", "문서 정리", 1]], ts["stages"])

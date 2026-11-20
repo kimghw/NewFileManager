@@ -108,7 +108,7 @@ def _maps(saved):
     return {k: v for k, v in (saved.get("tableMaps") or {}).items() if isinstance(v, dict) and v.get("from")}
 
 
-_ORIG = {}   # 목적 작업 id → (올린 원본 sha256, {칸 id: {text, top, bottom}}) — _orig
+_ORIG = {}   # 목적 작업 id → (읽은 원본 바이트, 그 바이트의 sha256, {칸 id: {text, top, bottom}}, 내용 지문) — _orig
 
 
 def _orig(doc_id):
@@ -118,15 +118,18 @@ def _orig(doc_id):
     from app import merge_table_map as MM
     from app import server
     from app.hwpx_doc import HwpxDoc
+    from app import works
     s = server._sess(doc_id)
     try:
-        form, sha = HF.for_session(s), HF.doc_sha(s)
+        form = HF.for_session(s)
         cond = {"sha256": HF.parse(form["text"])["sha256"], "blank": HF.blank_fps(form["text"])} if form else None
-        if not cond or not sha or not (cond["sha256"] or cond["blank"]):
+        if not cond or not (cond["sha256"] or cond["blank"]):
             return None
+        # 견주는 해시와 칸을 **같은 바이트**에서(spec_워크플로우 ② §18-12 ⑧ — 전에는 work.json 에 적힌 sha256 으로 견주고 칸은 세션 원본에서 읽어, 둘이 다른 바이트면 남의 칸을 예시로 봤다)
+        blob = s.original
         hit = _ORIG.get(doc_id)
-        if hit is None or hit[0] != sha:
-            cells, blocks = {}, HwpxDoc(s.original).blocks()
+        if hit is None or hit[0] is not blob:
+            cells, blocks = {}, HwpxDoc(blob).blocks()
 
             def walk(seq):
                 for b in seq:
@@ -136,8 +139,8 @@ def _orig(doc_id):
                         cells[c["id"]] = {"text": c.get("text") or "", "top": MM._kind(ln.get("t")), "bottom": MM._kind(ln.get("b"))}
                         walk(c.get("blocks") or ())
             walk(blocks)
-            hit = _ORIG[doc_id] = (sha, cells, MM.blank_fp(blocks))
-        return hit[1] if sha.lower() in cond["sha256"] or hit[2] in cond["blank"] else None   # 바이트가 같거나(sha256) 내용이 같다(blank — 다시 저장·hwp 변환으로 바이트만 다른 빈 양식)
+            hit = _ORIG[doc_id] = (blob, works.sha256(blob), cells, MM.blank_fp(blocks))
+        return hit[2] if hit[1].lower() in cond["sha256"] or hit[3] in cond["blank"] else None   # 그 바이트가 같거나(sha256) 내용이 같다(blank — 다시 저장·hwp 변환으로 바이트만 다른 빈 양식)
     except Exception:   # 예시 판정은 덤이다 — 못 읽으면 「예시 아님」 으로(덮지 않는 쪽)
         return None
 

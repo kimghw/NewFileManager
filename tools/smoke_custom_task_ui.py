@@ -209,7 +209,7 @@ try:
             old: f.querySelectorAll('.wf-stage-opt, input[name=stage]').length,
             focus: document.activeElement === f.querySelector('input[name=name]'), premise: f.querySelector('textarea').placeholder, blocked: [...document.querySelectorAll('#wfCompose .wf-blocked li b')].map((b) => b.textContent) }; }""")
         check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 쌍(지금은 사업계획서 → 연차보고서 하나) · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 둘 · 「단계 넷 체크」 는 없어짐(문서 역할 × 단계 표로)",
-              f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 쌍(원본 → 목적)", "전제(선택)"] and f0["pairs"] == ["사업계획서 → 연차보고서"] and f0["focus"] and f0["old"] == 0
+              f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 쌍(원본 → 목적)", "문서 칸", "전제(선택)"] and f0["pairs"] == ["사업계획서 → 연차보고서"] and f0["focus"] and f0["old"] == 0
               and "사업계획서 → 연차보고서 이관" in f0["premise"] and len(f0["blocked"]) == 2 and "취합형" in f0["blocked"][1], f0)
         # 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 칸은 서버(GET /api/tasks 의 stages[].cells)가 정한다
         cells = {st["id"]: st.get("cells") or {} for st in requests.get(f"{base}/api/tasks", timeout=30).json()["stages"]}   # 없으면(옛 서버) 아래 검사가 떨어진다

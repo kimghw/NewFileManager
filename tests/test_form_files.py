@@ -161,3 +161,41 @@ def test_a_fixed_form_cannot_be_bypassed_by_uploading(client):
     assert wrong.status_code == 409 and wrong.json()["reason"] == "fixedForm"
     ok = client.post("/api/workflow-start", json={"job": "plan_to_report", "request": "req-fixed-2", "project": "고정 시험", "target": {"form": f["id"]}})
     assert ok.status_code == 200 and works.work(ok.json()["docId"])["form"]["mode"] == "fixed" and ok.json()["task"]["project"] == "고정 시험"
+
+
+def test_a_fixed_form_cannot_be_bypassed_by_putting_the_task(client):
+    """`PUT …/task` 로 그 워크플로우의 목적 문서로 새로 들어오는 작업도 고정 양식이어야 한다 — 이미 그 워크플로우 · 그 역할이던 작업(하던 작업)은 막지 않는다(② §18-11 ⓒ)."""
+    import merge_data as M
+    f = _put_form(client, M.REPORT_FORM)["file"]
+    up = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    put = lambda wid, **t: client.put(f"/api/works/{wid}/task", json={"kind": "rnd", "file": "report", "job": "plan_to_report", "project": "", **t})  # noqa: E731
+    assert put(up).status_code == 200   # 고정 전 — 들어옴(하던 작업이 된다)
+    assert client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": f["id"], "mode": "fixed"}}).status_code == 200
+    assert put(up, project="이어 하는 프로젝트").status_code == 200   # 하던 작업 — 프로젝트만 바꿔도 막지 않는다
+    other = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    r = put(other)
+    assert r.status_code == 409 and "고정" in r.json()["detail"]   # 새로 들어옴 — 거절
+    assert put(other, file="plan").status_code == 200   # 원본 문서 칸은 사람이 준다
+    assert client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": f["id"], "mode": "default"}}).status_code == 200
+    third = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    assert put(third).status_code == 200   # 기본값 — 다른 파일로 바꿀 수 있다
+
+
+def test_a_form_is_saved_from_the_first_original_of_a_work_and_from_a_sample(client):
+    import merge_data as M
+    from app import server
+    wid = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    assert client.put(f"/api/works/{wid}/task", json={"kind": "rnd", "file": "report", "job": "plan_to_report", "project": ""}).status_code == 200
+    r = client.post(f"/api/form-files/from-work/{wid}", json={})
+    assert r.status_code == 201, r.text
+    f = r.json()["file"]
+    assert r.json()["made"] and f["kind"] == "report" and f["fmt"] == "hwpx" and f["name"] == M.REPORT_FORM.stem and client.get(f"/api/form-files/{f['id']}/file").content == M.REPORT_FORM.read_bytes()
+    assert client.post(f"/api/form-files/from-work/{wid}", json={"name": "다시"}).json()["made"] is False   # 같은 원본 — 있던 양식
+    assert client.post("/api/form-files/from-work/000000000000", json={}).status_code == 404
+    sample = next((p for p in sorted(server.SAMPLES.iterdir()) if p.is_file() and server.fmt_of(p.name) == "hwpx"), None)
+    if sample is not None:
+        s = client.post(f"/api/form-files/from-sample/{sample.name}", json={"name": "예제 양식", "kind": ""})
+        assert s.status_code == 201 and s.json()["file"]["name"] == "예제 양식"
+    assert client.post("/api/form-files/from-sample/..%5Cx.hwpx", json={}).status_code == 404
+    assert client.post("/api/form-files/from-sample/none.hwpx", json={}).status_code == 404
+    assert client.post(f"/api/form-files/from-work/{wid}", json={"kind": "part"}).status_code == 400

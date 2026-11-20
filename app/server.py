@@ -1411,6 +1411,24 @@ def work_task(wid: str, body: dict = Body(...)):
     return _work_task(wid, body)
 
 
+def _fixed_form_check(work, job, role):
+    """고정한 양식(워크플로우 설정 — spec_워크플로우 ② §18-9 · §18-12 ⑧): 그 워크플로우의 목적 문서로 **새로 들어오는** 작업은 그 양식으로 만든 것이어야 한다 — 409.
+    이미 그 워크플로우 · 그 역할이던 작업(하던 작업을 이어 함 · 라운드 · 프로젝트만 바꿈)은 막지 않는다(고정이어도 하던 작업의 문서는 안 바꾼다 — ② §18-11 ⓒ). 원본 문서(목적 종류가 아닌 칸)는 사람이 준다."""
+    if not job:
+        return
+    from app import form_files
+    slot = form_files.slot(job)
+    if not slot or slot["mode"] != "fixed":
+        return
+    tkind, old = works.TARGET_FILE.get(job), work.get("task") or {}
+    if tkind is not None and role != tkind:
+        return
+    if old.get("job") == job and (tkind is None or old.get("file") == role):
+        return
+    if (work.get("form") or {}).get("id") != slot["file"]:
+        raise HTTPException(409, f"이 워크플로우의 목적 문서는 저장한 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다 — 그 양식으로 시작하세요(워크플로우 페이지의 「문서 칸」 에서 바꿉니다)")
+
+
 def _work_task(wid, body, locked=False):
     """work_task 의 몸통. locked = 부르는 쪽이 projects.ROUND_LOCK 을 이미 잡음(work_start_task — 재진입이 안 되는 잠금이라 여기서 다시 잡지 않는다).
     round 를 안 보낸 요청은 최신 라운드를 읽어 적는 동안 ROUND_LOCK 을 잡는다(새 라운드·새 TASK 시작의 번호 배정과 같은 잠금) — 세션 잠금·저장은 그 밖에서."""
@@ -1422,7 +1440,7 @@ def _work_task(wid, body, locked=False):
     # 그 밖의 할 일은 연구개발(rnd) — 작업 종류를 비운 채 할 일만 남기는 것은 전처럼 된다
     if t["job"] and (t["kind"] != TASK_KIND[t["job"]] if t["job"] in TASK_KIND else t["kind"] not in ("", "rnd")):
         raise HTTPException(400, "이 워크플로우와 작업 종류가 맞지 않습니다 — 작업 종류를 바꾸려면 워크플로우를 먼저 비우세요")
-    _work_or_404(wid)
+    _fixed_form_check(_work_or_404(wid), t["job"], t["file"])
     t["project"] = projects.normalize_name(body.get("project") or "")
     if "round" in body and (not isinstance(body["round"], int) or isinstance(body["round"], bool) or not 1 <= body["round"] <= 1000000):
         raise HTTPException(400, "라운드는 1 이상의 정수여야 합니다")

@@ -1,6 +1,8 @@
 """저장한 양식 · 워크플로우마다의 양식 설정 · 양식으로 시작하기의 끝점(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧). 저장은 app/form_files.py(가벼운 모듈), server.py 가 include 한다.
 
-- `GET /api/form-files` → {files[{id, name, file, fmt, kind, sha256, size, at, usedBy[{job, name, role, mode}]}], slots{워크플로우 키: {target: {file, mode}}}, rev(설정의 판), broken, jobs[{job, name, kind(목적 문서 종류 | ""), formats}](양식을 걸 수 있는 워크플로우)}
+- `GET /api/form-files` → {files[{id, name, file, fmt, kind, sha256, size, at, usedBy[{job, name, role, mode}]}], slots{워크플로우 키: {target: {file, mode}}}, rev(설정의 판), broken, jobs[{job, name, kind(목적 문서 종류 | ""), formats}](양식을 걸 수 있는 워크플로우),
+  noForm{워크플로우 키: 양식을 걸지 않는 까닭}}
+- `POST /api/form-files/from-work/{wid}` {name?, kind?} → 201 {file, made} — 그 작업의 **처음 올린 원본**(새 라운드로 갈라진 작업도) · `POST /api/form-files/from-sample/{name}` {name?, kind?} → 201 — 예제(samples/)
 - `POST /api/form-files`(multipart file · name? · kind?) → 201 {file, made} — hwp 는 한글로 hwpx 로 바꿔 저장 · 열 수 없는 파일은 400 · 같은 내용이면 있던 양식(made false). kind 를 비우면 양식 이름 문단으로 짐작(연구개발계획서 → plan · 연차보고서 → report).
 - `PUT /api/form-files/{id}` {name?, kind?} → {file} · `DELETE /api/form-files/{id}` → {deleted}(설정에 쓰는 양식은 409) · `GET /api/form-files/{id}/file` → 그 파일.
 - `PUT /api/workflow-slots/{job}` {target: {file, mode: "default" | "fixed"} | null} → {slot, rev} — 400 = 양식을 걸 수 없는 워크플로우 · 문서 종류 · 형식이 안 맞음 · 404 = 없는 양식.
@@ -72,7 +74,31 @@ def form_files_get():
     for job, box in got["slots"].items():
         for role, v in box.items():
             used.setdefault(v["file"], []).append({"job": job, "name": names.get(job, job), "role": role, "mode": v["mode"]})
-    return {**got, "files": [{**f, "usedBy": used.get(f["id"], [])} for f in got["files"]], "jobs": jobs}
+    return {**got, "files": [{**f, "usedBy": used.get(f["id"], [])} for f in got["files"]], "jobs": jobs, "noForm": dict(NO_FORM)}   # noForm = 양식을 걸지 않는 워크플로우와 까닭(화면의 「문서 칸」 줄)
+
+
+def _store(shown, blob, name="", kind=""):
+    """양식 하나를 저장한다(이미 hwpx · docx 로 바꾼 뒤의 이름 · 바이트) → 응답 {file, made}. 문서로 열리는지 확인한 뒤에 저장 · kind 가 비면 양식 이름 문단으로 짐작(hwpx).
+    올리기 · 작업의 처음 올린 원본 · 예제가 같이 쓴다(동기 — 부르는 쪽이 스레드에서)."""
+    from app import server
+    fmt = server.fmt_of(shown)
+    if fmt is None or fmt == "hwp":
+        raise HTTPException(400, "양식은 hwp · hwpx · docx 파일로 저장합니다")
+    if len(blob) > server.MAX_MB * 2 ** 20:
+        raise HTTPException(413, f"{server.MAX_MB} MB 보다 큰 파일은 저장할 수 없습니다")
+    if kind not in form_files.KINDS:
+        raise HTTPException(400, "모르는 문서 종류입니다")
+    try:
+        blocks = server.FORMATS[fmt]["cls"](blob).blocks()
+    except Exception as e:  # noqa: BLE001 — 열 수 없는 파일은 양식으로 저장하지 않는다
+        raise HTTPException(400, f"{fmt} 문서로 열 수 없는 파일입니다: {e}") from e
+    if kind == "" and fmt == "hwpx":
+        kind = FORM_GUESS.get(server.PROFILE.form_of(blocks), "")
+    try:
+        f, made = form_files.add(str(name or "").strip() or PurePath(shown).stem, shown, fmt, blob, kind)
+    except ValueError as e:
+        raise _refused(e) from e
+    return {"file": {**f, "usedBy": [{"job": j, "role": r, "mode": m} for j, r, m in form_files.uses(f["id"])]}, "made": made}
 
 
 @router.post("/api/form-files", status_code=201)
@@ -84,26 +110,32 @@ async def form_files_post(file: UploadFile = File(...), name: str = Form(""), ki
     shown, blob = file.filename or "양식.hwpx", await file.read()
     if shown.lower().endswith(".hwp"):
         shown, blob = await run_in_threadpool(server._from_hwp, shown, blob)   # 바꾼 뒤의 이름 · 바이트로 저장한다(② §18-12 ⑧)
-    fmt = server.fmt_of(shown)
-    if fmt is None:
-        raise HTTPException(400, "양식은 hwp · hwpx · docx 파일로 저장합니다")
-    if len(blob) > server.MAX_MB * 2 ** 20:
-        raise HTTPException(413, f"{server.MAX_MB} MB 보다 큰 파일은 저장할 수 없습니다")
+    return await run_in_threadpool(_store, shown, blob, name, kind)
 
-    def check():
-        doc = server.FORMATS[fmt]["cls"](blob)
-        return doc.blocks()
-    try:
-        blocks = await run_in_threadpool(check)
-    except Exception as e:  # noqa: BLE001 — 열 수 없는 파일은 양식으로 저장하지 않는다
-        raise HTTPException(400, f"{fmt} 문서로 열 수 없는 파일입니다: {e}") from e
-    if kind == "" and fmt == "hwpx":
-        kind = FORM_GUESS.get(server.PROFILE.form_of(blocks), "")
-    try:
-        f, made = form_files.add(name.strip() or PurePath(shown).stem, shown, fmt, blob, kind)
-    except ValueError as e:
-        raise _refused(e) from e
-    return {"file": {**f, "usedBy": [{"job": j, "role": r, "mode": m} for j, r, m in form_files.uses(f["id"])]}, "made": made}
+
+@router.post("/api/form-files/from-work/{wid}", status_code=201)
+def form_files_from_work(wid: str, body: dict = Body(default={})):
+    """작업의 **처음 올린 원본**을 양식으로 저장한다(지금 편집 상태가 아니다 — 편집한 것을 양식으로 삼으려면 내려받아 올린다: ② §18-9 「넣는 길」).
+    {name?, kind?} — 이름을 비우면 작업의 파일 이름 · 종류를 비우면 그 작업의 문서 종류(사업계획서 · 연차보고서), 그 밖은 양식 이름 문단으로 짐작.
+    「양식으로 저장」 은 「빈 양식이라 예시 칸을 덮어도 됨」 과 다르다(② §18-12 ⑧ — 작성한 문서를 양식으로 저장해도 그 글을 예시로 보지 않는다: 그것은 양식 정보의 일)."""
+    from app import server, works
+    w = works.work(wid) if isinstance(wid, str) else None
+    if w is None:
+        raise HTTPException(404, "그런 작업이 없습니다")
+    blob = server._round_uploaded_original(w)   # 새 라운드로 갈라진 작업도 처음 올린 원본으로(409 = 원본을 못 읽음)
+    shown = f"{PurePath(w.get('name') or 'document').stem}.{w.get('format') or 'hwpx'}"
+    kind = body.get("kind") if isinstance(body.get("kind"), str) else ((w.get("task") or {}).get("file") if (w.get("task") or {}).get("file") in ("plan", "report") else "")
+    return _store(shown, blob, body.get("name") if isinstance(body.get("name"), str) else "", kind)
+
+
+@router.post("/api/form-files/from-sample/{name}", status_code=201)
+def form_files_from_sample(name: str, body: dict = Body(default={})):
+    """예제 파일(samples/ — GET /api/samples 의 목록)을 양식으로 저장한다. {name?, kind?}."""
+    from app import server
+    p = server.SAMPLES / name
+    if p.parent != server.SAMPLES or not p.is_file() or server.fmt_of(p.name) in (None, "hwp"):
+        raise HTTPException(404, "예제가 없습니다")
+    return _store(p.name, p.read_bytes(), body.get("name") if isinstance(body.get("name"), str) else "", body.get("kind") if isinstance(body.get("kind"), str) else "")
 
 
 @router.put("/api/form-files/{fid}")

@@ -96,6 +96,7 @@
     context.append(h("summary", "", item.job ? (docs ? "입력·산출물 · 전제 · 문서마다 단위문서 TASK 보기" : "입력·산출물과 전제 보기") : "여는 곳 · 쓰는 워크플로우 보기"));
     if (item.job) {
       row(info, "받는 문서", item.inputs);
+      if (!item.soon) row(info, "문서 칸", slotEl(item)); // 목록 보기의 워크플로우 절과 같은 줄(목적 문서 칸의 양식 설정)
       row(info, "산출물", item.output);
       if (item.note) row(info, "알아 둘 것", item.note);
       if (item.prompt) row(info, "전제", h("code", "", item.prompt));
@@ -462,6 +463,7 @@
         : `틀이 같은 워크플로우${from ? `(${taskName(from)})` : ""}의 전제를 씁니다 — 그 글의 단계 설명 가운데 고르지 않은 단계는 하지 않습니다`);
     }
     row(io, "받는 문서", t.inputs);
+    if (!t.soon) row(io, "문서 칸", slotEl(t)); // 역할마다의 칸 · 목적 문서 칸의 양식 설정(저장한 양식 — ② §18-9)
     row(io, "산출물", t.output);
     if (t.note) row(io, "알아 둘 것", t.note);
     if (t.prompt) row(io, "전제", [h("code", "", t.prompt), document.createTextNode(" — 이 워크플로우의 전제 · 기준을 적은 할 일 프롬프트(에이전트가 먼저 읽는 글)")]);
@@ -525,6 +527,8 @@
     make.title = "원본 문서 · 목적 문서마다 단계(문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리)를 골라 새 워크플로우를 만듭니다";
     make.addEventListener("click", () => composeOpen(""));
     nav.replaceChildren(link("#overview", "전체 보기"), h("h2", "", "워크플로우"), ...D.tasks.map((t) => link(`#${t.job}`, taskName(t.job), t.soon ? "wf-soon" : t.custom ? "wf-made" : "")), make,
+      link("#wfForms", "저장한 양식", "wf-nav-forms"), // 목적 문서 칸에 넣을 양식 파일(② §18-9) — 전체 보기와 함께 서는 절
+
       h("h2", "", "단계"), ...D.common.filter((c) => c.kind === "stage").map((c) => link(`#common-${c.id}`, c.name)),
       h("h2", "", "도구"), ...D.common.filter((c) => c.kind !== "stage").map((c) => link(`#common-${c.id}`, c.name)));
   }
@@ -547,11 +551,12 @@
     if (!D) return;
     let id = "";
     try { id = decodeURIComponent((hash || "#overview").replace(/^#/, "")); } catch { id = "overview"; }
-    if (id !== "overview" && !routes.has(id)) id = "overview";
+    const anchor = OVER_SECS.has(id) ? id : ""; // 전체 보기와 함께 서는 절(워크플로우 조립 · 저장한 양식) — 전체 보기를 펴고 그 절로
+    if (anchor || (id !== "overview" && !routes.has(id))) id = "overview";
     const oldOwner = (routes.get(current) || {}).flow?.id, route = routes.get(id), main = $("wfMain"), diagram = $("wfDiagram");
     const focusKey = document.activeElement?.dataset.wfFocus;
     current = id;
-    for (const sec of main.querySelectorAll(".wf-sec")) sec.hidden = view === "diagram" && (id !== "overview" || (sec.id !== "overview" && sec.id !== "wfCompose")); // 「워크플로우 조립」 절은 전체 보기와 함께
+    for (const sec of main.querySelectorAll(".wf-sec")) sec.hidden = view === "diagram" && (id !== "overview" || (sec.id !== "overview" && !OVER_SECS.has(sec.id))); // 「워크플로우 조립」 · 「저장한 양식」 절은 전체 보기와 함께
     diagram.hidden = view !== "diagram" || !route;
     if (view === "diagram") {
       if (route) {
@@ -570,8 +575,10 @@
       if (el?.matches("details")) el.open = true;
       if (el && main.contains(el)) el.scrollIntoView({ block: "start" });
     }
+    if (anchor && $(anchor)) $(anchor).scrollIntoView({ block: "start" });
     navSync();
   }
+  const OVER_SECS = new Set(["wfCompose", "wfForms"]); // 전체 보기와 함께 서는 절 — 주소 #wfForms 로 바로 열린다
 
   function navigate(hash) {
     // 주소는 남기되 브라우저의 기본 fragment 스크롤과 상세 자동 펼침은 피한다.
@@ -793,6 +800,12 @@
     no.append(ul);
     sec.append(no);
   }
+  function slotField(c, field) { // 조립 폼의 「문서 칸」 — 워크플로우 절의 그 줄과 같은 것(고치기: 그 워크플로우의 설정을 바로 바꾼다 · 정의와 따로라 지문이 안 바뀐다 · 새로 만들 때는 만든 뒤에)
+    const t = c.key && D ? D.tasks.find((x) => x.job === c.key) : null, box = h("div", "wf-compose-slots");
+    if (t) box.append(slotEl(t));
+    else box.append(h("span", "wf-muted", "목적 문서 칸의 양식(없음 · 기본값 · 고정)은 만든 뒤 그 워크플로우 절의 「문서 칸」 에서 겁니다 — 정의와 따로 두는 설정이라 하던 작업이 있어도 바꿀 수 있습니다"));
+    return field("문서 칸", box);
+  }
   function composeForm() {
     const c = composing, form = h("form", "wf-form"), field = (label, control, note) => { const f = h("label", "wf-field"); f.append(h("span", "wf-field-name", label), control); if (note) f.append(h("span", "wf-muted", note)); return f; };
     form.addEventListener("submit", (e) => { e.preventDefault(); composeSave(); });
@@ -890,13 +903,212 @@
     if (c.err) { const e = h("p", "wf-err", c.err); e.setAttribute("role", "alert"); acts.append(e); }
     form.append(h("h3", "", c.key ? `「${c.name}」 고치기` : c.copyOf ? `새 워크플로우 — 「${c.copyOf}」 복제` : "새 워크플로우"), field("이름", name), field("한 줄 설명", desc),
       field("문서 쌍(원본 → 목적)", pair, c.key ? "만든 뒤에는 고칠 수 없습니다" : T.pairs.length > 1 ? "" : "지금 조립할 수 있는 쌍은 이것 하나입니다 — 까닭은 아래 「아직 조립할 수 없는 것」"),
-      ...(lock ? [lock] : []), pick, field("전제(선택)", premise), acts);
+      ...(lock ? [lock] : []), pick, slotField(c, field), field("전제(선택)", premise), acts);
     return form;
+  }
+
+  // ---- 저장한 양식 · 문서 칸(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧ — 2026-11-20 사용자 "템플릿은 워크플로우 설정에서 고정 또는 default 값을로" → 물어서 받은 답 「양식 파일」)
+  // 저장한 양식 = 워크플로우의 목적 문서 칸에 넣을 양식 파일(서버 전체 — GET /api/form-files · 파일은 올린 그대로 · 고치려면 새로 올린다).
+  // 문서 칸 = 워크플로우 절의 「받는 문서」 아래 한 줄 — 역할마다(원본 → 목적) · 목적 문서 칸에만 양식을 건다: 「양식: 없음 · 기본값 · 고정」 + 저장한 양식 고르기(PUT /api/workflow-slots/{job}). 붙박이 · 조립한 것 모두.
+  // 걸 수 있는지(워크플로우 · 형식 · 문서 종류)는 서버가 정한다(jobs[{job, kind, formats}] · noForm{job: 까닭}) — 화면은 그 목록대로 고를 것을 추리고, 거절 글은 서버의 것 그대로. 화면 말: 「저장한 양식」 · 「양식으로 저장」 · 「양식: 없음 · 기본값 · 고정」(「템플릿」 은 쓰지 않는다).
+  let FF = null, ffErr = ""; // GET /api/form-files | null(못 읽음 — 옛 서버면 이 절 · 줄이 서지 않는다)
+  const FF_MODE = { "": "없음", default: "기본값", fixed: "고정" };
+  const FF_KIND = { "": "정하지 않음", plan: "사업계획서", report: "연차보고서" };
+  const ffDate = (at) => { const d = new Date((at || 0) * 1000); return at && Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : ""; };
+  const ffSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
+  const ffJob = (job) => (FF && (FF.jobs || []).find((j) => j.job === job)) || null;
+  const ffFits = (f, j) => j && (j.formats || []).includes(f.fmt) && (!j.kind || f.kind === j.kind); // 그 워크플로우의 목적 칸에 걸 수 있나(서버 form_files_api.fits 와 같은 셈 — 거절 글은 서버의 것)
+  async function formsLoad() {
+    try { const r = await fetch("/api/form-files", { headers: { Accept: "application/json" } }); FF = r.ok ? await r.json() : null; ffErr = r.ok || r.status === 404 ? "" : `HTTP ${r.status}`; }
+    catch (e) { FF = null; ffErr = e.message; }
+  }
+  async function ffSend(url, opts) { // → {ok, data, msg} — 서버의 글 그대로(400 값이 틀림 · 404 없음 · 409 쓰는 양식 · 목록 파일을 못 읽음)
+    try {
+      const r = await fetch(url, opts), data = await r.json().catch(() => ({}));
+      return { ok: r.ok, data, msg: r.ok ? "" : (typeof data.detail === "string" && data.detail) || data.message || `HTTP ${r.status}` };
+    } catch (e) { return { ok: false, data: {}, msg: e.message }; }
+  }
+  const JSON_H = { "Content-Type": "application/json" };
+  function ffRedraw() { // 양식 · 설정이 바뀐 뒤 — 저장한 양식 절과 모든 「문서 칸」 줄을 새로
+    formsDraw();
+    for (const box of document.querySelectorAll(".wf-slots[data-job]")) { const t = D && D.tasks.find((x) => x.job === box.dataset.job); if (t) box.replaceWith(slotEl(t)); }
+  }
+  function slotEl(t) { // 「문서 칸」 — 역할마다 한 줄(원본 → 목적): 원본 문서 = 실행마다 사람이 넣음 · 목적 문서 = 양식 설정(없음 · 기본값 · 고정 + 저장한 양식)
+    const box = h("div", "wf-slots"), roles = rolesSorted(t.roles), j = ffJob(t.job), cur = FF && FF.slots && FF.slots[t.job] && FF.slots[t.job].target;
+    box.dataset.job = t.job;
+    const ul = h("ul", "wf-slot-list");
+    for (const r of roles.length ? roles : [{ role: "target", title: "목적 문서", name: "" }]) {
+      const li = h("li", "wf-slot"), head = h("span", "wf-slot-role");
+      li.dataset.role = r.role;
+      head.append(h("b", "", roleTitle(r)), document.createTextNode(r.name ? ` — ${r.name}` : ""), ...(r.many ? [h("span", "wf-muted", "(여럿)")] : []));
+      li.append(head);
+      if (r.role !== "target") li.append(h("span", "wf-muted", "실행마다 사람이 넣습니다(양식은 목적 문서 칸에만 겁니다)"));
+      else if (!FF) li.append(h("span", "wf-muted", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "양식 설정은 서버를 다시 켠 뒤에 쓸 수 있습니다"));
+      else if (!j) li.append(h("span", "wf-muted", (FF.noForm || {})[t.job] || (t.soon ? "준비 중인 워크플로우라 양식을 걸지 않습니다" : "이 워크플로우는 양식을 걸지 않습니다")));
+      else li.append(slotPick(t, j, cur));
+      ul.append(li);
+    }
+    box.append(ul);
+    return box;
+  }
+  function slotPick(t, j, cur) { // 목적 문서 칸의 양식 설정 — [없음 | 기본값 | 고정] [저장한 양식 ▾] + 저장한 날 · 거절 글
+    const wrap = h("span", "wf-slot-pick"), mode = h("select"), form = h("select"), note = h("span", "wf-muted"), err = h("span", "wf-slot-err"); // 줄 아래 거절 글(.wf-err 는 조립 폼의 저장 거절 글 — 섞지 않는다)
+    const fits = (FF.files || []).filter((f) => ffFits(f, j)), now = cur ? (FF.files || []).find((f) => f.id === cur.file) : null;
+    mode.name = `slot-mode-${t.job}`;
+    mode.setAttribute("aria-label", `${taskName(t.job)} — 목적 문서 칸의 양식`);
+    for (const [v, label] of Object.entries(FF_MODE)) mode.append(new Option(`양식: ${label}`, v));
+    mode.value = cur ? cur.mode : "";
+    form.name = `slot-form-${t.job}`;
+    form.setAttribute("aria-label", `${taskName(t.job)} — 목적 문서 칸에 넣을 저장한 양식`);
+    for (const f of fits) form.append(new Option(`${f.name}${ffDate(f.at) ? ` (${ffDate(f.at)})` : ""}`, f.id));
+    if (now && !fits.includes(now)) form.append(new Option(`${now.name} — 지금은 걸 수 없음`, now.id));
+    if (!form.options.length) form.append(new Option("걸 수 있는 양식이 없음", ""));
+    form.value = now ? now.id : (fits[0] || {}).id || "";
+    form.disabled = !mode.value || !fits.length;
+    const need = [j.formats.join(" · "), j.kind ? FF_KIND[j.kind] || j.kind : ""].filter(Boolean).join(" · ");
+    const sync = () => {
+      note.textContent = !fits.length ? `걸 수 있는 양식이 없습니다 — 아래 「저장한 양식」 에서 ${need} 양식을 올리세요`
+        : !mode.value ? "시작할 때 목적 문서를 사람이 넣습니다"
+          : mode.value === "fixed" ? "늘 이 양식으로 시작합니다 — 시작의 목적 칸에 다른 파일을 넣을 수 없습니다" : "시작할 때 이 양식이 미리 들어가 있고, 다른 파일로 바꿀 수 있습니다";
+    };
+    const send = async () => {
+      if (mode.value && !form.value) { sync(); return; }
+      mode.disabled = form.disabled = true;
+      err.textContent = "";
+      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ target: mode.value ? { file: form.value, mode: mode.value } : null }) });
+      if (!r.ok) { err.textContent = `바꾸지 못했습니다 — ${r.msg}`; mode.disabled = false; form.disabled = !mode.value || !fits.length; return; }
+      await formsLoad();
+      ffRedraw();
+    };
+    mode.addEventListener("change", () => { form.disabled = !mode.value || !fits.length; sync(); send(); });
+    form.addEventListener("change", send);
+    mode.disabled = !fits.length && !cur;
+    sync();
+    err.setAttribute("role", "alert");
+    wrap.append(mode, form, note, err);
+    return wrap;
+  }
+
+  function formsSec() { const sec = h("section", "wf-sec wf-forms"); sec.id = "wfForms"; return sec; }
+  const ffAdd = { busy: false, err: "", msg: "", works: null, samples: null, open: false }; // 양식 더하기 — 보내는 중 · 거절 글 · 알림 · 작업 목록(GET /api/works — 펼칠 때 한 번) · 예제 목록 · 사람이 폈나(다시 그려도 펴 둔 채)
+  async function ffListsLoad() {
+    if (ffAdd.loading) return;
+    ffAdd.loading = true;
+    const get = async (url) => { try { const r = await fetch(url, { headers: { Accept: "application/json" } }); return r.ok ? await r.json() : []; } catch { return []; } };
+    const [works, samples] = await Promise.all([get("/api/works"), get("/api/samples")]);
+    ffAdd.works = (Array.isArray(works) ? works : []).filter((w) => w && WORK_ID.test(w.id) && /\.(hwpx|docx)$/i.test(w.name || ""));
+    ffAdd.samples = (Array.isArray(samples) ? samples : []).filter((s) => s && /\.(hwpx|docx)$/i.test(s.name || ""));
+    ffAdd.loading = false;
+    formsDraw();
+  }
+  async function ffSave(how, v) { // 양식 더하기 — how = file(올리기) · work(작업의 처음 올린 원본) · sample(예제)
+    if (ffAdd.busy) return;
+    Object.assign(ffAdd, { busy: true, err: "", msg: "" });
+    formsDraw();
+    let r;
+    if (how === "file") {
+      const fd = new FormData();
+      fd.append("file", v.file); fd.append("name", v.name || ""); fd.append("kind", v.kind || "");
+      r = await ffSend("/api/form-files", { method: "POST", body: fd });
+    } else r = await ffSend(how === "work" ? `/api/form-files/from-work/${encodeURIComponent(v.id)}` : `/api/form-files/from-sample/${encodeURIComponent(v.id)}`,
+      { method: "POST", headers: JSON_H, body: JSON.stringify({ name: v.name || "", ...(v.kind ? { kind: v.kind } : {}) }) });
+    ffAdd.busy = false;
+    if (!r.ok) ffAdd.err = `저장하지 못했습니다 — ${r.msg}`;
+    else ffAdd.msg = r.data.made === false ? `같은 내용의 양식 「${r.data.file.name}」 이 이미 있습니다 — 그 양식을 그대로 씁니다` : `양식 「${r.data.file.name}」 을 저장했습니다`;
+    await formsLoad();
+    ffRedraw();
+  }
+  async function ffEdit(f, body, err) { // 이름 · 문서 종류 고치기(설정에 건 양식의 종류는 서버가 409)
+    const r = await ffSend(`/api/form-files/${encodeURIComponent(f.id)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify(body) });
+    if (!r.ok) { err.textContent = `고치지 못했습니다 — ${r.msg}`; return; }
+    await formsLoad();
+    ffRedraw();
+  }
+  async function ffDelete(f) {
+    if (!confirm(`저장한 양식 「${f.name}」 ${josa(f.name, "을", "를")} 지울까요?\n\n그 양식으로 이미 만든 작업은 그대로입니다. 되돌릴 수 없습니다.`)) return; // 되돌릴 수 없는 것만 묻는다(design.md §18)
+    const r = await ffSend(`/api/form-files/${encodeURIComponent(f.id)}`, { method: "DELETE" });
+    if (!r.ok) ffAdd.err = `지우지 못했습니다 — ${r.msg}`;
+    await formsLoad();
+    ffRedraw();
+  }
+  function formsDraw() { // 「저장한 양식」 절 — 목록(이름 · 파일 · 형식 · 크기 · 저장한 날 · 문서 종류 · 쓰는 워크플로우 · 내려받기 · 지우기) + 양식 더하기(올리기 · 작업의 처음 올린 원본 · 예제)
+    const sec = $("wfForms");
+    if (!sec) return;
+    const h2 = h("h2");
+    h2.append(h("span", "wf-kind", "저장한 양식"), document.createTextNode("워크플로우의 목적 문서 칸에 넣을 양식"));
+    sec.replaceChildren(h2);
+    if (!FF) { const p = h("p", "wf-lead", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "저장한 양식은 서버를 다시 켠 뒤에 쓸 수 있습니다"); p.setAttribute("role", "status"); sec.append(p); return; }
+    sec.append(h("p", "wf-lead", "워크플로우 절의 「문서 칸」 에서 목적 문서 칸에 양식을 겁니다 — 기본값(시작할 때 미리 들어가 있고 다른 파일로 바꿀 수 있음) · 고정(늘 그 양식). "
+      + "양식 파일은 올린 그대로 두고 고치지 않습니다(고치려면 새로 올립니다). 이미 하던 작업의 문서는 설정을 바꿔도 그대로입니다."));
+    if (FF.broken) { const p = h("p", "wf-compose-broken", "저장한 양식의 목록 파일을 읽지 못했습니다 — 목록이 보이지 않고, 그 파일을 덮지 않으려고 서버가 새로 저장하거나 고치지 않습니다."); p.setAttribute("role", "alert"); sec.append(p); }
+    const list = h("ul", "wf-ff-list");
+    for (const f of FF.files || []) {
+      const li = h("li", "wf-ff-row"), top = h("div", "wf-ff-top"), name = h("input"), kind = h("select"), err = h("span", "wf-err"), used = h("span", "wf-links");
+      li.dataset.form = f.id;
+      name.value = f.name; name.maxLength = 60; name.setAttribute("aria-label", `양식 「${f.name}」 의 이름`);
+      name.addEventListener("change", () => { if (name.value.trim() && name.value.trim() !== f.name) ffEdit(f, { name: name.value }, err); });
+      for (const [v, label] of Object.entries(FF_KIND)) kind.append(new Option(`문서 종류: ${label}`, v));
+      kind.value = f.kind || "";
+      kind.setAttribute("aria-label", `양식 「${f.name}」 의 문서 종류`);
+      kind.disabled = (f.usedBy || []).length > 0;
+      kind.title = kind.disabled ? "워크플로우 설정에 건 양식의 문서 종류는 바꿀 수 없습니다 — 그 설정을 먼저 푸세요" : "그 문서 종류를 목적 문서로 하는 워크플로우에만 걸 수 있습니다";
+      kind.addEventListener("change", () => ffEdit(f, { kind: kind.value }, err));
+      const dl = link(`/api/form-files/${encodeURIComponent(f.id)}/file`, "내려받기", "btn sm"), del = h("button", "btn sm", "지우기");
+      dl.setAttribute("download", "");
+      del.type = "button";
+      del.disabled = (f.usedBy || []).length > 0;
+      del.title = del.disabled ? `이 양식을 건 워크플로우 설정이 ${(f.usedBy || []).length}개 있어 지울 수 없습니다 — 그 설정을 먼저 푸세요` : "이 양식을 지웁니다(그 양식으로 만든 작업은 그대로)";
+      del.addEventListener("click", () => ffDelete(f));
+      top.append(name, h("span", "wf-muted", [f.file, f.fmt, ffSize(f.size), ffDate(f.at) ? `저장한 날 ${ffDate(f.at)}` : ""].filter(Boolean).join(" · ")), kind, dl, del);
+      for (const u of f.usedBy || []) { const a = link(`#${u.job}`, `${u.name || taskName(u.job)} · ${FF_MODE[u.mode] || u.mode}`, "wf-chip"); a.dataset.use = u.mode; used.append(a); }
+      li.append(top, ...(f.usedBy && f.usedBy.length ? [(() => { const p = h("p", "wf-ff-used"); p.append(h("span", "wf-muted", "쓰는 워크플로우:"), used); return p; })()] : []));
+      err.setAttribute("role", "alert");
+      li.append(err);
+      list.append(li);
+    }
+    if ((FF.files || []).length) sec.append(list);
+    else sec.append(h("p", "wf-muted", "저장한 양식이 없습니다 — 아래에서 더하세요."));
+    sec.append(formsAddEl());
+  }
+  function formsAddEl() { // 양식 더하기 — 파일 올리기 · 작업의 처음 올린 원본(「양식으로 저장」 — 지금 편집 상태가 아니다) · 예제. 이름 · 문서 종류는 비워도 된다(이름 = 파일 이름 · 종류 = 양식 이름 문단으로 짐작)
+    const box = h("details", "wf-ff-add"), sum = h("summary", "", "양식 더하기 — 파일 올리기 · 작업의 원본 · 예제"), body = h("div", "wf-ff-add-body");
+    box.open = ffAdd.open || !(FF.files || []).length || ffAdd.busy || !!ffAdd.err || !!ffAdd.msg;
+    box.addEventListener("toggle", () => { ffAdd.open = box.open; if (box.open && !ffAdd.works) ffListsLoad(); });
+    if (box.open && !ffAdd.works) Promise.resolve().then(ffListsLoad); // 펴 둔 채 그리면 그때 한 번(읽는 중이면 다시 안 읽는다 — ffListsLoad)
+    const name = h("input"), kind = h("select");
+    name.maxLength = 60; name.placeholder = "양식 이름(비우면 파일 이름)"; name.setAttribute("aria-label", "새 양식의 이름");
+    for (const [v, label] of Object.entries(FF_KIND)) kind.append(new Option(v ? `문서 종류: ${label}` : "문서 종류: 짐작", v));
+    kind.setAttribute("aria-label", "새 양식의 문서 종류");
+    const common = h("div", "wf-ff-add-row");
+    common.append(name, kind);
+    const rowOf = (label, control, btn) => { const r = h("div", "wf-ff-add-row"); r.append(h("span", "wf-field-name", label), control, btn); return r; };
+    const file = h("input"), up = h("button", "btn sm primary", ffAdd.busy ? "저장 중…" : "올려 저장");
+    file.type = "file"; file.accept = ".hwp,.hwpx,.docx"; file.setAttribute("aria-label", "양식 파일 고르기");
+    up.type = "button"; up.disabled = ffAdd.busy;
+    up.addEventListener("click", () => { if (file.files && file.files[0]) ffSave("file", { file: file.files[0], name: name.value, kind: kind.value }); else file.click(); });
+    const work = h("select"), fromWork = h("button", "btn sm", "양식으로 저장");
+    work.setAttribute("aria-label", "양식으로 저장할 작업");
+    work.append(new Option(ffAdd.works ? (ffAdd.works.length ? "작업 고르기…" : "작업이 없습니다") : "작업 목록을 읽는 중…", ""));
+    for (const w of ffAdd.works || []) work.append(new Option(`${w.name}${(w.task || {}).project ? ` — ${w.task.project}` : ""}`, w.id));
+    fromWork.type = "button"; fromWork.disabled = ffAdd.busy;
+    fromWork.title = "그 작업의 처음 올린 원본을 양식으로 저장합니다(지금 편집 상태가 아닙니다 — 편집한 것을 양식으로 삼으려면 내려받아 올리세요)";
+    fromWork.addEventListener("click", () => { if (work.value) ffSave("work", { id: work.value, name: name.value, kind: kind.value }); });
+    const sample = h("select"), fromSample = h("button", "btn sm", "예제에서 저장");
+    sample.setAttribute("aria-label", "양식으로 저장할 예제");
+    sample.append(new Option(ffAdd.samples ? (ffAdd.samples.length ? "예제 고르기…" : "예제가 없습니다") : "예제 목록을 읽는 중…", ""));
+    for (const s of ffAdd.samples || []) sample.append(new Option(s.name, s.name));
+    fromSample.type = "button"; fromSample.disabled = ffAdd.busy;
+    fromSample.addEventListener("click", () => { if (sample.value) ffSave("sample", { id: sample.value, name: name.value, kind: kind.value }); });
+    body.append(common, rowOf("파일", file, up), rowOf("작업의 원본", work, fromWork), rowOf("예제", sample, fromSample));
+    if (ffAdd.err) { const e = h("p", "wf-err", ffAdd.err); e.setAttribute("role", "alert"); body.append(e); }
+    if (ffAdd.msg) { const m = h("p", "wf-muted wf-ff-msg", ffAdd.msg); m.setAttribute("role", "status"); body.append(m); }
+    box.append(sum, body);
+    return box;
   }
 
   async function load() {
     const main = $("wfMain");
-    await tasksLoad();
+    await Promise.all([tasksLoad(), formsLoad()]);
     try {
       const r = await fetch("/api/workflow", { headers: { Accept: "application/json" } });
       if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
@@ -912,8 +1124,9 @@
     navDraw();
     indexRoutes();
     const diagram = h("section", "wf-diagram"); diagram.id = "wfDiagram"; diagram.hidden = true;
-    main.replaceChildren(diagram, overview(), composeSec(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
+    main.replaceChildren(diagram, overview(), composeSec(), formsSec(), ...D.tasks.map(taskSec), ...D.common.map(commonSec));
     composeDraw();
+    formsDraw();
     go(location.hash);
   }
 

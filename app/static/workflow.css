@@ -404,3 +404,29 @@ td.wf-docs-none { color: var(--muted); }
   .wf-assign tbody td { padding: 3px 2px; }
   .wf-assign td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: 11.5px; }
 }
+
+/* ---- 저장한 양식 · 문서 칸(spec_워크플로우 ② §18-9 「양식」 · design.md §21) — 워크플로우 절의 「문서 칸」 줄(역할마다 한 줄 · 목적 칸에 「양식: 없음 · 기본값 · 고정」 + 저장한 양식) · 「저장한 양식」 절(목록 · 양식 더하기) */
+.wf-slot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-slot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.wf-slot-role { flex: 0 0 auto; }
+.wf-slot-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.wf-slot-pick select, .wf-ff-top select, .wf-ff-top input, .wf-ff-add-row select, .wf-ff-add-row input:not([type=file]) { height: 26px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--text); max-width: 100%; min-width: 0; }
+.wf-slot-pick .wf-muted { font-size: 12px; }
+.wf-slot-err, .wf-ff-row .wf-err, .wf-ff-add .wf-err { color: var(--fail); font-size: 12px; }
+.wf-slot-err:empty, .wf-ff-row .wf-err:empty { display: none; }
+.wf-ff-list { list-style: none; margin: 0 0 10px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.wf-ff-row { padding: 8px 14px; }
+.wf-ff-row + .wf-ff-row { border-top: 1px solid var(--line); }
+.wf-ff-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.wf-ff-top input { flex: 0 1 240px; font-weight: 600; }
+.wf-ff-top .wf-muted { flex: 1 1 200px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wf-ff-used { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 4px 0 0; font-size: 12px; }
+.wf-ff-used .wf-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-ff-add { max-width: 860px; margin: 0 0 10px; }
+.wf-ff-add > summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; }
+.wf-ff-add-body { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.wf-ff-add-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.wf-ff-add-row .wf-field-name { flex: 0 0 76px; }
+.wf-ff-add-row input[type=file] { min-width: 0; max-width: 100%; font-size: 12.5px; }
+.wf-ff-msg { margin: 0; }
+.wf-nav-forms { margin-top: 2px; }
