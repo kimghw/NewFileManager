@@ -8,6 +8,7 @@
 - `PUT /api/form-files/{id}` {name?, kind?} → {file} · `DELETE /api/form-files/{id}` → {deleted}(설정에 쓰는 양식은 409) · `GET /api/form-files/{id}/file` → 그 파일.
 - `PUT /api/workflow-slots/{job}` {target?: {file, mode: "default" | "fixed"} | null, source?: …}(보낸 칸만 — 수가 1인 칸: 목적 · 이관의 원본) → {slot(목적 칸), slots{칸: …}, rev} — 400 = 양식을 걸 수 없는 워크플로우 · 칸(없음 · 여럿) · 문서 종류 · 형식이 안 맞음 · 404 = 없는 양식.
 - `POST /api/workflow-start/source` {job, main, request, source: {form, sha256?, rev?}} → {docId, name, task, form} — 원본 칸을 그 양식으로(목적 작업의 묶음에 원본 종류로 적는다 — 아래 함수 글).
+- `POST /api/workflow-start/target` {job, main, request, target: {form, sha256?, rev?}} → {docId, name, task, form} — **하던 묶음의 빈 목적 칸**을 그 양식으로(main = 그 묶음의 원본 문서 — 새 라운드를 만들지 않는다: 아래 함수 글).
 - `POST /api/workflow-start` {job, request(같은 시작을 다시 보낼 때의 열쇠), project?, temp?, target: {form(양식 id), sha256?, rev?}} → {docId, name, task, round, temp, form{id, name, mode}} —
   **고정 · 기본값은 여기서 지킨다**(② §18-12 ⑧): 서버가 워크플로우 · 양식 · 해시 · 설정의 판을 견준 뒤 그 양식으로 **새 작업**을 만들어 그 워크플로우의 다음 라운드로 묶고, 그 작업에 쓴 양식을 적는다(work.json `form`). 같은 request 를 다시 보내면 같은 작업을 돌려준다.
   409 = 고정된 양식과 다름(fixedForm) · 양식이 바뀜(staleForm) · 설정이 바뀜(staleSlots). 올린 파일로 시작하는 길은 지금 것 그대로이고(`start-task`), 고정 설정이 있으면 그 끝점이 거절한다(server.work_start_task)."""
@@ -338,6 +339,70 @@ def workflow_start_source(body: dict = Body(...)):
                 pass
             raise
         works.log(main, "sourceForm", source=wid, form=f["id"])
+        out = {"docId": wid, "name": opened["name"], "task": got["task"], "form": {"id": f["id"], "name": f["name"], "mode": mode}}
+        _STARTS[key] = out
+        while len(_STARTS) > STARTS_MAX:
+            _STARTS.pop(next(iter(_STARTS)))
+        return out
+
+
+@router.post("/api/workflow-start/target")
+def workflow_start_target(body: dict = Body(...)):
+    """목적 문서 칸을 저장한 양식으로 채운다 — **이미 있는 묶음에**(spec_워크플로우 ② §18-9 「하던 묶음의 빈 목적 칸」 — 2026-11-21 사용자 "목적문서인 연차보고서를 올려야 하고 올리지 않으면 저장된 파일을 사용해야"):
+    원본 문서를 먼저 열고 그 문서에서 워크플로우를 고른 길(문서 화면의 대시보드 「준비」)에서 부른다 — 첫 화면의 시작(`POST /api/workflow-start` — 새 라운드를 만든다)과 달리 **main 의 묶음 그대로**(프로젝트 · 워크플로우 · 라운드)에 목적 종류로 적는다.
+    {job, main(그 묶음의 문서 작업 id — 목적 문서가 아닌 것), request(8~64자 — 같은 요청을 다시 보내면 같은 작업), target: {form, sha256?, rev?}} → {docId, name, task, form{id, name, mode}}.
+    409 = main 이 그 워크플로우의 프로젝트에 묶여 있지 않음 · 목적 문서임(notSource) · 그 묶음에 목적 문서가 이미 있음(hasTarget — 하던 문서를 바꾸지 않는다) · 고정된 양식과 다름(fixedForm) · 설정 · 양식이 바뀜(staleSlots · staleForm).
+    목적 종류가 없는 워크플로우(문서 하나 — 그 문서가 곧 목적 문서)는 400. 기본 분석은 부르는 쪽이(올린 문서와 같게)."""
+    from app import projects, server, workflow, works
+    job, req, main, want = body.get("job"), body.get("request"), body.get("main"), body.get("target")
+    if not isinstance(req, str) or not 8 <= len(req) <= 64 or not isinstance(main, str) or not isinstance(want, dict) or not isinstance(want.get("form"), str):
+        raise HTTPException(400, "request(8~64자) · main(그 묶음의 문서 작업 id) · target{form} 이 있어야 합니다")
+    r = rule(job)
+    tkind = works.TARGET_FILE.get(job)
+    if not tkind or not any(x["role"] == "source" for x in (workflow.task_of(job) or {}).get("roles") or ()):   # 원본 문서 칸이 없는 워크플로우(문서 하나 — 그 문서가 곧 목적 문서)
+        raise HTTPException(400, "이 워크플로우는 문서 칸이 하나라 목적 문서를 따로 넣지 않습니다")
+    key = "target:" + req
+    with _STARTS_LOCK:
+        if key in _STARTS:
+            return _STARTS[key]   # 같은 요청을 다시 보냄 — 같은 작업
+        w = works.work(main)
+        if w is None:
+            raise HTTPException(404, "그 묶음의 문서 작업이 없습니다")
+        t = w.get("task") or {}
+        if t.get("job") != job or not t.get("project") or t.get("file") == tkind:
+            return JSONResponse({"reason": "notSource", "message": "이 문서가 이 워크플로우의 프로젝트에 원본 문서로 묶여 있지 않아 목적 문서를 넣을 곳이 없습니다 — 프로젝트 이름과 문서 칸을 먼저 정하세요"}, status_code=409)
+        scope = projects.group_key(t)
+        had = next((x for x in works.list_works() if x["id"] != main and (x.get("task") or {}).get("file") == tkind and projects.group_key(x.get("task")) == scope), None)
+        if had is not None:
+            return JSONResponse({"reason": "hasTarget", "message": f"이 묶음에는 {r['title']}({works.FILE_LABEL.get(tkind, tkind)}) 「{had.get('name', '')}」 가 이미 있습니다 — 하던 문서는 바꾸지 않습니다"}, status_code=409)
+        f, slot = form_files.get(want["form"]), form_files.slot(job)
+        if f is None:
+            raise HTTPException(404, "그런 양식이 없습니다")
+        if slot and slot["mode"] == "fixed" and slot["file"] != f["id"]:
+            return JSONResponse({"reason": "fixedForm", "message": f"워크플로우 「{r['name']}」 의 {r['title']}는 양식 「{(slot['form'] or {}).get('name', '지워진 양식')}」 으로 고정돼 있습니다"}, status_code=409)
+        if "rev" in want and want["rev"] != form_files.listing()["rev"]:
+            return JSONResponse({"reason": "staleSlots", "message": "워크플로우의 양식 설정이 바뀌었습니다 — 다시 읽은 뒤 누르세요"}, status_code=409)
+        if want.get("sha256") and want["sha256"] != f["sha256"]:
+            return JSONResponse({"reason": "staleForm", "message": "양식이 바뀌었습니다 — 다시 읽은 뒤 누르세요"}, status_code=409)
+        why = fits(f, r)
+        if why:
+            raise HTTPException(400, why)
+        blob = form_files.data(f["id"])
+        if blob is None:
+            raise HTTPException(500, "양식 파일을 읽지 못했습니다")
+        mode = slot["mode"] if slot and slot["file"] == f["id"] else ""
+        opened = server._open(f"{PurePath(f['file'] or f['name']).stem}.{f['fmt']}", blob, source="form", new=True)
+        wid = opened["docId"]
+        works.update(wid, form={"id": f["id"], "sha256": f["sha256"], "name": f["name"], "mode": mode})   # 그 작업에 쓴 양식(고정 검사가 본다)
+        try:
+            got = server.work_task(wid, {"kind": server.TASK_KIND.get(job, "rnd"), "file": tkind, "job": job, "project": t["project"], **({"round": t["round"]} if t.get("round") else {})})
+        except HTTPException:
+            try:
+                server.work_delete(wid)   # 묶지 못한 작업은 남기지 않는다
+            except HTTPException:
+                pass
+            raise
+        works.log(main, "targetForm", target=wid, form=f["id"])
         out = {"docId": wid, "name": opened["name"], "task": got["task"], "form": {"id": f["id"], "name": f["name"], "mode": mode}}
         _STARTS[key] = out
         while len(_STARTS) > STARTS_MAX:

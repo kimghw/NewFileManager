@@ -245,6 +245,10 @@ COMMON = (
              _s("run", "단계 실행 · 한 번에 진행", "human", "펼친 단계의 단추로 그 단계를 하고, 묶음 머리의 「한 번에 진행」 으로 그 묶음의 남은 단계를 차례로 합니다(누르면 바로 — 확인 창 없음). "
                 "도는 동안은 머리 아래에 지금 하는 일 · 지난 시간 · 「멈춤」 이 보이고 패널은 그대로입니다. 값 입력 · 목록처럼 넓은 일은 「작업 개요」 나 문서 옆 열을 엽니다.",
                 out="그 단계의 결과", change="doc", spec=(SP_GUIDE, "② §9")),
+             # 줄 목록으로 조립한 워크플로우(이관형 · 문서 하나)의 문서 화면 — 서버 상태 · 서버 실행(spec_워크플로우 ② §18-13 「줄 목록으로 조립한 이관형의 문서 화면」: 2026-11-21 사용자 「안에 기능이 하나도 없냐? …」)
+             _s("served", "조립한 워크플로우 — 문서 카드 · 서버에서 진행", ("script", "human"), "줄 목록으로 조립한 워크플로우는 서버가 센 상태로 보이고 서버에서 진행합니다(창을 닫아도 이어짐). 이관형은 단계를 문서마다의 카드(원본 문서 · 목적 문서)로 보이고, "
+                "줄의 「이 단계만 진행」 · 묶음의 「한 번에 진행」 · 「이어서 한 번에」 를 둡니다. 「준비」 카드에서 빈 문서 칸에 문서를 올립니다 — 올리지 않으면 워크플로우 설정에 건 저장한 양식을 씁니다.",
+                out="문서마다의 상태 · 결과 글", change="doc", spec=(SP_FLOW, "② §18-13")),
          )),
     # 워크플로우 실행 · 실행 기록(spec_워크플로우 ② §17 · §18 — 8114 안의 서버 쪽 실행기): 「한 번에 진행」 을 서버가 끝까지 · 첫 화면의 대시보드(spec_작업에이전트 ② §10)
     dict(id="flowrun", name="워크플로우 실행 · 실행 기록", where="패널 「작업 개요」 · 「대시보드」 의 「한 번에 진행」 · 첫 화면 오른쪽 열의 탭 「대시보드」",
@@ -715,13 +719,26 @@ def _st_review(S, D, *, src=True, dst=True, llm=("source",), fit=True):
     return tuple(out)
 
 
-def _st_fit(S, D, *, who=("target",)):
+def _take_step(S, D):
+    """조립에 놓는 도구 「넣을 구성 선택」(spec_병합 ② §4-1 — 2026-11-21 사용자 "어떤 구성을 추출해서 넣을건지 … 매칭하기 전에 결정 … 선택하는 도구" · "연차보고서는 몇 차년도를 내보낼 지가 핵심이야").
+    붙박이 워크플로우의 표준 차례에는 서지 않는다(_st_fit 의 take=True 로만 — 조립한 정의가 놓았을 때 · 조립 화면의 도구 목록)."""
+    return _s("take", "넣을 구성 선택", "human", f"몇 차년도 {D}를 낼지(대상 차년도)와, {S}에서 어느 기관 · 단계 · 차년도의 내용을 뽑아 넣을지 고릅니다. "
+              "고르지 않은 구성의 자리는 자리 연결 · 넣기에서 뺍니다. 고르지 않으면 맞는 자리는 모두 넣습니다. 문서는 바뀌지 않습니다.",
+              out="대상 차년도 · 넣을 구성", change="store", optional=True, uses=("division",), modules=("merge_take", "task_options"), spec=(SP_MERGE, "② §4-1"), on="flow",
+              need="프로젝트 구성(단계 · 차년도 · 기관)이 있을 때 고를 값이 보입니다 — 「프로젝트 구성 추출」 뒤 · 「프로젝트 구성 반영」 · 「자리 연결」 앞에 놓습니다.",
+              done="넣을 구성을 좁혀 골랐을 때 — 안 골라도 됩니다(전부 넣음).",
+              left="대상 차년도를 구조 반영 뒤에 바꾸면 「프로젝트 구성 반영」 을 다시 해야 그 차년도의 구조가 됩니다.")
+
+
+def _st_fit(S, D, *, who=("target",), take=False):
     """단계 모듈 「구성 맞추기」 — 구성 불러오기(선택) → 프로젝트 구성 추출 → 프로젝트 구성 반영 → 다시 문서 검토(스크립트 → LLM).
     구성 불러오기 · 확정은 워크플로우 전체(flow — 문서마다가 아니라 한 번 · 구성의 기준 = 원본: 문서는 안 바뀜) · 반영 · 다시 문서 검토는 문서마다의 일(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」).
     who = 반영 · 다시 문서 검토를 하는 문서 역할 — 기본은 목적 문서(붙박이 이관 · 단계 절의 글 그대로) · 조립한 정의(줄 목록)는 줄마다 고른 문서(원본 문서에도 놓는다: ② §18-2 「원본 문서에 놓는 줄」 — 그 줄의 글만 집어 쓴다)."""
     config = _config_steps(S, "", "", then="「프로젝트 구성 반영」 으로", on=("", "flow"))[1]
     if tuple(who) != ("target",):
         return (config,) + _st_fit_on(S, D, tuple(r for r, _ in ROLES if r in who))
+    if take:   # 조립에 놓는 도구까지(조립 화면의 도구 목록 · 조립한 정의의 줄 글 — 표준 차례에는 없다: take=False)
+        return _st_fit(S, D) + (_take_step(S, D),)
     return (
         _s("configLoad", "구성 불러오기", "human", "프로젝트 구성을 불러옵니다 — 파일에서(이 프로젝트의 문서에서 추출 · 파일 올려 추출) 또는 저장된 곳에서(이 프로젝트의 확정본 · 다른 프로젝트 · 저장한 구성). "
            "입력 칸만 바뀌고 문서와 확정은 그대로입니다.", change="store", optional=True, uses=("division",), modules=("division_model", "projects"), spec=(SP_WORK, "② §18·§21"),
@@ -1285,6 +1302,7 @@ def _assemble_flow(c):
             on.setdefault(s["unit"], set()).update(s["on"])
     A, fit, review = custom_tasks.guess_assign(c["flow"]), "division" in on, "heads" in on
     opts = {"stage_review": dict(src="source" in on.get("heads", ()), dst="target" in on.get("heads", ()), llm=tuple(r for r in ("source", "target") if r in on.get("headsLlm", ())) or ("source",), fit=fit),
+            "stage_fit": dict(take=True),   # 조립에 놓는 도구 「넣을 구성 선택」 의 줄 글까지(_take_step — 표준 차례에는 없다)
             "stage_fill": dict(fit=fit, review=review), "stage_clean": dict(review=review, fill="apply" in on)}
     made = {}
     for mid, _name, make, _does in STAGE_MODULES:
@@ -1309,7 +1327,7 @@ def _assemble_flow(c):
             no.setdefault(custom_tasks.STAGE_GROUP[mid], f"{i + 1}단계")
             o = s["on"]
             if "source" in o and s["unit"] in ("division", "reheads", "reheadsLlm", "guide"):   # 원본 문서에도 놓은 구조 · 정리 줄 — 글을 그 줄이 고른 문서의 것으로(② §18-2 「원본 문서에 놓는 줄」)
-                base = next(x for x in _STAGE_BY[mid][2](S, D, **{**opts.get(mid, {}), "who": tuple(o)}) if x["key"] == s["unit"])
+                base = next(x for x in _STAGE_BY[mid][2](S, D, **{**{k: v for k, v in opts.get(mid, {}).items() if k != "take"}, "who": tuple(o)}) if x["key"] == s["unit"])
             steps.append(_beside(dict(base, on=base["on"] if base["on"] in ("flow", "pair") else ("both" if len(o) == 2 else o[0])), s))
         names = [x["name"] for x in steps if x["key"] != "files"]
         changed = [title for role, title in ROLES if any(x["change"] == "doc" and touches(x, role) for x in steps)]   # 이 묶음이 바꾸는 문서(원본 → 목적 줄은 목적 문서만 바꾼다)

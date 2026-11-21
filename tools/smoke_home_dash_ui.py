@@ -206,14 +206,16 @@ def main():
               s["docs"] == ["원본 문서 — 사업계획서: 문서 2개 — 하나만 둘 수 있습니다", f"목적 문서 — 연차보고서: {REPORT.name}"] and [b["text"] for b in s["foot"]] == ["워크플로우 시작", "다른 워크플로우"]
               and s["foot"][0]["primary"] and not s["foot"][0]["off"] and not s["why"] and works() == [] and s["home"] and s["memo"] is None
               and page.evaluate("() => (document.activeElement.dataset || {}).hdFocus") == "start", s)   # 고른 뒤 초점은 「워크플로우 시작」 으로(고르기 목록이 사라져도 초점이 떨어지지 않는다)
-        # 카드를 누르면 펴진다(패널 대시보드의 단계 카드와 같다) — 시작 전에는 등록부의 「하는 일」 · 「하려면」 · 다시 누르면 접힌다
+        # 시작 전 카드에는 상태 글 · 단추가 없다 — 등록부의 「하는 일」 · 「하려면」 은 본문에 채우지 않고 이름 옆 메모에만(2026-11-21 사용자 「설명문은 노트에 넣도록 했잖아. 왜 여기에 다 넣는거야」):
+        # 누르면 고른 테두리만(본문 없음) · 다시 누르면 풀린다
         page.locator('#homeDash .hd-row[data-key="heads"] .dash-node-head').first.click()
-        op = page.evaluate("""() => { const n = document.querySelector('#homeDash .hd-row[data-key="heads"] .dash-node'), d = n.querySelector('.dash-detail');
-          return { open: n.classList.contains('open'), exp: n.querySelector('.dash-node-head').getAttribute('aria-expanded'), text: d ? d.textContent : '', opened: document.querySelectorAll('#homeDash .dash-node.open').length,
-            focus: (document.activeElement.dataset || {}).hdFocus || '', acts: d ? d.querySelectorAll('button').length : -1 }; }""")
+        page.wait_for_selector('#homeDash .hd-row[data-key="heads"] .dash-node.open')
+        op = page.evaluate("""() => { const n = document.querySelector('#homeDash .hd-row[data-key="heads"] .dash-node'), m = n.querySelector('.dash-memo');
+          return { open: n.classList.contains('open'), exp: n.querySelector('.dash-node-head').getAttribute('aria-expanded'), details: document.querySelectorAll('#homeDash .dash-detail').length,
+            opened: document.querySelectorAll('#homeDash .dash-node.open').length, memo: m ? m.dataset.help || '' : '', focus: (document.activeElement.dataset || {}).hdFocus || '' }; }""")
         page.locator('#homeDash .hd-row[data-key="heads"] .dash-node-head').first.click()
-        check("② 카드를 누르면 그 카드만 펴진다 — 「하는 일 …」(등록부의 글 · 시작 전이라 단추 없음) · 초점은 그 카드에 · 다시 누르면 접힘",
-              op["open"] and op["exp"] == "true" and op["text"].startswith("하는 일") and op["opened"] == 1 and op["focus"].startswith("node:heads@source") and op["acts"] == 0
+        check("② 시작 전 카드를 누르면 고른 테두리만 — 본문 없음(「하는 일 …」 을 본문에 채우지 않음 · aria-expanded false) · 「하는 일 · 하려면」 은 이름 옆 메모에 · 초점은 그 카드에 · 다시 누르면 풀림",
+              op["open"] and op["exp"] == "false" and op["details"] == 0 and op["opened"] == 1 and op["memo"].startswith("하는 일 — ") and op["focus"].startswith("node:heads@source")
               and page.evaluate("() => document.querySelectorAll('#homeDash .dash-node.open').length") == 0, op)
         page.locator('#homeDash [data-hd-focus="start"]').click()
         page.wait_for_function("() => !document.getElementById('toast').hidden")
@@ -252,7 +254,7 @@ def main():
                                                         and all(c["st"] in ("", "준비 중") for r in g["rows"] for c in r["cards"])) for g in rest)   # 안 맡은 묶음 — 머리 아래 한 줄 · 상태 글 없음
               and s["count"].startswith("끝남 ") and s["count"].endswith(f"/{served_counts(rid)[1]}")
               and s["docs"] == [f"원본 문서 — 사업계획서: {plan.get('name')}", f"목적 문서 — 연차보고서: {rep.get('name')}"]
-              and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다른 워크플로우"], s)
+              and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다시 시작", "다른 워크플로우"], s)
         page.screenshot(path=str(OUT / "03_started.png"))
         # 올린 직후의 기본 분석(스크립트)이 끝나면 — LLM 이 없는 검사 서버에서는 LLM 검증·보완이 「건너뜀」 이라 저절로 3/3(3초마다 다시 읽는다)
         page.wait_for_function("() => (document.querySelector('#homeDash .dash-group[data-group=review] .dash-gcount') || {}).textContent === '3/3'", timeout=240000)
@@ -335,6 +337,28 @@ def main():
               runs[0]["range"]["only"] == "heads" and runs[0]["range"]["from"] == "review" and runs[0]["origin"]["where"] == "home" and runs[0]["status"] == "done" and r2["state"] == "done" and r2["go"]["off"]
               and "끝난 차례" in r2["go"]["title"] and "✓" in mark and [c["st"] for c in r2["cards"]] == ["✓ 끝남", "✓ 끝남"] and s["home"] and s["id"] is None and not page.evaluate("() => window.__opened"), [s, runs[:1], mark])
         page.screenshot(path=str(OUT / "04b_order_done.png"))
+        # ---- ④-3 한 문서만 진행(spec_워크플로우 ② §18-21 — 2026-11-21 사용자 「목적문서 따로 원본 문서 작업 따로 … 하나의 문서만 작업」): 묶음 머리 아래 「한 문서만 [원본 문서만] [목적 문서만]」 — 패널 대시보드와 같은 줄 · 눌러도 첫 화면에 머문다
+        reset_pair([rid, pid])
+        page.wait_for_function("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"solo:review:target\"]'); return b && !b.disabled && !document.querySelector('#homeDash .dash-last'); }", timeout=30000)
+        solo = page.evaluate("""() => [...document.querySelectorAll('#homeDash .dash-group')].map((g) => ({ id: g.dataset.group, name: (g.querySelector('.dash-solo-name') || {}).textContent || '',
+          btns: [...g.querySelectorAll('.dash-solo button')].map((b) => [b.textContent, b.disabled, b.dataset.hdFocus || '', b.dataset.left || '']), over: g.scrollWidth > g.clientWidth + 1 }))""")
+        sv = {g["id"]: g for g in flow(rid)["stages"]}
+        check("④-3 「한 문서만」 줄(첫 화면) — 1단계에 「원본 문서만」 · 「목적 문서만」(서버의 solo: 원본 = 분석 + LLM 검증·보완 2 · 목적 = 분석 1) · 2단계는 「목적 문서만」 · 원본 → 목적 줄뿐인 3단계 · 문서 하나의 줄뿐인 4단계에는 없다 · 가로 넘침 없음",
+              solo[0]["name"] == "한 문서만" and solo[0]["btns"] == [["원본 문서만", False, "solo:review:source", "2"], ["목적 문서만", False, "solo:review:target", "1"]]
+              and [(x["role"], x["total"]) for x in sv["review"]["solo"]] == [("source", 2), ("target", 1)] and [b[0] for b in solo[1]["btns"]] == ["목적 문서만"] and not solo[2]["btns"] and not solo[3]["btns"]
+              and not any(g["over"] for g in solo), [solo, sv["review"]["solo"]])
+        n0 = len(dialogs)
+        page.locator('#homeDash [data-hd-focus="solo:review:target"]').click()
+        page.wait_for_function("() => !document.querySelector('#homeDash .dash-live') && /^끝남 — /.test((document.querySelector('#homeDash .dash-last') || {}).textContent || '')", timeout=240000)
+        page.wait_for_function("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"solo:review:target\"]'); return b && b.disabled; }", timeout=60000)
+        s = snap(page)
+        runs = requests.get(f"{base}/api/works/{rid}/flow/runs", timeout=10).json()["runs"]
+        r2, after = s["groups"][0]["rows"][1], {x["role"]: x for x in flow(rid)["stages"][0]["solo"]}
+        check("④-3 「목적 문서만」 → 확인 창 없이 · 첫 화면에 머문 채 목적 문서의 줄만 서버 실행 — 실행 기록의 범위 {from: review, role: target}(첫 화면에서 시작) · 끝 글 「끝남 — 목적 문서(연차보고서)만 — …」 · 02 의 목적 문서 카드만 ✓ 끝남(원본 문서 카드는 그대로) · 남은 단계 = 목적 0 · 원본 2",
+              len(dialogs) == n0 and runs[0]["range"].get("role") == "target" and runs[0]["range"]["from"] == "review" and not runs[0]["range"]["only"] and runs[0]["origin"]["where"] == "home" and runs[0]["status"] == "done"
+              and s["last"].startswith("끝남 — 목적 문서(연차보고서)만 — 연차보고서의 헤딩 그래프·표 구조가 있습니다") and "사업계획서" not in s["last"] and [c["st"] for c in r2["cards"]][1] == "✓ 끝남" and [c["st"] for c in r2["cards"]][0] != "✓ 끝남"
+              and after["target"]["left"] == 0 and after["source"]["left"] == 2 and s["home"] and s["id"] is None and not page.evaluate("() => window.__opened"), [s["last"], runs[:1], r2, after])
+        page.screenshot(path=str(OUT / "04c_one_doc.png"))
         reset_pair([rid, pid])
         page.wait_for_function(f"() => {{ const b = document.querySelector('{run_btn()}'); return b && !b.disabled && !document.querySelector('#homeDash .dash-last'); }}", timeout=30000)
         page.locator(run_btn()).click()
@@ -382,6 +406,13 @@ def main():
           title: (document.querySelector('#paneDash .dash-title b') || {}).textContent || '', groups: [...document.querySelectorAll('#paneDash .dash-gname')].map((x) => x.textContent), job: (state.task || {}).job }) """)
         check("⑥ 「대시보드 자세히 보기」 → 목적 문서(연차보고서)가 열리고 패널 탭 「대시보드」 — 같은 워크플로우의 단계 흐름(세부는 여기서)",
               not d["home"] and d["tab"] == "true" and d["pane"] and d["job"] == JOB and d["title"] == JOB_NAME and d["groups"] == ["문서 검토", "구성 맞추기", "내용 넣기", "문서 정리"], d)
+        # 패널 대시보드에도 같은 「한 문서만」 줄(spec_워크플로우 ② §18-21 — 붙박이 이관의 가지는 단계를 화면이 세지만 이 줄의 남은 수 · 켜짐은 서버의 것: dashboard.js dashSoloRead)
+        page.wait_for_function("() => !!document.querySelector('#paneDash .dash-group[data-group=review] .dash-solo button')", timeout=30000)
+        ps = page.evaluate("""() => [...document.querySelectorAll('#paneDash .dash-group')].map((g) => ({ id: g.dataset.group, name: (g.querySelector('.dash-solo-name') || {}).textContent || '',
+          btns: [...g.querySelectorAll('.dash-solo button')].map((b) => [b.textContent, b.disabled, b.dataset.dashFocus || '', b.dataset.left || '']), over: g.scrollWidth > g.clientWidth + 1 }))""")
+        want = {g["id"]: [[f"{x['title']}만", not x["can"], f"solo:{g['id']}:{x['role']}", str(x["left"])] for x in g.get("solo") or []] for g in flow(rid)["stages"]}
+        check("⑥ 패널 대시보드의 「한 문서만」 줄 — 첫 화면과 같은 단추(「원본 문서만」 · 「목적 문서만」) · 남은 수 · 켜짐이 서버의 solo 그대로 · 3 · 4단계에는 없다 · 가로 넘침 없음",
+              ps[0]["name"] == "한 문서만" and {g["id"]: g["btns"] for g in ps} == want and [b[0] for b in ps[0]["btns"]] == ["원본 문서만", "목적 문서만"] and not ps[2]["btns"] and not ps[3]["btns"] and not any(g["over"] for g in ps), [ps, want])
         page.screenshot(path=str(OUT / "06_doc_dash.png"))
         page.locator("#homeLink").click()
         page.wait_for_function("() => document.body.classList.contains('no-doc') && state.id == null")
@@ -401,6 +432,15 @@ def main():
         page.wait_for_timeout(2500)
         page.evaluate("() => { window.__opened = false; }")
 
+
+        # ---- ⑧-0 「다시 시작」 → 같은 워크플로우의 시작 전으로(기억은 비움 — 문서 · 작업은 그대로: 2026-11-21 사용자 「다시 시작하기.. 기능이 없네」)
+        again = page.evaluate("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"again\"]'); return b ? { off: b.disabled, title: b.title } : null; }")
+        page.locator('#homeDash [data-hd-focus="again"]').click()
+        page.wait_for_selector("#homeDash[data-state=ready]")
+        s = snap(page)
+        check("⑧-0 「다시 시작」(켜짐) → 같은 워크플로우의 시작 전 · 기억을 비움 · 작업은 그대로(지우지도 초기화하지도 않음) · 발 「워크플로우 시작」 · 「다른 워크플로우」",
+              again and not again["off"] and "시작 전" in again["title"] and s["state"] == "ready" and s["title"] == JOB_NAME and s["memo"] is None and len(works()) == 2
+              and [b["text"] for b in s["foot"]] == ["워크플로우 시작", "다른 워크플로우"], [again, s])
 
         # ---- ⑧ 「다른 워크플로우」 → 고르기로(기억도 비움 — 문서 · 작업은 그대로)
         page.locator('#homeDash [data-hd-focus="other"]').click()

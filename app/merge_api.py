@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from app import heading_runs as HR
 from app import merge_pairs as P
+from app import merge_take as TK
 from app import projects, works
 
 router = APIRouter()
@@ -174,6 +175,100 @@ def _link_comments(doc_id):
     return HF.comments(form["text"], HF.LINK_SECTION) if form else []
 
 
+# ---- 넣을 구성 선택(spec_병합 ② §4-1 — 2026-11-21 사용자 "어떤 구성을 추출해서 넣을건지 … 매칭하기 전에 결정 … 선택하는 도구" · "연차보고서는 몇 차년도를 내보낼 지가 핵심이야") ----
+# 고른 것(기관 · 단계 · 차년도 — merge_take 의 꼴)은 그 묶음(프로젝트 · 워크플로우 · 라운드)의 실행 옵션(task_options.flow 의 take)에 있다. 연결 목록(_view) · 넣기 계획(_plan_parts · merge_fill) · 입력의 판(_inputs)이 읽는다.
+# **대상 차년도**(몇 차년도 연차보고서를 내는가)는 목적 문서의 프로젝트 구성 값의 「당해 차년도」 다(구조 반영 · 「해당연도」 · 「다음 연도」 자리가 그것으로 갈린다 — 새 값을 만들지 않는다): take_put 의 year 가 그 값을 적는다.
+
+def _take_raw(doc_id):
+    from app import task_options
+    w = works.work(doc_id)
+    return task_options.flow(w).get("take") if w else None
+
+
+def _allowed(doc_id, values):
+    return TK.allowed(_take_raw(doc_id), values)
+
+
+def _take_arg(doc_id, values):
+    """넣기 계획에 넘길 것 — 고른 것이 없으면 None(전부 — 전과 같은 동작)."""
+    A = _allowed(doc_id, values)
+    return A if A.active else None
+
+
+def _take_values(doc_id):
+    """고를 값의 바탕이 되는 프로젝트 구성 → (목적 문서의 값 | None, 원본 문서의 값 | None, 원본 작업 id | None). 목적 문서에 값이 아직 없으면(구성 반영 전) 원본 문서의 값으로 고른다."""
+    to = _read(doc_id, target=True)
+    from_id = _mate(doc_id, _store(doc_id))[1]
+    frm = _read(from_id) if from_id else None
+    return to.get("values"), (frm or {}).get("values"), from_id
+
+
+def take_view(doc_id):
+    """「넣을 구성 선택」 의 지금 값 → {take | None(전부), active, text, year(대상 차년도 = 목적 문서의 당해 차년도 | None), yearFrom(그 값이 어디 것인가 target | source | None),
+    choices{org[{name, role}], stage[{n, name}], year[{n, stage, name}]}, ready(고를 프로젝트 구성 값이 있나), why}. 문서는 안 바뀐다.
+    year = 목적 문서의 입력 값의 당해 차년도(없으면 반영 값의 것) · yearApplied = 마지막 구조 반영 때의 것(둘이 다르면 「프로젝트 구성 반영」 을 다시 해야 그 차년도의 구조가 된다) ·
+    notes = 좁혀 고른 것이 대상 차년도 · 다음 연도의 자리를 빼는 때의 알림 글들."""
+    from app import server
+    tv, fv, _ = _take_values(doc_id)
+    values = tv or fv
+    take = _take_raw(doc_id)
+    s = server._sess(doc_id)
+    with s.lock:
+        st, ap = (s.division.get("settings") or {}).get("values"), (s.division.get("applied") or {}).get("values")
+    cur, was = (st or ap or {}).get("current"), (ap or {}).get("current") if ap else None   # 입력 값의 것이 먼저(고른 것) · was = 마지막 구조 반영 때의 것
+    num = lambda x: x if isinstance(x, int) and not isinstance(x, bool) else None  # noqa: E731
+    A, y, have, notes = TK.allowed(take, values), num(cur), [c["n"] for c in TK.choices(values)["year"]], []
+    if A.active and y:   # 좁혀 고른 것이 대상 차년도의 자리를 빼는가 — 연차보고서의 「해당연도」 = 대상 차년도 · 「다음 연도」 = 그 다음 해의 자리다(실제 작성본: 그 해 하나만 고르면 다음 연도 계획 자리가 통째로 빠졌다)
+        if not A.year(y):
+            notes.append(f"대상 차년도({y}차년도)의 자리가 넣을 구성에서 빠져 있습니다")
+        if y + 1 in have and not A.year(y + 1):
+            notes.append(f"「다음 연도」 자리({y + 1}차년도)는 넣지 않습니다")
+    return {"take": take, "active": bool(take), "text": TK.text(take, values), "year": y, "yearApplied": num(was), "notes": notes,
+            "choices": TK.choices(values), "ready": bool(values), "why": "" if values else "프로젝트 구성(단계 · 차년도 · 기관)이 아직 없습니다 — 「프로젝트 구성 추출」 뒤에 고를 값이 보입니다"}
+
+
+def take_put(doc_id, body):
+    """{take?: {org?, stage?, year?} | null(전부), year?: 대상 차년도(전체 차례 수)} → take_view. 보낸 것만 바꾼다.
+    take = 그 묶음의 실행 옵션에 적는다(문서 안 바뀜 — 세워 둔 넣기 계획은 버린다: 다시 계획해야 한다). year = **목적 문서의 프로젝트 구성 입력 값의 「당해 차년도」** 를 그 수로 적는다
+    (값이 아직 없으면 원본 문서의 값을 바탕으로 — 구조 반영 전: 반영한 뒤에 바꾸면 「프로젝트 구성 반영」 이 다시 「남음」 이 된다). 400 = 꼴 · 구성에 없는 값."""
+    from app import server, task_options
+    if not isinstance(body, dict) or not ({"take", "year"} & set(body)):
+        raise HTTPException(400, "take(넣을 구성) 또는 year(대상 차년도)가 있어야 합니다")
+    tv, fv, _ = _take_values(doc_id)
+    values = tv or fv
+    if "year" in body:
+        n = body["year"]
+        have = [c["n"] for c in TK.choices(values)["year"]]
+        if not values:
+            raise HTTPException(409, "프로젝트 구성(단계 · 차년도 · 기관)이 아직 없습니다 — 「프로젝트 구성 추출」 뒤에 대상 차년도를 고르세요")
+        if not isinstance(n, int) or isinstance(n, bool) or n not in have:
+            raise HTTPException(400, "프로젝트 구성에 없는 차년도입니다 — 다시 고르세요")
+        s = server._sess(doc_id)
+        with s.lock:
+            now = (s.division.get("settings") or {}).get("values")
+        base = now or values   # 목적 문서의 입력 값이 먼저 · 없으면 고를 때 본 값(목적의 반영 값 · 원본의 값)
+        if (base or {}).get("current") != n or not now:
+            server.divisions_settings(doc_id, {"values": {**base, "current": n}})   # 입력 값만 — 문서는 안 바뀐다(구조 반영이 그 값으로 한다)
+    if "take" in body:
+        try:
+            take = TK.clean(body["take"], values)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        w = works.work(doc_id)
+        if w is None:
+            raise HTTPException(404, "그런 작업이 없습니다")
+        try:
+            task_options.flow_take(w, take)
+        except task_options.Broken as e:
+            raise HTTPException(409, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+    with _LOCK:
+        _CACHE.pop(doc_id, None), _FIXED.pop(doc_id, None)
+    _PLANS.pop(doc_id, None)   # 세워 둔 계획은 옛 구성의 것 — 버린다(입력의 판도 달라져 반영이 409 로 막는다)
+    return take_view(doc_id)
+
+
 def _fixed_brief(to, frm, saved):
     """연결 목록에 싣는 고정 자리 요약 {counts, todo} — 넣기 계획과 같은 셈(merge_fixed.plan)이되 표 칸 넣기 계획 없이(계산 칸·겹치는 칸에서 조금 다를 수 있다 — 정확한 수는 넣기 계획).
     두 문서의 차례·분석·넣은 기록이 같으면 다시 안 센다(실제 쌍 1.9초)."""
@@ -186,7 +281,7 @@ def _fixed_brief(to, frm, saved):
     forced, maps = _forced(saved), _maps(saved)
     key = (to["id"], to["rev"], frm["id"], frm["rev"], repr(to["values"]), repr(frm["values"]), id(to["graph"]), id(to["tables"]), id(frm["graph"]), id(frm["tables"]),
            tuple(sorted((k, (v or {}).get("hash")) for k, v in applied.items())), tuple(sorted((k, v.get("from"), v.get("source")) for k, v in forced.items())),
-           json.dumps(maps, sort_keys=True, ensure_ascii=False) if maps else "")
+           json.dumps(maps, sort_keys=True, ensure_ascii=False) if maps else "", json.dumps(_take_raw(to["id"]), sort_keys=True, ensure_ascii=False))   # 넣을 구성(② §4-1)이 바뀌면 다시 센다
     with _LOCK:
         hit = _FIXED.get(to["id"])
     if hit is None or hit[0] != key:
@@ -194,7 +289,7 @@ def _fixed_brief(to, frm, saved):
             with server._sess(to["id"]).lock:
                 sides = (merge_fixed._side(to), merge_fixed._side(frm))
                 mp = merge_table_map.plan(*sides, maps, _orig(to["id"])) if maps else None   # 표 대응(② §5-3)이 맡은 표는 같은 이름 자리 셈에서 뺀다
-                p = merge_fixed.plan(to, frm, applied=applied, forced=forced, sides=sides, skip=set(mp["owned"]) if mp else ())
+                p = merge_fixed.plan(to, frm, applied=applied, forced=forced, sides=sides, skip=set(mp["owned"]) if mp else (), take=_take_arg(to["id"], to["values"]))
             # maps = 대응이 맡은 표 수 · mapOpen = 같은 표로 이었는데 칸을 못 맞춰 표 대응이 필요한 표 수(표 묶음 쪽은 넣기 계획이 센다 — plan 의 maps.counts.open)
             counts = {**p["counts"], "maps": len(mp["owned"]) if mp else 0, "mapStale": mp["counts"]["stale"] if mp else 0, "mapOpen": len(merge_table_map.targets(None, p))}
             brief = {"counts": counts, "todo": p["todo"] + (mp["todo"] if mp else 0)}
@@ -227,6 +322,9 @@ def _view(to_id, fresh=False):
     ts, fs = _summary(to), _summary(frm)
     fixed = {k: v for k, v in (saved.get("fixed") or {}).items() if isinstance(v, dict)}
     out.update(P.pair(ts, fs, fixed=fixed))
+    A = _allowed(to_id, to["values"])   # 「넣을 구성 선택」(② §4-1) — 고르지 않은 기관 · 단계 · 차년도의 묶음 · 항목은 「범위 밖」(outside): 넣기 계획 · LLM 검토가 건너뛴다
+    TK.narrow(out, ts, A)
+    out["take"] = {"take": A.take, "active": A.active, "text": TK.text(A.take, to["values"])}
     out["fixed"] = _fixed_brief(to, frm, saved)   # 같은 이름 자리(고정 자리 — spec_병합 ② §5-1): 묶음(groups·counts)과 따로 센다 {counts, todo}
     out["kept"]["applied"] = len(_alive(saved.get("applied"), to))   # 넣은 기록 가운데 지금 문서에 남은 것(실행 취소로 사라진 것은 안 셈 — ③④ 「지난 반영」)
     out["kept"]["filled"] = bool(_filled(saved, to.get("blocks"), (frm["id"], frm["rev"])))   # 마지막 반영 표식(표 칸만 채운 반영 · 확인된 「넣을 것 0」 도 — 서버 실행기와 화면이 같은 끝을 본다)
@@ -343,8 +441,9 @@ def _plan_parts(doc_id, view, saved, to, frm, maps=None):
     sides = (merge_fixed._side(to), merge_fixed._side(frm))
     mp = merge_table_map.plan(*sides, _maps(saved) if maps is None else maps, _orig(doc_id))
     own = set(mp["owned"])
-    tabs = merge_tables.plan(to, frm, to["values"], frm["values"], view, skip=own)
-    fixed = merge_fixed.plan(to, frm, applied=_alive(saved.get("applied"), to), tables_plan=tabs, forced=_forced(saved), sides=sides, skip=own)   # 같은 이름 자리 — 묶음이 넣는 칸은 건너뛴다 · LLM·사람이 정한 표 짝 먼저
+    take = _take_arg(doc_id, to["values"])   # 「넣을 구성 선택」(② §4-1) — 고르지 않은 기관 · 단계 · 차년도의 표 칸 · 행 · 같은 이름 표는 넣지 않는다(None = 전부)
+    tabs = merge_tables.plan(to, frm, to["values"], frm["values"], view, skip=own, take=take)
+    fixed = merge_fixed.plan(to, frm, applied=_alive(saved.get("applied"), to), tables_plan=tabs, forced=_forced(saved), sides=sides, skip=own, take=take)   # 같은 이름 자리 — 묶음이 넣는 칸은 건너뛴다 · LLM·사람이 정한 표 짝 먼저
     mp["open"] = [t for t, _ in merge_table_map.targets(tabs, fixed)]   # 원본 표는 정해졌는데 칸을 못 맞춘 표 — 표 대응이 필요하다
     return mp, tabs, fixed, sides
 
@@ -674,7 +773,7 @@ def _inputs(doc_id, saved, to, frm):
     live = {k: (v or {}).get("hash") for k, v in _alive(saved.get("applied"), to).items()} if to.get("blocks") is not None else None   # 살아 있는 넣은 기록 — 본문 · 고정 라벨 계획이 그것으로 건너뛴다
     raw = json.dumps([to["id"], frm["id"], [list(x) for x in _source_scope(doc_id, frm["id"])], to["rev"], frm["rev"], to.get("values"), frm.get("values"), _heads_ver(to), _heads_ver(frm),
                       {k: saved.get(k) for k in ("fixed", "tables", "tableMaps")}, calm(saved.get("gaps")), live, _orig(doc_id) is not None,   # 예시 칸을 덮어도 되나(등록된 빈 양식 — 양식 선택이 바뀌면 다름)
-                      merge_over.load(doc_id)["version"]], sort_keys=True, ensure_ascii=False, default=str)
+                      merge_over.load(doc_id)["version"], _take_raw(doc_id)], sort_keys=True, ensure_ascii=False, default=str)   # 끝 = 넣을 구성(② §4-1 — 계획 뒤에 고르면 반영이 409)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -759,7 +858,11 @@ def fill_summary(doc_id):
         pv = _plan_view(p)
         plan = {"planId": p["planId"], "todo": p["todo"], "fresh": p.get("inputs") is not None and p.get("inputs") == inputs_now(doc_id),
                 **{k: {"counts": pv[k]["counts"]} for k in ("body", "tables", "fixed", "maps", "gaps")}}
-    return {"links": links, "plan": plan, "heads": heads, "cleanup": cleanup, "filled": filled}
+    try:   # 넣을 구성(② §4-1) — 「넣을 구성 선택」 줄의 상태 글(고른 것 · 대상 차년도): 못 읽으면 None(그 줄이 「읽지 못했습니다」)
+        take = take_view(doc_id)
+    except Exception:   # noqa: BLE001
+        take = None
+    return {"links": links, "plan": plan, "heads": heads, "cleanup": cleanup, "filled": filled, "take": take}
 
 
 def _plan_view(plan):

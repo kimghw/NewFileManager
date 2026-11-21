@@ -310,6 +310,31 @@ try:
         v, f = bar(page), page.evaluate(FOOT)
         check("바꿀 것 없음 — 상태 글·발 「현재 구성과 맞습니다 — 바꿀 자리가 없습니다(· 지원 안 됨 N곳은 그대로)」 · ② 꺼짐 · 발은 닫기뿐", v["text"].startswith("현재 구성과 맞습니다 — 바꿀 자리가 없습니다") and v["by"]["divApplyButton"]["off"]
               and f["text"].startswith("현재 구성과 맞습니다") and f["btns"] == ["닫기"], [v, f, page.evaluate("() => dv.plan.summary")])
+        # ---- 13. 수요기업(spec_구분_기준 ② §24 — 2026-11-21 사용자 "수요기업 으로 선택할 수 있게 해줘. 주관기관, 참여기관 처럼" · "구분기준.. 기관넣을때. 수요기업 체크하도록 하면되잖아"):
+        # 공동기관 줄의 「수요기업」 체크(「비영리」 앞 · 주관 줄에는 없다) → 입력 값 · 저장 · 계획의 라벨 글
+        DEMAND = "#divBox .dv-org-row:nth-child(3) .dv-demand input"
+        kinds = page.evaluate("""() => { const rows = [...document.querySelectorAll('#divBox .dv-org-row')];
+          return rows.map((r) => { const d = r.querySelector('.dv-demand'), i = r.querySelector('.dv-org-field input').getBoundingClientRect(), f = [...r.querySelectorAll('.dv-org-flags > label')];
+            return { role: r.querySelector('.dv-org-role').textContent, flags: f.map((x) => x.textContent).join('|'), shown: getComputedStyle(d).visibility === 'visible', on: d.querySelector('input').checked, off: d.querySelector('input').disabled,
+              left: Math.round(i.left), right: Math.round(i.right), over: r.scrollWidth > r.clientWidth + 1 }; }); }""")
+        check("기관 구성 — 꼬리표 「주관」 · 「공동」 그대로 · 줄마다 체크 「수요기업|비영리」(주관 줄의 수요기업은 안 보이고 꺼짐 · 공동기관 줄은 보이고 안 체크됨) · 이름 칸의 왼끝 · 오른끝이 줄마다 같다 · 가로 넘침 없음",
+              [k["role"] for k in kinds] == ["주관", "공동", "공동"] and all(k["flags"] == "수요기업|비영리" for k in kinds) and [k["shown"] for k in kinds] == [False, True, True] and kinds[0]["off"]
+              and not any(k["on"] or k["over"] for k in kinds) and not any(k["off"] for k in kinds[1:]) and len({k["left"] for k in kinds}) == 1 and len({k["right"] for k in kinds}) == 1, kinds)
+        page.check(DEMAND)
+        page.wait_for_function("() => (divValues().orgs.demand || []).join() === 'false,false,true' && dv.savedKey === divCanon(divValues())", timeout=60000)
+        saved = page.evaluate("async () => { const r = await (await fetch(`/api/docs/${state.id}/divisions`)).json(); return { demand: r.settings.values.orgs.demand, attrs: r.dimensions.orgs.map((o) => [o.id, o.attrs]) }; }")
+        check("수요기업으로 고름 — 입력 값 `orgs.demand` [주관 false · 공동1 false · 공동2 true] 가 저장되고 파생 뷰의 그 기관에 demand", saved["demand"] == [False, False, True]
+              and dict(saved["attrs"])["joint2"].get("demand") is True and "demand" not in dict(saved["attrs"])["joint1"], saved)
+        check("구성의 한 줄 글에 「다라연(수요기업)」 · 체크한 글에 색(is-on) · 다시 그려도 체크가 남는다", "다라연(수요기업)" in page.evaluate("() => divValuesText(divValues())")
+              and page.evaluate("() => { divRender(); const d = document.querySelector('#divBox .dv-org-row:nth-child(3) .dv-demand'); return d.classList.contains('is-on') && d.querySelector('input').checked; }"), page.evaluate("() => divValuesText(divValues())"))
+        page.click("#divPlanButton")
+        page.wait_for_function(f"() => !!dv.plan && ({IDLE})() && document.getElementById('divRunState').dataset.kind !== 'run'", timeout=240000)
+        texts = page.evaluate("""async () => { const r = await (await fetch(`/api/docs/${state.id}/divisions/plan`)).json(); const s = JSON.stringify(r);
+          return { marked: (s.match(/공동연구개발기관2-수요기업/g) || []).length, other: (s.match(/공동연구개발기관1-수요기업|주관연구개발기관-수요기업/g) || []).length, kind: document.getElementById('divRunState').dataset.kind }; }""")
+        check("그 값의 계획 — 공동2 의 이름 자리 라벨에 「공동연구개발기관2-수요기업」 을 적는 변경이 있고 다른 기관에는 없다", texts["marked"] > 0 and texts["other"] == 0, texts)
+        page.uncheck(DEMAND)
+        page.wait_for_function("() => divValues().orgs.demand === undefined && dv.savedKey === divCanon(divValues())", timeout=60000)
+        check("체크를 풀면 — 보내는 값에 demand 열쇠가 없다(고르지 않은 값은 전과 같은 꼴)", page.evaluate("async () => !('demand' in (await (await fetch(`/api/docs/${state.id}/divisions`)).json()).settings.values.orgs)"))
         bad = [e for e in errors if "Failed to load resource" not in e]
         check("화면 오류 0", not bad, bad[:5])
         browser.close()

@@ -1673,29 +1673,34 @@
     const wrap = h("span", "wf-slot-pick");
     if (!FF) { wrap.append(h("span", "wf-muted", ffErr ? `저장한 양식을 읽지 못했습니다: ${ffErr}` : "기본 문서는 서버를 다시 켠 뒤에 걸 수 있습니다")); return wrap; }
     const combo = h("span", "wf-slot-combo"), mode = h("select", "wf-slot-mode"), form = h("select", "wf-slot-form"), j = { formats: ["hwpx"], kind }, fits = (FF.files || []).filter((f) => ffFits(f, j)), cur = c.slots[s.role] || null;
+    const web = slotWeb(`draft-web-${s.role}`, s.title, !cur); // 「웹에서 직접 올림」 — 켜짐 = 양식 없음(c.slots[role] = null) · 끔 = 양식을 건다({mode, file} — 고를 양식이 없으면 file 이 비어 composeSave 가 거르고, 다시 그려도 꺼진 채 남는다)
     mode.name = `draft-mode-${s.role}`;
     mode.setAttribute("aria-label", `${s.title} 칸의 기본 문서 — 양식`);
-    for (const [v, label] of Object.entries(FF_MODE)) mode.append(new Option(`양식: ${label}`, v));
-    mode.value = cur ? cur.mode : "";
+    for (const [v, label] of Object.entries(FF_PICK)) mode.append(new Option(`양식: ${label}`, v));
+    mode.value = cur && FF_PICK[cur.mode] ? cur.mode : "default";
     form.name = `draft-form-${s.role}`;
     form.setAttribute("aria-label", `${s.title} 칸에 넣을 저장한 양식`);
     for (const f of fits) form.append(new Option(`${f.name}${ffDate(f.at) ? ` (${ffDate(f.at)})` : ""}`, f.id));
     if (!fits.length) form.append(new Option("걸 수 있는 양식이 없음", ""));
     form.value = cur && fits.some((f) => f.id === cur.file) ? cur.file : (fits[0] || {}).id || "";
+    const up = slotUp(j, s.title, `draft-up-${s.role}`, (f) => { c.slots[s.role] = { mode: (c.slots[s.role] || {}).mode || "default", file: f.id }; ffRedraw(); }); // 올린 양식을 이 칸에 골라 둔다(기본값 — 만든 뒤에 건다) · ffRedraw 가 이 칸도 새로 그린다(ioRefresh)
+    const box = web.querySelector("input");
     const sync = () => {
-      form.disabled = !mode.value || !fits.length;
-      wrap.dataset.mode = mode.value;
-      c.slots[s.role] = mode.value && form.value ? { mode: mode.value, file: form.value } : null;
+      const on = box.checked;
+      form.disabled = mode.disabled = !fits.length;
+      wrap.dataset.mode = on ? "" : mode.value;
+      wrap.dataset.web = on ? "1" : "";
+      c.slots[s.role] = on ? null : { mode: mode.value, file: form.value };
+      combo.hidden = mode.hidden = form.hidden = on || !fits.length; // 고를 양식이 없으면 꺼진 고르기 둘을 세워 두지 않는다 — 그 자리에서 할 수 있는 일(「양식 올리기…」)만 보인다(2026-11-20 사용자 "이거 클릭도 안되고 왜 아무것도 안해?")
+      up.hidden = on;
     };
-    mode.disabled = !fits.length;
-    combo.hidden = mode.hidden = form.hidden = !fits.length; // 고를 양식이 없으면 꺼진 고르기 둘을 세워 두지 않는다 — 그 자리에서 할 수 있는 일(「양식 올리기…」)만 보인다(2026-11-20 사용자 "이거 클릭도 안되고 왜 아무것도 안해?")
     if (!fits.length) wrap.dataset.empty = "1";
+    box.addEventListener("change", sync);
     mode.addEventListener("change", sync);
     form.addEventListener("change", sync);
     sync();
-    const up = slotUp(j, s.title, `draft-up-${s.role}`, (f) => { c.slots[s.role] = { mode: (c.slots[s.role] || {}).mode || "default", file: f.id }; ffRedraw(); }); // 올린 양식을 이 칸에 골라 둔다(기본값 — 만든 뒤에 건다) · ffRedraw 가 이 칸도 새로 그린다(ioRefresh)
     combo.append(mode, form);
-    wrap.append(combo, up); // 설명 글 없음
+    wrap.append(web, combo, up); // 설명 글 없음
     return wrap;
   }
   function composeForm() {
@@ -2008,13 +2013,25 @@
   // ---- 저장한 양식 · 문서 칸(spec_워크플로우 ② §18-9 「양식」 · 고친 규칙 ② §18-12 ⑧ — 2026-11-20 사용자 "템플릿은 워크플로우 설정에서 고정 또는 default 값을로" → 물어서 받은 답 「양식 파일」)
   // 저장한 양식 = 워크플로우의 목적 문서 칸에 넣을 양식 파일(서버 전체 — GET /api/form-files · 파일은 올린 그대로 · 고치려면 새로 올린다).
   // 문서 칸 = 워크플로우 절의 「받는 문서」 아래 한 줄 — 역할마다(원본 → 목적) · 목적 문서 칸에만 양식을 건다: 「양식: 없음 · 기본값 · 고정」 + 저장한 양식 고르기(PUT /api/workflow-slots/{job}). 붙박이 · 조립한 것 모두.
-  // 걸 수 있는지(워크플로우 · 형식 · 문서 종류)는 서버가 정한다(jobs[{job, kind, formats}] · noForm{job: 까닭}) — 화면은 그 목록대로 고를 것을 추리고, 거절 글은 서버의 것 그대로. 화면 말: 「저장한 양식」 · 「양식으로 저장」 · 「양식: 없음 · 기본값 · 고정」(「템플릿」 은 쓰지 않는다).
+  // 걸 수 있는지(워크플로우 · 형식 · 문서 종류)는 서버가 정한다(jobs[{job, kind, formats}] · noForm{job: 까닭}) — 화면은 그 목록대로 고를 것을 추리고, 거절 글은 서버의 것 그대로. 화면 말: 「저장한 양식」 · 「양식으로 저장」 · 「웹에서 직접 올림」(= 없음 — 아래 FF_PICK) · 「양식: 기본값 · 고정」(「템플릿」 은 쓰지 않는다).
   let FF = null, ffErr = ""; // GET /api/form-files | null(못 읽음 — 옛 서버면 이 절 · 줄이 서지 않는다)
   // 「문서 칸」 의 설정(워크플로우 설정 — 양식: 없음 · 기본값 · 고정)은 고르는 즉시 저장된다(저장 단추가 따로 없다). 2026-11-21 사용자 「워크플로우 설정에 저장버튼이 없냐」 — 저장된 것이 안 보였다:
   // 저장한 칸마다 「✓ 저장됨 HH:MM」 을 그 칸 옆에 둔다(ffRedraw 로 줄을 새로 그려도 남게 — 키 = 워크플로우:역할) · 고르기의 풍선 글 「고르면 바로 저장됩니다」.
   const ffSavedAt = new Map();
   const ffClock = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const FF_MODE = { "": "없음", default: "기본값", fixed: "고정" };
+  // 「웹에서 직접 올림」 체크 박스(2026-11-21 사용자 — 원본 문서 칸에 다른 종류로 이미 있는 양식을 올려 거절 글이 뜬 것을 보이며 "이거는 웹에서 사용자가 직접 올리도록 하는 체크 박스를 넣어줘"):
+  // 켜짐 = 그 칸에 양식을 걸지 않는다(설정 없음 = 전의 「양식: 없음」 — 시작할 때 사용자가 첫 화면에서 그 칸의 문서를 올린다) · 고르기 · 「양식 올리기…」 · 거절 글은 숨는다.
+  // 끔 = 양식을 건다 — 「양식: 기본값 · 고정」(「없음」 은 이 체크 박스가 맡아 고르기에서 뺐다) + 저장한 양식 · 「양식 올리기…」. 서버 설정의 꼴은 그대로(없음 = null).
+  const FF_PICK = { default: "기본값", fixed: "고정" };
+  const ffWebOff = new Set(); // 워크플로우 절 · 고치기 폼에서 체크 박스를 껐지만 아직 걸 양식이 없는 칸(워크플로우:역할) — 다시 그려도 꺼진 채(올리기 단추가 보이게)
+  function slotWeb(name, title, on) { // 체크 박스 하나(라벨 「웹에서 직접 올림」) — 바꾸면 부르는 쪽이 듣는다
+    const lab = h("label", "wf-slot-web"), box = h("input");
+    box.type = "checkbox"; box.name = name; box.checked = on;
+    lab.title = `켜면 이 칸에 양식을 걸지 않고, 시작할 때 사용자가 웹에서 ${title}${josa(title, "을", "를")} 직접 올립니다 · 끄면 저장한 양식을 겁니다(기본값 · 고정)`;
+    lab.append(box, h("span", "", "웹에서 직접 올림"));
+    return lab;
+  }
   const FF_KIND = { "": "정하지 않음", plan: "사업계획서", report: "연차보고서" };
   const ffDate = (at) => { const d = new Date((at || 0) * 1000); return at && Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : ""; };
   const ffSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
@@ -2070,52 +2087,68 @@
     if (ffSavedAt.has(savedKey)) { saved.textContent = `✓ 저장됨 ${ffClock(ffSavedAt.get(savedKey))}`; saved.title = "고른 설정이 서버에 저장됐습니다 — 이 칸은 고르는 즉시 저장됩니다(저장 단추가 따로 없습니다)"; }
     mode.title = form.title = "고르면 바로 저장됩니다 — 저장 단추가 따로 없습니다";
     const fits = (FF.files || []).filter((f) => ffFits(f, j)), now = cur ? (FF.files || []).find((f) => f.id === cur.file) : null, tail = role === "target" ? "" : `-${role}`; // 목적 칸의 이름은 전 그대로(화면 검사 · 옛 고르기)
+    const web = slotWeb(`slot-web-${t.job}${tail}`, title, !cur && !ffWebOff.has(savedKey)), box = web.querySelector("input"); // 켜짐 = 설정 없음(양식을 걸지 않음) — 위 FF_PICK
+    box.title = "바꾸면 바로 저장됩니다 — 저장 단추가 따로 없습니다";
     mode.name = `slot-mode-${t.job}${tail}`;
     mode.setAttribute("aria-label", `${taskName(t.job)} — ${title} 칸의 양식`);
-    for (const [v, label] of Object.entries(FF_MODE)) mode.append(new Option(`양식: ${label}`, v));
-    mode.value = cur ? cur.mode : "";
+    for (const [v, label] of Object.entries(FF_PICK)) mode.append(new Option(`양식: ${label}`, v));
+    mode.value = cur && FF_PICK[cur.mode] ? cur.mode : "default";
     form.name = `slot-form-${t.job}${tail}`;
     form.setAttribute("aria-label", `${taskName(t.job)} — ${title} 칸에 넣을 저장한 양식`);
     for (const f of fits) form.append(new Option(`${f.name}${ffDate(f.at) ? ` (${ffDate(f.at)})` : ""}`, f.id));
     if (now && !fits.includes(now)) form.append(new Option(`${now.name} — 지금은 걸 수 없음`, now.id));
     if (!form.options.length) form.append(new Option("걸 수 있는 양식이 없음", ""));
     form.value = now ? now.id : (fits[0] || {}).id || "";
-    form.disabled = !mode.value || !fits.length;
-    combo.hidden = mode.hidden = form.hidden = !fits.length && !cur; // 고를 양식이 없으면 꺼진 고르기 둘을 세워 두지 않는다 — 「양식 올리기…」 만(slotDraft 와 같은 꼴)
-    if (combo.hidden) wrap.dataset.empty = "1";
+    if (!fits.length && !cur) wrap.dataset.empty = "1";
     const need = [j.formats.join(" · "), j.kind ? FF_KIND[j.kind] || j.kind : ""].filter(Boolean).join(" · ");
+    let up = null;
     const sync = () => {
-      wrap.dataset.mode = mode.value;
-      note.textContent = !fits.length ? `걸 수 있는 양식이 없습니다 — 「양식 올리기…」 로 ${need} 양식을 올리세요`
-        : !mode.value ? `시작할 때 ${title}를 사람이 넣습니다`
+      const on = box.checked;
+      wrap.dataset.mode = on ? "" : mode.value;
+      wrap.dataset.web = on ? "1" : "";
+      mode.disabled = !fits.length && !cur;
+      form.disabled = !fits.length;
+      combo.hidden = mode.hidden = form.hidden = on || (!fits.length && !cur); // 고를 양식이 없으면 꺼진 고르기 둘을 세워 두지 않는다 — 「양식 올리기…」 만(slotDraft 와 같은 꼴)
+      if (up) up.hidden = on;
+      if (on) err.textContent = "";
+      note.textContent = on ? `시작할 때 사용자가 웹에서 ${title}${josa(title, "을", "를")} 직접 올립니다 — 이 칸에는 양식을 걸지 않습니다`
+        : !fits.length && !cur ? `걸 수 있는 양식이 없습니다 — 「양식 올리기…」 로 ${need} 양식을 올리세요`
           : mode.value === "fixed" ? `늘 이 양식으로 시작합니다 — 시작의 ${title} 칸에 다른 파일을 넣을 수 없습니다` : "시작할 때 이 양식이 미리 들어가 있고, 다른 파일로 바꿀 수 있습니다";
     };
     const send = async () => {
-      if (mode.value && !form.value) { sync(); return; }
-      mode.disabled = form.disabled = true;
+      const on = box.checked;
+      if (!on && !form.value) { sync(); return; }
+      box.disabled = mode.disabled = form.disabled = true;
       err.textContent = "";
       saved.textContent = "저장하는 중…";
-      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ [role]: mode.value ? { file: form.value, mode: mode.value } : null }) });
-      if (!r.ok) { saved.textContent = ""; err.textContent = `저장하지 못했습니다 — ${r.msg}`; mode.disabled = false; form.disabled = !mode.value || !fits.length; return; }
+      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ [role]: on ? null : { file: form.value, mode: mode.value } }) });
+      box.disabled = false;
+      if (!r.ok) { saved.textContent = ""; sync(); err.textContent = `저장하지 못했습니다 — ${r.msg}`; return; }
+      ffWebOff.delete(savedKey);
       ffSavedAt.set(savedKey, Date.now());
       await formsLoad();
       ffRedraw();
     };
-    mode.addEventListener("change", () => { form.disabled = !mode.value || !fits.length; sync(); send(); });
+    box.addEventListener("change", () => { // 켬 = 설정을 푼다(걸린 양식이 있을 때만 저장) · 끔 = 고를 양식이 있으면 그 칸에 건다(기본값 + 처음 양식 — 고르는 즉시 저장) · 없으면 「양식 올리기…」 를 보인다
+      if (box.checked) { ffWebOff.delete(savedKey); if (cur) send(); else sync(); return; }
+      ffWebOff.add(savedKey);
+      if (form.value && fits.length) send(); else sync();
+    });
+    mode.addEventListener("change", send);
     form.addEventListener("change", send);
-    mode.disabled = !fits.length && !cur;
-    sync();
     err.setAttribute("role", "alert");
-    const up = slotUp(j, title, `slot-up-${t.job}${tail}`, async (f) => { // 올린 양식을 이 칸에 바로 건다(지금 「고정」 이면 고정 그대로 · 아니면 기본값) → 걸지 못하면 그 까닭 글
-      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ [role]: { file: f.id, mode: mode.value || "default" } }) });
+    up = slotUp(j, title, `slot-up-${t.job}${tail}`, async (f) => { // 올린 양식을 이 칸에 바로 건다(지금 「고정」 이면 고정 그대로 · 아니면 기본값) → 걸지 못하면 그 까닭 글
+      const r = await ffSend(`/api/workflow-slots/${encodeURIComponent(t.job)}`, { method: "PUT", headers: JSON_H, body: JSON.stringify({ [role]: { file: f.id, mode: cur && cur.mode === "fixed" ? "fixed" : "default" } }) });
       if (!r.ok) return `양식 「${f.name}」 ${josa(f.name, "은", "는")} 저장했지만 이 칸에 걸지 못했습니다 — ${r.msg}`;
+      ffWebOff.delete(savedKey);
       ffSavedAt.set(savedKey, Date.now());
       await formsLoad();
       ffRedraw();
       return "";
     });
+    sync();
     combo.append(mode, form);
-    wrap.append(combo, saved, up, ...(quiet ? [] : [note]), err);
+    wrap.append(web, combo, saved, up, ...(quiet ? [] : [note]), err);
     return wrap;
   }
   // 그 칸에서 바로 양식 올리기(2026-11-20 사용자 — 저장한 양식이 없어 꺼진 고르기 둘을 보이며 "이거 클릭도 안되고 왜 아무것도 안해?": 그 칸에서 할 수 있는 일이 없었고 설명 글도 뺀 뒤였다 — ② §18-9 「그 칸에서 올리기」).

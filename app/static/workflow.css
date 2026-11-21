@@ -536,6 +536,13 @@ td.wf-docs-none { color: var(--muted); }
 .wf-slot-pick .wf-slot-err { max-width: 100%; padding: 3px 8px; border-left: 2px solid var(--fail); border-radius: 0 4px 4px 0; background: var(--fail-soft); color: var(--fail); font-size: 12px; line-height: 1.45; }
 .wf-slot-pick > .wf-slot-err { flex: 1 0 100%; margin-top: 2px; }
 .wf-slot-pick .wf-slot-err:empty { display: none; }
+/* 「웹에서 직접 올림」 체크 박스(2026-11-21 사용자 — ② §18-9): 고르기 덩이 앞 · 같은 26px. 켜면(data-web) 옅은 강조 덩이 · 고르기와 「양식 올리기…」 는 숨는다 */
+.wf-slot-web { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 26px; padding: 0 9px 0 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: #45505f; font-size: 12.5px; white-space: nowrap; cursor: pointer; transition: border-color .12s, background-color .12s, color .12s; }
+.wf-slot-web:hover { border-color: var(--line-strong); }
+.wf-slot-web input { margin: 0; width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+.wf-slot-web:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(36, 88, 214, .14); }
+.wf-slot-pick[data-web="1"] .wf-slot-web { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wf-slot-up[hidden] { display: none; }
 @media (max-width: 560px) {
   .wf-slot-list:not(.wf-io-slots) > .wf-slot { grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 7px 0; }
   .wf-slot-list:not(.wf-io-slots) .wf-slot-role, .wf-slot-list:not(.wf-io-slots) > .wf-slot > .wf-muted { padding: 0; }
@@ -546,7 +553,7 @@ td.wf-docs-none { color: var(--muted); }
   .wf-slot-pick > .wf-muted { flex-basis: 100%; padding: 0; line-height: 1.45; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wf-slot-combo, .wf-slot-combo select, .wf-slot-up .btn { transition: none; }
+  .wf-slot-combo, .wf-slot-combo select, .wf-slot-up .btn, .wf-slot-web { transition: none; }
 }
 .wf-ff-list { list-style: none; margin: 0 0 12px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .wf-ff-row { padding: 10px 14px; }

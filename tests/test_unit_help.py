@@ -125,7 +125,7 @@ def test_compose_response_carries_help():
         assert len(keys) == len(set(keys)) and set(keys) == {k for f, k, _ in OFFERED if f == fam}, (fam, keys)
         for u in units:
             assert u.get("help") == H.of(fam, u["key"]) and u["help"]["easy"], (fam, u["key"])
-    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 15, "gather": 11, "single": 14}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다
+    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 16, "gather": 11, "single": 14}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다
     by = lambda fam: {u["key"]: u["help"]["easy"] for u in lists[fam]}  # noqa: E731
     assert by("relay")["link"] != by("gather")["link"] and by("relay")["plan"] != by("single")["plan"] and by("relay")["heads"] != by("single")["heads"]   # 같은 key 도 틀마다 다른 글
     assert by("gather")["hand"] == by("relay")["hand"] == by("single")["hand"] and "기관에 나눠" not in by("gather")["hand"]   # 취합의 「사람이 하는 일」 ≠ 붙박이 취합의 「기관에 배포 · 회수」
@@ -190,7 +190,7 @@ def test_compose_response_carries_only():
         for u in units:
             assert u.get("only") == H.only(fam, u["key"]), (fam, u["key"])
     assert {u["key"]: (u["only"] or {}).get("label") for u in by["relay"] if u.get("only")} == {
-        "configLoad": "사업계획서 · 연차보고서 전용", "config": "사업계획서 · 연차보고서 전용", "division": "사업계획서 · 연차보고서 전용",
+        "configLoad": "사업계획서 · 연차보고서 전용", "config": "사업계획서 · 연차보고서 전용", "division": "사업계획서 · 연차보고서 전용", "take": "사업계획서 · 연차보고서 전용",   # take = 「넣을 구성 선택」(프로젝트 구성의 값을 고른다)
         "link": "사업계획서 → 연차보고서 전용", "llm": "사업계획서 → 연차보고서 전용", "plan": "사업계획서 → 연차보고서 전용", "gaps": "사업계획서 → 연차보고서 전용",
         "tableMap": "사업계획서 → 연차보고서 전용", "apply": "사업계획서 → 연차보고서 전용"}
 

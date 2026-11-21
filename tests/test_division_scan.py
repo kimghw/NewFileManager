@@ -37,6 +37,8 @@ def _p(pid, text):
 def test_value_basis_moved_to_division_terms_and_heading_uses_the_same():
     assert HG.value_basis is DT.value_basis and HG.label_shape is DT.label_shape and HG.BASES is DT.BASES   # 원본 하나(구분 기준 쪽)
     assert DT.value_basis("[1차년도 목표]") == "차년도" and DT.value_basis("[주관연구개발기관(기관명 기입)]") == "기관" and DT.value_basis("[한국선급]") == ""
+    # 수요기업 표시가 붙은 기관 값도 기관 라벨(spec_구분_기준 ② §24) — 표시 뒤가 이름 자리일 때. 주제 글이 이어지면 아니다
+    assert DT.value_basis("[공동연구개발기관6-수요기업 (HD한국조선해양)]") == "기관" == DT.value_basis("[공동연구개발기관6-수요기업 : 이름]") and DT.value_basis("[공동연구개발기관6-수요기업 현황]") == ""
 
 
 def test_scan_on_the_blank_form_keeps_the_engine_and_adds_only_identifying_evidence():

@@ -116,16 +116,20 @@ def status_of(wid):
     target = (pair.get("target") or {}).get("id")
     run = RUNS.get(target) if target else None
     off = client_only()
-    view = S.view(task, pair, {} if off else _materials(pair, task), llm=None if off else UNIT.llm_ok(), skip=[] if off else _skips(pair, wid),
+    skips = [] if off else list(_skips(pair, wid) or ())
+    view = S.view(task, pair, {} if off else _materials(pair, task), llm=None if off else UNIT.llm_ok(), skip=skips,
                   running=run.now() if run is not None else None)
+    view["llmSkip"] = sorted(skips)   # 사람이 「LLM 검증·보완」 을 건너뛴 문서 id 들(워크플로우 옵션 — PUT …/flow/skip) — 화면이 「건너뛰기 취소」 를 그 문서에만 보인다(LLM 을 못 써서 건너뛴 것과 가른다)
     if off:
         for g in view["stages"]:
-            g.update(server=False, steps=None, can=False, why="", total=0, done=0, left=0, paid=[])
+            g.update(server=False, steps=None, can=False, why="", total=0, done=0, left=0, paid=[], solo=[])
     if run is not None:
         for g in view["stages"]:
             if g["server"] and (g["can"] or not g["why"]):
                 g["why"] = "지금 진행 중인 작업이 끝나면 쓸 수 있습니다"
             g["can"] = False
+            for x in g.get("solo") or ():   # 「한 문서만 진행」 도 같다 — 한 묶음(프로젝트 · 워크플로우 · 라운드)에 실행은 하나
+                x.update(can=False, why=x["why"] if x["why"] and not x["can"] else "지금 진행 중인 작업이 끝나면 쓸 수 있습니다")
     view["run"] = run.summary() if run is not None else None
     view["last"] = _summary(last(target)) if target and run is None else None
     return view
@@ -646,6 +650,17 @@ def _only_lines(mine, only, row):
     return [x for i, x in enumerate(mine) if i in hit]
 
 
+def _role_lines(task, mine, role):
+    """「한 문서만 진행」(spec_워크플로우 ② §18-21 — 2026-11-21 사용자 「목적문서 따로 원본 문서 작업 따로 … 하나의 문서만 작업」)의 줄들 — 그 문서만 따로 돌 수 있는 줄(workflow_state.solo_line: 문서마다 하는 줄 가운데 그 문서에 닿는 것)만 남기고,
+    줄의 「하는 문서」 를 그 문서 하나로 좁힌 사본을 준다(처리 함수는 줄이 고른 문서마다 돈다 — _docs_of · _fit_docs). 워크플로우 전체 줄 · 원본 → 목적 줄 · 다른 문서만의 줄은 빠진다. 옆 줄과 함께 돌기(beside)는 없다 — 문서가 하나다."""
+    return [{**x, "on": role, "beside": False} for x in mine if S.solo_line(task, x["unit"], x["on"], role)]
+
+
+def _solo_row(row, role):
+    """묶음 상태(workflow_state.view 의 줄)에서 그 문서만의 몫 {total, left, can, why, …} | None(이 묶음에 따로 돌 것이 없음)."""
+    return next((x for x in row.get("solo") or () if x["role"] == role), None)
+
+
 def _view(run):
     """묶음 경계의 상태 — 실행의 판단이라 새로 읽은 재료로(잠깐 든 값이 아니라 · 이번 실행의 뺀 자리로: _materials)."""
     return S.view(run.task, run.pair, _materials(run.pair, run.task, fresh=True, excl=_excl(run.rec)), llm=UNIT.llm_ok(), skip=UNIT.skips(run.target))
@@ -658,6 +673,9 @@ def _drive(run):
     ids = [g["id"] for g in run.task["stages"]]
     span = ids[ids.index(R["from"]): ids.index(R["to"]) + 1]
     status, texts, halt = "done", [], None
+    role = R.get("role") or ""   # 「한 문서만 진행」 — 그 문서(원본 | 목적)의 줄만(② §18-21)
+    who = S._role(run.task, role) if role else None
+    only_doc = f"{(who or {}).get('title') or ''}({(who or {}).get('name') or ''})만 — " if who else ""   # 묶음 끝 글의 머리 「원본 문서(사업계획서)만 — 」
     try:
         for gid in span:
             run.guard()
@@ -669,15 +687,17 @@ def _drive(run):
             # 앞 묶음이 덜 끝남 — 뒤 묶음은 하지 않고 남긴다 · 줄 하나(줄의 단추 — 화면의 early)는 묶음 차례를 안 따진다. 먼저 끝나야 하는 묶음 = 그 묶음의 after(이관형 = 모든 앞 묶음 — 범위 밖도 ·
             # 문서 하나 = 이 묶음의 줄이 요구하는 것을 주는 묶음만: workflow_state._feeds) + 이 실행의 범위에 든 앞 묶음(「이어서 한 번에」 는 안 끝난 묶음에서 멈춘다 — ② §18-13 「묶음 규칙」)
             must = set(row.get("after") or ()) | set(span[:span.index(gid)])
-            before = None if R.get("only") else next((g for g in view["stages"][:ids.index(gid)] if g["server"] and g["left"] and g["id"] in must), None)
+            # 「한 문서만」 이면 앞 묶음의 남은 일을 그 문서의 눈으로 센다(leftBy — 다른 문서만의 줄은 기다리지 않는다: 문서마다의 몫은 따로 나아간다 · 전체 줄 · 원본 → 목적 줄은 기다린다)
+            left_of = (lambda g: (g.get("leftBy") or {}).get(role, g["left"])) if role else (lambda g: g["left"])
+            before = None if R.get("only") else next((g for g in view["stages"][:ids.index(gid)] if g["server"] and left_of(g) and g["id"] in must), None)
             if before is not None:
                 cut = f"{before['no']} 「{before['name']}」 이 덜 끝났습니다".strip()   # 번호 없는 묶음(양식 맞추기)은 이름만
                 run.step(gid, "", "left", cut)
                 texts.append(cut)   # 끝 글에도 — 전에는 이 까닭이 줄의 기록에만 남아 끝 글이 「남은 단계가 없습니다」 였다
                 status = "left"
                 break
-            if not R.get("only") and not R.get("redo") and not row["left"]:
-                rec["stages"].append({"id": gid, "status": "done", "text": "남은 단계가 없습니다", "t0": time.time(), "t1": time.time()})
+            if not R.get("only") and not R.get("redo") and not ((_solo_row(row, role) or {}).get("left") if role else row["left"]):
+                rec["stages"].append({"id": gid, "status": "done", "text": only_doc + "남은 단계가 없습니다", "t0": time.time(), "t1": time.time()})
                 continue
             entry = {"id": gid, "status": "running", "text": "", "t0": time.time(), "t1": None}
             rec["stages"].append(entry)
@@ -686,6 +706,8 @@ def _drive(run):
             mine = _stage_lines(run.task, gid)
             if R.get("only"):   # 줄 하나만(「분석」)이면 그 줄만 — 뒤의 유료 줄을 시작하지 않는다 · row = 그 줄의 **차례(행)째**: 같은 차례에 선 옆 줄도(시작한 쪽이 그 행을 보이고 눌렀을 때만 — 줄의 단추는 그 줄만)
                 mine = _only_lines(mine, R["only"], R.get("row"))
+            if role:   # 한 문서만 — 그 문서의 줄만 · 줄의 문서도 그 문서 하나로
+                mine = _role_lines(run.task, mine, role)
 
             def one(line, gid=gid):   # 줄 하나 — 처리 함수를 부르고 기록한다 → (상태, 묶음 끝 글의 몫). 멈춤에는 그 줄을 적는다(같은 차례의 두 줄을 함께 돌 때 「지금 줄」 은 다른 줄일 수 있다)
                 t0 = time.time()
@@ -718,7 +740,7 @@ def _drive(run):
                 run.guard()
                 got += _lanes(run, [functools.partial(one, x) for x in ([line, paired] if paired is not None else [line])])
             lefts = [t for st, t in got if st == "left"]
-            entry.update(status="left" if lefts else "done", text=_clip((" · ".join(t for _, t in got if t) or "한 일이 없습니다") + _tail(run.task, gid, R)), t1=time.time())
+            entry.update(status="left" if lefts else "done", text=_clip(only_doc + (" · ".join(t for _, t in got if t) or "한 일이 없습니다") + ("" if role else _tail(run.task, gid, R))), t1=time.time())   # 한 문서만 돈 묶음은 다음 묶음을 가리키는 꼬리를 붙이지 않는다(묶음이 끝난 것이 아니다)
             texts.append(entry["text"])
             if lefts:
                 status = "left"
@@ -755,7 +777,7 @@ def _drive(run):
 
 def start(wid, body):
     """실행을 시작한다 → 실행 요약(202). 못 하면 Refuse(409 — reason · message) · ValueError(400 — 몸의 꼴).
-    body = {from(묶음 id), to?, only?(줄 key), row?(참 = only 의 줄과 같은 차례(행)에 선 옆 줄도 함께), redo?, skill?, skip?[구조 반영에서 뺄 자리 key], by?(human | agent), where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}}.
+    body = {from(묶음 id), to?, only?(줄 key), row?(참 = only 의 줄과 같은 차례(행)에 선 옆 줄도 함께), role?(source | target — **한 문서만**: 그 묶음에서 그 문서의 줄만 · 줄의 문서도 그 문서 하나로 — ② §18-21), redo?, skill?, skip?[구조 반영에서 뺄 자리 key], by?(human | agent), where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}}.
     검사 차례(② §17-7 「시작」): 문서 묶음(notReady · docs) → 정의(gone · definition) → 서버가 맡는 묶음(client) → 사람이 직접 하는 줄만 고른 시작(pick — only 의 줄이 모두 사람의 줄) → 남은 일(noWork — 새로 읽은 재료로) → 겹침(busy).
     skip 을 실으면(빈 목록도) 「이번 실행이 뺀 자리」 로 안다 — 문서 하나의 구조 반영은 지난 반영이 뺀 자리를 이번에 풀었으면 다시 계획한다 · 안 실으면 지난 반영이 뺀 자리를 그대로 둔다(뺀 자리를 모르는 화면이 저절로 반영하지 않게)."""
     if not isinstance(body, dict) or not isinstance(body.get("from"), str):
@@ -772,6 +794,9 @@ def start(wid, body):
         raise ValueError("모르는 묶음입니다")
     if only and (only not in [x["key"] for x in _stage_lines(task, first)] or to != first):
         raise ValueError("모르는 단계입니다")
+    role = body.get("role") or ""   # 「한 문서만 진행」(② §18-21) — 그 묶음에서 그 문서(원본 | 목적)의 줄만. only 와 함께면 그 줄을 그 문서에만
+    if role and (role not in U.ROLES or to != first or not S.relay_pair(task)):
+        raise ValueError("한 문서만 진행은 원본 문서 하나 → 목적 문서 하나인 워크플로우의 묶음 하나에서, 원본 문서(source) 또는 목적 문서(target)로 합니다")
     if body.get("skip") is not None and (not isinstance(body["skip"], list) or len(body["skip"]) > SKIP_MAX or not all(isinstance(x, str) for x in body["skip"])):
         raise ValueError(f"skip 은 뺄 자리 key 목록({SKIP_MAX}개까지)이어야 합니다")   # 자르면 사람이 뺀 자리가 반영된다 — 거절한다(astra P1)
     auto = body.get("auto")
@@ -793,12 +818,22 @@ def start(wid, body):
         hit = _only_lines(_stage_lines(task, first), only, bool(body.get("row")))
         if hit and all((x["unit"] or {}).get("kind") == "pick" for x in hit):
             raise Refuse("pick", f"{' · '.join('「' + x['name'] + '」' for x in hit)} 은(는) 사람이 직접 하는 단계입니다 — 서버가 대신 진행하지 않습니다(문서 화면에서 합니다)")
+    who = S._role(task, role) if role else None
+    who_text = f"{(who or {}).get('title') or ''}({(who or {}).get('name') or ''})" if who else ""
+    if role and not _role_lines(task, _only_lines(_stage_lines(task, first), only, bool(body.get("row"))) if only else _stage_lines(task, first), role):
+        raise Refuse("role", f"{who_text}만 따로 진행할 단계가 여기에는 없습니다 — 워크플로우 전체 줄 · 원본 → 목적 줄은 한 문서만으로 하지 않습니다")
     target, source = pair["target"], pair.get("source")
     given = body.get("skip") is not None   # 시작한 화면이 「반영에서 빼기」 의 자리를 알려 주었나(빈 목록 = 뺀 자리 없음 · 키가 없으면 모름 — 지난 반영이 뺀 자리를 그대로 둔다: _excl)
     # 「남은 일 없음」 은 실행의 판단 — 새로 읽은 재료로 센다(잠깐 든 값은 조회에만: astra C1)
     view = S.view(task, pair, _materials(pair, task, fresh=True, excl=list(body["skip"]) if given else None), llm=UNIT.llm_ok(), skip=_skips(pair, wid))
     rows = {g["id"]: g for g in view["stages"]}
-    if not body.get("redo") and not only and not any(rows[g]["left"] for g in span):
+    if role and not only:   # 그 문서만 — 남은 일 · 앞 묶음은 그 문서의 눈으로(서버가 센 solo: workflow_state.view)
+        solo = _solo_row(rows[first], role)
+        if solo is None:
+            raise Refuse("role", f"이 묶음은 {who_text}만 따로 진행할 것이 없습니다 — 묶음의 「한 번에 진행」 과 같습니다")
+        if not body.get("redo") and not solo["left"]:
+            raise Refuse("noWork", f"{who_text}에 남은 단계가 없습니다")
+    elif not body.get("redo") and not only and not any(rows[g]["left"] for g in span):
         raise Refuse("noWork", "남은 단계가 없습니다")
     by = "agent" if body.get("by") == "agent" else "human"
     approval = {"paid": [d for d in body.get("paid") or [] if isinstance(d, str)]} if by == "agent" else None   # 사람이 누른 실행은 제한 없음 · 에이전트 카드는 승인한 문서에만 유료
@@ -815,7 +850,8 @@ def start(wid, body):
                         **({"sources": [{"id": d["id"], "name": d["name"]} for d in sources]} if sources else {})},
                # 취합의 간단 모드(화면 gather_quick.js 의 입력을 실행 기록에 — ② §18-13 ⓔ): quick = 구조를 맞추려면 지워야 하는 곳이 있으면 멈춘다 · auto = 이번에 올린 문서(미지정이면 반영할 기관을 자동 지정) · llm false = LLM 검토를 끔
                **({"quick": True} if body.get("quick") is True else {}), **({"auto": list(auto)} if auto else {}), **({"llm": False} if body.get("llm") is False else {}),
-               "range": {"from": first, "to": to, "only": only, "redo": body.get("redo") or "", **({"row": True} if only and body.get("row") else {})},   # row = only 의 줄과 같은 차례(행)에 선 옆 줄도 함께(② §18-4 「같은 차례 — 함께 돌기」)
+               "range": {"from": first, "to": to, "only": only, "redo": body.get("redo") or "", **({"row": True} if only and body.get("row") else {}),   # row = only 의 줄과 같은 차례(행)에 선 옆 줄도 함께(② §18-4 「같은 차례 — 함께 돌기」)
+                         **({"role": role} if role else {})},   # role = 한 문서만(그 문서의 줄만 — ② §18-21)
                "origin": {"by": by, "where": str(body.get("where") or "")[:20], "screen": str(body.get("screen") or "")[:40], **({"turn": body["turn"]} if isinstance(body.get("turn"), (str, int)) else {}),
                           **({"key": str(body["key"])[:200]} if body.get("key") else {})},
                "approval": approval, "skill": body.get("skill") if isinstance(body.get("skill"), str) else None,
@@ -827,7 +863,7 @@ def start(wid, body):
         for d in docs:
             BUSY[d] = target["id"]
     run.save()
-    UNIT.store.log(target["id"], event="start", n=n, **{k: rec["range"][k] for k in ("from", "to", "only") if rec["range"][k]}, by=by)
+    UNIT.store.log(target["id"], event="start", n=n, **{k: rec["range"][k] for k in ("from", "to", "only", "role") if rec["range"].get(k)}, by=by)
     if source:
         UNIT.store.log(source["id"], event="start", n=n, role="source", target=target["id"])
     # 실행 스레드는 시작한 요청의 맥락(contextvars)의 사본에서 돈다 — 요청이 건 「지금 워크플로우」(주소의 작업 → 그 작업의 워크플로우 = 이 실행의 것: app/agent_notes_api.py Scope)가 이 실행의 LLM 호출에 닿아 그 워크플로우 전용 덧붙이는 글이 붙는다(spec_에이전트 ② §6)

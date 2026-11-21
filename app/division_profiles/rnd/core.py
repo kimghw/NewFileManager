@@ -69,6 +69,17 @@ SLOT_PAREN = re.compile(r"((?:주관|공동)연구개발기관(?:\s*(?:\d+|[Nn])
 # 쌍점 뒤 이름 자리 — 「[…기관1 : 이름]」·보고서 「[…기관명N : 이름]」·「ㅇ …기관 : 이름」(「]」 앞 / ※ 앞 / 줄 끝)
 SLOT_COLON = re.compile(r"((?:주관|공동)연구개발기관(?:명)?(?:\s*(?:\d+|[Nn]))?\s*:\s*)([^\]\n※]*?)(\s*\]|\s*(?=※)|\s*$)")
 SLOT_OF = re.compile(r"((?:주관|공동)연구개발기관)(의)")
+# 수요기업 표시(spec_구분_기준 ② §24 — 2026-11-21 사용자 "수요기업 으로 선택할 수 있게 해줘. 주관기관, 참여기관 처럼"): 「공동연구개발기관6-수요기업 (이름)」·「ㅇ 공동연구개발기관6-수요기업 : 이름」 —
+# 공동 낱말(번호까지) 바로 뒤 · 이름 자리(괄호 · 쌍점) 바로 앞의 「-수요기업」. 1 낱말 · 2 적힌 표시(앞뒤 빈칸까지 — 다시 쓸 때 적힌 그대로 둔다). 꼴 · 이름 자리를 볼 때는 뺀다(_plain)
+DEMAND = "수요기업"
+ROLE_HEAD, ROLE_DEMAND, ROLE_JOINT = "역할", "수요", "공동"   # 표지 공동 목록의 「역할」 열 머리 · 그 칸의 글(양식 작성요령 16 — 수요기업이면 「수요」 · 아니면 「공동」)
+DEMAND_RE =re.compile(r"(공동연구개발기관(?:명)?(?:\s*(?:\d+|[Nn]))?)([ \t]*[-‐–—][ \t]*수요기업[ \t]*)(?=[(:：])")
+DEMAND_AT = re.compile(r"(공동연구개발기관(?:명)?(?:\s*(?:\d+|[Nn]))?)(?=\(|\s*[:：])")   # 표시를 둘 곳 — 공동 낱말(번호까지) 뒤 · 이름 자리 앞
+
+
+def _plain(text):
+    """수요기업 표시를 뺀 글 — 꼴(_shape) · 이름 자리(SLOT_PAREN · SLOT_COLON)는 이 글로 본다(표시가 있든 없든 같은 기관 라벨)."""
+    return DEMAND_RE.sub(r"\1", text or "")
 # 책임자 절 제목 「(2) 공동연구개발기관책임자(이름)」(7-1) — 「책임자」 바로 뒤 괄호 = 그 절의 기관 이름(spec ② §16). 1 낱말 · 2 이름(괄호가 없으면 None)
 SLOT_HEAD = re.compile(r"(공동연구개발기관\s*책임자)(?:[ \t]*\(((?:[^()]|\([^()]*\))*)\))?")
 PER_ORG = re.compile(r"기관\s*별")   # 혼자인 주관 절의 실마리 — 앞 문단 「ㅇ 연구개발기관별 사용계획 총괄표」(보고서, ② §2)
@@ -79,8 +90,8 @@ SOLO_MAX = 60   # 혼자인 기관 절 항목의 블록 수 상한
 # ---- 구분 값 ------------------------------------------------------------------------------------------
 
 def norm_values(v):
-    """{"stages": [Y1, …], "orgs": {"lead": 이름, "joint": [이름, …], "nonprofit": [주관, 공동1, …: bool], "outside": [외 기관 이름, …],
-    "overseas": [국외기관 이름, …], "entrust": [위탁 이름, …]}, "period"?, "subs"?: [세부과제 주관기관 이름, …], "current"?: 당해 차년도}
+    """{"stages": [Y1, …], "orgs": {"lead": 이름, "joint": [이름, …], "nonprofit": [주관, 공동1, …: bool], "demand"?: [주관(늘 거짓), 공동1, …: bool — 수요기업으로 고른 기관(② §24 · 고른 것이 있을 때만)],
+    "outside": [외 기관 이름, …], "overseas": [국외기관 이름, …], "entrust": [위탁 이름, …]}, "period"?, "subs"?: [세부과제 주관기관 이름, …], "current"?: 당해 차년도}
     검사·정리 — 틀리면 ValueError(문구는 화면에 그대로). nonprofit 은 기관 수만큼으로 맞춤(없으면 False), outside·overseas·entrust 가
     없으면 [], 수(예전 값 — 이름 없음)면 빈 이름 그 수만큼. subs 없음 = [], current 없음 = 1."""
     if not isinstance(v, dict):
@@ -101,6 +112,12 @@ def norm_values(v):
     if not isinstance(np_, list) or not all(isinstance(x, bool) for x in np_):
         raise ValueError("비영리 = 기관마다 참/거짓")
     out["orgs"]["nonprofit"] = (np_ + [False] * (len(joint) + 1))[:len(joint) + 1]
+    dm = orgs.get("demand") or []   # 수요기업으로 고른 기관(② §24) — 기관마다 참/거짓(주관은 늘 거짓). **하나라도 참일 때만 열쇠를 둔다**(고르지 않은 값은 전과 같은 꼴 — 저장된 옛 값과 견줄 때 달라지지 않게)
+    if not isinstance(dm, list) or not all(isinstance(x, bool) for x in dm):
+        raise ValueError("수요기업 = 기관마다 참/거짓")
+    dm = [False] + (dm[1:] + [False] * len(joint))[:len(joint)]
+    if any(dm):
+        out["orgs"]["demand"] = dm
     for k, name in EXTRA.items():
         xs = orgs.get(k) or []
         if isinstance(xs, int) and not isinstance(xs, bool):   # 예전 값 = 수
@@ -155,6 +172,12 @@ def org_name(values, k):
         return values["orgs"]["lead"] or "주관기관(미입력)"
     joint = values["orgs"]["joint"]
     return (joint[k - 1] if k <= len(joint) else "") or f"참여기관{k}"
+
+
+def org_demand(values, k):
+    """공동 k 를 수요기업으로 골랐나(② §24) — 주관(k = 0) · 고르지 않은 값은 거짓."""
+    dm = values["orgs"].get("demand") or []
+    return bool(isinstance(k, int) and 0 < k < len(dm) and dm[k])
 
 
 def org_names(values, kind="all"):
@@ -229,6 +252,7 @@ def _key(text):
 
 def _shape(text):
     # 이름 자리(「…기관(이름)」 괄호 안 · 「…기관 : 이름」 쌍점 뒤)는 꼴에서 뺀다 — 반영이 이름을 넣은 뒤에도, 자리표시가 서로 달라도(「기업명1」·「기업명2」) 같은 꼴(② §15)
+    text = _plain(text)   # 수요기업 표시는 꼴에서 뺀다 — 「[공동연구개발기관6-수요기업 (이름)]」 도 다른 기관 제목과 같은 꼴 · 같은 묶음(② §24)
     text = SIGN_NAME.sub(r"\1", text)   # 서명 줄의 이름 괄호도 통째로 뺀다 — 옛 판이 이름을 넣은 줄과 이름 없는 줄이 같은 꼴(② §20)
     text = SLOT_COLON.sub(lambda m: f"{m.group(1)}{{이름}}{m.group(3)}", SLOT_PAREN.sub(lambda m: f"{m.group(1)}({{이름}})", text))
     text = SLOT_HEAD.sub(r"\1", text)   # 책임자 절 제목의 이름 괄호는 통째로 뺀다 — 이름 없는 주관 절 「(1) 주관연구개발기관책임자」 와 같은 꼴(② §16)
@@ -382,7 +406,8 @@ def _joint_of(values):
     names = [(_bare(n), k) for k, n in enumerate(values["orgs"]["joint"], 1) if _bare(n)]
 
     def of(text):
-        m = SLOT_COLON.search(text or "") or SLOT_PAREN.search(text or "")
+        text = _plain(text)
+        m = SLOT_COLON.search(text) or SLOT_PAREN.search(text)
         n = _bare(_name(m.group(2))) if m else ""
         if not n:
             return None
@@ -847,6 +872,8 @@ def _list_rows(t, cell, kind="joint"):
     name = {"outside": "외 기관 ", "entrust": "위탁 "}.get(kind, "")
     head = max((x for x in t["cells"] if x["row"] < a0 and _bare(x["text"]) == "기관명"), key=lambda x: x["row"],
                default=None)
+    # 공동 목록의 「역할」 열(표지 — 양식 작성요령 「공동연구개발기관의 역할: 수요기업이면 "수요" · 아니면 "공동"」: ② §24) — 머리 칸 글이 「역할」 인 열의 칸 자리(roleAt)
+    role = max((x for x in t["cells"] if x["row"] < a0 and _bare(x["text"]) == ROLE_HEAD), key=lambda x: x["row"], default=None) if kind == "joint" else None
     items, a, e = [], a0, a0
     for r in range(a0, e0 + 1):
         e = max([e] + [x["row"] + x["rowSpan"] - 1 for x in starts if x["row"] == r])
@@ -854,8 +881,9 @@ def _list_rows(t, cell, kind="joint"):
             inside = [x for x in starts if a <= x["row"] <= e]
             at = next((k for k, x in enumerate(inside) if head and x["row"] == a and x["col"] == head["col"]
                        and x["colSpan"] == head["colSpan"]), None)
+            role_at = next((k for k, x in enumerate(inside) if role and x["row"] == a and x["col"] == role["col"] and x["colSpan"] == role["colSpan"]), None)
             items.append({"value": (kind, len(items) + 1), "label": None, "labelText": f"{name}{len(items) + 1}번째 행",
-                          "span": (a, e), "nameAt": at,
+                          "span": (a, e), "nameAt": at, **({"roleAt": role_at} if role_at is not None else {}),
                           "cross": (min(x["col"] for x in inside), max(x["col"] + x["colSpan"] - 1 for x in inside)),
                           "roots": [x["id"] for x in inside], "scope": {y["id"] for x in inside for y in _under(x)},
                           "size": e - a + 1, "content": sorted(_content(p["text"]) for x in inside for p in _paras(x))})
@@ -1024,7 +1052,7 @@ def _label_fit(groups, values, prior=()):
         if g["dim"] != ORG or g.get("roleRows") or g.get("orgYear") or g.get("orgCols") or g.get("list") or g["items"][0]["value"][0] in EXTRA:
             continue
         for it in g["items"]:
-            t = it.get("labelText") or ""
+            t = _plain(it.get("labelText"))
             m = SLOT_COLON.search(t) or SLOT_PAREN.search(t) or SLOT_HEAD.search(t)   # 책임자 절 제목 괄호도 이름 자리(② §16)
             if m and (n := _name(m.group(2))) and _bare(n) not in names:
                 g["irregular"], g["named"], g["target"] = True, True, None
@@ -1200,7 +1228,11 @@ def _changes(g, values, it, ord_old, ord_new, new, idx):
     if it.get("nameAt") is not None:   # 목록 행·4-3 기관명 행: 기관명 칸 = 그 자리 이름(이름이 없으면 그대로 — 사본이면 자리표시)
         kind, k = new
         name = values["orgs"]["lead"] if kind == "lead" else extra_name(values, kind, k)   # 공동 = 넣은 이름만(기본 이름 아님)
-        return _put(idx.get(it["roots"][it["nameAt"]]), name or it.get("nameSlot", "")) if name or it.get("copy") else []
+        out = _put(idx.get(it["roots"][it["nameAt"]]), name or it.get("nameSlot", "")) if name or it.get("copy") else []
+        # 공동 목록의 「역할」 칸(② §24): 값에 수요기업으로 고른 기관이 있을 때만 줄마다 「수요」·「공동」 을 적는다(없으면 그 칸은 전처럼 그대로 — 글쓴이가 적은 것 · 양식의 보기 글을 건드리지 않는다)
+        if kind == "joint" and it.get("roleAt") is not None and values["orgs"].get("demand"):
+            out = out + _put(idx.get(it["roots"][it["roleAt"]]), ROLE_DEMAND if org_demand(values, k) else ROLE_JOINT)
+        return out
     labels = {p["id"] for p in _paras(idx[label])} if label and label in idx else set()
     for root in it["roots"]:
         if root not in idx:
@@ -1277,16 +1309,27 @@ def _rename(text, dim, old, new, label, ords, values, copy=False):
         name = sub_name(values, new) or (OVERSEAS_SLOT if copy else None)
         if label and name is not None:
             text = SLOT_PAREN.sub(lambda m: f"{m.group(1)}({name})", text, count=1)
-    if dim == ORG and label:
-        text = _org_text(text, new, org_name(values, new[1]))
+    if dim == ORG and label:   # 수요기업 표시(② §24): 고른 공동 = 둔다 · 고르지 않은 기관 = 뺀다(값에 고른 기관이 있거나 늘린 사본일 때) · 값에 고른 기관이 하나도 없으면 제자리 라벨은 적힌 그대로(글쓴이의 표시를 지우지 않는다)
+        text = _org_text(text, new, org_name(values, new[1]),
+                         True if new[0] == "joint" and org_demand(values, new[1]) else False if copy or values["orgs"].get("demand") else None)
     if label:
         text = LEAD_NUM.sub(lambda m: m.group(1) + str(ords[1]) if int(m.group(2)) == ords[0] else m.group(0), text,
                             count=1)
     return text
 
 
-def _org_text(text, new, name):
-    """기관 라벨: 공동 번호 → k, 이름 자리 → 이름(괄호 안 / 쌍점 뒤 / 「…기관명」 낱말 / 「…기관의」 앞에 괄호로 넣음). 서명 줄 「…기관의 장」 은 이름 자리가 아니다(SIGN_NAME)."""
+def _org_text(text, new, name, demand=None):
+    """기관 라벨: 공동 번호 → k, 이름 자리 → 이름(_org_plain) + 수요기업 표시(② §24) — demand 참 = 이름 자리 앞에 「-수요기업」 을 둔다(적혀 있던 표시는 빈칸까지 적힌 그대로 ·
+    없으면 새로) · 거짓 = 뺀다 · None = 있는 그대로(글쓴이가 적은 표시를 지우지 않는다). 이름 자리(괄호 · 쌍점)가 없는 라벨 · 주관 라벨에는 두지 않는다."""
+    mark = DEMAND_RE.search(text)
+    out = _org_plain(_plain(text) if mark else text, new, name)
+    if new[0] == "joint" and (demand or (demand is None and mark)):
+        out = DEMAND_AT.sub(lambda m: m.group(1) + (mark.group(2) if mark else "-" + DEMAND), out, count=1)
+    return out
+
+
+def _org_plain(text, new, name):
+    """기관 라벨(수요기업 표시를 뺀 글): 공동 번호 → k, 이름 자리 → 이름(괄호 안 / 쌍점 뒤 / 「…기관명」 낱말 / 「…기관의」 앞에 괄호로 넣음). 서명 줄 「…기관의 장」 은 이름 자리가 아니다(SIGN_NAME)."""
     kind, k = new
     if kind == "joint" and SLOT_HEAD.search(text):   # 책임자 절 제목 — 「책임자」 바로 뒤 괄호에 이름(있던 괄호는 바꿈, ② §16). 주관 절에는 안 넣는다
         return SLOT_HEAD.sub(lambda m: f"{m.group(1)}({name})", text, count=1)
@@ -2120,7 +2163,7 @@ NO_NAME = re.compile(r"^(?:기관명(?:기입)?|기업명\d*|주관기관\(미�
 
 
 def read_values(blocks, levels):
-    """문서에 들어 있는 구분 값 -> {"stages"?, "period"?, "subs"?, "current"?, "orgs": {"lead"?, "joint"?, "nonprofit"?, "outside",
+    """문서에 들어 있는 구분 값 -> {"stages"?, "period"?, "subs"?, "current"?, "orgs": {"lead"?, "joint"?, "nonprofit"?, "demand"?(수요기업 표시가 붙은 공동 — ② §24), "outside",
     "overseas", "entrust"}} — 못 읽은
     것은 키가 없다(화면은 그 값을 지금 값 그대로 둠). 범위 검사는 하지 않는다(화면에서 적용할 때 norm_values 와 같은 검사)."""
     groups = find(blocks, levels, norm_values({"stages": [1] * MAX_STAGES}))   # 단계 10개 — 차년도 묶음 맥락(ctx)이 잘리지 않게
@@ -2251,13 +2294,17 @@ def _read_orgs(blocks, groups):
     외 기관 = 표지 외 기관 행 중 글이 있는 행의 기관명 칸, 국외기관 = 2-2 「[국외기관k(이름)]」 — 자리표시 이름은 세지 않는다."""
     idx = structure.index_blocks(blocks)
     text = lambda i: (idx.get(i) or {}).get("text") or ""   # noqa: E731
-    lead, joint, top = [], {}, 0
+    lead, joint, top, demand = [], {}, 0, set()
     for b in structure.iter_blocks(blocks):
         if b.get("type") != "paragraph":
             continue
+        for m in DEMAND_RE.finditer(b.get("text") or ""):   # 수요기업 표시가 붙은 공동 번호(② §24) — 한 곳이라도 그렇게 적었으면 그 기관은 수요기업
+            if (k := ORG_RE.match(m.group(1)).group(4)) and k.isdigit():
+                demand.add(int(k))
+        plain = _plain(b.get("text"))   # 표시를 뺀 글에서 이름 자리를 읽는다
         for rx in (SLOT_PAREN, SLOT_COLON):
-            for m in rx.finditer(b.get("text") or ""):
-                if SUB_RE.search(b["text"][max(0, m.start() - 8):m.start()]):
+            for m in rx.finditer(plain):
+                if SUB_RE.search(plain[max(0, m.start() - 8):m.start()]):
                     continue   # 「(세부k)주관연구개발기관(…)」 = 세부과제 주관기관(_read_subs)
                 role, k = ORG_RE.match(m.group(1)).group(1, 4)
                 name = _name(m.group(2))
@@ -2274,6 +2321,14 @@ def _read_orgs(blocks, groups):
         out["lead"] = lead
     if n := max(joint, default=0) or top:
         out["joint"] = [_vote(joint.get(k, [])) or "" for k in range(1, n + 1)]
+        for g in groups:   # 표지 공동 목록의 「역할」 칸이 「수요」 인 줄(② §24 — 양식 작성요령 16) — 그 줄의 기관명이 읽은 공동 이름과 맞을 때만(이름 없는 줄 = 양식의 보기 글은 안 센다)
+            for it in g["items"] if g.get("list") and g["items"][0]["value"][0] == "joint" else ():
+                nm = _bare(_name(text(it["roots"][it["nameAt"]]))) if it.get("nameAt") is not None and it.get("roleAt") is not None else ""
+                if nm and _bare(text(it["roots"][it["roleAt"]])) == ROLE_DEMAND:
+                    ks = [k for k, x in enumerate(map(_bare, out["joint"]), 1) if x and (x == nm or len(nm) >= 2 and (nm in x or x in nm))]
+                    demand |= set(ks) if len(ks) == 1 else set()
+        if any(k <= n for k in demand):
+            out["demand"] = [False] + [k in demand for k in range(1, n + 1)]
         heads = {kind: [_bare(text(it["label"])) for g in groups if g.get("orgCols") == kind for it in g["items"]
                         if _name(text(it["label"]))] for kind in ("all", "firm", "np")}
         hit = lambda name, kind: any(name and (name in h or h in name) for h in heads[kind])   # noqa: E731

@@ -51,6 +51,11 @@
 #divBox .dv-org-role { color: #64748b; font-size: 11px; font-weight: 600; width: 26px; flex-shrink: 0; white-space: nowrap; }
 #divBox .dv-org-row > .dv-remove { width: 24px; margin-left: 0; }
 #divBox .dv-org-role.is-lead { color: #315fd3; }
+/* 「수요기업」 체크(spec_구분_기준 ② §24 — 2026-11-21 사용자 「기관넣을때. 수요기업 체크하도록」) — 공동기관 줄의 「비영리」 앞. 두 체크는 한 묶음(.dv-org-flags)이고 주관 줄에는 같은 폭의 빈 자리(.is-none)만 */
+#divBox .dv-org-flags { display: flex; align-items: center; gap: 10px; }
+#divBox .dv-demand { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; white-space: nowrap; cursor: pointer; }
+#divBox .dv-demand.is-on { color: #b45309; }
+#divBox .dv-demand.is-none { visibility: hidden; }
 #divBox .dv-org-field input { width: 100%; }
 #divBox .dv-nonprofit { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; white-space: nowrap; cursor: pointer; }
 #divBox input[type="checkbox"] { accent-color: #315fd3; width: 14px; height: 14px; margin: 0; }

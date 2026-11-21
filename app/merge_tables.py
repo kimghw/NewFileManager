@@ -30,13 +30,14 @@ from collections import Counter, defaultdict
 
 from app import heading_calc as HC
 from app import merge_pairs as P
+from app import merge_take as TK
 from app.division_profiles import _structure as structure
 from app.division_profiles import rnd
 from app.division_profiles.rnd import core
 
 KINDS = ("rows", "cols", "list")
 HEADS = ("colhead", "rowhead", "corner")
-WHY = ("noSource", "occupied", "ambiguous", "shape", "calc")
+WHY = ("noSource", "occupied", "ambiguous", "shape", "calc", "outside")   # outside = 「넣을 구성 선택」 에서 고르지 않은 기관 · 단계 · 차년도(merge_take — spec_병합 ② §4-1)
 _VAL = re.compile(r"(?:\d+|[Nnx])단계-?|(?:\d+|[Nnx])(?:차년도|년차|차)|(?:19|20)(?:\d\d|[xX]{2})년?|YYYY|yyyy")   # 빈칸 뺀 글의 구분 값 낱말
 _SYM = re.compile(r"[^0-9A-Za-z가-힣]")
 _CODE = re.compile(r"\([A-Z0-9+\-*/=().%]*\)?")   # 빈칸 뺀 글의 코드·식 괄호 — 짝이 안 맞아 heading_calc.core 가 못 뗀 「(L/(N+O+…+S)」 도
@@ -175,7 +176,7 @@ class _Out:
         self.tables[-1].update(cells=len(self.cells) - a, rows=len(self.rows) - b, skipped=len(self.skipped) - c)
 
 
-def _items(o, T, F, tg, fg):
+def _items(o, T, F, tg, fg, take=None):
     """항목 짝 [(목적 항목, 값 글, [원본 항목…])] — 정체가 같은 것끼리. 정체를 모르는 원본 항목·짝 없는 목적 항목은 보고."""
     src = defaultdict(list)
     for it in fg["items"]:
@@ -187,7 +188,11 @@ def _items(o, T, F, tg, fg):
     out = []
     for it in tg["items"]:
         value = rnd.value_text(tg["dim"], it["value"])
-        got = src.get(_ident(T, tg, it, target=True))
+        ident = _ident(T, tg, it, target=True)
+        if take is not None and not take.ident(ident):   # 고르지 않은 구성 — 그 값의 항목은 넣지 않는다
+            o.skip(value, "outside", TK.OUT)
+            continue
+        got = src.get(ident)
         if got:
             out.append((it, value, got))
         else:
@@ -195,10 +200,10 @@ def _items(o, T, F, tg, fg):
     return out
 
 
-def _fixed(o, T, F, tg, fg):
+def _fixed(o, T, F, tg, fg, take=None):
     """정해진 자리 — 항목 짝마다 필드 칸을 머리 꼴로 맞춰 칸 글(모듈 설명)."""
     tv, fv = _view(T, tg["table"]), _view(F, fg["table"])
-    for ti, value, fis in _items(o, T, F, tg, fg):
+    for ti, value, fis in _items(o, T, F, tg, fg, take):
         if len(fis) > 1:
             o.skip(value, "ambiguous", f"원본에 같은 값의 항목이 {len(fis)}개")
             continue
@@ -261,7 +266,7 @@ def _row(v, r, fixed, names, top, sub):
     return out
 
 
-def _append(o, T, F, tg, fg, ctx_year):
+def _append(o, T, F, tg, fg, ctx_year, take=None):
     """이어 넣는 자리 — 기관 × 연도 덩이마다 원본 행을 잇는다(모듈 설명)."""
     tv, fv = _view(T, tg["table"]), _view(F, fg["table"])
     tyc, fyc = _year_col(tv), _year_col(fv)
@@ -287,10 +292,16 @@ def _append(o, T, F, tg, fg, ctx_year):
     for it in tg["items"]:
         value = rnd.value_text(tg["dim"], it["value"])
         org = (_ident(T, tg, it, target=True) or (None, None))[1]
+        if take is not None and not take.org(org):   # 고르지 않은 기관의 덩이 — 넣지 않는다
+            o.skip(value, "outside", TK.OUT)
+            continue
         fixed, blocks = _blocks(tv, it, tyc)
         for y, a, e in blocks:
             yn = (_year_no(y["text"], T["values"]) if y else None) or ctx_year
             where = f"{value} · {rnd.value_text(core.YEAR, yn)}" if yn else value
+            if take is not None and not take.year(yn):   # 고르지 않은 차년도의 덩이
+                o.skip(where, "outside", TK.OUT)
+                continue
             if fyc is None:   # 원본에 연도 칸이 없음 — 목적이 한 해 자리면 가를 수 없다
                 want = recs.get((org, None), [])
                 if want and yn is not None:
@@ -344,8 +355,9 @@ def _append(o, T, F, tg, fg, ctx_year):
         o.skip(None, "shape", "목적 표에 없는 원본 열: " + ", ".join(" › ".join(k) for k in sorted(lost)[:5]))   # lost 의 원소 = 열 머리 꼴들(_row 의 키 — 글의 튜플)
 
 
-def plan(to_side, from_side, to_values, from_values, pairs, skip=()):
-    """넣기 계획(모듈 설명) — 문서를 안 고친다. skip = 표 대응(merge_table_map — spec_병합 ② §5-3)이 통째로 맡은 목적 표 id: 그 표의 묶음은 여기서 안 낸다."""
+def plan(to_side, from_side, to_values, from_values, pairs, skip=(), take=None):
+    """넣기 계획(모듈 설명) — 문서를 안 고친다. skip = 표 대응(merge_table_map — spec_병합 ② §5-3)이 통째로 맡은 목적 표 id: 그 표의 묶음은 여기서 안 낸다.
+    take = 「넣을 구성 선택」(merge_take.Allowed | None = 전부 — ② §4-1): 고르지 않은 기관 · 단계 · 차년도의 항목 · 덩이는 넣지 않고 까닭 outside 로 남긴다."""
     T, F = _side(to_side, to_values), _side(from_side, from_values)
     o = _Out()
     for gp in pairs["groups"]:
@@ -359,9 +371,9 @@ def plan(to_side, from_side, to_values, from_values, pairs, skip=()):
         if tg is None or fg is None or not tg.get("table") or not fg.get("table"):
             o.skip(None, "shape", "묶음을 지금 문서에서 다시 못 찾음(짝을 다시 내야 함)")
         elif mode == "append":
-            _append(o, T, F, tg, fg, (gp.get("ctx") or {}).get("year"))
+            _append(o, T, F, tg, fg, (gp.get("ctx") or {}).get("year"), take)
         else:
-            _fixed(o, T, F, tg, fg)
+            _fixed(o, T, F, tg, fg, take)
         o.end()
     why = Counter(s["why"] for s in o.skipped)
     return {"tables": o.tables, "cells": o.cells, "rows": o.rows, "skipped": o.skipped, "pairs": o.pairs,

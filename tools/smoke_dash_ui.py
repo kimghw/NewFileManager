@@ -178,21 +178,24 @@ def main():
         page.locator("#paneDash").screenshot(path=str(OUT / "01_pane.png"))
 
         # ---- 단계를 누르면 펴고 접힘 · 「하는 일 · 조건」
+        # 06 변경 계획 · 07 적용은 값 확정 전이라 상태 글 · 단추가 없다 — 등록부의 설명(하려면 …)은 본문에 넣지 않고 메모에만(2026-11-21 사용자 「설명문은 노트에 넣도록 했잖아. 왜 여기에 다 넣는거야」) → 고른 테두리만(본문 없음)
         page.click('#paneDash .dash-node[data-key=apply] .dash-node-head')
-        page.wait_for_selector('#paneDash .dash-node[data-key=apply] .dash-detail')
-        cond = page.evaluate("""() => { const n = document.querySelector('#paneDash .dash-node[data-key=apply]'), d = n.querySelector('.dash-detail'), m = n.querySelector('.dash-node-top .dash-node-main .dash-memo');
+        page.wait_for_function("() => !document.querySelector('#paneDash .dash-node[data-key=values] .dash-detail')")   # 다른 카드를 눌렀으니 04 는 접힘
+        cond = page.evaluate("""() => { const n = document.querySelector('#paneDash .dash-node[data-key=apply]'), m = n.querySelector('.dash-node-top .dash-node-main .dash-memo');
           return { dts: (m ? m.dataset.help : '').split('\\n').map((x) => x.split(' — ')[0]), memoLabel: m ? m.getAttribute('aria-label') : '', inHead: !!(m && m.closest('.dash-node-head')), rows: document.querySelectorAll('#paneDash details.dash-more').length,
             memos: document.querySelectorAll('#paneDash .dash-node').length - document.querySelectorAll('#paneDash .dash-node .dash-memo').length,
-            need: (d.querySelector('.dash-text .dash-sub') || {}).textContent || '', values: !!document.querySelector('#paneDash .dash-node[data-key=values] .dash-detail'),
+            detail: !!n.querySelector('.dash-detail'), open: n.classList.contains('open'), subs: [...document.querySelectorAll('#paneDash .dash-detail .dash-sub')].map((s) => s.textContent),
             expanded: n.querySelector('.dash-node-head').getAttribute('aria-expanded') }; }""")
-        check("다른 단계를 누르면 그 카드만 펴짐(aria-expanded) — 차례가 아니면 「하려면」 · 「하는 일 · 조건」 은 줄이 아니라 이름 옆 메모 아이콘(모든 카드 · 단추 밖)에 등록부의 조건(하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것)",
-              cond["expanded"] == "true" and not cond["values"] and cond["need"] == "하려면" and cond["rows"] == 0 and cond["memos"] == 0 and not cond["inHead"] and cond["memoLabel"].endswith("하는 일 · 조건")
+        check("상태 글 · 단추가 없는 카드는 누르면 고른 테두리만(빈 본문 없음 · aria-expanded false) — 「하려면」 · 「하는 일 · 조건」 은 본문이 아니라 이름 옆 메모 아이콘(모든 카드 · 단추 밖)에 등록부의 조건(하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것)",
+              cond["expanded"] == "false" and not cond["detail"] and cond["open"] and "하려면" not in cond["subs"] and "하는 일" not in cond["subs"] and cond["rows"] == 0 and cond["memos"] == 0 and not cond["inHead"] and cond["memoLabel"].endswith("하는 일 · 조건")
               and cond["dts"][:2] == ["하는 일", "나오는 것"] and {"하려면", "끝난 것으로 보는 때", "멈추는 때", "남기는 것 · 보정"} <= set(cond["dts"]), cond)
-        page.click('#paneDash .dash-node[data-key=apply] .dash-memo')   # 메모를 눌러도 카드는 그대로(풍선만) — 머리 줄의 다른 곳(번호)은 펴고 접음
+        page.click('#paneDash .dash-node[data-key=values] .dash-node-head')
+        page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail')
+        page.click('#paneDash .dash-node[data-key=values] .dash-memo')   # 메모를 눌러도 카드는 그대로(풍선만) — 머리 줄의 다른 곳(번호)은 펴고 접음
         memo = page.evaluate("""() => ({ tip: !!document.querySelector('#panelHelpTooltip:not([hidden])') && document.querySelector('#panelHelpTooltip').textContent.startsWith('하는 일 — '),
-          open: !!document.querySelector('#paneDash .dash-node[data-key=apply] .dash-detail') })""")
-        page.click('#paneDash .dash-node[data-key=apply] .dash-no')
-        page.wait_for_selector('#paneDash .dash-node[data-key=apply] .dash-detail', state="detached")
+          open: !!document.querySelector('#paneDash .dash-node[data-key=values] .dash-detail') })""")
+        page.click('#paneDash .dash-node[data-key=values] .dash-no')
+        page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail', state="detached")
         check("메모를 누르면 「하는 일 — …」 풍선만 뜨고 카드는 펴진 그대로 · 번호 동그라미를 누르면 접힘", memo["tip"] and memo["open"], memo)
         page.click('#paneDash .dash-node[data-key=values] .dash-node-head')
         page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail')
@@ -504,8 +507,10 @@ def main():
         page.click('#paneDash .dash-node[data-key=llm] .dash-node-head')
         via = page.evaluate("() => { const d = document.querySelector('#paneDash .dash-node[data-key=llm] .dash-detail'); return { text: d.querySelector('.dash-text').textContent, btn: (d.querySelector('.dash-acts button') || {}).textContent }; }")
         page.click('#paneDash .dash-node[data-key=llm] .dash-acts button')
-        page.wait_for_selector('#paneDash .dash-node[data-key=link] .dash-detail')
-        check("등록부의 세부 단계(자리 연결 LLM 검토)는 「「자리 연결」 의 단추로 함께」 + 「그 단계로」 → ② 자리 연결 카드가 펴짐", "「자리 연결」" in via["text"] and via["btn"] == "그 단계로", via)
+        page.wait_for_selector('#paneDash .dash-node.open[data-key=link]')   # 차례가 아니라 상태 글 · 단추가 없다 — 고른 테두리만(설명은 메모: 2026-11-21)
+        link = page.evaluate("() => { const n = document.querySelector('#paneDash .dash-node[data-key=link]'); return { detail: !!n.querySelector('.dash-detail'), opened: document.querySelectorAll('#paneDash .dash-node.open').length }; }")
+        check("등록부의 세부 단계(자리 연결 LLM 검토)는 「「자리 연결」 의 단추로 함께」 + 「그 단계로」 → ② 자리 연결 카드를 고름(테두리 — 차례가 아니라 본문 없음 · 「하려면」 은 메모)",
+              "「자리 연결」" in via["text"] and via["btn"] == "그 단계로" and link["opened"] == 1 and not link["detail"], [via, link])
         page.locator("#paneDash").screenshot(path=str(OUT / "06_relay.png"))
 
         # ---- TASK 가 없는 문서 — 탭은 늘 보이고 「TASK 고르기」 → 고르면 그 자리에서 단계 흐름(2026-11-18 사용자 「여기 탭에 넣어 달라고 했는데 보이질 않아」 — ② §9 「TASK 가 없을 때」)

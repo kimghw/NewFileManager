@@ -395,7 +395,7 @@ def main():
         app.click('#paneDash .dash-group[data-group="config"] .dash-ghead [data-dash-focus="run:config"]')
         app.wait_for_function("() => !!dv.auto || !!dv.result || (dv.msg && dv.msg.kind !== 'note')", timeout=60000)
         app.wait_for_function("() => !dv.auto && !dv.busy && !state.busy", timeout=600000)
-        r5 = {"flow": [u for m, u, _ in reqs if "/flow" in u], "plan": [u for m, u, _ in reqs if m == "POST" and u.endswith("/divisions/plan")],
+        r5 = {"flow": [u for m, u, _ in reqs if f"/works/{wid5}/flow" in u], "plan": [u for m, u, _ in reqs if m == "POST" and u.endswith("/divisions/plan")],   # 이 문서의 것만 — 첫 화면의 대시보드가 기억해 둔 다른 작업(③ 에서 시작한 것)의 상태를 문서를 열기 전에 읽는 것은 세지 않는다
               "mirror": app.evaluate("() => !!taskRun"), "msg": app.evaluate("() => (dv.msg || {}).text || ''"), "result": app.evaluate("() => !!dv.result")}
         check("⑦ 붙박이 「사업계획서 양식 표준화」 — 조립한 문서 하나가 아니다(singleOn 거짓) · 서버 상태 · 확인(…/flow · …/flow/live)을 읽지 않음 · 1단계 「한 번에 진행」 = 화면의 계획 → 반영(…/divisions/plan) · 서버 실행을 시작하지 않음",
               not b5["single"] and not b5["is"] and b5["guided"] and b5["flow"] is None and not r5["flow"] and len(r5["plan"]) >= 1 and not r5["mirror"], [b5, r5])

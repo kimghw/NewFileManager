@@ -39,6 +39,7 @@ COMMON = {u["key"]: u for u in (
 )}
 # 이관형 — 다른 양식 사이의 자리 연결 · 넣기(app/merge_api.py)
 RELAY = {u["key"]: u for u in (
+    _u("take", "stage_fit", "flow", kind="pick", change="store", optional=True, server=True),   # 넣을 구성 선택(선택 — 사람이 고른다: 대상 차년도 · 넣을 기관 · 단계 · 차년도. 실행기는 지나간다 · 고른 것은 구조 반영 · 자리 연결 · 넣기 계획이 읽는다 — spec_병합 ② §4-1)
     _u("link", "stage_fill", "pair", change="store", needs=("heads", "fresh"), gives=("links",), server=True),
     _u("llm", "stage_fill", "pair", change="store", paid="stage", needs=("links",), once=True, optional=True, via="link", server=True),
     _u("plan", "stage_fill", "pair", needs=("links",), gives=("plan",), server=True),
@@ -760,7 +761,22 @@ def _guide_of(ctx, role="target"):
     return {"st": "done" if done else "todo", "text": who + text}
 
 
-_STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
+def _take(ctx):
+    """넣을 구성 선택(선택 — 셈에 안 듦 · 사람이 고르는 줄) — 끝남 = 넣을 구성을 좁혀 골랐을 때. 글 = 대상 차년도(목적 문서의 당해 차년도) · 넣을 구성(고른 기관 · 단계 · 차년도 | 전부).
+    재료 = 목적 문서 facts.fill.take(merge_api.take_view). 대상 차년도를 구조 반영 뒤에 바꿨으면(반영 때의 것과 다름) 그 사실을 적는다 — 「프로젝트 구성 반영」 이 다시 남는다."""
+    t = (ctx.get("pair") or {}).get("target")
+    T = (((t or {}).get("facts") or {}).get("fill") or {}).get("take") if t else None
+    if not T:
+        return {"st": "todo", "text": ""}
+    if not T.get("ready"):
+        return {"st": "todo", "text": T.get("why") or ""}
+    y, was = T.get("year"), T.get("yearApplied")
+    year = (f"대상 차년도: {y}차년도" + (f"(구조 반영 때는 {was}차년도 — 「프로젝트 구성 반영」 을 다시 해야 합니다)" if was is not None and was != y else "")) if y else "대상 차년도: 정하지 않음"
+    notes = "".join(f" · {n}" for n in T.get("notes") or ())   # 좁혀 고른 것이 대상 차년도 · 다음 연도의 자리를 빼는 때(merge_api.take_view)
+    return {"st": "done" if T.get("active") else "todo", "text": f"{year} · 넣을 구성: {T.get('text') or '전부'}" + ("" if T.get("active") else "(고르지 않으면 맞는 자리는 모두 넣습니다)") + notes}
+
+
+_STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide, "take": _take})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
 
 
 # ---------------------------------------------------------------- 문서 하나(가족 single — 걸음 6: spec_워크플로우 ② §18-13 「걸음 6 — 문서 하나」) — 1단계 「프로젝트 구성」 의 상태 식

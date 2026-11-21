@@ -84,6 +84,15 @@ COMMON = {
 
 # 이관형(1 → N) — 원본 문서의 내용을 다른 양식의 목적 문서로
 RELAY = {
+    "take": _h(   # 넣을 구성 선택(spec_병합 ② §4-1 — app/merge_take.py · merge_api.take_view · take_put: 사람이 고르는 줄 — 자동 진행은 지나간다)
+        "몇 차년도 문서를 낼지(대상 차년도)와, 원본 문서에서 어느 기관 · 단계 · 차년도의 내용을 뽑아 넣을지 고릅니다.",
+        first="프로젝트 구성(몇 단계 · 몇 차년도 · 어느 기관) — 값이 있어야 고를 것이 보입니다.",
+        care="사람이 고르는 도구라 자동 진행은 이 줄을 지나갑니다 — 고르지 않으면 맞는 자리는 모두 넣습니다. 대상 차년도는 목적 문서의 「당해 차년도」 로 적혀 구조 반영 · 짝짓기가 그 해로 합니다. "
+             "구조 반영 뒤에 바꾸면 그 줄을 다시 해야 합니다. 고르지 않은 구성의 자리는 넣지 않습니다.",
+        see="대시보드의 그 줄 — 대상 차년도 · 넣을 구성의 고르는 단추. 빠진 자리는 「연결 목록」 에 적힙니다.",
+        why="연차보고서는 몇 차년도 것을 내는지가 먼저 정해져야 그 해의 구조와 내용으로 채워집니다.",
+        eg="대상 차년도 「2차년도」 · 넣을 기관 「한국선급」",
+        who="사람이 대시보드에서 고릅니다"),
     "link": _h(
         "원본 문서에서 가져올 문단과 표가 목적 문서의 어느 자리에 들어갈지, 두 문서에서 서로 맞는 자리를 찾습니다.",
         first="두 문서의 프로젝트 구성 값이 서로 맞고, 목적 문서에 구조를 반영한 기록이 있어야 합니다. 빠진 헤딩 · 표 분석은 자동 진행이 먼저 합니다.",
@@ -285,7 +294,7 @@ ONLY_TEXT = {
 }
 ONLY = {
     "common": {"heads": "", "headsLlm": "", "configLoad": "rnd", "config": "rnd", "division": "rnd", "reheads": "", "reheadsLlm": "", "guide": "", "hand": ""},
-    "relay": {"link": "relay", "llm": "relay", "plan": "relay", "gaps": "relay", "tableMap": "relay", "apply": "relay"},
+    "relay": {"take": "rnd", "link": "relay", "llm": "relay", "plan": "relay", "gaps": "relay", "tableMap": "relay", "apply": "relay"},
     "gather": {"config": "rnd", "division": "rnd", "frame": "gather", "part": "gather", "heads": "", "link": "gather", "llm": "gather", "plan": "gather", "apply": "gather", "drop": "gather"},
     "single": {"read": "rnd", "load": "rnd", "values": "rnd", "review": "rnd", "plan": "rnd", "apply": "rnd",
                "heads": "", "headsLlm": "", "adjust": "", "tree": "", "tables": "", "tablesLlm": "", "tableTools": ""},

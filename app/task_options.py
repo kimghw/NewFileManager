@@ -204,14 +204,43 @@ def _skip_ids(rec):
     return [x for x in ids if isinstance(x, str)] if isinstance(ids, list) else []
 
 
+def _take_of(rec):
+    t = rec.get("take") if isinstance(rec, dict) else None
+    return t if isinstance(t, dict) and t else None
+
+
 def flow(work) -> dict:
-    """그 묶음의 실행 옵션 → {llmSkip: [문서 id …]}(없으면 빈 목록). 저장 파일이 깨졌으면 빈 것으로 읽는다(덮어쓰지 않는다)."""
+    """그 묶음의 실행 옵션 → {llmSkip: [문서 id …], take: 넣을 구성(고른 기관 · 단계 · 차년도 — app/merge_take.py 의 꼴) | None(전부)}. 저장 파일이 깨졌으면 빈 것으로 읽는다(덮어쓰지 않는다)."""
     scope = scope_of(work)
     with _LOCK:
         try:
-            return {"llmSkip": _skip_ids(_flow_of(_load()).get(scope))}
+            rec = _flow_of(_load()).get(scope)
+            return {"llmSkip": _skip_ids(rec), "take": _take_of(rec)}
         except Broken:
-            return {"llmSkip": []}
+            return {"llmSkip": [], "take": None}
+
+
+def flow_take(work, take):
+    """그 묶음의 「넣을 구성」(spec_병합 ② §4-1 — 고른 기관 · 단계 · 차년도: 부르는 쪽이 merge_take.clean 으로 정리한 꼴 | None = 전부)을 적는다 → 적은 것.
+    Broken = 저장 파일이 깨짐(덮어쓰지 않는다) · ValueError = 작업이 없어 묶음을 알 수 없음. 묶음에 남은 옵션이 없으면 그 열쇠를 지운다(사람이 정한 것만 적는다)."""
+    scope = scope_of(work)
+    if scope == "w:":
+        raise ValueError("작업이 없어 워크플로우 옵션을 저장할 수 없습니다")
+    with _LOCK:
+        data = _load()
+        box = _flow_of(data)
+        old = box.get(scope) if isinstance(box.get(scope), dict) else {}
+        if _take_of(old) == (take or None):
+            return take or None
+        new = {k: v for k, v in old.items() if k != "take"}
+        if take:
+            new["take"] = take
+        if _skip_ids(new) or new.get("take"):
+            box[scope] = {**new, "updated": _now()}
+        else:
+            box.pop(scope, None)
+        _save(data)
+        return take or None
 
 
 def flow_skip(work, doc_id, on) -> list:
@@ -225,8 +254,11 @@ def flow_skip(work, doc_id, on) -> list:
         ids = _skip_ids(box.get(scope))
         new = [x for x in ids if x != doc_id] + ([doc_id] if on else [])
         if new != ids:
+            old = box.get(scope) if isinstance(box.get(scope), dict) else {}
             if new:
-                box[scope] = {**(box.get(scope) if isinstance(box.get(scope), dict) else {}), "llmSkip": new, "updated": _now()}
+                box[scope] = {**old, "llmSkip": new, "updated": _now()}
+            elif _take_of(old):   # 건너뛴 문서는 없어졌지만 「넣을 구성」 이 남아 있다 — 그 열쇠를 통째로 지우지 않는다
+                box[scope] = {**{k: v for k, v in old.items() if k != "llmSkip"}, "updated": _now()}
             else:
                 box.pop(scope, None)
             _save(data)
@@ -244,6 +276,8 @@ def flow_forget(doc_id) -> int:
                 left = [x for x in ids if x != doc_id]
                 if left:
                     box[k] = {**box[k], "llmSkip": left}
+                elif _take_of(box[k]):   # 「넣을 구성」 은 그 묶음의 것 — 문서 하나의 건너뛰기를 지운다고 같이 지우지 않는다
+                    box[k] = {x: v for x, v in box[k].items() if x != "llmSkip"}
                 else:
                     del box[k]
         return n

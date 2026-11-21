@@ -166,10 +166,10 @@ def dimensions(values):
             years.append({"id": f"s{s}y{y}", "label": f"{y}차년도", "no": no, "parent": f"s{s}"})
         stages.append({"id": f"s{s}", "label": f"{s}단계", "years": years})
     orgs = values["orgs"]
-    np_ = orgs.get("nonprofit") or []
+    np_, dm = orgs.get("nonprofit") or [], orgs.get("demand") or []   # demand = 수요기업으로 고른 공동(spec_구분_기준 ② §24 — 고른 것이 있을 때만 값에 있다)
     members = [{"id": "lead", "label": org_name(values, 0), "name": orgs["lead"], "role": "lead", "attrs": {"nonprofit": bool(np_[0]) if np_ else False}}]
     members += [{"id": f"joint{k}", "label": org_name(values, k), "name": nm, "role": "joint",
-                 "attrs": {"nonprofit": bool(np_[k]) if k < len(np_) else False}} for k, nm in enumerate(orgs["joint"], 1)]
+                 "attrs": {"nonprofit": bool(np_[k]) if k < len(np_) else False, **({"demand": True} if k < len(dm) and dm[k] else {})}} for k, nm in enumerate(orgs["joint"], 1)]
     for kind, name in EXTRA.items():
         members += [{"id": f"{kind}{k}", "label": nm or f"{name}{k}", "name": nm, "role": kind, "attrs": {}} for k, nm in enumerate(orgs.get(kind) or [], 1)]
     cur = values.get("current") or 1

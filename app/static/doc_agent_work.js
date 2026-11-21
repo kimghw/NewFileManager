@@ -37,9 +37,10 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
   if (Q && Q.busy) return { kind: "quick", label: Q.uploadOnly ? "기관 문서 올리기 · 등록" : "간단 모드 — 끝까지 한 번에 진행", note: Q.note || "진행 중", t0: Q.t0, stopping: !!Q.stop,
     stop: () => { Q.stop = true; if (typeof gatherRun !== "undefined" && gatherRun) gatherRun.stop = true; if (typeof gqDraw === "function") gqDraw(); } };
   if (G) return { kind: "gather", label: `${stage(GT_STAGES, G.stage)} — 한 번에 진행`, note: G.note || "진행 중", t0: G.t0, stopping: !!G.stop, stop: () => { G.stop = true; gatherStageSync(); } };
-  if (T && T.single) { // 문서 하나로 조립한 워크플로우의 서버 실행(workflow_exec.js singleRunFollow 의 거울 — 이관의 거울과 같은 변수) — 묶음은 그 정의의 것(g1 …: 이관의 묶음 TASK_STAGES 가 아니다). 멈춤은 거울이 서버에 건다(1초 안)
+  if (T && (T.single || T.flow)) { // 문서 하나로 조립한 워크플로우의 서버 실행(workflow_exec.js singleRunFollow 의 거울 — 이관의 거울과 같은 변수) — 묶음은 그 정의의 것(g1 …: 이관의 묶음 TASK_STAGES 가 아니다). 멈춤은 거울이 서버에 건다(1초 안)
+    // flow = 줄 목록으로 조립한 이관형의 서버 실행(relayFlowFollow 의 거울 — 그 정의의 묶음도 g1 …: 같은 꼴 · kind 만 다르다)
     const g = agwSingleStage(T.stage), name = g ? `${g.no || ""} ${g.name || ""}`.trim() : "";
-    return { kind: "single", label: `${name || "워크플로우"} — ${T.only ? "이 단계만 진행" : "한 번에 진행"}`, note: [T.by, T.note || "진행 중"].filter(Boolean).join(" · "), t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; } };
+    return { kind: T.single ? "single" : "flow", label: `${name || "워크플로우"} — ${T.only ? "이 단계만 진행" : "한 번에 진행"}`, note: [T.by, T.note || "진행 중"].filter(Boolean).join(" · "), t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; } };
   }
   if (T) return { kind: "relay", label: `${stage(TASK_STAGES, T.stage)} — 한 번에 진행`, note: T.note || "진행 중", t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; taskStageSync(); } };
   if (typeof dv !== "undefined" && dv && dv.auto) return { kind: "fit", label: "프로젝트 구성 반영 — 한 번에 진행", note: "변경 계획 → 반영", t0: 0, stopping: false, stop: null };
@@ -365,6 +366,7 @@ async function agwStatusOf(job, opt = {}) {
   if (lost) return { steps: [{ stage: "준비", key: "workflow", name: "워크플로우 다시 고르기", state: "now", text: lost }], actions: [], facts: { why: lost, llm: !!AGENT.enabled } };
   try {
     if (taskIsSingle(job)) return await agwSingleStatus(); // 문서 하나로 조립한 것 — 서버가 센 상태(이관 · 취합 · 붙박이 문서 하나의 가지로 읽지 않는다)
+    if (taskIsRelayFlow(job)) return await agwSingleStatus(); // 줄 목록(v2)으로 조립한 이관형 — 같은 길(서버가 센 상태: 그 정의의 묶음 g1 … 은 화면의 이관 묶음 셈 agwRelayStatus 에 안 잡힌다 — 2026-11-21) · 실행은 agwExec 의 run: → relayFlowRun
     if (agwFit(job)) return await agwFitStatus(opt);
     if (taskIsRelay(job)) return await agwRelayStatus();
     if (taskIsGather(job)) return await agwGatherStatus();
@@ -387,9 +389,11 @@ async function agwStatus(opt = {}) { // 도는 것이 있는 동안에는 보기
 // ---------------------------------------------------------------- 행동 실행 → {ok, text, silent?(결과 턴을 부르지 않음)}
 function agwConfigApply(x) { // 질문 카드(config)의 값 → 입력 값(dv.values) — 단계마다 차년도 수 · 주관 · 공동(비영리 표시는 있던 것을 그 길이에 맞춘다) · 당해 차년도
   const v = dv.values, joint = x.joint.slice(0, 30), np = v.orgs.nonprofit || [];
+  const dm = new Set((v.orgs.joint || []).filter((n, i) => n && (v.orgs.demand || [])[i + 1])); // 수요기업으로 고른 기관(spec_구분_기준 ② §24) — 카드는 이름만 받으니 **이름으로** 잇는다(차례가 바뀌어도 그 기관에 남게)
   v.stages = x.stages.map((n) => Math.max(1, Math.min(20, Number(n) || 1)));
   v.orgs.lead = x.lead;
   v.orgs.joint = joint;
+  v.orgs.demand = [false, ...joint.map((n) => dm.has(n))];
   v.orgs.nonprofit = Array.from({ length: joint.length + 1 }, (_, i) => !!np[i]);
   if (x.current > 1) v.current = x.current; else delete v.current;
   divTouched();
@@ -459,6 +463,10 @@ async function agwExec(name, args, cur = null) { // cur = 실행 직전에 다�
     const id = name.slice(4);
     if (taskIsSingle(agwJob())) { // 문서 하나로 조립한 것 — 서버 쪽 실행기만(workflow_exec.js singleRunServer: 화면 실행으로 가지 않는다). 유료 줄은 카드가 승인한 문서에만(by agent · paid) · 카드가 본 정의일 때만(sig)
       const r = await singleRunServer(id, { paid: (cur && cur.paidIds) || [], sig: (cur && cur.sig) || "", quiet: true });
+      return { ok: !!r.ok, text: (r.run && r.full) || r.text };
+    }
+    if (taskIsRelayFlow(agwJob())) { // 줄 목록으로 조립한 이관형 — 서버 쪽 실행기만(workflow_exec.js relayFlowRun: 화면의 이관 실행 taskRunAll 로 가지 않는다 — 그 정의의 묶음은 거기 없다). 유료 줄 · 정의의 지문은 위와 같다
+      const r = await relayFlowRun(id, { paid: (cur && cur.paidIds) || [], sig: (cur && cur.sig) || "", quiet: true });
       return { ok: !!r.ok, text: (r.run && r.full) || r.text };
     }
     if (taskIsGather(agwJob())) {
@@ -792,7 +800,7 @@ function agwLiveEl() {
   if (R) {
     const acts = el("div", "ag-acts");
     if (R.stop) { const stop = hBtn(R.stopping ? "멈추는 중…" : "멈춤", () => { R.stop(); agentDrawTalk(); }, { disabled: R.stopping, title: "지금 하는 일이 끝나면 멈춥니다(바로 끊지 않습니다) — 끝난 것은 그대로 남습니다" }); stop.dataset.agw = "stop"; acts.append(stop); }
-    if (R.kind === "single") { // 문서 하나로 조립한 워크플로우 — 묶음 › 줄의 진행은 패널 「대시보드」 에 있다(「작업 개요」 에는 그 정의의 묶음이 없다)
+    if (R.kind === "single" || R.kind === "flow") { // 문서 하나로 조립한 워크플로우 · 줄 목록으로 조립한 이관형 — 묶음 › 줄의 진행은 패널 「대시보드」 에 있다(「작업 개요」 에는 그 정의의 묶음이 없다)
       if (toolShown("Dash")) { const d = hBtn("대시보드에서 보기", () => showTab("Dash"), { title: "패널 「대시보드」 의 단계 흐름과 진행 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); d.dataset.agw = "detail"; acts.append(d); }
     } else if (R.kind !== "style" && toolShown("Div")) { const div = hBtn("작업 개요에서 보기", () => showTab("Div"), { title: "패널 「작업 개요」 의 단계 목록과 묶음 상태 줄을 봅니다 — 에이전트 보기로 돌아오면 이 카드가 이어집니다" }); div.dataset.agw = "detail"; acts.append(div); }
     if (acts.childNodes.length) card.append(acts);

@@ -253,3 +253,41 @@ def test_the_source_slot_is_filled_from_a_form_into_the_target_bundle(client):
     assert client.post(f"/api/works/{up}/start-task", json={"project": "원본 양식", "job": "plan_to_report", "file": "plan"}).status_code == 409
     assert client.post("/api/workflow-start/source", json={**body, "request": "req-src-07", "source": {"form": plan["id"]}}).status_code == 200   # 고정한 그 양식은 된다
     assert len(works.list_works()) == n + 2
+
+
+def test_the_empty_target_slot_of_a_bundle_in_progress_is_filled_from_a_form(client):
+    """하던 묶음의 빈 목적 칸을 양식으로(POST /api/workflow-start/target — ② §18-9 「하던 묶음의 빈 목적 칸」: 2026-11-21 사용자 "목적문서인 연차보고서를 올려야 하고 올리지 않으면 저장된 파일을 사용해야"):
+    원본 문서의 묶음(프로젝트 · 워크플로우 · 라운드) 그대로에 목적 종류로(새 라운드를 만들지 않음) · 쓴 양식을 적음 · 같은 요청은 같은 작업 · 목적 문서가 이미 있으면 409(hasTarget — 하던 문서를 안 바꿈) ·
+    main 이 그 묶음의 원본 문서가 아니면 409(notSource) · 문서 칸이 하나인 워크플로우는 400 · 고정이면 그 양식만."""
+    import merge_data as M
+    from app import works
+    plan, report = _put_form(client, M.PLAN_FORM)["file"], _put_form(client, M.REPORT_FORM)["file"]
+    up = lambda p: client.post("/api/docs?new=1", files={"file": (p.name, p.read_bytes())}).json()["docId"]   # noqa: E731
+    src = up(M.PLAN_FORM)
+    assert client.put(f"/api/works/{src}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "빈 목적 칸"}).status_code == 200
+    body = {"job": "plan_to_report", "main": src, "request": "req-tgt-01", "target": {"form": report["id"], "sha256": report["sha256"]}}
+    r = client.post("/api/workflow-start/target", json=body)
+    assert r.status_code == 200, r.text
+    got, st = r.json(), works.work(src)["task"]
+    w = works.work(got["docId"])
+    assert w["source"] == "form" and w["form"]["id"] == report["id"] and got["form"] == {"id": report["id"], "name": report["name"], "mode": ""}
+    assert (w["task"]["job"], w["task"]["file"], w["task"]["project"], w["task"].get("round") or 1) == ("plan_to_report", "report", "빈 목적 칸", st.get("round") or 1)   # 같은 묶음 — 새 라운드가 아니다
+    assert client.post("/api/workflow-start/target", json=body).json()["docId"] == got["docId"]   # 다시 보낸 요청 — 같은 작업
+    has = client.post("/api/workflow-start/target", json={**body, "request": "req-tgt-02"})
+    assert has.status_code == 409 and has.json()["reason"] == "hasTarget"   # 목적 문서가 이미 있다 — 하던 문서를 바꾸지 않는다
+    for main in (got["docId"], up(M.PLAN_FORM)):   # 목적 문서 자신 · 묶이지 않은 문서
+        ns = client.post("/api/workflow-start/target", json={**body, "request": f"req-tgt-ns-{main}", "main": main})
+        assert ns.status_code == 409 and ns.json()["reason"] == "notSource", ns.text
+    src2 = up(M.PLAN_FORM)
+    assert client.put(f"/api/works/{src2}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "빈 목적 칸 둘"}).status_code == 200
+    b2 = {**body, "main": src2}
+    for bad, code in (({**b2, "request": "short"}, 400), ({**b2, "request": "req-tgt-03", "main": "000000000000"}, 404), ({**b2, "request": "req-tgt-04", "target": {"form": plan["id"]}}, 400),
+                      ({**b2, "request": "req-tgt-05", "job": "plan_fit"}, 400), ({**b2, "request": "req-tgt-06", "target": {"form": report["id"], "sha256": "x"}}, 409),
+                      ({**b2, "request": "req-tgt-07", "target": {"form": "f_00000000"}}, 404)):
+        assert client.post("/api/workflow-start/target", json=bad).status_code == code, bad
+    n = len(works.list_works())
+    other = _put_form(client, M.REPORT_FORM, name="다른 보고서 양식")["file"]   # 같은 내용 — 있던 양식
+    assert other["id"] == report["id"]
+    assert client.put("/api/workflow-slots/plan_to_report", json={"target": {"file": report["id"], "mode": "fixed"}}).status_code == 200
+    ok = client.post("/api/workflow-start/target", json={**b2, "request": "req-tgt-08", "target": {"form": report["id"]}})
+    assert ok.status_code == 200 and ok.json()["form"]["mode"] == "fixed" and len(works.list_works()) == n + 1   # 고정한 그 양식은 된다

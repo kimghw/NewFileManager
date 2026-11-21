@@ -68,6 +68,7 @@ function taskCatalogCustom(defs, opt = null) {
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
       files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign: v2 ? null : assign, does, v2,
+      ...(v2 ? { entry: "Dash" } : {}), // 줄 목록(v2) — 묶음(g1 …)은 대시보드에서 진행한다(「작업 개요」 는 표준 네 묶음만 그린다: taskIsRelayFlow — 문서 하나로 조립한 것과 같이 처음 여는 보기 = 대시보드)
       sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(assign, stages), icon: "plan_to_report" };
   }
 }
@@ -92,6 +93,10 @@ function taskLostWhy(job) {
 }
 // 이관형 TASK 인가 — 문서 칸 둘(원본 · 목적)을 쓰는 TASK: 붙박이 이관과 이관형으로 조립한 TASK. 화면의 「이관이면」 가지는 키를 견주지 않고 이것으로 가른다(문서 하나로 조립한 것은 문서 칸 둘이 없다 — 이관형이 아니다)
 const taskIsRelay = (job) => { const c = TASK_CATALOG[job] || {}; return !!c.files && !c.single; };
+// 줄 목록(정의 v2)으로 조립한 이관형인가 — 묶음이 그 정의의 것(g1 …)이라 화면의 이관 묶음 셈(app.js TASK_STAGES — review · frame · map · clean)에 잡히지 않는다:
+// **상태는 서버가 세고**(GET /api/works/{wid}/flow) **서버 쪽 실행기만 돌린다**(workflow_exec.js relayFlowRun). 대시보드(dashboard.js dashFlowLive) · 에이전트 · 실행의 거울이 「줄 목록으로 조립한 이관형이면」 을 이것으로 가른다 —
+// 표준 차례로 조립한 것(옛 꼴 — assign · stages)과 붙박이 이관은 거짓이다(전처럼 화면의 단계 셈 · taskRunAll). 2026-11-21 사용자(그 워크플로우의 대시보드에 상태 · 단추가 하나도 없는 것을 보며) "안에 기능이 하나도 없냐?"
+const taskIsRelayFlow = (job) => taskIsRelay(job) && !!(TASK_CATALOG[job] || {}).v2;
 // 문서 하나로 조립한 워크플로우인가(조립 폼의 「1」 — 원본 문서 없이 그 문서 하나에 정한 줄을 차례로: 서버 실행기만 돌린다). **붙박이 문서 하나(사업계획서 양식 표준화 · 연차보고서 양식 맞추기)는 아니다** — 그것은 화면이 돈다.
 // 화면의 「조립한 문서 하나면」 가지(서버 실행의 거울 · 3초 확인 = 고치던 글 보고 · 대시보드 · 에이전트)는 키를 견주지 않고 이것으로 가른다 — 이 표지가 참인 워크플로우에서 taskIsRelay · taskIsGather 는 거짓이다
 const taskIsSingle = (job) => !!(TASK_CATALOG[job] || {}).single;

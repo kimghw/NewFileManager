@@ -11,7 +11,7 @@ const hf = { files: [], target: -1, aliases: new WeakMap(), project: "", auto: f
 }; // 약칭은 File 에 붙인다 — 목적 문서를 바꾸거나 앞 파일을 빼도 다른 문서로 옮겨 가지 않는다.
 // hf.zones = 편집 구역에서 가려 볼 기준(TASK 옵션 — spec_구역 ② §1): null = 손대지 않음(그 TASK 의 기본값 — task_catalog.js zones) · 목록 = 사람이 고른 것(빈 목록 = 끔).
 const HF_ZONES = [["org", "기관"], ["stage", "단계"], ["year", "차년도"]]; // 서버 app/zones.py DIMS 의 차례 · 이름
-if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { taskOptions: "편집 구역 기준 정함", flowHand: "사람이 하는 일 확인", sourceForm: "원본 문서를 저장한 양식으로" }); // 「기록」 탭의 이름 — 편집 구역에서 가려 볼 기준을 사람이 정함(서버 task_options_api 의 작업 기록 `taskOptions`: 이 목록 · 「작업 개요」 의 「편집 구역」 줄) · 사람이 하는 일의 「했음」 · 취소(flow_hands_api 의 `flowHand`) · 원본 문서 칸을 저장한 양식으로 채움(form_files_api 의 `sourceForm` — spec_워크플로우 ② §18-9)
+if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { taskOptions: "편집 구역 기준 정함", flowHand: "사람이 하는 일 확인", sourceForm: "원본 문서를 저장한 양식으로", targetForm: "목적 문서를 저장한 양식으로" }); // 「기록」 탭의 이름 — 편집 구역에서 가려 볼 기준을 사람이 정함(서버 task_options_api 의 작업 기록 `taskOptions`: 이 목록 · 「작업 개요」 의 「편집 구역」 줄) · 사람이 하는 일의 「했음」 · 취소(flow_hands_api 의 `flowHand`) · 원본 문서 칸을 저장한 양식으로 채움(form_files_api 의 `sourceForm` — spec_워크플로우 ② §18-9)
 const hfZoneNames = (dims) => HF_ZONES.filter(([d]) => dims.includes(d)).map(([, name]) => name).join(" · ");
 const hfZonesDefaults = () => Object.keys(TASK_CATALOG).filter((job) => taskZonesDefault(job).length) // 기본으로 켜는 TASK 들 — 「사업계획서 취합 = 기관」(task_catalog.js zones)
   .map((job) => `${TASK_CATALOG[job].name} = ${hfZoneNames(taskZonesDefault(job))}`).join(" · ");

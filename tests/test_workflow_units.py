@@ -58,7 +58,7 @@ def test_every_registry_step_of_the_relay_has_a_unit_that_agrees():
     """붙박이 이관 · 일반 단계 넷의 준비 중이 아닌 모든 단계 줄에 단위가 있고, 문서 바뀜 · 선택 · 하는 문서 · 유료가 등록부의 줄과 같다."""
     task = workflow.task_of("plan_to_report")
     steps = [(g["id"], s) for g in task["stages"] for s in g["steps"] if not s["soon"]]
-    steps += [(mid, s) for mid, _, make, _ in workflow.STAGE_MODULES for s in make(*workflow._GENERIC) if not s["soon"]]
+    steps += [(mid, s) for mid, _, make, _ in workflow.STAGE_MODULES for s in make(*workflow._GENERIC, **({"take": True} if mid == "stage_fit" else {})) if not s["soon"]]   # take = 조립에 놓는 도구 「넣을 구성 선택」 까지(표준 차례에는 없다 — workflow._take_step)
     assert steps
     for gid, s in steps:
         u, where = U.unit(s["key"], "relay"), f"{gid}.{s['key']}"

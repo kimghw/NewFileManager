@@ -41,6 +41,48 @@ def test_settings_rejects(bad):
         model.norm_settings(bad, rnd)
 
 
+def test_demand_org_is_a_joint_kind_read_and_written_by_the_engine():
+    """수요기업(spec_구분_기준 ② §24 — 2026-11-21 사용자 "수요기업 으로 선택할 수 있게 해줘. 주관기관, 참여기관 처럼"): 공동기관의 종류 — 값에는 고른 것이 있을 때만 `demand`,
+    엔진은 「공동연구개발기관k-수요기업 (이름)」 을 다른 기관 제목과 같은 꼴로 읽고(같은 묶음), 고른 기관의 이름 자리 라벨에 그 표시를 둔다. 문서에서 읽으면 표시가 붙은 공동이 수요기업."""
+    from app.division_profiles.rnd import core
+    base = {"stages": [2], "orgs": {"lead": "인텍", "joint": ["가나대", "에이치디"]}}
+    V = core.norm_values({**base, "orgs": {**base["orgs"], "demand": [True, False, True]}})
+    assert V["orgs"]["demand"] == [False, False, True]   # 주관은 늘 거짓 · 기관 수에 맞춘다
+    assert (core.org_demand(V, 0), core.org_demand(V, 1), core.org_demand(V, 2), core.org_demand(V, 9)) == (False, False, True, False)
+    for none in (base, {**base, "orgs": {**base["orgs"], "demand": [False, False, False]}}, {**base, "orgs": {**base["orgs"], "demand": []}}):
+        assert "demand" not in core.norm_values(none)["orgs"]   # 고르지 않은 값은 전과 같은 꼴(저장된 옛 값과 견줄 때 달라지지 않는다)
+    with pytest.raises(ValueError):
+        core.norm_values({**base, "orgs": {**base["orgs"], "demand": [0, 1]}})
+    attrs = {o["id"]: o["attrs"] for o in rnd.dimensions(V)["orgs"]}
+    assert attrs["joint2"] == {"nonprofit": False, "demand": True} and attrs["joint1"] == {"nonprofit": False}   # 고른 기관에만 속성이 붙는다
+
+    # 읽기 — 표시가 붙은 제목도 같은 꼴(이름 자리 앞의 표시 · 괄호 앞 빈칸은 꼴에서 뺀다) → 주관 · 공동1 · 공동2 가 한 묶음
+    marked = "    [공동연구개발기관2-수요기업 (에이치디)]"
+    assert core._label(marked) == ("org", ("joint", 2), "[{기관}({이름})]") == core._label("[공동연구개발기관2(에이치디)]")
+    assert core._label(" ㅇ 공동연구개발기관2-수요기업 : 에이치디")[2] == core._label("ㅇ 공동연구개발기관2 : 에이치디")[2]
+    para = lambda i, t: {"id": f"p{i}", "type": "paragraph", "text": t}  # noqa: E731
+    items = [para(i, t) for i, t in enumerate(["[주관연구개발기관(인텍)]", "주관 내용", "[공동연구개발기관1(가나대)]", "가나대 내용", marked, "에이치디 내용"])]
+    got = [g for g in core._para_groups(None, items, {}) if g["dim"] == core.ORG]
+    assert [[it["value"] for it in g["items"]] for g in got] == [[("lead", 0), ("joint", 1), ("joint", 2)]] and got[0]["items"][2]["label"] == "p4"
+    assert core._joint_of(V)(marked) == 2   # 이름 자리도 표시를 빼고 읽는다
+    assert core._read_orgs(items, []) == {"lead": "인텍", "joint": ["가나대", "에이치디"], "demand": [False, False, True], "outside": [], "entrust": [], "overseas": []}
+    assert "demand" not in core._read_orgs(items[:4], [])   # 표시가 없는 문서
+
+    # 적기 — 고른 기관: 적혀 있던 표시는 빈칸까지 그대로(같은 값으로 다시 반영해도 글이 안 바뀐다) · 없던 이름 자리(괄호 · 쌍점)에는 새로 · 이름 자리가 없는 줄(서명 줄)에는 안 둔다
+    put = lambda text, new, values, copy=False: core._rename(text, core.ORG, ("joint", 2), new, True, (1, 1), values, copy)  # noqa: E731
+    assert put(marked, ("joint", 2), V) == marked
+    assert put("[공동연구개발기관2(에이치디)]", ("joint", 2), V) == "[공동연구개발기관2-수요기업(에이치디)]"
+    assert put("[공동연구개발기관명2 : 기관명]", ("joint", 2), V) == "[공동연구개발기관명2-수요기업 : 에이치디]"
+    assert put("공동연구개발기관의 장:      (직인)", ("joint", 2), V) == "공동연구개발기관의 장:      (직인)"
+    assert put("[공동연구개발기관1(가나대)]", ("joint", 2), V, copy=True) == "[공동연구개발기관2-수요기업(에이치디)]"   # 공동1 을 본뜬 사본이 수요기업 자리면 표시를 둔다
+    # 고르지 않은 기관 — 값에 고른 기관이 있으면 표시를 뺀다(라벨은 값을 따른다) · 늘린 사본에도 따라가지 않는다
+    assert put(marked, ("joint", 1), V) == "    [공동연구개발기관1(가나대)]" == put(marked, ("joint", 1), V, copy=True)
+    # 값에 고른 기관이 하나도 없으면(옛 값 · 손으로 넣은 값) 글쓴이가 적은 표시를 지우지 않는다 — 사본에만 안 따라간다
+    V0 = core.norm_values(base)
+    assert put(marked, ("joint", 2), V0) == marked and put("[공동연구개발기관2(에이치디)]", ("joint", 2), V0) == "[공동연구개발기관2(에이치디)]"
+    assert put(marked, ("joint", 1), V0, copy=True) == "    [공동연구개발기관1(가나대)]"
+
+
 def test_status_of():
     before = {"key": "a", "done": False, "reason": None}
     assert model.status_of(before, {"a": {"done": True}}, {"a"}, {}, set()) == ("applied", "맞춤")
@@ -574,9 +616,51 @@ def test_outside_org_sections_group():
     assert not rep["errors"] and rep["removed"] == 3 and find(v) is None
 
 
+def test_demand_org_cover_role_cells():
+    """표지 「공동연구개발기관」 목록의 「역할」 칸(spec_구분_기준 ② §24 — 양식 작성요령 16: 수요기업이면 「수요」 · 아니면 「공동」): 값에 수요기업으로 고른 기관이 있으면 줄마다 적고,
+    없으면 그 칸은 그대로 둔다(양식의 보기 글 · 글쓴이가 적은 것). 문서에서 읽을 때는 이름이 있는 줄의 「수요」 를 수요기업으로."""
+    from app import hwpx_doc
+    base = {"stages": [1], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연", "에이치디"]}}
+
+    def rows(d, v):
+        blocks = d.blocks()
+        g = next(g for g in rnd.find(blocks, rnd.levels_of(blocks), v) if g.get("list") and g["items"][0]["value"][0] == "joint")
+        idx = {b["id"]: b for b in rnd.core.structure.iter_blocks(blocks)} | rnd.core.structure.index_blocks(blocks)
+        return g, [((idx[it["roots"][it["nameAt"]]]["text"] or "").strip(), (idx[it["roots"][it["roleAt"]]]["text"] or "").strip()) for it in g["items"]]
+
+    d, v0 = hwpx_doc.HwpxDoc(FORM.read_bytes()), rnd.norm_values(base)
+    g, before = rows(d, v0)
+    assert all(it.get("roleAt") is not None for it in g["items"]) and before[0] == ("", "수요")   # 빈 양식의 첫 줄 = 보기 글 「수요」
+    rep = rnd.apply(d, v0, levels_of=rnd.levels_of, only=g["key"])
+    g, plain = rows(d, v0)
+    assert not rep["errors"] and [n for n, _ in plain] == ["가나대", "다라연", "에이치디"] and plain[0][1] == "수요"   # 고른 기관이 없는 값 — 역할 칸은 건드리지 않는다(보기 글 그대로)
+
+    v1 = rnd.norm_values({**base, "orgs": {**base["orgs"], "demand": [False, False, False, True]}})
+    g, _ = rows(d, v1)
+    rep = rnd.apply(d, v1, levels_of=rnd.levels_of, only=g["key"])
+    g, marked = rows(d, v1)
+    assert not rep["errors"] and marked == [("가나대", "공동"), ("다라연", "공동"), ("에이치디", "수요")] and g["plan"]["done"]   # 고른 기관 = 「수요」 · 나머지 = 「공동」 · 다시 계획하면 할 일 없음
+
+    # 문서 전체를 그 값으로 반영한 문서 — 제목에 「-수요기업」 이 서고, 문서에서 다시 읽으면 그 기관이 수요기업(제목의 표시 · 표지의 역할 칸)
+    full = hwpx_doc.HwpxDoc(FORM.read_bytes())
+    rep = rnd.apply(full, v1, levels_of=rnd.levels_of)
+    blocks = full.blocks()
+    texts = [b["text"] for b in rnd.core.structure.iter_blocks(blocks) if b.get("type") == "paragraph" and "수요기업" in (b.get("text") or "") and "에이치디" in b["text"]]
+    assert not rep["errors"] and texts and all("공동연구개발기관3-수요기업" in t or "공동연구개발기관-수요기업" in t for t in texts), texts[:5]
+    got = rnd.read_values(blocks, rnd.levels_of(blocks))["orgs"]
+    assert got["joint"] == ["가나대", "다라연", "에이치디"] and got["demand"] == [False, False, False, True]
+    assert rows(full, v1)[1] == [("가나대", "공동"), ("다라연", "공동"), ("에이치디", "수요")]
+    # 표지의 역할 칸만으로도 읽는다 — 제목의 표시를 손으로 지운 문서(이름이 든 줄의 「수요」)
+    for b in rnd.core.structure.iter_blocks(blocks):
+        if b.get("type") == "paragraph" and "-수요기업" in (b.get("text") or ""):
+            full.set_text(b["id"], b["text"].replace("-수요기업", ""))
+    blocks = full.blocks()
+    assert rnd.read_values(blocks, rnd.levels_of(blocks))["orgs"]["demand"] == [False, False, False, True]
+
+
 # ---------------------------------------------------------------- 빠진 자리 검토(② §13 — LLM 이 묶음 밖 표·문단을 본다)
 
-MISSING_PARA = "(2) 주관/공동연구개발기관별"   # 빈 양식에서 아직 어느 묶음에도 안 든 문단(3-4 「(2) 주관/공동연구개발기관별 일자리 창출 계획」) — 가짜 응답이 가리킬 것
+MISSING_PARA ="(2) 주관/공동연구개발기관별"   # 빈 양식에서 아직 어느 묶음에도 안 든 문단(3-4 「(2) 주관/공동연구개발기관별 일자리 창출 계획」) — 가짜 응답이 가리킬 것
 
 def test_llm_missing_review(monkeypatch):
     """묶음 밖 표·문단 요약을 보내고, 답은 보낸 id 만 받아 후보로 돌려준다(확신 순) — 판정만(rev·추가한 자리·계획 그대로), 기록·로그, 답이 없으면 502."""

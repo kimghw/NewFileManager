@@ -35,13 +35,14 @@ from app import heading_calc as HC
 from app import merge_fill as MF
 from app import merge_pairs as P
 from app import merge_tables as MT
+from app import merge_take as TK
 from app.division_profiles.rnd import core
 
 TABLE_MIN, TABLE_GAP, OVERLAP_MIN = 0.70, 0.15, 5   # 표 짝 — 품음 1등 · 2등과의 차 · 겹치는 머리 꼴 수
 CAND_OVERLAP, CAND_MIN, CANDS_MAX = 3, 0.4, 5   # LLM 검토에 보낼 후보 표 — 겹치는 머리 꼴 수 · 품음 · 표마다 후보 수
 TITLE_ROWS = 2   # 느슨한 ㉢ — 문서 제목 줄(표의 첫 두 행)의 체크 칸만
 HEADS = ("heading", "subtitle", "label")
-WHY = ("occupied", "ambiguous", "calc", "org", "year", "shape")   # org·year = 머리는 같은데 다른 기관·다른 차년도의 표 · shape = 이은 표의 칸을 못 맞춤
+WHY = ("occupied", "ambiguous", "calc", "org", "year", "shape", "outside")   # org·year = 머리는 같은데 다른 기관·다른 차년도의 표 · shape = 이은 표의 칸을 못 맞춤 · outside = 「넣을 구성 선택」 에서 고르지 않은 기관·차년도의 표
 _WS = re.compile(r"\s+")
 _WORD = re.compile(r"[0-9A-Za-z가-힣]")
 _PAREN = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
@@ -345,7 +346,7 @@ def _hash(src):
     return hashlib.sha256(json.dumps([MF._hash(src), media], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
-def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=None, skip=()):
+def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=None, skip=(), take=None):
     """고정 자리 넣기 계획(모듈 설명) — 문서를 안 고친다. tables_plan = 같은 차례에 세운 merge_tables.plan(그 칸은 건너뛰고, 계산 칸의 피연산자가 넣은 뒤 무슨 글이 되는지 본다).
     forced = LLM 검토·사람이 정한 표 짝(_table_pairs — merge.json `tables`). 표 줄 = {to, from, score, status, source(script|llm|user), reason, why(맥락이 달라 못 이음 org|year | None),
     title, fromTitle, ctx{org, year}, cands[{from, score, overlap}], cells, skipped, flow}."""
@@ -360,6 +361,10 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
                "title": P._ws(tp["title"])[:P.TEXT_MAX], "fromTitle": P._ws(_title_of(F, ftabs[tp["from"]]))[:P.TEXT_MAX] if tp["from"] else "", "ctx": tp["ctx"], "cands": tp["cands"],
                "format": ((forced or {}).get(tp["to"]) or {}).get("format") or "", "cells": 0, "skipped": 0, "flow": None}
         tables.append(row)
+        if take is not None and not take.ctx(tp["ctx"]):   # 「넣을 구성 선택」(merge_take — spec_병합 ② §4-1)에서 고르지 않은 기관 · 차년도의 표(기관 절 · 차년도 절 안의 표) — 넣지 않는다
+            row.update(status="none", why="outside", reason=TK.OUT, skipped=1)
+            skipped.append({"to": tp["to"], "table": tp["to"], "why": "outside", "detail": TK.OUT})
+            continue
         if tp["to"] in skip:   # 표 대응(merge_table_map)이 통째로 맡은 표 — 칸은 그쪽 계획이 낸다(한 칸을 두 길이 쓰지 않게)
             row["mapped"] = True
             continue

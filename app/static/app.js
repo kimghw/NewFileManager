@@ -1334,7 +1334,7 @@ function linksList(keep = false) { // 2열 「자리 연결 — 연결 목록」
     tr.tabIndex = 0;
     tr.dataset.link = g.id;
     tr.dataset.status = g.status;
-    tds.append(el("span", `dv-badge ${LINK_BADGE[g.status] || ""}`, LINK_STATUS[g.status] || g.status));
+    tds.append(el("span", `dv-badge ${LINK_BADGE[g.status] || ""}`, LINK_STATUS[g.status] || (g.status === "outside" ? "범위 밖" : g.status))); // outside = 「넣을 구성 선택」 에서 고르지 않은 기관 · 단계 · 차년도의 묶음(spec_병합 ② §4-1 — 넣지 않는다 · 셈 글에는 넣지 않는다)
     if (g.source === "user") tds.append(" ", el("span", "dv-badge hinted", "고름")); // 사람이 고르거나 끊은 것 — 다시 내도 유지
     if (g.source === "llm") tds.append(" ", el("span", "dv-badge hinted", "LLM")); // LLM 검토가 이은 것 — 까닭은 도움말(reason), 사람이 바꿀 수 있다
     if (g.reason) tds.title = g.reason;
@@ -1546,7 +1546,7 @@ async function llmGuideOpen(step, docId, q = "") {
 }
 
 // ---- ③ 넣기 계획 → ④ 내용 반영(spec_병합 ② §0-1 · §6 — POST …/merge-links/plan · …/apply). 계획은 문서를 안 바꾸고(2열 「넣기 계획」 에서 확인), 반영은 편집 하나(실행 취소 1)
-const FILL_SKIP = { noSource: "원본 없음", occupied: "이미 글이 있음", tables: "양식 표가 있는 자리 — 표 칸으로", applied: "이미 넣음", changed: "넣은 뒤 원본이 바뀜", shape: "자리를 못 찾음", ambiguous: "기관 이름이 안 맞음", calc: "계산 칸(비워 둠)" };
+const FILL_SKIP = { outside: "고르지 않은 구성", noSource: "원본 없음", occupied: "이미 글이 있음", tables: "양식 표가 있는 자리 — 표 칸으로", applied: "이미 넣음", changed: "넣은 뒤 원본이 바뀜", shape: "자리를 못 찾음", ambiguous: "기관 이름이 안 맞음", calc: "계산 칸(비워 둠)" };
 const FILL_MODE = { fixed: "정해진 자리", append: "이어 넣기" };
 const fillFixedText = (c) => (c ? ` · 같은 이름 자리 — 칸 ${c.cells || 0} · 라벨 내용 ${c.labels || 0}${c.pictures ? `(그림 ${c.pictures})` : ""}${c.flow ? ` · 표 쪽 나눔 맞춤 ${c.flow}` : ""}` : ""); // 고정 자리(spec_병합 ② §5-1) — 서버가 fixed 를 줄 때만
 const fillMapText = (c) => (c && c.tables ? ` · 표 대응 — 표 ${c.tables} · 칸 ${c.cells || 0}${c.lines ? ` · 일정 선 ${c.lines}` : ""}${c.rows ? ` · 행 추가 ${c.rows}` : ""}` : ""); // 표 대응(spec_병합 ② §5-3)이 맡은 표의 몫
@@ -9106,9 +9106,15 @@ function divReset() { // 문서를 열거나 닫을 때(load·closeDoc)
 const divDefault = () => ({ stages: [1], orgs: { lead: "", joint: [], nonprofit: [false] } });
 const divTotalYears = (v) => (v.stages || []).reduce((s, n) => s + (Number(n) || 0), 0);
 
+function divDemand(orgs) { // 수요기업으로 고른 기관(spec_구분_기준 ② §24 — 2026-11-21 사용자 "수요기업 으로 선택할 수 있게 해줘. 주관기관, 참여기관 처럼") → [주관(늘 false), 공동1, …] | null(고른 것이 없음 — 서버 norm_values 처럼 그 열쇠를 두지 않는다)
+  const o = orgs || {}, d = Array.isArray(o.demand) ? o.demand : [];
+  const out = Array.from({ length: (o.joint || []).length + 1 }, (_, i) => i > 0 && !!d[i]);
+  return out.some(Boolean) ? out : null;
+}
 function divValues() { // 서버에 보낼 값(빈 선택 항목은 뺀다)
   const v = dv.values || divDefault();
-  const orgs = { lead: v.orgs.lead || "", joint: [...(v.orgs.joint || [])], nonprofit: [...(v.orgs.nonprofit || [])] };
+  const orgs = { lead: v.orgs.lead || "", joint: [...(v.orgs.joint || [])], nonprofit: [...(v.orgs.nonprofit || [])] }, demand = divDemand(v.orgs);
+  if (demand) orgs.demand = demand;
   for (const k of Object.keys(DV_EXTRA)) if ((v.orgs[k] || []).length) orgs[k] = [...v.orgs[k]];
   const out = { stages: v.stages.map((n) => Number(n) || 1), orgs };
   if (v.period && (v.period.start || v.period.end)) out.period = { start: v.period.start || "", end: v.period.end || "" };
@@ -9151,6 +9157,7 @@ function divRender() {
   const v = dv.values, ok = r.profile.supported;
   v.orgs.joint ||= [];
   v.orgs.nonprofit ||= [];
+  v.orgs.demand = Array.from({ length: v.orgs.joint.length + 1 }, (_, i) => i > 0 && !!(v.orgs.demand || [])[i]); // 수요기업으로 고른 기관 — 기관 수에 맞춘다(보낼 때는 고른 것이 있을 때만: divDemand)
   v.period ||= { start: "", end: "" };
   box.setAttribute("aria-busy", String(dv.busy));
 
@@ -9224,7 +9231,7 @@ function divRender() {
 
   const orgs = el("section", "dv-card");
   orgs.dataset.dv = "org";
-  orgs.append(sectionHead("2", "기관 구성", "참여 기관과 비영리 여부를 입력하세요.\n이름을 쓰고 Enter 를 치면 바로 아래에 공동기관이 추가됩니다. 이름을 비우면 ‘주관기관(미입력)’, ‘참여기관1’처럼 표시됩니다.", "divOrgCount"));
+  orgs.append(sectionHead("2", "기관 구성", "참여 기관과 비영리 여부를 입력하세요.\n이름을 쓰고 Enter 를 치면 바로 아래에 공동기관이 추가됩니다. 이름을 비우면 ‘주관기관(미입력)’, ‘참여기관1’처럼 표시됩니다.\n수요기업으로 참여하는 공동기관은 「수요기업」 에 체크하세요 — 그 기관의 제목은 「공동연구개발기관N-수요기업(이름)」, 표지의 「역할」 칸은 「수요」 로 적습니다.", "divOrgCount"));
   const orgList = el("div", "dv-org-list");
   const orgLine = (index, name) => {
     const role = index === 0 ? "주관기관" : "공동기관 " + index;
@@ -9240,7 +9247,7 @@ function divRender() {
       const next = $("divBox").querySelectorAll(".dv-org-field input")[index + 1];
       if ((next && !next.value.trim()) || !inp.value.trim() || v.orgs.joint.length >= 20) { next?.focus(); return; }
       while (v.orgs.nonprofit.length <= index) v.orgs.nonprofit.push(false);
-      v.orgs.joint.splice(index, 0, ""); v.orgs.nonprofit.splice(index + 1, 0, false); divTouched(); divRender();
+      v.orgs.joint.splice(index, 0, ""); v.orgs.nonprofit.splice(index + 1, 0, false); v.orgs.demand.splice(index + 1, 0, false); divTouched(); divRender();
       $("divBox").querySelectorAll(".dv-org-field input")[index + 1]?.focus();
     };
     label.append(inp);
@@ -9248,9 +9255,17 @@ function divRender() {
     cb.setAttribute("aria-label", role + " 비영리");
     cb.onchange = () => { v.orgs.nonprofit[index] = cb.checked; divTouched(); };
     lab.append(cb, "비영리"); lab.title = "비영리기관 현황에 포함하고 기업 현황에서는 제외합니다.";
-    row.append(label, lab);
+    // 「수요기업」 체크(spec_구분_기준 ② §24 — 2026-11-21 사용자 "구분기준.. 기관넣을때. 수요기업 체크하도록 하면되잖아"): 공동기관 줄에만 · 「비영리」 앞. 주관 줄에는 같은 폭의 빈 자리만 둔다(이름 칸의 오른끝이 줄마다 같게)
+    const dlab = el("label", "dv-demand" + (v.orgs.demand[index] ? " is-on" : "")), dcb = el("input"); dcb.type = "checkbox"; dcb.checked = !!v.orgs.demand[index];
+    dcb.setAttribute("aria-label", role + " 수요기업");
+    dcb.onchange = () => { v.orgs.demand[index] = dcb.checked; dlab.classList.toggle("is-on", dcb.checked); divTouched(); };
+    dlab.append(dcb, "수요기업");
+    dlab.title = "수요기업으로 참여하는 공동기관이면 체크하세요.\n제목을 「공동연구개발기관" + (index || "N") + "-수요기업(이름)」 으로, 표지의 「역할」 칸을 「수요」 로 적습니다 — 문서에 그렇게 적힌 기관은 「문서에서 추출」 이 저절로 체크합니다.";
+    if (index === 0) { dlab.classList.add("is-none"); dlab.setAttribute("aria-hidden", "true"); dcb.disabled = true; dcb.tabIndex = -1; }
+    const flags = el("span", "dv-org-flags"); flags.append(dlab, lab);
+    row.append(label, flags);
     if (index > 0) row.append(hBtn("×", () => {
-      v.orgs.joint.splice(index - 1, 1); v.orgs.nonprofit.splice(index, 1); divTouched(); divRender();
+      v.orgs.joint.splice(index - 1, 1); v.orgs.nonprofit.splice(index, 1); v.orgs.demand.splice(index, 1); divTouched(); divRender();
       $("divBox").querySelectorAll(".dv-org-field input")[Math.min(index, v.orgs.joint.length)]?.focus();
     }, { cls: "dv-remove", title: role + " 삭제" }));
     return row;
@@ -9471,7 +9486,11 @@ function divReadApply(got, from) { // 읽은 값(…/divisions/read 꼴) → 입
   if (got.subs && got.subs.length) { v.subs = got.subs; names.push("세부과제"); }
   const o = got.orgs || {};
   if (o.lead != null) { v.orgs.lead = o.lead; names.push("주관"); }
-  if (o.joint) { v.orgs.joint = o.joint; names.push(`공동 ${o.joint.length}곳`); }
+  if (o.joint) { // 공동 목록이 바뀌면 수요기업 표시도 읽은 것으로(없으면 비움 — 옛 목록의 자리에 남지 않게: spec_구분_기준 ② §24)
+    v.orgs.joint = o.joint; v.orgs.demand = Array.isArray(o.demand) ? o.demand : [];
+    const dm = v.orgs.demand.filter(Boolean).length;
+    names.push(`공동 ${o.joint.length}곳${dm ? `(수요기업 ${dm}곳)` : ""}`);
+  }
   if (o.nonprofit) { v.orgs.nonprofit = o.nonprofit; names.push("비영리"); }
   for (const k of Object.keys(DV_EXTRA)) if (o[k] && o[k].length) { v.orgs[k] = o[k]; names.push(`${DV_EXTRA[k]} ${o[k].length}곳`); }
   if (names.length) dv.preset.from = `${from}에서 추출`;
@@ -9490,7 +9509,7 @@ function divValuesText(v) { // 「1단계(1–4차년도) · 주관 한국선급
   if (!v) return "";
   let start = 1;
   const stages = (v.stages || []).map((n, i) => { const y = Number(n) || 1, s = `${i + 1}단계(${y === 1 ? start : `${start}–${start + y - 1}`}차년도)`; start += y; return s; });
-  const orgs = v.orgs || {}, joint = (orgs.joint || []).map((n, i) => n || `참여기관${i + 1}`);
+  const orgs = v.orgs || {}, dm = orgs.demand || [], joint = (orgs.joint || []).map((n, i) => (n || `참여기관${i + 1}`) + (dm[i + 1] ? "(수요기업)" : "")); // 수요기업으로 고른 기관은 이름 뒤에 적는다(spec_구분_기준 ② §24)
   return `${stages.join(" · ")} · 주관 ${orgs.lead || "미입력"} · 공동 ${joint.length}${joint.length ? `(${joint.join(" · ")})` : ""}`;
 }
 async function divConfirm(opt = {}) { // 지금 입력 값을 확정(POST …/divisions/confirm) → 됐으면 true
@@ -9521,13 +9540,14 @@ function divConfirmRevert(cf) { // 「확정본으로 되돌리기」 — 입력
 }
 
 // ---- 저장한 과제 구성(spec_구분_기준 ② §0 용어 · §7 presets · §8 「저장한 과제 구성」, 2026-11-11 astra 안 1) — 설정 맨 위 두 줄 + ⋯ 셋째 줄 · 이름·삭제 확인은 인라인(모달 금지)
-const DV_CANON_KEYS = ["current", "end", "entrust", "joint", "lead", "nonprofit", "orgs", "outside", "overseas", "period", "stages", "start", "subs"]; // JSON.stringify 의 키 목록 = 키 차례 고정
+const DV_CANON_KEYS = ["current", "demand", "end", "entrust", "joint", "lead", "nonprofit", "orgs", "outside", "overseas", "period", "stages", "start", "subs"]; // JSON.stringify 의 키 목록 = 키 차례 고정
 function divCanon(v) { // 서버 norm_values 가 내는 꼴과 같게 정리해 글로 — 저장본(프로젝트 구분 기준)·작업 설정과 견준다(키 정렬·빈칸 정리·비영리 수 맞춤·기본값)
   v = v || {};
   const o = v.orgs || {}, names = (xs) => (Array.isArray(xs) ? xs : []).map((s) => String(s ?? "").trim());
   const stages = (v.stages || []).map((n) => Number(n) || 1), joint = names(o.joint), total = stages.reduce((a, b) => a + b, 0);
   const nonprofit = (Array.isArray(o.nonprofit) ? o.nonprofit : []).map(Boolean).concat(Array(joint.length + 1).fill(false)).slice(0, joint.length + 1);
-  const out = { stages, orgs: { lead: String(o.lead || "").trim(), joint, nonprofit, outside: names(o.outside), overseas: names(o.overseas), entrust: names(o.entrust) },
+  const demand = divDemand({ joint, demand: o.demand }); // 수요기업으로 고른 기관 — 고른 것이 있을 때만(서버 norm_values 와 같게: 옛 값의 글이 달라지지 않는다)
+  const out = { stages, orgs: { lead: String(o.lead || "").trim(), joint, nonprofit, ...(demand ? { demand } : {}), outside: names(o.outside), overseas: names(o.overseas), entrust: names(o.entrust) },
     subs: names(v.subs), current: Math.max(1, Math.min(Number(v.current) || 1, total || 1)) };
   if (v.period && (v.period.start || v.period.end)) out.period = { start: v.period.start || "", end: v.period.end || "" };
   return JSON.stringify(out, DV_CANON_KEYS);

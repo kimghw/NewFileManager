@@ -14,7 +14,9 @@
 - ⑦ 좁은 폭(400px)에서 /workflow 의 저장한 양식 절 · 문서 칸이 가로로 넘치지 않음.
 - ⑧ 그 칸에서 바로 양식 올리기(② §18-9 「그 칸에서 올리기」) — 저장한 양식이 없으면 꺼진 고르기 둘 대신 「양식 올리기…」 만 → 올리면 저장한 양식(문서 종류 = 그 칸의 종류)이 되고 그 칸에 걸림(조립 폼 = 골라 둠 · 워크플로우 절 = 서버 설정) ·
   받지 않는 형식은 올리지 않고 까닭.
-- ⑨ 조립 폼(새 워크플로우 · 이관 「1 → N」)의 목적 문서 칸 「N」 에도 양식 고르기 · 「양식 올리기…」 → 「기본값」 으로 골라 만들면 만든 워크플로우의 목적 칸에 걸림 · 콘솔 오류 없음."""
+- ⑨ 조립 폼(새 워크플로우 · 이관 「1 → N」)의 목적 문서 칸 「N」 에도 양식 고르기 · 「양식 올리기…」 → 「기본값」 으로 골라 만들면 만든 워크플로우의 목적 칸에 걸림 · 콘솔 오류 없음.
+- 「웹에서 직접 올림」 체크 박스(② §18-9 — 2026-11-21): 설정이 없는 칸은 켜짐(고르기 · 「양식 올리기…」 숨음) · 끄면 걸 수 있는 처음 양식이 기본값으로(워크플로우 절 = 바로 저장) / 걸 양식이 없으면 「양식 올리기…」 만 —
+  ②(워크플로우 절) · ⑥b · ⑧ · ⑨(조립 폼) 에서 끄고 쓴다 · ⑩ 원본 칸에 다른 종류의 양식을 올려 거절 글 → 켜면 거절 글 · 고르기 · 단추가 숨고 만든 워크플로우의 원본 칸은 설정 없음."""
 import argparse
 import json
 import os
@@ -136,13 +138,17 @@ def main():
         page.locator("#wfViewList").click()
         page.wait_for_selector("section#plan_to_report .wf-slots")
         sl = page.evaluate("""() => { const box = (j) => document.querySelector(`section#${j} .wf-slots`), rows = (j) => [...box(j).querySelectorAll('.wf-slot')].map((li) => [li.dataset.role, li.textContent]);
-          const sel = (j, n) => box(j).querySelector(`select[name="slot-${n}-${j}"]`);
+          const sel = (j, n) => box(j).querySelector(`select[name="slot-${n}-${j}"]`), web = (j, tail) => box(j).querySelector(`input[name="slot-web-${j}${tail}"]`), vis = (e) => !!e && e.getClientRects().length > 0;
           return { relay: rows('plan_to_report'), modes: [...sel('plan_to_report', 'mode').options].map((o) => o.textContent), forms: [...sel('plan_to_report', 'form').options].map((o) => o.value),
             srcOff: box('plan_to_report').querySelector('select[name="slot-mode-plan_to_report-source"]').disabled,
+            webs: [web('plan_to_report', '-source').checked, web('plan_to_report', '').checked, web('plan_merge', '').checked], shown: vis(sel('plan_to_report', 'mode')) || vis(box('plan_to_report').querySelector('.wf-slot-up button')),
             merge: rows('plan_merge'), mergeOff: sel('plan_merge', 'mode').disabled, copy: box('style_copy') ? box('style_copy').textContent : '' }; }""")
-        check("② 문서 칸 — 이관: 원본 문서(수가 1 — 「양식: …」 · 사업계획서 양식이 없어 꺼짐) → 목적 문서(「양식: 없음 · 기본값 · 고정」 + 이 양식) / 취합: 기관 문서 = 문서마다 사람이 넣음 · 목적 = 걸 수 있는 양식이 없음(꺼짐) / 서식 복사: 서버의 까닭 글",
-              [r for r, _ in sl["relay"]] == ["source", "target"] and "사업계획서 양식을 올리세요" in sl["relay"][0][1] and sl["srcOff"] and sl["modes"] == ["양식: 없음", "양식: 기본값", "양식: 고정"]
-              and sl["forms"] == [fid] and "문서마다 사람이 넣습니다" in sl["merge"][0][1] and "걸 수 있는 양식이 없습니다" in sl["merge"][-1][1] and sl["mergeOff"] and "내용을 받는 문서가 아니라" in sl["copy"], sl)
+        check("② 문서 칸 — 설정이 없는 칸은 「웹에서 직접 올림」 켜짐(고르기 · 「양식 올리기…」 숨음 · 「사용자가 웹에서 … 직접 올립니다」) — 이관: 원본(사업계획서 양식이 없어 고르기 꺼짐) → 목적(「양식: 기본값 · 고정」 + 이 양식) / 취합: 기관 문서 = 문서마다 사람이 넣음 / 서식 복사: 서버의 까닭 글",
+              [r for r, _ in sl["relay"]] == ["source", "target"] and "웹에서 원본 문서를 직접 올립니다" in sl["relay"][0][1] and sl["srcOff"] and sl["modes"] == ["양식: 기본값", "양식: 고정"] and sl["webs"] == [True, True, True] and not sl["shown"]
+              and sl["forms"] == [fid] and "문서마다 사람이 넣습니다" in sl["merge"][0][1] and "웹에서 목적 문서를 직접 올립니다" in sl["merge"][-1][1] and sl["mergeOff"] and "내용을 받는 문서가 아니라" in sl["copy"], sl)
+        page.click(f'section#{JOB} input[name="slot-web-{JOB}"]')   # 끄면 걸 수 있는 처음 양식이 기본값으로 걸린다(고르는 즉시 저장 → 다시 그림)
+        page.wait_for_function("(s) => { const m = document.querySelector(s), li = m && m.closest('.wf-slot'); return !!m && m.getClientRects().length > 0 && m.value === 'default' && !m.disabled && /^✓ 저장됨/.test((li.querySelector('.wf-slot-saved') || {}).textContent || ''); }", arg=f'section#{JOB} select[name="slot-mode-{JOB}"]', timeout=30000)
+        check("② 「웹에서 직접 올림」 을 끄면 그 칸에 처음 양식이 「기본값」 으로 걸림(서버 설정)", forms()["slots"].get(JOB, {}).get("target") == {"file": fid, "mode": "default"}, forms()["slots"])
         page.select_option(f'section#{JOB} select[name="slot-mode-{JOB}"]', "fixed")
         page.wait_for_selector("#wfForms .wf-ff-row a[data-use=fixed]", timeout=30000)
         used = page.evaluate("""() => { const r = document.querySelector('#wfForms .wf-ff-row'); return { chip: r.querySelector('a[data-use]').textContent, del: r.querySelector('button').disabled, kind: r.querySelector('select').disabled,
@@ -256,9 +262,9 @@ def main():
         pid = ff[1]["id"] if len(ff) > 1 else ""
         sel_src = f'section#{JOB} select[name="slot-mode-{JOB}-source"]'
         page.locator("#wfViewList").click()
-        page.wait_for_selector(f"{sel_src}:not([disabled])", timeout=30000)
-        page.select_option(sel_src, "default")
-        page.wait_for_function("(s) => { const x = document.querySelector(s); return !!x && x.value === 'default' && !x.disabled; }", arg=sel_src, timeout=30000)
+        page.wait_for_selector(f"{sel_src}:not([disabled])", state="attached", timeout=30000)
+        page.click(f'section#{JOB} input[name="slot-web-{JOB}-source"]')   # 「웹에서 직접 올림」 을 끄면 처음 양식(사업계획서 양식)이 기본값으로 걸린다(고르는 즉시 저장 → 다시 그림)
+        page.wait_for_function("(s) => { const x = document.querySelector(s), li = x && x.closest('.wf-slot'); return !!x && x.getClientRects().length > 0 && x.value === 'default' && !x.disabled && /^✓ 저장됨/.test((li.querySelector('.wf-slot-saved') || {}).textContent || ''); }", arg=sel_src, timeout=30000)
         ss = forms()["slots"].get(JOB, {})
         check("⑥b /workflow 문서 칸 — 원본 칸에 「양식: 기본값」 + 사업계획서 양식 → 서버 설정(원본 칸 · 목적 칸은 고정 그대로)",
               ss.get("source") == {"file": pid, "mode": "default"} and (ss.get("target") or {}).get("mode") == "fixed", ss)
@@ -315,13 +321,18 @@ def main():
         page.wait_for_selector("#wfCompose [data-wf-compose=open]", timeout=30000)
         page.locator("#wfCompose [data-wf-compose=open]").click()
         SRC = "#wfCompose .wf-io-slots li[data-role=source]"
-        page.wait_for_selector(f"{SRC} button[name=draft-up-source]", timeout=30000)
-        PICK = """(s) => { const li = document.querySelector(s), vis = (e) => !!e && e.getClientRects().length > 0, q = (x) => li.querySelector(x), m = q('select[name*=-mode-]'), f = q('select[name*=-form-]'), u = q('.wf-slot-up button');
+        page.wait_for_selector(f"{SRC} input[name=draft-web-source]", timeout=30000)   # 처음에는 「웹에서 직접 올림」 이 켜져 「양식 올리기…」 는 숨어 있다
+        PICK = """(s) => { const li = document.querySelector(s), vis = (e) => !!e && e.getClientRects().length > 0, q = (x) => li.querySelector(x), m = q('select[name*=-mode-]'), f = q('select[name*=-form-]'), u = q('.wf-slot-up button'), w = q('.wf-slot-web input');
           return { mode: vis(m), form: vis(f), up: vis(u), upOff: !u || u.disabled, upText: u ? u.textContent : '', modeVal: m ? m.value : null, modeOff: !m || m.disabled, formVal: f ? f.value : null, formOff: !f || f.disabled,
-            err: (q('.wf-slot-up .wf-slot-err') || {}).textContent || '', note: (q('.wf-slot-pick > .wf-muted') || {}).textContent || '', rows: document.querySelectorAll('#wfForms .wf-ff-row').length }; }"""
+            web: w ? w.checked : null, webVis: vis(w), webText: (q('.wf-slot-web') || {}).textContent || '',
+            err: vis(q('.wf-slot-up .wf-slot-err')) ? q('.wf-slot-up .wf-slot-err').textContent : '', note: (q('.wf-slot-pick > .wf-muted') || {}).textContent || '', rows: document.querySelectorAll('#wfForms .wf-ff-row').length }; }"""
+        d00 = page.evaluate(PICK, SRC)
+        check("⑧ 조립 폼(새 워크플로우)의 원본 칸 — 처음에는 「웹에서 직접 올림」 켜짐(고르기 · 「양식 올리기…」 숨음)",
+              d00["web"] is True and d00["webVis"] and d00["webText"] == "웹에서 직접 올림" and not d00["mode"] and not d00["form"] and not d00["up"], d00)
+        page.click(f"{SRC} input[name=draft-web-source]")
         d0 = page.evaluate(PICK, SRC)
-        check("⑧ 저장한 양식이 없을 때 — 조립 폼의 원본 칸: 꺼진 고르기 둘은 안 보이고 「양식 올리기…」 만(켜짐)",
-              not forms()["files"] and not d0["mode"] and not d0["form"] and d0["up"] and not d0["upOff"] and d0["upText"] == "양식 올리기…", d0)
+        check("⑧ 저장한 양식이 없을 때 — 「웹에서 직접 올림」 을 끄면: 꺼진 고르기 둘은 안 보이고 「양식 올리기…」 만(켜짐)",
+              not forms()["files"] and d0["web"] is False and not d0["mode"] and not d0["form"] and d0["up"] and not d0["upOff"] and d0["upText"] == "양식 올리기…", d0)
         page.screenshot(path=str(OUT / "08_slot_upload_empty.png"))
         page.locator(f"{SRC} input[type=file]").set_input_files(str(PLAN))
         page.wait_for_function("(s) => { const m = document.querySelector(s + ' select[name=draft-mode-source]'); return !!m && !m.hidden && m.value === 'default'; }", arg=SRC, timeout=60000)
@@ -332,10 +343,13 @@ def main():
         page.screenshot(path=str(OUT / "08_slot_upload_done.png"))
         page.locator("#wfViewList").click()
         TGT = f"section#{JOB} .wf-slots .wf-slot[data-role=target]"
-        page.wait_for_selector(f'{TGT} button[name="slot-up-{JOB}"]', timeout=30000)
+        page.wait_for_selector(f'{TGT} input[name="slot-web-{JOB}"]', timeout=30000)
+        page.click(f'{TGT} input[name="slot-web-{JOB}"]')   # 걸 양식이 없는 칸에서 끄면 저장할 것 없이 「양식 올리기…」 만 보인다
+        page.wait_for_selector(f'{TGT} button[name="slot-up-{JOB}"]', state="visible", timeout=30000)
         l0, ls = page.evaluate(PICK, TGT), page.evaluate(PICK, f"section#{JOB} .wf-slots .wf-slot[data-role=source]")
-        check("⑧ 워크플로우 절의 「문서 칸」 — 목적 칸(연차보고서 양식 없음): 고르기 둘은 안 보이고 「양식 올리기…」 + 까닭 글 / 원본 칸(방금 올린 사업계획서 양식): 고르기 켜짐",
-              not l0["mode"] and not l0["form"] and l0["up"] and not l0["upOff"] and "「양식 올리기…」 로" in l0["note"] and "연차보고서 양식을 올리세요" in l0["note"] and ls["mode"] and not ls["modeOff"] and ls["modeVal"] == "", [l0, ls])
+        check("⑧ 워크플로우 절의 「문서 칸」 — 목적 칸(연차보고서 양식 없음): 「웹에서 직접 올림」 을 끄면 고르기 둘은 안 보이고 「양식 올리기…」 + 까닭 글 · 서버 설정은 그대로 없음 / 원본 칸(사업계획서 양식이 있지만 설정 없음): 「웹에서 직접 올림」 켜짐",
+              l0["web"] is False and not l0["mode"] and not l0["form"] and l0["up"] and not l0["upOff"] and "「양식 올리기…」 로" in l0["note"] and "연차보고서 양식을 올리세요" in l0["note"]
+              and not forms()["slots"].get(JOB, {}).get("target") and ls["web"] is True and not ls["mode"] and "직접 올립니다" in ls["note"], [l0, ls])
         page.locator(f"{TGT} input[type=file]").set_input_files(str(REPORT))
         page.wait_for_function("(s) => { const m = document.querySelector(s + ' select[name*=-mode-]'); return !!m && !m.hidden && m.value === 'default' && !m.disabled; }", arg=TGT, timeout=60000)
         f9, l1, st8 = forms()["files"], page.evaluate(PICK, TGT), forms()["slots"].get(JOB, {})
@@ -354,13 +368,28 @@ def main():
         page.wait_for_selector("#wfCompose [data-wf-compose=open]", timeout=30000)
         page.locator("#wfCompose [data-wf-compose=open]").click()
         DT = "#wfCompose .wf-io-slots li[data-role=target]"
-        page.wait_for_selector(f"{DT} button[name=draft-up-target]", timeout=30000)
+        page.wait_for_selector(f"{DT} input[name=draft-web-target]", timeout=30000)
+        tw0 = page.evaluate(PICK, DT)
+        page.click(f"{DT} input[name=draft-web-target]")
         t0 = page.evaluate(PICK, DT)
         t0["count"] = page.evaluate("(s) => document.querySelector(s + ' .wf-io-count').textContent", DT)
         t0["opts"] = page.evaluate("(s) => [...document.querySelector(s + ' select[name=draft-form-target]').options].map((o) => o.value)", DT)
-        check("⑨ 조립 폼(새 워크플로우 · 「1 → N」)의 목적 문서 칸 「N」 — 「양식: 없음」 고르기 + 걸 수 있는 양식(연차보고서 양식만) + 「양식 올리기…」(켜짐)",
-              t0["count"] == "N" and t0["mode"] and t0["modeVal"] == "" and not t0["modeOff"] and t0["form"] and t0["formOff"] and t0["opts"] == [rid] and t0["up"] and not t0["upOff"] and t0["upText"] == "양식 올리기…", t0)
-        page.select_option(f"{DT} select[name=draft-mode-target]", "default")
+        check("⑨ 조립 폼(새 워크플로우 · 「1 → N」)의 목적 문서 칸 「N」 — 처음 「웹에서 직접 올림」 켜짐 → 끄면 「양식: 기본값」 + 걸 수 있는 양식(연차보고서 양식만 · 골라짐) + 「양식 올리기…」(켜짐)",
+              tw0["web"] is True and not tw0["mode"] and not tw0["up"] and t0["web"] is False and t0["count"] == "N" and t0["mode"] and t0["modeVal"] == "default" and not t0["modeOff"] and t0["form"] and not t0["formOff"] and t0["formVal"] == rid
+              and t0["opts"] == [rid] and t0["up"] and not t0["upOff"] and t0["upText"] == "양식 올리기…", [tw0, t0])
+        # ⑩ 처음 보내 준 장면(2026-11-21 사용자 — 원본 문서 칸에 연차보고서 양식을 올려 「… 이미 있어 이 칸에 걸 수 없습니다」 를 보이며 "이거는 웹에서 사용자가 직접 올리도록 하는 체크 박스를 넣어줘"):
+        #    같은 폼의 원본 칸 — 끄고 연차보고서 양식을 올리면 거절 글 → 「웹에서 직접 올림」 을 켜면 거절 글 · 고르기 · 단추가 숨고 그 칸은 양식 없음(만들어도 원본 칸 설정 없음 — 아래 st9)
+        DS = "#wfCompose .wf-io-slots li[data-role=source]"
+        page.click(f"{DS} input[name=draft-web-source]")
+        page.locator(f"{DS} input[type=file]").set_input_files(str(REPORT))
+        page.wait_for_function("(s) => /이 칸에 걸 수 없습니다/.test((document.querySelector(s + ' .wf-slot-up .wf-slot-err') || {}).textContent || '')", arg=DS, timeout=60000)
+        s10a = page.evaluate(PICK, DS)
+        page.screenshot(path=str(OUT / "10_source_reject.png"))
+        page.click(f"{DS} input[name=draft-web-source]")
+        s10b = page.evaluate(PICK, DS)
+        page.screenshot(path=str(OUT / "10_source_web.png"))
+        check("⑩ 원본 칸에 다른 종류의 양식(연차보고서)을 올리면 거절 글 → 「웹에서 직접 올림」 을 켜면 거절 글 · 고르기 · 「양식 올리기…」 가 숨음",
+              s10a["web"] is False and "이 칸에 걸 수 없습니다" in s10a["err"] and s10b["web"] is True and not s10b["err"] and not s10b["mode"] and not s10b["up"], [s10a, s10b])
         page.fill("#wfCompose input[name=name]", "목적 양식 워크플로우")
         page.screenshot(path=str(OUT / "09_draft_target_form.png"))
         page.click("#wfCompose form button[type=submit]")

@@ -112,10 +112,13 @@ function dsTidyOpen() { // 서식의 LLM · 반영 칸 — 계획이 남은 첫 
 // 둘째 면(같이 보기) 머리의 표시도 누를 수 있다(2026-11-19 spec_작업 ② §12 「도구는 문서마다」 — 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로" · 이름 줄 "이 행도 … 요청사항과 맞게"):
 // 누르면 도구를 그 문서로 바꾸고(app.js toolDocSet — 두 면이 문서를 바꿈 · 보던 곳 그대로) 첫째 면에서와 같은 곳으로(진행표 · 구분 기준 검토)
 const dsPeerGo = () => !PEEK && typeof toolDocSet === "function" && !!dsState.peerId;
+// 마우스로 누른 표시 · ▾ 는 초점을 남기지 않는다(2026-11-21 사용자 — 「표 ✓」 둘레에 남은 파란 테를 보며 "이건 필요가 없어 보이는데" → 답 「파란 테두리만」): 누른 뒤 Esc 로 진행표를 닫으면
+// 브라우저가 그 단추에 초점 테(:focus-visible)를 그렸다. 글쇠로 누른 것(Enter · Space — detail 0)은 초점 그대로 — Tab 으로 다닐 때의 초점 테는 남는다
+const dsUnfocus = (e) => { if (e.detail && e.currentTarget && e.currentTarget.blur) e.currentTarget.blur(); };
 function dsChipEl(c, main) {
   const go = !!c.go && (main || dsPeerGo());
   const b = el(go ? "button" : "span", `ds-chip ${c.cls || ""}${c.opt ? " ds-opt" : ""}`);
-  if (go) { b.type = "button"; b.dataset.go = c.go; b.onclick = (e) => { e.stopPropagation(); if (main) dsGo(c.go); else toolDocSet(dsState.peerId, () => dsGo(c.go)); }; }
+  if (go) { b.type = "button"; b.dataset.go = c.go; b.onclick = (e) => { e.stopPropagation(); dsUnfocus(e); if (main) dsGo(c.go); else toolDocSet(dsState.peerId, () => dsGo(c.go)); }; }
   if (c.spin) b.append(el("i", "ds-spin"));
   b.append(el("span", "ds-text", c.text));
   if (c.mark) b.append(el("span", "ds-mark", c.mark));
@@ -153,7 +156,7 @@ function dsDraw(which) {
     b.setAttribute("aria-expanded", dsTableOpen() ? "true" : "false");
     b.setAttribute("aria-controls", "dsTable");
     b.title = "분석 진행표 — 헤딩 · 템플릿 · 서식 · 표가 스크립트 · LLM 검증·보완 · 문서 반영 가운데 어디까지 됐는지";
-    b.onclick = (e) => { e.stopPropagation(); dsTableToggle(); };
+    b.onclick = (e) => { e.stopPropagation(); dsUnfocus(e); dsTableToggle(); };
     kids.push(b);
   }
   if (run) {

@@ -667,7 +667,7 @@ def test_workflow_wide_lines_stand_in_one_column_and_every_checked_definition_as
     그리고 조립 검사가 통과시킨 정의는 모두 지어진다 — 「LLM 검증·보완」 을 「헤딩 · 표 분석」 이 없는 문서에 놓은 정의가 저장된 뒤 목록 · /workflow 를 500 으로 만들던 것(KeyError)의 되풀이 막이."""
     from app import custom_tasks_api as A
     from app import workflow
-    assert {u["key"]: u.get("col") for u in A.units() if u["place"] == "flow"} == {"configLoad": "target", "config": "source"}
+    assert {u["key"]: u.get("col") for u in A.units() if u["place"] == "flow"} == {"configLoad": "target", "config": "source", "take": "target"}   # take = 「넣을 구성 선택」(조립에 놓는 도구 — 목적 문서 칸)
     assert {u["key"]: u.get("col") for u in A.gather_units()[0] if u["place"] == "flow"} == {"config": "target"} and all("col" not in u for u in A.units() if u["place"] != "flow")
     assert (C.col_of("config"), C.col_of("configLoad"), C.col_of("config", "gather")) == ("source", "target", "target")
     std = C.flow_of(_c({"source": ["stage_review"], "target": list(C.STAGES), "llm": ["source"]}))

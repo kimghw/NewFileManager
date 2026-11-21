@@ -1,13 +1,15 @@
 """워크플로우 실행의 끝점(spec_워크플로우 ② §17-5 「끝점」) — 실행기는 app/workflow_exec.py, 상태 셈은 app/workflow_state.py. `attach(app, unit)` 한 번으로 8114 의 라우터에 붙는다(새 포트 없음 — server 를 import 하지 않는다).
 
 `wid` = 그 묶음(프로젝트 · 워크플로우 · 라운드)의 **어느 문서든** — 서버가 목적 문서를 찾는다. 첫 화면의 대시보드와 문서 화면의 대시보드가 같은 끝점을 읽는다(spec_작업에이전트 ② §10 「첫 화면의 대시보드」).
-- `GET /api/works/{wid}/flow` → 지금 상태 {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[{key, name, st, done, skipped, busy, text, per?, paid?}] | null, total, done, left, can, why, paid, change}], run, last}
-  — `server: false` 인 묶음은 `steps: null`(화면이 센다). 404 = 그런 작업 없음.
+- `GET /api/works/{wid}/flow` → 지금 상태 {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[{key, name, st, done, skipped, busy, text, per?, paid?}] | null, total, done, left, can, why, paid, change,
+  solo?[{role, title, name, total, left, can, why, paid, change}](「한 문서만 진행」 — 그 묶음에서 그 문서만 따로 돌 수 있는 몫: ② §18-21 · 묶음 전체와 같으면 없음), leftBy?{역할: 그 문서의 눈으로 본 남은 줄}}], llmSkip[문서 id], run, last}
+  — `server: false` 인 묶음은 `steps: null`(화면이 센다). 404 = 그런 작업 없음. llmSkip = 사람이 「LLM 검증·보완」 을 건너뛴 문서(화면이 「건너뛰기 취소」 를 그 문서에만 보인다).
 - `GET /api/works/{wid}/flow/live?screen=&dirty=` → {run | null, notice | null, rev | null} — 메모리만(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링 · 고치던 글 보고 · 울타리 알림 — ② §17-8).
-- `POST /api/works/{wid}/flow/runs` {from, to?, only?, redo?, skill?, skip?[구조 반영에서 뺄 자리 key — 화면의 「반영에서 빼기」 · LLM 「건너뛰기」 와 다르다], by?, where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}} → 202 {run} | 409 {reason, message, run?} | 400 ·
+- `POST /api/works/{wid}/flow/runs` {from, to?, only?, role?(source | target — 한 문서만: 409 reason `role` = 그 묶음에 그 문서만 따로 할 것이 없음), redo?, skill?, skip?[구조 반영에서 뺄 자리 key — 화면의 「반영에서 빼기」 · LLM 「건너뛰기」 와 다르다], by?, where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}} → 202 {run} | 409 {reason, message, run?} | 400 ·
   **200 {run: null, reason: "client", message}** = 서버가 아직 맡지 않는 묶음(또는 끄는 스위치) — 거절이 아니라 「화면이 돈다」 는 답(화면이 묶음마다 먼저 묻는다).
 - `GET …/flow/runs?limit=` → {runs[요약 — 새 것부터]} · `GET …/flow/runs/{n}` → 기록 하나 · `POST …/flow/runs/{n}/stop` → {stopping}(어느 화면에서나 · 409 = 도는 실행이 없음).
 - `PUT …/flow/skip` {doc, on} → {llmSkip[문서 id]} — 「LLM 검증·보완」 의 건너뛰기 · 건너뛰기 취소(워크플로우 옵션 — 모든 화면 · 실행이 같이 본다).
+- `GET · PUT …/flow/take` → 「넣을 구성 선택」(spec_병합 ② §4-1): {take(넣을 기관 · 단계 · 차년도 | null = 전부), text, year(대상 차년도 = 목적 문서의 당해 차년도), yearApplied, choices, ready, why} · PUT {take?, year?}.
 - `GET /api/flow/active` → {runs[도는 실행]} — 8114 를 다시 켜기 전에 본다."""
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
@@ -94,6 +96,26 @@ def flow_skip(wid: str, body: dict = Body(...)):
     if not got.ok:
         raise HTTPException(404 if got.code == "missing" else 409, got.text)
     return {"llmSkip": got.data}
+
+
+@router.get("/api/works/{wid}/flow/take")
+def flow_take_get(wid: str):
+    """「넣을 구성 선택」 — 지금 고른 것(넣을 기관 · 단계 · 차년도 | 전부) · 대상 차년도(목적 문서의 당해 차년도) · 고를 수 있는 값(spec_병합 ② §4-1)."""
+    got = X.UNIT.take_get(_target(wid))
+    if not got.ok:
+        raise HTTPException(404 if got.code == "missing" else 409, got.text or "넣을 구성을 읽지 못했습니다")
+    return got.data
+
+
+@router.put("/api/works/{wid}/flow/take")
+def flow_take_put(wid: str, body: dict = Body(...)):
+    """{take?: {org?, stage?, year?} | null(전부), year?: 대상 차년도} → 다시 읽은 보기. 도는 실행이 있으면 409(그 실행의 계획이 낡는다)."""
+    if X.busy_text(wid):
+        raise HTTPException(409, X.BUSY_TEXT)
+    got = X.UNIT.take_set(_target(wid), body)
+    if not got.ok:
+        raise HTTPException({"invalid": 400, "missing": 404}.get(got.code, 409), got.text or "넣을 구성을 적지 못했습니다")
+    return got.data
 
 
 @router.get("/api/flow/active")

@@ -881,3 +881,73 @@ def test_a_line_button_runs_that_line_only_unless_the_whole_turn_is_asked(fake, 
     X.start("t", {"from": "review", "only": "heads", "row": True})
     rec = _done("t")
     assert rec["status"] == "done" and ("llm", "s") in fake.calls and sorted(s["key"] for s in rec["steps"]) == ["heads", "headsLlm"] and rec["range"]["row"] is True
+
+
+def test_one_document_only_runs_that_documents_lines_of_the_stage(fake, monkeypatch):
+    """한 문서만 진행(spec_워크플로우 ② §18-21 — 2026-11-21 사용자 "목적문서 따로 원본 문서 작업 따로 할 수 있는 것들은 단계 에서 한 번에 진행할때 각각 따로 진행할 수 있도록 … 하나의 문서만 작업"):
+    묶음의 실행에 role 을 주면 그 문서의 줄만 · 줄의 문서도 그 문서 하나로 돈다 — 다른 문서의 분석 · 유료 호출은 시작하지 않는다. 상태는 묶음마다 그 문서만의 몫(solo)을 싣는다."""
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "both", False)])
+    g = X.status_of("t")["stages"][0]
+    assert [(x["role"], x["title"], x["name"], x["total"], x["left"], x["can"]) for x in g["solo"]] == [("source", "원본 문서", "사업계획서", 2, 2, True), ("target", "목적 문서", "연차보고서", 2, 2, True)]
+    assert g["leftBy"] == {"source": 2, "target": 2} and g["left"] == 2 and [x["paid"] for x in g["solo"]] == [["s"], ["t"]]   # 유료로 부를 문서도 그 문서만
+    run = X.start("t", {"from": "review", "role": "source"})
+    assert run["range"]["role"] == "source"
+    rec = _done("t")
+    assert rec["status"] == "done" and fake.calls == [("heads", "s"), ("llm", "s")], fake.calls   # 목적 문서는 건드리지 않는다(분석 · 작성 지침 · LLM 모두)
+    assert [(s["key"], s["status"]) for s in rec["steps"]] == [("heads", "done"), ("headsLlm", "done")]
+    assert rec["end"]["text"] == "끝남 — 원본 문서(사업계획서)만 — 사업계획서의 헤딩 그래프·표 구조가 있습니다 · 사업계획서 LLM 검증·보완을 거쳤습니다"   # 다음 묶음을 가리키는 꼬리는 없다(묶음이 끝난 것이 아니다)
+    assert [f.get("role") for w, f in fake.logs if w == "t" and f["event"] == "start"] == ["source"]
+    g = X.status_of("t")["stages"][0]
+    assert [(x["role"], x["left"], x["can"], x["why"]) for x in g["solo"]] == [("source", 0, False, "남은 단계가 없습니다"), ("target", 2, True, "")] and g["left"] == 2 and g["can"]
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "review", "role": "source"})
+    assert e.value.reason == "noWork" and e.value.message == "원본 문서(사업계획서)에 남은 단계가 없습니다"
+    fake.calls.clear()
+    X.start("s", {"from": "review", "role": "target"})   # 어느 문서에서 눌러도 같은 묶음
+    rec = _done("t")
+    assert rec["status"] == "done" and fake.calls == [("heads", "t"), ("guides", "t"), ("llm", "t")] and rec["end"]["text"].startswith("끝남 — 목적 문서(연차보고서)만 — 연차보고서의 헤딩 그래프·표 구조가 있습니다")
+    g = X.status_of("t")["stages"][0]
+    assert g["left"] == 0 and [x["left"] for x in g["solo"]] == [0, 0]
+    # 줄 하나를 한 문서에만(only + role) · 꼴이 틀린 요청
+    fake.heads["t"], fake.llm["t"] = False, False
+    fake.calls.clear()
+    X.start("t", {"from": "review", "only": "heads", "role": "target"})
+    rec = _done("t")
+    assert fake.calls == [("heads", "t"), ("guides", "t")] and [s["key"] for s in rec["steps"]] == ["heads"] and rec["range"] == {"from": "review", "to": "review", "only": "heads", "redo": "", "role": "target"}
+    for bad in ({"from": "review", "role": "both"}, {"from": "review", "to": "frame", "role": "source"}):
+        with pytest.raises(ValueError):
+            X.start("t", bad)
+
+
+def test_one_document_only_is_offered_where_it_differs_from_the_whole_stage(fit, monkeypatch):
+    """「한 문서만」 은 묶음 전체와 다를 때만 선다 — 그 문서의 줄 말고도 실행기가 하는 줄(다른 문서의 줄 · 두 문서의 줄 · 워크플로우 전체 줄 · 원본 → 목적 줄)이 있는 묶음. 따로 할 것이 없는 문서 · 묶음은 거절(role).
+    붙박이 이관: 1단계 = 분석(두 문서) + LLM(원본) → 원본 · 목적 둘 다 / 2단계 = 구성 추출(전체) + 목적 문서의 줄 → 목적 문서만 / 3단계(원본 → 목적 줄뿐) → 없음."""
+    v = {g["id"]: g for g in X.status_of("t")["stages"]}
+    assert [x["role"] for x in v["review"]["solo"]] == ["source", "target"] and [x["total"] for x in v["review"]["solo"]] == [2, 1]   # LLM 검증·보완은 원본 문서만의 줄
+    assert [(x["role"], x["total"]) for x in v["frame"]["solo"]] == [("target", sum(1 for s in v["frame"]["steps"] if s["on"] == "target" and not s["optional"]))]
+    assert v["map"]["solo"] == [] and v["map"]["leftBy"]["source"] == v["map"]["leftBy"]["target"] == v["map"]["left"]   # 원본 → 목적 줄은 어느 문서의 눈으로도 남은 일
+    assert v["clean"]["solo"] == []   # 목적 문서의 줄뿐인 묶음 — 묶음 전체와 같다
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "frame", "role": "source"})
+    assert e.value.reason == "role" and "원본 문서(사업계획서)만 따로 진행할 단계가 여기에는 없습니다" in e.value.message
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "map", "role": "target"})
+    assert e.value.reason == "role"
+
+
+def test_one_document_only_waits_for_the_earlier_stage_through_that_documents_eyes(fit, monkeypatch):
+    """앞 묶음의 남은 일은 그 문서의 눈으로 센다 — 다른 문서만의 줄이 남아 있어도 기다리지 않고(문서마다의 몫은 따로 나아간다), 그 문서의 줄 · 워크플로우 전체 줄 · 원본 → 목적 줄이 남았으면 기다린다."""
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "source", False)])
+    fit.heads.update(s=True, t=True)   # 분석은 둘 다 끝 · 원본 문서의 LLM 검증·보완만 남음
+    fit.llm["s"] = False
+    v = {g["id"]: g for g in X.status_of("t")["stages"]}
+    assert v["review"]["left"] == 1 and v["review"]["leftBy"] == {"source": 1, "target": 0}
+    assert v["frame"]["can"] is False and v["frame"]["why"] == "1단계 「문서 검토」 이 먼저입니다"   # 묶음 전체는 앞 묶음이 끝나야 한다
+    solo = v["frame"]["solo"][0]
+    assert solo["role"] == "target" and solo["can"] is True and solo["why"] == ""   # 목적 문서만은 원본 문서만의 줄을 기다리지 않는다
+    fit.heads["t"] = False   # 목적 문서의 분석이 남으면 기다린다
+    solo = {g["id"]: g for g in X.status_of("t")["stages"]}["frame"]["solo"][0]
+    assert solo["can"] is False and solo["why"] == "1단계 「문서 검토」 이 먼저입니다"
+    X.start("t", {"from": "frame", "role": "target", "redo": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "left" and rec["end"]["text"] == "남김 — 1단계 「문서 검토」 이 덜 끝났습니다" and not [c for c in fit.calls if c[0] in ("plan", "apply")]   # 실행기의 경계 검사도 같은 눈으로

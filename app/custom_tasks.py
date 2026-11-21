@@ -234,7 +234,7 @@ def _base_names(family="relay", kind=""):
         out["hand"] = "사람이 하는 일"
         return out
     for mid, _name, make, _does in workflow.STAGE_MODULES:
-        opts = {"stage_review": {"llm": ("source", "target")}}.get(mid, {})   # 두 문서의 「LLM 검증·보완」 까지 서게
+        opts = {"stage_review": {"llm": ("source", "target")}, "stage_fit": {"take": True}}.get(mid, {})   # 두 문서의 「LLM 검증·보완」 까지 서게 · 조립에 놓는 도구 「넣을 구성 선택」 까지(표준 차례에는 없다 — workflow._take_step)
         for s in make(*workflow._GENERIC, **opts):
             out.setdefault(s["key"], s["name"])
     out["hand"] = "사람이 하는 일"
@@ -246,7 +246,7 @@ def unit_homes():
     from app import workflow
     out = {}
     for mid, _name, make, _does in workflow.STAGE_MODULES:
-        for s in make(*workflow._GENERIC, **({"llm": ("source", "target")} if mid == "stage_review" else {})):
+        for s in make(*workflow._GENERIC, **({"llm": ("source", "target")} if mid == "stage_review" else {"take": True} if mid == "stage_fit" else {})):
             out.setdefault(s["key"], mid)
     return out
 

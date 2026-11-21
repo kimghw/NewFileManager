@@ -18,7 +18,7 @@
 - ④ 차례가 거꾸로(▲) → 서버의 거절 글 · 저장 단추가 꺼짐 · 「사람이 하는 일」 은 「아직」 으로 꺼짐.
 - ⑤ 「고치기」 — v2 정의가 줄 목록으로 열림(표는 접힘) · 묶음 이름만 고쳐 저장 → 지문 그대로 · 저장 몸 = flow.
 - ⑥ 400px 에서 가로 넘침 없음 · 콘솔 오류 없음.
-- ⑧ 도구 설명 열(② §18-15 — 2026-11-20 사용자 「우측에 각 도구가 어떤 역할을 하는지 설명해줘. 자리연결누르면 우측 열에 설명을 넣어주 … 모든도구」): 폼 | 「도구 설명」 열 · 안 골랐으면 그 틀의 도구 목록(15개 · 줄마다 한 문장) ·
+- ⑧ 도구 설명 열(② §18-15 — 2026-11-20 사용자 「우측에 각 도구가 어떤 역할을 하는지 설명해줘. 자리연결누르면 우측 열에 설명을 넣어주 … 모든도구」): 폼 | 「도구 설명」 열 · 안 골랐으면 그 틀의 도구 목록(16개 · 줄마다 한 문장) ·
   「자리 연결」 카드를 누르면 그 도구의 설명(칸의 차례 · 쌍 줄의 두 칸에 표시) · 빈칸 · ▼ 는 고른 것을 안 바꿈 · 줄을 옮겨도 그대로 · 자판 · 목록에서 고르기 · 이름 칩 · 설명을 열어도 조립 검사 · 저장은 그대로 ·
   취합형의 글 · 좁은 창(폼 위 · 목록 접힘) · 「단계 만들기」 폼."""
 import argparse
@@ -497,9 +497,9 @@ def main():
             marked: [...document.querySelectorAll('#wfCompose .wf-line-cell[data-help="1"]')].map((c) => [c.dataset.unit || c.closest('.wf-line').dataset.unit, c.dataset.role]) }; }"""   # marked = 파란 테두리의 카드(그 칸의 줄 — 한 행에 다른 두 줄이 서면 칸마다 다르다)
         api8 = requests.get(f"{base}/api/tasks?v=2", timeout=30).json()
         h0 = page.evaluate(HELP)
-        check("⑧ ⓐ 폼이 펴지면 오른쪽에 「도구 설명」 열(폼의 오른쪽 · 붙어 있음 · 그 절만 넓어짐 · 가로 넘침 없음) — 안 골랐으면 그 틀의 도구 목록: 사는 단계로 묶어 15개 · 줄마다의 한 문장 = 서버 응답의 help.easy 그대로",
+        check("⑧ ⓐ 폼이 펴지면 오른쪽에 「도구 설명」 열(폼의 오른쪽 · 붙어 있음 · 그 절만 넓어짐 · 가로 넘침 없음) — 안 골랐으면 그 틀의 도구 목록: 사는 단계로 묶어 16개 · 줄마다의 한 문장 = 서버 응답의 help.easy 그대로",
               h0 and h0["title"] == "도구 설명" and h0["unit"] == "" and h0["right"] and h0["sticky"] == "sticky" and h0["wide"] and not h0["over"] and h0["listShown"]
-              and h0["groups"] == [["문서 검토", 2], ["구성 맞추기", 5], ["내용 넣기", 6], ["문서 정리", 1], ["사람이 하는 일", 1]]
+              and h0["groups"] == [["문서 검토", 2], ["구성 맞추기", 6], ["내용 넣기", 6], ["문서 정리", 1], ["사람이 하는 일", 1]]
               and h0["easyBy"] == {u["key"]: u["help"]["easy"] for u in api8["units"]} and all(h0["easyBy"].values()), h0)
         n_checks, n_saves, save0 = len(checks), len(bodies), s8["save"]
         page.locator('#wfCompose li.wf-line[data-unit=link] .wf-line-cell[data-role=target]').click(position={"x": 120, "y": 14})   # 「자리 연결」 — 쌍 줄의 목적 문서 칸(이름 옆의 빈 곳)

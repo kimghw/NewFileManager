@@ -240,7 +240,7 @@ def tool_map():
 
     relay = {}
     for mid, _name, make, _does in workflow.STAGE_MODULES:
-        for s in make(*workflow._GENERIC, **({"llm": ("source", "target")} if mid == "stage_review" else {})):   # 일반 단계가 만드는 줄 모두(LLM 검증·보완은 두 문서 모두 고른 꼴에서)
+        for s in make(*workflow._GENERIC, **({"llm": ("source", "target")} if mid == "stage_review" else {"take": True} if mid == "stage_fit" else {})):   # 일반 단계가 만드는 줄 모두(LLM 검증·보완은 두 문서 모두 고른 꼴에서 · 조립에 놓는 도구 「넣을 구성 선택」 까지)
             relay.setdefault(s["key"], row(s))
     _TOOLS.append({"relay": relay, "gather": of_jobs("plan_merge"), "single": of_jobs(*dict.fromkeys(custom_tasks.SINGLE_BASE.values()))})
     return _TOOLS[0]

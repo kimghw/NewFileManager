@@ -70,9 +70,22 @@
 .dash-ghead .btn { margin-left: auto; }
 .dash-gend { margin: -2px 0 6px; padding: 2px 8px; border-left: 3px solid var(--ok); background: #f3faf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; } /* 묶음의 「한 번에 진행」 끝 · 멈춤 */
 .dash-gend.halt { border-left-color: var(--warn); background: var(--warn-soft); }
+/* 묶음 머리 아래의 「한 문서만」 줄(spec_워크플로우 ② §18-21 — 「원본 문서만」 · 「목적 문서만」: 그 묶음에서 그 문서의 단계만) — 머리의 「한 번에 진행」 아래 오른쪽 · 작은 이름표 + 단추들. 두 대시보드(패널 · 첫 화면)가 같이 쓴다 */
+.dash-solo { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 6px; margin: -2px 0 6px; min-width: 0; }
+.dash-solo-name { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .dash-flow > li { position: relative; }
 .dash-flow > li + li { margin-top: 14px; }
 .dash-flow > li + li::before { content: "↓"; position: absolute; top: -14px; left: 17px; color: #8a9bb5; font-size: 12px; line-height: 14px; }
+/* 같은 줄의 다른 문서 카드(줄 목록으로 조립한 이관형 — 두 문서에 하는 줄: 원본 문서 카드 아래 목적 문서 카드) — 화살표 없이 붙여 놓고, 번호 자리(24px + 틈 8px)만큼 들여 이름을 맞춘다(design.md §17 「문서 카드」) */
+.dash-flow > li.dash-node.same { margin-top: 4px; }
+.dash-flow > li.dash-node.same::before { content: none; }
+.dash-node.same > .dash-node-top { padding-left: 40px; }
+/* 「넣을 구성 선택」 카드의 고르기(대상 차년도 · 넣을 기관 · 단계 · 차년도 — design.md §17 「고르기 칩」): 기준마다 한 줄(이름표 + 칩) · 눌린 칩 = 고른 것(파랑 바탕 + ✓ — 색에만 기대지 않는다) */
+.dash-acts .dash-break { flex-basis: 100%; height: 0; }
+.dash-acts .dash-chip-name { align-self: center; min-width: 64px; color: var(--muted); font-size: 12px; }
+.dash-acts .dash-chip { border-radius: 999px; padding: 0 10px; }
+.dash-acts .dash-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.dash-acts .dash-chip[aria-pressed="true"]::before { content: "✓ "; }
 
 /* ---- 단계 카드 — 머리 줄(번호 · 이름 단추 + 꼬리표 + 메모 · 상태 글 — 줄 어디를 눌러도 펴고 접힘) + 펼친 세부 */
 .dash-node { border: 1px solid #ccd5e3; border-radius: 8px; background: white; }

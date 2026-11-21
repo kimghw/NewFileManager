@@ -17,13 +17,14 @@ from collections import Counter
 from lxml import etree
 
 from app import merge_pairs as P
+from app import merge_take as TK
 from app.division_profiles import _structure as structure
 from app.division_profiles import rnd
 from app.division_profiles.rnd import core
 from app.hwpx_doc import DROP_ON_COPY
 
 HEADS = ("heading", "subtitle", "label")   # 넣을 자리가 되는 그래프 노드 — merge_pairs._inner 와 같은 갈래(anchor 글을 같은 꼴로 견준다)
-SKIPS = ("noSource", "applied", "changed", "tables", "occupied")
+SKIPS = ("noSource", "applied", "changed", "tables", "occupied", "outside")   # outside = 「넣을 구성 선택」 에서 고르지 않은 기관 · 단계 · 차년도의 항목(merge_take — spec_병합 ② §4-1)
 
 
 def _engine(side, values):
@@ -104,6 +105,9 @@ def plan(to_side, from_side, to_values, from_values, pairs, applied=None):
                    "paragraphs": 0, "tables": 0, "pictures": 0, "placeholders": [], "hash": None, "skip": None, "detail": ""}
             out.append(row)
             ti, si = t_items.get(key), f_items.get(frm)
+            if pi.get("status") == "outside":   # 고르지 않은 구성(연결 목록이 적어 둔 것 — merge_take.narrow): 넣지 않는다
+                row.update(skip="outside", detail=TK.OUT)
+                continue
             if ti is None:
                 row.update(skip="shape", detail="목적 항목을 다시 못 찾음")
                 continue

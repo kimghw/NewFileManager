@@ -171,6 +171,18 @@ def skip_set(wid, doc_id, on):
     return Outcome("ok", "", got)
 
 
+def take_get(target):
+    """「넣을 구성 선택」 의 지금 값 · 고를 수 있는 값(spec_병합 ② §4-1 — merge_api.take_view) → Outcome(data = 그 보기)."""
+    from app import merge_api
+    return _run(merge_api.take_view, target)
+
+
+def take_set(target, body):
+    """넣을 구성 · 대상 차년도를 적는다(merge_api.take_put — take = 그 묶음의 실행 옵션 · year = 목적 문서의 당해 차년도) → Outcome(data = 다시 읽은 보기). 400 = invalid · 409 = blocked."""
+    from app import merge_api
+    return _run(merge_api.take_put, target, body, on409="blocked")
+
+
 def rev_now(doc_id):
     """메모리의 그 세션의 문서 차례 | None(메모리에 없음) — 확인 폴링이 싣는다(세션을 열지 않는다: 울타리를 내린 뒤 화면이 다시 읽을지 견준다)."""
     from app import server
