@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import gather_data as D
 from app import merge_gather_api as GA
-from app import server, unit_steps
+from app import server, unit_steps, works
 from app import workflow_exec as X
 from app import workflow_state as S
 from app import workflow_units as U
@@ -187,6 +187,11 @@ def test_map_stage_fills_document_by_document_and_leaves_the_unassigned_one(clie
     assert not X.FENCE and not X.NOTICE and X.busy_text(A) == "" and X.busy_text(B) == ""
     G = c.get(f"/api/docs/{to}/gather").json()
     assert _row(G, A)["todo"] == 0 and _row(G, B)["orgs"] == []
+    # 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 남김으로 끝나도 취합본을 한 번 · 기관 문서는 확정하지 않는다 · 기준만 바뀐다(차례 · 글은 그대로)
+    made = works.commits(to)
+    assert [(x["doc"], x["status"]) for x in rec["commits"]] == [(to, "ok")] and len(made) == 1 and made[-1]["flowRun"] == rec["n"] and made[-1]["by"] == "flow"
+    assert works.commits(A) == [] and works.commits(B) == [] and server.DOCS[to].base_n == made[-1]["n"] and _texts(to) == after
+    assert rec["end"]["text"].endswith(f"앞 상태 = 올린 원본)") and len(rec["end"]["text"]) <= X.TEXT_MAX
     m = _stage(c.get(f"/api/works/{to}/flow").json(), "map")
     assert [(s["key"], [p["st"] for p in s.get("per") or ()]) for s in m["steps"] if s["key"] in ("part", "apply")] == [("part", ["done", "todo"]), ("apply", ["done", "todo"])] and m["left"] > 0
     # 간단 모드 — 이번에 올린 문서(B)의 반영할 기관을 파일 이름으로 정하고 넣는다(공통 자리는 먼저 넣은 A 가 차지했다 — 겹침으로 남는다)
@@ -195,6 +200,7 @@ def test_map_stage_fills_document_by_document_and_leaves_the_unassigned_one(clie
     assert steps[0] == ("part", B, "done") and ("apply", B, "done") in steps and not [s for s in steps if s[1] == A], steps   # A 는 넣을 것이 안 남아 지나간다
     assert rec["auto"] == [B] and rec["quick"] is True and f"반영할 기관 → {J2}(파일 이름)" in rec["steps"][0]["text"]
     assert any(f"{J2} 1차년도 개발 목표" in t for t in _texts(to)) and _row(c.get(f"/api/docs/{to}/gather").json(), B)["orgs"] == [J2]
+    assert len(works.commits(to)) == 2 and works.commits(to)[-1]["flowRun"] == rec["n"]   # 묶음째 실행마다 끝에 한 번
     assert c.post(f"/api/works/{to}/flow/runs", json={"from": "map", "auto": "x"}).status_code == 400
 
 
@@ -221,7 +227,8 @@ def test_a_composed_gather_workflow_is_checked_saved_assembled_and_served(client
     by = {u["key"]: u for u in units}
     assert [u["key"] for u in units] == [*C.GATHER_UNITS, "hand"] and by["division"]["roles"] == ["target"] and by["part"]["roles"] == ["source"] and by["link"]["place"] == "pair"
     assert [u["key"] for u in units if u["each"]] == ["part", "heads", "link", "llm", "plan", "apply"] and all(u["server"] for u in units)
-    assert [h["name"] for h in homes] == ["1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "사람이 하는 일"]
+    assert [h["name"] for h in homes] == ["1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "문서 정리", "사람이 하는 일"]   # 문서 정리 = 붙박이 차례에 없는 조립 도구(넣은 뒤 템플릿 · 서식 정리)
+    assert by["retidy"]["home"] == "gather_clean" and by["retidy"]["roles"] == ["target"] and by["retidy"]["uses"] == [{"unit": "apply", "must": False}] and by["retidy"]["help"]["easy"]
     bad = {
         "앞에 와야 합니다": [{"name": "a", "steps": _g("config", "division", "frame", "part", "heads", "link", "apply", "plan")}],   # 차례가 거꾸로
         "한 묶음에 잇달아": [{"name": "a", "steps": _g("part", "heads", "link", "plan")}, {"name": "b", "steps": _g("apply")}],   # 기관 문서마다 도는 줄을 쪼갬
@@ -276,3 +283,87 @@ def test_a_composed_gather_workflow_is_checked_saved_assembled_and_served(client
     assert any(f"{J1} 1차년도 개발 목표" in x for x in _texts(to))
     # 쓰는 중인 정의 — 단계는 못 바꾸고 못 지운다(이관형과 같다)
     assert c.put(f"/api/tasks/{key}", json={"flow": [{"name": "a", "steps": _g("config")}]}).status_code == 409 and c.delete(f"/api/tasks/{key}").status_code == 409
+
+
+def test_a_composed_gather_workflow_tidies_the_inserted_lines_after_filling(client, monkeypatch):
+    """취합형 조립의 「넣은 뒤 템플릿 · 서식 정리」(spec_병합 ② §5-9 9 — 「문서 정리」 의 조립 도구 · 붙박이 「사업계획서 취합」 의 차례에는 없다):
+    검사(내용 반영 뒤 · 목적 문서에만 · 기관 문서마다의 덩이를 쪼개지 않음 · 내용 반영 없이 놓으면 경고만) · 이관형과 따로 선 단위 · 처리 함수는 이관의 것 ·
+    서버 실행기가 내용 반영 → 정리를 차례로(정리는 취합본의 울타리 안 · 끝점은 가짜 — 진짜 끝점은 tests/test_merge_gather_api.py 의 retidy 시험) · 상태 식(_g_retidy)."""
+    import threading
+
+    from app import custom_tasks as C
+    from app import workflow
+    c = client
+    tidy = {"unit": "retidy", "on": ["target"]}
+    base = [{"name": "프로젝트 구성", "steps": _g("config", "division", "frame")}, {"name": "내용 매핑", "steps": _g("part", "heads", "link", "plan", "apply")}]
+    flow = base + [{"name": "문서 정리", "steps": [tidy]}]
+    got = C.check("gather", "part", "plan", flow)
+    assert not got["errors"] and any(w.startswith("목적 문서(취합본)를 바꾸는 줄") and "넣은 뒤 템플릿 · 서식 정리" in w for w in got["warns"]), got
+    assert C.unit_names("gather")["retidy"] == "넣은 뒤 템플릿 · 서식 정리" and "retidy" not in {s["key"] for g in workflow.BY_JOB["plan_merge"]["stages"] for s in g["steps"]}   # 붙박이 차례에는 없다
+    early = C.check("gather", "part", "plan", [{"name": "a", "steps": _g("config", "division", "frame") + [tidy] + _g("part", "heads", "link", "plan", "apply")}])
+    assert any("앞에 와야 합니다" in e for e in early["errors"]), early
+    inside = C.check("gather", "part", "plan", [{"name": "a", "steps": _g("part", "heads", "link") + [tidy] + _g("plan", "apply")}])
+    assert C.GATHER_EACH in inside["errors"], inside
+    for tail in ([tidy] + _g("drop"), _g("drop") + [tidy]):   # 끌어 넣기와는 차례 무관(내용 반영 → 정리 → 사람이 더 끌어 넣기도 된다 — 끌어 넣은 내용은 정리 대상이 아니다)
+        late = C.check("gather", "part", "plan", [base[0], {"name": "내용 매핑", "steps": _g("part", "heads", "link", "plan", "apply") + tail}])
+        assert not late["errors"], late
+    alone = C.check("gather", "part", "plan", [{"name": "a", "steps": [tidy]}])
+    assert not alone["errors"] and any("앞서 넣은 내용만 맞춥니다" in w for w in alone["warns"]), alone   # 앞 줄 「내용 반영」 은 경고만(GATHER_SOFT)
+    assert any("목적 문서에만 놓을 수 있습니다" in e for e in C.check("gather", "part", "plan", [{"name": "a", "steps": [{"unit": "retidy", "on": ["source"]}]}])["errors"])
+    r = c.post("/api/tasks", json={"name": "기관 문서 모으고 정리", "shape": "gather", "source": "part", "target": "plan", "flow": flow})
+    assert r.status_code == 201, r.text
+    key = r.json()["task"]["key"]
+    task = S.definition(key)
+    line = next(x for x in S.lines(task) if x["key"] == "retidy")
+    step = next(s for g in task["stages"] for s in g["steps"] if s["key"] == "retidy")
+    assert (step["on"], step["change"], step["name"]) == ("target", "doc", "넣은 뒤 템플릿 · 서식 정리") and "취합본에 있던 줄은 건드리지 않습니다" in step["does"]
+    assert line["unit"] is U.GATHER["retidy"] and U.GATHER["retidy"] is not U.RELAY["retidy"] and U.unit("retidy", "gather") is U.GATHER["retidy"]
+    assert X._handler(task, line) is X._do_retidy and not X._fill_need(task) and all(S.served(task, g["id"]) for g in task["stages"])   # 이관의 연결 목록은 읽지 않는다
+    assert "목적 문서(취합본)가 바뀜" in task["stages"][2]["does"]
+
+    # 상태 식 — 넣은 것이 아직 없음(기관 문서가 남음) → 아직 · 정리 기록이 그 반영 뒤 → 끝남 · 재료 오류 → 막힘
+    def st(R, G):
+        return U.state("retidy", {"ready": True, "pair": {"target": {"role": "target", "title": "취합본", "id": "t", "facts": {"id": "t", "retidy": R, "gather": G}}}}, "gather")
+    rows = [{"work": "a", "name": "A.hwpx", "orgs": ["가나대"], "counts": {"ready": 2}, "todo": 2, "llm": None, "reasons": []}]
+    none = {"why": "넣은 내용이 없습니다 — 「내용 반영」 뒤에 합니다", "fill": None, "applied": None, "inserted": 0}
+    assert st(none, {"frame": {"stale": False}, "parts": rows})["st"] == "todo" and "넣은 뒤에" in st(none, {"frame": {"stale": False}, "parts": rows})["text"]
+    skip = st(none, {"frame": {"stale": False}, "parts": []})
+    assert skip["st"] == "done" and skip["skipped"]   # 기관 문서가 없다 — 건너뜀
+    todo = st({"why": "", "fill": 5.0, "applied": {"fill": 4.0, "counts": {}}, "inserted": 7}, {"frame": {"stale": False}, "parts": rows})
+    assert todo["st"] == "todo" and "넣은 블록 7개" in todo["text"]   # 넣을 기관 문서가 남아도 넣은 것이 있으면 할 것(모든 문서를 기다리지 않는다) · 뒤에 넣으면 표식이 바뀐다
+    done = st({"why": "", "fill": 5.0, "applied": {"fill": 5.0, "counts": {"levels": 2, "fix": 3, "changed": 3, "held": 1}}, "inserted": 7}, {"frame": {"stale": False}, "parts": rows})
+    assert done["st"] == "done" and "사람이 넘친 레벨의 처리를 고른 줄 1" in done["text"]
+    assert st({"error": "KeyError: x", "why": ""}, {})["st"] == "blocked" and st(None, {})["st"] == "blocked"
+
+    # 서버 실행기 — 진짜 모듈로 g1 · g2 를 돈 뒤 g2 → g3(정리는 가짜 끝점: 취합본의 울타리 안에서 한 번 · 두 번째는 할 것 없음)
+    seen = {"calls": [], "applied": None}
+
+    def facts(doc):
+        mark = GA._store(doc).get("filled")
+        return {"why": "" if mark else "넣은 내용이 없습니다 — 「내용 반영」 뒤에 합니다", "fill": (mark or {}).get("at"), "inserted": len((mark or {}).get("ids") or ()), "applied": seen["applied"]}
+
+    def tidy_now(doc):
+        seen["calls"].append((doc, (X.FENCE.get(doc) or {}).get("thread") == threading.get_ident()))
+        c_ = {"levels": 2, "grown": 1, "lines": 4, "fix": 2, "near": 0, "own": 0, "held": 0, "changed": 2, "reps": 1, "left": 0}
+        seen["applied"] = {"at": 1.0, "fill": GA._store(doc)["filled"]["at"], "counts": c_}
+        return unit_steps.Outcome("ok", "", {"done": {"counts": c_, "rows": []}})
+    monkeypatch.setattr(unit_steps, "retidy_facts", facts)
+    monkeypatch.setattr(unit_steps, "retidy", tidy_now)
+    b = D.base()["side"]
+    to = _upload(c, "취합본.hwpx", b["bytes"])
+    assert c.put(f"/api/works/{to}/task", json={"kind": "rnd", "file": "plan", "job": key, "project": "조립 취합 정리"}).status_code == 200
+    assert c.post(f"/api/docs/{to}/divisions/confirm", json={"values": b["values"]}).status_code == 200
+    _analysed(to, b["graph"], b["tables"])
+    assert _run(c, to, {"from": "g1"})["status"] == "done"
+    g3 = next(s for s in _stage(c.get(f"/api/works/{to}/flow").json(), "g3")["steps"] if s["key"] == "retidy")
+    assert g3["done"] and g3["skipped"], g3   # 기관 문서가 아직 없다 — 건너뜀
+    A = _part(c, to, f"기관A_{J1}.hwpx", _edit_a, orgs=[J1])
+    rec = _run(c, to, {"from": "g2", "to": "g3"})
+    steps = [(s["key"], s["status"]) for s in rec["steps"]]
+    assert rec["status"] == "done" and steps == [("link", "done"), ("plan", "done"), ("apply", "done"), ("retidy", "done")], (steps, rec["end"])
+    assert seen["calls"] == [(to, True)] and GA._store(to)["filled"]["part"] == A   # 내용 반영이 표식을 찍고 정리는 취합본의 울타리 안에서
+    assert "넣은 줄 2줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다" in rec["steps"][-1]["text"]
+    g3 = next(s for s in _stage(c.get(f"/api/works/{to}/flow").json(), "g3")["steps"] if s["key"] == "retidy")
+    assert g3["done"] and not g3.get("skipped"), g3
+    rec = _run(c, to, {"from": "g3", "only": "retidy"})
+    assert [(s["key"], s["status"]) for s in rec["steps"]] == [("retidy", "nothing")] and len(seen["calls"]) == 1   # 그 반영 뒤에 이미 했다 — 할 것 없음

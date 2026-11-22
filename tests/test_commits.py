@@ -229,6 +229,95 @@ def test_discard_and_restore(client):
     assert g["base"] == 5 and g["blocks"] == two["blocks"]
 
 
+def test_discard_with_a_stale_base_is_refused(client):
+    """「모두 되돌리기」 는 화면이 아는 기준(base)을 함께 보낸다 — 그 사이 기준이 옮겨졌으면(워크플로우의 끝 확정 — spec_워크플로우 ② §18-24) 409 {base} 로 아무것도 안 하고,
+    옛 기준 번호의 「복원」(실행 결과를 통째로 버리는 새 확정)이 되지 않는다. base 를 안 보내면 전과 같다."""
+    d = _upload(client)
+    _wait(client, d)
+    a = _texts(client, d)[3]
+    _patch(client, d, a["id"], a["text"] + "★")
+    _commit(client, d, "실행 끝 확정 같은 것")   # 화면은 이것을 모른 채 기준 0 이라고 안다
+    _patch(client, d, a["id"], a["text"] + "★☆")
+    before = _doc(client, d)
+    r = client.post(f"/api/docs/{d}/commits/0/restore", json={"discard": True, "base": 0})
+    assert r.status_code == 409 and r.json()["base"] == 1 and "기준이 바뀌었습니다" in r.json()["detail"]
+    after = _doc(client, d)
+    assert after["base"] == 1 and after["blocks"] == before["blocks"] and after["rev"] == before["rev"]
+    assert [x["n"] for x in client.get(f"/api/docs/{d}/commits").json()["commits"]] == [1, 0]   # 새 확정(복원)이 안 생김
+    assert client.post(f"/api/docs/{d}/commits/1/restore", json={"discard": True, "base": "1"}).status_code == 400   # 정수가 아님
+    # 새 기준으로 다시 누르면 고친 것만 버린다(확정이 안 생김)
+    r = client.post(f"/api/docs/{d}/commits/1/restore", json={"discard": True, "base": 1})
+    assert r.status_code == 200, r.text
+    g = r.json()
+    assert g["commit"] is None and g["base"] == 1 and g["edited"] == []
+    assert [x["n"] for x in client.get(f"/api/docs/{d}/commits").json()["commits"]] == [1, 0]
+
+
+def test_going_back_before_the_retidy_drops_its_record(client):
+    """넣은 뒤 정리의 기록(retidy.json applied — spec_병합 ② §5-9 10)은 문서가 정리 전 상태로 돌아가면 내려간다(편집 알림 server.BUMPED 를 merge_retidy_api 가 듣는다 — 줄이 다시 「할 차례」):
+    정리 전에 만든 확정으로 복원 · 올린 원본으로 · 확정하지 않은 정리를 버리는 「모두 되돌리기」 · 정리 편집을 되돌린 실행 취소. 정리 뒤에 만든 확정으로 가는 복원 · 모두 되돌리기 · 다른 편집의 실행 취소는 그대로.
+    (진짜 정리 → 확정 → 복원 · 실행 취소 → 다시 정리는 바뀜 · 두 번째 할 것 없음은 취합본으로 프로세스 안에서 봤다 — 정리 끝점의 시험은 tests/test_merge_gather_api.py.)"""
+    import time as _t
+
+    from app import merge_retidy_api as RA
+    assert RA._on_bump in server.BUMPED and server.BUMPED.count(RA._on_bump) == 1
+    d = _upload(client)
+    _wait(client, d)
+    a = _texts(client, d)[3]
+
+    def tidy():   # 정리했다(기록만 — 문서는 그대로: 듣기의 판단은 기록 · 확정의 때만 본다)
+        _t.sleep(0.01)
+        RA._save(d, {**RA.load(d), "applied": {"at": _t.time(), "fill": 1.0, "rev": server._sess(d).rev, "counts": {}}})
+        _t.sleep(0.01)
+
+    def edit(mark):
+        _patch(client, d, a["id"], a["text"] + mark)
+
+    edit("1")
+    _commit(client, d, "넣은 뒤")                        # 1 — 정리 전
+    tidy()
+    edit("2")
+    _commit(client, d, "정리 뒤")                        # 2 — 정리 뒤
+    edit("3")
+    _commit(client, d, "더 뒤")                          # 3
+    assert _restore(client, d, 2).status_code == 200      # 4(= 2) — 정리가 든 문서
+    assert RA.load(d)["applied"] is not None
+    assert _restore(client, d, 1).status_code == 200      # 5(= 1) — 정리 전
+    got = RA.load(d)
+    assert got["applied"] is None and got["dropped"]["by"] == "restore" and got["dropped"]["fill"] == 1.0
+    tidy()
+    assert _restore(client, d, 0).status_code == 200      # 6 — 올린 원본(정리 전)
+    assert RA.load(d)["applied"] is None
+    # 모두 되돌리기 — 기준(6)이 정리 전이면 확정하지 않은 정리를 버린 것 · 정리를 확정한 기준이면 그대로
+    tidy()
+    edit("4")
+    assert _restore(client, d, 6, discard=True).status_code == 200
+    assert RA.load(d)["applied"] is None and RA.load(d)["dropped"]["by"] == "discard"
+    tidy()
+    edit("5")
+    _commit(client, d, "정리 확정")                      # 7 — 정리 뒤
+    edit("6")
+    assert _restore(client, d, 7, discard=True).status_code == 200
+    assert RA.load(d)["applied"] is not None
+    # 실행 취소 — 정리 편집의 실행 취소 묶음(표를 단 것)을 되돌리면 내림 · 다른 편집의 실행 취소는 그대로
+    s = server._sess(d)
+    para = lambda: client.post(f"/api/docs/{d}/format/para", json={"ids": [a["id"]], "changes": {"align": "right"}})  # noqa: E731
+    assert para().status_code == 200
+    with s.lock:
+        s.undo[-1]["outline"] = s.undo[-1]["outline"] or {}   # 개요 오버레이가 있는 문서처럼(정리는 오버레이가 있어야 돈다 — 이 견본에는 헤딩 그래프가 없다)
+        RA._tag_undo(s, s.rev)   # 정리의 반영이 하는 것(merge_retidy_api.retidy_post — 그 편집의 묶음에)
+    tidy()
+    assert client.post(f"/api/docs/{d}/format/para", json={"ids": [a["id"]], "changes": {"align": "center"}}).status_code == 200   # 정리 뒤 다른 편집
+    assert client.post(f"/api/docs/{d}/undo").status_code == 200   # 다른 편집의 실행 취소
+    assert RA.load(d)["applied"] is not None and RA.UNDO_TAG not in (s.outline or {})
+    assert client.post(f"/api/docs/{d}/undo").status_code == 200   # 정리 편집의 실행 취소
+    got = RA.load(d)
+    assert got["applied"] is None and got["dropped"]["by"] == "undo" and RA.UNDO_TAG not in (s.outline or {})
+    with s.lock:
+        RA._tag_undo(s, s.rev - 1)   # 그 뒤 다른 편집이 있었으면(차례가 다름) 표를 달지 않는다
+    assert all(RA.UNDO_TAG not in (u.get("outline") or {}) for u in s.undo)
+
+
 def test_verify_uses_the_new_base(client):
     d = _upload(client)
     _wait(client, d)
@@ -353,3 +442,68 @@ def test_no_commits_without_work_storage(client, monkeypatch):
     assert client.post(f"/api/docs/{d}/commits", json={}).status_code == 400
     assert client.post(f"/api/docs/{d}/commits/0/restore", json={"discard": True}).status_code == 400
     assert client.get(f"/api/docs/{d}/commits").json()["enabled"] is False
+
+
+# ---- 묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 확정의 몸 server._commit_now · 문 unit_steps.commit · 가져오기 검증의 llm · 기준이 바뀐 검증
+def test_the_flow_commit_door_shares_the_commit_body_and_the_fence(client):
+    """문의 확정 = 「고친 문단」 탭의 확정과 같은 몸(_commit_now) — 확정할 것 없음 = nothing · 다른 스레드의 울타리 = blocked(409) · 울타리를 올린 스레드는 지난다 ·
+    확정 기록 · 작업 기록에 flowRun · by · llm False 면 새 기준의 가져오기 검증이 검증 LLM 단계를 돌리지 않는다."""
+    from app import unit_steps, verify
+    from app import workflow_exec as X
+    d = _upload(client)
+    _wait(client, d)
+    assert server._commit_now(server.DOCS[d], "x") is None   # 확정할 변경이 없다 — 400 은 끝점이 낸다
+    assert unit_steps.commit(d, "x", flow=3).code == "nothing"
+    assert unit_steps.commit_info(d) == {"stored": True, "dirty": False, "edited": 0, "base": 0} and unit_steps.base_now(d) == 0
+    a = _texts(client, d)[3]
+    _patch(client, d, a["id"], a["text"] + "★")
+    assert unit_steps.commit_info(d)["dirty"] and unit_steps.commit_info(d)["edited"] == 1
+    X.FENCE[d] = {"target": d, "n": 3, "thread": -1}   # 다른 스레드(실행)의 울타리
+    try:
+        got = unit_steps.commit(d, "워크플로우 실행 3 — 시험", flow=3)
+        assert got.code == "blocked" and got.text == X.FENCE_TEXT and works.head(d) == 0
+        X.FENCE[d]["thread"] = threading.get_ident()   # 이 스레드가 올린 울타리 — 지난다
+        rev = server.DOCS[d].rev
+        got = unit_steps.commit(d, "  워크플로우 실행 3 —  시험 ", flow=3, llm=False)
+    finally:
+        X.FENCE.clear()
+    assert got.code == "ok" and got.data == {"n": 1, "parent": 0, "counts": got.data["counts"]} and got.data["counts"]["total"] == 1
+    assert unit_steps.base_now(d) == 1 and server.DOCS[d].rev == rev and unit_steps.commit_info(d)["dirty"] is False   # 기준만 바뀐다 — 차례 · 글은 그대로
+    c = client.get(f"/api/docs/{d}/commits").json()["commits"][0]
+    assert c["n"] == 1 and c["message"] == "워크플로우 실행 3 — 시험" and c["flowRun"] == 3
+    ev = [e for e in _events(client, d) if e["kind"] == "commit"][-1]
+    assert ev["flowRun"] == 3 and ev["by"] == "flow"
+    v = _wait(client, d, base=1)
+    llm = next(s for s in v["import"]["steps"] if s["key"] == "llm")
+    assert llm["status"] == "skip" and llm["detail"] == verify.IMPORT_NO_LLM   # 실행 카드가 승인하지 않은 유료 호출 — 검증 LLM 은 부르지 않는다
+    assert client.post(f"/api/docs/{d}/commits", json={}).status_code == 400   # 끝점의 꼴은 그대로(확정할 것 없음 = 400)
+    assert unit_steps.commit("000000000000", "x").code == "missing"
+
+
+def test_the_flow_commit_door_is_blocked_without_work_storage(client, monkeypatch):
+    from app import unit_steps
+    monkeypatch.setenv("NFM_WORKS", "off")
+    d = _upload(client)
+    a = _texts(client, d)[3]
+    _patch(client, d, a["id"], a["text"] + "★")
+    assert unit_steps.commit_info(d)["stored"] is False and unit_steps.commit(d, "x", flow=1).code == "blocked"
+
+
+def test_an_import_verification_whose_base_moved_starts_no_pdf_export(client, monkeypatch):
+    """기준이 바뀐 가져오기 검증(_JobView 의 live() 가 거짓 — 뒤의 확정 · 복원이 새 검증을 따로 돌린다)은 한글 PDF 출력을 시작하지 않는다(원본 · 재구성 · 미리 찍기)."""
+    from app import verify
+    d = _upload(client)
+    _wait(client, d)
+    s = server.DOCS[d]
+    view = server._JobView(s)
+    with s.glock:
+        s.gen += 1   # 그 뒤 기준이 바뀌었다
+    calls = []
+    monkeypatch.setattr(verify.pdf_render, "available", lambda fmt="hwpx": True)
+    monkeypatch.setattr(verify.pdf_render, "export_pdf", lambda data, limit=None, fmt="hwpx": calls.append(fmt))
+    job = verify.Job("import", verify.steps("import", s.fmt))
+    verify.run_import(view, job)
+    steps = {x["key"]: x for x in job.view()["steps"]}
+    time.sleep(0.1)   # 미리 찍기 스레드가 섰다면 그 사이에 부른다
+    assert calls == [] and steps["pdf"]["status"] == "skip" and "기준이 바뀌어 그만둠" in steps["pdf"]["detail"]
+    assert steps["render"]["status"] == "skip" and steps["package"]["status"] == "ok"   # PDF 가 아닌 단계는 그대로 돈다(결과는 그 보기에만)

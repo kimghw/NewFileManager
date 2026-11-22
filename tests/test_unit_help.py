@@ -125,7 +125,7 @@ def test_compose_response_carries_help():
         assert len(keys) == len(set(keys)) and set(keys) == {k for f, k, _ in OFFERED if f == fam}, (fam, keys)
         for u in units:
             assert u.get("help") == H.of(fam, u["key"]) and u["help"]["easy"], (fam, u["key"])
-    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 18, "gather": 11, "single": 14}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다
+    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 19, "gather": 12, "single": 14}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다(19 = 2026-11-22 「넣은 뒤 템플릿 · 서식 정리」 · gather 12 = 같은 날 취합의 그 도구)
     by = lambda fam: {u["key"]: u["help"]["easy"] for u in lists[fam]}  # noqa: E731
     assert by("relay")["link"] != by("gather")["link"] and by("relay")["plan"] != by("single")["plan"] and by("relay")["heads"] != by("single")["heads"]   # 같은 key 도 틀마다 다른 글
     assert by("gather")["hand"] == by("relay")["hand"] == by("single")["hand"] and "기관에 나눠" not in by("gather")["hand"]   # 취합의 「사람이 하는 일」 ≠ 붙박이 취합의 「기관에 배포 · 회수」

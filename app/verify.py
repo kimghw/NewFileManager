@@ -300,13 +300,17 @@ def run_flow(job, fns, deps):
 
 # ---- 가져오기 검증 ---------------------------------------------------------------------------------
 
-def run_import(sess, job):
+def run_import(sess, job, llm=True):
     """sess: 서버 문서(original 바이트·blocks·pdf·mapping 을 채운다). 단계는 IMPORT_DEPS 대로 병렬 — 패키지·XML·OWPML 검사와 원본 PDF 출력이
-    함께 시작하고, 매핑 뒤 쪽 나눔·레터·글꼴 대조가 함께, 재구성 PDF 는 XML 단계 직후 다른 한글 프로세스에서 미리 찍는다."""
+    함께 시작하고, 매핑 뒤 쪽 나눔·레터·글꼴 대조가 함께, 재구성 PDF 는 XML 단계 직후 다른 한글 프로세스에서 미리 찍는다.
+    llm = 검증 LLM 검토 단계를 돌려도 되나 — 워크플로우 묶음째 실행의 끝 확정이 에이전트 카드가 유료로 승인하지 않은 문서이면 False(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」).
+    기준이 바뀐 검증(sess 가 _JobView 이고 live() 가 거짓 — 그 뒤 확정 · 복원이 새 검증을 따로 돌린다)은 PDF 출력을 더 시작하지 않는다(같은 절 — 잇달은 확정이 한글 출력을 줄 세우지 않게)."""
     data, ctx = sess.original, {}
     fmt = fmt_of(sess)
     Doc, check, _ = KIT[fmt]
     app = pdf_render.app_name(fmt)
+    live = (lambda: sess.live()) if callable(getattr(sess, "live", None)) else (lambda: True)  # noqa: E731
+    GONE = "기준이 바뀌어 그만둠 — 새 확정의 검증이 따로 돎"
 
     def package():
         job.set("package", "run")
@@ -318,8 +322,8 @@ def run_import(sess, job):
         job.set("xml", "run")
         rebuilt, differ, n = rebuild_all(data, fmt)
         sess.rebuilt = ctx["rebuilt"] = rebuilt
-        if rebuilt != data and pdf_render.available(fmt):  # 재구성 렌더 단계가 쓸 PDF 를 원본 PDF 와 동시에(같은 바이트는 캐시·잠금으로 한 번만)
-            threading.Thread(target=_prefetch, args=(rebuilt, fmt), daemon=True, name="verify-prefetch").start()
+        if rebuilt != data and pdf_render.available(fmt) and live():  # 재구성 렌더 단계가 쓸 PDF 를 원본 PDF 와 동시에(같은 바이트는 캐시·잠금으로 한 번만) — 기준이 바뀐 검증은 찍지 않는다
+            threading.Thread(target=_prefetch, args=(rebuilt, fmt, live), daemon=True, name="verify-prefetch").start()
         job.set("xml", "fail" if differ else "ok",
                 f"XML 멤버 {n}개 중 {n - len(differ)}개 바이트 동일" + (f" — 다름: {', '.join(differ[:5])}" if differ else ""),
                 members=differ)
@@ -351,6 +355,8 @@ def run_import(sess, job):
     def pdf():
         if not pdf_render.available(fmt):
             raise Stop(f"이 PC 에 {app}({pdf_render.PROGIDS[fmt]} COM)이 없어 PDF 단계를 건너뜀", "skip")
+        if not live():   # 기준이 바뀐 검증 — 한글 출력을 시작하지 않는다(뒤 단계는 「건너뜀」)
+            raise Stop(GONE, "skip")
         job.set("pdf", "run", "한글로 PDF 출력 중 — 한글 「파일 접근」 창이 뜨면 「모두 허용」" if fmt == "hwpx"
                 else f"{app} 로 PDF 출력 중(바깥 연결을 뗀 사본 — 매크로·대화상자 끔)")
         try:
@@ -425,6 +431,8 @@ def run_import(sess, job):
             sess.pdf["rebuilt"] = sess.pdf["original"]
             job.set("render", "ok", "다시 쓴 파일이 원본과 바이트 동일 — 같은 PDF")
             return
+        if not live():   # 기준이 바뀐 검증 — 한글 출력을 시작하지 않는다
+            raise Stop(GONE, "skip")
         sess.pdf["rebuilt"] = pdf_render.export_pdf(rebuilt, fmt=fmt)
         cmp = pdf_map.compare_pdfs(sess.pdf["original"], sess.pdf["rebuilt"])
         real = [d["page"] for d in cmp["diff"] if not d["minor"]]
@@ -437,7 +445,11 @@ def run_import(sess, job):
         job.set("render", status, detail, diffPages=cmp["diff"], minor=minor, unexpected=real, compare="rebuilt")
 
     run_flow(job, {"package": package, "xml": xml, "model": model, "owpml": owpml, "pdf": pdf, "map": map_, "pages": pages_,
-                   "letters": letters, "fonts": fonts, "render": render, "llm": lambda: verify_llm.review(job, fmt)}, IMPORT_DEPS)
+                   "letters": letters, "fonts": fonts, "render": render,
+                   "llm": (lambda: verify_llm.review(job, fmt)) if llm else (lambda: job.set(verify_llm.KEY, "skip", IMPORT_NO_LLM))}, IMPORT_DEPS)
+
+
+IMPORT_NO_LLM = "자동 확정 — 실행 카드가 승인하지 않은 유료 호출이라 LLM 검토는 하지 않음(스크립트 판정 그대로)"   # 워크플로우 묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24)
 
 
 # Word PDF 가 Wingdings 글머리에 붙인 유니코드 ↔ 웹 라벨(docx_doc._PUA_BULLET): Wingdings 「l」(0x6C) = ⚫ U+26AB(AIP 서식, Word 16)
@@ -476,7 +488,9 @@ def hang_as_hwpx(blocks):
     return blocks
 
 
-def _prefetch(data, fmt="hwpx"):
+def _prefetch(data, fmt="hwpx", live=None):
+    if live is not None and not live():   # 기준이 바뀐 검증 — 미리 찍지 않는다(run_import)
+        return
     try:
         pdf_render.export_pdf(data, fmt=fmt)
     except Exception:  # 단계가 다시 찍으며 오류를 알린다
@@ -595,7 +609,8 @@ def run_edit(sess, job, saved, edited, blocks_now, unrestored=frozenset(), touch
     def eowpml():
         reopened = ctx["reopened"]
         job.set("eowpml", "run")
-        base = sess.owpml_base or check.counts(check.check_doc(Doc(orig)))
+        # 기준선 = 원본 + 작업이 받아들인 종류(가져온 서식 · 넣은 내용이 물고 온 것 — server.owpml_base 와 같은 셈: spec_병합 ② §5-10 「가져온 스키마 위반 종류」)
+        base = owpml_check.accepted(sess.owpml_base or check.counts(check.check_doc(Doc(orig))), set(getattr(sess, "owpml_ok", None) or ()))
         v = check.verdict(reopened, base, check.check_doc(reopened))
         job.set("eowpml", v["status"], check.summary_text(v), owpml={k: v[k] for k in ("new", "rules", "grown")},
                 blocks=[e["block"] for x in v["new"] + v["rules"] for e in x["examples"] if e["block"]][:50])

@@ -262,15 +262,17 @@ try:
         check("프레임 이름 — 그 반영을 실행 취소하면 올린 이름으로 돌아옴", page.inner_text("#toolSource").strip() == FORM.name, page.inner_text("#toolSource"))
 
         # ---- 10. 「한 번에 진행」 — 확인 창 없이(2026-11-18) 계획 → 반영
-        n, p0, a0 = len(dialogs), count("plan"), count("apply")
+        n, p0, a0, base0 = len(dialogs), count("plan"), count("apply"), page.evaluate("() => state.base")
         page.click("#divRunAll")
         page.wait_for_function("() => dv.auto && document.getElementById('divRunState').dataset.kind === 'run'")
         check("한 번에 진행 — 도는 동안 단추는 모두 꺼짐", all(b["off"] for b in bar(page)["btns"]))
-        page.wait_for_function(f"() => !!dv.result && ({IDLE})() && document.getElementById('divRunState').dataset.kind === 'done'", timeout=480000)
+        # 끝에 고친 문단을 확정한다(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 확정은 기준을 옮기고 반영 결과 목록(dv.result) · 실행 취소 기록을 비운다
+        page.wait_for_function(f"() => ({IDLE})() && document.getElementById('divRunState').dataset.kind === 'done' && state.base > {base0}", timeout=480000)
         v = bar(page)
-        check("한 번에 진행 — 확인 창 없이 · 계획 1회 + 반영 1회 · 「반영 완료」(지원 안 되는 자리가 있어도 끝까지)", len(dialogs) == n
-              and count("plan") == p0 + 1 and count("apply") == a0 + 1 and v["text"].startswith("반영 완료"), [dialogs[n:], count("plan") - p0, count("apply") - a0, v["text"]])
-        page.wait_for_function("() => !!dv.view && !!dv.view.applied && !!dv.result && dv.view.applied.rev === dv.result.rev && !!document.querySelector('#divAppliedState .dv-undo')", timeout=60000)  # 꼬리표는 지원 안 되는 자리가 있으면 「반영 결과 확인 필요」
+        check("한 번에 진행 — 확인 창 없이 · 계획 1회 + 반영 1회 · 「반영 완료」(지원 안 되는 자리가 있어도 끝까지) · 끝에 고친 문단 확정(기준이 옮겨지고 고친 문단 0 · 상태 줄에 「확정 n」)", len(dialogs) == n
+              and count("plan") == p0 + 1 and count("apply") == a0 + 1 and v["text"].startswith("반영 완료") and f"확정 {base0 + 1}" in v["text"]
+              and page.evaluate("() => state.edited.size === 0 && !isDirty()"), [dialogs[n:], count("plan") - p0, count("apply") - a0, v["text"], page.evaluate("() => [state.base, state.edited.size]")])
+        page.wait_for_function("() => !!dv.view && !!dv.view.applied", timeout=60000)  # 반영 상태는 서버의 보기(agwFitApplied 와 같은 값)로 — 확정이 dv.result 를 비워도 남는다
 
         # ---- 11. 사람이 봐야 할 계획이면 멈춘다 — 반영 요청을 보내지 않는다. ⓐ 미해결(응답을 고쳐 흉내) ⓑ 기관의 차례가 마지막 반영과 다름
         joint = page.locator("#divBox .dv-org-field input")

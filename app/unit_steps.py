@@ -6,7 +6,8 @@
   `ok` · `nothing`(할 일 없음) · `busy`(헤딩 작업 자리가 참) · `stale`(409 — 계획 · 목록을 만든 뒤 문서가 바뀜) · `blocked`(409 — 전제 없음) · `rejected`(422 — 되돌리고 **돌려준** 응답) ·
   `invalid`(400) · `missing`(404 — 세션이 밀려남 포함) · `error`(그 밖 — 서버 로그). 409 가 셋 가운데 무엇인지는 부르는 함수가 정한다(`on409`).
 - 판정 · 편집 · 프롬프트 · 저장은 지금 끝점 함수 그대로다 — 여기는 응답 꼴만 맞춘다. 끝점 함수는 인자를 모두 넘겨 부른다(`Body` 기본값을 타지 않게) · `get_doc` 은 부르지 않는다(작업에 종류 짐작을 저장하는 부작용).
-- 지금 있는 것(걸음 1 — 「문서 검토」): 읽기 `work` · `pair` · `facts` · `llm_ok` · `skips` / 배경 일 `start_heads` · `start_llm` · `job` · `stop_llm` / 동기 일 `guides_keep` · `skip_set` / 저장 `store`(실행 기록 · 기록 줄)."""
+- 지금 있는 것(걸음 1 — 「문서 검토」): 읽기 `work` · `pair` · `facts` · `llm_ok` · `skips` / 배경 일 `start_heads` · `start_llm` · `job` · `stop_llm` / 동기 일 `guides_keep` · `skip_set` / 저장 `store`(실행 기록 · 기록 줄).
+  묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」): `commit_info` · `commit`(server._commit_now — 울타리 안에서) · `base_now`(확인 폴링)."""
 import logging
 import time
 
@@ -136,8 +137,11 @@ def facts(doc_id):
     done = lambda x: bool(x) and bool((x.get("llm") or {}).get("requested")) and not (x.get("llm") or {}).get("fallback")  # noqa: E731
     jv = job.view() if job is not None else None
     saved = form_guides_api.load(doc_id) if s.fmt == "hwpx" else None
+    # 넣은 뒤 템플릿 · 서식 정리(spec_병합 ② §5-9)가 헤딩 그래프를 스크립트로 다시 분석했으면 — 그 전 그래프가 LLM 검증·보완을 거친 것이면 거친 것으로 본다(넣은 줄을 템플릿에 넣으려고 다시 분석한 것이다:
+    # 앞 단계의 「LLM 검증·보완」 줄이 「안 함」 으로 돌아가 「이어서 한 번에」 가 유료 호출을 다시 걸지 않게 — merge_retidy_api.llm_kept)
+    kept = bool(s2) and not done(s2) and __import__("app.merge_retidy_api", fromlist=["llm_kept"]).llm_kept(s.id, ((s2.get("meta") or {}).get("run")))
     return {"id": s.id, "name": s.name, "rev": s.rev, "fmt": s.fmt,
-            "heads": {"s2": bool(s2), "s3": bool(s3), "rev2": ((s2 or {}).get("meta") or {}).get("rev"), "rev3": ((s3 or {}).get("meta") or {}).get("rev"), "llm": done(s2) and done(s3),
+            "heads": {"s2": bool(s2), "s3": bool(s3), "rev2": ((s2 or {}).get("meta") or {}).get("rev"), "rev3": ((s3 or {}).get("meta") or {}).get("rev"), "llm": (done(s2) or kept) and done(s3),
                       "asked": any(bool(((x or {}).get("llm") or {}).get("requested")) for x in (s2, s3)),   # 어느 단계든 LLM 을 부른 결과인가(화면 taskHeadsKept — 구조 반영 전 분석을 다시 돌릴지)
                       "job": {k: jv.get(k) for k in ("status", "chain", "first", "stage", "error", "stopping", "started", "ended")} if jv else None},
             "guides": (len(saved["items"]) + len(saved["marks"])) if saved else None}
@@ -188,6 +192,50 @@ def rev_now(doc_id):
     from app import server
     s = server.DOCS.get(doc_id)
     return s.rev if s is not None else None
+
+
+def base_now(doc_id):
+    """메모리의 그 세션의 기준 확정 번호 | None(메모리에 없음) — 확인 폴링이 싣는다(세션을 열지 않는다: 묶음째 실행의 끝 확정 뒤 그 문서를 연 화면이 새 기준을 따라오게 — ② §18-24)."""
+    from app import server
+    s = server.DOCS.get(doc_id)
+    return s.base_n if s is not None else None
+
+
+# ---------------------------------------------------------------- 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」 — 묶음째 실행이 끝에 한 번: 「고친 문단」 탭의 확정과 같은 몸 server._commit_now)
+def commit_info(doc_id):
+    """그 문서의 확정 재료(세션 잠금 안에서 메모리 값만 — 저장 · 다시 열기를 하지 않는다) → {stored(작업 폴더에 확정을 남길 수 있나), dirty(확정할 변경이 있나), edited(고친 문단 수), base(기준 확정 번호)} | None(없는 문서)."""
+    from fastapi import HTTPException
+
+    from app import server
+    try:
+        s = server._sess(doc_id)
+    except HTTPException:
+        return None
+    stored = store.enabled(doc_id)
+    with s.lock:
+        return {"stored": stored, "dirty": server._dirty(s), "edited": len(s.edited()), "base": s.base_n}
+
+
+def commit(doc_id, message, flow=None, llm=True):
+    """[기준 바뀜] 그 문서의 지금 상태를 확정(server._commit_now — 문서 글 · 블록 id · 차례는 그대로 · 실행 취소 기록은 빔 · 가져오기 검증을 새 기준으로) → Outcome:
+    ok(data = {n, parent, counts}) · nothing(확정할 변경이 없음) · blocked(작업 저장이 꺼짐 · 409 — 다른 스레드의 울타리) · missing(404) · error.
+    **그 문서의 울타리 안에서 부른다**(run.fence — 화면들의 고치던 글을 먼저 받고 사람 편집을 막는다). flow = 그 실행의 번호(확정 기록 · 작업 기록의 flowRun) · llm = 새 기준의 가져오기 검증이 검증 LLM 을 불러도 되나."""
+    from app import server, works
+    if not works.enabled():   # 확정 끝점의 400(_commits_on)과 「확정할 변경이 없음」 을 글로 가르지 않게 먼저 본다
+        return Outcome("blocked", "작업 저장이 꺼져 있어 확정하지 않았습니다")
+    meta = {"by": "flow", **({"flowRun": int(flow)} if flow is not None else {})}
+    text = " ".join(str(message or "").split())[:200]
+
+    def go():
+        return server._commit_now(server._sess(doc_id), text, meta, verify_llm=bool(llm))
+    go.__name__ = "commit"
+    got = _run(go, on409="blocked")
+    if not got.ok:
+        return got
+    c = got.data
+    if c is None:
+        return Outcome("nothing", "확정할 변경이 없습니다")
+    return Outcome("ok", "", {"n": c.get("n"), "parent": c.get("parent"), "counts": c.get("counts") or {}}, rev_now(doc_id))
 
 
 def touch(doc_id):
@@ -454,7 +502,8 @@ def cleanup(target, rev):
     return got
 
 
-# ---------------------------------------------------------------- 「문서 정리」 의 조립 도구(spec_워크플로우 ② §18-23) — 지침 보정 = app/guide_fix_api.py · 빈 구역 지우기 = app/zone_prune_api.py · 문서 id = 그 줄이 고른 문서
+# ---------------------------------------------------------------- 「문서 정리」 의 조립 도구(spec_워크플로우 ② §18-23) — 지침 보정 = app/guide_fix_api.py · 빈 구역 지우기 = app/zone_prune_api.py ·
+# 넣은 뒤 템플릿 · 서식 정리 = app/merge_retidy_api.py(spec_병합 ② §5-9) · 문서 id = 그 줄이 고른 문서
 def guide_fix_facts(doc_id):
     """지침 보정 줄의 재료(문서 안 바뀜 · LLM 안 부름) → {guides{headings, tables, total}, saved, plan | None, applied | None, fill, why} | {error}."""
     from app import guide_fix_api
@@ -492,6 +541,26 @@ def zone_prune(doc_id, rev):
     got = _run(zone_prune_api.zone_prune_post, doc_id, {"expectRev": rev}, on409="stale")
     if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
         return Outcome("nothing", "지울 빈 구역이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+def retidy_facts(doc_id):
+    """넣은 뒤 템플릿 · 서식 정리 줄의 재료(spec_병합 ② §5-9 — 문서 안 바뀜 · 분석 안 돌림) → {why, fill, applied{at, fill, counts} | None, inserted} | {error}."""
+    from app import merge_retidy_api
+    try:
+        return merge_retidy_api.facts(doc_id)
+    except Exception as e:  # noqa: BLE001 — 재료를 못 읽음은 상태 식이 「못 읽음」 으로 보인다
+        log.exception("[워크플로우 실행] 넣은 뒤 정리 재료를 읽지 못했습니다")
+        return {"error": f"{type(e).__name__}: {e}", "why": ""}
+
+
+def retidy(doc_id):
+    """넣은 줄을 목적 문서의 템플릿 · 서식으로(문서를 바꾼다 — 울타리 안에서: POST …/merge-retidy · 헤딩을 다시 분석해야 하면 그 안에서 몇 초) → Outcome —
+    409 = 그 사이 문서가 바뀜 · 다른 헤딩 작업이 돎(stale) · 422 = 표준 검사가 되돌림(rejected) · 맞출 것 없음 = nothing(기록은 남음)."""
+    from app import merge_retidy_api
+    got = _run(merge_retidy_api.retidy_post, doc_id, {}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", got.data.get("why") or "맞출 줄이 없습니다", got.data, got.data.get("rev"))
     return got
 
 

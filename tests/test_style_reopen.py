@@ -97,3 +97,15 @@ def test_allow_ignores_rule_kinds(client):
     assert added == [("header", "x", "y", "", "SCHEMAV_TEST")] and s.owpml_ok == {("header", "x", "y", "", "SCHEMAV_TEST")}
     assert server.owpml_allow(s, [("header", "x", "y", "", "SCHEMAV_TEST")]) == []   # 이미 있는 종류
     assert ("header", "x", "y", "", "SCHEMAV_TEST") not in s.owpml_base["schema"]   # 원본 기준선은 건드리지 않는다
+
+
+def test_allow_section_opt_in(client):
+    """본문(section) 종류는 다른 문서의 본문을 넣는 편집(import_check · _heal — section=True)만 받는다. 규칙 위반 · 꼴이 틀린 것은 어느 쪽이든 안 받는다(spec_병합 ② §5-10 「가져온 스키마 위반 종류」)."""
+    d = _upload(client, SMALL)
+    s = server.DOCS[d]
+    sec = ("section", "renderingInfo", "transMatrix", "", "SCHEMAV_ELEMENT_CONTENT")
+    assert server.owpml_allow(s, [sec]) == [] and s.owpml_ok == set()   # 기본(서식 보관함의 운반 문서)은 header 만
+    added = server.owpml_allow(s, [("rule", "ref", "charPrIDRef"), sec, ("section", "x"), "bad", ["section", "p", "", "a", "SCHEMAV_X"], sec], section=True)
+    assert added == [sec] and s.owpml_ok == {sec}   # 같은 종류를 두 번 넘겨도 하나(여러 기관 문서의 기준선이 겹칠 때 — 기록 글이 두 번 세지 않게)
+    assert server.owpml_base(s)["schema"][sec] == 1 and sec not in s.owpml_base["schema"]   # 판정 기준선에는 개수 1 로 · 원본 기준선(캐시)은 그대로
+    assert server.owpml_allow(s, [sec], section=True) == []   # 이미 받은 종류

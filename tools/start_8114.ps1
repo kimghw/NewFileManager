@@ -10,5 +10,6 @@ $cli = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
 if (Test-Path $cli) { $env:NFM_CLAUDE_CLI = $cli }
 else { cmd /c "echo [start_8114] claude.exe not found at %USERPROFILE%\.local\bin - falling back to PATH >> artifacts\5b_server\server-8114.log" }
 $env:NFM_LLM_BACKEND = 'cli'
-$env:NFM_LLM_MODEL_FORCE = 'claude-fable-5-2'
+# 2026-11-22 구독의 Fable 사용 한도(429)에 닿아 사용자 답 「Opus 5.5로 재시작」 — 한도가 풀리면 사용자가 말할 때 'claude-fable-5-2' 로 되돌린다.
+$env:NFM_LLM_MODEL_FORCE = 'claude-opus-5-5'
 cmd /c "python -m uvicorn app.server:app --host 127.0.0.1 --port 8114 >> artifacts\5b_server\server-8114.log 2>&1"

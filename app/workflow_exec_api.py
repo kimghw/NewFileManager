@@ -7,7 +7,7 @@
   — `server: false` 인 묶음은 `steps: null`(화면이 센다). 404 = 그런 작업 없음. llmSkip = 사람이 「LLM 검증·보완」 을 건너뛴 문서(화면이 「건너뛰기 취소」 를 그 문서에만 보인다).
   **문서마다 따로 도는 실행**(② §18-22): runs = 도는 실행들(문서 하나만 잡은 실행은 둘까지 같이 돈다 — 요약의 `lane`) · run = 이 문서를 잡은 실행(없으면 첫 실행) · held = 역할 → 그 문서를 잡은 실행의 번호 | null ·
   lasts = 지난 실행의 끝들(같이 돌던 다른 문서의 실행도 — 끝난 차례) · last = 그 마지막(도는 실행이 없을 때). 줄의 `wait` = 그 줄이 구성 값을 기다리는 까닭(시작 요청은 409 `needs`).
-- `GET /api/works/{wid}/flow/live?screen=&dirty=` → {run | null(이 문서를 잡은 실행), runs[](이 문서의 묶음에서 도는 실행들), notice | null, rev | null} — 메모리만(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링 · 고치던 글 보고 · 울타리 알림 — ② §17-8).
+- `GET /api/works/{wid}/flow/live?screen=&dirty=` → {run | null(이 문서를 잡은 실행), runs[](이 문서의 묶음에서 도는 실행들), notice | null, rev | null, base | null(기준 확정 번호 — ② §18-24)} — 메모리만(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링 · 고치던 글 보고 · 울타리 알림 — ② §17-8).
 - `POST /api/works/{wid}/flow/runs` {from, to?, only?, role?(source | target — 한 문서만: 409 reason `role` = 그 묶음에 그 문서만 따로 할 것이 없음), redo?, skill?, skip?[구조 반영에서 뺄 자리 key — 화면의 「반영에서 빼기」 · LLM 「건너뛰기」 와 다르다], by?, where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}} → 202 {run} | 409 {reason, message, run?} | 400 ·
   409 `busy` = 이 실행이 잡을 문서를 다른 실행이 잡고 있음(run = 그 실행) · 409 `needs` = 첫 줄이 구성 값을 기다림(「프로젝트 구성 추출」 이 먼저).
   **200 {run: null, reason: "client", message}** = 서버가 아직 맡지 않는 묶음(또는 끄는 스위치) — 거절이 아니라 「화면이 돈다」 는 답(화면이 묶음마다 먼저 묻는다).
@@ -49,7 +49,8 @@ def flow_live(wid: str, screen: str = "", dirty: int = -1, ack: str = ""):
         X.report(wid, screen, dirty, ack)   # ack = 이 화면이 받아 입력을 막고 고친 글을 보낸 알림의 key(울타리는 그 보고만 「받았음」 으로 센다)
     return {"run": X.live(wid), "notice": X.notice_of(wid), "rev": X.UNIT.rev_now(wid) if hasattr(X.UNIT, "rev_now") else None,   # rev = 메모리의 문서 차례(없으면 null) — 알림이 내린 뒤 화면이 다시 읽을지
             "runs": X.live_all(wid),   # 이 문서의 묶음에서 도는 실행들(이 문서를 잡지 않은 다른 문서의 실행도 — 문서마다 따로 도는 실행: ② §18-22). run = 그 가운데 이 문서를 잡은 것
-            "lastRun": X.last_n(wid)}   # 이 문서가 목적 문서인 마지막 실행의 번호(메모리) — 실행을 통째로 놓친 화면이 다시 읽을지
+            "lastRun": X.last_n(wid),   # 이 문서가 목적 문서인 마지막 실행의 번호(메모리) — 실행을 통째로 놓친 화면이 다시 읽을지
+            "base": X.UNIT.base_now(wid) if hasattr(X.UNIT, "base_now") else None}   # 메모리의 기준 확정 번호(없으면 null) — 묶음째 실행의 끝 확정 뒤 그 문서를 연 화면이 새 기준을 따라온다(② §18-24 「한 번에 진행 뒤 고친 문단 확정」)
 
 
 @router.post("/api/works/{wid}/flow/runs", status_code=202)

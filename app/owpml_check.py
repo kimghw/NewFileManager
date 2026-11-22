@@ -297,6 +297,19 @@ def counts(res):
             "rules": collections.Counter(v["kind"] for v in res["rules"])}
 
 
+def accepted(base, kinds):
+    """기준선 base(counts 꼴)에 작업이 받아들인 스키마 위반 종류 kinds(세션의 `owpml_ok` — 다른 문서에서 가져온 내용이 물고 온 종류)를 더한 것.
+    base 에 없는 종류만 개수 1 로 더한다(정확한 개수는 남기지 않는다 — 그 종류가 늘어난 것은 「물려받음」 주의). 더할 것이 없으면 base 그대로(같은 객체 — 캐시를 그대로 쓴다).
+    편집 판정(server.owpml_base)과 수정본 OWPML 검사(verify.eowpml)가 같은 셈을 쓴다(spec_병합 ② §5-10 「가져온 스키마 위반 종류」)."""
+    extra = [k for k in kinds if k not in base["schema"]]
+    if not extra:
+        return base
+    schema = base["schema"].copy()
+    for k in extra:
+        schema[k] = 1
+    return {"schema": schema, "rules": base["rules"]}
+
+
 def kind_text(kind):
     if kind[0] == "rule":
         return f"{RULE_KO.get(kind[1], kind[1])}" + (f" · {kind[2]}" if kind[2] else "")

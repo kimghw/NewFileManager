@@ -224,7 +224,7 @@ def test_run_pins_form_into_prompts_and_records(c, monkeypatch):
     g = heading_runs.state(s)["stage2"]
     assert g["meta"]["guides"]["form"] == f["sha1"] and g["guides"]["form"] == f["sha1"]
     snap = json.loads(gzip.decompress((works.folder(d) / "headings" / str(job.run) / "guides.json.gz").read_bytes()).decode("utf-8"))
-    assert snap["form"]["key"] == "시험" and "FORMFACT" in snap["form"]["text"] and set(snap) == set(G.NAMES) | {"form"}
+    assert snap["form"]["key"] == "시험" and "FORMFACT" in snap["form"]["text"] and set(snap) - {"place"} == set(G.NAMES) | {"form"}   # place = 그 자리의 작성 지침(spec ② §20 — LLM 실행 · 문서에 지침이 있을 때만)
     assert heading_runs.summary(s)["form"]["sha1"] != f["sha1"]  # 요약은 지금 글 — 화면이 실행의 판과 견준다
 
 

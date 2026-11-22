@@ -136,9 +136,9 @@ def main():
               and not s["save"]["off"], [s["errs"], s["std"], s["warns"], s["save"]])
         # 이미 놓은 줄도 꺼지지 않는다(2026-11-20 사용자 「도구는 1번 이상 선택할 수 있어야지 한번 하고 두번 선택이 안되냐」 — 옵션 글 끝 「 — 한 번 더」: 전에는 「이미 놓음」 으로 꺼짐) ·
         # 꺼지는 것은 앞 줄이 이 묶음 · 앞 묶음에 없는 줄뿐(첫 묶음에서 「내용 반영」 — 「넣기 계획」 이 뒤 묶음에 있다)
-        check("① 「＋ 줄 넣기…」 — 묶음 = 취합의 묶음 이름(1단계 프로젝트 구성 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 · 사람이 하는 일) · 이미 놓은 줄도 고를 수 있다(「 — 한 번 더」) · "
+        check("① 「＋ 줄 넣기…」 — 묶음 = 취합의 묶음 이름(1단계 프로젝트 구성 · 2단계 문서 프레임 작성 · 3단계 내용 매핑 · 문서 정리 · 사람이 하는 일 — 「문서 정리」 = 넣은 뒤 템플릿 · 서식 정리: spec_병합 ② §5-9) · 이미 놓은 줄도 고를 수 있다(「 — 한 번 더」) · "
               "앞 줄이 아직 없는 줄(첫 묶음의 「내용 반영」)만 꺼짐 · 「끌어 넣기」 는 고를 수 있다",
-              set(s["homes"]) == {"1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "사람이 하는 일"} and ["config", False, True] in s["again"] and ["apply", True] in s["opts"] and ["drop", False] in s["opts"]
+              set(s["homes"]) == {"1단계 프로젝트 구성", "2단계 문서 프레임 작성", "3단계 내용 매핑", "문서 정리", "사람이 하는 일"} and ["config", False, True] in s["again"] and ["apply", True] in s["opts"] and ["drop", False] in s["opts"]
               and not any(k in ("reheads", "guide", "headsLlm") for k, _ in s["opts"]), [s["homes"], s["opts"], s["again"]])
         page.screenshot(path=str(OUT / "01_gather.png"), full_page=False)
 

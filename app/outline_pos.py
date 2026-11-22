@@ -7,6 +7,7 @@
 - 슬롯 규칙 `pos` = {"line2": "text"(글 시작에 맞춤 — 기본) | "mm"(직접 — "mm": 값) | "keep"(문단 서식 그대로), "letterMm": 레터 위치(없으면 그대로), "set": 사용자가 정함}.
   사용자가 정하지 않은 기본 규칙은 **둘째 줄을 따로 정하지 않은 문단(첫 줄 값 0)** 에만 걸린다(사용자 "딱히 언급되지 않으면" — 문서가 이미 준 들여쓰기·내어쓰기는 안 건드림).
   저절로 맞춘 문단은 오버레이 줄에 `first`(그때 넣은 첫 줄 값)를 적어 두어, 접두가 바뀌면(번호 다시 매김·레터 뒤 공백) 다시 맞춘다.
+  가운데 · 오른쪽 정렬 줄(`free`)에는 기본 규칙을 안 건다 — 확정 서식(force)은 그런 줄의 내어쓰기를 없앤다(`unhang`).
 """
 import logging
 import threading
@@ -204,19 +205,55 @@ def target(cur, pos, full=False, was=None):
     return left, first
 
 
+FREE_ALIGN = ("center", "right")  # 기본 규칙을 안 거는 정렬(free) — 줄마다 시작이 그 줄의 글 길이로 정해져 「둘째 줄 = 글 시작」 이 뜻이 없다
+
+
+def free_align(doc, ppid):
+    """문단 모양 ppid 의 정렬이 기본 규칙을 안 거는 것(FREE_ALIGN)이면 그 정렬("center" | "right"), 아니면 None — 못 읽는 문서도 None(전처럼)."""
+    try:
+        a = doc._para_summary(doc._defs["paraPr"].get(str(ppid))).get("align")
+    except (AttributeError, KeyError):
+        return None
+    return a if a in FREE_ALIGN else None
+
+
+def free(doc, ov, pid):
+    """기본 자리 규칙을 안 거는 줄인가 — 그 레벨에 사람이 정한 규칙(pos)이 없고 문단이 가운데 · 오른쪽 정렬이다(② §8-1 「기본 규칙」 의 예외 — 2026-11-22:
+    좁은 가운데 칸의 「① 항만 접근 …」 줄에 접두 폭만큼 내어쓰기가 들어가 한 줄에 2~3자만 남았다 — 한글 출력 실측). 사람이 정한 규칙은 정렬과 무관하게 건다.
+    그런 줄의 확정 꼴은 「내어쓰기 없음」 이다(`unhang` — 확정 서식으로 바꾸는 길 force 만 건다)."""
+    line = ov["lines"].get(pid)
+    if line is None or (OE._slot(ov, line["tpl"], line["level"]) or {}).get("pos"):
+        return False
+    p = doc._ids.get(pid)
+    return p is not None and free_align(doc, p.get("paraPrIDRef", "0")) is not None
+
+
+def unhang(cur):
+    """기본 규칙을 안 거는 줄(free)의 확정 꼴 — 내어쓰기(첫 줄 < 0)가 있으면 (왼쪽 여백 그대로, 첫 줄 0), 없으면 None(그대로).
+    이 변경 전의 확정 서식이 가운데 · 오른쪽 정렬 줄에도 「둘째 줄 = 글 시작」 내어쓰기(대표의 접두 폭)를 넣었다 — 그런 대표를 맞춘 줄은 접두 폭이 다르면(「10.」) 둘째 줄이
+    제 글 시작이 아니라 대표와 끝내 다른 서식으로 남았다(2026-11-22 검토). 첫 줄 0 이면 첫 줄 자리(= 왼쪽 여백)는 그대로이고 모든 줄이 왼쪽 여백에서 시작한다 — 들여쓰기(첫 줄 > 0)는 문서의 것이라 둔다."""
+    if cur["firstMm"] >= -EPS or cur["prefixMm"] > MAX_PREFIX_MM:
+        return None
+    return round(cur["leftMm"], 2), 0.0
+
+
 def align(doc, ov, pid, full=False, measure=None, force=False):
     """개요 줄 pid 를 슬롯 규칙대로 — 바꿨으면 그 문단의 새 서식 요약, 아니면 None. 괄호 줄(구분 라벨·괄호 소제목 — 글 전체가 레터)은 안 건드린다.
     문단 여백만 바꾼다(format_para — 런마다 글자 모양·문단 번호는 그대로). full 의 잘못된 규칙은 ValueError.
-    force = 확정 서식으로 바꾸는 길(outline_conform — ② §8-8): 사람이 정한 규칙이 없어도 기본 규칙(둘째 줄 = 글 시작)을 **문단이 이미 가진 값을 덮고** 건다."""
+    force = 확정 서식으로 바꾸는 길(outline_conform — ② §8-8): 사람이 정한 규칙이 없어도 기본 규칙(둘째 줄 = 글 시작)을 **문단이 이미 가진 값을 덮고** 건다.
+    가운데 · 오른쪽 정렬 줄은 기본 규칙을 안 건다(free — 사람이 정한 규칙은 건다): 글 고침 · 새 줄에서는 그대로, force 면 내어쓰기만 없앤다(unhang — 한 상태로 모이게)."""
     line = ov["lines"].get(pid)
     if line is None or line.get("role") in OE.ROOTED or line.get("role") == OE.TABLE:  # 표 제목 줄(② §8-7)도 자리 규칙 없음
+        return None
+    fr = free(doc, ov, pid)
+    if fr and not force:
         return None
     slot = OE._slot(ov, line["tpl"], line["level"]) or {}
     m = measure or Measure(doc)
     cur = m.place(pid, line.get("letter"))
     if cur is None:
         return None
-    t = target(cur, dict(slot.get("pos") or {"line2": "text"}, set=True) if force else slot.get("pos"), full=full or force, was=line.get("first"))
+    t = unhang(cur) if fr else target(cur, dict(slot.get("pos") or {"line2": "text"}, set=True) if force else slot.get("pos"), full=full or force, was=line.get("first"))
     if t is None:
         return None
     left, first = t
@@ -359,7 +396,9 @@ def _r1(v):
 
 
 def view(doc, ov):
-    """화면용 요약(outline_edit.view) + 템플릿마다 slots{레벨: {letter, lines(그 레벨 줄 수), rooted(괄호 줄 — 자리 규칙 없음), pos(규칙), at(대표 서식의 자리 mm), to(규칙을 건 뒤 — 새 줄의 자리)}}."""
+    """화면용 요약(outline_edit.view) + 템플릿마다 slots{레벨: {letter, lines(그 레벨 줄 수), rooted(괄호 줄 — 자리 규칙 없음), pos(규칙), at(대표 서식의 자리 mm), to(규칙을 건 뒤 — 새 줄의 자리),
+    free?("center" | "right" — 사람이 정한 규칙이 없고 동결 문단이 가운데 · 오른쪽 정렬: 기본 규칙을 안 건다 · to = 확정 서식의 꼴(내어쓰기 없음) —
+    동결 모양에 옛 내어쓰기가 남았으면(at.firstMm < 0) 「자리 맞춤」 · 조정 전에는 Enter 의 새 줄이 at 의 꼴)}}."""
     out = OE.view(ov)
     m = Measure(doc)
     counts = Counter((x["tpl"], int(x["level"])) for x in ov["lines"].values())
@@ -381,8 +420,11 @@ def view(doc, ov):
                 at = None
             if at:
                 item["at"] = {k: _r1(at[k]) for k in ("letterMm", "textMm", "line2Mm", "leadMm", "leftMm", "firstMm")}
+                fa = None if sl.get("pos") else free_align(doc, (sl.get("attrs") or {}).get("paraPrIDRef"))
+                if fa:  # 가운데 · 오른쪽 정렬 레벨 — 기본 규칙을 안 건다(free): 새 줄 · 글 고침은 문단 여백 그대로(내어쓰기를 안 넣음), 확정 서식은 내어쓰기를 없앤 꼴(unhang)
+                    item["free"] = fa
                 try:
-                    tg = target(at, sl.get("pos"), full=True)
+                    tg = unhang(at) if fa else target(at, sl.get("pos"), full=True)
                 except ValueError:
                     tg = None
                 left, first = tg if tg else (at["leftMm"], at["firstMm"])

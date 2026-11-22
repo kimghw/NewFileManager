@@ -7,7 +7,8 @@
 - 각주 번호(`marks` — 「연구개발비15)」 의 「15)」)는 그 블록 **바로 뒤의**(표 · 빈 줄만 사이에 둔) 작성 요령 표에서 같은 번호의 항목(「15. …」 줄부터 다음 「N.」 줄 전까지 · 「15-1)」 은 그 항목 안의 「1) …」)을 가리킨다 —
   작성 요령 표가 설명하는 블록은 `_explains` 가 정한다(번호가 1 부터 다시 시작하는 앞 블록은 다른 지침의 것). 못 이은 번호는 글 없이 남긴다(짐작하지 않는다).
 collect(doc, graph, tables, found) → {"version", "counts"{items, marks, headings, tables}, "items"[{id, kind, name, text, heading{id, text} | None, table{id, label} | None, top}],
-"marks"[{no, at, label, heading, table, guide(작성 요령 표 id | None), text}]} · groups(saved) → {"headings"[…], "tables"[…], "loose"[…]}(화면 · 읽는 기능이 쓰는 묶음)."""
+"marks"[{no, at, label, heading, table, guide(작성 요령 표 id | None), text}]} · groups(saved) → {"headings"[…], "tables"[…], "loose"[…]}(화면 · 읽는 기능이 쓰는 묶음) ·
+places(saved) → 헤딩 · 표 LLM 판정 자료에 싣는 꼴(spec_헤딩_추출 ② §20 「작성 지침을 판정 자료로」)."""
 import re
 
 from app import form_cleanup
@@ -19,6 +20,7 @@ TOP = re.compile(r"^\s*(\d+(?:\s*,\s*\d+)*)\s*\.\s*\S")   # 작성 요령 표의
 SUB = re.compile(r"^\s*(\d+)\s*\)\s*\S")                   # 그 항목에 딸린 항목 — 「1) …」(각주 번호 「15-1)」 이 가리킨다)
 TEXT_MAX = 20000   # 지침 하나의 글 — 넘으면 자른다(작성 요령 표 하나가 보통 1~4천 자)
 LABEL_MAX = 80
+PLACE_TEXT_MAX, PLACE_MARK_MAX = 2000, 600   # 판정 자료에 싣는 지침 하나의 글 · 각주 번호가 가리키는 항목 하나의 글(places — 자리마다의 합은 싣는 쪽이 자른다)
 
 
 def _one(text, n=LABEL_MAX):
@@ -237,3 +239,34 @@ def groups(saved):
                 loose.append({**x, "what": kind})
     order = lambda d: sorted(d.values(), key=lambda g: g["top"])  # noqa: E731
     return {"headings": order(heads), "tables": order(tabs), "loose": loose}
+
+
+def _cut(text, n):
+    t = (text or "").strip()
+    return t if len(t) <= n else t[:n - 1] + "…"
+
+
+def places(saved):
+    """저장한 것(collect · form_guides_api.load 꼴) → 헤딩 · 표 LLM 판정 자료에 싣는 꼴(spec_헤딩_추출 ② §20) {"tables": {표 id: [지침…]}, "body": [지침…]} | None(싣을 것 없음).
+    지침 = {"at": 그 지침이 있는 블록 id, "head": 붙인 헤딩 id | "", "kind": 이름, "text": 글} · 각주 번호는 kind 「각주 번호 N)」 + "label"(번호가 든 줄의 글) — **가리키는 항목 글이 있는 번호만**(글 없는 번호는 판정에 줄 것이 없다).
+    표에 붙은 지침(표 칸 안 · 표 바로 앞뒤의 ※ 안내 · 칸의 각주 번호)은 그 표의 것(표 판정) · 나머지(작성 요령 표 · <참고 N> 자료 · 본문의 ※ 안내 · 본문 줄의 각주 번호)는 body(구간 판정 — 문서 차례).
+    글은 자른다(PLACE_TEXT_MAX · PLACE_MARK_MAX) — 저장본은 그대로 둔다."""
+    if not isinstance(saved, dict):
+        return None
+    tables, body = {}, []
+    rows = [(x, False) for x in saved.get("items") or () if isinstance(x, dict)] + [(m, True) for m in saved.get("marks") or () if isinstance(m, dict) and m.get("text")]
+    for x, mark in sorted(rows, key=lambda r: (r[0].get("top", 0), r[1])):
+        h = x.get("heading")
+        head = (h.get("id") or "") if isinstance(h, dict) else ""
+        if mark:
+            one = {"at": x.get("at") or "", "head": head, "kind": f"각주 번호 {x.get('no')})", "label": _one(x.get("label"), 60), "text": _cut(x.get("text"), PLACE_MARK_MAX)}
+        else:
+            one = {"at": x.get("id") or "", "head": head, "kind": x.get("name") or KIND_NAME.get(x.get("kind"), x.get("kind") or ""), "text": _cut(x.get("text"), PLACE_TEXT_MAX)}
+        if not one["text"]:
+            continue
+        t = x.get("table")
+        if isinstance(t, dict) and t.get("id"):
+            tables.setdefault(t["id"], []).append(one)
+        else:
+            body.append(one)
+    return {"tables": tables, "body": body} if tables or body else None

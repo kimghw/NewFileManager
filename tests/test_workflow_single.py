@@ -501,6 +501,39 @@ def test_heads_stage_runs_the_llm_chain_then_applies_the_plans_inside_the_fence(
     assert e.value.reason == "noWork"
 
 
+
+def test_a_heads_group_run_commits_at_the_end_instead_of_promising_undo(monkeypatch):
+    """양식 표준화의 2단계 「한 번에 진행」(서버 실행) — 조정이 반영한 문서를 끝에 한 번 확정한다: 줄 글은 「실행 취소」 를 약속하지 않고 끝 글의 꼬리가 확정을 알린다 ·
+    끝남의 셈은 그대로(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」)."""
+    from test_workflow_exec import CommitDoor
+
+    class CommitOne(CommitDoor, OneFake):
+        pass
+    f = CommitOne()
+    f.job_key = "plan_fit"
+    f.divs["t"].update(confirmed={"values": V2, "at": 1}, applied={"values": V2, "rev": 0})
+    monkeypatch.setattr(X, "UNIT", f)
+    monkeypatch.setattr(S, "OPEN", {"relay", "single"})
+    monkeypatch.setitem(X.WAIT, "poll", 0.005)
+    for k, v in (("settle", 0.3), ("limit", 0.8), ("poll", 0.01)):
+        monkeypatch.setitem(X.FENCE_WAIT, k, v)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+        d.clear()
+    try:
+        X.start("t", {"from": "heads"})
+        rec = _done("t")
+        assert rec["status"] == "done", rec["end"]
+        c = rec["commits"][0]
+        assert c["status"] == "ok" and [x["doc"] for x in f.commits] == ["t"] and f.commits[0]["fenced"]
+        assert rec["end"]["text"] == f"끝남 — 헤딩 LLM 판정 · 서식 계획 — LLM 판정함 · 조정 — 템플릿 1개 반영(맞춘 줄 3) · 확정 1({c['name']} — 고친 문단 12 · 앞 상태 = 올린 원본)"
+        assert next(s for s in rec["steps"] if s["key"] == "adjust")["text"] == "조정 — 템플릿 1개 반영(맞춘 줄 3)"   # 「실행 취소」 를 약속하지 않는다
+        v = X.status_of("t")
+        assert _stage(v, "heads")["left"] == 0 and _stage(v, "tables")["left"] == 0
+    finally:
+        _done("t", 5)
+        for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+            d.clear()
+
 def test_llm_lines_are_left_not_skipped_when_the_llm_is_off(std):
     """LLM 을 쓸 수 없으면 헤딩 · 표의 LLM 줄은 「건너뜀」 이 아니라 남김(이관의 「문서 검토」 와 다르다 — 화면과 같게) · 조정도 헤딩 판정 뒤의 일이라 남는다."""
     std.ok = False

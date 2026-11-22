@@ -333,6 +333,52 @@ def test_second_part_overlaps_the_common_place_and_stale_plans_are_refused(clien
     assert c.get(f"/api/docs/{to}/gather/frame/file").content != D.base()["side"]["bytes"]   # 새 판의 바이트(넣은 내용이 든 문서)
 
 
+def test_apply_marks_the_last_fill_and_refit_fp_keeps_untouched_records_same(client):
+    """마지막 반영 표식 gather.json filled{at, rev, part, kind, ids}(「넣은 뒤 템플릿 · 서식 정리」 가 읽는다 — spec_병합 ② §5-9 · 판은 안 올린다) · 넣을 것 0 이면 안 적는다 ·
+    넣은 줄을 바꾼 편집 뒤 refit_fp(편집 전에 잡은 fp_matches)를 하면 다음 판정이 그 기록을 「같음」 으로 본다 — 편집 전에 이미 안 맞던 기록(사람이 넣은 뒤 고친 것)은 그대로 둔다."""
+    from app import merge_gather as MG
+    c = client
+    to, _v = _master(c)
+    A = _part(c, to, "기관A_가나대.hwpx", _edit_a, orgs=[J1])
+    assert "filled" not in GA._store(to)
+    n = GA._store(to)["version"]
+    plan = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    done = c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]}).json()
+    G = GA._store(to)
+    f = G["filled"]
+    body = {k: v for k, v in G["parts"][A]["applied"].items() if v["kind"] in MG.BODY}
+    assert set(f) == {"at", "rev", "part", "kind", "ids"} and (f["rev"], f["part"], f["kind"]) == (done["rev"], A, "fill") and isinstance(f["at"], float)
+    assert f["ids"] and set(f["ids"]) == {i for v in body.values() for i in v["ids"]} and G["version"] == n   # 본문 기록의 넣은 블록만(칸 · 행 기록은 칸 id) · 판은 그대로
+    again = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    assert c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": again["planId"]}).json()["nothing"] is True and GA._store(to)["filled"] == f   # 넣을 것 0 — 표식 그대로
+
+    s = server._sess(to)
+    assert GA.fp_matches(to, s.doc.blocks()) == {(A, k) for k in body} and len(body) == 2
+    text = lambda i: next(b for b in s.doc.blocks() if b["id"] == i).get("text") or ""  # noqa: E731
+    para = {k: next(i for i in v["ids"] if text(i).strip()) for k, v in body.items()}   # 기록마다 글이 든 넣은 문단(본문 기록의 ids = 새 최상위 블록)
+    (kx, px), (ky, py) = sorted(para.items())
+    assert c.patch(f"/api/docs/{to}/blocks/{px}", json={"text": text(px) + " — 사람이 고침"}).status_code == 200   # 넣은 뒤 사람이 고친 기록
+    assert c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["counts"].get("same") == 3
+    matched = GA.fp_matches(to, s.doc.blocks())
+    assert matched == {(A, k) for k in body if k != kx}
+    assert c.patch(f"/api/docs/{to}/blocks/{py}", json={"text": text(py).replace("o ", "ㅇ ", 1)}).status_code == 200   # 정리가 넣은 줄의 레터 글자를 닮은 글자로 바꿈
+    assert c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["counts"].get("same") == 2
+    assert GA.refit_fp(to, s.doc.blocks(), matched) == 1 and GA._store(to)["version"] == n
+    counts = c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["counts"]
+    assert counts.get("same") == 3 and sum(counts.values()) == 4   # 정리가 바꾼 기록은 다시 「같음」 · 사람이 고친 기록은 그대로 「같음」 이 아니다
+    assert GA.refit_fp(to, s.doc.blocks(), set()) == 0
+
+    # 표식을 적기 전 판에 넣은 취합본(넣은 기록은 있고 filled 가 없다) — 넣은 뒤 정리의 재료를 읽을 때 한 번 적는다(안 그러면 「넣은 내용이 없습니다」 · 줄이 「건너뜀」 — 다시 반영해도 넣을 것 0 이라 표식이 안 생긴다)
+    from app import merge_retidy_api as RA
+    GA._change(to, lambda G: G.pop("filled"), bump=False)
+    fa = RA.facts(to)
+    f2 = GA._store(to)["filled"]
+    assert fa["why"] == "" and fa["fill"] == f2["at"] and fa["inserted"] == len(f["ids"]) and (f2["legacy"], f2["rev"], f2["part"]) == (True, s.rev, None) and set(f2["ids"]) == set(f["ids"])
+    assert RA.facts(to)["fill"] == f2["at"] and GA._store(to)["version"] == n   # 한 번만 적는다 · 판은 그대로
+    GA._store(to, {**GA._store(to), "parts": {}, "filled": None})
+    assert RA.facts(to)["why"] == RA.NO_FILL and not GA._store(to).get("filled")   # 넣은 기록이 없으면 적지 않는다
+
+
 def test_documents_not_made_from_the_frame_are_never_planned_until_a_person_keeps_a_hunk(client):
     c = client
     to, v = _master(c)
@@ -542,3 +588,89 @@ def test_overflow_levels_choose_in_the_plan_then_refit_what_went_in(client):
     assert r.status_code == 200 and (r.json()["lines"], r.json()["rev"]) == (1, rev + 1) and f"· {ODEEP}" in _texts(to) and f"▪ {ODEEP}" not in _texts(to)
     now = next(v for v in GA._store(to)["parts"][A]["applied"].values() if (v.get("convert") or {}).get("over"))
     assert now["convert"]["over"]["lines"][0]["letter"] == "·" and now["fp"] != fp and status() == "same"   # 레터가 바뀐 만큼 지문도 다시 — 판정은 그대로 「이미 들어 있음」
+
+
+def test_retidy_on_a_gather_target_touches_only_inserted_lines_and_holds_the_chosen_overflow(client):
+    """넣은 뒤 템플릿 · 서식 정리를 취합본에(spec_병합 ② §5-9 9 — 진짜 끝점 · 진짜 헤딩 다시 분석): 넣은 기록 = gather.json(마지막 반영 표식 · 본문 기록) ·
+    취합본에 있던 줄은 한 바이트도 안 바뀐다(그 레벨에 취합본의 줄이 있으면 settle 하지 않음 · 「≈」 줄 없음) · 사람이 처리를 고른 넘친 줄(merge_over.json cases)은 맞추지 않는다 ·
+    판정은 그대로 「이미 들어 있음」 · 두 번째는 할 것 없음 · 정리 기록의 fill = 그 반영 표식."""
+    from lxml import etree
+
+    from app import merge_gather as MG
+    from app import merge_retidy_api as RA
+    c = client
+    to, _ = _master(c)
+    part = D.part(_edit_over, "fit-over")
+    graph, tables = M._cached("gather-fit-over", part["bytes"], part["doc"], "fit-over.hwpx")
+    A = _upload(c, f"기관A_{J1}.hwpx", part["bytes"])
+    _analysed(A, graph, tables)
+    assert c.put(f"/api/docs/{to}/gather/parts/{A}", json={"orgs": [J1]}).status_code == 200
+    assert c.post(f"/api/docs/{to}/merge-retidy", json={}).status_code == 409   # 넣은 기록이 없다
+    plan = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    key = plan["over"]["cases"][0]["key"]
+    assert c.put(f"/api/docs/{to}/merge-over", json={"key": key, "mode": "edit", "levels": [{"letter": "▪"}]}).status_code == 200   # 사람이 넘친 레벨의 처리를 고름
+    plan = c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()
+    assert c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": plan["planId"]}).status_code == 200
+    s, G = server._sess(to), GA._store(to)
+    body = {i for v in G["parts"][A]["applied"].values() if v["kind"] in MG.BODY for i in v["ids"]}
+    held = [x["id"] for v in G["parts"][A]["applied"].values() for x in ((v.get("convert") or {}).get("over") or {}).get("lines") or ()]
+    R = RA._records(to)
+    assert R["gather"] and R["n"] == len(body) == 3 and R["held"] == set(held) and len(held) == 1 and set(R["mark"]["ids"]) == body
+    g = c.get(f"/api/docs/{to}/merge-retidy").json()
+    assert (g["gather"], g["stale"], g["inserted"], g["why"]) == (True, True, 3, "")   # 반영 뒤 그래프가 낡았다 — 반영이 먼저 다시 분석한다
+    xml = lambda: {b["id"]: etree.tostring(s.doc._ids[b["id"]]) for b in s.doc.blocks()}  # noqa: E731
+    before = xml()
+    r = c.post(f"/api/docs/{to}/merge-retidy", json={})
+    assert r.status_code == 200 and r.json()["reanalyzed"] is True and not r.json().get("nothing"), r.text[:600]
+    D_ = r.json()["done"]
+    assert D_["counts"]["held"] == 1 and D_["counts"]["near"] == 0 and any(x["kind"] == "form" and x["form"] > 0 for x in D_["rows"]), D_   # 취합본의 줄이 있는 레벨(form)을 거쳤다
+    after = xml()
+    assert [i for i in before if i not in body and after.get(i) != before[i]] == []   # 취합본에 있던 줄은 그대로(뒤에 올 기관 문서가 그 줄의 글로 자리를 찾는다)
+    assert all(after[i] == before[i] for i in held) and [i for i in body if after[i] != before[i]]   # 사람이 고른 넘친 줄은 그대로 · 넣은 줄은 맞춤
+    assert next(i for i in c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["items"] if OGOAL in i["text"])["status"] == "same"
+    again = c.post(f"/api/docs/{to}/merge-retidy", json={}).json()
+    assert again["nothing"] is True and again["reanalyzed"] is False and xml() == after
+    assert RA.load(to)["applied"]["fill"] == GA._store(to)["filled"]["at"] and RA.facts(to)["inserted"] == 3
+
+
+# ---- 가져온 스키마 위반 종류(spec_병합 ② §5-10 「가져온 스키마 위반 종류」 — 취합 반영도 server.import_check · 옛 작업은 GA.owpml_from 으로 _heal) ------------------------
+PIC_TABLE = "t12501"   # 연구개발계획서 양식의 그림이 든 표 — 연차보고서 서식에는 그림이 없다(그림 꼴의 종류가 목적 기준선에 없음)
+PIC_KINDS = {("section", "renderingInfo", "transMatrix", "", "SCHEMAV_ELEMENT_CONTENT"), ("section", "imgRect", "pt0", "", "SCHEMAV_ELEMENT_CONTENT"),
+             ("section", "pic", "inMargin", "", "SCHEMAV_ELEMENT_CONTENT")}
+
+
+def test_gather_fill_carries_imported_kinds_and_legacy_heals(client):
+    to = _upload(client, "연차보고서.hwpx", M.REPORT_FORM.read_bytes())
+    pid = _upload(client, "기관 문서.hwpx", M.PLAN_FORM.read_bytes())
+    s, src = server._sess(to), server._sess(pid)
+    got = {}
+
+    def run():
+        got["new"] = s.doc.insert_after("p975", [{"kind": "copy", "srcId": PIC_TABLE}], src=src.doc)
+        return {"hosts": [], "struct": set(), "origin": {}, "anchor": None}
+    with s.lock, src.lock:
+        out, after = GA._tx(s, src, run, "gatherFill", {"part": pid}, "applyFailed")
+    assert after is not None and PIC_KINDS <= s.owpml_ok   # 반영(gatherFill · gatherDrop)이 들여온 종류를 작업에 남긴다
+    t = next(b for b in client.get(f"/api/docs/{to}").json()["blocks"] if b["id"] == got["new"][0])
+    para = next(x["id"] for c in t["cells"] for x in c["blocks"] if x["type"] == "paragraph")
+
+    def edit():
+        return client.post(f"/api/docs/{to}/format/para", json={"ids": [para], "changes": {"align": "right"}})
+    assert edit().status_code == 200
+    # 고침 전에 넣은 작업 — 받아들인 종류가 없다: 넣은 기록(gather.json 기관 문서의 applied)이 없으면 422, 있으면 처음 걸린 편집에서 받아들인다
+    s.owpml_ok.clear()
+    for u in s.undo:
+        u["owpml_ok"] = set()
+    assert GA.owpml_from(s) == [] and edit().status_code == 422
+    GA._store(to, {"version": 1, "frameId": None, "order": [pid], "parts": {pid: {"name": "기관 문서", "applied": {"k": {"ids": [got["new"][0]], "at": "시험"}}}}})
+    assert PIC_KINDS <= set(GA.owpml_from(s))
+    r = edit()
+    assert r.status_code == 200, r.text[:400]
+    assert PIC_KINDS <= server._sess(to).owpml_ok
+    # 끌어 넣은 출처(편집 구역의 출처 이벤트) · 뺀 기관 문서의 넣은 기록도 원본으로 본다
+    GA._store(to, {"version": 2, "frameId": None, "order": [], "parts": {}, "gone": {pid: {"applied": {"k": {"ids": []}}}}})
+    assert PIC_KINDS <= set(GA.owpml_from(s))
+    GA._store(to, {"version": 3, "frameId": None, "order": [], "parts": {}})
+    assert GA.owpml_from(s) == []
+    s.zones["origins"].append({"id": "e1", "part": pid, "ids": []})
+    assert PIC_KINDS <= set(GA.owpml_from(s))

@@ -97,3 +97,15 @@ def test_sdk_from_worker_threads(fake_sdk):
     fake_sdk(_result())
     outs = llm.ask_all([{"schema": SCHEMA, "content": f"{i}", "what": f"t#{i}"} for i in range(6)], workers=3)
     assert [o["backend"] for o in outs] == ["sdk"] * 6 and all(o["data"] == {"ok": True} for o in outs)
+
+
+def test_cli_why_reads_result_json():
+    """CLI 가 종료 코드 1 로 낸 결과 JSON — 사용 한도는 짧은 글로, 그 밖은 result 글로(JSON 끝을 그대로 싣지 않는다)."""
+    limit = ('{"type":"result","subtype":"success","is_error":true,"api_error_status":429,'
+             '"result":"You\'ve reached your Fable limit. Switch to another model, or manage usage credits at '
+             'https://claude.ai/settings/usage?from=cc_cli_limit_message, to continue.","uuid":"68fd"}')
+    why = llm.cli_why(1, limit, "", "claude-fable-5-2")
+    assert why.startswith("claude-fable-5-2 사용 한도에 닿음(429)") and "uuid" not in why and len(why) < 80
+    low = '{"type":"result","is_error":true,"api_error_status":400,"result":"Credit balance is too low"}'
+    assert llm.cli_why(1, low, "", "m") == "400: Credit balance is too low"
+    assert llm.cli_why(3, "", "boom", "m") == "exit 3: boom"

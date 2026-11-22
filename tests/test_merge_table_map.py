@@ -214,3 +214,20 @@ def test_replanning_after_the_fill_has_nothing_to_do():
     F = _side("f", [["평가 항목", "단위"], ["설계사양서 [인텍]", "건"], ["차단용량", "kA"]])
     p = MM.plan(T, F, _map(T, F, [([1], [1]), ([2], [2])]))
     assert p["todo"] == 0 and p["skipped"] == [] and p["counts"]["records"] == 2
+
+
+def test_an_answer_that_lumps_several_items_is_split_and_only_the_bad_item_is_skipped():
+    """LLM 이 목적 표의 여러 항목(이름 칸마다 — 「가」 2행 · 「나」 · 「다」)을 한 항목으로 답했는데 「가」 의 칸 하나가 안 맞으면(두 행에 걸친 목적 칸 하나에 원본 칸 둘)
+    「가」 만 건너뛰고 「나」 · 「다」 는 넣는다 — 2026-11-22 실제 이관: Opus 5.5 가 표지 2~9행을 한 항목으로 답해 기술분류 두 행까지 빠졌다(spec_병합 ② §5-3 5 「항목」).
+    나눠도 같은 까닭으로 안 되는 진짜 한 항목은 전처럼 통째로 건너뛴다."""
+    H, R, V = "colhead", "rowhead", "field"
+    T = _grid("t", [(0, 0, 1, "항목", H), (0, 1, 1, "값", H),
+                    (1, 0, 2, "가", R), (1, 1, 2, "", V),
+                    (3, 0, 1, "나", R), (3, 1, 1, "", V),
+                    (4, 0, 1, "다", R), (4, 1, 1, "", V)])
+    F = _side("f", [["항목", "값"], ["가", "1"], ["가", "2"], ["나", "3"], ["다", "4"]])
+    p = MM.plan(T, F, _map(T, F, [([1, 2, 3, 4], [1, 2, 3, 4])]))
+    assert _texts(p) == {"tc3_1": "3", "tc4_1": "4"} and p["counts"]["records"] == 2
+    assert [(s["record"], s["why"], s["detail"]) for s in p["skipped"]] == [(0, "shape", "2행 항목 — 목적 칸 하나에 원본 칸이 둘(열 0)")]   # 두 행에 걸친 이름 칸이 먼저 걸린다
+    p = MM.plan(T, F, _map(T, F, [([1, 2], [1, 2])]))   # 한 항목(「가」) — 나눌 것이 없다
+    assert p["cells"] == [] and [s["why"] for s in p["skipped"]] == ["shape"]

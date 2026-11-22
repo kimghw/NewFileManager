@@ -10,7 +10,9 @@
   **문서마다 따로 도는 실행**(② §18-22 — 2026-11-21 사용자 「원본문서랑, 목적문서를 따로따로 실행해서 처리할 수 있잖아? 매칭은 1개 실행이 같이 해야하고」): 문서 하나의 줄만 도는 실행(`lane` = source | target)은 **그 문서만** 잡는다 —
   원본 문서의 실행과 목적 문서의 실행이 같이 돈다. 두 문서를 다 쓰는 실행(워크플로우 전체 줄 · 원본 → 목적 줄 · 두 문서의 줄 — `lane` "")은 두 문서를 다 잡아 묶음에 하나뿐이다.
   열쇠 = 목적 문서 id(두 문서 · 목적 문서의 실행) · `<목적 id>/source`(원본 문서의 실행). 같은 묶음의 실행들 = `runs_of(목적 id)`.
-- 끊김: 서버를 켤 때 `BOOT` 를 정한다 — 기록이 `running` 인데 지금 도는 실행이 아니면 읽는 때 `cut` 으로 고쳐 쓴다. **저절로 잇지 않는다**(「이어서」 = 새 실행)."""
+- 끊김: 서버를 켤 때 `BOOT` 를 정한다 — 기록이 `running` 인데 지금 도는 실행이 아니면 읽는 때 `cut` 으로 고쳐 쓴다. **저절로 잇지 않는다**(「이어서」 = 새 실행).
+- 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」): 묶음째 실행(범위에 only 가 없다)이 끝남 · 남김으로 끝나면 끝 글을 짓기 전에 한 번, 그 실행이 바꿀 수 있는 문서의 고친 문단을 그 실행의 울타리 안에서 확정한다(_commit_end).
+  **문서를 바꾸는 처리 함수는 `run.fence` 안에서만 문서를 바꾸고, 그 단위의 change 를 doc 로 적는다** — 끝 확정이 그것으로 문서를 고른다(_commit_docs)."""
 import contextlib
 import contextvars
 import functools
@@ -53,6 +55,12 @@ def client_only():
 def configure(unit):
     global UNIT
     UNIT = unit
+
+
+def _rev_of(doc):
+    """메모리의 그 문서 차례 | None — 문에 rev_now 가 없으면(옛 가짜 문) None(울타리가 「이 실행이 그 문서를 바꿨나」 를 견준다: Run.changed)."""
+    fn = getattr(UNIT, "rev_now", None)
+    return fn(doc) if fn is not None else None
 
 
 def _clip(text):
@@ -178,7 +186,7 @@ def _summary(rec):
     """기록 → 화면이 늘 받는 요약(진행 · 끝) | None."""
     if not rec:
         return None
-    return {k: rec.get(k) for k in ("n", "status", "stopping", "started", "ended", "now", "range", "origin", "docs", "left", "halt", "end", "cut", "job", "sig")} | {
+    return {k: rec.get(k) for k in ("n", "status", "stopping", "started", "ended", "now", "range", "origin", "docs", "left", "halt", "end", "cut", "job", "sig", "commits")} | {   # commits = 끝 확정(② §18-24)
         "lane": rec.get("lane") or "",   # 이 실행이 잡은 문서(source | target — 그 문서만 · "" = 두 문서: ② §18-22)
         "stages": [{k: g.get(k) for k in ("id", "status", "text")} for g in rec.get("stages") or []]}
 
@@ -352,6 +360,7 @@ class Run:
         self.threads = set()
         self.lock = threading.Lock()
         self.io = threading.Lock()   # 기록 쓰기의 차례(두 스레드가 함께 쓸 때 옛 사본이 새 사본을 덮지 않게)
+        self.changed = set()   # 이 실행의 울타리 안에서 차례(rev)가 오른 문서 id 들 — 끝 확정이 고를 문서의 하나(② §18-24 「한 번에 진행 뒤 고친 문단 확정」 · Run.fence 가 더한다)
 
     @property
     def working(self):
@@ -418,6 +427,7 @@ class Run:
         limit 초 안에 안 되면 **문서를 바꾸기 전에** `_Halt("dirty", …)` · 그동안 멈춤을 누르면 `_Stop`. 몸 안의 일은 계획 → 같은 검사 → 반영처럼 짧게(길어야 20초 안팎)."""
         since = time.time()
         key = f"{self.target}:{self.rec['n']}:{next(_SEQ)}"   # 알림마다 다른 key(같은 실행의 둘째 울타리도 새로 받았음을 받는다)
+        raised, r0 = False, None
         with _LOCK:
             seq = next(_SEQ)
             NOTICE[doc] = {"key": key, "since": since}
@@ -439,8 +449,16 @@ class Run:
                 if now - since >= FENCE_WAIT["limit"]:
                     raise _Halt("dirty", DIRTY_TEXT)
                 time.sleep(FENCE_WAIT["poll"])
+            raised, r0 = True, _rev_of(doc)   # 울타리를 올린 뒤의 차례 — 내리기 전에 견줘 이 실행이 그 문서를 바꿨는지 적는다(끝 확정이 고를 문서: ② §18-24)
             yield
         finally:
+            if raised:
+                try:
+                    if _rev_of(doc) != r0:
+                        with self.lock:
+                            self.changed.add(doc)
+                except Exception:  # noqa: BLE001 — 차례를 못 읽어도 울타리는 내린다(끝 확정은 범위의 줄로도 문서를 고른다)
+                    pass
             with _LOCK:
                 if (FENCE.get(doc) or {}).get("thread") == threading.get_ident():
                     FENCE.pop(doc, None)
@@ -813,6 +831,165 @@ def _release(run):
             MATES.pop(d, None)
 
 
+# ---- 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」 — 2026-11-22 사용자 「대쉬보드에서 이어서 하기나 하넌에 진행하는 경우, 고친문단을 자동으로 확정해줘,」)
+# 묶음째 실행(범위에 only 가 없다)이 끝남 · 남김으로 끝나면 끝 글을 짓기 전에 한 번 — 그 실행이 바꿀 수 있는 문서(_commit_docs) 가운데 고친 것이 있는 문서를 그 실행의 울타리 안에서 확정한다(문 UNIT.commit → server._commit_now).
+# 멈춤 · 멈춤 누름 · 오류는 확정하지 않는다(멈춤은 사람이 볼 계획을 남길 수 있다 — 확정이 구조 반영 계획을 비운다). 화면에 반영 못 한 글 · 대상 바뀜 · 멈춤을 누름은 확정만 건너뛰고 실행의 끝 상태는 그대로다.
+_COMMIT_WHY = {"dirty": "그 문서를 연 화면에 반영하지 못한 글이 있음", "moved": "도는 중에 문서 칸이 바뀜"}
+
+
+def _commit_on(run):
+    """이 실행이 끝에 확정하는 실행인가 — 묶음째 실행(범위에 only 가 없다)이고 문이 확정을 안다(문에 commit 이 없는 옛 가짜 문은 조용히 건너뛴다). 끝 상태(끝남 · 남김)는 _drive 가 따로 본다."""
+    return not (run.rec.get("range") or {}).get("only") and callable(getattr(UNIT, "commit", None)) and callable(getattr(UNIT, "commit_info", None))
+
+
+def _held_docs(run):
+    """그 실행이 잡은 문서 → [(문서 id, 역할, 이름(역할의 문서 이름))] — 원본 → 목적 차례. 문서 하나만 잡은 실행(lane)은 그 문서만 · 취합의 기관 문서(원본 문서 여럿)는 아니다(실행 기록의 source 는 원본 문서 하나뿐)."""
+    docs, out = run.rec.get("docs") or {}, []
+    for role in U.ROLES:
+        d = docs.get(role) or {}
+        if d.get("id") and (not run.lane or run.lane == role):
+            r = S._role(run.task, role) if run.task else None
+            out.append((d["id"], role, (r or {}).get("name") or d.get("name") or d["id"]))
+    return out
+
+
+def _commit_docs(run):
+    """끝에 확정할 문서 후보 → [(문서 id, 역할, 이름)] — 잡은 문서 가운데 ⓐ 실행이 들어간 묶음(실행 기록의 stages)에서 **실행기가 하는**(auto) **문서를 바꾸는**(change doc) 줄이 닿는 문서
+    (문서마다의 줄 = 그 줄의 문서 · 「한 문서만」 은 그 문서로 좁힌 줄 · 원본 → 목적 줄 · 원본 문서마다의 덩이 = 목적 문서) ∪ ⓑ 이 실행의 울타리 안에서 차례가 오른 문서(Run.changed).
+    ⓐ 가 있어 앞 실행(멈춘 실행 · 「이 단계만 진행」)이 남긴 고침도 함께 확정된다 — 그 줄이 이번에 한 일이 없어도(② §18-24 「어느 문서」)."""
+    task, role, roles = run.task, (run.rec.get("range") or {}).get("role") or "", set()
+    for gid in dict.fromkeys(g.get("id") for g in run.rec.get("stages") or ()):
+        mine = _stage_lines(task, gid)
+        if role:
+            mine = _role_lines(task, mine, role)
+        for x in mine:
+            u = x.get("unit") or {}
+            if u.get("kind") != "auto" or u.get("change") != "doc":
+                continue
+            roles |= {"target"} if u.get("place") == "pair" or u.get("each") else set(S.roles_on(task, x["on"]))
+    with run.lock:
+        changed = set(run.changed)
+    return [(d, r, name) for d, r, name in _held_docs(run) if r in roles or d in changed]
+
+
+def _pre_edits(run):
+    """실행을 시작할 때 이미 고친 문단 수 {문서 id: 수}(잡은 문서 가운데 고친 것이 있는 문서만) — 끝 확정의 메시지에 「실행 전부터 고친 문단 n 포함」 으로 적는다."""
+    out = {}
+    for doc, _, _ in _held_docs(run):
+        try:
+            info = UNIT.commit_info(doc)
+        except Exception:  # noqa: BLE001 — 못 읽으면 적지 않는다(확정은 끝에 다시 본다)
+            info = None
+        if info and info.get("edited"):
+            out[doc] = int(info["edited"])
+    return out
+
+
+def _commit_label(run):
+    """확정 메시지의 범위 — 「2단계 「구성 맞추기」 한 번에 진행」 · 「2단계 「…」 → 4단계 「…」 이어서 한 번에」 · 「1단계 「…」 — 원본 문서(사업계획서)만」(대시보드의 진행 줄과 같은 말)."""
+    R, task = run.rec["range"], run.task
+    by = {g["id"]: g for g in task["stages"]}
+
+    def name(gid):
+        no, nm = S.stage_label(by.get(gid) or {})
+        return f"{no} 「{nm or gid}」".strip()
+    if R.get("role"):
+        return f"{name(R['from'])} — {_who(task, R['role'])}만"
+    if R.get("to") and R["to"] != R["from"]:
+        return f"{name(R['from'])} → {name(R['to'])} 이어서 한 번에"
+    return f"{name(R['from'])} 한 번에 진행"
+
+
+def _commit_end(run, gid):
+    """끝 확정 → 실행 기록의 commits[{doc, role, name, status, n, parent, count, pre, why}] — 후보 문서(_commit_docs)마다 원본 → 목적 차례로:
+    문(commit_info — 메모리 · 세션 잠금 안)으로 먼저 보고 저장이 꺼짐 = off · 고친 것 없음 = nothing(울타리를 세우지 않는다) · 아니면 **그 실행의 울타리 안에서** 확정 = ok.
+    울타리를 기다리다 시간이 다 됨 · 대상이 바뀜 = skipped · 멈춤을 누름 = skipped(남은 문서도) · 그 밖의 오류 = failed — 실행의 끝 상태는 그대로다.
+    에이전트 카드가 시작한 실행은 카드가 유료로 승인한 문서만 새 기준의 가져오기 검증이 검증 LLM 을 부른다(llm — 사람이 누른 실행은 손으로 누른 확정과 같다)."""
+    out, pre, n, stop = [], run.rec.get("pre") or {}, run.rec["n"], False
+    for doc, role, name in _commit_docs(run):
+        row = {"doc": doc, "role": role, "name": name, "status": "", "n": None, "parent": None, "count": 0, "pre": int(pre.get(doc) or 0), "why": ""}
+        out.append(row)
+        if stop:
+            row.update(status="skipped", why="멈춤을 누름")
+            continue
+        got = None
+        try:
+            info = UNIT.commit_info(doc)
+            if info is None:
+                row.update(status="failed", why="문서를 읽지 못함")
+            elif not info.get("stored"):
+                row["status"] = "off"
+            elif not info.get("dirty"):
+                row["status"] = "nothing"
+            else:
+                msg = f"워크플로우 실행 {n} — {_commit_label(run)}" + (f"(실행 전부터 고친 문단 {U.nf(row['pre'])} 포함)" if row["pre"] else "")
+                allow = run.approval is None or doc in (run.approval.get("paid") or ())
+                run.working = {doc}
+                run.note(gid, "", f"{name} 고친 문단 확정 중", doc)
+                run.guard()
+                with run.fence(doc):   # 화면들의 고치던 글을 먼저 받고 사람 편집을 막는다 — 확정은 이 스레드만 지난다(server._fenced)
+                    got = UNIT.commit(doc, msg[:200], flow=n, llm=allow)
+        except _Stop:
+            row.update(status="skipped", why="멈춤을 누름")
+            stop = True
+        except _Halt as e:
+            row.update(status="skipped", why=_COMMIT_WHY.get(e.code) or _clip(e.text))
+        except Exception as e:  # noqa: BLE001 — 확정 하나가 죽어도 실행의 끝은 적는다
+            import logging
+            logging.getLogger("uvicorn.error").exception("[워크플로우 실행] 끝 확정 오류")
+            row.update(status="failed", why=_clip(f"{type(e).__name__}: {e}")[:120])
+        finally:
+            run.working = set()
+        if got is None:
+            continue
+        if got.code == "ok":
+            d = got.data if isinstance(got.data, dict) else {}
+            row.update(status="ok", n=d.get("n"), parent=d.get("parent"), count=int(((d.get("counts") or {}).get("total")) or 0))
+        elif got.code == "nothing":
+            row["status"] = "nothing"
+        else:
+            row.update(status="skipped" if got.code == "blocked" else "failed", why=_clip(got.text) or got.code)
+    return out
+
+
+_TAIL_NAME, _TAIL_WHY = 24, 40   # 끝 글 꼬리의 문서 이름 · 까닭 길이(자) — 둘 다 못 한 두 문서 + 안내도 200 자 안팎(TEXT_MAX 240 — 앞 글에 몫이 남는다)
+
+
+def _brief(text, k):
+    s = " ".join(str(text or "").split())
+    return s if len(s) <= k else s[:k - 1] + "…"
+
+
+def _commit_tail(commits):
+    """끝 글의 꼬리(② §18-24 「글」) — 「 · 확정 8(연차보고서 — 고친 문단 1,234 · 앞 상태 = 확정 7)」 · 둘이면 「 · 확정 — 사업계획서 3 · 연차보고서 8」 ·
+    못 하면 「 · 확정하지 않음(이름 — 까닭) · 반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정」 | ""(확정할 것이 없었음 · 저장이 꺼짐).
+    이름은 _TAIL_NAME · 까닭은 _TAIL_WHY 자까지(오류 글은 길다 — 실행 기록의 why 는 그대로) — 문서 둘이 다 못 해도 꼬리가 TEXT_MAX 안에 들어 앞 글만 잘리게(_end_text)."""
+    oks = [c for c in commits or () if c.get("status") == "ok"]
+    bad = [c for c in commits or () if c.get("status") in ("skipped", "failed")]
+    parts = []
+    if len(oks) == 1:
+        c = oks[0]
+        prev = "올린 원본" if c.get("parent") == 0 else f"확정 {c['parent']}" if c.get("parent") else ""
+        parts.append(f"확정 {c['n']}({_brief(c['name'], _TAIL_NAME)} — 고친 문단 {U.nf(c.get('count') or 0)}" + (f" · 앞 상태 = {prev}" if prev else "") + ")")
+    elif oks:
+        parts.append("확정 — " + " · ".join(f"{_brief(c['name'], _TAIL_NAME)} {c['n']}" for c in oks))
+    if bad:
+        parts.append("확정하지 않음(" + " · ".join(f"{_brief(c['name'], _TAIL_NAME)} — {_brief(c.get('why') or '까닭 모름', _TAIL_WHY)}" for c in bad)
+                     + ") · 반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정")
+    return (" · " + " · ".join(parts)) if parts else ""
+
+
+def _end_text(body, tail):
+    """끝 글 — 꼬리(끝 확정)가 늘 들도록 앞 글을 잘라 TEXT_MAX 안에."""
+    body = " ".join(str(body or "").split())
+    if not tail:
+        return _clip(body)
+    room = TEXT_MAX - len(tail)
+    if room < 24:   # 꼬리가 너무 길다(문서 이름이 긴 두 문서의 까닭) — 통째로 자른다
+        return _clip(body + tail)
+    return (body if len(body) <= room else body[:room - 1] + "…") + tail
+
+
 def _drive(run):
     run.thread = threading.get_ident()   # 이 실행의 스레드 — 실행이 스스로 부르는 끝점의 바쁨 막이가 이 실행의 스레드만 지나가게 한다(busy_other — 같은 차례의 두 줄을 함께 도는 스레드는 _lanes 가 더한다)
     run.threads.add(run.thread)
@@ -824,6 +1001,9 @@ def _drive(run):
     eyes = role or run.lane   # 앞 묶음의 남은 일을 세는 눈 — 문서 하나만 잡은 실행(한 문서만 · 문서 하나의 줄뿐인 묶음 · 줄: ② §18-22)은 그 문서의 눈으로
     who = S._role(run.task, role) if role else None
     only_doc = f"{(who or {}).get('title') or ''}({(who or {}).get('name') or ''})만 — " if who else ""   # 묶음 끝 글의 머리 「원본 문서(사업계획서)만 — 」
+    commits = None   # 끝 확정의 결과(묶음째 실행이 끝남 · 남김일 때 — ② §18-24)
+    if _commit_on(run):
+        rec["pre"] = _pre_edits(run)   # 실행 전부터 고친 문단 — 끝 확정의 메시지에 적는다
     try:
         for gid in span:
             run.guard()
@@ -902,7 +1082,16 @@ def _drive(run):
         import logging
         logging.getLogger("uvicorn.error").exception("[워크플로우 실행] 오류")
     now = rec.get("now") or {}
+    if status in ("done", "left") and _commit_on(run):   # 끝 확정 — 문서들은 아직 이 실행이 잡고 있다(BUSY · 이 스레드: ② §18-24 「언제」)
+        try:
+            commits = _commit_end(run, rec["stages"][-1]["id"] if rec["stages"] else R["from"])
+        except Exception:  # noqa: BLE001 — 끝 확정이 죽어도 실행의 끝은 적는다
+            import logging
+            logging.getLogger("uvicorn.error").exception("[워크플로우 실행] 끝 확정 오류")
+            commits = []
     with run.lock:
+        if commits is not None:
+            rec["commits"] = commits
         for g in rec["stages"]:
             if g["status"] == "running":
                 g.update(status="halted" if status in ("halted", "failed") else "stopped" if status == "stopped" else g["status"], t1=time.time(), text=_clip(halt.text) if halt else g["text"])
@@ -911,7 +1100,7 @@ def _drive(run):
             rec["halt"] = {"stage": at[0], "key": at[1], "code": halt.code, "text": _clip(halt.text)}
         word = {"done": "끝남", "left": "남김", "halted": "멈춤", "stopped": "멈춤", "failed": "오류"}[status]
         tail = halt.text if halt is not None else "멈춤을 눌러 멈췄습니다 — 끝난 단계는 그대로입니다" if status == "stopped" else " / ".join(texts) or "남은 단계가 없습니다"
-        rec.update(status=status, stopping=False, ended=time.time(), now=None, end={"ok": status in ("done", "left"), "text": _clip(f"{word} — {tail}")})
+        rec.update(status=status, stopping=False, ended=time.time(), now=None, end={"ok": status in ("done", "left"), "text": _end_text(f"{word} — {tail}", _commit_tail(commits))})   # 꼬리(끝 확정)는 240자 안에 늘 든다
     with _LOCK:
         _release(run)
     run.working = set()
@@ -1062,7 +1251,7 @@ def shutdown():
 # ---------------------------------------------------------------- 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3: spec_워크플로우 ② §18-2 「3 · 4단계 단위의 글」 · §18-12 ② · ③)
 # 화면 app.js taskRunMap · taskRunSteps 의 clean 가지를 줄마다의 처리 함수로 옮긴 것 — 차례 = 자리 연결 → (LLM 검토) → 넣기 계획 → (빈 자리 검토 → 표 대응) → 내용 반영 · 작성요령 삭제.
 # 이번 실행 안의 기억(연결 목록 · 반영할 수 있는 지금 계획 · LLM 검토의 글)은 run.fill — 끝남은 늘 문서에서 다시 본다(workflow_units 의 상태 식). 묶음 끝 글 = 화면 실행의 글 그대로(셋째 값 — 줄의 기록 글과 따로).
-FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune")
+FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune", "retidy")
 NOTHING_TEXT = "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)"
 
 
@@ -1542,14 +1731,51 @@ def _zone_prune_doc(run, gid, doc):
     return "done", f"빈 구역 {U.nf(r.get('items'))}곳을 지웠습니다({parts}){skip}"
 
 
-HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune})   # 「문서 정리」 의 조립 도구(② §18-23)
+def _do_retidy(run, gid, line):
+    """넣은 뒤 템플릿 · 서식 정리(spec_병합 ② §5-9) — 그 줄이 닿는 문서마다(목적 문서뿐: _retidy_doc)."""
+    return _per_doc(run, gid, line, _retidy_doc)
+
+
+def _retidy_doc(run, gid, doc):
+    """넣은 뒤 템플릿 · 서식 정리(문서 하나 — 문서를 바꾼다: 울타리 안에서 끝점이 헤딩을 다시 분석(스크립트 · 몇 초) → 계획 → 반영 한 번). 그 반영 뒤에 이미 했으면 「할 것 없음」 ·
+    끝점이 그 사이 문서가 바뀌었다(409 — 다른 헤딩 작업 · 낡은 차례)고 하면 한 번만 다시. → (done | nothing, 글)."""
+    run.working = {doc}
+    _fill_first(run, "④ 내용 반영 전")
+    R = UNIT.retidy_facts(doc)
+    if R.get("error"):
+        raise _Halt("error", f"넣은 뒤 정리의 재료를 읽지 못했습니다: {R['error']}")
+    if R.get("why"):
+        return "nothing", f"{R['why']} — 건너뜀"
+    a = R.get("applied") or {}
+    if a and a.get("fill") == R.get("fill"):
+        return "nothing", U.retidy_text(a.get("counts") or {})
+    run.note(gid, "retidy", "넣은 줄을 목적 문서의 템플릿 · 서식으로 — 헤딩 다시 분석(스크립트) → 레벨마다 대표 → 맞추기", doc)
+    got = None
+    for attempt in (0, 1):
+        run.guard()
+        with run.fence(doc):
+            run.guard()
+            _fill_first(run, "그 사이 문서가 바뀌었습니다")
+            got = UNIT.retidy(doc)
+        if got.code not in ("stale", "busy") or attempt:
+            break
+    if not got.ok:
+        raise _Halt(got.code, f"넣은 줄의 템플릿 · 서식을 맞추지 못했습니다 — {'표준 검사에 걸려 되돌렸습니다: ' if got.code == 'rejected' else ''}{got.text}")
+    D = got.data or {}
+    c = (D.get("done") or {}).get("counts") or {}
+    return ("nothing" if D.get("nothing") else "done"), U.retidy_text(c)
+
+
+HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune, "retidy": _do_retidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
 
 
 def _tidy_materials(task, pair, facts, opt=None):
-    """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
+    """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count ·
+    retidy = unit_steps.retidy_facts(넣은 뒤 템플릿 · 서식 정리 — 이관형 · 취합형의 단위(따로 선 두 단위 — 넣은 기록은 merge.json · gather.json: spec_병합 ② §5-9))(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
     want = {}
+    units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
     for x in S.lines(task):
-        if x["key"] in ("guideFix", "zonePrune") and x["unit"] is U.COMMON[x["key"]] and S.served(task, x["stage"]):
+        if x["key"] in units and any(x["unit"] is u for u in units[x["key"]]) and S.served(task, x["stage"]):
             for r in S.roles_on(task, x["on"]):
                 d = (pair.get(r) or {}).get("id")
                 if d and facts.get(d) is not None:
@@ -1561,6 +1787,8 @@ def _tidy_materials(task, pair, facts, opt=None):
         if "zonePrune" in keys:
             c = UNIT.zone_prune_count(d)
             more["zonePrune"] = c.data if c.ok and isinstance(c.data, dict) else {"error": c.text or "응답이 없음"}
+        if "retidy" in keys:
+            more["retidy"] = UNIT.retidy_facts(d)
         facts[d] = {**facts[d], **more}
 
 
@@ -2153,11 +2381,11 @@ def _do_std_llm(run, stage, line):
     return "done", f"{name} — {st['text']}" + (f" · 같이 부른 표 판정(LLM)은 답을 내지 못했습니다(「{U.STD_NAMES['tablesLlm']}」 에 남습니다)" if heads and "tablesLlm" in tried else "")
 
 
-def _adjust_text(d):
-    """조정이 한 것 한 줄(화면 hraDone 의 그 몫) | ""."""
+def _adjust_text(d, undo=True):
+    """조정이 한 것 한 줄(화면 hraDone 의 그 몫) | "". undo = 「실행 취소」 로 되돌린다고 적나 — 묶음째 실행은 끝에 확정해 실행 취소 기록이 비므로 적지 않는다(확정하지 못하면 끝 글의 꼬리가 말한다: ② §18-24)."""
     one = (f"템플릿 {U.nf(d['tpls'])}개 반영(맞춘 줄 {U.nf(d['lines'])}" + (f" · 대표 변경 {U.nf(d['reps'])}" if d["reps"] else "") + (f" · 서식 종속 템플릿 {U.nf(d['splits'])}" if d["splits"] else "") + ")") if d["tpls"] else ""
     got = " · ".join(x for x in (one, f"자리 맞춤 {U.nf(d['placed'])}줄" if d["placed"] else "", f"템플릿 종속 {U.nf(d['merged'])}" if d["merged"] else "") if x)
-    return f"조정 — {got}" + (f" · 「실행 취소」 {U.nf(d['applies']) + '번' if d['applies'] > 1 else '한 번'}으로 되돌립니다" if d["applies"] else "") if got else ""
+    return f"조정 — {got}" + (f" · 「실행 취소」 {U.nf(d['applies']) + '번' if d['applies'] > 1 else '한 번'}으로 되돌립니다" if d["applies"] and undo else "") if got else ""
 
 
 def _do_std_adjust(run, stage, line):
@@ -2230,7 +2458,7 @@ def _do_std_adjust(run, stage, line):
         break
     st, v = _std_state(run, "adjust")
     P = U.std_left(v)
-    head = _adjust_text(did)
+    head = _adjust_text(did, undo=not _commit_on(run))   # 묶음째 실행은 끝에 확정한다 — 「실행 취소」 를 약속하지 않는다(② §18-24)
     if st["st"] == "done":
         left = U.std_unseen(P) + notes   # 미판정도 끝 글에(수 · 다시 판정할 곳) — 반영할 것이 없어 줄은 끝났어도 「다 봤다」 는 아니다(astra P2: 화면의 전체 실행도 그 수를 알린다)
         text = (head or "반영할 것이 남지 않았습니다") + (f" · 남긴 것: {' / '.join(left)}" if left else "")
@@ -2524,5 +2752,6 @@ def _do_g_apply(run, gid, line):
     return "done", U.gt_done_text(r)
 
 
-FAMILY_HANDLERS["gather"] = {"division": _do_g_division, "frame": _do_g_frame, "part": _do_g_part, "heads": _do_g_heads, "link": _do_g_link, "llm": _do_g_llm, "plan": _do_g_plan, "apply": _do_g_apply}   # hand(배포 · 회수) · drop 은 사람이 한다
+FAMILY_HANDLERS["gather"] = {"division": _do_g_division, "frame": _do_g_frame, "part": _do_g_part, "heads": _do_g_heads, "link": _do_g_link, "llm": _do_g_llm, "plan": _do_g_plan, "apply": _do_g_apply,
+                             "retidy": _do_retidy}   # hand(배포 · 회수) · drop 은 사람이 한다 · retidy = 이관의 처리 함수 그대로(목적 문서(취합본) 하나 · 「내용 넣기」 묶음이 없어 _fill_first 는 안 막는다 — 넣은 기록은 끝점이 gather.json 에서: spec_병합 ② §5-9 9)
 MATERIALS.append(_gather_materials)

@@ -24,6 +24,7 @@ KINDS = ("matrix", "form", "list", "title", "note", "spacer", "plain")
 MIN_CELLS_LLM = 4       # 이보다 작은 표(1~3칸)는 LLM 에 안 보냄(초안 그대로)
 BATCH_CELLS = 500       # T 호출 하나에 담는 칸 수 상한(큰 표 하나는 혼자)
 BATCH_TABLES = 10
+TABLE_GUIDES_MAX = 4000  # T 호출에 표 하나마다 싣는 작성 지침 글의 합(spec ② §20) — 넘는 지침은 빼고 자료에 guidesCut(KEIT 연차보고서 표지 표의 각주 29개 ≈ 3.4천 자)
 MAX_HEADER_ROWS = 4
 MAX_HEADER_COLS = 4
 TEXT_MAX = 80
@@ -467,7 +468,8 @@ def _token(cell):
     return f"{cell['id']}|{cell['rs']}x{cell['cs']}|{flags}|{text}|{cell['role']}"
 
 
-def table_payload(tb, occ, bs, before=""):
+def table_payload(tb, occ, bs, before="", guides=None):
+    """T 호출 자료의 표 하나. guides = 그 표의 작성 지침(table_guides — spec ② §20: 있을 때만 칸을 둔다 · input_key 는 이것 없이 셈한다)."""
     rows = []
     for r in range(tb["rows"]):
         row = []
@@ -480,8 +482,51 @@ def table_payload(tb, occ, bs, before=""):
             else:
                 row.append("^" if cell["row"] < r else "<")
         rows.append(row)
-    return {"table": tb["id"], "rows": tb["rows"], "cols": tb["cols"], "cells": len(tb["cells"]), "before": before[:60],
-            "draft": [{k: b[k] for k in ("id", "rows", "cols", "kind", "headerRows", "headerCols")} for b in bs], "grid": rows}
+    out = {"table": tb["id"], "rows": tb["rows"], "cols": tb["cols"], "cells": len(tb["cells"]), "before": before[:60],
+           "draft": [{k: b[k] for k in ("id", "rows", "cols", "kind", "headerRows", "headerCols")} for b in bs], "grid": rows}
+    if guides:
+        out["guides"], cut = guides
+        if cut:
+            out["guidesCut"] = True
+    return out
+
+
+def table_guides(stage1, place, sent):
+    """그 자리의 작성 지침 가운데 표에 붙은 것(pinned["place"]["tables"] — 본문 최상위 표 id 열쇠 · spec ② §20) → {T 로 보내는 표 id: ([{kind, text, label?, cell?}], 뺀 것이 있나)}.
+    칸 안의 지침(각주 번호 · 칸 안 ※)은 그 문단이 든 **가장 안쪽 표**로(cell = 그 칸 id) · 표 바깥의 지침(표 바로 앞뒤 ※ · 칸 안의 작성 요령 표)은 그 표로 —
+    그 표를 보내지 않으면(겉 상자 · 작은 표) 그 안에서 처음 보내는 표로, 그것도 없으면 싣지 않는다. 표마다 글의 합이 TABLE_GUIDES_MAX 를 넘게 하는 지침은 뺀다."""
+    by_top = (place or {}).get("tables") or {}
+    if not by_top:
+        return {}
+    where, first_in = {}, {}   # 문단 id → (가장 안쪽 표, 칸) · 최상위 표 → 그 안에서 처음 보내는 표
+    for rec in stage1.get("paras") or ():
+        tbls = [c["id"] for c in rec.get("path") or () if c.get("t") == "tbl" and c.get("id")]
+        if not tbls:
+            continue
+        if rec.get("table"):
+            where[rec["id"]] = (rec["table"], rec.get("cell"))
+        if tbls[0] not in first_in:
+            hit = next((t for t in tbls if t in sent), None)
+            if hit:
+                first_in[tbls[0]] = hit
+    out = {}
+    for top, rows in by_top.items():
+        for g in rows:
+            tid, cell = where.get(g.get("at")) or (None, None)
+            if tid not in sent:
+                tid, cell = (top if top in sent else first_in.get(top)), None
+            if tid is None:
+                continue
+            one = {k: g[k] for k in ("kind", "label", "text") if g.get(k)}
+            if cell:
+                one["cell"] = cell
+            got, size = out.setdefault(tid, ([], [0, False]))
+            if size[0] + len(one.get("text", "")) > TABLE_GUIDES_MAX:
+                size[1] = True
+                continue
+            size[0] += len(one.get("text", ""))
+            got.append(one)
+    return {tid: (got, size[1]) for tid, (got, size) in out.items() if got}
 
 
 def input_key(tb, occ, bs):
@@ -578,12 +623,17 @@ def t_jobs(tables, drafts, stage1, pinned=None, skip=()):
     if cur:
         batches.append(cur)
     jobs, used = [], {}
+    place = (pinned or {}).get("place")   # 그 자리의 작성 지침(§20) — 표에 붙은 것만 그 표의 자료에
+    guides = table_guides(stage1, place, {tb["id"] for b in batches for tb in b}) if place else {}
     for i, batch in enumerate(batches):
-        data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb, skip)) for tb in batch]}
+        tg = {tb["id"]: guides[tb["id"]] for tb in batch if tb["id"] in guides}
+        data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb, skip), tg.get(tb["id"])) for tb in batch]}
+        if tg:
+            used["place"] = place["sha1"]
         content, u = HL.prompt(HL.TABLES_CONTRACT, ["tables", "tolerance"], data, pinned)
         used.update(u)
         jobs.append({"schema": HL.TABLES_SCHEMA, "content": content, "what": f"heading_tables#{i + 1}", "timeout": 900.0, "effort": "medium",
-                     "_tables": [tb["id"] for tb in batch]})
+                     "_tables": [tb["id"] for tb in batch], "_guides": {t: len(g[0]) for t, g in tg.items() if g}})
     return jobs, used
 
 
@@ -778,6 +828,8 @@ def ask_tables(stage1, *, ask=None, pinned=None, temp=None, progress=None, table
         drafts = {tb["id"]: draft(tb) for tb in tables}
     jobs, used = t_jobs(tables, drafts, stage1, pinned, skip)
     out = {"answers": {}, "calls": [], "guides": used, "jobs": len(jobs), "sent": sum(len(j["_tables"]) for j in jobs), "summary": ""}
+    if (pinned or {}).get("place"):   # 그 자리의 작성 지침을 실은 표 · 지침 수(§20 — 결과 화면 · 기록)
+        out["placeGuides"] = {"tables": sum(len(j["_guides"]) for j in jobs), "items": sum(n for j in jobs for n in j["_guides"].values())}
     if not jobs:
         return out
     if progress is not None:
@@ -824,6 +876,8 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
         info["summary"] = got["summary"]
         info["calls"] = len(calls)
         info["failed"] = sum(1 for c in calls if c["response"] is None)
+        if got.get("placeGuides"):
+            info["placeGuides"] = got["placeGuides"]   # 그 자리의 작성 지침을 실은 표 · 지침 수(§20)
         if asked is not None:
             info["ahead"] = True  # T 호출을 헤딩 판정과 같이 미리 돌린 실행(§8 「헤딩 판정과 같이」)
         if got["jobs"] and info["failed"] == got["jobs"]:

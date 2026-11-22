@@ -769,6 +769,9 @@ def test_the_lines_a_line_needs_first_agree_with_the_check():
         assert bool(hit) == any(x["must"] for x in uses), (key, uses, got["errors"])
     g = {u["key"]: u["uses"] for u in A.gather_units()[0]}
     assert g["apply"] == [{"unit": "plan", "must": True}] and g["plan"] == g["llm"] == [{"unit": "link", "must": True}] and g["link"] == g["division"] == g["hand"] == []
+    assert g["retidy"] == [{"unit": "apply", "must": False}]   # 넣은 뒤 템플릿 · 서식 정리(취합 — GATHER_SOFT): 「내용 반영」 이 없어도 거절하지 않는다(경고만)
+    alone = C.check("gather", "part", "plan", [{"name": "a", "steps": [{"unit": "retidy", "on": ["target"]}]}])
+    assert not alone["errors"] and any("「넣은 뒤 템플릿 · 서식 정리」" in w and "앞서 넣은 내용만" in w for w in alone["warns"]), alone
 
 
 def test_line_lists_are_stored_as_v2_or_as_the_old_form_and_old_reads_do_not_see_v2(client):

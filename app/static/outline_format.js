@@ -3,6 +3,7 @@
 // 고치면 PUT …/outline/slots/{tid}/{레벨} 이 그 레벨 줄 모두의 문단 여백(왼쪽·첫 줄)을 맞추고(구조 편집 1회 — 실행 취소), 화면은 바뀐 문단의 여백만 다시 잡는다.
 // app.js 다음에 읽힌다(el·hBtn·api·toast·heads·state·indentLook·paginate …). 훅: app.js headsTplView 의 levels() 가 olfRow(id, L) 을, outlineLoad 가 olfRefresh() 를 부른다.
 const OLF_RULE = { text: "글 시작에 맞춤", mm: "직접", keep: "문단 서식 그대로" };
+const OLF_FREE = { center: "가운데 정렬", right: "오른쪽 정렬" }; // 슬롯의 free — 사람이 정한 규칙이 없는 가운데 · 오른쪽 정렬 레벨: 기본 규칙을 안 건다(outline_pos.free · ② §8-1)
 const olfMm = (v) => (v == null ? "–" : (Math.round(v * 10) / 10).toFixed(1));
 
 function olfSlot(id, L) {
@@ -13,6 +14,7 @@ function olfSlot(id, L) {
 function olfRuleText(sl) { // 지금 규칙을 한마디로 — 사용자가 정하지 않았고 대표 문단이 제 첫 줄 값을 갖고 있으면 그 값을 따른다(문서가 정함)
   const pos = sl.pos || {};
   if (pos.set) return pos.line2 === "mm" ? `직접 ${olfMm(pos.mm)}mm` : OLF_RULE[pos.line2] || pos.line2;
+  if (sl.free) return `${OLF_FREE[sl.free] || "가운데 정렬"} · 내어쓰기 없음`;
   return sl.at && Math.abs(sl.at.firstMm || 0) > 0.02 ? "문서가 정한 값" : OLF_RULE.text;
 }
 
@@ -26,10 +28,19 @@ function olfRow(id, L) { // 레벨 줄 아래 한 줄(자리가 없는 레벨 �
   const sum = el("span", "olf-sum");
   const kv = (k, v, u = "") => { const s = el("span", "olf-kv"); s.append(el("span", "olf-k", `${k} `), el("b", "olf-v", v), ...(u ? [el("span", "olf-u", u)] : [])); return s; };
   sum.append(kv("레터", olfMm(to.letterMm)), el("span", "olf-sep", " · "), kv("글 시작", olfMm(to.textMm)), el("span", "olf-sep", " · "), kv("둘째 줄", olfMm(to.line2Mm), "mm"));
-  sum.title = "본문(칸) 왼끝에서 잰 자리 — 레터 위치 · 레터 뒤 첫 글자(글 시작) · 줄이 넘어갈 때 둘째 줄이 시작하는 자리.\n"
-    + "따로 정하지 않으면 둘째 줄은 글 시작에 맞춥니다: 이 레벨 줄에 글을 쓰거나 Enter 로 새 줄을 만들 때 그 문단에 내어쓰기가 붙습니다(문서가 이미 준 들여쓰기·내어쓰기는 그대로).";
+  const free = !set && !!sl.free;
+  const oldHang = free && (sl.at.firstMm || 0) < -0.02; // 이 레벨의 새 줄 모양(슬롯의 동결 모양)에 옛 내어쓰기가 남음 — 맞추기 전에는 Enter 의 새 줄이 그것을 받는다(outline_pos.view 의 to = 맞춘 뒤)
+  sum.title = "본문(칸) 왼끝에서 잰 자리 — 레터 위치 · 레터 뒤 첫 글자(글 시작) · 줄이 넘어갈 때 둘째 줄이 시작하는 자리.\n" + (free
+    ? `${OLF_FREE[sl.free] || "가운데 정렬"} 줄이라 줄마다 시작이 그 줄의 글 길이로 정해집니다(이 값은 문단 여백으로 셈한 것). 둘째 줄을 글 시작에 맞추지 않습니다: `
+      + (oldHang
+        ? `글을 써도 내어쓰기가 붙지 않습니다.\n다만 이 레벨의 새 줄 모양에 전에 넣은 내어쓰기(둘째 줄 ${olfMm(sl.at.line2Mm)}mm)가 남아 있어, 「자리 맞춤」 · 조정의 「모두 반영」 전에는 Enter 로 만든 새 줄도 그 내어쓰기를 받습니다 — 위의 값은 맞춘 뒤의 자리입니다.`
+        : "글을 쓰거나 Enter 로 새 줄을 만들어도 내어쓰기가 붙지 않습니다.")
+    : "따로 정하지 않으면 둘째 줄은 글 시작에 맞춥니다: 이 레벨 줄에 글을 쓰거나 Enter 로 새 줄을 만들 때 그 문단에 내어쓰기가 붙습니다(문서가 이미 준 들여쓰기·내어쓰기는 그대로).");
   const rule = el("span", `hb olf-rule${set ? " chg" : ""}`, olfRuleText(sl));
-  rule.title = set ? "이 레벨에 정한 규칙 — 새 줄과 글을 고치는 줄에 걸립니다" : "기본 규칙(정한 것 없음)";
+  rule.title = set ? "이 레벨에 정한 규칙 — 새 줄과 글을 고치는 줄에 걸립니다"
+    : free ? "가운데 · 오른쪽 정렬 줄에는 기본 규칙(둘째 줄 = 글 시작)을 걸지 않습니다 — 좁은 칸에서 한 줄에 몇 글자만 남지 않게. "
+      + "이미 들어간 내어쓰기는 「자리 맞춤」 · 조정의 「모두 반영」 이 없앱니다(왼쪽 여백 그대로). 「자리 수정」 으로 규칙을 정하면 정렬과 무관하게 그 규칙이 걸립니다"
+    : "기본 규칙(정한 것 없음)";
   const edit = hBtn("자리 수정", () => {
     form.hidden = !form.hidden;
     edit.setAttribute("aria-expanded", String(!form.hidden));
@@ -55,7 +66,7 @@ function olfForm(id, L, sl) {
   mode.setAttribute("aria-label", "둘째 줄 규칙");
   for (const [v, t] of Object.entries(OLF_RULE)) { const o = el("option", null, t); o.value = v; mode.append(o); }
   const pos = sl.pos || {};
-  mode.value = pos.set ? pos.line2 : (Math.abs(sl.at.firstMm || 0) > 0.02 ? "keep" : "text");
+  mode.value = pos.set ? pos.line2 : (sl.free || Math.abs(sl.at.firstMm || 0) > 0.02 ? "keep" : "text"); // 가운데 · 오른쪽 정렬 레벨은 「그대로」 가 먼저 — 「글 시작에 맞춤」 은 사람이 골라야 건다
   const line2 = num(sl.to.line2Mm, "둘째 줄 위치(mm) — 본문 왼끝에서");
   line2.classList.add("olf-l2");
   const changed = () => { if (typeof olpFormInput === "function") olpFormInput(id, L); }; // 미리보기 창(outline_preview.js)이 열려 있으면 바뀐 뒤를 다시

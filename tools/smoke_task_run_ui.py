@@ -297,8 +297,8 @@ try:
         doc1 = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         ev1 = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
         rh, h1 = page.evaluate(STEP, "reheads"), requests.get(f"{base}/api/docs/{report}/headings", timeout=300).json()
-        check("2단계 = 구조까지만 — ① 완료 · 4/4 완료 · 편집 한 번(구분 기준 반영) · 내용 넣기 기록 없음", states.get("division") == "done" and s["count"] == "4/4 완료" and s["progress"] == [4, 4] and s["kind"] == "done"
-              and s["text"].startswith("끝남 — 구조를 맞췄습니다") and s["disabled"] and doc1["rev"] == rev0 + 1 and doc1.get("undo") == 1 and "divisions" in ev1 and "mergeFill" not in ev1
+        check("2단계 = 구조까지만 — ① 완료 · 4/4 완료 · 편집 한 번(구분 기준 반영) · 내용 넣기 기록 없음 · 묶음 실행의 끝에 고친 문단 확정(실행 취소 기록은 비움 — spec_워크플로우 ② §18-24)", states.get("division") == "done" and s["count"] == "4/4 완료" and s["progress"] == [4, 4] and s["kind"] == "done"
+              and s["text"].startswith("끝남 — 구조를 맞췄습니다") and s["disabled"] and doc1["rev"] == rev0 + 1 and doc1.get("undo") == 0 and ev1.count("commit") == 1 and "divisions" in ev1 and "mergeFill" not in ev1
               and states.get("apply") != "done", [states, s, rev0, doc1["rev"], ev1[:8]])
         check("2단계의 끝 = 다시 문서 검토 — 연차보고서의 분석이 구조 반영 뒤 문서의 것(§21: 전에는 3단계 안에 숨어 있었다) · 끝 글 · 그 LLM 줄은 건너뜀(LLM 을 쓸 수 없음)", "연차보고서를 다시 분석했습니다" in s["text"] and "연차보고서 LLM 검증·보완은 건너뜀" in s["text"]
               and any(x.startswith("reheads — ") for x in seen) and h1["stage2"]["meta"]["rev"] >= rev0 + 1 and h1["stage3"]["meta"]["rev"] >= rev0 + 1
@@ -339,7 +339,7 @@ try:
               and st[6]["badge"] in ("다음 작업", "완료"), st)   # ⑥ 작성요령 삭제(3단계) — 2단계가 끝났으니 다음 작업(지울 안내가 있으면)
         doc = requests.get(f"{base}/api/docs/{report}", timeout=300).json()
         ev = [e["kind"] for e in requests.get(f"{base}/api/works/{report}/log", timeout=60).json()["events"]]
-        check("연차보고서 — 편집 두 번(구분 기준 반영 · 내용 반영) · 실행 취소 2", doc["rev"] == rev0 + 2 and doc.get("undo") == 2, [rev0, doc["rev"], doc.get("undo"), ev[:12]])
+        check("연차보고서 — 편집 두 번(구분 기준 반영 · 내용 반영) · 묶음 실행마다 끝에 확정(2단계 · 3단계 — 실행 취소 기록은 비움: spec_워크플로우 ② §18-24)", doc["rev"] == rev0 + 2 and doc.get("undo") == 0 and ev.count("commit") == 2, [rev0, doc["rev"], doc.get("undo"), ev[:14]])
         heads = [requests.get(f"{base}/api/docs/{w}/headings", timeout=300).json() for w in (plan, report)]
         check("두 문서의 헤딩 그래프·표 구조 — 3단계는 다시 분석하지 않았다(1 · 2단계가 끝내 둔 것 그대로) · 연차보고서의 분석은 구조 반영 뒤 문서의 것", all(h.get("stage2") and h.get("stage3") for h in heads)
               and heads[1]["stage3"]["meta"].get("run") == h1["stage3"]["meta"].get("run") and not any("헤딩·표 분석(스크립트)" in x for x in seen if x.startswith("link — "))

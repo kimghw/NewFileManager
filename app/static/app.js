@@ -5198,20 +5198,22 @@ async function commitReady(what) { // 확정·버리기·복원 앞 — 대기 �
 
 const JSON_POST = (body) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-async function commitDo(msg) { // 확정 — 지금 상태가 새 기준. 문서는 그대로라 다시 그리지 않는다. msg = 메시지 칸이 비었을 때 쓸 글(「고친 부분 적용하기」 가 준다 — 단추의 onclick 으로 불리면 사건 객체라 안 쓴다) → 확정 {n, count} | null
+async function commitDo(msg, opt = {}) { // 확정 — 지금 상태가 새 기준. 문서는 그대로라 다시 그리지 않는다. msg = 메시지 칸이 비었을 때 쓸 글(「고친 부분 적용하기」 가 준다 — 단추의 onclick 으로 불리면 사건 객체라 안 쓴다) → 확정 {n, count} | null
+  // opt.field = false — 「고친 문단」 탭의 메시지 칸을 쓰지도 비우지도 않는다(묶음째 실행의 끝 확정 commitAfterRun — 사람이 적던 글을 가져가지 않게: spec_워크플로우 ② §18-24) · opt.quiet = 알림을 내지 않는다(부르는 쪽이 끝 글에 적는다)
+  const field = !opt || opt.field !== false, quiet = !!(opt && opt.quiet);
   if (!(await commitReady("commit"))) return null;
-  if (!isDirty()) { toast("확정할 변경이 없습니다"); return null; }
-  const id = state.id, epoch = state.epoch, count = state.edited.size;
+  if (!isDirty()) { if (!quiet) toast("확정할 변경이 없습니다"); return null; }
+  const id = state.id, epoch = state.epoch, count = state.edited.size, base0 = state.base;
   state.commitBusy = "commit";
   commitBar();
   try {
-    const d = await api(`/api/docs/${id}/commits`, JSON_POST({ message: $("commitMsg").value.trim() || (typeof msg === "string" ? msg : "") }));
+    const d = await api(`/api/docs/${id}/commits`, JSON_POST({ message: (field ? $("commitMsg").value.trim() : "") || (typeof msg === "string" ? msg : "") }));
     if (epoch !== state.epoch) return null;
-    $("commitMsg").value = "";
+    if (field) $("commitMsg").value = "";
     state.commitBusy = false;
     adoptBase(d, false);
-    toast(`확정 ${d.commit.n} — 고친 문단 ${nf(count)}개를 확정했습니다. 이제 이 상태가 기준입니다`);
-    return { n: d.commit.n, count };
+    if (!quiet) toast(`확정 ${d.commit.n} — 고친 문단 ${nf(count)}개를 확정했습니다. 이제 이 상태가 기준입니다`);
+    return { n: d.commit.n, count, parent: base0 };
   } catch (e) {
     if (epoch === state.epoch) toast(e.message, true);
     return null;
@@ -5267,6 +5269,18 @@ async function commitQuick(where) { // 「고친 부분 적용하기」 — 확�
   return r ? { ok: true, text: `확정 ${r.n} — 고친 문단 ${nf(r.count)}개를 적용했습니다. 이제 이 상태가 기준입니다` } : { ok: false, text: "적용하지 못했습니다 — 알림 글을 확인하세요" };
 }
 
+// 묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」 — 2026-11-22 사용자 「대쉬보드에서 이어서 하기나 하넌에 진행하는 경우, 고친문단을 자동으로 확정해줘,」):
+// 화면이 도는 붙박이 문서 하나(양식 표준화 · 양식 맞추기 — 서버 실행기가 맡지 않는 틀)의 「한 번에 진행」(divRunAll) · 대시보드 2단계 「한 번에 진행」(headsRunAll({commit: true})) · 「이어서 한 번에」(dashStdChain)가 끝에 한 번 부른다.
+// 새 확정 길이 아니다 — 「고친 문단」 탭의 확정과 같은 함수(commitDo — 메시지 칸의 글은 쓰지도 비우지도 않는다). what = 확정 메시지(「1단계 「프로젝트 구성」 한 번에 진행」 …) · opt.quiet = 확정 알림을 내지 않음(부르는 쪽이 끝 글에 적는다).
+// → 끝 글에 붙일 한 줄(「확정 n(고친 문단 n · 앞 상태 = 확정 k)」 · 「확정하지 않음 — 까닭 …」) | ""(고친 것이 없음 · 작업 저장이 꺼짐 — 서버의 끝 확정과 같은 말: workflow_exec._commit_tail)
+async function commitAfterRun(what, opt = {}) {
+  if (!state.id || !state.stored || !isDirty()) return "";
+  const undo = "반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정";
+  if (state.failed.size) return `확정하지 않음(서버에 반영하지 못한 문단이 있음) · ${undo}`;
+  const r = await commitDo(what, { field: false, quiet: !!opt.quiet });
+  return r ? `확정 ${r.n}(고친 문단 ${nf(r.count)} · 앞 상태 = ${baseName(r.parent)})` : `확정하지 않음(알림 글 참고) · ${undo}`;
+}
+
 async function commitRestore(n) { // n = 지금 기준이면 「모두 되돌리기」(확정이 안 생김), 아니면 그 확정 상태로 되돌려 새 확정으로 남김
   if (!(await commitReady("restore"))) return;
   const discard = n === state.base, dirty = isDirty() || state.failed.size > 0, count = state.edited.size + state.failed.size;
@@ -5281,16 +5295,35 @@ async function commitRestore(n) { // n = 지금 기준이면 「모두 되돌리
   commitBar();
   setSaveState("busy", discard ? "모두 되돌리는 중…" :`${baseName(n)} 상태로 되돌리는 중…`);
   try {
-    const d = await api(`/api/docs/${id}/commits/${n}/restore`, JSON_POST({ discard: dirty }));
+    // 「모두 되돌리기」 는 이 화면이 아는 기준(base)을 함께 보낸다 — 워크플로우의 끝 확정(spec_워크플로우 ② §18-24)이 그 사이 기준을 옮겼으면 서버가 409 {base} 로 거절한다
+    // (옛 기준 번호 그대로면 「그 확정으로 복원」 이 되어 실행 결과를 통째로 버린다: 2026-11-22 검토)
+    const d = await api(`/api/docs/${id}/commits/${n}/restore`, JSON_POST(discard ? { discard: dirty, base: n } : { discard: dirty }));
     if (epoch !== state.epoch) return;
     state.commitBusy = false;
     adoptBase(d, true);
     toast(discard ? `모두 되돌렸습니다 — ${baseName()} 상태` : `${baseName(n)} 상태로 되돌려 ${baseName()} 로 남겼습니다`);
   } catch (e) {
-    if (epoch === state.epoch) toast(e.message, true);
+    if (epoch !== state.epoch) return;
+    if (discard && e.status === 409 && e.body && typeof e.body.base === "number" && e.body.base !== n) { // 기준이 바뀜 — 되돌리지 않았다: 새 기준으로 맞추고 사람이 다시 누르게(확인 창의 수가 새 기준의 것이 되게)
+      const ok = await commitBaseAdopt(id, epoch);
+      toast(`되돌리지 않았습니다 — 기준이 ${e.body.base ? `확정 ${e.body.base} 로` : "올린 원본으로"} 바뀌었습니다(워크플로우가 고친 문단을 확정했을 수 있습니다). ${ok ? "화면을 새 기준으로 맞췄습니다 — 남은 변경이 있으면 다시 누르세요" : "문서를 다시 연 뒤 다시 누르세요"}`, true);
+    } else toast(e.message, true);
   } finally {
     if (epoch === state.epoch) { state.commitBusy = false; commitBar(); refreshSaveState(); commitsLoad(); loadWorks(); logTouched(); }
   }
+}
+
+// 서버의 기준이 이 화면 몰래 바뀌었다(「모두 되돌리기」 의 409 {base} — 워크플로우의 끝 확정 · 다른 탭의 확정) — 문서를 한 번 읽어 새 기준으로(workflow_exec.js flowBaseSync 와 같은 검사:
+// 읽는 사이 이 화면이 글을 보냈거나 차례가 바뀌었으면 그 읽은 문서는 옛것이라 쓰지 않는다) → 바꿨나
+async function commitBaseAdopt(id, epoch) {
+  const lr = state.localRev, sr = state.serverRev;
+  try {
+    const d = await api(`/api/docs/${id}`);
+    if (epoch !== state.epoch || state.id !== id || state.localRev !== lr || state.serverRev !== sr || state.timers.size || state.inflight || state.busy) return false;
+    if (d.rev != null && d.rev !== state.serverRev) applyDoc(d); // 차례도 바뀌었다(반영의 알림을 놓친 화면) — 먼저 다시 그린다
+    adoptBase(d, false);
+    return true;
+  } catch (e) { console.warn(e); return false; }
 }
 
 function adoptBase(d, redraw) {
@@ -9856,6 +9889,7 @@ function divRunBar(staged) { // 묶음 상자 — staged = TASK 묶음 안(이�
   const btn = (id, label, run, cls = "btn") => { const b = hBtn(label, run, { cls }); b.id = id; b.setAttribute("aria-describedby", "divRunState"); return b; };
   const help = hHelp("프로젝트 구성 반영 안내", `${staged ? "" : "① "}변경 계획 보기 — 바뀔 자리와 지워질 글을 문서 옆 목록으로 봅니다(문서는 안 바뀜).\n${staged ? "" : "② "}반영 — 그 계획대로 이 문서의 구조(절·표 행·열)를 바꿉니다. 실행 취소 한 번으로 되돌립니다.\n계획 다시 열기 — 닫은 목록을 다시 엽니다(다시 계산하지 않음).`
     + (staged ? "" : "\n한 번에 진행 — 계획을 세우고 바로 반영합니다. 미해결 자리나 계획 오류가 있으면 반영하지 않고 멈춥니다(지원 안 되는 자리는 그대로 둡니다)."
+      + (typeof taskIsSingle === "function" && taskIsSingle((state.task || {}).job) ? "" : " 끝나면 고친 문단을 확정합니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원).") // 끝 확정(spec_워크플로우 ② §18-24) — 문서 하나로 조립한 것은 서버의 줄 하나(반영)라 확정하지 않는다
       + "\n불러오기 — 고른 곳(이 프로젝트 · 문서 · 다른 프로젝트 · 저장한 프로젝트 구성)의 값으로 입력 칸을 채웁니다(문서는 안 바뀜).\n세부 — ①·② 단추와 프로젝트 구성 값(단계·차년도 · 기관) 입력 · 「프로젝트에 저장」 은 접어 둔 「세부」 안에 있습니다."), { note: true });
   if (staged) head.append(totals, help);
   else head.append(el("strong", null, "프로젝트 구성 반영"), help, btn("divRunAll", "한 번에 진행", press(() => divRunAll())), totals);
@@ -9974,21 +10008,34 @@ async function divRunAll(opt = {}) {
   view.auto = true;
   view.keepFocus = true;
   divRunSync();
+  let ended = false; // 끝남(반영함 · 「이미 맞음」) — 끝에 고친 문단을 확정한다(opt.commit 이 false 가 아니면 — 「이어서 한 번에」 는 끄고 끝에 한 번: spec_워크플로우 ② §18-24) · 멈춤이면 안 한다(계획이 남는다 — 확정은 그 계획을 비운다)
   try {
     if (!s0 && !(await divPlan())) { if (mine() && !view.msg) halt("변경 계획을 세우지 못했습니다(알림 글 참고)"); return; }
     if (!mine()) return;
     const st = divPlanState(), s = st.plan && st.plan.summary;
     if (st.kind === "same") { // 바꿀 것이 없다 — 「이미 맞음」 과 「못 맞춤」 을 가른다
       const same = divSameText(s);
-      if (same.ok) { view.msg = { kind: "done", text: same.text }; toast(same.text); } else halt(same.text);
+      if (same.ok) { view.msg = { kind: "done", text: same.text }; toast(same.text); ended = true; } else halt(same.text);
       return;
     }
     if (st.kind !== "ready") { halt(st.kind === "skip" ? "뺄 자리가 바뀌었습니다 · 다시 계획하세요" : "계획을 세우는 사이 문서가 바뀌었습니다 · 다시 계획하세요"); return; }
     const stops = divAutoStops(), moved = stops && stops === divOrgsMoved(); // 같은 검사(서버가 계획에 실은 값 — divAutoStops) · moved = 그 까닭이 기관의 차례
     if (stops && !moved) { halt(`${stops} — 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
     if (moved) { halt(`${stops} — 쓴 내용이 다른 기관 이름 아래에 남을 수 있습니다. 목록에서 확인한 뒤 「② 반영」 을 누르세요`); return; }
-    if (!(await divApply({ quiet: true })) && mine() && !view.msg) halt("반영하지 못했습니다(알림 글 참고)");
+    if (await divApply({ quiet: true })) ended = true;
+    else if (mine() && !view.msg) halt("반영하지 못했습니다(알림 글 참고)");
   } finally {
+    if (ended && opt.commit !== false && mine()) { // 끝 확정 — 「고친 문단」 탭의 확정과 같은 함수(commitAfterRun → commitDo).
+      // 확정이 끝날 때까지 「한 번에 진행」 은 도는 중(view.auto 그대로 — 단추 · 에이전트의 진행 카드가 그 사이 새 실행을 받아 확정과 겹치지 않게: 2026-11-22 검토)
+      const was = view.msg;
+      divRunSync();
+      const line = $("divRunState"), shown = line && line.lastChild ? line.lastChild.textContent : ""; // 확정 전의 상태 줄(「반영 완료 · 편집 차례 n …」) — 확정이 반영 결과(dv.result)를 비우면 다시 셀 수 없다
+      view.msg = { kind: "run", text: "고친 문단 확정 중…" };
+      divRunSync();
+      let tail = "";
+      try { tail = await commitAfterRun("「프로젝트 구성 반영」 한 번에 진행"); } catch (e) { console.warn(e); } finally { if (view.msg && view.msg.kind === "run") view.msg = was; }
+      if (tail) view.msg = { kind: (was && was.kind) || "done", text: `${(was && was.text) || shown || "반영했습니다"} · ${tail}` };
+    }
     view.auto = false;
     if (mine()) { divRunSync(); divFootSync(); }
   }

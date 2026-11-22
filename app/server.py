@@ -10,6 +10,7 @@ import os
 import threading
 import time
 import uuid
+from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
 
@@ -739,24 +740,92 @@ def owpml_base(s):
     if s.owpml_base is None:  # hwpx: OWPML, docx: OOXML 참조 규칙(docx_check) — 모양이 같은 모듈
         check = s.kit["check"]
         s.owpml_base = check.counts(check.check_doc(s.kit["cls"](s.original)))
-    extra = [k for k in s.owpml_ok if k not in s.owpml_base["schema"]]
-    if not extra:
-        return s.owpml_base
-    schema = s.owpml_base["schema"].copy()
-    for k in extra:
-        schema[k] = 1
-    return {"schema": schema, "rules": s.owpml_base["rules"]}
+    return owpml_check.accepted(s.owpml_base, s.owpml_ok)   # 받아들인 종류는 개수 1 로(수정본 OWPML 검사 verify.eowpml 과 같은 셈)
 
 
-def owpml_allow(s, kinds):
+def owpml_allow(s, kinds, section=False):
     """다른 문서에서 가져온 내용(서식 보관함의 운반 문서 — spec_일반편집 ② §4)이 물고 올 수 있는 스키마 위반 **종류**를 이 작업이 받아들인 종류(`s.owpml_ok`)에 더한다
     (세션 잠금 안, `_transact` 의 `run()` 안에서 — 그 편집의 판정은 run() 뒤에 기준선을 다시 읽는다) -> 새로 더한 종류. 한글이 그 문서의 **header 정의**에 써 둔 꼴(tabPr/switch 등)이라
     편집이 만든 위반이 아니다. 받는 것은 header 쪽 스키마 종류뿐 — 본문(section)의 종류(틀린 속성 값 등 가져온 문단·표 자체의 손상)와 참조 규칙 위반(끊어진 참조)은 안 받는다:
-    그런 내용을 가져온 편집은 전처럼 422 로 되돌린다. 받아들인 종류는 실행 취소 묶음에 들고(`_snap` — 편집이 되돌려지면 함께 되돌아간다) 편집 상태와 함께 저장된다(`_persist`)."""
+    그런 내용을 가져온 편집은 전처럼 422 로 되돌린다. 받아들인 종류는 실행 취소 묶음에 들고(`_snap` — 편집이 되돌려지면 함께 되돌아간다) 편집 상태와 함께 저장된다(`_persist`).
+    section=True = **다른 문서의 본문을 넣는 편집**(이관 · 취합의 반영 — import_check · 옛 작업은 _heal)만: 그 원본 문서의 기준선에 이미 있는 본문 종류(한글이 써 둔 그림 꼴 —
+    hc:transMatrix · hc:pt0 · inMargin 자리)도 받는다. 부르는 쪽이 원본 문서 기준선에 있는 종류만 넘긴다(spec_병합 ② §5-10 「가져온 스키마 위반 종류」). 규칙 위반은 어느 쪽이든 안 받는다."""
     base = owpml_base(s)["schema"]
-    added = [k for k in kinds if isinstance(k, tuple) and len(k) == 5 and k[0] == "header" and k not in base]
+    parts = ("header", "section") if section else ("header",)
+    added = list(dict.fromkeys(k for k in kinds if isinstance(k, tuple) and len(k) == 5 and k[0] in parts and k not in base))   # 겹침 없이(기록 글이 같은 종류를 두 번 세지 않게)
     s.owpml_ok.update(added)
     return added
+
+
+def import_check(src):
+    """다른 문서(src 세션)의 본문을 넣는 편집의 검사(`_transact(check=…)` — 이관 「내용 반영」 mergeFill · 취합 반영 gatherFill · gatherDrop): 문서 전체 검사, 단 **스키마 위반의 기준선에
+    원본 문서의 것을 더한다** — 문서 사이 복사는 원본 문서에 한글이 써 둔 스키마 위반(strikeout shape "3D" · 그림의 hc:transMatrix · hc:pt0 · inMargin 자리 — 실제 작성본 6종)을
+    내용과 함께 가져오므로 그 종류는 이 편집 탓이 아니다. 두 문서 어디에도 없던 종류와 규칙 위반(목적 문서 기준 그대로)은 전처럼 되돌린다(422).
+    통과하면 **들어온 종류**(목적 문서 기준선에 없고 원본 문서 기준선에 있는 종류 — header · section)를 작업의 받아들인 종류에 남긴다(owpml_allow(section=True) — 이 편집의 실행 취소 묶음은
+    그 전에 묶였으니 반영을 되돌리면 함께 돌아간다): 그래야 그 뒤 같은 표 · 문단을 건드리는 편집 · 문서 전체 검사 편집 · 수정본 OWPML 검사가 그 종류로 되돌리지 않는다
+    (2026-11-22 — 전에는 그 편집 한 번에만 기준선을 넓혀, 그림이 든 표의 칸 서식 · 문단 나누기 · 레벨 자리 규칙이 422 로 되돌려졌다: spec_병합 ② §5-10 「가져온 스키마 위반 종류」)."""
+    def check(s, out, base, header):
+        chk = s.kit["check"]
+        sb = Counter(owpml_base(src)["schema"])
+        res = chk.check_doc(s.doc)
+        v = chk.verdict(s.doc, {"schema": Counter(base["schema"]) + sb, "rules": base["rules"]}, res)
+        if v["status"] != "fail":
+            owpml_allow(s, [k for k in chk.counts(res)["schema"] if k not in base["schema"] and k in sb], section=True)
+        return v
+    return check
+
+
+_SRC_KINDS = {}   # 올린 원본 파일의 sha256 → 그 파일의 스키마 위반 종류(frozenset) — import_kinds(옛 반영의 받아들임이 같은 원본을 다시 세지 않게 · 몇 개만)
+_SRC_LOCK = threading.Lock()
+
+
+def import_kinds(wid):
+    """작업 wid(넣은 내용이 나온 원본 문서)로 **올린 원본 파일**(작업 폴더의 original.<형식> — 한글이 쓴 바이트: merge_api._uploaded 와 같은 파일)의 스키마 위반 종류(frozenset).
+    옛 반영의 받아들임(_heal — merge_api.owpml_from · merge_gather_api.owpml_from)이 원본 문서의 기준선으로 쓴다 — 그 세션을 통째로 열지 않는다(실제 원본 116 MB 세션: 7 s).
+    파일의 sha256 을 열쇠로 몇 개만 기억한다. 그 파일이 없으면(작업 저장이 꺼짐 등) 그 작업의 세션 기준선, 그것도 없으면 빈 것."""
+    w, p = works.work(wid), works.file_path(wid, "original")
+    kit = FORMATS.get((w or {}).get("format"))
+    if kit is not None and p is not None:
+        try:
+            blob = p.read_bytes()
+        except OSError:
+            blob = None
+        if blob is not None:
+            key = works.sha256(blob)
+            with _SRC_LOCK:
+                got = _SRC_KINDS.get(key)
+            if got is None:   # 세는 것은 잠금 밖(몇 초 — 다른 문서의 받아들임을 막지 않게)
+                got = frozenset(kit["check"].counts(kit["check"].check_doc(kit["cls"](blob)))["schema"])
+                with _SRC_LOCK:
+                    while len(_SRC_KINDS) >= 32:
+                        _SRC_KINDS.pop(next(iter(_SRC_KINDS)))
+                    _SRC_KINDS[key] = got
+            return got
+    try:
+        return frozenset(owpml_base(_sess(wid))["schema"])
+    except HTTPException:
+        return frozenset()
+
+
+def _heal(s, v, snap):
+    """옛 반영의 받아들임(spec_병합 ② §5-10 「가져온 스키마 위반 종류」 — import_check 가 생기기 전에 내용을 넣은 작업): 이 편집의 판정 v 가 「원본에 없던 종류」 로만 걸렸고(규칙 위반 없음),
+    그 글(kind_text)의 종류가 **넣은 기록**(merge.json `filled` · gather.json 의 기관 문서)의 원본 문서 기준선에 있으면 → **이 편집 전 문서**(snap — 실행 취소 묶음의 바이트)를 세어
+    거기 이미 있고 원본 문서 기준선에 있는 종류를 받아들인다(owpml_allow(section=True)) -> 받아들인 종류(차례 · 겹침 없이). 이 편집이 새로 들인 종류는 편집 전 문서에 없으니 받지 않는다
+    (넣은 기록이 있는 작업에서 다른 문서의 그림을 처음 들이는 편집 — 서식 보관함 적용 등 — 도 전처럼 422: 2026-11-22 결과 검토). hwpx 만 · 넣은 기록이 없으면 아무것도 안 받는다."""
+    if s.fmt != "hwpx" or v["status"] != "fail" or v["rules"] or not v["new"]:
+        return []
+    from app import merge_api, merge_gather_api
+    chk = s.kit["check"]
+    want, kt = {x["kind"] for x in v["new"]}, chk.kind_text
+    try:   # 편집은 이미 문서에 들었다(_transact 가 판정 뒤에 되돌린다) — 여기서 던지면 되돌리지 못하니 받아들이지 않는 것으로
+        src = set(merge_api.owpml_from(s)) | set(merge_gather_api.owpml_from(s))
+        if not any(kt(k) in want for k in src):   # 이 편집을 막은 종류가 원본 문서 기준선에 없다 — 편집 전 문서를 세지 않는다
+            return []
+        had = chk.counts(chk.check_doc(s.kit["cls"](snap["doc"]["bytes"])))["schema"]   # 이 편집 전 문서(한 번 — 받아들이면 그 뒤에는 이 길로 오지 않는다)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[owpml 받아들임] %s 원본 문서 기준선 · 편집 전 문서를 못 셈: %r", s.id, e)
+        return []
+    return owpml_allow(s, sorted(k for k in src if k in had), section=True)
 
 
 def _snap(s):
@@ -858,6 +927,12 @@ def _transact(s, run, op=None, req=None, check=None, local=None):
     if s.fmt == "docx":
         s.doc.blocks()  # docx 검사는 위반 자리를 블록 id 로 적는다 — 새 문단·칸에도 id 를 붙여 둔다
     v = (check or _hosts_check)(s, out, base, header)
+    healed = _heal(s, v, snap)   # 옛 반영(import_check 전에 넣은 작업)이 들여온 종류에 걸렸으면 편집 전 문서에 있던 그 종류를 받아들이고 다시 판정(spec_병합 ② §5-10 「가져온 스키마 위반 종류」)
+    if healed:   # 편집 전 문서에 있던 종류다 — 이 편집 · 앞 편집을 되돌려도 남게 실행 취소 묶음에도(실행 취소 묶음은 메모리에만 — 다시 켠 뒤의 편집이라 옛 반영 뒤의 문서다: 그 반영 자체는 이 세션의 실행 취소 밖)
+        for u in (snap, *s.undo):
+            u["owpml_ok"] = set(u.get("owpml_ok", ())) | set(healed)
+        log.info("[owpml 받아들임] %s %s: 옛 반영이 들여온 종류 %d가지 — %s", s.id, op, len(healed), " · ".join(chk.kind_text(k) for k in healed)[:300])
+        v = (check or _hosts_check)(s, out, owpml_base(s), header)
     if v["status"] == "fail":
         _rollback(s, snap)
         std = "OWPML 표준" if s.fmt == "hwpx" else "OOXML 참조 규칙"
@@ -2095,7 +2170,7 @@ def work_reset(wid: str):
 # ---- 확정(spec_작업 ② §8) — 고친 문단을 깃처럼: 확정 = 지금 상태를 한 시점으로 남기고 새 기준으로 · 확정 기록 · 버리기 · 이전 확정으로 복원 ----------
 
 COMMIT_KINDS = ("text", "format", "struct", "new", "removed")
-COMMIT_KEYS = ("n", "at", "message", "sha256", "size", "counts", "restoreOf")
+COMMIT_KEYS = ("n", "at", "message", "sha256", "size", "counts", "restoreOf", "flowRun")   # flowRun = 그 확정을 남긴 워크플로우 실행의 번호(묶음째 실행의 끝 확정 — spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」)
 
 
 def _commits_on():
@@ -2221,10 +2296,21 @@ def commit_create(doc_id: str, body: dict = Body(default={})):
         raise HTTPException(400, "message 는 글이어야 합니다")
     message = " ".join(message.split())[:200]
     s = _sess(doc_id)
+    c = _commit_now(s, message)
+    if c is None:
+        raise HTTPException(400, "확정할 변경이 없습니다")
+    return {**get_doc(doc_id), "commit": _commit_view(c)}  # 화면은 다시 그리지 않고 블록 표·원래 글만 새 기준으로 바꾼다
+
+
+def _commit_now(s, message, meta=None, verify_llm=True):
+    """확정의 몸(세션 잠금 안) — 「고친 문단」 탭의 확정(commit_create)과 워크플로우 묶음째 실행의 끝 확정(unit_steps.commit — spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」)이 같이 쓴다.
+    → 확정 요약(works.add_commit 의 것) | None(확정할 변경이 없음). meta = 확정 기록 · 작업 기록 줄에 더할 것({by: "flow", flowRun: n}) · verify_llm = 새 기준의 가져오기 검증이 검증 LLM 을 불러도 되나
+    (에이전트 카드가 유료로 승인하지 않은 문서의 끝 확정은 False). 울타리(_fenced): 그 문서를 바꾸는 실행의 스레드만 지난다 — 그 밖은 409. 저장이 꺼졌는지는 부르는 쪽이 먼저 본다(_commits_on)."""
+    meta = dict(meta or {})
     with s.lock:
         _fenced(s)   # 문서를 새 기준으로 다시 연다(실행 취소 · 구분 기준 계획을 비움) — 워크플로우 실행이 이 문서를 바꾸는 동안은 409(_bump 는 안 부르지만 울타리 안의 계획을 버리게 된다)
         if not _dirty(s):
-            raise HTTPException(400, "확정할 변경이 없습니다")
+            return None
         s.doc.blocks()  # 모든 블록에 id 를 붙여 둔다 — 자리표에서 빠지는 요소가 없게
         data = s.doc.save()
         changes = _commit_changes(s)
@@ -2232,26 +2318,34 @@ def commit_create(doc_id: str, body: dict = Body(default={})):
         try:
             doc, ids = _open_at(s, data, s.doc.id_state())  # 확정본을 다시 연 문서 = 새 기준(같은 블록 id)
             extra = {"ids": ids, "division": s.division["applied"], "divisionPartial": s.division.get("partial"), "outline": s.outline, "changes": changes}
-            c = works.add_commit(s.id, s.fmt, data, {"message": message, "counts": counts, "parent": s.base_n}, extra)
+            c = works.add_commit(s.id, s.fmt, data, {"message": message, "counts": counts, "parent": s.base_n, **meta}, extra)
         except (OSError, TypeError, ValueError, RuntimeError) as e:
             raise HTTPException(500, f"확정을 작업 폴더에 쓰지 못했습니다: {e}") from e
         if c is None:
             raise HTTPException(404, "작업 폴더가 없습니다(지운 작업)")
         _rebase(s, data, doc, ids, c["n"])
-        works.log(s.id, "commit", rev=s.rev, n=c["n"], message=message, counts=counts, sha256=c["sha256"])
-        _start(s, "import", verify.run_import)  # 새 기준의 PDF·쪽 매핑·표준 검사 기준선
+        works.log(s.id, "commit", rev=s.rev, n=c["n"], message=message, counts=counts, sha256=c["sha256"], **meta)
+        _start(s, "import", verify.run_import, bool(verify_llm))  # 새 기준의 PDF·쪽 매핑·표준 검사 기준선
     _persist_safe(s, force=True)  # rev 는 그대로지만 기준(base)이 바뀌었다
-    return {**get_doc(doc_id), "commit": _commit_view(c)}  # 화면은 다시 그리지 않고 블록 표·원래 글만 새 기준으로 바꾼다
+    return c
 
 
 @app.post("/api/docs/{doc_id}/commits/{n}/restore")
 def commit_restore(doc_id: str, n: int, body: dict = Body(default={})):
     """확정 n(0 = 올린 원본) 상태로 되돌린다 {discard?}. n 이 지금 기준이면 「모두 되돌리기」(전 이름 「버리기」 — 확정하지 않은 변경만 버림 — 확정이 새로 안 생김),
-    아니면 그 상태를 새 확정으로 남긴다(기록은 한 줄로만 자람). 확정하지 않은 변경이 있으면 discard 가 있어야(409). 응답 = GET /api/docs/{id} + commit."""
+    아니면 그 상태를 새 확정으로 남긴다(기록은 한 줄로만 자람). 확정하지 않은 변경이 있으면 discard 가 있어야(409). 응답 = GET /api/docs/{id} + commit.
+    base = 화면이 아는 기준(「모두 되돌리기」 가 보낸다): 지금 기준과 다르면 아무것도 하지 않고 409 {detail, base}(지금 기준) — 워크플로우의 끝 확정(spec_워크플로우 ② §18-24)이 화면 몰래 기준을 옮긴 뒤
+    옛 기준 번호로 누른 「모두 되돌리기」 가 「그 확정으로 복원」(실행 결과를 통째로 버리는 새 확정)이 되지 않게. 없으면 전과 같다."""
     _commits_on()
     s = _sess(doc_id)
+    seen = body.get("base")
+    if seen is not None and (isinstance(seen, bool) or not isinstance(seen, int)):
+        raise HTTPException(400, "base 는 확정 번호(정수)여야 합니다")
     with s.lock:
         _fenced(s)
+        if seen is not None and seen != s.base_n:
+            return JSONResponse({"detail": f"기준이 바뀌었습니다(지금 기준 = {f'확정 {s.base_n}' if s.base_n else '올린 원본'} — 워크플로우가 고친 문단을 확정했을 수 있습니다) · 화면을 새 기준으로 맞춘 뒤 다시 누르세요",
+                                 "base": s.base_n}, status_code=409)
         dirty, count = _dirty(s), len(s.edited())
         if n == s.base_n and not dirty:
             raise HTTPException(400, "이미 그 확정 상태입니다")
@@ -2469,6 +2563,7 @@ app.include_router(__import__("app.form_guides_api", fromlist=["router"]).router
 app.include_router(__import__("app.zone_prune_api", fromlist=["router"]).router)   # 빈 구역 지우기(구분 기준 묶음의 내용 없는 항목 — 미리 보기 · 한 번에 지우기) 끝점은 app/zone_prune_api.py(spec_워크플로우 ② §18-23 「빈 구역 지우기」)
 app.include_router(__import__("app.guide_fix_api", fromlist=["router"]).router)   # 지침 보정(저장한 작성 지침에 따라 LLM 이 있는 글을 고침 — 묻기 · 반영) 끝점은 app/guide_fix_api.py(spec_워크플로우 ② §18-23 「지침 보정」)
 app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
+app.include_router(__import__("app.merge_retidy_api", fromlist=["router"]).router)   # 넣은 뒤 템플릿 · 서식 정리(넣은 줄을 목적 문서의 템플릿 · 서식으로 — 다시 분석 → 대표 → 맞추기) 끝점은 app/merge_retidy_api.py(spec_병합 ② §5-9)
 app.include_router(__import__("app.link_guides_api", fromlist=["router"]).router)   # 매칭 지침(표 · 본문별 — 양식 정보 「자리 연결」 절을 자리마다 보고 고침) 끝점은 app/link_guides_api.py(spec_병합 ② §5-6)
 app.include_router(__import__("app.merge_gather_api", fromlist=["router"]).router)   # 취합 끝점은 app/merge_gather_api.py(spec_취합 ② §6)
 app.include_router(__import__("app.zones_api", fromlist=["router"]).router)   # 편집 구역(기관·단계·차년도 값마다의 구역 — 자동 판독 · 지정 · 취합 출처) 끝점은 app/zones_api.py(spec_구역 ② §5)

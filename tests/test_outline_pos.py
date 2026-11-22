@@ -85,6 +85,32 @@ def test_target_rules():
     assert OP.target({**cur, "firstMm": -8.47, "line2Mm": 8.47}, None, was=-8.47) is None  # 이미 맞음
 
 
+def test_unhang_and_free_level_view(monkeypatch):
+    """가운데 · 오른쪽 정렬 레벨(사람이 정한 규칙 없음 — free): 확정 꼴 = 내어쓰기 없음(unhang — 첫 줄 0 · 왼쪽 여백 그대로, 들여쓰기는 둔다).
+    자리 줄(view)은 그 레벨에 free(정렬)를 싣고 to = 그 꼴 — 기본 규칙(둘째 줄 = 글 시작)을 보이지 않는다(새 줄 · 글 고침도 그것을 안 건다). 사람이 정한 규칙 · 양쪽 정렬은 전처럼."""
+    cur = {"leftMm": 2.0, "firstMm": -8.47, "x0": 2.0, "leadMm": 4.23, "prefixMm": 8.47, "letterMm": 6.23, "textMm": 10.47, "line2Mm": 10.47}
+    assert OP.unhang(cur) == (2.0, 0.0) and OP.unhang({**cur, "firstMm": 0.0}) is None and OP.unhang({**cur, "firstMm": 3.0}) is None
+    from app import outline_edit as OE
+    from app import outline_lift, outline_match
+    monkeypatch.setattr(OE, "view", lambda ov: {"templates": {t: {} for t in ov["templates"]}})  # 자리 줄만 본다(오버레이의 나머지는 이 시험 밖)
+    monkeypatch.setattr(outline_match, "context", lambda doc, ov: None)
+    monkeypatch.setattr(outline_match, "view_extra", lambda ov, ctx: {})
+    monkeypatch.setattr(outline_lift, "view_extra", lambda ov: {})
+    got = {}
+    for name, fmt, pos in (("center", {"align": "center", "firstLineMm": 0}, None), ("old", {"align": "center", "firstLineMm": -8.47}, None),
+                           ("right", {"align": "right", "firstLineMm": 0}, None), ("justify", {"align": "justify", "firstLineMm": 0}, None),
+                           ("set", {"align": "center", "firstLineMm": 0}, {"line2": "text", "set": True})):
+        doc = HwpxDoc(PLAN.read_bytes())
+        doc.blocks()
+        doc.format_para(["p972"], {"indentLeftMm": 0, **fmt})                                     # 「  o 」 — 글 시작 8.47mm
+        p = doc._ids["p972"]
+        sl = {"letter": "o", "prefix": "  o ", "attrs": {"paraPrIDRef": p.get("paraPrIDRef"), "charPrIDRef": doc._char_id(p)}, **({"pos": pos} if pos else {})}
+        v = OP.view(doc, {"lines": {}, "templates": {"1": {"no": 1, "slots": {"2": sl}}}})["templates"]["1"]["slots"]["2"]
+        got[name] = (v.get("free"), v["to"]["line2Mm"], v["at"]["line2Mm"])
+    assert got == {"center": ("center", 0.0, 0.0), "old": ("center", 0.0, 8.5), "right": ("right", 0.0, 0.0),
+                   "justify": (None, 8.5, 0.0), "set": (None, 8.5, 0.0)}
+
+
 def test_clean_pos():
     assert OP.clean_pos({"line2": "text"}) == {"line2": "text", "set": True}
     assert OP.clean_pos({"line2": "mm", "mm": 6, "letterMm": 4.234}) == {"line2": "mm", "mm": 6.0, "letterMm": 4.23, "set": True}

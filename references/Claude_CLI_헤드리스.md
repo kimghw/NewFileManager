@@ -22,6 +22,14 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 - 성공 판정: 종료 코드 0, `is_error: false`, `subtype: "success"`, `structured_output` 이 dict. 구조화 출력은 도구 호출로 구현돼 `stop_reason` 이 `"tool_use"`, `num_turns` 2 —
   `stop_reason` 으로 판정하지 않는다. 그 밖에 `total_cost_usd`, `duration_ms`, `modelUsage`.
 
+## 실패 결과 — 종료 코드 1 + 결과 JSON (2026-11-22 실측 · 구독 로그인)
+
+- 모델 사용 한도: 종료 코드 **1**, stdout 은 결과 JSON 그대로 — `is_error: true` · `subtype: "success"`(!) · `api_error_status: 429` · `terminal_reason: "api_error"` · `duration_api_ms: 0` ·
+  `result: "You've reached your Fable limit. Switch to another model, or manage usage credits at https://claude.ai/settings/usage?from=cc_cli_limit_message, to continue."`.
+  한도는 **모델마다**다 — 같은 구독에서 Fable 이 한도일 때 `--model claude-opus-5-5` 는 정상(2초). 한도가 언제 풀리는지는 결과에 없다.
+- 키 크레딧 없음(env 에 `ANTHROPIC_API_KEY`): 같은 꼴에 `api_error_status: 400` · `result: "Credit balance is too low"`.
+- 까닭은 stderr 가 아니라 stdout JSON 의 `result` 에 있다 — `app/llm.py` `cli_why` 가 그것을 읽는다(전에는 stdout 끝 300자를 그대로 실어 화면 글이 JSON 조각이 됐다).
+
 ## 구조화 출력 스키마 제약(API 와 같음)
 
 - 모든 object 에 `additionalProperties: false`, 재귀 스키마·숫자/길이 제약 불가 → 트리·그래프는 **평면 목록 + 부모 id** 로 받는다.

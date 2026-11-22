@@ -83,3 +83,81 @@ def test_cleanup_saves_guides_first_even_when_nobody_asked(client):
     assert client.post(f"/api/docs/{d}/form-cleanup", json={}).status_code == 200
     saved = client.get(f"/api/docs/{d}/form-guides").json()["saved"]   # 지우기 바로 전에 남긴 것
     assert saved and saved["counts"]["items"] == 39 and saved["counts"]["marksLinked"] == 51   # 앞표지 작성 요령 표를 지침으로 읽게 되어 표지의 각주 번호(2) … 19))가 그 항목에 이어진다(전 22)
+
+
+# ---- 작성 지침을 헤딩 · 표 LLM 판정 자료로(spec_헤딩_추출 ② §20 — 2026-11-22 사용자 "당연히 넣어줘") ----------------------------------------------------------
+
+def test_places_split_table_and_body_guides():
+    saved = {"items": [{"id": "t1", "kind": "tables", "name": "작성 요령 표", "text": "작성 요령\n1. 과제명", "heading": {"id": "p3", "text": "1. 개요"}, "table": None, "top": 5},
+                       {"id": "p9", "kind": "notes", "name": "※ 안내", "text": "※ 단위: 천원", "heading": None, "table": {"id": "t2", "label": "예산"}, "top": 7}],
+             "marks": [{"no": "1", "at": "p12", "label": "과제명1)", "heading": None, "table": {"id": "t2", "label": "예산"}, "guide": "t1", "text": "1. 과제명", "top": 8},
+                       {"no": "2", "at": "p13", "label": "기간2)", "heading": None, "table": None, "guide": None, "text": "", "top": 9}]}
+    got = FG.places(saved)
+    assert [g["at"] for g in got["tables"]["t2"]] == ["p9", "p12"] and got["tables"]["t2"][1]["kind"] == "각주 번호 1)"   # 표에 붙은 것은 그 표의 것(표 판정)
+    assert got["body"] == [{"at": "t1", "head": "p3", "kind": "작성 요령 표", "text": "작성 요령\n1. 과제명"}]   # 나머지는 구간 판정 · 글 없는 각주 번호는 싣지 않는다
+    assert FG.places({"items": [], "marks": []}) is None and FG.places(None) is None
+
+
+@needs_form
+def test_heading_and_table_llm_jobs_carry_place_guides():
+    """실제 연차보고서 서식 — B(구간) 자료에 본문의 작성 지침이, T(표) 자료에 그 표의 지침(각주 번호가 가리키는 항목 · 칸 id)이 실린다. 지침이 없으면 자료는 전과 같다."""
+    import json
+
+    from app import heading_extract as E
+    from app import heading_graph as HG
+    from app import heading_guides as G
+    from app import heading_rules as R
+    from app import heading_tables as HT
+    from app import heading_temp as TP
+    data = M.REPORT_FORM.read_bytes()
+    doc = HwpxDoc(data)
+    graph, tables = M._cached("guides_report", data, doc, "연차보고서")
+    guides = G.snapshot()
+    s1 = E.extract(doc, store=R.load(), doc_key=None, tol=G.parse_tolerance(guides["tolerance"]["text"]))
+    s1["meta"] = {"rev": 0, "run": 1}
+    temp = TP.label(s1, None)
+    hints = {"version": 0, "labels": {}, "bases": [], "temp": TP.clean_hints(None)}
+    pinned = {**guides, "place": {"sha1": "s", **FG.places(FG.collect(doc, graph, tables))}}
+    seen = {}
+
+    def ask(jobs):
+        out = []
+        for j in jobs:
+            w = j["what"].split("#")[0]
+            seen.setdefault(w, []).append(json.loads(j["content"].rsplit("## 자료(JSON)\n", 1)[1]))
+            out.append({"data": {"types": [], "mainChain": [], "summary": ""}} if w == "heading_types" else {"data": {"changes": [], "summary": ""}} if w == "heading_section" else {"data": None, "error": "시험"})
+        return out
+    g = HG.build(s1, use_llm=True, ask=ask, pinned=pinned, hints=hints, temp=temp, pairs=False)
+    secs = seen["heading_section"]
+    body = [x for d in secs for x in d.get("guides") or ()]
+    assert any(x["text"] == "※ 2page 이내 요약 작성" and x["head"] for x in body)   # 제목 줄 안의 ※ — 그 헤딩 id 와 함께
+    assert g["llm"]["placeGuides"] == {"sections": sum(1 for d in secs if d.get("guides")), "items": len(body)} and g["guides"]["place"] == "s"
+    asked = HT.ask_tables(s1, ask=ask, pinned=pinned, temp=temp)
+    tabs = [t for d in seen["heading_tables"] for t in d["tables"]]
+    summary = next(t for t in tabs if any(x["text"].startswith("※ 요약문은 5쪽") for x in t.get("guides") or ()))   # <요약문> 표 — 칸 안의 ※ 와 그 표의 각주 번호
+    first = next(x for x in summary["guides"] if x.get("label", "").startswith("세부사업명"))
+    assert first["kind"] == "각주 번호 1)" and first["text"].startswith("1. 세부사업명") and first["cell"]   # 각주 번호 → 작성 요령 항목 · 그 칸 id
+    cover = next(t for t in tabs if any(x.get("label", "").startswith("세부사업명4)") for x in t.get("guides") or ()))   # 표지 — 다른 표의 같은 이름 칸은 제 번호(4)의 항목
+    assert cover["table"] != summary["table"]
+    placed = sum(len(v) for v in pinned["place"]["tables"].values())
+    assert asked["placeGuides"]["items"] == sum(len(t.get("guides") or ()) for t in tabs) == placed   # 표에 붙은 지침이 모두 실린다(표지 표의 겉 상자 안 각주 번호도 — 가장 안쪽 표로)
+    assert asked["guides"]["place"] == "s"
+    seen.clear()   # 지침이 없으면 자료에 칸이 없다(전과 같은 프롬프트)
+    HG.build(s1, use_llm=True, ask=ask, pinned=guides, hints=hints, temp=temp, pairs=False)
+    HT.ask_tables(s1, ask=ask, pinned=guides, temp=temp)
+    assert not any("guides" in d for d in seen["heading_section"]) and not any("guides" in t for d in seen["heading_tables"] for t in d["tables"])
+
+
+@needs_form
+def test_run_pins_place_guides_from_doc_then_saved(client):
+    """실행 시작 때 고정하는 지침(heading_runs._guides) — LLM 을 부르는 실행만 그 자리의 작성 지침을 싣는다 · 「작성요령 삭제」 뒤에는 저장본에서 · 작업 폴더에는 쓰지 않는다."""
+    from app import form_guides_api, heading_runs
+    d = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    assert "place" not in heading_runs._guides(s)   # 스크립트 실행은 싣지 않는다
+    pl = heading_runs._guides(s, place=True)["place"]
+    assert pl["from"] == "doc" and pl["tables"] and pl["body"] and len(pl["sha1"]) == 40
+    assert form_guides_api.load(d) is None   # 판정 자료로 모아도 저장하지는 않는다
+    assert client.post(f"/api/docs/{d}/form-cleanup", json={}).status_code == 200   # 지우기 바로 전에 저장한다
+    after = heading_runs._guides(s, place=True)["place"]
+    assert after["from"] == "saved" and sum(map(len, after["tables"].values())) == sum(map(len, pl["tables"].values()))

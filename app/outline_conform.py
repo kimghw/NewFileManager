@@ -10,8 +10,11 @@
      줄마다 0.1~1.7mm 오른쪽으로 밀린다. 묶음 빈칸은 폭이 같고(0.5em × 장평) 늘어나지 않는다(한글 PDF 실측 — references/한글_문단모양_줄나눔.md 「묶음 빈칸」).
   ② **자리 규칙**(② §8-1): 사람이 그 레벨에 정한 규칙이 있으면 그것, 없으면 기본 「둘째 줄 = 글 시작」 — 문단이 이미 가진 첫 줄 값도 덮는다(`outline_pos.align(force=True)`).
      대표와 접두 폭이 다른 줄(번호형 「10.」 · 줄 맞춤으로 자간을 줄인 레터)은 제 접두 폭으로 — 값이 아니라 규칙이 같다.
+     가운데 · 오른쪽 정렬 줄은 기본 규칙을 안 건다(`outline_pos.free`: 줄 시작이 글 길이로 정해진다) — 확정 꼴은 「내어쓰기 없음」(첫 줄 0 · 왼쪽 여백 그대로 — `outline_pos.unhang`:
+     이 변경 전에 넣은 내어쓰기도 없앤다 · 대표와 접두 폭이 다른 줄도 한 상태로 모인다) · 사람이 정한 규칙은 건다.
 - `place(doc, ov, pid, m)` = 줄 하나에 ①② · `needs(…)` = 그 줄이 ①② 에 안 맞는가(문서는 안 바꿈).
-- `conform(doc, ov, pid, sh, m, left)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①②.
+- `conform(doc, ov, pid, sh, m, left, keep, rules)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①② · keep = 본문 강조는 그 줄의 것(넣은 뒤 정리 — `outline_match.own_emph`) · rules 거짓 = ①② 없이 대표의 모양만(가운데 · 오른쪽 정렬 줄은 대표의 「글 시작」 꼴을 제 접두 폭으로 — `_follow`).
+- `freeze(ov, tid, level, sh)` = 슬롯의 동결 접두 · 모양을 sh 로(Enter 로 만드는 새 줄 — settle 이 대표에 ①② 를 건 뒤 부른다).
 - `settle(doc, ov, tid, level, ids, m, left)` = 레벨 하나: 대표 줄에 ①② 를 걸어 확정 서식을 정하고(슬롯의 동결 접두·모양도 그것으로 — Enter 로 만드는 새 줄이 같은 서식),
   대표와 서식이 같던 줄(대표 갈래)과 ids(맞추기로 고른 줄)를 그 서식으로. → 바뀐 줄 id.
 - `pending(doc, ov, tids)` = 대표 갈래의 줄 가운데 ①② 가 아직 안 걸린 줄(서식이 대표와 다른 줄은 서식 갈래가 센다) — 조정 줄의 「자리 맞춤 n줄」.
@@ -123,11 +126,14 @@ def _held_now(doc, ov, tid, level):
 
 
 def _target(doc, ov, pid, m):
-    """자리 규칙을 걸면 바뀔 (왼쪽 여백, 첫 줄) | None(그대로 · 못 잼)."""
+    """자리 규칙을 걸면 바뀔 (왼쪽 여백, 첫 줄) | None(그대로 · 못 잼). 기본 규칙을 안 거는 가운데 · 오른쪽 정렬 줄(outline_pos.free)은 내어쓰기가 남았을 때만
+    (outline_pos.unhang — 이 변경 전의 확정 서식이 넣은 내어쓰기도 「자리 맞춤」 · 조정이 없앤다: place 와 같은 셈)."""
     line = ov["lines"][pid]
     cur = m.place(pid, line.get("letter"))
     if cur is None:
         return None
+    if OP.free(doc, ov, pid):
+        return OP.unhang(cur)
     try:
         return OP.target(cur, rule(OE._slot(ov, line["tpl"], line["level"])), full=True)
     except ValueError:  # 사람이 정한 레터 위치가 이 줄의 앞 공백 폭보다 작다 — 그 줄은 그대로
@@ -151,7 +157,7 @@ def place(doc, ov, pid, m):
     g = None if _held(doc, ov, line["tpl"], line["level"], m) else _gap(doc, pid, line.get("letter"))  # 레벨 규칙이 먼저(_held — 한 레벨 = 한 서식)
     if g is not None:
         changed = doc.set_chars(pid, g[0], nb_gap(g[1]))
-    try:
+    try:   # 가운데 · 오른쪽 정렬 줄은 기본 규칙을 안 건다 — 내어쓰기만 없앤다(outline_pos.free · unhang — align 이 본다)
         if OP.align(doc, ov, pid, measure=m, force=True) is not None:
             changed = True
     except ValueError:
@@ -159,11 +165,37 @@ def place(doc, ov, pid, m):
     return changed
 
 
-def conform(doc, ov, pid, sh, m, left=None):
+def conform(doc, ov, pid, sh, m, left=None, keep=None, rules=True):
     """줄 pid 를 확정 서식 sh(①② 를 건 대표의 `outline_match.rep_shape`)로 — 접두·문단·레터 글자·본문 바탕 글자 + ①②. 줄 하나를 템플릿 레벨 서식으로 바꾸는 단 하나의 길.
-    left = 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`outline_match.match_one` — 그런 줄에도 ①② 는 건다)."""
-    OM.match_one(doc, ov, pid, sh, left)
-    place(doc, ov, pid, m)
+    left = 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`outline_match.match_one` — 그런 줄에도 ①② 는 건다).
+    keep = 본문 바탕 글자에서 그 줄의 것을 지킬 강조(`outline_match.EMPH` — 넣은 뒤 정리가 넣는 쪽의 서식을 받는 레벨에서: spec_병합 ② §5-9) · None 이면 전처럼 모두 대표 것.
+    rules = ①② 도 거나 — 거짓이면 대표의 모양 그대로만(대표가 ①② 를 갖추지 않은 레벨에서 그 레벨의 다른 줄은 두고 넣은 줄만 맞출 때: 취합의 넣은 뒤 정리 — spec_병합 ② §5-9 9 ⓐ)
+    · 가운데 · 오른쪽 정렬 줄은 대표의 「둘째 줄 = 글 시작」 꼴을 제 접두 폭으로 따른다(`_follow`)."""
+    OM.match_one(doc, ov, pid, OM.own_emph(doc, ov, pid, sh, keep) if keep else sh, left)
+    if rules:
+        place(doc, ov, pid, m)
+    elif pid in (ov.get("lines") or {}) and OP.free(doc, ov, pid):   # 가운데 · 오른쪽 정렬 줄 — 대표의 꼴을 따른다(_follow)
+        _follow(doc, ov, pid, sh, m)
+
+
+def _follow(doc, ov, pid, sh, m):
+    """rules 거짓으로 대표의 모양만 받은 가운데 · 오른쪽 정렬 줄(outline_pos.free): 대표가 「둘째 줄 = 글 시작」 꼴(이 변경 전의 확정 서식이 넣은 내어쓰기)이면
+    그 줄도 **제** 접두 폭으로(`after_insert` 와 같은 꼴 따르기) → 바뀌었는가. 대표의 문단 모양을 그대로 받으면 내어쓰기가 대표의 접두 폭이라, 접두 폭이 다른 줄
+    (「1.」 대표 옆의 「10.」 · 줄 맞춤으로 자간을 지킨 레터)은 둘째 줄이 제 글 시작이 아니어서 대표와 끝내 「다른 서식」 으로 남았다(2026-11-22 검토 — 취합의 넣은 뒤 정리:
+    대표가 옛 내어쓰기를 가지면 `needs` 가 참이라 `merge_retidy_api._full` 이 거짓). 대표의 내어쓰기는 「자리 맞춤」 · 조정이 없앤다(unhang) — 그 뒤에는 모두 내어쓰기 없는 꼴.
+    sh 가 그 레벨 대표의 문단 모양이 아니면(대표를 못 읽음) 대표의 모양 그대로."""
+    if _skip(doc, ov, pid):
+        return False
+    line = ov["lines"][pid]
+    rep = _rep(doc, ov, line["tpl"], line["level"])
+    if rep is None or rep == pid or doc._ids[rep].get("paraPrIDRef", "0") != (sh.get("attrs") or {}).get("paraPrIDRef"):
+        return False
+    return after_insert(doc, pid, line.get("letter"), rep, ov["lines"][rep].get("letter"), m)
+
+
+def freeze(ov, tid, level, sh):
+    """슬롯의 동결 접두 · 모양을 확정 서식 sh(`outline_match.rep_shape`)로 — Enter 로 만드는 새 줄이 같은 서식(settle · 대표에 ①② 를 건 뒤의 넣은 뒤 정리)."""
+    OE._slot(ov, tid, level).update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])
 
 
 def _rep(doc, ov, tid, level):
@@ -192,10 +224,10 @@ def _mates(doc, ov, tid, level, rep, skip=()):
     return out
 
 
-def settle(doc, ov, tid, level, ids=(), m=None, left=None):
+def settle(doc, ov, tid, level, ids=(), m=None, left=None, keep=None):
     """레벨 하나를 확정 서식으로 → 바뀐 줄 id. ① 대표 줄에 묶음 빈칸·자리 규칙 → 그 모양이 확정 서식(슬롯의 동결 접두·모양도 그것으로)
     ② 대표와 서식이 같던 줄(대표 갈래) + ids(맞추기로 고른 그 레벨 줄 — 대표와 다른 갈래)를 그 서식으로. 대표가 없는 레벨은 건드리지 않는다(ids 가 있으면 ValueError).
-    left = ids 가운데 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`conform`) — 그 줄도 바뀐 줄에 든다."""
+    left = ids 가운데 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`conform`) — 그 줄도 바뀐 줄에 든다. keep = ids 의 본문 강조를 지킴(`conform`)."""
     rep = _rep(doc, ov, tid, level)
     if rep is None:
         if ids:
@@ -206,9 +238,9 @@ def settle(doc, ov, tid, level, ids=(), m=None, left=None):
     mates = _mates(doc, ov, tid, level, rep, set(ids))
     out = [rep] if place(doc, ov, rep, m) else []
     sh = OM.rep_shape(doc, ov, rep)
-    OE._slot(ov, tid, level).update(prefix=sh["prefix"], letter=sh["tok"], attrs=sh["attrs"], bodyChar=sh["body"])  # 새 줄(Enter)도 확정 서식으로
+    freeze(ov, tid, level, sh)  # 새 줄(Enter)도 확정 서식으로
     for p in ids:
-        conform(doc, ov, p, sh, m, left)
+        conform(doc, ov, p, sh, m, left, keep)
         out.append(p)
     for p in mates:
         if place(doc, ov, p, m):

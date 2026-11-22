@@ -747,6 +747,45 @@ def _record(T, F, tv, fv, m, rec, mk, orig, new=False, seq=0, notes=None, outer=
     return writes, clears, marks_, example, text_
 
 
+def _items_in(tv, rec):
+    """LLM 이 목적 표의 **여러 항목을 한 항목으로** 이은 답 → 항목마다 나눈 답들 | None(한 항목 · 목적과 원본의 행 수가 달라 행 짝을 못 가름).
+    항목 = 그 행의 이름 칸 묶음(_extent — 「중앙행정기관명」 2행 · 「전문기관명」 1행 · 「기술 분류」 2행). 행 짝은 답의 차례대로(to[k] ↔ from[k])."""
+    to, fr = list(rec.get("to") or ()), list(rec.get("from") or ())
+    if len(to) < 2 or len(to) != len(fr):
+        return None
+    parts = []
+    for t, f in zip(to, fr):
+        key = tuple(_extent(tv, [t]))
+        if parts and parts[-1][0] == key:
+            parts[-1][1].append(t)
+            parts[-1][2].append(f)
+        else:
+            parts.append((key, [t], [f]))
+    return [{**rec, "to": a, "from": b} for _, a, b in parts] if len(parts) > 1 else None
+
+
+def _record_parts(T, F, tv, fv, m, rec, mk, orig, outer):
+    """항목 하나 → [(항목, _record 의 답, 이은 이름들)]. 답이 통째로 안 들어가고(까닭 글) 그 답이 목적 표의 여러 항목을 묶은 것이면 **항목마다 나눠 다시 본다** —
+    칸 하나가 안 맞은 항목만 건너뛰고 나머지 항목은 넣는다(2026-11-22 실제 이관: Opus 5.5 가 표지의 2~9행을 한 항목으로 답해, 3행의 칸 하나 때문에
+    기술분류 두 행(8·9행 — 예시 「1순위 소분류 명칭」)까지 빠졌다. 행마다 답한 Fable 5.2 때는 들어갔다 — 모델에 따라 결과가 갈리지 않게).
+    나눈 항목끼리 같은 목적 칸에 다른 원본 칸을 쓰면 나누지 않은 까닭 그대로 둔다(한 항목을 반씩 넣지 않는다)."""
+    note = []
+    got = _record(T, F, tv, fv, m, rec, mk, orig, notes=note, outer=outer)
+    parts = _items_in(tv, rec) if isinstance(got, str) else None
+    if not parts:
+        return [(rec, got, note)]
+    out = []
+    for sub in parts:
+        n = []
+        out.append((sub, _record(T, F, tv, fv, m, sub, mk, orig, notes=n, outer=outer), n))
+    seen = {}
+    for _, g, _ in out:
+        for w in g[0] if not isinstance(g, str) else ():
+            if seen.setdefault(w["cell"]["id"], w["from"]) != w["from"]:
+                return [(rec, got, note)]
+    return out
+
+
 def _mark_ops(tv, rows, marks_, mk, others, example):
     """그 항목의 표시 → [{to, edge, line}] — 고른 표시는 있음·없음을 모두 맞추고, 예시 항목이면 다른 표시(개발실적)는 지운다. 지금 선이 기대와 같으면 일 없음."""
     out = []
@@ -804,9 +843,13 @@ def plan(T, F, maps, orig=None):
         mk = next((x for x in ms if x["name"] == m.get("mark")), None)
         others = [x for x in ms if x is not mk]
         n0 = len(out["skipped"])
-        said = [[] for _ in m.get("records") or ()]   # 항목마다 — 이름이 닿는 다른 이름과 이은 것(_related)
         outer = defaultdict(list)                       # 여러 항목에 걸친 자리표시 머리 칸 id → [(목적 칸, 원본 칸)]
-        recs = [(rec, _record(T, F, tv, fv, m, rec, mk, orig, notes=said[i], outer=outer)) for i, rec in enumerate(m.get("records") or ())]
+        recs, said, nos = [], [], []                    # (항목, _record 의 답) · 항목마다 이름이 닿는 다른 이름과 이은 것(_related) · LLM 답의 몇째 항목인가
+        for i, rec in enumerate(m.get("records") or ()):
+            for sub, got, note in _record_parts(T, F, tv, fv, m, rec, mk, orig, outer):
+                recs.append((sub, got))
+                said.append(note)
+                nos.append(i)
         if bad := next(((rec, got) for rec, got in recs if rec.get("example") and isinstance(got, str) and not _keyed(tv, fv, rec)), None):
             # LLM 이 서식 예시라고 본 항목을 바꿀 수 없다(등록된 빈 양식으로 올린 문서가 아니거나 사람이 그 행을 고쳤다) — 예시 행을 둔 채 뒤 항목만 넣으면 차례가 어긋난 표가 된다: 표 전체를 안 넣는다.
             # 이름으로 짝지어진 항목(_keyed — 표지처럼 행마다 서식의 이름이 박힌 표)은 차례로 선 것이 아니라 그 항목만 건너뛴다(아래의 항목별 까닭으로 — 2026-11-22: 표지 표가 한 행 때문에 통째로 빠졌다)
@@ -814,14 +857,15 @@ def plan(T, F, maps, orig=None):
             out["skipped"].append({"table": tid, "why": "example", "detail": f"{bad[0]['to'][0] + 1}행의 예시 항목을 바꿀 수 없어 표 전체를 넣지 않음 — {bad[1]}"
                                    + ("" if orig else " (목적 문서로 올린 원본이 등록된 빈 양식이 아니라 예시인지 확인할 수 없음)")})
             continue
-        for i, (rec, got) in enumerate(recs):
+        for k, (rec, got) in enumerate(recs):
+            i = nos[k]
             if isinstance(got, str):
                 why = "name" if got.startswith(("이름", "순번")) else "org" if got.startswith("기관") else "shape" if got.startswith("목적 칸 하나") else "occupied"
                 out["skipped"].append({"table": tid, "record": i, "why": why, "detail": f"{rec['to'][0] + 1}행 항목 — {got}"})
                 continue
             writes, clears, marks_, example, ext = got
             lines = _mark_ops(tv, ext, marks_, mk, others, example)
-            out["notes"] += [{"table": tid, "record": i, "why": "renamed", "detail": f"{rec['to'][0] + 1}행 항목 — 이름이 다른 항목을 같은 항목으로 이음({x}) · 이름은 서식 것 그대로"} for x in dict.fromkeys(said[i])]
+            out["notes"] += [{"table": tid, "record": i, "why": "renamed", "detail": f"{rec['to'][0] + 1}행 항목 — 이름이 다른 항목을 같은 항목으로 이음({x}) · 이름은 서식 것 그대로"} for x in dict.fromkeys(said[k])]
             row["records"] += 1
             out["cells"] += [{"to": w["to"], "from": w["from"], "text": w["text"], "table": tid, "mode": w["mode"], "was": w["was"]} for w in writes]
             out["clears"] += [{"to": x["id"], "was": x["text"], "table": tid} for x in clears]

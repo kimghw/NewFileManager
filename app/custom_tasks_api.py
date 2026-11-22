@@ -139,12 +139,13 @@ def units():
 
 def gather_units():
     """취합형(N → 1)의 고를 줄 — 등록부 「사업계획서 취합」 의 줄 차례(custom_tasks.GATHER_UNITS) + 「사람이 하는 일」 → (줄들, 묶음들 [{id, name}]).
-    줄의 home = 붙박이 취합에서 그 줄이 사는 묶음(gather_config · gather_frame · gather_map — 화면의 고르기 목록이 그 이름으로 묶는다) · each = 기관 문서마다 도는 줄(한 묶음에 잇달아 놓는다)."""
+    줄의 home = 붙박이 취합에서 그 줄이 사는 묶음(gather_config · gather_frame · gather_map — 화면의 고르기 목록이 그 이름으로 묶는다 · 붙박이 차례에 없는 조립 도구는 gather_clean 「문서 정리」) · each = 기관 문서마다 도는 줄(한 묶음에 잇달아 놓는다)."""
     from app import workflow
     from app import workflow_state as WS
     from app import workflow_units as WU
     names, base = custom_tasks.unit_names("gather"), workflow.BY_JOB["plan_merge"]
     home = {s["key"]: f"gather_{g['id']}" for g in base["stages"] for s in g["steps"]}
+    home.update({s["key"]: "gather_clean" for s in workflow.gather_tools()})   # 붙박이 차례에 없는 조립 도구 — 고르기 묶음 「문서 정리」(이관형의 「문서 정리」 와 같은 이름)
     out = []
     for k in custom_tasks.GATHER_UNITS:
         u = WU.unit(k, "gather")
@@ -157,7 +158,7 @@ def gather_units():
     h = WU.COMMON["hand"]
     out.append({"key": "hand", "family": "common", "home": "hand", "name": names["hand"], "place": h["place"], "roles": list(h["roles"]), "kind": h["kind"], "change": h["change"], "paid": h["paid"],
                 "needs": [], "gives": [], "optional": h["optional"], "server": h["server"], "each": False, "help": unit_help.of("gather", "hand"), "only": None, "uses": []})
-    homes = [{"id": f"gather_{g['id']}", "name": " ".join(x for x in WS.stage_label(g) if x)} for g in base["stages"]] + [{"id": "hand", "name": "사람이 하는 일"}]
+    homes = [{"id": f"gather_{g['id']}", "name": " ".join(x for x in WS.stage_label(g) if x)} for g in base["stages"]] + [{"id": "gather_clean", "name": "문서 정리"}, {"id": "hand", "name": "사람이 하는 일"}]
     return out, homes
 
 

@@ -28,7 +28,7 @@ const HD_HELP = "대시보드에서 워크플로우의 단계와 진행 상황�
   + "실행을 눌러도 이 화면에 머뭅니다 — 단계마다의 확인 · 보정 단추는 문서가 열려 있어야 해서, 편 카드의 「문서 화면에서 열기」 나 「대시보드 자세히 보기」 로 문서 화면에서 합니다.\n"
   + "왼쪽 문서 목록과 문서 칸은 같은 문서를 가리킵니다 — 시작한 작업을 보이는 동안 왼쪽에는 그 작업의 문서가 보이고, 새 문서를 놓으면 문서 칸이 그 문서로 바뀌어 시작 전으로 돌아갑니다(하던 작업은 그대로 — 놓은 목록을 비우면 다시 보입니다).\n"
   + "「워크플로우 시작」 은 왼쪽 문서 목록으로 문서를 준비합니다(올리기 · 프로젝트로 묶기 · 기본 분석) — 실행은 그 뒤 묶음의 「한 번에 진행」 을 누를 때만 하고, 누르면 확인 창 없이 바로 합니다(유료 LLM · 문서가 바뀌는 묶음은 단추의 풍선 도움말에 적습니다).\n"
-  + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 하고, 머리 아래 「이어서 한 번에」 는 남은 묶음을 차례로 잇습니다(사람이 봐야 할 곳에서는 멈추거나 남깁니다).\n"
+  + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 하고, 머리 아래 「이어서 한 번에」 는 남은 묶음을 차례로 잇습니다(사람이 봐야 할 곳에서는 멈추거나 남깁니다). 끝나면(멈춤이 아니면) 바뀐 문서의 고친 문단을 확정합니다.\n"
   + "「문서 화면에서 진행합니다」 라고 적힌 묶음은 아직 서버가 맡지 않은 묶음입니다 — 그 묶음의 「한 번에 진행」 은 문서 화면을 열고 그 화면의 대시보드에서 진행합니다(취합의 「워크플로우 시작」 도 문서 화면을 엽니다).\n"
   + "꼬리표 아이콘 — 사람(파랑) · 스크립트(</>) · LLM(보라 반짝임) · 문서 바뀜(주황 문서+연필) — 마우스를 올리면 이름이 보입니다. 「필수」 는 해야 다음으로 가는 단계, 점선 단계(「선택」)는 안 해도 되는 단계, 「준비 중」 은 아직 없는 단계입니다.";
 // 그리기 문맥 — 패널 대시보드와 같은 그리기(dashboard.js dashGroupsEl · dashNodeEl · dashDetailEl · dashMemoEl)를 이 보기의 초점 이름 · 펴고 접기로 쓴다.
@@ -539,7 +539,7 @@ function hdRunBtn(g, primary, active) { // 묶음의 「한 번에 진행」 —
   const sv = g.sv, sending = HD.busy === `run:${g.id}`;
   const why = !sv.can ? sv.why || "지금은 진행할 수 없습니다" : active ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : HD.busy ? "요청을 보내는 중입니다" : "";
   const tip = why || [`${g.no} 「${g.name}」 의 남은 단계를 차례로 한 번에 진행합니다 — 눌러도 이 화면에 머뭅니다(서버에서 진행 · 창을 닫아도 이어집니다). 사람이 봐야 할 곳에서는 멈추거나 남깁니다.`,
-    g.does ? `하는 일 — ${g.does}` : "", (sv.paid || []).length ? `유료 LLM — 문서 ${sv.paid.length}개` : "", sv.change ? "문서가 바뀝니다" : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n");
+    g.does ? `하는 일 — ${g.does}` : "", (sv.paid || []).length ? `유료 LLM — 문서 ${sv.paid.length}개` : "", sv.change ? "문서가 바뀝니다 — 끝나면 고친 문단을 확정합니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원)" : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n"); // 끝 확정(spec_워크플로우 ② §18-24)
   const b = hBtn(sending ? "시작하는 중…" : "한 번에 진행", () => hdRun(g.id), { cls: "btn sm" + (primary && !why ? " primary" : ""), disabled: !!why, title: tip });
   b.dataset.hdFocus = `run:${g.id}`;
   return b;
@@ -587,7 +587,7 @@ function hdChainEl(job, groups, active) {
   const paid = new Set(span.flatMap((g) => g.sv.paid || [])).size, box = el("div", "dash-top");
   const b = hBtn(`이어서 한 번에 ${a.no.replace(/단계$/, "")}→${z.no}`, () => hdRun(a.id, z.id), { cls: "btn sm", disabled: !!why,
     title: why || [`${rest.map((g) => `${g.no} 「${g.name}」`).join(" → ")} 을 이어서 한 번에 — 눌러도 이 화면에 머뭅니다(서버에서 진행 · 창을 닫아도 이어집니다). 실패하거나 사람 손이 필요한 곳에서 전체가 멈춥니다.`,
-      paid ? `유료 LLM — 문서 ${paid}개` : "", span.some((g) => g.sv.change) ? "문서가 바뀝니다" : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n") });
+      paid ? `유료 LLM — 문서 ${paid}개` : "", span.some((g) => g.sv.change) ? "문서가 바뀝니다 — 끝나면 고친 문단을 한 번 확정합니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원)" : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n") }); // 끝 확정(spec_워크플로우 ② §18-24)
   b.dataset.hdFocus = "run:chain";
   box.append(b);
   if (cant && !active) box.append(el("span", "dash-top-why", cant));

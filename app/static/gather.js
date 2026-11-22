@@ -1062,30 +1062,51 @@ function gatherFillList(pid, keep = false) { // 2열 「넣기 계획」(kind "g
   foot.append(hBtn("닫기", () => headsColClose()));
 }
 
+// ---- 화면의 셈(gatherSteps)에 없는 조립 도구의 줄 — 서버만 아는 줄(dashboard.js DASH_GATHER_SERVER: 「넣은 뒤 템플릿 · 서식 정리」 retidy — spec_병합 ② §5-9 9). 취합형으로 조립한 것만(붙박이 취합의 차례에는 없다).
+// 그 줄이 화면의 묶음과 같은 정의 묶음에 남았으면 그 묶음은 끝나지 않았다 — 「한 번에 진행」 · 간단 모드(이어서) · 에이전트가 화면의 줄만 보고 「남은 단계가 없습니다」 로 끝내지 않는다(검토에서 찾음 2026-11-22)
+async function gatherServerView(plan) { // → 서버가 센 상태(GET …/flow — 대시보드와 같은 값) | null(조립한 취합이 아님 · 그 줄이 정의에 없음 · 못 읽음)
+  const c = TASK_CATALOG[(state.task && state.task.job) || ""] || {};
+  if (!c.custom || !plan || typeof flowGet !== "function" || typeof DASH_GATHER_SERVER === "undefined" || !Object.keys(c.unitAt || {}).some((u) => DASH_GATHER_SERVER.has(u))) return null;
+  try { return await flowGet(plan.id); } catch { return null; }
+}
+function gatherServerRest(stageId, V) { // 화면의 묶음 → {gid 정의 묶음, steps[그 묶음의 서버만 아는 줄 — 서버 상태의 줄 그대로], left[그 가운데 안 끝난 줄]} | null
+  // 정의 묶음 = 대시보드의 묶음 단추와 같은 묶음(task_catalog.js gatherDefStage). 화면의 묶음 여럿이 한 정의 묶음에 들면 마지막 화면 묶음의 몫이다(그 줄은 내용 반영 뒤 — 앞 화면 묶음의 실행이 그 묶음의 옵션 없이 뒤 줄까지 돌지 않게)
+  const job = (state.task && state.task.job) || "", gid = V ? gatherDefStage(stageId, job) : "";
+  if (!gid || GT_STAGES.filter((x) => gatherDefStage(x.id, job) === gid).pop().id !== stageId) return null;
+  const row = (V.stages || []).find((g) => g.id === gid), steps = row ? (row.steps || []).filter((s) => DASH_GATHER_SERVER.has(s.key)) : [];
+  return steps.length ? { gid, steps, left: steps.filter((s) => !s.done) } : null;
+}
+
 // ---- 한 번에 진행(spec_취합 ② §4-4 · §5 — 이관의 taskRunAll 과 같은 약속: 확인 창 없이(2026-11-18), 사람 손이 필요한 곳·실패에서 멈춤, 멈추면 세부 목록을 편다)
 async function gatherRunAll(stageId) {
   if (gatherRun) return;
-  const stage = GT_STAGES.find((x) => x.id === stageId), plan = gatherPlan(), V = gt().view;
+  const stage = GT_STAGES.find((x) => x.id === stageId), plan = gatherPlan();
   if (!stage || !plan) { toast("사업계획서(취합본)를 먼저 고르세요", true); return; }
-  const S = gatherCalc(), left = S.filter((s) => s.stage === stageId && !s.done && s.step !== "files");
-  if (!left.length) { toast("남은 단계가 없습니다"); return; }
-  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 묶음마다 할 일 · 기관 문서 차례를 적은 확인 창: design.md §18 「확인 창」) — 사람 손이 필요한 곳 · 실패에서 멈추는 것은 그대로
-  await gatherRunStage(stage.id, plan);
+  // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 묶음마다 할 일 · 기관 문서 차례를 적은 확인 창: design.md §18 「확인 창」) — 사람 손이 필요한 곳 · 실패에서 멈추는 것은 그대로.
+  // 남은 일은 gatherRunStage 가 센다(화면의 줄 + 같은 정의 묶음에 남은 서버만 아는 줄 — gatherServerRest)
+  const r = await gatherRunStage(stage.id, plan);
+  if (r && r.none) toast("남은 단계가 없습니다");
 }
 // 묶음 하나를 확인 없이 끝까지(「한 번에 진행」 의 몸통 — 간단 모드 gather_quick.js 도 부른다: spec_취합 ② §8-2) → {ok, text, none?}. 남은 단계가 없으면 돌지 않는다(none).
 // opt: config — (값이 없으면 늘 문서에서 읽음) / frame — quick(구조 맞춤에 지움이 있으면 멈춤) / map — auto(Set: 미지정이면 자동 지정할 기관 문서) · llm(false = LLM 검토 안 함) · log({기관 문서 id: 결과}) / quiet(끝 알림 없음)
 async function gatherRunStage(stageId, plan, opt = {}) {
   const stage = GT_STAGES.find((x) => x.id === stageId);
   if (gatherRun || gatherRunStarting) return { ok: false, text: "다른 묶음이 진행 중입니다" };
-  const left = gatherCalc().filter((s) => s.stage === stageId && !s.done && s.step !== "files");
-  if (!stage || !plan || !left.length) return { ok: true, text: "남은 단계가 없습니다", none: true };
+  const left = gatherCalc().filter((s) => s.stage === stageId && !s.done && s.step !== "files"), none = { ok: true, text: "남은 단계가 없습니다", none: true };
+  if (!stage || !plan) return none;
   // 서버 쪽 실행기가 이 묶음을 맡으면 서버가 돈다(workflow_exec.js gatherRunServer — 창을 닫거나 다른 문서를 열어도 끝까지: spec_워크플로우 ② §18-13 갈래 「라」) — 맡지 않으면(null · 옛 서버 · 끄는 스위치) 아래 화면 실행 그대로
   if (typeof gatherRunServer === "function") {
-    gatherRunStarting = true; // 시작 요청을 기다리는 동안 겹쳐 누르지 못하게
+    gatherRunStarting = true; // 시작 요청(과 서버 상태 읽기)을 기다리는 동안 겹쳐 누르지 못하게
     let via = null;
-    try { via = await gatherRunServer(stage, plan, opt, left[0].key); } finally { gatherRunStarting = false; }
+    try {
+      // 화면의 줄이 다 끝나도 같은 정의 묶음에 서버만 아는 줄(넣은 뒤 정리)이 남았으면 그 정의 묶음째 서버로 돈다 — 끝난 줄 · 넣을 것이 없는 기관 문서는 서버가 건너뛰고,
+      // 묶음째 실행이라 끝나면 고친 문단을 확정한다(그 줄 하나 only 로 돌면 끝 확정이 없다: spec_병합 ② §5-9 9 ⓒ · spec_워크플로우 ② §18-24) · 멈춘 정리도 「간단 모드 이어서」 가 다시 한다
+      const R = left.length ? null : gatherServerRest(stageId, await gatherServerView(plan)), rest = R && R.left.length ? R : null;
+      if (left.length || rest) via = await gatherRunServer(stage, plan, rest ? { ...opt, from: rest.gid } : opt, rest ? rest.left[0].key : left[0].key);
+    } finally { gatherRunStarting = false; }
     if (via) return via;
   }
+  if (!left.length) return none; // 화면 실행은 서버만 아는 줄을 모른다
   const run = (gatherRun = { stage: stage.id, plan: plan.id, key: left[0].key, note: "", t0: Date.now(), stop: false });
   gatherRunLast = null;
   if (typeof projectControlsSync === "function") projectControlsSync(); // 도는 동안 프로젝트 칸·라운드·구분 기준 버전 줄을 끈다(spec_작업 ② §19)

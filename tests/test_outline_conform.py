@@ -160,7 +160,8 @@ def test_apply_all_places_every_template_even_without_plans(sess):
     for pid in j["placed"]:
         lead, tok, gap, plen, text = M.parts(s.doc, s.outline, pid)
         at = m.place(pid, tok)
-        assert " " not in gap and (at is None or at["prefixMm"] > OP.MAX_PREFIX_MM or abs(at["line2Mm"] - at["textMm"]) < 0.02), (pid, text[:12])
+        assert " " not in gap and (at is None or at["prefixMm"] > OP.MAX_PREFIX_MM or abs(at["line2Mm"] - at["textMm"]) < 0.02
+                                   or (OP.free(s.doc, s.outline, pid) and abs(at["firstMm"]) < 0.02)), (pid, text[:12])   # 가운데 · 오른쪽 정렬 줄은 묶음 빈칸만(기본 자리 규칙 없음)
     groups1 = {(t, lv): len(v["groups"]) for t, lvs in c.get(f"/api/docs/{d}/outline/formats").json()["slots"].items() for lv, v in lvs.items()}
     assert set(groups1) == set(groups0) and all(groups1[k] <= groups0[k] for k in groups0)        # 확정 서식을 걸어도 갈래가 늘지 않는다(규칙이 같으면 같은 서식)
     # 「2번째 줄」 은 값이 아니라 규칙으로 견준다: 둘째 줄이 제 글 시작에 있으면 「글 시작」 — 번호 폭 · 줄 맞춤 자간으로 mm 값이 달라도 같은 서식
@@ -390,3 +391,141 @@ def test_same_plan_gives_the_same_rep_whether_or_not_another_level_has_pending_l
     assert plain == extra                                                                                        # L3 맞추기 하나를 더해도 L2 의 결과는 같다
     assert plain["frozenIsRep"] and plain["lines"][q] == (True, True) and plain["lines"][p] == (True, True) and plain["pending"] == []
     assert plain["level"] == {"level": 2, "rep": q, "repChanged": True, "changed": 0} and plain["new"] == a      # 답의 대표 = 실제로 대표가 된 줄(떠난 줄이 아니다)
+
+
+# ---------------------------------------------------------------- 넣은 뒤 정리(spec_병합 ② §5-9)의 한글 출력에서 나온 것(2026-11-22)
+def _mini(*pids, pos=None, level=5, letter="-"):
+    """T1 L5 「-」 줄들(PLAN 의 p5209 「    - 」 · p6502 「   - 」 — 본문 없음) · T1 L4 「o」(p6501 · p6504 — 본문 굵게)만 든 작은 개요 오버레이 — 첫 줄이 대표."""
+    sl = {"letter": letter, "key": letter, "rep": pids[0], **({"pos": pos} if pos else {})}
+    return {"lines": {p: {"tpl": "1", "no": 1, "level": level, "letter": letter, "key": letter, "role": "heading"} for p in pids},
+            "templates": {"1": {"no": 1, "slots": {str(level): sl}}}}
+
+
+def _bold_body(doc, ov, pid, bold=True):
+    """원본의 굵은 소제목처럼 — 본문 런만 굵게(또는 보통) · 레터 런은 그대로."""
+    lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+    doc.format_chars(pid, plen, len(text), {"bold": bold})
+
+
+def test_settle_keep_holds_each_lines_own_body_emphasis():
+    """넣는 쪽의 서식을 받는 레벨(merge_retidy.KEEP): 문단 · 접두 · 레터 런 · 본문의 다른 글자 값은 대표를 따르고 본문 강조만 그 줄의 것 — keep 이 없으면 전처럼 대표의 것."""
+    got = {}
+    for keep in (M.EMPH, None):
+        doc = HwpxDoc(PLAN.read_bytes())
+        doc.blocks()
+        rep, pid = "p6501", "p6504"                                                               # T1 L4 「  o 보안관리체계 …」 · 「  o 참여연구자 …」(본문 굵게)
+        ov = _mini(rep, pid, level=4, letter="o")
+        _bold_body(doc, ov, pid, not M.look(doc, ov, rep)["bold"])                               # 대표와 본문 굵기가 다른 줄
+        assert M.look(doc, ov, pid)["bold"] is not M.look(doc, ov, rep)["bold"] and M.look(doc, ov, pid)["L.bold"] is M.look(doc, ov, rep)["L.bold"]
+        n0 = len(doc._defs["charPr"])
+        OC.settle(doc, ov, "1", 4, [pid], OP.Measure(doc), [], keep)
+        got[keep is not None] = [k for k, *_ in M.diff(M.look(doc, ov, rep), M.look(doc, ov, pid))]
+        if keep:
+            body = M._cid_at(doc, doc._ids[pid], M.parts(doc, ov, pid)[3])
+            assert M.keep_emph(doc, M.rep_shape(doc, ov, rep)["body"], body) == body                # 같은 정의를 다시 쓴다(header 에 또 만들지 않음)
+            assert M.keep_emph(doc, body, body) == body and len(doc._defs["charPr"]) <= n0 + 1
+    assert got == {True: ["bold"], False: []}                                                # 강조만 다르다 · keep 없이는 대표와 같다(굵기를 잃음 — 전의 동작)
+
+
+def test_center_aligned_line_gets_no_default_hanging_but_a_person_set_rule_applies():
+    """가운데 · 오른쪽 정렬 줄은 기본 자리 규칙(둘째 줄 = 글 시작)을 안 건다 — 좁은 가운데 칸의 「① 항만 접근」 에 내어쓰기가 들어가 한 줄에 2~3자만 남았다. 사람이 정한 규칙은 건다."""
+    def first_of(doc, pid):
+        p = doc._ids[pid]
+        return doc._summary(p.get("paraPrIDRef"), doc._char_id(p))["firstLineMm"]
+    for align, pos, hang in (("center", None, False), ("right", None, False), ("left", None, True), ("center", {"line2": "text", "set": True}, True)):
+        doc = HwpxDoc(PLAN.read_bytes())
+        doc.blocks()
+        ov = _mini("p5209", "p6502", pos=pos)
+        doc.format_para(["p6502"], {"align": align, "indentLeftMm": 0, "firstLineMm": 0})
+        m = OP.Measure(doc)
+        assert OC.needs(doc, ov, "p6502", m) is True                                          # 레터 뒤 빈칸은 묶음 빈칸으로(정렬과 무관)
+        OC.place(doc, ov, "p6502", m)
+        assert (first_of(doc, "p6502") < -0.5) is hang, (align, pos)
+        assert M.parts(doc, ov, "p6502")[2] == NB and OC.needs(doc, ov, "p6502", m) is False   # 두 번째는 할 것 없음
+
+
+def _margins(doc, pid):
+    """(왼쪽 여백, 첫 줄) mm."""
+    p = doc._ids[pid]
+    s = doc._summary(p.get("paraPrIDRef"), doc._char_id(p))
+    return s["indentLeftMm"], s["firstLineMm"]
+
+
+def _numbered_old_hang(align):
+    """T1 L4 번호형 레벨(PLAN 의 p6501 「  1.」 대표 · p6504 「  10.」 — 레터 뒤 묶음 빈칸) · 둘 다 align · 왼쪽 여백 3mm — 대표에만 옛 확정 서식이 넣은 내어쓰기(대표의 접두 폭),
+    「10.」 은 대표와 다른 서식(문단 뒤 간격). → (doc, ov, 대표, 「10.」)."""
+    doc = HwpxDoc(PLAN.read_bytes())
+    doc.blocks()
+    rep, n = "p6501", "p6504"
+    for pid, tok in ((rep, "1."), (n, "10.")):
+        lead, t, gap = OE.prefix_of(doc._text(doc._ids[pid]), "o")
+        doc.replace_prefix(pid, len(lead + t + gap), "  " + tok + NB)
+    ov = {"lines": {p: {"tpl": "1", "no": 1, "level": 4, "letter": tok, "key": "N.", "role": "heading"} for p, tok in ((rep, "1."), (n, "10."))},
+          "templates": {"1": {"no": 1, "slots": {"4": {"letter": "1.", "key": "N.", "rep": rep}}}}}
+    doc.format_para([rep, n], {"align": align, "indentLeftMm": 3, "firstLineMm": 0})
+    at = OP.Measure(doc).place(rep, "1.")
+    doc.format_para([rep], {"indentLeftMm": round(at["x0"], 2), "firstLineMm": round(-at["prefixMm"], 2)})   # 옛 확정 서식이 대표에 넣은 내어쓰기
+    doc.format_para([n], {"spaceAfterPt": 7})                                                                 # 대표와 다른 서식의 「10.」 줄
+    return doc, ov, rep, n
+
+
+@pytest.mark.parametrize("align", ["center", "right", "justify"])
+@pytest.mark.parametrize("way", ["level", "plan"])
+def test_center_level_conformed_before_converges_and_loses_the_old_hanging(align, way):
+    """이 변경 전의 확정 서식은 가운데 정렬 대표에도 「둘째 줄 = 글 시작」 내어쓰기(대표의 접두 폭)를 넣었다 — 접두 폭이 다른 줄(「10.」)을 그 대표에 맞추면 그 값을 받아
+    둘째 줄이 제 글 시작이 아니라 끝내 「다른 서식」 으로 남았다(2026-11-22 검토 — 맞추기 · 조정을 거듭해도). 확정 서식은 가운데 · 오른쪽 정렬 줄의 내어쓰기를 없앤다
+    (첫 줄 0 · 왼쪽 여백 그대로 — outline_pos.unhang): 한 번에 모이고 두 번째는 바꿀 것이 없다. 「자리 맞춤」(pending)도 그 내어쓰기를 센다 · 글 고침 길(align)은 그대로.
+    way = level(대표에 맞추기 — settle) · plan(조정 「모두 반영」 — 바꾸기 전의 대표 모양으로 맞춘 뒤 settle_templates + 맞춘 줄에 place). 양쪽 정렬은 전처럼 줄마다 제 접두 폭."""
+    doc, ov, rep, n = _numbered_old_hang(align)
+    m = OP.Measure(doc)
+    hang = align == "justify"
+    assert M.look(doc, ov, rep).get("line2At") == M.AT_TEXT
+    assert OC.pending(doc, ov, {"1"}) == ([] if hang else [rep])                                             # 가운데 · 오른쪽: 남은 내어쓰기를 「자리 맞춤」 이 센다
+    assert OP.align(doc, ov, rep, measure=m) is None and _margins(doc, rep)[1] < -0.5                           # 글 고침 · 새 줄 길은 그대로(문서가 준 값)
+    if way == "level":
+        OC.settle(doc, ov, "1", 4, [n], m)
+    else:
+        M.match_one(doc, ov, n, M.rep_shape(doc, ov, rep))                                                   # 계획의 대표 모양(바꾸기 전) — 내어쓰기째
+        OC.settle_templates(doc, ov, ["1"], m)
+        OC.place(doc, ov, n, m)
+    assert M.same(M.look(doc, ov, rep), M.look(doc, ov, n)), M.diff(M.look(doc, ov, rep), M.look(doc, ov, n))
+    if hang:
+        assert _margins(doc, rep)[1] < -0.5 and _margins(doc, n)[1] < _margins(doc, rep)[1] - 0.5                    # 줄마다 제 접두 폭(「10.」 이 더 넓다)
+    else:
+        assert _margins(doc, rep) == _margins(doc, n) == (pytest.approx(3.0, abs=0.01), 0.0)                      # 내어쓰기 없음 · 첫 줄 자리(왼쪽 여백) 그대로
+        assert OP.Measure(doc).slot_place(ov["templates"]["1"]["slots"]["4"])["firstMm"] == 0.0              # Enter 의 새 줄도 그 꼴
+    m2 = OP.Measure(doc)
+    assert M.match_targets(doc, ov, "1", 4) == [] and OC.pending(doc, ov, {"1"}) == [] and not OC.needs(doc, ov, n, m2)
+    assert OC.settle(doc, ov, "1", 4, (), m2) == []                                                           # 두 번째는 바꿀 것이 없다
+
+
+@pytest.mark.parametrize("align", ["center", "right", "justify"])
+def test_gather_kept_level_follows_the_old_hanging_rep_and_converges(align):
+    """취합의 넣은 뒤 정리 — 취합본의 줄이 있는 레벨(merge_retidy_api._kept_level)은 대표(취합본의 줄)가 ①② 를 갖추지 않았으면 넣은 줄에 대표의 모양만 건다
+    (conform rules=False — `_full` = 대표가 넣은 줄 아님 · needs(대표)). 가운데 · 오른쪽 정렬 대표가 옛 확정 서식의 내어쓰기를 가지면 needs 가 참(unhang)이라 그 길로 오는데,
+    대표의 모양을 그대로 받은 「10.」 은 둘째 줄이 제 글 시작이 아니어서 누를 때마다 다시 「다른 서식」 이었다(2026-11-22 검토). 넣은 줄은 대표의 「글 시작」 꼴을 제 접두 폭으로
+    따르고(outline_conform._follow) 취합본의 대표는 그대로 — 한 번에 모인다. 「자리 맞춤」(settle) 뒤에는 둘 다 내어쓰기 없는 꼴이고 그 뒤의 정리도 모인다. 양쪽 정렬은 전처럼(rules 참)."""
+    doc, ov, rep, n = _numbered_old_hang(align)
+    free = align != "justify"
+    before = (doc._ids[rep].get("paraPrIDRef"), doc._text(doc._ids[rep]))
+
+    def press():   # merge_retidy_api 의 취합본 레벨 가지(대표 = 취합본의 줄 — r["same"] 에 없음)
+        m = OP.Measure(doc)
+        full = not OC.needs(doc, ov, rep, m)
+        was = M.same(M.look(doc, ov, rep), M.look(doc, ov, n))
+        if not was:
+            OC.conform(doc, ov, n, M.rep_shape(doc, ov, rep), m, [], None, rules=full)
+        return full, was
+
+    assert press() == (not free, False)
+    assert M.same(M.look(doc, ov, rep), M.look(doc, ov, n)), M.diff(M.look(doc, ov, rep), M.look(doc, ov, n))
+    assert M.look(doc, ov, n).get("line2At") == M.AT_TEXT                                                     # 「10.」 도 제 글 시작(대표와 같은 규칙)
+    assert _margins(doc, n)[1] < _margins(doc, rep)[1] - 0.5                                                  # 내어쓰기 = 제 접두 폭(대표보다 넓다)
+    if free:
+        assert (doc._ids[rep].get("paraPrIDRef"), doc._text(doc._ids[rep])) == before                        # 취합본의 대표는 안 바뀐다
+    assert press() == (not free, True) and M.match_targets(doc, ov, "1", 4) == []                              # 두 번째는 바꿀 것이 없다
+    if free:   # 「자리 맞춤」 — 대표 · 대표 갈래(이제 「10.」 도)의 옛 내어쓰기를 없앤다 → 그 뒤의 정리는 rules 참으로 모인다
+        assert OC.pending(doc, ov, {"1"}) == [rep, n]
+        OC.settle(doc, ov, "1", 4, (), OP.Measure(doc))
+        assert _margins(doc, rep) == _margins(doc, n) == (pytest.approx(3.0, abs=0.01), 0.0)
+        assert press() == (True, True) and OC.pending(doc, ov, {"1"}) == []

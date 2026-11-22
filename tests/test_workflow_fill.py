@@ -35,6 +35,7 @@ class FillFake(Fake):
         self.plan, self.filled, self.clean, self.n = None, None, 4, 0
         self.stale, self.llm_fail, self.gaps_fail, self.fenced = 0, False, False, []
         self.old, self.gaps_units_fail = False, False   # 목적 문서의 분석이 구조 반영 전 스크립트 결과(안전망) · 빈 자리 검토가 200 인데 모든 장이 실패
+        self.retidied = None   # 넣은 뒤 템플릿 · 서식 정리의 기록(spec_병합 ② §5-9 — 「문서 정리」 의 조립 도구가 정의에 있을 때 부른다)
 
     # 읽기
     def fill_ver(self, doc):
@@ -96,11 +97,29 @@ class FillFake(Fake):
             self.plan = None
             return Outcome("stale", "계획을 세운 뒤 문서가 바뀌었습니다 — 다시 계획하세요")
         if not self.plan["todo"]:
-            self.plan, self.filled = None, {"nothing": True}
+            last = self._real()   # 「넣을 것 0」 은 앞의 실제 반영을 지닌다(merge_api.merge_apply — spec_병합 ② §5-9 10)
+            self.plan, self.filled = None, {"nothing": True, **({"last": last} if last else {})}
             return Outcome("nothing", "넣을 것이 없습니다", {"nothing": True})
         self.rev, self.plan, self.filled, self.todo = self.rev + 1, None, {"nothing": False}, 0
         self.L["kept"]["applied"] = 3
         return Outcome("ok", "", {"body": {"blocks": 3}, "tables": {"filled": 2, "rowsAdded": 1}, "converted": {"converted": 0}})
+
+    def _real(self):
+        """넣은 뒤 정리가 세는 반영 표식 — 실제 반영 · 「넣을 것 0」 이면 그것이 지닌 앞의 실제 반영(merge_retidy_api._filled)."""
+        f = self.filled or {}
+        return f if f and not f.get("nothing") else f.get("last")
+
+    def retidy_facts(self, doc):
+        m = self._real()
+        return {"why": "" if m else "넣은 내용이 없습니다 — 「내용 반영」 뒤에 합니다", "fill": (m or {}).get("at"), "inserted": 3 if m else 0, "applied": copy.deepcopy(self.retidied)}
+
+    def retidy(self, doc):
+        self.calls.append(("retidy", doc))
+        self._fenced()
+        self.rev += 1
+        c = {"levels": 2, "grown": 1, "lines": 5, "fix": 4, "near": 0, "own": 0, "changed": 4, "placed": 1, "reps": 1, "left": 0}
+        self.retidied = {"at": 1.0, "fill": (self._real() or {}).get("at"), "counts": c}
+        return Outcome("ok", "", {"done": {"counts": c, "rows": []}})
 
     def cleanup_count(self, doc):
         return Outcome("ok", "", {"counts": {"total": self.clean, "tables": self.clean}, "patterns": PATTERNS, "rev": self.rev})
@@ -445,7 +464,7 @@ def test_link_reanalyzes_a_source_document_whose_structure_this_definition_chang
 
 # ---- 「문서 정리」 의 조립 도구 둘(spec_워크플로우 ② §18-23 — 2026-11-22 사용자 「… 지침에 따라 LLM 보정해 주는 단계를 4단계 도구에」 · 「… 내용이 없는 … 제거하는 도구도 문서 정리에」)
 def _with_tidy(monkeypatch):
-    """붙박이 이관의 4단계에 조립 도구 둘을 놓은 정의(지침 보정 → 작성요령 삭제 → 빈 구역 지우기 — workflow._st_clean(more=True) 의 줄 그대로)."""
+    """붙박이 이관의 4단계에 조립 도구 셋을 놓은 정의(넣은 뒤 템플릿 · 서식 정리 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기 — workflow._st_clean(more=True) 의 줄 그대로)."""
     from app import workflow
     task = copy.deepcopy(S.definition("plan_to_report"))
     for g in task["stages"]:
@@ -481,15 +500,16 @@ def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(
     fake.zone_prune = prune
     clean = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
     keys = [s["key"] for s in clean["steps"]]
-    assert keys == ["guideFix", "guide", "zonePrune"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
-    assert "「내용 넣기」 이 끝난 뒤" in clean["steps"][0]["text"]
+    assert keys == ["retidy", "guideFix", "guide", "zonePrune"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
+    assert "「내용 넣기」 이 끝난 뒤" in clean["steps"][0]["text"] and "「내용 넣기」 이 끝난 뒤" in clean["steps"][1]["text"]
     X.start("t", {"from": "map", "to": "clean"})
     rec = _done("t")
     assert rec["status"] == "done", rec["end"]
-    order = [c[0] for c in fake.calls if c[0] in ("apply", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune")]
-    assert order == ["apply", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune"]   # 내용 반영 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기
-    assert fake.fenced[-4:] == [False, True, True, True]   # 묻기는 울타리 밖 · 반영 · 지우기는 울타리 안
+    order = [c[0] for c in fake.calls if c[0] in ("apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune")]
+    assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune"]   # 내용 반영 → 넣은 뒤 정리 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기
+    assert fake.fenced[-5:] == [True, False, True, True, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기는 울타리 안
     text = rec["stages"][-1]["text"]
+    assert "넣은 줄 4줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다 · 레벨 2곳(넣는 쪽이 더 길어 늘어난 레벨 1)" in text
     assert "지침 보정 — 고친 문단 2 · 고치지 못한 것 1" in text and "빈 구역 3곳을 지웠습니다(본문 블록 1 · 표 행 2)" in text
     after = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
     assert after["left"] == 0 and next(s for s in after["steps"] if s["key"] == "guideFix")["text"].startswith("지침 보정 — 고친 문단 2")
@@ -510,3 +530,50 @@ def test_tidy_tools_wait_for_the_fill_and_skip_without_llm(fake, monkeypatch):
     rec = _done("t")
     assert rec["status"] == "done", rec["end"]
     assert "지침 보정은 건너뜀(LLM 을 쓸 수 없음)" in json.dumps(rec, ensure_ascii=False) and not any(c[0] == "guideFixAsk" for c in fake.calls)
+
+
+def test_retidy_stays_done_after_a_nothing_refill_and_runs_again_once_its_record_is_dropped(fake, monkeypatch):
+    """다 넣은 문서를 다시 반영(넣을 것 0)해도 넣은 뒤 정리는 「끝남」 그대로 — 넣은 내용이 없다고 「건너뜀」 이 되지 않는다(앞의 실제 반영으로 센다) ·
+    문서가 정리 전 상태로 돌아가 정리 기록이 내려가면(복원 · 실행 취소 — merge_retidy_api._on_bump) 줄이 다시 「할 차례」 이고 다시 돈다(spec_병합 ② §5-9 10)."""
+    _with_tidy(monkeypatch)
+    fake.guide_fix_facts = lambda doc: {"guides": {"total": 0}, "saved": False, "plan": None, "applied": None, "fill": None, "why": ""}
+    fake.zone_prune_count = lambda doc: Outcome("ok", "", {"rev": fake.rev, "counts": {"items": 0}, "kept": 0, "reasons": [], "why": ""})
+    X.start("t", {"from": "map", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    tidies = lambda: [c[0] for c in fake.calls].count("retidy")  # noqa: E731
+    line = lambda: next(s for s in {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]["steps"] if s["key"] == "retidy")  # noqa: E731
+    assert tidies() == 1 and line()["st"] == "done" and not line().get("skipped")
+    fake.todo = 0   # 사람이 「내용 반영」 을 다시 — 넣을 것 0
+    fake.fill_plan("t")
+    assert fake.fill_apply("t", fake.plan["planId"]).code == "nothing"
+    assert fake.filled == {"nothing": True, "last": {"nothing": False}}
+    st = line()
+    assert st["st"] == "done" and not st.get("skipped") and "넣은 줄 4줄" in st["text"], st   # 전에는 「넣은 내용이 없습니다」 · 건너뜀
+    with pytest.raises(X.Refuse, match="남은 단계가 없습니다"):   # 할 것 없음
+        X.start("t", {"from": "clean", "to": "clean"})
+    assert tidies() == 1
+    fake.retidied = None   # 정리 전 확정으로 복원 — 기록이 내려감
+    assert line()["st"] != "done"
+    X.start("t", {"from": "clean", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] == "done" and tidies() == 2 and line()["st"] == "done", rec["end"]
+
+
+def test_a_chain_run_commits_the_target_once_after_the_clean_stage(fake, monkeypatch):
+    """「이어서 한 번에」(3 → 4단계) — 끝에 한 번만 목적 문서를 확정한다(내용 반영과 작성요령 삭제 사이에는 없다 · 그 실행의 울타리 안) · 확정은 묶음의 끝남 셈을 바꾸지 않는다
+    (spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」)."""
+    from test_workflow_exec import CommitDoor
+
+    class CommitFill(CommitDoor, FillFake):
+        pass
+    f = CommitFill()
+    monkeypatch.setattr(X, "UNIT", f)
+    X.start("t", {"from": "map", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert _calls(f) == ["linksLlm", "plan", "gaps", "plan", "maps", "plan", "apply", "cleanup", "commit"] and [c["doc"] for c in f.commits] == ["t"] and f.commits[0]["fenced"]
+    assert f.commits[0]["message"] == f"워크플로우 실행 {rec['n']} — 3단계 「내용 넣기」 → 4단계 「문서 정리」 이어서 한 번에"
+    assert rec["end"]["text"].endswith(" · 확정 1(연차보고서 — 고친 문단 12 · 앞 상태 = 올린 원본)") and len(rec["end"]["text"]) <= X.TEXT_MAX
+    after = {g["id"]: g for g in X.status_of("t")["stages"]}
+    assert after["map"]["left"] == 0 and after["clean"]["left"] == 0

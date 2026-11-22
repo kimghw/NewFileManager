@@ -1034,6 +1034,22 @@ def merge_plan(doc_id: str):
     return _plan_view(plan)
 
 
+def owpml_from(s):
+    """이 목적 문서에 「내용 반영」 으로 내용을 넣은 원본 문서의 기준선 스키마 위반 종류(server._heal — import_check 가 생기기 전에 넣은 작업의 받아들임: spec_병합 ② §5-10 「가져온 스키마 위반 종류」).
+    넣은 기록(merge.json `applied` · `filled`)이 없으면 []. `filled` 는 「넣을 것 0」(nothing)이어도 센다 — 다시 넣기의 「넣을 것 0」 이 앞 반영의 기록을 덮어도
+    (표 칸 · 표 대응 · 빈 자리 · 통째 복사는 `applied` 에 안 남는다) 그 원본이 넣은 내용은 문서에 남는다(받는 것은 server._heal 이 편집 전 문서에 있는 종류로 좁힌다).
+    원본 = 마지막 반영의 `filled.src.id`(옛 `applied` 만 있는 기록은 지금 짝인 원본 — _mate) — 그 작업으로 **올린 원본 파일**에서 센다(server.import_kinds)."""
+    from app import server
+    rec = _store(s.id)
+    filled = rec.get("filled") if isinstance(rec.get("filled"), dict) else {}
+    if not (rec.get("applied") or filled):
+        return []
+    src = (filled.get("src") if isinstance(filled.get("src"), dict) else {}).get("id") or _mate(s.id, rec)[1]
+    if not isinstance(src, str) or src == s.id or not works.work(src):
+        return []
+    return list(server.import_kinds(src))
+
+
 @router.post("/api/docs/{doc_id}/merge-links/apply")
 def merge_apply(doc_id: str, body: dict = Body(...)):
     """{planId} → 그 계획을 목적 문서에 반영: 구조 편집 트랜잭션 하나(문서 전체 표준 검사 — 걸리면 전부 되돌리고 422 · 실행 취소 1 · rev +1 · 기록 `mergeFill`). 원본 문서는 안 바뀐다.
@@ -1074,7 +1090,11 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         mark = {"at": time.time(), "planId": plan["planId"], "src": {"id": src.id, "rev": src.rev}}   # 반영 표식은 원본 쪽에 묶는다 — 원본을 고치거나 바꾸면 「내용 넣기」 를 끝난 것으로 안 본다
         if not plan["todo"]:
             drop()
-            _store(doc_id, {**_store(doc_id), "filled": {**mark, "rev": s.rev, "nothing": True, "ids": []}})   # 확인된 「넣을 것 0」 — 「문서 정리」 가 기다리는 「내용 넣기」 의 끝(② §18-12 ②)
+            saved = _store(doc_id)
+            was = saved.get("filled") if isinstance(saved.get("filled"), dict) else {}
+            last = was if was.get("at") and not was.get("nothing") else was.get("last")   # 앞의 실제 반영 표식 — 다 넣은 문서를 다시 반영해도 넣은 내용은 문서에 남는다(넣은 뒤 정리가 그것으로 센다: merge_retidy_api._filled · spec_병합 ② §5-9 10)
+            keep = {"last": {k: v for k, v in last.items() if k != "last"}} if isinstance(last, dict) and last.get("at") else {}
+            _store(doc_id, {**saved, "filled": {**mark, "rev": s.rev, "nothing": True, "ids": [], **keep}})   # 확인된 「넣을 것 0」 — 「문서 정리」 가 기다리는 「내용 넣기」 의 끝(② §18-12 ②)
             return {"nothing": True, **s.state()}
         done, conv = {}, Counter()
 
@@ -1099,11 +1119,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
                             "fixed": {k: done["fixed"].get(k) for k in FIXED_KEYS}, "maps": {k: done["maps"].get(k) for k in MAP_KEYS},
                             "gaps": {k: done["gaps"].get(k) for k in ("cells", "lines", "blocks")}, "sched": {k: done["sched"].get(k) for k in MAP_KEYS}, "copies": done["copies"]["copied"], "converted": dict(conv)}}
 
-        def check(s_, out, base, header):
-            """문서 전체 검사 — 단 **스키마 위반의 기준선에 원본 문서의 것을 더한다**: 문서 사이 복사는 원본 문서에 한글이 써 둔 스키마 위반(strikeout shape "3D" · transMatrix 자리 등 — 실제 작성본 6종)을
-            내용과 함께 가져오므로 그 종류는 이 편집 탓이 아니다. 두 문서 어디에도 없던 종류와 규칙 위반(목적 문서 기준 그대로)은 전처럼 되돌린다."""
-            chk = s_.kit["check"]
-            return chk.verdict(s_.doc, {"schema": Counter(base["schema"]) + Counter(server.owpml_base(src)["schema"]), "rules": base["rules"]}, chk.check_doc(s_.doc))
+        check = server.import_check(src)   # 문서 전체 검사 · 기준선에 원본 문서의 것을 더함 — 통과하면 들어온 종류를 작업에 남긴다(그 뒤 편집이 그 종류로 422 가 나지 않게: spec_병합 ② §5-10 「가져온 스키마 위반 종류」)
         out, after = server._transact(s, run, "mergeFill", req={"planId": plan["planId"]}, check=check)
         drop()
         if after is None:

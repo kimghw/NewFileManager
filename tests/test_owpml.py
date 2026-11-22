@@ -82,6 +82,17 @@ def test_check_rejects_broken_xml():
     assert v["status"] == "fail" and v["rules"] and v["rules"][0]["examples"][0]["block"] == "p7"
 
 
+def test_accepted_adds_missing_kinds_once():
+    """받아들인 종류(세션 owpml_ok)를 기준선에 — 없는 종류만 개수 1 로, 더할 것이 없으면 같은 객체(spec_병합 ② §5-10 「가져온 스키마 위반 종류」)."""
+    base = _base(SMALL)
+    have = next(iter(base["schema"]))
+    assert oc.accepted(base, ()) is base and oc.accepted(base, {have}) is base
+    new = ("section", "pic", "inMargin", "", "SCHEMAV_TEST")
+    got = oc.accepted(base, {new, have})
+    assert got is not base and got["schema"][new] == 1 and got["schema"][have] == base["schema"][have] and got["rules"] is base["rules"]
+    assert new not in base["schema"]   # 원본 기준선은 그대로
+
+
 # ---------------------------------------------------------------- 나누기·합치기
 def test_split_and_merge_in_cell():
     d = _doc(SMALL)

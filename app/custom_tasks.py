@@ -114,7 +114,8 @@ KIND_NAMES = {**FILES, "part": "기관 문서"}   # 문서 칸의 종류 이름(
 _kinds = lambda ids: [{"id": k, "name": KIND_NAMES[k]} for k in ids]  # noqa: E731
 # 취합형(N → 1 — 2026-11-20 사용자 「왜 이거 N-1 은 왜 없냐?」: spec_워크플로우 ② §18-13 갈래 「라」 ⓶): 원본 = 기관 문서(여럿) → 목적 = 사업계획서(취합본) 하나. 「연차보고서 취합」 은 근거가 없어 아직(§18-12 ⑥).
 GATHER_PAIRS = (("part", "plan"),)
-GATHER_UNITS = ("config", "division", "frame", "part", "heads", "link", "llm", "plan", "apply", "drop")   # 취합형에 놓을 수 있는 줄 — 이 차례가 곧 놓는 차례(등록부 「사업계획서 취합」 의 줄 차례 · 「기관에 배포 · 회수」 는 앱 밖의 일이라 줄로 놓지 않는다 — 확인이 필요하면 「사람이 하는 일」)
+GATHER_UNITS = ("config", "division", "frame", "part", "heads", "link", "llm", "plan", "apply", "drop", "retidy")   # 취합형에 놓을 수 있는 줄 — 이 차례가 곧 놓는 차례(등록부 「사업계획서 취합」 의 줄 차례 · 「기관에 배포 · 회수」 는 앱 밖의 일이라 줄로 놓지 않는다 — 확인이 필요하면 「사람이 하는 일」)
+# · 끝의 retidy = 「문서 정리」 의 조립 도구 「넣은 뒤 템플릿 · 서식 정리」(붙박이 「사업계획서 취합」 의 차례에는 없다 — 줄의 글은 workflow.gather_tools: spec_병합 ② §5-9 9)
 GATHER_EACH = ("기관 문서마다 도는 줄(반영할 기관 지정 · 헤딩 · 표 분석 · 자리 연결 · LLM 검토 · 넣기 계획 · 내용 반영)은 한 묶음에 잇달아 놓으세요 — "
                "기관 문서 하나를 끝낸 뒤 다음 문서로 갑니다(사이에 다른 줄을 둘 수 없습니다)")
 # 문서 하나(「1」 — 2026-11-20 사용자 「그리고 문서 하나는 왜 안되냐?」 → 답 「조립한 것만 서버로」: spec_워크플로우 ② §18-13 걸음 6): 목적 문서 하나 — **원본이 없다**(저장하는 source = 빈 글 "").
@@ -192,13 +193,14 @@ NEED_UNIT = {"heads": "heads", "config": "config", "fit": "division", "fresh": "
 NEED_SOFT = ("heads", "fresh", "config", "filled")   # 그것을 주는 줄이 앞에 없어도 거절하지 않는 사실(경고 · 실행의 안전망 — check 의 elif 가지들)
 NEED_MUST = (("reheadsLlm", "reheads"),)   # 사실로는 무른(fresh) 대상이지만 따로 거절하는 짝(check 「「다시 문서 검토(LLM)」 은 「다시 문서 검토」 뒤에」)
 GATHER_USES = {"apply": ("plan",), "plan": ("link",), "llm": ("link",)}   # 취합형의 대상(모두 must — _gather_rules 의 「앞 줄 없이 놓은 줄」 과 같은 짝)
+GATHER_SOFT = {"retidy": ("apply",)}   # 취합형의 대상 가운데 must 가 아닌 것(없어도 거절하지 않는다 — _gather_rules 의 경고: 앞서 넣은 내용만 맞춘다)
 
 
 def uses_of(u, family="relay"):
-    """그 줄(단위 u)이 쓰는 앞 줄 → [{unit(그 결과를 만드는 줄의 key), must(그 줄이 앞에 없으면 조립 검사가 거절)}] — 차례 = 단위의 needs 차례. 취합형은 GATHER_USES.
+    """그 줄(단위 u)이 쓰는 앞 줄 → [{unit(그 결과를 만드는 줄의 key), must(그 줄이 앞에 없으면 조립 검사가 거절)}] — 차례 = 단위의 needs 차례. 취합형은 GATHER_USES(must) · GATHER_SOFT(must 아님).
     문서 하나(family single)는 SINGLE_NEED — 모두 must 가 아니다(그 앞 줄이 정의에 없으면 경고일 뿐이다: 시작할 때 이미 되어 있으면 된다 · 정의에 있는데 뒤에 있으면 거절 — _single_rules)."""
     if family == "gather":
-        return [{"unit": k, "must": True} for k in GATHER_USES.get(u["key"], ())]
+        return [{"unit": k, "must": True} for k in GATHER_USES.get(u["key"], ())] + [{"unit": k, "must": False} for k in GATHER_SOFT.get(u["key"], ())]
     if family == "single":
         return [{"unit": SINGLE_NEED[f], "must": False} for f in u["needs"] if f in SINGLE_NEED]
     return [{"unit": NEED_UNIT[f], "must": f not in NEED_SOFT or (u["key"], NEED_UNIT[f]) in NEED_MUST} for f in u["needs"] if f in NEED_UNIT]
@@ -231,6 +233,8 @@ def _base_names(family="relay", kind=""):
         for g in workflow.BY_JOB["plan_merge"]["stages"]:
             for s in g["steps"]:
                 out.setdefault(s["key"], s["name"])
+        for s in workflow.gather_tools():   # 붙박이 차례에 없는 조립 도구(「넣은 뒤 템플릿 · 서식 정리」 — spec_병합 ② §5-9 9)
+            out.setdefault(s["key"], s["name"])
         out["hand"] = "사람이 하는 일"
         return out
     for mid, _name, make, _does in workflow.STAGE_MODULES:
@@ -548,9 +552,10 @@ def check(shape, source, target, raw_flow):
 
 def _gather_rules(seq, names, errors, warns):
     """취합형의 조립 검사(② §18-12 ⑥ · §18-13 갈래 「라」 ⓶) — seq = [(묶음 자리, 줄, 단위)]. 거절: 차례가 거꾸로(프로젝트 구성 추출 → 구성 반영 → 배포 기준본 → 기관 문서마다: 반영할 기관 → 헤딩 · 표 분석 →
-    자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영 → 끌어 넣기) · 기관 문서마다 도는 줄이 한 묶음에 잇달아 있지 않음(원본 문서 하나를 끝내는 범위를 쪼갠 배치) · 앞 줄 없이 놓은 줄(반영 ← 계획 ← 자리 연결).
+    자리 연결 → LLM 검토 → 넣기 계획 → 내용 반영 → 끌어 넣기 · 넣은 뒤 템플릿 · 서식 정리 — 이 둘끼리는 차례 무관) · 기관 문서마다 도는 줄이 한 묶음에 잇달아 있지 않음(원본 문서 하나를 끝내는 범위를 쪼갠 배치) · 앞 줄 없이 놓은 줄(반영 ← 계획 ← 자리 연결).
     경고: 그 줄이 기대는 것을 만드는 줄이 정의에 없음(시작할 때 이미 되어 있어야 하고, 아니면 그 줄에서 멈춘다). 「사람이 하는 일」 은 어디에나 놓는다(기관 문서마다의 덩이 안만 빼고)."""
     order = {k: i for i, k in enumerate(GATHER_UNITS)}
+    order["retidy"] = order["drop"]   # 넣은 뒤 정리 ↔ 끌어 넣기는 어느 쪽이 먼저여도 된다(내용 반영 뒤이기만 — 끌어 넣은 내용은 넣은 기록이 없어 정리 대상이 아니다: spec_병합 ② §5-9 ④ ㉦)
     nm = lambda k: "「" + names.get(k, k) + "」"  # noqa: E731
     last = None
     for _gi, s, u in seq:
@@ -575,6 +580,8 @@ def _gather_rules(seq, names, errors, warns):
         warns.append(f"이 워크플로우에는 {nm('frame')} 가 없습니다 — 배포 기준본이 이미 있어야 하고, 없으면 {nm('link')} 에서 멈춥니다")
     if "link" in has and "part" not in has:
         warns.append(f"이 워크플로우에는 {nm('part')} 줄이 없습니다 — 반영할 기관이 이미 정해진 기관 문서만 넣습니다")
+    if "retidy" in has and "apply" not in has:   # GATHER_SOFT — 거절하지 않는다(앞서 넣은 기록이 있으면 그것을 맞춘다)
+        warns.append(f"이 워크플로우에는 {nm('apply')}{_jo(names.get('apply', ''), '이', '가')} 없습니다 — {nm('retidy')}{_jo(names.get('retidy', ''), '은', '는')} 앞서 넣은 내용만 맞춥니다(넣은 기록이 없으면 건너뜁니다)")
 
 
 def _single_rules(seq, names, errors, warns):

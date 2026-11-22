@@ -375,7 +375,7 @@ def test_the_review_is_a_registered_agent_with_its_guide_and_log(monkeypatch):
     monkeypatch.delenv("NFM_JOBS", raising=False)
     a = AG.BY_ID["zone_review"]
     assert (a["no"], a["group"], a["name"], a["run"], a["contract"], a["parts"]) == ("21", "프로젝트 구성", "편집 구역 검토", "manual", ("app.zones_llm", "CONTRACT"), (("merge", "zones"),))
-    assert AS.agent_of("zones-llm") == "zone_review" and AS.agent_of(ZL.WHAT) == "zone_review" and AG.AGENTS[-1] is a
+    assert AS.agent_of("zones-llm") == "zone_review" and AS.agent_of(ZL.WHAT) == "zone_review" and a in AG.AGENTS   # 등록부의 끝이 아니어도 된다(e039879 가 22 「지침 보정」 을 뒤에 더함)
     d = AG.detail("zone_review")
     assert [p["kind"] for p in d["prompt"]] == ["contract", "merge", "data", "note"] and d["prompt"][0]["text"] == ZL.CONTRACT   # 끝의 note = 덧붙이는 글 칸(spec_에이전트 ② §6 — 모든 에이전트에 붙는다: tests/test_agents.py 와 같은 기대) and d["prompt"][1]["source"] == "app/merge_guides_default/zones.md" and d["prompt"][1]["text"]
     assert d["whats"] == ["zones-llm"] and d["model"]["source"] == "default" and d["effort"] == {"id": "medium", "source": "code"}

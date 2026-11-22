@@ -265,6 +265,58 @@ def test_plan_apply_through_transaction(client, monkeypatch):
     assert merge_api.fill_summary(to)["filled"]["nothing"] is False
 
 
+def test_a_nothing_reapply_keeps_the_last_real_fill_for_retidy(client, monkeypatch):
+    """다 넣은 문서를 다시 반영(넣을 것 0)해도 넣은 뒤 정리는 넣은 내용이 있다고 본다(spec_병합 ② §5-9 10): 「넣을 것 0」 표식이 앞의 실제 반영(`last`)을 지니고 ·
+    정리의 재료는 그 표식(at · 넣은 블록)으로 센다 — 「넣은 내용이 없습니다」 로 줄이 「건너뜀」 이 되지 않는다. 「내용 넣기」 의 끝(fill_summary)은 전처럼 「넣을 것 0」."""
+    from app import merge_retidy_api as RA
+    d = M.small()
+    ids = {}
+    for side, f in (("from", "plan"), ("to", "report")):
+        ids[side] = client.post("/api/docs?new=1", files={"file": (d[side]["name"], d[side]["bytes"])}).json()["docId"]
+        client.put(f"/api/works/{ids[side]}/task", json={"kind": "rnd", "file": f, "job": "plan_to_report", "project": "다시 넣기 시험"})
+    sides = {ids["from"]: d["from"], ids["to"]: d["to"]}
+
+    def read(doc_id, target=False):
+        s = server._sess(doc_id)
+        with s.lock:
+            return {"id": doc_id, "name": s.name, "rev": s.rev, "reasons": [], "values": d["values"], "doc": s.doc, "blocks": s.doc.blocks(), "graph": sides[doc_id]["graph"], "tables": sides[doc_id]["tables"]}
+    monkeypatch.setattr(merge_api, "_read", read)
+    to = ids["to"]
+    v = client.get(f"/api/docs/{to}/merge-links").json()
+    g = next(x for x in v["groups"] if x["to"] and x["kind"] == "paragraph" and x["dim"] == "org" and "추진 실적" in " ".join(x["to"]["path"]))
+    assert client.put(f"/api/docs/{to}/merge-links/{g['id']}", json={"from": next(c["key"] for c in g["candidates"] if c["path"][-1:] == ["개발 내용 및 범위"])}).status_code == 200
+    assert RA.facts(to)["why"] == RA.NO_FILL   # 넣기 전
+    plan = client.post(f"/api/docs/{to}/merge-links/plan").json()
+    assert client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": plan["planId"]}).status_code == 200
+    blocks = lambda: server._sess(to).doc.blocks()   # noqa: E731
+    gap = next(b["id"] for b in blocks() if b.get("id") and b["id"] not in RA.MR.within(blocks(), RA.MR.record_ids(merge_api._store(to))))
+    saved = merge_api._store(to)   # 빈 자리 검토가 넣은 줄처럼 — 반영 표식의 ids 에만 적힌 블록(merge_apply 의 gaps.inserted · applied 에는 없음)
+    merge_api._store(to, {**saved, "filled": {**saved["filled"], "ids": [*saved["filled"]["ids"], gap]}})
+    real = merge_api._store(to)["filled"]
+    assert gap in RA._records(to)["ins"](blocks())
+    first = RA.facts(to)
+    assert real["nothing"] is False and real["ids"] and first["why"] == "" and first["fill"] == real["at"] and first["inserted"] == len(real["ids"])
+    again = client.post(f"/api/docs/{to}/merge-links/plan").json()
+    assert again["todo"] == 0, again["body"]["counts"]
+    assert client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": again["planId"]}).json()["nothing"] is True
+    mark = merge_api._store(to)["filled"]
+    assert mark["nothing"] is True and mark["at"] > real["at"] and mark["last"] == real   # 앞의 실제 반영을 지닌다
+    assert merge_api.fill_summary(to)["filled"] == {"nothing": True, "at": mark["at"]}   # 「내용 넣기」 의 끝은 전처럼
+    now = RA.facts(to)
+    assert now["why"] == "" and now["fill"] == real["at"] and now["inserted"] == len(real["ids"])   # 정리의 표식은 앞의 실제 반영 — 그 뒤 정리했으면 그대로 「끝남」
+    assert RA.MR.within(blocks(), real["ids"]) <= RA._records(to)["ins"](blocks()) and gap in RA._records(to)["ins"](blocks())   # 정리 대상도 앞 반영 그대로(앞 반영의 ids 에만 적힌 블록까지)
+    third = client.post(f"/api/docs/{to}/merge-links/plan").json()   # 「넣을 것 0」 을 거듭해도 같은 실제 반영
+    assert client.post(f"/api/docs/{to}/merge-links/apply", json={"planId": third["planId"]}).json()["nothing"] is True
+    assert merge_api._store(to)["filled"]["last"] == real and RA.facts(to)["fill"] == real["at"]
+    # `last` 를 적기 전 판의 기록(「넣을 것 0」 이 앞 반영을 덮음) — 넣은 기록이 있으면 그 표식으로 본다(정리를 한 번 다시)
+    old = {k: v for k, v in merge_api._store(to)["filled"].items() if k != "last"}
+    merge_api._store(to, {**merge_api._store(to), "filled": old})
+    legacy = RA.facts(to)
+    assert legacy["why"] == "" and legacy["fill"] == old["at"] and legacy["inserted"] == len(RA.MR.record_ids(merge_api._store(to)))
+    merge_api._store(to, {k: v for k, v in merge_api._store(to).items() if k not in ("applied", "copied")} | {"filled": old})
+    assert RA.facts(to)["why"] == RA.NO_FILL   # 넣은 기록도 없으면 넣은 것이 없다
+
+
 def test_llm_endpoint_runs_real_review(client, monkeypatch, tmp_path):
     """끝점 → `merge_llm.review` 의 실제 코드(챕터 나누기 · 단위별 자료 · 답 검증)까지 — LLM 호출(`llm.ask_all`)만 가짜. 모델은 Opus, 못 정한 묶음은 모두 어느 단위에 실린다.
     이 작업의 할 일 프롬프트(jobs/plan_to_report.md — spec_작업 ② §13)가 단위마다 실리고 기록에 남는다."""
@@ -364,3 +416,151 @@ def test_overflow_levels_choose_in_the_plan_then_refit_what_went_in(client, monk
     assert client.put(f"/api/docs/{to}/merge-over", json={"key": key, "mode": "cover"}).status_code == 200
     merge_api._stage2_clear(to)   # 2단계 초기화 — 넣은 기록은 지우고 고른 처리는 남긴다
     assert "applied" not in merge_api._store(to) and MO.load(to)["cases"][key]["mode"] == "cover"
+
+
+# ---- 가져온 스키마 위반 종류(spec_병합 ② §5-10 「가져온 스키마 위반 종류」 — server.import_check · _heal) ----------------------------------------
+PIC_TABLE = "t12501"   # 연구개발계획서 양식의 그림이 든 표(칸 안 그림 하나) — 연차보고서 서식에는 그림이 없다
+PIC_KINDS = {("section", "renderingInfo", "transMatrix", "", "SCHEMAV_ELEMENT_CONTENT"), ("section", "imgRect", "pt0", "", "SCHEMAV_ELEMENT_CONTENT"),
+             ("section", "pic", "inMargin", "", "SCHEMAV_ELEMENT_CONTENT")}   # 한글이 그림마다 써 두는 꼴(hc:transMatrix · hc:pt0 · img 앞 inMargin) — 실제 작업 728b2a673374 에서 각 20
+
+
+def _bring_picture(c, check=None):
+    """(목적 id, 원본 id, 넣은 표 id) — 연차보고서 서식에 사업계획서 양식의 그림 표를 「내용 반영」 처럼(문서 사이 복사 · 편집 하나) 넣은 상태. check 기본 = server.import_check(원본)."""
+    src_id, to_id = _upload(c, M.PLAN_FORM), _upload(c, M.REPORT_FORM)
+    s, src = server._sess(to_id), server._sess(src_id)
+    assert not PIC_KINDS & set(server.owpml_base(s)["schema"]) and PIC_KINDS <= set(server.owpml_base(src)["schema"])
+    got = {}
+
+    def run():
+        got["new"] = s.doc.insert_after("p975", [{"kind": "copy", "srcId": PIC_TABLE}], src=src.doc)
+        return {"hosts": [], "struct": set(), "origin": {}, "anchor": None}
+    with s.lock, src.lock:
+        out, after = server._transact(s, run, "mergeFill", check=check or server.import_check(src))
+    assert after is not None, out.body[:400]
+    return to_id, src_id, got["new"][0]
+
+
+def _cell_para(c, doc_id, table_id):
+    t = next(b for b in c.get(f"/api/docs/{doc_id}").json()["blocks"] if b["id"] == table_id)
+    return next(x["id"] for cell in t["cells"] for x in cell["blocks"] if x["type"] == "paragraph")
+
+
+def _noop():
+    return {"hosts": [], "struct": set(), "origin": {}, "anchor": None}
+
+
+def test_fill_carries_imported_kinds_for_later_edits(client):
+    """반영이 들여온 종류(목적 기준선에 없고 원본 기준선에 있는 것)는 작업에 남아, 그 뒤 그림이 든 표의 편집 · 문서 전체 검사 편집 · 지금 검사가 그 종류로 되돌리지 않는다(전에는 422).
+    반영을 되돌리면 함께 돌아간다."""
+    to, _, tid = _bring_picture(client)
+    s = server._sess(to)
+    assert PIC_KINDS <= s.owpml_ok and all(k[0] in ("header", "section") for k in s.owpml_ok)
+    r = client.post(f"/api/docs/{to}/format/para", json={"ids": [_cell_para(client, to, tid)], "changes": {"align": "right"}})
+    assert r.status_code == 200, r.text[:400]
+    assert client.get(f"/api/docs/{to}/owpml").json()["status"] != "fail"
+    with s.lock:   # 문서 전체 검사 편집(TEMP 삭제 · 구분 기준 반영 · 레벨 자리 규칙 · 넘친 레벨 다시 맞추기)도
+        out, after = server._transact(s, _noop, "fullCheck", check=server._full_check)
+    assert after is not None, out.body[:400]
+    for _ in range(3):
+        assert client.post(f"/api/docs/{to}/undo").status_code == 200
+    assert server._sess(to).owpml_ok == set()   # 반영을 되돌리면 받아들인 종류도
+
+
+def test_edit_verification_sees_imported_kinds(client):
+    """수정본 OWPML 검사(verify.eowpml)도 받아들인 종류를 기준선에 더한다(owpml_check.accepted) — 넣은 그림의 꼴로 「실패」 하지 않는다."""
+    import time
+    to, _, _ = _bring_picture(client)
+
+    def wait(kind):
+        end = time.time() + 120
+        while time.time() < end:
+            v = client.get(f"/api/docs/{to}/verify").json()
+            if kind in v and not v[kind]["running"]:
+                return {x["key"]: x for x in v[kind]["steps"]}
+            time.sleep(0.1)
+        raise AssertionError("검증이 끝나지 않음")
+    wait("import")
+    assert client.post(f"/api/docs/{to}/verify", json={"kind": "edit"}).status_code == 200
+    st = wait("edit")
+    assert st["eowpml"]["status"] in ("ok", "warn"), st["eowpml"]
+
+
+def test_fill_still_rejects_kinds_neither_document_has(client, monkeypatch):
+    """두 문서 어디에도 없던 종류는 전처럼 422 — 받아들인 종류도 남기지 않는다."""
+    from app import owpml_check
+    foreign = ("section", "x", "y", "", "SCHEMAV_TEST")
+    src_id, to_id = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    s, src = server._sess(to_id), server._sess(src_id)
+    real = owpml_check.check_doc   # 목적 문서의 편집 뒤 검사에만 가짜 종류(기준선 · 가져오기 검증은 새로 연 문서를 센다)
+    monkeypatch.setattr(owpml_check, "check_doc", lambda doc: (lambda res: {**res, "schema": res["schema"] + [{"part": "section", "kind": foreign, "el": None, "message": "시험"}]} if doc is s.doc else res)(real(doc)))
+
+    def run():
+        s.doc.insert_after("p975", [{"kind": "copy", "srcId": PIC_TABLE}], src=src.doc)
+        return _noop()
+    with s.lock, src.lock:
+        out, after = server._transact(s, run, "mergeFill", check=server.import_check(src))
+    assert after is None and out.status_code == 422 and s.owpml_ok == set()
+
+
+def test_legacy_fill_heals_on_the_first_edit(client, monkeypatch):
+    """고침 전에 넣은 작업(받아들인 종류를 남기지 않음): 처음 걸린 편집에서 넣은 기록(merge.json `filled.src`)의 원본 기준선으로 그 종류를 받아들이고 다시 판정한다 — 원본 세션을 열지 않고
+    올린 원본 파일에서 센다. 넣은 기록이 없으면 받지 않고, 원본 기준선에 없는 종류는 여전히 422. 받아들인 종류는 그 편집을 되돌려도 남는다."""
+    from app import owpml_check
+    to, src_id, tid = _bring_picture(client)
+    s = server._sess(to)
+    s.owpml_ok.clear()
+    for u in s.undo:
+        u["owpml_ok"] = set()
+
+    def edit():
+        return client.post(f"/api/docs/{to}/format/para", json={"ids": [_cell_para(client, to, tid)], "changes": {"align": "right"}})
+    r = edit()
+    assert r.status_code == 422 and {x["kind"] for x in r.json()["owpml"]["new"]} == {owpml_check.kind_text(k) for k in PIC_KINDS}   # 넣은 기록 없음 — 받지 않는다
+    merge_api._store(to, {"filled": {"at": 0, "planId": "시험", "src": {"id": src_id, "rev": 0}, "rev": s.rev, "nothing": False, "ids": [tid]}})
+    server._SRC_KINDS.clear()
+    server.DOCS.pop(src_id)
+    r = edit()
+    assert r.status_code == 200, r.text[:400]
+    assert PIC_KINDS <= server._sess(to).owpml_ok and src_id not in server.DOCS   # 원본 세션은 안 열었다(올린 원본 파일에서 셈)
+    assert client.post(f"/api/docs/{to}/undo").status_code == 200 and PIC_KINDS <= server._sess(to).owpml_ok   # 이 편집 전부터 있던 종류 — 되돌려도 남는다
+    foreign = ("section", "x", "y", "", "SCHEMAV_TEST")
+    real = owpml_check.check_hosts
+    monkeypatch.setattr(owpml_check, "check_hosts", lambda doc, hosts, header=False: (lambda res: {**res, "schema": res["schema"] + [{"part": "section", "kind": foreign, "el": None, "message": "시험"}]})(real(doc, hosts, header)))
+    bad = edit()
+    assert bad.status_code == 422 and [x["kind"] for x in bad.json()["owpml"]["new"]] == [owpml_check.kind_text(foreign)] and foreign not in server._sess(to).owpml_ok
+
+
+def test_heal_does_not_take_kinds_the_edit_itself_brings(client):
+    """넣은 기록이 있어도 받아들이는 것은 **편집 전 문서**에 이미 있던 종류뿐(server._heal — 2026-11-22 결과 검토): 넣은 기록이 있는 작업에서 다른 문서의 그림 표를 처음 들이는 편집
+    (서식 보관함 적용 · 표지 적용처럼 — 기본 검사)은 전처럼 422 이고 받아들인 종류 · 실행 취소 묶음을 늘리지 않는다."""
+    import json
+
+    from app import owpml_check
+    src_id, to_id = _upload(client, M.PLAN_FORM), _upload(client, M.REPORT_FORM)
+    s, src = server._sess(to_id), server._sess(src_id)
+    merge_api._store(to_id, {"filled": {"at": 0, "planId": "시험", "src": {"id": src_id, "rev": 0}, "rev": s.rev, "nothing": False, "ids": []}})   # 글만 넣은 반영의 기록
+    assert PIC_KINDS <= set(merge_api.owpml_from(s))   # 넣은 기록은 살아 있다 — 받아들임이 원본 기준선까지 가서 편집 전 문서로 거른다
+    undo, rev, got = len(s.undo), s.rev, {}
+
+    def run():
+        got["new"] = s.doc.insert_after("p975", [{"kind": "copy", "srcId": PIC_TABLE}], src=src.doc)
+        return {"hosts": [s.doc._ids[got["new"][0]]], "struct": set(), "origin": {}, "anchor": None}
+    with s.lock, src.lock:
+        out, after = server._transact(s, run, "styleApply")
+    assert after is None and out.status_code == 422
+    assert {owpml_check.kind_text(k) for k in PIC_KINDS} <= {x["kind"] for x in json.loads(out.body)["owpml"]["new"]}
+    assert s.owpml_ok == set() and len(s.undo) == undo and s.rev == rev and not s.doc._attached(s.doc._ids.get(got["new"][0]))
+
+
+def test_legacy_heal_counts_a_nothing_fill_record(client):
+    """다시 넣기의 「넣을 것 0」 이 앞 반영의 기록(merge.json `filled`)을 덮었고 `applied` 가 비어도(표 칸 · 표 대응 · 빈 자리 · 통째 복사로만 넣은 반영) 그 원본으로 받아들인다 —
+    편집 전 문서에 그림의 꼴이 있으니(2026-11-22 결과 검토)."""
+    to, src_id, tid = _bring_picture(client)
+    s = server._sess(to)
+    s.owpml_ok.clear()
+    for u in s.undo:
+        u["owpml_ok"] = set()
+    merge_api._store(to, {"filled": {"at": 0, "planId": "시험", "src": {"id": src_id, "rev": 0}, "rev": s.rev, "nothing": True, "ids": []}})
+    r = client.post(f"/api/docs/{to}/format/para", json={"ids": [_cell_para(client, to, tid)], "changes": {"align": "right"}})
+    assert r.status_code == 200, r.text[:400]
+    assert PIC_KINDS <= server._sess(to).owpml_ok

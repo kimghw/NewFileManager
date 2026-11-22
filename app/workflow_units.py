@@ -50,6 +50,9 @@ RELAY = {u["key"]: u for u in (
     _u("gaps", "stage_fill", "pair", change="store", paid="stage", needs=("plan",), spoils=("plan",), once=True, optional=True, via="plan", server=True),       # 차례 = 빈 자리 검토 → 표 대응(고정 — ② §18-4 「무르기」)
     _u("tableMap", "stage_fill", "pair", change="store", paid="stage", needs=("plan",), spoils=("plan",), once=True, optional=True, via="plan", server=True),
     _u("apply", "stage_fill", "pair", change="doc", needs=("plan",), gives=("filled",), redo=("plan",), server=True),                                          # 울타리 · 낡은 계획(409)이면 한 번만 다시 계획
+    # 넣은 뒤 템플릿 · 서식 정리(spec_병합 ② §5-9 — 2026-11-22 사용자 「옮기고 나서 서식은 목적문서의 템플릿/서식을 따르되 … 개요가 더 길면 긴쪽을 받아서 템플릿/서식이 재조정」) — 「문서 정리」 의 조립 도구 ·
+    # 스크립트(울타리 안: 헤딩 다시 분석 → 대표 → 맞추기 · 실행 취소 1). **목적 문서만** — 넣은 줄은 목적 문서에만 있다(원본 문서에는 넣은 기록 merge.json 이 없어 할 일이 없다)
+    _u("retidy", "stage_clean", "doc", roles=("target",), change="doc", needs=("filled",), gives=("tidy",), server=True),
 )}
 # 취합형(걸음 5 — ② §18-13 갈래 「다」: app/merge_gather_api.py) — 원본 문서(기관 문서) 여럿 → 목적 문서(취합본) 하나 · 구성의 기준 = 목적 문서(준비 files · 프로젝트 구성 추출 config 는 같이 쓰는 단위가 base 를 따른다).
 # 같이 쓰는 단위와 key 가 겹치는 것(division · hand · heads)은 가족의 것이 먼저다 — 뜻이 다르다: division = 구조가 이미 맞으면 확인만(adopt) · 간단 모드는 지울 것이 있으면 멈춤 /
@@ -65,6 +68,9 @@ GATHER = {u["key"]: u for u in (
     _u("plan", "", "pair", needs=("links",), gives=("plan",), server=True, each=True),                                                      # 넣기 계획
     _u("apply", "", "pair", change="doc", needs=("plan",), gives=("filled",), redo=("plan",), server=True, each=True),                      # 내용 반영(울타리 · 낡은 계획이면 한 번만 다시 계획)
     _u("drop", "", "pair", kind="pick", change="doc", optional=True, server=True),                                                          # 끌어 넣기(사람이 한다)
+    # 넣은 뒤 템플릿 · 서식 정리(spec_병합 ② §5-9 9 — 이관형 RELAY 의 것과 **따로 선 단위**: 실행기 · 상태가 단위를 객체로 가른다(workflow_exec._fill_need · _tidy_materials) — 같은 객체면 취합본에 이관의 연결 목록을 읽는다).
+    # 「문서 정리」 의 조립 도구 · 붙박이 「사업계획서 취합」 의 차례에는 없다(넘친 레벨은 사람이 고른다 — 조립에서 그 줄을 놓는 것이 그 선택: jobs/plan_merge.md) · 목적 문서(취합본)만
+    _u("retidy", "stage_clean", "doc", roles=("target",), change="doc", needs=("filled",), gives=("tidy",), server=True),
 )}
 # 문서 하나(양식 표준화 plan_fit · 양식 맞추기 report_fit — 걸음 6: ② §18-13) — 그 문서가 곧 목적 문서다(등록부 줄의 on 이 빈 값 = 목적 문서: workflow_state.roles_on).
 # 줄 key 가 다른 틀과 겹친다(plan · apply = 이관의 넣기 · heads · headsLlm = 공통의 문서 검토) — 가족의 것이 먼저다(unit). 이 가족은 등록부가 `units="single"` 로 적은 워크플로우만 쓴다(일반 편집 · 서식 복사는 단위가 없다).
@@ -852,7 +858,7 @@ def _guide_fix_of(ctx, role="target"):
         return {"st": "done", "skipped": True, "text": who + "LLM 을 쓸 수 없어 건너뜁니다 — 넣은 글은 그대로입니다"}
     d = (ctx.get("pair") or {}).get(role) or {}
     return {"st": "todo", "paid": [d.get("id")] if d.get("id") else [],
-            "text": who + f"작성 지침이 붙은 자리 {nf(n['total'])}곳(헤딩 {nf(n.get('headings'))} · 표 {nf(n.get('tables'))})의 넣은 글을 LLM 이 지침에 맞게 고칩니다 — 유료 · 문서가 바뀝니다(실행 취소 한 번)"}
+            "text": who + f"작성 지침이 붙은 자리 {nf(n['total'])}곳(헤딩 {nf(n.get('headings'))} · 표 {nf(n.get('tables'))})의 넣은 글을 LLM 이 지침에 맞게 고칩니다 — 유료 · 문서가 바뀝니다(실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
 
 
 def _zone_prune(ctx):
@@ -879,8 +885,55 @@ def _zone_prune_of(ctx, role="target"):
     return {"st": "done" if done else "todo", "text": who + text}
 
 
+def retidy_text(c):
+    """넣은 뒤 템플릿 · 서식 정리의 결과 한 줄(상태 글 · 실행기의 끝 글이 같이 쓴다) — c = merge_retidy_api 의 counts."""
+    if not c.get("levels"):
+        return f"넣은 개요 줄 {nf(c['held'])}줄은 모두 사람이 넘친 레벨의 처리를 고른 줄입니다 — 그대로 둡니다" if c.get("held") else "넣은 개요 줄이 없습니다 — 맞출 것이 없습니다"
+    done = c.get("changed")
+    head = (f"넣은 줄 {nf(c.get('fix'))}줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다" if c.get("fix") else "넣은 줄이 이미 목적 문서의 템플릿 · 서식입니다") if done is not None else ""
+    parts = [f"레벨 {nf(c['levels'])}곳" + (f"(넣는 쪽이 더 길어 늘어난 레벨 {nf(c['grown'])})" if c.get("grown") else "")]
+    if c.get("cutLevels"):
+        parts.append(f"넣을 자리보다 깊은 내용을 서식 종속 템플릿으로 뗀 레벨 {nf(c['cutLevels'])}"
+                     + (f"(이번에 템플릿 {nf(c['cut'])}개 · 줄 {nf(c['cutLines'])})" if c.get("cut") else ""))
+    if c.get("deep"):
+        parts.append(f"떼지 못해 넣은 줄끼리 맞춘 레벨 {nf(c['deep'])}")
+    if c.get("near"):
+        parts.append(f"목적 문서의 거의 같은 줄 {nf(c['near'])}")
+    if c.get("own"):
+        parts.append(f"표마다의 서식이라 그대로 둔 줄 {nf(c['own'])}")
+    if c.get("left"):
+        parts.append(f"표지 때문에 모양만 맞춘 줄 {nf(c['left'])}")
+    if c.get("held"):   # 사람이 넘친 레벨의 처리(덮은 템플릿 그대로 · 레벨마다 고침 · 다른 템플릿)를 고른 사례의 줄 — 맞추지 않는다(spec_병합 ② §5-9)
+        parts.append(f"사람이 넘친 레벨의 처리를 고른 줄 {nf(c['held'])}(그대로 둠)")
+    return " · ".join(x for x in [head, *parts] if x)
+
+
+def _retidy(ctx):
+    """넣은 뒤 템플릿 · 서식 정리(줄) — 그 줄이 닿는 문서마다(_retidy_of — 목적 문서뿐)."""
+    return _per(ctx, _retidy_of)
+
+
+def _retidy_of(ctx, role="target"):
+    """넣은 뒤 템플릿 · 서식 정리(문서 하나의 몫 — spec_병합 ② §5-9) — 끝남 = 「내용 넣기」 의 마지막 반영 표식 뒤에 정리 기록(그 반영의 넣은 줄을 맞춤 — 맞출 것이 없었어도) ·
+    넣은 내용이 없으면(넣을 것 0 · 반영 전인데 그 묶음이 없는 정의) 「건너뜀」. 재료 = 그 문서 facts 의 retidy(unit_steps.retidy_facts)."""
+    who, R, F, bad = _tidy_doc(ctx, role, "retidy")
+    if bad:
+        return bad
+    if R.get("error"):
+        return {"st": "blocked", "text": f"{who}재료를 읽지 못했습니다: {R['error']}"}
+    if F.get("fills") and not fill_done(F):
+        return {"st": "todo", "text": f"{who}{_sn(F, 'stage_fill', '내용 넣기')} 이 끝난 뒤에 넣은 줄을 목적 문서의 템플릿 · 서식으로 맞춥니다"}
+    if R.get("why"):
+        return {"st": "done", "skipped": True, "text": who + R["why"]}
+    a = R.get("applied")
+    if a and a.get("fill") == R.get("fill"):
+        return {"st": "done", "text": who + retidy_text(a.get("counts") or {})}
+    return {"st": "todo", "text": who + f"넣은 블록 {nf(R.get('inserted'))}개의 개요 줄을 목적 문서의 템플릿 · 서식으로 맞춥니다 — 헤딩을 다시 분석(스크립트 · 몇 초)한 뒤 "
+            "목적 문서의 레벨을 받은 줄은 그 서식 · 넣을 자리보다 깊은(긴 쪽) 레벨은 넣은 줄 가운데 가장 많은 서식으로(문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
+
+
 _STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide, "take": _take})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
-_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune})   # 「문서 정리」 의 조립 도구(② §18-23)
+_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune, "retidy": _retidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
 
 
 # ---------------------------------------------------------------- 문서 하나(가족 single — 걸음 6: spec_워크플로우 ② §18-13 「걸음 6 — 문서 하나」) — 1단계 「프로젝트 구성」 의 상태 식
@@ -1286,5 +1339,30 @@ def _g_each(ctx, what):
     return {"st": "todo" if left else "done", "text": f"기관 문서 {nf(len(rows))}개" + (f" · 남은 문서 {nf(len(left))}개" if left else ""), "per": per}
 
 
+def _g_retidy(ctx):
+    """넣은 뒤 템플릿 · 서식 정리(취합 — spec_병합 ② §5-9 9) — 목적 문서(취합본)의 몫. 끝남 = 마지막 「내용 반영 · 틀 맞춤」 의 표식(gather.json filled) 뒤에 정리 기록(맞출 것이 없었어도) ·
+    넣은 것이 아직 없으면: 넣을 기관 문서가 남았으면 아직 · 아니면 「건너뜀」. **모든 기관 문서의 내용 반영이 끝나기를 기다리지 않는다**(넣은 것이 있으면 할 것 — 뒤에 넣으면 표식이 바뀌어 다시 할 것이 된다).
+    재료 = 목적 문서 facts 의 retidy(unit_steps.retidy_facts — 실행기의 _tidy_materials) · gather(취합 상태 — _gather_materials). 이관의 넣기 재료(fill)는 읽지 않는다."""
+    t, tf = _pair_of(ctx, "target")
+    if not ctx.get("ready") or not t:
+        return {"st": "todo", "text": ""}
+    R = (tf or {}).get("retidy") if tf is not None else None
+    if R is None:
+        return {"st": "blocked", "text": "문서를 읽지 못했습니다" if tf is None else "재료를 읽지 못했습니다"}
+    if R.get("error"):
+        return {"st": "blocked", "text": f"재료를 읽지 못했습니다: {R['error']}"}
+    if R.get("why"):   # 넣은 것이 없다(넣은 기록이 없음 · hwpx 아님)
+        if R.get("fill") is None and _g_each(ctx, "fill")["st"] != "done":
+            return {"st": "todo", "text": "「내용 반영 · 틀 맞춤」 으로 기관 문서의 내용을 넣은 뒤에 넣은 줄을 취합본의 템플릿 · 서식으로 맞춥니다"}
+        return {"st": "done", "skipped": True, "text": R["why"]}
+    a = R.get("applied")
+    if a and a.get("fill") == R.get("fill"):
+        return {"st": "done", "text": retidy_text(a.get("counts") or {})}
+    return {"st": "todo", "text": f"기관 문서에서 넣은 블록 {nf(R.get('inserted'))}개의 개요 줄을 취합본의 템플릿 · 서식으로 맞춥니다 — 헤딩을 다시 분석(스크립트 · 몇 초)한 뒤 "
+            "취합본의 레벨을 받은 줄은 그 서식으로 · 취합본 틀보다 깊은 레벨은 넣은 줄 가운데 가장 많은 서식으로(취합본에 있던 줄 · 사람이 처리를 고른 넘친 레벨은 그대로 · "
+            "문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
+
+
 _STATE_BY["gather"] = {"division": _g_division, "frame": _g_frame, "hand": _g_hand, "part": lambda ctx: _g_each(ctx, "part"), "heads": lambda ctx: _g_each(ctx, "heads"),
-                       "link": lambda ctx: _g_each(ctx, "link"), "llm": lambda ctx: _g_each(ctx, "llm"), "plan": lambda ctx: _g_each(ctx, "fill"), "apply": lambda ctx: _g_each(ctx, "fill")}   # drop 은 사람이 한다
+                       "link": lambda ctx: _g_each(ctx, "link"), "llm": lambda ctx: _g_each(ctx, "llm"), "plan": lambda ctx: _g_each(ctx, "fill"), "apply": lambda ctx: _g_each(ctx, "fill"),
+                       "retidy": _g_retidy}   # drop 은 사람이 한다 · retidy = 「문서 정리」 의 조립 도구(따로 선 단위 GATHER["retidy"])

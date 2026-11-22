@@ -798,8 +798,11 @@ function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿
     row.append(chip, hBtn("떼기", () => olmUnmerge(id, m.parent), { title: `T${m.no} 를 지우고 그 줄을 T${t.no} 로 되돌립니다(「실행 취소」 로도 됨)`, cls: "btn sm olm-btn" }));
   }
   if (t.vari) { // 서식 종속 템플릿 — 「서식 종속 — T1 L3 의 다른 서식 · 합치기」(② §8-5)
-    const v = t.vari, chip = el("span", "olm-chip", `서식 종속 — T${v.ofNo} L${v.level} 의 다른 서식`);
-    chip.title = `T${v.ofNo} L${v.level} 에서 서식이 달라 뗀 템플릿${v.level > 1 ? ` — L1${v.level > 2 ? `~L${v.level - 1}` : ""} 은 T${v.ofNo} 의 레벨, 이 템플릿의 줄은 L${v.level} 부터` : ""}. 서식·대표·맞추기는 이 템플릿의 줄끼리만 견줍니다`;
+    const v = t.vari, mine = v.by === "retidy", form = mine && v.side === "form"; // 넣은 뒤 정리가 뗀 것(spec_병합 ② §5-9 — 넣을 자리보다 깊은 내용 · side form = 양식 줄을 뗀 것)
+    const chip = el("span", "olm-chip", form ? `양식 줄 — T${v.ofNo} L${v.level} 의 넣은 내용과 따로` : mine ? `넣은 내용 — T${v.ofNo} L${v.level} 아래 깊은 내용` : `서식 종속 — T${v.ofNo} L${v.level} 의 다른 서식`);
+    chip.title = (form ? `「넣은 뒤 템플릿 · 서식 정리」 가 T${v.ofNo} L${v.level} 의 양식 줄을 넣은 내용과 섞지 않게 뗀 템플릿(넣은 줄로 만든 템플릿에 양식 줄이 매달린 곳)`
+      : mine ? `「넣은 뒤 템플릿 · 서식 정리」 가 넣은 내용을 T${v.ofNo} L${v.level} 의 양식 줄과 섞지 않게 뗀 템플릿` : `T${v.ofNo} L${v.level} 에서 서식이 달라 뗀 템플릿`)
+      + `${v.level > 1 ? ` — L1${v.level > 2 ? `~L${v.level - 1}` : ""} 은 T${v.ofNo} 의 레벨, 이 템플릿의 줄은 L${v.level} 부터` : ""}. 서식·대표·맞추기는 이 템플릿의 줄끼리만 견줍니다`;
     row.append(chip, hBtn("합치기", () => olmUnsplit(id), { title: `이 템플릿을 지우고 그 줄을 T${v.ofNo} 의 같은 레벨로 되돌립니다(「실행 취소」 로도 됨)`, cls: "btn sm olm-btn olm-unsplit" }));
   }
   row.append(olmTplMatch(id)); // 「대표 맞추기(n줄)」 — 이 템플릿(종속 템플릿이면 그 줄만)의 모든 레벨을 한 번에(전 이름 「템플릿 맞추기」 — 2026-11-16 사용자 「대표 맞추기.. 로 하면 되겠네」)

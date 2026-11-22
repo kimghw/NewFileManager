@@ -100,6 +100,8 @@ function agwCommon(out) { // 어느 TASK 든 — 작업 개요 열기 · 편집 
 // 표 하나만의 계획(plan.only — 표 메뉴 「프로젝트 구성에 맞추기…」: spec_테이블매니저 ② §9)은 TASK 의 「문서 전체 계획」 이 아니다 — 에이전트 · 대시보드는 그것을 「다시 계획해야 하는 계획」(skip 과 같은 꼴)으로 본다:
 // 그 계획으로 「문서에 반영」 카드를 내거나 그 반영을 1단계의 끝남으로 세지 않는다(반영은 그 표의 메뉴 → 패널 「반영」 에서 사람이 한다).
 function agwTaskPlan(st = divPlanState()) { return st.plan && st.plan.only != null ? { kind: st.kind === "none" ? "none" : "skip", plan: st.plan } : st; }
+// 묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 문서를 바꾸는 묶음의 실행 카드 「…한 번에 진행」 에 붙는 글(서버 실행이 끝에 확정한다 · 확정 뒤 가져오기 검증의 LLM 검토는 그 카드가 유료로 승인한 문서만)
+const AGW_COMMIT_NOTE = " · 끝나면(멈춤이 아니면) 바뀐 문서의 고친 문단을 확정합니다 — 앞 상태는 「고친 문단」 탭 확정 기록의 복원 · 확정 뒤 검증의 LLM 검토는 이 카드가 유료로 승인한 문서만";
 function agwFitApplied(st = divPlanState(), v = dv.view) { // 1단계 「적용(반영)」 이 끝났나 → {applied, same} — 반영함 · 이미 구성에 맞음 · 마지막으로 반영한 값이 지금 값과 같음(agwFitStatus · 대시보드 「이어서 한 번에」 가 같이 본다)
   st = agwTaskPlan(st);
   const s = st.plan && st.plan.summary, same = st.kind === "same" && divSameText(s).ok, values = dv.values ? divValues() : null;
@@ -282,7 +284,7 @@ async function agwRelayStatus() { // 이관 — 묶음(1~4단계)의 단계와 �
   const paidText = P.length ? `유료 — ${P.map(([, n]) => n).join(" · ")} (${P.length}개)` : "", bind = g && (g.id === "review" || g.id === "frame"); // bind = 유료로 부를 문서를 문서마다 셈하는 묶음
   // 조립한 워크플로우는 key 에 그 정의의 단계 표지(task_catalog.js taskCatalogSig — 서버의 sig 또는 이 화면이 지은 것)를 넣는다 — 정의가 바뀌기 전에 낸 카드는 실행하지 않고 다시 묻는다(spec_워크플로우 ② §15 「실행」 · 서버 KEY_MAX 160 안). 붙박이는 그대로
   const cat = TASK_CATALOG[agwJob()] || {}, sig = cat.custom ? taskCatalogSig(cat) : "";
-  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: paidText ? `${paidText} · ${g.does}` : g.does, change: g.id === "review" ? "store" : "doc",
+  if (g && !taskRun) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: (paidText ? `${paidText} · ${g.does}` : g.does) + (g.id === "review" ? "" : AGW_COMMIT_NOTE), change: g.id === "review" ? "store" : "doc",
     paid: g.id === "map" || !!P.length, primary: true, paidIds: ids, // paidIds = 화면만 쓴다(서버는 안 받음 — work_guide.actions_in)
     key: `${docs.map((d) => d.id).join(">")}:${g.id}:${left.map((s) => s.key).join(",")}${bind ? `:paid=${ids.join(",")}` : ""}${sig ? `:sig=${sig}` : ""}` });
   return agwCommon(out);
@@ -298,10 +300,18 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
     out.facts.llm = !!AGENT.enabled;
     return out;
   }
-  const calc = gatherCalc();
-  for (const g of GT_STAGES) for (const s of calc.filter((x) => x.stage === g.id)) out.steps.push({ stage: `${g.no} ${g.name}`, key: s.key, name: gatherStepName(s), state: s.st === "done" || s.st === "now" ? s.st : "todo", text: ((s.lines || [])[0] || [])[1] || "" });
-  // 다음에 돌릴 묶음 — 남은 단계가 있는 첫 묶음(취합형으로 조립한 워크플로우는 그 정의에 그 줄이 든 묶음만: 없는 묶음은 세부 단추로 — task_catalog.js gatherDefStage)
-  const g = GT_STAGES.find((x) => { const left = calc.filter((s) => s.stage === x.id && !s.done && s.step !== "files"); return left.length > 0 && !!gatherDefStage(x.id, agwJob(), left[0].key); });
+  const calc = gatherCalc(), V = await gatherServerView(plan), srv = {}; // srv = 화면의 묶음마다 같은 정의 묶음에 놓은 서버만 아는 줄(넣은 뒤 정리 — 서버가 센 상태: gather.js gatherServerRest · 조립한 취합만)
+  for (const g of GT_STAGES) {
+    srv[g.id] = gatherServerRest(g.id, V);
+    for (const s of calc.filter((x) => x.stage === g.id)) out.steps.push({ stage: `${g.no} ${g.name}`, key: s.key, name: gatherStepName(s), state: s.st === "done" || s.st === "now" ? s.st : "todo", text: ((s.lines || [])[0] || [])[1] || "" });
+    for (const s of srv[g.id] ? srv[g.id].steps : []) out.steps.push({ stage: `${g.no} ${g.name}`, key: s.key, name: s.name, state: s.done ? "done" : "todo", text: s.text || "" });
+  }
+  // 다음에 돌릴 묶음 — 남은 단계가 있는 첫 묶음(취합형으로 조립한 워크플로우는 그 정의에 그 줄이 든 묶음만: 없는 묶음은 세부 단추로 — task_catalog.js gatherDefStage).
+  // 화면의 줄이 다 끝나도 같은 정의 묶음에 서버만 아는 줄이 남았으면 그 묶음이다(「한 번에 진행」 = gatherRunStage 가 그 정의 묶음째 서버로 돈다 · 끝나면 확정)
+  const leftOf = (x) => calc.filter((s) => s.stage === x.id && !s.done && s.step !== "files"), more = (x) => (srv[x.id] ? srv[x.id].left : []);
+  const g = GT_STAGES.find((x) => { const left = leftOf(x); return left.length ? !!gatherDefStage(x.id, agwJob(), left[0].key) : more(x).length > 0; });
+  const tail = g && !leftOf(g).length ? more(g) : []; // 서버만 아는 줄만 남은 묶음 — 그 줄이 「지금」
+  if (tail.length) { const row = out.steps.find((x) => x.stage === `${g.no} ${g.name}` && x.key === tail[0].key); if (row) row.state = "now"; }
   out.facts.plan = plan.name;
   if (plan.id !== state.id) { // 이 문서는 기관 문서(원본) — 취합은 취합본에서 진행한다(이관의 원본 문서와 같은 까닭)
     out.facts.why = "이 문서는 기관 문서입니다 — 취합은 취합본(목적 문서)에서 진행합니다";
@@ -315,8 +325,9 @@ async function agwGatherStatus() { // 취합 — 묶음(1~3단계)의 단계와 
     out.actions.push({ name: "quick:resume", label: "간단 모드 이어서", does: `멈춘 곳부터 남은 일을 끝까지 이어서 합니다${lost ? ` — 못 올린 문서 ${lost}개를 다시 올리고` : ""}(앞서 넣은 것은 다시 넣지 않음 · 기관 문서마다 편집 한 번)`, change: "doc", paid: !!Q.llm, primary: true,
       key: `quick:${plan.id}:${Q.items.filter((it) => it.pid).length}:${calc.filter((s) => s.done).length}` });
   }
-  if (g && !gatherRun && !(Q && Q.busy)) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does, change: g.id === "config" ? "store" : "doc", paid: g.id === "map", primary: !out.actions.length,
-    key: `${plan.id}:${g.id}:${calc.filter((s) => s.stage === g.id && !s.done).map((s) => s.key).join(",")}` });
+  const last = tail.length ? tail[tail.length - 1].name : "", rest = tail.length ? ` — 이 묶음의 다른 단계는 끝났고 ${tail.map((s) => `「${s.name}」`).join(" · ")} ${typeof taskJosa === "function" ? taskJosa(last, "이", "가") : "이"} 남았습니다(서버에서 이 묶음을 다시 돌며 끝난 단계 · 넣을 것이 없는 기관 문서는 건너뜁니다)` : "";
+  if (g && !gatherRun && !(Q && Q.busy)) out.actions.push({ name: `run:${g.id}`, label: `${g.no} ${g.name} — 한 번에 진행`, does: g.does + rest + (g.id === "config" ? "" : AGW_COMMIT_NOTE), change: g.id === "config" ? "store" : "doc", paid: g.id === "map", primary: !out.actions.length,
+    key: `${plan.id}:${g.id}:${[...calc.filter((s) => s.stage === g.id && !s.done).map((s) => s.key), ...more(g).map((s) => s.key)].join(",")}` }); // 서버만 아는 줄도 key 에 — 그 줄이 끝나거나 다시 남으면 카드를 다시 묻는다
   let shown = 0;
   for (const p of parts) { // 넣지 않고 남긴 것(겹침 · 확인 필요 · 표 구조 다름) — 그 기관 문서의 목록을 바로 연다(「세부 단계로 보기」 만으로는 어디를 볼지 모른다: astra 11-16)
     const c = p.counts || {}, left = [c.overlap ? `겹침 ${nf(c.overlap)}` : "", c.unknownPlace ? `확인 필요 ${nf(c.unknownPlace)}` : "", c.structure ? `표 구조 다름 ${nf(c.structure)}` : ""].filter(Boolean).join(" · ");
@@ -351,7 +362,7 @@ async function agwSingleStatus() {
   if (g && g.can && !active && !taskRun) {
     const left = g.steps.filter((s) => !s.done && !s.optional).map((s) => s.key), ids = g.paid || [], name = `${g.no || ""} ${g.name || ""}`.trim();
     const skip = g.change && dv.skip && dv.skip.size ? `:skip=${agwHash([...dv.skip].sort().join(","))}` : ""; // 「반영에서 빼기」 로 뺀 자리(화면에만 있는 입력 — 시작할 때 서버에 싣는다)
-    out.actions.push({ name: `run:${g.id}`, label: `${name} — 한 번에 진행`, does: `${ids.length ? `유료 LLM — 문서 ${ids.length}개 · ` : ""}${g.does || ""}`, change: g.change ? "doc" : "store", paid: !!ids.length, primary: true,
+    out.actions.push({ name: `run:${g.id}`, label: `${name} — 한 번에 진행`, does: `${ids.length ? `유료 LLM — 문서 ${ids.length}개 · ` : ""}${g.does || ""}${g.change ? AGW_COMMIT_NOTE : ""}`, change: g.change ? "doc" : "store", paid: !!ids.length, primary: true,
       paidIds: ids, sig: V.sig || "", // paidIds · sig = 화면만 쓴다(서버는 안 받음 — work_guide.actions_in): 실행은 그 문서에만 유료 호출을 걸고 그 정의일 때만 시작한다
       key: `${id}:${g.id}:${agwHash(left.join(","))}:paid=${ids.join(",")}:sig=${V.sig || ""}${skip}` });
   } else if (g && !g.can && g.why && !active) out.facts.next = `${g.no || ""} ${g.name || ""} — ${g.why}`.trim(); // 다음 묶음을 지금 못 하는 까닭(서버의 글 — 앞 묶음이 먼저 · 문서 칸이 빔)
@@ -774,7 +785,8 @@ function agwActEl(t) {
   if (t.state === "skipped") { card.append(el("p", "ag-state", t.outcome && t.outcome !== "건너뜀" ? t.outcome : "건너뜀")); return card; }
   const acts = el("div", "ag-acts"), R = agwRunning(), busy = !!AGENT.busy || !!W.running || !!R;
   const go = hBtn("진행", () => agentWorkRun(t.id, undefined, true), { cls: "btn sm primary", disabled: busy,
-    title: R ? `지금 진행 중인 작업(${R.label})이 끝나면 누를 수 있습니다` : a.change === "doc" ? "누르면 문서가 바뀝니다 — 실행 취소로 되돌릴 수 있습니다" : a.paid ? "누르면 유료 LLM 호출이 들어갑니다" : "이 행동을 실행합니다" });
+    title: R ? `지금 진행 중인 작업(${R.label})이 끝나면 누를 수 있습니다` : a.change === "doc" ? (String(a.does || "").includes(AGW_COMMIT_NOTE) // 끝에 확정하는 묶음째 실행(spec_워크플로우 ② §18-24) — 실행 취소 기록은 비고 앞 상태는 확정 기록의 복원
+      ? "누르면 문서가 바뀝니다 — 끝나면(멈춤이 아니면) 고친 문단을 확정합니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원)" : "누르면 문서가 바뀝니다 — 실행 취소로 되돌릴 수 있습니다") : a.paid ? "누르면 유료 LLM 호출이 들어갑니다" : "이 행동을 실행합니다" });
   go.dataset.agw = "go";
   const skip = hBtn("건너뛰기", () => agentWorkSkip(t.id), { disabled: !!AGENT.busy || !!W.running });
   skip.dataset.agw = "skip";

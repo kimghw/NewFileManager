@@ -161,7 +161,9 @@ def test_frame_stage_runs_on_the_server_to_the_end_with_llm_off(client, monkeypa
     rec = run({"from": "frame"})
     assert rec["status"] == "done", rec["end"]
     assert rec["end"]["text"].startswith("끝남 — 구조를 맞췄습니다 — 사업계획서와 같음 · 연차보고서에 반영됨 — ") and "연차보고서 LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)" in rec["end"]["text"]
-    assert rec["end"]["text"].endswith(" · 내용은 3단계 「내용 넣기」 에서 넣습니다")
+    # 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 묶음째 실행이 바꾼 목적 문서를 끝에 한 번(원본은 그대로 · 차례는 그대로)
+    assert " · 내용은 3단계 「내용 넣기」 에서 넣습니다 · 확정 1(연차보고서 — 고친 문단 " in rec["end"]["text"] and rec["end"]["text"].endswith(" · 앞 상태 = 올린 원본)"), rec["end"]
+    assert [(c["doc"], c["status"]) for c in rec["commits"]] == [(report, "ok")] and U.base_now(report) == 1 and U.commit_info(report)["dirty"] is False and U.commit_info(plan)["base"] == 0
     f, d = U.facts(report), U.div_facts(report)
     assert d["applied"] and d["applied"]["values"] == d["input"] and f["heads"]["rev2"] == f["heads"]["rev3"] == d["applied"]["rev"]   # 분석이 구조 반영 뒤의 것
     frame = X.status_of(report)["stages"][1]

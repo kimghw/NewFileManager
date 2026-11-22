@@ -12,7 +12,7 @@
 // 서식 정리 계획만 실패하면 받은 계획은 반영하고 못 받은 템플릿을 남긴다. 끝나면 한 것 · 멈춘 까닭 · 남은 것과 보정할 자리를 알린다(알림 + 단추 title).
 // 실행은 시작한 문서(id · epoch)에 못 박는다 — 그 사이 다른 문서를 열면 반영하지 않고 끝낸다.
 // 부르는 곳: app.js headsResultsSummary(headsRunAllBtn — 헤딩 추출 탭 상태 줄, 「단계별 실행 ▾」 앞) · doc_agent_work.js agwRunning(headsAllRunning — 에이전트 보기의 진행 카드).
-// 기대는 것: app.js(state · heads · api · hBtn · nf · toast · headsPoll · headsLlmReady · structOp) · doc_status.js(dsLlmRun · dsLlmStop · dsRunning · docStatusPing) ·
+// 기대는 것: app.js(state · heads · api · hBtn · nf · toast · headsPoll · headsLlmReady · structOp · commitAfterRun — opt.commit 일 때만) · doc_status.js(dsLlmRun · dsLlmStop · dsRunning · docStatusPing) ·
 // tpl_plan_bar.js(tpbApply — 반영 결과를 돌려준다 · tplPlanGo) · heading_llm_diff.js(llmDiffOpen).
 const HRA = { run: null, last: null }; // run = 도는 전체 실행 {id, epoch, t0, note, stop, chains, applies, sig, did, left} | null · last = 지난 실행 {id, text}(단추 title)
 const HRA_MAX = 3; // LLM 이어 돌리기 · 반영을 각각 몇 번까지 — 반영으로 새로 생긴 서식 종속 템플릿의 「계획 → 반영」 을 되풀이하는 한도
@@ -105,6 +105,8 @@ function headsAllRunning() { // 에이전트 보기의 진행 카드(doc_agent_w
 
 // ---- 실행
 // opt.asked = 옛 인자 — 2026-11-18 사용자 「이런 알람좀 주지마」 부터 확인 창이 없어 쓰지 않는다(부르는 쪽 호환으로 받기만 함 · LLM 연결 · 멈추는 검사는 그대로)
+// opt.commit = 끝에 고친 문단을 확정한다(대시보드 2단계 「한 번에 진행」 만 켠다 — spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」): 끝까지 감 · 되풀이 한도 · 미판정으로 남김일 때만 ·
+//   멈추기 · 다른 문서 · 오류는 안 한다. 헤딩 추출 탭의 「전체 실행」 은 켜지 않는다(실행 취소 — 대시보드의 일이 아니다)
 // → {ok, text}(끝까지 감 · 멈춤 — HRA.last 와 같은 글) | undefined(시작하지 않음 — 까닭은 알림 글)
 async function headsRunAll(opt = {}) {
   if (HRA.run || !state.id) return;
@@ -129,8 +131,16 @@ async function headsRunAll(opt = {}) {
     did: { llm: [], tpls: 0, lines: 0, splits: 0, undo: 0 }, left: [] };
   hraSync();
   let out;
-  try { out = await hraLoop(R, v); } catch (e) { out = { why: `오류 — ${e.message}`, v: null }; }
-  HRA.run = null;
+  try {
+    try { out = await hraLoop(R, v); } catch (e) { out = { why: `오류 — ${e.message}`, v: null }; }
+    if (opt.commit && state.id === id && state.epoch === epoch && typeof commitAfterRun === "function" && (!out.why || out.why === HRA_CAP || out.why.startsWith("헤딩 판정에 미판정"))) {
+      // 끝 확정(남김 같은 끝도) — 끝 글이 「실행 취소」 대신 그 확정을 알린다. 확정이 끝날 때까지 실행은 도는 중(HRA.run 그대로 — 큰 문서는 몇 초):
+      // 그 사이 단추(「멈추기」 자리)가 새 전체 실행을 걸거나 에이전트의 진행 카드가 풀려 다른 반영이 확정과 겹치지 않게(2026-11-22 검토)
+      R.note = "고친 문단 확정 중";
+      hraSync();
+      try { R.commit = await commitAfterRun("2단계 「헤딩 추출」 한 번에 진행", { quiet: true }); } catch (e) { console.warn(e); R.commit = ""; }
+    }
+  } finally { HRA.run = null; }
   const P2 = out.v ? hraLeft(out.v) : null, text = hraDone(R, out.why, P2);
   HRA.last = { id, text };
   hraSync();
@@ -140,7 +150,7 @@ async function headsRunAll(opt = {}) {
   if ((R.did.tpls || R.did.merged) && state.id === id && state.epoch === epoch && typeof llmDiffOpen === "function") llmDiffOpen(R.did.tpls ? "res" : "rel");
   toast(text, !!out.why && out.why !== HRA_STOP && out.why !== HRA_CAP, adj ? { label: "조정 줄 보기", run: () => tplPlanGo() }
     : R.did.tpls && typeof llmDiffOpen === "function" && state.id === id ? { label: "반영한 계획 보기", run: () => llmDiffOpen("fmt") } : null);
-  return { ok: !out.why, text };
+  return { ok: !out.why, text, left: !!out.why && (out.why === HRA_CAP || out.why.startsWith("헤딩 판정에 미판정")) }; // left = 남김 같은 멈춤(한도 · 미판정 — 사람이 볼 것을 남기고 끝남: 「이어서 한 번에」 의 끝 확정이 본다)
 }
 
 // 남은 것이 없을 때까지: LLM 이어 돌리기 → 반영 → (반영으로 새로 남은 계획 → 반영) … → {why 멈춘 까닭("" = 끝까지 감), v 마지막 분석 상태 | null}
@@ -235,7 +245,7 @@ function hraDone(R, why, P) { // 끝난 글 — 한 것 · (멈춘 까닭) · �
   const d = R.did, llm = [...new Set(d.llm)].map((k) => HRA_PART[k] || k);
   const did = [llm.length ? `LLM ${llm.join(" · ")}` : "",
     d.tpls || d.merged || d.placed ? `조정 — ${[d.tpls ? `템플릿 ${nf(d.tpls)}개 반영(맞춘 줄 ${nf(d.lines)}${d.reps ? ` · 대표 변경 ${nf(d.reps)}` : ""}${d.splits ? ` · 서식 종속 템플릿 ${nf(d.splits)}` : ""})` : "", d.placed ? `자리 맞춤 ${nf(d.placed)}줄` : "", d.merged ? `템플릿 종속 ${nf(d.merged)}` : ""].filter(Boolean).join(" · ")}` : ""].filter(Boolean).join(" → ");
-  const undo = d.undo ? ` · 「실행 취소」 ${d.undo > 1 ? `${nf(d.undo)}번` : "한 번"}으로 되돌립니다` : "";
+  const undo = R.commit ? ` · ${R.commit}` : d.undo ? ` · 「실행 취소」 ${d.undo > 1 ? `${nf(d.undo)}번` : "한 번"}으로 되돌립니다` : ""; // 끝에 확정했으면 그 확정(opt.commit — 실행 취소 기록은 비었다)
   const left = [...R.left];
   if (P) {
     const judge = P.llm.filter((p) => p.key !== "formats").map((p) => HRA_PART[p.key] || p.key);

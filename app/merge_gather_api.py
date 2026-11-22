@@ -24,7 +24,8 @@
 **오류 꼴**: 이 끝점들의 400·404·409 는 모두 `detail = {"reason": 까닭 열쇠, "message": 한국어 글}`(MSG). 422 는 server._transact 의 것 그대로.
 
 저장(취합본 작업 폴더 — 작업 저장이 꺼져 있으면 메모리): `gather.json` {version(설정·결정이 바뀔 때마다 +1 — 넣은 기록만 적을 때는 그대로), frameId, order[], parts{id: {name, added, orgs[], common, frameId,
-decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind, ev(그 편집이 적은 편집 구역의 출처 이벤트 id — spec_구역 ② §4: 없으면 옛 기록)}}}}, gone{뺀 문서의 넣은 기록}} ·
+decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind, ev(그 편집이 적은 편집 구역의 출처 이벤트 id — spec_구역 ② §4: 없으면 옛 기록)}}}}, gone{뺀 문서의 넣은 기록},
+filled{at(time.time()), rev(반영 뒤 차례), part, kind: fill, ids[그 반영의 넣은 본문 블록 — 앞 FILLED_IDS 개], legacy?(표식을 적기 전에 넣은 취합본에 한 번 적은 것 — legacy_filled)}(마지막 「내용 반영」 의 표식 — 넣은 것이 있을 때만 · 판은 안 올린다: 「넣은 뒤 템플릿 · 서식 정리」 가 읽는다 — spec_병합 ② §5-9)} ·
 `gather/frame-<frameId>.hwpx`(나눠 주는 바이트) · `gather/frame-<frameId>.json.gz`(자리 정보 + frameId·at·sha256·runs·division{planId, rev}) · `gather/llm-<기관 문서 id>.json`(마지막으로 보낸 프롬프트·답 — 화면 「지침」).
 기준본이 낡음(frame.stale) = 기준본 뒤에 취합본의 구분 기준을 다시 반영함(그때 적어 둔 반영 계획 id·차례와 다름) · 또는 기준본의 블록 id 가 지금 문서에 절반도 안 남음.
 
@@ -63,6 +64,7 @@ _MEM, _BLOB = {}, {}              # 작업 저장이 꺼졌을 때의 gather.jso
 _FRAMES, _LINKS, _JUDGE = {}, {}, {}   # 취합본 id → (frameId, 자리 정보) · (취합본, 기관 문서) → (frameId, 기관 문서 차례, 자리 연결) · (취합본, 기관 문서) → (열쇠, 판정)
 _PLANS, _DROPS = {}, {}           # (취합본, 기관 문서) → 마지막 넣기 계획 · 취합본 → 마지막 끌어 넣기 계획(메모리만 — 서버를 다시 켜면 다시 계획)
 LOW_MATCH, LABEL_MATCH, FRAME_ALIVE = 0.5, 0.5, 0.5   # 맞은 정도 · 이름 든 기관 라벨이 맞은 몫(이 아래면 lowMatch) · 기준본 블록 id 가 지금 문서에 남은 몫(이 아래면 낡음)
+FILLED_IDS = 2000   # 마지막 반영 표식(filled)에 적는 넣은 본문 블록 id 의 한도(넣은 줄 전부는 기록마다의 ids 에 있다)
 AUTO = {"value": "check", "source": "auto", "reason": "기준본과 자리를 충분히 확인하지 못한 문서"}
 DECISION = ("value", "source", "nature", "reason", "note", "held")
 MSG = {"noFrame": "배포 기준본이 없습니다 — 1단계에서 기준본을 먼저 만드세요",
@@ -751,19 +753,35 @@ def gather_llm(doc_id: str, part: str):
 # ---- 끝점: 넣기 계획 → 반영(§4-4 · §4-5) ---------------------------------------------------------------------------
 
 def _tx(s, src, run, op, req, code):
-    """구조 편집 트랜잭션 하나(server._transact — 실행 취소 1 · 문서 전체 표준 검사, 걸리면 전부 복원·422) — 두 세션 잠금 안에서. 스키마 위반의 기준선에 기관 문서의 것을 더한다
-    (문서 사이 복사는 원본에 한글이 써 둔 위반을 내용과 함께 가져온다 — merge_api.merge_apply 와 같은 검사). run 의 ValueError·KeyError(400)는 이 끝점의 오류 꼴로."""
+    """구조 편집 트랜잭션 하나(server._transact — 실행 취소 1 · 문서 전체 표준 검사, 걸리면 전부 복원·422) — 두 세션 잠금 안에서. 스키마 위반의 기준선에 기관 문서의 것을 더하고
+    통과하면 들어온 종류를 작업에 남긴다(문서 사이 복사는 원본에 한글이 써 둔 위반을 내용과 함께 가져온다 — merge_api.merge_apply 와 같은 검사 server.import_check:
+    spec_병합 ② §5-10 「가져온 스키마 위반 종류」). run 의 ValueError·KeyError(400)는 이 끝점의 오류 꼴로."""
     from app import server
-
-    def check(s_, out, base, header):
-        chk = s_.kit["check"]
-        return chk.verdict(s_.doc, {"schema": Counter(base["schema"]) + Counter(server.owpml_base(src)["schema"]), "rules": base["rules"]}, chk.check_doc(s_.doc))
     try:
-        return server._transact(s, run, op, req=req, check=check)
+        return server._transact(s, run, op, req=req, check=server.import_check(src))
     except HTTPException as e:
         if e.status_code == 400 and isinstance(e.detail, str):
             raise (_err(409, "stalePlan", e.detail) if e.detail == DROP.STALE else _err(400, code, e.detail)) from e
         raise
+
+
+def owpml_from(s):
+    """이 취합본에 내용을 넣은 기관 문서들의 기준선 스키마 위반 종류(server._heal — import_check 가 생기기 전에 넣은 작업의 받아들임: spec_병합 ② §5-10 「가져온 스키마 위반 종류」).
+    기관 문서 = gather.json 의 `parts` 가운데 넣은 기록(`applied`)이 있는 것 + 뺀 기관 문서의 넣은 기록(`gone` — 넣은 내용은 문서에 남는다) + 끌어 넣은 출처(편집 구역의 출처 이벤트 `part` — gatherDrop).
+    그 작업으로 **올린 원본 파일**에서 센다(server.import_kinds). 취합을 한 적 없는 문서면 [] — 읽기만 한다(파일을 만들지 않는다)."""
+    from app import server
+    d = _dir(s.id)
+    if not ((d / "gather.json").is_file() if d is not None else s.id in _MEM):
+        return []
+    G = _store(s.id)
+    gone = G.get("gone") if isinstance(G.get("gone"), dict) else {}
+    pids = [p for p, r in (*G["parts"].items(), *gone.items()) if isinstance(r, dict) and r.get("applied")]
+    pids += [e.get("part") for e in (getattr(s, "zones", None) or {}).get("origins") or () if isinstance(e, dict)]
+    out = []
+    for pid in dict.fromkeys(pids):
+        if isinstance(pid, str) and pid != s.id and works.work(pid):
+            out += server.import_kinds(pid)
+    return out
 
 
 @router.post("/api/docs/{doc_id}/gather/parts/{part}/plan")
@@ -844,14 +862,78 @@ def gather_apply(doc_id: str, part: str, body: dict = Body(...)):
                 _PLANS.pop((doc_id, part), None)
         if after is None:
             return out
-        at = _now()
+        at, rev = _now(), s.rev
 
         def fn(G2):
             r = G2["parts"].get(part)
             if r is not None:
                 r["applied"] = {**(r.get("applied") or {}), **{k: {**v, "at": at} for k, v in done["applied"].items()}}
+            if done["applied"]:   # 마지막 반영 표식(이관 merge.json 의 filled 와 같은 꼴 — 「넣은 뒤 템플릿 · 서식 정리」 가 그래프가 낡았나 · 그 반영 뒤에 정리했나를 본다: spec_병합 ② §5-9)
+                G2["filled"] = {"at": time.time(), "rev": rev, "part": part, "kind": "fill",
+                                "ids": [i for v in done["applied"].values() if v.get("kind") in MG.BODY for i in v.get("ids") or ()][:FILLED_IDS]}
         _change(doc_id, fn, bump=False)
         return {"counts": done["counts"], "calc": done["calc"], "dropped": done["dropped"], "skipped": done["skipped"], **s.state()}
+
+
+# ---- 넣은 기록의 지문(§4-2) — 넣은 뒤 취합본의 줄을 바꾸는 편집(「넣은 뒤 템플릿 · 서식 정리」 — spec_병합 ② §5-9 9 ⓑ)이 부른다 -------------------------------
+
+def _body_records(G):
+    """본문 넣은 기록 → [(자리, 열쇠, 기록)] — 자리 = 기관 문서 id · 뺀 기관 문서는 "gone:<id>"."""
+    out = []
+    for grp, tag in ((G.get("parts") or {}, ""), (G.get("gone") if isinstance(G.get("gone"), dict) else {}, "gone:")):
+        for pid, r in grp.items():
+            for k, v in ((r.get("applied") or {}).items() if isinstance(r, dict) and isinstance(r.get("applied"), dict) else ()):
+                if isinstance(v, dict) and v.get("kind") in MG.BODY and v.get("ids"):
+                    out.append((tag + pid, k, v))
+    return out
+
+
+def legacy_filled(doc_id, rev):
+    """표식(filled)을 적기 전(2026-11-22 전 판)에 넣은 취합본 — 본문 넣은 기록은 있는데 표식이 없으면 한 번 적는다(판은 안 올린다) → gather.json.
+    at = 지금 · rev = 지금 문서 차례(rev — 헤딩 그래프가 그보다 앞 것이면 「넣은 뒤 템플릿 · 서식 정리」 가 한 번 다시 분석한다) · legacy 참.
+    없으면 정리가 「넣은 내용이 없습니다」 로 남고 워크플로우 줄이 「건너뜀」 이 된다 — 같은 기관 문서를 다시 반영해도 넣을 것이 없어 표식이 안 생긴다(검토에서 찾음)."""
+    def ids_of(G):
+        return [i for _w, _k, v in _body_records(G) for i in v.get("ids") or () if i]
+
+    def fn(G):
+        ids = ids_of(G)
+        if not G.get("filled") and ids:
+            G["filled"] = {"at": time.time(), "rev": rev, "part": None, "kind": "fill", "ids": list(dict.fromkeys(ids))[:FILLED_IDS], "legacy": True}
+    G = _store(doc_id)
+    return G if G.get("filled") or not ids_of(G) else _change(doc_id, fn, bump=False)   # 적을 것이 없으면 쓰지 않는다(판정 기억도 그대로)
+
+
+def _fp_now(v, idx, pos):
+    """그 본문 기록의 지금 지문 | None(넣은 블록이 하나라도 지금 문서에 없음 — 판정이 「같음」 으로 보지 않는 기록) — 판정(merge_gather._judge_body)과 같은 차례(문서 차례)."""
+    ids = v.get("ids") or ()
+    if not all(i in idx for i in ids):
+        return None
+    return MG._fp_blocks([idx[i] for i in sorted(ids, key=pos.get)])
+
+
+def fp_matches(doc_id, blocks):
+    """지금 지문이 맞는 본문 넣은 기록 → {(자리, 열쇠)}(blocks = 취합본의 지금 최상위 블록) — 넣은 뒤 사람이 고친 기록(이미 안 맞는 것)은 들지 않는다. 읽기만 한다."""
+    idx, pos = {b["id"]: b for b in blocks}, {b["id"]: i for i, b in enumerate(blocks)}
+    return {(w, k) for w, k, v in _body_records(_store(doc_id)) if v.get("fp") and v.get("fp") == _fp_now(v, idx, pos)}
+
+
+def refit_fp(doc_id, blocks, only):
+    """only(fp_matches 가 편집 전에 잡은 기록)의 지문을 지금 문서로 다시 적는다(판은 안 올린다 — 넘친 레벨 「넣은 뒤 다시 맞추기」 와 같은 까닭: 다음 판정이 「이미 들어 있음」 으로 보게) → 다시 적은 기록 수.
+    편집 전에 안 맞던 기록(넣은 뒤 사람이 고친 것)은 그대로 둔다 — 「바뀜」 신호로 남는다. 넣은 블록이 지금 문서에 없는 기록도 그대로."""
+    only = set(only or ())
+    if not only:
+        return 0
+    idx, pos, n = {b["id"]: b for b in blocks}, {b["id"]: i for i, b in enumerate(blocks)}, [0]
+
+    def fn(G):
+        for w, k, v in _body_records(G):
+            if (w, k) in only:
+                fp = _fp_now(v, idx, pos)
+                if fp is not None and fp != v.get("fp"):
+                    v["fp"] = fp
+                    n[0] += 1
+    _change(doc_id, fn, bump=False)
+    return n[0]
 
 
 # ---- 끝점: 끌어 넣기(§4-6) ----------------------------------------------------------------------------------------

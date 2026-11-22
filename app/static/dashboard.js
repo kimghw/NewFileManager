@@ -19,8 +19,8 @@ const DASH_ST = { done: "끝남", now: "지금", ready: "할 수 있음", todo: 
 const DASH_COUNTED = new Set(["done", "now", "ready", "todo", "hold", "run"]);
 const dashCounted = (n) => !n.optional && DASH_COUNTED.has(n.state); // 끝난 수에 넣는 단계 — 안 해도 되는 단계 · 따로 세지 않는 단계 · 준비 중은 뺀다(design.md §11)
 const DASH_HELP = "이 워크플로우의 단계를 차례대로 보이고, 단계마다 지금 상태와 그 단계를 하는 단추를 둡니다. 단계를 누르면 펴지고, 펴면 지금 상태 · 단추가 보입니다. 단계 이름 옆 메모 아이콘에 그 단계의 「하는 일 · 조건」 이 있습니다.\n"
-  + "단추는 패널 「작업 개요」 · 에이전트와 같은 기능을 부릅니다 — 누르면 확인 창 없이 바로 합니다(문서를 바꾼 것은 실행 취소로 되돌리고, 유료 LLM 을 부르는 단추는 풍선 도움말에 그렇게 적습니다).\n"
-  + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 합니다(사람이 봐야 할 곳에서는 멈추거나 넣지 않고 남김).\n"
+  + "단추는 패널 「작업 개요」 · 에이전트와 같은 기능을 부릅니다 — 누르면 확인 창 없이 바로 합니다(단계 하나가 문서를 바꾼 것은 실행 취소로 되돌리고, 유료 LLM 을 부르는 단추는 풍선 도움말에 그렇게 적습니다).\n"
+  + "묶음 머리의 「한 번에 진행」 은 그 묶음의 남은 단계를 차례로 합니다(사람이 봐야 할 곳에서는 멈추거나 넣지 않고 남김) — 끝나면(멈춤이 아니면) 바뀐 문서의 고친 문단을 확정합니다(실행 취소 기록은 비고, 앞 상태는 「고친 문단」 탭 확정 기록의 복원).\n"
   + "머리 아래 「이어서 한 번에」 는 남은 묶음을 차례로 잇습니다(앞 묶음이 끝나지 않으면 뒤 묶음은 시작하지 않고 한 것 · 멈춘 까닭 · 남은 것을 머리에 적음).\n"
   + "꼬리표 아이콘 — 사람(파랑) · 스크립트(</>) · LLM(보라 반짝임) · 문서 바뀜(주황 문서+연필) — 마우스를 올리면 이름이 보입니다. 「필수」 는 해야 다음으로 가는 단계, 「자동」 은 누르지 않아도 도는 단계입니다.\n"
   + "점선 단계(「선택」)는 안 해도 되는 단계, 「준비 중」 은 아직 없는 단계입니다. 값 입력 · 목록 보기처럼 넓은 일은 「작업 개요」 나 문서 옆 열에서 합니다.";
@@ -176,7 +176,7 @@ function dashFitStage1(M, st, L, gid, std = false) {
   const why = divRunWhy(), locked = !!dv.busy || divRunLocked() || !!DASH.busy || !!agwRunning(), applied = L.steps.apply.state === "done"; // 같은 문서에 두 실행을 겹치지 않는다(헤딩 판정 · 전체 실행 · 대시보드가 부른 행동이 도는 동안)
   const no = !st.facts.confirmed ? "프로젝트 구성 값을 먼저 확정하세요" : applied ? "남은 단계가 없습니다" : why || (locked ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : "");
   return dashBtn("한 번에 진행", () => divRunAll(), { disabled: !!no, focus: `run:${gid}`,
-    title: no || "변경 계획 → 반영을 한 번에 — 계획 오류 · 미해결 자리가 있거나 기관의 차례가 마지막 반영과 다르면 반영하지 않고 멈춥니다" });
+    title: no || "변경 계획 → 반영을 한 번에 — 계획 오류 · 미해결 자리가 있거나 기관의 차례가 마지막 반영과 다르면 반영하지 않고 멈춥니다. 끝나면 고친 문단을 확정합니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원)" });
 }
 
 // ---------------------------------------------------------------- 사업계획서 양식 표준화(plan_fit — spec_양식표준화 ② §1~§4): 1단계 프로젝트 구성 › 2단계 헤딩 추출 › 3단계 표
@@ -267,8 +267,8 @@ function dashStdHeads(L, S, groups) { // 2 · 3단계의 상태 · 단추. 「�
   if (open("tablesLlm")) L.steps.tablesLlm.acts.push(pick("표 판정(LLM)", ["l3"], "act:tablesLlm", "표 묶음마다 서브 테이블 · 헤더 행/열 · 칸 역할을 LLM 이 칸의 값을 보고 판정합니다(유료 · 수 분 · 문서는 안 바뀜)"));
   const left = (gid) => (groups.find((g) => g.id === gid) || { keys: [] }).keys.some((k) => L.steps[k] && L.steps[k].state !== "done");
   const noH = off || (!left("heads") ? "남은 단계가 없습니다" : "");
-  L.runs.heads = dashBtn("한 번에 진행", () => dashExec("2단계 헤딩 추출 — 한 번에 진행", () => headsRunAll()), { disabled: !!noH, focus: "run:heads",
-    title: noH || "헤딩 추출 탭의 「전체 실행」 — 남은 LLM 판정(헤딩 · 템플릿 — 표 판정(LLM)도 같이 돎 → 서식 정리 계획) → 조정(모두 반영)까지 차례로 합니다. 유료 LLM · 문서가 바뀜(반영마다 실행 취소 한 번)" });
+  L.runs.heads = dashBtn("한 번에 진행", () => dashExec("2단계 헤딩 추출 — 한 번에 진행", () => headsRunAll({ commit: true })), { disabled: !!noH, focus: "run:heads", // commit = 끝에 고친 문단을 확정(spec_워크플로우 ② §18-24)
+    title: noH || "헤딩 추출 탭의 「전체 실행」 — 남은 LLM 판정(헤딩 · 템플릿 — 표 판정(LLM)도 같이 돎 → 서식 정리 계획) → 조정(모두 반영)까지 차례로 합니다. 유료 LLM · 문서가 바뀜 · 끝나면 고친 문단을 확정(앞 상태는 「고친 문단」 탭 확정 기록의 복원)" });
   const tk = dashStdTableKeys(S), noT = off || (!tk.length ? "남은 단계가 없습니다" : "");
   L.runs.tables = dashBtn("한 번에 진행", () => dashExec("3단계 표 — 한 번에 진행", () => dashStdPick(tk)), { disabled: !!noT, focus: "run:tables",
     title: noT || `남은 표 단계를 차례로 — ${tk.map((k) => (k === "s3" ? "표 구조(스크립트)" : "표 판정(LLM)")).join(" → ")}(표 판정은 유료 LLM · 문서는 안 바뀜)` });
@@ -305,41 +305,45 @@ function dashStdTop(M, L, st, S, groups) { // 머리 아래 「이어서 한 번
   const no = one && !st.facts.confirmed ? "프로젝트 구성 값을 먼저 확정하세요" // 값을 지어내지 않는다
     : DASH.busy || agwRunning() || (S && S.busy) || dv.busy || divRunLocked() ? "지금 진행 중인 작업이 끝나면 쓸 수 있습니다" : one ? divRunWhy() : "";
   M.top.push(dashBtn(label, () => dashStdChain(rest, label), { disabled: !!no, focus: "run:chain",
-    title: no || `이어서 한 번에(누르면 바로 시작) — 앞 묶음이 끝나지 않으면 뒤 묶음은 시작하지 않습니다\n${rest.map((g) => `· ${DASH_STD_DOES[g.id] || `${g.no} ${g.name}`}`).join("\n")}` }));
+    title: no || `이어서 한 번에(누르면 바로 시작) — 앞 묶음이 끝나지 않으면 뒤 묶음은 시작하지 않습니다\n${rest.map((g) => `· ${DASH_STD_DOES[g.id] || `${g.no} ${g.name}`}`).join("\n")}\n${DASH_STD_DOES.end}` }));
   if (no) M.top.push(el("span", "dash-top-why", no)); // 꺼진 까닭을 글로(단추 title 만으로는 안 보인다)
 }
 
 // 묶음마다 할 일 — 「이어서 한 번에」 단추의 풍선 도움말(전에는 확인 창의 글)
-const DASH_STD_DOES = { config: "1단계 프로젝트 구성 — 변경 계획 → 적용(문서가 바뀜 · 실행 취소 한 번). 계획 오류 · 미해결 자리가 있거나 기관의 차례가 마지막 반영과 다르면 적용하지 않고 멈춥니다.",
-    heads: "2단계 헤딩 추출 — 전체 실행: 헤딩 LLM 판정(표 판정(LLM)도 같이) → 서식 정리 계획 → 조정 모두 반영(유료 LLM · 몇 분 · 문서가 바뀜 · 반영마다 실행 취소 한 번). 헤딩 판정에 미판정이 있으면 반영하지 않고 멈춥니다.",
-    tables: "3단계 표 — 남은 표 판정(LLM)(유료 · 수 분 · 문서는 안 바뀜)." };
+const DASH_STD_DOES = { config: "1단계 프로젝트 구성 — 변경 계획 → 적용(문서가 바뀜). 계획 오류 · 미해결 자리가 있거나 기관의 차례가 마지막 반영과 다르면 적용하지 않고 멈춥니다.",
+    heads: "2단계 헤딩 추출 — 전체 실행: 헤딩 LLM 판정(표 판정(LLM)도 같이) → 서식 정리 계획 → 조정 모두 반영(유료 LLM · 몇 분 · 문서가 바뀜). 헤딩 판정에 미판정이 있으면 반영하지 않고 멈춥니다.",
+    tables: "3단계 표 — 남은 표 판정(LLM)(유료 · 수 분 · 문서는 안 바뀜).",
+    end: "끝나면 고친 문단을 한 번 확정합니다(1단계에서 멈췄으면 하지 않음 · 앞 상태는 「고친 문단」 탭 확정 기록의 복원)." }; // end = 끝 확정(spec_워크플로우 ② §18-24)
 // 「이어서 한 번에」 — 누르면 바로(확인 창 없음 — 2026-11-18) 묶음마다 그 묶음의 실행을 차례로(멈추는 검사 · LLM 연결 확인은 그 함수 그대로): 1단계 divRunAll → 2단계 headsRunAll → 3단계(표 판정이 남았으면) headsPickRun(["l3"]).
 // 앞 묶음이 끝나지 않으면(멈춤 · 실패 · 계획 오류 · 미해결 — 1단계가 「적용」 까지 안 감) 뒤 묶음을 시작하지 않고, 머리 아래 끝 글에 한 것 · 멈춘 까닭 · 남은 것(② §4 · spec_작업에이전트 ② §7 ⓐ)
 async function dashStdChain(rest, label) {
   // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 묶음마다 할 일(does)을 적은 확인 창: design.md §18 「확인 창」). 묶음마다 할 일(DASH_STD_DOES)은 단추의 풍선 도움말(dashStdTop)
+  // 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 묶음 함수에는 확정을 끄고(commit: false) 끝에 한 번: 끝까지 감 · 2 · 3단계에서 남김 같은 까닭(한도 · 미판정 · 남은 단계)으로 멈췄을 때만 ·
+  // 1단계에서 멈췄으면 하지 않는다(계획이 남는다 — 확정은 그 계획을 비운다) · 다른 문서 · 시작 못 함 · 오류도 안 한다
   await dashExec(label, async () => {
     const id = state.id, epoch = state.epoch, here = () => state.id === id && state.epoch === epoch, did = [], gone = "다른 문서를 열어 멈췄습니다";
-    const stop = (i, why) => ({ ok: false, text: `멈춤 — ${rest[i].no} ${rest[i].name}: ${why}${did.length ? ` · 한 것: ${did.join(" / ")}` : ""}`
-      + `${i + 1 < rest.length ? ` · 시작하지 않은 것: ${rest.slice(i + 1).map((g) => `${g.no} ${g.name}`).join(" · ")}` : ""}` });
-    for (const [i, g] of rest.entries()) {
+    let at = -1, soft = false; // 멈춘 묶음의 차례 · 그 까닭이 남김 같은 것인가(끝 확정을 한다)
+    const stop = (i, why, left = false) => { at = i; soft = !!left; return { ok: false, text: `멈춤 — ${rest[i].no} ${rest[i].name}: ${why}${did.length ? ` · 한 것: ${did.join(" / ")}` : ""}`
+      + `${i + 1 < rest.length ? ` · 시작하지 않은 것: ${rest.slice(i + 1).map((g) => `${g.no} ${g.name}`).join(" · ")}` : ""}` }; };
+    const res = await (async () => { for (const [i, g] of rest.entries()) {
       if (!here()) return stop(i, gone);
       if (DASH.busy) { DASH.busy.label = `${label} — ${g.no} ${g.name}`; dashDraw(true); }
       if (g.id === "config") {
         const msg0 = dv.msg; // divRunAll 이 시작하지 못하고 돌아오면(도는 일 · 잠김 · 까닭) dv.msg 는 그대로다 — 앞서 남은 옛 멈춤 글을 이번 까닭으로 보이지 않게(검토 11-18)
-        await divRunAll({ asked: true });
+        await divRunAll({ asked: true, commit: false });
         if (!here()) return stop(i, gone);
         if (!agwFitApplied().applied) return stop(i, `${dv.msg && dv.msg !== msg0 && dv.msg.kind === "halt" ? dv.msg.text.replace(/^멈춤 — /, "") : "「적용」 까지 가지 않았습니다(알림 글 참고)"} — 「작업 개요」 의 ① 변경 계획 보기 › ② 반영에서 보정합니다`);
         did.push(`${g.no} 적용함`);
       } else if (g.id === "heads") {
-        const r = await headsRunAll({ asked: true });
+        const r = await headsRunAll({ asked: true }); // 확정은 이 고리의 끝에서 한 번(headsRunAll 의 commit 은 끔)
         const v = await agwStdFresh();
         if (!here()) return stop(i, gone);
-        if (r && !r.ok) return stop(i, r.text);
+        if (r && !r.ok) return stop(i, r.text, !!r.left);
         const S = v ? agwStdSteps(v) : null;
         if (!S) return stop(i, `${r ? `${r.text} — ` : ""}분석 상태를 읽지 못해 끝났는지 셀 수 없습니다(헤딩 추출 탭의 진행 줄을 보세요)`);
         // 전체 실행이 「끝까지 감」 이어도 2단계가 끝난 것은 아니다 — 서식 정리 계획을 일부 못 받았거나 같은 것이 남으면 그 까닭 없이 돌아온다(검토 11-18). 단계의 셈으로 다시 본다
         const left = ["heads", "headsLlm", "adjust"].find((k) => S.steps[k].state !== "done");
-        if (left) return stop(i, `${r ? "" : "시작하지 못했습니다 — "}${AGW_STD_NAMES[left]}: ${S.steps[left].text || "남음"}${r ? "" : "(알림 글 참고)"}`);
+        if (left) return stop(i, `${r ? "" : "시작하지 못했습니다 — "}${AGW_STD_NAMES[left]}: ${S.steps[left].text || "남음"}${r ? "" : "(알림 글 참고)"}`, !!r);
         did.push(`${g.no} ${r ? r.text : "남은 것 없음"}`);
       } else if (g.id === "tables") {
         const S = agwStdSteps();
@@ -350,11 +354,16 @@ async function dashStdChain(rest, label) {
         await agwStdFresh();
         if (!here()) return stop(i, gone);
         if (!r) return stop(i, "시작하지 못했습니다 — 알림 글을 보세요(LLM 연결 · 다른 헤딩 작업)");
-        if (!r.ok) return stop(i, r.text);
+        if (!r.ok) return stop(i, r.text, true); // 표 판정이 답을 못 냄 — 스크립트 결과로 남긴다(남김 같은 끝)
         did.push(`${g.no} ${r.text}`);
       } else return stop(i, "모르는 묶음입니다 — 페이지를 새로 고치세요(서버의 등록부와 화면이 다른 판)"); // 모르는 묶음을 조용히 「끝남」 으로 넘기지 않는다
     }
-    return { ok: true, text: `끝남 — ${did.join(" / ")}` };
+    return { ok: true, text: `끝남 — ${did.join(" / ")}` }; })();
+    if (here() && (res.ok || (soft && at >= 0 && rest[at].id !== "config"))) { // 끝 확정 — 1단계에서 멈춘 고리는 하지 않는다
+      const tail = await commitAfterRun(label, { quiet: true });
+      if (tail) res.text = `${res.text} · ${tail}`;
+    }
+    return res;
   });
 }
 
@@ -466,17 +475,74 @@ function dashGatherLive(M) { // 취합 — 「작업 개요」 의 단계(gather
   const lost = Q ? Q.items.filter((it) => !it.pid && it.err && !it.skip).length : 0; // 간단 모드가 멈췄거나 못 올린 문서가 남았다 — 에이전트의 「간단 모드 이어서」 와 같은 행동
   if (Q && !Q.busy && Q.end && !Q.uploadOnly && (!Q.end.ok || lost)) {
     const does = `멈춘 곳부터 남은 일을 끝까지 이어서 합니다${lost ? ` — 못 올린 문서 ${lost}개를 다시 올리고` : ""}(앞서 넣은 것은 다시 넣지 않음 · 기관 문서마다 편집 한 번${Q.llm ? " · 유료 LLM 검토 포함" : ""})`;
-    M.notes.push({ text: `간단 모드 ${Q.end.ok ? "끝남" : "멈춤"} — ${Q.end.text}`, warn: !Q.end.ok, act: dashBtn("간단 모드 이어서", () => dashExec("간단 모드 이어서", () => agwExec("quick:resume")), { title: `${does} — 취합본이 바뀝니다(기관 문서마다 실행 취소 한 번)`, focus: "act:quick" }) }); // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」)
+    M.notes.push({ text: `간단 모드 ${Q.end.ok ? "끝남" : "멈춤"} — ${Q.end.text}`, warn: !Q.end.ok, act: dashBtn("간단 모드 이어서", () => dashExec("간단 모드 이어서", () => agwExec("quick:resume")), { title: `${does} — 취합본이 바뀝니다(묶음째 실행이 끝나면 고친 문단을 확정 — 앞 상태는 「고친 문단」 탭 확정 기록의 복원)`, focus: "act:quick" }) }); // 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」)
   }
   const E = typeof gatherRunLast !== "undefined" ? gatherRunLast : null; // 마지막 「한 번에 진행」 의 끝 — 그 뒤 더 나아가지 않았을 때만(gather.js 상태 줄과 같은 조건)
-  if (E && !gatherRun && plan && E.plan === plan.id && E.done === steps.filter((s) => s.stage === E.stage && s.step !== "files" && s.done).length) L.ends = { [gatherDefStage(E.stage, agwJob()) || E.stage]: { ok: !!E.ok, text: E.text } };
+  if (E && !gatherRun && plan && E.plan === plan.id && E.done === steps.filter((s) => s.stage === E.stage && s.step !== "files" && s.done).length) // 조립 도구의 줄(DASH_GATHER_SERVER)을 돈 실행이면 그 줄이 든 정의 묶음에(화면의 묶음 map 으로 따라갔다)
+    L.ends = { [(DASH_GATHER_SERVER.has(E.key) && gatherDefStage(E.stage, agwJob(), E.key)) || gatherDefStage(E.stage, agwJob()) || E.stage]: { ok: !!E.ok, text: E.text } };
+  const srv = dashGatherServer(M, L, plan, Q); // 화면의 셈에 없는 조립 도구(서버가 센 상태 · 서버 실행) — 그 줄이 정의에 없으면 null
+  const linked = new Set();
   GT_STAGES.forEach((g, i) => { // 묶음 머리의 「한 번에 진행」 — gatherRunAll(확인 창 없이)
     const left = (x) => steps.filter((s) => s.stage === x.id && !s.done && s.step !== "files"), before = GT_STAGES.slice(0, i).find((x) => left(x).length);
-    const no = gatherRun ? "다른 묶음이 진행 중입니다" : Q && Q.busy ? "간단 모드가 도는 중입니다" : !plan ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 ${typeof taskJosa === "function" ? taskJosa(before.name, "을", "를") : "을"} 먼저 끝내세요` : !left(g).length ? "남은 단계가 없습니다" : "";
     const gid = gatherDefStage(g.id, agwJob()); // 그 묶음의 등록부 id — 붙박이는 그대로 · 취합형으로 조립한 것은 그 일을 하는 줄이 든 묶음(없으면 단추를 달지 않는다)
-    if (gid) L.runs[gid] = dashBtn("한 번에 진행", () => gatherRunAll(g.id), { disabled: !!no, focus: `run:${gid}`, title: no || `이 묶음의 남은 단계를 차례로 한 번에 — ${g.does}. 사람 손이 필요한 곳에서는 멈춥니다` });
+    const rest = srv && gid ? srv.left(gid) : []; // 그 묶음에 함께 놓은 조립 도구 가운데 안 끝난 줄(화면의 셈이 다 끝나도 서버 실행으로 그 줄을 한다)
+    const no = gatherRun ? "다른 묶음이 진행 중입니다" : Q && Q.busy ? "간단 모드가 도는 중입니다" : !plan ? "사업계획서(취합본)를 먼저 고르세요" : before ? `${before.no} 「${before.name}」 ${typeof taskJosa === "function" ? taskJosa(before.name, "을", "를") : "을"} 먼저 끝내세요` : !left(g).length && !rest.length ? "남은 단계가 없습니다"
+      : !left(g).length ? srv.why(gid) : ""; // 조립 도구의 줄만 남음 — 묶음째 서버 실행이라 서버가 센 그 묶음의 can · why 를 따른다(srv.runs 와 같다)
+    if (gid) linked.add(gid);
+    // 화면의 줄이 다 끝나 조립 도구의 줄만 남았어도 묶음째 서버 실행(from = 그 정의 묶음 · only 없음 — 끝난 줄 · 넣을 것이 없는 기관 문서는 서버가 건너뛰고, 끝나면 고친 문단을 확정: spec_병합 ② §5-9 9 ⓒ · spec_워크플로우 ② §18-24).
+    // 그 줄 하나만(only — 확정 없음)은 그 줄의 「이 단계만 진행」 이다
+    if (gid) L.runs[gid] = dashBtn("한 번에 진행", () => (left(g).length || !rest.length ? gatherRunAll(g.id) : srv.run(gid, rest[0], `${g.no} ${g.name} — 한 번에 진행`, {})), { disabled: !!no, focus: `run:${gid}`, title: no || `이 묶음의 남은 단계를 차례로 한 번에 — ${g.does}. 사람 손이 필요한 곳에서는 멈춥니다` });
   });
+  if (srv) srv.runs(linked); // 화면의 묶음에 잇지 않은 정의 묶음(그 도구 · 사람이 하는 일만 든 묶음)의 「한 번에 진행」
   return L;
+}
+
+// 서버가 센 상태로 그리는 취합의 줄 — 화면의 취합 셈(gather.js gatherSteps · GT_STAGES)에 없는 조립 도구(「넣은 뒤 템플릿 · 서식 정리」 retidy — spec_병합 ② §5-9 9 · 붙박이 취합의 차례에는 없다).
+// 상태 = 서버(GET …/flow — dashFlow · 첫 화면의 대시보드와 같은 값) · 실행 = 서버 실행기(workflow_exec.js gatherRunServer — 줄 하나는 only). **서버가 취합 가족에 이런 줄을 더하면 이 표도 함께 본다**(그림만 있고 누를 수 없는 줄을 두지 않는다)
+// gather.js(gatherServerView · gatherServerRest — 「한 번에 진행」 · 간단 모드 · 에이전트가 화면의 줄만 보고 묶음을 끝난 것으로 보지 않게)도 이 표를 읽는다
+const DASH_GATHER_SERVER = new Set(["retidy"]);
+
+function dashGatherServer(M, L, plan, Q) { // → {left(gid) → [안 끝난 그 줄 key], run(gid, key, label, opt), runs(linked), why(gid) → 묶음째 실행을 못 하는 까닭 | ""} | null(그 줄이 정의에 없음) — L.steps[key] 에 상태 · 「이 단계만 진행」 을 채운다
+  const regs = M.reg ? M.reg.stages : [];
+  if (!regs.some((g) => g.steps.some((s) => DASH_GATHER_SERVER.has(s.key)))) return null;
+  const F = dashFlow(), V = F.view, last = GT_STAGES[GT_STAGES.length - 1];
+  const moving = !!gatherRun || (!!V && (flowActive(V.run) || V.stages.some((g) => (g.steps || []).some((s) => s.busy || s.st === "run"))));
+  if (!F.loading && (F.stale || Date.now() - F.at >= (moving ? 3000 : 10000))) dashFlowRead(); // 기다리지 않는다 — 읽으면 다시 그린다
+  const busy = typeof gatherRunStarting !== "undefined" && gatherRunStarting;
+  const off = gatherRun || busy ? "다른 묶음이 진행 중입니다" : Q && Q.busy ? "간단 모드가 도는 중입니다" : !plan ? "사업계획서(취합본)를 먼저 고르세요" : DASH.busy ? `「${DASH.busy.label}」 이 끝나면 쓸 수 있습니다` : V && !V.ready ? V.why || "문서 칸이 비었습니다" : "";
+  const at = (gid, key) => { const g = V && (V.stages || []).find((x) => x.id === gid); return g ? (g.steps || []).find((y) => y.key === key) || null : null; };
+  const run = (gid, key, label, opt) => dashExec(label, async () => { // 서버 실행을 시작하고 끝까지 따라간다(끝 글은 gatherRunEnd 가 상태 줄 · 알림에) → 읽어 둔 서버 상태를 다시
+    gatherRunStarting = true;
+    let r = null;
+    try { r = await gatherRunServer(last, plan, { ...opt, from: gid }, key); } finally { gatherRunStarting = false; } // from = 그 줄이 든 정의 묶음(같은 도구를 두 묶음에 놓았어도 누른 묶음에서)
+    dashFlowTouch(state.id);
+    return r;
+  });
+  for (const g of regs) for (const s of g.steps) {
+    if (!DASH_GATHER_SERVER.has(s.key) || L.steps[s.key]) continue;
+    const x = at(g.id, s.key);
+    if (!x) { L.steps[s.key] = { state: "", text: F.err ? `상태를 읽지 못했습니다: ${F.err}` : V ? "" : "상태를 읽는 중…", acts: [] }; continue; }
+    const runs = x.st === "run" || (!!gatherRun && gatherRun.key === s.key), st = runs ? "run" : x.done ? "done" : x.st === "blocked" || x.st === "failed" ? "hold" : x.st === "now" ? "now" : "todo";
+    const acts = x.done || runs ? [] : [dashBtn(DASH_SINGLE_ONE, () => run(g.id, s.key, `${s.name} — ${DASH_SINGLE_ONE}`, { only: s.key }), { primary: st === "now" && !off, disabled: !!off, focus: `act:${s.key}:only`,
+      title: off || ["이 단계만 진행합니다 — 서버에서 진행합니다(창을 닫아도 이어집니다). 넣은 내용이 없으면 건너뜁니다.", s.change === "doc" ? "취합본이 바뀝니다(취합본에 있던 줄은 그대로)" : "문서는 바뀌지 않습니다"].join("\n") })];
+    L.steps[s.key] = { state: st, text: dashHere(x.text || ""), acts, word: runs ? DASH_ST.run : x.done ? (x.skipped ? "건너뜀" : DASH_ST.done) : FLOW_WORD[x.st] || "", ...(x.done && x.skipped ? { skipped: true } : {}) };
+  }
+  const left = (gid) => ((regs.find((g) => g.id === gid) || { steps: [] }).steps).filter((s) => DASH_GATHER_SERVER.has(s.key) && !(at(gid, s.key) || {}).done).map((s) => s.key);
+  // 그 정의 묶음의 묶음째 서버 실행을 못 하는 까닭 | "" — 서버가 센 그 묶음의 can · why 를 따른다(취합형은 앞 묶음이 모두 끝나야 돈다 — workflow_state._feeds: 안 그러면 누르면 「남김 — … 이 덜 끝났습니다」 로만 끝난다) · 그 줄 하나는 줄의 「이 단계만 진행」(only — 앞 묶음을 기다리지 않음)
+  const why = (gid) => {
+    const row = V && (V.stages || []).find((x) => x.id === gid), early = !!row && (row.after || []).some((id) => ((V.stages || []).find((x) => x.id === id) || {}).left);
+    return off || (!row ? (F.err ? `상태를 읽지 못했습니다: ${F.err}` : "상태를 읽는 중…") : !row.can ? (row.why || "지금은 이 묶음을 시작할 수 없습니다") + (early ? ` — 이 줄만은 그 줄의 「${DASH_SINGLE_ONE}」 으로 할 수 있습니다` : "") : "");
+  };
+  const runs = (linked) => { // 화면의 묶음에 잇지 않은 정의 묶음 — 그 도구 · 사람이 하는 일만 든 묶음(다른 줄이 섞였으면 그 줄을 화면이 모른다: 단추를 달지 않는다)
+    for (const g of regs) {
+      if (linked.has(g.id) || L.runs[g.id] || !g.steps.some((s) => DASH_GATHER_SERVER.has(s.key)) || !g.steps.every((s) => DASH_GATHER_SERVER.has(s.key) || s.key === "files" || dashHandKey(s.key))) continue;
+      const rest = left(g.id), name = `${g.no || ""} ${g.name || ""}`.trim();
+      const no = !rest.length ? off || "남은 단계가 없습니다" : why(g.id);
+      L.runs[g.id] = dashBtn("한 번에 진행", () => run(g.id, rest[0], `${name} — 한 번에 진행`, {}), { disabled: !!no, focus: `run:${g.id}`,
+        title: no || `이 묶음의 남은 단계를 차례로 한 번에 — ${g.does || name}. 사람 손이 필요한 곳에서는 멈춥니다(서버에서 진행 · 창을 닫아도 이어집니다)` });
+    }
+  };
+  return { left, run, runs, why };
 }
 
 function dashStyleLive() { // 서식 복사 — 문서 옆 「서식 복사」 열의 단계(slStepState: ① 후보 찾기 ② LLM 검토 ③ 저장 ④ PDF 검증). 후보를 고르는 일은 그 열에서

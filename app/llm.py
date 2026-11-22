@@ -146,6 +146,22 @@ def _sdk(cfg, schema, content, timeout):
     return res.structured_output, res.total_cost_usd
 
 
+def cli_why(code, stdout, stderr, model):
+    """종료 코드가 0 이 아닌 CLI 의 까닭 — 사람이 읽는 짧은 글. stdout 이 결과 JSON 이면 그 `result`(+ HTTP 상태)를 쓰고,
+    사용 한도(429 — 「You've reached your Fable limit …」)는 「<모델> 사용 한도에 닿음」 으로 줄인다(2026-11-22: JSON 끝 300자를 그대로 실어
+    실행 멈춤 글이 잘리고 그 뒤의 「건너뛰기」 안내가 안 보였다 — references/Claude_CLI_헤드리스.md 「실패 결과」)."""
+    try:
+        out = json.loads(stdout or "")
+    except ValueError:
+        out = None
+    if isinstance(out, dict) and out.get("result"):
+        status, text = out.get("api_error_status"), " ".join(str(out["result"]).split())
+        if status == 429 or re.search(r"reached your .*limit", text, re.I):
+            return f"{model} 사용 한도에 닿음(429) — 다른 모델로 바꾸거나 한도가 풀린 뒤 다시"
+        return f"{status or f'exit {code}'}: {text[:200]}"
+    return f"exit {code}: {(stderr or stdout or '')[-300:]}"
+
+
 def _cli(cfg, schema, content, timeout):
     exe = cli_path(cfg)
     if not exe:
@@ -157,7 +173,7 @@ def _cli(cfg, schema, content, timeout):
         run = subprocess.run(args, input=content, capture_output=True, text=True, encoding="utf-8", timeout=timeout, cwd=cwd,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if run.returncode:
-        raise RuntimeError(f"exit {run.returncode}: {(run.stderr or run.stdout or '')[-300:]}")
+        raise RuntimeError(cli_why(run.returncode, run.stdout, run.stderr, cfg["model"]))
     out = json.loads(run.stdout)
     if out.get("is_error") or not isinstance(out.get("structured_output"), dict):
         raise RuntimeError(f"{out.get('subtype')}: {str(out.get('result'))[:300]}")

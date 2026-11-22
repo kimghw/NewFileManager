@@ -27,6 +27,7 @@ from app.division_terms import BASES, BASIS_SEP, label_shape, value_basis  # noq
 
 TITLE_MAX = 60
 SECTION_MAX = 120
+SECTION_GUIDES_MAX = 6000   # B 구간 하나에 싣는 작성 지침 글의 합(spec ② §20) — 넘는 지침은 빼고 자료에 guidesCut
 CHANGE_RATE_RETRY = 0.3
 MAX_ROUNDS = 12
 SENT_END = re.compile(r"(?:다|음|함|요|임)\.\s*$")
@@ -871,8 +872,46 @@ def _ancestors(nid, graph, stop):
     return out[::-1]
 
 
-def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None, bases=BASES):
-    """구간마다 B 호출 — 행 = [id, 유형, 글, 초안 부모, 초안 템플릿(앵커), 초안 레벨, 초안 구분 라벨]. prov = 초안 위 임시 배정(assign_templates 결과)."""
+def place_rows(stage1, pinned):
+    """그 자리의 작성 지침 가운데 표에 붙지 않은 것(pinned["place"]["body"] — spec ② §20) → [(1단계 문단 차례 n, 지침)] 문서 차례.
+    자리 = 지침이 있는 블록(문단이면 그 문단 · 표면 그 표의 첫 문단) → 그 블록이 문서에 없으면(「작성요령 삭제」 뒤의 저장본) 붙인 헤딩 줄 → 둘 다 없으면 뺀다(짐작하지 않는다)."""
+    body = ((pinned or {}).get("place") or {}).get("body") or []
+    if not body:
+        return []
+    pos = {}
+    for rec in stage1.get("paras") or ():
+        pos.setdefault(rec["id"], rec["n"])
+        for c in rec.get("path") or ():
+            if c.get("t") == "tbl" and c.get("id"):
+                pos.setdefault(c["id"], rec["n"])
+    out = []
+    for g in body:
+        n = pos.get(g.get("at"))
+        if n is None:
+            n = pos.get(g.get("head"))
+        if n is not None:
+            out.append((n, g))
+    return sorted(out, key=lambda r: r[0])
+
+
+def _section_guides(rows, lo, hi):
+    """구간(1단계 차례 [lo, hi))에 든 작성 지침 → (자료에 싣는 목록, 뺀 것이 있나). 문서 차례로 담다가 글의 합이 SECTION_GUIDES_MAX 를 넘게 하는 지침은 뺀다(그 뒤의 짧은 지침은 든다)."""
+    out, size, cut = [], 0, False
+    for n, g in rows:
+        if not lo <= n < hi:
+            continue
+        one = {k: g[k] for k in ("head", "kind", "label", "text") if g.get(k)}
+        if size + len(one.get("text", "")) > SECTION_GUIDES_MAX:
+            cut = True
+            continue
+        size += len(one.get("text", ""))
+        out.append(one)
+    return out, cut
+
+
+def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None, bases=BASES, place=()):
+    """구간마다 B 호출 — 행 = [id, 유형, 글, 초안 부모, 초안 템플릿(앵커), 초안 레벨, 초안 구분 라벨]. prov = 초안 위 임시 배정(assign_templates 결과).
+    place = place_rows 결과 — 구간의 첫 노드부터 다음 구간의 첫 노드 전까지 든 작성 지침을 자료의 guides 로 싣는다(spec ② §20 · 없으면 자료에 그 칸이 없다)."""
     by_id = {nd["id"]: nd for nd in nodes}
     brief = {t: {"role": v["role"], "key": keys.get(t) or "", "basis": v.get("basis", ""), "parents": v.get("parents", []), "shape": types[t]["shape"]}
              for t, v in roles.items() if t in types}
@@ -886,10 +925,16 @@ def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None, bases=BASE
         nxt = secs[i + 1][:5] if i + 1 < len(secs) else []
         data = {"bases": list(bases), "types": brief, "templates": tpls, "ancestors": [[a, graph[a]["type"], by_id[a]["text"][:40] if a in by_id else ""] for a in anc],
                 "nodes": rows, "preview": [[n, graph[n]["type"], by_id[n]["text"][:40]] for n in nxt]}
+        got, cut = _section_guides(place, by_id[sec[0]]["n"], by_id[secs[i + 1][0]]["n"] if i + 1 < len(secs) else float("inf")) if place else ([], False)
+        if got:   # 그 구간에 양식이 적어 둔 작성 지침(§20) — 없으면 자료에 칸을 두지 않는다(지침 없는 문서의 프롬프트는 전과 같다)
+            data["guides"] = got
+            if cut:
+                data["guidesCut"] = True
+            used["place"] = pinned["place"]["sha1"]
         content, u = HL.prompt(HL.SECTION_CONTRACT, ["graph", "templates"], data, pinned)
         used.update(u)
         jobs.append({"schema": HL.SECTION_SCHEMA, "content": content, "what": f"heading_section#{i + 1}", "timeout": 600.0, "effort": "medium",
-                     "_section": sec, "_ancestors": anc})
+                     "_section": sec, "_ancestors": anc, "_guides": len(got)})
     return jobs, used
 
 
@@ -1224,8 +1269,10 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
         anchors = {t["anchor"] for t in prov["templates"]}
         secs = sections(nodes, graph)
         info["sections"] = len(secs)
-        jobs, used = b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned, bases)
+        jobs, used = b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned, bases, place_rows(stage1, pinned))
         guides.update(used)
+        if (pinned or {}).get("place"):   # 그 자리의 작성 지침을 실은 구간 · 지침 수(§20 — 결과 화면 · 기록)
+            info["placeGuides"] = {"sections": sum(1 for j in jobs if j.get("_guides")), "items": sum(j.get("_guides", 0) for j in jobs)}
         results = ask([{k: v for k, v in j.items() if not k.startswith("_")} for j in jobs]) if jobs else []
         retry, batch = [], []
         for job, res in zip(jobs, results):

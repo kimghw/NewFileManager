@@ -268,7 +268,7 @@ def main():
         h, calls = page.evaluate(HEAD), page.evaluate(CALLS)
         check("「이어서 한 번에 1→3단계」 → 확인 창 없이(2026-11-18 사용자 「이런 알람좀 주지마」 — 묶음마다 하는 일은 단추 도움말) → divRunAll · headsRunAll · headsPickRun([l3]) 차례로 · 모두 {asked: true} · 끝 글 「끝남 — 1단계 적용함 / …」",
               len(dialogs) == n_dialogs
-              and calls == [["divRunAll", {"asked": True}], ["headsRunAll", {"asked": True}], ["headsPickRun", ["l3"], {"asked": True}]]
+              and calls == [["divRunAll", {"asked": True, "commit": False}], ["headsRunAll", {"asked": True}], ["headsPickRun", ["l3"], {"asked": True}]]
               and h["last"].startswith("이어서 한 번에 1→3단계 — 끝남 — 1단계 적용함 / 2단계 검사 전체 실행 끝 / 3단계 검사 단계별 실행 l3") and not h["lastHalt"], [dialogs[n_dialogs:], calls, h["last"]])
         page.evaluate("() => { window.__fitOk = false; window.__chainApplied = false; window.__headsOk = false; window.__chainHeads = false; }")
         page.wait_for_function("() => (document.querySelector('#paneDash .dash-top button') || {}).textContent === '이어서 한 번에 1→3단계'", timeout=15000)
@@ -276,7 +276,7 @@ def main():
         page.wait_for_function("() => /^이어서 한 번에 1→3단계 — 멈춤 — 1단계 프로젝트 구성: /.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=60000)
         h, calls = page.evaluate(HEAD), page.evaluate(CALLS)
         check("1단계가 「적용」 까지 안 가면 멈춤 — 뒤 묶음은 시작하지 않음(headsRunAll 안 부름) · 끝 글에 멈춘 까닭 · 「시작하지 않은 것: 2단계 헤딩 추출 · 3단계 표」 · 주황 줄",
-              calls == [["divRunAll", {"asked": True}]] and "시작하지 않은 것: 2단계 헤딩 추출 · 3단계 표" in h["last"] and h["lastHalt"]
+              calls == [["divRunAll", {"asked": True, "commit": False}]] and "시작하지 않은 것: 2단계 헤딩 추출 · 3단계 표" in h["last"] and h["lastHalt"]
               and requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"] == rev0, [calls, h["last"]])
         page.locator("#paneDash").screenshot(path=str(OUT / "02b_chain.png"))
         # 2단계 — 전체 실행이 「끝까지 감」 으로 돌아와도 단계가 남았으면(서식 정리 계획을 일부 못 받음 …) 3단계를 시작하지 않는다(검토 11-18 — 전에는 초록 「끝남」)
@@ -286,7 +286,7 @@ def main():
         page.wait_for_function("() => /^이어서 한 번에 1→3단계 — 멈춤 — 2단계 헤딩 추출: /.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=60000)
         h, calls = page.evaluate(HEAD), page.evaluate(CALLS)
         check("2단계 전체 실행이 「끝」 이어도 단계가 남으면 멈춤 — 3단계(headsPickRun)는 시작하지 않음 · 끝 글에 남은 단계 · 「한 것: 1단계 적용함」 · 「시작하지 않은 것: 3단계 표」 · 주황 줄",
-              calls == [["divRunAll", {"asked": True}], ["headsRunAll", {"asked": True}]] and "한 것: 1단계 적용함" in h["last"] and "시작하지 않은 것: 3단계 표" in h["last"] and h["lastHalt"], [calls, h["last"]])
+              calls == [["divRunAll", {"asked": True, "commit": False}], ["headsRunAll", {"asked": True}]] and "한 것: 1단계 적용함" in h["last"] and "시작하지 않은 것: 3단계 표" in h["last"] and h["lastHalt"], [calls, h["last"]])
         page.evaluate("() => { window.__fitOk = false; window.__chainApplied = false; }")
         page.evaluate(UNSTUB)
 
@@ -329,7 +329,7 @@ def main():
         check("13 표 판정(할 수 있음 — 강조 아님) 「표 판정(LLM)」 → headsPickRun([l3])", n13["acts"] == [["표 판정(LLM)", False, False]] and page.evaluate(CALLS) == [["headsPickRun", ["l3"], None]], n13)
         page.click('#paneDash .dash-group[data-group=heads] .dash-ghead button')
         page.wait_for_function("() => /^2단계 헤딩 추출 — 한 번에 진행 — 검사 전체 실행 끝/.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=15000)
-        check("2단계 「한 번에 진행」 → headsRunAll()(헤딩 추출 탭의 「전체 실행」 — 제 확인 창)", page.evaluate(CALLS) == [["headsRunAll", None]])
+        check("2단계 「한 번에 진행」 → headsRunAll({commit: true})(헤딩 추출 탭의 「전체 실행」 — 제 확인 창 · 끝에 고친 문단 확정: spec_워크플로우 ② §18-24)", page.evaluate(CALLS) == [["headsRunAll", {"commit": True}]])
         page.click('#paneDash .dash-group[data-group=tables] .dash-ghead button')
         page.wait_for_function("() => /^3단계 표 — 한 번에 진행 — 검사 단계별 실행 l3/.test((document.querySelector('#paneDash .dash-last') || {}).textContent || '')", timeout=15000)
         check("3단계 「한 번에 진행」 → headsPickRun(남은 표 단계 — 표 구조는 끝나 [l3])", page.evaluate(CALLS) == [["headsPickRun", ["l3"], None]])

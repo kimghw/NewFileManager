@@ -1,7 +1,7 @@
 "use strict";
 // 워크플로우 실행의 화면 쪽 — 서버 쪽 실행기(app/workflow_exec.py)의 상태 읽기 · 실행 · 멈춤(spec_워크플로우 ② §17-9 「화면 · 대시보드 · 에이전트」 · 끝점은 ② §17-5 「끝점」).
 // **첫 화면의 대시보드**(home_dash.js — spec_작업에이전트 ② §10 「첫 화면의 대시보드」)와 **문서 화면**(작업 개요 · 대시보드)이 같이 쓴다 — 두 보기가 같은 서버 상태 · 같은 실행 id 를 본다(따로 세지 않는다).
-// 여기는 끝점을 부르고 답의 꼴을 맞추는 일만 한다(그리기 · 단추는 그 보기의 몫). app.js 의 이름: api · H_JSON 둘뿐.
+// 여기는 끝점을 부르고 답의 꼴을 맞추는 일만 한다(그리기 · 단추는 그 보기의 몫). app.js 의 이름: api · H_JSON — 끝 확정을 따라오는 flowBaseSync 만 state · adoptBase · applyDoc · commitsLoad · commitBar · toast 도.
 //
 // wid = 그 묶음(프로젝트 · 워크플로우 · 라운드)의 **어느 문서든** — 서버가 목적 문서를 찾는다.
 // - flowGet(wid) → 지금 상태 {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[…] | null, total, done, left, can, why, paid, change}], run, last} | null(옛 서버 · 그런 작업 없음)
@@ -106,9 +106,38 @@ function flowNoticeSync(id, r) {
     // 도는 실행이 있으면 그 거울(singleRunFollow)이 끝에서 읽는다 — 여기서 겹쳐 읽지 않는다
     const after = () => { if (missed && !(r && r.run && r.run.status === "running") && singleOn() && state.id === id && !(typeof taskRun !== "undefined" && taskRun)) singleAfter(id); };
     if (flowDirty()) { flowBand(false); if (was) toast("워크플로우가 이 문서를 바꿨지만 고치던 글이 있어 문서를 다시 읽지 않았습니다 — 「고친 문단」 탭에서 다시 반영한 뒤 새로 고치세요", true); after(); return; }
-    if (r && r.rev != null && r.rev !== state.serverRev) flowReload(id).finally(() => { if (!flowFence) flowBand(false); after(); }); // 다시 읽는 동안에도 띠(입력 막음)는 그대로 — 그 사이 친 글이 새 문서에 덮이지 않게
-    else { flowBand(false); after(); }
+    if (r && r.rev != null && r.rev !== state.serverRev) flowReload(id).finally(() => { if (!flowFence) flowBand(false); after(); flowBaseSync(id, r); }); // 다시 읽는 동안에도 띠(입력 막음)는 그대로 — 그 사이 친 글이 새 문서에 덮이지 않게
+    else { flowBand(false); after(); flowBaseSync(id, r); }
+    return;
   }
+  if (!n) flowBaseSync(id, r); // 끝 확정(spec_워크플로우 ② §18-24) — 서버가 이 문서를 확정해 기준이 바뀌었으면 새 기준으로(확인마다 · 기준이 같으면 바로 돌아온다)
+}
+
+// 묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」) — 서버 실행이 이 문서를 확정하면 문서 차례(rev)는 그대로이고 기준(base)만 바뀐다:
+// 확인(GET …/flow/live 의 base)이 지금 기준과 다르면 문서를 한 번 읽어(차례도 바뀌었으면 다시 그린다 — 알림을 놓친 화면) 새 기준으로 바꾸고(adoptBase — 고친 문단 0 · 확정 기록) 알림을 한 번(기준 번호마다).
+// 고치던 글이 있거나 · 이 화면이 확정 · 복원 · 구조 편집 중이거나 · 이미 읽는 중이면 하지 않는다(다음 확인이 다시 본다) → 바꿨나
+// 읽는 사이 이 화면이 글을 고쳐 보냈으면(수정 번호 localRev · 문서 차례 serverRev 가 움직임 — 큰 문서는 읽기가 몇 초) 그 읽은 문서는 옛것이다 — 그리지도 기준으로 삼지도 않는다(다음 확인이 다시 읽는다):
+// 옛 문서로 다시 그리면 방금 친 글이 화면에서 사라지고, 이어 친 글이 옛 글 위에 보내져 서버의 새 글을 덮는다(2026-11-22 검토)
+let flowBaseBusy = false;
+const flowBaseSaid = {}; // 문서 id → 알린 기준 번호
+async function flowBaseSync(id, now) {
+  if (flowBaseBusy || typeof state === "undefined" || state.id !== id || !state.stored || !now || now.base == null || now.base === state.base) return false;
+  if (flowDirty() || state.commitBusy || state.busy || typeof adoptBase !== "function") return false;
+  const epoch = state.epoch, lr = state.localRev, sr = state.serverRev;
+  flowBaseBusy = true;
+  try {
+    const d = await api(`/api/docs/${encodeURIComponent(id)}`);
+    if (state.id !== id || state.epoch !== epoch || flowDirty() || state.commitBusy || state.busy || (d.base || 0) === state.base) return false; // 읽는 사이 — 다른 문서 · 고친 글 · 확정 · 구조 편집이 끼었다
+    if (state.localRev !== lr || state.serverRev !== sr) return false; // 읽는 사이 고친 글을 보냈거나 다른 응답이 차례를 바꿨다 — 읽은 문서는 옛것이다
+    // 여기까지 왔으면 읽는 동안 이 화면은 아무것도 보내지 않았다(보낼 차례 · 보내는 중 · 구조 편집 없음 · 수정 번호 그대로) — 읽은 문서가 서버의 지금 문서다.
+    // 차례가 다르면(반영의 알림을 놓친 화면 — 숨긴 탭 · 서버를 다시 켜 차례가 앞으로 돌아간 문서) 먼저 다시 그린다
+    if (d.rev != null && d.rev !== state.serverRev && typeof applyDoc === "function") applyDoc(d);
+    adoptBase(d, false);
+    if (typeof commitsLoad === "function") commitsLoad();
+    if (typeof commitBar === "function") commitBar();
+    if (flowBaseSaid[id] !== d.base) { flowBaseSaid[id] = d.base; toast(`확정 ${d.base} — 워크플로우가 고친 문단을 확정했습니다(앞 상태는 「고친 문단」 탭 확정 기록의 복원)`); }
+    return true;
+  } catch (e) { console.warn(e); return false; } finally { flowBaseBusy = false; }
 }
 async function flowReload(id) { // 서버 실행이 바꾼 문서를 다시 읽는다(구조 반영 뒤 — divApply 의 reloadDoc 과 같은 길) · 프로젝트 구성 상태도
   try {
@@ -211,9 +240,10 @@ async function taskRunFollow(g, plan, report, n, { quiet = false, redo = "", onl
   }
   // 거울(taskRun)은 끝 글을 남기는 그 순간까지 둔다 — 다시 읽기 · 단계 재료 읽기를 기다리는 동안 「!taskRun」 을 보는 쪽(검사 · 에이전트 agwRunning)이 끝 글 없이 끝난 것으로 보지 않게(단추는 그동안 꺼진 채)
   try {
-    if (state.id === report.id && !flowDirty()) { // 서버 실행이 이 문서를 바꿨는데(구조 반영 …) 알림을 놓쳤으면 — 끝난 뒤 한 번 견줘 다시 읽는다
-      const now = await api(flowUrl(report.id, "/live")).catch(() => null);
-      if (now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(report.id);
+    if ((state.id === report.id || state.id === plan.id) && !flowDirty()) { // 서버 실행이 이 문서를 바꿨는데(구조 반영 …) 알림을 놓쳤으면 — 끝난 뒤 한 번 견줘 다시 읽는다 · 끝 확정이 기준을 바꿨으면 새 기준으로(② §18-24)
+      const id = state.id, now = await api(flowUrl(id, "/live")).catch(() => null);
+      if (id === report.id && now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(report.id);
+      if (now && !now.notice) await flowBaseSync(id, now);
     }
     const same = () => { const s = taskSlots(), now = (s || []).map((k) => taskSlotDoc(k)); return !!s && !gatherOn() && now[0] && now[1] && now[0].id === plan.id && now[1].id === report.id; };
     if (same()) { try { await taskFlowLoad(); if (typeof taskGuidesLoad === "function") await taskGuidesLoad(report); } catch (e) { console.warn(e); } } // 「문서 검토」 의 분석 · LLM 은 문서의 차례를 안 올린다 — 단계 셈의 재료(분석 요약 · 저장한 작성 지침)를 다시 읽는다
@@ -347,6 +377,7 @@ async function gatherRunFollow(stage, plan, n, opt = {}, first = "") { // 그 �
       if (now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(plan.id);
       else if (typeof divShow === "function") await divShow();
       if (view && view === dv && !view.values) { view.values = keep; if (typeof divRender === "function" && keep) divRender(); } // 못 읽었으면 쥐고 있던 값으로
+      if (now && !now.notice) await flowBaseSync(plan.id, now); // 끝 확정이 취합본의 기준을 바꿨으면 새 기준으로(② §18-24)
     }
     const cur = gatherPlan();
     if (cur && cur.id === plan.id) await gatherLoad();
@@ -360,7 +391,7 @@ async function gatherRunFollow(stage, plan, n, opt = {}, first = "") { // 그 �
 }
 
 // 그 묶음을 서버 쪽 실행기로 시작한다 → 끝 {ok, text, none?}(서버가 돌았다 — 끝까지 따라간 뒤) | null(서버가 맡지 않는 묶음 · 옛 서버 · 끄는 스위치 — 부르는 쪽이 화면 실행으로 간다).
-// opt = gatherRunStage 의 것: quick(구조 맞춤에 지움이 있으면 멈춤) · auto(Set — 이번에 올린 문서: 미지정이면 반영할 기관을 자동 지정) · llm(false = LLM 검토 안 함) · log · quiet
+// opt = gatherRunStage 의 것: quick(구조 맞춤에 지움이 있으면 멈춤) · auto(Set — 이번에 올린 문서: 미지정이면 반영할 기관을 자동 지정) · llm(false = LLM 검토 안 함) · log · quiet · only(줄 key — 그 줄 하나만) · from(정의 묶음 id — 주면 그 묶음에서)
 async function gatherRunServer(stage, plan, opt = {}, first = "") {
   if (state.id === plan.id) { // 화면의 약속(spec_워크플로우 ② §17-7 「시작」) — 고친 글 · 구성 입력을 먼저 서버에(서버 실행은 서버의 문서 · 값으로 돈다)
     await flushAll();
@@ -371,9 +402,10 @@ async function gatherRunServer(stage, plan, opt = {}, first = "") {
     }
   }
   // 취합형으로 조립한 워크플로우 — 화면의 묶음을 그 정의의 묶음으로(지금 할 줄이 든 묶음: task_catalog.js gatherDefStage) · 서버 실행기만 돌린다(화면의 취합 실행은 붙박이의 차례라 그 정의를 모른다: ② §18-12 ⑤)
-  const job = gatherJobNow(), made = !!(TASK_CATALOG[job] || {}).custom, from = gatherDefStage(stage.id, job, first);
+  const job = gatherJobNow(), made = !!(TASK_CATALOG[job] || {}).custom, from = opt.from || gatherDefStage(stage.id, job, first); // opt.from = 정의 묶음을 부른 쪽이 안다(대시보드의 조립 도구 줄 — 같은 도구를 두 묶음에 놓았을 때)
   if (!from) { const why = `이 워크플로우에는 「${stage.short || stage.name}」 의 줄이 없습니다 — 워크플로우 페이지의 「워크플로우 조립」 에서 줄을 넣거나, 단계별 단추로 진행하세요`; if (!opt.quiet) toast(why, true); return { ok: false, text: why }; }
-  const r = await flowStart(plan.id, { from, where: "panel", docs: { target: plan.id }, ...(opt.quick ? { quick: true } : {}), ...(opt.auto && opt.auto.size ? { auto: [...opt.auto] } : {}), ...(opt.llm === false ? { llm: false } : {}) });
+  const r = await flowStart(plan.id, { from, where: "panel", docs: { target: plan.id }, ...(opt.quick ? { quick: true } : {}), ...(opt.auto && opt.auto.size ? { auto: [...opt.auto] } : {}), ...(opt.llm === false ? { llm: false } : {}),
+    ...(opt.only ? { only: opt.only } : {}) }); // only = 줄 하나만(대시보드의 「이 단계만 진행」 — 화면의 묶음에 없는 조립 도구 「넣은 뒤 템플릿 · 서식 정리」: dashboard.js dashGatherLive)
   if (!r.ok && (r.reason === "client" || r.reason === "old")) { // 서버가 맡지 않는 묶음 · 옛 서버 — 화면이 돈다(전과 같다) · 조립한 것은 화면이 돌리지 않는다
     if (!made) return null;
     const why = "이 워크플로우는 서버가 돌립니다 — 서버가 이 묶음을 맡지 못했습니다(서버를 새 판으로 켠 뒤 다시 누르세요)"; if (!opt.quiet) toast(why, true); return { ok: false, text: why };
@@ -457,6 +489,7 @@ async function singleRefresh(id) { // 실행이 끝난 뒤 — 서버 실행이 
     if (state.id === id && !flowDirty()) {
       const now = await api(flowUrl(id, "/live")).catch(() => null);
       if (state.id === id && now && now.rev != null && now.rev !== state.serverRev && !now.notice) await flowReload(id);
+      if (state.id === id && now && !now.notice) await flowBaseSync(id, now); // 끝 확정이 기준을 바꿨으면 새 기준으로(② §18-24 — 곁에서 지켜본 실행 · 줄 목록 이관형 · 문서 하나의 거울이 끝에서 여기로 온다)
     }
   } catch (e) { console.warn(e); }
   await singleAfter(id);

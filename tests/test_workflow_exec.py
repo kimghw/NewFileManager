@@ -468,19 +468,25 @@ def test_frame_runs_confirm_fit_reanalysis_and_llm_on_the_server(fit):
 
 
 def test_frame_halts_before_changing_the_document_when_a_screen_has_unsent_text(fit):
-    """울타리 — 그 문서를 연 화면에 서버에 반영하지 못한 글이 있으면 문서를 바꾸기 전에 멈춘다(계획도 세우지 않음)."""
+    """울타리 — 그 문서를 연 화면에 서버에 반영하지 못한 글이 있으면 문서를 바꾸기 전에 멈춘다(계획도 세우지 않음).
+    화면 스레드가 늦게 돌아도 뜻이 같게 — 알림 뒤의 보고가 들어갈 때까지 판정의 창(settle · limit)을 닫아 둔다(test_fence_waits_for_the_screens_that_were_reporting 와 같은 까닭)."""
+    win = {k: X.FENCE_WAIT[k] for k in ("settle", "limit")}
+    X.FENCE_WAIT.update(settle=10.0, limit=20.0)
     X.report("t", "scr-a", 0)   # 알림 전부터 보고하던 화면
     stop = threading.Event()
 
     def screen():   # 알림을 본 뒤에도 고치던 글이 남는 화면(반영 실패)
         while not stop.is_set():
+            note = X.NOTICE.get("t")   # 보고 전에 본 알림 — 이 보고는 그 알림 뒤의 것이다
             X.report("t", "scr-a", 1)
+            if note and X.FENCE_WAIT["settle"] != win["settle"]:   # 알림 뒤의 보고가 들어간 뒤에야 창을 연다
+                X.FENCE_WAIT.update(settle=win["settle"], limit=max(win["limit"], time.time() - note["since"] + win["limit"] - win["settle"]))
             time.sleep(0.02)
     th = threading.Thread(target=screen, daemon=True)
     th.start()
     try:
         X.start("t", {"from": "frame"})
-        rec = _done("t")
+        rec = _done("t", 30)
     finally:
         stop.set()
         th.join()
@@ -489,29 +495,52 @@ def test_frame_halts_before_changing_the_document_when_a_screen_has_unsent_text(
 
 
 def test_fence_waits_for_the_screens_that_were_reporting(fit):
-    """알림 전에 보고하던 화면이 알림 뒤에 0 을 보고하면 바로 · 보고가 끊긴 화면은 settle 뒤에(닫힌 화면) · 그동안 멈춤이면 _Stop."""
+    """알림 전에 보고하던 화면이 알림 뒤에 0 을 보고하면 바로 · 보고가 끊긴 화면은 settle 뒤에(닫힌 화면) · 그동안 멈춤이면 _Stop.
+    화면 스레드가 늦게 돌아도(병렬 시험의 부하 · 다른 스레드가 GIL 을 오래 쥠) 뜻이 같게 — 화면의 보고가 들어가기 전에는 판정의 창(settle · limit)을 닫아 두고,
+    알림 → 보고의 차례는 시각이 아니라 사건으로 맞춘다(전에는 화면이 알림 뒤 settle 0.3초 안에 두 번 보고해야 했다: 그보다 늦으면 ① 이 settle 로 지나 떨어졌다)."""
+    win = {k: X.FENCE_WAIT[k] for k in ("settle", "limit")}   # 시험의 창(fit — settle 0.3 · limit 0.8)
+    shut = {"settle": 10.0, "limit": 20.0}                     # 닫힌 창 — 화면의 보고가 들어갈 때까지 판정이 settle · limit 로 끝나지 않는다
     run = X.Run({"n": 7, "docs": {"target": {"id": "t"}}, "stopping": False}, None, {}, None)
-    X.report("t", "a", 0)
+    seen = {}
 
-    def screen(acks=True):   # 알림을 받고(입력을 막고 보낸 뒤) 그 key 를 되돌려 0 을 보고하는 화면 — 받기 전에 잰 0 은 받았음이 아니다
+    def screen(acks):   # 알림을 받고(입력을 막고 보낸 뒤) 그 key 를 되돌려 0 을 보고하는 화면 — 받기 전에 잰 0 은 받았음이 아니다
         t0 = time.time()
-        while "t" not in X.NOTICE and time.time() - t0 < 2:
+        while "t" not in X.NOTICE and time.time() - t0 < 30:   # 알림은 울타리가 들어서자마자 건다 — 끝은 넉넉히
             time.sleep(0.005)
+        note = X.NOTICE["t"]   # 창이 닫혀 있어 이 보고 전에는 울타리가 끝나지 않는다(알림이 그대로 있다)
         X.report("t", "a", 0)   # 알림을 아직 못 본 보고(ack 없음) — 받았음으로 세지 않는다
-        time.sleep(0.05)
         if acks:
-            X.report("t", "a", 0, X.NOTICE["t"]["key"])
-    threading.Thread(target=screen).start()
+            time.sleep(0.05)   # 울타리가 그 보고를 읽을 틈
+            seen["early"] = "t" in X.FENCE   # ack 없는 0 으로 지났으면 참(창이 닫혀 있어 settle 로는 못 지난다)
+            X.report("t", "a", 0, note["key"])
+        else:   # 보고가 들어간 뒤에야 창을 연다 — settle 은 시험의 값 그대로 · limit 은 settle 이 열린 뒤로 적어도 (limit − settle) 초(그동안 settle 이 지난 판정이 돈다)
+            X.FENCE_WAIT.update(settle=win["settle"], limit=max(win["limit"], time.time() - note["since"] + win["limit"] - win["settle"]))
+
+    def follow(acks):
+        th = threading.Thread(target=screen, args=(acks,), daemon=True)
+        th.start()
+        return th
+
+    X.report("t", "a", 0)   # 알림 전부터 보고하던 화면
+    X.FENCE_WAIT.update(shut)
+    th = follow(True)
     t0 = time.time()
     with run.fence("t"):
         assert X.notice_of("t")["fenced"] and X.notice_of("t")["key"].startswith("t:7:")
-    assert time.time() - t0 < X.FENCE_WAIT["settle"] and X.notice_of("t") is None and X.fence_why("t") == ""
+        assert X.REPORTS["t"]["a"][3] == X.NOTICE["t"]["key"]   # 받았음(그 key 의 0)을 보고 지났다 — ack 없는 0 이 아니라
+    assert time.time() - t0 < shut["settle"] and X.notice_of("t") is None and X.fence_why("t") == ""   # settle 을 기다리지 않음
+    th.join(10)
+    assert not th.is_alive() and seen["early"] is False
     X.report("t", "a", 0)
-    threading.Thread(target=lambda: screen(acks=False)).start()   # 알림 뒤에 보고는 하는데 받았음을 안 보내는 화면 — settle 이 지나도 기다리다 멈춘다(입력을 아직 못 막은 화면)
+    th = follow(False)   # 알림 뒤에 보고는 하는데 받았음을 안 보내는 화면 — settle 이 지나도 기다리다 멈춘다(입력을 아직 못 막은 화면)
+    t0 = time.time()
     with pytest.raises(X._Halt) as e:
         with run.fence("t"):
             pass
-    assert e.value.code == "dirty"
+    assert e.value.code == "dirty" and time.time() - t0 >= win["limit"] - 0.05
+    th.join(10)
+    assert not th.is_alive()
+    X.FENCE_WAIT.update(win)
     X.REPORTS.clear()
     X.report("t", "gone", 0)
     t0 = time.time()
@@ -1078,3 +1107,201 @@ def test_lines_of_two_runs_that_touch_each_others_document_take_turns(fit, monke
     _done("t")
     rec = X.record("t", run["n"])
     assert rec["status"] == "done" and [c[0] for c in fit.calls if c[0] in ("plan", "apply")] == ["plan", "apply"] and not X.CLAIMS
+
+
+# ================================================================ 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」 — 2026-11-22 사용자 「대쉬보드에서 이어서 하기나 하넌에 진행하는 경우, 고친문단을 자동으로 확정해줘,」)
+class CommitDoor:
+    """확정의 문(진짜 문 unit_steps 의 commit_info · commit · base_now · rev_now 꼴) — 문서 차례(rev)가 마지막 확정 때와 다르거나 dirty 에 든 문서가 고친 것이 있는 문서다.
+    commits 에 부른 확정이 남는다(그 실행 스레드의 울타리 안이었나 · 메시지 · llm). 다른 가짜 문 위에 얹어 쓴다(class X(CommitDoor, FitFake))."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.based, self.base, self.commits, self.stored, self.dirty = {}, {}, [], True, set()
+
+    def rev_now(self, doc):
+        r = getattr(self, "rev", 0)
+        return r.get(doc, 0) if isinstance(r, dict) else (r if doc == "t" else 0)
+
+    def _dirty(self, doc):
+        return self.rev_now(doc) != self.based.get(doc, 0) or doc in self.dirty
+
+    def commit_info(self, doc):
+        return {"stored": self.stored, "dirty": self._dirty(doc), "edited": (self.rev_now(doc) - self.based.get(doc, 0)) * 10 + (5 if doc in self.dirty else 0), "base": self.base.get(doc, 0)}
+
+    def base_now(self, doc):
+        return self.base.get(doc, 0)
+
+    def commit(self, doc, message, flow=None, llm=True):
+        f = X.FENCE.get(doc) or {}
+        self.commits.append({"doc": doc, "message": message, "flow": flow, "llm": llm, "fenced": f.get("thread") == threading.get_ident()})
+        self.calls.append(("commit", doc))
+        if not self._dirty(doc):
+            return Outcome("nothing", "확정할 변경이 없습니다")
+        parent = self.base.get(doc, 0)
+        self.base[doc], self.based[doc] = parent + 1, self.rev_now(doc)
+        self.dirty.discard(doc)
+        return Outcome("ok", "", {"n": parent + 1, "parent": parent, "counts": {"total": 12}})
+
+
+class CommitFit(CommitDoor, FitFake):
+    """구성 맞추기의 가짜 문 + 확정."""
+
+
+@pytest.fixture
+def cfit(monkeypatch):
+    f = CommitFit()
+    monkeypatch.setattr(X, "UNIT", f)
+    monkeypatch.setitem(X.WAIT, "poll", 0.005)
+    for k, v in (("settle", 0.3), ("limit", 0.8), ("poll", 0.01)):
+        monkeypatch.setitem(X.FENCE_WAIT, k, v)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
+        d.clear()
+    yield f
+    _done("t", 5)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
+        d.clear()
+
+
+def test_a_group_run_commits_the_document_it_changed_once_at_the_end(cfit, monkeypatch):
+    """묶음의 「한 번에 진행」 — 마지막 줄 뒤에 한 번, 그 실행의 울타리 안에서(실행 스레드) 바꾼 목적 문서만 확정 · 끝 글의 꼬리 · 요약의 commits.
+    다시 돌린 묶음은 바꿀 줄이 있어도 고친 것이 없으면 「nothing」 — 울타리를 세우지 않는다."""
+    X.start("t", {"from": "frame", "skip": ["k1"]})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert [c["doc"] for c in cfit.commits] == ["t"] and cfit.commits[0]["fenced"] and cfit.commits[0]["flow"] == rec["n"] and cfit.commits[0]["llm"] is True
+    assert cfit.calls.index(("commit", "t")) > cfit.calls.index(("llm", "t"))   # 마지막 줄(다시 문서 검토(LLM)) 뒤에 한 번
+    assert cfit.commits[0]["message"] == f"워크플로우 실행 {rec['n']} — 2단계 「구성 맞추기」 한 번에 진행"
+    c = rec["commits"][0]
+    assert (c["doc"], c["role"], c["name"], c["status"], c["n"], c["parent"], c["count"], c["pre"], c["why"]) == ("t", "target", "연차보고서", "ok", 1, 0, 12, 0, "")
+    assert rec["end"]["text"].startswith("끝남 — 구조를 맞췄습니다") and rec["end"]["text"].endswith(" · 내용은 3단계 「내용 넣기」 에서 넣습니다 · 확정 1(연차보고서 — 고친 문단 12 · 앞 상태 = 올린 원본)")
+    assert len(rec["end"]["text"]) <= X.TEXT_MAX and X.status_of("t")["last"]["commits"][0]["status"] == "ok" and not X.FENCE and not X.NOTICE
+    notes, fence0 = [], X.Run.fence
+    monkeypatch.setattr(X.Run, "fence", lambda self, doc: (notes.append(((self.rec.get("now") or {}).get("note") or "")), fence0(self, doc))[1])
+    X.start("t", {"from": "frame", "redo": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "done" and len(cfit.commits) == 1 and [x["status"] for x in rec["commits"]] == ["nothing"] and "확정" not in rec["end"]["text"]
+    assert not any("확정" in n for n in notes)   # 고친 것이 없으면 울타리를 세우지 않는다(읽기 전용 띠 · 기다림 없음)
+
+
+def test_a_group_run_also_commits_what_an_earlier_halted_run_left(cfit):
+    """멈춘 실행은 확정하지 않는다 — 그 실행이 남긴 고침은 다음 묶음째 실행이 확정한다(그 묶음의 문서를 바꾸는 줄이 이번에는 한 일이 없어도: 범위의 줄로 문서를 고른다)."""
+    cfit.fail.add("t")   # 다시 분석이 실패 — 구조 반영 뒤에 멈춘다
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and cfit.rev["t"] == 1 and cfit.commits == [] and "commits" not in rec and "확정" not in rec["end"]["text"]
+    cfit.fail.discard("t")
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert next(s for s in rec["steps"] if s["key"] == "division")["status"] == "nothing"   # 이번 실행은 문서를 바꾸지 않았다
+    assert [c["doc"] for c in cfit.commits] == ["t"] and rec["commits"][0]["status"] == "ok" and rec["pre"] == {"t": 10}
+    assert cfit.commits[0]["message"].endswith("(실행 전부터 고친 문단 10 포함)") and rec["commits"][0]["pre"] == 10
+
+
+def test_line_runs_and_groups_without_document_changing_lines_do_not_commit(cfit):
+    """줄 하나(「이 단계만 진행」 — only)는 확정하지 않는다 · 문서를 바꾸는 줄이 없는 묶음(문서 검토)은 고친 것이 있어도 확정하지 않는다."""
+    cfit.config_confirm("t", V2)   # 구성 반영 줄 하나만 — 구성 값이 확정돼 있어야 시작한다
+    X.start("t", {"from": "frame", "only": "division"})
+    rec = _done("t")
+    assert rec["status"] == "done" and cfit.rev["t"] == 1 and cfit.commits == [] and "commits" not in rec and "pre" not in rec
+    X.start("t", {"from": "review", "redo": "review"})
+    rec = _done("t")
+    assert rec["status"] == "done" and cfit.commits == [] and rec["commits"] == [] and rec["pre"] == {"t": 10}
+
+
+def test_stopped_and_halted_runs_do_not_commit(cfit):
+    """같은 검사에 걸려 멈춤(사람이 볼 계획이 남는다 — 확정은 그 계획을 비운다) · 멈춤을 누름 — 확정하지 않는다."""
+    cfit.stops = "미해결 2곳"
+    cfit.dirty.add("t")   # 실행 전부터 고친 것이 있다
+    X.start("t", {"from": "frame"})
+    rec = _done("t")
+    assert rec["status"] == "halted" and rec["halt"]["code"] == "stops" and cfit.commits == [] and "commits" not in rec
+    cfit.stops = ""
+    cfit._begin = lambda doc, kind, polls=400, _b=cfit._begin: _b(doc, kind, polls)   # LLM 이 오래 돈다
+    X.start("t", {"from": "frame"})
+    t0 = time.time()
+    while ("llm", "t") not in cfit.calls and time.time() - t0 < 5:
+        time.sleep(0.005)
+    assert X.stop("t")["stopping"]
+    rec = _done("t")
+    assert rec["status"] == "stopped" and cfit.commits == [] and "commits" not in rec
+
+
+@pytest.mark.parametrize("case", ["dirty", "stop"])
+def test_a_commit_that_cannot_take_the_fence_is_skipped_and_the_run_stays_done(cfit, case):
+    """끝 확정의 울타리 — 그 문서를 연 화면에 반영하지 못한 글이 남음(시간 초과) · 그동안 멈춤을 누름: 확정하지 않고 끝 글에 까닭 · 실행 취소로 되돌릴 수 있다고 적는다(실행의 끝 상태는 그대로)."""
+    stop = threading.Event()
+
+    def screen():   # 그 문서를 연 화면 — 알림마다 받았음(0)을 보낸다 · 확정의 알림에는 dirty = 반영 못 한 글 1 · stop = 멈춤을 누름
+        while not stop.is_set():
+            note = X.NOTICE.get("t")
+            committing = "고친 문단 확정 중" in ((((X.live("t") or {}).get("now")) or {}).get("note") or "")
+            if committing and case == "stop":
+                X.stop("t")
+            else:
+                X.report("t", "scr", 1 if committing else 0, note["key"] if note else "")
+            time.sleep(0.005)
+    th = threading.Thread(target=screen, daemon=True)
+    th.start()
+    try:
+        X.start("t", {"from": "frame"})
+        rec = _done("t", 15)
+    finally:
+        stop.set()
+        th.join(5)
+    assert rec["status"] == "done" and rec["end"]["ok"] and cfit.commits == [], rec["end"]
+    c = rec["commits"][0]
+    assert c["status"] == "skipped" and c["why"] == ("그 문서를 연 화면에 반영하지 못한 글이 있음" if case == "dirty" else "멈춤을 누름")
+    assert rec["end"]["text"].endswith(f" · 확정하지 않음(연차보고서 — {c['why']}) · 반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정") and len(rec["end"]["text"]) <= X.TEXT_MAX
+    assert not X.FENCE and not X.NOTICE
+
+
+def test_lane_runs_commit_only_their_own_document_and_a_two_document_run_commits_the_source_first(cfit, monkeypatch):
+    """문서 하나만 잡은 실행(「원본 문서만」 · 「목적 문서만」)은 제가 잡은 문서만 · 두 문서를 다 쓰는 실행은 원본 → 목적 차례로 확정한다."""
+    _fit_on(monkeypatch, division="both", reheads="both", reheadsLlm="both")
+    cfit.division_adopt = lambda doc, values=None: Outcome("ok", "", {"adopted": False})
+    cfit.config_confirm("t", V2)
+    X.start("t", {"from": "frame", "role": "source"})
+    rec = _done("t")
+    assert rec["status"] == "done" and rec["lane"] == "source" and [c["doc"] for c in cfit.commits] == ["s"] and rec["commits"][0]["role"] == "source", rec["end"]
+    assert cfit.commits[0]["message"] == f"워크플로우 실행 {rec['n']} — 2단계 「구성 맞추기」 — 원본 문서(사업계획서)만"
+    X.start("t", {"from": "frame", "role": "target"})
+    rec = _done("t")
+    assert rec["status"] == "done" and [c["doc"] for c in cfit.commits] == ["s", "t"] and [x["doc"] for x in rec["commits"]] == ["t"], rec["end"]
+    cfit.rev.update(s=cfit.rev["s"] + 1, t=cfit.rev["t"] + 1)   # 두 문서 다 사람이 더 고쳤다
+    X.start("t", {"from": "frame", "redo": "frame"})
+    rec = _done("t")
+    assert [c["doc"] for c in cfit.commits][2:] == ["s", "t"] and [x["status"] for x in rec["commits"]] == ["ok", "ok"]
+    assert rec["end"]["text"].endswith(" · 확정 — 사업계획서 2 · 연차보고서 2")
+
+
+def test_an_agent_run_commits_without_the_paid_verification_unless_the_card_approved_the_document(cfit):
+    """에이전트 카드가 시작한 실행 — 남김으로 끝나도 확정한다 · 카드가 유료로 승인하지 않은 문서는 새 기준의 검증 LLM 을 부르지 않는다(llm False) · 승인한 문서는 부른다."""
+    X.start("t", {"from": "frame", "by": "agent", "paid": []})
+    rec = _done("t")
+    assert rec["status"] == "left" and rec["commits"][0]["status"] == "ok" and cfit.commits[-1]["llm"] is False
+    cfit.dirty.add("t")
+    X.start("t", {"from": "frame", "by": "agent", "paid": ["t"]})
+    rec = _done("t")
+    assert rec["status"] == "done" and cfit.commits[-1]["llm"] is True and rec["commits"][0]["pre"] == 5
+
+
+def test_the_commit_tail_always_fits_in_the_end_text():
+    tail = X._commit_tail([{"name": "연차보고서", "status": "ok", "n": 8, "parent": 7, "count": 1234}])
+    assert tail == " · 확정 8(연차보고서 — 고친 문단 1,234 · 앞 상태 = 확정 7)"
+    text = X._end_text("끝남 — " + "가" * 400, tail)
+    assert len(text) == X.TEXT_MAX and text.endswith(tail) and "…" in text
+    assert X._end_text("끝남 —   짧음", "") == "끝남 — 짧음"
+    assert X._commit_tail([{"name": "사업계획서", "status": "ok", "n": 3, "parent": 2, "count": 1}, {"name": "연차보고서", "status": "ok", "n": 8, "parent": 7, "count": 2}, {"name": "x", "status": "nothing"}]) == " · 확정 — 사업계획서 3 · 연차보고서 8"
+    assert X._commit_tail([{"name": "연차보고서", "status": "skipped", "why": "멈춤을 누름"}]) == " · 확정하지 않음(연차보고서 — 멈춤을 누름) · 반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정"
+    assert X._commit_tail([{"status": "off"}, {"status": "nothing"}]) == "" and X._commit_tail(None) == ""
+    # 둘 다 못 함 — 긴 오류 글 · 긴 문서 이름이어도 꼬리는 짧게(이름 · 까닭을 자른다): 두 문서의 까닭과 안내가 다 들고 앞 글만 잘린다(2026-11-22 검토)
+    long_why = "OSError: [Errno 13] Permission denied: 'E:/works/abcdef1234567890/commits/9.hwpx' " * 2
+    src = {"name": "원본 문서(아주 긴 이름의 사업계획서 문서 — 기관 공통 양식)", "status": "failed", "why": long_why[:120]}
+    tgt = {"name": "목적 문서(연차보고서)", "status": "skipped", "why": "그 문서를 연 화면에 반영하지 못한 글이 있음"}
+    for rows in ([src, tgt], [{**src, "status": "ok", "n": 12345, "parent": 12344, "count": 123456}, {**tgt, "why": long_why}]):   # 둘 다 못 함 · 하나만 함(실행이 잡는 문서는 둘까지)
+        tail = X._commit_tail(rows)
+        assert len(tail) <= 200 and tail.endswith("반영은 「실행 취소」 로 되돌릴 수 있습니다 — 「고친 문단」 탭에서 확정") and "목적 문서(연차보고서) — " in tail
+        text = X._end_text("멈춤 — " + "나" * 400, tail)
+        assert len(text) <= X.TEXT_MAX and text.endswith(tail) and text.startswith("멈춤 — 나")
+    assert "목적 문서(연차보고서) — 그 문서를 연 화면에 반영하지 못한 글이 있음" in X._commit_tail([src, tgt])

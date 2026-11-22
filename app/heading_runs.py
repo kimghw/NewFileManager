@@ -7,6 +7,7 @@
 - 세션 속성(동적): `heads` = {"job": Job | None, "stage1": 결과, "stage2": 결과, "runs": [메타…]} — Session 클래스는 건드리지 않는다."""
 import copy
 import gzip
+import hashlib
 import json
 import os
 import sys
@@ -172,13 +173,35 @@ def _summary1(res):
             "conflicts": len(res["review"]["conflicts"])}
 
 
-def _guides(sess):
-    """실행 시작 때 고정하는 지침 — 일반 지침 5개(heading_guides) + 이 문서의 양식 정보("form", 맞는 양식이 있을 때만 — spec ② §12)."""
+def _guides(sess, place=False):
+    """실행 시작 때 고정하는 지침 — 일반 지침 5개(heading_guides) + 이 문서의 양식 정보("form", 맞는 양식이 있을 때만 — spec ② §12)
+    + place = 참이면(LLM 을 부르는 실행) **그 자리의 작성 지침**("place" — 문서가 양식으로 적어 둔 작성 요령 · ※ 안내 · <참고 N> · 각주 번호의 항목, 있을 때만 — spec ② §20)."""
     g = G.snapshot()
     form = F.pin(sess)
     if form:
         g["form"] = form
+    if place:
+        pl = _place(sess)
+        if pl:
+            g["place"] = pl
     return g
+
+
+def _place(sess):
+    """그 문서의 작성 지침을 판정 자료 꼴로 → {"sha1", "from"(doc | saved), "rev", "tables", "body"} | None(없음 · hwpx 아님 · 못 모음).
+    고르기는 저장과 같다(form_guides_api.current — 문서에서 모으고, 「작성요령 삭제」 로 문서에 없으면 저장본) · 작업 폴더에는 쓰지 않는다. 못 모으면 지침 없이 판정한다(멈추지 않는다)."""
+    from app import form_guides, form_guides_api
+    try:
+        with sess.lock:
+            got, kept = form_guides_api.current(sess)
+        pl = form_guides.places(got)
+    except Exception:  # 지침 모으기가 깨져도 판정은 돈다 — 서버 경고에만
+        sys.stderr.write("작성 지침을 판정 자료로 모으지 못함:\n" + traceback.format_exc())
+        return None
+    if not pl:
+        return None
+    blob = json.dumps(pl, ensure_ascii=False, sort_keys=True)
+    return {"sha1": hashlib.sha1(blob.encode("utf-8")).hexdigest(), "from": "saved" if kept else "doc", "rev": (got or {}).get("rev"), **pl}
 
 
 def run_stage1(sess, job, use_llm, pinned=None):
@@ -351,7 +374,7 @@ def _division_scan(sess):
 
 def run_stage2(sess, job, use_llm):
     st = state(sess)
-    guides0 = _guides(sess)  # 시작 때 고정(§7) — A·B·C 프롬프트와 기록이 같은 지침(+ 양식 정보)
+    guides0 = _guides(sess, place=use_llm)  # 시작 때 고정(§7) — A·B·C 프롬프트와 기록이 같은 지침(+ 양식 정보 + LLM 이면 그 자리의 작성 지침 — §20: B 구간 · 표 판정이 함께 쓴다)
     hints0 = copy.deepcopy(hints(sess))  # 라벨 지정도 시작 때 고정(§13) — 실행 중 바꿔도 이 실행은 이 지정으로
     # 구분 기준 판독이 먼저(2026-11-18 사용자 "구분기준은 첫번째하고 언제든지 다시 돌릴 수 있고 헤딩은 마지막 결과를 참조" — spec_구분_기준 ② §23 · ② §13 「구분 기준 판독」):
     # 지금 입력(문서·값·추가한 자리)의 마지막 판독을 확보해 이 실행 동안 고정한다. 판독은 헤딩을 읽지 않는다(한 방향)
@@ -423,7 +446,7 @@ def run_stage2(sess, job, use_llm):
 def run_stage3(sess, job, use_llm):
     """3단계 표 구조(spec ② §8) — 1단계가 없거나 오래됐으면(문서 rev·추출 방식) 먼저 다시 뽑고, heading_tables.build 로 초안(+ T 호출) → tables.json."""
     st = state(sess)
-    guides0 = _guides(sess)  # 시작 때 고정(§7)
+    guides0 = _guides(sess, place=use_llm)  # 시작 때 고정(§7) — LLM 이면 그 자리의 작성 지침도(§20)
     s1 = st.get("stage1")
     if s1 is None or s1.get("meta", {}).get("rev") != sess.rev or s1.get("version") != E.VERSION:
         job.step("1단계(스크립트) 다시")

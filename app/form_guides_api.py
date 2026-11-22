@@ -4,6 +4,7 @@
 - 저장 = 작업 폴더 `guides.json`(`form_guides.collect` 의 꼴 + `rev`(모은 때의 문서 차례) · `at`). id 는 그때의 것이라 글(지침 · 헤딩 · 표 이름)을 함께 적는다.
 - `keep(s)` = 지금 문서에서 모아 저장한다. **문서에 지침이 하나도 없는데 저장해 둔 것이 있으면 그대로 둔다**(「작성요령 삭제」 가 지운 뒤 — 지운 것을 빈 목록으로 덮지 않는다).
   「작성요령 삭제」(`merge_api.form_cleanup_post`)가 지우기 바로 전에 이것을 부른다 — 어느 길로 지워도 지침이 남는다.
+- `current(s)` = keep 과 같은 고르기를 하되 쓰지 않는다 — 헤딩 · 표 LLM 판정이 시작할 때 그 자리의 작성 지침을 자료로 싣는다(spec_헤딩_추출 ② §20 · 어느 문서 · 어느 워크플로우에서나).
 - 헤딩 · 표 이름은 마지막 분석 결과(`heading_runs.graph` · `heading_runs.tables`)에서 — 없으면 헤딩은 비우고 표 이름은 첫 줄의 글이다. 문서가 분석 뒤 바뀌었어도 그대로 쓴다(없어진 줄은 안 쓰인다 — 다시 돌리라고 하지 않는다)."""
 import logging
 import time
@@ -29,8 +30,9 @@ def load(wid):
     return got if isinstance(got, dict) and isinstance(got.get("items"), list) and isinstance(got.get("marks"), list) else None
 
 
-def keep(s, found=None):
-    """지금 문서에서 모아 저장한다 → (저장한 것 | None, 그대로 둠?). **세션 잠금(s.lock)을 쥔 채** 부른다. found = 이미 구한 `form_cleanup.find` 결과(없으면 여기서 구한다)."""
+def current(s, found=None):
+    """지금 쓸 작성 지침 → (그것 | None, 저장본인가?) — `keep` 과 같은 고르기(문서에서 모음 · 문서에 지침이 하나도 없고 저장해 둔 것이 있으면 저장본)이고 **쓰지 않는다**.
+    헤딩 · 표 LLM 판정이 시작할 때 자료로 고정한다(heading_runs._guides — spec_헤딩_추출 ② §20). **세션 잠금(s.lock)을 쥔 채** 부른다. hwpx 가 아니면 (None, False)."""
     from app import form_cleanup, heading_runs
     if s.fmt != "hwpx":
         return None, False
@@ -40,6 +42,14 @@ def keep(s, found=None):
         return old, True
     got = form_guides.collect(s.doc, heading_runs.graph(s), heading_runs.tables(s), found)
     got.update(rev=s.rev, at=time.time())
+    return got, False
+
+
+def keep(s, found=None):
+    """지금 문서에서 모아 저장한다 → (저장한 것 | None, 그대로 둠?). **세션 잠금(s.lock)을 쥔 채** 부른다. found = 이미 구한 `form_cleanup.find` 결과(없으면 여기서 구한다)."""
+    got, kept = current(s, found)
+    if got is None or kept:
+        return got, kept
     p = _path(s.id)
     if p is not None:
         works._write_json(p, got)
