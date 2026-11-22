@@ -430,8 +430,10 @@ def links_part(text):
 
 
 def prompt(payload, job=None, links="", guide=None):
-    """프롬프트 글 = 계약 + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
-    return CONTRACT + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    """프롬프트 글 = 계약(+ 목적 표에 작성 지침이 있으면 그 한 줄 — spec_병합 ② §5-11) + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
+    from app import place_guides as PG
+    note = PG.CONTRACT_LINE if (payload.get("target") or {}).get("guides") else ""
+    return CONTRACT + note + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def parts(job=None, links="", guide=None):

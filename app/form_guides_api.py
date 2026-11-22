@@ -41,6 +41,7 @@ def current(s, found=None):
     if not any(found.get(k) for k in ("tables", "refs", "notes", "marks")) and old is not None and (old["items"] or old["marks"]):
         return old, True
     got = form_guides.collect(s.doc, heading_runs.graph(s), heading_runs.tables(s), found)
+    got = form_guides.keep_old(got, old)   # 일부만 지운 뒤 다시 모아도 지운 지침은 남긴다(keep_old — 사라진 항목만 옛 값으로)
     got.update(rev=s.rev, at=time.time())
     return got, False
 

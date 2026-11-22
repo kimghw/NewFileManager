@@ -231,3 +231,13 @@ def test_an_answer_that_lumps_several_items_is_split_and_only_the_bad_item_is_sk
     assert [(s["record"], s["why"], s["detail"]) for s in p["skipped"]] == [(0, "shape", "2행 항목 — 목적 칸 하나에 원본 칸이 둘(열 0)")]   # 두 행에 걸친 이름 칸이 먼저 걸린다
     p = MM.plan(T, F, _map(T, F, [([1, 2], [1, 2])]))   # 한 항목(「가」) — 나눌 것이 없다
     assert p["cells"] == [] and [s["why"] for s in p["skipped"]] == ["shape"]
+
+
+def test_prompt_carries_the_table_guides_and_the_contract_line_only_when_there_are_some():
+    """표 대응의 자료 — 목적 표의 작성 지침 `target.guides`(spec_병합 ② §5-11)가 있으면 계약에 그 한 줄. 없으면 전과 같다."""
+    from app import merge_table_map as MT
+    from app import place_guides as PG
+    base = {"target": {"key": "t1", "title": "표", "grid": []}, "sources": []}
+    assert PG.CONTRACT_LINE not in MT.prompt(base)
+    got = MT.prompt({**base, "target": {**base["target"], "guides": [{"src": "doc", "kind": "각주 번호 3)", "label": "사업비3)", "cell": "r0c2", "text": "3. 해당 연도만"}]}})
+    assert PG.CONTRACT_LINE in got and '"cell":"r0c2"' in got

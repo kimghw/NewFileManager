@@ -14,6 +14,8 @@
 - `GET …/flow/runs?limit=` → {runs[요약 — 새 것부터]} · `GET …/flow/runs/{n}` → 기록 하나 · `POST …/flow/runs/{n}/stop` → {stopping}(어느 화면에서나 · 409 = 도는 실행이 없음).
 - `PUT …/flow/skip` {doc, on} → {llmSkip[문서 id]} — 「LLM 검증·보완」 의 건너뛰기 · 건너뛰기 취소(워크플로우 옵션 — 모든 화면 · 실행이 같이 본다).
 - `GET · PUT …/flow/take` → 「넣을 구성 선택」(spec_병합 ② §4-1): {take(넣을 기관 · 단계 · 차년도 | null = 전부), text, year(대상 차년도 = 목적 문서의 당해 차년도), yearApplied, choices, ready, why} · PUT {take?, year?}.
+- `GET · PUT …/flow/caption?doc=` → 「캡션 맞추기」 의 꼴(spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」): 그 문서(안 주면 목적 문서)의 고를 꼴들 · 쓸 꼴 · 맞출 줄의 수(caption_tpl_api.unify_view) ·
+  PUT {form: 꼴 열쇠 | null(줄이 가장 많은 꼴)} — 묶음의 워크플로우 옵션에 적는다(문서 안 바뀜 · 도는 실행이 있으면 409).
 - `GET /api/flow/active` → {runs[도는 실행]} — 8114 를 다시 켜기 전에 본다."""
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
@@ -121,6 +123,41 @@ def flow_take_put(wid: str, body: dict = Body(...)):
     got = X.UNIT.take_set(_target(wid), body)
     if not got.ok:
         raise HTTPException({"invalid": 400, "missing": 404}.get(got.code, 409), got.text or "넣을 구성을 적지 못했습니다")
+    return got.data
+
+
+def _cap_doc(wid, doc):
+    """「캡션 맞추기」 의 꼴을 셀 문서 — doc 를 주면 그 묶음의 문서여야 한다(원본 · 목적) · 안 주면 목적 문서."""
+    pair = X.UNIT.pair(wid)
+    if pair is None:
+        raise HTTPException(404, _NO)
+    ids = {(pair.get(r) or {}).get("id") for r in ("source", "target")} - {None}
+    if doc:
+        if doc not in ids:
+            raise HTTPException(400, "그 묶음의 문서가 아닙니다")
+        return doc
+    return ((pair.get("target") or {}).get("id")) or wid
+
+
+@router.get("/api/works/{wid}/flow/caption")
+def flow_caption_get(wid: str, doc: str | None = None):
+    """「캡션 맞추기」 — 그 문서의 고를 꼴들 · 묶음에 고른 꼴 · 쓸 꼴 · 맞출 줄의 수(문서 안 바뀜)."""
+    got = X.UNIT.cap_unify_view(_cap_doc(wid, doc))
+    if not got.ok:
+        raise HTTPException(404 if got.code == "missing" else 409, got.text or "캡션을 읽지 못했습니다")
+    return got.data
+
+
+@router.put("/api/works/{wid}/flow/caption")
+def flow_caption_put(wid: str, body: dict = Body(...), doc: str | None = None):
+    """{form: 꼴 열쇠 | null} → 그 문서(안 주면 목적 문서)의 다시 읽은 보기. 꼴은 묶음에 하나다(원본 · 목적 문서에 같이 쓴다). 도는 실행이 있으면 409(그 실행이 맞출 꼴이 바뀐다)."""
+    if "form" not in body:
+        raise HTTPException(400, "form(꼴 열쇠 | null)이 있어야 합니다")
+    if X.busy_text(wid):
+        raise HTTPException(409, X.BUSY_TEXT)
+    got = X.UNIT.cap_form_set(_cap_doc(wid, doc), body["form"])
+    if not got.ok:
+        raise HTTPException({"invalid": 400, "missing": 404}.get(got.code, 409), got.text or "캡션의 꼴을 적지 못했습니다")
     return got.data
 
 

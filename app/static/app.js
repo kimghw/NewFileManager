@@ -7691,6 +7691,7 @@ function gutterSync() {
 const sheetMarginPx = (sheet, z) => Math.round(((state.sections[+sheet.dataset.sec] || DEFAULT_PAGE).marginsMm.l || 0) * PX_PER_MM * z * 10) / 10;
 
 function tplMarksDraw() {
+  if (typeof pgDraw === "function") pgDraw(); // 오른쪽 여백의 「지침」 단추(place_guides.js — 다음 프레임에 한 번: 배율 · 창 크기 · 쪽 다시 나눔 · 오버레이 · 쪽 보기 — 아래의 이른 return 과 무관하게)
   for (const e of document.querySelectorAll(".tpl-mark, .ol-grip")) e.remove();
   if (typeof docQuickSync === "function") docQuickSync(); // 이름 줄의 표시 아이콘 둘(doc_quick.js) — 표시할 것이 있는 문서인지가 여기서 바뀐다(오버레이·그래프를 읽은 뒤)
   if (typeof ddDraw === "function") ddDraw(); // 고친 곳 보기의 꼬리표(doc_diff.js) — 여기는 배율·창 크기가 바뀔 때도 불린다(꼬리표는 화면 크기 고정 — 자리를 다시): 다음 프레임에 한 번
@@ -10346,7 +10347,7 @@ function divHeadsSeen(key) { // 표 구조(3단계)의 실행이 바뀌었다(sp
   if (divMarksOn()) divMembersLoad(true);
 }
 
-function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽 — 바탕), dims[든 구분 — 겉→안 · 띠 차례], thin(판독만인 구분), readOnly(판독만인 문단), lab, hint, lines[겉→안 소속 글]}
+function divMembersIndex(r) { // 문단 id →{dim(가장 안쪽 — 바탕), dims[든 구분 — 겉→안 · 띠 차례], thin(판독만인 구분), readOnly(판독만인 문단), lab, hint, lines[겉→안 소속 글]}
   const idx = new Map();
   const rank = (dim) => (dim in DV_DIM_RANK ? DV_DIM_RANK[dim] : 4);
   const key = (dim) => (dim in DV_DIM_NAME ? dim : "other");

@@ -32,11 +32,49 @@ function panelHelpShow(button) {
   }
   if (panelHelpOwner !== button) panelHelpClose();
   panelHelpOwner = button;
-  panelHelpTip.textContent = button.dataset.help;
+  const raw = button.dataset.help || "";
+  if (button.dataset.helpRows) {
+    // 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity
+    panelHelpTip.classList.add("is-rows");
+    if (button.dataset.helpTitle) panelHelpTip.dataset.helpTitle = button.dataset.helpTitle;
+    else delete panelHelpTip.dataset.helpTitle;
+    const frag = document.createDocumentFragment(), lines = raw.split("\n");
+    let sawCore = false, condStarted = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) frag.append(document.createTextNode("\n"));
+      const line = lines[i], at = line.indexOf(" — "), row = document.createElement("div");
+      row.className = "panel-help-row";
+      if (at > 0) {
+        const key = line.slice(0, at), val = line.slice(at + 3), core = key === "하는 일" || key === "나오는 것";
+        row.dataset.helpKey = key;
+        if (core) { row.classList.add("is-core"); sawCore = true; }
+        else {
+          row.classList.add("is-cond");
+          if (sawCore && !condStarted) { row.classList.add("is-cond-start"); condStarted = true; }
+        }
+        const k = document.createElement("span"), sep = document.createElement("span"), v = document.createElement("span");
+        k.className = "panel-help-k"; k.textContent = key;
+        sep.className = "panel-help-sep"; sep.textContent = " — ";
+        v.className = "panel-help-v"; v.textContent = val;
+        row.append(k, sep, v);
+      } else {
+        const v = document.createElement("span");
+        v.className = "panel-help-v"; v.textContent = line;
+        row.append(v);
+      }
+      frag.append(row);
+    }
+    panelHelpTip.replaceChildren(frag);
+  } else {
+    panelHelpTip.classList.remove("is-rows");
+    delete panelHelpTip.dataset.helpTitle;
+    panelHelpTip.textContent = raw;
+  }
   // modal dialog 밖의 DOM 은 top layer 에 보여도 inert 하다. 설명도 같은 dialog 안에 둬야 마우스로 읽을 수 있다.
   const host = button.closest("dialog[open]") || document.body;
   if (panelHelpTip.parentElement !== host) host.append(panelHelpTip);
   panelHelpTip.hidden = false;
+  panelHelpTip.scrollTop = 0;
   if (panelHelpTip.hasAttribute("popover") && !panelHelpTip.matches(":popover-open")) panelHelpTip.showPopover();
   const ids = new Set((button.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
   ids.add(panelHelpTip.id);
@@ -56,12 +94,14 @@ function panelHelpLater() {
   }, 150);
 }
 
-function hHelp(label, text, { warning = false, note = !warning } = {}) {
+function hHelp(label, text, { warning = false, note = !warning, rows = false, title = "" } = {}) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "panel-help" + (warning ? " is-warning" : "");
   b.setAttribute("aria-label", label);
   b.dataset.help = text;
+  if (rows) b.dataset.helpRows = "1";
+  if (title) b.dataset.helpTitle = title;
   const shape = note
     ? '<path d="M5 2h8l3 3v13H4V3a1 1 0 0 1 1-1Z"/><path d="M12 2v4h4M7 9h6M7 12h6M7 15h4"/>'
     : '<circle cx="10" cy="10" r="7.5"/>' + (warning ? '<path d="M10 6v5M10 14h.01"/>' : '<path d="M10 9v5M10 6h.01"/>');

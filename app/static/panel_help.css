@@ -7,3 +7,18 @@
 .panel-help.is-warning { color: #aa651a; background: #fff5e6; }
 .panel-help svg { pointer-events: none; }
 .panel-help-tooltip { position: fixed; inset: auto; margin: 0; z-index: 10000; width: max-content; max-width: min(340px, calc(100vw - 20px)); max-height: min(300px, calc(100vh - 20px)); overflow: auto; box-sizing: border-box; padding: 12px 14px; border: 1px solid #4a5565; border-radius: 10px; background: #253042; color: #fff; box-shadow: 0 8px 28px #17203326; font: 13px/1.7 "Segoe UI", "Malgun Gothic", sans-serif; white-space: pre-line; overflow-wrap: anywhere; overscroll-behavior: contain; }
+
+/* 대시보드 단계 메모(「하는 일 · 조건」 — data-help-rows): 항목별 이름표 + 글 · 핵심/조건 구분선 · 단계 제목은 textContent 밖(2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity) */
+.panel-help-tooltip.is-rows { max-width: min(416px, calc(100vw - 20px)); max-height: min(70vh, 520px, calc(100vh - 20px)); padding: 12px 15px 13px; border-color: #3d4b61; color: #e6ecf5; box-shadow: 0 12px 32px #0f172a47; font: 12.5px/1.62 "Segoe UI", "Malgun Gothic", sans-serif; white-space: normal; scrollbar-width: thin; scrollbar-color: #55657d transparent; }
+.panel-help-tooltip.is-rows[data-help-title]::before { content: attr(data-help-title); display: block; margin: 0 0 9px; padding-bottom: 7px; border-bottom: 1px solid #3c4b62; color: #fff; font-size: 13.5px; font-weight: 700; line-height: 1.35; }
+.panel-help-tooltip.is-rows .panel-help-row { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.panel-help-tooltip.is-rows .panel-help-row + .panel-help-row { margin-top: 9px; }
+.panel-help-tooltip.is-rows .panel-help-row.is-cond-start { margin-top: 11px; padding-top: 10px; border-top: 1px solid #475871; }
+.panel-help-tooltip.is-rows .panel-help-row.is-cond + .panel-help-row.is-cond { margin-top: 8px; padding-top: 8px; border-top: 1px solid #323f53; }
+.panel-help-tooltip.is-rows .panel-help-k { font-size: 11px; font-weight: 700; line-height: 1.35; color: #9fb0c7; }
+.panel-help-tooltip.is-rows .panel-help-row.is-core .panel-help-k { color: #93b4f8; }
+.panel-help-tooltip.is-rows .panel-help-row[data-help-key="끝난 것으로 보는 때"] .panel-help-k { color: #86d8a6; }
+.panel-help-tooltip.is-rows .panel-help-row[data-help-key="멈추는 때"] .panel-help-k { color: #f2c078; }
+.panel-help-tooltip.is-rows .panel-help-sep { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.panel-help-tooltip.is-rows .panel-help-v { color: #d7e0ec; font-size: 12.5px; line-height: 1.6; }
+.panel-help-tooltip.is-rows .panel-help-row.is-core .panel-help-v { color: #f4f7fb; font-size: 13px; line-height: 1.62; }

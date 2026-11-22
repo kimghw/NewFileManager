@@ -503,7 +503,7 @@ def cleanup(target, rev):
 
 
 # ---------------------------------------------------------------- 「문서 정리」 의 조립 도구(spec_워크플로우 ② §18-23) — 지침 보정 = app/guide_fix_api.py · 빈 구역 지우기 = app/zone_prune_api.py ·
-# 넣은 뒤 템플릿 · 서식 정리 = app/merge_retidy_api.py(spec_병합 ② §5-9) · 문서 id = 그 줄이 고른 문서
+# 넣은 뒤 템플릿 · 서식 정리 = app/merge_retidy_api.py(spec_병합 ② §5-9) · 캡션 맞추기 = app/caption_tpl_api.py(unify_*) · 문서 id = 그 줄이 고른 문서
 def guide_fix_facts(doc_id):
     """지침 보정 줄의 재료(문서 안 바뀜 · LLM 안 부름) → {guides{headings, tables, total}, saved, plan | None, applied | None, fill, why} | {error}."""
     from app import guide_fix_api
@@ -542,6 +542,38 @@ def zone_prune(doc_id, rev):
     if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
         return Outcome("nothing", "지울 빈 구역이 없습니다", got.data, got.data.get("rev"))
     return got
+
+
+def cap_unify_view(doc_id):
+    """캡션 맞추기 줄의 재료 · 고르기(문서 안 바뀜 — spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」) → Outcome(data = caption_tpl_api.unify_view —
+    {rev, form(쓸 꼴), chosen(묶음에 고른 꼴 | None), name, why, rep, forms[], counts{titles, change, full, style, frozen, cross, others}, …})."""
+    from app import caption_tpl_api
+    return _run(caption_tpl_api.unify_view, doc_id)
+
+
+def cap_unify(doc_id, rev):
+    """모든 제목 캡션을 고른 꼴의 대표 서식으로(문서를 바꾼다 — 울타리 안에서: POST …/captions/unify) → Outcome — 409 = 센 뒤 문서가 바뀜 · 고른 꼴이 문서에 없음(stale) ·
+    422 = 표준 검사가 되돌림(rejected) · 맞출 것 없음 = nothing."""
+    from app import caption_tpl_api
+    got = _run(caption_tpl_api.unify_post, doc_id, {"expectRev": rev}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "맞출 캡션이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+def cap_form_set(doc_id, form):
+    """그 문서가 든 묶음의 「캡션 맞추기」 꼴을 적는다(워크플로우 옵션 — 문서 안 바뀜 · None = 줄이 가장 많은 꼴) → Outcome(data = 그 문서의 다시 읽은 보기). 400 = invalid · 409 = blocked."""
+    from app import caption_tpl_api, task_options, works
+    w = works.work(doc_id)
+    if w is None:
+        return Outcome("missing", "그런 작업이 없습니다")
+    try:
+        task_options.flow_caption(w, form)
+    except task_options.Broken as e:
+        return Outcome("blocked", str(e))
+    except ValueError as e:
+        return Outcome("invalid", str(e))
+    return _run(caption_tpl_api.unify_view, doc_id)
 
 
 def retidy_facts(doc_id):

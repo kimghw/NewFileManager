@@ -25,6 +25,7 @@ import re
 
 from app import job_prompts, llm, merge_guides
 from app import link_guides as LG
+from app import place_guides as PG
 from app import merge_fill as MF
 from app import merge_fixed as X
 from app import merge_pairs as P
@@ -342,13 +343,21 @@ def _line_cands(F, slot, src):
     return res
 
 
-def data(T, F, found, skip=None, guides=None):
+def data(T, F, found, skip=None, guides=None, places=None):
     """빈 자리 → (단위마다 보낼 자료 [{title, payload}], 검증에 쓸 것 ctx). skip = 다시 안 물을 자리 {"tables": {…}, "slots": {…}}(저장된 답).
-    guides = 목적 양식의 매칭 지침 — 그 표 · 그 본문 자리에 걸린 것을 그 자리의 `guide`(글 목록)로 싣는다(② §5-6: LLM 이 그 자리를 볼 때 그 지침을 같이 본다)."""
+    guides = 목적 양식의 매칭 지침 — 그 표 · 그 본문 자리에 걸린 것을 그 자리의 `guide`(글 목록)로 싣는다(② §5-6: LLM 이 그 자리를 볼 때 그 지침을 같이 본다).
+    places = 자리 → 작성 지침(place_guides.resolver — spec_병합 ② §5-11): 그 자리의 `guides`(문서 · 사람이 적은 작성 지침 — `guide` 와 따로)로 싣고 판(guideSig)을 ctx 에 둔다 —
+    저장된 답의 판이 지금 판과 다르면 그 자리는 다시 묻는다(판이 없는 옛 답은 지침 없이 받은 답 — 판 "")."""
     skip = skip or {}
     note = lambda texts, kind: [f"「{g['title']}」 {g['text']}"[:LG.TEXT_MAX] for g in LG.match(guides, texts, kind)]  # noqa: E731
-    tabs = [t for t in found["tables"] if t["key"] not in (skip.get("tables") or {})]
-    slots = [s for s in found["slots"] if s["id"] not in (skip.get("slots") or {})]
+    mine = lambda kind, x: (places(kind, x) if places else [])  # noqa: E731
+    sigs = {"tables": {t["key"]: PG.sig(mine("table", t["key"])) for t in found["tables"]}, "slots": {s["id"]: PG.sig(mine("block", s["id"])) for s in found["slots"]}}
+
+    def kept(kind, key):   # 저장된 답이 있고 그 답의 지침 판이 지금과 같다 — 다시 안 묻는다(판이 없는 옛 답 = 지침 없이 받은 답: 판 "" — 그 자리에 지금 지침이 있으면 다시 묻는다 · astra 3차)
+        old = (skip.get(kind) or {}).get(key)
+        return old is not None and (places is None or not isinstance(old, dict) or old.get("guideSig", "") == sigs[kind].get(key, ""))
+    tabs = [t for t in found["tables"] if not kept("tables", t["key"])]
+    slots = [s for s in found["slots"] if not kept("slots", s["id"])]
     fsrc = []
     for f in F["tables"]:
         if f["id"] in F["idx"]:
@@ -379,21 +388,25 @@ def data(T, F, found, skip=None, guides=None):
         own = tg["t"].get("owner") or {}
         ch = chapter([P._ws(x)[:60] for x in (own.get("path") or ())] or [tg["brief"]["title"]])
         home[tg["key"]] = ch
-        ctx["tables"][tg["key"]] = {"ctx": tg["ctx"], "cands": {c["key"]: c["ctx"] for c in cands}}
+        ctx["tables"][tg["key"]] = {"ctx": tg["ctx"], "cands": {c["key"]: c["ctx"] for c in cands}, "guideSig": sigs["tables"].get(tg["key"], "")}
         if cands:
             g = note([tg["brief"]["title"], P._ws(own.get("text") or ""), *(P._ws(x) for x in (own.get("path") or ())[-2:])], "table")
-            unit(ch)["tables"].append({**tg["brief"], **({"guide": g} if g else {}), "candidates": cands})
+            gs = mine("table", tg["key"])
+            unit(ch)["tables"].append({**tg["brief"], **({"guide": g} if g else {}), **({"guides": gs} if gs else {}), "candidates": cands})
     for s in slots:
         cands = _line_cands(F, s, nsrc)
         own = (tby.get(s["table"]) or {}).get("owner") or {}
         path = _path(T, s["id"]) if s["kind"] == "line" else [x for x in [*[P._ws(x)[:60] for x in (own.get("path") or ())][-3:], P._ws(own.get("text") or "")[:P.TEXT_MAX]] if x]
         ch = home.get(s["table"]) or chapter([_line(p)[:60] for p in _ups(T, s["id"])[::-1]] if s["kind"] == "line" else path)
-        ctx["slots"][s["id"]] = {**s, "cands": {c["id"]: c for c in cands}}
+        ctx["slots"][s["id"]] = {**s, "cands": {c["id"]: c for c in cands}, "guideSig": sigs["slots"].get(s["id"], "")}
         if cands:
             g = note([_live(T, p) for p in _ups(T, s["id"])], "body") if s["kind"] == "line" else note([P._ws(own.get("text") or ""), *(P._ws(x) for x in (own.get("path") or ())[-2:])], None)
+            gs = mine("block", s["id"])
             unit(ch)["slots"].append({"id": s["id"], "kind": s["kind"], "label": s["label"], "path": path, "table": s["table"], "ctx": s["ctx"],
-                                      **({"budget": s["budget"]} if s.get("budget") else {}), **({"guide": g} if g else {}), "candidates": cands})
+                                      **({"budget": s["budget"]} if s.get("budget") else {}), **({"guide": g} if g else {}), **({"guides": gs} if gs else {}), "candidates": cands})
     out = [{"title": k, "payload": p} for k, ps in units.items() for p in ps if p["tables"] or p["slots"]]
+    for u in out:   # 한 호출의 작성 지침 합을 자른다(② §5-11)
+        PG.budget([*u["payload"]["tables"], *u["payload"]["slots"]])
     return out, ctx
 
 
@@ -407,8 +420,9 @@ def links_part(links):
 
 
 def prompt(payload, job=None, links="", guide=None):
-    """프롬프트 글 = 계약 + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
-    return CONTRACT + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    """프롬프트 글 = 계약(+ 자리에 작성 지침 `guides` 가 있으면 그 한 줄 — spec_병합 ② §5-11) + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
+    note = PG.CONTRACT_LINE if any(x.get("guides") for k in ("tables", "slots") for x in payload.get(k) or ()) else ""
+    return CONTRACT + note + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def parts(job=None, links="", guide=None):
@@ -537,11 +551,11 @@ def check(ctx, answer):
     return out, rejected
 
 
-def prepare(T, F, fixed_plan, saved=None, again=False, orig=None, guides=None, skip=()):
+def prepare(T, F, fixed_plan, saved=None, again=False, orig=None, guides=None, skip=(), places=None):
     """물을 것을 만든다(문서를 읽는 곳 — 세션 잠금 안에서 부른다) → {"found", "units", "ctx"}. 그 뒤 `ask` 는 읽어 둔 것만 쓴다(잠금 밖 — LLM 호출이 수십 초).
-    guides = 목적 양식의 매칭 지침(link_guides.entries — 자리마다의 `guide` · 쪽 한도)."""
+    guides = 목적 양식의 매칭 지침(link_guides.entries — 자리마다의 `guide` · 쪽 한도) · places = 자리마다의 작성 지침(place_guides.resolver — data 의 `guides` · 판)."""
     found = targets(T, F, fixed_plan, orig, guides, skip)
-    units, ctx = data(T, F, found, None if again else saved, guides)
+    units, ctx = data(T, F, found, None if again else saved, guides, places)
     return {"found": found, "units": units, "ctx": ctx}
 
 

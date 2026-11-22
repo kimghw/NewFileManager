@@ -43,6 +43,8 @@
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
   <link rel="stylesheet" href="/static/app_install.css"><!-- 앱으로 설치(상단 바 #installBtn — app_install.js · design.md §9) — document_header.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/pic_tools.css"><!-- 그림 도구(그림 위의 띠 .pic-bar · 2열 kind picTools — spec_그림 ② §1 · design.md §25) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/place-guides.css"><!-- 자리마다의 작성 지침(쪽 오른쪽 여백의 「지침」 단추 · 2열 kind placeGuides — place_guides.js, spec_병합 ② §5-11 · design.md §4) — style.css · zones.css · doc_diff.css 다음 -->
 </head>
 <!-- body.no-doc = 문서를 열기 전(시작 화면이 보임) — app.js load() 가 빼고 closeDoc() 이 넣는다. landing.css 의 시작 화면 상단 바 모양이 이 클래스를 본다
      (옛 `body:has(#empty:not([hidden]))` 는 큰 문서에서 hidden 속성·요소 붙이기마다 문서 전체 스타일을 다시 계산시켰다 — references/브라우저_강제배치_비용.md) -->
@@ -584,6 +586,7 @@
   <script src="/static/outline_odd.js"></script><!-- 다른 서식 보기(「템플릿 관계」 템플릿 줄의 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보이고 서식·레벨마다 맞추기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_lift.js"></script><!-- 표 제목을 템플릿의 L1 으로(「템플릿 관계」 템플릿 줄의 「표를 L1 으로」 — 같은 꼴 1칸 제목 표를 한 번에 넣기·떼기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-7) -->
   <script src="/static/caption_tpl.js"></script><!-- 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — 여백의 「C1」 · 「템플릿 관계」 끝의 「캡션 템플릿」 절: 서식 목록 · 대표 정하기 · 대표에 맞추기) — app.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-10) -->
+  <script src="/static/pic_tools.js"></script><!-- 그림 도구(그림을 누르면 띠 · 오른쪽 단추 메뉴: 표로 바꾸기 · 캡션 넣기(LLM) · 선명하게 · 가운데 · 두 그림 한 줄에 — 2열 kind picTools) — app.js·tables.js 다음(spec_그림 ② §1~§6) -->
   <script src="/static/para_letter.js"></script><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 레터를 골라 문단을 헤딩으로: 개요 레벨로 · 레터만 · 레터 빼기) — app.js 다음(spec_hwpx_웹편집 ② §8-9) -->
   <script src="/static/outline_grow.js"></script><!-- 개요 레벨 더하기(마지막 레벨의 Alt+↓ → 레터·앞 공백·둘째 줄 후보 → 템플릿에 새 레벨 — app.js outlineLevel 이 부른다) — app.js 다음(spec_hwpx_웹편집 ② §8-6) -->
   <script src="/static/outline_preview.js"></script><!-- 개요 레벨 미리보기·비교 창(자리 수정의 지금 → 바뀐 뒤 · 서식 갈래 비교 표 — 떠 있는 창, 모달 아님) — outline_format.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-3) -->
@@ -594,6 +597,7 @@
   <script src="/static/shortcuts.js"></script><!-- 단축키 설명(도구 줄 「단축키」 단추 → 2열에 키·마우스 조작 목록) — app.js 다음(spec_hwpx_웹편집 ② §2 「단축키 설명」) -->
   <script src="/static/form_guides.js"></script><!-- 작성 지침 목록(작업에 저장한 작성 요령 표 · <참고 N> 자료 · ※ 안내를 헤딩별 · 표별로 — 2열 kind formGuides: 이관 「헤딩 · 표 분석」 줄의 「작성 지침」) — app.js 다음(spec_작업 ② §21 「작성 지침 저장」) -->
   <script src="/static/link_guides.js"></script><!-- 매칭 지침(표 · 본문별 — 연차보고서 양식 정보 「자리 연결」 절의 지침을 자리마다 보고 · 더하고 · 고치고 · 지움 + 연결 코멘트: 2열 kind linkGuides · 이관 「자리 연결」 줄의 「매칭 지침」) — app.js 다음(spec_병합 ② §5-6) -->
+  <script src="/static/place_guides.js"></script><!-- 자리마다의 작성 지침(헤딩마다 쪽 오른쪽 여백의 「지침」 단추 · 2열 kind placeGuides: 문서의 지침 · 내가 적은 지침 · 양식의 매칭 지침) — app.js · form_guides.js · link_guides.js 다음(spec_병합 ② §5-11) -->
   <script src="/static/merge_over.js"></script><!-- 넘친 개요 레벨(넣기 계획 안의 한 절 — 덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿 · 넣은 줄에 다시 맞추기) — app.js 다음 · gather.js 앞(spec_병합 ② §5-5 9) -->
   <script src="/static/zones.js"></script><!-- 편집 구역(기관·단계·차년도 값마다의 구역 — 「편집 구역」 줄 · 구역 띠·이름표 · 「구역 지정…」 · 목록: 어느 연구개발 TASK 에서나) — app.js 다음 · gather.js 앞(취합 카드가 이 줄을 쓴다: spec_구역 ② §6) -->
   <script src="/static/gather.js"></script><!-- 취합(할 일 「사업계획서 취합」 plan_merge — 취합본 칸·기관 문서 줄 · 묶음 둘 · 2열 「기관 작성 내용」·「넣기 계획」 · 둘째 면 · 끌어 넣기) — app.js 다음(spec_취합 ② §5) -->

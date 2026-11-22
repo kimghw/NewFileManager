@@ -14,6 +14,7 @@ from fastapi import APIRouter, Body, HTTPException
 from app import heading_runs as HR
 from app import merge_pairs as P
 from app import merge_take as TK
+from app import place_guides as PG
 from app import projects, works
 
 router = APIRouter()
@@ -199,6 +200,23 @@ def _link_guides(doc_id):
         return link_guides.entries(form["text"]) if form else []
     except Exception:   # 지침은 덤이다 — 못 읽어도 검토 · 계획은 나가야 한다
         return []
+
+
+def _places(doc_id, to):
+    """목적 문서의 **자리마다의 작성 지침**(spec_병합 ② §5-11 — 문서의 작성 지침 저장본 + 사람이 헤딩 · 표에 적은 것) → place(kind, x) 함수 | None(못 읽음 · hwpx 아님).
+    3단계의 LLM 셋(자리 연결 · 표 대응 · 빈 자리 검토)이 같은 것을 쓴다. 지침은 덤이다 — 못 읽어도 검토는 나간다.
+    색인 · 블록 · 그래프는 **같은 때(세션 잠금 한 번)** 의 것으로 읽는다 — 답을 받은 뒤 다시 부를 때 지금 지침과 옛 블록을 섞지 않게(astra 3차). to 는 옛 부름과 맞추느라 받기만 한다."""
+    from app import place_guides, place_guides_api, server
+    try:
+        s = server._sess(doc_id)
+        with s.lock:
+            ix = place_guides_api.index_of(s)
+            blocks, graph = (s.doc.blocks(), HR.graph(s)) if ix else (None, None)
+        return place_guides.resolver(ix, blocks, graph) if ix else None
+    except Exception:   # noqa: BLE001 — 지침은 덤(위)
+        import logging
+        logging.getLogger("uvicorn.error").warning("자리 지침을 읽지 못함(%s)", doc_id, exc_info=True)
+        return None
 
 
 def _sched_plan(doc_id, sides, take):
@@ -449,6 +467,13 @@ def merge_links_llm(doc_id: str):
     if ctx is None:
         raise HTTPException(409, "자리 연결을 낼 수 없는 상태입니다(문서별 까닭을 먼저 푸세요)")
     ts, fs, saved, to, frm = ctx
+    places = _places(doc_id, to)   # 자리마다의 작성 지침(② §5-11 — 묶음 · 표마다 `guides`)
+    gsig = lambda k: PG.sig(places("group", to_by[k])) if places and k in to_by else ""  # noqa: E731 — 그 묶음의 지침 판
+    to_by, fr_by = {s["key"]: s for s in ts}, {s["key"]: s for s in fs}
+    # 앞선 LLM 묶음 짝 가운데 그 뒤 그 자리의 지침이 바뀐 것(판이 없는 옛 짝 = 지침 없이 받은 답 — 판 "") · 기관 · 차년도가 어긋나는 것 — 지우지 않고 이번에 다시 묻는다(G3 · G4 · astra 3차:
+    # 미리 지우면 그 사이의 사람 연결 · 반영과 겹쳐 쓴다). 다시 물은 답이 「짝 없음」 이면 그때(잠금 안 · 판을 다시 보고) 그 LLM 짝을 지운다
+    again = {k for k, v in (saved.get("fixed") or {}).items() if isinstance(v, dict) and v.get("source") == "llm" and k in to_by
+             and ((places and v.get("guideSig", "") != gsig(k)) or (v.get("from") in fr_by and merge_llm._table_clash(merge_llm._brief(to_by[k]), merge_llm._brief(fr_by[v["from"]])) is not None))}
     mine = _forced(saved, "user")
     tables = None
     if to.get("doc") is not None and frm.get("doc") is not None:   # 문서 없이 요약만 끼운 읽기(시험)에서는 표를 안 본다(_fixed_brief 와 같은 조건)
@@ -459,22 +484,34 @@ def merge_links_llm(doc_id: str):
             tables = None
     res = merge_llm.review({"blocks": to["blocks"], "graph": to["graph"]}, {"blocks": frm["blocks"], "graph": frm["graph"]}, view, ts, fs,
                            job=job_prompts.for_work(doc_id), tables=tables,   # 이 작업의 할 일 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)를 단위마다 함께 보낸다
-                           links=_links_text(doc_id))   # 목적 양식의 「자리 연결」 절(연결 코멘트 — ② §5-3 1)도
-    saved = _store(doc_id)   # 답을 기다린 수십 초 사이 사람이 고른 연결 · 표 짝을 덮지 않게 — 저장 직전의 것 위에 얹는다(spec_워크플로우 ② §18-12 ③)
-    _same_source(doc_id, saved, frm["id"])
-    fixed = dict(saved.get("fixed") or {})
-    fixed.update({k: v for k, v in res["fixed"].items() if (fixed.get(k) or {}).get("source") != "user"})
+                           links=_links_text(doc_id),   # 목적 양식의 「자리 연결」 절(연결 코멘트 — ② §5-3 1)도
+                           places=places,   # 자리마다의 작성 지침(② §5-11 — 묶음 · 표마다 `guides`)
+                           again=again)   # 지침이 바뀐 자리 · 기관이 어긋나는 앞선 LLM 짝도 다시 묻는다
+    sig_sent = res.get("sigs") or {"groups": {}, "tables": {}}   # 물을 때의 그 자리 지침 판(G3 — 자르기 전)
+    after = _places(doc_id, to) if places and (res["fixed"] or res.get("none") or (res.get("tables") or {})) else places   # 답을 받은 뒤의 지침(잠금 밖에서 읽는다 — 그 안에서 세션 잠금을 잡는다)
+    late_g = {k for k in sig_sent["groups"] if after and k in to_by and PG.sig(after("group", to_by[k])) != sig_sent["groups"][k]}   # 묻는 사이 지침이 바뀐 자리 — 그 답(짝 · 짝 없음)은 쓰지 않는다
+    late_t = {k for k in sig_sent["tables"] if after and PG.sig(after("table", k)) != sig_sent["tables"][k]}
     got = {"fixed": {}, "none": [], "rejected": [], "kept": [], **(res.get("tables") or {})}   # kept = 스크립트가 이은 표를 LLM 이 그대로 둔 것(merge_llm.check_tables — 표를 모두 읽는 검토: 2026-11-22)
     at = datetime.now().isoformat(timespec="seconds")
-    llm = {"at": at, "units": [{k: u[k] for k in ("title", "pages", "over", "targets", "tables", "call") if k in u} for u in res["units"]],
+    llm = {"at": at, "units": [{k: u[k] for k in ("title", "pages", "over", "targets", "tables", "call", "guides", "guidesCut") if k in u} for u in res["units"]],   # guides = 작성 지침을 실어 보낸 자리 수
            "none": res["none"], "rejected": len(res["rejected"]), "left": res.get("left", 0),   # prompt·answer 는 크다(단위마다 수십 KB) — merge.json 에는 안 싣는다(아래 따로)
            "job": res.get("job"), "guide": res.get("guide"),   # 함께 보낸 할 일 프롬프트 {job, name, sha1} · 판단 지침 {name, title, sha1} | None
-           "tables": {"paired": len(got["fixed"]), "none": len(got["none"]), "rejected": len(got["rejected"]), "kept": len(got["kept"])}}
-    # 표 짝: 사람이 정한 것은 그대로 · 이번에 답이 온 표는 그 답으로(이음 = 바꿈, 「같은 표 없음」 · 「스크립트 짝 그대로」 = 앞선 LLM 짝을 지움) · 답이 안 온 표(그 단위의 호출이 실패)는 앞선 LLM 짝을 둔다
-    gone = {n["to"] for n in got["none"]} | set(got["kept"])
-    pairs_t = {k: v for k, v in _forced(saved).items() if v.get("source") == "user" or k not in gone}
-    pairs_t.update({k: v for k, v in got["fixed"].items() if (pairs_t.get(k) or {}).get("source") != "user"})
-    _store(doc_id, {**saved, "fixed": fixed, "tables": pairs_t, "llm": llm, "toRev": to["rev"], "fromRev": frm["rev"]})
+           "tables": {"paired": len(got["fixed"]), "none": len(got["none"]), "rejected": len(got["rejected"]), "kept": len(got["kept"])},
+           **({"late": len(late_g) + len(late_t)} if late_g or late_t else {})}
+    with server._sess(doc_id).lock:   # 마지막 읽기 → 원본 · 사람 선택 · 그 자리의 판 → 바꾼 열쇠만 쓰기를 반영과 같은 잠금으로(astra 3차 — 그 사이의 사람 연결 · 반영 기록을 덮지 않게)
+        saved = _store(doc_id)   # 답을 기다린 수십 초 사이 사람이 고른 연결 · 표 짝을 덮지 않게 — 저장 직전의 것 위에 얹는다(spec_워크플로우 ② §18-12 ③)
+        _same_source(doc_id, saved, frm["id"])
+        fixed = dict(saved.get("fixed") or {})
+        fixed.update({k: {**v, "guideSig": sig_sent["groups"].get(k, "")} for k, v in res["fixed"].items() if k not in late_g and (fixed.get(k) or {}).get("source") != "user"})
+        for n in res.get("none") or ():   # 다시 물은 LLM 짝에 「짝 없음 · 확인 필요」 — 그 LLM 짝을 지운다(지침 판이 물을 때와 같을 때만)
+            k = n.get("to")
+            if k in again and k not in late_g and (fixed.get(k) or {}).get("source") == "llm":
+                fixed.pop(k, None)
+        # 표 짝: 사람이 정한 것은 그대로 · 이번에 답이 온 표는 그 답으로(이음 = 바꿈, 「같은 표 없음」 · 「스크립트 짝 그대로」 = 앞선 LLM 짝을 지움) · 답이 안 온 표(그 단위의 호출이 실패) · 묻는 사이 지침이 바뀐 표는 앞선 LLM 짝을 둔다
+        gone = ({n["to"] for n in got["none"]} | set(got["kept"])) - late_t
+        pairs_t = {k: v for k, v in _forced(saved).items() if v.get("source") == "user" or k not in gone}
+        pairs_t.update({k: {**v, "guideSig": sig_sent["tables"].get(k, "")} for k, v in got["fixed"].items() if k not in late_t and (pairs_t.get(k) or {}).get("source") != "user"})
+        _store(doc_id, {**saved, "fixed": fixed, "tables": pairs_t, "llm": llm, "toRev": to["rev"], "fromRev": frm["rev"]})
     _last(doc_id, {"at": at, "units": [{"n": i, "title": u["title"], "pages": u["pages"], "targets": u["targets"], "tables": u.get("tables", 0),
                                         "error": (u.get("call") or {}).get("error"), "prompt": u.get("prompt"), "answer": u.get("answer")} for i, u in enumerate(res["units"])]})
     return _view(doc_id)[0]
@@ -561,15 +598,39 @@ def merge_table_map_post(doc_id: str, body: dict = Body(default={})):
     _, _, saved, to, frm = ctx
     s = server._sess(doc_id)
     again = bool(body.get("again"))
+    places = _places(doc_id, to)   # 자리마다의 작성 지침(② §5-11) — 잠금 밖(그 안에서 세션 잠금을 잡는다)
+    gsig = lambda tid: PG.sig(places("table", tid)) if places else ""  # noqa: E731 — 그 표의 지침 판
+    old_maps = _maps(saved)
+    moved = lambda tid: bool(places) and (old_maps.get(tid) or {}).get("source") == "llm" and old_maps[tid].get("guideSig", "") != gsig(tid)  # noqa: E731 — 대응을 받은 뒤 그 표의 지침이 바뀜(판이 없는 옛 대응 = 지침 없이 받은 답)
     with s.lock:
-        mp, tabs, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm, maps={} if again else None)
+        live = {} if again else {k: v for k, v in old_maps.items() if not moved(k)}   # 지침이 바뀐 표의 대응은 빼고 계획해야 그 표가 다시 물을 표로 나온다(astra 3차 — 빼지 않으면 그 대응이 표를 통째로 맡아 물을 표에서 빠진다)
+        mp, tabs, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm, maps=live)
         user_cut = {k for k, v in _forced(saved, "user").items() if not v.get("from")}   # 사람이 끊은 표는 안 묻는다
-        built = [(tid, fid, *merge_table_map.data(T, F, tid, fid)) for tid, fid in merge_table_map.targets(tabs, fixed) if tid not in user_cut and tid not in mp["owned"]]   # 쓸 수 있는 대응이 있는 표는 다시 안 묻는다(전에는 그 표가 계획에서 통째로 빠져 저절로 안 걸렸다 — _plan_parts)
+        built = [(tid, fid, *merge_table_map.data(T, F, tid, fid)) for tid, fid in merge_table_map.targets(tabs, fixed)
+                 if tid not in user_cut and tid not in mp["owned"]]   # 쓸 수 있는 대응이 있는 표는 다시 안 묻는다(전에는 그 표가 계획에서 통째로 빠져 저절로 안 걸렸다 — _plan_parts) — 지침이 바뀐 표는 위에서 뺐다
     ask = [(tid, fid, p, c) for tid, fid, p, c in built if p is not None]
+    sigs = {}
+    for tid, _, p, _ in ask:   # 그 표의 작성 지침을 자료에(② §5-11) · 답과 함께 그 판을 남긴다(G3 — 지침이 바뀌면 그 표만 다시 묻는다)
+        gs = places("table", tid) if places else []
+        if gs:
+            p["target"]["guides"] = gs
+        sigs[tid] = PG.sig(gs)
     job, links = job_prompts.for_work(doc_id), _links_text(doc_id)
     jobs = merge_table_map.jobs_for([p for _, _, p, _ in ask], job, links)
     res = llm.ask_all(jobs) if jobs else []
+    now_places = _places(doc_id, to) if places and jobs else places   # 답을 받은 뒤의 지침 — 묻는 사이 바뀐 표의 답은 쓰지 않는다(G3)
     at = datetime.now().isoformat(timespec="seconds")
+    lock = s.lock
+    lock.acquire()   # 마지막 읽기 → 판 · 사람 선택 → 바꾼 표만 쓰기를 반영과 같은 잠금으로(astra 3차)
+    try:
+        return _map_store(doc_id, frm, built, ask, jobs, res, sigs, now_places, at)
+    finally:
+        lock.release()
+
+
+def _map_store(doc_id, frm, built, ask, jobs, res, sigs, now_places, at):
+    """표 대응의 답을 저장(세션 잠금 안 — merge_table_map_post) → 끝점의 몸통."""
+    from app import merge_table_map
     _same_source(doc_id, _store(doc_id), frm["id"])
     maps, rows, units = dict(_maps(_store(doc_id))), [], []
     pairs_t = dict(_forced(_store(doc_id)))
@@ -585,11 +646,14 @@ def merge_table_map_post(doc_id: str, body: dict = Body(default={})):
         if mine.get("source") == "user" and (mine.get("from") != fid or (m is not None and m["from"] != mine.get("from"))):   # 사람이 정한 짝과 다른 표의 답(물은 뒤 바꿈 · LLM 이 형제 표를 고름) — 사람의 선택을 이긴다(spec_워크플로우 ② §18-12 ③ · astra 결과 검토)
             rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": [], "error": "그 사이 사람이 표 짝을 바꿔 이 답은 쓰지 않았습니다", "call": call})
             continue
+        if now_places and PG.sig(now_places("table", tid)) != sigs.get(tid, ""):   # 묻는 사이 그 표의 지침이 바뀌었다 — 옛 지침으로 받은 답(대응 · 못 정함 모두)은 쓰지 않고 지금 대응도 지우지 않는다(G3 · astra 3차)
+            rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": [], "error": "묻는 사이 이 표의 작성 지침이 바뀌어 이 답은 쓰지 않았습니다 — 다시 물어 주세요", "call": call})
+            continue
         if m is None:
-            maps.pop(tid, None)   # 낡았거나 틀린 앞선 대응은 지운다(다시 물었는데 못 정함)
+            maps.pop(tid, None)   # 낡았거나 틀린 앞선 대응은 지운다(다시 물었는데 못 정함 — 지침이 그 사이 바뀐 답은 위에서 걸렀다)
             rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": rejected[:20], "error": call.get("error") or (rejected[-1]["why"] if rejected else "대응을 못 정함"), "call": call})
             continue
-        maps[tid] = {**m, "at": at, "source": "llm"}
+        maps[tid] = {**m, "at": at, "source": "llm", "guideSig": sigs.get(tid, "")}
         if m["from"] != fid and tid in pairs_t and pairs_t[tid].get("source") != "user":   # 같은 절의 다른 표를 골랐다(전 차년도 요약 표 → 그 차년도의 표) — 표 짝도 그 표로
             pairs_t[tid] = {**pairs_t[tid], "from": m["from"], "source": "llm", "reason": m["reason"][:300]}
         rows.append({"to": tid, "from": m["from"], "title": title, "records": len(m["records"]), "grow": len(m["grow"]), "fields": len(m["fields"]), "mark": m["mark"], "rejected": rejected[:20], "error": None, "call": call})
@@ -651,26 +715,44 @@ def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
         raise HTTPException(409, "자리 연결을 낼 수 없는 상태입니다(문서별 까닭을 먼저 푸세요)")
     _, _, saved, to, frm = ctx
     again = bool(body.get("again"))
+    places = _places(doc_id, to)   # 자리마다의 작성 지침(② §5-11) — 잠금 밖(그 안에서 세션 잠금을 잡는다)
+    old_gaps = _gaps(saved)
+    stale_t = {k for k, v in (old_gaps.get("tables") or {}).items() if places and isinstance(v, dict) and v.get("guideSig", "") != PG.sig(places("table", k))}   # 지침이 바뀐 빈 표의 답(판이 없는 옛 답 = 지침 없이 받은 답)
+    seen = {**saved, "tables": {k: v for k, v in (saved.get("tables") or {}).items() if not (k in stale_t and v.get("by") == "gaps")}}   # 그 답에서 나온 표 짝은 빼고 계획해야 그 표가 다시 빈 표로 나온다(astra 3차)
     with server._sess(doc_id).lock:
-        mp, _, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm)
-        prep = merge_gaps.prepare(T, F, fixed, _gaps(saved), again, _orig(doc_id), _link_guides(doc_id),   # 매칭 지침(② §5-6) — 그 자리에 걸린 지침 · 쪽 한도를 자료에 싣는다
-                                  skip=(mp.get("sched") or {}).get("owned") or ())   # 일정 표 스크립트가 맡은 표(② §5-7)는 안 묻는다
+        mp, _, fixed, (T, F) = _plan_parts(doc_id, view, seen, to, frm)
+        prep = merge_gaps.prepare(T, F, fixed, old_gaps, again, _orig(doc_id), _link_guides(doc_id),   # 매칭 지침(② §5-6) — 그 자리에 걸린 지침 · 쪽 한도를 자료에 싣는다
+                                  skip=(mp.get("sched") or {}).get("owned") or (),   # 일정 표 스크립트가 맡은 표(② §5-7)는 안 묻는다
+                                  places=places)   # 그 자리의 작성 지침(`guides`) · 판 — 지침이 바뀐 자리의 저장된 답은 다시 묻는다
     res = merge_gaps.ask(prep, job_prompts.for_work(doc_id), _links_text(doc_id))   # 잠금 밖 — 읽어 둔 것만 쓴다
     at = datetime.now().isoformat(timespec="seconds")
-    now = _store(doc_id)
-    _same_source(doc_id, now, frm["id"])
-    old = {} if again else _gaps(now)
-    gaps = {"at": at, "tables": {**(old.get("tables") or {}), **res["tables"]}, "slots": {**(old.get("slots") or {}), **res["slots"]}, "guide": res.get("guide"), "job": res.get("job")}
-    pairs_t = dict(_forced(now))
-    for tid, v in res["tables"].items():
-        mine = pairs_t.get(tid) or {}
-        if mine.get("source") == "user":   # 사람이 정한 표 짝은 안 건드린다
-            continue
-        if v["from"]:
-            pairs_t[tid] = {"from": v["from"], "source": "llm", "by": "gaps", "reason": v["reason"], "format": ""}
-        elif mine.get("by") == "gaps":   # 다시 물었더니 「같은 표 없음」 — 앞서 이 검토가 낸 짝을 지운다
-            pairs_t.pop(tid, None)
-    _store(doc_id, {**now, "gaps": gaps, "tables": pairs_t})
+    pc = prep["ctx"]
+    after = _places(doc_id, to) if places and res["asked"] else places   # 답을 받은 뒤의 지침(잠금 밖에서 읽는다) — 묻는 사이 그 자리의 지침이 바뀌었으면 그 답은 쓰지 않는다(다음에 다시 묻는다)
+    late = {"tables": set(), "slots": set()}
+    for kind, pk in (("tables", "table"), ("slots", "block")):
+        for key in list(res[kind]):
+            sent = (pc[kind].get(key) or {}).get("guideSig", "")
+            if after and PG.sig(after(pk, key)) != sent:
+                res[kind].pop(key)
+                late[kind].add(key)
+                continue
+            res[kind][key] = {**res[kind][key], "guideSig": sent}
+    with server._sess(doc_id).lock:   # 마지막 읽기 → 판 · 사람 선택 → 바꾼 자리만 쓰기를 반영과 같은 잠금으로(astra 3차)
+        now = _store(doc_id)
+        _same_source(doc_id, now, frm["id"])
+        cur = _gaps(now)
+        old = {k: {key: v for key, v in (cur.get(k) or {}).items() if key in late[k]} for k in ("tables", "slots")} if again else cur   # 「전부 다시」 여도 묻는 사이 지침이 바뀐 자리의 앞 답은 둔다
+        gaps = {"at": at, "tables": {**(old.get("tables") or {}), **res["tables"]}, "slots": {**(old.get("slots") or {}), **res["slots"]}, "guide": res.get("guide"), "job": res.get("job")}
+        pairs_t = dict(_forced(now))
+        for tid, v in res["tables"].items():
+            mine = pairs_t.get(tid) or {}
+            if mine.get("source") == "user":   # 사람이 정한 표 짝은 안 건드린다
+                continue
+            if v["from"]:
+                pairs_t[tid] = {"from": v["from"], "source": "llm", "by": "gaps", "reason": v["reason"], "format": ""}
+            elif mine.get("by") == "gaps":   # 다시 물었더니 「같은 표 없음」 — 앞서 이 검토가 낸 짝을 지운다
+                pairs_t.pop(tid, None)
+        _store(doc_id, {**now, "gaps": gaps, "tables": pairs_t})
     if res["units"]:
         _gaps_last(doc_id, {"at": at, "units": [{k: u.get(k) for k in ("n", "title", "pages", "targets", "tables", "error", "prompt", "answer")} for u in res["units"]]})
     with _LOCK:
@@ -890,8 +972,20 @@ def _inputs(doc_id, saved, to, frm):
     raw = json.dumps([to["id"], frm["id"], [list(x) for x in _source_scope(doc_id, frm["id"])], to["rev"], frm["rev"], to.get("values"), frm.get("values"), _heads_ver(to), _heads_ver(frm),
                       {k: saved.get(k) for k in ("fixed", "tables", "tableMaps")}, calm(saved.get("gaps")), live, _orig(doc_id) is not None,   # 예시 칸을 덮어도 되나(등록된 빈 양식 — 양식 선택이 바뀌면 다름)
                       merge_over.load(doc_id)["version"], _take_raw(doc_id),   # 넣을 구성(② §4-1 — 계획 뒤에 고르면 반영이 409)
-                      [_copy_titles(doc_id), saved.get("copied") or {}]], sort_keys=True, ensure_ascii=False, default=str)   # 끝 = 통째로 복사할 표의 목록 · 복사한 기록(② §5-8)
+                      [_copy_titles(doc_id), saved.get("copied") or {}], _guides_ver(doc_id)], sort_keys=True, ensure_ascii=False, default=str)   # 통째로 복사할 표의 목록 · 복사한 기록(② §5-8) · 끝 = 작성 지침의 판(② §5-11)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _guides_ver(doc_id):
+    """목적 문서의 작성 지침의 판 — 사람이 적은 헤딩 지침의 판 · 문서 지침 저장본을 모은 때 · 표마다 「이 표」 지침의 판(spec_병합 ② §5-11). 계획을 세운 뒤 지침을 고치면 그 계획은 반영하지 않는다(astra 3차 —
+    지침 PUT 은 문서 차례를 안 올려 전에는 옛 계획이 지나갔다)."""
+    from app import form_guides_api, place_guides_api, table_agent
+    try:
+        saved = form_guides_api.load(doc_id) or {}
+        tabs = (table_agent.all_tables(doc_id) or {}).get("tables") or {}
+        return [place_guides_api.user_load(doc_id).get("version", 0), saved.get("at"), sorted((k, (v or {}).get("version")) for k, v in tabs.items())]
+    except Exception:   # noqa: BLE001 — 판을 못 세면 비교하지 않는다(계획 · 반영이 같은 값을 쓴다)
+        return None
 
 
 def inputs_now(doc_id):
@@ -1058,7 +1152,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
     import time
     from collections import Counter
 
-    from app import merge_convert, merge_copy, merge_fill, merge_fixed, merge_gaps, merge_over, merge_schedule, merge_table_map, merge_tables, server
+    from app import merge_convert, merge_copy, merge_fill, merge_fixed, merge_gaps, merge_over, merge_register, merge_schedule, merge_table_map, merge_tables, server
     plan = _PLANS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
@@ -1105,6 +1199,9 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
                 r = convert(anchor, pairs)
                 lines = len(r.get("lines") or ())   # 넘친 줄(덮은 그대로 둔 것 포함) — merge_fill 이 그 기록을 항목의 applied 에 적는다(다시 맞추기의 근거)
                 conv.update({"converted": r.get("converted", 0), **({"over": lines} if lines else {}), **{f"kept:{k}": n for k, n in (r.get("kept") or {}).items()}})
+                if lines and s.outline:   # 넘친 줄을 목적 오버레이의 종속 템플릿으로 등록(② §5-12 — 서식은 원본에서 정리된 그대로 · 소속만: 뼈대 유지가 「새 서식」 으로 세지 않게) · 같은 편집 안(실행 취소 1)
+                    reg = merge_register.register(s.doc, s.outline, frm["doc"], getattr(src, "outline", None), anchor, r["lines"], r.get("ids") or (), r.get("plan"))
+                    conv.update({"registered": reg["lines"], **{f"unregistered:{k}": n for k, n in reg["left"].items()}})
                 return r
             done["tables"] = merge_tables.apply(s.doc, frm["doc"], plan["tables"])
             done["fixed"] = merge_fixed.apply(s.doc, frm["doc"], plan["fixed"])   # 같은 이름 자리 — 같은 편집 하나에(실행 취소 1). 라벨 내용은 원본 모양 그대로(템플릿 변환 없음)

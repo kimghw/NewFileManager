@@ -436,3 +436,150 @@ def carry(old, new):
     """2단계를 다시 돌려 개요 오버레이를 새로 만들 때 — 캡션 템플릿의 번호·사람이 정한 대표(`caps`)를 새 오버레이로(템플릿 키는 그래프와 무관해 그대로 옮긴다)."""
     if old and new is not None and old.get("caps") and "caps" not in new:
         new["caps"] = json.loads(json.dumps(old["caps"]))
+
+
+# ---------------------------------------------------------------- 모든 캡션을 한 꼴로(spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」 — 「문서 정리」 의 조립 도구 「캡션 맞추기」: spec_워크플로우 ② §18-23)
+# 2026-11-23 사용자 「4단계에서 캡션 맞추기.. 할건데 옵션에서 한가지 골라서 모든 캡션을 동일한 형식/서식으로 맞출 수 있도록 해줘」.
+# 템플릿(C1 · C2 …) 안의 「대표에 맞추기」 와 달리 **템플릿을 넘어** 모든 제목 캡션(표 · 그림 · 개체 캡션 · 글 캡션)을 고른 꼴 하나로:
+# - 꼴(`form_key`) = 표 · 그림을 가리지 않는 레터 꼴 — 「<표 N>」 · 「<그림 N>」 은 같은 꼴 「<W N>」(번호의 갈래 「1」 · 「1-1」 도 가리지 않는다) · 「< … >」 · 「〈 … 〉」 는 다른 꼴.
+# - 고른 꼴의 **대표 줄**의 서식(문단 모양 · 레터/바탕 글자 모양 · 앞 빈칸)을 모든 제목 캡션에 · 글 꼴(괄호 · 낱말 뒤 빈칸 · 레터 뒤 빈칸 · 닫는 괄호)은 **같은 갈래**(번호 붙은 머리 label ↔ label · 줄 전체 괄호 wrap ↔ wrap)끼리만 바꾼다 —
+#   번호를 짓거나 지우지 않는다(「< 제목 >」 ↔ 「<표 N> 제목」 은 서식만). 낱말 · 번호는 제 것(「<표 1>」 을 골라도 그림 캡션은 「<그림 3>」).
+# - 출처 · 주 줄(note) · 레터 없는 줄(plain — 「(단위:원)」 · 이어지는 줄)은 제목 캡션이 아니라 건드리지 않는다 · 자동 번호 · 표지가 든 줄은 서식만(`frozen`).
+# 줄 하나를 바꾸는 것은 `conform` 그대로다(역변환 스크립트 하나 — 줄마다 맞출 모양 `sh` 를 지어 넘긴다).
+TITLE = ("label", "wrap")    # 제목 캡션의 꼴
+STYLE_KEYS = KEYS[4:]        # 글이 아닌 비교 값(문단 모양 · 레터 글자 · 바탕 글자)
+_WORD = re.compile(r"그림|표|사진|Figure|Fig\.?|Table", re.I)
+_NUM = re.compile(r"\d+(?:[-.–]\d+)*")
+_FORM_NUM = re.compile(r"n(?:[-.–]n)*")
+
+
+def form_key(ln):
+    """제목 캡션 줄의 꼴 열쇠 — label 「label:<WN>」(템플릿 키의 낱말 → W · 번호 갈래 → N) · wrap 「wrap:<…>」. 제목 캡션이 아니면 None."""
+    if ln["shape"] == "label":
+        return "label:" + _FORM_NUM.sub("N", _WORD.sub("W", ln["key"]))
+    if ln["shape"] == "wrap":
+        return "wrap:" + ln["key"]
+    return None
+
+
+def form_name(key, tok=None, gap=" ", close=None):
+    """꼴의 화면 이름 — 「<표 N> 제목」 · 「< 제목 >」. tok · close = 대표 줄의 실제 글(빈칸까지 보인다) · 없으면 열쇠에서 짓는다."""
+    fam, _, k = (key or "").partition(":")
+    if fam == "label":
+        head = _NUM.sub("N", tok) if tok else k.replace("W", "표 ")
+        return f"{head}{gap or ' '}제목"
+    if fam == "wrap":
+        return f"{tok}{gap}제목{close}" if tok and close else f"{k[0]} 제목 {k[-1]}" if k else "?"
+    return "?"
+
+
+def _norm(ln):
+    """줄의 글 꼴(낱말 · 번호를 뺀 것) — label 은 레터(「<W N>」) · wrap 은 여는 괄호. 같은 갈래끼리 견준다."""
+    return _NUM.sub("N", _WORD.sub("W", ln["tok"])) if ln["shape"] == "label" else ln["tok"]
+
+
+def _usig(lk, ln):
+    return repr([lk.get(k) for k in STYLE_KEYS] + [ln["lead"], _norm(ln), ln["gap"], ln["close"].rstrip()])
+
+
+def titles(doc, skip=()):
+    """제목 캡션 줄(문서 순) — label · wrap. 출처 · 주 줄과 레터 없는 줄은 뺀다."""
+    return [ln for ln in scan(doc, skip)[0] if ln["shape"] in TITLE]
+
+
+def _tkey(ln):
+    return f"{ln['kind']}|{ln['shape']}|{ln['key']}"
+
+
+def forms(doc, state=None, skip=(), lines=None, looks=None):
+    """고를 수 있는 꼴들(줄 많은 차례 — 같으면 문서에 먼저 나온 것) → [{key, family(label | wrap), name, count, kinds{table, figure}, rep(대표 줄 id), repSet, text(대표 줄의 글), look(대표의 화면 글)}].
+    꼴의 대표 = 그 꼴의 템플릿에 사람이 정한 대표(`state["reps"]` — 줄 많은 템플릿의 것이 먼저) · 없으면 비교 값(서식 + 글 꼴)이 같은 줄이 가장 많은 무리의 첫 줄."""
+    lines = titles(doc, skip) if lines is None else lines
+    by, order = {}, {}
+    for i, ln in enumerate(lines):
+        k = form_key(ln)
+        by.setdefault(k, []).append(ln)
+        order.setdefault(k, i)
+    reps = (state or {}).get("reps") or {}
+    out = []
+    for k, mine in by.items():
+        ids = {ln["id"] for ln in mine}
+        tc = {}
+        for ln in mine:
+            tc[_tkey(ln)] = tc.get(_tkey(ln), 0) + 1
+        rep = next((reps[t] for t in sorted(tc, key=lambda t: -tc[t]) if reps.get(t) in ids), None)
+        looks = looks if looks is not None else {}
+        for ln in mine:
+            if ln["id"] not in looks:
+                looks[ln["id"]] = look(doc, ln)
+        if rep is None:
+            groups = {}
+            for ln in mine:
+                groups.setdefault(_usig(looks[ln["id"]], ln), []).append(ln["id"])
+            rep = max(groups.values(), key=len)[0]
+        r = next(ln for ln in mine if ln["id"] == rep)
+        kinds = {"table": 0, "figure": 0}
+        for ln in mine:
+            kinds[ln["kind"]] += 1
+        out.append({"key": k, "family": r["shape"], "name": form_name(k, r["tok"], r["gap"], r["close"].rstrip()), "count": len(mine), "kinds": kinds,
+                    "rep": rep, "repSet": rep in set(reps.values()), "text": r["text"].strip(), "look": {x: shown(x, v) for x, v in looks[rep].items()}})
+    out.sort(key=lambda f: (-f["count"], order[f["key"]]))
+    return out
+
+
+def unify_plan(doc, state=None, form=None, skip=()):
+    """모든 제목 캡션을 꼴 form(`form_key` — None 이면 줄이 가장 많은 꼴)의 대표 서식으로 맞출 계획 →
+    {form(쓴 꼴 | None), asked(form 그대로), name, rep(대표 줄 | None), forms(고를 꼴들), todo[(줄, mode full | style)], counts{titles, change, full, style, frozen, cross, others}, why}.
+    mode full = 서식 + 글 꼴(같은 갈래) · style = 서식 + 앞 빈칸만(다른 갈래 — 번호가 있고 없음이 다르다 · 자동 번호 · 표지가 든 줄은 앞 빈칸도 그대로). why = 맞출 수 없는 까닭(캡션 없음 · 고른 꼴이 문서에 없음)."""
+    allc, _missed = scan(doc, skip)
+    lines = [ln for ln in allc if ln["shape"] in TITLE]
+    looks = {}
+    fs = forms(doc, state, skip, lines, looks)
+    counts = {"titles": len(lines), "change": 0, "full": 0, "style": 0, "frozen": 0, "cross": 0, "others": len(allc) - len(lines)}
+    base = {"asked": form, "forms": fs, "todo": [], "counts": counts}
+    if not fs:
+        return {**base, "form": None, "name": "", "rep": None, "why": "맞출 제목 캡션이 없습니다"}
+    f = next((x for x in fs if x["key"] == form), None) if form else fs[0]
+    if f is None:
+        return {**base, "form": None, "name": form_name(form), "rep": None, "why": f"고른 꼴 「{form_name(form)}」 의 캡션이 지금 문서에 없습니다 — 다시 고르세요"}
+    rep = next(ln for ln in lines if ln["id"] == f["rep"])
+    rl = looks[rep["id"]]
+    todo = []
+    for ln in lines:
+        if ln["id"] == rep["id"]:
+            continue
+        lk, hold, same = looks[ln["id"]], frozen(doc, ln), ln["shape"] == rep["shape"]
+        mode = "full" if same and not hold else "style"
+        if hold:
+            counts["frozen"] += 1
+        if not same:
+            counts["cross"] += 1
+        bad = any(lk.get(k) != rl.get(k) for k in STYLE_KEYS) or (not hold and ln["lead"] != rep["lead"])
+        if mode == "full" and not bad:
+            bad = (_norm(ln), ln["gap"], ln["close"].rstrip()) != (_norm(rep), rep["gap"], rep["close"].rstrip())
+        if bad:
+            todo.append((ln, mode))
+            counts[mode] += 1
+    counts["change"] = len(todo)
+    return {**base, "form": f["key"], "name": f["name"], "rep": rep, "todo": todo, "why": ""}
+
+
+def _retok(rep, own):
+    """대표의 번호 붙은 머리 꼴에 제 낱말 · 번호 — 「<표 1>」(대표) + 「[그림 3]」 → 「<그림 3>」 · 「표 1.」 + 「<표 2-1>」 → 「표 2-1.」. 못 읽으면 제 머리 그대로."""
+    rw, ow = _WORD.search(rep), _WORD.search(own)
+    rn = _NUM.search(rep, rw.end()) if rw else None
+    on = _NUM.search(own, ow.end()) if ow else None
+    if not (rw and ow and rn and on):
+        return own
+    return rep[:rw.start()] + ow.group(0) + rep[rw.end():rn.start()] + on.group(0) + rep[rn.end():]
+
+
+def unify_line(doc, ln, mode, sh, rep):
+    """줄 ln 을 대표 rep(그 모양 sh = `shape(doc, rep)`)의 서식으로 — mode full 이면 글 꼴도(label = 대표 꼴에 제 낱말 · 번호 · wrap = 대표의 괄호 · 빈칸) ·
+    style 이면 글은 앞 빈칸만(자동 번호 · 표지가 든 줄은 `conform` 이 글을 건너뛴다). 부르는 쪽이 트랜잭션 안에서 → conform 의 답."""
+    mine = dict(sh)
+    if mode == "full" and ln["shape"] == "label":
+        mine["tok"] = _retok(rep["tok"], ln["tok"])
+    elif mode != "full":
+        mine.update(tok=ln["tok"], gap=ln["gap"], close=ln["close"])
+    return conform(doc, ln, mine)

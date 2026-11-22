@@ -1,0 +1,37 @@
+/* 자리마다의 작성 지침(place_guides.js — spec_병합 ② §5-11 · design.md §4 「작성 지침 단추」).
+   문서: 지침이 있는 헤딩의 쪽 **오른쪽 여백** 단추 「지침」(아이콘 + 수). .sheet 에 절대 위치(문단 요소 밖) · 화면 크기 고정(zoom 1/z) · --mgr = 그 쪽 오른쪽 여백 폭(화면 px).
+   자리 = 본문 오른끝에서 --pgx(넓으면 8px — 편집 구역의 세로선 .gz-line 은 3~6px, 그 오른쪽 · 좁으면 종이 안에 들게 2px 까지 당김) · 같은 높이의 이름표 · 꼬리표는 피해 그 아래에(JS). 좁은 여백이면 종이 밖으로 조금 나간다(본문 글은 가리지 않는다). */
+.sheet > .pg-btn {
+  position: absolute; left: calc(100% - var(--mgr, 60px) + var(--pgx, 8px)); height: 18px; box-sizing: border-box; margin: 0; padding: 0 5px 0 4px;
+  display: inline-flex; align-items: center; gap: 3px; appearance: none; white-space: nowrap; user-select: none; cursor: pointer; z-index: 4;
+  font: 600 10.5px/16px "Malgun Gothic", sans-serif; color: #3b4a63; background: #fff; border: 1px solid #c9d3e3; border-radius: 9px;
+}
+.sheet > .pg-btn svg { flex: none; }
+.sheet > .pg-btn:hover { border-color: var(--accent, #2458d6); color: var(--accent, #2458d6); }
+.sheet > .pg-btn:focus-visible { outline: 2px solid var(--accent, #2458d6); outline-offset: 1px; }
+/* 내가 적은 지침이 있는 헤딩 — 파란 바탕 + 점(색만으로 가르지 않는다: 점 · 풍선 도움말 「내가 적은 지침 있음」) */
+.sheet > .pg-btn.user { color: #1c3f94; background: #eef3ff; border-color: #9fb8e6; }
+.pg-btn .pg-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent, #2458d6); }
+/* 열에 연 헤딩 */
+.sheet > .pg-btn.on { border-color: var(--accent, #2458d6); box-shadow: 0 0 0 1px var(--accent, #2458d6); color: var(--accent, #2458d6); }
+/* 지침이 없는 헤딩에 글쓰기 자리가 있을 때만 — 옅은 점선 「지침 적기」 */
+.sheet > .pg-btn.caret { color: var(--muted, #667085); background: rgba(255, 255, 255, .85); border-style: dashed; opacity: .8; font-weight: 400; }
+.sheet > .pg-btn.caret:hover, .sheet > .pg-btn.caret.on { opacity: 1; color: var(--accent, #2458d6); border-color: var(--accent, #2458d6); }
+.hide-pages .pg-btn { display: none; }
+@media print { .sheet > .pg-btn { display: none; } }
+
+/* 2열 「작성 지침 — 이 자리」(kind placeGuides) — 절 넷: 문서의 작성 지침 · 내가 적은 지침 · 양식의 매칭 지침 · 누가 읽나 */
+.pg-col { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 14px; }
+.pg-sec { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pg-h { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--text, #1d2939); }
+.pg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pg-list li { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.pg-list li .hb { flex: none; max-width: 9em; border: 1px solid var(--line, #d0d5dd); border-radius: 3px; background: var(--surface-2, #f6f7f9); color: var(--muted, #667085); }
+.pg-text { flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.pg-ta { width: 100%; box-sizing: border-box; min-height: 7.5em; resize: vertical; font-family: inherit; font-size: 12.5px; line-height: 1.5; padding: 6px 8px; border: 1px solid var(--line, #d0d5dd); border-radius: 6px; }
+.pg-ta:focus { outline: 2px solid var(--accent, #2458d6); outline-offset: -1px; }
+.pg-ta[readonly] { background: var(--surface-2, #f6f7f9); }
+.pg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pg-cnt { font-size: 11.5px; }
+.pg-cnt.warn { color: var(--fail, #b42318); }
+.pg-col .pg-who { margin: 0; }

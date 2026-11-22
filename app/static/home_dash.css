@@ -29,7 +29,7 @@
 .hd-rows > li + li::before { left: 8px; }
 .hd-row { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 .hd-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.hd-go { position: relative; margin: 6px 0 0; padding: 0; border: 0; font-family: inherit; cursor: pointer; } /* 크기 · 동그라미 · 글은 .dash-no — 카드 머리 줄(36px)의 가운데에 */
+.hd-go { position: relative; margin: 7px 0 0; padding: 0; border: 0; font-family: inherit; cursor: pointer; } /* 크기 · 동그라미 · 글은 .dash-no — 카드 머리 첫 줄의 가운데에 */
 .hd-go:disabled { cursor: default; }
 .hd-go:not(:disabled):hover, .hd-go:not(:disabled):focus-visible { background: var(--accent); color: transparent; outline: 2px solid var(--accent); outline-offset: 2px; }
 .hd-go:not(:disabled):hover::before, .hd-go:not(:disabled):focus-visible::before { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; padding-left: 1px; color: #fff; font-size: 9px; } /* 누르면 실행 — 번호 자리에 ▶ */
@@ -39,10 +39,12 @@
 .hd-row[data-state="done"] > .hd-go::after { content: "✓"; position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 11px; height: 11px; border: 1.5px solid #fff; border-radius: 50%; background: var(--ok); color: #fff; font-size: 7.5px; line-height: 1; } /* 실행 표시 — 색에만 기대지 않게 ✓(카드에도 「✓ 끝남」) */
 .hd-row[data-state="blocked"] > .hd-go, .hd-row[data-state="failed"] > .hd-go { background: var(--warn-soft); color: var(--warn); }
 .hd-row[data-state="soon"] > .hd-go { opacity: .6; }
-.hd-role { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: #45505f; font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; } /* 카드 머리의 문서 꼬리표 — 어느 문서의 카드인가 */
+/* 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity(카드 좌우 여백 · 칩 높이 정렬) */
+.hd-role { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: #45505f; font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; } /* 카드 머리의 문서 꼬리표 — 어느 문서의 카드인가 */
 .hd-role[data-role="target"] { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
 .hd-role[data-role="pair"], .hd-role[data-role="flow"] { border-style: dashed; }
-.home-dash .dash-detail { padding-left: 8px; } /* 번호가 카드 밖(왼쪽 열)이라 세부를 번호 폭만큼 들이지 않는다 */
+.home-dash .dash-node-top { padding: 8px 10px; } /* 번호가 카드 밖(왼쪽 열)이라 좌우 여백을 대칭으로 */
+.home-dash .dash-detail { padding: 8px 10px 10px; } /* 번호가 카드 밖(왼쪽 열)이라 세부를 번호 폭만큼 들이지 않는다 */
 .home-dash .dash-node[data-state="blocked"] .dash-st, .home-dash .dash-node[data-state="failed"] .dash-st { color: var(--warn); font-weight: 600; }
 .home-dash-away { margin: -2px 0 4px; } /* 「문서 화면에서 진행합니다」 — 묶음 머리 바로 아래 */
 .home-dash .dash-note > span { white-space: pre-line; } /* 알림이 두 가지면 줄을 나눈다(시작의 알림 + 못 올린 문서) */

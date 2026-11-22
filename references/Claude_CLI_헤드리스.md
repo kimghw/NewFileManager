@@ -22,6 +22,16 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 - 성공 판정: 종료 코드 0, `is_error: false`, `subtype: "success"`, `structured_output` 이 dict. 구조화 출력은 도구 호출로 구현돼 `stop_reason` 이 `"tool_use"`, `num_turns` 2 —
   `stop_reason` 으로 판정하지 않는다. 그 밖에 `total_cost_usd`, `duration_ms`, `modelUsage`.
 
+## 그림 입력 — stream-json (2026-11-23 실측 · 2.1.321 · 구독 로그인)
+
+- 글 프롬프트(stdin)에는 그림을 실을 수 없다 → **`--input-format stream-json --output-format stream-json --verbose`** 로 부르고 stdin 에 사용자 메시지 **한 줄**(JSON + 줄바꿈)을 준다:
+  `{"type":"user","session_id":"","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"<base64>"}},{"type":"text","text":"<프롬프트>"}]}}`.
+  `--input-format stream-json` 은 `--output-format stream-json`(+ `--verbose`) 과만 된다. `--json-schema` · `--tools ""` · `--setting-sources ""` · `--no-session-persistence` 는 그대로 함께 쓴다.
+- 출력 = 줄마다 메시지(`system`/`init` → `assistant` … → 끝의 **`type: result`**). result 줄의 꼴은 `--output-format json` 의 결과 객체와 같다(`structured_output` · `total_cost_usd` · `is_error` · `subtype`).
+  stdin 이 끝나면(EOF) 한 턴 돌고 끝난다. init 줄의 `apiKeySource` 가 `"none"` 이면 구독으로 청구.
+- 잰 것: 420×140 표 그림(3행 2열 + 제목 줄) → 격자 · 캡션을 정확히 읽음 · Opus 5.5 effort low 약 6초 · `total_cost_usd` 0.03~0.05(정가 셈).
+- Agent SDK 길도 같은 메시지 dict 를 `query(prompt=<async iterable>)` 로 주면 된다(SDK 가 이터러블이 끝나면 stdin 을 닫는다 — `claude_agent_sdk` 0.2.172 `Query.stream_input`). 사용처 `app/llm.py` `_user_line`(spec_그림 ② §7).
+
 ## 실패 결과 — 종료 코드 1 + 결과 JSON (2026-11-22 실측 · 구독 로그인)
 
 - 모델 사용 한도: 종료 코드 **1**, stdout 은 결과 JSON 그대로 — `is_error: true` · `subtype: "success"`(!) · `api_error_status: 429` · `terminal_reason: "api_error"` · `duration_api_ms: 0` ·

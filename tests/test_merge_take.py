@@ -105,11 +105,11 @@ def test_plans_skip_what_is_outside_and_are_unchanged_without_a_selection(small)
 
 def test_the_selection_is_kept_per_bundle_beside_the_llm_skips(tmp_path, monkeypatch):
     work = {"id": "aaaaaaaaaaaa", "task": {"project": "넣을 구성", "job": "plan_to_report", "round": 1}}
-    assert task_options.flow(work) == {"llmSkip": [], "take": None}
+    assert task_options.flow(work) == {"llmSkip": [], "take": None, "caption": None}
     assert task_options.flow_take(work, {"year": [2]}) == {"year": [2]} and task_options.flow(work)["take"] == {"year": [2]}
-    assert task_options.flow_skip(work, "bbbbbbbbbbbb", True) == ["bbbbbbbbbbbb"] and task_options.flow(work) == {"llmSkip": ["bbbbbbbbbbbb"], "take": {"year": [2]}}
+    assert task_options.flow_skip(work, "bbbbbbbbbbbb", True) == ["bbbbbbbbbbbb"] and task_options.flow(work) == {"llmSkip": ["bbbbbbbbbbbb"], "take": {"year": [2]}, "caption": None}
     assert task_options.flow_skip(work, "bbbbbbbbbbbb", False) == [] and task_options.flow(work)["take"] == {"year": [2]}   # 건너뛰기를 다 풀어도 넣을 구성은 남는다
-    assert task_options.flow_take(work, None) is None and task_options.flow(work) == {"llmSkip": [], "take": None}
+    assert task_options.flow_take(work, None) is None and task_options.flow(work) == {"llmSkip": [], "take": None, "caption": None}
     other = {"id": "cccccccccccc", "task": {"project": "넣을 구성", "job": "plan_to_report", "round": 2}}
     task_options.flow_take(work, {"org": ["가나대"]})
     assert task_options.flow(other)["take"] is None   # 다른 라운드 = 다른 묶음

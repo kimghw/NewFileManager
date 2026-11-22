@@ -55,6 +55,10 @@ class FillFake(Fake):
     def _fenced(self):
         self.fenced.append((X.FENCE.get("t") or {}).get("thread") == threading.get_ident())
 
+    def cap_unify_view(self, doc):   # 캡션 맞추기의 재료 — 기본은 제목 캡션이 없는 문서(건너뜀)
+        return Outcome("ok", "", {"rev": self.rev, "form": None, "chosen": None, "name": "", "why": "맞출 제목 캡션이 없습니다", "rep": None, "forms": [],
+                                  "counts": {"titles": 0, "change": 0, "full": 0, "style": 0, "frozen": 0, "cross": 0, "others": 0}})
+
     def links_llm(self, doc):
         self.calls.append(("linksLlm", doc))
         if self.llm_fail:
@@ -498,21 +502,36 @@ def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(
         n, state["zones"], fake.rev = state["zones"], 0, fake.rev + 1
         return Outcome("ok", "", {"done": {"removed": {"items": n, "blocks": 1, "rows": 2, "cols": 0}, "skipped": []}})
     fake.zone_prune = prune
+    caps = {"change": 3}
+    fake.cap_unify_view = lambda doc: Outcome("ok", "", {"rev": fake.rev, "form": "wrap:<…>", "chosen": None, "name": "< 제목 >", "why": "", "rep": {"id": "p1", "text": "< 시스템 구성 >", "kind": "figure", "kindName": "그림"},
+                                                       "forms": [], "counts": {"titles": 5, "change": caps["change"], "full": 2, "style": 1, "frozen": 1, "cross": 0, "others": 2}})
+
+    def unify(doc, rev):
+        fake.calls.append(("capUnify", rev))
+        fake._fenced()
+        n, caps["change"], fake.rev = caps["change"], 0, fake.rev + 1
+        return Outcome("ok", "", {"changed": ["p2", "p3", "p4"][:n], "frozen": ["p4"]})
+    fake.cap_unify = unify
     clean = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
     keys = [s["key"] for s in clean["steps"]]
-    assert keys == ["retidy", "guideFix", "guide", "zonePrune"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
+    assert keys == ["retidy", "guideFix", "guide", "zonePrune", "capUnify"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
+    assert "「내용 넣기」 이 끝난 뒤에 넣은 캡션까지" in clean["steps"][4]["text"]
     assert "「내용 넣기」 이 끝난 뒤" in clean["steps"][0]["text"] and "「내용 넣기」 이 끝난 뒤" in clean["steps"][1]["text"]
     X.start("t", {"from": "map", "to": "clean"})
     rec = _done("t")
     assert rec["status"] == "done", rec["end"]
-    order = [c[0] for c in fake.calls if c[0] in ("apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune")]
-    assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune"]   # 내용 반영 → 넣은 뒤 정리 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기
-    assert fake.fenced[-5:] == [True, False, True, True, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기는 울타리 안
+    order = [c[0] for c in fake.calls if c[0] in ("apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify")]
+    assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify"]   # 내용 반영 → 넣은 뒤 정리 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기 → 캡션 맞추기
+    assert fake.fenced[-6:] == [True, False, True, True, True, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기 · 캡션 맞추기는 울타리 안
     text = rec["stages"][-1]["text"]
     assert "넣은 줄 4줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다 · 레벨 2곳(넣는 쪽이 더 길어 늘어난 레벨 1)" in text
     assert "지침 보정 — 고친 문단 2 · 고치지 못한 것 1" in text and "빈 구역 3곳을 지웠습니다(본문 블록 1 · 표 행 2)" in text
+    assert "제목 캡션 3곳을 「< 제목 >」(고르지 않아 가장 많은 꼴)으로 맞췄습니다" in text
+    cap = [x for x in rec["steps"] if x["key"] == "capUnify" and x["status"] == "done"]
+    assert cap and "자동 번호 · 표지가 든 캡션 1곳은 서식만" in cap[-1]["text"], rec["steps"][-3:]
     after = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
     assert after["left"] == 0 and next(s for s in after["steps"] if s["key"] == "guideFix")["text"].startswith("지침 보정 — 고친 문단 2")
+    assert next(s for s in after["steps"] if s["key"] == "capUnify")["text"].startswith("제목 캡션 5곳이 모두 「< 제목 >」")
 
 
 def test_tidy_tools_wait_for_the_fill_and_skip_without_llm(fake, monkeypatch):

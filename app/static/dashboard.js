@@ -906,6 +906,73 @@ function dashFlowTake(card, off) { // 그 카드의 고르기 단추
   card.acts = acts;
 }
 
+// 「캡션 맞추기」 줄(조립에 놓는 도구 — spec_워크플로우 ② §18-23 「캡션 맞추기」 · 하는 일 = spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」: 2026-11-23 사용자 "4단계에서 캡션 맞추기.. 할건데 옵션에서 한가지 골라서 모든 캡션을 동일한 형식/서식으로") —
+// 문서 카드마다 그 문서에 있는 캡션의 꼴을 하나 고르는 칩(「넣을 구성 선택」 의 대상 차년도와 같은 꼴 — 눌린 것 = 맞출 꼴 · 안 골랐으면 줄이 가장 많은 꼴이 눌려 보인다 · 꼴은 묶음에 하나: 원본 · 목적 문서에 같이).
+// 값 = GET …/flow/caption?doc=(읽어 둔 것 — 낡으면 다시 읽는다) · 누르면 바로 저장(PUT — 문서는 안 바뀐다: 맞추는 것은 그 줄의 「이 단계만 진행」 · 묶음의 「한 번에 진행」).
+function dashCap(doc) { // 이 묶음 · 이 문서의 읽어 둔 값 {view | null, err, at, loading}
+  if (!DASH.cap || DASH.cap.key !== dashKey()) DASH.cap = { key: dashKey(), by: {} };
+  return (DASH.cap.by[doc] = DASH.cap.by[doc] || { view: null, err: "", at: 0, loading: null });
+}
+function dashCapRead(doc) {
+  const C = dashCap(doc), id = state.id;
+  if (C.loading || (C.view && Date.now() - C.at < 10000)) return C.loading;
+  C.loading = (async () => {
+    let view = null, err = "";
+    try { view = await api(`/api/works/${id}/flow/caption?doc=${encodeURIComponent(doc)}`); } catch (e) { err = e.status === 404 && e.message === "Not Found" ? "서버가 옛 판입니다 — 서버를 다시 켠 뒤에 고를 수 있습니다" : e.message || String(e); }
+    C.loading = null;
+    if (dashCap(doc) !== C) return;
+    Object.assign(C, { at: Date.now(), err, ...(view ? { view } : {}) });
+    const pane = $("paneDash");
+    if (pane && !pane.hidden && state.id === id) dashDraw();
+  })();
+  return C.loading;
+}
+function dashCapPut(label, doc, form) { // 고른 꼴을 적는다(묶음에 하나) → 읽어 둔 값을 모두 버리고 서버 상태를 다시 읽는다
+  return dashExec(label, async () => {
+    const id = state.id;
+    let view = null;
+    try { view = await api(`/api/works/${id}/flow/caption?doc=${encodeURIComponent(doc)}`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ form }) }); }
+    catch (e) { return { ok: false, text: `적지 못했습니다 — ${e.message}` }; }
+    if (state.id !== id) return null;
+    DASH.cap = { key: dashKey(), by: {} }; // 꼴은 묶음에 하나 — 다른 문서 카드의 읽어 둔 값도 낡았다
+    Object.assign(dashCap(doc), { view, at: Date.now(), err: "" });
+    dashFlowTouch(id);
+    await dashFlowRead();
+    return null; // 결과는 그 줄의 상태 글로 보인다
+  });
+}
+function dashFlowCap(card, off) { // 그 문서 카드의 꼴 고르기(앞에) — 카드의 다른 단추(「이 단계만 진행」 · 문서 열기)는 그 뒤에 그대로
+  const doc = card.doc && card.doc.id;
+  if (!doc) return;
+  const C = dashCap(doc), V = C.view;
+  if (!C.loading && (!V || Date.now() - C.at >= 10000)) dashCapRead(doc);
+  if (!V) { if (C.err) card.lines = [...(card.lines || []), ["", C.err]]; return; }
+  const forms = V.forms || [];
+  if (V.off || !forms.length) return; // 고를 꼴이 없다 — 까닭은 서버의 상태 글에
+  const chips = forms.map((f, i) => {
+    const on = V.chosen ? V.chosen === f.key : V.form === f.key, kinds = [f.kinds.table ? `표 ${f.kinds.table}` : "", f.kinds.figure ? `그림 ${f.kinds.figure}` : ""].filter(Boolean).join(" · ");
+    const b = dashBtn(`${f.name} · ${f.count}`, () => (V.chosen === f.key ? null : dashCapPut(`캡션 맞추기 — 「${f.name}」`, doc, f.key)), { disabled: !!off, focus: `act:${card.ref}:cap:${i}`,
+      title: off || [`모든 제목 캡션을 「${f.name}」 의 형식 · 서식으로 맞춥니다 — 이 꼴의 캡션 ${f.count}곳(${kinds}) · 대표 「${f.text}」`,
+        on && !V.chosen ? "고르지 않아 줄이 가장 많은 이 꼴로 맞춥니다 — 누르면 이 꼴로 정해 둡니다" : "",
+        "고르기만 해서는 문서가 바뀌지 않습니다(「이 단계만 진행」 · 「한 번에 진행」 때 맞춥니다) · 꼴은 원본 · 목적 문서에 같이 씁니다"].filter(Boolean).join("\n") });
+    b.classList.add("dash-chip");
+    b.setAttribute("aria-pressed", String(on));
+    return b;
+  });
+  const r = el("div", "dash-take-row dash-take-target dash-cap-row"), box = el("div", "dash-take-chips");
+  box.append(...chips);
+  r.append(el("span", "dash-chip-name", "맞출 꼴"), box);
+  const acts = [r];
+  if (V.chosen) {
+    const foot = el("div", "dash-take-foot");
+    foot.append(dashBtn("가장 많은 꼴로", () => dashCapPut("캡션 맞추기 — 가장 많은 꼴", doc, null), { disabled: !!off, focus: `act:${card.ref}:cap:auto`, title: off || "고른 꼴을 풀어 문서마다 줄이 가장 많은 꼴로 맞춥니다" }));
+    acts.push(foot);
+  }
+  const rest = card.acts || [];
+  if (off && !rest.some((b) => b.tagName === "BUTTON" && b.disabled && b.title)) acts.push(el("p", "dash-text dash-why dash-take-why", off)); // 칩은 줄 그릇 안이라 dashDetailEl 이 까닭을 못 찾는다 — 다른 꺼진 단추가 없을 때만 직접
+  card.acts = [...acts, ...rest];
+}
+
 function dashFlowRun(label, from, opt = {}) { // 서버 쪽 실행기에 시작을 청한다(workflow_exec.js relayFlowRun — 확인 창 없이 바로: 유료 LLM · 문서 바뀜은 단추의 풍선 도움말에).
   // 빈 문서 칸에 건 저장한 양식이 있으면 먼저 그 양식으로 채운다(「올리지 않으면 저장된 파일」). 끝 글은 서버 상태의 「지난 실행」 줄로 보인다 — 머리 아래 끝 글 칸에는 시작하지 못한 까닭만 남긴다.
   // **시작까지만 기다린다**(detach — 문서마다 따로 도는 실행: spec_워크플로우 ② §18-22): 그 실행을 따라가는 동안 이 보기를 「하는 중」 으로 잡아 두지 않는다 — 다른 문서의 단추를 누를 수 있게. 끄는 것은 서버 상태(도는 실행이 잡은 문서)가 한다.
@@ -1040,6 +1107,7 @@ async function dashFlowLive(M) {
             if (skipped) c.acts.push(dashBtn("건너뛰기 취소", () => dashFlowSkip(c.per.doc, false, who), { disabled: !!offSkip, focus: `act:${c.ref}:unskip`, title: offSkip || "이 문서의 LLM 검증·보완을 다시 이 단계의 할 일로 둡니다" }));
             else if (c.state !== "done" && c.state !== "run") c.acts.push(dashBtn("건너뛰기", () => dashFlowSkip(c.per.doc, true, who), { disabled: !!offSkip, focus: `act:${c.ref}:skip`, title: offSkip || "이 문서는 LLM 검증·보완 없이 스크립트 분석만으로 진행합니다(「건너뛰기 취소」 로 되돌립니다)" }));
           }
+          if (s.key === "capUnify" && (c.role === "source" || c.role === "target")) dashFlowCap(c, offFor(c.role) || lack || ""); // 캡션 맞추기 — 맞출 꼴 고르기(문서 카드마다 · 그 문서를 잡은 실행이 돌 때만 끈다)
           const view = DASH_FLOW_VIEW[s.key];
           if (view) c.acts.push(...view(C, c.role));
           if (c.doc && c.doc.id !== state.id) c.acts.push(dashBtn(`${DASH_FLOW_ROLE[c.role]} 열기`, () => dashOpen(c.doc.id), { focus: `act:${c.ref}:open`, title: `${c.doc.name} — 그 문서를 열어 이 단계의 결과를 봅니다(이 대시보드는 그 문서에서도 같습니다)` }));
@@ -1148,14 +1216,15 @@ function dashDetailEl(n, id, C = DASH_CTX) {
 function dashMemoEl(n, C = DASH_CTX) { // 「하는 일 · 조건」 — 카드 머리 이름 옆 메모 아이콘(노트 도움말 · design.md §1-6). 2026-11-18 사용자 「하는 일 조건은 이렇게 줄을 넣지 말고 메모 아이콘 해서 제목 쪽에 넣어줘」(전에는 펼친 카드 맨 아래 접은 줄)
   const rows = [["하는 일", n.does], ...(n.out ? [["나오는 것", n.out]] : []), ...(n.cond || []).map((c) => [c.name, c.text])].filter(([, v]) => v);
   if (!rows.length) return null; // 등록부에 없는 줄(첫 화면 — 정의가 방금 바뀌어 서버가 낸 줄만 있을 때): 적을 글이 없다
-  const b = hHelp(`${n.name} — 하는 일 · 조건`, rows.map(([k, v]) => `${k} — ${v}`).join("\n"));
+  // 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity
+  const b = hHelp(`${n.name} — 하는 일 · 조건`, rows.map(([k, v]) => `${k} — ${v}`).join("\n"), { rows: true, title: n.name });
   b.classList.add("dash-memo");
   b.dataset[C.focus] = `memo:${n.ref || n.key}`; // 다시 그려도 초점이 메모로 돌아온다(dashDraw · homeDashDraw)
   b.title = ""; // 카드 머리 줄의 풍선(title)이 메모 위에서 겹쳐 뜨지 않게
   return b;
 }
 
-// 단계 카드 — 머리 줄(.dash-node-top) = 번호 · 이름(펴고 접는 단추) + 꼬리표 + 메모 · 상태 글. 줄 어디를 눌러도 펴고 접는다(메모는 제 풍선만 — hHelp 가 누름을 멈춘다).
+// 단계 카드 — 머리 줄(.dash-node-top) = 번호 · 1줄(문서 칩 + 이름 + 메모) / 2줄(꼬리표) · 오른쪽 상태 글. 줄 어디를 눌러도 펴고 접는다(메모는 제 풍선만 — hHelp 가 누름을 멈춘다).
 // n.word = 상태 글을 그 보기가 정할 때(첫 화면 — 서버의 글: 「막힘」 · 「실패」 · 「건너뜀」) · n.skipped = 「건너뜀」 으로 끝남(✓ 를 붙이지 않는다) ·
 // 첫 화면의 문서 카드(home_dash.js hdCards — 번호는 왼쪽 차례 열에 있다): n.idx 없음 = 번호 동그라미를 그리지 않는다 · n.lead = 이름 앞의 꼬리표(「원본 문서」 · 「목적 문서」) · n.ref = 펴고 접는 이름(한 줄의 카드가 문서마다 — 없으면 key)
 function dashNodeEl(n, gid, openKey, C = DASH_CTX) {
@@ -1170,9 +1239,10 @@ function dashNodeEl(n, gid, openKey, C = DASH_CTX) {
   head.setAttribute("aria-expanded", String(shown));
   if (shown) head.setAttribute("aria-controls", id);
   if (n.state === "now" || n.state === "run") head.setAttribute("aria-current", "step");
-  const main = el("span", "dash-node-main"), st = n.word !== undefined ? n.word : DASH_ST[n.state] || "", memo = dashMemoEl(n, C);
+  // 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity(메모를 이름 바로 옆 · 꼬리표는 둘째 줄로)
+  const main = el("span", "dash-node-main" + (n.lead ? " has-lead" : "")), st = n.word !== undefined ? n.word : DASH_ST[n.state] || "", memo = dashMemoEl(n, C);
   head.append(el("b", null, n.name));
-  main.append(...(n.lead ? [n.lead] : []), head, dashTags(n), ...(memo ? [memo] : []));
+  main.append(...(n.lead ? [n.lead] : []), head, ...(memo ? [memo] : []), dashTags(n));
   if (n.idx != null) top.append(el("span", "dash-no", String(n.idx).padStart(2, "0")));
   top.append(main);
   if (st) { const s = el("span", "dash-st", n.state === "done" && !n.skipped ? `✓ ${st}` : st); s.id = `${id}-st`; head.setAttribute("aria-describedby", s.id); top.append(s); }

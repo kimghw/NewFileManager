@@ -9,6 +9,7 @@ import json
 from collections import Counter
 
 from app import division_llm, heading_forms, job_prompts, llm, merge_chunks, merge_guides, merge_pairs
+from app import place_guides as PG
 
 S = {"type": "string"}
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["decisions", "tables", "summary"], "properties": {
@@ -220,8 +221,8 @@ def check(payload, answer):
             why = "구분이 다름"
         elif family(s["kind"]) != family(t["kind"]):
             why = "종류가 다름(문단 묶음 ↔ 표 묶음)"
-        elif None not in (ys := ((t.get("ctx") or {}).get("year"), (s.get("ctx") or {}).get("year"))) and ys[0] != ys[1]:
-            why = "맥락 차년도가 다름"
+        elif (clash := _table_clash(t, s)) is not None:   # 둘 다 알고 다른 기관 · 차년도(표와 같은 기준 — spec_병합 ② §5-11 G4: 전에는 차년도만 봐 다른 기관의 같은 이름 절이 짝으로 들어왔다)
+            why = "맥락 차년도가 다름" if clash == "year" else "맥락 기관이 다름"
         else:
             anchor = str(r.get("anchor") or "").strip()
             fixed[to] = {"from": frm, "source": "llm", "anchor": anchor if anchor in (t.get("inner") or ()) else None, "reason": reason}
@@ -316,8 +317,11 @@ def _anchor(s):
 
 
 def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chunks.PAGES, ask=None, model=MODEL, effort="medium", timeout=600.0, form=None, job=None,
-           tables=None, guide=None, links=""):
-    """못 정한 목적 묶음과 **못 정한 표**를 **목적 문서의 장(쪽 상한 pages 안)마다 한 호출**로 나눠 병렬로 보정한다(잠금 밖 — 호출이 수십 초~수 분).
+           tables=None, guide=None, links="", places=None, again=()):
+    """places = 자리 → 작성 지침(place_guides.resolver — 「group」 묶음 요약 · 「table」 목적 표 id): 주면 targets · tableTargets 마다 `guides`(+ 자른 수 guidesCut)를 싣고 계약에 그 한 줄을 붙인다(spec_병합 ② §5-11) ·
+    결과의 `sigs` {groups{key: 판}, tables{key: 판}} = 물을 때 그 자리의 지침 판(자르기 전 — 부르는 쪽이 늦은 답 · 다음 실행의 다시 묻기를 가른다).
+    again = 이미 LLM 짝이 있어도 다시 물을 목적 묶음 key(그 짝을 낸 뒤 그 자리의 지침이 바뀜 — 짝을 지우지 않고 다시 묻는다: astra 3차).
+    못 정한 목적 묶음과 **못 정한 표**를 **목적 문서의 장(쪽 상한 pages 안)마다 한 호출**로 나눠 병렬로 보정한다(잠금 밖 — 호출이 수십 초~수 분).
     to_side·from_side = {"blocks": 문서 blocks(), "graph": 2단계 결과}, pairs = `merge_pairs.pair` 결과, to_groups·from_groups = `merge_pairs.summarize`.
     tables = 표 짝 검토 자료(`merge_fixed.review_tables` — {"targets": [{key, title, path, ctx, heads, shape, status, why, candidates, paired?}], "sources": [{key, …, form}]} | None = 표는 안 봄).
     **표는 모두 읽고 정한다**(2026-11-22 사용자 "테이블 매칭을 LLM이 모두 읽고 하길 바램"): 단위마다 그 단위의 목적 표 **전부**(후보가 없는 표 · 스크립트가 이은 표도)와 **원본 문서의 표 전부**를 보낸다 —
@@ -335,14 +339,16 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
     us = merge_chunks.units(to_side["blocks"], to_side["graph"], pages=pages)
     at, at_from = merge_chunks.index(to_side["blocks"]), merge_chunks.index(from_side["blocks"])
     groups = pairs.get("groups") or []
-    und = [g["to"]["key"] for g in groups if g.get("status") in UNDECIDED and g.get("source") != "user" and (g.get("to") or {}).get("key") in to_by]
+    again = set(again or ())
+    redo = lambda g_: g_.get("status") in UNDECIDED or (g_.get("source") == "llm" and (g_.get("to") or {}).get("key") in again)  # noqa: E731 — 못 정한 묶음 + 지침이 바뀐 자리의 LLM 짝
+    und = [g["to"]["key"] for g in groups if redo(g) and g.get("source") != "user" and (g.get("to") or {}).get("key") in to_by]
     where = merge_chunks.assign(us, at, [_anchor(to_by[k]) for k in und])
     tt = list((tables or {}).get("targets") or ())   # 남는 칸이 있는 목적 표 전부 — 후보가 없는 표도 LLM 이 원본 표를 모두 읽고 정한다
     ts_all = list((tables or {}).get("sources") or ())   # 원본 문서의 표 전부(문서 차례)
     twhere = merge_chunks.assign(us, at, [t["key"] for t in tt])
     g = merge_guides.get(GUIDE) if guide is None else guide
     out = {"fixed": {}, "rejected": [], "none": [], "tables": {"fixed": {}, "rejected": [], "none": [], "kept": []}, "units": [], "left": 0, "form": [], "job": job_prompts.brief(job),
-           "guide": merge_guides.brief(g) if g else None}
+           "guide": merge_guides.brief(g) if g else None, "sigs": {"groups": {}, "tables": {}}}
     sent, jobs = [], []
     for i, u in enumerate(us):
         row = {"title": u["title"], "pages": u["pages"], "over": u["over"], "targets": 0, "tables": 0, "call": None}
@@ -351,7 +357,9 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
         mine = [t for t, w in zip(tt, twhere) if w == i]
         if not keys and not mine:
             continue
-        p = data({"groups": [g_ for g_ in groups if g_.get("status") not in UNDECIDED or (g_.get("to") or {}).get("key") in keys]}, to_groups, from_groups)
+        p = data({"groups": [({**g_, "status": "ambiguous", "candidates": [{"key": (g_.get("from") or {}).get("key"), "score": None}, *(g_.get("candidates") or [])]}
+                              if g_.get("status") not in UNDECIDED and (g_.get("to") or {}).get("key") in keys and g_.get("from") else g_)   # 다시 묻는 LLM 짝은 「확인 필요」 로 보낸다(그 짝의 원본이 후보 맨 앞)
+                                for g_ in groups if g_.get("status") not in UNDECIDED or (g_.get("to") or {}).get("key") in keys]}, to_groups, from_groups)
         lines, more = merge_chunks.outline(to_side["graph"], at, u)
         p["chapter"] = {"title": u["title"], "pages": u["pages"], "outline": lines, **({"outlineLeft": more} if more else {})}
         for t in p["targets"]:
@@ -369,7 +377,25 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
             if len(fit) > len(kept):
                 p["sourcesLeft"] = len(fit) - len(kept)
             out["left"] += len(mine) - len(picked)
-        content, out["form"] = prompt(p, form, UNIT_NOTE, job, g if g else False, links)
+        note = UNIT_NOTE
+        if places is not None:   # 자리마다의 작성 지침(② §5-11) — 묶음은 항목 모두에게 있는 것만 · 한 호출의 합을 자른다
+            for t in p["targets"]:
+                gs = places("group", to_by[t["key"]])
+                out["sigs"]["groups"][t["key"]] = PG.sig(gs)
+                if gs:
+                    t["guides"] = gs
+            for t in p.get("tableTargets") or ():
+                gs = places("table", t["key"])
+                out["sigs"]["tables"][t["key"]] = PG.sig(gs)
+                if gs:
+                    t["guides"] = gs
+            places_cut = PG.budget([*p["targets"], *(p.get("tableTargets") or ())])
+            row["guides"] = sum(1 for t in [*p["targets"], *(p.get("tableTargets") or ())] if t.get("guides"))
+            if places_cut:
+                row["guidesCut"] = places_cut
+            if row["guides"]:
+                note += PG.CONTRACT_LINE
+        content, out["form"] = prompt(p, form, note, job, g if g else False, links)
         row.update(targets=len(p["targets"]), tables=len(p.get("tableTargets") or ()), prompt=content)
         out["left"] += p["left"]
         sent.append((i, row, p))

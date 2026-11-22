@@ -321,6 +321,23 @@ COMMON = (
                 out="양식의 표 등록부(forms/<양식>.tables.json)", change="store",
                 modules=("form_tables",), spec=(SP_TABLE, "② §11")),
          )),
+    dict(id="pics", name="그림 도구", where="문서의 그림을 누르면 그림 위에 뜨는 「그림 도구」 띠 · 그림의 오른쪽 단추 메뉴(hwpx 문서 — Ctrl/Shift+누름으로 둘째 그림을 더 고름)",
+         does="문서의 그림 하나(또는 둘)에 하는 일입니다 — 표를 캡처한 그림을 진짜 표로 바꾸기 · 캡션이 없는 그림에 캡션 넣기(LLM 이 그림과 그 그림이 든 절의 헤딩을 함께 읽음) · "
+              "작은 그림을 키워 또렷하게 · 가운데 정렬 · 두 그림을 한 줄에 나란히. LLM 의 답은 옆 열의 미리보기이고, 사람이 고쳐 「넣기」 를 눌러야 문서가 바뀝니다(실행 취소 한 번).",
+         steps=(
+             _s("picTable", "그림 → 표", ("llm", "script", "human"), "LLM 이 그림 안의 표를 격자로, 표 밖 글(제목 · 설명 줄)을 캡션 줄로 읽습니다(그림에 보이는 글 그대로). "
+                "옆 열에서 표 · 캡션을 보고 고친 뒤 「넣기」 — 고른 표 양식의 서식으로 표가 들어가고 캡션은 첫 표의 위 캡션이 되며, 그림은 지웁니다(「그림은 두고 뒤에 넣기」 도 고를 수 있음).",
+                change="doc", agents=("pic_table",), modules=("pic_tools", "pic_tools_api", "hwpx_pic", "hwpx_table_make"), spec=("spec_그림.md", "② §2")),
+             _s("picCaption", "캡션 넣기", ("llm", "human"), "캡션이 없는 그림에, 그림과 소속 헤딩 · 앞뒤 글을 읽고 이 문서의 그림 캡션 꼴로 캡션 한 줄을 짓습니다. "
+                "고쳐 「넣기」 를 누르면 그림의 아래 캡션으로 들어갑니다(모양은 이 문서에서 가장 많이 쓴 그림 캡션의 것).",
+                change="doc", agents=("pic_caption",), modules=("pic_tools", "pic_tools_api", "hwpx_pic"), spec=("spec_그림.md", "② §3")),
+             _s("picSharpen", "선명하게", ("script", "human"), "그림의 표시 크기에 견줘 화소가 모자라면 키우고(최대 4배) 또렷하게(언샤프 · 강하게는 대비도) 만듭니다 — 바꾸기 전 · 뒤를 옆 열에서 견주고 「바꾸기」. "
+                "표시 크기는 그대로이고 새 그림 파일로 들어갑니다.", change="doc", modules=("pic_tools", "hwpx_pic"), spec=("spec_그림.md", "② §4")),
+             _s("picCenter", "가운데", "script", "고른 그림을 가운데로 놓습니다(글자처럼 취급한 그림은 그 문단의 정렬 · 떠 있는 그림은 가로 자리).", change="doc",
+                modules=("hwpx_pic",), spec=("spec_그림.md", "② §5")),
+             _s("picRow", "한 줄에 나란히", "script", "고른 두 그림을 앞 그림의 문단에 한 줄로 놓습니다 — 둘의 폭이 글 폭보다 넓으면 같은 비율로 줄이고, 뒤 그림이 홀로 있던 빈 문단은 지웁니다.",
+                change="doc", modules=("hwpx_pic",), spec=("spec_그림.md", "② §6")),
+         )),
     dict(id="outline", name="템플릿 관계 · 서식 정리", where="도구 줄 「서식」 묶음의 「템플릿 관계」 · 헤딩 추출 「템플릿」 탭 · 헤딩 추출 탭 진행 줄의 「조정」(템플릿 조정 · 서식 조정 · 모두 반영) · 도구 줄 「문단 수정」 묶음의 「레터 넣기」",
          does="헤딩 그래프 위에서 개요 템플릿의 레벨마다 쓰인 서식을 보고 대표 서식에 맞춥니다 — 같은 템플릿의 줄은 서식이 같아야 하고, 레터가 다른 줄은 서식 종속 템플릿(T1L3a)으로 뗍니다. "
               "닮은 레터 글자(「o」·「ㅇ」·「○」 · 「·」·「⋅」·「•」)는 같은 레터라 떼지 않고 대표 글자로 맞춥니다. "
@@ -837,8 +854,9 @@ def _st_fill(S, D, *, fit=True, review=True):
            need=need,
            done="연결 목록에 확인 필요가 없거나, LLM 검토를 한 번 했을 때.",
            left="LLM 검토 뒤에도 남은 확인 필요 자리는 넣지 않고 비워 둡니다(각 기관이 이어서 작성) — 「연결 목록」 에서 후보를 골라 보정합니다."),
-        _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리를 LLM 이 쪽 묶음마다 판정하고, 표는 두 문서의 표를 모두 읽고 같은 표를 정합니다(후보가 없던 표 · 스크립트가 이은 표도 봅니다). 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다.", change="store", optional=True,
-           agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "link_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
+        _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리를 LLM 이 쪽 묶음마다 판정하고, 표는 두 문서의 표를 모두 읽고 같은 표를 정합니다(후보가 없던 표 · 스크립트가 이은 표도 봅니다). 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다. "
+           "목적 문서의 헤딩 · 표마다 작성 지침(문서의 것 · 「지침」 단추로 사람이 적은 것)을 그 자리의 자료로 함께 보냅니다 — 지침이 바뀐 자리의 LLM 짝만 다시 묻습니다.", change="store", optional=True,
+           agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "link_guides", "place_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
            need="연결 목록에 확인 필요 · 후보 없음 자리나 같은 표인지 못 정한 표가 있을 때 · LLM(유료 — 단추나 확인을 받은 「한 번에 진행」 안에서).",
            done="한 번 검토했을 때 — 안 해도 넣기 계획은 세울 수 있습니다.", left="한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다."),
         _s("plan", "표 안 연결 · 넣기 계획", "script", "이어진 자리마다 넣을 본문 블록 · 표 칸 · 늘릴 행과 못 넣는 까닭을 셉니다 — 월별 일정 표(대상 차년도의 일정 표들을 스크립트가 모음) · 양식이 통째로 복사하라고 정해 둔 표도 함께. "
@@ -849,16 +867,17 @@ def _st_fill(S, D, *, fit=True, review=True):
                 "목적 문서의 분석이 구조 반영 전 것이면 다시 분석한 뒤에 셈).", left="못 넣는 자리는 까닭과 함께 셉니다."),
         # 빈 자리 검토 → 표 대응(실행 차례 그대로 — 빈 자리 검토가 빈 표에 쓸 원본 표를 새로 정하고 표 대응이 그 표 쌍의 행 · 열을 맞춘다: spec_워크플로우 ② §18-4 「무르기」 · 전에는 줄 차례가 거꾸로였다)
         _s("gaps", "빈 자리 검토(LLM)", "llm", f"다른 길이 못 채운 빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄을 모아 {S}의 어디에서 가져올지 LLM 이 찾습니다(없으면 없다고 답합니다) — "
-           "라벨만 있는 줄에는 제목 줄 아래에 적힌 내용도 가져오고, 「N page 이내 요약」 자리는 줄 한도 안의 앞부분만 넣습니다.", change="store",
-           optional=True, agents=("merge_gaps",), modules=("merge_gaps", "link_guides"), spec=(SP_MERGE, "② §5-4"),
+           "라벨만 있는 줄에는 제목 줄 아래에 적힌 내용도 가져오고, 「N page 이내 요약」 자리는 줄 한도 안의 앞부분만 넣습니다. 그 자리의 작성 지침도 함께 보내고, 지침이 바뀐 자리만 다시 묻습니다.", change="store",
+           optional=True, agents=("merge_gaps",), modules=("merge_gaps", "link_guides", "place_guides"), spec=(SP_MERGE, "② §5-4 · §5-11"),
            need="넣기 계획이 있고 다른 길이 못 채운 빈 자리가 있을 때 · LLM(유료).", done="아직 묻지 않은 빈 자리가 남지 않았을 때 — 안 해도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
-        _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다(빈 자리 검토가 새로 정한 표 쌍도) — 글은 LLM 이 쓰지 않고 {S} 칸의 글을 옮깁니다.", change="store",
-           optional=True, agents=("merge_table_map",), modules=("merge_table_map",), spec=(SP_MERGE, "② §5-3"),
+        _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다(빈 자리 검토가 새로 정한 표 쌍도) — 글은 LLM 이 쓰지 않고 {S} 칸의 글을 옮깁니다. "
+           "그 표의 작성 지침(각주 항목 · 「이 표」 지침)도 함께 보내고, 지침이 바뀐 표만 다시 묻습니다.", change="store",
+           optional=True, agents=("merge_table_map",), modules=("merge_table_map", "place_guides"), spec=(SP_MERGE, "② §5-3 · §5-11"),
            need="같은 표로 이었지만 행 · 열 구성이 달라 칸을 못 맞춘 표가 있을 때 · LLM(유료).", done="칸을 못 맞춘 표가 남지 않았을 때 — 안 해도 됩니다.", left=f"글은 LLM 이 쓰지 않습니다 — {S} 칸의 글을 옮깁니다."),
         _s("apply", "내용 반영", ("human", "script"), f"「계획 보기」 에서 확인하고 「반영」 을 누르면 {S}의 글 · 표 · 그림이 그 자리에 들어갑니다 — 서식은 {D}의 틀에 맞추고, 넣는 내용의 개요가 자리보다 깊으면 "
-           "넘친 개요 레벨로 처리합니다. 양식이 보기로 적어 둔 예시 값은 실제 내용으로 바꾸거나 비웁니다.", no="④", out=f"내용이 들어간 {D}", change="doc",
-           modules=("merge_fill", "merge_tables", "merge_table_map", "merge_gaps", "merge_schedule", "merge_copy", "merge_convert", "merge_over", "merge_origins", "outline_conform"),
-           spec=(SP_MERGE, "② §5-2·§5-5·§6"),
+           f"넘친 개요 레벨로 처리합니다(받을 레벨이 없는 줄은 {S}에서 정리된 서식 그대로 그 자리의 종속 템플릿에 넣습니다 — 템플릿 표시 「T2L4a」). 양식이 보기로 적어 둔 예시 값은 실제 내용으로 바꾸거나 비웁니다.", no="④", out=f"내용이 들어간 {D}", change="doc",
+           modules=("merge_fill", "merge_tables", "merge_table_map", "merge_gaps", "merge_schedule", "merge_copy", "merge_convert", "merge_over", "merge_register", "merge_origins", "outline_conform"),
+           spec=(SP_MERGE, "② §5-2·§5-5·§5-12·§6"),
            need="넣기 계획 — 「계획 보기」 에서 확인하고 「반영」.", done="반영했거나 · 넣을 것이 없거나(계획의 넣을 것이 0 · 넣을 자리가 0곳 — ③ 과 같은 셈) · 지난 반영 기록이 남아 있을 때.",
            left="같은 자리인지 분명하지 않은 자리는 비워 둡니다(초안 — 실패가 아닙니다)."),
         _s("later", "합계 계산 → 결과 확인", "script", "아직 없는 단계입니다 — 넣은 값으로 합계 · 소계 · 비율 칸을 다시 세고 결과를 검사할 자리. 지금은 원본과 줄이 같은 합계 칸만 옮기고 나머지 계산 칸은 비워 둡니다.",
@@ -907,6 +926,16 @@ def _st_clean(S, D, *, review=True, fill=True, who=("target",), more=False):
                done="④ 가 끝났고 지울 빈 구역이 남지 않았을 때." if fill else "지울 빈 구역이 남지 않았을 때.",
                stop="한 번에 지웁니다 — 센 뒤 문서가 바뀌면 한 번 다시 셉니다 · 표준 검사에 걸리면 되돌리고 멈춥니다.",
                left="모든 항목이 빈 묶음(양식의 틀) · 병합 칸에 걸려 못 지우는 표 행 · 열은 남깁니다. 지운 자리는 「프로젝트 구성 반영」 을 다시 하면 다시 섭니다.", on=on),
+            _s("capUnify", "캡션 맞추기", ("script", "human"), "그림 아래 · 표 위의 제목 캡션(표 · 그림에 붙인 캡션 + 본문에 문단으로 친 「<표 1> 제목」 · 「< 제목 >」 줄)을 모두 고른 꼴 하나의 형식 · 서식으로 맞춥니다 — "
+               "고르는 꼴은 그 문서에 있는 캡션의 꼴(「< 제목 >」 · 「<표 N> 제목」 · 「표 N. 제목」 …)이고 대시보드의 그 줄에서 고릅니다(고르지 않으면 줄이 가장 많은 꼴). "
+               "고른 꼴의 대표 줄의 문단 모양 · 글자 모양 · 앞 빈칸을 표 · 그림 캡션 모두에 입히고, 같은 갈래(번호 붙은 머리끼리 · 줄 전체 괄호끼리)는 괄호 · 빈칸 꼴도 맞춥니다(낱말 · 번호 · 제목 글은 제 것 — 「<표 1>」 을 골라도 그림 캡션은 「<그림 3>」). "
+               "한 번에 · 실행 취소 한 번." + (f" 맞추는 문서 — {X}(문서마다 따로 세고 맞춥니다)." if src else ""),
+               out=f"제목 캡션이 한 꼴인 {X}", change="doc", modules=("caption_tpl", "caption_tpl_api"), spec=(SP_WEB, "② §8-10"),
+               need=f"{wait} · 고른 꼴(워크플로우 옵션 — 없으면 줄이 가장 많은 꼴).", done="④ 가 끝났고 고른 꼴과 형식 · 서식이 다른 제목 캡션이 남지 않았을 때 — 제목 캡션이 없으면 「건너뜀」." if fill
+               else "고른 꼴과 형식 · 서식이 다른 제목 캡션이 남지 않았을 때 — 제목 캡션이 없으면 「건너뜀」.",
+               stop="한 번에 맞춥니다 — 센 뒤 문서가 바뀌면 한 번 다시 셉니다 · 표준 검사에 걸리면 되돌리고 멈춥니다. 고른 꼴의 캡션이 문서에 없으면 맞추지 않고 남깁니다(다시 고릅니다).",
+               left="번호를 짓거나 지우지 않아 번호가 있고 없음이 다른 캡션(「< 제목 >」 ↔ 「<표 N> 제목」)은 글 꼴은 그대로 두고 서식만 · 자동 번호(한글의 캡션 번호) · 표지가 든 캡션도 서식만 맞춥니다. "
+                    "출처 · 주 줄(「*. 출처 …」)과 레터 없는 줄(「(단위:원)」)은 제목 캡션이 아니라 그대로 둡니다. 대표 줄을 바꾸려면 문서의 「캡션 템플릿」 절에서 그 꼴의 대표를 정합니다.", on=on),
         )
     return (
         _s("guide", "작성요령 삭제", ("script", "human"), "지우는 패턴 목록에 걸린 양식 안내(작성 요령 표 · 「<참고 N>」 자료 · 안내 색 ※ 글 · 위첨자 각주 번호)를 한 번에 지웁니다(확인 창 없이 · 실행 취소 한 번). 내용과 쓸 자리는 남깁니다. "
@@ -933,7 +962,8 @@ STAGE_MODULES = (
      "원본 문서의 내용을 목적 문서의 같은 자리에 넣습니다 — 자리 연결 → 넣기 계획 → 내용 반영. 앞의 두 단계(문서 검토 · 구성 맞추기)를 마친 문서끼리만 합니다(이관 · 취합의 조건)."),
     ("stage_clean", "문서 정리", _st_clean,
      "양식이 글쓴이에게 주는 안내(작성 요령 표 · 「<참고 N>」 자료 · ※ 안내 · 각주 번호)를 지웁니다 — 지우기 전에 작성 지침을 헤딩/표별로 저장합니다. 조립한 워크플로우에서는 원본 문서에도 놓을 수 있습니다. "
-     "조립에 놓는 도구가 둘 더 있습니다 — 「지침 보정(LLM)」(저장한 작성 지침에 따라 넣은 글을 LLM 이 고침 · 유료) · 「빈 구역 지우기」(기관 · 단계 · 차년도마다의 절 · 표 행 · 열 가운데 내용이 없는 것을 지움)."),
+     "조립에 놓는 도구가 더 있습니다 — 「지침 보정(LLM)」(저장한 작성 지침에 따라 넣은 글을 LLM 이 고침 · 유료) · 「빈 구역 지우기」(기관 · 단계 · 차년도마다의 절 · 표 행 · 열 가운데 내용이 없는 것을 지움) · "
+     "「캡션 맞추기」(고른 꼴 하나로 모든 제목 캡션의 형식 · 서식을 맞춤)."),
 )
 _STAGE_BY = {m[0]: m for m in STAGE_MODULES}
 
@@ -1406,7 +1436,7 @@ def _assemble_flow(c):
             homes.add(mid)
             no.setdefault(custom_tasks.STAGE_GROUP[mid], f"{i + 1}단계")
             o = s["on"]
-            if "source" in o and s["unit"] in ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune"):   # 원본 문서에도 놓은 구조 · 정리 줄 — 글을 그 줄이 고른 문서의 것으로(② §18-2 「원본 문서에 놓는 줄」)
+            if "source" in o and s["unit"] in ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify"):   # 원본 문서에도 놓은 구조 · 정리 줄 — 글을 그 줄이 고른 문서의 것으로(② §18-2 「원본 문서에 놓는 줄」)
                 base = next(x for x in _STAGE_BY[mid][2](S, D, **{**{k: v for k, v in opts.get(mid, {}).items() if k != "take"}, "who": tuple(o)}) if x["key"] == s["unit"])
             steps.append(_beside(dict(base, on=base["on"] if base["on"] in ("flow", "pair") else ("both" if len(o) == 2 else o[0])), s))
         names = [x["name"] for x in steps if x["key"] != "files"]

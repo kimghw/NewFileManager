@@ -111,6 +111,14 @@ def _fitless(rec):
     return {**rec, "char": {**ch, "text": flat(ch.get("text")), "letter": flat(ch.get("letter"))}}
 
 
+def _emphless(rec):
+    """본문 런의 강조(굵게 · 기울임 · 밑줄)와 문단 테두리 참조(borderFill id)를 눕힌 레코드(얕은 사본 — 레터 런은 그대로) — 확정 서식 줄과 대표를 견줄 때만(headings 의 rec_same).
+    테두리는 참조 id 라 다른 문서에서 들여온 같은 꼴의 줄도 id 가 달랐다(실제 작업 사본 — 「넣은 뒤 정리」 뒤 3줄 · 반영 뒤 9줄 · outline_match.same 도 안 본다). 위첨자 · 아래첨자는 그대로 견준다."""
+    ch = rec["char"]
+    t = ch.get("text")
+    return {**rec, "para": {**rec["para"], "border": None}, "char": {**ch, "text": {**t, "bold": False, "italic": False, "underline": False} if t else t}}
+
+
 class _Formats:
     """서식 견주기 — 1단계가 서식 라벨(S)을 묶는 것과 같은 규칙(범주가 같고 수치가 오차 안)."""
 
@@ -132,14 +140,62 @@ class _Formats:
         return a[0] == b[0] and E._within(a[1], b[1], self.tol)
 
 
-def headings(sk, now, temp=None, hints=None, tol=None, placed=None):
+def confirmed(doc, ov, pids):
+    """오버레이 줄 가운데 **제 템플릿 슬롯의 확정 서식을 지키는 줄** → {문단 id: 그 슬롯의 대표 id}(spec_헤딩_추출 ② §17 「확정 서식을 지키는 줄」 — 2026-11-23 astra 협의 ·
+    headings 가 그 줄을 대표와 뼈대의 서식 비교로 한 번 더 견준다).
+    줄 p(슬롯 S · 대표 r)가 ⓐ 레터 계열(`outline_match.look` 의 kin)이 r 과 같고 ⓑ 비교 값이 r 과 `outline_match.same` 이고 ⓒ r 이 S 의 동결 모양(attrs)을 지키고 있으면 앎 —
+    r 자신은 ⓒ 로. 뼈대(2단계 결과)를 만든 뒤 앱이 템플릿에 넣거나 맞춘 줄(넣은 뒤 정리의 레터 바꾸기 · 확정 서식 · 「내용 반영」 이 등록한 넘친 줄)을 「새 서식」 · 「새 레터」 로 세지 않게.
+    넣은 id 라서 빼지 않는다 — 그 뒤 사람이 서식을 바꾼 줄은 대표와 달라 다시 걸린다. **세션 잠금 안에서** 부른다(문서를 읽는다)."""
+    lines = (ov or {}).get("lines") or {}
+    out, reps = {}, {}   # 줄 → 그 슬롯의 대표(headings 가 뼈대의 서식 비교로 한 번 더 견준다 — 위첨자 · 아래첨자처럼 outline_match.same 이 안 보는 값: astra 3차)
+
+    def frozen(sl, tid, level):
+        """슬롯의 살아 있는 대표가 동결 모양(접두의 앞 · 뒤 빈칸 · 레터 꼴 · 문단 · 레터 글자 모양 · 본문 바탕 글자 모양)을 지키나 → (대표, 그 비교 값, 슬롯의 레터 계열) | None.
+        동결 근거가 모자란 옛 슬롯(attrs · bodyChar · prefix 없음) · 죽은 대표 · 그 슬롯 줄이 아닌 대표는 None(그 레벨은 지금처럼 뼈대와 견준다)."""
+        r = sl.get("rep")
+        x = lines.get(r) if r else None
+        if not (x and str(x.get("tpl")) == str(tid) and str(x.get("level")) == str(level) and OM._alive(doc, r) and sl.get("attrs") and sl.get("bodyChar") and sl.get("prefix")):
+            return None
+        try:
+            sh = OM.rep_shape(doc, ov, r)
+            rl = OM.look(doc, ov, r)
+        except (KeyError, ValueError):
+            return None
+        key = sl.get("key") or ""
+        lead, tok, gap = OE.prefix_of(sl["prefix"], sl.get("letter") or None)
+        if sh["attrs"] != sl["attrs"] or sh["body"] != sl["bodyChar"] or (sh["lead"], sh["gap"]) != (lead, gap) or OM._form(sh["tok"], key) != OM._form(tok or sl.get("letter") or "", key):
+            return None   # 사람이 대표를 손으로 바꿈(본문만 굵게 · 빈칸 · 레터) — 그 대표에 맞는 줄을 앎으로 세지 않는다(astra 2차 G8)
+        return r, rl, OM.kin(sl.get("letter") or tok or "", key)
+
+    for p in pids:
+        x = lines.get(p)
+        if not x or not OM._alive(doc, p):
+            continue
+        key = (str(x.get("tpl")), str(x.get("level")))
+        if key not in reps:
+            reps[key] = frozen(OE._slot(ov, x.get("tpl"), x.get("level")) or {}, *key)
+        hit = reps[key]
+        if hit is None:
+            continue
+        r, rl, skin = hit
+        try:
+            lk = rl if p == r else OM.look(doc, ov, p)
+        except (KeyError, ValueError):
+            continue
+        if lk.get("kin") == skin and (p == r or OM.same(lk, rl)):   # ⓐ 슬롯의 레터 계열 ⓑ 대표와 같은 서식(대표 자신은 ⓒ 로)
+            out[p] = r
+    return out
+
+
+def headings(sk, now, temp=None, hints=None, tol=None, placed=None, kept=frozenset(), flagged=None):
     """뼈대(skeleton 결과) ↔ 지금 문서(1단계 꼴 `now`) → {letters[새 레터 묶음], formats[새 서식 묶음], wrong[잘못된 서식 묶음], counts, formatsChecked}.
     묶음 = {scope, kind, shape, letter(예), text(예문), count, paras[문단 id…]} + 서식 묶음은 {fmt, name(지금 서식 이름), known[그 레터가 쓰던 서식 이름…]}.
     서식 묶음 = (자리, 레터, 지금 서식 라벨)이 같은 줄들 — `REPEAT_MIN` 줄 이상이면 **새 서식**(되풀이해 쓰는 서식), 그보다 적으면 **잘못된 서식**(그 줄만 다름 — 대표에 맞출 것).
     줄 맞춤 값(장평·자간)만 다른 줄은 서식이 다른 것이 아니다(`_fitless`).
     temp = 지금 TEMP 라벨(그 문단은 헤딩 후보가 아니다 — §15). placed = {문단 id: {"first": 앱이 넣은 첫 줄 값 mm, "left": 왼쪽 여백도 앱이 옮기는 줄인가}}(개요 오버레이 줄의 `first` —
     개요 줄 자리 규칙이 둘째 줄을 맞춘 줄, left = 그 슬롯에 사용자가 정한 자리 규칙이 있음): 첫 줄이 그 값 그대로인 문단은 첫 줄(left 면 왼쪽 여백도)을 빼고 견준다 — 앱이 맞춘 자리는 새 서식이 아니다.
-    저절로 맞춘 줄(left 아님)은 왼쪽 여백을 안 건드리므로, 사람이 왼쪽 여백을 바꾸면 새 서식으로 나온다."""
+    저절로 맞춘 줄(left 아님)은 왼쪽 여백을 안 건드리므로, 사람이 왼쪽 여백을 바꾸면 새 서식으로 나온다.
+    kept = 확정 서식을 지키는 오버레이 줄(`confirmed` — 견주지 않고 앎) · flagged = 걸린 문단 id 를 모두 모을 모음(묶음의 paras 는 PARAS_MAX 까지라 — check 의 둘째 차례가 쓴다)."""
     fm = _Formats(tol)
     sigs = {}  # (줄 맞춤 값을 눕혔나, S, 첫 줄을 뺐으면 left | None) → 그때 대표의 지문
     placed = placed or {}
@@ -175,8 +231,24 @@ def headings(sk, now, temp=None, hints=None, tol=None, placed=None):
         it["count"] += 1
         if nd["para"] not in it["paras"] and len(it["paras"]) < PARAS_MAX:
             it["paras"].append(nd["para"])
+        if flagged is not None:
+            flagged.add(nd["para"])
+
+    firsts = set()
+
+    def rec_same(p, r):
+        """확정 서식 줄 p 가 대표 r 과 뼈대의 서식 비교로도 같은가(위첨자 · 아래첨자 등 outline_match.same 이 안 보는 값 — astra 3차). 줄 맞춤 값 · 첫 줄 · 왼쪽 여백은 빼고(그 셋은
+        outline_match.same 이 규칙으로 본다), **본문 강조(굵게 · 기울임 · 밑줄)도 뺀다** — 템플릿 줄의 본문 강조는 줄마다다(spec_병합 ② §5-9 「본문 강조는 줄마다」: 넣은 뒤 정리가 일부러 지킨다)."""
+        a, b = by_id.get(p), by_id.get(r)
+        if a is None or b is None:
+            return False
+        return fm.same(fm.loose(fm.sig(_emphless(_fitless(a)))), fm.loose(fm.sig(_emphless(_fitless(b)))))
 
     for nd in HG.candidates(now, frozenset((temp or {}).get("paras") or ())):
+        if nd["para"] in kept and nd["para"] not in firsts and not nd.get("span"):
+            firsts.add(nd["para"])
+            if kept[nd["para"]] == nd["para"] or rec_same(nd["para"], kept[nd["para"]]):
+                continue  # 제 템플릿 슬롯의 확정 서식을 지키는 줄(confirmed) — 그 문단의 첫머리 후보(span 0) 하나만 앎(줄 안 「①」 · 강제 줄 바꿈 뒤 레터는 따로 견준다: astra 2차 G8 · 3차)
         idn = ident(nd)
         ref = sk["letters"].get(idn)
         shape = idn[2]
@@ -361,7 +433,19 @@ def check(sess):
             temp = HR.temp_label(sess) if now is s1 else TP.label(now, hv.get("temp"))
         data = {"rev": rev, "stage2": None, "stage3": None, "extracted": extracted}
         if g is not None:
-            data["stage2"] = {"moved": need[0], **(headings(sk, now, temp=temp, hints=hv, placed=placed) if need[0] else NONE2)}
+            s2 = NONE2
+            if need[0]:
+                flagged = set()
+                s2 = headings(sk, now, temp=temp, hints=hv, placed=placed, flagged=flagged)
+                kept = set()
+                if flagged and ov.get("lines"):   # 걸린 줄 가운데 제 템플릿 슬롯의 확정 서식을 지키는 줄은 앎(confirmed — 문서를 읽으니 잠금 안 · 그 사이 문서가 바뀌었으면 거르지 않는다: 다음 물음이 다시 견준다)
+                    with sess.lock:
+                        if sess.rev == rev:
+                            kept = confirmed(sess.doc, getattr(sess, "outline", None) or ov, flagged)
+                if kept:
+                    s2 = headings(sk, now, temp=temp, hints=hv, placed=placed, kept=kept)
+                s2 = {**s2, "tplKept": len(kept)}
+            data["stage2"] = {"moved": need[0], **s2}
         if t3 is not None:
             data["stage3"] = {"moved": need[1], **(tables(t3, now, temp) if need[1] else NONE3)}
         data["seconds"] = round(time.monotonic() - t0, 3)

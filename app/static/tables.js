@@ -1519,6 +1519,21 @@ async function tblAgentView(tid) {
     }
     source.append(ul);
   } else source.append(el("p", "hnote", "문서에서 찾은 작성요령이 없습니다. 필요한 내용은 「이 표 지침」에 적으세요."));
+  if (!isCommon && (a.saved || []).length) { // 저장해 둔 문서 지침(spec_병합 ② §5-11 — 작업에 저장한 작성 지침 가운데 이 표의 것: 4단계 「작성요령 삭제」 뒤에도 남고 3단계 LLM 이 이 표를 볼 때 읽는다) — 읽기만
+    const kept = el("details", "ta-source ta-saved"), ul = el("ul", "ta-notes");
+    kept.open = a.saved.length <= 2 && !a.saved.some((g) => (g.text || "").length > 180);
+    kept.append(el("summary", "ta-group", `저장해 둔 문서 지침 ${nf(a.saved.length)}`));
+    for (const g of a.saved) {
+      const li = el("li"), text = g.label ? `${short(g.label, 60)} → ${g.text || ""}` : g.text || "", t = el("span", null, text.length > 600 ? text.slice(0, 600) + " …" : text);
+      t.style.whiteSpace = "pre-wrap";
+      if (text.length > 600) t.title = text;
+      li.append(el("span", "hb", g.kind || "지침"), t);
+      if (g.cell) li.title = `표 안의 칸(${g.cell})에 든 지침`;
+      ul.append(li);
+    }
+    kept.append(ul, el("p", "hnote", "작업에 저장해 둔 것입니다 — 문서에서 작성요령을 지워도 남고, 3단계 LLM 검토(자리 연결 · 표 대응 · 빈 자리)가 이 표를 볼 때 읽습니다."));
+    wrap.append(kept);
+  }
   // 두 탭은 같은 DOM을 유지한다 — 탭을 옮겨도 초안·저장 상태가 사라지지 않는다.
   const tabs = el("div", "ta-editor-tabs"), sections = {}, tabButtons = {}, tabDirty = {};
   tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "표 작성 기준");

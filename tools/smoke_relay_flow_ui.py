@@ -20,6 +20,7 @@ app/static/task_catalog.js(taskIsRelayFlow) · workflow_exec.js(relayFlowRun · 
   끝 글 둘 · 원본 문서의 실행이 도는 동안 대시보드의 진행 줄(「… — 원본 문서만」) · 목적 문서의 단추는 켜진 채(상태 응답에 그 실행을 얹어 본다).
 - ⑥-2 「넣을 구성 선택」(조립에 놓는 도구 — spec_병합 ② §4-1): 카드의 고르기 단추(대상 차년도 · 넣을 기관) → PUT …/flow/take · 상태 글 · 「전부 넣기」.
 - ⑦ 「이어서 한 번에 2→4단계」(= 다 진행) — 시작 요청 {from: g2, to: g4} · 끝난 뒤 지난 실행의 끝 글 · 2단계 「프로젝트 구성 반영」 ✓ 끝남(목적 문서가 바뀜).
+- ⑦-2 「캡션 맞추기」(조립 도구 — spec_워크플로우 ② §18-23): 끝난 줄의 목적 문서 카드에 맞출 꼴 칩 · 누르면 PUT …/flow/caption · 「가장 많은 꼴로」 로 풂.
 - ⑧ 목적 문서 화면 — 카드의 「목적 문서 열기」 로 감 · 같은 대시보드(같은 끝난 수) · 그 문서에서 「연결 목록」 · 「목록 보기」 가 보임 · LLM 검증·보완의 「건너뛰기」 → PUT …/flow/skip → 「건너뛰기 취소」.
 - ⑨ 에이전트 상태(agwStatus) — 서버 상태의 묶음 이름(「1단계 문서 검토」)으로(이관의 화면 셈이 아니다).
 - ⑩ 붙박이 이관 문서는 그대로(문서 카드 꼬리표 없음 · relayFlowOn 거짓).
@@ -56,7 +57,7 @@ FLOW = [   # 사용자가 조립한 「연차보고서 배포(안) 작성」 과
     {"id": "g2", "name": "구성 맞추기", "steps": [{"unit": "configLoad", "on": []}, {"unit": "take", "on": []},   # take = 조립에 놓는 도구 「넣을 구성 선택」(spec_병합 ② §4-1 — 구조 반영 · 자리 연결 앞)
                                           {"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}, {"unit": "reheadsLlm", "on": ["target"]}]},
     {"id": "g3", "name": "본문 및 테이블 매칭", "steps": [both(u) for u in ("link", "llm", "plan", "gaps", "tableMap", "apply")]},
-    {"id": "g4", "name": "문서 정리", "steps": [{"unit": "guide", "on": ["target"]}]},
+    {"id": "g4", "name": "문서 정리", "steps": [{"unit": "guide", "on": ["target"]}, {"unit": "capUnify", "on": ["target"]}]},   # capUnify = 조립 도구 「캡션 맞추기」(spec_워크플로우 ② §18-23)
 ]
 env = {**os.environ, "NFM_PDF": "off", "NFM_LLM_BACKEND": "off", "NFM_WORKS": str(tmp / "works"), "NFM_RENDER": str(tmp / "render"), "NFM_HEADINGS": str(tmp / "headings"),
        "NFM_FORMS": str(tmp / "forms"), "NFM_DIVISION_PRESETS": str(tmp / "presets.json"), "NFM_STYLES": str(tmp / "styles"), "NFM_AGENTS": str(tmp / "agents.json"), "PYTHONUTF8": "1",
@@ -427,6 +428,31 @@ def main():
               len(runs7) == 1 and runs7[0].get("from") == "g2" and runs7[0].get("to") == "g4" and bool(d7["last"][0]) and card(d7, "g2", "division").get("st") == "✓ 끝남"
               and page.evaluate("() => state.id") == src and (V7["last"] or {}).get("status") in ("done", "left", "halted"), [runs7, d7["last"], card(d7, "g2", "division"), st7, (V7["last"] or {}).get("status")])
         page.locator("#paneDash").screenshot(path=str(OUT / "relay_flow_chain.png"))
+
+        # ---- ⑦-2 「캡션 맞추기」(조립 도구 — spec_워크플로우 ② §18-23 「캡션 맞추기」 · 하는 일 = spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」): 맞출 꼴 칩 · PUT …/flow/caption · 「가장 많은 꼴로」
+        CAP = '#paneDash [data-dash-focus="act:capUnify@target:cap:%s"]'
+        cv = requests.get(f"{base}/api/works/{tgt}/flow/caption", params={"doc": tgt}, timeout=60).json()
+        page.evaluate("() => { DASH.open = 'capUnify'; DASH.cap = null; return dashDraw(true); }")
+        page.wait_for_selector(CAP % 0, timeout=60000)
+        idle(page)
+        d72 = page.evaluate(DASH)
+        o72, c72 = d72["open"] or {}, card(d72, "g4", "capUnify")
+        chips = [a for a in o72.get("acts", []) if re.fullmatch(r"act:capUnify@target:cap:\d+", a[2])]
+        check("⑦-2 「캡션 맞추기」 — 「이어서 한 번에」 가 지나간 뒤 그 줄 끝남 · 목적 문서 카드에 맞출 꼴 칩(서버의 꼴 목록과 같은 수 · 「꼴 · 줄 수」 · 안 골랐으면 가장 많은 꼴이 눌림) · 「이 단계만 진행」 없음",
+              c72.get("state") == "done" and cv["chosen"] is None and [a[0] for a in chips] == [f"{f['name']} · {f['count']}" for f in cv["forms"]]
+              and page.get_attribute(CAP % 0, "aria-pressed") == "true" and not any("이 단계만 진행" in a[0] for a in o72.get("acts", [])), [c72, cv, o72])
+        reqs.clear()
+        page.click(CAP % 0)
+        page.wait_for_function("(s) => !DASH.busy && !!document.querySelector(s)", arg=CAP % "auto", timeout=60000)
+        puts72 = [json.loads(b) for m, u, b in reqs if m == "PUT" and "/flow/caption" in u]
+        cv2 = requests.get(f"{base}/api/works/{tgt}/flow/caption", params={"doc": tgt}, timeout=60).json()
+        check("⑦-2 칩을 누르면 PUT …/flow/caption {form: 그 꼴} · 묶음에 적힘(문서는 그대로) · 칩 눌림 · 「가장 많은 꼴로」 가 생김",
+              puts72 == [{"form": cv["forms"][0]["key"]}] and cv2["chosen"] == cv["forms"][0]["key"] and cv2["rev"] == cv["rev"] and page.get_attribute(CAP % 0, "aria-pressed") == "true", [puts72, cv2])
+        page.locator("#paneDash").screenshot(path=str(OUT / "relay_flow_caption.png"))
+        page.click(CAP % "auto")
+        page.wait_for_function("(s) => !DASH.busy && !document.querySelector(s)", arg=CAP % "auto", timeout=60000)
+        cv3 = requests.get(f"{base}/api/works/{tgt}/flow/caption", params={"doc": tgt}, timeout=60).json()
+        check("⑦-2 「가장 많은 꼴로」 → {form: null} · 고른 꼴을 풂", cv3["chosen"] is None and [json.loads(b) for m, u, b in reqs if m == "PUT" and "/flow/caption" in u][-1] == {"form": None}, cv3)
 
         # ---- ⑧ 목적 문서 화면 — 「목적 문서 열기」 · 같은 대시보드 · 보기 단추 · 「건너뛰기」
         page.evaluate("() => { DASH.open = 'division'; return dashDraw(true); }")

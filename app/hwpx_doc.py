@@ -23,6 +23,7 @@ from app.hwpx_format import FormatMixin, _flag
 from app.hwpx_struct import StructMixin, _fill, _ins_cut, _side
 from app.hwpx_table_make import TableMakeMixin
 from app.hwpx_table_split import TableSplitMixin
+from app.hwpx_pic import PicMixin
 from app.textdiff import redistribute
 
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
@@ -123,7 +124,7 @@ def _remove(el):
         parent.remove(el)
 
 
-class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # StructMixin: 구조·서식 편집(spec_owpml_편집 ② §2) · TableMakeMixin: 표 만들기·서식 입히기(spec_헤딩_추출 ② §11) · TableSplitMixin: 표 나누기·합치기(spec_owpml_편집 ② §5-3)
+class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixin):  # StructMixin: 구조·서식 편집(spec_owpml_편집 ② §2) · TableMakeMixin: 표 만들기·서식 입히기(spec_헤딩_추출 ② §11) · TableSplitMixin: 표 나누기·합치기(spec_owpml_편집 ② §5-3) · PicMixin: 그림 도구(spec_그림 ② §2~§6)
     format = "hwpx"
 
     def __init__(self, data: bytes):

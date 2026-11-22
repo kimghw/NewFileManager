@@ -56,10 +56,16 @@ def agent_view(s, tid):
     common = table_agent.get(s.id, table_agent.COMMON)
     own = table_agent.get(s.id, tid) if tid != table_agent.COMMON else None
     form = heading_forms.table_guide(s)
-    notes, forms = [], None
+    notes, forms, saved = [], None, []
     if tid != table_agent.COMMON:
         with s.lock:
             notes = table_notes(s, tid, tb)
+            try:   # 저장해 둔 문서의 작성 지침 가운데 이 표에 붙은 것(spec_병합 ② §5-11 — 「작성요령 삭제」 뒤에도 남는다 · 3단계 LLM 이 그 표에 보내는 것과 같은 해석)
+                from app import place_guides_api
+                ix = place_guides_api.index_of(s)
+                saved = [g for g in ((ix or {}).get("tables") or {}).get(tid) or () if g.get("src") == "doc"]
+            except Exception:   # noqa: BLE001 — 덤(못 읽어도 열은 열린다)
+                saved = []
             if hasattr(s.doc, "_sections") and is_table(s, tid):
                 try:
                     an = table_fill.analyze(s.doc, tid, doc_key=getattr(s, "doc_key", None), roles=_heads(s, tid))
@@ -67,7 +73,7 @@ def agent_view(s, tid):
                     an = None   # 너무 큰 표 — 칸 꼴 없이
                 if an is not None:
                     forms = {"counts": an["forms"], "fields": an["counts"]["fields"], "open": an["counts"]["open"], "text": table_fill.forms_text(an["forms"])}
-    return {"table": tid, "stage3": tb is not None, "ident": table_agent.ident(tb), "notes": notes, "common": common, "own": own,
+    return {"table": tid, "stage3": tb is not None, "ident": table_agent.ident(tb), "notes": notes, "saved": saved, "common": common, "own": own,
             "form": form, "rulesDefault": table_agent.DEFAULT_RULES, "forms": forms,
             "prompt": table_agent.prompt(tb, common, own, tid=tid, notes=notes, form=form, forms=(forms or {}).get("text"))}
 

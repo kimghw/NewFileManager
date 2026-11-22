@@ -218,8 +218,52 @@ def collect(doc, graph=None, tables=None, found=None):
         marks.append({"no": no, "at": m["id"], "label": _one(b.get("text")), "heading": heading_of(i, m["id"]), "table": owner_table(m["id"]),
                       "guide": gid if text else None, "text": text[:TEXT_MAX], "top": i})
     owners = lambda key: len({x[key]["id"] for x in items + marks if x.get(key)})  # noqa: E731
+    _places_of(blocks, tables, items, marks)
     return {"version": VERSION, "counts": {"items": len(items), "marks": len(marks), "marksLinked": sum(1 for m in marks if m["text"]), "headings": owners("heading"), "tables": owners("table")},
             "items": items, "marks": marks}
+
+
+def _places_of(blocks, tables, items, marks):
+    """지침마다 모은 때 정한 자리 `place` {table(가장 안쪽 3단계 표), cell(「r행c열」)?} | {loose: true}(표의 지침인데 어느 3단계 표인지 못 정함)을 적는다 — 표가 아닌 지침은 안 적는다.
+    「작성요령 삭제」 가 지침 블록을 지운 뒤에도 그 표 · 칸으로 읽히게(app/place_guides.index — 블록이 없으면 이것을 쓴다: astra 3차). 3단계 결과가 없으면 안 적는다."""
+    from app import place_guides as PG
+    t3 = {t["id"] for t in (tables or {}).get("tables") or () if isinstance(t, dict) and t.get("id")}
+    if not t3:
+        return
+    cell_of = {}
+    own, inside = PG.owners(blocks, cell_of), PG._inside(blocks)
+    for x, at in [(x, x["id"]) for x in items] + [(m, m["at"]) for m in marks]:
+        t = x.get("table") if isinstance(x.get("table"), dict) else {}
+        if not (t.get("id") or own.get(at)):
+            continue
+        tid = PG._table_of(at, t.get("id"), own, inside, t3)
+        if tid == PG.LOOSE:
+            x["place"] = {"loose": True}
+        elif tid:
+            c = cell_of.get(at)
+            x["place"] = {"table": tid, **({"cell": c[1]} if c and c[0] == tid else {})}
+
+
+def keep_old(new, old):
+    """새로 모은 것 new 에 옛 저장본 old 의 항목 가운데 **지금 문서에서 사라진 것**을 남긴다(2026-11-23 astra 2차 G5 — 「작성요령 삭제」 는 ※ 안내를 문단 안에서만 · 각주 번호는 번호 글자만 지워
+    지침 블록이 살아 있을 수 있어, 「하나도 없을 때만 저장본」 규칙으로는 일부만 지운 뒤 다시 모으면 지운 지침이 사라졌다). 열쇠 = 항목 (kind, id) · 각주 (at, 번호, 작성 요령 표) —
+    같은 열쇠가 새로 모은 데 있으면 새 값, 없으면 옛 값. 블록을 지우고 다시 만든 편집(새 id · 같은 글)은 겹치지 않게 같은 (kind, 글) · (번호, 글)이 이미 있으면 옛 것을 남기지 않는다."""
+    if not isinstance(old, dict):
+        return new
+    norm = lambda t: " ".join((t or "").split())  # noqa: E731
+    own = lambda x: tuple((x.get(k) or {}).get("id") if isinstance(x.get(k), dict) else None for k in ("heading", "table"))  # noqa: E731 — 다른 자리의 같은 글은 다른 지침(astra 3차)
+    items, marks = list(new.get("items") or []), list(new.get("marks") or [])
+    ik, it = {(x.get("kind"), x.get("id")) for x in items}, {(x.get("kind"), norm(x.get("text")), own(x)) for x in items}
+    mk, mt = {(m.get("at"), m.get("no"), m.get("guide")) for m in marks}, {(m.get("no"), norm(m.get("text")), own(m)) for m in marks}
+    add_i = [x for x in old.get("items") or () if isinstance(x, dict) and (x.get("kind"), x.get("id")) not in ik and (x.get("kind"), norm(x.get("text")), own(x)) not in it]
+    add_m = [m for m in old.get("marks") or () if isinstance(m, dict) and (m.get("at"), m.get("no"), m.get("guide")) not in mk and (m.get("no"), norm(m.get("text")), own(m)) not in mt]
+    if not add_i and not add_m:
+        return new
+    items = sorted(items + add_i, key=lambda x: (x.get("top", 0), x.get("kind") or ""))
+    marks = sorted(marks + add_m, key=lambda m: m.get("top", 0))
+    owners = lambda key: len({x[key]["id"] for x in items + marks if isinstance(x.get(key), dict) and x[key].get("id")})  # noqa: E731
+    counts = {"items": len(items), "marks": len(marks), "marksLinked": sum(1 for m in marks if m.get("text")), "headings": owners("heading"), "tables": owners("table")}
+    return {**new, "items": items, "marks": marks, "counts": counts}
 
 
 def groups(saved):

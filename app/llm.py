@@ -110,14 +110,39 @@ def status():
             "active": tries[0] if tries else None}
 
 
-def _sdk(cfg, schema, content, timeout):
+def _blocks(content, images):
+    """메시지 content 목록 — 그림들(base64) 다음에 글(spec_그림 ② §7). images = [{data: bytes, media: "image/png" …}]."""
+    import base64
+    return [{"type": "image", "source": {"type": "base64", "media_type": im["media"], "data": base64.b64encode(im["data"]).decode("ascii")}}
+            for im in images] + [{"type": "text", "text": content}]
+
+
+def _user_line(content, images):
+    """stream-json 입력의 사용자 메시지 하나(CLI stdin · SDK 스트림 공용 — references/Claude_CLI_헤드리스.md 「그림 입력」)."""
+    return {"type": "user", "session_id": "", "parent_tool_use_id": None, "message": {"role": "user", "content": _blocks(content, images)}}
+
+
+def _is_result(line):
+    """stream-json 출력의 한 줄이 결과 메시지(type: result)인가."""
+    if '"result"' not in line:
+        return False
+    try:
+        return json.loads(line).get("type") == "result"
+    except (ValueError, AttributeError):
+        return False
+
+
+def _sdk(cfg, schema, content, timeout, images=None):
     """Claude Agent SDK 한 번 — 도구 없음(구조화 출력용 StructuredOutput 만 CLI 가 붙임)·설정 안 읽음·빈 임시 폴더·세션 안 남김.
-    프롬프트는 SDK 가 stdin(stream-json)으로 보내 Windows 명령 줄 길이(약 32 KB)에 안 걸린다."""
+    프롬프트는 SDK 가 stdin(stream-json)으로 보내 Windows 명령 줄 길이(약 32 KB)에 안 걸린다. images 가 있으면 사용자 메시지 하나의 스트림(그림 + 글)."""
     import asyncio
 
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     errs = []
+
+    async def stream():
+        yield _user_line(content, images)
 
     async def run(cwd):
         opts = ClaudeAgentOptions(model=cfg["model"], effort=cfg["effort"], tools=[], setting_sources=[], cwd=cwd,
@@ -125,7 +150,7 @@ def _sdk(cfg, schema, content, timeout):
                                   extra_args={"no-session-persistence": None}, env={"CLAUDE_AGENT_SDK_CLIENT_APP": "NewFileManager"},
                                   stderr=lambda line: errs.append(line) if len(errs) < 50 else None)
         res = None
-        async for m in query(prompt=content, options=opts):
+        async for m in query(prompt=stream() if images else content, options=opts):
             if isinstance(m, ResultMessage):
                 res = m
         return res
@@ -162,29 +187,36 @@ def cli_why(code, stdout, stderr, model):
     return f"exit {code}: {(stderr or stdout or '')[-300:]}"
 
 
-def _cli(cfg, schema, content, timeout):
+def _cli(cfg, schema, content, timeout, images=None):
+    """CLI 헤드리스 한 번. images 가 있으면 `--input-format stream-json --output-format stream-json --verbose`(stdin = 사용자 메시지 한 줄 · 끝의 result 줄을 읽음 —
+    references/Claude_CLI_헤드리스.md 「그림 입력」), 없으면 전처럼 글을 stdin 으로 · 결과 JSON 하나."""
     exe = cli_path(cfg)
     if not exe:
         raise RuntimeError("CLI 실행 파일 없음")
-    args = [exe, "-p", "--model", cfg["model"], "--effort", cfg["effort"], "--output-format", "json",
+    fmt = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] if images else ["--output-format", "json"]
+    args = [exe, "-p", "--model", cfg["model"], "--effort", cfg["effort"], *fmt,
             "--json-schema", json.dumps(schema, ensure_ascii=False, separators=(",", ":")), "--tools", "", "--setting-sources", "",
             "--no-session-persistence"]
+    feed = json.dumps(_user_line(content, images), ensure_ascii=False) + "\n" if images else content
     with tempfile.TemporaryDirectory(prefix="nfm-llm-") as cwd:
-        run = subprocess.run(args, input=content, capture_output=True, text=True, encoding="utf-8", timeout=timeout, cwd=cwd,
+        run = subprocess.run(args, input=feed, capture_output=True, text=True, encoding="utf-8", timeout=timeout, cwd=cwd,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    stdout = run.stdout
+    if images:   # stream-json — 줄마다 메시지, 끝의 type: result 가 결과(구조화 출력 · 비용)
+        stdout = next((ln for ln in reversed((run.stdout or "").splitlines()) if _is_result(ln)), "")
     if run.returncode:
-        raise RuntimeError(cli_why(run.returncode, run.stdout, run.stderr, cfg["model"]))
-    out = json.loads(run.stdout)
+        raise RuntimeError(cli_why(run.returncode, stdout or run.stdout, run.stderr, cfg["model"]))
+    out = json.loads(stdout)
     if out.get("is_error") or not isinstance(out.get("structured_output"), dict):
         raise RuntimeError(f"{out.get('subtype')}: {str(out.get('result'))[:300]}")
     return out["structured_output"], out.get("total_cost_usd")
 
 
-def _api(cfg, schema, content, timeout, max_tokens=32000):
+def _api(cfg, schema, content, timeout, max_tokens=32000, images=None):
     import anthropic
 
     client = anthropic.Anthropic(timeout=timeout, max_retries=0)
-    kw = {"model": cfg["model"], "max_tokens": max_tokens, "messages": [{"role": "user", "content": content}],
+    kw = {"model": cfg["model"], "max_tokens": max_tokens, "messages": [{"role": "user", "content": _blocks(content, images) if images else content}],
           "output_config": {"effort": cfg["effort"], "format": {"type": "json_schema", "schema": schema}}}
     if cfg["model"] in FALLBACK_MODELS:
         resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kw)
@@ -215,23 +247,24 @@ def reset_slots():
         _SLOTS = None
 
 
-def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=False):
+def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=False, images=None):
     """구조화 출력 한 번 → {"data", "backend", "ms", "costUsd", "error"}. data 가 None 이면 error 에 까닭(off·busy·길마다 실패 글).
     자리는 NFM_LLM_WAIT초(기본 900) 기다린다 — 기다린 시간은 ms 에 안 넣는다.
     pin=True 면 준 model 이 NFM_LLM_MODEL_FORCE 보다 먼저다 — 사용자가 그 일의 모델을 따로 정한 호출만(템플릿 서식 정리 에이전트 = Opus 5.5:
     2026-11-15 사용자 "opus5.5 가 템플릿의 서식을 직접 조정" — spec_hwpx_웹편집 ② §8-4).
     프롬프트 끝에는 그 에이전트에 사람이 **덧붙여 둔 글**(범용 + 지금 워크플로우 전용)이 붙는다(`agent_notes.attach` — 지금 워크플로우는 맥락 변수: 스레드를 새로 띄우는 곳은 `agent_notes.carry`).
     모델·생각 깊이의 차례(뒤가 이김): env 기본 → 호출이 준 model·effort → NFM_LLM_MODEL_FORCE(pin 이면 건너뜀) → **「에이전트 설정」 에서 그 에이전트에 사람이 정한 값**
-    (what 으로 에이전트를 찾는다 — `agent_settings.override`, spec_에이전트 ② §2). 모든 호출은 실행 기록에 한 줄 남는다(`agent_settings.record`)."""
+    (what 으로 에이전트를 찾는다 — `agent_settings.override`, spec_에이전트 ② §2). 모든 호출은 실행 기록에 한 줄 남는다(`agent_settings.record`).
+    images = 글 앞에 실을 그림들 [{data: bytes, media: "image/png" …}](spec_그림 ② §7 — 없으면 전과 같은 길)."""
     content, notes = agent_notes.attach(content, what)  # 그 에이전트에 사람이 덧붙여 둔 글(범용 · 지금 워크플로우 전용 — spec_에이전트 ② §6): 프롬프트 맨 끝에
-    out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin)
+    out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin, **({"images": images} if images else {}))
     if notes:
         out["notes"] = notes  # 붙인 것의 꼬리표(["all", "job:<워크플로우 키>"]) — 실행 기록에 남는다
     agent_settings.record(what, out)
     return out
 
 
-def _call(schema, content, what, *, timeout, effort, model, pin):
+def _call(schema, content, what, *, timeout, effort, model, pin, images=None):
     cfg = settings()
     if effort in EFFORTS:
         cfg["effort"] = effort
@@ -261,7 +294,7 @@ def _call(schema, content, what, *, timeout, effort, model, pin):
         for backend in tries:
             t = time.monotonic()
             try:
-                data, cost = {"sdk": _sdk, "cli": _cli, "api": _api}[backend](cfg, schema, content, timeout)
+                data, cost = {"sdk": _sdk, "cli": _cli, "api": _api}[backend](cfg, schema, content, timeout, **({"images": images} if images else {}))
                 out.update(data=data, backend=backend, ms=round((time.monotonic() - t) * 1000), costUsd=cost, error=None)
                 return out
             except Exception as e:  # 실행 파일·로그인·네트워크·거절·파싱 — 다음 길로

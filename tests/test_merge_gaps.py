@@ -255,3 +255,27 @@ def test_content_below_is_cut_to_the_budget_and_whole_without_one(below):
     T2, F2, _ = _sides(d, tgt, src)
     kept = G.plan(T2, F2, rec(budget=20))
     assert kept["todo"] == 0 and kept["items"][0]["skip"] == "occupied"
+
+
+def test_places_put_each_slot_its_guides_and_a_changed_guide_reopens_only_that_slot(pair):
+    """자리마다의 작성 지침(spec_병합 ② §5-11): 빈 자리마다 `guides`(작성 지침 — 매칭 지침 `guide` 와 따로) · 판(guideSig)을 ctx 에.
+    저장된 답의 판이 지금과 다르면 그 자리만 다시 묻는다(판이 없는 옛 답 = 판 "") · 판이 같은 답은 그대로 · places 가 없으면(지침을 못 읽음) 판을 안 본다."""
+    from app import place_guides as PG
+    d, tgt, src, goal, line = pair
+    T, F, fixed = _sides(d, tgt, src)
+    text = {"now": "지금 지침"}
+    places = lambda kind, x: [{"src": "user", "kind": "사용자 지침", "text": f"{text['now']} {x}"}]  # noqa: E731
+    prep = G.prepare(T, F, fixed, places=places)
+    slots = [s for u in prep["units"] for s in u["payload"]["slots"]]
+    assert slots and all(s["guides"][0]["text"] == f"지금 지침 {s['id']}" for s in slots)
+    assert all(PG.CONTRACT_LINE in G.prompt(u["payload"]) for u in prep["units"])
+    sid = slots[0]["id"]
+    sig = prep["ctx"]["slots"][sid]["guideSig"]
+    assert sig == PG.sig(places("block", sid))
+    asked = lambda saved, pl=places: {s["id"] for u in G.prepare(T, F, fixed, saved, places=pl)["units"] for s in u["payload"]["slots"]}  # noqa: E731
+    assert sid not in asked({"slots": {sid: {"from": None, "reason": "옛 답", "guideSig": sig}}})   # 판이 같은 답 — 다시 안 묻는다
+    assert sid in asked({"slots": {sid: {"from": None, "reason": "판이 없는 옛 답"}}})   # 판이 없는 옛 답 = 지침 없이 받은 답 — 지금 그 자리에 지침이 있으니 다시 묻는다(astra 3차)
+    assert sid not in asked({"slots": {sid: {"from": None, "reason": "판이 없는 옛 답"}}}, lambda kind, x: [])   # 지금도 지침이 없는 자리는 그대로
+    text["now"] = "고친 지침"
+    assert sid in asked({"slots": {sid: {"from": None, "reason": "옛 답", "guideSig": sig}}})   # 그 자리의 지침이 바뀜 — 다시 묻는다
+    assert sid not in asked({"slots": {sid: {"from": None, "reason": "옛 답", "guideSig": sig}}}, None)   # 지침을 못 읽으면 판을 안 본다(다시 묻지 않는다)

@@ -10,7 +10,7 @@
 
 FACTS = ("slots", "heads", "checked", "config", "fit", "fresh", "links", "plan", "filled", "clean", "frame", "assigned",   # 사실의 이름(문서마다 · 쌍마다 · 워크플로우 전체 — ② §18-2)
          "tables", "tidy",   # 문서 하나(② §18-13): tables = 표 구조가 있음(문서 하나는 헤딩 그래프 heads 와 따로 센다) · tidy = 같은 템플릿의 줄을 대표 서식에 맞춤(조정)
-         "fixed", "pruned")   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움
+         "fixed", "pruned", "captioned")   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움 · captioned = 캡션을 한 꼴로 맞춤
 PLACES = ("doc", "pair", "flow")
 KINDS = ("auto", "pick", "hand")
 ROLES = ("source", "target")   # 문서 역할 — 차례 = 원본 → 목적(app/workflow.py ROLES · app/custom_tasks.py ROLES 와 같다)
@@ -40,6 +40,9 @@ COMMON = {u["key"]: u for u in (
     # 「문서 정리」 의 조립 도구 둘(② §18-23 — 2026-11-22 사용자 「3단계 … 매칭 이후에 … 지침에 따라 LLM 보정해 주는 단계를 4단계 도구에」 · 「구분기준이나 편집구역에 내용이 없는 … 제거하는 도구도 문서 정리에」)
     _u("guideFix", "stage_clean", "doc", roles=ROLES, change="doc", paid="doc", needs=("filled",), gives=("fixed",), server=True),   # 지침 보정(LLM) — 묻기(잠금 밖 · 유료) → 반영(울타리 · 실행 취소 1)
     _u("zonePrune", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("pruned",), server=True),            # 빈 구역 지우기(스크립트 — 울타리 · 실행 취소 1)
+    # 캡션 맞추기(2026-11-23 사용자 「4단계에서 캡션 맞추기.. 할건데 옵션에서 한가지 골라서 모든 캡션을 동일한 형식/서식으로」 — 스크립트 · 울타리 · 실행 취소 1 ·
+    # 고른 꼴 = 워크플로우 옵션 task_options.flow 의 caption: 고르지 않으면 줄이 가장 많은 꼴 — spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」)
+    _u("capUnify", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("captioned",), server=True),
     _u("hand", "hand", "doc", roles=ROLES, kind="hand", server=True),                                                       # 사람이 하는 일(여럿 놓을 수 있다 — ② §18-7 · 실행기는 「했음」 이 없으면 멈춘다)
 )}
 # 이관형 — 다른 양식 사이의 자리 연결 · 넣기(app/merge_api.py)
@@ -109,7 +112,7 @@ def unit(key, family="relay"):
     return FAMILIES.get(family, {}).get(key) or COMMON.get(key)
 
 
-SOURCE_FIT = ("headsLlm", "division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune")   # 원본 문서에도 놓는 구조 · 정리 줄(headsLlm — 받은 서식 정리 계획을 원본 문서에 반영: 2026-11-22)(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
+SOURCE_FIT = ("headsLlm", "division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify")   # 원본 문서에도 놓는 구조 · 정리 줄(headsLlm — 받은 서식 정리 계획을 원본 문서에 반영: 2026-11-22)(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
 
 
 # 받은 서식 정리 계획을 그 문서에 반영하는 LLM 줄 → 문서 역할(이관형 — spec_워크플로우 ② §18-25): 2026-11-22 사용자 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정하면될거 같아」
@@ -899,6 +902,53 @@ def _zone_prune_of(ctx, role="target"):
     return {"st": "done" if done else "todo", "text": who + text}
 
 
+def _cap_unify(ctx):
+    """캡션 맞추기(줄) — 그 줄이 닿는 문서마다(_cap_unify_of)."""
+    return _per(ctx, _cap_unify_of)
+
+
+def cap_unify_text(C, done=None):
+    """캡션 맞추기의 한 줄(상태 글 · 실행기의 끝 글이 같이 쓴다) — C = caption_tpl_api.unify_view 의 요약 · done = 맞춘 줄 수(맞춘 뒤의 글)."""
+    c = C.get("counts") or {}
+    pick = f"「{C.get('name') or '?'}」" + ("" if C.get("chosen") else "(고르지 않아 가장 많은 꼴)")
+    rep = C.get("rep") or {}
+    src = f" — 대표: {rep.get('kindName') or ''} 캡션 「{(rep.get('text') or '')[:40]}」" if rep else ""
+    tail = []
+    if c.get("cross"):
+        tail.append(f"번호가 있고 없음이 다른 캡션 {nf(c['cross'])}곳은 글 꼴은 그대로 · 서식만")
+    if c.get("frozen"):
+        tail.append(f"자동 번호 · 표지가 든 캡션 {nf(c['frozen'])}곳은 서식만")
+    if c.get("others"):
+        tail.append(f"출처 · 주 줄과 레터 없는 줄 {nf(c['others'])}곳은 그대로")
+    more = "".join(f" · {x}" for x in tail)
+    if done is not None:
+        return f"제목 캡션 {nf(done)}곳을 {pick}으로 맞췄습니다{more}{src}"
+    if not c.get("change"):
+        return f"제목 캡션 {nf(c.get('titles'))}곳이 모두 {pick}의 형식 · 서식입니다{more}{src}"
+    return f"제목 캡션 {nf(c.get('titles'))}곳 가운데 {nf(c['change'])}곳을 {pick}의 형식 · 서식으로 맞춥니다{more}{src}"
+
+
+def _cap_unify_of(ctx, role="target"):
+    """캡션 맞추기(문서 하나의 몫 — ② §18-23 「캡션 맞추기」) — 끝남 = (「내용 넣기」 가 끝났거나 그 묶음이 없는 정의) · 맞출 제목 캡션이 없음(작성요령 삭제 · 빈 구역 지우기와 같은 꼴) ·
+    제목 캡션이 없으면 「건너뜀」 · 고른 꼴의 캡션이 문서에 없으면 막힘(다시 고른다). 재료 = 그 문서 facts 의 capUnify(unit_steps.cap_unify_view)."""
+    who, C, F, bad = _tidy_doc(ctx, role, "capUnify")
+    if bad:
+        return bad
+    if C.get("error"):
+        return {"st": "blocked", "text": f"{who}캡션을 세지 못했습니다: {C['error']}"}
+    if C.get("off"):
+        return {"st": "done", "skipped": True, "text": f"{who}{C.get('why') or 'HWPX 문서가 아닙니다'} — 건너뜁니다"}
+    c = C.get("counts") or {}
+    if not c.get("titles"):
+        return {"st": "done", "skipped": True, "text": f"{who}맞출 제목 캡션이 없습니다 — 건너뜁니다"}
+    if C.get("why"):
+        return {"st": "blocked", "text": who + C["why"]}
+    if F.get("fills") and not fill_done(F):
+        return {"st": "todo", "text": f"{who}{_sn(F, 'stage_fill', '내용 넣기')} 이 끝난 뒤에 넣은 캡션까지 한 꼴로 맞춥니다 — 지금: {cap_unify_text(C)}"}
+    return {"st": "done" if not c.get("change") else "todo", "text": who + cap_unify_text(C)
+            + ("" if not c.get("change") else "(문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)")}
+
+
 def retidy_text(c):
     """넣은 뒤 템플릿 · 서식 정리의 결과 한 줄(상태 글 · 실행기의 끝 글이 같이 쓴다) — c = merge_retidy_api 의 counts."""
     if not c.get("levels"):
@@ -951,7 +1001,7 @@ def _retidy_of(ctx, role="target"):
 
 
 _STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide, "take": _take})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
-_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune, "retidy": _retidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
+_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune, "retidy": _retidy, "capUnify": _cap_unify})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
 
 
 # ---------------------------------------------------------------- 문서 하나(가족 single — 걸음 6: spec_워크플로우 ② §18-13 「걸음 6 — 문서 하나」) — 1단계 「프로젝트 구성」 의 상태 식

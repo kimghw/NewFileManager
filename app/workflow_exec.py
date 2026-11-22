@@ -1263,13 +1263,13 @@ def shutdown():
 # ---------------------------------------------------------------- 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3: spec_워크플로우 ② §18-2 「3 · 4단계 단위의 글」 · §18-12 ② · ③)
 # 화면 app.js taskRunMap · taskRunSteps 의 clean 가지를 줄마다의 처리 함수로 옮긴 것 — 차례 = 자리 연결 → (LLM 검토) → 넣기 계획 → (빈 자리 검토 → 표 대응) → 내용 반영 · 작성요령 삭제.
 # 이번 실행 안의 기억(연결 목록 · 반영할 수 있는 지금 계획 · LLM 검토의 글)은 run.fill — 끝남은 늘 문서에서 다시 본다(workflow_units 의 상태 식). 묶음 끝 글 = 화면 실행의 글 그대로(셋째 값 — 줄의 기록 글과 따로).
-FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune", "retidy")
+FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune", "capUnify", "retidy")
 NOTHING_TEXT = "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)"
 
 
 def _fill_need(task):
     """이 정의에 서버가 맡는 넣기 · 정리 줄이 있나 — 이관형의 단위일 때만(문서 하나의 plan · apply 는 key 만 같은 다른 단위다: 그 문서에 연결 목록을 읽지 않는다)."""
-    mine = {**U.RELAY, **{k: U.COMMON[k] for k in ("guide", "guideFix", "zonePrune")}}   # 「문서 정리」 의 줄(작성요령 삭제 · 조립 도구 둘 — ② §18-23)도 「내용 넣기」 의 끝을 재료로 읽는다
+    mine = {**U.RELAY, **{k: U.COMMON[k] for k in ("guide", "guideFix", "zonePrune", "capUnify")}}   # 「문서 정리」 의 줄(작성요령 삭제 · 조립 도구 — ② §18-23)도 「내용 넣기」 의 끝을 재료로 읽는다
     return any(x["key"] in FILL_KEYS and x["unit"] is mine.get(x["key"]) and S.served(task, x["stage"]) for x in S.lines(task))
 
 
@@ -1743,6 +1743,51 @@ def _zone_prune_doc(run, gid, doc):
     return "done", f"빈 구역 {U.nf(r.get('items'))}곳을 지웠습니다({parts}){skip}"
 
 
+def _do_cap_unify(run, gid, line):
+    """캡션 맞추기 — 그 줄이 닿는 문서마다(_cap_unify_doc)."""
+    return _per_doc(run, gid, line, _cap_unify_doc)
+
+
+def _cap_unify_doc(run, gid, doc):
+    """캡션 맞추기(문서 하나 — 문서를 바꾼다: 울타리 안에서 다시 세고 맞춘다 · spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」) · 센 뒤 문서가 바뀌면(409) 한 번만 다시 센다.
+    쓸 꼴 = 그 묶음의 워크플로우 옵션(task_options.flow 의 caption) · 없으면 줄이 가장 많은 꼴. 고른 꼴의 캡션이 문서에 없으면 맞추지 않고 남긴다(left — 다시 고른다). → (done | nothing | left, 글)."""
+    run.working = {doc}
+    _fill_first(run, "④ 내용 반영 전")
+    c = UNIT.cap_unify_view(doc)
+    if not c.ok:
+        raise _Halt(c.code, f"캡션을 세지 못했습니다: {c.text}")
+    C = c.data or {}
+    if C.get("off"):
+        return "nothing", f"{C.get('why') or 'HWPX 문서가 아닙니다'} — 건너뜀"
+    if not (C.get("counts") or {}).get("titles"):
+        return "nothing", "맞출 제목 캡션이 없습니다"
+    if C.get("why"):
+        return "left", f"캡션 맞추기는 하지 않음 — {C['why']}"
+    if not C["counts"].get("change"):
+        return "nothing", U.cap_unify_text(C)
+    run.note(gid, "capUnify", f"제목 캡션 {U.nf(C['counts']['change'])}곳을 「{C.get('name') or '?'}」 으로 맞추기", doc)
+    got = None
+    for attempt in (0, 1):
+        run.guard()
+        with run.fence(doc):
+            run.guard()
+            _fill_first(run, "그 사이 문서가 바뀌었습니다")
+            c = UNIT.cap_unify_view(doc)   # 울타리 안에서 다시 센다
+            if not c.ok:
+                raise _Halt(c.code, f"캡션을 세지 못했습니다: {c.text}")
+            C = c.data or {}
+            if C.get("why") and (C.get("counts") or {}).get("titles"):
+                return "left", f"캡션 맞추기는 하지 않음 — {C['why']}"
+            got = UNIT.cap_unify(doc, C["rev"]) if (C.get("counts") or {}).get("change") else None
+        if got is None or got.code != "stale" or attempt:
+            break
+    if got is None or got.code == "nothing":
+        return "nothing", U.cap_unify_text(C)
+    if not got.ok:
+        raise _Halt(got.code, f"캡션을 맞추지 못했습니다 — {'표준 검사에 걸려 되돌렸습니다: ' if got.code == 'rejected' else ''}{got.text}")
+    return "done", U.cap_unify_text(C, done=len((got.data or {}).get("changed") or ()))
+
+
 def _do_retidy(run, gid, line):
     """넣은 뒤 템플릿 · 서식 정리(spec_병합 ② §5-9) — 그 줄이 닿는 문서마다(목적 문서뿐: _retidy_doc)."""
     return _per_doc(run, gid, line, _retidy_doc)
@@ -1778,14 +1823,14 @@ def _retidy_doc(run, gid, doc):
     return ("nothing" if D.get("nothing") else "done"), U.retidy_text(c)
 
 
-HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune, "retidy": _do_retidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
+HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune, "retidy": _do_retidy, "capUnify": _do_cap_unify})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
 
 
 def _tidy_materials(task, pair, facts, opt=None):
-    """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count ·
+    """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count · capUnify = unit_steps.cap_unify_view ·
     retidy = unit_steps.retidy_facts(넣은 뒤 템플릿 · 서식 정리 — 이관형 · 취합형의 단위(따로 선 두 단위 — 넣은 기록은 merge.json · gather.json: spec_병합 ② §5-9))(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
     want = {}
-    units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
+    units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "capUnify": (U.COMMON["capUnify"],), "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
     for x in S.lines(task):
         if x["key"] in units and any(x["unit"] is u for u in units[x["key"]]) and S.served(task, x["stage"]):
             for r in S.roles_on(task, x["on"]):
@@ -1799,6 +1844,9 @@ def _tidy_materials(task, pair, facts, opt=None):
         if "zonePrune" in keys:
             c = UNIT.zone_prune_count(d)
             more["zonePrune"] = c.data if c.ok and isinstance(c.data, dict) else {"error": c.text or "응답이 없음"}
+        if "capUnify" in keys:
+            c = UNIT.cap_unify_view(d)
+            more["capUnify"] = c.data if c.ok and isinstance(c.data, dict) else {"error": c.text or "응답이 없음"}
         if "retidy" in keys:
             more["retidy"] = UNIT.retidy_facts(d)
         facts[d] = {**facts[d], **more}

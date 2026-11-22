@@ -1,0 +1,38 @@
+/* 그림 도구(spec_그림 ② §1 · design.md §25) — 그림 위의 떠 있는 띠 .pic-bar · 2열(kind picTools)의 미리보기. style.css 다음. */
+
+/* 띠 — 고른 그림의 위 가장자리에 붙는 한 줄(모달 아님 · 문서를 가리지 않게 작게) */
+.pic-bar {
+  position: fixed; z-index: 25; display: flex; align-items: center; gap: 2px; padding: 3px; max-width: calc(100vw - 16px);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .16); font-size: 12px;
+}
+.pic-bar-name { padding: 0 6px 0 4px; color: var(--muted); white-space: nowrap; }
+.pic-bar-btn { all: unset; box-sizing: border-box; height: 24px; padding: 0 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; line-height: 24px; }
+.pic-bar-btn:hover, .pic-bar-btn:focus-visible { background: var(--accent-soft); }
+.pic-bar-btn[disabled] { color: var(--muted); cursor: default; background: transparent; }
+
+/* 2열 */
+.pic-col-top { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+.pic-col-img { display: block; max-width: 55%; max-height: 220px; object-fit: contain; border: 1px solid var(--line); background: #fff; }
+.pic-col-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--muted); }
+.pic-col-head { display: flex; flex-direction: column; gap: 2px; color: var(--text); overflow-wrap: anywhere; }
+.pic-col-label { font-size: 12px; color: var(--muted); }
+.pic-col-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0; }
+.pic-col-tpl { flex: 1 1 180px; min-width: 0; height: 28px; }
+.pic-col-radio { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
+.pic-col-field { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
+.pic-col-cap, .pic-col-capone { width: 100%; box-sizing: border-box; font: 13px "Malgun Gothic", sans-serif; }
+.pic-col-capone { height: 28px; }
+.pic-col-msg { margin: 6px 0; font-size: 13px; }
+.pic-col-msg.err { color: var(--fail); }
+.pic-col-msg.warn { color: var(--warn); }
+.pic-col-msg.busy { color: var(--accent); }
+.pic-col-hint { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.pic-grid-wrap { overflow-x: auto; margin: 4px 0 8px; }
+.pic-grid { border-collapse: collapse; font-size: 12px; min-width: 60%; }
+.pic-grid th, .pic-grid td { border: 1px solid var(--line-strong); padding: 3px 5px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; }
+.pic-grid th { background: var(--accent-soft); font-weight: 600; text-align: left; }
+.pic-grid td:focus, .pic-grid th:focus { box-shadow: inset 0 0 0 2px var(--focus, var(--accent)); }
+.pic-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+.pic-two-fig { margin: 0; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pic-two-fig .pic-col-img { max-width: 100%; }
+.pic-two-fig figcaption { font-size: 12px; color: var(--muted); }

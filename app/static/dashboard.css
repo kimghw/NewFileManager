@@ -90,6 +90,7 @@
 .dash-take-target > .dash-chip-name { min-height: 30px; color: var(--text); font-weight: 600; }
 .dash-take-target + .dash-take-multi { margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
 .dash-take-target .dash-take-chips { display: inline-flex; justify-self: start; max-width: 100%; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.dash-cap-row .dash-take-chips { flex-wrap: wrap; } /* 「캡션 맞추기」 의 맞출 꼴(꼴 이름이 길다 — 좁은 열에서 줄을 넘긴다: spec_워크플로우 ② §18-23) */
 .dash-acts .dash-chip { display: inline-flex; align-items: center; gap: 4px; height: 25px; padding: 0 7px 0 5px; border-color: var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1; }
 .dash-acts .dash-chip:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); }
 .dash-acts .dash-chip::before { content: ""; display: inline-grid; place-items: center; flex: none; width: 12px; height: 12px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface); box-sizing: border-box; overflow: hidden; }
@@ -105,32 +106,36 @@
 .dash-take-foot { flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 76px; margin-top: 2px; }
 .dash-take-why { flex: 1 1 100%; margin-top: 2px; }
 
-/* ---- 단계 카드 — 머리 줄(번호 · 이름 단추 + 꼬리표 + 메모 · 상태 글 — 줄 어디를 눌러도 펴고 접힘) + 펼친 세부 */
+/* ---- 단계 카드 — 머리 줄(번호 · 1줄 이름+메모 / 2줄 꼬리표 · 오른쪽 상태 글 — 줄 어디를 눌러도 펴고 접힘) + 펼친 세부 (2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity) */
 .dash-node { border: 1px solid #ccd5e3; border-radius: 8px; background: white; }
 .dash-node.opt { border-style: dashed; }
 .dash-node.soon { background: var(--surface-2); }
-.dash-node-top { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.dash-node-top { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px 7px 8px; border-radius: 8px; cursor: pointer; }
+.dash-node.open > .dash-node-top { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .dash-node-top:hover { background: #f6f9ff; }
-.dash-node-head { all: unset; box-sizing: border-box; min-width: 0; cursor: pointer; }
+.dash-node-head { all: unset; box-sizing: border-box; min-width: 0; line-height: 1.45; cursor: pointer; }
 .dash-node-head:focus-visible::after { content: ""; position: absolute; inset: 0; border-radius: 8px; outline: 2px solid var(--accent); outline-offset: 1px; pointer-events: none; } /* 초점 테두리는 머리 줄 전체에 */
 .dash-node.open { border-color: var(--accent); box-shadow: 0 0 0 2px #2458d614; } /* 편 카드 */
 .dash-no { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: #edf1f7; color: #5e718d; font-size: 11px; font-weight: 700; }
-.dash-node-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; flex: 1 1 auto; min-width: 0; }
-.dash-node-head > b { font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
-.dash-node-main .dash-memo { width: 20px; height: 20px; border-radius: 5px; } /* 「하는 일 · 조건」 메모(노트 도움말 — 꼬리표 칩 높이에 맞춤) */
+.dash-node-main { display: grid; grid-template-columns: minmax(0, max-content) auto minmax(0, 1fr); align-items: center; gap: 5px; flex: 1 1 auto; min-width: 0; }
+.dash-node-main.has-lead { grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr); }
+.dash-node-head > b { display: block; font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.dash-node-main .dash-memo { width: 20px; height: 20px; border-radius: 5px; } /* 「하는 일 · 조건」 메모(노트 도움말 — 이름 바로 옆에 고정) */
 .dash-node-main .dash-memo svg { width: 15px; height: 15px; }
-.dash-st { flex: none; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.dash-node-main > .dash-tags { grid-column: 1 / -1; grid-row: 2; }
+.dash-st { flex: none; color: var(--muted); font-size: 11px; line-height: 20px; white-space: nowrap; }
 .dash-node[data-state="done"] .dash-no { background: #e3f3e8; color: var(--ok); }
-.dash-node[data-state="done"] .dash-st { color: var(--ok); }
+.dash-node[data-state="done"] .dash-st { color: var(--ok); font-weight: 600; }
 .dash-node[data-state="now"] .dash-no, .dash-node[data-state="run"] .dash-no { background: var(--accent); color: white; }
 .dash-node[data-state="now"] .dash-st, .dash-node[data-state="run"] .dash-st { color: var(--accent); font-weight: 600; }
 .dash-node[data-state="ready"] .dash-st { color: var(--accent); }
-.dash-node[data-state="hold"] .dash-st { color: var(--warn); }
+.dash-node[data-state="hold"] .dash-st { color: var(--warn); font-weight: 600; }
 .dash-node[data-state="soon"] .dash-node-head > b { color: var(--muted); }
 
 /* 꼬리표 — 워크플로우 페이지(.wf-tag)와 같은 말 · 같은 색. 사람 · 스크립트 · LLM · 문서 바뀜은 아이콘 칩(2026-11-18 사용자) */
-.dash-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; }
-.dash-tag { display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; line-height: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; white-space: nowrap; box-sizing: border-box; }
+.dash-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dash-tags:empty { display: none; }
+.dash-tag { display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 6px; line-height: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: #53647f; font-size: 10.5px; white-space: nowrap; box-sizing: border-box; }
 .dash-tag:has(> .ag-icon) { width: 20px; height: 18px; padding: 0; }
 .dash-tag.dash-t-llm { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
 .dash-tag.dash-t-human { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
@@ -139,7 +144,7 @@
 .dash-tag.dash-t-must { border-color: #8d9bb3; background: var(--surface); color: var(--text); font-weight: 600; } /* 필수 — 선택(점선 · 흐림)의 짝: 실선 · 진한 글(workflow.css .wf-t-must 와 같게) */
 
 /* 펼친 세부 — 지금 상태 글 · 단추(「하는 일 · 조건」 은 머리 줄의 메모 아이콘). 테두리 없이 윗줄 하나 */
-.dash-detail { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px 40px; border-top: 1px solid var(--line); }
+.dash-detail { display: flex; flex-direction: column; gap: 7px; padding: 8px 10px 9px 40px; border-top: 1px solid var(--line); }
 .dash-text { margin: 0; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
 .dash-sub { color: var(--muted); font-size: 11px; font-weight: 600; }
 .dash-acts { display: flex; flex-wrap: wrap; gap: 6px; }

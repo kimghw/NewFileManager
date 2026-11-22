@@ -1492,6 +1492,8 @@ def unsplit(ov, cid):
     A = ov["templates"].get(tid)
     if A is None:
         raise ValueError(f"T{C['no']} 의 원래 템플릿이 없습니다")
+    if v.get("by") == "merge" or any(str(k) not in (A.get("slots") or {}) for k in (C.get("slots") or {})):   # 「내용 반영」 이 A 의 끝 아래에 등록한 넣은 꼬리(spec_병합 ② §5-12 · merge_register) — A 에 그 레벨이 없어 합치면 슬롯 없는 줄이 된다(astra 3차)
+        raise ValueError(f"T{C['no']} 는 「내용 반영」 이 T{A['no']} L{v['level'] - 1} 아래에 넣은 내용의 템플릿이라 합칠 수 없습니다 — 「넣은 뒤 정리」 가 소속과 서식을 다시 정합니다")
     for m in ov.get("merges") or []:
         if cid in (m.get("childId"), m.get("parentId")):
             other = ov["templates"].get(m.get("id"), {}).get("no", m.get("id"))
