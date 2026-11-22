@@ -430,8 +430,8 @@ def main():
               len(ov["rows"]) == 7 and rows["plan_to_report"][2] == ["1단계문서 검토", "2단계구성 맞추기", "3단계내용 넣기", "4단계문서 정리"]
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
               and rows["plan_fit"][2] == ["1단계프로젝트 구성", "2단계헤딩 추출", "3단계표"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
-        check("묶음의 점 — 이관 1단계는 보라(LLM 검증·보완 — 문서 안 바뀜) · 2단계 · 3단계 보라+주황(LLM · 문서 바뀜) · 4단계 주황 / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
-              ov["dots"] == ["llm", "llm+doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "자동", "필수", "선택"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
+        check("묶음의 점 — 이관 1단계는 보라+주황(LLM 검증·보완 — 원본 문서에 서식 정리를 반영: 2026-11-22) · 2단계 · 3단계 보라+주황(LLM · 문서 바뀜) · 4단계 주황 / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",
+              ov["dots"] == ["llm+doc", "llm+doc", "llm+doc", "doc"] and ov["legend"] == ["스크립트", "LLM", "사람", "문서 바뀜", "자동", "필수", "선택"] and ov["commons"] == len(api["common"]) and ov["cur"] == "전체 보기", ov)
         wf.screenshot(path=str(OUT / "01_overview.png"))
         # ---- 단계 모듈(spec_워크플로우 ② §13 — 2026-11-19 사용자 "각 단계를 , 여기 모듈로 두고,, task 모듈로 조립할 수 있도록"): 이관의 묶음 머리에 「조립한 단계 모듈」 링크 · 모듈 절의 꼬리표 「단계 모듈」 · 「조립한 TASK」
         sm = wf.evaluate("""() => { const sec = document.getElementById('common-stage_review'), io = [...sec.querySelectorAll('.wf-io dt')].map((d) => d.textContent);

@@ -172,10 +172,10 @@ def main():
         check("② 띠를 누름 → 「에이전트」 열이 펴지고(400px · 머리 「에이전트 | 스킬 · 도구 · 프롬프트」 · 접는 단추) 「도구 설명」 이 28px 띠로 접힘 · 가로 넘침 없음 · 폼은 그대로 왼쪽",
               a2["side"] == "agents" and a2["ag"]["w"] == 400 and a2["help"]["w"] == 28 and not a2["helpShown"] and not a2["rail"] and a2["fold"] and a2["head"] == "에이전트|스킬 · 도구 · 프롬프트"
               and not a2["over"] and a2["help"]["l"] >= a2["form"]["r"] and a2["ag"]["l"] >= a2["help"]["r"], a2)
-        check("② 맨 위 = 이 도구에 적어 두는 내용 두 칸(「도구 공통」 · 「이 워크플로우 전용」) + 누가 읽는지 한 줄 · 그 아래 그 줄이 쓰는 에이전트 = 등록부의 차례(번호 · 이름 · 모델) · 쓰는 도구 「헤딩 추출」(새 탭)",
+        check("② 맨 위 = 이 도구에 적어 두는 내용 두 칸(「도구 공통」 · 「이 워크플로우 전용」) + 누가 읽는지 한 줄 · 그 아래 그 줄이 쓰는 에이전트 = 등록부의 차례(번호 · 이름 · 모델) · 쓰는 도구 「헤딩 추출」 · 「템플릿 관계 · 서식 정리」(새 탭 — 받은 서식 정리 계획을 그 문서에 반영: 2026-11-22)",
               a2["unit"] == "headsLlm" and a2["name"] == "LLM 검증·보완" and [x["id"] for x in a2["agents"]] == want and [x["name"] for x in a2["agents"]] == [names[k] for k in want]
               and [x["no"] for x in a2["agents"]] == [lines["agents"][k]["no"] for k in want] and all(x["model"] and not x["open"] and x["marks"] == [] for x in a2["agents"])
-              and "Opus 5.5" in a2["agents"][-1]["model"] and a2["tools"] == [["헤딩 추출", "/workflow#common-headings", "_blank"]] and "에이전트 6개" in a2["sub"]
+              and "Opus 5.5" in a2["agents"][-1]["model"] and a2["tools"] == [["헤딩 추출", "/workflow#common-headings", "_blank"], ["템플릿 관계 · 서식 정리", "/workflow#common-outline", "_blank"]] and "에이전트 6개" in a2["sub"]
               and [(n["scope"], n["tag"], n["title"]) for n in a2["toolNotes"]] == [("tool", "도구 공통", "이 도구에서 공통으로 쓰는 내용"), ("jobtool", "이 워크플로우 전용", "이 워크플로우에서만 쓰는 내용")]
               and a2["toolNotes"][0]["save"] == [True, True] and a2["toolNotes"][0]["state"] == "아직 없음" and "모든 워크플로우에서 씁니다" in a2["toolNotes"][0]["hint"]
               and a2["toolNotes"][1]["save"][0] is False and "할 때만 씁니다" in a2["toolNotes"][1]["hint"] and "에이전트 6개의 프롬프트 끝에" in a2["reader"], a2)
