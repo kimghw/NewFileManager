@@ -257,7 +257,8 @@ COMMON = (
               "첫 화면 오른쪽 열의 탭 「대시보드」 는 문서 화면을 열지 않고 워크플로우를 시작해, 서버가 맡은 묶음을 그 자리에서 실행합니다(안 맡은 묶음은 문서 화면을 열고 진행합니다).",
          steps=(
              _s("start", "실행 시작", ("human", "script"), "묶음의 「한 번에 진행」(또는 줄 하나의 단추)을 누르면 서버가 문서 칸 · 워크플로우의 단계 · 겹치는 실행 · 남은 일을 확인하고 시작합니다 — 어느 칸의 문서에서 눌러도 목적 문서에서 돌고 화면을 옮기지 않습니다. "
-                "같은 문서에 도는 실행은 하나입니다(다른 화면에서 누르면 이미 도는 그 실행을 보입니다).", out="실행(번호)", change="store",
+                "같은 문서에 도는 실행은 하나입니다(다른 화면에서 누르면 그 실행을 보입니다) — 문서 하나의 단계만 도는 실행은 그 문서만 잡아 두 문서의 실행이 같이 돌 수 있고, "
+                "두 문서를 함께 쓰는 단계는 다른 실행이 없을 때만, 프로젝트 구성 값을 쓰는 단계는 그 값이 확정된 뒤에만 시작합니다.", out="실행(번호)", change="store",
                 modules=("workflow_exec_api", "workflow_exec", "workflow_state", "workflow_units", "unit_steps"), spec=(SP_FLOW, "② §17-7")),
              _s("lines", "단계를 차례대로", "script", "워크플로우의 단계 줄을 차례대로 합니다 — 줄마다 할 필요가 있는지 · 결과가 났는지를 문서에서 다시 확인합니다. 유료 LLM 은 사람이 누른 범위(에이전트의 실행 카드면 승인한 문서)에서만 부르고, "
                 "사람이 봐야 할 곳에서는 멈추거나 하지 않고 남깁니다. 조립한 워크플로우에서 같은 차례(조립 화면의 같은 행)에 놓은 두 문서의 줄은 함께 돕니다 — 한쪽이 바꾸는 문서를 다른 쪽이 읽는 짝은 차례로 합니다.",
@@ -747,7 +748,7 @@ def _st_fit(S, D, *, who=("target",), take=False):
         config,
         _s("division", "프로젝트 구성 반영", ("script", "human"), f"{D}의 값을 {S} 기준으로 맞추고 변경 계획(바뀔 자리)을 확인한 뒤 반영합니다 — 절 · 표 행 · 표 열만 늘리고 줄입니다. {S}의 내용은 넣지 않습니다.", no="①",
            out=f"구조를 맞춘 {D}", change="doc", uses=("division",), modules=("division_plan", "division_model"), spec=(SP_WORK, "② §11·§14"),
-           need=f"프로젝트 구성 추출 · {S}(기준)의 프로젝트 구성 값.", done=f"{D}의 값이 {S}와 같고 그 값이 {D}에 반영됐을 때.",
+           need=f"프로젝트 구성 추출 · {S}(기준)의 프로젝트 구성 값 — 값이 확정되기 전에는 이 단계에서 시작하는 서버 실행(이 단계만 · 목적 문서만)을 시작하지 않습니다.", done=f"{D}의 값이 {S}와 같고 그 값이 {D}에 반영됐을 때.",
            stop="계획을 못 세웠거나 · 계획 오류 · 미해결 자리가 있거나 · 기관의 차례가 마지막 반영과 다르면 「한 번에 진행」 이 반영하지 않고 멈춥니다.", left="지원 안 되는 자리는 그대로 둡니다.", on="target"),
         _s("reheads", "다시 문서 검토", "script", f"구조 반영으로 바뀐 문서({D})를 다시 검토합니다 — 늘어난 절 · 표가 분석에 들어가게 헤딩 그래프 → 표 구조를 다시 분석합니다(스크립트 · LLM 호출 없음). 끝나면 작성 지침을 다시 저장합니다.",
            out=f"구조 반영 뒤의 {D} 분석", change="store", uses=("headings",), modules=("heading_runs", "form_guides"), spec=(SP_WORK, "② §21"),
@@ -773,7 +774,7 @@ def _st_fit_on(S, D, who):
         _s("division", "프로젝트 구성 반영", ("script", "human"),
            src_does + (f" 이어서 {D}의 값을 {S} 기준으로 맞추고 변경 계획대로 반영합니다." if both else "") + f" 절 · 표 행 · 표 열만 늘리고 줄입니다. {S}의 내용은 {'넣지 않습니다' if both else '옮기지 않습니다'}.", no="①",
            out=f"구조를 맞춘 {X}", change="doc", uses=("division",), modules=("division_plan", "division_model"), spec=(SP_FLOW, "② §18-2"),
-           need=f"프로젝트 구성 추출 · {S}의 프로젝트 구성 값(확정한 값과 같아야 합니다).",
+           need=f"프로젝트 구성 추출 · {S}의 프로젝트 구성 값(확정한 값과 같아야 합니다) — 값이 확정되기 전에는 이 단계에서 시작하는 서버 실행(이 단계만 · 한 문서만)을 시작하지 않습니다.",
            done=f"{S}의 값이 {S}에 반영됐을 때(구조가 이미 맞아 확인만 한 것도)" + (f" · {D}의 값이 {S}와 같고 그 값이 {D}에 반영됐을 때." if both else "."),
            stop=f"{S}의 값이 확정한 프로젝트 구성과 다르거나 · 계획을 못 세웠거나 · 계획 오류 · 미해결 자리가 있거나 · 기관의 차례가 마지막 반영과 다르면 「한 번에 진행」 이 반영하지 않고 멈춥니다.",
            left="지원 안 되는 자리는 그대로 둡니다.", on=on),
@@ -813,24 +814,27 @@ def _st_fill(S, D, *, fit=True, review=True):
            need=need,
            done="연결 목록에 확인 필요가 없거나, LLM 검토를 한 번 했을 때.",
            left="LLM 검토 뒤에도 남은 확인 필요 자리는 넣지 않고 비워 둡니다(각 기관이 이어서 작성) — 「연결 목록」 에서 후보를 골라 보정합니다."),
-        _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리와 같은 표인지 못 정한 표를 LLM 이 쪽 묶음마다 판정합니다. 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다.", change="store", optional=True,
-           agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
+        _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리를 LLM 이 쪽 묶음마다 판정하고, 표는 두 문서의 표를 모두 읽고 같은 표를 정합니다(후보가 없던 표 · 스크립트가 이은 표도 봅니다). 한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다.", change="store", optional=True,
+           agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "link_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
            need="연결 목록에 확인 필요 · 후보 없음 자리나 같은 표인지 못 정한 표가 있을 때 · LLM(유료 — 단추나 확인을 받은 「한 번에 진행」 안에서).",
            done="한 번 검토했을 때 — 안 해도 넣기 계획은 세울 수 있습니다.", left="한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다."),
-        _s("plan", "표 안 연결 · 넣기 계획", "script", "이어진 자리마다 넣을 본문 블록 · 표 칸 · 늘릴 행과 못 넣는 까닭을 셉니다. 문서는 바뀌지 않습니다.", no="③", out="넣기 계획",
-           modules=("merge_fill", "merge_tables"), spec=(SP_MERGE, "② §5·§6"),
+        _s("plan", "표 안 연결 · 넣기 계획", "script", "이어진 자리마다 넣을 본문 블록 · 표 칸 · 늘릴 행과 못 넣는 까닭을 셉니다 — 월별 일정 표(대상 차년도의 일정 표들을 스크립트가 모음) · 양식이 통째로 복사하라고 정해 둔 표도 함께. "
+           "문서는 바뀌지 않습니다.", no="③", out="넣기 계획",
+           modules=("merge_fill", "merge_tables", "merge_schedule", "merge_copy"), spec=(SP_MERGE, "② §5·§6"),
            need="이어진 자리(연결됨 · 같은 이름 자리)가 하나라도 있을 때 — ② 에 확인 필요가 남아 있어도 세울 수 있습니다.",
            done="넣기 계획이 있거나 · 이미 반영했거나 · 지난 반영 기록이 남아 있거나 · 넣을 자리가 0곳일 때(서버가 막는 까닭 없이 낸 연결 목록에 이어진 자리 · 같은 이름 자리가 없음 — "
                 "목적 문서의 분석이 구조 반영 전 것이면 다시 분석한 뒤에 셈).", left="못 넣는 자리는 까닭과 함께 셉니다."),
         # 빈 자리 검토 → 표 대응(실행 차례 그대로 — 빈 자리 검토가 빈 표에 쓸 원본 표를 새로 정하고 표 대응이 그 표 쌍의 행 · 열을 맞춘다: spec_워크플로우 ② §18-4 「무르기」 · 전에는 줄 차례가 거꾸로였다)
-        _s("gaps", "빈 자리 검토(LLM)", "llm", f"다른 길이 못 채운 빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄을 모아 {S}의 어디에서 가져올지 LLM 이 찾습니다(없으면 없다고 답합니다).", change="store",
-           optional=True, agents=("merge_gaps",), modules=("merge_gaps",), spec=(SP_MERGE, "② §5-4"),
+        _s("gaps", "빈 자리 검토(LLM)", "llm", f"다른 길이 못 채운 빈 표 · 글머리만 있는 칸 · 라벨만 있는 줄을 모아 {S}의 어디에서 가져올지 LLM 이 찾습니다(없으면 없다고 답합니다) — "
+           "라벨만 있는 줄에는 제목 줄 아래에 적힌 내용도 가져오고, 「N page 이내 요약」 자리는 줄 한도 안의 앞부분만 넣습니다.", change="store",
+           optional=True, agents=("merge_gaps",), modules=("merge_gaps", "link_guides"), spec=(SP_MERGE, "② §5-4"),
            need="넣기 계획이 있고 다른 길이 못 채운 빈 자리가 있을 때 · LLM(유료).", done="아직 묻지 않은 빈 자리가 남지 않았을 때 — 안 해도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
         _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다(빈 자리 검토가 새로 정한 표 쌍도) — 글은 LLM 이 쓰지 않고 {S} 칸의 글을 옮깁니다.", change="store",
            optional=True, agents=("merge_table_map",), modules=("merge_table_map",), spec=(SP_MERGE, "② §5-3"),
            need="같은 표로 이었지만 행 · 열 구성이 달라 칸을 못 맞춘 표가 있을 때 · LLM(유료).", done="칸을 못 맞춘 표가 남지 않았을 때 — 안 해도 됩니다.", left=f"글은 LLM 이 쓰지 않습니다 — {S} 칸의 글을 옮깁니다."),
         _s("apply", "내용 반영", ("human", "script"), f"「계획 보기」 에서 확인하고 「반영」 을 누르면 {S}의 글 · 표 · 그림이 그 자리에 들어갑니다 — 서식은 {D}의 틀에 맞추고, 넣는 내용의 개요가 자리보다 깊으면 "
-           "넘친 개요 레벨로 처리합니다.", no="④", out=f"내용이 들어간 {D}", change="doc", modules=("merge_fill", "merge_tables", "merge_convert", "merge_over", "merge_origins", "outline_conform"),
+           "넘친 개요 레벨로 처리합니다. 양식이 보기로 적어 둔 예시 값은 실제 내용으로 바꾸거나 비웁니다.", no="④", out=f"내용이 들어간 {D}", change="doc",
+           modules=("merge_fill", "merge_tables", "merge_table_map", "merge_gaps", "merge_schedule", "merge_copy", "merge_convert", "merge_over", "merge_origins", "outline_conform"),
            spec=(SP_MERGE, "② §5-2·§5-5·§6"),
            need="넣기 계획 — 「계획 보기」 에서 확인하고 「반영」.", done="반영했거나 · 넣을 것이 없거나(계획의 넣을 것이 0 · 넣을 자리가 0곳 — ③ 과 같은 셈) · 지난 반영 기록이 남아 있을 때.",
            left="같은 자리인지 분명하지 않은 자리는 비워 둡니다(초안 — 실패가 아닙니다)."),

@@ -87,6 +87,8 @@ WHY = ("occupied", "name", "calc", "shape", "stale", "org", "example")
 _RESULT = re.compile(r"^(?:개발|추진)?실적$|^달성(?:도|률|율)")       # 계획서에 없는 내용의 머리(빈칸·괄호·기호 뗀 글) — 「실적」·「달성도(%)」. 「사업화실적」 같은 지표 이름은 아니다
 _ORD = re.compile(r"^\(?(\d{1,3})[.)]?$")                              # 순번뿐인 이름 칸 「1.」·「(2)」·「3」
 _ORD_LEAD = re.compile(r"^\(?(\d{1,3})[.)]")                           # 원본 이름의 앞 순번 「1. 선내 데이터 …」
+_ORD_N = re.compile(r"^\(?[nN][.)]?$")                                 # 서식의 「n.」 — 「몇 번째든」 의 순번 자리(마지막 항목 줄)
+_FOOT = re.compile(r"(?<![(\d])\d{1,2}\s*[)」]\s*$")                    # 머리 글 끝의 각주 번호 「중앙행정기관명2)」 · 「표준구분1」」 — 「항목(1)」 의 괄호 번호는 아니다
 _DOTS = re.compile(r"^[.·…⋯∙ㆍ‥]+$")                                  # 「···」·「…」 — 서식의 「더 적을 자리」
 _UNIT = re.compile(r"[(\[]\s*(%|주|건|건수|천원|백만원|원|명|개월|월|일|년|척|식|종)\s*[)\]]")
 _PAREN = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
@@ -135,6 +137,78 @@ def view(S, tid):
         if x["calc"] is None:
             x["calc"] = bool(calc_col[x["c"]]) and calc_col[x["c"]].most_common(1)[0][0]
     return {"id": tid, "cells": cells, "at": at, "rows": rows, "cols": cols, "top": top}
+
+
+def _heads_key(v):
+    """머리 행(자료 행 위)의 꼴 — 열 수 + 머리 칸마다 (행, 열, 병합, 글). 이어진 표인지 견주는 데 쓴다."""
+    return v["cols"], tuple(sorted((x["r"], x["c"], x["rs"], x["cs"], P._ws(x["text"])) for x in v["cells"] if x["r"] < v["top"]))
+
+
+def _continued(S, tid):
+    """그 표 **바로 뒤에 이어진 표**들의 id(쪽이 넘어가 둘로 나뉜 같은 표) — 같은 형제 목록에서 사이에 빈 문단만 두고 잇따르고, 열 수와 머리 행의 칸 배치 · 글이 꼭 같은 표. 머리 행이 없는 표는 못 가린다(빈 목록)."""
+    seq = (S.get("where") or {}).get(tid) or ()
+    k = next((i for i, b in enumerate(seq) if b["id"] == tid), None)
+    v = view(S, tid)
+    out = []
+    if k is None or v is None or not v["top"]:
+        return out
+    key = _heads_key(v)
+    for b in seq[k + 1:]:
+        if b.get("type") == "table":
+            w = view(S, b["id"])
+            if w is None or not w["top"] or _heads_key(w) != key:
+                break
+            out.append(b["id"])
+        elif b.get("type") != "paragraph" or (b.get("text") or "").strip():
+            break
+    return out
+
+
+def _chain_head(S, tid):
+    """이어진 표 사슬의 **첫 표** id — 그 표가 앞 표에 이어진 표면(앞 표의 `_continued` 에 든다) 앞으로 거슬러 간다. 표 짝이 사슬의 뒤쪽 표에 걸려 있어도 원본은 사슬 전체다."""
+    seq = (S.get("where") or {}).get(tid) or ()
+    k = next((i for i, b in enumerate(seq) if b["id"] == tid), None)
+    head = tid
+    for b in reversed(seq[:k] if k else ()):
+        if b.get("type") == "table":
+            if tid not in _continued(S, b["id"]):
+                break
+            head = b["id"]
+        elif b.get("type") != "paragraph" or (b.get("text") or "").strip():
+            break
+    return head
+
+
+def source_view(S, tid):
+    """원본 표의 읽을거리 — 그 표가 든 **이어진 표 사슬 전체**(첫 표 `_chain_head` + 바로 뒤에 이어진 표들 `_continued`)를 한 표로: 이어진 표의 자료 행을 아래에 잇는다(행 번호는 이어서 · 칸 id 는 제 것 그대로).
+    v["id"] 는 받은 tid 그대로 · v["parts"] = 사슬의 표 id 들. 2026-11-22: 계획서의 성능 목표 표가 쪽 넘김으로 두 표(같은 머리)로 나뉘어 있는데 표 대응이 원본 표 하나만 읽어 다른 쪽 표의 항목이 빠졌다."""
+    if view(S, tid) is None:
+        return None
+    head = _chain_head(S, tid)
+    v = view(S, head)
+    v = {**v, "id": tid, "cells": list(v["cells"]), "at": dict(v["at"]), "parts": [head]}
+    for cid in _continued(S, head):
+        w = view(S, cid)
+        off = v["rows"] - w["top"]
+        for x in w["cells"]:
+            if x["r"] < w["top"]:
+                continue
+            y = {**x, "r": x["r"] + off}
+            v["cells"].append(y)
+            for r in range(y["r"], y["r"] + y["rs"]):
+                for k in range(y["c"], y["c"] + y["cs"]):
+                    v["at"][(r, k)] = y
+        v["rows"] += w["rows"] - w["top"]
+        v["parts"].append(cid)
+    return v
+
+
+def _sig_from(S, tid, top):
+    """원본 표의 구조 서명 — 이어진 표가 있으면 그 표들의 서명을 함께(이어진 표가 없으면 전과 같은 값: 앞서 저장한 대응이 낡지 않는다)."""
+    head = _chain_head(S, tid)
+    parts = [head, *_continued(S, head)]
+    sigs = [sig(S["idx"][p], top) for p in parts if p in S["idx"]]
+    return sigs[0] if len(sigs) == 1 else hashlib.sha1("|".join(sigs).encode("utf-8")).hexdigest()[:16]
 
 
 def blank_fp(blocks):
@@ -324,9 +398,12 @@ def data(T, F, tid, fid):
     tctx = X._ctx(T, tt)
     own = lambda t: (P._ws((t.get("owner") or {}).get("text")), tuple((t.get("owner") or {}).get("path") or ()))  # noqa: E731
     sib = [t for t in F["tables"] if t["id"] != fid and t["id"] in F["idx"] and own(t)[0] and own(t) == own(ft) and not X._ctx_clash(tctx, X._ctx(F, t))][:SIBLINGS_MAX]
-    fviews, sources, n = {}, [], len(tv["cells"])
+    fviews, sources, n, tails = {}, [], len(tv["cells"]), set()
     for t in [ft, *sib]:
-        v = view(F, t["id"])
+        if t["id"] in tails:
+            continue   # 앞 표에 이어진 표 — 그 표의 격자에 이미 이어 실었다
+        v = source_view(F, t["id"])   # 이어진 표(쪽 넘김으로 나뉜 같은 표)는 한 표로 보낸다
+        tails |= set((v or {}).get("parts") or ()) - {t["id"]}   # 같은 사슬의 다른 표 — 이 격자에 이미 들어 있다
         if v is None or n + len(v["cells"]) > GRID_CELLS_MAX:
             continue
         n += len(v["cells"])
@@ -467,7 +544,7 @@ def check(ctx, answer):
     if not fields or not (records or grow):
         return None, rejected + [{"why": "남은 열 짝·항목 짝이 없음"}]
     return {"from": key, "records": records, "grow": grow, "fields": fields, "mark": mark, "reason": str(a.get("reason") or "").strip()[:400], "rejected": rejected[:40],
-            "top": {"to": tv["top"], "from": fv["top"]}, "sig": {"to": sig(T["idx"][tv["id"]], tv["top"]), "from": sig(F["idx"][key], fv["top"])}}, rejected
+            "top": {"to": tv["top"], "from": fv["top"]}, "sig": {"to": sig(T["idx"][tv["id"]], tv["top"]), "from": _sig_from(F, key, fv["top"])}}, rejected
 
 
 # ---- 계획 ----------------------------------------------------------------------------------------------------
@@ -486,7 +563,62 @@ def _inside(x, rows):
 
 def _slot(text):
     t = P._ws(text)
-    return not t or bool(_DOTS.fullmatch(t)) or bool(_ORD.fullmatch(t))
+    return not t or bool(_DOTS.fullmatch(t)) or bool(_ORD.fullmatch(t)) or bool(_ORD_N.fullmatch(t))
+
+
+def _lead(text):
+    """이름 글 → (앞 순번 수 | None, 순번을 뗀 이름) — 「1. 선내 데이터」 → (1, 「선내 데이터」) · 「3.」 → (3, 「」) · 「설계사양서」 → (None, 「설계사양서」)."""
+    t = P._ws(text)
+    if m := _ORD_LEAD.match(t):
+        return int(m.group(1)), t[m.end():].strip()
+    if m := _ORD.fullmatch(t):
+        return int(m.group(1)), ""
+    return None, t
+
+
+def _ordinal(tv, tc, seq=0):
+    """순번 자리 칸 tc 에 적을 순번 수 | None(모름) — 「3.」 = 3 · 「n.」 = 바로 위 항목의 순번 + 1(위에 순번이 없으면 모름). seq = 그 칸을 본뜬 몇째 묶음인가(0 = 그 칸 자체 — 늘린 묶음은 그 뒤로 이어 센다)."""
+    t = P._ws(tc["text"])
+    if m := _ORD.fullmatch(t):
+        return int(m.group(1)) + seq
+    if not _ORD_N.fullmatch(t):
+        return None
+    up = tv["at"].get((tc["r"] - 1, tc["c"]))
+    k = _lead(up["text"])[0] if up is not None and up is not tc and up["r"] >= tv["top"] else None
+    return None if k is None else k + 1 + seq
+
+
+def _ord_text(cur, n):
+    """순번 자리의 꼴(「1.」·「(1)」·「n.」)을 그대로 두고 수만 n 으로."""
+    return re.sub(r"\d+|[nN]", str(n), P._ws(cur), count=1)
+
+
+def _name_key(text):
+    """이름을 견줄 꼴 — 앞 순번 · 끝의 각주 번호 · 빈칸 · 기호를 뗀 글(「기술 요약 정보」 = 「기술요약정보」 · 「중앙행정기관명2)」 = 「중앙행정기관명」 · 「1. 설계사양서」 = 「설계사양서」)."""
+    return _bare(_FOOT.sub("", _lead(text)[1]))
+
+
+def _labels(S):
+    """구성 반영이 적은 라벨 칸 id(구분 기준 묶음 항목의 라벨 — 기관 이름 · 차년도 칸). 그 칸의 글은 프로젝트 구성의 값이라 올린 빈 양식과 다른 것이 정상이고, 표 대응이 덮지도 않는다."""
+    return {it["label"] for g in (S.get("groups") or {}).values() for it in g.get("items") or () if it.get("label")}
+
+
+def _form_text(tv, tc, orig):
+    """그 값 칸의 글이 **올린 빈 양식의 글 그대로**인가(② §5-3 6 의 칸 조건) — 원본에 있던 칸이면 그 칸의 원본 글과 같고, 구성 반영이 본떠 만든 칸(원본에 없는 id)이면 같은 열의 원본 칸 글 가운데 하나와 같다
+    (본뜬 예시 — 지원·부담계획의 「기관유형」 「대학」 이 늘어난 기관 행마다 따라간 것). 사람이 쓴 글은 원본 글과 달라 여기 안 든다."""
+    t = P._ws(tc["text"])
+    if not orig or not t:
+        return False
+    if (o := orig.get(tc["id"])) is not None:
+        return P._ws(o.get("text")) == t
+    return any(x["c"] == tc["c"] and x["id"] in orig and P._ws(orig[x["id"]].get("text")) == t for x in tv["cells"])
+
+
+def _keyed(tv, fv, rec):
+    """그 항목이 **이름으로** 짝지어졌나 — 목적 행의 머리 칸에 서식의 이름(순번 · 빈 칸 · 「···」 아님)이 있고 원본 행의 머리 칸 이름과 같다(표지처럼 행마다 이름이 박힌 양식 표).
+    이런 항목은 차례가 아니라 이름으로 서 있어, 하나를 못 넣어도 다른 항목이 어긋나지 않는다."""
+    a = {k for r in rec["to"] for h in _row_heads(tv, r) if not _slot(h["text"]) and (k := _name_key(h["text"]))}
+    return bool(a & {k for r in rec["from"] for h in _row_heads(fv, r) if (k := _name_key(h["text"]))})
 
 
 def _original(x, orig):
@@ -495,10 +627,12 @@ def _original(x, orig):
     return o is not None and P._ws(o.get("text")) == P._ws(x["text"]) and o.get("top") == _kind(x["top"]) and o.get("bottom") == _kind(x["bottom"])
 
 
-def _is_example(tv, rows, orig):
-    """서식 예시 항목인가(② §5-3 6) — 그 행들의 칸이 모두 원본 그대로이고, 값 칸에 글이나 표시가 하나라도 있다(이름만 박힌 고정 항목은 예시가 아니다)."""
+def _is_example(tv, rows, orig, own=()):
+    """서식 예시 항목인가(② §5-3 6) — 그 행들의 칸이 모두 원본 그대로이고, 값 칸에 글이나 표시가 하나라도 있다(이름만 박힌 고정 항목은 예시가 아니다).
+    own = 구성 반영이 적은 라벨 칸(_labels) — 그 칸은 「원본 그대로」 에서 뺀다(기관 이름이 프로젝트 구성의 이름으로 바뀐 예시 행도 예시다 — 전에는 그 행을 사람 글로 봐 표 전체를 버렸다)."""
     cells = [x for x in tv["cells"] if _inside(x, rows)]
-    return bool(orig) and bool(cells) and all(_original(x, orig) for x in cells) and any(x["role"] == "field" and (P._ws(x["text"]) or _special(x["top"]) or _special(x["bottom"])) for x in cells)
+    return (bool(orig) and bool(cells) and all(_original(x, orig) for x in cells if x["id"] not in own)
+            and any(x["role"] == "field" and x["id"] not in own and (P._ws(x["text"]) or _special(x["top"]) or _special(x["bottom"])) for x in cells))
 
 
 def _orgs(S, cells):
@@ -514,18 +648,40 @@ def _extent(v, rows):
     return list(range(rows[0], rows[-1] + 1))
 
 
-def _record(T, F, tv, fv, m, rec, mk, orig, new=False):
+def _toks(text):
+    """이름의 낱말(두 글자 이상 — 각주 번호 뗌): 「지식재산권(출원)」 → {지식재산권, 출원}."""
+    return {t for t in re.split(r"[^0-9A-Za-z가-힣]+", _FOOT.sub("", P._ws(text))) if len(t) >= 2}
+
+
+def _related(cur, new_text, fheads):
+    """서식에 박힌 이름 cur 와 원본 이름이 **닿는 이름**인가 — 한쪽이 다른 쪽을 품거나(「사업화실적」 ⊃ 「사업화」 · 「전체14-1)」 ⊃ 「전체」), 서식 이름의 낱말이 원본 그 행의 머리 글 낱말과 하나라도 같다
+    (「지식재산권(출원)」 ↔ 「특허 › 출원」). 닿지 않는 이름(「계획수립 및 자료조사」 ↔ 「서브모듈 시작품 제작」)은 다른 항목이다 — 서식의 예시 이름일 수 있어 그 항목을 안 넣는다."""
+    a, b = _name_key(cur), _name_key(new_text)
+    if len(a) >= 2 and len(b) >= 2 and (a in b or b in a):
+        return True
+    return bool(_toks(cur) & {t for h in fheads for t in _toks(h)})
+
+
+def _record(T, F, tv, fv, m, rec, mk, orig, new=False, seq=0, notes=None, outer=None):
     """항목 하나 → (칸 쓰기 [{to | (행 차례, 열), from, text, mode, was}], 지울 예시 칸 [칸], 표시 [(열, 있음)], 예시인가, 항목의 행 범위) | 까닭 글(통째로 안 넣음).
-    new = 늘릴 묶음(rec["like"] 를 본뜬 빈 행들 — 목적 칸은 like 의 칸으로 보고 (like 첫 행에서의 차례, 열) 좌표로 적는다)."""
+    new = 늘릴 묶음(rec["like"] 를 본뜬 빈 행들 — 목적 칸은 like 의 칸으로 보고 (like 첫 행에서의 차례, 열) 좌표로 적는다) · seq = 같은 묶음을 본뜬 몇째인가(1부터 — 순번을 이어 세는 데 쓴다).
+    **순번 자리**(② §5-3 5 「항목」 — 2026-11-22 고침): 목적 이름 칸이 순번(「1.」)이고 원본 이름에도 순번이 있으면 같은 순번이어야 한다(다르면 한 칸 밀린 짝 — 거절). 원본 이름에 순번이 **없으면** 목적의 순번을 둔 채
+    이름을 잇는다(「1.」 + 「설계사양서」 → 「1. 설계사양서」 — 전에는 거절해 순번 없는 계획서의 항목이 하나도 못 들어갔다). 서식의 「n.」 줄과 늘린 묶음은 위 항목에서 이어 센 순번을 적는다."""
     trows, frows = rec["to"], rec["from"]
     text_ = rec["like"] if new else _extent(tv, trows)   # 목적 항목의 행 범위
     fext = _extent(fv, frows)
-    example = not new and bool(rec.get("example")) and _is_example(tv, text_, orig)
+    # 구성 반영이 적은 칸 = 구분 기준 묶음의 라벨 칸 + 그 항목의 머리 꼴 칸 가운데 글이 프로젝트 구성의 기관 이름인 칸(반영 뒤에는 묶음으로 다시 안 읽히는 표가 있다 — 지원·부담계획의 「연구개발기관」 열)
+    names = {_bare(n) for n in T["names"] if n}
+    own = _labels(T) | ({x["id"] for x in tv["cells"] if _inside(x, text_) and (_bare(x["text"]) in names or (x["role"] in HEADISH and _orgs(T, [x])))} if not new else set())   # 값 꼴 칸은 글이 기관 이름뿐일 때만(표지의 「기관명」 칸)
+    example = not new and bool(rec.get("example")) and _is_example(tv, text_, orig, own)
+    owned = not new and any(x["id"] in own for x in tv["cells"] if _inside(x, text_))   # 구성 반영이 기관 · 차년도를 적은 항목(기관 행) — 그 행의 다른 칸에 남은 서식 글은 서식이 보기로 든 다른 기관의 값이다
     if new and not all(_slot(x["text"]) and x["role"] != "title" for x in tv["cells"] if _inside(x, text_)):
         return "본뜰 묶음이 빈 항목이 아님"
     if _orgs(T, [h for r in trows for h in _row_heads(tv, r)]) and (fo := _orgs(F, [h for r in frows for h in _row_heads(fv, r)])) and not (_orgs(T, [h for r in trows for h in _row_heads(tv, r)]) & fo):
         return "기관이 다른 행"
-    writes, hit, marks_ = [], {}, []
+    writes, hit, marks_, same = [], {}, [], set()
+    paired = {tc["id"] for f in m["fields"] if f["kind"] == "text" for tr, fr in zip(trows, frows)   # 이 항목에서 원본 칸과 짝이 된 목적 칸 — 계산 칸의 피연산자가 모두 여기 들면 그 계산 칸도 원본 값을 옮긴다
+              if (tc := tv["at"].get((tr, f["to"]))) is not None and (sc := fv["at"].get((fr, f["from"]))) is not None and _inside(tc, text_) and _inside(sc, fext)}
     for f in m["fields"]:
         if f["kind"] == "mark":
             if mk is not None and mk["boundary"] + 1 < len(text_):
@@ -533,8 +689,14 @@ def _record(T, F, tv, fv, m, rec, mk, orig, new=False):
             continue
         for tr, fr in zip(trows, frows):
             tc, sc = tv["at"].get((tr, f["to"])), fv["at"].get((fr, f["from"]))
-            if tc is None or sc is None or not _inside(tc, text_) or not _inside(sc, fext) or tc["role"] == "title":
+            if tc is None or sc is None or tc["role"] == "title":
                 continue
+            if not _inside(tc, text_) or not _inside(sc, fext):
+                if outer is not None and not new and not _inside(tc, text_) and tc["role"] in HEADISH and _slot(tc["text"]):
+                    outer[tc["id"]].append((tc, sc))   # 여러 항목에 걸친 자리표시 머리 칸(「단계 n」 · 「연차 n」) — 항목마다의 원본 값이 모두 같으면 계획이 한 번 적는다(plan)
+                continue
+            if tc["id"] in own and not new:
+                continue   # 구성 반영이 적은 라벨 칸(기관 이름 · 차년도) — 프로젝트 구성의 값이다: 덮지도, 원본과 다르다고 그 항목을 버리지도 않는다(「한양대학교 에리카산학협력단」 ↔ 「한양대학교」)
             if hit.setdefault(tc["id"], sc["id"]) != sc["id"]:
                 return f"목적 칸 하나에 원본 칸이 둘(열 {f['to']})"
             if any(w["cell"] is tc for w in writes):
@@ -543,29 +705,44 @@ def _record(T, F, tv, fv, m, rec, mk, orig, new=False):
             head = tc["role"] in HEADISH
             if any(_RESULT.match(_head_word(h["text"])) for h in _row_heads(tv, tr, tc["c"])[-1:]):
                 continue   # 「실적」 행 — 계획서에 없는 내용
-            if MT._empty(new_text) or P._ws(new_text) == P._ws(cur):
+            if P._ws(new_text) == P._ws(cur):
+                same.add(tc["id"])   # 이미 원본 글과 같다(넣은 뒤 다시 계획 · 서식 글이 우연히 같음)
                 continue
-            if tc["calc"]:
-                continue   # 계산 칸 — 합계 계산 몫(넣지 않는다)
+            if MT._empty(new_text):
+                continue
+            if tc["calc"] and (new or not (ops := T["ops"].get(tc["id"])) or not set(ops) <= paired):
+                continue   # 계산 칸 — 피연산자 칸이 이 항목의 짝에서 모두 이어졌을 때만 원본 값을 옮긴다(merge_tables 와 같은 규칙 — 같은 줄의 합). 아니면 비워 둔다(합계 계산 몫) · 늘린 묶음의 계산 칸은 늘 비운다
+            if head and not MT._empty(cur) and (k := _name_key(cur)) and k == _name_key(new_text):
+                continue   # 같은 이름 — 띄어쓰기·기호·각주 번호만 다르거나(「기술 요약 정보」 ↔ 「기술요약정보」 · 「공고번호6)」 ↔ 「공고번호」: 서식의 이름을 둔다) 순번을 붙여 이미 넣은 이름(「1. 설계사양서」 ↔ 「설계사양서」: 다시 계획하면 일 없음)
             if MT._empty(cur):
                 mode = "empty"
             elif head and _slot(cur):
-                a, b = _ORD.fullmatch(P._ws(cur)), _ORD_LEAD.match(P._ws(new_text)) or _ORD.fullmatch(P._ws(new_text))
-                if a and (not b or a.group(1) != b.group(1)):
-                    return f"순번이 다름(목적 「{P._ws(cur)}」 ↔ 원본 「{P._ws(new_text)[:20]}」)"
+                if not _DOTS.fullmatch(P._ws(cur)):   # 순번 자리(「1.」 · 「n.」)
+                    a, (b, name) = _ORD.fullmatch(P._ws(cur)), _lead(new_text)
+                    if a and not new and b is not None and int(a.group(1)) != b:
+                        return f"순번이 다름(목적 「{P._ws(cur)}」 ↔ 원본 「{P._ws(new_text)[:20]}」)"
+                    if b is None and name:   # 원본 이름에 순번이 없다 — 목적의 순번(늘린 묶음·「n.」 은 이어 센 수)을 둔 채 이름을 잇는다. 원본에 순번이 있으면 그 글 그대로
+                        n = _ordinal(tv, tc, seq)
+                        new_text = f"{_ord_text(cur, n)} {name}" if n is not None else name
                 mode = "slot"
             elif example:
                 mode = "example"
             elif not head and X._skeleton(cur, new_text):
                 mode = "form"
+            elif (not head or owned) and _form_text(tv, tc, orig):
+                mode = "example"   # 그 칸의 글이 올린 빈 양식의 글 그대로(예시 값) — LLM 이 항목 전체를 예시로 안 적었어도 그 칸은 덮는다. 머리 꼴 칸은 구성 반영이 기관을 적은 행에서만(다른 기관 행에 남은 「기관유형」 「대기업」 · 「대학」 — 서식에 박힌 항목 이름은 그런 행이 아니다)
+            elif head and _related(cur, new_text, [h["text"] for h in _row_heads(fv, fr)]):
+                if notes is not None:   # 서식에 박힌 이름과 글자는 다른데 닿는 이름(「지식재산권(출원)」 ↔ 「특허 › 출원」 · 「사업화실적」 ↔ 「사업화」) — LLM 이 같은 항목으로 이은 것을 받아들인다: 이름은 서식 것을 두고 값만 넣고, 계획에 적어 사람이 본다
+                    notes.append(f"목적 「{P._ws(cur)[:24]}」 ← 원본 「{' › '.join(P._ws(h['text'])[:16] for h in _row_heads(fv, fr)[-2:])}」")
+                continue
             elif head:
                 return f"이름이 다름(목적 「{P._ws(cur)[:20]}」 ↔ 원본 「{P._ws(new_text)[:20]}」)"
             else:
                 return f"목적 칸에 다른 글(「{P._ws(cur)[:20]}」 — 원본 「{P._ws(new_text)[:20]}」)"
             writes.append({"cell": tc, "to": (tc["r"] - text_[0], tc["c"]) if new else tc["id"], "from": sc["id"], "text": new_text, "mode": mode, "was": cur})
     clears = []
-    if example:   # 예시 항목을 실제 내용으로 바꾸면 그 항목에 남은 예시 글(달성도 100%)도 지운다
-        done = {w["cell"]["id"] for w in writes} | set(hit)
+    if example:   # 예시 항목을 실제 내용으로 바꾸면 그 항목에 남은 예시 글(달성도 100%)도 지운다 — 짝은 됐는데 못 쓴 칸(원본 칸이 빔 · 못 옮긴 계산 칸 · 실적 행)의 예시 값도(남기면 실제 금액 옆에 예시 합계 · 비율이 선다)
+        done = {w["cell"]["id"] for w in writes} | same | own
         clears = [x for x in tv["cells"] if _inside(x, text_) and x["role"] == "field" and x["id"] not in done and P._ws(x["text"])]
     return writes, clears, marks_, example, text_
 
@@ -602,12 +779,13 @@ def _mark_ops(tv, rows, marks_, mk, others, example):
 def stale(S_to, S_from, tid, m):
     """그 대응이 낡았나 — 두 표가 지금 문서에 있고 구조 서명이 저장한 것과 같아야 쓴다."""
     a, b = S_to["idx"].get(tid), S_from["idx"].get(m.get("from"))
-    return not a or not b or sig(a, (m.get("top") or {}).get("to", 0)) != (m.get("sig") or {}).get("to") or sig(b, (m.get("top") or {}).get("from", 0)) != (m.get("sig") or {}).get("from")
+    return (not a or not b or sig(a, (m.get("top") or {}).get("to", 0)) != (m.get("sig") or {}).get("to")
+            or _sig_from(S_from, m["from"], (m.get("top") or {}).get("from", 0)) != (m.get("sig") or {}).get("from"))   # 원본 = 그 표 + 이어진 표(source_view) — 이어진 표가 생기거나 달라져도 낡음
 
 
 def plan(T, F, maps, orig=None):
     """넣기 계획(모듈 설명) — 문서를 안 고친다. T·F = merge_fixed._side 꼴, maps = merge.json `tableMaps`, orig = 등록된 빈 양식으로 올린 원본의 칸 {id: {text, top, bottom}} | None."""
-    out = {"tables": [], "cells": [], "clears": [], "lines": [], "rows": [], "skipped": [], "owned": []}
+    out = {"tables": [], "cells": [], "clears": [], "lines": [], "rows": [], "skipped": [], "owned": [], "notes": []}
     for tid, m in (maps or {}).items():
         if not isinstance(m, dict) or not m.get("from"):
             continue
@@ -621,14 +799,17 @@ def plan(T, F, maps, orig=None):
             out["skipped"].append({"table": tid, "why": "stale", "detail": "표의 행·열 구성이 대응을 낸 뒤 바뀜 — 「표 대응」 을 다시 돌리세요"})
             continue
         out["owned"].append(tid)
-        tv, fv = view(T, tid), view(F, m["from"])
+        tv, fv = view(T, tid), source_view(F, m["from"])
         ms = marks(T, tv)
         mk = next((x for x in ms if x["name"] == m.get("mark")), None)
         others = [x for x in ms if x is not mk]
         n0 = len(out["skipped"])
-        recs = [(rec, _record(T, F, tv, fv, m, rec, mk, orig)) for rec in m.get("records") or ()]
-        if bad := next(((rec, got) for rec, got in recs if rec.get("example") and isinstance(got, str)), None):
-            # LLM 이 서식 예시라고 본 항목을 바꿀 수 없다(등록된 빈 양식으로 올린 문서가 아니거나 사람이 그 행을 고쳤다) — 예시 행을 둔 채 뒤 항목만 넣으면 차례가 어긋난 표가 된다: 표 전체를 안 넣는다
+        said = [[] for _ in m.get("records") or ()]   # 항목마다 — 이름이 닿는 다른 이름과 이은 것(_related)
+        outer = defaultdict(list)                       # 여러 항목에 걸친 자리표시 머리 칸 id → [(목적 칸, 원본 칸)]
+        recs = [(rec, _record(T, F, tv, fv, m, rec, mk, orig, notes=said[i], outer=outer)) for i, rec in enumerate(m.get("records") or ())]
+        if bad := next(((rec, got) for rec, got in recs if rec.get("example") and isinstance(got, str) and not _keyed(tv, fv, rec)), None):
+            # LLM 이 서식 예시라고 본 항목을 바꿀 수 없다(등록된 빈 양식으로 올린 문서가 아니거나 사람이 그 행을 고쳤다) — 예시 행을 둔 채 뒤 항목만 넣으면 차례가 어긋난 표가 된다: 표 전체를 안 넣는다.
+            # 이름으로 짝지어진 항목(_keyed — 표지처럼 행마다 서식의 이름이 박힌 표)은 차례로 선 것이 아니라 그 항목만 건너뛴다(아래의 항목별 까닭으로 — 2026-11-22: 표지 표가 한 행 때문에 통째로 빠졌다)
             row["skipped"] = 1
             out["skipped"].append({"table": tid, "why": "example", "detail": f"{bad[0]['to'][0] + 1}행의 예시 항목을 바꿀 수 없어 표 전체를 넣지 않음 — {bad[1]}"
                                    + ("" if orig else " (목적 문서로 올린 원본이 등록된 빈 양식이 아니라 예시인지 확인할 수 없음)")})
@@ -640,6 +821,7 @@ def plan(T, F, maps, orig=None):
                 continue
             writes, clears, marks_, example, ext = got
             lines = _mark_ops(tv, ext, marks_, mk, others, example)
+            out["notes"] += [{"table": tid, "record": i, "why": "renamed", "detail": f"{rec['to'][0] + 1}행 항목 — 이름이 다른 항목을 같은 항목으로 이음({x}) · 이름은 서식 것 그대로"} for x in dict.fromkeys(said[i])]
             row["records"] += 1
             out["cells"] += [{"to": w["to"], "from": w["from"], "text": w["text"], "table": tid, "mode": w["mode"], "was": w["was"]} for w in writes]
             out["clears"] += [{"to": x["id"], "was": x["text"], "table": tid} for x in clears]
@@ -647,11 +829,21 @@ def plan(T, F, maps, orig=None):
             row["cells"] += len(writes)
             row["cleared"] += len(clears)
             row["lines"] += len(lines)
+        if row["records"]:   # 여러 항목에 걸친 자리표시 머리 칸(지원·부담계획의 「단계 n」 · 「연차 n」) — 그 칸에 걸린 항목들의 원본 값이 모두 같으면 한 번 적는다(항목 하나의 칸이 아니라 _record 가 못 쓴다)
+            wrote = {c["to"] for c in out["cells"]}
+            for cid, items in outer.items():
+                texts = {P._ws(sc["text"]) for _, sc in items if not MT._empty(sc["text"])}
+                tc, sc = items[0]
+                if len(texts) == 1 and cid not in wrote and (text := next(iter(texts))) != P._ws(tc["text"]):
+                    out["cells"].append({"to": cid, "from": sc["id"], "text": text, "table": tid, "mode": "slot", "was": tc["text"]})
+                    row["cells"] += 1
+        nth = Counter()   # 본뜰 묶음(첫 행) → 지금까지 늘린 수 — 늘린 묶음의 순번은 본뜬 묶음의 순번에서 이어 센다(못 늘린 것은 안 센다)
         for i, rec in enumerate(m.get("grow") or ()):
-            got = _record(T, F, tv, fv, m, rec, mk, orig, new=True)
+            got = _record(T, F, tv, fv, m, rec, mk, orig, new=True, seq=nth[rec["like"][0]] + 1)
             if isinstance(got, str):
                 out["skipped"].append({"table": tid, "grow": i, "why": "shape", "detail": f"늘릴 항목(원본 {rec['from'][0] + 1}행) — {got}"})
                 continue
+            nth[rec["like"][0]] += 1
             writes, _, marks_, _, _ = got
             out["rows"].append({"table": tid, "like": [rec["like"][0], rec["like"][-1]], "n": len(rec["like"]), "index": i, "from": rec["from"],
                                 "cells": [{"at": list(w["to"]), "from": w["from"], "text": w["text"]} for w in writes],
@@ -660,9 +852,14 @@ def plan(T, F, maps, orig=None):
             row["rows"] += 1
             row["cells"] += len(writes)
         row["skipped"] = len(out["skipped"]) - n0
+    # 한 항목이 「남은 예시」 로 지우려는 칸을 다른 항목이 쓰면 지우지 않는다 — 이름 칸 하나에 두 행이 걸린 항목(표지의 기술분류 2행)을 행마다 따로 짝지으면 서로의 행을 예시로 지웠다(쓴 글이 반영 끝에 지워짐 — 2026-11-22)
+    written = {c["to"] for c in out["cells"]}
+    for t in out["tables"]:
+        t["cleared"] -= sum(1 for c in out["clears"] if c["table"] == t["to"] and c["to"] in written)
+    out["clears"] = [c for c in out["clears"] if c["to"] not in written]
     why = Counter(s["why"] for s in out["skipped"])
     out["counts"] = {"tables": len(out["owned"]), "stale": sum(t["stale"] for t in out["tables"]), "records": sum(t["records"] for t in out["tables"]), "cells": len(out["cells"]) + sum(len(r["cells"]) for r in out["rows"]),
-                     "lines": len(out["lines"]), "rows": len(out["rows"]), "cleared": len(out["clears"]), "skipped": {k: why.get(k, 0) for k in WHY}}
+                     "lines": len(out["lines"]), "rows": len(out["rows"]), "cleared": len(out["clears"]), "renamed": len(out["notes"]), "skipped": {k: why.get(k, 0) for k in WHY}}
     out["todo"] = len(out["cells"]) + len(out["clears"]) + len(out["lines"]) + len(out["rows"])
     return out
 

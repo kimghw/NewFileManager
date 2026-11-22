@@ -40,7 +40,7 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
   if (T && (T.single || T.flow)) { // 문서 하나로 조립한 워크플로우의 서버 실행(workflow_exec.js singleRunFollow 의 거울 — 이관의 거울과 같은 변수) — 묶음은 그 정의의 것(g1 …: 이관의 묶음 TASK_STAGES 가 아니다). 멈춤은 거울이 서버에 건다(1초 안)
     // flow = 줄 목록으로 조립한 이관형의 서버 실행(relayFlowFollow 의 거울 — 그 정의의 묶음도 g1 …: 같은 꼴 · kind 만 다르다)
     const g = agwSingleStage(T.stage), name = g ? `${g.no || ""} ${g.name || ""}`.trim() : "";
-    return { kind: T.single ? "single" : "flow", label: `${name || "워크플로우"} — ${T.only ? "이 단계만 진행" : "한 번에 진행"}`, note: [T.by, T.note || "진행 중"].filter(Boolean).join(" · "), t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; } };
+    return { kind: T.single ? "single" : "flow", label: `${name || "워크플로우"} — ${T.only ? "이 단계만 진행" : T.role ? `${T.role === "source" ? "원본 문서" : "목적 문서"}만` : "한 번에 진행"}`, /* role = 한 문서만으로 시작한 실행(그 문서의 줄만 — spec_워크플로우 ② §18-21) */ note: [T.by, T.note || "진행 중"].filter(Boolean).join(" · "), t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; } };
   }
   if (T) return { kind: "relay", label: `${stage(TASK_STAGES, T.stage)} — 한 번에 진행`, note: T.note || "진행 중", t0: T.t0, stopping: !!T.stop, stop: () => { T.stop = true; taskStageSync(); } };
   if (typeof dv !== "undefined" && dv && dv.auto) return { kind: "fit", label: "프로젝트 구성 반영 — 한 번에 진행", note: "변경 계획 → 반영", t0: 0, stopping: false, stop: null };

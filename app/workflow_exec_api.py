@@ -2,10 +2,14 @@
 
 `wid` = 그 묶음(프로젝트 · 워크플로우 · 라운드)의 **어느 문서든** — 서버가 목적 문서를 찾는다. 첫 화면의 대시보드와 문서 화면의 대시보드가 같은 끝점을 읽는다(spec_작업에이전트 ② §10 「첫 화면의 대시보드」).
 - `GET /api/works/{wid}/flow` → 지금 상태 {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[{key, name, st, done, skipped, busy, text, per?, paid?}] | null, total, done, left, can, why, paid, change,
-  solo?[{role, title, name, total, left, can, why, paid, change}](「한 문서만 진행」 — 그 묶음에서 그 문서만 따로 돌 수 있는 몫: ② §18-21 · 묶음 전체와 같으면 없음), leftBy?{역할: 그 문서의 눈으로 본 남은 줄}}], llmSkip[문서 id], run, last}
+  solo?[{role, title, name, total, left, can, why, paid, change, wait?}](「한 문서만 진행」 — 그 묶음에서 그 문서만 따로 돌 수 있는 몫: ② §18-21 · 묶음 전체와 같으면 없음), leftBy?{역할: 그 문서의 눈으로 본 남은 줄},
+  lane(그 묶음을 도는 실행이 잡는 문서 — source | target | "" 두 문서), wait(첫 남은 줄이 구성 값을 기다리는 까닭 | "")}], llmSkip[문서 id], run, runs[], held{source, target}, last, lasts[]}
   — `server: false` 인 묶음은 `steps: null`(화면이 센다). 404 = 그런 작업 없음. llmSkip = 사람이 「LLM 검증·보완」 을 건너뛴 문서(화면이 「건너뛰기 취소」 를 그 문서에만 보인다).
-- `GET /api/works/{wid}/flow/live?screen=&dirty=` → {run | null, notice | null, rev | null} — 메모리만(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링 · 고치던 글 보고 · 울타리 알림 — ② §17-8).
+  **문서마다 따로 도는 실행**(② §18-22): runs = 도는 실행들(문서 하나만 잡은 실행은 둘까지 같이 돈다 — 요약의 `lane`) · run = 이 문서를 잡은 실행(없으면 첫 실행) · held = 역할 → 그 문서를 잡은 실행의 번호 | null ·
+  lasts = 지난 실행의 끝들(같이 돌던 다른 문서의 실행도 — 끝난 차례) · last = 그 마지막(도는 실행이 없을 때). 줄의 `wait` = 그 줄이 구성 값을 기다리는 까닭(시작 요청은 409 `needs`).
+- `GET /api/works/{wid}/flow/live?screen=&dirty=` → {run | null(이 문서를 잡은 실행), runs[](이 문서의 묶음에서 도는 실행들), notice | null, rev | null} — 메모리만(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링 · 고치던 글 보고 · 울타리 알림 — ② §17-8).
 - `POST /api/works/{wid}/flow/runs` {from, to?, only?, role?(source | target — 한 문서만: 409 reason `role` = 그 묶음에 그 문서만 따로 할 것이 없음), redo?, skill?, skip?[구조 반영에서 뺄 자리 key — 화면의 「반영에서 빼기」 · LLM 「건너뛰기」 와 다르다], by?, where?, screen?, turn?, key?, paid?[문서 id], sig?, docs?{target, source}} → 202 {run} | 409 {reason, message, run?} | 400 ·
+  409 `busy` = 이 실행이 잡을 문서를 다른 실행이 잡고 있음(run = 그 실행) · 409 `needs` = 첫 줄이 구성 값을 기다림(「프로젝트 구성 추출」 이 먼저).
   **200 {run: null, reason: "client", message}** = 서버가 아직 맡지 않는 묶음(또는 끄는 스위치) — 거절이 아니라 「화면이 돈다」 는 답(화면이 묶음마다 먼저 묻는다).
 - `GET …/flow/runs?limit=` → {runs[요약 — 새 것부터]} · `GET …/flow/runs/{n}` → 기록 하나 · `POST …/flow/runs/{n}/stop` → {stopping}(어느 화면에서나 · 409 = 도는 실행이 없음).
 - `PUT …/flow/skip` {doc, on} → {llmSkip[문서 id]} — 「LLM 검증·보완」 의 건너뛰기 · 건너뛰기 취소(워크플로우 옵션 — 모든 화면 · 실행이 같이 본다).
@@ -44,6 +48,7 @@ def flow_live(wid: str, screen: str = "", dirty: int = -1, ack: str = ""):
     if dirty >= 0:
         X.report(wid, screen, dirty, ack)   # ack = 이 화면이 받아 입력을 막고 고친 글을 보낸 알림의 key(울타리는 그 보고만 「받았음」 으로 센다)
     return {"run": X.live(wid), "notice": X.notice_of(wid), "rev": X.UNIT.rev_now(wid) if hasattr(X.UNIT, "rev_now") else None,   # rev = 메모리의 문서 차례(없으면 null) — 알림이 내린 뒤 화면이 다시 읽을지
+            "runs": X.live_all(wid),   # 이 문서의 묶음에서 도는 실행들(이 문서를 잡지 않은 다른 문서의 실행도 — 문서마다 따로 도는 실행: ② §18-22). run = 그 가운데 이 문서를 잡은 것
             "lastRun": X.last_n(wid)}   # 이 문서가 목적 문서인 마지막 실행의 번호(메모리) — 실행을 통째로 놓친 화면이 다시 읽을지
 
 
@@ -90,7 +95,7 @@ def flow_skip(wid: str, body: dict = Body(...)):
     doc, on = body.get("doc"), body.get("on")
     if not isinstance(doc, str) or not isinstance(on, bool):
         raise HTTPException(400, "doc(문서 id) · on(true | false)이 있어야 합니다")
-    if X.busy_text(wid):
+    if X.held_text(doc):   # 그 문서를 잡은 실행이 돌 때만 — 같은 묶음의 다른 문서만 도는 실행은 이 문서의 건너뛰기와 무관하다(문서마다 따로 도는 실행: ② §18-22)
         raise HTTPException(409, X.BUSY_TEXT)
     got = X.UNIT.skip_set(wid, doc, on)
     if not got.ok:

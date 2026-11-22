@@ -3,6 +3,7 @@
 // 파일을 바로 열지 않고 파일 놓는 카드(#drop) 안 목록(#homeFiles)에 모은다 — 이 화면(브라우저 메모리)에만, 서버에는 TASK 카드를 누를 때 올린다(사용자 답 「TASK 고를 때 올림」).
 // 파일 카드마다 목적 문서 라디오 · 약칭(저장 키 alias — 보이는 이름 뒤에 「(약칭)」: ② §10) · 프로젝트 · 자동 진행 → TASK 카드 = 그 TASK 로 시작.
 // app.js(bind 의 「파일 선택」·창 놓기 · homeTasksDraw·homeTaskFiles) 와 gather_quick.js(gatherQuickRun · gqConfirmText) 를 쓴다 — 그 둘 다음에 읽는다(index.html).
+// 첫 화면 대시보드(home_dash.js — 이 파일 뒤에 읽힘: 있을 때만 부른다)와 맞춘다: 목록이 비면 대시보드가 보이는 작업의 문서(homeDashDocs) · 놓으면 대시보드를 시작 전으로(homeDashFiles) · 비우면 하던 작업으로(homeDashFilesGone)
 
 const HF_OK = /\.(hwpx?|docx)$/i, HF_TASK = /\.hwpx?$/i;
 const hf = { files: [], target: -1, aliases: new WeakMap(), project: "", auto: false, llm: true, zones: null, busy: "", err: "",
@@ -35,6 +36,7 @@ function homeFilesAdd(files, job) { // 「파일 선택」 · 놓기 · 목록�
   let added = 0;
   for (const f of ok) if (!hf.files.some((x) => x.name === f.name && x.size === f.size)) { hf.files.push(f); added += 1; }
   if (!added) return;
+  if (typeof homeDashFiles === "function") homeDashFiles(); // 오른쪽 대시보드가 시작한 작업을 보이던 중이면 — 같은 워크플로우의 시작 전으로(문서 칸 = 놓은 문서: home_dash.js ⓑ)
   hf.err = "";
   homeFilesDraw();
   const t = job && TASK_CATALOG[job];
@@ -79,12 +81,65 @@ function hfCardsSync() { // TASK 카드 아래 글 — 목록이 있으면 「�
   }
 }
 
+function hfIconEl(name) { // 문서 그림(확장자 꼬리표 포함) — 목록의 카드 · 대시보드의 문서 카드가 같이 쓴다
+  const x = hfExt({ name }), icon = el("span", "hf-file-icon"), ext = el("span", "hf-ext", x.toUpperCase());
+  icon.dataset.ext = ext.dataset.ext = x;
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 64 80" width="64" height="80" fill="none" aria-hidden="true" focusable="false"><path d="M10 2h28l16 16v54a6 6 0 0 1-6 6H10a6 6 0 0 1-6-6V8a6 6 0 0 1 6-6Z" fill="#fff" stroke="currentColor" stroke-width="2"/><path d="M38 2v12a4 4 0 0 0 4 4h12M16 30h26M16 37h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  icon.append(ext);
+  return icon;
+}
+
+// 목록이 비어 있고 오른쪽 대시보드가 시작한 작업을 보이면 — 그 작업의 문서를 읽기만 하는 카드로(home_dash.js homeDashDocs: 서버가 본 문서 칸 그대로 · 차례 = 대시보드 문서 칸의 차례).
+// 2026-11-21 사용자 "올려놓은 문서랑 대시보드랑 매칭이 안되잖아" · "놓여진 문서랑 매칭을 해주라는거야" — 새로 고치면 목록(브라우저 메모리)은 비는데 대시보드는 하던 작업을 보여 둘이 어긋났다(spec_작업에이전트 ② §10 「놓은 문서와 대시보드」).
+// 새 문서를 놓거나 고르면 이 카드 대신 그 문서의 목록이 서고 대시보드는 같은 워크플로우의 시작 전으로 바뀐다(homeFilesAdd → homeDashFiles)
+function hfDashDraw(drop, box, D) {
+  drop.classList.add("has-files");
+  box.hidden = false;
+  box.dataset.mode = "dash";
+  box.removeAttribute("aria-busy");
+  box.textContent = "";
+  const head = el("header", "hf-head"), h = el("h3", null, `대시보드의 문서 ${D.rows.length}개`), more = el("button", "btn sm hf-dash-more", "다른 문서 놓기…");
+  h.id = "homeFilesTitle";
+  more.type = "button";
+  more.dataset.hfFocus = "more";
+  more.title = "hwp·hwpx·docx 문서를 고릅니다(이 카드에 놓아도 됩니다) — 고른 문서로 문서 칸을 바꾸고 오른쪽 대시보드는 시작 전으로 돌아갑니다. 하던 작업은 그대로입니다";
+  more.onclick = homeFilesPick;
+  head.append(h, hHelp("대시보드의 문서 안내", `오른쪽 대시보드가 보이는 작업(워크플로우 「${D.name}」)의 문서입니다 — 이미 서버에 올린 문서라 여기서 빼거나 바꾸지 않습니다.\n`
+    + "새 문서를 놓거나 「다른 문서 놓기…」 로 고르면 이 자리에 그 문서의 목록이 서고, 대시보드의 문서 칸도 그 문서로 바뀝니다(같은 워크플로우의 시작 전 — 「워크플로우 시작」 으로 새로 시작).\n"
+    + "하던 작업은 지우지 않습니다 — 놓은 문서 목록을 비우면 대시보드가 다시 이 작업을 보입니다(최근 작업에서도 열 수 있습니다)."), more);
+  const cap = el("p", "hf-cap", `워크플로우 「${D.name}」 — 오른쪽 대시보드의 문서 칸과 같은 문서입니다(이미 올림). 새 문서를 놓으면 그 문서로 시작할 준비를 합니다`);
+  const rows = el("div", "hf-rows");
+  rows.setAttribute("role", "list");
+  rows.setAttribute("aria-label", "대시보드의 문서");
+  for (const d of D.rows) {
+    const row = el("div", "hf-row hf-dash" + (d.role === "target" ? " on" : "")), pick = el("div", "hf-pick"), name = el("span", "hf-name", d.name);
+    row.setAttribute("role", "listitem");
+    row.dataset.role = d.role;
+    if (d.id) row.dataset.doc = d.id;
+    name.title = d.name;
+    pick.append(hfIconEl(d.name), name);
+    row.append(pick, el("span", "hf-tag", d.label));
+    rows.append(row);
+  }
+  box.append(head, cap, rows);
+}
+
 function homeFilesDraw() {
   const drop = $("drop"), box = $("homeFiles"), has = hfHas();
   drop.classList.toggle("has-files", has);
   box.hidden = !has;
+  delete box.dataset.mode;
   hfCardsSync();
-  if (!has) { box.textContent = ""; hf.target = -1; if (typeof homeAgentDraw === "function") homeAgentDraw(); return; }
+  if (!has) {
+    box.textContent = "";
+    hf.target = -1;
+    if (typeof homeDashFilesGone === "function") homeDashFilesGone(); // 목록을 비웠다 — 놓은 문서로 바꾸기 전에 보던 작업이 있으면 대시보드가 그 작업으로(home_dash.js)
+    const D = typeof homeDashDocs === "function" ? homeDashDocs() : null;
+    if (D && D.rows.length) hfDashDraw(drop, box, D); // 대시보드가 시작한 작업을 보이면 — 그 작업의 문서를 이 자리에
+    if (typeof homeAgentDraw === "function") homeAgentDraw();
+    return;
+  }
   const busy = !!hf.busy || homeTaskBusy, ti = hfTarget(), focus = box.contains(document.activeElement) ? document.activeElement.dataset.hfFocus || "" : "";
   box.textContent = "";
   box.setAttribute("aria-busy", busy);
@@ -107,15 +162,10 @@ function homeFilesDraw() {
   rows.setAttribute("role", "radiogroup");
   rows.setAttribute("aria-label", "목적 문서 고르기");
   hf.files.forEach((f, i) => {
-    const on = !formJob && i === ti, row = el("div", "hf-row" + (on ? " on" : "")), lab = el("label", "hf-pick"), r = el("input"), icon = el("span", "hf-file-icon"), ext = el("span", "hf-ext", hfExt(f).toUpperCase()), name = el("span", "hf-name", f.name), del = el("button", "icon hf-del", "×");
+    const on = !formJob && i === ti, row = el("div", "hf-row" + (on ? " on" : "")), lab = el("label", "hf-pick"), r = el("input"), icon = hfIconEl(f.name), name = el("span", "hf-name", f.name), del = el("button", "icon hf-del", "×");
     const tag = el("span", "hf-tag", [on ? "목적 문서" : formJob || ti >= 0 ? "원본 문서" : "목적 문서로 선택", /\.hwp$/i.test(f.name) ? "hwpx 로 변환" : "", /\.docx$/i.test(f.name) ? "워크플로우 없이 열기 · 서식 복사" : ""].filter(Boolean).join(" · "));
     if (/\.docx$/i.test(f.name)) tag.title = "docx — 「워크플로우 없이 열기」 로 열거나, 워크플로우 「문서 서식 복사」 의 서식을 가져올 문서로만 시작합니다"; // spec_서식복사 ② §1 — 그 TASK 는 docx 도 된다
     row.dataset.hfFile = String(i);
-    icon.dataset.ext = hfExt(f);
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 64 80" width="64" height="80" fill="none" aria-hidden="true" focusable="false"><path d="M10 2h28l16 16v54a6 6 0 0 1-6 6H10a6 6 0 0 1-6-6V8a6 6 0 0 1 6-6Z" fill="#fff" stroke="currentColor" stroke-width="2"/><path d="M38 2v12a4 4 0 0 0 4 4h12M16 30h26M16 37h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-    icon.append(ext);
-    ext.dataset.ext = hfExt(f);
     r.type = "radio";
     r.name = "homeFileTarget";
     r.value = String(i);

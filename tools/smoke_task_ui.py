@@ -603,7 +603,7 @@ try:
         PRIMARY = "(step) => [...document.querySelectorAll(`#taskSteps li[data-step=${step}] button`)].map((b) => b.classList.contains('primary'))"  # 그 단계 단추들의 강조 여부
         check("② 연결 목록이 나옴 — 다음 작업은 LLM 검토 · ③은 먼저 진행 가능", [s["state"] for s in st][:6] == ["done", "done", "now", "ready", "todo", "soon"]
               and st[2]["badge"] == "다음 작업" and st[3]["badge"] == "진행 가능"
-              and "연결됨 1 · 확인 필요 1 · 후보 없음 1 · 원본에만 1" in st[2]["text"] and "다음: 「LLM 검토」" in st[2]["text"] and st[2]["acts"] == ["LLM 검토", "연결 목록", "지침", "연결 코멘트"]   # 「연결 코멘트」 — spec_병합 ② §5-3 1(2026-11-12)
+              and "연결됨 1 · 확인 필요 1 · 후보 없음 1 · 원본에만 1" in st[2]["text"] and "다음: 「LLM 검토」" in st[2]["text"] and st[2]["acts"] == ["LLM 검토", "연결 목록", "지침", "매칭 지침"]   # 「매칭 지침」 — spec_병합 ② §5-6(2026-11-22 — 전의 「연결 코멘트」 단추: ② §5-3 1 · 2026-11-12)
               and page.evaluate(PRIMARY, "link") == [True, False, False, False] and st[3]["acts"] == ["넣기 계획"] and page.evaluate(PRIMARY, "plan") == [False], [st[2:4], page.evaluate(PRIMARY, "link")])
         page.locator("#taskSteps button", has_text="연결 목록").click()
         page.wait_for_selector("#headsDlg[data-kind=links] #headsDlgBody tr[data-link]")
@@ -626,7 +626,7 @@ try:
         rows, st = page.evaluate(ROWS), page.evaluate(STEPS)
         check("확인 필요한 자리의 원본을 고름 — PUT {from} · 「고름」 표시 · ② 끝남(단추는 남음) · ③ 넣기 계획이 지금", links["calls"][-1] == ("PUT", "/g2", {"from": "p901"})
               and rows[1]["status"] == "paired" and "고름" in rows[1]["text"] and "되돌리기" in rows[1]["text"] and rows[1]["sel"] == "p901"
-              and [s["state"] for s in st][:6] == ["done", "done", "done", "now", "todo", "soon"] and "연결됨 2 · 확인 필요 0" in st[2]["text"] and st[2]["acts"] == ["연결 목록", "LLM 검토", "지침", "연결 코멘트"] and st[3]["acts"] == ["넣기 계획"]
+              and [s["state"] for s in st][:6] == ["done", "done", "done", "now", "todo", "soon"] and "연결됨 2 · 확인 필요 0" in st[2]["text"] and st[2]["acts"] == ["연결 목록", "LLM 검토", "지침", "매칭 지침"] and st[3]["acts"] == ["넣기 계획"]
               and page.evaluate(PRIMARY, "link") == [False, False, False, False] and page.evaluate(PRIMARY, "plan") == [True], [links["calls"][-1], rows[1], st[2:]])  # 확인 필요가 없으면 강조는 ③ 넣기 계획(카드에 하나)
         page.select_option("#headsDlgBody tr[data-link=g1] select", "")
         page.wait_for_function(f"() => ({LINKS_DONE})() && taskFlow.links.counts.toOnly === 2")
@@ -649,13 +649,20 @@ try:
         check("연결 목록 가로 넘침 없음", page.evaluate("() => { const b = document.getElementById('headsDlgBody'); return b.scrollWidth <= b.clientWidth + 1; }"))
         page.screenshot(path=str(OUT / "8b_links_open.png"))
         page.locator("#headsDlgFoot button", has_text="닫기").click()
-        check("닫기 — 열이 닫히고 ② 줄은 그대로", page.eval_on_selector("#headsDlg", "e => e.hidden") and page.evaluate(STEPS)[2]["acts"] == ["LLM 검토", "연결 목록", "지침", "연결 코멘트"])
+        check("닫기 — 열이 닫히고 ② 줄은 그대로", page.eval_on_selector("#headsDlg", "e => e.hidden") and page.evaluate(STEPS)[2]["acts"] == ["LLM 검토", "연결 목록", "지침", "매칭 지침"])
+        # ---- 매칭 지침(2열 kind linkGuides — spec_병합 ② §5-6: 2026-11-22 사용자 "테이블, 본문별로 어떻게 매칭해야하는지 지침을 관리하고" · 전의 「연결 코멘트」 단추는 정의되지 않은 함수를 불렀다). 끝점은 진짜(GET …/link-guides — 문서는 안 바뀐다)
+        page.locator("#taskSteps li[data-step=link] button", has_text="매칭 지침").click()
+        page.wait_for_function("() => heads.dlg === 'linkGuides' && !document.getElementById('headsDlg').hidden")
+        check("「매칭 지침」 — 문서 옆 열(팝업 아님)에 「매칭 지침 — 표/본문별」 · LLM 검토가 읽는 글이고 스크립트는 안 바뀐다는 안내", page.inner_text("#headsDlgTitle") == "매칭 지침 — 표/본문별"
+              and "스크립트가 넣는 방식은 이 글로 바뀌지 않습니다" in page.inner_text("#headsDlgBody") and page.evaluate("() => !document.querySelector('dialog[open]')"), page.inner_text("#headsDlgTitle"))
+        page.locator("#headsDlgFoot button", has_text="닫기").click()
+        check("매칭 지침 닫기 — 열이 닫힘", page.eval_on_selector("#headsDlg", "e => e.hidden"))
         # ---- 9. LLM 검토 · ③ 넣기 계획 · ④ 내용 반영(spec_병합 ② §0-1 · §4 · §6 — API …/merge-links/llm · /plan · /apply, 가짜 응답)
         page.locator("#taskSteps li[data-step=link] button", has_text="LLM 검토").click()   # ② 줄의 것 — 1단계 묶음 안의 「구분 기준 자리 표시」 에도 「LLM 검토」 가 있다
         page.wait_for_function("() => taskFlow.links && taskFlow.links.llm && !taskFlow.llmBusy && !taskFlow.linkBusy")
         st = page.evaluate(STEPS)
         check("「LLM 검토」 — POST …/llm · ② 줄에 「LLM 검토함(1단위)」 · 확인 필요 0", ("POST", "/llm", {}) in links["calls"] and "LLM 검토함(1단위)" in st[2]["text"] and "확인 필요 0" in st[2]["text"]
-              and st[2]["acts"] == ["연결 목록", "LLM 다시 검토", "지침", "연결 코멘트"], st[2])
+              and st[2]["acts"] == ["연결 목록", "LLM 다시 검토", "지침", "매칭 지침"], st[2])
         check("② 줄 수 글 — 「같은 이름 자리 N」 뒤에 「같은 표 T(LLM t)」", "같은 이름 자리 0 · 같은 표 2(LLM 1)" in st[2]["text"], st[2]["text"])
         # ---- LLM 지침·프롬프트 보기(2열 kind llmGuide — 2026-11-12 사용자 "각 LLM이 검토나 작업할때 '지침' 이나 프롬프트를 확인할 수 있으면"). 끝점은 흉내(정규식 route — 글롭은 하위 경로를 안 잡는다)
         GUIDE = {"step": "merge-links", "name": "자리 연결 LLM 검토", "model": "claude-opus-5-5", "parts": [

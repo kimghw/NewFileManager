@@ -377,7 +377,7 @@ def test_the_review_is_a_registered_agent_with_its_guide_and_log(monkeypatch):
     assert (a["no"], a["group"], a["name"], a["run"], a["contract"], a["parts"]) == ("21", "프로젝트 구성", "편집 구역 검토", "manual", ("app.zones_llm", "CONTRACT"), (("merge", "zones"),))
     assert AS.agent_of("zones-llm") == "zone_review" and AS.agent_of(ZL.WHAT) == "zone_review" and AG.AGENTS[-1] is a
     d = AG.detail("zone_review")
-    assert [p["kind"] for p in d["prompt"]] == ["contract", "merge", "data"] and d["prompt"][0]["text"] == ZL.CONTRACT and d["prompt"][1]["source"] == "app/merge_guides_default/zones.md" and d["prompt"][1]["text"]
+    assert [p["kind"] for p in d["prompt"]] == ["contract", "merge", "data", "note"] and d["prompt"][0]["text"] == ZL.CONTRACT   # 끝의 note = 덧붙이는 글 칸(spec_에이전트 ② §6 — 모든 에이전트에 붙는다: tests/test_agents.py 와 같은 기대) and d["prompt"][1]["source"] == "app/merge_guides_default/zones.md" and d["prompt"][1]["text"]
     assert d["whats"] == ["zones-llm"] and d["model"]["source"] == "default" and d["effort"] == {"id": "medium", "source": "code"}
     assert MA.GUIDE_STEPS["zones"] == "편집 구역 LLM 검토" and ("zones", "편집 구역 LLM 검토 기록") in [(n, t) for n, t, _ in WL.SOURCES]
     for word in ("갈래", "공백", "차원", "반복 축"):   # 화면에 보이는 글(역할 · 쓰는 곳 · 자료 · 오류 글)에 안 쓰는 말

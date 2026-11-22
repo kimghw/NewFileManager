@@ -155,26 +155,61 @@ def solo_line(task, line_unit, on, role):
     return bool(u and u["place"] == "doc" and u["kind"] in ("auto", "hand") and not u.get("each") and role in roles_on(task, on))
 
 
+def lane_of(task, mine):
+    """그 줄들을 도는 실행이 **문서 하나만** 쓰나 → 그 문서의 역할(source | target) | ""(두 문서를 다 쓴다)(spec_워크플로우 ② §18-22 「문서마다 따로 도는 실행」 — 2026-11-21 사용자
+    「원본문서랑, 목적문서를 따로따로 실행해서 처리할 수 있잖아? 매칭은 1개 실행이 같이 해야하고 .. 본문,표 분석은 따로 할 수 있고」). mine = [{on, unit}](workflow_state.lines 의 줄 · 등록부의 줄에 단위를 얹은 것).
+    문서 하나만 = 원본 문서 하나 → 목적 문서 하나인 틀(relay_pair)에서 실행기가 하는 줄(사람이 고르는 줄 pick 은 지나간다)이 모두 **같은 한 문서의 줄**(place doc · 그 문서 하나에 닿음)일 때.
+    워크플로우 전체 줄 · 원본 → 목적 줄(매칭) · 두 문서에 하는 줄 · 서로 다른 문서의 줄이 섞인 것은 두 문서를 다 쓴다 — 그런 실행은 묶음에 하나뿐이다."""
+    if not relay_pair(task):
+        return ""
+    got = set()
+    for x in mine:
+        u = x.get("unit")
+        if u is None or u["kind"] == "pick":
+            continue
+        rs = roles_on(task, x["on"])
+        if u["place"] != "doc" or u.get("each") or len(rs) != 1:
+            return ""
+        got.add(rs[0])
+    return next(iter(got)) if len(got) == 1 else ""
+
+
+CONFIG_NAME = "프로젝트 구성 추출"   # 구성 값을 확정하는 줄(config)의 기본 이름 — 정의에 그 줄이 있으면 그 줄의 이름(사람이 고친 도구 이름)으로 적는다
+
+
+def _config_wait(task, fam, ctx0, both):
+    """구성 값이 있어야 하는 줄(단위의 needs 에 config — 프로젝트 구성 반영)이 기다릴 까닭 | ""(확정됨 · 셀 수 없음)(② §18-22 「구성 값 — 추출될 때까지」 — 2026-11-21 사용자
+    「구성같은 경우 불러와서 처리해야하니깐. 그 값이 추출돌때까지 실행이 되면 안되고」). 확정됐나는 「프로젝트 구성 추출」 줄의 상태 식 그대로(workflow_units.state("config") — 그 줄이 정의에 없어도 값으로 센다:
+    처리 함수 _division_target 의 검사와 같은 재료 · 같은 식). 못 읽었으면(blocked) 까닭을 지어내지 않는다 — 그 줄의 상태가 스스로 알린다."""
+    got = U.state("config", {**ctx0, "docs": both}, fam)
+    if not got or got["st"] != "todo":
+        return ""
+    name = next((s["name"] for g in task.get("stages") or () for s in g["steps"] if s["key"] == "config"), CONFIG_NAME)
+    return f"「{name}」 이 먼저입니다 — 프로젝트 구성(단계 · 차년도 · 기관)이 확정된 뒤에 진행합니다"
+
+
 def _solo(task, fam, ctx0, aux, role):
-    """묶음 하나의 「그 문서만」 몫 → ({total, left, paid[문서 id], change} | None(따로 돌 것이 없음 · 묶음 전체와 같음), 그 문서의 눈으로 본 남은 줄 수 leftBy).
-    aux = [(등록부의 줄, 단위, 닿는 역할들, 줄의 상태, 줄의 문서들)] — 묶음의 줄 차례. 두 문서에 하는 줄은 그 문서만의 상태를 따로 센다(같은 식 · 그 문서 하나로).
-    leftBy = 다른 문서만의 줄을 뺀 남은 필수 줄(그 문서의 줄은 그 문서의 것으로 · 워크플로우 전체 줄 · 원본 → 목적 줄은 그대로) — 뒤 묶음의 「그 문서만」 이 이 묶음을 기다릴지를 이것으로 센다."""
+    """묶음 하나의 「그 문서만」 몫 → ({total, left, paid[문서 id], change, busy, wait} | None(따로 돌 것이 없음 · 묶음 전체와 같음), 그 문서의 눈으로 본 남은 줄 수 leftBy).
+    aux = [(등록부의 줄, 단위, 닿는 역할들, 줄의 상태, 줄의 문서들, 기다릴 까닭)] — 묶음의 줄 차례. 두 문서에 하는 줄은 그 문서만의 상태를 따로 센다(같은 식 · 그 문서 하나로).
+    leftBy = 다른 문서만의 줄을 뺀 남은 필수 줄(그 문서의 줄은 그 문서의 것으로 · 워크플로우 전체 줄 · 원본 → 목적 줄은 그대로) — 뒤 묶음의 「그 문서만」 이 이 묶음을 기다릴지를 이것으로 센다.
+    busy = **그 문서의** 줄에 도는 배경 일이 있나(다른 문서의 일은 세지 않는다 — 문서마다 따로 돈다: ② §18-22) · wait = 그 문서의 첫 남은 필수 줄이 기다릴 까닭(구성 값 — _config_wait)."""
     own, left_by, other = [], 0, False
-    for s, u, rs, got, docs in aux:
+    for s, u, rs, got, docs, wait in aux:
         mine = solo_line(task, u, s["on"] or ("target" if fam == "single" else ""), role)
         if mine and len(rs) > 1:   # 두 문서에 하는 줄 — 그 문서만의 상태
             got = U.state(s["key"], {**ctx0, "docs": [d for d in docs if d["role"] == role]}, fam) or {"st": "todo", "text": ""}
         if mine:
-            own.append((s, u, got))
+            own.append((s, u, got, wait))
         if u and u["kind"] != "pick" and not (mine and rs == (role,)):
             other = True   # 「그 문서만」 이 하지 않는 줄이 이 묶음에 있다(다른 문서의 줄 · 두 문서의 줄 · 전체 줄 · 원본 → 목적 줄)
         if s["key"] != "files" and not s["optional"] and got["st"] != "done" and (mine or not (u and u["place"] == "doc" and u["kind"] in ("auto", "hand") and not u.get("each"))):
             left_by += 1
     if not own or not other:
         return None, left_by
-    work = [(s, got) for s, _u, got in own if not s["optional"]]
-    return {"total": len(work), "left": sum(1 for _s, got in work if got["st"] != "done"), "paid": sorted({d for _s, _u, got in own for d in got.get("paid") or ()}),
-            "change": any(u["change"] == "doc" for _s, u, _g in own), "busy": any(got["st"] == "busy" for _s, _u, got in own)}, left_by
+    work = [(s, got, wait) for s, _u, got, wait in own if not s["optional"]]
+    first = next(((s, got, wait) for s, got, wait in work if got["st"] != "done"), None)   # 그 문서의 첫 남은 필수 줄 — 그 줄이 기다리면 「그 문서만」 은 시작하지 않는다
+    return {"total": len(work), "left": sum(1 for _s, got, _w in work if got["st"] != "done"), "paid": sorted({d for _s, _u, got, _w in own for d in got.get("paid") or ()}),
+            "change": any(u["change"] == "doc" for _s, u, _g, _w in own), "busy": any(got["st"] == "busy" for _s, _u, got, _w in own), "wait": first[2] if first else ""}, left_by
 
 
 def ready(task, pair):
@@ -200,10 +235,16 @@ def context(task, pair, facts, *, llm=None, skip=()):
 
 def view(task, pair, facts, *, llm=None, skip=(), running=None):
     """지금 상태 → {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[…] | None, total, done, left, can, why, paid[문서 id], change}]}.
-    facts = {문서 id: unit_steps.facts 의 값 | None(못 읽음)}(need 의 역할 문서) · llm = LLM 을 쓸 수 있나(None = 모름) · skip = 건너뛴 문서 id 들 · running = 도는 실행의 요약({stage, key} | None — 그 줄을 「진행 중」 으로).
+    facts = {문서 id: unit_steps.facts 의 값 | None(못 읽음)}(need 의 역할 문서) · llm = LLM 을 쓸 수 있나(None = 모름) · skip = 건너뛴 문서 id 들 ·
+    running = 도는 실행의 「지금 줄」({stage, key} | None — 그 줄을 「진행 중」 으로) · 문서마다 따로 도는 실행이 둘이면 그 목록(② §18-22).
+    묶음마다 lane(그 묶음을 도는 실행이 쓰는 문서 — source | target | "" 두 문서: lane_of) · wait(첫 남은 줄이 구성 값을 기다리는 까닭 | "") · 줄마다 wait?(그 줄이 기다릴 까닭 — _config_wait).
     단계의 st = done · now(그 묶음의 첫 남은 줄) · todo · run(도는 중) · blocked · failed, skipped = 「건너뜀」 으로 끝남. 끝난 수 = 필수 줄만(준비 · 선택 줄은 빼고 — 대시보드의 셈과 같다)."""
     fam, (ok, _lack, why) = family(task), ready(task, pair)
     ctx0 = context(task, pair, facts, llm=llm, skip=skip)
+    nows = [r for r in (running if isinstance(running, (list, tuple)) else [running]) if r]   # 도는 실행들의 「지금 줄」 — 문서마다 따로 도는 실행은 둘일 수 있다(② §18-22)
+    pairs = relay_pair(task)
+    both = [{"role": r["role"], "title": r["name"], "id": ((pair or {}).get(r["role"]) or {}).get("id"), "facts": None} for r in task.get("roles") or () if (pair or {}).get(r["role"])]
+    cfg = None   # 구성 값을 기다릴 까닭(_config_wait) — 그 값을 요구하는 줄이 있을 때 한 번만 센다
     stages, units = [], {}   # units = 묶음 id → [(줄의 상태, 단위)] — 묶음 사이의 「먼저」 를 센다(_feeds)
     for g in task.get("stages") or ():
         mine = [s for s in g["steps"] if not s["soon"]]
@@ -215,18 +256,23 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
             steps, opened, aux = [], True, []
             for s in mine:
                 on = s["on"] or ("target" if fam == "single" else "")   # 문서 하나 — 빈 on = 그 문서(roles_on)
-                docs = _docs(task, pair, facts, on) if on not in ("flow", "") else [{"role": r["role"], "title": r["name"], "id": ((pair or {}).get(r["role"]) or {}).get("id"), "facts": None}
-                                                                                    for r in task.get("roles") or () if (pair or {}).get(r["role"])]
+                docs = _docs(task, pair, facts, on) if on not in ("flow", "") else both
                 got = U.state(s["key"], {**ctx0, "docs": docs}, fam) or {"st": "todo", "text": ""}
-                aux.append((s, U.unit(s["key"], fam), tuple(roles_on(task, on)), got, docs))   # 「한 문서만 진행」 의 셈(_solo)이 읽는다
+                u = U.unit(s["key"], fam)
                 done = got["st"] == "done"
-                live = running is not None and running.get("stage") == g["id"] and running.get("key") == s["key"]
+                wait = ""
+                if pairs and not done and u and u["place"] == "doc" and u["kind"] == "auto" and "config" in u["needs"]:   # 구성 값이 있어야 하는 줄(프로젝트 구성 반영) — 그 값이 확정될 때까지 기다린다(② §18-22)
+                    cfg = _config_wait(task, fam, ctx0, both) if cfg is None else cfg
+                    wait = cfg
+                aux.append((s, u, tuple(roles_on(task, on)), got, docs, wait))   # 「한 문서만 진행」 의 셈(_solo)이 읽는다
+                live = any(r.get("stage") == g["id"] and r.get("key") == s["key"] for r in nows)
                 st = "run" if got["st"] == "busy" or live else "done" if done else got["st"] if got["st"] in ("blocked", "failed") else "now" if opened and not s["optional"] else "todo"
                 if not done and not s["optional"]:
                     opened = False
                 steps.append({"key": s["key"], "name": s["name"], "on": s["on"], "optional": s["optional"], "st": st, "done": done, "skipped": bool(got.get("skipped")), "busy": got["st"] == "busy",
                               "text": got.get("text") or "", **({"per": got["per"]} if got.get("per") else {}), **({"paid": got["paid"]} if got.get("paid") else {}),
-                              "kind": (U.unit(s["key"], fam) or {}).get("kind") or "",   # 그 줄을 누가 하나(auto 실행기가 한다 · pick 사람이 고르는 줄 — 실행기는 지나감 · hand 사람이 하고 「했음」) — 화면이 「이 단계만 진행」 을 둘 줄을 이것으로 가른다
+                              "kind": (u or {}).get("kind") or "",   # 그 줄을 누가 하나(auto 실행기가 한다 · pick 사람이 고르는 줄 — 실행기는 지나감 · hand 사람이 하고 「했음」) — 화면이 「이 단계만 진행」 을 둘 줄을 이것으로 가른다
+                              **({"wait": wait} if wait else {}),   # 이 줄이 기다릴 까닭(구성 값이 아직 확정되지 않음) — 화면은 그 줄의 실행 단추를 끄고 이 글을 보인다 · 시작 요청은 거절(needs)
                               **({"beside": True} if s.get("beside") else {})})   # 앞 줄과 같은 차례(조립한 정의의 같은 행 — 화면이 한 차례로 묶어 보인다)
             work = [x for x in steps if x["key"] != "files" and not x["optional"]]   # 세는 줄 — 준비 · 선택 줄은 뺀다
             row.update(steps=steps, total=len(work), done=sum(1 for x in work if x["done"]), left=sum(1 for x in work if not x["done"]),
@@ -234,18 +280,26 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
             busy = any(x["busy"] for x in steps)
             units[g["id"]] = [(x, U.unit(x["key"], fam)) for x in steps]
             row["after"] = [e["id"] for e in stages if e["server"] and _feeds(fam, units[e["id"]], units[g["id"]])]   # 먼저 끝나야 하는 앞 묶음(실행기의 경계 검사도 이것으로)
-            before = next((e for e in stages if e["id"] in row["after"] and e["left"]), None)
-            row["why"] = ("지금 진행 중인 작업이 끝나면 쓸 수 있습니다" if busy else why if not ok else f"{before['no']} 「{before['name']}」 이 먼저입니다".strip() if before else "" if row["left"] else "남은 단계가 없습니다")
+            # lane = 이 묶음을 도는 실행이 쓰는 문서(② §18-22 — 문서 하나의 줄뿐인 묶음은 그 문서만 쓴다: 다른 문서의 실행과 같이 돈다) · 그런 묶음은 앞 묶음의 남은 일도 그 문서의 눈으로 센다(leftBy — 다른 문서만의 줄은 기다리지 않는다)
+            lane = row["lane"] = lane_of(task, [{"on": s["on"], "unit": u} for s, u, *_ in aux])
+            left_of = (lambda e: (e.get("leftBy") or {}).get(lane, e["left"])) if lane else (lambda e: e["left"])
+            before = next((e for e in stages if e["id"] in row["after"] and left_of(e)), None)
+            head = next((x for x in work if not x["done"] and x["kind"] != "pick"), None)   # 이 묶음의 첫 남은 필수 줄(실행기가 하는 것) — 그 줄이 기다리면 묶음도 시작하지 않는다
+            row["wait"] = (head or {}).get("wait") or ""
+            row["why"] = ("지금 진행 중인 작업이 끝나면 쓸 수 있습니다" if busy else why if not ok else f"{before['no']} 「{before['name']}」 이 먼저입니다".strip() if before
+                          else "남은 단계가 없습니다" if not row["left"] else row["wait"])
             row["can"] = not row["why"]
-            if relay_pair(task):   # 「한 문서만 진행」(② §18-21) — 원본 문서 하나 → 목적 문서 하나인 틀에서: 묶음마다 그 문서만 따로 돌 수 있는 몫(solo) · 그 문서의 눈으로 본 남은 줄(leftBy — 실행기의 경계 검사도 이것으로)
+            if pairs:   # 「한 문서만 진행」(② §18-21) — 원본 문서 하나 → 목적 문서 하나인 틀에서: 묶음마다 그 문서만 따로 돌 수 있는 몫(solo) · 그 문서의 눈으로 본 남은 줄(leftBy — 실행기의 경계 검사도 이것으로)
                 row["leftBy"], row["solo"] = {}, []
                 for r in U.ROLES:
                     one, row["leftBy"][r] = _solo(task, fam, ctx0, aux, r)
                     if one is None:
                         continue
                     role, bf = _role(task, r) or {}, next((e for e in stages if e["id"] in row["after"] and (e.get("leftBy") or {}).get(r, e["left"])), None)   # 앞 묶음 — 그 문서의 일 · 전체 줄 · 원본 → 목적 줄이 남았을 때만 기다린다(다른 문서만의 줄은 안 기다림)
-                    cant = ("지금 진행 중인 작업이 끝나면 쓸 수 있습니다" if busy else why if not ok else f"{bf['no']} 「{bf['name']}」 이 먼저입니다".strip() if bf else "" if one["left"] else "남은 단계가 없습니다")
-                    row["solo"].append({"role": r, "title": role.get("title") or "", "name": role.get("name") or "", "total": one["total"], "left": one["left"], "paid": one["paid"], "change": one["change"], "can": not cant, "why": cant})
+                    cant = ("지금 진행 중인 작업이 끝나면 쓸 수 있습니다" if one["busy"] else why if not ok else f"{bf['no']} 「{bf['name']}」 이 먼저입니다".strip() if bf   # 도는 배경 일은 **그 문서의 것만** 센다(다른 문서의 일은 따로 돈다 — ② §18-22)
+                            else "남은 단계가 없습니다" if not one["left"] else one["wait"])
+                    row["solo"].append({"role": r, "title": role.get("title") or "", "name": role.get("name") or "", "total": one["total"], "left": one["left"], "paid": one["paid"], "change": one["change"],
+                                        "can": not cant, "why": cant, **({"wait": one["wait"]} if one["wait"] else {})})
         stages.append(row)
     docs = {"target": (pair or {}).get("target"), "source": (pair or {}).get("source"), **({"sources": list((pair or {}).get("sources") or ())} if fam == "gather" else {})}   # sources = 취합의 원본 문서들(등록한 차례)
     return {"job": task["job"], "sig": sig(task), "docs": docs, "ready": ok, "why": why, "stages": stages}

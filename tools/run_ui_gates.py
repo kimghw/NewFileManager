@@ -3,13 +3,18 @@
     python -X utf8 tools/run_ui_gates.py <그림·임시 폴더> [검사 이름 …] [--all] [--jobs 5] [--no-retry] [--list] [--timeout 900]
 
 이름을 안 주면 기본 묶음(아래 GATES 의 기본 = True). 차례로 돌리면 걸린 시간의 합만큼 기다리지만, 같이 돌리면 가장 긴 검사만큼만 기다린다.
-같이 돌 때의 부하로 떨어진 것인지 가르려고 **떨어진 검사는 끝난 뒤 혼자 한 번 더** 돌린다(--no-retry 로 끔). 끝에 검사마다 통과 수·걸린 시간과 전체 시간(차례로 돌렸다면 = 합)을 보이고,
+같이 돌 때의 부하로 떨어진 것인지 가르려고 **떨어진 검사는 끝난 뒤 혼자 한 번 더** 돌린다(--no-retry 로 끔 — 다시 돌리기는 <이름>.retry 폴더 · 로그로: 첫 실행의 기록은 남기고, 첫 실행이 만든 워크플로우 · 양식을 이어 쓰지 않게).
+검사마다의 임시 설정(조립한 워크플로우 · 저장한 양식 · 덧붙이는 글 · 요구사항 · 도구 이름)은 시작할 때 비운다(같은 폴더로 다시 돌려도 지난 실행 것이 남지 않게).
+포트는 세션 사이 잠금 파일(%TEMP%/nfm_ui_gate_ports/<포트>)로 잡는다 — 다른 세션의 이 도구가 막 골라 아직 서버가 안 뜬(비어 보이는) 포트를 같이 잡지 않게(2026-11-22 18301 이 겹쳐 다시 돌리기가 무효). 끝에 검사마다 통과 수·걸린 시간과 전체 시간(차례로 돌렸다면 = 합)을 보이고,
 쓴 포트에 듣는 프로세스가 남았는지 본다(임시 서버는 검사가 끝나면 꺼져 있어야 한다 — CLAUDE.md 「웹서버」). 하나라도 떨어지면 종료 코드 1."""
 import argparse
+import atexit
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -111,23 +116,73 @@ def listening(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+LOCKS = Path(tempfile.gettempdir()) / "nfm_ui_gate_ports"   # 세션 사이 포트 잠금(파일 하나 = 포트 하나 · 글 = 「pid 만료 시각」)
+MINE = set()
+
+
+def claim(port):
+    """그 포트를 이 실행의 것으로 잡는다 — 다른 실행이 잡았고 아직 만료 전이면 False. 만료가 지난 잠금은 끝내지 못하고 죽은 실행의 것이라 버린다."""
+    LOCKS.mkdir(exist_ok=True)
+    f = LOCKS / str(port)
+    try:
+        if float(f.read_text().split()[1]) < time.time():
+            f.unlink()
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, IndexError):   # 막 만들어 아직 안 쓴 잠금 · 깨진 잠금 — 한 시간 넘은 것만 버린다
+        try:
+            if time.time() - f.stat().st_mtime > 3600:
+                f.unlink()
+        except OSError:
+            pass
+    try:
+        fd = os.open(f, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w") as w:
+        w.write(f"{os.getpid()} {time.time() + args.timeout + 300:.0f}")   # 검사 하나가 가장 오래 도는 시간(시간 초과) + 여유
+    MINE.add(port)
+    return True
+
+
+def release(port):
+    if port in MINE:
+        MINE.discard(port)
+        try:
+            (LOCKS / str(port)).unlink()
+        except OSError:
+            pass
+
+
+atexit.register(lambda: [release(p) for p in list(MINE)])   # 중간에 끊겨도 잡은 포트를 풀어 둔다
+
+
 def free_port(start, taken):
     p = start
-    while p in taken or listening(p):
+    while p in taken or listening(p) or not claim(p):
         p += 1
     return p
 
 
-def start(name, port):
-    log = (OUT / f"{name}.log").open("w", encoding="utf-8")
-    proc = subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "tools" / GATES[name][0]), str(OUT / name), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
-                            env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(OUT / name / "tasks.json"),   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
-                                 "NFM_FORM_FILES": str(OUT / name / "form_files"),   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
-                                 "NFM_AGENT_NOTES": str(OUT / name / "agent_notes.json"),   # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 검사마다 임시 파일 — 사용자가 적어 둔 글이 검사에 섞이거나 검사가 그 파일을 고치지 않게
-                                 "NFM_REQS": str(OUT / name / "requirements.json"),   # 사용자 요구사항(spec_워크플로우 ② §18-20)도 검사마다 임시 파일 — 저장소의 reqs/requirements.json 을 검사가 고치지 않고, 적힌 요구사항의 수 · 아이콘이 다른 검사에 섞이지 않게
-                                 "NFM_TOOL_NAMES": str(OUT / name / "tool_names.json")},   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
+STATE = ("tasks.json", "form_files", "agent_notes.json", "requirements.json", "tool_names.json")   # 아래 env 가 가리키는 검사마다의 임시 설정 — 시작할 때 비운다
+
+
+def start(name, port, tag=""):
+    d = OUT / (name + tag)   # 다시 돌리기(tag ".retry")는 따로 선 폴더 — 첫 실행의 그림 · 기록을 남기고, 첫 실행이 만든 워크플로우를 이어 쓰지 않게(2026-11-22 form_files: 같은 이름 400)
+    for k in STATE:
+        try:
+            shutil.rmtree(d / k) if (d / k).is_dir() else (d / k).unlink(missing_ok=True)
+        except OSError:
+            pass
+    log = (OUT / f"{name}{tag}.log").open("w", encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "tools" / GATES[name][0]), str(d), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
+                            env={**os.environ, "PYTHONUTF8": "1", "NFM_TASKS": str(d / "tasks.json"),   # 조립한 TASK(spec_워크플로우 ② §14)는 검사마다 임시 파일 — 사용자가 만든 TASK 가 TASK 카드 · 목차 수에 섞이지 않게
+                                 "NFM_FORM_FILES": str(d / "form_files"),   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
+                                 "NFM_AGENT_NOTES": str(d / "agent_notes.json"),   # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 검사마다 임시 파일 — 사용자가 적어 둔 글이 검사에 섞이거나 검사가 그 파일을 고치지 않게
+                                 "NFM_REQS": str(d / "requirements.json"),   # 사용자 요구사항(spec_워크플로우 ② §18-20)도 검사마다 임시 파일 — 저장소의 reqs/requirements.json 을 검사가 고치지 않고, 적힌 요구사항의 수 · 아이콘이 다른 검사에 섞이지 않게
+                                 "NFM_TOOL_NAMES": str(d / "tool_names.json")},   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    return {"name": name, "port": port, "proc": proc, "log": log, "t0": time.time()}
+    return {"name": name, "tag": tag, "port": port, "proc": proc, "log": log, "t0": time.time()}
 
 
 def kill(job):  # 시간 초과 — 검사와 그것이 띄운 임시 서버까지
@@ -139,20 +194,21 @@ def kill(job):  # 시간 초과 — 검사와 그것이 띄운 임시 서버까�
 
 def finish(job, code):
     job["log"].close()
-    text = (OUT / f"{job['name']}.log").read_text(encoding="utf-8", errors="replace")
+    release(job["port"])
+    text = (OUT / f"{job['name']}{job['tag']}.log").read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     return {"name": job["name"], "port": job["port"], "code": code, "secs": time.time() - job["t0"], "passed": sum(x.startswith("PASS ") for x in lines),
             "fails": [x[:300] for x in lines if x.startswith("FAIL ")], "tail": [x[:300] for x in lines[-4:]]}
 
 
-def run(batch, jobs):
+def run(batch, jobs, tag=""):
     """batch 의 검사를 jobs 개씩 같이 돌린다 → {이름: 결과}."""
     todo, live, done, taken = list(batch), [], {}, set()
     while todo or live:
         while todo and len(live) < jobs:
             port = free_port(args.port, taken)
             taken.add(port)
-            live.append(start(todo.pop(0), port))
+            live.append(start(todo.pop(0), port, tag))
             print(f"  ▶ {live[-1]['name']} (포트 {port})", flush=True)
         time.sleep(.5)
         for job in list(live):
@@ -179,7 +235,7 @@ if failed and not args.no_retry:
     print(f"떨어진 검사 {len(failed)}개를 혼자 다시 — {', '.join(failed)}", flush=True)
     for n in failed:
         first = res[n]
-        res[n] = run([n], 1)[n]
+        res[n] = run([n], 1, ".retry")[n]
         retried[n] = first
 wall_all = time.time() - t0
 print("\n검사            통과  실패  시간   비고")

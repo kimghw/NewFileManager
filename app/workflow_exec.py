@@ -6,7 +6,10 @@
   화면에 보이는 상태(workflow_state.view)는 따로 센다 — 실행기는 그 표시를 성공 판정에 쓰지 않는다(② §18-4).
 - 지금 맡는 묶음 = 이관형의 「문서 검토」(준비 `files` · 헤딩 · 표 분석 `heads` · LLM 검증·보완 `headsLlm` — 걸음 1: ② §18-10). 그 밖의 묶음은 화면이 돈다(`server: false`).
 - 실행 기록 = 목적 문서 작업 폴더의 `flowruns/<n>.json`(단계 경계마다 통째로 다시 씀 · 저장이 꺼져 있으면 메모리만) + 작업 기록의 `flowRun` 줄. **끝남은 늘 문서마다의 결과로 다시 센다** — 기록은 일어난 일만 적는다.
-- 잠금: `RUNS{목적 id: 실행}` · `BUSY{문서 id: 목적 id}` — 실행에 든 문서마다 도는 실행은 하나. 이 잠금(`_LOCK`)을 쥔 채 문을 부르지 않는다(세션 잠금 → 이 잠금 차례 — ② §17-4).
+- 잠금: `RUNS{실행의 열쇠: 실행}` · `BUSY{문서 id: 실행의 열쇠}` — **실행이 잡은 문서마다** 도는 실행은 하나. 이 잠금(`_LOCK`)을 쥔 채 문을 부르지 않는다(세션 잠금 → 이 잠금 차례 — ② §17-4).
+  **문서마다 따로 도는 실행**(② §18-22 — 2026-11-21 사용자 「원본문서랑, 목적문서를 따로따로 실행해서 처리할 수 있잖아? 매칭은 1개 실행이 같이 해야하고」): 문서 하나의 줄만 도는 실행(`lane` = source | target)은 **그 문서만** 잡는다 —
+  원본 문서의 실행과 목적 문서의 실행이 같이 돈다. 두 문서를 다 쓰는 실행(워크플로우 전체 줄 · 원본 → 목적 줄 · 두 문서의 줄 — `lane` "")은 두 문서를 다 잡아 묶음에 하나뿐이다.
+  열쇠 = 목적 문서 id(두 문서 · 목적 문서의 실행) · `<목적 id>/source`(원본 문서의 실행). 같은 묶음의 실행들 = `runs_of(목적 id)`.
 - 끊김: 서버를 켤 때 `BOOT` 를 정한다 — 기록이 `running` 인데 지금 도는 실행이 아니면 읽는 때 `cut` 으로 고쳐 쓴다. **저절로 잇지 않는다**(「이어서」 = 새 실행)."""
 import contextlib
 import contextvars
@@ -22,9 +25,12 @@ from app import workflow_units as U
 BOOT = uuid.uuid4().hex[:8]
 UNIT = None                      # 문(app/unit_steps.py) — attach(app/workflow_exec_api.py)가 넣는다
 _LOCK = threading.RLock()
-RUNS = {}                        # 목적 문서 id → 도는 실행(Run)
-BUSY = {}                        # 실행에 든 문서 id → 목적 문서 id
-LAST = {}                        # 목적 문서 id → 마지막 실행 기록(메모리 — 작업 저장이 꺼져 있을 때의 원본 · 번호 세기)
+RUNS = {}                        # 실행의 열쇠(Run.key — 목적 문서 id | "<목적 id>/source" 원본 문서만 잡은 실행) → 도는 실행(Run)
+BUSY = {}                        # 실행이 잡은 문서 id → 그 실행의 열쇠(RUNS 의 key)
+LAST = {}                        # 목적 문서 id → {실행 번호: 실행 기록}(메모리 — 작업 저장이 꺼져 있을 때의 원본 · 번호 세기 · 새 것 몇 개만: LAST_KEEP)
+LAST_KEEP = 4
+MATES = {}                       # 도는 실행의 묶음에 든 문서 id(잡지 않은 문서도) → 목적 문서 id — 확인 폴링이 디스크를 읽지 않고 「이 문서의 묶음에서 도는 실행들」 을 찾는다(live_all)
+CLAIMS = {}                      # 목적 문서 id → {실행 번호: (역할, 단위)} — 문서 하나만 잡은 실행이 지금 도는 줄(옆 실행의 줄과 겹치면 안 되는 줄은 차례로: _turn)
 WAIT = {"poll": 1.0, "heads": 30 * 60, "llm": 90 * 60}   # 기다림(초) — 상한은 화면 실행과 같다(분석 30분 · LLM 90분). 시험이 줄인다
 STEPS_MAX, TEXT_MAX, SKIP_MAX = 300, 240, 5000
 STATUS = ("running", "done", "left", "halted", "stopped", "failed", "cut")
@@ -114,25 +120,57 @@ def status_of(wid):
         return {"job": pair["job"], "sig": "", "docs": {"target": pair.get("target"), "source": pair.get("source")}, "ready": False, "why": "이 문서에는 워크플로우가 없습니다" if not pair["job"] else "모르는 워크플로우입니다",
                 "stages": [], "run": None, "last": None}
     target = (pair.get("target") or {}).get("id")
-    run = RUNS.get(target) if target else None
+    runs = runs_of(target) if target else []
     off = client_only()
     skips = [] if off else list(_skips(pair, wid) or ())
     view = S.view(task, pair, {} if off else _materials(pair, task), llm=None if off else UNIT.llm_ok(), skip=skips,
-                  running=run.now() if run is not None else None)
+                  running=[r.now() for r in runs])
     view["llmSkip"] = sorted(skips)   # 사람이 「LLM 검증·보완」 을 건너뛴 문서 id 들(워크플로우 옵션 — PUT …/flow/skip) — 화면이 「건너뛰기 취소」 를 그 문서에만 보인다(LLM 을 못 써서 건너뛴 것과 가른다)
     if off:
         for g in view["stages"]:
             g.update(server=False, steps=None, can=False, why="", total=0, done=0, left=0, paid=[], solo=[])
-    if run is not None:
+    # 도는 실행이 잡은 문서(② §18-22 「문서마다 따로 도는 실행」) — 역할 → 그 문서를 잡은 실행의 번호. 두 문서를 다 쓰는 실행은 둘 다 잡는다
+    held = {r: next((x.rec["n"] for x in runs if x.lane in ("", r)), None) for r in U.ROLES}
+    view["held"] = held
+    if runs:
+        wait = "지금 진행 중인 작업이 끝나면 쓸 수 있습니다"
         for g in view["stages"]:
-            if g["server"] and (g["can"] or not g["why"]):
-                g["why"] = "지금 진행 중인 작업이 끝나면 쓸 수 있습니다"
-            g["can"] = False
-            for x in g.get("solo") or ():   # 「한 문서만 진행」 도 같다 — 한 묶음(프로젝트 · 워크플로우 · 라운드)에 실행은 하나
-                x.update(can=False, why=x["why"] if x["why"] and not x["can"] else "지금 진행 중인 작업이 끝나면 쓸 수 있습니다")
-    view["run"] = run.summary() if run is not None else None
-    view["last"] = _summary(last(target)) if target and run is None else None
+            lane = g.get("lane") or ""
+            taken = [x for x in runs if not lane or x.lane in ("", lane)]   # 이 묶음이 쓰는 문서를 잡은 실행 — 두 문서를 쓰는 묶음은 어느 실행이든 · 문서 하나의 묶음은 그 문서를 잡은 실행만
+            if taken:
+                if g["server"] and (g["can"] or not g["why"]):
+                    lanes = [x.lane for x in taken]   # 문서 하나만 잡은 실행들 때문에 두 문서를 쓰는 이 묶음이 기다린다 — 그 까닭을 적는다
+                    g["why"] = f"{' · '.join(_who(task, x) for x in lanes)}의 실행이 끝나면 쓸 수 있습니다 — 이 묶음은 두 문서를 함께 씁니다" if not lane and all(lanes) else wait
+                g["can"] = False
+            for x in g.get("solo") or ():   # 「한 문서만 진행」 — 그 문서를 잡은 실행이 있을 때만 끈다(다른 문서의 실행은 같이 돈다)
+                if held.get(x["role"]) is not None:
+                    x.update(can=False, why=x["why"] if x["why"] and not x["can"] else wait)
+    view["runs"] = [r.summary() for r in runs]   # 도는 실행들(번호 차례 — 문서마다 따로 도는 실행은 둘일 수 있다)
+    mine = _holder(wid)
+    view["run"] = (mine if mine is not None else runs[0]).summary() if runs else None   # 이 문서를 잡은 실행이 먼저(없으면 같은 묶음의 첫 실행 — 「도는 것이 있다」 를 보는 옛 읽기)
+    ends = _ends(target) if target else []
+    view["lasts"] = [_summary(x) for x in ends]   # 지난 실행의 끝들 — 마지막에 끝난 실행 + 그것과 같이 돌던 다른 문서의 실행(끝난 차례)
+    view["last"] = view["lasts"][-1] if ends and not runs else None
     return view
+
+
+def _who(task, role):
+    """그 역할의 문서를 가리키는 글 — 「원본 문서(사업계획서)」."""
+    r = S._role(task, role) or {}
+    return f"{r.get('title') or ''}({r.get('name') or ''})" if r else "다른 문서"
+
+
+def _ends(target):
+    """지난 실행의 끝들(기록 — 끝난 차례) — 마지막 번호의 기록과, 그것과 **같이 돌던** 다른 문서의 실행(바로 앞 번호 · 둘 다 문서 하나만 잡은 실행 · 도는 때가 겹침). 도는 것은 뺀다."""
+    ns = _numbers(target)
+    got = [x for x in (record(target, n) for n in ns[-2:]) if x]
+    if len(got) == 2:
+        a, b = got
+        together = bool(a.get("lane") and b.get("lane") and a["lane"] != b["lane"] and (a.get("ended") is None or (a.get("ended") or 0) > (b.get("started") or 0)))
+        if not together:
+            got = [b]
+    done = [x for x in got if x.get("status") != "running"]
+    return sorted(done, key=lambda x: x.get("ended") or 0)
 
 
 # ---------------------------------------------------------------- 실행 기록
@@ -141,28 +179,51 @@ def _summary(rec):
     if not rec:
         return None
     return {k: rec.get(k) for k in ("n", "status", "stopping", "started", "ended", "now", "range", "origin", "docs", "left", "halt", "end", "cut", "job", "sig")} | {
+        "lane": rec.get("lane") or "",   # 이 실행이 잡은 문서(source | target — 그 문서만 · "" = 두 문서: ② §18-22)
         "stages": [{k: g.get(k) for k in ("id", "status", "text")} for g in rec.get("stages") or []]}
+
+
+def runs_of(target):
+    """그 목적 문서의 묶음에서 도는 실행들(번호 차례) — 두 문서를 다 쓰는 실행 하나, 또는 문서마다 따로 도는 실행 둘까지(② §18-22)."""
+    return sorted((r for r in list(RUNS.values()) if r.target == target), key=lambda r: r.rec["n"])
+
+
+def _live(target, n):
+    """그 묶음에서 도는 그 번호의 실행 | None."""
+    return next((r for r in runs_of(target) if r.rec["n"] == n), None)
+
+
+def _holder(wid):
+    """그 문서를 잡은 도는 실행 | None(잡히지 않음 — 같은 묶음의 다른 문서만 도는 중일 수 있다)."""
+    key = BUSY.get(wid)
+    return RUNS.get(key) if key else None
+
+
+def _keep(target, rec):
+    """메모리의 기록 사본(LAST) — 그 목적 문서의 새 것 몇 개만. `_LOCK` 안에서 부른다."""
+    mem = LAST.setdefault(target, {})
+    mem[rec["n"]] = rec
+    for n in sorted(mem)[:-LAST_KEEP]:
+        mem.pop(n, None)
 
 
 def _numbers(target):
     got = list(UNIT.store.numbers(target))
-    mem = LAST.get(target)
-    return sorted(set(got + ([mem["n"]] if mem else [])))
+    return sorted(set(got) | set(LAST.get(target) or ()) | {r.rec["n"] for r in runs_of(target)})   # 도는 실행의 번호도 — 같이 시작한 두 실행이 같은 번호를 받지 않게(첫 저장 전에도)
 
 
 def _cut(target, rec):
     """`running` 으로 남았는데 지금 도는 실행이 아닌 기록 → `cut` 으로 고쳐 쓴다(서버가 다시 켜졌거나 실행 스레드가 죽음) → 고친 기록."""
     if not rec or rec.get("status") != "running":
         return rec
-    live = RUNS.get(target)
-    if live is not None and live.rec["n"] == rec.get("n") and rec.get("boot") == BOOT:
+    if _live(target, rec.get("n")) is not None and rec.get("boot") == BOOT:
         return rec
     now = rec.get("now") or {}
     rec = {**rec, "status": "cut", "stopping": False, "ended": time.time(), "now": None,
            "cut": {"why": "서버가 다시 켜져 끊겼습니다" if rec.get("boot") != BOOT else "실행이 끊겼습니다", "at": now.get("key") or ""},
            "end": {"ok": False, "text": f"끊김 — 서버가 다시 켜져 {now.get('note') or '진행 중'}에서 멈췄습니다 · 끝난 단계는 그대로 · 남은 단계는 「한 번에 진행」 으로 잇습니다"}}
     with _LOCK:
-        LAST[target] = rec
+        _keep(target, rec)
     UNIT.store.write(target, rec["n"], rec)
     UNIT.store.log(target, event="cut", n=rec["n"], at=rec["cut"]["at"])
     return rec
@@ -170,11 +231,10 @@ def _cut(target, rec):
 
 def record(target, n):
     """실행 기록 하나 | None(끊긴 것이면 고쳐서)."""
-    live = RUNS.get(target)
-    if live is not None and live.rec["n"] == n:
+    live = _live(target, n)
+    if live is not None:
         return dict(live.rec)
-    mem = LAST.get(target)
-    rec = mem if mem and mem.get("n") == n else UNIT.store.read(target, n)
+    rec = (LAST.get(target) or {}).get(n) or UNIT.store.read(target, n)
     return _cut(target, rec)
 
 
@@ -192,8 +252,10 @@ def records(target, limit=20):
 # ---------------------------------------------------------------- 서버가 묻는 것(② §17-3 「서버가 워크플로우 층에 묻는 셋」)
 def busy_text(wid=None, project=None):
     """그 문서(또는 그 프로젝트의 문서)가 도는 실행에 들었으면 거절 글 | ""(바쁨 막이 — 초기화 · 지우기 · 칸 바꾸기 · 새 라운드 · 묶음 초기화 · 프로젝트 이름 바꾸기 · 지우기가 함수 안에서 묻는다).
-    잠금 없이 사전을 한 번 읽는다(편집 입구가 세션 잠금 안에서 불러도 교착이 없다)."""
-    if wid is not None and wid in BUSY:
+    잠금 없이 사전을 한 번 읽는다(편집 입구가 세션 잠금 안에서 불러도 교착이 없다).
+    **묶음의 문서 모두**다 — 문서 하나만 잡은 실행(② §18-22)이 도는 동안 잡히지 않은 다른 문서도 초기화 · 지우기 · 칸 바꾸기는 못 한다(실행 기록은 목적 문서의 작업 폴더에 남고 · 문서 칸이 바뀌면 그 실행이 멈춘다).
+    그 문서를 실행이 **잡았나**만 볼 때는 held_text(잡히지 않은 문서의 「건너뛰기」 …)."""
+    if wid is not None and (wid in BUSY or (wid in MATES and any(r.target == MATES.get(wid) for r in list(RUNS.values())))):
         return BUSY_TEXT
     if project:
         for run in list(RUNS.values()):
@@ -202,13 +264,17 @@ def busy_text(wid=None, project=None):
     return ""
 
 
+def held_text(wid):
+    """그 문서를 도는 실행이 **잡았으면** 거절 글 | "" — 같은 묶음의 다른 문서만 도는 실행은 세지 않는다(문서마다 따로 도는 실행: ② §18-22). 그 문서 하나에만 닿는 설정(「LLM 검증·보완」 의 건너뛰기)이 묻는다."""
+    return BUSY_TEXT if wid in BUSY else ""
+
+
 def busy_other(wid, family=None):
     """그 문서가 도는 실행에 들었고 부르는 쪽이 **그 실행의 스레드가 아니면** 거절 글 | "" — 실행이 스스로도 부르는 끝점(취합의 배포 기준본 · 자동 지정 · LLM 검토 · 넣기 계획 · 반영 …)의 바쁨 막이:
     사람의 요청만 막는다(그 사이 등록 · 결정 · 계획이 바뀌면 실행의 계획이 낡는다 — ② §18-13 갈래 「다」). 잠금 없이 사전을 한 번 읽는다.
     family = 그 틀(가족)의 실행일 때만 — "single": 문서 하나의 실행이 도는 동안의 헤딩 추출 시작 · LLM 검증·보완 · 조정 반영 · 표 판정 · 프로젝트 구성 계획 · 반영(화면의 실행이 같은 문서에서 겹치지 않게).
     다른 틀(이관형 · 취합)의 실행 동안 그 끝점들은 전과 같다."""
-    target = BUSY.get(wid)
-    run = RUNS.get(target) if target else None
+    run = _holder(wid)
     if run is None or threading.get_ident() in getattr(run, "threads", ()):   # 실행의 스레드들 — 같은 차례의 두 문서 일을 함께 도는 스레드도(_lanes)
         return ""
     if family is not None and (S.family(run.task) if getattr(run, "task", None) else "") != family:
@@ -259,16 +325,21 @@ def active():
 
 
 def live(wid):
-    """그 문서가 든 도는 실행의 요약 | None — **메모리만**(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링)."""
-    target = BUSY.get(wid)
-    run = RUNS.get(target) if target else None
+    """**그 문서를 잡은** 도는 실행의 요약 | None — **메모리만**(세션을 열지 않고 디스크를 읽지 않는다: 확인 폴링). 같은 묶음의 다른 문서만 도는 실행은 여기 안 든다(live_all)."""
+    run = _holder(wid)
     return run.summary() if run is not None else None
+
+
+def live_all(wid):
+    """그 문서의 묶음에서 도는 실행들의 요약(번호 차례 — 이 문서를 잡지 않은 실행도) — 메모리만(MATES: 도는 실행이 있는 묶음의 문서 → 목적 문서). 화면이 제가 따라가는 실행(번호)을 여기서 찾는다(② §18-22)."""
+    target = MATES.get(wid)
+    return [r.summary() for r in runs_of(target)] if target else []
 
 
 def last_n(wid):
     """그 문서가 목적 문서인 마지막 실행의 번호 | None — 메모리만. 화면이 실행을 통째로 놓쳤을 때(숨긴 탭) 그 번호가 바뀐 것을 보고 문서를 다시 읽는다."""
-    rec = LAST.get(wid)
-    return rec.get("n") if rec else None
+    mem = LAST.get(wid)
+    return max(mem) if mem else None
 
 
 # ---------------------------------------------------------------- 실행
@@ -299,6 +370,16 @@ class Run:
     def target(self):
         return self.rec["docs"]["target"]["id"]
 
+    @property
+    def lane(self):
+        """이 실행이 잡은 문서 — source | target(그 문서만: 다른 문서의 실행과 같이 돈다) · ""(두 문서를 다 쓴다 — 묶음에 하나뿐)(② §18-22)."""
+        return self.rec.get("lane") or ""
+
+    @property
+    def key(self):
+        """RUNS 의 열쇠 — 목적 문서 id(두 문서 · 목적 문서의 실행) · `<목적 id>/source`(원본 문서만 잡은 실행 — 목적 문서의 실행과 같이 돌 수 있다)."""
+        return f"{self.target}/source" if self.lane == "source" else self.target
+
     def now(self):
         return self.rec.get("now")
 
@@ -311,7 +392,7 @@ class Run:
             with self.lock:
                 rec = dict(self.rec, steps=list(self.rec["steps"][-STEPS_MAX:]))
             with _LOCK:
-                LAST[self.target] = rec
+                _keep(self.target, rec)
             UNIT.store.write(self.target, rec["n"], rec)
 
     def note(self, stage, key, text, doc=None):
@@ -666,6 +747,72 @@ def _view(run):
     return S.view(run.task, run.pair, _materials(run.pair, run.task, fresh=True, excl=_excl(run.rec)), llm=UNIT.llm_ok(), skip=UNIT.skips(run.target))
 
 
+def _range_lines(task, span, only="", row=False, role=""):
+    """그 범위의 실행이 돌 줄들(묶음 차례 · 줄 차례) — 줄 하나만(only · row 면 같은 차례의 옆 줄도) · 한 문서만(role)으로 좁힌 것. 시작(잡을 문서 — lane)과 실행(_drive)이 같은 줄을 본다."""
+    out = []
+    for gid in span:
+        mine = _stage_lines(task, gid)
+        if only:
+            mine = _only_lines(mine, only, row)
+        if role:
+            mine = _role_lines(task, mine, role)
+        out += mine
+    return out
+
+
+def _clash(a, b):
+    """서로 다른 문서의 두 줄 a · b = (역할, 단위)를 같이 돌면 안 되나 — **한쪽이 바꾸는 문서를 다른 쪽이 읽을 때**(단위의 change 가 doc 인 줄의 문서가 다른 줄의 reads 에 있다 — _together 와 같은 조건)."""
+    (ra, ua), (rb, ub) = a, b
+    return (ua["change"] == "doc" and ra in ub["reads"]) or (ub["change"] == "doc" and rb in ua["reads"])
+
+
+@contextlib.contextmanager
+def _turn(run, gid, line):
+    """문서 하나만 잡은 실행이 줄 하나를 도는 차례(② §18-22 「옆 실행과 겹치는 줄」) — 같은 묶음의 **다른 문서의 실행**이 지금 도는 줄과 겹치면(_clash — 한쪽이 바꾸는 문서를 다른 쪽이 읽는다:
+    원본 문서의 구성 반영 ∥ 목적 문서의 구성 반영 …) 그 줄이 끝날 때까지 기다린 뒤 돈다(같은 실행 안의 「같은 차례 — 함께 돌기」 가 그런 두 줄을 차례로 도는 것과 같다). 겹치지 않으면 바로.
+    자리(CLAIMS)는 한 잠금 안에서 보고 잡는다 — 기다리는 실행은 잡은 자리가 없어 서로 기다리다 멈추지 않는다. 기다리는 동안 멈춤 요청 · 대상 바뀜을 본다(guard). 두 문서를 다 쓰는 실행은 옆 실행이 없어 그대로 지난다."""
+    u, lane = line["unit"], run.lane
+    if not lane or u["place"] != "doc":
+        yield
+        return
+    me, n, told = (lane, u), run.rec["n"], False
+    while True:
+        with _LOCK:
+            mine = CLAIMS.setdefault(run.target, {})
+            if not any(_clash(me, c) for k, c in mine.items() if k != n):
+                mine[n] = me
+                break
+        run.guard()   # 기다리는 동안 — 멈춤 요청 · 문서 칸이 그대로인가
+        if not told:
+            told = True
+            run.note(gid, line["key"], f"{line['name']} — 다른 문서의 실행이 이 문서를 보는(또는 바꾸는) 단계를 마칠 때까지 기다리는 중")
+        time.sleep(WAIT["poll"])
+    try:
+        if told:
+            run.note(gid, line["key"], line["name"])
+        yield
+    finally:
+        with _LOCK:
+            mine = CLAIMS.get(run.target) or {}
+            mine.pop(n, None)
+            if not mine:
+                CLAIMS.pop(run.target, None)
+
+
+def _release(run):
+    """끝난(또는 끊긴) 실행을 내린다 — 실행 · 잡은 문서 · 줄의 차례(CLAIMS) · 그 묶음에 도는 실행이 더 없으면 묶음의 문서 표(MATES)도. `_LOCK` 안에서 부른다."""
+    key = run.key
+    if RUNS.get(key) is run:
+        RUNS.pop(key, None)
+    for d in [d for d, k in BUSY.items() if k == key]:
+        BUSY.pop(d, None)
+    (CLAIMS.get(run.target) or {}).pop(run.rec.get("n"), None)
+    if not any(r.target == run.target for r in RUNS.values()):
+        CLAIMS.pop(run.target, None)
+        for d in [d for d, t in MATES.items() if t == run.target]:
+            MATES.pop(d, None)
+
+
 def _drive(run):
     run.thread = threading.get_ident()   # 이 실행의 스레드 — 실행이 스스로 부르는 끝점의 바쁨 막이가 이 실행의 스레드만 지나가게 한다(busy_other — 같은 차례의 두 줄을 함께 도는 스레드는 _lanes 가 더한다)
     run.threads.add(run.thread)
@@ -674,6 +821,7 @@ def _drive(run):
     span = ids[ids.index(R["from"]): ids.index(R["to"]) + 1]
     status, texts, halt = "done", [], None
     role = R.get("role") or ""   # 「한 문서만 진행」 — 그 문서(원본 | 목적)의 줄만(② §18-21)
+    eyes = role or run.lane   # 앞 묶음의 남은 일을 세는 눈 — 문서 하나만 잡은 실행(한 문서만 · 문서 하나의 줄뿐인 묶음 · 줄: ② §18-22)은 그 문서의 눈으로
     who = S._role(run.task, role) if role else None
     only_doc = f"{(who or {}).get('title') or ''}({(who or {}).get('name') or ''})만 — " if who else ""   # 묶음 끝 글의 머리 「원본 문서(사업계획서)만 — 」
     try:
@@ -687,8 +835,8 @@ def _drive(run):
             # 앞 묶음이 덜 끝남 — 뒤 묶음은 하지 않고 남긴다 · 줄 하나(줄의 단추 — 화면의 early)는 묶음 차례를 안 따진다. 먼저 끝나야 하는 묶음 = 그 묶음의 after(이관형 = 모든 앞 묶음 — 범위 밖도 ·
             # 문서 하나 = 이 묶음의 줄이 요구하는 것을 주는 묶음만: workflow_state._feeds) + 이 실행의 범위에 든 앞 묶음(「이어서 한 번에」 는 안 끝난 묶음에서 멈춘다 — ② §18-13 「묶음 규칙」)
             must = set(row.get("after") or ()) | set(span[:span.index(gid)])
-            # 「한 문서만」 이면 앞 묶음의 남은 일을 그 문서의 눈으로 센다(leftBy — 다른 문서만의 줄은 기다리지 않는다: 문서마다의 몫은 따로 나아간다 · 전체 줄 · 원본 → 목적 줄은 기다린다)
-            left_of = (lambda g: (g.get("leftBy") or {}).get(role, g["left"])) if role else (lambda g: g["left"])
+            # 문서 하나만 잡은 실행(「한 문서만」 · 문서 하나의 줄뿐인 묶음)이면 앞 묶음의 남은 일을 그 문서의 눈으로 센다(leftBy — 다른 문서만의 줄은 기다리지 않는다: 문서마다의 몫은 따로 나아간다 · 전체 줄 · 원본 → 목적 줄은 기다린다)
+            left_of = (lambda g: (g.get("leftBy") or {}).get(eyes, g["left"])) if eyes else (lambda g: g["left"])
             before = None if R.get("only") else next((g for g in view["stages"][:ids.index(gid)] if g["server"] and left_of(g) and g["id"] in must), None)
             if before is not None:
                 cut = f"{before['no']} 「{before['name']}」 이 덜 끝났습니다".strip()   # 번호 없는 묶음(양식 맞추기)은 이름만
@@ -713,7 +861,8 @@ def _drive(run):
                 t0 = time.time()
                 run.note(gid, line["key"], line["name"])
                 try:
-                    res = _line(run, gid, line)   # 사람이 하는 일(hand1 …)은 처리 함수 하나 — 「했음」 이면 지나가고 아니면 멈춘다   # (st, 글) | (st, 글, 묶음 끝 글의 몫) — 줄의 기록 글과 묶음 끝 글의 몫이 다를 때 셋째(없으면 글 그대로)
+                    with _turn(run, gid, line):   # 다른 문서의 실행이 지금 도는 줄과 겹치면 그 줄이 끝난 뒤에(② §18-22)
+                        res = _line(run, gid, line)   # 사람이 하는 일(hand1 …)은 처리 함수 하나 — 「했음」 이면 지나가고 아니면 멈춘다   # (st, 글) | (st, 글, 묶음 끝 글의 몫) — 줄의 기록 글과 묶음 끝 글의 몫이 다를 때 셋째(없으면 글 그대로)
                 except _Halt as e:
                     if e.at is None:
                         e.at = (gid, line["key"])
@@ -764,9 +913,7 @@ def _drive(run):
         tail = halt.text if halt is not None else "멈춤을 눌러 멈췄습니다 — 끝난 단계는 그대로입니다" if status == "stopped" else " / ".join(texts) or "남은 단계가 없습니다"
         rec.update(status=status, stopping=False, ended=time.time(), now=None, end={"ok": status in ("done", "left"), "text": _clip(f"{word} — {tail}")})
     with _LOCK:
-        RUNS.pop(run.target, None)
-        for d in [d for d, t in BUSY.items() if t == run.target]:
-            BUSY.pop(d, None)
+        _release(run)
     run.working = set()
     run.save()
     UNIT.store.log(run.target, event={"halted": "halt", "stopped": "stop"}.get(status, "end"), n=rec["n"], status=status, text=rec["end"]["text"])
@@ -827,25 +974,41 @@ def start(wid, body):
     # 「남은 일 없음」 은 실행의 판단 — 새로 읽은 재료로 센다(잠깐 든 값은 조회에만: astra C1)
     view = S.view(task, pair, _materials(pair, task, fresh=True, excl=list(body["skip"]) if given else None), llm=UNIT.llm_ok(), skip=_skips(pair, wid))
     rows = {g["id"]: g for g in view["stages"]}
+    wait = ""   # 구성 값을 기다리는 줄에서 시작하는 실행은 시작하지 않는다(② §18-22 「구성 값 — 추출될 때까지」 — 2026-11-21 사용자 「그 값이 추출돌때까지 실행이 되면 안되고」: 전에는 시작한 뒤 그 줄에서 멈췄다)
     if role and not only:   # 그 문서만 — 남은 일 · 앞 묶음은 그 문서의 눈으로(서버가 센 solo: workflow_state.view)
         solo = _solo_row(rows[first], role)
         if solo is None:
             raise Refuse("role", f"이 묶음은 {who_text}만 따로 진행할 것이 없습니다 — 묶음의 「한 번에 진행」 과 같습니다")
         if not body.get("redo") and not solo["left"]:
             raise Refuse("noWork", f"{who_text}에 남은 단계가 없습니다")
+        wait = solo.get("wait") or ""
     elif not body.get("redo") and not only and not any(rows[g]["left"] for g in span):
         raise Refuse("noWork", "남은 단계가 없습니다")
+    elif only:   # 줄 하나만 — 실행기가 할 줄이 모두 기다리는 줄일 때
+        waits = [next((s.get("wait") or "" for s in rows[first]["steps"] or () if s["key"] == x["key"]), "") for x in hit if (x["unit"] or {}).get("kind") != "pick"]
+        wait = waits[0] if waits and all(waits) else ""
+    else:
+        wait = rows[first].get("wait") or ""
+    if wait and not body.get("redo"):
+        raise Refuse("needs", wait)
     by = "agent" if body.get("by") == "agent" else "human"
     approval = {"paid": [d for d in body.get("paid") or [] if isinstance(d, str)]} if by == "agent" else None   # 사람이 누른 실행은 제한 없음 · 에이전트 카드는 승인한 문서에만 유료
     sources = [d for d in pair.get("sources") or () if d]   # 취합 — 원본 문서들(등록한 차례 — 시작할 때 못 박는다: 공통 자리는 먼저 넣는 문서가 차지한다 · ② §18-13)
     docs = [d["id"] for d in (target, source, *sources) if d]
+    # 잡을 문서(② §18-22 「문서마다 따로 도는 실행」) — 이 실행이 돌 줄이 모두 한 문서의 줄이면 그 문서만 잡는다(lane — 다른 문서의 실행과 같이 돈다) · 아니면 묶음의 문서 모두(그런 실행은 묶음에 하나뿐)
+    lane = role or S.lane_of(task, _range_lines(task, span, only, bool(body.get("row"))))
+    holds = [(source if lane == "source" else target)["id"]] if lane else docs
     with _LOCK:
-        hit = next((BUSY[d] for d in docs if d in BUSY), None)
+        hit = next((BUSY[d] for d in holds if d in BUSY), None)
+        if hit is None and not lane:   # 두 문서를 다 쓰는 실행 — 같은 묶음에서 문서 하나만 잡고 도는 실행이 있어도 못 한다(잡은 문서가 겹친다 — 위에서 걸리지만 열쇠로도 본다)
+            hit = next((r.key for r in RUNS.values() if r.target == target["id"]), None)
         if hit is not None:
             other = RUNS.get(hit)
-            raise Refuse("busy", "다른 화면에서 진행 중입니다 — 끝나거나 멈춘 뒤에 하세요", other.summary() if other is not None else None)
+            mate = other is not None and bool(other.lane) and other.lane != lane   # 다른 문서만 잡은 실행 때문에 — 「다른 화면」 이 아니라 그 까닭
+            raise Refuse("busy", f"{_who(task, other.lane)}의 실행이 도는 중입니다 — 이 단계는 두 문서를 함께 씁니다(끝나거나 멈춘 뒤에 하세요)" if mate else "다른 화면에서 진행 중입니다 — 끝나거나 멈춘 뒤에 하세요",
+                         other.summary() if other is not None else None)
         n = (_numbers(target["id"]) or [0])[-1] + 1
-        rec = {"v": 1, "n": n, "boot": BOOT, "job": pair["job"], "sig": sig, "scope": pair["scope"],
+        rec = {"v": 1, "n": n, "boot": BOOT, "job": pair["job"], "sig": sig, "scope": pair["scope"], **({"lane": lane} if lane else {}),   # lane = 이 실행이 잡은 문서(그 문서만 — 없으면 두 문서)
                "docs": {"target": {"id": target["id"], "name": target["name"]}, "source": {"id": source["id"], "name": source["name"]} if source else None,
                         **({"sources": [{"id": d["id"], "name": d["name"]} for d in sources]} if sources else {})},
                # 취합의 간단 모드(화면 gather_quick.js 의 입력을 실행 기록에 — ② §18-13 ⓔ): quick = 구조를 맞추려면 지워야 하는 곳이 있으면 멈춘다 · auto = 이번에 올린 문서(미지정이면 반영할 기관을 자동 지정) · llm false = LLM 검토를 끔
@@ -859,11 +1022,13 @@ def start(wid, body):
                **({"skipGiven": True} if given else {}),   # 뺀 자리를 알려 준 시작(빈 목록도) — 문서 하나의 구조 반영이 「지난 반영이 뺀 자리를 이번에도 빼나」 를 이것으로 가린다(_excl)
                "status": "running", "stopping": False, "started": time.time(), "ended": None, "now": None, "stages": [], "steps": [], "left": [], "halt": None, "end": None, "cut": None}
         run = Run(rec, task, pair, approval)
-        RUNS[target["id"]] = run
+        RUNS[run.key] = run
+        for d in holds:
+            BUSY[d] = run.key
         for d in docs:
-            BUSY[d] = target["id"]
+            MATES[d] = target["id"]   # 묶음의 문서(잡지 않은 문서도) → 목적 문서 — 확인 폴링이 이 묶음의 도는 실행들을 찾는다(live_all)
     run.save()
-    UNIT.store.log(target["id"], event="start", n=n, **{k: rec["range"][k] for k in ("from", "to", "only", "role") if rec["range"].get(k)}, by=by)
+    UNIT.store.log(target["id"], event="start", n=n, **{k: rec["range"][k] for k in ("from", "to", "only", "role") if rec["range"].get(k)}, **({"lane": lane} if lane and lane != role else {}), by=by)
     if source:
         UNIT.store.log(source["id"], event="start", n=n, role="source", target=target["id"])
     # 실행 스레드는 시작한 요청의 맥락(contextvars)의 사본에서 돈다 — 요청이 건 「지금 워크플로우」(주소의 작업 → 그 작업의 워크플로우 = 이 실행의 것: app/agent_notes_api.py Scope)가 이 실행의 LLM 호출에 닿아 그 워크플로우 전용 덧붙이는 글이 붙는다(spec_에이전트 ② §6)
@@ -873,9 +1038,11 @@ def start(wid, body):
 
 def stop(wid, n=None):
     """멈춤(어느 화면에서나) — 지금 하는 일이 끝나면 멈춘다 → {stopping} | None(도는 실행이 없음 · 번호가 다름)."""
-    target = BUSY.get(wid)
-    run = RUNS.get(target) if target else None
-    if run is None or (n is not None and run.rec["n"] != n):
+    run = _holder(wid)
+    if n is not None and (run is None or run.rec["n"] != n):   # 같은 묶음의 다른 문서만 잡은 실행 — 번호로 찾는다(문서마다 따로 도는 실행: ② §18-22 · 어느 문서의 화면에서나 멈춘다)
+        target = run.target if run is not None else MATES.get(wid)
+        run = _live(target, n) if target else None
+    if run is None:
         return None
     with run.lock:
         run.rec["stopping"] = True
@@ -888,7 +1055,7 @@ def shutdown():
         with run.lock:
             rec = dict(run.rec)
         with _LOCK:
-            RUNS.pop(run.target, None)
+            RUNS.pop(run.key, None)
         _cut(run.target, rec)
 
 

@@ -13,6 +13,8 @@
 - ④ 「한 번에 진행」: 두 작업을 초기화(진짜 끝점)해 남은 단계를 만든 뒤 — 도는 줄(지금 하는 일 · 지난 시간 · 「멈춤」) · 다른 탭의 대시보드에 같은 실행(「다른 화면에서 진행 중」) · 그 탭에서 「멈춤」 → 「멈춤 — …」(주황) /
   ④-2 차례 번호 02 를 누름(「그 번호를 누르면 그 순위에 있는게 자동 실행되고.. 실행된건 실행표기」) → 그 줄만 서버 실행(실행 기록 `range.only`) → 번호에 초록 ✓ /
   다시 초기화 → 「한 번에 진행」 → 끝 글 「끝남 — …」(초록) · 「3/3」 · 그동안 문서 화면으로 넘어가지 않음.
+- 놓은 문서 ↔ 대시보드(2026-11-21 「놓여진 문서랑 매칭을 해주라는거야」 — spec_작업에이전트 ② §10 「놓은 문서와 대시보드」): ③ 시작해 목록이 비면 왼쪽 카드에 대시보드의 문서(역할 · 이름 — 문서 칸과 같은 것) ·
+  ⑦-3 시작한 작업을 보이는 중 문서를 놓으면 → 같은 워크플로우의 시작 전(문서 칸 = 놓은 문서 · 알림 · 기억은 하던 작업) → 「비우기」 → 하던 작업의 대시보드 · 왼쪽에 다시 그 문서.
 - ⑤ 새 탭(같은 브라우저 컨텍스트)에서 첫 화면을 열면 같은 대시보드 · 같은 끝 글(기억 + 서버 상태).
 - ⑥ 「대시보드 자세히 보기」 → 그 목적 문서가 열리고 패널 탭 「대시보드」 ⑦ 로고로 첫 화면에 돌아오면 대시보드가 그대로 ⑦-2 서버가 안 맡은 묶음의 「한 번에 진행」 → 문서 화면을 열고 그 화면의 같은 단추(꺼져 있으면 까닭 알림 · 켜져 있으면 실제로 진행) ⑧ 「다른 워크플로우」 → 고르기로(기억도 비움) ⑨ 좁은 폭(820 · 400 · 320px)에서 가로 넘침 없음.
 - 그 밖: 같은 파일로 다시 시작 → 「같은 파일 고르기」 의 「이어서」 → 같은 작업의 대시보드 · 문서 하나인 워크플로우(연차보고서 양식 맞추기 — 모든 묶음 「문서 화면에서 진행합니다 …」 + 「한 번에 진행」) · 취합은 「워크플로우 시작」 이 켜짐(문서 화면을 열고 시작)."""
@@ -96,6 +98,11 @@ DASH = """() => { const d = document.getElementById('homeDash'), q = (s) => d.qu
     foot: [...d.querySelectorAll('.home-dash-foot button')].map(btn), why: t('.home-dash-foot .dash-why'),
     home: document.body.classList.contains('no-doc'), id: state.id, memo: (() => { try { return JSON.parse(localStorage.getItem('nfm.homeDash') || 'null'); } catch (e) { return 'err'; } })(),
     toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, files: hf.files.map((f) => f.name) }; }"""
+# 왼쪽 문서 목록(#homeFiles) — 대시보드의 문서를 보이는 꼴(data-mode=dash: 역할 · 이름 · 꼬리표 · 목적 문서 테두리)인가 · 머리 · 「파일 선택」 이 보이나
+LEFT = """() => { const b = document.getElementById('homeFiles');
+  return { mode: b.dataset.mode || '', hidden: b.hidden, title: (b.querySelector('h3') || {}).textContent || '', drop: document.getElementById('drop').classList.contains('has-files'),
+    rows: [...b.querySelectorAll('.hf-row')].map((r) => [r.dataset.role || '', r.querySelector('.hf-name').textContent, r.querySelector('.hf-tag').textContent, r.classList.contains('on')]),
+    radios: b.querySelectorAll('input[type=radio]').length, more: !!b.querySelector('[data-hf-focus=more]') }; }"""
 FIT = """() => { const e = document.getElementById('empty'), a = document.getElementById('homeAgent').getBoundingClientRect(), d = document.getElementById('homeDash');
   return { over: e.scrollWidth > e.clientWidth + 1, dash: d.scrollWidth > d.clientWidth + 1, w: Math.round(a.width),
     inside: [...d.querySelectorAll('.dash-node, .dash-ghead, .dash-ghead .btn, .home-dash-foot .btn, select, .dash-live, .dash-last, .dash-note, .home-dash-docs li')].every((x) => { const r = x.getBoundingClientRect(); return r.left >= a.left - 0.5 && r.right <= a.right + 0.5; }) }; }"""
@@ -255,6 +262,11 @@ def main():
               and s["count"].startswith("끝남 ") and s["count"].endswith(f"/{served_counts(rid)[1]}")
               and s["docs"] == [f"원본 문서 — 사업계획서: {plan.get('name')}", f"목적 문서 — 연차보고서: {rep.get('name')}"]
               and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다시 시작", "다른 워크플로우"], s)
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=30000)
+        lf = page.evaluate(LEFT)
+        check("③ 놓은 문서 ↔ 대시보드(2026-11-21 「놓여진 문서랑 매칭을 해주라는거야」) — 쓴 문서가 목록에서 빠지면 왼쪽 카드에 대시보드의 문서(원본 → 목적 · 역할 꼬리표 · 목적 문서는 파랑 테두리 · 문서 칸과 같은 이름) · 읽기만(고르기 없음) · 「다른 문서 놓기…」",
+              lf["mode"] == "dash" and not lf["hidden"] and lf["drop"] and lf["title"] == "대시보드의 문서 2개" and lf["radios"] == 0 and lf["more"]
+              and lf["rows"] == [["source", plan.get("name"), "원본 문서 — 사업계획서", False], ["target", rep.get("name"), "목적 문서 — 연차보고서", True]], lf)
         page.screenshot(path=str(OUT / "03_started.png"))
         # 올린 직후의 기본 분석(스크립트)이 끝나면 — LLM 이 없는 검사 서버에서는 LLM 검증·보완이 「건너뜀」 이라 저절로 3/3(3초마다 다시 읽는다)
         page.wait_for_function("() => (document.querySelector('#homeDash .dash-group[data-group=review] .dash-gcount') || {}).textContent === '3/3'", timeout=240000)
@@ -432,6 +444,25 @@ def main():
         page.wait_for_timeout(2500)
         page.evaluate("() => { window.__opened = false; }")
 
+        # ---- ⑦-3 놓은 문서 ↔ 대시보드 — 시작한 작업을 보이는 동안 문서를 놓으면 문서 칸이 그 문서로(같은 워크플로우의 시작 전) · 목록을 비우면 하던 작업으로
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=30000)
+        with page.expect_file_chooser() as fc:
+            page.locator("#homeFiles [data-hf-focus=more]").click()
+        fc.value.set_files([str(SMALL)])
+        page.wait_for_selector("#homeDash[data-state=ready] .home-dash-docs li", timeout=30000)
+        page.wait_for_function("() => !document.getElementById('homeFiles').dataset.mode && document.querySelectorAll('#homeFiles .hf-row').length === 1")
+        s = snap(page)
+        check("⑦-3 대시보드가 시작한 작업을 보이는 중 왼쪽에 문서를 놓으면 — 같은 워크플로우의 시작 전 · 문서 칸 = 놓은 문서 · 알림 · 기억은 하던 작업 그대로 · 작업은 그대로 · 첫 화면 그대로",
+              s["state"] == "ready" and s["title"] == JOB_NAME and s["docs"] == ["원본 문서 — 사업계획서: 없음", f"목적 문서 — 연차보고서: {SMALL.name}"] and s["files"] == [SMALL.name]
+              and any("왼쪽에 놓은 문서로 문서 칸을 바꿨습니다" in n[0] and not n[1] for n in s["notes"]) and s["memo"] == {"job": JOB, "wid": rid} and len(works()) == 2 and s["home"] and s["id"] is None, s)
+        page.screenshot(path=str(OUT / "07_dropped.png"))
+        page.locator("#homeFiles .hf-clear").click()
+        page.wait_for_selector("#homeDash[data-state=live] .dash-group", timeout=30000)
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=30000)
+        s, lf = snap(page), page.evaluate(LEFT)
+        check("⑦-3 목록을 비우면(「비우기」) — 하던 작업의 대시보드로 돌아옴(끝난 수 · 끝 글 · 기억) · 왼쪽에 다시 그 작업의 문서",
+              s["state"] == "live" and s["memo"] == {"job": JOB, "wid": rid} and s["count"] == head_count(rid) and s["last"] == end and not any("왼쪽에 놓은" in n[0] for n in s["notes"])
+              and [r[1] for r in lf["rows"]] == [plan.get("name"), rep.get("name")], [s, lf])
 
         # ---- ⑧-0 「다시 시작」 → 같은 워크플로우의 시작 전으로(기억은 비움 — 문서 · 작업은 그대로: 2026-11-21 사용자 「다시 시작하기.. 기능이 없네」)
         again = page.evaluate("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"again\"]'); return b ? { off: b.disabled, title: b.title } : null; }")

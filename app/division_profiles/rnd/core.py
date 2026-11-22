@@ -2286,6 +2286,14 @@ def _read_period(blocks):
     return {"start": p[0], "end": p[1]} if p else None
 
 
+def _role_sample(roles):
+    """표지 공동 목록의 「역할」 칸 글들(줄 차례)이 **빈 양식의 보기 글 그대로**인가 — 첫 줄 「수요」 · 둘째 줄(있으면) 「공동」 · 그 뒤 줄은 모두 빈칸(spec_구분_기준 ② §24 「문서에서 읽기」).
+    그 꼴이면 글쓴이가 역할 칸을 적은 것이 아니다: 수요기업을 고르지 않은 값으로 구조를 반영하면 그 줄에 기관 이름만 들어가고 보기 글은 남는다(반영은 고른 기관이 없으면 그 칸을 건드리지 않는다) —
+    이름 옆의 「수요」 를 그 기관의 값으로 읽으면 반영한 값과 다시 읽은 값이 달라진다(공동1 이 수요기업으로: 2026-11-22 취합 간단 모드의 구조 확인이 「이미 맞음」 대신 7곳을 바꿨다).
+    한 줄이라도 그 꼴 밖이면(셋째 줄부터 글이 있음 · 첫 줄이 「공동」 …) 글쓴이나 반영이 적은 칸이다 — 그때는 줄마다 적힌 대로 읽는다."""
+    return bool(roles) and roles[0] == ROLE_DEMAND and (len(roles) < 2 or roles[1] == ROLE_JOINT) and not any(roles[2:])
+
+
 def _read_orgs(blocks, groups):
     """기관 — 이름은 문서 곳곳의 「주관/공동연구개발기관k(이름)」·「… : 이름」 라벨(구분 반영이 이름을 쓰는 자리)에서 k 마다 가장 많은 것,
     주관은 없으면 표지 「주관연구개발기관 | 기관명 | 이름」. 공동 수 = 번호 붙은 공동 라벨의 가장 큰 번호(이름이 있는 번호 우선) — 번호
@@ -2322,9 +2330,12 @@ def _read_orgs(blocks, groups):
     if n := max(joint, default=0) or top:
         out["joint"] = [_vote(joint.get(k, [])) or "" for k in range(1, n + 1)]
         for g in groups:   # 표지 공동 목록의 「역할」 칸이 「수요」 인 줄(② §24 — 양식 작성요령 16) — 그 줄의 기관명이 읽은 공동 이름과 맞을 때만(이름 없는 줄 = 양식의 보기 글은 안 센다)
-            for it in g["items"] if g.get("list") and g["items"][0]["value"][0] == "joint" else ():
-                nm = _bare(_name(text(it["roots"][it["nameAt"]]))) if it.get("nameAt") is not None and it.get("roleAt") is not None else ""
-                if nm and _bare(text(it["roots"][it["roleAt"]])) == ROLE_DEMAND:
+            rows = [(it, _bare(text(it["roots"][it["roleAt"]]))) for it in g["items"] if it.get("roleAt") is not None] if g.get("list") and g["items"][0]["value"][0] == "joint" else []
+            if _role_sample([role for _, role in rows]):
+                continue   # 역할 칸들이 빈 양식의 보기 글 그대로(첫 줄 「수요」 · 둘째 줄 「공동」 · 나머지 빈칸) — 이름이 들어간 줄이어도 글쓴이가 적은 것이 아니다(제목의 「-수요기업」 표시는 위에서 읽었다)
+            for it, role in rows:
+                nm = _bare(_name(text(it["roots"][it["nameAt"]]))) if it.get("nameAt") is not None else ""
+                if nm and role == ROLE_DEMAND:
                     ks = [k for k, x in enumerate(map(_bare, out["joint"]), 1) if x and (x == nm or len(nm) >= 2 and (nm in x or x in nm))]
                     demand |= set(ks) if len(ks) == 1 else set()
         if any(k <= n for k in demand):

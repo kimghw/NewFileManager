@@ -22,13 +22,14 @@ def test_find_three_kinds_and_apply_removes_them():
     doc = HwpxDoc(M.REPORT_FORM.read_bytes())
     f = FC.find(doc)
     c = f["counts"]
-    assert (c["tables"], c["refs"], c["marks"], c["notes"]) == (4, 4, 56, 30) and c["total"] == 94, c   # 실측(2026-11-12) — 서식의 ※ 33줄 가운데 3줄은 작성 요령 표 안(표와 함께)
+    assert (c["tables"], c["refs"], c["marks"], c["notes"]) == (5, 4, 56, 30) and c["total"] == 95, c   # 실측(2026-11-12) — 서식의 ※ 33줄 가운데 3줄은 작성 요령 표 안(표와 함께)
     assert all("작성" in t["label"] and "요령" in t["label"] for t in f["tables"])
+    assert any(t["label"].startswith("앞표지 작성 요령") for t in f["tables"])   # 0행이 빈 줄인 작성 요령 표 — 첫 줄 = 글이 있는 첫 행(2026-11-22: 0행만 봐서 이 표만 결과 문서에 남았다)
     assert all(n["color"] in ("#0000FF", "#FF0000") for n in f["notes"])
     inline = next(n for n in f["notes"] if "2page" in n["guide"])
     assert not inline["whole"] and inline["guide"] == "※ 2page 이내 요약 작성"   # 헤딩과 한 문단 — 헤딩은 남긴다
     done = FC.apply(doc, f)
-    assert (done["tables"], done["refs"], done["marks"], done["notes"]) == (4, 4, 56, 30) and not done["skipped"]
+    assert (done["tables"], done["refs"], done["marks"], done["notes"]) == (5, 4, 56, 30) and not done["skipped"]
     assert FC.find(doc)["counts"]["total"] == 0
     head = next(b for b in _paras(doc) if (b.get("text") or "").startswith("1. 연구개발과제의 개요") and "※" not in b["text"] and "페이지" not in b["text"])
     assert head["text"].strip() == "1. 연구개발과제의 개요"
@@ -90,16 +91,16 @@ def client():
 def test_api_list_apply_undo(client):
     d = client.post("/api/docs?new=1", files={"file": (M.REPORT_FORM.name, M.REPORT_FORM.read_bytes())}).json()["docId"]
     v = client.get(f"/api/docs/{d}/form-cleanup").json()
-    assert v["counts"]["total"] == 94 and len(v["tables"]) == 4 and len(v["refs"]) == 4 and {"id", "guide", "whole", "color"} <= set(v["notes"][0])
+    assert v["counts"]["total"] == 95 and len(v["tables"]) == 5 and len(v["refs"]) == 4 and {"id", "guide", "whole", "color"} <= set(v["notes"][0])
     assert client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"] + 1}).status_code == 409   # 목록을 읽은 뒤 바뀜
     r = client.post(f"/api/docs/{d}/form-cleanup", json={"expectRev": v["rev"]})
     assert r.status_code == 200, r.text[:600]
     out = r.json()
-    assert out["done"]["tables"] == 4 and out["done"]["refs"] == 4 and out["done"]["notes"] == 30 and out["done"]["marks"] == 56 and out["rev"] == v["rev"] + 1
+    assert out["done"]["tables"] == 5 and out["done"]["refs"] == 4 and out["done"]["notes"] == 30 and out["done"]["marks"] == 56 and out["rev"] == v["rev"] + 1
     assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 0
     assert client.post(f"/api/docs/{d}/form-cleanup", json={}).json()["nothing"] is True   # 지울 것 없음 — 편집 안 함
     assert client.post(f"/api/docs/{d}/undo").status_code == 200   # 편집 하나 — 실행 취소 한 번이면 다 돌아온다
-    assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 94
+    assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 95
 
 
 def test_api_does_not_delete_when_the_guides_cannot_be_kept(client, monkeypatch):
@@ -133,4 +134,4 @@ def test_api_baseline_is_the_document_before_the_edit(client, monkeypatch):
     monkeypatch.setattr(server, "owpml_base", lambda s_: {"schema": Counter(), "rules": Counter()})
     r = client.post(f"/api/docs/{d}/form-cleanup", json={})
     assert r.status_code == 200, r.text[:600]
-    assert r.json()["done"]["tables"] == 4
+    assert r.json()["done"]["tables"] == 5

@@ -3,7 +3,7 @@
 2026-11-12 사용자 "그냥 위 첨자, 작성요령이 테이블 첫번째 줄에 있는 경우, ※ 2page 이내 요약 작성.. 당구장 표시랑 색이랑 폰트가 같은 경우 정도만 삭제해도 되겠고만"
 — 양식이 글쓴이에게 주는 안내 가운데 꼴이 분명한 셋만 지운다(헤딩 추출의 TEMP 「작성요령」 판정 전부를 지우지 않는다):
 - marks  : 위첨자 각주 번호(「연구개발비15)」 의 「15)」 — 어댑터 `superscript_marks`/`strip_superscript_marks`, FMM 양식 정리와 같은 것). 글자만 지우고 런은 둔다.
-- tables : 첫 줄(0행)에 「작성 요령」 이 든 표(「작성 요령 | 작성 후 작성 요령 표는 삭제」 · 「요약문 작성 요령(작성 요령은 제출하지 않습니다)」) — 표째.
+- tables : 첫 줄(글이 있는 첫 행 — 빈 0행은 건너뜀)에 「작성 요령」 이 든 표(「작성 요령 | 작성 후 작성 요령 표는 삭제」 · 「요약문 작성 요령(작성 요령은 제출하지 않습니다)」) — 표째.
            앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도(지운 자리에 빈 줄이 겹치지 않게 — FMM `_guides` 와 같음).
 - notes  : 「※」 안내 — ※ 부터 문단 끝까지가 ※ 와 같은 색인 글, 그 색이 본문 색(검정)이 아닐 때(양식의 안내는 파랑·빨강 — 실측: 연차보고서 서식의 ※ 33줄 모두,
            계획서에서 옮겨 온 검정 ※ 줄은 내용이라 남는다). 글꼴은 안 따진다(같은 안내 줄 안에서 돋움체·돋움이 섞인다 — 「※ 본문내용은 돋움체 12pt, 표는 돋움 8pt로 작성」).
@@ -25,7 +25,7 @@ BODY_COLORS = {None, "", "#000000", "#000", "black"}
 
 # 지우는 패턴 목록(화면 차례) — key = find/apply 의 종류, name = 화면 이름, rule = 무엇을 찾나, how = 어떻게 지우나, example = 서식의 보기
 PATTERNS = (
-    {"key": "tables", "name": "작성 요령 표", "rule": "첫 줄(0행)에 「작성 요령」 이 든 표", "how": "표째(앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도)",
+    {"key": "tables", "name": "작성 요령 표", "rule": "첫 줄(글이 있는 첫 행)에 「작성 요령」 이 든 표", "how": "표째(앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도)",
      "example": "작성 요령 | 작성 후 작성 요령 표는 삭제"},
     {"key": "refs", "name": "<참고 N> 자료", "rule": "「<참고 N>」 으로 시작하는 문단 + 바로 뒤의 표", "how": "제목 줄과 표째(앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도)",
      "example": "<참고 1> 연구성과 실적 증빙자료 예시"},
@@ -82,7 +82,9 @@ def _guide_tables(blocks):
     for t in structure.iter_blocks(blocks):
         if t.get("type") != "table" or t["id"] in inside:
             continue
-        first = sorted((c for c in t.get("cells") or () if c.get("row") == 0), key=lambda c: c.get("col", 0))
+        cells = t.get("cells") or ()
+        top = min((c.get("row", 0) for c in cells if (c.get("text") or "").strip()), default=0)   # 첫 줄 = 글이 있는 첫 행(연차보고서 「앞표지 작성 요령」 표는 0행이 빈 줄이라 0행만 보면 안 지워졌다 — 2026-11-22)
+        first = sorted((c for c in cells if c.get("row") == top), key=lambda c: c.get("col", 0))
         head = " | ".join((c.get("text") or "").strip().split("\n")[0] for c in first)
         if not GUIDE_ROW.search(head):
             continue

@@ -634,6 +634,18 @@ def test_demand_org_cover_role_cells():
     rep = rnd.apply(d, v0, levels_of=rnd.levels_of, only=g["key"])
     g, plain = rows(d, v0)
     assert not rep["errors"] and [n for n, _ in plain] == ["가나대", "다라연", "에이치디"] and plain[0][1] == "수요"   # 고른 기관이 없는 값 — 역할 칸은 건드리지 않는다(보기 글 그대로)
+    # 그 문서를 다시 읽어도 수요기업은 없다 — 이름이 들어간 줄 옆의 「수요」 는 양식의 보기 글이다(역할 칸들이 보기 글 그대로: 첫 줄 「수요」 · 둘째 줄 「공동」 · 나머지 빈칸).
+    # 2026-11-22: 전에는 공동1(가나대)이 수요기업으로 읽혀 반영한 값과 읽은 값이 달랐다(취합 간단 모드의 구조 확인이 「이미 맞음」 대신 문서를 바꿨다 — 화면 검사 gather_quick)
+    assert [r for _, r in plain] == ["수요", "공동", ""] and rnd.core._role_sample([r for _, r in plain])
+    for vals in (base, {"stages": [1], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"]}}, {"stages": [1], "orgs": {"lead": "인텍", "joint": ["가나대"]}}):
+        whole = hwpx_doc.HwpxDoc(FORM.read_bytes())
+        assert not rnd.apply(whole, rnd.norm_values(vals), levels_of=rnd.levels_of)["errors"]
+        blocks = whole.blocks()
+        got = rnd.read_values(blocks, rnd.levels_of(blocks))["orgs"]
+        assert got["joint"] == vals["orgs"]["joint"] and "demand" not in got, got   # 반영한 값 = 다시 읽은 값(수요기업을 고르지 않았다)
+    S = rnd.core._role_sample   # 보기 글 그대로인 꼴만 — 한 줄이라도 그 밖이면 글쓴이(또는 반영)가 적은 칸이라 줄마다 읽는다
+    assert S(["수요"]) and S(["수요", "공동"]) and S(["수요", "공동", "", ""])
+    assert not S([]) and not S(["공동", "공동", "수요"]) and not S(["수요", "공동", "공동"]) and not S(["수요", "수요"]) and not S(["수요", "", ""]) and not S(["공동"])
 
     v1 = rnd.norm_values({**base, "orgs": {**base["orgs"], "demand": [False, False, False, True]}})
     g, _ = rows(d, v1)
@@ -656,6 +668,12 @@ def test_demand_org_cover_role_cells():
             full.set_text(b["id"], b["text"].replace("-수요기업", ""))
     blocks = full.blocks()
     assert rnd.read_values(blocks, rnd.levels_of(blocks))["orgs"]["demand"] == [False, False, False, True]
+    # 첫 기관을 수요기업으로 고른 값(기관 둘) — 반영하면 역할 칸이 「수요」 · 「공동」 으로 보기 글과 같은 꼴이 된다: 그래도 제목의 「-수요기업」 표시로 읽는다(반영이 함께 적는다)
+    v2 = rnd.norm_values({"stages": [1], "orgs": {"lead": "인텍", "joint": ["가나대", "다라연"], "demand": [False, True, False]}})
+    two = hwpx_doc.HwpxDoc(FORM.read_bytes())
+    assert not rnd.apply(two, v2, levels_of=rnd.levels_of)["errors"] and rows(two, v2)[1] == [("가나대", "수요"), ("다라연", "공동")]
+    blocks = two.blocks()
+    assert rnd.read_values(blocks, rnd.levels_of(blocks))["orgs"]["demand"] == [False, True, False]
 
 
 # ---------------------------------------------------------------- 빠진 자리 검토(② §13 — LLM 이 묶음 밖 표·문단을 본다)

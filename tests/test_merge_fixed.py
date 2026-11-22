@@ -173,3 +173,71 @@ def test_table_pair_needs_clear_winner_and_applied_records_die_with_their_blocks
     applied = {"p1": {"from": "x", "hash": "h", "ids": ["p90", "i91"]}, "p2": {"from": "y", "hash": "g"}}
     side = lambda *more: {"blocks": [{"id": "p1", "type": "paragraph"}, {"id": "p2", "type": "paragraph"}, *({"id": i, "type": "paragraph"} for i in more)]}  # noqa: E731
     assert set(merge_api._alive(applied, side())) == {"p2"} and set(merge_api._alive(applied, side("i91"))) == {"p1", "p2"} and merge_api._alive(None, side()) == {}
+
+
+# ---- 2026-11-22 실제 이관(작업 7cfb2957f487)에서 온 것: 머리 이름과 같은 라벨 · 빈 양식의 글 그대로인 칸 -------------------------------
+
+GOAL = ("o ★머리이름 최종목표 한 줄", "- ★머리이름 세부 한 줄")
+ADDR = "★서울특별시 강남구 테헤란로 84길 12"   # 표지 주소 — 서식의 틀 글 「(우)」 로 시작하지 않는 글(틀 판정 _skeleton 으로는 못 넣는다)
+
+
+def _cell_with(doc, block_id):
+    return next(c for b in structure.iter_blocks(doc.blocks()) if b.get("type") == "table" for c in b["cells"] if any(x["id"] == block_id for x in c.get("blocks") or ()))
+
+
+@pytest.fixture(scope="module")
+def bare():
+    """(목적 쪽, 원본 쪽) — 원본 = 실제 계획서의 꼴: 요약문 「최종 목표」 칸에 **라벨 없이 내용만**(서식의 「[최종목표]」·「[N차년도 목표]」 줄을 지우고 개요 줄 둘) + 표지 「주소」 에 서식의 틀 글 없이 주소만 적음."""
+    from app.division_profiles import rnd
+    from app.division_profiles.rnd import core
+    d = M.small()
+    plan = HwpxDoc(M.PLAN_FORM.read_bytes())
+    assert not core.apply(plan, d["values"], levels_of=rnd.levels_of)["errors"]
+    ids = [x["id"] for x in _cell_with(plan, _label(plan, "[최종목표]"))["blocks"]]
+    plan.insert_after(ids[-1], [{"kind": "paragraph", "text": t} for t in GOAL])
+    plan.delete_blocks(ids[0], ids[-1])   # 라벨 · 자리표시 줄을 모두 지운다 — 칸에는 내용 두 줄만
+    plan.set_text(_right_of(plan, "주소"), ADDR)
+    frm = M._side("fixed-bare-goal", plan, M.PLAN_FORM.name)
+    return {**d["to"], "values": d["values"]}, {**frm, "values": d["values"]}
+
+
+def test_head_named_label_takes_an_unlabeled_source_cell(bare, pair):
+    """4-1 — 목적 칸의 「[최종목표]」 는 그 칸의 머리 이름(「최종 목표」)과 같고 원본 칸에는 라벨이 없다 → 원본 칸의 내용이 그 라벨 아래로(전에는 어느 길도 안 넣었다)."""
+    to, frm = bare
+    pl = X.plan(to, frm)
+    rows = [r for r in pl["labels"] if _bare(r["title"]) == "[최종목표]"]
+    assert len(rows) == 1 and rows[0]["skip"] is None and rows[0]["blocks"] == 2 and len(rows[0]["placeholders"]) == 1, rows
+    lab = rows[0]
+    src = _cell_with(frm["doc"], lab["src"][0])
+    assert lab["from"] == src["id"] and [x["id"] for x in src["blocks"]] == lab["src"]   # 원본 쪽 자리 = 그 칸 · 내용 = 칸의 블록 전부
+    doc = _fresh(to)
+    res = X.apply(doc, frm["doc"], pl)
+    cell = _cell_with(doc, lab["to"])
+    texts = [(x.get("text") or "").strip() for x in cell["blocks"]]
+    assert texts[:3] == ["[최종목표]", *GOAL], texts   # 라벨 바로 뒤에 두 줄 · 자리표시 「ㅇ」 는 지움
+    assert any("차년도 목표]" in t for t in texts[3:]) and res["labels"]["items"] == 1   # 그 아래 구분 기준 자리(「[N차년도 목표]」)는 그대로
+    again = X.plan({**to, "doc": doc}, frm, applied=res["applied"])
+    assert next(r for r in again["labels"] if r["to"] == lab["to"])["skip"] == "applied" and not [r for r in again["labels"] if r["skip"] is None]
+    # 원본 칸에 같은 제목의 라벨이 있으면(양식 그대로 쓴 계획서) 전처럼 4 가 한 번만 잇는다 — 4-1 이 한 줄을 더 내지 않는다
+    values, to2, frm2 = pair
+    assert sum(_bare(r["title"]) == "[최종목표]" for r in X.plan(to2, frm2)["labels"]) == 1
+
+
+def test_cells_still_holding_the_blank_forms_text_take_the_source(bare):
+    """짝지은 값 칸의 글이 올린 빈 양식의 글 그대로면(서식의 틀 「(우)」 · 예시 「1순위 소분류 명칭」) 원본 글로 바꾼다 — orig 를 줄 때만 · 사람이 고친 칸은 그대로."""
+    to, frm = bare
+    cid = _right_of(to["doc"], "주소")
+    was = _texts(to["doc"])[cid]
+    assert was.strip() and not X._skeleton(was, ADDR)
+    base = X.plan(to, frm)
+    assert cid not in {c["to"] for c in base["cells"]} and any(s["to"] == cid and s["why"] == "occupied" for s in base["skipped"])   # orig 없이는 사람 글로 본다
+    orig = {b["id"]: {"text": b.get("text") or ""} for b in structure.iter_blocks(HwpxDoc(M.REPORT_FORM.read_bytes()).blocks())}   # 올린 빈 양식(구조 반영 전)의 글
+    pl = X.plan(to, frm, orig=orig)
+    hit = next(c for c in pl["cells"] if c["to"] == cid)
+    assert (hit["mode"], hit["text"], hit["was"]) == ("form", ADDR, was)
+    doc = _fresh(to)
+    X.apply(doc, frm["doc"], pl)
+    assert _texts(doc)[cid].strip() == ADDR
+    doc2 = _fresh(to)
+    doc2.set_text(cid, "사람이 고친 주소")
+    assert cid not in {c["to"] for c in X.plan({**to, "doc": doc2}, frm, orig=orig)["cells"]}   # 빈 양식의 글이 아니다 — 안 덮는다

@@ -147,6 +147,39 @@ def test_append_org_year_rows_reuse_blank_then_add_and_idempotent(small):
     assert any(c.get("text") == "나2" for b in back.blocks() if b.get("type") == "table" for c in b["cells"])
 
 
+def test_append_form_example_rows_do_not_stay_under_a_real_org(small):
+    """올린 원본이 등록된 빈 양식이면(orig) 이어 넣는 덩이의 **예시 행**(값 칸이 모두 양식의 글 그대로 — 「Fe계 금속파우더 …」)을 사람 글로 보지 않는다: 그 기관 · 그 해의 실제 행이 있으면
+    예시 행에 실제 행을 쓰고, 없으면 예시 값을 비운다(실제 기관 이름 아래에 서식의 보기 값이 남지 않게). 반영 뒤 다시 계획하면 할 일이 없다. orig 가 없으면 전처럼 그대로 둔다."""
+    d, pairs = small
+    src, tgt = _fresh(d["from"]), _fresh(d["to"])
+    g = next(g for g in pairs["groups"] if g["status"] == "paired" and g["kind"] == "rows" and any(c["row"] == 0 and c["text"] == "연구재료" for c in _cells(src, g["from"]["table"]))
+             and any(c["text"] == "변동여부*" for c in _cells(tgt, g["to"]["table"])))
+    ft, tt = g["from"]["table"], g["to"]["table"]
+    orig = {c["id"]: {"text": c.get("text") or ""} for c in _cells(tgt, tt)}   # 지금 글 = 양식의 글(막 구성만 반영한 양식)
+    lead = next(c for c in _cells(tgt, tt) if c["col"] == 0 and c["text"] == "인텍")["row"]
+    example = [c for c in _cells(tgt, tt) if c["row"] == lead and c["col"] >= 2 and (c["text"] or "").strip()]
+    assert any("금속파우더" in c["text"] for c in example)   # 서식의 예시 행이 주관 기관 덩이에 있다
+    run = lambda: MT.plan({**d["to"], "doc": tgt}, {**d["from"], "doc": src}, d["values"], d["values"], pairs, orig=orig)  # noqa: E731
+    assert not [c for c in _mine(_run(d, pairs, src, tgt), g)[0] if c.get("clear")]   # orig 없음 — 예시인지 모른다: 안 건드린다
+    cells = _mine(run(), g)[0]
+    assert {c["to"] for c in cells if c.get("clear")} >= {c["id"] for c in example if c["text"].strip() not in ("2027",)} - {c["id"] for c in example if MT._empty(c["text"])}
+    # 그 기관 · 그 해의 실제 행이 생기면 — 예시 행이 그 행의 자리가 된다
+    row27 = next(c for c in _cells(src, ft) if c["col"] == 0 and c["text"] == "인텍")["row"] + 1
+    assert _at(src, ft, row27, 1)["text"] == "2027"
+    ncol = max(c["col"] for c in _cells(src, ft))
+    for col in range(2, ncol + 1):
+        src.set_text(_at(src, ft, row27, col)["id"], f"인{col}")
+    p = run()
+    cells, rows, _ = _mine(p, g)
+    put = {c["to"]: c for c in cells if not c.get("clear")}
+    assert not rows and all(put[c["id"]]["was"] == c["text"] for c in example if c["id"] in put) and any(c["id"] in put for c in example)
+    MT.apply(tgt, src, {**p, "cells": cells, "rows": rows})
+    after = {c["col"]: c["text"] for c in _cells(tgt, tt) if c["row"] == lead and c["col"] >= 2}
+    assert not any("금속파우더" in (t or "") or "KEIT" in (t or "") for t in after.values()) and after[2] == "인2"
+    again = _mine(run(), g)
+    assert not again[0] and not again[1]
+
+
 def test_append_reports_source_columns_missing_in_target(small):
     """이어 넣는 자리에서 원본에만 있는 열(목적 표에 그 열 머리가 없음)의 글은 못 넣고 까닭(shape)에 열 머리 이름을 적는다 —
     열 머리 꼴은 글의 튜플이라 그대로 이어 붙이면 TypeError(2026-11-11 실제 쌍의 「넣기 계획」 이 500 으로 죽은 자리)."""
@@ -323,7 +356,9 @@ def test_real_pair_tables():
     assert (modes.count("fixed"), modes.count("append")) == (10, 7)
     assert p["counts"]["cells"] >= 600 and p["counts"]["rows"] >= 100 and p["counts"]["skipped"]["shape"] == 0
     assert "2,200,000" in {c["text"] for c in p["cells"] if c["group"] == p["tables"][1]["group"]}   # 표지 1차년도 정부지원 현금
-    assert any(s["why"] == "ambiguous" and "KERI" in s["detail"] for s in p["skipped"])   # 약칭 기관은 고르지 않는다
+    # 약칭 기관 — 짐작하지 않되 문서가 스스로 밝힌 것(본문의 「한국전기연구원(KERI)」)은 그 기관으로 읽는다(2026-11-22: 전에는 「KERI」 로 적힌 세부 사용계획 행이 통째로 빠졌다)
+    assert MT._side(d["from"], d["values"])["alias"].get("KERI") == "한국전기연구원"
+    assert not any(s["why"] == "ambiguous" and "KERI" in s["detail"] for s in p["skipped"])
     r = MT.apply(tgt, d["from"]["doc"], p)
     assert r["filled"] == p["counts"]["cells"] + p["counts"]["rowCells"] and r["rowsAdded"] == p["counts"]["rows"] and not r["skipped"]
     again = MT.plan({**d["to"], "doc": tgt}, d["from"], d["values"], d["values"], pairs)

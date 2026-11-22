@@ -261,6 +261,33 @@ def test_stage_paid_approval_of_an_agent_card(fake):
     assert X._stage_paid_ok(run, "map")   # 사람이 누른 실행
 
 
+def test_optional_llm_lines_tell_ran_from_nothing_to_do(fake):
+    """빈 자리 검토 · 표 대응 — 열린 자리가 없을 때 「LLM 이 답해서 없어진 것」 · 「아직 셀 수 없는 것」 · 「대상이 없는 것」 을 가른다(2026-11-22 — 전에는 모두 글 없는 「건너뜀」 이라
+    돌았던 검토가 「전혀 고려되지 않은」 것으로 읽혔다): 답한 기록이 있으면 끝남 + 결과 글 · 넣기 계획 전의 빈 자리는 남음 · 계획이 있고 대상이 없을 때만 「건너뜀」 + 까닭."""
+    task, pair = S.definition("plan_to_report"), fake.pair("t")
+
+    def lines():
+        ctx = S.context(task, pair, X._materials(pair, task), llm=fake.ok, skip=())
+        return {k: U.state(k, ctx, "relay") for k in ("gaps", "tableMap")}
+    fake.gaps_open = fake.maps_open = 0
+    st = lines()   # 넣기 계획 전 — 빈 자리는 아직 셀 수 없다(남음) · 못 맞춘 표는 연결 목록이 센다(없음)
+    assert st["gaps"] == {"st": "todo", "text": ""}
+    assert st["tableMap"] == {"st": "done", "skipped": True, "text": "칸을 못 맞춘 표가 없습니다 — 맞출 것이 없습니다"}
+    fake.fill_plan("t")
+    st = lines()   # 지금 계획에 빈 자리가 없다 — 대상이 없어 건너뜀(까닭 글)
+    assert st["gaps"] == {"st": "done", "skipped": True, "text": "빈 자리가 없습니다 — 검토할 것이 없습니다"}
+    fake.L["kept"].update(maps=5, gaps={"n": 19, "hit": 0})   # LLM 이 답한 기록(merge.json — 표 대응 5 · 빈 자리 검토 19곳 가운데 찾은 것 0)
+    st = lines()
+    assert st["tableMap"] == {"st": "done", "text": "표 5개의 행·열을 LLM 이 맞췄습니다"} and st["gaps"] == {"st": "done", "text": "빈 자리 19곳을 LLM 이 검토했습니다 — 사업계획서에서 찾은 것 0곳"}   # 건너뜀이 아니다
+    fake.maps_open = 2   # 답한 뒤에도 못 맞춘 표가 남음 — 할 일 + 앞서 한 것
+    fake.fill_plan("t")
+    st = lines()
+    assert st["tableMap"]["st"] == "todo" and st["tableMap"]["text"] == "칸을 못 맞춘 표 2개 — LLM 이 행·열을 맞춥니다(유료) · 앞서 표 5개의 행·열을 LLM 이 맞췄습니다"
+    fake.L["kept"] = {"applied": 3}
+    fake.maps_open, fake.filled, fake.plan = 0, {"nothing": False}, None   # 「내용 넣기」 가 끝난 뒤 · 기록 없음 · 지금 계획 없음 — 남음으로 되돌리지 않는다
+    assert lines()["gaps"] == {"st": "done", "skipped": True, "text": ""}
+
+
 def test_fill_lines_follow_the_screen_rules(fake):
     task = S.definition("plan_to_report")
     pair = fake.pair("t")

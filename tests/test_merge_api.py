@@ -170,7 +170,8 @@ def test_llm_table_pairs_are_stored_and_replaced_by_the_next_answer(client, monk
     merge_api._store(report, {**merge_api._store(report), "tables": {"tU": {"from": None, "source": "user"}}})   # 사람이 끊은 표
     seen, answers = [], [{"fixed": {"tA": {"from": "fA", "source": "llm", "reason": "같은 표", "format": ""}, "tB": {"from": "fB", "source": "llm", "reason": "같은 표", "format": "행 수가 다름"},
                                     "tU": {"from": "fU", "source": "llm", "reason": "사람이 끊은 표", "format": ""}}, "none": [], "rejected": []},
-                         {"fixed": {}, "none": [{"to": "tA", "reason": "다시 보니 다른 표"}], "rejected": [{"to": "x", "why": "y"}]}]
+                         {"fixed": {}, "none": [{"to": "tA", "reason": "다시 보니 다른 표"}], "rejected": [{"to": "x", "why": "y"}]},
+                         {"fixed": {}, "none": [], "rejected": [], "kept": ["tB"]}]
 
     def fake(to_side, from_side, pairs, to_groups, from_groups, **kw):
         seen.append(kw.get("tables"))
@@ -178,13 +179,15 @@ def test_llm_table_pairs_are_stored_and_replaced_by_the_next_answer(client, monk
     monkeypatch.setattr(merge_llm, "review", fake)
     out = client.post(f"/api/docs/{report}/merge-links/llm").json()
     assert seen == [None]   # 문서 없이 요약만 끼운 읽기(시험) — 표 자료는 안 만든다
-    assert out["llm"]["tables"] == {"paired": 3, "none": 0, "rejected": 0} and out["llm"]["guide"]["name"] == "links"
+    assert out["llm"]["tables"] == {"paired": 3, "none": 0, "rejected": 0, "kept": 0} and out["llm"]["guide"]["name"] == "links"
     saved = merge_api._store(report)["tables"]
     assert saved["tU"] == {"from": None, "source": "user"} and (saved["tA"]["from"], saved["tB"]["format"]) == ("fA", "행 수가 다름")   # 사람 것은 LLM 이 못 바꾼다
     out = client.post(f"/api/docs/{report}/merge-links/llm").json()
     saved = merge_api._store(report)["tables"]
-    assert set(saved) == {"tU", "tB"} and out["llm"]["tables"] == {"paired": 0, "none": 1, "rejected": 1}   # tA = 「같은 표 없음」 으로 지움 · tB = 이번에 답이 없어 그대로
+    assert set(saved) == {"tU", "tB"} and out["llm"]["tables"] == {"paired": 0, "none": 1, "rejected": 1, "kept": 0}   # tA = 「같은 표 없음」 으로 지움 · tB = 이번에 답이 없어 그대로
     assert merge_api._forced(merge_api._store(report), "user") == {"tU": {"from": None, "source": "user"}}
+    out = client.post(f"/api/docs/{report}/merge-links/llm").json()   # 표를 모두 읽는 검토(2026-11-22) — 스크립트가 이은 표를 LLM 이 그대로 둠(kept): 앞선 LLM 짝(다른 표로 바꿔 둔 것)은 지운다
+    assert set(merge_api._store(report)["tables"]) == {"tU"} and out["llm"]["tables"] == {"paired": 0, "none": 0, "rejected": 0, "kept": 1}
 
 
 def test_plan_apply_through_transaction(client, monkeypatch):

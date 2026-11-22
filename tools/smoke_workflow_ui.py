@@ -534,7 +534,7 @@ def main():
             doc: d.querySelector('.wf-mod span').textContent.trim().slice(0, 8), spec: d.querySelector('.wf-more dd:last-child').textContent }; }""")
         check("단계를 누르면 세부 — 하는 문서(원본 → 목적 — 사업계획서 → 연차보고서) · 문서 · 에이전트(작업 번호 09 · 자리 연결 검토(에이전트 설정 페이지 /agents#merge_links 로 가는 링크) · Opus 5.5 · 코드가 정함 · 눌러야 돎 · 역할 글) · 모듈(파일 + 설명 첫 줄) · 사양 자리",
               d["open"] and d["rows"] == ["하는 문서", "문서", "에이전트", "코드", "사양"] and d["on"] == step_of(relay, "llm", "map").get("onText") == f"원본 → 목적 — {S} → {D}" and d["ano"] == "09" and d["aname"] == "자리 연결 검토" and d["ahref"] == "/agents#merge_links" and d["model"] == "Opus 5.5" and d["how"] == "코드가 정함 · 눌러야 돎"
-              and d["role"].startswith("사업계획서") and d["mods"] == ["app/merge_llm.py", "app/merge_chunks.py", "app/merge_guides.py", "app/job_prompts.py"] and d["doc"].startswith("병합")
+              and d["role"].startswith("사업계획서") and d["mods"] == ["app/merge_llm.py", "app/merge_chunks.py", "app/merge_guides.py", "app/link_guides.py", "app/job_prompts.py"] and d["doc"].startswith("병합")
               and d["spec"] == "spec/spec_병합.md ② §4", d)
         # TASK 문서(spec_워크플로우 ② §10) — 시작 점검(진행 방식 아래 · 단계 묶음 위: 때마다 묶음 · 접힘) · 단계의 조건(세부 앞)
         en = wf.evaluate("""() => { const s = document.getElementById('plan_to_report'), box = document.getElementById('plan_to_report--entry'), head = s.querySelector('.wf-entry-head');

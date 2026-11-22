@@ -48,6 +48,7 @@ _WORD = re.compile(r"[0-9A-Za-z가-힣]")
 _PAREN = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
 _VALUED = re.compile(r"\[\s*[^\s\[\]]|[■☑☒]")   # 체크·수가 든 체크 칸
 _ANYBOX = re.compile(r"\[\s*[√✓✔vVoOxXㅇ○●■\d.]{0,4}\s*\]|[□☐■☑☒]")   # 체크 칸 — 빈 것·체크한 것·수를 적은 것(「기준[3]」). 글이 든 대괄호(「[최종목표]」)는 아니다
+_FOOT = re.compile(r"\d{1,2}(?:-\d{1,2})?\)")   # 머리 칸에 붙은 위첨자 각주 번호 「14)」·「15-1)」(글로는 이름 뒤에 붙어 읽힌다 — 이름을 견줄 때 뗀다)
 _HINT = re.compile(r"\([^()]*(?:체크|해당|작성|기재|선택|표시)[^()]*\)")   # 체크 라벨에 딸린 안내 글 「(해당항목 체크)」 — 라벨을 견줄 때 뗀다(「통합형(세부)」 의 괄호는 라벨의 일부라 안 뗀다)
 
 
@@ -158,7 +159,7 @@ def _table_pairs(T, F, forced=None, full=False):
         if t["id"] not in T["idx"]:
             continue
         free, s, own, ct = _free(T, t), set(_head_shapes(T, t)), _owner(t), _ctx(T, t)
-        if not free or len(s) < 2:
+        if not free or (len(s) < 2 and t["id"] not in forced):   # 머리 꼴이 둘 미만인 표는 스크립트가 견줄 것이 없다 — LLM·사람이 정한 짝(forced)이 있을 때만 줄을 낸다(review_tables 가 그 표도 LLM 에 보인다)
             continue
         if not full and t["id"] in T["cov"] and not any(MT._empty(_text(T, c["id"])) for c, _ in free):
             continue   # 기관·차년도 절 안의 표인데 빈 칸이 없다(본문 넣기로 통째로 온 표 등) — 넣을 것이 없다
@@ -346,11 +347,14 @@ def _hash(src):
     return hashlib.sha256(json.dumps([MF._hash(src), media], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
-def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=None, skip=(), take=None):
+def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=None, skip=(), take=None, orig=None):
     """고정 자리 넣기 계획(모듈 설명) — 문서를 안 고친다. tables_plan = 같은 차례에 세운 merge_tables.plan(그 칸은 건너뛰고, 계산 칸의 피연산자가 넣은 뒤 무슨 글이 되는지 본다).
     forced = LLM 검토·사람이 정한 표 짝(_table_pairs — merge.json `tables`). 표 줄 = {to, from, score, status, source(script|llm|user), reason, why(맥락이 달라 못 이음 org|year | None),
-    title, fromTitle, ctx{org, year}, cands[{from, score, overlap}], cells, skipped, flow}."""
+    title, fromTitle, ctx{org, year}, cands[{from, score, overlap}], cells, skipped, flow}.
+    orig = 목적 문서로 올린 원본이 **등록된 빈 양식**일 때 그 원본의 표 칸 {칸 id: {text, …}}(merge_api._orig — 표 대응의 예시 판정과 같은 것) | None: 짝지은 값 칸의 글이 빈 양식의 글 그대로면
+    (서식의 예시 · 틀 — 「1순위 소분류 명칭」 · 「총    천원 (정부지원연구개발비 :  천원 …」 · 「(우)」) 사람이 쓴 글이 아니라 원본 글로 바꾼다(mode form). None 이면 전처럼 글이 든 칸은 안 덮는다."""
     applied = applied or {}
+    asis = lambda cid, cur: bool(orig) and cid in orig and P._ws(orig[cid].get("text") or "") == P._ws(cur)  # noqa: E731 — 올린 빈 양식의 글 그대로(2026-11-22 — 실제 이관 7cfb2957f487 의 요약문 기술분류 · 총 연구개발비 · 표지 주소)
     T, F = sides or (_side(to_side), _side(from_side))   # sides = 이미 읽어 둔 두 쪽(merge_api — 표 대응 계획 merge_table_map 과 같이 쓴다) · skip = 표 대응이 통째로 맡은 목적 표 id(② §5-3 2 — 그 표의 칸은 여기서 안 낸다)
     cells, calc, labels, skipped, tables, paired = [], [], [], [], [], set()
     after = {c["to"]: c["text"] for c in (tables_plan or {}).get("cells") or ()}
@@ -396,7 +400,7 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
                 box = None if have else _checked_into(cur, new)   # 목적 칸에 이미 체크·수가 있으면 안 건드린다
                 mode, new = ("form", box) if box is not None else (None, new)
             else:
-                mode = "empty" if MT._empty(cur) else "form" if _skeleton(cur, new) else None
+                mode = "empty" if MT._empty(cur) else "form" if _skeleton(cur, new) or asis(c["id"], cur) else None
             if mode is None:
                 skipped.append({"to": c["id"], "table": tp["to"], "why": "occupied", "detail": f"목적 칸에 「{P._ws(cur)[:30]}」 — 원본 「{P._ws(new)[:30]}」"})
                 continue
@@ -420,6 +424,33 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
     for row in tables:
         row["cells"], row["skipped"] = per.get(row["to"], 0), row["skipped"] + per_skip.get(row["to"], 0)
 
+    def put(t, frm, blocks, in_cell):
+        """라벨 t 의 내용으로 원본 블록들(blocks — 자리표시 줄 · 앞뒤 빈 줄은 뺀다)을 넣는 항목 하나를 labels 에 적는다. frm = 원본 쪽 자리(라벨 id · 4-1 은 원본 칸 id) · in_cell = 칸 안 라벨인가."""
+        src = [b for b in blocks if not MF._placeholder(b)]
+        while src and MF._blank(src[0]):
+            src.pop(0)
+        while src and MF._blank(src[-1]):
+            src.pop()
+        if not src:
+            return
+        title = P._ws(f"{t.get('letter') or ''} {t.get('text') or ''}")[:P.TEXT_MAX]
+        row = {"group": None, "value": title, "title": title, "to": t["id"], "from": frm, "anchor": t["id"], "anchorText": title, "src": [b["id"] for b in src], "blocks": len(src),
+               "paragraphs": 0, "tables": 0, "pictures": 0, "placeholders": [], "hash": _hash(src), "skip": None, "detail": ""}
+        row["paragraphs"], row["tables"], row["pictures"] = MF._count(src)
+        labels.append(row)
+        place = _slot(T, t["id"])
+        if t["id"] in applied:
+            same = applied[t["id"]].get("hash") == row["hash"]
+            row.update(skip="applied" if same else "changed", detail="" if same else "원본 바뀜 — 다시 넣지 않음")
+        elif not in_cell and t["id"] in T["parents"]:
+            row.update(skip="occupied", detail="아래에 소제목이 있는 자리 — 넣지 않음")
+        elif any(b.get("type") == "table" for b in place):
+            row.update(skip="tables", detail="넣을 자리에 양식 표 — 넣지 않음")
+        elif hit := next((b for b in place if not (MF._blank(b) or MF._placeholder(b) or (b.get("text") or "").lstrip().startswith("※"))), None):
+            row.update(skip="occupied", detail=P._ws(hit.get("text"))[:P.TEXT_MAX] or "그림")
+        else:
+            row["placeholders"] = [b["id"] for b in place if MF._placeholder(b)]
+
     fkeys = _labels(F)   # 4. 라벨 내용 — 제목(과 조상 사슬)이 같은 라벨: 칸 안은 짝지은 칸끼리, 칸 밖은 두 문서에서 하나씩
     for key, ts in _labels(T).items():
         fs = fkeys.get(key) or ()
@@ -432,36 +463,33 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
             t, f = ts[0], fs[0]
         else:
             continue
-        src = [b for b in _slot(F, f["id"]) if not MF._placeholder(b)]
-        while src and MF._blank(src[0]):
-            src.pop(0)
-        while src and MF._blank(src[-1]):
-            src.pop()
-        if not src:
-            continue
-        title = P._ws(f"{t.get('letter') or ''} {t.get('text') or ''}")[:P.TEXT_MAX]
-        row = {"group": None, "value": title, "title": title, "to": t["id"], "from": f["id"], "anchor": t["id"], "anchorText": title, "src": [b["id"] for b in src], "blocks": len(src),
-               "paragraphs": 0, "tables": 0, "pictures": 0, "placeholders": [], "hash": _hash(src), "skip": None, "detail": ""}
-        row["paragraphs"], row["tables"], row["pictures"] = MF._count(src)
-        labels.append(row)
-        place = _slot(T, t["id"])
-        if t["id"] in applied:
-            same = applied[t["id"]].get("hash") == row["hash"]
-            row.update(skip="applied" if same else "changed", detail="" if same else "원본 바뀜 — 다시 넣지 않음")
-        elif key[0] != "cell" and t["id"] in T["parents"]:
-            row.update(skip="occupied", detail="아래에 소제목이 있는 자리 — 넣지 않음")
-        elif any(b.get("type") == "table" for b in place):
-            row.update(skip="tables", detail="넣을 자리에 양식 표 — 넣지 않음")
-        elif hit := next((b for b in place if not (MF._blank(b) or MF._placeholder(b) or (b.get("text") or "").lstrip().startswith("※"))), None):
-            row.update(skip="occupied", detail=P._ws(hit.get("text"))[:P.TEXT_MAX] or "그림")
-        else:
-            row["placeholders"] = [b["id"] for b in place if MF._placeholder(b)]
+        put(t, f["id"], _slot(F, f["id"]), key[0] == "cell")
+    # 4-1. 머리 이름과 같은 라벨(2026-11-22 사용자 "요약문의 최종목표가 들어가 있지 않았어" — 실제 이관 7cfb2957f487): 짝지은 칸 쌍에서 목적 칸에는 그 칸의 머리 이름과 같은 제목의 라벨이 있는데
+    #      (「최종 목표」 칸의 「[최종목표]」 — 그 아래 「[N차년도 목표]」 는 구분 기준 자리) 원본 칸에는 라벨 없이 내용만 있으면, 원본 칸의 내용 전체가 그 라벨의 내용이다.
+    #      위 4 는 두 문서에 같은 제목의 라벨이 있을 때만 잇고 3 은 라벨 줄이 든 칸을 건너뛰어, 이 꼴은 어느 길도 안 넣었다(빈 자리 검토도 칸 안 라벨 줄은 안 묻는다).
+    done = {r["to"] for r in labels}
+    nodes_in = {id(S): defaultdict(list) for S in (T, F)}
+    for S in (T, F):
+        for n in S["nodes"]:
+            if n["id"] in S["heads"] and n["id"] in S["idx"] and (cid := _cell_of(n)):
+                nodes_in[id(S)][cid].append(n)
+    tcell = {c["id"]: c for t in T["tables"] for c in t["cells"]}
+    word = lambda i: "".join(_WORD.findall(_FOOT.sub("", _text(T, i))))  # noqa: E731 — 머리 칸의 이름(위첨자 각주 번호 「14)」 는 뗀다)
+    for cid, sid in sorted(paired):
+        rec = tcell.get(cid) or {}
+        names = {word(p[-1]) for p in (rec.get("rowPath") or (), rec.get("colPath") or ()) if p} - {""}
+        hits = [n for n in nodes_in[id(T)].get(cid, ()) if n["id"] not in T["cov"] and _title(n) in names]
+        if len(hits) != 1 or hits[0]["id"] in done:
+            continue   # 머리 이름과 같은 라벨이 없거나 둘 · 위 4 가 이미 다룬 라벨
+        if any(n.get("role") != "heading" or n["id"] in F["cov"] or _title(n) in names for n in nodes_in[id(F)].get(sid, ())):
+            continue   # 원본 칸에 라벨 · 소제목 · 구분 기준 자리가 있다 — 칸 전체가 그 라벨 하나의 내용이 아니다(개요 줄 「o」·「-」 뿐인 칸만)
+        put(hits[0], sid, (F["idx"].get(sid) or {}).get("blocks") or (), True)
     todo = [r for r in labels if r["skip"] is None]
     why = Counter(s["why"] for s in skipped)
     counts = {"tables": sum(t["status"] == "paired" for t in tables), "tablesAmbiguous": sum(t["status"] == "ambiguous" for t in tables),
               "tablesLlm": sum(t["status"] == "paired" and t["source"] == "llm" for t in tables),
               "scoped": sum(t["status"] == "paired" and any(v is not None for v in t["ctx"].values()) for t in tables),   # 기관·차년도 절 안에서 이은 표
-              "tablesOpen": sum(t["status"] != "paired" and t["source"] == "script" and bool(t["cands"]) for t in tables),   # 후보는 있는데 못 정한 표 — LLM 검토 대상
+              "tablesOpen": sum(t["status"] != "paired" and t["source"] == "script" and t["why"] != "outside" for t in tables),   # 스크립트가 같은 표를 못 정한 표 — LLM 검토 대상(후보가 없는 표도: LLM 이 원본 표를 모두 읽고 정한다 — review_tables · 「넣을 구성 선택」 밖의 표는 뺌)
               "cells": len(cells), "form": sum(c["mode"] == "form" for c in cells), "calc": sum(c["calc"] for c in cells),
               "labels": len(todo), "blocks": sum(r["blocks"] for r in todo), "pictures": sum(r["pictures"] for r in todo), "flow": sum(bool(t["flow"]) for t in tables),
               "skipped": {k: why.get(k, 0) for k in WHY}}
@@ -500,30 +528,50 @@ def apply(to_doc, from_doc, plan):
             "dropped": lab["dropped"], "skipped": skipped}
 
 
-def review_tables(to_side, from_side, forced=None):
-    """LLM 표 짝 검토(merge_llm.review 의 tables)에 보낼 자료 → {"targets": [...], "sources": [...], "open": 후보가 있는데 못 정한 목적 표 수}.
-    targets = 스크립트가 같은 표를 못 정한 목적 표(status none·ambiguous — forced 로 사람이 정한 표는 뺌) 가운데 후보(_table_pairs 의 cands — 머리가 겹치고 맥락이 안 어긋나는 원본 표)가 있는 것:
-    {key(표 id), title, path(소속 제목 꼴, 바깥 → 안), ctx{org, year}, heads(머리 칸 꼴), shape{rows, cols, splits}, status, why, candidates[{key, score}]}. sources = 후보로 든 원본 표(같은 꼴, status·why·candidates 없음).
-    forced 에는 **사람이 정한 것만** 넘긴다 — 앞선 LLM 짝은 다시 검토 대상이 된다(다시 검토)."""
-    T, F = _side(to_side), _side(from_side)
-    ftabs = {f["id"]: f for f in F["tables"]}
+REVIEW_HEADS, REVIEW_SRC_HEADS, REVIEW_HEAD_LEN = 24, 12, 20   # LLM 표 짝 검토 자료 — 표마다 싣는 머리 꼴 수(목적 표 · 원본 표: 원본은 문서의 표 전부라 줄인다) · 머리 꼴 하나의 글자 수
+REVIEW_PATH, REVIEW_SRC_PATH, REVIEW_SRC_PATH_LEN = 4, 3, 40    # 소속 경로의 단계 수(목적 표 · 원본 표) · 원본 표 경로 한 단계의 글자 수
 
-    def brief(S, side, t):
+
+def review_tables(to_side, from_side, forced=None):
+    """LLM 표 짝 검토(merge_llm.review 의 tables)에 보낼 자료 → {"targets": [...], "sources": [...], "open": 스크립트가 같은 표를 못 정한 목적 표 수}.
+    **LLM 이 표를 모두 읽고 짝을 정한다**(2026-11-22 사용자 "테이블 매칭을 LLM이 모두 읽고 하길 바램" — spec_병합 ② §5-1 「표 짝 검토」. 전에는 후보(cands)가 있는 목적 표와 후보로 든 원본 표만
+    보냈다: 후보 문턱(머리 꼴 3개 겹침 · 품음 0.4)에 못 든 표는 LLM 이 보지도 못했다).
+    targets = **남는 칸이 있는 목적 표 전부**(forced 로 사람이 정한 표만 뺌): 스크립트가 못 정한 표(status none·ambiguous — 후보가 없어도 · 머리는 같은데 맥락이 다른 표 why 도) ·
+      스크립트가 이은 표(status paired + paired = 그 원본 표 id — LLM 이 확인한다) · 머리 꼴이 둘 미만이라 표 짝 줄에 못 든 표(status none):
+      {key(표 id), title, path(소속 제목 꼴, 바깥 → 안), ctx{org, year}, heads(머리 칸 꼴), shape{rows, cols, splits}, status, why, candidates[{key, score}](스크립트의 참고 — 비어 있을 수 있다), paired?}.
+    sources = **원본 문서의 표 전부**(같은 꼴의 설명 — status·why·candidates 없음 + form = 머리 꼴·소속 제목 꼴이 같은 표끼리 같은 값 | None: 기관마다·차년도마다 되풀이되는 표를 merge_llm 이 한 줄로 묶어 보낸다).
+    forced 에는 **사람이 정한 것만** 넘긴다 — 앞선 LLM 짝은 다시 검토 대상이 된다(다시 검토)."""
+    forced = forced or {}
+    T, F = _side(to_side), _side(from_side)
+
+    def brief(S, side, t, heads, path=REVIEW_PATH, path_len=P.TEXT_MAX):
         cells = S["idx"][t["id"]].get("cells") or ()
         flow = side["doc"].table_flow(t["id"]) or {}
         own = t.get("owner") or {}
-        return {"key": t["id"], "title": P._ws(_title_of(S, t))[:P.TEXT_MAX], "path": [p for p in (P._shape(x, S["org_names"]) for x in own.get("path") or ()) if p][-4:],
-                "ctx": _ctx(S, t), "heads": sorted(_head_shapes(S, t))[:24],
+        return {"key": t["id"], "title": P._ws(_title_of(S, t))[:P.TEXT_MAX], "path": [p[:path_len] for p in (P._shape(x, S["org_names"]) for x in own.get("path") or ()) if p][-path:],
+                "ctx": _ctx(S, t), "heads": [h[:REVIEW_HEAD_LEN] for h in sorted(_head_shapes(S, t))[:heads]],
                 "shape": {"rows": max((c["row"] + c.get("rowSpan", 1) for c in cells), default=0), "cols": max((c["col"] + c.get("colSpan", 1) for c in cells), default=0),
                           "splits": bool(flow.get("splits"))}}
-    ttabs = {t["id"]: t for t in T["tables"]}
-    targets, want = [], []
-    for tp in _table_pairs(T, F, forced):
-        if tp["status"] == "paired" or tp["source"] != "script" or not tp["cands"]:
+
+    def form(f):   # 같은 꼴 표의 열쇠 — 머리 꼴 묶음 + 소속 제목 꼴(기관 이름 뗌). 머리 꼴이 둘 미만이면 묶지 않는다
+        s = sorted(_head_shapes(F, f))
+        return hashlib.sha1(json.dumps([P._shape((f.get("owner") or {}).get("text") or "", F["org_names"]), s], ensure_ascii=False).encode("utf-8")).hexdigest()[:10] if len(s) >= 2 else None
+    rows = {tp["to"]: tp for tp in _table_pairs(T, F, forced)}
+    targets = []
+    for t in T["tables"]:   # 문서 차례
+        if t["id"] not in T["idx"] or t["id"] in forced:
             continue
-        targets.append({**brief(T, to_side, ttabs[tp["to"]]), "status": tp["status"], "why": tp["why"], "candidates": [{"key": c["from"], "score": c["score"]} for c in tp["cands"]]})
-        want += [c["from"] for c in tp["cands"]]
-    return {"targets": targets, "sources": [brief(F, from_side, ftabs[k]) for k in dict.fromkeys(want) if k in ftabs and k in F["idx"]], "open": len(targets)}
+        tp = rows.get(t["id"])
+        if tp is None:   # 표 짝 줄에 못 든 표 — 남는 칸이 있는데 머리 꼴이 둘 미만인 표만 싣는다(남는 칸이 없는 표 · 넣을 것이 없는 절 안의 표는 물을 것이 없다)
+            if _free(T, t) and len(_head_shapes(T, t)) < 2:
+                targets.append({**brief(T, to_side, t, REVIEW_HEADS), "status": "none", "why": None, "candidates": []})
+            continue
+        if tp["source"] != "script":
+            continue
+        targets.append({**brief(T, to_side, t, REVIEW_HEADS), "status": tp["status"], "why": tp["why"], "candidates": [{"key": c["from"], "score": c["score"]} for c in tp["cands"]],
+                        **({"paired": tp["from"]} if tp["status"] == "paired" else {})})
+    sources = [{**brief(F, from_side, f, REVIEW_SRC_HEADS, REVIEW_SRC_PATH, REVIEW_SRC_PATH_LEN), "form": form(f)} for f in F["tables"] if f["id"] in F["idx"]]
+    return {"targets": targets, "sources": sources, "open": sum(t["status"] != "paired" for t in targets)}
 
 
 def pairs(to_side, from_side, forced=None):

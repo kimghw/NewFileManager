@@ -1203,12 +1203,12 @@ function taskSteps() { // 이관의 단계 → [{key, name, done, soon?, text, a
     else {
       // 강조 단추 = 다음 할 일(2026-11-11 사용자 "이 다음이 LLM 검토라는걸 내가 어떻게 아냐?"): 확인 필요가 있고 LLM 검토를 아직 안 했으면 「LLM 검토」 가 앞·강조.
       // LLM 검토를 한 번 했으면 확인 필요가 남아도 ② 는 끝난 것(같은 날 사용자 "다 매칭될 필요는 없고 … 각 기관들이 또 작성을 할거야" — 남은 자리는 안 넣고 비워 둔다) — 강조는 ③ 「넣기 계획」 몫(카드에 강조 단추 하나)
-      const first = !!L.counts.ambiguous && !L.llm, busy = taskFlow.llmBusy || taskFlow.linkBusy, openT = linksOpenTables(L); // openT = 후보는 있는데 같은 표인지 못 정한 표(LLM 검토가 본다 — spec_병합 ② §5-1 「표 짝 검토」)
+      const first = !!L.counts.ambiguous && !L.llm, busy = taskFlow.llmBusy || taskFlow.linkBusy, openT = linksOpenTables(L); // openT = 스크립트가 같은 표인지 못 정한 표(후보가 없어도 — LLM 검토가 본다: spec_병합 ② §5-1 「표 짝 검토」)
       const list = hBtn("연결 목록", () => linksList(), { title: "문서 옆 열에 연결 목록을 엽니다 — 확인 필요한 자리의 원본을 후보에서 고를 수 있습니다(안 골라도 됩니다)" });
       const hint = busy ? "" : first ? " — 다음: 「LLM 검토」 로 확인 필요한 자리를 정리합니다" : L.counts.ambiguous ? ` — 남은 확인 필요 ${L.counts.ambiguous}곳은 넣지 않고 비워 둡니다(각 기관이 작성 · 고르려면 「연결 목록」)` : openT && !L.llm ? ` — 같은 표인지 못 정한 표 ${openT}개(「LLM 검토」 가 기관·차년도를 가려 봅니다)` : "";
       const old = !busy && taskHeadsOld(report) ? ` · 구조 반영으로 늘어난 절·표는 헤딩·표 분석에 아직 없습니다(${taskHasStage("frame") ? `${taskStageName("frame")} 의 ` : ""}「다시 문서 검토」)` : ""; // 새 표가 있다는 알림만(다시 하라고 다그치지 않는다 — 그 줄이 맡는다: §21)
       const guide = PEEK ? [] : [llmGuideBtn("merge-links", report.id), // 이 LLM 검토에 보내는 지침·TASK 프롬프트·마지막 프롬프트 보기(2026-11-12 사용자 — 목록이 나온 뒤면 늘 보인다 · 강조 아님)
-        hBtn(`연결 코멘트${(L.comments || []).length ? ` ${L.comments.length}` : ""}`, () => linkNotes(), { title: "어느 표·단락을 사업계획서의 어디와 이을지 글로 남깁니다 — 연차보고서 양식 정보의 「자리 연결」 절에 쌓이고 LLM 검토·표 대응이 읽습니다(문서 옆 열)" })]; // 연결 코멘트(spec_병합 ② §5-3 1 — 2026-11-12 사용자 "어디어디 테이블이나 단락을 연결해 주라고 코멘트를")
+        hBtn("매칭 지침", () => linkGuidesOpen(report), { title: "표 · 본문 자리마다 사업계획서의 어디와 어떻게 이을지 적어 둔 지침을 보고 고칩니다 — 연차보고서 양식 정보의 「자리 연결」 절에 저장되고 LLM 검토(자리 연결 · 표 대응 · 빈 자리)가 그 자리를 볼 때 읽습니다(문서 옆 열 · 연결 코멘트도 거기)" })]; // 매칭 지침(spec_병합 ② §5-6 — 2026-11-22 사용자 "테이블, 본문별로 어떻게 매칭해야하는지 지침을 관리하고" · 전의 「연결 코멘트」 단추: 2026-11-12 "어디어디 테이블이나 단락을 연결해 주라고 코멘트를")
       // LLM 을 쓸 수 없으면 「건너뜀」 으로 끝(남은 확인 필요는 비워 둔다 — 서버 실행기의 상태 식 workflow_units._link 과 같다: 막다른 길을 만들지 않는다)
       const off = !!L.counts.ambiguous && !L.llm && taskLlmOk === false;
       Object.assign(link, { done: !L.counts.ambiguous || !!L.llm || off, skipped: off, skipWord: "건너뜀", text: linksCountText(L) + linksLlmText(L) + (taskFlow.llmBusy ? " · LLM 검토 중…" : taskFlow.linkBusy ? " · 읽는 중…" : "")
@@ -1286,7 +1286,7 @@ const linksSameTables = (L) => { // 같은 표로 이은 표 짝(fixed.counts.ta
   const c = ((L && L.fixed) || {}).counts || {};
   return c.tables ? ` · 같은 표 ${c.tables}${c.tablesLlm ? `(LLM ${c.tablesLlm})` : ""}` : "";
 };
-const linksOpenTables = (L) => (((L && L.fixed) || {}).counts || {}).tablesOpen || 0; // 머리가 겹치는 원본 표는 있는데 스크립트가 같은 표로 못 정한 목적 표 수
+const linksOpenTables = (L) => (((L && L.fixed) || {}).counts || {}).tablesOpen || 0; // 스크립트가 같은 표로 못 정한 목적 표 수(후보가 없는 표도 — LLM 검토가 원본 표를 모두 읽고 정한다: spec_병합 ② §5-1 「표 짝 검토」 2026-11-22)
 const linksMapOpen = (L) => (((L && L.fixed) || {}).counts || {}).mapOpen || 0; // 같은 표로 이었는데 행·열 머리가 달라 칸을 못 맞춘 표 수 — 표 대응(LLM)이 맞춘다(spec_병합 ② §5-3)
 const linksMapN = (L) => (((L && L.fixed) || {}).counts || {}).maps || 0; // 표 대응이 맡은 표 수
 const linksCountText = (L) => Object.keys(LINK_STATUS).map((k) => `${LINK_STATUS[k]} ${L.counts[k] || 0}`).join(" · ") + (L.fixed ? ` · 같은 이름 자리 ${linksFixedErr(L) ? "못 셈" : linksFixedN(L)}` : "") + linksSameTables(L);
@@ -1393,7 +1393,7 @@ function linksList(keep = false) { // 2열 「자리 연결 — 연결 목록」
 const linksLlmText = (L) => (!L.llm ? "" : ` · LLM 검토함(${L.llm.units.filter((u) => u.call).length}단위${L.llm.units.some((u) => u.call && u.call.error) ? " — 일부 실패" : ""}${L.llm.tables && (L.llm.tables.paired || L.llm.tables.none) ? ` · 표 ${L.llm.tables.paired}개 이음 · ${L.llm.tables.none}개 비움` : ""}${L.llm.job ? " · 워크플로우 프롬프트 함께 보냄" : ""})`); // job = 함께 보낸 TASK 프롬프트(jobs/<할 일 키>.md — spec_작업 ② §13)
 function linksLlmBtn(L, primary = false) { // primary = 지금 할 일(확인 필요가 있고 아직 검토 전 — taskSteps ②)
   return hBtn(taskFlow.llmBusy ? "LLM 검토 중…" : L.llm ? "LLM 다시 검토" : "LLM 검토", () => linksLlm(), { cls: "btn sm" + (primary ? " primary" : ""), disabled: !!(taskFlow.llmBusy || taskFlow.linkBusy),
-    title: "못 정한 자리(확인 필요·후보 없음)와 못 정한 표(같은 표인지 · 어느 기관·차년도의 표인지)를 연차보고서의 챕터별(20쪽 이내)로 나눠 LLM(Opus)에 묻습니다 — 수십 초. 사람이 고른 연결은 안 바꾸고, LLM 이 이은 것은 「LLM」 꼬리표로 보입니다. 판단 기준은 「지침」 에서 봅니다" });
+    title: "못 정한 자리(확인 필요·후보 없음)와 표(같은 표인지 · 어느 기관·차년도의 표인지 — 두 문서의 표를 모두 읽고 정합니다)를 연차보고서의 챕터별(20쪽 이내)로 나눠 LLM(Opus)에 묻습니다 — 수십 초~1·2분. 사람이 고른 연결은 안 바꾸고, LLM 이 이은 것은 「LLM」 꼬리표로 보입니다. 판단 기준은 「지침」 에서 봅니다" });
 }
 async function linksLlm() {
   const report = taskSlotDoc("report"), flow = taskFlow;
@@ -1550,13 +1550,15 @@ const FILL_SKIP = { outside: "고르지 않은 구성", noSource: "원본 없음
 const FILL_MODE = { fixed: "정해진 자리", append: "이어 넣기" };
 const fillFixedText = (c) => (c ? ` · 같은 이름 자리 — 칸 ${c.cells || 0} · 라벨 내용 ${c.labels || 0}${c.pictures ? `(그림 ${c.pictures})` : ""}${c.flow ? ` · 표 쪽 나눔 맞춤 ${c.flow}` : ""}` : ""); // 고정 자리(spec_병합 ② §5-1) — 서버가 fixed 를 줄 때만
 const fillMapText = (c) => (c && c.tables ? ` · 표 대응 — 표 ${c.tables} · 칸 ${c.cells || 0}${c.lines ? ` · 일정 선 ${c.lines}` : ""}${c.rows ? ` · 행 추가 ${c.rows}` : ""}` : ""); // 표 대응(spec_병합 ② §5-3)이 맡은 표의 몫
-const fillGapText = (c) => (c && (c.cells || c.lines) ? ` · 빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}` : ""); // 빈 자리 검토(spec_병합 ② §5-4)가 원본 줄을 찾은 자리
-const fillCountText = (p) => `본문 ${p.body.counts.todo || 0}항목 · 표 칸 ${p.tables.counts.cells || 0} · 행 추가 ${p.tables.counts.rows || 0}` + fillFixedText(p.fixed && p.fixed.counts) + fillMapText(p.maps && p.maps.counts) + fillGapText(p.gaps && p.gaps.counts) + (p.todo ? "" : " — 넣을 것 없음");
+const fillGapText = (c) => (c && (c.cells || c.lines || c.blocks) ? ` · 빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}${c.blocks ? ` · 라벨 아래 내용 ${c.blocks}` : ""}` : ""); // 빈 자리 검토(spec_병합 ② §5-4)가 원본 줄을 찾은 자리 · blocks = 라벨 줄 아래에 넣는 내용(② §5-6)
+const fillSchedText = (c) => (c && c.tables ? ` · 일정 표 — 항목 ${(c.write || 0) + (c.rows || 0)}${c.rows ? `(행 추가 ${c.rows})` : ""}${c.done ? ` · 이미 있음 ${c.done}` : ""}` : ""); // 월별 일정 표(spec_병합 ② §5-7 — 스크립트): 그 차년도의 일정 표들에서 넣을 항목
+const fillCountText = (p) => `본문 ${p.body.counts.todo || 0}항목 · 표 칸 ${p.tables.counts.cells || 0} · 행 추가 ${p.tables.counts.rows || 0}` + fillFixedText(p.fixed && p.fixed.counts) + fillMapText(p.maps && p.maps.counts) + fillSchedText(p.sched && p.sched.counts) + fillGapText(p.gaps && p.gaps.counts) + (p.todo ? "" : " — 넣을 것 없음");
 const fillDoneText = (r) => `본문 블록 ${(r.body || {}).blocks || 0} · 표 칸 ${(r.tables || {}).filled || 0} · 행 추가 ${(r.tables || {}).rowsAdded || 0} · 템플릿 변환 ${(r.converted || {}).converted || 0}줄`
   + ((r.converted || {}).over ? ` · 넘친 레벨 ${r.converted.over}줄` : "") // 자리 템플릿보다 깊어 넘친 개요 줄(덮은 템플릿 그대로면 원본 모양 — spec_병합 ② §5-5)
   + (r.fixed ? ` · 같은 이름 자리 — 칸 ${r.fixed.filled || 0} · 라벨 내용 ${(r.fixed.labels || {}).items || 0}(블록 ${(r.fixed.labels || {}).blocks || 0})` : "")
   + ((r.maps || {}).filled || (r.maps || {}).lines || (r.maps || {}).rowsAdded ? ` · 표 대응 — 칸 ${r.maps.filled || 0}${r.maps.lines ? ` · 일정 선 ${r.maps.lines}` : ""}${r.maps.rowsAdded ? ` · 행 추가 ${r.maps.rowsAdded}` : ""}` : "")
-  + ((r.gaps || {}).cells || (r.gaps || {}).lines ? ` · 빈 자리 — 칸 ${r.gaps.cells || 0} · 줄 ${r.gaps.lines || 0}` : "")
+  + ((r.sched || {}).filled || (r.sched || {}).rowsAdded ? ` · 일정 표 — 칸 ${r.sched.filled || 0} · 일정 선 ${r.sched.lines || 0}${r.sched.rowsAdded ? ` · 행 추가 ${r.sched.rowsAdded}` : ""}` : "") // 월별 일정 표(② §5-7)
+  + ((r.gaps || {}).cells || (r.gaps || {}).lines || (r.gaps || {}).blocks ? ` · 빈 자리 — 칸 ${r.gaps.cells || 0} · 줄 ${r.gaps.lines || 0}${r.gaps.blocks ? ` · 라벨 아래 내용 ${r.gaps.blocks}` : ""}` : "")
   + ((r.tables || {}).shaped || (r.fixed || {}).shaped || (r.maps || {}).shaped ? ` · 칸 서식 맞춤 ${((r.tables || {}).shaped || 0) + ((r.fixed || {}).shaped || 0) + ((r.maps || {}).shaped || 0)}칸` : "") // 원본 칸의 글자 모양·문단 모양을 입힌 칸(spec_병합 ② §5 「칸 서식」)
   + ((r.fixed || {}).flowed ? ` · 표 쪽 나눔 맞춤 ${r.fixed.flowed}` : "") + (((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0) ? ` · 그림 폭 맞춤 ${((r.fixed || {}).fitted || 0) + ((r.body || {}).fitted || 0)}` : "")
   + (((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0) ? ` · 반영 때 건너뜀 ${((r.tables || {}).skipped || 0) + ((r.fixed || {}).skipped || 0)}(계획 뒤 글이 생긴 칸 등)` : "")
@@ -1631,13 +1633,26 @@ function fillList() { // 2열 「넣기 계획」(kind "fill") — 본문 항목
     for (const id of p.maps.open || []) row(b4, [[`표 — ${id}`], ["—"], ["같은 표로 이었지만 행·열 구성이 달라 칸을 못 맞춤 — 「표 대응(LLM)」 이 맞춥니다"]], id, true);
     body.append(el("div", "lk-cap", `표 대응 — 표 ${c.tables || 0} · 칸 ${c.cells || 0}${c.lines ? ` · 일정 선 ${c.lines}` : ""}${c.rows ? ` · 행 추가 ${c.rows}` : ""}${c.open ? ` · 대응이 필요한 표 ${c.open}` : ""}${why4 ? ` · 못 넣음: ${why4}` : ""}`), t4);
   }
+  if (p.sched && p.sched.tables.length) { // 일정 표(spec_병합 ② §5-7) — 월별 일정 표를 스크립트로: 그 차년도의 원본 일정 표들(기관마다) → 항목 · 계획 선 · 실적 선(LLM 없음)
+    const c = p.sched.counts, [t6, b6] = hTable(["일정 표(스크립트)", "사업계획서의 표", "넣을 것", "상태"]);
+    t6.classList.add("lk-table");
+    for (const t of p.sched.tables) {
+      const n = (t.write || 0) + (t.grow || 0);
+      row(b6, [[`표 — ${t.title || t.to}`, null, `${t.year}차년도의 일정 — 「${t.plan}」 선${t.result ? ` · 「${t.result}」 선도 같게` : ""}`],
+        [t.sources.map((x) => `${x.org || x.title} ${x.items}`).join(" · "), null, t.sources.map((x) => `${x.title} — 항목 ${x.items}${x.note ? `\n  ${x.note}` : ""}`).join("\n")],
+        [`항목 ${t.items}${t.grow ? ` · 행 추가 ${t.grow}` : ""}`, "lk-nw"],
+        [(n ? `넣음 ${n}` : "넣을 것 없음") + (t.done ? ` · 이미 있음 ${t.done}` : "") + (t.cleared ? ` · 예시 지움 ${t.cleared}` : "") + (t.skipped ? ` · 못 넣음 ${t.skipped}` : ""), null, "이름이 이미 있는 항목은 건드리지 않습니다(사람이 고친 선 · 달성도를 덮지 않음)"]], t.to, !n);
+    }
+    for (const s of p.sched.skipped || []) row(b6, [["표", "muted"], [""], ["—"], [s.detail]], s.table || null, true);
+    body.append(el("div", "lk-cap", `일정 표 — 표 ${c.tables || 0} · 항목 ${c.items || 0}${c.rows ? ` · 행 추가 ${c.rows}` : ""}${c.done ? ` · 이미 있음 ${c.done}` : ""}${p.sched.error ? ` · 읽지 못함: ${p.sched.error}` : ""}`), t6);
+  }
   if (p.gaps && (p.gaps.items.length || p.gaps.counts.open)) { // 빈 자리(spec_병합 ② §5-4) — 다른 길이 못 채운 칸·라벨 줄에 LLM 이 고른 사업계획서 줄의 글(그대로). 빈 표에 고른 원본 표는 위 「같은 이름 자리」·「표 대응」 줄에 든다
     const GK = { occupied: "이미 글이 있음", noSource: "원본 줄에 옮길 글이 없음", long: "내용이 길다 — 기관이 작성", object: "표·그림이 든 내용 — 기관이 작성", year: "차년도가 다른 내용", org: "기관이 다른 내용", done: "이미 넣음" };
     const c = p.gaps.counts, [t5, b5] = hTable(["빈 자리", "사업계획서의 자리", "넣을 것", "상태"]);
     t5.classList.add("lk-table");
     for (const it of p.gaps.items) row(b5, [[`${it.kind === "cell" ? "칸" : "줄"} — ${it.label || it.to}`], [it.fromText || it.from || "", null, "줄을 누르면 연차보고서의 그 자리로 갑니다"], [it.skip ? "—" : `${it.lines}줄`, "lk-nw"], [it.skip ? GK[it.skip] || it.skip : "넣음", null, it.detail || ""]], it.to, !!it.skip);
     if (!p.gaps.items.length) row(b5, [[c.open ? "아직 묻지 않았습니다 — 「빈 자리 검토(LLM)」" : "원본을 찾은 빈 자리가 없습니다"]], null, true);
-    body.append(el("div", "lk-cap", `빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}${c.tables ? ` · 원본 표를 찾은 빈 표 ${c.tables}(위 표 줄에)` : ""}${c.open ? ` · 아직 안 물은 빈 자리 ${c.open}` : ""}`), t5);
+    body.append(el("div", "lk-cap", `빈 자리 — 칸 ${c.cells || 0} · 줄 ${c.lines || 0}${c.blocks ? ` · 라벨 아래 내용 ${c.blocks}` : ""}${c.tables ? ` · 원본 표를 찾은 빈 표 ${c.tables}(위 표 줄에)` : ""}${c.open ? ` · 아직 안 물은 빈 자리 ${c.open}` : ""}`), t5);
   }
   foot.append(el("span", "muted", p.todo ? "실행 취소 한 번으로 되돌릴 수 있습니다" : "넣을 것이 없습니다"),
     hBtn(F.busy ? "반영 중…" : "반영", () => fillApply(), { cls: "btn sm primary", disabled: !p.todo || !!F.busy, title: "이 계획대로 연차보고서에 넣습니다 — 사업계획서는 안 바뀝니다" }), hBtn("닫기", () => headsColClose()));
@@ -10020,6 +10035,8 @@ function divGo(c, focus = true) { // 후보 자리의 첫 라벨(문단 또는 �
   let p = null;
   for (const cell of document.querySelectorAll(`#doc td[data-cell="${CSS.escape(id)}"], #doc [data-id="${CSS.escape(id)}"]`)) if ((p = cell.querySelector(".para"))) break;
   if (p) { scrollToBlock(p.dataset.id, focus); return; }
+  const tb = document.querySelector(`#doc table[data-tbl="${CSS.escape(id)}"]`); // 표 id(넣기 계획의 표 줄 · 일정 표 줄 · 매칭 지침의 표 자리) — 표는 data-tbl 로 그려진다(renderTable): 그 표의 첫 문단으로, 문단이 없으면 표로
+  if (tb) { const q = tb.querySelector(".para"); if (q) scrollToBlock(q.dataset.id, focus); else tb.scrollIntoView({ block: "center" }); return; }
   toast("그 자리가 지금 문서에 없습니다(지워졌거나 아직 그리지 않음)");
 }
 

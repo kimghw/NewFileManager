@@ -124,6 +124,17 @@ def blank_fps(text):
     return [x.strip().lower() for x in got if isinstance(x, str) and x.strip()][:20] if isinstance(got, list) else []
 
 
+def copy_tables(text):
+    """글의 json 블록 `copy` = 이 양식에서 **통째로 복사할 표**의 제목 목록(소속 제목 — 「[연구개발성과의 기술기여도]」). 다른 문서에서 내용을 받을 때 그 표는 칸을 맞추지 않고
+    원본의 같은 제목 표를 그대로 넣는다(app/merge_copy.py — spec_병합 ② §5-8:2026-11-22 사용자 "이 테이블은 그냥 복사 타입으로 넣어줘"). 블록이 없거나 깨졌으면 [](칸을 맞추는 쪽 — 전과 같음)."""
+    m = _JSON_BLOCK.search(text or "")
+    try:
+        got = (json.loads(m.group(1)) if m else {}).get("copy")
+    except (ValueError, AttributeError):
+        return []
+    return [x.strip() for x in got if isinstance(x, str) and x.strip()][:50] if isinstance(got, list) else []
+
+
 def body(text):
     """프롬프트에 넣는 글 — 조건 json 블록(첫 것)과 HTML 주석을 뺀 나머지(뺀 자리에 남은 빈 줄은 하나로).
     제목 줄과 빈 글머리(「-」)뿐이면 ""(손대지 않은 뼈대 — 보낼 내용이 없음)."""

@@ -390,6 +390,15 @@
 .hd-body table.lk-table td.lk-place { min-width: 9em; }
 .hd-body table.lk-table td.lk-nw { white-space: nowrap; } /* 값(「공동1」)·방식처럼 짧은 칸은 줄을 안 바꾼다 */
 .hd-body .lk-cap { padding: 10px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted); word-break: keep-all; overflow-wrap: anywhere; } /* 넣기 계획(kind "fill") — 본문·표 두 목록의 머리 글 */
+/* 매칭 지침 열(kind "linkGuides" — link_guides.js · spec_병합 ② §5-6): 지침 하나를 더하고 고치는 폼 · 코멘트 칸. 컨트롤 크기는 .lk-from 의 것과 같다 */
+.hd-body .lg-form, .hd-body .lg-note { display: grid; gap: 6px; margin: 6px 8px 10px; min-width: 0; }
+.hd-body .lg-form { padding: 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.hd-body .lg-note { justify-items: start; }
+.hd-body .lg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.hd-body .lg-row select, .hd-body .lg-row input[type="text"] { height: 26px; padding: 0 6px; font: inherit; color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.hd-body .lg-row input[type="text"] { flex: 1 1 12em; width: 0; min-width: 8em; }
+.hd-body .lg-form textarea, .hd-body .lg-note textarea { width: 100%; min-width: 0; min-height: 48px; max-height: 280px; box-sizing: border-box; resize: vertical; padding: 5px 8px; font: inherit; color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.hd-body .lg-form textarea:focus-visible, .hd-body .lg-note textarea:focus-visible, .hd-body .lg-row input:focus-visible, .hd-body .lg-row select:focus-visible { outline: 2px solid #6b94e8; outline-offset: 1px; }
 .hd-body .lk-to { word-break: keep-all; overflow-wrap: anywhere; color: var(--text); }
 .hd-body .lk-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .hd-body .lk-from select { flex: 1; width: 0; min-width: 8em; height: 26px; padding: 0 6px; font: inherit; color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); text-overflow: ellipsis; }

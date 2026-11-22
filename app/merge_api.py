@@ -115,12 +115,27 @@ def _maps(saved):
     return {k: v for k, v in (saved.get("tableMaps") or {}).items() if isinstance(v, dict) and v.get("from")}
 
 
-_ORIG = {}   # 목적 작업 id → (읽은 원본 바이트, 그 바이트의 sha256, {칸 id: {text, top, bottom}}, 내용 지문) — _orig
+_ORIG = {}   # 목적 작업 id → (읽은 원본의 열쇠 · 바이트, 그 바이트의 sha256, {칸 id: {text, top, bottom}}, 내용 지문) — _orig
+
+
+def _uploaded(doc_id, s):
+    """목적 문서로 **올린 원본**의 (열쇠, 바이트를 읽는 함수) — 작업 폴더의 `original.<형식>`(확정해도 안 바뀐다: 열쇠 = 경로 · 고친 때 · 크기).
+    작업 저장이 꺼졌거나 그 파일이 없으면 세션의 기준 바이트(확정 전에는 그것이 올린 원본 — 열쇠 = 그 바이트).
+    2026-11-22 실제 이관(작업 7cfb2957f487): 실행 중에 사람이 「확정」 을 누르자 세션의 기준(`s.original`)이 확정본으로 바뀌어, 등록된 빈 양식으로 올린 문서인데도 예시 판정이 꺼졌다
+    (표지 표 · 지원·부담계획 표 · 위험성 평가 표가 「예시 항목을 바꿀 수 없어 표 전체를 넣지 않음」) — 기준이 아니라 올린 원본을 읽는다."""
+    from app import works
+    p = works.file_path(doc_id, "original")
+    if p is not None:
+        st = p.stat()
+        return ("file", str(p), st.st_mtime_ns, st.st_size), p.read_bytes
+    blob = s.original
+    return blob, lambda: blob
 
 
 def _orig(doc_id):
     """목적 문서로 올린 원본이 **등록된 빈 양식**(그 양식 정보 `match.sha256` 에 원본의 sha256, 또는 `match.blank` 에 원본의 내용 지문 — merge_table_map.blank_fp)일 때 그 원본의 표 칸 {칸 id: {text, top, bottom}} | None(spec_병합 ② §5-3 6 「서식 예시」).
-    표 대응이 서식의 예시 행을 덮어도 되는지 가리는 데만 쓴다 — None 이면 글이 든 칸은 모두 사람 글로 본다(이미 작성한 보고서를 올린 경우). 칸 id 는 읽을 때 차례로 붙어 원본을 다시 읽으면 처음 연 때와 같다."""
+    표 대응이 서식의 예시 행을 덮어도 되는지 가리는 데만 쓴다 — None 이면 글이 든 칸은 모두 사람 글로 본다(이미 작성한 보고서를 올린 경우). 칸 id 는 읽을 때 차례로 붙어 원본을 다시 읽으면 처음 연 때와 같다
+    (확정으로 기준이 바뀌어도 블록 id 는 이어진다 — server._rebase). **올린 원본** = 작업 폴더의 원본 파일이다(_uploaded — 세션의 기준 바이트가 아니다: 확정하면 기준은 확정본이 된다)."""
     from app import heading_forms as HF
     from app import merge_table_map as MM
     from app import server
@@ -133,9 +148,10 @@ def _orig(doc_id):
         if not cond or not (cond["sha256"] or cond["blank"]):
             return None
         # 견주는 해시와 칸을 **같은 바이트**에서(spec_워크플로우 ② §18-12 ⑧ — 전에는 work.json 에 적힌 sha256 으로 견주고 칸은 세션 원본에서 읽어, 둘이 다른 바이트면 남의 칸을 예시로 봤다)
-        blob = s.original
+        key, read = _uploaded(doc_id, s)
         hit = _ORIG.get(doc_id)
-        if hit is None or hit[0] is not blob:
+        if hit is None or not (hit[0] is key if isinstance(key, bytes) else hit[0] == key):
+            blob = read()
             cells, blocks = {}, HwpxDoc(blob).blocks()
 
             def walk(seq):
@@ -146,7 +162,7 @@ def _orig(doc_id):
                         cells[c["id"]] = {"text": c.get("text") or "", "top": MM._kind(ln.get("t")), "bottom": MM._kind(ln.get("b"))}
                         walk(c.get("blocks") or ())
             walk(blocks)
-            hit = _ORIG[doc_id] = (blob, works.sha256(blob), cells, MM.blank_fp(blocks))
+            hit = _ORIG[doc_id] = (key, works.sha256(blob), cells, MM.blank_fp(blocks))
         return hit[2] if hit[1].lower() in cond["sha256"] or hit[3] in cond["blank"] else None   # 그 바이트가 같거나(sha256) 내용이 같다(blank — 다시 저장·hwp 변환으로 바이트만 다른 빈 양식)
     except Exception:   # 예시 판정은 덤이다 — 못 읽으면 「예시 아님」 으로(덮지 않는 쪽)
         return None
@@ -173,6 +189,43 @@ def _link_comments(doc_id):
     from app import heading_forms as HF
     form = _link_form(doc_id)
     return HF.comments(form["text"], HF.LINK_SECTION) if form else []
+
+
+def _link_guides(doc_id):
+    """목적 양식의 **매칭 지침**(표 · 본문별 — 「자리 연결」 절을 자리마다 가른 것: app/link_guides.py · spec_병합 ② §5-6) | []. 빈 자리 검토가 그 자리에 걸린 지침과 쪽 한도를 읽는다."""
+    from app import link_guides
+    form = _link_form(doc_id)
+    try:
+        return link_guides.entries(form["text"]) if form else []
+    except Exception:   # 지침은 덤이다 — 못 읽어도 검토 · 계획은 나가야 한다
+        return []
+
+
+def _sched_plan(doc_id, sides, take):
+    """넣기 계획의 **일정 표** 몫(월별 일정 표를 스크립트로 — app/merge_schedule.py · spec_병합 ② §5-7). 그 표(`owned`)는 표 대응 · 표 묶음 · 같은 이름 자리 · 빈 자리 검토가 안 본다(한 표를 두 길이 쓰지 않게).
+    세지 못하면 빈 계획에 error — 넣기 계획의 나머지는 나가야 한다(그 표는 다른 길이 전처럼 본다)."""
+    from app import merge_schedule
+    try:
+        return merge_schedule.plan(*sides, _orig(doc_id), take)
+    except Exception as e:   # noqa: BLE001
+        return {"tables": [], "fills": [], "grows": [], "wipes": [], "owned": [], "skipped": [], "counts": {}, "todo": 0, "error": f"{type(e).__name__}: {e}"}
+
+
+def _copy_titles(doc_id):
+    """목적 양식이 「통째로 복사」 로 정해 둔 표의 제목 목록(양식 정보 json 블록 `copy` — heading_forms.copy_tables: spec_병합 ② §5-8) | []."""
+    from app import heading_forms as HF
+    form = _link_form(doc_id)
+    return HF.copy_tables(form["text"]) if form else []
+
+
+def _copy_plan(doc_id, sides, saved, skip=()):
+    """넣기 계획의 **표 통째로 복사** 몫(app/merge_copy.py · spec_병합 ② §5-8 — 2026-11-22 사용자 "이 테이블은 그냥 복사 타입으로 넣어줘"). 그 표(`tables`)는 표 대응 · 표 묶음 · 같은 이름 자리가 안 본다
+    (통째로 바꿀 표에 칸을 따로 맞춰 넣지 않게). skip = 일정 표 스크립트가 맡은 표(그쪽이 먼저). 세지 못하면 빈 계획에 error — 넣기 계획의 나머지는 나가야 한다."""
+    from app import merge_copy
+    try:
+        return merge_copy.plan(*sides, _copy_titles(doc_id), saved.get("copied"), skip)
+    except Exception as e:   # noqa: BLE001
+        return {"items": [], "tables": [], "todo": 0, "counts": {"tables": 0, "applied": 0, "skipped": {}}, "error": f"{type(e).__name__}: {e}"}
 
 
 # ---- 넣을 구성 선택(spec_병합 ② §4-1 — 2026-11-21 사용자 "어떤 구성을 추출해서 넣을건지 … 매칭하기 전에 결정 … 선택하는 도구" · "연차보고서는 몇 차년도를 내보낼 지가 핵심이야") ----
@@ -281,18 +334,28 @@ def _fixed_brief(to, frm, saved):
     forced, maps = _forced(saved), _maps(saved)
     key = (to["id"], to["rev"], frm["id"], frm["rev"], repr(to["values"]), repr(frm["values"]), id(to["graph"]), id(to["tables"]), id(frm["graph"]), id(frm["tables"]),
            tuple(sorted((k, (v or {}).get("hash")) for k, v in applied.items())), tuple(sorted((k, v.get("from"), v.get("source")) for k, v in forced.items())),
-           json.dumps(maps, sort_keys=True, ensure_ascii=False) if maps else "", json.dumps(_take_raw(to["id"]), sort_keys=True, ensure_ascii=False))   # 넣을 구성(② §4-1)이 바뀌면 다시 센다
+           json.dumps(maps, sort_keys=True, ensure_ascii=False) if maps else "", json.dumps(_take_raw(to["id"]), sort_keys=True, ensure_ascii=False),   # 넣을 구성(② §4-1)이 바뀌면 다시 센다
+           json.dumps([_copy_titles(to["id"]), saved.get("copied") or {}], sort_keys=True, ensure_ascii=False))   # 통째로 복사할 표의 목록 · 복사한 기록(② §5-8)
     with _LOCK:
         hit = _FIXED.get(to["id"])
     if hit is None or hit[0] != key:
         try:
             with server._sess(to["id"]).lock:
                 sides = (merge_fixed._side(to), merge_fixed._side(frm))
-                mp = merge_table_map.plan(*sides, maps, _orig(to["id"])) if maps else None   # 표 대응(② §5-3)이 맡은 표는 같은 이름 자리 셈에서 뺀다
-                p = merge_fixed.plan(to, frm, applied=applied, forced=forced, sides=sides, skip=set(mp["owned"]) if mp else (), take=_take_arg(to["id"], to["values"]))
-            # maps = 대응이 맡은 표 수 · mapOpen = 같은 표로 이었는데 칸을 못 맞춰 표 대응이 필요한 표 수(표 묶음 쪽은 넣기 계획이 센다 — plan 의 maps.counts.open)
-            counts = {**p["counts"], "maps": len(mp["owned"]) if mp else 0, "mapStale": mp["counts"]["stale"] if mp else 0, "mapOpen": len(merge_table_map.targets(None, p))}
-            brief = {"counts": counts, "todo": p["todo"] + (mp["todo"] if mp else 0)}
+                take = _take_arg(to["id"], to["values"])
+                sc = _sched_plan(to["id"], sides, take)   # 일정 표(② §5-7 — 스크립트)가 맡은 표는 표 대응 · 같은 이름 자리 셈에서 뺀다(_plan_parts 와 같은 셈)
+                cp = _copy_plan(to["id"], sides, saved, sc["owned"])   # 표 통째로 복사(② §5-8)가 맡은 표도 같이 뺀다
+                maps = {k: v for k, v in maps.items() if k not in sc["owned"] and k not in cp["tables"]}
+                mp = merge_table_map.plan(*sides, maps, _orig(to["id"])) if maps else None   # 표 대응(② §5-3)이 잡은 표 · 행은 같은 이름 자리 셈에서 뺀다(_map_hold — 넣기 계획 _plan_parts 와 같은 셈)
+                whole, held = _map_hold(sides[0], mp)
+                whole = set(whole) | set(sc["owned"]) | set(cp["tables"])
+                p = merge_fixed.plan(to, frm, applied=applied, forced=forced, sides=sides, skip=whole, tables_plan={"cells": _held_cells(held)}, take=take, orig=_orig(to["id"]))
+            # maps = 대응이 있는 표 수 · mapOpen = 같은 표로 이었는데 칸을 못 맞춰 표 대응이 필요한 표 수(대응이 이미 있는 표는 뺀다 · 표 묶음 쪽은 넣기 계획이 센다 — plan 의 maps.counts.open)
+            have = set(mp["owned"]) if mp else set()
+            counts = {**p["counts"], "maps": len(have), "mapStale": mp["counts"]["stale"] if mp else 0, "mapOpen": sum(t not in have for t, _ in merge_table_map.targets(None, p)),
+                      "sched": len(sc["owned"]),   # sched = 일정 표 스크립트가 맡은 표 수(② §5-7)
+                      "copies": cp["todo"]}   # copies = 통째로 복사할 표 수(② §5-8 — 아직 안 넣은 것)
+            brief = {"counts": counts, "todo": p["todo"] + (mp["todo"] if mp else 0) + sc["todo"] + cp["todo"]}
         except Exception as e:   # 덤으로 싣는 요약이다 — 여기서 틀어져도 연결 목록(묶음)은 나가야 한다. 「못 셈」 은 「0」 과 다르다: error 를 싣고(화면이 보인다) 다음 읽기에 다시 센다(안 담아 둠)
             return {"counts": None, "todo": 0, "error": f"{type(e).__name__}: {e}"}
         hit = (key, brief)
@@ -374,7 +437,7 @@ def merge_pair_put(doc_id: str, group_id: str, body: dict = Body(...)):
 
 @router.post("/api/docs/{doc_id}/merge-links/llm")
 def merge_links_llm(doc_id: str):
-    """LLM 보정(spec_병합 ② §4 · §5-1 「표 짝 검토」) — 못 정한 묶음과 **못 정한 표**(같은 표인지 · 어느 기관·차년도의 표인지 — 후보가 있는 것)를 목적 문서의 챕터별(20쪽 이내)로 나눠 병렬로 Opus 에 묻는다.
+    """LLM 보정(spec_병합 ② §4 · §5-1 「표 짝 검토」) — 못 정한 묶음과 **표**(같은 표인지 · 어느 기관·차년도의 표인지 — 남는 칸이 있는 목적 표 전부 × 원본 표 전부: 후보가 없는 표도 LLM 이 읽는다)를 목적 문서의 챕터별(20쪽 이내)로 나눠 병렬로 Opus 에 묻는다.
     받은 연결은 source llm 로 저장한다 — 사람이 고친 묶음·표는 안 건드리고, 스크립트가 낸 연결도 그대로. 앞선 LLM 표 짝은 이번 답으로 바뀐다(다시 검토).
     판단 지침(`merge_guides` links)과 할 일 프롬프트를 단위마다 함께 보내고, 보낸 프롬프트·답은 작업 폴더 `merge_llm_last.json` 에 둔다(화면 「지침」 — `GET …/llm-guide/merge-links`).
     → GET 과 같은 몸통(llm = {at, units[{title, pages, over, targets, tables, call}], none[], rejected, left, job, guide, tables{paired, none, rejected}}). 409 까닭이 남음.
@@ -401,14 +464,14 @@ def merge_links_llm(doc_id: str):
     _same_source(doc_id, saved, frm["id"])
     fixed = dict(saved.get("fixed") or {})
     fixed.update({k: v for k, v in res["fixed"].items() if (fixed.get(k) or {}).get("source") != "user"})
-    got = res.get("tables") or {"fixed": {}, "none": [], "rejected": []}
+    got = {"fixed": {}, "none": [], "rejected": [], "kept": [], **(res.get("tables") or {})}   # kept = 스크립트가 이은 표를 LLM 이 그대로 둔 것(merge_llm.check_tables — 표를 모두 읽는 검토: 2026-11-22)
     at = datetime.now().isoformat(timespec="seconds")
     llm = {"at": at, "units": [{k: u[k] for k in ("title", "pages", "over", "targets", "tables", "call") if k in u} for u in res["units"]],
            "none": res["none"], "rejected": len(res["rejected"]), "left": res.get("left", 0),   # prompt·answer 는 크다(단위마다 수십 KB) — merge.json 에는 안 싣는다(아래 따로)
            "job": res.get("job"), "guide": res.get("guide"),   # 함께 보낸 할 일 프롬프트 {job, name, sha1} · 판단 지침 {name, title, sha1} | None
-           "tables": {"paired": len(got["fixed"]), "none": len(got["none"]), "rejected": len(got["rejected"])}}
-    # 표 짝: 사람이 정한 것은 그대로 · 이번에 답이 온 표는 그 답으로(이음 = 바꿈, 「같은 표 없음」 = 앞선 LLM 짝을 지움) · 답이 안 온 표(그 단위의 호출이 실패)는 앞선 LLM 짝을 둔다
-    gone = {n["to"] for n in got["none"]}
+           "tables": {"paired": len(got["fixed"]), "none": len(got["none"]), "rejected": len(got["rejected"]), "kept": len(got["kept"])}}
+    # 표 짝: 사람이 정한 것은 그대로 · 이번에 답이 온 표는 그 답으로(이음 = 바꿈, 「같은 표 없음」 · 「스크립트 짝 그대로」 = 앞선 LLM 짝을 지움) · 답이 안 온 표(그 단위의 호출이 실패)는 앞선 LLM 짝을 둔다
+    gone = {n["to"] for n in got["none"]} | set(got["kept"])
     pairs_t = {k: v for k, v in _forced(saved).items() if v.get("source") == "user" or k not in gone}
     pairs_t.update({k: v for k, v in got["fixed"].items() if (pairs_t.get(k) or {}).get("source") != "user"})
     _store(doc_id, {**saved, "fixed": fixed, "tables": pairs_t, "llm": llm, "toRev": to["rev"], "fromRev": frm["rev"]})
@@ -434,17 +497,53 @@ def _map_last(wid, data=None):
     return data
 
 
+def _map_hold(T, mp):
+    """표 대응 계획(merge_table_map.plan)이 **실제로 잡는 것** → (통째로 맡는 목적 표 id 모음, {목적 표 id: {표 대응이 쓰는 칸 id: 넣은 뒤의 글}})(spec_병합 ② §5-3 2 「맡는 범위」).
+    - 통째 = 표 대응이 **행을 늘리는** 표 — 늘릴 행은 행 번호로 본뜨므로 다른 길(묶음의 행 늘리기 · 같은 이름 자리의 칸 글)이 그 표를 건드리면 어긋난다.
+    - 그 밖의 표 = 표 대응이 글을 쓰거나 지우거나 선을 긋는 **칸**만 표 대응 것(한 칸을 두 길이 쓰지 않게). 표 대응이 못 넣었거나 안 다룬 칸은 묶음 · 같은 이름 자리가 대응이 없던 때처럼 넣는다
+      (두 길 다 빈 칸 · 서식의 틀 · 예시만 쓰고 제 검사를 따로 지난다) — 표 대응이 한 칸도 못 넣는 표(예시 항목을 못 바꿈 · 이름이 다름)는 통째로 스크립트 몫으로 돌아간다.
+    2026-11-22 실제 이관(작업 7cfb2957f487)의 표지 표: 전에는 대응이 있기만 하면 표를 통째로 뺐다 — 스크립트가 넣던 39칸이 계획에서 빠지고(계획 「같은 이름 자리 칸 206」 → 반영 167) 표 대응은 0칸이라 표지가 비었다.
+    행 단위로 나누지 않는다(같은 날 재 봄 — 병합 칸 하나가 두 행에 걸치면 그 행들의 다른 칸(세부사업명 · 내역사업명)을 스크립트가 못 넣는다)."""
+    from collections import defaultdict
+
+    from app import merge_fixed
+    if not mp:
+        return set(), {}
+    whole = {r["table"] for r in mp.get("rows") or ()}
+    held = defaultdict(dict)   # 표 id → {칸 id: 넣은 뒤의 글}
+    for x in mp.get("lines") or ():   # 선만 긋는 칸 — 글은 지금 그대로
+        held[x["table"]].setdefault(x["to"], merge_fixed._text(T, x["to"]))
+    for x in mp.get("clears") or ():
+        held[x["table"]][x["to"]] = ""
+    for x in mp.get("cells") or ():
+        held[x["table"]][x["to"]] = x["text"]
+    return whole, {tid: ids for tid, ids in held.items() if tid not in whole}
+
+
+def _held_cells(held):
+    """_map_hold 의 칸 → merge_fixed.plan 의 `tables_plan["cells"]` 꼴 [{to, text}] — 「같은 차례의 다른 계획이 넣는 칸」(그 칸은 건너뛰고 · 계산 칸의 피연산자는 넣은 뒤의 글로 본다)."""
+    return [{"to": cid, "text": text} for ids in held.values() for cid, text in ids.items()]
+
+
 def _plan_parts(doc_id, view, saved, to, frm, maps=None):
-    """넣기 계획의 표 몫 셋을 한 차례로(세션 잠금 안에서 부른다) → (표 대응 계획, 표 묶음 계획, 같은 이름 자리 계획, 두 쪽 읽을거리). 표 대응이 맡은 표는 나머지 둘에서 뺀다(② §5-3 2).
-    maps = 쓸 대응(None = 저장된 것 전부 · {} = 대응 없이 — 「전부 다시」 물을 때)."""
+    """넣기 계획의 표 몫 셋을 한 차례로(세션 잠금 안에서 부른다) → (표 대응 계획, 표 묶음 계획, 같은 이름 자리 계획, 두 쪽 읽을거리). 표 대응이 잡은 표 · 칸은 나머지 둘에서 뺀다(② §5-3 2 — _map_hold:
+    행을 늘리는 표는 통째로 · 그 밖은 표 대응이 쓰는 칸만. 표 대응이 못 넣는 칸은 나머지 둘이 넣는다). maps = 쓸 대응(None = 저장된 것 전부 · {} = 대응 없이 — 「전부 다시」 물을 때)."""
     from app import merge_fixed, merge_table_map, merge_tables
     sides = (merge_fixed._side(to), merge_fixed._side(frm))
-    mp = merge_table_map.plan(*sides, _maps(saved) if maps is None else maps, _orig(doc_id))
-    own = set(mp["owned"])
     take = _take_arg(doc_id, to["values"])   # 「넣을 구성 선택」(② §4-1) — 고르지 않은 기관 · 단계 · 차년도의 표 칸 · 행 · 같은 이름 표는 넣지 않는다(None = 전부)
-    tabs = merge_tables.plan(to, frm, to["values"], frm["values"], view, skip=own, take=take)
-    fixed = merge_fixed.plan(to, frm, applied=_alive(saved.get("applied"), to), tables_plan=tabs, forced=_forced(saved), sides=sides, skip=own, take=take)   # 같은 이름 자리 — 묶음이 넣는 칸은 건너뛴다 · LLM·사람이 정한 표 짝 먼저
-    mp["open"] = [t for t, _ in merge_table_map.targets(tabs, fixed)]   # 원본 표는 정해졌는데 칸을 못 맞춘 표 — 표 대응이 필요하다
+    sched = _sched_plan(doc_id, sides, take)   # 일정 표(② §5-7 — 월별 일정 표를 스크립트로): 그 표는 이 길이 통째로 맡는다 — 저장된 표 대응이 있어도 안 쓰고, 표 묶음 · 같은 이름 자리 · 빈 자리 검토가 안 본다
+    copies = _copy_plan(doc_id, sides, saved, sched["owned"])   # 표 통째로 복사(② §5-8 — 목적 양식이 정해 둔 표): 그 표도 이 길이 통째로 맡는다(일정 표가 먼저)
+    mine = set(sched["owned"]) | set(copies["tables"])
+    mp = merge_table_map.plan(*sides, {k: v for k, v in (_maps(saved) if maps is None else maps).items() if k not in mine}, _orig(doc_id))
+    mp["sched"] = sched   # 돌려주는 꼴(넷)은 그대로 — 넣기 계획(merge_plan)이 여기서 꺼낸다
+    mp["copies"] = copies   # 같은 길로(merge_plan 이 꺼낸다)
+    whole, held = _map_hold(sides[0], mp)
+    whole = set(whole) | mine
+    tabs = merge_tables.plan(to, frm, to["values"], frm["values"], view, skip=whole, take=take, taken=held, orig=_orig(doc_id))   # orig = 이어 넣는 덩이의 서식 예시 행을 실제 행의 자리로 쓴다(merge_tables._append)
+    fixed = merge_fixed.plan(to, frm, applied=_alive(saved.get("applied"), to), tables_plan={"cells": [*tabs["cells"], *_held_cells(held)]}, forced=_forced(saved), sides=sides, skip=whole, take=take,   # 같은 이름 자리 — 묶음 · 표 대응이 넣는 칸은 건너뛴다 · LLM·사람이 정한 표 짝 먼저
+                             orig=_orig(doc_id))   # 올린 빈 양식의 글 그대로인 값 칸(서식 예시 · 틀)은 원본 글로 바꾼다(merge_fixed.plan 의 orig)
+    have = set(mp["owned"])   # 쓸 수 있는 대응이 이미 있는 표 — 한 칸도 못 넣었어도 다시 묻지 않는다(「전부 다시」 는 maps={} 로 와서 빈 모음)
+    mp["open"] = [t for t, _ in merge_table_map.targets(tabs, fixed) if t not in have and t not in mine]   # 원본 표는 정해졌는데 칸을 못 맞춘 표 — 표 대응이 필요하다(일정 표 스크립트가 맡은 표는 뺀다)
     return mp, tabs, fixed, sides
 
 
@@ -465,7 +564,7 @@ def merge_table_map_post(doc_id: str, body: dict = Body(default={})):
     with s.lock:
         mp, tabs, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm, maps={} if again else None)
         user_cut = {k for k, v in _forced(saved, "user").items() if not v.get("from")}   # 사람이 끊은 표는 안 묻는다
-        built = [(tid, fid, *merge_table_map.data(T, F, tid, fid)) for tid, fid in merge_table_map.targets(tabs, fixed) if tid not in user_cut]
+        built = [(tid, fid, *merge_table_map.data(T, F, tid, fid)) for tid, fid in merge_table_map.targets(tabs, fixed) if tid not in user_cut and tid not in mp["owned"]]   # 쓸 수 있는 대응이 있는 표는 다시 안 묻는다(전에는 그 표가 계획에서 통째로 빠져 저절로 안 걸렸다 — _plan_parts)
     ask = [(tid, fid, p, c) for tid, fid, p, c in built if p is not None]
     job, links = job_prompts.for_work(doc_id), _links_text(doc_id)
     jobs = merge_table_map.jobs_for([p for _, _, p, _ in ask], job, links)
@@ -525,13 +624,14 @@ def _gaps_last(wid, data=None):
     return data
 
 
-def _gaps_plan(doc_id, saved, sides, fixed):
-    """넣기 계획의 빈 자리 몫(세션 잠금 안에서) — 답이 있는 빈 칸·빈 라벨 줄에 넣을 글 + 아직 안 물은 빈 자리 수(counts.open). 빈 표 ← 원본 표는 표 짝(`tables`)으로 가 있어 다른 몫이 넣는다."""
+def _gaps_plan(doc_id, saved, sides, fixed, skip=()):
+    """넣기 계획의 빈 자리 몫(세션 잠금 안에서) — 답이 있는 빈 칸·빈 라벨 줄에 넣을 글 + 아직 안 물은 빈 자리 수(counts.open). 빈 표 ← 원본 표는 표 짝(`tables`)으로 가 있어 다른 몫이 넣는다.
+    skip = 일정 표 스크립트가 맡은 표(② §5-7 — 빈 자리로 세지 않는다)."""
     from app import merge_gaps
     T, F = sides
     gp = merge_gaps.plan(T, F, _gaps(saved))
     try:
-        gp["counts"]["open"] = merge_gaps.open_count(merge_gaps.targets(T, F, fixed, _orig(doc_id)), _gaps(saved))
+        gp["counts"]["open"] = merge_gaps.open_count(merge_gaps.targets(T, F, fixed, _orig(doc_id), _link_guides(doc_id), skip), _gaps(saved))
     except Exception:   # 빈 자리 세기는 덤이다 — 틀어져도 넣기 계획은 나가야 한다
         gp["counts"]["open"] = 0
     return gp
@@ -552,8 +652,9 @@ def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
     _, _, saved, to, frm = ctx
     again = bool(body.get("again"))
     with server._sess(doc_id).lock:
-        _, _, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm)
-        prep = merge_gaps.prepare(T, F, fixed, _gaps(saved), again, _orig(doc_id))
+        mp, _, fixed, (T, F) = _plan_parts(doc_id, view, saved, to, frm)
+        prep = merge_gaps.prepare(T, F, fixed, _gaps(saved), again, _orig(doc_id), _link_guides(doc_id),   # 매칭 지침(② §5-6) — 그 자리에 걸린 지침 · 쪽 한도를 자료에 싣는다
+                                  skip=(mp.get("sched") or {}).get("owned") or ())   # 일정 표 스크립트가 맡은 표(② §5-7)는 안 묻는다
     res = merge_gaps.ask(prep, job_prompts.for_work(doc_id), _links_text(doc_id))   # 잠금 밖 — 읽어 둔 것만 쓴다
     at = datetime.now().isoformat(timespec="seconds")
     now = _store(doc_id)
@@ -756,6 +857,21 @@ def _gaps_view(gp):
     return {"counts": gp["counts"], "items": gp["items"][:300], "todo": gp["todo"]}
 
 
+def _sched_view(sc):
+    """넣기 계획의 일정 표 몫 → 화면에 보낼 꼴 {counts{tables, items, done, write, rows, cells, lines, cleared, skipped{…}}, tables[{to, title, year, plan, result, sources[{from, org, title, items, note}], items, done, write, grow, cleared, skipped}], skipped[], todo, error?}."""
+    if not sc:
+        return {"counts": {"tables": 0, "items": 0, "done": 0, "write": 0, "rows": 0, "cells": 0, "lines": 0, "cleared": 0, "skipped": {}}, "tables": [], "skipped": [], "todo": 0}
+    return {"counts": sc.get("counts") or {}, "tables": sc["tables"], "skipped": sc["skipped"][:300], "todo": sc["todo"], **({"error": sc["error"]} if sc.get("error") else {})}
+
+
+def _copies_view(cp):
+    """넣기 계획의 표 통째로 복사 몫(② §5-8) → 화면에 보낼 꼴 {counts{tables(넣을 표), applied(앞서 넣음), skipped{…}}, items[{key, title, to, from, rows, cols, skip, detail}], todo, error?}."""
+    if not cp:
+        return {"counts": {"tables": 0, "applied": 0, "skipped": {}}, "items": [], "todo": 0}
+    return {"counts": cp.get("counts") or {}, "items": [{k: it.get(k) for k in ("key", "title", "to", "from", "rows", "cols", "skip", "detail")} for it in cp["items"]], "todo": cp["todo"],
+            **({"error": cp["error"]} if cp.get("error") else {})}
+
+
 def _heads_ver(side):
     """쓴 분석의 판 — 헤딩 그래프 · 표 구조의 실행 번호와 LLM 을 거쳤나(다시 분석 · LLM 검증·보완을 하면 바뀐다: ② 계획의 판)."""
     def one(x):
@@ -773,7 +889,8 @@ def _inputs(doc_id, saved, to, frm):
     live = {k: (v or {}).get("hash") for k, v in _alive(saved.get("applied"), to).items()} if to.get("blocks") is not None else None   # 살아 있는 넣은 기록 — 본문 · 고정 라벨 계획이 그것으로 건너뛴다
     raw = json.dumps([to["id"], frm["id"], [list(x) for x in _source_scope(doc_id, frm["id"])], to["rev"], frm["rev"], to.get("values"), frm.get("values"), _heads_ver(to), _heads_ver(frm),
                       {k: saved.get(k) for k in ("fixed", "tables", "tableMaps")}, calm(saved.get("gaps")), live, _orig(doc_id) is not None,   # 예시 칸을 덮어도 되나(등록된 빈 양식 — 양식 선택이 바뀌면 다름)
-                      merge_over.load(doc_id)["version"], _take_raw(doc_id)], sort_keys=True, ensure_ascii=False, default=str)   # 끝 = 넣을 구성(② §4-1 — 계획 뒤에 고르면 반영이 409)
+                      merge_over.load(doc_id)["version"], _take_raw(doc_id),   # 넣을 구성(② §4-1 — 계획 뒤에 고르면 반영이 409)
+                      [_copy_titles(doc_id), saved.get("copied") or {}]], sort_keys=True, ensure_ascii=False, default=str)   # 끝 = 통째로 복사할 표의 목록 · 복사한 기록(② §5-8)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -857,7 +974,7 @@ def fill_summary(doc_id):
     if p is not None:
         pv = _plan_view(p)
         plan = {"planId": p["planId"], "todo": p["todo"], "fresh": p.get("inputs") is not None and p.get("inputs") == inputs_now(doc_id),
-                **{k: {"counts": pv[k]["counts"]} for k in ("body", "tables", "fixed", "maps", "gaps")}}
+                **{k: {"counts": pv[k]["counts"]} for k in ("body", "tables", "fixed", "maps", "gaps", "sched", "copies")}}
     try:   # 넣을 구성(② §4-1) — 「넣을 구성 선택」 줄의 상태 글(고른 것 · 대상 차년도): 못 읽으면 None(그 줄이 「읽지 못했습니다」)
         take = take_view(doc_id)
     except Exception:   # noqa: BLE001
@@ -874,7 +991,9 @@ def _plan_view(plan):
             "tables": {"counts": tabs["counts"], "tables": [_brief(t) for t in tabs["tables"]], "skipped": tabs["skipped"][:300]},
             "fixed": {"counts": fx["counts"], "tables": fx["tables"], "labels": [{k: it.get(k) for k in (*keys, "title")} for it in fx["labels"]], "skipped": fx["skipped"][:300]},
             "maps": _maps_view(plan.get("maps")),   # 표 대응(② §5-3) — 표마다 대응한 항목·칸·표시·늘릴 행과 못 넣은 것
-            "gaps": _gaps_view(plan.get("gaps"))}   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 넣을 글 · 아직 안 물은 빈 자리 수
+            "gaps": _gaps_view(plan.get("gaps")),   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 넣을 글 · 아직 안 물은 빈 자리 수
+            "sched": _sched_view(plan.get("sched")),   # 일정 표(② §5-7) — 월별 일정 표를 스크립트로: 표마다 원본 표들 · 넣을 항목 · 늘릴 행
+            "copies": _copies_view(plan.get("copies"))}   # 표 통째로 복사(② §5-8) — 목적 양식이 정해 둔 표: 원본의 같은 제목 표를 그대로
 
 
 @router.post("/api/docs/{doc_id}/merge-links/plan")
@@ -899,16 +1018,18 @@ def merge_plan(doc_id: str):
         applied = _alive(saved.get("applied"), to)   # 실행 취소로 사라진 내용의 기록은 안 믿는다
         fill = merge_fill.plan(to, frm, to["values"], frm["values"], view, applied=applied)
         maps, tabs, fixed, sides = _plan_parts(doc_id, view, saved, to, frm)   # 표 대응(② §5-3) → 표 묶음 → 같은 이름 자리: 대응이 맡은 표는 뒤의 둘에서 빠진다
-        gaps = _gaps_plan(doc_id, saved, sides, fixed)   # 빈 자리(② §5-4) — 위 셋이 못 채운 자리 가운데 LLM 이 원본 줄을 고른 것
+        gaps = _gaps_plan(doc_id, saved, sides, fixed, skip=(maps.get("sched") or {}).get("owned") or ())   # 빈 자리(② §5-4) — 위 셋이 못 채운 자리 가운데 LLM 이 원본 줄을 고른 것
         store, specs = MOA.specs(doc_id, to["graph"])   # 넘친 개요 레벨(② §5-5) — 사례마다 사람이 고른 처리를 줄 지정으로 푼 것
         conv, cases = MO.fill_preview(to, frm, fill, specs)   # 본문 항목마다 템플릿 변환 미리보기 + 이번 계획의 넘친 사례
         for it in fill["items"]:
             if it["to"] in conv:
                 it["convert"] = conv[it["to"]]
         over = {"version": store["version"], "specs": specs, "view": MOA.over_view(doc_id, cases, to["graph"], to["doc"], store)}
-        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "scope": _source_scope(doc_id, frm["id"]), "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps, "over": over,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
+        sched = maps.pop("sched", None) or _sched_plan(doc_id, sides, None)   # 일정 표(② §5-7 — _plan_parts 가 세어 표 대응 계획에 실어 준 것)
+        copies = maps.pop("copies", None) or _copy_plan(doc_id, sides, saved, sched["owned"])   # 표 통째로 복사(② §5-8 — 같은 길로 실어 준 것)
+        plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "scope": _source_scope(doc_id, frm["id"]), "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps, "sched": sched, "copies": copies, "over": over,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
                 "inputs": _inputs(doc_id, saved, to, frm),   # 입력의 판(연결 · 표 짝 · 표 대응 · 빈 자리 · 분석 — 바뀌면 반영이 409)
-                "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"] + gaps["todo"]}
+                "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"] + gaps["todo"] + sched["todo"] + copies["todo"]}
     _PLANS[doc_id] = plan
     return _plan_view(plan)
 
@@ -921,7 +1042,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
     import time
     from collections import Counter
 
-    from app import merge_convert, merge_fill, merge_fixed, merge_gaps, merge_over, merge_table_map, merge_tables, server
+    from app import merge_convert, merge_copy, merge_fill, merge_fixed, merge_gaps, merge_over, merge_schedule, merge_table_map, merge_tables, server
     plan = _PLANS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
@@ -968,13 +1089,15 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
             done["tables"] = merge_tables.apply(s.doc, frm["doc"], plan["tables"])
             done["fixed"] = merge_fixed.apply(s.doc, frm["doc"], plan["fixed"])   # 같은 이름 자리 — 같은 편집 하나에(실행 취소 1). 라벨 내용은 원본 모양 그대로(템플릿 변환 없음)
             done["maps"] = merge_table_map.apply(s.doc, frm["doc"], plan.get("maps") or {})   # 표 대응(② §5-3) — 행 늘리기 · 칸 글 · 예시 지움 · 표시 선: 같은 편집 하나에
-            done["gaps"] = merge_gaps.apply(s.doc, plan.get("gaps"))   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 원본 줄의 글: 같은 편집 하나에
+            done["sched"] = merge_schedule.apply(s.doc, frm["doc"], plan.get("sched"))   # 일정 표(② §5-7) — 그 차년도의 원본 일정 표들 → 항목 · 계획 선 · 실적 선: 같은 편집 하나에
+            done["gaps"] = merge_gaps.apply(s.doc, plan.get("gaps"), frm["doc"])   # 빈 자리(② §5-4) — 빈 칸·빈 라벨 줄에 원본 줄의 글 · 라벨 줄 아래에 원본의 내용 블록(② §5-6): 같은 편집 하나에
             done["fill"] = merge_fill.apply(s.doc, frm["doc"], plan["fill"], convert=hook)
             done["fill"]["counts"]["fitted"] = sum(s.doc.fit_image(i) for ids in done["fill"]["inserted"].values() for i in ids)   # 넣은 그림이 칸보다 넓으면 칸 폭으로(spec_병합 ② §5-2)
+            done["copies"] = merge_copy.apply(s.doc, frm["doc"], plan.get("copies"))   # 표 통째로 복사(② §5-8) — 목적 표를 원본 표의 사본으로: 같은 편집 하나에(다른 길은 그 표를 안 건드렸다 — 맨 뒤에)
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
                     "log": {"planId": plan["planId"], "body": done["fill"]["counts"], "tables": {k: done["tables"].get(k) for k in TABLE_KEYS},
                             "fixed": {k: done["fixed"].get(k) for k in FIXED_KEYS}, "maps": {k: done["maps"].get(k) for k in MAP_KEYS},
-                            "gaps": {k: done["gaps"].get(k) for k in ("cells", "lines")}, "converted": dict(conv)}}
+                            "gaps": {k: done["gaps"].get(k) for k in ("cells", "lines", "blocks")}, "sched": {k: done["sched"].get(k) for k in MAP_KEYS}, "copies": done["copies"]["copied"], "converted": dict(conv)}}
 
         def check(s_, out, base, header):
             """문서 전체 검사 — 단 **스키마 위반의 기준선에 원본 문서의 것을 더한다**: 문서 사이 복사는 원본 문서에 한글이 써 둔 스키마 위반(strikeout shape "3D" · transMatrix 자리 등 — 실제 작성본 6종)을
@@ -992,27 +1115,35 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
             block = s.doc.table_block(tid)
             if tid in tm and block:
                 tm[tid] = merge_table_map.settle(tm[tid], done["maps"]["grown"].get(tid), block)
-        _store(doc_id, {**saved, "applied": {**(saved.get("applied") or {}), **new}, **({"tableMaps": tm} if tm else {}),   # 고정 라벨도 같은 기록(열쇠 = 목적 라벨 id — 묶음 항목과 안 겹친다)
+        copied = {**(saved.get("copied") or {}), **done["copies"]["records"]}   # 통째로 복사한 표의 기록 {제목 열쇠: {to(새 표 id), from, hash}}(② §5-8 — 다시 계획하면 할 일 0 · 새 표가 사라지면(실행 취소) 안 믿는다)
+        _store(doc_id, {**saved, "applied": {**(saved.get("applied") or {}), **new}, **({"tableMaps": tm} if tm else {}), **({"copied": copied} if copied else {}),   # 고정 라벨도 같은 기록(열쇠 = 목적 라벨 id — 묶음 항목과 안 겹친다)
                         "filled": {**mark, "rev": s.rev, "nothing": False,   # 반영함 — 표 칸만 채운 반영도 「내용 넣기」 의 끝으로(② §18-12 ②) · 넣은 블록이 모두 사라졌으면(실행 취소) · 원본이 바뀌었으면 안 믿는다
-                                   "ids": [i for d in (done["fill"], done["fixed"]) for ids in d["inserted"].values() for i in ids][:2000]}})
+                                   "ids": [i for d in (done["fill"], done["fixed"], done["gaps"], done["copies"]) for ids in (d.get("inserted") or {}).values() for i in ids][:2000]}})
         skip = lambda d: len(d.get("skipped") or ())  # noqa: E731 — 반영 때 건너뛴 수(계획 뒤 글이 생긴 칸 등)
         return {"body": done["fill"]["counts"], "tables": {**{k: done["tables"].get(k) for k in TABLE_KEYS}, "skipped": skip(done["tables"])},
                 "fixed": {**{k: done["fixed"].get(k) for k in FIXED_KEYS}, "skipped": skip(done["fixed"])},
                 "maps": {**{k: done["maps"].get(k) for k in MAP_KEYS}, "skipped": skip(done["maps"])},
-                "gaps": {"cells": done["gaps"]["cells"], "lines": done["gaps"]["lines"], "skipped": skip(done["gaps"])},
-                "converted": dict(conv), "dropped": done["fill"]["dropped"] + done["fixed"]["dropped"], **s.state()}
+                "gaps": {"cells": done["gaps"]["cells"], "lines": done["gaps"]["lines"], "blocks": done["gaps"].get("blocks", 0), "skipped": skip(done["gaps"])},
+                "sched": {**{k: done["sched"].get(k) for k in MAP_KEYS}, "skipped": skip(done["sched"])},   # 일정 표(② §5-7)
+                "copies": {"copied": done["copies"]["copied"], "skipped": skip(done["copies"])},   # 표 통째로 복사(② §5-8)
+                "converted": dict(conv), "dropped": done["fill"]["dropped"] + done["fixed"]["dropped"] + list(done["gaps"].get("dropped") or ()), **s.state()}
 
 
 # ---- 이관 1·2단계 초기화(spec_작업 ② §14 「초기화」 — 2026-11-12 사용자 "어차피 연차보고서는 원본이 있으니깐 작업 1,2 단계 초기화 할 수 있도록 해줘") ----
 
-STAGE2_KEYS = ("fixed", "tables", "llm", "tableMaps", "gaps", "applied", "filled", "toRev", "fromRev")   # merge.json 가운데 2단계(내용 매핑)가 쌓은 것 — `from`(사람이 따로 고른 원본)은 진행이 아니라 고른 값이라 둔다 · filled = 마지막 반영 표식(fill_summary)
+STAGE2_KEYS = ("fixed", "tables", "llm", "tableMaps", "gaps", "applied", "copied", "filled", "toRev", "fromRev")   # merge.json 가운데 2단계(내용 매핑)가 쌓은 것 — `from`(사람이 따로 고른 원본)은 진행이 아니라 고른 값이라 둔다 · filled = 마지막 반영 표식(fill_summary)
 
 
 def _kept(saved):
     """merge.json 에 남은 2단계 기록의 수 {links(사람·LLM 이 정한 묶음), tables(표 짝), maps(표 대응), applied(넣은 기록), llm(LLM 검토함)}
     — 화면의 「2단계 초기화」 가 켜질지 · ③④ 가 지난 반영으로 끝났는지(다시 연 화면). applied 는 문서를 읽을 수 있으면 _view 가 지금 문서에 남은 것(_alive)으로 바꾼다."""
     n = lambda k: len([v for v in (saved.get(k) or {}).values() if isinstance(v, dict)])  # noqa: E731
-    return {"links": n("fixed"), "tables": n("tables"), "maps": n("tableMaps"), "applied": n("applied"), "llm": bool(saved.get("llm"))}
+    out = {"links": n("fixed"), "tables": n("tables"), "maps": n("tableMaps"), "applied": n("applied"), "llm": bool(saved.get("llm"))}
+    g = saved.get("gaps") if isinstance(saved.get("gaps"), dict) else {}
+    if g.get("at"):   # 빈 자리 검토를 한 번이라도 물었다 — {n: 답을 받은 자리 수, hit: 그 가운데 원본을 찾은 수}(워크플로우의 「빈 자리 검토(LLM)」 줄이 「건너뜀」 과 「검토함」 을 가른다: workflow_units._gaps_ran). 안 물었으면 열쇠가 없다
+        rows = [v for k in ("tables", "slots") for v in (g.get(k) or {}).values() if isinstance(v, dict)]
+        out["gaps"] = {"n": len(rows), "hit": sum(bool(v.get("from")) for v in rows)}
+    return out
 
 
 def _stage2_clear(doc_id):

@@ -110,17 +110,18 @@ def fake(monkeypatch):
     f = Fake()
     monkeypatch.setattr(X, "UNIT", f)
     monkeypatch.setitem(X.WAIT, "poll", 0.005)
-    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear(); X.MATES.clear(); X.CLAIMS.clear()
     yield f
     _done("t", 5)
-    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear()
+    X.RUNS.clear(); X.BUSY.clear(); X.LAST.clear(); X.MATES.clear(); X.CLAIMS.clear()
 
 
 def _done(target, seconds=5):
+    """그 묶음의 실행이 모두 끝날 때까지(문서 하나만 잡은 실행은 열쇠가 따로다 — X.runs_of) → 마지막 번호의 기록."""
     t0 = time.time()
-    while target in X.RUNS and time.time() - t0 < seconds:
+    while X.runs_of(target) and time.time() - t0 < seconds:
         time.sleep(0.005)
-    assert target not in X.RUNS, "실행이 끝나지 않았습니다"
+    assert not X.runs_of(target), "실행이 끝나지 않았습니다"
     return X.last(target)
 
 
@@ -442,11 +443,11 @@ def fit(monkeypatch):
     monkeypatch.setitem(X.WAIT, "poll", 0.005)
     for k, v in (("settle", 0.3), ("limit", 0.8), ("poll", 0.01)):
         monkeypatch.setitem(X.FENCE_WAIT, k, v)
-    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
         d.clear()
     yield f
     _done("t", 5)
-    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS):
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
         d.clear()
 
 
@@ -944,10 +945,136 @@ def test_one_document_only_waits_for_the_earlier_stage_through_that_documents_ey
     assert v["review"]["left"] == 1 and v["review"]["leftBy"] == {"source": 1, "target": 0}
     assert v["frame"]["can"] is False and v["frame"]["why"] == "1단계 「문서 검토」 이 먼저입니다"   # 묶음 전체는 앞 묶음이 끝나야 한다
     solo = v["frame"]["solo"][0]
-    assert solo["role"] == "target" and solo["can"] is True and solo["why"] == ""   # 목적 문서만은 원본 문서만의 줄을 기다리지 않는다
+    # 구성 값이 확정되기 전에는 그 값을 쓰는 줄(프로젝트 구성 반영)에서 시작하는 「목적 문서만」 을 시작하지 않는다(② §18-22 — 2026-11-21 사용자 "그 값이 추출돌때까지 실행이 되면 안되고": 전에는 시작한 뒤 그 줄에서 멈췄다)
+    assert solo["role"] == "target" and solo["can"] is False and solo["why"].startswith("「프로젝트 구성 추출」 이 먼저입니다") and solo["wait"] == solo["why"]
+    assert next(s for s in v["frame"]["steps"] if s["key"] == "division")["wait"] == solo["why"] and v["frame"]["wait"] == ""   # 묶음 전체는 첫 줄이 「프로젝트 구성 추출」 이라 기다리지 않는다(그 줄이 값을 만든다)
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "frame", "role": "target"})
+    assert e.value.reason == "needs" and e.value.message == solo["why"] and not X.RUNS and not fit.calls
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "frame", "only": "division"})   # 그 줄의 「이 단계만 진행」 도
+    assert e.value.reason == "needs" and not X.RUNS
+    fit.config_confirm("t", V2)
+    fit.calls.clear()
+    solo = {g["id"]: g for g in X.status_of("t")["stages"]}["frame"]["solo"][0]
+    assert solo["can"] is True and solo["why"] == "" and "wait" not in solo   # 목적 문서만은 원본 문서만의 줄을 기다리지 않는다
     fit.heads["t"] = False   # 목적 문서의 분석이 남으면 기다린다
     solo = {g["id"]: g for g in X.status_of("t")["stages"]}["frame"]["solo"][0]
     assert solo["can"] is False and solo["why"] == "1단계 「문서 검토」 이 먼저입니다"
     X.start("t", {"from": "frame", "role": "target", "redo": "frame"})
     rec = _done("t")
     assert rec["status"] == "left" and rec["end"]["text"] == "남김 — 1단계 「문서 검토」 이 덜 끝났습니다" and not [c for c in fit.calls if c[0] in ("plan", "apply")]   # 실행기의 경계 검사도 같은 눈으로
+
+
+# ---- 문서마다 따로 도는 실행(② §18-22 — 2026-11-21 사용자 "원본문서랑, 목적문서를 따로따로 실행해서 처리할 수 있잖아? 매칭은 1개 실행이 같이 해야하고 .. 본문,표 분석은 따로 할 수 있고 … 구성같은 경우 … 그 값이 추출돌때까지 실행이 되면 안되고")
+def _lane_gone(target, lane, seconds=5):
+    t0 = time.time()
+    while any(r.lane == lane for r in X.runs_of(target)) and time.time() - t0 < seconds:
+        time.sleep(0.005)
+    assert not any(r.lane == lane for r in X.runs_of(target)), "그 문서의 실행이 끝나지 않았습니다"
+
+
+def test_source_and_target_documents_run_as_separate_runs_together(fake, monkeypatch):
+    """원본 문서만 잡은 실행과 목적 문서만 잡은 실행은 **같이** 돈다 — 실행은 제 문서만 잡고(BUSY), 상태는 도는 실행 둘 · 문서마다 잡은 실행(held)을 싣는다.
+    두 문서를 다 쓰는 실행(묶음 전체)은 그동안 못 한다(busy — 까닭 글) · 번호는 따로 · 끝난 실행의 끝 글은 같이 돌던 것까지(lasts)."""
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "both", False)])
+    gate, heads0 = threading.Event(), fake.start_heads
+    fake.start_heads = lambda doc, how="first": (gate.wait(5) if doc == "s" else None, heads0(doc, how))[1]   # 원본 문서의 실행을 첫 줄에 잡아 둔다
+    a = X.start("t", {"from": "review", "role": "source"})
+    assert a["n"] == 1 and a["lane"] == "source" and X.BUSY == {"s": "t/source"} and X.held_text("s") and not X.held_text("t")
+    assert X.busy_text("t") and X.busy_text("s")   # 묶음의 문서는 잡히지 않아도 초기화 · 칸 바꾸기는 못 한다
+    v = X.status_of("t")
+    g = v["stages"][0]
+    assert [r["n"] for r in v["runs"]] == [1] and v["run"]["n"] == 1 and v["held"] == {"source": 1, "target": None} and v["last"] is None
+    assert [(x["role"], x["can"]) for x in g["solo"]] == [("source", False), ("target", True)]   # 목적 문서만은 지금 누를 수 있다
+    assert g["can"] is False and g["why"] == "원본 문서(사업계획서)의 실행이 끝나면 쓸 수 있습니다 — 이 묶음은 두 문서를 함께 씁니다"
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "review"})   # 두 문서를 다 쓰는 실행
+    assert e.value.reason == "busy" and e.value.run["n"] == 1 and e.value.message.startswith("원본 문서(사업계획서)의 실행이 도는 중입니다")
+    with pytest.raises(X.Refuse) as e:
+        X.start("s", {"from": "review", "role": "source"})   # 같은 문서의 실행
+    assert e.value.reason == "busy" and e.value.message.startswith("다른 화면에서 진행 중입니다")
+    b = X.start("s", {"from": "review", "role": "target"})   # 목적 문서의 실행 — 같이 돈다(어느 문서에서 눌러도)
+    assert b["n"] == 2 and b["lane"] == "target" and X.BUSY == {"s": "t/source", "t": "t"} and sorted(X.RUNS) == ["t", "t/source"]
+    assert X.status_of("s")["run"]["n"] == 1 and X.status_of("t")["run"]["n"] == 2   # run = 그 문서를 잡은 실행
+    _lane_gone("t", "target")   # 목적 문서의 실행이 먼저 끝난다(원본 문서의 것은 잡혀 있다)
+    rec2 = X.record("t", 2)
+    assert rec2["status"] == "done" and rec2["end"]["text"].startswith("끝남 — 목적 문서(연차보고서)만 — ") and [c for c in fake.calls if c[1] == "s"] == []
+    v = X.status_of("t")
+    assert [r["n"] for r in v["runs"]] == [1] and [x["n"] for x in v["lasts"]] == [2] and v["last"] is None and v["held"] == {"source": 1, "target": None}
+    assert X.live("t") is None and X.live("s")["n"] == 1 and [r["n"] for r in X.live_all("t")] == [1] and X.BUSY == {"s": "t/source"}
+    assert [x["can"] for x in v["stages"][0]["solo"]] == [False, False] and v["stages"][0]["solo"][1]["why"] == "남은 단계가 없습니다"
+    gate.set()
+    _done("t")
+    rec1 = X.record("t", 1)
+    assert rec1["status"] == "done" and rec1["end"]["text"].startswith("끝남 — 원본 문서(사업계획서)만 — ")
+    assert sorted(c for c in fake.calls if c[0] != "guides") == [("heads", "s"), ("heads", "t"), ("llm", "s"), ("llm", "t")]
+    v = X.status_of("t")
+    assert v["runs"] == [] and v["run"] is None and [x["n"] for x in v["lasts"]] == [2, 1] and v["last"]["n"] == 1 and v["held"] == {"source": None, "target": None}   # 끝난 차례 — 마지막에 끝난 것이 last
+    assert not X.BUSY and not X.MATES and not X.CLAIMS and not X.busy_text("t") and X.live_all("s") == []
+    assert fake.files[("t", 1)]["lane"] == "source" and fake.files[("t", 2)]["lane"] == "target"
+
+
+def test_a_run_of_the_other_document_is_stopped_by_number_from_either_document(fake, monkeypatch):
+    """멈춤은 번호로 — 그 실행이 잡지 않은 문서의 화면에서도 건다(문서마다 따로 도는 실행은 「이 문서를 잡은 실행」 이 아닐 수 있다)."""
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "both", False)])
+    gate, heads0 = threading.Event(), fake.start_heads
+    fake.start_heads = lambda doc, how="first": (gate.wait(5), heads0(doc, how))[1]
+    X.start("t", {"from": "review", "role": "source"})
+    assert X.stop("t") is None and X.stop("t", 7) is None   # 목적 문서는 잡히지 않았다 · 없는 번호
+    assert X.stop("t", 1) == {"stopping": True, "n": 1}
+    gate.set()
+    rec = _done("t")
+    assert rec["status"] == "stopped" and not X.BUSY
+
+
+def test_a_stage_of_one_documents_lines_holds_only_that_document(fit, monkeypatch):
+    """문서 하나의 줄뿐인 묶음(한 문서만을 고르지 않아도)은 그 문서만 잡는다 — 다른 문서의 실행과 같이 돌고, 앞 묶음의 남은 일도 그 문서의 눈으로 센다.
+    여기서는 1단계가 원본 문서의 줄뿐: 그 묶음의 「한 번에 진행」 이 원본 문서만 잡고 도는 동안 2단계의 「목적 문서만」(구성 반영 …)이 같이 돈다. 3단계(원본 → 목적 줄 — 매칭)는 두 실행이 끝난 뒤에만."""
+    _review_as(monkeypatch, [("heads", "source", False), ("headsLlm", "source", False)])
+    fit.heads["s"], fit.llm["s"] = False, False
+    fit.config_confirm("t", V2)
+    fit.calls.clear()
+    v = {g["id"]: g for g in X.status_of("t")["stages"]}
+    assert v["review"]["lane"] == "source" and v["review"]["solo"] == [] and v["frame"]["lane"] == "" and v["map"]["lane"] == "" and v["clean"]["lane"] == "target"
+    gate, heads0 = threading.Event(), fit.start_heads
+    fit.start_heads = lambda doc, how="first": (gate.wait(5) if doc == "s" else None, heads0(doc, how))[1]
+    a = X.start("t", {"from": "review"})   # 묶음의 「한 번에 진행」 — 원본 문서의 줄뿐이라 원본 문서만 잡는다
+    assert a["lane"] == "source" and "role" not in a["range"] and X.BUSY == {"s": "t/source"}
+    v = {g["id"]: g for g in X.status_of("t")["stages"]}
+    solo = v["frame"]["solo"][0]
+    assert solo["role"] == "target" and solo["can"] is True, solo   # 원본 문서의 줄(1단계)을 기다리지 않는다
+    assert v["frame"]["can"] is False and v["map"]["can"] is False   # 두 문서를 쓰는 묶음은 기다린다
+    b = X.start("t", {"from": "frame", "role": "target"})
+    assert b["lane"] == "target"
+    _lane_gone("t", "target")
+    rec = X.record("t", b["n"])
+    assert rec["status"] == "done" and [c[0] for c in fit.calls if c[0] in ("plan", "apply")] == ["plan", "apply"] and fit.divs["t"]["applied"], rec["end"]
+    assert X.runs_of("t") and X.BUSY == {"s": "t/source"}   # 원본 문서의 실행은 아직 돈다
+    with pytest.raises(X.Refuse) as e:
+        X.start("t", {"from": "map"})   # 매칭(원본 → 목적 줄) — 두 문서를 함께 쓴다
+    assert e.value.reason == "busy" and "두 문서를 함께 씁니다" in e.value.message
+    gate.set()
+    _done("t")
+    assert X.record("t", a["n"])["status"] == "done" and not X.BUSY
+
+
+def test_lines_of_two_runs_that_touch_each_others_document_take_turns(fit, monkeypatch):
+    """옆 실행과 겹치는 줄은 차례로 — 한쪽이 바꾸는 문서를 다른 쪽이 읽는 두 줄(원본 문서의 구성 반영 ∥ 목적 문서의 구성 반영)은 같이 돌지 않는다: 옆 실행의 그 줄이 끝날 때까지 기다린 뒤 돈다.
+    겹치지 않는 줄(원본 문서의 분석 ∥ 목적 문서의 구성 반영)은 같이 돈다."""
+    from app import workflow_units as WU
+    div, heads, guide, reheads = (WU.COMMON[k] for k in ("division", "heads", "guide", "reheads"))
+    assert X._clash(("source", div), ("target", div)) and X._clash(("source", guide), ("target", reheads)) and X._clash(("target", div), ("source", reheads))
+    assert not X._clash(("source", heads), ("target", div)) and not X._clash(("source", heads), ("target", heads))
+    fit.config_confirm("t", V2)
+    fit.calls.clear()
+    X.CLAIMS["t"] = {99: ("source", div)}   # 옆 실행(원본 문서)이 구성 반영을 도는 중
+    run = X.start("t", {"from": "frame", "role": "target"})
+    t0 = time.time()
+    while "기다리는 중" not in ((X.live("t") or {}).get("now") or {}).get("note", "") and time.time() - t0 < 5:
+        time.sleep(0.005)
+    assert "다른 문서의 실행" in X.live("t")["now"]["note"] and not [c for c in fit.calls if c[0] in ("plan", "apply")]   # 기다린다 — 문서를 건드리지 않았다
+    X.CLAIMS["t"].pop(99)
+    _done("t")
+    rec = X.record("t", run["n"])
+    assert rec["status"] == "done" and [c[0] for c in fit.calls if c[0] in ("plan", "apply")] == ["plan", "apply"] and not X.CLAIMS

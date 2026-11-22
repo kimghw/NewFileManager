@@ -16,6 +16,8 @@ app/static/task_catalog.js(taskIsRelayFlow) · workflow_exec.js(relayFlowRun · 
 - ⑤ 줄의 「이 단계만 진행」(프로젝트 구성 추출) — 시작 요청 {from: g1, only: config, docs{target, source}} = 서버 실행 · 끝나면 그 줄 ✓ 끝남.
 - ⑥ 묶음의 「한 번에 진행」(1단계) — 도는 동안 거울(taskRun.flow · 에이전트 진행 kind flow · 이름 「1단계 문서 검토 — 한 번에 진행」 · 진행 줄) · 끝 글 「끝남 — …」 · 묶음 4/4 · 헤딩 카드 둘 ✓ 끝남 · LLM 카드 「건너뜀」(LLM 끔).
 - ⑥-1b 문서 카드의 「이 단계만 진행」 = 그 문서만(② §18-21) — 두 문서에 하는 줄은 안 끝난 문서 카드마다 단추 · 시작 요청 {from, only, role} · 그 문서 카드만 ✓ 끝남(다른 문서 카드는 그대로).
+- ⑥-1c 문서마다 따로 도는 실행(② §18-22) — 구성 값이 확정되기 전에는 「프로젝트 구성 반영」 에서 시작하지 않는다(줄의 wait · 409 needs) · 원본 문서만 · 목적 문서만을 잇달아 시작하면 둘 다 받아 같이 돈다(그동안 묶음 전체는 409 busy + 까닭) ·
+  끝 글 둘 · 원본 문서의 실행이 도는 동안 대시보드의 진행 줄(「… — 원본 문서만」) · 목적 문서의 단추는 켜진 채(상태 응답에 그 실행을 얹어 본다).
 - ⑥-2 「넣을 구성 선택」(조립에 놓는 도구 — spec_병합 ② §4-1): 카드의 고르기 단추(대상 차년도 · 넣을 기관) → PUT …/flow/take · 상태 글 · 「전부 넣기」.
 - ⑦ 「이어서 한 번에 2→4단계」(= 다 진행) — 시작 요청 {from: g2, to: g4} · 끝난 뒤 지난 실행의 끝 글 · 2단계 「프로젝트 구성 반영」 ✓ 끝남(목적 문서가 바뀜).
 - ⑧ 목적 문서 화면 — 카드의 「목적 문서 열기」 로 감 · 같은 대시보드(같은 끝난 수) · 그 문서에서 「연결 목록」 · 「목록 보기」 가 보임 · LLM 검증·보완의 「건너뛰기」 → PUT …/flow/skip → 「건너뛰기 취소」.
@@ -312,6 +314,74 @@ def main():
         check("⑥-1b 끝난 뒤 — 끝난 목적 문서 카드에는 단추가 없고 원본 문서 카드의 단추는 켜진 채(그 문서의 몫이 남았다)",
               a_t["only"] == [] and a_t["btn"] is None and a_s["only"] == ["act:heads@source:only"] and a_s["btn"] and not a_s["btn"]["off"], [a_s, a_t])
         page.locator("#paneDash").screenshot(path=str(OUT / "relay_flow_card_only.png"))
+
+        # ---- ⑥-1c 문서마다 따로 도는 실행(② §18-22 — 2026-11-21 사용자 "원본문서랑, 목적문서를 따로따로 실행해서 처리할 수 있잖아? 매칭은 1개 실행이 같이 해야하고 … 구성같은 경우 … 그 값이 추출돌때까지 실행이 되면 안되고")
+        # 새 묶음(프로젝트 「배포 시험 4」 · 두 문서 모두 분석 전). (가) 진짜 서버로: 원본 문서만 · 목적 문서만을 잇달아 시작 → 둘 다 받고(같이 돈다 — 실행은 제 문서만 잡는다) · 그동안 두 문서를 함께 쓰는 묶음 전체는 거절(까닭 글)
+        src4 = up(PLAN)
+        requests.put(f"{base}/api/works/{src4}/task", json={"kind": "rnd", "file": "plan", "job": key, "project": "배포 시험 4"}, timeout=60).raise_for_status()
+        tgt4 = requests.post(f"{base}/api/workflow-start/target", json={"job": key, "main": src4, "request": f"lane-{int(time.time())}", "target": {"form": form["id"]}}, timeout=300).json()["docId"]
+        requests.put(f"{base}/api/docs/{src4}/divisions/settings", json={"values": VALUES}, timeout=120).raise_for_status()
+        to_dash(page, tgt4)
+        start = lambda body: requests.post(f"{base}/api/works/{tgt4}/flow/runs", json={"by": "human", "where": "panel", "screen": "gate", **body}, timeout=120)  # noqa: E731
+        wait4 = {g["id"]: g for g in flow(tgt4)["stages"]}   # 구성 값이 확정되기 전 — 2단계(목적 문서의 줄뿐: 첫 줄 = 프로젝트 구성 반영)는 기다린다
+        need4 = start({"from": "g2", "only": "division"})
+        check("⑥-1c 구성 값 — 확정 전에는 그 값을 쓰는 단계에서 시작하지 않는다: 「프로젝트 구성 반영」 줄에 wait(「「프로젝트 구성 추출」 이 먼저입니다 …」) · 그 줄의 시작 요청은 409 needs(전에는 시작한 뒤 멈췄다) · 2단계 = 목적 문서만 잡는 묶음(lane target)",
+              next(s for s in wait4["g2"]["steps"] if s["key"] == "division").get("wait", "").startswith("「프로젝트 구성 추출」 이 먼저입니다") and wait4["g2"]["lane"] == "target" and wait4["g1"]["lane"] == "" and wait4["g3"]["lane"] == ""
+              and need4.status_code == 409 and need4.json().get("reason") == "needs" and "프로젝트 구성 추출" in need4.json().get("message", ""), [wait4["g2"].get("lane"), need4.status_code, need4.text[:300]])
+        a4, b4 = start({"from": "g1", "role": "source"}), start({"from": "g1", "role": "target"})
+        c4 = start({"from": "g1"})
+        ra, rb = (a4.json().get("run") or {}), (b4.json().get("run") or {})
+        check("⑥-1c 원본 문서만 · 목적 문서만을 잇달아 시작 — 둘 다 202(번호 따로 · lane source · target) · 그동안 묶음 전체(두 문서를 함께 쓴다)는 409 busy + 까닭 「… 실행이 도는 중입니다 — 이 단계는 두 문서를 함께 씁니다」",
+              a4.status_code == 202 and b4.status_code == 202 and ra.get("lane") == "source" and rb.get("lane") == "target" and ra.get("n") != rb.get("n")
+              and c4.status_code == 409 and c4.json().get("reason") == "busy" and "두 문서를 함께 씁니다" in c4.json().get("message", ""), [a4.status_code, a4.text[:200], b4.status_code, b4.text[:200], c4.status_code, c4.text[:300]])
+        end4 = time.time() + 300
+        while time.time() < end4 and flow(tgt4).get("runs"):
+            time.sleep(0.5)
+        v4 = flow(tgt4)
+        rec4 = {r["n"]: r for r in requests.get(f"{base}/api/works/{tgt4}/flow/runs", timeout=60).json()["runs"]}
+        r1, r2 = rec4.get(ra.get("n")) or {}, rec4.get(rb.get("n")) or {}
+        page.evaluate("() => { dashFlowTouch(state.id); return dashFlowRead(); }")
+        idle(page)
+        lasts4 = page.evaluate("() => [...document.querySelectorAll('#paneDash .dash-last[data-flow-last]')].map((p) => p.textContent)")
+        d64 = page.evaluate(DASH)
+        check("⑥-1c 두 실행이 같이 돌았다 — 둘 다 끝남 · 도는 때가 겹침(뒤에 시작한 것이 앞의 것이 끝나기 전에 시작) · 끝 글 둘(「… 원본 문서(사업계획서)만 — …」 · 「… 목적 문서(연차보고서)만 — …」 — 대시보드에 한 줄씩) · 두 문서의 헤딩 카드 ✓ 끝남",
+              r1.get("status") == "done" and r2.get("status") == "done" and (r2.get("started") or 0) < (r1.get("ended") or 0) and (r1.get("started") or 0) < (r2.get("ended") or 0)
+              and sorted(x["n"] for x in v4.get("lasts") or []) == sorted([ra.get("n"), rb.get("n")]) and len(lasts4) == 2 and any("원본 문서(사업계획서)만" in t for t in lasts4) and any("목적 문서(연차보고서)만" in t for t in lasts4)
+              and card(d64, "g1", "heads", "source").get("st") == "✓ 끝남" and card(d64, "g1", "heads", "target").get("st") == "✓ 끝남",
+              [[r1.get("status"), r1.get("started"), r1.get("ended")], [r2.get("status"), r2.get("started"), r2.get("ended")], [x["n"] for x in v4.get("lasts") or []], lasts4, group(d64, "g1").get("cards")])
+
+        # (나) 화면 — 원본 문서만 잡은 실행이 도는 상태(상태 응답에 그 실행 하나를 얹어 본다 — 분석은 몇 초라 진짜 실행으로는 그 틈을 못 잡는다): 진행 줄 하나(이름 「… — 원본 문서만」 + 「멈춤」) ·
+        # 「목적 문서만」 · 목적 문서 카드의 「이 단계만 진행」 은 켜진 채 · 「원본 문서만」 · 원본 문서 카드의 단추 · 묶음 전체는 꺼짐(묶음의 까닭 = 「… 두 문서를 함께 씁니다」)
+        def source_runs(route):
+            res = route.fetch()
+            body = res.json()
+            run = {"n": 99, "status": "running", "stopping": False, "started": time.time() - 5, "ended": None, "lane": "source", "now": {"stage": "g1", "key": "headsLlm", "doc": src4, "note": "사업계획서 LLM 검증·보완 중"},
+                   "range": {"from": "g1", "to": "g1", "only": "", "redo": "", "role": "source"}, "origin": {"by": "human", "screen": "other"}, "docs": body.get("docs"), "left": [], "halt": None, "end": None, "cut": None, "stages": []}
+            body.update(runs=[run], run=run, held={"source": 99, "target": None}, last=None, lasts=[])
+            for g in body.get("stages", []):
+                if g["id"] != "g1":
+                    continue
+                g.update(can=False, why="원본 문서(사업계획서)의 실행이 끝나면 쓸 수 있습니다 — 이 묶음은 두 문서를 함께 씁니다", left=2)
+                for s in g.get("steps") or []:
+                    if s["key"] == "headsLlm":   # 두 문서 모두 남은 것으로(LLM 이 꺼져 있어 서버는 「건너뜀」 으로 센다)
+                        s.update(done=False, st="run", skipped=False, per=[{"doc": src4, "role": "source", "st": "busy", "text": "사업계획서 — LLM 검증·보완 중…"}, {"doc": tgt4, "role": "target", "st": "todo", "text": ""}])
+                g["solo"] = [{"role": "source", "title": "원본 문서", "name": "사업계획서", "total": 2, "left": 1, "paid": [], "change": False, "can": False, "why": "지금 진행 중인 작업이 끝나면 쓸 수 있습니다"},
+                             {"role": "target", "title": "목적 문서", "name": "연차보고서", "total": 2, "left": 1, "paid": [], "change": False, "can": True, "why": ""}]
+            route.fulfill(response=res, json=body)
+        page.route(re.compile(r"/api/works/[0-9a-f]+/flow$"), source_runs)
+        page.evaluate("() => { dashFlowTouch(state.id); DASH.open = 'headsLlm@target'; return dashFlowRead().then(() => dashDraw(true)); }")
+        page.wait_for_selector('#paneDash .dash-live[data-run="99"]', timeout=30000)
+        lane = page.evaluate("""() => { const q = (f) => document.querySelector(`#paneDash [data-dash-focus="${f}"]`), b = (x) => (x ? { off: x.disabled, title: x.title } : null);
+          return { lives: [...document.querySelectorAll('#paneDash .dash-live')].map((x) => [x.dataset.lane || '', (x.querySelector('b') || {}).textContent || '', !!x.querySelector('button')]),
+            next: (document.querySelector('#paneDash .dash-next') || {}).textContent || '', mirror: !!taskRun, source: b(q('solo:g1:source')), target: b(q('solo:g1:target')), run: b(q('run:g1')),
+            card: b(q('act:headsLlm@target:only')), chain: [...document.querySelectorAll('#paneDash .dash-top button')].map((x) => x.disabled) }; }""")
+        page.locator("#paneDash").screenshot(path=str(OUT / "relay_flow_lanes.png"))
+        page.unroute(re.compile(r"/api/works/[0-9a-f]+/flow$"))
+        check("⑥-1c 원본 문서의 실행이 도는 동안의 대시보드 — 진행 줄 하나(「1단계 문서 검토 — 원본 문서만」 + 「멈춤」) · 「목적 문서만」 과 목적 문서 카드의 「이 단계만 진행」 은 켜진 채 · 「원본 문서만」 · 묶음의 「한 번에 진행」 은 꺼짐(까닭 「… 두 문서를 함께 씁니다」)",
+              lane["lives"] == [["source", "1단계 문서 검토 — 원본 문서만", True]] and "원본 문서만" in lane["next"] and lane["source"] and lane["source"]["off"] and lane["target"] and not lane["target"]["off"]
+              and lane["card"] and not lane["card"]["off"] and lane["run"] and lane["run"]["off"] and "두 문서를 함께 씁니다" in lane["run"]["title"], lane)
+        page.evaluate("() => { dashFlowTouch(state.id); DASH.open = null; return dashFlowRead().then(() => dashDraw(true)); }")
+        idle(page)
         to_dash(page, src)   # 하던 묶음으로
         idle(page)
 

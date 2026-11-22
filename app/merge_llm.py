@@ -37,11 +37,16 @@ examples = 이미 정해진 짝 몇 개(두 서식의 절 이름이 어떻게 �
   맞으면 "" — 표 묶음과 from 을 비운 줄도 "".
 
 ### ② 표 짝
-tableTargets = 스크립트가 **같은 표를 정하지 못한** 목적 문서의 표(구분 기준 묶음에 안 든 칸이 있는 표 — 표지·요약문의 칸, 기관 절 안의 표, 절 아래 표). 표마다: key = 표 id · title = 표 제목(소속 제목 줄) ·
-path = 소속 경로 · ctx = 그 표의 맥락(org = 어느 기관의 표인지 · year = 어느 차년도의 표인지 — 없으면 과제 전체·전 차년도) · heads = 행·열 머리 칸 꼴 · shape = {rows, cols, splits(쪽을 넘어 나뉘는 표인가)} ·
-status(none = 후보를 못 정함 · ambiguous = 후보가 여럿) · why(스크립트가 안 이은 까닭 — org·year = 머리는 같은데 기관·차년도가 다른 표가 있었음) · candidates = 머리가 겹치는 원본 표의 key 와 겹침 점수.
-tableSources = 고를 수 있는 원본 표(같은 꼴의 설명). 짝이 되면 스크립트가 두 표에서 **행·열 머리 경로가 같은 칸끼리** 원본 글을 목적의 빈 칸에 옮기고 서식(칸의 글자 모양·문단 모양, 쪽 나눔)을 맞춥니다.
-답 tables: tableTargets 마다 한 줄 — {to, from, reason, format}. to = tableTargets 의 key, from = tableSources 의 key 또는 ""(같은 표 없음). **입력에 있는 key 만** 씁니다.
+**표는 모두 읽고 정합니다** — tableTargets = 내용을 받을 칸이 있는 목적 문서의 표 **전부**(구분 기준 묶음에 안 든 칸이 있는 표 — 표지·요약문의 칸, 기관 절 안의 표, 절 아래 표), tableSources = 원본 문서의 표 **전부**입니다.
+tableTargets 표마다: key = 표 id · title = 표 제목(소속 제목 줄) · path = 소속 경로 · ctx = 그 표의 맥락(org = 어느 기관의 표인지 · year = 어느 차년도의 표인지 — 없으면 과제 전체·전 차년도) ·
+heads = 행·열 머리 칸 꼴 · shape = {rows, cols, splits(쪽을 넘어 나뉘는 표인가)} · status(none = 스크립트가 같은 표를 못 정함 · ambiguous = 스크립트 후보가 여럿 · paired = 스크립트가 이미 이음 — paired = 그 원본 표 key) ·
+why(스크립트가 안 이은 까닭 — org·year = 머리는 같은데 기관·차년도가 다른 표가 있었음) · candidates = 스크립트가 머리 글자의 겹침으로 추린 **참고 후보**(key 와 겹침 점수 — 비어 있을 수 있습니다).
+candidates 는 참고일 뿐입니다 — **후보에 없는 표도 tableSources 에서 찾아 고릅니다**(머리 글자가 달라 스크립트가 못 추린 같은 표가 있습니다). 후보가 비어 있어도 tableSources 를 모두 읽고 판단합니다.
+tableSources 표마다: 같은 꼴의 설명(status·why·candidates 없음) + same = **이 표와 머리·소속 제목이 같은 꼴로 되풀이되는 다른 표들**(기관마다·차년도마다 한 표씩 있는 표 — [{key, ctx, rows(행 수), title?}]):
+같은 꼴 표가 여럿이면 그 가운데 **목적 표와 기관·차년도가 맞는 표의 key** 를 고릅니다(맨 앞 표의 key 를 그냥 쓰지 않습니다). 이 단위의 모든 목적 표와 기관·차년도가 어긋나는 원본 표는 실리지 않습니다(sourcesLeft = 상한에 걸려 못 실은 수).
+짝이 되면 스크립트가 두 표에서 **행·열 머리 경로가 같은 칸끼리** 원본 글을 목적의 빈 칸에 옮기고 서식(칸의 글자 모양·문단 모양, 쪽 나눔)을 맞춥니다 — 행·열 구성이 다른 표는 그 뒤 「표 대응」 이 행·열을 맞춥니다(같은 내용을 적는 표면 구성이 달라도 잇습니다).
+답 tables: tableTargets 마다 한 줄 — {to, from, reason, format}. to = tableTargets 의 key, from = tableSources 의 key(same 에 든 key 포함) 또는 ""(같은 표 없음). **입력에 있는 key 만** 씁니다.
+status 가 paired 인 표는 스크립트 짝이 맞으면 from 에 그 paired key 를 그대로 적고, 다른 표가 맞으면 그 표의 key 를 적습니다("" 로 답하면 스크립트 짝을 그대로 둡니다).
 기관(ctx.org)이나 차년도(ctx.year)가 서로 어긋나는 짝은 받지 않습니다. format = 두 표의 서식·모양 차이 가운데 사람이 확인해야 할 것 한 문장("" = 없음). tableTargets 가 없으면 tables 는 [].
 
 ### 공통
@@ -225,16 +230,46 @@ def check(payload, answer):
     return {"fixed": fixed, "rejected": rejected, "none": none}
 
 
-TABLE_TARGETS_MAX, TABLE_SOURCES_MAX, HEADS_MAX, HEAD_LEN = 40, 80, 24, 20   # 단위 하나에 보내는 표 수 · 표마다 머리 꼴 수
+TABLE_TARGETS_MAX, TABLE_SOURCES_MAX = 60, 400   # 단위 하나에 보내는 목적 표 수 · 원본 표 수(same 에 묶인 표 포함 — 실제 쌍: 목적 표 84 · 원본 표 256)
+SOURCE_TABLE_LINES = 2   # 스크립트 후보가 아닌 원본 표의 excerpt 줄 수(표 제목 줄 + 첫 행) — 후보는 TARGET_LINES 줄
+
+
+def _table_clash(t, s):
+    """목적 표 t 와 원본 표 s 의 맥락이 어긋나는가 → "org"|"year"|None — 둘 다 알고 다를 때만(merge_fixed._ctx_clash 와 같은 규칙: 보낸 자료의 ctx 로 본다)."""
+    a, b = t.get("ctx") or {}, s.get("ctx") or {}
+    return next((k for k in ("org", "year") if a.get(k) is not None and b.get(k) is not None and a[k] != b[k]), None)
+
+
+def _fold(rows, hints, excerpt):
+    """원본 표 목록(merge_fixed.review_tables 의 sources 꼴 — form 포함)을 보낼 꼴로 → [{key, title, path, ctx, heads, shape, excerpt, same?}].
+    같은 꼴 표(form 이 같음 — 머리 꼴·소속 제목 꼴이 같은 표: 기관마다·차년도마다 되풀이되는 표)는 **첫 표 한 줄에 묶는다**(same[{key, ctx, rows, title?}] — title 은 묶은 줄의 제목과 다를 때만: 제목에 적힌 기관 이름이 표를 가른다).
+    스크립트 후보(hints)는 묶지 않고 제 줄로 싣는다(excerpt 가 길다 — TARGET_LINES 줄). 그 밖은 SOURCE_TABLE_LINES 줄. excerpt = (표 id, 줄 수) → 글 줄 목록."""
+    out, head = [], {}
+    for s in rows:
+        f = s.get("form")
+        if f and f in head and s["key"] not in hints:
+            ctx = {k: v for k, v in (s.get("ctx") or {}).items() if v is not None}
+            head[f].setdefault("same", []).append({"key": s["key"], "ctx": ctx, "rows": (s.get("shape") or {}).get("rows"), **({} if s.get("title") == head[f].get("title") else {"title": s.get("title")})})
+            continue
+        row = {**{k: v for k, v in s.items() if k != "form"}, "excerpt": excerpt(s["key"], TARGET_LINES if s["key"] in hints else SOURCE_TABLE_LINES)}
+        out.append(row)
+        if f:
+            head.setdefault(f, row)
+    return out
 
 
 def check_tables(payload, answer):
     """표 짝 답(ask 의 data["tables"])을 보낸 자료에 대고 검증 → {"fixed": {목적 표 id: {"from": 원본 표 id, "source": "llm", "reason", "format"}}, "rejected": [{…답, "why"}],
-    "none": [{"to", "reason"}]}. 받는 것: to 가 tableTargets 에 있고 from 이 tableSources 에 있고 **맥락(기관·차년도)이 어긋나지 않는** 것(둘 다 알고 다르면 거절), 표마다 한 번.
-    from 이 빈 답은 fixed 를 내지 않는다(none 에 까닭만)."""
+    "none": [{"to", "reason"}], "kept": [목적 표 id — 스크립트 짝 그대로]}. 받는 것: to 가 tableTargets 에 있고 from 이 tableSources 에(same 에 묶인 표 포함) 있고 **맥락(기관·차년도)이 어긋나지 않는** 것
+    (둘 다 알고 다르면 거절), 표마다 한 번. from 이 빈 답은 fixed 를 내지 않는다(none 에 까닭만).
+    스크립트가 이미 이은 표(tableTargets 의 paired)는 답이 그 표 그대로이거나 비었으면 kept(스크립트 짝 그대로 — fixed 를 내지 않는다 · 앞선 LLM 짝은 지운다: merge_api), 다른 표를 고르면 fixed(스크립트보다 먼저 쓴다)."""
     targets = {t["key"]: t for t in payload.get("tableTargets") or ()}
-    sources = {s["key"]: s for s in payload.get("tableSources") or ()}
-    fixed, rejected, none = {}, [], []
+    sources = {}
+    for s in payload.get("tableSources") or ():
+        sources[s["key"]] = s
+        for m in s.get("same") or ():
+            sources.setdefault(m["key"], {**s, **m})   # 같은 꼴로 묶인 표 — 맥락은 그 표의 것
+    fixed, rejected, none, kept = {}, [], [], []
     for r in (answer or {}).get("tables") or ():
         if not isinstance(r, dict):
             continue
@@ -242,20 +277,23 @@ def check_tables(payload, answer):
         t, s = targets.get(to), sources.get(frm)
         if t is None:
             why = "검토 대상이 아닌 표(이미 짝이 있거나 입력에 없는 key)"
-        elif to in fixed or any(n["to"] == to for n in none):
+        elif to in fixed or to in kept or any(n["to"] == to for n in none):
             why = "같은 표를 두 번"
+        elif t.get("paired") and frm in ("", t["paired"]):
+            kept.append(to)
+            continue
         elif not frm:
             none.append({"to": to, "reason": reason})
             continue
         elif s is None:
             why = "입력에 없는 원본 표 key"
-        elif clash := next((k for k in ("org", "year") if (t.get("ctx") or {}).get(k) is not None and (s.get("ctx") or {}).get(k) is not None and t["ctx"][k] != s["ctx"][k]), None):
+        elif clash := _table_clash(t, s):
             why = "기관이 다른 표" if clash == "org" else "차년도가 다른 표"
         else:
             fixed[to] = {"from": frm, "source": "llm", "reason": reason, "format": str(r.get("format") or "").strip()[:200]}
             continue
         rejected.append({**r, "why": why})
-    return {"fixed": fixed, "rejected": rejected, "none": none}
+    return {"fixed": fixed, "rejected": rejected, "none": none, "kept": kept}
 
 
 # ---- 장별 병렬 검토(2026-11-11 사용자 "LLM으로 검토할 떄는 멀티에이전트로 챕터별로 해줘. 20페이지 내로 나눠서 검토하면 좋을듯." · "opus 모델로") ----------
@@ -268,7 +306,7 @@ UNIT_NOTE = """
 목적 문서가 길어 장(chapter) 단위로 나눠 여러 검토자가 나눠 봅니다 — 이 자료의 targets·tableTargets 는 **이 단위에 든 목적 묶음·표만**입니다(다른 단위의 것은 답하지 않습니다).
 chapter = 이 단위의 제목 · pages(추정 쪽 — 첫 쪽, 끝 쪽) · outline(단위 안 본문 헤딩 「레터 글」, 문서 순, 같은 줄은 한 번 — outlineLeft = 못 실은 줄 수).
 targets·sources 의 excerpt = 그 자리의 **실제 글 앞부분**: 문단 묶음은 첫 항목의 라벨 줄부터 이어지는 줄, 표 묶음은 표 바로 앞 줄(표 제목)과 표의 앞 행들(한 행의 칸은 「 | 」 로 이음). 긴 줄은 「…」 로 잘렸습니다.
-tableTargets·tableSources 의 excerpt = 그 표 바로 앞 줄(표 제목)과 표의 앞 행들.
+tableTargets·tableSources 의 excerpt = 그 표 바로 앞 줄(표 제목)과 표의 앞 행들 — tableSources 는 원본 문서의 표 전부라, 스크립트 후보가 아닌 표의 excerpt 는 짧습니다(표 제목 줄과 첫 행 — 머리 줄). same 에 묶인 표는 excerpt 가 없습니다(묶은 표와 같은 꼴).
 원본(sources·tableSources)의 excerpt 는 계획서에 실제로 적힌 내용이라 그 자리에 무엇을 적는지 보여 줍니다. 소속·라벨·표 머리만으로 뜻이 갈리지 않으면 excerpt 로 판단하십시오. 판단 기준·답의 꼴은 위 계약 그대로입니다."""
 
 
@@ -281,11 +319,13 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
            tables=None, guide=None, links=""):
     """못 정한 목적 묶음과 **못 정한 표**를 **목적 문서의 장(쪽 상한 pages 안)마다 한 호출**로 나눠 병렬로 보정한다(잠금 밖 — 호출이 수십 초~수 분).
     to_side·from_side = {"blocks": 문서 blocks(), "graph": 2단계 결과}, pairs = `merge_pairs.pair` 결과, to_groups·from_groups = `merge_pairs.summarize`.
-    tables = 표 짝 검토 자료(`merge_fixed.review_tables` — {"targets": [{key, title, path, ctx, heads, shape, status, why, candidates}], "sources": [{key, …}]} | None = 표는 안 봄).
+    tables = 표 짝 검토 자료(`merge_fixed.review_tables` — {"targets": [{key, title, path, ctx, heads, shape, status, why, candidates, paired?}], "sources": [{key, …, form}]} | None = 표는 안 봄).
+    **표는 모두 읽고 정한다**(2026-11-22 사용자 "테이블 매칭을 LLM이 모두 읽고 하길 바램"): 단위마다 그 단위의 목적 표 **전부**(후보가 없는 표 · 스크립트가 이은 표도)와 **원본 문서의 표 전부**를 보낸다 —
+    그 단위의 모든 목적 표와 기관·차년도가 어긋나는 원본 표만 빼고, 같은 꼴 표는 한 줄로 묶어(_fold). 전에는 후보가 있는 목적 표와 후보로 든 원본 표만 보냈다.
     ask = llm.ask_all 대신(시험). 단위 = merge_chunks.units, 묶음·표는 자리 블록(_anchor · 표 id)이 든 단위로. 단위마다 data() 를 그 단위 targets 로 좁힌 자료 +
-    chapter{title, pages, outline} + targets·sources 의 excerpt + 그 단위의 tableTargets·tableSources(후보로 든 원본 표 — excerpt 포함)를 보내고, 답은 **그 단위에 보낸 자료에 대고**
+    chapter{title, pages, outline} + targets·sources 의 excerpt + 그 단위의 tableTargets·tableSources(excerpt 포함 — 스크립트 후보는 길게)를 보내고, 답은 **그 단위에 보낸 자료에 대고**
     check()·check_tables() 한다(다른 단위 key 는 거절).
-    → {"fixed", "rejected"[+unit], "none" — check() 를 합친 것, "tables": {"fixed": {목적 표 id: {from, source, reason, format}}, "rejected", "none"} — check_tables() 를 합친 것,
+    → {"fixed", "rejected"[+unit], "none" — check() 를 합친 것, "tables": {"fixed": {목적 표 id: {from, source, reason, format}}, "rejected", "none", "kept"} — check_tables() 를 합친 것,
        "units": [{title, pages, over, targets, tables(보낸 표 수), call{backend, model, effort, ms, costUsd, error, retried} | None(부르지 않음), prompt, answer}],
        "left": 상한에 걸려 못 보낸 수, "form", "job": 단위마다 함께 보낸 할 일 프롬프트 {job, name, sha1} | None, "guide": 함께 보낸 지침 {name, title, sha1} | None}.
     한 단위의 호출이 실패해도 다른 단위의 결과는 남는다(그 단위 call.error).
@@ -297,11 +337,11 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
     groups = pairs.get("groups") or []
     und = [g["to"]["key"] for g in groups if g.get("status") in UNDECIDED and g.get("source") != "user" and (g.get("to") or {}).get("key") in to_by]
     where = merge_chunks.assign(us, at, [_anchor(to_by[k]) for k in und])
-    tt = [t for t in (tables or {}).get("targets") or () if t.get("candidates")]   # 후보가 없는 표는 물을 것이 없다
-    ts_by = {s["key"]: s for s in (tables or {}).get("sources") or ()}
+    tt = list((tables or {}).get("targets") or ())   # 남는 칸이 있는 목적 표 전부 — 후보가 없는 표도 LLM 이 원본 표를 모두 읽고 정한다
+    ts_all = list((tables or {}).get("sources") or ())   # 원본 문서의 표 전부(문서 차례)
     twhere = merge_chunks.assign(us, at, [t["key"] for t in tt])
     g = merge_guides.get(GUIDE) if guide is None else guide
-    out = {"fixed": {}, "rejected": [], "none": [], "tables": {"fixed": {}, "rejected": [], "none": []}, "units": [], "left": 0, "form": [], "job": job_prompts.brief(job),
+    out = {"fixed": {}, "rejected": [], "none": [], "tables": {"fixed": {}, "rejected": [], "none": [], "kept": []}, "units": [], "left": 0, "form": [], "job": job_prompts.brief(job),
            "guide": merge_guides.brief(g) if g else None}
     sent, jobs = [], []
     for i, u in enumerate(us):
@@ -319,10 +359,15 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
         for s in p["sources"]:
             s["excerpt"] = merge_chunks.excerpt(at_from, _anchor(from_by[s["key"]]), SOURCE_LINES)
         if mine:
-            picked = mine[:TABLE_TARGETS_MAX]
-            want = list(dict.fromkeys(c["key"] for t in picked for c in t["candidates"] if c["key"] in ts_by))[:TABLE_SOURCES_MAX]
-            p["tableTargets"] = [{**t, "candidates": [c for c in t["candidates"] if c["key"] in want], "excerpt": merge_chunks.excerpt(at, t["key"], TARGET_LINES)} for t in picked]
-            p["tableSources"] = [{**ts_by[k], "excerpt": merge_chunks.excerpt(at_from, k, TARGET_LINES)} for k in want]
+            picked = _cap(mine, TABLE_TARGETS_MAX, lambda t: t["status"] != "paired")   # 넘치면 스크립트가 못 정한 표부터
+            hints = {c["key"] for t in picked for c in t["candidates"]} | {t["paired"] for t in picked if t.get("paired")}   # 스크립트 후보 · 스크립트 짝 — excerpt 를 길게
+            fit = [s for s in ts_all if any(not _table_clash(t, s) for t in picked)]   # 이 단위의 모든 목적 표와 기관·차년도가 어긋나는 원본 표는 고를 수 없다 — 뺀다
+            kept = _cap(fit, TABLE_SOURCES_MAX, lambda s: s["key"] in hints)
+            shown = {s["key"] for s in kept}
+            p["tableTargets"] = [{**t, "candidates": [c for c in t["candidates"] if c["key"] in shown], "excerpt": merge_chunks.excerpt(at, t["key"], TARGET_LINES)} for t in picked]
+            p["tableSources"] = _fold(kept, hints, lambda k, n: merge_chunks.excerpt(at_from, k, n))
+            if len(fit) > len(kept):
+                p["sourcesLeft"] = len(fit) - len(kept)
             out["left"] += len(mine) - len(picked)
         content, out["form"] = prompt(p, form, UNIT_NOTE, job, g if g else False, links)
         row.update(targets=len(p["targets"]), tables=len(p.get("tableTargets") or ()), prompt=content)
@@ -342,4 +387,5 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
         out["tables"]["fixed"].update(ct["fixed"])
         out["tables"]["rejected"] += [{**x, "unit": i} for x in ct["rejected"]]
         out["tables"]["none"] += ct["none"]
+        out["tables"]["kept"] += ct["kept"]
     return out

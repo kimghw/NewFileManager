@@ -66,8 +66,9 @@ def test_table_context_clash_and_note():
     assert X._ctx_note("year", {"org": None, "year": 2}, {"org": None, "year": 1}) == "차년도가 다른 표 — 목적 2차년도 ↔ 원본 1차년도"
 
 
-def test_forced_table_pairs_win_and_review_data_lists_open_tables():
-    """LLM·사람이 정한 표 짝(forced)이 스크립트보다 먼저 — 끊은 표는 안 잇고, 정한 표는 그 원본과. 검토 자료 = 못 정한 표 가운데 후보가 있는 것(사람이 정한 표는 뺌)."""
+def test_forced_table_pairs_win_and_review_data_lists_all_tables():
+    """LLM·사람이 정한 표 짝(forced)이 스크립트보다 먼저 — 끊은 표는 안 잇고, 정한 표는 그 원본과. 검토 자료 = 남는 칸이 있는 목적 표 전부 × 원본 표 전부(사람이 정한 표만 뺌 —
+    2026-11-22 사용자 "테이블 매칭을 LLM이 모두 읽고 하길 바램": 후보가 없는 표 · 스크립트가 이은 표도 LLM 이 본다)."""
     d = M.small()
     plan = HwpxDoc(M.PLAN_FORM.read_bytes())
     assert not core.apply(plan, d["values"], levels_of=rnd.levels_of)["errors"]
@@ -86,10 +87,105 @@ def test_forced_table_pairs_win_and_review_data_lists_open_tables():
     bad = X.plan(to, frm, forced={first["to"]: {"from": "t-없는-표", "source": "llm"}})   # 없는 표를 가리키는 짝은 안 받는다 — 스크립트 결과 그대로
     assert next(t for t in bad["tables"] if t["to"] == first["to"])["source"] == "script"
     rv = X.review_tables(to, frm)
-    assert rv["open"] == len(rv["targets"]) == base["counts"]["tablesOpen"]
-    assert all(t["candidates"] and {"key", "title", "path", "ctx", "heads", "shape", "status", "why"} <= set(t) for t in rv["targets"])
-    assert {c["key"] for t in rv["targets"] for c in t["candidates"]} <= {s["key"] for s in rv["sources"]}
-    assert not any(t["key"] == first["to"] for t in rv["targets"])   # 스크립트가 이은 표는 검토 대상이 아니다
+    rows = {t["to"]: t for t in base["tables"]}
+    assert base["counts"]["tablesOpen"] == sum(t["status"] != "paired" for t in base["tables"])   # 못 정한 표 = 후보가 없는 표도(LLM 이 원본 표를 모두 읽고 정한다)
+    assert any(not t["cands"] for t in base["tables"] if t["status"] != "paired")                  # 이 쌍에도 후보 없는 표가 있다 — 전에는 LLM 이 못 본 표
+    assert set(rows) <= {t["key"] for t in rv["targets"]} and rv["open"] == sum(t["status"] != "paired" for t in rv["targets"]) >= base["counts"]["tablesOpen"]
+    assert all({"key", "title", "path", "ctx", "heads", "shape", "status", "why", "candidates"} <= set(t) for t in rv["targets"])
+    assert all((t["status"], t.get("paired")) == (rows[t["key"]]["status"], rows[t["key"]]["from"] if rows[t["key"]]["status"] == "paired" else None) for t in rv["targets"] if t["key"] in rows)
+    assert next(t for t in rv["targets"] if t["key"] == first["to"])["paired"] == first["from"]   # 스크립트가 이은 표도 LLM 이 확인한다(paired = 스크립트 짝)
+    extra = [t for t in rv["targets"] if t["key"] not in rows]   # 표 짝 줄에 못 든 표 — 남는 칸은 있는데 머리 꼴이 둘 미만
+    assert all(t["status"] == "none" and not t["candidates"] and len(t["heads"]) < 2 for t in extra)
+    F = X._side(frm)
+    srcs = {f["id"] for f in F["tables"] if f["id"] in F["idx"]}
+    assert {s["key"] for s in rv["sources"]} == srcs and len(srcs) > 5                            # 원본 문서의 표 전부 — 후보로 든 표만이 아니다
+    assert all("form" in s and "status" not in s and all(len(h) <= X.REVIEW_HEAD_LEN for h in s["heads"]) for s in rv["sources"])
+    forms = [s["form"] for s in rv["sources"] if s["form"]]
+    assert len(set(forms)) < len(forms)                                                            # 같은 꼴 표(머리·소속 제목 꼴이 같은 표)는 같은 form — merge_llm 이 한 줄로 묶는다
+    cut_rv = X.review_tables(to, frm, forced={first["to"]: {"from": None, "source": "user"}})
+    assert not any(t["key"] == first["to"] for t in cut_rv["targets"])                             # 사람이 정한 표는 검토 대상이 아니다
+    # 머리 꼴이 둘 미만인 표 — 스크립트는 줄을 안 내지만 LLM·사람이 정한 짝이 있으면 줄이 선다(그 뒤 칸은 표 대응이 맞춘다)
+    if extra:
+        src = rv["sources"][0]["key"]
+        got = X.plan(to, frm, forced={extra[0]["key"]: {"from": src, "source": "llm", "reason": "같은 표", "format": ""}})
+        row = next(t for t in got["tables"] if t["to"] == extra[0]["key"])
+        assert (row["status"], row["source"], row["from"]) == ("paired", "llm", src)
+
+
+def test_review_sends_every_table_and_folds_repeated_forms():
+    """표 짝 검토의 자료(merge_llm.review) — 단위마다 그 단위의 목적 표 전부(후보 없는 표 포함)와 원본 표 전부를 보낸다: 같은 꼴 표는 한 줄(same)로 묶고, 그 단위의 모든 목적 표와 맥락이 어긋나는 원본 표만 뺀다."""
+    import json
+    d = M.small()
+    plan = HwpxDoc(M.PLAN_FORM.read_bytes())
+    assert not core.apply(plan, d["values"], levels_of=rnd.levels_of)["errors"]
+    to, frm = {**d["to"], "values": d["values"]}, {**M._side("scope-plan", plan, M.PLAN_FORM.name), "values": d["values"]}
+    rv = X.review_tables(to, frm)
+    ts, fs = (P.summarize(x["doc"].blocks(), x["graph"], x["tables"], d["values"]) for x in (to, frm))
+    jobs = []
+
+    def ask(js):
+        jobs.extend(js)
+        out = []
+        for j in js:
+            p = json.loads(j["content"].split("## 자료(JSON)\n", 1)[1])
+            keys = [s["key"] for s in p["tableSources"]] + [m["key"] for s in p["tableSources"] for m in s.get("same") or ()]
+            ans = [{"to": t["key"], "from": t.get("paired") or "", "reason": "시험", "format": ""} for t in p["tableTargets"]]
+            free = next((t for t in p["tableTargets"] if not t.get("paired") and not t["candidates"]), None)   # 후보가 없는 표에도 답할 수 있다 — 맥락이 안 어긋나는 원본 표 하나
+            if free:
+                by = {s["key"]: s for s in p["tableSources"]}
+                by.update({m["key"]: m for s in p["tableSources"] for m in s.get("same") or ()})
+                pick = next((k for k in keys if not L._table_clash(free, by[k])), "")
+                next(a for a in ans if a["to"] == free["key"])["from"] = pick
+            out.append({"data": {"decisions": [], "tables": ans, "summary": ""}, "backend": "fake", "model": j["model"], "error": None})
+        return out
+    r = L.review({"blocks": to["doc"].blocks(), "graph": to["graph"]}, {"blocks": frm["doc"].blocks(), "graph": frm["graph"]}, P.pair(ts, fs), ts, fs, ask=ask, tables=rv)
+    ps = [json.loads(j["content"].split("## 자료(JSON)\n", 1)[1]) for j in jobs]
+    sent_t = [t["key"] for p in ps for t in p.get("tableTargets") or ()]
+    assert sorted(sent_t) == sorted(t["key"] for t in rv["targets"])                                # 목적 표마다 꼭 한 단위 — 후보가 없는 표도
+    assert any(not t["candidates"] for p in ps for t in p.get("tableTargets") or ())
+    all_src = {s["key"] for s in rv["sources"]}
+    for p in ps:
+        if not p.get("tableTargets"):
+            continue
+        rows = p["tableSources"]
+        keys = [s["key"] for s in rows] + [m["key"] for s in rows for m in s.get("same") or ()]
+        assert len(keys) == len(set(keys)) and set(keys) <= all_src and "form" not in rows[0] and all("excerpt" in s for s in rows)
+        gone = all_src - set(keys)                                                                    # 빠진 원본 표 = 이 단위의 모든 목적 표와 맥락이 어긋나는 표뿐
+        by = {s["key"]: s for s in rv["sources"]}
+        assert all(all(L._table_clash(t, by[k]) for t in p["tableTargets"]) for k in gone)
+        hints = {c["key"] for t in p["tableTargets"] for c in t["candidates"]} | {t["paired"] for t in p["tableTargets"] if t.get("paired")}
+        assert hints <= {s["key"] for s in rows}                                                      # 스크립트 후보 · 스크립트 짝은 묶지 않고 제 줄로(긴 excerpt)
+        assert all(len(s["excerpt"]) <= (L.TARGET_LINES if s["key"] in hints else L.SOURCE_TABLE_LINES) for s in rows)
+    assert any(s.get("same") for p in ps for s in p.get("tableSources") or ())                      # 같은 꼴 표는 한 줄로 묶인다
+    paired = {t["key"] for t in rv["targets"] if t.get("paired")}
+    assert set(r["tables"]["kept"]) == paired and not (set(r["tables"]["fixed"]) & paired)          # 스크립트 짝 그대로 답한 표 = kept(fixed 를 내지 않는다)
+    assert r["tables"]["fixed"] and all(v["source"] == "llm" for v in r["tables"]["fixed"].values())  # 후보가 없던 표에 고른 원본 표가 받아들여진다
+    assert sum(u["tables"] for u in r["units"]) == len(rv["targets"]) and "표는 모두 읽고" in jobs[0]["content"]
+
+
+def test_fold_groups_same_form_tables_under_the_first():
+    rows = [{"key": "f1", "title": "총괄표", "path": [], "ctx": {"org": "가나대", "year": None}, "heads": ["a", "b"], "shape": {"rows": 5, "cols": 2, "splits": False}, "form": "x"},
+            {"key": "f2", "title": "총괄표", "path": [], "ctx": {"org": "다라연", "year": None}, "heads": ["a", "b"], "shape": {"rows": 6, "cols": 2, "splits": False}, "form": "x"},
+            {"key": "f3", "title": "홀로 선 표", "path": [], "ctx": {"org": None, "year": None}, "heads": ["c"], "shape": {"rows": 1, "cols": 1, "splits": False}, "form": None},
+            {"key": "f4", "title": "총괄표", "path": [], "ctx": {"org": "마바전자", "year": None}, "heads": ["a", "b"], "shape": {"rows": 7, "cols": 2, "splits": False}, "form": "x"},
+            {"key": "f5", "title": "같은 꼴 · 맥락 없음", "path": [], "ctx": {"org": None, "year": None}, "heads": ["a", "b"], "shape": {"rows": 8, "cols": 2, "splits": False}, "form": "x"}]
+    got = L._fold(rows, {"f4"}, lambda k, n: [k] * n)
+    assert [s["key"] for s in got] == ["f1", "f3", "f4"] and all("form" not in s for s in got)        # 후보(f4)는 묶지 않는다
+    assert got[0]["same"] == [{"key": "f2", "ctx": {"org": "다라연"}, "rows": 6}, {"key": "f5", "ctx": {}, "rows": 8, "title": "같은 꼴 · 맥락 없음"}]   # 제목은 묶은 줄의 제목과 다를 때만 싣는다
+    assert (len(got[0]["excerpt"]), len(got[2]["excerpt"])) == (L.SOURCE_TABLE_LINES, L.TARGET_LINES) and "same" not in got[1]
+
+
+def test_check_tables_keeps_script_pairs_and_reads_folded_keys():
+    payload = {"tableTargets": [{"key": "t1", "ctx": {"org": "가나대", "year": None}, "paired": "f1"}, {"key": "t2", "ctx": {"org": "다라연", "year": None}, "paired": "f1"},
+                                {"key": "t3", "ctx": {"org": "다라연", "year": None}}, {"key": "t4", "ctx": {"org": None, "year": None}, "paired": "f9"}],
+               "tableSources": [{"key": "f1", "ctx": {"org": "가나대", "year": None}, "same": [{"key": "f2", "ctx": {"org": "다라연"}, "rows": 6}]}, {"key": "f9", "ctx": {"org": None, "year": None}}]}
+    ans = {"tables": [{"to": "t1", "from": "f1", "reason": "스크립트 짝이 맞음", "format": ""},     # 스크립트 짝 그대로 — kept
+                      {"to": "t2", "from": "f2", "reason": "같은 꼴 가운데 다라연의 표", "format": ""},   # 스크립트 짝과 다른 표(묶인 key) — fixed
+                      {"to": "t3", "from": "f1", "reason": "맨 앞 표를 그냥 고름", "format": ""},       # 묶음의 맨 앞 표는 가나대의 표 — 기관이 다름
+                      {"to": "t4", "from": "", "reason": "모르겠음", "format": ""}]}                    # 스크립트가 이은 표에 빈 답 — 스크립트 짝 그대로
+    r = L.check_tables(payload, ans)
+    assert r["kept"] == ["t1", "t4"] and r["none"] == [] and set(r["fixed"]) == {"t2"} and r["fixed"]["t2"]["from"] == "f2"
+    assert [x["why"] for x in r["rejected"]] == ["기관이 다른 표"]
 
 
 def test_check_tables_accepts_only_sent_keys_and_rejects_context_clash():
@@ -105,7 +201,7 @@ def test_check_tables_accepts_only_sent_keys_and_rejects_context_clash():
     assert r["fixed"] == {"t2": {"from": "f2", "source": "llm", "reason": "머리가 같음", "format": "원본은 12행"}}
     assert r["none"] == [{"to": "t3", "reason": "계획서에 그 차년도 표가 없음"}]
     assert [x["why"] for x in r["rejected"]] == ["차년도가 다른 표", "같은 표를 두 번", "검토 대상이 아닌 표(이미 짝이 있거나 입력에 없는 key)", "입력에 없는 원본 표 key"]
-    assert L.check_tables(payload, {"decisions": []}) == {"fixed": {}, "rejected": [], "none": []}   # tables 가 없는 답(옛 꼴)
+    assert r["kept"] == [] and L.check_tables(payload, {"decisions": []}) == {"fixed": {}, "rejected": [], "none": [], "kept": []}   # tables 가 없는 답(옛 꼴)
 
 
 def test_guide_file_is_the_source_and_goes_into_the_prompt(tmp_path, monkeypatch):

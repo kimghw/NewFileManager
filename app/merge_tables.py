@@ -56,8 +56,28 @@ def _side(side, values):
         for f in t.get("formulas") or ():
             ops[f["cell"]].update(f["operands"])
     names = sorted({re.sub(r"\s+", "", n) for _, n in P._orgs(values) if n}, key=len, reverse=True)
-    return {"groups": {g["key"]: g for g in core.find(blocks, rnd.levels_of(blocks), values)}, "idx": structure.index_blocks(blocks),
-            "s3": s3, "ops": ops, "values": values, "names": names, "orgs": {P.org_key(n) for _, n in P._orgs(values) if P.org_key(n)}, "views": {}}
+    idx, orgs = structure.index_blocks(blocks), {P.org_key(n) for _, n in P._orgs(values) if P.org_key(n)}
+    return {"groups": {g["key"]: g for g in core.find(blocks, rnd.levels_of(blocks), values)}, "idx": idx,
+            "s3": s3, "ops": ops, "values": values, "names": names, "orgs": orgs, "alias": _aliases(idx, orgs), "views": {}}
+
+
+_ABBR = r"\(([A-Za-z][A-Za-z0-9&.\-]{1,14})\)"   # 이름 바로 뒤 괄호의 로마자 약칭 「(KERI)」
+
+
+def _aliases(idx, orgs):
+    """문서가 **스스로 밝힌** 기관 약칭 {약칭(대문자): 기관 이름 꼴} — 글에 「한국전기연구원(KERI)」 처럼 구분 값의 기관 이름 바로 뒤 괄호에 적힌 로마자 약칭(빈칸은 안 따짐).
+    한 약칭이 두 기관에 붙어 있으면 안 쓴다. 문서에 그런 글이 없는 약칭은 모른다(짐작하지 않는다) — 2026-11-22: 세부 사용계획 표가 기관을 「KERI」 로 적어 그 기관의 행이 통째로 빠졌다."""
+    found, keys = defaultdict(set), {re.sub(r"\s+", "", n): n for n in orgs if n}
+    for b in idx.values():
+        text = b.get("text") or ""
+        if "(" not in text or not keys:
+            continue
+        flat = re.sub(r"\s+", "", text)
+        for k, n in keys.items():
+            if k in flat:
+                for m in re.finditer(re.escape(k) + _ABBR, flat):
+                    found[m.group(1).upper()].add(n)
+    return {a: next(iter(ns)) for a, ns in found.items() if len(ns) == 1}
 
 
 def _view(S, tid):
@@ -111,14 +131,16 @@ def _empty(text):
 
 def _org(text, S):
     """글 → 구분 값의 기관(이름 꼴 — merge_pairs.org_key) | None. 같은 이름, 아니면 한쪽이 다른 쪽을 품는 이름이 하나뿐일 때(「한양대학교」 ⊂ 「한양대학교 에리카산학협력단」 ·
-    「사단법인 한국선급」 ⊃ 「한국선급」 · 「[주관연구개발기관 : 인텍]」). 약칭(「KERI」)은 못 찾는다."""
+    「사단법인 한국선급」 ⊃ 「한국선급」 · 「[주관연구개발기관 : 인텍]」). 약칭(「KERI」)은 그 문서가 스스로 밝힌 것만(`_aliases` — 「한국전기연구원(KERI)」 라고 적은 글이 있을 때)."""
     k = P.org_key(text)
     if not k:
         return None
     if k in S["orgs"]:
         return k
     hit = [n for n in S["orgs"] if n in k or (len(k) >= 2 and k in n)]
-    return hit[0] if len(hit) == 1 else None
+    if len(hit) == 1:
+        return hit[0]
+    return (S.get("alias") or {}).get(re.sub(r"\s+", "", k).upper()) if not hit else None
 
 
 def _name(S, it):
@@ -160,8 +182,9 @@ def _year_no(text, values):
 class _Out:
     """계획 모으기 — 묶음 하나씩(group·kind·mode 를 붙여 적는다)."""
 
-    def __init__(self):
+    def __init__(self, taken=None):
         self.cells, self.rows, self.skipped, self.tables = [], [], [], []
+        self.taken = taken or {}   # {목적 표 id: 표 대응이 잡은 행의 칸 id 들} — 그 칸은 여기서 안 낸다(plan 의 taken)
         self.pairs = []   # 칸 짝 [(목적 칸 id, 원본 칸 id)] — 넣을 것이 없는 칸(글이 같음·이미 넣음)도 든다: 원본 자리 지도(merge_origins)가 읽는다
 
     def start(self, gp, mode, tid, fid):
@@ -227,8 +250,11 @@ def _fixed(o, T, F, tg, fg, take=None):
         if miss:
             o.skip(value, "shape", f"원본에서 못 맞춘 칸 {len(miss)}: " + " / ".join(miss[:3]))
         o.pairs += [(cid, s["id"]) for cid, s in got.items()]
+        held = o.taken.get(tg["table"]) or ()
         for cid, s in got.items():
             c, ops = tv["by"][cid], T["ops"].get(cid)
+            if cid in held:   # 표 대응이 잡은 행의 칸 — 그쪽 계획이 넣는다(한 항목의 칸을 두 길이 나눠 쓰지 않게)
+                continue
             if _empty(s["text"]) or P._ws(s["text"]) == P._ws(c["text"]):
                 continue
             if ops and not ops <= got.keys():
@@ -266,8 +292,21 @@ def _row(v, r, fixed, names, top, sub):
     return out
 
 
-def _append(o, T, F, tg, fg, ctx_year, take=None):
-    """이어 넣는 자리 — 기관 × 연도 덩이마다 원본 행을 잇는다(모듈 설명)."""
+def _formed(v, c, orig):
+    """그 칸의 글이 **올린 빈 양식의 글 그대로**인가(merge_table_map._form_text 와 같은 조건 — spec_병합 ② §5-3 6) — 원본에 있던 칸이면 그 칸의 원본 글과 같고,
+    구성 반영이 본떠 만든 칸(원본에 없는 id)이면 같은 열의 원본 칸 글 가운데 하나와 같다(기관 덩이마다 따라간 예시 행)."""
+    t = P._ws(c["text"])
+    if (o := orig.get(c["id"])) is not None:
+        return P._ws(o.get("text")) == t
+    return any(x["col"] == c["col"] and x["id"] in orig and P._ws(orig[x["id"]].get("text")) == t for x in v["cells"])
+
+
+def _append(o, T, F, tg, fg, ctx_year, take=None, orig=None):
+    """이어 넣는 자리 — 기관 × 연도 덩이마다 원본 행을 잇는다(모듈 설명).
+    orig = 등록된 빈 양식으로 올린 원본의 칸(merge_api._orig) | None — 있으면 덩이의 **예시 행**(값 칸이 모두 올린 빈 양식의 글 그대로 · 구성 반영이 본떠 기관마다 따라간 것 포함)을 사람 글로 보지 않는다:
+    그 덩이에 넣을 실제 행이 있으면 예시 행을 실제 행의 자리로 쓰고(남는 예시 칸 · 남는 예시 행 · 병합 칸이 낀 예시 묶음은 비운다), 넣을 행이 없는 덩이의 예시 값도 비운다 — 구성 반영 뒤에는 그 행이
+    실제 기관의 행이라 예시 값이 그 기관의 값처럼 읽힌다(2026-11-22: 「인텍전기전자 | 2028 | 워크스테이션 … KEIT 부설연구소」 · 간접비 「김oo 인건비」 5행이 7개 기관에 — 할 일 프롬프트
+    「예시 항목은 계획서의 실제 항목으로 바꾼다」 · 「틀린 내용이 들어가는 것보다 비어 있는 것이 낫다」. 넣을 행이 없는 덩이까지 비우는 것은 에이전트 판단 — 사용자 확인 전). 자리표시(「yyyy-yyyy」)는 그대로 둔다."""
     tv, fv = _view(T, tg["table"]), _view(F, fg["table"])
     tyc, fyc = _year_col(tv), _year_col(fv)
     recs, lost = defaultdict(list), set()   # (기관, 차년도 | None) → [{열 꼴: 원본 칸}]
@@ -309,13 +348,28 @@ def _append(o, T, F, tg, fg, ctx_year, take=None):
                     continue
             else:
                 want = recs.get((org, yn), []) if yn is not None else [x for (g, _), rs in recs.items() if g == org for x in rs]
-            if not want:
-                o.skip(where, "noSource", "원본에 이 기관·차년도의 행이 없음")
-                continue
             rowmap = {r: _row(tv, r, fixed, T["names"], ttop, band(tv, it)) for r in range(a, e + 1)}
             cov = lambda r: [c for c in tv["cells"] if c["row"] <= r < c["row"] + c["rs"] and c["id"] not in fixed]  # noqa: E731
             blank = [r for r, rec in rowmap.items() if rec is not None and all(c["row"] == r and c["rs"] == 1 and _empty(c["text"]) for c in cov(r))]
-            have = [rec for r, rec in rowmap.items() if rec and r not in blank and any(not _empty(c["text"]) for c in rec.values())]
+            formed = lambda r: bool(orig) and all(_empty(c["text"]) or _formed(tv, c, orig) for c in cov(r)) and any(not _empty(c["text"]) for c in cov(r))  # noqa: E731 — 그 행의 값 칸이 모두 올린 빈 양식의 글(예시)
+            ex = [r for r, rec in rowmap.items() if rec is not None and r not in blank and all(c["row"] == r and c["rs"] == 1 for c in cov(r)) and formed(r)]   # 예시 행 — 실제 행의 자리로 쓴다
+            exm = [r for r in rowmap if r not in blank and r not in ex and formed(r)]   # 병합 칸이 낀 예시 행(「인력지원비」 가 두 행에 걸친 간접비 예시) — 자리로는 못 쓰고 비우기만 한다
+            wiped = set()
+
+            def wipe(c):   # 예시 글 비우기(반영은 그 글 그대로일 때만 — was). 자리표시(「yyyy-yyyy」 · 「00%」)는 빈 칸이라 그대로 둔다
+                if c["id"] not in wiped and not _empty(c["text"]):
+                    wiped.add(c["id"])
+                    o.cells.append({"to": c["id"], "from": None, "text": "", "was": c["text"], "clear": True, "table": tg["table"], "group": o.gp["id"], "item": where, "calc": False})
+            if not want:
+                for r in (*ex, *exm):   # 넣을 실제 행이 없는 덩이 — 실제 기관 이름 아래에 남은 예시 값은 비운다(그 기관의 값이 아니다 · 기관이 작성)
+                    for c in cov(r):
+                        wipe(c)
+                o.skip(where, "noSource", "원본에 이 기관·차년도의 행이 없음")
+                continue
+            for r in exm:
+                for c in cov(r):
+                    wipe(c)
+            have = [rec for r, rec in rowmap.items() if rec and r not in blank and r not in ex and r not in exm and any(not _empty(c["text"]) for c in rec.values())]
             todo = []
             for rec in want:
                 lost |= {k for k, c in rec.items() if not _empty(c["text"])} - {k for x in rowmap.values() if x for k in x}
@@ -330,15 +384,27 @@ def _append(o, T, F, tg, fg, ctx_year, take=None):
                     del have[same]
             if have:
                 o.skip(where, "occupied", f"목적 행 {len(have)}개에 다른 글 — 「{P._ws(' '.join(c['text'] for c in have[0].values()))[:40]}」 (양식 예시일 수 있음)")
-            for r, rec in zip(blank, todo):
+            slots = sorted([*blank, *ex])   # 실제 행을 넣을 자리 — 빈 행 + 예시 행(행 차례대로)
+            for r, rec in zip(slots, todo):
+                wrote = set()
                 for k, s in rec.items():
                     c = rowmap[r].get(k)
                     if c is not None and not _empty(s["text"]):
                         if T["ops"].get(c["id"]):
                             o.skip(where, "calc", "계산 칸 — 이어 넣는 행은 비워 둠(합계 계산이 셈)", c["id"])
                         else:
-                            o.cells.append({"to": c["id"], "from": s["id"], "text": s["text"], "table": tg["table"], "group": o.gp["id"], "item": where, "calc": False})
-            more = todo[len(blank):]
+                            o.cells.append({"to": c["id"], "from": s["id"], "text": s["text"], "table": tg["table"], "group": o.gp["id"], "item": where, "calc": False,
+                                            **({"was": c["text"]} if r in ex and not _empty(c["text"]) else {})})   # was = 덮을 예시 글
+                            wrote.add(c["id"])
+                if r in ex:   # 예시 행을 실제 행으로 바꿈 — 실제 행이 안 쓰는 칸에 남은 예시 글은 비운다
+                    for c in cov(r):
+                        if c["id"] not in wrote:
+                            wipe(c)
+            for r in slots[len(todo):]:   # 실제 행(이미 있는 것 포함)이 있는 덩이에 남는 예시 행 — 비운다
+                if r in ex:
+                    for c in cov(r):
+                        wipe(c)
+            more = todo[len(slots):]
             if not more:
                 continue
             slot = sorted(cov(e), key=lambda c: c["col"])
@@ -355,11 +421,13 @@ def _append(o, T, F, tg, fg, ctx_year, take=None):
         o.skip(None, "shape", "목적 표에 없는 원본 열: " + ", ".join(" › ".join(k) for k in sorted(lost)[:5]))   # lost 의 원소 = 열 머리 꼴들(_row 의 키 — 글의 튜플)
 
 
-def plan(to_side, from_side, to_values, from_values, pairs, skip=(), take=None):
-    """넣기 계획(모듈 설명) — 문서를 안 고친다. skip = 표 대응(merge_table_map — spec_병합 ② §5-3)이 통째로 맡은 목적 표 id: 그 표의 묶음은 여기서 안 낸다.
+def plan(to_side, from_side, to_values, from_values, pairs, skip=(), take=None, taken=None, orig=None):
+    """넣기 계획(모듈 설명) — 문서를 안 고친다. skip = 표 대응(merge_table_map — spec_병합 ② §5-3)이 통째로 맡은 목적 표 id(행을 늘리는 표): 그 표의 묶음은 여기서 안 낸다.
+    taken = {목적 표 id: 표 대응이 넣는 행의 칸 id 들}(merge_api._map_hold — ② §5-3 2 「맡는 범위」): 정해진 자리 묶음은 그 칸만 빼고 낸다(표 대응이 못 넣은 행은 여기서 넣는다) ·
+    이어 넣는 묶음(행을 늘린다)은 그 표를 통째로 건너뛴다(행 차례가 얽힌다).
     take = 「넣을 구성 선택」(merge_take.Allowed | None = 전부 — ② §4-1): 고르지 않은 기관 · 단계 · 차년도의 항목 · 덩이는 넣지 않고 까닭 outside 로 남긴다."""
     T, F = _side(to_side, to_values), _side(from_side, from_values)
-    o = _Out()
+    o = _Out(taken)
     for gp in pairs["groups"]:
         if gp["status"] != "paired" or gp["kind"] not in KINDS or not gp.get("to") or not gp.get("from"):
             continue
@@ -367,11 +435,13 @@ def plan(to_side, from_side, to_values, from_values, pairs, skip=(), take=None):
         if tg and tg.get("table") in skip:
             continue
         mode = "append" if tg and tg.get("orgYear") == "org" else "fixed"
+        if mode == "append" and tg.get("table") in o.taken:   # 이어 넣는 표에 표 대응이 넣는 행이 있다 — 그 표는 표 대응 것
+            continue
         o.start(gp, mode, (tg or {}).get("table"), (fg or {}).get("table"))
         if tg is None or fg is None or not tg.get("table") or not fg.get("table"):
             o.skip(None, "shape", "묶음을 지금 문서에서 다시 못 찾음(짝을 다시 내야 함)")
         elif mode == "append":
-            _append(o, T, F, tg, fg, (gp.get("ctx") or {}).get("year"), take)
+            _append(o, T, F, tg, fg, (gp.get("ctx") or {}).get("year"), take, orig)
         else:
             _fixed(o, T, F, tg, fg, take)
         o.end()
@@ -410,7 +480,7 @@ def apply(to_doc, from_doc, plan):
                 continue
             if P._ws(cur) == P._ws(c["text"]):
                 continue
-            if not _empty(cur):
+            if not _empty(cur) and not ("was" in c and P._ws(cur) == P._ws(c["was"])):   # was = 계획이 덮기로 한 서식 예시 글 — 지금도 그 글 그대로일 때만 덮는다
                 skipped.append({"to": c["to"], "why": "occupied", "detail": "계획 뒤 목적 칸에 글이 생김"})
                 continue
             try:

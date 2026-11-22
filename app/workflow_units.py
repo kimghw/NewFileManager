@@ -697,26 +697,53 @@ def _plan(ctx):
     return {"st": "done" if done else "todo", "text": text}
 
 
-def _opt_llm(ctx, what, open_of, word):
-    """빈 자리 검토 · 표 대응(선택) — 지금 계획에 열린 자리가 있으면 할 일 · 없거나 LLM 을 못 쓰면 끝남(「건너뜀」)."""
+def _opt_llm(ctx, what, open_of, word, ran_of, none, known_of):
+    """빈 자리 검토 · 표 대응(선택) — 지금 계획에 열린 자리가 있으면 할 일 · LLM 을 못 쓰면 「건너뜀」.
+    **열린 자리가 없을 때는 셋을 가른다**(2026-11-22 — 전에는 모두 글 없는 「건너뜀」 이었다: LLM 이 돌아서 열린 자리가 0 이 된 것도 「건너뜀」 으로 보여 사용자가 「표 LLM 검토 단계에서 전혀 고려되지 않은」 것으로 읽었다 —
+    실제 기록은 「빈 자리 검토 0/19」 · 「표 대응 5/5」 로 돌았다):
+    ⓐ LLM 이 답한 기록이 남아 있으면(ran_of — merge.json 의 표 대응 · 빈 자리 검토: 넣기 재료의 links.kept) **끝남** + 그 결과 글(「건너뜀」 이 아니다)
+    ⓑ 아직 셀 수 없으면(known_of 거짓 — 빈 자리는 지금 넣기 계획이 있어야 센다) 「내용 넣기」 가 끝나기 전에는 **남음**(시작 전의 묶음에 「건너뜀」 이 서지 않게)
+    ⓒ 셀 수 있고 대상이 없을 때만 「건너뜀」 + 까닭 글(none)."""
     s, t, F, bad = _need_both(ctx)
     if bad:
         return bad
+    L = F.get("links")
     p = F.get("plan") if (F.get("plan") or {}).get("fresh") else None
-    n = open_of(p, F.get("links")) or 0
+    n = open_of(p, L) or 0
+    ran = ran_of((L or {}).get("kept") or {})
+    unit = "개" if what == "tableMap" else "곳"
     if not n:
-        return {"st": "done", "skipped": True, "text": ""}
+        if ran:
+            return {"st": "done", "text": ran}
+        if not known_of(p, L):
+            return {"st": "todo", "text": ""} if not fill_done(F) else {"st": "done", "skipped": True, "text": ""}
+        return {"st": "done", "skipped": True, "text": none}
+    more = f" · 앞서 {ran}" if ran else ""
     if ctx.get("llm") is False:
-        return {"st": "done", "skipped": True, "text": f"LLM 을 쓸 수 없어 건너뜁니다 — {word} {n}{'개' if what == 'tableMap' else '곳'}은 비워 둡니다"}
-    return {"st": "todo", "text": f"{word} {n}{'개' if what == 'tableMap' else '곳'} — LLM 이 {'행·열을 맞춥니다' if what == 'tableMap' else '사업계획서에서 찾습니다'}(유료)"}
+        return {"st": "done", "skipped": True, "text": f"LLM 을 쓸 수 없어 건너뜁니다 — {word} {n}{unit}은 비워 둡니다{more}"}
+    return {"st": "todo", "text": f"{word} {n}{unit} — LLM 이 {'행·열을 맞춥니다' if what == 'tableMap' else '사업계획서에서 찾습니다'}(유료){more}"}
+
+
+def _gaps_ran(kept):
+    """빈 자리 검토가 답한 기록의 글 | ""(안 물음) — kept.gaps = {n(답을 받은 자리 — 표 + 칸 · 줄), hit(그 가운데 원본에서 찾은 것)}(merge_api._kept: merge.json `gaps`). 수 없이 참만 와도 「검토했습니다」."""
+    g = kept.get("gaps")
+    if not g:
+        return ""
+    if not isinstance(g, dict):
+        return "빈 자리를 LLM 이 검토했습니다"
+    n, hit = g.get("n") or 0, g.get("hit") or 0
+    return f"빈 자리 {nf(n)}곳을 LLM 이 검토했습니다 — 사업계획서에서 찾은 것 {nf(hit)}곳" if n else "빈 자리를 LLM 이 검토했습니다 — 물을 자리가 없었습니다"
 
 
 def _gaps(ctx):
-    return _opt_llm(ctx, "gaps", lambda p, L: (((p or {}).get("gaps") or {}).get("counts") or {}).get("open"), "아직 빈 자리")
+    return _opt_llm(ctx, "gaps", lambda p, L: (((p or {}).get("gaps") or {}).get("counts") or {}).get("open"), "아직 빈 자리", _gaps_ran,
+                    "빈 자리가 없습니다 — 검토할 것이 없습니다", lambda p, L: p is not None)   # 빈 자리는 지금 넣기 계획이 센다
 
 
 def _table_map(ctx):
-    return _opt_llm(ctx, "tableMap", lambda p, L: (((p or {}).get("maps") or {}).get("counts") or {}).get("open") if p else links_map_open(L), "칸을 못 맞춘 표")
+    return _opt_llm(ctx, "tableMap", lambda p, L: (((p or {}).get("maps") or {}).get("counts") or {}).get("open") if p else links_map_open(L), "칸을 못 맞춘 표",
+                    lambda kept: f"표 {nf(kept['maps'])}개의 행·열을 LLM 이 맞췄습니다" if kept.get("maps") else "",
+                    "칸을 못 맞춘 표가 없습니다 — 맞출 것이 없습니다", lambda p, L: p is not None or not links_bad(L))   # 못 맞춘 표는 계획이 없어도 연결 목록이 센다
 
 
 def _apply(ctx):
