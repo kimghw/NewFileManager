@@ -1675,6 +1675,7 @@ function tablesReset() { // 문서를 열거나 닫을 때(app.js load·closeDoc
   tpView = "List"; // 하위 탭은 문서를 열 때마다 「표 목록」 부터
   tpKinds.key = tpKinds.map = tpKinds.wait = null;
   if (typeof tblTypesReset === "function") tblTypesReset(); // 양식의 표 판정 표지(table_types.js — spec_테이블매니저 ② §10 「양식의 표 판정」)
+  if (typeof ftReset === "function") ftReset(); // 양식의 표 등록부 줄 · 「양식 표」 꼬리표(form_tables.js — spec_테이블매니저 ② §11)
 }
 
 async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)이 없으면 헤딩 상태를 읽고(1단계 자동 — 헤딩 추출 탭과 같음), 저장된 지침을 읽은 뒤 그린다
@@ -1687,6 +1688,7 @@ async function tablesShow() { // 탭을 열 때 — 3단계 요약(heads.view)�
   tablesDraw();
   tpKindsLoad(true); // 병합 방식 표지 — 탭을 열 때마다 다시 읽는다(편집 구역 · 프로젝트 구성이 그 사이 바뀌었을 수 있다). 그려 둔 목록에 표지만 채운다
   if (typeof tblTypesLoad === "function") tblTypesLoad(true); // 양식의 표 판정 표지 「확정됨」 — 탭을 열 때마다 다시 읽는다(다른 작업에서 확정본이 생기거나 지워졌을 수 있다). 그려 둔 목록에 표지만 채운다
+  if (typeof ftLoad === "function") ftLoad(true); // 양식의 표 등록부 — 탭을 열 때마다 다시 읽는다(다른 문서에서 등록부를 다시 지었을 수 있다). 그려 둔 목록에 줄 · 꼬리표만 채운다
 }
 
 // ---- 병합 방식 표지(spec_테이블매니저 ② §5 「병합 방식」) — 여러 기관의 문서를 모을 때 그 표(서브 테이블)를 어떻게 모으는 표인지: 표 목록의 줄마다 꼬리표.
@@ -1882,6 +1884,7 @@ function tablesDraw() {
     return;
   }
   if (!blocks.length) { view.append(el("p", "tp-empty", "이 문서에 표가 없습니다.")); return; }
+  if (typeof ftBar === "function") { const fbar = ftBar(); if (fbar) view.append(fbar); } // 양식의 표 등록부 줄(form_tables.js — spec_테이블매니저 ② §11) — 양식이 정해진 문서에서만
   const list = el("ol", "tp-list");
   list.setAttribute("aria-label", "문서의 표 목록");
   blocks.forEach((b, i) => {
@@ -1931,6 +1934,9 @@ function tablesDraw() {
     const typeSlot = el("span", "tp-types"); // 양식의 표 판정 표지 자리(spec_테이블매니저 ② §10 「양식의 표 판정」 — table_types.js) — 확정된 표에만 「확정됨」 · 그 밖에는 빈 채로(자리를 차지하지 않는다)
     if (typeof tblTypeTags === "function") typeSlot.append(...tblTypeTags(b.id));
     meta.append(typeSlot);
+    const formSlot = el("span", "tp-forms"); // 「양식 표」 꼬리표 자리(spec_테이블매니저 ② §11 — form_tables.js) — 양식의 표 등록부가 있는 문서에서만 · 그 밖에는 빈 채로(자리를 차지하지 않는다)
+    if (typeof ftTags === "function") formSlot.append(...ftTags(b.id));
+    meta.append(formSlot);
     if (b.depth > 1) meta.append(el("span", "tp-tag", "표 안 표"));
     const basis = t && basisNames(t.basis);
     if (basis) meta.append(el("span", "tp-tag", `구분 ${basis}`));

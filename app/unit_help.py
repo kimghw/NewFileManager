@@ -79,6 +79,22 @@ COMMON = {
              "지우기 전에 작성 지침을 저장해 둡니다. 「실행 취소」 한 번으로 되돌립니다.",
         see="지운 결과는 이 도구를 놓은 문서 · 저장한 지침은 「헤딩 · 표 분석」 줄의 「작성 지침」.",
         why="내용을 다 넣은 뒤 문서를 정리할 때 씁니다."),
+    "guideFix": _h(   # 지침 보정(LLM) — spec_워크플로우 ② §18-23 「지침 보정」(app/guide_fix.py · guide_fix_api.py)
+        "넣은 글을 양식의 작성 지침(작성 요령 · ※ 안내 · 각주 항목)에 맞게 LLM 이 고칩니다 — 헤딩 · 표마다 지침과 지금 글을 함께 봅니다.",
+        first="저장한 작성 지침(「헤딩 · 표 분석」 이 저장). 「내용 반영」 을 함께 놓았으면 반영이 끝난 뒤에 고칩니다.",
+        care="유료 · 문서가 바뀝니다(「실행 취소」 한 번). 있는 글을 지침의 꼴(표기 · 단위 · 분량 · 남은 예시)에만 맞추고 새 사실 · 수는 짓지 않습니다 — 스크립트가 고침마다 검사합니다. "
+             "문서에 없는 정보가 있어야 하는 곳은 그대로 둡니다.",
+        see="문서의 「고친 곳 보기」(옛 글 → 새 글) · 줄의 결과 글(고친 문단 · 건너뜀 · 고치지 못한 것).",
+        why="옮긴 글이 목적 양식의 작성 요령과 어긋날 때 — 「작성요령 삭제」 앞에 놓으면 좋습니다(뒤여도 됩니다).",
+        eg="역할 칸의 「수요 · 공동」 · 「2page 이내 요약」 을 넘는 뒷문단 · 남은 「○○○」 예시."),
+    "zonePrune": _h(   # 빈 구역 지우기 — spec_워크플로우 ② §18-23 「빈 구역 지우기」(app/zone_prune.py · zone_prune_api.py)
+        "기관 · 단계 · 차년도마다 되풀이되는 절 · 표 행 · 표 열 가운데 내용이 들어가지 않은 것을 한 번에 지웁니다.",
+        first="프로젝트 구성 값이 있는 연구개발과제 문서. 「내용 반영」 을 함께 놓았으면 반영이 끝난 뒤에 지웁니다.",
+        care="문서가 바뀝니다(「실행 취소」 한 번). 양식의 뼈대(모든 항목에 같은 글) · 자리표시 · 안내만 있으면 빈 것 · 그림 · 개체가 든 자리는 남깁니다. "
+             "모든 항목이 빈 묶음 · 항목 하나인 묶음도 남깁니다. 구성 반영을 다시 하면 다시 섭니다.",
+        see="이 도구를 놓은 문서 · 줄의 결과 글(지운 본문 · 표 행 · 표 열의 수).",
+        why="구조 반영이 기관 · 차년도마다 늘린 자리 가운데 원본에 내용이 없어 빈 곳을 정리할 때 씁니다.",
+        eg="장비 구축계획 표에서 기관 이름 · 연도만 있고 나머지 칸이 빈 기관 행."),
     "hand": _HAND,
 }
 
@@ -294,7 +310,7 @@ ONLY_TEXT = {
                "기관이 채워 돌려준 문서를 취합본(사업계획서)과 견줘 모으는 규칙입니다 — 다른 문서 쌍은 받지 않습니다."),
 }
 ONLY = {
-    "common": {"heads": "", "headsLlm": "", "configLoad": "rnd", "config": "rnd", "division": "rnd", "reheads": "", "reheadsLlm": "", "guide": "", "hand": ""},
+    "common": {"heads": "", "headsLlm": "", "configLoad": "rnd", "config": "rnd", "division": "rnd", "reheads": "", "reheadsLlm": "", "guide": "", "guideFix": "", "zonePrune": "rnd", "hand": ""},
     "relay": {"take": "rnd", "link": "relay", "llm": "relay", "plan": "relay", "gaps": "relay", "tableMap": "relay", "apply": "relay"},
     "gather": {"config": "rnd", "division": "rnd", "frame": "gather", "part": "gather", "heads": "", "link": "gather", "llm": "gather", "plan": "gather", "apply": "gather", "drop": "gather"},
     "single": {"read": "rnd", "load": "rnd", "values": "rnd", "review": "rnd", "plan": "rnd", "apply": "rnd",

@@ -295,6 +295,7 @@ def test_task_docs_are_the_registry_written_out():
 def test_every_registered_agent_is_placed_in_some_step():
     """새 LLM 호출(에이전트)을 만들면 그것이 도는 단계에 적는다 — 어느 과정에서 도는지 페이지에 보이게."""
     placed = {a for _, s in W.steps() for a in s["agents"]}
+    placed |= {a for _m, _n, make, _d in W.STAGE_MODULES for s in make(*W._GENERIC, **({"more": True} if _m == "stage_clean" else {})) for a in s["agents"]}   # 조립에 놓는 도구(「지침 보정(LLM)」 — ② §18-23: 표준 차례에는 없고 조립 화면의 도구 목록 · 「에이전트」 열에 보인다)
     assert set(agents.BY_ID) - placed == set()
 
 

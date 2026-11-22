@@ -9,7 +9,8 @@
 - 상태 함수(`state`)는 화면의 지금 식(app/static/app.js taskSteps)을 그대로 옮긴 것이다 — 재료(문서마다의 사실)는 문(app/unit_steps.py `facts`)이 준다. 서버가 아직 세지 않는 줄은 None."""
 
 FACTS = ("slots", "heads", "checked", "config", "fit", "fresh", "links", "plan", "filled", "clean", "frame", "assigned",   # 사실의 이름(문서마다 · 쌍마다 · 워크플로우 전체 — ② §18-2)
-         "tables", "tidy")   # 문서 하나(② §18-13): tables = 표 구조가 있음(문서 하나는 헤딩 그래프 heads 와 따로 센다) · tidy = 같은 템플릿의 줄을 대표 서식에 맞춤(조정)
+         "tables", "tidy",   # 문서 하나(② §18-13): tables = 표 구조가 있음(문서 하나는 헤딩 그래프 heads 와 따로 센다) · tidy = 같은 템플릿의 줄을 대표 서식에 맞춤(조정)
+         "fixed", "pruned")   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움
 PLACES = ("doc", "pair", "flow")
 KINDS = ("auto", "pick", "hand")
 ROLES = ("source", "target")   # 문서 역할 — 차례 = 원본 → 목적(app/workflow.py ROLES · app/custom_tasks.py ROLES 와 같다)
@@ -35,6 +36,9 @@ COMMON = {u["key"]: u for u in (
     _u("reheads", "stage_fit", "doc", roles=ROLES, change="store", needs=("fit",), gives=("fresh", "heads"), server=True, reads=ROLES),   # 다시 문서 검토
     _u("reheadsLlm", "stage_fit", "doc", roles=ROLES, change="store", paid="doc", needs=("fresh",), gives=("checked",), server=True, reads=ROLES),   # 다시 문서 검토(LLM)
     _u("guide", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("clean",), server=True),   # 작성요령 삭제(먼저 있어야 할 것은 그 줄이 정의에 있을 때만 · 울타리)
+    # 「문서 정리」 의 조립 도구 둘(② §18-23 — 2026-11-22 사용자 「3단계 … 매칭 이후에 … 지침에 따라 LLM 보정해 주는 단계를 4단계 도구에」 · 「구분기준이나 편집구역에 내용이 없는 … 제거하는 도구도 문서 정리에」)
+    _u("guideFix", "stage_clean", "doc", roles=ROLES, change="doc", paid="doc", needs=("filled",), gives=("fixed",), server=True),   # 지침 보정(LLM) — 묻기(잠금 밖 · 유료) → 반영(울타리 · 실행 취소 1)
+    _u("zonePrune", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("pruned",), server=True),            # 빈 구역 지우기(스크립트 — 울타리 · 실행 취소 1)
     _u("hand", "hand", "doc", roles=ROLES, kind="hand", server=True),                                                       # 사람이 하는 일(여럿 놓을 수 있다 — ② §18-7 · 실행기는 「했음」 이 없으면 멈춘다)
 )}
 # 이관형 — 다른 양식 사이의 자리 연결 · 넣기(app/merge_api.py)
@@ -98,7 +102,7 @@ def unit(key, family="relay"):
     return FAMILIES.get(family, {}).get(key) or COMMON.get(key)
 
 
-SOURCE_FIT = ("division", "reheads", "reheadsLlm", "guide")   # 원본 문서에도 놓는 구조 · 정리 줄(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
+SOURCE_FIT = ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune")   # 원본 문서에도 놓는 구조 · 정리 줄(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
 
 
 def roles_in(u, family):
@@ -803,7 +807,80 @@ def _take(ctx):
     return {"st": "done" if T.get("active") else "todo", "text": f"{year} · 넣을 구성: {T.get('text') or '전부'}" + ("" if T.get("active") else "(고르지 않으면 맞는 자리는 모두 넣습니다)") + notes}
 
 
+def _tidy_doc(ctx, role, key):
+    """「문서 정리」 의 조립 도구(문서 하나의 몫)의 공통 앞부분 → (문서 이름 앞머리, 그 문서의 재료 | None, 목적 문서의 넣기 재료, 막힘 상태 | None). 재료 = 그 문서 facts 의 key(실행기의 MATERIALS 가 얹는다)."""
+    t = (ctx.get("pair") or {}).get("target")
+    F = ((t or {}).get("facts") or {}).get("fill")
+    if not ctx.get("ready") or not t:
+        return "", None, F, {"st": "todo", "text": ""}
+    if t.get("facts") is None or F is None:
+        return "", None, F, {"st": "blocked", "text": "문서를 읽지 못했습니다"}
+    d = (ctx.get("pair") or {}).get(role)
+    if not d or d.get("facts") is None:
+        return "", None, F, {"st": "blocked" if d else "todo", "text": "문서를 읽지 못했습니다" if d else ""}
+    who = f"{d['title']} — " if role == "source" else ""
+    X = d["facts"].get(key)
+    if X is None:
+        return who, None, F, {"st": "blocked", "text": f"{who}재료를 읽지 못했습니다"}
+    return who, X, F, None
+
+
+def _guide_fix(ctx):
+    """지침 보정(LLM)(줄) — 그 줄이 닿는 문서마다(_guide_fix_of)."""
+    return _per(ctx, _guide_fix_of)
+
+
+def _guide_fix_of(ctx, role="target"):
+    """지침 보정(문서 하나의 몫 — ② §18-23 「지침 보정」) — 끝남 = 「내용 넣기」 의 마지막 반영 표식 뒤에 반영 기록(정의에 「내용 넣기」 가 없으면 반영 기록이 있음) ·
+    저장한 지침이 없거나 LLM 을 쓸 수 없으면 「건너뜀」. 재료 = 그 문서 facts 의 guideFix(unit_steps.guide_fix_facts)."""
+    who, G, F, bad = _tidy_doc(ctx, role, "guideFix")
+    if bad:
+        return bad
+    if F.get("fills") and not fill_done(F):
+        return {"st": "todo", "text": f"{who}{_sn(F, 'stage_fill', '내용 넣기')} 이 끝난 뒤에 넣은 글을 지침에 맞게 고칩니다"}
+    if G.get("why"):
+        return {"st": "done", "skipped": True, "text": who + G["why"]}
+    n = (G.get("guides") or {})
+    a = G.get("applied")
+    fresh = bool(a) and (not F.get("fills") or a.get("fill") == (G.get("fill")))
+    if fresh:
+        return {"st": "done", "text": who + f"지침 보정 — 고친 문단 {nf(a.get('done'))}" + (f" · 건너뜀 {nf(a['skipped'])}" if a.get("skipped") else "")
+                + (f" · 고치지 못한 것 {nf(a['left'])}" if a.get("left") else "") + (" · 「고친 곳 보기」 로 옛 글 → 새 글을 봅니다" if a.get("done") else "")}
+    if not n.get("total"):
+        return {"st": "done", "skipped": True, "text": who + ("저장한 작성 지침이 없습니다 — 고칠 기준이 없어 건너뜁니다" if not G.get("saved") else "글이 붙은 작성 지침이 없습니다 — 건너뜁니다")}
+    if ctx.get("llm") is False:
+        return {"st": "done", "skipped": True, "text": who + "LLM 을 쓸 수 없어 건너뜁니다 — 넣은 글은 그대로입니다"}
+    d = (ctx.get("pair") or {}).get(role) or {}
+    return {"st": "todo", "paid": [d.get("id")] if d.get("id") else [],
+            "text": who + f"작성 지침이 붙은 자리 {nf(n['total'])}곳(헤딩 {nf(n.get('headings'))} · 표 {nf(n.get('tables'))})의 넣은 글을 LLM 이 지침에 맞게 고칩니다 — 유료 · 문서가 바뀝니다(실행 취소 한 번)"}
+
+
+def _zone_prune(ctx):
+    """빈 구역 지우기(줄) — 그 줄이 닿는 문서마다(_zone_prune_of)."""
+    return _per(ctx, _zone_prune_of)
+
+
+def _zone_prune_of(ctx, role="target"):
+    """빈 구역 지우기(문서 하나의 몫 — ② §18-23 「빈 구역 지우기」) — 끝남 = (「내용 넣기」 가 끝났거나 그 묶음이 없는 정의) · 지울 빈 구역이 없음(작성요령 삭제와 같은 꼴) ·
+    프로젝트 구성 값이 없거나 연구개발과제 양식이 아니면 「건너뜀」. 재료 = 그 문서 facts 의 zonePrune(unit_steps.zone_prune_count)."""
+    who, Z, F, bad = _tidy_doc(ctx, role, "zonePrune")
+    if bad:
+        return bad
+    if Z.get("error"):
+        return {"st": "blocked", "text": f"{who}빈 구역을 세지 못했습니다: {Z['error']}"}
+    if Z.get("why"):
+        return {"st": "done", "skipped": True, "text": f"{who}{Z['why']} — 건너뜁니다"}
+    c = Z.get("counts") or {}
+    n = c.get("items") or 0
+    done = (fill_done(F) or not F.get("fills")) and not n
+    kept = f" · 모두 비어 남긴 묶음 {nf(Z['kept'])}" if Z.get("kept") else ""
+    parts = " · ".join(f"{name} {nf(c[k])}" for k, name in (("blocks", "본문"), ("rows", "표 행"), ("cols", "표 열")) if c.get(k))
+    text = (f"빈 구역 {nf(n)}곳({parts}) — 그림 · 개체가 든 자리와 내용은 남깁니다" if n else "지울 빈 구역이 없습니다") + kept
+    return {"st": "done" if done else "todo", "text": who + text}
+
+
 _STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide, "take": _take})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
+_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune})   # 「문서 정리」 의 조립 도구(② §18-23)
 
 
 # ---------------------------------------------------------------- 문서 하나(가족 single — 걸음 6: spec_워크플로우 ② §18-13 「걸음 6 — 문서 하나」) — 1단계 「프로젝트 구성」 의 상태 식

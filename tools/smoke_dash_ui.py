@@ -513,6 +513,24 @@ def main():
               "「자리 연결」" in via["text"] and via["btn"] == "그 단계로" and link["opened"] == 1 and not link["detail"], [via, link])
         page.locator("#paneDash").screenshot(path=str(OUT / "06_relay.png"))
 
+        # ---- 작업 내용 초기화(2026-11-22 사용자 "작업내용을 초기화 하는게 없어, 대시보드에 그게 들어 가면 좋겠는데" — spec_작업에이전트 ② §9 「작업 내용 초기화」): 대시보드 맨 아래 단추 → 그 자리의 확인(모달 아님) ·
+        #        문서마다 · 모두 · 취소 → 지금 문서를 고르면 같은 기능(POST …/reset — 작업 폴더의 reset/1)으로 올린 직후로 · 다시 열고 첫 분석 · 다른 문서는 그대로
+        RESET = """() => { const r = document.querySelector('#paneDash .dash-reset'); return r ? { docs: [...r.querySelectorAll('.dash-reset-docs li')].map((li) => li.textContent), text: r.textContent,
+          acts: [...r.querySelectorAll('.dash-reset-acts button')].map((b) => [b.textContent, b.dataset.dashFocus]), focus: (document.activeElement.dataset || {}).dashFocus || '',
+          over: document.getElementById('paneDash').scrollWidth > document.getElementById('paneDash').clientWidth + 1 } : null; }"""
+        rid0, src0 = page.evaluate("() => [state.id, (taskSlotDoc('plan') || {}).id || '']")
+        page.locator('#paneDash [data-dash-focus="reset"]').click()
+        page.wait_for_selector("#paneDash .dash-reset .dash-reset-docs li", timeout=30000)
+        rs = page.evaluate(RESET)
+        check("작업 내용 초기화 — 대시보드 맨 아래 「작업 내용 초기화…」 → 그 자리의 확인: 문서 칸 둘(원본 → 목적 — 지금 문서) · 「원본 문서 초기화」 · 「목적 문서 초기화」 · 「모든 문서 초기화」 · 「취소」(초점) · 비우는 것 · 남는 것 · 넘침 없음",
+              rs and len(rs["docs"]) == 2 and rs["docs"][0].startswith("원본 문서") and rs["docs"][1].startswith("목적 문서 — 지금 문서") and [a[0] for a in rs["acts"]] == ["원본 문서 초기화", "목적 문서 초기화", "모든 문서 초기화", "취소"]
+              and rs["acts"][1][1] == f"reset:{rid0}" and rs["acts"][0][1] == f"reset:{src0}" and "비우는 것:" in rs["text"] and "남는 것:" in rs["text"] and rs["focus"] == "reset:close" and not rs["over"], [rs, rid0, src0])
+        page.locator("#paneDash").screenshot(path=str(OUT / "06b_reset.png"))
+        page.locator(f'#paneDash [data-dash-focus="reset:{rid0}"]').click()
+        page.wait_for_function(f"() => /작업 내용을 초기화했습니다/.test(document.getElementById('toast').textContent) && state.id === '{rid0}' && !!document.querySelector('#doc .para') && !document.querySelector('#paneDash .dash-reset')", timeout=120000)
+        check("「목적 문서 초기화」(지금 문서) → 올린 직후로(작업 폴더의 reset/1) · 다시 열림 · 원본 문서는 그대로 · 상자는 닫힘",
+              (tmp / "works" / rid0 / "reset" / "1").is_dir() and not (tmp / "works" / src0 / "reset").exists() and page.evaluate("() => !state.commitBusy"), "")
+
         # ---- TASK 가 없는 문서 — 탭은 늘 보이고 「TASK 고르기」 → 고르면 그 자리에서 단계 흐름(2026-11-18 사용자 「여기 탭에 넣어 달라고 했는데 보이질 않아」 — ② §9 「TASK 가 없을 때」)
         with PLAN.open("rb") as f:
             bare = requests.post(f"{base}/api/docs?new=1", files={"file": (PLAN.name, f)}, timeout=180).json()["docId"]

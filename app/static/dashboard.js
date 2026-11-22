@@ -1221,6 +1221,89 @@ function dashPickEl() { // TASK 가 없는 문서 — 이 문서의 형식으로
   return root;
 }
 
+// ---------------------------------------------------------------- 작업 내용 초기화(2026-11-22 사용자 "작업내용을 초기화 하는게 없어, 대시보드에 그게 들어 가면 좋겠는데" — spec_작업에이전트 ② §9 「작업 내용 초기화」)
+// 새 길이 아니다 — 「고친 문단」 탭의 「초기화…」 와 같은 기능(same_file.js workReset → POST /api/works/{id}/reset: 그 문서를 올린 직후로 — spec_작업 ② §3-1). 두 대시보드(이 패널 · 첫 화면 home_dash.js)가 같이 쓴다.
+// 단추 「작업 내용 초기화…」 → 그 자리에 펴지는 작은 상자(모달 아님 — design.md §16): 비우는 것 · 남는 것 + 문서마다 단추(그 워크플로우의 문서 칸 — 서버 상태 GET …/flow 의 docs) + 「모든 문서」(둘 이상일 때) + 「닫기」.
+// 문서를 고르는 것이 확인이다(펴기 → 고르기 두 걸음 — 되돌릴 수 없는 일이라 확인을 거치되(design.md §18) 창이 아니라 그 자리의 인라인 확인: 「작업 지우기」 와 같은 꼴 · 초점은 「취소」 에서 · Esc = 취소).
+// 문서마다 따로 · 모두 같이(「한 문서만」 과 같은 갈래). 도는 실행이 있으면 꺼 둔다(서버도 거절 — _flow_busy).
+// R = 그 보기의 상태 {open, docs[{role, label, name, id}] | null, err, busy} · opt = {wid 그 묶음의 문서 하나, off 누를 수 없는 까닭, redraw(), done(초기화한 id 목록) → 약속, focusAttr}
+const DASH_RESET_TIP = "작업 내용 초기화 — 고른 문서를 올린 직후로 되돌립니다(누르면 문서를 고르는 칸이 펴집니다 · 고르기 전에는 아무것도 안 바뀝니다)";
+const dashResetFresh = () => ({ open: false, docs: null, err: "", busy: "" });
+function dashResetDocs(V) { // 서버 상태(GET …/flow)의 문서 칸 → [{role, label, name, id}] — 원본 문서(취합은 기관 문서마다) → 목적 문서
+  const D = (V && V.docs) || {}, out = [], add = (role, d, title) => { if (d && d.id && !out.some((x) => x.id === d.id)) out.push({ role, label: title, name: d.name || "", id: d.id }); };
+  const many = D.sources || [];
+  if (many.length) many.forEach((d, i) => add("source", d, many.length > 1 ? `원본 문서 ${i + 1}` : "원본 문서"));
+  else add("source", D.source, "원본 문서");
+  add("target", D.target, "목적 문서");
+  return out;
+}
+async function dashResetOpen(R, wid, redraw, focus = () => {}) { // focus = 편 뒤 초점을 「취소」 로(그 보기의 초점 함수)
+  Object.assign(R, { open: true, docs: null, err: "" });
+  await redraw(); // 패널의 그리기(dashDraw)는 약속이다 — 그린 뒤에 초점을 옮긴다(다시 그릴 때는 그 단추에 초점이 남는다)
+  focus();
+  try { R.docs = dashResetDocs(await api(`/api/works/${wid}/flow`)); if (!R.docs.length) R.err = "이 워크플로우의 문서 칸이 비어 있습니다"; }
+  catch (e) { R.err = `문서 칸을 읽지 못했습니다: ${e.message}`; }
+  await redraw();
+}
+async function dashResetRun(R, list, { redraw, done }) {
+  if (R.busy || !list.length) return;
+  R.busy = list.map((d) => d.label).join(" · ");
+  const mine = list.some((d) => d.id === state.id), ok = [], bad = [];
+  if (mine) { state.commitBusy = "reset"; if (typeof commitBar === "function") commitBar(); setSaveState("busy", "작업 내용 초기화 중…"); } // 「초기화…」(workResetAsk)와 같이 — 도는 동안 편집 · 확정을 막는다
+  redraw();
+  for (const d of list) { try { await workReset(d.id); ok.push(d); } catch (e) { bad.push(`${d.label}(「${d.name}」): ${e.message}`); } } // 차례로 — 한 문서가 안 돼도 다른 문서는 한다
+  if (mine) {
+    state.commitBusy = false;
+    if (!ok.some((d) => d.id === state.id)) { setSaveState("err", "초기화하지 못함"); if (typeof commitBar === "function") commitBar(); }
+  }
+  Object.assign(R, { busy: "", open: !!bad.length && !ok.length });
+  if (ok.length) { try { await done(ok.map((d) => d.id)); } catch (e) { console.error(e); } }
+  if (ok.length) toast(`작업 내용을 초기화했습니다 — ${ok.map((d) => d.label).join(" · ")}: 올린 원본부터 다시 시작합니다`);
+  if (bad.length) toast(`작업 내용을 초기화하지 못했습니다 — ${bad.join(" / ")}`, true);
+  if (typeof loadWorks === "function") loadWorks();
+  redraw();
+}
+function dashResetParts(R, { wid, off = "", redraw, done, focusAttr = "dashFocus" }) { // → [요소] — 닫혀 있으면 단추 하나 · 펴면 상자 하나(그 안에 「취소」)
+  const mark = (b, key) => { b.dataset[focusAttr] = key; return b; };
+  const toCancel = () => { const c = [...document.querySelectorAll(".dash-reset button")].find((x) => x.dataset[focusAttr] === "reset:close"); if (c) c.focus({ preventScroll: true }); }; // 다시 그린 뒤의 새 「취소」
+  if (!R.open) return [mark(hBtn(R.busy ? "초기화 중…" : "작업 내용 초기화…", () => dashResetOpen(R, wid, redraw, toCancel), { cls: "btn sm", disabled: !!off || !!R.busy || !wid, title: off || DASH_RESET_TIP }), "reset")];
+  const box = el("div", "dash-reset");
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "작업 내용 초기화");
+  box.append(el("p", "dash-reset-head", "작업 내용 초기화 — 고른 문서를 올린 직후로 되돌립니다"),
+    el("p", "dash-reset-text", `비우는 것: ${SF_RESET_LOSE}\n남는 것: ${SF_RESET_KEEP}\n비운 것은 문서마다 작업 폴더의 reset/ 에 옮겨 두고 화면에서는 되살리지 않습니다.`));
+  if (!R.docs) box.append(el("p", "dash-text muted", R.err || "문서 칸을 읽는 중…"));
+  else {
+    if (R.err) box.append(el("p", "dash-note warn", R.err));
+    const lines = el("ul", "dash-reset-docs");
+    for (const d of R.docs) { const li = el("li"); li.append(el("span", "dash-reset-role", `${d.label}${d.id === state.id ? " — 지금 문서" : ""}`), el("span", "dash-reset-name", d.name)); lines.append(li); }
+    box.append(lines);
+  }
+  const acts = el("div", "dash-reset-acts"), stop = off || (R.busy ? "초기화하는 중입니다" : "");
+  if (R.busy) acts.append(el("span", "dash-text muted", `초기화 중… — ${R.busy}`));
+  for (const d of R.docs || []) acts.append(mark(hBtn(`${d.label} 초기화`, () => dashResetRun(R, [d], { redraw, done }), { cls: "btn sm danger", disabled: !!stop, title: stop || `「${d.name}」 을(를) 올린 직후로 되돌립니다 — 다른 문서는 그대로입니다` }), `reset:${d.id}`));
+  if ((R.docs || []).length > 1) acts.append(mark(hBtn("모든 문서 초기화", () => dashResetRun(R, R.docs, { redraw, done }), { cls: "btn sm danger", disabled: !!stop, title: stop || `이 워크플로우의 문서 ${R.docs.length}개(${R.docs.map((d) => d.label).join(" · ")})를 모두 올린 직후로 되돌립니다` }), "reset:all"));
+  const cancel = () => { if (R.busy) return; Object.assign(R, dashResetFresh()); redraw(); };
+  acts.append(mark(hBtn("취소", cancel, { cls: "btn sm", disabled: !!R.busy, title: "초기화하지 않고 닫습니다(Esc)" }), "reset:close"));
+  box.append(acts);
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); } });
+  return [box];
+}
+const dashResetState = () => (DASH.reset && DASH.reset.key === state.id ? DASH.reset : (DASH.reset = { key: state.id, ...dashResetFresh() })); // 이 패널의 상태 — 문서마다(load 로 차례가 바뀌어도 그 문서면 그대로: 초기화한 뒤 다시 여는 동안)
+async function dashResetDone(ids) { // 패널 — 지금 문서를 초기화했으면 다시 열고 첫 분석(workResetAsk 와 같다) · 둘째 면의 문서를 초기화했으면 그 면을 다시 읽는다
+  const shown = typeof peerShown === "function" ? peerShown() : "";
+  if (shown && ids.includes(shown)) { try { $("peerFrame").contentWindow.location.reload(); } catch { /* 여는 중 */ } }
+  if (state.id && ids.includes(state.id)) { await load(state.id); firstRun(); }
+  if (DASH.flow) DASH.flow.stale = true;
+}
+function dashResetEl(M) { // 패널 대시보드 맨 아래 — 도는 일이 있으면 꺼 둔다(에이전트 · 한 번에 진행 · 서버 실행)
+  if (!state.id || !state.stored) return null;
+  const off = M.R || (M.lives && M.lives.length) || DASH.busy ? "지금 진행 중인 작업이 끝난 뒤에 초기화하세요 — 「멈춤」 으로 멈출 수 있습니다" : state.commitBusy && state.commitBusy !== "reset" ? "확정하는 중입니다 — 끝난 뒤에 초기화하세요" : "";
+  const wrap = el("div", "dash-reset-row");
+  wrap.append(...dashResetParts(dashResetState(), { wid: state.id, off, redraw: () => dashDraw(true), done: dashResetDone }));
+  return wrap;
+}
+
 function dashEl(M) {
   if (!dashHasTask(M.job)) return dashPickEl();
   const root = el("section", "dash"), head = el("header", "dash-head"), title = el("div", "dash-title");
@@ -1252,6 +1335,8 @@ function dashEl(M) {
   const cur = cardOf(run || now), asked = DASH.open ? nodes.find((n) => n.cards && (n.ref || n.key) === DASH.open) : null; // asked = 줄의 key 로 편 것(첫 화면의 「문서 화면에서 열기」) — 그 줄의 문서 카드로
   const openKey = DASH.open === null ? (cur ? cur.ref || cur.key : "") : asked ? cardOf(asked).ref : DASH.open; // ref = key 가 겹치는 줄 · 문서 카드의 펴고 접는 이름(없으면 key — dashNodeEl 과 같은 셈)
   root.append(dashGroupsEl(M.groups, openKey)); // 묶음 › 단계 — 첫 화면의 대시보드와 같은 그리기(home_dash.js)
+  const reset = dashResetEl(M); // 맨 아래 — 작업 내용 초기화(문서마다 · 모두)
+  if (reset) root.append(reset);
   return root;
 }
 
@@ -1259,6 +1344,7 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
   const b = (x) => (x ? `${x.textContent}|${x.disabled ? 1 : 0}|${x.className}|${x.title}|${(x.getAttribute && x.getAttribute("aria-pressed")) || ""}` : ""); // 눌림(고르기 칩 — 「넣을 구성 선택」)도
   // busy 이름 — 「이어서 한 번에」 가 묶음을 넘어갈 때 바뀐다
   return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
+    DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
     M.notes.map((n) => [n.text, b(n.act)]), M.last || 0, M.lasts || 0, (M.lives || []).map((x) => [x.n, x.label, x.stopping]), M.top.map(b),
     M.groups.map((g) => [b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b)]) : 0])])]);
 }

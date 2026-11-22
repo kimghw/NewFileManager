@@ -218,7 +218,7 @@ def main():
         check("⑤ 에이전트가 없는 도구(프로젝트 구성 반영)에도 두 칸 — 읽는 곳 = 작업 진행 에이전트(스크립트의 동작은 그대로) · 쓰는 도구 · 아래에 에이전트를 쓰는 도구 목록",
               a5b["unit"] == "division" and a5b["agents"] == [] and "쓰지 않습니다" in a5b["sub"] and a5b["tools"][0][0] == "프로젝트 구성(구분 기준)"
               and [n["scope"] for n in a5b["toolNotes"]] == ["tool", "jobtool"] and a5b["toolNotes"][0]["text"] == "" and "작업 진행 에이전트가 이 단계를 안내" in a5b["reader"] and "스크립트의 동작은 바뀌지 않습니다" in a5b["reader"]
-              and [u[0] for u in a5b["users"]] == [k for k in ("headsLlm", "reheadsLlm", "llm", "gaps", "tableMap") if reg[k]["agents"]] and a5b["users"][0][2] == "에이전트 6", a5b)
+              and [u[0] for u in a5b["users"]] == [k for k in ("headsLlm", "reheadsLlm", "llm", "gaps", "tableMap", "guideFix") if reg[k]["agents"]] and a5b["users"][0][2] == "에이전트 6", a5b)
         FIT = "사업계획서는 단계 · 차년도 · 기관을 준다."
         tnote(page, "jobtool").locator("textarea").fill(FIT)
         page.locator('#wfCompose .wf-ag-user[data-ag-go="headsLlm"]').click()   # 목록에서 그 도구로

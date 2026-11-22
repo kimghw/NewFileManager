@@ -454,6 +454,47 @@ def cleanup(target, rev):
     return got
 
 
+# ---------------------------------------------------------------- 「문서 정리」 의 조립 도구(spec_워크플로우 ② §18-23) — 지침 보정 = app/guide_fix_api.py · 빈 구역 지우기 = app/zone_prune_api.py · 문서 id = 그 줄이 고른 문서
+def guide_fix_facts(doc_id):
+    """지침 보정 줄의 재료(문서 안 바뀜 · LLM 안 부름) → {guides{headings, tables, total}, saved, plan | None, applied | None, fill, why} | {error}."""
+    from app import guide_fix_api
+    try:
+        return guide_fix_api.facts(doc_id)
+    except Exception as e:  # noqa: BLE001 — 재료를 못 읽음은 상태 식이 「못 읽음」 으로 보인다
+        log.exception("[워크플로우 실행] 지침 보정 재료를 읽지 못했습니다")
+        return {"error": f"{type(e).__name__}: {e}", "guides": {}, "why": ""}
+
+
+def guide_fix_ask(doc_id):
+    """작성 지침에 따라 LLM 에 묻는다(동기 · 유료 · 수십 초 — 문서 안 바뀜: POST …/guide-fix/ask) → Outcome(data = {planId, fixes, left, rejected, units, asked} | {nothing, why, planId}). 503 = LLM 이 답을 못 냄."""
+    from app import guide_fix_api
+    return _run(guide_fix_api.guide_fix_ask, doc_id, on409="blocked")
+
+
+def guide_fix_apply(doc_id, plan_id):
+    """그 계획의 고침을 반영(문서를 바꾼다 — 울타리 안에서: POST …/guide-fix/apply) → Outcome — 409 = 지금 계획이 아님(stale) · 422 = 표준 검사가 되돌림(rejected) · 고칠 것 없음 = nothing(반영 기록은 남음)."""
+    from app import guide_fix_api
+    got = _run(guide_fix_api.guide_fix_apply, doc_id, {"planId": plan_id}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "고칠 것이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+def zone_prune_count(doc_id):
+    """지울 빈 구역의 수(문서 안 바뀜) → Outcome(data = {rev, counts{items, blocks, rows, cols, kept}, kept, reasons[], why})."""
+    from app import zone_prune_api
+    return _run(zone_prune_api.count, doc_id)
+
+
+def zone_prune(doc_id, rev):
+    """빈 구역을 한 번에 지운다(문서를 바꾼다 — 울타리 안에서: POST …/zone-prune) → Outcome — 409 = 센 뒤 문서가 바뀜(stale) · 지울 것 없음 = nothing."""
+    from app import zone_prune_api
+    got = _run(zone_prune_api.zone_prune_post, doc_id, {"expectRev": rev}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "지울 빈 구역이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
 # ---------------------------------------------------------------- 사람이 하는 일(갈래 C — spec_워크플로우 ② §18-7 · §18-12 ⑦) — 확인 기록은 app/flow_hands.py · 「했음」 끝점은 app/flow_hands_api.py
 def hand_ver(task, line_key):
     """그 줄의 판 — 정의의 지문(workflow_state.sig) + 줄 key · 이름 · 사람에게 보일 글(등록부 줄의 does)의 sha1 앞 10자. 글을 고치면 판이 바뀌어 앞의 「했음」 은 무효다."""

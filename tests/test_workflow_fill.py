@@ -441,3 +441,72 @@ def test_link_reanalyzes_a_source_document_whose_structure_this_definition_chang
     assert rec["status"] == "done", rec["end"]
     assert [c for c in fake2.calls if c[0] == "how"] == [("how", "s", 2), ("how", "s", 3)]
     assert rec["steps"][0]["text"].startswith("안전망 — 헤딩·표 분석(스크립트) — 사업계획서(구조 반영 뒤 다시) · 연결 목록")
+
+
+# ---- 「문서 정리」 의 조립 도구 둘(spec_워크플로우 ② §18-23 — 2026-11-22 사용자 「… 지침에 따라 LLM 보정해 주는 단계를 4단계 도구에」 · 「… 내용이 없는 … 제거하는 도구도 문서 정리에」)
+def _with_tidy(monkeypatch):
+    """붙박이 이관의 4단계에 조립 도구 둘을 놓은 정의(지침 보정 → 작성요령 삭제 → 빈 구역 지우기 — workflow._st_clean(more=True) 의 줄 그대로)."""
+    from app import workflow
+    task = copy.deepcopy(S.definition("plan_to_report"))
+    for g in task["stages"]:
+        if g["id"] == "clean":
+            g["steps"] = [dict(s) for s in workflow._st_clean("사업계획서", "연차보고서", more=True)]
+    monkeypatch.setattr(S, "definition", lambda job: task if job == "plan_to_report" else None)
+
+
+def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(fake, monkeypatch):
+    """지침 보정 = 묻기(울타리 밖 · 유료) → 반영(울타리 안) · 빈 구역 지우기 = 울타리 안에서 다시 세고 지움 — 둘 다 「내용 넣기」 의 끝 뒤 · 끝난 뒤 상태는 끝남."""
+    _with_tidy(monkeypatch)
+    state = {"applied": None, "zones": 3}
+    fake.guide_fix_facts = lambda doc: {"guides": {"headings": 2, "tables": 1, "total": 3}, "saved": True, "plan": None, "applied": state["applied"], "fill": (fake.filled or {}).get("at"), "why": ""}
+
+    def ask(doc):
+        fake.calls.append(("guideFixAsk", doc))
+        fake.fenced.append((X.FENCE.get(doc) or {}).get("thread") == threading.get_ident())
+        return Outcome("ok", "", {"planId": "g1", "fixes": [{}, {}], "left": [{}], "rejected": []})
+
+    def apply(doc, pid):
+        fake.calls.append(("guideFixApply", pid))
+        fake._fenced()
+        state["applied"] = {"fill": (fake.filled or {}).get("at"), "done": 2, "skipped": 0, "left": 1}
+        return Outcome("ok", "", {"done": [{}, {}], "skipped": []})
+    fake.guide_fix_ask, fake.guide_fix_apply = ask, apply
+    fake.zone_prune_count = lambda doc: Outcome("ok", "", {"rev": fake.rev, "counts": {"items": state["zones"], "blocks": 1, "rows": 2, "cols": 0}, "kept": 0, "reasons": [], "why": ""})
+
+    def prune(doc, rev):
+        fake.calls.append(("zonePrune", rev))
+        fake._fenced()
+        n, state["zones"], fake.rev = state["zones"], 0, fake.rev + 1
+        return Outcome("ok", "", {"done": {"removed": {"items": n, "blocks": 1, "rows": 2, "cols": 0}, "skipped": []}})
+    fake.zone_prune = prune
+    clean = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
+    keys = [s["key"] for s in clean["steps"]]
+    assert keys == ["guideFix", "guide", "zonePrune"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
+    assert "「내용 넣기」 이 끝난 뒤" in clean["steps"][0]["text"]
+    X.start("t", {"from": "map", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    order = [c[0] for c in fake.calls if c[0] in ("apply", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune")]
+    assert order == ["apply", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune"]   # 내용 반영 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기
+    assert fake.fenced[-4:] == [False, True, True, True]   # 묻기는 울타리 밖 · 반영 · 지우기는 울타리 안
+    text = rec["stages"][-1]["text"]
+    assert "지침 보정 — 고친 문단 2 · 고치지 못한 것 1" in text and "빈 구역 3곳을 지웠습니다(본문 블록 1 · 표 행 2)" in text
+    after = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
+    assert after["left"] == 0 and next(s for s in after["steps"] if s["key"] == "guideFix")["text"].startswith("지침 보정 — 고친 문단 2")
+
+
+def test_tidy_tools_wait_for_the_fill_and_skip_without_llm(fake, monkeypatch):
+    """「내용 넣기」 가 끝나기 전에는 시작해도 멈춘다(차례) · LLM 을 쓸 수 없으면 지침 보정은 「건너뜀」 으로 지나간다."""
+    _with_tidy(monkeypatch)
+    fake.guide_fix_facts = lambda doc: {"guides": {"total": 1}, "saved": True, "plan": None, "applied": None, "fill": None, "why": ""}
+    fake.zone_prune_count = lambda doc: Outcome("ok", "", {"rev": fake.rev, "counts": {"items": 0}, "kept": 0, "reasons": [], "why": ""})
+    X.start("t", {"from": "clean", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] != "done" and "내용 넣기" in rec["end"]["text"] and not any(c[0] in ("guideFixAsk", "zonePrune") for c in fake.calls)   # 「내용 넣기」 의 끝 전 — 문서를 건드리지 않는다
+    fake.filled = {"nothing": True, "at": 1.0}
+    fake.todo = 0
+    monkeypatch.setattr(fake, "llm_ok", lambda: False)
+    X.start("t", {"from": "clean", "to": "clean"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert "지침 보정은 건너뜀(LLM 을 쓸 수 없음)" in json.dumps(rec, ensure_ascii=False) and not any(c[0] == "guideFixAsk" for c in fake.calls)

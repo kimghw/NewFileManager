@@ -261,7 +261,7 @@ def main():
                                                         and all(c["st"] in ("", "준비 중") for r in g["rows"] for c in r["cards"])) for g in rest)   # 안 맡은 묶음 — 머리 아래 한 줄 · 상태 글 없음
               and s["count"].startswith("끝남 ") and s["count"].endswith(f"/{served_counts(rid)[1]}")
               and s["docs"] == [f"원본 문서 — 사업계획서: {plan.get('name')}", f"목적 문서 — 연차보고서: {rep.get('name')}"]
-              and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다시 시작", "다른 워크플로우"], s)
+              and [b["text"] for b in s["foot"]] == ["대시보드 자세히 보기", "다시 시작", "새 워크플로우 시작", "작업 내용 초기화…"], s)   # 시작한 뒤의 「새 워크플로우 시작」 · 「작업 내용 초기화…」(2026-11-22)
         page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=30000)
         lf = page.evaluate(LEFT)
         check("③ 놓은 문서 ↔ 대시보드(2026-11-21 「놓여진 문서랑 매칭을 해주라는거야」) — 쓴 문서가 목록에서 빠지면 왼쪽 카드에 대시보드의 문서(원본 → 목적 · 역할 꼬리표 · 목적 문서는 파랑 테두리 · 문서 칸과 같은 이름) · 읽기만(고르기 없음) · 「다른 문서 놓기…」",
@@ -463,6 +463,31 @@ def main():
         check("⑦-3 목록을 비우면(「비우기」) — 하던 작업의 대시보드로 돌아옴(끝난 수 · 끝 글 · 기억) · 왼쪽에 다시 그 작업의 문서",
               s["state"] == "live" and s["memo"] == {"job": JOB, "wid": rid} and s["count"] == head_count(rid) and s["last"] == end and not any("왼쪽에 놓은" in n[0] for n in s["notes"])
               and [r[1] for r in lf["rows"]] == [plan.get("name"), rep.get("name")], [s, lf])
+
+        # ---- ⑦-4 「작업 내용 초기화…」(2026-11-22 사용자 "작업내용을 초기화 하는게 없어, 대시보드에 그게 들어 가면 좋겠는데") — 발 줄에서 펴는 인라인 확인: 문서마다 · 모두 · 취소(Esc) →
+        #        고른 문서만 올린 직후로(같은 기능 POST …/reset — 작업 폴더의 reset/1) · 다른 문서는 그대로 · 대시보드는 다시 읽음
+        RESET = """() => { const r = document.querySelector('#homeDash .dash-reset'); return r ? { docs: [...r.querySelectorAll('.dash-reset-docs li')].map((li) => li.textContent), text: r.textContent,
+          acts: [...r.querySelectorAll('.dash-reset-acts button')].map((b) => b.textContent), focus: (document.activeElement.dataset || {}).hdFocus || '' } : null; }"""
+        n_reset = lambda wid: len([p for p in (tmp / "works" / wid / "reset").glob("*") if p.is_dir()]) if (tmp / "works" / wid / "reset").is_dir() else 0   # 앞에서 reset_pair 로 초기화한 적이 있다 — 수로 견준다
+        r0 = (n_reset(plan["id"]), n_reset(rep["id"]))
+        page.locator('#homeDash [data-hd-focus="reset"]').click()
+        page.wait_for_selector("#homeDash .dash-reset .dash-reset-docs li", timeout=30000)
+        rs = page.evaluate(RESET)
+        check("⑦-4 「작업 내용 초기화…」 → 그 자리에 펴지는 확인(모달 아님) · 문서 칸 둘(원본 → 목적) · 문서마다 단추 + 「모든 문서 초기화」 + 「취소」 · 비우는 것 · 남는 것 · 초점은 「취소」",
+              rs and rs["docs"] == [f"원본 문서{plan.get('name')}", f"목적 문서{rep.get('name')}"] and rs["acts"] == ["원본 문서 초기화", "목적 문서 초기화", "모든 문서 초기화", "취소"]
+              and "비우는 것:" in rs["text"] and "남는 것:" in rs["text"] and rs["focus"] == "reset:close" and not page.locator(".confirm, dialog[open]").count(), rs)
+        page.keyboard.press("Escape")
+        page.wait_for_selector('#homeDash [data-hd-focus="reset"]', timeout=10000)
+        check("⑦-4 Esc = 취소 — 상자가 닫히고 단추 「작업 내용 초기화…」 로 · 아무것도 안 바뀜", page.evaluate(RESET) is None and (n_reset(plan["id"]), n_reset(rep["id"])) == r0, r0)
+        page.locator('#homeDash [data-hd-focus="reset"]').click()
+        page.wait_for_selector("#homeDash .dash-reset .dash-reset-docs li", timeout=30000)
+        page.locator(f'#homeDash [data-hd-focus="reset:{plan.get("id")}"]').click()
+        page.wait_for_function("() => /작업 내용을 초기화했습니다/.test(document.getElementById('toast').textContent) && !document.querySelector('#homeDash .dash-reset')", timeout=60000)
+        page.wait_for_timeout(1500)
+        s = snap(page)
+        check("⑦-4 「원본 문서 초기화」 → 원본 문서만 올린 직후로(작업 폴더의 reset/ 에 하나 더) · 목적 문서는 그대로 · 알림 · 대시보드는 시작한 작업 그대로(다시 읽은 끝난 수)",
+              (n_reset(plan["id"]), n_reset(rep["id"])) == (r0[0] + 1, r0[1]) and "원본 문서" in s["toast"]
+              and s["state"] == "live" and s["count"] == head_count(rid) and len(works()) == 2, [s["toast"], s["count"], head_count(rid), r0, n_reset(plan["id"]), n_reset(rep["id"])])
 
         # ---- ⑧-0 「다시 시작」 → 같은 워크플로우의 시작 전으로(기억은 비움 — 문서 · 작업은 그대로: 2026-11-21 사용자 「다시 시작하기.. 기능이 없네」)
         again = page.evaluate("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"again\"]'); return b ? { off: b.disabled, title: b.title } : null; }")

@@ -637,6 +637,16 @@ function zonesDraw() {
   }
 }
 
+// 색 설명 칩의 기관 이름 — 앞 세 글자, 다른 기관과 앞 세 글자가 같으면 네 글자까지(2026-11-22 사용자 "회사 이름은 앞글자 3개 정도만 보여주면 될듯. 동일한게 있으면4개까지" — spec_구역 ② §6).
+// 「(주)」·「㈜」·「주식회사」 같은 회사 꼴 말은 떼고 센다(「(주)씨드로닉스」 → 「씨드로」) · 전체 이름은 칩의 풍선 도움말 · 같은 짧은 이름이 남아도 네 글자에서 멈춘다(색이 가른다)
+const ZN_CORP = /^\s*(?:\([주사재유]\)|㈜|주식회사)\s*|\s*(?:\([주사재유]\)|㈜|주식회사)\s*$/g;
+function znShortNames(names) { // 이름 목록 → Map(이름 → 짧은 이름)
+  const base = (n) => Array.from(String(n).replace(ZN_CORP, "").trim() || String(n)), head = (b) => b.slice(0, 3).join("");
+  const bs = names.map(base), out = new Map();
+  names.forEach((n, i) => out.set(n, bs[i].slice(0, bs.some((o, j) => j !== i && names[j] !== n && head(o) === head(bs[i])) ? 4 : 3).join("")));
+  return out;
+}
+
 // ---- 색 설명(#zonesKey — design.md §4 「색 설명은 문서 위에 떠 있는 상자로」): 표시가 켜져 있고 띠가 있을 때만 — 「편집 구역」 + 지금 문서에 있는 값의 칩(색 네모 + 이름) + 노트.
 // 2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 문서 이름 줄이 아니라 문서 위에 떠 있는 상자다(#viewer 안 — 자리 · 끌어 옮기기 · 기억은 key_float.js).
 // 이름 줄에는 켜고 끄는 아이콘(#nameZones)만 남는다 — 그 아이콘으로 켜면 뜨고 끄면 사라진다
@@ -658,7 +668,8 @@ function zonesKeyDraw() {
     }
   }
   const list = [...items.values()].sort((a, b) => a.at - b.at);
-  const sig = list.length ? list.map((x) => x.color + "=" + x.name).join("|") + (marked ? "|지정" : "") : "";
+  if (D && axis === "org") { const sh = znShortNames((D.orgs || []).map((o) => o.name || o.key)); for (const x of list) if (sh.has(x.name)) x.short = sh.get(x.name); } // 기관 이름은 짧게(znShortNames) — 「기관 모름」 같은 말은 그대로
+  const sig = list.length ? list.map((x) => x.color + "=" + x.name + "=" + (x.short || "")).join("|") + (marked ? "|지정" : "") : "";
   if (box.dataset.sig === sig && box.hidden === !sig) return; // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게 · 옮긴 자리도 그대로)
   box.dataset.sig = sig;
   box.hidden = !sig;
@@ -667,7 +678,7 @@ function zonesKeyDraw() {
   if (!sig) { place(); return; }
   if (typeof keyFloatGrip === "function") box.append(keyFloatGrip()); // 손잡이(끌어서 옮기기)
   box.append(el("span", "dv-key-name", "편집 구역"));
-  for (const x of list.slice(0, ZN_KEY_MAX)) { const chip = el("span", "dv-chip zn-key-chip"); chip.dataset.gz = x.color; chip.title = x.name; chip.append(el("span", "zn-key-chip-t", x.name)); box.append(chip); }
+  for (const x of list.slice(0, ZN_KEY_MAX)) { const chip = el("span", "dv-chip zn-key-chip"); chip.dataset.gz = x.color; chip.title = x.name; chip.append(el("span", "zn-key-chip-t", x.short || x.name)); box.append(chip); }
   if (list.length > ZN_KEY_MAX) { const more = el("span", "zn-key-more", `외 ${list.length - ZN_KEY_MAX}`); more.title = list.slice(ZN_KEY_MAX).map((x) => x.name).join(" · "); box.append(more); }
   if (marked) box.append(el("span", "zn-key-tone", "점선 이름표 = 지정"));
   // 감추기 · 다시 보기 = 문서 이름 줄의 아이콘 #nameZones(doc_quick.js — 2026-11-18 사용자 "… 편집구역 아이콘 … 활성화"). 설명 안에 「감추기」 단추는 없다 — 같은 일을 하는 아이콘이 있다(design.md §10)

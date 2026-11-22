@@ -1062,13 +1062,13 @@ def shutdown():
 # ---------------------------------------------------------------- 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3: spec_워크플로우 ② §18-2 「3 · 4단계 단위의 글」 · §18-12 ② · ③)
 # 화면 app.js taskRunMap · taskRunSteps 의 clean 가지를 줄마다의 처리 함수로 옮긴 것 — 차례 = 자리 연결 → (LLM 검토) → 넣기 계획 → (빈 자리 검토 → 표 대응) → 내용 반영 · 작성요령 삭제.
 # 이번 실행 안의 기억(연결 목록 · 반영할 수 있는 지금 계획 · LLM 검토의 글)은 run.fill — 끝남은 늘 문서에서 다시 본다(workflow_units 의 상태 식). 묶음 끝 글 = 화면 실행의 글 그대로(셋째 값 — 줄의 기록 글과 따로).
-FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide")
+FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune")
 NOTHING_TEXT = "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)"
 
 
 def _fill_need(task):
     """이 정의에 서버가 맡는 넣기 · 정리 줄이 있나 — 이관형의 단위일 때만(문서 하나의 plan · apply 는 key 만 같은 다른 단위다: 그 문서에 연결 목록을 읽지 않는다)."""
-    mine = {**U.RELAY, "guide": U.COMMON["guide"]}
+    mine = {**U.RELAY, **{k: U.COMMON[k] for k in ("guide", "guideFix", "zonePrune")}}   # 「문서 정리」 의 줄(작성요령 삭제 · 조립 도구 둘 — ② §18-23)도 「내용 넣기」 의 끝을 재료로 읽는다
     return any(x["key"] in FILL_KEYS and x["unit"] is mine.get(x["key"]) and S.served(task, x["stage"]) for x in S.lines(task))
 
 
@@ -1440,6 +1440,131 @@ def _guide_doc(run, gid, tgt):
 
 
 HANDLERS.update({"link": _do_link, "llm": _do_link_llm, "plan": _do_plan, "gaps": _do_gaps, "tableMap": _do_table_map, "apply": _do_apply, "guide": _do_guide})   # 3단계 · 4단계(걸음 3 — 이 절)
+
+
+# ---------------------------------------------------------------- 「문서 정리」 의 조립 도구 둘(spec_워크플로우 ② §18-23) — 지침 보정(LLM) · 빈 구역 지우기. 문서마다(_fit_docs) · 「내용 넣기」 의 끝 뒤에만(작성요령 삭제와 같은 조건)
+def _per_doc(run, gid, line, one):
+    """그 줄이 닿는 문서마다 one(run, gid, 문서 id) → (done | nothing | left, 글) 을 돌려 줄 하나의 결과로 — 목적 문서만의 줄은 글 그대로 · 원본 문서가 들면 문서 이름을 붙인다(작성요령 삭제와 같은 꼴)."""
+    docs = _fit_docs(run, line)
+    out = [(name, *one(run, gid, d)) for _role, d, name in docs]
+    text = out[0][2] if len(out) == 1 and docs[0][0] == "target" else " · ".join(f"{name} — {t}" for name, _st, t in out)
+    sts = [st for _n, st, _t in out]
+    return ("left" if "left" in sts else "done" if "done" in sts else "nothing"), text, text
+
+
+def _fill_first(run, why):
+    if _has_fill(run.task) and not U.fill_done(UNIT.fill_facts(run.target)):
+        raise _Halt("order", f"{_stage_name(run.task, 'stage_fill', '내용 넣기')} 이 먼저입니다 — {why}")
+
+
+def _do_guide_fix(run, gid, line):
+    """지침 보정(LLM) — 그 줄이 닿는 문서마다(_guide_fix_doc)."""
+    return _per_doc(run, gid, line, _guide_fix_doc)
+
+
+def _guide_fix_doc(run, gid, doc):
+    """지침 보정(문서 하나 — 문서를 바꾼다) — 묻기(유료 · 문서 안 바뀜 — 울타리 밖) → 반영(울타리 안 · 물은 뒤 글이 바뀐 문단은 끝점이 건너뜀). 고칠 것이 없어도 반영 기록을 남겨 끝난 것으로 본다.
+    LLM 을 쓸 수 없으면 「건너뜀」(nothing) · 에이전트 카드가 승인하지 않은 문서면 남김(left). → (done | nothing | left, 글)."""
+    run.working = {doc}
+    _fill_first(run, "④ 내용 반영 전")
+    G = UNIT.guide_fix_facts(doc)
+    if G.get("error"):
+        raise _Halt("error", f"지침 보정의 재료를 읽지 못했습니다: {G['error']}")
+    if G.get("why"):
+        return "nothing", G["why"]
+    if not (G.get("guides") or {}).get("total"):
+        return "nothing", "저장한 작성 지침이 없습니다 — 건너뜀"
+    if not UNIT.llm_ok():
+        return "nothing", "지침 보정은 건너뜀(LLM 을 쓸 수 없음)"
+    if run.approval is not None and doc not in run.approval.get("paid", ()):
+        return "left", "지침 보정은 하지 않음(실행 카드에서 승인한 유료 호출이 아님 — 남은 단계)"
+    run.note(gid, "guideFix", f"작성 지침 {G['guides']['total']}곳에 따라 LLM 에 묻는 중(유료 · 수십 초)", doc)
+    run.guard()
+    asked = UNIT.guide_fix_ask(doc)
+    if not asked.ok:
+        raise _Halt(asked.code, f"지침 보정을 묻지 못했습니다 — {asked.text}(다시 누르세요)")
+    P = asked.data or {}
+    with run.fence(doc):
+        run.guard()
+        _fill_first(run, "그 사이 문서가 바뀌었습니다")
+        got = UNIT.guide_fix_apply(doc, P.get("planId"))
+    if got.code == "stale":
+        raise _Halt("stale", f"지침 보정을 반영하지 못했습니다 — {got.text}")
+    if not got.ok:
+        raise _Halt(got.code, f"지침 보정을 반영하지 못했습니다 — {'표준 검사에 걸려 되돌렸습니다: ' if got.code == 'rejected' else ''}{got.text}")
+    D = got.data or {}
+    n, skip, left, bad = len(D.get("done") or ()), len(D.get("skipped") or ()), len(P.get("left") or ()), len(P.get("rejected") or ())
+    tail = (f" · 건너뜀 {U.nf(skip)}" if skip else "") + (f" · 고치지 못한 것 {U.nf(left)}" if left else "") + (f" · 검사에 걸려 버린 고침 {U.nf(bad)}" if bad else "")
+    if P.get("nothing"):
+        return "nothing", f"지침 보정 — {P.get('why') or '고칠 자리가 없습니다'}"
+    return ("done" if n else "nothing"), (f"지침 보정 — 고친 문단 {U.nf(n)}" if n else "지침 보정 — 지침에 어긋난 글이 없습니다") + tail
+
+
+def _do_zone_prune(run, gid, line):
+    """빈 구역 지우기 — 그 줄이 닿는 문서마다(_zone_prune_doc)."""
+    return _per_doc(run, gid, line, _zone_prune_doc)
+
+
+def _zone_prune_doc(run, gid, doc):
+    """빈 구역 지우기(문서 하나 — 문서를 바꾼다: 울타리 안에서 다시 세고 지운다) · 센 뒤 문서가 바뀌면(409) 한 번만 다시 센다. → (done | nothing, 글)."""
+    run.working = {doc}
+    _fill_first(run, "④ 내용 반영 전")
+    c = UNIT.zone_prune_count(doc)
+    if not c.ok:
+        raise _Halt(c.code, f"빈 구역을 세지 못했습니다: {c.text}")
+    Z = c.data or {}
+    if Z.get("why"):
+        return "nothing", f"{Z['why']} — 건너뜀"
+    if not (Z.get("counts") or {}).get("items"):
+        return "nothing", "지울 빈 구역이 없습니다"
+    run.note(gid, "zonePrune", f"빈 구역 {U.nf(Z['counts']['items'])}곳 지우기", doc)
+    got = None
+    for attempt in (0, 1):
+        run.guard()
+        with run.fence(doc):
+            run.guard()
+            _fill_first(run, "그 사이 문서가 바뀌었습니다")
+            c = UNIT.zone_prune_count(doc)   # 울타리 안에서 다시 센다
+            if not c.ok:
+                raise _Halt(c.code, f"빈 구역을 세지 못했습니다: {c.text}")
+            Z = c.data or {}
+            got = UNIT.zone_prune(doc, Z["rev"]) if (Z.get("counts") or {}).get("items") else None
+        if got is None or got.code != "stale" or attempt:
+            break
+    if got is None or got.code == "nothing":
+        return "nothing", "지울 빈 구역이 없습니다"
+    if not got.ok:
+        raise _Halt(got.code, f"빈 구역을 지우지 못했습니다 — {'표준 검사에 걸려 되돌렸습니다: ' if got.code == 'rejected' else ''}{got.text}")
+    done = (got.data or {}).get("done") or {}
+    r = done.get("removed") or {}
+    parts = " · ".join(f"{name} {U.nf(r[k])}" for k, name in (("blocks", "본문 블록"), ("rows", "표 행"), ("cols", "표 열")) if r.get(k))
+    skip = f" · 건너뜀 {U.nf(len(done['skipped']))}" if done.get("skipped") else ""
+    return "done", f"빈 구역 {U.nf(r.get('items'))}곳을 지웠습니다({parts}){skip}"
+
+
+HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune})   # 「문서 정리」 의 조립 도구(② §18-23)
+
+
+def _tidy_materials(task, pair, facts, opt=None):
+    """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
+    want = {}
+    for x in S.lines(task):
+        if x["key"] in ("guideFix", "zonePrune") and x["unit"] is U.COMMON[x["key"]] and S.served(task, x["stage"]):
+            for r in S.roles_on(task, x["on"]):
+                d = (pair.get(r) or {}).get("id")
+                if d and facts.get(d) is not None:
+                    want.setdefault(d, set()).add(x["key"])
+    for d, keys in want.items():
+        more = {}
+        if "guideFix" in keys:
+            more["guideFix"] = UNIT.guide_fix_facts(d)
+        if "zonePrune" in keys:
+            c = UNIT.zone_prune_count(d)
+            more["zonePrune"] = c.data if c.ok and isinstance(c.data, dict) else {"error": c.text or "응답이 없음"}
+        facts[d] = {**facts[d], **more}
+
+
+MATERIALS.append(_tidy_materials)
 
 
 # ================================================================ 2단계 「구성 맞추기」(걸음 2 — spec_워크플로우 ② §17-10 걸음 2 · §18-4 · §18-12 ②)

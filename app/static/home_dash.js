@@ -20,8 +20,9 @@
 // open = 편 단계 key(null = 「지금」 단계를 저절로 · "" = 모두 접음 — 「지금」 이 바뀌면 null 로: 패널 대시보드의 DASH.open 과 같은 약속) · nowKey = 마지막으로 그린 「지금」(도는 중) 단계 ·
 // pin = 편 카드에서 방금 「했음」 을 눌렀다(그 누름으로 「지금」 이 넘어가도 그 카드를 접지 않는다 — 「했음 취소」 가 보이게: 한 번만) ·
 // prev = 왼쪽에 문서를 놓아 시작 전으로 바꾸기 전에 보던 작업 {job, wid}(목록을 다시 비우면 그 작업으로 돌아간다 — homeDashFiles · homeDashFilesGone) · docKey = 왼쪽 목록에 보인 대시보드 문서의 열쇠(바뀌면 목록을 다시 그린다)
-const HD = { job: "", wid: "", view: null, gone: false, err: "", note: null, busy: "", sig: "", at: 0, reading: false, again: false, living: false, seq: 0, away: false, regWait: false, regTried: "", form: undefined, open: null, nowKey: "", pin: false, prev: null, docKey: "" };
-const HD_KEY = "nfm.homeDash"; // 시작한 묶음의 기억(이 브라우저 — {job, wid}): 첫 화면을 다시 열어도 그 대시보드가 보인다 · 「다른 워크플로우」 로 비운다
+const HD = { job: "", wid: "", view: null, gone: false, err: "", note: null, busy: "", sig: "", at: 0, reading: false, again: false, living: false, seq: 0, away: false, regWait: false, regTried: "", form: undefined, open: null, nowKey: "", pin: false, prev: null, docKey: "", reset: dashResetFresh() };
+// reset = 발 줄의 「작업 내용 초기화…」 상태(dashboard.js dashResetParts — 패널 대시보드와 같은 것)
+const HD_KEY = "nfm.homeDash"; // 시작한 묶음의 기억(이 브라우저 — {job, wid}): 첫 화면을 다시 열어도 그 대시보드가 보인다 · 「새 워크플로우 시작」(시작 전에는 「다른 워크플로우」)으로 비운다
 const HD_HELP = "대시보드에서 워크플로우의 단계와 진행 상황을 보고 바로 실행할 수 있습니다.\n"
   + "문서 화면의 패널 탭 「대시보드」 와 같은 것입니다. 왼쪽 번호는 차례입니다 — 누르면 그 차례만 실행하고, 끝난 차례는 초록 ✓ 로 표시합니다. 오른쪽은 그 차례의 문서 카드(원본 문서 · 목적 문서)입니다 — 카드를 누르면 펴지고(지금 상태 · 단추), 이름 옆 메모 아이콘에 그 단계의 「하는 일 · 조건」 이 있습니다.\n"
   + "실행을 눌러도 이 화면에 머뭅니다 — 단계마다의 확인 · 보정 단추는 문서가 열려 있어야 해서, 편 카드의 「문서 화면에서 열기」 나 「대시보드 자세히 보기」 로 문서 화면에서 합니다.\n"
@@ -58,7 +59,7 @@ function hdMemo(v) { // 시작한 묶음의 기억 — 값을 주면 적고(null
 
 function hdClear(job = "") { // 고른 것 · 시작한 것을 비운다 — 문서 · 작업 · 도는 실행은 그대로다(이 보기만)
   HD.seq += 1;
-  Object.assign(HD, { job, wid: "", view: null, gone: false, err: "", note: null, busy: "", at: 0, reading: false, again: false, living: false, form: undefined, open: null, nowKey: "", pin: false, prev: null });
+  Object.assign(HD, { job, wid: "", view: null, gone: false, err: "", note: null, busy: "", at: 0, reading: false, again: false, living: false, form: undefined, open: null, nowKey: "", pin: false, prev: null, reset: dashResetFresh() });
   hdMemo(null);
 }
 
@@ -110,7 +111,7 @@ function homeDashPick(job) {
   return true;
 }
 
-function homeDashReset() { // 「다른 워크플로우」 — 이 대시보드를 비우고 고르기로
+function homeDashReset() { // 「새 워크플로우 시작」(시작한 뒤) · 「다른 워크플로우」(시작 전) — 이 대시보드를 비우고 고르기로
   if (HD.busy === "start") return;
   hdClear("");
   homeDashDraw(true);
@@ -373,7 +374,7 @@ function hdCards(n, roles, wid, started) {
 
 function hdSig() { // 다시 그릴지 — 상태 · 글 · 단추가 같으면 도는 글(지난 시간)만 바꾼다(초점 · 스크롤 유지 — 패널 대시보드의 dashSig 와 같은 방식)
   const st = hdState(), V = HD.view, list = st === "pick" || st === "ready";
-  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, HD.open, HD.hands ? HD.hands.lines.map((x) => [x.key, x.done, x.ver]) : 0, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
+  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, HD.open, [HD.reset.open, HD.reset.busy, HD.reset.err, HD.reset.docs], HD.hands ? HD.hands.lines.map((x) => [x.key, x.done, x.ver]) : 0, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
     list ? [hdFiles().map((f) => `${f.name}:${f.size}`), typeof hfTarget === "function" ? hfTarget() : -1, !!homeTaskBusy || !!(typeof hf === "object" && hf.busy), Object.keys(TASK_CATALOG),
       HD.job ? [hdSlot(HD.job), HD.form, hdUseForm(HD.job), (hdResume(HD.job) || {}).id || "", typeof hf === "object" ? hf.project : ""] : 0] : 0,
     st === "live" ? [V.job, V.sig, V.ready, V.why, V.docs, V.stages.map((g) => [g.id, g.no, g.name, g.server, g.done, g.total, g.left, g.can, g.why, (g.paid || []).length, g.change, (g.solo || []).map((x) => [x.role, x.left, x.total, x.can, x.why, (x.paid || []).length]), // solo = 한 문서만 진행의 몫
@@ -612,14 +613,15 @@ function hdFootEl(...kids) { const f = el("div", "home-dash-foot"); f.append(...
 // 「워크플로우 시작」 을 다시 누르면 지금 시작 길 그대로이고, 같은 파일로 하던 작업이 있으면 같은 파일 고르기 창이 「이어서」 · 「초기화하고 열기」 · 「새 작업으로 시작」 을 묻는다(spec_작업에이전트 ② §10 「다시 시작」).
 // 도는 실행이 있으면 꺼 둔다(돌던 실행이 이 보기에서 사라져 보이지 않게 — 「멈춤」 이나 끝난 뒤에)
 function hdAgainBtn(job, active = false) {
-  const why = !hdCat(job) || (hdCat(job) || {}).soon ? "이 워크플로우를 찾지 못했습니다 — 「다른 워크플로우」 로 고르세요" : active ? "지금 도는 실행이 끝난 뒤에 누르세요 — 「멈춤」 으로 멈출 수 있습니다" : HD.busy ? "지금 하는 일이 끝난 뒤에 누르세요" : "";
+  const why = !hdCat(job) || (hdCat(job) || {}).soon ? "이 워크플로우를 찾지 못했습니다 — 「새 워크플로우 시작」 으로 고르세요" : active ? "지금 도는 실행이 끝난 뒤에 누르세요 — 「멈춤」 으로 멈출 수 있습니다" : HD.busy ? "지금 하는 일이 끝난 뒤에 누르세요" : "";
   const b = hBtn("다시 시작", () => { const ring = hdRing(); if (homeDashPick(job)) hdFocus(["start", "other"], ring); }, { disabled: !!why,
     title: why || "이 워크플로우를 시작 전으로 돌려 다시 시작합니다 — 왼쪽 문서 목록을 고친 뒤(빠진 문서 더하기 …) 「워크플로우 시작」 을 누릅니다. 지금 작업은 지우지 않습니다(같은 파일로 하던 작업이 있으면 그때 이어서 · 초기화 · 새 작업 가운데 고릅니다)" });
   b.dataset.hdFocus = "again";
   return b;
 }
-function hdOtherBtn(title, disabled = false) { // 「다른 워크플로우」 — 비운 뒤 초점은 고르기 목록으로
-  const b = hBtn("다른 워크플로우", () => { const ring = hdRing(); homeDashReset(); hdFocus(["pick"], ring); }, { title, disabled });
+// 시작한 뒤(live · gone)의 이름은 「새 워크플로우 시작」(2026-11-22 사용자 첫 화면을 보이며 "새로운 워크플로우 시작하기가 없네" — 같은 단추가 「다른 워크플로우」 라 새로 시작하는 길로 안 읽혔다) · 시작 전(ready)은 「다른 워크플로우」(고르기를 바꿈)
+function hdOtherBtn(title, disabled = false, label = "다른 워크플로우") { // 비운 뒤 초점은 고르기 목록으로
+  const b = hBtn(label, () => { const ring = hdRing(); homeDashReset(); hdFocus(["pick"], ring); }, { title, disabled });
   b.dataset.hdFocus = "other";
   return b;
 }
@@ -733,7 +735,9 @@ function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로
   const more = hBtn("대시보드 자세히 보기", () => hdMore(tid), { cls: "btn sm" + (!active && !canRun ? " primary" : ""), // 강조 단추는 다음 할 일 하나 — 여기서 실행할 것이 없으면 문서 화면으로 가는 이 단추
     title: "이 워크플로우의 목적 문서를 열고 패널 탭 「대시보드」 로 갑니다 — 단계마다의 확인 · 보정과 문서 화면에서 진행하는 묶음은 거기서 합니다" });
   more.dataset.hdFocus = "more";
-  parts.push(hdFootEl(more, hdAgainBtn(job, active), hdOtherBtn("이 대시보드를 비우고 워크플로우를 다시 고릅니다 — 문서 · 작업 · 도는 실행은 그대로입니다")));
+  const resetOff = active ? "지금 도는 실행이 끝난 뒤에 초기화하세요 — 「멈춤」 으로 멈출 수 있습니다" : HD.busy ? "지금 하는 일이 끝난 뒤에 누르세요" : ""; // 작업 내용 초기화(dashboard.js — 패널 대시보드와 같은 것: 문서마다 · 모두)
+  parts.push(hdFootEl(more, hdAgainBtn(job, active), hdOtherBtn("이 대시보드를 비우고 새 워크플로우를 고릅니다 — 왼쪽에 문서를 놓고 워크플로우를 골라 시작합니다(지금 작업의 문서 · 결과 · 도는 실행은 그대로 — 작업 리스트에서 다시 열 수 있습니다)", false, "새 워크플로우 시작"),
+    ...dashResetParts(HD.reset, { wid: tid, off: resetOff, redraw: () => homeDashDraw(true), done: () => hdRead(), focusAttr: "hdFocus" })));
   return parts;
 }
 
@@ -741,7 +745,7 @@ function hdLostParts(st) { // ④ 못 찾음(지웠거나 서버가 옛 판) · 
   const parts = [hdHeadEl(hdName(HD.job), { job: hdCat(HD.job) ? HD.job : "" })];
   if (st === "gone") parts.push(hdNoteEl("이 작업을 찾지 못했습니다 — 지웠거나 서버가 옛 판입니다", true));
   else parts.push(HD.err ? hdNoteEl(`상태를 읽지 못했습니다: ${HD.err}`, true) : el("p", "dash-text muted", "상태를 읽는 중…"));
-  parts.push(hdFootEl(st === "gone" && hdCat(HD.job) ? hdAgainBtn(HD.job) : null, hdOtherBtn("이 대시보드를 비우고 워크플로우를 다시 고릅니다 — 문서 · 작업은 그대로입니다")));
+  parts.push(hdFootEl(st === "gone" && hdCat(HD.job) ? hdAgainBtn(HD.job) : null, hdOtherBtn("이 대시보드를 비우고 새 워크플로우를 고릅니다 — 문서 · 작업은 그대로입니다", false, "새 워크플로우 시작")));
   return parts;
 }
 

@@ -68,7 +68,7 @@ KEY = """() => { const k = document.getElementById('zonesKey'), d = document.get
   const rr = row.getBoundingClientRect(), vr = view.getBoundingClientRect(), kr = k.getBoundingClientRect(), dr = d.getBoundingClientRect();
   const inside = (e, o) => { const r = e.getBoundingClientRect(); return r.left >= o.left - 1 && r.right <= o.right + 1 && r.top >= o.top - 1 && r.bottom <= o.bottom + 1; };
   const ic = document.getElementById('nameZones'), parts = [...k.querySelectorAll('.kf-grip, .dv-key-name, .zn-key-chip, .panel-help')];  // ic = 이름 줄 아이콘 「편집 구역 표시」(켜고 끄는 길)
-  return { shown: vis(k), inRow: row.contains(k), inView: k.parentElement === view, pos: getComputedStyle(k).position, chips: [...k.querySelectorAll('.zn-key-chip')].filter(vis).map((c) => [c.dataset.gz, c.textContent]),
+  return { shown: vis(k), inRow: row.contains(k), inView: k.parentElement === view, pos: getComputedStyle(k).position, chips: [...k.querySelectorAll('.zn-key-chip')].filter(vis).map((c) => [c.dataset.gz, c.textContent, c.title]),
     name: vis(k.querySelector('.dv-key-name')) ? k.querySelector('.dv-key-name').textContent : '', tone: vis(k.querySelector('.zn-key-tone')), grip: vis(k.querySelector('.kf-grip')), off: [...k.querySelectorAll('button')].map((b) => b.textContent.trim()).join('|'),
     icon: ic.getAttribute('aria-pressed'), iconIn: vis(ic) && inside(ic, rr),
     help: (k.querySelector('.panel-help') || { dataset: {} }).dataset.help || '', inside: vis(k) && inside(k, vr) && parts.length >= 4 && parts.every((e) => vis(e) && inside(e, kr)),   // 상자가 문서 창 안 · 손잡이·이름·칩·노트가 상자 안
@@ -244,8 +244,8 @@ try:
         k = page.evaluate(KEY)
         same = page.evaluate("""() => [...document.querySelectorAll('#zonesKey .zn-key-chip')].every((c) => { const p = document.querySelector(`#doc .gz-in[data-gz="${c.dataset.gz}"]`);
           return !!p && getComputedStyle(c).getPropertyValue('--gz-c').trim() === getComputedStyle(p).getPropertyValue('--gz-c').trim() && getComputedStyle(c, '::before').backgroundColor !== 'rgba(0, 0, 0, 0)'; })""")
-        check("색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색) · 노트(감추고 다시 켜는 곳 = 이름 줄 아이콘 · 끌어서 옮김) · 설명 안에 단추 없음 · 아이콘 눌림",
-              k["shown"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == [LEAD, SEED, UANGEL] and k["off"] == "" and k["icon"] == "true"
+        check("색 설명 — 「편집 구역」 · 기관 칩(주관 → 공동 · 색 = 문서의 띠 색 · 이름은 앞 세 글자, 전체 이름은 풍선 도움말 — 2026-11-22) · 노트(감추고 다시 켜는 곳 = 이름 줄 아이콘 · 끌어서 옮김) · 설명 안에 단추 없음 · 아이콘 눌림",
+              k["shown"] and k["name"] == "편집 구역" and [c[1] for c in k["chips"]] == ["한국선", "씨드로", "유엔젤"] and [c[2] for c in k["chips"]] == [LEAD, SEED, UANGEL] and k["off"] == "" and k["icon"] == "true"
               and [c[0] for c in k["chips"]] == ["0", "1", "2"] and same and "화면 표시일 뿐" in k["help"] and "다시 보려면" in k["help"] and "문서 이름 줄의 「편집 구역 표시」 아이콘" in k["help"]
               and "끌어서 옮길 수 있습니다" in k["help"] and k["beforeDiv"], k)
         check("문서 위에 떠 있는 상자 — 문서 창 안(이름 줄 밖) · 위 가운데(위에서 8px) · 손잡이 · 손잡이·이름·칩·노트가 상자 안",
