@@ -2,7 +2,7 @@
 // 편집 구역(spec_구역 ② §6 「화면」) — 문서의 본문 문단·표·표 칸이 어느 기관 · 어느 단계 · 어느 차년도의 것인지 값마다 가려 보이는 공통 모듈. 어느 연구개발 TASK 에서나 같다(취합 카드도 이 줄을 쓴다).
 // app.js 다음 · gather.js 앞에 읽는다. 화면 표시일 뿐이다 — 내보내는 hwpx·docx 에는 아무것도 쓰지 않는다(지정·출처는 작업 폴더에만: ② §0 · §7).
 //   줄      zonesBarEl(#zonesBar): 이름 + 노트 · 「구역 표시」 보기/감추기 · 「목록」 / 체크 셋(기관 · 단계 · 차년도 = TASK 옵션 — PUT …/task-options: ② §1) / 값마다 칩
-//   문서    zonesDraw: 띠(.gz-in) · 쪽 오른쪽 여백의 이름표(.gz-tag — 사람이 지정한 띠는 .gz-mark) · 표와 값이 다른 칸(.gz-cell) · 들어온 내용(.gz-put — 출처 색 data-gzo 는 구역 색 data-gz 를 덮지 않는다)
+//   문서    zonesDraw: 띠의 블록(.gz-in — 문단 · 표 · 그림: 도움말 · 색만) · 쪽 오른쪽 여백의 세로선(.gz-line — 띠마다 · 쪽마다 하나) · 이름표(.gz-tag — 사람이 지정한 띠는 .gz-mark) · 표와 값이 다른 칸(.gz-cell) · 들어온 내용(.gz-put — 출처 색 data-gzo 는 구역 색 data-gz 를 덮지 않는다)
 //   색 설명 zonesKeyDraw(#zonesKey — 문서 위에 떠 있는 상자: key_float.js) · 지정 zonesCtxItems → #zonesPop(떠 있는 작은 입력 — 모달 아님) → POST/PUT/DELETE …/zones/marks(② §3) · 목록 zonesList(문서 옆 2열 kind "zones")
 //   LLM 검토(spec_구역 ② §8 「LLM 검토 — 스크립트가 못 정한 것」): 줄의 「LLM 검토」 · 「지침」 — 사람이 누를 때만(유료 · 2026-11-18 부터 확인 창 없이). GET …/zones/llm(보낼 후보 · 쓸 수 있나 · 마지막 결과) →
 //     POST …/zones/llm {docRev, zonesRev}(응답 = 구역 자료 + llm) → LLM 이 지정한 구역(marks[].by "llm")은 이름표에 「LLM」 꼬리 · 목록의 「지정」 묶음에 근거·까닭 · 「LLM 지정 모두 해제」. 문서는 안 바뀐다
@@ -517,7 +517,7 @@ function zonesBarRefresh() { // 줄을 다시 그려 바꿔 끼운다(초점은 
 function zonesDraw() {
   const doc = typeof $ === "function" ? $("doc") : null;
   if (!doc) return;
-  for (const t of doc.querySelectorAll(".gz-tag")) t.remove();
+  for (const t of doc.querySelectorAll(".gz-tag, .gz-line")) t.remove();
   for (const n of doc.querySelectorAll(".gz-in, .gz-put, .gz-cell")) {
     n.classList.remove("gz-in", "gz-put", "gz-cell");
     delete n.dataset.gz;
@@ -533,24 +533,35 @@ function zonesDraw() {
   if (!zones.length && !puts.length && !Object.keys(cellsOf).length) return;
 
   const org = znOrgs(D), idx = new Map(), add = (k, e) => { const a = idx.get(k); if (a) a.push(e); else idx.set(k, [e]); };
-  for (const e of doc.querySelectorAll(".para[data-id], table.tbl[data-tbl], td[data-cell]")) add(e.dataset.id || e.dataset.tbl || e.dataset.cell, e);
+  const caps = new Map(), byId = typeof state === "object" && state && state.byId; // 표·그림 id → 그 캡션 문단들(캡션은 구역의 블록이 아니다 — 세로선이 그 캡션까지 닿게만)
+  for (const e of doc.querySelectorAll(".para[data-id], table.tbl[data-tbl], td[data-cell], [data-img]")) { // [data-img] = 그림 블록(app.js renderImage — 그림 요소에는 data-id 가 없다)
+    add(e.dataset.id || e.dataset.tbl || e.dataset.cell || e.dataset.img, e);
+    const of = e.dataset.id && byId ? (byId.get(e.dataset.id) || {}).captionOf : null;
+    if (of) { const a = caps.get(of); if (a) a.push(e); else caps.set(of, [e]); }
+  }
   const mark = (e, cls, color, title) => { e.classList.add(cls); e.dataset.gz = color; if (title && !e.title) { e.title = title; e.dataset.gzTitle = "1"; } };
-  const tags = [], zoneOf = new Map(), markOf = new Map((D.marks || []).map((m) => [m.id, m])); // 이름표를 달 곳(띠마다 첫 블록) · 블록 id → 그 띠의 이름 · 지정 id → 지정
+  const tags = [], runs = [], zoneOf = new Map(), markOf = new Map((D.marks || []).map((m) => [m.id, m])); // 이름표를 달 곳(띠마다 첫 블록) · 세로선을 그을 띠(그 띠의 블록 요소들) · 블록 id → 그 띠의 이름 · 지정 id → 지정
   for (const z of zones) {
     const color = znColor(z.label, axis, org), name = z.text || znLabelText(z.label, D, dims) || "구역";
     const mk = z.mark ? markOf.get(z.mark) : null, llm = !!mk && mk.by === "llm"; // LLM 이 지정한 띠 — 사람이 지정한 것과 가려 보인다(이름표에 「LLM」 꼬리 · 도움말에 까닭)
     const how = !z.mark ? "" : llm ? `(LLM 이 지정${mk.note ? ` — ${mk.note}` : ""})` : "(사람이 지정)";
     const tip = `편집 구역 — ${name}${how}${(z.path || []).length ? `\n${z.path.slice(-2).join(" › ")}` : ""}`;
     let first = null;
+    const els = [];
     for (const id of z.ids || []) {
       zoneOf.set(id, name);
       for (const e of idx.get(id) || []) {
         if (e.matches(".para") && e.closest("td")) continue; // 칸 안 문단은 표가 맡는다
         mark(e, "gz-in", color, tip);
         if (!first) first = e;
+        els.push(e);
       }
+      for (const e of caps.get(id) || []) els.push(e); // 표·그림의 캡션 — 표시는 안 하고 세로선만 닿게
     }
-    if (first) tags.push({ e: first, color, name: llm ? `${name} · LLM` : name, tip, marked: !!z.mark, llm });
+    if (first) {
+      tags.push({ e: first, color, name: llm ? `${name} · LLM` : name, tip, marked: !!z.mark, llm });
+      runs.push({ els, color, tip, marked: !!z.mark });
+    }
   }
   const differs = (L, T) => (axis === "org" ? !!L.orgKind && ((L.org || null) !== (T.org || null) || L.orgKind !== (T.orgKind || null))
     : axis === "year" ? L.year != null && L.year !== T.year : L.stage != null && L.stage !== T.stage);
@@ -570,20 +581,55 @@ function zonesDraw() {
       for (const e of idx.get(id) || []) { e.classList.add("gz-put"); e.dataset.gzo = o.i; e.title = tip + (zt ? `\n편집 구역 — ${zt}` : ""); e.dataset.gzTitle = "1"; } // 넣은 내용의 도움말이 구역 도움말보다 앞선다
     }
   }
+  // 읽기 단계 — 쪽마다 한 번: 쪽의 자리 · 배율 · 오른쪽 여백 폭(화면 px — 본문 상자 오른끝에서 종이 오른끝까지: 왼쪽 여백과 다를 수 있다)
+  const geo = new Map(), at = (sheet) => {
+    let g = geo.get(sheet);
+    if (!g) {
+      const sr = sheet.getBoundingClientRect(), z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1, body = sheet.querySelector(":scope > .sheet-body");
+      g = { sr, z, mgr: body ? Math.max(0, Math.round(sr.right - body.getBoundingClientRect().right)) : typeof sheetMarginPx === "function" ? sheetMarginPx(sheet, z) : 60 };
+      geo.set(sheet, g);
+    }
+    return g;
+  };
   const jobs = []; // 이름표 — 띠 첫 블록의 쪽 오른쪽 여백(왼쪽 여백은 개요·표 표지 몫). 같은 쪽 같은 자리에 겹치면 아래로 민다
   for (const h of tags) {
     const sheet = h.e.closest(".sheet");
     if (!sheet) continue;
-    const sr = sheet.getBoundingClientRect(), z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1;
-    jobs.push({ sheet, z, top: Math.round(h.e.getBoundingClientRect().top - sr.top), mgr: typeof sheetMarginPx === "function" ? sheetMarginPx(sheet, z) : 60, h });
+    const g = at(sheet);
+    jobs.push({ sheet, g, top: Math.round(h.e.getBoundingClientRect().top - g.sr.top), h });
+  }
+  const lines = []; // 세로선 — 띠마다 · 쪽마다 하나: 그 쪽에 든 그 띠의 블록(+ 표·그림의 캡션) 가운데 맨 위끝 ~ 맨 아래끝(블록 사이 틈도 잇는다 — 「한 줄로」)
+  for (const r of runs) {
+    const per = new Map(); // 쪽 → [위, 아래](화면 px, 쪽 위끝에서)
+    for (const e of r.els) {
+      const sheet = e.closest(".sheet");
+      if (!sheet) continue;
+      const er = e.getBoundingClientRect();
+      if (!er.height) continue; // 감춘 요소(엑셀식 보기로 바꾼 표 등)
+      const g = at(sheet), t = er.top - g.sr.top, b = er.bottom - g.sr.top, s = per.get(sheet);
+      if (s) { s[0] = Math.min(s[0], t); s[1] = Math.max(s[1], b); } else per.set(sheet, [t, b]);
+    }
+    for (const [sheet, [t, b]] of per) lines.push({ sheet, g: geo.get(sheet), t, b, r });
+  }
+  // 쓰기 단계
+  for (const l of lines) {
+    const d = el("div", "gz-line" + (l.r.marked ? " gz-mark" : ""));
+    d.dataset.gz = l.r.color;
+    d.dataset.span = "1"; // 높이 = 쪽 내용의 길이 — 쪽 배율을 뒤에서 바꿀 때(app.js zoomPut) 자리 · 여백 폭과 함께 높이도 배율 비만큼
+    d.title = l.r.tip;
+    d.style.zoom = String(1 / l.g.z);
+    d.style.setProperty("--mgr", `${l.g.mgr}px`);
+    d.style.top = `${Math.round(l.t) + 1}px`; // 위아래 1px 씩 비움 — 바로 이웃한 띠와 2px 틈
+    d.style.height = `${Math.max(2, Math.round(l.b - l.t) - 2)}px`;
+    l.sheet.append(d);
   }
   const last = new Map(); // 쪽 → 마지막 이름표 아래끝(화면 px)
   for (const j of jobs) {
     const t = el("div", "gz-tag" + (j.h.marked ? " gz-mark" : "") + (j.h.llm ? " gz-llm" : ""), j.h.name);
     t.dataset.gz = j.h.color;
     t.title = j.h.tip;
-    t.style.zoom = String(1 / j.z);
-    t.style.setProperty("--mgr", `${j.mgr}px`);
+    t.style.zoom = String(1 / j.g.z);
+    t.style.setProperty("--mgr", `${j.g.mgr}px`);
     const top = Math.max(j.top, (last.get(j.sheet) || -1e9) + 2);
     t.style.top = `${top}px`;
     last.set(j.sheet, top + 30);

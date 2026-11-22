@@ -69,28 +69,30 @@
 .zn-llm-last .panel-help { flex: none; width: 20px; height: 20px; }
 .gz-chip.zn-chip-warn { color: #92400e; border-color: #e7b56a; background: #fff7e6; }
 
-/* 문서 — 구역: 블록 오른쪽 안쪽 띠(배치 안 바뀜) · 표는 바깥 오른쪽 띠 · 표와 값이 다른 칸은 칸 안쪽 왼쪽 띠 · 들어온 내용은 그 기관 문서 기관 색의 옅은 바탕(표는 점선 테).
-   문단의 띠·바탕은 **배경 그림 층**으로 얹는다(box-shadow·background-color 가 아니다) — 문단의 상태 표시(고친 문단의 왼쪽 띠·바탕 · 포커스 테 · 반영 중 · 실패 · 마우스 올림 — style.css · 「고친 곳 보기」 doc_diff.css)가
-   box-shadow 와 바탕색을 쓰므로 그것들을 덮지 않고 함께 보이게: 층 = 구역 띠(오른쪽 3px) · 「구분 기준 자리」 라벨 줄의 왼쪽 띠(divisions.css 의 것을 그대로 — 두 표시를 함께 켰을 때) · 들어온 내용의 옅은 바탕.
+/* 문서 — 구역: 띠의 선은 블록에 긋지 않고 **쪽 오른쪽 여백에 띠마다 세로선 하나**(.gz-line — 아래 · zones.js zonesDraw: 2026-11-22 사용자 "편집구역 라인은 오른쪽 쪽 여백쪽에 한줄로 보이게 해줘" —
+   전에는 문단마다 제 오른끝 안쪽 3px · 표는 제 오른쪽 바깥이라 블록 사이에서 끊기고 들여쓴 문단 · 좁은 표마다 자리가 달랐다 · 그림은 없었다). 블록의 .gz-in 은 도움말 · 색(data-gz)만 지닌다.
+   표와 값이 다른 칸은 칸 안쪽 왼쪽 띠 · 들어온 내용은 그 기관 문서 기관 색의 옅은 바탕(표는 점선 테).
+   문단의 바탕은 **배경 그림 층**으로 얹는다(background-color 가 아니다) — 문단의 상태 표시(고친 문단의 왼쪽 띠·바탕 · 포커스 테 · 반영 중 · 실패 · 마우스 올림 — style.css · 「고친 곳 보기」 doc_diff.css)가
+   box-shadow 와 바탕색을 쓰므로 그것들을 덮지 않고 함께 보이게: 층 = 「구분 기준 자리」 라벨 줄의 왼쪽 띠(divisions.css 의 것을 그대로 — 두 표시를 함께 켰을 때) · 들어온 내용의 옅은 바탕.
    #doc 으로 우선순위를 올린다 — 상태 규칙의 `background` 줄임 속성이 배경 그림을 지우지 않게(바탕색은 그 규칙의 것이 그대로 보인다) */
-#doc .para.gz-in, #doc .para.gz-put { --zn-none: linear-gradient(transparent, transparent); background-image: var(--zn-band, var(--zn-none)), var(--zn-lab, var(--zn-none)), var(--zn-tint, var(--zn-none)); }
-#doc .para.gz-in { --zn-band: linear-gradient(to left, var(--gz-c) 0 3px, transparent 3px); }
-#doc .para.gz-put { --zn-tint: linear-gradient(var(--gzo-bg), var(--gzo-bg)); }
-#doc.dv-marks .para.dv-lab.gz-in, #doc.dv-marks .para.dv-lab.gz-put,
-#doc.dv-marks .para.dv-multi.gz-in, #doc.dv-marks .para.dv-multi.gz-put, #doc.dv-marks .para.dv-read.gz-in, #doc.dv-marks .para.dv-read.gz-put { --zn-lab: var(--dv-stripes, linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px)); } /* 「구분 기준 자리」 의 왼쪽 띠(든 구분마다 — divisions.css) */
-.doc table.tbl.gz-in { box-shadow: 3px 0 0 0 var(--gz-c); }
+#doc .para.gz-put { --zn-none: linear-gradient(transparent, transparent); background-image: var(--zn-lab, var(--zn-none)), var(--zn-tint, var(--zn-none)); --zn-tint: linear-gradient(var(--gzo-bg), var(--gzo-bg)); }
+#doc.dv-marks .para.dv-lab.gz-put, #doc.dv-marks .para.dv-multi.gz-put, #doc.dv-marks .para.dv-read.gz-put { --zn-lab: var(--dv-stripes, linear-gradient(to right, var(--dv-line) 0 3px, transparent 3px)); } /* 「구분 기준 자리」 의 왼쪽 띠(든 구분마다 — divisions.css) */
+/* 쪽 오른쪽 여백의 세로선 — 띠마다 · 쪽마다 하나(그 쪽에 든 첫 블록 위끝 ~ 마지막 블록 아래끝). 자리 = 본문 오른끝에서 3px 떨어진 3px(--mgr = 그 쪽 오른쪽 여백 폭, 화면 px) — 이름표의 왼쪽 테와 같은 x 라 이름표가 선에 달린 깃발로 보인다.
+   zoom 1/z 로 화면 px(이름표와 같이). 이웃 띠와는 위아래 2px 틈으로 갈린다(같은 색이어도 — 이름표가 띠의 시작을 말한다) */
+.sheet > .gz-line { position: absolute; right: calc(var(--mgr, 60px) - 6px); width: 3px; z-index: 2; background: var(--gz-c); border-radius: 1px; pointer-events: auto; }
+.sheet > .gz-line.gz-mark { background: repeating-linear-gradient(var(--gz-c) 0 6px, transparent 6px 9px); } /* 지정에서 온 띠 — 이름표의 점선 테와 같이 끊긴 선 */
 .doc td.gz-cell { box-shadow: inset 3px 0 0 0 var(--gz-c); }
 .doc table.tbl.gz-put { outline: 2px dashed var(--gzo-c); outline-offset: 1px; }
 .doc td.gz-put { box-shadow: inset 0 0 0 2px var(--gzo-c); background-color: var(--gzo-bg); }
 .doc td.gz-cell.gz-put { box-shadow: inset 3px 0 0 0 var(--gz-c), inset 0 0 0 2px var(--gzo-c); } /* 칸의 띠(구역 색) 위에 넣은 내용의 테(출처 색) — 둘 다 보인다 */
 .doc .para.zn-pick, .doc table.tbl.zn-pick { outline: 2px dashed var(--accent, #2458d6); outline-offset: 1px; } /* 「구역 지정…」 입력이 떠 있는 동안의 대상 범위 */
 /* 오른쪽 여백의 이름표(띠 첫 블록 높이 — design.md §4: 왼쪽 여백은 개요·표 표시 몫) — zoom 1/z 로 화면 px, 폭 = 그 쪽 여백(--mgr). 사람이 지정한 띠는 점선 테 */
-.sheet > .gz-tag { position: absolute; right: 0; width: var(--mgr, 60px); box-sizing: border-box; padding: 1px 4px 1px 6px; z-index: 3; pointer-events: auto;
+.sheet > .gz-tag { position: absolute; right: 0; width: calc(var(--mgr, 60px) - 3px); box-sizing: border-box; /* 왼쪽 테 = 세로선(.gz-line)과 같은 x */ padding: 1px 4px 1px 6px; z-index: 3; pointer-events: auto;
   font: 600 10.5px/14px var(--ui-font, system-ui, sans-serif); color: var(--gz-c); border-left: 3px solid var(--gz-c); background: color-mix(in srgb, #fff 88%, var(--gz-c));
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; user-select: none; }
 .sheet > .gz-tag.gz-mark { outline: 1px dashed var(--gz-c); outline-offset: -1px; }
 .sheet > .gz-tag.gz-mark.gz-llm { outline-style: dotted; font-style: italic; } /* LLM 이 지정한 띠 — 글 끝의 「· LLM」 꼬리가 말하고(색·테만으로 가르지 않는다) 테는 점점이 */
-@media print { .sheet > .gz-tag { display: none; } }
+@media print { .sheet > .gz-tag, .sheet > .gz-line { display: none; } }
 
 /* 색 설명(#zonesKey.dv-key.zn-key — 안의 꼴은 divisions.css 의 .dv-key): 표시가 켜져 있고 띠가 있는 동안만(zones.js zonesKeyDraw).
    2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 문서 이름 줄이 아니라 문서 위에 떠 있는 상자다 — 상자의 꼴 · 자리 · 끌기는 key_float.css · key_float.js.

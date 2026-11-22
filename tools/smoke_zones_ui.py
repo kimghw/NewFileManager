@@ -197,10 +197,21 @@ try:
         check("문서 — 띠(.gz-in) · 띠마다 쪽 오른쪽 여백 이름표(글 = 서버의 이름표 글 · 기관 이름) · 도움말 「편집 구역 — …」 · 자동으로 읽은 띠는 점선 테 아님", d["ins"] > 0 and len(d["tags"]) == len(z1["zones"])
               and names == {z["text"] for z in z1["zones"]} and {LEAD, SEED, UANGEL} <= names and all(t.startswith("편집 구역 — ") for t in d["tips"]) and not any(t["mark"] for t in d["tags"])
               and "gz" not in d["cls"], (len(d["tags"]), len(z1["zones"]), sorted(names)))
-        look = page.evaluate("""() => { const p = document.querySelector('#doc .para.gz-in:not(.edited)'); if (!p) return null; const s = getComputedStyle(p), out = { image: s.backgroundImage, shadow: s.boxShadow };   // 계산 값은 살아 있는 객체 — 먼저 적어 둔다
-          p.classList.add('edited'); const e = getComputedStyle(p); Object.assign(out, { editedImage: e.backgroundImage, editedShadow: e.boxShadow, editedColor: e.backgroundColor }); p.classList.remove('edited'); return out; }""")
-        check("문단의 띠 = 배경 그림 층(box-shadow 아님) — 고친 문단 표시(왼쪽 띠 box-shadow · 바탕색)와 함께 보임", look and "gradient" in look["image"] and look["shadow"] == "none" and "gradient" in look["editedImage"]
-              and look["editedShadow"] != "none" and look["editedColor"] not in ("rgba(0, 0, 0, 0)", "transparent"), look)
+        look = page.evaluate("""() => { const p = document.querySelector('#doc .para.gz-in:not(.edited):not(.gz-put)'); if (!p) return null; const s = getComputedStyle(p), out = { image: s.backgroundImage, shadow: s.boxShadow };   // 계산 값은 살아 있는 객체 — 먼저 적어 둔다
+          p.classList.add('edited'); const e = getComputedStyle(p); Object.assign(out, { editedShadow: e.boxShadow, editedColor: e.backgroundColor }); p.classList.remove('edited');
+          const t = document.querySelector('#doc table.tbl.gz-in'); out.tblShadow = t ? getComputedStyle(t).boxShadow : 'none';
+          const xs = new Map(), bad = [], ls = [...document.querySelectorAll('#doc .sheet > .gz-line')];   // 세로선 — 쪽 오른쪽 여백(본문 상자 오른끝 ~ 종이 오른끝) · 쪽마다 한 x · 색 · 도움말
+          for (const l of ls) { const sheet = l.parentElement, br = sheet.querySelector(':scope > .sheet-body').getBoundingClientRect(), sr = sheet.getBoundingClientRect(), r = l.getBoundingClientRect();
+            if (!(r.left >= br.right - 0.5 && r.right <= sr.right + 0.5 && r.height > 0)) bad.push(['자리', Math.round(r.left), Math.round(br.right), Math.round(sr.right)]);
+            if (!l.dataset.gz || !l.title.startsWith('편집 구역 — ')) bad.push(['색·도움말', l.dataset.gz, l.title]);
+            const a = xs.get(sheet) || new Set(); a.add(Math.round(r.left)); xs.set(sheet, a); }
+          const tg = document.querySelector('#doc .sheet > .gz-tag'), tr = tg.getBoundingClientRect(), near = ls.filter((l) => l.parentElement === tg.parentElement).sort((a, b) => Math.abs(a.getBoundingClientRect().top - tr.top) - Math.abs(b.getBoundingClientRect().top - tr.top))[0];
+          const ids = new Set(zn().data.zones.flatMap((z) => z.ids)), imgs = [...document.querySelectorAll('#doc [data-img]')].filter((e) => ids.has(e.dataset.img));   // 띠에 든 그림 블록(app.js renderImage 의 data-img)
+          return Object.assign(out, { lines: ls.length, bad, oneX: [...xs.values()].every((a) => a.size === 1), tagX: near ? Math.round(tr.left - near.getBoundingClientRect().left) : null,
+            imgs: imgs.length, imgsIn: imgs.filter((e) => e.classList.contains('gz-in') && e.dataset.gz).length }); }""")
+        check("띠의 선 = 쪽 오른쪽 여백의 세로선 하나(띠마다 · 쪽마다 — 2026-11-22) · 쪽마다 같은 x · 이름표의 왼쪽 테와 같은 x · 블록(문단 · 표)에는 띠 없음 · 고친 문단 표시(왼쪽 띠 · 바탕색)는 그대로 · 띠에 든 그림도 표시",
+              look and look["image"] == "none" and look["shadow"] == "none" and look["tblShadow"] == "none" and look["lines"] >= len(d["tags"]) and not look["bad"] and look["oneX"] and look["tagX"] == 0
+              and look["imgsIn"] == look["imgs"] and look["editedShadow"] != "none" and look["editedColor"] not in ("rgba(0, 0, 0, 0)", "transparent"), look)
         page.locator("#zonesBar").screenshot(path=str(OUT / "2_bar_org.png"))
 
         # ---- 3. 차년도를 더 켬 — 이름표 글에 차년도 · 차년도 칩(색 없음 — 색 축은 기관)

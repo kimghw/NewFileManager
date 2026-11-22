@@ -4211,6 +4211,7 @@ function renderImage(b) {
   if (!b.widthMm && !b.heightMm && b.media) return el("span");
   const ph = () => {
     const d = el("div", `img img-ph ${b.align || ""}`, b.media ? `그림 (${ext.toUpperCase()} — 브라우저가 못 그림, PDF 탭에서 확인)` : "그림 (연결 그림)");
+    d.dataset.img = b.id; // 그림 블록 id — 블록 단위로 표시하는 것(편집 구역 zones.js zonesDraw)이 그림을 찾는다. data-id 는 문단 몫이라 쓰지 않는다
     d.style.width = `${w}mm`;
     d.style.height = `${h}mm`;
     return d;
@@ -4218,6 +4219,7 @@ function renderImage(b) {
   if (!b.media || !IMG_OK.has(ext)) return ph();
   const img = new Image();
   img.className = `img ${b.align || ""}`;
+  img.dataset.img = b.id;
   img.alt = "";
   img.loading = "lazy";
   img.style.width = `${w}mm`;
@@ -6054,9 +6056,11 @@ function zoomPut(k, z) { // 쪽 상자 하나의 배율 → 바꿨으면 true
     const mz = +m.style.zoom;
     if (!mz) continue;
     m.style.zoom = String(mz / r);
-    const top = parseFloat(m.style.top), mgl = parseFloat(m.style.getPropertyValue("--mgl"));
+    const top = parseFloat(m.style.top), mgl = parseFloat(m.style.getPropertyValue("--mgl")), mgr = parseFloat(m.style.getPropertyValue("--mgr"));
     if (top === top) m.style.top = `${Math.round(top * r)}px`;
     if (mgl === mgl) m.style.setProperty("--mgl", `${Math.round(mgl * r * 10) / 10}px`);
+    if (mgr === mgr) m.style.setProperty("--mgr", `${Math.round(mgr * r * 10) / 10}px`); // 오른쪽 여백 폭(화면 px — 편집 구역의 세로선 · 이름표 zones.js · 고친 곳 꼬리표 doc_diff.js · 서식 꼬리표 fmt_focus.js: 전에는 안 맞춰 늦게 배율을 바꾼 쪽에서 안쪽으로 밀렸다)
+    if (m.dataset.span) { const h = parseFloat(m.style.height); if (h === h) m.style.height = `${Math.max(2, Math.round(h * r))}px`; } // 높이가 쪽 내용의 길이인 표시(편집 구역의 세로선)는 높이도 배율 비만큼
     if (m.dataset.top) m.dataset.top = String(Math.round(+m.dataset.top * r));
   }
   return true;
