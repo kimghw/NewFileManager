@@ -27,14 +27,15 @@ def _u(key, home, place, *, roles=(), kind="auto", change="none", paid="", needs
 COMMON = {u["key"]: u for u in (
     _u("files", "", "flow", kind="pick", gives=("slots",), server=True),                                                    # 준비 — 실행기는 안 한다(칸이 비면 시작이 거절)
     _u("heads", "stage_review", "doc", roles=ROLES, change="store", needs=("slots",), gives=("heads",), server=True),       # 헤딩 · 표 분석(배경 일 · 목적 문서면 끝에 작성 지침 저장)
-    _u("headsLlm", "stage_review", "doc", roles=ROLES, change="store", paid="doc", needs=("heads",), gives=("checked",), server=True),   # LLM 검증·보완(배경 일 — 못 쓰거나 건너뛰면 「건너뜀」)
+    # LLM 검증·보완(배경 일 — 못 쓰거나 건너뛰면 「건너뜀」) · 원본 문서면 받은 서식 정리 계획을 그 문서에 반영(울타리 — 2026-11-22 사용자 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정」: workflow_exec.TIDY_ROLES)
+    _u("headsLlm", "stage_review", "doc", roles=ROLES, change="doc", paid="doc", needs=("heads",), gives=("checked",), server=True),
     _u("configLoad", "stage_fit", "flow", kind="pick", change="store", optional=True, server=True),                         # 구성 불러오기(선택 — 실행기는 지나감)
     _u("config", "stage_fit", "flow", change="store", needs=("slots",), gives=("config",), server=True, reads=ROLES),        # 프로젝트 구성 추출(값 = 원본(구성의 기준) · 확정 = 목적 문서에서 — 화면 실행과 같다)
     # 문서마다의 줄은 원본 · 목적 문서 어느 쪽에도 놓는다(2026-11-20 사용자 「원본 문서는 왜 네 맘대로 빼냐? 목적문서랑 원본 문서도 분리해서 따로 따로 하게 해줘야지」 — 전에는 구성 반영 · 다시 문서 검토 · 작성요령 삭제가 목적 문서만이었다:
     # ② §18-2 「원본 문서에 놓는 줄」). 사실(fit · fresh · clean)은 문서마다다 — 원본 문서의 반영은 그 문서 자신의 값(own_values)을 제 구조에 맞춘다.
     _u("division", "stage_fit", "doc", roles=ROLES, change="doc", needs=("config",), gives=("fit",), spoils=("fresh",), server=True, reads=ROLES),   # 프로젝트 구성 반영(같은 검사 · 울타리)
     _u("reheads", "stage_fit", "doc", roles=ROLES, change="store", needs=("fit",), gives=("fresh", "heads"), server=True, reads=ROLES),   # 다시 문서 검토
-    _u("reheadsLlm", "stage_fit", "doc", roles=ROLES, change="store", paid="doc", needs=("fresh",), gives=("checked",), server=True, reads=ROLES),   # 다시 문서 검토(LLM)
+    _u("reheadsLlm", "stage_fit", "doc", roles=ROLES, change="doc", paid="doc", needs=("fresh",), gives=("checked",), server=True, reads=ROLES),   # 다시 문서 검토(LLM) · 받은 서식 정리 계획을 그 문서에 반영(울타리)
     _u("guide", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("clean",), server=True),   # 작성요령 삭제(먼저 있어야 할 것은 그 줄이 정의에 있을 때만 · 울타리)
     # 「문서 정리」 의 조립 도구 둘(② §18-23 — 2026-11-22 사용자 「3단계 … 매칭 이후에 … 지침에 따라 LLM 보정해 주는 단계를 4단계 도구에」 · 「구분기준이나 편집구역에 내용이 없는 … 제거하는 도구도 문서 정리에」)
     _u("guideFix", "stage_clean", "doc", roles=ROLES, change="doc", paid="doc", needs=("filled",), gives=("fixed",), server=True),   # 지침 보정(LLM) — 묻기(잠금 밖 · 유료) → 반영(울타리 · 실행 취소 1)
@@ -108,7 +109,17 @@ def unit(key, family="relay"):
     return FAMILIES.get(family, {}).get(key) or COMMON.get(key)
 
 
-SOURCE_FIT = ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune")   # 원본 문서에도 놓는 구조 · 정리 줄(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
+SOURCE_FIT = ("headsLlm", "division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune")   # 원본 문서에도 놓는 구조 · 정리 줄(headsLlm — 받은 서식 정리 계획을 원본 문서에 반영: 2026-11-22)(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
+
+
+# 받은 서식 정리 계획을 그 문서에 반영하는 LLM 줄 → 문서 역할(이관형 — spec_워크플로우 ② §18-25): 2026-11-22 사용자 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정하면될거 같아」
+# (목적 문서는 2단계의 구조 반영으로 템플릿이 바뀌니 1단계의 계획은 옛것이 된다 — 2단계 「다시 문서 검토(LLM)」 가 받은 계획으로 맞춘다. 원본 문서에 놓은 2단계 줄도 그 문서를 맞춘다)
+TIDY_ROLES = {"headsLlm": ("source",), "reheadsLlm": ("source", "target")}
+
+
+def changes(u, role):
+    """그 단위를 그 문서 역할에 놓으면 그 문서가 바뀌나 — change 가 doc 이고, 서식 정리를 반영하는 LLM 줄은 TIDY_ROLES 의 문서만(1단계 「LLM 검증·보완」 을 목적 문서에 놓으면 그 문서는 안 바뀐다). 조립 경고가 읽는다."""
+    return u["change"] == "doc" and role in TIDY_ROLES.get(u["key"], (role,))
 
 
 def roles_in(u, family):
@@ -169,10 +180,13 @@ def _llm_one(d, ctx):
     J = _job(f)
     run, did, off, skip = J.get("status") == "running" and bool(J.get("chain")), bool(f["heads"]["llm"]), ctx.get("llm") is False, f["id"] in (ctx.get("skip") or ())
     done = not run and (did or off or skip)
+    tidy = d["role"] in TIDY_ROLES.get(ctx.get("key"), ())   # 받은 서식 정리 계획을 그 문서에 반영하는 몫(1단계 = 원본 문서 · 2단계 = 그 줄의 문서)
     text = (f"{who} — LLM 검증·보완 중…(헤딩 · 템플릿 → 표 → 서식 정리 계획 · 몇 분)" if run else f"{who} — LLM 검증·보완을 거쳤습니다" if did
             else "LLM 을 쓸 수 없어 건너뜁니다 — 스크립트 분석만으로 진행합니다" if off else f"건너뜀 — {who}는 스크립트 분석만으로 진행합니다" if skip
             else "LLM 을 쓸 수 있는지 확인하는 중…" if ctx.get("llm") is None
-            else f"{who}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 검증·보완합니다 — 유료 · 몇 분 · 문서는 바뀌지 않습니다" + (f" · 지난 실행 실패 — {J['error']}" if J.get("chain") and J.get("error") else ""))
+            else f"{who}의 헤딩 · 템플릿 → 표 → 서식 정리 계획을 LLM 이 검증·보완합니다 — 유료 · 몇 분 · "
+            + ("받은 서식 정리 계획을 문서에 반영합니다" if tidy else "문서는 바뀌지 않습니다(서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서)")
+            + (f" · 지난 실행 실패 — {J['error']}" if J.get("chain") and J.get("error") else ""))
     return {**one, "st": "busy" if run else "done" if done else "todo", "skipped": done and not did, "text": text}
 
 
@@ -895,6 +909,10 @@ def retidy_text(c):
     if c.get("cutLevels"):
         parts.append(f"넣을 자리보다 깊은 내용을 서식 종속 템플릿으로 뗀 레벨 {nf(c['cutLevels'])}"
                      + (f"(이번에 템플릿 {nf(c['cut'])}개 · 줄 {nf(c['cutLines'])})" if c.get("cut") else ""))
+    if c.get("letters"):   # 위 레벨과 같은 레터를 쓰던 넣은 레벨(spec_병합 ② §5-9 11) — 「지금 → 바꾼」 레터
+        parts.append(f"위 레벨과 같은 레터를 바꾼 레벨 {nf(c['letters'])}(" + " · ".join(f"「{x.split(' → ')[0]}」 → 「{x.split(' → ')[1]}」" for x in (c.get("letterSwaps") or ())[:4]) + ")")
+    if c.get("lettersLeft"):
+        parts.append(f"위 레벨과 같은 레터인데 바꾸지 못한 레벨 {nf(c['lettersLeft'])}")
     if c.get("deep"):
         parts.append(f"떼지 못해 넣은 줄끼리 맞춘 레벨 {nf(c['deep'])}")
     if c.get("near"):
@@ -1191,7 +1209,16 @@ def _s_adjust(ctx):
     t, v, bad = _std(ctx)
     if bad:
         return bad
+    return std_adjust_state(v, t["id"], ctx.get("llm"))
+
+
+def std_adjust_state(v, doc_id, llm=None):
+    """조정 「모두 반영」 의 상태를 그 문서의 분석 상태 v 하나로(_s_adjust 의 몸 — 실행기의 문서마다 조정 workflow_exec._adjust_doc 이 같이 쓴다: 이관형의 LLM 검증·보완 뒤 반영).
+    llm = LLM 을 쓸 수 있나(거짓이면 받을 계획이 남아도 유료 대상에 안 센다)."""
     it = std_items(v)
+    if "heads" not in it or "tables" not in it:
+        return {"st": "todo", "text": "헤딩 · 표 분석은 hwpx 문서에서만 됩니다"}
+    t = {"id": doc_id}
     H, F = it["heads"], it.get("formats")
     if not F or H.get("state") != "done":
         return {"st": "todo", "text": "헤딩 그래프가 있어야 셉니다"}
@@ -1201,7 +1228,7 @@ def _s_adjust(ctx):
         return {"st": "todo", "text": "헤딩 LLM 판정 뒤에 합니다" + (f" — 지금 {ap['text']}" if ap.get("text") else "")}
     if fl.get("state") in ("running", "wait"):
         return {"st": "busy", "text": fl.get("text") or "서식 정리 계획을 받는 중"}
-    paid = [t["id"]] if P["need"] and ctx.get("llm") is not False else []   # 받을 계획이 남았으면 실행이 그것부터 받는다(유료) — 반영할 것이 함께 있어도 부른다(화면에 보이는 유료 문서 = 실제로 부를 문서)
+    paid = [t["id"]] if P["need"] and llm is not False else []   # 받을 계획이 남았으면 실행이 그것부터 받는다(유료) — 반영할 것이 함께 있어도 부른다(화면에 보이는 유료 문서 = 실제로 부를 문서)
     need = f"서식 정리 계획을 받지 않은 템플릿 {nf(len(P['need']))}개" if P["need"] else ""
     if P["apply"]:
         return {"st": "todo", "text": (std_undecided_text(P["undecided"]) if P["undecided"] else f"반영할 것 — {std_apply_text(P)}") + (f" · {need}(계획 받기 — 유료)" if need else ""), "paid": paid}

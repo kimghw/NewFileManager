@@ -187,6 +187,49 @@ def clone(cells, n_rows, n_cols, r0, r1, c0, c1, above=False, lenient=False):
     return new, grow
 
 
+def clone_inside(cells, n_rows, n_cols, r0, r1, c0, c1, above=False):
+    """고른 칸만 넣기·복사(spec_owpml_편집 ② §5-2 「나뉜 필드에 맞춰」): the picked cells of columns c0..c1 are one row of
+    cells that each cover all of rows r0..r1 (r1 > r0), and the other columns divide those rows (a cell there starts inside
+    them) — then the new cells go into the picked cells' own space along that division instead of into new grid rows:
+    above = the rows up to the first division, below = the rows from the last one; the picked cells shrink to the rest.
+    No grid line is added, so no cell outside the columns changes height (clone's rows at the edge made the divided cells
+    there taller — 「800,000」 칸이 늘어남, 2026-11-22). -> (new cells left to right, src = the picked cell; the picked
+    cells, now shorter) or None when it does not apply (clone adds rows as before)."""
+    if not (0 <= r0 < r1 < n_rows and 0 <= c0 <= c1 < n_cols):
+        return None
+    picked, cuts = [], []
+    for x in cells:
+        xr1, xc1 = x.r + x.rs - 1, x.c + x.cs - 1
+        if xr1 < r0 or x.r > r1:
+            continue
+        if c0 <= x.c and xc1 <= c1:
+            if x.r != r0 or xr1 != r1:
+                return None
+            picked.append(x)
+        elif xc1 < c0 or x.c > c1:
+            if x.r > r0:
+                cuts.append(x.r)
+        else:
+            return None  # 열 경계에 걸친 칸 — clone 이 거절한다
+    if not picked or not cuts:
+        return None
+    k = min(cuts) if above else max(cuts)
+    new = []
+    for x in sorted(picked, key=lambda x: x.c):
+        if above:
+            new.append(Cell(None, r0, x.c, k - r0, x.cs, src=x))
+            x.r, x.rs = k, r1 - k + 1
+            if x.rows:
+                x.rows = {k: x.el, **{i: t for i, t in x.rows.items() if i > k}}
+        else:
+            new.append(Cell(None, k, x.c, r1 - k + 1, x.cs, src=x))
+            x.rs = k - r0
+            if x.rows:
+                x.rows = {i: t for i, t in x.rows.items() if i < k}
+    cells += new
+    return new, picked
+
+
 def drop_rows(cells, n_rows, r0, r1):
     """Rows r0..r1 out of the grid (spec_구분_초기화 ② §4): cells inside them leave `cells`, cells from above across them
     span fewer rows, later cells move up. ValueError when a cell starts inside and reaches below r1.

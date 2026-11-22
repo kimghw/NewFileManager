@@ -367,7 +367,7 @@ def test_written_out_docs_show_unit_tasks_and_step_documents():
     assert "\n- 워크플로우 전체(문서마다가 아니라 한 번): 1단계 프로젝트 구성(「준비」 › 「프로젝트 구성 추출」) — 구성의 기준: 목적 문서(취합본)\n" in gather
     assert "」 · 「" not in relay.split("\n- 알아 둘 것", 1)[0] and "」 · 「" not in gather.split("\n- 알아 둘 것", 1)[0]   # 단계 사이에 「 · 」 를 쓰지 않는다
     assert "단위문서 TASK" not in fit and "워크플로우 전체(" not in fit and "단위문서 TASK" not in head("### 연차보고서 취합 — `report_merge` (준비 중)")   # 문서 하나 · 단계 없는 준비 중
-    assert "- **② 자리 연결** — 스크립트 · 저장만 · 필수 · 원본 → 목적. " in wf and "- **LLM 검증·보완** — 사람 → LLM · 저장만 · 필수 · 원본 문서. " in wf   # 단계 줄 끝에 하는 문서(같은 셈의 짧은 꼴)
+    assert "- **② 자리 연결** — 스크립트 · 저장만 · 필수 · 원본 → 목적. " in wf and "- **LLM 검증·보완** — 사람 → LLM · 문서 바뀜 · 필수 · 원본 문서. " in wf   # 단계 줄 끝에 하는 문서(같은 셈의 짧은 꼴) · 원본 문서에 서식 정리 계획을 반영(2026-11-22 — 문서 바뀜)
     assert "- **헤딩 · 표 분석** — 스크립트 · 저장만 · 필수 · 두 문서. " in wf and "- **기관 문서 올리기 · 반영할 기관 지정** — 사람 · 저장만 · 필수 · 원본 문서마다. " in wf
     assert "- **준비** — 사람 · 문서 안 바뀜 · 필수 · 워크플로우 전체. 같은 프로젝트" in wf and "- **구성 불러오기** — 사람 · 저장만 · 선택 · 워크플로우 전체. " in wf
     assert "- **⑥ 작성요령 삭제** — 스크립트 → 사람 · 문서 바뀜 · 필수 · 목적 문서. " in wf and "- **헤딩 · 템플릿 추출** — 스크립트 · 저장만 · 자동. " in wf   # 문서 하나인 TASK 는 표지 없음

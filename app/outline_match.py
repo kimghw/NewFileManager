@@ -838,8 +838,10 @@ def match_one(doc, ov, pid, sh, left=None):
         new_tok = own  # 자동 글머리 줄 — 보이던 레터 그대로(숫자 · 영문 · 글자: 그 레벨과 같은 레터가 생기는 줄만 든다 — outline_edit.build_overlay)
     elif x.get("role") in OE.ROOTED:
         new_tok = tok  # 괄호 줄 — 글 전체가 레터(구분 값)라 글은 그대로
-    elif OE.is_numbered(x.get("key") or ""):
-        new_tok = OE.with_numbers(sh["tok"], OE.numbers_of(own)) or own  # 대표 꼴에 제 번호
+    elif OE.is_numbered(x.get("key") or "") or (OE.numbers_of(own) and OE.numbers_of(sh["tok"])):
+        # 대표 꼴에 제 번호 — 키가 번호형이 아니어도(그래프가 「(1-1)」 · 「(2-1)」 을 글자 그대로의 키로 둔 줄) 두 레터에 다 번호가 있으면 제 번호를 지킨다
+        # (2026-11-22: 이관의 「다시 문서 검토(LLM)」 뒤 조정이 연차보고서의 「(2-1) 연구재료제작비」 · 「(3-1) 연구활동비」 를 대표의 「(1-1)」 로 바꿨다)
+        new_tok = OE.with_numbers(sh["tok"], OE.numbers_of(own)) or own
     else:
         new_tok = sh["tok"]
     new_prefix = sh["lead"] + new_tok + sh["gap"]

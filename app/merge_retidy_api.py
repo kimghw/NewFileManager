@@ -136,11 +136,13 @@ def _rows_view(rows):
 
 
 def _preview(doc, ov, ins, R):
-    """오버레이 사본에 deep 레벨을 갈라 본 뒤의 계획 → (rows, cuts, left, 사본, held) — 문서 · 오버레이 안 바뀜. R = _records(사람이 고른 넘친 줄 · 취합이면 「≈」 줄 없음)."""
+    """오버레이 사본에 deep 레벨을 갈라 본 뒤의 계획 → (rows, cuts, left, 사본, held, relet) — 문서 · 오버레이 안 바뀜. R = _records(사람이 고른 넘친 줄 · 취합이면 「≈」 줄 없음).
+    relet = 위 레벨과 같은 레터를 쓰는 넣은 레벨의 바꿀 레터(merge_retidy.reletter_of — 가른 뒤의 사본에서)."""
     sim = copy.deepcopy(ov)
     cuts, left = MR.cut_all(doc, sim, ins, R["held"])
+    relet = MR.reletter_of(doc, sim, ins, R["held"])
     P = MR.plan(doc, sim, ins, R["held"], near=not R["gather"])
-    return P["rows"], cuts, left, sim, P["held"]
+    return P["rows"], cuts, left, sim, P["held"], relet
 
 
 def _kept_level(r, gather):
@@ -177,7 +179,7 @@ def retidy_get(doc_id: str):
     """지금 상태 + 계획(그래프가 마지막 반영 뒤의 것일 때만 — 아니면 stale: 반영이 먼저 다시 분석한다). 문서 안 바뀜."""
     from app import heading_runs, server
     s = server._sess(doc_id)
-    out = {**facts(doc_id), "rev": s.rev, "stale": None, "rows": [], "cuts": [], "cutLeft": [], "counts": None}
+    out = {**facts(doc_id), "rev": s.rev, "stale": None, "rows": [], "cuts": [], "cutLeft": [], "letters": [], "counts": None}
     R = _records(doc_id)
     f = R["mark"]
     out["gather"] = R["gather"]
@@ -192,8 +194,8 @@ def retidy_get(doc_id: str):
         ov = server._outline_ov(s)
         if ov is None:
             return out
-        rows, cuts, left, _, held = _preview(s.doc, ov, R["ins"](s.doc.blocks()), R)
-    out.update(rows=_rows_view(rows), cuts=cuts, cutLeft=left, counts=MR.summary(rows, cuts, left, held))
+        rows, cuts, left, _, held, relet = _preview(s.doc, ov, R["ins"](s.doc.blocks()), R)
+    out.update(rows=_rows_view(rows), cuts=cuts, cutLeft=left, letters=MR.letters_view(relet), counts=MR.summary(rows, cuts, left, held, relet))
     return out
 
 
@@ -254,14 +256,14 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
         ov = server._outline_ov(s)
         if ov is None:
             raise HTTPException(409, "헤딩 그래프가 없습니다 — 헤딩 추출 2단계를 먼저 하세요")
-        rows0, cuts0, left0, sim, held0 = _preview(s.doc, ov, R["ins"](s.doc.blocks()), R)   # 갈라 본 뒤의 계획(사본 — 반영은 아래 트랜잭션 안에서 다시)
+        rows0, cuts0, left0, sim, held0, relet0 = _preview(s.doc, ov, R["ins"](s.doc.blocks()), R)   # 갈라 본 뒤의 계획(사본 — 반영은 아래 트랜잭션 안에서 다시)
         rev, run = s.rev, (ov.get("run") or [None])[0]
-        todo = bool(cuts0) or _todo(s.doc, sim, rows0, OP.Measure(s.doc), R["gather"])
+        todo = bool(cuts0) or any(r["now"] for r in relet0) or _todo(s.doc, sim, rows0, OP.Measure(s.doc), R["gather"])
         if R["gather"] and todo:   # 취합 — 정리 전에 지문이 맞던 본문 넣은 기록(반영 뒤 그것만 다시 적는다: 넣은 뒤 사람이 고친 기록은 「바뀜」 신호로 남김)
             from app import merge_gather_api as GA
             matched = GA.fp_matches(doc_id, s.doc.blocks())
-    counts = MR.summary(rows0, cuts0, left0, held0)
-    done = {"changed": [], "left": [], "reps": 0, "cuts": cuts0, "cutLeft": left0, "rows": rows0, "held": held0}
+    counts = MR.summary(rows0, cuts0, left0, held0, relet0)
+    done = {"changed": [], "left": [], "reps": 0, "cuts": cuts0, "cutLeft": left0, "rows": rows0, "held": held0, "relet": relet0}
 
     def make(s_):
         if s_.rev != rev:
@@ -277,11 +279,14 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
             raise HTTPException(409, "그 사이에 문서가 바뀌어 맞출 줄이 없습니다 — 다시 누르세요")
 
         def run_():
-            m, changed, left = OP.Measure(s_.doc), [], []
+            changed, left = [], []
             cuts, left_cut = MR.cut_all(s_.doc, ov2, ins2, keep2)   # ① deep 레벨을 서식 종속 템플릿으로(오버레이만 — 같은 트랜잭션: 실행 취소 1)
+            relet = MR.reletter_of(s_.doc, ov2, ins2, keep2)         # ①-1 위 레벨과 같은 레터를 쓰는 넣은 레벨 — 레터 글자만 바꾼다(문서 · 오버레이 — spec_병합 ② §5-9 11)
+            changed += MR.reletter(s_.doc, ov2, relet, left)
+            m = OP.Measure(s_.doc)                                   # 레터를 바꾼 뒤에 잰다(접두 폭)
             P = MR.plan(s_.doc, ov2, ins2, keep2, near2)             # ② 가른 뒤의 계획 — 뗀 템플릿의 레벨은 넣은 줄만이라 cut
             rows = P["rows"]
-            done.update(cuts=cuts, cutLeft=left_cut, rows=rows, held=P["held"])
+            done.update(cuts=cuts, cutLeft=left_cut, rows=rows, held=P["held"], relet=relet)
             for r in rows:
                 if r["rep"] is None:
                     continue
@@ -320,7 +325,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
             done["changed"], done["left"] = list(dict.fromkeys(changed)), left
             seen = list(dict.fromkeys(hit + done["changed"]))
             return {"hosts": [s_.doc._ids[i] for i in seen], "formatted": set(done["changed"]), "struct": set(), "origin": {}, "anchor": seen[0],
-                    "log": {**{k: counts[k] for k in ("levels", "grown", "deep", "fix", "near", "own", "cut", "cutLines", "held")}, "changed": len(done["changed"]), "reanalyzed": again,
+                    "log": {**{k: counts[k] for k in ("levels", "grown", "deep", "fix", "near", "own", "cut", "cutLines", "held")}, "letters": sum(1 for r in done["relet"] if r["now"]), "changed": len(done["changed"]), "reanalyzed": again,
                             **({"gather": True} if gather else {})}}
         return [s_.doc._ids[i] for i in hit], run_
     out = server._edit(doc_id, make, "mergeRetidy", {"levels": counts["levels"]}) if todo else None
@@ -337,14 +342,15 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
             else:
                 log.warning("[넣은 뒤 정리] %s: 정리 뒤 다른 편집이 끼어(rev %s → %s) 넣은 기록 %d개의 지문을 다시 적지 않았습니다 — 그 기관 문서의 판정이 「겹침」 으로 보일 수 있습니다",
                             doc_id, out.get("rev"), s.rev, len(matched))
-    counts = {**MR.summary(done["rows"], done["cuts"], done["cutLeft"], done["held"]), "changed": len(done["changed"]), "reps": done["reps"], "left": len(done["left"])}
-    applied = {"at": time.time(), "fill": f.get("at"), "rev": s.rev, "run": run, "counts": counts, "rows": _rows_view(done["rows"]), "cuts": done["cuts"], "cutLeft": done["cutLeft"]}
+    counts = {**MR.summary(done["rows"], done["cuts"], done["cutLeft"], done["held"], done["relet"]), "changed": len(done["changed"]), "reps": done["reps"], "left": len(done["left"])}
+    applied = {"at": time.time(), "fill": f.get("at"), "rev": s.rev, "run": run, "counts": counts, "rows": _rows_view(done["rows"]), "cuts": done["cuts"], "cutLeft": done["cutLeft"],
+               "letters": MR.letters_view(done["relet"])}
     _save(doc_id, {**load(doc_id), "applied": applied})
     if out is None:
         return {"nothing": True, "why": "맞출 줄이 없습니다 — 넣은 줄이 이미 목적 문서의 템플릿 · 서식입니다" if rows0
                 else "넣은 개요 줄은 모두 사람이 넘친 레벨의 처리를 고른 줄입니다 — 그대로 둡니다" if held0 else "넣은 개요 줄이 없습니다",
-                "done": {"counts": counts, "rows": applied["rows"], "cuts": applied["cuts"], "cutLeft": applied["cutLeft"]}, "reanalyzed": again, **s.state()}
-    return {**out, "done": {"counts": counts, "rows": applied["rows"], "cuts": applied["cuts"], "cutLeft": applied["cutLeft"]}, "reanalyzed": again}
+                "done": {"counts": counts, "rows": applied["rows"], "cuts": applied["cuts"], "cutLeft": applied["cutLeft"], "letters": applied["letters"]}, "reanalyzed": again, **s.state()}
+    return {**out, "done": {"counts": counts, "rows": applied["rows"], "cuts": applied["cuts"], "cutLeft": applied["cutLeft"], "letters": applied["letters"]}, "reanalyzed": again}
 
 
 # ---- 문서가 정리 전 상태로 돌아가면 정리 기록을 내린다(spec_병합 ② §5-9 10 「다시 반영 · 복원」) ----

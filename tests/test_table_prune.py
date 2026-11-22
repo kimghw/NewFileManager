@@ -1,4 +1,5 @@
-"""빈 필드 제거(spec_헤딩_추출 ② §16): 빈 칸 판정 · 빈 줄(합계·수식 칸 제외) · 행 묶음째 비면 딸린 줄도 · 묶음 제목을 남기는 열 띠 ·
+"""빈 필드 제거(spec_헤딩_추출 ② §16 · spec_테이블매니저 ② §12): 빈 칸 판정 · 빈 줄(합계·수식 칸 제외) · 행 묶음째 비면 딸린 줄도 · 묶음 제목을 남기는 열 띠 ·
+열쇠 칸(구분 기준 · 번호 머리 아래) · 쓴 값 보호(수가 적힌 머리 칸 · 셈 칸의 값 · 목표/실적 쌍) · 빈 서브 테이블째 · 머리만 남은 서브 테이블(저장된 판정과 칸 id 대조) · 표째 · 소속 헤딩 ·
 작성 글 보호 · 빈 것으로 본 까닭(spec_테이블매니저 ② §4 「지우거나 쓰는 도구」 ⓐ ⓑ — 합성 레코드) ·
 hwpx 지우기(OWPML 검사·다시 열기) · API(미리보기·지우기·실행 취소·409/400·hwpx 만 — 지우기는 미리보기의 rev 를 늘 보낸다)."""
 import copy
@@ -107,8 +108,8 @@ BODY = "이 과제는 연안 운항 선박의 항해 안전을 높이기 위한 
 LABEL = "참여\n연구자\n(기존)"  # 짧은 글 3문단 — 양식의 묶음 제목 꼴(성격은 필드: 문단 3개 이상)
 
 
-def _table(rows, spans=None):
-    """글 격자 → `heading_tables.collect` 꼴의 표(역할을 매기기 전). 첫 행은 음영(머리 행), 칸 id = 「r<행>c<열>」, 칸 글의 "\\n" 은 문단을 나눈다.
+def _table(rows, spans=None, heads=(0,)):
+    """글 격자 → `heading_tables.collect` 꼴의 표(역할을 매기기 전). heads 의 행은 음영(머리 행 — 기본 첫 행), 칸 id = 「r<행>c<열>」, 칸 글의 "\\n" 은 문단을 나눈다.
     자리가 None 이면 칸 없음(합친 칸에 덮인 자리) — spans = {(행, 열): (행 병합, 열 병합)}. 재현 스크립트 artifacts/table_manager_astra_2026-11-19/repro_prune_draft.py 와 같은 꼴."""
     rules, run = R.active(copy.deepcopy(EMPTY), (), doc_key=None), R._Run()
     nr, nc = len(rows), len(rows[0])
@@ -119,7 +120,7 @@ def _table(rows, spans=None):
             if text is None:
                 continue
             rs, cs = (spans or {}).get((r, c), (1, 1))
-            cell = {"t": "cell", "id": f"r{r}c{c}", "row": r, "col": c, "rs": rs, "cs": cs, "fill": "#D6D6D6" if r == 0 else None, "key": 100 + r * nc + c}
+            cell = {"t": "cell", "id": f"r{r}c{c}", "row": r, "col": c, "rs": rs, "cs": cs, "fill": "#D6D6D6" if r in heads else None, "key": 100 + r * nc + c}
             for k, line in enumerate(text.split("\n")):
                 head = R.classify(line, rules, run)
                 recs.append({"id": f"p{r}_{c}_{k}", "n": len(recs), "path": [tbl, cell], "text": line, "kind": head["kind"], "blank": head["blank"],
@@ -127,9 +128,9 @@ def _table(rows, spans=None):
     return next(t for t in HT.collect({"paras": recs}) if t["id"] == "t1")
 
 
-def _judge(rows, spans=None, roles=None):
-    tb = _table(rows, spans)
-    return P.analyze_table(tb, "t1", roles), {x["id"]: x for x in tb["cells"]}
+def _judge(rows, spans=None, roles=None, heads=(0,), history=None, values=None):
+    tb = _table(rows, spans, heads)
+    return P.analyze_table(tb, "t1", roles, history, values), {x["id"]: x for x in tb["cells"]}
 
 
 def test_written_text_under_a_header_word_column_is_kept():
@@ -152,7 +153,7 @@ def test_written_text_guards_columns_and_row_groups():
     a, at = _judge(rows, roles={"r2c0": "field"})
     assert (at["r3c0"]["role"], at["r3c0"]["nature"]) == ("rowhead", "field") and a["emptyRows"] == [] and a["emptyCols"] == []
     b, _ = _judge(rows, roles={"r2c0": "field", "r3c0": "rowhead"})  # 작성 글 칸을 헤더로 지정하면 보호 없음
-    assert b["emptyRows"] == [3] and b["emptyCols"] == [0] and b["colNames"] == {"0": "내용"}
+    assert b["emptyRows"] == [3] and b["emptyCols"] == []  # 열은 지우지 않는다(2026-11-22 — 값이 든 줄의 빈 칸은 그대로)
     # 행 묶음 — 작성 글 칸(2행에 걸침) + 빈 값 줄 + 딸린 안내 줄: 묶음째 지우면 글이 없어지므로 값 줄도 안내 줄도 지울 줄이 아니다
     rows, spans = [["항목", "내용"], [BODY, ""], [None, "※ 작성 요령: 자세히 적는다"], ["짧은 제목", "적음"]], {(1, 0): (2, 1)}
     a, at = _judge(rows, spans)
@@ -193,8 +194,8 @@ def test_why_names_the_placeholder_text_of_each_empty_line():
     assert a["emptyRows"] == [1] and a["rowNames"] == {"1": "A"} and a["why"] == {"rows": {"1": ["00%"]}, "cols": {}}
     a, _ = _judge([["항목", "값", "비고"], ["A", "00%", "0,000"], ["B", "3%", "적음"], ["C", "", ""]])
     assert a["emptyRows"] == [1, 3] and a["why"]["rows"] == {"1": ["00%", "0,000"], "3": []}
-    a, _ = _judge([["항목", "1차", "2차"], ["A", "10", "000"], ["B", "3", "000"], ["C", "7", ""]])  # 열 — 「2차」 열이 자리표시와 빈 칸뿐
-    assert a["emptyRows"] == [] and a["emptyCols"] == [2] and a["colNames"] == {"2": "2차"} and a["why"] == {"rows": {}, "cols": {"2": ["000"]}}
+    a, _ = _judge([["항목", "1차", "2차"], ["A", "10", "000"], ["B", "3", "000"], ["C", "7", ""]])  # 「2차」 열이 자리표시와 빈 칸뿐 — 열은 지우지 않는다(줄마다 값이 있다)
+    assert a["emptyRows"] == [] and a["emptyCols"] == [] and a["why"] == {"rows": {}, "cols": {}}
     # 단위 — 칸 차례로 · 중복 없이 · 3개까지 · 빈 필드만(채워진 칸·헤더의 글은 까닭이 아니다) · 합친 칸은 걸친 줄마다
     cells = [_c("h", 0, 0, "rowhead", "재료비"), _c("a", 0, 1, text="00%"), _c("b", 0, 2, text="00%"), _c("c", 0, 3, text="0,000"), _c("d", 0, 4, text="○○"),
              _c("e", 0, 5, text="000"), _c("f", 0, 6, text="12"), _c("g", 1, 1, text="○○", rs=2), _c("i", 2, 2)]
@@ -215,8 +216,11 @@ def test_plan_and_apply_small_form():
     assert p["emptyRows"] == [3, 4, 5, 6, 7, 8] and p["skipRows"] == [] and p["emptyCols"] == []  # 빈 항목 셋 — 값 줄 + 딸린 작성가이드라인 줄
     assert p["rowNames"]["3"] == "기술수요 과제명" and p["rowNames"]["5"] == "기술개발의 필요성"
     base = C.counts(C.check_doc(d))
-    out = P.apply(d, tid, rows=True, cols=True, store=copy.deepcopy(EMPTY))
-    assert out == {"rows": [3, 4, 5, 6, 7, 8], "cols": [], "skipRows": [], "skipCols": []}
+    bad = {**p, "goneCells": p["goneCells"][1:]}   # 미리 본 칸과 지금 칸이 다르면 지우지 않는다(계획 그대로만 — astra 2차)
+    with pytest.raises(ValueError):
+        P.apply(d, tid, bad)
+    out = P.apply(d, tid, p)
+    assert out == {"rows": [3, 4, 5, 6, 7, 8], "cols": [], "skipRows": [], "skipCols": [], "bands": [], "skipBands": []}
     b = d.table_block(tid)
     assert b["nRows"] == 12 and not any("기술수요 과제명" in (q.get("text") or "") for c in b["cells"] for q in c.get("blocks") or [])
     assert any("기술내용" in (q.get("text") or "") for c in b["cells"] for q in c.get("blocks") or [])  # 채워진 항목은 그대로
@@ -247,8 +251,8 @@ def test_apply_keeps_group_header():
     p = P.plan(d, tid, store=copy.deepcopy(EMPTY))
     assert p["emptyRows"] == [4, 5, 6] and p["skipRows"] == [] and p["emptyCols"] == []
     base = C.counts(C.check_doc(d))
-    out = P.apply(d, tid, rows=True, cols=True, store=copy.deepcopy(EMPTY))
-    assert out == {"rows": [4, 5, 6], "cols": [], "skipRows": [], "skipCols": []}
+    out = P.apply(d, tid, p)
+    assert out == {"rows": [4, 5, 6], "cols": [], "skipRows": [], "skipCols": [], "bands": [], "skipBands": []}
     nb = d.table_block(tid)
     assert nb["nRows"] == 6 and sum(c["rowSpan"] * c["colSpan"] for c in nb["cells"]) == 6 * 5  # 구멍·겹침 없음
     by_text = {" ".join(q.get("text") or "" for q in c.get("blocks") or []).split(" ")[0]: c for c in nb["cells"]}
@@ -264,26 +268,149 @@ def test_plan_keeps_pruning_rows_under_a_multi_paragraph_group_title():
     d.blocks()
     p = P.plan(d, _find(d, "참여", (12, 11)), store=copy.deepcopy(EMPTY))
     assert p["emptyRows"] == [4, 7] and p["skipRows"] == [] and p["rowNames"] == {"4": "참여 연구자 (기존)", "7": "참여 연구자 (신규)"}
-    assert p["emptyCols"] == [5, 6, 7] and p["why"] == {"rows": {"4": [], "7": []}, "cols": {"5": [], "6": [], "7": []}}
+    assert p["emptyCols"] == [] and p["why"] == {"rows": {"4": [], "7": []}, "cols": {}}  # 빈 열(급여총액 · 참여기간 · 계상률)은 지우지 않는다
 
 
-def test_apply_drops_empty_columns_and_keeps_table_width():
+def test_empty_columns_are_not_pruned():
+    # 2026-11-22 사용자 "빈 필드란느건.... 빈 칸만 이야기 하는게 아니고 … 입력해야할 행을 이야기 하는거야" — 빈 열(속성)은 지우지 않는다(전에는 「예 · 아니오」 두 열을 지웠다)
     d = HwpxDoc(RND.read_bytes())
     d.blocks()
-    tid = _find(d, "보안등급 분류", (7, 4))  # 번호 | 분류 | 점검 결과(예 · 아니오 — 빈 열 둘, 위 「점검 결과」 는 두 열에 걸친 제목)
+    tid = _find(d, "보안등급 분류", (7, 4))  # 번호 | 분류 | 점검 결과(예 · 아니오 — 빈 열 둘)
     b = d.table_block(tid)
     p = P.plan(d, tid, store=copy.deepcopy(EMPTY))
-    assert p["emptyCols"] == [2, 3] and p["emptyRows"] == [] and p["colNames"] == {"2": "예", "3": "아니오"}
-    width = int(d._ids[tid].find("{*}sz").get("width"))
+    assert p["emptyCols"] == [] and p["colNames"] == {} and p["skipCols"] == []
+    assert P.apply(d, tid, p)["cols"] == [] and d.table_block(tid)["nCols"] == b["nCols"]
+
+
+# ---- 열쇠 칸 · 쓴 값 보호 · 서브 테이블 · 표째(spec_테이블매니저 ② §12) --------------------------------------------------
+
+KEYED = [["연구개발기관", "연도", "용역명", "금액"], ["한국선급", "2027", "자료 정리", "100"], ["한국선급", "2028", "", ""], ["서울대학교", "2027", "", ""]]
+VALUES = {"stages": [2], "orgs": {"lead": "한국선급", "joint": ["서울대학교"]}, "period": {"start": "2027-01-01", "end": "2028-12-31"}}
+
+
+def test_division_key_cells_are_not_inputs():
+    # 사용자 "구분기준, 구역이 되는 필드는 열 또는 행 헤더로봐야지 .. 입력하는 값이 아니니깐" — 「연도」 아래 칸(초안은 필드)의 글이 프로젝트 구성의 해(사업기간)면 줄의 열쇠: 그 칸만 든 줄은 빈 줄
+    a, at = _judge(KEYED, values=VALUES)
+    assert at["r2c1"]["role"] == "field" and a["keys"] == 3 and a["emptyRows"] == [2, 3] and not a["tableGone"]
+    assert _judge(KEYED)[0]["keys"] == 0 and _judge(KEYED)[0]["emptyRows"] == []   # 프로젝트 구성이 없으면(일반 문서) 기관 · 연도 열쇠는 없다
+    late = [list(r) for r in KEYED]
+    late[2][1] = "2031"   # 사업기간 밖의 해 — 그 칸은 쓴 값
+    assert _judge(late, values=VALUES)[0]["emptyRows"] == [3]
+    for head in ("구축연도", "해당연도"):  # 속성 머리(낱말 그대로가 아님) — 그 아래 칸은 입력값이라 줄이 채워져 있다
+        rows = [list(r) for r in KEYED]
+        rows[0][1] = head
+        assert _judge(rows, values=VALUES)[0]["emptyRows"] == [] and _judge(rows, values=VALUES)[0]["keys"] == 0
+    assert _judge(KEYED, roles={"r2c1": "field", "r3c1": "field"}, values=VALUES)[0]["emptyRows"] == []  # 사람이 필드로 지정한 칸은 입력값
+    # 열쇠뿐인 표(열쇠 열 말고 입력 칸이 없음)의 열쇠는 그 자체가 쓴 값이다
+    assert _judge([["연구개발기관", "연도"], ["한국선급", "2027"], ["서울대학교", ""]], values=VALUES)[0]["keys"] == 0
+    # 속성 열의 기관 이름(구성에 없는 이름 — astra 2차 반례 「신청자 | 직책 | 기관」)은 쓴 값
+    a, _ = _judge([["신청자", "직책", "기관", "비고"], ["갑", "", "", "작성 완료"], ["을", "", "새봄병원", ""]], values=VALUES)
+    assert a["emptyRows"] == []
+    # 모든 입력 칸이 비면(열쇠만 채움) 표째 — 줄은 정하지 않고 tableGone 만(사람이 확인해 고른다)
+    a, _ = _judge([KEYED[0], ["한국선급", "2027", "", ""], ["서울대학교", "2027", "", ""]], values=VALUES)
+    assert a["allEmpty"] and a["tableGone"] and a["drop"] == [0, 1, 2]
+    assert P._time_value("1단계-2차년도", VALUES) and not P._time_value("3차년도", VALUES) and P._time_value("2028년", VALUES) and not P._time_value("2029", VALUES)
+    assert P._time_value("2차 (1단계)", VALUES) and not P._time_value("2차 (2단계)", VALUES)   # 차년도가 앞인 꼴(연구개발계획서 「연차 (단계)」 열)
+    assert P._org_value("㈜ 한국선급", P._key_names(VALUES)) and not P._org_value("한국선급엔지니어링", P._key_names(VALUES))
+    assert P._key_head("연구개발 기관명15)") == "org" and P._key_head("차년도") == "time" and P._key_head("발행기관") is None and P._key_head("소속기관명") is None
+    assert P._in_order([_c("a", 1, 0, text="1"), _c("b", 2, 0, text="2."), _c("c", 3, 0)]) and not P._in_order([_c("a", 1, 0, text="2"), _c("b", 2, 0, text="1")])
+
+
+def test_written_numbers_totals_and_pairs_are_kept():
+    # 음영 때문에 머리로 읽힌 금액(astra 가 t9199 에서 재현 — 그 줄을 지우면 수 세 칸이 없어짐)은 쓴 값 · 구분 기준 값(basis)과 순번은 아님
+    cells = [_c("x", 0, 0, "rowhead", "24,000", nature="header"), _c("y", 1, 0, "rowhead", "2026", nature="header", basis=["period"]),
+             _c("z", 2, 0, "rowhead", "1", nature="header"), _c("w", 3, 0, "rowhead", "-", nature="header")]
+    assert P._written(cells) == {"x"}
+    # 순번은 같은 열에서 1, 2, 3 … 차례일 때만 — 「수량 | 금액」 의 「10」(꼴은 순번)은 쓴 값 · 체크 표시도 쓴 값(astra 2차)
+    assert P._written([_c("q", 1, 0, "rowhead", "10", nature="field"), _c("v", 1, 1)]) == {"q"}
+    assert P._written([_c("o1", 1, 0, "rowhead", "1", nature="field"), _c("o2", 2, 0, "rowhead", "2", nature="field")]) == set()
+    assert P._written([_c("k", 0, 0, "rowhead", "☑", nature="header")]) == {"k"}
+    # 셈 칸(합계)에 값이 적히면 그 줄은 채워진 줄 — 피연산자가 비어도(수기 합계) · 「0」 · 「-」 도(양식의 기본값이라는 근거가 없다 — astra 2차)
+    assert P._hand(_c("t", 0, 0, text="70")) and P._hand(_c("t", 0, 0, text="0")) and P._hand(_c("t", 0, 0, text="-")) and not P._hand(_c("t", 0, 0)) and not P._hand(_c("t", 0, 0, text="0,000"))
+    row = [_c("h", 0, 0, "rowhead", "A"), _c("a", 0, 1), _c("b", 0, 2), _c("t", 0, 3, text="70")]
+    assert P._empty_lines(row, {"a", "b"}, {"a", "b"}, 1, "r") == [0] and P._empty_lines(row, {"a", "b"}, {"a", "b"}, 1, "r", {"t"}) == []
+    # 목표 · 실적 쌍 — 한 행이라도 남으면 쌍째 남긴다 · 다른 낱말 묶음은 행마다
+    cells = [_c("p", 0, 0, "rowhead", "2027", rs=2), _c("k1", 0, 1, "rowhead", "목표"), _c("k2", 1, 1, "rowhead", "실적")]
+    assert P._pairs(cells, [0]) == [] and P._pairs(cells, [0, 1]) == [0, 1] and P._pairs(cells, [1, 5]) == [5]
+    cells[1]["textFull"] = "인건비"
+    assert P._pairs(cells, [0]) == [0]
+
+
+def test_empty_sub_table_goes_with_its_header_rows():
+    # 사용자 "이게 서브 테이블이면 그 섭테이블에 필드가 없으면 삭제" — 입력 줄이 모두 빈 띠는 머리 행까지 띠째(지우기 전 표의 띠로 본다)
+    rows = [["구분", "내용", "비고"], ["과제명", "자율운항", "있음"], ["등록 건수", "논문", "특허"], [None, "", ""]]
+    a, at = _judge(rows, spans={(2, 0): (2, 1)}, heads=(0, 2))
+    assert at["r2c0"]["sub"] != at["r1c0"]["sub"]  # 전제 — 머리 행이 다시 와서 새 띠
+    assert a["emptyRows"] == [3] and a["drop"] == [2, 3] and [(b["rows"], b["name"], b["how"]) for b in a["bands"]] == [([2, 3], "등록 건수", "empty")] and not a["tableGone"]
+    # 그 띠에 값이 하나라도 있으면 띠는 남고 빈 줄도 없다
+    rows[3][1] = "2"
+    assert _judge(rows, spans={(2, 0): (2, 1)}, heads=(0, 2))[0]["drop"] == []
+
+
+def test_orphan_sub_table_is_matched_with_the_saved_judgement():
+    # 이미 머리만 남은 서브 테이블(사용자 그림 — 값 행만 지워 머리 행만 남음): 저장된 3단계 판정(지우기 전)의 띠와 칸 id 로 대조해서만 찾는다
+    tb = {"id": "t1", "rows": 2, "cols": 2, "cells": [_c("k", 0, 0, "rowhead", "과제명"), _c("v", 0, 1, text="자율운항"),
+                                                       _c("h1", 1, 0, "corner", "등록 건수"), _c("h2", 1, 1, "colhead", "논문")]}
+    saved = {"id": "t1", "subtables": [{"id": "A", "rows": [0, 1], "cols": [0, 2], "kind": "form"}, {"id": "B", "rows": [1, 3], "cols": [0, 2], "kind": "matrix"}],
+             "cells": [{"id": "k", "row": 0, "col": 0, "role": "rowhead", "text": "과제명"}, {"id": "v", "row": 0, "col": 1, "role": "field", "text": ""},
+                       {"id": "h1", "row": 1, "col": 0, "role": "corner", "text": "등록 건수21)"}, {"id": "h2", "row": 1, "col": 1, "role": "colhead", "text": "논문"},
+                       {"id": "f1", "row": 2, "col": 1, "role": "field", "draft": "field", "text": ""}]}
+    got = P.orphans(tb, saved)
+    assert [(o["rows"], o["how"], o["heads"]) for o in got] == [([1, 1], "orphan", ["h1", "h2"])]   # 각주 번호(「21)」)만 다른 글은 같은 글
+    assert P.orphans(tb, {**saved, "id": "t2"}) == [] and P.orphans(tb, None) == []
+    changed = copy.deepcopy(tb)
+    changed["cells"][3]["textFull"] = "논문 (건)"   # 사람이 고친 머리 — 짐작하지 않는다
+    assert P.orphans(changed, saved) == []
+    more = copy.deepcopy(tb)
+    more["cells"].append(_c("n", 1, 1, "field", "새 글"))   # 그 행에 다른 칸 — 아님
+    more["cells"][3]["col"], more["cols"] = 2, 3
+    assert P.orphans(more, saved) == []
+    alive = copy.deepcopy(saved)
+    alive["cells"][4]["id"] = "v"   # 그 띠의 입력 칸이 지금도 있다 — 아님
+    assert P.orphans(tb, alive) == []
+    long = copy.deepcopy(saved)   # 저장 글이 잘렸으면(TEXT_MAX) 뒤에 덧붙인 글을 알 수 없다 — 짐작하지 않는다(astra 2차)
+    long["cells"][3]["text"] = "가" * 80
+    cut = copy.deepcopy(tb)
+    cut["cells"][3]["textFull"] = "가" * 80 + " 새로 입력한 검토 결과"
+    assert P.orphans(cut, long) == []
+    other = copy.deepcopy(saved)   # 각주 번호가 다른 글(「차수1)」 ↔ 「차수2)」)은 다른 글
+    other["cells"][3]["text"], same = "차수1)", copy.deepcopy(tb)
+    same["cells"][3]["textFull"] = "차수2)"
+    assert P.orphans(same, other) == []
+    # 겹치는 띠(지금 판정의 빈 띠 + 저장된 판정의 머리만 남은 띠)는 하나로 — 따로 두면 같은 자리를 두 번 지운다(astra 2차)
+    merged = P._merge([{"sub": "B", "rows": [2, 3], "name": "가", "how": "empty", "recs": [3]}, {"sub": "E", "rows": [2, 2], "name": "가", "how": "orphan", "heads": ["h"], "recs": []},
+                       {"sub": "F", "rows": [5, 5], "name": "나", "how": "orphan", "heads": ["k"], "recs": []}])
+    assert [(m["rows"], m["how"]) for m in merged] == [([2, 3], "empty"), ([5, 5], "orphan")]
+
+
+def _graph(tid, head_para, next_para, child=False, text=None, next_text=None):
+    """2단계 그래프 꼴(헤딩 두 개 + 표 그릇) — head_para 헤딩 바로 아래 표 tid, 그 뒤 next_para 헤딩(child = 그 헤딩이 첫 헤딩의 하위)."""
+    return {"nodes": [{"id": "H1", "para": head_para, "role": "heading", "letter": "", "text": text, "parent": "root"},
+                      {"id": "H2", "para": next_para, "role": "heading", "letter": "", "text": next_text, "parent": "H1" if child else "root"}],
+            "containers": [{"id": f"tbl:{tid}", "kind": "table", "parent": "H1"}]}
+
+
+def test_table_scope_takes_the_heading_only_when_it_holds_just_this_table():
+    # 사용자 "이 테이블의 소속 헤딩이 있고 .. 그 헤딩의 테이블 이였다면 그 헤딩까지 삭제" — 그래프가 바로 그 헤딩 아래에 둔 표 · 헤딩 ~ 표 사이 빈 줄뿐 · 뒤가 하위 헤딩이 아님
+    d = HwpxDoc(RND.read_bytes())
+    top = d.blocks()
+    tid = _find(d, "취득연월", (4, 5))   # 「나. 학력」 바로 아래의 빈 표
+    i = next(k for k, b in enumerate(top) if b["id"] == tid)
+    head = top[i - 1]
+    nxt = next(b for b in top[i + 1:] if b["type"] != "paragraph" or (b.get("text") or "").strip())
+    assert head["type"] == "paragraph" and "학력" in head["text"] and nxt["type"] == "paragraph"
+    p = P.plan(d, tid, store=copy.deepcopy(EMPTY))
+    assert p["tableGone"] and p["emptyRows"] == []   # 빈 양식의 표 — 표째(줄은 정하지 않음)
+    sc = P.table_scope(d, tid, _graph(tid, head["id"], nxt["id"], text=head["text"], next_text=nxt["text"]))
+    assert sc["first"] == head["id"] and sc["last"] == tid and sc["heading"]["text"] == " ".join(head["text"].split()) and not sc["block"]
+    assert P.table_scope(d, tid, _graph(tid, head["id"], nxt["id"], child=True, text=head["text"], next_text=nxt["text"]))["heading"] is None   # 뒤 헤딩이 하위 — 헤딩은 남김
+    assert P.table_scope(d, tid, _graph(tid, head["id"], nxt["id"], text="다른 제목", next_text=nxt["text"]))["heading"] is None              # 헤딩 글이 판정 때와 다름
+    assert P.table_scope(d, tid, _graph(tid, head["id"], nxt["id"], text=head["text"], next_text="옛 제목"))["heading"] is None   # 뒤 헤딩이 지금은 다른 글(본문이 됨) — 확인 못 함(astra 2차)
+    assert "판정" in P.table_scope(d, tid, None)["why"] and P.table_scope(d, tid, None)["first"] == tid
     base = C.counts(C.check_doc(d))
-    assert P.apply(d, tid, rows=True, cols=False, store=copy.deepcopy(EMPTY)) == {"rows": [], "cols": [], "skipRows": [], "skipCols": []}
-    out = P.apply(d, tid, rows=False, cols=True, store=copy.deepcopy(EMPTY))
-    assert out["cols"] == [2, 3] and out["skipCols"] == []
-    nb = d.table_block(tid)
-    assert nb["nCols"] == b["nCols"] - 2 and nb["nRows"] == b["nRows"] - 1  # 「예·아니오」 줄에서 시작하는 칸이 없어져 머리 두 줄이 한 줄로 접힌다(빈 hp:tr 방지)
-    assert sum(c["rowSpan"] * c["colSpan"] for c in nb["cells"]) == nb["nRows"] * nb["nCols"]
-    assert int(d._ids[tid].find("{*}sz").get("width")) == width  # 지운 폭은 남은 열이 나눠 가짐
-    assert not any("점검 결과" in (q.get("text") or "") for c in nb["cells"] for q in c.get("blocks") or [])
+    P.drop_table(d, sc)
+    assert tid not in d._ids or not d._attached(d._ids[tid])
+    assert not d._attached(d._ids[head["id"]]) and d._attached(d._ids[nxt["id"]])   # 헤딩까지 · 다음 헤딩은 남음
     assert C.verdict(d, base, C.check_doc(d))["status"] != "fail"
     HwpxDoc(d.save())
 
@@ -311,22 +438,27 @@ def test_api_prune_dry_apply_undo(client):
     dry = client.post(url, json={"dry": True})
     assert dry.status_code == 200, dry.text
     p = dry.json()
-    assert p["emptyRows"] == [3, 4, 5, 6, 7, 8] and p["rev"] == client.get(f"/api/docs/{d}").json()["rev"]
+    assert p["emptyRows"] == [3, 4, 5, 6, 7, 8] and p["rev"] == client.get(f"/api/docs/{d}").json()["rev"] and p["action"] == "rows" and p["planId"]
     assert client.get(f"/api/docs/{d}").json()["pristine"] is True  # 미리보기는 문서를 안 바꾼다
     assert p["why"] == {"rows": {str(i): [] for i in p["emptyRows"]}, "cols": {}}  # 빈 것으로 본 까닭 — 이 표의 빈 필드는 글이 없는 칸뿐(자리표시 글 없음)
-    assert client.post(url, json={"rows": True, "rev": p["rev"] + 5}).status_code == 409  # 미리 본 뒤 문서가 바뀜
-    assert client.post(url, json={"rows": False, "cols": False, "rev": p["rev"]}).status_code == 400
-    assert client.post(url, json={"rows": False, "cols": True, "rev": p["rev"]}).status_code == 400  # 빈 열이 없다 — 아무것도 안 바뀜
+    go = {"action": "rows", "planId": p["planId"], "rev": p["rev"]}
+    assert client.post(url, json={**go, "rev": p["rev"] + 5}).status_code == 409  # 미리 본 뒤 문서가 바뀜
+    assert client.post(url, json={**go, "planId": "0" * 16}).status_code == 409   # 미리 본 계획과 다름(헤더 지정이 바뀌면 rev 는 그대로라 이것으로 견준다)
+    assert client.post(url, json={**go, "action": "table"}).status_code == 409    # 계획의 동작과 다름
+    assert client.post(url, json={"rows": True, "rev": p["rev"]}).status_code == 400  # 옛 요청(planId 없음) — 다른 지우기를 성공으로 받지 않게
+    assert client.post(url, json={**go, "cols": True}).status_code == 400            # 빈 열 지우기는 없앴다
+    assert client.post(url, json={**go, "action": "cols"}).status_code == 400
     assert client.get(f"/api/docs/{d}").json()["pristine"] is True
-    r = client.post(url, json={"rows": True, "cols": False, "rev": p["rev"]})
+    r = client.post(url, json=go)
     assert r.status_code == 200, r.text
     v = r.json()
-    assert v["pruned"] == {"table": big["id"], "rows": [3, 4, 5, 6, 7, 8], "cols": [], "skipRows": [], "skipCols": []} and v["undo"] == 1
+    assert v["pruned"] == {"table": big["id"], "tableDeleted": False, "heading": None, "rows": [3, 4, 5, 6, 7, 8], "cols": [], "skipRows": [], "skipCols": [],
+                           "bands": [], "skipBands": []} and v["undo"] == 1
     now = next(b for b in v["tops"]["blocks"] if b["id"] == big["id"])
     assert now["nRows"] == big["nRows"] - 6
     after = client.post(url, json={"dry": True}).json()
-    assert after["emptyRows"] == []
-    assert client.post(url, json={"rev": after["rev"]}).status_code == 400  # 더 지울 줄이 없다(지우기 요청은 미리보기의 rev 를 늘 보낸다 — spec_테이블매니저 ② §4 ⓓ)
+    assert after["emptyRows"] == [] and after["action"] is None
+    assert client.post(url, json={"action": "rows", "planId": after["planId"], "rev": after["rev"]}).status_code == 400  # 더 지울 줄이 없다(계획의 동작이 없음)
     assert client.post(f"/api/docs/{d}/undo").status_code == 200
     back = client.get(f"/api/docs/{d}").json()
     assert back["pristine"] is True and max(_tables(back["blocks"]), key=lambda b: b["nRows"])["nRows"] == big["nRows"]
@@ -334,10 +466,29 @@ def test_api_prune_dry_apply_undo(client):
     assert [e["kind"] for e in client.get(f"/api/works/{d}/log").json()["events"]].count("tablePrune") == 1
 
 
+def test_api_prune_whole_table(client):
+    # 지우면 입력 줄이 하나도 안 남는 표 — 미리보기가 표째(action table)를 내고, 확인한 지우기는 문서 전체 검사 한 트랜잭션 · 실행 취소 1개
+    d = _upload(client, RND)
+    tbs = _tables(client.get(f"/api/docs/{d}").json()["blocks"])
+    tid = next(b["id"] for b in tbs if (b["nRows"], b["nCols"]) == (4, 5) and any("취득연월" in (q.get("text") or "") for c in b["cells"] for q in c.get("blocks") or []))
+    url = f"/api/docs/{d}/tables/{tid}/prune"
+    p = client.post(url, json={"dry": True}).json()
+    assert p["action"] == "table" and p["tableGone"] and p["emptyRows"] == [] and p["scope"]["first"] == tid and p["scope"]["heading"] is None  # 헤딩 판정 없음 — 표까지만
+    assert client.post(url, json={"action": "rows", "planId": p["planId"], "rev": p["rev"]}).status_code == 409
+    r = client.post(url, json={"action": "table", "planId": p["planId"], "rev": p["rev"]})
+    assert r.status_code == 200, r.text
+    v = r.json()
+    assert v["pruned"]["tableDeleted"] is True and v["undo"] == 1
+    assert tid not in {b["id"] for b in _tables(client.get(f"/api/docs/{d}").json()["blocks"])}
+    assert client.post(f"/api/docs/{d}/undo").status_code == 200
+    assert tid in {b["id"] for b in _tables(client.get(f"/api/docs/{d}").json()["blocks"])}
+    assert [e["kind"] for e in client.get(f"/api/works/{d}/log").json()["events"]].count("tablePrune") == 1
+
+
 def test_api_prune_docx_is_hwpx_only(client):
     d = _upload(client, DOCX)
     doc = client.get(f"/api/docs/{d}").json()
     tb = _tables(doc["blocks"])[0]
-    for body in ({"dry": True}, {"rows": True, "rev": doc["rev"]}):
+    for body in ({"dry": True}, {"action": "rows", "planId": "x", "rev": doc["rev"]}):
         r = client.post(f"/api/docs/{d}/tables/{tb['id']}/prune", json=body)
         assert r.status_code == 400 and "hwpx" in r.json()["detail"]

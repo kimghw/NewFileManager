@@ -294,9 +294,9 @@ def main():
         s = snap(page)
         g1 = s["groups"][0]
         r2 = g1["rows"][1]
-        check("④ 초기화한 뒤(다른 곳에서 바뀐 상태를 다시 읽음) — 1/3 · 「다음: 02 헤딩 · 표 분석」 · 「한 번에 진행」 이 켜지고 강조 · 풍선 도움말(이 화면에 머뭅니다 · 문서는 바뀌지 않습니다)",
+        check("④ 초기화한 뒤(다른 곳에서 바뀐 상태를 다시 읽음) — 1/3 · 「다음: 02 헤딩 · 표 분석」 · 「한 번에 진행」 이 켜지고 강조 · 풍선 도움말(이 화면에 머뭅니다 · 문서가 바뀝니다 — 1단계 LLM 검증·보완이 원본 문서에 서식 정리를 반영: 2026-11-22)",
               g1["count"] == "1/3" and s["count"] == head_count(rid) and s["next"] == "다음: 02 헤딩 · 표 분석" and [r["state"] for r in g1["rows"]] == ["done", "now", "todo"] and g1["run"]["primary"]
-              and "눌러도 이 화면에 머뭅니다" in g1["run"]["title"] and "문서는 바뀌지 않습니다" in g1["run"]["title"] and not s["foot"][0]["primary"] and not g1["tags"], s)
+              and "눌러도 이 화면에 머뭅니다" in g1["run"]["title"] and "문서가 바뀝니다" in g1["run"]["title"] and not s["foot"][0]["primary"] and g1["tags"] == ["문서 바뀜"], s)
         check("④ 「지금」 차례 — 번호 단추가 켜짐(「이 차례만 실행합니다 …」) · 그 차례의 첫 카드가 저절로 펴져 있고(패널 대시보드와 같다) 편 카드에 「문서 화면에서 열기」",
               not r2["go"]["off"] and "이 차례만 실행합니다" in r2["go"]["title"] and "문서는 바뀌지 않습니다" in r2["go"]["title"] and [c["open"] for c in r2["cards"]] == [True, False]
               and r2["cards"][0]["acts"] == ["문서 화면에서 열기"] and [c["st"] for c in r2["cards"]] == ["지금", "지금"], r2)

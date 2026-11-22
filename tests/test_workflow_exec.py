@@ -39,6 +39,9 @@ class Fake:
     def llm_ok(self):
         return self.ok
 
+    def analysis(self, doc, fresh=True):   # 분석 상태(조정의 재료) — 없음: LLM 검증·보완 뒤의 서식 정리 반영은 건너뛴다(그 시험은 TidyFake)
+        return None
+
     def div_facts(self, doc):
         d = self.divs.get(doc)
         return dict(d) if d is not None else None
@@ -890,7 +893,7 @@ def test_lines_that_touch_each_others_document_keep_their_turn():
     ok = lambda a, b: X._together(task, a, b)  # noqa: E731
     assert ok(line("heads", "source"), line("headsLlm", "target", True)) and ok(line("headsLlm", "source"), line("guide", "target", True)) and ok(line("hand1", "source"), line("hand2", "target", True))
     assert ok(line("heads", "source"), line("division", "target", True))            # 구조 반영(목적) ∥ 분석(원본) — 원본 문서는 안 바뀐다
-    assert ok(line("reheads", "source"), line("reheadsLlm", "target", True))        # 다시 문서 검토끼리 — 문서를 바꾸지 않는다
+    assert not ok(line("reheads", "source"), line("reheadsLlm", "target", True))    # 다시 문서 검토(LLM)는 받은 서식 정리 계획을 목적 문서에 반영한다(2026-11-22) — 그 문서를 읽는 원본의 다시 문서 검토와는 차례로
     assert not ok(line("heads", "source"), line("headsLlm", "target"))              # 같은 차례가 아니다
     assert not ok(line("guide", "source"), line("division", "target", True))        # 원본을 바꾸는 줄 ∥ 원본을 기준으로 보는 줄 — 차례로
     assert not ok(line("division", "source"), line("reheads", "target", True)) and not ok(line("reheads", "source"), line("division", "target", True))
@@ -1199,14 +1202,15 @@ def test_a_group_run_also_commits_what_an_earlier_halted_run_left(cfit):
 
 
 def test_line_runs_and_groups_without_document_changing_lines_do_not_commit(cfit):
-    """줄 하나(「이 단계만 진행」 — only)는 확정하지 않는다 · 문서를 바꾸는 줄이 없는 묶음(문서 검토)은 고친 것이 있어도 확정하지 않는다."""
+    """줄 하나(「이 단계만 진행」 — only)는 확정하지 않는다 · 그 문서를 바꾸는 줄이 없는 묶음은 고친 것이 있어도 그 문서를 확정하지 않는다
+    (붙박이 이관의 문서 검토 — LLM 검증·보완은 원본 문서에만 서식 정리를 반영하므로(2026-11-22) 원본 문서만 후보 · 고친 것이 없으면 「없음」 · 목적 문서는 후보가 아니다)."""
     cfit.config_confirm("t", V2)   # 구성 반영 줄 하나만 — 구성 값이 확정돼 있어야 시작한다
     X.start("t", {"from": "frame", "only": "division"})
     rec = _done("t")
     assert rec["status"] == "done" and cfit.rev["t"] == 1 and cfit.commits == [] and "commits" not in rec and "pre" not in rec
     X.start("t", {"from": "review", "redo": "review"})
     rec = _done("t")
-    assert rec["status"] == "done" and cfit.commits == [] and rec["commits"] == [] and rec["pre"] == {"t": 10}
+    assert rec["status"] == "done" and cfit.commits == [] and [(c["doc"], c["status"]) for c in rec["commits"]] == [("s", "nothing")] and rec["pre"] == {"t": 10}
 
 
 def test_stopped_and_halted_runs_do_not_commit(cfit):
@@ -1305,3 +1309,87 @@ def test_the_commit_tail_always_fits_in_the_end_text():
         text = X._end_text("멈춤 — " + "나" * 400, tail)
         assert len(text) <= X.TEXT_MAX and text.endswith(tail) and text.startswith("멈춤 — 나")
     assert "목적 문서(연차보고서) — 그 문서를 연 화면에 반영하지 못한 글이 있음" in X._commit_tail([src, tgt])
+
+
+# ---- LLM 검증·보완 뒤 서식 정리 계획 반영(spec_워크플로우 ② §18-25 — 2026-11-22 사용자 「문서 검토에서 LLM 검증/보완에서 .. 문서에 반영」 · 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정」)
+class TidyMixin:
+    """LLM 검증·보완을 거치면 그 문서에 템플릿 T1 의 서식 정리 계획이 선다 · 조정 「모두 반영」 을 하면 그 계획이 반영됨으로 바뀐다(진짜 문 unit_steps.analysis 의 꼴 — 조정이 읽는 몫만)."""
+
+    def __init__(self):
+        super().__init__()
+        self.plans, self.applied = {"s": {}, "t": {}}, []   # 문서 → {템플릿 id: planned | applied | stale} · 반영한 (문서, 계획 표시)
+        if not hasattr(self, "rev"):
+            self.rev = {"s": 0, "t": 0}
+
+    def job(self, doc):
+        was = self.llm[doc]
+        got = super().job(doc)
+        if not was and self.llm[doc]:
+            self.plans[doc] = {"T1": "planned"}
+        return got
+
+    def analysis(self, doc, fresh=True):
+        rows = [{"tpl": k, "state": st, "at": "a1" if st == "planned" else None} for k, st in self.plans[doc].items()]
+        planned = [x for x in rows if x["state"] == "planned"]
+        return {"rev": self.rev[doc], "busy": False, "llmPlan": [],
+                "items": [{"key": "heads", "state": "done", "llm": {"state": "done" if self.llm[doc] else "none"}, "undecided": 0},
+                          {"key": "templates", "hints": []},
+                          {"key": "formats", "place": 0, "noRep": 0, "apply": {},
+                           "llm": {"state": "none", "planned": len(planned), "change": 2 * len(planned), "moved": 0, "reps": 0, "list": rows, "left": None, "kept": 0, "unanswered": 0, "omitted": 0}},
+                          {"key": "tables", "state": "done", "llm": {"state": "done"}}]}
+
+    def adjust_apply(self, doc, rev, plans=None, graph=None):
+        self.applied.append((doc, dict(plans or {})))
+        self.plans[doc] = {k: "applied" for k in self.plans[doc]}
+        self.rev[doc] += 1
+        return Outcome("ok", "", {"templates": [{"levels": [], "splits": []}], "changed": [1, 2], "placed": [], "left": [], "merged": []})
+
+
+class TidyFake(TidyMixin, Fake):
+    pass
+
+
+class TidyFit(TidyMixin, FitFake):
+    pass
+
+
+def test_stage_one_llm_applies_the_received_format_plan_to_the_source_document_only(fake, monkeypatch):
+    """1단계 「LLM 검증·보완」 이 두 문서를 하면 — 두 문서의 계획을 받고, **원본 문서에만** 받은 계획을 반영한다(목적 문서는 2단계의 구조 반영 뒤에). 받은 계획이 없으면 반영도 유료 계획 받기도 없다."""
+    t = TidyFake()
+    monkeypatch.setattr(X, "UNIT", t)
+    _review_as(monkeypatch, [("heads", "both", False), ("headsLlm", "both", False)])
+    t.heads.update(s=True, t=True)
+    X.start("t", {"from": "review"})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert t.applied == [("s", {"T1": "a1"})] and t.plans["t"] == {"T1": "planned"}   # 목적 문서의 계획은 받기만
+    assert "사업계획서 LLM 검증·보완을 거쳤습니다 · 사업계획서 조정 — 템플릿 1개 반영(맞춘 줄 2)" in rec["end"]["text"] and "연차보고서 조정" not in rec["end"]["text"]
+    assert [c for c in t.calls if c[0] == "formats"] == []   # 계획을 새로 받으러 유료를 부르지 않았다
+    X.start("t", {"from": "review", "redo": "review"})   # 다시 — 거친 문서 · 반영한 계획: 할 것 없음
+    rec = _done("t")
+    assert rec["status"] == "done" and t.applied == [("s", {"T1": "a1"})], rec["end"]
+
+
+@pytest.fixture
+def tidy_fit(monkeypatch):
+    f = TidyFit()
+    monkeypatch.setattr(X, "UNIT", f)
+    monkeypatch.setitem(X.WAIT, "poll", 0.005)
+    for k, v in (("settle", 0.3), ("limit", 0.8), ("poll", 0.01)):
+        monkeypatch.setitem(X.FENCE_WAIT, k, v)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
+        d.clear()
+    yield f
+    _done("t", 5)
+    for d in (X.RUNS, X.BUSY, X.LAST, X.FENCE, X.NOTICE, X.REPORTS, X.MATES, X.CLAIMS):
+        d.clear()
+
+
+def test_stage_two_llm_applies_the_received_format_plan_to_the_target_document(tidy_fit):
+    """2단계 「다시 문서 검토(LLM)」 — 구조를 맞춘 목적 문서의 계획을 받고 그 문서에 반영한다(울타리 안 · 끝 글에 「조정」)."""
+    X.start("t", {"from": "frame", "skip": ["k1"]})
+    rec = _done("t")
+    assert rec["status"] == "done", rec["end"]
+    assert tidy_fit.applied == [("t", {"T1": "a1"})]
+    assert "연차보고서 LLM 검증·보완을 거쳤습니다 · 연차보고서 조정 — 템플릿 1개 반영(맞춘 줄 2)" in rec["end"]["text"], rec["end"]["text"]
+    assert not X.FENCE and not X.NOTICE

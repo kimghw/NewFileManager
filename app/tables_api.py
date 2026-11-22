@@ -9,10 +9,12 @@
 **표 만들기 · 서식 변환**(spec_헤딩_추출 ② §11 — 파일 끝 절): 구역 수 `GET …/tables/{tid}/roles` · 정리(LLM | 그대로) `POST …/tables/compose` · 문서에 넣기 `POST …/tables/make` ·
 서식만 입히기 `POST …/tables/restyle`. 형식 중립부 `app/table_make.py`, LLM 계약 `app/table_llm.py`, hwpx 어댑터 `app/hwpx_table_make.py`.
 
-**빈 필드 제거**(spec_헤딩_추출 ② §16 — 파일 끝): `POST …/tables/{tid}/prune` — 미리보기(`dry`) · 필드가 모두 빈 행·열 지우기. 판정·지우기는 `app/table_prune.py`.
+**빈 필드 제거**(spec_헤딩_추출 ② §16 · spec_테이블매니저 ② §12): `POST …/tables/{tid}/prune` — 미리보기(`dry`) · 빈 레코드 줄 · 빈 서브 테이블 지우기 · 표째(· 소속 헤딩까지) 지우기. 판정·지우기는 `app/table_prune.py`.
 
 **표 채우기**(spec_헤딩_추출 ② §18 — 파일 끝): `POST …/tables/{tid}/fill` — 채울 칸 미리보기(`dry`) · LLM 제안(문서 안 바뀜) · `POST …/tables/{tid}/fill/apply` — 고른 제안을 문서에(한 트랜잭션).
 판정·계약·답 검사는 `app/table_fill.py`."""
+import hashlib
+import json
 import time
 
 from fastapi import APIRouter, Body, HTTPException
@@ -447,57 +449,175 @@ def _prune_hwpx(s):
         raise HTTPException(400, "빈 필드 제거는 지금 hwpx 문서만 됩니다")
 
 
+def _prune_plan(s, tid):
+    """미리보기 · 지우기가 함께 쓰는 계획(세션 잠금 안) → (계획, 유효한 헤더 지정, 보류 지정, 저장된 3단계의 그 표).
+    계획 = `table_prune.plan` + action(rows = 빈 줄 · 빈 서브 테이블 | table = 표째(· 소속 헤딩까지) | None) · scope(`table_scope` — 표째일 때) · planId(지우기가 같은 계획인지 견줌 — astra:
+    헤더 지정은 문서 차례(rev)를 안 올리고 바뀌므로 rev 만으로는 미리 본 계획과 같은지 모른다) · held · rev."""
+    from app import division_scan_api, table_prune
+    _prune_hwpx(s)
+    _live_table(s, tid)
+    user, held = _heads_now(s, tid, _table_now(s, tid)[1])
+    s3 = heading_runs.tables(s)   # 지우기 전 판정(이미 머리만 남은 서브 테이블을 칸 id 로 대조 — table_prune.orphans)
+    hist = next((t for t in (s3 or {}).get("tables") or () if isinstance(t, dict) and t.get("id") == tid), None)
+    try:   # 프로젝트 구성 값 — 연구개발과제 문서에서만(열쇠 칸: 칸 글이 구성의 기관 · 단계 · 차년도 · 연도 값 그대로일 때 — table_prune._keys)
+        values = (division_scan_api.inputs(s) or {}).get("values")
+    except Exception:  # noqa: BLE001 — 구성을 못 읽으면 기관 · 차년도 열쇠 없이(보수적으로) 본다
+        values = None
+    try:
+        out = table_prune.plan(s.doc, tid, doc_key=getattr(s, "doc_key", None), roles=user, history=hist, values=values)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if out is None:
+        raise HTTPException(404, "그 표가 지금 문서에 없습니다")
+    scope = table_prune.table_scope(s.doc, tid, heading_runs.graph(s)) if out["tableGone"] else None
+    action = ("table" if not scope.get("block") else None) if scope else ("rows" if out["emptyRows"] else None)
+    key = {"table": tid, "rev": s.rev, "action": action, "rows": out["emptyRows"], "steps": out["steps"], "bands": [b["rows"] for b in out["bands"]],
+           "gone": out["goneCells"], "scope": [scope.get(k) for k in ("first", "last", "caption")] if scope else None, "roles": sorted((user or {}).items())}
+    out.update(held=held, rev=s.rev, action=action, scope=scope,
+               planId=hashlib.sha1(json.dumps(key, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16])
+    return out, user, held, hist
+
+
+def _prune_guides(s, ids):
+    """지울 자리(ids — 문단 · 표 id)에 작성 지침(양식 안내 — `form_cleanup.find`)이 있으면 지우기 **전에** 모아 둔다 → 저장할 것 | None(CLAUDE.md 「양식 안내를 지우는 길 … keep」).
+    파일에는 지우기가 성공한 뒤에 쓴다(`_guides_write` — 409 · 422 로 안 지웠는데 저장본만 바뀌지 않게: astra 2차). 「<참고 N>」 자료는 제목 ~ 마지막 표 전체와 견준다(가운데 표만 지워도 걸린다).
+    저장본에만 있는 지침(앞서 지운 자리의 것)은 그대로 두고, 같은 각주 번호의 해설이 지금 비었으면 저장본의 해설을 남긴다(astra)."""
+    from app import form_cleanup, form_guides_api
+    found = form_cleanup.find(s.doc)
+    hit = set()
+    for k in ("tables", "refs", "notes", "marks"):
+        for x in found.get(k) or ():
+            if not isinstance(x, dict):
+                continue
+            hit.add(x.get("id"))
+            if k == "refs" and x.get("last") in s.doc._ids and x.get("id") in s.doc._ids:
+                a, b = s.doc._host(s.doc._ids[x["id"]]), s.doc._host(s.doc._ids[x["last"]])
+                while a is not None:
+                    hit |= _paras_in(s, [a])
+                    if a is b:
+                        break
+                    a = a.getnext()
+    if not hit & set(ids):
+        return None
+    got, kept = form_guides_api.current(s, found)
+    if got is None or kept or form_guides_api._path(s.id) is None:
+        return None
+    old = form_guides_api.load(s.id)
+    if old:
+        have = {(x.get("kind"), x.get("id")) for x in got["items"]}
+        got["items"] += [x for x in old["items"] if isinstance(x, dict) and (x.get("kind"), x.get("id")) not in have]
+        prev = {(m.get("at"), m.get("no")): m for m in old["marks"] if isinstance(m, dict)}
+        for m in got["marks"]:
+            o = prev.pop((m.get("at"), m.get("no")), None)
+            if o is not None and not m.get("text") and o.get("text"):
+                m.update(text=o["text"], guide=o.get("guide"))
+        got["marks"] += list(prev.values())
+        got.setdefault("counts", {}).update(items=len(got["items"]), marks=len(got["marks"]), marksLinked=sum(1 for m in got["marks"] if m.get("text")))
+    return got
+
+
+def _guides_write(s, got):
+    """`_prune_guides` 가 모아 둔 것을 지우기가 성공한 뒤에 저장한다."""
+    from app import form_guides_api
+    p = form_guides_api._path(s.id) if got is not None else None
+    if p is not None:
+        works._write_json(p, got)
+
+
+def _paras_in(s, els):
+    """요소들 아래의 문단 id(+ 표 id) — 지울 자리에 든 작성 지침을 찾는다."""
+    out = set()
+    for el in els:
+        for x in el.iter():
+            i = s.doc._rev.get(x)
+            if i is not None:
+                out.add(i)
+    return out
+
+
 @router.post("/api/docs/{doc_id}/tables/{tid}/prune")
 def table_prune_lines(doc_id: str, tid: str, body: dict = Body(default={})):
-    """필드가 모두 빈 행·열 지우기(`app/table_prune.py`). hwpx 만.
-    `{dry: true}` → 미리보기(문서 안 바뀜) `{table, rows, cols, fields, emptyFields, allEmpty, emptyRows[], emptyCols[], skipRows[], skipCols[], rowNames, colNames, why, note?, held[], rev}`.
-    `{rows?: bool(기본 true), cols?: bool(기본 false), rev}` → 지우기 — 한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tablePrune`),
-    응답 = 구조 편집 응답 + `pruned {table, rows[], cols[], skipRows[], skipCols[]}`. rev 가 지금 문서와 다르면 409(미리보기 뒤 문서가 바뀜), 지울 줄이 없으면 400.
-    spec_테이블매니저 ② §4 「지우거나 쓰는 도구」: 칸 역할 = 스크립트 초안 + **유효한** 사람 헤더 지정(`_heads_now`) — 보류된 지정(`held`)이 있으면 지우기는 409, 미리보기는 `held` 를 싣는다 ·
-    지우기 요청에 `rev`(미리보기가 준 것)가 없으면 400(미리 본 문서와 지금 문서가 같은지 볼 수 없다 — 화면은 늘 보낸다)."""
+    """빈 필드 제거(`app/table_prune.py` — spec_헤딩_추출 ② §16 · spec_테이블매니저 ② §12). hwpx 만.
+    `{dry: true}` → 미리보기(문서 안 바뀜) = `table_prune.plan` 의 결과 + `{action: "rows" | "table" | null, scope, planId, held[], rev}`
+    (emptyRows = 지울 행 전부 · bands = 띠째 지울 서브 테이블 · tableGone/scope = 표째(· 소속 헤딩까지) · kept = 쓴 값이 있어 남긴 행 · emptyCols 는 늘 빈 목록).
+    `{action: "rows", planId, rev}` → 빈 줄 · 빈 서브 테이블 지우기 — 한 트랜잭션(`server._edit`: 실행 취소 1개 · OWPML 지역 검사 · 기록 `tablePrune`),
+    응답 = 구조 편집 응답 + `pruned {table, tableDeleted: false, heading: null, rows[], cols[], skipRows[], skipCols[], bands[], skipBands[]}`.
+    `{action: "table", planId, rev}` → 표째(· 소속 헤딩까지) 지우기(사람이 확인한 뒤) — 한 트랜잭션(문서 전체 검사 · 실행 취소 1개 · 기록 `tablePrune`) → `{pruned {table, tableDeleted: true, heading}, …편집 상태}`
+    (화면은 문서를 다시 읽는다). planId · rev 는 미리보기가 준 것 — 없으면 400 · 지금 계획과 다르면 409(미리 본 뒤 문서 · 헤더 지정이 바뀜) · 보류된 헤더 지정이 있으면 409.
+    `cols: true` 는 400 — 빈 열 지우기는 없앴다(사용자 2026-11-22 「값이 든 줄의 빈 칸은 그대로」 · 옛 호출이 다른 지우기를 성공으로 받지 않게)."""
     from app import server, table_prune
     body = body if isinstance(body, dict) else {}
     if body.get("dry") is True:
         s = _sess(doc_id)
         with s.lock:
-            _prune_hwpx(s)
-            _live_table(s, tid)
-            user, held = _heads_now(s, tid, _table_now(s, tid)[1])
-            try:
-                out = table_prune.plan(s.doc, tid, doc_key=getattr(s, "doc_key", None), roles=user)
-            except ValueError as e:
-                raise HTTPException(400, str(e)) from e
-            if out is None:
-                raise HTTPException(404, "그 표가 지금 문서에 없습니다")
-            out["held"] = held
-            out["rev"] = s.rev
-        return out
-    rows, cols, rev = body.get("rows", True), body.get("cols", False), body.get("rev")
-    if not isinstance(rows, bool) or not isinstance(cols, bool) or not (rows or cols):
-        raise HTTPException(400, "rows·cols 는 true/false 이고 하나는 true 여야 합니다")
-    pruned = {}
+            return _prune_plan(s, tid)[0]
+    if body.get("cols") is True:
+        raise HTTPException(400, "빈 열 지우기는 없앴습니다 — 값이 하나라도 든 줄의 빈 칸은 그대로 둡니다(빈 줄만 지웁니다)")
+    action, plan_id, rev = body.get("action", "rows"), body.get("planId"), body.get("rev")
+    if action not in ("rows", "table"):
+        raise HTTPException(400, 'action 은 "rows" 또는 "table"')
+    if not isinstance(plan_id, str) or not plan_id:
+        raise HTTPException(400, "planId 가 필요합니다 — 미리보기({dry: true})가 준 planId 를 같이 보내세요")
 
-    def make(s):
-        _prune_hwpx(s)
-        _live_table(s, tid)
+    def check(s):
         if not _is_rev(rev):
             raise HTTPException(400, "rev 가 필요합니다 — 미리보기({dry: true})가 준 rev 를 같이 보내세요")
         if rev != s.rev:
             raise HTTPException(409, "미리 본 뒤 문서가 바뀌었습니다 — 표 메뉴에서 「빈 필드 제거하기」 를 다시 누르세요")
-        user, held = _heads_now(s, tid, _table_now(s, tid)[1])
+        p, user, held, hist = _prune_plan(s, tid)
         _held_stop(held)
+        if p["planId"] != plan_id:
+            raise HTTPException(409, "미리 본 계획과 지금 계획이 다릅니다(헤더 지정 · 문서가 바뀜) — 「빈 필드 제거하기」 를 다시 누르세요")
+        if p["action"] is None:
+            raise HTTPException(400, "지울 빈 줄이 없습니다" + ("(합친 칸에 걸려 못 지움)" if p["skipRows"] or p["skipBands"] else ""))
+        if p["action"] != action:
+            raise HTTPException(409, f"미리 본 계획의 지우기는 「{'표째' if p['action'] == 'table' else '빈 줄'}」 입니다 — 「빈 필드 제거하기」 를 다시 누르세요")
+        return p, user, hist
+
+    if action == "table":
+        s = _sess(doc_id)
+        with s.lock:
+            p, _user, _hist = check(s)
+            scope = p["scope"]
+            first, last = s.doc._host(s.doc._ids[scope["first"]]), s.doc._host(s.doc._ids[scope["last"]])
+            els, el = [], first
+            while el is not None:
+                els.append(el)
+                if el is last:
+                    break
+                el = el.getnext()
+            guides = _prune_guides(s, _paras_in(s, els))
+            done = {}
+
+            def run():
+                done.update(table_prune.drop_table(s.doc, scope))
+                return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
+                        "log": {"table": tid, "tableDeleted": True, "heading": (scope.get("heading") or {}).get("para"), "removed": len(done.get("removed") or ())}}
+            out, after = server._transact(s, run, "tablePrune", req={"table": tid, "action": "table"}, check=server._full_check)
+            if after is None:
+                return out
+            _guides_write(s, guides)
+            return {"pruned": {"table": tid, "tableDeleted": True, "heading": scope.get("heading"), "rows": [], "cols": [], "bands": []}, **s.state()}
+    pruned, pending = {}, {}
+
+    def make(s):
+        p, _user, _hist = check(s)
         el = s.doc._ids[tid]
+        pending["guides"], pending["s"] = _prune_guides(s, _paras_in(s, [s.doc._ids[c] for c in p["goneCells"] if c in s.doc._ids])), s
 
         def run():
-            r = table_prune.apply(s.doc, tid, rows=rows, cols=cols, doc_key=getattr(s, "doc_key", None), roles=user)
-            if not r["rows"] and not r["cols"]:
-                raise ValueError("지울 빈 행·열이 없습니다" + ("(합친 칸에 걸려 못 지움)" if r["skipRows"] or r["skipCols"] else ""))
-            pruned.update(table=tid, **r)
-            return {"hosts": [el], "anchor": tid, "focus": None, "log": {"table": tid, "rows": r["rows"], "cols": r["cols"]}}
+            r = table_prune.apply(s.doc, tid, p)   # 확인한 계획 그대로 — 다시 판정하지 않는다(astra 2차)
+            if not r["rows"]:
+                raise ValueError("지울 빈 줄이 없습니다")
+            pruned.update(table=tid, tableDeleted=False, heading=None, **r)
+            return {"hosts": [el], "anchor": tid, "focus": None, "log": {"table": tid, "rows": r["rows"], "bands": [b["name"] for b in r["bands"]]}}
         return [el], run
-    out = server._edit(doc_id, make, "tablePrune", {"table": tid, "rows": rows, "cols": cols})
+    out = server._edit(doc_id, make, "tablePrune", {"table": tid, "action": "rows"})
     if isinstance(out, dict):
         out["pruned"] = pruned
+        if pending.get("s") is not None:
+            with pending["s"].lock:
+                _guides_write(pending["s"], pending.get("guides"))
     return out
 
 

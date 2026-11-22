@@ -41,6 +41,11 @@ def opened():
     server.DOCS.clear()
 
 
+def _go(p, **more):
+    """미리보기(p)가 준 계획대로 지우는 요청 몸(spec_테이블매니저 ② §12 — action · planId · rev)."""
+    return {"action": "rows", "planId": p["planId"], "rev": p["rev"], **more}
+
+
 def _rows(c, d):
     def find(bs):
         for b in bs:
@@ -117,13 +122,13 @@ def test_prune_uses_only_valid_designations_and_stops_on_a_held_one(opened):
     assert p2["held"] == [{"cell": NEED, "role": "rowhead", "why": "글이 바뀜"}]
     assert p2["emptyRows"] == [3, 4, 5, 6, 7, 8]                                                # 보류된 지정은 안 쓴다(그 칸은 다시 빈 필드)
     n = _rows(c, d)
-    r = c.post(prune, json={"rows": True, "rev": p2["rev"]})
+    r = c.post(prune, json=_go(p2))
     assert r.status_code == 409 and r.json()["detail"] == HELD_MSG                              # 지우기는 멈춘다
     assert _rows(c, d) == n and table_heads.get(s.id, TID) == {NEED: "rowhead"}                 # 안 지움 · 지정을 버리지도 않는다
     assert c.put(heads, json={"cells": [NEED], "role": None}).status_code == 200                # 지정을 푼다
     p3 = c.post(prune, json={"dry": True}).json()
     assert p3["held"] == [] and p3["emptyRows"] == [3, 4, 5, 6, 7, 8]
-    r = c.post(prune, json={"rows": True, "rev": p3["rev"]})
+    r = c.post(prune, json=_go(p3))
     assert r.status_code == 200 and r.json()["pruned"]["rows"] == [3, 4, 5, 6, 7, 8] and _rows(c, d) == n - 6
 
 
@@ -131,28 +136,32 @@ def test_prune_needs_rev(opened):
     c, d, _s, prune, _heads = opened
     p = c.post(prune, json={"dry": True}).json()
     n = _rows(c, d)
-    for body in ({"rows": True}, {"rows": True, "rev": None}, {"rows": True, "rev": str(p["rev"])}, {"rows": True, "rev": True}, {}):
+    plan = {"action": "rows", "planId": p["planId"]}
+    for body in (plan, {**plan, "rev": None}, {**plan, "rev": str(p["rev"])}, {**plan, "rev": True}):
         r = c.post(prune, json=body)
         assert r.status_code == 400 and r.json()["detail"].startswith("rev 가 필요합니다"), body  # 미리 본 문서와 같은지 볼 수 없는 지우기는 안 한다
+    for body in ({}, {"rows": True, "rev": p["rev"]}):   # 계획(planId) 없는 지우기도 안 한다(옛 요청 꼴 포함 — spec_테이블매니저 ② §12)
+        r = c.post(prune, json=body)
+        assert r.status_code == 400 and r.json()["detail"].startswith("planId 가 필요합니다"), body
     assert _rows(c, d) == n and c.get(f"/api/docs/{d}").json()["pristine"] is True
-    assert c.post(prune, json={"rows": True, "rev": p["rev"] + 1}).status_code == 409
-    assert c.post(prune, json={"rows": True, "rev": p["rev"]}).status_code == 200 and _rows(c, d) == n - 6
+    assert c.post(prune, json=_go(p, rev=p["rev"] + 1)).status_code == 409
+    assert c.post(prune, json=_go(p)).status_code == 200 and _rows(c, d) == n - 6
 
 
 def test_rows_removed_above_move_the_cell_and_hold_its_designation(opened):
     c, d, s, prune, heads = opened
     assert c.put(heads, json={"cells": [BODY], "role": "rowhead"}).status_code == 200           # 9행의 머리열 칸을 지정
     p = c.post(prune, json={"dry": True}).json()
-    assert p["held"] == [] and c.post(prune, json={"rows": True, "rev": p["rev"]}).status_code == 200   # 위의 빈 행 6줄을 지움 → 그 칸은 3행으로
+    assert p["held"] == [] and c.post(prune, json=_go(p)).status_code == 200   # 위의 빈 행 6줄을 지움 → 그 칸은 3행으로
     p = c.post(prune, json={"dry": True}).json()
     assert p["held"] == [{"cell": BODY, "role": "rowhead", "why": "자리가 바뀜"}] and p["emptyRows"] == []
-    r = c.post(prune, json={"rows": True, "rev": p["rev"]})
+    r = c.post(prune, json=_go(p))
     assert r.status_code == 409 and r.json()["detail"] == HELD_MSG                              # 지울 줄이 있는지 보기 전에 멈춘다
     assert c.put(heads, json={"cells": [BODY], "role": "rowhead"}).status_code == 200           # 다시 지정 — 새 도장(지금 자리)
     assert table_heads.load(s.id)["stamps"][TID][BODY]["at"] == [3, 0, 4, 1]
     p = c.post(prune, json={"dry": True}).json()
     assert p["held"] == []
-    r = c.post(prune, json={"rows": True, "rev": p["rev"]})
-    assert r.status_code == 400 and "지울 빈 행·열이 없습니다" in r.json()["detail"]             # 보류가 풀리면 전과 같은 답
+    r = c.post(prune, json=_go(p))
+    assert r.status_code == 400 and "지울 빈 줄이 없습니다" in r.json()["detail"]                 # 보류가 풀리면 전과 같은 답
     assert c.post(f"/api/docs/{d}/undo").status_code == 200                                     # 실행 취소 — 그 칸이 9행으로 돌아가 지금 도장(3행)과 다시 어긋난다
     assert c.post(prune, json={"dry": True}).json()["held"] == [{"cell": BODY, "role": "rowhead", "why": "자리가 바뀜"}]

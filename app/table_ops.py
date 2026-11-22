@@ -46,7 +46,7 @@ def cell_op(doc, tid, op, box, opts, inside):
     r0, c0, r1, c1 = box
     opts = opts if isinstance(opts, dict) else {}
     if op in ("cells_below", "cells_above", "cells_copy"):
-        return doc.clone_rows(tid, r0, r1, cols=[c0, c1], keep_text=op == "cells_copy", above=op == "cells_above")
+        return doc.clone_rows(tid, r0, r1, cols=[c0, c1], keep_text=op == "cells_copy", above=op == "cells_above", fit=True)  # 나뉜 필드에 맞춰(② §5-2)
     if op == "cells_delete":
         return doc.delete_rows(tid, r0, r1, cols=[c0, c1])
     ids = inside()

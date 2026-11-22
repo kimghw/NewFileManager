@@ -555,6 +555,9 @@ class StructMixin:
     # ---------------------------------------------------------------- 개요(템플릿) 편집용 원시 연산(spec_hwpx_웹편집 ② §8)
     def _put_text(self, run, text):
         """런 끝에 hp:t 하나로 글을 넣는다 — 탭·강제 줄 바꿈·묶음 빈칸(U+2002)은 hp:tab·hp:lineBreak·hp:nbSpace 자식(_text 가 한 글자로 읽는 것과 같은 꼴)."""
+        # 새 탭은 NEW_TAB 속성으로(OWPML 은 type 필수 — 2026-11-22: 레터 뒤가 탭인 대표 줄의 접두로 다른 줄을 다시 쓸 때(replace_prefix) 속성 없는 탭이 생겨 표준 검사가 조정을 되돌렸다 · _piece_atoms 와 같게)
+        from app.hwpx_doc import NEW_TAB  # hwpx_doc 이 이 모듈을 부른다 — 여기서는 늦게
+        TAB_CH = chr(9)
         t = etree.SubElement(run, T)
         atoms, buf = [], ""
         for ch in text or "":
@@ -562,7 +565,7 @@ class StructMixin:
                 if buf:
                     atoms.append(buf)
                     buf = ""
-                atoms.append(t.makeelement(_p("tab" if ch == "\t" else "nbSpace" if ch == "\u2002" else "lineBreak"), {}))
+                atoms.append(t.makeelement(_p("tab" if ch == "\t" else "nbSpace" if ch == "\u2002" else "lineBreak"), dict(NEW_TAB) if ch == TAB_CH else {}))
             else:
                 buf += ch
         if buf:

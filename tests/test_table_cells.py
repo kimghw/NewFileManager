@@ -95,6 +95,28 @@ def test_clone_lenient_grows_partly_covering_cell():
     assert sum(x.rs * x.cs for x in cells) == 6 * 2
 
 
+def test_clone_inside_fits_divided_rows():
+    # 2026-11-22 「다음연도 연구개발비」 표: 0열 묶음(0~1행) · 1열 「800,000」(0행) / 「80%」(1행) · 2열 「1,000,000」(0~1행).
+    # 2열만 골라 위에 넣기 = 새 칸이 0행(800,000 줄)에, 1,000,000 은 1행(80% 줄)으로 — 격자 행이 안 늘어 1열 칸 높이 그대로(② §5-2 「나뉜 필드에 맞춰」)
+    spec = [(0, 0, 2, 1), (0, 1), (1, 1), (0, 2, 2, 1)]
+    cells = _cells(spec)
+    new, picked = grid.clone_inside(cells, 2, 3, 0, 1, 2, 2, above=True)
+    assert [(x.r, x.c, x.rs) for x in new] == [(0, 2, 1)] and [(x.r, x.rs) for x in picked] == [(1, 1)] and new[0].src is picked[0]
+    assert sum(x.rs * x.cs for x in cells) == 2 * 3 and [(x.r, x.rs) for x in cells[:3]] == [(0, 2), (0, 1), (1, 1)]  # 다른 열 그대로
+    cells = _cells(spec)
+    new, picked = grid.clone_inside(cells, 2, 3, 0, 1, 2, 2)  # 아래에 = 마지막 나뉜 줄
+    assert [(x.r, x.rs) for x in new] == [(1, 1)] and [(x.r, x.rs) for x in picked] == [(0, 1)]
+    # 3줄로 나뉜 곳: 위 = 첫 나눔까지(1줄), 아래 = 마지막 나눔부터(1줄) — 고른 칸은 나머지 2줄
+    cells = _cells([(0, 0), (1, 0), (2, 0), (0, 1, 3, 1)])
+    new, picked = grid.clone_inside(cells, 3, 2, 0, 2, 1, 1, above=True)
+    assert [(x.r, x.rs) for x in new] == [(0, 1)] and [(x.r, x.rs) for x in picked] == [(1, 2)]
+    # 맞지 않는 곳은 None(clone 이 행을 늘린다): 한 줄짜리 고름 · 다른 열도 안 나뉨 · 고른 열 안이 여러 줄 · 열 경계에 걸친 칸
+    assert grid.clone_inside(_cells(spec), 2, 3, 0, 0, 1, 1) is None
+    assert grid.clone_inside(_cells([(0, 0, 2, 1), (0, 1, 2, 1)]), 2, 2, 0, 1, 1, 1) is None
+    assert grid.clone_inside(_cells(spec), 2, 3, 0, 1, 1, 2) is None
+    assert grid.clone_inside(_cells([(0, 0, 1, 2), (1, 0), (1, 1), (0, 2, 2, 1)]), 2, 3, 0, 1, 1, 2) is None
+
+
 def test_band_col_run_units_and_keep():
     cells = _cells([(0, 0, 3, 1), (0, 1), (0, 2), (1, 1), (1, 2), (2, 1), (2, 2)])
     assert grid.band(cells, 3, 1, 2) is None and grid.band(cells, 3, 0, 1) == (1, 2)
@@ -174,6 +196,60 @@ def test_cells_ops_grow_and_shrink_the_header_cell():
     d.table_edit(pid, "row_delete", {"r0": r0, "c0": 1, "r1": r0, "c1": 1})  # 묶음 제목이 시작하는 행 — 글째 남고 줄어든다
     assert span() == rs and d._attached(d._ids[gid]) and int(d._ids[tid].get("rowCnt")) == nr
     _ok(d)
+
+
+def test_cells_insert_fits_divided_rows_without_growing():
+    # 묶음 제목(0열, rs 줄)만 골라 위/아래에 넣기·복사 — 오른쪽 열이 그 줄들을 나눠 두었으니 새 칸은 묶음 제목 안의 나뉜 줄에 들고,
+    # 표 행 수·행 높이·오른쪽 칸은 그대로(전에는 행이 rs 개 늘고 오른쪽 맨 위/아래 칸이 그만큼 길어졌다 — ② §5-2 「나뉜 필드에 맞춰」)
+    d = _doc()
+    tid, g = _group_table(d)
+    cells, nr, nc, (h0, _w) = _grid(d, tid)
+    gid, r0, rs = d._id(g.el), g.r, g.rs
+    right = {d._id(x.el): (x.r, x.rs, x.el.find(f"{{{HP}}}cellSz").get("height")) for x in cells if x.c >= 1}
+    box = {"r0": r0, "c0": 0, "r1": r0 + rs - 1, "c1": 0}
+    pid, text = _para(d, g), d._text(next(g.el.iter(P)))
+
+    def check(op, new_row, g_row):
+        res = d.table_edit(pid, op, box)
+        cells2, nr2, _nc, (h2, _w2) = _grid(d, tid)
+        assert nr2 == nr and h2 == h0 and len(res["new"]) == 1  # 표 크기 그대로
+        assert {d._id(x.el): (x.r, x.rs, x.el.find(f"{{{HP}}}cellSz").get("height")) for x in cells2 if x.c >= 1} == right
+        y = next(x for x in cells2 if d._id(x.el) == res["new"][0])
+        gg = next(x for x in cells2 if d._id(x.el) == gid)
+        assert (y.r, y.rs, gg.r, gg.rs) == (new_row, 1, g_row, rs - 1) and res["map"] == {gid: res["new"][0]}
+        assert int(y.el.find(f"{{{HP}}}cellSz").get("height")) == h0[new_row]
+        return y
+
+    y = check("cells_above", r0, r0 + 1)
+    assert not d._text(next(y.el.iter(P))).strip()
+    _ok(d)
+    d = _doc()
+    pid = _para(d, next(x for x in _grid(d, tid)[0] if d._id(x.el) == gid))
+    check("cells_below", r0 + rs - 1, r0)
+    d = _doc()
+    pid = _para(d, next(x for x in _grid(d, tid)[0] if d._id(x.el) == gid))
+    y = check("cells_copy", r0 + rs - 1, r0)
+    assert d._text(next(y.el.iter(P))) == text  # 글째
+    _ok(d)
+
+
+def test_docx_cells_insert_fits_divided_rows():
+    from app.docx_doc import DocxDoc
+    d = DocxDoc((SAMPLES / "기술수요조사서.docx").read_bytes())
+    tb = next(b for b in d.blocks() if b.get("type") == "table" and b["nRows"] >= 3 and b["nCols"] >= 2
+              and sum(1 for c in b["cells"] if c["col"] == 1 and c["rowSpan"] == 1 and c["colSpan"] == 1 and c["row"] in (1, 2)) == 2
+              and sum(1 for c in b["cells"] if c["col"] == 0 and c["rowSpan"] == 1 and c["colSpan"] == 1 and c["row"] in (1, 2)) == 2)
+    tid, nr = tb["id"], tb["nRows"]
+    d.merge_cells(tid, 1, 1, 2, 1)  # 1열 1~2행을 한 칸으로 — 0열은 두 줄로 나뉨
+    res = d.clone_rows(tid, 1, 2, cols=[1, 1], keep_text=False, above=True, fit=True)
+    tables = lambda doc: [b for b in doc.blocks() if b.get("type") == "table"]  # noqa: E731
+    t2 = next(b for b in tables(d) if b["id"] == tid)
+    k = [b["id"] for b in tables(d)].index(tid)
+    t3 = tables(DocxDoc(d.save()))[k]  # 저장본을 다시 읽어도 같은 격자
+    assert [(c["row"], c["col"], c["rowSpan"], c["colSpan"]) for c in t3["cells"]] == [(c["row"], c["col"], c["rowSpan"], c["colSpan"]) for c in t2["cells"]]
+    at = {(c["row"], c["col"]): c for c in t2["cells"]}
+    assert t2["nRows"] == nr and len(res["new"]) == 1
+    assert at[(1, 1)]["rowSpan"] == 1 and not at[(1, 1)]["text"].strip() and at[(2, 1)]["rowSpan"] == 1 and (1, 0) in at and (2, 0) in at
 
 
 def test_merge_unmerge_split_keep_table_or_cell():

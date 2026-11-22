@@ -1296,16 +1296,27 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin):  # Str
         return grid.result(self._cid, x, new, grown=grown)
 
     def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False,
-                   lenient: bool = False) -> dict:
+                   lenient: bool = False, fit: bool = False) -> dict:
         """Copy rows r0..r1 right below r1 (spec ② §2 클론; keep_text=False = 행 추가: empty cells, same paragraph and
         cell shapes). cols = [c0, c1]: only those columns get new cells, the cells outside them on row r1 grow over the
         new rows (None = whole rows). above=True: the copy goes right above r0 (outside cells on r0 grow — ② §2a).
         ValueError when a merged cell crosses the range — lenient=True (행 전체 넣기, spec_owpml_편집 ② §5-2): such a
-        cell on the edge row grows instead (grid.clone). "map" = {copied cell: its copy}."""
+        cell on the edge row grows instead (grid.clone). fit=True (고른 칸만 넣기 — ② §5-2 「나뉜 필드에 맞춰」): when the
+        picked cells span rows the other columns divide, the copy takes a divided row inside them (grid.clone_inside —
+        the table keeps its size). "map" = {copied cell: its copy}."""
         tbl, cells, nr, nc = self._tgrid(self._ids.get(table_id))
         r0, r1 = int(r0), int(r1)
         c0, c1 = (int(cols[0]), int(cols[1])) if cols is not None else (0, nc - 1)
         heights, widths = self._tsizes(cells, nr, nc)
+        inside = grid.clone_inside(cells, nr, nc, r0, r1, c0, c1, above=above) if fit and cols is not None else None
+        if inside is not None:
+            new, picked = inside
+            for y in new:
+                y.el = copy.deepcopy(y.src.el) if keep_text else self._blank(y.src.el)
+                for ls in list(y.el.iter(LINESEG)):
+                    _remove(ls)
+            self._tput(tbl, cells, heights, widths, sized=[*picked, *new])
+            return grid.result(self._cid, None, new, mapping=True)
         new, grown = grid.clone(cells, nr, nc, r0, r1, c0, c1, above=above, lenient=lenient)
         d, add = r1 - r0 + 1, sum(heights[r0:r1 + 1])
         for y in new:

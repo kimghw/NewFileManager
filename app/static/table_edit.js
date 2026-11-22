@@ -223,6 +223,12 @@ function tprevPlan(op, tbl, rect, opts = {}) {
     for (const [td, b] of cells) if (hitR(b)) out.push([td, inR(b) ? "tp-del" : "tp-part"]);
   } else if (op === "row_above" || op === "row_below" || op === "cells_above" || op === "cells_below" || op === "cells_copy") {
     const above = op.endsWith("above"), band = op.startsWith("cells"), edge = above ? r0 : r1;
+    if (band && r1 > r0) { // 나뉜 필드에 맞춰(② §5-2 — 서버 table_grid.clone_inside 와 같은 판정): 고른 칸이 r0..r1 을 다 덮는 한 줄이고 열 밖 칸이 그 사이에서 나뉘면 새 칸은 고른 칸 안의 나뉜 줄로 — 늘어나는 칸 없음
+      const inBand = cells.filter(([, b]) => hitR(b) && hitC(b));
+      const fits = inBand.length && inBand.every(([, b]) => inC(b) && b.r0 === r0 && b.r1 === r1)
+        && cells.some(([, b]) => !hitC(b) && b.r0 > r0 && b.r0 <= r1);
+      if (fits) { for (const [td] of inBand) out.push([td, above ? "tp-ins-t" : "tp-ins-b"]); return out; }
+    }
     for (const [td, b] of cells) {
       if (!hitR(b)) continue;
       if ((!band || inC(b)) && inR(b)) { if (above ? b.r0 === r0 : b.r1 === r1) out.push([td, above ? "tp-ins-t" : "tp-ins-b"]); }
@@ -313,7 +319,7 @@ function tselMenu(anchor = null) { // 맨 위 목록 — 고른 칸(칸 단위) 
   const many = tsel.cells.filter((td) => !td.classList.contains("cell-cont")).length > 1;
   const merged = tsel.cells.some((td) => { const b = cellBox(td); return b.r1 > b.r0 || b.c1 > b.c0; });
   const it = (label, key, op, title, opts) => [label, key, () => tableOp(op, opts), busy, { title, enter: () => tprevOp(op, opts) }];
-  const grow = "고른 열 밖에서 그 자리를 덮는 칸(왼쪽 헤더)은 복사하지 않고 늘어납니다";
+  const grow = "고른 열 밖에서 그 자리를 덮는 칸(왼쪽 헤더)은 복사하지 않고 늘어납니다\n고른 칸이 옆 열에서 나뉜 줄에 걸쳐 있으면 그 나뉜 줄에 맞춰 고른 칸 안에 넣습니다 — 표 크기·옆 칸 높이는 그대로";
   const items = [
     [`칸 ${tsel.cells.length}개 복사`, "Ctrl+C", () => tselCopy()],
     null,

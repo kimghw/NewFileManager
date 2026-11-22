@@ -194,24 +194,24 @@ try:
         # ---- 4. 빈 필드 제거하기
         page.locator(".tbl-corner").click()
         item(page, "빈 필드 제거하기").click()
-        page.wait_for_selector(".ctx-menu[data-by='tmn'] button:has-text('빈 행')")
+        page.wait_for_selector(".ctx-menu[data-by='tmn'] button:has-text('빈 줄')")
         m = menu(page)
         texts = [x["text"] for x in m]
-        check("찾은 줄 — 빈 행 6개(4~9행) · 빈 열 없음", any(t.startswith("빈 행 6개 지우기 — 4~9행") for t in texts) and not any(t.startswith("빈 열") for t in texts), texts)
+        check("찾은 줄 — 빈 줄 6개(4~9행) · 빈 열 항목 없음(spec_테이블매니저 ② §12)", any(t.startswith("빈 줄 6개 지우기 — 4~9행") for t in texts) and not any(t.startswith("빈 열") for t in texts), texts)
         check("필드 수 요약 줄", any("채우는 필드" in t and "빈 필드" in t for t in texts), texts)
-        item(page, "빈 행 6개 지우기").hover()
+        item(page, "빈 줄 6개 지우기").hover()
         hit = page.evaluate("() => [...document.querySelectorAll('#doc td.tmn-hit')].map((td) => +td.dataset.r)")
         check("올리면 지울 칸을 문서에 미리 보임(3~8행 칸)", len(hit) >= 6 and set(hit) <= {3, 4, 5, 6, 7, 8}, hit)
-        tip = item(page, "빈 행 6개 지우기").get_attribute("title")
+        tip = item(page, "빈 줄 6개 지우기").get_attribute("title")
         check("도움말 — 줄마다 헤더 글", "4행 「기술수요 과제명」" in tip and "6행 「기술개발의 필요성」" in tip, tip)
         page.screenshot(path=str(OUT / "4_prune.png"))
-        item(page, "빈 행 6개 지우기").click()
+        item(page, "빈 줄 6개 지우기").click()
         page.wait_for_function("(tid) => xlBlock(tid).nRows === 12", arg=big["id"], timeout=60000)
         page.wait_for_timeout(300)
         after = page.evaluate("""(tid) => ({rows: xlBlock(tid).nRows, hit: document.querySelectorAll('#doc .tmn-hit').length, toast: document.getElementById('toast').textContent, undo: state.undo, save: document.getElementById('saveState').textContent,
             has: [...document.querySelectorAll(`#doc table.tbl[data-tbl="${tid}"] .para`)].some((p) => p.textContent.includes('기술수요 과제명')),
             corner: tmnShown() && document.querySelector('.tbl-corner').dataset.for === tid, active: tmn.active})""", big["id"])
-        check("빈 행 6개를 지움 — 18행 → 12행 · 미리보기 걷힘 · 알림", after["rows"] == 12 and after["hit"] == 0 and "빈 행 6개를 지웠습니다" in after["toast"] and not after["has"], after)
+        check("빈 줄 6개를 지움 — 18행 → 12행 · 미리보기 걷힘 · 알림", after["rows"] == 12 and after["hit"] == 0 and "빈 줄 6개를 지웠습니다" in after["toast"] and not after["has"], after)
         check("실행 취소 1개 · 손잡이는 고른 표에 그대로", after["undo"] == 1 and after["corner"] and after["active"] == big["id"], after)
         check("고친 문서(작업에 저장) — 상단 저장 상태에 글 없음(「고친 문단 N개 · 작업에 자동 저장」 제거)", after["save"] == "", after["save"])
         cost = page.evaluate("""() => { const tds = [...document.querySelectorAll('#doc table.tbl td')]; const t0 = performance.now();
@@ -221,7 +221,7 @@ try:
         page.locator(".tbl-corner").click()
         item(page, "빈 필드 제거하기").click()
         page.wait_for_selector(".ctx-menu[data-by='tmn'] button.tmn-note")
-        check("다시 찾으면 지울 줄 없음", any("필드가 모두 빈 행·열이 없습니다" in x["text"] for x in menu(page)), menu(page))
+        check("다시 찾으면 지울 줄 없음", any("입력하는 줄이 통째로 빈 줄이 없습니다" in x["text"] for x in menu(page)), menu(page))
         item(page, "‹ 빈 필드 제거하기").click()
         check("‹ 로 표 메뉴로 돌아감", any(x["text"] == "엑셀식 보기" for x in (menu(page) or [])))
         page.keyboard.press("Escape")
@@ -420,6 +420,26 @@ try:
         page.click("#undoBtn")
         page.wait_for_function("(a) => state.undo === a.undo && !!xlBlock(a.tid) && xlBlock(a.tid).nRows === a.rows", arg={"tid": ftid, "rows": before["sizes"][ftid][0], "undo": before["undo"]}, timeout=120000)
         check("실행 취소로 되돌아옴(그 표의 행 수)", True)
+
+        # ---- 7d. 빈 필드 제거 — 입력 줄이 모두 빈 표는 표째: 표(와 헤딩) 지우기 항목 → 확인 창(자동 수락) → 문서를 다시 읽음 → 실행 취소. 사양 spec_테이블매니저 ② §12
+        blocks = requests.get(f"{base}/api/docs/{fid}", timeout=300).json()["blocks"]
+        gone_tid = next(b["id"] for b in blocks if b["type"] == "table" and (b["nRows"], b["nCols"]) == (4, 5)
+                        and any("취득연월" in (q.get("text") or "") for c in b["cells"] for q in c.get("blocks") or []))
+        undo0 = page.evaluate("() => state.undo")
+        corner_far(page, gone_tid)
+        item(page, "빈 필드 제거하기").click()
+        page.wait_for_selector(".ctx-menu[data-by='tmn'] button:has-text('지우기…')", timeout=60000)
+        texts = [x["text"] for x in menu(page)]
+        check("모두 빈 표 — 줄 대신 「표 지우기…」 · 「표와 헤딩 「…」 지우기…」 하나 · 빈 열 항목 없음",
+              sum(1 for t in texts if t.startswith(("표 지우기…", "표와 헤딩"))) == 1 and not any(t.startswith(("빈 열", "빈 줄")) for t in texts), texts)
+        page.screenshot(path=str(OUT / "7d_table_prune.png"))
+        item(page, "지우기…").click()   # 확인 창은 page.on("dialog") 가 수락
+        page.wait_for_function("(a) => !xlBlock(a.tid) && state.undo === a.undo + 1 && !state.busy", arg={"tid": gone_tid, "undo": undo0}, timeout=120000)
+        toast_t = page.evaluate("() => document.getElementById('toast').textContent")
+        check("표째 지움 — 문서에서 그 표가 없어지고 실행 취소 1개 · 알림", "를 지웠습니다" in toast_t and menu(page) is None, toast_t)
+        page.click("#undoBtn")
+        page.wait_for_function("(tid) => !!xlBlock(tid)", arg=gone_tid, timeout=120000)
+        check("실행 취소로 표가 돌아옴", True)
 
         # ---- 8. docx — hwpx 전용 항목은 꺼짐
         page.evaluate("() => closeDoc()")

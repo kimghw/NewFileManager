@@ -164,9 +164,9 @@ def main():
         s = settle(page)
         f1 = page.evaluate(FIT)
         check("①-2 ⓑ 원본 문서 줄 넣기에서 「프로젝트 구성 반영」 → 묶음 끝에 원본 문서 줄 하나(목적 문서의 구성 반영 · 다시 문서 검토 뒤 — 따로 선 줄: 목적 문서 칸은 빈칸) · 거절 없음 · "
-              "「원본 문서를 바꾸는 줄: 프로젝트 구성 반영」 · 「원본 문서의 구조를 바꾼 뒤 … 「자리 연결」 앞에 없습니다」 경고 · 「줄 목록으로 조립한」 · 저장 켜짐",
+              "「원본 문서를 바꾸는 줄: LLM 검증·보완 · 프로젝트 구성 반영」(1단계 LLM 검증·보완이 원본 문서에 서식 정리를 반영 — 2026-11-22) · 「원본 문서의 구조를 바꾼 뒤 … 「자리 연결」 앞에 없습니다」 경고 · 「줄 목록으로 조립한」 · 저장 켜짐",
               s["groups"][1]["lines"] == FIT_STD + [["division", "원본"]] and [(x["role"], x["on"], x["blank"]) for x in f1["div"]] == [("target", "1", ["source"]), ("source", "1", ["target"])]
-              and all(x["boxes"] == 0 and not x["join"] for x in f1["div"]) and not s["errs"] and "원본 문서를 바꾸는 줄: 프로젝트 구성 반영" in s["warns"]
+              and all(x["boxes"] == 0 and not x["join"] for x in f1["div"]) and not s["errs"] and "원본 문서를 바꾸는 줄: LLM 검증·보완 · 프로젝트 구성 반영" in s["warns"]
               and any(w.startswith("원본 문서의 구조를 바꾼 뒤 원본 문서의 「다시 문서 검토」 가 「자리 연결」 앞에 없습니다") for w in s["warns"])
               and s["std"].startswith("줄 목록으로 조립한") and not s["save"]["off"], [s["groups"][1]["lines"], f1["div"], s["errs"], s["warns"], s["std"]])
         page.screenshot(path=str(OUT / "01b_apart.png"), full_page=False)
@@ -197,7 +197,7 @@ def main():
               "「원본 문서의 구조를 바꾼 뒤 …」 경고 없음(원본 문서의 다시 문서 검토가 있다) · 그 단추는 꺼짐(더 넣을 줄이 없다)",
               s["groups"][1]["lines"] == FIT_STD[:2] + [["division", "같이"], ["reheads", "같이"], ["reheadsLlm", "같이"]]
               and [(x["role"], x["blank"]) for x in f4["div"]] == [("target", []), ("source", [])]
-              and not s["errs"] and not any(w.startswith("원본 문서의 구조를 바꾼 뒤") for w in s["warns"]) and "원본 문서를 바꾸는 줄: 프로젝트 구성 반영" in s["warns"] and not s["save"]["off"]
+              and not s["errs"] and not any(w.startswith("원본 문서의 구조를 바꾼 뒤") for w in s["warns"]) and "원본 문서를 바꾸는 줄: LLM 검증·보완 · 프로젝트 구성 반영 · 다시 문서 검토(LLM)" in s["warns"] and not s["save"]["off"]
               and any(x[0] == "source" and x[2] for x in f4["same"]), [s["groups"][1]["lines"], f4["div"], s["errs"], s["warns"], f4["same"]])
         page.screenshot(path=str(OUT / "01c_same.png"), full_page=False)
         for key in ("reheadsLlm", "reheads", "division"):   # 되돌림 — 원본 문서 카드 셋을 뺀다(표준 차례로)

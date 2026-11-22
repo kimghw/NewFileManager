@@ -541,7 +541,7 @@ def check(shape, source, target, raw_flow):
     if paid:
         warns.append("유료 LLM 을 부르는 줄: " + " · ".join(dict.fromkeys(paid)))
     for role in ("target", "source"):   # 문서를 바꾸는 줄 — 문서마다 따로 알린다(원본 → 목적 줄은 목적 문서만 바꾼다)
-        change = [nm(s) for _, s, u in seq if u["change"] == "doc" and (role in s["on"] if u["place"] == "doc" else role == "target")]
+        change = [nm(s) for _, s, u in seq if WU.changes(u, role) and (role in s["on"] if u["place"] == "doc" else role == "target")]   # 서식 정리를 반영하는 LLM 줄은 그 역할만(WU.TIDY_ROLES)
         if change:
             warns.append(f"{docs[role]}를 바꾸는 줄: " + " · ".join(dict.fromkeys(change)))
     errors = list(dict.fromkeys(errors))

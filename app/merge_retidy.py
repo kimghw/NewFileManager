@@ -34,6 +34,7 @@
   same[이미 대표 서식인 넣은 줄 — KEEP 레벨은 강조만 다른 줄도], form(그 레벨의 목적 문서 줄 수), held[그 레벨의 사람이 고른 넘친 줄 — 계획 밖]}], "tpls": [넣은 줄이 든 템플릿 id], "held": [모든 레벨의 사람이 고른 넘친 줄]}.
 - `cut_all(doc, ov, ins, keep=())` = deep 레벨을 서식 종속 템플릿으로 가름(오버레이만 — `cut_of` 계획 · `cut` 반영) → (cuts, left).
 - `mark(ov, rows)` = 반영한 계획의 deep 레벨에 표를 적음(오버레이만 — 반영과 같은 트랜잭션)."""
+import bisect
 from collections import Counter
 
 from app import outline_edit as OE
@@ -379,7 +380,133 @@ def mark(ov, rows):
     return n
 
 
-def summary(rows, cuts=(), left=(), held=()):
+# ---- 넣은 줄의 레터 — 위 레벨과 같은 레터를 쓰지 않는다(spec_병합 ② §5-9 11 — 2026-11-22 사용자 「개요레벨이 크면 갖어오는데 동일한 헤딩레벨을 쓰지 않도록 주의해줘 ..
+# 동일한 경우 다른 레터를 쓰도록 해줘. 문서에서 사용하는 레터지 □ · o · -, 점... 가장 긴 템플릿 개요를 참조해서」 → 레터가 모자라면 답 「기호를 더 씀」)
+EXTRA = ("▪", "◦", "▸")   # 가장 긴 템플릿 사슬의 기호 레터가 모자랄 때 이어 쓰는 기호(사용자 답 「기호를 더 씀」 — 고른 기호와 차례는 에이전트 판단: 사용자 확인 전)
+
+
+def _sym(key):
+    """기호 레터의 키인가(「□」 · 「o」 · 「-」 · 「·」 …) — 번호형(「N.」 · 「(A)」 · 「①」) · 괄호 라벨(「[기관]」) · 사용자 정의 글자(PUA)는 아니다."""
+    return isinstance(key, str) and len(key) == 1 and not OE.is_numbered(key) and not ("" <= key <= "") and (not key.isalnum() or key == "o")
+
+
+def _kin(x):
+    return OM.kin(x.get("letter") or "", x.get("key")) if x else None
+
+
+def pool(ov):
+    """바꿀 레터의 차례 — 문서에서 **가장 긴 템플릿 사슬**(기호 레터가 가장 많은 사슬 · 같으면 사슬이 길고 줄이 많은 것)의 기호 레터를 그 차례로 + EXTRA(계열이 겹치는 것은 한 번)
+    → [(키, 글자)] — 글자 = 그 키로 문서에 가장 많이 친 글자(「o」 키 → 「ㅇ」 …) · 없으면 키 그대로."""
+    best, score = (), None
+    for tid, t in ov["templates"].items():
+        chain = t.get("chain") or ()
+        syms = [k for k in chain if _sym(k)]
+        sc = (len(syms), len(chain), sum(1 for x in ov["lines"].values() if str(x.get("tpl")) == str(tid)))
+        if score is None or sc > score:
+            best, score = syms, sc
+    glyphs = {}
+    for x in ov["lines"].values():
+        if _sym(x.get("key")) and x.get("letter"):
+            glyphs.setdefault(x["key"], Counter())[x["letter"]] += 1
+    out, seen = [], set()
+    for k in [*best, *EXTRA]:
+        if OM.kin(k, k) in seen:
+            continue
+        seen.add(OM.kin(k, k))
+        g = glyphs.get(k)
+        out.append((k, g.most_common(1)[0][0] if g else k))
+    return out
+
+
+def _up(ov, pid):
+    """줄 pid 의 위 줄들(부모 → 그 위 …) — 오버레이의 parent 사슬(템플릿을 건너도)."""
+    out, seen, p = [], {pid}, (ov["lines"].get(pid) or {}).get("parent")
+    while p and p in ov["lines"] and p not in seen:
+        out.append(p)
+        seen.add(p)
+        p = ov["lines"][p].get("parent")
+    return out
+
+
+def reletter_of(doc, ov, ins, keep=()):
+    """넣은 줄이 위 레벨과 같은 레터를 쓰는 레벨을 찾아 바꿀 레터를 정한다(오버레이 · 문서 안 바꿈) → [{tpl, no, level, was, key, now, lines[줄 id], why}].
+    대상 = 넣는 쪽의 서식을 받는 레벨 가운데 그 레벨 줄이 **모두 넣은 줄**인 것(cut — 서식 종속 템플릿으로 뗀 레벨 · grown — 목적 문서에 없던 레벨)의 기호 레터.
+    얕은 레벨부터: 그 레벨 줄들의 위 줄(넣을 자리와 그 위의 목적 문서 줄 · 이미 정한 위의 넣은 줄)의 레터 계열(kin)과 겹치면 pool 의 차례에서 처음 안 겹치는 레터로(now) —
+    안 겹치면 그대로(목록에 안 든다) · pool 이 다 겹치면 그대로 두고 why. 사람이 처리를 고른 넘친 줄(keep)이 든 레벨은 건드리지 않는다(why)."""
+    ins, keep = set(ins), set(keep or ())
+    rows = [r for r in plan(doc, ov, ins, keep)["rows"] if r["kind"] in ("cut", "grown") and not r["form"]]
+    P, got, now = pool(ov), [], {}   # now = 정한 줄 → 새 레터의 계열(아래 레벨이 위 줄로 읽는다)
+    # 위 줄 = 그래프의 부모 사슬 + **넣은 자리**(문서 차례로 그 줄 바로 앞의 목적 문서 줄)와 그 위 사슬 — 다시 분석한 그래프는 넣은 「o」 를 같은 레터인 양식의 「ㅇ (2차년도)」 와
+    # 같은 레벨(형제 — 부모 「□」)로 읽어, 부모 사슬만으로는 실제로 넣은 자리 「- (추진 내용)」 · 「ㅇ」 가 위 줄로 안 잡혔다(2026-11-22 실제 작성본)
+    order = OM._order(doc)
+    form = sorted((order[p], p) for p in ov["lines"] if p not in ins and p in order)
+    marks = [o for o, _ in form]
+
+    def ups(p):
+        i = bisect.bisect_left(marks, order.get(p, -1)) - 1
+        at = form[i][1] if i >= 0 and p in order else None
+        return list(dict.fromkeys(_up(ov, p) + ([at] + _up(ov, at) if at else [])))
+    slots = []
+    for r in rows:
+        sl = OE._slot(ov, r["tpl"], r["level"]) or {}
+        ids = [p for p in OM.slot_ids(ov, r["tpl"], r["level"]) if p in ov["lines"]]
+        if not ids or not _sym(sl.get("key") or ov["lines"][ids[0]].get("key")):
+            continue
+        slots.append((min(len(ups(p)) for p in ids), r, sl, ids))
+    for _, r, sl, ids in sorted(slots, key=lambda s: (s[0], _rank(ov, s[1]["tpl"]), s[1]["level"])):
+        key = sl.get("key") or ov["lines"][ids[0]].get("key")
+        cur = OM.kin(sl.get("letter") or key, key)
+        used = {now.get(a) or _kin(ov["lines"][a]) for p in ids for a in ups(p)} - {None}
+        if cur not in used:
+            continue
+        row = {"tpl": r["tpl"], "no": r["no"], "level": r["level"], "was": sl.get("letter") or key, "key": None, "now": None, "lines": ids, "why": None}
+        got.append(row)
+        if any(p in keep for p in ids):
+            row["why"] = "사람이 넘친 레벨의 처리를 고른 줄이 있어 그대로 둠"
+            continue
+        # 차례에서 위 줄이 쓴 **가장 깊은 레터 다음부터**(「- (정의)」 아래면 「⋅」 — 처음부터 고르면 위 줄에 안 쓰인 「□」 가 잡혀 「-」 아래에 「□」 가 섰다: 사슬의 차례가 거꾸로)
+        start = max((i + 1 for i, (k, _) in enumerate(P) if OM.kin(k, k) in used), default=0)
+        pick = next(((k, g) for k, g in P[start:] if OM.kin(k, k) not in used), None)
+        if pick is None:
+            row["why"] = "위 레벨과 겹치지 않는 레터가 없어 그대로 둠"
+            continue
+        row["key"], row["now"] = pick
+        now.update({p: OM.kin(pick[0], pick[0]) for p in ids})
+    return got
+
+
+def reletter(doc, ov, rows, left=None):
+    """reletter_of 의 계획을 건다(문서 · 오버레이 — 부른 쪽이 트랜잭션 안에서) → 바꾼 줄 id. 줄마다 제 모양 그대로 레터 글자만(outline_match.match_one — 레터 앞 · 뒤 빈칸 · 문단 · 글자 모양은 그 줄 것) ·
+    오버레이의 줄 · 레벨 슬롯의 레터와 키 · 템플릿 사슬의 그 자리도 새 레터로. left = 짝 표지 때문에 모양만 맞춘 줄(match_one)."""
+    changed = []
+    for r in rows:
+        if not r["now"]:
+            continue
+        for p in r["lines"]:
+            if not OM._alive(doc, p) or OM._is_auto(ov, p):
+                continue
+            try:
+                sh = OM.rep_shape(doc, ov, p)
+            except (KeyError, ValueError):
+                continue
+            OM.match_one(doc, ov, p, {**sh, "tok": r["now"], "prefix": sh["lead"] + r["now"] + sh["gap"]}, left)
+            ov["lines"][p]["key"] = r["key"]
+            changed.append(p)
+        sl = OE._slot(ov, r["tpl"], r["level"])
+        if sl is not None:
+            sl.update(key=r["key"], letter=r["now"], prefix=(sl.get("prefix") or "").replace(r["was"], r["now"], 1) if sl.get("prefix") else sl.get("prefix"))
+        chain = (ov["templates"].get(str(r["tpl"])) or {}).get("chain")
+        if isinstance(chain, list) and 0 < int(r["level"]) <= len(chain):
+            chain[int(r["level"]) - 1] = r["key"]
+    return changed
+
+
+def letters_view(relet):
+    """reletter_of 의 계획 → 화면 · 기록의 꼴 [{tpl, no, level, was, now, lines(줄 수), why}]."""
+    return [{"tpl": r["tpl"], "no": r["no"], "level": r["level"], "was": r["was"], "now": r["now"], "lines": len(r["lines"]), "why": r["why"]} for r in relet or ()]
+
+
+def summary(rows, cuts=(), left=(), held=(), relet=()):
     """계획의 수 {levels(넣은 줄이 든 레벨), grown(넣은 줄만 있는 레벨 — 템플릿이 늘어난 레벨), deep(떼지 못해 목적 문서의 줄은 그대로 두고 넣은 줄끼리 맞춘 레벨), lines(넣은 개요 줄),
     fix(맞출 넣은 줄), near(같이 맞출 목적 문서의 「≈」 줄), own(표의 서식으로 남긴 넣은 줄), cutLevels(이 정리가 뗀 서식 종속 템플릿의 레벨),
     cut(이번에 뗀 것 — cut_all 의 cuts 수), cutLines(이번에 옮긴 줄 — 자손 포함), held(사람이 처리를 고른 넘친 줄 — plan 의 held: 그대로 둔 줄)}. left(못 가른 레벨)는 deep 에 든다.
@@ -387,4 +514,6 @@ def summary(rows, cuts=(), left=(), held=()):
     held = set(held or ()) | {p for r in rows for p in r.get("held") or ()}
     return {"levels": len(rows), "grown": sum(1 for r in rows if r["kind"] == "grown"), "deep": sum(1 for r in rows if r["kind"] == "deep"), "lines": sum(r["lines"] for r in rows),
             "fix": sum(len(r["fix"]) for r in rows), "near": sum(len(r["near"]) for r in rows), "own": sum(len(r["own"]) for r in rows),
-            "cutLevels": sum(1 for r in rows if r["kind"] == "cut"), "cut": len(cuts), "cutLines": sum(c["moved"] for c in cuts), "held": len(held)}
+            "cutLevels": sum(1 for r in rows if r["kind"] == "cut"), "cut": len(cuts), "cutLines": sum(c["moved"] for c in cuts), "held": len(held),
+            "letters": sum(1 for r in relet or () if r["now"]), "letterSwaps": [f"{r['was']} → {r['now']}" for r in relet or () if r["now"]],   # 위 레벨과 같은 레터를 바꾼 레벨 · 그 바꿈
+            "lettersLeft": sum(1 for r in relet or () if not r["now"])}

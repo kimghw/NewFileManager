@@ -720,7 +720,7 @@ def test_document_lines_go_on_the_source_document_too_apart_or_together():
                 {"name": "넣기", "steps": _pair("link", "plan", "apply") + [{"unit": "guide", "on": both}]}]
     got = C.check("relay", "plan", "report", together)
     assert not got["errors"] and got["std"] is None, got
-    assert "목적 문서를 바꾸는 줄: 프로젝트 구성 반영 · 내용 반영 · 작성요령 삭제" in got["warns"] and "원본 문서를 바꾸는 줄: 프로젝트 구성 반영 · 작성요령 삭제" in got["warns"], got["warns"]
+    assert "목적 문서를 바꾸는 줄: 프로젝트 구성 반영 · 내용 반영 · 작성요령 삭제" in got["warns"] and "원본 문서를 바꾸는 줄: 프로젝트 구성 반영 · 다시 문서 검토(LLM) · 작성요령 삭제" in got["warns"], got["warns"]   # 다시 문서 검토(LLM)는 받은 서식 정리 계획을 그 문서에 반영(2026-11-22)
     assert not any("다시 문서 검토」 가" in w for w in got["warns"])   # 두 문서 다 구조 반영 뒤 다시 검토가 있다
     apart = [{"name": "a", "steps": [{"unit": "heads", "on": both}, {"unit": "config"}, {"unit": "division", "on": ["source"]}, {"unit": "reheads", "on": ["source"]},
                                      {"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}] + _pair("link", "plan", "apply")}]
@@ -740,15 +740,15 @@ def test_document_lines_go_on_the_source_document_too_apart_or_together():
     steps = {s["key"]: s for g in t["stages"] for s in g["steps"]}
     assert [steps[k]["on"] for k in ("division", "reheads", "reheadsLlm", "guide")] == ["both", "both", "source", "both"]
     assert steps["division"]["does"].startswith("사업계획서의 구조를 그 문서의 프로젝트 구성 값") and "연차보고서의 값을 사업계획서 기준으로" in steps["division"]["does"]
-    assert steps["reheadsLlm"]["out"] == "LLM 검증·보완을 거친 사업계획서의 헤딩 그래프 · 표 구조" and steps["guide"]["out"] == "안내를 지운 두 문서(사업계획서 · 연차보고서)"
+    assert steps["reheadsLlm"]["out"] == "LLM 검증·보완을 거쳐 서식을 정리한 사업계획서" and steps["guide"]["out"] == "안내를 지운 두 문서(사업계획서 · 연차보고서)"
     assert t["stages"][1]["does"].endswith(" · 원본 문서 · 목적 문서가 바뀜") and t["stages"][0]["does"].endswith(" · 문서는 안 바뀜")
-    assert "사업계획서(원본)도 바뀝니다 — 원본 문서에 놓은 줄: 프로젝트 구성 반영 · 작성요령 삭제." in t["note"] and "바뀌지 않는 문서" not in json.dumps(t, ensure_ascii=False, default=str)
+    assert "사업계획서(원본)도 바뀝니다 — 원본 문서에 놓은 줄: 프로젝트 구성 반영 · 다시 문서 검토(LLM) · 작성요령 삭제." in t["note"] and "바뀌지 않는 문서" not in json.dumps(t, ensure_ascii=False, default=str)
     assert workflow.custom_desc(c).endswith("원본 문서(사업계획서)도 바꿉니다 — 프로젝트 구성 반영 · 작성요령 삭제.")
     # 목적 문서만의 줄은 전과 같은 글(붙박이 이관의 글 그대로)
     std = workflow.assemble({**c, "flow": C.flow_of(_c({"source": ["stage_review"], "target": list(C.STAGES), "llm": ["source"]}))})
     base = {s["key"]: s for g in workflow.task_of("plan_to_report")["stages"] for s in g["steps"]}
     assert all({s["key"]: s for g in std["stages"] for s in g["steps"]}[k]["does"] == base[k]["does"] for k in ("division", "reheads", "reheadsLlm", "guide"))
-    assert "사업계획서(원본)는 바뀌지 않습니다." in std["note"]
+    assert "사업계획서(원본)도 바뀝니다 — 원본 문서에 놓은 줄: LLM 검증·보완." in std["note"]   # 1단계 LLM 검증·보완이 받은 서식 정리 계획을 원본 문서에 반영(2026-11-22 「1단계에는 원문만 조정」)
 
 
 def test_the_lines_a_line_needs_first_agree_with_the_check():

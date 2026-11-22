@@ -1061,15 +1061,29 @@ class DocxDoc(DocxStructMixin):  # 구조·서식 편집·글꼴 표(NFM spec_do
         return grid.result(self._cid, x, new, grown=grown)
 
     def clone_rows(self, table_id: str, r0: int, r1: int, cols=None, keep_text: bool = True, above: bool = False,
-                   lenient: bool = False) -> dict:
+                   lenient: bool = False, fit: bool = False) -> dict:
         """HwpxDoc.clone_rows: rows r0..r1 copied right below r1 (keep_text=False: empty cells, same shapes); cols =
         [c0, c1] copies only those columns, the cells outside them on row r1 grow (vMerge) over the new rows; above=True:
         the copy goes right above r0 and the outside cells on r0 grow; lenient=True: a merged cell partly over the rows
-        grows instead of raising (grid.clone — 행 전체 넣기)."""
+        grows instead of raising (grid.clone — 행 전체 넣기); fit=True: a divided row inside the picked cells instead of
+        new rows when they span rows the other columns divide (grid.clone_inside — 고른 칸만 넣기)."""
         tbl = self._tbl(table_id)
         trs, cells, widths = self._tgrid(tbl)
         r0, r1 = int(r0), int(r1)
         c0, c1 = (int(cols[0]), int(cols[1])) if cols is not None else (0, len(widths) - 1)
+        inside = grid.clone_inside(cells, len(trs), len(widths), r0, r1, c0, c1, above=above) if fit and cols is not None else None
+        if inside is not None:
+            new, picked = inside
+            n = self._next_docpr()
+            for y in new:
+                y.el = copy.deepcopy(y.src.el) if keep_text else self._blank_tc(y.src.el, y.src.el)
+                y.rows = {y.r: y.el}  # 아래 줄의 vMerge 잇기는 _tput 이 만든다
+                _drop_ids(y.el)
+                for e in y.el.iter(WP + "docPr"):
+                    e.set("id", str(n))
+                    n += 1
+            self._tput(tbl, trs, cells, widths, sized=[*picked, *new])
+            return grid.result(self._cid, None, new, mapping=True)
         new, grown = grid.clone(cells, len(trs), len(widths), r0, r1, c0, c1, above=above, lenient=lenient)
         d, ref, rows_new = r1 - r0 + 1, trs[r1], [_row_like(t) for t in trs[r0:r1 + 1]]
         for t in rows_new:

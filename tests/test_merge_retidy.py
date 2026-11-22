@@ -76,7 +76,8 @@ def test_grown_level_takes_the_most_common_inserted_format(fake):
     ov = make({"p10": ("2", 2, "S5"), "p11": ("2", 2, "S7"), "p12": ("2", 2, "S5"), "p13": ("2", 2, "S7"), "p14": ("2", 2, "S7")}, {("2", 2): "p10"})
     (row,) = MR.plan(None, ov, {"p10", "p11", "p12", "p13", "p14"})["rows"]
     assert (row["kind"], row["rep"], row["slot"], row["fix"]) == ("grown", "p11", True, ["p10", "p12"])
-    assert MR.summary([row]) == {"levels": 1, "grown": 1, "deep": 0, "lines": 5, "fix": 2, "near": 0, "own": 0, "cutLevels": 0, "cut": 0, "cutLines": 0, "held": 0}
+    assert MR.summary([row]) == {"levels": 1, "grown": 1, "deep": 0, "lines": 5, "fix": 2, "near": 0, "own": 0, "cutLevels": 0, "cut": 0, "cutLines": 0, "held": 0,
+                                 "letters": 0, "letterSwaps": [], "lettersLeft": 0}
 
 
 def test_current_rep_kept_when_it_already_has_the_chosen_format(fake):
@@ -165,7 +166,8 @@ def test_deep_level_is_cut_into_a_format_variant_and_form_lines_under_it_stay(tr
     assert (rec["by"], rec["side"], rec["stop"], rec["lines"]) == ("retidy", "ins", ["p5"], ["p3", "p6"])
     rows = MR.plan(None, ov, ins)["rows"]
     assert [(r["tpl"], r["level"], r["kind"], r["rep"], r["fix"]) for r in rows] == [("1~2a", 2, "cut", "p3", []), ("1~2a", 3, "cut", "p4", [])]
-    assert MR.summary(rows, cuts, left) == {"levels": 2, "grown": 0, "deep": 0, "lines": 3, "fix": 0, "near": 0, "own": 0, "cutLevels": 2, "cut": 1, "cutLines": 3, "held": 0}
+    assert MR.summary(rows, cuts, left) == {"levels": 2, "grown": 0, "deep": 0, "lines": 3, "fix": 0, "near": 0, "own": 0, "cutLevels": 2, "cut": 1, "cutLines": 3, "held": 0,
+                                            "letters": 0, "letterSwaps": [], "lettersLeft": 0}
     assert MR.cut_all(None, ov, ins) == ([], [])   # 두 번째 누름 — 가를 것 없음
 
 
@@ -412,3 +414,67 @@ def test_conform_without_rules_only_matches_and_freeze_sets_the_slot_shape(monke
     ov = {"templates": {"1": {"slots": {"2": {"rep": "p1", "prefix": "o ", "letter": "o", "agentRep": "p1"}}}}}
     OC.freeze(ov, "1", 2, {"prefix": "o" + OC.NB, "tok": "o", "attrs": {"para": 3}, "body": {"char": 4}})
     assert ov["templates"]["1"]["slots"]["2"] == {"rep": "p1", "prefix": "o" + OC.NB, "letter": "o", "attrs": {"para": 3}, "bodyChar": {"char": 4}, "agentRep": "p1"}
+
+
+# ---------------------------------------------------------------- 넣은 줄의 레터 — 위 레벨과 같은 레터를 쓰지 않는다(spec_병합 ② §5-9 11 · merge_retidy.reletter_of · reletter)
+def _lettered(tree):
+    """연차보고서 「□ 평가항목 › ㅇ (2차년도) 추진 내용 및 실적 › - (추진 내용)」(T1 — 가장 긴 사슬 □ › o › - › ·) 아래(문서 차례로 「- (추진 내용)」 바로 뒤) 넣은 「o › - › ⋅」(T2 — 목적 문서에 없던 레벨).
+    다시 분석한 그래프는 넣은 「o」 를 같은 레터인 「ㅇ」 와 같은 레벨로 읽어 부모를 「□」(p1)로 둔다 — 넣은 자리(p3)는 문서 차례로 잡는다. 양식의 「⋅」 줄(p20)은 넣은 내용 뒤."""
+    ov = tree({"p1": ("1", 1, "F1", None), "p2": ("1", 2, "F2", "p1"), "p3": ("1", 3, "F3", "p2"), "p20": ("1", 4, "F4", "p3"),
+               "p10": ("2", 1, "S1", "p1"), "p11": ("2", 2, "S2", "p10"), "p12": ("2", 3, "S3", "p11"), "p13": ("2", 2, "S2", "p10")},
+              {("1", 1): "p1", ("1", 2): "p2", ("1", 3): "p3", ("1", 4): "p20", ("2", 1): "p10", ("2", 2): "p11", ("2", 3): "p12"})
+    for p, (letter, key) in {"p1": ("□", "□"), "p2": ("ㅇ", "o"), "p3": ("-", "-"), "p20": ("⋅", "·"), "p10": ("o", "o"), "p11": ("-", "-"), "p12": ("⋅", "·"), "p13": ("-", "-")}.items():
+        x = ov["lines"][p]
+        x.update(letter=letter, key=key)
+        ov["templates"][x["tpl"]]["slots"][str(x["level"])].update(letter=letter, key=key)
+    ov["templates"]["1"]["chain"], ov["templates"]["2"]["chain"] = ["□", "o", "-", "·"], ["o", "-", "·"]
+    return ov
+
+
+def test_inserted_levels_that_repeat_an_upper_letter_take_the_next_free_letter_of_the_longest_chain(tree):
+    """위 레벨(넣을 자리 「-」 · 그 위 「ㅇ」 · 「□」)과 같은 레터를 쓰는 넣은 레벨 — 가장 긴 사슬(□ › o › - › ·)에서 처음 안 겹치는 레터, 모자라면 덧붙인 기호(사용자 답 「기호를 더 씀」).
+    아래 레벨은 바꾼 위 레벨의 레터와도 안 겹치게(「⋅」 는 첫 레벨이 「⋅」 가 되어 다시 바뀐다) · 글자는 그 키로 문서에 친 글자(「·」 키 → 「⋅」)."""
+    ov = _lettered(tree)
+    ins = {"p10", "p11", "p12", "p13"}
+    assert [(k, g) for k, g in MR.pool(ov)][:4] == [("□", "□"), ("o", "ㅇ"), ("-", "-"), ("·", "⋅")] and [k for k, _ in MR.pool(ov)][4:] == list(MR.EXTRA)
+    got = MR.reletter_of(None, ov, ins)
+    assert [(r["tpl"], r["level"], r["was"], r["now"], sorted(r["lines"]), r["why"]) for r in got] == [
+        ("2", 1, "o", "⋅", ["p10"], None), ("2", 2, "-", "▪", ["p11", "p13"], None), ("2", 3, "⋅", "◦", ["p12"], None)]
+    assert ov["lines"]["p10"]["letter"] == "o"   # 계획만 — 오버레이는 그대로
+    c = MR.summary(MR.plan(None, ov, ins)["rows"], relet=got)
+    assert (c["letters"], c["letterSwaps"], c["lettersLeft"]) == (3, ["o → ⋅", "- → ▪", "⋅ → ◦"], 0)
+    # 「ㅇ › - (정의)」 아래 넣은 「-」(위 줄에 「□」 가 없다) — 차례의 처음(「□」)이 아니라 위 줄이 쓴 가장 깊은 레터(「-」) 다음부터: 「⋅」
+    ov2 = _lettered(tree)
+    ov2["lines"]["p2"]["parent"] = None
+    ov2["lines"]["p1"].update(letter="1.", key="N.")
+    got2 = MR.reletter_of(None, ov2, {"p10", "p11", "p12", "p13"})
+    assert [(r["level"], r["was"], r["now"]) for r in got2][:1] == [(1, "o", "⋅")]
+
+
+def test_reletter_writes_the_letter_line_by_line_and_the_slot_key_and_chain_follow(tree, monkeypatch):
+    ov = _lettered(tree)
+    ins = {"p10", "p11", "p12", "p13"}
+    seen = []
+
+    def match_one(doc, ov_, pid, sh, left=None):   # 진짜는 접두를 다시 쓰고 오버레이의 레터를 그 글자로(outline_match.match_one)
+        seen.append((pid, sh["tok"], sh["prefix"]))
+        ov_["lines"][pid]["letter"] = sh["tok"]
+    monkeypatch.setattr(OM, "match_one", match_one)
+    monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
+    changed = MR.reletter(None, ov, MR.reletter_of(None, ov, ins))
+    assert sorted(changed) == ["p10", "p11", "p12", "p13"] and ("p11", "▪", "▪ ") in seen   # 줄마다 제 모양(레터 앞 · 뒤 빈칸)에 레터만
+    assert [(ov["lines"][p]["letter"], ov["lines"][p]["key"]) for p in ("p10", "p11", "p12", "p13")] == [("⋅", "·"), ("▪", "▪"), ("◦", "◦"), ("▪", "▪")]
+    S = ov["templates"]["2"]["slots"]
+    assert [(S[k]["letter"], S[k]["key"]) for k in ("1", "2", "3")] == [("⋅", "·"), ("▪", "▪"), ("◦", "◦")] and ov["templates"]["2"]["chain"] == ["·", "▪", "◦"]
+    assert MR.reletter_of(None, ov, ins) == []   # 두 번째 누름 — 겹치는 레터 없음
+
+
+def test_inserted_levels_that_do_not_repeat_an_upper_letter_keep_their_letters(tree, monkeypatch):
+    """문서 차례로 「□」 바로 뒤(넣은 자리 = 「□」)에 넣은 「o › - › ⋅」 — 위 레벨(□)과 안 겹친다: 그대로. 목적 문서의 줄이 있는 레벨 · 사람이 처리를 고른 줄이 든 레벨은 건드리지 않는다."""
+    ov = _lettered(tree)
+    monkeypatch.setattr(OM, "_order", lambda doc: {"p1": 1, "p10": 2, "p11": 3, "p12": 4, "p13": 5, "p2": 6, "p3": 7, "p20": 8})
+    assert MR.reletter_of(None, ov, {"p10", "p11", "p12", "p13"}) == []
+    monkeypatch.setattr(OM, "_order", lambda doc: {f"p{i}": i for i in range(100)})
+    assert [r["level"] for r in MR.reletter_of(None, ov, {"p10", "p11", "p13"})] == [1, 2]   # p12(⋅)는 넣은 줄이 아니다 → 그 레벨(L3)은 목적 문서의 줄(form) — 안 바꾼다
+    got = MR.reletter_of(None, _lettered(tree), {"p10", "p11", "p12", "p13"}, keep={"p11"})
+    assert [(r["level"], r["now"], r["why"]) for r in got if r["level"] == 2] == [(2, None, "사람이 넘친 레벨의 처리를 고른 줄이 있어 그대로 둠")]

@@ -3,14 +3,14 @@
 // 서식으로 변환하기(선택하면 템플릿 리스트 보여주기) 이런 기능을 테이블에서 바로".
 // 문서의 표를 누르면 그 표가 **고른 표**(옅은 파란 테두리)가 되고, 표 **오른쪽 변 바로 바깥 — 쪽의 오른쪽 여백**(표 위끝 높이)에 손잡이(.tbl-corner)가 선다(마우스를 올린 표에도 —
 // 사용자 2026-11-10 "테이블 우측에 여백에 놔도 될거 같아": 처음의 왼쪽 위 모서리는 표 첫 칸과 왼쪽 여백의 표지를 가렸다). 손잡이를 누르면 표 메뉴:
-//   빈 필드 제거하기 ▸(필드가 모두 빈 행·열 — 서버가 찾아 주고, 고른 줄만 한 번에 지움) · 엑셀식 보기(2열 A1 격자 — 칸을 끌어 골랐으면 그 범위) ·
+//   빈 필드 제거하기 ▸(입력하는 줄이 통째로 빈 줄 · 빈 서브 테이블 · 표째(· 소속 헤딩) — 서버가 계획을 내고, 누르면 그 계획대로: spec_테이블매니저 ② §12) · 엑셀식 보기(2열 A1 격자 — 칸을 끌어 골랐으면 그 범위) ·
 //   서식으로 변환하기 ▸(표 양식 목록 — 누르면 그 표의 서식만 바로 입힘) · 표 나누기 ▸ ·
 //   에이전트로 표 채우기…(2열 — table_fill.js tblFillView, ② §18) · 이 표를 표 양식으로 지정 ·
 //   프로젝트 구성에 맞추기… ▸(연구개발과제 문서만 — 이 표의 구분 기준 자리를 보이고 고른 자리만 기존 「변경 계획 보기 → 반영」 으로: 아래 tmnDivision, spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」).
 // 손잡이 **바로 아래**에 둘째 아이콘(.tbl-corner-guide — 연필)이 함께 선다: 「작성요령 · 표 지침」(2열 — tables.js tblAgentView) 을 바로 연다.
 // 사용자 2026-11-12 "테이블 모서리에 아이콘 있는데 작성요령, 표지침을 꺼내서 아이콘 2개로" — 메뉴 안에 있던 항목을 꺼낸 것이라 메뉴에는 없다.
 // 메뉴 상자는 app.js 의 공용 오른쪽 단추 메뉴(ctxOpen — 하나뿐)를 빌려 쓴다: 하위 목록은 같은 자리에서 내용만 바꾸고(‹ 로 돌아감), 항목에 마우스를 올리면 문서에 미리 보인다.
-// app.js 가 주는 것: state·heads·$·el·api·toast·structOp·flushAll·ctx·ctxMenu·ctxOpen·headsColClose·colLetter·nf·H_JSON. tables.js: xlBlock·xlBlocks·xlColumn·xlSelRange·xlRangeName.
+// app.js 가 주는 것: state·heads·$·el·api·toast·structOp·flushAll·ctx·ctxMenu·ctxOpen·ctxClose·headsColClose·colLetter·nf·H_JSON·applyEditState·reloadDoc·refreshToolbar. tables.js: xlBlock·xlBlocks·xlColumn·xlSelRange·xlRangeName.
 // table_make.js: tmkOpen·tmkTableName·tmk·tmkRemember(표 양식 기억). 부르는 곳(typeof 검사 뒤): tables.js tblMarksDraw 끝 → tblMenuSync(쪽을 다시 나누면 표 조각이 새로 생긴다).
 // 서버 짝은 app/tables_api.py `POST …/tables/{tid}/prune`(app/table_prune.py)·`POST …/tables/restyle`. index.html 이 table_make.js 다음에 읽는다 — 이 파일이 없어도 다른 기능은 돈다.
 
@@ -226,7 +226,7 @@ function tmnMenu(tid) {
     [`표 ${tid} · ${b.nRows || "?"}×${b.nCols || "?"}`, "", tmnNoop, true, { cls: "tmn-head" }],
     null,
     ["빈 필드 제거하기", "▸", () => tmnPrune(tid), !hwpx || state.busy,
-      { title: `필드(채우는 값 칸)가 모두 빈 행·열을 찾아 지웁니다 — 찾은 줄을 보고 고릅니다(실행 취소로 되돌림)${only}` }],
+      { title: `입력하는 줄이 통째로 빈 줄을 찾아 지웁니다 — 줄이 하나도 안 남는 서브 테이블은 머리 행까지, 표는 표째(이 표만 있던 헤딩까지 — 먼저 묻습니다) · 값이 든 줄의 빈 칸은 그대로(실행 취소로 되돌림)${only}` }],
     [rg ? `엑셀식 보기 — 고른 칸 ${xlRangeName(rg)}` : inCol ? "엑셀식 보기 닫기" : "엑셀식 보기", "", () => { if (rg) xlColumn(tid, rg); else if (inCol) headsColClose(); else xlColumn(tid); }, false,
       { title: "문서 옆 열에 A1 격자 — 수식 자리 판정 · 계산 · 숫자 칸 · 엑셀로 받기\n표 칸을 끌어 고른 뒤 열면 그 범위만" }],
     ["서식으로 변환하기", "▸", () => tmnTemplates(tid), !hwpx || state.busy,
@@ -293,50 +293,93 @@ async function tmnPrune(tid) {
   if (seq !== tmn.seq || epoch !== state.epoch || !tmnMine()) return; // 그 사이 메뉴를 닫았거나 다른 목록을 엶
   const items = [head, null];
   if (err) { items.push([err, "", tmnNoop, true]); tmnOpen(items); return; }
-  const rows = p.emptyRows || [], cols = p.emptyCols || [];
-  const rowName = (i) => `${i + 1}`, colName = (i) => colLetter(i);
-  const why = p.why || {}; // 줄마다 빈 것으로 본 까닭(자리표시 글) — 옛 서버면 없음
+  // 빈 필드 = 서브 테이블의 입력하는 줄(레코드)이 통째로 빈 것(사용자 2026-11-22 — spec_테이블매니저 ② §12): 값이 든 줄의 빈 칸 · 빈 열은 그대로다(「빈 열 지우기」 는 없앴다).
+  // 서버의 계획(action · planId)이 둘 중 하나를 낸다 — rows(빈 줄 · 빈 서브 테이블 — 누르면 바로 지움) | table(지우면 입력 줄이 안 남는 표 — 표째 · 소속 헤딩까지: 확인 창을 거친다)
+  const rows = p.emptyRows || [], bands = p.bands || [];
+  const rowName = (i) => `${i + 1}`;
+  const why = p.why || {}; // 줄마다 빈 것으로 본 까닭(자리표시 글)
   const held = (p.held || []).length; // 지금 표와 맞지 않아 보류된 헤더 지정(spec_테이블매니저 ② §3 「사람의 헤더 지정」) — 있으면 서버가 지우기를 409 로 막는다: 여기서 미리 끄고 까닭을 보인다
   const off = state.busy || held > 0;
   if (held) {
     items.push([`헤더 지정 ${nf(held)}칸이 지금 표와 맞지 않습니다 — 표 메뉴에서 다시 지정하거나 풀어 주세요`, "", tmnNoop, true,
       { cls: "tmn-note", title: "지정한 칸의 자리나 글이 그 뒤 바뀌었습니다 — 어느 칸의 지정인지 분명하지 않아 쓰지 않고 남겨 두었습니다\n다시 지정하거나 풀 때까지 이 표의 빈 필드 제거는 멈춥니다(아래는 그 지정 없이 본 것)" }]);
   }
-  const kept = "\n\n빈 필드 = 글이 없거나 자리표시(0,000 · ○○)뿐인 값 칸 — 합계·비율 줄, 헤더·안내 줄은 대상이 아닙니다\n누르면 바로 지웁니다 · 도구 줄의 실행 취소로 되돌립니다";
-  if (rows.length) {
-    items.push([`빈 행 ${nf(rows.length)}개 지우기 — ${tmnSpans(rows, rowName)}행`, "", () => tmnPruneRun(tid, true, false, p), off,
-      { title: tmnLines(rows, p.rowNames, (i) => `${i + 1}행`, why.rows) + kept, enter: () => tmnPreview({ table: tid, rows }) }]);
+  const rule = "\n\n빈 줄 = 입력하는 값 칸이 모두 비었거나 자리표시(0,000 · ○○)뿐인 줄 — 기관 이름 · 연도 · 번호 같은 구분 칸은 입력값으로 세지 않습니다\n값이 하나라도 든 줄의 빈 칸은 그대로 둡니다";
+  const bandText = (b) => `「${b.name || `${b.rows[0] + 1}~${b.rows[1] + 1}행`}」${b.how === "orphan" ? "(머리만 남음)" : ""}`;
+  if (p.action === "table") {
+    const sc = p.scope || {}, h = sc.heading;
+    const all = [...Array(p.rows || 0).keys()];
+    items.push([h ? `표와 헤딩 「${h.text}」 지우기…` : "표 지우기…", "", () => tmnPruneTable(tid, p), off,
+      { title: `이 표는 입력하는 줄이 모두 비었습니다 — 표째 지웁니다${h ? `\n이 표만 있던 헤딩 「${h.text}」 도 함께 지웁니다` : ""}${rule}\n누르면 먼저 묻습니다 · 도구 줄의 실행 취소로 되돌립니다`,
+        enter: () => tmnPreview({ table: tid, rows: all }) }]);
+    if (!h && sc.why) items.push([`헤딩은 남깁니다 — ${sc.why.replace(/ 헤딩은 남깁니다$/, "")}`, "", tmnNoop, true, { cls: "tmn-note" }]);
+  } else if (rows.length) {
+    const label = `빈 줄 ${nf(rows.length)}개 지우기 — ${tmnSpans(rows, rowName)}행${bands.length ? ` · 서브 테이블 ${nf(bands.length)}개째` : ""}`;
+    const bandLines = bands.length ? `\n\n서브 테이블째(입력하는 줄이 하나도 안 남음 — 머리 행까지): ${bands.map(bandText).join(" · ")}` : "";
+    items.push([label, "", () => tmnPruneRun(tid, p), off,
+      { title: tmnLines(rows.filter((i) => p.rowNames && p.rowNames[i] != null), p.rowNames, (i) => `${i + 1}행`, why.rows) + bandLines + rule + "\n누르면 바로 지웁니다 · 도구 줄의 실행 취소로 되돌립니다",
+        enter: () => tmnPreview({ table: tid, rows }) }]);
+  } else {
+    items.push([p.scope && p.scope.block ? p.scope.block : p.note || "입력하는 줄이 통째로 빈 줄이 없습니다", "", tmnNoop, true, { cls: "tmn-note", title: rule.trim() }]);
   }
-  if (cols.length) {
-    items.push([`빈 열 ${nf(cols.length)}개 지우기 — ${tmnSpans(cols, colName)}열`, "", () => tmnPruneRun(tid, false, true, p), off,
-      { title: tmnLines(cols, p.colNames, (i) => `${colLetter(i)}열`, why.cols) + "\n지운 폭은 남은 열이 나눠 가집니다(표 폭 그대로)" + kept, enter: () => tmnPreview({ table: tid, cols }) }]);
-  }
-  if (rows.length && cols.length) {
-    items.push(["빈 행·열 모두 지우기", "", () => tmnPruneRun(tid, true, true, p), off,
-      { title: `빈 행 ${rows.length}개를 지운 뒤 남은 표에서 빈 열을 다시 찾아 지웁니다` + kept, enter: () => tmnPreview({ table: tid, rows, cols }) }]);
-  }
-  if (!rows.length && !cols.length) items.push([p.allEmpty ? "필드가 모두 비어 있는 표(빈 양식) — 지울 줄을 정하지 않습니다" : p.note || "필드가 모두 빈 행·열이 없습니다", "", tmnNoop, true, { cls: "tmn-note" }]);
-  const whyNote = tmnWhyNote(rows, cols, why); // 자리표시 글이 든 줄 — 도움말을 안 봐도 지우기 전에 보이게(누르면 바로 지운다)
+  const whyNote = p.action === "rows" ? tmnWhyNote(rows, [], why) : ""; // 자리표시 글이 든 줄 — 도움말을 안 봐도 지우기 전에 보이게(누르면 바로 지운다)
   if (whyNote) {
     items.push([`자리표시로 보아 빈 칸으로 센 글 — ${whyNote}`, "", tmnNoop, true,
       { cls: "tmn-note", title: "양식의 자리표시 꼴(0,000 · 00% · ○○)인 글은 빈 필드로 셉니다 — 사람이 쓴 값이면 그 줄은 지우지 마세요\n줄마다의 글은 위 항목의 도움말에도 보입니다(「3행 「재료비」 — 자리표시 「00%」」)" }]);
   }
-  const skipR = p.skipRows || [], skipC = p.skipCols || [];
-  if (skipR.length || skipC.length) {
-    items.push([`합친 칸에 걸려 못 지움 — ${[skipR.length ? `${tmnSpans(skipR, rowName)}행` : "", skipC.length ? `${tmnSpans(skipC, colName)}열` : ""].filter(Boolean).join(" · ")}`, "", tmnNoop, true,
-      { cls: "tmn-note", title: "그 줄에서 시작해 옆 줄로 넘어가는 합친 칸이 있습니다 — 칸을 끌어 골라 「행·열 지우기」 로 지우세요" }]);
+  if ((p.kept || []).length) {
+    items.push([`쓴 값이 있어 남긴 줄 — ${tmnSpans(p.kept, rowName)}행`, "", tmnNoop, true,
+      { cls: "tmn-note", title: "지우면 함께 없어질 칸에 쓴 값(수 · 글 · 그림)이 있습니다 — 머리로 읽힌 칸의 수(「24,000」)나 합계 칸에 적힌 값도 셉니다" }]);
   }
-  if (p.fields) items.push(null, [`채우는 필드 ${nf(p.fields)}개 · 빈 필드 ${nf(p.emptyFields)}개`, "", tmnNoop, true, { cls: "tmn-note", title: "채우는 필드 = 칸 역할이 필드인 칸에서 수식으로 셈하는 칸(합계·비율)을 뺀 것" }]);
+  const skipR = p.skipRows || [], skipB = p.skipBands || [];
+  if (skipR.length || skipB.length) {
+    items.push([`합친 칸에 걸려 못 지움 — ${[skipR.length ? `${tmnSpans(skipR, rowName)}행` : "", ...skipB.map(bandText)].filter(Boolean).join(" · ")}`, "", tmnNoop, true,
+      { cls: "tmn-note", title: "그 줄에서 시작해 옆 줄로 넘어가는 합친 칸이 있습니다(서브 테이블은 통째로만 지웁니다) — 칸을 끌어 골라 「행·열 지우기」 로 지우세요" }]);
+  }
+  if (p.fields) items.push(null, [`채우는 필드 ${nf(p.fields)}개 · 빈 필드 ${nf(p.emptyFields)}개${p.keys ? ` · 구분 칸 ${nf(p.keys)}개` : ""}`, "", tmnNoop, true,
+    { cls: "tmn-note", title: "채우는 필드 = 칸 역할이 필드인 칸에서 수식으로 셈하는 칸(합계·비율)과 구분 칸을 뺀 것\n구분 칸 = 기관 이름 · 연도 · 차년도 · 단계 · 번호 머리 아래의 칸 — 줄의 이름표라 입력값으로 세지 않습니다" }]);
   tmnOpen(items);
 }
-async function tmnPruneRun(tid, rows, cols, p) {
-  const r = await structOp(`tables/${encodeURIComponent(tid)}/prune`, { rows, cols, rev: p.rev }); // 대기 중 글 반영 → 서버 편집(OWPML 검사) → 바뀐 블록만 다시 그림 · 실패는 structOp 가 알림
+async function tmnPruneRun(tid, p) {
+  const r = await structOp(`tables/${encodeURIComponent(tid)}/prune`, { action: "rows", planId: p.planId, rev: p.rev }); // 대기 중 글 반영 → 서버 편집(OWPML 검사) → 바뀐 블록만 다시 그림 · 실패는 structOp 가 알림
   if (!r || !r.pruned) return;
-  const d = r.pruned, parts = [];
-  if ((d.rows || []).length) parts.push(`빈 행 ${nf(d.rows.length)}개`);
-  if ((d.cols || []).length) parts.push(`빈 열 ${nf(d.cols.length)}개`);
-  const skip = (d.skipRows || []).length + (d.skipCols || []).length;
-  toast(`표 ${tid} — ${parts.join(" · ")}를 지웠습니다${skip ? `(합친 칸에 걸린 ${skip}줄은 그대로)` : ""} · 도구 줄의 실행 취소로 되돌릴 수 있습니다`);
+  const d = r.pruned, bands = d.bands || [];
+  const skip = (d.skipRows || []).length + (d.skipBands || []).length;
+  toast(`표 ${tid} — 빈 줄 ${nf((d.rows || []).length)}개를 지웠습니다${bands.length ? `(서브 테이블 ${bands.map((b) => `「${b.name}」`).join(" · ")} 째)` : ""}${skip ? ` · 합친 칸에 걸린 ${skip}곳은 그대로` : ""} · 도구 줄의 실행 취소로 되돌릴 수 있습니다`);
+}
+async function tmnPruneTable(tid, p) { // 표째(· 소속 헤딩까지) — 떨어진 여러 블록이 없어지므로 확인을 받고, 지운 뒤 문서를 다시 읽는다(heading_temp.js 의 TEMP 지우기와 같은 꼴)
+  if (state.busy || !state.id) return;
+  const sc = p.scope || {}, h = sc.heading;
+  if (!confirm(`표 ${tid} 를 지울까요?${h ? `\n이 표만 있던 헤딩 「${h.text}」 도 함께 지웁니다.` : ""}${sc.caption ? `\n표의 캡션 「${sc.caption}」 도 함께 없어집니다.` : ""}\n\n입력하는 줄이 모두 비어 있습니다. 표준 검사에 걸리면 전부 되돌립니다 · 지운 뒤 「실행 취소」 로 되돌릴 수 있습니다.`)) return;
+  ctxClose();
+  tmnPreview(null);
+  const epoch = state.epoch, id = state.id;
+  state.busy = true; // 먼저 잡는다(structOp 와 같게) — 글 반영을 기다리는 사이 다른 편집이 끼지 않게
+  refreshToolbar();
+  let done = false;
+  try {
+    await flushAll(); // 아직 반영 안 된 글부터 — 서버 문서를 지운다
+    if (epoch !== state.epoch) return;
+    if (state.failed.size) { toast("서버에 반영하지 못한 문단이 있어 먼저 다시 반영해야 합니다 — 「고친 문단」 탭", true); return; } // 저장 못 한 글이 있으면 지우지 않는다(astra 2차)
+    const r = await api(`/api/docs/${encodeURIComponent(id)}/tables/${encodeURIComponent(tid)}/prune`, { method: "POST", headers: H_JSON, body: JSON.stringify({ action: "table", planId: p.planId, rev: p.rev }) });
+    if (epoch !== state.epoch) return;
+    done = true;
+    state.localRev += 1;
+    state.structRev = state.localRev; // 표 판정 캐시(tables.js)도 새로
+    applyEditState(r);
+    toast(`표 ${tid}${h ? `와 헤딩 「${h.text}」` : ""}를 지웠습니다 — 도구 줄의 「실행 취소」 로 되돌릴 수 있습니다`);
+    await reloadDoc(); // 떨어진 블록(헤딩 · 표 · 사이 빈 줄)이 없어져 문서를 다시 읽는다
+  } catch (e) {
+    if (epoch !== state.epoch) return;
+    if (done) { toast(`표는 지웠습니다 — 화면을 다시 읽지 못했습니다(새로 고침하세요): ${e.message}`, true); return; }
+    if (epoch !== state.epoch) return;
+    toast(e.status === 422 ? `표준 검사에 걸려 되돌렸습니다: ${e.message}` : `지우지 못했습니다: ${e.message}`, true);
+  } finally {
+    if (epoch === state.epoch) {
+      state.busy = false;
+      refreshToolbar();
+    }
+  }
 }
 
 // ---- 프로젝트 구성에 맞추기(spec_테이블매니저 ② §9 「표 하나만 프로젝트 구성에 맞추기」 — 구성 개선 묶음 · 연구개발과제 문서만) ------------------------------------------

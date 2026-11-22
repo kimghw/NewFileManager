@@ -157,6 +157,16 @@ def test_erase_keeps_zero_length_children_in_place():
     assert d._text(d._ids[pid]) == "ZEF" and _tags(d, pid, "titleMark") == 1
 
 
+def test_replace_prefix_writes_a_tab_with_the_required_type():
+    """접두에 탭이 든 대표 모양(레터 뒤가 탭)으로 다시 쓴 줄의 탭에도 OWPML 필수 속성 type(2026-11-22 — 속성 없는 hp:tab 이 생겨 표준 검사가 원본 문서의 조정을 되돌렸다: hwpx_struct._put_text)."""
+    from app.hwpx_doc import NEW_TAB
+    d = _doc()
+    pid = _put(d, "<hp:t> -  가나다</hp:t>")
+    d.replace_prefix(pid, 4, "-" + chr(9))
+    tabs = list(d._ids[pid].iter(_p("tab")))
+    assert d._text(d._ids[pid]) == "-" + chr(9) + "가나다" and len(tabs) == 1 and dict(tabs[0].attrib) == NEW_TAB
+
+
 def test_erase_refuses_autonum_in_range():
     """자동 번호(표시 글이 있는 hp:ctrl)가 지우는 범위에 걸치면 거절 — 전에는 세기만 하고 안 지워 범위가 밀렸다(1C · Z1BC). 문서는 그대로."""
     d = _doc()

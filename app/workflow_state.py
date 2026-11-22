@@ -209,7 +209,7 @@ def _solo(task, fam, ctx0, aux, role):
     work = [(s, got, wait) for s, _u, got, wait in own if not s["optional"]]
     first = next(((s, got, wait) for s, got, wait in work if got["st"] != "done"), None)   # 그 문서의 첫 남은 필수 줄 — 그 줄이 기다리면 「그 문서만」 은 시작하지 않는다
     return {"total": len(work), "left": sum(1 for _s, got, _w in work if got["st"] != "done"), "paid": sorted({d for _s, _u, got, _w in own for d in got.get("paid") or ()}),
-            "change": any(u["change"] == "doc" for _s, u, _g, _w in own), "busy": any(got["st"] == "busy" for _s, _u, got, _w in own), "wait": first[2] if first else ""}, left_by
+            "change": any(u and U.changes(u, role) for _s, u, _g, _w in own), "busy": any(got["st"] == "busy" for _s, _u, got, _w in own), "wait": first[2] if first else ""}, left_by
 
 
 def ready(task, pair):
@@ -251,7 +251,7 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
         srv = served(task, g["id"])
         no, name = stage_label(g)
         row = {"id": g["id"], "no": no, "name": name, "does": g.get("does") or "", "server": srv, "steps": None, "total": 0, "done": 0, "left": 0, "can": False, "why": "", "paid": [],
-               "change": any(s["change"] == "doc" for s in mine), "after": []}
+               "change": any(s["change"] == "doc" and (s["key"] not in U.TIDY_ROLES or set(U.roles_of(s["on"])) & set(U.TIDY_ROLES[s["key"]])) for s in mine), "after": []}   # 1단계 「LLM 검증·보완」 을 목적 문서에만 놓은 묶음은 문서가 안 바뀐다
         if srv:
             steps, opened, aux = [], True, []
             for s in mine:

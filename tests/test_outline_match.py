@@ -278,6 +278,16 @@ def test_match_numbered_letters_keep_own_number(sess):
     _undo_all(c, d, s)
 
 
+def test_match_keeps_own_number_even_when_the_key_is_the_letter_itself(sess):
+    """그래프가 번호 레터를 글자 그대로의 키로 둔 줄(「(2-1)」 — 정규 키 「(N-N)」 가 아님)도 대표 꼴에 **제 번호**(2026-11-22: 이관의 조정이 「(2-1)」 · 「(3-1)」 을 대표의 「(1-1)」 로 바꿨다)."""
+    c, d, s = sess
+    s.outline["lines"]["p5930"]["key"] = "5-3."   # 키가 번호형이 아니다(is_numbered 거짓)
+    r = c.post(f"/api/docs/{d}/outline/slots/1/2/match", json={"paras": ["p5930"]})
+    assert r.status_code == 200, r.text
+    assert s.texts["p5930"].startswith(" 5-3. ") and s.outline["lines"]["p5930"]["letter"] == "5-3."   # 대표(「1-1.」)의 번호가 아니라 제 번호
+    _undo_all(c, d, s)
+
+
 def test_merge_makes_a_composite_template_and_unmerge(sess):
     c, d, s = sess
     before = c.get(f"/api/docs/{d}/download").content

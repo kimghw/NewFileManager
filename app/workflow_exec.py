@@ -556,7 +556,7 @@ def _together(task, a, b):
     ra, rb = S.roles_on(task, a["on"]), S.roles_on(task, b["on"])
     if len(ra) != 1 or len(rb) != 1 or ra[0] == rb[0]:
         return False
-    return not ((ua["change"] == "doc" and ra[0] in ub["reads"]) or (ub["change"] == "doc" and rb[0] in ua["reads"]))
+    return not ((U.changes(ua, ra[0]) and ra[0] in ub["reads"]) or (U.changes(ub, rb[0]) and rb[0] in ua["reads"]))   # 바꾸는가 = 그 문서 역할에서(U.changes — 1단계 LLM 줄의 목적 문서는 안 바뀐다)
 
 
 def _do_heads(run, stage, line):
@@ -647,13 +647,13 @@ def _do_heads_llm(run, stage, line):
     줄이 두 문서를 하면(같은 차례) 두 문서의 것을 **함께** 돈다(_lanes — 2026-11-20: 전에는 원본 문서의 것이 끝난 뒤 목적 문서의 것). 글은 문서 차례(원본 → 목적)대로."""
     llm, skip = UNIT.llm_ok(), set(UNIT.skips(run.target))
 
-    def one(d, name):   # → (left | note | did | "", 글)
+    def one(d, name, role):   # → (left | note | did | "", 글)
         run.guard()   # 유료 호출 전에 멈춤 요청 · 대상을 다시 본다
         f = UNIT.facts(d)
         if not _got(f):
             return "left", f"{name} LLM 검증·보완은 하지 않음(헤딩 · 표 분석이 먼저입니다 — 남은 단계)"
         if f["heads"]["llm"]:
-            return "", ""
+            return _tidy_after(run, stage, line["key"], d, name, role)   # 이미 거친 문서 — 받은 계획이 지금 그래프의 것이고 남았으면 반영만
         if not llm:
             return "note", f"{name} LLM 검증·보완은 건너뜀(LLM 을 쓸 수 없음)"
         if d in skip:
@@ -665,14 +665,26 @@ def _do_heads_llm(run, stage, line):
         if not (f and f["heads"]["llm"]):
             err = ((f or {}).get("heads", {}).get("job") or {}).get("error") or "LLM 이 답을 내지 못했습니다"
             raise _Halt("failed", f"{name}의 LLM 검증·보완이 끝나지 않았습니다 — {err}(다시 누르거나 그 줄의 「건너뛰기」)")
-        return "did", f"{name} LLM 검증·보완을 거쳤습니다"
+        k, t = _tidy_after(run, stage, line["key"], d, name, role)
+        return ("left" if k == "left" else "did"), f"{name} LLM 검증·보완을 거쳤습니다" + (f" · {t}" if t else "")
 
     docs = _docs_of(run, line)
-    out = _lanes(run, [functools.partial(one, d, name) for d, name, _ in docs]) if docs else []
+    out = _lanes(run, [functools.partial(one, d, name, role) for d, name, role in docs]) if docs else []
     left, notes = [t for k, t in out if k == "left"], [t for k, t in out if k in ("note", "did")]
     if left:
         return "left", " · ".join(left + notes)
     return ("done" if any(k == "did" for k, _ in out) else "nothing"), " · ".join(notes)   # 이미 거친 문서는 글이 없다(화면 실행의 끝 글과 같게)
+
+
+def _tidy_after(run, stage, key, d, name, role):
+    """LLM 검증·보완을 거친 그 문서에 받은 서식 정리 계획을 반영(조정 「모두 반영」 — _adjust_doc(fresh_only): 울타리 · 지금 그래프의 받은 계획이 있을 때만 · 처음 반영 전에는 유료로 계획을 새로 받지 않음)
+    → (left | did | note | "", 글). 이관형만 · 문서 역할은 workflow_units.TIDY_ROLES(1단계 = 원본 문서 · 2단계 = 그 줄의 문서) — 그 밖은 아무것도 안 한다."""
+    if S.family(run.task) != "relay" or role not in U.TIDY_ROLES.get(key, ()):
+        return "", ""
+    st, text, did = _adjust_doc(run, stage, key, d, name, fresh_only=True)
+    if not text:
+        return "", ""
+    return ("left" if st == "left" else "did" if did["applies"] else "note"), f"{name} {text}"
 
 
 HANDLERS = {"heads": _do_heads, "headsLlm": _do_heads_llm}   # 단위 key → 처리 함수(run, 묶음 id, 줄) → (done | nothing | left, 글) · 멈춤은 _Halt · _Stop
@@ -781,7 +793,7 @@ def _range_lines(task, span, only="", row=False, role=""):
 def _clash(a, b):
     """서로 다른 문서의 두 줄 a · b = (역할, 단위)를 같이 돌면 안 되나 — **한쪽이 바꾸는 문서를 다른 쪽이 읽을 때**(단위의 change 가 doc 인 줄의 문서가 다른 줄의 reads 에 있다 — _together 와 같은 조건)."""
     (ra, ua), (rb, ub) = a, b
-    return (ua["change"] == "doc" and ra in ub["reads"]) or (ub["change"] == "doc" and rb in ua["reads"])
+    return (U.changes(ua, ra) and ra in ub["reads"]) or (U.changes(ub, rb) and rb in ua["reads"])
 
 
 @contextlib.contextmanager
@@ -866,7 +878,7 @@ def _commit_docs(run):
             u = x.get("unit") or {}
             if u.get("kind") != "auto" or u.get("change") != "doc":
                 continue
-            roles |= {"target"} if u.get("place") == "pair" or u.get("each") else set(S.roles_on(task, x["on"]))
+            roles |= {"target"} if u.get("place") == "pair" or u.get("each") else {r for r in S.roles_on(task, x["on"]) if U.changes(u, r)}   # 서식 정리를 반영하는 LLM 줄은 그 역할만(U.TIDY_ROLES — 1단계 「LLM 검증·보완」 의 목적 문서는 아님)
     with run.lock:
         changed = set(run.changed)
     return [(d, r, name) for d, r, name in _held_docs(run) if r in roles or d in changed]
@@ -2114,7 +2126,10 @@ def _reheads_llm_doc(run, stage, role, tgt, D_):
     """다시 문서 검토(LLM)(문서 하나) — 구조를 맞춘 그 문서의 LLM 검증·보완(유료 · 몇 분 — 문서는 안 바뀜). 이미 끝났으면(거침 · LLM 을 못 씀 · 건너뜀) 글만 · 승인 밖이면 남김."""
     st, _ = _fit_state(run, "reheadsLlm", role)
     if st["st"] == "done":
-        return "nothing", (f"{D_} LLM 검증·보완은 건너뜀({'LLM 을 쓸 수 없음' if UNIT.llm_ok() is False else '건너뛰기'})" if st.get("skipped") else "")
+        if st.get("skipped"):
+            return "nothing", f"{D_} LLM 검증·보완은 건너뜀({'LLM 을 쓸 수 없음' if UNIT.llm_ok() is False else '건너뛰기'})"
+        k, t = _tidy_after(run, stage, "reheadsLlm", tgt, D_, role)   # 이미 거친 문서 — 받은 계획이 지금 그래프의 것이고 남았으면 반영만
+        return ("left" if k == "left" else "done" if k == "did" else "nothing"), t
     rh, _ = _fit_state(run, "reheads", role)
     if rh["st"] != "done":
         return "left", f"{D_} LLM 검증·보완은 하지 않음(「다시 문서 검토」 가 먼저입니다 — 남은 단계)"
@@ -2126,7 +2141,8 @@ def _reheads_llm_doc(run, stage, role, tgt, D_):
     if st["st"] != "done":
         err = (((UNIT.facts(tgt) or {}).get("heads") or {}).get("job") or {}).get("error")
         raise _Halt("failed", f"{D_}의 LLM 검증·보완을 끝내지 못했습니다{f' — {err}' if err else ''} · 다시 누르거나 그 줄의 「건너뛰기」 로 스크립트 분석만으로 진행하세요")
-    return "done", f"{D_} LLM 검증·보완을 거쳤습니다"
+    k, t = _tidy_after(run, stage, "reheadsLlm", tgt, D_, role)
+    return ("left" if k == "left" else "done"), f"{D_} LLM 검증·보완을 거쳤습니다" + (f" · {t}" if t else "")
 
 
 def _tail_fit(task, g, R):
@@ -2389,28 +2405,45 @@ def _adjust_text(d, undo=True):
 
 
 def _do_std_adjust(run, stage, line):
-    """[문서 바뀜] 조정 「모두 반영」 — 헤딩 판정(LLM) 뒤에: (받을 계획이 남았으면 서식 정리 계획만 다시 — 유료) → 울타리 안에서 분석 상태를 다시 읽고 방금 읽은 그 계획 · 확실한 종속 · 자리 맞춤을 반영 →
-    반영으로 새로 생긴 서식 종속 템플릿에 받을 계획이 남으면 되풀이(각각 ADJ_MAX 번까지). 헤딩 판정에 미판정이 있으면 반영하지 않고 남긴다 · 표준 검사가 되돌리면 멈춤 · 그 사이 바뀌었으면 다시 읽는다.
-    남긴 것(그대로 둔 줄 · 못 받은 계획 · 한도)은 실패로도 「끝남」 으로도 적지 않는다 — 무엇이 몇 줄 · 어디서 보정하는지."""
+    """[문서 바뀜] 조정 「모두 반영」(문서 하나의 줄) — 몸은 문서마다의 _adjust_doc(이관형의 LLM 검증·보완 뒤 반영도 같은 몸)."""
     D_, doc = _one(run)
+    st, text, _ = _adjust_doc(run, stage, "adjust", doc, D_)
+    return st, text
+
+
+def _adjust_doc(run, stage, key, doc, D_, fresh_only=False):
+    """[문서 바뀜] 조정 「모두 반영」 — 문서 하나. 헤딩 판정(LLM) 뒤에: (받을 계획이 남았으면 서식 정리 계획만 다시 — 유료) → 울타리 안에서 분석 상태를 다시 읽고 방금 읽은 그 계획 · 확실한 종속 · 자리 맞춤을 반영 →
+    반영으로 새로 생긴 서식 종속 템플릿에 받을 계획이 남으면 되풀이(각각 ADJ_MAX 번까지). 헤딩 판정에 미판정이 있으면 반영하지 않고 남긴다 · 표준 검사가 되돌리면 멈춤 · 그 사이 바뀌었으면 다시 읽는다.
+    남긴 것(그대로 둔 줄 · 못 받은 계획 · 한도)은 실패로도 「끝남」 으로도 적지 않는다 — 무엇이 몇 줄 · 어디서 보정하는지.
+    fresh_only = **지금 그래프의 받은 계획**이 있을 때만 한다(이관형의 LLM 검증·보완 · 다시 문서 검토(LLM) 뒤 — spec_워크플로우 ② §18-25): 반영할 받은 계획이 없으면 아무것도 안 하고
+    (헤딩 추출이 없는 문서도 · 구조 반영으로 계획이 옛것이 된 문서에 유료로 계획을 다시 받지 않는다), 처음 반영하기 전에는 계획을 새로 받지 않는다(반영으로 새로 생긴 서식 종속 템플릿의 것만).
+    → (done | nothing | left, 끝 글, 한 것 {tpls, lines, splits, reps, placed, merged, applies})."""
     did = {"tpls": 0, "lines": 0, "splits": 0, "reps": 0, "placed": 0, "merged": 0, "applies": 0}
     notes, asked, chains, tries, seen = [], None, 0, 0, None
+    llm = UNIT.llm_ok()
     for _ in range(ADJ_PAGES + ADJ_MAX * 3 + 4):   # 돌 수 있는 가장 많은 차례(계획 받기 · 반영 · 기다림) — 그 안에 끝나지 않으면 아래에서 남긴다(끝없이 돌지 않게)
         run.guard()
-        st, v = _std_state(run, "adjust")
-        if st["st"] == "blocked" or "heads" not in U.std_items(v):
+        if fresh_only and not did["applies"] and UNIT.analysis(doc) is None:
+            return "nothing", "", did   # 분석 상태를 못 읽음 — LLM 줄을 멈추지 않고 반영만 하지 않는다
+        v = _std_now(doc)
+        st = U.std_adjust_state(v, doc, llm)
+        if "heads" not in U.std_items(v):
+            if fresh_only:
+                return "nothing", "", did
             raise _Halt("blocked", st["text"])
         if st["st"] == "busy" or v.get("busy"):   # 다른 헤딩 작업(서식 정리 계획 …)이 끝난 뒤에
             run.working = {doc}
             run.wait(doc, WAIT["llm"], f"{D_}의 헤딩 작업")
             continue
         if (U.std_items(v)["heads"].get("llm") or {}).get("state") != "done":
-            return "left", "조정은 하지 않음(헤딩 LLM 판정이 먼저입니다 — 남은 단계)"
+            return "left", "조정은 하지 않음(헤딩 LLM 판정이 먼저입니다 — 남은 단계)", did
         P = U.std_left(v)
+        if fresh_only and not did["applies"] and not (P["at"] and P["apply"]):
+            return "nothing", "", did   # 지금 그래프의 받은 계획이 없다 — 반영할 것도 · 새로 받을 것도 없다(유료를 부르지 않는다)
         sig = sorted(f"{x.get('tpl')}:{x.get('omitted') or 0}" for x in P["need"])   # 받을 계획의 꼴 — 같은 것이 그대로 남았으면 다시 묻지 않는다(방금 못 받은 계획을 되풀이해 부르지 않게)
         om = sum(x.get("omitted") or 0 for x in P["need"])
         paging = seen is not None and om < seen   # 못 본 서식이 앞 차례보다 줄었다(서식이 많은 레벨을 차례로 넘기는 중) — 되풀이 한도와 따로 센다(화면 HRA_PAGES)
-        if P["need"] and sig != asked and chains < (ADJ_PAGES if paging else ADJ_MAX):
+        if P["need"] and sig != asked and chains < (ADJ_PAGES if paging else ADJ_MAX) and not (fresh_only and not did["applies"]):
             why = _std_paid_ok(run, doc)
             asked, seen = sig, om
             if why:
@@ -2419,7 +2452,7 @@ def _do_std_adjust(run, stage, line):
                 chains += 1
                 # 유료 — _llm_job 이 시작 직전에 멈춤 요청 · 대상을 다시 보고(위에서 분석 상태를 읽는 사이 온 멈춤이 새 호출을 내지 않게), 도는 다른 작업을 기다린 뒤에는 받을 계획이 아직 남았을 때만 다시 건다 ·
                 # 사람이 문서 진행표에서 그 작업을 멈췄으면 실행도 멈춘다(다음 차례가 계획을 다시 유료로 부르지 않게 — astra B3 · B4)
-                job = _llm_job(run, stage, "adjust", doc, D_, start=lambda d: UNIT.start_formats(d, run.rec.get("skill")), what="서식 정리 계획 받기",
+                job = _llm_job(run, stage, key, doc, D_, start=lambda d: UNIT.start_formats(d, run.rec.get("skill")), what="서식 정리 계획 받기",
                                note=f"{D_} 서식 정리 계획 받기 — 템플릿 {U.nf(len(P['need']))}개(유료)", done=lambda: not U.std_left(_std_now(doc))["need"], stops=True)
                 if job and job.get("error"):
                     notes.append(f"서식 정리 계획을 받지 못함 — {job['error']}")   # 받은 계획은 반영하고 못 받은 템플릿은 남긴다
@@ -2429,7 +2462,7 @@ def _do_std_adjust(run, stage, line):
         if P["apply"] and tries < ADJ_MAX:
             tries += 1
             got = None
-            run.note(stage, "adjust", f"조정 — {U.std_apply_text(P)}", doc)
+            run.note(stage, key, (f"{D_} " if fresh_only else "") + f"조정 — {U.std_apply_text(P)}", doc)
             run.working = {doc}
             with run.fence(doc):
                 run.guard()
@@ -2456,20 +2489,20 @@ def _do_std_adjust(run, stage, line):
             did["merged"] += len(r.get("merged") or ())
             continue
         break
-    st, v = _std_state(run, "adjust")
-    P = U.std_left(v)
+    v = _std_now(doc)
+    st, P = U.std_adjust_state(v, doc, llm), U.std_left(v)
     head = _adjust_text(did, undo=not _commit_on(run))   # 묶음째 실행은 끝에 확정한다 — 「실행 취소」 를 약속하지 않는다(② §18-24)
     if st["st"] == "done":
         left = U.std_unseen(P) + notes   # 미판정도 끝 글에(수 · 다시 판정할 곳) — 반영할 것이 없어 줄은 끝났어도 「다 봤다」 는 아니다(astra P2: 화면의 전체 실행도 그 수를 알린다)
         text = (head or "반영할 것이 남지 않았습니다") + (f" · 남긴 것: {' / '.join(left)}" if left else "")
-        return ("done" if did["applies"] else "nothing"), text
+        return ("done" if did["applies"] else "nothing"), text, did
     if P["apply"] and P["undecided"]:
         notes.insert(0, U.std_undecided_text(P["undecided"]) + "(받은 계획은 남아 있습니다)")
     elif P["apply"]:
         notes.insert(0, f"되풀이 한도({ADJ_MAX}번)에 닿아 멈췄습니다 — 반영하지 않은 것: {U.std_apply_text(P)}(다시 누르면 남은 것부터)")
     elif P["need"] and not notes:
         notes.append(f"서식 정리 계획을 받지 않은 템플릿 {U.nf(len(P['need']))}개 — 「계획 보기」 의 「계획 받기」")
-    return "left", " · ".join(x for x in (head, "남긴 것: " + " / ".join(notes) if notes else st["text"]) if x)
+    return "left", " · ".join(x for x in (head, "남긴 것: " + " / ".join(notes) if notes else st["text"]) if x), did
 
 
 FAMILY_HANDLERS["single"].update({"heads": _do_std_script, "tables": _do_std_script, "headsLlm": _do_std_llm, "tablesLlm": _do_std_llm, "adjust": _do_std_adjust})   # tree · tableTools 는 사람이 한다
