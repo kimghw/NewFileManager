@@ -6712,6 +6712,7 @@ function headsRender(r) {
   }
   headsStageSync(r); // 단계 탭 — 고른 단계 · 탭마다 도는 중/오래됨 표시
   if (typeof zonesHeadsSeen === "function") zonesHeadsSeen([r.stage2, r.stage3].map((s) => (s && s.meta ? `${s.meta.run}|${s.meta.at}` : "")).join("#")); // 편집 구역(zones.js) — 헤딩 그래프(윗 제목)·표 구조(표의 머리)가 바뀌면 구역도 다시 읽는다
+  divHeadsSeen(r.stage3 && r.stage3.meta ? `${r.stage3.meta.run}|${r.stage3.meta.at}` : ""); // 구분 기준 자리 표시 — 표 구조가 바뀌면 다시 읽는다(같은 rev 에서 끝나도: spec_구분_기준 ② §25)
   headsMore1(r);
   headsMore2(r);
   headsMore3(r);
@@ -10295,7 +10296,7 @@ function divMarksBar() { // 탭 맨 위 줄 — 보기/감추기 · 범례(구�
       const users = hints.filter((h) => h.by !== "llm").length, llms = hints.length - users;
       if (users) { const c = el("span", "dv-chip hint", `추가(사용자) ${users}`); leg.append(c); }
       if (llms) { const c = el("span", "dv-chip hint-llm", `추가(LLM) ${llms}`); leg.append(c); }
-      if (!byDim.size && !hints.length) leg.append(el("span", "dv-caption", "찾은 구분 기준 자리가 없습니다"));
+      if (!byDim.size && !hints.length && !(d.reads || []).length) leg.append(el("span", "dv-caption", "찾은 구분 기준 자리가 없습니다")); // 판독만인 자리(가는 띠)만 있어도 「없다」 고 하지 않는다(② §25)
       bar.append(leg);
       const stale = d.rev !== state.serverRev;
       if (stale) bar.append(el("p", "dv-caption dv-marks-note", "문서 변경됨 · 다시 읽기 필요"));
@@ -10337,6 +10338,14 @@ async function divMembersLoad(force = false) { // 표시 자료 읽기 — 같�
   finally { if (epoch === state.epoch && seq === m.seq) { m.loading = false; divMarksBarRefresh(); if (heads.dlg === "divisions-hints") divHintsList(); else if (heads.dlg === "divisions-missing") divMissingList(); if (m.again) { m.again = false; divMembersLoad(true); } } }
 }
 
+function divHeadsSeen(key) { // 표 구조(3단계)의 실행이 바뀌었다(spec_구분_기준 ② §25 — 표시의 보탬이 그 결과를 읽는다: 문서 rev 가 같아도 다시 읽게 · astra P1)
+  const m = dv.marks, was = m.s3;
+  m.s3 = key;
+  if (was === undefined || was === key || !m.data) return; // 처음 본 값 — 읽어 둔 자료가 이미 그때의 것
+  m.data = null;
+  if (divMarksOn()) divMembersLoad(true);
+}
+
 function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽 — 바탕), dims[든 구분 — 겉→안 · 띠 차례], thin(판독만인 구분), readOnly(판독만인 문단), lab, hint, lines[겉→안 소속 글]}
   const idx = new Map();
   const rank = (dim) => (dim in DV_DIM_RANK ? DV_DIM_RANK[dim] : 4);
@@ -10364,7 +10373,7 @@ function divMembersIndex(r) { // 문단 id → {dim(가장 안쪽 — 바탕), d
     e.lines.push({ rank: 9, line: `추가한 자리(${h.by === "llm" ? "LLM" : "사용자"}) — ${h.dimName || h.dim} 「${h.value || "?"}」${h.engine ? " · 묶음의 라벨" : " · 표시만(아직 묶음 아님)"}${h.reason ? ` · ${h.reason}` : ""}${h.note ? ` · 메모 ${h.note}` : ""}` });
   }
   // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕 없음(같은 구분의 엔진 자리 안이면 엔진 자리대로)
-  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", table: "표 안 판독" }; // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
+  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", table: "표 안 판독", struct: "표 구조(헤딩 추출 3단계)의 구분 값 머리", series: "같은 헤딩 아래 같은 꼴 표 — 값마다 표 하나" }; // struct · series = 표 구조 보탬(spec_구분_기준 ② §25) // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
   for (const x of r.reads || []) {
     for (const pid of x.paras || []) {
       const e = entry(pid, x.dim, 5);

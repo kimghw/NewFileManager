@@ -877,26 +877,32 @@ function dashFlowTake(card, off) { // 그 카드의 고르기 단추
     b.classList.add("dash-chip");
     b.setAttribute("aria-pressed", String(!!on));
     return b;
-  }, name = (t) => el("span", "dash-chip-name", t), br = () => el("span", "dash-break");
-  acts.push(name("대상 차년도"));
-  for (const y of C.year || []) acts.push(chip(y.name, V.year === y.n, () => dashTakePut(`대상 차년도 — ${y.name}`, { year: y.n }),
-    `${y.name} 문서를 냅니다 — 목적 문서의 「당해 차년도」 를 ${y.n}차년도로 적습니다(문서는 바뀌지 않습니다 · 구조를 이미 반영했으면 「프로젝트 구성 반영」 을 다시 해야 합니다)`, `act:take:target:${y.n}`)); // 초점 이름 = target(「넣을 차년도」 칩 act:take:year:N 과 겹치지 않게)
+  }, row = (label, chips, cls = "") => {
+    const r = el("div", "dash-take-row" + (cls ? ` ${cls}` : "")), box = el("div", "dash-take-chips");
+    box.append(...chips);
+    r.append(el("span", "dash-chip-name", label), box);
+    return r;
+  };
+  acts.push(row("대상 차년도", (C.year || []).map((y) => chip(y.name, V.year === y.n, () => dashTakePut(`대상 차년도 — ${y.name}`, { year: y.n }),
+    `${y.name} 문서를 냅니다 — 목적 문서의 「당해 차년도」 를 ${y.n}차년도로 적습니다(문서는 바뀌지 않습니다 · 구조를 이미 반영했으면 「프로젝트 구성 반영」 을 다시 해야 합니다)`, `act:take:target:${y.n}`)), "dash-take-target")); // 초점 이름 = target(「넣을 차년도」 칩 act:take:year:N 과 겹치지 않게)
   const dims = [["org", "넣을 기관", (C.org || []).map((o) => [o.name, o.role === "수요기업" ? `${o.name}(수요기업)` : o.name])], // 수요기업으로 고른 기관은 이름 뒤에 적는다(spec_구분_기준 ② §24)
     ["stage", "넣을 단계", (C.stage || []).map((s) => [s.n, s.name])], ["year", "넣을 차년도", (C.year || []).map((y) => [y.n, y.name])]];
   for (const [d, title, all] of dims) {
     if (all.length < 2) continue; // 값이 하나뿐인 기준은 고를 것이 없다
     const cur = new Set(take[d] || all.map((x) => x[0]));
-    acts.push(br(), name(title));
-    for (const [v, text] of all) {
-      acts.push(chip(text, cur.has(v), () => {
-        const next = new Set(cur);
-        if (next.has(v)) next.delete(v); else next.add(v);
-        if (!next.size) { toast(`${title.replace("넣을 ", "")}를 하나는 남겨야 합니다 — 모두 넣으려면 모두 눌러 두세요`, true); return; }
-        return dashTakePut(`넣을 구성 — ${title.replace("넣을 ", "")}`, { take: { ...take, [d]: all.map((x) => x[0]).filter((x) => next.has(x)) } });
-      }, cur.has(v) ? `「${text}」 의 내용을 넣습니다 — 누르면 뺍니다(그 자리는 자리 연결 · 넣기에서 빠집니다)` : `「${text}」 의 내용을 넣지 않습니다 — 누르면 다시 넣습니다`, `act:take:${d}:${v}`));
-    }
+    acts.push(row(title, all.map(([v, text]) => chip(text, cur.has(v), () => {
+      const next = new Set(cur);
+      if (next.has(v)) next.delete(v); else next.add(v);
+      if (!next.size) { toast(`${title.replace("넣을 ", "")}를 하나는 남겨야 합니다 — 모두 넣으려면 모두 눌러 두세요`, true); return; }
+      return dashTakePut(`넣을 구성 — ${title.replace("넣을 ", "")}`, { take: { ...take, [d]: all.map((x) => x[0]).filter((x) => next.has(x)) } });
+    }, cur.has(v) ? `「${text}」 의 내용을 넣습니다 — 누르면 뺍니다(그 자리는 자리 연결 · 넣기에서 빠집니다)` : `「${text}」 의 내용을 넣지 않습니다 — 누르면 다시 넣습니다`, `act:take:${d}:${v}`)), "dash-take-multi"));
   }
-  if (V.active) acts.push(br(), dashBtn("전부 넣기", () => dashTakePut("넣을 구성 — 전부", { take: null }), { disabled: !!off, title: off || "고른 것을 풀어 맞는 자리는 모두 넣습니다(대상 차년도는 그대로)", focus: "act:take:all" }));
+  if (V.active) {
+    const foot = el("div", "dash-take-foot");
+    foot.append(dashBtn("전부 넣기", () => dashTakePut("넣을 구성 — 전부", { take: null }), { disabled: !!off, title: off || "고른 것을 풀어 맞는 자리는 모두 넣습니다(대상 차년도는 그대로)", focus: "act:take:all" }));
+    acts.push(foot);
+  }
+  if (off) acts.push(el("p", "dash-text dash-why dash-take-why", off));
   card.acts = acts;
 }
 

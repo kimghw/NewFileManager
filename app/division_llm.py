@@ -205,8 +205,8 @@ MISSING_CONTRACT = """당신은 국가R&D 연구개발계획서·연차보고서
 구분 기준 = 단계(stage)·차년도(year)·단계-차년도(stageYear)·세부과제(sub)·기관(org — 주관, 공동1, 공동2 …, 외·국외·위탁). 구분 기준 자리 = 그 값마다 같은 구조(문단 묶음·표 행·표 열)가
 되풀이되어야 하는 곳 — 과제의 단계·차년도 수나 참여 기관 수가 바뀌면 행·열·절을 그만큼 늘리거나 줄이고 이름을 바꿔야 하는 곳입니다. 반영 엔진은 스크립트(글 꼴 규칙)로 이런 자리를 찾아
 묶음으로 만드는데, 라벨 꼴이 낯설면 놓칩니다.
-자료: values = 이 과제의 구분 값, groups = 스크립트가 이미 찾은 묶음 요약(같은 꼴은 n 으로 합침 — 어떤 꼴이 이미 잡히는지 참고용), tables = **어느 묶음에도 안 든 표**(id · 크기 size ·
-바로 앞 제목 title · 둘러싼 헤딩 path · 머리 칸 head · 첫 열 칸 side · 구분 낱말이 든 칸 표본 marks), paragraphs = **어느 묶음에도 안 든 본문 문단** 중 구분 낱말이 있는 짧은 줄
+자료: values = 이 과제의 구분 값, groups = 스크립트가 이미 찾은 묶음 요약(같은 꼴은 n 으로 합침 — 어떤 꼴이 이미 잡히는지 참고용), tables = **어느 묶음에도 안 든 표**와 **묶음이 일부만 잡은 표**(id · 크기 size ·
+바로 앞 제목 title · 둘러싼 헤딩 path · 머리 칸 head · 첫 열 칸 side · 구분 낱말이 든 칸 표본 marks · 일부만 잡힌 표는 partial · rest · 같은 헤딩 아래 같은 꼴 표 siblings), paragraphs = **어느 묶음에도 안 든 본문 문단** 중 구분 낱말이 있는 짧은 줄
 (id · text · path · 바로 다음 블록 next).
 할 일: tables·paragraphs 가운데 **구분 기준 자리로 보이는데 빠진 것**만 missing 에 냅니다.
 - 내는 것: 행·열·절이 기관·단계·차년도 값마다 하나씩(또는 한 묶음씩) 있어야 하는 곳. 표라면 기관(또는 단계·차년도)을 적는 열·행이 있고 그 값마다 행 묶음이나 열이 이어지는 표,
@@ -218,6 +218,13 @@ MISSING_CONTRACT = """당신은 국가R&D 연구개발계획서·연차보고서
 - 다만 다음은 기관 칸이 행을 묶어 보여도 내지 않습니다: **지난 실적·이력을 적는 목록**(국가연구개발사업 수행실적·기술이전·사업화 실적·지식재산권처럼 이 과제의 계획이 아니라 이미 한 일을 적는 표),
   **편성도·조직도 꼴 표**(기관·책임자·담당 내용을 그림처럼 배치한 표), **작성 예시 표**(기관명 칸이 「AAAAA」·「BBBBB」 같은 예시 글자뿐인 표).
 - 제목 줄(문단)과 그 바로 아래 표가 한 벌로 되풀이되면 **제목 줄만** 냅니다(표는 그 항목에 딸린 것이라 따로 내지 않습니다). 제목 줄이 paragraphs 에 없을 때만 표를 냅니다.
+- **값이 1부터 다 있지 않아도 자리입니다**: 스크립트의 묶음은 값이 1부터 이어지는 곳(1~4차년도)만 잡습니다. 평가항목마다 그 항목의 차년도 행만 있는 표(어느 항목은 1~4차년도, 어느 항목은 3·4차년도만 ·
+  4차년도 하나)도 그 값이 행·열을 가르는 머리면 차년도 자리입니다 — 표에 partial: true 가 있으면 묶음이 이미 일부를 잡은 표이고, rest = 묶음 밖에 남은 구분 값 칸(id · 행 row · 열 col · 글)입니다. 그 표를 냅니다
+  (pattern 에 남은 칸이 무엇마다 되풀이되는지 · 「평가항목마다 그 항목의 차년도 행」 처럼).
+- **단계 값이 하나뿐인 머리도 자리입니다**: 「추진 일정 › 1단계 › 1차년도 … 4차년도」 처럼 단계 머리가 그 아래 차년도 열을 거느리면, 과제가 1단계뿐이어도 그 「1단계」 는 단계 자리입니다(단계가 늘면 그 열 묶음이 단계마다 서야 한다).
+- **같은 헤딩 아래 표들은 함께 봅니다**: siblings = 같은 헤딩 아래 머리 줄 꼴이 같은 다른 표 id(숫자만 다름 — 「1차년도(9개월)」 표 · 「2차년도(12개월)」 표 …). 표마다 구분 값 머리 하나씩이고 그 값이 표마다 다르면
+  그 표들이 「값마다 표 하나」 자리입니다 — 표 하나만 보면 안 보입니다. 첫 표 id 하나만 내고 pattern 에 「표: 차년도마다 표 하나(n개 — 표 id …)」 처럼 적습니다. 표의 용도(제목 title)가 서로 다르면 묶지 않습니다.
+- 이 검토의 답은 사람이 볼 후보입니다 — 행·열·표 수를 바꾸는 근거가 아닙니다(값이 일부만 있는 항목을 전체 차년도로 늘리라는 뜻이 아닙니다).
 - dim = 되풀이의 기준(여럿이면 가장 바깥), pattern = 무엇마다 무엇이 되풀이되는지 한 줄(예 「행: 기관 칸마다 그 기관의 줄들」「열: 차년도마다」), reason = 그렇게 본 근거 한 문장(자료의 어느 글을 보고),
   confidence = high(되풀이가 자료에 분명히 보임) · medium(그럴 법함) · low(낱말은 있으나 구조가 흐림). 확신이 없으면 low 로 내거나 내지 않습니다.
 - 입력에 있는 id 만 씁니다. summary = 전체 판단 두세 문장(빠진 것이 없으면 그렇게 적습니다)."""
@@ -243,23 +250,35 @@ def _table_brief(t, title, path):
 def missing_data(blocks, levels, values, groups, value_text):
     """빠진 자리 검토에 보낼 자료(잠금 안에서) — 구분 값 · 묶음 요약 · 어느 묶음 항목에도 안 든 **본문 바로 아래** 표·문단 중 구분 낱말(SIGNAL)이 있는 것.
     묶음 안(항목의 scope)에 든 표·문단과 칸 안 중첩 표는 보내지 않는다(② §13 1차)."""
-    covered = set()
+    covered, grouped, labels = set(), set(), set()
     for g in groups:
         if g.get("table"):
-            covered.add(g["table"])
+            grouped.add(g["table"])
         for it in g["items"]:
             covered |= set(it.get("scope") or ())
             covered.update(it.get("roots") or ())
-    tables, paras, prev, chain = [], [], "", {}
+            if it.get("label"):
+                labels.add(it["label"])
+    tables, paras, prev, chain, sec = [], [], "", {}, None
     for i, b in enumerate(blocks):
         if b.get("type") == "table":
             title, prev = prev, ""
-            if b["id"] not in covered and not any(x["id"] in covered for x in core._under(b)) and (brief := _table_brief(b, title, list(chain.values()))):
+            if b["id"] in covered:
+                continue   # 묶음 항목 안의 표(기관 절 아래 표 …) — 그 항목에 딸린 것
+            part = b["id"] in grouped or any(x["id"] in covered for x in core._under(b))
+            rest = _rest(b, covered, labels) if part else None
+            if part and not rest:
+                continue   # 묶음이 다 잡은 표
+            if (brief := _table_brief(b, title, list(chain.values()))):
+                brief["_sec"], brief["_sig"] = sec, _head_sig(b)
+                if rest:
+                    brief.update(partial=True, rest=rest)
                 tables.append(brief)
         elif b.get("type") == "paragraph" and (b.get("text") or "").strip():
             text = prev = b["text"]
             if (lv := levels.get(b["id"])):
                 chain = {k: v for k, v in chain.items() if k < lv} | {lv: text}
+                sec = b["id"]
             bare = re.sub(r"\s+", "", core.NOTE.sub("", text))
             if b["id"] not in covered and bare and len(bare) <= PARA_LEN and SIGNAL.search(bare):
                 nxt = next((x for x in blocks[i + 1:i + 4] if x.get("type") == "table" or (x.get("text") or "").strip()), None)
@@ -272,6 +291,18 @@ def missing_data(blocks, levels, values, groups, value_text):
         paras = [p for p in paras if p["id"] in keep]
     for p in paras:
         del p["_len"]
+    fam = {}
+    for t in tables:   # 같은 헤딩 아래 머리 줄 꼴이 같은 표(숫자만 다름 — 「1차년도(9개월)」 표 · 「2차년도(12개월)」 표): 함께 봐야 「값마다 표 하나」 가 보인다(② §13 — 2026-11-23 사용자)
+        if t["_sec"] is not None and t["_sig"]:
+            fam.setdefault((t["_sec"], t["_sig"]), []).append(t["id"])
+    for t in tables:
+        ids = fam.get((t.pop("_sec"), t.pop("_sig")), ())
+        if len(ids) >= 2:
+            t["siblings"] = [x for x in ids if x != t["id"]]
+    keep = tables[:TABLES_MAX]
+    if len(tables) > TABLES_MAX:   # 넘쳐 자를 때 형제 표가 반만 남지 않게
+        want = {x for t in keep for x in t.get("siblings") or ()} - {t["id"] for t in keep}
+        keep += [t for t in tables[TABLES_MAX:] if t["id"] in want]
     seen = {}
     for g in groups:
         k = (g["dim"], "list" if g.get("list") else g["kind"], tuple(_short(it.get("labelText"), 24) for it in g["items"][:2]))
@@ -280,7 +311,32 @@ def missing_data(blocks, levels, values, groups, value_text):
     return {"values": {"stages": values.get("stages"), "lead": orgs.get("lead"), "joint": orgs.get("joint"), "subs": values.get("subs") or []},
             "dims": [{"id": d, "name": DIM_NAME.get(d, d)} for d in DIMS],
             "groups": [{"dim": d, "kind": kind, "labels": list(labels), "n": n} for (d, kind, labels), n in seen.items()],
-            "tables": tables[:TABLES_MAX], "paragraphs": paras}
+            "tables": keep, "paragraphs": paras}
+
+
+REST_MAX = 16
+_SIG_DROP = re.compile(r"[\s\d.,·:\-–~()\[\]<>]+")
+
+
+def _rest(t, covered, labels):
+    """묶음이 일부만 잡은 표의 남은 구분 값 칸 → [{id, row, col, text}](REST_MAX 까지) — 칸 글이 구분 값 낱말로 읽히고(`core.hint_info`) 짧으며,
+    묶음의 라벨도 항목 안도 아닌 칸(그 표의 「3·4차년도」 · 「4차년도」 처럼 값이 1부터 다 있지 않아 묶음이 못 된 행 — ② §13 2026-11-23)."""
+    out = []
+    for c in sorted(t.get("cells") or (), key=lambda c: (c["row"], c["col"])):
+        if c["id"] in covered or c["id"] in labels:
+            continue
+        text = (c.get("text") or "").strip()
+        if not text or len(core._bare(text)) > 30 or not core.hint_info(text):
+            continue
+        out.append({"id": c["id"], "row": c["row"], "col": c["col"], "text": _short(text, 24)})
+        if len(out) >= REST_MAX:
+            break
+    return out
+
+
+def _head_sig(t):
+    """표의 머리 줄 꼴 — 첫 두 행의 칸 글에서 숫자 · 빈칸 · 문장 부호를 뺀 것(같은 헤딩 아래 형제 표 가름 — 「1차년도(9개월)」 ↔ 「2차년도(12개월)」 은 같다)."""
+    return "|".join(s for c in sorted(t.get("cells") or (), key=lambda c: (c["row"], c["col"])) if c["row"] <= 1 and (s := _SIG_DROP.sub("", c.get("text") or "")))[:200]
 
 
 def ask_missing(payload, *, call=None, effort="medium", timeout=240.0, form=None):

@@ -80,12 +80,30 @@
 .dash-flow > li.dash-node.same { margin-top: 4px; }
 .dash-flow > li.dash-node.same::before { content: none; }
 .dash-node.same > .dash-node-top { padding-left: 40px; }
-/* 「넣을 구성 선택」 카드의 고르기(대상 차년도 · 넣을 기관 · 단계 · 차년도 — design.md §17 「고르기 칩」): 기준마다 한 줄(이름표 + 칩) · 눌린 칩 = 고른 것(파랑 바탕 + ✓ — 색에만 기대지 않는다) */
+/* 「넣을 구성 선택」 카드의 고르기(대상 차년도 · 넣을 기관 · 단계 · 차년도 — design.md §17 「고르기 칩」): 줄마다 이름표 열 + 칩 영역 · 대상 차년도(하나 고름 — 묶음 단추 + 라디오 점) / 넣을 구성(여럿 고름 — 네모 체크) · 눌림/안 눌림 폭 고정 */
 .dash-acts .dash-break { flex-basis: 100%; height: 0; }
 .dash-acts .dash-chip-name { align-self: center; min-width: 64px; color: var(--muted); font-size: 12px; }
-.dash-acts .dash-chip { border-radius: 999px; padding: 0 10px; }
-.dash-acts .dash-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.dash-acts .dash-chip[aria-pressed="true"]::before { content: "✓ "; }
+.dash-take-row { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: start; column-gap: 6px; }
+.dash-take-row > .dash-chip-name { display: flex; align-self: start; align-items: center; min-width: 0; min-height: 25px; line-height: 1.3; white-space: nowrap; } /* 칩이 두 줄이 돼도 이름표는 첫 줄에(.dash-acts .dash-chip-name 의 align-self: center 를 덮음) */
+.dash-take-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
+.dash-take-target { margin: 0 -6px; padding: 6px; border-radius: 6px; background: var(--surface-2); }
+.dash-take-target > .dash-chip-name { min-height: 30px; color: var(--text); font-weight: 600; }
+.dash-take-target + .dash-take-multi { margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
+.dash-take-target .dash-take-chips { display: inline-flex; justify-self: start; max-width: 100%; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.dash-acts .dash-chip { display: inline-flex; align-items: center; gap: 4px; height: 25px; padding: 0 7px 0 5px; border-color: var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1; }
+.dash-acts .dash-chip:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); }
+.dash-acts .dash-chip::before { content: ""; display: inline-grid; place-items: center; flex: none; width: 12px; height: 12px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface); box-sizing: border-box; overflow: hidden; }
+.dash-acts .dash-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.dash-acts .dash-chip[aria-pressed="true"]:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.dash-acts .dash-chip[aria-pressed="true"]::before { content: "✓"; border-color: var(--accent); background: var(--accent); color: var(--surface); font-size: 9px; font-weight: 700; line-height: 1; }
+.dash-acts .dash-take-target .dash-chip { height: 24px; padding: 0 7px 0 6px; border-color: transparent; border-radius: 5px; background: transparent; color: var(--muted); }
+.dash-acts .dash-take-target .dash-chip:hover:not(:disabled) { border-color: transparent; background: var(--surface-2); color: var(--text); }
+.dash-acts .dash-take-target .dash-chip::before { width: 11px; height: 11px; border: 1.5px solid var(--line-strong); border-radius: 50%; background: var(--surface); }
+.dash-acts .dash-take-target .dash-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.dash-acts .dash-take-target .dash-chip[aria-pressed="true"]:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.dash-acts .dash-take-target .dash-chip[aria-pressed="true"]::before { content: ""; border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
+.dash-take-foot { flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 76px; margin-top: 2px; }
+.dash-take-why { flex: 1 1 100%; margin-top: 2px; }
 
 /* ---- 단계 카드 — 머리 줄(번호 · 이름 단추 + 꼬리표 + 메모 · 상태 글 — 줄 어디를 눌러도 펴고 접힘) + 펼친 세부 */
 .dash-node { border: 1px solid #ccd5e3; border-radius: 8px; background: white; }

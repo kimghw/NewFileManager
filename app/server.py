@@ -3258,6 +3258,8 @@ def divisions_members(doc_id: str, targets: bool = False):
     if e is not None and e["rev"] == out["rev"]:   # 판독이 같은 문서 차례의 것일 때만 보탠다(그 사이 고쳤으면 다음 읽기에)
         v = e["result"].get("_values")
         out["reads"] = DSA.reads(e, _division_orgs(v) if v else None, (v or {}).get("stages"))
+        from app import division_struct_api
+        out["reads"] += division_struct_api.reads(s, out.get("groups"), v, lv)   # 표 구조(3단계)가 본 구분 값 머리 · 같은 헤딩 아래 표 묶음(② §25 — 판독만)
         out["scan"] = DSA.summary(e, s)
     return out
 
