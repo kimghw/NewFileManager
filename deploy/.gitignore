@@ -1,0 +1,2 @@
+# 기본 인증 계정(bcrypt 해시) — 올리지 않는다
+auth.caddy

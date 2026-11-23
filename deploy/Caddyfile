@@ -1,0 +1,24 @@
+# NewFileManager 외부 접속 — 이 PC 의 Caddy(C:\Users\SSCB\kakao_stock\scripts\Caddyfile)가 import 한다.
+# 수정 후: caddy validate --config C:\Users\SSCB\kakao_stock\scripts\Caddyfile → caddy reload --config (같은 파일)
+# 앱(8114)은 127.0.0.1 에만 묶이고 로그인이 없다 — 바깥 요청은 여기서 TLS 종단 + 기본 인증을 거친다.
+# 계정 줄(`사용자이름 bcrypt해시`)은 deploy/auth.caddy 에 둔다(.gitignore). 해시 만들기: caddy hash-password --plaintext <비밀번호>
+# 원본 사양: spec/spec_배포.md
+files.rndsscb.com {
+	basic_auth {
+		import E:/dev/NewFileManager/deploy/auth.caddy
+	}
+
+	# 기본 인증은 브라우저가 다른 사이트에서 시킨 요청에도 붙는다 — 다른 출처의 변경 요청(올리기·편집·실행)은 막는다.
+	@cross_site {
+		not method GET HEAD OPTIONS
+		header Origin *
+		not header Origin https://files.rndsscb.com
+	}
+	respond @cross_site "다른 출처의 요청은 받지 않습니다." 403
+
+	# 요청 본문 한도 — 앱의 파일당 한도(NFM_MAX_UPLOAD_MB 200)보다 크게, 여러 파일을 한 번에 올리므로
+	request_body {
+		max_size 600MB
+	}
+	reverse_proxy 127.0.0.1:8114
+}
