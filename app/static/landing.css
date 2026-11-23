@@ -212,8 +212,6 @@ body.no-doc #worksBtn { margin-left: auto; }
 body.no-doc .brand span { display: inline; }
 body.no-doc .topbar { padding-inline: 24px; background: #fafafc; border-bottom-color: #e8e8ed; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
 body.no-doc .brand, body.no-doc .brand span { color: #1d1d1f; font-weight: 600; font-size: 13px; }
-body.no-doc #worksBtn { border-color: transparent; border-radius: 999px; background: #ededf0; color: #515154; font-size: 12px; padding-inline: 16px; }
-body.no-doc #worksBtn:hover { background: #e4e4e8; }
 
 @media (max-width: 760px) {
   .empty.home { padding: 28px 20px 36px; scrollbar-gutter: auto; }

@@ -206,15 +206,70 @@ async function pgOpen(pid, { keep = null } = {}) { // keep = 409 뒤 다시 읽�
   pgRender(v, keep);
 }
 
-function pgItem(kind, title, text, cls = "") { // 읽기만 하는 줄 — 종류 칩 + 글(길면 앞부분 · 전체는 풍선 도움말)
-  const li = el("li", cls || null);
-  li.append(el("span", "hb", kind));
+const PG_FOLD_CHARS = 260, PG_FOLD_LINES = 6;
+function pgKindKey(kind) {
+  if (/^\d+\./.test(kind)) return "match";
+  if (kind.includes("※") || kind.includes("안내")) return "warn";
+  if (kind.includes("요령") || kind.includes("표")) return "table";
+  if (kind.includes("참고")) return "ref";
+  return "note";
+}
+function pgFormatText(text) {
   const box = el("div", "pg-text");
-  if (title) box.append(el("b", null, title), document.createTextNode(text ? "\n" : ""));
-  const cut = text.length > 600 ? text.slice(0, 600) + " …" : text;
-  box.append(document.createTextNode(cut));
-  if (text.length > 600) box.title = text;
-  li.append(box);
+  const lines = text.split("\n");
+  const pipeCount = lines.filter((l) => l.includes(" | ")).length;
+  if (!pipeCount) {
+    box.append(document.createTextNode(text));
+    return box;
+  }
+  box.classList.add("has-rows");
+  let headDone = false;
+  lines.forEach((line, i) => {
+    if (i > 0) box.append(document.createTextNode("\n"));
+    if (line.includes(" | ")) {
+      const cells = line.split(" | ");
+      const isHead = !headDone && pipeCount >= 2 && cells.every((c) => c.trim().length <= 20);
+      if (isHead) headDone = true;
+      const isKv2 = cells.length === 2 && cells[0].trim().length > 0 && cells[0].trim().length <= 18;
+      const row = el("div", "pg-ln pg-kv" + (isKv2 ? " kv2" : cells.length >= 3 ? " kv3" : "") + (isHead ? " pg-kv-head" : ""));
+      cells.forEach((cell, j) => {
+        if (j > 0) row.append(el("span", "pg-pipe", " | "));
+        row.append(el("span", `pg-cell pg-c${Math.min(j, 2)}`, cell));
+      });
+      box.append(row);
+    } else if (i === 0 && pipeCount >= 2 && line.trim()) {
+      box.append(el("div", "pg-ln pg-ln-title", line));
+    } else {
+      box.append(el("div", "pg-ln pg-ln-sub", line));
+    }
+  });
+  return box;
+}
+
+function pgItem(kind, title, text, cls = "") { // 읽기만 하는 줄 — 종류 꼬리표 위 · 글 전체 폭 · 긴 지침은 접고 펼치기
+  const li = el("li", cls ? `pg-item ${cls}` : "pg-item");
+  const head = el("div", "pg-item-head");
+  const tag = el("span", "hb pg-kind", kind);
+  tag.dataset.kind = pgKindKey(kind);
+  head.append(tag);
+  if (title) head.append(el("b", "pg-title", title));
+  const body = el("div", "pg-body");
+  body.append(pgFormatText(text));
+  li.append(head, body);
+  const lines = text ? text.split("\n").length : 0;
+  if (text.length > PG_FOLD_CHARS || lines > PG_FOLD_LINES) {
+    li.classList.add("is-long", "is-fold");
+    const label = lines > 2 ? `펼쳐 보기 (${nf(lines)}줄)` : "펼쳐 보기";
+    const more = el("button", "pg-more", label);
+    more.type = "button";
+    more.setAttribute("aria-expanded", "false");
+    more.onclick = () => {
+      const folded = li.classList.toggle("is-fold");
+      more.setAttribute("aria-expanded", String(!folded));
+      more.textContent = folded ? label : "접기";
+    };
+    li.append(more);
+  }
   return li;
 }
 
@@ -222,17 +277,22 @@ function pgRender(v, keep = null) {
   const tools = $("headsDlgTools"), body = $("headsDlgBody"), foot = $("headsDlgFoot");
   for (const x of [tools, body, foot]) x.textContent = "";
   PLG.view = v;
-  $("headsDlgNote").textContent = v.text ? `「${short(v.text, 50)}」${v.alive ? "" : " — 지금 문서에 없음"}` : "(헤딩 글 없음)";
+  const note = $("headsDlgNote");
+  note.textContent = v.text ? `「${short(v.text, 50)}」${v.alive ? "" : " — 지금 문서에 없음"}` : "(헤딩 글 없음)";
+  note.title = v.text ? `${v.text}${v.alive ? "" : " — 지금 문서에 없음"}` : "";
   const docs = v.doc || [], user = v.user || null, match = v.match || [];
-  tools.append(hBtn("문서에서 보기", () => headsGo(v.id), { disabled: !v.alive, title: v.alive ? "문서의 그 헤딩으로" : "그 헤딩이 지금 문서에 없습니다" }));
+  tools.append(hBtn("문서에서 보기", () => headsGo(v.id), { cls: "btn sm pg-tbtn", disabled: !v.alive, title: v.alive ? "문서의 그 헤딩으로" : "그 헤딩이 지금 문서에 없습니다" }));
   if (typeof formGuidesList === "function") tools.append(hBtn("작성 지침 목록", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) formGuidesList({ id: state.id, name: state.name }); },
-    { title: `이 문서에 저장해 둔 작성 지침 전체(헤딩별 · 표별)${PLG.loose ? ` — 헤딩 · 표를 못 정한 지침 ${nf(PLG.loose)}개도 거기` : ""}` }));
-  tools.append(el("span", "muted", `지침 ${nf(docs.length + (user ? 1 : 0))}개`));
+    { cls: "btn sm pg-tbtn", title: `이 문서에 저장해 둔 작성 지침 전체(헤딩별 · 표별)${PLG.loose ? ` — 헤딩 · 표를 못 정한 지침 ${nf(PLG.loose)}개도 거기` : ""}` }));
+  tools.append(el("span", "muted pg-total", `지침 ${nf(docs.length + (user ? 1 : 0))}개`));
   const wrap = el("div", "pg-col");
   // ① 문서의 작성 지침
-  const s1 = el("section", "pg-sec");
+  const s1 = el("section", "pg-sec pg-sec-doc");
   s1.dataset.pgSec = "doc";
-  s1.append(el("h3", "pg-h", `문서의 작성 지침 ${nf(docs.length)}`));
+  const sh1 = el("div", "pg-sec-head");
+  sh1.append(el("h3", "pg-h", `문서의 작성 지침 ${nf(docs.length)}`));
+  if (docs.length) sh1.append(el("span", "pg-sec-tag", "읽기 전용"));
+  s1.append(sh1);
   if (docs.length) {
     const ul = el("ul", "pg-list");
     for (const g of docs) {
@@ -240,56 +300,68 @@ function pgRender(v, keep = null) {
       ul.append(g.label ? pgItem(g.kind || "각주", short(g.label, 60), `→ ${text}`) : pgItem(g.kind || "지침", "", text));
     }
     s1.append(ul);
-  } else s1.append(el("p", "hnote", "이 헤딩에 붙은 문서의 작성 지침이 없습니다 — 양식의 작성 요령 표 · <참고 N> 자료 · ※ 안내가 이 헤딩 아래에 없거나 아직 모으지 않았습니다(1단계 「문서 검토」 가 모읍니다)."));
+  } else s1.append(el("p", "hnote pg-empty", "문서에서 모은 작성 지침이 없습니다 (1단계 「문서 검토」 가 모읍니다)."));
   // ② 내가 적은 지침
-  const s2 = el("section", "pg-sec");
+  const s2 = el("section", "pg-sec pg-sec-user" + (user ? " has-user" : ""));
   s2.dataset.pgSec = "user";
-  s2.append(el("h3", "pg-h", "내가 적은 지침"));
+  const sh2 = el("div", "pg-sec-head");
+  const st2 = el("span", "pg-st");
+  sh2.append(el("h3", "pg-h", "내가 적은 지침"), st2);
+  s2.append(sh2);
   const ta = el("textarea", "pg-ta");
   ta.id = `pg-ta-${heads.seq}`;
-  ta.rows = 6;
-  ta.placeholder = "이 자리에 무엇을 넣어야 하는지 · 넣지 말아야 하는지(예: 「당해 차년도의 실적만 · 2쪽 이내 요약」) — 넣을 사실 · 수는 적지 않습니다(원본에서 가져옵니다)";
+  ta.rows = 4;
+  ta.placeholder = "이 자리에 넣을 것 · 빼야 할 것을 적으세요 (예: 당해 차년도 실적만 · 2쪽 이내 요약) — 넣을 사실 · 수는 원본에서 가져옵니다";
   ta.setAttribute("aria-label", "내가 적은 지침");
   PLG.saved = user ? user.text || "" : "";
   ta.value = keep != null ? keep : PLG.saved;
   PLG.ta = ta;
-  const row = el("div", "pg-row"), cnt = el("span", "muted pg-cnt");
-  const save = hBtn("저장", () => pgSave(ta.value), { cls: "btn sm primary", title: "이 헤딩의 작성 지침으로 저장합니다(작업에 — 문서는 바뀌지 않습니다) · Ctrl+Enter" });
-  const del = hBtn("지우기", () => { if (confirm("내가 적은 지침을 지울까요?")) pgSave(""); }, { title: "내가 적은 지침을 지웁니다(문서의 작성 지침은 그대로)" });
+  const row = el("div", "pg-row pg-user-acts"), cnt = el("span", "muted pg-cnt"), btns = el("div", "pg-btns");
+  const del = hBtn("지우기", () => { if (confirm("내가 적은 지침을 지울까요?")) pgSave(""); }, { cls: "btn sm pg-del", title: "내가 적은 지침을 지웁니다(문서의 작성 지침은 그대로)" });
+  const save = hBtn("저장", () => pgSave(ta.value), { cls: "btn sm primary pg-save", title: "이 헤딩의 작성 지침으로 저장합니다(작업에 — 문서는 바뀌지 않습니다) · Ctrl+Enter" });
   const sync = () => {
     const n = ta.value.trim().length, dirty = ta.value.trim() !== PLG.saved.trim();
     save.disabled = !dirty || (!v.alive && !!ta.value.trim()) || n > 4000;
     del.hidden = !user;
     cnt.textContent = `${nf(n)} / 4,000자${dirty ? " · 저장 안 함" : user && user.at ? ` · 저장 ${fmtWhen(user.at)}` : ""}`;
     cnt.classList.toggle("warn", n > 4000);
+    cnt.classList.toggle("dirty", dirty && n <= 4000);
+    s2.classList.toggle("is-dirty", dirty);
+    st2.textContent = !v.alive ? "문서에 없음" : dirty ? "수정 중" : user ? "저장됨" : ""; // 아직 안 적었으면 꼬리표 없음
+    st2.className = "pg-st" + (!v.alive ? " off" : dirty ? " dirty" : user ? " saved" : "");
+    st2.hidden = !st2.textContent;
   };
   ta.oninput = sync;
   ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!save.disabled) save.click(); } };
-  if (!v.alive) { ta.readOnly = true; s2.append(el("p", "hnote", "이 헤딩이 지금 문서에 없습니다 — 적어 둔 지침은 지우기만 할 수 있습니다.")); }
-  row.append(save, del, cnt);
+  if (!v.alive) { ta.readOnly = true; s2.append(el("p", "hnote pg-empty", "이 헤딩이 지금 문서에 없습니다 — 적어 둔 지침은 지우기만 할 수 있습니다.")); }
+  btns.append(del, save);
+  row.append(cnt, btns);
   s2.append(ta, row);
   sync();
   // ③ 양식의 매칭 지침
-  const s3 = el("section", "pg-sec");
+  const s3 = el("section", "pg-sec pg-sec-match" + (match.length ? "" : " is-empty"));
   s3.dataset.pgSec = "match";
-  const h3 = el("h3", "pg-h", `양식의 매칭 지침 ${nf(match.length)}`);
-  s3.append(h3);
+  const sh3 = el("div", "pg-sec-head");
+  sh3.append(el("h3", "pg-h", `양식의 매칭 지침 ${nf(match.length)}`));
+  if (typeof linkGuidesOpen === "function") {
+    sh3.append(hBtn("매칭 지침 열기", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) linkGuidesOpen({ id: state.id, name: state.name }); },
+      { cls: "btn sm pg-link-btn", title: "양식 전체가 같이 쓰는 매칭 지침(표 · 본문 자리마다 어떻게 잇나)을 보고 고칩니다 — 연차보고서 양식 정보의 「자리 연결」 절" }));
+  }
+  s3.append(sh3);
   if (match.length) {
     const ul = el("ul", "pg-list");
     for (const m of match) ul.append(pgItem(`${m.n}. ${PLG_LINK_KIND[m.kind] || m.kind || ""}`, short(m.title || "", 60), m.text || ""));
     s3.append(ul);
-  } else s3.append(el("p", "hnote", "이 자리에 걸린 양식의 매칭 지침이 없습니다."));
-  if (typeof linkGuidesOpen === "function") {
-    const r3 = el("div", "pg-row");
-    r3.append(hBtn("매칭 지침 열기", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) linkGuidesOpen({ id: state.id, name: state.name }); },
-      { title: "양식 전체가 같이 쓰는 매칭 지침(표 · 본문 자리마다 어떻게 잇나)을 보고 고칩니다 — 연차보고서 양식 정보의 「자리 연결」 절" }));
-    s3.append(r3);
   }
-  // ④ 누가 읽나
-  const s4 = el("p", "hnote pg-who", PLG_READERS);
-  wrap.append(s1, s2, s3, s4);
+  wrap.append(s1, s2, s3);
   body.append(wrap);
-  foot.append(el("span", "muted", "내가 적은 지침은 작업에 저장됩니다 — 문서는 바뀌지 않습니다"), hBtn("닫기", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) headsColClose(); }));
+  // ④ 누가 읽나(발에 고정 — 노트 도움말로 전체 설명)
+  const who = el("div", "pg-who");
+  if (typeof hHelp === "function") who.append(hHelp("누가 이 지침을 읽는가", `${PLG_READERS}\n\n내가 적은 지침은 작업에 저장됩니다 — 문서는 바뀌지 않습니다.`));
+  const whoShort = el("span", "pg-who-short", "3단계 LLM 검토가 읽음 · 문서 변경 없음");
+  whoShort.title = PLG_READERS;
+  who.append(whoShort, el("span", "sr-only", PLG_READERS));
+  foot.append(who, hBtn("닫기", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) headsColClose(); }, { cls: "btn sm pg-close" }));
   pgOnSync();
 }
 

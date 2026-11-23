@@ -35,9 +35,9 @@
    어느 폭에서나 글 없이 아이콘 하나(그림 18px) — 이름은 title·aria-label. 폭 32px(문서를 연 줄은 30×26 — 아래), 높이는 상단 바 .btn 규칙 그대로(32 · 26 · 540px 아래 28).
    #panelBtn 은 hidden 으로 감춘다(style.css 의 [hidden] !important 가 이 display 를 이긴다).
    2026-11-16 넷째 — 「작업 리스트」 #taskListBtn(사용자 「작업리스트는 우측 상단에 아이콘으로 넣어줘라」 — 패널 머리 탭에서 옮김: spec_작업 ② §10 「둘째 줄」): 저장 다음 · 워크플로우 앞, 문서를 연 동안만(#panelBtn 처럼 hidden) */
-.topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn) { display: inline-grid; place-items: center; flex: none; width: 32px; padding: 0; color: var(--text); text-decoration: none; }
-.topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn) svg { display: block; pointer-events: none; }
-@media (min-width: 541px) { body:not(.no-doc) > .topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn) { width: 30px; padding: 0; } }
+.topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn, :where(#worksBtn)) { display: inline-grid; place-items: center; flex: none; width: 32px; padding: 0; color: var(--text); text-decoration: none; }
+.topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn, :where(#worksBtn)) svg { display: block; pointer-events: none; }
+@media (min-width: 541px) { body:not(.no-doc) > .topbar > :is(a.wf-link, .agent-btn, .panel-toggle, .task-list-btn, :where(#worksBtn)) { width: 30px; padding: 0; } }
 /* TASK 워크플로우 링크(상단 바 #workflowLink — spec_워크플로우 ② §4): 단추 꼴의 링크(새 탭). 문서를 연 541~880px 에서는 감춘다
    (줄 넘침을 키우지 않는다. 540px 아래는 두 줄로 꺾이므로 다시 보인다) */
 .topbar > a.wf-link svg { color: var(--accent); }
