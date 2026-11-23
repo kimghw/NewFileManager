@@ -241,3 +241,86 @@ def test_cells_still_holding_the_blank_forms_text_take_the_source(bare):
     doc2 = _fresh(to)
     doc2.set_text(cid, "사람이 고친 주소")
     assert cid not in {c["to"] for c in X.plan({**to, "doc": doc2}, frm, orig=orig)["cells"]}   # 빈 양식의 글이 아니다 — 안 덮는다
+
+
+# ---- 2026-11-23 실제 이관(작업 3303ad092b39)에서 온 것: 줄 안의 빈 자리(요약문 「총 연구개발비」 · 표지 서명 줄) · 「해당연도」 머리 · 합쳐 적은 라벨 ----------
+
+COST = " 총 15,133,337천원 (정부지원연구개발비 : 13,800,000 천원, 기관부담 연구개발비 : 1,333,337 천원)"
+SIGN = ("연구책임자:    조연화   (직인생략)", "주관연구개발기관의 장:  이영석  (직인생략)", "주관연구개발기관의 장:  박별터  (직인생략)", "공동연구개발기관의 장:  박지향  (직인생략)")   # 둘째 기관 줄의 라벨은 「주관」 으로 잘못 적은 꼴(실제 작성본)
+USE, EFFECT = "o ★활용방안 한 줄", "o ★기대효과 한 줄"
+
+
+def _find_cell(doc, *words):
+    return next(c for b in structure.iter_blocks(doc.blocks()) if b.get("type") == "table" for c in b["cells"]
+                if all(w in (c.get("text") or "") for w in words) and len(c.get("text") or "") < 700)
+
+
+@pytest.fixture(scope="module")
+def inline():
+    """(목적 쪽, 원본 쪽) — 원본 = 실제 계획서의 꼴: 요약문 「총 연구개발비」 칸을 값으로 채움 · 표지 서명 줄에 이름 · 요약문 활용계획 칸의 라벨을 「[연구개발성과의 활용방안]」 ·
+    「[연구개발성과의 기대효과]」 둘로 나눠 그 아래에 한 줄씩(양식은 「[연구개발성과의 활용방안 및 기대효과]」 하나)."""
+    from app.division_profiles import rnd
+    from app.division_profiles.rnd import core
+    d = M.small()
+    plan = HwpxDoc(M.PLAN_FORM.read_bytes())
+    assert not core.apply(plan, d["values"], levels_of=rnd.levels_of)["errors"]
+    plan.set_text(_find_cell(plan, "총", "정부지원연구개발비")["id"], COST)
+    lines = [x["id"] for x in _find_cell(plan, "연구책임자:", "기관의 장")["blocks"] if ":" in (x.get("text") or "")]
+    assert len(lines) == len(SIGN), lines   # 연구책임자 + 주관 + 공동 둘(merge_data.SMALL_VALUES)
+    for pid, text in zip(lines, SIGN):
+        plan.set_text(pid, text)
+    lab = _label(plan, "[연구개발성과의활용방안및기대효과]")
+    plan.set_text(lab, "[연구개발성과의 활용방안]")
+    plan.insert_after(lab, [{"kind": "paragraph", "text": t} for t in (USE, "[연구개발성과의 기대효과]", EFFECT)])
+    frm = M._side("fixed-inline", plan, M.PLAN_FORM.name)
+    return {**d["to"], "values": d["values"]}, {**frm, "values": d["values"]}
+
+
+def test_inline_slots_signature_lines_and_joined_label(inline):
+    """서식이 줄 안에 빈칸을 둔 자리는 통째로 안 바꾸고 값만(총 연구개발비 — 수식의 결과 칸으로 읽혀도 계산 칸으로 붙들지 않는다 · 서명 줄 — 같은 갈래의 줄 수가 같으면 차례대로) ·
+    머리가 「해당연도」 로만 다른 칸끼리 잇고(㉠′) 그 칸의 「[A 및 B]」 라벨은 원본의 「[A]」 · 「[B]」 내용을 이어 받는다(4-2)."""
+    to, frm = inline
+    cost, sign = _find_cell(to["doc"], "총", "정부지원연구개발비")["id"], _find_cell(to["doc"], "연구책임자:", "기관의 장")["id"]
+    orig = {cost: {"text": _texts(to["doc"])[cost]}}   # 올린 빈 양식의 그 칸 글(merge_api._orig 꼴 — 구조 반영 뒤의 칸 id 로)
+    pl = X.plan(to, frm, orig=orig)
+    hit = {c["to"]: c for c in pl["cells"]}
+    assert hit[cost]["mode"] == "form" and hit[cost]["inline"] == 3 and not hit[cost]["calc"], hit[cost]
+    assert "총 15,133,337 천원" in hit[cost]["text"] and "기관부담 연구개발비 : 1,333,337 천원" in hit[cost]["text"] and "지방자치단체지원연구개발비 :" in hit[cost]["text"]   # 원본에 없는 자리는 빈 채로 남는다
+    assert hit[sign]["inline"] == 4 and hit[sign]["text"].count("\n") == hit[sign]["was"].count("\n")   # 줄 수는 그대로
+    row = [r for r in pl["labels"] if _bare(r["title"]) == "[연구개발성과의활용방안및기대효과]"]
+    assert len(row) == 1 and row[0]["skip"] is None and row[0]["blocks"] == 2, row
+    doc = _fresh(to)
+    res = X.apply(doc, frm["doc"], pl)
+    texts = _texts(doc)
+    got = [ln for ln in texts[sign].split("\n") if ":" in ln]
+    assert [re.sub(r"\d+\)$", "", " ".join(ln.split())) for ln in got] == ["연구책임자: 조연화 (서명)", "주관연구개발기관의 장: 이영석 (직인)", "공동연구개발기관의 장: 박별터 (직인)", "공동연구개발기관의 장: 박지향 (직인)"], got   # 끝의 「20)」 = 서식의 각주 번호(4단계가 지운다)
+    assert "(직인생략)" not in texts[sign] and "년" in texts[sign] and "2026" not in texts[sign]   # 서식의 「(직인)」 · 날짜 줄은 그대로
+    assert "13,800,000" in texts[cost] and "지방자치단체지원연구개발비" in texts[cost]
+    cell = _cell_with(doc, row[0]["to"])
+    lines = [(x.get("text") or "").strip() for x in cell["blocks"] if (x.get("text") or "").strip()]
+    assert lines[:3] == ["[연구개발성과의 활용방안 및 기대효과]", USE, EFFECT] and "[연구개발성과의 기대효과]" not in lines, lines   # 원본의 라벨 줄은 안 옮긴다
+    again = X.plan({**to, "doc": doc}, frm, applied=res["applied"], orig=orig)
+    assert not {cost, sign} & {c["to"] for c in again["cells"]} and not any(s["to"] in (cost, sign) for s in again["skipped"])   # 다시 — 넣을 것도 「못 넣음」 도 없다
+    assert next(r for r in again["labels"] if r["to"] == row[0]["to"])["skip"] == "applied"
+
+
+def test_this_year_head_pairs_and_note_lines_need_equal_counts():
+    cell = lambda i, r, c: {"id": i, "row": r, "col": c}  # noqa: E731
+    text = lambda i: ""  # noqa: E731
+    one = [(cell("t", 20, 3), (("해당연도연구개발성과활용계획및기대효과",), ()))], [(cell("f", 19, 2), (("연구개발성과활용계획및기대효과",), ()))]
+    heads = {"해당연도연구개발성과활용계획및기대효과": 1}, {"연구개발성과활용계획및기대효과": 1}
+    assert [(a["id"], b["id"]) for a, b in X._cell_pairs(*one, text, text, *heads)[0]] == [("t", "f")]   # ㉠′ — 「해당연도」 를 뗀 머리 꼴이 두 표에서 하나뿐
+    both = {"해당연도연구개발성과활용계획및기대효과": 1, "연구개발성과활용계획및기대효과": 1}
+    assert X._cell_pairs(*one, text, text, both, heads[1])[0] == []   # 목적 표에 뗀 꼴이 둘 — 어느 칸인지 모른다
+    assert X._cell_pairs(*one, text, text)[0] == []   # 머리 꼴 수를 안 주면(느슨한 맞춤 없음) 안 잇는다
+
+    def side(lines):
+        return {"idx": {"c": {"text": "\n".join(lines), "blocks": [{"id": f"p{i}", "type": "paragraph", "text": ln} for i, ln in enumerate(lines)]}}}, {"id": "t", "cells": [{"id": "c", "role": "note"}]}
+    blank = ["서약 글", "     년     월     일", "연구책임자:          (서명) ", "주관연구개발기관의 장:          (직인) ", "공동연구개발기관의 장:          (직인) "]
+    T, tt = side(blank)
+    F, ft = side(["서약", "2026 년  3 월  24 일", "연구책임자:   조연화  (직인생략)", "주관연구개발기관의 장:  이영석  (직인생략)", "주관연구개발기관의 장:  박별터  (직인생략)"])
+    cells, skipped = X._note_fill(T, F, tt, ft)
+    assert len(cells) == 1 and cells[0]["inline"] == 3 and cells[0]["text"].split("\n")[:2] == blank[:2] and "박별터" in cells[0]["text"].split("\n")[4] and not skipped   # 「장」 줄 2 ↔ 2 — 차례대로(라벨의 주관·공동은 안 따진다)
+    F, ft = side(["연구책임자:   조연화  (직인생략)", "주관연구개발기관의 장:  이영석  (직인생략)"])
+    cells, skipped = X._note_fill(T, F, tt, ft)
+    assert cells[0]["inline"] == 1 and "조연화" in cells[0]["text"] and "이영석" not in cells[0]["text"] and skipped[0]["why"] == "ambiguous"   # 「장」 줄 2 ↔ 1 — 어느 기관의 줄인지 몰라 안 넣는다

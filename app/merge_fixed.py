@@ -12,14 +12,21 @@
   2. **칸 짝**: 3단계 필드 경로(rowPath·colPath — 머리 칸 꼴의 사슬)가 같은 남는 칸끼리 하나씩. 같은 경로의 칸이 여럿이면, 그 행 머리 경로의 남는 칸을 문서 차례로 늘어놓은
      **열 머리 경로의 열이 두 문서에서 똑같을 때만** 자리대로(「국문핵심어」 다섯 칸). 다르면 모호(비워 둠 — 「현재·현재·목표·목표」 ↔ 「목표·목표·현재·현재」 를 차례로 이으면 뒤바뀐다).
      그래도 남은 칸은 하나씩일 때만 느슨하게: ㉠ 바로 붙은 행 머리 + 열 머리 경로 — 그 머리 꼴이 두 표에서 **하나뿐**일 때(「세부사업명」 — 「성명」 은 책임자마다 있어 안 됨)
+     ㉠′ 그 머리 꼴이 앞의 「해당연도」 로만 다를 때(연차보고서 「해당연도 연구개발성과 활용계획 및 기대 효과」 ↔ 계획서의 같은 이름 — 그 말을 뗀 꼴이 두 표에서 하나뿐: 2026-11-23)
      ㉡ 둘 이상 이어진 행 머리 경로가 같고 한쪽에 열 머리가 없음(「실무책임자 › 성명」) ㉢ 표의 첫 두 행(문서 제목 줄)의 체크 칸 — 원본의 체크를 목적 칸 글에 옮길 수 있을 때.
   3. **칸 넣기**: 원본 칸이 비었거나 글이 같으면 일 없음 · 목적 칸이 비었으면(자리표시 포함) 넣음(mode empty) · 목적 칸이 **서식의 틀**이면 원본 글로 바꿈(mode form): 틀 = 괄호 밖에 글자가
      없고(「(우)」) 원본 글이 그것으로 시작 — 괄호 밖에 글자가 있는 글은 원본의 앞부분이어도 사람이 쓴 글로 보고 안 덮는다(「김민수」 ↛ 「김민수석」). **체크 칸**(「정책지정[ ] 지정공모[ ]」 ·
      「기준[ ]」)은 서식의 말을 두고 원본의 체크·수만 **라벨이 같은 칸에** 옮긴다(_checked_into) — 목적 칸에 이미 체크·수가 있으면 안 건드린다(다르면 occupied). 그 밖은 occupied.
-     라벨 줄이 든 칸(「[최종목표]」 …)은 통째로 안 바꾸고 4 로. 계산 칸(heading_calc 수식)은 피연산자 칸의 수가 **넣은 뒤** 원본 피연산자와 같을 때만(아니면 calc — ⑤ 합계 계산 몫).
+     라벨 줄이 든 칸(「[최종목표]」 …)은 통째로 안 바꾸고 4 로. 계산 칸(heading_calc 수식)은 피연산자 칸의 수가 **넣은 뒤** 원본 피연산자와 같을 때만(아니면 calc — ⑤ 합계 계산 몫) —
+     계산 칸으로 보는 것은 원본 글이 **수**일 때뿐이다(글 칸이 수식의 결과 칸으로 읽혀도 — 요약문 「총 연구개발비」 — 합계 검사로 붙들지 않는다: 2026-11-23).
+     **줄 안의 빈 자리**(② §5-13 · merge_inline — 2026-11-23): 목적 칸이 한 줄 안에 라벨과 빈칸을 같이 적어 둔 서식이면(「총    천원 (정부지원연구개발비 :  천원, …」) 통째로 바꾸지 않고
+     같은 라벨의 값만 그 빈칸에 넣는다(mode form · `inline` = 넣은 수 — 원본에 없는 라벨의 빈칸은 남는다 · 글자 모양은 서식 것 그대로). 이미 값이 다 든 칸은 일 없음.
+  3-1. **머리 없는 글 칸의 줄**(_note_fill — 표지 맨 아래의 서약 · 날짜 · 서명 칸: 3단계 role note): 짝지은 표의 그 칸끼리, 「라벨: ___ 꼬리」 줄에 원본의 같은 갈래(콜론 앞 마지막 낱말 —
+     「…기관의 장」) 줄의 값을 **줄 수가 같을 때만 차례대로** 넣는다(연구책임자 · 기관의 장의 이름 — 「(직인)」 · 서약 글 · 날짜 줄은 서식 것 그대로). 칸 항목 하나로 낸다(mode form · inline).
   4. **라벨 내용**: 구분 기준 항목 밖의 소제목·라벨(2단계 그래프 heading·subtitle·label) 가운데 제목(숫자 포함)이 같은 것 — 칸 안 라벨은 **위에서 짝지은 칸끼리**(표 짝·칸 짝이 문맥),
      칸 밖은 조상 제목 사슬이 모두 같고 그 열쇠가 두 문서에서 하나씩일 때. 내용 = 라벨 다음부터 다음 소제목·구분 기준 자리(그것을 품은 표 포함) 앞까지의 형제 블록(글·표·그림 —
      자리표시 줄 뺌). 목적 자리가 비었을 때만(자리표시 줄은 넣은 뒤 지움) — 칸 밖은 목적 라벨 아래에 소제목이 없을 때만. 넣은 것은 merge_fill 과 같은 `applied` 에 적는다.
+     4-1 = 머리 이름과 같은 라벨 ← 라벨 없는 원본 칸의 내용 전체 · 4-2 = **합쳐 적은 라벨**(「[A 및 B]」 ← 원본 칸의 「[A]」 · 「[B]」 두 라벨의 내용을 이어 — 원본의 라벨 줄은 안 옮긴다: 2026-11-23).
   5. **서식 맞춤**(② §5-2): 짝지은 원본 표는 쪽을 넘어 나뉘는데(셀 단위로 나눔 · 글자처럼 취급 아님) 목적 표는 못 나뉘면(연차보고서 요약문 표 = 글자처럼 취급 + 나누지 않음 — 넣은
      내용이 한 쪽을 넘으면 그 뒤가 잘려 안 보이고 빈 쪽이 생긴다) 목적 표의 쪽 나눔을 원본 것으로(`flow` — 할 일에 든다). 넣은 그림이 목적 칸보다 넓으면 칸 폭으로 줄인다.
 - `apply(to_doc, from_doc, plan)` = 계획을 목적 문서에 → {"filled", "shaped", "labels": merge_fill.apply 의 counts, "inserted", "fitted"(줄인 그림), "flowed"(쪽 나눔을 바꾼 표), "applied",
@@ -33,6 +40,7 @@ from collections import Counter, defaultdict
 
 from app import heading_calc as HC
 from app import merge_fill as MF
+from app import merge_inline as IL
 from app import merge_pairs as P
 from app import merge_tables as MT
 from app import merge_take as TK
@@ -50,6 +58,8 @@ _VALUED = re.compile(r"\[\s*[^\s\[\]]|[■☑☒]")   # 체크·수가 든 체�
 _ANYBOX = re.compile(r"\[\s*[√✓✔vVoOxXㅇ○●■\d.]{0,4}\s*\]|[□☐■☑☒]")   # 체크 칸 — 빈 것·체크한 것·수를 적은 것(「기준[3]」). 글이 든 대괄호(「[최종목표]」)는 아니다
 _FOOT = re.compile(r"\d{1,2}(?:-\d{1,2})?\)")   # 머리 칸에 붙은 위첨자 각주 번호 「14)」·「15-1)」(글로는 이름 뒤에 붙어 읽힌다 — 이름을 견줄 때 뗀다)
 _HINT = re.compile(r"\([^()]*(?:체크|해당|작성|기재|선택|표시)[^()]*\)")   # 체크 라벨에 딸린 안내 글 「(해당항목 체크)」 — 라벨을 견줄 때 뗀다(「통합형(세부)」 의 괄호는 라벨의 일부라 안 뗀다)
+_THIS = re.compile(r"^(?:해당|당해)[연년]도")   # 머리 꼴 앞의 「해당연도」 — 느슨한 ㉠′(연차보고서가 계획서의 같은 자리 이름 앞에 붙인 말)
+_JOIN = re.compile(r"\s*(?:및|·|ㆍ)\s*")   # 합쳐 적은 라벨 제목을 가르는 말(4-2 — 「[연구개발성과의 활용방안 및 기대효과]」)
 
 
 def _side(side):
@@ -240,6 +250,12 @@ def _cell_pairs(tfree, ffree, ttext, ftext, thead=None, fhead=None, full=False):
     if thead is not None and fhead is not None:
         tl, fl = left()   # ㉠ — 그 머리 꼴이 두 표에서 하나뿐일 때
         pairs += _unique(tl, fl, lambda c, k: (k[0][-1], k[1]) if k[0] and thead.get(k[0][-1]) == 1 and fhead.get(k[0][-1]) == 1 else None)
+        tl, fl = left()   # ㉠′ — 머리 꼴이 앞의 「해당연도」 로만 다를 때(연차보고서 「해당연도 연구개발성과 활용계획 및 기대 효과」 ↔ 계획서 「연구개발성과 활용계획 및 기대 효과」 — 2026-11-23): 그 말을 뗀 꼴이 두 표에서 하나뿐
+        ts, fs = Counter(), Counter()
+        for src, into in ((thead, ts), (fhead, fs)):
+            for h, n in src.items():
+                into[_THIS.sub("", h)] += n
+        pairs += _unique(tl, fl, lambda c, k: (_THIS.sub("", k[0][-1]), k[1]) if k[0] and (h := _THIS.sub("", k[0][-1])) and ts.get(h) == 1 and fs.get(h) == 1 else None)
     tl, fl = left()   # ㉡ — 둘 이상 이어진 행 머리 경로 · 한쪽에 열 머리가 없음
     kt, kf = {c["id"]: k for c, k in tl}, {c["id"]: k for c, k in fl}
     pairs += [(t, s) for t, s in _unique(tl, fl, lambda c, k: k[0] if len(k[0]) >= 2 else None) if not kt[t["id"]][1] or not kf[s["id"]][1]]
@@ -252,6 +268,52 @@ def _cell_pairs(tfree, ffree, ttext, ftext, thead=None, fhead=None, full=False):
         if len(hit) == 1 and sum(moved(ttext(x["id"]), ftext(hit[0]["id"])) for x, _ in tl) == 1:
             pairs.append((t, hit[0]))
     return pairs, amb
+
+
+def _within(a, b):
+    """글 a 의 낱말 · 수가 글 b 에 그 차례로 모두 들어 있나(b 에 더 있어도 된다) — 빈 자리를 두던 칸에 원본의 값이 이미 들어갔는지 볼 때."""
+    words = lambda x: [t for t, _, _ in IL._toks(x) if IL._is_word(t)]  # noqa: E731
+    it = iter(words(b))
+    return all(any(w == x for x in it) for w in words(a))
+
+
+def _note_fill(T, F, t, f):
+    """머리 없는 글 칸(3단계 role note — 표지 맨 아래의 서약 · 날짜 · 서명 칸)의 「라벨: ___ 꼬리」 줄에, 짝지은 원본 표의 같은 갈래 줄의 값을 넣는다(모듈 설명 3-1) → ([칸 항목], [skipped]).
+    갈래 = 콜론 앞 마지막 낱말(「주관연구개발기관의 장:」 · 「공동연구개발기관의 장:」 → 「장」). 목적 칸의 그 갈래 빈 줄 수와 원본의 그 갈래 줄 수가 **같을 때만** 차례대로 잇는다 —
+    서명 줄은 두 문서에서 같은 기관 차례로 놓이고(주관 → 공동1 → …), 라벨의 「주관」·「공동」 은 원본에서 잘못 적혀 있기도 하다(실제 작성본: 둘째 줄도 「주관연구개발기관의 장」).
+    수가 다르면 어느 기관의 줄인지 알 수 없어 넣지 않는다(ambiguous). 칸은 통째로 안 바꾼다 — 그 줄의 빈칸에 값만(merge_inline.fill_at): 서약 글 · 날짜 줄 · 「(직인)」 은 목적 서식 것 그대로."""
+    def lines(S, tb):
+        for c in tb["cells"]:
+            bs = (S["idx"].get(c["id"]) or {}).get("blocks") or ()
+            if c.get("role") == "note" and bs and all(b.get("type") == "paragraph" for b in bs):
+                yield c["id"], [b.get("text") or "" for b in bs]
+    src = defaultdict(list)   # 갈래 → 원본 줄(문서 차례)
+    for cid, ls in lines(F, f):
+        for ln in ls:
+            if k := IL.family(ln):
+                src[k].append((cid, ln))
+    cells, skipped = [], []
+    for cid, ls in lines(T, t):
+        cur = _text(T, cid)
+        if "\n".join(ls) != cur:
+            continue   # 칸 글이 문단 글을 이은 것과 다르다(안쪽 표 등) — 줄 단위로 못 쓴다
+        want = defaultdict(list)   # 갈래 → 이 칸의 빈 자리 줄 차례
+        for i, ln in enumerate(ls):
+            if IL.lone(ln) and (k := IL.family(ln)):
+                want[k].append(i)
+        new, n, frm = list(ls), 0, None
+        for k, idxs in want.items():
+            got = src.get(k) or ()
+            if len(got) != len(idxs):
+                if got:
+                    skipped.append({"to": cid, "table": t["id"], "why": "ambiguous", "detail": f"「… {k}:」 줄 수가 달라 못 맞춤(목적 {len(idxs)} ↔ 원본 {len(got)})"})
+                continue
+            for i, (scid, sl) in zip(idxs, got):
+                if (x := IL.fill_at(ls[i], sl)) is not None:
+                    new[i], n, frm = x, n + 1, frm or scid
+        if n:
+            cells.append({"to": cid, "from": frm, "text": "\n".join(new), "table": t["id"], "mode": "form", "was": cur, "calc": False, "inline": n})
+    return cells, skipped
 
 
 def _skeleton(t, s):
@@ -355,6 +417,7 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
     (서식의 예시 · 틀 — 「1순위 소분류 명칭」 · 「총    천원 (정부지원연구개발비 :  천원 …」 · 「(우)」) 사람이 쓴 글이 아니라 원본 글로 바꾼다(mode form). None 이면 전처럼 글이 든 칸은 안 덮는다."""
     applied = applied or {}
     asis = lambda cid, cur: bool(orig) and cid in orig and P._ws(orig[cid].get("text") or "") == P._ws(cur)  # noqa: E731 — 올린 빈 양식의 글 그대로(2026-11-22 — 실제 이관 7cfb2957f487 의 요약문 기술분류 · 총 연구개발비 · 표지 주소)
+    slotted = lambda cid: bool(orig) and cid in orig and any(IL.slots(ln) for ln in (orig[cid].get("text") or "").split("\n"))  # noqa: E731 — 올린 빈 양식에서 줄 안에 빈 자리를 두던 칸(「총    천원 (…」)
     T, F = sides or (_side(to_side), _side(from_side))   # sides = 이미 읽어 둔 두 쪽(merge_api — 표 대응 계획 merge_table_map 과 같이 쓴다) · skip = 표 대응이 통째로 맡은 목적 표 id(② §5-3 2 — 그 표의 칸은 여기서 안 낸다)
     cells, calc, labels, skipped, tables, paired = [], [], [], [], [], set()
     after = {c["to"]: c["text"] for c in (tables_plan or {}).get("cells") or ()}
@@ -389,6 +452,7 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
             skipped.append({"to": tp["to"], "table": tp["to"], "why": "ambiguous", "detail": f"머리 경로가 같은 칸이 여럿이라 못 맞춘 칸 {amb}"})
         for c, s in pairs:
             cur, new = _text(T, c["id"]), _text(F, s["id"])
+            src, inline = new, 0   # src = 원본 칸의 글 그대로 · inline = 줄 안의 빈 자리에 넣은 값의 수
             if MT._empty(new) or P._ws(new) == P._ws(cur) or c["id"] in after:
                 continue
             if c["id"] in T["labeled"] or s["id"] in F["labeled"]:
@@ -400,12 +464,24 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
                 box = None if have else _checked_into(cur, new)   # 목적 칸에 이미 체크·수가 있으면 안 건드린다
                 mode, new = ("form", box) if box is not None else (None, new)
             else:
-                mode = "empty" if MT._empty(cur) else "form" if _skeleton(cur, new) or asis(c["id"], cur) else None
+                inl = None if MT._empty(cur) else IL.fill(cur, new)   # 줄 안의 빈 자리(「라벨 : ___ 꼬리」 — merge_inline): 서식의 글은 두고 값만
+                if inl is not None:
+                    mode, new, inline = "form", inl[0], inl[1]
+                elif slotted(c["id"]) and _within(new, cur):
+                    continue   # 빈 자리를 두던 칸에 원본의 값이 이미 다 들어 있다(앞서 넣음) — 남은 빈 자리는 원본에 없는 것
+                else:
+                    mode = "empty" if MT._empty(cur) else "form" if _skeleton(cur, new) or asis(c["id"], cur) else None
             if mode is None:
                 skipped.append({"to": c["id"], "table": tp["to"], "why": "occupied", "detail": f"목적 칸에 「{P._ws(cur)[:30]}」 — 원본 「{P._ws(new)[:30]}」"})
                 continue
-            x = {"to": c["id"], "from": s["id"], "text": new, "table": tp["to"], "mode": mode, "was": cur, "calc": bool(T["ops"].get(c["id"]))}
+            x = {"to": c["id"], "from": s["id"], "text": new, "table": tp["to"], "mode": mode, "was": cur,
+                 "calc": bool(T["ops"].get(c["id"])) and not inline and HC.parse_num(src).get("num") is not None}   # 계산 칸 = 수를 적는 칸일 때만(글 칸이 수식의 결과 칸으로 읽혀도 — 요약문 「총 연구개발비」 — 합계 검사로 붙들지 않는다)
+            if inline:
+                x["inline"] = inline
             (calc if x["calc"] else cells).append(x)
+        got = _note_fill(T, F, ttabs[tp["to"]], ftabs[tp["from"]])   # 3-1. 머리 없는 글 칸의 「라벨: ___」 줄(표지의 서명 줄)
+        cells += got[0]
+        skipped += got[1]
         row["skipped"] = len(skipped) - n0
     # 계산 칸 — 피연산자 칸의 수가 넣은 뒤 원본 피연산자와 같을 때만(합계가 그 줄들의 합으로 남는다). 합계의 합계가 있어 더 안 늘 때까지 되풀이
     after.update({c["to"]: c["text"] for c in cells})
@@ -484,6 +560,41 @@ def plan(to_side, from_side, applied=None, tables_plan=None, forced=None, sides=
         if any(n.get("role") != "heading" or n["id"] in F["cov"] or _title(n) in names for n in nodes_in[id(F)].get(sid, ())):
             continue   # 원본 칸에 라벨 · 소제목 · 구분 기준 자리가 있다 — 칸 전체가 그 라벨 하나의 내용이 아니다(개요 줄 「o」·「-」 뿐인 칸만)
         put(hits[0], sid, (F["idx"].get(sid) or {}).get("blocks") or (), True)
+    # 4-2. 합쳐 적은 라벨(2026-11-23 사용자(요약문 「[연구개발성과의 활용방안 및 기대효과]」 가 빈 것을 보이며) "이거 왜 ... 작성안되었나?"): 짝지은 칸 쌍에서 목적 라벨의 제목이 「A 및 B」 이고
+    #      원본 칸에 그 둘이 따로 선 라벨(「[연구개발성과의 활용방안]」 · 「[연구개발성과의 기대효과]」 — 뒤 것은 앞 것의 앞말 「연구개발성과의」 를 같이 쓴다)로 하나씩 있으면, 두 라벨의 내용을 문서 차례로 이어 넣는다
+    #      (원본의 라벨 줄 자체는 안 옮긴다 — 목적 서식이 하나로 합쳐 적었다). 위 4 는 제목이 꼭 같은 라벨만 이어 이 꼴은 비어 있었다.
+    done = {r["to"] for r in labels}
+    order = {n["id"]: i for i, n in enumerate(F["nodes"])}
+    subs = {n["id"] for n in F["nodes"] if n.get("role") in ("subtitle", "label")}
+
+    def inside(nid):
+        """칸 안 라벨의 내용 — 라벨 다음부터 그 칸의 다음 소제목 · 라벨 줄(「[…]」)이나 구분 기준 자리 앞까지. 개요 줄(「ㅇ」·「-」 — 그래프의 heading)은 그 라벨의 내용이라 끊지 않는다(_slot 은 다음 제목에서 끊는다 — 본문의 자리)."""
+        seq = F["where"].get(nid) or ()
+        k = next((i for i, b in enumerate(seq) if b["id"] == nid), None)
+        out = []
+        for b in seq[k + 1:] if k is not None else ():
+            if b["id"] in subs or any(x["id"] in F["cov"] for x in core._under(b)):
+                break
+            if not b.get("captionOf"):
+                out.append(b)
+        return out
+    for cid, sid in sorted(paired):
+        fl = [n for n in nodes_in[id(F)].get(sid, ()) if n["id"] not in F["cov"]]
+        for t in nodes_in[id(T)].get(cid, ()):
+            if t["id"] in done or t["id"] in T["cov"]:
+                continue
+            parts = ["".join(_WORD.findall(x)) for x in _JOIN.split(t.get("text") or t.get("letter") or "")]
+            if len(parts) < 2 or not all(len(x) >= 2 for x in parts):
+                continue
+            first, got = parts[0], []
+            for k, part in enumerate(parts):
+                hit = [n for n in fl if (_title(n) == part if not k else _title(n) == part or (_title(n).endswith(part) and len(_title(n)) > len(part) and first.startswith(_title(n)[:-len(part)])))]
+                if len(hit) != 1 or hit[0] in got:
+                    break
+                got.append(hit[0])
+            else:
+                got.sort(key=lambda n: order[n["id"]])
+                put(t, got[0]["id"], [b for n in got for b in inside(n["id"])], True)
     todo = [r for r in labels if r["skip"] is None]
     why = Counter(s["why"] for s in skipped)
     counts = {"tables": sum(t["status"] == "paired" for t in tables), "tablesAmbiguous": sum(t["status"] == "ambiguous" for t in tables),
@@ -518,7 +629,8 @@ def apply(to_doc, from_doc, plan):
             try:
                 to_doc.set_text(c["to"], c["text"])
                 filled += 1
-                shaped += MT._shape(to_doc, from_doc, c["to"], c["from"])   # 글자 모양(장평·자간·크기)도 — 빈 칸과 같은 길
+                if not c.get("inline"):   # 줄 안의 빈 자리에 값만 넣은 칸(merge_inline)은 서식의 글자 모양 그대로 둔다(서약 글 · 「(직인)」 이 원본 칸의 모양으로 바뀌지 않게)
+                    shaped += MT._shape(to_doc, from_doc, c["to"], c["from"])   # 글자 모양(장평·자간·크기)도 — 빈 칸과 같은 길
             except ValueError as x:
                 skipped.append({"to": c["to"], "why": "shape", "detail": str(x)})
     lab = MF.apply(to_doc, from_doc, {"items": plan["labels"]})
