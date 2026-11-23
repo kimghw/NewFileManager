@@ -28,9 +28,12 @@ def test_collect_groups_guides_by_heading_and_table():
     graph, tables = M._cached("guides_report", data, doc, "연차보고서")
     got = FG.collect(doc, graph, tables)
     c = got["counts"]
-    assert (c["items"], c["marks"]) == (39, 56), c   # 작성 요령 표 5(앞표지 작성 요령 포함 — 2026-11-22: 0행이 빈 줄인 표도 본다) + <참고 N> 4 + ※ 안내 30 · 각주 번호 56(form_cleanup 의 실측과 같은 수)
+    assert (c["items"], c["marks"]) == (44, 56), c   # 작성 요령 표 5(앞표지 작성 요령 포함 — 2026-11-22: 0행이 빈 줄인 표도 본다) + <참고 N> 4 + ※ 안내 30 + 안내 상자 5(2026-11-23) · 각주 번호 56(form_cleanup 의 실측과 같은 수)
     kinds = [it["kind"] for it in got["items"]]
-    assert (kinds.count("tables"), kinds.count("refs"), kinds.count("notes")) == (5, 4, 30)
+    assert (kinds.count("tables"), kinds.count("refs"), kinds.count("notes"), kinds.count("boxes")) == (5, 4, 30, 5)
+    box = next(it for it in got["items"] if it["kind"] == "boxes")   # 안내 상자 — 그 상자가 놓인 절(서식의 글 「5-1 연구개발 목표 및 내용」)의 지침 · 표의 지침이 아니다 · 글 = 상자의 두 줄
+    assert box["heading"]["text"].startswith("5-1 연구개발 목표 및 내용") and box["table"] is None and box["name"] == "안내 상자"
+    assert box["text"].startswith("당초계획 대비 변경사항이 있는 경우 작성") and box["text"].rstrip().endswith("(예시: N차년도 수정계획서 p.10~13)")
     inline = next(it for it in got["items"] if it["text"] == "※ 2page 이내 요약 작성")
     assert inline["heading"]["text"].startswith("1. 연구개발과제의 개요") and inline["table"] is None   # 제목 줄 안의 ※ — 그 헤딩의 지침이고 앞 표의 것이 아니다
     cell = next(it for it in got["items"] if it["text"].startswith("※ 요약문은 5쪽"))
@@ -68,7 +71,7 @@ def test_api_saves_and_keeps_guides_after_cleanup(client):
     v = client.get(f"/api/docs/{d}/form-guides").json()
     assert v["saved"] is None and v["groups"] == {"headings": [], "tables": [], "loose": []}   # 읽기는 모으지 않는다
     v = client.post(f"/api/docs/{d}/form-guides").json()
-    assert v["saved"]["counts"]["items"] == 39 and v["saved"]["rev"] == v["rev"] and "kept" not in v and v["groups"]["tables"]
+    assert v["saved"]["counts"]["items"] == 44 and v["saved"]["rev"] == v["rev"] and "kept" not in v and v["groups"]["tables"]
     assert client.get(f"/api/docs/{d}/form-guides").json()["saved"]["counts"] == v["saved"]["counts"]
     assert client.post(f"/api/docs/{d}/form-cleanup", json={}).json()["done"]["tables"] == 5   # 4단계 「작성요령 삭제」 — 문서에서는 사라진다
     assert client.get(f"/api/docs/{d}/form-cleanup").json()["counts"]["total"] == 0
@@ -82,7 +85,7 @@ def test_cleanup_saves_guides_first_even_when_nobody_asked(client):
     assert client.get(f"/api/docs/{d}/form-guides").json()["saved"] is None
     assert client.post(f"/api/docs/{d}/form-cleanup", json={}).status_code == 200
     saved = client.get(f"/api/docs/{d}/form-guides").json()["saved"]   # 지우기 바로 전에 남긴 것
-    assert saved and saved["counts"]["items"] == 39 and saved["counts"]["marksLinked"] == 51   # 앞표지 작성 요령 표를 지침으로 읽게 되어 표지의 각주 번호(2) … 19))가 그 항목에 이어진다(전 22)
+    assert saved and saved["counts"]["items"] == 44 and saved["counts"]["marksLinked"] == 51   # 앞표지 작성 요령 표를 지침으로 읽게 되어 표지의 각주 번호(2) … 19))가 그 항목에 이어진다(전 22)
 
 
 # ---- 작성 지침을 헤딩 · 표 LLM 판정 자료로(spec_헤딩_추출 ② §20 — 2026-11-22 사용자 "당연히 넣어줘") ----------------------------------------------------------

@@ -1,7 +1,7 @@
 """작성 지침 모으기 — 양식이 글쓴이에게 주는 안내를 헤딩/표별로(spec_작업 ② §21 「작성 지침 저장」). 순수 계산 — 저장·끝점은 `app/form_guides_api.py`.
 
 2026-11-19 사용자 "테이블 분석할때 작성 지침들이 있으면 헤딩/테이블 별로 저장해야함" — 「작성요령 삭제」(app/form_cleanup.py)가 지우면 어디에도 남지 않던 것을, 지우기 전에 어느 헤딩 · 어느 표의 지침인지와 함께 남긴다.
-- 작성 지침 = `form_cleanup.find` 가 찾는 것 가운데 글이 있는 셋: 작성 요령 표(`tables`) · <참고 N> 자료(`refs`) · ※ 안내(`notes`). **찾는 규칙은 그 함수 하나다 — 여기서 다시 찾지 않는다.**
+- 작성 지침 = `form_cleanup.find` 가 찾는 것 가운데 글이 있는 넷: 작성 요령 표(`tables`) · <참고 N> 자료(`refs`) · ※ 안내(`notes`) · 안내 상자(`boxes` — 2026-11-23: 1칸 상자의 색 글 안내). **찾는 규칙은 그 함수 하나다 — 여기서 다시 찾지 않는다.**
 - 헤딩 = 헤딩 그래프(2단계 결과)의 본문 헤딩 줄 가운데 문서 차례로 바로 앞의 것(지침이 헤딩 줄 안의 ※ 면 그 줄). 그래프가 없으면 비운다(짐작하지 않는다).
 - 표 = 표 칸 안의 지침은 그 표(본문 최상위 표) · 본문의 ※ 안내는 빈 줄을 건너 바로 다음 블록이 표면 그 표, 아니면(줄이 안내뿐일 때만) 바로 앞 블록이 표면 그 표 · 작성 요령 표와 <참고 N> 자료는 절의 것이라 표 없음.
 - 각주 번호(`marks` — 「연구개발비15)」 의 「15)」)는 그 블록 **바로 뒤의**(표 · 빈 줄만 사이에 둔) 작성 요령 표에서 같은 번호의 항목(「15. …」 줄부터 다음 「N.」 줄 전까지 · 「15-1)」 은 그 항목 안의 「1) …」)을 가리킨다 —
@@ -134,7 +134,7 @@ def collect(doc, graph=None, tables=None, found=None):
             by_id[x["id"]] = x
     heads = _headings(graph, top, by_id)
     labels = _table_labels(tables, blocks, by_id)
-    guide_ids = {t["id"] for t in found.get("tables") or ()}
+    guide_ids = {t["id"] for t in found.get("tables") or ()} | {b["id"] for b in found.get("boxes") or ()}   # 안내 상자도 「그 지침의 표」 가 아니다
     ref_spans = []   # <참고 N> 자료가 차지한 본문 차례 구간 — 그 안의 표는 「그 지침의 표」 가 아니다
     for r in found.get("refs") or ():
         if r["id"] in top and r.get("last") in top:
@@ -198,6 +198,12 @@ def collect(doc, graph=None, tables=None, found=None):
         body = blocks[i]["id"] == n["id"]
         items.append({"id": n["id"], "kind": "notes", "name": KIND_NAME["notes"], "text": text[:TEXT_MAX], "heading": heading_of(i, n["id"]),
                       "table": near_table(i, back=bool(n.get("whole"))) if body else owner_table(n["id"]), "top": i})
+    for x in found.get("boxes") or ():   # 안내 상자 — 그 상자가 놓인 절의 지침(상자는 쓸 자리라 표의 지침이 아니다 — 표 칸 안의 상자면 그 표)
+        i = top.get(x["id"])
+        if i is None or x["id"] not in by_id:
+            continue
+        text = "\n".join((b.get("text") or "").strip() for c in by_id[x["id"]].get("cells") or () for b in c.get("blocks") or () if (b.get("text") or "").strip())
+        items.append({"id": x["id"], "kind": "boxes", "name": KIND_NAME["boxes"], "text": text[:TEXT_MAX], "heading": heading_of(i), "table": owner_table(x["id"]), "top": i})
     items.sort(key=lambda it: (it["top"], it["kind"]))
 
     guides = sorted(((top[t["id"]], t["id"], _numbered(_table_text(by_id[t["id"]]))) for t in found.get("tables") or () if t["id"] in top), key=lambda g: g[0])

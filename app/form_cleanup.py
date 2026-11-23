@@ -11,10 +11,15 @@
            지울 표 안의 줄은 표와 함께 지워지니 뺀다. 빈칸만 있는 런은 색을 안 따진다.
 - refs   : 「<참고 N>」 자료(2026-11-12 사용자 "<참고 N> 이 패턴도 삭제하도록 해줘라") — 「<참고 1> 연구성과 실적 증빙자료 예시」 처럼 <참고 N> 으로 시작하는 문단과
            바로 뒤의 표(사이 빈 줄 포함 — 표가 여럿 이어지면 다). 앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도. 뒤에 표가 없는 <참고 N> 줄은 안 지운다(무엇을 가리키는지 꼴로 알 수 없음).
+- boxes  : 「안내 상자」(2026-11-23 사용자(「5-1. 연구개발 목표 및 내용」 아래 상자의 빨간 글 「당초계획 대비 변경사항이 있는 경우 작성 … (예시: N차년도 수정계획서 p.10~13)」 을 보이며)
+           "왜 작성 지침은 4단계에서 정리가 안되지?") — 1칸 상자(칸이 하나인 표)의 글 있는 문단이 **모두 본문 색이 아닌 한 가지 색**(빨강 · 파랑 — 흰 글은 아님: 짙은 바탕의 제목)이고
+           그 글에 **안내 낱말**(작성 · 기재 · 기입 · 예시 · 서술 · 기술 · 명시 · 입력)이 있을 때. 글만 지운다 — 상자는 쓸 자리라 남기고, 칸이 비어 남은 빈 줄은 본문 글 모양으로(검정 · 보통 굵기 · 양쪽 맞춤).
+           본문 색 글이 한 줄이라도 있는 상자(사람이 쓴 내용이 섞임) · 칸 안에 표 · 그림이 든 상자 · 색 글이어도 안내 낱말이 없는 상자(색 글 제목 상자)는 건드리지 않는다. 「※」 가 없어 notes 가 못 잡던 꼴이다.
+           첫 글이 「※」 로 시작하는 상자(안내뿐인 상자 — 연구개발계획서 양식의 빨간 「※ AI 관련 R&D 과제의 경우 … 작성 요망 ① …」: 전에는 ※ 줄만 지워져 「① …」 줄이 남았다)는 **상자째**(whole — 앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도).
 지우는 패턴의 목록 = PATTERNS(2026-11-12 사용자 "문서 정리에는 어떤 패턴을 삭제해야하는지 목록이 있어야함") — 화면 ⑥ 「목록 보기」 의 「지우는 패턴」 표 · 확인 창 글이 이것을 쓴다.
 패턴을 늘릴 때는 PATTERNS 에 한 줄 + find/apply 에 그 종류(키) + 시험.
 find(doc) → {"marks": [{id, text}], "tables": [{id, label, rows, blank}], "notes": [{id, text, guide, whole}], "refs": [{id, label, last, tables, blank}],
-"counts", "patterns"} · apply(doc, found) → 지운 수."""
+"boxes": [{id(상자 = 표), first, last(지울 문단의 처음 · 끝), paras[글 있는 문단], text, color, whole(상자째인가), blank}], "counts", "patterns"} · apply(doc, found) → 지운 수."""
 import re
 
 from app.division_profiles import _structure as structure
@@ -22,6 +27,9 @@ from app.division_profiles import _structure as structure
 GUIDE_ROW = re.compile(r"작\s*성\s*요\s*령")
 REF_HEAD = re.compile(r"^\s*[<〈＜]\s*참\s*고\s*[\d\-.]*\s*[>〉＞]")
 BODY_COLORS = {None, "", "#000000", "#000", "black"}
+BOX_WORD = re.compile(r"작\s*성|기\s*재|기\s*입|예\s*시|서\s*술|기\s*술|명\s*시|입\s*력")   # 안내 상자의 안내 낱말 — 색 글이어도 이 낱말이 없는 상자(색 글 제목 상자)는 안내로 보지 않는다
+BOX_SKIP = {"#FFFFFF", "#FFF"}   # 흰 글 = 짙은 바탕 위의 제목(안내 색이 아니다)
+BOX_PLAIN = {"color": "#000000", "bold": False, "align": "justify", "firstLineMm": 0}   # 안내를 지워 빈 상자에 남는 빈 줄의 글 모양(안내의 빨강 · 굵게 · 가운데 · 내어쓰기를 물려받지 않게)
 
 # 지우는 패턴 목록(화면 차례) — key = find/apply 의 종류, name = 화면 이름, rule = 무엇을 찾나, how = 어떻게 지우나, example = 서식의 보기
 PATTERNS = (
@@ -31,6 +39,8 @@ PATTERNS = (
      "example": "<참고 1> 연구성과 실적 증빙자료 예시"},
     {"key": "notes", "name": "※ 안내", "rule": "※ 부터 ※ 와 같은 색인 글 — 그 색이 본문 색(검정)이 아닐 때", "how": "문단째(앞에 제목이 있으면 ※ 앞 글은 남김)",
      "example": "※ 2page 이내 요약 작성"},
+    {"key": "boxes", "name": "안내 상자", "rule": "1칸 상자의 글이 모두 본문 색(검정)이 아닌 한 가지 색이고 안내 낱말(작성 · 기재 · 예시 …)이 있을 때", "how": "글만(상자는 쓸 자리로 남김 — 남는 빈 줄은 본문 글 모양으로) · 「※」 로 시작하는 안내뿐인 상자는 상자째",
+     "example": "당초계획 대비 변경사항이 있는 경우 작성 … (예시: N차년도 수정계획서 p.10~13)"},
     {"key": "marks", "name": "위첨자 각주 번호", "rule": "위첨자로 쓴 각주 번호 「15)」·「15-1)」", "how": "번호 글자만(글은 남김)", "example": "연구개발비15)"},
 )
 KINDS = tuple(p["key"] for p in PATTERNS)
@@ -74,6 +84,35 @@ def note_of(b):
             continue
         break
     return i, end, color
+
+
+def _whole_color(b):
+    """문단의 글(빈칸 아닌 런)이 모두 본문 색이 아닌 한 가지 색이면 그 색(흰 글은 아님) | None."""
+    cs = {c for _, _, t, c in _runs(b) if t.strip()}
+    c = next(iter(cs)) if len(cs) == 1 else None
+    return None if c in BODY_COLORS or c in BOX_SKIP else c
+
+
+def _boxes(blocks, skip):
+    """안내 상자 → [{id(표), first, last(지울 문단의 처음 · 끝 — 사이의 빈 줄도 함께), paras[글 있는 문단 id], text, color}] — 모듈 설명의 boxes. skip(지울 표 · <참고 N> 자료 안)의 상자는 뺀다."""
+    out = []
+    for t in structure.iter_blocks(blocks):
+        cells = t.get("cells") or () if t.get("type") == "table" else ()
+        if len(cells) != 1 or t["id"] in skip:
+            continue
+        items = cells[0].get("blocks") or ()
+        if any(b.get("type") != "paragraph" for b in items):   # 칸 안의 표 · 그림 — 안내만 든 상자가 아니다
+            continue
+        paras = [b for b in items if (b.get("text") or "").strip()]
+        colors = {_whole_color(b) for b in paras}
+        if not paras or len(colors) != 1 or None in colors:
+            continue
+        text = "\n".join((b.get("text") or "").strip() for b in paras)
+        if not BOX_WORD.search(text):
+            continue
+        out.append({"id": t["id"], "first": paras[0]["id"], "last": paras[-1]["id"], "paras": [b["id"] for b in paras], "text": text[:200], "color": next(iter(colors)),
+                    "whole": text.startswith("※"), "inside": {x["id"] for x in structure.iter_blocks([t])}})
+    return out
 
 
 def _guide_tables(blocks):
@@ -153,6 +192,11 @@ def find(doc):
     tables = [t for t in tables if t["id"] not in ref_in]   # <참고 N> 자료의 표이기도 하면 그 자료와 함께
     inside = set().union(ref_in, *(t["inside"] for t in tables))
     blank = _blank_after(blocks, {t["id"] for t in tables})
+    boxes = _boxes(blocks, inside)
+    inside = inside.union(*(b.pop("inside") for b in boxes))   # 안내 상자의 문단 — 상자와 함께 지운다(그 안의 ※ 안내 · 위첨자를 따로 세지 않는다)
+    near = _blank_after(blocks, {b["id"] for b in boxes if b["whole"]})
+    for b in boxes:
+        b["blank"] = near.get(b["id"])
     notes = []
     for b in _paras(blocks):
         if b["id"] in inside:
@@ -169,7 +213,7 @@ def find(doc):
     marks = [m for m in marks if m["id"] not in inside]   # 지울 표 안의 것은 표와 함께
     tabs = [{k: t[k] for k in ("id", "label", "rows")} | {"blank": blank.get(t["id"])} for t in tables]
     refs = [{k: r[k] for k in ("id", "label", "last", "tables", "blank")} for r in refs]
-    found = {"marks": marks, "tables": tabs, "notes": notes, "refs": refs}
+    found = {"marks": marks, "tables": tabs, "notes": notes, "refs": refs, "boxes": boxes}
     counts = {k: len(found[k]) for k in KINDS}
     return {**found, "counts": {**counts, "total": sum(counts.values())}, "patterns": patterns(counts)}
 
@@ -186,9 +230,9 @@ def empty():
 
 
 def apply(doc, found):
-    """found(find 의 결과 — 같은 문서·같은 차례에서 구한 것)대로 지운다 → {"marks", "tables", "notes", "refs", "notesWhole", "notesInline", "skipped": [{id, why}]}.
-    차례: ※ 안내 → <참고 N> 자료 → 작성 요령 표 → 위첨자(표 안의 위첨자는 표와 함께 사라진 뒤에 센다)."""
-    out = {"marks": 0, "tables": 0, "notes": 0, "refs": 0, "notesWhole": 0, "notesInline": 0, "skipped": []}
+    """found(find 의 결과 — 같은 문서·같은 차례에서 구한 것)대로 지운다 → {"marks", "tables", "notes", "refs", "boxes", "notesWhole", "notesInline", "skipped": [{id, why}]}.
+    차례: ※ 안내 → <참고 N> 자료 → 작성 요령 표 → 안내 상자 → 위첨자(표 안의 위첨자는 표와 함께 사라진 뒤에 센다)."""
+    out = {"marks": 0, "tables": 0, "notes": 0, "refs": 0, "boxes": 0, "notesWhole": 0, "notesInline": 0, "skipped": []}
     for it in found["notes"]:
         if it["whole"]:
             try:
@@ -223,6 +267,40 @@ def apply(doc, found):
                 doc.delete_blocks(it["blank"], it["blank"])
             except (ValueError, KeyError):   # 구역 설정이 든 빈 줄 — 남김
                 pass
+    emptied = []
+    for it in found.get("boxes") or ():
+        try:
+            if it.get("whole"):   # 안내뿐인 상자(「※ …」) — 상자째
+                doc.delete_blocks(it["id"], it["id"])
+            else:
+                doc.delete_blocks(it["first"], it["last"])   # 칸이 비면 어댑터가 빈 문단 하나를 남긴다(상자는 그대로 — 쓸 자리)
+        except (ValueError, KeyError) as e:
+            out["skipped"].append({"id": it["id"], "why": str(e)})
+            continue
+        out["boxes"] += 1
+        if not it.get("whole"):
+            emptied.append(it)
+        elif it.get("blank"):
+            try:
+                doc.delete_blocks(it["blank"], it["blank"])
+            except (ValueError, KeyError):   # 구역 설정이 든 빈 줄 — 남김
+                pass
+    if emptied and hasattr(doc, "derive_format"):
+        _plain_boxes(doc, emptied)
     if found["marks"] and hasattr(doc, "strip_superscript_marks"):
         out["marks"] = doc.strip_superscript_marks()
     return out
+
+
+def _plain_boxes(doc, boxes):
+    """안내를 지운 상자에 남은 빈 줄 가운데 글 모양이 그 안내 색인 줄(지운 문단의 모양을 물려받은 빈 문단)을 본문 글 모양(BOX_PLAIN)으로 — 거기 쓰는 글이 빨강 · 굵게로 시작하지 않게. 못 바꾸면 그대로 둔다."""
+    by = {b["id"]: b for b in structure.iter_blocks(doc.blocks()) if b.get("type") == "table"}
+    for it in boxes:
+        cells = (by.get(it["id"]) or {}).get("cells") or ()
+        for b in (cells[0].get("blocks") or ()) if len(cells) == 1 else ():
+            if b.get("type") != "paragraph" or (b.get("text") or "").strip() or (((b.get("format") or {}).get("color") or "").upper() or None) != it["color"]:
+                continue
+            try:
+                doc.apply_format([b["id"]], doc.derive_format(doc.get_format(b["id"]), BOX_PLAIN))
+            except (ValueError, KeyError):
+                continue

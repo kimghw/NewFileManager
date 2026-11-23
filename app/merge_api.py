@@ -1384,12 +1384,13 @@ def merge_reset(doc_id: str, body: dict = Body(default={})):
 
 def _cleanup_view(found):
     return {"counts": found["counts"], "patterns": found["patterns"], "marks": found["marks"][:300], "tables": found["tables"], "refs": found["refs"],
+            "boxes": [{k: b.get(k) for k in ("id", "first", "text", "color", "whole")} for b in found.get("boxes") or ()][:300],
             "notes": [{k: n[k] for k in ("id", "text", "guide", "color", "whole")} for n in found["notes"]][:300]}
 
 
 @router.get("/api/docs/{doc_id}/form-cleanup")
 def form_cleanup_get(doc_id: str):
-    """지울 양식 안내 목록(문서는 그대로 — 지금 문서에서 스크립트로 셈) → {counts{tables, refs, notes, marks, total}, patterns[{key, name, rule, how, example, count}](지우는 패턴 목록 —
+    """지울 양식 안내 목록(문서는 그대로 — 지금 문서에서 스크립트로 셈) → {counts{tables, refs, notes, boxes, marks, total}, boxes[{id, first, text, color, whole}](안내 상자), patterns[{key, name, rule, how, example, count}](지우는 패턴 목록 —
     form_cleanup.PATTERNS), tables[{id, label, rows, blank}], refs[{id, label, last, tables, blank}], notes[{id, text, guide, color, whole}], marks[{id, text}], rev}. hwpx 만(아니면 빈 목록 — 패턴 목록은 있음)."""
     from app import form_cleanup, server
     s = server._sess(doc_id)
@@ -1404,7 +1405,7 @@ def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
     """{expectRev?} → 지금 문서에서 다시 찾아 한 번에 지운다(구조 편집 트랜잭션 하나 — 실행 취소 1 · rev +1 · 기록 `formCleanup`). 지울 것이 없으면 {nothing: true}.
     표준 검사의 기준선 = 올린 원본 + **편집 바로 전 문서**의 위반: 2단계 내용 반영이 사업계획서에서 옮겨 온 위반 종류(그림의 renderingInfo 등)를 이 지우기 탓으로 보지 않는다 —
     올린 원본만 기준이면 반영 뒤 문서의 모든 전체 검사 편집이 422 로 되돌려진다(2026-11-12 실측: TEMP 삭제). 이 편집이 새로 만든 위반만 되돌린다(422).
-    → {done{marks, tables, notes, refs, notesWhole, notesInline, skipped}, …편집 상태}. 409 expectRev 가 지금과 다름."""
+    → {done{marks, tables, notes, refs, boxes, notesWhole, notesInline, skipped}, …편집 상태}. 409 expectRev 가 지금과 다름."""
     from collections import Counter
 
     from app import form_cleanup, server
@@ -1432,7 +1433,7 @@ def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
 
         def run():
             done.update(form_cleanup.apply(s.doc, found))
-            return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {k: done[k] for k in ("marks", "tables", "notes", "refs", "notesWhole", "notesInline")}}
+            return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {k: done[k] for k in ("marks", "tables", "notes", "refs", "boxes", "notesWhole", "notesInline")}}
 
         def check(s_, out, base, header):
             return chk.verdict(s_.doc, {"schema": Counter(base["schema"]) | pre["schema"], "rules": Counter(base["rules"]) | pre["rules"]}, chk.check_doc(s_.doc))

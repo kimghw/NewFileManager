@@ -2617,8 +2617,8 @@ async function taskReset(stageId) {
 // ---- 3단계 「문서 정리」 ⑥ 작성요령 삭제(spec_작업 ② §14 「3단계」 — 2026-11-12 사용자 "3단계에 작성요령 삭제 기능을 넣어줘" → "그냥 위 첨자, 작성요령이 테이블 첫번째 줄에 있는 경우,
 // ※ 2page 이내 요약 작성.. 당구장 표시랑 색이랑 폰트가 같은 경우 정도만 삭제해도 되겠고만"): 양식 안내 지우기(app/form_cleanup.py · API GET/POST …/form-cleanup — 한 구조 편집 · 실행 취소 1).
 // 지우는 패턴 목록(2026-11-12 사용자 "문서 정리에는 어떤 패턴을 삭제해야하는지 목록이 있어야함") — 원본은 서버 app/form_cleanup.py PATTERNS(GET …/form-cleanup 의 patterns:
-// 작성 요령 표 · <참고 N> 자료 · ※ 안내 · 위첨자 각주 번호). 목록은 지금 문서에서 스크립트로 센다(헤딩 추출 결과에 기대지 않음 — 문서가 바뀌어도 다시 하라고 할 일이 없다)
-const CLEANUP_NAMES = [["tables", "작성 요령 표"], ["refs", "<참고 N> 자료"], ["notes", "※ 안내"], ["marks", "위첨자 각주 번호"]]; // 목록을 읽기 전(단계 안내 글)에만 — 읽으면 서버 것
+// 작성 요령 표 · <참고 N> 자료 · ※ 안내 · 안내 상자 · 위첨자 각주 번호). 목록은 지금 문서에서 스크립트로 센다(헤딩 추출 결과에 기대지 않음 — 문서가 바뀌어도 다시 하라고 할 일이 없다)
+const CLEANUP_NAMES = [["tables", "작성 요령 표"], ["refs", "<참고 N> 자료"], ["notes", "※ 안내"], ["boxes", "안내 상자"], ["marks", "위첨자 각주 번호"]]; // 목록을 읽기 전(단계 안내 글)에만 — 읽으면 서버 것
 const cleanupPatterns = () => (taskFlow.cleanup || {}).patterns || CLEANUP_NAMES.map(([key, name]) => ({ key, name }));
 const cleanupNames = () => cleanupPatterns().map((p) => p.name).join(" · ");
 const taskCleanupText = (n, done = false) => cleanupPatterns()
@@ -2704,6 +2704,7 @@ function taskCleanupList() { // ⑥ 「목록 보기」 — 2열 「작성요령
   for (const t of C.tables) row("작성 요령 표", t.label, `표째(${t.rows}행)`, t.id);
   for (const r of C.refs || []) row("<참고 N> 자료", r.label, `제목 줄과 표 ${r.tables}개째`, r.id);
   for (const n of C.notes) row("※ 안내", n.guide, n.whole ? "문단째" : `※ 앞 「${short(n.text.slice(0, n.text.indexOf("※")).trim(), 24)}」 은 남김`, n.id);
+  for (const b of C.boxes || []) row("안내 상자", b.text, b.whole ? "상자째" : "글만(상자는 남김)", b.whole ? b.id : b.first);
   for (const m of C.marks) row("위첨자", m.text, "글자만", m.id);
   hRowKeys(tb);
   body.append(tbl);

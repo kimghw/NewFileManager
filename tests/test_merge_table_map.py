@@ -318,3 +318,50 @@ def test_items_picked_for_an_org_table_are_numbered_in_that_table():
     T["hold"] = {}
     p = MM.plan(T, F, _map(T, F, [([1], [2]), ([2], [3])]))
     assert [(s["record"], s["why"]) for s in p["skipped"]] == [(0, "name")] and "순번이 다름" in p["skipped"][0]["detail"]
+
+
+def test_a_paired_table_the_script_could_not_match_is_asked_whether_the_reason_is_shape_or_ambiguous():
+    """표 대응이 물을 표(targets) — 원본 표는 정해졌는데 같은 이름 자리가 한 칸도 못 넣은 표. 까닭이 「머리 경로가 같은 칸이 여럿」(표 단위 ambiguous — 기관마다 행이 되풀이되는 표)이어도 묻는다.
+    2026-11-23 실제 작성본: 「□ 다음연도 연구개발비 지원·부담계획」 이 자리 연결 LLM 으로 계획서 「8-1」 표에 이어지고도 까닭이 shape 가 아니라 표 대응에 안 물려, 서식의 예시 값(「800,000」 · 빨간 「80% (A/E)」)이 남았다.
+    칸 안 줄의 ambiguous(「라벨 : 값」 줄 수가 다름 — to 가 칸 id)는 표의 까닭이 아니고, 칸이 하나라도 들어간 표 · 원본 표가 없는 표는 안 묻는다."""
+    fixed = {"tables": [{"to": "t1", "from": "f1", "status": "paired", "cells": 0}, {"to": "t2", "from": "f2", "status": "paired", "cells": 0},
+                        {"to": "t3", "from": "f3", "status": "paired", "cells": 0}, {"to": "t4", "from": "f4", "status": "paired", "cells": 3},
+                        {"to": "t5", "from": None, "status": "none", "cells": 0}],
+             "skipped": [{"to": "t1", "table": "t1", "why": "shape"}, {"to": "t2", "table": "t2", "why": "ambiguous"}, {"to": "t3c1", "table": "t3", "why": "ambiguous"},
+                         {"to": "t4", "table": "t4", "why": "ambiguous"}, {"to": "t5", "table": "t5", "why": "ambiguous"}]}
+    assert MM.targets({}, fixed) == [("t1", "f1"), ("t2", "f2")]
+
+
+def _budget():
+    """지원·부담계획 꼴 — 기관 두 곳의 행(현금 · 현물 · 합계) + 「소계」 행. 소계 칸의 피연산자 모음은 3단계가 읽은 대로 열 합과 행 합의 칸이 섞여 있고 비율 칸(%)도 든다."""
+    H, R, V = "colhead", "rowhead", "field"
+    T = _grid("t", [(0, 0, 1, "기관", H), (0, 1, 1, "현금", H), (0, 2, 1, "현물", H), (0, 3, 1, "합계", H),
+                    (1, 0, 1, "인텍", R), (1, 1, 1, "", V), (1, 2, 1, "", V), (1, 3, 1, "", V),
+                    (2, 0, 1, "전기연", R), (2, 1, 1, "", V), (2, 2, 1, "", V), (2, 3, 1, "", V),
+                    (3, 0, 1, "비율", R), (3, 1, 1, "", V), (3, 2, 1, "", V), (3, 3, 1, "", V),
+                    (4, 0, 1, "소계", R), (4, 1, 1, "", V), (4, 2, 1, "", V), (4, 3, 1, "", V)], names=["인텍", "전기연"])
+    T["ops"] = {"tc1_3": {"tc1_1", "tc1_2"}, "tc2_3": {"tc2_1", "tc2_2"}, "tc4_1": {"tc1_1", "tc2_1", "tc3_1"}, "tc4_2": {"tc1_2", "tc2_2", "tc3_2"},
+                "tc4_3": {"tc1_3", "tc2_3", "tc4_1", "tc4_2"}}
+    F = _grid("f", [(0, 0, 1, "기관", H), (0, 1, 1, "현금", H), (0, 2, 1, "현물", H), (0, 3, 1, "합계", H),
+                    (1, 0, 1, "인텍", R), (1, 1, 1, "300", V), (1, 2, 1, "100", V), (1, 3, 1, "400", V),
+                    (2, 0, 1, "전기연", R), (2, 1, 1, "500", V), (2, 2, 1, "0", V), (2, 3, 1, "500", V),
+                    (3, 0, 1, "비율", R), (3, 1, 1, "88.9%", V), (3, 2, 1, "11.1%", V), (3, 3, 1, "", V),
+                    (4, 0, 1, "소계", R), (4, 1, 1, "800", V), (4, 2, 1, "100", V), (4, 3, 1, "900", V)], names=["인텍", "전기연"])
+    return T, F
+
+
+def test_a_subtotal_row_takes_the_source_sums_when_they_add_up_from_the_rows_put_in():
+    """다른 항목의 칸을 더한 합계 칸(「소계」 행) — 피연산자가 항목 하나의 짝에 다 들지 않아 전에는 비워 뒀다(2026-11-23 실제 작성본: 기관 네 곳의 행은 다 들어가고 소계 행만 빔).
+    같은 열(또는 같은 행)의 피연산자의 넣은 뒤 값을 더한 것이 원본 값과 같을 때만 옮긴다 — % 값은 더하지 않는다. 합이 다르면(기관 하나를 안 넣음) 전처럼 비워 둔다."""
+    T, F = _budget()
+    fields = ((1, 1), (2, 2), (3, 3))
+    p = MM.plan(T, F, _map(T, F, [([1], [1]), ([2], [2]), ([3], [3]), ([4], [4])], fields=fields))
+    got = _texts(p)
+    assert p["skipped"] == [] and (got["tc4_1"], got["tc4_2"], got["tc4_3"]) == ("800", "100", "900")   # 열 합 800 = 300 + 500(비율 「88.9%」 는 안 더함) · 합계의 소계 900 = 400 + 500
+    assert (got["tc1_3"], got["tc2_3"], got["tc3_1"]) == ("400", "500", "88.9%")
+    p = MM.plan(T, F, _map(T, F, [([1], [1]), ([3], [3]), ([4], [4])], fields=fields))   # 전기연 행을 안 넣었다 — 원본의 소계(800)는 넣은 행의 합(300)이 아니다: 비워 둔다
+    assert not {"tc4_1", "tc4_2", "tc4_3"} & set(_texts(p))
+    T["idx"]["t"]["cells"][17]["text"] = "9"   # 소계 칸에 글이 있으면(사람이 씀) 건드리지 않는다
+    assert T["idx"]["t"]["cells"][17]["id"] == "tc4_1"
+    p = MM.plan(T, F, _map(T, F, [([1], [1]), ([2], [2]), ([3], [3]), ([4], [4])], fields=fields))
+    assert "tc4_1" not in _texts(p) and _texts(p)["tc4_2"] == "100"

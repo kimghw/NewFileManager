@@ -38,7 +38,7 @@ def current(s, found=None):
         return None, False
     old = load(s.id)
     found = found if found is not None else form_cleanup.find(s.doc)
-    if not any(found.get(k) for k in ("tables", "refs", "notes", "marks")) and old is not None and (old["items"] or old["marks"]):
+    if not any(found.get(k) for k in form_cleanup.KINDS) and old is not None and (old["items"] or old["marks"]):   # 종류는 지우는 패턴 목록 그대로(안내 상자 boxes 포함 — 따로 적어 두면 새 패턴이 저장 없이 지워진다: 2026-11-23)
         return old, True
     got = form_guides.collect(s.doc, heading_runs.graph(s), heading_runs.tables(s), found)
     got = form_guides.keep_old(got, old)   # 일부만 지운 뒤 다시 모아도 지운 지침은 남긴다(keep_old — 사라진 항목만 옛 값으로)

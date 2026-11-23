@@ -184,8 +184,9 @@ try:
         page.wait_for_function("() => heads.dlg === 'tableAgent' && !!document.querySelector('.ta-wrap .ta-group')", timeout=30000)
         gv = page.evaluate("""() => ({title: document.getElementById('headsDlgTitle').textContent, groups: document.querySelectorAll('.ta-wrap .ta-group').length, active: tmn.active,
             focus: document.activeElement ? document.activeElement.id : '', shown: document.querySelector('.tbl-corner-guide').style.display !== 'none'})""")
-        check("둘째 아이콘 → 「작성요령 · 표 지침 · <표>」 열(세 묶음) · 그 표가 고른 표 · 메뉴는 닫힘",
-              gv["title"] == f"작성요령 · 표 지침 · {big['id']}" and gv["groups"] == 3 and gv["active"] == big["id"] and menu(page) is None and gv["shown"], gv)
+        # 묶음 넷 = ① 문서의 작성요령 · 저장해 둔 문서 지침(이 표의 문서 지침이 있을 때 — spec_병합 ② §5-11: 커밋 b6ef40c 부터. 전에는 셋) · ② 지침 · ③ 칸 입력 규칙
+        check("둘째 아이콘 → 「작성요령 · 표 지침 · <표>」 열(네 묶음 — 저장해 둔 문서 지침 포함) · 그 표가 고른 표 · 메뉴는 닫힘",
+              gv["title"] == f"작성요령 · 표 지침 · {big['id']}" and gv["groups"] == 4 and gv["active"] == big["id"] and menu(page) is None and gv["shown"], gv)
         check("열을 새로 열면 초점은 그 열로(다른 단추로 열 때와 같음 — app.js headsDlg)", gv["focus"] == "headsDlg", gv)
         page.screenshot(path=str(OUT / "3b_guide.png"))
         page.evaluate("() => headsColClose(true)")

@@ -2,7 +2,7 @@
 이렇게 다른 경우는」 · astra 설계 협의 `artifacts/table_map_astra_2026-11-12/`): 같은 내용을 적는 표인데 두 서식의 행·열 구성이 달라 머리 경로(merge_fixed·merge_tables)로는 칸을 못 맞춘 표를
 **표마다 LLM 한 번**으로 맞춘다. LLM 은 **행 짝·열 짝만** 고르고(글·값을 쓰지 않는다), 칸마다 넣을지는 스크립트가 지금 격자를 다시 읽어 정한다 — 좌표만 믿으면 다른 차년도·예시 실적이 들어간다.
 
-- `targets(tabs_plan, fixed_plan)` = 대응이 필요한 표 [(목적 표 id, 원본 표 id)] — 원본 표는 정해졌는데 스크립트가 한 칸도 못 맞춘 표(같은 이름 자리의 `shape` · 표 묶음 짝의 칸 0 + `shape`).
+- `targets(tabs_plan, fixed_plan)` = 대응이 필요한 표 [(목적 표 id, 원본 표 id)] — 원본 표는 정해졌는데 스크립트가 한 칸도 못 맞춘 표(같은 이름 자리의 `shape` · 표 단위 `ambiguous` · 표 묶음 짝의 칸 0 + `shape`).
 - `data(T, F, to_side, from_side, tid, fid)` = LLM 에 보낼 자료 + 검증에 쓸 것(`ctx`) — 목적 표의 격자·맥락·표시 목록·표 뒤 줄, 원본 후보 표(이어진 표 + 같은 소속 제목 아래의 다른 표)의 격자.
 - `ask(payload, …)` · `check(ctx, answer)` → 저장할 대응 `{from, records, grow, fields, mark, reason, rejected, top, sig}` | None. 꼴(좌표·겹침)과 **열 짝의 뜻**(수 머리 · 차년도 · 단위 · 실적 열)을 격자에서 다시 읽어 거른다.
 - `plan(T, F, maps, orig=None)` = 넣기 계획(문서를 안 고침) — 대응마다 항목(records)·열 짝(fields)을 칸 짝으로 풀어 **지금 글**에 대고 정한다: 빈 칸·틀·자리표시 이름(순번·「···」)·서식 예시일 때만 쓰고,
@@ -369,9 +369,13 @@ def grid(v):
 # ---- 대상 · 자료 ---------------------------------------------------------------------------------------------
 
 def targets(tabs_plan, fixed_plan):
-    """대응이 필요한 표 [(목적 표 id, 원본 표 id)] — 원본 표는 정해졌는데 스크립트가 한 칸도 못 맞춘 표(② §5-3 2)."""
+    """대응이 필요한 표 [(목적 표 id, 원본 표 id)] — 원본 표는 정해졌는데 스크립트가 한 칸도 못 맞춘 표(② §5-3 2).
+    같은 이름 자리의 까닭은 둘 다 본다 — `shape`(행·열 머리가 달라 칸 짝이 하나도 없음) · 표 단위 `ambiguous`(머리 경로가 같은 칸이 여럿 — 기관마다 행이 되풀이되는 표: 행 머리가 순번 「n」 뿐이라 어느 행인지 못 가림).
+    전에는 `shape` 만이라 「□ 다음연도 연구개발비 지원·부담계획」 표가 자리 연결 LLM 으로 원본 표에 이어지고도 표 대응에 안 물려 한 칸도 안 들어가고 서식의 예시 값이 남았다(2026-11-23 실제 작성본 — 작업 3303ad092b39 t4663).
+    줄 단위 ambiguous(칸 안의 「라벨 : 값」 줄 수가 다름 — skipped 의 to 가 칸 id)는 표의 까닭이 아니다."""
     out = {}
-    shape = {s.get("table") for s in (fixed_plan or {}).get("skipped") or () if s.get("why") == "shape"}
+    shape = {s.get("table") for s in (fixed_plan or {}).get("skipped") or ()
+             if s.get("why") == "shape" or (s.get("why") == "ambiguous" and s.get("to") == s.get("table"))}
     for t in (fixed_plan or {}).get("tables") or ():
         if t.get("status") == "paired" and t.get("from") and t["to"] in shape and not t.get("cells"):
             out.setdefault(t["to"], t["from"])
@@ -860,6 +864,35 @@ def stale(S_to, S_from, tid, m):
             or _sig_from(S_from, m["from"], (m.get("top") or {}).get("from", 0)) != (m.get("sig") or {}).get("from"))   # 원본 = 그 표 + 이어진 표(source_view) — 이어진 표가 생기거나 달라져도 낡음
 
 
+def _cross_sums(T, tv, fv, m, recs, cells):
+    """**다른 항목의 칸을 더한 합계 칸**(지원·부담계획의 「소계」 행 — 피연산자가 기관마다의 행이라 항목 하나의 짝(_record 의 paired)에 다 들지 않는다) → 더 쓸 칸 [{to, from, text, mode, was}].
+    넣은 항목(recs)의 짝 칸 가운데 빈 계산 칸이고, 그 피연산자 가운데 **같은 열**(또는 같은 행)의 칸들의 **넣은 뒤 값**(이 표의 계획이 쓰는 글 cells · 안 쓰면 지금 글)을 더한 것이 원본 칸의 수와 같을 때만 원본 값을 옮긴다 —
+    합이 다르면(원본의 합계가 다른 행까지 더한 것 · 일부 행만 넣음) 전처럼 비워 둔다. 피연산자 모음(S["ops"])은 그 칸을 셈할 수 있는 식들의 칸을 모은 것이라(열 합 + 행 합 · 비율 행의 「75.0%」 도 섞인다)
+    열 · 행으로 나눠 보고 % 값은 뺀다. 2026-11-23 실제 작성본: 기관 네 곳의 행은 다 넣고 「소계」 행만 비었다."""
+    by = {x["id"]: x for x in tv["cells"]}
+    after = {c["to"]: c["text"] for c in cells if isinstance(c["to"], str)}
+
+    def num(t):
+        t = P._ws(t or "")
+        return None if not t or t.endswith("%") else HC.parse_num(t).get("num")
+    out = []
+    for rec in recs:
+        for tr, fr in zip(rec["to"], rec["from"]):
+            for f in m["fields"]:
+                tc, sc = tv["at"].get((tr, f["to"])), fv["at"].get((fr, f["from"]))
+                if f["kind"] != "text" or tc is None or sc is None or tc["id"] in after or not tc["calc"] or not MT._empty(tc["text"]):
+                    continue
+                want = num(sc["text"])
+                ops = [by[o] for o in T["ops"].get(tc["id"]) or () if o in by]
+                for same in ("c", "r"):   # 열 합 → 행 합
+                    vals = [v for o in ops if o[same] == tc[same] and (v := num(after.get(o["id"], o["text"]))) is not None]
+                    if want is not None and len(vals) >= 2 and abs(sum(vals) - want) < 1e-6:
+                        after[tc["id"]] = sc["text"]   # 합계의 합계(총계 · 같은 행의 합)가 이 값을 피연산자로 읽는다
+                        out.append({"to": tc["id"], "from": sc["id"], "text": sc["text"], "mode": "empty", "was": tc["text"]})
+                        break
+    return out
+
+
 def plan(T, F, maps, orig=None):
     """넣기 계획(모듈 설명) — 문서를 안 고친다. T·F = merge_fixed._side 꼴, maps = merge.json `tableMaps`, orig = 등록된 빈 양식으로 올린 원본의 칸 {id: {text, top, bottom}} | None."""
     out = {"tables": [], "cells": [], "clears": [], "lines": [], "rows": [], "skipped": [], "owned": [], "notes": []}
@@ -920,6 +953,10 @@ def plan(T, F, maps, orig=None):
                 if len(texts) == 1 and cid not in wrote and (text := next(iter(texts))) != P._ws(tc["text"]):
                     out["cells"].append({"to": cid, "from": sc["id"], "text": text, "table": tid, "mode": "slot", "was": tc["text"]})
                     row["cells"] += 1
+        if row["records"]:
+            for w in _cross_sums(T, tv, fv, m, [rec for rec, got in recs if not isinstance(got, str)], [c for c in out["cells"] if c["table"] == tid]):
+                out["cells"].append({**w, "table": tid})
+                row["cells"] += 1
         nth = Counter()   # 본뜰 묶음(첫 행) → 지금까지 늘린 수 — 늘린 묶음의 순번은 본뜬 묶음의 순번에서 이어 센다(못 늘린 것은 안 센다)
         for i, rec in enumerate(m.get("grow") or ()):
             got = _record(T, F, tv, fv, m, rec, mk, orig, new=True, seq=nth[rec["like"][0]] + 1, renum=renum)
