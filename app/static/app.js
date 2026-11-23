@@ -10387,7 +10387,7 @@ function divMembersIndex(r) { // 문단 id →{dim(가장 안쪽 — 바탕), di
     e.lines.push({ rank: 9, line: `추가한 자리(${h.by === "llm" ? "LLM" : "사용자"}) — ${h.dimName || h.dim} 「${h.value || "?"}」${h.engine ? " · 묶음의 라벨" : " · 표시만(아직 묶음 아님)"}${h.reason ? ` · ${h.reason}` : ""}${h.note ? ` · 메모 ${h.note}` : ""}` });
   }
   // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕 없음(같은 구분의 엔진 자리 안이면 엔진 자리대로)
-  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", table: "표 안 판독", struct: "표 구조(헤딩 추출 3단계)의 구분 값 머리", series: "같은 헤딩 아래 같은 꼴 표 — 값마다 표 하나" }; // struct · series = 표 구조 보탬(spec_구분_기준 ② §25) // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
+  const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", this: "당해 차년도 표 제목 — 반영 때 괄호를 당해 차년도로 다시 씀", table: "표 안 판독", struct: "표 구조(헤딩 추출 3단계)의 구분 값 머리", series: "같은 헤딩 아래 같은 꼴 표 — 값마다 표 하나" }; // struct · series = 표 구조 보탬(spec_구분_기준 ② §25) // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
   for (const x of r.reads || []) {
     for (const pid of x.paras || []) {
       const e = entry(pid, x.dim, 5);

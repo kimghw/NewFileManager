@@ -127,6 +127,23 @@ def test_name_lines_read_the_documents_own_org_names_when_there_are_no_values():
     assert _lines(DS.scan(blocks[3:], None, _vals())) == []                                          # 문서에 기관 이름이 없으면 명단이 없다
 
 
+# ---- 당해 차년도 표 제목(② §23 「당해 차년도 표 제목」 — 사용자 2026-11-23 「현황표(1차년도)」 가 차년도 구분 기준에 안 들어감) --------------------
+
+def test_this_year_table_titles_are_read_as_the_year_place_with_the_table_below():
+    blocks = [_p("h", "[주관연구개발기관 : 인텍]"), _p("a", "  o 참여연구자 인건비 현황표(1차년도) "), _t("ta", "성명", "홍길동"), _p("e", ""),
+              _p("b", "  o 학생인건비 현황표(2단계-1차년도)"), _p("e2", ""), _t("tb", "x"), _p("c", "  o 참여연구자 인건비 현황표(x차년도) ※ 당해연도 내용만 작성"), _t("tc", "y"),
+              _p("d", "  o 참여연구자 인건비 현황(1차년도)")]
+    r = DS.scan(blocks, _vals(), None)
+    got = [(x["para"], x["dim"], x["value"], x["scope"]) for x in r["extra"] if x["src"] == "this"]
+    assert got == [("a", core.YEAR, "1차년도", ["ta"]), ("b", core.STAGE_YEAR, "2단계 1차년도", []), ("c", core.YEAR, "", ["tc"])]   # 엔진의 꼴(CUR_TABLE) 그대로 — 「현황」 만은 아님 · 자리 안 = 바로 아래 표만(빈 줄을 건너뛰지 않음) · 자리표시는 값 없음
+    assert r["counts"]["this"] == 3 and r["labels"]["a"][0]["src"] == "this" and r["labels"]["a"][0]["basis"] == "차년도"
+    assert "a" not in {i for i in r["_best"] if "year" in r["_best"][i]} and "ta" not in r["_best"]   # 식별만 — 편집 구역의 귀속 근거는 아니다
+    assert DS.node_basis(_nd("n", "a", "o", "T1", kind="item", text="참여연구자 인건비 현황표(1차년도)"), DS.pin(r)) == (None, False, False)   # 헤딩 추출은 읽지 않는다(주 사슬의 「o」 줄 그대로)
+    rows = [x for x in DSA.reads({"result": r}) if x["src"] == "this"]
+    assert [(x["kind"], x["paras"], x["value"]) for x in rows[:2]] == [("label", ["a"], "1차년도"), ("scope", ["tac0p", "tac1p"], "1차년도")]
+    assert all(x["dimName"] in ("차년도", "단계-차년도") and not x["inGroup"] for x in rows)   # 판독만(가는 띠)
+
+
 def _nd(nid, para, letter, typ, kind="label", text=""):
     return {"id": nid, "para": para, "letter": letter, "type": typ, "kind": kind, "text": text}
 

@@ -3,7 +3,8 @@
 한 방향: 판독 → 헤딩 추출(괄호 줄의 구분 라벨 근거) · 판독 + 헤딩 → 편집 구역. 판독은 헤딩 추출 결과를 읽지 않는다(절 경계는 엔진의 간이 레벨 `rnd.levels_of`).
 엔진(`core.find` — 계획·반영의 입력)은 바꾸지 않는다. 판독은 엔진의 묶음에 **식별만 하는 근거**를 보탠다(반영 대상이 되지 않는다):
 - 구조 라벨 근거 `labels` — 문단마다 [{dim, value, src, text}]. src = engine(엔진 묶음의 라벨) · hint(사람·LLM 이 추가한 자리) · pattern(헤딩의 엄격한 괄호 꼴 `heading_graph.value_basis`) ·
-  name(괄호 안 글이 지금 구성의 기관 이름 하나와 통째로 같음) · nameLine(**기관 이름 줄** — 글머리·번호 + 기관 이름뿐인 줄이 형제로 되풀이되는 곳 「o 씨드로닉스 · o 유엔젤 · o 랩오투원」: `name_runs`).
+  name(괄호 안 글이 지금 구성의 기관 이름 하나와 통째로 같음) · nameLine(**기관 이름 줄** — 글머리·번호 + 기관 이름뿐인 줄이 형제로 되풀이되는 곳 「o 씨드로닉스 · o 유엔젤 · o 랩오투원」: `name_runs`) ·
+  this(**당해 차년도 표 제목** 「o 참여연구자 인건비 현황표(1차년도)」 + 바로 아래 표: `this_tables`).
   넓은 표 칸 후보 규칙(`heading_calc.label_basis`)은 확정 근거로 쓰지 않는다(2026-11-18 astra P1).
 - 표 안 귀속 `cells`·`tables` — 편집 구역의 「표 안의 값 읽기」(`zones._table_read` — 이름표 칸 · 기관 열)를 이 단계에서 한다. 값은 원래 꼴(열쇠 · 전체 차례 · conflict · 엇갈림)을 그대로.
 - 원형 자료(밑줄 키 — JSON 으로 내보내지 않는다): `_groups`(엔진 묶음 그대로 — 값·범위·문맥) · `_best`·`_inside`(묶음 소속) · `_cellEv`(표 안 판독) — 편집 구역이 다시 계산하지 않고 쓴다.
@@ -21,8 +22,8 @@ from app.division_profiles import _structure as structure
 from app.division_profiles import rnd
 from app.division_profiles.rnd import core
 
-VERSION = 2   # 2 = 기관 이름 줄(nameLine — 2026-11-18)
-SRC = ("engine", "hint", "pattern", "name", "nameLine")
+VERSION = 3   # 2 = 기관 이름 줄(nameLine — 2026-11-18) · 3 = 당해 차년도 표 제목(this — 2026-11-23)
+SRC = ("engine", "hint", "pattern", "name", "nameLine", "this")
 # 엔진의 구분 → 헤딩의 구분 기준 이름(heading_graph.BASES). 세부과제는 헤딩의 구분 기준 목록에 없어 헤딩 근거로는 안 쓴다(표시에는 씀)
 BASIS = {core.STAGE: "단계", core.YEAR: "차년도", core.STAGE_YEAR: "단계-차년도", core.ORG: "기관"}
 _LEAD_BRACKET = re.compile(r"^\s*([\[【][^\]】\n]*[\]】])")
@@ -147,6 +148,41 @@ def name_runs(blocks, letters, keys, skip=()):
     return runs
 
 
+# ---- 당해 차년도 표 제목(spec_구분_기준 ② §23 「당해 차년도 표 제목」) ------------------------------------------------------------------
+# 2026-11-23 사용자(「o 참여연구자 인건비 현황표(1차년도)」 와 그 아래 표를 가리키며) "이거 왜 테이블 헤딩에 1차년도라고 있는데 왜 차년도 구분 기준에 들어 가지 않지?" —
+# 그 제목은 차년도마다 되풀이되는 자리가 아니라 **당해 차년도 하나**의 자리라 엔진 묶음(값이 2개 이상 이어질 때만)이 아니고, 반영은 사업기간 채우기(`core.period_fill` 「this」)가
+# 그 괄호만 당해 차년도로 다시 쓴다. 판독은 그 꼴(`core.CUR_TABLE` — 엔진과 같은 규칙)을 **식별만** 한다: 제목 줄 = 라벨 · 바로 아래 표 = 자리 안. 편집 구역의 귀속 근거로는 쓰지 않는다.
+_THIS_NO = re.compile(r"(?:(\d+)\s*단계\s*-\s*)?(\d+)\s*차\s*년\s*도")
+
+
+def this_tables(blocks, idx=None):
+    """당해 차년도 표 제목 → [{para, dim(year | stageYear), value(「1차년도」 · 「2단계 1차년도」 · 자리표시 「(x차년도)」 면 ""), text, scope[바로 아래 표 id]}].
+    줄 = 글에 「…현황표(N차년도)」 · 「…현황표(N단계-N차년도)」 가 있는 문단(어디에 있든). 자리 안 = 본문 최상위 문단이면 바로 다음 블록이 표일 때 그 표(캡션 블록은 건너뜀) · 아니면 줄만."""
+    idx = idx if idx is not None else structure.index_blocks(blocks or ())
+    top = [b for b in blocks or () if b.get("id") is not None]
+    nxt = {}
+    for k, b in enumerate(top):
+        for c in top[k + 1:]:
+            if not c.get("captionOf"):
+                nxt[b["id"]] = c
+                break
+    out = []
+    for b in idx.values():
+        if b.get("type") != "paragraph":
+            continue
+        text = b.get("text") or ""
+        m = core.CUR_TABLE.search(text)
+        if not m:
+            continue
+        n = _THIS_NO.search(m.group(1))
+        dim = core.STAGE_YEAR if re.search(r"단\s*계", m.group(1)) else core.YEAR
+        value = "" if not n else f"{n.group(1)}단계 {n.group(2)}차년도" if n.group(1) else f"{n.group(2)}차년도"
+        t = nxt.get(b["id"])
+        out.append({"para": b["id"], "dim": dim, "value": value, "text": _short(text),
+                    "scope": [t["id"]] if t is not None and t.get("type") == "table" else []})
+    return out
+
+
 def _value_text(dim, v):
     return rnd.value_text(dim, v)
 
@@ -229,6 +265,15 @@ def scan(blocks, values=None, find_values=None, hints=None, prior=None):
             put(it["para"], ev)
             lines.append({"para": it["para"], **ev, "run": n, "known": it["key"] in keys, "scope": it["scope"], "paras": [p for bid in it["scope"] for p in paras_of(bid)]})
     extra.extend(lines)
+    # 3-3. 당해 차년도 표 제목(「o 참여연구자 인건비 현황표(1차년도)」 — this_tables). 같은 차년도의 엔진 라벨이면 엔진 자리대로 둔다
+    for x in this_tables(blocks, idx):
+        if any(r["dim"] in (core.YEAR, core.STAGE_YEAR) and r["src"] == "engine" for r in labels.get(x["para"]) or ()):
+            continue
+        ev = {"dim": x["dim"], "value": x["value"], "src": "this", "text": x["text"], "basis": BASIS[x["dim"]]}
+        if ev["dim"] in scope.get(x["para"], set()) | scope.get(owner.get(x["para"]), set()):
+            ev["inGroup"] = True
+        put(x["para"], ev)
+        extra.append({"para": x["para"], **ev, "scope": x["scope"], "paras": [p for bid in x["scope"] for p in paras_of(bid)]})
     # 4. 표 안 귀속(편집 구역의 판독 — 귀속 값이 있을 때만)
     best, inside, cell_ev, tables, cells, table_of = {}, {}, {}, {}, {}, {}
     if values:
@@ -260,6 +305,7 @@ def scan(blocks, values=None, find_values=None, hints=None, prior=None):
     counts = {"groups": len(groups), "labels": n_lab, "engine": sum(1 for rows in labels.values() if any(r["src"] == "engine" for r in rows)),
               "hint": sum(1 for rows in labels.values() if any(r["src"] == "hint" for r in rows)),
               "pattern": sum(1 for x in extra if x["src"] == "pattern"), "name": sum(1 for x in extra if x["src"] == "name"), "nameLine": len(lines),
+              "this": sum(1 for x in extra if x["src"] == "this"),
               "tables": len(set(tables) | set(table_of.values())), "cells": len(cells)}
     return {"version": VERSION, "labels": labels, "extra": extra, "tables": tables, "cells": cells, "cellParas": cell_paras, "cellTable": table_of, "counts": counts,
             "_groups": groups, "_best": best, "_inside": inside, "_cellEv": cell_ev, "_values": values}
