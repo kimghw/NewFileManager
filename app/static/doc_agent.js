@@ -38,7 +38,8 @@ function agentIcon(name, size = 16) {
     human: '<circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>',
     script: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
     llm: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z"/>',
-    doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/><path d="M14 3v5h5M8 12h5M8 16h3"/><path d="m14.5 19.5 5-5 1.8 1.8-5 5H14.5v-1.8Z"/>'
+    doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/><path d="M14 3v5h5M8 12h5M8 16h3"/><path d="m14.5 19.5 5-5 1.8 1.8-5 5H14.5v-1.8Z"/>',
+    download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>' // 내려받기(첫 화면 「대시보드의 문서」 의 「원본」 · 「결과」 — 2026-11-23 사용자 「내려받기라고 쓰지 말고 … 다운로드 아이콘으로」)
   };
   const icon = el("span", "ag-icon");
   icon.setAttribute("aria-hidden", "true");

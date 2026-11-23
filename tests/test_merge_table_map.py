@@ -278,3 +278,43 @@ def test_grown_rows_are_all_copies_of_the_empty_slot_not_of_the_rows_already_fil
     assert [at[(r, val)].strip() for r in rows] == ["3", "", ""]   # 전에는 「3」 · 「3」 · 「3」
     written = {c["id"] for c in doc.table_block(tid)["cells"] if c["row"] in rows and (c["text"] or "").strip()}
     assert set(got["cells"]) == written   # 글을 쓴 칸 = 넣은 기록(filled.cells)이 넘기는 칸
+
+
+def _org_pair(org="씨드로닉스"):
+    """기관 표(목적 — 그 기관 절 안) ← 과제 전체 표(원본 — 기관이 안 적힌 평가 항목 넷) + 원본 문서의 기관 절 글(hold)."""
+    T = _side("t", [["평가 항목", "단위"], ["1.", ""], ["n.", ""]])
+    T["hold"] = {"t": {"org": org}}
+    F = _side("f", [["평가 항목", "단위"], ["1. 가이드라인", "건"], ["2. 장비 호환성", "종"], ["3. 실선 보급", "척"], ["4. 데이터 확보", "항차"]])
+    seq = [F["idx"]["f"]]
+    for pid, text, who, year in [("p1", "[공동연구개발기관1(씨드로닉스)]", org, 1), ("p2", "o 상황인식 장비 사양 설계 및 1차 보급", org, 1), ("p3", "< 상황인식 센서 설치 예시 >", org, 1),
+                                 ("p4", "o 상황인식 장비 사양 설계 및 1차 보급", org, 1), ("p5", "o 도선지원 AI 서비스 실증", org, 2), ("p6", "‧ 채용 계획", org, None), ("q1", "o 데이터 파이프라인 설계", "유엔젤", 1)]:
+        b = {"id": pid, "type": "paragraph", "text": text}
+        F["idx"][pid] = b
+        F["hold"][pid] = {"org": who, **({"year": year} if year else {})}
+        seq.append(b)
+    F["where"] = {b["id"]: seq for b in seq}
+    return T, F
+
+
+def test_an_org_table_from_a_whole_project_table_gets_the_org_lines_as_evidence():
+    """기관 표 ← 과제 전체 표(spec_병합 ② §5-3 11 — 2026-11-23 사용자 「기관마다 이 정보 원본문서에 있을 건데 매칭이 안되었네?」: 계획서의 성능 목표 표에 기관이 안 적혀 있어
+    표 대응이 공동기관 표를 비웠다): 자료에 원본 문서의 그 기관 절 글(`target.orgWork`)을 싣는다 — 차년도마다 · 기관 제목 줄 · 그림 제목 줄 · 같은 글 · 다른 기관 · 차년도 절 밖은 뺀다.
+    목적 표가 기관을 모르는 표(과제 전체 표)면 싣지 않는다."""
+    T, F = _org_pair()
+    payload, _ = MM.data(T, F, "t", "f")
+    assert payload["target"]["orgWork"] == {"org": "씨드로닉스", "years": [{"year": 1, "lines": ["o 상황인식 장비 사양 설계 및 1차 보급"]}, {"year": 2, "lines": ["o 도선지원 AI 서비스 실증"]}]}
+    assert "target.orgWork" in MM.prompt(payload)
+    T["hold"] = {}
+    assert "orgWork" not in MM.data(T, F, "t", "f")[0]["target"]
+
+
+def test_items_picked_for_an_org_table_are_numbered_in_that_table():
+    """기관 표에 고른 항목(원본 「2.」 · 「3.」 · 「4.」)은 그 표의 차례로 다시 센다 — 「1.」 + 「2. 장비 호환성」 → 「1. 장비 호환성」(전에는 「순번이 다름」 으로 버렸다) · 늘린 행은 그 뒤로.
+    과제 전체 표끼리는 전처럼 순번이 다르면 한 칸 밀린 짝으로 본다."""
+    T, F = _org_pair()
+    p = MM.plan(T, F, _map(T, F, [([1], [2]), ([2], [3])], grow=[([2], [4])]))
+    assert p["skipped"] == [] and _texts(p) == {"tc1_0": "1. 장비 호환성", "tc1_1": "종", "tc2_0": "2. 실선 보급", "tc2_1": "척"}
+    assert [c["text"] for c in p["rows"][0]["cells"]] == ["3. 데이터 확보", "항차"]
+    T["hold"] = {}
+    p = MM.plan(T, F, _map(T, F, [([1], [2]), ([2], [3])]))
+    assert [(s["record"], s["why"]) for s in p["skipped"]] == [(0, "name")] and "순번이 다름" in p["skipped"][0]["detail"]

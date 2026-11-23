@@ -2017,6 +2017,9 @@ def work_run(wid: str, n: int):
 def work_file(wid: str, which: str):
     """작업의 원본(original)·지금 편집본(current — 마지막 저장 차례) 파일."""
     w = _work_or_404(wid)
+    s = DOCS.get(wid)
+    if which == "current" and s is not None:   # 열린 문서 — 아직 안 쓴 차례(저장은 PERSIST_EVERY 마다)를 먼저 쓴다: 첫 화면 「대시보드의 문서」 의 「결과」 가 방금 고친 것까지(spec_작업에이전트 ② §10)
+        _persist_safe(s)
     p = works.file_path(wid, which)
     if p is None:
         raise HTTPException(404, "그 파일이 없습니다")

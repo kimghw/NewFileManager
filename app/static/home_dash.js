@@ -69,13 +69,15 @@ function hdClear(job = "") { // 고른 것 · 시작한 것을 비운다 — 문
 //  ⓑ 시작한 작업을 보이는 동안 왼쪽에 문서를 새로 놓으면 → 같은 워크플로우의 시작 전(②)으로 바꿔 문서 칸이 놓은 문서를 따른다(homeDashFiles) — 하던 작업 · 도는 실행은 그대로(이 보기만)이고,
 //     목록을 다시 비우면(「비우기」 · 다 빼기) 그 작업의 대시보드로 돌아간다(homeDashFilesGone). 「워크플로우 시작」 이 되면 새 작업이 그 자리를 잇는다.
 // 기억(hdMemo)은 하던 작업에 남긴다 — 새로 고치면 목록(브라우저 메모리)이 비고 대시보드는 하던 작업이라 ⓐ 로 맞는다
-function homeDashDocs() { // 왼쪽 목록에 보일 대시보드의 문서 → {job, name, rows: [{role, label, name, id}]} | null(시작한 작업을 아직 못 읽음 · 시작 전)
+// state = 워크플로우의 진행(목적 문서 카드의 「완료」 · 「진행 중」 — 대시보드 머리와 같은 셈 hdTally): {all, done, total, run(도는 실행 · 진행 중인 줄), bad(실패 · 막힌 줄 — 머리처럼 진행 중 · 「다음」 줄이 없을 때만: 뒤 줄은 앞 줄을 기다리며 막힘으로 보인다)}
+function homeDashDocs() { // 왼쪽 목록에 보일 대시보드의 문서 → {job, name, rows: [{role, label, name, id}], state} | null(시작한 작업을 아직 못 읽음 · 시작 전)
   if (!HD.wid || !HD.view || HD.gone) return null;
-  const V = HD.view, job = V.job || HD.job, reg = hdReg(job), docs = V.docs || {}, many = (docs.sources || []).length > 0;
+  const V = HD.view, job = V.job || HD.job, reg = hdReg(job), docs = V.docs || {}, many = (docs.sources || []).length > 0, T = hdTally(V, false);
+  const run = T.runs.length > 0 || !!T.runNode, state = { all: T.all, done: T.done, total: T.total, run, bad: !run && !T.nowNode && !!T.badNode }; // 머리 한 줄의 차례(진행 중 › 다음 › 확인 필요)와 같게
   const roles = reg && (reg.roles || []).length ? reg.roles : [...(docs.source || many ? [{ role: "source", title: "원본 문서", name: "", many }] : []), { role: "target", title: "목적 문서", name: "" }]; // 등록부가 없으면 역할 이름만(hdLiveDocs 와 같다)
   const rows = [];
   for (const r of roles) for (const d of (r.many ? docs.sources || [] : [docs[r.role]]).filter((x) => x && x.name)) rows.push({ role: r.role, label: `${r.title}${r.name ? ` — ${r.name}` : ""}`, name: d.name, id: d.id || "" });
-  return { job, name: hdName(job), rows };
+  return { job, name: hdName(job), rows, state };
 }
 function homeDashFiles() { // ⓑ 왼쪽에 문서를 새로 놓았다(home_files.js homeFilesAdd — 목록에 더한 뒤 그리기 전에 부른다)
   if (!HD.wid || HD.busy) return;
@@ -308,7 +310,7 @@ function hdAwayBtn(g, wid, active) { // 서버가 아직 맡지 않은 묶음의
 const HD_HAND = /^hand[1-9][0-9]?$/; // 사람이 하는 일 줄(정의 v2 — spec_워크플로우 ② §18-7)
 const HD_ON = { source: "원본 문서", target: "목적 문서", pair: "원본 → 목적", flow: "워크플로우 전체" }; // 등록부를 못 읽었을 때의 문서 꼬리표(읽었으면 등록부의 말 — 역할의 title · 단계의 onText)
 
-function hdGroups(reg, V) {
+function hdGroups(reg, V, cards = true) { // cards = 차례마다의 문서 카드도 짓나(셈만 하는 hdTally(V, false) 는 단추를 짓지 않는다)
   const meta = typeof TASK_STAGE_META === "undefined" ? {} : TASK_STAGE_META, stages = reg ? reg.stages : [], roles = (reg && reg.roles) || [];
   const rows = V ? V.stages.map((sv) => [sv, stages.find((g) => g.id === sv.id) || null]) : stages.map((rg) => [null, rg]);
   const wid = V ? (V.docs && V.docs.target && V.docs.target.id) || HD.wid : "";
@@ -322,10 +324,20 @@ function hdGroups(reg, V) {
     for (const n of nodes) { if (n.beside && orders.length) orders[orders.length - 1].nodes.push(n); else orders.push({ idx: ++i, nodes: [n] }); }
     for (const o of orders) {
       for (const n of o.nodes) n.idx = o.idx;
-      Object.assign(o, { no: hdPad(o.idx), key: o.nodes[0].key, state: hdOrderState(o.nodes), cards: o.nodes.flatMap((n) => hdCards(n, roles, wid, !!V)) });
+      Object.assign(o, { no: hdPad(o.idx), key: o.nodes[0].key, state: hdOrderState(o.nodes), cards: cards ? o.nodes.flatMap((n) => hdCards(n, roles, wid, !!V)) : [] });
     }
     return { id: one.id, no, name, label: { no, name }, does: (rg && rg.does) || (sv && sv.does) || "", sv, served, nodes, orders };
   });
+}
+
+// 시작한 뒤의 셈 — 머리의 「끝남 n/m」 · 「모두 끝남」(hdLiveParts)과 왼쪽 「대시보드의 문서」 목적 문서 카드의 「완료」 · 「진행 중」(homeDashDocs → home_files.js hfDashDraw)이 이 하나를 쓴다.
+// all = 머리가 「모두 끝남」 이라 적는 때 그대로: 도는 실행 · 진행 중 · 지금 · 실패 · 막힌 줄이 없고, 모든 묶음을 서버가 세며 남은 것이 없음
+function hdTally(V, cards = true) {
+  const job = V.job || HD.job, reg = hdReg(job), groups = hdGroups(reg, V, cards), runs = hdRuns(V), served = groups.filter((g) => g.served);
+  const nodes = groups.flatMap((g) => g.nodes), counted = nodes.filter(HD_CTX.counted), total = counted.length, done = counted.filter((n) => n.state === "done").length; // 끝난 수 = 패널 대시보드의 셈(준비 줄 포함 · 선택 줄 빼고 — 서버가 센 줄만)
+  const runNode = nodes.find((n) => n.state === "run"), nowNode = nodes.find((n) => n.state === "now"), badNode = nodes.find((n) => n.state === "failed" || n.state === "blocked");
+  const left = served.some((g) => g.sv.left > 0), all = !runs.length && !runNode && !nowNode && !badNode && !!groups.length && !left && served.length === groups.length && total > 0;
+  return { job, reg, groups, runs, served, nodes, total, done, runNode, nowNode, badNode, left, all };
 }
 
 function hdOrderState(nodes) { // 차례의 상태(번호 단추의 색 · 표시) — 그 차례의 줄들로: 진행 중 › 실패 · 막힘 › 모두 끝남 › 지금 › 남음 / 준비 중 / 상태 없음(시작 전 · 서버가 안 맡은 묶음)
@@ -692,11 +704,9 @@ function hdReadyParts() { // ② 골랐고 시작 전 — 등록부의 단계 �
 }
 
 function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로: 머리 · 도는 실행 · 지난 실행의 끝 · 알림 · 문서 칸 · 「이어서 한 번에」 · 묶음 › 차례 › 문서 카드 · 「대시보드 자세히 보기」
-  const V = HD.view, job = V.job || HD.job, reg = hdReg(job), groups = hdGroups(reg, V), runs = hdRuns(V), active = runs.length > 0, served = groups.filter((g) => g.served);
-  const nodes = groups.flatMap((g) => g.nodes), counted = nodes.filter(HD_CTX.counted), total = counted.length, done = counted.filter((n) => n.state === "done").length; // 끝난 수 = 패널 대시보드의 셈(준비 줄 포함 · 선택 줄 빼고 — 서버가 센 줄만)
+  const V = HD.view, T = hdTally(V), { job, reg, groups, runs, served, nodes, total, done, runNode, nowNode, badNode, left } = T, active = runs.length > 0; // 셈 = hdTally(왼쪽 목적 문서 카드의 「완료」 와 같은 셈)
   if (nodes.some((n) => HD_HAND.test(n.key))) hdHands(); // 사람이 하는 일 줄 — 그 판 · 끝남을 읽어 둔다(「했음」 단추 — hdCards)
-  const runNode = nodes.find((n) => n.state === "run"), nowNode = nodes.find((n) => n.state === "now"), badNode = nodes.find((n) => n.state === "failed" || n.state === "blocked");
-  const left = served.some((g) => g.sv.left > 0), roleName = (role) => ((reg && (reg.roles || []).find((r) => r.role === role)) || {}).title || (role === "source" ? "원본 문서" : "목적 문서");
+  const roleName = (role) => ((reg && (reg.roles || []).find((r) => r.role === role)) || {}).title || (role === "source" ? "원본 문서" : "목적 문서");
   const labelOf = (run) => { // 도는 실행의 이름 — 「1단계 문서 검토 — 한 번에 진행」 · 「… — 원본 문서만」 · 「03 헤딩 · 표 분석 — 이 차례만」
     const R = run.range || {}, runGroup = groups.find((g) => g.id === ((run.now || {}).stage || R.from)) || null;
     const one = R.only ? ((runGroup || {}).nodes || nodes).find((n) => n.key === R.only) || null : null; // 차례 하나만 도는 실행(번호 단추 · 문서 화면의 줄 단추)
@@ -753,7 +763,7 @@ function hdLostParts(st) { // ④ 못 찾음(지웠거나 서버가 옛 판) · 
 function homeDashDraw(force = false) {
   const box = hdBox();
   if (!box) return;
-  const D = homeDashDocs(), docKey = D ? JSON.stringify([D.job, D.name, D.rows]) : ""; // 왼쪽 목록이 비어 있으면 거기 보이는 대시보드의 문서(ⓐ) — 바뀌었을 때만 목록을 다시 그린다
+  const D = homeDashDocs(), docKey = D ? JSON.stringify([D.job, D.name, D.rows, D.state]) : ""; // 왼쪽 목록이 비어 있으면 거기 보이는 대시보드의 문서(ⓐ) · 진행(「완료」) — 바뀌었을 때만 목록을 다시 그린다
   if (docKey !== HD.docKey) { HD.docKey = docKey; if (typeof homeFilesDraw === "function" && typeof hfHas === "function" && !hfHas()) homeFilesDraw(); }
   const a = document.activeElement;
   if (!force && a && a.tagName === "SELECT" && box.contains(a)) return; // 고르기 목록에 초점이 있는 동안은 다시 그리지 않는다(펼친 목록이 닫힌다) — 고르거나 초점이 떠나면 그린다

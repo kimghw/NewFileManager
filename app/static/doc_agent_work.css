@@ -103,7 +103,8 @@
   .empty.home.with-agent { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 420px); gap: 0 28px; align-items: start; align-content: start; justify-items: stretch; }
   /* 왼쪽 열이 시작 화면의 컨테이너(home)가 된다 — landing.css 의 폭 규칙(@container home: TASK 카드 7칸 · 4칸 · 2칸 …)이 창이 아니라 **왼쪽 열의 폭**을 본다(대화창만큼 좁아진 열에 7칸을 욱여넣지 않게) */
   .empty.home.with-agent > .home-content { width: 100%; max-width: 1280px; justify-self: center; container: home / inline-size; }
-  .home-agent { position: sticky; top: 0; height: calc(100vh - var(--topbar) - 80px); min-height: 360px; max-height: 860px; }
+  /* 높이 = 창의 남은 높이 전체(위아래 바탕 여백 32 + 48 = 80px 를 뺌). 2026-11-23 사용자 「창 크기가 더 길어 질 수 있을거 같은데」 — 전의 상한 860px 을 없앰(긴 창에서 열 아래가 비었다) */
+  .home-agent { position: sticky; top: 0; height: calc(100vh - var(--topbar) - 80px); min-height: 360px; max-height: none; }
 }
 @media (max-width: 1279px) { /* 왼쪽 열이 TASK 카드 네 장(760px)보다 좁아지는 창 — 대화창은 아래로 */
   .home-agent { width: min(1280px, 100%); margin: 28px auto 0; max-height: 520px; }

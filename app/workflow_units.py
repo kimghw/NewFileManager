@@ -209,7 +209,7 @@ def _heads_llm(ctx):
 
 
 _STATE = {"files": _files, "heads": _heads, "headsLlm": _heads_llm}
-_STATE.update({"config": lambda ctx: _config(ctx), "division": lambda ctx: _division(ctx), "reheads": lambda ctx: _reheads(ctx), "reheadsLlm": lambda ctx: _reheads_llm(ctx),
+_STATE.update({"configLoad": lambda ctx: _config_load(ctx), "config": lambda ctx: _config(ctx), "division": lambda ctx: _division(ctx), "reheads": lambda ctx: _reheads(ctx), "reheadsLlm": lambda ctx: _reheads_llm(ctx),
                "hand": lambda ctx: _hand(ctx)})   # 2단계 「구성 맞추기」(걸음 2 — 아래 절)
 
 
@@ -313,6 +313,19 @@ def _config(ctx):
     if cf:
         return {"st": "todo", "text": f"확정한 뒤 값이 바뀌었습니다 — 다시 저장하거나 확정본으로 되돌리세요(지금: {summary_text(v)})"}
     return {"st": "todo", "text": f"{summary_text(v)} — 확인한 뒤 {where}에 저장(확정)하세요"}
+
+
+def _config_load(ctx):
+    """구성 불러오기(선택 · 사람이 고르는 줄 — 실행기는 지나간다) — 프로젝트 구성이 확정돼 있으면 불러올 필요가 없어 「건너뜀」(그 확정 글) · 아니면 남음(안 하면 「프로젝트 구성 추출」 이 구성의 기준 문서에서 읽는다).
+    2026-11-23 사용자 「한번에 진행하기 할때 왜 구성 불러오고 넣는걸 안하냐?」 — 전에는 이 줄의 상태 함수가 없어 한 번에 진행 뒤에도 늘 「남음」 이었다(spec_워크플로우 ② §13 「구성 불러오기의 상태」)."""
+    c = _config(ctx)
+    if c["st"] == "done":
+        return {"st": "done", "skipped": True, "text": f"프로젝트 구성이 확정돼 있어 불러올 필요가 없습니다 — {c['text']}"}
+    if not c.get("text"):
+        return {"st": c["st"], "text": ""}   # 문서 칸이 비었거나 문서를 읽지 못함 — 그 까닭은 「프로젝트 구성 추출」 줄이 보인다
+    (s, _sf), (t, _tf) = _pair_of(ctx, "source"), _pair_of(ctx, "target")
+    src = ((t if ctx.get("base") == "target" else s) or {}).get("title") or "원본 문서"
+    return {"st": "todo", "text": f"저장한 구성 · 다른 문서에서 불러옵니다(선택) — 안 하면 「프로젝트 구성 추출」 이 {src}에서 읽습니다"}
 
 
 def own_values(div):
@@ -816,7 +829,9 @@ def _guide_of(ctx, role="target"):
 
 
 def _take(ctx):
-    """넣을 구성 선택(선택 — 셈에 안 듦 · 사람이 고르는 줄) — 끝남 = 넣을 구성을 좁혀 골랐을 때. 글 = 대상 차년도(목적 문서의 당해 차년도) · 넣을 구성(고른 기관 · 단계 · 차년도 | 전부).
+    """넣을 구성 선택(선택 — 셈에 안 듦 · 사람이 고르는 줄) — 끝남 = 넣을 구성을 좁혀 골랐을 때, 또는 고르지 않았어도 지금 대상 차년도로 구조 반영을 했을 때(그 해 · 전부가 기본값으로 쓰였다 —
+    2026-11-23 사용자 「한번에 진행하기 할때 왜 구성 불러오고 넣는걸 안하냐?」: 실행기는 이 줄을 지나가고 뒤 줄이 기본값을 쓰는데 늘 「남음」 으로 보였다 · spec_병합 ② §4-1 「상태」).
+    글 = 대상 차년도(목적 문서의 당해 차년도) · 넣을 구성(고른 기관 · 단계 · 차년도 | 전부).
     재료 = 목적 문서 facts.fill.take(merge_api.take_view). 대상 차년도를 구조 반영 뒤에 바꿨으면(반영 때의 것과 다름) 그 사실을 적는다 — 「프로젝트 구성 반영」 이 다시 남는다."""
     t = (ctx.get("pair") or {}).get("target")
     T = (((t or {}).get("facts") or {}).get("fill") or {}).get("take") if t else None
@@ -824,10 +839,12 @@ def _take(ctx):
         return {"st": "todo", "text": ""}
     if not T.get("ready"):
         return {"st": "todo", "text": T.get("why") or ""}
-    y, was = T.get("year"), T.get("yearApplied")
-    year = (f"대상 차년도: {y}차년도" + (f"(구조 반영 때는 {was}차년도 — 「프로젝트 구성 반영」 을 다시 해야 합니다)" if was is not None and was != y else "")) if y else "대상 차년도: 정하지 않음"
+    y, was, active = T.get("year"), T.get("yearApplied"), bool(T.get("active"))
+    used = not active and bool(y) and was == y   # 고르지 않고 그 해로 구조 반영까지 감 = 기본값(그 해 · 전부)으로 진행됨
+    year = (f"대상 차년도: {y}차년도" + (f"(구조 반영 때는 {was}차년도 — 「프로젝트 구성 반영」 을 다시 해야 합니다)" if was is not None and was != y else " — 이 해로 구조 반영함" if used else "")) if y else "대상 차년도: 정하지 않음"
     notes = "".join(f" · {n}" for n in T.get("notes") or ())   # 좁혀 고른 것이 대상 차년도 · 다음 연도의 자리를 빼는 때(merge_api.take_view)
-    return {"st": "done" if T.get("active") else "todo", "text": f"{year} · 넣을 구성: {T.get('text') or '전부'}" + ("" if T.get("active") else "(고르지 않으면 맞는 자리는 모두 넣습니다)") + notes}
+    tail = "" if active else "(고르지 않아 기본값 — 맞는 자리는 모두 넣습니다)" if used else "(고르지 않으면 맞는 자리는 모두 넣습니다)"
+    return {"st": "done" if active or used else "todo", "text": f"{year} · 넣을 구성: {T.get('text') or '전부'}" + tail + notes}
 
 
 def _tidy_doc(ctx, role, key):

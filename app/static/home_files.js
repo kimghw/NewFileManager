@@ -93,7 +93,40 @@ function hfIconEl(name) { // 문서 그림(확장자 꼬리표 포함) — 목�
 // 목록이 비어 있고 오른쪽 대시보드가 시작한 작업을 보이면 — 그 작업의 문서를 읽기만 하는 카드로(home_dash.js homeDashDocs: 서버가 본 문서 칸 그대로 · 차례 = 대시보드 문서 칸의 차례).
 // 2026-11-21 사용자 "올려놓은 문서랑 대시보드랑 매칭이 안되잖아" · "놓여진 문서랑 매칭을 해주라는거야" — 새로 고치면 목록(브라우저 메모리)은 비는데 대시보드는 하던 작업을 보여 둘이 어긋났다(spec_작업에이전트 ② §10 「놓은 문서와 대시보드」).
 // 새 문서를 놓거나 고르면 이 카드 대신 그 문서의 목록이 서고 대시보드는 같은 워크플로우의 시작 전으로 바뀐다(homeFilesAdd → homeDashFiles)
+// 목적 문서 카드에는 워크플로우의 진행(「완료」 · 「진행 중 · 끝남 n/m」 — 대시보드 머리와 같은 셈: home_dash.js hdTally)과 내려받기 둘(아이콘 + 「원본」 · 「결과」 — hfDashGet)이 선다
+// (2026-11-23 사용자 "목적문서의 경우 처음 사용한 상태가 있고 작업이 진행 중이거나 완료된 상태의문서를 다운 받을 수 있게 해야 하지 않냐? 작업이 완료되었으면 완료라고 뜨고" — spec_작업에이전트 ② §10 「대시보드의 문서 — 진행 · 내려받기」)
+const HF_DL = new Set(); // 받는 중인 내려받기(`<작업 id>:<original|current>`) — 그 사이 진행이 바뀌어 카드를 다시 그려도 단추가 꺼진 채로
+function hfDashState(S) { // 목적 문서 카드의 진행 글 → {word, state} | null(서버가 센 줄이 없음 — 문서 화면에서 진행하는 묶음뿐)
+  if (!S || !S.total) return null;
+  const count = `끝남 ${S.done}/${S.total}`;
+  return S.all ? { word: "완료", state: "done", tip: `워크플로우를 모두 마쳤습니다(${count}) — 오른쪽 대시보드의 「모두 끝남」 과 같은 셈입니다` }
+    : S.bad ? { word: `확인 필요 · ${count}`, state: "bad", tip: "실패하거나 막힌 단계가 있습니다 — 오른쪽 대시보드에서 그 단계를 보세요" }
+      : { word: `진행 중 · ${count}`, state: S.run ? "run" : "todo", tip: S.run ? "지금 실행이 돌고 있습니다 — 끝난 수는 오른쪽 대시보드의 셈과 같습니다" : "아직 남은 단계가 있습니다 — 끝난 수는 오른쪽 대시보드의 셈과 같습니다" };
+}
+async function hfDashGet(id, which, redraw) { // 내려받기 — GET /api/works/{id}/file/{original = 올린 그대로 · current = 지금 문서(열린 문서면 서버가 먼저 저장)}
+  const key = `${id}:${which}`;
+  if (HF_DL.has(key)) return;
+  HF_DL.add(key);
+  redraw();
+  try {
+    const r = await fetch(`/api/works/${encodeURIComponent(id)}/file/${which}`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${r.status}`);
+    const blob = await r.blob(), cd = r.headers.get("content-disposition") || "";
+    const m = cd.match(/filename\*=utf-8''([^;]+)/i) || cd.match(/filename="([^"]+)"/i), name = m ? decodeURIComponent(m[1]) : `${which === "original" ? "원본" : "결과"}.hwpx`;
+    const url = URL.createObjectURL(blob), a = el("a");
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast(`「${name}」 내려받기를 요청했습니다(${typeof fmtSize === "function" ? fmtSize(blob.size) : `${blob.size} B`})`);
+  } catch (e) { toast(`${which === "original" ? "원본" : "결과"} 문서를 내려받지 못했습니다: ${e.message}`, true); }
+  finally { HF_DL.delete(key); redraw(); }
+}
+
 function hfDashDraw(drop, box, D) {
+  const focus = box.contains(document.activeElement) ? document.activeElement.dataset.hfFocus || "" : ""; // 진행이 바뀌어 다시 그려도 초점은 그 단추에
   drop.classList.add("has-files");
   box.hidden = false;
   box.dataset.mode = "dash";
@@ -107,7 +140,8 @@ function hfDashDraw(drop, box, D) {
   more.onclick = homeFilesPick;
   head.append(h, hHelp("대시보드의 문서 안내", `오른쪽 대시보드가 보이는 작업(워크플로우 「${D.name}」)의 문서입니다 — 이미 서버에 올린 문서라 여기서 빼거나 바꾸지 않습니다.\n`
     + "새 문서를 놓거나 「다른 문서 놓기…」 로 고르면 이 자리에 그 문서의 목록이 서고, 대시보드의 문서 칸도 그 문서로 바뀝니다(같은 워크플로우의 시작 전 — 「워크플로우 시작」 으로 새로 시작).\n"
-    + "하던 작업은 지우지 않습니다 — 놓은 문서 목록을 비우면 대시보드가 다시 이 작업을 보입니다(최근 작업에서도 열 수 있습니다)."), more);
+    + "하던 작업은 지우지 않습니다 — 놓은 문서 목록을 비우면 대시보드가 다시 이 작업을 보입니다(최근 작업에서도 열 수 있습니다).\n"
+    + "목적 문서 카드에는 워크플로우의 진행(「진행 중 · 끝남 n/m」 · 다 마치면 「완료」 — 대시보드의 셈 그대로)과 내려받기 둘이 있습니다: 「원본」 = 시작할 때 올린 그대로 · 「결과」 = 지금까지 작업한 문서(다 마쳤으면 완료본)."), more);
   const cap = el("p", "hf-cap", `워크플로우 「${D.name}」 — 오른쪽 대시보드의 문서 칸과 같은 문서입니다(이미 올림). 새 문서를 놓으면 그 문서로 시작할 준비를 합니다`);
   const rows = el("div", "hf-rows");
   rows.setAttribute("role", "list");
@@ -120,9 +154,36 @@ function hfDashDraw(drop, box, D) {
     name.title = d.name;
     pick.append(hfIconEl(d.name), name);
     row.append(pick, el("span", "hf-tag", d.label));
+    if (d.role === "target" && d.id) { // 목적 문서 — 진행 · 내려받기 둘
+      const S = hfDashState(D.state), redraw = () => { if (box.dataset.mode === "dash") hfDashDraw(drop, box, homeDashDocs() || D); };
+      if (S) {
+        const st = el("span", "hf-dash-state", S.word);
+        st.dataset.state = S.state;
+        st.title = S.tip;
+        row.append(st);
+      }
+      // 단추 둘 = 내려받기 아이콘 + 「원본」 · 「결과」(2026-11-23 사용자 「내려받기라고 쓰지 말고 원본 다운로드 아이콘, 결과 다운로드 아이콘 이렇게」) — 받는 중에는 글만 「받는 중…」
+      // (끄지 않는다 — 다시 그려도 초점이 그 단추에 남게 · 두 번 누름은 hfDashGet 이 막음)
+      const dl = el("div", "hf-dash-dl"), done = !!S && S.state === "done";
+      dl.setAttribute("role", "group");
+      dl.setAttribute("aria-label", "목적 문서 내려받기");
+      const dlBtn = (which, word, title) => {
+        const busy = HF_DL.has(`${d.id}:${which}`), b = hBtn("", () => hfDashGet(d.id, which, redraw), { cls: "btn sm hf-dash-get", title });
+        if (typeof agentIcon === "function") b.append(agentIcon("download", 14));
+        b.append(el("span", null, busy ? "받는 중…" : word));
+        b.setAttribute("aria-label", `${word} 내려받기`);
+        b.setAttribute("aria-busy", String(busy));
+        b.dataset.hfFocus = `dl:${which}`;
+        return b;
+      };
+      dl.append(dlBtn("original", "원본", "원본 내려받기 — 워크플로우를 시작할 때 올린(저장한 양식으로 만든) 그대로의 목적 문서"),
+        dlBtn("current", "결과", `결과 내려받기 — ${done ? "워크플로우를 모두 마친" : "지금까지 작업한"} 목적 문서(문서 화면의 「내려받기」 와 같은 내용 · 확정하지 않은 고침도 들어 있습니다${S && S.state === "run" ? " · 실행이 도는 중이면 그 순간의 문서" : ""})`));
+      row.append(dl);
+    }
     rows.append(row);
   }
   box.append(head, cap, rows);
+  if (focus) { const to = box.querySelector(`[data-hf-focus="${CSS.escape(focus)}"]`); if (to && !to.disabled) to.focus({ preventScroll: true }); }
 }
 
 function homeFilesDraw() {

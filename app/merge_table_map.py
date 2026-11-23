@@ -47,6 +47,8 @@ grid = 행마다 한 줄 「r행번호: 칸 | 칸 | …」. 칸 = 「c열번호�
 표시(자료 행에만): 「■」 = 칸 채움(일정 막대처럼 칠한 칸) · 「▔종류」·「▁종류」 = 칸 위·아래 가장자리의 특수 선(DASH·DASH_DOT …).
 target.marks = 목적 서식이 일정·진행을 나타내는 표시 목록 [{name(범례의 이름 — 「당초계획」·「개발실적」), line(선 종류)}] — 비어 있으면 목적 표는 표시를 쓰지 않습니다.
 target.after = 표 바로 뒤 줄(주석·범례). target.current = 목적 문서의 당해 차년도(「해당연도」 = 이 차년도 · 「다음 연도」 = 그 다음).
+target.orgWork(목적 표가 한 기관의 표이고 앞 단계가 이어 둔 원본 표가 과제 전체 표일 때만) = 원본 문서에서 **그 기관의 절**에 적힌 일 {org, years: [{year(null = 차년도 절 밖), lines}]} — 차년도마다 그 기관의 개발 목표·내용 줄의 앞부분.
+  원본 표의 어느 항목이 그 기관의 몫인지 가리는 근거입니다(원본 표에 기관이 적혀 있지 않을 때). 그 표에서 고른 항목의 순번은 스크립트가 그 표 안의 차례로 다시 셉니다.
 
 ### 답
 - from = 옮길 원본 표의 key(sources 가운데 하나). 옮길 표가 없으면 "" 이고 나머지는 빈 목록.
@@ -80,6 +82,7 @@ LINK_NOTE = ("아래는 목적 문서 양식의 **양식 정보 「자리 연결
              "답의 꼴과 「입력에 있는 번호만」 은 위 계약 그대로입니다.")
 
 TEXT, AFTER_MAX, AFTER_LEN, SIBLINGS_MAX, GRID_CELLS_MAX = 60, 6, 120, 4, 4000
+ORG_LINES, ORG_LINE_LEN = 24, 110   # orgWork — 차년도마다 그 기관 절의 앞 줄 수 · 줄마다 글자 수(개발 목표가 절의 앞에 온다)
 ROLE = {"field": "F", "rowhead": "H", "colhead": "H", "corner": "H", "title": "T"}
 HEADISH = ("rowhead", "colhead", "corner")
 OFF = {"type": "NONE", "width": "0.1 mm", "color": "#000000"}
@@ -388,9 +391,37 @@ def _brief(S, t, v):
     return {"key": t["id"], "title": P._ws(X._title_of(S, t))[:P.TEXT_MAX], "path": [P._ws(p)[:40] for p in (own.get("path") or ())[-3:]], "ctx": X._ctx(S, t), "top": v["top"], "grid": grid(v)}
 
 
+def _sub_org(tctx, fctx):
+    """기관 표 ← 과제 전체 표인가 — 목적 표는 한 기관의 표(ctx.org)인데 원본 표는 기관을 모른다(과제 전체 표). 그 표에는 원본 항목 가운데 그 기관의 몫만 든다(spec_병합 ② §5-3 11)."""
+    return bool(tctx.get("org")) and not fctx.get("org")
+
+
+def _org_work(F, org):
+    """원본 문서에서 그 기관의 절(문단 묶음 항목 — merge_fixed._side 의 hold)에 적힌 일 → {org, years[{year, lines}]} | None(그 기관의 절이 없음) — 기관 표 ← 과제 전체 표에서
+    어느 항목이 그 기관의 몫인지 가리는 근거(spec_병합 ② §5-3 11 — 2026-11-23 사용자 「기관마다 이 정보 원본문서에 있을 건데 매칭이 안되었네?」: 계획서의 성능 목표 표에 기관이 안 적혀 있었다).
+    차년도 절 안의 줄이 있으면 그것만(차년도마다 앞 ORG_LINES 줄 — 「① 개발 목표」 가 절의 앞에 온다), 없으면 차년도 밖의 줄. 기관 제목 줄 「[…]」 · 그림 제목 줄 「< … >」 · 같은 글은 뺀다."""
+    key, hold, by, seen = _bare(org), F.get("hold") or {}, defaultdict(list), set()
+    if not key:
+        return None
+    for bid in F.get("where") or ():   # 문서 차례
+        h = hold.get(bid)
+        hk = _bare((h or {}).get("org"))
+        if not hk or not (hk == key or key in hk or hk in key):
+            continue
+        b = F["idx"].get(bid) or {}
+        t = P._ws(b.get("text")) if b.get("type", "paragraph") == "paragraph" else ""
+        if not t or t in seen or (t[0] in "[［" and t[-1] in "]］") or (t[0] in "<＜〈" and t[-1] in ">＞〉"):
+            continue
+        seen.add(t)
+        by[h.get("year")].append(t[:ORG_LINE_LEN])
+    years = sorted(y for y in by if y is not None) or ([None] if by.get(None) else [])
+    return {"org": org, "years": [{"year": y, "lines": by[y][:ORG_LINES]} for y in years]} if years else None
+
+
 def data(T, F, tid, fid):
     """대응 한 건의 자료(모듈 설명) → (payload, ctx) | (None, 까닭 글). T·F = merge_fixed._side 꼴. ctx = check 가 답을 대어 볼 것 {T, F, tv, fviews, marks, tctx}.
-    원본 후보 = 이어진 표 fid + 같은 소속 제목 아래의 다른 표(맥락이 목적 표와 어긋나지 않는 것, SIBLINGS_MAX 개까지 — 한 절에 차년도마다 표가 따로 있는 일정 표)."""
+    원본 후보 = 이어진 표 fid + 같은 소속 제목 아래의 다른 표(맥락이 목적 표와 어긋나지 않는 것, SIBLINGS_MAX 개까지 — 한 절에 차년도마다 표가 따로 있는 일정 표).
+    목적 표가 한 기관의 표이고 이어 둔 원본 표가 과제 전체 표면 원본에서 그 기관의 절 글(`target.orgWork` — _org_work)을 싣는다."""
     tt, ft = _table(T, tid), _table(F, fid)
     tv = view(T, tid) if tt else None
     if tv is None or ft is None:
@@ -415,6 +446,8 @@ def data(T, F, tid, fid):
     after = [P._ws(x.get("text") or " / ".join(P._ws(c.get("text")) for c in x.get("cells") or () if P._ws(c.get("text"))))[:AFTER_LEN] for x in _after(T, tid)]
     payload = {"target": {**_brief(T, tt, tv), "current": T["values"].get("current") or 1, "marks": [{"name": m["name"], "line": m["type"]} for m in ms], "after": [a for a in after if a]},
                "sources": sources}
+    if _sub_org(tctx, X._ctx(F, ft)) and (work := _org_work(F, tctx["org"])):
+        payload["target"]["orgWork"] = work
     return payload, {"T": T, "F": F, "tv": tv, "fviews": fviews, "marks": ms, "tctx": tctx, "to": tid, "paired": fid}
 
 
@@ -664,11 +697,12 @@ def _related(cur, new_text, fheads):
     return bool(_toks(cur) & {t for h in fheads for t in _toks(h)})
 
 
-def _record(T, F, tv, fv, m, rec, mk, orig, new=False, seq=0, notes=None, outer=None):
+def _record(T, F, tv, fv, m, rec, mk, orig, new=False, seq=0, notes=None, outer=None, renum=False):
     """항목 하나 → (칸 쓰기 [{to | (행 차례, 열), from, text, mode, was}], 지울 예시 칸 [칸], 표시 [(열, 있음)], 예시인가, 항목의 행 범위) | 까닭 글(통째로 안 넣음).
     new = 늘릴 묶음(rec["like"] 를 본뜬 빈 행들 — 목적 칸은 like 의 칸으로 보고 (like 첫 행에서의 차례, 열) 좌표로 적는다) · seq = 같은 묶음을 본뜬 몇째인가(1부터 — 순번을 이어 세는 데 쓴다).
     **순번 자리**(② §5-3 5 「항목」 — 2026-11-22 고침): 목적 이름 칸이 순번(「1.」)이고 원본 이름에도 순번이 있으면 같은 순번이어야 한다(다르면 한 칸 밀린 짝 — 거절). 원본 이름에 순번이 **없으면** 목적의 순번을 둔 채
-    이름을 잇는다(「1.」 + 「설계사양서」 → 「1. 설계사양서」 — 전에는 거절해 순번 없는 계획서의 항목이 하나도 못 들어갔다). 서식의 「n.」 줄과 늘린 묶음은 위 항목에서 이어 센 순번을 적는다."""
+    이름을 잇는다(「1.」 + 「설계사양서」 → 「1. 설계사양서」 — 전에는 거절해 순번 없는 계획서의 항목이 하나도 못 들어갔다). 서식의 「n.」 줄과 늘린 묶음은 위 항목에서 이어 센 순번을 적는다.
+    renum = 기관 표 ← 과제 전체 표(_sub_org — 원본 항목 가운데 그 기관의 몫만 고른 표): 원본 이름의 순번은 과제 전체에서의 차례라 견주지 않고 떼어, 그 표 안의 차례로 다시 센다(「1.」 + 「2. 선내 연동 …」 → 「1. 선내 연동 …」)."""
     trows, frows = rec["to"], rec["from"]
     text_ = rec["like"] if new else _extent(tv, trows)   # 목적 항목의 행 범위
     fext = _extent(fv, frows)
@@ -721,6 +755,8 @@ def _record(T, F, tv, fv, m, rec, mk, orig, new=False, seq=0, notes=None, outer=
             elif head and _slot(cur):
                 if not _DOTS.fullmatch(P._ws(cur)):   # 순번 자리(「1.」 · 「n.」)
                     a, (b, name) = _ORD.fullmatch(P._ws(cur)), _lead(new_text)
+                    if renum and name:
+                        b = None   # 기관 표 — 원본의 순번(과제 전체 차례)을 떼고 이 표의 차례로(docstring)
                     if a and not new and b is not None and int(a.group(1)) != b:
                         return f"순번이 다름(목적 「{P._ws(cur)}」 ↔ 원본 「{P._ws(new_text)[:20]}」)"
                     if b is None and name:   # 원본 이름에 순번이 없다 — 목적의 순번(늘린 묶음·「n.」 은 이어 센 수)을 둔 채 이름을 잇는다. 원본에 순번이 있으면 그 글 그대로
@@ -766,20 +802,20 @@ def _items_in(tv, rec):
     return [{**rec, "to": a, "from": b} for _, a, b in parts] if len(parts) > 1 else None
 
 
-def _record_parts(T, F, tv, fv, m, rec, mk, orig, outer):
+def _record_parts(T, F, tv, fv, m, rec, mk, orig, outer, renum=False):
     """항목 하나 → [(항목, _record 의 답, 이은 이름들)]. 답이 통째로 안 들어가고(까닭 글) 그 답이 목적 표의 여러 항목을 묶은 것이면 **항목마다 나눠 다시 본다** —
     칸 하나가 안 맞은 항목만 건너뛰고 나머지 항목은 넣는다(2026-11-22 실제 이관: Opus 5.5 가 표지의 2~9행을 한 항목으로 답해, 3행의 칸 하나 때문에
     기술분류 두 행(8·9행 — 예시 「1순위 소분류 명칭」)까지 빠졌다. 행마다 답한 Fable 5.2 때는 들어갔다 — 모델에 따라 결과가 갈리지 않게).
     나눈 항목끼리 같은 목적 칸에 다른 원본 칸을 쓰면 나누지 않은 까닭 그대로 둔다(한 항목을 반씩 넣지 않는다)."""
     note = []
-    got = _record(T, F, tv, fv, m, rec, mk, orig, notes=note, outer=outer)
+    got = _record(T, F, tv, fv, m, rec, mk, orig, notes=note, outer=outer, renum=renum)
     parts = _items_in(tv, rec) if isinstance(got, str) else None
     if not parts:
         return [(rec, got, note)]
     out = []
     for sub in parts:
         n = []
-        out.append((sub, _record(T, F, tv, fv, m, sub, mk, orig, notes=n, outer=outer), n))
+        out.append((sub, _record(T, F, tv, fv, m, sub, mk, orig, notes=n, outer=outer, renum=renum), n))
     seen = {}
     for _, g, _ in out:
         for w in g[0] if not isinstance(g, str) else ():
@@ -844,11 +880,12 @@ def plan(T, F, maps, orig=None):
         ms = marks(T, tv)
         mk = next((x for x in ms if x["name"] == m.get("mark")), None)
         others = [x for x in ms if x is not mk]
+        renum = all("org_names" in S for S in (T, F)) and _sub_org(X._ctx(T, tt), X._ctx(F, ft))   # 기관 표 ← 과제 전체 표 — 순번을 그 표의 차례로(_record) · 기관을 모르는 읽을거리(손으로 지은 표)는 아님
         n0 = len(out["skipped"])
         outer = defaultdict(list)                       # 여러 항목에 걸친 자리표시 머리 칸 id → [(목적 칸, 원본 칸)]
         recs, said, nos = [], [], []                    # (항목, _record 의 답) · 항목마다 이름이 닿는 다른 이름과 이은 것(_related) · LLM 답의 몇째 항목인가
         for i, rec in enumerate(m.get("records") or ()):
-            for sub, got, note in _record_parts(T, F, tv, fv, m, rec, mk, orig, outer):
+            for sub, got, note in _record_parts(T, F, tv, fv, m, rec, mk, orig, outer, renum):
                 recs.append((sub, got))
                 said.append(note)
                 nos.append(i)
@@ -885,7 +922,7 @@ def plan(T, F, maps, orig=None):
                     row["cells"] += 1
         nth = Counter()   # 본뜰 묶음(첫 행) → 지금까지 늘린 수 — 늘린 묶음의 순번은 본뜬 묶음의 순번에서 이어 센다(못 늘린 것은 안 센다)
         for i, rec in enumerate(m.get("grow") or ()):
-            got = _record(T, F, tv, fv, m, rec, mk, orig, new=True, seq=nth[rec["like"][0]] + 1)
+            got = _record(T, F, tv, fv, m, rec, mk, orig, new=True, seq=nth[rec["like"][0]] + 1, renum=renum)
             if isinstance(got, str):
                 out["skipped"].append({"table": tid, "grow": i, "why": "shape", "detail": f"늘릴 항목(원본 {rec['from'][0] + 1}행) — {got}"})
                 continue

@@ -102,7 +102,10 @@ DASH = """() => { const d = document.getElementById('homeDash'), q = (s) => d.qu
 LEFT = """() => { const b = document.getElementById('homeFiles');
   return { mode: b.dataset.mode || '', hidden: b.hidden, title: (b.querySelector('h3') || {}).textContent || '', drop: document.getElementById('drop').classList.contains('has-files'),
     rows: [...b.querySelectorAll('.hf-row')].map((r) => [r.dataset.role || '', r.querySelector('.hf-name').textContent, r.querySelector('.hf-tag').textContent, r.classList.contains('on')]),
-    radios: b.querySelectorAll('input[type=radio]').length, more: !!b.querySelector('[data-hf-focus=more]') }; }"""
+    radios: b.querySelectorAll('input[type=radio]').length, more: !!b.querySelector('[data-hf-focus=more]'),
+    state: [...b.querySelectorAll('.hf-dash-state')].map((x) => [x.closest('.hf-row').dataset.role, x.dataset.state, x.textContent]),   // 목적 문서 카드의 진행(2026-11-23 「완료라고 뜨고」)
+    dl: [...b.querySelectorAll('.hf-dash-dl')].map((x) => [x.closest('.hf-row').dataset.role, ...[...x.querySelectorAll('button')].map((y) => `${y.querySelector('.ag-icon svg') ? '⤓' : ''}${y.textContent}`)]),   // 내려받기 둘(아이콘 + 글)
+    dlName: [...b.querySelectorAll('.hf-dash-dl-name')].length }; }"""
 FIT = """() => { const e = document.getElementById('empty'), a = document.getElementById('homeAgent').getBoundingClientRect(), d = document.getElementById('homeDash');
   return { over: e.scrollWidth > e.clientWidth + 1, dash: d.scrollWidth > d.clientWidth + 1, w: Math.round(a.width),
     inside: [...d.querySelectorAll('.dash-node, .dash-ghead, .dash-ghead .btn, .home-dash-foot .btn, select, .dash-live, .dash-last, .dash-note, .home-dash-docs li')].every((x) => { const r = x.getBoundingClientRect(); return r.left >= a.left - 0.5 && r.right <= a.right + 0.5; }) }; }"""
@@ -280,6 +283,25 @@ def main():
               and (s["next"] == "1단계 끝남 — 그 밖의 묶음은 문서 화면에서 진행합니다" and s["foot"][0]["primary"]   # 뒤 묶음을 서버가 아직 안 맡을 때
                    or s["next"].startswith("다음: ") and any(g["served"] and g["run"] and not g["run"]["off"] for g in s["groups"][1:]))   # 2단계부터 서버가 맡으면(걸음 2) — 그 묶음의 다음 단계 · 단추가 켜짐
               and s["id"] is None and not s["live"] and not s["last"], s)
+        # 목적 문서 카드의 진행 · 내려받기(2026-11-23 「처음 사용한 상태 … 진행 중이거나 완료된 상태의 문서를 다운 받을 수 있게 … 완료라고 뜨고」 — spec_작업에이전트 ② §10 「대시보드의 문서 — 진행 · 내려받기」)
+        lf = page.evaluate(LEFT)
+        done, total = served_counts(rid)
+        all_done = s["next"] == "모두 끝남"
+        check("③ 왼쪽 목적 문서 카드에만 진행 알약 — 머리의 셈 그대로(「모두 끝남」 이면 「완료」 · 아니면 「진행 중 · 끝남 n/m」) · 내려받기 둘(아이콘 + 「원본」 · 「결과」 — 「내려받기」 글 없음) · 원본 문서 카드에는 없음",
+              lf["state"] == [["target", "done", "완료"] if all_done else ["target", "todo", f"진행 중 · 끝남 {done}/{total}"]]
+              and lf["dl"] == [["target", "⤓원본", "⤓결과"]] and lf["dlName"] == 0, [lf, s["next"], done, total])
+        with page.expect_download() as got:
+            page.locator('#homeFiles [data-hf-focus="dl:original"]').click()
+        d0 = got.value
+        orig = Path(d0.path()).read_bytes()
+        with page.expect_download() as got:
+            page.locator('#homeFiles [data-hf-focus="dl:current"]').click()
+        d1 = got.value
+        cur = Path(d1.path()).read_bytes()
+        check("③ 「원본」 → 올린 그대로(이름 = 올린 이름 · 바이트 = 견본 연차보고서) / 「결과」 → 지금 문서(hwpx · 서버의 지금 편집본과 같은 바이트) · 첫 화면 그대로",
+              d0.suggested_filename == rep.get("name") and orig == REPORT.read_bytes() and d1.suggested_filename.endswith(".hwpx") and cur[:2] == b"PK"
+              and cur == requests.get(f"{base}/api/works/{rid}/file/current", timeout=30).content and page.evaluate("() => document.body.classList.contains('no-doc') && !state.id"),
+              [d0.suggested_filename, d1.suggested_filename, len(orig), len(cur)])
 
         # ---- ④ 「한 번에 진행」 — 남은 단계를 만들고(작업 내용 초기화 — 진짜 끝점) 서버 쪽 실행기로: 두 탭에서 잇달아 눌러도 한 번만 · 다른 탭에 같은 실행 · 그 탭에서 멈춤
         # (이 견본의 「문서 검토」 는 3~4초면 끝난다 — 다른 탭이 10초마다 다시 읽는 것으로는 도는 실행을 못 잡을 수 있어, 둘째 탭도 제 단추를 눌러 서버의 거절(이미 도는 실행)로 그 실행을 받는다)

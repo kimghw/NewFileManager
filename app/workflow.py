@@ -871,7 +871,8 @@ def _st_fill(S, D, *, fit=True, review=True):
            optional=True, agents=("merge_gaps",), modules=("merge_gaps", "link_guides", "place_guides"), spec=(SP_MERGE, "② §5-4 · §5-11"),
            need="넣기 계획이 있고 다른 길이 못 채운 빈 자리가 있을 때 · LLM(유료).", done="아직 묻지 않은 빈 자리가 남지 않았을 때 — 안 해도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
         _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 두 서식의 행 · 열 구성이 달라 칸을 못 맞춘 표를 표마다 LLM 이 대응시킵니다(빈 자리 검토가 새로 정한 표 쌍도) — 글은 LLM 이 쓰지 않고 {S} 칸의 글을 옮깁니다. "
-           "그 표의 작성 지침(각주 항목 · 「이 표」 지침)도 함께 보내고, 지침이 바뀐 표만 다시 묻습니다.", change="store",
+           "그 표의 작성 지침(각주 항목 · 「이 표」 지침)도 함께 보내고, 지침이 바뀐 표만 다시 묻습니다. "
+           f"기관마다의 표인데 {S} 표가 과제 전체 표면 {S}의 그 기관 절 글을 함께 보내 그 기관이 맡은 항목만 고르게 합니다(순번은 그 표의 차례로).", change="store",
            optional=True, agents=("merge_table_map",), modules=("merge_table_map", "place_guides"), spec=(SP_MERGE, "② §5-3 · §5-11"),
            need="같은 표로 이었지만 행 · 열 구성이 달라 칸을 못 맞춘 표가 있을 때 · LLM(유료).", done="칸을 못 맞춘 표가 남지 않았을 때 — 안 해도 됩니다.", left=f"글은 LLM 이 쓰지 않습니다 — {S} 칸의 글을 옮깁니다."),
         _s("apply", "내용 반영", ("human", "script"), f"「계획 보기」 에서 확인하고 「반영」 을 누르면 {S}의 글 · 표 · 그림이 그 자리에 들어갑니다 — 서식은 {D}의 틀에 맞추고, 넣는 내용의 개요가 자리보다 깊으면 "

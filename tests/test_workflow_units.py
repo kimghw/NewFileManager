@@ -231,8 +231,26 @@ def test_view_of_the_frame_stage_reads_both_documents():
     facts = {"a": {"id": "a", "heads": {"s2": True, "s3": True, "llm": True, "job": None}, "div": _div(V2, applied={"values": V2, "rev": 5})},
              "b": {"id": "b", "heads": {"s2": True, "s3": True, "rev2": 5, "rev3": 5, "llm": True, "asked": True, "job": None}, "div": _div(V2, confirmed=cf, applied={"values": V2, "rev": 5})}}
     frame = S.view(task, PAIR, facts, llm=True)["stages"][1]
-    assert [(s["key"], s["done"]) for s in frame["steps"]] == [("configLoad", False), ("config", True), ("division", True), ("reheads", True), ("reheadsLlm", True)]
+    assert [(s["key"], s["done"]) for s in frame["steps"]] == [("configLoad", True), ("config", True), ("division", True), ("reheads", True), ("reheadsLlm", True)]   # 구성 불러오기 = 확정돼 있어 「건너뜀」(2026-11-23 — 전에는 상태 함수가 없어 늘 남음)
     assert (frame["done"], frame["total"], frame["left"]) == (4, 4, 0) and frame["change"] is True
+
+
+def test_pick_lines_show_what_a_run_used():
+    """사람이 고르는 줄(구성 불러오기 · 넣을 구성 선택)은 실행기가 지나간다 — 그래도 늘 「남음」 으로 두지 않고 쓰인 것을 보인다(2026-11-23 사용자 「한번에 진행하기 할때 왜 구성 불러오고 넣는걸 안하냐?」).
+    구성 불러오기 = 확정돼 있으면 「건너뜀」 · 아니면 남음 / 넣을 구성 선택 = 좁혀 골랐거나, 고르지 않았어도 그 대상 차년도로 구조 반영을 했으면 끝남(기본값) · 반영 뒤 해를 바꿨으면 남음."""
+    cf = {"values": V2, "at": 1}
+    pair = lambda conf: {"source": {"title": "사업계획서", "id": "a", "facts": {"div": _div(V2)}}, "target": {"title": "연차보고서", "id": "b", "facts": {"div": _div(V2, confirmed=conf)}}}  # noqa: E731
+    done = U._config_load({"ready": True, "pair": pair(cf), "base": "source"})
+    assert done["st"] == "done" and done["skipped"] and done["text"].startswith("프로젝트 구성이 확정돼 있어 불러올 필요가 없습니다")
+    todo = U._config_load({"ready": True, "pair": pair(None), "base": "source"})
+    assert todo["st"] == "todo" and not todo.get("skipped") and "「프로젝트 구성 추출」 이 사업계획서에서 읽습니다" in todo["text"]
+    take = lambda **T: U._take({"pair": {"target": {"facts": {"fill": {"take": {"ready": True, "text": "전부", **T}}}}}})  # noqa: E731
+    assert take(year=1, yearApplied=None)["st"] == "todo"   # 구조 반영 전 — 아직 고를 수 있다
+    used = take(year=1, yearApplied=1)
+    assert used["st"] == "done" and used["text"] == "대상 차년도: 1차년도 — 이 해로 구조 반영함 · 넣을 구성: 전부(고르지 않아 기본값 — 맞는 자리는 모두 넣습니다)"
+    moved = take(year=2, yearApplied=1)
+    assert moved["st"] == "todo" and "「프로젝트 구성 반영」 을 다시 해야 합니다" in moved["text"]
+    assert take(year=2, yearApplied=None, active=True, text="기관: 가")["st"] == "done"
 
 
 def test_a_hand_line_a_person_placed_halts_in_every_shape():
