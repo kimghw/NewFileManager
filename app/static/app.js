@@ -3353,7 +3353,8 @@ function paginate() {
 
 // 쪽 상자가 용지 본문을 넘치고 그 끝이 PDF 자리를 모르는 문단(빈 줄 — 매핑 없음)이나 짧은 글(5자 이하 — 「가까운 자리」 매핑이라 쪽이 틀릴 수 있음, ④)이면
 // 다음 쪽 맨 위로 보낸다(② §3-1 「넘침 밀기」): 쪽 머리 줄이 빈 줄·한 글자면 매핑이 그 쪽 나눔을 못 잡아 앞 쪽이 길어진다(연구개발계획서 양식 28쪽 「o」「-」, 14쪽 빈 줄).
-// 다음 쪽이 빈 쪽 표지(gap-page — 앞 쪽 문단·행이 이어지는 쪽)이거나 없으면 그대로 둔다. 표·그림·자리 아는 문단에서 멈춘다.
+// 다음 쪽이 빈 쪽 표지(gap-page — 앞 쪽 문단·행이 이어지는 쪽)이거나 없으면 그대로 둔다. 자리 아는 문단에서 멈춘다. 끝이 그림 블록이면 한글처럼 다음 쪽으로(그림을 빼면 이 쪽이
+// 들어가고 다음 쪽에도 들어갈 때만 — 2026-11-23).
 // 끝이 표 조각이면 뒤 행부터 다음 쪽 머리의 이어짐 조각(.cont)으로 옮긴다 — 한글이 그 표를 쪽 경계의 행에서 나눴는데 그 쪽 맨 위 줄이 짧은 칸 글(「20××년」)이라
 // 매핑이 나눔을 못 잡은 경우(43·65쪽). 세로 병합 칸이 걸친 행은 여기서는 못 옮긴다(높이로 미는 것은 병합 칸을 안 나눔) — PDF 로 확인되는 쪽 넘김(43→44쪽 등)은 「행 안 나눔」(rowCarry)이
 // 쪽을 열 때 병합 칸째 나눈다. 행 안에서 나눈 앞부분 행은 행째 밀지 않고 끝의 자리 모르는 블록만(pushTail).
@@ -3375,6 +3376,17 @@ function overflowPush(doc) {
         const t = (state.texts[last.dataset.id] ?? state.original[last.dataset.id] ?? "").trim(); // 지금 글(고친 뒤 길어졌을 수 있음)
         if (m.pages[last.dataset.id] && t.length > 5) break;
         nextBody.prepend(last);
+        moved += 1;
+        continue;
+      }
+      if (last.classList.contains("img") && last.dataset.img) { // 최상위 그림 블록(글 속 그림 · 나란한 묶음은 문단·묶음 요소라 아님)
+        // 한글은 나눌 수 없는 그림이 남은 자리에 안 들어가면 다음 쪽으로 넘긴다 — 그림은 글이 없어 매핑이 자리를 모르고, 서버 나눔이 그 쪽 맨 위 그림을 못 잡으면 앞 쪽 상자에
+        // 붙어 쪽이 길어졌다(2026-11-23 사용자 "매칭할때 페이지 넘김이 안되었나? 아마 그림 때문인거 같고" — 이관 목적 문서 16쪽 = 용지 1.4배). 고친 문단 · 확정과 무관하게:
+        // 이 쪽이 웹·한글 높이 차이(SPLIT_TOL 8%)보다 더 넘치고, 그림을 빼면 들어가고(빼도 넘치면 그림 탓이 아님), 다음 쪽(같은 구역)에도 그 여유 안에서 들어갈 때만 민다 —
+        // 안 되면 도로 두고 멈춘다(Fable 검토 · 다음 쪽 여유: 그 쪽의 웹 표가 한글보다 길어 그림을 얹으면 용지 1.03배 — 같은 문서 14쪽)
+        if ((m.pages && m.pages[last.dataset.img]) || next.dataset.sec !== s.dataset.sec || body.offsetHeight <= room * SPLIT_TOL) break;
+        nextBody.prepend(last);
+        if (body.offsetHeight > room * SPLIT_TOL || nextBody.offsetHeight > nextRoom * SPLIT_TOL) { body.append(last); break; }
         moved += 1;
         continue;
       }

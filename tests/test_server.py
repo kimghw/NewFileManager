@@ -326,6 +326,20 @@ def test_paginate_caption_and_pictures_go_with_their_page():
     assert at([[57, 57, 400, 210]]) == "i1"                          # 첫 글 줄 위의 그림 하나 = 그 앞의 그림 블록
     assert at([[57, 300, 400, 500]]) == "p1" and at(None) == "p1"    # 그림이 글 아래 · 그림 자리를 모름 — 그대로
     assert at([[57, 57, 200, 210], [220, 57, 400, 210]]) == "p1"     # 그림 둘인데 블록은 하나 — 수가 안 맞으면 그대로
+    assert at([[57, 42, 400, 226]]) == "i1"   # 그림 바로 아래 캡션 줄 — 줄 상자 위끝(220)이 그림 아래끝과 6pt 겹쳐도 그림 가운데가 위면 센다(2026-11-23 연차보고서 16쪽)
+    assert at([[300, 210, 540, 500]]) == "p1"  # 글 옆 그림(어울림) — 첫 줄이 그림 위쪽에 걸림: 안 센다
+    assert at([[57, 20, 140, 60]]) == "p1"     # 머리말 띠 안의 로고 — 안 센다
+    # 나란한 그림 묶음(inlineRow) — 첫 글 줄은 짧은 오른쪽 그림의 캡션: 묶음 안 왼쪽 그림의 캡션은 건너 세어 묶음 첫 그림부터(연구계획서 33쪽)
+    row = [_pg_para("p0", "첫 쪽 본문 문단입니다"), img("i1", inlineRow="i1"), _pg_para("c1", "< 왼쪽 그림 설명 >", captionOf="i1"),
+           img("i2", inlineRow="i1"), _pg_para("c2", "< 오른쪽 그림 설명 >", captionOf="i2")]
+    pages = [_pg_page(_pg_line("첫 쪽 본문 문단입니다", 80)),
+             _pg_page(_pg_line("< 오른쪽 그림 설명 >", 171, 360), _pg_line("< 왼쪽 그림 설명 >", 185), pics=[[70, 42, 349, 177], [360, 43, 525, 163]])]
+    assert pdf_map.paginate(row, pages, {"p0": [1], "c1": [2], "c2": [2]})["breaks"][1]["id"] == "i1"
+
+    # 2쪽 모아 찍기 — 반쪽마다 제 그림 상자(오른 반은 x 를 반 폭만큼 당김): 전에는 반쪽에 pics 가 없어 이 규칙이 꺼져 있었다
+    wide = {"w": 842, "h": 595, "sheet": 0, "lines": [_pg_line("왼쪽 반 글", 300), _pg_line("오른쪽 반 글", 300, 500)], "pics": [[60, 50, 380, 280], [480, 50, 800, 280]]}
+    halves = pdf_map._halves([wide])
+    assert [h["pics"] for h in halves] == [[[60, 50, 380, 280]], [[59, 50, 379, 280]]]
 
     blocks = [_pg_para("p0", "첫 쪽 본문 문단입니다"), img("i1"), img("i2", pageStart=True), _pg_para("p3", "넷째 쪽 본문 문단입니다")]
     pages = [_pg_page(_pg_line("첫 쪽 본문 문단입니다", 80)), _pg_page(pics=[[57, 57, 538, 743]]), _pg_page(pics=[[57, 57, 538, 700]]), _pg_page(_pg_line("넷째 쪽 본문 문단입니다", 80))]

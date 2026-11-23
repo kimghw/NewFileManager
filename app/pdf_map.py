@@ -42,7 +42,9 @@ def _halves(pages):
         for side in (False, True):
             dx = mid if side else 0
             lines = [shift(ln, dx) for ln in p["lines"] if ((ln["bbox"][0] + ln["bbox"][2]) / 2 >= mid) == side]
-            out.append({"w": mid, "h": p["h"], "lines": lines, "sheet": i, "half": int(side), "type3": p.get("type3", set())})
+            # 그림 상자도 반마다(가운데로 고름) — 전에는 반쪽에 pics 가 없어 2쪽 모아 찍기 문서에서 「쪽 맨 위 그림」 이 꺼져 있었다(2026-11-23 Fable 검토)
+            pics = [[b[0] - dx, b[1], b[2] - dx, b[3]] for b in p.get("pics") or () if ((b[0] + b[2]) / 2 >= mid) == side]
+            out.append({"w": mid, "h": p["h"], "lines": lines, "sheet": i, "half": int(side), "type3": p.get("type3", set()), "pics": pics})
     if len(out) > 1 and out[-1]["sheet"] == out[-2]["sheet"] and not out[-1]["lines"]:
         out.pop()
     return out
@@ -377,6 +379,18 @@ def _tops(page):
     return [k for ln in top if len(k := key_text(ln["text"])) >= 2], " ".join(ln["text"].strip() for ln in top)
 
 
+def _top_pics(page):
+    """쪽의 첫 글 줄보다 위에 있는 그림 수(paginate 「쪽 맨 위 그림」) — 그림의 위끝과 **가운데**가 첫 글 줄 위끝보다 위. 그림 바로 아래 캡션 줄은 글자 위 여유 때문에
+    줄 상자가 그림 아래끝과 몇 pt 겹친다: 전에는 「그림 아래끝 ≤ 첫 줄 위끝 + 2pt」 라 6pt 겹친 그림을 못 세어 그림이 앞 쪽 상자에 남았다(2026-11-23 이관 목적 문서
+    728b2a673374 16쪽 「1.4 Data Channel ID 의 예시」 · 연구계획서 33쪽 「< Infineon 차단기 토폴로지 >」 위 그림 둘). 글 옆 그림(어울림)·글 뒤 배경은 첫 줄이 그림 위쪽에 걸려
+    가운데가 그 아래라 안 센다. 머리말 띠 안에 다 든 그림(로고)은 뺀다."""
+    ys = [ln["bbox"][1] for ln in page["lines"] if key_text(ln["text"])]
+    if not ys:
+        return 0
+    y0, edge = min(ys), max(page["w"], page["h"]) * BAND
+    return sum(b[1] < y0 and (b[1] + b[3]) / 2 < y0 and b[3] > edge for b in page.get("pics") or ())
+
+
 def paginate(blocks, pages, located):
     """웹 쪽 나눔 = 각 쪽이 시작하는 단위. ① 단위의 쪽 = 그 안 문단들이 찍힌 가장 앞 쪽, 순서가 맞는 가장 긴 부분열만 믿는다(잘못 잡힌 짧은 칸 글이
     쪽을 앞으로 당기지 않게) ② 쪽마다 PDF 맨 위 줄의 글이 든 단위를 매핑 나눔 앞뒤 WINDOW 안에서 찾아 나눔을 맞추고 대조 결과를 남긴다.
@@ -423,7 +437,14 @@ def paginate(blocks, pages, located):
         if u["kind"] == "block":
             return None if b.get("inlineOf") else int(b.get("type") == "image")
         return sum(_pics(c.get("blocks") or []) for c in b.get("cells") or () if u["r0"] <= c["row"] <= u["r1"])
-    seq = [(k, r[0]) for k, r in enumerate(raw) if r]
+
+    def row_of(j):
+        """단위 j 가 든 나란한 개체 묶음(inlineRow — 그림 블록 자신 · 그 개체의 캡션 문단) | None."""
+        if us[j]["kind"] != "block":
+            return None
+        b = top_block.get(us[j]["id"]) or {}
+        return b.get("inlineRow") or (top_block.get(cap_of.get(us[j]["id"])) or {}).get("inlineRow")
+    seq =[(k, r[0]) for k, r in enumerate(raw) if r]
     trusted = dict(_lis(seq, strict=False))
     start, cur = {}, 0
     for k in range(len(us)):
@@ -622,13 +643,20 @@ def paginate(blocks, pages, located):
             # 쪽 맨 위 그림: 그림에는 글이 없어 매핑이 자리를 모른다 — 쪽의 첫 글 단위에서 나누면 그 위의 그림(그림 블록 · 사진만 든 표 행)이 앞 쪽 상자에 남는다(연구계획서 24·35·39·51쪽
             # 상자가 용지보다 김). PDF 이 쪽의 첫 글 줄보다 위에 그림이 n개면, 첫 글 단위 앞의 글 없는 단위를 거슬러 그림 수가 꼭 n이 되는 단위부터 이 쪽(수가 안 맞으면 그대로 — 짐작하지 않는다).
             # 이미 그 단위부터 첫 글 단위 앞까지 든 그림(캡션으로 옮긴 그림)은 뺀다
-            ys = [ln["bbox"][1] for ln in pages[pg - 1]["lines"] if key_text(ln["text"])]
-            need = sum(b[3] <= min(ys) + TOP_TOL for b in pages[pg - 1].get("pics") or ()) if ys else 0
+            need = _top_pics(pages[pg - 1])
             j = hit
             while need > 0 and j < len(us) and (c := pic_count(j)) is not None:
                 need, j = need - c, j + 1
             j, best = hit, hit
-            while need > 0 and j - 1 > prev and (c := pic_count(j - 1)) is not None and c <= need:
+            # 나란한 그림 묶음(inlineRow — 그림마다 아래 캡션)이 쪽 맨 위면 첫 글 줄은 짧은 그림의 캡션이다: 묶음 안의 앞 그림 캡션은 건너 세어 묶음 첫 그림까지 간다
+            # (연구계획서 33쪽 · 연차보고서 12쪽 「DTI · Infineon 차단기 토폴로지」 — 화면은 묶음을 한 덩이로 그려 묶음 어느 블록에서 나눠도 같은 쪽이지만 서버의 시작 단위도 묶음 첫머리로)
+            row = row_of(hit)
+            while need > 0 and j - 1 > prev:
+                c = pic_count(j - 1)
+                if c is None and row and row_of(j - 1) == row:
+                    c = 0  # 같은 나란한 묶음 안의 캡션 — 건너 센다
+                if c is None or c > need:
+                    break
                 need, j = need - c, j - 1
                 if c:
                     best = j
