@@ -278,7 +278,10 @@ def text_candidates(doc, graph) -> list[dict]:
     out, members = [], _slot_paras(graph)
     for t in (graph or {}).get("templates") or []:
         items, doubts, dropped = [], [], False
+        boxl = {i for i, k in enumerate(t.get("chain") or [], 1) if k == "▦"}  # 1칸 제목 상자 레벨(spec_헤딩_추출 ② §6 「1칸 제목 상자」) — 표 줄이라 글 서식 후보가 아니다
         for s in sorted(t.get("slots") or [], key=lambda s: s.get("level") or 0):
+            if s.get("level") in boxl:
+                continue
             pid = s.get("rep")
             el = doc._ids.get(pid) if isinstance(pid, str) else None
             if not s.get("format") or el is None or el.tag != P or not doc._attached(el):
@@ -291,7 +294,7 @@ def text_candidates(doc, graph) -> list[dict]:
                           "format": doc.get_format(pid)["summary"], **check})
         if items:
             levels = [i["level"] for i in items if isinstance(i["level"], int)]
-            if dropped or len(levels) != len(items) or levels != list(range(1, len(levels) + 1)):
+            if dropped or len(levels) != len(items) or levels != [L for L in range(1, len(levels) + len(boxl) + 1) if L not in boxl][:len(levels)]:
                 doubts.append("levelGap")
             out.append({"key": f"tpl{t.get('id')}", "template": {"id": t.get("id"), "no": t.get("no"), "name": t.get("displayName") or t.get("name") or "",
                                                                   "anchor": t.get("anchor"),   # 이름 키 `tpl:<앵커>`(spec_서식복사 ② §19-2 — 다시 분석해도 같은 자리)

@@ -32,6 +32,7 @@ _KEY_RE = re.compile(r"N|①|가|A|a|Ⅰ|ⅰ")
 ROOTED = ("label", "subtitle")  # 괄호 줄 — 구분 라벨·괄호 소제목(spec_헤딩_추출 ② §13): 둘 다 제 템플릿의 뿌리, 편집 제한이 같다
 ROLES = ("heading", "title") + ROOTED
 TABLE = "table"  # 표 제목 줄(spec_hwpx_웹편집 ② §8-7 — app/outline_lift.py): 제목 표(1칸 상자 · 번호 칸 + 제목 칸 띠 · 3행 표)를 템플릿의 표 레벨로 넣은 줄. 열쇠 = 칸 안 제목 문단 id, 레터 없음(letter ""), Enter 만 된다
+BOX_KEY = "▦"  # 1칸 제목 상자 레벨의 정규 키(app/heading_boxes.KEY — spec_헤딩_추출 ② §6 「1칸 제목 상자」): 헤딩 추출이 상자를 템플릿의 표 레벨로 잡은 것. 그 줄도 표 줄(role TABLE)
 BAND = "band"  # 띠 표 템플릿의 kind(app/heading_bands.KIND — spec_헤딩_추출 ② §6 「띠 표 줄」): 이름표 띠 표(「별첨N | 제목」)를 헤딩 추출이 줄로 잡은 것. 그 줄도 표 줄(role TABLE)이다 — 열쇠 = 이름표 문단, 이름표 글은 `name`
 
 
@@ -167,6 +168,9 @@ def build_overlay(g, probe, rev=0):
         if t.get("kind") == BAND:  # 띠 표 템플릿 — 레벨이 표 줄이다(레터·접두·서식 없음: 자리 규칙 · 서식 갈래 · 서식 정리의 대상이 아니다). 이름표 꼴(「별첨N」)은 name 에
             for sl in slots.values():
                 sl.update(table=True, name=sl["key"], letter="")
+        for i, k in enumerate(t.get("chain") or [], 1):  # 1칸 제목 상자 레벨(「▦」 — spec_헤딩_추출 ② §6 「1칸 제목 상자」): 손으로 넣는 표 레벨(② §8-7)과 같은 표 슬롯
+            if k == BOX_KEY:
+                slots[str(i)].update(table=True, letter="", key=BOX_KEY)
         tpls[tid] = {"no": t.get("no", t.get("id")), "kind": t.get("kind"), "anchor": t.get("anchor") or t.get("name"), "chain": list(t.get("chain") or []),
                      "slots": slots, "max": max((int(k) for k in slots), default=0)}
         by_anchor[tpls[tid]["anchor"]] = tid
@@ -189,6 +193,15 @@ def build_overlay(g, probe, rev=0):
             continue
         pi = info(n["para"])
         letter = n.get("letter") or ""
+        box = n.get("box")
+        if box:  # 1칸 제목 상자(spec_헤딩_추출 ② §6 「1칸 제목 상자」) — 표 줄(열쇠 = 칸 안 제목 문단 · 레터 없음 · 본문 자리는 그 표를 품은 문단: 「표를 L1 으로」 의 표 줄과 같다)
+            if pi is None:
+                continue
+            lines[n["para"]] = {"tpl": tid, "no": tpls[tid]["no"], "level": int(n["level"]), "parent": None, "letter": "", "key": BOX_KEY, "role": TABLE,
+                                "flow": n.get("flow", "body"), "_pnode": n.get("parent"), "table": box.get("table"), "fmt": n.get("fmt") or ""}
+            by_node[n["id"]] = n["para"]
+            tpls[tid]["slots"].get(str(int(n["level"])), {}).setdefault("members", []).append(n["para"])
+            continue
         if pi is None or not letter or not prefix_of(pi["text"], letter)[1]:
             continue  # 글 첫머리에 레터가 없는 줄 — 자동 글머리 줄이면 아래 collect_autos 가 따로(ov["autos"])
         lines[n["para"]] = {"tpl": tid, "no": tpls[tid]["no"], "level": int(n["level"]), "parent": None, "letter": letter, "key": n.get("key") or "",

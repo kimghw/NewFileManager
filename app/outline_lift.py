@@ -473,7 +473,10 @@ def _align_old(out, tid, d):
 def carry(old, new, doc):
     """2단계를 다시 돌려 오버레이를 새로 만들 때 — 옛 오버레이에서 표를 넣은 템플릿(같은 앵커)에 기록한 층을 **안쪽(글 레벨 쪽)부터** 같은 꼴로 다시 건다(새로 생긴 같은 꼴 표도 든다 ·
     들어갈 레벨은 그때의 자리로 다시 정한다). **다른 carry 들보다 먼저** 부른다(자리 규칙·종속·더한 레벨은 앵커 + 레벨로 옮기므로 레벨이 먼저 맞아야 한다).
-    -> 뒤의 carry 들이 읽을 옛 오버레이 — 다시 건 층 수가 옛것과 다른 템플릿이 있으면(못 걸었거나 일부만) 그 템플릿의 레벨을 새것에 맞춘 사본, 아니면 old 그대로."""
+    -> 뒤의 carry 들이 읽을 옛 오버레이 — 다시 건 층 수가 옛것과 다른 템플릿이 있으면(못 걸었거나 일부만) 그 템플릿의 레벨을 새것에 맞춘 사본, 아니면 old 그대로.
+    그 앞에 그래프가 1칸 제목 상자의 레벨(「▦」 — spec_헤딩_추출 ② §6 「1칸 제목 상자」)을 사슬에 넣거나 뺀 템플릿은 옛 오버레이 사본의 앵커 · 레벨을 새 번호로 바꾼다(`heading_boxes.align_old`)."""
+    from app import heading_boxes
+    old = heading_boxes.align_old(old, new)
     if not old or not new or not old.get("lifts"):
         return old
     out = old

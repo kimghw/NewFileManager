@@ -20,6 +20,7 @@ from collections import Counter, defaultdict
 
 from app import division_terms as DT
 from app import heading_bands as HB
+from app import heading_boxes as BX
 from app import heading_llm as HL
 from app import heading_rules as R
 from app import llm
@@ -95,9 +96,18 @@ def candidates(stage1, skip=()):
     body = _body_size(paras)
     filled = filled_flows(paras)  # 흐름(칸)마다 글·개체가 있는 문단 수 — 값 칸을 가린다
     bands = HB.find(paras, skip)  # 이름표 띠 표(「별첨N | 제목」 — spec ② §6 「띠 표 줄」): 이름표 문단 id → 띠 표
+    boxes = BX.find(paras, skip)  # 1칸 제목 상자(spec ② §6 「1칸 제목 상자」): 칸 안 제목 문단 id → 상자
     out = []
     for rec in paras:
         if rec["id"] in skip:
+            continue
+        x = boxes.get(rec["id"])
+        if x is not None:  # 1칸 제목 상자 — 본문 흐름의 줄: 레터 없음 · 정규 키 「▦」 · 글 = 제목. 열쇠는 칸 안 제목 문단(손으로 넣는 「표를 L1 으로」 의 표 줄과 같은 열쇠)
+            ch = rec["char"]["text"] or {}
+            out.append({"para": rec["id"], "n": rec["n"], "area": rec["area"], "flow": "body", "table": rec["table"], "cell": rec["cell"], "lead": 0, "fmt": rec["fmt"],
+                        "bold": bool(ch.get("bold")), "size": ch.get("sizePt") or 0, "id": rec["id"], "span": 0, "kind": BX.KIND, "family": BX.KIND, "shape": BX.KEY,
+                        "letter": "", "blank": False, "text": x["text"][:80], "outline": None,
+                        "box": {"table": x["table"], "title": x["title"], "host": x["host"], "child": x["child"]}})
             continue
         b = bands.get(rec["id"])
         if b is not None:  # 띠 표 줄 — 그 표가 놓인 본문 흐름의 줄: 레터 = 이름표 글(「별첨2」), 제목 = 제목 칸의 글. 열쇠는 이름표 문단
@@ -298,6 +308,14 @@ def _band_role():
     return {"role": "heading", "parents": ["root"], "variantOf": "", "basis": "", "reason": "별첨·부록 표 제목 — 문서 맨 위의 줄(스크립트)"}  # 화면(유형 표)에 보이는 글 — 「띠 표」 는 안쪽 말이라 쓰지 않는다
 
 
+def _box_role():
+    """1칸 제목 상자(heading_boxes)의 유형 역할 — 늘 헤딩이고 부모 · 템플릿 레벨은 스크립트가 바로 아래 헤딩 줄로 정한다(spec ② §6 「1칸 제목 상자」)."""
+    return {"role": "heading", "parents": [], "variantOf": "", "basis": "", "reason": "1칸 제목 상자 — 바로 아래 헤딩 줄의 부모(스크립트)"}
+
+
+_FIXED = {HB.KIND: _band_role, BX.KIND: _box_role}  # 역할을 스크립트가 정하는 유형 kind(A · B 의 답과 무관)
+
+
 def settle_roles(types, roles, hints=None):
     """A 가 답한 역할을 규칙에 맞춘다(roles 를 고침; A 가 본 것은 aRole·aBasis 로 남김 — 사용자 지정을 지우면 여기로 돌아간다). 괄호 유형(kind label)은 bracket_role 이
     정하고, 그 밖의 유형이 구분 라벨이 되려면 basis 가 구분 기준 목록에 있어야 한다(아니면 스크립트 대체 역할 — 소제목은 괄호 줄만). parents 의 대괄호 키도 맞춘다."""
@@ -306,8 +324,8 @@ def settle_roles(types, roles, hints=None):
     for tid, t in types.items():
         r = roles.get(tid) or {}
         raw = (r.get("role"), r.get("basis") or "")
-        if t["kind"] == HB.KIND:  # 띠 표 줄 — 역할·부모는 스크립트가 정한다(A 의 답과 무관: 늘 헤딩 · 문서 맨 위 — spec ② §6 「띠 표 줄」)
-            roles[tid] = {**r, **_band_role()}
+        if t["kind"] in _FIXED:  # 띠 표 줄 · 1칸 제목 상자 — 역할·부모는 스크립트가 정한다(A 의 답과 무관: 늘 헤딩 — spec ② §6 「띠 표 줄」 · 「1칸 제목 상자」)
+            roles[tid] = {**r, **_FIXED[t["kind"]]()}
             continue
         if t["kind"] == "label":
             role, basis, why = bracket_role(t["shape"], hints, raw[0], raw[1], div=_div_basis(divt, tid, bases))
@@ -354,7 +372,7 @@ def type_keys(types, roles):
     for tid, r in roles.items():
         v = r.get("variantOf")
         if v and v in out and out[v] and out.get(tid) and r.get("role") not in ROOTED and (roles.get(v) or {}).get("role") not in ROOTED \
-                and HB.KIND not in (types[tid]["kind"], types[v]["kind"]):  # 띠 표 줄은 변형군으로 합치지 않는다
+                and not {types[tid]["kind"], types[v]["kind"]} & set(_FIXED):  # 띠 표 줄 · 1칸 제목 상자는 변형군으로 합치지 않는다
             out[tid] = out[v]
     return out
 
@@ -365,8 +383,8 @@ def fallback_roles(types, hints=None):
     for tid, t in types.items():
         role, basis, why = bracket_role(t["shape"], hints, div=_div_basis(divt, tid, bases)) if t["kind"] == "label" else ("title" if t["kind"] == "title" else "heading", "", "")
         out[tid] = {"role": role, "parents": [], "variantOf": "", "basis": basis, "reason": why or "스크립트 대체 판정", **({"hint": True} if why == BY_USER else {})}
-        if t["kind"] == HB.KIND:
-            out[tid] = _band_role()
+        if t["kind"] in _FIXED:
+            out[tid] = _FIXED[t["kind"]]()
     return out
 
 
@@ -555,38 +573,59 @@ def draft_parents(nodes, roles, keys, main_chain, stage1, trusted=False):
             rk = _rank(nd)
             parent, heuristic, sub = None, False, False
             band = nd["kind"] == HB.KIND  # 띠 표 줄 — 늘 문서 맨 위(열린 줄을 모두 닫는다)
-            for i in (() if band else range(len(st) - 1, -1, -1)):
+            sk, snd, boxe = k, nd, None  # 자리를 찾는 레터 · 노드 — 1칸 제목 상자는 바로 아래 헤딩 줄의 것으로 찾는다(그 줄이 설 자리에 상자가 서고 그 줄은 상자 아래로)
+            if nd["kind"] == BX.KIND:  # 1칸 제목 상자(spec ② §6 「1칸 제목 상자」)
+                cn = (by_para.get((nd.get("box") or {}).get("child")) or [None])[0]
+                ck = keys.get(cn["type"]) if cn else None
+                if ck is None or ck == BX.KEY or ((roles.get(cn["type"]) or {}).get("role") or "heading") in ROOTED:
+                    # 바로 아래 줄이 헤딩이 아니게 됐다(A · 사용자 지정) — 전처럼 제목 잎(스택을 흔들지 않음)
+                    g.update(role="title", key=None, parent=top(flow), division=div(dv), depth=float(len(st) + 1), reason="1칸 제목 상자 — 바로 아래 줄이 헤딩이 아님")
+                    graph[nd["id"]] = g
+                    continue
+                rk = _rank(cn)
+                sk, snd, boxe = ck, cn, {"key": ck, "rank": rk, "lead": cn["lead"], "label": False, "anchorRank": None}
+                parents = set((roles.get(cn["type"]) or {}).get("parents") or [])
+                for i in range(len(st) - 1, -1, -1):  # 같은 레터를 이끄는 상자가 열려 있으면 그 상자의 형제(다음 상자에서 앞 상자가 끝남)
+                    if st[i].get("box") and st[i]["box"]["key"] == ck:
+                        parent = st[i]["parent"]
+                        del st[i:]
+                        break
+            for i in (() if band or parent is not None else range(len(st) - 1, -1, -1)):
                 e = st[i]
-                if not e["label"] and e["key"] == k:  # 같은 레터 = 형제
+                if not e["label"] and e["key"] == sk:  # 같은 레터 = 형제
                     parent = e["parent"]
-                    if e.get("sub"):  # 줄 안 레터의 형제 — 그 서열(그 줄보다 한 칸 깊게)을 물려받는다
+                    if e.get("sub") and boxe is None:  # 줄 안 레터의 형제 — 그 서열(그 줄보다 한 칸 깊게)을 물려받는다
                         rk, sub = e["rank"], True
                     del st[i:]
                     break
-                if e.get("band"):  # 열린 띠 표 줄 — 다음 띠 표·주 사슬 첫 레터(장)가 올 때까지 그 아래 줄은 모두 그 줄의 것(spec ② §6 「띠 표 줄」)
-                    ok, guessed = not (main_chain and main_chain[0] == k), False
+                if e.get("box"):  # 열린 1칸 제목 상자 — 그 아래 헤딩 줄의 레터이거나 그보다 깊은 레터면 그 상자의 것(같은 레터 · 더 얕은 레터가 오면 상자가 끝남)
+                    ok, guessed = (True, False) if sk == e["box"]["key"] else _accepts(e["box"], sk, snd, rk, parents, main_next, trusted)
+                elif e.get("band"):  # 열린 띠 표 줄 — 다음 띠 표·주 사슬 첫 레터(장)가 올 때까지 그 아래 줄은 모두 그 줄의 것(spec ② §6 「띠 표 줄」)
+                    ok, guessed = not (main_chain and main_chain[0] == sk), False
                 else:
-                    ok, guessed = _accepts(e, k, nd, rk, parents, main_next, trusted)
+                    ok, guessed = _accepts(e, sk, snd, rk, parents, main_next, trusted)
                 if ok:
                     parent, heuristic = e["id"], guessed
                     del st[i + 1:]
                     break
-            if parent is None and parents and "root" not in parents and not (main_chain and main_chain[0] == k):
+            if parent is None and parents and "root" not in parents and not (main_chain and main_chain[0] == sk):
                 # A 가 적은 부모 레터가 하나도 열려 있지 않다(「(3)」 바로 아래 「-」 — o 를 건너뜀). 문서 맨 위로 보내며 스택을 비우면 뒤의 형제 절(「5-3.」「5-4.」)까지
                 # 열린 「5.」 를 잃고 맨 위에 매달려 따로 템플릿이 된다 — 가장 가까운 **더 얕은** 열린 줄에 어림으로 붙이고(레벨 건너뜀) 그 위 스택은 그대로 둔다
-                i = _shallower(st, k, rk, main_chain)
+                i = _shallower(st, sk, rk, main_chain)
                 if i is not None:
                     parent, heuristic = st[i]["id"], True
                     del st[i + 1:]
             if parent is None:
                 parent = flow_root(flow)
-                heuristic = not parents and not (trusted and main_chain and main_chain[0] == k)
+                heuristic = not parents and not (trusted and main_chain and main_chain[0] == sk)
                 st.clear()
             ids = {e["id"] for e in st}
             while dv and dv[-1]["id"] not in ids:  # 스택에서 빠진 라벨 = 범위 끝
                 dv.pop()
+            if boxe is not None:  # 상자의 서열은 그 아래 줄보다 반 칸 얕게(_shallower 의 어림이 상자를 그 줄의 부모로 볼 수 있게)
+                rk = (rk - 0.5) if rk is not None else None
             st.append({"id": nd["id"], "key": k, "lead": nd["lead"], "rank": rk, "label": False, "parent": parent, "anchorRank": None, "band": band,
-                       **({"sub": True} if sub else {})})
+                       **({"sub": True} if sub else {}), **({"box": boxe} if boxe else {})})
             g.update(parent=parent, division=div(dv), depth=float(len(st)), heuristic=heuristic)
             graph[nd["id"]] = g
     for g in graph.values():
@@ -624,6 +663,47 @@ def anchor_of(tk, chain):
     return f"{tk[0]}:{'›'.join(chain)}"
 
 
+def _box_levels(order, graph, asg, instances, chains, is_box):
+    """1칸 제목 상자의 레벨(spec ② §6 「1칸 제목 상자」 — 2026-11-23 사용자 「상자 = T1 L4 · o = L5」): 상자마다 바로 아래 헤딩 줄(그래프의 첫 자식)의 (템플릿, 레벨) 바로 위에
+    표 레벨 「▦」 을 끼운다 — 그 템플릿의 그 레벨부터 아래 줄은 **모두** 한 칸 밀린다(상자 없는 절의 같은 레터 줄도 — 같은 레터가 두 레벨로 갈리지 않게: 「레벨을 건너뛴 줄」 과 같다).
+    첫 자식이 인스턴스의 뿌리였으면 상자가 뿌리가 되고, 같은 상자 아래 같은 템플릿의 다른 뿌리 인스턴스는 그 인스턴스로 합친다. chains 를 고친다. -> (asg, instances)."""
+    kids = defaultdict(list)
+    for nd in order:
+        if nd["id"] in asg:
+            kids[_eff_parent(graph[nd["id"]], graph)].append(nd["id"])
+    at, pts = {}, defaultdict(set)
+    for nd in order:
+        if is_box(nd["id"]) and kids.get(nd["id"]):
+            first = kids[nd["id"]][0]
+            tk, lv, _ = asg[first]
+            at[nd["id"]] = (tk, lv, first)
+            pts[tk].add(lv)
+    if not at:
+        return asg, instances
+    for nid, (tk, lv, inst) in list(asg.items()):
+        if tk in pts:
+            asg[nid] = (tk, lv + sum(1 for p in pts[tk] if p <= lv), inst)
+    for tk, ps in pts.items():
+        ch = chains.get(tk) or [tk[1]]
+        chains[tk] = [x for i, key in enumerate(ch, 1) for x in ((BX.KEY, key) if i in ps else (key,))]
+    merged = {}
+    for bid, (tk, lv, first) in at.items():
+        fi = asg[first][2]
+        if instances[fi]["root"] == first:
+            instances[fi]["root"] = bid  # 인스턴스의 부모는 그대로(첫 자식의 자리 = 상자의 부모 — 상자는 투명하게 셈했다)
+            for c in kids[bid][1:]:
+                ci = asg[c][2]
+                if asg[c][0] == tk and ci != fi and instances[ci]["root"] == c:
+                    merged[ci] = fi
+        asg[bid] = (tk, lv + sum(1 for p in pts[tk] if p < lv), fi)
+    if merged:
+        keep = [i for i in range(len(instances)) if i not in merged]
+        idx = {old: new for new, old in enumerate(keep)}
+        asg = {nid: (tk, lv, idx[merged.get(i, i)]) for nid, (tk, lv, i) in asg.items()}
+        instances = [instances[i] for i in keep]
+    return asg, instances
+
+
 def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     """확정 트리 위에서 템플릿 사슬을 배우고 노드마다 (템플릿, 레벨, 인스턴스)를 매긴다(고정점) → {"templates", "instances", "nodes": {id: {template, tplNo, level, instance}},
     "chains", "ties", "conflicts", "unresolved"}. main_chain = A 가 확인한 주 사슬(fixed_main 이면 제약 — 학습은 그 뒤 레벨만 잇고, 다르게 셈한 자리는 conflicts 에 기록).
@@ -635,23 +715,43 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
     order = [nd for nd in nodes if nd["id"] in graph and graph[nd["id"]].get("key") and graph[nd["id"]]["role"] not in ("not_heading", "note", "title")]
     chains = {MAIN: list(main_chain)} if main_chain else {}
 
+    def is_box(nid):
+        return nid in by_id and by_id[nid]["kind"] == BX.KIND and nid in graph and graph[nid].get("key") == BX.KEY
+
+    def thru(p):
+        """의미 부모 p — 1칸 제목 상자는 사슬을 배우는 동안 투명하다(그 아래 줄은 상자의 부모에 매달린 줄처럼 템플릿·레벨을 정하고, 상자의 레벨 「▦」 은 다 배운 뒤에 끼운다)."""
+        seen = set()
+        while is_box(p) and p not in seen:
+            seen.add(p)
+            p = _eff_parent(graph[p], graph)
+        return p
+
     def tk_of_anchor(anchor, chains):
-        """B 가 적은 앵커(초안 때의 사슬 글) → 템플릿 키 — 사슬이 그 뒤 더 배워져도 scope 와 뿌리 레터로 찾는다."""
+        """B 가 적은 앵커(초안 때의 사슬 글) → 템플릿 키 — 사슬이 그 뒤 더 배워져도 scope 와 뿌리 레터로 찾는다(상자 레벨 「▦」 은 건너뜀)."""
         if ":" not in anchor:
             return None
         sc, chain = anchor.split(":", 1)
-        root = chain.split("›", 1)[0]
+        root = next((x for x in chain.split("›") if x != BX.KEY), "")
         if sc == "body" and (chains.get(MAIN) or [None])[0] == root:
             return MAIN
         return (sc, root) if (sc, root) in chains else None
 
+    def pre_level(anchor, level):
+        """B 가 적은 레벨(상자 레벨 「▦」 을 낀 사슬의 번호) → 배우는 동안의 번호(「▦」 없음) | None(그 레벨이 상자 레벨)."""
+        parts = anchor.split(":", 1)[1].split("›") if ":" in anchor else []
+        if 0 < level <= len(parts) and parts[level - 1] == BX.KEY:
+            return None
+        return level - sum(1 for x in parts[:max(level - 1, 0)] if x == BX.KEY)
+
     def one_pass(chains):
         asg, instances, unresolved = {}, [], []
         for nd in order:
+            if is_box(nd["id"]):
+                continue  # 1칸 제목 상자의 레벨은 다 배운 뒤에 끼운다(아래 「상자 레벨」)
             g = graph[nd["id"]]
             k = g["key"]  # 노드의 정규 레터 키(초안이 유형 키를 적고, B 가 역할을 바꾸면 따라 바뀜)
             sc = _scope(nd["flow"])
-            p = _eff_parent(g, graph)
+            p = thru(_eff_parent(g, graph))
             pa = asg.get(p)
             if pa is not None and by_id[p]["kind"] == HB.KIND:
                 pa = None  # 띠 표 줄은 템플릿 사슬에 투명하다 — 그 아래 줄의 템플릿·레벨은 문서 맨 위에 매달린 줄처럼 정한다(띠 표 템플릿은 L1 하나뿐 — spec ② §6 「띠 표 줄」)
@@ -659,8 +759,9 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
             tk = lv = None
             if ov:
                 otk = tk_of_anchor(ov["template"], chains)
-                if otk is not None and 1 <= ov["level"] <= len(chains.get(otk) or []):
-                    tk, lv = otk, ov["level"]
+                olv = pre_level(ov["template"], ov["level"])
+                if otk is not None and olv is not None and 1 <= olv <= len(chains.get(otk) or []):
+                    tk, lv = otk, olv
                 else:
                     unresolved.append({"id": nd["id"], "slot": ov, "why": "앵커·레벨을 못 찾음"})
             if tk is None:
@@ -693,7 +794,7 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
             g = graph[nid]
             if g["role"] in ROOTED:
                 continue  # 구분 라벨·괄호 소제목은 부모 사슬을 잇는 후보가 아니다(늘 새 템플릿)
-            p = _eff_parent(g, graph)
+            p = thru(_eff_parent(g, graph))  # 1칸 제목 상자는 투명(one_pass 와 같게)
             if by_id[nid]["kind"] == HB.KIND or (p in asg and by_id[p]["kind"] == HB.KIND):
                 continue  # 띠 표 줄과 그 아래 줄 — 주 사슬 첫 레터 셈에도 부모 사슬 잇기에도 넣지 않는다(띠 표 템플릿은 L1 하나뿐)
             if p in asg:
@@ -742,6 +843,7 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
         if new == chains and asg2 == asg:
             break
         chains, asg, instances, unresolved = new, asg2, instances2, unresolved2
+    asg, instances = _box_levels(order, graph, asg, instances, chains, is_box)
     # 템플릿 id — 주 사슬 → 가지(문서 순 첫 등장) → 라벨 → 표 칸
     first_n = {}
     for nid, (tk, _, _) in asg.items():
@@ -759,7 +861,9 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
         ins.update(i=i, template=tid[ins["tk"]], anchor=anchors[ins["tk"]], members=[], childInstances=[])
     inst_of = {nid: a[2] for nid, a in asg.items()}
     for nd in order:
-        a = asg[nd["id"]]
+        a = asg.get(nd["id"])
+        if a is None:  # 레벨을 못 받은 1칸 제목 상자(아래 헤딩 줄이 템플릿을 못 받음)
+            continue
         if instances[a[2]]["root"] != nd["id"]:
             instances[a[2]]["members"].append(nd["id"])
     for ins in instances:
@@ -772,7 +876,7 @@ def assign_templates(nodes, graph, keys, main_chain=None, fixed_main=False):
         ins["no"] = per_tpl[ins["template"]]
         chain = chains.get(ins["tk"]) or [ins["tk"][1]]
         levels = {asg[x][1] for x in [ins["root"]] + ins["members"]}
-        ins["missing"] = [L for L in range(1, len(chain) + 1) if L not in levels]
+        ins["missing"] = [L for L in range(1, len(chain) + 1) if L not in levels and chain[L - 1] != BX.KEY]  # 상자 레벨이 없는 절은 편차가 아니다(상자는 있는 절에만)
         ins["deviates"] = bool(ins["missing"])
         root = by_id[ins["root"]]
         ins["text"] = root["text"][:50]
@@ -972,6 +1076,9 @@ def apply_changes(changes, sec, anc, graph, anchors, by_id=None, hints=None):
         if nd.get("kind") == HB.KIND:  # 띠 표 줄의 역할·부모·템플릿은 스크립트가 정한다(늘 헤딩 · 문서 맨 위 · 제 템플릿 L1 — spec ② §6 「띠 표 줄」)
             rejected.append({"id": nid, "why": "별첨·부록 표 제목 줄 — 스크립트가 정한다"})
             continue
+        if nd.get("kind") == BX.KIND:  # 1칸 제목 상자의 역할·부모·레벨도 스크립트가 정한다(바로 아래 헤딩 줄의 부모 — spec ② §6 「1칸 제목 상자」)
+            rejected.append({"id": nid, "why": "1칸 제목 상자 — 스크립트가 정한다"})
+            continue
         role, key = g["role"], g.get("key")
         if ch.get("role") in ROLES and ch["role"] != g["role"]:
             role, key = _b_role(g, nd, ch["role"], str(ch.get("basis") or "")[:20], hints)
@@ -1055,6 +1162,8 @@ def slot_pairs(nodes, graph, asg_nodes, labels, decided):
     by_id = {nd["id"]: nd for nd in nodes}
     out = []
     for (tn, level), ids in _slots(graph, asg_nodes, by_id).items():
+        if any(by_id[i]["kind"] == BX.KIND for i in ids):
+            continue  # 1칸 제목 상자 레벨 — 표 줄이라 서식 쌍을 묻지 않는다(오버레이의 표 레벨과 같다)
         fm, a = _slot_rep(ids, by_id, graph)
         if len(fm) < 2 or a is None:
             continue
@@ -1144,7 +1253,7 @@ def finish(nodes, graph, asg, types, labels, same, review=None):
     for p, kids in children.items():
         ks = {}
         for k in kids:
-            if graph[k]["role"] in ("heading", "title") + ROOTED and graph[k].get("key"):
+            if graph[k]["role"] in ("heading", "title") + ROOTED and graph[k].get("key") and graph[k]["key"] != BX.KEY:  # 1칸 제목 상자는 레터 형제가 아니다
                 ks.setdefault(graph[k]["key"], []).append(k)
         if len(ks) > 1:
             hetero.append({"parent": p, "letters": [{"key": key, "type": graph[ids[0]]["type"], "shape": types.get(graph[ids[0]]["type"], {}).get("shape", key),
@@ -1175,7 +1284,7 @@ def finish(nodes, graph, asg, types, labels, same, review=None):
     review = review or {}
     for (tn, level), ids in slots.items():
         fm, rep = _slot_rep(ids, by_id, graph)
-        if len(fm) < 2 or rep is None:
+        if len(fm) < 2 or rep is None or any(by_id[i]["kind"] == BX.KIND for i in ids):  # 1칸 제목 상자 레벨은 조정 목록에 안 넣는다(표 줄)
             continue
         slot = f"{tn}|L{level}"
         for i in ids:
@@ -1246,7 +1355,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
         settle_roles(types, roles, hints)  # 괄호 줄 = 구분 라벨·괄호 소제목 규칙(§13), 그 밖의 라벨은 basis 가 구분 기준일 때만
         keys = type_keys(types, roles)
         known = set(k for k in keys.values() if k)
-        bandkeys = {keys[tid] for tid, t in types.items() if t["kind"] == HB.KIND}
+        bandkeys = {keys[tid] for tid, t in types.items() if t["kind"] in _FIXED}  # 띠 표 줄 · 1칸 제목 상자(「▦」)
         if main and all(k in known for k in main) and not bandkeys & set(main):  # 띠 표 줄의 레터는 주 사슬에 들지 않는다
             main_chain, fixed = main, True
         elif main:
@@ -1350,6 +1459,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, hints=Non
                           "heuristic": g.get("heuristic", False), "reason": g.get("reason", ""),
                           **({"basis": g["key"][1:-1]} if g.get("role") == "label" and is_label_key(g.get("key")) else {}),  # 구분 라벨의 구분 기준 이름(3단계 표 소속이 그대로 씀)
                           **({"band": nd["band"]} if nd.get("band") else {}),  # 띠 표 줄 — {table, title(제목 문단), host}(오버레이가 표 줄로 둔다)
+                          **({"box": nd["box"]} if nd.get("box") and g.get("key") == BX.KEY else {}),  # 1칸 제목 상자 — {table, title, host, child}(오버레이가 표 줄로 둔다)
                           **({"inline": True} if nd.get("inline") else {})})  # 줄 안 레터(spec ② §2) — 오버레이는 줄로 두지 않고 그 문단 줄에 잇는다
     edges += [{"t": "instance", "from": ins["root"], "to": f"tpl:{ins['template']}"} for ins in fin["instances"]]
     cost = sum((c.get("costUsd") or 0) for c in calls)
