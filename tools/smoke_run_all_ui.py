@@ -74,7 +74,7 @@ def fake(schema, content, what, **kw):  # 서식 정리 에이전트만 — 기�
 
 
 def _judged(sess, key):  # 그 결과를 「LLM 판정을 거침」 으로만 적는다(판정은 스크립트 것 그대로)
-    heading_runs.state(sess)[key]["llm"].update(requested=True, fallback=False, calls=1, failed=0, error=None)
+    heading_runs.state(sess)[key]["llm"].update(requested=True, fallback=False, calls=1, failed=0, error=None, pending=0, pendingTables=[])   # pending 0 = 표의 보완 대상 없음(spec_작업 ② §22 「구현 계약」 22-4 — 남으면 「LLM 검증·보완」 이 표 단계를 다시 돈다)
 
 
 def run2(sess, job, use_llm):

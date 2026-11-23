@@ -817,3 +817,167 @@ def test_stored_plan_reads_old_value_names_as_new():
     assert lv["match"][0]["diff"] == [["lead", "레터 앞 빈칸", "3칸", "4칸"], ["gap", "레터 뒤 빈칸", "1칸", "없음"]]
     assert lv["match"][0]["why"] == "앞 공백 한 칸 차이"   # 글 속의 말은 안 건드린다
     assert [M.LABELS["lead"], M.LABELS["gap"]] == [new for _, new in TA.OLD_LABELS]   # 바꾸는 곳 = 지금의 값 이름
+
+
+# ---------------------------------------------------------------- 헤딩 그래프가 바뀔 때 — 상자를 버리지 않고 · 지문이 같으면 이어 쓴다(spec_작업 ② §22 「구현 계약」 22-3)
+
+def _fp(s, tid):
+    with s.lock:
+        return A.fingerprint_of(s.doc, s.outline, tid)
+
+
+def _rec(tid, fp, at, **more):
+    return {"tpl": str(tid), "no": str(tid), "rev": 0, "fp": fp, "at": at, "since": at, "applied": None, "plan": {"summary": f"T{tid} 계획", "levels": []}, **more}
+
+
+@pytest.fixture
+def regraph(sess, monkeypatch):
+    """헤딩 그래프가 바뀐 것을 흉내 낸다 — 오버레이의 그래프 표시(run)만 바꾼다(줄 · 템플릿은 그대로라 지문이 같다). 부르면 새 그래프 표시를 준다. 끝나면 처음 표시로."""
+    _, _, s = sess
+    first = list(s.outline["run"])
+    monkeypatch.setattr(server, "_outline_ov", lambda sess_, build=True: sess_.outline)   # 흉내 낸 그래프 표시를 다시 짓지 않게
+
+    def turn(name):
+        s.outline["run"] = [first[0], name]
+        return list(s.outline["run"])
+    yield turn
+    s.outline["run"] = first
+
+
+def test_plans_and_applies_of_a_replaced_graph_stay_in_old(sess, regraph):
+    """그래프가 바뀐 뒤 계획 하나를 저장해도(전에는 그 순간 상자를 통째로 비웠다) 옛 계획 · 반영 기록이 `old` 에 남는다 — 다시 읽어도(작업 폴더의 파일) 남아 있다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+    g1, t = list(s.outline["run"]), TA.time.time()
+    assert TA._remember(s, g1, "1", _rec(1, "그때의 지문 — 지금과 다름", t), since=t) is True
+    TA.note_apply(s, g1, "tpl", [{"tpl": "1", "no": "1", "plan": t, "summary": "", "changed": 2, "levels": []}])
+    assert TA._plans_box(s).get("old") in (None, [])   # 처음의 빈 상자는 옛 상자로 넣지 않는다
+    g2 = regraph("다른 실행")
+    assert TA._remember(s, g2, "9", _rec(9, "x", t + 1), since=t + 1) is True   # 새 그래프에서 계획 하나를 저장
+    box = TA._plans_box(s)
+    assert box["graph"] == g2 and set(box["plans"]) == {"9"} and box["applies"] == []
+    assert len(box["old"]) == 1 and box["old"][0]["graph"] == g1 and box["old"][0]["at"] >= t
+    assert box["old"][0]["plans"]["1"]["plan"]["summary"] == "T1 계획" and [r["lines"] for r in box["old"][0]["applies"]] == [2]   # 옛 계획 · 옛 반영 기록 그대로
+    TA.note_apply(s, regraph("또 다른 실행"), "tpl", [{"tpl": "9", "no": "9", "plan": t + 1, "summary": "", "changed": 1, "levels": []}])   # 반영 기록을 적는 길도 버리지 않는다
+    box = TA._plans_box(s)
+    assert [o["graph"] for o in box["old"]] == [g2, g1] and set(box["old"][0]["plans"]) == {"9"} and set(box["old"][1]["plans"]) == {"1"}   # 새것이 앞
+    path = TA._plans_path(s.id)
+    if path is None:   # 이 픽스처의 세션에 작업 폴더가 없으면(저장 끔) 파일로 다시 읽는 것은 아래 시험(test_stored_box_without_old_reads_as_an_empty_list 쪽)이 본다
+        return
+    assert path.is_file()   # 서버를 다시 켠 것처럼 파일에서 다시 읽는다
+    with TA._plans_lock:
+        del s.tpl_plans
+    again = TA._plans_box(s)
+    assert [o["graph"] for o in again["old"]] == [g2, g1] and again["old"][1]["plans"]["1"]["fp"] == "그때의 지문 — 지금과 다름" and len(again["old"][1]["applies"]) == 1
+
+
+def test_plan_with_the_same_fingerprint_is_carried_to_the_new_graph_and_applies_without_asking_again(sess, regraph, monkeypatch):
+    """그래프만 바뀌고 그 템플릿의 줄이 그대로면(지문이 같다) 받아 둔 계획은 새 그래프에서도 「받음」 이다 — 계획 목록 · 분석 상태가 그렇게 보이고(다시 받을 템플릿으로 세지 않는다),
+    LLM 을 다시 부르지 않고 그대로 반영된다. 기록에는 `carried {from, at}` 가 붙고 계획의 표시(at)는 그대로다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+    calls = []
+
+    def fake(schema, content, what, **kw):
+        calls.append(what)
+        return {"data": {"summary": "T1 정리", "levels": [{"level": 5, "rep": "g1", "match": ["g2", "g3"], "keep": [], "split": [], "why": ""}]},
+                "backend": "api", "ms": 3, "costUsd": 0.0, "error": None, "model": kw.get("model"), "effort": kw.get("effort")}
+    monkeypatch.setattr(llm, "call", fake)
+    g1 = list(s.outline["run"])
+    one = c.post(f"/api/docs/{d}/outline/agent/1/plan", json={"skill": "tidy"}).json()
+    assert len(calls) == 1 and "carried" not in c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["1"]
+    g2 = regraph("다른 실행")
+    fmt = next(i for i in c.get(f"/api/docs/{d}/analysis").json()["items"] if i["key"] == "formats")["llm"]   # 분석 상태(세션 잠금 밖에서 읽는 길 — plans)
+    assert next(x for x in fmt["list"] if x["tpl"] == "1")["state"] == "planned"   # 「LLM 검증·보완」 의 서식 단계가 고르는 「계획이 없거나 옛것인 템플릿」 에 안 든다
+    j = c.get(f"/api/docs/{d}/outline/agent/plans").json()
+    got = j["plans"]["1"]
+    assert j["graph"] == g2 and got["state"] == "planned" and got["at"] == one["at"] and got["fp"] == one["fp"] and got["plan"]["summary"] == "T1 정리"
+    assert got["carried"]["from"] == g1 and isinstance(got["carried"]["at"], float)
+    assert TA._plans_box(s)["old"][0]["graph"] == g1 and "carried" not in TA._plans_box(s)["old"][0]["plans"]["1"]   # 옛 상자의 기록은 그대로
+    try:
+        r = c.post(f"/api/docs/{d}/outline/agent/apply", json={"place": False, "rev": s.rev, "tpls": ["1"], "plans": {"1": one["at"]}})   # 「모두 반영」 도 옮긴 계획을 본다
+        assert r.status_code == 200, r.text
+        assert len(r.json()["changed"]) == 6 and r.json()["plans"] == 1 and len(calls) == 1   # 다시 묻지 않았다
+        assert c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]["1"]["state"] == "applied"
+    finally:
+        _undo_all(c, d, s)
+
+
+def test_plan_with_a_different_or_missing_fingerprint_is_not_carried(sess, regraph):
+    """지문이 다른 계획 · 지문이 없는 옛 기록 · 지금 오버레이에 없는 템플릿의 계획은 새 그래프로 옮기지 않는다(옛 상자에 남는다) — 지문이 같은 것만 옮긴다.
+    지금 것이 아닌 그래프로 읽는 것은 상자를 바꾸지 못한다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+    g1, t = list(s.outline["run"]), TA.time.time()
+    for rec in (_rec(1, "그때의 지문 — 지금과 다름", t), _rec(5, _fp(s, "5"), t + 1), _rec(999, "없는 템플릿", t + 3)):
+        assert TA._remember(s, g1, rec["tpl"], rec, since=rec["at"]) is True
+    old9 = _rec(9, "", t + 2)
+    del old9["fp"]                                                    # 지문이 없는 옛 기록(문서 차례로만 묶인 것)
+    assert TA._remember(s, g1, "9", old9, since=t + 2) is True
+    g2 = regraph("다른 실행")
+    assert TA.plans(s, [0, 0]) == {} and TA._plans_box(s)["graph"] == g1 and not TA._plans_box(s).get("old")   # 지금 것이 아닌 그래프 — 상자 그대로
+    got = TA.plans(s, g2)
+    assert set(got) == {"5"} and got["5"]["carried"]["from"] == g1 and got["5"]["at"] == t + 1
+    box = TA._plans_box(s)
+    assert box["graph"] == g2 and set(box["old"][0]["plans"]) == {"1", "5", "9", "999"}   # 안 옮긴 것도 옮긴 것도 옛 상자에 남아 있다
+    states = c.get(f"/api/docs/{d}/outline/agent/plans").json()["plans"]
+    assert set(states) == {"5"} and states["5"]["state"] == "planned"
+
+
+def test_superseded_plan_in_an_older_box_is_not_revived(sess, regraph):
+    """템플릿마다 가장 새 기록만 옮길 후보다 — 옮겨 온 뒤 그 그래프에서 다시 받은 계획(지문이 지금과 다름)이 있으면, 더 옛 상자에 남은 같은 템플릿의 앞 계획(지문은 지금과 같음)을 되살리지 않는다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+    g1, t = list(s.outline["run"]), TA.time.time()
+    assert TA._remember(s, g1, "5", _rec(5, _fp(s, "5"), t), since=t) is True
+    g2 = regraph("둘째 실행")
+    assert TA.plans(s, g2)["5"]["at"] == t                                             # 옮겨 옴
+    assert TA._remember(s, g2, "5", _rec(5, "다시 받은 계획의 지문 — 지금과 다름", t + 5), since=t + 5) is True   # 그 그래프에서 다시 받음(앞 계획을 갈아 치움)
+    g3 = regraph("셋째 실행")
+    assert TA.plans(s, g3) == {}                                                       # 가장 새 기록의 지문이 달라 안 옮김 — g1 의 앞 계획도 안 옮김
+    box = TA._plans_box(s)
+    assert [o["graph"] for o in box["old"]] == [g2, g1] and box["old"][0]["plans"]["5"]["at"] == t + 5 and box["old"][1]["plans"]["5"]["at"] == t
+
+
+def test_late_plan_still_loses_to_a_later_started_one_after_carry(sess, regraph):
+    """이어 쓴 계획 위에서도 「더 늦게 시작한 요청이 이긴다」 는 그대로다 — 옮겨 온 계획보다 일찍 시작한 답은 못 덮고, 늦게 시작한 답은 덮는다."""
+    from app import tpl_agent_api as TA
+    c, d, s = sess
+    g1, t = list(s.outline["run"]), TA.time.time()
+    assert TA._remember(s, g1, "5", _rec(5, _fp(s, "5"), t), since=t) is True
+    g2 = regraph("다른 실행")
+    assert "carried" in TA.plans(s, g2)["5"]
+    assert TA._remember(s, g2, "5", _rec(5, "y", t - 10), since=t - 10) is False and TA.plans(s, g2)["5"]["at"] == t
+    assert TA._remember(s, g2, "5", _rec(5, "z", t + 10), since=t + 10) is True and "carried" not in TA.plans(s, g2)["5"]
+
+
+def test_old_boxes_are_capped(sess):
+    """옛 상자는 OLD_MAX(5)개까지 — 새것이 앞이고 가장 옛것부터 밀려난다. 계획도 반영 기록도 없는 상자는 넣지 않는다."""
+    from app import tpl_agent_api as TA
+    _, _, s = sess
+    t = TA.time.time()
+    assert TA.OLD_MAX == 5
+    for i in range(8):
+        assert TA._remember(s, ["흉내", f"실행 {i}"], "1", _rec(1, "x", t + i), since=t + i) is True
+    box = TA._plans_box(s)
+    assert box["graph"] == ["흉내", "실행 7"] and [o["graph"][1] for o in box["old"]] == [f"실행 {i}" for i in (6, 5, 4, 3, 2)]
+    with TA._plans_lock:
+        box["plans"], box["applies"] = {}, []
+        assert TA._turn(box, ["흉내", "빈 상자 다음"]) is False and len(box["old"]) == 5 and box["old"][0]["graph"][1] == "실행 6"   # 빈 상자는 옛 상자를 밀어내지 않는다
+
+
+def test_stored_box_without_old_reads_as_an_empty_list(tmp_path, monkeypatch):
+    """`old` 가 없는 옛 파일은 빈 목록으로 읽는다 · 꼴이 틀린 옛 상자는 버리고 OLD_MAX 개까지만 읽는다."""
+    import json
+    import types
+
+    from app import tpl_agent_api as TA
+    path = tmp_path / "plans.json"
+    monkeypatch.setattr(TA, "_plans_path", lambda sid: path)
+    path.write_text(json.dumps({"graph": [1, 2], "plans": {"1": {"tpl": "1"}}, "applies": [{"at": 1}]}), encoding="utf-8")
+    box = TA._plans_box(types.SimpleNamespace(id="옛 파일"))
+    assert box["old"] == [] and box["graph"] == [1, 2] and set(box["plans"]) == {"1"} and len(box["applies"]) == 1
+    olds = [{"graph": [1, i], "plans": {"1": {}}, "applies": [], "at": i} for i in range(7)]
+    path.write_text(json.dumps({"graph": [1, 9], "plans": {}, "old": ["꼴이 틀림", {"graph": [1, 8]}, *olds]}), encoding="utf-8")
+    box = TA._plans_box(types.SimpleNamespace(id="새 파일"))
+    assert [o["graph"] for o in box["old"]] == [[1, i] for i in range(5)]

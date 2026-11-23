@@ -136,9 +136,24 @@ def ask(payload, *, call=None, effort="medium", timeout=240.0, form=None):
     return _asked(res, content, form, part)
 
 
+USER_NOTE = "사용자 표시 — 제안 메모로만"   # applied 줄의 note — 사람이 표시한 자리라 값을 안 바꾸고 제안만 남긴 줄
+
+
+def _note(h, text, now):
+    """사람이 표시한 자리에 LLM 제안 글(llmNote)을 적는다 — 같은 답 안에서 그 자리에 제안이 둘이면(고치기 + 지우기) 뒤의 것이 앞의 것을 지우지 않게 잇는다.
+    앞선 재검토의 글 · 제안 값(llmSuggest)은 이번 것으로 바꾼다(llmAt 이 이번 것이 아님 — 글과 값이 서로 다른 재검토의 것으로 남지 않게)."""
+    old = h.get("llmNote") if h.get("llmAt") == now else ""
+    if not old:
+        h.pop("llmSuggest", None)
+    h["llmNote"], h["llmAt"] = f"{old} · {text}" if old and text not in old else old or text, now
+
+
 def apply_revisions(hints, revisions, idx, hint_read, now=None):
     """응답의 revisions 를 지금 문서(idx)에 대고 검증해 hint 목록에 반영 → (새 hints, applied[], skipped[{…, why}]).
-    add = 새 hint(by llm) · change = dim·value·reason 고침(출처 유지) · remove = llm 것만 지움, 사용자 것은 llmNote 로 제안만."""
+    add = 새 hint(by llm) · change = LLM 이 넣은 자리(by llm)만 dim·value·reason 고침 · remove = llm 것만 지움.
+    **사람이 표시한 자리(by 가 llm 이 아님)는 change 도 remove 도 값을 바꾸지 않는다** — 제안으로만 남긴다(spec_작업 ② §22 「구현 계약」 22-2 ⓑ: 사람 지정과 LLM 값을 같은 칸에 쓰지 않는다):
+    change → llmSuggest{dim, value, reason — 답에 있던 것만} + llmNote 「기준 … · 값 …: 까닭」, remove → llmNote. 둘 다 applied 줄에 note 「사용자 표시 — 제안 메모로만」
+    (그 줄은 hint 층의 기준 · 값을 바꾸지 않은 줄이다 — 부르는 쪽이 「바뀐 것」 을 셀 때 가를 수 있게)."""
     now = now or time.time()
     hints = copy.deepcopy(list(hints or ()))
     applied, skipped = [], []
@@ -172,20 +187,31 @@ def apply_revisions(hints, revisions, idx, hint_read, now=None):
             if h is None:
                 skipped.append({**r, "why": "그 hint 가 없음"})
                 continue
-            if act == "change":
-                if dim and not (dim == "other" and h.get("dim") not in DIMS):   # 기타(사용자 이름) 구분은 이름을 지킨다
-                    h["dim"] = dim
+            mine = h.get("by") == "llm"   # LLM 이 넣은 자리만 LLM 이 고치고 지운다
+            new_dim = dim if dim and not (dim == "other" and h.get("dim") not in DIMS) else ""   # 기타(사용자 이름) 구분은 이름을 지킨다
+            if act == "change" and mine:
+                if new_dim:
+                    h["dim"] = new_dim
                 if value:
                     h["value"] = value
                 h["reason"], h["llmAt"] = reason, now
                 applied.append({**r, "hintId": h["id"]})
-            elif h.get("by") == "llm":
+            elif act == "change":   # 사람이 표시한 자리 — 기준 · 값 · 까닭은 그대로, 제안만 남긴다
+                suggest = {k: v for k, v in (("dim", new_dim), ("value", value), ("reason", reason)) if v}
+                if not suggest:
+                    skipped.append({**r, "why": "제안할 기준 · 값이 없음"})
+                    continue
+                what = " · ".join(x for x in (f"기준 {DIM_NAME.get(new_dim, new_dim)}" if new_dim else "", f"값 {value}" if value else "") if x)
+                _note(h, f"{what}: {reason}" if what and reason else what or reason, now)   # 화면이 「LLM 제안: 」 을 앞에 붙여 보인다(app.js) — 여기서 머리말을 또 붙이지 않는다
+                h["llmSuggest"] = suggest   # _note 뒤에 — 앞선 재검토의 제안 값을 거기서 치운다
+                applied.append({**r, "hintId": h["id"], "note": USER_NOTE})
+            elif mine:
                 hints.remove(h)
                 by_id.pop(h["id"], None)
                 applied.append({**r, "hintId": h["id"]})
             else:
-                h["llmNote"], h["llmAt"] = reason or "LLM 이 지우기를 제안함", now
-                applied.append({**r, "hintId": h["id"], "note": "사용자 표시 — 제안 메모로만"})
+                _note(h, reason or "LLM 이 지우기를 제안함", now)
+                applied.append({**r, "hintId": h["id"], "note": USER_NOTE})
         else:
             skipped.append({**r, "why": "모르는 action"})
     return hints, applied, skipped

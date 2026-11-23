@@ -164,6 +164,40 @@ def test_failed_unit_stays_open_and_candidate_less_places_are_closed(pair, monke
     assert G.open_count(found, res) == len(asked) + sum(1 for t in found["tables"] if t["key"] not in res["tables"])
 
 
+def test_a_place_missing_from_the_answer_is_not_no_source_and_is_asked_again(pair, monkeypatch):
+    """물었는데 LLM 답에 빠진 자리는 「원본 없음」 이 아니다(spec_작업 ② §22 「구현 계약」 22-1 ⓑ): `missing` 으로 적히고 · 아직 안 물은 수에 들고 · 다음 검토가 그 자리만 다시 묻는다 · 넣기 계획은 안 넣는다.
+    답에 적혔는데 검증이 거절한 자리(후보에 없는 줄)와 후보가 없어 안 물은 자리는 전처럼 「원본 없음」 — 다시 안 묻는다."""
+    d, tgt, src, goal, line = pair
+    T, F, fixed = _sides(d, tgt, src)
+    found = G.targets(T, F, fixed)
+    cell, define = _slot(found, "cell", "추진목표"), _slot(found, "line", "정의")
+    drop, bad = define["id"], cell["id"]   # 답에서 빠뜨릴 자리 · 후보에 없는 줄로 답할 자리
+    _fake(monkeypatch, lambda p: {"tables": [{"to": t["key"], "from": "", "reason": "없음"} for t in p["tables"]],
+                                  "slots": [{"to": s["id"], "from": "p-없는줄" if s["id"] == bad else "", "take": "line", "reason": "시험"} for s in p["slots"] if s["id"] != drop]})
+    res = G.review(T, F, fixed)
+    assert res["slots"][drop]["missing"] is True and res["slots"][drop]["from"] is None and res["slots"][drop]["reason"] == G.MISSING
+    assert [k for k, v in res["slots"].items() if v.get("missing")] == [drop] and not [k for k, v in res["tables"].items() if v.get("missing")]
+    assert res["slots"][bad]["from"] is None and "missing" not in res["slots"][bad] and bad in {r["to"] for r in res["rejected"]}   # 답은 왔다(못 정함) — 전처럼 「원본 없음」
+    gaps = {"tables": res["tables"], "slots": res["slots"]}
+    assert G.open_count(found, gaps) == 1   # 빠진 자리 하나만 아직 안 물은 것으로
+    again = G.prepare(T, F, fixed, gaps)
+    assert {s["id"] for u in again["units"] for s in u["payload"]["slots"]} == {drop} and not [t for u in again["units"] for t in u["payload"]["tables"]]
+    assert G.plan(T, F, gaps)["todo"] == 0 and not G.plan(T, F, gaps)["items"]   # 답이 없는 자리에는 넣지 않는다
+    assert G.open_count(found, {"slots": {drop: {"from": None}}}) == G.open_count(found, None) - 1   # 「원본 없음」 은 답이다(전과 같다)
+
+
+def test_a_table_missing_from_the_answer_is_marked_missing_and_a_candidate_less_one_is_closed(monkeypatch):
+    """빈 표도 같다 — 한 호출에 실어 보낸 표 가운데 답에 없는 표는 `missing`(「원본 없음」 으로 닫지 않는다), 후보가 없어 안 물은 표만 「원본 없음」. 호출이 실패한 단위의 표는 결과에 없다."""
+    ctx = lambda cands: {"ctx": {"org": None, "year": None}, "cands": {k: {"org": None, "year": None} for k in cands}}  # noqa: E731
+    unit = lambda *keys: {"title": "1.", "payload": {"current": 1, "tables": [{"key": k} for k in keys], "slots": []}}  # noqa: E731
+    prep = {"found": {"tables": [], "slots": []}, "units": [unit("tA", "tB"), unit("tD")],
+            "ctx": {"F": None, "T": None, "slots": {}, "tables": {"tA": ctx(["fA"]), "tB": ctx(["fB"]), "tC": ctx([]), "tD": ctx(["fD"])}}}
+    monkeypatch.setattr(G.llm, "ask_all", lambda jobs: [{"data": {"tables": [{"to": "tA", "from": "fA", "reason": "같은 표"}], "slots": []}}, {"data": None, "error": "시간 초과"}])
+    res = G.ask(prep)
+    assert res["tables"] == {"tA": {"from": "fA", "reason": "같은 표"}, "tB": {"from": None, "missing": True, "reason": G.MISSING}, "tC": {"from": None, "reason": "원본 표 후보가 없음"}}
+    assert "tD" not in res["tables"] and res["units"][1]["error"] == "시간 초과"   # 실패한 단위 — 안 물은 것으로(저장하는 쪽이 앞 답을 둔다)
+
+
 # ---- 라벨 줄 아래의 내용 · 쪽 한도(spec_병합 ② §5-6 — 2026-11-22 사용자 「서식은 다르지만 매칭이 되잖아 … 2페이지 내에서 개요를 매핑하도록」) ----
 
 BELOW = ["- 시험용 정의의 첫 문단입니다 — 제목 줄 아래에 적혀 있습니다", "- 시험용 정의의 둘째 문단입니다", "- 시험용 정의의 셋째 문단입니다"]

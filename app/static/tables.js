@@ -164,7 +164,8 @@ window.addEventListener("resize", () => { if (state.id && document.querySelector
 // ---- 문서에서 표 구조 보기(spec_헤딩_추출 ② §10) — 문서 표 칸에 3단계 칸 역할 색 · 서브 테이블 경계 · 도움말 ---------------------------------
 // 켜면 #doc.tbl-roles + 칸(td[data-cell])마다 data-trole(역할) · data-tsb(서브 테이블이 다시 시작하는 위 t · 왼쪽 l) · title. 색은 style.css — 칸의 background-image 로만 그려
 // 한글 칸 음영(인라인 background-color)·고른 칸 표시(td.sel 의 box-shadow)·구분 기준 표시(.para 바탕)와 겹쳐도 다 보인다. 문서 글·저장에는 영향 없음(화면 표시만).
-// 자료 = 3단계 전체 결과(xlFull — 「표 보기」 와 같은 캐시). 3단계 뒤 행·열을 넣고 지운 표에 엉뚱한 색이 안 가게 **칸 id 와 격자 자리(행·열)가 지금 문서와 같은 칸만** 칠한다.
+// 자료 = 3단계 전체 결과(xlFull — 「표 보기」 와 같은 캐시). 3단계 뒤 문서가 바뀌어도 **칸 id 가 같은 칸은 그 판정 그대로** 칠한다(줄이 지워져 당겨진 칸 · 값이 들어온 칸 — 2026-11-23
+// 「LLM 판정이 되면 그게 유지되어야지」: spec_테이블매니저 ② §2 「판정 이어 쓰기」 · 전에는 격자 자리(행·열)까지 같아야 칠했다). 판정 뒤에 생긴 칸은 안 칠한다.
 // 켜고 끄기 = 단추 하나(모든 표 — 이 브라우저에 기억, 기본 끔). 표지(.tbl-mark)에는 단추를 두지 않는다(여백 폭에 첫 줄 「⊞ ✎ 표 id」 가 꽉 참 — style.css 주석).
 const TBL_ROLES_KEY = "nfm.tblRoles";
 const tblRoles = { on: (() => { try { return localStorage.getItem(TBL_ROLES_KEY) === "on"; } catch { return false; } })(), key: null, map: null, wait: null, failed: null };
@@ -192,7 +193,7 @@ function tblRolesBtnSet(b) {
   b.title = unread ? "문서의 표 칸에 칸 역할 색(열헤더·행헤더·귀퉁이·제목·안내)을 겹쳐 보입니다 — 누르면 표 구조(3단계) 결과를 읽어 옵니다"
     : !s3 ? "표 구조(3단계)를 만들면 문서의 표 칸에 칸 역할 색을 보일 수 있습니다"
     : "문서의 표 칸에 칸 역할 색을 겹쳐 보입니다 — 열헤더 파랑 · 행헤더 초록 · 귀퉁이 보라 · 제목 주황 · 안내 회색 · 간격 빗금 · 필드는 그대로\n굵은 선 = 서브 테이블 경계 · 칸에 마우스를 올리면 역할과 헤더 경로"
-      + (s3.stale ? "\n문서가 바뀜 — 자리가 그대로인 칸만 칠합니다(표 구조를 다시 만들면 맞춰집니다)" : "") + "\n화면 표시만 — 문서 글·저장에는 영향 없음(이 브라우저에 기억)";
+      + (s3.stale ? "\n문서가 바뀜 — 판정 때 있던 칸은 그 역할 그대로 칠합니다(그 뒤에 생긴 칸은 칠하지 않습니다)" : "") + "\n화면 표시만 — 문서 글·저장에는 영향 없음(이 브라우저에 기억)";
 }
 function tblRolesBtnSync() { for (const b of document.querySelectorAll(".tbl-roles-btn")) tblRolesBtnSet(b); }
 function tblRolesUnset(td) { td.removeAttribute("data-trole"); td.removeAttribute("data-tsb"); td.removeAttribute("title"); }
@@ -250,7 +251,7 @@ function tblRolesApply() { // tblMarksDraw(쪽을 다시 나눔 · 3단계 결�
     for (const tr of t.rows) {
       for (const td of tr.cells) {
         const c = cells && cells.get(td.dataset.cell);
-        if (c && c.row === td.dataset.r && c.col === td.dataset.c) {
+        if (c) { // 칸 id 가 같으면 그 판정 그대로 — 줄이 지워지거나 늘어 자리가 옮겨져도 칸은 제 역할을 지닌다(2026-11-23 「LLM 판정이 되면 그게 유지되어야지」 — 전에는 자리까지 같아야 칠했다)
           if (td.dataset.trole !== c.role) td.dataset.trole = c.role;
           if ((td.dataset.tsb || "") !== c.sb) { if (c.sb) td.dataset.tsb = c.sb; else td.removeAttribute("data-tsb"); }
           if (td.title !== c.title) td.title = c.title;
@@ -1882,7 +1883,7 @@ function tablesDraw() {
       roles.textContent = "칸 역할 색";
       display.append(roles);
     }
-    display.append(hHelp("문서 표시 도움말", "표 도구 표시는 문서의 표 옆에 엑셀식 보기·지침·소속 표지를 보입니다.\n칸 역할 색은 표 구조 결과를 문서의 칸에 겹쳐 보입니다. 오래된 결과는 자리가 그대로인 칸만 표시합니다.\n화면 표시만 바뀌며 문서 내용은 바뀌지 않습니다."));
+    display.append(hHelp("문서 표시 도움말", "표 도구 표시는 문서의 표 옆에 엑셀식 보기·지침·소속 표지를 보입니다.\n칸 역할 색은 표 구조 결과를 문서의 칸에 겹쳐 보입니다. 문서가 바뀌어도 판정 때 있던 칸은 그 역할 그대로 표시합니다(그 뒤에 생긴 칸은 표시하지 않음).\n화면 표시만 바뀌며 문서 내용은 바뀌지 않습니다."));
     view.append(toolButtons, display);
     return;
   }

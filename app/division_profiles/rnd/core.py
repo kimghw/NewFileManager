@@ -1547,7 +1547,7 @@ def preview(blocks, levels, values, rebuild=True, hints=None, prior=None):
     groups = find(blocks, levels, values, rebuild=rebuild, hints=hints, prior=prior)
     work = [g for g in groups if g["plan"] and not g["plan"]["done"] and not g["plan"].get("blocked")]
     fill = period_fill(blocks, values, is_report(form_of(blocks)))
-    return [spot(g, work) for g in groups] + ([_period_spot(fill)] if fill else [])
+    return [spot(g, work) for g in groups] + ([_period_spot(fill, period_starts(blocks, fill))] if fill else [])
 
 
 def _within(groups, key, inside=()):
@@ -1571,7 +1571,7 @@ def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=N
     (② §8 — only "period" = 날짜만, skip 에 "period" = 날짜 빼기). hints = 추가한 자리 문단 id 들(② §11 — find 에 그대로).
     prior = 앞서 이 문서에 반영한 값들(② §19 — find 에 그대로: 그 값의 이름·연도가 든 자리는 자리 차례대로 새 값으로 다시 쓴다).
     -> {"groups": [{key, dim, kind, from, to, table, labels, added: [사본 라벨 id], removed: [지운 항목 라벨]}], "added",
-    "removed", "passes", "errors", "changes": [{id, old, new, key}] (글을 바꾼 문단 — 처음 글 → 마지막 글),
+    "removed", "passes", "errors", "changes": [{id, old, new, key, format?}] (글을 바꾼 문단 — 처음 글 → 마지막 글 · format = 문단 모양을 바꾼 글: 날짜 칸의 글 시작),
     "tables": {표 id: {"removed": [칸], "origin": {새 칸: 원본 칸}}}}."""
     skip = set(skip or ())
     report = {"groups": [], "added": 0, "removed": 0, "passes": 0, "errors": [], "changes": [], "tables": {}}
@@ -1623,11 +1623,19 @@ def apply(doc, values, skip=(), levels_of=None, only=None, rebuild=True, hints=N
                 doc.set_text(pid, text)
     if PERIOD not in skip and only in (None, PERIOD):
         blocks = doc.blocks()
-        for f in period_fill(blocks, values, is_report(form_of(blocks))):
+        fill = period_fill(blocks, values, is_report(form_of(blocks)))
+        for f in fill:
             if f["new"] != f["old"]:
                 changed.setdefault(f["id"], {"id": f["id"], "old": f["old"], "key": PERIOD})["new"] = f["new"]
                 doc.set_text(f["id"], f["new"])
-    report["changes"] = [c for c in changed.values() if c["new"] != c["old"]]
+        if fill:   # 같은 열의 날짜 칸 — 글 시작을 맞춘다(spec_구분_기준 ② §27 「날짜 칸의 글 시작」: 채운 뒤의 글 폭으로)
+            blocks = doc.blocks()
+            idx = structure.index_blocks(blocks)
+            for pid, what in period_align(doc, period_starts(blocks, period_fill(blocks, values, is_report(form_of(blocks))))):
+                text = (idx.get(pid) or {}).get("text") or ""
+                c = changed.setdefault(pid, {"id": pid, "old": text, "new": text, "key": PERIOD})
+                c["format"] = what
+    report["changes"] = [c for c in changed.values() if c["new"] != c["old"] or c.get("format")]
     return report
 
 
@@ -1989,10 +1997,91 @@ def _period_table(t, values, years, year_of, put):
                 put(p, YEAR_TOK.sub(str(year_of(k)), p.get("text") or "", 1), "column", t["id"], c["id"])
 
 
-def _period_spot(fill):
-    """미리보기 자리(② §5) — 라벨 = 채울 글(빈 칸이 많아 옛 글로는 알 수 없음), 바꿀 문단이 없으면 「이미 맞음」."""
-    todo = [f for f in fill if f["new"] != f["old"]] or fill
-    n = sum(f["new"] != f["old"] for f in fill)
+FREE = ("center", "right")   # 글 시작이 글 길이에 따라 움직이는 정렬
+
+
+def period_starts(blocks, fill):
+    """사업기간 날짜 칸의 글 시작(② §27) —같은 표 · 같은 열(왼쪽 칸 · 칸 수가 같음)에 날짜 범위 문단이 둘 이상 서 있는데
+    가운데 · 오른쪽 정렬이 있거나 시작 자리가 다르면 그 묶음 [{"table", "ids", "paras": {id: 블록}, "cells": {id: 칸}}] — 다 맞으면 [].
+    표 연구개발기간 「전체 · 1~N년차 · 해당연도」 의 날짜(보고서 양식은 그 칸이 가운데 정렬이라 「(9개월)」 · 「(1년)」 의 시작이 어긋났다 — 2026-11-23).
+    문단 모양의 여백이 HWPUNIT 이 아닌(글자 수 단위) 문단 · 가운데 · 오른쪽 정렬인데 첫 줄 값이 있는 문단이 든 묶음은 건드리지 않는다."""
+    cells, paras = {}, {}
+    for b in structure.iter_blocks(blocks):
+        if b.get("type") == "table":
+            cells.update((c["id"], (b["id"], c)) for c in b.get("cells") or ())
+        elif b.get("type") == "paragraph":
+            paras[b["id"]] = b
+    groups = {}
+    for f in fill:
+        w, p = f.get("where") or {}, paras.get(f["id"])
+        if p is None or not w.get("table") or w.get("cell") not in cells or not SPAN_RE.search(f["new"]):
+            continue
+        tid, c = cells[w["cell"]]
+        groups.setdefault((tid, c["col"], c.get("colSpan") or 1), []).append((p, c))
+    out = []
+    for (tid, _, _), rows in groups.items():
+        fmts = [p.get("format") or {} for p, _ in rows]
+        if len(rows) < 2 or any(fm.get("align") is None or fm.get("indentLeftMm") is None or fm.get("firstLineMm") is None
+                                or (fm["align"] in FREE and fm["firstLineMm"]) for fm in fmts):
+            continue
+        if not any(fm["align"] in FREE for fm in fmts) and len({round(fm["indentLeftMm"] + max(fm["firstLineMm"], 0), 1) for fm in fmts}) == 1:
+            continue
+        out.append({"table": tid, "ids": [p["id"] for p, _ in rows], "paras": {p["id"]: p for p, _ in rows}, "cells": {p["id"]: c for p, c in rows}})
+    return out
+
+
+def _text_mm(doc, p, measure):
+    """문단 글의 폭(mm) — hwpx 는 한글 글꼴 폭(outline_pos.Measure), 못 재면(다른 형식 · 탭) 글자 크기 × 어림 폭."""
+    from app import outline_pos
+    text = p.get("text") or ""
+    el = getattr(doc, "_ids", {}).get(p["id"]) if measure is not None else None
+    if el is not None:
+        from app.heading_extract import _cid_at, run_ranges
+        rr, fb = run_ranges(doc, el), doc._char_id(el)
+        w = measure.width(text, lambda i: _cid_at(rr, i, fb))
+        if w is not None:
+            return w
+    fm = p.get("format") or {}
+    return sum(map(outline_pos._rough, text)) * (fm.get("sizePt") or 10) * outline_pos.PT_MM * (fm.get("ratioPct") or 100) / 100
+
+
+def period_align(doc, groups):
+    """period_starts 묶음을 **왼쪽 정렬 + 같은 앞 여백**으로(② §27) —앞 여백 = 지금 가장 왼쪽에서 시작하는 문단의 시작 자리
+    (가운데 정렬 칸이면 가장 긴 날짜가 양식이 놓은 자리 그대로 · 나머지가 그 자리에서 시작). -> [(문단 id, 바꾼 것 글)]."""
+    out = []
+    measure = None
+    if groups and hasattr(doc, "_defs"):
+        from app import outline_pos
+        measure = outline_pos.Measure(doc)
+    for g in groups:
+        starts = {}
+        for pid in g["ids"]:
+            fm, c = g["paras"][pid]["format"], g["cells"][pid]
+            left, right = fm["indentLeftMm"], fm.get("indentRightMm") or 0.0
+            if fm["align"] in FREE:
+                m = c.get("marginsMm") or {}
+                room = (c.get("widthMm") or 0) - (m.get("l") or 0) - (m.get("r") or 0) - left - right - _text_mm(doc, g["paras"][pid], measure)
+                starts[pid] = left + max(room, 0.0) / (2 if fm["align"] == "center" else 1)
+            else:
+                starts[pid] = left + max(fm["firstLineMm"], 0.0)
+        x = round(min(starts.values()), 1)
+        for pid in g["ids"]:
+            fm = g["paras"][pid]["format"]
+            if fm["align"] not in FREE and abs(starts[pid] - x) < 0.05:
+                continue
+            ch = {"align": "left" if fm["align"] in FREE else fm["align"], "indentLeftMm": x, **({"firstLineMm": 0} if fm["firstLineMm"] > 0 else {})}
+            doc.format_para([pid], ch)
+            was = f"{'가운데' if fm['align'] == 'center' else '오른쪽'} 정렬(글 시작 {round(starts[pid], 1)}mm) → 왼쪽 정렬 · " if fm["align"] in FREE \
+                else f"앞 여백 {round(starts[pid], 1)}mm → "
+            out.append((pid, f"{was}앞 여백 {x}mm(같은 열의 날짜와 같은 시작)"))
+    return out
+
+
+def _period_spot(fill, starts=()):
+    """미리보기 자리(② §5) — 라벨 = 채울 글(빈 칸이 많아 옛 글로는 알 수 없음), 바꿀 문단(글 · 글 시작 — starts = period_starts)이 없으면 「이미 맞음」."""
+    move = {pid for g in starts for pid in g["ids"]}
+    todo = [f for f in fill if f["new"] != f["old"] or f["id"] in move] or fill
+    n = sum(f["new"] != f["old"] or f["id"] in move for f in fill)
     return {"key": PERIOD, "kind": "date", "dim": PERIOD, "where": todo[0]["where"], "ids": [f["id"] for f in todo],
             "labels": [_short(f["new"], 30) for f in todo[:12]], "count": n, "target": None, "done": not n,
             "nested": False, "reason": None if n else "done", "message": None}

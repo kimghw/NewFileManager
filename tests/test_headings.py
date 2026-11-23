@@ -1043,6 +1043,50 @@ def test_api_stage_failure_is_reported(client, monkeypatch):
     assert v["job"]["steps"][-1]["name"] == "오류"
 
 
+def test_stage2_llm_failure_does_not_replace_an_llm_judged_result(client, monkeypatch):
+    """2단계의 대체 결과(spec_작업 ② §22 「구현 계약」 22-4 ⓖ) — LLM 이 답을 못 한 실행은, 지금 결과가 LLM 판정을 거친 것이면 **지금 결과로 올리지 않는다**
+    (실행 기록만 남김 · current.json 그대로 · job.kept2). 지금 결과가 스크립트 것이면 전처럼 대체 결과가 지금 결과가 된다. 스크립트로 다시 돌리는 것은 전과 같다."""
+    real, mode = HG.build, {"fail": False}
+
+    def build(s1, *, use_llm=False, **kw):   # LLM 판정을 거친 결과 · 답을 못 한 대체 결과를 흉내(판정은 스크립트 것 그대로)
+        g = real(s1, use_llm=False, **kw)
+        if use_llm:
+            g["llm"].update(requested=True, fallback=mode["fail"], error="가짜 실패" if mode["fail"] else None)
+        return g
+    monkeypatch.setattr(heading_runs.HG, "build", build)
+    d = _upload(client, SMALL)
+    sess = server.DOCS[d]
+    st = heading_runs.state(sess)
+    hd = works.folder(d) / "headings"
+    current = lambda: json.loads((hd / "current.json").read_text("utf-8"))["stage2"]  # noqa: E731
+    # ① 지금 결과가 스크립트 것 — 전처럼 대체 결과가 지금 결과가 된다
+    first = heading_runs.run_sync(sess, 2, False)
+    mode["fail"] = True
+    j = heading_runs.run_sync(sess, 2, True)
+    assert j.kept2 is None and st["stage2"]["meta"]["run"] == j.run > first.run and st["stage2"]["llm"]["requested"] and st["stage2"]["llm"]["fallback"]
+    assert current() == j.run
+    # ② LLM 판정을 거친 결과가 지금 결과 — 답을 못 한 실행은 기록만 남기고 지금 결과를 그대로 둔다
+    mode["fail"] = False
+    ok = heading_runs.run_sync(sess, 2, True)
+    good = st["stage2"]
+    assert good["meta"]["run"] == ok.run and good["llm"]["requested"] and not good["llm"]["fallback"] and ok.kept2 is None
+    mode["fail"] = True
+    bad = heading_runs.run_sync(sess, 2, True)
+    assert st["stage2"] is good and bad.kept2 == {"run": ok.run, "error": "가짜 실패"} and bad.run > ok.run and current() == ok.run
+    run = json.loads((hd / str(bad.run) / "run.json").read_text("utf-8"))
+    assert run["kept"] == ok.run and run["llm"] is True and (hd / str(bad.run) / "graph.json.gz").is_file()   # 실행 기록은 남는다
+    assert "kept" not in json.loads((hd / str(ok.run) / "run.json").read_text("utf-8"))
+    step = next(s for s in bad.view()["steps"] if s["name"] == "헤딩 그래프 — LLM")
+    assert step["status"] == "failed" and f"LLM 판정을 못 함 — 앞 LLM 결과(실행 {ok.run})를 그대로 둠 — 가짜 실패" in step["msg"]
+    sess.heads = None   # 다시 연 세션도 앞 LLM 결과를 지금 결과로 읽는다
+    st = heading_runs.state(sess)
+    assert st["stage2"]["meta"]["run"] == ok.run and st["stage2"]["llm"]["requested"] and not st["stage2"]["llm"]["fallback"]
+    assert [r["n"] for r in st["runs"] if r.get("kept")] == [bad.run]
+    # 스크립트로 다시 돌리는 것은 전처럼 지금 결과가 된다(LLM 실패가 아니다)
+    again = heading_runs.run_sync(sess, 2, False)
+    assert st["stage2"]["meta"]["run"] == again.run == current() and again.kept2 is None
+
+
 def test_api_rules(client):
     v = client.get("/api/headings/rules").json()
     assert v["version"] == 0 and v["learned"] == [] and v["keeps"] == []

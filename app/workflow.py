@@ -107,7 +107,7 @@ COMMON = (
                 "기본 분석이 없으면 「분석」 단추가 뜹니다. 옆에 띄운 문서도 이름 줄을 눌러 그 문서의 진행표를 열 수 있습니다.",
                 out="분석 상태 · 진행표", auto=True, modules=("analysis", "analysis_api"), spec=(SP_WORK, "② §20")),
              _s("llm", "LLM 검증·보완(분리)", ("human", "llm"), "저절로 돌지 않으며 진행표의 「LLM 검증·보완」 단추를 눌러 돌립니다(유료). 헤딩과 템플릿, 표를 같은 차례에 함께 판정하고, 헤딩 판정이 끝나면 서식 정리 계획을 받습니다. "
-                "이미 거친 항목은 건너뛰며 큰 문서는 나누어 최대 8개까지 동시에 처리합니다. 문서는 바뀌지 않으며, 계획 반영은 헤딩 추출 탭 「조정」 의 「모두 반영」 으로 합니다. 헤딩 판정은 규칙 보강부터 시작합니다.",
+                "이미 거친 항목은 건너뛰고, 표는 앞 판정을 이어 쓴 뒤 새로 생겼거나 줄이 늘어난 표(보완 대상)만 묻습니다. 큰 문서는 나누어 최대 8개까지 동시에 처리합니다. 문서는 바뀌지 않으며, 계획 반영은 헤딩 추출 탭 「조정」 의 「모두 반영」 으로 합니다. 헤딩 판정은 규칙 보강부터 시작합니다.",
                 out="LLM 판정을 거친 헤딩 그래프 · 표 구조 · 서식 정리 계획", change="store", optional=True, uses=("headings", "outline"),
                 agents=("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent"),
                 modules=("analysis_llm", "heading_runs", "tpl_agent_api"), spec=(SP_WORK, "② §20")),

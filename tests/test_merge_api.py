@@ -418,6 +418,210 @@ def test_overflow_levels_choose_in_the_plan_then_refit_what_went_in(client, monk
     assert "applied" not in merge_api._store(to) and MO.load(to)["cases"][key]["mode"] == "cover"
 
 
+# ---- 실패가 앞 답을 지우지 않는다 · 사람 짝 되돌리기 · 원본 문서마다 따로(spec_작업 ② §22 「구현 계약」 22-1) ----------------------------------------
+
+def _summaries(client, monkeypatch):
+    """(원본 id, 목적 id, 시험 자료) — 분석 · 반영을 거친 요약만 끼운 쌍(문서 없이 — 연결 목록 · 사람 고침까지)."""
+    plan, report = _pair(client)
+    d = M.small()
+    sides = {plan: d["from"], report: d["to"]}
+    monkeypatch.setattr(merge_api, "_read", lambda doc_id, target=False: {
+        "id": doc_id, "name": sides[doc_id]["name"], "rev": 0, "reasons": [], "values": d["values"],
+        "blocks": sides[doc_id]["doc"].blocks(), "graph": sides[doc_id]["graph"], "tables": sides[doc_id]["tables"]})
+    return plan, report, d
+
+
+def _live(client, monkeypatch, project):
+    """(목적 id, 원본 id) — 시험 쌍의 바이트를 올린 실제 세션에 시험 자료의 분석 결과 · 구분 값을 끼운 것(넣기 계획 · 빈 자리 검토가 문서를 읽는다). 자리 지침은 못 읽은 것으로(판을 안 본다)."""
+    d = M.small()
+    ids = {}
+    for side, f in (("from", "plan"), ("to", "report")):
+        ids[side] = client.post("/api/docs?new=1", files={"file": (d[side]["name"], d[side]["bytes"])}).json()["docId"]
+        client.put(f"/api/works/{ids[side]}/task", json={"kind": "rnd", "file": f, "job": "plan_to_report", "project": project})
+    sides = {ids["from"]: d["from"], ids["to"]: d["to"]}
+
+    def read(doc_id, target=False):
+        s = server._sess(doc_id)
+        with s.lock:
+            return {"id": doc_id, "name": s.name, "rev": s.rev, "reasons": [], "values": d["values"], "doc": s.doc, "blocks": s.doc.blocks(), "graph": sides[doc_id]["graph"], "tables": sides[doc_id]["tables"]}
+    monkeypatch.setattr(merge_api, "_read", read)
+    monkeypatch.setattr(merge_api, "_places", lambda doc_id, to: None)
+    return ids["to"], ids["from"]
+
+
+def test_table_map_call_failure_keeps_the_prior_map_but_an_undecided_answer_drops_it(client, monkeypatch):
+    """표 대응 저장(_map_store): 호출이 실패한 표(답이 안 옴)는 앞 대응을 지우지 않는다 — 줄에 error · 앞 대응이 있었으면 kept. 답은 왔는데 검증이 못 정한 표는 전처럼 앞 대응을 지운다."""
+    from app import merge_table_map
+    plan, report = _pair(client)
+    old = lambda frm: {"from": frm, "records": [], "grow": [], "fields": [], "mark": "", "source": "llm", "at": "앞"}  # noqa: E731
+    merge_api._store(report, {"tableMaps": {"tA": old("fA"), "tB": old("fB")}})
+    monkeypatch.setattr(merge_table_map, "check", lambda c, data: (None, [{"to": "x", "why": "행을 못 맞춤"}]))
+    p = lambda title: {"target": {"title": title}, "sources": []}  # noqa: E731
+    built = [("tA", "fA", p("표 A"), {}), ("tB", "fB", p("표 B"), {}), ("tC", "fC", p("표 C"), {})]
+    res = [{"data": None, "error": "시간 초과"}, {"data": {"records": []}, "error": None}, {"data": None, "error": "시간 초과"}]
+    out = merge_api._map_store(report, {"id": plan}, built, built, [{"content": "프롬프트"}] * 3, res, {}, None, "지금")
+    assert merge_api._store(report)["tableMaps"] == {"tA": old("fA")}   # 실패한 표의 앞 대응은 남고 · 못 정한 표의 앞 대응은 지워진다
+    rows = {x["to"]: x for x in out["tables"]}
+    assert rows["tA"]["error"] == "시간 초과" and rows["tA"]["kept"] is True
+    assert rows["tC"]["error"] == "시간 초과" and "kept" not in rows["tC"]   # 앞 대응이 없던 표
+    assert rows["tB"]["error"] == "행을 못 맞춤" and "kept" not in rows["tB"]
+    assert (out["asked"], out["mapped"]) == (3, 0)
+
+
+def test_gaps_missing_or_failed_answers_do_not_replace_what_was_answered(client, monkeypatch):
+    """빈 자리 검토의 저장: 답 누락(`missing`)은 「원본 없음」 이 아니다 — 답을 받은 자리로 세지 않고 · 넣기 계획의 「아직 빈 자리」 에 들고 · 다음 검토가 다시 묻는다.
+    「전부 다시」 여도 이번 답에 없는 자리(호출이 실패한 단위)와 답이 빠진 자리의 앞 답은 그대로다."""
+    from app import merge_gaps
+    to, _ = _live(client, monkeypatch, "빈 자리 시험")
+    seen, script, pick = [], [], {}
+
+    def fake(prep, job=None, links="", **kw):
+        seen.append(set(prep["ctx"]["slots"]))
+        tables, slots = script.pop(0)(prep["ctx"])
+        return {"tables": tables, "slots": slots, "rejected": [], "units": [], "asked": 1, "found": {"tables": len(prep["found"]["tables"]), "slots": len(prep["found"]["slots"])}, "guide": None, "job": None}
+    monkeypatch.setattr(merge_gaps, "ask", fake)
+    none = lambda s, reason: {"kind": s["kind"], "was": s["was"], "label": s["label"], "table": s["table"], "from": None, "take": None, "reason": reason}  # noqa: E731
+    lost = lambda s: {**none(s, merge_gaps.MISSING), "missing": True}  # noqa: E731
+    closed = lambda ctx, reason: {k: {"from": None, "reason": reason} for k in ctx["tables"]}  # noqa: E731
+    url = f"/api/docs/{to}/merge-links/gaps"
+
+    def first(ctx):   # c 만 답에 빠짐 — 나머지는 「원본 없음」
+        a, b, c = sorted(ctx["slots"])[:3]
+        pick.update(a=a, b=b, c=c)
+        return closed(ctx, "처음"), {k: lost(s) if k == c else none(s, "처음") for k, s in ctx["slots"].items()}
+    script.append(first)
+    out = client.post(url, json={})
+    assert out.status_code == 200, out.text[:400]
+    a, b, c = pick["a"], pick["b"], pick["c"]
+    saved = merge_api._store(to)
+    assert (out.json()["slots"]["missing"], out.json()["kept"]) == (1, 0) and saved["gaps"]["slots"][c]["missing"] is True and saved["gaps"]["slots"][a]["reason"] == "처음"
+    rows = [v for k in ("tables", "slots") for v in saved["gaps"][k].values()]
+    assert merge_api._kept(saved)["gaps"]["n"] == len(rows) - 1   # 답이 빠진 자리는 답을 받은 자리가 아니다
+    assert client.post(f"/api/docs/{to}/merge-links/plan").json()["gaps"]["counts"]["open"] == 1   # 「아직 빈 자리」 에 든다
+
+    script.append(lambda ctx: ({}, {k: none(s, "둘째") for k, s in ctx["slots"].items()}))   # 다음 검토 — 빠졌던 자리만 다시 묻는다
+    assert client.post(url, json={}).status_code == 200 and seen[1] == {c}
+    saved = merge_api._store(to)["gaps"]["slots"]
+    assert saved[c]["reason"] == "둘째" and "missing" not in saved[c] and saved[a]["reason"] == "처음"
+
+    def third(ctx):   # 「전부 다시」 — a 는 답에 빠짐 · b 는 호출이 실패한 단위(답에 없음) · 나머지는 새 답
+        return closed(ctx, "셋째"), {k: lost(s) if k == a else none(s, "셋째") for k, s in ctx["slots"].items() if k != b}
+    script.append(third)
+    out = client.post(url, json={"again": True})
+    assert out.status_code == 200 and {a, b, c} <= seen[2]
+    saved = merge_api._store(to)["gaps"]["slots"]
+    assert saved[a]["reason"] == "처음" and "missing" not in saved[a]   # 답 누락은 앞 답을 갈지 않는다
+    assert saved[b]["reason"] == "처음"   # 「전부 다시」 중 실패한 단위의 앞 답이 남는다
+    assert saved[c]["reason"] == "셋째" and (out.json()["slots"]["missing"], out.json()["kept"]) == (1, 1)
+
+
+def test_gaps_place_missing_twice_is_closed_and_not_asked_forever(client, monkeypatch):
+    """두 번 물었는데 두 번 다 답에 빠진 자리는 「원본 없음」 으로 닫는다 — 실행마다 유료로 다시 묻지 않고 「아직 빈 자리」 가 0 이 된다(다음 단계가 막히지 않게)."""
+    from app import merge_gaps
+    to, _ = _live(client, monkeypatch, "빈 자리 두 번")
+    seen = []
+
+    def fake(prep, job=None, links="", **kw):   # 물은 자리 가운데 첫 자리를 늘 답에서 빠뜨린다
+        seen.append(set(prep["ctx"]["slots"]))
+        keys = sorted(prep["ctx"]["slots"])
+        slots = {k: {"kind": s["kind"], "was": s["was"], "label": s["label"], "table": s["table"], "from": None, "take": None,
+                     **({"reason": merge_gaps.MISSING, "missing": True} if k == keys[0] else {"reason": "없음"})} for k, s in prep["ctx"]["slots"].items()}
+        return {"tables": {k: {"from": None, "reason": "없음"} for k in prep["ctx"]["tables"]}, "slots": slots, "rejected": [], "units": [], "asked": 1,
+                "found": {"tables": len(prep["found"]["tables"]), "slots": len(prep["found"]["slots"])}, "guide": None, "job": None}
+    monkeypatch.setattr(merge_gaps, "ask", fake)
+    url = f"/api/docs/{to}/merge-links/gaps"
+    assert client.post(url, json={}).status_code == 200
+    lost = sorted(seen[0])[0]
+    assert merge_api._store(to)["gaps"]["slots"][lost]["missing"] is True
+    out = client.post(url, json={})   # 둘째 — 빠졌던 자리만 다시 묻고 또 빠짐
+    assert out.status_code == 200 and seen[1] == {lost} and out.json()["slots"]["missing"] == 0
+    got = merge_api._store(to)["gaps"]["slots"][lost]
+    assert "missing" not in got and got["silent"] is True and got["from"] is None
+    assert client.post(f"/api/docs/{to}/merge-links/plan").json()["gaps"]["counts"]["open"] == 0
+
+
+def test_gaps_missing_answer_keeps_the_table_pair_that_review_made(client, monkeypatch):
+    """빈 자리 검토가 낸 표 짝(`by: gaps`)은 그 표의 답이 빠졌을 때(`missing`) 지워지지 않는다 — 다시 물어 「같은 표 없음」 이라고 답했을 때만 전처럼 지운다."""
+    from app import merge_gaps
+    to, _ = _live(client, monkeypatch, "빈 표 시험")
+    pair = {"from": "fG", "source": "llm", "by": "gaps", "reason": "같은 표", "format": ""}
+    merge_api._store(to, {**merge_api._store(to), "tables": {"tG": pair}, "gaps": {"at": "앞", "tables": {"tG": {"from": "fG", "reason": "같은 표"}}, "slots": {}}})
+    answers = [{"tG": {"from": None, "missing": True, "reason": merge_gaps.MISSING}}, {"tG": {"from": None, "reason": "다시 보니 다른 표"}}]
+    monkeypatch.setattr(merge_gaps, "ask", lambda prep, job=None, links="", **kw: {"tables": answers.pop(0), "slots": {}, "rejected": [], "units": [], "asked": 1, "found": {"tables": 1, "slots": 0}, "guide": None, "job": None})
+    url = f"/api/docs/{to}/merge-links/gaps"
+    out = client.post(url, json={"again": True})
+    assert out.status_code == 200, out.text[:400]
+    saved = merge_api._store(to)
+    assert saved["tables"]["tG"] == pair and saved["gaps"]["tables"]["tG"] == {"from": "fG", "reason": "같은 표"} and (out.json()["tables"]["missing"], out.json()["kept"]) == (1, 1)
+    assert client.post(url, json={"again": True}).status_code == 200
+    saved = merge_api._store(to)
+    assert "tG" not in saved["tables"] and saved["gaps"]["tables"]["tG"]["reason"] == "다시 보니 다른 표"   # 답이 온 「같은 표 없음」 은 전처럼
+
+
+def test_user_fix_over_an_llm_pair_resets_back_to_the_llm_pair(client, monkeypatch):
+    """사람이 LLM 짝을 고치면 그 LLM 짝을 사람 항목의 `llm` 에 지닌다 — 「되돌리기」 는 그 LLM 짝으로(사람 지정과 LLM 값을 같은 칸에 쓰지 않는다). 지닌 LLM 짝이 없으면 전처럼 지운다(스크립트 결과로)."""
+    plan, report, _ = _summaries(client, monkeypatch)
+    v = client.get(f"/api/docs/{report}/merge-links").json()
+    g = sorted((x for x in v["groups"] if x["to"] and len(x["candidates"]) >= 2), key=lambda x: x["status"] != "ambiguous")[0]   # 후보가 둘 이상인 묶음(못 정한 것이 먼저)
+    first, second = g["candidates"][0]["key"], g["candidates"][1]["key"]
+    llm_pair = {"from": first, "source": "llm", "anchor": None, "reason": "시험", "guideSig": ""}
+    merge_api._store(report, {**merge_api._store(report), "fixed": {g["id"]: llm_pair}})
+    url = f"/api/docs/{report}/merge-links/{g['id']}"
+    group = lambda body: next(x for x in client.put(url, json=body).json()["groups"] if x["id"] == g["id"])  # noqa: E731
+    stored = lambda: merge_api._store(report)["fixed"].get(g["id"])  # noqa: E731
+    cut = group({"from": None})
+    assert (cut["status"], cut["source"]) == ("toOnly", "user") and stored() == {"from": None, "source": "user", "llm": llm_pair}
+    moved = group({"from": second})   # 사람이 한 번 더 고쳐도 LLM 짝을 이어 지닌다
+    assert (moved["source"], moved["from"]["key"]) == ("user", second) and stored() == {"from": second, "source": "user", "llm": llm_pair}
+    back = group({"reset": True})
+    assert (back["status"], back["source"], back["from"]["key"]) == ("paired", "llm", first) and stored() == llm_pair   # LLM 짝으로 돌아간다
+    assert group({"reset": True})["source"] == "script" and stored() is None   # LLM 짝에서 되돌리기 = 전처럼 지움
+    assert group({"from": second})["source"] == "user" and stored() == {"from": second, "source": "user"}   # LLM 짝이 없던 자리 — 지닐 것이 없다
+    assert group({"reset": True})["source"] == "script" and stored() is None
+
+
+def test_switching_the_source_keeps_each_source_its_own_pairs(client, monkeypatch):
+    """원본 문서를 A → B → A 로 바꾸면 A 에서 정한 것(사람 짝 · 표 짝 · 표 대응 · 빈 자리 답 · LLM 요약)이 그대로 돌아오고, B 에서는 A 의 것이 안 보인다(원본 작업마다 `bySource`).
+    목적 문서에 이미 넣은 것의 기록은 안 옮긴다 · 같은 원본을 다시 고르면 아무것도 안 옮긴다 · 원본을 따로 고른 적이 없으면 저절로 정해진 원본이 「앞 원본」 이다 · 2단계 초기화는 넣어 둔 것도 지운다."""
+    from app import works
+    task = {"kind": "rnd", "job": "plan_to_report", "project": "원본 바꾸기", "round": 1}
+    report, a, b = "c00000000001", "c00000000002", "c00000000003"
+    for wid, role in ((report, "report"), (a, "plan"), (b, "plan")):
+        works.create(wid, f"{wid}.hwpx", "hwpx", b"source fixture")
+        works.update(wid, task={**task, "file": role})
+    monkeypatch.setattr(merge_api, "_read", lambda wid, target=False: {"id": wid, "name": f"{wid}.hwpx", "rev": 0, "reasons": ["noHeadings"], "values": None})
+    monkeypatch.setattr(merge_api, "_link_comments", lambda wid: [])
+    url = f"/api/docs/{report}/merge-links"
+    pick = lambda wid: client.post(url, json={"from": wid}).status_code  # noqa: E731
+    of_a = {"fixed": {"g1": {"from": "pA", "source": "user", "llm": {"from": "pL", "source": "llm"}}}, "tables": {"t1": {"from": "fA", "source": "user"}},
+            "tableMaps": {"t1": {"from": "fA", "records": []}}, "gaps": {"at": "앞", "tables": {}, "slots": {"s1": {"from": "nA"}}}, "llm": {"at": "앞"}, "toRev": 3, "fromRev": 5}
+    put_in = {"applied": {"k": {"hash": "h"}}, "copied": {"c": {"to": "t9"}}, "filled": {"at": 1, "src": {"id": a, "rev": 5}}}   # 목적 문서에 이미 넣은 것의 기록 — 안 옮긴다
+    merge_api._store(report, {"from": a, **of_a, **put_in})
+    assert pick(a) == 200 and merge_api._store(report) == {"from": a, "src": a, **of_a, **put_in}   # 같은 원본을 다시 고름(src = 이 판정을 받은 원본 — _bound)
+    assert pick(b) == 200
+    now = merge_api._store(report)
+    assert now["from"] == b and now["src"] == b and not [k for k in merge_api.SOURCE_KEYS if k in now] and now["bySource"] == {a: of_a}   # B 에서는 A 의 짝이 안 보인다
+    assert {k: now[k] for k in put_in} == put_in
+    of_b = {"fixed": {"g1": {"from": "pB", "source": "user"}}, "toRev": 4, "fromRev": 1}
+    merge_api._store(report, {**now, **of_b})
+    assert pick(a) == 200
+    back = merge_api._store(report)
+    assert back["from"] == a and back["src"] == a and {k: back.get(k) for k in of_a} == of_a and back["bySource"] == {b: of_b}   # A 의 사람 짝까지 그대로 돌아온다
+    assert {k: back[k] for k in put_in} == put_in
+    assert pick(b) == 200
+    again = merge_api._store(report)
+    assert {k: again[k] for k in merge_api.SOURCE_KEYS if k in again} == of_b and again["bySource"] == {a: of_a}
+    merge_api._stage2_clear(report)   # 2단계 초기화 — 다른 원본 몫으로 넣어 둔 것도 2단계가 쌓은 것이다
+    assert merge_api._store(report) == {"from": b}
+    # 원본을 따로 고른 적이 없는 작업 — 저절로 정해진 원본과 낸 저장값이다: 다른 원본을 처음 고르면 그 원본 몫으로 넣어 둔다 · 저절로 정해진 그 원본을 고르면 안 옮긴다
+    merge_api._store(report, dict(of_a))
+    auto = merge_api._mate(report, merge_api._store(report))[1]
+    other = b if auto == a else a
+    assert auto in (a, b) and pick(auto) == 200 and merge_api._store(report) == {**of_a, "from": auto, "src": auto}
+    merge_api._store(report, dict(of_a))
+    assert pick(other) == 200 and merge_api._store(report) == {"from": other, "src": other, "bySource": {auto: of_a}}
+
+
 # ---- 가져온 스키마 위반 종류(spec_병합 ② §5-10 「가져온 스키마 위반 종류」 — server.import_check · _heal) ----------------------------------------
 PIC_TABLE = "t12501"   # 연구개발계획서 양식의 그림이 든 표(칸 안 그림 하나) — 연차보고서 서식에는 그림이 없다
 PIC_KINDS = {("section", "renderingInfo", "transMatrix", "", "SCHEMAV_ELEMENT_CONTENT"), ("section", "imgRect", "pt0", "", "SCHEMAV_ELEMENT_CONTENT"),
@@ -564,3 +768,18 @@ def test_legacy_heal_counts_a_nothing_fill_record(client):
     r = client.post(f"/api/docs/{to}/format/para", json={"ids": [_cell_para(client, to, tid)], "changes": {"align": "right"}})
     assert r.status_code == 200, r.text[:400]
     assert PIC_KINDS <= server._sess(to).owpml_ok
+
+
+def test_decisions_follow_the_source_they_were_made_with(monkeypatch):
+    """판정은 그것을 받은 원본 작업(`src`)에 묶인다 — 사람이 고르지 않아도 지금 쓰는 원본이 달라지면(앞 원본을 지움 · 더 새 원본이 잡힘) 앞 원본의 짝이 새 원본에 안 보이고,
+    앞 원본이 다시 잡히면 돌아온다(열쇠가 우연히 맞는 다른 원본의 내용을 가져오지 않게). `src` 가 없는 옛 저장본은 지금 원본의 것으로 본다."""
+    box = {"to": {"fixed": {"g1": {"from": "k1", "source": "user"}}, "applied": {"a": 1}}}
+    monkeypatch.setattr(merge_api, "_store", lambda wid, data=None: box.__setitem__(wid, data) if data is not None else box.get(wid, {}))
+    got = merge_api._bound("to", box["to"], "A")   # 옛 저장본 — 지금 원본 A 의 것으로 적는다
+    assert got["src"] == "A" and got["fixed"]["g1"]["from"] == "k1" and box["to"]["src"] == "A"
+    got = merge_api._bound("to", box["to"], "B")   # 저절로 B 가 잡힘 — A 의 짝은 넣어 두고 B 에서는 안 보인다
+    assert got["src"] == "B" and "fixed" not in got and got["bySource"]["A"]["fixed"]["g1"]["from"] == "k1" and got["applied"] == {"a": 1} and "from" not in got
+    assert merge_api._bound("to", box["to"], "B") is box["to"]   # 같은 원본이면 그대로(다시 쓰지 않는다)
+    got = merge_api._bound("to", box["to"], "A")   # A 가 다시 잡히면 사람이 정한 짝까지 돌아온다
+    assert got["src"] == "A" and got["fixed"]["g1"] == {"from": "k1", "source": "user"} and "bySource" not in got
+    assert merge_api._bound("to", {}, "A") == {} and merge_api._bound("to", {"fixed": {"g": {"from": "k"}}}, None) == {"fixed": {"g": {"from": "k"}}}   # 판정이 없거나 원본이 없으면 그대로

@@ -2,8 +2,11 @@
 계획 하나를 문서에 적용하는 끝점은 여기가 아니라 템플릿 단위 맞추기(`outline_match_api.match_template` — POST …/outline/templates/{tpl}/match)다.
 받아 둔 계획 **모두**를 한 번에 반영하는 끝점(POST …/outline/agent/apply — 아래 apply_plans)은 여기 있고, 같은 몸(`outline_match_api.apply_templates`)으로 트랜잭션 하나에 반영한다.
 받은 계획은 작업 폴더에 남긴다(`outline_agent/plans.json` — spec_작업 ② §20 「넷 · 진행표 · LLM 검증·보완」): 분석 상태의 서식 LLM 칸 · 「템플릿 서식 정리」 열이 다시 부르지 않고 그 계획을 쓴다.
-헤딩 그래프 실행(오버레이의 run)이 바뀌면 그 계획들은 버린다(템플릿 id 가 달라진다)."""
+헤딩 그래프 실행(오버레이의 run)이 바뀌어도 그 계획들을 버리지 않는다(spec_작업 ② §22 「구현 계약」 22-3 — 2026-11-23): 옛 상자(계획 · 반영 기록)는 `old`(최근 OLD_MAX 개)에 넣어 두고,
+**지문이 지금과 꼭 같은 계획**(지금 오버레이에 같은 템플릿 id · `tpl_agent.fingerprint` 가 기록의 `fp` 와 같음)만 새 그래프의 계획으로 이어 쓴다(기록에 `carried {from, at}` — _carry_now). 지문이 다른 계획은 옛 상자에 남는다.
+지금 그래프의 계획을 읽는 길 = `plans`(세션 잠금 **밖**에서 부른다) · `plans_held`(세션 잠금 **안**에서) — 둘 다 옮긴 뒤의 것을 낸다."""
 import json
+import logging
 import threading
 import time
 
@@ -33,17 +36,29 @@ def _relabel(raw):
     return raw
 
 
+OLD_MAX = 5     # 남겨 두는 옛 상자 수(헤딩 그래프가 바뀔 때마다 하나 — 새것이 앞: spec_작업 ② §22 「구현 계약」 22-3 ⓐ)
+LOCK_WAIT = 20  # plans 가 옛 계획을 옮기려고 세션 잠금을 기다리는 초 — 넘으면 이번에는 옮기지 않는다(세션 잠금을 잡은 채 plans 를 잘못 부른 곳이 영영 멈추지 않게: 그런 곳은 plans_held)
+
+
+def _old_boxes(got):
+    """파일에서 읽은 `old` → 옛 상자 목록(꼴이 맞는 것만 · OLD_MAX 개까지). `old` 가 없는 옛 파일은 빈 목록."""
+    return [{"graph": o.get("graph"), "plans": o["plans"], "applies": o.get("applies") if isinstance(o.get("applies"), list) else [], "at": o.get("at")}
+            for o in (got if isinstance(got, list) else []) if isinstance(o, dict) and isinstance(o.get("plans"), dict)][:OLD_MAX]
+
+
 def _plans_box(s):
-    """세션의 받은 계획 상자 {graph: [run, at] | None, plans: {tpl: 기록}} — 처음 한 번 작업 폴더에서 읽는다(옛 값 이름은 지금 말로 읽는다 — `_relabel`)."""
+    """세션의 받은 계획 상자 {graph: [run, at] | None, plans: {tpl: 기록}, applies: [반영 기록], old: [옛 상자 {graph, plans, applies, at(옮긴 때)} — 새것이 앞]}
+    — 처음 한 번 작업 폴더에서 읽는다(옛 값 이름은 지금 말로 읽는다 — `_relabel`). 시험 · 옛 코드가 넣은 상자에는 applies · old 가 없을 수 있다(.get 으로 읽는다)."""
     box = getattr(s, "tpl_plans", None)
     if box is None:
-        box = {"graph": None, "plans": {}}
+        box = {"graph": None, "plans": {}, "applies": [], "old": []}
         path = _plans_path(s.id)
         if path is not None and path.is_file():
             try:
                 got = json.loads(_relabel(path.read_text(encoding="utf-8")))
                 if isinstance(got, dict) and isinstance(got.get("plans"), dict):
-                    box = {"graph": got.get("graph"), "plans": got["plans"], "applies": got.get("applies") if isinstance(got.get("applies"), list) else []}  # applies = 반영 기록(실행마다 — note_apply)
+                    box = {"graph": got.get("graph"), "plans": got["plans"], "applies": got.get("applies") if isinstance(got.get("applies"), list) else [],  # applies = 반영 기록(실행마다 — note_apply)
+                           "old": _old_boxes(got.get("old"))}
             except (OSError, ValueError):
                 pass
         s.tpl_plans = box
@@ -63,20 +78,110 @@ def _plans_save(s, box):
         pass  # 남기지 못해도 이 세션 동안은 메모리에 있다
 
 
-def plans(s, graph):
-    """지금 헤딩 그래프(graph = 오버레이의 run)의 받은 계획 {tpl: 기록} — 다른 그래프의 계획은 없는 것으로 본다."""
+def _turn(box, graph, carried=None):
+    """(_plans_lock 안에서) 상자를 헤딩 그래프 graph 의 것으로 바꾼다 → 저장할 것이 생겼는가. 옛 상자(계획 · 반영 기록)는 버리지 않고 `old` 맨 앞에 넣는다
+    (새것이 앞 · OLD_MAX 개까지 · 옮긴 때 at — spec_작업 ② §22 「구현 계약」 22-3 ⓐ). carried = 지문이 같아 새 그래프로 이어 쓰는 계획 {tpl: 기록}(_carry_now 가 고른 것 — 없으면 빈 상자로).
+    계획도 반영 기록도 없는 상자는 old 에 넣지 않는다(빈 상자가 옛 상자를 밀어내지 않게)."""
+    kept = bool(box.get("plans") or box.get("applies"))
+    if kept:
+        old = box.setdefault("old", [])
+        old.insert(0, {"graph": box.get("graph"), "plans": box["plans"], "applies": box.get("applies") or [], "at": time.time()})
+        del old[OLD_MAX:]
+    box["graph"], box["plans"], box["applies"] = list(graph or []), dict(carried or {}), []
+    return kept or bool(carried)
+
+
+def _cands(box, ov):
+    """(_plans_lock 안에서) 새 그래프로 옮길 수 있는 옛 계획의 후보 {tpl: (기록, 그 기록이 든 상자의 graph)} — 지금 오버레이(ov)에 그 템플릿 id 가 있고 기록에 지문(fp)이 있는 것만.
+    템플릿마다 **가장 새 기록 하나**만 본다(지금 상자 → old 의 새것부터): 더 옛 상자의 같은 템플릿 기록은 그 뒤에 다시 받은 계획이 갈아 치운 것이다 — 지문이 우연히 다시 같아져도 되살리지 않는다."""
+    out, seen, tpls = {}, set(), ov.get("templates") or {}
+    for b in [box, *(box.get("old") or [])]:
+        for tid, rec in (b.get("plans") or {}).items():
+            if tid in seen:
+                continue
+            seen.add(tid)
+            if isinstance(rec, dict) and rec.get("fp") and str(tid) in tpls:
+                out[tid] = (rec, b.get("graph"))
+    return out
+
+
+def _carry_now(s, ov):
+    """**세션 잠금 안에서 부른다**(지문은 문서를 읽는다). 상자가 지금 오버레이(ov)의 헤딩 그래프 것이 아니면 그 그래프의 것으로 바꾼다 — 옛 상자는 old 에(_turn), 그리고
+    **지문이 지금과 꼭 같은 옛 계획**(_cands 의 후보 가운데 `tpl_agent.fingerprint_of`(지금 값) == 기록의 fp)을 지금 그래프의 계획으로 이어 쓴다(spec_작업 ② §22 「구현 계약」 22-3 ⓑ):
+    옮긴 기록 = 옛 기록 그대로(계획의 표시 at · since · applied 도 — 상태는 기록과 지금 문서에서 전처럼 셈한다) + `carried {from: 옛 graph, at: 옮긴 때}`. 옛 상자의 기록은 그대로 둔다(사본을 옮긴다).
+    지문이 다르거나 fp 가 없는 기록 · 지금 오버레이에 없는 템플릿의 기록은 옮기지 않는다(old 에 남는다). 상자가 이미 그 그래프의 것이면 아무것도 안 한다(그래프가 바뀐 뒤 처음 한 번만 셈한다)."""
+    graph = list(ov.get("run") or [])
+    if not graph:
+        return
     with _plans_lock:
         box = _plans_box(s)
-        return dict(box["plans"]) if box.get("graph") == list(graph or []) else {}
+        if box.get("graph") == graph:
+            return
+        tids = list(_cands(box, ov))
+    fps = {}
+    for tid in tids:  # 문서를 읽는 셈 — 모든 작업이 같이 쓰는 _plans_lock 밖에서(세션 잠금은 부른 쪽이 잡고 있다)
+        try:
+            fps[tid] = A.fingerprint_of(s.doc, ov, tid)
+        except Exception:  # noqa: BLE001 — 지문을 못 낸 템플릿은 「같다」 를 확인하지 못한 것: 옮기지 않는다(읽는 길을 막지 않는다)
+            pass
+    with _plans_lock:
+        box = _plans_box(s)
+        if box.get("graph") == graph:  # 그 사이 다른 길이 바꿨다
+            return
+        now = time.time()
+        carried = {tid: {**rec, "carried": {"from": src, "at": now}} for tid, (rec, src) in _cands(box, ov).items() if fps.get(tid) and rec["fp"] == fps[tid]}
+        if _turn(box, graph, carried):
+            _plans_save(s, box)
+
+
+def plans_held(s, ov):
+    """**세션 잠금 안에서** 읽는 지금 헤딩 그래프(ov = 지금 개요 오버레이)의 받은 계획 {tpl: 기록} — 그래프가 바뀌었으면 지문이 같은 옛 계획을 먼저 옮긴다(_carry_now)."""
+    _carry_now(s, ov)
+    with _plans_lock:
+        box = _plans_box(s)
+        return dict(box["plans"]) if box.get("graph") == list(ov.get("run") or []) else {}
+
+
+def _sync(s, graph):
+    """세션 잠금 밖에서 — graph 가 **지금 오버레이의 그래프**일 때만 상자를 그 그래프의 것으로(_carry_now). 지금 것이 아닌 그래프(옛 그래프를 든 늦은 읽기)는 상자를 바꾸지 못한다."""
+    lock = getattr(s, "lock", None)
+    if lock is None:
+        return
+    if not lock.acquire(timeout=LOCK_WAIT):
+        logging.getLogger(__name__).warning("[서식 계획] %s 세션 잠금을 %s초 기다려도 못 잡아 옛 계획을 이번에는 옮기지 않음", getattr(s, "id", "?"), LOCK_WAIT)
+        return
+    try:
+        ov = getattr(s, "outline", None)
+        if isinstance(ov, dict) and list(ov.get("run") or []) == graph:
+            _carry_now(s, ov)
+    finally:
+        lock.release()
+
+
+def plans(s, graph):
+    """지금 헤딩 그래프(graph = 오버레이의 run)의 받은 계획 {tpl: 기록} — 다른 그래프의 계획은 없는 것으로 본다. **세션 잠금 밖에서 부른다**(잠금 안에서는 plans_held —
+    세션 잠금은 다시 잡을 수 없는 잠금이다). 상자가 다른 그래프의 것이고 그 안에 남은 것이 있으면, graph 가 지금 오버레이의 그래프일 때 지문이 같은 옛 계획을 옮긴 뒤에 읽는다(_sync)."""
+    graph = list(graph or [])
+    with _plans_lock:
+        box = _plans_box(s)
+        if box.get("graph") == graph:
+            return dict(box["plans"])
+        if not graph or not (box.get("plans") or box.get("applies") or box.get("old")):  # 옮길 것도 넣어 둘 것도 없다 — 세션 잠금을 잡지 않는다
+            return {}
+    _sync(s, graph)
+    with _plans_lock:
+        box = _plans_box(s)
+        return dict(box["plans"]) if box.get("graph") == graph else {}
 
 
 def _remember(s, graph, tpl, rec, since=None):
     """받은 계획을 남긴다 → 남겼는가. since = 그 요청이 자료를 읽은 때(기록의 since) — 같은 템플릿에 **더 늦게 시작한 요청**의 계획이 이미 남아 있으면 덮지 않는다(겹친 요청은 늦게 시작한 쪽이 이긴다).
-    상자가 다른 그래프의 것이면 새 상자로 바꾼다 — 부르는 쪽(plan_one)이 그 그래프가 지금 것인지 먼저 본다(옛 그래프의 늦은 답이 새 그래프의 상자를 갈아 치우지 않게)."""
+    상자가 다른 그래프의 것이면 새 상자로 바꾼다(옛 상자는 old 에 — _turn: 여기서는 옛 계획을 옮기지 않는다) — 부르는 쪽(plan_one)이 그 그래프가 지금 것인지 먼저 보고
+    옛 계획도 먼저 옮긴다(_carry_now — 옛 그래프의 늦은 답이 새 그래프의 상자를 갈아 치우지 않게)."""
     with _plans_lock:
         box = _plans_box(s)
         if box.get("graph") != list(graph or []):
-            box["graph"], box["plans"], box["applies"] = list(graph or []), {}, []
+            _turn(box, graph)
         old = box["plans"].get(str(tpl))
         if since is not None and old and (old.get("since") or 0) > since:
             return False
@@ -90,9 +195,9 @@ def plan_at(server, s, tpl, rev, want=None):
     그것과 같을 때만. None = 그런 계획이 없다(그 사이 다른 계획으로 바뀜 · 이미 반영함) — 반영은 하되 「반영함」 으로 적지 않는다(남아 있는 계획은 반영한 그 계획이 아니다)."""
     with s.lock:
         ov = server._outline_ov(s) if s.fmt == "hwpx" else None
+        rec = plans_held(s, ov).get(str(tpl)) if ov is not None else None
     if ov is None:
         return None
-    rec = plans(s, ov.get("run")).get(str(tpl))
     if not rec or rec.get("at") is None or (want is not None and want != rec["at"]):
         return None
     with s.lock:
@@ -104,7 +209,7 @@ def plan_at(server, s, tpl, rev, want=None):
     return None
 
 
-APPLIES_MAX = 20  # 작업 폴더에 남기는 반영 기록 수(헤딩 그래프마다 — 그래프가 바뀌면 계획과 함께 비운다)
+APPLIES_MAX = 20  # 작업 폴더에 남기는 반영 기록 수(헤딩 그래프마다 — 그래프가 바뀌면 계획과 함께 옛 상자 old 로 간다: _turn)
 
 
 def note_apply(s, graph, by, items, relations=None):
@@ -116,8 +221,8 @@ def note_apply(s, graph, by, items, relations=None):
         return
     with _plans_lock:
         box = _plans_box(s)
-        if box.get("graph") != list(graph or []):
-            box["graph"], box["plans"], box["applies"] = list(graph or []), {}, []
+        if box.get("graph") != list(graph or []):  # 옛 상자(계획 · 반영 기록)는 old 에 남는다
+            _turn(box, graph)
         rows = box.setdefault("applies", [])
         rows.append({"at": time.time(), "rev": s.rev, "by": by, "templates": items, "lines": sum(int(x.get("changed") or 0) for x in items), "relations": relations})
         del rows[:-APPLIES_MAX]
@@ -215,18 +320,16 @@ def skill_delete(key: str):
 
 @router.get("/api/docs/{doc_id}/outline/agent/plans")
 def plans_get(doc_id: str):
-    """→ {rev, graph, plans: {tpl: {…계획 받기의 답, at, applied, state}}} — 지금 헤딩 그래프에서 받은 계획(state = none 없음 · planned 바로 적용 가능 · applied · stale 문서가 바뀜).
-    2단계 결과가 없으면 plans 가 빈다."""
+    """→ {rev, graph, plans: {tpl: {…계획 받기의 답, at, applied, state, carried?}}} — 지금 헤딩 그래프에서 받은 계획(state = none 없음 · planned 바로 적용 가능 · applied · stale 문서가 바뀜).
+    carried{from(옛 graph), at} = 앞 헤딩 그래프에서 받은 계획을 지문이 같아 이어 쓴 것(_carry_now). 2단계 결과가 없으면 plans 가 빈다."""
     server = _server()
     s = server._sess(doc_id)
     with s.lock:
         ov = server._outline_ov(s) if s.fmt == "hwpx" else None
         rev = s.rev
-    graph = (ov or {}).get("run")
-    got = plans(s, graph) if ov is not None else {}
-    with s.lock:
+        got = plans_held(s, ov) if ov is not None else {}
         out = {k: {**v, "state": state_of(s, ov, v, rev)} for k, v in got.items()}
-    return {"rev": rev, "graph": graph, "plans": out}
+    return {"rev": rev, "graph": (ov or {}).get("run"), "plans": out}
 
 
 @router.post("/api/docs/{doc_id}/outline/agent/{tpl}/plan")
@@ -278,7 +381,7 @@ def apply_plans(doc_id: str, body: dict = Body(default={})):
             raise HTTPException(409, "그 사이에 문서가 바뀌었습니다 — 화면이 문서를 다시 읽은 뒤 한 번 더 누르세요")
         pick = None if tpls is None else {str(t) for t in tpls}
         order = {str(tid): i for i, tid in enumerate(ov["templates"])}
-        recs = sorted(((tid, rec) for tid, rec in plans(s, ov.get("run")).items()
+        recs = sorted(((tid, rec) for tid, rec in plans_held(s, ov).items()
                        if tid in order and rec.get("plan") and state_of(s, ov, rec, rev) == "planned" and (pick is None or tid in pick)), key=lambda x: order[x[0]])
         if seen is not None:
             have = {tid: rec.get("at") for tid, rec in recs}
@@ -362,7 +465,7 @@ def plan_one(server, s, tpl, key, request=None, dry=False):
         ov = server._outline_ov(s)
         if ov is None:
             raise HTTPException(409, "헤딩 추출 2단계(헤딩 그래프)를 먼저 실행하세요")
-        prev = plans(s, ov.get("run")).get(str(tpl)) or {}
+        prev = plans_held(s, ov).get(str(tpl)) or {}
         try:  # 앞 계획이 검토해 그대로 둔 갈래는 뒤로 — 갈래가 많은 레벨에서 못 본 갈래가 에이전트에 닿게(A.material 의 reviewed)
             mat = A.material(s.doc, ov, tpl, reviewed=(prev.get("plan") or {}).get("reviewed"), sent=(prev.get("plan") or {}).get("sent"))
         except KeyError:
@@ -390,7 +493,8 @@ def plan_one(server, s, tpl, key, request=None, dry=False):
     out = {**head, "plan": res["plan"], **{k: res[k] for k in ("model", "effort", "backend", "ms", "costUsd")}, "at": time.time()}  # at = 이 계획의 표시 — 화면이 적용할 때 되돌려 보낸다(plan_at)
     with s.lock:  # LLM 을 기다린 사이 2단계를 다시 돌렸으면(다른 그래프) 남기지 않는다 — 옛 그래프의 늦은 답이 새 그래프의 계획 상자를 갈아 치우지 않게
         now = server._outline_ov(s)
-        current = now is not None and list(now.get("run") or []) == graph
-    if current:
-        _remember(s, graph, tpl, {**out, "applied": None, "since": t0}, since=t0)  # 더 늦게 시작한 요청이 먼저 끝나 남긴 계획은 덮지 않는다
+        if now is not None and list(now.get("run") or []) == graph:
+            # 같은 잠금 안에서 남긴다(그래프가 지금 것인지 본 뒤 남기기 전에 2단계가 다시 돌 틈이 없게 — 오버레이는 이 잠금 안에서만 새로 만든다) · 상자가 아직 옛 그래프의 것이면 옛 계획을 먼저 옮긴다
+            _carry_now(s, now)
+            _remember(s, graph, tpl, {**out, "applied": None, "since": t0}, since=t0)  # 더 늦게 시작한 요청이 먼저 끝나 남긴 계획은 덮지 않는다
     return out

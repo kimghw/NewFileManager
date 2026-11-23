@@ -50,7 +50,9 @@ def norm_hint(body, idx, profile, old=None):
     value = str(body.get("value") or "").strip()[:60] or (read["value"] if read else "")
     old = old or {}
     return {"id": old.get("id") or uuid.uuid4().hex[:8], "para": para, "dim": dim, "value": value, "note": str(body.get("note") or "").strip()[:200],
-            "by": old.get("by") or "user", "at": old.get("at") or time.time(), "reason": old.get("reason") or ""}
+            # LLM 이 넣은 자리라도 사람이 기준 · 값을 고쳐 저장하면 그때부터 사람의 자리다 — 다음 LLM 재검토가 그 값을 바꾸거나 지우지 않고 제안만 남긴다(astra 결과 검토 P1-7 · spec_작업 ② §22 「구현 계약」 22-2 ⓑ)
+            "by": "user" if old.get("by") == "llm" and (dim != old.get("dim") or value != old.get("value")) else old.get("by") or "user",
+            "at": old.get("at") or time.time(), "reason": old.get("reason") or ""}
 
 
 def settings_hash(settings):

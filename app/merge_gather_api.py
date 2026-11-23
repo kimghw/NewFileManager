@@ -3,7 +3,7 @@
 
 - `GET  /api/docs/{to}/gather` → {project, reasons[지금 기준본을 못 만드는 까닭], frame{frameId, at, rev, stale} | null, version,
   orgs[{key, name, role, received[기관 문서 id], applied[기관 문서 id]}], parts[{work, name, order, orgs, common, frameId, state(blocked|unassigned|todo|done|new), counts{상태: n} | null, todo | null,
-  llm{at, held, stale} | null, recommend{org, n} | null, reasons[]}]}. 기관 문서 하나의 판정을 못 내면 그 줄의 reasons 에만 싣는다(전체는 나간다).
+  llm{at, held, keptPrev(이번에 답을 못 받아 같은 자료의 앞 LLM 판정을 그대로 둔 수), stale} | null, recommend{org, n} | null, reasons[]}]}. 기관 문서 하나의 판정을 못 내면 그 줄의 reasons 에만 싣는다(전체는 나간다).
 - `POST …/gather/frame` → 위 몸통. 그때의 저장 바이트와 자리 정보를 **세션 잠금 안에서 함께** 고정(새 frameId). 409 unsupportedForm · noValues · notApplied · staleHeadings(2·3단계 분석이 지금 차례의 것이 아님 — 없을 때도).
 - `GET  …/gather/frame/file` → 고정한 hwpx(첨부). 404 noFrame.
 - `PUT|DELETE …/gather/parts/{part}` `{orgs?: [기관 열쇠…], common?: bool}` → 위 몸통. 없던 문서면 넣는다(order 끝 · 그 작업의 task = {rnd, part, 취합본의 과제, plan_merge} — server.work_task 의 길 그대로라
@@ -24,7 +24,7 @@
 **오류 꼴**: 이 끝점들의 400·404·409 는 모두 `detail = {"reason": 까닭 열쇠, "message": 한국어 글}`(MSG). 422 는 server._transact 의 것 그대로.
 
 저장(취합본 작업 폴더 — 작업 저장이 꺼져 있으면 메모리): `gather.json` {version(설정·결정이 바뀔 때마다 +1 — 넣은 기록만 적을 때는 그대로), frameId, order[], parts{id: {name, added, orgs[], common, frameId,
-decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held, rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind, ev(그 편집이 적은 편집 구역의 출처 이벤트 id — spec_구역 ② §4: 없으면 옛 기록)}}}}, gone{뺀 문서의 넣은 기록},
+decisions{열쇠: {value, source, …}}, llm{at, units[], job, guide, held(보류로 저장한 수), keptPrev(앞 판정을 둔 수 — 옛 기록에는 없다), rejected, left, counts} | null, applied{열쇠: {at, ids, fp, kind, ev(그 편집이 적은 편집 구역의 출처 이벤트 id — spec_구역 ② §4: 없으면 옛 기록)}}}}, gone{뺀 문서의 넣은 기록},
 filled{at(time.time()), rev(반영 뒤 차례), part, kind: fill, ids[그 반영의 넣은 본문 블록 — 앞 FILLED_IDS 개], legacy?(표식을 적기 전에 넣은 취합본에 한 번 적은 것 — legacy_filled)}(마지막 「내용 반영」 의 표식 — 넣은 것이 있을 때만 · 판은 안 올린다: 「넣은 뒤 템플릿 · 서식 정리」 가 읽는다 — spec_병합 ② §5-9)} ·
 `gather/frame-<frameId>.hwpx`(나눠 주는 바이트) · `gather/frame-<frameId>.json.gz`(자리 정보 + frameId·at·sha256·runs·division{planId, rev}) · `gather/llm-<기관 문서 id>.json`(마지막으로 보낸 프롬프트·답 — 화면 「지침」).
 기준본이 낡음(frame.stale) = 기준본 뒤에 취합본의 구분 기준을 다시 반영함(그때 적어 둔 반영 계획 id·차례와 다름) · 또는 기준본의 블록 id 가 지금 문서에 절반도 안 남음.
@@ -389,7 +389,7 @@ def _row(G, pid, got=None, why=(), error=None):
     state = "blocked" if why else "unassigned" if not orgs else "new" if not got else "todo" if got["todo"] else "done"
     return {"work": pid, "name": _name(pid, rec), "order": G["order"].index(pid), "orgs": orgs, "orgsBy": rec.get("orgsBy") if orgs else None, "common": rec.get("common", True) is not False, "frameId": rec.get("frameId"), "state": state,
             "counts": got["counts"] if got else None, "todo": got["todo"] if got else None,
-            "llm": {"at": llm.get("at"), "held": llm.get("held") or 0, "stale": got["llmStale"] if got else 0} if isinstance(llm, dict) else None,
+            "llm": {"at": llm.get("at"), "held": llm.get("held") or 0, "keptPrev": llm.get("keptPrev") or 0, "stale": got["llmStale"] if got else 0} if isinstance(llm, dict) else None,
             "recommend": got["recommend"] if got else None, "reasons": reasons, **({"error": error} if error else {})}
 
 
@@ -705,10 +705,18 @@ def gather_decide(doc_id: str, part: str, key: str, body: dict = Body(...)):
     return _links_view(doc_id, part)
 
 
+def _keeps(old, new):
+    """새 검토의 결정 new 가 「보류」(held — 호출 실패 · 답 누락)일 때 앞 결정 old 를 그대로 둘까 — old 가 **LLM 이 실제로 낸 판정**(source llm · 보류 아님)이고 **같은 자료**(inputHash 가 같음)에 대한 것일 때만.
+    새 시도의 실패가 앞의 성공한 판정을 지우지 않게 한다(spec_작업 ② §22 「구현 계약」 22-2 ⓐ). 자료가 달라졌거나(inputHash 다름) · 앞 결정도 보류였거나 · 없으면 전처럼 보류로 적는다.
+    inputHash 가 없는 결정끼리는 「같은 자료」 로 보지 않는다(견줄 것이 없다)."""
+    return bool(new.get("held") and old.get("source") == "llm" and not old.get("held") and old.get("inputHash") and old.get("inputHash") == new.get("inputHash"))
+
+
 @router.post("/api/docs/{doc_id}/gather/parts/{part}/llm")
 def gather_llm(doc_id: str, part: str):
     """LLM 순회 검토(§4-3) — 넣을 수 있는 작성 내용을 취합본의 장마다 나눠 병렬로 묻는다(merge_gather_llm). 권한은 좁히는 쪽뿐이고 사람이 고른 것은 보내지도 않는다.
-    받은 결정은 source llm 로 저장: 사람 것은 그대로 · 이제 없는 열쇠의 앞선 LLM 결정은 버림 · 이번 답으로 갈아 끼움. 요약은 parts[part].llm, 프롬프트·답은 `gather/llm-<part>.json`.
+    받은 결정은 source llm 로 저장: 사람 것은 그대로 · 이제 없는 열쇠의 앞선 LLM 결정은 버림 · 이번 답으로 갈아 끼움 — 단 이번에 답을 못 받아 보류가 된 것은 같은 자료의 앞 판정이 있으면 그것을 둔다(_keeps · 수 = llm.keptPrev).
+    요약은 parts[part].llm, 프롬프트·답은 `gather/llm-<part>.json`.
     ponytail: 요청 하나가 끝까지 기다린다(merge_api.merge_links_llm 과 같다) — 분 단위가 되면 배경 작업 + 폴링으로."""
     from app import job_prompts
     _free(doc_id)
@@ -736,10 +744,19 @@ def gather_llm(doc_id: str, part: str):
     def fn(G2):
         r = _rec(G2, part)
         ds = {k: v for k, v in (r.get("decisions") or {}).items() if isinstance(v, dict) and (v.get("source") == "user" or k in keys)}
-        ds.update({k: v for k, v in res["decisions"].items() if (ds.get(k) or {}).get("source") != "user"})
+        kept = 0
+        for k, v in res["decisions"].items():
+            old = ds.get(k) or {}
+            if old.get("source") == "user":
+                continue
+            if _keeps(old, v):   # 이번에 답을 못 받았을 뿐이다 — 같은 자료에 대한 앞 판정을 보류로 덮지 않는다
+                kept += 1
+                continue
+            ds[k] = v
         r["decisions"] = ds
         r["llm"] = {"at": at, "units": [{k: u[k] for k in ("title", "pages", "over", "targets", "opinions", "chars", "call", "held") if k in u} for u in res["units"]],   # prompt·answer 는 크다 — 따로
-                    "job": res.get("job"), "guide": res.get("guide"), "held": len(res["held"]), "rejected": len(res["rejected"]), "left": res.get("left", 0), "counts": res.get("counts")}
+                    "job": res.get("job"), "guide": res.get("guide"), "held": len(res["held"]) - kept, "keptPrev": kept,   # held = 보류로 저장한 수(앞 판정을 둔 것은 keptPrev 로 따로 — units[].held 는 그 호출이 답을 못 받은 수 그대로)
+                    "rejected": len(res["rejected"]), "left": res.get("left", 0), "counts": res.get("counts")}
     _change(doc_id, fn)
     last = {"at": at, "part": part, "units": [{"n": i, "title": u["title"], "pages": u["pages"], "targets": u["targets"], "opinions": u.get("opinions", 0), "tables": None,
                                                "error": (u.get("call") or {}).get("error"), "prompt": u.get("prompt"), "answer": u.get("answer")} for i, u in enumerate(res["units"])],

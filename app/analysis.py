@@ -39,6 +39,32 @@ def _llm(res, running, failed=None, waiting=False):
     return {"state": "done", "text": "LLM 판정함" + (" — " + " · ".join(b for b in bits if b) if any(bits) else ""), "error": None}
 
 
+def tables_left(res):
+    """표 구조 결과의 LLM 판정이 어디까지인가(spec_작업 ② §22 「구현 계약」 22-4 ⓔ) → {asked(그 결과가 LLM 을 거침 — requested 이고 대체가 아님), carried(앞 LLM 판정을 이어 쓴 표 수),
+    pending(보완 대상 수 — 아직 LLM 이 봐야 할 표), settled(「LLM 검증·보완」 이 표 단계를 건너뛰어도 되나 — LLM 을 거쳤거나 이어 쓴 결과이고 보완 대상이 0)}.
+    carried · pending 을 남기지 않은 옛 결과는 0 으로 읽는다(LLM 을 거친 옛 결과 = settled). 분석 상태 · 「돌 것」(llm_plan) · 실행(analysis_llm._tables)이 같이 쓴다."""
+    lm = (res or {}).get("llm") or {}
+    asked = bool(lm.get("requested") and not lm.get("fallback"))
+    carried, pending = int(lm.get("carried") or 0), int(lm.get("pending") or 0)
+    return {"asked": asked, "carried": carried, "pending": pending, "settled": (asked or carried > 0) and pending == 0}
+
+
+def _tables_llm(llm, res):
+    """표 항목의 LLM 칸 — 이어 쓴 판정을 얹는다(_llm 의 결과 위에): 그 결과가 LLM 을 거쳤으면 「됨」 그대로(글에 이어 씀 · 보완 대상) ·
+    LLM 을 거치지 않았어도(스크립트로 다시 돌림 · LLM 이 답을 못 함) **이어 쓴 표가 있고 보완 대상이 0 이면 「됨」** · 보완 대상이 남았으면 상태는 그대로 두고 글에 적는다. 도는 중 · 대기는 건드리지 않는다."""
+    left = tables_left(res)
+    if llm["state"] in ("running", "wait") or not (left["carried"] or left["pending"]):
+        return llm
+    if llm["state"] == "done":
+        bits = [f"이어 씀 {left['carried']}" if left["carried"] else "", f"보완 대상 {left['pending']}" if left["pending"] else ""]
+        return {**llm, "text": llm["text"] + "".join(f" · {b}" for b in bits if b)}
+    if not left["carried"]:
+        return llm  # 이어 쓴 판정이 없는 결과(스크립트 초안 · LLM 실패) — 전과 같은 글
+    if not left["pending"]:
+        return {"state": "done", "text": f"LLM 판정을 이어 씀 — 표 {left['carried']}", "error": None}
+    return {**llm, "text": f"LLM 판정을 이어 씀 — 표 {left['carried']} · 보완 대상 {left['pending']}"}
+
+
 def _text(key, res):
     """도움말 한 줄 — 「헤딩 그래프 — 실행 5 · 템플릿 21」."""
     name, meta, counts = STAGE[key][2], (res or {}).get("meta") or {}, (res or {}).get("counts") or {}
@@ -90,6 +116,9 @@ def _item(key, st, sess, job, turn):
         if und:
             out["llm"] = {**out["llm"], "text": out["llm"]["text"] + f" · 미판정 {und}(구간 검증 실패 — 스크립트 초안 그대로)"}
     if key == "tables":
+        left = tables_left(res)
+        out["llm"] = _tables_llm(out["llm"], res)
+        out["carried"], out["pending"] = left["carried"], left["pending"]  # 앞 LLM 판정을 이어 쓴 표 · 보완 대상(아직 LLM 이 봐야 할 표) — 화면 · 워크플로우가 읽는다
         calc = ((res or {}).get("counts") or {}).get("calc") or {}
         out["calc"] = {"formulas": calc.get("formulas", 0), "ok": calc.get("ok", 0), "mismatch": calc.get("mismatch", 0)} if calc else None  # 검산(스크립트) — 진행표의 표 줄
     return out
@@ -361,7 +390,13 @@ def llm_plan(items, need_plans):
     if heads is None or tables is None:
         return []
     h_run = heads["llm"]["state"] != "done"
-    t_run = h_run or tables["llm"]["state"] != "done"
+    # 표 — LLM 을 거쳤거나 앞 판정을 이어 쓴 결과이고 **보완 대상이 0** 일 때만 건너뛴다(spec_작업 ② §22 「구현 계약」 22-4 ⓓ ⓔ — analysis_llm._tables 와 같은 기준). 돌 때는 보완 대상만 묻는다
+    t_pend, t_car = int(tables.get("pending") or 0), int(tables.get("carried") or 0)
+    t_moved = bool(tables.get("moved"))   # 그 결과를 낸 뒤 문서가 바뀜 — 그 결과의 「보완 대상 0」 은 지금 문서의 것이 아니다: 지금 표로 다시 센다(astra 결과 검토 P1-13 — 새 표 · 늘어난 줄만 묻고 없으면 호출 없음)
+    t_done = tables["llm"]["state"] == "done" and not t_pend and not t_moved
+    t_run = h_run or not t_done
+    t_what = (f"앞 판정을 이어 쓰고 보완 대상 표 {t_pend}개만 판정" if t_pend and (t_car or tables["llm"]["state"] == "done")
+              else "문서가 바뀌어 지금 표로 다시 봄 — 앞 판정을 이어 쓰고 새로 생기거나 줄이 늘어난 표만 판정(없으면 호출 없음)" if t_moved and tables["llm"]["state"] == "done" else "칸 역할 · 서브 테이블 판정")
     f_need = by["formats"]["llm"].get("need", 0) if "formats" in by else 0
     f_run = h_run or need_plans > 0
     nos = part_nos(("heads", "tables", "formats"), h_run)
@@ -371,9 +406,9 @@ def llm_plan(items, need_plans):
         {"key": "heads", "no": nos["heads"], "name": "헤딩 · 템플릿 — 헤딩 그래프(LLM)", "run": h_run,
          "why": "못 맞춤·충돌 규칙 보강 → 유형 판정 · 구간 검토 — 규칙 보강이 끝나면 표 판정 호출이 같이 돕니다(서식 계획은 이 결과가 나온 뒤)" if h_run else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
         {"key": "tables", "no": nos["tables"], "name": "표 — 표 구조(LLM)", "run": t_run,
-         "why": (("헤딩 그래프를 다시 지으므로 표 구조도 다시" if tables["llm"]["state"] == "done" else "칸 역할 · 서브 테이블 판정")
-                 + " — 호출은 헤딩 판정과 같이(규칙 보강 뒤 바로) · 소속은 헤딩 그래프가 끝난 뒤 붙임" if h_run else "칸 역할 · 서브 테이블 판정" + both) if t_run
-         else "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"},
+         "why": (("헤딩 그래프를 다시 지으므로 표 구조도 다시 — 앞 판정을 이어 쓰고 보완 대상만 묻습니다(없으면 호출 없음 · 호출은 헤딩 판정과 같이) · 소속은 헤딩 그래프가 끝난 뒤 붙임" if t_done
+                  else t_what + " — 호출은 헤딩 판정과 같이(규칙 보강 뒤 바로) · 소속은 헤딩 그래프가 끝난 뒤 붙임") if h_run else t_what + both) if t_run
+         else ("지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀" if not t_car else "앞 LLM 판정을 이어 썼고 보완 대상이 없습니다 — 건너뜀")},
         {"key": "formats", "no": nos["formats"], "name": "서식 — 템플릿 서식 정리 계획", "run": f_run,
          "why": ("헤딩 그래프를 다시 지은 뒤 서식이 두 가지 이상인 템플릿마다 계획만(문서는 안 바뀜)" if h_run
                  else f"정리할 템플릿 {need_plans}개 — 계획만(문서는 안 바뀜)" if need_plans

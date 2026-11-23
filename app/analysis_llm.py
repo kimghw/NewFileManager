@@ -2,7 +2,8 @@
 
 헤딩 작업 자리 하나(heading_runs.start 의 runner — 다른 헤딩 작업과 겹치면 Busy)에서:
   ① 헤딩 · 템플릿 = 「헤딩 그래프(LLM)」(heading_runs.run_stage2 — 못 맞춤·충돌 규칙 보강부터) — 지금 결과가 이미 LLM 을 거쳤으면 건너뜀
-  ② 표 = 「표 구조(LLM)」(run_stage3) — 이미 LLM 을 거쳤고 ①이 다시 돌지 않았으면 건너뜀
+  ② 표 = 「표 구조(LLM)」(run_stage3) — **보완 대상만** 묻는다(앞 LLM 판정은 이어 쓴다 — spec_작업 ② §22 「구현 계약」 22-4). LLM 을 거쳤거나 앞 판정을 이어 쓴 결과이고
+     보완 대상이 없으며 ①이 다시 돌지 않았으면 건너뜀(①이 다시 돌았으면 소속을 붙이려고 다시 짓는다 — 보완 대상이 없으면 호출 없이). 전부 다시 묻는 것은 「표 구조(LLM)」 단추
   ③ 서식 = 갈래가 둘 이상인 템플릿마다 「템플릿 서식 정리」 계획만(tpl_agent_api.plan_one — 받은 계획은 작업 폴더에 남는다) — 계획이 없거나 옛것인 템플릿만.
      템플릿끼리도 같이(LLM 자리 수까지 — 템플릿마다 따로 선 일)
 같이 도는 것(2026-11-16 사용자 "각각 병렬로 할 수 있는 작업은 표기를 하고 병렬로 할 수 있으면 병렬로 해줘" · 2026-11-17 "문서가 큰 경우 병렬에이전트를 사용해서 판정 및 실행을 할 수 있도록"):
@@ -91,9 +92,9 @@ def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True
     rebuilt = False
     ahead = None
     if "heads" in parts:
-        if heads_run and "tables" in parts:  # ②의 판정 호출을 ①과 같이 — run_stage2 가 1단계를 정한 뒤 시작한다(TablesAhead)
+        if heads_run and "tables" in parts:  # ②의 판정 호출을 ①과 같이 — run_stage2 가 1단계를 정한 뒤 시작한다(TablesAhead). 보완 대상만 묻는다(again 거짓 — spec_작업 ② §22 「구현 계약」 22-4 ⓓ)
             ahead = job.tables_ahead = heading_runs.TablesAhead(
-                on_progress=lambda done, total: _part(job, "tables", "running", f"표 판정 호출 {done}/{total} 끝남 — {AHEAD_NOTE}"))
+                on_progress=lambda done, total: _part(job, "tables", "running", f"표 판정 호출 {done}/{total} 끝남 — {AHEAD_NOTE}"), again=False)
         try:
             n, rebuilt, ok = _heads(sess, job, st, force, strict)
         except Stop:  # ①의 LLM 이 답을 못 함 — 이미 묻기 시작한 ②는 받은 답으로 맺고(유료 답을 버리지 않는다) 작업은 ①의 까닭으로 실패
@@ -132,7 +133,7 @@ def _close_ahead(sess, job, st, status, msg):
     """①이 실패했거나 멈추기를 누른 뒤 — ①과 같이 묻기 시작한 ②를 받은 답으로 맺는다 → 저장한 실행 번호 | None. ②의 실패는 단계 줄에만 남긴다(작업의 까닭은 ①의 것).
     **받은 답 가운데 쓸 것이 하나도 없으면**(LLM 꺼짐 · 자리 없음 · 호출이 모두 실패) 표 구조를 짓지 않는다 — ②를 status · msg 로 적고 앞 결과는 그대로 둔다(「LLM 실패」 결과로 덮지 않는다)."""
     ahead = job.tables_ahead
-    if not ahead.useful():
+    if not ahead.useful() and not ahead.empty():  # empty = 보완 대상이 없어 묻지 않음 — 실패가 아니다: 앞 판정을 이어 쓴 표 구조를 새 헤딩 그래프의 소속으로 맺는다(호출 없음)
         ahead.drop(job, "표 판정 호출이 답을 받지 못함 — 표 구조는 앞 결과 그대로")
         _part(job, "tables", status, msg)
         return None
@@ -157,16 +158,17 @@ def _heads(sess, job, st, force, strict):
         n = heading_runs.run_stage2(sess, job, True)
         _log(sess, st, 2, job, n)
         lm = (st.get("stage2") or {}).get("llm") or {}
-        if not llm_done(st.get("stage2")):
-            why = _why(lm.get("error"))
-            _part(job, "heads", "failed", f"LLM 판정을 못 해 스크립트 결과로 대신함 — {why}")
+        kept = getattr(job, "kept2", None)  # LLM 이 답을 못 했는데 지금 결과가 LLM 판정을 거친 것이라 그대로 둠(run_stage2 — spec_작업 ② §22 「구현 계약」 22-4 ⓖ): 지금 결과(앞 LLM 결과)로는 성공처럼 읽힌다
+        if kept or not llm_done(st.get("stage2")):
+            why = _why((kept or {}).get("error") if kept else lm.get("error"))
+            _part(job, "heads", "failed", f"LLM 판정을 못 함 — 앞 LLM 결과를 그대로 둠 — {why}" if kept else f"LLM 판정을 못 해 스크립트 결과로 대신함 — {why}")
             if strict:
                 raise Stop(f"헤딩 그래프 LLM 판정을 못 함 — {why}")
             with job.lock:  # 「헤딩 그래프(LLM)」 — 전처럼 작업은 끝난 것으로(결과 = 스크립트 대체 판정 · 단계 줄에 실패). 뒤 단계는 돌리지 않는다
                 for x in job.parts:
                     if x["status"] == "wait":
                         x.update(status="stopped", msg="헤딩 LLM 판정을 못 해 돌리지 않음")
-            return n, True, False
+            return n, not kept, False
         rebuilt = True
         rules = lm.get("rules") or {}
         _part(job, "heads", "ok", " · ".join(b for b in (f"규칙 보강 {rules.get('saved', 0)}" if rules else "", f"반영 {lm.get('applied', 0)}",
@@ -175,23 +177,29 @@ def _heads(sess, job, st, force, strict):
 
 
 def _tables(sess, job, st, rebuilt):
-    """② 표 구조(LLM) → 저장한 실행 번호 | None(건너뜀)."""
-    if llm_done(st.get("stage3")) and not rebuilt:
-        _part(job, "tables", "skip", "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀")
+    """② 표 구조(LLM) → 저장한 실행 번호 | None(건너뜀). **보완 대상만 묻는다**(spec_작업 ② §22 「구현 계약」 22-4 ⓓ — run_stage3 의 again 거짓: job.tables_again):
+    지금 결과가 LLM 을 거쳤거나 앞 판정을 이어 쓴 것이고 보완 대상이 0 이면 건너뛴다(analysis.tables_left — ①이 다시 돌았으면 소속을 새 헤딩 그래프에서 붙이려고 다시 짓는다: 그때도 보완 대상만 묻는다)."""
+    left = analysis.tables_left(st.get("stage3"))
+    moved = ((st.get("stage3") or {}).get("meta") or {}).get("rev") != sess.rev   # 그 결과 뒤 문서가 바뀜 — 「보완 대상 0」 은 옛 문서의 것이라 건너뛰지 않고 지금 표로 다시 센다(analysis.llm_plan 과 같은 기준)
+    if left["settled"] and not rebuilt and not moved:
+        _part(job, "tables", "skip", "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀" if left["asked"] else "앞 LLM 판정을 이어 썼고 보완 대상이 없습니다 — 건너뜀")
         return None
     ahead = getattr(job, "tables_ahead", None)
     with job.lock:
         going = any(x["key"] == "tables" and x["status"] == "running" for x in job.parts)
     if not going:  # ①과 같이 묻기 시작했으면 이미 「도는 중」 — 그 진행 글(호출 n/m)을 지우지 않는다
         _part(job, "tables", "running", "받은 표 판정 답을 헤딩 그래프에 붙이는 중" if ahead is not None and ahead.started else "")
+    job.tables_again = False  # 보완 대상만(전부 다시는 「표 구조(LLM)」 단추) — 인자 셋으로 부른다(시험 · 도구의 가짜 실행과 같은 꼴)
     n = heading_runs.run_stage3(sess, job, True)
     _log(sess, st, 3, job, n)
     lm = (st.get("stage3") or {}).get("llm") or {}
+    car = f"이어 씀 {lm['carried']}" if lm.get("carried") else ""
     if not llm_done(st.get("stage3")):
         why = _why(lm.get("error"))
-        _part(job, "tables", "failed", f"LLM 판정을 못 해 스크립트 결과로 대신함 — {why}")
+        _part(job, "tables", "failed", (f"LLM 판정을 못 함 — 앞 판정을 이어 씀(표 {lm['carried']}) — {why}" if lm.get("carried") else f"LLM 판정을 못 해 스크립트 결과로 대신함 — {why}"))
         raise Stop(f"표 구조 LLM 판정을 못 함 — {why}")
-    _part(job, "tables", "ok", " · ".join(b for b in (f"반영 {lm.get('applied', 0)}", f"호출 {lm.get('calls', 0)}" if lm.get("calls") else "",
+    _part(job, "tables", "ok", " · ".join(b for b in (f"반영 {lm.get('applied', 0)}", f"호출 {lm.get('calls', 0)}" if lm.get("calls") else "", car,
+                                                       f"보완 대상 {lm['pending']}" if lm.get("pending") else "",
                                                        f"호출은 {AHEAD_NOTE}" if lm.get("ahead") else "") if b))
     return n
 

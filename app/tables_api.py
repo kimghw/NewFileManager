@@ -945,9 +945,8 @@ def _style_tb(s, tid):
     if tb is None:
         raise HTTPException(400, "칸 역할을 읽지 못한 표입니다(1칸 표 · 상자)")
     user, held = _heads_now(s, tid, tb)
-    t3 = heading_runs.tables(s) or {}
-    stored = next((t for t in t3.get("tables") or [] if t.get("id") == tid), None)
-    j = table_manager.judge(stage1, tid, stored=stored, user=user, same_doc=(t3.get("meta") or {}).get("rev") == s.rev, template=table_types_api.template_for(s, tb))
+    stored, same = heading_runs.stored_table(s, tid)   # 지금 결과의 그 표 — LLM 판정이 없으면 그 표의 마지막 유효한 LLM 판정(스크립트로 다시 돌린 뒤에도 앞 판정을 읽는다: spec_작업 ② §22 「구현 계약」 22-4 ⓕ)
+    j = table_manager.judge(stage1, tid, stored=stored, user=user, same_doc=same, template=table_types_api.template_for(s, tb))
     marks = None
     if j["source"] == "stage3":   # 칸 글을 쓰는 항목(빈 값 표시)만은 LLM 이 고친 역할이 아니라 초안 + 유효한 사람 지정에서 필드인 칸에 한한다(출처가 draft · template 이면 판정이 곧 그것)
         marks = frozenset(x["id"] for x in table_manager.judge(stage1, tid, user=user)["table"]["cells"] if x["role"] == "field")

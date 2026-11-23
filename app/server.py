@@ -2450,7 +2450,10 @@ def headings_start(doc_id: str, body: dict = Body(default={})):
         from app import analysis_api
         return analysis_api.start_chain(s, "heads", body.get("skill")).view()
     try:
-        job = heading_runs.start(s, stage, use_llm, **({"first": True} if first else {}))
+        again = body.get("again", True)   # {stage: 3, llm: true, again: false} = 표 판정을 **보완 대상만** 묻는다(워크플로우의 LLM 줄 — spec_작업 ② §22 「구현 계약」 22-4 ⓓ) · 기본(「표 구조(LLM)」 단추) = 전부 다시
+        if not isinstance(again, bool):
+            raise HTTPException(400, "again 은 true 또는 false")
+        job = heading_runs.start(s, stage, use_llm, **({"first": True} if first else {}), **({"again": False} if stage == 3 and use_llm and not again and not first else {}))
     except heading_runs.Busy as e:
         raise HTTPException(409, str(e)) from e
     return job.view()
@@ -3389,7 +3392,7 @@ def divisions_llm_review(doc_id: str, body: dict = Body(default={})):
         idx = division_llm.index(s.doc.blocks())
         new_hints, applied, skipped = division_llm.apply_revisions(s.division.get("hints") or [], res["data"].get("revisions"), idx, PROFILE.hint_read)
         s.division["hints"] = new_hints
-        if applied:
+        if any(not a.get("note") for a in applied):   # 제안 메모만 남긴 줄(사람이 표시한 자리 — note)은 자리를 안 바꾼다: 세워 둔 계획을 버리지 않는다(spec_작업 ② §22 「구현 계약」 22-2 ⓑ)
             s.division["plan"] = None
         out = {"hints": list(new_hints), "applied": applied, "skipped": skipped, "summary": res["data"].get("summary") or "", "call": res["call"], "rev": s.rev,
                "form": res.get("form")}
@@ -3505,7 +3508,7 @@ def divisions_review(doc_id: str, body: dict = Body(default={})):
                 else:
                     new_hints, applied, skipped = division_llm.apply_revisions(old_hints, res_r["data"].get("revisions"), idx, PROFILE.hint_read)
                     s.division["hints"] = new_hints
-                    if applied:
+                    if any(not a.get("note") for a in applied):   # 제안 메모만 남긴 줄은 자리를 안 바꾼다(위 divisions_llm_review 와 같다)
                         s.division["plan"] = None
                     part_r = {"applied": applied, "skipped": skipped, "summary": res_r["data"].get("summary") or "", "call": res_r["call"]}
             if ran["missing"]:

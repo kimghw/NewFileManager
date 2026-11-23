@@ -81,8 +81,7 @@ def _read(s, tid, form, entries):
         raise HTTPException(400, "칸 역할을 읽지 못한 표입니다(1칸 표 · 상자)")
     user, held = tables_api._heads_now(s, tid, tb)
     t3 = heading_runs.tables(s) or {}
-    stored = next((t for t in t3.get("tables") or [] if isinstance(t, dict) and t.get("id") == tid), None)
-    same = (t3.get("meta") or {}).get("rev") == s.rev
+    stored, same = heading_runs.stored_table(s, tid)   # 지금 결과의 그 표 — LLM 판정이 없으면 그 표의 마지막 유효한 LLM 판정(spec_작업 ② §22 「구현 계약」 22-4 ⓕ)
     hits = table_types.matches(entries, tb) if form else []
     hit = table_types.pick(hits)   # 하나면 그것 · 둘 이상이면 더 좁은 것(고정 머리글 칸이 다른 것들을 다 품고 더 많은 것) · 없으면 어느 쪽도 안 쓴다
     j = table_manager.judge(stage1, tid, stored=stored, user=user, same_doc=same, template=table_types.template_of(hit) if hit else None)
@@ -102,15 +101,14 @@ def _variable(ctx):
 def _also(s, tid, entries, hit, t3):
     """세션 잠금 안에서 — 이 문서에서 확정본 hit 가 맞아 쓰이는 **다른 표** [{table, differs: 그 표의 확정본 없이 낸 판정(3단계 결과 · 초안)이 확정본과 다른 칸 수}](문서 순).
     칸 수가 그 확정본과 같은 표만 읽는다(`…/tables/types` 와 같은 거르기 — 맞을 수 없는 표의 글을 다시 읽지 않는다)."""
-    from app import heading_rules, table_excel, table_manager
+    from app import heading_rules, heading_runs, table_excel, table_manager
     n, store, out = len(hit["geometry"]), None, []
-    stored = {t.get("id"): t for t in t3.get("tables") or [] if isinstance(t, dict)}
-    same = (t3.get("meta") or {}).get("rev") == s.rev
     for i, el in [*s.doc._ids.items()]:
         if i == tid or not str(el.tag).endswith("}tbl") or not s.doc._attached(el) or len(s.doc._tgrid(el)[1]) != n:
             continue
         store = heading_rules.load() if store is None else store   # 문단 종류 규칙 — 표마다 다시 읽지 않게 한 번만
-        j0 = table_manager.judge(table_excel.records(s.doc, i, store, getattr(s, "doc_key", None)) or {"paras": []}, i, stored=stored.get(i), same_doc=same)
+        stored, same = heading_runs.stored_table(s, i)   # 그 표의 저장 결과(LLM 판정이 없으면 마지막 유효한 것 — spec_작업 ② §22 「구현 계약」 22-4 ⓕ)
+        j0 = table_manager.judge(table_excel.records(s.doc, i, store, getattr(s, "doc_key", None)) or {"paras": []}, i, stored=stored, same_doc=same)
         if j0 is not None and (table_types.match(entries, j0["table"]) or {}).get("id") == hit["id"]:
             out.append({"table": i, "differs": len(table_types.differs(hit, j0["table"]))})
     return out

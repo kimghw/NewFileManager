@@ -449,7 +449,8 @@ def test_llm_review_narrows_holds_keeps_user_choices_and_shows_its_prompts(clien
     d = {it["key"]: it["decision"] for it in L["items"]}
     assert d[cells] == {"value": "skip", "source": "llm", "nature": "안내", "reason": "시험 까닭"} and d[own] == {"value": "keep", "source": "llm", "nature": "내용", "reason": "시험 까닭"}
     assert (d[rows]["value"], d[rows]["source"], d[rows]["held"]) == ("check", "llm", True) and d[common] == {"value": "skip", "source": "user"}
-    assert L["todo"] == 1 and L["counts"] == {"ready": 4} and L["part"]["llm"] == {"at": L["llm"]["at"], "held": 1, "stale": 0}   # 좁히기만 — 상태는 그대로
+    assert L["todo"] == 1 and L["counts"] == {"ready": 4} and L["part"]["llm"] == {"at": L["llm"]["at"], "held": 1, "keptPrev": 0, "stale": 0}   # 좁히기만 — 상태는 그대로
+    assert L["llm"]["keptPrev"] == 0   # 앞 판정이 없었다 — 답이 없는 것은 보류
     assert (L["llm"]["held"], L["llm"]["rejected"], L["llm"]["job"]["job"], L["llm"]["guide"]["name"], L["llm"]["counts"]) == (1, 0, "plan_merge", "gather", {"targets": 3, "opinions": 0, "user": 1})
     assert len([u for u in L["llm"]["units"] if u["call"]]) == len(jobs) and all("prompt" not in u and "answer" not in u for u in L["llm"]["units"])
     assert GA._store(to)["version"] == n + 1 and c.post(f"/api/docs/{to}/gather/parts/{A}/plan").json()["skipped"] == {"skip": 2, "check": 1}
@@ -483,6 +484,72 @@ def test_llm_review_narrows_holds_keeps_user_choices_and_shows_its_prompts(clien
     assert c.post(f"/api/docs/{to}/gather/parts/{A}/apply", json={"planId": p["planId"]}).json()["counts"]["hunks"] == 3
     L = c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()
     assert L["counts"] == {"same": 3, "ready": 1} and L["llm"]["stale"] == 0 and L["todo"] == 0
+
+
+def test_failed_or_silent_review_keeps_previous_llm_decision_of_same_input(client, monkeypatch):
+    """새 검토의 실패 · 답 누락이 앞의 성공한 판정을 보류로 덮지 않는다(spec_작업 ② §22 「구현 계약」 22-2 ⓐ) — 같은 자료(inputHash)의 보류 아닌 앞 LLM 결정만.
+    자료가 달라졌으면 · 앞 결정도 보류였으면 전처럼 보류 · 사람 결정은 그대로."""
+    c = client
+    to, v = _master(c)
+    A = _part(c, to, "기관A_가나대.hwpx", _edit_a, orgs=[J1])
+    items = c.get(f"/api/docs/{to}/gather/parts/{A}/links").json()["items"]
+    by = {(it["kind"], it["scope"]["kind"]): it["key"] for it in items}
+    cells, rows, own, common = by[("cells", "org")], by[("rows", "org")], by[("filled", "org")], by[("filled", "common")]
+    assert c.put(f"/api/docs/{to}/gather/parts/{A}/links/{common}", json={"value": "skip"}).status_code == 200   # 사람 결정
+    url = f"/api/docs/{to}/gather/parts/{A}/llm"
+
+    def decided(L):
+        return {it["key"]: it["decision"] for it in L["items"]}
+
+    def answers(said):   # said(hunk) → (nature, verdict) | None(답에서 뺌)
+        return lambda js, **kw: [{"data": {"reviews": [{"id": h["id"], "inputHash": h["inputHash"], "nature": a[0], "verdict": a[1], "reason": "처음"}
+                                                       for h in _payload(j)["hunks"] if (a := said(h))], "summary": ""}, "backend": "fake", "model": j["model"], "error": None} for j in js]
+    monkeypatch.setattr(llm, "ask_all", answers(lambda h: ("내용", "유지")))
+    L = c.post(url).json()
+    first = decided(L)[cells]
+    assert (first["value"], first["source"], first["reason"]) == ("keep", "llm", "처음") and "held" not in first
+    assert decided(L)[rows]["value"] == decided(L)[own]["value"] == "keep" and (L["llm"]["held"], L["llm"]["keptPrev"]) == (0, 0)
+    stored = dict(GA._store(to)["parts"][A]["decisions"][cells])
+
+    # ① 호출 실패 — 같은 자료의 앞 「유지」 는 그대로 · 자료가 달라진 것(own)과 앞도 보류였던 것(rows)은 보류
+    def spoil(G):
+        G["parts"][A]["decisions"][own].update(inputHash="0" * 12)
+        G["parts"][A]["decisions"][rows].update(value="check", held=True)
+    GA._change(to, spoil)
+    monkeypatch.setattr(llm, "ask_all", lambda js, **kw: [{"data": None, "backend": "fake", "error": "timeout", "model": j["model"]} for j in js])
+    r = c.post(url)
+    assert r.status_code == 200, r.text[:400]
+    L = r.json()
+    d = decided(L)
+    assert d[cells] == first and GA._store(to)["parts"][A]["decisions"][cells] == stored   # 저장한 것까지 그대로(보류로 안 바뀜)
+    assert all((d[k]["value"], d[k]["source"], d[k].get("held")) == ("check", "llm", True) for k in (own, rows))
+    assert d[common] == {"value": "skip", "source": "user"}
+    assert (L["llm"]["held"], L["llm"]["keptPrev"], L["part"]["llm"]["held"], L["part"]["llm"]["keptPrev"]) == (2, 1, 2, 1)
+    assert sum(u.get("held") or 0 for u in L["llm"]["units"]) == 3   # 그 호출이 답을 못 받은 수는 그대로 적는다
+    assert _row(c.get(f"/api/docs/{to}/gather").json(), A)["llm"]["keptPrev"] == 1
+
+    # ② 답은 왔는데 그 작성 내용만 빠짐 — 앞 판정을 둔다 · 답이 온 것은 이번 답으로 갈아 끼움
+    monkeypatch.setattr(llm, "ask_all", answers(lambda h: None if h["id"] == cells else ("안내", "제외")))
+    L = c.post(url).json()
+    d = decided(L)
+    assert d[cells] == first and d[own]["value"] == d[rows]["value"] == "skip" and "held" not in d[own] and "held" not in d[rows]
+    assert (L["llm"]["held"], L["llm"]["keptPrev"]) == (0, 1) and d[common] == {"value": "skip", "source": "user"}
+
+    # ③ 앞 결정이 없으면 전처럼 보류
+    GA._change(to, lambda G: G["parts"][A]["decisions"].pop(cells))
+    L = c.post(url).json()
+    assert (decided(L)[cells]["value"], decided(L)[cells].get("held")) == ("check", True) and (L["llm"]["held"], L["llm"]["keptPrev"]) == (1, 0)
+
+
+def test_keeps_only_a_real_llm_decision_of_the_same_input():
+    """_keeps — 앞 결정을 두는 조건을 하나씩: 새 것이 보류 · 앞 것이 LLM 의 보류 아닌 판정 · inputHash 가 같음(없는 것끼리는 같다고 보지 않는다)."""
+    new = {"value": "check", "source": "llm", "inputHash": "abc", "held": True}
+    old = {"value": "keep", "source": "llm", "inputHash": "abc"}
+    assert GA._keeps(old, new) is True and GA._keeps({**old, "value": "check"}, new) is True   # LLM 이 낸 「확인 필요」 도 판정이다
+    assert GA._keeps(old, {**new, "held": False}) is False and GA._keeps(old, {k: v for k, v in new.items() if k != "held"}) is False   # 새 답이 있으면 갈아 끼운다
+    assert GA._keeps({**old, "inputHash": "xyz"}, new) is False and GA._keeps({**old, "held": True}, new) is False
+    assert GA._keeps({**old, "source": "user"}, new) is False and GA._keeps({}, new) is False
+    assert GA._keeps({"value": "keep", "source": "llm"}, {"value": "check", "source": "llm", "held": True}) is False
 
 
 def test_drop_plan_then_apply_and_what_is_refused(client):

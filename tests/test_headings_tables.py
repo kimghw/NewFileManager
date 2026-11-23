@@ -453,12 +453,14 @@ def test_build_llm_fake_applies_and_marks_failures(small):
     assert len(ch) == 1 and ch[0]["role"] == "colhead" and ch[0]["draft"] == "rowhead" and ch[0]["reason"] == "분류 이름" and t8["llm"]["summary"] == "t8 요약"
     assert out["counts"]["changed"] == 1 and len(out["_calls"]) == 1 and out["_calls"][0]["response"]["summary"] == "전체 요약"
     t1 = next(t for t in out["tables"] if t["id"] == "t1")
-    assert t1["llm"] == {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False}
+    assert t1["llm"] == {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False, "state": "unsent"}   # 보낼 수 없는 표(3칸) — 보완 대상이 아니다
+    assert t8["llm"]["state"] == "answered" and (lm["asked"], lm["carried"], lm["pending"], lm["pendingTables"]) == (1, 0, 0, [])
     # 실패
     out2 = HT.build(small, use_llm=True, ask=lambda jobs: [_res(None, "가짜 실패") for _ in jobs])
     t8 = next(t for t in out2["tables"] if t["id"] == "t8")
     assert out2["llm"]["fallback"] and out2["llm"]["error"] == "가짜 실패" and out2["llm"]["undecided"] == 1 and t8["llm"]["undecided"]
     assert all(c["role"] == c["draft"] for c in t8["cells"])
+    assert t8["llm"]["state"] == "failed" and (out2["llm"]["pending"], out2["llm"]["pendingTables"]) == (1, ["t8"])   # 이을 판정이 없으면 초안 그대로 — 보완 대상
     # 답에 그 표가 빠짐 → 초안 그대로(미판정 아님), 모르는 표 id 는 버림
     out3 = HT.build(small, use_llm=True, ask=lambda jobs: [_res({"tables": [{"table": "t999", "subtables": [], "cells": [], "summary": ""}], "summary": ""}) for _ in jobs])
     t8 = next(t for t in out3["tables"] if t["id"] == "t8")
@@ -605,3 +607,400 @@ def test_shaded_value_row_and_column_are_fields():
         y.cell(2, c, "", fill=g)
     tb3 = HT.build(stage1(y), use_llm=False, ask=_no_llm)["tables"][0]
     assert tb3["subtables"][0]["headerCols"] == 1 and {c["role"] for c in tb3["cells"] if c["row"] >= 1 and c["col"] >= 1} == {"field"}
+
+
+def _budget_tab(tid="t10", filled=True):
+    """연차 총괄표(2026-11-23 사용자 화면 — 「공동연구개발기관3」 연구개발비 표의 꼴): 비목 | 항목 | 1단계(1x3: 1차·2차·3차년도) | 합계 ; 직접비(인건비 · 소계 · 총 인건비) · 간접비 · 비율 · 총액.
+    음영 = 헤더(회색) + 「합계」 열 · 「총 인건비」 · 「총액」 줄(회색) + 3차년도 값 열(하늘색 — 당해 연도를 칠해 둔 값 칸). filled = 값이 채워진 것(False = 빈 양식)."""
+    g, b = "#D6D6D6", "#DFEAF5"
+    t = Tab(tid)
+    t.cell(0, 0, "비목", rs=2, fill=g)
+    t.cell(0, 1, "항목", rs=2, fill=g)
+    t.cell(0, 2, "1단계", cs=3, fill=g)
+    t.cell(0, 5, "합계", rs=2, fill=g)
+    for i, name in enumerate(["1차년도", "2차년도", "3차년도"]):
+        t.cell(1, 2 + i, name, fill=g)
+    t.cell(2, 0, "직접비", rs=3, fill=g)
+    names = ["인건비(A)", "소계(A+B)", "총 인건비(E=A+B)"]
+    vals = [["245,600", "220,000", "142,000", "607,600"], ["365,600", "325,000", "247,000", "937,600"], ["365,600", "325,000", "247,000", "937,600"],
+            ["", "", "24,000", "24,000"], ["0.0%", "0.0%", "7.1%", "3.7%"], ["533,334", "466,667", "466,667", "1,466,668"]]
+    fills = [[None, None, b, g], [None, None, b, g], [g, g, b, g], [None, None, b, g], [None, None, b, g], [g, g, b, g]]
+    for r, name in enumerate(names):
+        t.cell(2 + r, 1, name, fill=g)
+    t.cell(5, 0, "간접비(L)", cs=2, fill=g)
+    t.cell(6, 0, "간접비 비율(L/E)", cs=2, fill=g)
+    t.cell(7, 0, "연구개발비 총액(M=E+L)", cs=2, fill=g)
+    for r in range(6):
+        for c in range(4):
+            v = vals[r][c] if filled else ""
+            t.cell(2 + r, 2 + c, v, kind="data" if v else None, fill=fills[r][c])
+    return t
+
+
+def test_shaded_number_cells_are_fields():
+    """숫자 값만 든 음영 칸(2026-11-23 사용자 「색상이 있다 할지라도 이건 내부는 필드」) — 금액 · 비율이 든 음영 칸은 헤더 행·열 밖에서 필드이고(합계 열 · 소계 · 총액 줄 · 당해 연도를
+    칠한 값 열), 그 줄 때문에 띠가 잘리지 않는다. 같은 표의 빈 양식과 판정이 같다. 이름일 수 있는 숫자(연도 · 순번 꼴)는 전처럼 이웃 규칙."""
+    filled = HT.build(stage1(_budget_tab()), use_llm=False, ask=_no_llm)["tables"][0]
+    blank = HT.build(stage1(_budget_tab("t11", filled=False)), use_llm=False, ask=_no_llm)["tables"][0]
+    for tb in (filled, blank):
+        assert [(tuple(s["rows"]), s["kind"], s["headerRows"], s["headerCols"]) for s in tb["subtables"]] == [((0, 8), "matrix", 2, 2)]
+        assert {c["role"] for c in tb["cells"] if c["row"] >= 2 and c["col"] >= 2} == {"field"}
+    assert [c["role"] for c in filled["cells"]] == [c["role"] for c in blank["cells"]]
+    total = by_text(filled, "1,466,668")
+    assert total["nature"] == "header" and total["shaded"] and total["role"] == "field" and len(total["rowPath"]) == 1 and len(total["colPath"]) == 1
+    assert by_text(filled, "연구개발비 총액(M=E+L)")["role"] == "rowhead" and by_text(filled, "합계")["role"] == "colhead"
+    # 헤더 바로 아래의 음영 합계 줄(「합계 | 1,000 | 2,000」)은 헤더 행이 아니다 — 금액 칸이 열헤더가 되지 않는다
+    g = "#D9D9D9"
+    t = Tab("t12")
+    for c, name in enumerate(["항목", "1차년도", "2차년도"]):
+        t.cell(0, c, name, fill=g)
+    t.cell(1, 0, "합계", fill=g)
+    t.cell(1, 1, "1,000", kind="data", fill=g)
+    t.cell(1, 2, "2,000", kind="data", fill=g)
+    t.cell(2, 0, "인건비", fill=g)
+    t.cell(2, 1, "1,000", kind="data")
+    t.cell(2, 2, "2,000", kind="data")
+    tb = HT.build(stage1(t), use_llm=False, ask=_no_llm)["tables"][0]
+    assert [(s["headerRows"], s["headerCols"]) for s in tb["subtables"]] == [(1, 1)]
+    assert {c["role"] for c in tb["cells"] if c["row"] >= 1 and c["col"] >= 1} == {"field"} and by_text(tb, "합계")["role"] == "rowhead"
+    # 「차년도」 열(헤더 낱말) 아래 값 + 합계 줄의 음영 금액 칸 — 음영 금액 칸은 헤더 열의 근거가 아니다(값 열)
+    v = Tab("t13")
+    for c, name in enumerate(["항목", "1차년도", "2차년도", "합계"]):
+        v.cell(0, c, name, fill=g)
+    for r, (name, a, b2) in enumerate([("인건비", "100,000", "200,000"), ("재료비", "50,000", "60,000")]):
+        v.cell(1 + r, 0, name, fill=g)
+        v.cell(1 + r, 1, a, kind="data")
+        v.cell(1 + r, 2, b2, kind="data")
+        v.cell(1 + r, 3, "300,000", kind="data", fill=g)
+    v.cell(3, 0, "소계", fill=g)
+    for c, x in enumerate(["150,000", "260,000", "410,000"]):
+        v.cell(3, 1 + c, x, kind="data", fill=g)
+    tb = HT.build(stage1(v), use_llm=False, ask=_no_llm)["tables"][0]
+    assert [(tuple(s["rows"]), s["headerRows"], s["headerCols"]) for s in tb["subtables"]] == [((0, 4), 1, 1)]
+    assert {c["role"] for c in tb["cells"] if c["row"] >= 1 and c["col"] >= 1} == {"field"}
+    # 이름일 수 있는 숫자는 스크립트가 값으로 단정하지 않는다 — 「단계 | 1 | 1차년도 …」 의 단계 값 머리(순번 꼴) · 연도 꼴
+    s = Tab("t14")
+    for c, name in enumerate(["단계", "연차", "정부지원", "합계"]):
+        s.cell(0, c, name, fill=g)
+    s.cell(1, 0, "1", rs=2, kind="data", fill=g)
+    s.cell(1, 1, "2025", kind="data", fill=g)
+    s.cell(2, 1, "2026", kind="data", fill=g)
+    for r in (1, 2):
+        s.cell(r, 2, "")
+        s.cell(r, 3, "", fill=g)
+    tb = HT.build(stage1(s), use_llm=False, ask=_no_llm)["tables"][0]
+    assert by_text(tb, "1")["role"] == "rowhead" and by_text(tb, "2025")["role"] == "rowhead" and by_text(tb, "2026")["role"] == "rowhead"
+
+
+# ---- 6. 판정을 이어 쓰는 실행 · 보완 대상만 묻기(spec_작업 ② §22 「구현 계약」 22-4) ---------------------------------------------------------
+
+def _plan_tab(tid="t20", rows=("인건비", "합계"), vals=None):
+    """항목 | 1차년도 | 2차년도 ; 인건비 | . | . ; 합계 | . | . — 칸 id 는 넣은 차례라 줄을 끝에 늘려도 앞 칸의 id 가 그대로다(c7 = 「합계」). vals = {(줄, 열): 값}."""
+    g = "#D9D9D9"
+    t = Tab(tid)
+    for c, name in enumerate(["항목", "1차년도", "2차년도"]):
+        t.cell(0, c, name, fill=g)
+    for r, name in enumerate(rows):
+        t.cell(1 + r, 0, name, fill=g)
+        for c in (1, 2):
+            v = (vals or {}).get((r, c), "")
+            t.cell(1 + r, c, v, kind="data" if v else None)
+    return t
+
+
+def _ask_roles(changes, seen=None, drop=()):
+    """가짜 T 호출(`ask(jobs)` · `llm.ask_all(jobs, **kw)` 둘 다로 쓴다) — 띠는 초안 그대로, changes = {칸 id: 역할} 만 바꾼다. seen 에 물은 표 id · drop 에 든 표는 답에서 뺀다."""
+    def ask(jobs, **kw):
+        out = []
+        for job in jobs:
+            tabs = []
+            for tp in _data(job)["tables"]:
+                if seen is not None:
+                    seen.append(tp["table"])
+                if tp["table"] in drop:
+                    continue
+                ids = {tok.split("|")[0] for row in tp["grid"] for tok in row if tok not in ("", "^", "<")}
+                tabs.append({"table": tp["table"], "subtables": [{"sub": b["id"], "rows": b["rows"], "cols": b["cols"], "kind": b["kind"], "headerRows": -1, "headerCols": -1, "note": ""}
+                                                                  for b in tp["draft"]],
+                             "cells": [{"cell": c, "role": r, "reason": "가짜 판정"} for c, r in changes.items() if c in ids], "summary": f"{tp['table']} 요약"})
+            out.append(_res({"tables": tabs, "summary": ""}))
+        return out
+    return ask
+
+
+def _dead(jobs, **kw):
+    return [_res(None, "가짜 실패") for _ in jobs]
+
+
+def by_id(t, cid):
+    return next(c for c in t["cells"] if c["id"] == cid)
+
+
+def _changed(t):
+    return [c["id"] for c in t["cells"] if c["changed"]]
+
+
+def test_script_rerun_carries_the_llm_judgment():
+    """스크립트로 3단계를 다시 돌려도 LLM 이 고친 칸 역할이 남는다 — 표가 그대로일 때 · 값이 채워졌을 때 · 줄이 늘었을 때(늘어난 표는 보완 대상).
+    이어 쓴 결과를 또 이어 써도(스크립트로 거듭) 판정 뒤 생긴 칸은 보완 대상으로 남는다. 앞 판정을 안 주면 초안이다(틀린 쪽)."""
+    from app import table_manager as TM
+    s1 = stage1(_plan_tab())
+    first = HT.build(s1, use_llm=True, ask=_ask_roles({"t20c7": "note"}))
+    tb = first["tables"][0]
+    assert (by_id(tb, "t20c7")["role"], by_id(tb, "t20c7")["draft"]) == ("note", "rowhead") and tb["llm"]["state"] == "answered" and tb["judged"] is None
+    assert (first["llm"]["asked"], first["llm"]["carried"], first["llm"]["pending"]) == (1, 0, 0)
+    prior = {"t20": {**tb, "judged": {"run": 5, "rev": 2}}}   # 저장할 때 heading_runs 가 채우는 출처
+    keep = copy.deepcopy(prior)
+    plain = HT.build(s1, use_llm=False, ask=_no_llm)["tables"][0]   # 앞 판정 없이 — 초안으로
+    assert by_id(plain, "t20c7")["role"] == "rowhead" and plain["llm"]["state"] == "pending" and plain["judged"] is None
+    again = HT.build(s1, use_llm=False, ask=_no_llm, prior=prior, carry=TM.carry_over)   # 표가 그대로
+    t = again["tables"][0]
+    c = by_id(t, "t20c7")
+    assert (c["role"], c["draft"], c["changed"], c["reason"]) == ("note", "rowhead", True, "가짜 판정")
+    assert t["llm"]["state"] == "carried" and t["llm"]["carried"] == {"run": 5, "mode": "same", "kept": 9, "new": 0, "gone": 0, "bands": "stored"}
+    assert t["judged"] == {"run": 5, "rev": 2} and t["llm"]["sent"] is False and t["llm"]["summary"] == "t20 요약" and not t["llm"]["undecided"]
+    lm = again["llm"]
+    assert (lm["requested"], lm["fallback"], lm["asked"], lm["carried"], lm["pending"], lm["pendingTables"]) == (False, False, 0, 1, 0, []) and again["counts"]["changed"] == 1
+    assert prior == keep   # 저장된 결과는 안 고친다
+    filled = HT.build(stage1(_plan_tab(vals={(0, 1): "1,000", (1, 2): "2,000"})), use_llm=False, ask=_no_llm, prior=prior, carry=TM.carry_over)   # 값이 채워짐
+    t = filled["tables"][0]
+    assert by_id(t, "t20c7")["role"] == "note" and by_id(t, "t20c5")["text"] == "1,000" and t["llm"]["state"] == "carried"
+    assert (t["llm"]["carried"]["mode"], t["llm"]["carried"]["kept"], t["llm"]["carried"]["new"], filled["llm"]["pending"]) == ("carried", 9, 0, 0)
+    grown_s1 = stage1(_plan_tab(rows=("인건비", "합계", "재료비")))   # 줄이 늘어남 — 있던 칸은 그 역할 · 새 줄은 보완 대상
+    grown = HT.build(grown_s1, use_llm=False, ask=_no_llm, prior=prior, carry=TM.carry_over)
+    t = grown["tables"][0]
+    assert by_id(t, "t20c7")["role"] == "note" and t["llm"]["state"] == "carried" and {by_id(t, i)["role"] for i in ("t20c11", "t20c12")} == {"field"}
+    assert (t["llm"]["carried"]["kept"], t["llm"]["carried"]["new"], t["llm"]["carried"]["fresh"]) == (9, 3, ["t20c10", "t20c11", "t20c12"])
+    assert (grown["llm"]["carried"], grown["llm"]["pending"], grown["llm"]["pendingTables"]) == (1, 1, ["t20"])
+    twice = HT.build(grown_s1, use_llm=False, ask=_no_llm, prior={"t20": t}, carry=TM.carry_over)   # 이어 쓴 결과를 다시 이어 씀 — 새 칸이 「판정 때 있던 칸」 으로 바뀌지 않는다
+    t2 = twice["tables"][0]
+    assert (t2["llm"]["carried"]["mode"], t2["llm"]["carried"]["new"], twice["llm"]["pending"]) == ("same", 3, 1) and t2["judged"] == {"run": 5, "rev": 2}
+    assert by_id(t2, "t20c7")["role"] == "note" and prior == keep
+    assert HT.pending(grown_s1, {"t20": t}, TM.carry_over) == {"t20"} and HT.pending(s1, prior, TM.carry_over) == set() and HT.pending(s1, {}, TM.carry_over) == {"t20"}
+
+
+def test_complement_run_asks_only_pending_tables():
+    """보완 실행(only = 보완 대상) — 판정이 없는 표만 묻고 나머지는 이어 쓴다 · 보완 대상이 없으면 호출이 없다 · only 없이(전부 다시)는 판정이 있어도 다 묻는다."""
+    from app import table_manager as TM
+    s1 = stage1(_plan_tab("t20"), _plan_tab("t21"))
+    seen = []
+    first = HT.build(s1, use_llm=True, ask=_ask_roles({"t20c7": "note", "t21c7": "note"}, seen))
+    assert seen == ["t20", "t21"]
+    prior = {"t20": {**first["tables"][0], "judged": {"run": 3, "rev": 1}}}   # t21 의 판정은 없다(그 표만 답을 못 받았던 꼴)
+    only = HT.pending(s1, prior, TM.carry_over)
+    assert only == {"t21"}
+    seen.clear()
+    out = HT.build(s1, use_llm=True, ask=_ask_roles({"t21c7": "title"}, seen), prior=prior, carry=TM.carry_over, only=only)
+    ta, tb = out["tables"]
+    assert seen == ["t21"]   # 물은 표
+    assert (ta["llm"]["state"], ta["llm"]["sent"], by_id(ta, "t20c7")["role"], ta["judged"]) == ("carried", False, "note", {"run": 3, "rev": 1})
+    assert (tb["llm"]["state"], tb["llm"]["sent"], by_id(tb, "t21c7")["role"], tb["judged"]) == ("answered", True, "title", None)
+    lm = out["llm"]
+    assert (lm["requested"], lm["fallback"], lm["asked"], lm["sent"], lm["carried"], lm["pending"]) == (True, False, 1, 1, 1, 0)
+    both = {**prior, "t21": {**tb, "judged": {"run": 4, "rev": 1}}}
+    assert HT.pending(s1, both, TM.carry_over) == set()
+    none = HT.build(s1, use_llm=True, ask=_no_llm, prior=both, carry=TM.carry_over, only=set())   # 보완 대상 없음 — 호출 없이 끝난 것으로
+    assert (none["llm"]["requested"], none["llm"]["fallback"], none["llm"]["calls"], none["llm"]["asked"], none["llm"]["carried"], none["llm"]["pending"]) == (True, False, 0, 0, 2, 0)
+    assert [by_id(t, f"{t['id']}c7")["role"] for t in none["tables"]] == ["note", "title"]
+    seen.clear()
+    full = HT.build(s1, use_llm=True, ask=_ask_roles({}, seen), prior=both, carry=TM.carry_over)   # 전부 다시
+    assert seen == ["t20", "t21"] and [t["llm"]["state"] for t in full["tables"]] == ["answered", "answered"] and full["llm"]["carried"] == 0
+
+
+def test_failed_llm_run_keeps_the_prior_judgment():
+    """호출이 모두 실패한 LLM 실행 · 답에 그 표가 빠진 호출 뒤에도 앞 판정이 남는다(초안으로 안 돌아감) — 그 표는 보완 대상으로 센다. 이을 판정이 없을 때만 전처럼 초안 · 미판정."""
+    from app import table_manager as TM
+    s1 = stage1(_plan_tab())
+    first = HT.build(s1, use_llm=True, ask=_ask_roles({"t20c7": "note"}))
+    prior = {"t20": {**first["tables"][0], "judged": {"run": 2, "rev": 0}}}
+    for ask in (_dead, _ask_roles({"t20c7": "title"}, drop=("t20",))):
+        bad = HT.build(s1, use_llm=True, ask=ask, prior=prior, carry=TM.carry_over)
+        t = bad["tables"][0]
+        assert by_id(t, "t20c7")["role"] == "note" and _changed(t) == ["t20c7"] and t["llm"]["state"] == "carried" and t["judged"] == {"run": 2, "rev": 0}
+        assert t["llm"]["sent"] and not t["llm"]["undecided"] and t["llm"]["error"] == "T 호출 실패 — 앞 판정을 이어 씀"
+        assert (bad["llm"]["undecided"], bad["llm"]["carried"], bad["llm"]["pending"], bad["llm"]["pendingTables"]) == (0, 1, 1, ["t20"])
+    assert HT.build(s1, use_llm=True, ask=_dead, prior=prior, carry=TM.carry_over)["llm"]["fallback"]
+    lone = HT.build(s1, use_llm=True, ask=_dead, carry=TM.carry_over)   # 이을 판정이 없다
+    t = lone["tables"][0]
+    assert (t["llm"]["state"], t["llm"]["undecided"], by_id(t, "t20c7")["role"], lone["llm"]["undecided"], lone["llm"]["pending"]) == ("failed", True, "rowhead", 1, 1)
+
+
+def test_answer_accepted_in_no_part_is_not_a_new_judgment():
+    """답은 왔는데 하나도 받아들이지 못한 표(띠 나눔이 검증을 못 넘고 받은 칸도 없음)는 「고칠 것 없음」 이 아니다 — 새 판정으로 세지 않고 앞 판정을 이어 쓰며 보완 대상으로 남긴다.
+    이을 판정이 없으면 초안 · 미판정(전에는 answered · 보완 대상 0 이 되어 다음 실행이 그 초안을 LLM 판정으로 이어 썼다)."""
+    from app import table_manager as TM
+    s1 = stage1(_plan_tab())
+
+    def junk(jobs, **kw):   # 표 밖의 영역 + 없는 칸 id 만 답한다
+        return [_res({"tables": [{"table": tp["table"], "subtables": [{"sub": "a", "rows": [0, 999], "cols": [0, 999], "kind": "matrix", "headerRows": 1, "headerCols": 1, "note": ""}],
+                                  "cells": [{"cell": "없는칸", "role": "note", "reason": ""}], "summary": "엉뚱한 답"} for tp in _data(job)["tables"]], "summary": ""}) for job in jobs]
+    first = HT.build(s1, use_llm=True, ask=_ask_roles({"t20c7": "note"}))
+    prior = {"t20": {**first["tables"][0], "judged": {"run": 2, "rev": 0}}}
+    bad = HT.build(s1, use_llm=True, ask=junk, prior=prior, carry=TM.carry_over)
+    t = bad["tables"][0]
+    assert by_id(t, "t20c7")["role"] == "note" and t["llm"]["state"] == "carried" and t["judged"] == {"run": 2, "rev": 0} and "받아들이지 못함" in t["llm"]["error"]
+    assert (bad["llm"]["carried"], bad["llm"]["pending"], bad["llm"]["pendingTables"]) == (1, 1, ["t20"]) and t["llm"]["rejected"]
+    lone = HT.build(s1, use_llm=True, ask=junk, carry=TM.carry_over)["tables"][0]   # 이을 판정이 없다 — 초안 · 미판정
+    assert (lone["llm"]["state"], lone["llm"]["undecided"], by_id(lone, "t20c7")["role"]) == ("failed", True, "rowhead")
+
+
+def test_only_picks_tables_after_place_guides_are_assigned():
+    """자리 지침은 보낼 수 있는 표 전부에 먼저 배정하고 그다음에 물을 표를 고른다 — 겉 표를 묻지 않는다고 겉 표의 지침이 안쪽 표의 자료로 가지 않는다."""
+    outer, inner = Tab("tA"), Tab("tB")
+    for r in range(2):
+        for c in range(2):
+            outer.cell(r, c, f"겉{r}{c}", fill="#EEEEEE" if r == 0 else None)
+            inner.cell(r, c, f"안{r}{c}", fill="#EEEEEE" if r == 0 else None)
+    s1 = stage1(outer, inner)
+    host = next(r["path"] for r in s1["paras"] if r["path"][-1]["id"] == "tAc4")   # 겉 표의 마지막 칸에 안쪽 표를 넣는다
+    for r in s1["paras"]:
+        if r["path"][0]["id"] == "tB":
+            r["path"] = [host[0], host[1]] + r["path"]
+        r["table"], r["cell"] = r["path"][-2]["id"], r["path"][-1]["id"]
+    tables = HT.collect(s1)
+    assert [(t["id"], t["depth"], HT.sendable(t)) for t in tables] == [("tA", 1, True), ("tB", 2, True)]
+    drafts = {tb["id"]: HT.draft(tb) for tb in tables}
+    pinned = {**G.snapshot(), "place": {"sha1": "s", "tables": {"tA": [{"at": "p1", "kind": "※ 안내", "text": "겉 표의 지침"}]}}}   # p1 = 겉 표 첫 칸의 문단
+    jobs, _ = HT.t_jobs(tables, drafts, s1, pinned)
+    got = {t["table"]: t for j in jobs for t in _data(j)["tables"]}
+    assert got["tA"]["guides"] == [{"kind": "※ 안내", "text": "겉 표의 지침", "cell": "tAc1"}] and "guides" not in got["tB"]
+    jobs, _ = HT.t_jobs(tables, drafts, s1, pinned, only={"tB"})
+    assert [j["_tables"] for j in jobs] == [["tB"]] and jobs[0]["_guides"] == {} and "guides" not in _data(jobs[0])["tables"][0]
+    assert HT.t_jobs(tables, drafts, s1, pinned, only=set())[0] == []
+    asked = HT.ask_tables(s1, ask=_ask_roles({}), pinned=pinned, only={"tB"})
+    assert asked["only"] == ["tB"] and list(asked["answers"]) == ["tB"] and HT.ask_tables(s1, ask=_ask_roles({}))["only"] is None
+
+
+def _t(res, tid):
+    return next(t for t in res["tables"] if t["id"] == tid)
+
+
+def _first_cell(seen):
+    """기술수요조사서 t8 — 첫 줄 둘째 칸을 열헤더로 고치는 가짜 `llm.ask_all`(초안은 행헤더 — test_build_llm_fake_applies_and_marks_failures 와 같은 칸)."""
+    def ask(jobs, **kw):
+        out = []
+        for job in jobs:
+            tabs = []
+            for tp in _data(job)["tables"]:
+                seen.append(tp["table"])
+                tabs.append({"table": tp["table"], "subtables": [{"sub": b["id"], "rows": b["rows"], "cols": b["cols"], "kind": b["kind"], "headerRows": -1, "headerCols": -1, "note": ""}
+                                                                  for b in tp["draft"]],
+                             "cells": [{"cell": tp["grid"][0][1].split("|")[0], "role": "colhead", "reason": "분류 이름"}], "summary": ""})
+            out.append(_res({"tables": tabs, "summary": ""}))
+        return out
+    return ask
+
+
+def test_stage3_runs_carry_judgments_and_complement_asks_only_pending(client, monkeypatch):
+    """3단계 실행(heading_runs.run_stage3) — 스크립트로 다시 돌려도 LLM 판정이 남고 · 보완 실행(again=False)은 보완 대상만(없으면 호출 없음) · 「표 구조(LLM)」(again 기본)은 전부 다시 ·
+    호출이 모두 실패한 LLM 실행 뒤에도 앞 판정이 남는다. 답을 받은 표의 출처(judged)와 실행 목록의 judged 는 파일에 남는다."""
+    from app import llm
+    d = _upload(client, SMALL)
+    sess = server.DOCS[d]
+    seen = []
+    monkeypatch.setattr(llm, "ask_all", _first_cell(seen))
+    heading_runs.run_sync(sess, 3, True)   # 「표 구조(LLM)」 — 전부 묻는다(t1 은 3칸이라 안 보냄)
+    st = heading_runs.state(sess)
+    r1 = st["stage3"]
+    n1, ch = r1["meta"]["run"], _changed(_t(r1, "t8"))
+    assert seen == ["t8"] and len(ch) == 1 and _t(r1, "t8")["llm"]["state"] == "answered" and _t(r1, "t8")["judged"] == {"run": n1, "rev": sess.rev}
+    assert _t(r1, "t1")["judged"] is None and _t(r1, "t1")["llm"]["state"] == "unsent"
+    hd = works.folder(d) / "headings"
+    assert json.loads((hd / str(n1) / "run.json").read_text("utf-8"))["judged"] == 1
+    seen.clear()
+    j2 = heading_runs.run_sync(sess, 3, False)   # 스크립트로 다시 — 초안으로 안 돌아간다
+    r2 = st["stage3"]
+    assert not seen and r2["meta"]["run"] == j2.run > n1 and not r2["llm"]["requested"]
+    assert _changed(_t(r2, "t8")) == ch and _t(r2, "t8")["llm"]["state"] == "carried" and _t(r2, "t8")["judged"] == {"run": n1, "rev": sess.rev}
+    assert (r2["llm"]["carried"], r2["llm"]["pending"]) == (1, 0) and "이어 씀 1 · 보완 대상 0" in j2.steps[-1]["msg"]
+    assert json.loads((hd / str(j2.run) / "run.json").read_text("utf-8"))["judged"] == 1   # 스크립트 실행이어도 이어 쓴 판정이 들었다
+    job = heading_runs.Job(3, True, sess.rev)
+    st["job"] = job
+    n3 = heading_runs.run_stage3(sess, job, True, again=False)   # 보완 실행 — 보완 대상이 없으면 호출이 없다
+    r3 = st["stage3"]
+    assert not seen and r3["meta"]["run"] == n3 and r3["llm"]["requested"] and not r3["llm"]["fallback"] and r3["llm"]["calls"] == 0
+    assert _t(r3, "t8")["llm"]["state"] == "carried" and _changed(_t(r3, "t8")) == ch and "이어 씀 1 · 보완 대상 0" in job.steps[-1]["msg"]
+    job = heading_runs.Job(3, True, sess.rev)   # 「LLM 검증·보완」 이 거는 꼴 — 인자 셋으로 불러도 보완 대상만
+    job.tables_again = False
+    heading_runs.run_stage3(sess, job, True)
+    assert not seen and _t(st["stage3"], "t8")["llm"]["state"] == "carried"
+    heading_runs.run_sync(sess, 3, True)   # 전부 다시 — 판정이 있어도 묻는다
+    r5 = st["stage3"]
+    assert seen == ["t8"] and _t(r5, "t8")["llm"]["state"] == "answered" and _t(r5, "t8")["judged"]["run"] == r5["meta"]["run"]
+    monkeypatch.setattr(llm, "ask_all", _dead)
+    heading_runs.run_sync(sess, 3, True)   # 호출이 모두 실패 — 앞 판정이 남는다
+    r6 = st["stage3"]
+    assert r6["llm"]["fallback"] and _changed(_t(r6, "t8")) == ch and _t(r6, "t8")["llm"]["state"] == "carried" and _t(r6, "t8")["judged"]["run"] == r5["meta"]["run"]
+    assert (r6["llm"]["carried"], r6["llm"]["pending"], r6["llm"]["undecided"]) == (1, 1, 0)
+    sess.heads = None   # 다시 연 세션 — 파일에 남은 것으로 같은 판정
+    again = heading_runs.state(sess)["stage3"]
+    assert _changed(_t(again, "t8")) == ch and _t(again, "t8")["judged"]["run"] == r5["meta"]["run"]
+    assert heading_runs.stored_table(sess, "t8")[0] is _t(again, "t8") and heading_runs.stored_table(sess, "t8")[1] is True
+
+
+def _old(res):
+    """이 고침 전의 3단계 결과 꼴로 — 표의 `llm.state` · `judged`, 결과의 asked · carried · pending 이 없다."""
+    res = copy.deepcopy(res)
+    res.pop("_calls", None)
+    for k in ("asked", "carried", "pending", "pendingTables"):
+        res["llm"].pop(k, None)
+    for t in res["tables"]:
+        t.pop("judged", None)
+        for k in ("state", "carried"):
+            t["llm"].pop(k, None)
+    return res
+
+
+def _put_run(d, n, res, llm):
+    """작업 폴더에 3단계 실행 하나를 손으로 적는다(옛 실행 — run.json 에 judged 가 없다)."""
+    run = works.folder(d) / "headings" / str(n)
+    run.mkdir(parents=True)
+    res = {**res, "meta": {**res["meta"], "run": n}}
+    (run / "tables.json").write_text(json.dumps(res, ensure_ascii=False), "utf-8")
+    (run / "run.json").write_text(json.dumps({"stage": 3, "stage_key": "stage3", "n": n, "llm": llm, "rev": res["meta"]["rev"], "at": res["meta"]["at"]}), "utf-8")
+
+
+def test_llm_tables_reads_back_to_the_last_valid_judgment(client, monkeypatch):
+    """표마다 마지막으로 유효한 LLM 판정(heading_runs.llm_tables) — 최근 LLM 실행에서 그 표만 답을 못 받았으면 더 앞 실행의 판정을 고른다.
+    이 고침 전의 꼴(지금 결과가 스크립트 초안 · 앞 실행에 LLM 판정)에서 stored_table 이 앞 판정을 주고, 스크립트로 다시 돌리면 그 판정을 이어 쓴다. 저장된 결과는 안 고친다."""
+    from app import llm
+    d = _upload(client, SMALL)
+    sess = server.DOCS[d]
+    seen = []
+    monkeypatch.setattr(llm, "ask_all", _first_cell(seen))
+    heading_runs.run_sync(sess, 3, True)
+    st = heading_runs.state(sess)
+    good = _old(st["stage3"])   # 옛 꼴의 LLM 결과 — t8 이 답을 받음
+    ch = _changed(_t(good, "t8"))
+    failed = _old(st["stage3"])   # 더 새 LLM 실행 — 그 표만 답을 못 받음(초안 그대로 · 미판정)
+    _t(failed, "t8")["llm"].update(undecided=True, changed=0)
+    for c in _t(failed, "t8")["cells"]:
+        c["role"], c["changed"] = c["draft"], False
+    script = _old({**HT.build(st["stage1"], use_llm=False), "meta": dict(good["meta"])})   # 그 뒤 스크립트로 다시 돌림(옛 동작 — 초안만 남음)
+    assert len(ch) == 1 and not _changed(_t(script, "t8")) and "state" not in _t(good, "t8")["llm"]
+    _put_run(d, 10, good, True)
+    _put_run(d, 11, failed, True)
+    _put_run(d, 12, script, False)
+    hd = works.folder(d) / "headings"
+    (hd / "current.json").write_text(json.dumps({"stage1": st["stage1"]["meta"]["run"], "stage3": 12}), "utf-8")
+    on_disk = (hd / "10" / "tables.json").read_text("utf-8")
+    sess.heads = None   # 다시 연 세션
+    st = heading_runs.state(sess)
+    cur = st["stage3"]
+    assert cur["meta"]["run"] == 12 and not _changed(_t(cur, "t8"))
+    got = heading_runs.llm_tables(sess)
+    assert set(got) == {"t8"} and got["t8"]["judged"] == {"run": 10, "rev": good["meta"]["rev"]} and _changed(got["t8"]) == ch   # 11(그 표만 실패)을 지나 10 의 판정
+    assert heading_runs.llm_tables(sess) is got   # 세션에 기억한다
+    stored, same = heading_runs.stored_table(sess, "t8")
+    assert stored is got["t8"] and same is False
+    plain, same1 = heading_runs.stored_table(sess, "t1")   # 판정이 없는 표 — 지금 결과의 그 표 그대로
+    assert plain is _t(cur, "t1") and same1 is True and heading_runs.stored_table(sess, "t999") == (None, True)
+    assert "judged" not in _t(cur, "t8") and (hd / "10" / "tables.json").read_text("utf-8") == on_disk   # 저장된 결과는 그대로
+    seen.clear()
+    heading_runs.run_sync(sess, 3, False)   # 스크립트로 다시 — 앞 판정을 이어 쓴다
+    t = _t(st["stage3"], "t8")
+    assert not seen and _changed(t) == ch and t["llm"]["state"] == "carried" and t["judged"] == {"run": 10, "rev": good["meta"]["rev"]}
+    assert heading_runs.stored_table(sess, "t8") == (t, True)
+    monkeypatch.setattr(heading_runs, "T3_BACK", 0)   # 거슬러 읽지 않으면 지금 결과만
+    st.pop("t3llm")
+    assert set(heading_runs.llm_tables(sess)) == {"t8"}   # 지금 결과가 이어 쓴 것이라 그대로 유효하다

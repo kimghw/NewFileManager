@@ -270,14 +270,16 @@ def test_a_table_confirmed_apart_is_read_by_its_own_narrower_entry():
 # ---- 띠만으로는 못 되살리는 역할 · 따로 선 층 · 저절로 배우지 않음 ------------------------------------------------------------
 
 def test_roles_survive_a_number_typed_into_a_shaded_value_cell():
-    """astra 3차 P1(띠만 저장) — 음영 값 칸에 수를 채우면 같은 띠(헤더 1행 · 1열)로도 엔진은 그 칸을 필드 → 열헤더로 읽는다: 모든 칸의 역할을 자리로 지닌다."""
+    """astra 3차 P1(띠만 저장) — 음영 값 칸에 수를 채우면 같은 띠(헤더 1행 · 1열)로도 엔진은 그 칸을 필드 → 열헤더로 읽는다: 모든 칸의 역할을 자리로 지닌다.
+    2026-11-23 부터 금액 꼴 수(「10000」 · 「10,000」)는 초안도 필드 그대로다(spec_헤딩_추출 ② §8 「음영 값 칸」 — 숫자 값만 든 음영 칸) — 아직 뒤집히는 것은 순번 꼴(1~3자리 수 홀로)이다."""
     table = lambda v: _row(0, "항목", "금액", shade=S) + [(1, 0, 1, 1, None, ["인건비"]), (1, 1, 1, 1, S, [v])] + _row(2, "재료비", "")   # noqa: E731
     e, blank = _confirm(table(""))
-    filled = _judge(table("10000"))
+    filled = _judge(table("100"))
     assert _roles(blank)["B2"] == "field" and _roles(filled)["B2"] == "colhead"
+    assert _roles(_judge(table("10000")))["B2"] == _roles(_judge(table("10,000")))["B2"] == "field"   # 금액 꼴은 초안이 값 칸으로 읽는다
     assert [(s["headerRows"], s["headerCols"]) for s in blank["subs"]] == [(s["headerRows"], s["headerCols"]) for s in filled["subs"]] == [(1, 1)]   # 띠는 그대로인데 역할이 달라졌다
     hit = TT.match(TT.list(FORM), filled["table"])
-    assert hit["id"] == e["id"] and _roles(_judge(table("10000"), template=TT.template_of(hit))) == _roles(blank)
+    assert hit["id"] == e["id"] and _roles(_judge(table("100"), template=TT.template_of(hit))) == _roles(blank)
 
 
 def test_confirmation_is_a_separate_layer_from_a_works_designation():

@@ -10,6 +10,8 @@ LLM 은 **원본 자리만 고른다**(글을 쓰지 않는다) — 넣을 글�
 - `data(T, F, found)` = LLM 에 보낼 자료 단위들 + 검증에 쓸 것(`ctx`) — 빈 자리마다 후보(원본 표 · 원본 줄)를 스크립트가 골라 싣는다(글자 조각 겹침).
 - `prepare(T, F, fixed_plan, saved, again)` → `ask(prep, job, links)`(둘을 이은 것 = `review`) = 묻고(`llm.ask_all` — 목적 문서의 장마다 · UNIT_MAX 개씩) 답을 검증해 → {"tables": {표 id: {from | None, reason}}, "slots": {id: {from | None, take, kind, was, reason}},
   "rejected", "units", "asked", …}. 이미 답이 있는 자리(saved — 「원본 없음」 포함)는 다시 안 묻는다(again 이면 전부).
+  **물었는데 LLM 의 답에 빠진 자리**는 「원본 없음」 이 아니라 `missing: true`(까닭 `MISSING`)로 적는다 — 답이 있는 자리로 세지 않아(`_has`) 다음 검토가 다시 묻고 `open_count` 에 든다
+  (spec_작업 ② §22 「구현 계약」 22-1 ⓑ: 「후보가 없어 안 물음 / LLM 이 없다고 답함 / 답 누락」 을 답을 만드는 곳부터 가른다).
 - `plan(T, F, gaps)` = 넣기 계획(문서를 안 고침) — 답이 있는 빈 칸·빈 라벨 줄마다 원본 글을 **지금 문서에서** 읽어 넣을 글을 정한다 → {"cells", "lines", "items", "skipped", "counts", "todo"}.
   빈 표 ← 원본 표는 여기서 안 넣는다 — merge.json `tables`(표 짝)에 적혀 같은 이름 자리·표 대응이 넣는다.
 - `apply(to_doc, plan, from_doc=None)` = 계획을 목적 문서에 → {"cells", "lines", "blocks", "inserted", "skipped", "dropped", "fitted"}. 지금 비어 있을 때만 쓴다.
@@ -287,10 +289,18 @@ def targets(T, F, fixed_plan, orig=None, guides=None, skip=()):
     return {"tables": tables, "slots": slots}
 
 
+MISSING = "LLM 답에 이 자리가 없음"   # 물었는데 답에 빠진 자리의 까닭(`missing: true` 와 함께 — ask)
+
+
+def _has(gaps, kind, key):
+    """저장된 답(gaps)에 그 자리의 **답이 있는가** — 「원본 없음」 도 답이다. 물었는데 답에 빠진 자리(`missing`)는 답이 아니다(다음에 다시 묻는다 — spec_작업 ② §22 「구현 계약」 22-1 ⓑ)."""
+    rows = (gaps or {}).get(kind) or {}
+    return key in rows and not (isinstance(rows[key], dict) and rows[key].get("missing"))
+
+
 def open_count(found, gaps):
-    """아직 안 물은 빈 자리 수 — 저장된 답(gaps — 「원본 없음」 포함)에 없는 것."""
-    g = gaps or {}
-    return sum(t["key"] not in (g.get("tables") or {}) for t in found["tables"]) + sum(s["id"] not in (g.get("slots") or {}) for s in found["slots"])
+    """아직 안 물은 빈 자리 수 — 저장된 답(gaps — 「원본 없음」 포함)에 없는 것 + 물었는데 답에 빠진 것(`missing` — _has)."""
+    return sum(not _has(gaps, "tables", t["key"]) for t in found["tables"]) + sum(not _has(gaps, "slots", s["id"]) for s in found["slots"])
 
 
 # ---- LLM 에 보낼 자료 ----------------------------------------------------------------------------------------
@@ -355,6 +365,8 @@ def data(T, F, found, skip=None, guides=None, places=None):
 
     def kept(kind, key):   # 저장된 답이 있고 그 답의 지침 판이 지금과 같다 — 다시 안 묻는다(판이 없는 옛 답 = 지침 없이 받은 답: 판 "" — 그 자리에 지금 지침이 있으면 다시 묻는다 · astra 3차)
         old = (skip.get(kind) or {}).get(key)
+        if isinstance(old, dict) and old.get("missing"):   # 물었는데 답에 빠졌던 자리 — 답이 있는 자리가 아니다: 다시 묻는다(_has 와 같은 뜻)
+            return False
         return old is not None and (places is None or not isinstance(old, dict) or old.get("guideSig", "") == sigs[kind].get(key, ""))
     tabs = [t for t in found["tables"] if not kept("tables", t["key"])]
     slots = [s for s in found["slots"] if not kept("slots", s["id"])]
@@ -566,14 +578,18 @@ def review(T, F, fixed_plan, saved=None, job=None, links="", again=False, orig=N
 
 def ask(prep, job=None, links="", model=MODEL, effort="medium", timeout=300.0):
     """prepare 가 만든 것을 묻고 답을 검증 → {"tables", "slots", "rejected", "units"[{title, targets, error, prompt, answer, call}], "asked", "found"{tables, slots}, "guide", "job"}.
-    후보가 하나도 없는 빈 자리는 묻지 않고 「원본 없음」 으로 적는다(다음에 다시 세지 않게)."""
+    답이 없는 자리는 셋으로 가른다(spec_작업 ② §22 「구현 계약」 22-1 ⓑ):
+    - 후보가 하나도 없어 **안 물은** 빈 자리 → 「원본 없음」(다음에 다시 세지 않게 — 전과 같다)
+    - 물었고 LLM 이 그 자리를 답에 적었는데 검증이 거절한 것 → 전처럼 「원본 없음」(답은 왔다 — 못 정함)
+    - 물었는데 **답에 그 자리가 없는** 것 → `missing: true` · 까닭 `MISSING`(「원본 없음」 이 아니다 — 저장하는 쪽이 앞 답을 갈지 않고, 다음 검토가 다시 묻는다)
+    호출이 실패한 단위의 자리는 결과에 없다(안 물은 것으로 — 저장하는 쪽이 앞 답을 그대로 둔다)."""
     found, units, ctx = prep["found"], prep["units"], prep["ctx"]
     g = merge_guides.get(GUIDE)
     jobs = [{"schema": SCHEMA, "content": prompt(u["payload"], job, links, g), "what": f"merge-gaps-{i + 1}", "timeout": timeout, "effort": effort, "model": model} for i, u in enumerate(units)]
     res = llm.ask_all(jobs) if jobs else []
     out = {"tables": {}, "slots": {}, "rejected": [], "units": [], "asked": len(jobs), "found": {"tables": len(found["tables"]), "slots": len(found["slots"])},
            "guide": merge_guides.brief(g), "job": {k: job[k] for k in ("job", "name", "sha1") if k in job} if job and job_prompts.part(job) else None}
-    answered = {"tables": set(), "slots": set()}
+    answered, named = {"tables": set(), "slots": set()}, {"tables": set(), "slots": set()}   # answered = 답이 온 단위에 실어 보낸 자리 · named = LLM 이 답에 적은 자리(검증이 거절한 것 포함)
     for i, (u, j, r) in enumerate(zip(units, jobs, res)):
         call = {k: r.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error", "retried")}
         sent = {"tables": {t["key"] for t in u["payload"]["tables"]}, "slots": {s["id"] for s in u["payload"]["slots"]}}
@@ -585,14 +601,25 @@ def ask(prep, job=None, links="", model=MODEL, effort="medium", timeout=300.0):
         out["tables"].update(got["tables"])
         out["slots"].update(got["slots"])
         out["rejected"] += rejected
+        ans = r["data"] if isinstance(r["data"], dict) else {}
         for kind in ("tables", "slots"):
             answered[kind] |= sent[kind]
-    for k, c in ctx["tables"].items():   # 후보가 없어 안 물은 빈 표 · 물었는데 답이 빠진 빈 표 → 「원본 없음」
-        if k not in out["tables"] and (not c["cands"] or k in answered["tables"]):
-            out["tables"][k] = {"from": None, "reason": "" if c["cands"] else "원본 표 후보가 없음"}
+            named[kind] |= {a.get("to") for a in ans.get(kind) or () if isinstance(a, dict)}
+
+    def rest(kind, k, cands, none):   # 답이 없는 자리 하나 → 적을 것 | None(호출이 실패한 단위 — 안 적는다)
+        if not cands:   # 후보가 없어 안 물음
+            return {"from": None, "reason": none}
+        if k in named[kind]:   # 답에 적혔는데 검증이 거절(rejected) — 전처럼 「원본 없음」
+            return {"from": None, "reason": ""}
+        if k in answered[kind]:   # 물었는데 답에 빠짐 — 「원본 없음」 이 아니다
+            return {"from": None, "missing": True, "reason": MISSING}
+        return None
+    for k, c in ctx["tables"].items():
+        if k not in out["tables"] and (row := rest("tables", k, c["cands"], "원본 표 후보가 없음")) is not None:
+            out["tables"][k] = row
     for k, s in ctx["slots"].items():
-        if k not in out["slots"] and (not s["cands"] or k in answered["slots"]):
-            out["slots"][k] = {"kind": s["kind"], "was": s["was"], "label": s["label"], "table": s["table"], "from": None, "take": None, "reason": "" if s["cands"] else "원본 줄 후보가 없음"}
+        if k not in out["slots"] and (row := rest("slots", k, s["cands"], "원본 줄 후보가 없음")) is not None:
+            out["slots"][k] = {"kind": s["kind"], "was": s["was"], "label": s["label"], "table": s["table"], "take": None, **row}
     return out
 
 

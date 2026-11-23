@@ -25,7 +25,10 @@ from app import heading_llm as HL
 from app import heading_rules as R
 from app import heading_tables as HT
 from app import heading_temp as TP
+from app import table_manager as TM
 from app import works
+
+T3_BACK = 8  # llm_tables 가 거슬러 읽는 3단계 실행 수(결과 파일은 gzip — 큰 문서는 하나에 0.1초쯤)
 
 
 class Busy(Exception):
@@ -40,6 +43,8 @@ class Job:
         self.phase = None  # 이어 돌리기의 지금 일("heads" · "tables" · "formats") — 분석 상태가 어느 항목이 도는지 안다
         self.stop = False  # 이어 돌리기를 지금 단계가 끝나면 멈춤(DELETE …/analysis/llm)
         self.tables_ahead = None  # TablesAhead | None — 표 판정 호출을 헤딩 판정과 같이(「LLM 검증·보완」 이 건다 — run_stage2 가 시작하고 run_stage3 이 답을 쓴다)
+        self.tables_again = True  # 3단계 LLM 실행이 보낼 수 있는 표를 전부 다시 묻나(「표 구조(LLM)」 단추) — 「LLM 검증·보완」 은 거짓으로 걸어 보완 대상만 묻는다(run_stage3 의 again 기본값)
+        self.kept2 = None  # 2단계 LLM 이 답을 못 했고 지금 결과가 LLM 판정을 거친 것이라 그대로 둠 {"run": 그 결과의 실행, "error": 까닭} | None(run_stage2 — spec_작업 ② §22 「구현 계약」 22-4 ⓖ)
         self.status, self.error, self.run = "running", None, None
         self.steps, self.started, self.ended = [], time.time(), None
         self.lock = threading.Lock()
@@ -112,12 +117,16 @@ def _load_current(sess, st):
     st["runs"] = [r for r in (works._read_json(d / str(n) / "run.json") for n in _run_numbers(d)) if isinstance(r, dict)]
 
 
-def _save_run(sess, st, meta, payload_name, payload, calls):
+def _save_run(sess, st, meta, payload_name, payload, calls, current=True, stamp=None):
     """실행 하나 저장 → 실행 번호. 번호는 작업 잠금 안에서 정하고(_next_n) 새 폴더에만 쓴다 — 밀려난 세션과 다시 연 세션이 겹쳐도
-    같은 번호를 두 번 쓰지 않는다. 지운 작업·살아 있지 않은 세션이면 쓰지 않는다. 저장 끔이면 메모리의 번호만."""
+    같은 번호를 두 번 쓰지 않는다. 지운 작업·살아 있지 않은 세션이면 쓰지 않는다. 저장 끔이면 메모리의 번호만.
+    current = 거짓이면 실행 기록만 남기고 지금 결과 표시(current.json)를 바꾸지 않는다(LLM 이 답을 못 한 2단계 대체 결과 — run_stage2).
+    stamp(n) = 번호가 정해질 때마다(파일로 묶기 전에) 부른다 — 결과 안에 그 실행 번호를 적을 곳이 더 있을 때(3단계: 이번에 답을 받은 표의 `judged`)."""
     d = _dir(sess)
     n = _next_n(d, st)
     payload["meta"]["run"] = n  # 파일에도 실행 번호(다시 열어도 남게)
+    if stamp is not None:
+        stamp(n)
     st["lastSaved"] = None if d is None else False  # None = 저장 끔(메모리 번호), True = 실행 폴더에 씀, False = 못 씀·안 씀 — 기록(works.log)이 번호를 남길지
     if d is not None and _live(sess):
         try:
@@ -127,16 +136,19 @@ def _save_run(sess, st, meta, payload_name, payload, calls):
                     n2 = _next_n(d, st)
                     if n2 != n:  # 드문 경합(다른 세션이 먼저 씀) — 번호를 고쳐 다시 묶음
                         n = payload["meta"]["run"] = n2
+                        if stamp is not None:
+                            stamp(n)
                         blobs = _blobs(payload_name, payload, calls, meta)
                     run = d / str(n)
                     run.mkdir(parents=True)  # 있으면 FileExistsError — 남의 실행 폴더에 섞어 쓰지 않는다
                     for rel, b in blobs:
                         works._write(run / rel, b)
                     works._write_json(run / "run.json", {k: v for k, v in {**meta, "n": n}.items() if k != "guides"})
-                    cur = works._read_json(d / "current.json")
-                    cur = cur if isinstance(cur, dict) else {}
-                    cur[meta["stage_key"]] = n
-                    works._write_json(d / "current.json", cur)
+                    if current:
+                        cur = works._read_json(d / "current.json")
+                        cur = cur if isinstance(cur, dict) else {}
+                        cur[meta["stage_key"]] = n
+                        works._write_json(d / "current.json", cur)
                     st["persistError"] = None
                     st["lastSaved"] = True
         except OSError as e:  # 디스크가 가득 차는 등 — 결과는 메모리에 두고 화면에 알린다
@@ -294,18 +306,21 @@ class TablesAhead:
     표의 소속(헤딩 그래프)은 run_stage3 이 그래프가 끝난 뒤 붙인다. 큰 문서에서 유형 판정(A — 한 호출 · 1~3분) 동안 비던 LLM 자리를 표 판정이 쓴다.
     쓰는 법: 「LLM 검증·보완」(app/analysis_llm.py)이 `job.tables_ahead` 에 걸어 두면 run_stage2 가 start() · run_stage3 이 take().
     답은 **그 1단계 결과(같은 객체) · 그때의 TEMP · 그때의 지침**에만 쓴다 — 그 사이 문서가 바뀌어 1단계를 다시 뽑았거나 묻다가 오류가 났으면 버리고 run_stage3 이 제 손으로 묻는다.
-    on_progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다(묻는 스레드에서)."""
+    on_progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다(묻는 스레드에서).
+    again = 거짓이면 **보완 대상만** 묻는다(「LLM 검증·보완」 — spec_작업 ② §22 「구현 계약」 22-4 ⓓ): start 가 받은 pending(s1, temp) 으로 물을 표를 고른다(보완 대상이 없으면 호출 없음 — `empty()`)."""
 
-    def __init__(self, on_progress=None):
+    def __init__(self, on_progress=None, again=True):
         self.on_progress = on_progress
+        self.again = bool(again)
         self.started = False
         self.dropped = False
         self.s1 = self.temp = self.guides = None
         self._thread, self._out, self._err = None, None, None
         self._lock = threading.Lock()  # 진행 글(tick)과 버리기(drop)가 엇갈리지 않게 — 잡은 채 job.lock 을 잡는다(거꾸로는 없음)
 
-    def start(self, job, s1, guides0, temp_hints):
-        """1단계가 정해진 뒤 한 번 — 따로 선 스레드에서 TEMP 라벨 → T 호출. 바로 돌아온다."""
+    def start(self, job, s1, guides0, temp_hints, pending=None):
+        """1단계가 정해진 뒤 한 번 — 따로 선 스레드에서 TEMP 라벨 → T 호출. 바로 돌아온다.
+        pending(s1, temp) → 물을 표 id 의 집합(보완 대상 — again 이 거짓일 때만 쓴다) | None(보낼 수 있는 표 전부)."""
         if self.started:
             return
         self.started, self.s1, self.guides = True, s1, guides0
@@ -322,7 +337,8 @@ class TablesAhead:
         def work():
             try:
                 self.temp = TP.label(s1, temp_hints)  # TEMP 표는 보내지 않는다(§15) — run_stage3 이 같은 라벨로 짓는다
-                self._out = HT.ask_tables(s1, pinned=guides0, temp=self.temp, progress=tick)
+                only = pending(s1, self.temp) if pending is not None and not self.again else None  # 보완 대상만(없으면 전부 — 전과 같은 호출)
+                self._out = HT.ask_tables(s1, pinned=guides0, temp=self.temp, progress=tick, **({} if only is None else {"only": only}))
             except Exception as e:  # 묻다가 난 오류 — run_stage3 이 제 손으로 다시 묻는다
                 self._err = e
         self._thread = threading.Thread(target=agent_notes.carry(work), daemon=True, name="tables-ahead")  # carry = 지금 워크플로우(에이전트에 덧붙이는 글의 전용 범위)를 새 스레드로
@@ -344,6 +360,13 @@ class TablesAhead:
             return False
         self._thread.join()
         return self._err is None and self._out is not None and any(c.get("response") is not None for c in self._out["calls"])
+
+    def empty(self):
+        """물을 표가 없었나(보완 대상 0 — 호출을 하나도 만들지 않음) — 답이 다 올 때까지 기다린다. 「답을 못 받음」 과 가른다(analysis_llm._close_ahead 의 글)."""
+        if not self.started or self.dropped:
+            return False
+        self._thread.join()
+        return self._err is None and self._out is not None and not self._out.get("jobs")
 
     def drop(self, job, why):
         """받은(받을) 답을 쓰지 않는다 — 단계 줄을 맺는다(기다리지 않는다: 묻던 스레드는 저절로 끝난다)."""
@@ -410,7 +433,12 @@ def run_stage2(sess, job, use_llm):
             job.step(name, "ok", "결과가 없거나 문서·추출 방식이 바뀌어 1단계를 다시 뽑음")
     ahead = getattr(job, "tables_ahead", None)
     if use_llm and ahead is not None:  # 표 판정 호출을 헤딩 판정과 같이(§8) — 1단계가 정해졌으니 지금부터 묻는다(그래프를 기다리지 않는다)
-        ahead.start(job, s1, guides0, copy.deepcopy(hints0["temp"]))
+        pend = None
+        if not ahead.again:  # 보완 대상만(「LLM 검증·보완」) — 표마다 마지막 유효한 LLM 판정을 이어 써 보고 남는 표만 묻는다(run_stage3 의 again=False 와 같은 셈)
+            from app import table_heads
+            prior3, roles3 = llm_tables(sess), table_heads.load(sess.id)["tables"]
+            pend = lambda s, temp: HT.pending(s, prior3, TM.carry_over, temp=temp, roles=roles3)  # noqa: E731
+        ahead.start(job, s1, guides0, copy.deepcopy(hints0["temp"]), **({} if pend is None else {"pending": pend}))
     if dv is not None:   # 판독은 1단계와 같은 문서 차례의 것이어야 한다(astra · Fable 협의) — 그 사이 문서가 바뀌었으면 한 번 다시, 그래도 다르면 판독 없이
         if dv["rev"] != s1["meta"]["rev"]:
             dv = _division_scan(sess)
@@ -431,20 +459,113 @@ def run_stage2(sess, job, use_llm):
            (f" · 재검토 {g['counts'].get('reviewed', 0)}(불일치 {g['counts'].get('disagreed', 0)})" if use_llm and lm.get("reviewPairs") else "") +
            (f" · LLM 호출 {lm['calls']}(실패 {lm['failed']}) 변경 {lm['applied']} 거절 {lm['rejected']} · ${lm['costUsd']}" if use_llm else "") +
            (" · LLM 없이 스크립트 대체 판정" if lm["fallback"] else ""))
-    job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"), "failed" if use_llm and lm["fallback"] and lm.get("error") else "ok",
-             msg + (f" — {lm['error']}" if lm.get("error") else ""))
+    # LLM 이 답을 못 한 대체 결과는, 지금 결과가 LLM 판정을 거친 것이면 **지금 결과로 올리지 않는다**(spec_작업 ② §22 「구현 계약」 22-4 ⓖ — 새 LLM 시도의 실패가 앞의 성공한 판정을 지금 결과에서 가리지 않게):
+    # 실행 기록은 남기고(run.json 의 kept = 그대로 둔 결과의 실행) 지금 결과 · current.json 은 그대로. 지금 결과가 스크립트 것이면 전처럼 대체 결과가 지금 결과가 된다
+    cur = st.get("stage2")
+    keep = bool(use_llm and lm["fallback"] and _llm_judged(cur))
+    kept_n = ((cur or {}).get("meta") or {}).get("run") if keep else None
+    job.step("헤딩 그래프" + (" — LLM" if use_llm else " — 스크립트"), "failed" if use_llm and lm["fallback"] and (lm.get("error") or keep) else "ok",
+             (f"LLM 판정을 못 함 — 앞 LLM 결과(실행 {kept_n})를 그대로 둠" + (f" — {lm['error']}" if lm.get("error") else "")) if keep
+             else msg + (f" — {lm['error']}" if lm.get("error") else ""))
     g["meta"] = {"rev": s1["meta"]["rev"], "stage1Run": s1["meta"].get("run"), "sha256": s1["meta"]["sha256"], "at": time.time(),
                  "guides": {n: x["sha1"] for n, x in guides0.items()}}
     meta = {"stage": 2, "stage_key": "stage2", "rev": s1["meta"]["rev"], "llm": use_llm, "at": time.time(), "stage1Run": s1["meta"].get("run"),
             "summary": g["counts"], "costUsd": lm["costUsd"], "guides": guides0 if use_llm else None}
-    n = _save_run(sess, st, meta, "graph.json", g, calls)  # g["meta"]["run"] 도 넣음
+    if keep:
+        meta["kept"] = kept_n
+    n = _save_run(sess, st, meta, "graph.json", g, calls, current=not keep)  # g["meta"]["run"] 도 넣음
+    job.kept2 = {"run": kept_n, "error": lm.get("error")} if keep else None
+    if keep:
+        return n
     st["stage2"] = g
     st.pop("bases2", None)  # 라벨 지정 반영(relabel)이 쥐고 있던 앞 추출 — 새 추출이 생겼으니 놓는다
     return n
 
 
-def run_stage3(sess, job, use_llm):
-    """3단계 표 구조(spec ② §8) — 1단계가 없거나 오래됐으면(문서 rev·추출 방식) 먼저 다시 뽑고, heading_tables.build 로 초안(+ T 호출) → tables.json."""
+def _llm_judged(res):
+    """그 결과가 LLM 판정을 거친 것인가(requested 이고 대체가 아님 — analysis_llm.llm_done 과 같은 기준)."""
+    lm = (res or {}).get("llm") or {}
+    return bool(lm.get("requested") and not lm.get("fallback"))
+
+
+def _t3_valid(res, t):
+    """그 3단계 결과(res)의 표 t 에 **유효한 LLM 판정**이 있나 — 답을 받았거나(answered) 앞 판정을 이어 쓴(carried) 표.
+    `llm.state` 가 없는 표(이 고침 전의 결과)는 그 결과가 LLM 을 거쳤고(requested 이고 대체가 아님) 그 표를 보냈고(sent) 미판정이 아닐 때."""
+    lm = t.get("llm") if isinstance(t.get("llm"), dict) else {}
+    if lm.get("state") is not None:
+        return lm["state"] in ("answered", "carried")
+    return _llm_judged(res) and bool(lm.get("sent")) and not lm.get("undecided")
+
+
+def _t3_judged(res, t):
+    """유효한 판정이 든 표 → 그대로, 또는(`judged` 를 남기기 전의 결과) 그 결과의 실행 · 문서 차례를 `judged` 로 붙인 **새 dict**(저장된 표는 고치지 않는다 — 칸 · 띠는 같은 객체)."""
+    if isinstance(t.get("judged"), dict):
+        return t
+    meta = res.get("meta") or {}
+    return {**t, "judged": {"run": meta.get("run"), "rev": meta.get("rev")}}
+
+
+def llm_tables(sess):
+    """표마다 **마지막으로 유효한 LLM 판정** → {표 id: 그 표의 저장 결과}(spec_작업 ② §22 「구현 계약」 22-4 ⓐ — 3단계 실행이 `heading_tables.build(prior=)` 로 받는다 · 저장된 결과는 고치지 않는다).
+    지금 결과(st["stage3"])부터, 그다음 저장된 3단계 실행을 새것부터 거슬러 읽어 표마다 처음 만나는 유효한 것(_t3_valid). 거슬러 읽는 것은 T3_BACK 개까지이고(파일은 gzip),
+    LLM 을 부르지도 판정을 이어 쓰지도 않은 실행(run.json 의 llm · judged 가 다 없음 — 옛 스크립트 실행)은 읽지 않는다. 저장 끔(메모리만)이면 지금 결과만 본다.
+    한 번 모은 것은 세션에 기억한다(지금 결과나 마지막 3단계 실행이 바뀌면 다시)."""
+    st = state(sess)
+    cur = st.get("stage3")
+    runs3 = [r for r in st.get("runs") or () if r.get("stage") == 3 and isinstance(r.get("n"), int)]
+    key = (id(cur), ((cur or {}).get("meta") or {}).get("run"), runs3[-1]["n"] if runs3 else None)
+    hit = st.get("t3llm")
+    if hit is not None and hit[0] == key and hit[2] is cur:
+        return hit[1]
+    out = {}
+
+    def take(res):
+        for t in res.get("tables") or ():
+            if isinstance(t, dict) and t.get("id") and t["id"] not in out and _t3_valid(res, t):
+                out[t["id"]] = _t3_judged(res, t)
+    if isinstance(cur, dict):
+        take(cur)
+    d = _dir(sess) if getattr(sess, "id", None) else None
+    if d is not None and d.is_dir():
+        seen = {((cur or {}).get("meta") or {}).get("run")}
+        left = T3_BACK
+        for r in reversed(runs3):
+            if left <= 0:
+                break
+            if r["n"] in seen or not (r.get("llm") or r.get("judged")):
+                continue
+            seen.add(r["n"])
+            left -= 1
+            res = _read(d / str(r["n"]) / "tables.json")
+            if isinstance(res, dict):
+                if isinstance(res.get("meta"), dict):
+                    res["meta"].setdefault("run", r["n"])
+                take(res)
+    st["t3llm"] = (key, out, cur)  # 그 결과 객체를 쥐고 있는다(같은 id 가 다른 결과에 다시 쓰이지 않게)
+    return out
+
+
+def stored_table(sess, tid):
+    """`table_manager.judge(stored=, same_doc=)` 에 줄 그 표의 저장 결과 → (저장된 표 | None, same_doc)(spec_작업 ② §22 「구현 계약」 22-4 ⓕ).
+    지금 3단계 결과의 그 표에 유효한 LLM 판정이 있으면 그것(same_doc = 그 결과가 지금 문서 차례의 것) · 없으면 표마다 마지막 유효한 판정(llm_tables — same_doc 거짓: 칸마다 이어 쓴다) ·
+    그것도 없으면 지금 결과의 그 표(스크립트 초안) 그대로. 이 고침 전에 스크립트로 다시 돌려 초안만 남은 지금 결과에서도 앞 LLM 판정을 읽는다."""
+    cur = state(sess).get("stage3") or {}
+    t = next((x for x in cur.get("tables") or () if isinstance(x, dict) and x.get("id") == tid), None)
+    same = (cur.get("meta") or {}).get("rev") == sess.rev
+    if t is not None and _t3_valid(cur, t):
+        return t, same
+    p = llm_tables(sess).get(tid)
+    if p is not None:
+        return p, False
+    return t, same
+
+
+def run_stage3(sess, job, use_llm, again=None):
+    """3단계 표 구조(spec ② §8) — 1단계가 없거나 오래됐으면(문서 rev·추출 방식) 먼저 다시 뽑고, heading_tables.build 로 초안(+ T 호출) → tables.json.
+    **판정을 이어 쓰는 실행**(spec_작업 ② §22 「구현 계약」 22-4): 표마다 마지막 유효한 LLM 판정(llm_tables)을 build 에 주어, 이번에 답을 받지 않은 표는 그 판정을 이어 쓴다 —
+    use_llm 거짓 = 스크립트 재실행(묻지 않고 이어 쓴다) · use_llm 참이고 again 참 = 보낼 수 있는 표를 전부 다시 묻는다(「표 구조(LLM)」 단추) · again 거짓 = **보완 대상만**(heading_tables.pending — 없으면 호출 없음).
+    again 을 안 주면 job.tables_again(기본 참 — 「LLM 검증·보완」 이 거짓으로 건다: 인자 셋으로 부르는 곳 · 시험의 가짜 실행과 같은 꼴로 부르게)."""
+    again = bool(getattr(job, "tables_again", True)) if again is None else bool(again)
     st = state(sess)
     guides0 = _guides(sess, place=use_llm)  # 시작 때 고정(§7) — LLM 이면 그 자리의 작성 지침도(§20)
     s1 = st.get("stage1")
@@ -468,24 +589,40 @@ def run_stage3(sess, job, use_llm):
     name = STEP3_LLM if use_llm else "표 구조 — 스크립트"
     job.step(name, "running", "받은 표 판정 답을 붙이는 중 — 소속은 헤딩 그래프에서" if asked is not None else "")
     from app import table_heads  # 사용자 헤더 지정(spec_owpml_편집 ② §5-4) — 부를 때 가져온다(table_heads 가 표 모듈들을 읽는다)
-    t = HT.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, stage2=s2, temp=temp0, roles=table_heads.load(sess.id)["tables"], asked=asked)
+    heads3 = table_heads.load(sess.id)["tables"]
+    prior = llm_tables(sess)  # 표마다 마지막 유효한 LLM 판정 — 이번에 답을 받지 않는 표는 이것을 이어 쓴다(초안으로 돌아가지 않는다)
+    only = None
+    if use_llm and asked is None and not again:  # 보완 대상만 묻는다(미리 물은 답이 있으면 그 호출이 이미 그렇게 골랐다 — TablesAhead)
+        only = HT.pending(s1, prior, TM.carry_over, temp=temp0, roles=heads3)
+        job.step(name, "running", f"보완 대상 표 {len(only)}개만 묻는 중 — 나머지는 앞 판정을 이어 씀" if only else "보완 대상이 없어 묻지 않음 — 앞 판정을 이어 씀")
+    t = HT.build(s1, use_llm=use_llm, doc_name=sess.name, pinned=guides0, stage2=s2, temp=temp0, roles=heads3, asked=asked, prior=prior, carry=TM.carry_over, only=only)
     calls = t.pop("_calls", [])
     lm, c = t["llm"], t["counts"]
     roles = c["roles"]
+    carried = f"이어 씀 {lm.get('carried', 0)} · 보완 대상 {lm.get('pending', 0)}"  # 앞 LLM 판정을 이어 쓴 표 · 아직 LLM 이 봐야 할 표(spec_작업 ② §22 「구현 계약」 22-4)
     msg = (f"표 {c['tables']}" + (f"(TEMP 표 {c['tempTables']} 뺌)" if c.get("tempTables") else "") + f" · 칸 {c['cells']:,} · 서브 테이블 {c['subtables']}(나뉜 표 {c['split']}) · 열헤더 {roles.get('colhead', 0)} · "
            f"행헤더 {roles.get('rowhead', 0)} · 필드 {roles.get('field', 0)}" +
            f" · 구분 헤더 표 {c['basisTables']} · 계산식 표 {c['calc']['tables']}(수식 {c['calc']['formulas']} · 불일치 {c['calc']['mismatch']} · "
            f"미기입 {c['calc']['missing']}) · 소속 = {'2단계 그래프' if s2 else '1단계 어림'}" +
            (f" · LLM 호출 {lm['calls']}(실패 {lm['failed']}) 보낸 표 {lm['sent']} 변경 {lm['applied']} 거절 {lm['rejected']} · ${lm['costUsd']}" if use_llm else "") +
            (" · 호출은 헤딩 판정과 같이" if lm.get("ahead") else "") +
-           (" · LLM 없이 초안 그대로" if lm["fallback"] else ""))
+           (f" · {carried}" if lm.get("carried") or (use_llm and not again) else "") +
+           ((f" · LLM 없이 — 앞 판정을 이어 씀(표 {lm['carried']})" if lm.get("carried") else " · LLM 없이 초안 그대로") if lm["fallback"] else ""))
     job.step(name, "failed" if use_llm and lm["fallback"] and lm.get("error") else "ok", msg + (f" — {lm['error']}" if lm.get("error") else ""))
     t["meta"] = {"rev": s1["meta"]["rev"], "stage1Run": s1["meta"].get("run"), "sha256": s1["meta"]["sha256"], "at": time.time(),
                  "stage2Run": (s2.get("meta") or {}).get("run") if s2 else None,  # 표 소속이 기댄 2단계 실행(없으면 1단계 어림) — 2단계가 바뀌면 소속이 옛것(§13)
                  "guides": {n: x["sha1"] for n, x in guides0.items()}}
     meta = {"stage": 3, "stage_key": "stage3", "rev": s1["meta"]["rev"], "llm": use_llm, "at": time.time(), "stage1Run": s1["meta"].get("run"),
             "summary": t["counts"], "costUsd": lm["costUsd"], "guides": guides0 if use_llm else None}
-    n = _save_run(sess, st, meta, "tables.json", t, calls)  # t["meta"]["run"] 도 넣음
+    judged = sum(1 for x in t["tables"] if x["llm"].get("state") in ("answered", "carried"))
+    if judged:
+        meta["judged"] = judged  # 유효한 LLM 판정이 든 표 수(답을 받음 + 이어 씀) — llm_tables 가 거슬러 읽을 실행을 고른다(스크립트 실행이어도 이어 쓴 판정이 들었으면 읽는다)
+
+    def stamp(run):  # 이번에 답을 받은 표의 판정 출처 = 이 실행(파일로 묶기 전에 — 이어 쓴 표는 그 판정이 답을 받은 실행 그대로)
+        for x in t["tables"]:
+            if x["llm"].get("state") == "answered":
+                x["judged"] = {"run": run, "rev": t["meta"]["rev"]}
+    n = _save_run(sess, st, meta, "tables.json", t, calls, stamp=stamp)  # t["meta"]["run"] 도 넣음
     st["stage3"] = t
     return n
 
@@ -513,9 +650,10 @@ def _runner(stage):
 _start_lock = threading.Lock()  # 「돌고 있나」 확인과 자리 잡기 사이에 다른 요청이 못 끼게(FastAPI 스레드 풀)
 
 
-def start(sess, stage, use_llm, first=False, chain=None, runner=None):
+def start(sess, stage, use_llm, first=False, chain=None, runner=None, again=True):
     """first = 첫 분석(run_first — 2단계 → 3단계 스크립트, 한 작업 · spec_작업 ② §9): stage 는 3 으로 적고 use_llm 은 안 쓴다.
-    chain · runner = 이어 돌리기(chain 이름 · runner(sess, job) — 단계 실행과 기록은 runner 가 한다: app/analysis_llm.py 「LLM 검증·보완」). 같은 작업 자리를 쓴다(겹치면 Busy)."""
+    chain · runner = 이어 돌리기(chain 이름 · runner(sess, job) — 단계 실행과 기록은 runner 가 한다: app/analysis_llm.py 「LLM 검증·보완」). 같은 작업 자리를 쓴다(겹치면 Busy).
+    again = 3단계 LLM 실행이 보낼 수 있는 표를 전부 다시 묻나(기본 — 「표 구조(LLM)」 단추) · 거짓이면 보완 대상만(job.tables_again — run_stage3: 아직 이렇게 부르는 곳은 없다)."""
     st = state(sess)
     with _start_lock:
         job0 = st.get("job")
@@ -524,6 +662,7 @@ def start(sess, stage, use_llm, first=False, chain=None, runner=None):
         job = Job(stage, use_llm, sess.rev)
         job.first = bool(first)
         job.chain = chain if runner is not None else None
+        job.tables_again = bool(again)
         st["job"] = job
 
     def run():
@@ -611,7 +750,7 @@ def summary(sess):
                                      "subtables": [{k: s.get(k) for k in ("id", "rows", "cols", "kind", "headerRows", "headerCols", "source")} for s in t["subtables"]],
                                      "owner": t.get("owner"), "basis": t.get("basis"), "calc": t.get("calc"),  # §9
                                      "notes": len(t.get("notes") or []),  # §10 작성요령 수(「표」 탭 목록)
-                                     "llm": {k: t["llm"].get(k) for k in ("sent", "changed", "undecided")}} for t in s3["tables"]],
+                                     "llm": {k: t["llm"].get(k) for k in ("sent", "changed", "undecided", "state")}} for t in s3["tables"]],  # state = answered · carried(앞 판정을 이어 씀) · pending · failed · unsent(옛 결과는 None)
                          "repeats": s3["repeats"][:20]}
     return out
 

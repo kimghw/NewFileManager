@@ -12,12 +12,13 @@ from app.division_profiles.rnd.core import (EXTRA, FORM, FORMS, PERIOD, apply, f
                                             org_name, org_names, period_fill, preview, read_values, stage_year, targets)
 
 ID = "rnd"
-VERSION = 9   # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3). 2 = 역할 칸 행 묶음(② §12, 2026-11-10) · 3 = 이름 든 라벨·외 기관 절(② §15, 같은 날)
+VERSION = 10  # 정책이 바뀌면 올린다 — 계획(plan)에 고정돼 반영 직전 비교(② §3). 2 = 역할 칸 행 묶음(② §12, 2026-11-10) · 3 = 이름 든 라벨·외 기관 절(② §15, 같은 날)
 #               4 = 책임자 절 제목의 기관 이름 · 번호 잇기(② §16, 같은 날) · 5 = 간접비 표의 기관 블록(계획서 8-3 도) · 보고서의 차년도 범위 — 전체·당해·다음 연도(② §18, 2026-11-11)
 #               6 = 반영이 넣은 이름·연도(앞서 반영한 값 prior) — 이름·당해 차년도를 바꾼 값으로 다시 반영 · 이름 칸 행 묶음(② §19, 2026-11-11)
 #               7 = 서명 줄 맞춤 — 기관 이름을 넣은 뒤 「(직인)」 이 세로로 한 줄에 서게 빈칸 수를 조정(② §20, 2026-11-12)
 #               8 = 서명 줄에 기관 이름을 넣지 않음 — 줄만 기관 수만큼, 앞서 넣은 이름 괄호는 뺌(② §20, 같은 날 사용자 「여기 기관은 안들어 가는거 같아」)
 #               9 = 「N단계 (해당 시 작성)」 단계 자리 — 단계가 하나인 과제면 항목째 지움 · 하나만 남은 행도 묶음(② §26, 2026-11-23 사용자 「단계로 된 경우만 작성하도록 되어 있는데」)
+#               10 = 같은 열의 날짜 칸은 글 시작을 맞춤 — 왼쪽 정렬 + 같은 앞 여백(② §27, 같은 날 사용자 「여기 년도는 앞 여백이 동일해야 하는데」)
 NAME = "국가R&D 연구개발계획서·연차보고서(KEIT 서식)"
 SUPPORTED = {FORM, "연차보고서"}   # 연구개발계획서(일반형, ② §10) + 연차보고서(KEIT 서식, ② §17 — 2026-11-11). 단계·최종보고서는 판정만 되고 지원 안 함(잰 서식 없음)
 DIM_NAME = core.DIM_NAME | {PERIOD: "사업기간"}
@@ -76,7 +77,7 @@ def candidates(blocks, levels, values, rebuild=True, skip=(), hints=None, prior=
         out.append(sp)
     fill = core.period_fill(blocks, values, core.is_report(core.form_of(blocks)))
     if fill:
-        sp = core._period_spot(fill)
+        sp = core._period_spot(fill, core.period_starts(blocks, fill))
         sp.update(items=[], drop=[], copies=0, template=None)
         out.append(sp)
     return out

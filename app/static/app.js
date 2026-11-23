@@ -8342,6 +8342,12 @@ function hRowKeys(tb) { // 2열 표의 줄 이동 — 줄(tr.go)에 초점이 �
   });
 }
 
+// 구분 기준 LLM 재검토의 「반영 n」 — 사람이 표시한 자리는 값을 안 바꾸고 제안만 남긴다(applied 줄의 note): 그것을 반영으로 세지 않고 「제안 n」 으로 따로 적는다
+function divAppliedText(applied) {
+  const rows = applied || [], notes = rows.filter((a) => a && a.note).length;
+  return `반영 ${rows.length - notes}${notes ? ` · 제안 ${notes}` : ""}`;
+}
+
 function hCell(tr, text, cls = null, title = "") {
   const td = el("td", cls, text == null || text === "" ? "—" : String(text));
   if (title) td.title = title;
@@ -8816,7 +8822,10 @@ function headsTablesDraw(data, tableId) {
       hCell(tr, x.subtables.map((s) => `${s.id} ${H_TKIND[s.kind] || s.kind}`).join(" · "), "wrap");
       hCell(tr, `${nf(c.colhead || 0)} · ${nf(c.rowhead || 0)} · ${nf(c.field || 0)}`);
       const lm = x.llm || {};
-      hCell(tr, lm.undecided ? "미판정" : lm.sent ? `변경 ${lm.changed || 0}` : "—", lm.undecided ? "warn" : null);
+      // 표의 LLM 판정(llm.state — spec_작업 ② §22 「구현 계약」 22-4): 이번에 답 받음 = 「변경 n」 · 앞 판정을 이어 씀 = 「이어 씀」(실행 n 의 판정 — 직접 검토한 것이 아니다) · 못 받음 = 「미판정」
+      const car = lm.state === "carried" ? lm.carried || {} : null;
+      const cell = hCell(tr, lm.undecided ? "미판정" : car ? `이어 씀 · 변경 ${lm.changed || 0}` : lm.sent ? `변경 ${lm.changed || 0}` : "—", lm.undecided ? "warn" : null);
+      if (car && cell) cell.title = `${car.run ? `실행 ${car.run} 의 ` : "앞 "}LLM 판정을 이어 썼습니다${car.new ? ` — 판정 뒤 생긴 칸 ${car.new}개(보완 대상)` : ""}${lm.error ? ` · ${lm.error}` : ""}`;
       tr.tabIndex = 0;
       tr.title = `${x.id} · 칸 ${x.cells.length} · 서브 테이블 ${x.subtables.length}${x.issues.length ? ` · 문제 ${x.issues.length}` : ""} · 누르면 격자`;
       tr.onclick = () => headsTablesDraw(data, x.id);
@@ -10644,7 +10653,7 @@ async function divHintsList() { // 2열 「구분 기준 — 추가한 자리」
     hBtn("다시 읽기", () => divMembersLoad(true), { disabled: dv.marks.loading }));
   if (last) {
     const box = el("div", "dv-llm-last");
-    box.append(el("strong", null, `LLM 재검토 ${fmtWhen(last.at)} — 반영 ${last.applied.length} · 건너뜀 ${last.skipped.length}${last.call && last.call.ms ? ` · ${Math.round(last.call.ms / 1000)}s` : ""}${last.call && last.call.model ? ` · ${last.call.model}` : ""}`));
+    box.append(el("strong", null, `LLM 재검토 ${fmtWhen(last.at)} — ${divAppliedText(last.applied)} · 건너뜀 ${last.skipped.length}${last.call && last.call.ms ? ` · ${Math.round(last.call.ms / 1000)}s` : ""}${last.call && last.call.model ? ` · ${last.call.model}` : ""}`));
     if (last.summary) box.append(el("p", null, last.summary));
     if (last.skipped.length) { const ul = el("ul", "dv-drop"); for (const x of last.skipped) { const li = el("li"); li.textContent = `${x.action} ${x.para || x.hintId || ""} — ${x.why}${x.reason ? ` (${x.reason})` : ""}`; ul.append(li); } box.append(ul); }
     body.append(box);
@@ -10845,7 +10854,7 @@ function divReviewList() {
     "재검토(표시한 자리의 형제 찾기·구분 고침)와 빠진 자리 검토(묶음 밖 표·문단)를 함께 돌려 한 목록으로 · 줄을 누르면 그 자리로");
   if (last) {
     const rv = last.review, ms = last.missing, why = last.why || {}, errs = last.errors || {};
-    const parts = [rv ? `재검토 반영 ${rv.applied.length} · 건너뜀 ${rv.skipped.length}` : `재검토 안 함 — ${errs.review || why.review || "까닭 모름"}`,
+    const parts = [rv ? `재검토 ${divAppliedText(rv.applied)} · 건너뜀 ${rv.skipped.length}` : `재검토 안 함 — ${errs.review || why.review || "까닭 모름"}`,
       ms ? `빠진 자리 후보 ${ms.missing.length}(보낸 표 ${ms.sent.tables} · 문단 ${ms.sent.paragraphs})` : `빠진 자리 검토 안 함 — ${errs.missing || why.missing || "까닭 모름"}`];
     tools.append(el("span", "muted", `${parts.join(" · ")} · ${fmtWhen(last.at)}${last.ms ? ` · ${Math.round(last.ms / 1000)}s` : ""}${last.costUsd ? ` · $${last.costUsd}` : ""}`));
     if (last.rev !== state.serverRev) tools.append(el("span", "hd-msg note", "문서가 바뀜 — 다시 검토"));
@@ -10928,7 +10937,7 @@ async function divReview(auto = false) {
     if (r.skipped) { if (r.review && !m.review) divReviewAdopt(r.review); return; } // auto 로 불렀는데 안 돈 것(이미 검토함 · 지원 양식 아님 · LLM 연결 없음) — 지금 화면은 auto 로 부르지 않는다(위)
     divReviewAdopt(r);
     if (r.review) divHintsChanged(r.hints, null); // 추가한 자리 층이 바뀜 — 문서 표시·계획을 다시
-    const msg = "구분 기준 LLM 검토 — " + ([r.review ? `재검토 반영 ${r.review.applied.length}` : "", r.missing ? `빠진 자리 후보 ${r.missing.missing.length}` : ""].filter(Boolean).join(" · ") || "돌릴 검토가 없습니다");
+    const msg = "구분 기준 LLM 검토 — " + ([r.review ? `재검토 ${divAppliedText(r.review.applied)}` : "", r.missing ? `빠진 자리 후보 ${r.missing.missing.length}` : ""].filter(Boolean).join(" · ") || "돌릴 검토가 없습니다");
     if (!auto) { toast(msg); divReviewList(); }
     else if ((r.items || []).length) toast(msg, false, { label: "보기", run: () => { showTab("Div"); divReviewList(); } });
   } catch (e) {

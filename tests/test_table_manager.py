@@ -33,14 +33,15 @@ def _env(tmp_path, monkeypatch):
     G._MEMORY.clear()
 
 
-def _stage1(edit=None):
-    """합성 1단계 레코드(표 하나 + 앞 문단). edit = {칸 id: [문단 글…]} 로 칸의 문단을 바꾼다. 문단 종류는 실제 분류기로."""
+def _stage1(edit=None, cells=None):
+    """합성 1단계 레코드(표 하나 + 앞 문단). edit = {칸 id: [문단 글…]} 로 칸의 문단을 바꾼다. 문단 종류는 실제 분류기로.
+    cells = [(칸 id, 행, 열, 행 병합, 열 병합, 음영, [문단 글…])…] 을 주면 그 칸들로(줄을 지우거나 늘린 표 — 칸 id 는 그대로 따라간다)."""
     rules, run = R.active(R.load(), ()), R._Run()
-    tbl = {"t": "tbl", "id": TID, "rows": 6, "cols": 6, "cells": len(CELLS), "key": 1, "host": "x1"}
+    cells = cells if cells is not None else [(f"c{101 + i}", *x) for i, x in enumerate(CELLS)]
+    tbl = {"t": "tbl", "id": TID, "rows": max(x[1] + x[3] for x in cells), "cols": max(x[2] + x[4] for x in cells), "cells": len(cells), "key": 1, "host": "x1"}
     recs = [{"id": "p90", "n": 0, "path": [], "text": "<연구개발비 사용계획> (단위: 천원)", "kind": "plain", "blank": False, "char": {"text": {"bold": False}}}]
     n = 0
-    for i, (r, c, rs, cs, fill, paras) in enumerate(CELLS):
-        cid = f"c{101 + i}"
+    for i, (cid, r, c, rs, cs, fill, paras) in enumerate(cells):
         cell = {"t": "cell", "id": cid, "row": r, "col": c, "rs": rs, "cs": cs, "fill": fill, "key": 10 + i}
         for t in (edit or {}).get(cid, paras):
             n += 1
@@ -95,12 +96,15 @@ def test_stored_roles_and_bands_are_reused_only_when_the_input_is_the_same():
     assert llm == keep                                                           # 저장된 결과는 안 고친다
     key = TM.judge(_stage1(), TID, stored=llm)                                   # 문서의 다른 곳이 바뀜 — 이 표의 자료는 그대로
     assert key["source"] == "stage3" and key["reuse"]["why"] == "이 표의 자료가 그대로"
-    moved = TM.judge(_stage1({LABOR_CASH: ["999"]}), TID, stored=llm)            # 이 표의 칸 글이 바뀜 → 그 표 전체를 초안으로
-    assert moved["source"] == "draft" and moved["reuse"]["why"] == "판정 뒤 이 표가 바뀜" and _by(moved)[FOOT]["role"] == "rowhead"
-    old = {k: v for k, v in llm.items() if k != "inputKey"}                      # 열쇠가 없는 옛 결과 — 문서가 그대로일 때만
-    assert TM.judge(_stage1(), TID, stored=old)["source"] == "draft" and TM.judge(_stage1(), TID, stored=old, same_doc=True)["source"] == "stage3"
-    fewer = {**llm, "cells": llm["cells"][:-1]}                                  # 칸이 달라짐
-    assert TM.judge(_stage1(), TID, stored=fewer, same_doc=True)["reuse"] == {"ok": False, "why": "표의 칸이 바뀜"}
+    moved = TM.judge(_stage1({LABOR_CASH: ["999"]}), TID, stored=llm)            # 이 표의 칸 글이 바뀜 → 버리지 않고 칸마다 이어 쓴다(2026-11-23 「LLM 판정이 되면 그게 유지되어야지」)
+    assert moved["source"] == "stage3" and moved["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 27"}
+    assert (_by(moved)[FOOT]["role"], _by(moved)[FOOT]["reason"], _by(moved)[LABOR_CASH]["textFull"]) == ("field", "값으로 읽힘", "999")
+    assert llm == keep
+    old = {k: v for k, v in llm.items() if k != "inputKey"}                      # 열쇠가 없는 옛 결과 — 문서가 그대로면 그대로 · 아니면 이어 쓴다
+    assert TM.judge(_stage1(), TID, stored=old)["reuse"]["why"].startswith("판정을 이어 씀") and TM.judge(_stage1(), TID, stored=old, same_doc=True)["reuse"]["why"] == "문서가 그대로"
+    fewer = {**llm, "cells": llm["cells"][:-1]}                                  # 판정 뒤에 칸이 하나 생긴 꼴 — 있던 칸은 그대로 · 새 칸은 띠의 자리로
+    got = TM.judge(_stage1(), TID, stored=fewer, same_doc=True)
+    assert got["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 26 · 그 뒤 생긴 칸 1"} and _by(got)[FOOT]["role"] == "field"
 
 
 def test_text_paragraphs_and_numbers_always_come_from_the_current_records():
@@ -129,7 +133,7 @@ def test_user_designation_is_merged_on_top_and_released_when_removed():
     legacy = copy.deepcopy(stored)
     next(c for c in legacy["cells"] if c["id"] == LABOR).pop("auto")             # `auto` 가 없는 옛 결과 — 지정을 가를 수 없다
     old = TM.judge(_stage1(), TID, stored=legacy, same_doc=True)
-    assert old["reuse"] == {"ok": False, "why": "사람 지정이 섞인 옛 결과"} and _by(old)[LABOR]["role"] == "rowhead"
+    assert old["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 26 · 그 뒤 생긴 칸 1"} and _by(old)[LABOR]["role"] == "rowhead"   # 가를 수 없는 그 칸만 띠의 자리로(헤더 열) — 나머지는 이어 쓴다
 
 
 def _template(j, **over):
@@ -170,3 +174,78 @@ def test_template_that_does_not_cover_the_table_is_not_used():
     bogus = _template(blank)
     bogus["roles"][0][2] = "nonsense"                                            # 모르는 역할
     assert TM.judge(_stage1(), TID, template=bogus)["source"] == "draft"
+
+
+def _cells(drop=(), add=(), edit=None):
+    """CELLS 에서 줄(drop — 판정 때의 행 번호)을 지우고 아래 줄을 당긴 표 + 더한 칸(add — 지금 자리의 (칸 id, 행, 열, 행 병합, 열 병합, 음영, 문단)) · edit = {칸 id: [문단 글…]}."""
+    out = []
+    for i, (r, c, rs, cs, fill, paras) in enumerate(CELLS):
+        if r in drop:
+            continue
+        cid = f"c{101 + i}"
+        out.append((cid, r - sum(1 for d in drop if d < r), c, rs, cs, fill, (edit or {}).get(cid, paras)))
+    return out + list(add)
+
+
+def test_judgment_is_carried_when_the_table_changes_after_it():
+    """판정 이어 쓰기(2026-11-23 사용자 「LLM 판정이 되면 그게 유지되어야지」 — 이관 목적 문서의 연구개발비 표: 빈 양식일 때 판정 → 내용 반영으로 값이 들어옴 → 빈 필드 제거로 줄이 지워짐):
+    판정 때 있던 칸은 그 역할 그대로다 — 음영 칸에 값이 들어와도, 줄이 지워져 자리가 당겨져도. 판정 뒤에 생긴 줄은 그 띠의 헤더 행 · 열 수로."""
+    blank = {f"c{101 + i}": [""] for i, x in enumerate(CELLS) if x[0] in (2, 3, 4) and x[1] >= 1}          # 빈 양식 — 값 칸이 다 비었다
+    shade = [(f"c{101 + i}", r, c, rs, cs, SHADE if (r in (2, 3, 4) and c >= 3) else fill, blank.get(f"c{101 + i}", paras)) for i, (r, c, rs, cs, fill, paras) in enumerate(CELLS)]
+    stored = HT.build(_stage1(cells=shade), use_llm=False)["tables"][0]                                     # 3 · 4열과 합계 열을 칠해 둔 빈 양식의 판정
+    assert {c["role"] for c in stored["cells"] if c["row"] in (2, 3, 4) and c["col"] >= 1} == {"field"}
+    keep = copy.deepcopy(stored)
+    filled = [(cid, r, c, rs, cs, fill, ["1,234"] if cid in blank else paras) for cid, r, c, rs, cs, fill, paras in shade]   # 내용 반영 — 값이 들어옴
+    j = TM.judge(_stage1(cells=filled), TID, stored=stored)
+    assert j["source"] == "stage3" and j["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 27"}
+    assert {x["role"] for x in j["table"]["cells"] if x["row"] in (2, 3, 4) and x["col"] >= 1} == {"field"}  # 음영 칸에 값이 들어와도 필드
+    assert [(tuple(b["rows"]), b["headerRows"], b["headerCols"]) for b in j["subs"]] == [(tuple(s["rows"]), s["headerRows"], s["headerCols"]) for s in stored["subtables"]]
+    assert _by(j)[LABOR_CASH]["num"] == 1234 and stored == keep                                              # 글 · 숫자는 지금 것 · 저장된 결과는 안 고친다
+    pruned = [(cid, r - (1 if r > 3 else 0), c, rs, cs, fill, paras) for cid, r, c, rs, cs, fill, paras in filled if r != 3]   # 빈 필드 제거 — 「재료비」 줄이 지워지고 아래가 당겨짐
+    j = TM.judge(_stage1(cells=pruned), TID, stored=stored)
+    assert j["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 21 · 없어진 칸 6"} and j["table"]["rows"] == 5
+    assert (_by(j)[FOOT]["row"], _by(j)[FOOT]["role"]) == (3, _by(TM.judge(_stage1(cells=filled), TID, stored=stored))[FOOT]["role"])   # 당겨진 줄도 제 역할
+    assert {x["role"] for x in j["table"]["cells"] if x["row"] in (2, 3) and x["col"] >= 1} == {"field"}
+    assert [b["kind"] for b in j["subs"]] == [s["kind"] for s in stored["subtables"]] and j["subs"][0]["headerRows"] == 2 and j["subs"][0]["headerCols"] == 1
+    grown = [(cid, r + (1 if r > 2 else 0), c, rs, cs, fill, paras) for cid, r, c, rs, cs, fill, paras in filled]               # 줄 늘리기 — 「인건비」 아래에 새 줄
+    grown += [("n1", 3, 0, 1, 1, None, ["연구활동비"])] + [(f"n{2 + k}", 3, 1 + k, 1, 1, SHADE if k >= 2 else None, ["500"]) for k in range(5)]
+    j = TM.judge(_stage1(cells=grown), TID, stored=stored)
+    assert j["reuse"] == {"ok": True, "why": "판정을 이어 씀 — 판정 때 있던 칸 27 · 그 뒤 생긴 칸 6"}
+    by = _by(j)
+    assert by["n1"]["role"] == "rowhead" and {by[f"n{2 + k}"]["role"] for k in range(5)} == {"field"}       # 새 줄 — 헤더 열은 행헤더 · 값 열은 필드(음영이어도)
+    assert by[LABOR_CASH]["role"] == "field" and by["n2"]["rowPath"] == ["n1"]
+    assert TM.judge(_stage1(), TID, stored={"cells": [], "subtables": []})["source"] == "draft"             # 이을 칸이 없으면 초안
+
+
+def _drafted(s1):
+    """오늘의 초안이 얹힌 표(collect 꼴) · 격자 · 초안 띠 · 자료 열쇠 — carry_over 가 받는 것."""
+    tb = next(t for t in HT.collect(s1) if t["id"] == TID)
+    bs, occ = HT.draft(tb)
+    return tb, occ, bs, HT.input_key(tb, occ, bs)
+
+
+def test_carry_over_is_the_judge_reuse_step_and_leaves_the_draft_alone_when_nothing_carries():
+    """carry_over(spec_작업 ② §22 「구현 계약」 22-4) = judge 의 「그대로 다시 쓰기 · 아니면 칸마다 이어 쓰기」 를 밖에서 부르는 것 — 3단계 실행이 같은 셈으로 앞 LLM 판정을 이어 쓴다.
+    이을 것이 없으면 None 이고 표의 칸 역할은 초안 그대로다(건드린 채 돌려주지 않는다). 저장된 결과는 고치지 않는다."""
+    llm = copy.deepcopy(_stored())
+    next(c for c in llm["cells"] if c["id"] == FOOT).update(role="field", changed=True, reason="값으로 읽힘")   # LLM 이 왼쪽 아래 「합계」 를 필드로 고쳤다
+    keep = copy.deepcopy(llm)
+    role = lambda tb, cid: next(x["role"] for x in tb["cells"] if x["id"] == cid)  # noqa: E731
+    tb, occ, bs, key = _drafted(_stage1())
+    bands, how = TM.carry_over(tb, occ, bs, llm, key)                               # 표의 자료가 그대로 — 그대로 다시 쓴다
+    assert how == {"mode": "same"} and role(tb, FOOT) == "field" and [b["id"] for b in bands] == [s["id"] for s in llm["subtables"]]
+    tb, occ, bs, key = _drafted(_stage1({LABOR_CASH: ["999"]}))                     # 칸 글이 바뀜 — 칸마다 이어 쓴다
+    bands, how = TM.carry_over(tb, occ, bs, llm, key)
+    assert how == {"mode": "carried", "kept": 27, "new": 0, "gone": 0, "bands": "stored"} and role(tb, FOOT) == "field"
+    tb, occ, bs, key = _drafted(_stage1({LABOR_CASH: ["999"]}))
+    old = {k: v for k, v in llm.items() if k != "inputKey"}                         # 열쇠가 없는 옛 결과 — 문서가 그대로라고 알려 주면 그대로
+    assert TM.carry_over(tb, occ, bs, old, key, same_doc=True)[1] == {"mode": "same"} and role(tb, FOOT) == "field"
+    for nothing in (None, {}, {"cells": [], "subtables": []}, {"cells": [{"id": "zz", "role": "field"}], "subtables": []}):   # 이을 것이 없다
+        tb, occ, bs, key = _drafted(_stage1())
+        draft = [(x["id"], x["role"]) for x in tb["cells"]]
+        assert TM.carry_over(tb, occ, bs, nothing, key) is None and [(x["id"], x["role"]) for x in tb["cells"]] == draft and role(tb, FOOT) == "rowhead"
+    assert llm == keep
+    for edit in (None, {LABOR_CASH: ["999"]}):                                      # judge 의 자동 역할 = carry_over 가 얹은 역할
+        tb, occ, bs, key = _drafted(_stage1(edit))
+        TM.carry_over(tb, occ, bs, llm, key)
+        assert {x["id"]: x["role"] for x in tb["cells"]} == {i: x["auto"] for i, x in _by(TM.judge(_stage1(edit), TID, stored=llm)).items()}

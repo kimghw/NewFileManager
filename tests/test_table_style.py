@@ -364,9 +364,9 @@ def test_api_stage3_roles_are_reused_but_paragraphs_are_read_now(client):
     for body in ({"keys": [mk]}, {"keys": [mk], "rev": v["rev"], "sigs": {mk: sig}}):
         assert client.post(f"{url}/apply", json=body).status_code == 409         # 억지로 보내도
     assert TS.cell_now(s.doc, hyphen["id"]) == ("- IMPORTANT CONTENT", False)
-    heading_runs.state(s)["stage3"]["meta"]["rev"] = -1                          # 그 결과가 옛 문서 차례의 것이면 — 이 표의 자료(칸 글)가 달라졌으니 표 전체를 초안으로
+    heading_runs.state(s)["stage3"]["meta"]["rev"] = -1                          # 그 결과가 옛 문서 차례의 것이고 이 표의 자료(칸 글)가 달라졌어도 — 판정을 버리지 않고 칸마다 이어 쓴다(2026-11-23 · spec_테이블매니저 ② §2 「판정 이어 쓰기」)
     v3 = client.get(url).json()
-    assert v3["source"] == "draft" and v3["reuse"] == {"ok": False, "why": "판정 뒤 이 표가 바뀜"} and mk not in _sigs(v3)
+    assert v3["source"] == "stage3" and v3["reuse"]["ok"] and v3["reuse"]["why"].startswith("판정을 이어 씀 — 판정 때 있던 칸") and mk not in _sigs(v3)   # 문단은 지금 것 — 여전히 후보가 아니다
     assert heading_runs.state(s)["stage3"]["tables"][0] == stored                # 저장된 결과는 안 고친다
 
 

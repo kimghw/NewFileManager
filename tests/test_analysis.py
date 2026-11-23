@@ -100,7 +100,8 @@ def test_first_run_turns_heads_then_tables():
 
 
 def test_llm_is_separate_and_follows_the_current_result():
-    """LLM 판정은 기본 분석과 따로 — 결과가 있는 채 LLM 을 돌리면 헤딩은 done 그대로이고 LLM 만 도는 중. 지금 결과가 LLM 을 거쳤는지가 기준(스크립트로 다시 돌려 덮으면 none)."""
+    """LLM 판정은 기본 분석과 따로 — 결과가 있는 채 LLM 을 돌리면 헤딩은 done 그대로이고 LLM 만 도는 중. 지금 결과가 LLM 을 거쳤는지가 기준(헤딩 — 스크립트로 다시 돌려 덮으면 none ·
+    표는 앞 LLM 판정을 이어 쓴 결과도 센다: test_tables_llm_counts_carried_judgments_and_pending)."""
     both = {"stage2": _res(2), "stage3": _res(3)}
     a = _items(analysis.status(_sess({**both, "job": _job(stage=2, llm=True)})))
     assert a["heads"]["state"] == "done" and a["heads"]["llm"]["state"] == "running" and a["tables"]["state"] == "done" and a["tables"]["llm"]["state"] == "none"
@@ -124,6 +125,44 @@ def test_llm_is_separate_and_follows_the_current_result():
     assert kept["heads"]["llm"]["state"] == "done"
     script_fail = _items(analysis.status(_sess({**both, "job": _job(stage=2, status="failed", error="E")})))   # 스크립트 다시 돌리기가 실패 — LLM 과 무관
     assert script_fail["heads"]["llm"]["state"] == "none"
+
+
+def test_tables_llm_counts_carried_judgments_and_pending():
+    """표의 LLM 칸(spec_작업 ② §22 「구현 계약」 22-4 ⓔ) — 스크립트로 다시 돌려도 앞 LLM 판정을 이어 쓴 결과이고 보완 대상이 0 이면 「됨」 · 보완 대상이 남았으면 상태는 그대로 두고 글에 적는다.
+    「돌 것」 은 LLM 을 거쳤거나 이어 쓴 결과이고 보완 대상이 0 일 때만 표를 건너뛴다. 이어 쓴 판정이 없는 스크립트 결과는 전과 같다(「안 함」)."""
+    llm_ok = {"requested": True, "fallback": False}
+
+    def tables(s3, **st):
+        return _items(analysis.status(_sess({"stage2": _res(2), "stage3": s3, **st})))["tables"]
+    car = tables(_res(3, llm={"carried": 4, "pending": 0}))
+    assert car["llm"] == {"state": "done", "text": "LLM 판정을 이어 씀 — 표 4", "error": None} and (car["carried"], car["pending"]) == (4, 0)
+    part = tables(_res(3, llm={"carried": 4, "pending": 2}))
+    assert (part["llm"]["state"], part["llm"]["text"], part["carried"], part["pending"]) == ("none", "LLM 판정을 이어 씀 — 표 4 · 보완 대상 2", 4, 2)
+    fail = tables(_res(3, llm={"requested": True, "fallback": True, "error": "TimeoutError", "carried": 4, "pending": 4}))   # LLM 이 답을 못 함 — 앞 판정은 남아 있다
+    assert fail["llm"] == {"state": "failed", "text": "LLM 판정을 이어 씀 — 표 4 · 보완 대상 4", "error": "TimeoutError"}
+    asked = tables(_res(3, llm={**llm_ok, "applied": 1, "calls": 1, "carried": 3, "pending": 1}))   # 보완 실행 — 물은 표 하나가 답을 못 받음
+    assert asked["llm"] == {"state": "done", "text": "LLM 판정함 — 반영 1 · 호출 1 · 이어 씀 3 · 보완 대상 1", "error": None}
+    plain = tables(_res(3, llm={"carried": 0, "pending": 5}))   # 이어 쓴 판정이 없는 스크립트 결과 — 전과 같은 글
+    assert plain["llm"] == {"state": "none", "text": "LLM 판정 안 함 — 스크립트 결과", "error": None} and plain["pending"] == 5
+    old = tables(_res(3, llm=llm_ok))   # 이 수를 남기기 전의 결과
+    assert (old["llm"]["state"], old["carried"], old["pending"]) == ("done", 0, 0)
+    boom = tables(_res(3, llm={"carried": 4, "pending": 0}), job=_job(stage=3, llm=True, status="failed", error="RuntimeError: api"))   # LLM 실행이 예외로 끝나도 이어 쓴 판정은 유효
+    assert boom["llm"]["state"] == "done"
+    run = tables(_res(3, llm={"carried": 4, "pending": 0}), job=_job(stage=3, llm=True))   # 도는 중은 건드리지 않는다
+    assert run["llm"]["state"] == "running"
+    assert analysis.tables_left(_res(3, llm={"carried": 4}))["settled"] and not analysis.tables_left(_res(3, llm={"carried": 4, "pending": 1}))["settled"]
+    assert analysis.tables_left(_res(3, llm=llm_ok))["settled"] and not analysis.tables_left(_res(3, llm={**llm_ok, "pending": 1}))["settled"]
+    assert not analysis.tables_left(_res(3))["settled"] and not analysis.tables_left(None)["settled"]
+
+    def plan(s3):   # 헤딩은 LLM 을 거침 · 서식 계획은 받음 — 표만 본다
+        return analysis.status(_sess({"stage2": _res(2, llm=llm_ok), "stage3": s3}), outline=(OV, VARS), plans={"1": {"rev": 3}})["llmPlan"][1]
+    skip = plan(_res(3, llm={"carried": 4}))
+    assert skip["run"] is False and skip["why"] == "앞 LLM 판정을 이어 썼고 보완 대상이 없습니다 — 건너뜀"
+    some = plan(_res(3, llm={"carried": 4, "pending": 2}))
+    assert some["run"] is True and some["why"] == "앞 판정을 이어 쓰고 보완 대상 표 2개만 판정"
+    left = plan(_res(3, llm={**llm_ok, "pending": 1}))   # LLM 을 거쳤어도 답을 못 받은 표가 남았으면 돈다
+    assert left["run"] is True and left["why"] == "앞 판정을 이어 쓰고 보완 대상 표 1개만 판정"
+    assert plan(_res(3, llm=llm_ok))["run"] is False and plan(_res(3))["why"] == "칸 역할 · 서브 테이블 판정"
 
 
 def test_failed_only_where_the_job_stopped_and_moved_is_not_a_state():
@@ -333,7 +372,8 @@ def _llm_ok(stage, applied=3):
     def fake(sess, job, use_llm):
         assert use_llm is True
         res = heading_runs.state(sess)[f"stage{stage}"]
-        res["llm"] = {**(res.get("llm") or {}), "requested": True, "fallback": False, "applied": applied, "calls": 1}
+        res["llm"] = {**(res.get("llm") or {}), "requested": True, "fallback": False, "applied": applied, "calls": 1,
+                      "pending": 0}   # 모든 표가 답을 받은 LLM 실행 — 보완 대상이 남지 않는다(스크립트 결과의 pending 을 그대로 두면 표 단계가 다시 돈다)
         fake.calls += 1
         return 40 + stage
     fake.calls = 0
@@ -522,6 +562,81 @@ def test_chain_parallel_failure_keeps_the_other_and_stop_skips_unstarted_templat
     analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=plan_stop)
     f = {p["key"]: p for p in job.parts}["formats"]
     assert done == ["1"] and f["status"] == "partial" and "멈춤 — 남은 템플릿 2" in f["msg"]
+
+
+def test_chain_tables_step_asks_only_pending_and_skips_when_settled(monkeypatch):
+    """「LLM 검증·보완」 의 표 단계(spec_작업 ② §22 「구현 계약」 22-4 ⓓ) — 앞 LLM 판정을 이어 쓴 결과이고 보완 대상이 없으면 건너뛴다(유료 호출 없음) ·
+    보완 대상이 남았으면 **그 표만 묻는 실행**으로 돈다(job.tables_again 거짓 — 전부 다시는 「표 구조(LLM)」 단추) · LLM 을 거친 결과여도 답을 못 받은 표가 남았으면 돈다."""
+    from app import analysis_llm
+    monkeypatch.setattr(analysis_llm.works, "log", lambda *a, **k: None)
+    llm_ok = {"requested": True, "fallback": False}
+    seen = []
+
+    def s3(s, j, use_llm):
+        seen.append(j.tables_again)
+        s.heads["stage3"]["llm"] = {**llm_ok, "carried": 4, "pending": 0, "calls": 0, "applied": 0}
+        return 44
+    monkeypatch.setattr(heading_runs, "run_stage3", s3)
+
+    def go(s3_llm):
+        sess = _sess({"stage2": _res(2, llm=llm_ok), "stage3": _res(3, llm=s3_llm)})
+        job = _chain_job(sess)
+        assert job.tables_again is True   # 기본은 전부 다시(단추)
+        n = analysis_llm.run(sess, job, outline=lambda s: None, plans=lambda s, g: {}, plan=lambda s, tid: None, parts=("heads", "tables"))
+        return n, {p["key"]: p for p in job.parts}
+    n, parts = go({"carried": 4, "pending": 0})   # 스크립트로 다시 돌려 앞 판정을 이어 쓴 결과 — 건너뜀
+    assert n is None and seen == [] and (parts["heads"]["status"], parts["tables"]["status"]) == ("skip", "skip") and "이어 썼고 보완 대상이 없습니다" in parts["tables"]["msg"]
+    n, parts = go({"carried": 4, "pending": 2})   # 보완 대상이 남음 — 그 표만 묻는 실행
+    assert n == 44 and seen == [False] and parts["tables"]["status"] == "ok" and "이어 씀 4" in parts["tables"]["msg"]
+    n, parts = go({**llm_ok, "pending": 1})   # LLM 을 거쳤어도 답을 못 받은 표가 남음
+    assert n == 44 and seen == [False, False] and parts["tables"]["status"] == "ok"
+    n, parts = go(llm_ok)   # 다 답을 받은 LLM 결과 — 전처럼 건너뜀
+    assert n is None and seen == [False, False] and parts["tables"]["msg"] == "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀"
+
+    def s3_fail(s, j, use_llm):   # LLM 이 답을 못 함 — 표들은 앞 판정을 이어 쓴 채(초안이 아니다) 단계는 실패
+        s.heads["stage3"]["llm"] = {"requested": True, "fallback": True, "error": "off", "carried": 4, "pending": 2}
+        return 45
+    monkeypatch.setattr(heading_runs, "run_stage3", s3_fail)
+    sess = _sess({"stage2": _res(2, llm=llm_ok), "stage3": _res(3, llm={"carried": 4, "pending": 2})})
+    job = _chain_job(sess)
+    with pytest.raises(analysis_llm.Stop, match="표 구조 LLM 판정을 못 함"):
+        analysis_llm.run(sess, job, outline=lambda s: None, plans=lambda s, g: {}, plan=lambda s, tid: None, parts=("heads", "tables"))
+    t = {p["key"]: p for p in job.parts}["tables"]
+    assert t["status"] == "failed" and t["msg"].startswith("LLM 판정을 못 함 — 앞 판정을 이어 씀(표 4)")
+    assert _items(analysis.status(sess))["tables"]["llm"]["text"] == "LLM 판정을 이어 씀 — 표 4 · 보완 대상 2"
+
+
+def test_heads_step_fails_when_the_llm_run_kept_the_previous_result(monkeypatch):
+    """헤딩 2단계의 LLM 이 답을 못 했는데 지금 결과가 LLM 판정을 거친 것이라 그대로 둔 실행(heading_runs.run_stage2 의 job.kept2 — spec_작업 ② §22 「구현 계약」 22-4 ⓖ):
+    지금 결과(앞 LLM 결과)로는 성공처럼 읽히므로 그 표시로 단계를 실패로 적는다 — 「헤딩 그래프(LLM)」 은 뒤 단계를 돌리지 않고 끝나고, 「LLM 검증·보완」 은 실패로 끝난다."""
+    from app import analysis_llm
+    monkeypatch.setattr(analysis_llm.works, "log", lambda *a, **k: None)
+
+    def kept(s, j, use_llm):   # 지금 결과는 건드리지 않는다
+        j.kept2 = {"run": 2, "error": "off"}
+        return 9
+    monkeypatch.setattr(heading_runs, "run_stage2", kept)
+    sess = _fake_sess(stage2_llm=True, stage3_llm=True)
+    before = sess.heads["stage2"]
+    job = _chain_job(sess)
+    job.chain = "heads"
+    got = []
+    n = analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=lambda s, tid: got.append(tid), parts=("heads", "formats"), force=True, strict=False)
+    assert n == 9 and got == [] and sess.heads["stage2"] is before
+    assert [(p["key"], p["status"]) for p in job.parts] == [("heads", "failed"), ("formats", "stopped")]
+    assert job.parts[0]["msg"] == "LLM 판정을 못 함 — 앞 LLM 결과를 그대로 둠 — LLM 이 꺼져 있습니다(서버의 LLM 설정)"
+    job = _chain_job(sess)   # LLM 검증·보완(strict) — 헤딩을 억지로 다시 돌린 꼴
+    with pytest.raises(analysis_llm.Stop, match="헤딩 그래프 LLM 판정을 못 함 — LLM 이 꺼져 있습니다"):
+        analysis_llm.run(sess, job, outline=lambda s: (OV3, TPLS), plans=lambda s, g: {}, plan=lambda s, tid: got.append(tid), force=True)
+    assert [p["status"] for p in job.parts] == ["failed", "wait", "wait"] and got == []
+
+    def fine(s, j, use_llm):   # 표시가 없으면 전처럼 지금 결과로 가른다
+        return 10
+    monkeypatch.setattr(heading_runs, "run_stage2", fine)
+    job = _chain_job(sess)
+    job.chain = "heads"
+    analysis_llm.run(sess, job, outline=lambda s: None, plans=lambda s, g: {}, plan=lambda s, tid: None, parts=("heads", "formats"), force=True, strict=False)
+    assert job.parts[0]["status"] == "ok"
 
 
 # ---------------------------------------------------------------- 헤딩 그래프(LLM) → 서식 정리 계획 · 서식 계획만 · 반영하면 바뀔 줄 수(2026-11-16 — 사용자 답 「헤딩 LLM 판정에 늘 이어서」 · 「확인 뒤 한 번에 반영」)

@@ -3,7 +3,7 @@
 
 흐름: 1단계 결과(문단 레코드의 그릇 사슬 — 표·칸·fill) → 표·칸 모으기 → **스크립트 초안**(칸 성격 → 행 띠 나누기 → 띠마다 헤더 행·헤더 열 세기 → 이웃 규칙으로 역할)
 → **T 호출**(표 묶음마다: 서브 테이블 영역·헤더 행/열 수·초안과 다른 칸만 — LLM 은 칸의 값을 보고 판단) → 검증·적용 → 헤더 트리·필드 경로·되풀이·문제.
-LLM 이 없거나 실패하면 초안 그대로(`llm.fallback`·표마다 `undecided`).
+LLM 이 없거나 실패하면 그 표의 앞 LLM 판정을 이어 쓰고(build 의 prior · carry — 표마다 `llm.state` "carried"), 이을 판정이 없으면 초안 그대로(`llm.fallback`·표마다 `undecided`).
 
 용어(② §0): **열헤더**(colhead) = 아래 칸들의 이름, **행헤더**(rowhead) = 오른쪽 칸들의 이름(키-값 양식의 키도), **귀퉁이**(corner) = 헤더 행과 헤더 열이 겹치는 칸,
 **필드**(field) = 채우는 값 칸(빈 칸·자리표시·값), **제목**(title) = 표(서브 테이블) 전체 너비의 제목 행, **안내**(note) = ※·작성 요령 글, **간격**(spacer) = 빈 전체 너비 행.
@@ -36,6 +36,9 @@ _STUB_WORDS = re.compile(r"번\s*호|순\s*번|구\s*분|항\s*목|내\s*용|명
 _NOTE_WORDS = re.compile(r"작성\s*(?:가이드라인|요령|방법|예시)|※|☞|유의\s*사항")
 SENT_END = re.compile(r"(?:다|음|함|요|임|것|됨|있음|없음)\.?\s*$")
 _DIGITS = re.compile(r"\d+")
+_YEARISH = re.compile(r"^\s*(?:19|20)\d{2}\s*(?:년도?|年)?\s*$")  # 연도 꼴 — 숫자뿐이어도 열·행의 이름일 수 있다(음영 값 칸으로 보지 않음)
+_DASH = re.compile(r"^\s*[-－–—]\s*$")                            # 「-」 홀로 = 값 0
+_AMOUNT = re.compile(r"\d,\d{3}|%")                               # 금액(천 단위 쉼표)·비율 꼴 — 순번·월·연도일 수 없는 숫자
 
 
 # ---- 표·칸 모으기 ------------------------------------------------------------------------------------------
@@ -206,13 +209,37 @@ def _shaded_blank(cell):
     return cell["nature"] == "header" and not cell["textFull"]
 
 
+def _shaded_num(cell):
+    """숫자 값만 든 음영 칸 — 문단이 모두 1단계 kind data(숫자·단위·범위: 「245,600」「16.4%」「3건」)이거나 「-」 홀로. 숫자는 다른 칸의 이름이 될 수 없으니
+    헤더 행·열 밖에서는 음영 값 칸이다(합계·소계 줄, 「합계」 열, 당해 연도를 칠해 둔 값 열 — 2026-11-23 사용자 「색상이 있다 할지라도 이건 내부는 필드」).
+    **이름일 수 있는 숫자는 뺀다** — 연도 꼴(「2024」「2024년」)과 순번 꼴(1~3자리 숫자 홀로: 「단계 | 1 | 1차년도 …」 의 단계 값 머리 · 순번 · 월)은 스크립트가 값으로 단정하지 않는다
+    (전처럼 이웃 규칙 — 건수 「3」 인지 단계 「1」 인지는 LLM 판정의 몫: 지침 tables 「숫자 표」). 헤더 행·열을 **세는** 근거에서 빼는 것은 `_shaded_amount`(더 좁음)뿐이다."""
+    text = cell["textFull"]
+    if not cell["shaded"] or not text or cell["nested"] or _YEARISH.match(text) or _ORDINAL.match(text):
+        return False
+    if _DASH.match(text):
+        return True
+    kinds = _texty_kinds(cell["kinds"])
+    return bool(kinds) and kinds.get("data", 0) == sum(kinds.values())
+
+
+def _shaded_amount(cell):
+    """음영 금액·비율 칸 — 숫자 값만 든 음영 칸 가운데 천 단위 쉼표나 % 가 있는 것(「365,600」「16.4%」). 순번·월·연도일 수 없는 숫자라 헤더 행·헤더 열을 세는 근거에서 뺀다."""
+    return _shaded_num(cell) and _AMOUNT.search(cell["textFull"]) is not None
+
+
+def _shaded_value(cell):
+    """음영 값 칸 — 글 없는 음영 칸이거나 숫자 값만 든 음영 칸(§8 「음영 값 칸」)."""
+    return _shaded_blank(cell) or _shaded_num(cell)
+
+
 def _value_row(occ, a, r, cols, starts):
-    """행 r 이 띠 [a, r) 의 음영 값 행인가 — 「연구개발비 총액(M=K+L) | (음영 빈 칸)…」 처럼 왼쪽 이름 칸 뒤가 모두 글 없는 음영 칸이고, 그 띠의 앞선 행 가운데
+    """행 r 이 띠 [a, r) 의 음영 값 행인가 — 「연구개발비 총액(M=K+L) | (음영 값 칸)…」 처럼 왼쪽 이름 칸 뒤가 모두 음영 값 칸(글 없음 · 숫자 값만)이고, 그 띠의 앞선 행 가운데
     **같은 자리에서 이름과 값이 갈리는 행**(「간접비(L) | (빈 칸)…」)이 있는 행. 시작 칸이 모두 음영이라 헤더 행처럼 보이지만 헤더가 다시 시작하는 것이 아니다
     (2026-11-10 연구개발기관별 사용계획 총괄표 — 총액 행이 딴 띠로 잘려 코드 식이 끊김). 앞선 행이 모두 빈 칸뿐이면(이름이 갈리는 자리를 모름) 예전대로 자른다."""
-    named = [x for x in starts if x["textFull"]]
-    blank = [x for x in starts if not x["textFull"]]
-    if not named or len(blank) < len(named) or not all(_shaded_blank(x) for x in blank):
+    named = [x for x in starts if x["textFull"] and not _shaded_num(x)]
+    blank = [x for x in starts if not x["textFull"] or _shaded_num(x)]
+    if not named or len(blank) < len(named) or not all(_shaded_value(x) for x in blank):
         return False
     edge = min(x["col"] for x in blank)  # 값 칸이 시작하는 열
     if any(x["col"] + x["cs"] > edge for x in named):
@@ -221,7 +248,7 @@ def _value_row(occ, a, r, cols, starts):
         prev = _starts(occ, q, 0, cols)
         left, right = [x for x in prev if x["col"] < edge], [x for x in prev if x["col"] >= edge]
         if left and right and all(x["col"] + x["cs"] <= edge and x["textFull"] and x["nature"] in ("header", "headish", "text") for x in left) \
-                and all(_fieldish(x) or _shaded_blank(x) for x in right) and any(_fieldish(x) for x in right):
+                and all(_fieldish(x) or _shaded_value(x) for x in right) and any(_fieldish(x) for x in right):
             return True
     return False
 
@@ -229,14 +256,15 @@ def _value_row(occ, a, r, cols, starts):
 # ---- 초안: 띠 나누기 · 헤더 행/열 · 역할 ----------------------------------------------------------------------
 
 def header_rows(tb, occ, r0, r1, c0, c1):
-    """띠 위부터 이어지는 헤더 행 수 — 시작 칸이 모두 header·headish(음영·굵게·라벨)인 행(위에서 내려온 칸뿐인 행은 이어짐). 필드 행이 하나는 남아야 한다."""
+    """띠 위부터 이어지는 헤더 행 수 — 시작 칸이 모두 header·headish(음영·굵게·라벨)인 행(위에서 내려온 칸뿐인 행은 이어짐). 필드 행이 하나는 남아야 한다.
+    음영 금액·비율 칸이 든 행(헤더 바로 아래의 「합계 | 1,000 | 2,000」 줄)은 헤더 행이 아니다 — 거기서 끝난다(§8 「음영 값 칸」 ④)."""
     n = 0
     for r in range(r0, min(r1, r0 + MAX_HEADER_ROWS)):
         starts = _starts(occ, r, c0, c1)
         if not starts:
             n += 1
             continue
-        if not _is_header_row(starts):
+        if not _is_header_row(starts) or any(_shaded_amount(x) for x in starts):
             break
         n += 1
     if r0 + n >= r1:
@@ -276,7 +304,7 @@ def header_cols(tb, occ, r0, r1, c0, c1, hr):
         keyword = bool(hr) and bool(_STUB_WORDS.search(_col_header_text(occ, c, r0, hr) or ""))
         stubby = [x["nature"] in ("header", "headish", "text") or (c == c0 and x["nature"] == "field" and _ORDINAL.match(x["textFull"] or "") is not None)
                   for x in cells]
-        named = sum(1 for x, s in zip(cells, stubby) if s and not _shaded_blank(x))  # 글 없는 음영 칸(합계·총액 줄의 값 칸)은 헤더 열의 근거가 아니다
+        named = sum(1 for x, s in zip(cells, stubby) if s and not _shaded_blank(x) and not _shaded_amount(x))  # 글 없는 음영 칸·음영 금액 칸(합계·총액 줄의 값 칸)은 헤더 열의 근거가 아니다
         if not named:
             break
         if not all(stubby):
@@ -341,7 +369,7 @@ def _split_kv(tb, occ, r0, r1, c0, c1):
             if seen_field and _cut_ok(occ, r, c0, c1):
                 for x in starts:
                     right = occ.get((x["row"], x["col"] + x["cs"]))
-                    if x["nature"] == "header" and right is not None and right["row"] == r and right["nature"] in ("empty", "field") \
+                    if x["nature"] == "header" and not _shaded_amount(x) and right is not None and right["row"] == r and right["nature"] in ("empty", "field") \
                             and (right["col"], right["col"] + right["cs"]) not in ranges:
                         return _split_kv(tb, occ, r0, r, c0, c1) + _split_kv(tb, occ, r, r1, c0, c1)
             seen_field = seen_field or any(x["nature"] in ("field", "empty") for x in starts)
@@ -383,7 +411,8 @@ def _neighbor(occ, band, r, c):
 def assign_roles(tb, occ, band):
     """띠 안 칸마다 역할 — 헤더 행 → colhead(헤더 열과 겹치면 corner), 헤더 열 → rowhead, 그 밖 헤더 성격 칸은 이웃 규칙(오른쪽이 채울 칸이면 rowhead,
     아래가 채울 칸이면 colhead, 둘 다 헤더면 병합 방향), 안내 → note, 나머지 → field. 전체 너비 한 칸 띠는 띠 종류가 역할.
-    헤더 행·열이 있는 띠에서 그 밖에 놓인 **글 없는 음영 칸**은 field — 이름이 없는 칸은 헤더가 아니라 음영 값 칸(합계·총액 줄, 「합계」 열)이다."""
+    헤더 행·열이 있는 띠에서 그 밖에 놓인 **음영 값 칸**(글 없는 음영 칸 · 숫자 값만 든 음영 칸)은 field — 이름이 없거나 숫자뿐인 칸은 헤더가 아니라
+    음영 값 칸(합계·총액 줄, 「합계」 열, 당해 연도를 칠해 둔 값 열)이다."""
     (r0, r1), (c0, c1) = band["rows"], band["cols"]
     hr, hc = band["headerRows"], band["headerCols"]
     cells = cells_in(tb, band)
@@ -405,7 +434,7 @@ def assign_roles(tb, occ, band):
             role = "rowhead"
         elif nat == "note":
             role = "note"
-        elif (hr or hc) and _shaded_blank(x):
+        elif (hr or hc) and _shaded_value(x):
             role = "field"
         elif nat in ("header", "headish"):
             right = _neighbor(occ, band, x["row"], x["col"] + x["cs"])
@@ -608,11 +637,14 @@ def sendable(tb):
     return len(tb["cells"]) >= MIN_CELLS_LLM and tb["rows"] >= 2 and tb["cols"] >= 2
 
 
-def t_jobs(tables, drafts, stage1, pinned=None, skip=()):
-    """표를 문서 순으로 묶어(칸 BATCH_CELLS·표 BATCH_TABLES 까지, 큰 표는 혼자) T 호출 job 들 → (jobs, 쓴 지침)."""
+def t_jobs(tables, drafts, stage1, pinned=None, skip=(), only=None):
+    """표를 문서 순으로 묶어(칸 BATCH_CELLS·표 BATCH_TABLES 까지, 큰 표는 혼자) T 호출 job 들 → (jobs, 쓴 지침).
+    only = None(보낼 수 있는 표 전부) | 표 id 의 집합(그 표만 묻는다 — 보완 대상: spec_작업 ② §22 「구현 계약」 22-4 · 빈 집합이면 job 없음).
+    자리 지침(table_guides)은 **보낼 수 있는 표 전부**에 먼저 배정하고 그다음에 only 로 고른다 — 차례를 뒤집으면 보내지 않는 겉 표의 지침이 안쪽 표로 간다."""
+    can = [tb for tb in tables if sendable(tb)]
     batches, cur, n = [], [], 0
-    for tb in tables:
-        if not sendable(tb):
+    for tb in can:
+        if only is not None and tb["id"] not in only:
             continue
         k = len(tb["cells"])
         if cur and (n + k > BATCH_CELLS or len(cur) >= BATCH_TABLES):
@@ -624,7 +656,7 @@ def t_jobs(tables, drafts, stage1, pinned=None, skip=()):
         batches.append(cur)
     jobs, used = [], {}
     place = (pinned or {}).get("place")   # 그 자리의 작성 지침(§20) — 표에 붙은 것만 그 표의 자료에
-    guides = table_guides(stage1, place, {tb["id"] for b in batches for tb in b}) if place else {}
+    guides = table_guides(stage1, place, {tb["id"] for tb in can}) if place else {}
     for i, batch in enumerate(batches):
         tg = {tb["id"]: guides[tb["id"]] for tb in batch if tb["id"] in guides}
         data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb, skip), tg.get(tb["id"])) for tb in batch]}
@@ -816,18 +848,20 @@ def temp_tables(temp):
     return skip, out
 
 
-def ask_tables(stage1, *, ask=None, pinned=None, temp=None, progress=None, tables=None, drafts=None):
+def ask_tables(stage1, *, ask=None, pinned=None, temp=None, progress=None, tables=None, drafts=None, only=None):
     """T 호출만 한다(spec ② §8 「헤딩 판정과 같이」) → asked {"answers": {표 id: 답 | None(그 호출이 실패 · 답에 그 표가 없음)}, "calls": [호출 기록], "guides": 쓴 지침,
-    "jobs": 호출 수, "sent": 보낸 표 수, "summary": 호출들의 요약 글}. 보낼 표 · 초안 · 자료는 **1단계 결과에서만** 나온다 — 2단계(헤딩 그래프)에 기대는 것은 표의 소속뿐이고 그것은 build 가 붙인다.
+    "jobs": 호출 수, "sent": 보낸 표 수, "summary": 호출들의 요약 글, "only": 물은 범위(None = 보낼 수 있는 표 전부 | 표 id 목록)}. 보낼 표 · 초안 · 자료는 **1단계 결과에서만** 나온다 — 2단계(헤딩 그래프)에 기대는 것은 표의 소속뿐이고 그것은 build 가 붙인다.
     그래서 이 호출은 헤딩 판정(LLM)과 같이 돌 수 있다(heading_runs.TablesAhead). build(asked=…) 는 **같은 1단계 · 같은 TEMP** 로 부른다(표 id · 초안이 같아야 답이 맞는다).
-    ask = llm.ask_all 대신(시험). progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다. tables · drafts = build 가 이미 모은 것(없으면 여기서 모은다)."""
+    ask = llm.ask_all 대신(시험). progress(끝난 호출 수, 호출 수) = 시작할 때 (0, n) · 호출 하나가 끝날 때마다. tables · drafts = build 가 이미 모은 것(없으면 여기서 모은다).
+    only = None | 표 id 의 집합(그 표만 묻는다 — 보완 대상: t_jobs · 빈 집합이면 호출 없음)."""
     from app import llm
     skip, _ = temp_tables(temp)
     if tables is None:
         tables = collect(stage1, skip)
         drafts = {tb["id"]: draft(tb) for tb in tables}
-    jobs, used = t_jobs(tables, drafts, stage1, pinned, skip)
-    out = {"answers": {}, "calls": [], "guides": used, "jobs": len(jobs), "sent": sum(len(j["_tables"]) for j in jobs), "summary": ""}
+    jobs, used = t_jobs(tables, drafts, stage1, pinned, skip, only)
+    out = {"answers": {}, "calls": [], "guides": used, "jobs": len(jobs), "sent": sum(len(j["_tables"]) for j in jobs), "summary": "",
+           "only": None if only is None else sorted(only)}
     if (pinned or {}).get("place"):   # 그 자리의 작성 지침을 실은 표 · 지침 수(§20 — 결과 화면 · 기록)
         out["placeGuides"] = {"tables": sum(len(j["_guides"]) for j in jobs), "items": sum(n for j in jobs for n in j["_guides"].values())}
     if not jobs:
@@ -853,22 +887,98 @@ def ask_tables(stage1, *, ask=None, pinned=None, temp=None, progress=None, table
     return out
 
 
-def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None, temp=None, roles=None, asked=None):
-    """3단계 — 1단계 결과 → 표 구조 dict(spec ② §8 + 표 의미 §9). ask = llm.ask_all 대신(시험). use_llm False 면 스크립트 초안만. pinned = 실행 시작 때 고정한 지침.
+PENDING_IDS_MAX = 200  # 결과 `llm.pendingTables` 에 싣는 보완 대상 표 id 수(수는 `llm.pending` 에 다)
+
+
+def _llm0():
+    """표 하나의 `llm` 칸 — 처음 꼴(state 는 _settle 이 정한다)."""
+    return {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False}
+
+
+def _settle(tb, occ, bs, key, *, asked, ans, prior, carry):
+    """표 하나의 판정을 맺는다(spec_작업 ② §22 「구현 계약」 22-4 — build 와 pending 이 **같은 함수**로 세어 「보완 대상」 이 어긋나지 않게) → (띠 목록, 이번 답의 (변경 수, 거절 목록) | None, 보완 대상인가).
+    asked = 이번 실행이 이 표를 물었나 · ans = 그 답(호출 실패 · 답에 그 표가 없으면 None) · prior = 이 표의 마지막 유효한 LLM 판정(저장된 표 — 고치지 않는다) | None ·
+    carry = `table_manager.carry_over`(부르는 쪽이 넘긴다 — table_manager 가 이 모듈을 import 한다) | None. tb["llm"] 에 state 와 그 밖을 적는다:
+      answered = 이번에 답을 받음(초안 위에 답) · carried = 답이 없어 앞 판정을 이어 씀(스크립트 실행 · 묻지 않은 표 · 물었는데 호출 실패 — `carried {run, mode, kept, new, gone, bands, fresh?}`) ·
+      failed = 물었는데 답이 없고 이을 판정도 없음(초안 그대로 — `undecided`) · pending = 보낼 수 있는 표인데 판정이 없음 · unsent = 보낼 수 없는 표(작은 표).
+    보완 대상(보낼 수 있는 표만) = 판정이 없는 표 · 이어 썼지만 판정 뒤 생긴 칸이 있거나(new > 0) 띠를 못 옮긴(bands "draft") 표 · 이번에 물었는데 답이 없는 표(이어 썼어도)."""
+    L, can = tb["llm"], sendable(tb)
+    if asked:
+        L["sent"] = True
+        L["draftSubs"] = len(bs)  # 초안의 서브 테이블 수 — 「LLM 이 바꾼 것」 이 LLM 이 나눈·합친 것을 견준다(spec ② §7)
+        if ans is not None:
+            got_bs, changed, rejected = apply_answer(tb, occ, bs, ans)
+            cells_ok = len(ans.get("cells") or []) - sum(1 for r in rejected if r.get("what") == "cell")
+            if not (any(r.get("what") == "subtables" for r in rejected) and cells_ok <= 0):
+                L.update(changed=changed, rejected=rejected, summary=str(ans.get("summary") or "")[:300], state="answered")
+                return got_bs, (changed, rejected), False
+            # 답은 왔는데 **하나도 받아들이지 못했다**(띠 나눔이 검증을 못 넘고 받은 칸도 없음) — 「고칠 것 없음」 이 아니다: 새 판정으로 세지 않고 앞 판정을 이어 쓰며 보완 대상으로 남긴다(astra 결과 검토 P1-11)
+            L["rejected"], void = rejected, True
+    void = bool(asked and ans is not None)
+    n_draft = len(bs)
+    got = carry(tb, occ, bs, prior, key) if prior is not None and carry is not None else None
+    if got is not None:  # 앞 판정을 이어 쓴다 — 초안으로 돌아가지 않는다(스크립트 재실행 · LLM 실패가 앞 LLM 판정을 가리지 않게)
+        bs, how = got
+        was = (prior.get("llm") or {}).get("carried") or {}  # 그 판정이 스스로 이어 쓴 것이면 그때의 기록 — 새 칸 · 못 옮긴 띠를 물려받는다(거듭 이어 써도 보완 대상에서 빠지지 않게)
+        had, old = {c.get("id") for c in prior.get("cells") or ()}, set(was.get("fresh") or ())
+        fresh = [x["id"] for x in tb["cells"] if x["id"] not in had or x["id"] in old]  # LLM 이 본 적 없는 칸(판정 뒤에 생긴 칸)
+        new = max(len(fresh), int(how.get("new") or 0))  # how.new 가 더 크면 = 역할을 가를 수 없던 옛 칸(자리로 다시 정한 칸)
+        bands = "draft" if how.get("bands") == "draft" or was.get("bands") == "draft" else "stored"
+        L.update(state="carried", changed=sum(1 for x in tb["cells"] if x["role"] != x["draft"]),
+                 carried={"run": (prior.get("judged") or {}).get("run"), "mode": how["mode"], "kept": len(tb["cells"]) - new, "new": new,
+                          "gone": int(how.get("gone") or 0) + int(was.get("gone") or 0), "bands": bands, **({"fresh": fresh} if fresh else {})})
+        L.setdefault("draftSubs", n_draft)
+        if (prior.get("llm") or {}).get("summary"):
+            L["summary"] = prior["llm"]["summary"]
+        if asked:
+            L["error"] = ("받은 답을 하나도 받아들이지 못함" if void else "T 호출 실패") + " — 앞 판정을 이어 씀"
+        return bs, None, can and (asked or new > 0 or bands == "draft")
+    if asked:
+        L.update(undecided=True, error=("받은 답을 하나도 받아들이지 못함" if void else "T 호출 실패") + " — 초안 그대로", state="failed")
+        return bs, None, True
+    L["state"] = "pending" if can else "unsent"
+    return bs, None, can
+
+
+def pending(stage1, prior, carry, temp=None, roles=None):
+    """「보완 실행이 물을 표」 의 id 집합(spec_작업 ② §22 「구현 계약」 22-4 ⓒ ⓓ) — LLM 을 부르지 않고 초안 · 이어 쓰기만 해 보고 센다(_settle — build 와 같은 셈):
+    보낼 수 있는 표 가운데 이어 쓸 판정이 없는 표 · 이어 썼지만 판정 뒤 생긴 칸이 있거나 띠를 못 옮긴 표. 앞 실행이 물었는데 답을 못 받은 표는 이을 판정이 없으면 여기 들고,
+    그 앞의 온전한 판정을 이어 쓰고 있으면 들지 않는다(새 시도의 실패가 앞 판정을 덜 유효하게 하지 않는다).
+    prior = {표 id: 그 표의 마지막 유효한 LLM 판정}(heading_runs.llm_tables) · carry = table_manager.carry_over · temp = TEMP 라벨(TEMP 표는 세지 않는다).
+    roles = 사람의 헤더 지정(받기만 한다 — 판정 위에 얹는 층이라 보완 대상의 셈에 들지 않는다)."""
+    skip, _ = temp_tables(temp)
+    out = set()
+    for tb in collect(stage1, skip):
+        if not sendable(tb):
+            continue
+        bs, occ = draft(tb)
+        tb["llm"] = _llm0()
+        if _settle(tb, occ, bs, input_key(tb, occ, bs), asked=False, ans=None, prior=(prior or {}).get(tb["id"]), carry=carry)[2]:
+            out.add(tb["id"])
+    return out
+
+
+def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=None, temp=None, roles=None, asked=None, prior=None, only=None, carry=None):
+    """3단계 — 1단계 결과 → 표 구조 dict(spec ② §8 + 표 의미 §9). ask = llm.ask_all 대신(시험). use_llm False 면 묻지 않는다(스크립트 초안 + 이어 쓴 앞 판정). pinned = 실행 시작 때 고정한 지침.
     stage2 = 같은 1단계 실행의 2단계 결과(있으면 표의 소속을 그래프에서, 없으면 1단계 어림). temp = TEMP 라벨(§15) — TEMP 표는 표 구조를 만들지 않는다(`tempTables` 에만).
     roles = 사용자 헤더 지정 {표 id: {칸 id: rowhead | colhead | field}}(spec_owpml_편집 ② §5-4) — 초안·LLM 답 위에 덮는다(칸 `reason` 「사용자 지정」, 헤더 트리·수식은 그 역할로).
-    asked = 미리 받은 T 호출의 답(ask_tables — 같은 stage1 · 같은 temp 로 물은 것: 헤딩 판정과 같이 돌린 것) — 주면 여기서는 묻지 않고 그 답을 붙인다(결과 `llm.ahead` = True)."""
+    asked = 미리 받은 T 호출의 답(ask_tables — 같은 stage1 · 같은 temp 로 물은 것: 헤딩 판정과 같이 돌린 것) — 주면 여기서는 묻지 않고 그 답을 붙인다(결과 `llm.ahead` = True).
+    판정을 이어 쓰는 실행(spec_작업 ② §22 「구현 계약」 22-4): prior = {표 id: 끝난 3단계 결과의 그 표}(표마다 마지막으로 유효한 LLM 판정 — heading_runs.llm_tables · 고치지 않는다) ·
+    carry = table_manager.carry_over(부르는 쪽이 넘긴다) — 이번에 답을 받지 않은 표(스크립트 실행 · only 에 안 든 표 · 물었는데 호출 실패)는 그 판정을 **이어 쓴다**(초안으로 돌아가지 않는다 — 호출이 모두 실패한 `fallback` 도).
+    only = None(보낼 수 있는 표 전부를 묻는다) | 표 id 의 집합(그 표만 — 보완 대상: `pending` · 빈 집합이면 호출 없음). 표마다 `llm.state`(_settle) · `judged {run, rev}`(그 판정이 실제로 답을 받은 실행 —
+    이번에 답을 받은 표는 None 으로 두고 heading_runs 가 저장하며 채운다) · 결과 `llm.asked`(이번에 물은 표 수) · `carried`(이어 쓴 표 수) · `pending`(보완 대상 수) · `pendingTables`(id · PENDING_IDS_MAX 까지)."""
     t0 = time.monotonic()
     skip, temp_list = temp_tables(temp)
     tables = collect(stage1, skip)
     drafts = {tb["id"]: draft(tb) for tb in tables}
     info = {"requested": bool(use_llm), "fallback": False, "error": None, "calls": 0, "failed": 0, "sent": 0, "skipped": 0, "applied": 0, "rejected": 0,
-            "undecided": 0, "summary": ""}
-    calls, guides, answers = [], {}, {}
+            "undecided": 0, "summary": "", "asked": 0, "carried": 0, "pending": 0, "pendingTables": []}
+    calls, guides, answers, scope = [], {}, {}, None
     for tb in tables:
-        tb["llm"] = {"sent": False, "changed": 0, "rejected": [], "error": None, "undecided": False}
+        tb["llm"] = _llm0()
     if use_llm and tables:
-        got = asked if asked is not None else ask_tables(stage1, ask=ask, pinned=pinned, temp=temp, tables=tables, drafts=drafts)
+        got = asked if asked is not None else ask_tables(stage1, ask=ask, pinned=pinned, temp=temp, tables=tables, drafts=drafts, only=only)
+        scope = None if got.get("only") is None else set(got["only"])  # 그 호출이 물은 범위(None = 보낼 수 있는 표 전부)
         calls, answers = list(got["calls"]), got["answers"]
         guides.update(got["guides"])
         info["sent"] = got["sent"]
@@ -888,26 +998,27 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
     for tb in tables:
         bs, occ = drafts[tb["id"]]
         key = input_key(tb, occ, bs)  # 초안 그대로일 때의 자료 열쇠 — 아래에서 LLM 답 · 사람 지정을 얹기 전에(spec_테이블매니저 ② §2 「지금 판정」)
-        ans = answers.get(tb["id"]) if use_llm else None
-        if use_llm and sendable(tb):
-            tb["llm"]["sent"] = True
-            tb["llm"]["draftSubs"] = len(bs)  # 초안의 서브 테이블 수 — 「LLM 이 바꾼 것」 이 LLM 이 나눈·합친 것을 견준다(spec ② §7)
-            if ans is None:
-                tb["llm"]["undecided"] = True
-                tb["llm"]["error"] = "T 호출 실패 — 초안 그대로"
-                info["undecided"] += 1
-            else:
-                bs, changed, rejected = apply_answer(tb, occ, bs, ans)
-                tb["llm"].update(changed=changed, rejected=rejected, summary=str(ans.get("summary") or "")[:300])
-                info["applied"] += changed
-                info["rejected"] += len(rejected)
+        was = (prior or {}).get(tb["id"])
+        mark = bool(use_llm) and sendable(tb) and (scope is None or tb["id"] in scope)  # 이번 실행이 이 표를 물었나
+        bs, done, pend = _settle(tb, occ, bs, key, asked=mark, ans=answers.get(tb["id"]) if mark else None, prior=was, carry=carry)
+        state = tb["llm"]["state"]
+        if done is not None:
+            info["applied"] += done[0]
+            info["rejected"] += len(done[1])
+        info["asked"] += mark
+        info["undecided"] += state == "failed"  # 답을 못 받아 초안 그대로인 표(이어 쓴 표는 세지 않는다)
+        info["carried"] += state == "carried"
+        if pend:
+            info["pending"] += 1
+            if len(info["pendingTables"]) < PENDING_IDS_MAX:
+                info["pendingTables"].append(tb["id"])
+        judged = dict(was["judged"]) if state == "carried" and isinstance(was.get("judged"), dict) else None  # 이어 쓴 표 = 그 판정이 답을 받은 실행 · 이번에 답을 받은 표는 저장할 때 채운다
         mine = (roles or {}).get(tb["id"]) or {}
         for x in tb["cells"]:
-            if mine.get(x["id"]) in ("rowhead", "colhead", "field"):  # 사용자 헤더 지정 — 초안·LLM 답보다 앞
-                x["auto"] = x["role"]  # 덮기 전 역할(자동 역할)을 남긴다 — 지정을 푼 뒤 이 결과를 다시 쓸 수 있게
+            if mine.get(x["id"]) in ("rowhead", "colhead", "field"):  # 사용자 헤더 지정 — 초안·LLM 답 · 이어 쓴 판정보다 앞
+                x["auto"] = x["role"]  # 덮기 전 역할(자동 역할 — 이어 쓴 역할이면 그것)을 남긴다 — 지정을 푼 뒤 이 결과를 다시 쓸 수 있게
                 x["role"], x["reason"] = mine[x["id"]], "사용자 지정"
-                x["changed"] = x["role"] != x["draft"]
-            x.setdefault("changed", False)
+            x["changed"] = x["role"] != x["draft"]  # 늘 지금 역할로 다시 센다(답 · 이어 쓴 판정 · 사람 지정을 얹은 뒤)
             x["sub"] = next((b["id"] for b in bs if b["rows"][0] <= x["row"] < b["rows"][1] and b["cols"][0] <= x["col"] < b["cols"][1]), None)
         subs = [finish_band(tb, occ, b) for b in bs]
         before = _before_text(stage1, tb, skip)
@@ -920,7 +1031,7 @@ def build(stage1, *, use_llm=True, ask=None, doc_name="", pinned=None, stage2=No
         out_tables.append({"id": tb["id"], "n": tb["n"], "host": tb["host"], "before": before[:60], "depth": tb["depth"],
                            "parentCell": tb["parentCell"], "rows": tb["rows"], "cols": tb["cols"],
                            "cells": [_out_cell(x) for x in tb["cells"]], "subtables": subs, "counts": dict(counts),
-                           "issues": [i for s in subs for i in s["issues"]][:100], "llm": tb["llm"], "notes": notes, "inputKey": key, **sem})
+                           "issues": [i for s in subs for i in s["issues"]][:100], "llm": tb["llm"], "notes": notes, "inputKey": key, "judged": judged, **sem})
     rep = [{"signature": k, "count": len(v), "where": v[:50]} for k, v in repeats.items() if len(v) >= 2]
     rep.sort(key=lambda r: -r["count"])
     roles = Counter(x["role"] for t in out_tables for x in t["cells"])

@@ -452,7 +452,8 @@ def test_members_targets_and_one_place_plan():
 
 
 def test_llm_review_applies_revisions(monkeypatch):
-    """LLM 재검토 — 응답의 add/change/remove 를 지금 문서의 문단 id 에 대고 검증해 hint 층에만 반영, 호출 기록·로그."""
+    """LLM 재검토 — 응답의 add/change/remove 를 지금 문서의 문단 id 에 대고 검증해 hint 층에만 반영, 호출 기록·로그.
+    사람이 표시한 자리의 change · remove 는 기준 · 값을 바꾸지 않고 제안으로만 남는다(spec_작업 ② §22 「구현 계약」 22-2 ⓑ)."""
     from app import division_llm
     server.DOCS.clear()
     c = TestClient(server.app)
@@ -485,7 +486,10 @@ def test_llm_review_applies_revisions(monkeypatch):
     assert out["summary"] == "형제 하나를 더했습니다." and out["call"]["backend"] == "fake" and out["detail"].startswith("divisions/llm_")
     assert len(out["applied"]) == 4 and len(out["skipped"]) == 1 and out["skipped"][0]["why"] == "문단 id 가 문서에 없음"
     hs = {h["para"]: h for h in out["hints"]}
-    assert hs[p1]["dim"] == "stage" and hs[p1]["value"] == "1단계" and hs[p1]["by"] == "user" and hs[p1]["llmNote"] and hs[p1]["reason"]
+    assert hs[p1]["dim"] == "year" and hs[p1]["value"] == "1단계" and hs[p1]["by"] == "user" and hs[p1]["reason"] == ""   # 사람이 표시한 자리 — 기준 · 값 · 까닭은 그대로
+    assert hs[p1]["llmSuggest"] == {"dim": "stage", "value": "1단계", "reason": "글은 단계"}   # LLM 의 고침은 제안으로만
+    assert hs[p1]["llmNote"] == "기준 단계 · 값 1단계: 글은 단계 · 사용자 것 — 제안만" and hs[p1]["llmAt"]   # 같은 답의 지우기 제안이 고치기 제안을 지우지 않는다
+    assert [(a["action"], a.get("note")) for a in out["applied"]] == [("change", "사용자 표시 — 제안 메모로만"), ("add", None), ("add", None), ("remove", "사용자 표시 — 제안 메모로만")]
     assert hs[p2]["by"] == "llm" and hs[p2]["dim"] == "stage" and hs[p2]["value"] == "2단계" and hs[p2]["reason"] == "형제"
     assert hs[p3]["by"] == "llm" and hs[p3]["dim"] == "other" and hs[p3]["value"] == ""   # 기타 + 값 낱말 없음 → 표시만
     m = c.get(f"/api/docs/{d}/divisions/members").json()
@@ -498,6 +502,35 @@ def test_llm_review_applies_revisions(monkeypatch):
     kinds = [x["kind"] for x in _log_events(c, d)]
     assert kinds.count("divisionLlm") == 2 and kinds.count("divisionHint") == 1
     server.DOCS.clear()
+
+
+def test_llm_change_never_overwrites_a_user_marked_hint_but_changes_llm_hints():
+    """apply_revisions — change 의 대상이 사람이 표시한 자리면 dim · value · reason 을 안 바꾸고 제안(llmSuggest · llmNote)만, LLM 이 넣은 자리면 전처럼 고친다
+    (spec_작업 ② §22 「구현 계약」 22-2 ⓑ — 사람 지정과 LLM 값을 같은 칸에 쓰지 않는다)."""
+    from app import division_llm
+    idx = {"p1": {"type": "paragraph", "text": "가. 1단계 계획"}, "p2": {"type": "paragraph", "text": "나. 2단계 계획"}, "p3": {"type": "paragraph", "text": "다. 우리 구분"},
+           "p4": {"type": "paragraph", "text": "라. 3단계 계획"}}
+    user = {"id": "u1", "para": "p1", "dim": "year", "value": "1차년도", "note": "내 메모", "by": "user", "at": 1.0, "reason": ""}
+    mine = {"id": "m1", "para": "p2", "dim": "year", "value": "2차년도", "note": "", "by": "llm", "at": 1.0, "reason": "앞 재검토"}
+    named = {"id": "u2", "para": "p3", "dim": "우리 구분", "value": "갑", "note": "", "by": "user", "at": 1.0, "reason": ""}   # 기타(사용자 이름) 구분
+    old = {"id": "u3", "para": "p4", "dim": "year", "value": "3차년도", "note": "", "at": 1.0, "reason": "",   # by 가 없는 옛 표시 = 사람 것으로 본다
+           "llmNote": "앞 재검토의 글", "llmSuggest": {"dim": "sub"}, "llmAt": 5.0}
+    hints = [user, mine, named, old]
+    revs = [{"action": "change", "hintId": "u1", "para": "p1", "dim": "stage", "value": "1단계", "reason": "글은 단계"},
+            {"action": "change", "hintId": "m1", "para": "p2", "dim": "stage", "value": "2단계", "reason": "글은 단계"},
+            {"action": "change", "hintId": "u2", "para": "p3", "dim": "other", "value": "", "reason": ""},   # 제안할 것이 없다
+            {"action": "change", "hintId": "u3", "para": "p4", "dim": "stage", "value": "", "reason": ""}]
+    out, applied, skipped = division_llm.apply_revisions(hints, revs, idx, lambda t: None, now=9.0)
+    by = {h["id"]: h for h in out}
+    assert {k: by["u1"][k] for k in ("dim", "value", "reason", "note", "by")} == {"dim": "year", "value": "1차년도", "reason": "", "note": "내 메모", "by": "user"}
+    assert by["u1"]["llmSuggest"] == {"dim": "stage", "value": "1단계", "reason": "글은 단계"} and by["u1"]["llmNote"] == "기준 단계 · 값 1단계: 글은 단계" and by["u1"]["llmAt"] == 9.0
+    assert {k: by["m1"][k] for k in ("dim", "value", "reason", "by")} == {"dim": "stage", "value": "2단계", "reason": "글은 단계", "by": "llm"}   # LLM 이 넣은 자리는 전처럼 바뀐다
+    assert "llmSuggest" not in by["m1"] and "llmNote" not in by["m1"] and by["m1"]["llmAt"] == 9.0
+    assert by["u2"] == named   # 건드리지 않음
+    assert (by["u3"]["dim"], by["u3"]["value"]) == ("year", "3차년도") and by["u3"]["llmSuggest"] == {"dim": "stage"} and by["u3"]["llmNote"] == "기준 단계"   # 답에 있던 값만 · 앞 재검토의 제안은 이번 것으로
+    assert [(a["hintId"], a.get("note")) for a in applied] == [("u1", division_llm.USER_NOTE), ("m1", None), ("u3", division_llm.USER_NOTE)]
+    assert [(x["hintId"], x["why"]) for x in skipped] == [("u2", "제안할 기준 · 값이 없음")]
+    assert hints == [user, mine, named, old] and "llmSuggest" not in user   # 받은 목록은 그대로(사본을 고친다)
 
 
 # ---------------------------------------------------------------- 역할 칸 행 묶음(② §12 — 「이름 (주관)」·「이름 (공동)」 칸)
@@ -1285,3 +1318,17 @@ def test_stage_rows_only_when_split(form):
     g = _split_group(d, one)
     rep = rnd.apply(d, one, levels_of=rnd.levels_of, only=g["key"])
     assert not rep["errors"] and rep["removed"] == 1 and _split_rows(d) == []
+
+
+def test_hint_edited_by_a_person_becomes_the_persons():
+    """LLM 이 넣은 자리(by llm)라도 사람이 기준 · 값을 고쳐 저장하면 그때부터 사람의 자리다(by user) — 다음 LLM 재검토는 그 값을 못 바꾸고 제안만 남긴다. 메모만 고치면 그대로 llm."""
+    class P:
+        @staticmethod
+        def hint_read(text):
+            return None
+    idx = {"p1": {"type": "paragraph", "text": "글"}}
+    old = {"id": "h1", "para": "p1", "dim": "year", "value": "1차년도", "note": "", "by": "llm", "at": 1.0, "reason": "LLM"}
+    assert model.norm_hint({"para": "p1", "dim": "year", "value": "1차년도", "note": "메모"}, idx, P, old)["by"] == "llm"
+    assert model.norm_hint({"para": "p1", "dim": "year", "value": "2차년도"}, idx, P, old)["by"] == "user"
+    assert model.norm_hint({"para": "p1", "dim": "stage", "value": "1차년도"}, idx, P, old)["by"] == "user"
+    assert model.norm_hint({"para": "p1", "dim": "year", "value": "2차년도"}, idx, P, {**old, "by": "user"})["by"] == "user"

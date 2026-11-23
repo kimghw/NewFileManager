@@ -224,7 +224,9 @@ def test_report_api_plan_apply_change_and_same():
         assert s["applied"] and not s["errors"] and not s["unresolved"] and not s["unsupported"]
         a = c.post(f"/api/docs/{d}/divisions/apply", json={"planId": p.json()["planId"]})
         assert a.status_code == 200, a.text
-        assert a.json()["owpml"]["status"] == "ok" and a.json()["unresolved"] == []
+        ow = a.json()["owpml"]   # 날짜 칸의 글 시작(spec_구분_기준 ② §27)이 양식의 문단 모양을 본떠 새 문단 모양을 만든다 — 한글이 쓴 그 모양의 요소 차례(autoSpacing)를 물려받아 「주의」 일 수 있다
+        assert (ow["status"] == "ok" or ow["status"] == "warn" and "원본에 없던 위반 없음" in ow["summary"]
+                and "늘어남 1가지(물려받음 — 예: header paraPr/autoSpacing" in ow["summary"]) and a.json()["unresolved"] == []
     same = c.post(f"/api/docs/{d}/divisions/plan", json={}).json()
     assert same["summary"]["applied"] == 0 and same["summary"]["changes"] == 0
     texts = [b["text"] for b in c.get(f"/api/docs/{d}").json()["blocks"] if b["type"] == "paragraph"]

@@ -682,9 +682,9 @@ def start_formats(doc_id, skill=None):
 
 
 def start_tables_llm(doc_id):
-    """표 판정(LLM)을 시작(배경 · 유료 — POST …/headings {stage: 3, llm: true}). 문서는 안 바뀐다. 도는 중이면 busy."""
+    """표 판정(LLM)을 시작(배경 · 유료 — POST …/headings {stage: 3, llm: true, again: false}: **보완 대상만** 묻는다 — 앞 판정이 있는 표는 이어 쓴다: spec_작업 ② §22 「구현 계약」 22-4 ⓓ). 문서는 안 바뀐다. 도는 중이면 busy."""
     from app import server
-    return _run(server.headings_start, doc_id, {"stage": 3, "llm": True})
+    return _run(server.headings_start, doc_id, {"stage": 3, "llm": True, "again": False})
 
 
 def graph_key(doc_id):

@@ -4,8 +4,10 @@
   원본 = 같은 과제(`task.project`)에서 `task.file = plan` 인 작업(없으면 from null). 못 내는 까닭은 **문서별로**: noHeadings(헤딩 2·3단계 결과 없음) · noValues(구분 값 없음) ·
   notApplied(목적 문서에 값을 반영하지 않음) · unsupportedForm(hwpx 아님). 두 문서의 값이 다르면 diff 에 다른 곳(valuesDiffer 는 목적 문서 까닭에도). 까닭이 있으면 groups 는 비어 있다.
 - `POST /api/docs/{to}/merge-links` → 요약을 다시 만들어 같은 몸통(사람이 고친 것은 유지).
-- `PUT  /api/docs/{to}/merge-links/{groupId}` `{from: 원본 묶음 key | null}` 또는 `{reset: true}` → 사람이 연결을 고르거나(null = 끊음) 스크립트 결과로 되돌림. 400 후보가 될 수 없는 묶음 · 404 그런 묶음 없음.
-저장: 목적 작업 폴더 `merge.json` {from(작업 id), fixed{목적 key: {from, source: user}}, toRev, fromRev}(작업 저장이 꺼져 있으면 메모리). 문서가 그 뒤 바뀌었으면 stale 만 보인다(다시 하라고 다그치지 않음)."""
+- `PUT  /api/docs/{to}/merge-links/{groupId}` `{from: 원본 묶음 key | null}` 또는 `{reset: true}` → 사람이 연결을 고르거나(null = 끊음) 되돌림 — 사람이 고치기 전에 LLM 짝이 있었으면 그 LLM 짝으로(사람 항목의 `llm` 에 지닌다),
+  없으면 스크립트 결과로. 400 후보가 될 수 없는 묶음 · 404 그런 묶음 없음.
+저장: 목적 작업 폴더 `merge.json` {from(작업 id), fixed{목적 key: {from, source: user, llm?(사람이 고치기 전의 LLM 짝)}}, toRev, fromRev, bySource{다른 원본 작업 id: 그 원본 몫 — SOURCE_KEYS}}(작업 저장이 꺼져 있으면 메모리).
+문서가 그 뒤 바뀌었으면 stale 만 보인다(다시 하라고 다그치지 않음)."""
 import json
 import threading
 
@@ -70,6 +72,34 @@ def _same_source(to_id, saved, asked_from):
     """유료 답을 저장하기 직전 — 물을 때의 원본이 지금도 그 목적 문서의 원본인가(그 사이 사람이 다른 원본을 골랐으면 옛 원본의 답을 새 원본의 기록 위에 쓰지 않는다: astra 결과 검토). 아니면 409."""
     if _mate(to_id, saved)[1] != asked_from:
         raise HTTPException(409, "답을 기다리는 사이 원본 문서가 바뀌어 그 답은 쓰지 않았습니다 — 다시 하세요")
+
+
+# merge.json 가운데 **원본 문서의 열쇠에 기대는 저장값**(spec_작업 ② §22 「구현 계약」 22-1 ⓓ) — 원본 작업마다 따로 둔다(`bySource[원본 작업 id]`):
+#   fixed(묶음 짝 — from = 원본 묶음 key) · tables(표 짝 — from = 원본 표 id) · tableMaps(표 대응 — from · records 의 원본 행 · 칸) · gaps(빈 자리 답 — from = 원본 표 id · 원본 줄 id) ·
+#   llm(마지막 자리 연결 LLM 요약 — 그 원본과의 검토) · toRev · fromRev(`fixed` 를 적은 때의 두 문서 차례 — fromRev 가 그 원본의 것이라 짝째 옮긴다: 연결 목록의 stale).
+# 옮기지 않는 것 = 목적 문서에 이미 넣은 것의 기록(applied · copied · filled — 넣은 내용은 원본을 바꿔도 문서에 남는다 · filled 는 제 원본 id 를 지녀 다른 원본이면 안 믿는다: _filled) · from(고른 값 그 자체).
+SOURCE_KEYS = ("fixed", "tables", "tableMaps", "gaps", "llm", "toRev", "fromRev")
+
+
+def _source_swap(saved, old_id, new_id):
+    """원본 문서를 old_id → new_id 로 바꾼 merge.json(새 사전 — saved 는 안 고친다): 앞 원본의 몫(SOURCE_KEYS)을 `bySource[old_id]` 에 넣어 두고 새 원본의 몫을 꺼낸다(없으면 그 열쇠들을 비운다).
+    앞 원본으로 돌아오면 사람이 정한 짝까지 그대로 돌아오고, 새 원본에서는 앞 원본의 짝 · 표 대응 · 빈 자리 답이 안 보인다(열쇠가 우연히 맞아 쓰이지 않게).
+    앞 원본이 없거나(처음 정함) 같은 원본이면 아무것도 옮기지 않는다(`from` 만 적는다)."""
+    if not old_id or old_id == new_id:
+        return {**saved, "from": new_id}
+    by = {k: v for k, v in (saved.get("bySource") or {}).items() if isinstance(v, dict)}
+    mine = {k: saved[k] for k in SOURCE_KEYS if k in saved}
+    if mine:
+        by[old_id] = mine
+    else:
+        by.pop(old_id, None)
+    back = by.pop(new_id, None) or {}
+    out = {k: v for k, v in saved.items() if k not in SOURCE_KEYS and k != "bySource"}
+    out.update({k: v for k, v in back.items() if k in SOURCE_KEYS})
+    out["from"] = new_id
+    if by:
+        out["bySource"] = by
+    return out
 
 
 def _read(doc_id, target=False):
@@ -434,9 +464,31 @@ def _fixed_brief(to, frm, saved):
     return hit[1]
 
 
+def _bound(to_id, saved, src_id):
+    """저장한 판정을 **지금 쓰는 원본**에 맞춘다 → merge.json(바뀌면 저장) — 판정에는 그것을 받은 원본 작업(`src`)을 적어 두고, 지금 원본이 그것과 다르면(사람이 고르지 않아도 — 앞 원본을 지워 다른 원본이 저절로 잡힘 ·
+    더 새 원본이 생김) 원본 바꾸기와 같은 길(_source_swap)로 앞 원본의 몫을 넣어 두고 지금 원본의 몫을 꺼낸다(astra 결과 검토 P1-1: 앞 원본의 짝이 열쇠가 우연히 맞는 다른 원본의 내용을 가져오지 않게).
+    `src` 가 없는 옛 저장본은 지금 원본의 것으로 본다(판정이 있을 때만 적는다). 원본이 없으면 그대로."""
+    if not src_id or saved.get("src") == src_id:
+        return saved
+    was = saved.get("src")
+    if was is None:
+        if not any(saved.get(k) for k in SOURCE_KEYS):
+            return saved
+        new = {**saved, "src": src_id}
+    else:
+        new = {**_source_swap(saved, was, src_id), "src": src_id}
+        if "from" in saved:
+            new["from"] = saved["from"]   # 사람이 고른 원본 표시는 그대로(저절로 잡힌 원본을 「고른 것」 으로 만들지 않는다)
+        else:
+            new.pop("from", None)
+    _store(to_id, new)
+    return new
+
+
 def _view(to_id, fresh=False):
     saved = _store(to_id)
     project, from_id = _mate(to_id, saved)
+    saved = _bound(to_id, saved, from_id)
     to = _read(to_id, target=True)
     frm = _read(from_id) if from_id else None
     head = lambda x: {"work": x["id"], "name": works.shown_name(x["name"], *(lambda w: (w.get("task"), w.get("alias")))(works.work(x["id"]) or {})), "rev": x["rev"], "reasons": x["reasons"]}  # noqa: E731 — name = 보이는 이름(spec_작업 ② §10: 목적 문서는 과제 이름 · 별칭이 뒤에)
@@ -473,13 +525,20 @@ def merge_get(doc_id: str):
 
 @router.post("/api/docs/{doc_id}/merge-links")
 def merge_pairs_post(doc_id: str, body: dict = Body(default={})):
-    """{from?: 원본 작업 id} — 요약을 다시 만든다(원본을 따로 고르면 저장)."""
+    """{from?: 원본 작업 id} — 요약을 다시 만든다(원본을 따로 고르면 저장).
+    **지금 원본과 다른 원본을 고르면** 원본 문서의 열쇠에 기대는 저장값(SOURCE_KEYS — 짝 · 표 짝 · 표 대응 · 빈 자리 답 · LLM 요약)을 앞 원본 몫으로 넣어 두고 새 원본 몫을 꺼낸다(_source_swap —
+    spec_작업 ② §22 「구현 계약」 22-1 ⓓ). 「지금 원본」 = 지금 실제로 쓰이는 원본(_mate — 사람이 고른 것이 먼저 · 없으면 같은 묶음에서 저절로 정해진 것: 그 저장값은 그 원본과 낸 것이다) ·
+    고른 원본이 지금 못 쓰이는 상태면(다른 라운드로 옮김 · 지워짐 — _mate 가 None) 저장된 `from`. 앞 원본이 없거나(처음 정함) 같은 원본을 다시 고르면 아무것도 옮기지 않는다."""
     if body.get("from"):
         if not works.work(body["from"]):
             raise HTTPException(404, "그런 작업이 없습니다")
         if not _source_allowed(doc_id, body["from"]):
             raise HTTPException(400, "같은 프로젝트·워크플로우·라운드의 원본 문서를 고르세요")
-        _store(doc_id, {**_store(doc_id), "from": body["from"]})
+        from app import server
+        s = server.DOCS.get(doc_id)   # 열린 세션이 있으면 그 잠금 안에서 — LLM 답의 저장(자리 연결 · 표 대응 · 빈 자리)이 「원본이 그대로인가」 를 보고 쓰는 사이에 끼어들지 않게(그 길들은 세션 잠금 안에서 읽고 쓴다)
+        with (s.lock if s is not None else _LOCK):
+            saved = _store(doc_id)
+            _store(doc_id, {**_source_swap(saved, saved.get("src") or _mate(doc_id, saved)[1] or saved.get("from"), body["from"]), "src": body["from"]})   # src = 이 판정을 받은 원본(_bound)
     return _view(doc_id, fresh=True)[0]
 
 
@@ -493,14 +552,21 @@ def merge_pair_put(doc_id: str, group_id: str, body: dict = Body(...)):
     if t is None:
         raise HTTPException(404, "그런 자리 묶음이 없습니다")
     fixed = dict(saved.get("fixed") or {})
+    was = fixed.get(group_id) if isinstance(fixed.get(group_id), dict) else {}
+    # 사람 지정과 LLM 값을 같은 칸에 쓰지 않는다(spec_작업 ② §22 「구현 계약」 22-1 ⓒ — 취합 gather_decide 와 같은 꼴): 사람이 LLM 짝을 고치면 그 LLM 짝을 사람 항목의 `llm` 에 지니고
+    # (이미 사람 항목이면 그 안의 `llm` 을 이어 지닌다), 「되돌리기」 는 그 LLM 짝으로 돌아간다 — 지닌 것이 없으면 전처럼 지운다(스크립트 결과로)
+    prior = was if was.get("source") == "llm" else was.get("llm") if isinstance(was.get("llm"), dict) else None
     if body.get("reset"):
-        fixed.pop(group_id, None)
+        if was.get("source") != "llm" and prior:
+            fixed[group_id] = prior
+        else:
+            fixed.pop(group_id, None)
     else:
         key = body.get("from")
         f = next((x for x in fs if x["key"] == key), None)
         if key is not None and (f is None or P.score(t, f) is None):
             raise HTTPException(400, "이을 수 없는 묶음입니다(구분·종류가 다르거나 맥락 차년도·기관이 어긋남)")
-        fixed[group_id] = {"from": key, "source": "user"}
+        fixed[group_id] = {"from": key, "source": "user", **({"llm": prior} if prior else {})}
     _store(doc_id, {**saved, "fixed": fixed, "toRev": to["rev"], "fromRev": frm["rev"]})
     return _view(doc_id)[0]
 
@@ -640,7 +706,8 @@ def _plan_parts(doc_id, view, saved, to, frm, maps=None):
 def merge_table_map_post(doc_id: str, body: dict = Body(default={})):
     """표 대응 에이전트(② §5-3) — 원본 표는 정해졌는데 스크립트가 칸을 못 맞춘 목적 표마다 LLM 한 번(병렬 · Opus)으로 행 짝·열 짝을 받아 검증해 `merge.json` `tableMaps` 에 둔다. **문서는 안 바뀐다**
     (넣기 계획 → 반영이 쓴다). 이미 쓸 수 있는 대응이 있는 표는 다시 안 묻는다 — `{again: true}` 면 전부 다시.
-    → {at, tables[{to, from, title, records, grow, fields, mark, rejected, error}], asked, mapped}. 409 까닭이 남음."""
+    → {at, tables[{to, from, title, records, grow, fields, mark, rejected, error, kept?}], asked, mapped}. 409 까닭이 남음.
+    호출이 실패한 표(답이 안 옴)는 앞 대응을 지우지 않는다(줄에 error · 앞 대응이 있으면 kept: true) — 답은 왔는데 못 정한 표만 앞 대응을 지운다(_map_store)."""
     from datetime import datetime
 
     from app import job_prompts, llm, merge_table_map, server
@@ -701,8 +768,12 @@ def _map_store(doc_id, frm, built, ask, jobs, res, sigs, now_places, at):
         if now_places and PG.sig(now_places("table", tid)) != sigs.get(tid, ""):   # 묻는 사이 그 표의 지침이 바뀌었다 — 옛 지침으로 받은 답(대응 · 못 정함 모두)은 쓰지 않고 지금 대응도 지우지 않는다(G3 · astra 3차)
             rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": [], "error": "묻는 사이 이 표의 작성 지침이 바뀌어 이 답은 쓰지 않았습니다 — 다시 물어 주세요", "call": call})
             continue
+        if r.get("data") is None:   # 호출이 실패(답이 안 옴) — 「못 정함」 이 아니다: 앞 대응을 지우지 않는다(spec_작업 ② §22 「구현 계약」 22-1 ⓐ · 「전부 다시」 · 지침이 바뀐 표의 다시 묻기도). kept = 앞 대응이 있어 그대로 둠
+            rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": [], "error": call.get("error") or "LLM 의 답을 받지 못함", "call": call,
+                         **({"kept": True} if tid in maps else {})})
+            continue
         if m is None:
-            maps.pop(tid, None)   # 낡았거나 틀린 앞선 대응은 지운다(다시 물었는데 못 정함 — 지침이 그 사이 바뀐 답은 위에서 걸렀다)
+            maps.pop(tid, None)   # 낡았거나 틀린 앞선 대응은 지운다(다시 물었는데 못 정함 — 답은 왔다 · 지침이 그 사이 바뀐 답은 위에서 걸렀다)
             rows.append({"to": tid, "from": fid, "title": title, "records": 0, "grow": 0, "fields": 0, "mark": "", "rejected": rejected[:20], "error": call.get("error") or (rejected[-1]["why"] if rejected else "대응을 못 정함"), "call": call})
             continue
         maps[tid] = {**m, "at": at, "source": "llm", "guideSig": sigs.get(tid, "")}
@@ -723,7 +794,8 @@ _GAPS_LAST = {}   # 작업 저장이 꺼졌을 때의 merge_gaps_last.json
 
 
 def _gaps(saved):
-    """merge.json `gaps` = 빈 자리 검토의 답 {at, tables{목적 표 id: {from | None, reason}}, slots{목적 칸·줄 id: {from | None, take, kind, was, label, table, reason}}}(② §5-4 7)."""
+    """merge.json `gaps` = 빈 자리 검토의 답 {at, tables{목적 표 id: {from | None, reason}}, slots{목적 칸·줄 id: {from | None, take, kind, was, label, table, reason}}}(② §5-4 7).
+    `missing: true` 인 항목 = 물었는데 LLM 답에 빠진 자리(「원본 없음」 이 아니다 — 답이 있는 자리로 세지 않는다: merge_gaps._has)."""
     g = saved.get("gaps")
     return g if isinstance(g, dict) else {}
 
@@ -758,7 +830,9 @@ def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
     """빈 자리 검토(② §5-4) — 다른 길이 못 채운 목적 자리(빈 표 · 빈 칸 · 빈 라벨 줄)를 모아 계획서의 어디에서 가져올지 LLM(목적 문서의 장마다 · 병렬 · Opus)에 묻고, 검증한 답을 `merge.json` `gaps` 에 둔다.
     빈 표에 고른 원본 표는 표 짝(`tables` source llm · by gaps)으로도 적는다 — 그 뒤는 같은 이름 자리·표 대응이 넣는다. **문서는 안 바뀐다**(넣기 계획 → 반영이 쓴다).
     이미 답이 있는 자리(「원본 없음」 포함)는 다시 안 묻는다 — `{again: true}` 면 전부 다시.
-    → {at, asked(호출 수), found{tables, slots}, tables{paired, none}, slots{filled, none}, rejected[], units[{title, targets, error}]}. 409 까닭이 남음."""
+    **실패 · 답 누락은 앞 답을 지우지 않는다**(spec_작업 ② §22 「구현 계약」 22-1 ⓑ): 「전부 다시」 여도 이번 답에 없는 자리(호출이 실패한 단위)의 앞 답은 둔다 · 물었는데 답에 빠진 자리는 `missing` 으로 적되
+    (다음 검토가 다시 묻는다 · 넣기 계획의 `counts.open` 에 든다) 앞의 답(`missing` 아닌 것)과 그 답에서 나온 표 짝은 그대로 둔다.
+    → {at, asked(호출 수), found{tables, slots}, tables{paired, none, missing}, slots{filled, none, missing}, kept(답이 빠졌지만 앞 답을 그대로 둔 자리 수), rejected[], units[{title, targets, error}]}. 409 까닭이 남음."""
     from datetime import datetime
 
     from app import job_prompts, merge_gaps, server
@@ -793,12 +867,22 @@ def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
         now = _store(doc_id)
         _same_source(doc_id, now, frm["id"])
         cur = _gaps(now)
-        old = {k: {key: v for key, v in (cur.get(k) or {}).items() if key in late[k]} for k in ("tables", "slots")} if again else cur   # 「전부 다시」 여도 묻는 사이 지침이 바뀐 자리의 앞 답은 둔다
-        gaps = {"at": at, "tables": {**(old.get("tables") or {}), **res["tables"]}, "slots": {**(old.get("slots") or {}), **res["slots"]}, "guide": res.get("guide"), "job": res.get("job")}
+        # 앞 답 위에 이번 답을 얹는다 — 「전부 다시」 여도 **이번 답에 없는 자리**(호출이 실패한 단위 · 묻는 사이 지침이 바뀐 자리)의 앞 답은 둔다(spec_작업 ② §22 「구현 계약」 22-1 ⓑ: 실패가 앞 답을 지우지 않는다).
+        # 물었는데 답에 빠진 자리(`missing`)는 앞의 답(`missing` 아닌 것)을 갈지 않는다 — 앞 답이 없거나 그것도 `missing` 일 때만 적는다(다음 검토가 다시 묻는다)
+        answered = lambda v: isinstance(v, dict) and not v.get("missing")  # noqa: E731
+        for k in ("tables", "slots"):   # 두 번 물었는데 두 번 다 답에 빠진 자리 — 더 묻지 않고 「원본 없음」 으로 닫는다(같은 자리를 실행마다 유료로 다시 묻거나 「아직 빈 자리」 가 0 이 안 돼 다음 단계가 막히지 않게)
+            for key, v in list(res[k].items()):
+                was = (cur.get(k) or {}).get(key)
+                if v.get("missing") and isinstance(was, dict) and was.get("missing"):
+                    res[k][key] = {**{a: b for a, b in v.items() if a != "missing"}, "silent": True, "reason": "두 번 물었는데 LLM 답에 이 자리가 없어 「원본 없음」 으로 둠"}
+        stay ={k: {key for key, v in res[k].items() if v.get("missing") and answered((cur.get(k) or {}).get(key))} for k in ("tables", "slots")}   # 앞 답을 그대로 둔 자리
+        gaps = {"at": at, **{k: {**(cur.get(k) or {}), **{key: v for key, v in res[k].items() if key not in stay[k]}} for k in ("tables", "slots")}, "guide": res.get("guide"), "job": res.get("job")}
         pairs_t = dict(_forced(now))
         for tid, v in res["tables"].items():
             mine = pairs_t.get(tid) or {}
             if mine.get("source") == "user":   # 사람이 정한 표 짝은 안 건드린다
+                continue
+            if v.get("missing"):   # 답 누락은 「같은 표 없음」 이 아니다 — 앞서 이 검토가 낸 표 짝을 지우지 않는다
                 continue
             if v["from"]:
                 pairs_t[tid] = {"from": v["from"], "source": "llm", "by": "gaps", "reason": v["reason"], "format": ""}
@@ -809,9 +893,11 @@ def merge_gaps_post(doc_id: str, body: dict = Body(default={})):
         _gaps_last(doc_id, {"at": at, "units": [{k: u.get(k) for k in ("n", "title", "pages", "targets", "tables", "error", "prompt", "answer")} for u in res["units"]]})
     with _LOCK:
         _FIXED.pop(doc_id, None)
-    count = lambda d, yes: sum(1 for v in d.values() if bool(v.get("from")) == yes)  # noqa: E731
-    return {"at": at, "asked": res["asked"], "found": res["found"], "tables": {"paired": count(res["tables"], True), "none": count(res["tables"], False)},
-            "slots": {"filled": count(res["slots"], True), "none": count(res["slots"], False)}, "rejected": res["rejected"][:40],
+    count = lambda d, yes: sum(1 for v in d.values() if not v.get("missing") and bool(v.get("from")) == yes)  # noqa: E731 — 답 누락은 「원본 없음」(none)으로 세지 않는다
+    miss = lambda d: sum(1 for v in d.values() if v.get("missing"))  # noqa: E731
+    return {"at": at, "asked": res["asked"], "found": res["found"], "tables": {"paired": count(res["tables"], True), "none": count(res["tables"], False), "missing": miss(res["tables"])},
+            "slots": {"filled": count(res["slots"], True), "none": count(res["slots"], False), "missing": miss(res["slots"])}, "rejected": res["rejected"][:40],
+            "kept": len(stay["tables"]) + len(stay["slots"]),   # 답이 빠졌지만 앞 답이 있어 그대로 둔 자리 수
             "units": [{"title": u["title"], "targets": u["targets"], "error": u.get("error")} for u in res["units"]]}
 
 
@@ -1297,7 +1383,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
 
 # ---- 이관 1·2단계 초기화(spec_작업 ② §14 「초기화」 — 2026-11-12 사용자 "어차피 연차보고서는 원본이 있으니깐 작업 1,2 단계 초기화 할 수 있도록 해줘") ----
 
-STAGE2_KEYS = ("fixed", "tables", "llm", "tableMaps", "gaps", "applied", "copied", "filled", "toRev", "fromRev")   # merge.json 가운데 2단계(내용 매핑)가 쌓은 것 — `from`(사람이 따로 고른 원본)은 진행이 아니라 고른 값이라 둔다 · filled = 마지막 반영 표식(fill_summary)
+STAGE2_KEYS = ("fixed", "tables", "llm", "tableMaps", "gaps", "applied", "copied", "filled", "toRev", "fromRev", "bySource", "src")   # (bySource = 다른 원본 문서 몫으로 넣어 둔 짝 · 표 대응 · 빈 자리 답 — _source_swap: 그것도 2단계가 쌓은 것)  # merge.json 가운데 2단계(내용 매핑)가 쌓은 것 — `from`(사람이 따로 고른 원본)은 진행이 아니라 고른 값이라 둔다 · filled = 마지막 반영 표식(fill_summary)
 
 
 def _kept(saved):
@@ -1307,7 +1393,7 @@ def _kept(saved):
     out = {"links": n("fixed"), "tables": n("tables"), "maps": n("tableMaps"), "applied": n("applied"), "llm": bool(saved.get("llm"))}
     g = saved.get("gaps") if isinstance(saved.get("gaps"), dict) else {}
     if g.get("at"):   # 빈 자리 검토를 한 번이라도 물었다 — {n: 답을 받은 자리 수, hit: 그 가운데 원본을 찾은 수}(워크플로우의 「빈 자리 검토(LLM)」 줄이 「건너뜀」 과 「검토함」 을 가른다: workflow_units._gaps_ran). 안 물었으면 열쇠가 없다
-        rows = [v for k in ("tables", "slots") for v in (g.get(k) or {}).values() if isinstance(v, dict)]
+        rows = [v for k in ("tables", "slots") for v in (g.get(k) or {}).values() if isinstance(v, dict) and not v.get("missing")]   # 물었는데 답에 빠진 자리(missing)는 답을 받은 자리가 아니다(spec_작업 ② §22 「구현 계약」 22-1 ⓑ)
         out["gaps"] = {"n": len(rows), "hit": sum(bool(v.get("from")) for v in rows)}
     return out
 

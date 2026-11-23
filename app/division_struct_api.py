@@ -66,7 +66,8 @@ def reads(s, groups, values=None, levels=None):
             if tb0 is None:
                 continue
             user, _held = table_heads.check(s.id, tid, tb0)
-            j = table_manager.judge(st1, tid, stored=t, user=user or None, same_doc=same)
+            stored, same_t = heading_runs.stored_table(s, tid)   # 지금 결과의 그 표 — LLM 판정이 없으면 그 표의 마지막 유효한 LLM 판정(spec_작업 ② §22 「구현 계약」 22-4 ⓕ)
+            j = table_manager.judge(st1, tid, stored=stored if stored is not None else t, user=user or None, same_doc=same_t if stored is not None else same)
             if j is None:
                 continue
             judged.append({"tid": tid, "tb": j["table"], "owner": t.get("owner"), "caption": caps.get(tid, "")})
