@@ -22,3 +22,33 @@
 .panel-help-tooltip.is-rows .panel-help-sep { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .panel-help-tooltip.is-rows .panel-help-v { color: #d7e0ec; font-size: 12.5px; line-height: 1.6; }
 .panel-help-tooltip.is-rows .panel-help-row.is-core .panel-help-v { color: #f4f7fb; font-size: 13px; line-height: 1.62; }
+
+/* 끝 글 풍선(data-help-kind="end" — 지난 실행 · 묶음의 끝): 5~15줄 요약 목록 · 줄마다 상태 점 · 남김/멈춤/실패/막힘은 주황 · 끝 확정은 초록 구분선 — 2026-11-23 사용자 「여기 디자인 개선하고 이것도 아이콘 클릭하면 볼 수 있게 해줘」 — Antigravity */
+.panel-help-tooltip[data-help-kind="end"] { padding: 12px 15px 13px; font-size: 12px; line-height: 1.55; } /* 풍선 안쪽 여백 · 12px 기준(최대 폭 416px · 높이 min(70vh, 520px) 는 .is-rows 유지) */
+.panel-help-tooltip[data-help-kind="end"][data-help-title]::before { margin-bottom: 8px; padding-bottom: 7px; font-size: 13px; } /* 풍선 맨 위 제목(예: 4단계 문서 정리 — 끝남) */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row { gap: 2px; } /* 줄 이름과 끝 글 세로 간격 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key] { padding-left: 13px; } /* 왼쪽 13px 상태 점 자리 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row + .panel-help-row { margin-top: 7px; } /* 일반 줄 간격 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row.is-cond + .panel-help-row.is-cond { margin-top: 7px; padding-top: 7px; border-top: 1px solid #303d50; } /* 많은 줄을 얇은 구분선으로 정돈 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-k { position: relative; font-size: 11px; font-weight: 700; line-height: 1.4; color: #b5c4d9; } /* 줄 이름표(11px 굵게 옅은 색) */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key] .panel-help-k::before { content: ""; position: absolute; left: -13px; top: 4.5px; width: 6px; height: 6px; border-radius: 50%; background: #6ed499; } /* 완료 줄의 초록 상태 점 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-v { color: #dce4ef; font-size: 12px; line-height: 1.55; } /* 각 줄의 끝 글 */
+/* 남김 · 멈춤 · 실패 · 막힘 줄 — 주황 상태 점과 이름표로 바로 구분 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="남김"] .panel-help-k,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="멈춤"] .panel-help-k,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="실패"] .panel-help-k,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="막힘"] .panel-help-k { color: #f6c474; }
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="남김"] .panel-help-k::before,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="멈춤"] .panel-help-k::before,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="실패"] .panel-help-k::before,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="막힘"] .panel-help-k::before { background: #f5b34c; }
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="남김"] .panel-help-v,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="멈춤"] .panel-help-v,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="실패"] .panel-help-v,
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key$="막힘"] .panel-help-v { color: #f7ead6; }
+/* 끝 확정 줄 — 맨 아래 문서 확정 결과를 초록 구분선 · 밝은 글로 구분 */
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row + .panel-help-row[data-help-key="끝 확정"],
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row.is-cond + .panel-help-row.is-cond[data-help-key="끝 확정"] { margin-top: 9px; padding-top: 9px; border-top: 1px solid #3f6353; }
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-k { color: #86e2ab; }
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-k::before { background: #52d989; box-shadow: 0 0 0 2px #52d98933; }
+.panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-v { color: #ecf8f0; }

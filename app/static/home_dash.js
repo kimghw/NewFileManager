@@ -556,7 +556,7 @@ function hdGroupsEl(groups, V) {
   const ends = V && !active && V.last && (V.last.stages || []).length > 1 ? V.last.stages : []; // 「이어서 한 번에」 로 여러 묶음을 돈 지난 실행 — 묶음마다 그 끝 글(묶음 하나만 돈 실행의 끝 글은 머리 아래 한 줄에 이미 있다)
   for (const g of groups) {
     const e = ends.find((x) => x.id === g.id && x.text);
-    g.end = e ? { ok: e.status === "done" || e.status === "left", text: e.text } : null;
+    g.end = e ? { ok: e.status === "done" || e.status === "left", text: e.text, rows: dashEndRows(V.last, V, g.id) } : null; // 풍선 = 그 묶음의 줄마다(dashboard.js dashEndEl)
     g.tags = [];
     if (g.served) {
       if ((g.sv.paid || []).length) { const t = el("span", "dash-tag dash-t-llm", `유료 LLM · 문서 ${g.sv.paid.length}개`); t.title = "이 묶음의 「한 번에 진행」 은 유료 LLM 을 부릅니다(문서마다 몇 분)"; g.tags.push(t); }
@@ -722,7 +722,7 @@ function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로
   }
   for (const x of V.lasts || (V.last && !active ? [V.last] : [])) { // 지난 실행의 끝 — 서버가 지은 글 그대로(초록 = 끝남 · 주황 = 멈춤 · 남김 · 끊김 · 오류) · 같이 돌던 다른 문서의 실행도(끝난 차례 — 그 실행이 아직 도는 동안에도 끝난 쪽의 글은 보인다)
     const E = flowEnd(x);
-    if (E && E.text) parts.push(el("p", "dash-last" + (E.ok && !E.left ? "" : " halt"), E.text));
+    if (E && E.text) parts.push(dashEndEl("dash-last", E.ok && !E.left, E.text, dashEndRows(x, V), { title: `지난 실행 — ${dashOneLine(E.text).split(" — ")[0]}` })); // 끝 글 띠 — 패널 대시보드와 같은 그리기(두 줄까지 · 전문은 풍선: dashboard.js dashEndEl)
   }
   if (HD.note) parts.push(hdNoteEl(HD.note.text, HD.note.warn));
   if (HD.err) parts.push(hdNoteEl(`상태를 읽지 못했습니다: ${HD.err}`, true));

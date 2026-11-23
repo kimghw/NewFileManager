@@ -52,8 +52,24 @@
 .dash-live { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border: 1px dashed #b8c8f0; border-radius: 6px; background: var(--accent-soft); font-size: 12px; }
 .dash-live b { font-weight: 600; overflow-wrap: anywhere; }
 .dash-live-text { flex: 1 1 140px; min-width: 0; color: #45505f; overflow-wrap: anywhere; }
-.dash-last { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ok); background: #f3faf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+/* 끝 글 띠(.dash-last = 지난 실행의 끝 · .dash-gend = 묶음의 끝): 두 줄 말줄임 + 오른쪽 위 20px 노트 아이콘 — 2026-11-23 사용자 「여기 디자인 개선하고 이것도 아이콘 클릭하면 볼 수 있게 해줘」 — Antigravity */
+.dash-last { display: flex; align-items: flex-start; gap: 6px; min-width: 0; margin: 0; padding: 6px 8px 6px 10px; border-left: 3px solid var(--ok); border-radius: 0 6px 6px 0; background: #f3faf5; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .dash-last.halt { border-left-color: var(--warn); background: var(--warn-soft); }
+.dash-last.has-more, .dash-gend.has-more { cursor: pointer; transition: background-color .12s ease; } /* 띠 어디에 올려도 풍선 · 누르면 고정 */
+.dash-last.has-more:hover, .dash-gend.has-more:hover { background: var(--ok-soft); } /* 끝남 띠 올림 바탕 */
+.dash-last.halt.has-more:hover, .dash-gend.halt.has-more:hover { background: #ffebd0; } /* 멈춤 · 남김 띠 올림 바탕 */
+.dash-last .dash-end-text, .dash-gend .dash-end-text { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; } /* 두 줄까지만 보이고 넘치면 말줄임(…) */
+.dash-last .dash-end-text b, .dash-gend .dash-end-text b { font-weight: 600; } /* 앞 실행 이름 강조 */
+.dash-last .dash-end-more, .dash-gend .dash-end-more { flex: none; width: 20px; height: 20px; margin-top: -1px; border-radius: 5px; color: #4b7a5b; cursor: pointer; } /* 오른쪽 위 20px 노트 아이콘(.dash-memo 와 같은 꼴) */
+.dash-last .dash-end-more svg, .dash-gend .dash-end-more svg { width: 15px; height: 15px; }
+.dash-last.has-more:hover .dash-end-more, .dash-gend.has-more:hover .dash-end-more,
+.dash-last .dash-end-more:hover, .dash-gend .dash-end-more:hover,
+.dash-last .dash-end-more:focus-visible, .dash-gend .dash-end-more:focus-visible { color: var(--ok); background: #d8f0e0; }
+.dash-last.halt .dash-end-more, .dash-gend.halt .dash-end-more { color: #9e6b35; } /* 멈춤 · 남김 띠의 노트 아이콘 */
+.dash-last.halt.has-more:hover .dash-end-more, .dash-gend.halt.has-more:hover .dash-end-more,
+.dash-last.halt .dash-end-more:hover, .dash-gend.halt .dash-end-more:hover,
+.dash-last.halt .dash-end-more:focus-visible, .dash-gend.halt .dash-end-more:focus-visible { color: var(--warn); background: #fce6c2; }
+.dash-last .dash-end-more:focus-visible, .dash-gend .dash-end-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; } /* 키보드 초점은 아이콘 단추에만 */
 .dash-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 8px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 12px; line-height: 1.5; }
 .dash-note > span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .dash-note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
@@ -68,7 +84,7 @@
 .dash-gname { flex: 0 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .dash-gcount { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .dash-ghead .btn { margin-left: auto; }
-.dash-gend { margin: -2px 0 6px; padding: 2px 8px; border-left: 3px solid var(--ok); background: #f3faf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; } /* 묶음의 「한 번에 진행」 끝 · 멈춤 */
+.dash-gend { display: flex; align-items: flex-start; gap: 6px; min-width: 0; margin: -2px 0 6px; padding: 5px 8px 5px 10px; border-left: 3px solid var(--ok); border-radius: 0 6px 6px 0; background: #f3faf5; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; } /* 묶음의 「한 번에 진행」 끝 · 멈춤 — 묶음 머리 바로 아래 자리 유지 · 두 줄 말줄임 + 오른쪽 위 아이콘 — 2026-11-23 사용자 「여기 디자인 개선하고 이것도 아이콘 클릭하면 볼 수 있게 해줘」 — Antigravity */
 .dash-gend.halt { border-left-color: var(--warn); background: var(--warn-soft); }
 /* 묶음 머리 아래의 「한 문서만」 줄(spec_워크플로우 ② §18-21 — 「원본 문서만」 · 「목적 문서만」: 그 묶음에서 그 문서의 단계만) — 머리의 「한 번에 진행」 아래 오른쪽 · 작은 이름표 + 단추들. 두 대시보드(패널 · 첫 화면)가 같이 쓴다 */
 .dash-solo { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 6px; margin: -2px 0 6px; min-width: 0; }

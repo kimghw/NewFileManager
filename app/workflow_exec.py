@@ -35,6 +35,7 @@ MATES = {}                       # 도는 실행의 묶음에 든 문서 id(잡�
 CLAIMS = {}                      # 목적 문서 id → {실행 번호: (역할, 단위)} — 문서 하나만 잡은 실행이 지금 도는 줄(옆 실행의 줄과 겹치면 안 되는 줄은 차례로: _turn)
 WAIT = {"poll": 1.0, "heads": 30 * 60, "llm": 90 * 60}   # 기다림(초) — 상한은 화면 실행과 같다(분석 30분 · LLM 90분). 시험이 줄인다
 STEPS_MAX, TEXT_MAX, SKIP_MAX = 300, 240, 5000
+SUMMARY_STEPS = 60   # 끝난 실행의 요약에 싣는 줄의 끝 글(마지막 것부터 — 화면이 몇 초마다 읽는다)
 STATUS = ("running", "done", "left", "halted", "stopped", "failed", "cut")
 BUSY_TEXT = "워크플로우 「한 번에 진행」 이 도는 중입니다 — 끝나거나 멈춘 뒤에 하세요"
 # 울타리(② §17-8 — 문서를 바꾸는 줄): 알림 → 화면들의 고치던 글 보고 → 울타리(그 문서의 사람 편집 409 · 실행 스레드만 지남) → 몸 → 내림. 사전은 잠금 없이 한 번 읽는다(편집 입구가 세션 잠금 안에서 묻는다 — 교착 없음)
@@ -188,7 +189,8 @@ def _summary(rec):
         return None
     return {k: rec.get(k) for k in ("n", "status", "stopping", "started", "ended", "now", "range", "origin", "docs", "left", "halt", "end", "cut", "job", "sig", "commits")} | {   # commits = 끝 확정(② §18-24)
         "lane": rec.get("lane") or "",   # 이 실행이 잡은 문서(source | target — 그 문서만 · "" = 두 문서: ② §18-22)
-        "stages": [{k: g.get(k) for k in ("id", "status", "text")} for g in rec.get("stages") or []]}
+        "stages": [{k: g.get(k) for k in ("id", "status", "text")} for g in rec.get("stages") or []]} | ({   # 끝난 실행 — 줄마다의 끝 글(대시보드 끝 글 띠의 풍선이 「줄 이름 — 글」 로 보인다: dashboard.js dashEndRows · 2026-11-23)
+        "steps": [{k: s.get(k) for k in ("stage", "key", "doc", "status", "text")} for s in (rec.get("steps") or [])[-SUMMARY_STEPS:]]} if rec.get("ended") else {})
 
 
 def runs_of(target):
@@ -1112,7 +1114,9 @@ def _drive(run):
             rec["halt"] = {"stage": at[0], "key": at[1], "code": halt.code, "text": _clip(halt.text)}
         word = {"done": "끝남", "left": "남김", "halted": "멈춤", "stopped": "멈춤", "failed": "오류"}[status]
         tail = halt.text if halt is not None else "멈춤을 눌러 멈췄습니다 — 끝난 단계는 그대로입니다" if status == "stopped" else " / ".join(texts) or "남은 단계가 없습니다"
-        rec.update(status=status, stopping=False, ended=time.time(), now=None, end={"ok": status in ("done", "left"), "text": _end_text(f"{word} — {tail}", _commit_tail(commits))})   # 꼬리(끝 확정)는 240자 안에 늘 든다
+        ctail = _commit_tail(commits)
+        rec.update(status=status, stopping=False, ended=time.time(), now=None, end={"ok": status in ("done", "left"), "text": _end_text(f"{word} — {tail}", ctail),   # 꼬리(끝 확정)는 240자 안에 늘 든다
+                                                                                    **({"tail": ctail.removeprefix(" · ")} if ctail else {})})   # 끝 확정만 따로(끝 글 띠의 풍선 — 「끝 확정 — …」 줄)
     with _LOCK:
         _release(run)
     run.working = set()

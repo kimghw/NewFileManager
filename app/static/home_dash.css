@@ -51,5 +51,25 @@
 
 /* ---- 발 — 단추 줄(「워크플로우 시작」 · 「대시보드 자세히 보기」 · 「다른 워크플로우」): 상자가 스크롤해도 아래에 붙어 늘 보인다 · 내용이 짧아도 탭 칸의 아래 끝에(margin-top: auto).
    붙는 자리는 상자의 안쪽 여백 안(내용 상자의 아래)이라 bottom 을 여백만큼 내려 상자의 아래 끝에 닿게 한다(0 이면 발 아래 10px 로 스크롤하는 단계가 비친다) */
-.home-dash-foot { position: sticky; bottom: -10px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: auto -14px -10px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: #fff; }
-.home-dash-foot .dash-why { flex: 1 1 100%; }
+/* 첫 화면 대시보드 발 단추 줄: 첫 줄 주 이동(자세히 보기) · 둘째 줄 다시/새 워크플로우 + 오른쪽 끝 초기화(옅은 위험 색) · 단추마다 13px currentColor 마스크 아이콘 — 2026-11-23 사용자 「요 메뉴버튼도 … 처리하도록 해줘」 — Antigravity */
+.home-dash-foot { position: sticky; bottom: -10px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 5px; margin: auto -14px -10px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--surface); } /* 상자 아래 끝 맞춤(sticky · bottom -10px · 높이 81px 이하 유지) */
+.home-dash-foot > .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; max-width: 100%; padding: 0 8px; font-size: 12px; } /* 28px(.btn.sm) · 아이콘+글 가운데 정렬 · 320px 넘침 방지 */
+.home-dash-foot > .btn[data-hd-focus="more"] { flex: 1 1 100%; } /* 첫 줄 전체 폭: 주된 이동 「대시보드 자세히 보기」 */
+.home-dash-foot > .btn[data-hd-focus="start"],
+.home-dash-foot > .btn[data-hd-focus="resume"] { flex: 1 1 auto; } /* 시작 전 주 단추(「워크플로우 시작」 · 「이어서」)를 넓게 */
+.home-dash-foot > .btn[data-hd-focus="reset"] { margin-left: auto; padding: 0 6px; border-color: transparent; background: transparent; color: #b54545; } /* 둘째 줄 오른쪽 끝: 위험 행동 「작업 내용 초기화…」 를 덜 눈에 띄게 */
+.home-dash-foot > .btn[data-hd-focus="reset"]:hover:not(:disabled) { border-color: #ebb5b5; background: var(--fail-soft); color: var(--fail); } /* 초기화 올림 시 옅은 위험 바탕 · 테두리 */
+.home-dash-foot > .btn[data-hd-focus="more"]::before,
+.home-dash-foot > .btn[data-hd-focus="again"]::before,
+.home-dash-foot > .btn[data-hd-focus="other"]::before,
+.home-dash-foot > .btn[data-hd-focus="reset"]::before,
+.home-dash-foot > .btn[data-hd-focus="start"]::before,
+.home-dash-foot > .btn[data-hd-focus="resume"]::before { content: ""; flex: none; width: 13px; height: 13px; background-color: currentColor; opacity: .88; -webkit-mask: var(--hd-ic) no-repeat center / contain; mask: var(--hd-ic) no-repeat center / contain; } /* textContent 유지용 CSS 마스크 아이콘(disabled 시 단추 opacity 그대로) */
+.home-dash-foot > .btn.primary::before { opacity: .96; } /* 강조 단추의 흰 아이콘 또렷하게 */
+.home-dash-foot > .btn[data-hd-focus="more"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 3H3.5A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5V9.5M9.5 2H14v4.5M14 2L7.5 8.5'/%3E%3C/svg%3E"); } /* 패널/열기 아이콘 */
+.home-dash-foot > .btn[data-hd-focus="again"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 8a5 5 0 1 1-1.46-3.54L12.6 5.5M12.6 2.5v3h-3'/%3E%3C/svg%3E"); } /* 다시 시작(↻) 아이콘 */
+.home-dash-foot > .btn[data-hd-focus="other"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M8 3.2v9.6M3.2 8h9.6'/%3E%3C/svg%3E"); } /* 더하기/새 워크플로우 아이콘 */
+.home-dash-foot > .btn[data-hd-focus="reset"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.55' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.1 13.2H4.8L2.5 10.9a1.2 1.2 0 0 1 0-1.7l6.2-6.2a1.2 1.2 0 0 1 1.7 0l3.1 3.1a1.2 1.2 0 0 1 0 1.7l-5.4 5.4M5.6 6.1l4.8 4.8M8.1 13.2h5.7'/%3E%3C/svg%3E"); } /* 지우개/초기화 아이콘 */
+.home-dash-foot > .btn[data-hd-focus="start"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpolygon points='4.6,2.9 13.2,8 4.6,13.1' fill='%23000' stroke='%23000' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E"); } /* 재생(▶) 아이콘 */
+.home-dash-foot > .btn[data-hd-focus="resume"] { --hd-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h9.5M8.5 3.8L12.8 8l-4.3 4.2'/%3E%3C/svg%3E"); } /* 이어서(→) 아이콘 */
+.home-dash-foot .dash-why { flex: 1 1 100%; } /* 시작 전 꺼진 까닭 한 줄 — 전체 폭 */

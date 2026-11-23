@@ -33,6 +33,8 @@ function panelHelpShow(button) {
   if (panelHelpOwner !== button) panelHelpClose();
   panelHelpOwner = button;
   const raw = button.dataset.help || "";
+  if (button.dataset.helpKind) panelHelpTip.dataset.helpKind = button.dataset.helpKind;
+  else delete panelHelpTip.dataset.helpKind;
   if (button.dataset.helpRows) {
     // 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity
     panelHelpTip.classList.add("is-rows");
@@ -94,7 +96,8 @@ function panelHelpLater() {
   }, 150);
 }
 
-function hHelp(label, text, { warning = false, note = !warning, rows = false, title = "" } = {}) {
+// kind = 풍선의 갈래(opt-in — 풍선에 data-help-kind 로 실린다: "end" = 대시보드 끝 글 띠의 「줄 이름 — 글」 · dashboard.js dashEndEl). 없으면 전과 같다
+function hHelp(label, text, { warning = false, note = !warning, rows = false, title = "", kind = "" } = {}) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "panel-help" + (warning ? " is-warning" : "");
@@ -102,6 +105,7 @@ function hHelp(label, text, { warning = false, note = !warning, rows = false, ti
   b.dataset.help = text;
   if (rows) b.dataset.helpRows = "1";
   if (title) b.dataset.helpTitle = title;
+  if (kind) b.dataset.helpKind = kind;
   const shape = note
     ? '<path d="M5 2h8l3 3v13H4V3a1 1 0 0 1 1-1Z"/><path d="M12 2v4h4M7 9h6M7 12h6M7 15h4"/>'
     : '<circle cx="10" cy="10" r="7.5"/>' + (warning ? '<path d="M10 6v5M10 14h.01"/>' : '<path d="M10 9v5M10 6h.01"/>');

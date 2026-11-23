@@ -697,7 +697,7 @@ async function dashSingleLive(M) {
   if (F.err) M.notes.push({ text: `상태를 읽지 못했습니다: ${F.err}`, warn: true });
   if (V.why && (!V.stages.length || !V.ready)) M.notes.push({ text: V.why, warn: true }); // 문서 칸이 비었음 · 모르는 워크플로우(서버의 글)
   const E = active ? null : flowEnd(V.last);
-  if (E && E.text) M.last = { ok: E.ok && !E.left, text: E.text }; // 지난 실행의 끝 — 서버가 지은 글 그대로(「끝남 — …」 초록 · 「남김 — …」 · 「멈춤 — …」 · 「끊김 — …」 주황: 첫 화면의 대시보드와 같은 줄 — 다시 연 뒤에도 · 다른 화면이 돌린 것도)
+  if (E && E.text) M.last = { ok: E.ok && !E.left, text: E.text, rows: dashEndRows(V.last, V) }; // 지난 실행의 끝 — 서버가 지은 글 그대로(「끝남 — …」 초록 · 「남김 — …」 · 「멈춤 — …」 · 「끊김 — …」 주황: 첫 화면의 대시보드와 같은 줄 — 다시 연 뒤에도 · 다른 화면이 돌린 것도)
   const served = V.stages.filter((g) => g.server && g.steps);
   if (V.stages.length && served.length < V.stages.length) M.notes.push({ text: SINGLE_NOT_SERVED, warn: true }); // 조립한 것은 화면이 돌리지 않는다 — 서버가 안 맡은 묶음은 누를 수 없다
   const reg = Object.fromEntries((M.reg ? M.reg.stages : []).flatMap((g) => g.steps).map((s) => [s.key, s])), seen = {};
@@ -731,7 +731,7 @@ async function dashSingleLive(M) {
       if (no && !off) M.top.push(el("span", "dash-top-why", no)); // 꺼진 까닭이 서버의 것이면(앞 묶음이 먼저 · 문서 칸이 빔) 글로
     }
   }
-  if (!active && V.last && (V.last.stages || []).length > 1) for (const x of V.last.stages) if (x.text) L.ends[x.id] = { ok: x.status === "done" || x.status === "left", text: x.text }; // 여러 묶음을 돈 지난 실행 — 묶음마다 그 끝 글
+  if (!active && V.last && (V.last.stages || []).length > 1) for (const x of V.last.stages) if (x.text) L.ends[x.id] = { ok: x.status === "done" || x.status === "left", text: x.text, rows: dashEndRows(V.last, V, x.id) }; // 여러 묶음을 돈 지난 실행 — 묶음마다 그 끝 글(풍선 = 그 묶음의 줄마다)
   await dashHands(M, L); // 사람이 하는 일 줄(정의 v2 의 hand) — 「했음」 · 「했음 취소」
   return L;
 }
@@ -1045,7 +1045,7 @@ async function dashFlowLive(M) {
   const off = offFor(""); // 두 문서를 함께 쓰는 일의 까닭
   if (F.err) M.notes.push({ text: `상태를 읽지 못했습니다: ${F.err}`, warn: true });
   // 지난 실행의 끝 — 서버가 지은 글(「끝남 — …」 · 「남김 — …」 · 「멈춤 — …」 · 「끊김 — …」: 다시 연 뒤에도 · 다른 화면이 돌린 것도 — 「아래 「…」」 같은 자리 말만 「작업 개요」 의 것으로). 같이 돌던 다른 문서의 실행도(끝난 차례 — 그 실행이 아직 도는 동안에도 끝난 쪽의 글은 보인다)
-  M.lasts = (V.lasts || (V.last && !active ? [V.last] : [])).map((x) => flowEnd(x)).filter((E) => E && E.text).map((E) => ({ ok: E.ok && !E.left, text: dashHere(E.text) }));
+  M.lasts = (V.lasts || (V.last && !active ? [V.last] : [])).map((x) => [x, flowEnd(x)]).filter(([, E]) => E && E.text).map(([x, E]) => ({ ok: E.ok && !E.left, text: dashHere(E.text), rows: dashEndRows(x, V) }));
   // 도는 실행마다 진행 줄 하나(멈춤은 그 실행에만 — 번호로)
   const stageOf = (id) => { const g = V.stages.find((x) => x.id === id); return g ? `${g.no || ""} ${g.name || ""}`.trim() : ""; };
   const roleOf = (role) => { const q = roles.find((x) => x.role === role); return (q && q.title) || DASH_FLOW_ROLE[role] || ""; };
@@ -1136,7 +1136,7 @@ async function dashFlowLive(M) {
       if (no && !off) M.top.push(el("span", "dash-top-why", no)); // 꺼진 까닭이 서버의 것이면(앞 묶음이 먼저 · 문서 칸이 빔) 글로
     }
   }
-  if (!active && V.last && (V.last.stages || []).length > 1) for (const x of V.last.stages) if (x.text) L.ends[x.id] = { ok: x.status === "done" || x.status === "left", text: x.text }; // 여러 묶음을 돈 지난 실행 — 묶음마다 그 끝 글
+  if (!active && V.last && (V.last.stages || []).length > 1) for (const x of V.last.stages) if (x.text) L.ends[x.id] = { ok: x.status === "done" || x.status === "left", text: x.text, rows: dashEndRows(V.last, V, x.id) }; // 여러 묶음을 돈 지난 실행 — 묶음마다 그 끝 글(풍선 = 그 묶음의 줄마다)
   await dashHands(M, L); // 사람이 하는 일 줄(정의 v2 의 hand) — 「했음」 · 「했음 취소」
   return L;
 }
@@ -1190,6 +1190,46 @@ function dashTags(s) { // 누가(스크립트 · LLM · 사람) · 문서 바뀜
 // 첫 화면의 것을 따로 그린 간단한 꼴로 두지 않는다). 보기마다 다른 것만 여기 둔다: focus = 다시 그린 뒤 초점을 되찾는 data- 이름(dataset 키) · id = 펼친 세부의 id 머리(두 보기가 한 문서에 같이 있다) ·
 // toggle(key, open) = 단계 카드를 펴고 접는다 · go(key) = 「그 단계로」 · counted(n) = 끝난 수에 넣는 단계 · panel = 문서 화면의 보기(값 입력 폼은 문서가 열려 있어야 한다)
 const DASH_CTX = { focus: "dashFocus", id: "dashD", panel: true, counted: dashCounted, toggle: (key, open) => { DASH.open = open ? "" : key; dashDraw(true); }, go: (key) => { DASH.open = key; dashDraw(true); } };
+
+// 끝 글 띠(.dash-last = 지난 실행의 끝 · .dash-gend = 묶음의 끝) — 2026-11-23 사용자 「여기 디자인 개선하고 이것도 아이콘 클릭하면 볼 수 있게 해줘」 · 「마우스를 갖어다 대면 나와도 좋을거 같음」:
+// 띠에는 글을 두 줄까지만(CSS) · 전문은 오른쪽 아이콘의 풍선 — 띠에 마우스를 올리면 뜨고 누르면 고정(hHelp 의 풍선 그대로 · kind "end"). 풍선은 줄마다 「줄 이름 — 글」(dashEndRows).
+// 띠의 textContent 는 전과 같은 글이다(아이콘은 svg 뿐 — 화면 검사가 띠의 글을 읽는다). 첫 화면의 대시보드(home_dash.js hdLiveParts)도 이것으로 그린다
+const dashOneLine = (t) => String(t || "").replace(/\s+/g, " ").trim();
+function dashEndRows(rec, V, gid = "") { // 지난 실행(서버 요약) → 풍선의 줄 「줄 이름 — 글」: 끝난 실행의 steps(workflow_exec._summary — 2026-11-23 부터) · 없으면(옛 기록) 묶음마다의 글 · gid = 그 묶음만
+  if (!rec) return [];
+  const stages = (V && V.stages) || [], docs = (V && V.docs) || {}, no = {}, name = {}, rows = [];
+  for (const g of stages) { no[g.id] = g.no || ""; for (const s of g.steps || []) name[`${g.id}/${s.key}`] = s.name; }
+  const WORD = { left: "남김", failed: "실패", halted: "멈춤", blocked: "막힘" };
+  const docName = (id) => { const d = [docs.source, docs.target, ...(docs.sources || [])].find((x) => x && x.id === id); return d ? d.name : ""; };
+  const steps = (rec.steps || []).filter((s) => s.text && (!gid || s.stage === gid)), many = new Set(steps.map((s) => s.stage)).size > 1; // 여러 묶음을 돈 실행 — 줄 이름 앞에 묶음 번호
+  for (const s of steps) {
+    const d = s.doc ? docName(s.doc) : "";
+    rows.push(`${many && no[s.stage] ? `${no[s.stage]} · ` : ""}${name[`${s.stage}/${s.key}`] || s.key}${d ? `(${d})` : ""}${WORD[s.status] ? ` · ${WORD[s.status]}` : ""} — ${dashOneLine(s.text)}`);
+  }
+  if (!steps.length) for (const g of rec.stages || []) if (g.text && (!gid || g.id === gid)) { const x = stages.find((q) => q.id === g.id); rows.push(`${x ? `${x.no || ""} ${x.name || ""}`.trim() : g.id} — ${dashOneLine(g.text)}`); }
+  const H = rec.halt;
+  if (steps.length && H && H.text && (!gid || H.stage === gid)) rows.push(`${name[`${H.stage}/${H.key}`] || "멈춘 곳"} · 멈춤 — ${dashOneLine(H.text)}`); // 멈춘 줄은 steps 에 없다(처리 함수가 멈췄다)
+  if (!gid && rec.status === "stopped") rows.push("멈춤 — 「멈춤」 을 눌러 멈췄습니다 · 끝난 단계는 그대로입니다");
+  if (!gid && rec.end && rec.end.tail) rows.push(`끝 확정 — ${dashOneLine(rec.end.tail)}`);
+  return rows;
+}
+function dashEndEl(cls, ok, text, rows, { label = "", title = "" } = {}) { // cls = "dash-last" | "dash-gend" · label = 앞의 굵은 이름(화면이 돈 실행 — DASH.last) · rows = dashEndRows(없으면 글 하나)
+  const p = el("p", cls + (ok ? "" : " halt")), t = el("span", "dash-end-text"), flat = dashOneLine(text);
+  if (label) t.append(el("b", null, label), ` — ${text}`); else t.append(text);
+  p.append(t);
+  const list = rows && rows.length ? rows : [label ? `${label} — ${flat}` : flat];
+  if (list.length < 2 && flat.length + label.length <= 40) return p; // 짧은 글 — 띠에 다 보인다(아이콘 없음)
+  const head = title || label || flat.split(" — ")[0];
+  const b = hHelp(`${head} — 전체 보기`, list.join("\n"), { rows: true, title: head, kind: "end" });
+  b.classList.add("dash-end-more");
+  b.title = "";
+  p.classList.add("has-more");
+  p.append(b);
+  p.onpointerenter = () => panelHelpShow(b); // 띠 어디에 올려도 풍선(아이콘에 붙어 뜬다) — 떠나면 hHelp 와 같이 닫힘(풍선 위로 옮기면 그대로)
+  p.onpointerleave = () => panelHelpLater();
+  p.onclick = (e) => { if (e.target.closest(".panel-help") || String(getSelection() || "")) return; b.click(); }; // 띠를 누르면 고정 · 글을 고르는 중이면 그대로
+  return p;
+}
 
 function dashDetailEl(n, id, C = DASH_CTX) {
   const d = el("div", "dash-detail");
@@ -1270,7 +1310,7 @@ function dashGroupsEl(groups, openKey, C = DASH_CTX) {
     flow.setAttribute("aria-label", `${g.label.name}의 단계`);
     if (!g.flowEl) for (const n of g.nodes) for (const c of n.cards || [n]) flow.append(dashNodeEl(c, g.id, openKey, C)); // cards = 그 줄의 문서 카드들(줄 목록으로 조립한 이관형 — 없으면 줄이 곧 카드)
     li.append(gh);
-    if (g.end) li.append(el("p", "dash-gend" + (g.end.ok ? "" : " halt"), `${g.end.ok ? "끝남" : "멈춤"} — ${g.end.text}`)); // 「한 번에 진행」 의 끝(「작업 개요」 의 묶음 상태 줄과 같은 글)
+    if (g.end) li.append(dashEndEl("dash-gend", g.end.ok, `${g.end.ok ? "끝남" : "멈춤"} — ${g.end.text}`, g.end.rows, { title: `${`${g.label.no || ""} ${g.label.name || ""}`.trim()} — ${g.end.ok ? "끝남" : "멈춤"}` })); // 「한 번에 진행」 의 끝(「작업 개요」 의 묶음 상태 줄과 같은 글 — 전문은 풍선: dashEndEl)
     if (g.sub) li.append(g.sub);
     li.append(g.flowEl || flow);
     if (g.parts) li.append(dashPartsEl(g.parts));
@@ -1466,8 +1506,8 @@ function dashEl(M) {
   if (workflows) root.append(workflows);
   const live = dashLiveEl(M);
   if (live) root.append(live);
-  if (DASH.last) { const p = el("p", "dash-last" + (DASH.last.ok ? "" : " halt")); p.append(el("b", null, DASH.last.label), ` — ${DASH.last.text}`); root.append(p); }
-  for (const x of [...(M.last ? [M.last] : []), ...(M.lasts || [])]) { const p = el("p", "dash-last" + (x.ok ? "" : " halt"), x.text); p.dataset.flowLast = "1"; root.append(p); } // 서버 실행의 지난 끝(서버가 지은 글 그대로 — 문서 하나로 조립한 것 dashSingleLive 는 하나 · 줄 목록으로 조립한 이관형 dashFlowLive 는 같이 돌던 다른 문서의 실행까지: 끝난 차례)
+  if (DASH.last) root.append(dashEndEl("dash-last", DASH.last.ok, DASH.last.text, null, { label: DASH.last.label })); // 끝 글 띠 — 전문은 풍선(dashEndEl)
+  for (const x of [...(M.last ? [M.last] : []), ...(M.lasts || [])]) { const p = dashEndEl("dash-last", x.ok, x.text, x.rows, { title: `지난 실행 — ${dashOneLine(x.text).split(" — ")[0]}` }); p.dataset.flowLast = "1"; root.append(p); } // 서버 실행의 지난 끝(서버가 지은 글 그대로 — 문서 하나로 조립한 것 dashSingleLive 는 하나 · 줄 목록으로 조립한 이관형 dashFlowLive 는 같이 돌던 다른 문서의 실행까지: 끝난 차례)
   for (const n of M.notes) { const p = el("div", "dash-note" + (n.warn ? " warn" : "")); p.append(el("span", null, n.text)); if (n.act) p.append(n.act); root.append(p); }
   if (M.top.length) { const top = el("div", "dash-top"); top.append(...M.top); root.append(top); }
   if (DASH.regErr && !M.reg) { root.append(el("p", "dash-note warn", `워크플로우를 읽지 못했습니다: ${DASH.regErr}`), dashBtn("다시 읽기", () => { DASH.regErr = ""; dashShow(); })); return root; }
