@@ -8,6 +8,9 @@
   글자 폭 모형(outline_pos.Measure)은 **얼마나 바꿀지 어림**하는 데만 쓰고, 고친 뒤 한글로 다시 재어 맞았는지 본다(맞지 않으면 1%씩 더 — `Para.observe`).
 - 이 파일은 순수 계산 + HwpxDoc 문단 한 곳 고치기(`scale_ratio`)다 — 서버 · 한글 · 저장은 `app/line_tidy_api.py`.
 - 글자 수 = 글자(한글 · 영문 · 숫자 — 유니코드 L · N)만 센다. 따옴표 · 괄호 · 쉼표는 세지 않는다.
+- **쪽에 걸친 줄**(② §8 — 같은 날 사용자 "페이지에 1개 문단의 1줄이 걸쳐 있는 경우 해당 페이지의 공백줄을 높이를 일부 조금씩 조정해서 한 페이지 안에 들어 가도록"):
+  장평 걸음이 끝난 뒤의 둘째 걸음 — 문단이 두 쪽에 나뉘었고 다음 쪽으로 넘어간 줄이 규칙(`pageTail`) 이하면 그 쪽의 빈 줄(글 없는 문단) 높이를 같은 비율로 조금씩 낮춰 당긴다.
+  쪽 나눔도 한글의 줄 자리(lineseg 의 vertpos — 쪽마다 · 쪽에 걸쳐 나뉜 표 칸에서는 이어지는 쪽마다 0 부터)로 읽고, 낮춘 뒤 한글로 다시 재어 확인한다(`Pages` · `scale_height`).
 """
 import copy
 import math
@@ -33,6 +36,10 @@ RULE_DEFS = (
      "text": "장평을 바꿀 줄이 이 글자 수보다 짧으면(좁은 표 칸의 머리글 같은 줄) 고치지 않습니다."},
     {"key": "rounds", "default": 6, "lo": 1, "hi": 12, "unit": "번", "name": "한글로 다시 재기",
      "text": "바꾼 뒤 한글로 다시 조판해 맞았는지 보는 횟수의 상한입니다. 맞지 않으면 장평을 1%씩 더 바꿉니다."},
+    {"key": "pageTail", "default": 1, "lo": 0, "hi": 3, "unit": "줄", "name": "쪽에 걸친 줄",
+     "text": "문단이 두 쪽에 나뉘어 있고 다음 쪽으로 넘어간 줄이 이 줄 수 이하면, 그 쪽에 있는 빈 줄의 높이를 조금씩 낮춰 넘어간 줄을 그 쪽으로 당깁니다(0 = 안 함)."},
+    {"key": "blankMin", "default": 60, "lo": 30, "hi": 95, "unit": "%", "name": "빈 줄 높이 하한",
+     "text": "빈 줄의 높이(글자 크기)를 처음의 이 비율보다 낮추지 않습니다. 더 낮춰야 하면 그 문단은 그대로 둡니다."},
 )
 DEFAULTS = {d["key"]: d["default"] for d in RULE_DEFS}
 _DEF = {d["key"]: d for d in RULE_DEFS}
@@ -71,7 +78,10 @@ def rules_text(R):
     s = f"당기기 {R['pull']}자 이하 · 밀기 {R['pushTail']}자/{R['pushHead']}자 이상"
     if R["last"]:
         s += f" · 마지막 줄 {R['last']}자 이하"
-    return s + f" · 연속 {R['chain']}자까지 · 장평 {R['minRatio']}~{R['maxRatio']}%"
+    s += f" · 연속 {R['chain']}자까지 · 장평 {R['minRatio']}~{R['maxRatio']}%"
+    if R.get("pageTail"):
+        s += f" · 쪽에 걸친 줄 {R['pageTail']}줄 이하(빈 줄 높이 {R['blankMin']}% 까지)"
+    return s
 
 
 # ---------------------------------------------------------------- 글자 · 줄
@@ -162,6 +172,7 @@ def lines_text(text, spans):
 # ---------------------------------------------------------------- 문단 하나의 시도 · 확인
 WHY = {"short": "줄이 짧음(좁은 칸)", "limit": "장평 한도", "measure": "잴 수 없는 글자", "worse": "나아지지 않음", "rounds": "다시 재기 횟수",
        "moved": "윗줄이 움직임", "chain": "연속 당기기 한도"}
+PAGE_WHY = {"noBlank": "그 쪽에 빈 줄 없음", "floor": "빈 줄 높이 하한", "rounds": "다시 재기 횟수"}   # 쪽에 걸친 줄을 그대로 둔 까닭(② §8)
 
 
 class Para:
@@ -300,6 +311,140 @@ class Para:
         return self.ops
 
 
+# ---------------------------------------------------------------- 쪽에 걸친 줄(② §8) — 줄 자리 = 한글의 lineseg (vertpos, vertsize, spacing)
+def page_breaks(segs):
+    """문단의 줄 자리 [(vertpos, vertsize, spacing)] → 새 쪽에서 시작하는 줄의 차례들. 줄 자리가 위로 되돌아간 곳이 쪽 나눔이다 —
+    vertpos 는 쪽(단)마다, 쪽에 걸쳐 나뉜 표 칸에서는 이어지는 쪽마다 0 부터 다시 센다(2026-11-23 한글 2020 실측 — references/한글_문단모양_줄나눔.md 「쪽 나눔 읽기」)."""
+    return [k for k in range(1, len(segs)) if segs[k][0] < segs[k - 1][0]]
+
+
+def page_issue(segs, R):
+    """문단 하나 → {k(넘어간 첫 줄), tail(넘어간 줄 수), need(넘어간 줄이 윗쪽에 들어가려면 낮춰야 할 높이 — 넉넉히: 윗쪽에 남은 자리를 0 으로 셈)} |
+    None(쪽에 안 걸침 · 넘어간 줄이 규칙보다 많음 · 세 쪽 넘게 걸침)."""
+    if not R.get("pageTail") or len(segs) < 2:
+        return None
+    br = page_breaks(segs)
+    if len(br) != 1:
+        return None
+    k = br[0]
+    tail = len(segs) - k
+    if tail > R["pageTail"]:
+        return None
+    return {"k": k, "tail": tail, "need": sum(max(0, segs[j - 1][2]) + segs[j][1] for j in range(k, len(segs)))}
+
+
+def page_blanks(flow, at):
+    """flow = 같은 흐름(본문 · 표 칸 하나)의 문단들 [{"segs", "blank", "obj"}] · at = 쪽에 걸친 문단의 자리 → 그 문단 위, **같은 쪽**에 있는 빈 줄의 자리들(아래에서 위로).
+    위 문단의 마지막 줄 자리가 아래 문단의 첫 줄 자리보다 위가 아니면 앞 쪽이다 — 거기서 멈춘다. 쪽에 걸친 윗 문단(꼬리만 이 쪽) · 쪽을 넘는 개체 문단(여러 쪽 표)에서도 멈춘다."""
+    out, nxt = [], flow[at]["segs"][0][0]
+    for i in range(at - 1, -1, -1):
+        q = flow[i]
+        segs = q["segs"]
+        if not segs:
+            break
+        vp, vs, _ = segs[-1]
+        if vp >= nxt or page_breaks(segs) or (q["obj"] and vp + vs > nxt):
+            break
+        if q["blank"] and len(segs) == 1:
+            out.append(i)
+        nxt = segs[0][0]
+    return out
+
+
+def blank_scale(need, pitches, cur, floor, force=False):
+    """need = 낮춰야 할 높이 · pitches = 빈 줄마다 지금 줄 높이(줄 + 줄 사이) · cur = 빈 줄마다 지금 배율(처음 높이의 %) · floor = 하한(%)
+    → 빈 줄마다 새 배율 — 모두 같은 비율로 조금씩(하한보다 낮게는 안 함 · 올리지 않음). force = 하한까지 한 번에(어림이 모자랐을 때). 더 낮출 수 없으면 None."""
+    total = sum(pitches)
+    if total <= 0:
+        return None
+    f = 0.0 if force else max(0.0, 1 - need / total)
+    new = [min(c, max(floor, math.floor(c * f))) for c in cur]
+    return None if new == list(cur) else new
+
+
+class Pages:
+    """쪽에 걸친 줄 — 문서 전체의 시도와 확인(② §8). 빈 줄의 배율(scale — 처음 높이의 %)을 정하고(`step`), 부르는 쪽이 그 배율을 사본에 입혀 한글로 다시 잰 흐름을 다시 넘긴다.
+    쪽은 서로 닿는다(윗쪽에서 한 줄을 당기면 아래 쪽들이 한 줄씩 올라온다) — 그래서 걸린 문단을 한 번에 모두 시도하고, 다시 잰 줄로 문단마다 「아직 걸쳐 있나」 만 본다.
+    flows = [[{"idx", "segs", "blank", "obj", "ok"}…]…] — 흐름(본문 · 표 칸)마다 문서 차례의 문단. ok = 볼 문단(블록 문단 · 개체 없음)."""
+
+    def __init__(self, R):
+        self.R = R
+        self.scale = {}      # 빈 줄 idx → 배율(%) — 100 이 아닌 것만
+        self.tries = {}      # 걸친 문단 idx → {"prev": {빈 줄: 전 배율}, "want": {빈 줄: 새 배율}, "tail", "forced"} — 다시 재기를 기다리는 시도
+        self.fixed = {}      # 걸친 문단 idx → {"tail", "blanks": {빈 줄: 배율}}
+        self.gave = {}       # 걸친 문단 idx → 까닭(PAGE_WHY 의 키)
+        self.first = None    # 처음에 걸려 있던 문단 수
+
+    def _issues(self, flows):
+        for flow in flows:
+            for at, q in enumerate(flow):
+                if q["ok"] and not q["blank"]:
+                    it = page_issue(q["segs"], self.R)
+                    if it:
+                        yield flow, at, q["idx"], it
+
+    def _put(self, pcts):
+        for b, pct in pcts.items():
+            if pct == 100:
+                self.scale.pop(b, None)
+            else:
+                self.scale[b] = pct
+
+    def _try(self, flow, at, idx, it, force=False):
+        """그 문단의 쪽에 있는 빈 줄로 시도를 세운다 → 세웠나(못 세우면 까닭을 적는다)."""
+        blanks = [flow[i] for i in page_blanks(flow, at) if flow[i]["ok"]]
+        if not blanks:
+            self.gave[idx] = "noBlank"
+            return False
+        cur = [self.scale.get(b["idx"], 100) for b in blanks]
+        new = blank_scale(it["need"], [b["segs"][0][1] + max(0, b["segs"][0][2]) for b in blanks], cur, self.R["blankMin"], force)
+        if new is None:
+            self.gave[idx] = "floor"
+            return False
+        t = {"prev": {b["idx"]: c for b, c in zip(blanks, cur)}, "want": {b["idx"]: n for b, n in zip(blanks, new)}, "tail": it["tail"],
+             "forced": force or all(n <= self.R["blankMin"] or n == c for n, c in zip(new, cur))}   # forced = 더 낮출 데가 없음(안 맞으면 그만둔다)
+        self.tries[idx] = t
+        self._put(t["want"])
+        return True
+
+    def step(self, flows, more=True):
+        """다시 잰 흐름으로 앞 시도를 확인하고(맞음 = 그 문단이 쪽에 안 걸침 · 아니면 하한까지 한 번 더 · 그래도 아니면 되돌림) more 면 새로 걸린 문단의 시도를 세운다
+        → 배율이 바뀌었나(바뀌었으면 부르는 쪽이 사본에 입혀 다시 잰다). more=False = 다시 재기 횟수가 다함 — 확인 · 되돌림만."""
+        now = {idx: (flow, at, it) for flow, at, idx, it in self._issues(flows)}
+        if self.first is None:
+            self.first = len(now)
+        before = dict(self.scale)
+        for idx, t in list(self.tries.items()):
+            del self.tries[idx]
+            if idx not in now:
+                self.fixed[idx] = {"tail": t["tail"], "blanks": dict(t["want"])}
+                continue
+            self._put(t["prev"])   # 아직 걸쳐 있음 — 이 시도는 거둔다
+            flow, at, it = now[idx]
+            if t["forced"]:
+                self.gave[idx] = "floor"
+            elif not more:
+                self.gave[idx] = "rounds"
+            else:
+                self._try(flow, at, idx, it, force=True)
+        if more:
+            for idx, (flow, at, it) in now.items():
+                if idx in self.tries or idx in self.gave:
+                    continue
+                self.fixed.pop(idx, None)   # 고쳤던 문단이 다시 걸침(윗쪽의 시도를 거둬 내려옴) — 다시 시도
+                self._try(flow, at, idx, it)
+        return self.scale != before
+
+    def result(self, flows):
+        """마지막으로 잰 흐름 → (고친 문단 [{idx, tail, blanks[{idx, pct}]}], 그대로 둔 문단 [{idx, tail, why}], 바꾼 빈 줄 [{idx, pct}]).
+        고쳤다고 세는 것은 마지막으로 잰 줄에서 쪽에 안 걸친 것뿐이다."""
+        now = {idx: it for _, _, idx, it in self._issues(flows)}
+        done = [{"idx": i, "tail": f["tail"], "blanks": [{"idx": b, "pct": self.scale[b]} for b in sorted(f["blanks"]) if b in self.scale]}
+                for i, f in sorted(self.fixed.items()) if i not in now]
+        left = [{"idx": i, "tail": it["tail"], "why": self.gave.get(i, "rounds")} for i, it in sorted(now.items())]
+        return done, left, [{"idx": b, "pct": p} for b, p in sorted(self.scale.items())]
+
+
 # ---------------------------------------------------------------- 문서 고치기
 def _hh(tag):
     return "{http://www.hancom.co.kr/hwpml/2011/head}" + tag
@@ -339,6 +484,33 @@ def scale_ratio(doc, p, start, end, pct):
                 n += 1
         pos += k
     doc._tidy(p)
+    doc._drop_cache(p)
+    doc._touch(p)
+    return n
+
+
+def scale_height(doc, p, pct):
+    """HwpxDoc 빈 문단 p 의 높이를 pct% 로 — 런마다 글자 크기(charPr height)를 지금 값 × pct/100(0.1pt 단위 · 1pt 이상)인 글자 모양으로 바꾼다(같은 정의가 있으면 그것).
+    빈 줄의 높이 = 문단 끝 빈 런의 글자 크기 × 줄 간격(줄 간격이 「글자에 따라」 일 때 — 고정 값이면 안 낮아지고, 다시 잴 때 드러난다). → 바꾼 런 수."""
+    from app.hwpx_doc import RUN
+    made, n = {}, 0
+    for r in p.iterchildren(RUN):
+        old = r.get("charPrIDRef", "0")
+        if old not in made:
+            src = doc._defs["charPr"].get(old)
+            if src is None:
+                raise ValueError(f"글자 모양 {old} 정의가 없습니다")
+            h = int(src.get("height") or 1000)
+            new = max(100, int(round(h * pct / 1000.0)) * 10)
+            if new == h:
+                made[old] = old
+            else:
+                c = copy.deepcopy(src)
+                c.set("height", str(new))
+                made[old] = doc._add_def("charPr", c)
+        if made[old] != old:
+            r.set("charPrIDRef", made[old])
+            n += 1
     doc._drop_cache(p)
     doc._touch(p)
     return n

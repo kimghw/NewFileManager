@@ -253,7 +253,167 @@ def test_plan_bytes_with_fake_layout():
         d._mark(d._name_of[q.getroottree().getroot()])
         return d.save()
     res = A.plan_bytes(data, R, lambda i, q, t: i == target[0], layout)
-    assert len(calls) == 2 and res["rounds"] == 1
+    assert len(calls) == 2 and res["rounds"] == 1   # 쪽에 걸친 줄 걸음은 장평 걸음의 마지막 조판을 그대로 쓴다(걸린 문단이 없으면 다시 재지 않는다)
     (it,) = res["items"]
     assert it["ops"][0]["kind"] == "pull+last" and it["after"] == ["가" * 28 + " 예지보전 가동"]
     assert res["counts"]["fixed"] == 1 and res["counts"]["chain"] == 1
+    assert res["pages"] == [] and res["blanks"] == [] and res["counts"]["pageSeen"] == 0
+
+
+# ---------------------------------------------------------------- 쪽에 걸친 줄(② §8)
+def _flow(*rows):
+    """(idx, 줄 자리들, 빈 줄인가) → 흐름. 줄 자리 = (vertpos, vertsize, spacing)."""
+    return [{"idx": i, "segs": list(segs), "blank": blank, "obj": False, "ok": True} for i, segs, blank in rows]
+
+
+def test_page_issue_and_blanks():
+    """쪽 나눔 = 줄 자리가 위로 되돌아간 곳 · 넘어간 줄이 규칙 이하일 때만 · 빈 줄은 같은 쪽(줄 자리가 이어지는 데까지)의 것만."""
+    two = [(70790, 1000, 200), (0, 1000, 200)]
+    assert LT.page_breaks(two) == [1] and LT.page_breaks([(0, 1000, 200), (1200, 1000, 200)]) == []
+    assert LT.page_issue(two, R) == {"k": 1, "tail": 1, "need": 1200}
+    assert LT.page_issue(two, {**R, "pageTail": 0}) is None   # 0 = 안 함
+    assert LT.page_issue([(5000, 1000, 200), (0, 1000, 200), (1200, 1000, 200)], R) is None   # 넘어간 줄 2 > 규칙 1
+    assert LT.page_issue([(5000, 1000, 200), (0, 1000, 200), (1200, 1000, 200)], {**R, "pageTail": 2})["need"] == 2400
+    assert LT.page_issue([(9000, 1000, 200), (0, 1000, 200), (0, 1000, 200)], R) is None   # 세 쪽에 걸침
+    flow = _flow((0, [(9000, 1000, 200)], True),    # 앞 쪽의 빈 줄(다음 문단의 줄 자리가 더 위다)
+                 (1, [(0, 1000, 200)], False),
+                 (2, [(1200, 1000, 200)], True),
+                 (3, [(2400, 1000, 200), (3600, 1000, 200)], False),
+                 (4, [(4800, 500, 100)], True),
+                 (5, [(5400, 1000, 200), (0, 1000, 200)], False))
+    assert LT.page_blanks(flow, 5) == [4, 2]
+    assert LT.page_blanks(_flow((0, [(100, 1000, 200)], True), (1, [(5000, 1000, 200), (0, 1000, 200)], False), (2, [(1200, 1000, 200), (0, 1000, 200)], False)), 2) == []   # 윗 문단도 쪽에 걸침 — 그 위는 앞 쪽
+    assert LT.blank_scale(1200, [1200] * 4, [100] * 4, 60) == [75] * 4   # 같은 비율로 조금씩
+    assert LT.blank_scale(1200, [1200] * 2, [100] * 2, 60) == [60] * 2   # 하한보다 낮게는 안 함
+    assert LT.blank_scale(1200, [720] * 2, [60] * 2, 60) is None and LT.blank_scale(1200, [1200] * 4, [100] * 4, 60, force=True) == [60] * 4
+
+
+def test_pages_try_confirm_and_give_up():
+    """Pages — 걸린 문단의 쪽에 있는 빈 줄을 낮춰 보고, 다시 잰 줄에서 안 걸치면 고침 · 하한까지 낮춰도 걸쳐 있으면 되돌리고 둔다."""
+    def flows(h, fits):   # 빈 줄 넷(높이 h) + 두 줄 문단
+        rows, y = [], 0
+        for i in range(4):
+            rows.append((i, [(y, h, h // 5)], True))
+            y += h + h // 5
+        rows.append((4, [(y, 1000, 200), ((y + 1200) if fits else 0, 1000, 200)], False))
+        return [_flow(*rows)]
+    P = LT.Pages(R)
+    assert P.step(flows(1000, False)) and P.scale == {0: 75, 1: 75, 2: 75, 3: 75} and P.first == 1
+    assert not P.step(flows(750, True))   # 다시 잰 줄 — 안 걸침
+    done, left, blanks = P.result(flows(750, True))
+    assert done == [{"idx": 4, "tail": 1, "blanks": [{"idx": b, "pct": 75} for b in range(4)]}] and left == [] and len(blanks) == 4
+    P = LT.Pages(R)
+    assert P.step(flows(1000, False)) and P.step(flows(750, False)) and set(P.scale.values()) == {60}   # 어림이 모자람 — 하한까지 한 번 더
+    assert P.step(flows(600, False)) and P.scale == {}   # 그래도 걸침 — 되돌린다
+    assert not P.step(flows(1000, False))
+    done, left, blanks = P.result(flows(1000, False))
+    assert done == [] and blanks == [] and left == [{"idx": 4, "tail": 1, "why": "floor"}]
+    P = LT.Pages(R)   # 빈 줄이 없는 쪽
+    assert not P.step([_flow((0, [(100, 1000, 200)], False), (1, [(1300, 1000, 200), (0, 1000, 200)], False))])
+    assert P.result([_flow((1, [(1300, 1000, 200), (0, 1000, 200)], False))])[1] == [{"idx": 1, "tail": 1, "why": "noBlank"}]
+
+
+def test_scale_height_on_document():
+    from app.hwpx_doc import RUN, HwpxDoc
+    doc = HwpxDoc(PLAN.read_bytes())
+    p = next(p for sec in doc._sections for p in sec.iter(A.P_TAG) if not doc._text(p).strip() and not doc._has_object(p) and list(p.iterchildren(RUN)))
+    h = lambda: [int(doc._defs["charPr"][r.get("charPrIDRef")].get("height")) for r in p.iterchildren(RUN)]  # noqa: E731
+    h0 = h()
+    assert LT.scale_height(doc, p, 75) == len(h0) and h() == [max(100, round(x * 0.075) * 10) for x in h0]
+    assert LT.scale_height(doc, p, 100) == 0   # 같은 크기 — 새 글자 모양을 들이지 않는다
+    again = HwpxDoc(doc.save())
+    assert any(c.get("height") == str(h()[0]) for c in again._defs["charPr"].values())
+
+
+def _page_case(doc):
+    """양식에서 「빈 줄 + 바로 아래 글 문단」(같은 흐름 · 둘 다 블록 문단) 한 쌍 → (빈 줄 차례, 글 문단 차례, 글에서 줄을 나눌 자리 — 빈칸 뒤)."""
+    from app.division_profiles import _structure as structure
+    ids = {b["id"] for b in structure.iter_blocks(doc.blocks()) if b.get("type") == "paragraph"}
+    ps = A._paras(doc)
+    for i in range(1, len(ps)):
+        q, p = ps[i - 1], ps[i]
+        t = doc._text(p)
+        cut = t.find(" ", len(t) // 2) + 1
+        if (q.getparent() is p.getparent() and not doc._text(q).strip() and not doc._has_object(q) and not doc._has_object(p) and doc._rev.get(q) in ids and doc._rev.get(p) in ids
+                and len(t) > 40 and 0 < cut < len(t) - 8 and all(ord(c) <= 0xFFFF for c in t) and "\t" not in t):
+            return i - 1, i, cut
+    raise AssertionError("양식에 빈 줄 + 글 문단 쌍이 없습니다")
+
+
+def _page_layout(bi, pi, cut, calls=None):
+    """가짜 한글 조판 — 빈 줄의 높이(글자 크기)가 처음의 80% 이하면 글 문단의 둘째 줄이 같은 쪽에, 아니면 다음 쪽(줄 자리 0)에. 다른 문단의 캐시는 지운다(양식의 쪽 나눔이 섞이지 않게)."""
+    from lxml import etree
+
+    from app.hwpx_doc import LINESEG, RUN, HwpxDoc
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    first = []
+
+    def layout(b):
+        d = HwpxDoc(b)
+        qs = A._paras(d)
+        for q in qs:
+            for la in q.findall(LINESEG):
+                q.remove(la)
+            d._touch(q)
+        h = int(d._defs["charPr"][next(qs[bi].iterchildren(RUN)).get("charPrIDRef")].get("height"))
+        first.append(h)
+
+        def put(q, rows):
+            arr = etree.SubElement(q, HP + "linesegarray")
+            for tp, vp, vs, sp in rows:
+                etree.SubElement(arr, HP + "lineseg", {"textpos": str(tp), "vertpos": str(vp), "vertsize": str(vs), "spacing": str(sp)})
+        put(qs[bi], [(0, 0, h, h // 5)])
+        y = h + h // 5
+        put(qs[pi], [(0, y, 1000, 200), (cut, y + 1200 if h <= first[0] * 0.8 else 0, 1000, 200)])
+        if calls is not None:
+            calls.append(h)
+        return d.save()
+    return layout
+
+
+def test_plan_bytes_page_fit_with_fake_layout():
+    """plan_bytes — 장평으로 고칠 것은 없고 한 줄이 다음 쪽으로 넘어간 문단 하나: 그 쪽의 빈 줄을 하한(60%)까지 낮춰 한 쪽으로. 조판은 처음 + 낮춘 뒤 한 번."""
+    from app.hwpx_doc import HwpxDoc
+    data = PLAN.read_bytes()
+    bi, pi, cut = _page_case(HwpxDoc(data))
+    calls = []
+    res = A.plan_bytes(data, R, lambda i, q, t: i in (bi, pi), _page_layout(bi, pi, cut, calls))
+    assert res["items"] == [] and res["rounds"] == 0 and res["pageRounds"] == 1 and len(calls) == 2
+    assert res["blanks"] == [{"idx": bi, "pct": 60}] and calls[1] == max(100, round(calls[0] * 0.06) * 10)   # 빈 줄 하나 — 어림(한 줄 높이)이 빈 줄보다 커서 하한까지
+    (pg,) = res["pages"]
+    assert pg["idx"] == pi and pg["tail"] == 1 and pg["blanks"] == [{"idx": bi, "pct": 60}] and res["pageLeft"] == []
+    c = res["counts"]
+    assert (c["pageSeen"], c["pageFixed"], c["pageLeft"], c["pageBlanks"]) == (1, 1, 0, 1)
+    off = A.plan_bytes(data, {**R, "pageTail": 0}, lambda i, q, t: i in (bi, pi), _page_layout(bi, pi, cut))   # 규칙 0 = 안 함
+    assert off["pages"] == [] and off["blanks"] == [] and off["counts"]["pageSeen"] == 0
+    from app.workflow_units import line_tidy_text
+    assert "쪽에 걸친 문단 1곳을 한 쪽으로(높이를 낮춘 빈 줄 1)" in line_tidy_text(c)
+
+
+def test_page_fit_plan_apply_undo_api(monkeypatch):
+    """끝점 — 쪽에 걸친 문단만 있는 계획: 재기(문서 그대로) → 반영(빈 줄의 글자 크기 60% · 실행 취소 1 · 기록) → 실행 취소로 되돌아옴. 빈 줄에 글이 생기면 반영은 409."""
+    from fastapi.testclient import TestClient
+
+    from app import server
+    from app.hwpx_doc import RUN
+    c = TestClient(server.app)
+    d = c.post("/api/docs?new=1", files={"file": (PLAN.name, PLAN.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    bi, pi, cut = _page_case(s.doc)
+    ps = A._paras(s.doc)
+    bid, pid = s.doc._rev[ps[bi]], s.doc._rev[ps[pi]]
+    height = lambda S: int(S.doc._defs["charPr"][next(A._paras(S.doc)[bi].iterchildren(RUN)).get("charPrIDRef")].get("height"))  # noqa: E731
+    h0 = height(s)
+    monkeypatch.setattr(A, "_hwp_ok", lambda: True)
+    monkeypatch.setattr(A, "_layout", _page_layout(bi, pi, cut))
+    r = c.post(f"/api/docs/{d}/line-tidy/plan").json()
+    assert "nothing" not in r and r["items"] == [] and r["blanks"] == [{"id": bid, "pct": 60}], r
+    assert r["pages"] == [{"id": pid, "text": s.doc._text(ps[pi]), "tail": 1, "blanks": [{"id": bid, "pct": 60}]}] and height(s) == h0
+    rev0, undo0 = s.rev, len(s.undo)
+    a = c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": r["planId"]}).json()
+    assert a["tidy"]["blanks"] == [{"id": bid, "pct": 60}] and a["done"] == [] and s.rev == rev0 + 1 and len(s.undo) == undo0 + 1
+    assert height(s) == max(100, round(h0 * 0.06) * 10)
+    g = c.get(f"/api/docs/{d}/line-tidy").json()
+    assert g["applied"]["blanks"] == 1 and g["applied"]["pages"] == 1 and g["applied"]["counts"]["pageFixed"] == 1
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200
+    assert height(server._sess(d)) == h0

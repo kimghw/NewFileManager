@@ -990,6 +990,11 @@ def line_tidy_text(c, rules=""):
         tail.append(f"그대로 둔 갈림 {nf(c['left'])}" + (f"({why})" if why else ""))
     if c.get("short"):
         tail.append(f"줄이 짧아 안 고친 곳 {nf(c['short'])}")
+    if c.get("pageFixed"):   # 쪽에 걸친 줄(spec_줄정리 ② §8) — 빈 줄 높이를 낮춰 한 쪽으로 모은 문단
+        tail.append(f"쪽에 걸친 문단 {nf(c['pageFixed'])}곳을 한 쪽으로(높이를 낮춘 빈 줄 {nf(c.get('pageBlanks') or 0)})")
+    if c.get("pageLeft"):
+        why = " · ".join(f"{k} {nf(v)}" for k, v in (c.get("pageWhy") or {}).items())
+        tail.append(f"그대로 둔 쪽 걸침 {nf(c['pageLeft'])}" + (f"({why})" if why else ""))
     return head + "".join(f" · {x}" for x in tail) + (f" — 규칙: {rules}" if rules else "")
 
 
@@ -1008,7 +1013,8 @@ def _line_tidy_of(ctx, role="target"):
     a = L.get("applied")
     if a and (not F.get("fills") or a.get("fill") == L.get("fill")):
         return {"st": "done", "text": who + "줄 정리 — " + line_tidy_text(a.get("counts") or {}, L.get("rulesText") or "")}
-    return {"st": "todo", "text": who + "한글로 줄 나눔을 재어 줄 끝에서 짧게 갈린 낱말을 윗줄 · 다음 줄로 옮기도록 장평을 조금씩 바꿉니다"
+    return {"st": "todo", "text": who + "한글로 줄 나눔을 재어 줄 끝에서 짧게 갈린 낱말을 윗줄 · 다음 줄로 옮기도록 장평을 조금씩 바꾸고, "
+            "한 줄만 다음 쪽으로 넘어간 문단은 그 쪽의 빈 줄 높이를 조금씩 낮춰 한 쪽으로 모읍니다"
             f"(규칙: {L.get('rulesText') or ''} · 한글 조판을 몇 번 되풀이해 수십 초 · 문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
 
 
