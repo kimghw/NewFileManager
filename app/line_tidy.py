@@ -7,12 +7,13 @@
 - **줄 나눔은 한글이 정한 것을 쓴다** — 웹 화면(브라우저 글꼴)의 줄이 아니다. 한글이 끝 쪽까지 조판한 사본의 줄 배치 캐시(hp:linesegarray)를 읽는다(pdf_render.layout_hwpx).
   글자 폭 모형(outline_pos.Measure)은 **얼마나 바꿀지 어림**하는 데만 쓰고, 고친 뒤 한글로 다시 재어 맞았는지 본다(맞지 않으면 1%씩 더 — `Para.observe`).
 - 이 파일은 순수 계산 + HwpxDoc 문단 한 곳 고치기(`scale_ratio`)다 — 서버 · 한글 · 저장은 `app/line_tidy_api.py`.
-- 글자 수 = 글자(한글 · 영문 · 숫자 — 유니코드 L · N)만 센다. 따옴표 · 괄호 · 쉼표는 세지 않는다.
+- 글자 수 = 글자(한글 · 영문 · 숫자 — 유니코드 L · N)만 센다. 따옴표 · 괄호 · 쉼표는 세지 않는다. 규칙에 견주는 조각 · 마지막 줄의 수는 그 안에 통째로 든 괄호의 글자도 뺀다(`count`).
 - **쪽에 걸친 줄**(② §8 — 같은 날 사용자 "페이지에 1개 문단의 1줄이 걸쳐 있는 경우 해당 페이지의 공백줄을 높이를 일부 조금씩 조정해서 한 페이지 안에 들어 가도록"):
   장평 걸음이 끝난 뒤의 둘째 걸음 — 문단이 두 쪽에 나뉘었고 다음 쪽으로 넘어간 줄이 규칙(`pageTail`) 이하면 그 쪽의 빈 줄(글 없는 문단) 높이를 같은 비율로 조금씩 낮춰 당긴다.
   쪽 나눔도 한글의 줄 자리(lineseg 의 vertpos — 쪽마다 · 쪽에 걸쳐 나뉜 표 칸에서는 이어지는 쪽마다 0 부터)로 읽고, 낮춘 뒤 한글로 다시 재어 확인한다(`Pages` · `scale_height`).
 """
 import copy
+import functools
 import math
 import unicodedata
 
@@ -34,6 +35,8 @@ RULE_DEFS = (
      "text": "늘릴 때 이보다 넓게 하지 않습니다. 더 늘려야 하면 그 자리는 그대로 둡니다."},
     {"key": "minLine", "default": 8, "lo": 1, "hi": 40, "unit": "자", "name": "고칠 줄의 길이",
      "text": "장평을 바꿀 줄이 이 글자 수보다 짧으면(좁은 표 칸의 머리글 같은 줄) 고치지 않습니다."},
+    {"key": "cellWord", "default": 3, "lo": 0, "hi": 6, "unit": "자", "name": "표 칸 — 짧은 낱말",
+     "text": "표 칸에서 이 글자 수 이하의 낱말(「조류계」 · 「트리거」 — 가운뎃점 · 괄호 · 빗금 사이의 토막도 낱말)이 줄 끝에서 갈리면, 줄이 「고칠 줄의 길이」 보다 짧아도 장평으로 붙입니다(0 = 안 함)."},
     {"key": "rounds", "default": 6, "lo": 1, "hi": 12, "unit": "번", "name": "한글로 다시 재기",
      "text": "바꾼 뒤 한글로 다시 조판해 맞았는지 보는 횟수의 상한입니다. 맞지 않으면 장평을 1%씩 더 바꿉니다."},
     {"key": "pageTail", "default": 1, "lo": 0, "hi": 3, "unit": "줄", "name": "쪽에 걸친 줄",
@@ -79,6 +82,8 @@ def rules_text(R):
     if R["last"]:
         s += f" · 마지막 줄 {R['last']}자 이하"
     s += f" · 연속 {R['chain']}자까지 · 장평 {R['minRatio']}~{R['maxRatio']}%"
+    if R.get("cellWord"):
+        s += f" · 표 칸 낱말 {R['cellWord']}자 이하"
     if R.get("pageTail"):
         s += f" · 쪽에 걸친 줄 {R['pageTail']}줄 이하(빈 줄 높이 {R['blankMin']}% 까지)"
     return s
@@ -92,6 +97,31 @@ def is_letter(ch):
 def letters(s):
     """글자 수 — 한글 · 영문 · 숫자만(따옴표 · 괄호 · 문장 부호 · 빈칸은 안 셈)."""
     return sum(1 for c in s if is_letter(c))
+
+
+_OPEN, _CLOSE = "(（", ")）"
+
+
+@functools.lru_cache(maxsize=512)
+def _pairs(text):
+    """짝이 맞는 괄호의 (여는 자리, 닫는 자리)들 — 짝이 없는 괄호는 안 본다."""
+    out, open_at = [], []
+    for i, c in enumerate(text):
+        if c in _OPEN:
+            open_at.append(i)
+        elif c in _CLOSE and open_at:
+            out.append((open_at.pop(), i))
+    return tuple(out)
+
+
+def count(text, a, b):
+    """조각 · 줄 [a, b) 의 글자 수 — 규칙에 견주는 수(② §1). 그 안에 **통째로 든** 괄호의 글자는 빼고 센다(「약(MOU)」 = 1자 — 2026-11-23 사용자 "() 빼고 계산해줘") ·
+    줄을 넘어 짝지어진 괄호는 빼지 않는다(「(보안경, 안전모 / 등) 착용」 의 「등) 착용」 = 3자) · 괄호 밖에 글자가 없으면(「(MOU)」) 모두 센다."""
+    skip = set()
+    for o, c in _pairs(text):
+        if a <= o and c < b:
+            skip.update(range(o, c + 1))
+    return sum(1 for i in range(a, b) if i not in skip and is_letter(text[i])) or letters(text[a:b])
 
 
 def spans_of(text, breaks):
@@ -123,23 +153,50 @@ def protect(text):
     return j
 
 
-def issue_at(text, spans, k, R):
-    """줄 k 와 k+1 사이의 갈림 → {kind: pull | push, line: k, a, b, cut(줄 끝 조각의 시작), at(다음 줄 조각의 끝)} | None(빈칸에서 나뉨 · 규칙 밖의 갈림)."""
+def _cell_issue(text, a0, a1, b0, b1, R):
+    """표 칸의 짧은 낱말(② §2 `cellWord`) — 갈린 곳 양쪽의 글자 토막(가운뎃점 · 괄호 · 빗금에서 끊음)의 합이 cellWord 이하 → 갈림 | None.
+    당기는 토막은 뒤에 붙은 닫는 문장 부호까지(「이벤 / 트)」 의 「트)」 — 「)」 가 혼자 남지 않게)."""
+    c0 = a1
+    while c0 > a0 and is_letter(text[c0 - 1]):
+        c0 -= 1
+    c1 = b0
+    while c1 < b1 and is_letter(text[c1]):
+        c1 += 1
+    a, b = a1 - c0, c1 - b0
+    if a + b > R["cellWord"]:
+        return None
+    at = c1
+    while at < b1 and not text[at].isspace() and not is_letter(text[at]) and unicodedata.category(text[at]) != "Ps":
+        at += 1
+    if b <= R["pull"]:
+        return {"kind": "pull", "a": a, "b": b, "cut": c0, "at": at, "cell": True}
+    if a <= R["pushTail"]:
+        return {"kind": "push", "a": a, "b": b, "cut": c0, "at": at, "cell": True}
+    return None
+
+
+def issue_at(text, spans, k, R, cell=False):
+    """줄 k 와 k+1 사이의 갈림 → {kind: pull | push, line: k, a, b, cut(줄 끝 조각의 시작), at(다음 줄 조각의 끝)[, cell]} | None(빈칸에서 나뉨 · 규칙 밖의 갈림).
+    cell = 표 칸의 문단 — 짧은 낱말은 `_cell_issue` 가 먼저 본다(그 갈림은 「고칠 줄의 길이」 와 무관: `cell` 표시)."""
     a0, a1 = spans[k]
     b0, b1 = spans[k + 1]
     x, y = text[a0:a1], text[b0:b1]
     if not x or not y or x[-1] == "\n" or not (is_letter(x[-1]) and is_letter(y[0])):
         return None
+    if cell and R.get("cellWord"):
+        got = _cell_issue(text, a0, a1, b0, b1, R)
+        if got:
+            return {**got, "line": k}
     cut = a1
     while cut > a0 and not text[cut - 1].isspace():
         cut -= 1
     at = b0
     while at < b1 and not text[at].isspace():
         at += 1
-    a, b = letters(text[cut:a1]), letters(text[b0:at])
+    a, b = count(text, cut, a1), count(text, b0, at)
     if b <= R["pull"]:
         return {"kind": "pull", "line": k, "a": a, "b": b, "cut": cut, "at": at}
-    if b >= R["pushHead"] and a <= R["pushTail"]:
+    if b >= R["pushHead"] and a <= R["pushTail"] and cut > a0:   # 줄 전체가 그 조각이면(「연속(트리」 — 괄호 안을 빼면 2자) 밀 수 없다
         return {"kind": "push", "line": k, "a": a, "b": b, "cut": cut, "at": at}
     return None
 
@@ -149,19 +206,29 @@ def last_issue(text, spans, R):
     if len(spans) < 2 or not R["last"]:
         return None
     s, e = spans[-1]
-    b = letters(text[s:e])
+    b = count(text, s, e)
     p0, p1 = spans[-2]
     if not 0 < b <= R["last"] or text[p0:p1].endswith("\n"):
         return None
     return {"kind": "last", "line": len(spans) - 2, "a": 0, "b": b, "cut": s, "at": _trim(text, s, e)}
 
 
-def issues(text, spans, R, start=0):
+def issues(text, spans, R, start=0, cell=False):
     """규칙에 걸린 자리 — 위에서 아래로(줄 k 의 갈림 · 마지막 줄)."""
-    out = [x for k in range(start, len(spans) - 1) if (x := issue_at(text, spans, k, R))]
+    out = [x for k in range(start, len(spans) - 1) if (x := issue_at(text, spans, k, R, cell))]
     last = last_issue(text, spans, R)
     if last and last["line"] >= start and not any(x["line"] == last["line"] and x["kind"] == "pull" for x in out):
         out.append(last)
+    return out
+
+
+def lone(text, spans):
+    """낱말 가운데서 갈렸고 한쪽 토막이 한 글자인 곳(가운뎃점 · 괄호 · 빗금에서 끊은 토막 — 「조류 / 계」 · 「기 / 반」)의 다음 줄 시작 자리들."""
+    out = set()
+    for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+        if a1 > a0 and b1 > b0 and is_letter(text[a1 - 1]) and is_letter(text[b0]):
+            if not (a1 - 1 > a0 and is_letter(text[a1 - 2])) or not (b0 + 1 < b1 and is_letter(text[b0 + 1])):
+                out.add(b0)
     return out
 
 
@@ -179,13 +246,13 @@ class Para:
     """문단 하나 — 위에서 아래로 한 자리씩: 어림한 장평으로 시도(trial) → 한글 줄로 확인(observe) → 맞으면 다음 자리 · 아니면 1%씩 더 · 한도면 그 자리를 둔다.
     ops 는 늘 **처음 문서** 기준의 (범위, 배율) 이다 — 고칠 때는 처음 문단에 ops 를 모두 다시 입힌다(배율이 겹쳐 쌓이지 않게)."""
 
-    def __init__(self, idx, text, spans, R, width, ratios):
-        """width(a, b) → 처음 서식으로 잰 [a, b) 의 폭 | None · ratios(a, b) → (가장 좁은, 가장 넓은) 지금 장평(%)."""
-        self.idx, self.text, self.R, self.width, self.ratios = idx, text, R, width, ratios
+    def __init__(self, idx, text, spans, R, width, ratios, cell=False):
+        """width(a, b) → 처음 서식으로 잰 [a, b) 의 폭 | None · ratios(a, b) → (가장 좁은, 가장 넓은) 지금 장평(%) · cell = 표 칸의 문단(② §2 `cellWord`)."""
+        self.idx, self.text, self.R, self.width, self.ratios, self.cell = idx, text, R, width, ratios, cell
         self.spans0 = self.spans = spans
         self.ops, self.trial, self.gave, self.left = [], None, set(), []
         self.pf = protect(text)
-        self.base = len(issues(text, spans, R))
+        self.base = len(issues(text, spans, R, cell=cell))
         self.next_from = 0
         self._plan()
 
@@ -199,7 +266,7 @@ class Para:
 
     def _plan(self):
         self.trial = None
-        for it in issues(self.text, self.spans, self.R, self.next_from):
+        for it in issues(self.text, self.spans, self.R, self.next_from, self.cell):
             if (it["kind"], self.spans[it["line"]][0]) in self.gave:
                 continue
             op = self._op(it)
@@ -218,7 +285,7 @@ class Para:
         s, e = sp[k]
         if any(o["s"] == s for o in self.ops):   # 이미 고친 줄에 또 — 한 번만(사용자 「1번만 실행」 · 미리 본 연속 당기기는 한 op 로 합쳐 있다) · 배율이 겹쳐 쌓이지 않게
             return "chain"
-        if letters(T[s:e]) < R["minLine"]:
+        if letters(T[s:e]) < R["minLine"] and not it.get("cell"):
             return "short"
         rs = s + (self.pf if s == 0 else 0)   # 첫 줄의 첫머리(레터 · 레터 뒤 빈칸)는 그대로
         F = self._w(s, rs)
@@ -232,11 +299,13 @@ class Para:
             pct = max(101, math.ceil(100 * (W_all - wc - F) / (S - F)))
             hi = math.floor(100 * R["maxRatio"] / self.ratios(rs, cut)[1])
             if pct > hi:
-                return "limit"
+                if not it.get("cell") or hi <= 100:
+                    return "limit"
+                pct = hi   # 표 칸 — 어림이 거친 좁은 줄이라 상한에서 한 번 재어 본다(맞지 않으면 「장평 한도」)
             return {"kind": "push", "s": s, "rs": rs, "re": cut, "cut": cut, "pct": pct, "lo": 100, "hi": hi + 1, "b": it["a"], "line": k, "it": it}
         at, b, kind = it["at"], it["b"], it["kind"]
         if kind == "pull" and k + 2 == len(sp) and R["last"]:   # 당긴 뒤 남는 마지막 줄(「예지보 / 전 가동」 → 「가동」)
-            rest = letters(T[at:sp[-1][1]])
+            rest = count(T, at, sp[-1][1])
             if 0 < rest <= R["last"]:
                 if b + rest <= R["chain"]:
                     at, b, kind = _trim(T, *sp[-1]), b + rest, "pull+last"
@@ -248,7 +317,12 @@ class Para:
         pct = min(99, math.floor(100 * (W_T - F) / (W_N - F)))
         lo = math.ceil(100 * R["minRatio"] / self.ratios(rs, at)[0])
         if pct < lo:
-            return "limit"
+            # 어림(W_T / W_N)은 줄이 꽉 찼다고 본 값이라 실제보다 더 줄인다 — 줄 끝에 남은 자리는 다음 줄 첫 글자의 폭보다 작으니(그 글자가 안 들어가 넘어갔다)
+            # 그만큼 남았다고 봐도 하한에 못 미치면 「장평 한도」 · 아니면 하한에서 한 번 재어 본다(좁은 표 칸에서 어림이 크게 빗나간다 — 2026-11-23 「연속(트리 / 거」)
+            w1 = self._w(e, e + 1) if e < len(T) else None
+            if w1 is None or lo > 99 or math.floor(100 * (W_T + w1 - F) / (W_N - F)) < lo:
+                return "limit"
+            pct = lo
         return {"kind": kind, "s": s, "rs": rs, "re": at, "at": at, "pct": pct, "lo": lo - 1, "hi": 100, "b": b, "line": k, "it": it}
 
     def all_ops(self):
@@ -267,7 +341,7 @@ class Para:
         if k is None or spans[:k] != self.spans[:k]:   # 윗줄이 움직임(일어나면 안 됨 — 그 문단의 시도를 거둔다)
             return self._fail(op, "moved")
         e = spans[k][1]
-        clean = k + 1 >= len(spans) or issue_at(self.text, spans, k, self.R) is None
+        clean = k + 1 >= len(spans) or issue_at(self.text, spans, k, self.R, self.cell) is None
         if op["kind"] == "push":
             if e > op["cut"]:   # 아직 안 넘어감 — 더 넓게
                 op["lo"] = op["pct"]
@@ -305,10 +379,20 @@ class Para:
         if self.trial is not None:
             self._give(self.trial["it"], "rounds")
             self.trial = None
-        if self.ops and len(issues(self.text, self.spans, self.R)) >= self.base:
+        if self.ops and self._worse():
             self.left.append({"kind": "", "line": 0, "a": 0, "b": 0, "why": "worse", "at": ""})
             self.ops, self.spans = [], self.spans0
         return self.ops
+
+    def _worse(self):
+        """고친 뒤가 나아지지 않았나 — 규칙에 걸린 자리 수가 줄지 않으면. 표 칸은 그것에 더해 한 글자만 갈라진 자리(`lone`)가 줄지 않았는데 새 자리에 생겼으면
+        (「AI 플랫폼 기 / 반 … 운항 / 지원」 → 「기반 … 운항지 / 원」 — 걸린 자리는 2 → 1 이지만 한 글자 갈림을 옮겨 놓았을 뿐) 나아지지 않은 것."""
+        if len(issues(self.text, self.spans, self.R, cell=self.cell)) >= self.base:
+            return True
+        if not self.cell:
+            return False
+        was, now = lone(self.text, self.spans0), lone(self.text, self.spans)
+        return bool(now - was) and len(now) >= len(was)
 
 
 # ---------------------------------------------------------------- 쪽에 걸친 줄(② §8) — 줄 자리 = 한글의 lineseg (vertpos, vertsize, spacing)

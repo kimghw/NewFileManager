@@ -88,6 +88,23 @@ def test_pull_chain_to_one_line():
     assert j.trial is None and j.finish() == [op]
 
 
+def test_paren_not_counted():
+    """「… 공식 업무협 / 약(MOU) 체결」 — 괄호 안은 빼고 센다(2026-11-23 사용자 "() 빼고 계산해줘"): 「약(MOU)」 = 1자 → 당기기 · 「체결」 2자와 합 3자 → 마지막 줄까지."""
+    t, sp = _spans("가" * 40 + " 업무협", "약(MOU) 체결")
+    it = LT.issue_at(t, sp, 0, R)
+    assert it["kind"] == "pull" and (it["a"], it["b"]) == (3, 1)
+    assert LT.count(t, *sp[1]) == 3 and LT.letters(t[sp[1][0]:sp[1][1]]) == 6
+    assert LT.issue_at(*_spans("가" * 40 + " 업무협", "약(MOUA) 체결"), 0, {**R, "pull": 1})["b"] == 1   # 괄호 안 글자 수와 무관
+    t, sp = _spans("가" * 40 + " 업무협약(M", "OU) 체결")   # 줄을 넘어 짝지어진 괄호는 빼지 않음
+    assert LT.count(t, sp[1][0], t.index(" 체결")) == 2 and LT.count(t, *sp[1]) == 4
+    t, sp = _spans("1. 보호구(보안경, 안전모 ", "등) 착용")
+    assert LT.count(t, *sp[1]) == 3 and LT.last_issue(t, sp, R) is None   # 「등) 착용」 — 윗줄에서 연 괄호
+    assert LT.count("(MOU)", 0, 5) == 3   # 괄호 밖에 글자가 없으면 모두
+    assert LT.count("가나(다", 0, 4) == 3   # 짝 없는 괄호는 안 봄
+    j, t = _para("가" * 45 + " 업무협", "약(MOU) 체결")
+    assert j.trial["kind"] == "pull+last" and j.trial["b"] == 3 and j.trial["re"] == len(t)
+
+
 def test_pull_chain_limit_pulls_once():
     """「예지 / 보전 가동」 — 당길 조각 2자 + 남을 마지막 줄 2자 = 4자 > 3 → 한 번만(「보전」 만) · 남은 것은 「연속 당기기 한도」."""
     j, t = _para("가" * 28 + " 예지", "보전 가동")
@@ -123,6 +140,56 @@ def test_push_tail_to_next_line():
 def test_short_line_left_alone():
     j, _ = _para("기", "술")
     assert j.trial is None and j.left[0]["why"] == "short"
+
+
+def _cell(*lines, rules=R):
+    text, spans = _spans(*lines)
+    return LT.Para(0, text, spans, rules, _width(text), lambda a, b: (100, 100), cell=True), text
+
+
+def test_cell_short_word():
+    """표 칸(2026-11-23 사용자 "테이블의 글자는 2자 또는 3자에서 1자 또는 2자가 넘어 가면 글자 장평 조절해서 붙어 있게"): 낱말 = 가운뎃점 · 괄호 사이의 토막 ·
+    짧은 줄이어도(「고칠 줄의 길이」 밖) 당긴다 · 닫는 괄호까지 당긴다."""
+    t, sp = _spans("화상·수침·조류", "계")
+    assert LT.issue_at(t, sp, 0, R) == {"kind": "pull", "line": 0, "a": 6, "b": 1, "cut": 0, "at": len(t)}   # 본문 셈(빈칸까지)
+    it = LT.issue_at(t, sp, 0, R, cell=True)
+    assert (it["kind"], it["a"], it["b"], it["cell"]) == ("pull", 2, 1, True)
+    t, sp = _spans("연속(트리", "거·이벤", "트)")
+    assert LT.issue_at(t, sp, 0, R) is None   # 본문 셈 — 「거·이벤」 3자
+    it = LT.issue_at(t, sp, 0, R, cell=True)
+    assert (it["a"], it["b"], t[sp[1][0]:it["at"]]) == (2, 1, "거·")
+    assert t[sp[2][0]:LT.issue_at(t, sp, 1, R, cell=True)["at"]] == "트)"
+    assert "cell" not in LT.issue_at(*_spans("데이터베", "이스"), 0, R, cell=True)   # 6자 낱말 — 표 칸 규칙 밖(본문 규칙 · 「고칠 줄의 길이」 를 따른다)
+    assert LT.issue_at(*_spans("화상·수침·조류", "계"), 0, {**R, "cellWord": 0}, cell=True).get("cell") is None   # 0 = 안 함
+    j, t = _cell("화상·수침·조류", "계")
+    assert j.trial["kind"] == "pull" and j.trial["re"] == len(t)   # 6자 줄 — 「고칠 줄의 길이」 8자보다 짧아도
+    j, t = _para("화상·수침·조류", "계")
+    assert j.trial is None and j.left[0]["why"] == "short"   # 표 칸이 아니면 전과 같다
+
+
+def test_cell_no_new_lone_split():
+    """표 칸 — 「기 / 반」 을 당겼더니 「예측 / 정비」 가 「예측정 / 비」 로 밀렸다(한 글자 갈림을 하나 고쳐 하나 만듦) → 나아지지 않음 · 되돌림."""
+    j, t = _cell("가나다 AI 기", "반 선박 예측", "정비 서비스")
+    assert j.trial["kind"] == "pull" and j.trial["it"]["cell"]
+    a = t.index("선박")
+    j.observe([(0, a), (a, t.index("비 서")), (t.index("비 서"), len(t))])   # 한글: 「…기반 / 선박 예측정 / 비 서비스」
+    assert j.finish() == [] and j.left[-1]["why"] == "worse" and j.spans == j.spans0
+    assert LT.lone(t, j.spans0) == {t.index("반 선")}
+    j, t = _cell("가나다 AI 기", "반 선박 예측", "정비 서비스")
+    j.observe([(0, a), (a, t.index("정비")), (t.index("정비"), len(t))])   # 「예측 / 정비」 그대로 → 한 글자 갈림 1 → 0
+    assert [o["kind"] for o in j.finish()] == ["pull"]
+
+
+def test_floor_try_when_guess_is_rough():
+    """어림이 하한 밑이어도 줄 끝에 남았을 수 있는 자리(다음 줄 첫 글자 폭)만큼 보면 닿을 때는 하한에서 한 번 재어 본다 — 안 되면 「장평 한도」."""
+    j, t = _cell("연속(트리", "거")   # 어림 5/6 = 83% < 85 · 남은 자리를 넣으면 6/6 → 하한 85% 에서 시도
+    assert j.trial["pct"] == 85
+    j.observe(j.spans)   # 한글: 안 올라옴 → 하한 밑은 안 함
+    assert j.trial is None and j.left[-1]["why"] == "limit"
+    j, t = _cell("기", "술")   # 1/2 = 50% · 남은 자리를 넣어도 2/2 → 시도(표 칸 낱말)
+    assert j.trial["pct"] == 85
+    j, t = _cell("가나다라마바사아", "자차카", rules={**R, "cellWord": 6, "pull": 3})   # 8/11 · 9/11 = 81% < 85 → 바로 「장평 한도」
+    assert j.trial is None and j.left[-1]["why"] == "limit"
 
 
 def test_no_better_is_reverted():

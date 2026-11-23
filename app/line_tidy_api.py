@@ -170,6 +170,12 @@ def facts(doc_id):
 
 # ---------------------------------------------------------------- 재기 · 고치기(잠금 밖 — 뜬 바이트만 쓴다)
 P_TAG = "{http://www.hancom.co.kr/hwpml/2011/paragraph}p"
+TC_TAG = "{http://www.hancom.co.kr/hwpml/2011/paragraph}tc"
+
+
+def _in_cell(p):
+    """표 칸 안의 문단인가(② §2 `cellWord` — 표 칸의 짧은 낱말)."""
+    return any(a.tag == TC_TAG for a in p.iterancestors())
 
 
 def _paras(doc):
@@ -265,7 +271,8 @@ def plan_bytes(data, R, pick, layout, progress=None):
             continue
         seen += 1
         spans = LT.spans_of(t, br)
-        if not LT.issues(t, spans, R):
+        cell = _in_cell(p)
+        if not LT.issues(t, spans, R, cell=cell):
             continue
         rr, fb = run_ranges(clone, p), clone._char_id(p)
         cids = [_cid_at(rr, j, fb) for j in range(len(t))]
@@ -286,7 +293,7 @@ def plan_bytes(data, R, pick, layout, progress=None):
                 c = M._char(cids[min(j, len(cids) - 1)])
                 vals.append(round(100 * (c["ratio"][fonts.lang_of(t[min(j, len(t) - 1)])] if c else 1)))
             return (min(vals), max(vals))
-        jobs.append(LT.Para(i, t, spans, R, width, ratios))
+        jobs.append(LT.Para(i, t, spans, R, width, ratios, cell))
     orig, applied, rounds = {}, {}, 0
     for _ in range(R["rounds"]):
         live = [j for j in jobs if j.trial]
