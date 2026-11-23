@@ -177,6 +177,9 @@ def test_clean_at():
     assert P.clean_at({"k": "t", "a": "t3", "n": 4, "x": 0, "y": 0})["n"] == 4 and P.clean_at({"k": "s", "a": 0, "x": 0, "y": 0})["a"] == 0
     assert P.clean_at({"k": "p", "a": "p1", "x": float("inf"), "y": 0}) is None and P.clean_at({"k": "p", "a": "", "x": 0, "y": 0}) is None and P.clean_at({"a": "p1", "x": 0, "y": 0}) is None
     assert P.clean_at({"k": "p", "a": "p1", "n": P.MAX_PIECE + 1, "x": 0, "y": 0}) is None and P.clean_at({"k": "p", "a": "p1", "x": True, "y": 0}) is None
+    # 시작 화면(방 "home" — spec_포인터 ② §6): 기준 h = 그 화면 요소의 「속성=값」(빈칸 없는 80자 안 — 블록 id 와 같은 꼴)
+    assert P.clean_at({"k": "h", "a": "task=plan_to_report", "n": 1, "x": 0.5, "y": 0.25}) == {"k": "h", "a": "task=plan_to_report", "n": 1, "x": 0.5, "y": 0.25}
+    assert P.clean_at({"k": "h", "a": "id=a b", "x": 0, "y": 0}) is None and P.clean_at({"k": "h", "a": 3, "x": 0, "y": 0}) is None
 
 
 def test_module_stands_alone():

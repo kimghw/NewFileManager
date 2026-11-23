@@ -16,9 +16,9 @@ files.rndsscb.com {
 	}
 	respond @cross_site "다른 출처의 요청은 받지 않습니다." 403
 
-	# 요청 본문 한도 — 앱의 파일당 한도(NFM_MAX_UPLOAD_MB 200)보다 크게, 여러 파일을 한 번에 올리므로
+	# 요청 본문 한도 — 앱의 파일당 한도(NFM_MAX_UPLOAD_MB 2048 MiB)보다 크게(2026-11-23 사용자 "200MB 제한이 있네 이거 풀어 주고" — 전 600MB · 앱 200)
 	request_body {
-		max_size 600MB
+		max_size 2600MB
 	}
 	reverse_proxy 127.0.0.1:8114
 }

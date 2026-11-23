@@ -40,7 +40,7 @@ def fmt_of(name):
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).with_name("static")
 SAMPLES = ROOT / "samples"
-MAX_MB = int(os.environ.get("NFM_MAX_UPLOAD_MB", "200"))
+MAX_MB = int(os.environ.get("NFM_MAX_UPLOAD_MB", "2048"))   # 파일 하나의 한도(MiB) — 2026-11-23 사용자 "파일 업로드 할때 200MB 제한이 있네 이거 풀어 주고"(전 200) · 바깥 주소는 Caddy 의 본문 한도도 함께(deploy/Caddyfile · spec_배포)
 MAX_DOCS = 8
 IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "bmp": "image/bmp",
                "svg": "image/svg+xml", "webp": "image/webp"}

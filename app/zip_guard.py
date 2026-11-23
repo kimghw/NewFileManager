@@ -35,14 +35,14 @@ def _limit(name, default):
 
 
 def check(zf):
-    """멤버 수 ≤ FMM_ZIP_MAX_MEMBERS(기본 10,000), 선언 해제 크기 합 ≤ FMM_ZIP_MAX_MB(기본 1,024) MiB, 압축 방식은 STORED·DEFLATED 만,
+    """멤버 수 ≤ FMM_ZIP_MAX_MEMBERS(기본 10,000), 선언 해제 크기 합 ≤ FMM_ZIP_MAX_MB(기본 4,096 MiB — 2026-11-23 올리기 한도를 2 GiB 로 올리며 1,024 에서: 그림이 든 hwpx 는 해제 크기가 파일 크기와 비슷하다), 압축 방식은 STORED·DEFLATED 만,
     파서로 읽는 XML 멤버(.xml·.rels·.hpf) 하나 ≤ FMM_ZIP_MAX_XML_MB(기본 128) MiB — 넘으면 ValueError. 한도는 부를 때마다 환경 변수에서
     읽는다. 압축률은 보지 않는다 — 실제 해제량은 `read` 의 조각 읽기가 묶고, 흰 바탕 BMP 는 300:1 을 넘는다."""
     infos = zf.infolist()
     max_members = _limit("FMM_ZIP_MAX_MEMBERS", 10000)
     if len(infos) > max_members:
         raise ValueError(f"zip 멤버가 너무 많음({len(infos)}개 > {max_members}개)")
-    max_mb = _limit("FMM_ZIP_MAX_MB", 1024)
+    max_mb = _limit("FMM_ZIP_MAX_MB", 4096)
     total = sum(zi.file_size for zi in infos)
     if total > max_mb * _MIB:
         raise ValueError(f"zip 해제 크기가 너무 큼({total / _MIB:.1f}MB > {max_mb}MB)")
