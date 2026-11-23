@@ -214,21 +214,54 @@ def _caption_of(rec):
     return c if isinstance(c, str) and c else None
 
 
+def _year_of(rec):
+    y = rec.get("takeYear") if isinstance(rec, dict) else None
+    return y if isinstance(y, int) and not isinstance(y, bool) and y > 0 else None
+
+
 def _kept(rec):
-    """그 묶음에 문서 하나의 건너뛰기 말고 남은 옵션(「넣을 구성」 · 「캡션 맞추기」 의 꼴)이 있나 — 있으면 그 열쇠를 통째로 지우지 않는다."""
-    return bool(_take_of(rec) or _caption_of(rec))
+    """그 묶음에 문서 하나의 건너뛰기 말고 남은 옵션(「넣을 구성」 · 사람이 고른 대상 차년도 · 「캡션 맞추기」 의 꼴)이 있나 — 있으면 그 열쇠를 통째로 지우지 않는다."""
+    return bool(_take_of(rec) or _caption_of(rec) or _year_of(rec))
 
 
 def flow(work) -> dict:
     """그 묶음의 실행 옵션 → {llmSkip: [문서 id …], take: 넣을 구성(고른 기관 · 단계 · 차년도 — app/merge_take.py 의 꼴) | None(전부),
-    caption: 「캡션 맞추기」 에서 고른 꼴(caption_tpl.form_key 의 열쇠) | None(줄이 가장 많은 꼴)}. 저장 파일이 깨졌으면 빈 것으로 읽는다(덮어쓰지 않는다)."""
+    caption: 「캡션 맞추기」 에서 고른 꼴(caption_tpl.form_key 의 열쇠) | None(줄이 가장 많은 꼴)} + 사람이 고른 대상 차년도가 있으면 takeYear(수 — 없으면 열쇠 없음:
+    그때는 올해의 차년도가 기본값 — merge_api.take_default). 저장 파일이 깨졌으면 빈 것으로 읽는다(덮어쓰지 않는다)."""
     scope = scope_of(work)
     with _LOCK:
         try:
             rec = _flow_of(_load()).get(scope)
-            return {"llmSkip": _skip_ids(rec), "take": _take_of(rec), "caption": _caption_of(rec)}
+            y = _year_of(rec)
+            return {"llmSkip": _skip_ids(rec), "take": _take_of(rec), "caption": _caption_of(rec), **({"takeYear": y} if y else {})}
         except Broken:
             return {"llmSkip": [], "take": None, "caption": None}
+
+
+def flow_take_year(work, year):
+    """그 묶음에서 **사람이 고른** 대상 차년도(「넣을 구성 선택」 — 전체 차례 수 | None = 고르지 않음)를 적는다 → 적은 것(2026-11-23 사용자 "기본적으로 올해 년도를 차년도로 계산해서 넣어줘":
+    사람이 고른 것이 없을 때만 올해의 차년도를 기본값으로 쓴다 — 값 자체는 목적 문서의 당해 차년도에 있고 여기는 「사람이 골랐다」 는 표시뿐).
+    Broken = 저장 파일이 깨짐 · ValueError = 작업이 없어 묶음을 알 수 없음 · 수가 아님."""
+    scope = scope_of(work)
+    if scope == "w:":
+        raise ValueError("작업이 없어 워크플로우 옵션을 저장할 수 없습니다")
+    if year is not None and (not isinstance(year, int) or isinstance(year, bool) or year < 1):
+        raise ValueError("대상 차년도가 수가 아닙니다")
+    with _LOCK:
+        data = _load()
+        box = _flow_of(data)
+        old = box.get(scope) if isinstance(box.get(scope), dict) else {}
+        if _year_of(old) == year:
+            return year
+        new = {k: v for k, v in old.items() if k != "takeYear"}
+        if year:
+            new["takeYear"] = year
+        if _skip_ids(new) or _kept(new):
+            box[scope] = {**new, "updated": _now()}
+        else:
+            box.pop(scope, None)
+        _save(data)
+        return year
 
 
 def flow_take(work, take):

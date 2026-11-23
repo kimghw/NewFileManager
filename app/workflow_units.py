@@ -845,7 +845,9 @@ def _take(ctx):
         return {"st": "todo", "text": T.get("why") or ""}
     y, was, active = T.get("year"), T.get("yearApplied"), bool(T.get("active"))
     used = not active and bool(y) and was == y   # 고르지 않고 그 해로 구조 반영까지 감 = 기본값(그 해 · 전부)으로 진행됨
-    year = (f"대상 차년도: {y}차년도" + (f"(구조 반영 때는 {was}차년도 — 「프로젝트 구성 반영」 을 다시 해야 합니다)" if was is not None and was != y else " — 이 해로 구조 반영함" if used else "")) if y else "대상 차년도: 정하지 않음"
+    auto = bool(y) and not T.get("yearPicked") and T.get("yearAuto") == y   # 사람이 고르지 않은 올해의 차년도(기본값 — merge_api.take_default)
+    year = (f"대상 차년도: {y}차년도" + ("(올해 — 기본값)" if auto else "")
+            + (f"(구조 반영 때는 {was}차년도 — 「프로젝트 구성 반영」 을 다시 해야 합니다)" if was is not None and was != y else " — 이 해로 구조 반영함" if used else "")) if y else "대상 차년도: 정하지 않음"
     notes = "".join(f" · {n}" for n in T.get("notes") or ())   # 좁혀 고른 것이 대상 차년도 · 다음 연도의 자리를 빼는 때(merge_api.take_view)
     tail = "" if active else "(고르지 않아 기본값 — 맞는 자리는 모두 넣습니다)" if used else "(고르지 않으면 맞는 자리는 모두 넣습니다)"
     return {"st": "done" if active or used else "todo", "text": f"{year} · 넣을 구성: {T.get('text') or '전부'}" + tail + notes}

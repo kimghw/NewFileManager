@@ -108,8 +108,12 @@ def flow_skip(wid: str, body: dict = Body(...)):
 
 @router.get("/api/works/{wid}/flow/take")
 def flow_take_get(wid: str):
-    """「넣을 구성 선택」 — 지금 고른 것(넣을 기관 · 단계 · 차년도 | 전부) · 대상 차년도(목적 문서의 당해 차년도) · 고를 수 있는 값(spec_병합 ② §4-1)."""
-    got = X.UNIT.take_get(_target(wid))
+    """「넣을 구성 선택」 — 지금 고른 것(넣을 기관 · 단계 · 차년도 | 전부) · 대상 차년도(목적 문서의 당해 차년도) · 고를 수 있는 값(spec_병합 ② §4-1).
+    읽기 전에 대상 차년도의 기본값(올해의 차년도 — 사람이 고르지 않았고 구조 반영 전일 때만 · 도는 실행이 없을 때만)을 적는다: 카드에 보이는 값이 구조 반영이 쓸 값이다."""
+    tgt = _target(wid)
+    if not X.busy_text(wid):
+        X.UNIT.take_default(tgt)   # 못 적으면(울타리 등) 지금 값 그대로 보인다
+    got = X.UNIT.take_get(tgt)
     if not got.ok:
         raise HTTPException(404 if got.code == "missing" else 409, got.text or "넣을 구성을 읽지 못했습니다")
     return got.data

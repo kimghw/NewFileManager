@@ -120,6 +120,10 @@
 .dash-acts .dash-take-target .dash-chip[aria-pressed="true"]:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .dash-acts .dash-take-target .dash-chip[aria-pressed="true"]::before { content: ""; border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
 .dash-take-foot { flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 76px; margin-top: 2px; }
+/* 접어도 보이는 줄(.dash-always — dashNodeEl 의 n.always): 「넣을 구성 선택」 의 대상 차년도(2026-11-23 사용자 "대상 차년도는 접지 않고 펼쳐서 사용자가 인식하고 클릭할 수 있게") — 머리 줄 바로 아래 · 본문(.dash-detail)과 같은 왼쪽 들임 */
+.dash-always { padding: 0 10px 8px 40px; }
+.dash-take-auto { grid-column: 2; margin-top: 3px; color: var(--muted); font-size: 11px; } /* 대상 차년도를 사람이 고르지 않았다 — 올해의 차년도(기본값)가 눌려 있다는 표시(칩 줄 아래) */
+.dash-node.open > .dash-always + .dash-detail { padding-top: 9px; }
 .dash-take-why { flex: 1 1 100%; margin-top: 2px; }
 
 /* ---- 단계 카드 — 머리 줄(번호 · 1줄 이름+메모 / 2줄 꼬리표 · 오른쪽 상태 글 — 줄 어디를 눌러도 펴고 접힘) + 펼친 세부 (2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity) */
@@ -190,7 +194,7 @@
 .dash-pick-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .dash-pick-top b { flex: 1 1 140px; min-width: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 
-@container (max-width: 360px) { .dash-detail { padding-left: 8px; } .dash-part > .dash-text, .dash-part > .dash-acts { margin-left: 0; } }
+@container (max-width: 360px) { .dash-detail, .dash-always { padding-left: 8px; } .dash-part > .dash-text, .dash-part > .dash-acts { margin-left: 0; } }
 
 /* 작업 내용 초기화(dashboard.js dashResetParts — 패널 · 첫 화면의 대시보드가 같이 씀 · 2026-11-22 사용자 「대시보드에 그게 들어 가면 좋겠는데」): 패널은 맨 아래 줄(.dash-reset-row) · 첫 화면은 발 줄 안.
    펴면 위험 색 테두리 상자 = 그 자리의 인라인 확인(design.md §18 「초기화」 는 확인을 남김 — 창이 아니라 「작업 지우기」 의 인라인 확인 줄과 같은 꼴: 무엇을 비우고 남기나 + 문서마다 위험 색 단추 + 「취소」) */

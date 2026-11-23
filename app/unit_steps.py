@@ -187,6 +187,12 @@ def take_set(target, body):
     return _run(merge_api.take_put, target, body, on409="blocked")
 
 
+def take_default(target):
+    """대상 차년도의 기본값(올해의 차년도)을 적는다 — 사람이 고른 것이 없고 구조 반영 전일 때만(merge_api.take_default) → Outcome(data = 적었나). 409 = blocked(울타리 등)."""
+    from app import merge_api
+    return _run(merge_api.take_default, target, on409="blocked")
+
+
 def rev_now(doc_id):
     """메모리의 그 세션의 문서 차례 | None(메모리에 없음) — 확인 폴링이 싣는다(세션을 열지 않는다: 울타리를 내린 뒤 화면이 다시 읽을지 견준다)."""
     from app import server

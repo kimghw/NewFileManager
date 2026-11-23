@@ -50,7 +50,7 @@ KEY = """() => { const k = document.getElementById('divKey'), row = document.get
   const inside = (e, o) => { const r = e.getBoundingClientRect(); return r.left >= o.left - 1 && r.right <= o.right + 1 && r.top >= o.top - 1 && r.bottom <= o.bottom + 1; };
   const ic = document.getElementById('nameDivMarks'), parts = [...k.querySelectorAll('.kf-grip, .dv-key-name, .dv-chip, .dv-key-tone, .panel-help')];
   return { shown: vis(k), inRow: row.contains(k), inView: k.parentElement === view, pos: getComputedStyle(k).position, chips: [...k.querySelectorAll('.dv-chip')].map((c) => [c.dataset.dv, c.textContent]),
-    name: vis(k.querySelector('.dv-key-name')), tone: vis(k.querySelector('.dv-key-tone')), grip: vis(k.querySelector('.kf-grip')), mode: vis(row.querySelector('.document-mode')),
+    name: vis(k.querySelector('.dv-key-name')), tone: [...k.querySelectorAll('.dv-key-tone')].length >= 1 && [...k.querySelectorAll('.dv-key-tone')].every(vis), grip: vis(k.querySelector('.kf-grip')), mode: vis(row.querySelector('.document-mode')),
     help: (k.querySelector('.panel-help') || { dataset: {} }).dataset.help || '', off: [...k.querySelectorAll('button')].filter((b) => !b.classList.contains('dv-chip')).map((b) => b.textContent.trim()).join('|'),
     icon: ic.getAttribute('aria-pressed'), iconIn: vis(ic) && inside(ic, rr),   // 이름 줄 아이콘 「구분 기준 자리 표시」 — 켜고 끄는 길(늘 줄 안)
     inside: vis(k) && inside(k, vr) && parts.length >= 4 && parts.every((e) => vis(e) && inside(e, kr)),   // 상자가 문서 창 안 · 손잡이·이름·칩·노트가 상자 안
@@ -110,15 +110,19 @@ try:
             && got.length >= d.length && d.every((k, i) => got[i] === want(k)); });   // 차례는 실제로 품은 차례(항목이 큰 것이 바깥) — 색이 그 차례대로
           const labs = ps.filter((p) => p.classList.contains('dv-lab')), labOk = labs.every((p) => rgb(p).length >= Math.max(1, dimsOf(p).length));
           const single = ps.filter((p) => !p.classList.contains('dv-lab') && !p.classList.contains('dv-read') && dimsOf(p).length < 2), plain = single.every((p) => !p.classList.contains('dv-multi') && rgb(p).length === 0);
-          const reads = ps.filter((p) => p.classList.contains('dv-read')), readOk = reads.every((p) => getComputedStyle(p).backgroundColor === 'rgba(0, 0, 0, 0)' && rgb(p).length >= 1
-            && /1px/.test(p.style.getPropertyValue('--dv-stripes')) && /판독만/.test(p.title));
+          // 판독만 — 바탕은 다른 자리와 같이 칠하고 가는 띠(0.5px — 2026-11-23 사용자 "바탕색은 가는 띠에 포함하면 될거 같고 가는 띠는 지금 보다 반절로 얇게")
+          const reads = ps.filter((p) => p.classList.contains('dv-read')), readOk = reads.every((p) => getComputedStyle(p).backgroundColor !== 'rgba(0, 0, 0, 0)' && rgb(p).length >= 1
+            && /0\\.5px/.test(p.style.getPropertyValue('--dv-stripes')) && /판독만/.test(p.title));
           return { multi: multi.length, three: multi.filter((p) => dimsOf(p).length > 2).length, ok, labs: labs.length, labOk, single: single.length, plain, reads: reads.length, readOk,
                    sample: multi[0] ? [multi[0].dataset.dvs, rgb(multi[0])] : null }; }""")
         check("겹친 자리 — 든 구분마다 왼쪽 띠(구분별 색) · 라벨 줄은 늘 띠 · 구분 하나인 내용 줄은 띠 없음",
               mul["multi"] > 0 and mul["ok"] and mul["labOk"] and mul["plain"], mul)
         # 구분 기준 판독(spec_구분_기준 ② §23)이 보탠 자리 — 엔진 묶음 밖의 괄호 줄(「[해당 기관별 작성] …」): 가는 띠 · 바탕 없음 · 도움말에 「판독만」 · 색 설명 노트에 「가는 띠 = 판독만」
-        check("판독만인 자리 — 가는 띠(1px) · 바탕 없음 · 문단 도움말 「판독만」 · 색 설명 노트에 「가는 띠」(상자의 글은 늘리지 않음)",
-              mul["reads"] > 0 and mul["readOk"] and "가는 띠" in (page.get_attribute("#divKey .panel-help", "data-help") or ""), mul)
+        # 2026-11-23 사용자 "어떤건 바고 어떤건 전체 필드 색상이고 구분이 안가네": 상자에 모양의 뜻 — 진한 줄 = 라벨 · 가는 띠 = 판독만(그 문서에 있을 때만 · 바탕은 모든 자리에 칠하니 따로 안 적음)
+        tones = page.evaluate("() => [...document.querySelectorAll('#divKey .dv-key-tone')].filter((t) => t.getClientRects().length).map((t) => [t.className.replace('dv-key-tone', '').trim(), t.textContent, !!t.title])")
+        check("판독만인 자리 — 가는 띠(0.5px) · 바탕은 칠함 · 문단 도움말 「판독만」 · 색 설명 상자에 「진한 줄 = 라벨」 · 「가는 띠 = 판독만」(풍선 도움말) · 노트에 「가는 띠」",
+              mul["reads"] > 0 and mul["readOk"] and "가는 띠" in (page.get_attribute("#divKey .panel-help", "data-help") or "")
+              and [t[:2] for t in tones] == [["lab", "진한 줄 = 라벨"], ["thin", "가는 띠 = 판독만"]] and all(t[2] for t in tones), (mul, tones))
         check("「구분 기준 자리」 · 「진한 줄 = 라벨」 · 노트(색마다 구분 · 진한/옅은 · 가장 안쪽 · 감추고 다시 켜는 곳 = 이름 줄 아이콘 · 끌어서 옮김) · 설명 안에 「감추기」 단추 없음 · 이름 줄 아이콘 눌림",
               k["name"] and k["tone"] and k["off"] == "" and k["icon"] == "true"
               and all(s in k["help"] for s in ("파랑 단계", "주황 기관", "진한 색 + 왼쪽 띠", "옅은 색", "가장 안쪽", "다시 보려면", "문서 이름 줄의 「구분 기준 자리 표시」 아이콘", "끌어서 옮길 수 있습니다", "두 번 누르면 제자리")),
@@ -185,14 +189,15 @@ try:
         page.mouse.up()
         kc = page.evaluate(KEY)
         check("상자를 그냥 누름(3px 안) — 안 옮겨짐 · 기억 없음", (kc["x"], kc["y"]) == (home["x"], home["y"]) and kc["saved"] is None, kc)
+        dx = min(220, home["x"] - 30)   # 상자 폭에 따라(모양 글 셋 — 2026-11-23) 제자리가 왼쪽으로 온다 — 문서 창 가장자리(6px)에 닿지 않는 만큼만 왼쪽으로
         page.mouse.move(sx, sy)
         page.mouse.down()
-        page.mouse.move(sx - 220, sy + 180, steps=8)
+        page.mouse.move(sx - dx, sy + 180, steps=8)
         moving = page.evaluate("() => document.getElementById('divKey').classList.contains('kf-moving')")
         page.mouse.up()
         km = page.evaluate(KEY)
-        check("이름을 잡고 끌면 그만큼 옮겨짐(왼쪽 220 · 아래 180) · 끄는 동안 표시(.kf-moving) · 자리 기억(nfm.keyFloat) · 상자 안은 그대로",
-              moving and abs(km["x"] - (home["x"] - 220)) <= 1 and abs(km["y"] - (home["y"] + 180)) <= 1 and km["saved"] == {"x": km["x"], "y": km["y"]} and km["inside"] and len(km["chips"]) == len(dims), (home["x"], home["y"], km["x"], km["y"], km["saved"]))
+        check(f"이름을 잡고 끌면 그만큼 옮겨짐(왼쪽 {dx} · 아래 180) · 끄는 동안 표시(.kf-moving) · 자리 기억(nfm.keyFloat) · 상자 안은 그대로",
+              dx >= 100 and moving and abs(km["x"] - (home["x"] - dx)) <= 1 and abs(km["y"] - (home["y"] + 180)) <= 1 and km["saved"] == {"x": km["x"], "y": km["y"]} and km["inside"] and len(km["chips"]) == len(dims), (home["x"], home["y"], km["x"], km["y"], km["saved"]))
         page.screenshot(path=str(OUT / "6a_moved.png"))
         page.evaluate("() => { divMarksDraw(); paginate(); }")
         kp = page.evaluate(KEY)

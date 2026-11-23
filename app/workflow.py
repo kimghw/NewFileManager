@@ -162,9 +162,10 @@ COMMON = (
                 out="단계 · 차년도 · 기관 · 사업기간 · 당해 차년도", change="store", modules=("division_model", "division_presets", "projects"), spec=(SP_WORK, "② §18·§19")),
              _s("confirm", "확정 — 프로젝트에 저장", "human", "확인한 값을 프로젝트에 확정해 저장합니다. 값을 다시 바꾸면 새로 확정해야 다음 단계로 갑니다.", change="store",
                 modules=("projects",), spec=(SP_WORK, "② §18")),
-             _s("places", "구분 기준 자리 찾기 · 판독", "script", "양식 기준으로 반복될 절 헤딩과 표의 행·열을 찾습니다. 괄호 줄, 기관마다 되풀이되는 이름 줄, 표 안의 기관·차년도 칸도 참고용으로 판독해 "
-                "「구분 기준 자리 표시」 에 가는 띠로 보입니다(반영 대상 아님). 연구개발과제 문서에서 헤딩 추출보다 먼저 돌며, 언제든 다시 판독할 수 있습니다.", out="자리 후보 · 판독", auto=True,
-                modules=("division_model", "division_profiles", "division_scan", "division_scan_api"), spec=(SP_DIV, "② §3·§23")),
+             _s("places", "구분 기준 자리 찾기 · 판독", "script", "양식 기준으로 구성 값만큼 반복될 절 헤딩과 표의 행·열을 찾습니다(값이 1부터 둘 이상 이어지는 곳 — 「구분 기준 자리 표시」 의 바탕색 · 반영 대상). "
+                "괄호 줄, 기관마다 되풀이되는 이름 줄, 당해 차년도 표 제목, 표 안의 기관·차년도 칸도 참고용으로 판독하고, 헤딩 추출의 표 구조가 구분 값 머리로 본 칸(값이 하나뿐인 「1단계」 칸 · 같은 헤딩 아래 값마다 표 하나)도 더해 "
+                "가는 띠로 보입니다(반영 대상 아님). 연구개발과제 문서에서 헤딩 추출보다 먼저 돌며(표 구조에서 더하는 것은 표 구조가 있을 때), 언제든 다시 판독할 수 있습니다.", out="자리 후보 · 판독", auto=True,
+                modules=("division_model", "division_profiles", "division_scan", "division_scan_api", "division_struct", "division_struct_api"), spec=(SP_DIV, "② §3·§23·§25")),
              _s("review", "자리 LLM 검토", "llm", "찾은 자리가 맞는지와 빠진 자리가 없는지 LLM 이 검토합니다. 빠진 자리 후보는 「자리로 추가」 를 눌러야 자리가 됩니다.", change="store", optional=True,
                 agents=("div_review", "div_missing"), modules=("division_llm",), spec=(SP_DIV, "② §13·§14")),
              _s("plan", "변경 계획 보기", "script", "사본으로 반영을 미리 시험해 바뀔 자리를 목록으로 보여 줍니다. 실제 문서는 바뀌지 않습니다.", no="①", out="변경 계획",
@@ -767,6 +768,7 @@ def _take_step(S, D):
     """조립에 놓는 도구 「넣을 구성 선택」(spec_병합 ② §4-1 — 2026-11-21 사용자 "어떤 구성을 추출해서 넣을건지 … 매칭하기 전에 결정 … 선택하는 도구" · "연차보고서는 몇 차년도를 내보낼 지가 핵심이야").
     붙박이 워크플로우의 표준 차례에는 서지 않는다(_st_fit 의 take=True 로만 — 조립한 정의가 놓았을 때 · 조립 화면의 도구 목록)."""
     return _s("take", "넣을 구성 선택", "human", f"대상 차년도(몇 차년도 {D}를 낼지)와 {S}에서 가져올 기관, 단계, 차년도를 고릅니다. "
+              "대상 차년도는 고르지 않으면 올해의 차년도(사업기간 시작 해 = 1차년도)가 기본값이며, 대시보드 카드를 접어도 보입니다. "
               "고르지 않은 구성은 자리 연결과 내용 넣기에서 뺍니다. 아무것도 고르지 않으면 맞는 자리를 모두 넣습니다. 문서는 바뀌지 않습니다.",
               out="대상 차년도 · 넣을 구성", change="store", optional=True, uses=("division",), modules=("merge_take", "task_options"), spec=(SP_MERGE, "② §4-1"), on="flow",
               need="프로젝트 구성(단계, 차년도, 기관)이 있어야 고를 값이 보입니다. 「프로젝트 구성 추출」 뒤이자 「프로젝트 구성 반영」 과 「자리 연결」 앞에 둡니다.",

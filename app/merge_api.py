@@ -295,14 +295,63 @@ def take_view(doc_id):
         if y + 1 in have and not A.year(y + 1):
             notes.append(f"「다음 연도」 자리({y + 1}차년도)는 넣지 않습니다")
     return {"take": take, "active": bool(take), "text": TK.text(take, values), "year": y, "yearApplied": num(was), "notes": notes,
+            "yearAuto": TK.this_year(values, _today()), "yearPicked": _picked(doc_id),   # 올해의 차년도(기본값 — 사업기간이 없으면 None) · 사람이 고른 대상 차년도(없으면 None)
             "choices": TK.choices(values), "ready": bool(values), "why": "" if values else "프로젝트 구성(단계 · 차년도 · 기관)이 아직 없습니다 — 「프로젝트 구성 추출」 뒤에 고를 값이 보입니다"}
+
+
+def _today():
+    import datetime
+    return datetime.date.today()
+
+
+def _picked(doc_id):
+    from app import task_options
+    w = works.work(doc_id)
+    return task_options.flow(w).get("takeYear") if w else None
+
+
+def _put_year(doc_id, n, values):
+    """목적 문서의 프로젝트 구성 입력 값의 당해 차년도를 n 으로(문서는 안 바뀐다 — 구조 반영이 그 값으로 한다) · 값이 아직 없으면 고를 때 본 값(목적의 반영 값 · 원본의 값)을 바탕으로."""
+    from app import server
+    s = server._sess(doc_id)
+    with s.lock:
+        now = (s.division.get("settings") or {}).get("values")
+    base = now or values
+    if (base or {}).get("current") != n or not now:
+        server.divisions_settings(doc_id, {"values": {**base, "current": n}})
+
+
+def take_default(doc_id):
+    """대상 차년도의 기본값을 적는다(2026-11-23 사용자 "기본적으로 올해 년도를 차년도로 계산해서 넣어줘" — spec_병합 ② §4-1 「기본값 — 올해의 차년도」) → 적었나.
+    **사람이 고른 대상 차년도가 없고**(take_put 의 year 가 그 묶음에 「골랐다」 를 남긴다) **목적 문서의 구조를 아직 반영하지 않았을 때만**(반영한 뒤에 바꾸면 「프로젝트 구성 반영」 이 다시 남는다 —
+    저절로 그렇게 만들지 않는다) 목적 문서의 당해 차년도를 올해의 차년도(merge_take.this_year — 사업기간 시작 해 = 1차년도)로. 사업기간이 없으면 하지 않는다.
+    부르는 곳 = 「넣을 구성 선택」 카드가 읽을 때(GET …/flow/take — 도는 실행이 없을 때) · 서버 실행기가 그 줄을 지나갈 때. 409(울타리 등)는 부르는 쪽이 받는다."""
+    from app import server
+    tv, fv, _ = _take_values(doc_id)
+    values = tv or fv
+    if not values or _picked(doc_id):
+        return False
+    s = server._sess(doc_id)
+    with s.lock:
+        st, ap = (s.division.get("settings") or {}).get("values"), (s.division.get("applied") or {}).get("values")
+    if ap:
+        return False
+    n = TK.this_year(values, _today())
+    if not n or (st or {}).get("current") == n:
+        return False
+    _put_year(doc_id, n, values)
+    with _LOCK:
+        _CACHE.pop(doc_id, None), _FIXED.pop(doc_id, None)
+    _PLANS.pop(doc_id, None)
+    return True
 
 
 def take_put(doc_id, body):
     """{take?: {org?, stage?, year?} | null(전부), year?: 대상 차년도(전체 차례 수)} → take_view. 보낸 것만 바꾼다.
     take = 그 묶음의 실행 옵션에 적는다(문서 안 바뀜 — 세워 둔 넣기 계획은 버린다: 다시 계획해야 한다). year = **목적 문서의 프로젝트 구성 입력 값의 「당해 차년도」** 를 그 수로 적는다
-    (값이 아직 없으면 원본 문서의 값을 바탕으로 — 구조 반영 전: 반영한 뒤에 바꾸면 「프로젝트 구성 반영」 이 다시 「남음」 이 된다). 400 = 꼴 · 구성에 없는 값."""
-    from app import server, task_options
+    (값이 아직 없으면 원본 문서의 값을 바탕으로 — 구조 반영 전: 반영한 뒤에 바꾸면 「프로젝트 구성 반영」 이 다시 「남음」 이 된다) · 그 묶음에 「사람이 골랐다」 를 남긴다(그 뒤로 기본값 take_default 가 안 바꾼다).
+    400 = 꼴 · 구성에 없는 값."""
+    from app import task_options
     if not isinstance(body, dict) or not ({"take", "year"} & set(body)):
         raise HTTPException(400, "take(넣을 구성) 또는 year(대상 차년도)가 있어야 합니다")
     tv, fv, _ = _take_values(doc_id)
@@ -314,12 +363,15 @@ def take_put(doc_id, body):
             raise HTTPException(409, "프로젝트 구성(단계 · 차년도 · 기관)이 아직 없습니다 — 「프로젝트 구성 추출」 뒤에 대상 차년도를 고르세요")
         if not isinstance(n, int) or isinstance(n, bool) or n not in have:
             raise HTTPException(400, "프로젝트 구성에 없는 차년도입니다 — 다시 고르세요")
-        s = server._sess(doc_id)
-        with s.lock:
-            now = (s.division.get("settings") or {}).get("values")
-        base = now or values   # 목적 문서의 입력 값이 먼저 · 없으면 고를 때 본 값(목적의 반영 값 · 원본의 값)
-        if (base or {}).get("current") != n or not now:
-            server.divisions_settings(doc_id, {"values": {**base, "current": n}})   # 입력 값만 — 문서는 안 바뀐다(구조 반영이 그 값으로 한다)
+        _put_year(doc_id, n, values)   # 입력 값만 — 문서는 안 바뀐다(구조 반영이 그 값으로 한다)
+        w = works.work(doc_id)
+        if w is not None:
+            try:
+                task_options.flow_take_year(w, n)   # 사람이 골랐다 — 그 뒤로는 올해의 차년도(기본값)로 바꾸지 않는다(take_default)
+            except task_options.Broken as e:
+                raise HTTPException(409, str(e)) from e
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
     if "take" in body:
         try:
             take = TK.clean(body["take"], values)

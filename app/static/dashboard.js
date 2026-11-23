@@ -883,8 +883,12 @@ function dashFlowTake(card, off) { // 그 카드의 고르기 단추
     r.append(el("span", "dash-chip-name", label), box);
     return r;
   };
-  acts.push(row("대상 차년도", (C.year || []).map((y) => chip(y.name, V.year === y.n, () => dashTakePut(`대상 차년도 — ${y.name}`, { year: y.n }),
-    `${y.name} 문서를 냅니다 — 목적 문서의 「당해 차년도」 를 ${y.n}차년도로 적습니다(문서는 바뀌지 않습니다 · 구조를 이미 반영했으면 「프로젝트 구성 반영」 을 다시 해야 합니다)`, `act:take:target:${y.n}`)), "dash-take-target")); // 초점 이름 = target(「넣을 차년도」 칩 act:take:year:N 과 겹치지 않게)
+  // 대상 차년도는 카드를 접어도 보인다(card.always — 2026-11-23 사용자 "넣을 구성 선택에서 대상 차년도는 접지 않고 펼쳐서 사용자가 인식하고 클릭할 수 있게") · 고르지 않았으면 올해의 차년도가 눌려 있다(서버가 적은 기본값 — merge_api.take_default)
+  const auto = !V.yearPicked && V.yearAuto ? V.yearAuto : null;
+  card.always = [row("대상 차년도", (C.year || []).map((y) => chip(y.name, V.year === y.n, () => dashTakePut(`대상 차년도 — ${y.name}`, { year: y.n }),
+    `${y.name} 문서를 냅니다 — 목적 문서의 「당해 차년도」 를 ${y.n}차년도로 적습니다(문서는 바뀌지 않습니다 · 구조를 이미 반영했으면 「프로젝트 구성 반영」 을 다시 해야 합니다)`
+      + (y.n === V.yearAuto ? `\n올해의 차년도 — 고르지 않으면 이 해가 기본값입니다` : ""), `act:take:target:${y.n}`)), "dash-take-target")]; // 초점 이름 = target(「넣을 차년도」 칩 act:take:year:N 과 겹치지 않게)
+  if (auto && V.year === auto) card.always[0].append(el("span", "dash-take-auto", "올해 — 기본값")); // 사람이 고른 것이 아니라는 표시(누르면 그 해로 「골랐다」 가 남는다)
   const dims = [["org", "넣을 기관", (C.org || []).map((o) => [o.name, o.role === "수요기업" ? `${o.name}(수요기업)` : o.name])], // 수요기업으로 고른 기관은 이름 뒤에 적는다(spec_구분_기준 ② §24)
     ["stage", "넣을 단계", (C.stage || []).map((s) => [s.n, s.name])], ["year", "넣을 차년도", (C.year || []).map((y) => [y.n, y.name])]];
   for (const [d, title, all] of dims) {
@@ -1289,6 +1293,7 @@ function dashNodeEl(n, gid, openKey, C = DASH_CTX) {
   top.title = `${n.name}${st ? ` — ${st}` : ""}${n.text ? `\n${n.text}` : ""}`;
   top.onclick = (e) => { if (e.target.closest(".panel-help")) return; C.toggle(ref, open); }; // 단추의 누름(Enter · Space 포함)도 여기로 올라온다
   li.append(top);
+  if (n.always && n.always.length) { const box = el("div", "dash-acts dash-always"); box.append(...n.always); li.append(box); } // 접어도 보이는 줄(「넣을 구성 선택」 의 대상 차년도 — dashFlowTake) — 머리 줄을 누르는 것(펴고 접기)과 따로
   if (shown) li.append(det);
   return li;
 }

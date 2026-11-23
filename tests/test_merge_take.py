@@ -115,6 +115,71 @@ def test_the_selection_is_kept_per_bundle_beside_the_llm_skips(tmp_path, monkeyp
     assert task_options.flow(other)["take"] is None   # 다른 라운드 = 다른 묶음
 
 
+def test_this_year_counts_the_fiscal_year_from_the_project_period():
+    """대상 차년도의 기본값 = 올해가 사업기간의 몇 차년도인가(2026-11-23 사용자 "기본적으로 올해 년도를 차년도로 계산해서 넣어줘") — 시작 해 = 1차년도 · 앞이면 1 · 뒤면 마지막 · 사업기간이 없으면 None."""
+    import datetime
+    v = {"stages": [4], "period": {"start": "2026-04-01", "end": "2029-12-31"}}
+    at = lambda y, m=6: TK.this_year(v, datetime.date(y, m, 1))  # noqa: E731
+    assert (at(2026), at(2026, 1), at(2027), at(2029), at(2031), at(2024)) == (1, 1, 2, 4, 4, 1)
+    assert TK.this_year({"stages": [2, 2], "period": {"start": "2025-01-01", "end": "2028-12-31"}}, datetime.date(2027, 3, 1)) == 3   # 전체 차례(2단계 1차년도)
+    assert TK.this_year(V2, datetime.date(2026, 6, 1)) is None and TK.this_year(None, datetime.date(2026, 6, 1)) is None   # 사업기간 없음
+    assert TK.this_year({"stages": [], "period": {"start": "2026-01-01"}}, datetime.date(2026, 6, 1)) is None
+
+
+def test_the_picked_target_year_is_kept_beside_the_selection():
+    """사람이 고른 대상 차년도(takeYear — 「골랐다」 표시) — 넣을 구성 · 건너뛰기와 따로 남고, 그것만 남아도 묶음의 열쇠를 지우지 않는다."""
+    work = {"id": "aaaaaaaaaaaa", "task": {"project": "대상 차년도", "job": "plan_to_report", "round": 1}}
+    assert "takeYear" not in task_options.flow(work)
+    assert task_options.flow_take_year(work, 2) == 2 and task_options.flow(work)["takeYear"] == 2
+    task_options.flow_take(work, {"year": [2]})
+    task_options.flow_take(work, None)   # 「전부 넣기」 — 고른 대상 차년도는 그대로
+    assert task_options.flow(work)["takeYear"] == 2
+    assert task_options.flow_take_year(work, None) is None and task_options.flow(work) == {"llmSkip": [], "take": None, "caption": None}
+    for bad in (0, "2", True):
+        with pytest.raises(ValueError):
+            task_options.flow_take_year(work, bad)
+
+
+def test_the_target_year_defaults_to_this_year_until_someone_picks_it(monkeypatch):
+    """GET …/flow/take 가 대상 차년도의 기본값(올해의 차년도)을 목적 문서의 당해 차년도로 적는다 — 사람이 고르기 전 · 구조 반영 전만(spec_병합 ② §4-1 「기본값 — 올해의 차년도」)."""
+    import datetime
+
+    from fastapi.testclient import TestClient
+
+    from app import merge_api, server
+    server.DOCS.clear()
+    merge_api._CACHE.clear()
+    c = TestClient(server.app)
+    d = M.small()   # 사업기간 2026-03-01 ~ 2027-12-31 · 1단계 2년
+    ids = {}
+    for side, f in (("from", "plan"), ("to", "report")):
+        ids[side] = c.post("/api/docs?new=1", files={"file": (d[side]["name"], d[side]["bytes"])}).json()["docId"]
+        assert c.put(f"/api/works/{ids[side]}/task", json={"kind": "rnd", "file": f, "job": "plan_to_report", "project": "대상 차년도 기본값"}).status_code == 200
+    sides = {ids["from"]: d["from"], ids["to"]: d["to"]}
+
+    def read(doc_id, target=False):
+        s = server._sess(doc_id)
+        with s.lock:
+            return {"id": doc_id, "name": s.name, "rev": s.rev, "reasons": [], "values": d["values"], "doc": s.doc, "blocks": s.doc.blocks(), "graph": sides[doc_id]["graph"], "tables": sides[doc_id]["tables"]}
+    monkeypatch.setattr(merge_api, "_read", read)
+    monkeypatch.setattr(merge_api, "_today", lambda: datetime.date(2027, 5, 1))   # 올해 = 2차년도
+    to, url = ids["to"], f"/api/works/{ids['to']}/flow/take"
+    v = c.get(url).json()
+    assert v["year"] == 2 and v["yearAuto"] == 2 and v["yearPicked"] is None and server._sess(to).division["settings"]["values"]["current"] == 2   # 기본값을 적음
+    assert c.put(url, json={"year": 1}).json()["yearPicked"] == 1
+    v = c.get(url).json()
+    assert v["year"] == 1 and v["yearPicked"] == 1 and server._sess(to).division["settings"]["values"]["current"] == 1   # 사람이 고른 것은 기본값으로 안 바꿈
+    from app import works
+    task_options.flow_take_year(works.work(to), None)   # 「골랐다」 를 지우고
+    s = server._sess(to)
+    with s.lock:
+        s.division["applied"] = {"values": {**d["values"], "current": 1}}   # 구조 반영 뒤(그 해 = 1)
+    v = c.get(url).json()
+    assert v["year"] == 1 and v["yearPicked"] is None and v["yearAuto"] == 2   # 반영한 뒤에는 기본값으로 안 바꿈(「프로젝트 구성 반영」 이 다시 남지 않게)
+    with s.lock:
+        s.division["applied"] = None
+
+
 def test_endpoints_keep_the_selection_narrow_the_links_and_drop_the_old_plan(monkeypatch):
     """끝점(GET · PUT /api/works/{wid}/flow/take — merge_api.take_view · take_put): 고를 값 · 저장 · 구성에 없는 값 400 · 연결 목록이 고른 구성으로 좁아짐(범위 밖) · 입력의 판이 바뀜(세워 둔 계획은 못 쓴다) ·
     좁혀 고른 것이 대상 차년도 · 다음 연도의 자리를 빼면 알림. 대상 차년도(year)는 목적 문서의 구성 입력 값의 당해 차년도로 적힌다."""

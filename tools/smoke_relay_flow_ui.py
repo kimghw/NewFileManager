@@ -81,7 +81,7 @@ DASH = """() => ({ groups: [...document.querySelectorAll('#paneDash .dash-group'
   live: (document.querySelector('#paneDash .dash-live') || {}).textContent || '', count: (document.querySelector('#paneDash .dash-count') || {}).textContent || '',
   next: (document.querySelector('#paneDash .dash-next') || {}).textContent || '', top: [...document.querySelectorAll('#paneDash .dash-top button')].map((b) => [b.textContent, b.disabled]),
   open: (() => { const n = document.querySelector('#paneDash .dash-node.open'); return n ? { key: n.dataset.key, text: [...n.querySelectorAll('.dash-detail .dash-text')].map((p) => p.textContent),
-    acts: [...n.querySelectorAll('.dash-detail .dash-acts button')].map((b) => [b.textContent, b.disabled, b.dataset.dashFocus || '']) } : null; })() })"""
+    acts: [...n.querySelectorAll('.dash-always button, .dash-detail .dash-acts button')].map((b) => [b.textContent, b.disabled, b.dataset.dashFocus || '']) } : null; })() })"""   # .dash-always = 접어도 보이는 줄(넣을 구성 선택의 대상 차년도)
 
 
 def check(name, ok, detail=""):
@@ -387,6 +387,13 @@ def main():
         idle(page)
 
         # ---- ⑥-2 「넣을 구성 선택」(조립에 놓는 도구 — 사람이 고르는 줄): 대상 차년도 · 넣을 기관
+        # 2026-11-23 사용자 "대상 차년도는 접지 않고 펼쳐서 사용자가 인식하고 클릭할 수 있게": 카드를 접어도 대상 차년도 칩은 보인다(.dash-always) · 넣을 기관은 펴야 보인다
+        page.evaluate("() => { DASH.open = ''; return dashDraw(true); }")
+        page.wait_for_selector('#paneDash .dash-node[data-key="take"]:not(.open) .dash-always [data-dash-focus="act:take:target:2"]', timeout=60000)
+        shut = page.evaluate("""() => { const n = document.querySelector('#paneDash .dash-node[data-key="take"]'), vis = (e) => !!e && e.getClientRects().length > 0;
+          return { open: n.classList.contains('open'), years: [...n.querySelectorAll('.dash-always [data-dash-focus^="act:take:target:"]')].filter(vis).map((b) => b.textContent),
+                   orgs: n.querySelectorAll('[data-dash-focus^="act:take:org:"]').length }; }""")
+        check("⑥-2 「넣을 구성 선택」 카드를 접어도 대상 차년도 칩(1 · 2차년도)이 보임 · 넣을 기관 칩은 편 카드에만", not shut["open"] and shut["years"] == ["1차년도", "2차년도"] and shut["orgs"] == 0, shut)
         page.evaluate("() => { DASH.open = 'take'; return dashDraw(true); }")
         page.wait_for_selector('#paneDash [data-dash-focus="act:take:target:2"]', timeout=60000)
         t0 = page.evaluate(DASH)["open"] or {}

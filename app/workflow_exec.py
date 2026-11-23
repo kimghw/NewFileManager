@@ -1077,6 +1077,8 @@ def _drive(run):
                         block = []
                     continue
                 if u["kind"] == "pick":
+                    if line["key"] == "take":   # 넣을 구성 선택 — 사람이 대상 차년도를 고르지 않았고 구조 반영 전이면 올해의 차년도를 기본값으로 적고 지나간다(spec_병합 ② §4-1 「기본값 — 올해의 차년도」)
+                        UNIT.take_default(run.target)
                     continue   # 사람이 고르는 줄(준비) — 실행기는 지나간다
                 nxt = mine[i + 1] if i + 1 < len(mine) else None
                 paired = nxt if nxt is not None and _together(run.task, line, nxt) else None   # 같은 차례(한 행)의 다른 문서 줄 — 서로의 문서를 건드리지 않으면 함께 돈다(② §18-4 「같은 차례 — 함께 돌기」)

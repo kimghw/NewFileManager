@@ -6,7 +6,8 @@
 - `clean(take, values)` = 받은 것을 정리(모르는 기준 · 꼴이 틀리면 ValueError · 그 기준의 값을 모두 골랐으면 그 열쇠를 뺀다 = 전부) → take | None.
 - `allowed(take, values)` → Allowed: `ident(("org"|"year"|"stage", 값))` · `ctx({"org", "year"})` = 그 값의 자리에 넣어도 되나(값을 모르는 자리 — None · 구분 기준이 걸리지 않은 자리 — 는 늘 참).
 - `narrow(view, to_groups, A)` = 연결 목록(merge_pairs.pair 의 결과)에서 고르지 않은 구성의 묶음 · 항목을 「범위 밖」 으로 적는다(status "outside" — 넣기 계획 · LLM 검토 · 저장된 짝이 그 묶음을 건너뛴다) → 범위 밖이 된 묶음 수.
-- `choices(values)` = 고를 수 있는 값(화면의 고르기) · `text(take, values)` = 한 줄 글(「기관: 한국선급 · 차년도: 2차년도」 | 「전부」)."""
+- `choices(values)` = 고를 수 있는 값(화면의 고르기) · `text(take, values)` = 한 줄 글(「기관: 한국선급 · 차년도: 2차년도」 | 「전부」).
+- `this_year(values, today)` = 대상 차년도의 기본값(올해가 사업기간의 몇 차년도인가 — 사람이 고르지 않았고 구조 반영 전일 때 merge_api.take_default 가 적는다)."""
 from collections import Counter
 
 from app import merge_pairs as P
@@ -41,6 +42,17 @@ def stage_of(values, year):
         if year <= n:
             return i
     return None
+
+
+def this_year(values, today):
+    """올해(today 의 해)가 몇 차년도인가 → 전체 차례 수 1..T | None — 「넣을 구성 선택」 의 대상 차년도 기본값(2026-11-23 사용자 "기본적으로 올해 년도를 차년도로 계산해서 넣어줘").
+    차년도 = 회계연도(사업기간 시작 해 = 1차년도 — 구분 기준 엔진 core._period 와 같은 나눔) · 올해가 사업기간 앞이면 1 · 뒤면 마지막 차년도.
+    사업기간(values.period.start)이 없거나 꼴이 틀리거나 프로젝트 구성에 차년도가 없으면 None(기본값 없음)."""
+    total = sum(_stages(values))
+    start = str(((values or {}).get("period") or {}).get("start") or "")
+    if not total or len(start) < 4 or not start[:4].isdigit():
+        return None
+    return min(max(today.year - int(start[:4]) + 1, 1), total)
 
 
 def choices(values):

@@ -10272,7 +10272,8 @@ const DV_KEY_ORDER = ["stage", "stageYear", "year", "sub", "org", "other"]; // �
 const DV_KEY_HELP = "바탕색 = 그 글이 드는 구분 기준 자리 — 파랑 단계 · 청록 단계-차년도 · 초록 차년도 · 보라 세부과제 · 주황 기관 · 자주 기타.\n" + // ② §11 「색 설명」 — 카드의 노트와 색 설명(문서 위에 떠 있는 상자 #divKey)의 노트가 같은 글
   "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」), 옅은 색 = 그 자리 안의 글·표 칸.\n" +
   "여러 자리에 겹치면 바탕은 가장 안쪽 것의 색이고, 왼쪽 띠가 든 자리마다 하나씩 겉에서 안 차례로 붙습니다(단계 › 차년도 › 기관 — 2줄·3줄). 문단에 마우스를 올리면 겉에서 안으로 소속을 보입니다.\n" +
-  "가는 띠(바탕 없음) = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴, 기관 이름만 적은 줄(「o 기관 이름」 이 기관마다 되풀이되는 곳)처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
+  "가는 띠 = 구분 기준 판독만 한 자리 — 표 안의 기관·차년도, 괄호 줄 글 꼴, 기관 이름만 적은 줄(「o 기관 이름」 이 기관마다 되풀이되는 곳), 표 구조가 구분 값 머리로 본 칸처럼 엔진 묶음 밖이라 반영(늘리고 줄이기) 대상이 아닙니다.\n" +
+  "바탕색은 반영 대상이든 판독만이든 그 구분의 색입니다 — 판독만인 자리는 왼쪽에 가는 띠가 더 붙습니다(예: 단계가 하나뿐인 표의 「1단계」 칸).\n" +
   "점선 테 = 추가한 자리(갈색 사용자 · 보라 LLM). 화면 표시일 뿐 문서·저장·PDF 는 그대로입니다.";
 function divMarksOn() { return taskRnd() && quickGet(DV_MARKS_KEY) === "on"; } // 연구개발과제가 아닌 작업에는 표시 없음(spec_작업 ② §10) · 문서마다 따로 기억(quickKey — ② §12 「도구는 문서마다」)
 function divMarksSet(on) { quickSet(DV_MARKS_KEY, on ? "on" : "off"); }
@@ -10386,7 +10387,7 @@ function divMembersIndex(r) { // 문단 id →{dim(가장 안쪽 — 바탕), di
     add(e, h.dim, 1, true);
     e.lines.push({ rank: 9, line: `추가한 자리(${h.by === "llm" ? "LLM" : "사용자"}) — ${h.dimName || h.dim} 「${h.value || "?"}」${h.engine ? " · 묶음의 라벨" : " · 표시만(아직 묶음 아님)"}${h.reason ? ` · ${h.reason}` : ""}${h.note ? ` · 메모 ${h.note}` : ""}` });
   }
-  // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕 없음(같은 구분의 엔진 자리 안이면 엔진 자리대로)
+  // 구분 기준 판독의 보탬(spec_구분_기준 ② §23 — 엔진 묶음 밖): 괄호 줄 글 꼴 · 표 안의 기관·차년도. 반영 대상이 아니라 「판독만」 — 가는 띠 · 바탕은 같게(2026-11-23 — 전에는 바탕 없음 · 같은 구분의 엔진 자리 안이면 엔진 자리대로)
   const SRC = { pattern: "괄호 줄 글 꼴", name: "기관 이름", nameLine: "기관 이름 줄", this: "당해 차년도 표 제목 — 반영 때 괄호를 당해 차년도로 다시 씀", table: "표 안 판독", struct: "표 구조(헤딩 추출 3단계)의 구분 값 머리", series: "같은 헤딩 아래 같은 꼴 표 — 값마다 표 하나" }; // struct · series = 표 구조 보탬(spec_구분_기준 ② §25) // nameLine = 「o 랩오투원」 처럼 이름만 적은 줄이 기관마다 되풀이되는 자리(spec_구분_기준 ② §23 「기관 이름 줄」 — 그 줄은 label · 그 아래 내용은 scope)
   for (const x of r.reads || []) {
     for (const pid of x.paras || []) {
@@ -10408,11 +10409,12 @@ function divMembersIndex(r) { // 문단 id →{dim(가장 안쪽 — 바탕), di
 }
 
 // 왼쪽 띠(사용자 2026-11-18 "구분기준이 2개 이상이면 줄을 하나만 표시하지말고 모든 색을 반영해서 넣어줘, 2줄이건 3줄이건 상관없잖아"): 문단이 든 구분마다 띠 하나(겉 → 안, 3px씩) —
-// 라벨 줄은 늘(구분이 하나여도), 내용 줄은 든 구분이 둘 이상일 때 · 판독만인 문단은 늘(바탕이 없으니). 판독만인 구분(thin)은 가는 띠(1px — Fable 협의: 점선은 이미 「추가한 자리」).
+// 라벨 줄은 늘(구분이 하나여도), 내용 줄은 든 구분이 둘 이상일 때 · 판독만인 문단은 늘(판독만임을 띠가 말한다). 판독만인 구분(thin)은 가는 띠(DV_THIN — Fable 협의: 점선은 이미 「추가한 자리」).
+// 2026-11-23 사용자 "바탕색은 가는 띠에 포함하면 될거 같고 가는 띠는 지금 보다 반절로 얇게 해줘": 판독만인 자리도 바탕을 칠하고(divisions.css) 가는 띠는 1px → 0.5px.
 // 색은 divisions.css 의 --dvc-<구분>(구분별 색과 같은 값).
-const DV_STRIPE = 3;
+const DV_STRIPE = 3, DV_THIN = 0.5;
 function divStripes(dims, thin) {
-  const stops = dims.map((k, i) => { const a = i * DV_STRIPE, b = (i + 1) * DV_STRIPE; return thin && thin.has(k) ? `var(--dvc-${k}) ${a}px ${a + 1}px, transparent ${a + 1}px ${b}px` : `var(--dvc-${k}) ${a}px ${b}px`; });
+  const stops = dims.map((k, i) => { const a = i * DV_STRIPE, b = (i + 1) * DV_STRIPE; return thin && thin.has(k) ? `var(--dvc-${k}) ${a}px ${a + DV_THIN}px, transparent ${a + DV_THIN}px ${b}px` : `var(--dvc-${k}) ${a}px ${b}px`; });
   return `linear-gradient(to right, ${stops.join(", ")}, transparent ${dims.length * DV_STRIPE}px)`;
 }
 
@@ -10436,7 +10438,7 @@ function divMarksDraw() { // 문서의 문단 요소에 표시 클래스 — pag
     p.classList.add("dv-in"); p.dataset.dv = e.dim in DV_DIM_NAME ? e.dim : "other";
     if (e.lab) p.classList.add("dv-lab");
     if (e.dims.length > 1) p.classList.add("dv-multi");
-    if (e.readOnly) p.classList.add("dv-read"); // 판독만 — 바탕 없음(바탕 = 엔진 자리)
+    if (e.readOnly) p.classList.add("dv-read"); // 판독만 — 바탕은 같게 · 띠로 가름(2026-11-23 — 전에는 바탕 없음)
     if (e.lab || e.dims.length > 1 || e.readOnly) { p.dataset.dvs = e.dims.join(" "); p.style.setProperty("--dv-stripes", divStripes(e.dims, e.thin)); } // 띠 — 든 구분마다(겉 → 안)
     if (e.hint) p.classList.add(e.hint === "llm" ? "dv-hint-llm" : "dv-hint");
     if (!p.title) { p.title = "구분 기준 자리(겉 → 안)\n" + e.lines.map((x) => x.line).join("\n"); p.dataset.dvTitle = "1"; }
@@ -10490,7 +10492,7 @@ function divKeyPress() { // 색 설명(#divKey — 문서 위에 떠 있는 상�
 }
 
 // 색 설명(② §11 「색 설명」, 2026-11-13 사용자 "색상에 대한 설명이 필요해보여"): 표시는 어느 탭을 보든 문서에 남는데 범례는 「작업 개요」 의 카드에만 있었다 →
-// 색이 입혀져 있는 동안 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 「진한 줄 = 라벨」 + 노트를 보인다(#divKey). 색칠할 자리가 없으면 설명도 없다.
+// 색이 입혀져 있는 동안 「구분 기준 자리」 + 그 문서에 있는 구분의 칩(겉 → 안) + 모양의 뜻(진한 줄 = 라벨 · 가는 띠 = 판독만 — 그 문서에 있을 때만) + 노트를 보인다(#divKey). 색칠할 자리가 없으면 설명도 없다.
 // 2026-11-19 사용자 "구분자리, 편집구역은 각각 아이콘으로 두고 클릭 하면 문서 상단에 플로팅으로 띄어줘, 움직일 수 있게": 설명은 문서 이름 줄이 아니라 **문서 위에 떠 있는 상자**다(#viewer 안 — 자리 · 끌어 옮기기 · 기억은 key_float.js).
 // 이름 줄에는 켜고 끄는 아이콘(#nameDivMarks)만 남는다 — 그 아이콘으로 켜면 뜨고 끄면 사라진다.
 function divKeyDraw(on) {
@@ -10506,7 +10508,10 @@ function divKeyDraw(on) {
   }
   const keys = [...dims.keys()].sort((a, b) => DV_KEY_ORDER.indexOf(a) - DV_KEY_ORDER.indexOf(b));
   if (on && dv.marks.only && !dims.has(dv.marks.only)) dv.marks.only = null; // 고른 구분의 자리가 문서에서 없어졌다 — 문서 전체로(divMarksDraw 끝의 divOnlyDraw 가 푼다)
-  const sig = keys.map((k) => k + "=" + dims.get(k)).join("|");
+  // 모양의 뜻(2026-11-23 사용자 "어떤건 바고 어떤건 전체 필드 색상이고 구분이 안가네"): 진한 줄(라벨) · 가는 띠(판독만 — 그 문서에 있을 때만). 바탕은 모든 자리에 칠한다(같은 날 "바탕색은 가는 띠에 포함")
+  let thin = false;
+  if (on && dv.marks.index) for (const e of dv.marks.index.values()) if (e.thin.size) { thin = true; break; }
+  const sig = keys.length ? keys.map((k) => k + "=" + dims.get(k)).join("|") + (thin ? "|T" : "") : "";
   if (box.dataset.sig === sig && box.hidden === !sig) { divKeyPress(); return; } // 쪽을 다시 나눌 때마다 불린다 — 같으면 그대로(열어 둔 노트가 닫히지 않게 · 옮긴 자리도 그대로) · 칩의 눌림만
   box.dataset.sig = sig; box.hidden = !sig; box.textContent = "";
   const place = () => { if (typeof keyFloatPlace === "function") keyFloatPlace(); }; // 떠 있는 상자의 자리(key_float.js) — 이 설명이 사라지면 옆 상자(편집 구역)가 가운데로 온다
@@ -10520,7 +10525,10 @@ function divKeyDraw(on) {
     box.append(chip);
   }
   divKeyPress();
-  box.append(el("span", "dv-key-tone", "진한 줄 = 라벨")); // 「가는 띠 = 판독만」(구분 기준 판독 — spec_구분_기준 ② §23)은 노트 도움말에만(상자의 글을 늘리지 않는다 — design.md §1)
+  // 모양의 뜻 — 색(칩)은 구분, 가는 띠는 판독만(2026-11-23 사용자 「구분이 안가네」: 전에는 「진한 줄 = 라벨」 만 두고 「가는 띠 = 판독만」 은 노트에만 있었다 · spec_구분_기준 ② §11 「색 설명」)
+  const tone = (cls, text, tip) => { const t = el("span", "dv-key-tone " + cls, text); t.title = tip; box.append(t); };
+  tone("lab", "진한 줄 = 라벨", "진한 색 + 왼쪽 띠 = 그 자리의 라벨 줄(「[1단계]」·「(1) 1차년도」·「[주관연구개발기관]」 · 표의 「1년차」 칸) · 옅은 색 = 자리 안의 글·표 칸");
+  if (thin) tone("thin", "가는 띠 = 판독만", "왼쪽의 가는 띠 = 판독만 한 자리 — 표 구조 · 표 안 판독 · 괄호 줄 글 꼴처럼 식별만 하고 반영(늘리고 줄이기) 대상이 아님(바탕색은 다른 자리와 같다 · 예: 단계가 하나뿐인 표의 「1단계」 칸)");
   // 감추기 · 다시 보기 = 문서 이름 줄의 아이콘 #nameDivMarks(doc_quick.js — 2026-11-18 사용자 "구분자리 표기 … 아이콘 … 활성화"). 설명 안에 「감추기」 단추는 없다 — 같은 일을 하는 아이콘이 있다(design.md §10)
   const again = "감추거나 다시 보려면 문서 이름 줄의 「구분 기준 자리 표시」 아이콘을 누르세요(「작업 개요」 의 「구분 기준 자리 표시」 「보기/감추기」 · 문단의 오른쪽 단추 메뉴에도 있음)";
   const move = "이 상자는 끌어서 옮길 수 있습니다(자리는 이 브라우저에 기억 · 두 번 누르면 제자리).";
