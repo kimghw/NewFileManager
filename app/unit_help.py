@@ -106,6 +106,14 @@ COMMON = {
         why="원본 · 여러 기관에서 옮겨 온 캡션은 괄호 · 빈칸 · 글자 크기 · 정렬이 저마다 다릅니다 — 한 문서 안에서 한 모양으로 보이게 합니다.",
         eg="「<그림 1> 시스템 구성도」 를 고르면 「[그림 2] 시험 결과」 → 「<그림 2> 시험 결과」 · 「<표1>제목」 → 「<표 1> 제목」.",
         who="스크립트(고르는 것은 사람 — 대시보드)"),
+    "lineTidy": _h(   # 줄 정리 — spec_줄정리(app/line_tidy.py · line_tidy_api.py · 한글 조판 pdf_render.layout_hwpx)
+        "줄 끝에서 낱말이 짧게 갈린 곳을 찾아 그 줄의 장평을 조금 줄이거나 늘려 낱말을 한 줄에 모읍니다.",
+        first="HWPX 문서와 이 PC 의 한글(한컴오피스) — 줄 나눔은 한글이 조판한 그대로 잽니다. 「내용 반영」 을 함께 놓았으면 반영이 끝난 뒤에 넣은 글까지 정리합니다.",
+        care="문서가 바뀝니다(실행 취소 한 번). 다음 줄 조각이 2자 이하면 윗줄로 당기고, 줄 끝 조각이 2자 이하인데 다음 줄 조각이 3자 이상이면 다음 줄로 보냅니다. "
+             "숫자는 아래 「규칙」 에서 바꿉니다(이 PC 의 모든 워크플로우). 한글로 여러 번 다시 재어 수십 초 걸립니다.",
+        see="대시보드의 그 줄(고친 문단 수 · 둔 곳의 까닭). 줄은 PDF 탭(한글 출력)에서 봅니다 — 웹 화면의 줄은 다를 수 있습니다.",
+        why="「가 / 이드라인」 처럼 한두 글자만 떨어지거나 마지막 줄에 두 글자만 남은 곳을 사람이 한글에서 장평으로 고치던 일입니다.",
+        eg="「…실시간 예지보 / 전 가동」 → 윗줄 장평 89% 로 「…실시간 예지보전 가동」 한 줄."),
     "hand": _HAND,
 }
 
@@ -341,7 +349,7 @@ ONLY_TEXT = {
                "기관이 채워 돌려준 문서를 취합본(사업계획서)과 견줘 모으는 규칙입니다 — 다른 문서 쌍은 받지 않습니다."),
 }
 ONLY = {
-    "common": {"heads": "", "headsLlm": "", "configLoad": "rnd", "config": "rnd", "division": "rnd", "reheads": "", "reheadsLlm": "", "guide": "", "guideFix": "", "zonePrune": "rnd", "capUnify": "", "hand": ""},
+    "common": {"heads": "", "headsLlm": "", "configLoad": "rnd", "config": "rnd", "division": "rnd", "reheads": "", "reheadsLlm": "", "guide": "", "guideFix": "", "zonePrune": "rnd", "capUnify": "", "lineTidy": "", "hand": ""},
     "relay": {"take": "rnd", "link": "relay", "llm": "relay", "plan": "relay", "gaps": "relay", "tableMap": "relay", "apply": "relay", "retidy": ""},
     "gather": {"config": "rnd", "division": "rnd", "frame": "gather", "part": "gather", "heads": "", "link": "gather", "llm": "gather", "plan": "gather", "apply": "gather", "drop": "gather",
                "retidy": ""},   # retidy = 구분 기준 엔진을 쓰지 않음(헤딩 그래프 · 개요 오버레이만 — 이관형과 같다)

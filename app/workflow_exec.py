@@ -1267,13 +1267,13 @@ def shutdown():
 # ---------------------------------------------------------------- 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3: spec_워크플로우 ② §18-2 「3 · 4단계 단위의 글」 · §18-12 ② · ③)
 # 화면 app.js taskRunMap · taskRunSteps 의 clean 가지를 줄마다의 처리 함수로 옮긴 것 — 차례 = 자리 연결 → (LLM 검토) → 넣기 계획 → (빈 자리 검토 → 표 대응) → 내용 반영 · 작성요령 삭제.
 # 이번 실행 안의 기억(연결 목록 · 반영할 수 있는 지금 계획 · LLM 검토의 글)은 run.fill — 끝남은 늘 문서에서 다시 본다(workflow_units 의 상태 식). 묶음 끝 글 = 화면 실행의 글 그대로(셋째 값 — 줄의 기록 글과 따로).
-FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune", "capUnify", "retidy")
+FILL_KEYS = ("link", "llm", "plan", "gaps", "tableMap", "apply", "guide", "guideFix", "zonePrune", "capUnify", "lineTidy", "retidy")
 NOTHING_TEXT = "넣을 것이 없습니다(이미 넣었거나 넣을 자리가 없음)"
 
 
 def _fill_need(task):
     """이 정의에 서버가 맡는 넣기 · 정리 줄이 있나 — 이관형의 단위일 때만(문서 하나의 plan · apply 는 key 만 같은 다른 단위다: 그 문서에 연결 목록을 읽지 않는다)."""
-    mine = {**U.RELAY, **{k: U.COMMON[k] for k in ("guide", "guideFix", "zonePrune", "capUnify")}}   # 「문서 정리」 의 줄(작성요령 삭제 · 조립 도구 — ② §18-23)도 「내용 넣기」 의 끝을 재료로 읽는다
+    mine = {**U.RELAY, **{k: U.COMMON[k] for k in ("guide", "guideFix", "zonePrune", "capUnify", "lineTidy")}}   # 「문서 정리」 의 줄(작성요령 삭제 · 조립 도구 — ② §18-23)도 「내용 넣기」 의 끝을 재료로 읽는다
     return any(x["key"] in FILL_KEYS and x["unit"] is mine.get(x["key"]) and S.served(task, x["stage"]) for x in S.lines(task))
 
 
@@ -1827,14 +1827,52 @@ def _retidy_doc(run, gid, doc):
     return ("nothing" if D.get("nothing") else "done"), U.retidy_text(c)
 
 
-HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune, "retidy": _do_retidy, "capUnify": _do_cap_unify})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
+def _do_line_tidy(run, gid, line):
+    """줄 정리(spec_줄정리) — 그 줄이 닿는 문서마다(_line_tidy_doc)."""
+    return _per_doc(run, gid, line, _line_tidy_doc)
+
+
+def _line_tidy_doc(run, gid, doc):
+    """줄 정리(문서 하나 — 문서를 바꾼다) — 재기(한글 조판을 되풀이 · 수십 초 · 문서 안 바뀜 — 울타리 밖) → 반영(울타리 안 · 잰 뒤 문서가 바뀌었으면 409 — 한 번만 다시 잰다).
+    고칠 것이 없어도 반영 기록을 남겨 끝난 것으로 본다. 한글이 없으면 「건너뜀」. → (done | nothing, 글)."""
+    run.working = {doc}
+    _fill_first(run, "④ 내용 반영 전")
+    L = UNIT.line_tidy_facts(doc)
+    if L.get("error"):
+        raise _Halt("error", f"줄 정리의 재료를 읽지 못했습니다: {L['error']}")
+    if L.get("why"):
+        return "nothing", f"{L['why']} — 건너뜀"
+    got, P = None, {}
+    for attempt in (0, 1):
+        run.note(gid, "lineTidy", "한글로 줄 나눔을 재고 고친 사본을 다시 재는 중(수십 초)", doc)
+        run.guard()
+        asked = UNIT.line_tidy_plan(doc)
+        if not asked.ok:
+            raise _Halt(asked.code, f"줄을 재지 못했습니다 — {asked.text}")
+        P = asked.data or {}
+        with run.fence(doc):
+            run.guard()
+            _fill_first(run, "그 사이 문서가 바뀌었습니다")
+            got = UNIT.line_tidy_apply(doc, P.get("planId"))
+        if got.code != "stale" or attempt:
+            break
+    if got.code == "stale":
+        raise _Halt("stale", f"줄 정리를 반영하지 못했습니다 — {got.text}")
+    if not got.ok:
+        raise _Halt(got.code, f"줄 정리를 반영하지 못했습니다 — {'표준 검사에 걸려 되돌렸습니다: ' if got.code == 'rejected' else ''}{got.text}")
+    text = "줄 정리 — " + U.line_tidy_text(P.get("counts") or {})
+    return ("nothing" if got.code == "nothing" else "done"), text
+
+
+HANDLERS.update({"guideFix": _do_guide_fix, "zonePrune": _do_zone_prune, "retidy": _do_retidy, "capUnify": _do_cap_unify, "lineTidy": _do_line_tidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9 · 줄 정리 = spec_줄정리)
 
 
 def _tidy_materials(task, pair, facts, opt=None):
     """그 줄이 닿는 문서 facts 에 「문서 정리」 조립 도구의 재료를 얹는다 — guideFix = unit_steps.guide_fix_facts · zonePrune = unit_steps.zone_prune_count · capUnify = unit_steps.cap_unify_view ·
     retidy = unit_steps.retidy_facts(넣은 뒤 템플릿 · 서식 정리 — 이관형 · 취합형의 단위(따로 선 두 단위 — 넣은 기록은 merge.json · gather.json: spec_병합 ② §5-9))(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
     want = {}
-    units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "capUnify": (U.COMMON["capUnify"],), "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
+    units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "capUnify": (U.COMMON["capUnify"],), "lineTidy": (U.COMMON["lineTidy"],),
+             "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
     for x in S.lines(task):
         if x["key"] in units and any(x["unit"] is u for u in units[x["key"]]) and S.served(task, x["stage"]):
             for r in S.roles_on(task, x["on"]):
@@ -1853,6 +1891,8 @@ def _tidy_materials(task, pair, facts, opt=None):
             more["capUnify"] = c.data if c.ok and isinstance(c.data, dict) else {"error": c.text or "응답이 없음"}
         if "retidy" in keys:
             more["retidy"] = UNIT.retidy_facts(d)
+        if "lineTidy" in keys:
+            more["lineTidy"] = UNIT.line_tidy_facts(d)
         facts[d] = {**facts[d], **more}
 
 

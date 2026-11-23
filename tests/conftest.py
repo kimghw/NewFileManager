@@ -19,3 +19,4 @@ def _no_hangul(tmp_path, monkeypatch):
     monkeypatch.setenv("NFM_STYLES", str(tmp_path / "styles"))  # 서식 보관함(spec_일반편집 ② §2)도 시험마다 임시 폴더 — 사용자 보관함(%LOCALAPPDATA%)을 안 건드린다
     monkeypatch.setenv("NFM_TASKS", str(tmp_path / "tasks.json"))  # 화면에서 조립한 TASK(spec_워크플로우 ② §14)도 시험마다 임시 파일 — 사용자가 만든 TASK 가 등록부 · TASK 검사에 섞이지 않게
     monkeypatch.setenv("NFM_FORM_FILES", str(tmp_path / "form_files"))  # 저장한 양식 · 워크플로우마다의 양식 설정(spec_워크플로우 ② §18-9)도 시험마다 임시 폴더 — 사용자가 건 고정 양식이 시작 길의 시험에 섞이지 않게
+    monkeypatch.setenv("NFM_LINE_TIDY", str(tmp_path / "line_tidy.json"))  # 줄 정리 규칙(spec_줄정리 ② §6)도 시험마다 임시 파일 — 사용자가 바꾼 규칙이 시험에 섞이거나 시험이 그 파일을 고치지 않게

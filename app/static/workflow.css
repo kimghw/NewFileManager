@@ -786,6 +786,22 @@ td.wf-docs-none { color: var(--muted); }
 .wf-help-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .wf-help-go { cursor: pointer; font: inherit; font-size: 12px; white-space: normal; text-align: left; }
 .wf-help-go:hover { border-color: #9fb5ea; background: var(--accent-soft); color: var(--accent); }
+/* 줄 정리의 「규칙」(spec_줄정리 ② §6 · line_tidy_rules.js) — 규칙마다 이름 · 숫자 칸 · 단위가 한 줄, 그 아래 설명 */
+.wf-lt-note { margin: 0 0 6px !important; font-size: 12px; color: var(--muted); }
+.wf-lt-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+.wf-lt-row { padding: 6px 9px; }
+.wf-lt-row + .wf-lt-row { border-top: 1px solid var(--line); }
+.wf-lt-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.wf-lt-top b { font-weight: 600; margin-right: auto; }
+.wf-lt-num { width: 58px; height: 24px; box-sizing: border-box; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; font: inherit; font-size: 12.5px; text-align: right; }
+.wf-lt-num:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wf-lt-unit { min-width: 14px; color: var(--muted); font-size: 12px; }
+.wf-lt-def { flex-basis: 100%; text-align: right; font-size: 11px; color: var(--warn); }
+.wf-lt-text { margin: 2px 0 0 !important; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.wf-lt-acts { display: flex; gap: 6px; margin-top: 7px; }
+.wf-lt-msg, .wf-lt-err { margin-top: 5px !important; font-size: 12px; }
+.wf-lt-err { color: var(--danger, #b42318); }
+.wf-lt-msg { color: var(--ok, #15803d); }
 .wf-help-off { margin: 0 0 10px; padding: 6px 9px; border-left: 3px solid var(--line-strong); border-radius: 0 6px 6px 0; background: var(--surface-2); color: var(--muted); }
 .wf-help[data-unit=""] .wf-help-back { display: none; } /* 넓은 창 — 목록은 늘 펴져 있다(펴고 접는 단추는 좁은 창에서만) */
 .wf-help-fold { display: none; height: 24px; padding: 0 8px; font-size: 11.5px; } /* 「설명 접기」 — 좁은 창에서만(폼 위의 띠를 한 줄로) */

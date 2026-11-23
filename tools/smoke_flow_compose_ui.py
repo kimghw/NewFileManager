@@ -497,9 +497,9 @@ def main():
             marked: [...document.querySelectorAll('#wfCompose .wf-line-cell[data-help="1"]')].map((c) => [c.dataset.unit || c.closest('.wf-line').dataset.unit, c.dataset.role]) }; }"""   # marked = 파란 테두리의 카드(그 칸의 줄 — 한 행에 다른 두 줄이 서면 칸마다 다르다)
         api8 = requests.get(f"{base}/api/tasks?v=2", timeout=30).json()
         h0 = page.evaluate(HELP)
-        check("⑧ ⓐ 폼이 펴지면 오른쪽에 「도구 설명」 열(폼의 오른쪽 · 붙어 있음 · 그 절만 넓어짐 · 가로 넘침 없음) — 안 골랐으면 그 틀의 도구 목록: 사는 단계로 묶어 20개(「문서 정리」 = 넣은 뒤 템플릿 · 서식 정리 + 작성요령 삭제 + 지침 보정 · 빈 구역 지우기 · 캡션 맞추기 — ② §18-23 · spec_병합 ② §5-9) · 줄마다의 한 문장 = 서버 응답의 help.easy 그대로",
+        check("⑧ ⓐ 폼이 펴지면 오른쪽에 「도구 설명」 열(폼의 오른쪽 · 붙어 있음 · 그 절만 넓어짐 · 가로 넘침 없음) — 안 골랐으면 그 틀의 도구 목록: 사는 단계로 묶어 21개(「문서 정리」 = 넣은 뒤 템플릿 · 서식 정리 + 작성요령 삭제 + 지침 보정 · 빈 구역 지우기 · 캡션 맞추기 · 줄 정리 — ② §18-23 · spec_병합 ② §5-9 · spec_줄정리) · 줄마다의 한 문장 = 서버 응답의 help.easy 그대로",
               h0 and h0["title"] == "도구 설명" and h0["unit"] == "" and h0["right"] and h0["sticky"] == "sticky" and h0["wide"] and not h0["over"] and h0["listShown"]
-              and h0["groups"] == [["문서 검토", 2], ["구성 맞추기", 6], ["내용 넣기", 6], ["문서 정리", 5], ["사람이 하는 일", 1]]
+              and h0["groups"] == [["문서 검토", 2], ["구성 맞추기", 6], ["내용 넣기", 6], ["문서 정리", 6], ["사람이 하는 일", 1]]
               and h0["easyBy"] == {u["key"]: u["help"]["easy"] for u in api8["units"]} and all(h0["easyBy"].values()), h0)
         n_checks, n_saves, save0 = len(checks), len(bodies), s8["save"]
         page.locator('#wfCompose li.wf-line[data-unit=link] .wf-line-cell[data-role=target]').click(position={"x": 120, "y": 14})   # 「자리 연결」 — 쌍 줄의 목적 문서 칸(이름 옆의 빈 곳)

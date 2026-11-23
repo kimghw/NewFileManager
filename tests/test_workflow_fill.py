@@ -59,6 +59,9 @@ class FillFake(Fake):
         return Outcome("ok", "", {"rev": self.rev, "form": None, "chosen": None, "name": "", "why": "맞출 제목 캡션이 없습니다", "rep": None, "forms": [],
                                   "counts": {"titles": 0, "change": 0, "full": 0, "style": 0, "frozen": 0, "cross": 0, "others": 0}})
 
+    def line_tidy_facts(self, doc):   # 줄 정리의 재료 — 기본은 한글이 없는 PC(건너뜀)
+        return {"why": "한글(한컴오피스)이 없어 한글의 줄 나눔을 잴 수 없습니다", "rev": self.rev, "fill": None, "rules": {}, "rulesText": "", "plan": None, "applied": None}
+
     def links_llm(self, doc):
         self.calls.append(("linksLlm", doc))
         if self.llm_fail:
@@ -512,17 +515,35 @@ def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(
         n, caps["change"], fake.rev = caps["change"], 0, fake.rev + 1
         return Outcome("ok", "", {"changed": ["p2", "p3", "p4"][:n], "frozen": ["p4"]})
     fake.cap_unify = unify
+    # 줄 정리(spec_줄정리 ② §7) — 재기는 울타리 밖(한글 조판을 되풀이 · 수십 초) · 반영은 울타리 안
+    fake.line_tidy_facts = lambda doc: {"why": "", "rev": fake.rev, "fill": (fake.filled or {}).get("at"), "rules": {}, "rulesText": "당기기 2자 이하", "plan": None, "applied": state.get("lt")}
+    counts = {"seen": 9, "paras": 4, "fixed": 2, "ops": 2, "pull": 1, "push": 1, "last": 0, "chain": 0, "left": 1, "short": 3, "why": {"장평 한도": 1}}
+
+    def lt_plan(doc):
+        fake.calls.append(("lineTidyPlan", doc))
+        fake.fenced.append((X.FENCE.get(doc) or {}).get("thread") == threading.get_ident())
+        return Outcome("ok", "", {"planId": "l1", "rev": fake.rev, "items": [{}, {}], "left": [{}], "counts": counts, "rounds": 2, "seconds": 9.0})
+
+    def lt_apply(doc, pid):
+        fake.calls.append(("lineTidyApply", pid))
+        fake._fenced()
+        state["lt"], fake.rev = {"fill": (fake.filled or {}).get("at"), "paras": 2, "ops": 2, "counts": counts}, fake.rev + 1
+        return Outcome("ok", "", {"done": ["p1", "p2"]})
+    fake.line_tidy_plan, fake.line_tidy_apply = lt_plan, lt_apply
     clean = {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]
     keys = [s["key"] for s in clean["steps"]]
-    assert keys == ["retidy", "guideFix", "guide", "zonePrune", "capUnify"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
-    assert "「내용 넣기」 이 끝난 뒤에 넣은 캡션까지" in clean["steps"][4]["text"]
+    assert keys == ["retidy", "guideFix", "guide", "zonePrune", "capUnify", "lineTidy"] and [s["st"] for s in clean["steps"]] == ["now", "todo", "todo", "todo", "todo", "todo"], [(s["key"], s["st"], s["text"]) for s in clean["steps"]]
+    assert "「내용 넣기」 이 끝난 뒤에 넣은 캡션까지" in clean["steps"][4]["text"] and "「내용 넣기」 이 끝난 뒤에 넣은 글까지 줄을 정리합니다" in clean["steps"][5]["text"]
     assert "「내용 넣기」 이 끝난 뒤" in clean["steps"][0]["text"] and "「내용 넣기」 이 끝난 뒤" in clean["steps"][1]["text"]
     X.start("t", {"from": "map", "to": "clean"})
     rec = _done("t")
     assert rec["status"] == "done", rec["end"]
-    order = [c[0] for c in fake.calls if c[0] in ("apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify")]
-    assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify"]   # 내용 반영 → 넣은 뒤 정리 → 지침 보정 → 작성요령 삭제 → 빈 구역 지우기 → 캡션 맞추기
-    assert fake.fenced[-6:] == [True, False, True, True, True, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기 · 캡션 맞추기는 울타리 안
+    order = [c[0] for c in fake.calls if c[0] in ("apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify", "lineTidyPlan", "lineTidyApply")]
+    assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify", "lineTidyPlan", "lineTidyApply"]   # … → 캡션 맞추기 → 줄 정리(맨 끝)
+    assert fake.fenced[-8:] == [True, False, True, True, True, True, False, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기 · 캡션 맞추기는 울타리 안 · 줄 재기는 밖 · 반영은 안
+    lt = [x for x in rec["steps"] if x["key"] == "lineTidy" and x["status"] == "done"]   # 묶음 끝 글은 길면 줄인다 — 줄의 기록 글로 본다
+    assert lt and lt[-1]["text"] == "줄 정리 — 고친 문단 2(당기기 1 · 밀기 1) · 그대로 둔 갈림 1(장평 한도 1) · 줄이 짧아 안 고친 곳 3", rec["steps"][-2:]
+    assert next(s for s in {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]["steps"] if s["key"] == "lineTidy")["st"] == "done"
     text = rec["stages"][-1]["text"]
     assert "넣은 줄 4줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다 · 레벨 2곳(넣는 쪽이 더 길어 늘어난 레벨 1)" in text
     assert "지침 보정 — 고친 문단 2 · 고치지 못한 것 1" in text and "빈 구역 3곳을 지웠습니다(본문 블록 1 · 표 행 2)" in text

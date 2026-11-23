@@ -184,7 +184,8 @@ def start(name, port, tag=""):
                                  "NFM_FORM_FILES": str(d / "form_files"),   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
                                  "NFM_AGENT_NOTES": str(d / "agent_notes.json"),   # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 검사마다 임시 파일 — 사용자가 적어 둔 글이 검사에 섞이거나 검사가 그 파일을 고치지 않게
                                  "NFM_REQS": str(d / "requirements.json"),   # 사용자 요구사항(spec_워크플로우 ② §18-20)도 검사마다 임시 파일 — 저장소의 reqs/requirements.json 을 검사가 고치지 않고, 적힌 요구사항의 수 · 아이콘이 다른 검사에 섞이지 않게
-                                 "NFM_TOOL_NAMES": str(d / "tool_names.json")},   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
+                                 "NFM_TOOL_NAMES": str(d / "tool_names.json"),   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
+                                 "NFM_LINE_TIDY": str(d / "line_tidy.json")},   # 줄 정리 규칙(spec_줄정리 ② §6)도 — 검사가 사용자의 규칙을 고치지 않게
                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     return {"name": name, "tag": tag, "port": port, "proc": proc, "log": log, "t0": time.time()}
 

@@ -103,6 +103,9 @@ for line in sys.stdin:
         if kind == "hwp":
             if not a.Open(job["src"], "HWP" if job["src"].lower().endswith(".hwp") else "HWPX", "forceopen:true"):  # hwp(바이너리)도 연다 — hwp_to_hwpx
                 raise RuntimeError("한글이 파일을 열지 못함")
+            if job.get("layout"):  # 끝 쪽까지 조판시킨 뒤 저장 — 그래야 모든 문단에 줄 배치 캐시가 든다(layout_hwpx)
+                a.Run("MoveDocEnd")
+                a.PageCount
             ok = a.SaveAs(job["pdf"], fmt, "")
             a.Clear(1)
             if not ok:
@@ -152,13 +155,14 @@ class Exporter:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
         self.proc, self.pids = None, set()
 
-    def run(self, src, pdf, limit, fmt="PDF", app="hwp"):
-        """app = hwp(한글)|word — 한 자식 프로세스가 둘 다 띄워 쓸 수 있다(처음 쓸 때). fmt = 내보낼 형식(PDF·HWPX·DOCX)."""
+    def run(self, src, pdf, limit, fmt="PDF", app="hwp", layout=False):
+        """app = hwp(한글)|word — 한 자식 프로세스가 둘 다 띄워 쓸 수 있다(처음 쓸 때). fmt = 내보낼 형식(PDF·HWPX·DOCX).
+        layout = 한글이 끝 쪽까지 조판한 뒤 저장(layout_hwpx)."""
         name = APP_NAMES.get(app, app)
         with self.lock:
             if not self.proc or self.proc.poll() is not None:
                 self._start()
-            self.proc.stdin.write(json.dumps({"src": str(src), "pdf": str(pdf), "format": fmt, "app": app}) + "\n")
+            self.proc.stdin.write(json.dumps({"src": str(src), "pdf": str(pdf), "format": fmt, "app": app, **({"layout": True} if layout else {})}) + "\n")
             self.proc.stdin.flush()
             end = time.time() + limit
             while True:
@@ -198,9 +202,11 @@ class Pool:
         for _ in range(size):
             self.idle.put(Exporter())
 
-    def run(self, src, out, limit, fmt="PDF", app="hwp"):
+    def run(self, src, out, limit, fmt="PDF", app="hwp", layout=False):
         ex = self.idle.get()
         try:
+            if layout:
+                return ex.run(src, out, limit, fmt, layout=True)
             return ex.run(src, out, limit, fmt) if app == "hwp" else ex.run(src, out, limit, fmt, app=app)
         finally:
             self.idle.put(ex)
@@ -299,6 +305,21 @@ def resave_hwpx(data: bytes, limit: int | None = None) -> bytes:
     done = out / f"{sha(data)}.resave.hwpx"
     with _once(done):
         return _resave(data, limit, out, done, "hwpx")
+
+
+def layout_hwpx(data: bytes, limit: int | None = None) -> bytes:
+    """한글이 hwpx 바이트를 열어 **끝 쪽까지 조판한 뒤**(MoveDocEnd · PageCount) HWPX 로 다시 저장한 바이트 — 모든 문단에 줄 배치 캐시(hp:linesegarray)가 든다.
+    그냥 다시 저장(resave_hwpx)하면 캐시가 없던 문단(앱이 고친 문단)은 조판하지 않아 캐시 없이 나온다(2026-11-23 실측 — references/한글_문단모양_줄나눔.md 「한글의 줄 나눔 읽기」).
+    줄 정리(app/line_tidy_api.py)가 한글의 줄 나눔을 읽는 길이다. 캐시하지 않는다(고칠 때마다 다른 바이트 · 큰 문서). 시간 한도 · 실패는 PDF 출력과 같다."""
+    out = render_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=out) as tmp:
+        src, part = Path(tmp) / "doc.hwpx", Path(tmp) / "laid.hwpx"
+        src.write_bytes(data)
+        EXPORTER.run(src.resolve(), part.resolve(), limit or export_limit(len(data)), fmt="HWPX", layout=True)
+        if not part.exists() or not part.stat().st_size:
+            raise RuntimeError("한글이 조판한 HWPX 를 만들지 않음")
+        return part.read_bytes()
 
 
 def hwp_to_hwpx(data: bytes, limit: int | None = None) -> bytes:

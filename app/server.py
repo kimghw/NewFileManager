@@ -2568,6 +2568,7 @@ app.include_router(__import__("app.form_guides_api", fromlist=["router"]).router
 app.include_router(__import__("app.place_guides_api", fromlist=["router"]).router)   # 자리마다의 작성 지침(헤딩 · 표 — 문서의 것 + 사람이 적은 것 · 화면 「지침」 단추 · 3단계 LLM 이 같은 색인) 끝점은 app/place_guides_api.py(spec_병합 ② §5-11)
 app.include_router(__import__("app.zone_prune_api", fromlist=["router"]).router)   # 빈 구역 지우기(구분 기준 묶음의 내용 없는 항목 — 미리 보기 · 한 번에 지우기) 끝점은 app/zone_prune_api.py(spec_워크플로우 ② §18-23 「빈 구역 지우기」)
 app.include_router(__import__("app.guide_fix_api", fromlist=["router"]).router)   # 지침 보정(저장한 작성 지침에 따라 LLM 이 있는 글을 고침 — 묻기 · 반영) 끝점은 app/guide_fix_api.py(spec_워크플로우 ② §18-23 「지침 보정」)
+app.include_router(__import__("app.line_tidy_api", fromlist=["router"]).router)   # 줄 정리(한글의 줄 나눔으로 잰 갈림을 장평으로 당기거나 밂 — 규칙 · 재기 · 반영) 끝점은 app/line_tidy_api.py(spec_줄정리)
 app.include_router(__import__("app.merge_over_api", fromlist=["router"]).router)   # 넘친 개요 레벨(덮은 템플릿 · 수정 · 다른 템플릿 · 다시 맞추기) 끝점은 app/merge_over_api.py(spec_병합 ② §5-5 8)
 app.include_router(__import__("app.merge_retidy_api", fromlist=["router"]).router)   # 넣은 뒤 템플릿 · 서식 정리(넣은 줄을 목적 문서의 템플릿 · 서식으로 — 다시 분석 → 대표 → 맞추기) 끝점은 app/merge_retidy_api.py(spec_병합 ② §5-9)
 app.include_router(__import__("app.link_guides_api", fromlist=["router"]).router)   # 매칭 지침(표 · 본문별 — 양식 정보 「자리 연결」 절을 자리마다 보고 고침) 끝점은 app/link_guides_api.py(spec_병합 ② §5-6)

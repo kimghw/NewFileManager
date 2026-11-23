@@ -30,6 +30,7 @@ SP_SHARE = "spec_공유.md"
 SP_ZONE = "spec_구역.md"
 SP_TABLE = "spec_테이블매니저.md"
 SP_FLOW = "spec_워크플로우.md"
+SP_LINE = "spec_줄정리.md"
 
 
 def _s(key, name, by, does, *, no="", out="", change="none", modules=(), agents=(), uses=(), spec=None, auto=False, optional=False, soon=False, need="", done="", stop="", left="", on=""):
@@ -888,7 +889,7 @@ def _st_clean(S, D, *, review=True, fill=True, who=("target",), more=False):
     who = 그 줄을 하는 문서 역할(조립한 정의의 줄이 고른 문서 — 원본 문서에도 놓는다: ② §18-2 「원본 문서에 놓는 줄」 · 「내용 넣기」 의 끝은 어느 문서든 같이 기다린다).
     review = 그 워크플로우에 「문서 검토」 가 있나 — 저장한 작성 지침을 보는 단추는 그 묶음의 「헤딩 · 표 분석」 줄에 있다(없으면 그 줄을 가리키지 않는다).
     fill = 「내용 넣기」 가 있나 — 없으면 「④ 내용 반영」 을 기다리지 않는다(화면 app.js taskSteps 의 guide.done = (applyStep.done || !taskHasStage("map")) && 지울 안내 없음 · 실행도 그 묶음이 있을 때만 먼저를 따진다).
-    more = 조립에 놓는 도구 「넣은 뒤 템플릿 · 서식 정리」(spec_병합 ② §5-9) · 「지침 보정(LLM)」 · 「빈 구역 지우기」 까지(② §18-23 — 붙박이 워크플로우의 표준 차례에는 없다: 「넣을 구성 선택」 과 같은 꼴). 기본값의 글은 붙박이 이관의 글."""
+    more = 조립에 놓는 도구 「넣은 뒤 템플릿 · 서식 정리」(spec_병합 ② §5-9) · 「지침 보정(LLM)」 · 「빈 구역 지우기」 · 「캡션 맞추기」 · 「줄 정리」(spec_줄정리 — 맨 끝: 앞의 도구가 글 · 서식을 바꾸면 줄이 다시 갈린다) 까지(② §18-23 — 붙박이 워크플로우의 표준 차례에는 없다: 「넣을 구성 선택」 과 같은 꼴). 기본값의 글은 붙박이 이관의 글."""
     keep = "지운 작성 지침은 작업에 저장돼 있습니다." + (" 「헤딩 · 표 분석」 줄의 「작성 지침」 에서 볼 수 있습니다." if review else "")
     src, dst = "source" in who, "target" in who
     X, on = (D, "target") if not src else (f"두 문서({S} · {D})", "both") if dst else (S, "source")   # 지우는 문서 — 기본(목적 문서)의 글은 전과 같다
@@ -932,6 +933,15 @@ def _st_clean(S, D, *, review=True, fill=True, who=("target",), more=False):
                stop="한 번에 맞춥니다. 캡션을 센 뒤 문서가 바뀌면 다시 세며, 표준 검사에 걸리면 되돌리고 멈춥니다. 고른 꼴이 문서에 없으면 맞추지 않으니 다시 골라야 합니다.",
                left="번호 유무가 다른 캡션과 한글 자동 번호, 표지가 든 캡션은 글은 그대로 두고 서식만 맞춥니다. "
                     "출처나 주 줄, 「(단위:원)」 같은 레터 없는 줄은 제목 캡션이 아니라 그대로 둡니다. 대표 줄은 문서의 「캡션 템플릿」 절에서 바꿀 수 있습니다.", on=on),
+            _s("lineTidy", "줄 정리", "script", "한글로 문서를 조판해 줄 끝에서 짧게 갈린 낱말을 찾습니다. 다음 줄로 넘어간 조각이 2자 이하면 윗줄의 장평을 줄여 당깁니다. "
+               "다음 줄 조각이 3자 이상이고 줄 끝 조각이 2자 이하면 그 줄의 장평을 늘려 다음 줄로 보냅니다. 마지막 줄이 2자 이하면 윗줄로 당깁니다. "
+               "고친 뒤 한글로 다시 재어 맞았는지 봅니다." + (f" 고치는 문서는 {X}이며 문서마다 따로 고칩니다." if src else ""),
+               out=f"줄 끝 갈림을 장평으로 정리한 {X}", change="doc", modules=("line_tidy", "line_tidy_api", "pdf_render"), spec=(SP_LINE, "② §1"),
+               need=f"{wait}. 이 PC 의 한글(한컴오피스)이 필요합니다. 규칙의 숫자는 도구 설명의 「규칙」 에서 정합니다.",
+               done="④ 가 끝난 뒤에 줄 정리를 반영했을 때입니다. 고칠 곳이 없어도 끝난 것으로 봅니다. 한글이 없으면 「건너뜀」 입니다." if fill
+               else "줄 정리를 반영했을 때입니다. 고칠 곳이 없어도 끝난 것으로 봅니다. 한글이 없으면 「건너뜀」 입니다.",
+               stop="한글이 조판하지 못하면 멈춥니다. 잰 뒤 문서가 바뀌면 한 번 다시 재며, 표준 검사에 걸리면 되돌리고 멈춥니다.",
+               left="장평 한도를 넘어야 하는 곳과 좁은 칸의 짧은 줄은 그대로 둡니다. 고친 뒤 갈림이 줄지 않은 문단은 고치지 않습니다.", on=on),
         )
     return (
         _s("guide", "작성요령 삭제", ("script", "human"), "양식 안내(작성 요령 표, 「<참고 N>」 자료, 안내 색 ※ 글, 위첨자 각주 번호)를 확인 창 없이 한 번에 지웁니다(실행 취소 한 번). "
@@ -958,7 +968,8 @@ STAGE_MODULES = (
      "원본 문서의 내용을 목적 문서의 같은 자리에 넣습니다(자리 연결 → 넣기 계획 → 내용 반영). 이관과 취합 모두 앞의 두 단계(문서 검토 · 구성 맞추기)를 마친 문서끼리만 합니다."),
     ("stage_clean", "문서 정리", _st_clean,
      "작성 요령 표, 「<참고 N>」 자료, ※ 안내, 각주 번호 같은 양식 안내를 지웁니다. 지우기 전에 작성 지침을 헤딩과 표별로 저장합니다. 조립한 워크플로우에서는 원본 문서에도 놓을 수 있습니다. "
-     "조립용 도구로 유료 LLM 이 지침에 맞게 글을 고치는 「지침 보정(LLM)」, 내용이 빈 구역 항목을 지우는 「빈 구역 지우기」, 제목 캡션의 형식과 서식을 하나로 맞추는 「캡션 맞추기」 도 있습니다."),
+     "조립용 도구로 유료 LLM 이 지침에 맞게 글을 고치는 「지침 보정(LLM)」, 내용이 빈 구역 항목을 지우는 「빈 구역 지우기」, 제목 캡션의 형식과 서식을 하나로 맞추는 「캡션 맞추기」 도 있습니다. "
+     "줄 끝에서 짧게 갈린 낱말을 장평으로 한 줄에 모으는 「줄 정리」 도 있습니다."),
 )
 _STAGE_BY = {m[0]: m for m in STAGE_MODULES}
 
@@ -1430,7 +1441,7 @@ def _assemble_flow(c):
             homes.add(mid)
             no.setdefault(custom_tasks.STAGE_GROUP[mid], f"{i + 1}단계")
             o = s["on"]
-            if "source" in o and s["unit"] in ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify"):   # 원본 문서에도 놓은 구조 · 정리 줄 — 글을 그 줄이 고른 문서의 것으로(② §18-2 「원본 문서에 놓는 줄」)
+            if "source" in o and s["unit"] in ("division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify", "lineTidy"):   # 원본 문서에도 놓은 구조 · 정리 줄 — 글을 그 줄이 고른 문서의 것으로(② §18-2 「원본 문서에 놓는 줄」)
                 base = next(x for x in _STAGE_BY[mid][2](S, D, **{**{k: v for k, v in opts.get(mid, {}).items() if k != "take"}, "who": tuple(o)}) if x["key"] == s["unit"])
             steps.append(_beside(dict(base, on=base["on"] if base["on"] in ("flow", "pair") else ("both" if len(o) == 2 else o[0])), s))
         names = [x["name"] for x in steps if x["key"] != "files"]

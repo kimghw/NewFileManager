@@ -1948,6 +1948,10 @@
     }
     const after = unitsOf(c).filter((v) => v.key !== u.key && usesOf(v).some((x) => x.unit === u.key)); // 이 도구의 결과를 쓰는 도구(바로 다음에 오는 줄이라는 뜻이 아니다)
     if (after.length) box.append(helpSec("이 결과를 쓰는 도구", helpChips(c, after)));
+    if (u.key === "lineTidy" && window.LineTidyRules) { // 줄 정리의 「규칙」(spec_줄정리 ② §6 — 이 PC 의 설정: line_tidy_rules.js) — 그 절만 다시 그린다(폼 · 열 전체는 그대로)
+      const redraw = () => { const old = box.querySelector("[data-lt-rules]"); if (old && old.isConnected) old.replaceWith(LineTidyRules.sec(redraw)); };
+      box.append(LineTidyRules.sec(redraw));
+    }
     return box;
   }
   function helpListEl(c) { // 그 틀의 도구 모두 — 사는 단계로 묶어(넣기 고르기와 같은 차례 · 같은 묶음 이름)

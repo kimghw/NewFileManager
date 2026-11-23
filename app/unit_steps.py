@@ -561,6 +561,33 @@ def cap_unify(doc_id, rev):
     return got
 
 
+def line_tidy_facts(doc_id):
+    """줄 정리 줄의 재료(문서 안 바뀜 · 한글 안 부름 — spec_줄정리 ② §7) → {why, rev, fill, rules, rulesText, plan | None, applied | None} | {error}."""
+    from app import line_tidy_api
+    try:
+        return line_tidy_api.facts(doc_id)
+    except Exception as e:  # noqa: BLE001 — 재료를 못 읽음은 상태 식이 「못 읽음」 으로 보인다
+        log.exception("[워크플로우 실행] 줄 정리 재료를 읽지 못했습니다")
+        return {"error": f"{type(e).__name__}: {e}", "why": ""}
+
+
+def line_tidy_plan(doc_id):
+    """한글로 줄을 재고 고친 사본을 다시 재어 장평을 찾는다(동기 · 수십 초 · 문서 안 바뀜: POST …/line-tidy/plan) → Outcome(data = {planId, rev, items, left, counts, rounds, seconds, nothing?}).
+    409 = 한글 없음 · 조판한 사본이 문서와 안 맞음(blocked) · 503 = 한글이 조판하지 못함(error)."""
+    from app import line_tidy_api
+    return _run(line_tidy_api.line_tidy_plan, doc_id, on409="blocked")
+
+
+def line_tidy_apply(doc_id, plan_id):
+    """그 계획의 장평을 반영(문서를 바꾼다 — 울타리 안에서: POST …/line-tidy/apply) → Outcome — 409 = 지금 계획이 아님 · 잰 뒤 문서가 바뀜(stale) · 422 = 표준 검사가 되돌림(rejected) ·
+    고칠 것 없음 = nothing(반영 기록은 남음)."""
+    from app import line_tidy_api
+    got = _run(line_tidy_api.line_tidy_apply, doc_id, {"planId": plan_id}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "고칠 갈림이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
 def cap_form_set(doc_id, form):
     """그 문서가 든 묶음의 「캡션 맞추기」 꼴을 적는다(워크플로우 옵션 — 문서 안 바뀜 · None = 줄이 가장 많은 꼴) → Outcome(data = 그 문서의 다시 읽은 보기). 400 = invalid · 409 = blocked."""
     from app import caption_tpl_api, task_options, works

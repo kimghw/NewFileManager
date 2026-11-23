@@ -10,7 +10,8 @@
 
 FACTS = ("slots", "heads", "checked", "config", "fit", "fresh", "links", "plan", "filled", "clean", "frame", "assigned",   # 사실의 이름(문서마다 · 쌍마다 · 워크플로우 전체 — ② §18-2)
          "tables", "tidy",   # 문서 하나(② §18-13): tables = 표 구조가 있음(문서 하나는 헤딩 그래프 heads 와 따로 센다) · tidy = 같은 템플릿의 줄을 대표 서식에 맞춤(조정)
-         "fixed", "pruned", "captioned")   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움 · captioned = 캡션을 한 꼴로 맞춤
+         "fixed", "pruned", "captioned",   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움 · captioned = 캡션을 한 꼴로 맞춤
+         "lined")   # 줄 정리를 반영함(spec_줄정리 — 한글의 줄 나눔으로 잰 갈림을 장평으로)
 PLACES = ("doc", "pair", "flow")
 KINDS = ("auto", "pick", "hand")
 ROLES = ("source", "target")   # 문서 역할 — 차례 = 원본 → 목적(app/workflow.py ROLES · app/custom_tasks.py ROLES 와 같다)
@@ -43,6 +44,9 @@ COMMON = {u["key"]: u for u in (
     # 캡션 맞추기(2026-11-23 사용자 「4단계에서 캡션 맞추기.. 할건데 옵션에서 한가지 골라서 모든 캡션을 동일한 형식/서식으로」 — 스크립트 · 울타리 · 실행 취소 1 ·
     # 고른 꼴 = 워크플로우 옵션 task_options.flow 의 caption: 고르지 않으면 줄이 가장 많은 꼴 — spec_hwpx_웹편집 ② §8-10 「모든 캡션을 한 꼴로」)
     _u("capUnify", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("captioned",), server=True),
+    # 줄 정리(2026-11-23 사용자 「4단계에 줄정리 도구를 넣고 … 장평을 조금씩 조절해서 … 이 규칙도 관리할 수 있도록 도구에서 볼수 있게」 — 스크립트 · 한글로 줄을 잼 ·
+    # 계획(잠금 밖 · 한글 조판을 되풀이) → 반영(울타리 · 실행 취소 1) · 규칙은 이 PC 의 설정: spec_줄정리)
+    _u("lineTidy", "stage_clean", "doc", roles=ROLES, change="doc", needs=("filled",), gives=("lined",), server=True),
     _u("hand", "hand", "doc", roles=ROLES, kind="hand", server=True),                                                       # 사람이 하는 일(여럿 놓을 수 있다 — ② §18-7 · 실행기는 「했음」 이 없으면 멈춘다)
 )}
 # 이관형 — 다른 양식 사이의 자리 연결 · 넣기(app/merge_api.py)
@@ -112,7 +116,7 @@ def unit(key, family="relay"):
     return FAMILIES.get(family, {}).get(key) or COMMON.get(key)
 
 
-SOURCE_FIT = ("headsLlm", "division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify")   # 원본 문서에도 놓는 구조 · 정리 줄(headsLlm — 받은 서식 정리 계획을 원본 문서에 반영: 2026-11-22)(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
+SOURCE_FIT = ("headsLlm", "division", "reheads", "reheadsLlm", "guide", "guideFix", "zonePrune", "capUnify", "lineTidy")   # 원본 문서에도 놓는 구조 · 정리 줄(headsLlm — 받은 서식 정리 계획을 원본 문서에 반영: 2026-11-22)(같이 쓰는 단위 — ② §18-2 「원본 문서에 놓는 줄」)
 
 
 # 받은 서식 정리 계획을 그 문서에 반영하는 LLM 줄 → 문서 역할(이관형 — spec_워크플로우 ② §18-25): 2026-11-22 사용자 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정하면될거 같아」
@@ -966,6 +970,46 @@ def _cap_unify_of(ctx, role="target"):
             + ("" if not c.get("change") else "(문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)")}
 
 
+def _line_tidy(ctx):
+    """줄 정리(줄) — 그 줄이 닿는 문서마다(_line_tidy_of)."""
+    return _per(ctx, _line_tidy_of)
+
+
+def line_tidy_text(c, rules=""):
+    """줄 정리의 한 줄(상태 글 · 실행기의 끝 글이 같이 쓴다) — c = 계획 · 반영 기록의 counts(line_tidy_api.plan_bytes)."""
+    if not c.get("fixed"):
+        head = "줄 끝에서 갈린 낱말이 규칙에 걸린 곳이 없습니다" if not c.get("paras") else "고칠 수 있는 갈림이 없습니다"
+    else:
+        parts = " · ".join(f"{n} {nf(c[k])}" for k, n in (("pull", "당기기"), ("push", "밀기"), ("last", "마지막 줄"), ("chain", "연속 당기기")) if c.get(k))
+        head = f"고친 문단 {nf(c['fixed'])}({parts})"
+    tail = []
+    if c.get("left"):
+        why = " · ".join(f"{k} {nf(v)}" for k, v in (c.get("why") or {}).items())
+        tail.append(f"그대로 둔 갈림 {nf(c['left'])}" + (f"({why})" if why else ""))
+    if c.get("short"):
+        tail.append(f"줄이 짧아 안 고친 곳 {nf(c['short'])}")
+    return head + "".join(f" · {x}" for x in tail) + (f" — 규칙: {rules}" if rules else "")
+
+
+def _line_tidy_of(ctx, role="target"):
+    """줄 정리(문서 하나의 몫 — spec_줄정리 ② §7) — 끝남 = 「내용 넣기」 의 마지막 반영 표식 뒤에 반영 기록(정의에 「내용 넣기」 가 없으면 반영 기록이 있음 — 지침 보정과 같은 꼴) ·
+    한글이 없거나 hwpx 가 아니면 「건너뜀」. 재료 = 그 문서 facts 의 lineTidy(unit_steps.line_tidy_facts). 상태를 셀 때는 한글을 부르지 않는다(재기는 실행 때만)."""
+    who, L, F, bad = _tidy_doc(ctx, role, "lineTidy")
+    if bad:
+        return bad
+    if L.get("error"):
+        return {"st": "blocked", "text": f"{who}재료를 읽지 못했습니다: {L['error']}"}
+    if L.get("why"):
+        return {"st": "done", "skipped": True, "text": f"{who}{L['why']} — 건너뜁니다"}
+    if F.get("fills") and not fill_done(F):
+        return {"st": "todo", "text": f"{who}{_sn(F, 'stage_fill', '내용 넣기')} 이 끝난 뒤에 넣은 글까지 줄을 정리합니다"}
+    a = L.get("applied")
+    if a and (not F.get("fills") or a.get("fill") == L.get("fill")):
+        return {"st": "done", "text": who + "줄 정리 — " + line_tidy_text(a.get("counts") or {}, L.get("rulesText") or "")}
+    return {"st": "todo", "text": who + "한글로 줄 나눔을 재어 줄 끝에서 짧게 갈린 낱말을 윗줄 · 다음 줄로 옮기도록 장평을 조금씩 바꿉니다"
+            f"(규칙: {L.get('rulesText') or ''} · 한글 조판을 몇 번 되풀이해 수십 초 · 문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
+
+
 def retidy_text(c):
     """넣은 뒤 템플릿 · 서식 정리의 결과 한 줄(상태 글 · 실행기의 끝 글이 같이 쓴다) — c = merge_retidy_api 의 counts."""
     if not c.get("levels"):
@@ -1018,7 +1062,7 @@ def _retidy_of(ctx, role="target"):
 
 
 _STATE.update({"link": _link, "llm": _link_llm, "plan": _plan, "gaps": _gaps, "tableMap": _table_map, "apply": _apply, "guide": _guide, "take": _take})   # 3단계 「내용 넣기」 · 4단계 「문서 정리」(걸음 3 — 이 절)
-_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune, "retidy": _retidy, "capUnify": _cap_unify})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9)
+_STATE.update({"guideFix": _guide_fix, "zonePrune": _zone_prune, "retidy": _retidy, "capUnify": _cap_unify, "lineTidy": _line_tidy})   # 「문서 정리」 의 조립 도구(② §18-23 · 넣은 뒤 정리 = spec_병합 ② §5-9 · 줄 정리 = spec_줄정리)
 
 
 # ---------------------------------------------------------------- 문서 하나(가족 single — 걸음 6: spec_워크플로우 ② §18-13 「걸음 6 — 문서 하나」) — 1단계 「프로젝트 구성」 의 상태 식
