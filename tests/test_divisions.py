@@ -1235,3 +1235,53 @@ def test_sign_lines_ignore_long_org_names():
     rep = rnd.apply(d, v, levels_of=rnd.levels_of, only=g["key"], prior=[v])
     assert not rep["errors"] and [(c["id"], c["new"]) for c in rep["changes"]] == [(pid, text)] and _sign_group(d, v, [v])["plan"]["done"]
 
+
+
+def _split_group(d, v):
+    """요약문 「N단계 (해당 시 작성)」 행 묶음 — 단계로 구분된 과제만 쓰는 단계 자리(② §26)."""
+    blocks = d.blocks()
+    gs = [g for g in rnd.find(blocks, rnd.levels_of(blocks), v) if g["dim"] == "stage" and rnd.core._only_split(g)]
+    assert len(gs) == 1, [g["key"] for g in gs]
+    return gs[0]
+
+
+def _split_rows(d):
+    from app.division_profiles import _structure as structure
+    return [" ".join(c["text"].split()) for b in structure.iter_blocks(d.blocks()) if b.get("type") == "table"
+            for c in b["cells"] if rnd.core.ONLY_SPLIT.search(c.get("text") or "") and rnd.core.STAGE_RE.search(c.get("text") or "")]
+
+
+@pytest.mark.parametrize("form", [REPORT, FORM], ids=["report", "plan"])
+def test_stage_rows_only_when_split(form):
+    """요약문 「1단계 (해당 시 작성)」·「n단계 (해당 시 작성)」 행(② §26 — 사용자 2026-11-23 「여기는 단계로 된 경우만 작성하도록 되어 있는데 .... 구분기준 LLM 검토할때 왜 이부분 체크하지 못했지?」):
+    단계가 하나인 과제면 행째 지운다(전에는 1단계 한 벌을 남겼다) — 양식 안내 「…단계로 구분된 경우(만) 작성합니다」 · 칸 라벨 「[1단계 개발내용]」 은 작성한 글로 세지 않는다.
+    단계가 둘이면 단계마다 한 벌. 옛 판이 1단계 한 벌만 남긴 문서도 묶음이 되어 다시 계획하면 지우고, 단계를 둘로 바꾸면 다시 늘린다."""
+    if not form.exists():
+        pytest.skip("KEIT 연차보고서 서식 hwpx 없음")
+    from app import division_model, hwpx_doc
+    V = lambda stages: rnd.norm_values({"stages": stages, "orgs": {"lead": "한국선급", "joint": ["유엔젤"]}})  # noqa: E731
+    one, two = V([4]), V([2, 2])
+    d = hwpx_doc.HwpxDoc(form.read_bytes())
+    assert _split_rows(d) == ["1단계 (해당 시 작성)", "n단계 (해당 시 작성)"]
+    g = _split_group(d, one)
+    spot = rnd.core.spot(g)
+    assert spot["count"] == 2 and spot["target"] == 0 and spot["written"] == 0 and spot["unsplit"]
+    assert division_model.status_of(spot, {}, set(), {}, set()) == ("applied", "단계로 구분되지 않은 과제 — 지움")
+    rep = rnd.apply(d, one, levels_of=rnd.levels_of, only=g["key"])
+    assert not rep["errors"] and rep["removed"] == 2 and _split_rows(d) == []
+    # 단계 둘 — 단계마다 한 벌(「n단계」 → 「2단계」)
+    d = hwpx_doc.HwpxDoc(form.read_bytes())
+    g = _split_group(d, two)
+    assert rnd.core.spot(g)["target"] == 2 and "unsplit" not in rnd.core.spot(g)
+    rep = rnd.apply(d, two, levels_of=rnd.levels_of, only=g["key"])
+    assert not rep["errors"] and _split_rows(d) == ["1단계 (해당 시 작성)", "2단계 (해당 시 작성)"]
+    # 옛 판(프로파일 판 8)이 단계 하나로 반영해 1단계 한 벌만 남긴 문서 — 「n단계」 행을 지워 만든다
+    d = hwpx_doc.HwpxDoc(form.read_bytes())
+    g = _split_group(d, one)
+    d.delete_rows(g["table"], *g["items"][1]["span"])
+    assert _split_rows(d) == ["1단계 (해당 시 작성)"]
+    g = _split_group(d, two)   # 하나만 남아도 묶음 — 단계가 늘면 다시 늘린다(지우지 않고 그대로 둔다)
+    assert len(g["items"]) == 1 and rnd.core.spot(g)["target"] == 2
+    g = _split_group(d, one)
+    rep = rnd.apply(d, one, levels_of=rnd.levels_of, only=g["key"])
+    assert not rep["errors"] and rep["removed"] == 1 and _split_rows(d) == []

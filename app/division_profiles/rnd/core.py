@@ -36,6 +36,9 @@ PASSES = 6
 
 STAGE_RE = re.compile(r"(?<![0-9A-Za-z])(\d+|[Nnx])(\s*단계)")
 YEAR_RE = re.compile(r"(?<![0-9A-Za-z])(\d+|[Nnx])(\s*(?:차\s*년도|년차))")
+# 단계로 구분된 과제만 쓰는 단계 자리(spec_구분_기준 ② §26): 라벨 「1단계 (해당 시 작성)」 — 단계가 하나인 과제면 항목째 지운다(요약문 「연구개발 목표 및 내용」 의 단계 행)
+ONLY_SPLIT = re.compile(r"해당\s*시")
+SPLIT_NOTE = re.compile(r"단계로\s*구분된\s*경우")   # 그 자리의 양식 안내 「ㅇ (연구개발기간이) 단계로 구분된 경우(만) 작성합니다.」 — 작성한 글로 세지 않는다
 # 「공동연구개발기관N」·「공동연구개발기관명N」(보고서 2-2) — 1 역할 · 2 번호 앞 「명」 · 3 빈칸 · 4 번호 · 5 번호 없는 「명」
 ORG_RE = re.compile(r"(주관|공동)연구개발기관(명(?=\s*(?:\d+|[Nn])(?![0-9A-Za-z])))?(?:(\s*)(\d+|[Nn])(?![0-9A-Za-z]))?(명)?")
 ROLE_RE = re.compile(r"\((주관|공동)\)")
@@ -337,8 +340,8 @@ _SKELETON = re.compile(r"\{(?:단계|차년도|기관|연도|세부)\}|#|[ㅇoO�
 
 
 def _authored(content):
-    """항목 비교용 글(_content)이 자리표시·글머리·빈 칸을 빼고도 두 글자 넘게 남으면 작성한 글로 본다(10-31 [2f])."""
-    return len(_SKELETON.sub("", content or "")) > 2
+    """항목 비교용 글(_content)이 자리표시·글머리·빈 칸을 빼고도 두 글자 넘게 남으면 작성한 글로 본다(10-31 [2f]). 「단계로 구분된 경우 작성합니다」 안내는 양식 글(② §26)."""
+    return len(_SKELETON.sub("", content or "")) > 2 and not SPLIT_NOTE.search(content or "")
 
 
 def _content(text):
@@ -775,7 +778,12 @@ def _table_groups(t, title="", this=False):
             ls.sort(key=lambda x: x[0][r])
             solo = this and axis == "rows" and ls[0][1] == STAGE_YEAR and all(left(x) for x in ls) and any(
                 y["row"] == 0 and y["col"] == ls[0][0]["col"] and _bare(y["text"]) == "구분" for y in t["cells"])
-            for g in ([Run(v) for _, v in groupby(ls, key=left)] if solo else _runs(ls, lambda x: x[1], lambda x: x[2], joined)):
+            runs = [Run(v) for _, v in groupby(ls, key=left)] if solo else _runs(ls, lambda x: x[1], lambda x: x[2], joined)
+            if axis == "rows" and not solo:   # 「1단계 (해당 시 작성)」 하나만 남은 행(단계 하나로 반영한 문서)도 단계 자리 — 단계가 늘면 다시 늘리고 하나면 지운다(② §26)
+                inrun = {x[0]["id"] for g in runs for x in g}
+                runs += [Run([x]) for x in ls if x[0]["id"] not in inrun and x[1] == STAGE and x[2] == 1 and not x[4]
+                         and ONLY_SPLIT.search(x[0]["text"] or "")]
+            for g in runs:
                 if g[0][1] == ORG and not all(re.search(r"연구개발기관\s*(?:\d+|[Nn]|명)", x[0]["text"]) for x in g):
                     continue  # 표의 기관 묶음은 번호·「…기관명」 자리가 있을 때만(채용 확인서의 「주관/공동연구개발기관」 고르기 행 제외)
                 items = []
@@ -1084,6 +1092,11 @@ def _one_stage(g):
                and lab[0]["col"] < g["items"][0]["cross"][0] for lab in _table_labels(g["_t"]))
 
 
+def _only_split(g):
+    """단계로 구분된 과제만 쓰는 단계 자리인가 — 라벨에 「해당 시」(요약문 「1단계 (해당 시 작성)」 · 「n단계 (해당 시 작성)」 — ② §26)."""
+    return any(ONLY_SPLIT.search(it.get("labelText") or "") for it in g["items"])
+
+
 def _ctx(g, groups):
     """차년도 묶음의 맥락(② §2): 둘러싼 단계 항목 값 — None = 단계 밖(전체), "?" = 자리표시 단계 안(아직 모름)."""
     first = g["items"][0]["label"] or g["items"][0]["roots"][0]
@@ -1167,6 +1180,8 @@ def find(blocks, levels, values, settled=(), rebuild=True, hints=None, prior=Non
             g["irregular"], g["target"] = True, None   # 같은 차년도 행이 둘 — 평가항목을 못 가른 표(왼쪽 칸을 합친 표 등): 그대로
         elif g.get("thisYear"):   # 보고서 「해당연도」 절 표의 단계-차년도 행: 당해 차년도 행 하나(② §18)
             g["target"] = [stage_year(values, values.get("current") or 1)]
+        elif g["dim"] == STAGE and len(values["stages"]) == 1 and _only_split(g):
+            g["target"], g["unsplit"] = [], True   # 단계로 구분되지 않은 과제(단계 하나) — 「해당 시 작성」 단계 자리는 항목째 지움(② §26)
         else:
             g["target"] = targets(g["dim"], values, ctx=g["ctx"])
     _org_year_fit(groups, values, prior)
@@ -1518,13 +1533,14 @@ def spot(g, work=()):
     # 잡고, 항목마다 다른 양식 예시 글은 잡는다(보수적). 본뜰 항목(template)과 견주지 않는다 — 줄일 때는 본뜰 항목 자체가 지워지는 항목일 수 있다(가장 큰 항목 중 마지막)
     items = g["items"]
     have = set().union(*(set(items[i]["content"]) for i in plan.get("keep") or () if i < len(items)))
-    written = sum(1 for i in plan.get("drop") or () if i < len(items) and any(_authored(c) for c in set(items[i]["content"]) - have))
+    real = (lambda c: _authored(c) and not re.fullmatch(r"\[[^\]]*\]", c)) if g.get("unsplit") else _authored   # 항목째 지우는 단계 자리: 칸 라벨 「[1단계 개발내용]」 은 양식 글(② §26)
+    written = sum(1 for i in plan.get("drop") or () if i < len(items) and any(real(c) for c in set(items[i]["content"]) - have))
     return {"key": g["key"], "kind": "list" if g.get("list") else g["kind"], "dim": g["dim"],
             "where": {"table": g["table"], "cell": g["container"]},
             "labels": [re.sub(r"\s+", " ", it["labelText"] or "").strip()[:30] for it in g["items"]],
             "count": len(g["items"]), "target": len(g["target"]) if g["target"] is not None else None,
             "done": done, "nested": nested, "reason": reason, "message": plan.get("blocked"), "written": written,
-            "hinted": bool(g.get("hinted"))}
+            "hinted": bool(g.get("hinted")), **({"unsplit": True} if g.get("unsplit") else {})}
 
 
 def preview(blocks, levels, values, rebuild=True, hints=None, prior=None):

@@ -67,8 +67,8 @@ def status_of(before, after_by_key, attached, errors, skip):
         return "unresolved", errors[key]
     if before.get("done"):
         return "already", "이미 맞음"
-    if key != "period" and key not in attached:   # 첫 라벨이 사라짐 = 바깥 묶음이 이 항목째 지움(자리표시 단계 안 등)
-        return "applied", "바깥 묶음이 지움"
+    if key != "period" and key not in attached:   # 첫 라벨이 사라짐 = 바깥 묶음이 이 항목째 지움(자리표시 단계 안 등) · 단계 하나인 과제의 「해당 시 작성」 단계 자리(spec_구분_기준 ② §26)
+        return "applied", "단계로 구분되지 않은 과제 — 지움" if before.get("unsplit") else "바깥 묶음이 지움"
     after = after_by_key.get(key)
     if after is None:
         return ("applied", "맞춤") if before.get("reason") not in UNSUPPORTED_REASONS else ("unsupported", UNSUPPORTED_REASONS[before["reason"]])
