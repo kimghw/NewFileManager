@@ -1231,7 +1231,8 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         copied = {**(saved.get("copied") or {}), **done["copies"]["records"]}   # 통째로 복사한 표의 기록 {제목 열쇠: {to(새 표 id), from, hash}}(② §5-8 — 다시 계획하면 할 일 0 · 새 표가 사라지면(실행 취소) 안 믿는다)
         _store(doc_id, {**saved, "applied": {**(saved.get("applied") or {}), **new}, **({"tableMaps": tm} if tm else {}), **({"copied": copied} if copied else {}),   # 고정 라벨도 같은 기록(열쇠 = 목적 라벨 id — 묶음 항목과 안 겹친다)
                         "filled": {**mark, "rev": s.rev, "nothing": False,   # 반영함 — 표 칸만 채운 반영도 「내용 넣기」 의 끝으로(② §18-12 ②) · 넣은 블록이 모두 사라졌으면(실행 취소) · 원본이 바뀌었으면 안 믿는다
-                                   "ids": [i for d in (done["fill"], done["fixed"], done["gaps"], done["copies"]) for ids in (d.get("inserted") or {}).values() for i in ids][:2000]}})
+                                   "ids": [i for d in (done["fill"], done["fixed"], done["gaps"], done["copies"]) for ids in (d.get("inserted") or {}).values() for i in ids][:2000],
+                                   "cells": list(dict.fromkeys(c for d in (done["tables"], done["maps"]) for c in d.get("cells") or ()))[:2000]}})   # 글을 쓴 표 칸(표 묶음 · 표 대응) — 칸 안의 개요 줄(「1. 선내 데이터 …」)도 넣은 뒤 서식 정리가 맞춘다(merge_retidy.record_ids · 2026-11-23)
         skip = lambda d: len(d.get("skipped") or ())  # noqa: E731 — 반영 때 건너뛴 수(계획 뒤 글이 생긴 칸 등)
         return {"body": done["fill"]["counts"], "tables": {**{k: done["tables"].get(k) for k in TABLE_KEYS}, "skipped": skip(done["tables"])},
                 "fixed": {**{k: done["fixed"].get(k) for k in FIXED_KEYS}, "skipped": skip(done["fixed"])},

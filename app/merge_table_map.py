@@ -917,8 +917,11 @@ def apply(to_doc, from_doc, plan):
     차례 = 행 늘리기(빈 묶음을 본뜸 — 글을 쓰기 전에) → 칸 글 → 예시 지움 → 선. 칸은 **지금** 계획 때 글 그대로일 때만 쓴다."""
     filled, shaped, lined, cleared, added, skipped, grown = 0, 0, 0, 0, 0, [], defaultdict(list)
     to_doc.blocks()
-    fit = []
+    fit, made = [], []
     last = {}   # (표, 본뜰 첫 행) → 바로 앞에 늘린 묶음의 [(행 차례, 열) → 칸 id] · 그 묶음의 첫 행 — 같은 묶음을 여러 번 본뜨면 차례로 아래에
+    # 행을 **모두 먼저** 늘리고 칸 글 · 표시 선은 그 뒤에 쓴다(2026-11-23 — 실제 이관의 기관별 성능 표: 늘린 묶음마다 바로 글을 쓰면 다음 묶음이 그 행을 본떠
+    # 앞 항목의 값(「해당연도 3」 · 「Kongsberg, Mersk, 등」)이 원본에 값이 없는 칸에 따라 들어갔고, 모양은 끝에 얹으므로 그 칸은 빈 양식의 문단 모양(왼쪽 맞춤)으로 남았다).
+    # 글을 쓰기 전에는 늘린 묶음이 모두 본뜰 묶음(빈 항목)의 사본이다
     for r in plan.get("rows") or ():
         tb = to_doc.table_block(r["table"]) or {"cells": []}
         key = (r["table"], r["like"][0])
@@ -932,6 +935,8 @@ def apply(to_doc, from_doc, plan):
         last[key] = (new, a0 + r["n"])
         grown[r["table"]].append({"index": r.get("index"), "rows": list(range(a0 + r["n"], a0 + 2 * r["n"]))})
         added += 1
+        made.append((r, new))
+    for r, new in made:
         for c in r["cells"]:
             cid = new.get(tuple(c["at"]))
             if cid is None:
@@ -983,7 +988,8 @@ def apply(to_doc, from_doc, plan):
         except (ValueError, KeyError) as x:
             skipped.append({"to": cid, "why": "shape", "detail": str(x)})
     shaped = sum(MT._shape(to_doc, from_doc, to, frm) for to, frm in fit)
-    return {"filled": filled, "shaped": shaped, "lines": lined, "rowsAdded": added, "cleared": cleared, "skipped": skipped, "grown": dict(grown)}
+    return {"filled": filled, "shaped": shaped, "lines": lined, "rowsAdded": added, "cleared": cleared, "skipped": skipped, "grown": dict(grown),
+            "cells": list(dict.fromkeys(to for to, _ in fit))}   # 글을 쓴 칸 id — 넣은 기록(merge.json filled.cells)이 「넣은 뒤 서식 정리」 에 칸 안의 개요 줄을 넘긴다
 
 
 def settle(m, grown, block):

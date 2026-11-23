@@ -512,4 +512,5 @@ def apply(to_doc, from_doc, plan):
         new += m.values()
         added += 1
     shaped = sum(_shape(to_doc, from_doc, to, frm) for to, frm in fit)
-    return {"filled": filled, "shaped": shaped, "rowsAdded": added, "new": new, "skipped": skipped}
+    return {"filled": filled, "shaped": shaped, "rowsAdded": added, "new": new, "skipped": skipped,
+            "cells": list(dict.fromkeys(to for to, _ in fit))}   # 글을 쓴 칸 id — 넣은 기록(merge.json filled.cells)이 「넣은 뒤 서식 정리」 에 칸 안의 개요 줄을 넘긴다

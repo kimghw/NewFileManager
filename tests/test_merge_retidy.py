@@ -347,6 +347,14 @@ def test_record_ids_and_within_are_the_old_inserted():
     assert MR.within(blocks, ()) == set() and MR.record_ids(None) == set()
 
 
+def test_cells_written_by_the_table_paths_bring_their_paragraphs():
+    """표 묶음 · 표 대응이 글을 쓴 칸(filled.cells — 칸 id)의 문단도 넣은 줄이다(2026-11-23 실제 이관: 성능 목표 표의 「1. 선내 데이터 …」 가 원본의 두 문단 모양 그대로 들어와
+    「≈」 로 남았는데, 칸 채움이 넣은 기록에 없어 넣은 뒤 서식 정리가 그 줄을 못 봤다). 칸 id 자체는 블록이 아니라 결과에 안 든다 · 다른 칸의 문단은 안 든다."""
+    blocks = [{"id": "t1", "cells": [{"id": "c1", "blocks": [{"id": "p2"}, {"id": "p3"}]}, {"id": "c2", "blocks": [{"id": "p4"}]}]}]
+    rec = {"filled": {"ids": [], "cells": ["c1"]}}
+    assert MR.record_ids(rec) == {"c1"} and MR.inserted(blocks, rec) == {"p2", "p3"}
+
+
 def test_gather_ids_read_body_records_of_parts_and_gone_but_not_cells_or_rows():
     from app import merge_gather as MG
     assert MR.GATHER_BODY == MG.BODY   # 취합의 본문 기록 kind 와 같아야 한다(merge_gather 를 가져오지 않으려 따로 둔다)

@@ -241,3 +241,40 @@ def test_prompt_carries_the_table_guides_and_the_contract_line_only_when_there_a
     assert PG.CONTRACT_LINE not in MT.prompt(base)
     got = MT.prompt({**base, "target": {**base["target"], "guides": [{"src": "doc", "kind": "각주 번호 3)", "label": "사업비3)", "cell": "r0c2", "text": "3. 해당 연도만"}]}})
     assert PG.CONTRACT_LINE in got and '"cell":"r0c2"' in got
+
+
+def test_grown_rows_are_all_copies_of_the_empty_slot_not_of_the_rows_already_filled():
+    """반영(apply) — 같은 빈 「n.」 행을 여러 번 본떠 늘릴 때, 앞서 늘린 행에 쓴 값이 다음 행의 빈 칸에 따라 들어가지 않는다(2026-11-23 실제 이관:
+    연차보고서 「[주관연구개발기관명 : 한국선급]」 성능 표에서 원본에 값이 없는 「해당연도」 칸에 위 행의 「3」 이, 「세계최고 수준」 칸에 「Kongsberg, Mersk, 등」 이 따라 들어갔고,
+    모양은 끝에 얹으므로 그 칸은 빈 양식의 문단 모양(양쪽 맞춤)으로 남아 왼쪽에 붙어 보였다). 연차보고서 서식(저장소 자료)의 그 표 그대로."""
+    from merge_data import REPORT_FORM
+    from app.hwpx_doc import HwpxDoc
+    if not REPORT_FORM.is_file():
+        import pytest
+        pytest.skip("연차보고서 서식 자료 없음")
+    doc = HwpxDoc(REPORT_FORM.read_bytes())
+    doc.blocks()
+    tid, like = None, None
+    for b in doc.blocks():
+        cells = (b.get("cells") or []) if b.get("type") == "table" else []
+        heads = " ".join(c.get("text") or "" for c in cells)
+        slot = next((c for c in cells if c["col"] == 0 and (c.get("text") or "").strip() == "n."), None)
+        if slot and "평가 방법" in heads and "성능수준" in heads:
+            tid, like = b["id"], slot["row"]
+            break
+    assert tid, "연차보고서 서식에 「n.」 행이 있는 성능 목표 표가 없음"
+    cols = sorted(c["col"] for c in doc.table_block(tid)["cells"] if c["row"] == like)
+    val = cols[6]   # 「목표 › 해당연도」 자리 — 값 칸이면 어느 열이든 된다
+
+    def grow(i, name, extra):
+        return {"table": tid, "like": [like, like], "n": 1, "index": i, "from": [i],
+                "cells": [{"at": [0, cols[0]], "text": name, "from": None}] + [{"at": [0, c], "text": t, "from": None} for c, t in extra], "marks": [], "mark": None}
+    plan = {"rows": [grow(0, "3. 셋째", [(val, "3")]), grow(1, "4. 넷째", []), grow(2, "5. 다섯째", [])], "cells": [], "clears": [], "lines": []}
+    got = MM.apply(doc, doc, plan)
+    assert got["rowsAdded"] == 3 and got["skipped"] == []
+    at = {(c["row"], c["col"]): c["text"] or "" for c in doc.table_block(tid)["cells"]}
+    rows = [g["rows"][0] for g in got["grown"][tid]]
+    assert [at[(r, cols[0])].strip() for r in rows] == ["3. 셋째", "4. 넷째", "5. 다섯째"]
+    assert [at[(r, val)].strip() for r in rows] == ["3", "", ""]   # 전에는 「3」 · 「3」 · 「3」
+    written = {c["id"] for c in doc.table_block(tid)["cells"] if c["row"] in rows and (c["text"] or "").strip()}
+    assert set(got["cells"]) == written   # 글을 쓴 칸 = 넣은 기록(filled.cells)이 넘기는 칸

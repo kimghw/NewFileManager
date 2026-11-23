@@ -49,13 +49,15 @@ GATHER_BODY = ("added", "filled")   # 취합의 본문 넣은 기록(= merge_gat
 
 
 def record_ids(rec):
-    """이관의 넣은 기록(merge.json)이 적은 넣은 블록 id — 항목마다의 넣은 블록(applied[].ids) · 넘친 줄 기록(applied[].over.lines) · 마지막 반영의 넣은 블록(filled.ids) · 통째로 복사한 표(copied[].to)."""
+    """이관의 넣은 기록(merge.json)이 적은 넣은 블록 id — 항목마다의 넣은 블록(applied[].ids) · 넘친 줄 기록(applied[].over.lines) · 마지막 반영의 넣은 블록(filled.ids) · 통째로 복사한 표(copied[].to)
+    · 마지막 반영이 글을 쓴 표 칸(filled.cells — 표 묶음 · 표 대응: 칸 안의 개요 줄 「1. 선내 데이터 …」 도 원본 모양 그대로 들어온다 · 2026-11-23)."""
     rec = rec or {}
     want = set()
     for v in (rec.get("applied") or {}).values():
         want.update(v.get("ids") or ())
         want.update(x.get("id") for x in ((v.get("over") or {}).get("lines") or ()) if x.get("id"))
     want.update((rec.get("filled") or {}).get("ids") or ())
+    want.update((rec.get("filled") or {}).get("cells") or ())
     want.update(c.get("to") for c in (rec.get("copied") or {}).values() if isinstance(c, dict) and c.get("to"))
     return want
 
@@ -71,7 +73,7 @@ def _gather_applied(G):
 
 def gather_ids(G):
     """취합의 넣은 기록이 적은 넣은 블록 id — 본문 기록(kind added · filled)의 ids(새 최상위 블록) + 그 기록의 넘친 줄(convert.over.lines).
-    표 칸 · 행에 쓴 기록(cells · rows — 칸 id)은 들지 않는다(이관도 칸 채움은 넣은 줄로 보지 않는다) · 끌어 넣기는 넣은 기록이 없어 들지 않는다."""
+    표 칸 · 행에 쓴 기록(cells · rows — 칸 id)은 아직 들지 않는다(이관은 2026-11-23 부터 글을 쓴 칸의 문단도 넣은 줄 — record_ids · 취합은 spec_병합 ④) · 끌어 넣기는 넣은 기록이 없어 들지 않는다."""
     want = set()
     for v in _gather_applied(G):
         if v.get("kind") in GATHER_BODY:
@@ -95,7 +97,7 @@ def held_ids(recs, cases):
 
 
 def within(blocks, want):
-    """want 가운데 지금 문서에 있는 블록 id — 넣은 표 안의 칸 · 문단까지(넣은 표의 안은 모두 넣은 것)."""
+    """want 가운데 지금 문서에 있는 블록 id — 넣은 표 안의 칸 · 문단까지(넣은 표의 안은 모두 넣은 것) · 글을 쓴 칸(want 의 칸 id)의 문단까지(칸 id 자체는 안 든다 — 블록이 아니다)."""
     want, out = set(want or ()), set()
 
     def visit(b, inside):
@@ -104,7 +106,7 @@ def within(blocks, want):
             out.add(b["id"])
         for c in b.get("cells") or ():
             for x in c.get("blocks") or ():
-                visit(x, here)
+                visit(x, here or c.get("id") in want)
     for b in blocks or ():
         visit(b, False)
     return out
