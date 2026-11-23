@@ -785,6 +785,9 @@ function olmNoPlace(t) { // 「하위로」 를 눌렀는데 넣을 자리가 �
 }
 
 function olmTplTools(li, row, id) { // 템플릿 줄 머리 — 종속 템플릿 표지 · 이 템플릿으로 만든 종속 템플릿 「T1T3 · 떼기」 · 「대표 맞추기」 · 「다른 서식 보기」 · 「하위로」(넣을 자리가 없어도 보인다 — 누르면 까닭)
+  if (row.querySelector(":scope > .trel-hang")) row.classList.add("trel-has-hang");
+  const nm = row.querySelector(":scope > .trel-name");
+  if (nm && !nm.title) nm.title = nm.textContent;
   const t = olmTpl(id);
   if (!t) return;
   if (t.comp) {

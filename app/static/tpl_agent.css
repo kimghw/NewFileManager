@@ -129,3 +129,362 @@ button.olm-chip.olm-vchip:focus-visible { outline: 2px solid #7c3aed; outline-of
 /* 행동이 없을 때 행동 칸은 감춘다([hidden]) — 줄의 마지막 칸이라 앞의 두 칸은 밀리지 않는다(격자의 열 폭은 그대로) */
 #headsOverview .hprog-step.tpb-cell.flash { animation: tpbFlash 1.4s ease-out; } /* 다른 자리에서 이 줄로 왔을 때(tplPlanGo) 한 번 */
 @keyframes tpbFlash { from { box-shadow: 0 0 0 3px #c4b5fd; } to { box-shadow: 0 0 0 3px transparent; } }
+
+/* ---- 템플릿 줄 정리(Antigravity 2026-11-23) — 2열 「템플릿 관계」 · 「템플릿」 탭 같은 트리(.tpl-tree):
+   1) 머리 줄 1 = 정체(▸ · TN · 사슬 말줄임 · n곳 · 매달린 자리 · 오른쪽 끝 ✦ 📄), 늘 한 줄.
+   2) 머리 줄 2 = 조작 띠(칩 먼저 · 그다음 단추 — ::after 줄 바꿈 + flex order, 칩·단추가 없으면 빈 틈 없음).
+   3) 개요 레벨 그림(.tpl-pic)은 비율을 유지한 채 약 65% 크기로 줄이고, 「원문 보기」 를 그림 바로 아래 붙여 한 덩어리로 읽히게. ---- */
+
+/* 1. 템플릿 한 덩어리 — 상자를 겹치지 않고 1px 구분선과 간격으로 템플릿 사이를 가른다 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel > li.trel-node {
+  padding: 6px 0 7px;
+  border-bottom: 1px solid #e6eaf0;
+  min-width: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel > li.trel-node:first-child {
+  padding-top: 2px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel > li.trel-node:last-child {
+  padding-bottom: 2px;
+  border-bottom: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-levels .trel > li.trel-node {
+  padding: 4px 0 5px;
+  border-bottom-color: #edf0f5;
+}
+
+/* 2. 머리 줄 — 1줄: 정체(왼쪽) + 아이콘 둘(오른쪽 끝) / 2줄: 칩 · 단추(조작 띠).
+   row-gap: 0 + ::after(flex: 0 0 100%; height: 0; order: 10) + 2줄 항목에만 margin-top: 5px → 칩·단추가 없으면 둘째 줄 빈 틈이 0 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 4px;
+  min-height: 28px;
+  padding: 3px 4px 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row::after {
+  content: "";
+  order: 10;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+
+/* 줄 1 항목(order 1~7) — 고정 요소는 줄지 않고, 사슬(.trel-name)·매달린 자리(.trel-hang)만 말줄임으로 좁혀 줄 1이 꺾이지 않게 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .htog {
+  order: 1;
+  flex: none;
+  width: 18px;
+  height: 22px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .hb.tplno {
+  order: 2;
+  flex: none;
+  font-size: 10.5px;
+  line-height: 19px;
+  padding: 0 5px;
+  border-radius: 4px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .trel-name {
+  order: 3;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: max(0px, calc(100% - 178px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  color: #26364e;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .trel-meta {
+  order: 4;
+  flex: none;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: #6b778a;
+  white-space: nowrap;
+  padding: 1px 6px;
+  background: #f2f4f8;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .trel-hang {
+  order: 5;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: #7b8798;
+}
+/* 매달린 자리(.trel-hang)가 있는 종속 템플릿 줄 — 사슬과 매달린 자리가 줄 1 남는 폭을 나눠 써서 320px 에서도 안 꺾인다 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row.trel-has-hang > .trel-name {
+  max-width: max(0px, calc((100% - 168px) * 0.48));
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row.trel-has-hang > .trel-hang {
+  max-width: max(0px, calc((100% - 168px) * 0.52));
+}
+/* 펼친 레벨 안의 중첩 템플릿 줄 — 「n곳 · 여기 m」 이 붙을 수 있어 여유 폭을 조금 더 비운다 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-levels .trel .trel-row > .trel-name {
+  max-width: max(0px, calc(100% - 212px));
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-levels .trel .trel-row > .trel-meta {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 캡션 템플릿 줄(k-cap) — ✦ 아이콘은 없고 .trel-meta(「그림 캡션 · 아래 45」)가 길어 사슬과 폭을 나눈다 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node.k-cap > .trel-row > .trel-name {
+  max-width: max(0px, calc((100% - 92px) * 0.45));
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node.k-cap > .trel-row > .trel-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: max(0px, calc((100% - 92px) * 0.55));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 줄 1 오른쪽 끝 아이콘 둘(✦ · 📄) */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .tpl-agent {
+  order: 6;
+  flex: none;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .panel-help {
+  order: 7;
+  flex: none;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .tpl-agent + .panel-help {
+  margin-left: 0;
+}
+
+/* 3. 줄 2 조작 띠 — 칩 먼저(order 20), 그다음 단추들(order 30 — DOM 차례 그대로). 높이 22px 로 고르게 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-chip,
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row > .capt-chip {
+  order: 20;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 22px;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-chip.oll-chip {
+  border-color: #c9d6f5;
+  background: #f0f5ff;
+  color: #2b4d87;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row button.olm-chip.olm-tm-stale {
+  order: 21;
+  cursor: pointer;
+  border-color: #f5d39a;
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row button.olm-chip.olm-tm-stale:hover {
+  border-color: #d97706;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn {
+  order: 30;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 22px;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 0 8px;
+  border: 1px solid #cfd7e4;
+  border-radius: 5px;
+  background: #fff;
+  color: #2b3a52;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #f0f4fc;
+  color: var(--accent);
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-tm-btn {
+  border-color: #b8ccf0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-tm-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #dce8ff;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-tm-btn.olm-tm-plan {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-tm-btn.olm-tm-plan:hover:not(:disabled) {
+  border-color: #7c3aed;
+  background: #ede9fe;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-odd-btn:not(.none) {
+  border-color: #f0c98d;
+  background: #fff9ee;
+  color: #9a4a00;
+  font-weight: 600;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-odd-btn:not(.none):hover:not(:disabled),
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.olm-odd-btn:not(.none)[aria-expanded="true"] {
+  border-color: #d97706;
+  background: #ffefd6;
+  color: #92400e;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.none {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.none:hover:not(:disabled) {
+  border-color: #8f9bb0;
+  background: var(--surface-2);
+  color: var(--text);
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn.none[aria-expanded="true"] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-row .olm-btn[aria-expanded="true"]:not(.olm-odd-btn):not(.none) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 4. 「하위로」 · 「표를 L1 으로」 펼침 줄 — 새 모양에 맞춰 왼쪽 띠로 붙이고 320px 에서도 안 넘치게 */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .olm-merge {
+  margin: 4px 0 5px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 6px 6px 0;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  min-width: 0;
+  max-width: 100%;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .olm-merge select {
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  font-size: 11.5px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .olm-merge .olm-note,
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .olm-merge .hnote {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .oll-form .oll-g {
+  width: 100%;
+  min-width: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .oll-form .oll-list {
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .oll-form .oll-list li {
+  padding: 1px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 5. 개요 레벨 그림(.tpl-pic) — 실제 레벨별 크기 비율과 들여쓰기는 유지하고 전체 높이만 약 65%로 압축(big:true 유지 → .sp-over 없음) */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .tpl-pic {
+  margin: 4px 0 2px;
+  max-width: none;
+  min-width: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-frame {
+  border-color: #e2e7f0;
+  border-radius: 6px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-in {
+  zoom: 0.66;
+  padding: 7px 10px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-lv {
+  margin: 0 0 3px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-lv:last-child {
+  margin-bottom: 0;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-tag {
+  width: 28px;
+  padding-top: 7px;
+  font-size: 14px;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .tpl-pic .sp-bar {
+  height: 6px;
+  border-radius: 3px;
+}
+
+/* 6. 「다른 서식 보기」 펼침(.olm-odd) · 「원문 보기」 링크(.template-source) · 펼친 몸통(.trel-body) */
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .olm-odd {
+  margin: 4px 0 3px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .template-source {
+  display: block;
+  margin: 0;
+  padding: 2px 2px 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #4c648f;
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .template-source:hover {
+  color: var(--accent);
+}
+:is(#headsDlg[data-kind="templates"], #headsTemplatesResult) .tpl-tree .trel-node > .trel-body {
+  margin-top: 5px;
+  margin-bottom: 2px;
+}
