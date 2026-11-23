@@ -489,6 +489,7 @@ def main():
         # ---- ⑦-4 「작업 내용 초기화…」(2026-11-22 사용자 "작업내용을 초기화 하는게 없어, 대시보드에 그게 들어 가면 좋겠는데") — 발 줄에서 펴는 인라인 확인: 문서마다 · 모두 · 취소(Esc) →
         #        고른 문서만 올린 직후로(같은 기능 POST …/reset — 작업 폴더의 reset/1) · 다른 문서는 그대로 · 대시보드는 다시 읽음
         RESET = """() => { const r = document.querySelector('#homeDash .dash-reset'); return r ? { docs: [...r.querySelectorAll('.dash-reset-docs li')].map((li) => li.textContent), text: r.textContent,
+          help: ((r.querySelector('.dash-reset-head .panel-help') || {}).dataset || {}).help || '',
           acts: [...r.querySelectorAll('.dash-reset-acts button')].map((b) => b.textContent), focus: (document.activeElement.dataset || {}).hdFocus || '' } : null; }"""
         n_reset = lambda wid: len([p for p in (tmp / "works" / wid / "reset").glob("*") if p.is_dir()]) if (tmp / "works" / wid / "reset").is_dir() else 0   # 앞에서 reset_pair 로 초기화한 적이 있다 — 수로 견준다
         r0 = (n_reset(plan["id"]), n_reset(rep["id"]))
@@ -497,7 +498,7 @@ def main():
         rs = page.evaluate(RESET)
         check("⑦-4 「작업 내용 초기화…」 → 그 자리에 펴지는 확인(모달 아님) · 문서 칸 둘(원본 → 목적) · 문서마다 단추 + 「모든 문서 초기화」 + 「취소」 · 비우는 것 · 남는 것 · 초점은 「취소」",
               rs and rs["docs"] == [f"원본 문서{plan.get('name')}", f"목적 문서{rep.get('name')}"] and rs["acts"] == ["원본 문서 초기화", "목적 문서 초기화", "모든 문서 초기화", "취소"]
-              and "비우는 것:" in rs["text"] and "남는 것:" in rs["text"] and rs["focus"] == "reset:close" and not page.locator(".confirm, dialog[open]").count(), rs)
+              and "비우는 것 — " in rs["help"] and "남는 것 — " in rs["help"] and "비우는 것" not in rs["text"] and rs["focus"] == "reset:close" and not page.locator(".confirm, dialog[open]").count(), rs)
         page.keyboard.press("Escape")
         page.wait_for_selector('#homeDash [data-hd-focus="reset"]', timeout=10000)
         check("⑦-4 Esc = 취소 — 상자가 닫히고 단추 「작업 내용 초기화…」 로 · 아무것도 안 바뀜", page.evaluate(RESET) is None and (n_reset(plan["id"]), n_reset(rep["id"])) == r0, r0)

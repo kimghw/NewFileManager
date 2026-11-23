@@ -465,13 +465,14 @@ def test_reletter_writes_the_letter_line_by_line_and_the_slot_key_and_chain_foll
     ins = {"p10", "p11", "p12", "p13"}
     seen = []
 
-    def match_one(doc, ov_, pid, sh, left=None):   # 진짜는 접두를 다시 쓰고 오버레이의 레터를 그 글자로(outline_match.match_one)
-        seen.append((pid, sh["tok"], sh["prefix"]))
-        ov_["lines"][pid]["letter"] = sh["tok"]
-    monkeypatch.setattr(OM, "match_one", match_one)
+    def swap(doc, ov_, pid, now):   # 진짜는 레터 글자만 제자리에서 바꾸고 오버레이의 레터를 그 글자로(merge_retidy._swap — 실제 문서는 test_outline_conform 의 reletter 시험)
+        seen.append((pid, now))
+        ov_["lines"][pid]["letter"] = now
+        return True
+    monkeypatch.setattr(MR, "_swap", swap)
     monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
     changed = MR.reletter(None, ov, MR.reletter_of(None, ov, ins))
-    assert sorted(changed) == ["p10", "p11", "p12", "p13"] and ("p11", "◇", "◇ ") in seen   # 줄마다 제 모양(레터 앞 · 뒤 빈칸)에 레터만
+    assert sorted(changed) == ["p10", "p11", "p12", "p13"] and ("p11", "◇") in seen   # 줄마다 레터만(레터 앞 · 뒤 빈칸 · 런은 그 줄 것 그대로)
     # 키 = 헤딩 판정의 정규 키(「▷」 → 「▶」 — 다시 분석한 그래프가 그 줄에 주는 키와 같다)
     assert [(ov["lines"][p]["letter"], ov["lines"][p]["key"]) for p in ("p10", "p11", "p12", "p13")] == [("⋅", "·"), ("◇", "◇"), ("▷", "▶"), ("◇", "◇")]
     S = ov["templates"]["2"]["slots"]
@@ -534,7 +535,7 @@ def test_levels_are_looked_at_again_until_nothing_changes_and_a_level_is_not_com
     got = {(r["tpl"], r["level"]): (r["was"], r["now"]) for r in MR.reletter_of(None, ov, ins)}
     assert got[("2", 1)] == ("o", "⋅") and got[("2", 2)] == ("-", "◇")
     monkeypatch.setattr(MR, "_up", real)
-    monkeypatch.setattr(OM, "match_one", lambda doc, ov_, pid, sh, left=None: ov_["lines"][pid].update(letter=sh["tok"]))
+    monkeypatch.setattr(MR, "_swap", lambda doc, ov_, pid, now: ov_["lines"][pid].update(letter=now) or True)
     monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
     MR.reletter(None, ov, MR.reletter_of(None, ov, ins))
     assert [r for r in MR.reletter_of(None, ov, ins) if r["now"]] == []   # 두 번째 누름 — 바꿀 레터 없음(같은 레벨의 p12 › p13 은 견주지 않는다)
@@ -557,7 +558,7 @@ def test_a_small_filled_square_under_a_dot_counts_as_the_same_letter(tree, monke
     ins = {"p10", "p11", "p12", "p13"}
     got = MR.reletter_of(None, ov, ins)
     assert [(r["level"], r["was"], r["now"]) for r in got] == [(2, "▪", "◇"), (3, "◇", "▷")]   # L1 「•」 는 위(「□ › ㅇ › -」)와 안 겹친다 — 그대로
-    monkeypatch.setattr(OM, "match_one", lambda doc, ov_, pid, sh, left=None: ov_["lines"][pid].update(letter=sh["tok"]))
+    monkeypatch.setattr(MR, "_swap", lambda doc, ov_, pid, now: ov_["lines"][pid].update(letter=now) or True)   # 레터 글자만 제자리에서(문서 없이 오버레이만 — 실제 문서는 test_outline_conform 의 reletter 시험)
     monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
     MR.reletter(None, ov, got)
     assert MR.reletter_of(None, ov, ins) == []

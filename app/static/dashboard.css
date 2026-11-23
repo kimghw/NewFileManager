@@ -200,8 +200,8 @@
    펴면 위험 색 테두리 상자 = 그 자리의 인라인 확인(design.md §18 「초기화」 는 확인을 남김 — 창이 아니라 「작업 지우기」 의 인라인 확인 줄과 같은 꼴: 무엇을 비우고 남기나 + 문서마다 위험 색 단추 + 「취소」) */
 .dash-reset-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .dash-reset { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid #e79d9d; border-radius: 8px; background: #fff; }
-.dash-reset-head { margin: 0; color: var(--fail); font-size: 12.5px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
-.dash-reset-text { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.dash-reset-head { display: flex; align-items: center; gap: 2px; margin: 0; color: var(--fail); font-size: 12.5px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.dash-reset-head .panel-help { margin: -4px 0; } /* 비우는 것 · 남는 것 = 머리 옆 노트 아이콘(2026-11-23 — 전의 회색 설명 단락 .dash-reset-text 는 없앰) */
 .dash-reset-docs { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.5; }
 .dash-reset-docs li { display: flex; flex-wrap: wrap; gap: 0 8px; min-width: 0; }
 .dash-reset-role { color: var(--muted); }

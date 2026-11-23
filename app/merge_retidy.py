@@ -521,6 +521,10 @@ def reletter_of(doc, ov, ins, keep=()):
                 if any(p in keep for p in ids):
                     row["why"] = "사람이 넘친 레벨의 처리를 고른 줄이 있어 그대로 둠"
                     continue
+                if doc is not None and all(_marked(doc, p) for p in ids if OM._alive(doc, p)):
+                    # 바꿀 수 있는 줄이 하나도 없다(reletter 는 제 짝 표지가 든 줄의 레터를 안 바꾼다) — 바꿀 레터로 세지 않는다(누를 때마다 「1곳」 으로 세고 빈 편집을 남겼다: 2026-11-23 astra)
+                    row["why"] = "형광펜 · 필드 · 변경 추적 표지가 든 줄뿐이라 그대로 둠"
+                    continue
             moved = True
             # 차례에서 위 줄이 쓴 **가장 깊은 레터 다음부터**(「- (정의)」 아래면 「⋅」 — 처음부터 고르면 위 줄에 안 쓰인 「□」 가 잡혀 「-」 아래에 「□」 가 섰다: 사슬의 차례가 거꾸로)
             start = max((i + 1 for i, (_, _, f) in enumerate(P) if f in used), default=0)
@@ -538,23 +542,56 @@ def reletter_of(doc, ov, ins, keep=()):
     return list(made.values())
 
 
+def _marked(doc, pid):
+    """그 문단에 제 짝 표지(형광펜 · 필드 · 변경 추적)가 있나 — 표지를 안 다루는 문서(docx)는 거짓."""
+    return hasattr(doc, "own_marks") and bool(doc.own_marks(doc._ids[pid]))
+
+
+def _swap(doc, ov, pid, now):
+    """줄 pid 의 레터 글자만 **제자리에서** now 로(hwpx_struct.set_chars — 런 · 글자 모양은 그대로) → 됐는가.
+    레터를 바꾼다고 접두를 통째로 다시 쓰면(replace_prefix) 레터 앞 빈칸 · 레터 · 레터 뒤 빈칸이 런 하나로 합쳐져, 레터부터 자간을 줄여 둔 줄은 그 자간이 레터 앞 빈칸 전체로 번진다
+    (2026-11-23 사용자 「레터 앞 너비가 왜 조금씩 다르냐」 — 「⋅ → ▷」 로 바꾼 줄: spec_hwpx_웹편집 ② §8-2 「줄 맞춤 값 — 접두는 대표 것」).
+    글자 수가 다른 레터 · 제 짝 표지가 든 줄 · 제자리 바꾸기가 없는 문서(docx)는 거짓. 표지가 든 줄은 어느 표지든 안 바꾼다 — 전의 길(match_one)도 그런 줄의 레터는 안 바꿨고,
+    다른 문단에서 열려 이 문단을 지나는 필드 · 변경 추적은 이 문단의 표지만으로는 안 보인다(형광펜만 든 줄이 그 안일 수 있다 — 2026-11-23 astra 재현)."""
+    lead, tok, _gap, _plen, _text = OM.parts(doc, ov, pid)
+    if not tok or len(tok) != len(now) or not hasattr(doc, "set_chars") or _marked(doc, pid):
+        return False
+    doc.set_chars(pid, len(lead), now)
+    ov["lines"][pid]["letter"] = now
+    return True
+
+
 def reletter(doc, ov, rows, left=None):
-    """reletter_of 의 계획을 건다(문서 · 오버레이 — 부른 쪽이 트랜잭션 안에서) → 바꾼 줄 id. 줄마다 제 모양 그대로 레터 글자만(outline_match.match_one — 레터 앞 · 뒤 빈칸 · 문단 · 글자 모양은 그 줄 것) ·
-    오버레이의 줄 · 레벨 슬롯의 레터와 키 · 템플릿 사슬의 그 자리도 새 레터로. left = 짝 표지 때문에 모양만 맞춘 줄(match_one)."""
+    """reletter_of 의 계획을 건다(문서 · 오버레이 — 부른 쪽이 트랜잭션 안에서) → 바꾼 줄 id. 줄마다 제 모양 그대로 **레터 글자만 제자리에서**(`_swap` — 레터 앞 · 뒤 빈칸 · 런 · 문단 · 글자 모양은 그 줄 것 그대로:
+    접두의 줄 맞춤 값을 대표 것으로 모으는 것은 뒤의 확정 서식 단계 outline_conform 이 한다) · 글자 수가 다른 레터만 전의 길(outline_match.match_one — 접두를 그 줄 레터 런의 모양으로 다시 쓴다).
+    **제 짝 표지가 든 줄은 문서를 안 바꾼다**(레터를 바꾸면 그 자리의 표지가 갈라질 수 있다 — left 에 {"id", "why": "letter", "kinds"}: 전에는 모양만 다시 써서 그 줄 레터의 자간이 접두 전체로 번졌다) —
+    그 줄의 레터 · 키는 그대로다. 오버레이의 레벨 슬롯의 레터와 키 · 템플릿 사슬의 그 자리는 **한 줄이라도 바꿨을 때만** 새 레터로(한 줄도 못 바꾼 레벨의 슬롯 · 사슬을 바꾸면 문서의 레터와 어긋나
+    다음 계획이 겹치는 레터를 못 본다 — 2026-11-23 astra)."""
     changed = []
     for r in rows:
         if not r["now"]:
             continue
+        tried = done = 0
         for p in r["lines"]:
             if not OM._alive(doc, p) or OM._is_auto(ov, p):
                 continue
-            try:
-                sh = OM.rep_shape(doc, ov, p)
-            except (KeyError, ValueError):
-                continue
-            OM.match_one(doc, ov, p, {**sh, "tok": r["now"], "prefix": sh["lead"] + r["now"] + sh["gap"]}, left)
+            tried += 1
+            if not _swap(doc, ov, p, r["now"]):
+                if _marked(doc, p):
+                    if left is not None:
+                        left.append({"id": p, "why": "letter", "kinds": doc.mark_names(doc._ids[p])})
+                    continue
+                try:
+                    sh = OM.rep_shape(doc, ov, p)
+                except (KeyError, ValueError):
+                    continue
+                if OM.match_one(doc, ov, p, {**sh, "tok": r["now"], "prefix": sh["lead"] + r["now"] + sh["gap"]}, left) != r["now"]:
+                    continue
             ov["lines"][p]["key"] = r["key"]
             changed.append(p)
+            done += 1
+        if tried and not done:
+            continue
         sl = OE._slot(ov, r["tpl"], r["level"])
         if sl is not None:
             sl.update(key=r["key"], letter=r["now"], prefix=(sl.get("prefix") or "").replace(r["was"], r["now"], 1) if sl.get("prefix") else sl.get("prefix"))

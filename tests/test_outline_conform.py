@@ -240,7 +240,7 @@ def test_template_match_places_a_matched_line_whose_prefix_width_differs_from_th
     m = OP.Measure(s.doc)
     a, b = m.place("p5765", "-"), m.place("p5209", "-")
     assert M.parts(s.doc, s.outline, "p5765")[:3] == M.parts(s.doc, s.outline, "p5209")[:3] == ("    ", "-", NB)   # 접두 글은 대표와 같다
-    assert a["prefixMm"] > b["prefixMm"] + 1                                                    # 폭은 더 넓다(제 자간)
+    assert a["prefixMm"] == pytest.approx(b["prefixMm"], abs=0.01) and a["letterMm"] == pytest.approx(b["letterMm"], abs=0.01)   # 접두는 대표 것 — 레터의 제 자간을 지키지 않는다(2026-11-23: 폭이 달라 레터 · 글 시작이 줄마다 달랐다)
     assert abs(a["line2Mm"] - a["textMm"]) < 0.02, (a["line2Mm"], a["textMm"], b["line2Mm"])    # 그래도 둘째 줄 = **제** 글 시작(대표의 값이 아니라 규칙)
     assert M.same(M.look(s.doc, s.outline, "p5765"), M.look(s.doc, s.outline, "p5209")) and [g["count"] for g in _t1_l5(c, d)["groups"]] == [10, 5]   # 규칙이 같으니 대표 갈래
     _undo_all(c, d, s)
@@ -529,3 +529,200 @@ def test_gather_kept_level_follows_the_old_hanging_rep_and_converges(align):
         OC.settle(doc, ov, "1", 4, (), OP.Measure(doc))
         assert _margins(doc, rep) == _margins(doc, n) == (pytest.approx(3.0, abs=0.01), 0.0)
         assert press() == (True, True) and OC.pending(doc, ov, {"1"}) == []
+
+
+# ---------------------------------------------------------------- 접두의 줄 맞춤 값 = 대표 것(② §8-2 「줄 맞춤 값 — 접두는 대표 것」 · §8-8 ③ — 2026-11-23 사용자 「레터 앞 너비가 왜 조금씩 다르냐」)
+def _fit(doc, pid, a, b, pct):
+    """그 문단의 글 a..b 를 자간 pct 인 글자 모양으로(한 줄에 넣으려고 자간을 줄인 줄을 흉내 낸다) — 런을 그 자리에서 가른다."""
+    import copy
+    p = doc._ids[pid]
+    doc._boundary(p, b)
+    doc._boundary(p, a)
+    for x, y, r in M._runs_pos(doc, p):
+        if y > x and a <= x and y <= b:
+            cp = copy.deepcopy(doc._defs["charPr"][r.get("charPrIDRef")])
+            doc._set_chars(cp, {"spacingPct": pct})
+            r.set("charPrIDRef", doc._add_def("charPr", cp))
+    doc._drop_cache(p)
+
+
+def _sp(doc, pid, i):
+    """글 자리 i 의 한글 자간(%)."""
+    return int(dict(M._fit_of(doc, M._cid_at(doc, doc._ids[pid], i))[1])["hangul"])
+
+
+def _l4():
+    """T1 L4 「  o …」 두 줄(대표 p6501 · p6504 — 같은 서식)."""
+    doc = HwpxDoc(PLAN.read_bytes())
+    doc.blocks()
+    return doc, _mini("p6501", "p6504", level=4, letter="o"), "p6501", "p6504"
+
+
+def test_a_tightened_line_gets_the_reps_prefix_fit_and_keeps_its_body_fit():
+    """실제 작성본의 꼴(레터 앞 빈칸 6칸 · 레터부터 자간 −9): 접두 전체가 자간을 받으면 빈칸이 좁아진 만큼 레터가 왼쪽에 선다 — 확정 서식은 접두의 장평·자간을 대표 레터 런의 값으로,
+    본문의 자간은 그 줄 것 그대로. 비교 값(갈래)은 처음부터 같다(줄 맞춤 값은 서식이 아니다) — 그래도 「자리 맞춤」 이 센다. 두 번째는 할 것 없음."""
+    doc, ov, rep, pid = _l4()
+    m = OP.Measure(doc)
+    OC.settle(doc, ov, "1", 4, (), m)                                                              # 먼저 확정 서식(묶음 빈칸 · 둘째 줄 = 글 시작)
+    assert OC.pending(doc, ov, {"1"}) == []
+    lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+    _fit(doc, pid, 0, len(text), -9)                                                               # 줄 전체(레터 앞 빈칸까지) 자간 −9
+    OP.align(doc, ov, pid, measure=OP.Measure(doc), force=True)                                    # 전의 확정 서식이 하던 대로 — 둘째 줄 = 제(좁아진) 글 시작
+    m = OP.Measure(doc)
+    assert M.same(M.look(doc, ov, pid), M.look(doc, ov, rep))                                      # 갈래는 같다(자간만 다른 줄)
+    assert m.place(pid, "o")["letterMm"] < m.place(rep, "o")["letterMm"] - 0.1                     # 레터가 왼쪽에 서 있다
+    assert OC.needs(doc, ov, pid, m) and OC.pending(doc, ov, {"1"}) == [pid]
+    assert OC.place(doc, ov, pid, m) is True
+    m = OP.Measure(doc)
+    assert [_sp(doc, pid, i) for i in range(plen)] == [0] * plen                                   # 접두 = 대표 레터 런의 값
+    assert [_sp(doc, pid, i) for i in range(plen, len(text))] == [-9] * (len(text) - plen)         # 본문은 제 값
+    assert doc._text(doc._ids[pid]) == text
+    a, b = m.place(pid, "o"), m.place(rep, "o")
+    assert (a["letterMm"], a["textMm"], a["line2Mm"]) == pytest.approx((b["letterMm"], b["textMm"], b["line2Mm"]), abs=0.01)
+    assert not OC.needs(doc, ov, pid, m) and OC.place(doc, ov, pid, m) is False and OC.pending(doc, ov, {"1"}) == []
+
+
+def test_the_rep_itself_gets_its_letter_runs_fit_on_its_blanks_and_a_pattern_line_follows_a_given_base():
+    """대표 자신: 레터 앞 빈칸의 런이 레터 런과 줄 맞춤 값이 다르면 레터 런의 값으로(대표의 레터 런이 그 레벨의 기준) · base 를 주면 그 줄이 본보기(넣은 줄끼리 맞추는 묶음의 대표)."""
+    doc, ov, rep, pid = _l4()
+    lead = M.parts(doc, ov, rep)[0]
+    _fit(doc, rep, 0, len(lead), -10)                                                              # 대표: 레터 앞 빈칸만 −10 · 레터 0
+    m = OP.Measure(doc)
+    assert OC.needs(doc, ov, rep, m)
+    OC.settle(doc, ov, "1", 4, (), m)
+    assert [_sp(doc, rep, i) for i in range(M.parts(doc, ov, rep)[3])] == [0] * M.parts(doc, ov, rep)[3]
+    assert OC.pending(doc, ov, {"1"}) == []
+    plen, text = M.parts(doc, ov, rep)[3:]
+    _fit(doc, rep, 0, plen, -5)                                                                    # 대표의 접두가 통째로 −5 면 그것이 기준
+    OC.place(doc, ov, rep, OP.Measure(doc))                                                        # 좁아진 접두 폭으로 둘째 줄을 다시
+    m = OP.Measure(doc)
+    assert not OC.needs(doc, ov, rep, m) and OC.needs(doc, ov, pid, m)
+    assert not OC.needs(doc, ov, pid, m, pid)                                                      # 제가 본보기면(묶음의 대표) 맞출 것이 없다
+    OC.place(doc, ov, pid, m)
+    assert [_sp(doc, pid, i) for i in range(M.parts(doc, ov, pid)[3])] == [-5] * M.parts(doc, ov, pid)[3]
+    assert _sp(doc, pid, M.parts(doc, ov, pid)[3]) == 0                                            # 본문은 그대로
+
+
+def test_conform_gives_the_reps_prefix_but_never_the_reps_body_fit():
+    """맞추기(match_one): ① 줄의 레터에 걸려 있던 자간을 새 접두에 얹지 않는다(전에는 레터 앞 빈칸 전체로 번졌다) ② 본문 자간 0 인 줄이 대표의 본문 자간(−8)을 받지 않는다
+    (전에는 대표의 레터 런이 0 이라 「대표와 같은 값」 으로 걸러져 대표의 본문 바탕 글자 모양을 그대로 받았다 — 2026-11-23 astra 재현) ③ 본문의 제 자간(−7)은 지킨다."""
+    for own in (0, -7):
+        doc, ov, rep, pid = _l4()
+        rl, rplen, rtext = M.parts(doc, ov, rep)[0], *M.parts(doc, ov, rep)[3:]
+        _fit(doc, rep, rplen, len(rtext), -8)                                                      # 대표: 접두 0 · 본문 −8
+        lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+        _fit(doc, pid, len(lead), len(text), own or -4)                                            # 줄: 레터부터 끝까지 자간(레터 앞 빈칸은 0)
+        if not own:
+            _fit(doc, pid, plen, len(text), 0)                                                     # 본문만 0 으로 되돌림(레터 · 레터 뒤 빈칸은 −4)
+        doc.format_para([pid], {"indentLeftMm": 7.0})                                              # 대표와 다른 서식(맞출 줄)
+        OC.place(doc, ov, rep, OP.Measure(doc))                                                    # 대표를 확정 서식으로(묶음 빈칸 · 둘째 줄 = 글 시작)
+        assert not M.same(M.look(doc, ov, pid), M.look(doc, ov, rep))
+        OC.conform(doc, ov, pid, M.rep_shape(doc, ov, rep), OP.Measure(doc), [])
+        lead2, tok2, gap2, plen2, text2 = M.parts(doc, ov, pid)
+        assert text2[plen2:] == text[plen:]
+        assert [_sp(doc, pid, i) for i in range(plen2)] == [0] * plen2, own                        # 접두 = 대표의 레터 런(자간 0)
+        assert [_sp(doc, pid, i) for i in range(plen2, len(text2))] == [own] * (len(text2) - plen2), own   # 본문 = 제 값(대표의 −8 이 아니다)
+        assert M.same(M.look(doc, ov, pid), M.look(doc, ov, rep)) and not OC.needs(doc, ov, pid, OP.Measure(doc))
+
+
+def test_reletter_swaps_the_letter_in_place_and_does_not_spread_its_fit_over_the_blanks():
+    """레터 바꾸기(넣은 뒤 정리 「⋅ → ▷」): 레터 글자만 제자리에서 — 레터부터 자간을 줄인 줄의 레터 앞 빈칸은 자간 0 그대로(전에는 접두를 런 하나로 다시 써서 빈칸까지 −9 가 됐다).
+    그 뒤의 확정 서식(place)이 레터 런의 값도 대표 것으로 모은다."""
+    from app import merge_retidy as MR
+    doc, ov, rep, pid = _l4()
+    lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+    _fit(doc, pid, len(lead), len(text), -9)                                                       # 레터부터 −9 · 레터 앞 빈칸 0
+    rows = [{"tpl": "1", "level": 4, "was": "o", "now": "▷", "key": "▷", "lines": [rep, pid]}]
+    assert MR.reletter(doc, ov, rows) == [rep, pid]
+    assert doc._text(doc._ids[pid]) == lead + "▷" + text[len(lead) + 1:] and ov["lines"][pid]["letter"] == "▷" == ov["templates"]["1"]["slots"]["4"]["letter"]
+    assert [_sp(doc, pid, i) for i in range(len(text))] == [0] * len(lead) + [-9] * (len(text) - len(lead))   # 런마다 제 값 그대로
+    m = OP.Measure(doc)
+    assert OC.needs(doc, ov, pid, m) and OC.place(doc, ov, pid, m)                                 # 레터 · 레터 뒤 빈칸의 −9 → 대표 것
+    plen2 = M.parts(doc, ov, pid)[3]
+    assert [_sp(doc, pid, i) for i in range(plen2)] == [0] * plen2 and _sp(doc, pid, plen2) == -9
+    assert MR._swap(doc, ov, pid, "(가)") is False                                                  # 글자 수가 다른 레터는 제자리에서 못 바꾼다(전의 길)
+
+
+def test_prefix_fit_leaves_held_lines_marked_lines_and_the_last_empty_run_alone(monkeypatch):
+    """astra 2차(2026-11-23)가 재현한 것: ① 사람이 처리를 고른 줄(skip)은 대표 갈래여도 안 건드린다 ② 「①② 를 갖췄나」(fit=False)는 접두의 줄 맞춤 값을 안 본다(취합의 _full)
+    ③ 접두만 고칠 때 문단 끝의 빈 런(마지막 줄 높이)을 지우지 않는다 ④ 넣은 줄끼리 맞춘 줄(RETIDY_DEEP)의 본보기는 그 묶음의 대표 — 「자리 맞춤」 이 레벨 대표의 값으로 되돌리지 않는다
+    ⑤ 제 짝 표지가 든 줄은 레터를 안 바꾸고 문서도 안 바꾼다 — 한 줄도 못 바꾼 레벨은 슬롯의 레터도 그대로."""
+    from app import merge_retidy as MR
+    doc, ov, rep, pid = _l4()
+    OC.settle(doc, ov, "1", 4, (), OP.Measure(doc))
+    lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+    _fit(doc, pid, 0, len(text), -9)
+    OP.align(doc, ov, pid, measure=OP.Measure(doc), force=True)
+    assert OC.settle(doc, ov, "1", 4, (), OP.Measure(doc), skip=[pid]) == [] and _sp(doc, pid, 0) == -9          # ① 그대로
+    m = OP.Measure(doc)
+    assert OC.needs(doc, ov, pid, m) and not OC.needs(doc, ov, pid, m, fit=False)                                # ② ①② 는 갖췄다
+    sl = ov["templates"]["1"]["slots"]["4"]
+    sl[M.RETIDY_DEEP] = {"rep": pid, "lines": [pid]}                                                             # ④ 넣은 줄끼리 맞춘 줄 — 제가 그 묶음의 대표
+    assert OC._fit_off(doc, ov, pid) is None and not OC.needs(doc, ov, pid, m) and OC.pending(doc, ov, {"1"}) == []
+    del sl[M.RETIDY_DEEP]
+    p = doc._ids[pid]
+    end = p.makeelement(M.RUN, {"charPrIDRef": M._cid_at(doc, p, 0)})                                           # ③ 문단 끝의 빈 런
+    p.append(end)
+    assert OC.place(doc, ov, pid, OP.Measure(doc)) and _sp(doc, pid, 0) == 0 and _sp(doc, pid, plen) == -9
+    assert end.getparent() is p and list(p.iterchildren(M.RUN))[-1] is end
+    monkeypatch.setattr(MR, "_marked", lambda d, q: q == pid)                                                    # ⑤ 표지가 든 줄
+    before, left = doc._text(p), []
+    rows = [{"tpl": "1", "level": 4, "was": "o", "now": "▷", "key": "▷", "lines": [pid]}]
+    assert MR.reletter(doc, ov, rows, left) == [] and doc._text(p) == before and [x["id"] for x in left] == [pid]
+    assert ov["lines"][pid]["letter"] == "o" == sl["letter"] and sl["key"] == "o"                                # 한 줄도 못 바꿨다 — 슬롯도 그대로
+    assert MR.reletter(doc, ov, [{**rows[0], "lines": [rep, pid]}], left) == [rep] and sl["letter"] == "▷" and ov["lines"][pid]["letter"] == "o"   # 일부만 — 슬롯은 새 레터 · 막힌 줄은 제 레터
+
+
+def test_prefix_fit_ignores_a_stale_bundle_rep_and_a_run_it_cannot_split():
+    """astra 3차(2026-11-23): ① 적어 둔 묶음(RETIDY_DEEP)의 대표가 다른 레벨로 옮겨졌거나 없어졌으면 그 줄에는 ③ 을 안 건다(옮겨진 대표의 값 · 레벨 대표의 값을 받지 않는다)
+    ② 접두 끝에서 가를 수 없는 런(접두 끝이 hp:t 가 아닌 자식의 한가운데)이 있으면 그 런은 통째로 그대로 — 앞의 런만 고친다(가를 수 없는데 _boundary 를 부르면 그 런의 빈칸까지 바뀐다)."""
+    doc, ov, rep, pid = _l4()
+    OC.settle(doc, ov, "1", 4, (), OP.Measure(doc))
+    text = M.parts(doc, ov, pid)[4]
+    _fit(doc, pid, 0, len(text), -9)
+    OP.align(doc, ov, pid, measure=OP.Measure(doc), force=True)
+    sl = ov["templates"]["1"]["slots"]["4"]
+    for stale in ({"rep": None, "lines": [pid]}, {"rep": "p5209", "lines": [pid]}, {"rep": "p-gone", "lines": [pid]}):   # 대표 없음(carry) · 다른 레벨의 줄 · 없어진 줄
+        if stale["rep"] == "p5209":
+            ov["lines"]["p5209"] = {"tpl": "1", "no": 1, "level": 5, "letter": "-", "key": "-", "role": "heading"}
+        sl[M.RETIDY_DEEP] = stale
+        assert OC._fit_off(doc, ov, pid) is None and not OC.place(doc, ov, pid, OP.Measure(doc)) and _sp(doc, pid, 0) == -9, stale
+    del sl[M.RETIDY_DEEP]
+    assert OC._fit_off(doc, ov, pid) is not None
+    # ② 가를 수 없는 런: _splits 가 거짓이면 _fit_fix 는 경계를 만들지 않는다
+    lead, tok, gap, plen, _ = M.parts(doc, ov, pid)
+    p = doc._ids[pid]
+    doc._boundary(p, 1)                                                                            # 첫 빈칸 | 나머지
+    runs = [(a, b, r) for a, b, r in M._runs_pos(doc, p) if b > a]
+    assert runs[0][:2] == (0, 1) and runs[1][0] == 1 and runs[1][1] > plen
+    n = len(list(p.iterchildren(M.RUN)))
+    real = OC._splits
+    try:
+        OC._splits = lambda d, r, a, at: False                                                     # 접두 끝에 걸친 런은 못 가른다고 치고
+        assert OC._fit_off(doc, ov, pid) is not None and OC.place(doc, ov, pid, OP.Measure(doc))   # 첫 런(빈칸 하나)만 고칠 수 있다
+    finally:
+        OC._splits = real
+    assert len(list(p.iterchildren(M.RUN))) == n and _sp(doc, pid, 0) == 0 and [_sp(doc, pid, i) for i in range(1, plen + 1)] == [-9] * plen   # 런을 가르지 않았고 걸친 런은 그대로
+
+
+def test_conform_takes_body_runs_that_differ_only_in_fit_as_the_same_base():
+    """줄 정리가 문단의 한 줄에만 자간을 걸면 같은 바탕의 본문이 글자 모양 id 가 다른 런 둘이 된다(「−9%」 · 「−5%」) — 맞출 때 둘 다 대표의 본문 바탕을 받고(전에는 첫 런과 id 가 같은 런만:
+    뒤쪽 런이 옛 크기로 남았다 — 2026-11-23 astra 재현) 런마다 제 자간은 그대로. 따로 모양을 준 런(굵게)은 전처럼 그대로."""
+    doc, ov, rep, pid = _l4()
+    OC.place(doc, ov, rep, OP.Measure(doc))
+    lead, tok, gap, plen, text = M.parts(doc, ov, pid)
+    n = len(text)
+    mid, last = plen + 3, n - 2
+    doc.format_chars(pid, plen, n, {"sizePt": 9})                                                  # 본문 9pt(대표와 다른 바탕)
+    _fit(doc, pid, plen, mid, -9)                                                                  # 같은 바탕 · 자간만 다른 런 둘
+    _fit(doc, pid, mid, last, -5)
+    doc.format_chars(pid, last, n, {"bold": not M.look(doc, ov, rep)["bold"]})                     # 따로 모양을 준 런
+    size = lambda q, i: doc._char_summary(doc._defs["charPr"][M._cid_at(doc, doc._ids[q], i)])["sizePt"]  # noqa: E731
+    want = size(rep, M.parts(doc, ov, rep)[3])
+    assert size(pid, plen) == size(pid, mid) == 9 != want
+    OC.conform(doc, ov, pid, M.rep_shape(doc, ov, rep), OP.Measure(doc), [])
+    plen2 = M.parts(doc, ov, pid)[3]
+    d = plen2 - plen
+    assert size(pid, plen2) == size(pid, mid + d) == want                                          # 두 런 모두 대표의 바탕
+    assert (_sp(doc, pid, plen2), _sp(doc, pid, mid + d - 1), _sp(doc, pid, mid + d), _sp(doc, pid, last + d - 1)) == (-9, -9, -5, -5)   # 자간은 런마다 제 값
+    assert size(pid, last + d) == 9                                                                # 따로 모양을 준 런은 그대로

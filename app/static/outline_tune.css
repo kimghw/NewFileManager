@@ -1,0 +1,80 @@
+/* 개요 줄의 레터 고치기(spec_hwpx_웹편집 ② §8-12 — outline_tune.js): 고른 개요 줄의 레터를 누르면 그 줄 아래에 뜨는 창(#olTune).
+   모달 아님(design.md §8 · §25) — 문서 위에 떠서 그 줄 바로 아래(자리가 없으면 위). 폭은 보수적으로(§1): 372px, 창이 좁으면 창 폭 − 16px. 높이는 창 높이를 넘지 않고 안에서 굴린다.
+   범위는 눌러 고르는 카드 셋(.olt-card — 못 하는 범위는 흐리게 + 까닭). 레터 후보는 접어 둔다(「레터 고르기 ▾」 — 창이 문서를 덜 가리게).
+   style.css 다음에 읽힌다(.btn.sm · 색 변수). */
+::highlight(nfm-olt-letter) { text-decoration: underline dotted #2563eb; text-decoration-thickness: 2px; text-underline-offset: 3px; } /* 커서가 든 개요 줄의 레터 — 누르면 이 창(글 · 배치는 안 바뀐다) */
+@media print { ::highlight(nfm-olt-letter) { text-decoration: none; } }
+.ol-tune {
+  position: fixed; z-index: 60; width: min(372px, calc(100vw - 16px)); max-height: calc(100vh - 16px); display: flex; flex-direction: column; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 28px rgba(20, 30, 50, .18); font-size: 12.5px; outline: none;
+}
+.ol-tune:focus-visible { border-color: var(--accent); }
+.olt-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 5px 6px 4px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.olt-head b { flex: none; color: var(--text); }
+.olt-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 11.5px; }
+.olt-fill { flex: 1 1 auto; }
+.olt-x { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.olt-x:hover { background: var(--surface-2); color: var(--text); }
+/* 견본 — 지금 / 바꾼 뒤 두 줄(높이 고정: 값이 바뀌어도 아래가 안 움직인다 — design.md §6). 빈칸을 그대로 그린다 */
+.olt-demo { flex: none; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--line); overflow: hidden; }
+.olt-dr { display: flex; align-items: baseline; gap: 6px; height: 19px; }
+.olt-dt { flex: none; width: 42px; color: var(--muted); font-size: 11px; }
+.olt-l { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: clip; line-height: 19px; font-family: "함초롬바탕", "HCR Batang", "Malgun Gothic", "맑은 고딕", serif; font-size: 13px; }
+.olt-l.was { color: var(--muted); }
+.olt-pre { white-space: pre; }
+.olt-pre.ws { background: repeating-linear-gradient(90deg, rgba(37, 99, 235, .13) 0 1px, transparent 1px 100%); background-size: 0.5em 100%; } /* 빈칸 한 칸마다 옅은 눈금 */
+.olt-l.now .olt-pre.lt { color: var(--accent); }
+/* 레터 */
+.olt-row { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px 2px; }
+.olt-lab { flex: none; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.olt-cur { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; }
+.olt-lt { display: inline-block; min-width: 22px; height: 22px; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; text-align: center; line-height: 20px; font: 13px/20px "Malgun Gothic", "맑은 고딕", sans-serif; color: var(--text); background: var(--surface); }
+.olt-lt.new { border-color: var(--accent); background: var(--accent-soft); }
+.olt-arrow { color: var(--muted); }
+.olt-pick { flex: none; }
+.olt-pal { flex: none; padding: 4px 10px 2px; }
+.olt-seg { display: inline-flex; margin-bottom: 5px; }
+.olt-tab { height: 22px; padding: 0 9px; margin-left: -1px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; }
+.olt-tab:first-child { margin-left: 0; border-radius: 5px 0 0 5px; }
+.olt-tab:last-child { border-radius: 0 5px 5px 0; }
+.olt-tab.on { position: relative; z-index: 1; border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.olt-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.olt-chip {
+  height: 26px; min-width: 0; padding: 0 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); cursor: pointer;
+  font: 13px/1 "Malgun Gothic", "맑은 고딕", "함초롬돋움", "HCR Dotum", sans-serif; white-space: nowrap; overflow: hidden;
+}
+.olt-chip:hover { background: var(--surface-2); border-color: var(--line-strong); }
+.olt-chip.on { border-color: var(--accent); background: var(--accent-soft); }
+.olt-chip:focus-visible, .olt-tab:focus-visible, .olt-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.olt-cus { display: flex; align-items: center; gap: 6px; }
+.olt-cus[hidden], .olt-grid[hidden], .olt-pal[hidden] { display: none; }
+.olt-in { flex: none; width: 120px; height: 26px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; font: inherit; background: var(--surface); color: var(--text); }
+.olt-in:focus { outline: none; border-color: var(--accent); }
+.olt-note { color: var(--muted); font-size: 11px; }
+/* 자리 — 세 값이 한 줄(이름 위 · − 값 + · 지금 값) */
+.olt-pos { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 6px 10px 4px; }
+.olt-step { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.olt-ctl { display: flex; align-items: center; gap: 2px; }
+.olt-ctl .olt-pm { flex: none; width: 22px; padding: 0; }
+.olt-val { flex: 1 1 auto; min-width: 0; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); white-space: nowrap; }
+.olt-step.chg .olt-val { color: var(--accent); }
+.olt-was { height: 14px; color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 범위 카드 */
+.olt-sec { flex: none; padding: 4px 10px 3px; color: var(--muted); font-size: 11.5px; }
+.olt-scopes { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 0 10px 6px; }
+.olt-card {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; align-items: start; width: 100%; padding: 5px 8px; text-align: left;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+}
+.olt-card:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.olt-card.on { border-color: var(--accent); background: var(--accent-soft); }
+.olt-card.off { cursor: default; color: var(--muted); background: var(--surface); border-style: dashed; }
+.olt-dot { grid-row: 1 / span 2; width: 12px; height: 12px; margin-top: 2px; border: 1.5px solid var(--line-strong); border-radius: 50%; box-sizing: border-box; }
+.olt-card.on .olt-dot { border-color: var(--accent); background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px); }
+.olt-card.off .olt-dot { border-color: var(--line); }
+.olt-ct { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.olt-cn { color: var(--muted); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.ol-tune[data-stale="1"] .olt-scopes { opacity: .55; } /* 값을 바꾼 직후 — 새 미리보기가 올 때까지(카드의 글 · 높이는 그대로: 자리가 안 움직인다) */
+.olt-foot { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.olt-msg { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.olt-undo[hidden] { display: none; }

@@ -1410,7 +1410,7 @@ function dashPickEl() { // TASK 가 없는 문서 — 이 문서의 형식으로
 
 // ---------------------------------------------------------------- 작업 내용 초기화(2026-11-22 사용자 "작업내용을 초기화 하는게 없어, 대시보드에 그게 들어 가면 좋겠는데" — spec_작업에이전트 ② §9 「작업 내용 초기화」)
 // 새 길이 아니다 — 「고친 문단」 탭의 「초기화…」 와 같은 기능(same_file.js workReset → POST /api/works/{id}/reset: 그 문서를 올린 직후로 — spec_작업 ② §3-1). 두 대시보드(이 패널 · 첫 화면 home_dash.js)가 같이 쓴다.
-// 단추 「작업 내용 초기화…」 → 그 자리에 펴지는 작은 상자(모달 아님 — design.md §16): 비우는 것 · 남는 것 + 문서마다 단추(그 워크플로우의 문서 칸 — 서버 상태 GET …/flow 의 docs) + 「모든 문서」(둘 이상일 때) + 「닫기」.
+// 단추 「작업 내용 초기화…」 → 그 자리에 펴지는 작은 상자(모달 아님 — design.md §16): 머리(옆 노트 아이콘 = 비우는 것 · 남는 것) + 문서마다 단추(그 워크플로우의 문서 칸 — 서버 상태 GET …/flow 의 docs) + 「모든 문서」(둘 이상일 때) + 「닫기」.
 // 문서를 고르는 것이 확인이다(펴기 → 고르기 두 걸음 — 되돌릴 수 없는 일이라 확인을 거치되(design.md §18) 창이 아니라 그 자리의 인라인 확인: 「작업 지우기」 와 같은 꼴 · 초점은 「취소」 에서 · Esc = 취소).
 // 문서마다 따로 · 모두 같이(「한 문서만」 과 같은 갈래). 도는 실행이 있으면 꺼 둔다(서버도 거절 — _flow_busy).
 // R = 그 보기의 상태 {open, docs[{role, label, name, id}] | null, err, busy} · opt = {wid 그 묶음의 문서 하나, off 누를 수 없는 까닭, redraw(), done(초기화한 id 목록) → 약속, focusAttr}
@@ -1457,8 +1457,10 @@ function dashResetParts(R, { wid, off = "", redraw, done, focusAttr = "dashFocus
   const box = el("div", "dash-reset");
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", "작업 내용 초기화");
-  box.append(el("p", "dash-reset-head", "작업 내용 초기화 — 고른 문서를 올린 직후로 되돌립니다"),
-    el("p", "dash-reset-text", `비우는 것: ${SF_RESET_LOSE}\n남는 것: ${SF_RESET_KEEP}\n비운 것은 문서마다 작업 폴더의 reset/ 에 옮겨 두고 화면에서는 되살리지 않습니다.`));
+  const head = el("p", "dash-reset-head", "작업 내용 초기화 — 고른 문서를 올린 직후로 되돌립니다");
+  // 비우는 것 · 남는 것은 머리 옆 노트 아이콘(가리키면 · 누르면 풍선 — 2026-11-23 사용자 「이런건 아이콘으로 누르면 볼 수 있게해」: design.md §1-6 · §20 「작업 내용 초기화」)
+  head.append(hHelp("초기화하면 비우는 것 · 남는 것", `비우는 것 — ${SF_RESET_LOSE}\n남는 것 — ${SF_RESET_KEEP}\n비운 것 — 문서마다 작업 폴더의 reset/ 에 옮겨 두고 화면에서는 되살리지 않습니다`, { rows: true, title: "작업 내용 초기화" }));
+  box.append(head);
   if (!R.docs) box.append(el("p", "dash-text muted", R.err || "문서 칸을 읽는 중…"));
   else {
     if (R.err) box.append(el("p", "dash-note warn", R.err));

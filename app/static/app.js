@@ -3017,7 +3017,7 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   para: "문단 모양", table: "표 행·열", rejected: "표준 검사로 되돌림", undo: "실행 취소", verify: "검증 시작", verified: "검증 끝",
   download: "내려받기", reopen: "작업 다시 엶", headings: "헤딩 추출", outline: "개요 편집",
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
-  outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", // spec_hwpx_웹편집 ② §8-2
+  outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", outlineCut: "새 템플릿으로 나누기", // spec_hwpx_웹편집 ② §8-2 · §8-13(라벨의 오른쪽 단추 메뉴)
   captionRep: "캡션 템플릿 대표 정하기", captionMatch: "캡션을 대표에 맞추기", // 캡션 템플릿 「CN」(spec_hwpx_웹편집 ② §8-10)
   commit: "확정", restore: "확정 복원", discard: "모두 되돌리기" }; // 확정(spec_작업 ② §8)
 const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기",
@@ -7665,11 +7665,11 @@ function olMark(pid, ol, gm) { // 개요 오버레이 줄 → 「TN Lk」 표(sp
   const lab = ol.role === "label" ? tplLabelId(ol) : "";
   const text = `T${ol.no} L${ol.level}${lab ? ` ${lab}` : ""}`;
   const title = `템플릿 T${ol.no} ${(t.chain || []).join(" › ")} · ${ol.level}번째 줄(레벨 ${ol.level}) 「${oneLine(ol.letter || ol.name || "").slice(0, 30)}」`
-    + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
+    + (t.comp ? `\n종속 템플릿 — T${t.comp.parentNo} L${t.comp.at} 아래 T${t.comp.childNo}` : t.vari && t.vari.cut && !t.vari.by ? `\n나눈 템플릿 — T${t.vari.ofNo} 를 L${t.vari.level} 부터 나눔(오른쪽 단추 메뉴의 「합치기」 로 되돌립니다)` : t.vari ? `\n서식 종속 템플릿 — T${t.vari.ofNo} L${t.vari.level} 의 다른 서식` : "") + (sl.rep === pid ? "\n이 레벨의 대표 줄" : "")
     + (lab ? `\n구분 라벨 · 기준 ${lab}` : ol.role === "subtitle" ? "\n괄호 소제목(구분 기준 값이 아닌 괄호 글)" : ol.role === "table" && t.kind === "band" ? `\n별첨·부록 표 제목 줄 — 「${oneLine(ol.name || "").slice(0, 20)}」 칸과 제목 칸으로 된 표를 헤딩 추출이 스스로 줄로 잡았습니다(문서 맨 위의 줄 · 그 아래 줄은 다음 별첨·부록 표나 장이 올 때까지 이 줄의 것)`
       : ol.role === "table" && ol.key === "▦" && !t.lift ? `\n1칸 제목 상자 — 헤딩 추출이 이 상자를 템플릿의 L${ol.level} 로 잡았습니다(바로 아래 줄들은 이 상자의 것 · Enter = 상자 아래에 새 줄)` // spec_헤딩_추출 ② §6 「1칸 제목 상자」
       : ol.role === "table" ? `\n표 제목 줄 — 제목 표를 이 템플릿의 L${ol.level} 로 넣었습니다(Enter = 표 아래에 새 줄)` : "")
-    + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n두 번 누르면 「템플릿 관계」 — 이 레벨의 서식 목록에서 이 줄의 서식(대표 정하기 · 대표에 맞추기 · 다른 템플릿으로)`;
+    + `\n${pid}\n누르면 문서에서 이 템플릿·레벨의 줄만 또렷이(나머지는 흐리게 · 대표와 여백·서식이 다른 줄 표시) · 다시 누르면 풀림\n켜진 동안 문서에서 휠을 굴리면 다음·앞의 이 템플릿 자리로 — 문서 창 오른쪽 위·아래에 남은 자리 수\n두 번 누르면 「템플릿 관계」 — 이 레벨의 서식 목록에서 이 줄의 서식(대표 정하기 · 대표에 맞추기 · 다른 템플릿으로)\n오른쪽 단추 = 여기부터 새 템플릿으로 나누기(여기서만 · 이 레벨 줄 모두) · 합치기`;
   // 서식 라벨(「S41」 — spec_헤딩_추출 ② §7 「서식 라벨은 다른 줄에만」, 2026-11-16 사용자 「대표템플릿인경우 템플릿 클릭하면 서식이 나오니깐 별도 서식번호가 필요 없을거 같은데」):
   // 오버레이 줄은 그 줄의 **지금** 라벨(heads.outline.fmts — 대표에 맞추면 대표의 라벨이 된다: 서버 outline_edit.fmt_view)이고, 그 레벨 대표의 라벨과 같으면 그리지 않는다 — 번호는 대표와 서식이 다른 줄에만 남는다.
   // 서버가 옛 판이면(fmts 없음) 전처럼 그래프 노드의 라벨.
@@ -7754,8 +7754,8 @@ function tplMarksDraw() {
       const dvs = r.lbl ? new Set(r.items.map((m) => m.dv || "")) : null; // 구분 라벨 줄뿐인 표 — 줄들의 구분이 하나면 표의 테두리·바탕도 그 구분의 색(dvKeyOf)
       if (dvs && dvs.size === 1 && !dvs.has("")) s.dataset.dv = [...dvs][0];
       const cnt = new Map(); // 같은 표기(표 한 행의 같은 템플릿·레벨 칸들)는 「T11 L2 ×2」 로 모은다 — 표기 → {n, m(그 표기의 첫 줄)}
-      for (const m of r.items) { const c = cnt.get(m.text); if (c) c.n += 1; else cnt.set(m.text, { n: 1, m }); }
-      const texts = [...cnt].map(([t, c]) => ({ text: c.n > 1 ? `${t} ×${c.n}` : t, m: c.m }));
+      for (const m of r.items) { const c = cnt.get(m.text); if (c) { c.n += 1; if (m.para) c.ps.push(m.para); } else cnt.set(m.text, { n: 1, m, ps: m.para ? [m.para] : [] }); }
+      const texts = [...cnt].map(([t, c]) => ({ text: c.n > 1 ? `${t} ×${c.n}` : t, m: c.m, ps: c.ps })); // ps = 그 표기의 줄 모두(오른쪽 단추 메뉴 「여기부터 새 템플릿으로」 — outline_cut.js)
       // 누르면 그 템플릿·레벨의 줄만 또렷이(fmt_focus.js tplFocusToggle — spec_헤딩_추출 ② §7 「템플릿만 또렷이」, 2026-11-15 사용자 「템플릿도 클릭하면 똑같이 동일한 템플릿만」): 개요 오버레이 줄의 표기마다 눌리는 글(.tm-t —
       // 한 표에 여럿이면 누른 그 표기). 전에 누르면 열리던 「템플릿 관계」 는 이름 줄 설명의 단추가 연다. 오버레이 줄이 아닌 표(그래프만 · 뼈대 밖 · TEMP)는 전과 같다
       const focusable = !dr && typeof tplFocusToggle === "function";
@@ -7772,6 +7772,7 @@ function tplMarksDraw() {
         const b = tplMarkText(el("span", "tm-t"), x.text, x.m);
         b.dataset.tpl = String(x.m.tpl);
         b.dataset.level = String(x.m.level);
+        if (x.ps.length) b.dataset.paras = x.ps.join(","); // 오른쪽 단추 메뉴(outline_cut.js olcAt)가 읽는다 — 이 표기의 줄(표 한 행의 칸들이면 여럿)
         b.setAttribute("role", "button");
         b.onclick = (e) => { e.stopPropagation(); if (e.detail < 2) tplFocusToggle(x.m); };
         b.ondblclick = (e) => { e.stopPropagation(); relGo(x.m); };
@@ -7780,6 +7781,11 @@ function tplMarksDraw() {
       if (texts.length > 3) s.append(` +${texts.length - 3}`);
       s.title = r.items.map((m) => m.title).join("\n═══\n");
       const hit = r.items.find((m) => m.no) || {}, no = hit.no;
+      if (!focusable && hit.tpl != null && hit.para) { // 「새 서식」·「잘못된 서식」 이 얹힌 줄(눌리는 글 .tm-t 가 없다)도 오른쪽 단추 메뉴는 그 줄의 템플릿 · 레벨로(outline_cut.js olcAt — 누르기는 전처럼 뼈대 밖 목록)
+        s.dataset.tpl = String(hit.tpl);
+        s.dataset.level = String(hit.level);
+        s.dataset.paras = r.items.filter((m) => m.para && String(m.tpl) === String(hit.tpl) && m.level === hit.level).map((m) => m.para).join(",");
+      }
       if (dr && typeof driftView === "function") { s.setAttribute("role", "button"); s.onclick = () => driftView(); }
       else if (no && focusable && hit.tpl != null) { s.setAttribute("role", "button"); s.onclick = (e) => { if (e.detail < 2) tplFocusToggle(hit); }; s.ondblclick = () => relGo(hit); } // 글 사이·「+n」 을 눌러도 첫 표기
       else if (no) { s.setAttribute("role", "button"); s.onclick = () => tplRelOpen(hit.focus ?? no, hit.para ? { tpl: hit.tpl, level: hit.level, para: hit.para } : null); }
@@ -7925,14 +7931,14 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
     const ol = el("ol", "trel-levels");
     const base = ot && ot.base ? ot.base : 0; // 종속 템플릿 — L1~L base 는 부모 템플릿의 레벨(그 줄은 부모 것)
     if (base && ot.comp) box.append(el("p", "hnote olm-shared", `L1~L${base} = T${ot.comp.parentNo} 의 레벨 「${(ot.chain || []).slice(0, base).join(" › ")}」 — 이 템플릿의 줄은 L${base + 1} 부터`));
-    else if (base && ot.vari) box.append(el("p", "hnote olm-shared", `L1${base > 1 ? `~L${base}` : ""} = T${ot.vari.ofNo} 의 레벨 「${(ot.chain || []).slice(0, base).join(" › ")}」 — 이 템플릿의 줄은 L${base + 1} 부터(T${ot.vari.ofNo} L${ot.vari.level} 에서 서식이 달라 뗀 템플릿)`)); // 서식 종속 템플릿 「T1L3a」(spec_hwpx_웹편집 ② §8-5)
+    else if (base && ot.vari) box.append(el("p", "hnote olm-shared", `L1${base > 1 ? `~L${base}` : ""} = T${ot.vari.ofNo} 의 레벨 「${(ot.chain || []).slice(0, base).join(" › ")}」 — 이 템플릿의 줄은 L${base + 1} 부터(T${ot.vari.ofNo} L${ot.vari.level} 에서 ${ot.vari.cut && !ot.vari.by ? "자리로 나눈 템플릿" : "서식이 달라 뗀 템플릿"})`)); // 서식 종속 템플릿 「T1L3a」(spec_hwpx_웹편집 ② §8-5)
     for (let L = base + 1; L <= maxL; L += 1) {
       const s = slots.find((x) => x.level === L - sh) || {};
       const os = ot && ot.slots ? ot.slots[String(L)] : null;
       const li = el("li");
       li.value = L;
       const head = el("div", "trel-level");
-      const ltr = os && os.table ? (os.name ? `표 제목 · ${os.name}` : "표 제목") : (base ? os && os.letter : s.letter) || (os && os.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?"; // os.name = 띠 표 템플릿의 이름표 꼴(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」)
+      const ltr = os && os.table ? (os.name ? `표 제목 · ${os.name}` : "표 제목") : (os && os.letter) || (s && s.letter) || (ot && ot.chain || [])[L - 1] || (t.chain || [])[L - 1 - sh] || "?"; // os.name = 띠 표 템플릿의 이름표 꼴(「별첨N」 — spec_헤딩_추출 ② §6 「띠 표 줄」)
       head.append(el("b", null, `L${L}`), " ", el("span", "trel-let", `「${ltr}」`),
         el("span", "muted trel-cnt", os ? ` ×${nf(os.lines)}` : s.count != null ? ` ×${nf(s.count)}` : " (이 문서엔 없음)"));
       if (s.format) head.append(el("span", "slot-format", `서식 ${s.format}`)); // 그 레벨의 대표 서식 라벨(2단계 — 문서 표시의 「서식 라벨」 과 같은 이름)
@@ -8062,7 +8068,7 @@ function tplTreeDraw(root, g, focus = null, where = "tab") {
   return tpls.length;
 }
 
-const tplOvKey = () => (heads.outline ? `${JSON.stringify(heads.outline.run || "")}|${Object.entries(heads.outline.templates || {}).map(([k, t]) => `${k}:${t.max ?? ""}`).join(",")}` : ""); // 레벨 수(max)도 — 레벨을 더하면(② §8-6) 트리를 다시 그린다
+const tplOvKey = () => (heads.outline ? `${JSON.stringify(heads.outline.run || "")}|${Object.entries(heads.outline.templates || {}).map(([k, t]) => `${k}:${t.max ?? ""}:${(t.chain || []).join("›")}`).join(",")}` : ""); // 사슬도 — 레벨의 레터를 바꾸면(② §8-12 「서식 전체 변경」) 트리의 레벨 글자를 다시 그린다 · // 레벨 수(max)도 — 레벨을 더하면(② §8-6) 트리를 다시 그린다
 function tplTreeRefresh(focus = null, force = false) { // 오버레이를 (다시) 읽은 뒤 — 다른 오버레이로 그려 둔 트리(자리 줄·서식 갈래·레벨 그림·종속 템플릿이 다름)는 통째로 다시 그린다. 펼친 템플릿은 그대로(tplTreeDraw 의 기억)
   for (const root of document.querySelectorAll(".tpl-tree")) {
     if ((!force && root.dataset.ov === tplOvKey()) || typeof root._tplRedraw !== "function") continue;
@@ -10561,9 +10567,12 @@ function divCtxItems(e) { // 오른쪽 단추 메뉴 항목(앞에 구분선) �
 function divContextMenu(e) { // 표 밖 문단 — 표 칸은 tselContextMenu 가 맡는다
   if (!state.id || (typeof cellOf === "function" && cellOf(e.target))) return;
   const items = divCtxItems(e).slice(1);
-  if (!items.length) return;
+  const olt = typeof oltCtxItems === "function" ? oltCtxItems(e) : []; // 개요 줄의 「레터 고치기…」(outline_tune.js — spec_hwpx_웹편집 ② §8-12): 다른 항목이 없는 문서(연구개발 문서가 아님 · 편집 구역 꺼짐)에서도 뜬다
+  if (!items.length && !olt.length) return;
+  if (!items.length) { e.preventDefault(); ctxOpen(e, olt.slice(1)); return; }
   if (typeof tmkParaItems === "function") items.push(...tmkParaItems(e)); // 표 모듈(table_make.js) — 「고른 글로 표 만들기…」(spec_헤딩_추출 ② §11)
   if (typeof tempCtxItems === "function") items.push(...tempCtxItems(e)); // TEMP 로 지정·해제(heading_temp.js — spec_헤딩_추출 ② §15)
+  items.push(...olt);
   e.preventDefault();
   ctxOpen(e, items);
 }

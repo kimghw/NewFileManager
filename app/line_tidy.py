@@ -1,4 +1,4 @@
-"""줄 정리 — 줄 끝에서 낱말이 1~2자로 갈린 곳을 장평으로 당기거나 민다(spec/spec_줄정리.md ② §1~§4).
+"""줄 정리 — 줄 끝에서 낱말이 1~2자로 갈린 곳을 자간으로 당기거나 민다(spec/spec_줄정리.md ② §1~§4).
 
 2026-11-23 사용자(이관 결과의 「'선내 데이터 가 / 이드라인'」 · 「실시간 예지보 / 전 가동」 을 보며) "4단계에 줄정리 도구를 넣고 … 5글자 중 1개가 분리되어 있으면
 장평을 조금씩 조절해서 … 2자까지는 땡겨서 갖어오고 반대로 다음줄에 3자 이상 넘어 앞에 1,2 자는 장평을 늘려서 보내버려 … 문단의 마지막 줄에 2자인 경우 바로 윗줄을 장평을
@@ -6,10 +6,13 @@
 
 - **줄 나눔은 한글이 정한 것을 쓴다** — 웹 화면(브라우저 글꼴)의 줄이 아니다. 한글이 끝 쪽까지 조판한 사본의 줄 배치 캐시(hp:linesegarray)를 읽는다(pdf_render.layout_hwpx).
   글자 폭 모형(outline_pos.Measure)은 **얼마나 바꿀지 어림**하는 데만 쓰고, 고친 뒤 한글로 다시 재어 맞았는지 본다(맞지 않으면 1%씩 더 — `Para.observe`).
-- 이 파일은 순수 계산 + HwpxDoc 문단 한 곳 고치기(`scale_ratio`)다 — 서버 · 한글 · 저장은 `app/line_tidy_api.py`.
+- **바꾸는 것은 자간이다**(같은 날 사용자(한글에서 장평 96% 인 줄을 보며) "이 부분들 폰트가 좀 이상한거 같은데" → 답 「자간으로 당기기」 — 처음에는 사용자 말대로 장평이었다):
+  장평은 글자 모양을 눌러 그 줄만 글꼴이 달라 보인다 · 자간은 글자 모양은 그대로 두고 글자 사이만 바꾼다. 계산의 배율(pct — 그 범위의 폭을 몇 % 로)은 전과 같고, 문서에는
+  자간 = (100 + 지금 자간) × pct ÷ 100 − 100 으로 입힌다(`scale_spacing` — 한글의 글자 나아감 = 글자 폭 × 장평 × (1 + 자간)). 전에 장평으로 고친 줄은 그 장평이 문서에 있다는 근거가 설 때만 반영 때 되돌린다(`ratio_proof` · `restore`).
+- 이 파일은 순수 계산 + HwpxDoc 문단 한 곳 고치기(`scale_spacing`)다 — 서버 · 한글 · 저장은 `app/line_tidy_api.py`.
 - 글자 수 = 글자(한글 · 영문 · 숫자 — 유니코드 L · N)만 센다. 따옴표 · 괄호 · 쉼표는 세지 않는다. 규칙에 견주는 조각 · 마지막 줄의 수는 그 안에 통째로 든 괄호의 글자도 뺀다(`count`).
 - **쪽에 걸친 줄**(② §8 — 같은 날 사용자 "페이지에 1개 문단의 1줄이 걸쳐 있는 경우 해당 페이지의 공백줄을 높이를 일부 조금씩 조정해서 한 페이지 안에 들어 가도록"):
-  장평 걸음이 끝난 뒤의 둘째 걸음 — 문단이 두 쪽에 나뉘었고 다음 쪽으로 넘어간 줄이 규칙(`pageTail`) 이하면 그 쪽의 빈 줄(글 없는 문단) 높이를 같은 비율로 조금씩 낮춰 당긴다.
+  자간 걸음이 끝난 뒤의 둘째 걸음 — 문단이 두 쪽에 나뉘었고 다음 쪽으로 넘어간 줄이 규칙(`pageTail`) 이하면 그 쪽의 빈 줄(글 없는 문단) 높이를 같은 비율로 조금씩 낮춰 당긴다.
   쪽 나눔도 한글의 줄 자리(lineseg 의 vertpos — 쪽마다 · 쪽에 걸쳐 나뉜 표 칸에서는 이어지는 쪽마다 0 부터)로 읽고, 낮춘 뒤 한글로 다시 재어 확인한다(`Pages` · `scale_height`).
 """
 import copy
@@ -20,25 +23,25 @@ import unicodedata
 # ---------------------------------------------------------------- 규칙(화면 「도구 설명」 · 대시보드가 이 표로 그린다 — 키 · 기본값 · 범위 · 이름 · 설명)
 RULE_DEFS = (
     {"key": "pull", "default": 2, "lo": 1, "hi": 4, "unit": "자", "name": "당기기",
-     "text": "낱말이 줄 끝에서 갈렸을 때 다음 줄로 넘어간 조각이 이 글자 수 이하면 윗줄의 장평을 줄여 그 조각을 윗줄로 당깁니다(1자/1자 · 2자/1자 · 3자/1자 · 2자/2자 · 3자/2자)."},
+     "text": "낱말이 줄 끝에서 갈렸을 때 다음 줄로 넘어간 조각이 이 글자 수 이하면 윗줄의 자간을 줄여 그 조각을 윗줄로 당깁니다(1자/1자 · 2자/1자 · 3자/1자 · 2자/2자 · 3자/2자)."},
     {"key": "pushHead", "default": 3, "lo": 2, "hi": 10, "unit": "자", "name": "밀기 — 다음 줄 조각",
      "text": "다음 줄로 넘어간 조각이 이 글자 수 이상이고"},
     {"key": "pushTail", "default": 2, "lo": 1, "hi": 4, "unit": "자", "name": "밀기 — 줄 끝 조각",
-     "text": "줄 끝에 남은 조각이 이 글자 수 이하면 그 줄의 장평을 늘려 남은 조각을 다음 줄로 보냅니다."},
+     "text": "줄 끝에 남은 조각이 이 글자 수 이하면 그 줄의 자간을 늘려 남은 조각을 다음 줄로 보냅니다."},
     {"key": "last", "default": 2, "lo": 0, "hi": 4, "unit": "자", "name": "마지막 줄",
-     "text": "문단의 마지막 줄이 이 글자 수 이하면 바로 윗줄의 장평을 줄여 그 줄을 윗줄로 당깁니다(0 = 안 함)."},
+     "text": "문단의 마지막 줄이 이 글자 수 이하면 바로 윗줄의 자간을 줄여 그 줄을 윗줄로 당깁니다(0 = 안 함)."},
     {"key": "chain", "default": 3, "lo": 0, "hi": 6, "unit": "자", "name": "연속 당기기",
      "text": "당긴 뒤 마지막 줄이 짧아지면(「예지보 / 전 가동」) 한 번만 당기되, 한 줄로 당기는 글자의 합이 이 수 이하면 이어서 마지막 줄까지 당깁니다."},
-    {"key": "minRatio", "default": 85, "lo": 50, "hi": 99, "unit": "%", "name": "장평 하한",
-     "text": "줄일 때 이보다 좁게 하지 않습니다. 더 줄여야 하면 그 자리는 그대로 둡니다."},
-    {"key": "maxRatio", "default": 110, "lo": 101, "hi": 150, "unit": "%", "name": "장평 상한",
-     "text": "늘릴 때 이보다 넓게 하지 않습니다. 더 늘려야 하면 그 자리는 그대로 둡니다."},
+    {"key": "minSpace", "default": -15, "lo": -50, "hi": -1, "unit": "%", "name": "자간 하한",
+     "text": "줄일 때 자간을 이보다 좁게 하지 않습니다(이미 좁혀 둔 글은 그만큼 덜 줄입니다). 더 줄여야 하면 그 자리는 그대로 둡니다."},
+    {"key": "maxSpace", "default": 10, "lo": 1, "hi": 50, "unit": "%", "name": "자간 상한",
+     "text": "늘릴 때 자간을 이보다 넓게 하지 않습니다. 더 늘려야 하면 그 자리는 그대로 둡니다."},
     {"key": "minLine", "default": 8, "lo": 1, "hi": 40, "unit": "자", "name": "고칠 줄의 길이",
-     "text": "장평을 바꿀 줄이 이 글자 수보다 짧으면(좁은 표 칸의 머리글 같은 줄) 고치지 않습니다."},
+     "text": "자간을 바꿀 줄이 이 글자 수보다 짧으면(좁은 표 칸의 머리글 같은 줄) 고치지 않습니다."},
     {"key": "cellWord", "default": 3, "lo": 0, "hi": 6, "unit": "자", "name": "표 칸 — 짧은 낱말",
-     "text": "표 칸에서 이 글자 수 이하의 낱말(「조류계」 · 「트리거」 — 가운뎃점 · 괄호 · 빗금 사이의 토막도 낱말)이 줄 끝에서 갈리면, 줄이 「고칠 줄의 길이」 보다 짧아도 장평으로 붙입니다(0 = 안 함)."},
+     "text": "표 칸에서 이 글자 수 이하의 낱말(「조류계」 · 「트리거」 — 가운뎃점 · 괄호 · 빗금 사이의 토막도 낱말)이 줄 끝에서 갈리면, 줄이 「고칠 줄의 길이」 보다 짧아도 자간으로 붙입니다(0 = 안 함)."},
     {"key": "rounds", "default": 6, "lo": 1, "hi": 12, "unit": "번", "name": "한글로 다시 재기",
-     "text": "바꾼 뒤 한글로 다시 조판해 맞았는지 보는 횟수의 상한입니다. 맞지 않으면 장평을 1%씩 더 바꿉니다."},
+     "text": "바꾼 뒤 한글로 다시 조판해 맞았는지 보는 횟수의 상한입니다. 맞지 않으면 자간을 조금씩(그 줄의 폭을 1%씩) 더 바꿉니다."},
     {"key": "pageTail", "default": 1, "lo": 0, "hi": 3, "unit": "줄", "name": "쪽에 걸친 줄",
      "text": "문단이 두 쪽에 나뉘어 있고 다음 쪽으로 넘어간 줄이 이 줄 수 이하면, 그 쪽에 있는 빈 줄의 높이를 조금씩 낮춰 넘어간 줄을 그 쪽으로 당깁니다(0 = 안 함)."},
     {"key": "blankMin", "default": 60, "lo": 30, "hi": 95, "unit": "%", "name": "빈 줄 높이 하한",
@@ -81,7 +84,7 @@ def rules_text(R):
     s = f"당기기 {R['pull']}자 이하 · 밀기 {R['pushTail']}자/{R['pushHead']}자 이상"
     if R["last"]:
         s += f" · 마지막 줄 {R['last']}자 이하"
-    s += f" · 연속 {R['chain']}자까지 · 장평 {R['minRatio']}~{R['maxRatio']}%"
+    s += f" · 연속 {R['chain']}자까지 · 자간 {R['minSpace']}~+{R['maxSpace']}%"
     if R.get("cellWord"):
         s += f" · 표 칸 낱말 {R['cellWord']}자 이하"
     if R.get("pageTail"):
@@ -138,7 +141,7 @@ def _trim(text, a, b):
 
 
 def protect(text):
-    """첫 줄에서 장평을 바꾸지 않을 첫머리 길이 — 앞 빈칸 + 짧은 첫 토막(레터 「ㅇ」 · 「-」 · 「1)」 …, 4자까지) + 그 뒤 빈칸.
+    """첫 줄에서 자간을 바꾸지 않을 첫머리 길이 — 앞 빈칸 + 짧은 첫 토막(레터 「ㅇ」 · 「-」 · 「1)」 …, 4자까지) + 그 뒤 빈칸.
     개요 줄의 둘째 줄은 「글 시작」 에 맞춰 둔 내어쓰기라(outline_conform) 레터와 레터 뒤 빈칸의 폭이 바뀌면 첫 줄 글 시작이 어긋난다."""
     i = 0
     while i < len(text) and text[i].isspace():
@@ -237,18 +240,18 @@ def lines_text(text, spans):
 
 
 # ---------------------------------------------------------------- 문단 하나의 시도 · 확인
-WHY = {"short": "줄이 짧음(좁은 칸)", "limit": "장평 한도", "measure": "잴 수 없는 글자", "worse": "나아지지 않음", "rounds": "다시 재기 횟수",
+WHY = {"short": "줄이 짧음(좁은 칸)", "limit": "자간 한도", "measure": "잴 수 없는 글자", "worse": "나아지지 않음", "rounds": "다시 재기 횟수",
        "moved": "윗줄이 움직임", "chain": "연속 당기기 한도"}
 PAGE_WHY = {"noBlank": "그 쪽에 빈 줄 없음", "floor": "빈 줄 높이 하한", "rounds": "다시 재기 횟수"}   # 쪽에 걸친 줄을 그대로 둔 까닭(② §8)
 
 
 class Para:
-    """문단 하나 — 위에서 아래로 한 자리씩: 어림한 장평으로 시도(trial) → 한글 줄로 확인(observe) → 맞으면 다음 자리 · 아니면 1%씩 더 · 한도면 그 자리를 둔다.
+    """문단 하나 — 위에서 아래로 한 자리씩: 어림한 배율(그 범위의 폭을 몇 % 로 — 문서에는 자간으로 입힌다)로 시도(trial) → 한글 줄로 확인(observe) → 맞으면 다음 자리 · 아니면 1%씩 더 · 한도면 그 자리를 둔다.
     ops 는 늘 **처음 문서** 기준의 (범위, 배율) 이다 — 고칠 때는 처음 문단에 ops 를 모두 다시 입힌다(배율이 겹쳐 쌓이지 않게)."""
 
-    def __init__(self, idx, text, spans, R, width, ratios, cell=False):
-        """width(a, b) → 처음 서식으로 잰 [a, b) 의 폭 | None · ratios(a, b) → (가장 좁은, 가장 넓은) 지금 장평(%) · cell = 표 칸의 문단(② §2 `cellWord`)."""
-        self.idx, self.text, self.R, self.width, self.ratios, self.cell = idx, text, R, width, ratios, cell
+    def __init__(self, idx, text, spans, R, width, spaces, cell=False):
+        """width(a, b) → 처음 서식으로 잰 [a, b) 의 폭 | None · spaces(a, b) → (가장 좁은, 가장 넓은) 지금 자간(%) · cell = 표 칸의 문단(② §2 `cellWord`)."""
+        self.idx, self.text, self.R, self.width, self.spaces, self.cell = idx, text, R, width, spaces, cell
         self.spans0 = self.spans = spans
         self.ops, self.trial, self.gave, self.left = [], None, set(), []
         self.pf = protect(text)
@@ -288,6 +291,10 @@ class Para:
         if letters(T[s:e]) < R["minLine"] and not it.get("cell"):
             return "short"
         rs = s + (self.pf if s == 0 else 0)   # 첫 줄의 첫머리(레터 · 레터 뒤 빈칸)는 그대로
+        # 앞에서 고친 범위와 겹치지 않게 — 밀기가 어림보다 더 밀리면 새 줄이 앞 범위 안에서 시작한다: 그 글자에 배율이 두 번 걸려 자간이 한도를 넘는다(0 → +4 → +14%: astra 2026-11-23)
+        rs = max([rs] + [o["re"] for o in self.ops if o["rs"] < e and o["re"] > rs])
+        if rs >= e:
+            return "chain"
         F = self._w(s, rs)
         if it["kind"] == "push":
             cut = it["cut"]
@@ -297,11 +304,11 @@ class Para:
             if None in (W_all, S, wc, F) or S - F <= 0:
                 return "measure"
             pct = max(101, math.ceil(100 * (W_all - wc - F) / (S - F)))
-            hi = math.floor(100 * R["maxRatio"] / self.ratios(rs, cut)[1])
+            hi = pct_limit(self.spaces(rs, cut)[1], R["maxSpace"], up=True)   # 배율의 상한 = 적힐 자간이 상한에 닿는 곳
             if pct > hi:
                 if not it.get("cell") or hi <= 100:
                     return "limit"
-                pct = hi   # 표 칸 — 어림이 거친 좁은 줄이라 상한에서 한 번 재어 본다(맞지 않으면 「장평 한도」)
+                pct = hi   # 표 칸 — 어림이 거친 좁은 줄이라 상한에서 한 번 재어 본다(맞지 않으면 「자간 한도」)
             return {"kind": "push", "s": s, "rs": rs, "re": cut, "cut": cut, "pct": pct, "lo": 100, "hi": hi + 1, "b": it["a"], "line": k, "it": it}
         at, b, kind = it["at"], it["b"], it["kind"]
         if kind == "pull" and k + 2 == len(sp) and R["last"]:   # 당긴 뒤 남는 마지막 줄(「예지보 / 전 가동」 → 「가동」)
@@ -315,10 +322,12 @@ class Para:
         if None in (W_T, W_N, F) or W_N - F <= 0:
             return "measure"
         pct = min(99, math.floor(100 * (W_T - F) / (W_N - F)))
-        lo = math.ceil(100 * R["minRatio"] / self.ratios(rs, at)[0])
+        if at <= rs:
+            return "chain"
+        lo = pct_limit(self.spaces(rs, at)[0], R["minSpace"], up=False)   # 배율의 하한 = 적힐 자간이 하한에 닿는 곳(이미 좁힌 글은 덜 줄인다)
         if pct < lo:
             # 어림(W_T / W_N)은 줄이 꽉 찼다고 본 값이라 실제보다 더 줄인다 — 줄 끝에 남은 자리는 다음 줄 첫 글자의 폭보다 작으니(그 글자가 안 들어가 넘어갔다)
-            # 그만큼 남았다고 봐도 하한에 못 미치면 「장평 한도」 · 아니면 하한에서 한 번 재어 본다(좁은 표 칸에서 어림이 크게 빗나간다 — 2026-11-23 「연속(트리 / 거」)
+            # 그만큼 남았다고 봐도 하한에 못 미치면 「자간 한도」 · 아니면 하한에서 한 번 재어 본다(좁은 표 칸에서 어림이 크게 빗나간다 — 2026-11-23 「연속(트리 / 거」)
             w1 = self._w(e, e + 1) if e < len(T) else None
             if w1 is None or lo > 99 or math.floor(100 * (W_T + w1 - F) / (W_N - F)) < lo:
                 return "limit"
@@ -537,9 +546,9 @@ def _hh(tag):
 LANGS = ("hangul", "latin", "hanja", "japanese", "other", "symbol", "user")
 
 
-def scale_ratio(doc, p, start, end, pct):
-    """HwpxDoc 문단 p 의 [start, end) 글자(블록 글 자리)의 장평을 pct% 배로(언어마다 지금 값 × pct/100 · 50~200) — 런을 나누고 새 글자 모양을 들인다.
-    표 · 그림 같은 개체가 든 런은 건드리지 않는다. → 바꾼 런 수."""
+def _rescale(doc, p, start, end, tag, default, value):
+    """HwpxDoc 문단 p 의 [start, end) 글자(블록 글 자리)의 글자 모양에서 언어마다의 값(tag = ratio 장평 | spacing 자간)을 value(지금 값) 로 바꾼다 — 런을 나누고 새 글자 모양을 들인다
+    (같은 정의가 있으면 그것). 표 · 그림 같은 개체가 든 런은 건드리지 않는다. → 바꾼 런 수."""
     from app.hwpx_doc import OBJECTS, RUN
     if end <= start:
         return 0
@@ -555,13 +564,13 @@ def scale_ratio(doc, p, start, end, pct):
                 if src is None:
                     raise ValueError(f"글자 모양 {old} 정의가 없습니다")
                 c = copy.deepcopy(src)
-                e = c.find(_hh("ratio"))
-                if e is None:   # 차례는 fontRef 바로 뒤(hwpx_format.CHAR_ORDER — OWPML)
-                    e = c.makeelement(_hh("ratio"), {x: "100" for x in LANGS})
-                    fr = c.find(_hh("fontRef"))
-                    (fr.addnext(e) if fr is not None else c.insert(0, e))
-                for attr in list(e.attrib):
-                    e.set(attr, str(max(50, min(200, round(int(e.get(attr) or 100) * pct / 100)))))
+                e = c.find(_hh(tag))
+                if e is None:   # 차례는 fontRef · ratio · spacing(hwpx_format.CHAR_ORDER — OWPML)
+                    e = c.makeelement(_hh(tag), {x: str(default) for x in LANGS})
+                    prev = next((x for t in (("ratio", "fontRef") if tag == "spacing" else ("fontRef",)) if (x := c.find(_hh(t))) is not None), None)
+                    (prev.addnext(e) if prev is not None else c.insert(0, e))
+                for x in LANGS:   # 스키마에서 속성은 선택(기본값) — 빠진 언어도 같이 바꾼다
+                    e.set(x, str(value(int(e.get(x) or default))))
                 made[old] = doc._add_def("charPr", c)
             if made[old] != old:
                 r.set("charPrIDRef", made[old])
@@ -571,6 +580,119 @@ def scale_ratio(doc, p, start, end, pct):
     doc._drop_cache(p)
     doc._touch(p)
     return n
+
+
+def spacing_for(cur, pct):
+    """지금 자간 cur(%) 인 글자의 폭을 pct% 배로 만드는 자간(%) — 글자 나아감 = 글자 폭 × 장평 × (1 + 자간) 이라 (100 + cur) × pct ÷ 100 − 100 · −50~50."""
+    return max(-50, min(50, round((100 + cur) * pct / 100 - 100)))
+
+
+def scale_spacing(doc, p, start, end, pct):
+    """HwpxDoc 문단 p 의 [start, end) 글자의 폭을 pct% 배로 — **자간으로**(언어마다 `spacing_for` · 장평 · 글자 모양은 그대로). → 바꾼 런 수."""
+    return _rescale(doc, p, start, end, "spacing", 0, lambda cur: spacing_for(cur, pct))
+
+
+def pct_limit(cur, bound, up):
+    """지금 자간 cur(%) 인 글자에 걸 수 있는 배율의 끝 — **적힐 자간**(`spacing_for` 의 정수)이 bound 를 안 넘는 가장 작은(up=False · 하한) · 가장 큰(up=True · 상한) 배율.
+    식 (100 + bound) ÷ (100 + cur) 로 세면 반올림 때문에 되는 값을 버린다(−10% 에서 94% 는 −15% 가 되는데 하한을 95% 로 셈 — astra 2026-11-23).
+    이미 한도 밖인 글(cur 가 하한보다 좁음)은 줄이는 쪽 100 · 늘리는 쪽 100 — 그 방향으로는 안 바꾼다."""
+    if up:
+        return max([q for q in range(101, 201) if spacing_for(cur, q) <= bound] or [100])
+    return min([q for q in range(50, 100) if spacing_for(cur, q) >= bound] or [100])
+
+
+def _ratio_before(cur, pct):
+    """장평을 pct% 배 해서 cur 가 된 처음 값들 — round(o × pct ÷ 100) == cur 인 o(50~200). 없으면 빈 목록."""
+    guess = cur * 100 / pct
+    return [o for o in range(math.floor(guess) - 1, math.ceil(guess) + 2) if 50 <= o <= 200 and max(50, min(200, round(o * pct / 100))) == cur]
+
+
+def _ratio_of(d):
+    e = d.find(_hh("ratio"))
+    return tuple(int(e.get(x) or 100) if e is not None else 100 for x in LANGS)
+
+
+def _plain_index(doc):
+    """글자 모양을 「장평만 뺀 꼴」 로 묶은 색인 {장평 뺀 지문: [(id, 언어마다 장평)…]} — 정의 수가 바뀌면 다시 짓는다(문서마다 한 번)."""
+    from app.hwpx_doc import _sig
+    defs = doc._defs["charPr"]
+    got = getattr(doc, "_lt_plain", None)
+    if got is None or got[0] != len(defs):
+        index = {}
+        for i, d in defs.items():
+            index.setdefault(_plain_sig(d, _sig), []).append((i, _ratio_of(d)))
+        got = doc._lt_plain = (len(defs), index)
+    return got[1]
+
+
+def _plain_sig(d, _sig):
+    c = copy.deepcopy(d)
+    e = c.find(_hh("ratio"))
+    if e is not None:
+        c.remove(e)
+    return _sig(c)
+
+
+def _before_defs(doc, cid, pct):
+    """글자 모양 cid 에서 **장평만** pct 로 나눈 꼴인, 문서에 이미 있는 정의들의 id — 언어마다 round(그 정의의 장평 × pct ÷ 100) == 지금 장평(한글 87 · 영문 88 처럼 언어마다 달라도 찾는다).
+    제 자신은 뺀다."""
+    from app.hwpx_doc import _sig
+    src = doc._defs["charPr"].get(cid)
+    if src is None:
+        return []
+    cur = _ratio_of(src)
+    return [i for i, was in _plain_index(doc).get(_plain_sig(src, _sig), ()) if i != cid and all(o in _ratio_before(c, pct) for o, c in zip(was, cur))]
+
+
+def ratio_proof(doc, p, ops, neighbor=True):
+    """전에 장평으로 고친 문단(2026-11-23 의 자간으로 바꾸기 전 — 기록의 ops [(rs, re, pct)…])의 장평을 **되돌려도 되는 근거**가 지금 문서에 있나 → [(런, 되돌릴 글자 모양 id)…] | None.
+    문서를 안 바꾼다(되돌리기는 `restore`). 기록은 반영을 「실행 취소」 해도 남고 다른 도구 · 사람도 장평을 바꾼다 — 기록만 믿고 나누면 처음대로인 100% 가 104% 로 넓어진다. 근거:
+    ① 범위의 양 끝이 **런의 경계**다(줄 정리가 거기서 런을 나눴다 — 실행 취소한 문서에서는 한 런이 그 경계를 지나간다) · 개체가 든 런 · 서로 겹친 범위가 없다
+    ② 범위 안의 런마다 「장평만 되돌린 글자 모양」 이 문서에 이미 있는 정의다(`_before_defs`)
+    ③ neighbor — 범위 바로 앞이나 바로 뒤의 런(범위 밖)이 **그 되돌린 정의를 그대로 쓰고 있다**(같은 런이던 글의 나머지). 문단 본문 전체가 범위라 옆 런이 없으면 ③ 은 못 본다 —
+       그런 문단은 부르는 쪽이 한글의 줄(옛 계획의 after 와 같은가)로 본 뒤 neighbor=False 로 부른다(line_tidy_api.plan_bytes)."""
+    from app.hwpx_doc import OBJECTS, RUN
+    runs, pos = [], 0
+    for r in p.iterchildren(RUN):
+        k = sum(doc._clen(c) for c in r)
+        if k:
+            runs.append((pos, pos + k, r))
+        pos += k
+    spans = []
+    for rs, re_, pct in sorted(ops):   # 맞닿은 같은 배율의 범위는 한 런으로 합쳐져 있다 — 범위도 합쳐 본다
+        if spans and rs < spans[-1][1]:
+            return None
+        if spans and spans[-1][1] == rs and spans[-1][2] == pct:
+            spans[-1][1] = re_
+        else:
+            spans.append([rs, re_, pct])
+    held = {id(r) for a, b, r in runs if any(rs <= a and b <= re_ for rs, re_, _ in spans)}
+    out, seen = [], False
+    for rs, re_, pct in spans:
+        inside = [(a, b, r) for a, b, r in runs if rs <= a and b <= re_]
+        if not inside or inside[0][0] != rs or inside[-1][1] != re_ or any(c.tag in OBJECTS for _, _, r in inside for c in r):
+            return None
+        sides = [r.get("charPrIDRef", "0") for a, b, r in runs if (b == rs or a == re_) and id(r) not in held]   # 범위 밖의 바로 옆 런
+        for a, b, r in inside:
+            cands = _before_defs(doc, r.get("charPrIDRef", "0"), pct)
+            near = [c for c in cands if c in sides]
+            if near:
+                seen = seen or (a == rs or b == re_)
+            pick = near[0] if near else cands[0] if len(cands) == 1 else None   # 여럿이면 옆 런이 쓰는 것 · 그것도 없으면 정할 수 없다
+            if pick is None:
+                return None
+            out.append((r, pick))
+    return out if out and (seen or not neighbor) else None
+
+
+def restore(doc, p, proof):
+    """`ratio_proof` 의 답대로 그 런들을 되돌린 글자 모양으로 → 바꾼 런 수. proof 를 낸 뒤 그 문단을 바꾸지 않았어야 한다."""
+    for r, was in proof:
+        r.set("charPrIDRef", was)
+    doc._tidy(p)
+    doc._drop_cache(p)
+    doc._touch(p)
+    return len(proof)
 
 
 def scale_height(doc, p, pct):

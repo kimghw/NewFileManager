@@ -185,7 +185,7 @@ def align_old(old, new):
             if ptid is not None and m.get("at") is not None:
                 m["at"] = lv(ptid, m["at"])
             m["parent"], m["child"] = amap.get(m.get("parent"), m.get("parent")), amap.get(m.get("child"), m.get("child"))
-    for m in out.get("splits") or []:
+    for m in (out.get("splits") or []) + (out.get("lost") or []):  # lost = 못 건 자리로 나눈 기록(spec_hwpx_웹편집 ② §8-13 — 다음에 다시 건다)
         if m.get("ofId") is not None and str(m["ofId"]) in tps:
             m["level"] = lv(str(m["ofId"]), m.get("level"))
         m["of"] = amap.get(m.get("of"), m.get("of"))

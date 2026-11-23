@@ -199,7 +199,9 @@ def test_fit_keys_do_not_split_groups_and_survive_match(tmp_path):
         assert sorted(r.json()["changed"]) == sorted(five + ["p5765"])   # 자간만 다른 줄(peer)은 건드리지 않는다
         got, rep = M.look(s.doc, s.outline, "p6502"), M.look(s.doc, s.outline, "p5209")
         assert M.same(got, rep) and got["lead"] == rep["lead"]                       # 비교 값은 대표와 같아졌다
-        assert got["spacingPct"] == -7 and got["L.spacingPct"] == -7 and rep["spacingPct"] == 0   # 줄 맞춤 값은 그 줄 것
+        # p6502 는 본문이 없는 줄(「   - 」)이다 — 접두뿐이라 맞춘 뒤의 장평·자간은 대표 것(접두는 그 줄의 자간을 지키지 않는다: 2026-11-23 — 레터 앞 빈칸까지 번져 레터가 왼쪽에 섰다).
+        # 본문의 자간을 지키는 것은 test_match_keeps_fit_per_language_and_per_run · test_outline_conform 의 「줄 맞춤 값」 시험이 본다
+        assert got["spacingPct"] == got["L.spacingPct"] == rep["L.spacingPct"] == rep["spacingPct"] == 0
         assert M.look(s.doc, s.outline, peer)["spacingPct"] == -10
         assert len(_slots(c, d)["1"]["5"]["groups"]) == 1
     finally:
@@ -260,7 +262,8 @@ def test_match_keeps_fit_per_language_and_per_run(tmp_path):
             pos += len(run_text)
         mid2 = plen2 + (mid - plen)
         at = lambda i: next((h, la) for a, b, h, la in got if a <= i < b)  # noqa: E731
-        assert at(plen2 - len(gap2) - 1) == ("-10", "0")                             # 레터: 한글 −10 · 영문 0 그대로(영문까지 −10 이 되지 않는다)
+        want = tuple(dict(M._fit_of(s.doc, M.rep_shape(s.doc, s.outline, rep)["attrs"]["charPrIDRef"])[1])[k] for k in ("hangul", "latin"))
+        assert at(0) == at(plen2 - len(gap2) - 1) == at(plen2 - 1) == want           # 접두(레터 앞 빈칸 · 레터 · 레터 뒤 빈칸) = 대표의 레터 런 — 그 줄 접두의 −10 을 지키지 않는다(2026-11-23)
         assert at(plen2) == ("-5", "-5") and at(mid2 - 1) == ("-5", "-5")            # 본문 앞쪽
         assert at(mid2) == ("-7", "3") and at(len(text2) - 1) == ("-7", "3")         # 본문 뒤쪽 — 런마다 제 값
     finally:

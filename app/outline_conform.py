@@ -12,8 +12,11 @@
      대표와 접두 폭이 다른 줄(번호형 「10.」 · 줄 맞춤으로 자간을 줄인 레터)은 제 접두 폭으로 — 값이 아니라 규칙이 같다.
      가운데 · 오른쪽 정렬 줄은 기본 규칙을 안 건다(`outline_pos.free`: 줄 시작이 글 길이로 정해진다) — 확정 꼴은 「내어쓰기 없음」(첫 줄 0 · 왼쪽 여백 그대로 — `outline_pos.unhang`:
      이 변경 전에 넣은 내어쓰기도 없앤다 · 대표와 접두 폭이 다른 줄도 한 상태로 모인다) · 사람이 정한 규칙은 건다.
-- `place(doc, ov, pid, m)` = 줄 하나에 ①② · `needs(…)` = 그 줄이 ①② 에 안 맞는가(문서는 안 바꿈).
-- `conform(doc, ov, pid, sh, m, left, keep, rules)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①② · keep = 본문 강조는 그 줄의 것(넣은 뒤 정리 — `outline_match.own_emph`) · rules 거짓 = ①② 없이 대표의 모양만(가운데 · 오른쪽 정렬 줄은 대표의 「글 시작」 꼴을 제 접두 폭으로 — `_follow`).
+  ③ **접두의 줄 맞춤 값 = 본보기 레터 런의 것**(② §8-2 「줄 맞춤 값 — 접두는 대표 것」 · 2026-11-23): 접두(레터 앞 빈칸 · 레터 · 레터 뒤 빈칸)의 장평·자간은 그 레벨 대표(넣은 줄끼리 맞춘 묶음은 그 묶음의 대표 —
+     `base`) 레터 런의 값이다 — 본문의 장평·자간은 줄마다 제 값(한 줄에 넣으려고 줄인 값). 자간을 줄인 줄의 레터 앞 빈칸까지 자간이 걸리면 빈칸이 좁아진 만큼 레터가 왼쪽에 선다(한글 출력 —
+     12pt · 빈칸 6칸 · −9% 면 1.1mm). 대표 자신도 레터 앞·뒤 빈칸의 런이 레터 런과 값이 다르면 레터 런의 값으로. 접두 끝에서 런을 갈라 접두 쪽 런의 장평·자간만 바꾼다(글 · 표지 · 본문 런은 그대로).
+- `place(doc, ov, pid, m, base)` = 줄 하나에 ①②③ · `needs(…)` = 그 줄이 ①②③ 에 안 맞는가(문서는 안 바꿈).
+- `conform(doc, ov, pid, sh, m, left, keep, rules, base)` = **줄 하나를 확정 서식으로**: 접두·문단·글자(`outline_match.match_one`) + ①②③ · keep = 본문 강조는 그 줄의 것(넣은 뒤 정리 — `outline_match.own_emph`) · rules 거짓 = ①② 없이 대표의 모양만(가운데 · 오른쪽 정렬 줄은 대표의 「글 시작」 꼴을 제 접두 폭으로 — `_follow`).
 - `freeze(ov, tid, level, sh)` = 슬롯의 동결 접두 · 모양을 sh 로(Enter 로 만드는 새 줄 — settle 이 대표에 ①② 를 건 뒤 부른다).
 - `settle(doc, ov, tid, level, ids, m, left)` = 레벨 하나: 대표 줄에 ①② 를 걸어 확정 서식을 정하고(슬롯의 동결 접두·모양도 그것으로 — Enter 로 만드는 새 줄이 같은 서식),
   대표와 서식이 같던 줄(대표 갈래)과 ids(맞추기로 고른 줄)를 그 서식으로. → 바뀐 줄 id.
@@ -125,6 +128,77 @@ def _held_now(doc, ov, tid, level):
     return False
 
 
+def _fit_cid(doc, ov, pid, base=None):
+    """접두의 줄 맞춤 값(③)이 따를 글자 모양 id — 본보기 줄 **레터 런**의 것 | None(대표 없음 · 본보기를 못 읽음).
+    본보기 = base(넣은 줄끼리 맞추는 묶음의 대표 — 넣은 뒤 정리가 준다) · 없으면 그 줄이 넣은 뒤 정리가 「넣은 줄끼리」 로 적어 둔 줄(슬롯의 `outline_match.RETIDY_DEEP`)일 때 그 묶음의 대표 ·
+    그 밖은 그 레벨의 대표. 적어 둔 묶음을 보는 까닭: 넣은 뒤 정리(묶음의 대표)와 「자리 맞춤」(레벨의 대표)이 같은 줄의 접두를 서로 되돌리지 않게(2026-11-23 astra 재현)."""
+    line = ov["lines"][pid]
+    b = base
+    if b is None:
+        dz = (OE._slot(ov, line["tpl"], line["level"]) or {}).get(OM.RETIDY_DEEP) or {}
+        b = dz.get("rep") if pid in (dz.get("lines") or ()) else _rep(doc, ov, line["tpl"], line["level"])
+    if b is None or b not in ov["lines"] or not OM._alive(doc, b):
+        return None
+    x = ov["lines"][b]
+    if (str(x.get("tpl")), int(x.get("level", -1))) != (str(line["tpl"]), int(line["level"])):
+        # 본보기가 그 레벨의 줄이 아니다(적어 둔 묶음의 대표가 다른 레벨로 옮겨졌다) — ③ 을 안 건다. 적어 둔 묶음의 대표가 없어진 줄도 같다(위의 None): 레벨 대표의 값으로 바꾸지 않고 그대로 두고,
+        # 다음 넣은 뒤 정리가 그 묶음의 대표를 다시 골라 `base` 로 준다(2026-11-23 astra 3차 — 옮겨진 대표의 값 · 레벨 대표의 값을 받던 것)
+        return None
+    lead, tok, _gap_, _plen, _text = OM.parts(doc, ov, b)
+    if not tok:
+        return None
+    return OM._cid_at(doc, doc._ids[b], len(lead)) or doc._char_id(doc._ids[b])
+
+
+def _splits(doc, r, a, at):
+    """런 r(글 자리 a 에서 시작)을 글 자리 at 에서 가를 수 있나 — at 이 글(hp:t) 안이거나 자식의 경계일 때만(자동 번호 같은 컨트롤의 글 한가운데는 못 가른다: hwpx_struct._cut)."""
+    pos = a
+    for c in r:
+        n = doc._clen(c)
+        if pos < at < pos + n:
+            return c.tag.endswith("}t")
+        pos += n
+    return True
+
+
+def _fit_off(doc, ov, pid, base=None):
+    """(본보기 레터 런의 글자 모양 id, 이 줄의 접두 길이) — 접두 자리의 런 가운데 장평·자간이 본보기 레터 런과 다르고 **고칠 수 있는** 것이 있을 때만, 아니면 None(③ — 문서는 안 바꾼다).
+    접두가 잴 수 있는 빈칸뿐일 때만 본다(탭이 든 접두는 ①② 와 같이 그대로). 안 세는 런(판정과 쓰기가 같은 기준 — `_fit_fix` 가 이 함수의 답만 고친다: 세고 못 고치면 「자리 맞춤」 이 끝나지 않는다):
+    개체가 든 런 · 글자 모양 정의가 없는 런 · 접두 끝에서 가를 수 없는 런(접두 끝이 컨트롤의 글 한가운데). 그런 줄의 레터 위치는 저절로 안 맞는다(사양 ④)."""
+    cid = _fit_cid(doc, ov, pid, base)
+    want = OM._fit_of(doc, cid) if cid is not None else None
+    if want is None:
+        return None
+    lead, tok, gap, plen, _text = OM.parts(doc, ov, pid)
+    if not tok or any(ch not in OP.BLANKS for ch in lead + gap):
+        return None
+    for a, b, r in OM._runs_pos(doc, doc._ids[pid]):
+        if (a < min(b, plen) and not any(o.tag in OM.OBJECTS for o in r) and OM._fit_of(doc, r.get("charPrIDRef")) not in (want, None)
+                and (b <= plen or _splits(doc, r, a, plen))):
+            return cid, plen
+    return None
+
+
+def _fit_fix(doc, ov, pid, base=None):
+    """③ 을 건다 → 바뀌었는가. 접두 끝에서 런을 가르고 접두 쪽 런의 장평·자간만 본보기 레터 런의 값으로(`outline_match.keep_fit` — 글꼴 · 크기 · 강조는 그 런 것 그대로) · 본문 런은 안 건드린다.
+    런을 정리(_tidy)하지 않는다 — 문단 끝의 빈 런(마지막 줄 높이를 정하는 글자 크기)을 지우지 않게(2026-11-23 astra 재현: 30pt 끝 런이 없어졌다)."""
+    f = _fit_off(doc, ov, pid, base)
+    if f is None:
+        return False
+    cid, plen = f
+    p, want, hit = doc._ids[pid], OM._fit_of(doc, cid), False
+    if all(_splits(doc, r, a, plen) for a, b, r in OM._runs_pos(doc, p) if a < plen < b):
+        doc._boundary(p, plen)   # 접두 끝에 걸친 런을 가를 수 있을 때만 — 못 가르면(접두 끝이 자동 번호 한가운데) 그 런은 통째로 그대로 둔다(_boundary 는 그 앞에서 갈라 그 런의 빈칸까지 접두로 만든다: astra 3차)
+    for a, b, r in OM._runs_pos(doc, p):
+        if a < b <= plen and not any(o.tag in OM.OBJECTS for o in r) and OM._fit_of(doc, r.get("charPrIDRef")) not in (want, None):
+            r.set("charPrIDRef", OM.keep_fit(doc, r.get("charPrIDRef"), cid))
+            hit = True
+    if hit:
+        doc._drop_cache(p)
+        doc._touch(p)
+    return hit
+
+
 def _target(doc, ov, pid, m):
     """자리 규칙을 걸면 바뀔 (왼쪽 여백, 첫 줄) | None(그대로 · 못 잼). 기본 규칙을 안 거는 가운데 · 오른쪽 정렬 줄(outline_pos.free)은 내어쓰기가 남았을 때만
     (outline_pos.unhang — 이 변경 전의 확정 서식이 넣은 내어쓰기도 「자리 맞춤」 · 조정이 없앤다: place 와 같은 셈)."""
@@ -140,23 +214,26 @@ def _target(doc, ov, pid, m):
         return None
 
 
-def needs(doc, ov, pid, m):
-    """그 줄이 확정 서식의 ①(묶음 빈칸) ②(자리 규칙)에 안 맞는가 — 문서는 안 바꾼다."""
+def needs(doc, ov, pid, m, base=None, fit=True):
+    """그 줄이 확정 서식의 ①(묶음 빈칸) ②(자리 규칙) ③(접두의 줄 맞춤 값 — base = 본보기 줄 · 없으면 `_fit_cid` 의 차례)에 안 맞는가 — 문서는 안 바꾼다.
+    fit 거짓 = ①② 만(취합이 「취합본의 대표가 ①② 를 갖췄나」 를 물을 때 — 안 바꾸는 줄의 ③ 때문에 넣은 줄의 ①② 를 미루지 않게: merge_retidy_api._full)."""
     if _skip(doc, ov, pid):
         return False
     line = ov["lines"][pid]
-    return (not _held(doc, ov, line["tpl"], line["level"], m) and _gap(doc, pid, line.get("letter")) is not None) or _target(doc, ov, pid, m) is not None
+    return ((not _held(doc, ov, line["tpl"], line["level"], m) and _gap(doc, pid, line.get("letter")) is not None) or (fit and _fit_off(doc, ov, pid, base) is not None)
+            or _target(doc, ov, pid, m) is not None)
 
 
-def place(doc, ov, pid, m):
-    """줄 하나에 ①② 를 건다 → 바뀌었는가. 접두의 글자 모양·런은 그대로(빈칸 글자만 제 자리에서 바꾼다)."""
+def place(doc, ov, pid, m, base=None):
+    """줄 하나에 ①②③ 을 건다 → 바뀌었는가. 접두의 글 · 글꼴 · 강조는 그대로(① 은 빈칸 글자만 제 자리에서 · ③ 은 접두 런의 장평·자간만 — `_fit_fix`: base = 본보기 줄 · 없으면 그 레벨 대표)."""
     if _skip(doc, ov, pid):
         return False
-    changed = False
     line = ov["lines"][pid]
-    g = None if _held(doc, ov, line["tpl"], line["level"], m) else _gap(doc, pid, line.get("letter"))  # 레벨 규칙이 먼저(_held — 한 레벨 = 한 서식)
+    held = _held(doc, ov, line["tpl"], line["level"], m)   # 레벨 규칙이 먼저(_held — 한 레벨 = 한 서식): ③ 이 접두 폭을 바꾸기 **전에** 판정한다(바꾼 뒤에 처음 보면 대표와 그 갈래가 잠깐 갈려 보인다)
+    changed = _fit_fix(doc, ov, pid, base)   # ③ 이 ② 보다 먼저 — ② 가 고친 뒤의 접두 폭으로 잰다
+    g = None if held else _gap(doc, pid, line.get("letter"))
     if g is not None:
-        changed = doc.set_chars(pid, g[0], nb_gap(g[1]))
+        changed = doc.set_chars(pid, g[0], nb_gap(g[1])) or changed
     try:   # 가운데 · 오른쪽 정렬 줄은 기본 규칙을 안 건다 — 내어쓰기만 없앤다(outline_pos.free · unhang — align 이 본다)
         if OP.align(doc, ov, pid, measure=m, force=True) is not None:
             changed = True
@@ -165,15 +242,16 @@ def place(doc, ov, pid, m):
     return changed
 
 
-def conform(doc, ov, pid, sh, m, left=None, keep=None, rules=True):
+def conform(doc, ov, pid, sh, m, left=None, keep=None, rules=True, base=None):
     """줄 pid 를 확정 서식 sh(①② 를 건 대표의 `outline_match.rep_shape`)로 — 접두·문단·레터 글자·본문 바탕 글자 + ①②. 줄 하나를 템플릿 레벨 서식으로 바꾸는 단 하나의 길.
     left = 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`outline_match.match_one` — 그런 줄에도 ①② 는 건다).
     keep = 본문 바탕 글자에서 그 줄의 것을 지킬 강조(`outline_match.EMPH` — 넣은 뒤 정리가 넣는 쪽의 서식을 받는 레벨에서: spec_병합 ② §5-9) · None 이면 전처럼 모두 대표 것.
     rules = ①② 도 거나 — 거짓이면 대표의 모양 그대로만(대표가 ①② 를 갖추지 않은 레벨에서 그 레벨의 다른 줄은 두고 넣은 줄만 맞출 때: 취합의 넣은 뒤 정리 — spec_병합 ② §5-9 9 ⓐ)
-    · 가운데 · 오른쪽 정렬 줄은 대표의 「둘째 줄 = 글 시작」 꼴을 제 접두 폭으로 따른다(`_follow`)."""
+    · 가운데 · 오른쪽 정렬 줄은 대표의 「둘째 줄 = 글 시작」 꼴을 제 접두 폭으로 따른다(`_follow`).
+    base = ③ 의 본보기 줄(sh 를 읽은 줄 — 넣은 줄끼리 맞추는 묶음의 대표: 그 레벨의 대표가 아닐 때만 준다)."""
     OM.match_one(doc, ov, pid, OM.own_emph(doc, ov, pid, sh, keep) if keep else sh, left)
     if rules:
-        place(doc, ov, pid, m)
+        place(doc, ov, pid, m, **({"base": base} if base is not None else {}))
     elif pid in (ov.get("lines") or {}) and OP.free(doc, ov, pid):   # 가운데 · 오른쪽 정렬 줄 — 대표의 꼴을 따른다(_follow)
         _follow(doc, ov, pid, sh, m)
 
@@ -224,7 +302,7 @@ def _mates(doc, ov, tid, level, rep, skip=()):
     return out
 
 
-def settle(doc, ov, tid, level, ids=(), m=None, left=None, keep=None):
+def settle(doc, ov, tid, level, ids=(), m=None, left=None, keep=None, skip=()):
     """레벨 하나를 확정 서식으로 → 바뀐 줄 id. ① 대표 줄에 묶음 빈칸·자리 규칙 → 그 모양이 확정 서식(슬롯의 동결 접두·모양도 그것으로)
     ② 대표와 서식이 같던 줄(대표 갈래) + ids(맞추기로 고른 그 레벨 줄 — 대표와 다른 갈래)를 그 서식으로. 대표가 없는 레벨은 건드리지 않는다(ids 가 있으면 ValueError).
     left = ids 가운데 짝 표지 때문에 모양만 맞춘 줄을 적을 목록(`conform`) — 그 줄도 바뀐 줄에 든다. keep = ids 의 본문 강조를 지킴(`conform`)."""
@@ -235,7 +313,7 @@ def settle(doc, ov, tid, level, ids=(), m=None, left=None, keep=None):
         return []
     m = m or OP.Measure(doc)
     ids = [p for p in ids if p != rep]
-    mates = _mates(doc, ov, tid, level, rep, set(ids))
+    mates = _mates(doc, ov, tid, level, rep, set(ids) | set(skip))   # skip = 건드리지 않을 줄(사람이 처리를 고른 넘친 줄 — 넣은 뒤 정리의 held: 대표 갈래여도 ①②③ 을 안 건다)
     out = [rep] if place(doc, ov, rep, m) else []
     sh = OM.rep_shape(doc, ov, rep)
     freeze(ov, tid, level, sh)  # 새 줄(Enter)도 확정 서식으로

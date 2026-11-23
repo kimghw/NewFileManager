@@ -42,6 +42,7 @@
   <link rel="stylesheet" href="/static/key_float.css"><!-- 떠 있는 색 설명(문서 위의 #zonesKey · #divKey — 끌어 옮기는 상자: key_float.js, design.md §4) — divisions.css·zones.css 다음 -->
   <link rel="stylesheet" href="/static/para_letter.css"><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 단추 아래 메뉴 #plMenu: 개요 레벨 · 번호 · 기호 · 직접 입력 · 레터 빼기 — spec_hwpx_웹편집 ② §8-9) — style.css 다음 -->
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/outline_tune.css"><!-- 개요 줄의 레터 고치기(고른 개요 줄의 레터를 누르면 그 줄 아래 창 #olTune: 레터 · 빈칸 · 앞 여백 + 범위 카드 셋 — spec_hwpx_웹편집 ② §8-12) — style.css 다음 -->
   <link rel="stylesheet" href="/static/app_install.css"><!-- 앱으로 설치(상단 바 #installBtn — app_install.js · design.md §9) — document_header.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
   <link rel="stylesheet" href="/static/pointer.css"><!-- 포인터(상단 바 「포인터」 단추 · 남의 포인터(색 화살표 + 이름표) · 「클릭」 표시 · 떠 있는 작은 창 — pointer.js 가 만드는 것만: spec_포인터 ② §1 · design.md §26) — style.css · share.css 다음 -->
@@ -588,10 +589,12 @@
   <script src="/static/outline_match.js"></script><!-- 레벨 대표 서식 · 대표에 맞추기 · 템플릿 종속(「템플릿 관계」 레벨 줄의 서식 갈래 · 템플릿 줄의 하위로 넣기·떼기 · 도구 줄 #tbTplRel) — app.js·outline_format.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_odd.js"></script><!-- 다른 서식 보기(「템플릿 관계」 템플릿 줄의 「다른 서식 보기(n가지)」 — 레벨마다 대표와 다른 서식을 그림 아래에 펴 보이고 서식·레벨마다 맞추기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-2) -->
   <script src="/static/outline_lift.js"></script><!-- 표 제목을 템플릿의 L1 으로(「템플릿 관계」 템플릿 줄의 「표를 L1 으로」 — 같은 꼴 1칸 제목 표를 한 번에 넣기·떼기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-7) -->
+  <script src="/static/outline_cut.js"></script><!-- 여기부터 새 템플릿으로 나누기(문서 왼쪽 여백의 라벨 「T1 L4」 를 오른쪽 단추로 → 여기서만 · 그 레벨 줄 모두 · 이미 나눈 템플릿에 넣기 · 합치기) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-13) -->
   <script src="/static/caption_tpl.js"></script><!-- 캡션 템플릿 「CN」(그림 아래 · 표 위 캡션 — 여백의 「C1」 · 「템플릿 관계」 끝의 「캡션 템플릿」 절: 서식 목록 · 대표 정하기 · 대표에 맞추기) — app.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-10) -->
   <script src="/static/pic_tools.js"></script><!-- 그림 도구(그림을 누르면 띠 · 오른쪽 단추 메뉴: 표로 바꾸기 · 캡션 넣기(LLM) · 선명하게 · 가운데 · 두 그림 한 줄에 — 2열 kind picTools) — app.js·tables.js 다음(spec_그림 ② §1~§6) -->
   <script src="/static/para_letter.js"></script><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 레터를 골라 문단을 헤딩으로: 개요 레벨로 · 레터만 · 레터 빼기) — app.js 다음(spec_hwpx_웹편집 ② §8-9) -->
   <script src="/static/outline_grow.js"></script><!-- 개요 레벨 더하기(마지막 레벨의 Alt+↓ → 레터·앞 공백·둘째 줄 후보 → 템플릿에 새 레벨 — app.js outlineLevel 이 부른다) — app.js 다음(spec_hwpx_웹편집 ② §8-6) -->
+  <script src="/static/outline_tune.js"></script><!-- 개요 줄의 레터 고치기(커서가 든 개요 줄의 레터를 누름 · 오른쪽 단추 「레터 고치기…」 → 레터 · 빈칸 · 앞 여백 + 범위: 이 문단만 · 서식 전체 변경 · 새 템플릿으로 추가) — app.js · panel_help.js 다음(spec_hwpx_웹편집 ② §8-12) -->
   <script src="/static/outline_preview.js"></script><!-- 개요 레벨 미리보기·비교 창(자리 수정의 지금 → 바뀐 뒤 · 서식 갈래 비교 표 — 떠 있는 창, 모달 아님) — outline_format.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-3) -->
   <script src="/static/tpl_agent.js"></script><!-- 템플릿 서식 정리 에이전트(템플릿 줄의 별 아이콘 → 2열: 대상 · 저장한 스킬 글 고치기 · 계획 → 고른 것만 적용 — Opus 5.5) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-4) -->
   <script src="/static/tpl_plan_bar.js"></script><!-- 진행 줄의 「조정」 줄(헤딩 추출 탭 머리 — 스크립트 · LLM 아래 셋째 층: 템플릿 조정 · 서식 조정 · 「모두 반영」 · 「계획 받기」) — tpl_agent.js·heading_llm_diff.js 다음(spec_hwpx_웹편집 ② §8-4) -->

@@ -252,8 +252,9 @@ def _want(levels):
 def _plan_tpl(s, ov, tpl, want):
     """템플릿 하나에서 바꿀 것 → [(level, 대표, 대표 바뀜, [바꿀 줄], [뗄 것 {paras, rep, sfx, ids(뗀 뒤 새 대표에 맞출 줄)}])] — 바꿀 것이 있는 레벨만.
     want = _want 의 답(None 이면 줄이 있는 모든 레벨의 대표와 다른 줄 모두 — 대표가 없는 레벨은 건너뛴다)."""
-    todo = want if want is not None else [(int(lv), None, None, []) for lv in sorted(ov["templates"][str(tpl)].get("slots", {}), key=int)
-                                          if outline_match.slot_ids(ov, tpl, lv)]
+    slots = ov["templates"][str(tpl)].get("slots", {})
+    todo = want if want is not None else [(int(lv), None, None, []) for lv in sorted(slots, key=int)
+                                          if outline_match.slot_ids(ov, tpl, lv) and not slots[lv].get("table")]  # 표 제목 레벨(1칸 제목 상자 · 넣은 표 줄)은 레터 · 접두가 없다 — 맞출 서식이 없다(대표 모양을 읽다 400 이 되던 것: astra)
     out = []
     for lv, rep, likes, cuts in todo:
         sl = outline_edit._slot(ov, tpl, lv)
@@ -824,3 +825,76 @@ def unsplit(doc_id: str, body: dict = Body(...)):
         if not ok:
             return got
         return {"back": got.get("back", 0), "outline": outline_pos.view(s.doc, s.outline), **_state(s)}
+
+
+# ---------------------------------------------------------------- 자리로 나누기 — 「여기부터 새 템플릿으로」(헤딩 라벨의 오른쪽 단추 메뉴: spec_hwpx_웹편집 ② §8-13)
+def _cut_paras(v):
+    """라벨 하나가 가리키는 줄 id 목록(보통 하나 — 표 한 행의 같은 라벨 칸들이면 여럿) — 글이면 쉼표로 나눈다. 꼴이 틀리면 400."""
+    ids = [p for p in v.split(",") if p] if isinstance(v, str) else v
+    if not isinstance(ids, list) or not ids or len(ids) > 200 or not all(isinstance(p, str) and p for p in ids):
+        raise HTTPException(400, "paras(나눌 줄의 문단 id 목록)가 필요합니다")
+    return list(dict.fromkeys(ids))
+
+
+@router.get("/api/docs/{doc_id}/outline/cut")
+def cut_view(doc_id: str, paras: str):
+    """`?paras=p1,p2` — 그 줄(라벨 하나가 가리키는 줄)의 라벨 메뉴 자료: outline_match.cut_view 꼴(여기서만 · 모두의 줄 수와 못 하는 까닭 · 그 레벨에서 이미 나눈 템플릿 · 합치기) + rev.
+    읽기만 한다. 404 그 줄이 개요 줄이 아님 · 409 2단계 없음."""
+    server = _server()
+    ids = _cut_paras(paras)
+    s = server._sess(doc_id)
+    _hwpx(s)
+    with s.lock:
+        ov = _ov(server, s)
+        try:
+            return {**outline_match.cut_view(s.doc, ov, ids), "rev": s.rev}
+        except (KeyError, ValueError) as e:
+            raise HTTPException(404, f"그 줄은 템플릿의 줄이 아닙니다 — {e}")
+
+
+@router.post("/api/docs/{doc_id}/outline/cut")
+def cut(doc_id: str, body: dict = Body(...)):
+    """{paras[줄 id], tpl, level, scope: "here" | "all", into?} — 줄 paras(라벨 하나가 가리키는 줄)의 템플릿을 그 줄의 레벨에서 새 템플릿(표기 「T{A}L{k}a」 — 줄은 그 레벨부터)으로 나눈다
+    (outline_match.cut): here = 그 줄과 그 아래 줄(번호형 레벨이면 같은 번호 묶음의 형제도) · all = 그 템플릿 · 그 레벨 줄 모두. into(그 레벨에서 이미 나눈 템플릿 id)를 주면 거기에 더 넣는다.
+    tpl · level = 메뉴가 보인 그 줄의 템플릿 · 레벨 — 그 사이 그 줄의 소속이 바뀌었으면 하지 않는다(409: 메뉴가 보인 것과 다른 줄을 옮기지 않게).
+    문서는 안 바뀐다 · 실행 취소 1(기록 `outlineCut`) · 되돌리기 = 「합치기」(…/outline/unsplit).
+    → {cut{id, no, of, level, scope, lines, moved, added}, outline, …편집 상태}. 400 그 줄이 템플릿 줄이 아님 · 자동 글머리 줄 · 종속 템플릿의 부모 레벨 · 띠 표 · 글자 다 씀 · 409 2단계 없음 · 소속이 바뀜."""
+    server = _server()
+    ids, scope, into, level, sig = _cut_paras(body.get("paras")), body.get("scope", "here"), body.get("into"), body.get("level"), body.get("sig")
+    tid = _tid(body.get("tpl"), "tpl")
+    if sig is not None and not isinstance(sig, str):
+        raise HTTPException(400, "sig 는 메뉴 자료(GET …/outline/cut)의 그 범위 sig")
+    if isinstance(level, bool) or not isinstance(level, int) or level < 1:
+        raise HTTPException(400, "level(그 줄의 레벨 — 1 이상의 정수)이 필요합니다")
+    if scope not in outline_match.CUT_SCOPES:
+        raise HTTPException(400, "scope 는 here | all")
+    if into is not None:
+        into = _tid(into, "into")
+    s = server._sess(doc_id)
+    _hwpx(s)
+    with s.lock:
+        ov = _ov(server, s)
+        for p in ids:
+            try:
+                x = outline_match._line_of(ov, p)  # 자동 글머리 줄도(그 줄은 뒤에서 까닭과 함께 거절된다)
+            except ValueError:
+                x = {}
+            if str(x.get("tpl")) != tid or x.get("level") != level:
+                raise HTTPException(409, "그 줄의 템플릿 · 레벨이 메뉴를 연 뒤에 바뀌었습니다 — 라벨을 다시 눌러 주세요")
+
+        if sig is not None:  # 메뉴가 보인 계획(옮길 줄 · 그 아래 줄 · 이미 나눈 템플릿 · 그래프 실행)과 지금 것이 같은가 — 줄 수가 같아도 대상이 다를 수 있다
+            try:
+                now = outline_match.cut_sig(ov, tid, level, outline_match.cut_paras(s.doc, ov, tid, level, ids, scope))
+            except (KeyError, ValueError) as e:
+                raise HTTPException(400, str(e))
+            if now != sig:
+                raise HTTPException(409, "나눌 줄이 메뉴를 연 뒤에 바뀌었습니다 — 라벨을 다시 눌러 주세요")
+
+        def change():
+            of = ov["templates"][tid]["no"]
+            got = outline_match.cut(s.doc, ov, tid, level, ids, scope=scope, into=into)
+            return {"id": got["id"], "no": got["no"], "of": of, "level": level, "scope": scope, "lines": len(got["paras"]), "moved": len(got["moved"]), "added": not got["new"]}
+        got, ok = _model_only(server, s, "outlineCut", {"paras": ids, "tpl": tid, "level": level, "scope": scope, "into": into}, change)
+        if not ok:
+            return got
+        return {"cut": got, "outline": outline_pos.view(s.doc, s.outline), **_state(s)}

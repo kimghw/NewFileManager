@@ -11,7 +11,7 @@
 FACTS = ("slots", "heads", "checked", "config", "fit", "fresh", "links", "plan", "filled", "clean", "frame", "assigned",   # 사실의 이름(문서마다 · 쌍마다 · 워크플로우 전체 — ② §18-2)
          "tables", "tidy",   # 문서 하나(② §18-13): tables = 표 구조가 있음(문서 하나는 헤딩 그래프 heads 와 따로 센다) · tidy = 같은 템플릿의 줄을 대표 서식에 맞춤(조정)
          "fixed", "pruned", "captioned",   # 「문서 정리」 의 조립 도구(② §18-23): fixed = 지침 보정을 반영함 · pruned = 빈 구역을 지움 · captioned = 캡션을 한 꼴로 맞춤
-         "lined")   # 줄 정리를 반영함(spec_줄정리 — 한글의 줄 나눔으로 잰 갈림을 장평으로)
+         "lined")   # 줄 정리를 반영함(spec_줄정리 — 한글의 줄 나눔으로 잰 갈림을 자간으로)
 PLACES = ("doc", "pair", "flow")
 KINDS = ("auto", "pick", "hand")
 ROLES = ("source", "target")   # 문서 역할 — 차례 = 원본 → 목적(app/workflow.py ROLES · app/custom_tasks.py ROLES 와 같다)
@@ -985,6 +985,10 @@ def line_tidy_text(c, rules=""):
         parts = " · ".join(f"{n} {nf(c[k])}" for k, n in (("pull", "당기기"), ("push", "밀기"), ("last", "마지막 줄"), ("chain", "연속 당기기")) if c.get(k))
         head = f"고친 문단 {nf(c['fixed'])}({parts})"
     tail = []
+    if c.get("undone"):   # 전에 장평으로 고친 줄(spec_줄정리 ② §9) — 그 장평을 되돌리고 자간으로 다시 쟀다
+        tail.append(f"전에 장평으로 고친 문단 {nf(c['undone'])}곳의 장평을 되돌림")
+    if c.get("ratioLeft"):   # 기록에는 있지만 그 장평이 지금 문서에 있다는 근거를 못 찾은 줄 — 건드리지 않았다(실행 취소했거나 그 뒤 서식이 바뀜)
+        tail.append(f"기록만 남은 옛 장평 {nf(c['ratioLeft'])}곳은 그대로 둠")
     if c.get("left"):
         why = " · ".join(f"{k} {nf(v)}" for k, v in (c.get("why") or {}).items())
         tail.append(f"그대로 둔 갈림 {nf(c['left'])}" + (f"({why})" if why else ""))
@@ -1011,9 +1015,12 @@ def _line_tidy_of(ctx, role="target"):
     if F.get("fills") and not fill_done(F):
         return {"st": "todo", "text": f"{who}{_sn(F, 'stage_fill', '내용 넣기')} 이 끝난 뒤에 넣은 글까지 줄을 정리합니다"}
     a = L.get("applied")
+    if a and L.get("ratio"):   # 전에 장평으로 고친 줄이 남아 있다(spec_줄정리 ② §9) — 다시 돌리면 자간으로 바꾼다
+        return {"st": "todo", "text": f"{who}전에 장평으로 고친 문단 {nf(L['ratio'])}곳이 있습니다 — 다시 돌리면 그 장평을 되돌리고 자간(글자 사이)으로 바꿉니다"
+                "(글자 모양이 눌려 그 줄만 글꼴이 달라 보이던 것 · 한글 조판을 몇 번 되풀이해 수십 초 · 문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
     if a and (not F.get("fills") or a.get("fill") == L.get("fill")):
         return {"st": "done", "text": who + "줄 정리 — " + line_tidy_text(a.get("counts") or {}, L.get("rulesText") or "")}
-    return {"st": "todo", "text": who + "한글로 줄 나눔을 재어 줄 끝에서 짧게 갈린 낱말을 윗줄 · 다음 줄로 옮기도록 장평을 조금씩 바꾸고, "
+    return {"st": "todo", "text": who + "한글로 줄 나눔을 재어 줄 끝에서 짧게 갈린 낱말을 윗줄 · 다음 줄로 옮기도록 자간을 조금씩 바꾸고, "
             "한 줄만 다음 쪽으로 넘어간 문단은 그 쪽의 빈 줄 높이를 조금씩 낮춰 한 쪽으로 모읍니다"
             f"(규칙: {L.get('rulesText') or ''} · 한글 조판을 몇 번 되풀이해 수십 초 · 문서가 바뀝니다 · 실행 취소 한 번 — 「한 번에 진행」 은 끝나면 확정)"}
 

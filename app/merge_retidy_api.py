@@ -154,7 +154,7 @@ def _full(doc, ov, r, m):
     """취합본의 줄이 있는 레벨(_kept_level)에서 넣은 줄에도 확정 서식의 ①②(묶음 빈칸 · 자리 규칙)를 거나 — 대표가 넣은 줄이거나 대표(취합본의 줄)가 이미 그것을 갖춤.
     아니면 대표의 모양 그대로만(넣은 줄에만 ①② 를 걸면 대표와 서식이 갈라져 다음 누름이 그 레벨을 「넣은 줄끼리」 로 읽고 떼어 낸다)."""
     from app import outline_conform as OC
-    return r["rep"] in r["same"] or not OC.needs(doc, ov, r["rep"], m)
+    return r["rep"] in r["same"] or not OC.needs(doc, ov, r["rep"], m, fit=False)   # ①② 만 — 안 바꾸는 취합본 대표의 접두 줄 맞춤 값(③) 때문에 넣은 줄의 ①② 를 미루면 끝나지 않는다(2026-11-23 astra 재현)
 
 
 def _todo(doc, ov, rows, m, gather=False):
@@ -169,7 +169,8 @@ def _todo(doc, ov, rows, m, gather=False):
             return True
         if _kept_level(r, gather) and not _full(doc, ov, r, m):
             continue
-        if any(OC.needs(doc, ov, p, m) for p in r["same"]):
+        base = None if r["slot"] else r["rep"]   # 넣은 줄끼리 맞추는 레벨 — 접두의 줄 맞춤 값은 이 묶음의 대표 것(반영과 같은 본보기: outline_conform ③)
+        if any(OC.needs(doc, ov, p, m, base) for p in r["same"]):
             return True
     return False
 
@@ -295,7 +296,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
                     if (OE._slot(ov2, r["tpl"], r["level"]) or {}).get("rep") != r["rep"]:
                         OM.set_rep(s_.doc, ov2, r["tpl"], r["level"], r["rep"], by="agent")   # 잠그지 않는다(서식 정리 계획이 다시 고를 수 있게 — 사람이 정한 대표가 아니다)
                         done["reps"] += 1
-                    changed += OC.settle(s_.doc, ov2, r["tpl"], r["level"], r["fix"] + r["near"], m, left, keep)
+                    changed += OC.settle(s_.doc, ov2, r["tpl"], r["level"], r["fix"] + r["near"], m, left, keep, skip=r["held"])   # 사람이 처리를 고른 넘친 줄은 대표 갈래여도 안 건드린다
                     if keep:   # 강조만 다른 줄(대표 갈래가 아니라 settle 이 안 거는 줄)에도 묶음 빈칸 · 자리 규칙
                         changed += [p for p in r["same"] if p != r["rep"] and OC.place(s_.doc, ov2, p, m)]
                 elif r["slot"]:   # 취합 — 취합본의 줄이 있는 레벨: 대표는 오버레이만 정하고 넣은 줄만 그 모양으로(취합본의 줄은 안 바꾼다 — 뒤에 올 기관 문서가 그 줄의 글로 자리를 찾는다)
@@ -313,14 +314,14 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
                         changed.append(p)
                     if full:
                         changed += [p for p in r["same"] if p != r["rep"] and OC.place(s_.doc, ov2, p, m)]
-                else:   # 넣은 줄끼리 — 레벨의 대표(목적 문서의 줄)와 그 갈래는 그대로
-                    if OC.place(s_.doc, ov2, r["rep"], m):
+                else:   # 넣은 줄끼리 — 레벨의 대표(목적 문서의 줄)와 그 갈래는 그대로 · 접두의 줄 맞춤 값도 이 묶음의 대표 것(base — 목적 문서 줄의 값을 받지 않는다: outline_conform ③)
+                    if OC.place(s_.doc, ov2, r["rep"], m, r["rep"]):
                         changed.append(r["rep"])
                     sh = OM.rep_shape(s_.doc, ov2, r["rep"])
                     for p in r["fix"]:
-                        OC.conform(s_.doc, ov2, p, sh, m, left, keep)
+                        OC.conform(s_.doc, ov2, p, sh, m, left, keep, base=r["rep"])
                         changed.append(p)
-                    changed += [p for p in r["same"] if p != r["rep"] and OC.place(s_.doc, ov2, p, m)]
+                    changed += [p for p in r["same"] if p != r["rep"] and OC.place(s_.doc, ov2, p, m, r["rep"])]
             MR.mark(ov2, rows)   # ③ 넣은 줄끼리 맞춘 레벨의 표 — 다음 누름이 그 레벨을 form 으로 바꾸지 않게(오버레이만)
             done["changed"], done["left"] = list(dict.fromkeys(changed)), left
             seen = list(dict.fromkeys(hit + done["changed"]))

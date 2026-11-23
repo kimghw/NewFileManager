@@ -418,6 +418,18 @@ def _fit_of(doc, cid):
     return tuple(out)
 
 
+def _bare(doc, cid):
+    """글자 모양 cid 에서 줄 맞춤 값(장평·자간)을 뺀 지문 | None(정의 없음) — 두 글자 모양이 장평·자간만 다른가를 견준다(같은 바탕의 본문 런)."""
+    c = doc._defs["charPr"].get(str(cid)) if cid is not None else None
+    if c is None:
+        return None
+    skip = {_h("ratio"), _h("spacing")}
+
+    def sig(e):
+        return (e.tag, tuple(sorted((k, v) for k, v in e.attrib.items() if not (e is c and k == "id"))), (e.text or "").strip(), tuple(sig(x) for x in e if not (e is c and x.tag in skip)))
+    return sig(c)
+
+
 def keep_fit(doc, new_id, old_id):
     """글자 모양 new_id 에 old_id 의 장평·자간을 얹은 글자 모양 id — 맞춰도 그 줄의 줄 맞춤 값은 지킨다(FIT_KEYS · 언어마다의 값 그대로). 같으면 new_id 그대로."""
     a, b = _fit_of(doc, new_id), _fit_of(doc, old_id)
@@ -848,14 +860,19 @@ def match_one(doc, ov, pid, sh, left=None):
     # 옛 본문 바탕 글자 모양(접두 뒤 첫 글자의 런)을 쓰던 런의 자리(본문 시작에서 잰 것) — 접두를 바꾸면 런이 합쳐지고 갈라져 요소로는 못 좇는다
     old_body = _cid_at(doc, p, plen) if plen < len(text) else None
     old_letter = _cid_at(doc, p, len(lead)) or doc._char_id(p)
-    body_spans = []
+    # 본문 바탕 = 옛 본문 바탕 글자 모양과 **장평·자간만 다른** 런도(줄 정리가 문단의 한 줄에만 자간을 걸면 같은 바탕의 본문이 글자 모양 id 가 다른 런 둘이 된다 — id 로만 고르면 뒤쪽 런이 옛 크기 · 글꼴로 남았다:
+    # 2026-11-23 astra 재현 · newfilemanager-8c). 런마다의 장평·자간은 아래 fits · refit 이 다시 얹는다
+    body_spans, bares = [], {}
+    bare = lambda c: bares[c] if c in bares else bares.setdefault(c, _bare(doc, c))  # noqa: E731 — 글자 모양마다 한 번
     for a, b, r in _runs_pos(doc, p) if old_body else ():
-        if b > max(a, plen) and r.get("charPrIDRef") == old_body and not any(o.tag in OBJECTS for o in r):
+        if b > max(a, plen) and not any(o.tag in OBJECTS for o in r) and (r.get("charPrIDRef") == old_body or (bare(old_body) is not None and bare(r.get("charPrIDRef")) == bare(old_body))):
             body_spans.append((max(a, plen) - plen, b - plen))
-    # 줄 맞춤 값(장평·자간)은 이 줄의 것을 지킨다(자간을 줄여 한 줄에 넣은 줄이 대표의 0% 가 되면 넘친다) — 바꾸기 전에 글 자리마다(본문 시작에서 잰 자리) 그 런의 글자 모양을 적어 두고,
+    # 줄 맞춤 값(장평·자간)은 이 줄 **본문**의 것을 지킨다(자간을 줄여 한 줄에 넣은 줄이 대표의 0% 가 되면 넘친다) — 바꾸기 전에 글 자리마다(본문 시작에서 잰 자리) 그 런의 글자 모양을 적어 두고,
     # 접두·본문 바탕을 다 바꾼 뒤 그 자리의 런에 그 장평·자간을 다시 얹는다(런마다 값이 달라도 · 접두 교체가 다른 런의 글자 모양을 바꿔도 제 값으로)
     fits = [(max(a, plen) - plen, b - plen, r.get("charPrIDRef")) for a, b, r in _runs_pos(doc, p) if b > max(a, plen) and not any(o.tag in OBJECTS for o in r)]
-    attrs = {**sh["attrs"], "charPrIDRef": keep_fit(doc, sh["attrs"]["charPrIDRef"], old_letter)}
+    # **접두(레터 앞 빈칸 · 레터 · 레터 뒤 빈칸)는 대표의 레터 런 그대로** — 그 줄 레터의 장평·자간을 얹지 않는다(② §8-2 「줄 맞춤 값 — 접두는 대표 것」 · 2026-11-23 사용자 「레터 앞 너비가 왜 조금씩 다르냐」:
+    # 레터부터 자간을 줄여 둔 줄을 맞추면 그 자간이 레터 앞 빈칸 전체로 번져, 빈칸이 좁아진 만큼 레터가 왼쪽에 섰다 — 한글 출력). 괄호 줄은 글 전체가 레터라 전처럼 제 값
+    attrs = {**sh["attrs"], "charPrIDRef": keep_fit(doc, sh["attrs"]["charPrIDRef"], old_letter)} if x.get("role") in OE.ROOTED else dict(sh["attrs"])
     why = None  # 모양만 맞춘 까닭(완전히 맞추면 None)
     if not doc.own_marks(p):
         doc.replace_prefix(pid, plen, new_prefix, attrs=attrs)
@@ -880,8 +897,16 @@ def match_one(doc, ov, pid, sh, left=None):
             if left is not None:
                 left.append({"id": pid, "why": why, "kinds": doc.mark_names(p)})
     body = sh.get("body") or sh["attrs"]["charPrIDRef"]
-    want = {_fit_of(doc, sh["attrs"]["charPrIDRef"]), _fit_of(doc, body)}
-    refit = [f for f in fits if _fit_of(doc, f[2]) not in want]  # 대표와 줄 맞춤 값이 다른 자리만(없으면 런을 가르지 않는다)
+    # 그 자리가 **실제로 받을** 글자 모양(본문 바탕 자리 = 대표의 본문 바탕 · 그 밖 = 지금 그 자리의 런)의 줄 맞춤 값이 옛 값과 다른 자리만(없으면 런을 가르지 않는다).
+    # 전에는 「대표의 레터 런 · 본문 바탕 가운데 하나와 같으면 그대로」 로 걸러, 본문 자간 0% 인 줄이 대표의 본문 자간(−8%)을 받았다(대표의 레터 런이 0% 라 걸러짐 — 2026-11-23 astra 재현)
+    now = [(a, b, r.get("charPrIDRef")) for a, b, r in _runs_pos(doc, p) if b > a] if fits else []   # 접두를 바꾼 뒤의 런 자리 — 한 번만 읽는다(런이 많은 줄에서 자리마다 다시 훑지 않게)
+    starts = [a for a, _, _ in now]
+
+    def at(i):   # 글 자리 i 의 글자 모양 id(지금) — 런 자리는 차례대로라 이분 탐색
+        from bisect import bisect_right
+        k = bisect_right(starts, i) - 1
+        return now[k][2] if k >= 0 and i < now[k][1] else None
+    refit =[f for f in fits if _fit_of(doc, f[2]) != _fit_of(doc, body if any(s <= f[0] and f[1] <= e for s, e in body_spans) else at(n0 + f[0]))]
     if body_spans or refit:
         for a, b in body_spans + [(a, b) for a, b, _ in refit]:
             doc._boundary(p, n0 + a)
@@ -1111,22 +1136,26 @@ def unmerge(ov, child, parent):
     return back
 
 
-def carry(old, new, ctx=None):
+def carry(old, new, ctx=None, doc=None):
     """2단계를 다시 돌려 오버레이를 새로 만들 때 — 옛 오버레이의 종속(같은 앵커끼리 · 넣은 차례대로 — 겹친 종속도)을 다시 건다(ctx = context — 칸 안 매달림).
-    사람이 정한 대표도 옮긴다. -> 못 건 것 [(기록, 까닭)]."""
+    사람이 정한 대표도 옮긴다. -> 못 건 것 [(기록, 까닭)].
+    doc = 지금 문서(자리로 나눈 기록 — ② §8-13 — 의 번호 묶음을 같은 표의 형제끼리 보게: 없으면 칸 흐름으로). 못 건 **자리로 나눈 기록**은 새 오버레이의 `lost` 에 까닭과 함께 남아
+    다음에 다시 분석할 때 제 차례에 다시 건다(사람의 나누기가 한 번 못 걸렸다고 사라지지 않게 — 합치면 지워진다)."""
     fails = []
     if not old or not new:
         return fails
     if old.get("unmerged"):
         new["unmerged"] = [dict(x) for x in old["unmerged"]]  # 사람이 푼 종속(다시 제안하지 않을 것 — 앵커 · 레벨)
-    ops = [("merge", m) for m in old.get("merges") or []] + [("split", m) for m in old.get("splits") or []]
+    ops = [("merge", m) for m in old.get("merges") or []] + [("split", m) for m in (old.get("splits") or []) + (old.get("lost") or [])]
     ops.sort(key=lambda o: o[1].get("n") or 0)  # 넣은 차례대로(차례 번호가 없는 옛 종속 기록이 먼저 — 안정 정렬이라 그 안의 차례는 그대로)
     for kind, m in ops:
         by_anchor = {t.get("anchor"): tid for tid, t in new.get("templates", {}).items()}  # 앞의 종속·떼기가 만든 템플릿도 앵커로 찾게 매번
         if kind == "split":  # 서식 종속 템플릿(② §8-5) — 기록의 줄 가운데 지금도 (A, Lk) 줄인 것만, 슬롯은 옛 것
-            why = _carry_split(old, new, m, by_anchor.get(m.get("of")))
+            why = _carry_split(old, new, m, by_anchor.get(m.get("of")), doc=doc)
             if why:
                 fails.append((m, why))
+                if m.get("cut") or m.get("add"):
+                    new.setdefault("lost", []).append({**{k: v for k, v in m.items() if k != "why"}, "n": _seq(new), "why": why})
             continue
         c, p = by_anchor.get(m.get("child")), by_anchor.get(m.get("parent"))
         if c is None or p is None:
@@ -1330,9 +1359,10 @@ def split_units(ov, tid, level, doc=None):
     return out
 
 
-def split_block(ov, tid, level, paras, rep=None, doc=None, partial=True):
+def split_block(ov, tid, level, paras, rep=None, doc=None, partial=True, whole=False):
     """(tid, level) 줄 paras 를 서식 종속 템플릿으로 못 떼는 까닭 | None — 종속 템플릿의 부모 레벨 · 대표 갈래 · 번호형 레벨에서 같은 부모 아래 형제의 일부
-    (번호 다시 매김이 (부모, 템플릿, 레벨) 묶음마다라 「1. 3.」 이 된다 — 표 안의 줄은 같은 표의 형제끼리가 한 묶음: split_units). rep = 그 레벨의 대표로 볼 줄(같은 트랜잭션에서 대표를 바꾼 뒤 뗄 때 — 없으면 슬롯의 지금 대표)."""
+    (번호 다시 매김이 (부모, 템플릿, 레벨) 묶음마다라 「1. 3.」 이 된다 — 표 안의 줄은 같은 표의 형제끼리가 한 묶음: split_units). rep = 그 레벨의 대표로 볼 줄(같은 트랜잭션에서 대표를 바꾼 뒤 뗄 때 — 없으면 슬롯의 지금 대표).
+    whole = 자리로 나누기(② §8-13 `cut` — 서식과 무관하게 그 줄 · 그 레벨 전체를 옮긴다): 「대표 줄」 검사만 건너뛴다(다른 검사는 그대로)."""
     tid = str(tid)
     t = ov["templates"].get(tid)
     sl = OE._slot(ov, tid, level)
@@ -1345,7 +1375,7 @@ def split_block(ov, tid, level, paras, rep=None, doc=None, partial=True):
         return "뗄 줄이 없습니다"
     if any(_is_auto(ov, p) for p in want):  # 자동 글머리 줄(② §8-8)은 떼지 않는다 — 맞추면 친 레터가 된다(그 뒤에 뗄 수 있다)
         return AUTO_SPLIT
-    if (rep or sl.get("rep")) in want:
+    if not whole and (rep or sl.get("rep")) in want:
         return f"T{t['no']} L{level} 의 대표 서식은 뗄 수 없습니다 — 다른 줄을 대표로 정한 뒤 떼세요"
     units = split_units(ov, tid, level, doc) if partial else None  # partial=False — 「형제의 일부」 는 안 본다(계획 검사가 한 split 항목의 줄을 합쳐서 본다: tpl_agent.check_plan)
     if units is not None:
@@ -1370,7 +1400,7 @@ def _free_sfx(ov, tid, level):
     return next((ch for ch in SFX if ch not in used), None)
 
 
-def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slots=None, doc=None, stop=None, by=None, side=None):
+def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slots=None, doc=None, stop=None, by=None, side=None, cut=None):
     """템플릿 tid(A) 의 L level 줄 paras(일부러 다르게 준 서식의 갈래)를 **서식 종속 템플릿**(표기 「T{A}L{k}{a…}」 · id 「A~k글자」)으로 뗀다
     (2026-11-15 사용자 "서식이 다르면 템플릿도 다른거잖아 … T1L3 로 하고 a,b,c 를 붙이자 … 종속템플릿이기 때문에 이 템플릿의 시작은 L3 부터").
     새 템플릿 = A 의 사슬 그대로 · base = level − 1(L1~L level−1 은 A 의 레벨 — 그 줄은 A 것) · L level 슬롯 = rep 줄의 모양(shape = rep_shape — 대표·동결 접두·모양,
@@ -1378,13 +1408,15 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
     into(이미 있는 서식 종속 템플릿 id)를 주면 새로 만들지 않고 거기에 더 넣는다. slots(옛 템플릿의 슬롯 — carry)을 주면 그 슬롯으로.
     stop = 자손으로 데려가지 않을 줄(그 아래도) · by = 누가 뗐나(「retidy」 = 넣은 뒤 정리 — variant · 떼기 기록에 남아 carry 가 다시 건다: spec_병합 ② §5-9) ·
     side = 뗀 줄이 어느 쪽인가(넣은 뒤 정리 — 「ins」 넣은 줄 · 「form」 목적 문서의 줄: variant · 떼기 기록에 남는다 — 화면 이름표 · merge_retidy.plan).
+    cut = 자리로 나누기(② §8-13 — 「here」 그 줄만 · 「all」 그 레벨 줄 모두: variant · 떼기 기록에 남는다): 서식과 무관하게 옮기므로 대표 줄도 옮긴다 —
+    그 레벨에 남은 줄이 없으면 A 의 그 슬롯은 대표 없이 동결 모양만 남는다(합치면 그 템플릿의 대표가 돌아온다 — unsplit).
     오버레이만 바꾼다 — 검사는 바꾸기 전에 다 한다(ValueError·KeyError). -> {"id", "no", "moved"[자손 포함], "paras", "new"}."""
     tid, level = str(tid), int(level)
     A = _tpl(ov, tid)
     paras = list(dict.fromkeys(paras or []))
     for pid in paras:
         _check_member(ov, tid, level, pid)
-    why = split_block(ov, tid, level, paras, doc=doc)  # doc = 표 안의 줄을 같은 표의 형제끼리 본다(split_units — 없으면 흐름으로)
+    why = split_block(ov, tid, level, paras, doc=doc, whole=bool(cut))  # doc = 표 안의 줄을 같은 표의 형제끼리 본다(split_units — 없으면 흐름으로)
     if why:
         raise ValueError(why)
     rep = rep or paras[0]
@@ -1422,7 +1454,7 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
                     sl.pop("pos", None)
             made[str(k)] = sl
         C = {"no": f"{A['no']}L{level}{sfx}", "kind": A.get("kind"), "anchor": f"{A.get('anchor')}~L{level}{sfx}", "chain": chain, "slots": made, "max": amax,
-             "base": level - 1, "variant": {"of": tid, "level": level, "sfx": sfx, **({"by": by} if by else {}), **({"side": side} if side else {})}}
+             "base": level - 1, "variant": {"of": tid, "level": level, "sfx": sfx, **({"by": by} if by else {}), **({"side": side} if side else {}), **({"cut": cut} if cut else {})}}
         new = True
     # ---- 여기부터 오버레이를 바꾼다
     moved = sorted(_members(ov, tid, paras, stop))
@@ -1452,6 +1484,10 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
             if rest:
                 sl["rep"] = rest[0]
                 sl.pop("repSet", None)
+            else:  # 그 레벨에 남은 줄이 없다(자리로 나눈 레벨 · 뗀 줄이 데려간 더 깊은 레벨) — 대표 없이 동결 모양만: 다른 템플릿의 줄을 대표로 가리키지 않는다
+                sl["rep"] = None  # (그대로 두면 그 레벨에 줄을 새로 만든 뒤의 「대표에 맞추기」 가 대표의 소속 검사에서 400 — a6 의 astra 2차. 합치면 돌아온 줄이 대표가 된다: unsplit)
+                sl.pop("repSet", None)
+                sl.pop("agentRep", None)
     for pid in moved:
         ov["lines"][pid].update(tpl=cid, no=C["no"])
     if new:
@@ -1469,10 +1505,39 @@ def split(ov, tid, level, paras, rep=None, shape=None, into=None, sfx=None, slot
             for key, lst in list(br.items()):
                 if tid in lst and cid not in lst and key.split("|")[0] != cid:
                     lst.append(cid)
-    rec = next((r for r in recs if r.get("id") == cid), None)
+    if cut:  # 자리로 나눈 줄은 레벨을 건너뛴 자리(「1.」 바로 아래의 L4 상자)에도 매달린다 — 실제로 매달린 자리마다 가지로(부모 찾기가 (A, level − 1) 만 보면 그 자리를 놓친다: astra)
+        br = ov.setdefault("branches", {})
+        for pid in paras:
+            p = ov["lines"].get(ov["lines"][pid].get("parent"))
+            if p is not None and p["tpl"] != cid:
+                lst = br.setdefault(f"{p['tpl']}|{p['level']}", [])
+                if cid not in lst:
+                    lst.append(cid)
+        for pid, x in ov["lines"].items():  # 옮긴 줄 아래에 남은 **다른 템플릿의 첫 레벨 줄**(이미 뗀 「T1L5a」 …)도 — 그 템플릿은 이제 (새 템플릿, 그 레벨)에도 매달린다(부모 찾기: astra 2차)
+            p = ov["lines"].get(x.get("parent")) if x["tpl"] != cid else None
+            if p is not None and p["tpl"] == cid and x.get("parent") in gone and int(x["level"]) == _base(ov["templates"].get(x["tpl"]) or {}) + 1:
+                lst = br.setdefault(f"{cid}|{p['level']}", [])
+                if x["tpl"] not in lst:
+                    lst.append(x["tpl"])
+        for T in (A, C):  # 대표가 제 템플릿 · 제 레벨의 줄이 아니면(앞선 떼기가 대표를 데려간 채 둔 것 · 다시 분석해 레벨이 달라진 것) 그 레벨의 첫 줄로, 없으면 비운다 — 출처 표지도 함께
+            T_id = tid if T is A else cid
+            for k, sl in T["slots"].items():
+                x = ov["lines"].get(sl.get("rep")) if sl.get("rep") else None
+                if x is not None and int(k) >= level and not (x["tpl"] == T_id and str(x["level"]) == str(k)):  # 오버레이 줄이 아닌 대표(자동 글머리 줄 …)와 나눈 레벨 위는 건드리지 않는다
+                    rest =[pid for pid, y in ov["lines"].items() if y["tpl"] == T_id and str(y["level"]) == str(k)]
+                    sl["rep"] = rest[0] if rest else None
+                    sl.pop("repSet", None)
+                    sl.pop("agentRep", None)
+    # 자리로 나눈 것 · 자리로 나눈 템플릿에 더 넣은 것은 **따로 한 건**(add — 제 차례 n): 만든 기록에 합치면 다시 걸 때 그 사이에 한 다른 떼기보다 앞서 걸려 소속이 달라진다
+    # (astra — 실제 함수로 본 반례: 서식 떼기의 「더 넣기」 로 자리로 나눈 템플릿에 넣어도 같다). 서식 떼기끼리의 더 넣기는 전처럼 만든 기록에 합친다
+    apart = not new and bool(cut or (C.get("variant") or {}).get("cut"))
+    rec = None if apart else next((r for r in recs if r.get("id") == cid and not r.get("add")), None)
     if rec is None:
+        asl = A["slots"].get(str(level)) or {}
         rec = {"of": A.get("anchor"), "ofId": tid, "level": level, "sfx": C["variant"]["sfx"], "id": cid, "lines": [], "n": _seq(ov), **({"by": by} if by else {}),
-               **({"side": side} if side else {})}
+               **({"side": side} if side else {}), **({"cut": cut} if cut else {}), **({"add": True} if apart else {}),
+               # 자리로 나눈 때의 그 레벨의 레터 · 표 레벨인가 — 다시 분석해 그 레벨 번호가 다른 레벨이 됐으면 걸지 않는다(_carry_split: 상자 레벨이 없어져 「o」 가 그 번호가 된 문서)
+               **({"key": asl.get("key"), "table": bool(asl.get("table"))} if cut or apart else {})}
         recs.append(rec)
     rec["lines"] = sorted(set(rec["lines"]) | set(paras))
     if stop:
@@ -1499,11 +1564,23 @@ def unsplit(ov, cid):
             other = ov["templates"].get(m.get("id"), {}).get("no", m.get("id"))
             raise ValueError(f"T{C['no']} 로 만든 종속 템플릿 T{other} 가 있습니다 — 그것부터 떼세요")
     _no_variants(ov, cid, C["no"])
-    back = 0
-    for x in ov["lines"].values():
-        if x["tpl"] == cid:
-            x.update(tpl=tid, no=A["no"])
-            back += 1
+    ids = [pid for pid, x in ov["lines"].items() if x["tpl"] == cid]
+    for pid in ids:
+        ov["lines"][pid].update(tpl=tid, no=A["no"])
+    _deep_shift(ov, cid, tid, ids)  # 넣은 뒤 정리의 표 — 돌아온 줄의 몫을 A 로
+    for k, sl in (A.get("slots") or {}).items():  # A 의 그 레벨에 유효한 대표가 없으면(자리로 나눠 비었던 레벨 …) 돌아온 줄 가운데 그 템플릿의 대표였던 줄을 대표로 — 동결 모양은 A 것 그대로 · 대표의 출처도 함께
+        if not sl.get("rep") or sl["rep"] in ov["lines"]:  # 오버레이 줄이 아닌 대표(자동 글머리 줄 …)는 건드리지 않는다
+            x = ov["lines"].get(sl.get("rep")) if sl.get("rep") else None
+            if x is not None and x["tpl"] == tid and str(x["level"]) == str(k):
+                continue  # 그 사이 A 에 정한 대표가 먼저다
+            csl = (C.get("slots") or {}).get(str(k)) or {}
+            y = ov["lines"].get(csl.get("rep")) if csl.get("rep") else None
+            if y is not None and y["tpl"] == tid and str(y["level"]) == str(k):
+                sl["rep"] = csl["rep"]
+                for key in ("repSet", "agentRep"):
+                    sl.pop(key, None)
+                    if csl.get(key):
+                        sl[key] = csl[key]
     ov["templates"].pop(cid, None)
     br = ov.get("branches") or {}
     for key in [k for k in br if k.split("|")[0] == cid]:
@@ -1512,10 +1589,85 @@ def unsplit(ov, cid):
         if cid in lst:
             lst.remove(cid)
     ov["splits"] = [r for r in ov.get("splits") or [] if r.get("id") != cid]
-    return back
+    if ov.get("lost"):
+        ov["lost"] = [r for r in ov["lost"] if r.get("id") != cid]
+    _settle_cuts(ov)  # 돌아온 줄이 자리로 나눈 다른 템플릿의 줄 아래에 있으면 그 템플릿으로(다시 분석해 다시 걸 때와 같은 소속)
+    return len(ids)
 
 
-def _carry_split(old, new, m, tid):
+def _within(ov, t, cid):
+    """템플릿 t 가 cid 이거나 거기서 다시 뗀 템플릿인가(variant.of 사슬)."""
+    seen = set()
+    while t is not None and t not in seen:
+        if t == cid:
+            return True
+        seen.add(t)
+        t = ((ov["templates"].get(t) or {}).get("variant") or {}).get("of")
+        t = None if t is None else str(t)
+    return False
+
+
+def _settle_cuts(ov):
+    """**자리로 나눈 템플릿**(② §8-13)이 지금 데려갈 줄을 데려간다 — 그 템플릿의 첫 레벨 줄(뿌리) 아래에 원래 템플릿의 줄이 매달려 있으면 그 템플릿의 줄로. 다시 분석해 나누기를 다시 걸 때(`carry`)
+    그 줄이 가는 곳과 같게 하려는 것이다(astra 2차의 반례: 안쪽 템플릿을 합친 직후에는 원래 템플릿 · 다시 분석하면 나눈 템플릿 — 겹쳐 나눈 템플릿 · 멈춤 경계가 풀린 줄도). 만든 차례대로.
+    받은 레벨에 유효한 대표가 없으면 받은 첫 줄이 대표. -> 옮긴 줄 수."""
+    order = {}
+    for m in ov.get("splits") or []:
+        if m.get("cut") and not m.get("add"):
+            order.setdefault(m.get("id"), m.get("n") or 0)
+    n = 0
+    for cid in sorted(order, key=lambda c: order[c]):
+        C = ov["templates"].get(cid)
+        v = (C or {}).get("variant") or {}
+        if not v.get("cut"):
+            continue
+        of, first = str(v["of"]), int(v["level"])
+        roots = [pid for pid, x in ov["lines"].items() if int(x["level"]) == first and _within(ov, x["tpl"], cid)]
+        took = [pid for pid in _members(ov, of, roots) if ov["lines"][pid]["tpl"] == of and str(ov["lines"][pid]["level"]) in C["slots"]]
+        if not took:
+            continue
+        for pid in took:
+            ov["lines"][pid].update(tpl=cid, no=C["no"])
+        _deep_shift(ov, of, cid, took)
+        gone = set(took)
+        for k in sorted({str(ov["lines"][pid]["level"]) for pid in took}):  # 받은 레벨 — 나눈 템플릿에 대표가 없으면 받은 첫 줄 · 원래 템플릿의 대표가 떠났으면 남은 첫 줄(없으면 비움)
+            sl = C["slots"][k]
+            x = ov["lines"].get(sl.get("rep")) if sl.get("rep") else None
+            if not sl.get("rep") or (x is not None and not (x["tpl"] == cid and str(x["level"]) == k)):
+                sl["rep"] = next(pid for pid in took if str(ov["lines"][pid]["level"]) == k)
+                sl.pop("repSet", None)
+                sl.pop("agentRep", None)
+            asl = ((ov["templates"].get(of) or {}).get("slots") or {}).get(k)
+            if asl is not None and asl.get("rep") in gone:
+                rest = [pid for pid, y in ov["lines"].items() if y["tpl"] == of and str(y["level"]) == k]
+                asl["rep"] = rest[0] if rest else None
+                asl.pop("repSet", None)
+                asl.pop("agentRep", None)
+        n += len(took)
+    return n
+
+
+def _deep_shift(ov, src, dst, ids):
+    """넣은 뒤 정리의 표(RETIDY_DEEP — 줄 소속에 묶인 것: 다음 「넣은 뒤 정리」 · 자리 맞춤이 읽는다)를 옮긴 줄 ids 의 몫만 템플릿 src → dst 의 같은 레벨로. 남은 줄의 몫은 src 에."""
+    S, D = ov["templates"].get(str(src)) or {}, ov["templates"].get(str(dst)) or {}
+    ids = set(ids)
+    for k, sl in (S.get("slots") or {}).items():
+        dz = sl.get(RETIDY_DEEP)
+        mine = [p for p in (dz or {}).get("lines") or () if p in ids]
+        if not mine:
+            continue
+        rest = [p for p in dz["lines"] if p not in ids]
+        dsl = (D.get("slots") or {}).get(str(k))
+        if dsl is not None:
+            cur = dsl.get(RETIDY_DEEP) or {}
+            dsl[RETIDY_DEEP] = {"rep": cur.get("rep") or (dz.get("rep") if dz.get("rep") in mine else None), "lines": list(dict.fromkeys(list(cur.get("lines") or ()) + mine))}
+        if rest:
+            sl[RETIDY_DEEP] = {"rep": dz.get("rep") if dz.get("rep") in rest else None, "lines": rest}
+        else:
+            sl.pop(RETIDY_DEEP, None)
+
+
+def _carry_split(old, new, m, tid, doc=None):
     """carry 의 떼기 한 건 — 새 오버레이의 템플릿 tid(같은 앵커)에서 기록 m 의 줄 가운데 지금도 (tid, level) 줄인 것을 다시 뗀다. -> 못 건 까닭 | None.
     기능이 쪽을 골라 뗀 것(by — 넣은 뒤 정리: 넣은 줄 · 목적 문서의 줄)은 옛 오버레이에서 그 템플릿 밖이던 줄을 데려가지 않는다 — 다시 분석한 그래프에서 그 줄의 부모가
     뗀 줄이 되어도(넣은 줄 아래로 매달린 양식 줄이 넣은 내용의 템플릿에 들면 다음 정리가 그 줄을 넣은 줄의 서식으로 바꾼다: spec_병합 ② §5-9). 그 줄은 기록의 stop 에 더한다.
@@ -1525,36 +1677,239 @@ def _carry_split(old, new, m, tid):
     level = int(m["level"])
     lines = [p for p in m.get("lines") or [] if p in new["lines"] and new["lines"][p]["tpl"] == tid and int(new["lines"][p]["level"]) == level]
     stop = list(m.get("stop") or ())
-    if m.get("by"):
-        ol, otp = old.get("lines") or {}, old.get("templates") or {}
+    cut, placed = m.get("cut"), bool(m.get("cut") or m.get("add"))  # placed = 자리로 나눈 것 · 자리로 나눈 템플릿에 더 넣은 것(② §8-13)
+    oc = (old.get("templates") or {}).get(m.get("id")) or {}
+    ol, otp = old.get("lines") or {}, old.get("templates") or {}
+    into, hold = None, set()
 
-        def inside(t):  # 옛 오버레이에서 그 템플릿이거나 거기서 다시 뗀 서식 종속 템플릿(그 기록이 뒤에서 다시 뗀다)
-            seen = set()
-            while t is not None and t not in seen:
-                if t == m.get("id"):
-                    return True
-                seen.add(t)
-                t = ((otp.get(t) or {}).get("variant") or {}).get("of")
-                t = None if t is None else str(t)
-            return False
+    def inside(t):  # 옛 오버레이에서 그 템플릿이거나 거기서 다시 뗀 서식 종속 템플릿(그 기록이 뒤에서 다시 뗀다)
+        seen = set()
+        while t is not None and t not in seen:
+            if t == m.get("id"):
+                return True
+            seen.add(t)
+            t = ((otp.get(t) or {}).get("variant") or {}).get("of")
+            t = None if t is None else str(t)
+        return False
+    if placed:  # 자리로 나누기 — 「누른 때의 그 자리」 를 잇는다
+        # ⓐ 그 레벨이 나눈 때의 그 레벨이어야 한다 — 기록에 적어 둔 그때의 레터 · 표 레벨 여부로 본다(나눈 템플릿의 지금 슬롯으로 보지 않는다: 상자 레벨이 없어지면 레벨 번호를 맞추는 길
+        #   heading_boxes.align_old 가 그 슬롯을 다른 레터로 덮는다 — astra 2차). 사람이 그 레벨의 레터를 고친 것(옛 A 의 지금 레터 = 새 A 의 레터 · 표 레벨 여부 같음)은 같은 레벨이다
+        nsl0, osl0 = OE._slot(new, tid, level) or {}, ((otp.get(str(m.get("ofId"))) or {}).get("slots") or {}).get(str(level)) or {}
+        if "key" in m and nsl0.get("key") != m["key"] and not (osl0.get("key") == nsl0.get("key") and bool(m.get("table")) == bool(nsl0.get("table"))):
+            return f"그 레벨이 달라짐(나눌 때 「{m['key']}」 → 지금 「{nsl0.get('key')}」)"
+        # 그 템플릿이 이미 다시 걸려 있으면 거기에 넣는다 — 더 넣은 기록은 보통 그렇고, 없으면(만든 기록의 줄이 다 없어짐) 이 줄들로 그 템플릿을 다시 만든다(살아 있는 줄까지 잃지 않게).
+        # 못 걸려 남아 있던 만든 기록(lost)이 뒤에 다시 걸릴 때도, 그 사이 더 넣은 기록이 그 템플릿을 다시 만들어 뒀으면 거기에 넣는다
+        anchor = oc.get("anchor") or f"{m.get('of')}~L{level}{m.get('sfx')}"
+        into = next((k for k, t in new["templates"].items() if t.get("anchor") == anchor and (t.get("variant") or {}).get("of") == tid), None)
+        if not m.get("add") and not m.get("why"):  # (못 걸려 남아 있던 기록 why 는 제 줄만 — 그 사이 그 템플릿을 다시 만든 기록이 제 차례에 제 줄을 건다) ⓑ 기록의 줄 + 다시 분석하기 직전에 그 템플릿(과 거기서 다시 나눈 템플릿)의 첫 레벨이던 줄 — 나눈 템플릿에서 사람이 만든 형제. 더 넣은 줄은 제 기록이 제 차례에 건다
+            later = {p for r in old.get("splits") or [] if r.get("add") and r.get("id") == m.get("id") for p in r.get("lines") or ()}
+            was = [p for p, x in ol.items() if int(x.get("level") or 0) == level and inside(x.get("tpl")) and p not in later]
+            lines += [p for p in was if p not in lines and p in new["lines"] and new["lines"][p]["tpl"] == tid and int(new["lines"][p]["level"]) == level]
+        # ⓒ 새로 잡힌 그 레벨 줄은 「모두」 로 나눈 것이어도 데려가지 않는다 — 뿌리로도, 뿌리 아래에 매달린 줄(같은 레벨끼리 부모 · 자식으로 읽힌 것)로도(레벨 번호만 같은 다른 줄일 수 있다)
+        hold = {p for p, x in new["lines"].items() if x["tpl"] == tid and int(x["level"]) == level and p not in lines}
+    if m.get("by"):
         out = {p for p in new["lines"] if p in ol and not inside(ol[p].get("tpl"))}
         lines = [p for p in lines if p not in out]
         stop = sorted(set(stop) | (_members(new, tid, lines, stop) & out))
     if not lines:
         return "뗀 줄이 없음"
-    oc = (old.get("templates") or {}).get(m.get("id")) or {}
     oa = (old.get("templates") or {}).get(m.get("ofId")) or {}
     nsl, osl = OE._slot(new, tid, level), (oa.get("slots") or {}).get(str(level)) or {}
-    if nsl is not None and nsl.get("rep") in lines:  # 새 그래프의 대표가 뗄 줄 — 옛 오버레이에서 A 의 대표였던 줄이 지금도 그 레벨 줄이면 그것으로
-        x = new["lines"].get(osl.get("rep"))
+    if not placed and nsl is not None and nsl.get("rep") in lines and osl.get("rep"):  # 새 그래프의 대표가 뗄 줄 — 옛 오버레이에서 A 의 대표였던 줄이 지금도 그 레벨 줄이면 그것으로
+        x = new["lines"].get(osl.get("rep"))  # (자리로 나눈 것은 대표 줄도 옮기니 A 의 대표를 미리 바꾸지 않는다 — 못 걸었을 때 A 만 바뀐 채 남지 않게)
         if x is not None and x["tpl"] == tid and int(x["level"]) == level and osl["rep"] not in lines:
             nsl.update({k: osl.get(k) for k in ("rep", "prefix", "letter", "attrs", "bodyChar")})
     rep = ((oc.get("slots") or {}).get(str(level)) or {}).get("rep")
     try:
-        split(new, tid, level, lines, rep=rep if rep in lines else lines[0], sfx=m.get("sfx"), slots=oc.get("slots") or None, stop=stop or None, by=m.get("by"), side=m.get("side"))
+        if into is not None:
+            split(new, tid, level, lines, into=into, doc=doc, stop=sorted(hold) or None, cut=cut)
+        else:
+            split(new, tid, level, lines, rep=rep if rep in lines else lines[0], sfx=m.get("sfx"), slots=oc.get("slots") or None, stop=sorted(set(stop) | hold) or None,
+                  by=m.get("by"), side=m.get("side"), cut=cut or ("here" if placed else None), doc=doc if placed else None)
+    except (KeyError, ValueError) as e:
+        return str(e)
+    if placed:  # 방금 적힌 기록 — 나눈 때의 레터 · 표 여부는 처음 것 그대로, 이번에 건너뛴 「새로 잡힌 줄」 은 기록의 멈춤 경계로 남기지 않는다(다음에 다시 센다)
+        rec = new["splits"][-1]
+        rec.update({k: m[k] for k in ("key", "table") if k in m})
+        if stop:
+            rec["stop"] = sorted(stop)
+        else:
+            rec.pop("stop", None)
+    return None
+
+
+# ---------------------------------------------------------------- 자리로 나누기 — 「여기부터 새 템플릿으로」(spec_hwpx_웹편집 ② §8-13)
+CUT_SCOPES = ("here", "all")  # 여기서만(그 줄과 그 아래) · 모두(그 템플릿 · 그 레벨 줄 전부)
+
+
+CUT_BAND = "별첨·부록 표 제목 줄은 나누지 않습니다 — 그 템플릿의 줄은 표 제목 한 레벨뿐이고 아래 줄은 제 템플릿을 씁니다"
+CUT_MERGE = "「내용 반영」 이 넣은 내용의 템플릿은 여기서 나누지 않습니다 — 「넣은 뒤 정리」 가 소속과 서식을 다시 정합니다"
+CUT_VALUE = "값 칸(표 칸에 혼자 있는 레터)뿐이라 나누지 않습니다 — 글이 있는 줄에서 나누세요"
+
+
+def cut_paras(doc, ov, tid, level, paras, scope):
+    """나눌 (tid, level) 줄(문서 순). scope 「here」 = paras(라벨 하나가 가리키는 줄 — 보통 하나 · 표 한 행의 칸들이면 여럿) — 번호형 레벨이면 그 줄과 같은 (부모, 표) 형제 묶음 전체
+    (번호가 템플릿마다 따로 매겨진다: split_units) · 「all」 = 그 레벨의 줄 모두(값 칸 · 지금 문서에 없는 줄도 — 레벨이 통째로 옮겨 간다). paras 가 그 레벨 줄이 아니면 ValueError."""
+    tid, level = str(tid), int(level)
+    paras = list(dict.fromkeys(paras or []))
+    if scope not in CUT_SCOPES:
+        raise ValueError("scope 는 here | all")
+    if OE._slot(ov, tid, level) is None:
+        raise KeyError("그런 템플릿 레벨이 없습니다")
+    if not paras:
+        raise ValueError("나눌 줄이 없습니다")
+    for p in paras:
+        if not _alive(doc, p):
+            raise ValueError("그 줄이 지금 문서에 없습니다 — 다시 읽어 주세요")
+        _check_member(ov, tid, level, p)
+    order = _order(doc)
+    by_doc = lambda ids: sorted(ids, key=lambda p: order.get(p, 1 << 30))  # noqa: E731
+    if scope == "all":
+        return by_doc(slot_ids(ov, tid, level))
+    units = split_units(ov, tid, level, doc)
+    if units is None:
+        return by_doc(paras)
+    want = {units[p] for p in paras if p in units}
+    return by_doc(set(paras) | {p for p, u in units.items() if u in want})
+
+
+def cut_block(ov, tid, level, paras, doc=None, into=None):
+    """자리로 나눌 수 없는 까닭 | None — split_block 의 검사(대표 줄은 빼고) + 띠 표 템플릿 · 「내용 반영」 이 넣은 내용의 템플릿(by merge — 떼기 기록이 없어 다시 분석하면 못 잇는다) ·
+    into 가 기능이 쪽을 골라 뗀 템플릿(by — 넣은 뒤 정리의 넣은 줄 · 목적 문서의 줄: 거기에 다른 줄을 넣으면 다음 정리가 그 줄까지 그쪽 것으로 본다)."""
+    tid = str(tid)
+    t = ov["templates"].get(tid) or {}
+    if t.get("kind") == OE.BAND:
+        return CUT_BAND
+    seen, x = set(), tid
+    while x is not None and x not in seen:  # 그 템플릿이나 그 윗 템플릿이 넣은 내용의 템플릿
+        seen.add(x)
+        v = (ov["templates"].get(x) or {}).get("variant") or {}
+        if v.get("by") == "merge":
+            return CUT_MERGE
+        x = None if v.get("of") is None else str(v["of"])
+    sl = OE._slot(ov, tid, level) or {}
+    if doc is not None and not sl.get("table") and paras and all(lone_value(doc, ov, p) for p in paras):
+        return CUT_VALUE  # 값 칸뿐 — 새 템플릿의 대표가 될 줄이 없다(값 칸이 대표면 「대표 맞추기」 가 거절한다)
+    if into is not None:
+        C = ov["templates"].get(str(into)) or {}
+        v = C.get("variant") or {}
+        if v.get("of") != tid or int(v.get("level") or 0) != int(level):
+            return f"그 템플릿은 T{t.get('no')} L{level} 에서 나눈 템플릿이 아닙니다"
+        if v.get("by"):
+            return f"T{C.get('no')} 는 「넣은 뒤 정리」 · 「내용 반영」 이 만든 템플릿이라 줄을 더 넣지 않습니다"
+        for k in sorted({int(ov["lines"][p]["level"]) for p in _members(ov, tid, paras) if p in ov["lines"]}):  # 옮길 줄이 있는 레벨마다 — 레터가 달라진 레벨(그 템플릿에서 레터를 고친 것)에는 넣지 않는다
+            a, c = (t.get("slots") or {}).get(str(k)) or {}, (C.get("slots") or {}).get(str(k))
+            if c is None or c.get("key") != a.get("key") or bool(c.get("table")) != bool(a.get("table")):
+                return f"T{C.get('no')} 의 L{k} 는 레터가 T{t.get('no')} L{k}(「{a.get('letter') or a.get('key')}」)와 달라 넣지 않습니다 — 새 템플릿으로 나누세요"
+    return split_block(ov, tid, level, paras, doc=doc, whole=True)
+
+
+def cut_sig(ov, tid, level, paras):
+    """나누기 계획의 지문 — 메뉴가 보인 것(옮길 줄 · 그 아래 줄 · 그 레벨에서 이미 나눈 템플릿 · 헤딩 그래프의 실행)과 실행할 때의 것이 같은가(다르면 409: 그 사이 줄이 생기거나 빠진 것 ·
+    합쳤다가 같은 이름으로 다시 나눈 것 · 다시 분석한 것 — 줄 수가 같아도 대상이 다를 수 있다: astra 2차)."""
+    tid = str(tid)
+    made = sorted((oid, o.get("anchor") or "", sum(1 for x in ov["lines"].values() if x["tpl"] == oid)) for oid, o in ov["templates"].items()
+                  if (o.get("variant") or {}).get("of") == tid and int(o["variant"]["level"]) == int(level))
+    raw = json.dumps([tid, int(level), sorted(paras), sorted(_members(ov, tid, paras)), made, ov.get("run")], ensure_ascii=False, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def unsplit_block(ov, cid):
+    """서식 종속 템플릿 cid 를 합칠 수 없는 까닭 | None(`unsplit` 이 거절하는 것과 같다 — 화면이 미리 묻는다)."""
+    try:
+        unsplit(copy.deepcopy({k: ov.get(k) for k in ("templates", "lines", "branches", "splits", "merges")}), cid)
     except (KeyError, ValueError) as e:
         return str(e)
     return None
+
+
+def cut_view(doc, ov, paras):
+    """줄 paras(라벨 하나가 가리키는 줄 — 같은 템플릿 · 레벨)의 라벨 메뉴 자료(② §8-13) — {tpl, no, level, paras, table(표 제목 레벨인가), numbered(번호형 레벨인가), next(새 템플릿 이름 「1L4a」 |
+    None = 글자를 다 씀), here{lines, moved, why}, all{…}, made[{id, no, lines, why}](그 레벨에서 이미 나눈 템플릿 — why = 더 넣을 수 없는 까닭), back{id, no, ofNo, lines, cut, why} | None
+    (이 줄의 템플릿이 다른 템플릿에서 나눈 것이면 — 합치기)}. lines = 그 레벨에서 옮길 줄 · moved = 그 아래 줄까지(실제로 옮겨 가는 줄 — 그 템플릿에서 이미 뗀 다른 템플릿의 줄은 안 간다) · why = 못 하는 까닭.
+    읽기만 한다."""
+    paras = list(dict.fromkeys(paras or []))
+    if not paras:
+        raise ValueError("줄이 없습니다")
+    x = _line_of(ov, paras[0])
+    tid, level = str(x["tpl"]), int(x["level"])
+    A = _tpl(ov, tid)
+    sl = OE._slot(ov, tid, level) or {}
+    sfx = _free_sfx(ov, tid, level)
+    count = {}
+    for y in ov["lines"].values():
+        count[y["tpl"]] = count.get(y["tpl"], 0) + 1
+    made = []
+    for oid, o in ov["templates"].items():
+        ovr = o.get("variant") or {}
+        if ovr.get("of") == tid and int(ovr.get("level") or 0) == level:
+            made.append({"id": oid, "no": o["no"], "lines": count.get(oid, 0),
+                         "why": f"T{o['no']} 는 「넣은 뒤 정리」 · 「내용 반영」 이 만든 템플릿이라 줄을 더 넣지 않습니다" if ovr.get("by") else None})
+    out = {"tpl": tid, "no": A["no"], "level": level, "paras": paras, "table": bool(sl.get("table")), "numbered": OE.is_numbered(sl.get("key") or ""),
+           "next": f"{A['no']}L{level}{sfx}" if sfx else None, "made": sorted(made, key=lambda m: str(m["no"])), "back": None}
+    for scope in CUT_SCOPES:
+        one = {"lines": 0, "moved": 0, "why": None, "sig": None}
+        try:
+            got = cut_paras(doc, ov, tid, level, paras, scope)
+            one["lines"], one["moved"], one["sig"] = len(got), len(_members(ov, tid, got)), cut_sig(ov, tid, level, got)
+            one["why"] = cut_block(ov, tid, level, got, doc=doc)
+        except (KeyError, ValueError) as e:
+            one["why"] = str(e)
+        out[scope] = one
+    v = A.get("variant")
+    if v:
+        of = ov["templates"].get(str(v["of"])) or {}
+        out["back"] = {"id": tid, "no": A["no"], "ofNo": of.get("no"), "lines": count.get(tid, 0), "cut": v.get("cut"), "why": unsplit_block(ov, tid)}
+    return out
+
+
+def cut(doc, ov, tid, level, paras, scope="here", into=None):
+    """**자리로 나누기** — 템플릿 tid(A) 를 줄 paras 의 L level 에서 새 템플릿으로 나눈다(2026-11-23 사용자 "T1L1, L2, L3, L4 이렇게 가다가 L4부터 새로운 템플릿으로 나눌 수 있도록 …
+    바꾸면 다른 템플릿도 다바꿀건지.. 아니면 여기서만 바꿀지도 선택"). 서식 갈래를 떼는 `split`(② §8-5)과 달리 **서식과 무관하게** 그 줄을 옮긴다 — 대표 서식의 줄이어도, 그 레벨 줄 전부여도.
+    새 템플릿 = 서식 종속 템플릿과 같은 틀(표기 「T{A}L{k}a」 · 줄은 L level 부터 · 그 줄과 그 아래 A 줄이 간다 · A 에서 이미 뗀 다른 템플릿의 줄은 제 템플릿 그대로).
+    scope 「here」 = 그 줄만(번호형 레벨이면 같은 번호 묶음의 형제도 — cut_paras): 새 템플릿 L level 의 대표 · 모양 = 그 줄의 지금 것(표 제목 줄 · 1칸 제목 상자처럼 레터가 없는 줄은 슬롯 그대로, 대표만 그 줄).
+    scope 「all」 = 그 레벨 줄 모두: 대표 · 대표의 출처(사람이 정함 · 계획이 정함)도 그대로 옮겨 간다. A 의 그 레벨은 대표 없이 동결 모양만 남는다.
+    두 범위 모두 A 의 슬롯을 본뜬다 — 동결 모양 · **사람이 정한 자리 규칙(pos)도**(같은 서식의 줄을 자리로만 나눈 것이다 — 서식 갈래를 떼는 split 은 떼는 레벨의 자리 규칙을 안 옮긴다).
+    넣은 뒤 정리의 표(retidyDeep)는 옮겨 간 줄의 몫만 새 템플릿으로.
+    into(그 레벨에서 이미 나눈 템플릿 id)를 주면 거기에 더 넣는다(그 템플릿의 대표 · 모양 그대로 — 기록은 따로 한 건). 오버레이만 바꾼다 — 검사는 바꾸기 전에 다 한다. -> split 의 답 + {"scope"}."""
+    tid, level = str(tid), int(level)
+    A = _tpl(ov, tid)
+    got = cut_paras(doc, ov, tid, level, paras, scope)
+    why = cut_block(ov, tid, level, got, doc=doc, into=into)
+    if why:
+        raise ValueError(why)
+    if into is not None:
+        out = split(ov, tid, level, got, into=into, doc=doc, cut=scope)
+        _deep_shift(ov, tid, out["id"], out["moved"])  # 넣은 뒤 정리의 표 — 옮겨 간 줄의 몫만 그 템플릿으로
+        return {**out, "scope": scope}
+    keep = scope == "all"
+    table = bool((OE._slot(ov, tid, level) or {}).get("table"))
+    fit = [p for p in got if table or not lone_value(doc, ov, p)]  # 대표가 될 수 있는 줄 — 값 칸(표 칸에 혼자 있는 레터)은 글 레벨의 대표가 아니다(cut_block 이 하나는 있음을 봤다)
+    slots = {}
+    for k, sl in A["slots"].items():
+        if int(k) >= level:
+            slots[k] = {kk: vv for kk, vv in sl.items() if kk != RETIDY_DEEP and (keep or kk not in ("repSet", "agentRep"))}
+    cur = (OE._slot(ov, tid, level) or {}).get("rep")
+    rep, shape = (cur if cur in fit else fit[0]), None
+    if rep != cur:  # 대표가 바뀐다(여기서만 · 지금 대표가 값 칸) — 사람이 정한 표지는 그 줄의 것이 아니다
+        for key in ("repSet", "agentRep"):
+            slots[str(level)].pop(key, None)
+    if not keep:
+        rep = next((p for p in fit if p in paras), fit[0])  # 누른 줄(번호 묶음이면 그 가운데 누른 줄 — 값 칸이면 묶음의 글이 있는 첫 줄)
+        slots[str(level)]["rep"] = None
+        try:
+            shape = None if table else rep_shape(doc, ov, rep)
+        except (KeyError, ValueError):
+            shape = None  # 레터가 없는 줄 — 슬롯의 동결 모양 그대로, 대표만 그 줄로
+    elif rep != cur and not table:
+        slots[str(level)]["rep"] = None
+        try:
+            shape = rep_shape(doc, ov, rep)
+        except (KeyError, ValueError):
+            shape = None
+    out = split(ov, tid, level, got, rep=rep, shape=shape, slots=slots, doc=doc, cut=scope)
+    _deep_shift(ov, tid, out["id"], out["moved"])  # 넣은 뒤 정리의 표 — 줄 소속에 묶인 것이라 옮겨 간 줄의 몫만 새 템플릿으로, 남은 줄의 몫은 A 에
+    return {**out, "scope": scope}
 
 
 def apply_reps(g, ov):

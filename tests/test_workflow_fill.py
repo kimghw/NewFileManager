@@ -517,7 +517,7 @@ def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(
     fake.cap_unify = unify
     # 줄 정리(spec_줄정리 ② §7) — 재기는 울타리 밖(한글 조판을 되풀이 · 수십 초) · 반영은 울타리 안
     fake.line_tidy_facts = lambda doc: {"why": "", "rev": fake.rev, "fill": (fake.filled or {}).get("at"), "rules": {}, "rulesText": "당기기 2자 이하", "plan": None, "applied": state.get("lt")}
-    counts = {"seen": 9, "paras": 4, "fixed": 2, "ops": 2, "pull": 1, "push": 1, "last": 0, "chain": 0, "left": 1, "short": 3, "why": {"장평 한도": 1}}
+    counts = {"seen": 9, "paras": 4, "fixed": 2, "ops": 2, "pull": 1, "push": 1, "last": 0, "chain": 0, "left": 1, "short": 3, "why": {"자간 한도": 1}}
 
     def lt_plan(doc):
         fake.calls.append(("lineTidyPlan", doc))
@@ -542,7 +542,7 @@ def test_tidy_tools_run_after_the_fill_and_change_the_document_inside_the_fence(
     assert order == ["apply", "retidy", "guideFixAsk", "guideFixApply", "cleanup", "zonePrune", "capUnify", "lineTidyPlan", "lineTidyApply"]   # … → 캡션 맞추기 → 줄 정리(맨 끝)
     assert fake.fenced[-8:] == [True, False, True, True, True, True, False, True]   # 넣은 뒤 정리는 울타리 안 · 묻기는 울타리 밖 · 반영 · 지우기 · 캡션 맞추기는 울타리 안 · 줄 재기는 밖 · 반영은 안
     lt = [x for x in rec["steps"] if x["key"] == "lineTidy" and x["status"] == "done"]   # 묶음 끝 글은 길면 줄인다 — 줄의 기록 글로 본다
-    assert lt and lt[-1]["text"] == "줄 정리 — 고친 문단 2(당기기 1 · 밀기 1) · 그대로 둔 갈림 1(장평 한도 1) · 줄이 짧아 안 고친 곳 3", rec["steps"][-2:]
+    assert lt and lt[-1]["text"] == "줄 정리 — 고친 문단 2(당기기 1 · 밀기 1) · 그대로 둔 갈림 1(자간 한도 1) · 줄이 짧아 안 고친 곳 3", rec["steps"][-2:]
     assert next(s for s in {g["id"]: g for g in X.status_of("t")["stages"]}["clean"]["steps"] if s["key"] == "lineTidy")["st"] == "done"
     text = rec["stages"][-1]["text"]
     assert "넣은 줄 4줄을 목적 문서의 템플릿 · 서식으로 맞췄습니다 · 레벨 2곳(넣는 쪽이 더 길어 늘어난 레벨 1)" in text

@@ -1,4 +1,4 @@
-"""줄 정리(spec/spec_줄정리.md) — 규칙 · 갈림 찾기 · 문단 하나의 시도와 확인 · 장평 바꾸기 · 계획 길(가짜 한글 조판)."""
+"""줄 정리(spec/spec_줄정리.md) — 규칙 · 갈림 찾기 · 문단 하나의 시도와 확인 · 자간 바꾸기(전의 장평 되돌리기) · 계획 길(가짜 한글 조판)."""
 from pathlib import Path
 
 import pytest
@@ -25,7 +25,7 @@ def _width(text):   # 글자 1 · 빈칸 0.5(한글의 0.5em 빈칸) — 모형 
 
 def _para(*lines, rules=R):
     text, spans = _spans(*lines)
-    return LT.Para(0, text, spans, rules, _width(text), lambda a, b: (100, 100)), text
+    return LT.Para(0, text, spans, rules, _width(text), lambda a, b: (0, 0)), text
 
 
 # ---------------------------------------------------------------- 규칙
@@ -44,13 +44,17 @@ def test_rules_clean_and_defaults():
 def test_rules_store_roundtrip():
     """규칙 저장(env NFM_LINE_TIDY — conftest 가 임시 파일로) — 기본값과 다른 키만 적고, 지우면 기본값."""
     assert A.rules_get()["rules"] == LT.DEFAULTS
-    got = A.rules_put({"rules": {"minRatio": 90, "chain": 2}})
-    assert got["rules"]["minRatio"] == 90 and got["rules"]["chain"] == 2 and "장평 90~110%" in got["text"]
-    assert A.rules() == {**LT.DEFAULTS, "minRatio": 90, "chain": 2}
+    got = A.rules_put({"rules": {"minSpace": -10, "chain": 2}})
+    assert got["rules"]["minSpace"] == -10 and got["rules"]["chain"] == 2 and "자간 -10~+10%" in got["text"]
+    assert A.rules() == {**LT.DEFAULTS, "minSpace": -10, "chain": 2}
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as e:
-        A.rules_put({"rules": {"maxRatio": 300}})
-    assert e.value.status_code == 400 and "장평 상한" in e.value.detail
+        A.rules_put({"rules": {"maxSpace": 300}})
+    assert e.value.status_code == 400 and "자간 상한" in e.value.detail
+    with pytest.raises(HTTPException) as e:   # 전의 장평 규칙 키는 이제 없다(2026-11-23 「자간으로 당기기」)
+        A.rules_put({"rules": {"minRatio": 90}})
+    assert e.value.status_code == 400
+    assert LT.rules_of({"minRatio": 90, "maxRatio": 120}) == LT.DEFAULTS   # 저장돼 있던 옛 키는 버린다
     assert A.rules_reset()["rules"] == LT.DEFAULTS
 
 
@@ -122,10 +126,22 @@ def test_pull_steps_down_until_it_fits():
 
 
 def test_pull_gives_up_at_floor():
-    j, t = _para("가" * 28 + " 예지보", "전 가동", rules={**R, "minRatio": 90})
+    j, t = _para("가" * 28 + " 예지보", "전 가동", rules={**R, "minSpace": -10})
     assert j.trial["pct"] == 90
     j.observe(j.spans)   # 89 는 하한 밑 → 그 자리는 그대로
     assert j.trial is None and j.finish() == [] and j.left[-1]["why"] == "limit"
+
+
+def test_limits_follow_current_spacing():
+    """한도는 **지금 자간** 에서 센다 — 이미 −10% 로 좁혀 둔 글은 하한 −15% 까지 5%p 만 더(배율 85/90 → 95%) · 하한에 있는 글은 더 줄이지 않는다."""
+    text, spans = _spans("가" * 28 + " 예지보", "전 가동")
+    j = LT.Para(0, text, spans, R, _width(text), lambda a, b: (-10, -10))
+    assert j.trial is None and j.left[-1]["why"] == "limit"   # 어림 90% < 하한 94%(남은 자리를 넣어도 92%)
+    j = LT.Para(0, text, spans, {**R, "minSpace": -25}, _width(text), lambda a, b: (-10, -10))
+    assert j.trial["pct"] == 90 and j.trial["lo"] == 82   # 83% 까지(90 × 0.83 − 100 = −25.3 → 적히는 자간 −25%) → lo = 82
+    j = LT.Para(0, text, spans, R, _width(text), lambda a, b: (-15, -15))
+    assert j.trial is None and j.left[-1]["why"] == "limit"
+    assert (LT.spacing_for(0, 96), LT.spacing_for(-5, 96), LT.spacing_for(-5, 104), LT.spacing_for(-45, 50)) == (-4, -9, -1, -50)
 
 
 def test_push_tail_to_next_line():
@@ -144,7 +160,7 @@ def test_short_line_left_alone():
 
 def _cell(*lines, rules=R):
     text, spans = _spans(*lines)
-    return LT.Para(0, text, spans, rules, _width(text), lambda a, b: (100, 100), cell=True), text
+    return LT.Para(0, text, spans, rules, _width(text), lambda a, b: (0, 0), cell=True), text
 
 
 def test_cell_short_word():
@@ -181,14 +197,14 @@ def test_cell_no_new_lone_split():
 
 
 def test_floor_try_when_guess_is_rough():
-    """어림이 하한 밑이어도 줄 끝에 남았을 수 있는 자리(다음 줄 첫 글자 폭)만큼 보면 닿을 때는 하한에서 한 번 재어 본다 — 안 되면 「장평 한도」."""
+    """어림이 하한 밑이어도 줄 끝에 남았을 수 있는 자리(다음 줄 첫 글자 폭)만큼 보면 닿을 때는 하한에서 한 번 재어 본다 — 안 되면 「자간 한도」."""
     j, t = _cell("연속(트리", "거")   # 어림 5/6 = 83% < 85 · 남은 자리를 넣으면 6/6 → 하한 85% 에서 시도
     assert j.trial["pct"] == 85
     j.observe(j.spans)   # 한글: 안 올라옴 → 하한 밑은 안 함
     assert j.trial is None and j.left[-1]["why"] == "limit"
     j, t = _cell("기", "술")   # 1/2 = 50% · 남은 자리를 넣어도 2/2 → 시도(표 칸 낱말)
     assert j.trial["pct"] == 85
-    j, t = _cell("가나다라마바사아", "자차카", rules={**R, "cellWord": 6, "pull": 3})   # 8/11 · 9/11 = 81% < 85 → 바로 「장평 한도」
+    j, t = _cell("가나다라마바사아", "자차카", rules={**R, "cellWord": 6, "pull": 3})   # 8/11 · 9/11 = 81% < 85 → 바로 「자간 한도」
     assert j.trial is None and j.left[-1]["why"] == "limit"
 
 
@@ -204,26 +220,136 @@ def test_no_better_is_reverted():
     assert j.finish() == [] and any(x["why"] == "worse" for x in j.left)
 
 
-# ---------------------------------------------------------------- 장평 바꾸기(실제 문서)
-def test_scale_ratio_on_document():
+# ---------------------------------------------------------------- 자간 바꾸기 · 전의 장평 되돌리기(실제 문서)
+def _vals(doc, p, tag, default):
+    """글자 자리마다 그 글자 모양의 한글 값(tag = ratio | spacing)."""
+    from app.heading_extract import _cid_at, run_ranges
+    rr = run_ranges(doc, p)
+
+    def at(i):
+        e = doc._defs["charPr"][_cid_at(rr, i, "0")].find(LT._hh(tag))
+        return int(e.get("hangul", default)) if e is not None else default
+    return at
+
+
+def test_scale_spacing_on_document():
+    """자간으로 — 그 범위의 자간만 (100 + 지금) × 배율 − 100 으로 · 장평과 글은 그대로 · 저장한 바이트에도 남는다."""
     from app.hwpx_doc import HwpxDoc
     doc = HwpxDoc(PLAN.read_bytes())
     p = next(p for sec in doc._sections for p in sec.iter(A.P_TAG) if len(doc._text(p)) > 20 and not doc._has_object(p))
     text = doc._text(p)
-    n = LT.scale_ratio(doc, p, 2, 12, 95)
+    sp0, ra0 = _vals(doc, p, "spacing", 0), _vals(doc, p, "ratio", 100)
+    base, ratio = [sp0(i) for i in range(13)], [ra0(i) for i in range(13)]
+    n = LT.scale_spacing(doc, p, 2, 12, 95)
     assert n >= 1 and doc._text(p) == text   # 글은 그대로
-    from app.heading_extract import _cid_at, run_ranges
-    rr = run_ranges(doc, p)
-    ratio = lambda i: int(doc._defs["charPr"][_cid_at(rr, i, "0")].find(LT._hh("ratio")).get("hangul"))  # noqa: E731
-    base = ratio(0)
-    assert ratio(2) == round(base * 0.95) and ratio(11) == round(base * 0.95) and ratio(12) == base
+    sp, ra = _vals(doc, p, "spacing", 0), _vals(doc, p, "ratio", 100)
+    assert [sp(i) for i in range(2, 12)] == [LT.spacing_for(base[i], 95) for i in range(2, 12)] and sp(2) < base[2]
+    assert (sp(0), sp(12)) == (base[0], base[12]) and [ra(i) for i in range(13)] == ratio   # 범위 밖 · 장평은 그대로
     again = HwpxDoc(doc.save())   # 저장한 바이트를 다시 연다
-    assert any(c.find(LT._hh("ratio")).get("hangul") == str(round(base * 0.95)) for c in again._defs["charPr"].values() if c.find(LT._hh("ratio")) is not None)
+    want = str(LT.spacing_for(base[2], 95))
+    assert any(c.find(LT._hh("spacing")).get("hangul") == want for c in again._defs["charPr"].values() if c.find(LT._hh("spacing")) is not None)
+
+
+def _fix_case():
+    """양식의 한 문단 + 「전의 줄 정리가 하던 것」(범위의 장평 × pct%) — 범위 뒤에 같은 런의 나머지가 남는다."""
+    from app.hwpx_doc import HwpxDoc
+    doc = HwpxDoc(PLAN.read_bytes())
+    p = next(p for sec in doc._sections for p in sec.iter(A.P_TAG) if len(doc._text(p)) > 20 and not doc._has_object(p))
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    ids = lambda: [r.get("charPrIDRef") for r in p.iterchildren(HP + "run")]  # noqa: E731
+    old = lambda a, b, pct: LT._rescale(doc, p, a, b, "ratio", 100, lambda cur: round(cur * pct / 100))  # noqa: E731
+    return doc, p, ids, old
+
+
+def test_ratio_proof_restores_old_fix():
+    """전에 장평으로 고친 줄(② §9) — 장평 × 96% 로 바꿔 둔 범위: 양 끝이 런 경계 · 되돌린 정의가 문서에 있음 · 바로 뒤 런이 그 정의 → 처음 글자 모양(같은 정의)으로 돌아온다."""
+    doc, p, ids, old = _fix_case()
+    before = ids()
+    base = [_vals(doc, p, "ratio", 100)(i) for i in range(13)]
+    old(2, 12, 96)
+    assert _vals(doc, p, "ratio", 100)(2) == round(base[2] * 0.96)
+    proof = LT.ratio_proof(doc, p, [(2, 12, 96)])
+    assert proof and ids() != before   # 근거를 세는 것은 문서를 안 바꾼다
+    assert LT.restore(doc, p, proof) >= 1
+    assert [_vals(doc, p, "ratio", 100)(i) for i in range(13)] == base and ids() == before   # 나눈 런도 다시 합쳐진다
+    assert LT._ratio_before(96, 96) == [100] and LT._ratio_before(91, 96) == [95] and LT._ratio_before(100, 96) == [104] and LT._ratio_before(50, 110) == []
+
+
+def test_ratio_proof_needs_evidence_in_the_document():
+    """기록은 반영을 「실행 취소」 해도 남는다 — 그 장평이 지금 문서에 있다는 근거가 없으면 되돌리지 않는다(astra 2026-11-23 의 반례들)."""
+    import copy
+    doc, p, ids, old = _fix_case()
+    before = ids()
+    assert LT.ratio_proof(doc, p, [(2, 12, 96)]) is None and ids() == before   # ① 실행 취소한 문서 — 범위의 끝이 런 경계가 아니다(100 → 104 로 넓히지 않는다)
+    for cid in set(before):   # ② 나머지가 같고 장평만 ÷ 96% 인 정의가 **이미 있어도** — 실행 취소한 문서의 장평을 그 정의로 바꾸지 않는다
+        c = copy.deepcopy(doc._defs["charPr"][cid])
+        e = c.find(LT._hh("ratio"))
+        for x in LT.LANGS:
+            e.set(x, str(LT._ratio_before(int(e.get(x) or 100), 96)[0]))
+        assert doc._add_def("charPr", c) not in before
+    assert LT.ratio_proof(doc, p, [(2, 12, 96)]) is None
+    doc._boundary(p, 12)
+    doc._boundary(p, 2)   # 런이 그 자리에서 나뉘어 있어도(같은 글자 모양) — 옆 런이 104% 정의를 쓰지 않으니 근거가 아니다
+    assert LT.ratio_proof(doc, p, [(2, 12, 96)]) is None and LT.ratio_proof(doc, p, [(2, 12, 96)], neighbor=False) is not None   # 옆 런 근거를 빼면 통과한다 — 그래서 그 길은 한글 줄로 먼저 본다
+    doc._tidy(p)
+    old(2, 12, 96)
+    LT._rescale(doc, p, 6, 9, "ratio", 100, lambda cur: 77)   # ③ 그 뒤 범위의 일부를 다른 편집이 바꿨다 — 런 하나라도 아니면 근거 없음
+    assert LT.ratio_proof(doc, p, [(2, 12, 96)]) is None
+    doc, p, ids, old = _fix_case()
+    old(2, 12, 96)
+    old(12, 20, 96)   # ④ 맞닿은 같은 배율의 범위 둘(한 런으로 합쳐져 있다) — 합쳐서 본다
+    assert LT.ratio_proof(doc, p, [(12, 20, 96), (2, 12, 96)]) is not None
+    assert LT.ratio_proof(doc, p, [(2, 12, 96), (10, 20, 96)]) is None   # ⑤ 겹친 범위 — 되돌릴 차례를 알 수 없다
+
+
+def test_ratio_proof_finds_mixed_language_ratio():
+    """한글 87% · 영문 88% 처럼 언어마다 다른 장평(× 96% 면 둘 다 84%) — 같은 값이라고 같은 처음 값으로 넘겨짚지 않고, 문서에 있는 정의에서 찾는다."""
+    import copy
+    doc, p, ids, old = _fix_case()
+    src = doc._defs["charPr"][ids()[0]]
+    c = copy.deepcopy(src)
+    c.find(LT._hh("ratio")).set("hangul", "87")
+    c.find(LT._hh("ratio")).set("latin", "88")
+    for x in LT.LANGS[2:]:
+        c.find(LT._hh("ratio")).set(x, "87")
+    mixed = doc._add_def("charPr", c)
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    for r in p.iterchildren(HP + "run"):
+        r.set("charPrIDRef", mixed)
+    old(2, 12, 96)
+    e = doc._defs["charPr"][[r.get("charPrIDRef") for r in p.iterchildren(HP + "run")][1]].find(LT._hh("ratio"))
+    assert (e.get("hangul"), e.get("latin")) == ("84", "84")
+    proof = LT.ratio_proof(doc, p, [(2, 12, 96)])
+    assert proof and {w for _, w in proof} == {mixed}
+
+
+def test_spacing_limits_use_the_written_value():
+    """한도는 **적힐 자간**(정수)으로 센다 — 식으로 세면 되는 값을 버린다: 지금 −10% · 하한 −15% 에서 94% 는 −15% 가 된다(식은 95%) · 지금 +5% · 상한 +10% 에서 105% 는 +10%(식은 104%)."""
+    assert LT.pct_limit(-10, -15, up=False) == 94 and LT.spacing_for(-10, 94) == -15 and LT.spacing_for(-10, 93) < -15
+    assert LT.pct_limit(5, 10, up=True) == 105 and LT.spacing_for(5, 105) == 10 and LT.spacing_for(5, 106) > 10
+    assert LT.pct_limit(-20, -15, up=False) == 100 and LT.pct_limit(12, 10, up=True) == 100   # 이미 한도 밖 — 그 방향으로는 안 바꾼다
+    assert LT.pct_limit(0, -15, up=False) == 85 and LT.pct_limit(0, 10, up=True) == 110
+
+
+def test_ops_in_one_paragraph_do_not_overlap():
+    """밀기가 어림보다 한 칸 더 밀리면 새 줄이 앞 범위 안에서 시작한다 — 다음 고침의 범위는 앞 범위 뒤부터다(그 글자에 배율이 두 번 걸려 자간이 0 → +4 → +14% 로 상한을 넘던 것: astra)."""
+    j, t = _para("가" * 26 + " 데이터 가", "이드라인 나나나나 가", "이드라인 긴낱말입니다")
+    first = j.trial
+    cut = t.index("가이드")
+    assert first["kind"] == "push" and (first["rs"], first["re"]) == (0, cut)
+    cut2 = t.index("가이드", cut + 1)
+    j.observe([(0, cut - 1), (cut - 1, cut2), (cut2, len(t))])   # 한글: 한 칸 더 밀려 둘째 줄이 「 가이드라인 …」 의 빈칸에서 시작
+    assert j.ops == [first]
+    if j.trial is not None:   # 둘째 줄을 또 고친다면 앞 범위(…cut) 뒤부터
+        assert j.trial["rs"] >= first["re"]
+    for a in j.ops + ([j.trial] if j.trial else []):
+        for b in j.ops + ([j.trial] if j.trial else []):
+            assert a is b or a["re"] <= b["rs"] or b["re"] <= a["rs"]
 
 
 # ---------------------------------------------------------------- 끝점 — 재기 → 반영 → 실행 취소(가짜 한글 조판 · 진짜 서버 세션)
 def test_plan_apply_undo_api(monkeypatch):
-    """문서의 한 문단을 가짜 한글이 「…낱말의 앞 / 끝 1자」 로 나눈다(장평을 줄인 글자 모양이 걸리면 한 줄) → 계획 1문단 · 반영(실행 취소 1) · 기록 · 실행 취소로 되돌아옴."""
+    """문서의 한 문단을 가짜 한글이 「…낱말의 앞 / 끝 1자」 로 나눈다(자간을 줄인 글자 모양이 걸리면 한 줄) → 계획 1문단 · 반영(실행 취소 1) · 기록 · 실행 취소로 되돌아옴."""
     import re
 
     from fastapi.testclient import TestClient
@@ -246,19 +372,20 @@ def test_plan_apply_undo_api(monkeypatch):
     assert pick is not None
     text = s.doc._text(ps[pick])
 
-    def ratios(D, q):   # 런마다 한글 장평(%)
+    def ratios(D, q, tag="spacing", default=0):   # 런마다 한글 자간(%) — tag="ratio" 면 장평
         out = []
         for r in q.iterchildren(HP + "run"):
             cp = D._defs["charPr"].get(r.get("charPrIDRef"))
-            e = cp.find(LT._hh("ratio")) if cp is not None else None
-            out.append(int(e.get("hangul", 100)) if e is not None else 100)
+            e = cp.find(LT._hh(tag)) if cp is not None else None
+            out.append(int(e.get("hangul", default)) if e is not None else default)
         return out
+    wide = set(ratios(s.doc, ps[pick], "ratio", 100))
     orig = set(ratios(s.doc, ps[pick]))
 
     def layout(b):
         D = HwpxDoc(b)
         q = A._paras(D)[pick]
-        small = any(x not in orig for x in ratios(D, q))   # 장평을 바꾼 런이 있으면 한 줄로
+        small = any(x not in orig for x in ratios(D, q))   # 자간을 바꾼 런이 있으면 한 줄로
         for la in q.findall(HP + "linesegarray"):   # 양식이 지닌 캐시는 갈아 끼운다
             q.remove(la)
         arr = etree.SubElement(q, HP + "linesegarray")
@@ -277,8 +404,10 @@ def test_plan_apply_undo_api(monkeypatch):
     assert a["done"] == [r["items"][0]["id"]] and s.rev == rev0 + 1 and len(s.undo) == undo0 + 1
     p = ps[pick]
     assert s.doc._text(p) == text and any(x not in orig for x in ratios(s.doc, p))
+    assert set(ratios(s.doc, p, "ratio", 100)) == wide   # 장평은 안 바뀐다(2026-11-23 「자간으로 당기기」)
     g = c.get(f"/api/docs/{d}/line-tidy").json()
     assert g["applied"]["planId"] == r["planId"] and g["applied"]["paras"] == 1 and g["facts"]["applied"]["paras"] == 1
+    assert g["plan"]["by"] == "space" and g["facts"]["ratio"] == 0 and r["undo"] == [] and a["undone"] == []
     assert c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": r["planId"]}).status_code == 409   # 잰 뒤 문서가 바뀜(반영으로 rev 가 올랐다) — 다시 잰다
     assert c.post(f"/api/docs/{d}/undo").status_code == 200
     s2 = server._sess(d)
@@ -287,7 +416,7 @@ def test_plan_apply_undo_api(monkeypatch):
 
 # ---------------------------------------------------------------- 계획 길(가짜 한글 조판)
 def test_plan_bytes_with_fake_layout():
-    """plan_bytes — 한글 대신 「줄 시작 자리를 정해 주는」 가짜 조판: 처음엔 갈린 줄 · 장평을 바꾼 사본엔 한 줄. 고친 문단 하나 · 배율은 처음 문단 기준."""
+    """plan_bytes — 한글 대신 「줄 시작 자리를 정해 주는」 가짜 조판: 처음엔 갈린 줄 · 자간을 바꾼 사본엔 한 줄. 고친 문단 하나 · 배율은 처음 문단 기준."""
     from lxml import etree
 
     from app.hwpx_doc import HwpxDoc
@@ -319,12 +448,146 @@ def test_plan_bytes_with_fake_layout():
         calls.append(1)
         d._mark(d._name_of[q.getroottree().getroot()])
         return d.save()
-    res = A.plan_bytes(data, R, lambda i, q, t: i == target[0], layout)
-    assert len(calls) == 2 and res["rounds"] == 1   # 쪽에 걸친 줄 걸음은 장평 걸음의 마지막 조판을 그대로 쓴다(걸린 문단이 없으면 다시 재지 않는다)
+    wide = {**R, "minSpace": -30}   # 양식의 그 문단은 자간이 이미 −11% 다 — 기본 하한(−15%)으로는 4%p 밖에 못 줄인다(그 한도는 test_limits_follow_current_spacing)
+    assert A.plan_bytes(data, R, lambda i, q, t: i == target[0], lambda b: layout(b) if not calls.clear() else b)["counts"]["why"] == {"자간 한도": 1}
+    calls.clear()
+    res = A.plan_bytes(data, wide, lambda i, q, t: i == target[0], layout)
+    assert len(calls) == 2 and res["rounds"] == 1  # 쪽에 걸친 줄 걸음은 자간 걸음의 마지막 조판을 그대로 쓴다(걸린 문단이 없으면 다시 재지 않는다)
     (it,) = res["items"]
     assert it["ops"][0]["kind"] == "pull+last" and it["after"] == ["가" * 28 + " 예지보전 가동"]
     assert res["counts"]["fixed"] == 1 and res["counts"]["chain"] == 1
     assert res["pages"] == [] and res["blanks"] == [] and res["counts"]["pageSeen"] == 0
+    assert res["undone"] == [] and res["counts"]["undone"] == 0
+
+
+def test_old_ratio_fix_is_undone_and_redone_with_spacing(monkeypatch):
+    """전에 **장평으로** 고친 문단(② §9 — 2026-11-23 사용자(장평 96% 인 줄을 한글에서 보며) "폰트가 좀 이상한거 같은데" → 「자간으로 당기기」):
+    옛 기록(장평 계획 + 그 반영)이 있으면 상태 재료가 그 문단 수를 알리고, 다시 재면 그 장평을 되돌린 사본에서 재고, 반영이 장평을 되돌리고 자간을 입힌다.
+    장평으로 잰 옛 계획은 반영하지 않는다(409)."""
+    import re
+
+    from fastapi.testclient import TestClient
+    from lxml import etree
+
+    from app import server
+    from app.hwpx_doc import HwpxDoc
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    c = TestClient(server.app)
+    d = c.post("/api/docs?new=1", files={"file": (PLAN.name, PLAN.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    ps = A._paras(s.doc)
+    for pick, p in enumerate(ps):
+        t = s.doc._text(p)
+        m = list(re.finditer(r"[가-힣]{3,}", t))
+        if s.doc._rev.get(p) and not s.doc._has_object(p) and len(t) > 30 and len(m) >= 2 and LT.letters(t[:m[-2].end() - 1]) >= 12 and t[m[-2].end():m[-2].end() + 1] == " ":
+            cut = m[-2].end() - 1
+            break
+    p, text, bid = ps[pick], s.doc._text(ps[pick]), s.doc._rev[ps[pick]]
+    rs = LT.protect(text)
+
+    def vals(D, q, tag, default):
+        out = []
+        for r in q.iterchildren(HP + "run"):
+            e = D._defs["charPr"][r.get("charPrIDRef")].find(LT._hh(tag))
+            out.append(int(e.get("hangul", default)) if e is not None else default)
+        return out
+    ratio0, space0 = vals(s.doc, p, "ratio", 100), set(vals(s.doc, p, "spacing", 0))
+
+    def make(sess):   # 전의 줄 정리가 하던 반영 — 그 줄의 장평 × 96%
+        q = sess.doc._ids[bid]
+
+        def run():
+            LT._rescale(sess.doc, q, rs, cut + 1, "ratio", 100, lambda cur: round(cur * 96 / 100))
+            return {"hosts": [q], "formatted": {bid}, "struct": set(), "origin": {}, "anchor": bid, "log": {}}
+        return [q], run
+    server._edit(d, make, "lineTidy", {})
+    s = server._sess(d)
+    assert vals(s.doc, s.doc._ids[bid], "ratio", 100) != ratio0
+    old = {"planId": "old000000001", "at": 1.0, "rev": s.rev - 1, "rules": {}, "counts": {},
+           "items": [{"id": bid, "text": text, "ops": [{"kind": "pull", "rs": rs, "re": cut + 1, "pct": 96}], "before": [], "after": []}]}
+    A._save(d, {"version": A.VERSION, "plan": old, "applied": {"at": 2.0, "planId": old["planId"], "rev": s.rev, "fill": None, "paras": 1, "ops": 1, "counts": {}}})
+    assert A.facts(d)["ratio"] == 1
+    assert c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": old["planId"]}).status_code == 409   # 장평으로 잰 옛 계획
+    seen = []
+
+    def layout(b):
+        D = HwpxDoc(b)
+        q = A._paras(D)[pick]
+        seen.append(vals(D, q, "ratio", 100))
+        small = any(x not in space0 for x in vals(D, q, "spacing", 0))   # 자간을 바꾼 런이 있으면 한 줄로
+        for la in q.findall(HP + "linesegarray"):
+            q.remove(la)
+        arr = etree.SubElement(q, HP + "linesegarray")
+        etree.SubElement(arr, HP + "lineseg", {"textpos": "0"})
+        if not small:
+            etree.SubElement(arr, HP + "lineseg", {"textpos": str(cut)})
+        D._mark(D._name_of[q.getroottree().getroot()])
+        return D.save()
+    monkeypatch.setattr(A, "_hwp_ok", lambda: True)
+    monkeypatch.setattr(A, "_layout", layout)
+    r = c.post(f"/api/docs/{d}/line-tidy/plan").json()
+    assert seen[0] == ratio0   # 장평을 되돌린 사본에서 쟀다
+    assert [x["id"] for x in r["undo"]] == [bid] and r["counts"]["undone"] == 1 and len(r["items"]) == 1, r
+    assert A.facts(d)["ratio"] == 1 and r["undo"][0]["by"] == "runs"   # 재기만 했다 — 아직 장평으로 고친 줄이다(새 계획이 옛 계획을 덮어도 잃지 않는다)
+    a = c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": r["planId"]}).json()
+    assert a["undone"] == [bid] and a["done"] == [bid]
+    s = server._sess(d)
+    q = s.doc._ids[bid]
+    assert set(vals(s.doc, q, "ratio", 100)) == set(ratio0) and any(x not in space0 for x in vals(s.doc, q, "spacing", 0))   # 장평은 처음대로 · 자간으로
+    assert A.facts(d)["ratio"] == 0 and len(A.load(d)["ratio"]) == 1   # 「옛 줄」 은 문서에서 센다 — 기록은 남긴다
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200   # 자간으로 바꾼 것을 실행 취소 — 장평이 돌아왔으니 다시 「옛 줄」 이다(기록이 아니라 문서에서 세니 저절로)
+    assert A.facts(d)["ratio"] == 1
+
+
+def test_old_ratio_record_of_an_undone_fix_is_dropped(monkeypatch):
+    """장평 반영을 「실행 취소」 한 문서 — 기록은 남아 있지만 그 장평은 문서에 없다: 다시 재도 되돌리지 않고(100 → 104 로 넓히지 않는다) 그 기록은 「옛 줄」 에서 뺀다
+    (남겨 두면 그 줄 때문에 늘 「할 일」 로 선다)."""
+    import re
+
+    from fastapi.testclient import TestClient
+    from lxml import etree
+
+    from app import server
+    from app.hwpx_doc import HwpxDoc
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    c = TestClient(server.app)
+    d = c.post("/api/docs?new=1", files={"file": (PLAN.name, PLAN.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    for pick, p in enumerate(A._paras(s.doc)):
+        t = s.doc._text(p)
+        m = list(re.finditer(r"[가-힣]{3,}", t))
+        if s.doc._rev.get(p) and not s.doc._has_object(p) and len(t) > 30 and len(m) >= 2 and LT.letters(t[:m[-2].end() - 1]) >= 12 and t[m[-2].end():m[-2].end() + 1] == " ":
+            cut = m[-2].end() - 1
+            break
+    text, bid = s.doc._text(p), s.doc._rev[p]
+
+    def ratios(D, q):
+        return [int(D._defs["charPr"][r.get("charPrIDRef")].find(LT._hh("ratio")).get("hangul", 100)) for r in q.iterchildren(HP + "run")]
+    ratio0 = ratios(s.doc, p)
+    old = {"planId": "old000000002", "at": 1.0, "rev": s.rev, "rules": {}, "counts": {},
+           "items": [{"id": bid, "text": text, "ops": [{"kind": "pull", "rs": LT.protect(text), "re": cut + 1, "pct": 96}], "before": [], "after": []}]}
+    A._save(d, {"version": A.VERSION, "plan": old, "applied": {"at": 2.0, "planId": old["planId"], "rev": s.rev, "fill": None, "paras": 1, "ops": 1, "counts": {}}})
+    assert A.facts(d)["ratio"] == 0   # 기록은 있지만 그 장평은 문서에 없다 — 「옛 줄」 로 안 센다(「할 일」 로 안 선다)
+    seen = []
+
+    def layout(b):
+        D = HwpxDoc(b)
+        q = A._paras(D)[pick]
+        seen.append(ratios(D, q))
+        for la in q.findall(HP + "linesegarray"):
+            q.remove(la)
+        etree.SubElement(etree.SubElement(q, HP + "linesegarray"), HP + "lineseg", {"textpos": "0"})   # 한 줄 — 고칠 것 없음
+        D._mark(D._name_of[q.getroottree().getroot()])
+        return D.save()
+    monkeypatch.setattr(A, "_hwp_ok", lambda: True)
+    monkeypatch.setattr(A, "_layout", layout)
+    r = c.post(f"/api/docs/{d}/line-tidy/plan").json()
+    assert r["undo"] == [] and r["counts"]["undone"] == 0 and r["counts"]["ratioLeft"] == 1 and r.get("nothing") is True, r
+    assert all(x == ratio0 for x in seen)   # 넓힌 사본을 재지 않았다
+    assert A.facts(d)["ratio"] == 0 and len(A.load(d)["ratio"]) == 1   # 재기만으로 기록을 지우지 않는다
+    assert c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": r["planId"]}).json().get("nothing") is True
+    s = server._sess(d)
+    assert ratios(s.doc, s.doc._ids[bid]) == ratio0
 
 
 # ---------------------------------------------------------------- 쪽에 걸친 줄(② §8)
@@ -484,3 +747,76 @@ def test_page_fit_plan_apply_undo_api(monkeypatch):
     assert g["applied"]["blanks"] == 1 and g["applied"]["pages"] == 1 and g["applied"]["counts"]["pageFixed"] == 1
     assert c.post(f"/api/docs/{d}/undo").status_code == 200
     assert height(server._sess(d)) == h0
+
+
+# ---------------------------------------------------------------- astra 검증(2026-11-23)의 반례 — 반영이 쓰다 말지 않는다 · 안 쓰인 언어의 자간도 한도 안
+def test_apply_checks_every_old_fix_before_writing(monkeypatch):
+    """반영은 옛 장평을 되돌릴 근거를 **쓰기 전에** 모두 다시 센다 — 둘째 문단에서 409 를 내면서 첫 문단은 바뀐 채 남던 것(_transact 는 KeyError · ValueError 만 되돌린다)."""
+    from fastapi.testclient import TestClient
+
+    from app import server
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    c = TestClient(server.app)
+    d = c.post("/api/docs?new=1", files={"file": (PLAN.name, PLAN.read_bytes())}).json()["docId"]
+    s = server._sess(d)
+    two = [p for p in A._paras(s.doc) if s.doc._rev.get(p) and not s.doc._has_object(p) and len(s.doc._text(p)) > 30][:2]
+    ids = [s.doc._rev[p] for p in two]
+
+    def make(sess):   # 첫 문단에만 전의 장평 고침(× 96%)
+        q = sess.doc._ids[ids[0]]
+
+        def run():
+            LT._rescale(sess.doc, q, 2, 12, "ratio", 100, lambda cur: round(cur * 96 / 100))
+            return {"hosts": [q], "formatted": {ids[0]}, "struct": set(), "origin": {}, "anchor": ids[0], "log": {}}
+        return [q], run
+    server._edit(d, make, "lineTidy", {})
+    s = server._sess(d)
+    shape = lambda: [[r.get("charPrIDRef") for r in s.doc._ids[i].iterchildren(HP + "run")] for i in ids]  # noqa: E731
+    before, rev0, undo0 = shape(), s.rev, len(s.undo)
+    plan = {"planId": "p00000000001", "at": 1.0, "rev": s.rev, "by": "space", "rules": {}, "items": [], "left": [], "counts": {}, "pages": [], "pageLeft": [], "blanks": [],
+            "undo": [{"id": ids[0], "text": s.doc._text(s.doc._ids[ids[0]]), "ops": [{"rs": 2, "re": 12, "pct": 96}], "by": "runs"},
+                     {"id": ids[1], "text": s.doc._text(s.doc._ids[ids[1]]), "ops": [{"rs": 2, "re": 12, "pct": 96}], "by": "runs"}]}   # 둘째는 고친 적이 없다 — 근거 없음
+    A._save(d, {"version": A.VERSION, "plan": plan, "applied": None})
+    r = c.post(f"/api/docs/{d}/line-tidy/apply", json={"planId": plan["planId"]})
+    assert r.status_code == 409 and "서식이 바뀌었습니다" in r.json()["detail"]
+    s = server._sess(d)
+    assert shape() == before and (s.rev, len(s.undo)) == (rev0, undo0)   # 첫 문단도 그대로
+
+
+def test_unused_language_spacing_stays_in_limit():
+    """자간은 언어 일곱에 다 적힌다 — 한도도 일곱 모두에서 센다: 한글 0% · 영문 −14% 인 글자 모양의 한글 줄을 90% 로 당기면 영문이 −23% 가 되던 것 → 「자간 한도」 로 둔다."""
+    import copy
+
+    from lxml import etree
+
+    from app.hwpx_doc import HwpxDoc
+    doc = HwpxDoc(PLAN.read_bytes())
+    p = next(p for sec in doc._sections for p in sec.iter(A.P_TAG) if not doc._has_object(p) and len(doc._text(p)) > 12)
+    HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    runs = list(p.iterchildren(HP + "run"))
+    for r in runs[1:]:
+        p.remove(r)
+    for c in list(runs[0]):
+        runs[0].remove(c)
+    etree.SubElement(runs[0], HP + "t").text = "가" * 28 + " 예지보전 가동"
+    c = copy.deepcopy(doc._defs["charPr"][runs[0].get("charPrIDRef")])
+    for x in LT.LANGS:
+        c.find(LT._hh("spacing")).set(x, "-14" if x == "latin" else "0")
+    runs[0].set("charPrIDRef", doc._add_def("charPr", c))
+    doc._touch(p)
+    data = doc.save()
+    D0 = HwpxDoc(data)
+    (target,) = [i for i, q in enumerate(A._paras(D0)) if D0._text(q).startswith("가" * 28)]
+
+    def layout(b):
+        d = HwpxDoc(b)
+        q = A._paras(d)[target]
+        for la in q.findall(HP + "linesegarray"):
+            q.remove(la)
+        arr = etree.SubElement(q, HP + "linesegarray")
+        etree.SubElement(arr, HP + "lineseg", {"textpos": "0"})
+        etree.SubElement(arr, HP + "lineseg", {"textpos": str(len("가" * 28 + " 예지보"))})
+        d._mark(d._name_of[q.getroottree().getroot()])
+        return d.save()
+    res = A.plan_bytes(data, R, lambda i, q, t: i == target, layout)
+    assert res["items"] == [] and res["counts"]["why"] == {"자간 한도": 1}   # 한글만 보면 0% → −10% 로 될 일이지만 영문 −14% 가 하한(−15%)을 넘는다
