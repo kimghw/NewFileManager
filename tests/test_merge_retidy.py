@@ -444,13 +444,14 @@ def test_inserted_levels_that_repeat_an_upper_letter_take_the_next_free_letter_o
     아래 레벨은 바꾼 위 레벨의 레터와도 안 겹치게(「⋅」 는 첫 레벨이 「⋅」 가 되어 다시 바뀐다) · 글자는 그 키로 문서에 친 글자(「·」 키 → 「⋅」)."""
     ov = _lettered(tree)
     ins = {"p10", "p11", "p12", "p13"}
-    assert MR.pool(ov)[:4] == [("□", "□", "□"), ("o", "ㅇ", "o"), ("-", "-", "-"), ("·", "⋅", "·")] and [g for _, g, _ in MR.pool(ov)][4:] == list(MR.EXTRA)
+    # 덧붙이는 「▪」 는 사슬의 점(「·」)과 눈으로 같은 레터라 차례에 다시 안 든다(MR.look — 2026-11-23 「• › ▪」)
+    assert MR.pool(ov)[:4] == [("□", "□", "□"), ("o", "ㅇ", "o"), ("-", "-", "-"), ("·", "⋅", "·")] and [g for _, g, _ in MR.pool(ov)][4:] == list(MR.EXTRA[1:])
     got = MR.reletter_of(None, ov, ins)
     assert [(r["tpl"], r["level"], r["was"], r["now"], sorted(r["lines"]), r["why"]) for r in got] == [
-        ("2", 1, "o", "⋅", ["p10"], None), ("2", 2, "-", "▪", ["p11", "p13"], None), ("2", 3, "⋅", "◇", ["p12"], None)]
+        ("2", 1, "o", "⋅", ["p10"], None), ("2", 2, "-", "◇", ["p11", "p13"], None), ("2", 3, "⋅", "▷", ["p12"], None)]
     assert ov["lines"]["p10"]["letter"] == "o"   # 계획만 — 오버레이는 그대로
     c = MR.summary(MR.plan(None, ov, ins)["rows"], relet=got)
-    assert (c["letters"], c["letterSwaps"], c["lettersLeft"]) == (3, ["o → ⋅", "- → ▪", "⋅ → ◇"], 0)
+    assert (c["letters"], c["letterSwaps"], c["lettersLeft"]) == (3, ["o → ⋅", "- → ◇", "⋅ → ▷"], 0)
     # 「ㅇ › - (정의)」 아래 넣은 「-」(위 줄에 「□」 가 없다) — 차례의 처음(「□」)이 아니라 위 줄이 쓴 가장 깊은 레터(「-」) 다음부터: 「⋅」
     ov2 = _lettered(tree)
     ov2["lines"]["p2"]["parent"] = None
@@ -470,11 +471,11 @@ def test_reletter_writes_the_letter_line_by_line_and_the_slot_key_and_chain_foll
     monkeypatch.setattr(OM, "match_one", match_one)
     monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
     changed = MR.reletter(None, ov, MR.reletter_of(None, ov, ins))
-    assert sorted(changed) == ["p10", "p11", "p12", "p13"] and ("p11", "▪", "▪ ") in seen   # 줄마다 제 모양(레터 앞 · 뒤 빈칸)에 레터만
-    # 키 = 헤딩 판정의 정규 키(「▪」 → 「▫」 — 다시 분석한 그래프가 그 줄에 주는 키와 같다)
-    assert [(ov["lines"][p]["letter"], ov["lines"][p]["key"]) for p in ("p10", "p11", "p12", "p13")] == [("⋅", "·"), ("▪", "▫"), ("◇", "◇"), ("▪", "▫")]
+    assert sorted(changed) == ["p10", "p11", "p12", "p13"] and ("p11", "◇", "◇ ") in seen   # 줄마다 제 모양(레터 앞 · 뒤 빈칸)에 레터만
+    # 키 = 헤딩 판정의 정규 키(「▷」 → 「▶」 — 다시 분석한 그래프가 그 줄에 주는 키와 같다)
+    assert [(ov["lines"][p]["letter"], ov["lines"][p]["key"]) for p in ("p10", "p11", "p12", "p13")] == [("⋅", "·"), ("◇", "◇"), ("▷", "▶"), ("◇", "◇")]
     S = ov["templates"]["2"]["slots"]
-    assert [(S[k]["letter"], S[k]["key"]) for k in ("1", "2", "3")] == [("⋅", "·"), ("▪", "▫"), ("◇", "◇")] and ov["templates"]["2"]["chain"] == ["·", "▫", "◇"]
+    assert [(S[k]["letter"], S[k]["key"]) for k in ("1", "2", "3")] == [("⋅", "·"), ("◇", "◇"), ("▷", "▶")] and ov["templates"]["2"]["chain"] == ["·", "◇", "▶"]
     assert MR.reletter_of(None, ov, ins) == []   # 두 번째 누름 — 겹치는 레터 없음
 
 
@@ -508,9 +509,11 @@ def test_a_letter_already_used_above_is_not_picked_again_even_when_its_key_diffe
         ov["templates"]["2"]["slots"][str(x["level"])].update(letter=letter, key=key)
     ov["templates"]["2"]["chain"] = ["▫", "o", "·"]
     ins = {"p10", "p11", "p12", "p13"}
-    assert ("▫", "▪", "▫/찬") in MR.pool(ov) and [g for _, g, _ in MR.pool(ov)].count("▪") == 1   # EXTRA 의 「▪」 = 정규 키 「▫」 — 문서의 글자와 한 번만
+    # 「▪」 = 정규 키 「▫」 · 속이 찬 기호 — 눈으로는 사슬의 점(「⋅」)과 같은 레터라 차례에 따로 안 든다(MR.look)
+    assert MR._kin(ov["lines"]["p10"]) == "·" and "▪" not in [g for _, g, _ in MR.pool(ov)]
     got = MR.reletter_of(None, ov, ins)
-    assert [(r["level"], r["was"], r["now"], r["key"]) for r in got] == [(2, "◦", "◇", "◇")]   # 위 줄이 쓴 가장 깊은 레터(「▪」) 다음 — 「▪」 를 다시 고르지 않는다 · L3 「⋅」 는 그대로
+    # L2 = 위 줄이 쓴 가장 깊은 레터(「▪」 = 점) 다음 「◇」 — 「▪」 를 다시 고르지 않는다 · L3 「⋅」 는 L1 「▪」 와 같은 점이라 그 다음 「▷」(2026-11-23 「• › ▪」)
+    assert [(r["level"], r["was"], r["now"], r["key"]) for r in got] == [(2, "◦", "◇", "◇"), (3, "⋅", "▷", "▶")]
     kins = {p: MR._kin(ov["lines"][p]) for p in ("p1", "p2", "p3", "p10")}
     assert OM.kin("◇", "◇") not in kins.values()
 
@@ -529,7 +532,7 @@ def test_levels_are_looked_at_again_until_nothing_changes_and_a_level_is_not_com
     real = MR._up
     monkeypatch.setattr(MR, "_up", lambda ov_, p: real(ov_, p)[:1] if p in ("p12", "p13") else real(ov_, p))   # T3 의 위 줄 수를 줄여 T2 보다 먼저
     got = {(r["tpl"], r["level"]): (r["was"], r["now"]) for r in MR.reletter_of(None, ov, ins)}
-    assert got[("2", 1)] == ("o", "⋅") and got[("2", 2)] == ("-", "▪")
+    assert got[("2", 1)] == ("o", "⋅") and got[("2", 2)] == ("-", "◇")
     monkeypatch.setattr(MR, "_up", real)
     monkeypatch.setattr(OM, "match_one", lambda doc, ov_, pid, sh, left=None: ov_["lines"][pid].update(letter=sh["tok"]))
     monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
@@ -537,3 +540,53 @@ def test_levels_are_looked_at_again_until_nothing_changes_and_a_level_is_not_com
     assert [r for r in MR.reletter_of(None, ov, ins) if r["now"]] == []   # 두 번째 누름 — 바꿀 레터 없음(같은 레벨의 p12 › p13 은 견주지 않는다)
     up = {p: [MR._kin(ov["lines"][a]) for a in MR._up(ov, p) if ov["lines"][a]["tpl"] != ov["lines"][p]["tpl"] or ov["lines"][a]["level"] != ov["lines"][p]["level"]] for p in ins}
     assert all(MR._kin(ov["lines"][p]) not in up[p] for p in ins)   # 넣은 줄은 (다른 레벨의) 위 줄과 레터가 다르다
+
+
+def test_a_small_filled_square_under_a_dot_counts_as_the_same_letter(tree, monkeypatch):
+    """실제 작성본(2026-11-23 사용자 — 넣은 「• (굵은 줄)」 아래 「▪」 줄을 보며 「이거 왜 아직 다른 레벨인데 동일한 레터를 쓰고 있냐」): 「•」(계열 「·」)와 「▪」(계열 「▫/찬」)는
+    헤딩 판정으로는 다른 레터지만 본문 글자 크기에서 같은 점이다 — 레터 바꾸기는 눈으로 같은 레터로 센다(MR.look): L2 「▪」 → 「◇」 · 그 아래 L3 「◇」 → 「▷」 · 두 번째 누름은 할 것 없음.
+    헤딩 판정의 계열(outline_match.kin)은 그대로다."""
+    assert OM.kin("▪", "▫") != OM.kin("•", "·") and MR.look(OM.kin("▪", "▫")) == MR.look(OM.kin("•", "·")) == MR.look("▪/찬") == MR.look("•") == "·"
+    assert MR.look(OM.kin("◇", "◇")) == "◇" and MR.look(OM.kin("■", "□")) == "□/찬" and MR.look(None) is None
+    ov = _lettered(tree)
+    for p, (letter, key) in {"p10": ("•", "·"), "p11": ("▪", "▫"), "p13": ("▪", "▫"), "p12": ("◇", "◇")}.items():
+        x = ov["lines"][p]
+        x.update(letter=letter, key=key)
+        ov["templates"]["2"]["slots"][str(x["level"])].update(letter=letter, key=key)
+    ov["templates"]["2"]["chain"] = ["·", "▫", "◇"]
+    ins = {"p10", "p11", "p12", "p13"}
+    got = MR.reletter_of(None, ov, ins)
+    assert [(r["level"], r["was"], r["now"]) for r in got] == [(2, "▪", "◇"), (3, "◇", "▷")]   # L1 「•」 는 위(「□ › ㅇ › -」)와 안 겹친다 — 그대로
+    monkeypatch.setattr(OM, "match_one", lambda doc, ov_, pid, sh, left=None: ov_["lines"][pid].update(letter=sh["tok"]))
+    monkeypatch.setattr(OM, "_is_auto", lambda ov_, p: False)
+    MR.reletter(None, ov, got)
+    assert MR.reletter_of(None, ov, ins) == []
+
+
+def test_the_letter_order_comes_from_the_target_documents_own_chains_and_glyphs(tree):
+    """차례(pool)는 ins 를 주면 목적 문서의 것만 센다 — 넣은 줄만 있는 템플릿(지난 누름이 레터를 바꾼 서식 종속 템플릿 · 늘어난 레벨)의 사슬이 더 길어도 그것으로 잡지 않는다
+    (2026-11-23 실제 작성본 사본: 두 번째 누름의 차례에서 「o」 · 「-」 가 빠져 바꿀 레터를 못 찾았다) · 글자도 목적 문서의 줄에서."""
+    ov = _lettered(tree)
+    ins = {"p10", "p11", "p12", "p13"}
+    ov["templates"]["2"]["chain"] = ["□", "·", "◇", "▶", "△"]   # 넣은 줄의 템플릿 — 기호가 더 많다
+    for p in ("p11", "p12"):   # 넣은 줄의 점은 「•」 · 목적 문서의 점(p20)은 「⋅」
+        ov["lines"][p].update(letter="•", key="·")
+    assert [g for _, g, _ in MR.pool(ov)][:2] == ["□", "•"]   # ins 없이 — 전처럼 모두(넣은 줄의 사슬)
+    assert [(k, g) for k, g, _ in MR.pool(ov, ins)][:4] == [("□", "□"), ("o", "ㅇ"), ("-", "-"), ("·", "⋅")]
+
+
+def test_when_no_letter_after_the_deepest_used_one_is_free_an_earlier_free_letter_is_taken(tree, monkeypatch):
+    """차례에서 위 줄이 쓴 가장 깊은 레터 뒤에 빈 레터가 없으면 앞쪽의 빈 레터라도 — 위 레벨과 같은 레터로 두지 않는다(2026-11-23 실제 작성본 사본: 위 레벨을 「△」 로 바꾼 뒤
+    아래 레벨이 바꿀 레터를 못 찾아 「△ › △」 로 남았다). 차례 = □ › o › - › · › ◇(덧붙이는 기호 하나). 넣을 자리 = 「1. › ㅇ › -」(위에 「□」 없음)."""
+    monkeypatch.setattr(MR, "EXTRA", ("◇",))
+    ov = _lettered(tree)
+    ov["lines"]["p2"]["parent"] = None
+    ov["lines"]["p1"].update(letter="1.", key="N.")
+    for p, (letter, key) in {"p10": ("-", "-"), "p11": ("◇", "◇"), "p13": ("◇", "◇"), "p12": ("⋅", "·")}.items():
+        x = ov["lines"][p]
+        x.update(letter=letter, key=key)
+        ov["templates"]["2"]["slots"][str(x["level"])].update(letter=letter, key=key)
+    ov["templates"]["2"]["chain"] = ["-", "◇", "·"]
+    got = MR.reletter_of(None, ov, {"p10", "p11", "p12", "p13"})
+    # L1 「-」(넣을 자리 「-」 와 겹침) → 「⋅」 · L2 「◇」 그대로 · L3 「⋅」(L1 과 겹침) → 「◇」 뒤에 빈 레터가 없어 앞쪽의 「□」
+    assert [(r["level"], r["was"], r["now"], r["why"]) for r in got] == [(1, "-", "⋅", None), (3, "⋅", "□", None)]

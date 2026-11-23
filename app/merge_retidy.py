@@ -386,7 +386,9 @@ def mark(ov, rows):
 # 동일한 경우 다른 레터를 쓰도록 해줘. 문서에서 사용하는 레터지 □ · o · -, 점... 가장 긴 템플릿 개요를 참조해서」 → 레터가 모자라면 답 「기호를 더 씀」)
 # 2026-11-23 사용자(「▪ 굵은 줄」 아래 「▪ 줄」 이 선 작성본을 보며) 「개요레터가 다른 레벨에서 같은걸 사용했네」 — 덧붙이는 기호는 **헤딩 판정의 내장 규칙이 읽고 계열이 서로 다른 글자**여야 한다:
 # 전의 「◦」 는 판정이 「o」 계열로 읽어(닮은 레터 글자 — 「ㅇ」 아래 「◦」 = 같은 레터) 다음 누름이 또 바꿨고, 「▸」 는 내장 규칙이 못 읽는다(배운 규칙이 있는 PC 에서만 개요 줄).
-EXTRA = ("▪", "◇", "▷", "△")   # 가장 긴 템플릿 사슬의 기호 레터가 모자랄 때 이어 쓰는 기호(사용자 답 「기호를 더 씀」 — 고른 기호와 차례는 에이전트 판단: 사용자 확인 전)
+# 「◆」 · 「▶」 = 2026-11-23 더함(「▪」 를 점과 같은 레터로 세면(look) 사슬에 점 레벨이 있는 문서에서 하나가 줄어, 깊이 넣은 내용(「[기관] › • › ◇ › ▷ › [소제목] › ∘ › ▸ › △ › …」)에서
+# 바꿀 레터가 모자라 위 · 아래 레벨에 「△」 가 함께 섰다 — 속이 찬 기호는 헤딩 판정이 빈 기호와 다른 레터로 읽는다: outline_match.FILLED).
+EXTRA = ("▪", "◇", "▷", "△", "◆", "▶")   # 가장 긴 템플릿 사슬의 기호 레터가 모자랄 때 이어 쓰는 기호(사용자 답 「기호를 더 씀」 — 고른 기호와 차례는 에이전트 판단: 사용자 확인 전)
 
 
 def _sym(key):
@@ -396,9 +398,22 @@ def _sym(key):
 
 PASSES = 8   # reletter_of 가 레벨들의 레터를 다시 보는 횟수의 한도(보통 2번에 멎는다 — 서로 위 · 아래로 읽힌 레벨이 있으면 여기서 그친다)
 
+# 눈으로 같은 레터(2026-11-23 사용자 — 넣은 「• (굵은 줄)」 아래 「▪」 줄을 보며 「이거 왜 아직 다른 레벨인데 동일한 레터를 쓰고 있냐」): 헤딩 판정의 계열(outline_match.kin)로는 다른 레터여도
+# 본문 글자 크기에서 같은 「점」 으로 보이는 글자는 위 · 아래 레벨에 함께 세우지 않는다 — 속이 찬 작은 네모 「▪」(계열 「▫/찬」)는 점 「•」 · 「·」 · 「⋅」(계열 「·」)과 같은 레터로 센다.
+# 이 셈은 **넣은 줄의 레터 바꾸기에서만**이다 — 헤딩 판정 · 닮은 레터 글자 · 서식 정리의 떼는 기준은 그대로(그 둘을 한 레벨의 같은 레터로 묶지 않는다). 묶은 글자는 에이전트 판단(사용자 확인 전).
+DOTS = frozenset("·⋅•∙‧․")   # 키 없이 글자로 센 계열(outline_match.kin 의 키 없는 줄)도 점으로
+LOOK = {"▫/찬": "·", "▪/찬": "·"}
+
+
+def look(f):
+    """레터 계열(outline_match.kin) → 눈으로 본 계열(LOOK · DOTS — 같은 점으로 보이는 계열을 「·」 하나로) · None 은 None."""
+    if f is None:
+        return None
+    return "·" if f in DOTS else LOOK.get(f, f)
+
 
 def _kin(x):
-    return OM.kin(x.get("letter") or "", x.get("key")) if x else None
+    return look(OM.kin(x.get("letter") or "", x.get("key"))) if x else None
 
 
 def canon(glyph):
@@ -410,26 +425,35 @@ def canon(glyph):
         return glyph
 
 
-def pool(ov):
+def pool(ov, ins=None):
     """바꿀 레터의 차례 — 문서에서 **가장 긴 템플릿 사슬**(기호 레터가 가장 많은 사슬 · 같으면 사슬이 길고 줄이 많은 것)의 기호 레터를 그 차례로 + EXTRA(계열이 겹치는 것은 한 번)
     → [(키, 글자, 계열)] — 글자 = 그 키로 문서에 가장 많이 친 글자(「o」 키 → 「ㅇ」 …) · 없으면 키 그대로 · EXTRA 의 키 = 그 글자의 정규 키(canon).
     계열 = **쓸 글자**의 계열(outline_match.kin(글자, 키) — 줄의 계열과 같은 셈: 키만으로 세면 「▫」 키의 글자 「▪」(속이 찬 기호 「▫/찬」)가 위 줄의 「▪」 와 다른 레터로 읽혀
-    두 레벨에 같은 「▪」 가 섰다 — 2026-11-23 실제 작성본)."""
+    두 레벨에 같은 「▪」 가 섰다 — 2026-11-23 실제 작성본)을 눈으로 본 계열로(look — 사슬에 점 「·」 레벨이 있으면 EXTRA 의 「▪」 는 같은 점이라 차례에 다시 안 든다: 「• › ▪」 가 서지 않게).
+    ins(넣은 줄 id)를 주면 **목적 문서의 것만** 센다 — 사슬은 넣은 줄 밖의 줄이 있는 템플릿, 글자는 넣은 줄 밖의 줄(없으면 전처럼 모두): 넣은 줄의 템플릿(지난 누름이 레터를 바꾼 서식 종속 템플릿 ·
+    늘어난 레벨)이 가장 긴 사슬로 잡히면 두 번째 누름의 차례가 달라져(「o」 · 「-」 가 빠짐) 바꿀 레터를 못 찾았다(2026-11-23 실제 작성본 사본)."""
+    ins = set(ins or ())
+    own = {str(x.get("tpl")) for p, x in ov["lines"].items() if p not in ins} if ins else None
     best, score = (), None
     for tid, t in ov["templates"].items():
+        if own and str(tid) not in own:
+            continue
         chain = t.get("chain") or ()
         syms = [k for k in chain if _sym(k)]
         sc = (len(syms), len(chain), sum(1 for x in ov["lines"].values() if str(x.get("tpl")) == str(tid)))
         if score is None or sc > score:
             best, score = syms, sc
-    glyphs = {}
-    for x in ov["lines"].values():
+    glyphs, every = {}, {}
+    for p, x in ov["lines"].items():
         if _sym(x.get("key")) and x.get("letter"):
-            glyphs.setdefault(x["key"], Counter())[x["letter"]] += 1
+            every.setdefault(x["key"], Counter())[x["letter"]] += 1
+            if p not in ins:
+                glyphs.setdefault(x["key"], Counter())[x["letter"]] += 1
+    glyphs = {k: glyphs.get(k) or c for k, c in every.items()}
     cands = [(k, glyphs[k].most_common(1)[0][0] if glyphs.get(k) else k) for k in best] + [(canon(g), g) for g in EXTRA]
     out, seen = [], set()
     for k, g in cands:
-        f = OM.kin(g, k)
+        f = look(OM.kin(g, k))
         if f in seen:
             continue
         seen.add(f)
@@ -452,11 +476,11 @@ def reletter_of(doc, ov, ins, keep=()):
     대상 = 넣는 쪽의 서식을 받는 레벨 가운데 그 레벨 줄이 **모두 넣은 줄**인 것(cut — 서식 종속 템플릿으로 뗀 레벨 · grown — 목적 문서에 없던 레벨)의 기호 레터.
     얕은 레벨부터: 그 레벨 줄들의 위 줄(넣을 자리와 그 위의 목적 문서 줄 · 이미 정한 위의 넣은 줄)의 레터 계열(kin)과 겹치면 pool 의 차례에서 처음 안 겹치는 레터로(now) —
     안 겹치면 그대로(목록에 안 든다) · pool 이 다 겹치면 그대로 두고 why. 사람이 처리를 고른 넘친 줄(keep)이 든 레벨은 건드리지 않는다(why).
-    계열은 줄 · pool 모두 **글자와 정규 키**로 센다(outline_match.kin — pool 의 셋째 값) · 정한 뒤 위 레벨이 바뀌어 다시 겹친 레벨은 더 바뀌지 않을 때까지 다시 본다(PASSES) ·
+    계열은 줄 · pool 모두 **글자와 정규 키**로 세고 눈으로 같은 점은 하나로 센다(look(outline_match.kin) — pool 의 셋째 값: 「•」 아래 「▪」 도 겹침) · 정한 뒤 위 레벨이 바뀌어 다시 겹친 레벨은 더 바뀌지 않을 때까지 다시 본다(PASSES) ·
     같은 레벨의 줄이 위 줄인 것은 견주지 않는다(두 번째 누름은 할 것 없음)."""
     ins, keep = set(ins), set(keep or ())
     rows = [r for r in plan(doc, ov, ins, keep)["rows"] if r["kind"] in ("cut", "grown") and not r["form"]]
-    P, now = pool(ov), {}   # now = 정한 줄 → 새 레터의 계열(아래 레벨이 위 줄로 읽는다)
+    P, now = pool(ov, ins), {}   # now = 정한 줄 → 새 레터의 계열(아래 레벨이 위 줄로 읽는다) · 차례는 목적 문서의 사슬 · 글자로(pool 설명)
     # 위 줄 = 그래프의 부모 사슬 + **넣은 자리**(문서 차례로 그 줄 바로 앞의 목적 문서 줄)와 그 위 사슬 — 다시 분석한 그래프는 넣은 「o」 를 같은 레터인 양식의 「ㅇ (2차년도)」 와
     # 같은 레벨(형제 — 부모 「□」)로 읽어, 부모 사슬만으로는 실제로 넣은 자리 「- (추진 내용)」 · 「ㅇ」 가 위 줄로 안 잡혔다(2026-11-22 실제 작성본)
     order = OM._order(doc)
@@ -487,7 +511,7 @@ def reletter_of(doc, ov, ins, keep=()):
                 continue
             key = sl.get("key") or ov["lines"][ids[0]].get("key")
             mine = set(ids)
-            cur = now[ids[0]] if row is not None else OM.kin(sl.get("letter") or key, key)
+            cur = now[ids[0]] if row is not None else look(OM.kin(sl.get("letter") or key, key))
             # 같은 레벨의 줄이 위 줄로 잡힌 것(그래프가 같은 레벨 줄을 부모 · 자식으로 읽은 곳)은 견주지 않는다 — 레벨의 레터를 무엇으로 바꿔도 겹쳐 누를 때마다 다음 레터로 넘어갔다
             used = {now.get(a) or _kin(ov["lines"][a]) for p in ids for a in ups(p) if a not in mine} - {None}
             if cur not in used:
@@ -500,7 +524,8 @@ def reletter_of(doc, ov, ins, keep=()):
             moved = True
             # 차례에서 위 줄이 쓴 **가장 깊은 레터 다음부터**(「- (정의)」 아래면 「⋅」 — 처음부터 고르면 위 줄에 안 쓰인 「□」 가 잡혀 「-」 아래에 「□」 가 섰다: 사슬의 차례가 거꾸로)
             start = max((i + 1 for i, (_, _, f) in enumerate(P) if f in used), default=0)
-            pick = next((x for x in P[start:] if x[2] not in used), None)
+            # 그 뒤에 빈 레터가 없으면 차례 앞쪽의 빈 레터라도(위 레벨과 같은 레터로 두는 것보다 낫다 — 위 레벨을 바꾼 탓에 아래 레벨이 같은 레터로 남던 것: 2026-11-23 실제 작성본 사본 「△ › △」)
+            pick = next((x for x in P[start:] if x[2] not in used), None) or next((x for x in P[:start] if x[2] not in used), None)
             if pick is None:
                 row.update(key=None, now=None, why="위 레벨과 겹치지 않는 레터가 없어 그대로 둠")
                 for p in ids:
