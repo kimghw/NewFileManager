@@ -22,6 +22,9 @@
   FilePathCheckerModule(Example).dll — pyhwpx 휠(`pyhwpx/FilePathCheckerModule.dll`, 217KB)에 들어 있어 `pip download pyhwpx --no-deps` 로 받아 꺼낼 수 있다
   (설치 불필요). 이 PC 는 11-01 기준 키가 비어 있고 DLL 도 없었다 — `tools/hwp_register_module.py` 가 내려받기·등록·확인(`--check`)을 한다.
 - 시간: 17.9MB·163쪽 46s, 31MB·178쪽 62s(`Open`+`SaveAs PDF`).
+- **COM 으로 띄운 Hwp.exe 는 부른 프로세스의 자식이 아니다**(2026-11-23 실측): `Dispatch("HWPFrame.HwpObject")` 가 띄운 한글은 명령 줄 `hwp.exe -Automation -Embedding` ·
+  부모 = DCOM 의 `svchost.exe`(DcomLaunch). 그래서 부른 쪽을 `taskkill /PID … /T /F` 로 끄거나 강제 종료하면(`Quit()` 을 못 부름) 한글은 남는다 — 이 PC 에서 이틀 사이 서버 재시작 · 검사로 15개(각 ~110 MB 약정)가 쌓였다.
+  찾는 법: `Win32_Process` 에서 `Name='Hwp.exe'` 이고 명령 줄에 `-Automation` 이 있는 것 — 사람이 연 한글 창에는 그 인자가 없다. 지금 그것을 쓰는 프로세스가 없는지(COM 을 부르는 python 이 살아 있는지)는 따로 봐야 한다.
 - **굵게는 가짜 굵게(돋움이 설치돼 있을 때)**: 10-29 에는 돋움이 있어(`C:\Windows\Fonts\gulim.ttc` — 「한국어 추가 글꼴」) PDF 글꼴이 `Dotum` 하나로
   나오고, 굵은 글자도 같은 글꼴에 span flags 굵게 비트(16)가 없다. 대신 글자를 채운 뒤 같은 자리를 한 번 더 긋는다 — PyMuPDF `page.get_texttrace()` 에
   같은 글자가 `type 0`(채움)·`type 1`(긋기, `linewidth` 2.2~2.8 ≈ 글자 크기의 0.17)로 두 번 나온다(굵게 판정 = span 폭의 절반 이상이 긋기 trace 로 덮임).

@@ -52,7 +52,11 @@ def sha256(data: bytes) -> str:
 def _write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp{os.getpid()}-{threading.get_ident()}")
-    tmp.write_bytes(data)
+    try:
+        tmp.write_bytes(data)
+    except OSError:  # 디스크가 찼을 때(Errno 28) 반쯤 쓴 사본이 남아 자리를 더 잡지 않게 — 대상 파일은 그대로(2026-11-23 C: 0 바이트)
+        tmp.unlink(missing_ok=True)
+        raise
     for k in range(6):
         try:
             os.replace(tmp, path)
