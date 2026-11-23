@@ -1488,6 +1488,25 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         self._col_put(tbl, cells, heights, widths, after, fit, [])
         return {"widths": after}
 
+    def set_col_widths(self, table_id: str, fixed: dict) -> dict:
+        """Grid columns {c: width (HWPUNIT)} take those widths; the other columns share what is left in proportion — the table
+        width stays (구분 기준 열 넣기, spec_테이블매니저 ② §13). ValueError when too little is left. -> {"widths": new widths}."""
+        tbl, cells, nr, nc = self._tgrid(self._ids.get(table_id))
+        heights, widths = self._tsizes(cells, nr, nc)
+        fix = {int(c): max(1, int(w)) for c, w in fixed.items() if 0 <= int(c) < nc}
+        rest = [c for c in range(nc) if c not in fix]
+        left = sum(widths) - sum(fix.values())
+        if not rest or left < 100 * len(rest):
+            raise ValueError("다른 열에 남는 폭이 모자랍니다")
+        cur = sum(widths[c] for c in rest) or 1
+        after = list(widths)
+        for c, w in fix.items():
+            after[c] = w
+        for i, c in enumerate(rest):
+            after[c] = left - sum(after[x] for x in rest[:i]) if i == len(rest) - 1 else widths[c] * left // cur
+        self._col_put(tbl, cells, heights, widths, after, (0, nc - 1), [])
+        return {"widths": after}
+
     def even_rows(self, table_id: str, spans) -> dict:
         """Grid row spans [(r0, r1)…] share their total height equally — rows inside a span keep their proportions, the table
         height stays (매직 브러쉬 「높이 같게」, spec_매직브러쉬 ② §3 · 규칙 C2). -> {"heights": new heights}."""

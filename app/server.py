@@ -2541,6 +2541,7 @@ app.include_router(__import__("app.work_guide_api", fromlist=["router"]).router)
 app.include_router(__import__("app.table_kinds_api", fromlist=["router"]).router)   # 표의 병합 방식 식별(기관마다 작성 · 구분 기준에 따라 병합 · 셀 값 합산 · 공통 — 띠마다) 끝점은 app/table_kinds_api.py(spec_테이블매니저 ② §5 「병합 방식」)
 app.include_router(__import__("app.form_tables_api", fromlist=["router"]).router)   # 양식의 표 등록부(표 · 띠 id · 구분 기준 자리 · 타입 · 병합 방식 · 서브 테이블 — 짓기 · 보기 · 이 문서의 표 잇기) 끝점은 app/form_tables_api.py(spec_테이블매니저 ② §11)
 app.include_router(__import__("app.table_kv_api", fromlist=["router"]).router)   # 표의 키-값 추출 · 다른 표에 매핑(계획 · 고른 칸만 넣기) 끝점은 app/table_kv_api.py(spec_테이블매니저 ② §7 「키-값 추출과 매핑」)
+app.include_router(__import__("app.table_divcol_api", fromlist=["router"]).router)   # 구분 기준 열 넣기(표에 기관 · 차년도 · 단계 열 + 줄마다 값) 끝점은 app/table_divcol_api.py(spec_테이블매니저 ② §13)
 app.include_router(__import__("app.table_types_api", fromlist=["router"]).router)   # 양식의 표 판정(사람이 확정한 표 판정을 양식에 저장 · 구조가 같은 표에 다시 씀) 끝점은 app/table_types_api.py(spec_테이블매니저 ② §10 「양식의 표 판정」)
 app.include_router(__import__("app.agents_api", fromlist=["router"]).router)   # 에이전트 설정(등록부 · 작업 번호·역할·모델·생각 깊이 · 프롬프트 구성 · 실행 기록) 끝점은 app/agents_api.py(spec_에이전트 ② §3)
 from app import agent_notes, agent_notes_api  # noqa: E402
