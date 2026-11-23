@@ -44,6 +44,7 @@
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
   <link rel="stylesheet" href="/static/app_install.css"><!-- 앱으로 설치(상단 바 #installBtn — app_install.js · design.md §9) — document_header.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/pointer.css"><!-- 포인터(상단 바 「포인터」 단추 · 남의 포인터(색 화살표 + 이름표) · 「클릭」 표시 · 떠 있는 작은 창 — pointer.js 가 만드는 것만: spec_포인터 ② §1 · design.md §26) — style.css · share.css 다음 -->
   <link rel="stylesheet" href="/static/pic_tools.css"><!-- 그림 도구(그림 위의 띠 .pic-bar · 2열 kind picTools — spec_그림 ② §1 · design.md §25) — style.css 다음 -->
   <link rel="stylesheet" href="/static/place-guides.css"><!-- 자리마다의 작성 지침(쪽 오른쪽 여백의 「지침」 단추 · 2열 kind placeGuides — place_guides.js, spec_병합 ② §5-11 · design.md §4) — style.css · zones.css · doc_diff.css 다음 -->
 </head>
@@ -624,5 +625,6 @@
   <script src="/static/doc_status.js"></script><!-- 분석 상태(문서 이름 줄 #docStatus · 둘째 면 머리 #peerStatus — GET …/analysis 로 헤딩 · 표 · LLM · 구분 기준 표시 · 「분석」 단추) — app.js 다음(spec_작업 ② §20) -->
   <script src="/static/app_install.js"></script><!-- 앱으로 설치(PWA — 브라우저가 설치할 수 있다고 알려 주면 상단 바 「에이전트 설정」 다음에 #installBtn: spec_hwpx_웹편집 ② §9 「앱으로 설치」) -->
   <script src="/static/share.js"></script><!-- hwpx 공유 — 주인 화면(상단 바 「공유」 단추를 #downloadBtn 앞에 끼움 · 떠 있는 창 · 손님의 변경을 1.2초마다 받아 반영 · 손님이 작성 중인 문단 표시). 손님 화면은 따로(static/share/) — app.js·panel_help.js 다음(spec_공유 ② §7) -->
+  <script src="/static/pointer.js"></script><!-- 포인터(상단 바 「포인터」 단추를 「공유」 앞에 끼움 · 켜면 문서 위의 내 마우스 자리 · 「클릭」 을 같은 문서를 보는 다른 화면에 — WebSocket /api/docs/{id}/pointer) — app.js · peer_follow.js · share.js 다음(spec_포인터 ② §1~§3) -->
 </body>
 </html>

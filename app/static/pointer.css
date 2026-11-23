@@ -1,0 +1,67 @@
+/* 포인터 — 같은 문서를 보는 다른 화면의 마우스 자리와 「클릭」(spec_포인터 ② §1·§2 · design.md §26). pointer.js 가 만드는 것만:
+   상단 바 「포인터」 단추 · 남의 포인터(색 화살표 + 이름표) · 「클릭」 표시 · 떠 있는 작은 창. style.css · share.css 다음에 읽는다(색 변수 · .btn 을 그대로 받는다). */
+
+/* 상단 바 단추 — 글 없이 아이콘 하나(design.md §9): 다른 상단 바 아이콘 단추와 같은 32px(문서를 연 541px 위 = 30×26) · 눌림 = 켬(옅은 파랑) */
+.topbar > #pointerBtn { position: relative; display: inline-grid; place-items: center; flex: none; width: 32px; padding: 0; color: var(--muted); }
+.topbar > #pointerBtn svg { display: block; pointer-events: none; }
+@media (min-width: 541px) { body:not(.no-doc) > .topbar > #pointerBtn { width: 30px; padding: 0; } }
+.topbar > #pointerBtn[aria-pressed="true"] { background: var(--accent-soft); border-color: #9fb5ea; color: var(--accent); }
+.topbar > #pointerBtn.wait { border-style: dashed; } /* 켰지만 아직 못 붙음 */
+/* 같이 보는 다른 화면 수 — 오른쪽 위의 작은 알약(없으면 안 보임) */
+.topbar > #pointerBtn[data-n]::after { content: attr(data-n); position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px;
+  background: var(--accent); color: #fff; font-size: 10px; line-height: 14px; font-weight: 600; text-align: center; box-sizing: border-box; pointer-events: none; }
+/* 좁은 폭(문서를 연 541~880px) — 상단 바를 넘치게 하지 않는다(「워크플로우」 링크처럼 감춘다: 700px 에서 30px 단추 하나가 줄을 넘친다 — tools/smoke_share_ui.py 「좁은 화면(700px)」).
+   켜져 있는 동안은 끌 수 있게 그대로 보인다 · 남의 포인터는 단추가 없어도 보인다 */
+@media (min-width: 541px) and (max-width: 880px) { body:not(.no-doc) > .topbar > #pointerBtn:not([aria-pressed="true"]) { display: none; } }
+
+/* 남의 포인터 · 「클릭」 이 놓이는 층 — 화면 전체 · 누를 수 없음(문서의 누르기 · 고르기를 가리지 않는다) · 떠 있는 창(25~)보다 아래 */
+.ptr-layer { position: fixed; inset: 0; z-index: 20; overflow: hidden; pointer-events: none; }
+.ptr-cur { position: absolute; left: 0; top: 0; width: 0; height: 0; transition: transform 90ms linear; will-change: transform; }
+.ptr-layer.still .ptr-cur { transition: none; } /* 문서가 움직인 것(스크롤 · 크기) — 미끄러지지 않고 바로 */
+.ptr-cur svg { position: absolute; left: -2px; top: -2px; display: block; filter: drop-shadow(0 1px 1.5px rgba(16, 24, 40, .35)); }
+.ptr-name { position: absolute; left: 11px; top: 15px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 4px 9px 9px 9px;
+  background: var(--c); color: #fff; font-size: 11px; line-height: 16px; font-weight: 600; box-shadow: 0 1px 3px rgba(16, 24, 40, .25); }
+/* 문서 창의 위 · 아래로 벗어난 포인터 — 가장자리에 이름표만(「↑ 이름」 · 「↓ 이름」) */
+.ptr-cur:is(.up, .down) svg { display: none; }
+.ptr-cur:is(.up, .down) .ptr-name { left: 0; top: 0; transform: translateX(-50%); border-radius: 9px; opacity: .9; }
+.ptr-cur.down .ptr-name { top: auto; bottom: 0; }
+.ptr-cur.up .ptr-name::before { content: "↑ "; }
+.ptr-cur.down .ptr-name::before { content: "↓ "; }
+
+/* 「클릭」 — 누른 자리에서 퍼지는 원 + 글(잠깐 뒤 pointer.js 가 걷는다 — 남의 것 1.3초 · 내 것 0.7초) */
+.ptr-click { position: absolute; width: 0; height: 0; }
+.ptr-click i { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border: 2px solid var(--c); border-radius: 50%; box-sizing: border-box;
+  background: color-mix(in srgb, var(--c) 18%, transparent); animation: ptr-ring 1.2s ease-out forwards; }
+.ptr-click span { position: absolute; left: 12px; top: -24px; padding: 1px 7px; border-radius: 9px; background: var(--c); color: #fff; font-size: 11px; line-height: 16px; font-weight: 700; white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .25); animation: ptr-word 1.3s ease-out forwards; }
+.ptr-click.mine i { animation-duration: .65s; }
+.ptr-click.mine span { animation-duration: .7s; opacity: .85; }
+@keyframes ptr-ring { from { transform: scale(.6); opacity: 1; } to { transform: scale(4.2); opacity: 0; } }
+@keyframes ptr-word { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ptr-cur { transition: none; }
+  .ptr-click i { animation: none; transform: scale(2.4); opacity: .8; }
+  .ptr-click span { animation: none; }
+}
+
+/* 떠 있는 작은 창 — 모달 아님(문서 · 패널은 그대로 쓴다): 단추 아래 · ✕/Esc/바깥 누름. 공유 창(share.css .share-pop)과 같은 꼴 · 더 좁게 */
+.ptr-pop { position: fixed; z-index: 60; width: min(300px, calc(100vw - 16px)); max-height: calc(100vh - 64px); overflow: auto; padding: 10px 12px 12px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); font-size: 13px; color: var(--text); }
+.ptr-pop-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ptr-pop-head strong { font-size: 14px; }
+.ptr-pop-state { flex: 1; color: var(--muted); font-size: 12px; }
+.ptr-pop-state.on { color: var(--accent); }
+.ptr-pop-x { width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+.ptr-pop-x:hover { background: var(--surface-2); color: var(--text); }
+.ptr-pop-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ptr-pop-row label { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ptr-pop-row input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
+.ptr-pop-row .btn { flex: none; height: 28px; padding: 0 8px; }
+.ptr-pop-k { margin: 10px 0 4px; color: var(--muted); font-size: 12px; }
+.ptr-pop-people { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.ptr-pop-who { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptr-pop-who i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.ptr-pop-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+p.ptr-pop-note { margin-top: 8px; }
+.ptr-pop-acts { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.ptr-pop-acts .btn { height: 28px; padding: 0 10px; }

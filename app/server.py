@@ -2579,6 +2579,7 @@ app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
 app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)   # 사람이 하는 일의 「했음」(조립한 워크플로우의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦) 끝점은 app/flow_hands_api.py
+app.include_router(__import__("app.pointer_api", fromlist=["router"]).router)   # 포인터(같은 문서를 보는 다른 화면에 내 마우스 자리 · 「클릭」 — WebSocket · 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다) 끝점은 app/pointer_api.py(spec_포인터 ② §3). 그 모듈은 이 파일을 import 하지 않는다
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다
 __import__("app.share_api", fromlist=["attach"]).attach(app, session=_sess, loaded=DOCS.get, name=_shown_of, doc=get_doc, patch=patch_block, split=split, merge=merge,
                                                         media=media, bumped=BUMPED, store=works.root, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))

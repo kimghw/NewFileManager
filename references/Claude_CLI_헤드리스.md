@@ -66,6 +66,9 @@ fable 스킬의 「키 에이전트」(`~/.claude/skills/fable/scripts/fable_age
 - 호출: `claude -p --model claude-fable-5-2 --effort high --output-format stream-json --verbose --permission-mode acceptEdits --permission-prompts none [--allowedTools "<규칙>" …] [--max-budget-usd N] [--resume <세션 id>] [--append-system-prompt …]` — 프롬프트는 stdin, 작업 폴더 = cwd(그 폴더의 CLAUDE.md·사용자 설정은 평소처럼 읽는다).
 - **청구**: 자식 프로세스 env 에 `ANTHROPIC_API_KEY` 가 있으면 그 키로 청구된다 — `stream-json` 의 첫 메시지(`type: system`, `subtype: init`)의 `apiKeySource` 가 `"ANTHROPIC_API_KEY"`. 구독 로그인이 있어도 키가 먼저다(stderr 에 「claude.ai connectors are disabled because ANTHROPIC_API_KEY … takes precedence」).
   `--output-format json`(결과 하나)에는 init 이 없어 키 출처를 못 본다 — 확인하려면 `stream-json --verbose`.
+- **사용자 설정의 env 가 자식 env 를 덮는다**(2026-11-23 실측 · 2.1.321): `~\.claude\settings.json` 의 `env.ANTHROPIC_API_KEY` 가 있으면 CLI 가 그 값을 적용해, 띄울 때 자식 env 에 넣은 다른 키를 덮어쓴다.
+  init 의 `apiKeySource` 는 어느 쪽이든 `"ANTHROPIC_API_KEY"` 라 구별되지 않는다. 이 PC 에서 settings 의 키(끝 VAAA — 크레딧 없음)가 Fable 키(끝 qgAA)를 덮어 첫 요청이 `billing_error` 400 「Credit balance is too low」(작은 일감도 같음)였고,
+  같은 키로 SDK 를 직접 부르면 됐다. `--setting-sources project,local`(사용자 설정을 안 읽음)을 주면 자식 env 의 키로 청구되어 통과($0.25 — 한 낱말 답). 대신 사용자 설정의 `permissions.allow` · 훅도 빠진다.
 - init 메시지: `apiKeySource` · `model` · `permissionMode` · `cwd` · `session_id` · `tools`(82개). 끝 메시지(`type: result`): `subtype`(success …) · `is_error` · `num_turns` · `duration_ms` · `total_cost_usd` · `usage` · `modelUsage`(claude-haiku-5-5 도 함께 쓰인다) · `session_id` · **`permission_denials`**(거절된 도구 호출 목록 — `tool_name`·`tool_input`).
 - **권한**: `--permission-mode` = acceptEdits · auto · bypassPermissions · manual · dontAsk · plan. `--permission-prompts none` = 물어야 하는 것은 자동 거절(권한 방식이 정하는 나머지는 그대로).
   `acceptEdits` + `none`: 파일 읽기·쓰기(cwd 안)는 되고 `PowerShell python --version` 은 거절되어 `permission_denials` 에 남는다. `--allowedTools "PowerShell(python --version)"` 를 주면 그 명령만 돈다(설정 파일의 `permissions.allow` 도 같은 효과).

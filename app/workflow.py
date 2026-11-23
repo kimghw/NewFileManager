@@ -27,6 +27,7 @@ CHANGE = {"none": "문서 안 바뀜", "doc": "문서 바뀜", "store": "저장�
 SP_WORK, SP_DIV, SP_HEAD, SP_MERGE, SP_GATHER = "spec_작업.md", "spec_구분_기준.md", "spec_헤딩_추출.md", "spec_병합.md", "spec_취합.md"
 SP_EDIT, SP_STYLE, SP_WEB, SP_GUIDE = "spec_일반편집.md", "spec_서식복사.md", "spec_hwpx_웹편집.md", "spec_작업에이전트.md"
 SP_SHARE = "spec_공유.md"
+SP_POINTER = "spec_포인터.md"
 SP_ZONE = "spec_구역.md"
 SP_TABLE = "spec_테이블매니저.md"
 SP_FLOW = "spec_워크플로우.md"
@@ -400,6 +401,16 @@ COMMON = (
                 out="공유폴더의 hwpx", change="store", auto=True, modules=("share_api",), spec=(SP_SHARE, "② §8")),
              _s("stop", "키 새로 만들기 · 공유 끄기", "human", "키를 새로 만들면 접속해 있던 손님이 모두 나갑니다. 공유를 끄면 링크와 바로가기는 사라지고 저장본 파일은 폴더에 남습니다.",
                 change="store", modules=("share", "share_api"), spec=(SP_SHARE, "② §2")),
+         )),
+    dict(id="pointer", name="포인터 — 내 마우스 자리 같이 보기", where="상단 바 「포인터」(문서를 연 뒤 · 오른쪽 단추로 누르면 내 이름 · 같이 보는 화면)",
+         does="같은 문서를 연 다른 화면에 내 마우스가 가리키는 자리와 「클릭」 을 보여 줍니다. 문서는 바뀌지 않고 아무것도 저장하지 않습니다. 워크플로우와 무관하게 쓸 수 있습니다.",
+         steps=(
+             _s("on", "포인터 켜기", "human", "상단 바 「포인터」 를 눌러 켭니다. 문서 위에서 움직이는 내 마우스가 같은 문서를 보는 다른 화면에 색 화살표와 이름표로 보입니다. "
+                "끄거나 마우스가 문서 밖으로 나가면 사라집니다. 이름은 단추를 오른쪽 단추로 눌러 바꿉니다.", modules=("pointer_api",), spec=(SP_POINTER, "② §1·§3")),
+             _s("see", "다른 화면의 포인터 보기", "script", "같은 문서를 연 화면은 켜지 않아도 다른 화면의 포인터를 봅니다. 창 크기와 확대가 달라도 같은 문단 · 표 칸의 같은 자리에 그립니다. "
+                "보이지 않는 곳에 있으면 문서 창의 위 · 아래 가장자리에 이름표로 알립니다.", auto=True, modules=("pointer_api",), spec=(SP_POINTER, "② §2")),
+             _s("click", "「클릭」 표시", ("human", "script"), "포인터를 켠 채로 문서를 누르면 그 자리에 「클릭」 이 다른 화면에 잠깐 보입니다. 누른 것은 원래대로 작동합니다.",
+                modules=("pointer_api",), spec=(SP_POINTER, "② §1·§2")),
          )),
 )
 
