@@ -8,7 +8,7 @@
 (() => {
   "use strict";
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const FAMILY = { relay: "이관형", gather: "취합형", single: "문서 하나" }; // 틀의 화면 이름(조립 폼의 문서 입출력: 1 → N · N → 1 · 1)
+  const FAMILY = { relay: "이관형", gather: "취합형", single: "문서 하나", collect: "같은 양식 취합" }; // 틀의 화면 이름(조립 폼의 문서 입출력: 1 → N · N → 1 · 1 · N → 1 · 같은 양식)
   const josa = (word, a, b) => (typeof taskJosa === "function" ? taskJosa(word, a, b) : a);
   const PEN = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 

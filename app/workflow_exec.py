@@ -358,6 +358,7 @@ class Run:
 
     def __init__(self, rec, task, pair, approval):
         self.rec, self.task, self.pair, self.approval = rec, task, pair, approval
+        self.pinned = pair   # 시작할 때 못 박은 문서 쌍 — 대상 고정(guard)이 견주는 것. 같은 양식 취합의 덩이(_each_collect)는 기관 문서마다 self.pair 의 원본을 그 문서로 바꿔 끼운다(이관의 처리 함수가 그것을 읽는다) — 이것은 안 바뀐다
         self._working = {}   # 스레드 → 그 스레드가 지금 일하는 문서 id 들(같은 차례의 두 줄이 서로의 것을 지우지 않게)
         self.threads = set()
         self.lock = threading.Lock()
@@ -472,7 +473,7 @@ class Run:
             raise _Stop()
         now = UNIT.pair(self.target)
         same = lambda a, b: (a or {}).get("id") == (b or {}).get("id")  # noqa: E731
-        if now is None or now["job"] != self.rec["job"] or now["scope"] != self.rec["scope"] or not same(now.get("target"), self.pair.get("target")) or not same(now.get("source"), self.pair.get("source")):
+        if now is None or now["job"] != self.rec["job"] or now["scope"] != self.rec["scope"] or not same(now.get("target"), self.pinned.get("target")) or not same(now.get("source"), self.pinned.get("source")):
             raise _Halt("moved", "도는 중에 문서 칸(또는 워크플로우 · 프로젝트 · 라운드)이 바뀌어 멈췄습니다 — 다시 누르세요")
 
     def wait(self, doc, limit, what):
@@ -681,7 +682,7 @@ def _do_heads_llm(run, stage, line):
 def _tidy_after(run, stage, key, d, name, role):
     """LLM 검증·보완을 거친 그 문서에 받은 서식 정리 계획을 반영(조정 「모두 반영」 — _adjust_doc(fresh_only): 울타리 · 지금 그래프의 받은 계획이 있을 때만 · 처음 반영 전에는 유료로 계획을 새로 받지 않음)
     → (left | did | note | "", 글). 이관형만 · 문서 역할은 workflow_units.TIDY_ROLES(1단계 = 원본 문서 · 2단계 = 그 줄의 문서) — 그 밖은 아무것도 안 한다."""
-    if S.family(run.task) != "relay" or role not in U.TIDY_ROLES.get(key, ()):
+    if S.family(run.task) not in ("relay", "collect") or role not in U.TIDY_ROLES.get(key, ()):   # collect(같은 양식 취합) — 이관형과 같은 도구 · 같은 일(2단계 「다시 문서 검토(LLM)」 가 목적 문서에 반영)
         return "", ""
     st, text, did = _adjust_doc(run, stage, key, d, name, fresh_only=True)
     if not text:
@@ -691,6 +692,7 @@ def _tidy_after(run, stage, key, d, name, role):
 
 HANDLERS = {"heads": _do_heads, "headsLlm": _do_heads_llm}   # 단위 key → 처리 함수(run, 묶음 id, 줄) → (done | nothing | left, 글) · 멈춤은 _Halt · _Stop
 FAMILY_HANDLERS = {}   # 가족 → {단위 key: 처리 함수} — 줄 key 가 다른 틀과 겹치는 가족의 것(문서 하나의 plan · apply · heads …)이 먼저다(단위 · 상태 함수와 같은 차례)
+EACH = {}   # 가족 → 원본 문서마다 한 덩이를 도는 함수(run, 묶음 id, 줄들) — 없는 가족은 취합형의 _each(배포 기준본으로 받은 문서) · 같은 양식 취합 = _each_collect(그 절 끝에서 더한다)
 
 
 def _handler(task, line):
@@ -1073,7 +1075,7 @@ def _drive(run):
                 if u.get("each"):   # 원본 문서마다 한 덩이로 도는 줄(취합) — 잇달은 그 줄들을 모아 원본 문서 하나에 끝까지 한 뒤 다음 문서로(② §18-4 「잇달은 pair 줄」)
                     block.append(line)
                     if i + 1 == len(mine) or not mine[i + 1]["unit"].get("each"):
-                        got.append(_each(run, gid, block))
+                        got.append(EACH.get(S.family(run.task), _each)(run, gid, block))   # 덩이를 도는 법은 가족마다(취합형 = 배포 기준본과 견줌 · 같은 양식 취합 = 이관의 엔진을 기관 문서마다)
                         block = []
                     continue
                 if u["kind"] == "pick":
@@ -1287,7 +1289,7 @@ def _has_fill(task):
 def _fill_materials(task, pair, facts, opt=None):
     """목적 문서 facts 에 넣기 재료(`fill` — unit_steps.fill_facts + 이 정의의 묶음 이름)를 얹는다 — 서버가 맡는 묶음에 넣기 · 정리 줄이 있을 때만(상태 조회마다 연결 목록을 읽지 않게)."""
     t = (pair.get("target") or {}).get("id")
-    if not t or facts.get(t) is None or not _fill_need(task):
+    if not t or facts.get(t) is None or not _fill_need(task) or S.family(task) == "collect":   # 같은 양식 취합은 제 넣기 재료를 짓는다(_collect_materials — 이관의 것은 지금 원본 하나의 표식이다)
         return
     F = UNIT.fill_facts(t)
     if F is not None:
@@ -1491,7 +1493,8 @@ def _plan_now(run, gid, note):
     F["plan"] = None
     run.guard()
     run.note(gid, "plan", note)
-    got = UNIT.fill_plan(run.target)
+    bound = getattr(run, "bound", None)   # 같은 양식 취합 — 이 줄이 못 박은 기관 문서(지금 엔진의 원본이 그것이 아니면 끝점이 409: 다른 기관의 계획을 세우지 않는다) · 이관형은 없다
+    got = UNIT.fill_plan(run.target, part=bound) if bound else UNIT.fill_plan(run.target)
     if not got.ok or not isinstance(got.data, dict) or not got.data.get("planId"):
         raise _Halt(got.code if not got.ok else "failed", f"넣기 계획을 세우지 못했습니다 — {got.text or '계획이 없습니다'}")
     F["plan"] = got.data
@@ -1612,7 +1615,7 @@ def _guide_doc(run, gid, tgt):
     """⑥ 작성요령 삭제(문서 하나 — 문서를 바꾼다: 울타리 안에서 다시 세고 지운다) — 「내용 넣기」 를 함께 고른 정의는 그 끝(반영 · 확인된 정상 0건 — 목적 문서의 넣기 재료) 뒤에만(그 줄을 뺐어도 — ② §18-12 ②).
     지우기 전 작성 지침 저장이 실패하면 끝점이 지우지 않는다(멈춤) · 센 뒤 문서가 바뀌면(409) 한 번만 다시 센다. tgt = 지울 문서(목적 · 원본 — 줄이 고른 문서). → (done | nothing, 글)."""
     run.working = {tgt}
-    if _has_fill(run.task) and not U.fill_done(UNIT.fill_facts(run.target)):
+    if _fill_open(run):
         raise _Halt("order", f"{_stage_name(run.task, 'stage_fill', '내용 넣기')} 이 먼저입니다 — ④ 내용 반영 전")
     c = UNIT.cleanup_count(tgt)
     if not c.ok:
@@ -1625,7 +1628,7 @@ def _guide_doc(run, gid, tgt):
         run.guard()
         with run.fence(tgt):
             run.guard()   # 울타리 안에서 — 문서 쌍이 그대로이고
-            if _has_fill(run.task) and not U.fill_done(UNIT.fill_facts(run.target)):   # 기다리는 사이 도착한 편집 · 실행 취소로 「내용 넣기」 의 끝이 풀렸으면 지우지 않는다(astra 결과 검토)
+            if _fill_open(run):   # 기다리는 사이 도착한 편집 · 실행 취소로 「내용 넣기」 의 끝이 풀렸으면 지우지 않는다(astra 결과 검토)
                 raise _Halt("order", f"{_stage_name(run.task, 'stage_fill', '내용 넣기')} 이 먼저입니다 — 그 사이 문서가 바뀌었습니다")
             c = UNIT.cleanup_count(tgt)   # 울타리 안에서 다시 센다(고친 글이 서버에 온 뒤의 문서)
             if not c.ok:
@@ -1659,8 +1662,16 @@ def _per_doc(run, gid, line, one):
     return ("left" if "left" in sts else "done" if "done" in sts else "nothing"), text, text
 
 
+def _fill_open(run):
+    """「내용 넣기」 를 함께 고른 정의에서 그 끝이 아직인가(「문서 정리」 의 줄이 기다린다) — 이관형 = 목적 문서의 넣기 재료의 끝(workflow_units.fill_done) ·
+    같은 양식 취합(collect) = 기관 문서가 하나도 반영되지 않음(등록부의 보기 — 이관의 넣기 재료는 지금 원본 하나의 표식이라 마지막에 못 박은 문서만 본다: workflow_units.collect_filled)."""
+    if S.family(run.task) == "collect":
+        return _collect_fills(run.task) and not U.collect_filled(UNIT.collect(run.target))
+    return _has_fill(run.task) and not U.fill_done(UNIT.fill_facts(run.target))
+
+
 def _fill_first(run, why):
-    if _has_fill(run.task) and not U.fill_done(UNIT.fill_facts(run.target)):
+    if _fill_open(run):
         raise _Halt("order", f"{_stage_name(run.task, 'stage_fill', '내용 넣기')} 이 먼저입니다 — {why}")
 
 
@@ -1874,7 +1885,7 @@ def _tidy_materials(task, pair, facts, opt=None):
     retidy = unit_steps.retidy_facts(넣은 뒤 템플릿 · 서식 정리 — 이관형 · 취합형의 단위(따로 선 두 단위 — 넣은 기록은 merge.json · gather.json: spec_병합 ② §5-9))(그 줄이 정의에 있을 때만 · 서버가 맡은 묶음)."""
     want = {}
     units = {"guideFix": (U.COMMON["guideFix"],), "zonePrune": (U.COMMON["zonePrune"],), "capUnify": (U.COMMON["capUnify"],), "lineTidy": (U.COMMON["lineTidy"],),
-             "retidy": (U.RELAY["retidy"], U.GATHER["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
+             "retidy": (U.RELAY["retidy"], U.GATHER["retidy"], U.COLLECT["retidy"])}   # 단위는 객체로 가린다(같은 key 의 다른 틀 단위로 새지 않게)
     for x in S.lines(task):
         if x["key"] in units and any(x["unit"] is u for u in units[x["key"]]) and S.served(task, x["stage"]):
             for r in S.roles_on(task, x["on"]):
@@ -2137,6 +2148,8 @@ def _division_target(run, stage):
     cf, _ = _fit_state(run, "config")
     if cf["st"] != "done":
         raise _Halt("notConfirmed", f"「프로젝트 구성 추출」 이 먼저입니다 — {cf['text'] or '프로젝트 구성을 확정한 뒤 다시 누르세요'}")
+    if S.base(run.task) == "target":   # 구성의 기준이 목적 문서 자신인 틀(같은 양식 취합) — 원본 문서의 값과 견주지 않고 제 값을 제 구조에(_division_own)
+        return _division_own(run, stage, D_, tgt, fit)
     run.note(stage, "division", f"{S_} 값과 견주기")
     A, B = UNIT.div_facts(src), UNIT.div_facts(tgt)
     if A is None or B is None:
@@ -2160,6 +2173,34 @@ def _division_target(run, stage):
     applied = _fit_change(run, stage, "division", tgt, D_, values, lambda plan: f"{plan['autoStops']} — 저절로 반영하지 않습니다. {fit} 의 변경 계획 목록에서 확인한 뒤 「② 반영」 을 누르세요")
     st, _ = _fit_state(run, "division", "target")
     if st["st"] != "done":
+        raise _Halt("notApplied", f"프로젝트 구성이 반영되지 않았습니다 — {st['text']}")
+    return ("done" if applied.code == "ok" else "nothing"), st["text"]
+
+
+def _division_own(run, stage, D_, tgt, fit):
+    """[문서 바뀜] 목적 문서의 프로젝트 구성 반영(구성의 기준이 목적 문서 자신인 틀 — 같은 양식 취합: 상태 식 workflow_units._division_own) — 그 문서의 입력 값(= 확정한 프로젝트 구성)을 제 구조에.
+    한 번도 반영한 적 없는 문서의 구조가 이미 값에 맞으면 확인만(문 division_adopt — 울타리 없이 · 문서 안 바뀜: 손으로 쓴 사업계획서가 「반영 전」 으로 막히지 않게 — 취합 · 원본 문서의 구조 반영과 같은 길),
+    아니면 같은 몸통(_fit_change — 울타리 안 계획 → 같은 검사 → 반영 한 번). 원본 문서(기관 문서)의 값은 읽지 않는다. → (done | nothing, 그 문서의 상태 글)."""
+    run.note(stage, "division", f"{D_} 값 확인", tgt)
+    d = UNIT.div_facts(tgt)
+    if d is None:
+        raise _Halt("missing", f"{D_}의 프로젝트 구성을 읽지 못했습니다")
+    if not d.get("supported"):
+        raise _Halt("unsupportedForm", f"{D_}의 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다")
+    values, named = d.get("input"), 0
+    if not U.confirm_valid(values, d.get("confirmed")):   # 확정과 다른 값으로 문서를 바꾸지 않는다(계획 요청이 그 값을 입력으로 저장하므로 계획 **전**에)
+        raise _Halt("unconfirmed", f"반영할 값이 확정한 프로젝트 구성과 다릅니다 — {fit} 의 「프로젝트 구성 추출」 을 다시 한 뒤 누르세요")
+    if not d.get("applied"):   # 한 번도 반영한 적 없는 문서 — 구조가 이미 값에 맞으면 「반영됨」 으로 적는다(못 해도 아래 계획 → 반영으로 간다)
+        run.note(stage, "division", f"{D_} 구조 확인(이미 값에 맞는지)", tgt)
+        named = _adopt_named(UNIT.division_adopt(tgt))
+        st, _ = _fit_state(run, "division", "target")
+        if st["st"] == "done":
+            return "nothing", st["text"]
+    applied = _fit_change(run, stage, "division", tgt, D_, values, lambda plan: f"{plan['autoStops']} — 저절로 반영하지 않습니다. {fit} 의 변경 계획 목록에서 확인한 뒤 「② 반영」 을 누르세요")
+    st, _ = _fit_state(run, "division", "target")
+    if st["st"] != "done":
+        if named and applied.code == "nothing":   # 바꿀 것은 없는데 다른 이름의 기관 자리가 남은 문서 — 「이미 맞음」 으로 적지 않은 까닭을 알린다
+            raise _Halt("named", _named_text(D_, named))
         raise _Halt("notApplied", f"프로젝트 구성이 반영되지 않았습니다 — {st['text']}")
     return ("done" if applied.code == "ok" else "nothing"), st["text"]
 
@@ -2882,3 +2923,286 @@ def _do_g_apply(run, gid, line):
 FAMILY_HANDLERS["gather"] = {"division": _do_g_division, "frame": _do_g_frame, "part": _do_g_part, "heads": _do_g_heads, "link": _do_g_link, "llm": _do_g_llm, "plan": _do_g_plan, "apply": _do_g_apply,
                              "retidy": _do_retidy}   # hand(배포 · 회수) · drop 은 사람이 한다 · retidy = 이관의 처리 함수 그대로(목적 문서(취합본) 하나 · 「내용 넣기」 묶음이 없어 _fill_first 는 안 막는다 — 넣은 기록은 끝점이 gather.json 에서: spec_병합 ② §5-9 9)
 MATERIALS.append(_gather_materials)
+
+
+# ================================================================ 같은 양식 취합(가족 collect — spec_취합 ② §10: 2026-11-24) — 원본 문서(기관이 같은 양식으로 따로 쓴 문서) 여럿 → 목적 문서(사업계획서) 하나
+# 준비 · 문서 검토 · 구성 맞추기 · 문서 정리의 줄은 같이 쓰는 처리 함수 그대로(목적 문서 — 구성의 기준 = 목적 문서: _division_own). 여기는 기관 문서마다의 일:
+# - 「헤딩 · 표 분석」 을 원본 문서에 놓으면 등록한 기관 문서마다 하나씩 분석한다(_do_c_heads — 덩이의 줄이 아니다: 「문서 검토」 묶음에 놓는다).
+# - **기관 문서마다 한 덩이**(_each_collect — 등록부의 보기 parts 차례 · 시작할 때 못 박은 문서만): 문서마다 시작할 때 그 문서의 등록 상태(state)를 본다 —
+#   unassigned = 「반영할 기관 지정」 줄이 자동 지정을 해 보고 그래도 미지정이면 그 문서는 건너뛴다(끝 글 「반영할 기관 미지정 n개」) · superseded(뒤 수정본이 있음) = 조용히 건너뜀 ·
+#   수정본으로 등록한 문서(revOf — revision 반영 전 · left 반영했으나 확인 필요가 남음) = 「수정본 반영」 줄만(자리 연결 · 넣기 계획 · 내용 반영은 건너뜀 — 다시 넣지 않는다) · done(반영함) = 지나감 ·
+#   그 밖(todo · left) = 자리 연결 → 넣기 계획 → 내용 반영(「수정본 반영」 줄은 건너뜀).
+# - 자리 연결 · 넣기 계획 · 내용 반영의 몸통은 **이관의 처리 함수 그대로**(_do_link · _do_plan · _do_apply)다 — 문서마다 run.pair 의 원본을 그 기관 문서로 바꿔 끼우고(_pair_ids · _docs_of 가 읽는다) 넣기 기억(run.fill)을 비운 뒤,
+#   **줄마다 부르기 직전에** 엔진의 지금 원본을 그 문서로 못 박는다(문 collect_bind — 다른 화면이 원본을 바꿨어도 이 줄은 그 문서를 본다 · 넣기 계획은 기대한 원본을 함께 넘겨 다르면 409).
+# - 그 문서만 남기는 것(뒤 문서는 이어 간다): 반영할 기관 미지정 · 못 박지 못함 · 그 문서 쪽 까닭으로 연결 목록을 낼 수 없음 · 수정 계획을 세우지 못함 · 겹침 · 확인 필요가 남음. 전체를 멈추는 것: 목적 문서 쪽 까닭 · 계획 실패 ·
+#   표준 검사(422) · 둘째 낡은 계획 — 뒤 문서가 같은 목적 문서에 이어 넣으므로 건너뛰지 않는다.
+# - 묶음의 끝남은 등록부의 보기로 센다(workflow_units._c_fill — 실행이 남긴 표식): 넣을 것이 0 인 문서 · 미지정 문서를 「반영함」 으로 세지 않는다. 문서마다 따로 도는 실행(lane) · 한 문서만 진행은 이 틀에 없다(원본이 여럿 — 묶음에 실행 하나).
+def _collect_fills(task):
+    """이 정의에 기관 문서의 내용을 넣는 줄(내용 반영 · 수정본 반영)이 있나 — 있으면 「문서 정리」 의 줄이 그 끝(기관 문서가 하나라도 반영됨)을 기다린다."""
+    return any(x["unit"] is U.COLLECT.get(x["key"]) and x["key"] in ("apply", "revise") for x in S.lines(task))
+
+
+def _collect_materials(task, pair, facts, opt=None):
+    """상태를 셀 때 — 같은 양식 취합의 줄을 서버가 맡으면 목적 문서 facts 에 등록부의 보기(`collect`) · 기관 문서마다 분석이 있나(`partHeads` — 원본 문서에 「헤딩 · 표 분석」 을 놓았을 때만 · 세션을 열지 않는다) ·
+    넣기 재료의 꼴(`fill` — 「문서 정리」 줄 · 「넣을 구성 선택」 이 읽는다: 「내용 넣기」 의 끝 filled = 기관 문서가 하나라도 반영됨 · cleanup = 지울 양식 안내(작성요령 삭제를 놓았을 때) · take = 넣을 구성의 보기(그 줄을 놓았을 때))을 얹는다.
+    이관의 넣기 재료(unit_steps.fill_facts — 지금 원본 하나의 연결 목록 · 표식)는 읽지 않는다."""
+    if S.family(task) != "collect" or not any(S.served(task, g["id"]) for g in task["stages"]):
+        return
+    t = (pair.get("target") or {}).get("id")
+    if not t or facts.get(t) is None:
+        return
+    lines = S.lines(task)
+    keys = {x["key"] for x in lines}
+    V = UNIT.collect(t)
+    more = {"collect": V}
+    if any(x["key"] == "heads" and "source" in S.roles_on(task, x["on"]) for x in lines):
+        more["partHeads"] = {p["work"]: bool(UNIT.heads_have(p["work"])) for p in U.collect_rows(V)}
+    F = {"fills": _collect_fills(task), "filled": U.collect_filled(V), "plan": None, "links": None, "heads": {}, "lines": [x["key"] for x in lines],
+         "stages": {g["module"]: {"id": g["id"], "no": g.get("no") or "", "name": g.get("name") or ""} for g in task["stages"] if g.get("module")}}
+    if "guide" in keys:
+        c = UNIT.cleanup_count(t)
+        C = c.data if c.ok and isinstance(c.data, dict) else None
+        F["cleanup"] = ({"counts": C.get("counts"), "patterns": [{"key": p["key"], "name": p["name"]} for p in C.get("patterns") or ()], "error": ""} if C
+                        else {"counts": None, "patterns": [], "error": c.text or "응답이 없음"})
+    if "take" in keys:
+        got = UNIT.take_get(t)
+        F["take"] = got.data if got.ok and isinstance(got.data, dict) else None
+    facts[t] = {**facts[t], **more, "fill": F}
+
+
+def _c_now(run, part):
+    """그 기관 문서의 지금 등록 상태(등록부의 보기에서 그 줄) | None(등록부에서 뺀 문서 · 보기를 못 읽음)."""
+    return next((p for p in U.collect_rows(UNIT.collect(run.target)) if p["work"] == part), None)
+
+
+def _c_skip(run, text):
+    """이 기관 문서는 여기까지(그 문서만 남긴다 — 뒤 문서는 이어 간다) → 줄의 결과(left, 글)."""
+    run.part["skip"] = True
+    run.each["blocked"].append(run.part["name"])
+    return "left", text
+
+
+def _c_relay(run, gid, line, fn):
+    """이관의 처리 함수 fn(_do_link · _do_plan · _do_apply)을 이 기관 문서로 — 부르기 직전에 엔진의 지금 원본을 이 문서로 못 박는다(문 collect_bind · 못 박으면 이 문서는 여기까지).
+    연결 목록에 막는 까닭이 있어 멈춘 것(blocked) 가운데 **이 문서 쪽 까닭뿐**이면(목적 문서 쪽은 까닭이 없다) 이 문서만 남기고, 그 밖의 멈춤은 그대로 올린다(전체 멈춤). → (done | nothing | left, 글)."""
+    P, tgt = run.part, run.target
+    run.guard()
+    got = UNIT.collect_bind(tgt, P["id"])
+    if not got.ok:
+        return _c_skip(run, f"이 문서를 원본으로 정하지 못했습니다 — {got.text or got.code}")
+    run.bound = P["id"]
+    try:
+        res = fn(run, gid, line)
+    except _Halt as e:
+        if e.code != "blocked":
+            raise
+        links = UNIT.links(tgt)
+        L = links.data if links.ok and isinstance(links.data, dict) else None
+        mine = bool(L) and bool(L.get("to")) and not L["to"].get("reasons") and (not L.get("from") or bool(L["from"].get("reasons")))
+        if not mine:
+            raise
+        return _c_skip(run, U.links_why(L, P["name"], _names(run)[1]))
+    return res[0], res[1]
+
+
+def _do_c_heads(run, stage, line):
+    """헤딩 · 표 분석 — 원본 문서에 놓았으면 등록한 기관 문서마다(뒤 수정본이 있는 문서는 빼고) 분석이 없는 문서만 하나씩 스크립트로(한꺼번에 걸지 않는다 — 열어 둘 수 있는 문서 수에 묶인다) ·
+    목적 문서에 놓았으면 같이 쓰는 줄과 같은 일(없으면 분석 → 작성 지침 저장: _do_heads). 분석에 실패한 기관 문서는 그 문서만 남기고 다음 문서로."""
+    roles, out = S.roles_on(run.task, line["on"]), []
+    if "source" in roles:
+        V = UNIT.collect(run.target)
+        if V is None:
+            raise _Halt("missing", "기관 문서의 등록 상태를 읽지 못했습니다 — 다시 누르세요")
+        gone = {p["work"] for p in U.collect_rows(V) if p.get("state") == "superseded"}
+        docs = [d for d in run.pinned.get("sources") or () if d["id"] not in gone]
+        did, bad = [], []
+        for d in docs:
+            name = d.get("name") or d["id"]
+            if UNIT.heads_have(d["id"]):
+                continue
+            run.guard()
+            run.note(stage, line["key"], f"{name} 헤딩 · 표 분석 중", d["id"])
+            try:
+                _analyze(run, stage, line["key"], d["id"], name, "first")
+            except _Halt as e:
+                if e.code in ("evicted", "timeout", "moved", "dirty"):
+                    raise
+                bad.append(f"{name}({_brief(e.text, _TAIL_WHY)})")
+                continue
+            (did if UNIT.heads_have(d["id"]) else bad).append(name)
+        text = (f"기관 문서 {U.nf(len(docs))}개의 헤딩 그래프·표 구조" + (f" — 이번에 분석 {U.nf(len(did))}개" if did else "가 있습니다") if docs else "기관 문서가 아직 없습니다")
+        out.append(("left" if bad else "done" if did else "nothing", text + (f" · 분석하지 못한 문서 {U.nf(len(bad))}개({' · '.join(bad)})" if bad else "")))
+    if "target" in roles:
+        out.append(_do_heads(run, stage, {**line, "on": "target"})[:2])
+    sts = [st for st, _ in out]
+    return ("left" if "left" in sts else "done" if "done" in sts else "nothing"), " · ".join(t for _, t in out if t)
+
+
+def _do_c_part(run, gid, line):
+    """반영할 기관 지정 — 미지정 문서만(덩이가 그런 문서에서만 부른다): 자동 지정(문 collect_auto — 파일 이름 → 문서의 기관 표시 · 사람이 정한 것은 안 건드린다)을 해 보고, 그래도 미지정이면 그 문서는 여기까지."""
+    P, E = run.part, run.each
+    run.guard()
+    run.note(gid, line["key"], f"{P['name']} — 반영할 기관 정하기(파일 이름 → 문서의 기관 표시)", P["id"])
+    got = UNIT.collect_auto(run.target, P["id"])
+    if not got.ok and got.code not in ("blocked", "invalid"):
+        raise _Halt(got.code, f"「{P['name']}」 의 반영할 기관을 정하지 못했습니다 — {got.text}")
+    A = ((got.data or {}).get("auto") or {}) if got.ok and isinstance(got.data, dict) else {}
+    row = _c_now(run, P["id"])
+    if row is None:   # 도는 중에 등록부에서 뺀 문서
+        P["skip"] = True
+        return "nothing", "등록부에서 뺀 문서 — 건너뜀"
+    P["state"] = row.get("state")
+    if P["state"] != "unassigned":
+        how = {"name": "파일 이름", "label": "문서의 기관 표시", "user": "사람이 정함"}.get(A.get("by"), "")
+        return "done", f"반영할 기관 → {' · '.join(row.get('orgNames') or ()) or A.get('org') or '정함'}" + (f"({how})" if how else "")
+    E["unassigned"].append(P["name"])
+    P["skip"] = True
+    why = A.get("why") or (got.text if not got.ok else "")
+    return "left", "반영할 기관을 정하지 못함 — 넣지 않고 건너뜁니다" + (f"({why})" if why else "") + " · 대시보드의 그 문서 줄에서 정한 뒤 다시"
+
+
+def _do_c_link(run, gid, line):
+    """자리 연결 — 이 기관 문서를 원본으로 못 박고 이관의 자리 연결 그대로(분석이 없는 문서는 먼저 스크립트로). 문서를 못 읽으면 이 문서만 남긴다."""
+    if UNIT.facts(run.part["id"]) is None:
+        return _c_skip(run, "문서를 읽지 못했습니다")
+    return _c_relay(run, gid, line, _do_link)
+
+
+def _do_c_plan(run, gid, line):
+    """넣기 계획 — 이 기관 문서를 원본으로 못 박고 이관의 넣기 계획 그대로(계획 요청에 기대한 원본을 넘긴다 — _plan_now)."""
+    return _c_relay(run, gid, line, _do_plan)
+
+
+def _do_c_apply(run, gid, line):
+    """[문서 바뀜] 내용 반영 — 이 기관 문서를 원본으로 못 박고 이관의 내용 반영 그대로(울타리 · 낡은 계획이면 한 번만 다시 계획). 끝나면 그 문서의 등록 상태를 다시 읽어 덩이의 셈에:
+    반영함(넣은 것이 있음) · 넣을 것 없음(「반영함」 으로 세지 않는다) · 확인 필요(겹침 · 확인 필요가 남음 — 남김)."""
+    P, E = run.part, run.each
+    st, text = _c_relay(run, gid, line, _do_apply)
+    if P["skip"]:
+        return st, text
+    row = _c_now(run, P["id"]) or {}
+    if st == "done":
+        E["done"].append(P["name"])
+    else:
+        E["none"].append(P["name"])
+    if row.get("state") == "left":
+        E["left"].append(P["name"])
+        return "left", " · ".join(x for x in (text or NOTHING_TEXT, row.get("text") or "확인 필요 · 겹침이 남았습니다") if x)
+    return st, text
+
+
+def _do_c_revise(run, gid, line):
+    """[문서 바뀜] 수정본 반영 — 수정 계획(문 collect_revise_plan — 문서 안 바뀜: 앞 제출본에서 넣은 글 가운데 수정본에서 바뀐 곳) → 고칠 곳이 있으면 울타리 안에서 반영(낡은 계획이면 한 번만 다시 계획).
+    겹침(사람이 그 뒤 고친 자리) · 확인 필요가 있으면 그 문서는 남김(실패도 끝남도 아니다). 수정 계획을 세우지 못하면 이 문서만 남긴다 · 표준 검사(422) · 둘째 낡은 계획은 전체 멈춤. LLM 을 쓰지 않는다."""
+    P, E, tgt = run.part, run.each, run.target
+
+    def plan():
+        got = UNIT.collect_revise_plan(tgt, P["id"])
+        return (got.data if got.ok and isinstance(got.data, dict) and got.data.get("planId") else None), got
+
+    run.guard()
+    run.note(gid, line["key"], f"{P['name']} — 수정 계획(앞 제출본과 견주기)", P["id"])
+    p, got = plan()
+    if p is None:
+        if got.code in ("error", "missing"):
+            raise _Halt(got.code, f"「{P['name']}」 의 수정 계획을 세우지 못했습니다 — {got.text}")
+        return _c_skip(run, f"수정 계획을 세우지 못했습니다 — {got.text or '계획이 없습니다'}")
+    done = None
+    for attempt in (0, 1):
+        if attempt:   # 계획 뒤 문서가 바뀜(고치던 글이 서버에 옴 …) — 한 번만 다시 계획
+            p, got = plan()
+            if p is None:
+                raise _Halt(got.code if not got.ok else "failed", f"「{P['name']}」 의 수정 계획을 다시 세우지 못했습니다 — {got.text or '계획이 없습니다'}")
+        if p.get("todo"):   # 고칠 곳 · 새 자리가 있다(끝점의 todo = 고칠 곳 + 새 자리) — 문서가 바뀐다: 울타리 안에서
+            run.guard()
+            run.working = {tgt, P["id"]}
+            run.note(gid, line["key"], f"{P['name']} — 수정본 반영", P["id"])
+            with run.fence(tgt):
+                run.guard()
+                done = UNIT.collect_revise_apply(tgt, P["id"], p["planId"])
+            run.working = set()
+        else:
+            done = UNIT.collect_revise_apply(tgt, P["id"], p["planId"])   # 고칠 것 0 — 문서는 안 바뀐다(울타리 없이): 끝점이 그 수정본의 끝 표식만 남긴다(이관의 「넣을 것 0」 과 같은 길)
+        if done.code != "stale":
+            break
+    if done.code == "stale":
+        raise _Halt("stale", f"「{P['name']}」 의 수정본을 반영하지 못했습니다 — 다시 계획한 뒤에도 문서가 바뀌었습니다({done.text}) · 다시 누르세요")
+    if done.code == "rejected":
+        raise _Halt("rejected", f"「{P['name']}」 — 표준 검사에 걸려 되돌렸습니다: {done.text}")
+    if not done.ok:
+        raise _Halt(done.code, f"「{P['name']}」 의 수정본을 반영하지 못했습니다 — {done.text or '반영 요청이 거절되었습니다'}")
+    c = dict(p.get("counts") or {})
+    if isinstance(done.data, dict) and isinstance(done.data.get("counts"), dict):
+        c.update(done.data["counts"])
+    text, did = U.collect_revise_text(c, (p.get("fresh") or {}).get("todo") or 0), done.code == "ok"
+    if did:
+        E["revised"].append(P["name"])
+    if (c.get("overlap") or 0) + (c.get("hold") or 0):
+        E["left"].append(P["name"])
+        return "left", text
+    return ("done" if did else "nothing"), text
+
+
+def _each_collect(run, gid, block):
+    """기관 문서마다 한 덩이(같은 양식 취합) — 등록부의 보기 차례로, 시작할 때 못 박은 문서만(그 뒤 등록한 문서는 다음 실행에서). 문서 하나에 그 덩이의 줄을 끝까지 한 뒤 다음 문서로(앞 문서의 반영이 목적 문서를 바꾼다).
+    문서마다 run.pair 의 원본을 그 문서로 바꿔 끼우고(끝나면 되돌린다) 넣기 기억을 비운다 · 줄은 그 문서의 등록 상태에 맞는 것만 돈다(머리 글). run.part = 그 문서의 기억{id, name, state, skip} · run.each = 덩이의 셈.
+    → (done | nothing | left, 묶음 끝 글의 몫)."""
+    E = run.each = {"done": [], "none": [], "revised": [], "left": [], "unassigned": [], "blocked": [], "late": 0, "revs": 0}
+    V = UNIT.collect(run.target)
+    if V is None:
+        raise _Halt("missing", "기관 문서의 등록 상태를 읽지 못했습니다 — 다시 누르세요")
+    pinned = {d["id"]: d for d in run.pinned.get("sources") or ()}
+    keys = [x["unit"]["key"] for x in block]
+    names = lambda xs: " · ".join(xs[:4]) + (f" 외 {len(xs) - 4}개" if len(xs) > 4 else "")  # noqa: E731
+    for p0 in U.collect_rows(V):
+        if p0["work"] not in pinned:
+            E["late"] += 1
+            continue
+        run.guard()
+        row = _c_now(run, p0["work"])   # 이 문서를 시작할 때의 등록 상태(앞 문서의 반영 · 사람의 지정으로 바뀌었을 수 있다)
+        if row is None or row.get("state") in ("superseded", "done"):   # 등록부에서 뺌 · 뒤 수정본이 있음 · 이미 반영함 — 조용히 지나간다
+            continue
+        src = pinned[p0["work"]]
+        P = run.part = {"id": src["id"], "name": row.get("name") or src.get("name") or src["id"], "state": row.get("state"), "rev": bool(row.get("revOf")), "skip": False}   # rev = 수정본으로 등록한 문서(반영 전 revision · 반영했으나 확인 필요가 남은 left)
+        if P["rev"] and P["state"] != "unassigned" and "revise" not in keys:
+            E["revs"] += 1
+            continue
+        run.pair = {**run.pinned, "source": {"id": src["id"], "name": P["name"], "format": src.get("format") or ""}}   # 이관의 처리 함수가 읽는 원본 문서 — 이 문서
+        run.fill = None
+        try:
+            for line in block:
+                k = line["unit"]["key"]
+                if P["skip"]:
+                    break
+                if P["state"] == "unassigned" and k != "part":   # 반영할 기관이 없는 문서 — 넣지 않는다(「반영할 기관 지정」 줄이 없거나 그 줄이 못 정함)
+                    E["unassigned"].append(P["name"])
+                    run.step(gid, line["key"], "left", f"{P['name']} — 반영할 기관 미지정 — 넣지 않고 건너뜁니다", doc=P["id"])
+                    break
+                if (k == "part" and P["state"] != "unassigned") or (k != "part" and (k == "revise") != P["rev"]):
+                    continue   # 지정된 문서의 「반영할 기관 지정」 · 수정본의 자리 연결 · 넣기 계획 · 내용 반영(다시 넣지 않는다) · 수정본이 아닌 문서의 「수정본 반영」
+                run.guard()
+                t0 = time.time()
+                run.note(gid, line["key"], f"{P['name']} — {line['name']}", P["id"])
+                res = _line(run, gid, line)
+                run.working = set()
+                if res[0] != "nothing" or res[1]:   # 한 일이 없고 글도 없는 줄은 기록에 남기지 않는다(문서 × 줄이 많다)
+                    run.step(gid, line["key"], res[0], f"{P['name']} — {res[1]}" if res[1] else P["name"], doc=P["id"], t0=t0)
+        finally:
+            run.pair, run.bound, run.fill, run.part = run.pinned, None, None, None
+    parts = [x for x in (
+        f"기관 문서 {len(E['done'])}개 반영({names(E['done'])})" if E["done"] else "",
+        f"수정본 {len(E['revised'])}개 반영({names(E['revised'])})" if E["revised"] else "",
+        f"넣을 것이 없는 문서 {len(E['none'])}개" if E["none"] else "",
+        f"확인 필요 · 겹침이 남은 문서 {len(E['left'])}개({names(E['left'])})" if E["left"] else "",
+        f"반영할 기관 미지정 {len(E['unassigned'])}개는 건너뜀({names(E['unassigned'])})" if E["unassigned"] else "",
+        f"넣지 못한 문서 {len(E['blocked'])}개({names(E['blocked'])})" if E["blocked"] else "",
+        f"수정본 {E['revs']}개는 「수정본 반영」 줄이 없어 그대로" if E["revs"] else "",
+        f"실행을 시작한 뒤 등록한 문서 {E['late']}개는 다음 실행에서" if E["late"] else "") if x]
+    left = bool(E["left"] or E["unassigned"] or E["blocked"])
+    return ("left" if left else "done" if E["done"] or E["revised"] else "nothing"), " · ".join(parts) or "넣을 기관 문서가 없습니다(이미 반영했거나 등록한 문서가 없음)"
+
+
+FAMILY_HANDLERS["collect"] = {"heads": _do_c_heads, "part": _do_c_part, "link": _do_c_link, "plan": _do_c_plan, "apply": _do_c_apply, "revise": _do_c_revise,
+                              "retidy": _do_retidy}   # take 는 사람이 고른다(실행기는 올해의 차년도를 기본값으로 적고 지나간다 — _drive) · retidy = 이관의 처리 함수 그대로(「내용 넣기」 의 끝은 _fill_open 이 기관 문서들의 반영으로 읽는다)
+EACH["collect"] = _each_collect
+MATERIALS.append(_collect_materials)

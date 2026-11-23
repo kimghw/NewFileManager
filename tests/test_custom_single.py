@@ -51,10 +51,10 @@ def _make(kind="plan", flow=None, name="문서 하나"):
 def test_the_switches_are_on_and_turning_them_off_refuses_like_before(client, monkeypatch):
     """스위치 둘은 켜져 있다(2026-11-20 통합 — 사용자 답 「조립한 것만 서버로」) · OPEN 에는 single 이 없다(붙박이는 화면 그대로).
     꺼 보면 전처럼 「준비 중」(틀의 soon 글 · 검사 · 만들기의 거절) · 켜면 soon 이 빈 글(soon 을 읽는 곳은 shape_soon 하나)."""
-    assert C.SINGLE_OPEN is True and S.OPEN_CUSTOM == {"single"} and "single" not in S.OPEN   # OPEN 에 single 을 넣지 않는다(붙박이가 같이 열린다)
+    assert C.SINGLE_OPEN is True and S.OPEN_CUSTOM == {"single", "collect"} and "single" not in S.OPEN and "collect" not in S.OPEN   # OPEN 에 single 을 넣지 않는다(붙박이가 같이 열린다)
     monkeypatch.setattr(C, "SINGLE_OPEN", False)
     assert C.shape_soon("single").startswith(SOON) and C.shape_soon("relay") == C.shape_soon("gather") == C.shape_soon("nope") == ""
-    assert {s["id"]: bool(s["soon"]) for s in C.shapes()} == {"single": True, "relay": False, "gather": False}
+    assert {s["id"]: bool(s["soon"]) for s in C.shapes()} == {"single": True, "relay": False, "gather": False, "collect": False}
     flow = CA.single_lines("plan")
     assert C.check("single", "", "plan", flow)["errors"][0].startswith(SOON) and C.check("single", "plan", "report", flow)["errors"][0].startswith(SOON)
     for body in ({"name": "하나", "shape": "single", "source": "", "target": "plan", "flow": flow}, {"name": "하나", "shape": "single", "source": "", "target": "plan", "assign": {"target": ["stage_review"]}}):
@@ -64,10 +64,10 @@ def test_the_switches_are_on_and_turning_them_off_refuses_like_before(client, mo
         assert r.status_code == 400 and r.json()["detail"].startswith(SOON)
     assert C.all() == []
     v = client.get("/api/tasks?v=2").json()
-    assert {s["id"]: bool(s["soon"]) for s in v["shapes"]} == {"single": True, "relay": False, "gather": False}
+    assert {s["id"]: bool(s["soon"]) for s in v["shapes"]} == {"single": True, "relay": False, "gather": False, "collect": False}
     assert client.post("/api/tasks/check", json={"shape": "single", "flow": flow}).json()["errors"][0].startswith(SOON)
     monkeypatch.setattr(C, "SINGLE_OPEN", True)
-    assert C.shape_soon("single") == "" and [s["soon"] for s in C.shapes()] == ["", "", ""] and [s["soon"] for s in client.get("/api/tasks?v=2").json()["shapes"]] == ["", "", ""]
+    assert C.shape_soon("single") == "" and [s["soon"] for s in C.shapes()] == ["", "", "", ""] and [s["soon"] for s in client.get("/api/tasks?v=2").json()["shapes"]] == ["", "", "", ""]
     assert all(s["soon"] for s in C.SHAPES if s["id"] == "single")   # 틀의 글 자체는 그대로(스위치가 가린다)
     assert C.check("single", "", "plan", flow)["errors"] == []
 

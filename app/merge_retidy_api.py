@@ -234,6 +234,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
     (outline_conform.conform · place). 넣는 쪽의 서식을 받는 레벨(merge_retidy.KEEP)은 줄마다 본문 강조를 지킨다. 표준 검사는 다른 편집과 같다(닿은 문단만 — server._edit).
     취합이면 취합본의 줄이 있는 레벨은 settle 하지 않고 넣은 줄만 맞추며, 반영 뒤 넣은 기록의 지문을 다시 적는다(모듈 설명 「취합에서 달라지는 것」)."""
     from app import heading_runs, server
+    from app import merge_collect_api as MCA
     from app import outline_conform as OC
     from app import outline_edit as OE
     from app import outline_match as OM
@@ -263,6 +264,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
         if R["gather"] and todo:   # 취합 — 정리 전에 지문이 맞던 본문 넣은 기록(반영 뒤 그것만 다시 적는다: 넣은 뒤 사람이 고친 기록은 「바뀜」 신호로 남김)
             from app import merge_gather_api as GA
             matched = GA.fp_matches(doc_id, s.doc.blocks())
+        led = MCA.led_matches(s) if todo and MCA.is_collect(((works.work(doc_id) or {}).get("task") or {}).get("job") or "") else None   # 같은 양식 취합 — 정리 전에 「넣은 글」 과 같던 원장 줄(정리 뒤 그것만 다시 적는다: spec_취합 ② §10-4)
     counts = MR.summary(rows0, cuts0, left0, held0, relet0)
     done = {"changed": [], "left": [], "reps": 0, "cuts": cuts0, "cutLeft": left0, "rows": rows0, "held": held0, "relet": relet0}
 
@@ -324,6 +326,8 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
                     changed += [p for p in r["same"] if p != r["rep"] and OC.place(s_.doc, ov2, p, m, r["rep"])]
             MR.mark(ov2, rows)   # ③ 넣은 줄끼리 맞춘 레벨의 표 — 다음 누름이 그 레벨을 form 으로 바꾸지 않게(오버레이만)
             done["changed"], done["left"] = list(dict.fromkeys(changed)), left
+            if led:   # 원장의 「넣은 글」 을 정리 뒤의 글로(레터를 바꾼 줄 — 수정본 반영이 「사람이 고친 자리」 로 보지 않게) · 이 편집 안에서: 실행 취소하면 원장도 함께 돌아간다
+                MCA.led_refit(s_, led)
             seen = list(dict.fromkeys(hit + done["changed"]))
             return {"hosts": [s_.doc._ids[i] for i in seen], "formatted": set(done["changed"]), "struct": set(), "origin": {}, "anchor": seen[0],
                     "log": {**{k: counts[k] for k in ("levels", "grown", "deep", "fix", "near", "own", "cut", "cutLines", "held")}, "letters": sum(1 for r in done["relet"] if r["now"]), "changed": len(done["changed"]), "reanalyzed": again,

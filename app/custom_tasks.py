@@ -28,7 +28,8 @@
 - **지금 조립할 수 있는 틀 = 이관형 하나**(원본 문서 하나 → 목적 문서 하나) · **문서 쌍 = `PAIRS`**(지금 사업계획서 → 연차보고서 하나):
   문서의 역할을 첨부 파일 종류(plan · report · part)로만 가르고 있어 같은 종류끼리(계획서 → 계획서)는 원본 · 목적을 가를 수 없고, 화면 · 서버의 이관 실행이 두 종류의 이름에 묶여 있다 —
   다른 쌍 · 취합형(원본 여럿)은 그 묶임을 푼 뒤에 더한다(사양 ④).
-  (그 뒤에 더한 틀 — 아래 「정의 v2」 절: 취합형 「N → 1」 = 기관 문서 → 사업계획서(GATHER_*) · 문서 하나 「1」 = 원본 없이 사업계획서 | 연차보고서 하나(SINGLE_* — 스위치 SINGLE_OPEN 이 켜져 있을 때만 조립한다). 둘 다 늘 줄 목록으로 저장한다.)
+  (그 뒤에 더한 틀 — 아래 「정의 v2」 절: 취합형 「N → 1」 = 기관 문서 → 사업계획서(GATHER_*) · 문서 하나 「1」 = 원본 없이 사업계획서 | 연차보고서 하나(SINGLE_* — 스위치 SINGLE_OPEN 이 켜져 있을 때만 조립한다) ·
+  같은 양식 취합 「N → 1 · 같은 양식」 = 기관이 따로 쓴 문서 → 사업계획서(COLLECT_* — 2026-11-24: 이관형의 줄 + 「반영할 기관 지정」 · 「수정본 반영」). 모두 늘 줄 목록으로 저장한다.)
 - 키 = `u_` + 16진 8자(server.TASK["job"] 의 붙박이 키와 겹치지 않는다). 단계는 일반 단계의 차례(`STAGES`)로만 선다 — 고르는 것은 「쓰느냐」 뿐이다.
 - 전제(`premise` — 그 TASK 의 LLM 호출이 읽는 글)는 비우면 틀이 같은 붙박이 TASK 의 전제(`BASE` — jobs/plan_to_report.md)를 쓴다(app/job_prompts.py)."""
 import hashlib
@@ -128,11 +129,24 @@ SINGLE_BASE = {"plan": "plan_fit", "report": "report_fit"}   # 목적 문서 종
 SINGLE_UNITS = ("read", "load", "values", "review", "plan", "apply", "heads", "headsLlm", "adjust", "tree", "tables", "tablesLlm", "tableTools", "hand")
 # 사실 → 그것을 주는 줄(문서 하나 — 단위의 needs · gives 에서: tests/test_custom_single.py 가 맞춘다). 「checked」 는 헤딩 · 표의 LLM 판정이 둘 다 주지만 그것을 요구하는 줄은 「조정」 하나이고 조정이 기대는 것은 헤딩 LLM 판정이다.
 SINGLE_NEED = {"config": "values", "heads": "heads", "tables": "tables", "checked": "headsLlm"}
+# 같은 양식 취합(「N → 1 · 같은 양식」 — 2026-11-24 사용자 「사업계획서 1개 + 기관이 제출한 문서 N개 → 사업계획서의 자리에 … 워크플로우는 「연차보고서 배포(안) 작성」 과 같은 꼴 · 가능한 한 지금 도구를 같이 쓰고」: spec_취합 ② §10):
+# 원본 = 기관이 따로 쓴 문서(여럿 — 문서 종류 part) → 목적 = 사업계획서 하나. 취합형(gather — 배포 기준본으로 받은 문서)과 다른 틀이다: 줄은 이관형의 것(같은 도구) + 「반영할 기관 지정」 · 「수정본 반영」 ·
+# 엔진은 이관의 것을 기관 문서마다(app/workflow_units.py COLLECT · app/workflow_exec.py 의 그 절). 늘 줄 목록(v2) · 조립한 것만 서버가 돈다(workflow_state.OPEN_CUSTOM — 붙박이는 없다).
+COLLECT_PAIRS = (("part", "plan"),)
+# 놓을 수 있는 줄 — 이 차례가 곧 고르기 목록의 차례(문서 검토 → 구성 맞추기 → 내용 넣기 → 문서 정리) + 「사람이 하는 일」
+COLLECT_UNITS = ("heads", "headsLlm", "configLoad", "config", "take", "division", "reheads", "reheadsLlm", "part", "link", "plan", "apply", "revise",
+                 "retidy", "guideFix", "guide", "zonePrune", "capUnify", "lineTidy")
+COLLECT_LATER = ("llm", "gaps", "tableMap")   # 이관형의 LLM 줄 셋 — 이 틀에서는 아직 못 놓는다(물을 범위 · 계약이 다른 양식 사이의 이관에 맞춰져 있다: spec_취합 ④)
+COLLECT_ORDER = ("part", "link", "plan", "apply", "revise")   # 기관 문서마다 도는 줄의 차례(한 덩이 — 반영할 기관 지정 → 자리 연결 → 넣기 계획 → 내용 반영 → 수정본 반영)
+COLLECT_EACH = ("기관 문서마다 도는 줄(반영할 기관 지정 · 자리 연결 · 넣기 계획 · 내용 반영 · 수정본 반영)은 한 묶음에 잇달아 놓으세요 — "
+                "기관 문서 하나를 끝낸 뒤 다음 문서로 갑니다(사이에 다른 줄을 둘 수 없습니다)")
+COLLECT_USES = {"apply": ("plan",), "plan": ("link",), "reheadsLlm": ("reheads",)}   # 그 줄이 쓰는 앞 줄(must — 앞에 없으면 조립 검사가 거절: _collect_rules)
+COLLECT_SOFT = {"headsLlm": ("heads",), "division": ("config",), "reheads": ("division",), "link": ("part",), "revise": ("part",), "retidy": ("apply",)}   # must 가 아닌 것(정의에 없으면 경고 · 있는데 뒤에 있으면 거절)
 
 
 def pairs_of(shape):
-    """그 틀에서 조립할 수 있는 (원본, 목적) 문서 종류 짝들 — 이관형 PAIRS · 취합형 GATHER_PAIRS · 문서 하나 SINGLE_PAIRS(원본 = 빈 글)."""
-    return GATHER_PAIRS if shape == "gather" else SINGLE_PAIRS if shape == "single" else PAIRS
+    """그 틀에서 조립할 수 있는 (원본, 목적) 문서 종류 짝들 — 이관형 PAIRS · 취합형 GATHER_PAIRS · 같은 양식 취합 COLLECT_PAIRS · 문서 하나 SINGLE_PAIRS(원본 = 빈 글)."""
+    return GATHER_PAIRS if shape == "gather" else COLLECT_PAIRS if shape == "collect" else SINGLE_PAIRS if shape == "single" else PAIRS
 
 
 def _pair_error(shape):
@@ -156,6 +170,10 @@ SHAPES = (
     {"id": "gather", "io": "N → 1", "name": "취합 — 원본 문서 여럿 → 목적 문서 하나", "family": "gather", "many": True,
      "slots": [{"role": "source", "title": "원본 문서", "many": True, "kinds": _kinds(("part",))},
                {"role": "target", "title": "목적 문서", "many": False, "kinds": _kinds(dict.fromkeys(b for _, b in GATHER_PAIRS))}], "soon": ""},   # 2026-11-20 엶(② §18-13 갈래 「라」 — 서버가 원본 문서마다의 덩이 · 배포 기준본을 돈다) · 목적 = 사업계획서(취합본)뿐
+    # 같은 양식 취합(2026-11-24 — spec_취합 ② §10): 배포 기준본 없이 기관이 같은 양식으로 따로 쓴 문서를 사업계획서의 자리에 · 수정본은 바뀐 곳만. 취합형과 글로 가른다(io 「N → 1 · 같은 양식」)
+    {"id": "collect", "io": "N → 1 · 같은 양식", "name": "같은 양식 취합 — 같은 양식(사업계획서)으로 기관이 따로 쓴 문서 여럿 → 사업계획서 하나의 자리에", "family": "collect", "many": True,
+     "slots": [{"role": "source", "title": "원본 문서", "many": True, "kinds": _kinds(dict.fromkeys(a for a, _ in COLLECT_PAIRS))},
+               {"role": "target", "title": "목적 문서", "many": False, "kinds": _kinds(dict.fromkeys(b for _, b in COLLECT_PAIRS))}], "soon": ""},
 )
 
 
@@ -201,6 +219,8 @@ def uses_of(u, family="relay"):
     문서 하나(family single)는 SINGLE_NEED — 모두 must 가 아니다(그 앞 줄이 정의에 없으면 경고일 뿐이다: 시작할 때 이미 되어 있으면 된다 · 정의에 있는데 뒤에 있으면 거절 — _single_rules)."""
     if family == "gather":
         return [{"unit": k, "must": True} for k in GATHER_USES.get(u["key"], ())] + [{"unit": k, "must": False} for k in GATHER_SOFT.get(u["key"], ())]
+    if family == "collect":   # 같은 양식 취합 — COLLECT_USES(must) · COLLECT_SOFT(must 아님): _collect_rules 의 거절 · 경고와 같은 짝
+        return [{"unit": k, "must": True} for k in COLLECT_USES.get(u["key"], ())] + [{"unit": k, "must": False} for k in COLLECT_SOFT.get(u["key"], ())]
     if family == "single":
         return [{"unit": SINGLE_NEED[f], "must": False} for f in u["needs"] if f in SINGLE_NEED]
     return [{"unit": NEED_UNIT[f], "must": f not in NEED_SOFT or (u["key"], NEED_UNIT[f]) in NEED_MUST} for f in u["needs"] if f in NEED_UNIT]
@@ -237,6 +257,11 @@ def _base_names(family="relay", kind=""):
             out.setdefault(s["key"], s["name"])
         out["hand"] = "사람이 하는 일"
         return out
+    if family == "collect":   # 같은 양식 취합 — 그 틀의 줄(workflow.collect_tools: 이관형의 줄과 key · 이름이 같은 줄 = 같은 도구 + 「반영할 기관 지정」 · 「수정본 반영」)
+        for s in workflow.collect_tools():
+            out.setdefault(s["key"], s["name"])
+        out["hand"] = "사람이 하는 일"
+        return out
     for mid, _name, make, _does in workflow.STAGE_MODULES:
         opts = {"stage_review": {"llm": ("source", "target")}, "stage_fit": {"take": True}, "stage_clean": {"more": True}}.get(mid, {})   # 두 문서의 「LLM 검증·보완」 까지 서게 · 조립에 놓는 도구 「넣을 구성 선택」 · 「지침 보정(LLM)」 · 「빈 구역 지우기」 까지(표준 차례에는 없다 — workflow._take_step · _st_clean(more))
         for s in make(*workflow._GENERIC, **opts):
@@ -256,7 +281,7 @@ def unit_homes():
 
 
 def family_of(shape):
-    """틀 id → 가족(relay · gather · single) — 모르는 틀은 relay."""
+    """틀 id → 가족(relay · gather · single · collect) — 모르는 틀은 relay."""
     return next((x["family"] for x in SHAPES if x["id"] == shape), "relay")
 
 
@@ -397,7 +422,8 @@ def check(shape, source, target, raw_flow):
     원본 문서를 쓰는 줄이 없음 · 서버가 아직 못 돌리는 줄 · 아직 못 여는 틀. 경고(저장은 됨): 먼저 있어야 할 것을 주는 줄이 정의에 없음 · 구조를 바꾼 뒤 다시 검토가 없음 · 유료 줄 · 문서를 바꾸는 줄 ·
     같은 줄을 (같은 문서에) 두 번 넘게 놓음(2026-11-20 사용자 「도구는 1번 이상 선택할 수 있어야지」 — 전에는 거절: 뒤의 줄은 그 차례에 다시 본다 · AGAIN).
     줄의 `beside`(앞 줄과 같은 차례 — 조립 화면의 같은 행)는 꼴만 정리한다(_beside_fix — 차례 · 사실의 검사는 저장한 차례 그대로).
-    틀마다 제 규칙: 취합형 = _gather_rules · 문서 하나 = _single_rules(놓을 수 있는 줄은 SINGLE_UNITS 뿐 · 줄의 on 은 늘 빈 목록 · 문서 짝 = 원본 없이 목적 종류 하나) — 둘 다 늘 줄 목록(v2)으로 저장한다(std None)."""
+    틀마다 제 규칙: 취합형 = _gather_rules · 문서 하나 = _single_rules(놓을 수 있는 줄은 SINGLE_UNITS 뿐 · 줄의 on 은 늘 빈 목록 · 문서 짝 = 원본 없이 목적 종류 하나) ·
+    같은 양식 취합 = _collect_rules(놓을 수 있는 줄은 COLLECT_UNITS 뿐 · 이관형의 LLM 줄 셋 COLLECT_LATER 는 「아직 쓸 수 없는 줄」 로 거절) — 셋 다 늘 줄 목록(v2)으로 저장한다(std None)."""
     from app import workflow_units as WU
     errors, warns = [], []
     sh = next((x for x in SHAPES if x["id"] == shape), None)
@@ -424,6 +450,12 @@ def check(shape, source, target, raw_flow):
             # 「사람이 하는 일」(hand)은 어느 틀에서나 같은 단위다(취합 등록부의 「기관에 배포 · 회수」 도 key 가 hand 지만 그것은 줄로 놓지 않는다) · 취합형에 놓을 수 있는 줄은 GATHER_UNITS 뿐(같이 쓰는 「다시 문서 검토」 · 「작성요령 삭제」 는 이관형의 것)
             u = None if s["unit"] in auto else WU.COMMON["hand"] if s["unit"] == "hand" else WU.unit(s["unit"], fam)
             if u is not None and fam == "gather" and s["unit"] != "hand" and s["unit"] not in GATHER_UNITS:
+                u = None
+            if fam == "collect" and s["unit"] in COLLECT_LATER:   # 이관형의 LLM 줄 셋 — 같은 양식 취합에서는 아직(물을 범위 · 계약이 다른 양식 사이의 이관의 것이다)
+                later = unit_names("relay").get(s["unit"], s["unit"])
+                errors.append(f"「{later}」 {_jo(later, '은', '는')} 이 틀에서는 아직 쓸 수 없는 줄입니다 — 같은 양식 취합은 스크립트로 넣을 수 있는 자리만 넣고, 나머지는 남깁니다")
+                continue
+            if u is not None and fam == "collect" and s["unit"] != "hand" and s["unit"] not in COLLECT_UNITS:
                 u = None
             if u is not None and fam == "single" and (s["unit"] not in SINGLE_UNITS or (s["unit"] != "hand" and WU.SINGLE.get(s["unit"]) is not u)):
                 u = None   # 문서 하나에 놓을 수 있는 줄은 SINGLE_UNITS 뿐 — 같이 쓰는 단위(프로젝트 구성 추출 config · 구성 반영 division · 작성요령 삭제 guide …)로 새지 않게(자동 확정 · 이관의 구조 반영이 돌면 안 된다)
@@ -480,6 +512,16 @@ def check(shape, source, target, raw_flow):
             warns.append("목적 문서(취합본)를 바꾸는 줄: " + " · ".join(dict.fromkeys(change)) + " — 원본 문서(기관 문서)는 바뀌지 않습니다")
         _ids(flow, None)
         return {"errors": list(dict.fromkeys(errors)), "warns": list(dict.fromkeys(warns)), "flow": flow, "std": None}   # 취합형은 늘 줄 목록(v2)으로 저장한다(표준 차례의 옛 꼴은 이관형의 것)
+    if fam == "collect":   # 같은 양식 취합 — 줄의 차례 · 기관 문서마다 도는 덩이(_collect_rules): 이관형의 사실 걷기 · 「원본 문서를 쓰는 줄」 은 타지 않는다(원본은 등록한 기관 문서들 — 줄이 고르지 않는다)
+        _collect_rules(seq, names, errors, warns)
+        paid = [nm(s) for _, s, u in seq if u["paid"]]
+        if paid:
+            warns.append("유료 LLM 을 부르는 줄: " + " · ".join(dict.fromkeys(paid)))
+        change = [nm(s) for _, s, u in seq if u["kind"] == "auto" and (WU.changes(u, "target") if u["place"] == "doc" else u["change"] == "doc")]   # 1단계 「LLM 검증·보완」 은 목적 문서를 바꾸지 않는다(WU.TIDY_ROLES)
+        if change:
+            warns.append("목적 문서(사업계획서)를 바꾸는 줄: " + " · ".join(dict.fromkeys(change)) + " — 원본 문서(기관 문서)는 바뀌지 않습니다")
+        _ids(flow, None)
+        return {"errors": list(dict.fromkeys(errors)), "warns": list(dict.fromkeys(warns)), "flow": flow, "std": None}   # 늘 줄 목록(v2)으로 저장한다
     # 먼저 있어야 할 것 — 차례대로 걸으며 생긴 사실(무르는 줄은 지운다)과 견준다 · 처음부터 참 = 문서 칸 · 구조를 아직 안 바꿈(fresh)
     have, ever, gives_at = {"slots", "fresh@source", "fresh@target"}, set(), {}   # ever = 앞 줄이 한 번이라도 준 사실(무른 뒤에도 — 실행기가 그것을 주는 앞 줄로 한 번 새로 얻는다: ② §18-4 「무르기」)
     for i, (_, s, u) in enumerate(seq):
@@ -582,6 +624,56 @@ def _gather_rules(seq, names, errors, warns):
         warns.append(f"이 워크플로우에는 {nm('part')} 줄이 없습니다 — 반영할 기관이 이미 정해진 기관 문서만 넣습니다")
     if "retidy" in has and "apply" not in has:   # GATHER_SOFT — 거절하지 않는다(앞서 넣은 기록이 있으면 그것을 맞춘다)
         warns.append(f"이 워크플로우에는 {nm('apply')}{_jo(names.get('apply', ''), '이', '가')} 없습니다 — {nm('retidy')}{_jo(names.get('retidy', ''), '은', '는')} 앞서 넣은 내용만 맞춥니다(넣은 기록이 없으면 건너뜁니다)")
+
+
+def _collect_rules(seq, names, errors, warns):
+    """같은 양식 취합의 조립 검사(spec_취합 ② §10 — 조립 폼의 「N → 1 · 같은 양식」) — seq = [(묶음 자리, 줄, 단위)].
+    거절: 기관 문서마다 도는 줄(each — 반영할 기관 지정 · 자리 연결 · 넣기 계획 · 내용 반영 · 수정본 반영)이 한 묶음에 잇달아 있지 않음 · 그 줄들의 차례가 거꾸로(COLLECT_ORDER) ·
+    앞 줄 없이 놓은 줄(COLLECT_USES — 내용 반영 ← 넣기 계획 ← 자리 연결 · 다시 문서 검토(LLM) ← 다시 문서 검토) · 그 줄이 쓰는 앞 줄이 정의에 있는데 뒤에만 있음(COLLECT_SOFT 도) ·
+    「프로젝트 구성 반영」 이 자리 연결 · 내용 반영 · 수정본 반영 · 작성요령 삭제보다 뒤(방금 넣은 내용의 행을 줄일 수 있다) · 「작성요령 삭제」 가 「내용 반영」 보다 앞.
+    경고: 그 줄이 쓰는 앞 줄이 정의에 없음(COLLECT_SOFT — 시작할 때 이미 되어 있어야 한다 · 아니면 그 줄에서 멈추거나 남긴다). 「사람이 하는 일」 은 어디에나 놓는다(기관 문서마다의 덩이 안만 빼고).
+    원본 문서의 「헤딩 · 표 분석」 은 덩이의 줄이 아니다 — 그 줄 안에서 기관 문서마다 돈다(「문서 검토」 묶음에 놓는다 · 없어도 「자리 연결」 이 분석 없는 기관 문서를 먼저 분석한다)."""
+    nm = lambda k: "「" + names.get(k, k) + "」"  # noqa: E731
+    jo = lambda k, a, b: _jo(names.get(k, k), a, b)  # noqa: E731
+    at = {}
+    for i, (_gi, s, _u) in enumerate(seq):
+        at.setdefault(s["unit"], []).append(i)
+    each = [i for i, (_gi, _s, u) in enumerate(seq) if u.get("each")]
+    if each and (each != list(range(each[0], each[-1] + 1)) or len({seq[i][0] for i in each}) > 1):
+        errors.append(COLLECT_EACH)
+    order, last = {k: i for i, k in enumerate(COLLECT_ORDER)}, None
+    for i in each:   # 덩이 안의 차례 — 반영할 기관 지정 → 자리 연결 → 넣기 계획 → 내용 반영 → 수정본 반영
+        k = seq[i][1]["unit"]
+        if last is not None and order[k] < order[last]:
+            errors.append(f"{nm(k)} {jo(k, '은', '는')} {nm(last)} 앞에 와야 합니다")
+        else:
+            last = k
+    soft = {("headsLlm", "heads"): "분석이 없으면 그 줄이 하지 않고 남깁니다",
+            ("division", "config"): "시작할 때 프로젝트 구성이 이미 확정돼 있어야 하고, 아니면 그 줄에서 멈춥니다",
+            ("reheads", "division"): "목적 문서의 구조 반영이 이미 되어 있어야 하고, 아니면 그 줄을 하지 않고 남깁니다",
+            ("link", "part"): "반영할 기관이 이미 정해진 기관 문서만 넣습니다(미지정 문서는 건너뜁니다)",
+            ("revise", "part"): "「○○ 의 수정본」 으로 등록하고 반영할 기관이 정해진 문서만 고칩니다",
+            ("retidy", "apply"): "앞서 넣은 내용만 맞춥니다(넣은 기록이 없으면 건너뜁니다)"}
+    for i, (_gi, s, u) in enumerate(seq):
+        a = s["unit"]
+        for b, must in [(b, True) for b in COLLECT_USES.get(a, ())] + [(b, False) for b in COLLECT_SOFT.get(a, ())]:
+            if any(j < i for j in at.get(b, ())):
+                continue
+            if at.get(b):
+                errors.append(f"{nm(a)} {jo(a, '은', '는')} {nm(b)} 뒤에 와야 합니다")
+            elif must:
+                errors.append(f"{nm(a)} 에는 {nm(b)}{jo(b, '이', '가')} 앞에 있어야 합니다")
+            else:
+                warns.append(f"이 워크플로우에는 {nm(b)}{jo(b, '이', '가')} 없습니다 — {nm(a)}: {soft[(a, b)]}")
+    late = [i for k in ("link", "apply", "revise", "guide") for i in at.get(k, ())]
+    if late and any(i > min(late) for i in at.get("division", ())):
+        errors.append(f"{nm('division')} {jo('division', '은', '는')} {nm('link')} · {nm('apply')} · {nm('guide')} 보다 앞에 와야 합니다 — 뒤에 두면 방금 넣은 내용의 행을 줄일 수 있습니다")
+    if at.get("apply") and any(i < max(at["apply"]) for i in at.get("guide", ())):
+        errors.append(f"{nm('guide')} {jo('guide', '은', '는')} {nm('apply')} 뒤에 와야 합니다")
+    if at.get("config") and any(j > min(at["config"]) for j in at.get("configLoad", ())):
+        warns.append(f"{nm('configLoad')} {jo('configLoad', '은', '는')} {nm('config')} 앞에 두세요 — 뒤에 두면 불러온 값이 이번 확정에 들지 않습니다")
+    if at.get("link") and not at.get("division"):
+        warns.append(f"이 워크플로우에는 {nm('division')}{jo('division', '이', '가')} 없습니다 — 목적 문서(사업계획서)에 구조 반영 기록이 없으면 {nm('link')} 에서 멈춥니다")
 
 
 def _single_rules(seq, names, errors, warns):
@@ -834,6 +926,13 @@ def is_gather(job):
     return bool(t) and t.get("shape") == "gather"
 
 
+def is_collect(job):
+    """그 키가 같은 양식 취합으로 조립한 워크플로우인가(기관이 따로 쓴 문서 여럿 → 사업계획서 하나 — 틀 shape collect: spec_취합 ② §10). **취합형(is_gather)이 아니다** — 배포 기준본 · 취합 화면(gather.js)으로 가지 않는다:
+    엔진은 이관의 것을 기관 문서마다 돈다(app/merge_collect_api.py). 붙박이는 없다(조립한 것만 — 서버 실행기만 돈다: workflow_state.OPEN_CUSTOM)."""
+    t = get(job)
+    return bool(t) and t.get("shape") == "collect"
+
+
 def is_single(job):
     """그 키가 문서 하나로 조립한 워크플로우인가(목적 문서 하나 · 원본 없음 — 틀 shape single). 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 는 아니다
     (조립한 것만 서버 실행기가 돈다 — workflow_state.OPEN_CUSTOM). 「조립한 것 = 이관 아니면 취합」 으로 가르던 곳이 이것으로 문서 하나를 가른다(그 문서가 곧 목적 문서 — 짝 문서를 찾지 않는다)."""
@@ -843,11 +942,11 @@ def is_single(job):
 
 def base_of(t):
     """조립한 정의와 틀이 같은 붙박이 워크플로우의 키(전제를 비웠을 때 물려받는 곳 · 줄의 글의 바탕) — 취합형 = 사업계획서 취합 · 문서 하나 = 그 문서 종류의 것(사업계획서 양식 표준화 · 연차보고서 양식 맞추기) ·
-    그 밖(이관형) = BASE."""
+    같은 양식 취합(collect) = 사업계획서 취합(붙박이가 없다 — 「기관 문서의 내용을 사업계획서 하나에 모으는 일 · 겹치면 덮지 않는다」 는 전제가 가장 가깝다) · 그 밖(이관형) = BASE."""
     shape = (t or {}).get("shape")
     if shape == "single":
         return SINGLE_BASE.get((t or {}).get("target"), "plan_fit")
-    return "plan_merge" if shape == "gather" else BASE
+    return "plan_merge" if shape in ("gather", "collect") else BASE
 
 
 def _llm_kept(core, old):

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 NAME_MAX = 30   # 이름의 길이(카드의 폭 — 「사람이 하는 일」 의 이름과 같다: custom_tasks.HAND_NAME_MAX)
-FAMILIES = ("relay", "gather", "single")   # 틀(가족) — 이관형 · 취합형 · 문서 하나(agent_notes.FAMILIES 와 같다)
+FAMILIES = ("relay", "gather", "single", "collect")   # 틀(가족) — 이관형 · 취합형 · 문서 하나 · 같은 양식 취합(agent_notes.FAMILIES 와 같다)
 UNIT = re.compile(r"[A-Za-z][A-Za-z0-9]{0,39}")   # 줄(단위) key 의 꼴
 FIXED = ("hand",)   # 도구 이름을 고치지 않는 줄 — 「사람이 하는 일」(줄마다 이름이 따로 있다)
 _BAD = re.compile(r"[「」\x00-\x1f\x7f]")   # 이름에 못 쓰는 글자 — 화면 글이 도구 이름을 「」 로 감싼다 · 줄바꿈 · 제어 문자

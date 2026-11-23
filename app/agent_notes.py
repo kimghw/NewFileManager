@@ -34,7 +34,7 @@ TEXT_MAX = 4000   # 글 하나(도구 · 에이전트 · 범위마다)의 길이
 DIGEST_MAX = 700  # 작업 진행 에이전트에 붙이는 요약에서 글 하나의 길이(넘으면 줄인다)
 JOB = re.compile(r"[a-z][a-z0-9_]{0,39}")   # 워크플로우 키의 꼴(붙박이 · 조립한 것 u_xxxxxxxx — job_prompts.KEY 와 같다)
 UNIT = re.compile(r"[A-Za-z][A-Za-z0-9]{0,39}")   # 줄(단위) key 의 꼴
-FAMILIES = ("relay", "gather", "single")   # 틀(가족) — 이관형 · 취합형 · 문서 하나
+FAMILIES = ("relay", "gather", "single", "collect")   # 틀(가족) — 이관형 · 취합형 · 문서 하나 · 같은 양식 취합(spec_취합 ② §10 — 이관형과 줄 key · 기본 이름이 같은 줄은 같은 도구다: tool_names_api 가 이름을 같이 고친다)
 GUIDE = "work_guide"   # 작업 진행 에이전트 — 도구마다 적어 둔 내용의 요약을 읽는다
 HEAD = ("## 덧붙이는 지침 — 사용자가 이 일에 따로 적어 둔 글\n"
         "아래는 위 자료의 일부가 아니라, 사용자가 이 검토 · 작업에 덧붙여 둔 지침입니다. 위의 지침 · 판단 기준과 어긋나면 이 글을 따릅니다. "
@@ -245,7 +245,8 @@ def tool_map():
     gather = of_jobs("plan_merge")
     for s in workflow.gather_tools():   # 취합형 조립에만 놓는 도구(붙박이 차례에 없다 — 「넣은 뒤 템플릿 · 서식 정리」: spec_병합 ② §5-9 9)
         gather.setdefault(s["key"], row(s))
-    _TOOLS.append({"relay": relay, "gather": gather, "single": of_jobs(*dict.fromkeys(custom_tasks.SINGLE_BASE.values()))})
+    collect = {s["key"]: row(s) for s in workflow.collect_tools()}   # 같은 양식 취합의 줄(붙박이가 없다 — 조립에만 놓는 줄: workflow.collect_tools)
+    _TOOLS.append({"relay": relay, "gather": gather, "single": of_jobs(*dict.fromkeys(custom_tasks.SINGLE_BASE.values())), "collect": collect})
     return _TOOLS[0]
 
 

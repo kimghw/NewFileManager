@@ -5,7 +5,7 @@
   kind(auto 실행기가 한다 · pick 사람이 고르는 줄 — 실행기는 지나감 · hand 사람이 하고 「했음」) · change(none · store · doc) · paid("" · doc 문서마다 유료 · stage 묶음째 유료) ·
   needs(먼저 있어야 할 사실) · gives(끝나면 생기는 사실) · spoils(끝나면 무르는 사실) · redo(낡았다는 답을 받으면 한 번 다시 할 사실) · once(한 실행에 한 번) · optional · via(화면이 부모 줄 안에 그리는 줄의 부모 key) ·
   server(서버 실행기가 돌릴 수 있나 — 걸음마다 참으로: ② §18-10).
-- 가족: 문서 사이의 일(pair)은 틀마다 엔진이 달라 (가족, key)로 찾는다 — `relay`(이관형) · `gather`(취합형 — 걸음 5) · 두 틀이 같이 쓰는 `common`. 한 워크플로우 안에서는 key 가 하나다.
+- 가족: 문서 사이의 일(pair)은 틀마다 엔진이 달라 (가족, key)로 찾는다 — `relay`(이관형) · `gather`(취합형 — 걸음 5) · `collect`(같은 양식 취합 — 기관이 따로 쓴 문서 여럿 → 사업계획서 하나: 이관의 엔진을 기관 문서마다) · 두 틀이 같이 쓰는 `common`. 한 워크플로우 안에서는 key 가 하나다.
 - 상태 함수(`state`)는 화면의 지금 식(app/static/app.js taskSteps)을 그대로 옮긴 것이다 — 재료(문서마다의 사실)는 문(app/unit_steps.py `facts`)이 준다. 서버가 아직 세지 않는 줄은 None."""
 
 FACTS = ("slots", "heads", "checked", "config", "fit", "fresh", "links", "plan", "filled", "clean", "frame", "assigned",   # 사실의 이름(문서마다 · 쌍마다 · 워크플로우 전체 — ② §18-2)
@@ -99,7 +99,23 @@ SINGLE = {u["key"]: u for u in (
     _u("tablesLlm", "stage_review", "doc", roles=("target",), change="store", paid="doc", needs=("tables",), gives=("checked",), server=True),      # 표 판정(LLM) — 못 쓰거나 답을 못 받으면 스크립트 결과로 남김
     _u("tableTools", "stage_review", "doc", roles=("target",), kind="pick", change="doc", optional=True, server=True),                              # 표 점검 · 서식 맞추기(선택 — 사람이 한다)
 )}
-FAMILIES = {"common": COMMON, "relay": RELAY, "gather": GATHER, "single": SINGLE}
+# 같은 양식 취합(조립 틀 collect — N → 1 · 같은 양식: spec_취합 ② §10 · 2026-11-24 사용자 「사업계획서 1개 + 기관이 제출한 문서 N개 → 사업계획서의 자리에 … 수정본이 오면 앞 제출본과 견줘 바뀐 곳만 반영 …
+# 워크플로우는 「연차보고서 배포(안) 작성」 과 같은 꼴 · 가능한 한 지금 도구를 같이 쓰고」) — 원본 문서(기관이 따로 쓴 문서) 여럿 → 목적 문서(사업계획서) 하나 · 구성의 기준 = 목적 문서(등록부 base target).
+# 엔진은 이관의 것(app/merge_api.py — 지금 원본을 그 기관 문서로 못 박고: app/merge_collect_api.py bind) · 배포 기준본(취합형 gather)은 쓰지 않는다. 준비 · 문서 검토 · 구성 맞추기 · 문서 정리의 줄은 같이 쓰는 단위(COMMON) 그대로
+# (문서 줄은 목적 문서만 — roles_in: 기관 문서는 바뀌지 않는다). 여기 있는 것은 뜻이 다르거나(heads — 원본 문서는 기관 문서마다) · 기관 문서마다 한 덩이로 도는 줄(each)이거나 · 이관형의 것과 **따로 선 단위 객체**여야 하는 줄이다
+# (take · retidy — 실행기 · 상태가 단위를 객체로 가른다: workflow_exec._fill_need · _tidy_materials. 같은 객체면 이관의 넣기 재료(지금 원본 하나의 표식)를 읽는다). 줄 key · 기본 이름은 이관형의 그 줄과 같다(같은 도구 — 이름 · 적어 둔 내용을 같이 쓴다).
+# v1 에 없는 줄 = llm · gaps · tableMap(범위 · 계약이 같은 양식 취합의 것이 아니다 — 조립 검사가 거절: custom_tasks.COLLECT_LATER).
+COLLECT = {u["key"]: u for u in (
+    _u("heads", "stage_review", "doc", roles=ROLES, change="store", needs=("slots",), gives=("heads",), server=True),   # 헤딩 · 표 분석 — 목적 문서 = 같이 쓰는 줄과 같은 일 · 원본 문서 = 등록한 기관 문서마다 하나씩(그 줄 안에서 — 덩이(each)의 줄이 아니다: 「문서 검토」 묶음에 놓는다)
+    _u("take", "stage_fit", "flow", kind="pick", change="store", optional=True, server=True),   # 넣을 구성 선택(이관형의 것과 같은 일 — 대상 차년도 · 넣을 구성: 사람이 고른다 · 실행기는 지나간다)
+    _u("part", "stage_fill", "doc", roles=("source",), change="store", needs=("slots",), gives=("assigned",), server=True, each=True),   # 반영할 기관 지정 — 미지정 문서만 자동 지정(파일 이름 → 문서의 기관 표시 · 사람이 정한 것은 그대로)
+    _u("link", "stage_fill", "pair", change="store", needs=("heads", "fresh", "assigned"), gives=("links",), server=True, each=True),   # 자리 연결(그 기관 문서를 원본으로 못 박고 — 이관의 처리 함수 그대로)
+    _u("plan", "stage_fill", "pair", needs=("links",), gives=("plan",), server=True, each=True),                                     # 넣기 계획(기대한 원본을 함께 넘긴다 — 다르면 409)
+    _u("apply", "stage_fill", "pair", change="doc", needs=("plan",), gives=("filled",), redo=("plan",), server=True, each=True),     # 내용 반영(울타리 · 낡은 계획이면 한 번만 다시 계획)
+    _u("revise", "stage_fill", "pair", change="doc", needs=("assigned",), gives=("filled",), server=True, each=True),   # 선택 줄이 아니다 — 수정본이 없으면 상태가 「건너뜀」 으로 끝나고, 반영 전인 수정본이 있으면 묶음에 「남은 단계」 로 세어져 실행이 시작된다(선택 줄이면 넣기 줄이 다 끝난 묶음에서 「남은 단계가 없습니다」 로 못 돌린다)  # 수정본 반영(「○○ 의 수정본」 으로 등록한 문서 — 앞 제출본에서 넣은 글 가운데 바뀐 곳만 · 스크립트 · 울타리)
+    _u("retidy", "stage_clean", "doc", roles=("target",), change="doc", needs=("filled",), gives=("tidy",), server=True),            # 넣은 뒤 템플릿 · 서식 정리(이관형 · 취합형의 것과 따로 선 단위 — 「내용 넣기」 의 끝을 기관 문서들의 반영으로 읽는다)
+)}
+FAMILIES = {"common": COMMON, "relay": RELAY, "gather": GATHER, "single": SINGLE, "collect": COLLECT}
 
 
 def hand_key(key):
@@ -405,6 +421,8 @@ def _division_of(ctx, role="target"):
     목적 문서가 맞출 기준 값 = basis_of(원본 문서의 재료) — 이 정의가 원본 문서의 구조도 반영하면(재료의 selfFit) 원본의 「제 값」 이라 두 문서의 차례와 무관하다(목적 문서를 먼저 해도 같은 값)."""
     if role == "source":
         return _division_src(ctx)
+    if ctx.get("base") == "target":   # 구성의 기준이 목적 문서 자신인 틀(같은 양식 취합 collect — 원본 문서(기관 문서)의 값에 맞추지 않는다)
+        return _division_own(ctx)
     (s, sf), (t, tf) = _pair_of(ctx, "source"), _pair_of(ctx, "target")
     if not ctx.get("ready") or not s or not t or _config(ctx)["st"] != "done":
         return {"st": "todo", "text": ""}
@@ -427,6 +445,24 @@ def _division_of(ctx, role="target"):
     if not (B.get("applied") and B["applied"].get("values") == b):
         return {"st": "todo", "text": f"값은 {S}와 같음({total}) · {D}에 아직 반영 전{year}"}
     return {"st": "done", "text": f"{S}와 같음 · {D}에 반영됨 — {total}{year}"}
+
+
+def _division_own(ctx):
+    """프로젝트 구성 반영(구성의 기준이 목적 문서 자신인 틀 — 같은 양식 취합 collect: 등록부 base target) — 그 문서의 입력 값이 문서에 반영돼 있으면 끝남(반영 값 = 입력 값 · 구조가 이미 맞아 확인만 한 것 포함 —
+    취합의 _g_division 과 같은 식). 원본 문서(기관 문서)의 값 · 구조는 보지 않는다(기관 문서는 제 몫만 쓴 문서다 — 그 값으로 프로젝트 구성을 다시 정하지 않는다)."""
+    t, tf = _pair_of(ctx, "target")
+    if not ctx.get("ready") or not t or _config(ctx)["st"] != "done":
+        return {"st": "todo", "text": ""}
+    d = (tf or {}).get("div")
+    if d is None:
+        return {"st": "blocked", "text": "문서를 읽지 못했습니다"}
+    D, v, a = t["title"], d.get("input"), d.get("applied") or {}
+    if v and a.get("values") == v:
+        return {"st": "done", "text": f"{f'{D}의 구조가 이미 값에 맞음(확인함)' if a.get('adopted') else f'{D}에 반영됨'} — {summary_text(v)}"}
+    if not d.get("supported"):
+        return {"st": "todo", "text": "이 양식은 프로젝트 구성 자동 반영을 지원하지 않습니다(연구개발계획서 양식만)"}
+    return {"st": "todo", "text": f"입력한 값이 마지막으로 반영한 값과 다릅니다 — 변경 계획을 확인하고 반영하세요({summary_text(v) if v else '값 없음'})" if a
+            else f"값이 아직 {D}에 반영되지 않았습니다 — 바뀔 자리를 확인한 뒤 반영합니다(절·표 행·열 — 구조만)"}
 
 
 def heads_stale(tf):
@@ -1519,3 +1555,126 @@ def _g_retidy(ctx):
 _STATE_BY["gather"] = {"division": _g_division, "frame": _g_frame, "hand": _g_hand, "part": lambda ctx: _g_each(ctx, "part"), "heads": lambda ctx: _g_each(ctx, "heads"),
                        "link": lambda ctx: _g_each(ctx, "link"), "llm": lambda ctx: _g_each(ctx, "llm"), "plan": lambda ctx: _g_each(ctx, "fill"), "apply": lambda ctx: _g_each(ctx, "fill"),
                        "retidy": _g_retidy}   # drop 은 사람이 한다 · retidy = 「문서 정리」 의 조립 도구(따로 선 단위 GATHER["retidy"])
+
+
+# ---------------------------------------------------------------- 같은 양식 취합(가족 collect — spec_취합 ② §10: 기관이 따로 쓴 문서 여럿 → 사업계획서 하나)
+# 재료 = 목적 문서 facts 의 collect(등록부의 보기 — unit_steps.collect: merge_collect_api.view {orgs, parts[{work, name, order, orgs, orgNames, common, revOf, revName, later, state, text, done}]}) ·
+# partHeads{기관 문서 id: 헤딩 그래프 · 표 구조가 있나}(세션을 열지 않고 읽은 것 — unit_steps.heads_have) · fill(「문서 정리」 줄 · 「넣을 구성 선택」 이 읽는 넣기 재료의 꼴 — 실행기의 _collect_materials 가 짓는다:
+# 「내용 넣기」 의 끝 = 기관 문서가 하나라도 반영됨). 기관 문서마다 도는 줄(반영할 기관 지정 · 자리 연결 · 넣기 계획 · 내용 반영 · 수정본 반영)은 **등록부의 보기**로 센다 — 문서마다 연결 목록을 다시 내지 않는다(실행이 남긴 표식).
+# 그 문서의 상태(state): unassigned 반영할 기관 미지정 · superseded 뒤 수정본이 있음(넣기 대상 아님) · revision 수정본(아직 반영 전) · todo 넣을 차례 · done 반영함 · left 반영했으나 확인 필요 · 겹침이 남음.
+C_STATE = {"unassigned": "반영할 기관 미지정", "superseded": "뒤 수정본이 있음", "revision": "수정본 — 반영 전", "todo": "넣을 차례", "done": "반영함", "left": "반영함 · 확인 필요"}
+C_FILL = ("todo", "done", "left")   # 넣기 대상(자리 연결 → 넣기 계획 → 내용 반영을 도는 문서)의 상태 — 미지정 · 뒤 수정본이 있는 문서는 아니다 · 수정본으로 등록한 문서(revOf)도 아니다(「수정본 반영」 이 맡는다 — 반영한 뒤의 done · left 도)
+C_NAMES = 8   # 줄의 글에 이름을 적는 기관 문서 수(넘으면 「외 n개」)
+
+
+def collect_rows(V):
+    """등록부의 보기 → 기관 문서 줄들(등록한 차례)."""
+    return [p for p in (V or {}).get("parts") or () if isinstance(p, dict) and p.get("work")]
+
+
+def collect_filled(V):
+    """기관 문서가 하나라도 반영됐나(「문서 정리」 줄이 기다리는 「내용 넣기」 의 끝 — 이관의 넣기 재료는 지금 원본 하나의 표식이라 마지막 문서만 본다)."""
+    return any(p.get("state") in ("done", "left") for p in collect_rows(V))
+
+
+def collect_revise_text(c, fresh=0):
+    """수정본 반영의 한 줄(실행기의 끝 글) — c = 수정 계획 · 반영 결과의 counts{ready(고칠 · 고친 곳), same, overlap, hold, missing} · fresh = 새 자리(앞 제출본이 안 넣은 빈 자리 — 보통 넣기 규칙으로 같은 편집에 넣는다)의 수."""
+    c = c or {}
+    return (f"수정본 반영 — 고친 곳 {nf(c.get('ready') or 0)} · 겹침 {nf(c.get('overlap') or 0)} · 확인 필요 {nf(c.get('hold') or 0)} · 수정본에 없음 {nf(c.get('missing') or 0)}"
+            + (f" · 새 자리 {nf(fresh)}" if fresh else "") + (f" · 이미 같음 {nf(c['same'])}" if c.get("same") else ""))
+
+
+def _c(ctx):
+    """(목적 문서 {title, id, facts} | None, 등록부의 보기 | None, 막힘 상태 | None)."""
+    t, tf = _pair_of(ctx, "target")
+    if not ctx.get("ready") or not t:
+        return t, None, {"st": "todo", "text": ""}
+    if tf is None:
+        return t, None, {"st": "blocked", "text": "문서를 읽지 못했습니다"}
+    V = tf.get("collect")
+    if V is None:
+        return t, None, {"st": "blocked", "text": "기관 문서의 등록 상태를 읽지 못했습니다"}
+    return t, V, None
+
+
+def _c_row(p, st, text="", skipped=False):
+    """기관 문서 하나의 몫(per 한 줄) — state = 그 문서의 등록 상태(화면이 문서 카드에 그대로 쓴다)."""
+    word = text or p.get("text") or C_STATE.get(p.get("state"), "")
+    return {"doc": p["work"], "role": "source", "st": st, "skipped": skipped, "state": p.get("state") or "", "text": f"{p.get('name') or p['work']} — {word}" if word else (p.get("name") or p["work"])}
+
+
+def _c_names(rows):
+    got = [f"{p.get('name') or p['work']}({C_STATE.get(p.get('state'), p.get('state') or '?')})" for p in rows[:C_NAMES]]
+    return " · ".join(got) + (f" 외 {nf(len(rows) - C_NAMES)}개" if len(rows) > C_NAMES else "")
+
+
+def _c_part(ctx):
+    """반영할 기관 지정 — 끝남 = 미지정인 기관 문서가 없음(사람이 정했거나 실행이 파일 이름 · 문서의 기관 표시로 정함) · 기관 문서가 아직 없으면 「건너뜀」."""
+    _t, V, bad = _c(ctx)
+    if bad:
+        return bad
+    rows = collect_rows(V)
+    if not rows:
+        return {"st": "done", "skipped": True, "text": "기관 문서가 아직 없습니다 — 올리면 그때 반영할 기관을 정합니다"}
+    un = [p for p in rows if p.get("state") == "unassigned"]
+    per = [_c_row(p, "todo", "반영할 기관 미지정 — 미지정이면 넣지 않습니다") if p in un else _c_row(p, "done", " · ".join(p.get("orgNames") or ()) or p.get("text") or "") for p in rows]
+    return {"st": "todo" if un else "done", "text": f"기관 문서 {nf(len(rows))}개 — 지정 {nf(len(rows) - len(un))} · 미지정 {nf(len(un))}", "per": per}
+
+
+def _c_fill(ctx):
+    """자리 연결 · 넣기 계획 · 내용 반영(기관 문서마다 한 덩이) — 끝남 = 넣기 대상(넣을 차례 · 반영함 · 확인 필요) 문서가 모두 반영함 · 확인 필요가 남은 문서가 있으면 남음 ·
+    넣기 대상이 하나도 없으면 끝남이 아니다(전부 미지정이거나 아직 올리지 않은 것을 「반영함」 으로 세지 않는다)."""
+    _t, V, bad = _c(ctx)
+    if bad:
+        return bad
+    rows = collect_rows(V)
+    aim = [p for p in rows if p.get("state") in C_FILL and not p.get("revOf")]   # 수정본으로 등록한 문서는 「수정본 반영」 이 맡는다(반영한 뒤에도 — 다시 넣지 않는다)
+    why = {"unassigned": "반영할 기관 미지정 — 넣지 않습니다", "superseded": "뒤 수정본이 있어 넣지 않습니다"}
+    per = [_c_row(p, "done" if p.get("state") in ("done", "left") else "todo") if p in aim
+           else _c_row(p, "done", "수정본 — 「수정본 반영」 이 바뀐 곳만 고칩니다" if p.get("revOf") else why.get(p.get("state"), ""), skipped=True) for p in rows]
+    if not aim:
+        un = sum(1 for p in rows if p.get("state") == "unassigned")
+        return {"st": "todo", "text": "넣을 기관 문서가 없습니다" + (f"(반영할 기관 미지정 {nf(un)}개)" if un else ""), **({"per": per} if per else {})}
+    done = [p for p in aim if p.get("state") in ("done", "left")]   # 반영한 문서 — 확인 필요 · 겹침이 남은 문서도(그 남은 것은 사람이 연결 목록에서 고르는 몫이다: 줄은 끝난 것으로 세고 글에 밝힌다 —
+    left = [p for p in aim if p.get("state") == "left"]             # 안 그러면 「문서 정리」 가 영영 막힌다. 사람이 연결을 고치면 그 문서의 끝 표식이 내려가 다시 「넣을 차례」 가 된다: merge_collect_api.undone)
+    return {"st": "done" if len(done) == len(aim) else "todo", "per": per,
+            "text": f"기관 문서 {nf(len(done))}/{nf(len(aim))} 반영 — {_c_names(aim)}" + (f" · 확인 필요 · 겹침이 남은 문서 {nf(len(left))}개(연결 목록에서 고른 뒤 다시 진행)" if left else "")}
+
+
+def _c_revise(ctx):
+    """수정본 반영(선택) — 「○○ 의 수정본」 으로 등록한 문서 가운데 아직 반영 전인 것이 있으면 할 일 · 없으면 끝남(수정본이 하나도 없으면 「건너뜀」 — 「수정본이 없습니다」)."""
+    _t, V, bad = _c(ctx)
+    if bad:
+        return bad
+    revs = [p for p in collect_rows(V) if p.get("revOf") or p.get("state") == "revision"]
+    if not revs:
+        return {"st": "done", "skipped": True, "text": "수정본이 없습니다"}
+    todo = [p for p in revs if p.get("state") == "revision"]
+    left = [p for p in revs if p.get("state") == "left"]
+    per = [_c_row(p, "todo" if p in todo else "done", skipped=p.get("state") == "superseded") for p in revs]
+    return {"st": "todo" if todo else "done", "text": f"수정본 {nf(len(revs))}개 — 반영 {nf(len(revs) - len(todo))} · 반영 전 {nf(len(todo))}" + (f" · 확인 필요 {nf(len(left))}" if left else ""), "per": per}
+
+
+def _c_heads(ctx):
+    """헤딩 · 표 분석 — 목적 문서의 몫은 같이 쓰는 줄의 식 그대로(_heads) · 원본 문서의 몫은 **등록한 기관 문서마다**(뒤 수정본이 있는 문서는 빼고): 끝남 = 그 문서들에 헤딩 그래프 · 표 구조가 있음
+    (세션을 열지 않고 읽은 partHeads) · 기관 문서가 아직 없으면 할 일이 없다. 줄이 닿는 문서 역할 = ctx.roles(workflow_state.view 가 싣는다) · 없으면 줄의 문서에서."""
+    docs = ctx.get("docs") or []
+    roles = tuple(ctx.get("roles") or dict.fromkeys(d["role"] for d in docs))
+    mine = _heads({**ctx, "docs": [d for d in docs if d["role"] == "target"]}) if "target" in roles else None
+    if "source" not in roles:
+        return mine or {"st": "todo", "text": ""}
+    _t, V, bad = _c(ctx)
+    if bad:
+        return bad
+    H = ((ctx.get("pair") or {}).get("target") or {}).get("facts", {}).get("partHeads") or {}
+    rows = [p for p in collect_rows(V) if p.get("state") != "superseded"]
+    per = [_c_row(p, "done" if H.get(p["work"]) else "todo", "헤딩 그래프·표 구조 " + ("있음" if H.get(p["work"]) else "없음")) for p in rows]
+    lack = sum(1 for x in per if x["st"] != "done")
+    text = (f"기관 문서 {nf(len(rows))}개 — 헤딩 그래프·표 구조 있음 {nf(len(rows) - lack)}" + (f" · 없음 {nf(lack)}" if lack else "")) if rows else "기관 문서가 아직 없습니다 — 올리면 그때 분석합니다"
+    if mine is None:
+        return {"st": "todo" if lack else "done", "skipped": not rows, "text": text, **({"per": per} if per else {})}
+    st = mine["st"] if mine["st"] != "done" else "todo" if lack else "done"
+    return {"st": st, "text": " · ".join(x for x in (text, mine.get("text")) if x), "per": per + list(mine.get("per") or ())}
+
+
+_STATE_BY["collect"] = {"heads": _c_heads, "take": _take, "part": _c_part, "link": _c_fill, "plan": _c_fill, "apply": _c_fill, "revise": _c_revise, "retidy": _retidy}

@@ -1,0 +1,63 @@
+/* 같은 양식 취합의 「기관 문서」 목록(collect.js collectListEl — 패널 대시보드의 「준비」 · 「반영할 기관 지정」 카드 안 · 첫 화면의 대시보드: spec_취합 ② §10-4 · §10-5 · design.md §17 · §20).
+   모양은 대시보드의 것(dashboard.css — .dash-text · .dash-tag · .dash-no · .dash-acts · .btn.sm)을 그대로 쓰고 여기는 목록만의 것만: 문서마다 한 줄(이름 · 상태 꼬리표 / 고르기 셋 / 서버의 글 / 편 수정 계획).
+   폭이 좁은 열(패널 · 첫 화면 오른쪽 열)에 선다 — 고르기는 줄바꿈으로 내려가고 가로로 넘치지 않는다. 색에만 기대지 않는다(상태는 글 꼬리표). */
+.collect-list { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.collect-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; }
+.collect-head > b { font-weight: 600; }
+.collect-head .collect-up { margin-left: auto; }
+.collect-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.collect-row { display: flex; flex-direction: column; gap: 5px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; min-width: 0; }
+.collect-row-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.collect-row .collect-no { flex: none; width: 20px; height: 20px; font-size: 10.5px; }
+.collect-name { flex: 1 1 120px; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 600; text-align: left; overflow-wrap: anywhere; }
+button.collect-name { cursor: pointer; }
+button.collect-name:hover { color: var(--accent); text-decoration: underline; }
+button.collect-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.collect-here { flex: none; color: var(--muted); font-size: 11px; }
+.collect-state { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.collect-row[data-state="unassigned"] .collect-state { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.collect-row[data-state="todo"] .collect-state, .collect-row[data-state="revision"] .collect-state { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
+.collect-row[data-state="done"] .collect-state { border-color: transparent; background: transparent; color: var(--ok); }
+.collect-row[data-state="left"] .collect-state { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.collect-row[data-state="superseded"] .collect-state { border-style: dashed; background: transparent; }
+.collect-row-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-left: 26px; min-width: 0; }
+.collect-field { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; max-width: 100%; }
+.collect-field-name { flex: none; color: var(--muted); font-size: 11px; font-weight: 600; }
+.collect-sel { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12px; text-overflow: ellipsis; }
+.collect-sel:disabled { color: var(--muted); background: var(--surface-2); }
+.collect-check-wrap { display: inline-flex; align-items: center; gap: 2px; }
+.collect-check { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; cursor: pointer; }
+.collect-check input { margin: 0; }
+.collect-check input:disabled + span { color: var(--muted); }
+.collect-row > .dash-text, .collect-row > .collect-acts, .collect-row > .collect-plan { margin-left: 26px; }
+.collect-text { color: var(--muted); }
+.collect-warn { color: var(--warn); }
+.collect-off { margin-top: 2px; }
+/* 편 수정 계획 — 그 줄 아래(창을 띄우지 않는다): 한 줄 요약 + 「수정본 반영」 / 항목(상태 꼬리표 · 종류 · 까닭 / 「지금 "…" → 수정본 "…"」) */
+.collect-plan { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); min-width: 0; }
+.collect-plan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.collect-plan-sum { flex: 1 1 160px; min-width: 0; font-weight: 600; }
+.collect-items { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.collect-item { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); min-width: 0; }
+.collect-item.go { cursor: pointer; }
+.collect-item.go:hover { border-color: var(--line-strong); }
+.collect-item.go:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.collect-item-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.collect-item-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.collect-item[data-status="ready"] .collect-item-tag { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
+.collect-item[data-status="overlap"] .collect-item-tag, .collect-item[data-status="hold"] .collect-item-tag { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
+.collect-item[data-status="missing"] .collect-item-tag { border-style: dashed; background: transparent; }
+.collect-item-kind { flex: none; color: var(--muted); font-size: 11px; }
+.collect-item-detail { flex: 1 1 120px; min-width: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.collect-diff { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; font-size: 12px; line-height: 1.5; min-width: 0; }
+.collect-diff-side { min-width: 0; overflow-wrap: anywhere; }
+.collect-diff-name { margin-right: 5px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.collect-diff-was { color: var(--muted); }
+.collect-diff-arrow { margin-right: 6px; color: var(--muted); }
+/* 문서 카드의 꼬리표(기관 문서마다의 카드 — 「기관 이름 — 파일 이름」): 길면 줄이고 전문은 풍선 */
+.hd-role.collect-doc { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 첫 화면의 대시보드 — 문서 칸 아래의 「기관 문서」 목록 */
+.home-dash-collect { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+@container (max-width: 360px) { .collect-row-ctl, .collect-row > .dash-text, .collect-row > .collect-acts, .collect-row > .collect-plan { padding-left: 0; margin-left: 0; } }
+/* 「작업 개요」 의 문서 칸 — 기관 문서 줄(app.js taskFlowEl: 문서 하나를 고르는 칸이 아니다 — 몇 개인지 + 「기관 문서 목록」 단추): 칸 넷 가운데 뒤 셋에 걸친다(divisions.css .dv-flow-files) */
+#divBox .dv-flow-files .dv-flow-many { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 12px; white-space: normal; }

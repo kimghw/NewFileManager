@@ -363,12 +363,33 @@ function hdCards(n, roles, wid, started) {
   const x = n.live;
   const parts = n.on === "both" ? ["source", "target"] : [n.on || ""];
   const hand = HD_HAND.test(n.key) && x && HD.hands && HD.hands.wid === HD.wid ? HD.hands.lines.find((l) => l.key === n.key) : null;
-  return parts.map((role, ci) => {
-    const doc = role === "source" || role === "target", p = x && doc ? (x.per || []).find((q) => q.role === role) || null : null, ref = `${n.key}@${role}#${n.idx}`; // 차례 번호까지 — 같은 줄을 두 번 놓은 정의는 key 가 겹친다
+  // 같은 양식 취합(task_catalog.js taskIsCollect — 원본 문서 = 기관 문서 여럿: spec_취합 ② §10) — 패널 대시보드(dashboard.js dashFlowLive)와 같은 약속: 기관 문서마다 도는 줄은 **기관 문서마다 카드**(서버의 per — 그 줄의 대상이 아닌 문서는 뺀다 · 없으면 줄의 글 하나) ·
+  // 「반영할 기관 지정」 은 카드 하나(문서마다의 줄은 위 「기관 문서」 목록 — collect.js). 취합형으로 조립한 것(gather)은 전과 같다(원본 문서마다 — 카드 하나)
+  const V = HD.view, many = started && x && typeof taskIsCollect === "function" && taskIsCollect((V && V.job) || HD.job), srcs = (many && V && V.docs && V.docs.sources) || [];
+  const partName = ((roles.find((q) => q.role === "source") || {}).name) || "기관 문서";
+  const slots = parts.flatMap((role) => {
+    const doc = role === "source" || role === "target";
+    if (many && role && role !== "target" && role !== "flow") {
+      const per = n.key === "part" ? [] : (x.per || []).filter((q) => (q.role || "source") === "source" && !q.skipped);
+      return per.length ? per.map((q) => ({ role, p: q, one: true })) : [{ role, p: null, one: false }];
+    }
+    return [{ role, p: x && doc ? (x.per || []).find((q) => q.role === role) || null : null, one: false }];
+  });
+  return slots.map(({ role, p, one }, ci) => {
+    const ref = one ? `${n.key}@${role}:${p.doc}#${n.idx}` : `${n.key}@${role}#${n.idx}`; // 차례 번호까지 — 같은 줄을 두 번 놓은 정의는 key 가 겹친다
     const state = n.soon ? "soon" : !x ? "" : !p ? n.state : p.st === "done" ? "done" : p.st === "busy" ? "run" : p.st === "blocked" || p.st === "failed" ? p.st : x.st === "now" || x.st === "run" ? "now" : "todo";
     const skipped = !!(x && (p ? p.skipped : x.skipped));
+    let lead = hdRoleEl(role, roles.find((q) => q.role === role) || null, n), text = !x ? "" : p ? p.text || "" : x.text || "";
+    if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「기관 이름 — 파일 이름」 · 서버의 글 앞의 파일 이름은 뗀다(패널 대시보드와 같다)
+      const file = (srcs.find((d) => d.id === p.doc) || {}).name || "", name = collectDocName(wid, p.doc, file);
+      lead = el("span", "hd-role collect-doc", name || partName);
+      lead.dataset.role = "source";
+      lead.dataset.doc = p.doc;
+      lead.title = `${partName} — ${name}`;
+      if (file && text.startsWith(`${file} — `)) text = text.slice(file.length + 3);
+    }
     const c = { ...n, idx: null, ref, role, state, skipped, word: n.soon ? "준비 중" : !x ? "" : state === "done" && skipped ? "건너뜀" : FLOW_WORD[state] || "",
-      text: !x ? "" : dashHere(p ? p.text || "" : x.text || ""), lines: [], acts: [], via: null, lead: hdRoleEl(role, roles.find((q) => q.role === role) || null, n) }; // dashHere — 서버의 글이 「작업 개요」 안의 자리(「아래 「…」」)를 가리키면 그 패널 이름으로(패널 대시보드와 같다)
+      text: dashHere(text), lines: [], acts: [], via: null, lead }; // dashHere — 서버의 글이 「작업 개요」 안의 자리(「아래 「…」」)를 가리키면 그 패널 이름으로(패널 대시보드와 같다)
     if (hand && ci === 0) { // 「했음」 · 「했음 취소」 는 이 화면에서도(사람의 단추 — 에이전트 행동에는 없다)
       const b = hBtn(hand.done ? "했음 취소" : "했음", () => hdHand(hand, !hand.done, ref), { cls: "btn sm" + (hand.done ? "" : " primary"),
         title: hand.done ? "「했음」 을 되돌립니다 — 다음 실행이 이 줄에서 다시 멈춥니다" : `사람이 할 일 — ${hand.does}\n마쳤으면 누릅니다 — 묶음의 「한 번에 진행」 이 이 줄을 지나 다음 줄로 갑니다` });
@@ -386,7 +407,7 @@ function hdCards(n, roles, wid, started) {
 
 function hdSig() { // 다시 그릴지 — 상태 · 글 · 단추가 같으면 도는 글(지난 시간)만 바꾼다(초점 · 스크롤 유지 — 패널 대시보드의 dashSig 와 같은 방식)
   const st = hdState(), V = HD.view, list = st === "pick" || st === "ready";
-  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, HD.open, [HD.reset.open, HD.reset.busy, HD.reset.err, HD.reset.docs], HD.hands ? HD.hands.lines.map((x) => [x.key, x.done, x.ver]) : 0, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
+  return JSON.stringify([st, HD.job, HD.wid, HD.err, HD.note, HD.busy, HD.open, st === "live" && hdCollect(V) ? [collectSig(hdCollect(V)), typeof worksList !== "undefined" ? worksList.length : 0] : 0, /* 같은 양식 취합의 「기관 문서」 목록(collect.js) */ [HD.reset.open, HD.reset.busy, HD.reset.err, HD.reset.docs], HD.hands ? HD.hands.lines.map((x) => [x.key, x.done, x.ver]) : 0, !!DASH.reg, !!hdReg(HD.job), DASH.regErr,
     list ? [hdFiles().map((f) => `${f.name}:${f.size}`), typeof hfTarget === "function" ? hfTarget() : -1, !!homeTaskBusy || !!(typeof hf === "object" && hf.busy), Object.keys(TASK_CATALOG),
       HD.job ? [hdSlot(HD.job), HD.form, hdUseForm(HD.job), (hdResume(HD.job) || {}).id || "", typeof hf === "object" ? hf.project : ""] : 0] : 0,
     st === "live" ? [V.job, V.sig, V.ready, V.why, V.docs, V.stages.map((g) => [g.id, g.no, g.name, g.server, g.done, g.total, g.left, g.can, g.why, (g.paid || []).length, g.change, (g.solo || []).map((x) => [x.role, x.left, x.total, x.can, x.why, (x.paid || []).length]), // solo = 한 문서만 진행의 몫
@@ -471,7 +492,21 @@ function hdFormRowEl(job) { // 목적 문서 칸의 양식(워크플로우 설�
 
 function hdLiveDocs(reg, V) { // 시작한 뒤 — 서버가 본 문서 칸(그 묶음의 목적 문서 · 원본 문서)
   const docs = V.docs || {}, roles = reg && (reg.roles || []).length ? reg.roles : [...(docs.source ? [{ role: "source", title: "원본 문서", name: "" }] : []), { role: "target", title: "목적 문서", name: "" }]; // 등록부가 없으면 역할 이름만(차례는 같게 원본 → 목적)
-  return roles.map((r) => [r.role, `${r.title}${r.name ? ` — ${r.name}` : ""}:`, (docs[r.role] || {}).name || ""]);
+  const n = (docs.sources || []).length; // 원본 문서가 여럿인 워크플로우(취합 · 같은 양식 취합) — 몇 개인지(같은 양식 취합의 문서마다의 줄은 아래 「기관 문서」 목록)
+  return roles.map((r) => [r.role, `${r.title}${r.name ? ` — ${r.name}` : ""}:`, r.role === "source" && (r.many || n) && !docs.source ? (n ? `문서 ${n}개` : "") : (docs[r.role] || {}).name || ""]);
+}
+
+// 같은 양식 취합(task_catalog.js taskIsCollect — spec_취합 ② §10)의 대시보드인가 → 목적 문서 id | "" · 그 「기관 문서」 목록(collect.js collectListEl — 패널 대시보드의 「준비」 카드와 같은 함수: 반영할 기관 · 공통 자리 포함 · 수정본 · 자동 지정 · 올리기 · 수정 계획)
+const hdCollect = (V) => (V && typeof taskIsCollect === "function" && taskIsCollect(V.job || HD.job) ? (V.docs && V.docs.target && V.docs.target.id) || "" : "");
+function hdCollectEl(V, active) {
+  const tid = hdCollect(V);
+  if (!tid || typeof collectListEl !== "function") return null;
+  const job = V.job || HD.job, row = typeof worksList !== "undefined" ? worksList.find((w) => w.id === tid) : null, t = (row && row.task) || null;
+  const moving = active || V.stages.some((g) => (g.steps || []).some((s) => s.busy || s.st === "run")), box = el("div", "home-dash-collect");
+  box.append(collectListEl(tid, { off: active ? HD_WAIT : HD.busy ? "요청을 보내는 중입니다" : "", focus: "hdFocus", stale: moving ? 3000 : 10000, redraw: () => homeDashDraw(true),
+    scope: t && t.project ? { job, project: t.project, round: Math.max(1, Number(t.round) || 1), kind: taskCollectKind(job) } : null, // 올릴 묶음 = 목적 문서의 묶음(작업 목록에서 — 못 찾으면 올리기 단추를 세우지 않는다)
+    after: () => hdRead(), uploaded: async () => { if (typeof loadWorks === "function") await loadWorks(); } }));
+  return box;
 }
 
 // 차례 번호 단추(왼쪽 얇은 열) — 누르면 그 차례를 실행한다(hdRunOrder) · 끝난 차례는 초록 ✓(실행 표시 — 끝남은 서버가 문서의 결과로 센 것) · 도는 차례는 파랑 고리.
@@ -664,7 +699,7 @@ function hdStartWhy(job) { // 「워크플로우 시작」 을 미리 끄는 까
   if (slot && slot.mode === "fixed" && !slot.form) return "고정한 양식을 찾지 못했습니다 — 워크플로우 페이지 「문서 칸」 에서 다시 거세요";
   if (hdUseForm(job)) { // 목적 문서 칸 = 저장한 양식 — 목록의 문서는 원본 문서(이관 = 하나까지 · 없어도 시작한다: 원본 문서는 연 뒤 「작업 개요」 의 첨부 파일 칸에서도 올린다)
     if (fixedSrc && list.length) return `${fixedSrc} — 목록의 문서를 빼세요`;
-    if (cat.files && list.length > 1) return `원본 문서는 하나만 둘 수 있습니다 — 목록에 문서가 ${list.length}개입니다`;
+    if (cat.files && !cat.collect && list.length > 1) return `원본 문서는 하나만 둘 수 있습니다 — 목록에 문서가 ${list.length}개입니다`; // 같은 양식 취합(collect)은 기관 문서가 여럿이다
     return homeTaskBusy || hf.busy ? "문서를 준비하고 있습니다" : "";
   }
   if (!list.length) return "왼쪽에 문서를 넣으세요 — 넣은 뒤 목적 문서를 고르면 켜집니다";
@@ -738,6 +773,8 @@ function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로
   if (HD.err) parts.push(hdNoteEl(`상태를 읽지 못했습니다: ${HD.err}`, true));
   if (V.why && (!V.stages.length || !V.ready)) parts.push(hdNoteEl(V.why, true)); // 워크플로우가 없거나 모르는 워크플로우 · 문서 칸이 비었음(서버의 글)
   parts.push(hdDocsEl(hdLiveDocs(reg, V)));
+  const partsEl = hdCollectEl(V, active); // 같은 양식 취합 — 「기관 문서」 목록(문서마다 반영할 기관 · 공통 자리 포함 · 수정본 · 올리기: 패널 대시보드의 「준비」 카드와 같은 것)
+  if (partsEl) parts.push(partsEl);
   const chain = hdChainEl(job, groups, active);
   if (chain) parts.push(chain);
   if (V.stages.length) parts.push(hdFlowEl(job, V));

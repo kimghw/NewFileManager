@@ -3,7 +3,7 @@
 - `GET /api/tasks` → {tasks[조립한 워크플로우…], stages[고를 수 있는 단계 — id · 이름 · 하는 일 · 묶음 · 단계 줄 · cells(문서 역할마다의 칸)], pairs[조립할 수 있는 문서 쌍], blocked[아직 조립할 수 없는 틀과 까닭],
   shapes[문서 입출력의 틀 — id · io(「1」 · 「1 → 1」 · 「N → 1」) · name · slots[{role, title, many, kinds[{id, name}]}] · soon(아직 못 여는 까닭 | "") — custom_tasks.shapes()(SHAPES 그대로 · soon 은 지금 열려 있는지를 따른다 —
   문서 하나 = 스위치 custom_tasks.SINGLE_OPEN): spec_워크플로우 ② §18-8 「문서 입출력」],
-  byShape{gather{units, homes, flow, pairs}, single{units, homes[{id, name}], flow(사업계획서의 처음 줄 목록), flows{plan, report}, pairs[{value(「>plan」 · 「>report」), source(""), target, name}], names{종류: {줄 key: 이름}}}} —
+  byShape{gather{units, homes, flow, pairs}, collect{units, homes, flow, pairs, later[{key, name} — 이 틀에서 아직 못 놓는 줄]}(같은 양식 취합 — 꼴은 취합형과 같다), single{units, homes[{id, name}], flow(사업계획서의 처음 줄 목록), flows{plan, report}, pairs[{value(「>plan」 · 「>report」), source(""), target, name}], names{종류: {줄 key: 이름}}}} —
   틀마다의 고를 줄 · 처음 줄 목록 · 문서 종류 짝(문서 하나 = 원본 없음 — 줄의 roles 는 모두 ["target"] · 저장하는 줄의 on 은 늘 빈 목록),
   base(전제를 물려받는 붙박이 키), limits, broken(저장 파일을 못 읽음 — 그동안 목록은 비고 쓰기는 409), warn{fillNoFit(목적 문서에 「구성 맞추기」 없이 「내용 넣기」 를 고를 때의 경고 뒷부분 —
   등록부 app/workflow.py FILL_NO_FIT)}}
@@ -175,6 +175,41 @@ def gather_lines():
     return flow
 
 
+def collect_units():
+    """같은 양식 취합(「N → 1 · 같은 양식」 — spec_취합 ② §10)의 고를 줄 — custom_tasks.COLLECT_UNITS 의 차례 + 「사람이 하는 일」 → (줄들, 묶음들 [{id, name}]). 칸은 취합형(gather_units)과 같다 ·
+    home = 그 줄이 사는 일반 단계(stage_review · stage_fit · stage_fill · stage_clean — 고르기 목록이 그 이름으로 묶는다: 이관형과 같은 네 묶음) · each = 기관 문서마다 도는 줄(한 묶음에 잇달아 놓는다) ·
+    roles = 그 틀에서 놓을 수 있는 문서(문서 줄은 목적 문서만 — 「헤딩 · 표 분석」 · 「반영할 기관 지정」 만 원본 문서에) · family = 그 단위가 사는 표(collect | common — 같이 쓰는 줄)."""
+    from app import workflow
+    from app import workflow_units as WU
+    names = custom_tasks.unit_names("collect")
+    out = []
+    for k in custom_tasks.COLLECT_UNITS:
+        u = WU.unit(k, "collect")
+        out.append({"key": k, "family": "collect" if WU.COLLECT.get(k) is u else "common", "home": u["home"], "name": names.get(k, k), "place": u["place"], "roles": list(WU.roles_in(u, "collect")),
+                    "kind": u["kind"], "change": u["change"], "paid": u["paid"], "needs": list(u["needs"]), "gives": list(u["gives"]), "optional": u["optional"], "server": u["server"], "each": bool(u.get("each")),
+                    **({"col": custom_tasks.col_of(k, "collect")} if u["place"] == "flow" else {}),   # 워크플로우 전체 줄이 처음 서는 문서 칸(목적 문서 — 사업계획서가 구성의 기준)
+                    "help": unit_help.of("collect", k),   # 그 줄(도구)의 쉬운 설명(조립 폼의 「도구 설명」 열)
+                    "only": unit_help.only("collect", k),   # 어느 문서 전용인가(② §18-17 — 이 틀에만 있는 줄 · 기관 문서를 넣는 줄 = 「기관 작성본 → 사업계획서 전용」)
+                    "uses": custom_tasks.uses_of(u, "collect")})   # 먼저 있어야 할 줄(② §18-6 「대상 잇기」 의 (나))
+    h = WU.COMMON["hand"]
+    out.append({"key": "hand", "family": "common", "home": "hand", "name": names["hand"], "place": h["place"], "roles": list(h["roles"]), "kind": h["kind"], "change": h["change"], "paid": h["paid"],
+                "needs": [], "gives": [], "optional": h["optional"], "server": h["server"], "each": False, "help": unit_help.of("collect", "hand"), "only": None, "uses": []})
+    homes = [{"id": mid, "name": name} for mid, name, _make, _does in workflow.STAGE_MODULES] + [{"id": "hand", "name": "사람이 하는 일"}]
+    return out, homes
+
+
+def collect_lines():
+    """같은 양식 취합의 처음 줄 목록(조립 폼이 「N → 1 · 같은 양식」 을 고르면 이것으로 채운다) — 이관형의 네 묶음과 같은 꼴(문서 검토 → 구성 맞추기 → 본문 및 테이블 매칭 → 문서 정리):
+    1 = 두 쪽의 헤딩 · 표 분석 · 목적 문서의 LLM 검증·보완 / 2 = 구성 불러오기 · 프로젝트 구성 추출 · 넣을 구성 선택 · 프로젝트 구성 반영 · 다시 문서 검토(스크립트 → LLM) /
+    3 = 기관 문서마다: 반영할 기관 지정 → 자리 연결 → 넣기 계획 → 내용 반영 → 수정본 반영 / 4 = 넣은 뒤 템플릿 · 서식 정리. 사람이 줄을 빼거나 옮긴다(조립 검사 custom_tasks._collect_rules)."""
+    T = ["target"]
+    return [{"name": "문서 검토", "steps": [{"unit": "heads", "on": ["source", "target"]}, {"unit": "headsLlm", "on": T}]},
+            {"name": "구성 맞추기", "steps": [{"unit": "configLoad", "on": []}, {"unit": "config", "on": []}, {"unit": "take", "on": []}, {"unit": "division", "on": T}, {"unit": "reheads", "on": T}, {"unit": "reheadsLlm", "on": T}]},
+            {"name": "본문 및 테이블 매칭", "steps": [{"unit": "part", "on": ["source"]}, {"unit": "link", "on": ["source", "target"]}, {"unit": "plan", "on": ["source", "target"]}, {"unit": "apply", "on": ["source", "target"]},
+                                              {"unit": "revise", "on": ["source", "target"]}]},
+            {"name": "문서 정리", "steps": [{"unit": "retidy", "on": T}]}]
+
+
 def single_units():
     """문서 하나(「1」 — 목적 문서 하나 · 원본 없음: spec_워크플로우 ② §18-13 걸음 6)의 고를 줄 — 등록부 「사업계획서 양식 표준화」 의 줄 차례(custom_tasks.SINGLE_UNITS — 맨 앞 묶음에 저절로 서는 「준비」 는 빼고)
     + 「사람이 하는 일」 → (줄들, 묶음들 [{id, name}]). 칸은 취합형(gather_units)과 같다 · **roles 는 모든 줄이 ["target"]**(칸이 하나다 — 저장하는 줄의 on 은 늘 빈 목록) · each 는 늘 거짓 ·
@@ -304,12 +339,17 @@ def tasks_get(v: str = ""):
     used = _uses()
     g_units, g_homes = gather_units()
     s_units, s_homes = single_units()
-    _based(g_units, "gather"), _based(s_units, "single")
+    c_units, c_homes = collect_units()
+    _based(g_units, "gather"), _based(s_units, "single"), _based(c_units, "collect")
     s_flows = {kind: single_lines(kind) for _src, kind in custom_tasks.SINGLE_PAIRS}
     return {"tasks": [view(t, used) for t in custom_tasks.all() if _v2(v) or t.get("flow") is None], "stages": stages, "units": _based(units(), "relay"), "shapes": custom_tasks.shapes(),   # shapes 의 soon 은 지금 열려 있는지를 따른다(문서 하나 = 스위치)
             # 틀마다의 고를 줄 · 처음 줄 목록 · 문서 종류 짝(units · pairs 는 이관형의 것 그대로 — 옛 화면) — 취합형(N → 1: spec_워크플로우 ② §18-13 갈래 「라」 ⓶)
             "byShape": {"gather": {"units": g_units, "homes": g_homes, "flow": gather_lines(),
                                    "pairs": [{"source": a, "target": b, "name": f"{custom_tasks.kind_name(a)} → {custom_tasks.kind_name(b)}"} for a, b in custom_tasks.GATHER_PAIRS]},
+                        # 같은 양식 취합(「N → 1 · 같은 양식」 — spec_취합 ② §10): 꼴은 취합형과 같다(units · homes · flow · pairs) · later = 이 틀에서 아직 못 놓는 이관형의 줄(화면이 고르기에서 까닭과 함께 꺼 둘 수 있게)
+                        "collect": {"units": c_units, "homes": c_homes, "flow": collect_lines(),
+                                    "pairs": [{"source": a, "target": b, "name": f"{custom_tasks.kind_name(a)} → {custom_tasks.kind_name(b)}"} for a, b in custom_tasks.COLLECT_PAIRS],
+                                    "later": [{"key": k, "name": shown.get(k, k)} for k in custom_tasks.COLLECT_LATER]},
                         # 문서 하나(「1」 — 원본 없음: 같은 절 걸음 6) — flow = 사업계획서의 처음 줄 목록 · flows = 문서 종류마다 · pairs 의 value = 「>목적 종류」(원본 자리가 빈 글) · names = 문서 종류마다의 줄 이름
                         "single": {"units": s_units, "homes": s_homes, "flow": s_flows[custom_tasks.SINGLE_PAIRS[0][1]], "flows": s_flows,
                                    "pairs": [{"value": f"{a}>{b}", "source": a, "target": b, "name": custom_tasks.kind_name(b)} for a, b in custom_tasks.SINGLE_PAIRS], "names": single_names(), "baseNames": single_names(base=True)}},   # baseNames = 문서 종류마다의 기본 이름(② §18-19)

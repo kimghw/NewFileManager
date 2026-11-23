@@ -31,12 +31,12 @@ LINE = contextvars.ContextVar("nfm_flow_line", default=None)
 OPEN = {"relay", "gather"}   # 서버 실행기를 연 틀(가족) — 화면(실행의 거울 · 두 대시보드 · 울타리의 고치던 글 보고)이 그 틀을 따라올 때 더한다: gather(취합 — 걸음 5)는 2026-11-20 갈래 「라」 에서 엶
 #                    (거울 = workflow_exec.js gatherRunServer · gatherRunFollow) · single(문서 하나 — 걸음 6)은 아직(검토 의견의 P1 을 본 뒤 — spec ④).
 #                    닫힌 틀의 묶음은 `server: false`(화면이 돈다) — 화면이 따라오기 전에 열면 문서 화면이 그 실행을 못 보고(거울 없음) 고치던 글을 보고하지 않아 울타리가 지켜 주지 못한다. 시험은 이 집합을 넓혀 본다
-OPEN_CUSTOM = {"single"}   # **조립한 워크플로우에만** 서버 실행기를 연 틀(가족) — 2026-11-20 사용자 「그리고 문서 하나는 왜 안되냐?」 → 답 「조립한 것만 서버로」: 조립 폼에서 만든 문서 하나만 서버가 돈다(같은 날 켬 —
+OPEN_CUSTOM = {"single", "collect"}   # **조립한 워크플로우에만** 서버 실행기를 연 틀(가족) · collect(같은 양식 취합 — 2026-11-24: 붙박이가 없다 · 화면의 실행 코드가 없어 서버 실행기만 돈다: spec_취합 ② §10) — 2026-11-20 사용자 「그리고 문서 하나는 왜 안되냐?」 → 답 「조립한 것만 서버로」: 조립 폼에서 만든 문서 하나만 서버가 돈다(같은 날 켬 —
 #                       화면이 따라옴: workflow_exec.js singleRunServer · 3초 확인의 고치던 글 보고 · dashboard.js dashSingleLive). OPEN 에 single 을 넣지 않는다 — 붙박이 「사업계획서 양식 표준화」 · 「연차보고서 양식 맞추기」 가 같이 열린다(그 둘은 지금처럼 화면에서 돈다)
 
 
 def family(task):
-    """그 워크플로우의 단위 가족 — 등록부가 적은 것(`units` — 문서 하나인 양식 표준화 · 양식 맞추기 = single)이 먼저 · 원본 문서가 여럿이면 gather(취합형) · 원본 문서가 있으면 relay(이관형) ·
+    """그 워크플로우의 단위 가족 — 등록부가 적은 것(`units` — 문서 하나인 양식 표준화 · 양식 맞추기 = single · 같은 양식 취합으로 조립한 것 = collect)이 먼저 · 원본 문서가 여럿이면 gather(취합형) · 원본 문서가 있으면 relay(이관형) ·
     그 밖(단위가 없는 문서 하나 워크플로우 — 일반 편집 · 서식 복사)은 ""(가족 없음 — 줄 key 가 다른 틀의 단위와 겹쳐도 그 단위로 읽지 않는다)."""
     if task.get("units"):
         return task["units"]
@@ -105,7 +105,7 @@ def relay_pair(task):
 def framed(task):
     """그 워크플로우의 문서 칸이 그 가족의 틀인가 — relay = 원본 하나 → 목적 하나(relay_pair) · single = 목적 문서 하나뿐 · gather = (걸음 5)."""
     fam, roles = family(task), {r["role"]: r for r in task.get("roles") or ()}
-    if fam == "gather":   # 원본 문서 여럿 → 목적 문서 하나(걸음 5)
+    if fam in ("gather", "collect"):   # 원본 문서 여럿 → 목적 문서 하나(걸음 5 · 같은 양식 취합)
         return set(roles) == {"source", "target"} and bool(roles["source"].get("many")) and not roles["target"].get("many")
     return relay_pair(task) if fam == "relay" else set(roles) == {"target"} if fam == "single" else False
 
@@ -257,7 +257,7 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
             for s in mine:
                 on = s["on"] or ("target" if fam == "single" else "")   # 문서 하나 — 빈 on = 그 문서(roles_on)
                 docs = _docs(task, pair, facts, on) if on not in ("flow", "") else both
-                got = U.state(s["key"], {**ctx0, "docs": docs}, fam) or {"st": "todo", "text": ""}
+                got = U.state(s["key"], {**ctx0, "docs": docs, "roles": tuple(roles_on(task, on))}, fam) or {"st": "todo", "text": ""}   # roles = 그 줄이 닿는 문서 역할(여럿인 원본 문서가 아직 없어도 줄의 몫을 안다 — 같은 양식 취합의 헤딩 · 표 분석)
                 u = U.unit(s["key"], fam)
                 done = got["st"] == "done"
                 wait = ""
@@ -301,5 +301,5 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
                     row["solo"].append({"role": r, "title": role.get("title") or "", "name": role.get("name") or "", "total": one["total"], "left": one["left"], "paid": one["paid"], "change": one["change"],
                                         "can": not cant, "why": cant, **({"wait": one["wait"]} if one["wait"] else {})})
         stages.append(row)
-    docs = {"target": (pair or {}).get("target"), "source": (pair or {}).get("source"), **({"sources": list((pair or {}).get("sources") or ())} if fam == "gather" else {})}   # sources = 취합의 원본 문서들(등록한 차례)
+    docs = {"target": (pair or {}).get("target"), "source": (pair or {}).get("source"), **({"sources": list((pair or {}).get("sources") or ())} if fam in ("gather", "collect") else {})}   # sources = 취합 · 같은 양식 취합의 원본 문서들(등록한 차례)
     return {"job": task["job"], "sig": sig(task), "docs": docs, "ready": ok, "why": why, "stages": stages}

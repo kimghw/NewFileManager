@@ -121,7 +121,8 @@ def prune(s):
         if len(ids) != len(e.get("ids") or ()):
             changed = True
         if ids:
-            keep.append({**e, "ids": ids})
+            alive = set(ids)   # 원장(led — 같은 양식 취합: spec_취합 ② §10-4)도 죽은 목적 id 의 줄을 함께 뺀다
+            keep.append({**e, "ids": ids, **({"led": [r for r in e["led"] if isinstance(r, list) and r and r[0] in alive]} if isinstance(e.get("led"), list) else {})})
     if changed:
         z["origins"] = keep
         z["rev"] += 1
@@ -159,10 +160,13 @@ def after_edit(s, op, born):
         log.warning("[편집 구역] %s 지정·출처를 잇지 못함(%s): %r", s.id, op, e)
 
 
-def origin_add(s, part, name, orgs, kind, ids, key=None):
+def origin_add(s, part, name, orgs, kind, ids, key=None, extra=None):
     """출처 이벤트 하나를 더한다 → 이벤트 id(§4). **그 내용을 넣는 편집의 run() 안에서**(세션 잠금 안) 부른다 — server._snap 이 run() 앞의 출처를 붙들고 있어
-    그 편집이 되돌려지면(표준 검사 실패 · 실행 취소) 이벤트도 함께 사라진다. name·orgs = 그때의 기관 문서 이름·반영할 기관(굳혀 둔다 — 뒤에 바뀌어도 그대로)."""
+    그 편집이 되돌려지면(표준 검사 실패 · 실행 취소) 이벤트도 함께 사라진다. name·orgs = 그때의 기관 문서 이름·반영할 기관(굳혀 둔다 — 뒤에 바뀌어도 그대로).
+    extra = 이벤트에 얹는 값(같은 양식 취합의 원장 — `src{work, rev}` · `led[[목적 id, 원본 id, 원본 글, 넣은 직후 목적 글, 자리, 원본 레터]]` · `anchors`: app/merge_collect_api.py record). 보기(zones.build)는 그 값을 싣지 않는다."""
     ev = zones.origin_event(part, name, [o for o in orgs or () if isinstance(o, str)], kind, [i for i in ids or () if isinstance(i, str)], key, _now())
+    if isinstance(extra, dict):
+        ev.update({k: v for k, v in extra.items() if k not in ev})
     s.zones["origins"].append(ev)
     s.zones["rev"] += 1
     return ev["id"]

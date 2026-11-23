@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException
 from app import user_reqs as R
 
 router = APIRouter()
-FAMILY_NAME = {"relay": "1 → N", "gather": "N → 1", "single": "문서 하나"}   # 틀의 화면 이름(조립 폼의 문서 입출력과 같은 말)
+FAMILY_NAME = {"relay": "1 → N", "gather": "N → 1", "single": "문서 하나", "collect": "N → 1 · 같은 양식"}   # 틀의 화면 이름(조립 폼의 문서 입출력과 같은 말)
 
 
 def targets():

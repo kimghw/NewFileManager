@@ -25,7 +25,7 @@ def _zones_default(job):
     if job in ZONES_DEFAULT:
         return ZONES_DEFAULT[job]
     from app import custom_tasks   # 가벼운 모듈
-    return ZONES_DEFAULT["plan_merge"] if custom_tasks.is_gather(job) else []
+    return ZONES_DEFAULT["plan_merge"] if custom_tasks.is_gather(job) or custom_tasks.is_collect(job) else []   # 같은 양식 취합(collect)도 기관을 기본으로 — 넣은 내용의 출처가 기관으로 보인다(spec_취합 ② §10)
 FILE = "task_options.json"
 _LOCK = threading.RLock()   # 읽고-고치고-쓰기를 묶는다(프로세스 안 하나)
 _MEMORY = {}                # 작업 저장이 꺼져 있을 때의 scopes

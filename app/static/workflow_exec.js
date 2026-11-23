@@ -322,7 +322,8 @@ setInterval(async () => { // 다른 화면 · 첫 화면의 대시보드 · 에�
   if (typeof taskSlots !== "function" || !taskSlots() || (typeof gatherOn === "function" && gatherOn()) || (typeof PEEK !== "undefined" && PEEK)) return;
   const id = state.id, live = await flowLive(id);
   if (!flowActive(live) || taskRun || state.id !== id) return;
-  const [plan, report] = taskSlots().map((k) => taskSlotDoc(k));
+  const [plan0, report] = taskSlots().map((k) => taskSlotDoc(k));
+  const plan = plan0 || (typeof relayFlowMany === "function" && relayFlowMany() ? report : null); // 같은 양식 취합 — 기관 문서가 아직 없어도 목적 문서의 줄은 돈다(거울은 목적 문서로)
   if (!plan || !report || ((live.docs || {}).target || {}).id !== report.id) return;
   if (typeof taskStagesSync === "function") taskStagesSync();
   const g = TASK_STAGES.find((x) => x.id === ((live.now || {}).stage || (live.range || {}).from));
@@ -614,6 +615,14 @@ function relayFlowOn() { // 지금 문서가 줄 목록으로 조립한 이관�
   return typeof state !== "undefined" && !!state.id && !!state.stored && !!state.task && typeof taskIsRelayFlow === "function" && taskIsRelayFlow(state.task.job) && !(typeof PEEK !== "undefined" && PEEK);
 }
 const relayFlowPair = () => (relayFlowOn() && typeof taskSlots === "function" && taskSlots() ? taskSlots().map((k) => taskSlotDoc(k)) : [null, null]); // [원본 문서, 목적 문서] — 그 묶음의 칸 문서(빈 칸은 null)
+// 같은 양식 취합(task_catalog.js taskIsCollect — 원본 문서 = 기관 문서 여럿: spec_취합 ② §10)의 문서들. relayFlowPair 의 원본 = 그 가운데 하나(지금 문서가 기관 문서면 그것 · 아니면 첫 문서)일 뿐이다 —
+// 「그 묶음의 문서를 보고 있나」(거울) · 시작 요청의 docs(서버의 source 는 없다 — 기관 문서들은 서버가 등록한 차례로 못 박는다)는 이것으로 가른다
+const relayFlowMany = () => relayFlowOn() && typeof taskIsCollect === "function" && taskIsCollect(state.task.job);
+function relayFlowParts() { // 그 묶음의 기관 문서들(작업 목록의 것 — 지금 문서가 기관 문서면 그것도) → [{id, name, …}]
+  if (!relayFlowMany() || typeof taskDocs !== "function") return [];
+  const kind = taskCollectKind(state.task.job);
+  return taskDocs().filter((w) => (w.task || {}).file === kind && (w.id === state.id || taskSameScope(w)));
+}
 let relayFlowStarting = false; // 시작 요청(화면의 약속 → POST)을 보내는 중 — 그동안 또 눌러 둘이 시작하지 않게 · 3초 확인이 그 실행을 먼저 따라가지 않게
 let relayFlowLast = null;      // 이 화면이 끝까지 따라간 마지막 실행의 끝 {id 목적 문서, n, ok, left, text 서버가 지은 끝 글} — 화면 검사 · 에이전트가 읽는다
 
@@ -626,7 +635,8 @@ function relayFlowSync() { // 거울이 서고 내릴 때 — 단추를 끄고 �
 // lane = 그 실행이 잡은 문서(source | target — 그 문서만: 다른 문서의 실행은 같이 돌 수 있다 · "" = 두 문서 — spec_워크플로우 ② §18-22) · role = 한 문서만으로 시작한 실행의 그 문서(진행 줄의 이름)
 async function relayFlowFollow(tid, sid, n, { quiet = false, stage = "", only = "", lane = "", role = "" } = {}) { // 그 실행을 끝까지 따라간다(거울) → {ok, left, text(머리말을 뗀 끝 글), full(서버가 지은 끝 글 그대로), run(실행 기록)}
   const run = (taskRun = { stage, report: tid, key: only, note: "", t0: Date.now(), stop: false, chain: null, redo: "", only, paid: null, server: true, flow: true, pair: [sid, tid], n, by: "", lane, role });
-  const here = () => (state.id === tid || state.id === sid ? state.id : ""); // 그 묶음의 문서를 보고 있나
+  const many = relayFlowMany(); // 같은 양식 취합 — 기관 문서가 여럿: 그 묶음의 어느 기관 문서를 보고 있어도 거울은 그대로(목적 문서가 같은 묶음일 때만)
+  const here = () => (state.id === tid || state.id === sid || (many && relayFlowMany() && (relayFlowPair()[1] || {}).id === tid && relayFlowParts().some((w) => w.id === state.id)) ? state.id : ""); // 그 묶음의 문서를 보고 있나
   let away = false, rec = null, miss = 0;
   relayFlowLast = null;
   relayFlowSync();
@@ -682,7 +692,8 @@ async function relayFlowRun(from, { to = "", only = "", row = false, role = "", 
   if ((mirror && !beside) || relayFlowStarting || (typeof taskRunChecking !== "undefined" && taskRunChecking)) return { ok: false, text: "지금 진행 중인 작업이 끝난 뒤에 누르세요" };
   const id = state.id, epoch = state.epoch, job = state.task.job, cat = TASK_CATALOG[job] || {}, [src, tgt] = relayFlowPair();
   const say = (why, warn = true) => { if (!quiet) toast(why, warn); return { ok: false, text: why }; };
-  if (!src || !tgt) return say(`${[[src, "원본 문서"], [tgt, "목적 문서"]].filter((x) => !x[0]).map((x) => x[1]).join(" · ")} 칸이 비었습니다 — 「준비」 에서 문서를 먼저 넣으세요`);
+  const many = relayFlowMany(), mine = many ? src || tgt : src; // 같은 양식 취합 — 원본 문서(기관 문서)는 여럿이고 서버가 등록한 차례로 못 박는다: 시작 요청에 원본 하나를 적지 않는다(기관 문서가 없으면 서버가 그 까닭을 돌려준다)
+  if ((!src && !many) || !tgt) return say(`${[[src, "원본 문서"], [tgt, "목적 문서"]].filter((x) => !x[0]).map((x) => x[1]).join(" · ")} 칸이 비었습니다 — 「준비」 에서 문서를 먼저 넣으세요`);
   relayFlowStarting = true;
   try {
     await flushAll(); // 화면의 약속(spec_워크플로우 ② §17-7 「시작」) — 고친 글 · 구성 입력을 먼저 서버에(서버 실행은 서버의 문서 · 값으로 돈다)
@@ -694,7 +705,7 @@ async function relayFlowRun(from, { to = "", only = "", row = false, role = "", 
     if (state.id !== id || state.epoch !== epoch) return { ok: false, text: "다른 문서를 열어 시작하지 않았습니다" };
     const skip = state.id === tgt.id && typeof dv !== "undefined" && dv.skip ? [...dv.skip] : []; // 「반영에서 빼기」 — 목적 문서의 화면에만 있는 입력(② §17-11 ⓙ)
     const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : ""; // 서식 정리 스킬(LLM 검증·보완의 셋째)
-    const r = await flowStart(tgt.id, { from, ...(to && to !== from ? { to } : {}), ...(only ? { only, ...(row ? { row: true } : {}) } : {}), ...(role ? { role } : {}), where: "panel", docs: { target: tgt.id, source: src.id },
+    const r = await flowStart(tgt.id, { from, ...(to && to !== from ? { to } : {}), ...(only ? { only, ...(row ? { row: true } : {}) } : {}), ...(role ? { role } : {}), where: "panel", docs: { target: tgt.id, source: many ? null : src.id },
       ...(Array.isArray(paid) ? { by: "agent", paid } : {}), ...(skip.length ? { skip } : {}), ...(skill ? { skill } : {}), ...(sig || cat.sig ? { sig: sig || cat.sig } : {}) });
     if (!r.ok && (r.reason === "client" || r.reason === "old")) return say(SINGLE_NOT_SERVED); // 서버가 맡지 않는 묶음 · 옛 서버 — 화면 실행으로 가지 않는다
     if (!r.ok && r.reason === "noWork") return { ok: true, text: r.message || "남은 단계가 없습니다", none: true };
@@ -703,15 +714,15 @@ async function relayFlowRun(from, { to = "", only = "", row = false, role = "", 
       if (beside || (r.run.lane && r.run.lane !== want)) return say(r.message || "지금 진행 중인 작업이 끝난 뒤에 누르세요"); // 다른 문서만 잡은 실행 때문에 못 한다(두 문서를 함께 쓰는 단계) · 거울이 이미 서 있다 — 그 실행을 따라가지 않고 까닭을
       toast("다른 화면에서 진행 중입니다 — 그 실행을 따라 보입니다"); n = r.run.n; q = true; got = r.run;
     } else if (!r.ok && r.reason === "error") { // 시작 요청의 답을 못 받음 — 서버가 이미 시작했을 수 있다: 도는 실행이 있으면 그것을 따라간다
-      const live = await flowLive(want === "source" ? src.id : tgt.id);
+      const live = await flowLive(want === "source" && src ? src.id : tgt.id);
       if (!flowActive(live) || beside) return say(`시작하지 못했습니다 — ${r.message || "서버 응답 없음"} · 다시 누르세요`);
       n = live.n; got = live;
     } else if (!r.ok) {
       if (r.reason === "definition" && typeof taskCatalogRefresh === "function") taskCatalogRefresh(job); // 그 사이 정의가 바뀌었다 — 목록 · 단계 흐름을 새 정의로 다시 읽는다(대시보드도)
       return say(r.message || "시작하지 못했습니다");
     }
-    if (state.id !== tgt.id && state.id !== src.id) return { ok: false, text: "다른 문서를 열었습니다 — 실행은 서버에서 이어집니다" };
-    const L = (got && got.lane) || "", held = L === "source" ? src.id : L === "target" ? tgt.id : "";
+    if (state.id !== tgt.id && state.id !== mine.id && !(many && relayFlowParts().some((w) => w.id === state.id))) return { ok: false, text: "다른 문서를 열었습니다 — 실행은 서버에서 이어집니다" };
+    const L = (got && got.lane) || "", held = L === "source" ? mine.id : L === "target" ? tgt.id : "";
     if (beside || (taskRun && taskRun !== mirror) || (held && held !== state.id)) { // 거울을 세우지 않는다 — 다른 문서의 실행을 따라가는 거울이 서 있다 · 이 실행은 보고 있지 않은 문서만 잡았다: 곁에서 지켜본다
       const who = L === "source" ? "원본 문서" : L === "target" ? "목적 문서" : "", text = `${who ? `${who}의 실행을` : "실행을"} 시작했습니다 — 서버에서 진행합니다(진행은 대시보드에 보입니다${held && held !== state.id ? " · 이 문서는 그대로 쓸 수 있습니다" : ""})`;
       const done = flowSideWatch(tgt.id, got, text);
@@ -719,7 +730,7 @@ async function relayFlowRun(from, { to = "", only = "", row = false, role = "", 
       if (!quiet) toast(text);
       return { ok: true, text, side: true, started: got, done };
     }
-    const done = relayFlowFollow(tgt.id, src.id, n, { quiet: q, stage: from, only, lane: L, role }); // 거울(taskRun)이 선 뒤에 relayFlowStarting 을 내린다(아래 finally — 사이에 틈이 없다)
+    const done = relayFlowFollow(tgt.id, mine.id, n, { quiet: q, stage: from, only, lane: L, role }); // 거울(taskRun)이 선 뒤에 relayFlowStarting 을 내린다(아래 finally — 사이에 틈이 없다)
     return detach ? { ok: true, text: "", started: got, done } : done;
   } finally { relayFlowStarting = false; }
 }

@@ -1,4 +1,5 @@
-"""개요 줄의 레터 고치기 API(spec_hwpx_웹편집 ② §8-12) — 고른 개요 줄의 레터 · 레터 앞뒤 빈칸 · 앞 여백을 고치고 범위(이 문단만 · 서식 전체 변경 · 새 템플릿으로 추가)를 고른다:
+"""개요 줄의 헤딩 고치기 API(spec_hwpx_웹편집 ② §8-12 — 2026-11-24 전의 이름 「레터 고치기」) — 고른 개요 줄의 레터 · 레터 앞뒤 빈칸 · 앞 여백 · 2번째 줄을 고치고
+범위(이 문단만 · 서식 전체 변경 · 새 템플릿으로 나누기 — 시작 · 끝 레벨)를 고른다:
 창의 자료(POST …/outline/tune/suggest) · 반영(POST …/outline/tune). server.py 가 include 한다(개요 레벨 더하기 `outline_grow_api` 와 같은 꼴).
 계획 · 반영은 `app/outline_tune.py`, 실행은 편집 트랜잭션 하나(`server._edit` — 표준 검사 · 실행 취소 1(오버레이도 함께) · 기록 kind `outline` `op: tune`)."""
 import secrets
@@ -9,7 +10,7 @@ from app import outline_edit, outline_match, outline_tune
 
 router = APIRouter()
 UNDO_MARK = "tune"   # 실행 취소 묶음에 남기는 표(이 창의 반영이 만든 묶음인가 — 창의 「되돌리기」 가 본다)
-SCOPE_NAMES = {"line": "이 문단만", "level": "서식 전체 변경", "split": "새 템플릿으로 추가"}
+SCOPE_NAMES = {"line": "이 문단만", "level": "서식 전체 변경", "split": "새 템플릿으로 나누기"}
 
 
 def _sess(doc_id):
@@ -49,13 +50,15 @@ def tune_suggest(doc_id: str, body: dict = Body(...)):
 
 
 def _args(body):
-    return {"letter": body.get("letter"), "lead": body.get("lead"), "gap": body.get("gap"), "front": body.get("frontMm"), "exact": bool(body.get("exact"))}
+    return {"letter": body.get("letter"), "lead": body.get("lead"), "gap": body.get("gap"), "front": body.get("frontMm"), "exact": bool(body.get("exact")),
+            "line2": body.get("line2"), "start": body.get("start"), "upto": body.get("upto"), "cut": body.get("cut")}
 
 
 @router.post("/api/docs/{doc_id}/outline/tune/preview")
 def tune_preview(doc_id: str, body: dict = Body(...)):
-    """{id, letter?, exact?, lead?, gap?, frontMm?} — 그 값으로 범위 셋(이 문단만 · 서식 전체 변경 · 새 템플릿으로 추가)을 반영하면 어떻게 되나(outline_tune.preview 꼴 — 범위마다 ok · 못 하는 까닭 ·
-    바뀔 줄 수 · 이미 같은 줄 · 표의 서식이라 남는 줄 · 새 템플릿 이름 · 따라가는 아래 줄) + rev. 문서 · 오버레이는 안 바뀐다. 400 고칠 수 없는 줄 · 409 2단계 결과 없음."""
+    """{id, letter?, exact?, lead?, gap?, frontMm?, line2?(text | letter | front), start?, upto?, cut?(here | all — 새 템플릿으로 나누기의 시작 · 끝 레벨 · 범위)} — 그 값으로 범위 셋
+    (이 문단만 · 서식 전체 변경 · 새 템플릿으로 나누기)을 반영하면 어떻게 되나(outline_tune.preview 꼴 — 범위마다 ok · 못 하는 까닭 ·
+    바뀔 줄 수 · 이미 같은 줄 · 표의 서식이라 남는 줄 · 새 템플릿 이름 · 옮겨 갈 줄 · 끝 레벨 아래라 남는 줄) + rev. 문서 · 오버레이는 안 바뀐다. 400 고칠 수 없는 줄 · 409 2단계 결과 없음."""
     server, s = _sess(doc_id)
     pid = _pid(body)
     with s.lock:
@@ -95,7 +98,9 @@ def _plan(s, ov, pid, body):
 @router.post("/api/docs/{doc_id}/outline/tune")
 def tune(doc_id: str, body: dict = Body(...)):
     """{id, letter?(고른 레터 — 번호형은 꼴: 줄마다 제 번호), exact?(직접 입력 — 적은 그대로), lead?(레터 앞 빈칸 칸 수), gap?(레터 뒤 빈칸 칸 수), frontMm?(앞 여백 mm),
-    scope: "line"(이 문단만 — 기본) | "level"(서식 전체 변경: 이 줄을 대표로 삼고 그 레벨 줄을 모두 맞춤) | "split"(새 템플릿으로 추가: 이 줄과 서식이 같은 줄을 서식 종속 템플릿으로), rev?(창을 연 문서 차례)} —
+    line2?(2번째 줄 — text 글 시작 | letter 레터 | front 앞 여백),
+    scope: "line"(이 문단만 — 기본) | "level"(서식 전체 변경: 이 줄을 대표로 삼고 그 레벨 줄을 모두 맞춤) | "split"(새 템플릿으로 나누기: 이 줄 — 또는 start 레벨의 윗줄 — 부터 새 템플릿으로 ·
+    start?(시작 레벨) · upto?(끝 레벨 — 없으면 끝까지) · cut?(here 그 줄과 아래 | all 그 레벨 줄 모두)), rev?(창을 연 문서 차례)} —
     트랜잭션 하나. 응답 = 편집 응답(tops · rev …) + tune{scope, name(「T1 L5」), letter, changed(바뀐 줄 수), matched(맞춘 다른 줄 수), kept(표의 서식이라 레터만 바꾼 줄 수),
     left[{id, why, kinds}](짝 표지 때문에 남긴 줄), split{id, no, name, moved, lines} | null} + outline{lines, removed, fmts}. 화면은 이어서 GET …/outline 로 템플릿 요약을 다시 읽는다.
     400 잘못된 값 · 고칠 수 없는 줄 · 바뀔 것이 없음 · 못 떼는 자리 · 409 2단계 없음 · 문서가 바뀜(rev) · 422 표준 검사에 걸려 되돌림."""
@@ -110,7 +115,7 @@ def tune(doc_id: str, body: dict = Body(...)):
             raise HTTPException(409, "그 사이에 문서가 바뀌었습니다 — 지금 문서로 다시 확인했습니다. 「적용」 을 한 번 더 눌러 주세요")
         pl = _plan(s, ov, pid, body)
         o = pl.get("others") or {}
-        hit = [pid] + o.get("diff", []) + o.get("same", []) + [p for p in o.get("own", []) if p in (pl.get("toks") or {})] + list((pl.get("split") or {}).get("roots") or [])
+        hit = [pid] + o.get("diff", []) + o.get("same", []) + [p for p in o.get("own", []) if p in (pl.get("toks") or {})] + list((pl.get("split") or {}).get("touch") or [])
         hit = [p for p in dict.fromkeys(hit) if p in s.doc._ids]
 
         def run():
@@ -127,10 +132,10 @@ def tune(doc_id: str, body: dict = Body(...)):
             made.update({"scope": pl["scope"], "name": f"T{pl['no']} L{pl['level']}", "letter": got["letter"], "was": pl["old"][1], "changed": len(changed), "matched": got["matched"],
                          "kept": len(got["kept"]), "left": left, "split": got["split"], "id": pid})
             return {"hosts": [s.doc._ids[i] for i in seen if i in s.doc._ids], "formatted": set(changed), "struct": set(), "origin": {}, "anchor": pid,
-                    "log": {"op": "tune", "ids": [pid], "tune": {"scope": pl["scope"], "tpl": pl["no"], "level": pl["level"], "letter": got["letter"], "changed": len(changed),
+                    "log": {"op": "tune", "ids": [pid], "tune": {"scope": pl["scope"], "tpl": pl["no"], "level": pl["level"], "letter": got["letter"], "changed": len(changed), **({"line2": pl["line2"]} if pl.get("line2") else {}),
                                                                 **({"split": got["split"]["name"]} if got["split"] else {}), **({"left": len(left)} if left else {})}}}
         return [s.doc._ids[i] for i in hit], run
-    out = server._edit(doc_id, make, "outline", {"op": "tune", **{k: body.get(k) for k in ("id", "letter", "exact", "lead", "gap", "frontMm", "scope") if body.get(k) is not None}})
+    out = server._edit(doc_id, make, "outline", {"op": "tune", **{k: body.get(k) for k in ("id", "letter", "exact", "lead", "gap", "frontMm", "line2", "scope", "start", "upto", "cut") if body.get(k) is not None}})
     if isinstance(out, dict):
         token = secrets.token_hex(8)
         with s0.lock:   # 방금 만든 실행 취소 묶음에 표를 — 창의 「되돌리기」 는 이 표가 맨 위에 있을 때만 되돌린다

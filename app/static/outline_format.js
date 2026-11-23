@@ -2,7 +2,7 @@
 // 자료 = GET /api/docs/{id}/outline 의 templates[tid].slots[레벨] {letter, lines, rooted, pos(규칙), at(대표 서식의 자리), to(규칙을 건 뒤 = 새 줄의 자리)} — app.js heads.outline.
 // 고치면 PUT …/outline/slots/{tid}/{레벨} 이 그 레벨 줄 모두의 문단 여백(왼쪽·첫 줄)을 맞추고(구조 편집 1회 — 실행 취소), 화면은 바뀐 문단의 여백만 다시 잡는다.
 // app.js 다음에 읽힌다(el·hBtn·api·toast·heads·state·indentLook·paginate …). 훅: app.js headsTplView 의 levels() 가 olfRow(id, L) 을, outlineLoad 가 olfRefresh() 를 부른다.
-const OLF_RULE = { text: "글 시작에 맞춤", mm: "직접", keep: "문단 서식 그대로" };
+const OLF_RULE = { text: "글 시작에 맞춤", letter: "레터에 맞춤", front: "앞 여백에 맞춤", mm: "직접", keep: "문단 서식 그대로" }; // 레터 · 앞 여백 = 헤딩 고치기(outline_tune.js)가 거는 규칙도(spec_hwpx_웹편집 ② §8-1)
 const OLF_FREE = { center: "가운데 정렬", right: "오른쪽 정렬" }; // 슬롯의 free — 사람이 정한 규칙이 없는 가운데 · 오른쪽 정렬 레벨: 기본 규칙을 안 건다(outline_pos.free · ② §8-1)
 const olfMm = (v) => (v == null ? "–" : (Math.round(v * 10) / 10).toFixed(1));
 

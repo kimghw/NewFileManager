@@ -903,12 +903,13 @@ async function taskSlotSet(kind, wid) { // 칸에 문서를 고름(wid "" = 선�
   // 「선택 안 함」 이거나 열지 않았으면(반영 안 된 수정을 두고 그만둠 · 못 엶) 전처럼 종류만 비운다(과제에는 남음 — 보고 있는 문서의 과제 칸이 비지 않게)
   const id = state.id, epoch = state.epoch, P = taskProject(), docs = taskDocs(), neu = docs.find((w) => w.id === wid);
   const put = (w, t) => api(`/api/works/${w.id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ kind: "", file: "", job: "", project: "", ...(w.task || {}), ...t }) });
-  const me = docs.find((w) => w.id === id && w.id !== wid && (w.task || {}).file === kind) || null; // 그 칸에 있던 지금 문서
+  const many = typeof taskCollectKind === "function" && !!kind && taskCollectKind((state.task || {}).job) === kind; // 같은 양식 취합의 기관 문서 칸 — 문서가 여럿이다: 넣는 문서는 더해지고 있던 문서는 밀려나지 않는다(spec_취합 ② §10)
+  const me = many ? null : docs.find((w) => w.id === id && w.id !== wid && (w.task || {}).file === kind) || null; // 그 칸에 있던 지금 문서
   const swap = !!(me && neu) && confirmDiscard(); // 그 자리에 다른 문서가 들어온다 → 그 문서로 화면을 바꾼다(반영 안 된 수정이 있으면 먼저 묻는다)
   let moved = false; // 새 문서를 실제로 열었나
   try {
     if (neu && neu.id !== id && neu.task && neu.task.project && !taskSameScope(neu)) throw new Error("다른 프로젝트·워크플로우·라운드의 문서는 첨부할 수 없습니다");
-    for (const w of docs.filter((w) => w.id !== wid && w.id !== id && (w.task || {}).file === kind && P && taskSameScope(w))) await put(w, { project: "", round: 1 });
+    if (!many) for (const w of docs.filter((w) => w.id !== wid && w.id !== id && (w.task || {}).file === kind && P && taskSameScope(w))) await put(w, { project: "", round: 1 });
     if (neu) {
       const r = await put(neu, { kind: "rnd", file: kind, project: P, job: state.task.job, round: taskRound() });
       if (wid === id && epoch === state.epoch) state.task = r.task;
@@ -1792,7 +1793,21 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
   box.id = "taskFlow";
   box.dataset.key = taskFlowKey();
   files.title = "첨부 파일 — 이 할 일에 드는 문서(앞의 것이 기준)";
-  taskSlots().forEach((k, i) => { const lab = el("label"); lab.append(el("span", null, taskName("file", k) + (i ? "" : "(기준)")), taskSlot(k), taskSlotUp(k), taskSlotPeer(k)); files.append(lab); }); // 이름 · 문서 고르기 · 폴더(올리기) · 같이 보기(② §12)
+  const manyKind = typeof taskCollectKind === "function" ? taskCollectKind(state.task.job) : ""; // 같은 양식 취합의 기관 문서 칸(여럿 — spec_취합 ② §10): 문서 하나를 고르는 칸이 아니다 — 몇 개인지와 대시보드의 「기관 문서」 목록으로 가는 단추만(올리기 · 반영할 기관 · 수정본은 거기서)
+  taskSlots().forEach((k, i) => {
+    const lab = el("label");
+    if (k === manyKind) {
+      const n = taskDocs().filter((w) => (w.task || {}).file === k && (w.id === state.id || taskSameScope(w))).length, note = el("span", "dv-flow-many"); // 칸 넷(이름 · 고르기 · 폴더 · 같이 보기) 가운데 뒤 셋에 걸친다(collect.css)
+      note.dataset.taskMany = k;
+      note.append(el("span", null, n ? `문서 ${n}개` : "없음 — 올려 주세요"));
+      lab.append(el("span", null, taskName("file", k)), note);
+      lab.onclick = (e) => { if (!e.target.closest("button")) e.preventDefault(); }; // label 안이라 — 글을 눌러도 단추가 눌리지 않게
+      note.append(hBtn("기관 문서 목록", () => { if (typeof DASH !== "undefined") DASH.open = "files"; showTab("Dash"); }, { title: "대시보드의 「준비」 카드 — 기관 문서를 올리고 문서마다 반영할 기관 · 공통 자리 포함 · 수정본을 정합니다" }));
+      files.append(lab);
+      return;
+    }
+    lab.append(el("span", null, taskName("file", k) + (i || manyKind ? "" : "(기준)")), taskSlot(k), taskSlotUp(k), taskSlotPeer(k)); files.append(lab);
+  }); // 이름 · 문서 고르기 · 폴더(올리기) · 같이 보기(② §12)
   const stages = el("div", "dv-phases"); // 묶음 둘(1단계 · 2단계) — id 는 전의 단계 목록 것 그대로(「#taskSteps li」 가 두 묶음의 줄을 문서 차례로 준다)
   stages.id = "taskSteps";
   taskStepsCalc();
@@ -10567,7 +10582,7 @@ function divCtxItems(e) { // 오른쪽 단추 메뉴 항목(앞에 구분선) �
 function divContextMenu(e) { // 표 밖 문단 — 표 칸은 tselContextMenu 가 맡는다
   if (!state.id || (typeof cellOf === "function" && cellOf(e.target))) return;
   const items = divCtxItems(e).slice(1);
-  const olt = typeof oltCtxItems === "function" ? oltCtxItems(e) : []; // 개요 줄의 「레터 고치기…」(outline_tune.js — spec_hwpx_웹편집 ② §8-12): 다른 항목이 없는 문서(연구개발 문서가 아님 · 편집 구역 꺼짐)에서도 뜬다
+  const olt = typeof oltCtxItems === "function" ? oltCtxItems(e) : []; // 개요 줄의 「헤딩 고치기…」(outline_tune.js — spec_hwpx_웹편집 ② §8-12): 다른 항목이 없는 문서(연구개발 문서가 아님 · 편집 구역 꺼짐)에서도 뜬다
   if (!items.length && !olt.length) return;
   if (!items.length) { e.preventDefault(); ctxOpen(e, olt.slice(1)); return; }
   if (typeof tmkParaItems === "function") items.push(...tmkParaItems(e)); // 표 모듈(table_make.js) — 「고른 글로 표 만들기…」(spec_헤딩_추출 ② §11)

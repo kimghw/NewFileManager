@@ -351,7 +351,7 @@ function tselMenu(anchor = null) { // 맨 위 목록 — 고른 칸(칸 단위) 
     ...(typeof xlCellItems === "function" ? xlCellItems(tbl) : []), // 고른 칸 엑셀식 보기 — 수식 판정(tables.js — spec_헤딩_추출 ② §14)
     ...(typeof tmkCellItems === "function" ? tmkCellItems(tbl) : []), // 표 만들기 · 서식 변환(table_make.js — spec_헤딩_추출 ② §11): 「이 표를 표 양식으로」·「양식 서식으로 변환…」
     ...(e && typeof tempCtxItems === "function" ? tempCtxItems(e) : []), // TEMP 로 지정·해제(heading_temp.js — spec_헤딩_추출 ② §15)
-    ...(e && typeof oltCtxItems === "function" ? oltCtxItems(e) : []), // 표 칸 안 개요 줄의 「레터 고치기…」(outline_tune.js — spec_hwpx_웹편집 ② §8-12)
+    ...(e && typeof oltCtxItems === "function" ? oltCtxItems(e) : []), // 표 칸 안 개요 줄의 「헤딩 고치기…」(outline_tune.js — spec_hwpx_웹편집 ② §8-12)
     ["선택 풀기", "Esc", () => tselClear()],
   );
   tctxOpen(items, anchor);

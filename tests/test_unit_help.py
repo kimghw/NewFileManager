@@ -27,6 +27,8 @@ def _offered():
         out.append(("gather", k, U.COMMON["hand"] if k == "hand" else U.unit(k, "gather")))
     for k in C.SINGLE_UNITS:   # 문서 하나
         out.append(("single", k, U.COMMON["hand"] if k == "hand" else U.SINGLE[k]))
+    for k in (*C.COLLECT_UNITS, "hand"):   # 같은 양식 취합(N → 1 · 같은 양식 — spec_취합 ② §10: 그 틀의 줄 + 같이 쓰는 줄)
+        out.append(("collect", k, U.COMMON["hand"] if k == "hand" else U.unit(k, "collect")))
     return out
 
 
@@ -76,6 +78,14 @@ def test_help_matches_the_automatic_run():
         assert "계획 보기」 에서 확인하고" not in " ".join(of(fam, "apply").values())
         assert "사람의 확인을 기다리지 않" in of("relay", "plan")["care"]
     assert "원본 문서" in of("relay", "config")["easy"] and "취합본" in of("gather", "config")["easy"]   # 구성의 기준 문서가 틀마다 다르다
+    # 같은 양식 취합 — 구성의 기준 = 사업계획서(기관 문서의 값으로 정하지 않는다) · 기관 문서마다 묻지 않고 넣는다 · 반영할 기관 = 미지정만 자동 · 수정본 = 바뀐 곳만 · LLM 없음
+    assert "사업계획서" in of("collect", "config")["easy"] and "묻지 않고 확정" in of("collect", "config")["care"] and "기관 문서의 값으로는 정하지 않" in of("collect", "config")["care"]
+    assert "묻지 않" in of("collect", "apply")["care"] and "덮지 않" in of("collect", "apply")["care"] and "반영한 것으로 세지 않" in of("collect", "apply")["care"]
+    assert "사람의 확인을 기다리지 않" in of("collect", "plan")["care"] and "다른 화면이 원본을 바꿨으면" in of("collect", "plan")["care"]
+    assert "그 기관의 자리에만" in of("collect", "part")["easy"] and "사람이 정한 것은 그대로" in of("collect", "part")["care"] and "미지정으로 남기고" in of("collect", "part")["care"]
+    assert "바뀐 곳만" in of("collect", "revise")["easy"] and "겹침으로 남깁니다" in of("collect", "revise")["care"] and "지우지 않습니다" in of("collect", "revise")["care"] and "LLM 을 쓰지 않습니다" in of("collect", "revise")["care"]
+    assert "사업계획서에 불러오세요" in of("collect", "configLoad")["care"] and "기관 문서에는 놓지 않습니다" in of("collect", "headsLlm")["care"] and "함께 지워집니다" in of("collect", "division")["care"]
+    assert of("collect", "reheads") == of("relay", "reheads") and of("collect", "guide") == of("relay", "guide")   # 뜻이 같은 줄은 같이 쓰는 줄의 글 그대로
     assert "원본 문서에 불러오세요" in of("relay", "configLoad")["care"]   # 불러오기는 지금 연 문서의 입력 칸을 채운다 — 자동 추출이 읽는 것은 원본 문서
     assert "저절로 확정하지 않" in of("single", "values")["care"] and of("single", "values")["who"].startswith("사람이")   # 문서 하나는 사람이 확정
     assert "「반영」 을 눌러야" in of("gather", "drop")["care"]   # 끌어 넣기만은 사람이 「반영」
@@ -105,27 +115,28 @@ def test_see_names_real_screen_places():
 
 def test_no_orphan_help():
     """글이 있는 줄은 모두 그 틀에 놓을 수 있는 줄이다(없어진 줄 · 그 틀에 없는 줄의 글이 남지 않게) · 문서 하나는 제 줄만(같이 쓰는 줄로 새지 않는다)."""
-    offered = {fam: {k for f, k, _ in OFFERED if f == fam} for fam in ("relay", "gather", "single")}
+    offered = {fam: {k for f, k, _ in OFFERED if f == fam} for fam in ("relay", "gather", "single", "collect")}
+    assert set(H.COLLECT) <= offered["collect"] and H.of("collect", "llm") is None and H.of("collect", "frame") is None   # 같은 양식 취합 — 이관형의 LLM 줄 · 취합형의 기준본 줄은 없다
     assert set(H.COMMON) <= offered["relay"] and set(H.RELAY) <= offered["relay"] - set(H.COMMON)   # 같이 쓰는 줄의 글 = 이관형의 글
     assert set(H.GATHER) <= offered["gather"] and set(H.SINGLE) <= offered["single"]
     assert H.of("single", "config") is None and H.of("single", "division") is None
     assert H.of("relay", "hand3") == H.of("relay", "hand") == H.of("gather", "hand") == H.of("single", "hand") and H.of("relay", "nope") is None
     for auto in ("files", "open", "later"):   # 사람이 놓지 않는 줄(준비 · 아직 없는 단계)은 설명 목록에 없다
-        assert all(H.of(fam, auto) is None for fam in ("relay", "gather", "single")), auto
-    assert H.of("gather", "link") != H.of("relay", "link")   # 같은 key 도 틀마다 글이 다르다
+        assert all(H.of(fam, auto) is None for fam in ("relay", "gather", "single", "collect")), auto
+    assert H.of("gather", "link") != H.of("relay", "link") != H.of("collect", "link") != H.of("gather", "link")   # 같은 key 도 틀마다 글이 다르다
 
 
 def test_compose_response_carries_help():
     """조립 화면의 응답(GET /api/tasks?v=2 의 몸) — 세 틀의 고를 줄마다 help(쉬운 글)가 그 틀의 글로 실린다(astra: 시험의 출발점은 API 의 고를 수 있는 줄) · 그 줄 = 이 시험이 글을 본 줄."""
     from app import custom_tasks_api as A
     body = A.tasks_get("2")
-    lists = {"relay": body["units"], "gather": body["byShape"]["gather"]["units"], "single": body["byShape"]["single"]["units"]}
+    lists = {"relay": body["units"], "gather": body["byShape"]["gather"]["units"], "single": body["byShape"]["single"]["units"], "collect": body["byShape"]["collect"]["units"]}
     for fam, units in lists.items():
         keys = [u["key"] for u in units]
         assert len(keys) == len(set(keys)) and set(keys) == {k for f, k, _ in OFFERED if f == fam}, (fam, keys)
         for u in units:
             assert u.get("help") == H.of(fam, u["key"]) and u["help"]["easy"], (fam, u["key"])
-    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 21, "gather": 12, "single": 14}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다(19 = 2026-11-22 「넣은 뒤 템플릿 · 서식 정리」 · 20 = 2026-11-23 「캡션 맞추기」 · 21 = 같은 날 「줄 정리」 · gather 12 = 같은 날 취합의 그 도구)
+    assert {fam: len(units) for fam, units in lists.items()} == {"relay": 21, "gather": 12, "single": 14, "collect": 20}   # 지금의 수 — 줄을 더하면 이 수와 글을 함께 고친다(19 = 2026-11-22 「넣은 뒤 템플릿 · 서식 정리」 · 20 = 2026-11-23 「캡션 맞추기」 · 21 = 같은 날 「줄 정리」 · gather 12 = 같은 날 취합의 그 도구)
     by = lambda fam: {u["key"]: u["help"]["easy"] for u in lists[fam]}  # noqa: E731
     assert by("relay")["link"] != by("gather")["link"] and by("relay")["plan"] != by("single")["plan"] and by("relay")["heads"] != by("single")["heads"]   # 같은 key 도 틀마다 다른 글
     assert by("gather")["hand"] == by("relay")["hand"] == by("single")["hand"] and "기관에 나눠" not in by("gather")["hand"]   # 취합의 「사람이 하는 일」 ≠ 붙박이 취합의 「기관에 배포 · 회수」
@@ -136,7 +147,7 @@ def test_hand_line_stops_like_its_help_says():
     """도구 설명은 세 틀 모두 「「했음」 기록이 없으면 자동 진행이 여기서 멈춥니다」 라 한다 — 조립한 정의의 그 줄(hand1 …)이 어느 틀에서나 실제로 멈추는 단위(kind hand)여야 한다.
     (astra 2차 P1 — 취합형의 hand1 이 붙박이 취합의 「기관에 배포 · 회수」(kind pick — 지나감)로 찾아져 「했음」 없이 지나갔다: ea 가 workflow_units.unit 에서 고침 2026-11-20.)"""
     assert "멈춥니다" in H.of("gather", "hand")["care"]
-    for fam in ("relay", "gather", "single"):
+    for fam in ("relay", "gather", "single", "collect"):
         assert U.unit("hand1", fam)["kind"] == "hand", fam
     assert U.unit("hand", "gather")["kind"] == "pick"   # 대조 — 붙박이 취합의 번호 없는 hand(배포 · 회수: 앱 밖의 일)는 지금대로 지나간다
 
@@ -166,6 +177,7 @@ def test_only_follows_the_code_it_names():
     assert H.ONLY_TEXT["rnd"][0] == f"{F['plan']} · {F['report']} 전용"
     assert custom_tasks.PAIRS == (("plan", "report"),) and H.ONLY_TEXT["relay"][0] == f"{custom_tasks.kind_name('plan')} → {custom_tasks.kind_name('report')} 전용"
     assert custom_tasks.GATHER_PAIRS == (("part", "plan"),) and H.ONLY_TEXT["gather"][0] == f"{custom_tasks.kind_name('part')} → {custom_tasks.kind_name('plan')} 전용"
+    assert custom_tasks.COLLECT_PAIRS == (("part", "plan"),) and H.ONLY_TEXT["collect"][0] == f"기관 작성본 → {custom_tasks.kind_name('plan')} 전용"   # 같은 양식 취합 — 취합형의 「기관 문서」 와 가른 말
     tools = agent_notes.tool_map()
     for fam, key, u in OFFERED:
         if u["kind"] == "hand":
@@ -177,6 +189,8 @@ def test_only_follows_the_code_it_names():
             assert (H.only_kind(fam, key) == "relay") == (u["place"] == "pair"), f"{fam}.{key}: 이관형의 원본 → 목적 줄만 「사업계획서 → 연차보고서 전용」 입니다"
         if fam == "gather" and u["place"] == "pair":
             assert H.only_kind(fam, key) == "gather", f"{fam}.{key}: 취합의 원본 → 목적 줄은 「기관 문서 → 사업계획서 전용」 입니다"
+        if fam == "collect":   # 이 틀에만 있는 줄 · 기관 문서를 넣는 줄(원본 → 목적 · 기관 문서마다) · 그 넣은 줄을 맞추는 줄 = 「기관 작성본 → 사업계획서 전용」(2026-11-24 사용자 「취합에만 있는 도구는 전용이라고 밝힌다」)
+            assert (H.only_kind(fam, key) == "collect") == (u["place"] == "pair" or bool(u.get("each")) or key == "retidy"), f"{fam}.{key}"
     assert H.only_kind("single", "config") is None and H.only_kind("relay", "hand3") == "" and H.only("relay", "heads") is None   # 문서 하나는 제 줄만 · 사람이 하는 일 · 문서를 가리지 않는 줄
 
 
@@ -185,7 +199,7 @@ def test_compose_response_carries_only():
 
     from app import server
     T = TestClient(server.app).get("/api/tasks", params={"v": "2"}).json()
-    by = {"relay": T["units"], "gather": T["byShape"]["gather"]["units"], "single": T["byShape"]["single"]["units"]}
+    by = {"relay": T["units"], "gather": T["byShape"]["gather"]["units"], "single": T["byShape"]["single"]["units"], "collect": T["byShape"]["collect"]["units"]}
     for fam, units in by.items():
         for u in units:
             assert u.get("only") == H.only(fam, u["key"]), (fam, u["key"])
@@ -194,4 +208,8 @@ def test_compose_response_carries_only():
         "zonePrune": "사업계획서 · 연차보고서 전용",   # 빈 구역 지우기 = 구분 기준 엔진의 묶음(② §18-23)
         "link": "사업계획서 → 연차보고서 전용", "llm": "사업계획서 → 연차보고서 전용", "plan": "사업계획서 → 연차보고서 전용", "gaps": "사업계획서 → 연차보고서 전용",
         "tableMap": "사업계획서 → 연차보고서 전용", "apply": "사업계획서 → 연차보고서 전용"}
+    assert {u["key"]: (u["only"] or {}).get("label") for u in by["collect"] if u.get("only")} == {
+        "configLoad": "사업계획서 · 연차보고서 전용", "config": "사업계획서 · 연차보고서 전용", "take": "사업계획서 · 연차보고서 전용", "division": "사업계획서 · 연차보고서 전용", "zonePrune": "사업계획서 · 연차보고서 전용",
+        "part": "기관 작성본 → 사업계획서 전용", "link": "기관 작성본 → 사업계획서 전용", "plan": "기관 작성본 → 사업계획서 전용", "apply": "기관 작성본 → 사업계획서 전용",
+        "revise": "기관 작성본 → 사업계획서 전용", "retidy": "기관 작성본 → 사업계획서 전용"}
 

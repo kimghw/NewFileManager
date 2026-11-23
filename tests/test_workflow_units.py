@@ -48,7 +48,7 @@ def test_units_are_well_formed_and_closed():
             assert not u["paid"] or u["kind"] == "auto", where
     assert not set(U.RELAY) & set(U.COMMON)   # 이관형은 같이 쓰는 단위와 key 가 겹치지 않는다(한 워크플로우 안에서 key 는 하나)
     # 문서 하나 · 취합형은 같이 쓰는 단위와 key 가 겹치는 줄이 있다(뜻이 다르다 — 가족의 것이 먼저: unit) → 그 가족은 제 상태 표를 지녀 같은 key 의 다른 틀 식으로 새지 않는다(② §18-13)
-    for fam in ("single", "gather"):
+    for fam in ("single", "gather", "collect"):   # collect = 같은 양식 취합(이관형과 같은 key 의 줄 — 따로 선 단위 · 제 상태 표: tests/test_workflow_collect.py)
         over = set(U.FAMILIES[fam]) & (set(U.COMMON) | set(U.RELAY))
         assert over and fam in U._STATE_BY and all(U.unit(k, fam) is U.FAMILIES[fam][k] for k in over), fam
         assert all(k in U._STATE_BY[fam] or U.FAMILIES[fam][k]["kind"] == "pick" for k in U.FAMILIES[fam]), fam   # 실행기가 하는 줄마다 제 상태 식

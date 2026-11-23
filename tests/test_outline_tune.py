@@ -1,8 +1,10 @@
-"""개요 줄의 레터 고치기(spec_hwpx_웹편집 ② §8-12 — app/outline_tune.py · app/outline_tune_api.py): 줄의 레터 · 레터 앞뒤 빈칸 · 앞 여백을 고치고 범위를 고른다.
+"""개요 줄의 헤딩 고치기(spec_hwpx_웹편집 ② §8-12 — app/outline_tune.py · app/outline_tune_api.py · 2026-11-24 전의 이름 「레터 고치기」): 줄의 레터 · 레터 앞뒤 빈칸 · 앞 여백 · 2번째 줄을 고치고 범위를 고른다.
 연구개발계획서 양식(2단계 LLM 끔 → 가지 템플릿 T2 「□›o›-›·」 — p970 □ › p972 o › p974 - › p975 ⋅ · 다음 묶음 p977 o › p979 - › p980 ⋅ · L3 「-」 줄 5개 · 대표 p974).
 창의 자료(suggest) · 미리보기(범위 셋의 가능 여부와 수) · 이 문단만(빈칸 · 앞 여백 · 닮은 글자 — 다른 줄 그대로 / 레터 계열이 달라지면 거절 / 레터로 안 읽히는 꼴 거절) ·
 서식 전체 변경(이 줄이 대표 · 다른 줄 모두 같은 서식 · 레터 계열 바꿈 = 사슬 · 슬롯 · 줄의 키 / 기호 「o」 → 「①」 이 형제 차례로(「⑮」 아님)) · 값 없이 넓히기 ·
-새 템플릿으로 추가(T2L3a — 아래 줄이 따라감 · 원래 템플릿 그대로 · 대표 줄 · 대표와 같은 줄은 거절) · 실행 취소 = 원본 바이트 + 오버레이 · 창의 되돌리기는 문서 차례가 그대로일 때만."""
+새 템플릿으로 나누기(T2L3a — 아래 줄이 따라감 · 원래 템플릿 그대로 · 대표 줄도 · 값 없이도 · 시작 · 끝 레벨 — 다시 분석해도 그 범위) · 2번째 줄(글 시작 · 레터 · 앞 여백) ·
+실행 취소 = 원본 바이트 + 오버레이 · 창의 되돌리기는 문서 차례가 그대로일 때만."""
+import copy
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ from app import heading_guides as G
 from app import heading_rules as R
 from app import heading_runs
 from app import outline_match as OM
+from app import outline_pos as OP
 from app import outline_tune as OT
 from app import server
 
@@ -92,17 +95,27 @@ def test_suggest(doc):
 
 def test_preview_counts(doc):
     c, d, s = doc
-    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979"}).json()   # 값 없음 · 대표와 같은 줄 — 셋 다 못 함
-    assert not j["line"]["ok"] and not j["level"]["ok"] and not j["split"]["ok"]
+    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979"}).json()   # 값 없음 · 대표와 같은 줄 — 이 문단만 · 전체 변경은 못 하고 나누기(자리로)는 된다
+    assert not j["line"]["ok"] and not j["level"]["ok"] and j["split"]["ok"] and j["split"]["conform"] is None
     j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979", "gap": 2}).json()
     assert j["line"]["ok"] and j["changes"] and not j["kin"] and j["new"] == {"letter": "-", "lead": 4, "gap": 2}
     new = {"letter": "-", "lead": 4, "gap": 2}
     assert j["level"] == {"ok": True, "new": new, "total": 5, "change": 4, "same": 0, "own": 0, "ownLetter": 0, "skip": 0, "letters": [], "more": 0}
-    assert j["split"] == {"ok": True, "new": new, "name": "T2L3a", "roots": 1, "kids": 1}   # p980 「⋅」 이 따라간다
+    sp = j["split"]
+    assert {k: sp[k] for k in ("ok", "new", "name", "start", "upto", "cut", "roots", "kids", "moved", "stay", "levels")} == {
+        "ok": True, "new": new, "name": "T2L3a", "start": 3, "upto": None, "cut": "here", "roots": 1, "kids": 1, "moved": 2, "stay": 0, "levels": [[3, 1], [4, 1]]}   # p980 「⋅」 이 따라간다
+    assert sp["conform"]["total"] == 1   # 새 템플릿의 L3 = 이 줄뿐
     j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979", "letter": "▪"}).json()   # 레터 계열이 달라짐 — 이 문단만은 못 한다
     assert j["kin"] and not j["line"]["ok"] and "다른 템플릿" in j["line"]["why"] and j["level"]["ok"] and j["level"]["letters"] == [["-", "▪"]] and j["split"]["ok"]
-    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p974", "gap": 2}).json()     # 대표 줄 — 새 템플릿으로는 못 뗀다(풀 수 있는 까닭)
-    assert j["line"]["ok"] and j["level"]["ok"] and not j["split"]["ok"] and "대표" in j["split"]["why"]
+    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p974", "gap": 2}).json()     # 대표 줄도 새 템플릿으로 나눈다(2026-11-24 사용자 「대표도 새 탬플릿을 할 수 있지」)
+    assert j["line"]["ok"] and j["level"]["ok"] and j["split"]["ok"] and j["split"]["name"] == "T2L3a"
+    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979", "start": 1, "upto": 3}).json()   # L1 부터 L3 까지 — 윗줄 □ 부터 · L4 줄은 남는다
+    assert {k: j["split"][k] for k in ("name", "start", "upto", "moved", "stay", "levels")} == {"name": "T2L1a", "start": 1, "upto": 3, "moved": 5, "stay": 2, "levels": [[1, 1], [2, 2], [3, 2]]}
+    j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979", "cut": "all"}).json()   # 그 레벨 줄 모두
+    assert (j["split"]["roots"], j["split"]["moved"]) == (5, 9)
+    for body, word in (({"start": 4}, "시작 레벨"), ({"upto": 2}, "끝 레벨"), ({"cut": "x"}, "cut")):
+        j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p979", **body}).json()
+        assert not j["split"]["ok"] and word in j["split"]["why"], (body, j["split"])
     j = c.post(f"/api/docs/{d}/outline/tune/preview", json={"id": "p977", "letter": "①"}).json()   # 번호형 — 범위마다 이 줄의 번호가 다르다(astra 2차)
     assert j["level"]["new"]["letter"] == "②" and j["split"]["new"]["letter"] == "①"   # 레벨 전체 = 형제 차례(둘째) · 새 템플릿 = 1부터
     assert s.state()["undo"] == 0   # 읽기만
@@ -212,13 +225,56 @@ def test_split_new_template(doc):
     assert s.state()["undo"] == 1
 
 
-def test_split_rejects(doc):
+def test_split_rep_and_plain(doc):
+    """대표 줄도 나눈다 · 값을 안 바꿔도 나눈다(자리로 — 라벨의 「나누기」 ② §8-13 와 같은 길: 문서는 안 바뀐다)."""
     c, d, s = doc
-    r = _tune(c, d, id="p974", gap=2, scope="split")   # 대표 줄
-    assert r.status_code == 400 and "대표" in r.json()["detail"]
-    r = _tune(c, d, id="p979", scope="split")           # 값도 안 바꾸고 대표와 같은 줄
-    assert r.status_code == 400 and "대표 서식과 같습니다" in r.json()["detail"]
-    assert s.state()["undo"] == 0 and "2~3a" not in s.outline["templates"]
+    r = _tune(c, d, id="p974", gap=2, scope="split")   # 대표 줄 — 새 템플릿의 대표가 되고 T2 L3 의 대표는 남은 줄의 첫 것으로
+    assert r.status_code == 200, r.text
+    ov = s.outline
+    assert ov["lines"]["p974"]["tpl"] == "2~3a" and ov["templates"]["2~3a"]["slots"]["3"]["rep"] == "p974" and ov["templates"]["2"]["slots"]["3"]["rep"] == "p979"
+    assert OT.now(s.doc, ov, "p974")["gap"] == 2
+    assert c.post(f"/api/docs/{d}/undo").status_code == 200
+    raw = c.get(f"/api/docs/{d}/download").content
+    r = _tune(c, d, id="p979", scope="split")           # 값 없이 — 오버레이만
+    assert r.status_code == 200, r.text
+    assert s.outline["lines"]["p979"]["tpl"] == "2~3a" and r.json()["tune"]["changed"] == 0 and c.get(f"/api/docs/{d}/download").content == raw
+
+
+def test_split_levels_range(doc):
+    """시작 · 끝 레벨(2026-11-24 사용자 「t1L6 부터 어디까지 알수 있고 선택할 수 있어야 함 … T1L1 하고 T1L2 를 T3L1 로」): L1 부터 L3 까지 — 윗줄 □ 부터 새 템플릿 · L4 줄은 원래 템플릿에 남는다.
+    다시 분석해도(2단계 다시) 그 범위로 다시 건다."""
+    c, d, s = doc
+    r = _tune(c, d, id="p979", scope="split", start=1, upto=3)
+    assert r.status_code == 200, r.text
+    sp = r.json()["tune"]["split"]
+    assert (sp["name"], sp["start"], sp["upto"], sp["moved"], sp["stay"]) == ("T2L1a", 1, 3, 5, 2)
+    ov = s.outline
+    C = ov["templates"]["2~1a"]
+    assert C["max"] == 3 and C["chain"] == ["□", "o", "-"] and sorted(C["slots"], key=int) == ["1", "2", "3"] and C["variant"]["upto"] == 3
+    mine = {p: ov["lines"][p]["tpl"] for p in ("p970", "p972", "p974", "p975", "p977", "p979", "p980")}
+    assert mine == {"p970": "2~1a", "p972": "2~1a", "p974": "2~1a", "p975": "2", "p977": "2~1a", "p979": "2~1a", "p980": "2"}, mine   # L4 「⋅」 줄은 T2 그대로
+    before = {p: (x["tpl"], x["level"]) for p, x in ov["lines"].items()}
+    from app import outline_edit as OE
+    ov2 = OE.build_overlay(heading_runs.graph(s), server._outline_probe(s), rev=s.rev)   # 2단계를 다시 돌린 것과 같은 새 오버레이 — 떼기 기록(upto)으로 다시 건다
+    lost = OM.carry(ov, ov2, OM.context(s.doc, ov2), doc=s.doc)
+    after = {p: (x["tpl"], x["level"]) for p, x in ov2["lines"].items()}
+    assert not lost and after == before, (lost, {p: (before.get(p), after.get(p)) for p in set(before) | set(after) if before.get(p) != after.get(p)})
+    assert ov2["templates"]["2~1a"]["max"] == 3 and ov2["templates"]["2~1a"]["chain"] == ["□", "o", "-"]
+    # 합치면 모두 T2 로 — 합친 뒤 끝 레벨 아래 줄을 나눈 템플릿이 데려가지 않는다
+    ov3 = copy.deepcopy({k: ov.get(k) for k in ("templates", "lines", "branches", "splits", "merges")})
+    OM.unsplit(ov3, "2~1a")
+    assert all(x["tpl"] == "2" for p, x in ov3["lines"].items() if p in mine)
+
+
+def test_split_letter_from_upper_start(doc):
+    """윗줄부터 나누며 이 줄의 레터를 바꾸면 — 새 템플릿 안에서 「서식 전체 변경」(이 줄이 그 레벨의 대표 · 원래 템플릿은 그대로)."""
+    c, d, s = doc
+    r = _tune(c, d, id="p979", letter="▪", scope="split", start=2)
+    assert r.status_code == 200, r.text
+    ov = s.outline
+    C = ov["templates"]["2~2a"]
+    assert C["chain"][2] == "▫" and C["slots"]["3"]["rep"] == "p979" and C["slots"]["2"]["rep"] == "p977" and ov["templates"]["2"]["chain"] == ["□", "o", "-", "·"]
+    assert _text(s, "p979").lstrip().startswith("▪") and _text(s, "p974").startswith("    - ")
 
 
 def test_window_undo_guard(doc):
@@ -306,6 +362,34 @@ def test_heirs_chain(doc):
     assert OT.heirs(s.outline, "2", 3) == [cid] and OT.heirs(s.outline, "2", 4) == []
     assert _tune(c, d, id="p974", letter="▪", scope="level").status_code == 200
     assert s.outline["templates"]["2"]["chain"][2] == "▫" and s.outline["templates"][cid]["chain"][2] == "▫"
+
+
+def test_line2_modes(doc):
+    """2번째 줄 — 글 시작 · 레터 · 앞 여백(2026-11-24 사용자 「2번째 줄을 레터 앞에 맞출건지 레터 뒤의 첫번째 문자/글자에 맞출건지. 또는 여백으로 맞출건지」).
+    이 문단만 = 그 줄에만 건 규칙(글을 고친 뒤 저절로 맞춰도 남는다) · 서식 전체 변경 = 그 레벨의 규칙(모든 줄)."""
+    c, d, s = doc
+    j = c.post(f"/api/docs/{d}/outline/tune/suggest", json={"id": "p979"}).json()
+    assert j["cur"]["line2"] == "front" and j["rule"]["line2"] == "text" and j["widths"]["lead"] == [j["widths"]["leadAdd"]] * 4 and j["cur"]["leadMm"] > 0
+    r = _tune(c, d, id="p979", line2="letter", scope="line")
+    assert r.status_code == 200, r.text
+    cur = OT.now(s.doc, s.outline, "p979")
+    assert abs(cur["line2Mm"] - cur["letterMm"]) < 0.06 and cur["line2"] == "letter" and s.outline["lines"]["p979"]["pos"] == {"line2": "letter"}
+    assert _tune(c, d, id="p979", line2="letter", scope="line").status_code == 400   # 이미 그 자리
+    assert OP.align(s.doc, s.outline, "p979") is None and OT.now(s.doc, s.outline, "p979")["line2"] == "letter"   # 저절로 맞추기는 그 줄에만 건 규칙을 지킨다
+    r = _tune(c, d, id="p979", lead=2, scope="line")   # 다른 값만 고쳐도 그 줄의 2번째 줄 규칙은 그대로(새 레터 자리로)
+    assert r.status_code == 200, r.text
+    cur = OT.now(s.doc, s.outline, "p979")
+    assert cur["line2"] == "letter" and abs(cur["line2Mm"] - cur["letterMm"]) < 0.06
+    r = _tune(c, d, id="p974", line2="text", scope="level")
+    assert r.status_code == 200, r.text
+    assert (s.outline["templates"]["2"]["slots"]["3"].get("pos") or {"line2": "text"})["line2"] == "text" and "pos" not in s.outline["lines"]["p979"]   # 그 레벨의 규칙(기본 글 시작) · 줄에만 건 규칙은 지워짐
+    for p in L3:
+        cur = OT.now(s.doc, s.outline, p)
+        assert abs(cur["line2Mm"] - cur["textMm"]) < 0.06, (p, cur)
+    r = _tune(c, d, id="p974", line2="front", scope="level")   # 앞 여백 — 내어쓰기 없음
+    assert r.status_code == 200, r.text
+    assert all(OT.now(s.doc, s.outline, p)["line2"] == "front" for p in L3)
+    assert _tune(c, d, id="p974", line2="nope", scope="level").status_code == 400
 
 
 def test_resize_keeps_mixed_blanks():

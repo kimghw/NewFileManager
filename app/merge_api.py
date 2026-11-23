@@ -117,12 +117,22 @@ def _read(doc_id, target=False):
         return {"id": s.id, "name": s.name, "rev": s.rev, "reasons": reasons, "values": values, "doc": s.doc, "blocks": None if reasons else s.doc.blocks(), "graph": g, "tables": t}
 
 
-def _summary(side):
-    key = (side["id"], side["rev"], repr(side["values"]), id(side["graph"]), id(side["tables"]))
+def _summary(side, own=None):
+    """own = 같은 양식 취합의 기관 문서를 읽을 때 그 문서의 반영할 기관(merge_pairs.summarize — 기관 정체를 이름으로 · 그 기관의 것만 후보)."""
+    key = (side["id"], side["rev"], repr(side["values"]), id(side["graph"]), id(side["tables"]), None if own is None else tuple(sorted(own)))
     with _LOCK:
         if _CACHE.get(side["id"], (None,))[0] != key:
-            _CACHE[side["id"]] = (key, P.summarize(side["blocks"], side["graph"], side["tables"], side["values"]))
+            _CACHE[side["id"]] = (key, P.summarize(side["blocks"], side["graph"], side["tables"], side["values"], own=own))
         return _CACHE[side["id"]][1]
+
+
+def _collect(to_id, from_id=None):
+    """같은 양식 취합(조립 틀 collect — spec_취합 ② §10)의 문맥 | None(그 틀이 아님): {part(지금 원본 = 기관 문서), own(반영할 기관 이름 꼴의 모음), common(공통 자리 포함), revOf, version(등록부의 판), name, orgs}.
+    from_id None = 지금 엔진의 원본(_mate). 그 틀이 아닌 목적 문서(이관)는 None — 아래 가지는 모두 「C 가 있을 때만」 이다(이관의 동작은 그대로)."""
+    from app import merge_collect_api
+    if not merge_collect_api.is_collect(((works.work(to_id) or {}).get("task") or {}).get("job") or ""):
+        return None
+    return merge_collect_api.context(to_id, from_id if from_id is not None else _mate(to_id, _store(to_id))[1])
 
 
 def _alive(applied, to):
@@ -253,6 +263,8 @@ def _sched_plan(doc_id, sides, take):
     """넣기 계획의 **일정 표** 몫(월별 일정 표를 스크립트로 — app/merge_schedule.py · spec_병합 ② §5-7). 그 표(`owned`)는 표 대응 · 표 묶음 · 같은 이름 자리 · 빈 자리 검토가 안 본다(한 표를 두 길이 쓰지 않게).
     세지 못하면 빈 계획에 error — 넣기 계획의 나머지는 나가야 한다(그 표는 다른 길이 전처럼 본다)."""
     from app import merge_schedule
+    if _collect(doc_id) is not None:   # 같은 양식 취합 — 이 길은 쓰지 않는다(범위 · 원장을 안 따른다: spec_취합 ② §10-1 「v1 에 없는 줄」)
+        return {"tables": [], "fills": [], "grows": [], "wipes": [], "owned": [], "skipped": [], "counts": {}, "todo": 0}
     try:
         return merge_schedule.plan(*sides, _orig(doc_id), take)
     except Exception as e:   # noqa: BLE001
@@ -270,6 +282,8 @@ def _copy_plan(doc_id, sides, saved, skip=()):
     """넣기 계획의 **표 통째로 복사** 몫(app/merge_copy.py · spec_병합 ② §5-8 — 2026-11-22 사용자 "이 테이블은 그냥 복사 타입으로 넣어줘"). 그 표(`tables`)는 표 대응 · 표 묶음 · 같은 이름 자리가 안 본다
     (통째로 바꿀 표에 칸을 따로 맞춰 넣지 않게). skip = 일정 표 스크립트가 맡은 표(그쪽이 먼저). 세지 못하면 빈 계획에 error — 넣기 계획의 나머지는 나가야 한다."""
     from app import merge_copy
+    if _collect(doc_id) is not None:   # 같은 양식 취합 — 표를 통째로 바꾸는 길은 쓰지 않는다(다른 기관의 표가 바뀔 수 있다 · 원장에 안 남는다)
+        return {"items": [], "tables": [], "todo": 0, "counts": {"tables": 0, "applied": 0, "skipped": {}}}
     try:
         return merge_copy.plan(*sides, _copy_titles(doc_id), saved.get("copied"), skip)
     except Exception as e:   # noqa: BLE001
@@ -287,7 +301,14 @@ def _take_raw(doc_id):
 
 
 def _allowed(doc_id, values):
-    return TK.allowed(_take_raw(doc_id), values)
+    """넣을 범위 — 이관 = 「넣을 구성 선택」 그대로 · 같은 양식 취합 = 그것 ∩ 지금 기관 문서의 반영할 기관(교집합이 비면 아무 기관도 아님 — 「전부」 로 넘기지 않는다) · 기관을 모르는 자리는 그 문서의 「공통 자리 포함」 일 때만."""
+    take, C = _take_raw(doc_id), _collect(doc_id)
+    if C is None:
+        return TK.allowed(take, values)
+    own = set(C["own"])
+    if take and "org" in take:
+        own &= {P.org_key(x) for x in take["org"]}
+    return TK.Allowed({**(take or {}), "org": sorted(own)}, values, common=C["common"])
 
 
 def _take_arg(doc_id, values):
@@ -499,14 +520,19 @@ def _view(to_id, fresh=False):
         out["diff"] = P.values_diff(frm["values"], to["values"])
         if out["diff"]:
             out["to"]["reasons"].append("valuesDiffer")
+    C = _collect(to_id, from_id) if frm else None
+    if C is not None:
+        out["collect"] = {"part": C["part"], "orgs": C["orgs"], "common": C["common"], "revOf": C["revOf"]}
+        if not C["own"]:
+            out["from"]["reasons"].append("unassigned")   # 반영할 기관 미지정 — 아무것도 안 넣는다(「가리지 않음」 이 아니다)
     if not frm or out["to"]["reasons"] or out["from"]["reasons"]:
         return out, None
     if fresh:
         with _LOCK:
             _CACHE.pop(to_id, None), _CACHE.pop(from_id, None), _FIXED.pop(to_id, None)
-    ts, fs = _summary(to), _summary(frm)
+    ts, fs = _summary(to), _summary(frm, C["own"] if C is not None else None)
     fixed = {k: v for k, v in (saved.get("fixed") or {}).items() if isinstance(v, dict)}
-    out.update(P.pair(ts, fs, fixed=fixed))
+    out.update(P.pair(ts, fs, fixed=fixed, strict=C is not None))   # 같은 양식 취합 = 맥락이 같은 후보만 · 원본 묶음 하나는 한 자리에만(merge_pairs.pair 의 strict)
     A = _allowed(to_id, to["values"])   # 「넣을 구성 선택」(② §4-1) — 고르지 않은 기관 · 단계 · 차년도의 묶음 · 항목은 「범위 밖」(outside): 넣기 계획 · LLM 검토가 건너뛴다
     TK.narrow(out, ts, A)
     out["take"] = {"take": A.take, "active": A.active, "text": TK.text(A.take, to["values"])}
@@ -568,6 +594,9 @@ def merge_pair_put(doc_id: str, group_id: str, body: dict = Body(...)):
             raise HTTPException(400, "이을 수 없는 묶음입니다(구분·종류가 다르거나 맥락 차년도·기관이 어긋남)")
         fixed[group_id] = {"from": key, "source": "user", **({"llm": prior} if prior else {})}
     _store(doc_id, {**saved, "fixed": fixed, "toRev": to["rev"], "fromRev": frm["rev"]})
+    if _collect(doc_id, frm["id"]) is not None:   # 같은 양식 취합 — 사람이 그 기관 문서의 연결을 고쳤다: 그 문서의 끝 표식을 내려 다시 「넣을 차례」 로(실행이 그 문서를 다시 돈다 — spec_취합 ② §10-4 「상태」)
+        from app import merge_collect_api
+        merge_collect_api.undone(doc_id, frm["id"])
     return _view(doc_id)[0]
 
 
@@ -680,6 +709,58 @@ def _held_cells(held):
     return [{"to": cid, "text": text} for ids in held.values() for cid, text in ids.items()]
 
 
+def _singles(from_groups):
+    """원본 요약(merge_pairs.summarize(own=…))의 홑 기관 라벨 묶음 → {라벨 id: {label, roots}} — 넣기 계획(merge_fill.plan 의 singles)이 그 항목의 내용을 여기서 찾는다(같은 양식 취합)."""
+    return {g["single"]["label"]: g["single"] for g in from_groups or () if g.get("single")}
+
+
+def _collect_trim(C, tabs, fixed):
+    """같은 양식 취합(spec_취합 ② §10-3)의 넣기 계획에서 빼는 것 — 그 자리에서 고친다(C None = 이관: 아무것도 안 한다).
+    ㉠ 원본 글이 없는 쓰기: 표 묶음의 「예시 칸 비우기」(merge_tables — 넣을 행이 없는 덩이의 예시 값을 비움) · 같은 이름 표의 쪽 나눔 맞춤(flow) — 허용된 칸에 넣을 글이 0 이어도 목적 문서(사람이 쓰고 있는 사업계획서)를 바꾼다.
+    ㉡ 칸 밖의 같은 이름 라벨(제목이 같은 절의 내용을 통째로 — 범위(merge_take.Allowed)를 안 따르는 길): 그 기관 문서의 「공통 자리 포함」 이 켜져 있을 때만 둔다(공통 절의 내용이다)."""
+    if C is None:
+        return
+    wiped = {(c.get("table"), c.get("item")) for c in tabs["cells"] if c.get("clear")}   # 예시 칸을 비우며 그 행을 실제 행의 자리로 쓰는 덩이 — 비우기만 빼면 실제 품목 옆에 예시 금액이 남는다(「현미경 | 900,000」): 덩이째 뺀다(확인 필요)
+    tabs["cells"] = [c for c in tabs["cells"] if not c.get("clear") and c.get("from") and (c.get("table"), c.get("item")) not in wiped]
+    tabs["rows"] = [r for r in tabs["rows"] if r.get("cells")]   # 쓸 칸이 없는 행은 늘리지 않는다(원장에 안 남는 구조 변경)
+    tabs["counts"].update(cells=len(tabs["cells"]), calc=sum(bool(c.get("calc")) for c in tabs["cells"]), rows=len(tabs["rows"]))
+    fixed["cells"] = [c for c in fixed["cells"] if c.get("from")]
+    for t in fixed["tables"]:
+        t["flow"] = None
+    if not C["common"]:
+        for r in fixed["labels"]:
+            if r["skip"] is None:
+                r.update(skip="outside", detail="공통 자리(기관이 안 걸린 절) — 이 기관 문서는 「공통 자리 포함」 이 꺼져 있습니다")
+    todo = [r for r in fixed["labels"] if r["skip"] is None]
+    fixed["counts"].update(cells=len(fixed["cells"]), form=sum(c.get("mode") == "form" for c in fixed["cells"]), calc=sum(bool(c.get("calc")) for c in fixed["cells"]),
+                           labels=len(todo), blocks=sum(r["blocks"] for r in todo), pictures=sum(r["pictures"] for r in todo), flow=0)
+    fixed["todo"] = len(fixed["cells"]) + len(todo)
+
+
+def _collect_fill_trim(C, fill, frm):
+    """같은 양식 취합의 본문 넣기 계획에서 **다른 기관의 절이 섞인 범위**를 뺀다(그 자리에서 고친다 · C None = 이관: 아무것도 안 한다). 차년도 묶음의 항목처럼 기관을 늘어놓지 않는 자리(공통 자리 포함을 켠 문서)는
+    원본 항목의 범위에 여러 기관의 절이 통째로 든다 — 그 범위에 기관 라벨 줄(주관 · 공동연구개발기관 …)이 있고 거기 적힌 프로젝트 기관이 반영할 기관이 아니면 넣지 않는다(확인 필요)."""
+    if C is None:
+        return
+    from collections import Counter
+
+    from app import merge_fill
+    from app.division_profiles import _structure as structure
+    from app.division_profiles.rnd import core
+    keys = [k for k in (P.org_key(n) for _, n in P._orgs(core.norm_values(frm["values"]))) if k]
+    idx = structure.index_blocks(frm["doc"].blocks())
+    for row in fill["items"]:
+        if row["skip"] is not None:
+            continue
+        for sid in row["src"]:
+            t = (idx.get(sid) or {}).get("text") or ""
+            if core.ORG_RE.search(t) and any(k in P.org_key(t) and k not in C["own"] for k in keys):
+                row.update(skip="outside", detail="원본의 그 범위에 다른 기관의 절이 섞여 있습니다 — 확인 필요")
+                break
+    c = Counter(r["skip"] or "todo" for r in fill["items"])
+    fill["counts"] = {"todo": c["todo"], **{k: c[k] for k in (*merge_fill.SKIPS, "shape")}, "ambiguous": fill["counts"].get("ambiguous", 0)}
+
+
 def _plan_parts(doc_id, view, saved, to, frm, maps=None):
     """넣기 계획의 표 몫 셋을 한 차례로(세션 잠금 안에서 부른다) → (표 대응 계획, 표 묶음 계획, 같은 이름 자리 계획, 두 쪽 읽을거리). 표 대응이 잡은 표 · 칸은 나머지 둘에서 뺀다(② §5-3 2 — _map_hold:
     행을 늘리는 표는 통째로 · 그 밖은 표 대응이 쓰는 칸만. 표 대응이 못 넣는 칸은 나머지 둘이 넣는다). maps = 쓸 대응(None = 저장된 것 전부 · {} = 대응 없이 — 「전부 다시」 물을 때)."""
@@ -689,7 +770,7 @@ def _plan_parts(doc_id, view, saved, to, frm, maps=None):
     sched = _sched_plan(doc_id, sides, take)   # 일정 표(② §5-7 — 월별 일정 표를 스크립트로): 그 표는 이 길이 통째로 맡는다 — 저장된 표 대응이 있어도 안 쓰고, 표 묶음 · 같은 이름 자리 · 빈 자리 검토가 안 본다
     copies = _copy_plan(doc_id, sides, saved, sched["owned"])   # 표 통째로 복사(② §5-8 — 목적 양식이 정해 둔 표): 그 표도 이 길이 통째로 맡는다(일정 표가 먼저)
     mine = set(sched["owned"]) | set(copies["tables"])
-    mp = merge_table_map.plan(*sides, {k: v for k, v in (_maps(saved) if maps is None else maps).items() if k not in mine}, _orig(doc_id))
+    mp = merge_table_map.plan(*sides, {} if _collect(doc_id) is not None else {k: v for k, v in (_maps(saved) if maps is None else maps).items() if k not in mine}, _orig(doc_id))   # 같은 양식 취합은 저장된 표 대응을 쓰지 않는다
     mp["sched"] = sched   # 돌려주는 꼴(넷)은 그대로 — 넣기 계획(merge_plan)이 여기서 꺼낸다
     mp["copies"] = copies   # 같은 길로(merge_plan 이 꺼낸다)
     whole, held = _map_hold(sides[0], mp)
@@ -697,6 +778,7 @@ def _plan_parts(doc_id, view, saved, to, frm, maps=None):
     tabs = merge_tables.plan(to, frm, to["values"], frm["values"], view, skip=whole, take=take, taken=held, orig=_orig(doc_id))   # orig = 이어 넣는 덩이의 서식 예시 행을 실제 행의 자리로 쓴다(merge_tables._append)
     fixed = merge_fixed.plan(to, frm, applied=_alive(saved.get("applied"), to), tables_plan={"cells": [*tabs["cells"], *_held_cells(held)]}, forced=_forced(saved), sides=sides, skip=whole, take=take,   # 같은 이름 자리 — 묶음 · 표 대응이 넣는 칸은 건너뛴다 · LLM·사람이 정한 표 짝 먼저
                              orig=_orig(doc_id))   # 올린 빈 양식의 글 그대로인 값 칸(서식 예시 · 틀)은 원본 글로 바꾼다(merge_fixed.plan 의 orig)
+    _collect_trim(_collect(doc_id), tabs, fixed)   # 같은 양식 취합 — 넣을 글이 없는 쓰기(예시 비우기 · 쪽 나눔 맞춤)와 범위를 안 따르는 길(칸 밖의 같은 이름 라벨)은 계획에서 뺀다
     have = set(mp["owned"])   # 쓸 수 있는 대응이 이미 있는 표 — 한 칸도 못 넣었어도 다시 묻지 않는다(「전부 다시」 는 maps={} 로 와서 빈 모음)
     mp["open"] = [t for t, _ in merge_table_map.targets(tabs, fixed) if t not in have and t not in mine]   # 원본 표는 정해졌는데 칸을 못 맞춘 표 — 표 대응이 필요하다(일정 표 스크립트가 맡은 표는 뺀다)
     return mp, tabs, fixed, sides
@@ -817,7 +899,7 @@ def _gaps_plan(doc_id, saved, sides, fixed, skip=()):
     skip = 일정 표 스크립트가 맡은 표(② §5-7 — 빈 자리로 세지 않는다)."""
     from app import merge_gaps
     T, F = sides
-    gp = merge_gaps.plan(T, F, _gaps(saved))
+    gp = merge_gaps.plan(T, F, _gaps({} if _collect(doc_id) is not None else saved))   # 같은 양식 취합은 빈 자리 답을 쓰지 않는다
     try:
         gp["counts"]["open"] = merge_gaps.open_count(merge_gaps.targets(T, F, fixed, _orig(doc_id), _link_guides(doc_id), skip), _gaps(saved))
     except Exception:   # 빈 자리 세기는 덤이다 — 틀어져도 넣기 계획은 나가야 한다
@@ -1110,8 +1192,14 @@ def _inputs(doc_id, saved, to, frm):
     raw = json.dumps([to["id"], frm["id"], [list(x) for x in _source_scope(doc_id, frm["id"])], to["rev"], frm["rev"], to.get("values"), frm.get("values"), _heads_ver(to), _heads_ver(frm),
                       {k: saved.get(k) for k in ("fixed", "tables", "tableMaps")}, calm(saved.get("gaps")), live, _orig(doc_id) is not None,   # 예시 칸을 덮어도 되나(등록된 빈 양식 — 양식 선택이 바뀌면 다름)
                       merge_over.load(doc_id)["version"], _take_raw(doc_id),   # 넣을 구성(② §4-1 — 계획 뒤에 고르면 반영이 409)
-                      [_copy_titles(doc_id), saved.get("copied") or {}], _guides_ver(doc_id)], sort_keys=True, ensure_ascii=False, default=str)   # 통째로 복사할 표의 목록 · 복사한 기록(② §5-8) · 끝 = 작성 지침의 판(② §5-11)
+                      [_copy_titles(doc_id), saved.get("copied") or {}], _guides_ver(doc_id), _collect_ver(doc_id, frm["id"])], sort_keys=True, ensure_ascii=False, default=str)   # 통째로 복사할 표의 목록 · 복사한 기록(② §5-8) · 끝 = 작성 지침의 판(② §5-11)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _collect_ver(doc_id, from_id):
+    """같은 양식 취합의 판 — 등록부(반영할 기관 · 공통 자리 · 수정본 표시)가 바뀌면 그 계획은 반영하지 않는다 | None(그 틀이 아님 — 이관의 입력의 판은 전과 같은 값이 아니게 되지만 계획 · 반영이 같은 값을 쓴다)."""
+    C = _collect(doc_id, from_id)
+    return None if C is None else [C["version"], sorted(C["own"]), C["common"], C["revOf"], C["later"]]
 
 
 def _guides_ver(doc_id):
@@ -1229,7 +1317,7 @@ def _plan_view(plan):
 
 
 @router.post("/api/docs/{doc_id}/merge-links/plan")
-def merge_plan(doc_id: str):
+def merge_plan(doc_id: str, body: dict = Body(default={})):
     """넣기 계획 — 연결된(paired) 묶음마다 넣을 본문 블록·표 칸·늘릴 행과 못 넣는 것의 까닭을 센다. **문서는 안 바뀐다**.
     → {planId, baseRev, todo, body{counts, items[{group, value, to, from, anchorText, blocks, paragraphs, tables, pictures, skip, detail, convert}]}, tables{counts, tables[], skipped[]},
        fixed{counts, tables[{to, from, score, status, title, cells, skipped}], labels[본문 항목 꼴 + title], skipped[]}}(fixed = 같은 이름 자리 — merge_fixed, todo 에 든다). 409 까닭이 남음.
@@ -1245,10 +1333,20 @@ def merge_plan(doc_id: str):
     if ctx is None:
         raise HTTPException(409, "자리 연결을 낼 수 없는 상태입니다(문서별 까닭을 먼저 푸세요)")
     _, _, saved, to, frm = ctx
+    C = _collect(doc_id, frm["id"])   # 같은 양식 취합(spec_취합 ② §10) — 그 틀이 아니면 None
+    want = body.get("part") if isinstance(body, dict) else None   # 함수로 바로 부른 때(몸 없이)는 Body 기본값 객체가 온다 — 그때는 견주지 않는다
+    if want and want != frm["id"]:   # 워크플로우 실행기가 기대한 기관 문서와 지금 엔진의 원본이 다르다(다른 탭이 바꿈) — 다른 기관의 계획을 세우지 않는다
+        raise HTTPException(409, "지금 원본 문서가 기대한 기관 문서와 다릅니다 — 다시 하세요")
+    if C is not None and C["revOf"]:
+        raise HTTPException(409, "이 문서는 수정본으로 등록돼 있습니다 — 다시 넣지 않고 「수정본 반영」 으로 바뀐 곳만 고칩니다")
+    if C is not None and C["later"]:
+        raise HTTPException(409, "이 문서의 수정본이 등록돼 있습니다 — 넣기는 수정본이 맡습니다")
+    ver0 = _collect_ver(doc_id, frm["id"])   # 계획이 쓴 등록부의 판 — 끝에서 다시 견준다(계획을 세우는 사이 지정 · 공통 자리가 바뀌면 옛 범위의 쓰기 목록에 새 판이 찍힌다: astra 결과 검토)
     s = server._sess(doc_id)
     with s.lock:
         applied = _alive(saved.get("applied"), to)   # 실행 취소로 사라진 내용의 기록은 안 믿는다
-        fill = merge_fill.plan(to, frm, to["values"], frm["values"], view, applied=applied)
+        fill = merge_fill.plan(to, frm, to["values"], frm["values"], view, applied=applied, part=C["part"] if C is not None else None, singles=_singles(ctx[1]) if C is not None else None)
+        _collect_fill_trim(C, fill, frm)
         maps, tabs, fixed, sides = _plan_parts(doc_id, view, saved, to, frm)   # 표 대응(② §5-3) → 표 묶음 → 같은 이름 자리: 대응이 맡은 표는 뒤의 둘에서 빠진다
         gaps = _gaps_plan(doc_id, saved, sides, fixed, skip=(maps.get("sched") or {}).get("owned") or ())   # 빈 자리(② §5-4) — 위 셋이 못 채운 자리 가운데 LLM 이 원본 줄을 고른 것
         store, specs = MOA.specs(doc_id, to["graph"])   # 넘친 개요 레벨(② §5-5) — 사례마다 사람이 고른 처리를 줄 지정으로 푼 것
@@ -1262,6 +1360,8 @@ def merge_plan(doc_id: str):
         plan = {"planId": uuid.uuid4().hex[:12], "baseRev": to["rev"], "fromRev": frm["rev"], "from": frm["id"], "scope": _source_scope(doc_id, frm["id"]), "fill": fill, "tables": tabs, "fixed": fixed, "maps": maps, "gaps": gaps, "sched": sched, "copies": copies, "over": over,   # 차례 = 읽은 때의 것(읽은 뒤 바뀌었으면 반영이 409)
                 "inputs": _inputs(doc_id, saved, to, frm),   # 입력의 판(연결 · 표 짝 · 표 대응 · 빈 자리 · 분석 — 바뀌면 반영이 409)
                 "todo": fill["counts"].get("todo", 0) + len(tabs["cells"]) + len(tabs["rows"]) + fixed["todo"] + maps["todo"] + gaps["todo"] + sched["todo"] + copies["todo"]}
+    if _collect_ver(doc_id, frm["id"]) != ver0:
+        raise HTTPException(409, "계획을 세우는 사이 기관 문서의 지정이 바뀌었습니다 — 다시 계획하세요")
     _PLANS[doc_id] = plan
     return _plan_view(plan)
 
@@ -1290,7 +1390,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
     import time
     from collections import Counter
 
-    from app import merge_convert, merge_copy, merge_fill, merge_fixed, merge_gaps, merge_over, merge_register, merge_schedule, merge_table_map, merge_tables, server
+    from app import merge_collect_api, merge_convert, merge_copy, merge_fill, merge_fixed, merge_gaps, merge_over, merge_register, merge_schedule, merge_table_map, merge_tables, server
     plan = _PLANS.get(doc_id)
     if plan is None or plan["planId"] != body.get("planId"):
         raise HTTPException(409, "계획이 없거나 바뀌었습니다 — 다시 계획하세요")
@@ -1315,6 +1415,7 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         if plan.get("inputs") and plan["inputs"] != _inputs(doc_id, _store(doc_id), to, frm):   # 입력의 판을 다시 센다 — 연결 · 표 짝 기록은 잠금 안에서 · 두 문서는 방금 읽은 것(차례는 위에서 견줌: ② §18-12 ③)
             drop()
             raise HTTPException(409, "계획을 세운 뒤 자리 연결 · 표 짝 · 분석이 바뀌었습니다 — 다시 계획하세요")
+        C = _collect(doc_id, plan["from"])   # 같은 양식 취합(spec_취합 ② §10) | None
         over = plan.get("over") or {}
         if over and merge_over.load(doc_id)["version"] != over.get("version"):   # 넘친 개요 레벨의 선택이 계획 뒤 바뀜(② §5-5 6 — 보통은 PUT 이 계획을 버린다)
             drop()
@@ -1327,6 +1428,8 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
             last = was if was.get("at") and not was.get("nothing") else was.get("last")   # 앞의 실제 반영 표식 — 다 넣은 문서를 다시 반영해도 넣은 내용은 문서에 남는다(넣은 뒤 정리가 그것으로 센다: merge_retidy_api._filled · spec_병합 ② §5-9 10)
             keep = {"last": {k: v for k, v in last.items() if k != "last"}} if isinstance(last, dict) and last.get("at") else {}
             _store(doc_id, {**saved, "filled": {**mark, "rev": s.rev, "nothing": True, "ids": [], **keep}})   # 확인된 「넣을 것 0」 — 「문서 정리」 가 기다리는 「내용 넣기」 의 끝(② §18-12 ②)
+            if C is not None:
+                merge_collect_api.mark_done(s, C, src.rev, plan, None)   # 그 기관 문서의 끝(넣을 것 0 — 넣은 적이 있으면 「반영함」 그대로 · 없으면 「넣을 것 없음」)
             return {"nothing": True, **s.state()}
         done, conv = {}, Counter()
 
@@ -1349,6 +1452,8 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
             done["fill"] = merge_fill.apply(s.doc, frm["doc"], plan["fill"], convert=hook)
             done["fill"]["counts"]["fitted"] = sum(s.doc.fit_image(i) for ids in done["fill"]["inserted"].values() for i in ids)   # 넣은 그림이 칸보다 넓으면 칸 폭으로(spec_병합 ② §5-2)
             done["copies"] = merge_copy.apply(s.doc, frm["doc"], plan.get("copies"))   # 표 통째로 복사(② §5-8) — 목적 표를 원본 표의 사본으로: 같은 편집 하나에(다른 길은 그 표를 안 건드렸다 — 맨 뒤에)
+            if C is not None:   # 같은 양식 취합 — 실제로 쓴 것의 출처 · 원장을 이 편집 안에서(실행 취소 · 표준 검사 실패와 함께 돌아간다: spec_취합 ② §10-4)
+                done["led"] = merge_collect_api.record(s, src, C, frm, plan, done)
             return {"hosts": [], "struct": set(), "origin": {}, "anchor": None,
                     "log": {"planId": plan["planId"], "body": done["fill"]["counts"], "tables": {k: done["tables"].get(k) for k in TABLE_KEYS},
                             "fixed": {k: done["fixed"].get(k) for k in FIXED_KEYS}, "maps": {k: done["maps"].get(k) for k in MAP_KEYS},
@@ -1360,7 +1465,9 @@ def merge_apply(doc_id: str, body: dict = Body(...)):
         if after is None:
             return out
         saved = _store(doc_id)
-        new = {k: {**v, "ids": list(d["inserted"].get(k) or ())} for d in (done["fill"], done["fixed"]) for k, v in d["applied"].items()}   # 넣은 블록 id 도 — 실행 취소 뒤에 기록만 남지 않게(_alive)
+        new = {k: {**v, "ids": list(d["inserted"].get(k) or ()), **({"part": C["part"]} if C is not None else {})} for d in (done["fill"], done["fixed"]) for k, v in d["applied"].items()}   # 넣은 블록 id 도 — 실행 취소 뒤에 기록만 남지 않게(_alive) · part = 넣은 기관 문서(같은 양식 취합 — 다른 문서의 자리는 겹침: merge_fill.plan)
+        if C is not None:
+            merge_collect_api.mark_done(s, C, src.rev, plan, done)
         tm = dict(_maps(saved))   # 표 대응 — 늘린 묶음을 records 로 옮기고 구조 서명을 지금 표로(다시 계획하면 할 일 0: ② §5-3 9)
         for tid in (plan.get("maps") or {}).get("owned") or ():
             block = s.doc.table_block(tid)

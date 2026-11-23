@@ -45,6 +45,10 @@ function olcItems(at, v) { // 계획(cut_view) → 메뉴 항목 [[글, 꼬리, 
   items.push([`${name} 모두 새 템플릿으로 나누기${to ? ` → ${to}` : ""}`, olcCount(a), () => olcRun(at, v, "all"), !!a.why || !v.next,
     a.why || (!v.next ? full : `지금 문서의 ${name} 줄 ${nf(a.lines)}개와 그 아래 줄(모두 ${nf(a.moved)}줄)을 새 템플릿 ${to} 로 — 줄은 L${v.level} 부터${upper}\n`
       + `${name} 줄 아래가 아니라 윗 레벨 바로 아래에 매달린 더 깊은 줄과, 이미 뗀 다른 템플릿의 줄은 그대로입니다 · 대표 · 서식은 지금 ${name} 것 그대로 옮겨 갑니다\n${tail} · ${undo}`)]);
+  const p = typeof oltLineOk === "function" && typeof paraEl === "function" ? paraEl(at.para) : null;
+  if (p && at.paras.length === 1 && oltLineOk(p)) // 레벨 범위(부터 · 까지)를 골라 나누기 — 헤딩 고치기 창의 「새 템플릿으로 나누기」(outline_tune.js — 2026-11-24 사용자 「t1L6 부터 어디까지 알수 있고 선택할 수 있어야 함」)
+    items.push(["레벨 범위를 골라 나누기…", "", () => outlineTuneOpen(p, { scope: "split" }), !v.next,
+      !v.next ? full : `이 줄의 「헤딩 고치기」 창을 「새 템플릿으로 나누기」 로 엽니다 — 새 템플릿이 가질 레벨을 「L${v.level} 부터 · L? 까지」 로 고르고(윗줄의 레벨부터도), 옮겨 갈 줄 수를 보고 적용합니다.\n끝 레벨보다 깊은 아래 줄은 T${v.no} 에 남습니다 · ${tail}`]);
   for (const m of v.made || []) {
     items.push([`여기서만 T${m.no} 에 넣기`, olcCount(h), () => olcRun(at, v, "here", m), !!(h.why || m.why),
       h.why || m.why || `이 줄과 그 아래 줄(모두 ${nf(h.moved)}줄)을 이미 있는 T${m.no}(줄 ${nf(m.lines)}개)로 옮깁니다 — 대표 · 서식은 T${m.no} 것 그대로\n${tail}(이번에 넣은 것만 되돌리려면 「실행 취소」 — 「합치기」 는 T${m.no} 의 줄을 모두 되돌립니다)`]);

@@ -139,6 +139,9 @@ def main():
 
         items = menu(page, l4[0])
         page.screenshot(path=str(OUT / "menu.png"))
+        RANGE = "레벨 범위를 골라 나누기…"   # 헤딩 고치기 창을 나누기로 여는 항목(레터가 있는 개요 줄에만 — spec_hwpx_웹편집 ② §8-12 · 2026-11-24)
+        print("    메뉴:", [i["text"] for i in items], flush=True)
+        items = [i for i in items if i["text"] != RANGE]
         texts = [i["text"] for i in items]
         here, every = plan["here"], plan["all"]
         tail = lambda x: (f"{x['lines']}곳 · 총 {x['moved']}줄" if x["moved"] > x["lines"] else f"{x['moved']}줄")  # noqa: E731

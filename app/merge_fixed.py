@@ -612,6 +612,7 @@ def apply(to_doc, from_doc, plan):
     "applied": {목적 라벨: {from, hash}}, "dropped", "skipped"}."""
     done = MT.apply(to_doc, from_doc, {"cells": [c for c in plan["cells"] if c["mode"] == "empty"], "rows": []})
     filled, shaped, skipped = done["filled"], done.get("shaped", 0), list(done["skipped"])
+    wrote = list(done.get("wrote") or ())   # 글을 쓴 (목적 칸, 원본 칸) — 실제로 쓴 것만(같은 양식 취합의 원장: spec_취합 ② §10-4)
     to_doc.blocks()   # 블록 id 는 읽을 때 붙는다(merge_tables.apply 와 같은 까닭)
     form = defaultdict(list)
     for c in plan["cells"]:
@@ -629,6 +630,7 @@ def apply(to_doc, from_doc, plan):
             try:
                 to_doc.set_text(c["to"], c["text"])
                 filled += 1
+                wrote.append([c["to"], c.get("from")])
                 if not c.get("inline"):   # 줄 안의 빈 자리에 값만 넣은 칸(merge_inline)은 서식의 글자 모양 그대로 둔다(서약 글 · 「(직인)」 이 원본 칸의 모양으로 바뀌지 않게)
                     shaped += MT._shape(to_doc, from_doc, c["to"], c["from"])   # 글자 모양(장평·자간·크기)도 — 빈 칸과 같은 길
             except ValueError as x:
@@ -637,7 +639,7 @@ def apply(to_doc, from_doc, plan):
     fitted = sum(to_doc.fit_image(i) for ids in lab["inserted"].values() for i in ids)   # 넣은 그림이 칸보다 넓으면 칸 폭으로(원본 칸이 더 넓었다)
     flowed = sum(to_doc.fit_table_flow(t["to"], t["flow"]) for t in plan["tables"] if t.get("flow"))
     return {"filled": filled, "shaped": shaped, "labels": lab["counts"], "inserted": lab["inserted"], "fitted": fitted, "flowed": flowed, "applied": lab["applied"],
-            "dropped": lab["dropped"], "skipped": skipped}
+            "dropped": lab["dropped"], "skipped": skipped, "wrote": wrote}
 
 
 REVIEW_HEADS, REVIEW_SRC_HEADS, REVIEW_HEAD_LEN = 24, 12, 20   # LLM 표 짝 검토 자료 — 표마다 싣는 머리 꼴 수(목적 표 · 원본 표: 원본은 문서의 표 전부라 줄인다) · 머리 꼴 하나의 글자 수

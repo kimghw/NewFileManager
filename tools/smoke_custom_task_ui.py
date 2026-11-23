@@ -211,9 +211,9 @@ try:
             ioText: f.querySelector('.wf-iobox').textContent, help: !!document.querySelector('#wfCompose h2 .panel-help') && !document.querySelector('#wfCompose > .wf-lead'),
             old: f.querySelectorAll('.wf-stage-opt, input[name=stage]').length,
             focus: document.activeElement === f.querySelector('input[name=name]'), premise: f.querySelector('textarea').placeholder, blocked: [...document.querySelectorAll('#wfCompose .wf-blocked li b')].map((b) => b.textContent) }; }""")
-        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 입출력(「1」 · 「1 → N」 고름 · 「N → 1」 — 셋 다 켜짐: 「준비 중」 없음) · 문서 칸(원본 1 · 목적 N — 둘 다 기본 문서 고르기: 목적 칸은 수가 N 이어도 양식을 건다) · 설명 글 · 문서 종류 이름 없음 · 절 설명은 머리의 노트 아이콘 · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 하나(다른 문서 쌍)",
+        check("폼 — 「새 워크플로우」 · 이름(포커스) · 한 줄 설명 · 문서 입출력(「1」 · 「1 → N」 고름 · 「N → 1」 · 「N → 1 · 같은 양식」 — 넷 다 켜짐: 「준비 중」 없음) · 문서 칸(원본 1 · 목적 N — 둘 다 기본 문서 고르기: 목적 칸은 수가 N 이어도 양식을 건다) · 설명 글 · 문서 종류 이름 없음 · 절 설명은 머리의 노트 아이콘 · 전제(비우면 이관의 전제) · 아직 조립할 수 없는 것 하나(다른 문서 쌍)",
               f0["title"] == "새 워크플로우" and f0["fields"] == ["이름", "한 줄 설명", "문서 입출력", "단계(묶음 › 줄)", "전제(선택)"] and f0["focus"] and f0["old"] == 0
-              and f0["shapes"] == [["single", "1", False, False, ""], ["relay", "1 → N", False, True, ""], ["gather", "N → 1", False, False, ""]]   # 「N → 1」 취합은 2026-11-20 엶(tools/smoke_gather_compose_ui.py 가 그 조립을 본다) · 「1」 문서 하나도 같은 날 엶(tools/smoke_single_compose_ui.py)
+              and f0["shapes"] == [["single", "1", False, False, ""], ["relay", "1 → N", False, True, ""], ["gather", "N → 1", False, False, ""], ["collect", "N → 1 · 같은 양식", False, False, ""]]   # 「N → 1 · 같은 양식」 = 같은 양식 취합(2026-11-24 — spec_취합 ② §10: tools/smoke_collect_ui.py 가 그 조립을 본다) · 「N → 1」 취합은 2026-11-20 엶(tools/smoke_gather_compose_ui.py 가 그 조립을 본다) · 「1」 문서 하나도 같은 날 엶(tools/smoke_single_compose_ui.py)
               and [x[:3] for x in f0["slots"]] == [["source", "1", True], ["target", "N", True]] and not any(w in f0["ioText"] for w in ("사업계획서", "연차보고서", "올리세요", "기본값 =")) and f0["help"]
               and "사업계획서 → 연차보고서 이관" in f0["premise"] and len(f0["blocked"]) == 1 and "다른 문서 쌍" in f0["blocked"][0], f0)
         # 문서 역할 × 단계 표(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 칸은 서버(GET /api/tasks 의 stages[].cells)가 정한다

@@ -118,7 +118,7 @@ def test_api_roundtrip():
     cl, (k, base) = _client(), _unit("relay")
     assert cl.get("/api/tool-names").json() == {"version": 0, "names": {}, "max": T.NAME_MAX}
     r = cl.put(f"/api/tool-names/relay/{k}", json={"name": " 새 이름 ", "version": 0})
-    also = [f for f in ("gather", "single") if (TA.bases(f) or {}).get(k) == base]   # 줄 key · 기본 이름이 같은 다른 틀의 같은 도구 — 같이 고친다
+    also = [f for f in ("gather", "single", "collect") if (TA.bases(f) or {}).get(k) == base]   # 줄 key · 기본 이름이 같은 다른 틀의 같은 도구 — 같이 고친다
     assert r.status_code == 200 and r.json() == {"family": "relay", "unit": k, "name": "새 이름", "base": base, "shown": "새 이름", "same": [], "also": also, "version": 1}
     assert cl.get("/api/tool-names").json()["names"] == {f"{f}.{k}": "새 이름" for f in ("relay", *also)}
     assert cl.put(f"/api/tool-names/relay/{k}", json={"name": "x", "version": 0}).status_code == 409

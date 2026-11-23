@@ -109,9 +109,12 @@ def clean(take, values=None):
 class Allowed:
     """그 값의 자리에 넣어도 되나 — 고른 것이 없으면(active 거짓) 늘 참. 값을 모르는 자리(None)는 참(짐작해서 빼지 않는다 — 구분 기준이 걸리지 않은 자리도 그렇다)."""
 
-    def __init__(self, take, values):
+    def __init__(self, take, values, common=True):
+        """common = 기관을 모르는 자리(공통 자리 — 구분 기준이 걸리지 않은 자리)도 넣나. 기본 참(이관 — 전과 같다). 같은 양식 취합(spec_취합 ② §10-3)은 기관 문서마다 정한 값을 준다(기본 거짓 —
+        조각 문서의 공통 절은 그 기관의 내용이라는 근거가 없다): 거짓이면 기관을 모르는 자리는 범위 밖이고, 고른 것이 없어도 좁힌다(active)."""
         self.take = take or None
-        self.active = bool(self.take)
+        self.common = bool(common)
+        self.active = bool(self.take) or not self.common
         self.values = values or {}
         t = self.take or {}
         self._org = {P.org_key(x) for x in t["org"]} if "org" in t else None
@@ -119,7 +122,9 @@ class Allowed:
         self._year = set(t["year"]) if "year" in t else None
 
     def org(self, key):
-        return self._org is None or key is None or P.org_key(key) in self._org
+        if key is None:
+            return self.common   # 기관을 모르는 자리 — 이관은 늘 참(짐작해서 빼지 않는다) · 같은 양식 취합은 그 기관 문서의 「공통 자리 포함」
+        return self._org is None or P.org_key(key) in self._org
 
     def year(self, n):
         if n is None or not isinstance(n, int):
@@ -144,11 +149,13 @@ class Allowed:
         kind, v = ident[0], ident[1]
         return self.org(v) if kind == "org" else self.year(v) if kind == "year" else self.stage(v) if kind == "stage" else True
 
-    def ctx(self, ctx):
-        """묶음 · 표의 맥락({"org": 기관 이름 꼴 | None, "year": 전체 차례 수 | None} — 그 묶음을 품은 기관 절 · 차년도 절)."""
-        if not self.active or not ctx:
+    def ctx(self, ctx, org_items=False):
+        """묶음 · 표의 맥락({"org": 기관 이름 꼴 | None, "year": 전체 차례 수 | None} — 그 묶음을 품은 기관 절 · 차년도 절).
+        org_items = 그 묶음이 기관을 늘어놓는 묶음인가(항목마다 기관 — 맥락의 기관이 없는 것이 공통 자리라는 뜻이 아니다: 기관은 항목마다 ident 로 본다)."""
+        if not self.active:
             return True
-        return self.org(ctx.get("org")) and self.year(ctx.get("year"))
+        ctx = ctx or {}
+        return (self.org(ctx.get("org")) or (org_items and ctx.get("org") is None)) and self.year(ctx.get("year"))
 
 
 def allowed(take, values):
@@ -182,7 +189,7 @@ def narrow(view, to_groups, A):
         if t is None:
             continue
         outs = [not A.ident(it.get("ident")) for it in t.get("items") or ()]
-        if not A.ctx(g.get("ctx")) or (outs and all(outs)):
+        if not A.ctx(g.get("ctx"), org_items=any((it.get("ident") or ("",))[0] == "org" for it in t.get("items") or ())) or (outs and all(outs)):
             g["was"], g["status"], g["reason"] = g["status"], "outside", OUT
             for it in g.get("items") or ():
                 it["status"] = "outside"

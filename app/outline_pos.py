@@ -4,7 +4,9 @@
   **둘째 줄** = 왼쪽 여백 + max(−첫 줄, 0)(한글 내어쓰기 = 첫 줄은 왼쪽 여백에 두고 나머지 줄을 더 들인다 — references/HWPX_포맷.md).
 - 글자 폭(한글 2020 PDF 실측 — references/한글_문단모양_줄나눔.md 「글자 폭」): 글자 나아감 = 글꼴 글자 폭 × 장평 × (1 + 자간) × 글자 크기, 빈칸은 「글꼴에 어울리는 빈칸」 을 끈
   글자 모양이면 글꼴과 무관하게 0.5em, 글꼴에 없는 글자는 함초롬바탕(한글의 대체 글꼴)의 폭. 글꼴 파일은 웹 글꼴 계획(app/fonts.py)과 같은 차례로 찾는다. 탭·줄 바꿈이 든 접두는 못 잰다(None).
-- 슬롯 규칙 `pos` = {"line2": "text"(글 시작에 맞춤 — 기본) | "mm"(직접 — "mm": 값) | "keep"(문단 서식 그대로), "letterMm": 레터 위치(없으면 그대로), "set": 사용자가 정함}.
+- 슬롯 규칙 `pos` = {"line2": "text"(글 시작에 맞춤 — 기본) | "letter"(레터에 맞춤 — 그 줄의 레터 위치) | "front"(앞 여백에 맞춤 — 첫 줄이 시작하는 자리) | "mm"(직접 — "mm": 값) | "keep"(문단 서식 그대로),
+  "letterMm": 레터 위치(없으면 그대로), "set": 사용자가 정함}. 「레터」 · 「앞 여백」 은 「글 시작」 처럼 **줄마다 제 자리**로 셈한다(2026-11-24 사용자 "2번째 줄을 레터 앞에 맞출건지 레터 뒤의 첫번째 문자/글자에 맞출건지. 또는 여백으로 맞출건지" — ② §8-12).
+  줄 하나에만 건 규칙(헤딩 고치기의 「이 문단만」)은 오버레이 줄의 `pos`({"line2": …}) — 저절로 맞추기는 그것을 슬롯 규칙보다 먼저 보고, 확정 서식으로 바꾸는 길(force)은 지운다(대표에 맞춘 줄은 그 레벨의 규칙).
   사용자가 정하지 않은 기본 규칙은 **둘째 줄을 따로 정하지 않은 문단(첫 줄 값 0)** 에만 걸린다(사용자 "딱히 언급되지 않으면" — 문서가 이미 준 들여쓰기·내어쓰기는 안 건드림).
   저절로 맞춘 문단은 오버레이 줄에 `first`(그때 넣은 첫 줄 값)를 적어 두어, 접두가 바뀌면(번호 다시 매김·레터 뒤 공백) 다시 맞춘다.
   가운데 · 오른쪽 정렬 줄(`free`)에는 기본 규칙을 안 건다 — 확정 서식(force)은 그런 줄의 내어쓰기를 없앤다(`unhang`).
@@ -26,7 +28,8 @@ MAX_PREFIX_MM = 50  # 접두가 이보다 넓으면 맞추지 않는다(레터�
 NB = "\u2002"  # 묶음 빈칸(hp:nbSpace — hwpx_doc.SPECIAL)
 BLANKS = "  　" + NB  # 잴 수 있는 공백 — 반각 빈칸·줄 안 바꾸는 빈칸·전각 빈칸·묶음 빈칸
 FALLBACK_FACE = "함초롬바탕"  # 한글이 글꼴에 없는 글자를 찍는 글꼴(PDF 실측 — 돋움체의 「⋅」「⦁」「‧」)
-LINE2 = ("text", "mm", "keep")
+LINE2 = ("text", "letter", "front", "mm", "keep")
+LINE2_REL = ("text", "letter", "front")  # 줄마다 제 자리로 셈하는 규칙(글 시작 · 레터 · 앞 여백) — 헤딩 고치기가 고르게 하는 셋
 
 _FONTS, _ADV, _FONT_LOCK = {}, {}, threading.Lock()
 
@@ -195,6 +198,12 @@ def target(cur, pos, full=False, was=None):
         if cur["prefixMm"] > MAX_PREFIX_MM:
             return None
         l2 = x0 + cur["prefixMm"]
+    elif mode == "letter":  # 레터에 맞춤 — 둘째 줄이 그 줄의 레터 자리(첫 줄 시작 + 레터 앞 빈칸 폭)에서
+        if cur["leadMm"] > MAX_PREFIX_MM:
+            return None
+        l2 = x0 + cur["leadMm"]
+    elif mode == "front":  # 앞 여백에 맞춤 — 둘째 줄이 첫 줄과 같은 자리에서(내어쓰기 없음)
+        l2 = x0
     elif mode == "mm":
         l2 = float(pos["mm"])
     else:  # keep — 레터 위치만 옮기면 둘째 줄도 같이 민다
@@ -222,7 +231,7 @@ def free(doc, ov, pid):
     좁은 가운데 칸의 「① 항만 접근 …」 줄에 접두 폭만큼 내어쓰기가 들어가 한 줄에 2~3자만 남았다 — 한글 출력 실측). 사람이 정한 규칙은 정렬과 무관하게 건다.
     그런 줄의 확정 꼴은 「내어쓰기 없음」 이다(`unhang` — 확정 서식으로 바꾸는 길 force 만 건다)."""
     line = ov["lines"].get(pid)
-    if line is None or (OE._slot(ov, line["tpl"], line["level"]) or {}).get("pos"):
+    if line is None or line.get("pos") or (OE._slot(ov, line["tpl"], line["level"]) or {}).get("pos"):
         return False
     p = doc._ids.get(pid)
     return p is not None and free_align(doc, p.get("paraPrIDRef", "0")) is not None
@@ -245,6 +254,8 @@ def align(doc, ov, pid, full=False, measure=None, force=False):
     line = ov["lines"].get(pid)
     if line is None or line.get("role") in OE.ROOTED or line.get("role") == OE.TABLE:  # 표 제목 줄(② §8-7)도 자리 규칙 없음
         return None
+    if force or full:
+        line.pop("pos", None)  # 확정 서식으로 바꾸는 길 · 그 레벨의 규칙을 사람이 다시 건 것 — 줄 하나에만 건 규칙(헤딩 고치기의 「이 문단만」)은 그 레벨의 규칙으로 돌아간다
     fr = free(doc, ov, pid)
     if fr and not force:
         return None
@@ -253,7 +264,8 @@ def align(doc, ov, pid, full=False, measure=None, force=False):
     cur = m.place(pid, line.get("letter"))
     if cur is None:
         return None
-    t = unhang(cur) if fr else target(cur, dict(slot.get("pos") or {"line2": "text"}, set=True) if force else slot.get("pos"), full=full or force, was=line.get("first"))
+    own = dict(line["pos"], set=True) if line.get("pos") else None  # 줄 하나에만 건 규칙이 슬롯 규칙보다 먼저(글 고침 뒤 저절로 맞출 때 그 줄의 고른 자리를 지킨다)
+    t = unhang(cur) if fr else target(cur, dict(slot.get("pos") or {"line2": "text"}, set=True) if force else (own or slot.get("pos")), full=full or force, was=line.get("first"))
     if t is None:
         return None
     left, first = t
@@ -386,9 +398,11 @@ def carry(old, new):
             if pos and pos.get("set"):
                 sl["pos"] = dict(pos)
     for pid, x in new.get("lines", {}).items():
-        f = (old.get("lines", {}).get(pid) or {}).get("first")
-        if f is not None:
-            x["first"] = f
+        o = old.get("lines", {}).get(pid) or {}
+        if o.get("first") is not None:
+            x["first"] = o["first"]
+        if o.get("pos"):  # 줄 하나에만 건 규칙(헤딩 고치기의 「이 문단만」)
+            x["pos"] = dict(o["pos"])
 
 
 def _r1(v):

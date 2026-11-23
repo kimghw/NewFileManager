@@ -347,7 +347,7 @@ COMMON = (
               "표 칸에 혼자 있는 「-」 나 번호 칸은 서식 목록에서 빼고, 장평과 자간은 비교하거나 바꾸지 않고 원래 값을 유지합니다. "
               "표 안의 줄은 머리글이 같은 표끼리 서식을 공유하며, 대표 서식이 없는 표의 줄은 「대표에 맞추기」 가 건드리지 않고 정리 계획이 표마다 서식 종속 템플릿으로 뗍니다. "
               "여백의 서식 라벨은 대표와 같아지면 번호를 따로 표시하지 않습니다. "
-              "문서 왼쪽 여백의 라벨(「T1 L4」)을 오른쪽 단추로 누르면 그 줄의 레벨부터 새 템플릿(「T1L4a」)으로 나눌 수 있습니다 — 「여기서만」(그 줄과 그 아래) 또는 그 레벨 줄 「모두」 를 고르고, 문서는 바뀌지 않으며 「합치기」 로 되돌립니다. "
+              "문서 왼쪽 여백의 라벨(「T1 L4」)을 오른쪽 단추로 누르면 그 줄의 레벨부터 새 템플릿(「T1L4a」)으로 나눌 수 있습니다 — 「여기서만」(그 줄과 그 아래) 또는 그 레벨 줄 「모두」 를 고르고(「레벨 범위를 골라 나누기…」 는 헤딩 고치기 창에서 시작 · 끝 레벨까지), 문서는 바뀌지 않으며 「합치기」 로 되돌립니다. "
               "대표와 맞출 대상을 사람이나 LLM 이 고르면, 실제 변경은 「확정 서식으로 바꾸기」 스크립트가 처리하며 조정의 「모두 반영」 과 이관·취합에서도 함께 씁니다.",
          steps=(
              _s("tree", "템플릿 트리 · 서식 목록", "script", "템플릿(T1 등)의 레벨마다 쓰인 서식과 줄 수를 보여 줍니다. 「다른 서식 보기」 를 누르면 대표와 다른 서식의 견본과 차이, 해당 줄 목록을 펼쳐 보고 문서에서 그 줄만 강조해 볼 수 있습니다.", uses=("headings",), modules=("outline_edit", "outline_match", "outline_pos"),
@@ -364,9 +364,9 @@ COMMON = (
                 "문서의 개요 레벨을 고르면 레터와 그 레벨 서식이 함께 적용됩니다. 번호, 기호, 직접 입력은 레터만 넣으며, "
                 "번호는 앞 줄에 이어 자동 매기고 뒤 줄 번호도 함께 밀어 줍니다(「처음부터」 선택 가능). 「레터 빼기」 는 레터와 레터 뒤 빈칸을 지웁니다. 레터만 넣고 빼는 기능은 docx 에서도 됩니다.", change="doc", optional=True,
                 modules=("para_letter", "para_letter_api"), spec=(SP_WEB, "② §8-9")),
-             _s("tune", "레터 고치기", ("human", "script"), "커서가 든 개요 줄의 레터를 누르면(또는 오른쪽 단추 「레터 고치기…」) 그 줄 아래 창에서 레터 · 레터 앞 빈칸 · 레터 뒤 빈칸 · 앞 여백을 고칩니다. "
-                "고친 것을 어디까지 걸지 눌러 고릅니다 — 「이 문단만 수정」, 그 레벨의 줄을 모두 이 줄의 서식으로 바꾸는 「서식 전체 변경」(이 줄이 대표가 됩니다), 이 줄을 떼어 새 템플릿(「T1L5a」)으로 만드는 「새 템플릿으로 추가」. "
-                "레터가 다른 레터로 바뀌면 다른 템플릿이라 「이 문단만」 으로는 할 수 없습니다. 「적용」 한 번이 실행 취소 1회이고 창의 「되돌리기」 로 바로 되돌립니다.", change="doc", optional=True,
+             _s("tune", "헤딩 고치기", ("human", "script"), "개요 줄의 레터를 누르면(또는 오른쪽 단추 「헤딩 고치기…」) 레터 · 레터 앞뒤 빈칸(칸 또는 mm) · 앞 여백 · 2번째 줄(글 시작 · 레터 · 앞 여백)을 고칩니다. "
+                "범위는 「이 문단만 수정」 · 그 레벨을 모두 이 서식으로 바꾸는 「서식 전체 변경」 · 이 줄(대표여도)부터 「새 템플릿으로 나누기」(「L5 부터 · L7 까지」 레벨을 고름 — 더 깊은 줄은 원래 템플릿에 남음). "
+                "레터가 바뀌면 「이 문단만」 은 안 되고, 「적용」 한 번이 실행 취소 1회입니다.", change="doc", optional=True,
                 modules=("outline_tune", "outline_tune_api"), spec=(SP_WEB, "② §8-12")),
              _s("lift", "표 제목을 L1 으로", ("human", "script"), "템플릿 줄 바로 위의 제목 표(1칸 상자, 번호·제목 띠, 3행 표)를 같은 모양끼리 묶어 템플릿의 표 레벨로 넣습니다. 모양이 같으면 아래에 본문 헤딩이 없는 표도 함께 포함됩니다. "
                 "표 헤딩이 여러 층이면 층마다 레벨이 생기며 문서는 바뀌지 않습니다. "
@@ -1381,6 +1381,120 @@ def gather_tools():
     )
 
 
+# ---- 같은 양식 취합(조립 틀 collect — spec_취합 ② §10: 2026-11-24 사용자 「사업계획서 1개 + 기관이 제출한 문서 N개 → 사업계획서의 자리에 … 넣은 내용은 편집 구역(출처)으로 관리 · 수정본이 오면 앞 제출본과 견줘 바뀐 곳만 반영.
+# 워크플로우는 「연차보고서 배포(안) 작성」 과 같은 꼴 · 가능한 한 지금 도구를 같이 쓰고, 취합에만 있는 도구는 전용이라고 밝힌다」). 붙박이 워크플로우는 없다 — 조립에서만(app/custom_tasks.py COLLECT_*).
+def _collect_files(S, D):
+    """같은 양식 취합의 「준비」(맨 앞 묶음에 저절로 서는 줄) — 목적 문서 칸이 차면 끝난 것(기관 문서는 들어오는 대로 — 시작 조건이 아니다: workflow_state.ready)."""
+    return _config_steps(D, f"같은 프로젝트 · 워크플로우 · 라운드의 {D}(목적 문서)를 첨부 파일 칸에서 고르거나 올리고, {S}를 올립니다. {S}는 들어오는 대로 더 올릴 수 있습니다.",
+                         f"{D} 칸이 찼을 때. {S}는 없어도 시작합니다.", then="「프로젝트 구성 반영」 으로", on=("flow", "flow"))[0]
+
+
+def _collect_heads(S, D, who=("source", "target")):
+    """같은 양식 취합의 「헤딩 · 표 분석」 — who = 그 줄이 고른 문서 역할. 목적 문서 = 이관형의 그 줄과 같은 일(없으면 분석 · 작성 지침 저장) · 원본 문서 = 등록한 기관 문서마다 하나씩(workflow_exec._do_c_heads)."""
+    src, dst = "source" in who, "target" in who
+    does = ((f"등록한 {S}마다 헤딩 그래프와 표 구조가 있는지 확인하고, 없는 문서만 하나씩 스크립트로 분석합니다(뒤 수정본이 있는 문서는 뺍니다). " if src else "")
+            + (f"{D}에 헤딩 그래프와 표 구조가 없으면 스크립트로 기본 분석을 돌리고, 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 각주 작성 요령)을 해당 헤딩과 표에 연결해 저장합니다." if dst else "")).strip()
+    X = f"{S} · {D}" if src and dst else S if src else D
+    return _s("heads", "헤딩 · 표 분석", "script", does, out=f"{X}의 헤딩 그래프 · 표 구조" + (" · 헤딩/표별 작성 지침" if dst else ""), change="store", uses=("headings",), modules=("heading_runs", "form_guides"),
+              spec=(SP_GATHER, "② §10"), need=f"{X}(hwpx).",
+              done=(f"등록한 {S}마다 헤딩 그래프와 표 구조가 있을 때({S}가 아직 없으면 그 몫은 할 일이 없습니다)" if src else "") + (" · " if src and dst else "") + (f"{D}에 헤딩 그래프와 표 구조가 있을 때" if dst else "") + ".",
+              stop=(f"{D}의 분석이 실패하면 까닭을 알리고 멈춥니다. " if dst else "") + (f"분석에 실패한 {S}는 그 문서만 남기고 다음 문서로 갑니다." if src else ""),
+              left="작성 지침은 작업에 저장돼 「문서 정리」 뒤에도 남습니다." if dst else f"이 줄을 놓지 않아도 「자리 연결」 이 분석이 없는 {S}를 먼저 분석합니다.",
+              on="both" if src and dst else "source" if src else "target")
+
+
+def collect_tools(S="기관 문서", D="사업계획서"):
+    """같은 양식 취합에 놓는 줄 모두(차례 = custom_tasks.COLLECT_UNITS — 맨 앞 묶음의 「준비」 는 빼고) → 등록부 꼴의 줄들. 조립 화면의 고를 줄 · 조립한 정의의 줄 글 · 도구 이름 · 도구에 적어 두는 내용이 같이 읽는다.
+    이관형과 **같은 도구**인 줄(줄 key · 기본 이름이 같다 — 이름 고치기와 적어 둔 내용을 같이 쓴다)의 글은 일반 단계 함수(_st_*)가 만든 그 줄에서 집고(문서 이름만 기관 문서 · 사업계획서로),
+    이 틀에서 뜻이 다른 줄(구성의 기준 = 목적 문서 · 기관 문서마다 · 반영할 기관의 자리만)과 이 틀에만 있는 줄(「반영할 기관 지정」 · 「수정본 반영」)의 글은 여기 적는다.
+    글의 근거 = 실행기(app/workflow_exec.py 의 collect 절)와 엔진의 문(app/merge_collect_api.py). 새 LLM 호출은 없다(있는 LLM 줄 = 헤딩 · 표의 검증·보완 · 지침 보정)."""
+    from app import custom_tasks
+    fit = {s["key"]: s for s in _st_fit(S, D, take=True)}       # 구성 불러오기 · 다시 문서 검토 · 다시 문서 검토(LLM) · 넣을 구성 선택
+    clean = {s["key"]: s for s in _st_clean(S, D, more=True)}   # 넣은 뒤 템플릿 · 서식 정리 · 지침 보정(LLM) · 작성요령 삭제 · 빈 구역 지우기 · 캡션 맞추기 · 줄 정리
+    llm = dict(next(s for s in _st_review(S, D, src=False, dst=True, llm=("target",), fit=True) if s["key"] == "headsLlm"),
+               does=f"LLM 이 {D}의 헤딩과 템플릿, 표, 서식 정리 계획을 차례로 검증하고 보완합니다. 유료이며 몇 분 걸립니다. 여기서는 {D}가 바뀌지 않습니다 — 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다. "
+                    f"{S}에는 놓지 않습니다(바뀌지 않는 문서입니다).")
+    why = SP_GATHER, "② §10"
+    made = {
+        "heads": _collect_heads(S, D), "headsLlm": llm, "configLoad": fit["configLoad"],
+        "config": _config_steps(D, "", "", then="「프로젝트 구성 반영」 으로", on=("", "flow"))[1],   # 구성의 기준 = 목적 문서(사업계획서 — 기관 문서는 제 몫만 쓴 문서라 그 값으로 구성을 정하지 않는다)
+        "take": fit["take"],
+        "division": _s("division", "프로젝트 구성 반영", ("script", "human"), f"{D}의 절과 표 행 · 열을 확정한 프로젝트 구성에 맞춥니다. 처음 반영할 때 구조가 이미 값에 맞으면 문서를 바꾸지 않고 확인만 하며, 아니면 변경 계획대로 반영합니다. "
+                       f"구조만 바꾸고 {S}의 내용은 넣지 않습니다.", no="①", out=f"구조를 맞춘 {D}", change="doc", uses=("division",), modules=("division_plan", "division_model"), spec=(SP_WORK, "② §11·§14"),
+                       need=f"「프로젝트 구성 추출」 로 확정한 프로젝트 구성 값({D} 기준).", done=f"{D}의 입력 값이 {D}에 반영됐을 때(구조가 이미 맞아 확인만 한 경우도 포함).",
+                       stop="계획을 못 세웠거나 계획 오류와 미해결 자리가 있으면 「한 번에 진행」 이 멈춥니다. 기관 순서가 마지막 반영 때와 달라도 반영하지 않고 멈춥니다.", left="지원 안 되는 자리는 그대로 둡니다.", on="target"),
+        "reheads": fit["reheads"], "reheadsLlm": fit["reheadsLlm"],
+        "part": _s("part", "반영할 기관 지정", ("script", "human"), f"등록한 {S}마다 어느 기관의 내용을 {D}에 넣을지(반영할 기관)를 정합니다 — 그 기관의 자리에만 넣습니다. "
+                   "미지정 문서만 파일 이름, 문서에 적힌 기관 표시 차례로 저절로 정해 보고, 못 정하면 미지정으로 남깁니다. 사람이 정한 것은 바꾸지 않으며 문서는 바뀌지 않습니다.",
+                   out=f"{S}마다 반영할 기관", change="store", modules=("merge_collect",), spec=why,
+                   need=f"같은 묶음(프로젝트 · 워크플로우 · 라운드)에 올린 {S}와 프로젝트 구성의 기관 이름.", done=f"미지정인 {S}가 없을 때. {S}가 아직 없으면 「건너뜀」 입니다.",
+                   left="못 정한 문서는 넣지 않고 건너뛰며 끝 글에 「반영할 기관 미지정 n개」 로 알립니다. 대시보드의 그 문서 줄에서 사람이 정한 뒤 다시 진행합니다.", on="source"),
+        "link": _s("link", "자리 연결", "script", f"등록한 차례대로 {S} 하나를 원본으로 못 박고, 구분 기준 값과 이름으로 그 문서와 {D}의 문단 묶음과 표를 잇습니다. "
+                   f"그 문서의 반영할 기관에 해당하는 자리만 넣기 대상입니다. 분석이 없는 {S}는 먼저 스크립트로 분석합니다.", no="②", out=f"{S}마다의 연결 목록", change="store",
+                   modules=("merge_collect", "merge_pairs", "merge_fixed", "merge_api"), spec=why,
+                   need=f"반영할 기관을 정한 {S}, 구조를 맞춘 {D}, 두 문서의 헤딩 · 표 분석.",
+                   done=f"넣기 대상 {S}(미지정 문서, 수정본, 뒤 수정본이 있는 문서를 뺀 것)가 모두 반영됐을 때. 넣기 대상이 하나도 없으면 끝난 것으로 보지 않습니다.",
+                   stop=f"{D} 쪽 까닭(분석 없음, 구성 값 없음, 반영 전)으로 연결 목록을 낼 수 없으면 전체가 멈춥니다. {S} 쪽 까닭이면 그 문서만 남기고 다음 문서로 갑니다.",
+                   left="확인 필요로 남은 자리는 넣지 않고 비워 둡니다. 이 틀에는 자리 연결 LLM 검토, 표 대응, 빈 자리 검토가 아직 없습니다.", on="pair"),
+        "plan": _s("plan", "표 안 연결 · 넣기 계획", "script", f"그 {S}에서 이어진 자리마다 넣을 본문과 표 칸, 늘릴 행, 못 넣는 까닭을 미리 셉니다. "
+                   "계획은 못 박은 그 문서의 것으로만 세우며(그 사이 다른 화면이 원본을 바꿨으면 세우지 않습니다) 문서는 바뀌지 않습니다.", no="③", out=f"{S}마다의 넣기 계획",
+                   modules=("merge_fill", "merge_tables", "merge_collect"), spec=why, need="그 문서의 연결 목록.", done="② 와 같은 셈입니다(넣기 대상 문서가 모두 반영됐을 때).",
+                   left="못 넣는 자리는 까닭과 함께 셉니다.", on="pair"),
+        "apply": _s("apply", "내용 반영", "script", f"넣기 계획대로 그 {S}의 글과 표 · 그림을 {D}의 그 기관 자리에 넣고 서식을 {D}의 틀에 맞춥니다. "
+                    "넣은 내용이 어느 기관 문서에서 들어왔는지는 편집 구역(출처)에 남깁니다. 기관 문서마다 실행 취소 한 번입니다.", no="④", out=f"{S}의 내용이 들어간 {D}", change="doc",
+                    modules=("merge_fill", "merge_tables", "merge_convert", "merge_over", "merge_register", "merge_collect", "outline_conform"), uses=("zones",), spec=why,
+                    need="그 문서의 넣기 계획.", done="② 와 같은 셈입니다(넣기 대상 문서가 모두 반영됐을 때).",
+                    stop="표준 검사에 걸리면 되돌리고 전체가 멈춥니다. 계획 뒤 문서가 바뀌었으면 한 번만 다시 계획합니다.",
+                    left="다른 기관 문서가 먼저 넣었거나 이미 글이 있는 자리는 덮지 않고 남깁니다(그 문서는 「확인 필요」). 넣을 것이 없는 문서는 「반영함」 으로 세지 않습니다.", on="pair"),
+        "revise": _s("revise", "수정본 반영", "script", f"「○○ 의 수정본」 으로 등록한 {S}는 다시 넣지 않고, 앞 제출본에서 넣은 글 가운데 수정본에서 바뀐 곳만 {D}에서 고칩니다. "
+                     "사람이 그 뒤 고친 자리는 덮지 않고 겹침으로 남기며, 수정본에 없는 줄은 지우지 않습니다. LLM 을 쓰지 않습니다.", out=f"수정본의 바뀐 곳을 반영한 {D}", change="doc",
+                     modules=("merge_collect",), uses=("zones",), spec=why, need=f"앞 제출본을 반영한 기록과, 그 수정본으로 등록한 {S}.",
+                     done="반영 전인 수정본이 없을 때. 수정본이 하나도 없으면 「건너뜀」 입니다.", stop="표준 검사에 걸리면 되돌리고 전체가 멈춥니다. 수정 계획 뒤 문서가 바뀌었으면 한 번만 다시 계획합니다.",
+                     left="겹침(사람이 고친 자리)과 확인 필요로 남은 자리는 그대로 두고 「남김」 으로 알립니다.", on="pair"),
+        **{k: clean[k] for k in ("retidy", "guideFix", "guide", "zonePrune", "capUnify", "lineTidy")},
+    }
+    return tuple(made[k] for k in custom_tasks.COLLECT_UNITS)
+
+
+def _collect_entry():
+    """같은 양식 취합의 시작 점검 — 어느 워크플로우나 같은 것만(문서 형식 · 목적 문서 · 작업 만들기 · 묶기 · 가져오기 검증 · 기본 분석 · 분석 상태 · 에이전트 · 편집 구역 · 도는 실행 · 저절로 돌지 않는 LLM).
+    이 틀만의 점검(기관 문서의 등록 · 반영할 기관 · 수정본)은 줄의 조건(반영할 기관 지정 · 수정본 반영)에 적혀 있다 — 화면의 시작 검사가 생기면 그 근거로 여기 더한다(글의 근거는 코드다)."""
+    return (_c_format(), _C_TARGET, _C_WORK, _C_TASK, _C_IMPORT, _C_ANALYSIS, _c_status(), _C_ZONEOPT, _C_AGENT, _c_zones(), _C_RUNNING, _C_LLM, _C_DIVLLM, _C_ZONELLM)
+
+
+def _assemble_collect(c):
+    """같은 양식 취합으로 조립한 정의(shape collect — 원본 = 기관이 따로 쓴 문서 여럿 → 목적 = 사업계획서 하나) → 등록부의 워크플로우 꼴.
+    실행 단위의 가족 = collect(`units` — app/workflow_units.py COLLECT + 같이 쓰는 단위) · 구성의 기준 = 목적 문서(base target) · 줄의 글 = collect_tools(헤딩 · 표 분석은 줄이 고른 문서로) ·
+    묶음은 정의의 것(g1 … — 번호는 1부터) · 맨 앞 묶음에 「준비」 · 묶음의 module = 그 묶음의 줄이 모두 한 일반 단계의 것일 때 그 단계(끝 글의 꼬리 · 「N단계 「…」」 글이 읽는다). 전제는 비우면 「사업계획서 취합」 의 것."""
+    from app import custom_tasks
+    from app import workflow_units as WU
+    S, D = custom_tasks.kind_name(c["source"]), custom_tasks.kind_name(c["target"])
+    made = {s["key"]: s for s in collect_tools(S, D)}
+    who = {r for g in c["flow"] for s in g["steps"] if s["unit"] == "heads" for r in s["on"]}
+    if who:
+        made["heads"] = _collect_heads(S, D, tuple(r for r, _ in ROLES if r in who))
+    stages = []
+    for i, g in enumerate(c["flow"]):
+        steps, homes = [_collect_files(S, D)] if i == 0 else [], set()
+        for s in g["steps"]:
+            if s["unit"] == "hand":
+                steps.append(_hand_step(s))
+                homes.add("hand")
+                continue
+            base, o = made[s["unit"]], s["on"]
+            homes.add((WU.unit(s["unit"], "collect") or {}).get("home") or "")
+            steps.append(_beside(dict(base, on=base["on"] if base["on"] in ("flow", "pair") or not o else ("both" if len(o) == 2 else o[0])), s))
+        names = [x["name"] for x in steps if x["key"] != "files"]
+        changed = any(x["change"] == "doc" and x["key"] != "headsLlm" for x in steps)   # 1단계 「LLM 검증·보완」 은 목적 문서를 바꾸지 않는다(서식 정리는 구조를 맞춘 뒤에 — workflow_units.TIDY_ROLES)
+        does = JOIN.join(names) + (f" · 목적 문서({D})가 바뀜" if changed else " · 문서는 안 바뀜")
+        stages.append(_g(g["id"], steps, no=f"{i + 1}단계", name=g["name"], does=does, module=next(iter(homes)) if len(homes) == 1 and next(iter(homes)) in _STAGE_BY else None))
+    roles = (_role("source", S, c["source"], many=True), _role("target", D, c["target"]))
+    return dict(job=c["key"], custom=True, v=2, units="collect", name=c["name"], desc=c["desc"] or custom_desc(c), premise=c["premise"], premise_from=custom_tasks.base_of(c), base="target",
+                stages=tuple(stages), entry=_collect_entry(), roles=roles,
+                inputs=f"{D}(목적 문서) + {S} 여럿(원본 문서 — 기관이 같은 양식으로 따로 쓴 문서 · 수정본)", output=f"{S}의 내용이 그 기관의 자리에 들어간 {D}",
+                note=f"줄 목록으로 조립한 같은 양식 취합 워크플로우입니다. 정한 차례대로 서버에서 진행합니다. {S}(원본)는 바뀌지 않습니다.")
+
+
 def _assemble_gather(c):
     """취합형으로 조립한 정의(shape gather — 원본 = 기관 문서 여럿 → 목적 = 취합본 하나: spec_워크플로우 ② §18-13 갈래 「라」 ⓶) → 등록부의 워크플로우 꼴.
     줄의 글 · 시작 점검 · 문서 역할은 붙박이 「사업계획서 취합」 의 것 그대로(그 줄들이 취합형의 실행 단위다 — 붙박이 차례에 없는 조립 도구는 gather_tools) · 묶음은 정의의 것(g1 … — 번호는 1부터) · 맨 앞 묶음에 「준비」.
@@ -1430,6 +1544,8 @@ def _assemble_flow(c):
     from app import custom_tasks
     if c.get("shape") == "gather":
         return _assemble_gather(c)
+    if c.get("shape") == "collect":   # 같은 양식 취합 — 원본이 기관 문서 여럿 · 구성의 기준이 목적 문서(이관형의 글 · 역할로 짓지 않는다)
+        return _assemble_collect(c)
     if c.get("shape") == "single":   # 문서 하나 — 이관형으로 짓지 않는다(원본이 없다 · 줄 key 가 이관의 것과 겹친다: plan · apply · heads)
         return _assemble_single(c)
     S, D = custom_tasks.FILES[c["source"]], custom_tasks.FILES[c["target"]]
@@ -1490,6 +1606,13 @@ def custom_desc(c):
         keys = {s["unit"] for g in c.get("flow") or () for s in g["steps"]}
         what = ("여러 기관이 작성한 문서의 내용을 취합본 하나로 모읍니다" if "apply" in keys else "취합본의 구조를 프로젝트 구성에 맞추고 기관에 나눠 줄 배포 기준본을 만듭니다" if "frame" in keys
                 else "취합본의 프로젝트 구성을 정합니다")
+        return what + ". 정한 차례대로 진행합니다."
+    if c.get("shape") == "collect":   # 같은 양식 취합 — 기관이 같은 양식으로 따로 쓴 문서의 내용을 사업계획서의 그 기관 자리에(넣는 줄이 없으면 실제로 하는 일)
+        keys = {s["unit"] for g in c.get("flow") or () for s in g["steps"]}
+        D = custom_tasks.kind_name(c["target"])
+        what = (f"기관이 같은 양식으로 따로 쓴 문서의 내용을 {D}의 그 기관 자리에 넣습니다" + (" — 수정본은 바뀐 곳만 고칩니다" if "revise" in keys else "") if "apply" in keys
+                else f"수정본에서 바뀐 곳만 {D}에서 고칩니다" if "revise" in keys else f"{D}의 구조를 프로젝트 구성에 맞춥니다" if "division" in keys
+                else f"{D}와 기관 문서를 검토합니다(문서는 안 바뀜)" if keys & {"heads", "headsLlm"} else f"{D}에 놓은 줄을 진행합니다")
         return what + ". 정한 차례대로 진행합니다."
     if c.get("shape") == "single":   # 문서 하나 — 원본이 없다: 그 문서에 실제로 하는 일(놓은 줄에서 — 구조 맞춤 · 헤딩 · 템플릿 · 서식 · 표)
         keys = {s["unit"] for g in c.get("flow") or () for s in g["steps"]}

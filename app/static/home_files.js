@@ -477,8 +477,8 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
     use = others; // 자동 진행도 확인 창 없이 바로(2026-11-18 사용자 「이런 알람좀 주지마」 — 전에는 간단 모드의 차례를 적은 확인 창: design.md §18 「확인 창」)
   } else if (t.files) {
     if (hfSourceFixedAsk(job, others, ask)) return;
-    if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return; }
-    if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return; }
+    if (others.length > 1 && !t.collect) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return; } // 같은 양식 취합(collect — spec_취합 ② §10)은 기관 문서가 여럿이다
+    if (others.some((f) => !HF_TASK.test(f.name))) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return; }
     use = others; // 프로젝트 이름을 비워도 된다 — 임시 이름으로 두 문서를 같은 프로젝트에 묶는다(② §17 「임시 프로젝트」 · 2026-11-18 전에는 이름을 적어야 시작했다)
   } else if (others.length && !confirm(`워크플로우 「${t.name}」 ${hfJosa(t.name, "은", "는", "은")} ${hfDocName(job)} 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return;
   if (!confirmDiscard()) return;
@@ -505,7 +505,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
     hfUsed([target, ...use]);
     if (main.note) toast(main.note);
     if (t.gather && use.length) await gatherQuickRun(main.id, target.name, use, { llm, uploadOnly: !auto, aliases }); // 취합 — 기관 문서 올리기·등록(+ 자동 진행이면 끝까지): gather_quick.js
-    else if (sourceRole && use.length) await hfAddSource(main, use[0], sourceRole, aliases.get(use[0]));
+    else if (sourceRole && use.length) { for (const f of use) await hfAddSource(main, f, sourceRole, aliases.get(f)); } // 이관 = 하나 · 같은 양식 취합 = 기관 문서마다(목록의 차례대로 — 올린 차례가 넣는 차례다)
     else if (sourceRole && (main.task || {}).project && hfSourceSlot(job) && !(await hfHasSource(job, main.id, main.task))) { // 원본 칸 = 저장한 양식(목록에 원본 파일이 없음 · 고정)
       if (await hfAddSourceForm(main, job, hfSourceSlot(job))) await loadWorks(); // 첨부 파일 칸이 저절로 잇는다(② §11)
     }
@@ -543,8 +543,8 @@ async function homeFilesStart(job, { form = false } = {}) {
   let project = hfNorm(hf.project, 60), use = [];
   if (t.files) {
     if (hfSourceFixedAsk(job, others, ask)) return null;
-    if (others.length > 1) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return null; }
-    if (others.length && !HF_TASK.test(others[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return null; }
+    if (others.length > 1 && !t.collect) { ask(`이관은 연차보고서(목적 문서) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${hf.files.length}개입니다. 남길 둘만 두세요`); return null; } // 같은 양식 취합(collect)은 기관 문서가 여럿이다(homeFilesGo 와 같은 검사)
+    if (others.some((f) => !HF_TASK.test(f.name))) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return null; }
     use = others; // 프로젝트 이름을 비워도 된다 — 임시 이름으로 두 문서를 같은 프로젝트에 묶는다(② §17 「임시 프로젝트」)
   } else if (others.length && !confirm(`워크플로우 「${t.name}」 ${hfJosa(t.name, "은", "는", "은")} ${hfDocName(job)} 하나로 합니다.\n\n「${target.name}」 만 올리고 나머지 ${others.length}개는 목록에 남깁니다. 계속할까요?`)) return null; // 고른 것과 다른 일을 하게 되는 물음 — 남긴다(design.md §18)
   const blank = { kind: "", file: "", job: "", project: "" };
@@ -596,12 +596,16 @@ async function homeFilesStart(job, { form = false } = {}) {
     const failed = [], sform = sourceRole && !use.length && task.project ? hfSourceSlot(job) : null;
     let formSource = "";
     if (sourceRole && use.length && !task.project) { // homeFilesGo 와 같다 — 목적 문서가 프로젝트에 묶이지 않아(새로 올린 문서가 아닌 작업을 이어 함) 원본 문서는 묶을 곳이 없다: 목록에 남긴다
-      toast(`${taskName("file", sourceRole)} 「${use[0].name}」 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 개요의 첨부 파일 칸에서 올리세요)`, true);
-      failed.push(use[0].name);
+      toast(`${taskName("file", sourceRole)} 「${use[0].name}」${use.length > 1 ? ` 등 ${use.length}개` : ""} 은 목록에 남겼습니다 — 목적 문서가 프로젝트에 묶이지 않아 함께 시작하지 못했습니다(작업 개요의 첨부 파일 칸에서 올리세요)`, true);
+      failed.push(...use.map((f) => f.name));
       use = [];
-    } else if (sourceRole && use.length) {
-      hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 「${use[0].name}」 올리는 중…${/\.hwp$/i.test(use[0].name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
-      if (!(await hfAddSource({ id, task }, use[0], sourceRole, aliases.get(use[0])))) { failed.push(use[0].name); use = []; } // 못 올린 원본 문서는 목록에 남는다(까닭은 hfAddSource 의 알림)
+    } else if (sourceRole && use.length) { // 이관 = 하나 · 같은 양식 취합 = 기관 문서마다(목록의 차례대로 — 올린 차례가 넣는 차례다): 못 올린 문서는 목록에 남는다(까닭은 hfAddSource 의 알림)
+      const ok = [];
+      for (const f of use) {
+        hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 「${f.name}」 올리는 중…${/\.hwp$/i.test(f.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
+        if (await hfAddSource({ id, task }, f, sourceRole, aliases.get(f))) ok.push(f); else failed.push(f.name);
+      }
+      use = ok;
     } else if (sform && !(await hfHasSource(job, id, task))) { // 원본 칸 = 저장한 양식(목록에 원본 파일이 없음 · 고정 — 이어 하는 작업에 이미 원본이 있으면 그대로)
       hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 칸을 ${hfFormLabel(sform.form)}으로 채우는 중…`);
       formSource = await hfAddSourceForm({ id, task }, job, sform);
@@ -610,7 +614,7 @@ async function homeFilesStart(job, { form = false } = {}) {
     hfUsed([target, ...use]); // 올린 문서는 목록에서 뺀다
     await loadWorks();
     const same = (w) => { const x = w.task || {}; return w.id !== id && x.file === sourceRole && x.job === task.job && x.project === task.project && (x.round || 1) === (task.round || 1); };
-    const sources = use.length ? worksList.filter(same).slice(0, 1).map((w) => w.id) : formSource ? [formSource] : []; // 방금 올린 원본 문서(작업 목록은 최근 바뀐 차례 — 같은 묶음의 그 종류 가운데 맨 앞)
+    const sources = use.length ? worksList.filter(same).slice(0, use.length).map((w) => w.id) : formSource ? [formSource] : []; // 방금 올린 원본 문서(작업 목록은 최근 바뀐 차례 — 같은 묶음의 그 종류 가운데 맨 앞)
     const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 문서를 연 뒤 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
     return { id, task, sources, failed, note: [note, named].filter(Boolean).join("\n") };
   } catch (e) {
@@ -707,8 +711,8 @@ async function hfStartForm(job, { stay = true } = {}) {
   let use = [...hf.files];
   if (t.files) {
     if (hfSourceFixedAsk(job, use, ask)) return stay ? null : false;
-    if (use.length > 1) { ask(`이관은 목적 문서(${hfFormLabel(was.form)}) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${use.length}개입니다. 원본 문서 하나만 두세요`); return stay ? null : false; }
-    if (use.length && !HF_TASK.test(use[0].name)) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return stay ? null : false; }
+    if (use.length > 1 && !t.collect) { ask(`이관은 목적 문서(${hfFormLabel(was.form)}) 하나와 ${taskName("file", sourceRole)} 하나로 합니다 — 목록에 문서가 ${use.length}개입니다. 원본 문서 하나만 두세요`); return stay ? null : false; }
+    if (use.some((f) => !HF_TASK.test(f.name))) { ask(`${taskName("file", sourceRole)}도 hwp·hwpx 여야 합니다`); return stay ? null : false; }
   } else {
     if (use.length && !confirm(`워크플로우 「${t.name}」 ${hfJosa(t.name, "을", "를", "를")} ${hfFormLabel(was.form)}으로 시작합니다.\n\n목록의 문서 ${use.length}개는 쓰지 않고 남깁니다 — ${was.mode === "fixed" ? "이 워크플로우는 양식이 고정이라 목적 문서를 바꿀 수 없습니다" : "목록의 문서로 시작하려면 그 문서를 목적 문서로 고르세요"}. 계속할까요?`)) return stay ? null : false; // 고른 것과 다른 일을 하게 되는 물음 — 남긴다(design.md §18)
     use = [];
@@ -744,8 +748,12 @@ async function hfStartForm(job, { stay = true } = {}) {
     const failed = [], sform = sourceRole && !use.length ? hfSourceSlot(job) : null;
     let formSource = "";
     if (sourceRole && use.length) {
-      hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 「${use[0].name}」 올리는 중…${/\.hwp$/i.test(use[0].name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
-      if (!(await hfAddSource({ id, task }, use[0], sourceRole, aliases.get(use[0])))) { failed.push(use[0].name); use = []; }
+      const ok = []; // 이관 = 하나 · 같은 양식 취합 = 기관 문서마다(목록의 차례대로)
+      for (const f of use) {
+        hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 「${f.name}」 올리는 중…${/\.hwp$/i.test(f.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
+        if (await hfAddSource({ id, task }, f, sourceRole, aliases.get(f))) ok.push(f); else failed.push(f.name);
+      }
+      use = ok;
     } else if (sform) { // 원본 칸 = 저장한 양식(목록에 원본 파일이 없음 · 고정)
       hfBusy(`워크플로우 「${t.name}」 — ${taskName("file", sourceRole)} 칸을 ${hfFormLabel(sform.form)}으로 채우는 중…`);
       formSource = await hfAddSourceForm({ id, task }, job, sform);
@@ -754,7 +762,7 @@ async function hfStartForm(job, { stay = true } = {}) {
     hfUsed(use);
     await loadWorks();
     const same = (w) => { const x = w.task || {}; return w.id !== id && x.file === sourceRole && x.job === task.job && x.project === task.project && (x.round || 1) === (task.round || 1); };
-    const sources = use.length ? worksList.filter(same).slice(0, 1).map((w) => w.id) : formSource ? [formSource] : [];
+    const sources = use.length ? worksList.filter(same).slice(0, use.length).map((w) => w.id) : formSource ? [formSource] : [];
     const named = temp ? `프로젝트 이름이 없어 임시 이름 「${temp}」 로 묶었습니다 — 문서를 연 뒤 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : "";
     const note = [`목적 문서를 ${hfFormLabel(s.form)}으로 만들었습니다(양식: ${HF_FORM_MODE[s.mode]})`, named].filter(Boolean).join("\n");
     if (!stay) { // 워크플로우 카드 — 문서 화면을 연다(homeFilesGo 와 같다: 연 뒤 에이전트가 다음 단계를 안내)

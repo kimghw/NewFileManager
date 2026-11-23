@@ -87,8 +87,10 @@ def _count(src):
     return c["paragraph"], c["table"], c["image"]
 
 
-def plan(to_side, from_side, to_values, from_values, pairs, applied=None):
-    """넣기 계획(모듈 설명) → {"items": [{group, value, to, from, anchor, anchorText, src, blocks, paragraphs, tables, pictures, placeholders, hash, skip, detail}], "counts"}."""
+def plan(to_side, from_side, to_values, from_values, pairs, applied=None, part=None, singles=None):
+    """넣기 계획(모듈 설명) → {"items": [{group, value, to, from, anchor, anchorText, src, blocks, paragraphs, tables, pictures, placeholders, hash, skip, detail}], "counts"}.
+    part · own = 같은 양식 취합(spec_취합 ② §10-2)의 지금 기관 문서(작업 id)와 그 반영할 기관: 넣은 기록에 적힌 문서(`applied[k].part`)가 다른 문서면 「원본 바뀜」 이 아니라 **겹침**(occupied — 앞 문서의 내용을 둔다) ·
+    singles = 기관 문서의 홑 기관 라벨 {라벨 id: {label, roots}}(merge_pairs._singles — 구분 기준 엔진이 묶음으로 못 읽는 조각 문서의 항목): 엔진 항목에 없는 원본 항목은 여기서 찾는다."""
     applied = applied or {}
     t_idx, t_items, nodes = _engine(to_side, to_values)
     f_idx, f_items, _ = _engine(from_side, from_values)
@@ -104,7 +106,7 @@ def plan(to_side, from_side, to_values, from_values, pairs, applied=None):
             row = {"group": g["id"], "value": pi["value"], "to": key, "from": frm, "anchor": None, "anchorText": "", "src": [], "blocks": 0,
                    "paragraphs": 0, "tables": 0, "pictures": 0, "placeholders": [], "hash": None, "skip": None, "detail": ""}
             out.append(row)
-            ti, si = t_items.get(key), f_items.get(frm)
+            ti, si = t_items.get(key), f_items.get(frm) or (singles or {}).get(frm)
             if pi.get("status") == "outside":   # 고르지 않은 구성(연결 목록이 적어 둔 것 — merge_take.narrow): 넣지 않는다
                 row.update(skip="outside", detail=TK.OUT)
                 continue
@@ -118,6 +120,9 @@ def plan(to_side, from_side, to_values, from_values, pairs, applied=None):
             h = _hash(src)
             row.update(src=[b["id"] for b in src], blocks=len(src), hash=h)
             row["paragraphs"], row["tables"], row["pictures"] = _count(src)
+            if key in applied and part is not None and applied[key].get("part") not in (None, part):
+                row.update(skip="occupied", detail="다른 기관 문서가 먼저 넣은 자리 — 그대로 둠")
+                continue
             if key in applied:
                 same = applied[key].get("hash") == h
                 row.update(skip="applied" if same else "changed", detail="" if same else "원본 바뀜 — 다시 넣지 않음")

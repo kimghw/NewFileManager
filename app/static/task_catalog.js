@@ -65,6 +65,15 @@ function taskCatalogCustom(defs, opt = null) {
         sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(null, d.groups || []), icon: report ? "report_fit" : "plan_fit" };
       continue;
     }
+    if (d.shape === "collect") { // 같은 양식 취합으로 조립한 것(「N → 1 · 같은 양식」 — 기관이 같은 양식으로 따로 쓴 문서 여럿 → 사업계획서 하나의 자리에: spec_취합 ② §10 · 2026-11-24)
+      // 엔진 · 화면은 이관형 v2 의 것(연결 목록 · 넣기 계획 · 서버가 센 상태의 대시보드 · 서버 쪽 실행기 · 실행의 거울) — files 둘(taskIsRelay · taskIsRelayFlow 참)이되 **원본 문서가 여럿**이다(collect — taskIsCollect:
+      // 원본 칸 하나를 전제하는 곳은 이것으로 가른다 — 기관 문서 올리기 · 「기관 문서」 목록 collect.js · 시작 요청의 docs). gather 칸은 없다(taskIsGather 거짓 — 배포 기준본과 견주는 gather.js 로 가지 않는다)
+      TASK_CATALOG[d.key] = { name: d.name, act: "취합", doc: "plan", file: "", up: "문서", desc: d.desc || auto || "같은 양식으로 기관이 따로 쓴 문서 여럿을 사업계획서 하나의 자리에 넣습니다 — 정한 차례대로 진행합니다.",
+        hint: "사업계획서(목적 문서)와 기관 문서들을 올린 뒤 대시보드에서 진행합니다(화면에서 조립한 워크플로우 — 서버에서 진행)",
+        files: [d.source, d.target], target: d.target, zones: ["org"], custom: true, collect: true, groups: d.groups || [], stages: [], assign: null, does, v2: true, entry: "Dash",
+        sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(null, d.groups || []), icon: "plan_merge" };
+      continue;
+    }
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
       files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign: v2 ? null : assign, does, v2,
@@ -97,6 +106,10 @@ const taskIsRelay = (job) => { const c = TASK_CATALOG[job] || {}; return !!c.fil
 // **상태는 서버가 세고**(GET /api/works/{wid}/flow) **서버 쪽 실행기만 돌린다**(workflow_exec.js relayFlowRun). 대시보드(dashboard.js dashFlowLive) · 에이전트 · 실행의 거울이 「줄 목록으로 조립한 이관형이면」 을 이것으로 가른다 —
 // 표준 차례로 조립한 것(옛 꼴 — assign · stages)과 붙박이 이관은 거짓이다(전처럼 화면의 단계 셈 · taskRunAll). 2026-11-21 사용자(그 워크플로우의 대시보드에 상태 · 단추가 하나도 없는 것을 보며) "안에 기능이 하나도 없냐?"
 const taskIsRelayFlow = (job) => taskIsRelay(job) && !!(TASK_CATALOG[job] || {}).v2;
+// 같은 양식 취합으로 조립한 워크플로우인가(조립 폼의 「N → 1 · 같은 양식」 — 기관 문서 여럿 → 사업계획서 하나: spec_취합 ② §10 · 서버 custom_tasks.is_collect). **taskIsRelay · taskIsRelayFlow 도 참이다**(이관형 v2 의 화면 · 실행을 같이 쓴다) —
+// 그 가지 가운데 원본 문서가 하나라고 전제하는 곳만 이것으로 가른다(원본 칸에 고르기 · 올리기 = 다른 기관 문서를 밀어내지 않게 · 시작 요청의 docs.source · 거울이 따라가는 문서 · 문서 카드). taskIsGather 는 거짓이다
+const taskIsCollect = (job) => !!(TASK_CATALOG[job] || {}).collect;
+const taskCollectKind = (job) => (taskIsCollect(job) ? ((TASK_CATALOG[job] || {}).files || [])[0] || "" : ""); // 그 워크플로우의 기관 문서 종류(part) | ""(같은 양식 취합이 아님)
 // 문서 하나로 조립한 워크플로우인가(조립 폼의 「1」 — 원본 문서 없이 그 문서 하나에 정한 줄을 차례로: 서버 실행기만 돌린다). **붙박이 문서 하나(사업계획서 양식 표준화 · 연차보고서 양식 맞추기)는 아니다** — 그것은 화면이 돈다.
 // 화면의 「조립한 문서 하나면」 가지(서버 실행의 거울 · 3초 확인 = 고치던 글 보고 · 대시보드 · 에이전트)는 키를 견주지 않고 이것으로 가른다 — 이 표지가 참인 워크플로우에서 taskIsRelay · taskIsGather 는 거짓이다
 const taskIsSingle = (job) => !!(TASK_CATALOG[job] || {}).single;

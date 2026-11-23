@@ -808,7 +808,7 @@ def test_line_lists_are_stored_as_v2_or_as_the_old_form_and_old_reads_do_not_see
     assert {u["key"] for u in tasks["units"]} >= {"heads", "headsLlm", "config", "division", "link", "apply", "guide", "hand"} and "files" not in {u["key"] for u in tasks["units"]}
     # 문서 입출력(② §18-8 — 2026-11-20 사용자 "1->N, N-1 문서 입출력"): 꼴 「1」 · 「1 → 1」 · 「N → 1」 · 칸(원본 → 목적 · 수 · 종류) — 아직 못 여는 틀은 까닭과 함께
     sh = {s["id"]: s for s in tasks["shapes"]}
-    assert [s["id"] for s in tasks["shapes"]] == ["single", "relay", "gather"] and [s["io"] for s in tasks["shapes"]] == ["1", "1 → N", "N → 1"]   # 이관 = 1 → N(사용자 「이관은 1-N으로」)
+    assert [s["id"] for s in tasks["shapes"]] == ["single", "relay", "gather", "collect"] and [s["io"] for s in tasks["shapes"]] == ["1", "1 → N", "N → 1", "N → 1 · 같은 양식"]   # 이관 = 1 → N(사용자 「이관은 1-N으로」)
     assert not sh["single"]["soon"] and not sh["gather"]["soon"] and not sh["relay"]["soon"]   # 취합형 · 문서 하나 모두 2026-11-20 엶(② §18-13 갈래 「라」 — 문서 하나는 조립한 것만 서버가 돈다)
     assert [(x["role"], x["many"], [k["id"] for k in x["kinds"]]) for x in sh["relay"]["slots"]] == [("source", False, ["plan"]), ("target", True, ["report"])]
     assert [(x["role"], x["many"], [k["name"] for k in x["kinds"]]) for x in sh["gather"]["slots"]] == [("source", True, ["기관 문서"]), ("target", False, ["사업계획서"])]   # 목적 = 취합본(사업계획서)뿐 — 지금 조립할 수 있는 짝(custom_tasks.GATHER_PAIRS)

@@ -808,7 +808,12 @@ function dashFlowFiles(C) { // 「준비」 카드 — 문서 칸 둘(원본 · 
   [["source", C.src, kinds[0]], ["target", C.tgt, kinds[1]]].forEach(([role, w, kind]) => {
     const r = C.roles.find((x) => x.role === role) || { title: DASH_FLOW_ROLE[role], name: taskName("file", kind) || "" }, s = typeof hfSlot === "function" ? hfSlot(job, role) : null, form = s && s.form ? s : null;
     const here = w && w.id === state.id ? " — 지금 문서" : "";
-    out.lines.push([`${r.title} — ${r.name}`, w ? `${w.name}${here}` : form ? `없음 — 올리지 않으면 저장한 ${hfFormLabel(form.form)}을 씁니다(양식: ${HF_FORM_MODE[form.mode]})` : "없음 — 올려 주세요"]);
+    if (role === "source" && C.many) { // 같은 양식 취합 — 원본 문서 = 기관 문서 여럿: 칸 하나가 아니다(몇 개인지만 — 올리기 · 반영할 기관 · 수정본은 아래 「기관 문서」 목록에서: collect.js)
+      const n = (C.srcs || []).length;
+      out.lines.push([`${r.title} — ${r.name}`, n ? `문서 ${n}개 — 아래 「기관 문서」 목록` : C.tgt ? "없음 — 아래 「기관 문서 올리기…」 로 넣으세요" : "목적 문서를 올린 뒤에 넣습니다"]);
+      return;
+    }
+    out.lines.push([`${r.title} — ${r.name}`, w ? `${w.name}${here}` : form ?`없음 — 올리지 않으면 저장한 ${hfFormLabel(form.form)}을 씁니다(양식: ${HF_FORM_MODE[form.mode]})` : "없음 — 올려 주세요"]);
     if (w) return;
     if (!(form && form.mode === "fixed")) out.acts.push(dashFlowUp(kind, r.name, `act:files:up:${role}`, C.off)); // 고정이면 올린 파일을 그 칸에 넣을 수 없다(서버 409)
     if (form) {
@@ -990,6 +995,8 @@ function dashFlowRun(label, from, opt = {}) { // 서버 쪽 실행기에 시작�
     if (!r || !r.started) return r || null; // 시작하지 못한 까닭 · 「남은 단계가 없습니다」
     const after = async () => { // 끝난 실행을 서버 상태에서 다시 읽는다(끝 글이 바로 보이게)
       if (!taskIsRelayFlow(agwJob())) return; // 그 사이 다른 문서를 열었다
+      const t = relayFlowPair()[1];
+      if (t && typeof collectTouch === "function") collectTouch(t.id); // 같은 양식 취합 — 「기관 문서」 목록의 상태(반영함 · 남은 것 있음)도 다시 읽게(collect.js)
       await dashFlowRead();
       if (dashFlow().stale) await dashFlowRead();
     };
@@ -1064,7 +1071,21 @@ async function dashFlowLive(M) {
   const served = V.stages.filter((g) => g.server && g.steps), cur = served.find((g) => g.left > 0) || null; // cur = 할 일이 남은 첫 묶음(「지금」 은 여기에만)
   if (V.stages.length && served.length < V.stages.length) M.notes.push({ text: SINGLE_NOT_SERVED, warn: true }); // 조립한 것은 화면이 돌리지 않는다 — 서버가 안 맡은 묶음은 누를 수 없다
   const reg = Object.fromEntries((M.reg ? M.reg.stages : []).flatMap((g) => g.steps).map((s) => [s.key, s])), seen = {};
-  const C = { V, off, src, tgt, roles, onTarget: !!tgt && tgt.id === state.id }, files = dashFlowFiles(C), skips = new Set(V.llmSkip || []);
+  // 같은 양식 취합(task_catalog.js taskIsCollect — 원본 문서 = 기관 문서 여럿: spec_취합 ② §10): 기관 문서마다 도는 줄은 **기관 문서마다 카드**(서버가 준 문서마다의 몫 per — 그 줄의 대상이 아닌 문서(미지정 · 수정본 …)는 카드 없이 「기관 문서」 목록에) ·
+  // 「준비」 와 「반영할 기관 지정」 카드에 「기관 문서」 목록(collect.js — 첫 화면의 대시보드와 같은 함수). 한 문서만 도는 실행은 없다(서버가 solo 를 안 낸다 · 시작 요청의 role 은 400) — 줄의 「이 단계만 진행」 은 그 줄 하나(기관 문서 모두)
+  const many = typeof taskIsCollect === "function" && taskIsCollect(M.job), srcs = many ? (V.docs && V.docs.sources) || relayFlowParts().map((w) => ({ id: w.id, name: w.name })) : [];
+  const C = { V, off, src, tgt, roles, onTarget: !!tgt && tgt.id === state.id, many, srcs }, files = dashFlowFiles(C), skips = new Set(V.llmSkip || []);
+  const srcRole = roles.find((q) => q.role === "source") || null, partName = (srcRole && srcRole.name) || "기관 문서";
+  const listOpt = many && tgt ? { off, focus: "dashFocus", here: state.id, stale: moving ? 3000 : 10000, redraw: () => dashDraw(true),
+    scope: { job: M.job, project: taskProject(), round: taskRound(), kind: taskCollectKind(M.job) },
+    open: (id) => { peerPick = id; peerKind = null; peerSet(true); }, // 그 기관 문서를 둘째 면에(같이 보기 — app.js peerSync: 문서 이름 탭으로 고른 것과 같다)
+    flush: () => (state.id === tgt.id ? flushAll() : null), go: state.id === tgt.id && typeof divGo === "function" ? (key) => divGo({ key }) : null,
+    after: async () => { dashFlowTouch(state.id); await dashFlowRead(); },
+    uploaded: async () => { const id = state.id; await loadWorks(); if (state.id === id && typeof taskFlowLoad === "function") { try { await taskFlowLoad(); } catch (e) { console.warn(e); } } },
+    applied: async () => { if (state.id !== tgt.id) return; await singleRefresh(tgt.id); if (state.id === tgt.id && typeof taskFlowLoad === "function") { try { await taskFlowLoad(); } catch (e) { console.warn(e); } } } } : null; // 수정본 반영 뒤 — 문서를 다시 읽는다(서버 실행이 끝난 뒤와 같은 길)
+  // ref = 목록이 든 카드 — 고른 뒤 차례(「지금」)가 넘어가도 그 카드를 접지 않는다(고르던 목록이 사라지지 않게: 「했음」 을 누른 카드와 같은 약속 — DASH.pin)
+  const listEl = (ref) => () => (listOpt ? [collectListEl(tgt.id, { ...listOpt, after: async () => { if (DASH.open === null) DASH.open = ref; DASH.pin = true; await listOpt.after(); await dashDraw(true); DASH.pin = false; } })] : [el("p", "dash-text muted", `목적 문서(${((roles.find((q) => q.role === "target") || {}).name) || "사업계획서"})를 먼저 올려 주세요 — ${partName} 목록은 목적 문서에 묶입니다`)]);
+  if (listOpt && !collectView(tgt.id)) collectRead(tgt.id); // 문서 카드의 이름(반영할 기관)이 읽는다 — 카드를 펴기 전에도
   const lack = !V.ready ? (files.fill ? "" : V.why || "문서 칸이 비었습니다") : ""; // 실행 단추를 끄는 까닭 — 빈 칸을 저장한 양식으로 채울 수 있으면 끄지 않는다(누르면 먼저 채운다)
   if (!V.ready && V.why) M.notes.push({ text: files.fill ? `${V.why.split(" — ")[0]} — 올리지 않으면 저장한 양식을 씁니다(「준비」)` : V.why, warn: !files.fill });
   for (const g of V.stages) {
@@ -1079,11 +1100,28 @@ async function dashFlowLive(M) {
       if (!(s.key in L.steps)) L.steps[s.key] = line; // key 로 찾는 쪽(사람이 하는 일 줄 — dashHands 가 「했음」 과 함께 그린다)
       if (dashHandKey(s.key)) return null;
       const parts = s.on === "both" ? ["source", "target"] : [s.on || ""], paid = (s.paid || []).length;
-      const cards = parts.map((role) => {
-        const doc = role === "source" || role === "target", p = doc ? (s.per || []).find((q) => q.role === role) || null : null, w = role === "source" ? src : role === "target" ? tgt : null;
+      // 카드의 자리 [{role, p 서버가 준 그 문서의 몫 | null, w 그 문서 | null, each 기관 문서마다의 카드인가}] — 이관형: 역할마다 하나 · 같은 양식 취합: 원본 쪽(원본 문서 · 원본 → 목적)은 그 줄이 도는 기관 문서마다(대상이 아닌 문서는 뺀다 — 없으면 줄의 글 하나)
+      const slots = parts.flatMap((role) => {
+        const doc = role === "source" || role === "target";
+        if (many && role !== "target" && role !== "flow" && role) {
+          const per = s.key === "part" ? [] : (s.per || []).filter((q) => (q.role || "source") === "source" && !q.skipped); // 「반영할 기관 지정」 은 카드 하나 — 문서마다의 줄은 그 카드의 「기관 문서」 목록
+          return per.length ? per.map((q) => ({ role, p: q, w: srcs.find((d) => d.id === q.doc) || { id: q.doc, name: "" }, each: true })) : [{ role, p: null, w: null, each: false }];
+        }
+        return [{ role, p: doc ? (s.per || []).find((q) => q.role === role) || null : null, w: role === "source" ? src : role === "target" ? tgt : null, each: false }];
+      });
+      const cards = slots.map(({ role, p, w, each: one }) => {
         const cst = !p ? st : p.st === "done" ? "done" : p.st === "busy" ? "run" : hold(p.st) ? "hold" : st === "run" || st === "now" ? "now" : "todo", skipped = cst === "done" && !!(p ? p.skipped : s.skipped);
-        return { ref: `${s.key}@${role}${tag}`, role, state: cst, skipped, word: word(cst, p ? p.st : s.st, skipped), text: dashHere((p && p.text) || s.text || (cst !== "done" && s.wait) || ""), lines: [], acts: [],   // 기다리는 줄(구성 값이 아직 없음 — 서버의 wait)은 그 까닭을 글로
-          lead: dashFlowRoleEl(role, roles.find((q) => q.role === role) || null, R), same: false, doc: w, per: p };
+        let lead = dashFlowRoleEl(role, roles.find((q) => q.role === role) || null, R), text = (p && p.text) || s.text || (cst !== "done" && s.wait) || "";
+        if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「기관 이름 — 파일 이름」(반영할 기관이 있으면) · 서버의 글 앞의 파일 이름은 뗀다(꼬리표에 있다)
+          const name = collectDocName(tgt ? tgt.id : "", w.id, w.name);
+          lead = el("span", "hd-role collect-doc", name || partName);
+          lead.dataset.role = "source";
+          lead.dataset.doc = w.id;
+          lead.title = `${partName} — ${name}`;
+          if (w.name && text.startsWith(`${w.name} — `)) text = text.slice(w.name.length + 3);
+        }
+        return { ref: one ? `${s.key}@${role}:${w.id}${tag}` : `${s.key}@${role}${tag}`, role, state: cst, skipped, word: word(cst, p ? p.st : s.st, skipped), text: dashHere(text), lines: [], acts: [],   // 기다리는 줄(구성 값이 아직 없음 — 서버의 wait)은 그 까닭을 글로
+          lead, same: false, doc: w, per: p, each: one };
       });
       cards.slice(1).forEach((c) => { c.same = true; });
       if (s.key === "files") { cards[0].lines = files.lines; cards[0].acts = files.acts; if (!V.ready) cards[0].text = ""; } // 준비 — 문서 칸 둘(빈 칸의 글은 줄마다 — 서버의 한 줄을 겹쳐 적지 않는다)
@@ -1091,18 +1129,18 @@ async function dashFlowLive(M) {
       else {
         // 「이 단계만 진행」 — 두 문서에 하는 줄은 **문서 카드마다 그 문서만**(안 끝난 카드마다 · 시작 요청의 only + role — spec_워크플로우 ② §18-21: 2026-11-21 사용자 「1번 오케이. 진행해줘.」 — 전에는 안 끝난 첫 카드의 단추 하나가 두 문서 모두를 돌았다).
         // 카드가 하나인 줄(문서 하나의 줄 · 워크플로우 전체 줄 · 원본 → 목적 줄)은 전처럼 그 줄 하나(only). 유료 수 · 강조(「지금」)도 두 문서의 줄은 그 문서의 것으로(카드의 상태 = 서버가 센 문서마다의 몫 per)
-        const each = parts.length > 1, open = srv && s.kind === "auto" && !s.done ? cards.filter((c) => c.state !== "done") : [];
+        const each = !many && parts.length > 1, open = srv && s.kind === "auto" && !s.done ? cards.filter((c) => c.state !== "done") : []; // 같은 양식 취합은 문서 하나만 도는 실행이 없다 — 안 끝난 첫 카드의 단추 하나가 그 줄(기관 문서 모두)을 돈다
         for (const c of each ? open : open.slice(0, 1)) {
           // 끄는 까닭 — 그 카드의 문서를 잡은 실행이 돌 때만(문서 하나의 줄 · 두 문서에 하는 줄의 문서 카드: 다른 문서의 실행은 같이 돈다 — ② §18-22) · 두 문서를 함께 쓰는 줄은 도는 실행이 하나라도 있으면 ·
           // 구성 값을 기다리는 줄(서버의 wait — 「프로젝트 구성 추출」 이 먼저)은 그 값이 확정될 때까지
-          const laneOf = c.role === "source" || c.role === "target" ? c.role : "";
+          const laneOf = !many && (c.role === "source" || c.role === "target") ? c.role : "";
           const no = offFor(laneOf) || lack || s.wait || "", rr = each ? roles.find((q) => q.role === c.role) || null : null, who = each ? (rr && rr.title) || DASH_FLOW_ROLE[c.role] : "";
           const pays = each ? (s.paid || []).filter((d) => c.doc && d === c.doc.id).length : paid;
           c.acts.push(dashBtn(DASH_SINGLE_ONE, () => dashFlowRun(`${s.name}${each ? `(${who})` : ""} — ${DASH_SINGLE_ONE}`, g.id, { only: s.key, ...(each ? { role: c.role } : laneOf ? { lane: laneOf } : {}), sig: V.sig || "" }),
             { primary: (each ? c.state : st) === "now" && !no, disabled: !!no, focus: `act:${c.ref}:only`,
               title: no || [files.fill && !V.ready ? `${files.fill}.` : "",
                 each ? `이 단계를 ${who}${rr && rr.name ? `(${rr.name})` : ""}에만 진행합니다 — 다른 문서의 몫은 그 문서의 카드에서 따로 합니다. 서버에서 진행합니다(창을 닫아도 이어집니다). 앞 단계가 남았으면 진행하지 않고 그 까닭을 알립니다.`
-                  : "이 단계만 진행합니다 — 서버에서 진행합니다(창을 닫아도 이어집니다). 앞 단계가 남았으면 진행하지 않고 그 까닭을 알립니다.",
+                  : `이 단계만 진행합니다${many && cards.some((x) => x.each) ? `(${partName} 모두 — 등록한 차례대로)` : ""} — 서버에서 진행합니다(창을 닫아도 이어집니다). 앞 단계가 남았으면 진행하지 않고 그 까닭을 알립니다.`,
                 pays ? `유료 LLM — 문서 ${pays}개` : "", R.change === "doc" ? `${each ? `${who}가` : "문서가"} 바뀝니다` : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n") }));
         }
         for (const c of cards) {
@@ -1113,10 +1151,11 @@ async function dashFlowLive(M) {
           }
           if (s.key === "capUnify" && (c.role === "source" || c.role === "target")) dashFlowCap(c, offFor(c.role) || lack || ""); // 캡션 맞추기 — 맞출 꼴 고르기(문서 카드마다 · 그 문서를 잡은 실행이 돌 때만 끈다)
           const view = DASH_FLOW_VIEW[s.key];
-          if (view) c.acts.push(...view(C, c.role));
-          if (c.doc && c.doc.id !== state.id) c.acts.push(dashBtn(`${DASH_FLOW_ROLE[c.role]} 열기`, () => dashOpen(c.doc.id), { focus: `act:${c.ref}:open`, title: `${c.doc.name} — 그 문서를 열어 이 단계의 결과를 봅니다(이 대시보드는 그 문서에서도 같습니다)` }));
+          if (view && (!c.each || c === cards[0])) c.acts.push(...view(C, c.role)); // 기관 문서마다의 카드 — 보기 단추(연결 목록 …)는 첫 카드에만(목록은 목적 문서의 것 하나다)
+          if (c.doc && c.doc.id !== state.id) c.acts.push(dashBtn(`${c.each ? partName : DASH_FLOW_ROLE[c.role]} 열기`, () => dashOpen(c.doc.id), { focus: `act:${c.ref}:open`, title: `${c.doc.name} — 그 문서를 열어 이 단계의 결과를 봅니다(이 대시보드는 그 문서에서도 같습니다)` }));
         }
       }
+      if (many && (s.key === "files" || s.key === "part")) Object.assign(cards[0], { extra: listEl(cards[0].ref), sig: tgt ? collectSig(tgt.id) : 0 }); // 「기관 문서」 목록 — 「준비」 · 「반영할 기관 지정」 카드를 펴면(카드는 한 번에 하나만 펴진다)
       return { ...line, cards };
     });
     // g.lane = 이 묶음을 도는 실행이 잡는 문서(서버 — 문서 하나의 줄뿐인 묶음은 그 문서만: 다른 문서의 실행과 같이 돈다 · "" = 두 문서를 함께 쓴다). 서버의 can · why 는 도는 실행을 이미 본 것이다
@@ -1252,6 +1291,7 @@ function dashDetailEl(n, id, C = DASH_CTX) {
     d.append(agwConfigForm({ id: "dash" }, { draw: () => dashDraw(true), ok: (x) => { DASH.form = false; dashExec("프로젝트 구성 추출", () => agwExec("config_set", x)); }, close: () => { DASH.form = false; dashDraw(true); } }));
   }
   if (n.acts.length) { const acts = el("div", "dash-acts"); acts.append(...n.acts); d.append(acts); }
+  if (typeof n.extra === "function") d.append(...n.extra()); // 그 카드만의 덧붙임(같은 양식 취합의 「기관 문서」 목록 — collect.js collectListEl: 펼 때만 짓는다 · 바뀜은 카드의 sig 로 — dashSig)
   const off = n.acts.find((b) => b.tagName === "BUTTON" && b.disabled && b.title); // 꺼진 단추의 까닭을 글로(title 만으로는 안 보인다 — 2026-11-18 사용자: 「모두 반영」 이 왜 꺼졌는지 안 보였다 · dashStdTop 의 .dash-top-why 와 같은 생각)
   if (off) d.append(el("p", "dash-text dash-why", `「${off.textContent.trim()}」 — ${off.title}`));
   return d;
@@ -1535,7 +1575,7 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
   return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
     DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
     M.notes.map((n) => [n.text, b(n.act)]), M.last || 0, M.lasts || 0, (M.lives || []).map((x) => [x.n, x.label, x.stopping]), M.top.map(b),
-    M.groups.map((g) => [b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b)]) : 0])])]);
+    M.groups.map((g) => [b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
 }
 
 async function dashDraw(force = false) {

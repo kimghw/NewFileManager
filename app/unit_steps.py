@@ -7,7 +7,9 @@
   `invalid`(400) · `missing`(404 — 세션이 밀려남 포함) · `error`(그 밖 — 서버 로그). 409 가 셋 가운데 무엇인지는 부르는 함수가 정한다(`on409`).
 - 판정 · 편집 · 프롬프트 · 저장은 지금 끝점 함수 그대로다 — 여기는 응답 꼴만 맞춘다. 끝점 함수는 인자를 모두 넘겨 부른다(`Body` 기본값을 타지 않게) · `get_doc` 은 부르지 않는다(작업에 종류 짐작을 저장하는 부작용).
 - 지금 있는 것(걸음 1 — 「문서 검토」): 읽기 `work` · `pair` · `facts` · `llm_ok` · `skips` / 배경 일 `start_heads` · `start_llm` · `job` · `stop_llm` / 동기 일 `guides_keep` · `skip_set` / 저장 `store`(실행 기록 · 기록 줄).
-  묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」): `commit_info` · `commit`(server._commit_now — 울타리 안에서) · `base_now`(확인 폴링)."""
+  묶음째 실행의 끝 확정(spec_워크플로우 ② §18-24 「한 번에 진행 뒤 고친 문단 확정」): `commit_info` · `commit`(server._commit_now — 울타리 안에서) · `base_now`(확인 폴링).
+  같은 양식 취합(가족 collect — spec_취합 ② §10: 끝점은 app/merge_collect_api.py): 등록부의 보기 `collect` · 반영할 기관 자동 지정 `collect_auto` · 엔진의 지금 원본 못 박기 `collect_bind` ·
+  수정본 `collect_revise_plan` · `collect_revise_apply` · 세션을 열지 않는 분석 유무 `heads_have` — 자리 연결 · 넣기 계획 · 내용 반영은 이관의 문 그대로(`links` · `fill_plan(part=)` · `fill_apply`)."""
 import logging
 import time
 
@@ -108,6 +110,11 @@ def pair(wid):
         out["kinds"]["source"] = "part"
         out["sources"] = [_doc(x) for x in (works.work(p) for p in merge_gather_api._store(target["id"])["order"]) if x]
         return out
+    if _collect(job):   # 같은 양식 취합 — 원본 문서 = 그 목적 문서의 등록부에 든 기관 문서들(등록한 차례 — merge_collect_api.order: 같은 묶음의 종류 part 문서를 저절로 등록한다). 원본 하나(source)는 없다:
+        from app import merge_collect_api   # 엔진의 「지금 원본」(merge.json 의 from)은 실행기가 문서마다 못 박는 것이라 묶음의 문서 칸이 아니다(collect_bind)
+        out["kinds"]["source"] = "part"
+        out["sources"] = [_doc(x) for x in (works.work(p) for p in merge_collect_api.order(target["id"])) if x]
+        return out
     src = merge_api._mate(target["id"], merge_api._store(target["id"]))[1]
     sw = works.work(src) if src else None
     out["source"] = _doc(sw) if sw else None
@@ -119,6 +126,26 @@ def _gather(job):
     from app import workflow_state
     task = workflow_state.definition(job)
     return bool(task) and workflow_state.family(task) == "gather"
+
+
+def _collect(job):
+    """그 워크플로우가 같은 양식 취합(기관이 따로 쓴 문서 여럿 → 사업계획서 하나 — 조립 틀 collect)인가 — 등록부의 틀로."""
+    from app import workflow_state
+    task = workflow_state.definition(job)
+    return bool(task) and workflow_state.family(task) == "collect"
+
+
+def heads_have(doc_id):
+    """그 문서에 헤딩 그래프 · 표 구조가 있나 — **세션을 열지 않는다**(원본 문서가 여럿인 틀의 상태 조회가 기관 문서를 모두 메모리에 올리지 않게): 메모리에 세션이 있으면 그 결과,
+    없으면 작업 폴더의 `headings/current.json`(지금 결과의 실행 번호 — heading_runs._load_current 가 읽는 것과 같은 파일). 못 읽으면 거짓."""
+    from app import heading_runs, server, works
+    s = server.DOCS.get(doc_id)
+    if s is not None:
+        st = heading_runs.state(s) if s.fmt == "hwpx" else {}
+        return bool(st.get("stage2")) and bool(st.get("stage3"))
+    f = works.folder(doc_id)
+    cur = works._read_json(f / "headings" / "current.json") if f is not None and (f / "headings" / "current.json").is_file() else None
+    return isinstance(cur, dict) and all(isinstance(cur.get(k), int) and cur[k] > 0 for k in ("stage2", "stage3"))
 
 
 def facts(doc_id):
@@ -466,10 +493,11 @@ def links_llm(target):
     return _run(merge_api.merge_links_llm, target, on409="blocked")
 
 
-def fill_plan(target):
-    """넣기 계획(문서 안 바뀜 — POST …/merge-links/plan · 옛 계획은 버린다) → Outcome(data = 계획 보기 {planId, todo, body, tables, fixed, maps, gaps …})."""
+def fill_plan(target, part=None):
+    """넣기 계획(문서 안 바뀜 — POST …/merge-links/plan · 옛 계획은 버린다) → Outcome(data = 계획 보기 {planId, todo, body, tables, fixed, maps, gaps …}).
+    part = 실행기가 기대하는 원본 문서 id(같은 양식 취합 — 방금 못 박은 기관 문서: 지금 엔진의 원본이 그것이 아니면 끝점이 409 — 다른 화면이 원본을 바꿨다: 다른 기관의 계획을 세우지 않는다) · 이관형은 안 준다."""
     from app import merge_api
-    return _run(merge_api.merge_plan, target, on409="blocked")
+    return _run(merge_api.merge_plan, target, {"part": part} if part else {}, on409="blocked")   # 몸을 늘 넘긴다(Body 기본값을 타지 않게 — 머리 글)
 
 
 def fill_gaps(target):
@@ -791,4 +819,47 @@ def gather_apply(target, part, plan_id):
     got = _run(merge_gather_api.gather_apply, target, part, {"planId": plan_id}, on409="stale")
     if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
         return Outcome("nothing", "넣을 것이 없습니다", got.data, got.data.get("rev"))
+    return got
+
+
+# ---------------------------------------------------------------- 같은 양식 취합(가족 collect — spec_취합 ② §10) — 끝점은 app/merge_collect_api.py · 문서 id = 목적 문서(사업계획서) · part = 원본 문서(기관이 따로 쓴 문서)
+# 자리 연결 · 넣기 계획 · 내용 반영은 이관의 문 그대로다(links · fill_plan(part=) · fill_apply — 지금 원본 = 방금 못 박은 기관 문서: collect_bind). 여기는 등록부 · 반영할 기관 · 못 박기 · 수정본의 문.
+def collect(target):
+    """등록부의 보기(GET …/collect — {collect, version, orgs[{key, name, role}], parts[{work, name, order, orgs, orgNames, orgsBy, common, revOf, revName, later,
+    state(unassigned | superseded | revision | todo | done | left), text, done{at, rev, srcRev, counts, left} | None}]}) | None(못 엶 · 그 틀이 아님). 문서를 바꾸지 않는다."""
+    from fastapi import HTTPException
+
+    from app import merge_collect_api
+    try:
+        return merge_collect_api.view(target)
+    except HTTPException:
+        return None
+
+
+def collect_auto(target, part):
+    """반영할 기관 자동 지정(POST …/collect/parts/{part}/auto — 파일 이름 → 문서의 기관 표시 차례 · 이미 지정돼 있으면 안 바꾼다) → Outcome(data = 등록부의 보기 + auto{part, org, by, why})."""
+    from app import merge_collect_api
+    return _run(merge_collect_api.part_auto, target, part, on409="blocked")
+
+
+def collect_bind(target, part):
+    """엔진(merge_api)의 지금 원본을 그 기관 문서로 못 박는다(이관의 `POST merge-links {from}` 과 같은 길 — 문서는 안 바뀐다) → Outcome(data = {from}). 409 = 못 박음(blocked)."""
+    from app import merge_collect_api
+    return _run(merge_collect_api.bind, target, part, on409="blocked")
+
+
+def collect_revise_plan(target, part):
+    """수정 계획(POST …/collect/parts/{part}/revise/plan — 문서 안 바뀜) → Outcome(data = {planId, part, base[앞 제출본 id], todo, counts{ready, same, overlap, hold, missing}, text, items, fresh{todo}}).
+    409 = 못 내는 까닭(blocked — 앞 제출본을 넣은 기록이 없음 등)."""
+    from app import merge_collect_api
+    return _run(merge_collect_api.revise_plan, target, part, on409="blocked")
+
+
+def collect_revise_apply(target, part, plan_id):
+    """[문서 바뀜] 그 수정 계획을 반영(POST …/collect/parts/{part}/revise/apply — 울타리 안에서 부른다 · 편집 하나 · 실행 취소 1) → Outcome: ok(data = {counts, fresh, …}) ·
+    nothing(고칠 것 0) · stale(409 — 낡은 계획) · rejected(422 — 표준 검사가 되돌림)."""
+    from app import merge_collect_api
+    got = _run(merge_collect_api.revise_apply, target, part, {"planId": plan_id}, on409="stale")
+    if got.ok and isinstance(got.data, dict) and got.data.get("nothing"):
+        return Outcome("nothing", "고칠 것이 없습니다", got.data, got.data.get("rev"))
     return got

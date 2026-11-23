@@ -140,7 +140,7 @@ def test_new_threads_need_carry_and_ask_all_carries(monkeypatch):
 
 def test_lines_cover_every_unit_the_compose_form_offers(monkeypatch):
     L = NA.lines()
-    assert set(L) == {"relay", "gather", "single"}
+    assert set(L) == {"relay", "gather", "single", "collect"}   # collect = 같은 양식 취합(2026-11-24 — 그 조립 · 실행은 tests/test_workflow_collect.py)
     g_units, _ = custom_tasks_api.gather_units()
     s_units, _ = custom_tasks_api.single_units()
     for fam, units in (("relay", custom_tasks_api.units()), ("gather", g_units), ("single", s_units)):
@@ -176,7 +176,7 @@ def test_api_roundtrip_and_delete_forgets_the_workflow_notes():
     c = TestClient(server.app, raise_server_exceptions=False)
     assert c.get("/api/agent-notes").json() == {**EMPTY, "max": N.TEXT_MAX}
     L = c.get("/api/agent-notes/lines").json()
-    assert set(L["families"]) == {"relay", "gather", "single"} and len(L["agents"]) == 24 and L["agents"]["gather"]["name"] == "취합 검토"
+    assert set(L["families"]) == {"relay", "gather", "single", "collect"} and len(L["agents"]) == 24 and L["agents"]["gather"]["name"] == "취합 검토"
     key = c.post("/api/tasks", json={"name": "전용 글 시험", "source": "plan", "target": "report", "assign": {"source": ["stage_review"], "target": list(custom_tasks.STAGES)}}).json()["task"]["key"]
     r = c.put("/api/agent-notes/merge_links", json={"text": "범용 글", "version": 0})
     assert r.status_code == 200 and r.json() == {"aid": "merge_links", "job": None, "text": "범용 글", "version": 1}
@@ -347,7 +347,7 @@ def test_executor_marks_the_line_it_runs(monkeypatch):
     import re
     from pathlib import Path
     text = (Path(X.__file__)).read_text(encoding="utf-8")
-    assert len(re.findall(r"_handler\(run\.task, line\)\(", text)) == 1 and len(re.findall(r"= _line\(run, gid, line\)", text)) == 2   # 처리 함수는 _line 을 지나서만 부른다(줄을 걸지 않고 부르는 곳이 없다)
+    assert len(re.findall(r"_handler\(run\.task, line\)\(", text)) == 1 and len(re.findall(r"= _line\(run, gid, line\)", text)) == 3   # 처리 함수는 _line 을 지나서만 부른다(줄을 걸지 않고 부르는 곳이 없다)
 
 
 def test_work_guide_reads_what_was_written_for_each_tool(monkeypatch):

@@ -31,7 +31,7 @@ STATES = ("open", "done", "hold")
 STATE_NAME = {"open": "요청", "done": "반영", "hold": "보류"}   # 화면 말
 KINDS = ("tool", "common", "stage", "flow")
 SRCS = ("chat", "web")
-TARGET = re.compile(r"tool:(?:relay|gather|single)\.[A-Za-z][A-Za-z0-9]{0,39}|common:[a-z][a-z0-9_]{0,39}|stage:[a-z][a-z0-9_]{0,39}\.[A-Za-z][A-Za-z0-9_]{0,39}|flow:[a-z][a-z0-9_]{0,39}")
+TARGET = re.compile(r"tool:(?:relay|gather|single|collect)\.[A-Za-z][A-Za-z0-9]{0,39}|common:[a-z][a-z0-9_]{0,39}|stage:[a-z][a-z0-9_]{0,39}\.[A-Za-z][A-Za-z0-9_]{0,39}|flow:[a-z][a-z0-9_]{0,39}")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 

@@ -1,14 +1,15 @@
-"""개요 줄의 레터 고치기(spec_hwpx_웹편집 ② §8-12 — app/static/outline_tune.js · app/outline_tune.py) 화면 확인 —
+"""개요 줄의 헤딩 고치기(spec_hwpx_웹편집 ② §8-12 — app/static/outline_tune.js · app/outline_tune.py · 2026-11-24 전의 이름 「레터 고치기」) 화면 확인 —
 임시 서버(임시 작업 폴더, PDF·LLM 끔)를 스스로 띄우고 끈다 + Playwright. 끝점은 모두 진짜(흉내 없음).
 
 연구개발계획서 양식(1·2단계를 끝점으로 — 가지 T2 「□›o›-›·」: p970 □ › p972 o › p974 - › p975 ⋅ · p977 o › p979 - › p980 ⋅ · L3 「-」 줄 5개 · 대표 p974).
 - 커서가 없던 줄의 레터를 누름 = 그냥 커서(창 없음) · 커서가 든 줄의 레터 글자를 누름 → 그 줄 아래 창(#olTune · 모달 아님 · 창 안 · 폭 ≤ 376) · 레터에 점선 밑줄(CSS 하이라이트).
-- 처음: 범위 카드 셋 · 값이 안 바뀌어 「적용」 꺼짐. 「레터 뒤 빈칸 +」 → 「이 문단만 수정」 켜짐 · 「T2 L3 서식 전체 변경」 = 5줄 가운데 5줄 · 「새 템플릿으로 추가 · T2L3a」.
+- 처음: 범위 카드 셋 · 값이 안 바뀌어 「적용」 꺼짐 · 나누기는 켜져 있어도 저절로 고르지 않음. 「레터 뒤 빈칸 +」 → 「이 문단만 수정」 켜짐 · 「T2 L3 서식 전체 변경」 = 5줄 가운데 5줄 · 「새 템플릿으로 나누기 · T2L3a」.
 - 「레터 고르기」 → 「▪」: 레터가 달라져 「이 문단만」 은 꺼지고(까닭 「다른 템플릿」) 고른 범위가 새 템플릿 쪽으로 옮겨 간다.
 - 「서식 전체 변경」 → 적용: L3 줄 5개가 모두 「▪」 · 창은 열린 채 「되돌리기」 · 실행 취소 1 → 「되돌리기」 = 문서가 그 앞으로(실행 취소 0).
 - 「앞 여백 +」 두 번 → 「이 문단만」 적용: 그 줄만 바뀜 → 값 없이 「서식 전체 변경」 이 켜져 있고(이미 달라진 줄) 적용하면 5줄이 같은 여백.
-- 「새 템플릿으로 추가」: 「▪」 → 적용 → 여백 표시 「T2L3a L3」.
-- 오른쪽 단추 메뉴 「레터 고치기…」 → 창 · Esc = 닫고 커서가 그 줄로 · 밖을 누르면 닫힘.
+- 「새 템플릿으로 나누기」: 「▪」 → 적용 → 여백 표시 「T2L3a L3」.
+- 오른쪽 단추 메뉴 「헤딩 고치기…」 → 창 · Esc = 닫고 커서가 그 줄로 · 밖을 누르면 닫힘.
+- 빈칸 「칸 | mm」(mm 를 적으면 가장 가까운 칸 수) · 2번째 줄 「레터」 · 나누기의 레벨 범위(L1 부터 L3 까지 — L4 줄은 T2 에 남음) → 적용.
 - 실행 취소를 끝까지 → 내려받은 파일 = 원본 바이트 · 콘솔 오류 없음.
 
     python -X utf8 tools/smoke_outline_tune_ui.py <출력 폴더> [--port 18496]
@@ -78,8 +79,13 @@ def run_stage(doc, stage):
 
 BOX = """() => { const b = document.getElementById('olTune'); if (!b) return null; const r = b.getBoundingClientRect();
   const cards = [...b.querySelectorAll('.olt-card')].map((c) => ({ scope: c.dataset.scope, t: c.querySelector('.olt-ct').textContent, n: c.querySelector('.olt-cn').textContent, on: c.classList.contains('on'), off: c.classList.contains('off') }));
-  const steps = Object.fromEntries([...b.querySelectorAll('.olt-step')].map((s) => [s.dataset.key, s.querySelector('.olt-val').textContent]));
-  return { head: b.querySelector('.olt-head').textContent, cards, steps, go: { off: b.querySelector('.olt-go').disabled, text: b.querySelector('.olt-go').textContent },
+  const steps = Object.fromEntries([...b.querySelectorAll('.olt-step')].map((s) => [s.dataset.key, s.querySelector('.olt-val').value]));
+  const was = Object.fromEntries([...b.querySelectorAll('.olt-step')].map((s) => [s.dataset.key, s.querySelector('.olt-was').textContent]));
+  const l2 = [...b.querySelectorAll('.olt-l2b')].map((x) => ({ k: x.dataset.l2, on: x.classList.contains('on'), cur: x.classList.contains('cur') }));
+  const sp = b.querySelector('.olt-split');
+  const split = sp ? { shown: !sp.hidden, sum: sp.querySelector('.olt-ssum').textContent, from: sp.querySelector('.olt-from').value, to: sp.querySelector('.olt-to').value,
+    lvs: [...sp.querySelectorAll('.olt-lv')].map((x) => ({ k: x.dataset.level, in: x.classList.contains('in'), me: x.classList.contains('me'), c: x.querySelector('.olt-lv-c').textContent })) } : null;
+  return { head: b.querySelector('.olt-head').textContent, cards, steps, was, l2, split, go: { off: b.querySelector('.olt-go').disabled, text: b.querySelector('.olt-go').textContent },
     undo: !b.querySelector('.olt-undo').hidden, msg: b.querySelector('.olt-msg').textContent, pal: !b.querySelector('.olt-pal').hidden, cur: b.querySelector('.olt-cur').textContent,
     demo: [...b.querySelectorAll('.olt-dr')].map((x) => x.textContent), help: !!b.querySelector('.olt-head .panel-help'),
     modal: b.tagName === 'DIALOG', inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight, w: Math.round(r.width), h: Math.round(r.height) }; }"""
@@ -146,9 +152,13 @@ def main():
         click_letter(page, "p979")
         page.wait_for_selector("#olTune", timeout=15000)
         box = ready(page)
-        check("커서가 든 줄의 레터를 누름 → 그 줄 아래 창(모달 아님 · 창 안 · 폭 ≤ 376)", box and not box["modal"] and box["inView"] and box["w"] <= 376 and "T2 L3" in box["head"] and box["help"], box)
-        check("처음: 카드 셋 · 값이 안 바뀌어 「적용」 꺼짐 · 레터 후보는 접혀 있음",
-              [c["scope"] for c in box["cards"]] == ["line", "level", "split"] and box["go"]["off"] and not box["pal"] and all(c["off"] for c in box["cards"]) and not box["undo"], box)
+        check("커서가 든 줄의 레터를 누름 → 그 줄 아래 창 「헤딩 고치기」(모달 아님 · 창 안 · 폭 ≤ 376)",
+              box and not box["modal"] and box["inView"] and box["w"] <= 376 and box["head"].startswith("헤딩 고치기") and "T2 L3" in box["head"] and box["help"], box)
+        check("처음: 카드 셋 · 값이 안 바뀌어 「적용」 꺼짐 · 나누기는 켜져 있어도 고르지 않음 · 레터 후보는 접혀 있음",
+              [c["scope"] for c in box["cards"]] == ["line", "level", "split"] and box["go"]["off"] and not box["pal"] and card(box, "line")["off"] and card(box, "level")["off"]
+              and not card(box, "split")["off"] and not any(c["on"] for c in box["cards"]) and not box["undo"] and not box["split"]["shown"], box)
+        check("2번째 줄 — 글 시작 · 레터 · 앞 여백 · 지금 자리(앞 여백)에 「지금」",
+              [x["k"] for x in box["l2"]] == ["text", "letter", "front"] and next(x for x in box["l2"] if x["k"] == "front")["cur"], box["l2"])
         check("자리 값 = 앞 여백 0.0mm · 레터 앞 빈칸 4칸 · 레터 뒤 빈칸 1칸", box["steps"] == {"front": "0.0mm", "lead": "4칸", "gap": "1칸"}, box["steps"])
         page.screenshot(path=str(OUT / "1_open.png"))
 
@@ -158,7 +168,7 @@ def main():
         lv, sp, ln = card(box, "level"), card(box, "split"), card(box, "line")
         check("「레터 뒤 빈칸 +」 → 「이 문단만 수정」 이 켜지고 고른 범위", ln["on"] and not ln["off"] and box["steps"]["gap"] == "2칸" and not box["go"]["off"], box)
         check("「T2 L3 서식 전체 변경」 = 5줄 가운데 5줄 바뀜", not lv["off"] and lv["t"] == "T2 L3 서식 전체 변경" and "5줄 가운데 5줄" in lv["n"], lv)
-        check("「새 템플릿으로 추가 · T2L3a」 — 아래 1줄이 따라감", not sp["off"] and sp["t"].endswith("T2L3a") and "아래 1줄" in sp["n"], sp)
+        check("「새 템플릿으로 나누기 · T2L3a」 — 이 줄과 아래 1줄(2줄)", not sp["off"] and sp["t"] == "새 템플릿으로 나누기 · T2L3a" and "2줄이 T2L3a 로" in sp["n"], sp)
 
         # 3. 레터 고르기 → ▪ : 이 문단만은 못 한다
         page.click("#olTune .olt-pick")
@@ -208,7 +218,7 @@ def main():
         rows = page.evaluate(LINES, L3)
         check("값 없이 서식 전체 변경 → 5줄이 같은 앞 여백", len({round(front(x), 1) for x in rows}) == 1 and abs(front(rows[0]) - 1.0) < 0.06, rows)
 
-        # 6. Esc · 새 템플릿으로 추가
+        # 6. Esc · 새 템플릿으로 나누기
         page.keyboard.press("Escape")
         page.wait_for_timeout(250)
         st = page.evaluate("() => ({ box: !!document.getElementById('olTune'), focus: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id || null : null })")
@@ -220,7 +230,7 @@ def main():
         page.click("#olTune .olt-pick")
         page.click('#olTune .olt-chip[data-letter="▪"]')
         box = ready(page)
-        check("대표가 아닌 줄에서 「▪」 → 「새 템플릿으로 추가 · T2L3a」 가 골라짐", card(box, "split")["on"], box)
+        check("대표가 아닌 줄에서 「▪」 → 「새 템플릿으로 나누기 · T2L3a」 가 골라짐 · 아래에 레벨 범위", card(box, "split")["on"] and box["split"]["shown"] and box["split"]["from"] == "3", box)
         page.click("#olTune .olt-go")
         page.wait_for_function("() => !state.busy && state.undo === 3", timeout=30000)
         ready(page)
@@ -249,13 +259,41 @@ def main():
         if not items:
             print("    메뉴:", page.evaluate("([x, y]) => { const m = document.querySelector('.ctx-menu'), t = document.elementFromPoint(x, y); return { menu: m ? { hidden: m.hidden, n: m.children.length } : null, at: t ? t.className + '|' + (t.closest('.para') ? t.closest('.para').dataset.id : '') + '|' + !!t.closest('td') : null }; }", [x + 60, y]), flush=True)
             page.screenshot(path=str(OUT / "5_menu.png"))
-        has = any(t.startswith("레터 고치기") for t in items)
-        check("문단의 오른쪽 단추 메뉴에 「레터 고치기…」", has, items)
+        has = any(t.startswith("헤딩 고치기") for t in items)
+        check("문단의 오른쪽 단추 메뉴에 「헤딩 고치기…」", has, items)
         if has:
-            page.evaluate("() => [...document.querySelectorAll('.ctx-menu button')].find((b) => b.textContent.startsWith('레터 고치기')).click()")
+            page.evaluate("() => [...document.querySelectorAll('.ctx-menu button')].find((b) => b.textContent.startsWith('헤딩 고치기')).click()")
             page.wait_for_selector("#olTune", timeout=15000)
             box = ready(page)
             check("메뉴 → 창(그 줄)", "T2 L3" in box["head"], box["head"])
+
+            # 7b. 빈칸 칸 | mm · 2번째 줄 · 나누기의 레벨 범위(L1 부터 L3 까지)
+            page.click('#olTune .olt-step[data-key="lead"] .olt-u[data-unit="mm"]')
+            box = page.evaluate(BOX)
+            check("「레터 앞 빈칸」 mm → 4칸의 폭(≈8.5mm) · 아래에 「= 4칸」", box["steps"]["lead"].endswith("mm") and abs(float(box["steps"]["lead"][:-2]) - 8.5) < 0.3 and "4칸" in box["was"]["lead"], [box["steps"], box["was"]])
+            page.fill('#olTune .olt-step[data-key="lead"] .olt-val', "4.3")
+            page.press('#olTune .olt-step[data-key="lead"] .olt-val', "Enter")
+            box = ready(page)
+            check("mm 를 적음(4.3) → 가장 가까운 칸 수(2칸 ≈ 4.2mm) · 「지금 …」", abs(float(box["steps"]["lead"][:-2]) - 4.2) < 0.3 and "지금" in box["was"]["lead"] and "2칸" in box["was"]["lead"], [box["steps"], box["was"]])
+            page.click('#olTune .olt-l2b[data-l2="letter"]')
+            box = ready(page)
+            check("2번째 줄 「레터」 를 고름 → 그 칩이 켜짐 · 견본 셋째 줄", next(x for x in box["l2"] if x["k"] == "letter")["on"] and len(box["demo"]) == 3, [box["l2"], box["demo"]])
+            page.click('#olTune .olt-card[data-scope="split"]')
+            page.select_option("#olTune .olt-from", "1")
+            box = ready(page)
+            page.select_option("#olTune .olt-to", "3")
+            box = ready(page)
+            sp = box["split"]
+            ins = [x["k"] for x in sp["lvs"] if x["in"]]
+            check("나누기 — L1 부터 L3 까지: 레벨 띠 L1~L3 강조 · 이 줄 L3 표시 · 아래 줄은 T2 에 남음", sp["shown"] and ins == ["1", "2", "3"] and next(x for x in sp["lvs"] if x["k"] == "3")["me"]
+                  and "T2L1a" in sp["sum"] and "남는 아래 줄" in sp["sum"] and card(box, "split")["on"] and "T2L1a" in card(box, "split")["t"], [sp, card(box, "split")])
+            page.screenshot(path=str(OUT / "5_split_range.png"))
+            n0 = page.evaluate(STATE)["undo"]
+            page.click("#olTune .olt-go")
+            page.wait_for_function("(n) => !state.busy && state.undo === n + 1", arg=n0, timeout=30000)
+            page.wait_for_function("() => { const l = heads.outline && heads.outline.lines['p994']; return !!l && String(l.tpl) === '2~1a'; }", timeout=20000)
+            rows = page.evaluate(LINES, ["p994"])
+            check("적용 → 그 줄이 T2L1a · 레터 앞 빈칸 2칸", rows[0]["tpl"] == "2~1a" and rows[0]["text"].startswith("  -"), rows)
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
 
