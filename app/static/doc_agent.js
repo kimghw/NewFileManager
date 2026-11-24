@@ -12,7 +12,7 @@
 // app.js 가 주는 것: state·heads·$·el·api·toast·structOp(+ structOp.lastError)·flushAll·headsDlg·headsColClose·hBtn·hTable·fmtWhen·nf·short·H_JSON. style_lib.js: slSelection·slTopOf·slBlockEls·slGo·styleLibOpen·styleSaveOpen.
 // tables.js: xlColumn·xlRangeName. table_fill.js: TFL_FORM·TFL_WHERE·tblFillHit·tblFillGo. 서버 짝은 app/doc_agent_api.py — 끝점이 없으면(404·501·503) 그 까닭을 한 줄로 보이고 입력을 끈다.
 
-const AG_TYPE = { write: "글 쓰기", tableNew: "새 표", tableFill: "표 채우기", restyle: "서식 입히기", styleCopy: "서식 복사" }; // styleCopy = 문서의 서식을 보관함에 저장(문서는 안 바뀜 — spec_서식복사 ② §6)
+const AG_TYPE = { write: "글 쓰기", tableNew: "새 표", tableFill: "표 채우기", restyle: "서식 입히기", styleCopy: "서식 복사", fill: "자리 채우기" }; // styleCopy = 문서의 서식을 보관함에 저장(문서는 안 바뀜 — spec_서식복사 ② §6)
 const AG_MODE = { extract: "자료·선택 글에서 옮긴 글", draft: "에이전트가 쓴 글" };
 const AG_FILES = ".txt,.md,.csv,.tsv,.xlsx,.docx,.hwpx,.pdf";
 const AG_STALE = "문서가 바뀌었습니다 — 다시 요청하세요";
@@ -71,15 +71,23 @@ const agentBusyText = (b) => `${b.label || "요청을 읽는 중"} · ${Math.rou
 function agentChosen(t, group) { // 후보 묶음에서 지금 고른 것 — 반영한 것이 있으면 그것 · 사람이 고른 것 · 스크립트가 확인한 첫 후보 · 첫 후보
   return group.find((p) => p.state === "applied") || group.find((p) => p.id === AGENT.choice[group[0].choiceGroup]) || group.find((p) => p.preselect && (p.state || "open") === "open") || group[0];
 }
-function agentFillPicks(p) { // 표 채우기 제안의 고른 칸 — 처음에는 서버가 골라 둔 칸(view.picked: 스크립트가 확인한 제안 — 엑셀 검증이 안 맞으면 비어 있다 · design.md §8). 옛 서버면 경고 없는 제안
-  if (!AGENT.fills[p.id]) {
-    const v = p.view || {};
-    AGENT.fills[p.id] = new Set(Array.isArray(v.picked) ? v.picked : (v.fills || []).filter((f) => !(f.warn || []).length).map((f) => f.cell));
+// 제안의 열쇠 — 턴 id + 제안 id. 제안 id 는 턴마다 p1 부터라, 제안 id 만으로 적어 두면 앞 턴 카드에서 고른 칸 · 줄이 다음 턴의 같은 번호 카드로 넘어간다(astra 3차 — 처음부터 안 고른 줄이 고른 채로 반영 요청에 실렸다)
+const agentPropKey = (p) => { const t = AGENT.turns.find((x) => (x.proposals || []).includes(p)); return `${t ? t.id : ""}/${p.id}`; };
+function agentFillPicks(p) { // 표 채우기 · 자리 채우기 제안의 고른 칸 · 줄 — 처음에는 서버가 골라 둔 것(view.picked: 스크립트가 확인한 제안 — 엑셀 검증이 안 맞으면 비어 있다 · design.md §8). 옛 서버면 경고 없는 제안
+  const k = agentPropKey(p);
+  if (!AGENT.fills[k]) {
+    const v = p.view || {}, ap = p.applied || {};
+    const done = p.state !== "applied" ? null : p.type === "fill" ? (ap.filledLines || {}).paras || ap.paras : ap.cells; // 반영한 카드 — 실제로 넣은 줄 · 칸으로 되살린다(건너뛴 덩이는 체크가 풀린다)
+    AGENT.fills[k] = new Set(Array.isArray(done) && done.length ? done : Array.isArray(v.picked) ? v.picked : agentFillRows(p).filter((f) => !(f.warn || []).length).map(agentFillKey));
   }
-  return AGENT.fills[p.id];
+  return AGENT.fills[k];
 }
+// 고르는 줄 — 표 채우기 = 칸(view.fills · 열쇠 cell) · 자리 채우기(type fill — 상자 안의 쓸 자리 · 같은 줄 뒤의 값: spec_양식작성 ② §5-3) = 문단(view.lines · 열쇠 para). 둘 다 반영 때 picks.fills 로 보낸다
+const agentFillRows = (p) => { const v = p.view || {}; return (p.type === "fill" ? v.lines : v.fills) || []; };
+const agentFillKey = (f) => (f.para != null ? f.para : f.cell);
+const agentFillUnit = (p) => (p.type === "fill" ? "줄" : "칸");
 const agentStyleOf = (v, kind) => (v.styleName || agentStyleName(v.style, kind)) + (v.styleFrom ? ` (원본 ${v.styleFrom})` : ""); // 제안이 쓰는 서식의 이름(서버가 준 이름 먼저) + 그 서식을 뽑은 문서(spec_서식복사 ② §17)
-const agentFillCount = (p) => { const s = agentFillPicks(p); return (((p.view || {}).fills) || []).filter((f) => s.has(f.cell)).length; };
+const agentFillCount = (p) => { const s = agentFillPicks(p); return agentFillRows(p).filter((f) => s.has(agentFillKey(f))).length; };
 function agentStyleName(id, kind) {
   if (!id) return kind === "text" ? "자리 둘레 서식" : "정하지 않음";
   if (id === "builtin") return "기본 표";
@@ -386,6 +394,11 @@ function agentChecksEl(p) { // 검사 줄 — 종류별 요약 · 엑셀 검증 
     add("", `채울 칸 ${nf(k.targets || 0)} · 제안 ${nf(k.fills == null ? fills.length : k.fills)}(경고 ${nf(k.warn || 0)})${k.rejected ? ` · 검사에서 뺌 ${nf(k.rejected)}` : ""} · 못 채운 칸 ${nf(k.left || 0)}`,
       "못 채운 칸 = 자료에서 값을 찾지 못한 칸(빈 채로 둡니다) · 경고 = 근거 구절을 자료에서 못 찾음 · 꼴이 안 맞음 — 처음엔 고르지 않은 채입니다");
   }
+  if (p.type === "fill") {
+    const lines = v.lines || [], warn = lines.filter((l) => (l.warn || []).length).length, rej = (v.rejected || []).length;
+    add("", `채울 줄 ${nf(lines.length)}(경고 ${nf(warn)})${rej ? ` · 검사에서 뺌 ${nf(rej)}` : ""}`,
+      "있는 줄의 글 뒤에 값을 붙입니다(양식의 글은 그대로) · 경고 = 값의 근거 구절을 자료에서 못 찾음 · 사람이 정한 답에서 온 값 · 표시할 항목 — 처음엔 고르지 않은 채입니다");
+  }
   const after = p.state === "applied" && p.applied && p.applied.excel, x = after || p.excel;
   if (x) { const [cls, text, title] = agentExcelLine(x, !!after); add(cls, text, title).dataset.excel = cls; }
   for (const w of p.warn || []) add("warn", w); // 「에이전트가 쓴 글 — 읽고 반영하세요」 · 자료에 없는 수 · 엑셀 검증 안 맞음 … — 서버가 경고를 모두 여기에 싣는다
@@ -429,9 +442,9 @@ function agentActsEl(t, p, inCol = false) { // 카드의 단추 줄(2열 미리�
     return acts;
   }
   if (st === "closed") { acts.append(el("span", "ag-state", "다른 후보를 반영함")); return acts; } // 같은 묶음의 다른 후보가 들어갔다 — 이 후보는 끝난 것
-  const n = p.type === "tableFill" ? agentFillCount(p) : null;
-  const off = A.policy.apply === false ? A.policy.why || "원본 문서는 바꾸지 않습니다" : st === "stale" ? "문서가 바뀌어 이 제안은 반영할 수 없습니다 — 다시 요청하세요" : n === 0 ? "고른 칸이 없습니다 — 미리보기에서 넣을 칸을 고르세요" : "";
-  const label = n == null ? (p.preselect ? "문서에 반영" : "읽고 반영") : `고른 ${nf(n)}칸 ${p.preselect ? "문서에 반영" : "읽고 반영"}`;
+  const n = p.type === "tableFill" || p.type === "fill" ? agentFillCount(p) : null, unit = agentFillUnit(p);
+  const off = A.policy.apply === false ? A.policy.why || "원본 문서는 바꾸지 않습니다" : st === "stale" ? "문서가 바뀌어 이 제안은 반영할 수 없습니다 — 다시 요청하세요" : n === 0 ? `고른 ${unit}이 없습니다 — 미리보기에서 넣을 ${unit}을 고르세요` : "";
+  const label = n == null ? (p.preselect ? "문서에 반영" : "읽고 반영") : `고른 ${nf(n)}${unit} ${p.preselect ? "문서에 반영" : "읽고 반영"}`;
   btn("apply", hBtn(label, () => agentApply(t.id, p.id), { cls: p.preselect ? "btn sm primary" : "btn sm", disabled: !!off || !!A.applying,
     title: off || (p.preselect ? "서버에 저장된 이 제안을 문서에 넣습니다 — 한 번의 편집(도구 줄 「실행 취소」 로 되돌림)" : "스크립트가 확인하지 못한 제안입니다(에이전트가 쓴 글 · 경고 · 검증 안 맞음) — 미리보기로 읽어 본 뒤 넣으세요. 한 번의 편집(실행 취소로 되돌림)") }));
   if (A.applying === p.id) { const run = el("span", "ag-run"); run.append(el("span", "ag-spin"), el("span", "ag-run-text", "문서에 반영하는 중…")); acts.append(run); }
@@ -815,9 +828,9 @@ async function agentApply(tid, pid) {
   if (p && p.type === "styleCopy") { agentStyleCopy(tid, pid); return; } // 문서를 바꾸지 않는 제안 — 쓰기 정책(원본 문서)에 걸리지 않고, 문서 갱신 길(structOp)도 타지 않는다
   if (!p || A.applying || A.policy.apply === false || ["applied", "stale", "closed"].includes(p.state)) return;
   if (state.busy) { toast("다른 편집이 끝난 뒤 다시 누르세요"); return; }
-  const v = p.view || {}, picks = p.type === "tableFill" ? { fills: (v.fills || []).filter((f) => agentFillPicks(p).has(f.cell)).map((f) => f.cell) } : null;
+  const v = p.view || {}, picks = p.type === "tableFill" || p.type === "fill" ? { fills: agentFillRows(p).map(agentFillKey).filter((k) => agentFillPicks(p).has(k)) } : null;
   if (picks && !picks.fills.length) return;
-  const epoch = state.epoch;
+  const epoch = state.epoch, rk = `${tid}/${pid}`;
   A.applying = pid;
   agentHit(null);
   agentDrawStatus();
@@ -827,27 +840,32 @@ async function agentApply(tid, pid) {
   try {
     await flushAll(); // 대기 중인 글 반영이 편집 차례를 올린다 — 그 뒤의 차례를 보낸다
     if (A === AGENT && epoch === state.epoch) {
-      A.req[pid] = A.req[pid] || agentUuid(); // 답을 받을 때까지 같은 번호 — 두 번 눌러도 서버가 한 번으로 친다
+      A.req[rk] = A.req[rk] || agentUuid(); // 답을 받을 때까지 같은 번호 — 두 번 눌러도 서버가 한 번으로 친다(열쇠 = 턴 + 제안: 제안 id 는 턴마다 p1 부터다)
       structOp.lastError = null;
-      r = await structOp("agent/apply", { turn: tid, proposal: pid, ...(picks ? { picks } : {}), expectedRev: state.serverRev, requestId: A.req[pid] }); // 구조 편집 응답 — 바뀐 블록만 다시 그림
+      r = await structOp("agent/apply", { turn: tid, proposal: pid, ...(picks ? { picks } : {}), expectedRev: state.serverRev, requestId: A.req[rk] }); // 구조 편집 응답 — 바뀐 블록만 다시 그림
       err = r ? null : structOp.lastError || null;
     }
   } finally { if (A === AGENT) A.applying = null; }
   if (A !== AGENT || epoch !== state.epoch) return;
-  if (r || err) delete A.req[pid];
+  if (r || err) delete A.req[rk];
   const undo = " · 도구 줄의 실행 취소로 되돌릴 수 있습니다";
   if (r) {
     const ap = r.applied || {}, made = ap.made || {}, filled = ap.filled || {}, written = ap.written || {}, skipped = filled.skipped || [];
     const nWritten = (Array.isArray(written.paras) ? written.paras.length : Number(written.paras) || 0) || (v.lines || []).length;
     p.state = "applied";
     if (p.choiceGroup) for (const x of agentGroup(t, p)) if (x !== p && (x.state || "open") === "open") x.state = "closed"; // 후보 묶음은 하나만 — 나머지는 끝난 것(서버도 그렇게 적는다)
-    p.applied = { table: made.table || (p.type === "tableFill" || p.type === "restyle" ? v.table : null) || null, paras: Array.isArray(written.paras) ? written.paras : p.type === "restyle" ? v.paras || [] : [], cells: filled.cells || [], excel: ap.excel || null,
-      note: p.type === "tableFill" ? `${nf((filled.cells || picks.fills).length)}칸 채움${skipped.length ? ` · 건너뜀 ${nf(skipped.length)}${skipped[0] && skipped[0].why ? `(${skipped[0].why})` : ""}` : ""}` : "" };
-    toast((p.type === "tableNew" ? `새 표${made.table ? ` ${made.table}` : ""}${made.rows ? `(${made.rows}×${made.cols})` : ""}를 넣었습니다` : p.type === "tableFill" ? `표 ${v.table} — ${p.applied.note}` : p.type === "write"
+    const lined = ap.filledLines || {}, lskip = lined.skipped || []; // 자리 채우기 — 채운 줄 · 덩이째 건너뛴 줄(그 자리의 머리 글 · 줄이 바뀜)
+    p.applied = { table: made.table || (p.type === "tableFill" || p.type === "restyle" ? v.table : null) || null, paras: Array.isArray(written.paras) ? written.paras : p.type === "restyle" ? v.paras || [] : p.type === "fill" ? lined.paras || picks.fills : [], cells: filled.cells || [], excel: ap.excel || null,
+      note: p.type === "tableFill" ? `${nf((filled.cells || picks.fills).length)}칸 채움${skipped.length ? ` · 건너뜀 ${nf(skipped.length)}${skipped[0] && skipped[0].why ? `(${skipped[0].why})` : ""}` : ""}`
+        : p.type === "fill" ? `${nf((lined.paras || picks.fills).length)}줄 채움${lskip.length ? ` · 건너뜀 ${nf(lskip.length)}${lskip[0] && lskip[0].why ? `(${lskip[0].why})` : ""}` : ""}` : "",
+      ...(p.type === "fill" ? { filledLines: lined } : {}) };
+    delete A.fills[agentPropKey(p)]; // 반영한 카드의 체크는 실제로 넣은 줄 · 칸으로 다시(건너뛴 덩이의 줄은 풀린다 — agentFillPicks)
+    toast((p.type === "tableNew" ? `새 표${made.table ? ` ${made.table}` : ""}${made.rows ? `(${made.rows}×${made.cols})` : ""}를 넣었습니다` : p.type === "tableFill" ? `표 ${v.table} — ${p.applied.note}` : p.type === "fill" ? `자리 채우기 — ${p.applied.note}` : p.type === "write"
       ? `문단 ${nf(nWritten)}개를 썼습니다` : "서식을 입혔습니다") + undo);
   } else if (err && err.status === 409) { // 문서가 바뀜 · 이미 반영함 · 다른 후보를 반영함 — 서버가 준 까닭 그대로 보이고, 서버의 제안 상태로 맞춘다(다른 창에서 이미 반영했을 수 있다)
-    p.state = "stale";
     p.why = err.message && !/^409\b/.test(err.message) ? err.message : AG_STALE;
+    if (p.type === "fill") toast(p.why, true); // 자리 채우기 — 고른 덩이만 엇갈렸을 수 있다(서버의 제안은 열린 채 · 다른 덩이는 반영할 수 있다): 카드를 통째로 낡은 것으로 만들지 않고 서버의 상태를 따른다
+    else p.state = "stale";
     agentStatesSync();
   }
   else if (err && err.status === 403) A.policy = { apply: false, why: err.message };
@@ -1054,6 +1072,10 @@ function agentPropSync() { // 열이 제안 미리보기일 때만 — 그 자�
     wrap.append(agentWhereEl([{ text: `대상 — 표 ${v.table || ""}${v.rows ? ` · ${v.rows}×${v.cols}` : ""}${v.range && typeof xlRangeName === "function" ? ` · 범위 ${xlRangeName(v.range)}` : ""}${v.unit ? ` · 단위 ${v.unit}` : ""}`, go: v.table }]), agentChecksEl(p));
     if (v.answer) wrap.append(el("p", "hnote", `LLM: ${v.answer}`));
     agentFillList(wrap, t, p);
+  } else if (p.type === "fill") {
+    const first = (v.lines || [])[0];
+    wrap.append(agentWhereEl([v.box ? { text: `대상 — 상자 ${v.box} 안의 쓸 자리`, go: v.box } : { text: "대상 — 같은 줄 뒤에 값을 쓰는 줄", go: first && first.para }]), agentChecksEl(p));
+    agentFillLines(wrap, t, p);
   } else {
     const paras = v.paras || [], texts = v.texts || [], item = v.itemName || v.item || "";
     wrap.append(agentWhereEl([v.table ? { text: `대상 — 표 ${v.table}${v.rows ? ` · ${v.rows}×${v.cols}` : ""}`, go: v.table } : { text: `대상 — 문단 ${nf(paras.length)}개`, go: paras[0] },
@@ -1106,6 +1128,57 @@ function agentFillList(wrap, t, p) { // 표 채우기 제안 목록 — 「에�
     const d = el("details", "more hblock"), ul = el("ul", "tfl-rej");
     for (const x of rej) ul.append(el("li", null, `${x.ref || "?"} — ${x.why || ""}${x.text ? ` · 「${short(x.text, 50)}」` : ""}`));
     d.append(el("summary", null, `검사에서 뺀 제안 ${nf(rej.length)}`), ul);
+    wrap.append(d);
+  }
+}
+
+const AG_FILL_KIND = { blank: "빈 줄", stub: "글머리 줄", label: "같은 줄 뒤", check: "표시 줄" }; // 쓸 자리의 종류(form_slots.kind_of) — 화면 말
+function agentFillLines(wrap, t, p) { // 자리 채우기 제안의 줄 목록 — 자리(어느 제목 아래 몇째 줄) · 지금 → 넣을 글(붙인 값 강조) · 근거 · 경고, 고른 줄만 반영(agentFillList 와 같은 틀)
+  const A = AGENT, v = p.view || {}, lines = v.lines || [], picked = agentFillPicks(p), lock = (p.state || "open") !== "open" && p.state !== "failed" || !!A.applying;
+  const done = new Set((((p.applied || {}).filledLines || {}).paras) || []), skip = new Map(((((p.applied || {}).filledLines || {}).skipped) || []).map((x) => [x.para, x.why]));
+  const bar = el("div", "ta-row"), count = el("span", "muted"), boxes = [];
+  const sync = () => { count.textContent = `${nf(agentFillCount(p))} / ${nf(lines.length)}`; agentDrawTalk(); agentPropFoot(t, p); }; // 카드와 발치의 「고른 n줄 …」
+  const [tbl, tb] = hTable(["", "자리", "지금 → 넣을 글", "근거"]);
+  tbl.classList.add("tfl-list", "agf-list");
+  for (const ln of lines) {
+    const warn = ln.warn || [], tr = el("tr", warn.length ? "warn" : null), cb = el("input");
+    const where = `${ln.under ? `${ln.under} › ` : ""}${ln.head || "(줄)"}${ln.nth ? ` · ${ln.nth}번째 줄` : ""}`, dup = Array.isArray(ln.dup) && ln.dup[1] > 1 ? ` (같은 이름 ${ln.dup[1]}곳 가운데 ${ln.dup[0]}번째)` : "";
+    tr.dataset.para = ln.para;
+    cb.type = "checkbox"; cb.checked = picked.has(ln.para); cb.disabled = lock;
+    cb.setAttribute("aria-label", `${where} 고르기`);
+    cb.onchange = () => { if (cb.checked) picked.add(ln.para); else picked.delete(ln.para); sync(); };
+    boxes.push([cb, ln]);
+    const c0 = el("td"), c1 = el("td", "wrap agf-where"), c2 = el("td", "wrap tfl-val"), c3 = el("td", "wrap tfl-why"), go = el("button", "hlink", short(where, 60) + dup);
+    c0.append(cb);
+    go.type = "button";
+    go.title = `문서에서 그 줄로 — ${where}${dup}`;
+    go.onclick = () => slGo(ln.para);
+    c1.append(go, el("span", "hb", AG_FILL_KIND[ln.kind] || ln.kind || ""));
+    const was = ln.was || "", text = ln.text || "", keep = ln.mode !== "check" && was.trim() && text.startsWith(was.replace(/\s+$/, "")) ? was.replace(/\s+$/, "") : "";
+    c2.append(el("span", "agf-lab", "지금 "), el("span", was.trim() ? "agf-was" : "agf-was agf-empty", was.trim() ? `「${was}」` : "(빈 줄)"), el("span", "tfl-arrow", " → "), el("span", "agf-lab", "넣을 글 "));
+    const neu = el("span", "agf-new");
+    if (keep) neu.append("「", el("span", "agf-keep", keep), el("b", "tfl-new", text.slice(keep.length)), "」"); // 지금 글은 그대로 · 붙인 값만 굵게
+    else neu.append("「", el("b", "tfl-new", text), "」");
+    c2.append(neu);
+    if (ln.source) { const q = el("q", ln.quoted ? null : "tfl-noquote", ln.source); q.title = ln.quoted ? "자료에서 확인한 구절(글자 포함 검사 — 사실 검증은 아닙니다)" : "이 구절을 자료에서 찾지 못했습니다 — 값이 맞는지 직접 확인하세요"; c3.append(q); }
+    if (ln.from === "decided") c3.append(el("span", "hb agf-decided", "사람이 정한 답"));
+    for (const w of warn) c3.append(el("span", "hb und", w));
+    if (done.has(ln.para)) c3.append(el("span", "hb agf-done", "채움"));
+    else if (skip.has(ln.para)) c3.append(el("span", "hb und", `건너뜀 — ${skip.get(ln.para)}`));
+    tr.append(c0, c1, c2, c3);
+    tr.addEventListener("mouseenter", () => { for (const e of typeof slBlockEls === "function" ? slBlockEls(ln.para) : []) e.classList.add("ag-hit"); });
+    tr.addEventListener("mouseleave", () => agentHit(null));
+    tb.append(tr);
+  }
+  const pick = (fn) => { for (const [cb, ln] of boxes) { cb.checked = fn(ln); if (cb.checked) picked.add(ln.para); else picked.delete(ln.para); } sync(); };
+  bar.append(hBtn("경고 없는 것만", () => pick((ln) => !(ln.warn || []).length), { disabled: lock, title: "값의 근거 구절이 자료에 글자 그대로 있는 줄만 고릅니다" }), hBtn("모두", () => pick(() => true), { disabled: lock }), hBtn("모두 풀기", () => pick(() => false), { disabled: lock }), count);
+  count.textContent = `${nf(agentFillCount(p))} / ${nf(lines.length)}`;
+  wrap.append(el("h3", null, "채울 줄 — 고른 것만 문서에 들어갑니다"), bar, tbl);
+  const rej = v.rejected || [];
+  if (rej.length) {
+    const d = el("details", "more hblock"), ul = el("ul", "tfl-rej");
+    for (const x of rej) ul.append(el("li", null, `${x.para || "?"} — ${x.why || ""}${x.text ? ` · 「${short(x.text, 50)}」` : ""}`));
+    d.append(el("summary", null, `검사에서 뺀 줄 ${nf(rej.length)}`), ul);
     wrap.append(d);
   }
 }

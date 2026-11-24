@@ -83,9 +83,9 @@ def test_schema_is_strict():
             assert node.get("type") in ("string", "integer", "boolean")
     walk(A.SCHEMA)
     action = A.SCHEMA["properties"]["actions"]["items"]["properties"]
-    assert sorted(action) == sorted(["type", "after", "mode", "style", "table", "range", "paras", "item", "lines", "candidates", "picks"])   # 행동은 type 과 무관하게 모든 키
-    assert action["type"]["enum"] == list(A.TYPES) == ["write", "tableNew", "tableFill", "restyle", "styleCopy"] and action["mode"]["enum"] == ["", "extract", "draft"]
-    assert sorted(["text", "rowSpan", "colSpan"]) in seen and sorted(["item", "text", "source"]) in seen and len(seen) == 8
+    assert sorted(action) == sorted(["type", "after", "mode", "style", "table", "range", "paras", "item", "lines", "candidates", "picks", "fills"])   # 행동은 type 과 무관하게 모든 키
+    assert action["type"]["enum"] == list(A.TYPES) == ["write", "tableNew", "tableFill", "restyle", "styleCopy", "fill"] and action["mode"]["enum"] == ["", "extract", "draft"]
+    assert sorted(["text", "rowSpan", "colSpan"]) in seen and sorted(["item", "text", "source"]) in seen and sorted(["para", "text", "source"]) in seen and len(seen) == 9   # fills = 자리 채우기의 줄
     pick = action["picks"]["items"]["properties"]                                                                                  # 서식 복사의 저장할 서식 하나(spec_서식복사 ② §6)
     assert list(pick) == ["kind", "table", "template", "paras", "name", "blueprint"] and pick["kind"]["enum"] == ["table", "text", "page"] and pick["blueprint"] == {"type": "boolean"}
 
@@ -158,7 +158,7 @@ def test_top_level_and_selection(rnd):
     assert A.GRID_CELLS <= sum(len(r) for r in wide["grid"]) < 691 and wide["more"].startswith("아래 칸 ") and wide["range"] == ""
     assert d["cursor"] == {"id": inner, "text": A._short(rnd._text(rnd._ids[inner]), 200), "top": "t1"} and got["focus"] == [a, "t1"]
     assert rnd._text(rnd._ids[a]) in got["text"]
-    assert A.selection_of(rnd, None) == {"data": {"paras": [], "table": None, "cursor": None}, "focus": [], "text": ""}
+    assert A.selection_of(rnd, None) == {"data": {"paras": [], "table": None, "cursor": None}, "focus": [], "text": "", "fill": {}, "box": None, "inner": []}   # fill · box · inner = 자리 채우기의 대상(tests/test_doc_agent_fill.py)
     assert A.range_of("b2:d5") == {"r0": 1, "c0": 1, "r1": 4, "c1": 3} and A.range_of("") is None and A.range_of("C3") == {"r0": 2, "c0": 2, "r1": 2, "c1": 2}
     with pytest.raises(ValueError):
         A.range_of("둘째 행")

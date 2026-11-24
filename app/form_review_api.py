@@ -62,6 +62,21 @@ def gate(wid):
     return True, "", st
 
 
+def fresh(st, todo, mids):
+    """초안을 받아도 되는가 — 저장한 검토(gate 가 준 st)와 이번 실행을 견준다 → 안 되는 까닭 | "". ⓐ 계획을 세운 자료와 이번에 쓸 자료가 다르다(자료 id 모음 — 차례는 안 본다)
+    ⓑ 고른 자리 가운데 검토에 없거나 검토한 뒤 바뀐 자리가 있다(자리마다의 지문 `form_review.sigs` — 옛 검토(지문 없음)는 자리 id 만 본다). 무관한 자리가 바뀐 것은 막지 않는다(stale 로 알릴 뿐)."""
+    rv = st["review"] or {}
+    if set(rv.get("materials") or ()) != set(mids or ()):
+        return "작성 계획을 세운 자료와 고른 자료가 다릅니다 — 쓸 자료를 계획 때와 같게 고르거나 「작성 계획 세우기」 를 다시 하세요"
+    sigs = rv.get("sigs")
+    known = sigs if sigs is not None else rv.get("places") or {}   # 검토한 때 있던 자리 = 지문을 적어 둔 자리(LLM 이 작성 방향을 안 낸 자리도 검토한 자리다 — rv.places 로 보면 그 자리는 다시 검토해도 영영 막힌다) · 옛 검토(지문 없음)만 rv.places
+    bad = [p for p in todo if p["id"] not in known or (sigs is not None and sigs.get(p["id"]) != form_review.place_sig(p))]
+    if bad:
+        names = " · ".join(f"「{(p.get('text') or p['id'])[:20]}」" for p in bad[:3])
+        return f"양식 검토 뒤에 생기거나 바뀐 자리 {len(bad)}곳({names}{' …' if len(bad) > 3 else ''}) — 「다시 검토」 로 작성 계획을 다시 세우세요(정한 답은 남습니다)"
+    return ""
+
+
 def _view(s, places=None):
     st = load(s.id)
     rv = st["review"]
@@ -70,8 +85,11 @@ def _view(s, places=None):
         places, _ = guide_write_api._places(s)
     with _LOCK:
         run = dict(_RUNS[s.id]) if s.id in _RUNS else None
+    ids = [p["id"] for p in places] if places is not None else None
     return {"hwpx": True, "enabled": bool(llm.status()["available"]), "review": rv, "planned": form_review.planned(rv), "decided": st["decided"],
-            "open": [q["key"] for q in form_review.open_questions(rv, st["decided"])], "stale": bool(rv and places is not None and rv.get("sig") != form_review.sig(places)), "run": run}
+            "open": [q["key"] for q in form_review.open_questions(rv, st["decided"])], "stale": bool(rv and places is not None and rv.get("sig") != form_review.sig(places)), "run": run,
+            "lost": [d["q"] for d in form_review.lost(rv, st["decided"], ids)] if ids is not None else [],   # 자리를 잃은 답(어느 자리에도 싣지 않는다 — 화면이 알린다)
+            "topicLines": [form_review.scope_line(t) for t in (rv or {}).get("topics") or ()]}   # 테마마다 「뽑을 범위」 에 붙일 한 줄(앞말 없이 — 화면이 앞말을 붙인다)
 
 
 @router.get("/api/docs/{doc_id}/form-review")
@@ -95,12 +113,16 @@ def _go(s, places, mids, run):
         st = load(s.id)
         job = job_prompts.for_work(s.id)
         g = merge_guides.get(form_review.GUIDE)
-        data = form_review.payload(blocks, graph, places, st["decided"], mtext)
+        from app import guide_write_api
+        data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s))
         got = llm.call(form_review.SCHEMA, form_review.prompt(data, job, g), "form-review", timeout=600.0, effort="medium", model=form_review.MODEL)
         if got.get("data") is None:
             raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
         rv = form_review.check(got["data"], [p["id"] for p in places], bool(mats))
-        rv.update(at=round(time.time(), 3), rev=s.rev, sig=form_review.sig(places), materials=list(mids), cut=data["cut"],
+        prev = st["review"] or {}
+        if not rv["topics"] and prev.get("topics") and prev.get("sig") == form_review.sig(places):   # 계획을 다시 세운 답이 테마를 비워 보냈다 — 양식 · 지침이 그대로면 앞의 것을 지닌다(astra 2차 G14)
+            rv["topics"], rv["topicsKept"] = prev["topics"], True
+        rv.update(at=round(time.time(), 3), rev=s.rev, sig=form_review.sig(places), sigs=form_review.sigs(places), materials=list(mids), cut=data["cut"],
                   call={k: got.get(k) for k in ("backend", "model", "effort", "ms", "costUsd")}, guide=merge_guides.brief(g), job=job_prompts.brief(job))
         st = load(s.id)   # 도는 동안 사람이 답을 고쳤을 수 있다 — 지금 것에 얹는다
         for d in st["decided"]:   # 정한 것의 key 를 새 물음에 다시 잇는다(같은 물음 글) — 이은 것이 없으면 자리 모름(모든 자리에)으로 남는다
@@ -157,12 +179,16 @@ def review_answers(doc_id: str, body: dict = Body(...)):
             q = qs.get(x.get("key")) if x.get("key") else None
             if x.get("key") and q is None:
                 raise HTTPException(400, f"모르는 물음입니다: {x['key']} — 검토를 다시 읽어 주세요")
-            text = q["text"] if q else " ".join(str(x.get("q") or "").split())[:form_review.Q_MAX]
+            sent = " ".join(str(x.get("q") or "").split())[:form_review.Q_MAX]
+            if q is not None and sent and sent != q["text"]:   # 옛 화면의 물음 번호 — 다시 검토한 뒤 같은 번호가 다른 물음이 됐다(astra 3차: 「보고서 종류」 의 답이 「주관기관」 물음에 저장됐다)
+                raise HTTPException(409, "검토가 바뀌었습니다 — 물음을 다시 읽어 주세요")
+            text = q["text"] if q else sent
             if not text:
                 raise HTTPException(400, "q(물음 글) 또는 key 가 필요합니다")
             dec = [d for d in dec if not ((q and d.get("key") == q["key"]) or d["q"] == text)]
             if a:
-                dec.append({"key": q["key"] if q else "", "q": text, "a": a, "places": q["places"] if q else [], "at": round(time.time(), 3)})
+                dec.append({"key": q["key"] if q else "", "q": text, "a": a, "places": q["places"] if q else [], "at": round(time.time(), 3),
+                            **({"unplaced": True} if q and q.get("unplaced") else {})})   # 자리를 잃은 물음의 답 — 물음이 사라져도 어느 자리에도 싣지 않는다
         if len(dec) > DECIDED_MAX:
             raise HTTPException(400, f"정한 것은 {DECIDED_MAX}개까지 둘 수 있습니다")
         _save(s.id, {"review": st["review"], "decided": dec})
@@ -170,12 +196,12 @@ def review_answers(doc_id: str, body: dict = Body(...)):
     return _view(s)
 
 
-def plans(wid, places):
-    """지침 작성의 자리마다 붙일 검토 글 {자리 id: 글} — 검토 · 정한 것이 없으면 빈 dict."""
+def plans(wid, places, place_ids=None):
+    """지침 작성의 자리마다 붙일 검토 글 {자리 id: 글} — 검토 · 정한 것이 없으면 빈 dict. place_ids(지금의 자리 id 모두)를 주면 자리를 잃은 답은 싣지 않는다(form_review.lost)."""
     st = load(wid)
     out = {}
     for p in places:
-        t = form_review.plan_text(form_review.plan_for(st["review"], st["decided"], p["id"]))
+        t = form_review.plan_text(form_review.plan_for(st["review"], st["decided"], p["id"], place_ids))
         if t:
             out[p["id"]] = t
     return out

@@ -645,6 +645,23 @@ try:
         row = page.evaluate("(id) => { const b = [...document.querySelectorAll('#workList .recent-work-open')].map((x) => ({ chip: (x.querySelector('.recent-task') || {}).textContent, tone: (x.querySelector('.recent-task') || { dataset: {} }).dataset.doc, logo: (x.querySelector('.task-logo use') || { getAttribute: () => '' }).getAttribute('href') })); return b[0]; }", t["id"])
         check("최근 작업 줄 — TASK 표지 「문서 일반 편집」(회색) · 로고", row == {"chip": "문서 일반 편집", "tone": "any", "logo": "#taskIcon-doc_edit"}, row)
 
+        # 고른 칸 · 줄은 (턴, 제안)마다 따로 — 제안 id 는 턴마다 p1 부터라 제안 id 만으로 적으면 앞 턴 카드의 체크가 다음 턴의 같은 번호 카드로 넘어간다(2026-11-24 astra 3차 — 처음부터 안 고른 줄이 반영 요청에 실렸다)
+        picks = page.evaluate("""() => {
+          const keep = AGENT.turns, f = AGENT.fills;
+          const mk = (id, picked) => ({ id, proposals: [{ id: "p1", type: "fill", state: "open", view: { lines: [{ para: "a", warn: [] }, { para: "b", warn: ["w"] }], picked } }] });
+          AGENT.turns = [mk("tA", ["a", "b"]), mk("tB", [])]; AGENT.fills = {};
+          const [pa, pb] = AGENT.turns.map((t) => t.proposals[0]);
+          const first = [agentFillCount(pa), agentFillCount(pb)];
+          agentFillPicks(pa).delete("a");
+          const after = [agentFillCount(pa), agentFillCount(pb)];
+          const done = { id: "p1", type: "fill", state: "applied", applied: { filledLines: { paras: ["b"] } }, view: pa.view };
+          AGENT.turns.push({ id: "tC", proposals: [done] });
+          const applied = [...agentFillPicks(done)];
+          AGENT.turns = keep; AGENT.fills = f;
+          return { first, after, applied };
+        }""")
+        check("제안 id 가 같은 두 턴(p1 · p1) — 고른 줄은 카드마다 따로 · 반영한 카드의 체크는 실제로 넣은 줄", picks == {"first": [2, 0], "after": [1, 0], "applied": ["b"]}, picks)
+
         expected = [e for e in errors if re.search(r"status of (409|403|502|404)", e)]  # 일부러 낸 실패 응답(브라우저가 콘솔에 적는다)
         left = [e for e in errors if e not in expected]
         check("콘솔 오류·pageerror 없음(일부러 낸 409·403·502·404 응답 4건 말고)", not left and len(expected) == 4, (left[:5], expected))

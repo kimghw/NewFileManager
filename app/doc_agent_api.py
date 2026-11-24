@@ -274,13 +274,47 @@ def _fill_ask(g, material, form_guide, job, effort):
 def agent_turn(doc_id: str, body: dict = Body(...)):
     """에이전트 한 턴 — {text(1~4,000자), materials?: [자료 id…], selection?: {paras: [ids], table: id|null, range: {r0,c0,r1,c1}|null, cursor: 블록 id|null},
     styles?: {table: 서식 id|"builtin"|"doc:<표 id>"|null, text: 서식 id|null}, effort?} → {turn: 턴 보기}(`doc_agent.turn_view`: {id, at, rev, text, reply, notes[], proposals[], dropped[], call, calls, …}).
+    (몸통은 `_turn` — 이 끝점은 범위 없이 부른다.)
     문서를 바꾸지 않는다. 조정 호출 1번 + 표 채우기 행동마다 기능 호출 1번(한 턴에 2개까지) — 자료는 세션 잠금 안에서 모으고 호출은 잠금 밖(동기 — 수 초~수십 초).
     제안은 서버에 저장한다(반영은 `…/agent/apply` 가 저장한 것을 실행). 400: 입력 틀림 · docx · 503: LLM 없음 · 502: 조정 호출이 답하지 못함(본문에 turn — 오류가 적힌 턴 보기: 화면이 그대로 보인다).
     기준은 **호출 전** 문서(rev · 보낸 id · 사람이 고른 것): 행동의 대상은 보낸 id 뿐이고(그 밖은 dropped 「보낸 목록에 없는 대상」), 사람이 고른 표·칸 범위·서식과 다르면 경고(처음부터 안 고름),
     도는 동안 문서가 바뀌었으면 제안이 모두 `state: "stale"` + notes 「요청을 처리하는 동안 문서가 바뀌었습니다 — 다시 요청하세요」, 도는 동안 「비우기」 를 했으면 저장하지 않고
     notes 「대화를 비운 뒤에 온 답입니다」(제안은 stale — 반영할 수 없다). 턴 id = 「t<밀리초><16진 6자>」."""
+    return _turn(doc_id, body)
+
+
+OFF_TYPE = "이 자리에서는 하지 않는 행동입니다"
+OFF_TABLE = "이 자리에서는 채우지 않는 표입니다"
+OFF_AFTER = "이 자리에서는 그 자리 뒤에 쓰지 않습니다"
+MOVED = "그 자리의 윗 제목 · 머리가 바뀜"
+
+
+def _levels(s):
+    """헤딩 그래프가 매긴 줄의 레벨 {문단 id: 레벨}(상자 안 줄도) — 상자의 쓸 자리가 「어느 제목 아래」 인지. 작업 파일을 읽으므로 세션 잠금 밖에서."""
+    return {n["para"]: n["level"] for n in (heading_runs.graph(s) or {}).get("nodes") or () if isinstance(n, dict) and n.get("para") and n.get("level")}
+
+
+def _uploaded(s):
+    """그 작업에 올린 원본의 문단 원문 {문단 id: 글} | None(`guide_write_api.uploaded_texts` — 그 모듈이 이 모듈을 가져오므로 함수 안에서). 세션 잠금 밖에서."""
+    from app import guide_write_api
+    return guide_write_api.uploaded_texts(s)
+
+
+def _turn(doc_id, body, scope=None):
+    """한 턴의 몸통(끝점 `agent_turn` 과 같은 답) + **서버만 주는 범위**(scope — 요청 본문으로는 못 준다: 「지침 작성」 이 자리마다의 턴을 이 함수로 돌린다 — spec_양식작성 ② §5-3).
+    scope = {"types": 이 턴에 받는 행동 종류 모음(그 밖의 행동은 버림 「이 자리에서는 하지 않는 행동입니다」), "paras": 자리 채우기(fill)를 받는 문단 id 모음 | None(= 셈한 대상 모두 — 같은 이름의 자리가 여럿인 덩이는 빼고),
+    "tables": 표 채우기를 받는 표 id 모음 | None(= 안 좁힘), "after": 글 쓰기 · 새 표를 받는 자리(after) id 모음 | None(= 안 좁힘 — 그 밖의 자리는 `OFF_AFTER`), "decided": [사람이 정한 답 글…](fill 의 값 근거),
+    "uploaded": {문단 id: 올린 원본의 원문} | None(글이 있는 쓸 자리가 올린 그대로인지 · 이미 채운 줄)}. 범위가 없는 턴은 올린 원본을 작업 폴더에서 읽는다(`_uploaded`).
+    막는 것은 모두 **하위 호출 전**이다 — 범위 밖의 표는 표 채우기 호출(유료)을 하지 않는다. 범위가 없어도 상자를 고른 턴은 그 상자 안의 표를 채우지 않는다(그림 · 샘플 자리 — astra 2차 G9)."""
     body = body if isinstance(body, dict) else {}
+    scope = scope if isinstance(scope, dict) else None
+    types = set(scope["types"]) if scope and scope.get("types") is not None else None
+    only_paras = set(scope["paras"]) if scope and scope.get("paras") is not None else None
+    only_tables = set(scope["tables"]) if scope and scope.get("tables") is not None else None
+    only_after = set(scope["after"]) if scope and scope.get("after") is not None else None   # 글 쓰기 · 새 표를 받는 자리(after) — 그 밖의 자리 뒤에는 쓰지 않는다(헤딩 턴이 다른 헤딩 아래에 쓰지 않게: astra 3차)
     s = _sess(doc_id)
+    # 올린 원본 — 범위가 줬으면 그것, 범위가 없는 턴(에이전트 보기에서 바로)도 작업 폴더에서 읽는다: 이미 채운 줄이 다시 쓸 자리가 되거나 같은 이름의 자리가 하나를 채운 뒤 풀리지 않게(astra 3차)
+    uploaded = (scope.get("uploaded") if isinstance(scope.get("uploaded"), dict) else None) if scope else _uploaded(s)
     if s.fmt != "hwpx":
         raise HTTPException(400, "에이전트 쓰기는 지금 hwpx 문서만 됩니다")
     store, metas = doc_agent.Store(s.id), _listing()
@@ -292,19 +326,23 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
     here = {"name": s.name, "sha256": getattr(s, "doc_key", None), "project": (((works.work(s.id) or {}).get("task") or {}).get("project") or "").strip() or None}   # 지금 문서 — 서식의 원본 문서와 견준다(spec_서식복사 ② §17)
     form_guide = heading_forms.table_guide(s)
     t3 = heading_runs.tables(s)
-    templates = doc_agent.templates_of(heading_runs.graph(s))   # 2단계 그래프의 개요 템플릿(서식 복사의 대상 — spec_서식복사 ② §6) — 작업 파일을 읽으므로 세션 잠금 밖에서(t3 와 같다). 그래프가 없으면 빈 목록
+    graph = heading_runs.graph(s)
+    templates = doc_agent.templates_of(graph)   # 2단계 그래프의 개요 템플릿(서식 복사의 대상 — spec_서식복사 ② §6) — 작업 파일을 읽으므로 세션 잠금 밖에서(t3 와 같다). 그래프가 없으면 빈 목록
+    levels = {n["para"]: n["level"] for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("para") and n.get("level")}   # 헤딩 그래프가 매긴 줄의 레벨(상자 안 줄도) — 상자의 쓸 자리가 「어느 제목 아래」 인지
     with s.lock:
         if picked["table"] and picked["table"].startswith("doc:"):
             el = s.doc._ids.get(picked["table"][4:])
             if el is None or el.tag != TBL or not s.doc._attached(el):
                 raise HTTPException(400, "서식으로 고른 표가 지금 문서에 없습니다 — 다시 고르세요")
         blocks = s.doc.blocks()
-        got_sel = doc_agent.selection_of(s.doc, sel)
+        got_sel = doc_agent.selection_of(s.doc, sel, levels, uploaded, only=set(scope["paras"]) if scope and scope.get("paras") is not None else None)
         outline, tables, rev0 = doc_agent.outline_of(blocks, got_sel["focus"]), doc_agent.tables_of(blocks, focus_ids=got_sel["focus"]), s.rev   # rev0 = 이 턴의 기준 차례(호출 전 — 잠금 안에서)
     # 실행 권한의 테두리(검토 2): 프롬프트에 실제로 보낸 id · 사람이 고른 것(지금 문서에 있는 것만 — 표를 골랐을 때만 그 칸 범위)
     allowed = doc_agent.allowed_ids(outline, tables, got_sel["data"], templates)
     chosen = {"paras": [p["id"] for p in got_sel["data"]["paras"]], "table": (got_sel["data"]["table"] or {}).get("id"), "range": sel["range"] if got_sel["data"]["table"] else None}
     sent = doc_agent.materials_data(mats)
+    fill_targets = {k: v for k, v in got_sel["fill"].items() if only_paras is None or k in only_paras}   # 자리 채우기의 대상 — 서버가 이 선택에서 셈한 것(범위를 줬으면 그 안으로)
+    inner = set(got_sel["inner"])                                                                        # 고른 상자 안의 표 — 이 턴에 채우지 않는다
     history = doc_agent.history_of([t for t in (store.turn(row["id"]) for row in store.turns()[-2 * doc_agent.HISTORY:]) if t])
     data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked, here), sent, history, templates=templates)
     job_part, guide_part = job_prompts.part(job, doc_agent.JOB_NOTE), doc_agent.guide_part(guide)
@@ -318,10 +356,17 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
     if got is not None:
         actions = got["actions"]
         rec["reply"] = got["reply"]
-        want = [i for i, a in enumerate(actions[:doc_agent.ACTIONS_MAX]) if a.get("type") == "tableFill"][:doc_agent.FILLS_PER_TURN]
+        off = {i: OFF_TYPE for i, a in enumerate(actions) if types is not None and a.get("type") not in types}   # 범위 밖의 행동 — 제안 검사 전에(표 채우기 호출도 안 한다)
+        if only_after is not None:
+            off.update({i: OFF_AFTER for i, a in enumerate(actions) if i not in off and a.get("type") in ("write", "tableNew") and str(a.get("after") or "").strip() not in only_after})
+        want = [i for i, a in enumerate(actions[:doc_agent.ACTIONS_MAX]) if a.get("type") == "tableFill" and i not in off][:doc_agent.FILLS_PER_TURN]
         material = doc_agent.fill_material(text, mats) if want else ""
         for i in want:   # 표마다: 잠금 안에서 모으고 → 잠금 밖에서 기능 호출(기존 표 채우기 길 그대로)
             a = actions[i]
+            tid_ = str(a.get("table") or "").strip()
+            if tid_ not in only_tables if only_tables is not None else tid_ in inner:
+                fills[i] = {"table": a.get("table"), "error": OFF_TABLE}   # 하위 호출 전에 막는다
+                continue
             try:
                 rng = doc_agent.range_of(a.get("range"))
             except ValueError as e:
@@ -338,7 +383,10 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
             changed = s.rev != rev0   # 도는 동안 문서가 바뀌었다 — 낡은 문서를 보고 한 답이다: 이 턴의 제안은 모두 낡은 것으로
             built = doc_agent.proposals(s.doc, actions, {"rev": rev0, "turn": tid, "sources": doc_agent.sources(text, got_sel["text"], sent), "styles": doc_agent.styles_index(metas),
                                                          "picked": picked, "fills": fills, "docKey": getattr(s, "doc_key", None), "allowed": allowed, "selection": chosen, "changed": changed,
-                                                         "templates": templates})
+                                                         "templates": templates, "off": off, "fill": fill_targets, "box": got_sel["box"], "scope": scope,
+                                                         "decided": [d for d in (scope or {}).get("decided") or [] if isinstance(d, str)], "uploaded": uploaded,
+                                                         # 자리 채우기의 근거는 자료만(요청 글 · 고른 글 = 양식의 글은 근거가 아니다) — each = 자료마다의 글(근거 구절 · 수는 자료 하나 안에서 견준다)
+                                                         "sources_mat": {**doc_agent.sources("", "", sent), "each": [str(m.get("text") or "") for m in sent]}})
         rec.update(proposals=built["proposals"], dropped=built["dropped"], fills=fill_recs,
                    notes=[f"{d['why']}" for d in built["dropped"] if d.get("type") == "tableFill"]   # 채울 칸이 없거나 막힌 표는 그 까닭을 답에(spec ② §8)
                    + ([doc_agent.BUSY_STALE] if changed and built["proposals"] else []))
@@ -349,7 +397,7 @@ def agent_turn(doc_id: str, body: dict = Body(...)):
         rec["notes"] = [*rec["notes"], doc_agent.CLEARED]
         for p in rec["proposals"]:
             p.update(state="stale", preselect=False)
-            if p["type"] == "tableFill":
+            if p["type"] in ("tableFill", "fill"):
                 p["view"]["picked"] = []
     calls = [call] + [f["call"] for f in fill_recs]
     cost = [c.get("costUsd") for c in calls if isinstance(c.get("costUsd"), (int, float))]
@@ -513,6 +561,74 @@ def _make_fill(op, picks, view, done):
     return make
 
 
+def _make_fill_lines(op, picks, view, done, levels=None, orig=None):
+    """자리 채우기(type fill)의 반영 — 고른 줄(picks = 문단 id 목록 | None = 처음부터 고른 줄)만 `set_text` 로 제자리에. 엇갈림은 **덩이마다**(같은 머리 아래의 줄 묶음 — astra 2차 G8):
+    그 덩이의 머리 글이 낼 때와 다르거나(다른 사람 · 다른 항목의 자리가 됐을 수 있다) 고른 줄 하나라도 글이 달라졌거나 없어졌으면 그 덩이의 고른 줄을 **모두** 건너뛴다. 넣을 줄이 하나도 안 남으면
+    편집 없이 409(실행 취소 기록도 없다). 통과한 덩이는 한 편집으로(실행 취소 1).
+    상자의 줄은 **지금 문서의 덩이를 다시 셈해**(levels = 헤딩 그래프의 레벨 · orig = 올린 원본의 원문 — 부르는 쪽이 세션 잠금 밖에서 읽어 준다) 소속도 견준다(astra 3차): 그 줄이 아직 쓸 자리이고,
+    머리 문단 · 머리 글 · 윗 제목 글이 낼 때와 같아야 한다 — 윗 제목만 고쳤거나(「연구개발 목표」 → 「연구개발 결과」) 줄을 다른 머리 아래로 옮겼으면 글이 그대로여도 그 덩이를 건너뛴다(`MOVED`)."""
+    def make(s):
+        lines = {ln["para"]: ln for ln in op["lines"]}
+        want = picks if picks is not None else list(view.get("picked") or [])
+        if not want:
+            raise HTTPException(400, "고른 줄이 없습니다 — 넣을 줄을 고르세요")
+        if any(p not in lines for p in want):
+            raise HTTPException(400, "이 제안에 없는 줄이 들어 있습니다")
+        box = op.get("box")
+        tbl = s.doc._ids.get(box) if box else None
+        if box and (tbl is None or tbl.tag != TBL or not s.doc._attached(tbl)):
+            raise HTTPException(409, doc_agent.STALE)
+
+        def live(pid):
+            el = s.doc._ids.get(pid)
+            if el is None or el.tag != P or not s.doc._attached(el):
+                return None
+            return el if (doc_agent.top_of(s.doc, el) == box if box else doc_agent.top_el(s.doc, pid) is not None) else None   # 같은 상자 안(줄 자리면 본문 최상위)에 그대로 있나
+
+        slots = doc_agent.box_slots(s.doc, box, levels, orig) if box else None
+        now = slots[1] if slots else {}   # 지금 문서의 쓸 자리 {문단 id: 자리 정보}
+
+        def moved(pid):
+            ln, t = lines[pid], now.get(pid)
+            return t is None or t.get("headId") != ln.get("head") or t.get("headRaw") != ln.get("headWas") or ("under" in ln and (t.get("under") or "") != (ln["under"] or ""))
+
+        groups = {}
+        for pid in want:
+            groups.setdefault(lines[pid].get("head") or f"\x00{pid}", []).append(pid)
+        todo, skipped = [], []
+        for ids in groups.values():
+            ln0, why = lines[ids[0]], None
+            if ln0.get("head"):
+                hel = live(ln0["head"])
+                if hel is None or s.doc._text(hel) != ln0.get("headWas"):
+                    why = "그 자리의 머리 글이 바뀜"
+            for pid in ids if why is None else ():
+                el = live(pid)
+                if el is None:
+                    why = "그 줄이 없어졌거나 다른 자리로 옮겨짐"
+                elif s.doc._text(el) != lines[pid]["was"]:
+                    why = "제안을 받은 뒤 줄이 바뀜"
+                elif box and moved(pid):
+                    why = MOVED
+                if why:
+                    break
+            if why:
+                skipped += [{"para": pid, "why": why} for pid in ids]
+            else:
+                todo += [(pid, lines[pid]["text"]) for pid in ids]
+        if not todo:
+            raise HTTPException(409, f"넣을 줄이 없습니다 — {skipped[0]['why']}. 다시 요청하세요")
+        hosts = [tbl] if tbl is not None else [s.doc._ids[pid] for pid, _ in todo]
+
+        def run():
+            for pid, text in todo:
+                _guard(lambda pid=pid, text=text: s.doc.set_text(pid, text))
+            done.update(filledLines={"box": box, "paras": [pid for pid, _ in todo], "skipped": skipped})
+            return {"hosts": hosts, "anchor": box or todo[0][0], "focus": None, "log": {"type": "fill", "box": box, "paras": len(todo), "skipped": len(skipped)}}
+        return hosts, run
+    return make
+
+
 def _make_restyle(op, done, side):
     def make(s):
         from app import tables_api
@@ -575,6 +691,8 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
     400: 본문 틀림 · docx · 고른 칸 없음 · 404: 그런 턴·제안 없음 · 422: OWPML 에 어긋나 되돌림(제안은 그대로 열려 있다).
     문서 변경과 「반영됨」 기록(검토 6): 편집이 성공하면 제안 상태를 쓰고(실패하면 한 번 더) 바로 문서 상태를 작업 폴더에 쓴다(`server._persist_safe(s, force=True)` — 배경 저장을 기다리지 않는다).
     제안 상태를 두 번 다 못 썼으면 성공 응답의 `applied.note` 에 「반영했지만 제안 상태를 저장하지 못했습니다 — 같은 제안을 다시 반영하지 마세요」 를 싣고, 이 프로세스는 그 제안을 다시 반영하지 않는다.
+    자리 채우기(type `fill` — spec_양식작성 ② §5-3): picks.fills = 고른 **문단 id**(없으면 처음부터 고른 줄) · 엇갈림은 덩이마다 가려 통과한 덩이만 한 편집으로(`_make_fill_lines`) —
+    응답 `applied.filledLines {box, paras[채운 문단 id], skipped[{para, why}]}` · 넣을 줄이 하나도 안 남으면 409(편집 없음) · 제안에 없는 문단 id 는 400.
     **서식 복사(type `styleCopy` — spec_서식복사 ② §6)는 다른 길이다**(`_copy_apply`): 문서를 바꾸지 않으므로 `server._edit` 를 쓰지 않고(실행 취소 없음 · rev 그대로) 쓰기 정책 403 에 걸리지 않는다(원본 문서에서도 된다).
     같은 requestId · 404 · 409 이미 반영 · 409 낡음(고른 표·문단의 글·서식 지문)은 같다. 응답 `{replayed: false, applied {turn, proposal, type, state, styles[{id, name, kind, revision, pick}], failed[{name, why, kind, pick}]}, rev}` —
     문서 조각 없음. 하나라도 저장되면 「반영됨」, 모두 실패면 200 + failed 로 열어 둔다(state "open")."""
@@ -587,7 +705,7 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
         raise HTTPException(400, f"requestId(1~{REQUEST_ID_MAX}자)가 필요합니다")
     if picks is not None and (not isinstance(picks, dict) or not isinstance(picks.get("fills", []), list) or not all(isinstance(c, str) for c in picks.get("fills", []))
                               or len(set(picks.get("fills", []))) != len(picks.get("fills", []))):
-        raise HTTPException(400, "picks 는 {fills: [칸 id…]}(겹침 없이)")
+        raise HTTPException(400, "picks 는 {fills: [칸 id…(표 채우기) | 문단 id…(자리 채우기)]}(겹침 없이)")
     expected = body.get("expectedRev")
     s = _sess(doc_id)
     if s.fmt != "hwpx":
@@ -622,7 +740,10 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
             return _copy_apply(s, store, rec, p, tid, pid, rid, expected)
         op, done, side, went_stale = p["op"], {}, {}, []   # done = 응답·영수증에 싣는 것 · side = 안에서만 쓰는 것(stale — 서식이 바뀜 · targets — 옮겨 적을 지문)
         inner = {"write": lambda: _make_write(op, done, side), "tableNew": lambda: _make_table_new(op, done, side), "restyle": lambda: _make_restyle(op, done, side),
-                 "tableFill": lambda: _make_fill(op, (picks or {}).get("fills") if picks and "fills" in picks else None, p.get("view") or {}, done)}.get(p.get("type"))
+                 "tableFill": lambda: _make_fill(op, (picks or {}).get("fills") if picks and "fills" in picks else None, p.get("view") or {}, done),
+                 # 자리 채우기 — picks.fills = 문단 id · 레벨 · 올린 원본은 여기서(세션 잠금 밖) 읽어 넘긴다: 반영이 지금 문서의 덩이를 다시 셈해 소속을 견준다
+                 "fill": lambda: _make_fill_lines(op, (picks or {}).get("fills") if picks and "fills" in picks else None, p.get("view") or {}, done,
+                                                  _levels(s) if op.get("box") else None, _uploaded(s) if op.get("box") else None)}.get(p.get("type"))
         if inner is None:
             raise HTTPException(400, "모르는 종류의 제안입니다")
         inner = inner()
@@ -661,10 +782,14 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
         made, filled, written = done.get("made") or {}, done.get("filled") or {}, done.get("written") or {}
         skipped = filled.get("skipped") or []
         note = (f"{len(filled.get('cells') or [])}칸 채움" + (f" · 건너뜀 {len(skipped)}({skipped[0]['why']})" if skipped else "")) if p["type"] == "tableFill" else ""
+        lined = done.get("filledLines") or {}
+        if p["type"] == "fill":   # 자리 채우기 — 채운 줄 · 덩이째 건너뛴 줄(까닭)
+            note = f"{len(lined.get('paras') or [])}줄 채움" + (f" · 건너뜀 {len(lined['skipped'])}({lined['skipped'][0]['why']})" if lined.get("skipped") else "")
         # 화면이 다시 읽었을 때 그리는 꼴: table(새 표 · 채운 표 · 서식을 입힌 표) · paras(쓴 문단 · 서식을 입힌 문단) · cells(채운 칸) · excel(반영한 뒤의 검증) · note — 그리고 반영 응답의 조각 그대로
-        p.update(state="applied", applied={"at": round(time.time(), 3), "rev": s.rev, "table": made.get("table") or op.get("table") or None, "paras": written.get("paras") or list(op.get("paras") or []),
+        p.update(state="applied", applied={"at": round(time.time(), 3), "rev": s.rev, "table": made.get("table") or op.get("table") or None,
+                                           "paras": written.get("paras") or lined.get("paras") or list(op.get("paras") or []),
                                            "cells": filled.get("cells") or [], "excel": done.get("excel"), "note": note,
-                                           **{k: done[k] for k in ("made", "filled", "written", "formatted") if k in done}})
+                                           **{k: done[k] for k in ("made", "filled", "written", "formatted", "filledLines") if k in done}})
         for x in rec["proposals"]:
             if group and x is not p and x.get("choiceGroup") == group and x.get("state") == "open":   # 같은 묶음의 다른 후보는 닫는다(하나만 반영)
                 x.update(state="closed", closedBy=pid)

@@ -217,3 +217,13 @@ table.mini.agp-lines td { vertical-align: top; }
 table.mini.agp-lines td.agp-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 10em; color: #5b21b6; font-weight: 600; }
 table.mini.agp-lines td.agp-src { min-width: 8em; color: var(--muted); }
 .agp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+/* 자리 채우기(type fill)의 줄 목록(agentFillLines) — 표 채우기 목록(.tfl-list)의 틀 + 자리 칸은 줄을 꺾는다 · 지금 글은 옅게 · 붙인 값만 보라 굵게(LLM 제안 — design.md §6) */
+table.mini.agf-list td:nth-child(2) { white-space: normal; overflow-wrap: anywhere; min-width: 7em; }
+table.mini.agf-list td:nth-child(2) .hlink { text-align: left; white-space: normal; }
+.agf-lab { color: var(--muted); font-size: 11px; }
+.agf-was { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agf-was.agf-empty { font-style: italic; }
+.agf-new { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agf-keep { color: var(--muted); }
+.hb.agf-decided { color: var(--accent); border-color: #b9cbf2; background: var(--accent-soft); }
+.hb.agf-done { color: var(--ok); border-color: transparent; background: var(--ok-soft); }

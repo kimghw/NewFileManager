@@ -226,6 +226,25 @@ function runSec(d) {
       const next = row.nextElementSibling;
       if (next) next.querySelector("textarea").focus(); else if (t.value.trim() && !add.disabled) addRow("", row).focus();
     });
+    // 여러 줄을 붙여 넣으면 줄마다 범위 줄로(8114 「자료에서 찾을 테마 · 키워드」 의 「고른 것 복사」 — 2026-11-24). 실제 줄 경계로만 나눈다(번호 목록 나누기 splitScopes 를 쓰지 않는다 — 「2.5 kV 시험」 의 「2.」 가 지워진다).
+    // 있는 줄 + 붙일 줄이 한도(범위 수 · 줄당 FOCUS_MAX 자 — doclib/extract.py)를 넘으면 아무것도 바꾸지 않고 알린다. 한 줄 붙여넣기는 전과 같다.
+    t.addEventListener("paste", (ev) => {
+      const text = (ev.clipboardData && ev.clipboardData.getData("text")) || "";
+      const lines = text.split(/\r?\n/).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+      if (lines.length < 2) return;
+      ev.preventDefault();
+      const max = (S.health && S.health.scopes) || 8, total = rows().length - 1 + lines.length;
+      const head = (t.value.slice(0, t.selectionStart) + lines[0] + t.value.slice(t.selectionEnd)).replace(/\s+/g, " ").trim();
+      const long = [head, ...lines.slice(1)].filter((s) => s.length > FOCUS_MAX).length;
+      if (total > max) return toast(`붙여 넣지 않았습니다 — 범위는 한 번에 ${max}개까지인데 ${total}개가 됩니다(${total - max}개 넘침)`);
+      if (long) return toast(`붙여 넣지 않았습니다 — ${FOCUS_MAX}자를 넘는 줄이 ${long}개 있습니다`);
+      t.setRangeText(lines[0], t.selectionStart, t.selectionEnd, "end");
+      fit(t);
+      let at = row, lastT = t;
+      for (const s of lines.slice(1)) { lastT = addRow(s, at); at = lastT.closest(".scope"); }
+      sync();
+      lastT.focus();
+    });
     row.append(el("span", "scope-n"), t, del);
     if (after) after.after(row); else scopes.append(row);
     requestAnimationFrame(() => fit(t));
@@ -292,6 +311,7 @@ function runSec(d) {
   sec.append(h, scopeBox, bar);
   return sec;
 }
+const FOCUS_MAX = 600; // 범위 글 하나의 길이 한도 — doclib/extract.py FOCUS_MAX(서버가 넘으면 400). 범위 수 한도는 /api/health 의 scopes
 // 한 줄에 적은 「1.한국선급, 2.인텍전기전자」(1 부터 차례로 매긴 번호 둘 이상) · 여러 줄 → 범위 글들. 나눌 것이 없으면 [그 글]
 function splitScopes(text) {
   const t = (text || "").trim(), lines = t.split(/\n+/).map((s) => s.replace(/^\s*(?:\d{1,2}[.)]|[-•·])\s*/, "").trim()).filter(Boolean);

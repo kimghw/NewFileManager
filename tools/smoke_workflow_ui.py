@@ -427,7 +427,7 @@ def main():
           legend: [...document.querySelectorAll('.wf-legend .wf-tag')].map((x) => x.textContent), commons: document.querySelectorAll('.wf-commons a').length, cur: document.querySelector('#wfNav a[aria-current=true]').textContent })""")
         rows = {r[0]: r for r in ov["rows"]}
         check("전체 보기 — TASK 마다 한 줄: 이관 = 「1단계 문서 검토 › 2단계 구성 맞추기 › 3단계 내용 넣기 › 4단계 문서 정리」(spec_작업 ② §21) · 취합 = 1~3단계(그대로) · 「연차보고서 취합」 은 준비 중",
-              len(ov["rows"]) == 8 and rows["form_write"][2] == ["준비", "자료 준비", "지침 작성"] and rows["plan_to_report"][2] == ["1단계문서 검토", "2단계구성 맞추기", "3단계내용 넣기", "4단계문서 정리"]
+              len(ov["rows"]) == 8 and rows["form_write"][2] == ["준비", "자료 준비", "작성"] and rows["plan_to_report"][2] == ["1단계문서 검토", "2단계구성 맞추기", "3단계내용 넣기", "4단계문서 정리"]
               and rows["plan_merge"][2] == ["1단계프로젝트 구성", "2단계문서 프레임 작성", "3단계내용 매핑"] and rows["report_merge"][2] == ["준비 중"]
               and rows["plan_fit"][2] == ["1단계프로젝트 구성", "2단계헤딩 추출", "3단계표"] and rows["style_copy"][2] == ["준비", "서식 복사", "다시 쓰기"] and rows["doc_edit"][1] == "문서 일반 편집", ov["rows"])
         check("묶음의 점 — 이관 1단계는 보라+주황(LLM 검증·보완 — 원본 문서에 서식 정리를 반영: 2026-11-22) · 2단계 · 3단계 보라+주황(LLM · 문서 바뀜) · 4단계 주황 / 범례 · 공통 모듈 아홉 / 목차의 지금 절 = 전체 보기",

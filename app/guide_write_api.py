@@ -19,7 +19,7 @@ import uuid
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from app import agent_notes, doc_agent, doclib_client, form_review_api, guide_write, llm, works
+from app import agent_notes, doc_agent, doclib_client, form_review, form_review_api, guide_write, llm, works
 
 router = APIRouter()
 WORKERS = 2
@@ -144,20 +144,63 @@ def _raw_rec(did):
 
 # ---- 지침 작성 -----------------------------------------------------------------------------------------------------------
 
+_UPLOADED = {}   # 작업 id → (올린 원본의 열쇠, {문단 id: 원문})
+
+
+def uploaded_texts(s):
+    """그 작업에 **올린 원본**(작업 폴더의 original.hwpx — 확정해도 안 바뀐다)의 문단 원문 {문단 id: 글} | None(그 파일이 없다 — 세션의 기준 바이트는 확정하면 바뀌므로 쓰지 않는다: astra 2차 G4).
+    문단 id 는 읽을 때 차례로 붙어, 올린 원본을 다시 읽으면 처음 연 때와 같다(merge_api._orig 와 같은 가정 — 그 뒤 넣은 문단은 여기 없다). 채운 자리를 가리고(form_slots 의 filled) · 올린 뒤 사람이 쓴 줄을 가리는 데 쓴다."""
+    from app.headings import iter_blocks
+    from app.hwpx_doc import HwpxDoc
+    p = works.file_path(s.id, "original")
+    if p is None:
+        return None
+    try:
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+        hit = _UPLOADED.get(s.id)
+        if hit is None or hit[0] != key:
+            texts = {b["id"]: b.get("text") or "" for b in iter_blocks(HwpxDoc(p.read_bytes()).blocks()) if b.get("type") == "paragraph"}
+            hit = _UPLOADED[s.id] = (key, texts)
+        return hit[1]
+    except Exception:   # noqa: BLE001 — 못 읽는 원본은 없는 것으로(채운 자리를 가리지 못할 뿐이다)
+        return None
+
+
 def _places(s):
-    """그 문서의 자리 목록(guide_write.places) — 분석 결과는 세션 잠금 밖에서, 문서 블록 · 지침 색인은 잠금 안에서."""
+    """그 문서의 자리 목록(guide_write.places) — 분석 결과 · 올린 원본은 세션 잠금 밖에서, 문서 블록 · 지침 색인은 잠금 안에서."""
     from app import heading_runs, place_guides_api
-    graph = heading_runs.graph(s)
+    graph, orig = heading_runs.graph(s), uploaded_texts(s)
     with s.lock:
-        return guide_write.places(s.doc.blocks(), graph, place_guides_api.index_of(s)), s.rev
+        return guide_write.places(s.doc.blocks(), graph, place_guides_api.index_of(s), orig), s.rev
+
+
+def _scope(s, place, chunks, decided):
+    """자리 하나의 턴에 거는 **서버 쪽 범위**(doc_agent_api._turn 의 scope — 클라이언트가 보낸 것이 아니다: astra 2차 G3) — 그 자리에서 할 수 있는 행동 종류 · 채울 수 있는 문단 · 채울 수 있는 표.
+    상자 = fill 만(사람이 고른 덩이의 문단 — 같은 이름의 덩이는 고른 것 하나만) · 같은 줄 자리(label · check) = fill 만(그 줄) · 채운 줄 = 행동 없음 · 표 = tableFill(그 표만) ·
+    헤딩 = write(+ 그 헤딩 아래의 표 tableFill — 상자 자리와 상자 안의 표는 빼고)."""
+    from app import heading_runs
+    orig = uploaded_texts(s)
+    base = {"decided": list(decided or ()), "uploaded": orig}
+    if place["kind"] == "box":
+        with s.lock:
+            box = guide_write.boxes(s.doc.blocks(), heading_runs.graph(s), orig).get(place["id"])
+        return {**base, "types": {"fill"}, "paras": set(guide_write.chunk_paras(box, chunks) if box else ()), "tables": set()}
+    if place["kind"] == "table":
+        return {**base, "types": {"tableFill"}, "paras": set(), "tables": {place["id"]}}
+    if place.get("slot") in ("label", "check"):
+        return {**base, "types": {"fill"}, "paras": {place["id"]}, "tables": set()}
+    if place.get("slot") == "filled":
+        return {**base, "types": set(), "paras": set(), "tables": set()}
+    return {**base, "types": {"write", "tableFill"}, "paras": set(), "tables": set(place.get("tables") or ()), "after": {place["id"]}}   # 글은 그 헤딩 줄 바로 뒤에만(다른 헤딩 뒤에 쓰지 않는다 — astra 3차)
 
 
 def _run_view(run):
-    return None if run is None else {k: v for k, v in run.items() if k not in ("stop", "plans")}
+    return None if run is None else {k: v for k, v in run.items() if k not in ("stop", "plans", "decided")}
 
 
 def _place_view(p):
-    return {**p, "guides": [{**g, "text": g.get("text", "")[:GUIDE_VIEW]} for g in p["guides"]]}
+    return {**{k: v for k, v in p.items() if k != "fp"}, "guides": [{**g, "text": g.get("text", "")[:GUIDE_VIEW]} for g in p["guides"]]}   # fp = 자리의 지문 재료(상자의 줄 전부 — 화면에는 안 보낸다)
 
 
 @router.get("/api/docs/{doc_id}/guide-write")
@@ -181,7 +224,17 @@ def _one(doc_id, place, head_text, mids, note, run):
         return
     item["state"] = "running"
     try:
-        got = doc_agent_api.agent_turn(doc_id, {"text": guide_write.request(place, note, head_text, run["plans"].get(place["id"], "")), "materials": list(mids), "selection": guide_write.selection(place)})
+        if place["kind"] == "head" and place.get("boxed") and not place.get("slot"):   # 그 헤딩 아래는 상자에 쓴다 — 헤딩 아래에 같은 내용을 또 쓰지 않게 LLM 을 부르지 않는다(astra 3차: 실물에서 상자 내용이 헤딩 아래 글로도 나왔다)
+            item.update(state="none", reply="이 헤딩 아래의 쓸 자리는 상자 안에 있습니다 — 그 상자 자리를 고릅니다.", why="boxed")
+            return
+        if place.get("slot") == "filled":   # 이미 채운 줄 — 다시 쓰지 않는다(LLM 을 부르지 않는다)
+            item.update(state="none", reply="이미 값이 있는 줄입니다 — 다시 쓰지 않습니다(고치려면 문서에서 직접 고칩니다).", why="filled")
+            return
+        scope = _scope(_sess(doc_id), place, (run.get("chunks") or {}).get(place["id"]), run.get("decided"))
+        if place["kind"] == "box" and not scope["paras"]:
+            item.update(state="none", reply="이 상자에서 쓸 자리를 고르지 않았습니다 — 「지침 작성」 열에서 쓸 자리를 고릅니다.", why="noslot")
+            return
+        got = doc_agent_api._turn(doc_id, {"text": guide_write.request(place, note, head_text, run["plans"].get(place["id"], "")), "materials": list(mids), "selection": guide_write.selection(place)}, scope=scope)
     except HTTPException as e:
         item.update(state="failed", error=str(e.detail)[:300])
         return
@@ -197,8 +250,10 @@ def _one(doc_id, place, head_text, mids, note, run):
         return
     turn = got.get("turn") or {}
     props = turn.get("proposals") or []
+    dropped = turn.get("dropped") or []   # 초안이 0개인 까닭을 가른다(astra 1차 5): 검사에서 버림 ↔ 에이전트가 행동 없이 답함(자료에 없음 등 — 답 글에 있다)
     item.update(state="done" if props else "none", turn=turn.get("id"), proposals=len(props), reply=" ".join(str(turn.get("reply") or "").split())[:300],
-                picked=sum(1 for p in props if p.get("preselect")), stale=sum(1 for p in props if p.get("state") == "stale"))
+                picked=sum(1 for p in props if p.get("preselect")), stale=sum(1 for p in props if p.get("state") == "stale"),
+                dropped=len(dropped), why=None if props else "dropped" if dropped else "noaction", note=" ".join(str(dropped[0].get("why") or "").split())[:200] if dropped and not props else "")
 
 
 def _go(doc_id, wid, todo, heads, mids, note, run, keep):
@@ -229,16 +284,23 @@ def guide_write_run(doc_id: str, body: dict = Body(...)):
         raise HTTPException(400, "자료를 하나 이상 고르세요 — 자료에 있는 내용만 넣습니다")
     if not llm.status()["available"]:
         raise HTTPException(503, "LLM 을 쓸 수 없습니다(Claude Agent SDK·CLI·API 키 없음 또는 꺼짐)")
-    ok, why, _ = form_review_api.gate(s.id)   # 쓰기 전에 양식 검토 · 정할 것에 답하기(2026-11-24 사용자 — spec_양식작성 ② §5-1)
+    ok, why, st = form_review_api.gate(s.id)   # 쓰기 전에 양식 검토 · 정할 것에 답하기(2026-11-24 사용자 — spec_양식작성 ② §5-1)
     if not ok:
         raise HTTPException(409, why)
     ps, _ = _places(s)
     todo, lost = guide_write.pick(ps, body.get("places"))
     if not todo:
         raise HTTPException(400, "작성할 자리를 하나 이상 고르세요" if not lost else "고른 자리가 지금 문서에 없습니다 — 목록을 다시 읽어 주세요")
+    why = form_review_api.fresh(st, todo, mids)   # 계획을 세운 자료 · 고른 자리가 검토한 때와 같은가(astra 2차 G12 — 다른 기관의 자료 · 바뀐 자리로 옛 계획을 쓰지 않는다)
+    if why:
+        raise HTTPException(409, why)
+    chunks = body.get("chunks") or {}
+    if not isinstance(chunks, dict) or not all(isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v) for k, v in chunks.items()):
+        raise HTTPException(400, "chunks 는 {상자 id: [쓸 자리(덩이)의 key…]}")
     heads = {p["id"]: p["text"] for p in ps if p["kind"] == "head"}
     run = {"id": uuid.uuid4().hex[:10], "at": round(time.time(), 3), "ended": None, "state": "running", "note": note, "materials": list(mids), "lost": lost, "stop": threading.Event(),
-           "plans": form_review_api.plans(s.id, todo), "reviewed": True,
+           "plans": form_review_api.plans(s.id, todo, [p["id"] for p in ps]), "reviewed": True, "chunks": {k: list(v) for k, v in chunks.items()},
+           "decided": [d["a"] for d in st["decided"] if d.get("a") and d["a"] != form_review.SKIP],
            "items": [{"id": p["id"], "kind": p["kind"], "text": p["text"], "state": "queued", "turn": None, "proposals": 0, "reply": "", "error": None} for p in todo]}
     with _LOCK:
         cur = _RUNS.get(s.id)

@@ -2060,7 +2060,7 @@ def _reset_busy(s):
     if s.id in getattr(zones_api, "_LLM_RUN", ()):
         return "편집 구역 LLM 검토"
     from app import form_review_api, guide_write_api   # 양식 작성(spec_양식작성 ② §5 · §5-1) — 끝나며 작업 폴더 · 메모리에 결과를 쓴다
-    for mod, name in ((guide_write_api, "지침 작성 — 제안 받기"), (form_review_api, "양식 검토 · 작성 계획")):
+    for mod, name in ((guide_write_api, "양식 초안 작성"), (form_review_api, "양식 검토 · 작성 계획")):
         run = getattr(mod, "_RUNS", {}).get(s.id)
         if run is not None and run.get("state") == "running":
             return name
