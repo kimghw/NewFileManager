@@ -88,7 +88,7 @@ function pgSheetGeo(sheet, geo) { // 쪽의 자리 · 배율 · 오른쪽 여백
   if (g) return g;
   const sr = sheet.getBoundingClientRect(), z = sheet.offsetWidth ? sr.width / sheet.offsetWidth : 1;
   const busy = [];
-  for (const e of sheet.querySelectorAll(":scope > .gz-tag, :scope > .dd-tag, :scope > .fm-tag")) {
+  for (const e of sheet.querySelectorAll(":scope > .gz-tag, :scope > .dd-tag, :scope > .fm-tag, :scope > .os-bar")) { // .os-bar = 줄 오른쪽의 서식 아이콘(outline_spot.js — 「서식」 묶음을 켠 동안 커서 줄에: 그 아래로)
     const b = e.getBoundingClientRect();
     if (b.height) busy.push([b.top - sr.top, b.bottom - sr.top]);
   }
@@ -401,7 +401,7 @@ async function pgSave(text) {
   window.addEventListener("resize", pgDraw);
   const doc = $("doc"), col = $("headsDlg");
   if (doc && typeof MutationObserver === "function") { // 쪽이 새로 섬(다시 나눔 · 다시 읽음) · 오른쪽 여백의 다른 표시가 생기거나 없어짐 — 단추 자리를 다시(자기 단추는 무시)
-    const OTHER = ["sheet", "gz-tag", "dd-tag", "fm-tag"];
+    const OTHER = ["sheet", "gz-tag", "dd-tag", "fm-tag", "os-bar"];
     const hit = (nodes) => { for (const x of nodes) if (x.nodeType === 1 && OTHER.some((c) => x.classList.contains(c))) return true; return false; };
     new MutationObserver((recs) => {
       if (!PLG.heads.size && !PLG.caret) return;

@@ -1,0 +1,18 @@
+/* 줄 오른쪽의 서식 아이콘(outline_spot.js — spec_hwpx_웹편집 ② §8-14 · design.md §4 「줄 오른쪽의 서식 아이콘」).
+   「서식」 묶음을 켜 둔 동안 커서가 든 줄 높이의 쪽 **오른쪽 여백**에 뜨는 아이콘 띠. .sheet 에 절대 위치(문단 요소 밖) · 화면 크기 고정(zoom 1/z) · --mgr = 그 쪽 오른쪽 여백 폭(화면 px).
+   자리 = 본문 오른끝에서 --osx(넓으면 8px · 좁으면 종이 안에 들게 2px 까지 당김 — 그래도 안 들면 종이 밖으로 조금: 본문 글은 가리지 않는다). 「지침」 단추(.pg-btn)는 이 띠 아래에 선다(place_guides.js). */
+.sheet > .os-bar {
+  position: absolute; left: calc(100% - var(--mgr, 60px) + var(--osx, 8px)); height: 22px; box-sizing: border-box; margin: 0; padding: 0 2px;
+  display: inline-flex; align-items: center; gap: 0; white-space: nowrap; user-select: none; z-index: 5;
+  background: #fff; border: 1px solid #9fb8e6; border-radius: 11px; box-shadow: 0 1px 3px rgba(16, 24, 40, .14);
+}
+.os-bar .os-b {
+  appearance: none; flex: none; width: 24px; height: 18px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  color: #1c3f94; background: transparent; border: 0; border-radius: 9px; cursor: pointer;
+}
+.os-bar .os-b + .os-b { box-shadow: -1px 0 0 #dbe4f5; } /* 단추 사이의 가는 선 — 폭은 그대로 */
+.os-bar .os-b svg { flex: none; }
+.os-bar .os-b:hover { color: var(--accent, #2458d6); background: #e7eeff; }
+.os-bar .os-b:focus-visible { outline: 2px solid var(--accent, #2458d6); outline-offset: 1px; }
+.hide-pages .os-bar { display: none; }
+@media print { .sheet > .os-bar { display: none; } }

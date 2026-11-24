@@ -9,14 +9,18 @@
    app.js 다음에 읽힌다(state · $ · el · api · toast · paraEl · selOffsets · setCaret · outlineSelected · flushAll · structOp 를 쓴다). 단추의 켜고 끄기는 app.js refreshToolbar. */
 const PL = { box: null, st: null };
 
-async function plToggle() {
+function plOpenAt(anchor, para = null) { // 다른 단추에서 같은 메뉴를 — 그 단추 아래(자리가 없으면 위)에 뜬다. 줄 오른쪽의 서식 아이콘(outline_spot.js — spec_hwpx_웹편집 ② §8-14): 단추에 data-pl-anchor 를 달면 다시 눌러 닫힌다. para = 커서가 문서 밖일 때 쓸 문단
+  return plToggle(null, anchor, para);
+}
+
+async function plToggle(_e = null, anchor = null, para = null) {
   if (PL.box) { plClose(true); return; }
   if (state.busy || !state.id) return;
   const s = getSelection(), rng = s.rangeCount ? s.getRangeAt(0) : null;
   const at = rng && (rng.startContainer.nodeType === 1 ? rng.startContainer : rng.startContainer.parentElement);
   let p = at && at.closest ? at.closest(".para[data-id]") : null; // 커서(고른 범위의 시작)가 든 문단 — 이 문서(#doc)의 것만(둘째 면의 문단은 아님)
   const inDoc = !!p && $("doc").contains(p);
-  if (!inDoc) p = state.cur ? paraEl(state.cur.id) : null; // 초점이 문서 밖에 있으면 마지막으로 커서를 둔 문단
+  if (!inDoc) p = para && para.isConnected ? para : state.cur ? paraEl(state.cur.id) : null; // 초점이 문서 밖에 있으면 마지막으로 커서를 둔 문단(다른 단추에서 열었으면 그 단추의 문단)
   if (!p) { toast("레터를 넣을 문단을 먼저 누르세요"); return; }
   const ids = (inDoc ? outlineSelected(p) : [p]).map((q) => q.dataset.id); // 고른 범위가 걸친 문단들(다음 문단 맨 앞에서 끝난 선택은 그 문단 제외) — 그릇이 섞였는지는 서버가 본다
   const caret = selOffsets(p), keep = inDoc && rng ? rng.cloneRange() : null, id = state.id, epoch = state.epoch;
@@ -27,7 +31,7 @@ async function plToggle() {
     d = await api(`/api/docs/${id}/letter/suggest`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
   } catch (e) { if (epoch === state.epoch) toast(e.message, true); return; }
   if (epoch !== state.epoch || PL.box) return;
-  PL.st = { epoch, ids, para: p.dataset.id, caret, keep, d, restart: false, custom: "" };
+  PL.st = { epoch, ids, para: p.dataset.id, caret, keep, d, restart: false, custom: "", anchor: anchor instanceof Element ? anchor : null };
   const box = PL.box = el("div", "pl-menu");
   box.id = "plMenu";
   box.tabIndex = -1;
@@ -60,14 +64,21 @@ function plClose(refocus) { // refocus = 커서를 그 문단으로 돌려준다
   if (k && document.contains(k.startContainer) && document.contains(k.endContainer)) { const s = getSelection(); s.removeAllRanges(); s.addRange(k); } // 고른 범위 그대로(여러 문단에 걸친 것도)
   else if (st.caret) setCaret(p, st.caret.start, st.caret.end);
 }
-const plOutside = (e) => { if (PL.box && !PL.box.contains(e.target) && !e.target.closest("#tbLetter")) plClose(false); }; // 단추를 다시 누른 것은 plToggle 이 닫는다
+const plOutside = (e) => { if (PL.box && !PL.box.contains(e.target) && !e.target.closest("#tbLetter, [data-pl-anchor]")) plClose(false); }; // 단추를 다시 누른 것은 plToggle 이 닫는다
 const plResized = () => plClose(false);
 
-function plPlace() { // 단추 바로 아래 — 창 안에 들게
-  const box = PL.box, r = $("tbLetter").getBoundingClientRect(), w = box.offsetWidth;
+function plPlace() { // 단추 바로 아래 — 창 안에 들게. 다른 단추(plOpenAt — 문서 안의 아이콘)에서 열었으면 그 단추 아래, 아래 자리가 모자라면 위
+  const box = PL.box, a = PL.st && PL.st.anchor && PL.st.anchor.isConnected ? PL.st.anchor : null;
+  const r = (a || $("tbLetter")).getBoundingClientRect(), w = box.offsetWidth;
   box.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - w - 8)))}px`;
+  const below = innerHeight - r.bottom - 14, above = r.top - 14;
+  if (a && below < 260 && above > below) { // 문서 아래쪽 줄 — 단추 위로
+    box.style.maxHeight = `${Math.max(160, Math.round(above))}px`;
+    box.style.top = `${Math.round(Math.max(8, r.top - 6 - box.offsetHeight))}px`;
+    return;
+  }
   box.style.top = `${Math.round(r.bottom + 6)}px`;
-  box.style.maxHeight = `${Math.max(160, Math.round(innerHeight - r.bottom - 14))}px`;
+  box.style.maxHeight = `${Math.max(160, Math.round(below))}px`;
 }
 
 function plChip(text, title, fn, cls) {

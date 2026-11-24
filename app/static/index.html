@@ -44,6 +44,7 @@
   <link rel="stylesheet" href="/static/para_letter.css"><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 단추 아래 메뉴 #plMenu: 개요 레벨 · 번호 · 기호 · 직접 입력 · 레터 빼기 — spec_hwpx_웹편집 ② §8-9) — style.css 다음 -->
   <link rel="stylesheet" href="/static/outline_grow.css"><!-- 개요 레벨 더하기(템플릿의 마지막 레벨 줄에서 Alt+↓ → 그 줄 아래 후보 창 #olGrow: 레터 · 앞 공백 · 둘째 줄 — spec_hwpx_웹편집 ② §8-6) — style.css 다음 -->
   <link rel="stylesheet" href="/static/outline_tune.css"><!-- 개요 줄의 헤딩 고치기(고른 개요 줄의 레터를 누르면 그 줄 아래 창 #olTune: 레터 · 빈칸 · 앞 여백 · 2번째 줄 + 범위 카드 셋 — spec_hwpx_웹편집 ② §8-12) — style.css 다음 -->
+  <link rel="stylesheet" href="/static/outline_spot.css"><!-- 줄 오른쪽의 서식 아이콘(「서식」 묶음을 켠 동안 커서가 든 줄 높이의 쪽 오른쪽 여백 띠 .os-bar — spec_hwpx_웹편집 ② §8-14) — style.css 다음 -->
   <link rel="stylesheet" href="/static/app_install.css"><!-- 앱으로 설치(상단 바 #installBtn — app_install.js · design.md §9) — document_header.css 다음 -->
   <link rel="stylesheet" href="/static/share.css"><!-- hwpx 공유(상단 바 「공유」 단추 · 떠 있는 창 · 손님이 작성 중인 문단 표시 — share.js 가 만드는 것만: spec_공유 ② §7) — style.css 다음 -->
   <link rel="stylesheet" href="/static/pointer.css"><!-- 포인터(상단 바 「포인터」 단추 · 남의 포인터(색 화살표 + 이름표) · 「클릭」 표시 · 떠 있는 작은 창 — pointer.js 가 만드는 것만: spec_포인터 ② §1 · design.md §26) — style.css · share.css 다음 -->
@@ -119,7 +120,7 @@
           <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6"/><path d="M3 9.5h18M3 14.5h9M9 4v16M15 4v8"/><path d="M18 15v6M15 18h6"/></svg>
         </button>
         <!-- 「서식」 묶음(spec_서식복사 ② §3, 2026-11-14 사용자 "여기에 서식 아이콘 넣어주고") — 다섯째: 그림 = 서식 붓(롤러). 사람이 누르면 묶음을 펼치고 서식 관리자(2열)도 연다(app.js bind — 기억한 묶음을 되살릴 때는 안 연다) -->
-        <button class="btn sm" type="button" data-tool="style" aria-pressed="false" aria-label="서식" title="서식 — 서식 관리자 · 이 문서에서 복사 · 파일에서 복사 · 템플릿 관계">
+        <button class="btn sm" type="button" data-tool="style" aria-pressed="false" aria-label="서식" title="서식 — 서식 관리자 · 이 문서에서 복사 · 파일에서 복사 · 템플릿 관계 · 켜 둔 동안 문서에서 누른 줄 오른쪽에 헤딩 고치기 · 템플릿 나누기 · 레터 넣기 아이콘">
           <svg class="toolbar-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="3" width="13" height="5.5" rx="1.8"/><path d="M17 5.8h1.5a1.5 1.5 0 0 1 1.5 1.5v3.2a1.5 1.5 0 0 1-1.5 1.5H12a1.5 1.5 0 0 0-1.5 1.5V15"/><rect x="8.8" y="15" width="3.4" height="6" rx="1.2"/></svg>
         </button>
       </div>
@@ -596,6 +597,7 @@
   <script src="/static/para_letter.js"></script><!-- 레터 넣기(도구 줄 「문단 수정」 묶음의 #tbLetter → 레터를 골라 문단을 헤딩으로: 개요 레벨로 · 레터만 · 레터 빼기) — app.js 다음(spec_hwpx_웹편집 ② §8-9) -->
   <script src="/static/outline_grow.js"></script><!-- 개요 레벨 더하기(마지막 레벨의 Alt+↓ → 레터·앞 공백·둘째 줄 후보 → 템플릿에 새 레벨 — app.js outlineLevel 이 부른다) — app.js 다음(spec_hwpx_웹편집 ② §8-6) -->
   <script src="/static/outline_tune.js"></script><!-- 개요 줄의 헤딩 고치기(커서가 든 개요 줄의 레터를 누름 · 오른쪽 단추 「헤딩 고치기…」 → 레터 · 빈칸 · 앞 여백 · 2번째 줄 + 범위: 이 문단만 · 서식 전체 변경 · 새 템플릿으로 나누기) — app.js · panel_help.js 다음(spec_hwpx_웹편집 ② §8-12) -->
+  <script src="/static/outline_spot.js"></script><!-- 줄 오른쪽의 서식 아이콘(「서식」 묶음을 켠 동안 누른 줄의 쪽 오른쪽 여백에 「헤딩 고치기」 · 「템플릿 나누기 · 합치기」 · 본문 줄은 「레터 넣기」 — 있는 창 · 메뉴의 입구) — outline_cut.js · para_letter.js · outline_tune.js 다음 · place_guides.js 앞(spec_hwpx_웹편집 ② §8-14) -->
   <script src="/static/outline_preview.js"></script><!-- 개요 레벨 미리보기·비교 창(자리 수정의 지금 → 바뀐 뒤 · 서식 갈래 비교 표 — 떠 있는 창, 모달 아님) — outline_format.js·outline_match.js 다음(spec_hwpx_웹편집 ② §8-3) -->
   <script src="/static/tpl_agent.js"></script><!-- 템플릿 서식 정리 에이전트(템플릿 줄의 별 아이콘 → 2열: 대상 · 저장한 스킬 글 고치기 · 계획 → 고른 것만 적용 — Opus 5.5) — outline_match.js 다음(spec_hwpx_웹편집 ② §8-4) -->
   <script src="/static/tpl_plan_bar.js"></script><!-- 진행 줄의 「조정」 줄(헤딩 추출 탭 머리 — 스크립트 · LLM 아래 셋째 층: 템플릿 조정 · 서식 조정 · 「모두 반영」 · 「계획 받기」) — tpl_agent.js·heading_llm_diff.js 다음(spec_hwpx_웹편집 ② §8-4) -->
