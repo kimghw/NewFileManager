@@ -1482,7 +1482,7 @@ async function dashResetRun(R, list, { redraw, done }) {
   const mine = list.some((d) => d.id === state.id), ok = [], bad = [];
   if (mine) { state.commitBusy = "reset"; if (typeof commitBar === "function") commitBar(); setSaveState("busy", "작업 내용 초기화 중…"); } // 「초기화…」(workResetAsk)와 같이 — 도는 동안 편집 · 확정을 막는다
   redraw();
-  for (const d of list) { try { await workReset(d.id); ok.push(d); } catch (e) { bad.push(`${d.label}(「${d.name}」): ${e.message}`); } } // 차례로 — 한 문서가 안 돼도 다른 문서는 한다
+  for (const d of list) { try { await workReset(d.id, d.opt); ok.push(d); } catch (e) { bad.push(`${d.label}(「${d.name}」): ${e.message}`); } } // 차례로 — 한 문서가 안 돼도 다른 문서는 한다
   if (mine) {
     state.commitBusy = false;
     if (!ok.some((d) => d.id === state.id)) { setSaveState("err", "초기화하지 못함"); if (typeof commitBar === "function") commitBar(); }

@@ -56,7 +56,7 @@ def index_of(s):
     if saved is None:
         saved, _ = form_guides_api.current(s)
     t3 = heading_runs.tables(s) or {}
-    return PG.index(saved, s.doc.blocks(), [t.get("id") for t in t3.get("tables") or () if isinstance(t, dict)], user_load(s.id), _table_user(s.id))
+    return PG.index(saved, s.doc.blocks(), [t.get("id") for t in t3.get("tables") or () if isinstance(t, dict)], user_load(s.id), _table_user(s.id), t3.get("tables"))
 
 
 def _head_text(s, pid):
@@ -127,7 +127,7 @@ def place_guides_head_put(doc_id: str, pid: str, body: dict = Body(...)):
             if not _head_text(s, pid):
                 raise HTTPException(404, "그 헤딩이 지금 문서에 없습니다")
             from app import heading_runs
-            heads = {n.get("para") for n in (heading_runs.graph(s) or {}).get("nodes") or () if isinstance(n, dict) and n.get("role") == "heading" and n.get("area") == "body"}
+            heads = {n.get("para") for n in (heading_runs.graph(s) or {}).get("nodes") or () if PG._head(n)}
             if pid not in heads:
                 raise HTTPException(400, "본문 헤딩 줄에만 지침을 적습니다 — 헤딩 추출(2단계) 결과의 헤딩 줄을 고르세요")
         try:

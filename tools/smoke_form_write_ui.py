@@ -512,6 +512,42 @@ def main():
             check("⑦ 문서 라이브러리 서버가 꺼지면 고르기가 알린다(띄우개 · 가져오기 꺼짐 · 자료 칩 그대로)", "tools/start_doclib.ps1" in s5["state"] and s5["take"] == ["가져오기", True] and not s5["rows"] and s5["chips"] == 1, s5)
             page.locator("#paneAgent .ag-input").screenshot(path=str(OUT / "07b_agent_library_down.png"))
             page.evaluate("() => { AGENT.shelf.open = false; agentDrawInput(); if (typeof agentFloating === 'function' && agentFloating() && typeof agentFloatClose === 'function') agentFloatClose(); }")
+            # ⑧′ 단계 초기화(2026-11-24 사용자 "준비/자료,작성 단계를 따로 두고 단계별로 … 초기화" — spec_양식작성 ② §6-1): 묶음 머리마다 「초기화…」 → 그 아래 확인 줄 → 그 단계의 것만 비운다
+            page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")
+            page.wait_for_selector('#paneDash [data-dash-focus="fwreset:write"]:not([disabled])', timeout=60000)
+            RS = """() => { const b = document.querySelector('#paneDash .dash-reset[data-fw-reset]');
+              return { heads: [...document.querySelectorAll('#paneDash .dash-ghead [data-dash-focus^="fwreset:"]')].map((x) => [x.dataset.dashFocus, x.textContent]),
+                box: b ? { st: b.dataset.fwReset, head: b.querySelector('.dash-reset-head').textContent, help: !!b.querySelector('.dash-reset-head .panel-help'), under: b.closest('.dash-group').dataset.group,
+                  acts: [...b.querySelectorAll('.dash-reset-acts button')].map((x) => [x.dataset.dashFocus, x.textContent, x.disabled]) } : null, tool: document.getElementById('panel').dataset.tool }; }"""
+            mats_n = lambda: len(requests.get(f"{base}/api/docs/{doc}/agent", timeout=60).json()["materials"])  # noqa: E731
+            page.locator('#paneDash [data-dash-focus="fwreset:write"]').click()
+            page.wait_for_selector('#paneDash .dash-reset[data-fw-reset=write]', timeout=20000)
+            r1 = page.evaluate(RS)
+            check("⑧′ 묶음 머리마다 「초기화…」 · 「작성」 을 누르면 그 묶음 아래에 확인 줄(무엇을 비우는지 · 노트 아이콘 · 「작성 초기화」 · 「취소」) — 누르기 전에는 안 바뀜",
+                  r1["heads"] == [["fwreset:open", "초기화…"], ["fwreset:material", "초기화…"], ["fwreset:write", "초기화…"]] and r1["box"] and r1["box"]["under"] == "write" and r1["box"]["help"]
+                  and r1["box"]["head"].startswith("작성 초기화 — ") and "올린 원본" in r1["box"]["head"] and r1["box"]["acts"] == [["fwreset:write:go", "작성 초기화", False], ["fwreset:close", "취소", False]] and mats_n() == 1, r1)
+            page.locator("#paneDash").screenshot(path=str(OUT / "08a_stage_reset.png"))
+            page.locator('#paneDash [data-dash-focus="fwreset:close"]').click()
+            page.wait_for_function("() => !document.querySelector('#paneDash .dash-reset[data-fw-reset]')", timeout=20000)
+            page.locator('#paneDash [data-dash-focus="fwreset:write"]').click()
+            page.locator('#paneDash [data-dash-focus="fwreset:write:go"]').click()
+            page.wait_for_function("() => /작성을 초기화했습니다/.test(document.getElementById('toast').textContent) && !document.querySelector('#paneDash .dash-reset[data-fw-reset]')", timeout=120000)
+            r2 = page.evaluate(RS)
+            check("⑧′ 「작성 초기화」 — 초안 · 작성 계획만 비우고 대시보드에 머묾 · 자료는 그대로", r2["tool"] == "Dash" and mats_n() == 1 and not requests.get(f"{base}/api/docs/{doc}/agent", timeout=60).json()["turns"], r2)
+            page.wait_for_selector('#paneDash [data-dash-focus="fwreset:open"]:not([disabled])', timeout=60000)
+            page.locator('#paneDash [data-dash-focus="fwreset:open"]').click()
+            page.wait_for_selector('#paneDash .dash-reset[data-fw-reset=open]', timeout=20000)
+            r3 = page.evaluate(RS)
+            page.locator('#paneDash [data-dash-focus="fwreset:open:go"]').click()
+            page.wait_for_function("() => /작업 내용을 초기화했습니다 — 준비/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para')", timeout=120000)
+            check("⑧′ 「준비」 — 「준비 초기화」 · 「모두 초기화(자료도)」 · 「취소」 · 준비 초기화는 올린 직후로 되돌리되 이 문서의 자료는 남긴다",
+                  r3["box"] and r3["box"]["under"] == "open" and [a[:2] for a in r3["box"]["acts"]] == [["fwreset:open:go", "준비 초기화"], ["fwreset:all:go", "모두 초기화(자료도)"], ["fwreset:close", "취소"]] and mats_n() == 1, r3)
+            page.wait_for_selector('#paneDash [data-dash-focus="fwreset:material"]:not([disabled])', timeout=120000)   # 다시 연 뒤의 첫 분석이 끝난 뒤
+            page.locator('#paneDash [data-dash-focus="fwreset:material"]').click()
+            page.locator('#paneDash [data-dash-focus="fwreset:material:go"]').click()
+            page.wait_for_function("() => /자료 준비를 초기화했습니다/.test(document.getElementById('toast').textContent)", timeout=60000)
+            page.wait_for_function("() => (document.querySelector('#paneDash .dash-node[data-key=take]') || { dataset: {} }).dataset.state !== 'done'", timeout=30000)
+            check("⑧′ 「자료 준비 초기화」 — 이 문서의 자료만 비운다(대시보드의 「자료 가져오기」 가 끝남에서 내려옴)", mats_n() == 0 and page.evaluate(RS)["tool"] == "Dash", page.evaluate(DASH)["nodes"].get("take"))
             # ⑧ 대시보드에서 「작업 내용 초기화」 — 일반 문서 워크플로우도 대시보드에 머문다(전에는 다시 여는 load 가 에이전트 보기로 바꿨다 —
             #    2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐": spec_작업에이전트 ② §9 「작업 내용 초기화」 「초기화한 뒤」)
             page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")

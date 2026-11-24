@@ -6,21 +6,31 @@
   양식 전체가 같이 쓰는 매칭 지침(`link_guides` — 「어떻게 잇나」)은 여기 들지 않는다(쓰임이 다르고 공유 범위가 다르다 — 부르는 쪽이 따로 싣는다).
 - 표 = 지침이 든 블록(`at`)을 품은 **가장 안쪽의 3단계 표**(겉표 t1 의 칸 안 안쪽 표 t3 의 지침은 t3 것). `at` 이 3단계 표 밖이면 저장본이 붙인 표(본문 ※ 의 바로 다음 · 앞 표)가
   3단계 표일 때 그 표, 그 표 안의 3단계 표가 꼭 하나면 그 표 — 아니면 표에 붙이지 않고 그 헤딩의 것(어느 안쪽 표인지 짐작하지 않는다).
-- 헤딩 = 저장본이 붙인 가장 가까운 앞 본문 헤딩(위 헤딩으로 올려 물려주지 않는다 — 차년도마다 되풀이되는 절의 지침이 다른 차년도로 넘어가지 않게).
+- 헤딩 = 저장본이 붙인 가장 가까운 앞 본문 헤딩(글 있는 것 — 글 없는 글머리 줄은 건너뜀). 자리의 지침을 고를 때는 그 헤딩의 것 다음에 **윗 헤딩(그래프의 조상)의 것**이 이어진다
+  (2026-11-24 — 전에는 물려주지 않아 장 · 절 제목의 지침이 그 아래 표 · 하위 제목에 안 닿았다. 조상만이다 — 형제 절 · 다른 차년도의 절로는 안 간다).
+- 표 구조(`struct` — src "struct"): 1단계 표 판정의 한 줄 요약 · 단위 · 칸의 괄호 안내(「(천원)」 · 「(YY.MM.DD)」)를 그 표의 지침 하나로 — LLM 에 싣는 목록에만(화면의 수 · 판에는 안 든다).
 - `pack` = 한 자리의 목록을 자른다(항목 ITEM_MAX · 자리 PLACE_MAX — 앞의 것부터: 칸 · 표의 것 → 헤딩의 것, 같은 글은 하나) → (목록, 자른 수). `sig` = 그 목록의 판(답을 저장할 때 함께 — 지침이 바뀐 자리만 다시 묻는다).
 - 지침은 **판단 자료**다 — 넣을 사실 · 수는 원본의 실제 내용에서만(계약의 한 줄 `CONTRACT_LINE`). 스크립트(같은 이름 자리 · 표 묶음 · 일정 표 · 통째 복사 · 「내용 반영」)의 동작은 이 글로 바뀌지 않는다."""
 import hashlib
 import json
+import re
+from collections import Counter
 
 from app.headings import iter_blocks
 
-ITEM_MAX, PLACE_MAX, CALL_MAX = 1200, 4000, 12000   # 지침 하나 · 한 자리 · 한 호출의 글자 수
+ITEM_MAX, PLACE_MAX, CALL_MAX = 2000, 6000, 24000   # 지침 하나 · 한 자리 · 한 호출의 글자 수(2026-11-24 넓힘 — 실제 실행에서 글 있는 지침 111건 가운데 한도로 15건이 안 실렸다: 전에는 1,200 · 4,000 · 12,000)
 USER_MAX = 4000   # 사람이 적는 헤딩 지침 하나
 KIND_USER = "사용자 지침"
 KIND_TABLE_USER = "표 지침(이 표)"
+KIND_STRUCT = "표 구조"   # 그 표의 구조가 곧 지침인 것(src "struct" — 1단계 표 판정의 한 줄 요약 · 단위 · 칸의 꼴 「(천원)」 · 「(YY.MM.DD)」). 판(sig)에 넣지 않는다 — 표 자체에서 읽은 것이라 지침이 바뀐 것이 아니다
+_UNIT1 = r"(?<![가-힣])(?:원|명|건|개|개월|년|월|일)(?![가-힣])"
+FIELD = re.compile(r"[\(（][^()（）]{0,20}(?:단위|천\s*원|백만\s*원|억\s*원|%|M/M|YY|yy|○\s*/\s*×|해당\s*시|이내|작성|기재|기입|선택|표기|예시|" + _UNIT1 + r")[^()（）]{0,20}[\)）]")   # 칸 글 안의 괄호 안내 — 단위 · 날짜 꼴 · 조건
+FIELD_CELL, FIELD_MAX = 40, 8   # 그런 괄호가 든 짧은 칸만(머리 칸 · 라벨 칸) · 표 하나에 싣는 수
 CONTRACT_LINE = ("\n\n### 자리마다의 작성 지침(guides)\n자료의 `guides` = 그 자리(헤딩 · 표)에 무엇을 쓰는지 양식(src \"doc\")이나 사람(src \"user\")이 정한 글입니다. "
                  "짝 · 칸 · 자리를 고를 때 근거로 쓰되, 넣을 사실 · 수 · 이름은 원본의 실제 내용에서만 가져옵니다(지침에 적힌 예시 · 수를 옮기지 않습니다). "
-                 "지침이 그 자리에 넣지 말라는 내용(다른 차년도 · 다른 기관 · 계획 대신 실적 등)은 짝으로 고르지 않습니다.")
+                 "지침이 그 자리에 넣지 말라는 내용(다른 차년도 · 다른 기관 · 계획 대신 실적 등)은 짝으로 고르지 않습니다. "
+                 "지침은 그 자리의 것이 먼저이고 그 뒤에 윗 절(윗 제목)의 것이 이어집니다. src \"struct\"(「표 구조」) = 그 표의 구조에서 읽은 것(무엇을 적는 표인지 · 단위 · 칸의 꼴)입니다. "
+                 "지침이 따로 없어도 **제목 글과 표의 머리글 자체가 지침**입니다 — 제목 · 머리글의 괄호 안내(「(해당 시 작성)」 · 「(천원)」 · 「(YY.MM.DD)」 · 「(5개 이내)」)와 머리 행 · 머리 열의 짜임이 그 자리에 무엇을 어떤 꼴로 쓰는지를 정합니다.")
 
 
 def _cut(text, n):
@@ -82,8 +92,35 @@ def _table_of(at, near, own, inside, t3):
     return None
 
 
-def index(saved, blocks, t3_ids, user=None, table_user=None):
-    """저장본 + 사용자 지침 → {"tables": {표 id: [지침…]}, "heads": {헤딩 문단 id: [지침…]}, "loose": 어디에도 못 붙인 수, "heads_text": {헤딩 id: 글}}.
+def struct(blocks, t3_tables):
+    """3단계 표마다 그 표의 구조에서 읽은 지침 하나 {표 id: {src "struct", kind, text}} — 1단계 표 판정의 한 줄 요약(`llm.summary`) · 단위(`unit`) · 칸의 꼴(그 표의 짧은 칸에 든 괄호 안내 — FIELD).
+    2026-11-24 사용자 "테이블 구조의 헤더/열 구조 필드 종류/서식등이 지침이 될 수도 있지?" — 전에는 1단계가 읽은 요약 · 단위가 3단계 LLM 에 가지 않았다. 스크립트만 · 읽을 것이 없는 표는 안 든다."""
+    by = {b["id"]: b for b in iter_blocks(blocks or ()) if b.get("type") == "table"}
+    out = {}
+    for t in t3_tables or ():
+        if not isinstance(t, dict) or not t.get("id"):
+            continue
+        parts = []
+        llm = t.get("llm") if isinstance(t.get("llm"), dict) else {}
+        if _one(llm.get("summary"), 200):
+            parts.append(_one(llm.get("summary"), 200))
+        if t.get("unit"):
+            parts.append(f"단위: {_one(str(t['unit']), 20)}")
+        fields = []
+        for c in (by.get(t["id"]) or {}).get("cells") or ():
+            text = _one(" ".join(b.get("text") or "" for b in c.get("blocks") or () if b.get("type") == "paragraph"), FIELD_CELL + 1)
+            if text and len(text) <= FIELD_CELL and FIELD.search(text) and text not in fields:
+                fields.append(text)
+        if fields:
+            parts.append("칸의 꼴: " + " · ".join(fields[:FIELD_MAX]))
+        if parts:
+            out[t["id"]] = {"src": "struct", "kind": KIND_STRUCT, "text": " / ".join(parts)}
+    return out
+
+
+def index(saved, blocks, t3_ids, user=None, table_user=None, t3_tables=None):
+    """저장본 + 사용자 지침 → {"tables": {표 id: [지침…]}, "heads": {헤딩 문단 id: [지침…]}, "loose": 어디에도 못 붙인 수, "heads_text": {헤딩 id: 글}, "struct": {표 id: 표 구조 지침}}.
+    t3_tables = 3단계 결과의 표 목록(heading_runs.tables 의 `tables` — 주면 표 구조 지침 `struct` 를 짓는다 · 화면의 수(`tables`)에는 안 든다 — LLM 에 싣는 목록(`for_table`)에만).
     saved = form_guides 저장본(form_guides_api.load 꼴) | None · blocks = 지금 문서의 블록 · t3_ids = 3단계 표 id 들 ·
     user = guides_user.json 꼴 {heads{헤딩 id: {text, label}}} | None · table_user = {표 id: 「이 표」 지침 글}(table_agent own instructions).
     지침 = {src, kind, text, label?(각주 번호가 든 칸 · 줄의 글)}."""
@@ -129,18 +166,40 @@ def index(saved, blocks, t3_ids, user=None, table_user=None):
     for tid, text in (table_user or {}).items():
         if (text or "").strip():
             tables.setdefault(tid, []).insert(0, {"src": "user", "kind": KIND_TABLE_USER, "text": _cut(text, ITEM_MAX)})
-    return {"tables": tables, "heads": heads, "loose": loose, "heads_text": names, "t3": sorted(t3)}
+    return {"tables": tables, "heads": heads, "loose": loose, "heads_text": names, "t3": sorted(t3), "struct": struct(blocks, t3_tables) if t3_tables else {}}
+
+
+def _head(n):
+    """지침이 붙는 헤딩 노드인가 — 본문 헤딩 줄 · 글 있는 것(글 없는 글머리 「o」·「-」·「⋅」 = 양식의 빈 쓸 자리는 헤딩으로 세지 않는다: form_guides._headings 와 같은 규칙 — 2026-11-24)."""
+    return isinstance(n, dict) and n.get("role") == "heading" and n.get("area") == "body" and bool(n.get("para")) and not n.get("blank")
+
+
+def ancestors(graph):
+    """헤딩 문단 id → 윗 헤딩들의 문단 id [가까운 것부터](그래프의 parent 사슬 — 라벨 · 상자 같은 노드는 지나가고 `_head` 인 것만).
+    그 절의 지침은 그 아래 자리(하위 제목 · 기관마다 되풀이된 표)에도 닿는다 — 윗 **조상**만이다(형제 절 · 다른 차년도의 절로는 안 간다)."""
+    by = {n["id"]: n for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("id")}
+    out = {}
+    for n in by.values():
+        if not _head(n):
+            continue
+        ups, seen, p = [], {n["id"]}, by.get(n.get("parent"))
+        while p is not None and p["id"] not in seen:
+            seen.add(p["id"])
+            if _head(p):
+                ups.append(p["para"])
+            p = by.get(p.get("parent"))
+        out[n["para"]] = ups
+    return out
 
 
 def heading_finder(blocks, graph):
-    """블록 id → 그 블록의 헤딩(문서 차례로 바로 앞의 본문 헤딩 줄 — 그 줄 자신이 헤딩이면 그 줄) | None. 저장본이 지침에 헤딩을 붙인 규칙(form_guides.collect)과 같다 —
+    """블록 id → 그 블록의 헤딩(문서 차례로 바로 앞의 본문 헤딩 줄 — 그 줄 자신이 헤딩이면 그 줄 · 글 없는 글머리 줄은 건너뜀) | None. 저장본이 지침에 헤딩을 붙인 규칙(form_guides.collect)과 같다 —
     표 칸 안의 블록은 그 표의 최상위 자리로 센다."""
     top = {}
     for i, b in enumerate(blocks or ()):
         for x in iter_blocks([b]):
             top.setdefault(x["id"], i)
-    heads = sorted({(top[n["para"]], n["para"]) for n in (graph or {}).get("nodes") or ()
-                    if isinstance(n, dict) and n.get("role") == "heading" and n.get("area") == "body" and n.get("para") in top})
+    heads = sorted({(top[n["para"]], n["para"]) for n in (graph or {}).get("nodes") or () if _head(n) and n.get("para") in top})
 
     def find(bid):
         i = top.get(bid)
@@ -161,15 +220,21 @@ def resolver(ix, blocks, graph):
     kind "table" = 목적 표 id · "group" = 묶음 요약(merge_pairs.summarize — 표 묶음은 그 표, 문단 묶음은 **항목마다**(라벨 id → 헤딩) 구한 지침 가운데 모두에게 있는 것만) ·
     "block" = 블록 id(빈 자리의 라벨 줄 · 칸 — 그 블록이 든 3단계 표가 있으면 그 표, 아니면 그 헤딩)."""
     find = heading_finder(blocks, graph)
+    ups = ancestors(graph)
     own = owners(blocks)
     t3 = set((ix or {}).get("t3") or ()) | set((ix or {}).get("tables") or ())   # 3단계 표 모두 — 가장 가까운 3단계 표에서 멈춘다(그 표에 지침이 없어도 겉표로 올라가지 않는다: astra 3차)
 
+    def heads(bid):
+        """그 블록의 헤딩 + 윗 헤딩들(가까운 것부터) — 2026-11-24: 전에는 바로 앞 헤딩 하나뿐이라 장 · 절 제목에 붙은 지침 13건이 어느 호출에도 안 실렸다(실제 실행 — spec_병합 ② §5-11 7)."""
+        h = find(bid)
+        return [h, *ups.get(h, ())] if h else []
+
     def table(tid):
-        return for_table(ix, tid, find(tid))[0]
+        return for_table(ix, tid, heads(tid))[0]
 
     def block(bid):
         tid = next((t for t in reversed(own.get(bid) or []) if t in t3), None)
-        return table(tid) if tid else for_heading(ix, find(bid))[0]
+        return table(tid) if tid else for_heading(ix, heads(bid))[0]
 
     def place(kind, x):
         if not ix:
@@ -203,14 +268,21 @@ def pack(*lists, limit=PLACE_MAX):
     return out, cut
 
 
+def _heads(ix, head):
+    """head = 헤딩 id 하나 | [그 헤딩, 윗 헤딩 …](가까운 것부터) | None → 그 헤딩들의 지침 목록들(차례대로)."""
+    ids = [head] if isinstance(head, str) else list(head or ())
+    return [(ix or {}).get("heads", {}).get(h) for h in ids if h]
+
+
 def for_table(ix, tid, head=None):
-    """표 tid 의 지침 — 그 표의 것 → 그 표가 든 헤딩의 것(헤딩에만 붙은 본문 지침) → (목록, 자른 수)."""
-    return pack((ix or {}).get("tables", {}).get(tid), (ix or {}).get("heads", {}).get(head) if head else None)
+    """표 tid 의 지침 — 그 표의 것 → 그 표의 구조에서 읽은 것(struct) → 그 표가 든 헤딩의 것 → 윗 헤딩들의 것(head 가 목록일 때 — 가까운 것부터) → (목록, 자른 수)."""
+    st = (ix or {}).get("struct", {}).get(tid)
+    return pack((ix or {}).get("tables", {}).get(tid), [st] if st else None, *_heads(ix, head))
 
 
 def for_heading(ix, hid):
-    """헤딩 hid 의 지침(헤딩에만 붙은 것 — 그 절의 표 지침은 표의 것) → (목록, 자른 수)."""
-    return pack((ix or {}).get("heads", {}).get(hid))
+    """헤딩 hid 의 지침(헤딩에만 붙은 것 — 그 절의 표 지침은 표의 것) → 윗 헤딩들의 것(hid 가 목록일 때 — 가까운 것부터) → (목록, 자른 수)."""
+    return pack(*_heads(ix, hid))
 
 
 def common(lists):
@@ -223,7 +295,8 @@ def common(lists):
 
 
 def sig(guides):
-    """지침 목록의 판(12자) — 빈 목록은 ""(지침이 없는 자리는 판이 없다: 처음 지침이 붙으면 다시 묻는다)."""
+    """지침 목록의 판(12자) — 빈 목록은 ""(지침이 없는 자리는 판이 없다: 처음 지침이 붙으면 다시 묻는다). 표 구조에서 읽은 것(src "struct")은 판에 넣지 않는다."""
+    guides = [g for g in guides or () if g.get("src") != "struct"]
     if not guides:
         return ""
     raw = json.dumps([[g.get("src"), g.get("kind"), g.get("label") or "", g.get("cell") or "", g.get("text")] for g in guides], ensure_ascii=False, separators=(",", ":"))
@@ -231,13 +304,18 @@ def sig(guides):
 
 
 def budget(places, limit=CALL_MAX):
-    """한 호출의 자리들 [{…, "guides": [...]}] — 글자 합이 limit 을 넘으면 뒤 자리의 지침부터 뺀다(자리 안에서는 뒤의 것부터) → 뺀 지침 수. places 를 고친다."""
-    total = sum(len(g.get("text") or "") for p in places for g in p.get("guides") or ())
+    """한 호출의 자리들 [{…, "guides": [...]}] — 글자 합이 limit 을 넘으면 뒤 자리의 지침부터 뺀다(자리 안에서는 뒤의 것부터) → 뺀 지침 수. places 를 고친다.
+    **같은 지침은 한 번만 센다**(2026-11-24 — 실제 실행: 표지 표의 지침 25건이 그 표와 그 안의 묶음 둘에 똑같이 실려 한도의 대부분을 쓰고 요약문 표의 각주 13건이 밀려났다). 되풀이된 것을 빼도 합은 안 준다."""
+    key = lambda g: (g.get("kind"), g.get("text"), g.get("label") or "", g.get("cell") or "")  # noqa: E731
+    seen = Counter(key(g) for p in places for g in p.get("guides") or ())
+    total = sum(len(k[1] or "") for k in seen)
     cut = 0
     for p in reversed(places):
         while total > limit and p.get("guides"):
             g = p["guides"].pop()
-            total -= len(g.get("text") or "")
+            seen[key(g)] -= 1
+            if not seen[key(g)]:
+                total -= len(g.get("text") or "")
             cut += 1
             p["guidesCut"] = p.get("guidesCut", 0) + 1
         if not p.get("guides"):

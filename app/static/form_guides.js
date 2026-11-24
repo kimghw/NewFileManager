@@ -5,7 +5,7 @@
 let fgView = "headings"; // 보는 묶음 — "headings"(헤딩별) | "tables"(표별) · 이 화면에서만 기억
 let fgDoc = null; // 지금 목록의 문서 {id, name}
 
-const FG_KIND = { tables: "작성 요령 표", refs: "<참고 N> 자료", notes: "※ 안내", boxes: "안내 상자" };
+const FG_KIND = { tables: "작성 요령 표", refs: "<참고 N> 자료", notes: "※ 안내", boxes: "안내 상자", hints: "설명 줄" };
 
 function fgHere(id) { return !!id && !!(paraEl(id) || document.querySelector(`#doc [data-id="${CSS.escape(id)}"], #doc td[data-cell="${CSS.escape(id)}"]`)); } // 그 블록이 지금 화면의 문서에 있나
 

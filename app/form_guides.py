@@ -2,8 +2,13 @@
 
 2026-11-19 사용자 "테이블 분석할때 작성 지침들이 있으면 헤딩/테이블 별로 저장해야함" — 「작성요령 삭제」(app/form_cleanup.py)가 지우면 어디에도 남지 않던 것을, 지우기 전에 어느 헤딩 · 어느 표의 지침인지와 함께 남긴다.
 - 작성 지침 = `form_cleanup.find` 가 찾는 것 가운데 글이 있는 넷: 작성 요령 표(`tables`) · <참고 N> 자료(`refs`) · ※ 안내(`notes`) · 안내 상자(`boxes` — 2026-11-23: 1칸 상자의 색 글 안내). **찾는 규칙은 그 함수 하나다 — 여기서 다시 찾지 않는다.**
+  + **설명 줄**(`hints` — 2026-11-24: 표 아래 · 칸 안의 검정 「* …」 · 「주) …」 · 「※ …」 줄 — 지우는 패턴이 아니라 모으기만 한다 · 문서가 아직 양식일 때만: form_cleanup 모듈 설명).
 - 헤딩 = 헤딩 그래프(2단계 결과)의 본문 헤딩 줄 가운데 문서 차례로 바로 앞의 것(지침이 헤딩 줄 안의 ※ 면 그 줄). 그래프가 없으면 비운다(짐작하지 않는다).
-- 표 = 표 칸 안의 지침은 그 표(본문 최상위 표) · 본문의 ※ 안내는 빈 줄을 건너 바로 다음 블록이 표면 그 표, 아니면(줄이 안내뿐일 때만) 바로 앞 블록이 표면 그 표 · 작성 요령 표와 <참고 N> 자료는 절의 것이라 표 없음.
+  **글 없는 글머리 헤딩**(양식의 빈 「o」·「-」·「⋅」 줄 — 노드 `blank`)에는 붙이지 않는다 — 글 있는 가장 가까운 앞 헤딩의 것이다(2026-11-24).
+- **절 이름 항목**(2026-11-24 — `_parts`): 작성 요령 표가 절 이름으로 적은 항목(「1) 연구개발 목표 및 내용: …」 · 「[참여연구자 현황]」 덩이 · 「◦ 최종 목표」 + 딸린 줄)은 **그 이름의 헤딩**에 따로 붙인다 —
+  항목 하나가 item 하나(id 「<표 id>#k」 · `of` = 그 표 · 헤딩이 여럿이면 헤딩마다)이고, 원래 표 item 의 글은 나눠 준 줄을 뺀 나머지(제목 줄 + 못 이은 줄 · `parts` = 나눈 수)다. 본문의 표만 · 그래프가 있을 때만.
+- 표 = 표 칸 안의 지침은 그 표(본문 최상위 표) · 본문의 ※ 안내는 빈 줄을 건너 바로 다음 블록이 표면 그 표, 아니면(줄이 안내뿐이거나 ※ 로 시작할 때만) 위로 빈 줄 · 설명 줄 · ※ 줄을 거슬러 올라가 만나는 표 ·
+  본문의 설명 줄은 위로 거슬러 올라가 만나는 표가 먼저(표 아래의 줄이다) · 작성 요령 표와 <참고 N> 자료는 절의 것이라 표 없음.
 - 각주 번호(`marks` — 「연구개발비15)」 의 「15)」)는 그 블록 **바로 뒤의**(표 · 빈 줄만 사이에 둔) 작성 요령 표에서 같은 번호의 항목(「15. …」 줄부터 다음 「N.」 줄 전까지 · 「15-1)」 은 그 항목 안의 「1) …」)을 가리킨다 —
   작성 요령 표가 설명하는 블록은 `_explains` 가 정한다(번호가 1 부터 다시 시작하는 앞 블록은 다른 지침의 것). 못 이은 번호는 글 없이 남긴다(짐작하지 않는다).
 collect(doc, graph, tables, found) → {"version", "counts"{items, marks, headings, tables}, "items"[{id, kind, name, text, heading{id, text} | None, table{id, label} | None, top}],
@@ -15,7 +20,10 @@ from app import form_cleanup
 from app.division_profiles import _structure as structure
 
 VERSION = 1
-KIND_NAME = {p["key"]: p["name"] for p in form_cleanup.PATTERNS}
+KIND_NAME = {**{p["key"]: p["name"] for p in form_cleanup.PATTERNS}, "hints": "설명 줄"}   # hints = 모으기만 하는 종류(지우는 패턴이 아니다 — form_cleanup 모듈 설명)
+PART = (re.compile(r"^\[(.+)\]$"), re.compile(r"^(\d+)\s*\.(?!\d)\s*"), re.compile(r"^\d+\s*\)\s*|^[◦oㅇ○]\s+"), re.compile(r"^[-⦁]\s*"))   # 작성 요령 표 줄의 표식 — 등급 0 「[이름]」 · 1 「N.」 · 2 「N)」·「◦」 · 3 「-」·「⦁」(_parts)
+PAREN = re.compile(r"[\(（][^\(\)（）]*[\)）]")
+NOT_WORD = re.compile(r"[^0-9A-Za-z가-힣]")
 TOP = re.compile(r"^\s*(\d+(?:\s*,\s*\d+)*)\s*\.\s*\S")   # 작성 요령 표의 번호 항목 — 「15. …」 · 「16,17. …」
 SUB = re.compile(r"^\s*(\d+)\s*\)\s*\S")                   # 그 항목에 딸린 항목 — 「1) …」(각주 번호 「15-1)」 이 가리킨다)
 TEXT_MAX = 20000   # 지침 하나의 글 — 넘으면 자른다(작성 요령 표 하나가 보통 1~4천 자)
@@ -100,16 +108,69 @@ def _explains(guides, marked, blocks):
     return out
 
 
+def _norm(text):
+    return NOT_WORD.sub("", text or "")
+
+
 def _headings(graph, top, by_id):
-    """헤딩 그래프 → 본문 헤딩 줄 [(본문 차례, 문단 id, 글)] — 문서 차례대로. 그래프가 없으면 []."""
+    """헤딩 그래프 → 본문 헤딩 줄 [(본문 차례, 문단 id, 글, 레터, 이름)] — 문서 차례대로. 그래프가 없으면 [].
+    **글 없는 글머리 헤딩**(노드 `blank` — 양식의 빈 「o」·「-」·「⋅」 줄)은 뺀다: 지침은 글 있는 가장 가까운 앞 헤딩의 것이다(계획서 양식의 절 끝 작성 요령 표가 빈 「⋅」 줄에 붙던 것 — 2026-11-24).
+    이름 = 레터 뒤 글에서 「※」 뒤와 괄호 묶음을 떼고 글자만 남긴 것(작성 요령 표의 「절 이름」 항목과 견준다 — _parts)."""
     out = []
     for nd in (graph or {}).get("nodes") or ():
-        if not isinstance(nd, dict) or nd.get("role") != "heading" or nd.get("area") != "body":
+        if not isinstance(nd, dict) or nd.get("role") != "heading" or nd.get("area") != "body" or nd.get("blank"):
             continue
         pid = nd.get("para")
         if pid in top and pid in by_id:
-            out.append((top[pid], pid, _one(by_id[pid].get("text"))))
+            name = _norm(PAREN.sub("", (nd.get("text") or "").split("※")[0]))
+            out.append((top[pid], pid, _one(by_id[pid].get("text")), "".join((nd.get("letter") or "").split()), name))
     return sorted(set(out))
+
+
+def _parts(text, heads, lo, hi):
+    """작성 요령 표의 글 → ([(헤딩 (본문 차례, 문단 id, 글, …), 항목 글)], 나머지 글) — **절 이름으로 적은 항목**을 그 헤딩에 나눈다(2026-11-24 — 연차보고서 서식 끝의 「본문 작성 요령」 표가
+    「1) 연구개발 목표 및 내용: …」 처럼 절마다의 지침을 적었는데 통째로 마지막 헤딩 한 곳에만 붙어 그 절에는 닿지 않았다).
+    - 항목의 시작 = 줄의 이름(앞 표식 PART 를 떼고 첫 「:」 앞까지 · 「[이름]」 은 괄호 안 — 글자만)이 헤딩의 이름과 **꼭 같은** 줄(3자 이상) ·
+      「N. …」 줄은 번호가 헤딩 레터 「N.」 과 같고 그 헤딩의 이름(4자 이상)이 줄에 들어 있어도(번호만으로는 잇지 않는다 — 「1. 제품 2. 시설ㆍ장비 …」 같은 법령 인용).
+    - 항목의 끝 = 다음 시작 줄, 또는 표식 등급이 제 것과 같거나 높은 줄 전(등급 0 「[…]」 · 1 「N.」·표식 없는 시작 줄 · 2 「N)」·「◦」 · 3 「-」·「⦁」 — 표식 없는 줄은 이어지는 줄). 끝의 빈 줄은 뗀다.
+    - 같은 이름의 헤딩이 여럿이면 이 표가 맺는 구역(본문 차례 lo 초과 hi 미만 — 앞의 작성 요령 표 다음 ~ 이 표 앞)의 것만, 거기 없으면 문서 전체의 것 모두.
+    첫 줄(표 제목 줄)은 늘 나머지에 남는다. 맞은 줄이 없으면 ([], text)."""
+    lines = (text or "").split("\n")
+
+    def pick(hits):
+        return [h for h in hits if lo < h[0] < hi] or hits
+
+    def read(line):   # → (등급 | None, 맞은 헤딩들)
+        s, rank, no = line.strip(), None, None
+        for k, rx in enumerate(PART):
+            m = rx.match(s)
+            if m:
+                rank, no, s = k, (m.group(1) if k == 1 else None), (m.group(1) if k == 0 else s[m.end():])
+                break
+        name = _norm(re.split(r"[:：]", s, maxsplit=1)[0])
+        hits = [h for h in heads if h[4] == name] if len(name) >= 3 else []
+        if not hits and no:
+            whole = _norm(s)
+            hits = [h for h in heads if h[3] == f"{no}." and len(h[4]) >= 4 and h[4] in whole]
+        return rank, pick(hits)
+
+    marks = [(None, [])] + [read(x) for x in lines[1:]]
+    out, used, i = [], set(), 1
+    while i < len(lines):
+        rank, hits = marks[i]
+        if not hits:
+            i += 1
+            continue
+        own, j = (1 if rank is None else rank), i + 1
+        while j < len(lines) and not marks[j][1] and (marks[j][0] is None or marks[j][0] > own):
+            j += 1
+        body = "\n".join(x.rstrip() for x in lines[i:j]).rstrip()
+        if any(h[4] != _norm(PART[1].sub("", PART[2].sub("", body.strip()))) for h in hits):   # 절 이름뿐인 줄(「5. 다음 연도 연구개발계획」)은 지침이 아니다 — 나머지에 둔다
+            out += [(h, body) for h in hits]
+            used.update(range(i, j))
+        i = j
+    rest = "\n".join(x for k, x in enumerate(lines) if k not in used).strip()
+    return out, (rest if out else text)
 
 
 def _table_labels(tables, blocks, by_id):
@@ -143,7 +204,7 @@ def collect(doc, graph=None, tables=None, found=None):
 
     def heading_of(i, own=None):
         hit = None
-        for hi, pid, text in heads:
+        for hi, pid, text, *_ in heads:
             if hi < i or (hi == i and pid == own):
                 hit = {"id": pid, "text": text}
             elif hi > i:
@@ -157,17 +218,25 @@ def collect(doc, graph=None, tables=None, found=None):
     def table_ref(b):
         return {"id": b["id"], "label": labels.get(b["id"]) or b["id"]} if b is not None else None
 
+    starts = lambda b: (b.get("text") or "").lstrip().startswith("※")  # noqa: E731
+    chain = {top[x["id"]] for x in found.get("hints") or () if x["id"] in top and blocks[top[x["id"]]]["id"] == x["id"]}   # 표 아래에 이어지는 줄(본문 차례) — 설명 줄 · 「※」 로 시작하는 안내 줄
+    chain |= {top[n["id"]] for n in found.get("notes") or () if n["id"] in top and blocks[top[n["id"]]]["id"] == n["id"] and starts(blocks[top[n["id"]]])}
+
+    def above_table(i):
+        """본문 차례 i 의 줄 위로 빈 줄 · 설명 줄 · ※ 안내 줄을 거슬러 올라가 만나는 표 | None(표 바로 아래 줄들의 사슬 — 「* …」 가 여러 줄 이어진다)."""
+        j = i - 1
+        while j >= 0 and (form_cleanup._blank(blocks[j]) or j in chain):
+            j -= 1
+        return real_table(j)
+
     def near_table(i, back=True):
-        """본문의 ※ 안내(본문 차례 i) — 빈 줄을 건너 바로 다음 블록이 표면 그 표, 아니면 바로 앞 블록이 표면 그 표(back — 줄이 안내뿐일 때만: 제목 줄 안의 ※ 는 앞 표의 것이 아니다)."""
+        """본문의 ※ 안내(본문 차례 i) — 빈 줄을 건너 바로 다음 블록이 표면 그 표, 아니면 위로 거슬러 올라가 만나는 표(above_table — back: 줄이 ※ 로 시작할 때만. 제목 줄 안의 ※ 는 앞 표의 것이 아니다)."""
         j = i + 1
         while j < len(blocks) and form_cleanup._blank(blocks[j]):
             j += 1
         t = real_table(j)
         if t is None and back:
-            j = i - 1
-            while j >= 0 and form_cleanup._blank(blocks[j]):
-                j -= 1
-            t = real_table(j)
+            t = above_table(i)
         return table_ref(t)
 
     def owner_table(pid):
@@ -175,12 +244,14 @@ def collect(doc, graph=None, tables=None, found=None):
         i = top.get(pid)
         return table_ref(real_table(i)) if i is not None and blocks[i]["id"] != pid else None
 
-    items = []
-    for t in found.get("tables") or ():
-        i = top.get(t["id"])
-        if i is None:
-            continue
-        items.append({"id": t["id"], "kind": "tables", "name": KIND_NAME["tables"], "text": _table_text(by_id[t["id"]])[:TEXT_MAX], "heading": heading_of(i), "table": owner_table(t["id"]), "top": i})
+    items, prev = [], -1
+    for t in sorted((t for t in found.get("tables") or () if t["id"] in top), key=lambda t: top[t["id"]]):
+        i = top[t["id"]]
+        parts, rest = _parts(_table_text(by_id[t["id"]]), heads, prev, i) if heads and blocks[i]["id"] == t["id"] else ([], _table_text(by_id[t["id"]]))   # 절 이름 항목은 그 헤딩으로(본문의 표만 — 칸 안의 표는 통째로)
+        prev = max(prev, i)
+        items.append({"id": t["id"], "kind": "tables", "name": KIND_NAME["tables"], "text": rest[:TEXT_MAX], "heading": heading_of(i), "table": owner_table(t["id"]), "top": i, **({"parts": len(parts)} if parts else {})})
+        for k, (h, body) in enumerate(parts, 1):
+            items.append({"id": f"{t['id']}#{k}", "of": t["id"], "kind": "tables", "name": KIND_NAME["tables"], "text": body[:TEXT_MAX], "heading": {"id": h[1], "text": h[2]}, "table": None, "top": h[0]})
     for r in found.get("refs") or ():
         i, j = top.get(r["id"]), top.get(r.get("last"))
         if i is None:
@@ -197,7 +268,14 @@ def collect(doc, graph=None, tables=None, found=None):
         text = full[hit[0]:hit[1]].strip() if hit else n.get("guide") or ""
         body = blocks[i]["id"] == n["id"]
         items.append({"id": n["id"], "kind": "notes", "name": KIND_NAME["notes"], "text": text[:TEXT_MAX], "heading": heading_of(i, n["id"]),
-                      "table": near_table(i, back=bool(n.get("whole"))) if body else owner_table(n["id"]), "top": i})
+                      "table": near_table(i, back=bool(n.get("whole")) or starts(b)) if body else owner_table(n["id"]), "top": i})   # ※ 로 시작하는 줄은 뒤가 일부 본문 색이어도 안내 줄이다(표 바로 아래의 「※ 비율은 필수적으로 …」)
+    for x in found.get("hints") or ():   # 설명 줄 — 표 칸 안이면 그 표 · 본문이면 위로 거슬러 올라가 만나는 표(표 아래의 「* …」 줄들), 없으면 ※ 안내와 같은 규칙
+        i, b = top.get(x["id"]), by_id.get(x["id"])
+        if i is None or b is None:
+            continue
+        body = blocks[i]["id"] == x["id"]
+        items.append({"id": x["id"], "kind": "hints", "name": KIND_NAME["hints"], "text": (b.get("text") or "").strip()[:TEXT_MAX], "heading": heading_of(i, x["id"]),
+                      "table": (table_ref(above_table(i)) or near_table(i, back=False)) if body else owner_table(x["id"]), "top": i})
     for x in found.get("boxes") or ():   # 안내 상자 — 그 상자가 놓인 절의 지침(상자는 쓸 자리라 표의 지침이 아니다 — 표 칸 안의 상자면 그 표)
         i = top.get(x["id"])
         if i is None or x["id"] not in by_id:

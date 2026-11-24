@@ -425,3 +425,39 @@ def test_run_is_refused_when_the_plan_no_longer_fits(c, monkeypatch):
     new = [*places, {**places[0], "id": "f9", "text": "새 헤딩", "fp": "새 헤딩"}]
     monkeypatch.setattr(API, "_places", lambda s: (new, 0))
     assert c.post(url, json={"places": ["f9"], "materials": [mid]}).status_code == 409                       # 검토 뒤에 생긴 자리
+
+
+def test_stage_reset_clears_only_that_stage(c):
+    """단계 초기화(spec_양식작성 ② §6-1 — 2026-11-24 사용자 "준비/자료,작성 단계를 따로 두고 단계별로 … 초기화"): 작성 = 초안 · 작성 계획을 비우고 문서를 올린 원본으로(자료 · 양식 검토 · 정한 답은 남김) ·
+    자료 준비 = 이 문서의 자료만 · 준비 = 작업 내용 초기화에서 자료만 남김(`…/reset?keep=materials`)."""
+    doc = _doc(c)
+    wid = server._sess(doc).id
+    mid = c.post(f"/api/docs/{doc}/agent/material", json={"text": "자료 글 — 한국선급 2차년도 목표"}).json()
+    mats = lambda: [m["id"] for m in c.get(f"/api/docs/{doc}/agent").json()["materials"]]  # noqa: E731
+    assert len(mats()) == 1, mid
+    store = A.Store(wid)
+    store.save_turn({"id": store.new_turn_id(), "at": 1.0, "request": {"text": "쓰기"}, "reply": "초안", "proposals": []})
+    form_review_api._save(wid, {"review": {"summary": "요약", "places": {"h1": {"how": "개조식", "needs": "목표", "use": "자료 1절", "gap": ""}}, "questions": [], "topics": [{"name": "목표"}], "materials": mats()},
+                                "decided": [{"key": "q1", "q": "몇 차년도?", "a": "2차년도"}]})
+    from app.headings import iter_blocks
+    flat = lambda: list(iter_blocks(c.get(f"/api/docs/{doc}").json()["blocks"]))  # noqa: E731 — 표 칸 안의 문단까지
+    para = next(b for b in flat() if b.get("type") == "paragraph" and (b.get("text") or "").strip())
+    assert c.patch(f"/api/docs/{doc}/blocks/{para['id']}", json={"text": para["text"] + " 고친 글"}).status_code == 200
+    assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "nope"}).status_code == 400
+
+    r = c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "write"})
+    assert r.status_code == 200 and r.json() == {"stage": "write", "reverted": True, "turns": 1, "plan": True}, r.text
+    after = next(b for b in flat() if b["id"] == para["id"])
+    assert after["text"] == para["text"] and c.get(f"/api/docs/{doc}/agent").json()["turns"] == [] and len(mats()) == 1   # 문서는 올린 원본 · 초안은 비움 · 자료는 그대로
+    st = form_review_api.load(wid)
+    assert not form_review.planned(st["review"]) and st["review"]["places"]["h1"] == {"how": "개조식", "needs": "목표", "use": "", "gap": ""}   # 작성 계획만 비운다 — 양식 검토 · 찾을 테마 · 정한 답은 남는다
+    assert st["review"]["topics"] == [{"name": "목표"}] and [d["a"] for d in st["decided"]] == ["2차년도"]
+    assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "write"}).json() == {"stage": "write", "reverted": False, "turns": 0, "plan": False}   # 두 번째 — 되돌릴 것이 없다
+
+    r = c.post(f"/api/works/{wid}/reset?keep=materials")   # 준비 — 올린 직후로 · 자료만 남김
+    assert r.status_code == 200 and len(mats()) == 1 and form_review_api.load(wid)["review"] is None, r.text
+    assert c.post(f"/api/works/{wid}/reset?keep=nope").status_code == 400
+
+    assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "material"}).json() == {"stage": "material", "materials": 1} and mats() == []
+    API._RUNS[wid] = {"state": "running"}
+    assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "material"}).status_code == 409   # 초안을 받는 중에는 못 한다

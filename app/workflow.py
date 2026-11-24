@@ -767,7 +767,7 @@ def _st_review(S, D, *, src=True, dst=True, llm=("source",), fit=True):
     if heads:   # 헤딩 · 표 분석 — 「문서 검토」 를 고른 문서만(작성 지침 저장은 양식의 안내라 목적 문서가 이 단계를 할 때만 적는다: app.js taskGuidesLoad(report))
         two = len(heads) == 2
         out.append(_s("heads", "헤딩 · 표 분석", "script", f"{', '.join(heads)}에 헤딩 그래프와 표 구조가 있는지 확인합니다. {'분석이 없는 문서만' if two else '분석이 없으면'} 스크립트로 기본 분석을 돌립니다(LLM 없이 올릴 때와 같은 분석)."
-                      + (" 끝나면 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 각주 작성 요령)을 해당 헤딩과 표에 연결해 저장합니다." if dst else ""),
+                      + (" 끝나면 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 표 아래 설명 줄, 각주 작성 요령)을 해당 헤딩과 표에 연결해 저장합니다 — 절 이름마다 적힌 작성 요령은 그 절의 헤딩에 나눠 붙입니다." if dst else ""),
                       out=("문서마다의" if two else f"{heads[0]}의") + " 헤딩 그래프 · 표 구조" + (" · 헤딩/표별 작성 지침" if dst else ""), change="store", uses=("headings",), modules=("heading_runs", "form_guides"),
                       spec=(SP_WORK, "② §21"),
                       need=f"{' · '.join(heads)}(hwpx).", done=("문서마다" if two else f"{heads[0]}에") + " 헤딩 그래프와 표 구조가 있을 때. 문서를 고친 뒤에도 기존 분석을 그대로 씁니다.",
@@ -900,7 +900,7 @@ def _st_fill(S, D, *, fit=True, review=True):
            done="연결 목록에 확인 필요가 없거나, LLM 검토를 한 번 했을 때.",
            left="LLM 검토 뒤에도 확인 필요로 남은 자리는 넣지 않고 비워 둡니다. 각 기관이 이어서 작성하거나 「연결 목록」 에서 후보를 직접 골라 보정합니다."),
         _s("llm", "자리 연결 LLM 검토", "llm", "확인 필요로 남은 자리를 LLM 이 쪽 묶음마다 판정합니다. 표는 후보가 없던 표와 이미 이은 표까지 모두 읽어 같은 표를 찾습니다. 검토 뒤에도 남은 자리는 비워 둡니다. "
-           "목적 문서의 작성 지침(문서 지침과 「지침」 단추로 적은 내용)도 함께 보내며, 지침이 바뀐 자리의 LLM 판정만 다시 묻습니다.", change="store", optional=True,
+           "목적 문서의 작성 지침(문서 지침과 「지침」 단추로 적은 내용 — 그 자리의 것과 윗 절의 것, 표는 표 구조 · 단위 · 칸의 꼴까지)도 함께 보내며, 지침이 바뀐 자리의 LLM 판정만 다시 묻습니다.", change="store", optional=True,
            agents=("merge_links",), modules=("merge_llm", "merge_chunks", "merge_guides", "link_guides", "place_guides", "job_prompts"), spec=(SP_MERGE, "② §4"),
            need="연결 목록에 확인 필요, 후보 없음 자리나 못 정한 표가 있을 때. 유료 LLM 이며 단추나 확인을 받은 「한 번에 진행」 안에서 실행합니다.",
            done="한 번 검토했을 때. 건너뛰어도 넣기 계획은 세울 수 있습니다.", left="한 번 검토한 뒤에도 남은 자리는 넣지 않고 비워 둡니다."),
@@ -916,7 +916,7 @@ def _st_fill(S, D, *, fit=True, review=True):
            optional=True, agents=("merge_gaps",), modules=("merge_gaps", "link_guides", "place_guides"), spec=(SP_MERGE, "② §5-4 · §5-11"),
            need="넣기 계획이 있고 아직 못 채운 빈 자리가 남아 있을 때. 유료 LLM 을 씁니다.", done="묻지 않은 빈 자리가 남지 않았을 때. 선택 단계라 건너뛰어도 됩니다.", left="가져올 곳이 없으면 없다고 답하고 비워 둡니다."),
         _s("tableMap", "표 대응(LLM)", "llm", f"같은 표로 이었지만 행과 열 구성이 달라 칸을 못 맞춘 표를 LLM 이 짝짓습니다. 빈 자리 검토에서 새로 정한 표도 포함하며, LLM 이 글을 쓰지 않고 {S} 칸의 글을 옮깁니다. "
-           "표의 작성 지침(각주와 「이 표」 지침)도 함께 보내고 지침이 바뀐 표만 다시 묻습니다. "
+           "표의 작성 지침(각주, 표 아래 설명 줄, 「이 표」 지침, 윗 절의 지침, 표 구조 · 단위 · 칸의 꼴)도 함께 보내고 지침이 바뀐 표만 다시 묻습니다. "
            f"기관별 표인데 {S}가 과제 전체 표이면 {S}의 해당 기관 절을 함께 보내 그 기관 항목만 차례대로 고릅니다.", change="store",
            optional=True, agents=("merge_table_map",), modules=("merge_table_map", "place_guides"), spec=(SP_MERGE, "② §5-3 · §5-11"),
            need="같은 표로 이었지만 행과 열 구성이 달라 칸을 못 맞춘 표가 있을 때. 유료 LLM 을 씁니다.", done="칸을 못 맞춘 표가 남지 않았을 때. 선택 단계라 건너뛰어도 됩니다.", left=f"LLM 이 새 글을 쓰지 않고 {S} 칸의 글을 그대로 옮깁니다."),
@@ -1511,7 +1511,7 @@ def _collect_heads(S, D, who=("source", "target")):
     """같은 양식 취합의 「헤딩 · 표 분석」 — who = 그 줄이 고른 문서 역할. 목적 문서 = 이관형의 그 줄과 같은 일(없으면 분석 · 작성 지침 저장) · 원본 문서 = 등록한 기관 문서마다 하나씩(workflow_exec._do_c_heads)."""
     src, dst = "source" in who, "target" in who
     does = ((f"등록한 {S}마다 헤딩 그래프와 표 구조가 있는지 확인하고, 없는 문서만 하나씩 스크립트로 분석합니다(뒤 수정본이 있는 문서는 뺍니다). " if src else "")
-            + (f"{D}에 헤딩 그래프와 표 구조가 없으면 스크립트로 기본 분석을 돌리고, 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 각주 작성 요령)을 해당 헤딩과 표에 연결해 저장합니다." if dst else "")).strip()
+            + (f"{D}에 헤딩 그래프와 표 구조가 없으면 스크립트로 기본 분석을 돌리고, 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 표 아래 설명 줄, 각주 작성 요령)을 해당 헤딩과 표에 연결해 저장합니다." if dst else "")).strip()
     X = f"{S} · {D}" if src and dst else S if src else D
     return _s("heads", "헤딩 · 표 분석", "script", does, out=f"{X}의 헤딩 그래프 · 표 구조" + (" · 헤딩/표별 작성 지침" if dst else ""), change="store", uses=("headings",), modules=("heading_runs", "form_guides"),
               spec=(SP_GATHER, "② §10"), need=f"{X}(hwpx).",

@@ -253,10 +253,10 @@ try:
         gc = (gd.get("saved") or {}).get("counts") or {}
         print("  1단계:", last, f"{time.time() - t0:.0f}s", gc, flush=True)
         check("1단계(문서 검토) 끝남 — 확인 창 없이 · 두 서식에 헤딩 그래프·표 구조 · 연차보고서는 그대로(rev) · 끝 글에 저장한 작성 지침 수", len(dialogs) == n and bool(last) and last["ok"] and last["stage"] == "review"
-              and s0["count"] == "2/2 완료" and "작성 지침 44개 저장" in last["text"] and requests.get(f"{base}/api/docs/{report}", timeout=300).json()["rev"] == rev0, [last, s0])
-        check("작성 지침 — 작성 요령 표 · <참고 N> 자료 · ※ 안내 · 안내 상자 44개가 헤딩/표별로 저장됨(앞표지 작성 요령 표 포함 — 2026-11-22 · 안내 상자 5 — 2026-11-23) · 각주 번호 51개(표지 29 · 요약문 22)가 그 표 뒤의 작성 요령 항목에 이어짐 · 줄에 수와 「작성 지침」 단추",
-              gc.get("items") == 44 and gc.get("marks") == 56 and gc.get("marksLinked") == 51 and gc.get("headings", 0) > 10 and gc.get("tables", 0) > 10 and len(gd["groups"]["headings"]) == gc["headings"]
-              and "작성 지침 44개 저장" in hd["text"] and hd["acts"] == ["작성 지침"], [gc, hd])
+              and s0["count"] == "2/2 완료" and "작성 지침 89개 저장" in last["text"] and requests.get(f"{base}/api/docs/{report}", timeout=300).json()["rev"] == rev0, [last, s0])
+        check("작성 지침 — 작성 요령 표 · <참고 N> 자료 · ※ 안내 · 안내 상자 · 설명 줄 89개가 헤딩/표별로 저장됨(앞표지 작성 요령 표 포함 — 2026-11-22 · 안내 상자 5 — 2026-11-23 · 절 이름으로 나눈 작성 요령 항목 14 + 표 아래 설명 줄 31 — 2026-11-24) · 각주 번호 51개(표지 29 · 요약문 22)가 그 표 뒤의 작성 요령 항목에 이어짐 · 줄에 수와 「작성 지침」 단추",
+              gc.get("items") == 89 and gc.get("marks") == 56 and gc.get("marksLinked") == 51 and gc.get("headings", 0) > 10 and gc.get("tables", 0) > 10 and len(gd["groups"]["headings"]) == gc["headings"]
+              and "작성 지침 89개 저장" in hd["text"] and hd["acts"] == ["작성 지침"], [gc, hd])
         page.evaluate("() => { document.getElementById('taskStageR').open = true; }")   # 세부 목록은 접혀 있다 — 줄의 단추를 누르려면 편다
         page.locator("#taskSteps li[data-step=heads] button", has_text="작성 지침").click()   # 헤딩별 · 표별 목록(문서 옆 열)
         page.wait_for_function("() => heads.dlg === 'formGuides' && document.querySelectorAll('#headsDlgBody table').length > 0", timeout=30000)

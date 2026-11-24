@@ -18,7 +18,7 @@ const fwRunning = () => !!(FW.gw && FW.gw.run && FW.gw.run.state === "running");
 const fwReviewing = () => !!(FW.fr && FW.fr.run && FW.fr.run.state === "running"); // 양식 검토(form_review_api)가 도는 중
 
 async function fwRead(force = false) { // 문서 라이브러리의 목록 + 이 문서의 자리 · 자료 · 실행 — 10초(도는 동안 2초) 안의 것은 다시 읽지 않는다
-  if (FW.key !== fwKey()) Object.assign(FW, { key: fwKey(), at: 0, lib: null, gw: null, fg: null, fgAsked: false, fr: null, err: "", picks: new Set(), mats: null, note: "", seen: "", onlyGuided: null, chunks: {}, chunkOpen: new Set(), lead: "", topicOn: new Set() });
+  if (FW.key !== fwKey()) Object.assign(FW, { key: fwKey(), at: 0, lib: null, gw: null, fg: null, fgAsked: false, fr: null, err: "", picks: new Set(), mats: null, note: "", seen: "", onlyGuided: null, chunks: {}, chunkOpen: new Set(), lead: "", topicOn: new Set(), rs: "" });
   if (!state.id) return FW;
   const age = Date.now() - FW.at;
   if (!force && FW.gw && age < (fwRunning() || fwReviewing() ? 2000 : 10000)) return FW;
@@ -151,7 +151,65 @@ async function formWriteLive() { // 대시보드(dashboard.js dashLive)의 「�
   let nowSeen = false; // 「지금」 은 차례상 첫 줄 하나 — 뒤의 줄은 할 수 있어도 「할 수 있음」(단추는 그대로 보인다): 줄마다 따로 셈해 「지금」 이 여럿 서던 것(2026-11-24 사용자 「지금은 긴 몇개냐」)
   for (const s of Object.values(S)) { if (s.state === "now") { if (nowSeen) s.state = "ready"; nowSeen = true; } }
   if (fwRunning() || fwReviewing() || going || A.busy ||(A.view && A.view.job && A.view.job.status === "running")) { clearTimeout(FW.poll); FW.poll = setTimeout(() => { fwRead(true).then(() => { if (typeof dashDraw === "function") dashDraw(); fwRedraw(); }); }, 2500); }
-  return { runs: {}, steps: S };
+  const off = fwStageResetOff(A), runs = {}, subs = {};
+  for (const st of Object.keys(FW_STAGE_RESET)) { // 묶음 머리마다 「초기화…」 — 누르면 그 묶음 머리 아래에 확인 줄(fwStageResetEl)
+    runs[st] = dashBtn("초기화…", () => { FW.rs = FW.rs === st ? "" : st; dashDraw(true); }, { disabled: !!off || !!FW.rsBusy, title: off || FW_STAGE_RESET[st].tip, focus: `fwreset:${st}` });
+    if (FW.rs === st) subs[st] = fwStageResetEl(st, off, mats);
+  }
+  return { runs, subs, steps: S };
+}
+
+// ---- 단계 초기화(2026-11-24 사용자 "여기도... 초기화 하고 싶을때가 있는데 새로 프로젝트를 올려야 하나? 준비/자료,작성 단계를 따로 두고 단계별로 실행할 수 있거나.. 모두 작업 내용 초기화 할 수 있도록 해줘" — spec_양식작성 ② §6-1) ----
+// 묶음(등록부의 open · material · write)마다 그 단계의 것만 비운다. 뒤 단계는 앞 단계에 기댄다 — 준비를 초기화하면 작성도 함께(자료는 남는다) · 모두 = 대시보드 맨 아래의 「작업 내용 초기화」 와 같은 것(dashResetRun).
+const FW_STAGE_RESET = {
+  open: { name: "준비", tip: "준비 단계 초기화 — 누르면 확인 줄이 펴집니다(고르기 전에는 아무것도 안 바뀝니다)", head: "문서를 올린 직후로 되돌립니다(작성 단계도 함께 · 이 문서의 자료는 남김)",
+    lose: "헤딩 · 표 분석 · LLM 검증·보완 · 작성 지침 저장본 · 양식 검토(찾을 테마 · 확인할 것의 답) · 작성 계획 · 받은 초안 · 문서에 반영한 글과 고친 문단", keep: "올린 원본 · 이 문서의 자료 · 확정 기록 · 작업 기록 · 문서 라이브러리의 문서와 추출" },
+  material: { name: "자료 준비", tip: "자료 준비 단계 초기화 — 누르면 확인 줄이 펴집니다", head: "이 문서의 자료를 모두 비웁니다",
+    lose: "이 문서로 가져온 자료(추출한 MD · 에이전트 보기에서 준 파일 · 글)", keep: "문서 라이브러리의 문서와 추출(그 서버의 것 — 다시 가져올 수 있습니다) · 분석 · 양식 검토 · 받은 초안 · 문서. 자료가 바뀌니 「작성 계획 세우기」 는 다시 해야 합니다" },
+  write: { name: "작성", tip: "작성 단계 초기화 — 누르면 확인 줄이 펴집니다", head: "받은 초안과 작성 계획을 비우고 문서를 올린 원본으로 되돌립니다",
+    lose: "작성 계획 · 받은 초안(에이전트 대화 · 제안 카드) · 문서에 반영한 글과 그 밖에 고친 문단(확정한 것이 있으면 「올린 원본으로 복원」 확정을 하나 더합니다)", keep: "헤딩 · 표 분석 · 작성 지침 · 양식 검토(찾을 테마) · 확인할 것에 정한 답 · 이 문서의 자료" },
+};
+function fwStageResetOff(A) { // 초기화를 누를 수 없는 까닭 | "" — 도는 일이 끝난 뒤에
+  const run = typeof agwRunning === "function" ? agwRunning() : null;
+  return !state.stored ? "작업 저장이 꺼진 문서는 초기화할 수 없습니다" : fwRunning() ? "초안을 받는 중입니다 — 멈추거나 끝난 뒤에 초기화하세요" : fwReviewing() ? "양식 검토가 도는 중입니다 — 끝난 뒤에 초기화하세요"
+    : A && A.busy ? "분석이 도는 중입니다 — 끝난 뒤에 초기화하세요" : run ? `「${run.label}」 이(가) 도는 중입니다 — 끝난 뒤에 초기화하세요` : state.commitBusy ? "확정 · 초기화하는 중입니다 — 끝난 뒤에 누르세요" : "";
+}
+function fwStageResetEl(st, off, mats) { // 묶음 머리 아래의 확인 줄(모달 아님 — 대시보드 맨 아래 「작업 내용 초기화」 상자와 같은 꼴 · 비우는 것 · 남는 것은 노트 아이콘)
+  const T = FW_STAGE_RESET[st], box = el("div", "dash-reset"), head = el("p", "dash-reset-head", `${T.name} 초기화 — ${T.head}`), acts = el("div", "dash-reset-acts"), stop = off || (FW.rsBusy ? "초기화하는 중입니다" : "");
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", `${T.name} 단계 초기화`);
+  box.dataset.fwReset = st;
+  head.append(hHelp("초기화하면 비우는 것 · 남는 것", `비우는 것 — ${T.lose}
+남는 것 — ${T.keep}`, { rows: true, title: `${T.name} 초기화` }));
+  box.append(head);
+  if (st === "material" && !mats) box.append(el("p", "dash-text muted", "이 문서의 자료가 없습니다 — 비울 것이 없습니다"));
+  if (st === "write" && state.edited && state.edited.size) box.append(el("p", "dash-text", `지금 고친 문단 ${state.edited.size}개가 올린 원본으로 돌아갑니다`));
+  const go = (label, run, key, title, disabled = false) => { const b = dashBtn(label, run, { disabled: !!stop || disabled, title: stop || title, focus: `fwreset:${key}` }); b.classList.add("danger"); acts.append(b); };
+  go(FW.rsBusy === st ? "초기화 중…" : `${T.name} 초기화`, () => fwStageReset(st), `${st}:go`, T.head, st === "material" && !mats);
+  if (st === "open") go("모두 초기화(자료도)", () => fwStageReset("all"), "all:go", "작업 내용 초기화 — 이 문서의 자료까지 비우고 올린 직후로 되돌립니다(대시보드 맨 아래의 「작업 내용 초기화…」 와 같습니다)");
+  acts.append(dashBtn("취소", () => { FW.rs = ""; dashDraw(true); }, { disabled: !!FW.rsBusy, title: "초기화하지 않고 닫습니다", focus: "fwreset:close" }));
+  box.append(acts);
+  return box;
+}
+async function fwStageReset(st) { // st = open(준비 — 자료만 남기고 올린 직후로) · all(모두) · material · write
+  if (FW.rsBusy || !state.id) return;
+  const id = state.id, name = st === "all" ? "모든 단계" : FW_STAGE_RESET[st].name;
+  if (st === "open" || st === "all") { // 작업 내용 초기화와 같은 길(dashResetRun → workReset → 다시 열고 첫 분석: dashResetDone) — 준비는 자료만 남긴다
+    FW.rs = "";
+    return dashResetRun(dashResetState(), [{ id, label: name, name: state.name || "", opt: st === "open" ? { keep: "materials" } : {} }], { redraw: () => dashDraw(true), done: dashResetDone });
+  }
+  FW.rsBusy = st;
+  dashDraw(true);
+  try {
+    if (st === "write") await flushAll(); // 치던 글을 먼저 보낸다(되돌린 뒤에 늦게 닿지 않게)
+    const r = await api(`/api/docs/${id}/form-write/reset`, { method: "POST", headers: H_JSON, body: JSON.stringify({ stage: st }) });
+    FW.rs = "";
+    if (st === "write" && state.id === id) await load(id, { tab: $("panel").dataset.tool || "Dash" }); // 문서가 올린 원본으로 — 다시 연다(보던 탭에 머문다)
+    toast(st === "material" ? `자료 준비를 초기화했습니다 — 자료 ${r.materials}개를 비웠습니다` : `작성을 초기화했습니다 — 초안 ${r.turns}개${r.plan ? " · 작성 계획" : ""}을 비우고${r.reverted ? " 문서를 올린 원본으로 되돌렸습니다" : " 문서는 올린 원본 그대로입니다"}`);
+  } catch (e) { toast(`${name}을(를) 초기화하지 못했습니다 — ${e.message}`, true); }
+  FW.rsBusy = "";
+  if (state.id === id) { FW.at = 0; FW.picks = new Set(); FW.mats = null; await fwRead(true); if (typeof agentLoad === "function") agentLoad(); fwRedraw(); }
+  dashDraw(true);
 }
 
 // ---- 2열 「자료 가져오기」 -------------------------------------------------------------------------------------------------

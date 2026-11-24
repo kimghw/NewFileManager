@@ -312,6 +312,47 @@ def guide_write_run(doc_id: str, body: dict = Body(...)):
     return {"run": _run_view(run)}
 
 
+@router.post("/api/docs/{doc_id}/form-write/reset")
+def form_write_reset(doc_id: str, body: dict = Body(...)):
+    """양식 작성의 단계 초기화(spec_양식작성 ② §6-1 — 2026-11-24 사용자 "준비/자료,작성 단계를 따로 두고 단계별로 실행할 수 있거나.. 모두 작업 내용 초기화") {stage} → {stage, …}.
+    - material = 이 문서의 자료를 모두 지운다(문서 라이브러리의 문서 · 추출은 그대로 — 그 서버의 것) → {materials: 지운 수}.
+    - write = 받은 초안(에이전트 대화 · 제안 카드) · 지침 작성의 실행 · 작성 계획을 비우고 **문서를 올린 원본으로** 되돌린다(반영한 초안과 그 밖에 고친 문단 — 확정이 있었으면 「올린 원본으로 복원」 확정 하나를 더한다)
+      → {reverted, turns, plan}. 남김: 분석 · 작성 지침 · 양식 검토(찾을 테마) · 사람이 정한 답 · 자료.
+    준비 단계의 초기화는 `POST /api/works/{id}/reset?keep=materials`(작업 내용 초기화에서 자료만 남김). 400 = 모르는 단계 · 409 = 지침 작성 · 양식 검토가 도는 중."""
+    stage = body.get("stage")
+    if stage not in ("material", "write"):
+        raise HTTPException(400, "stage 는 material · write 가운데 하나입니다")
+    s = _sess(doc_id)
+    with _LOCK:
+        if (_RUNS.get(s.id) or {}).get("state") == "running":
+            raise HTTPException(409, "지침 작성이 도는 중입니다 — 멈추거나 끝난 뒤에 초기화하세요")
+    with form_review_api._LOCK:
+        if (form_review_api._RUNS.get(s.id) or {}).get("state") == "running":
+            raise HTTPException(409, "양식 검토가 도는 중입니다 — 끝난 뒤에 초기화하세요")
+    store = doc_agent.Store(s.id)
+    if stage == "material":
+        mids = [m["id"] for m in store.materials()]
+        for mid in mids:
+            store.drop_material(mid)
+        works.log(s.id, "formWriteReset", stage=stage, materials=len(mids))
+        return {"stage": stage, "materials": len(mids)}
+    from app import server
+    with s.lock:
+        back = server._dirty(s)
+        if not back and s.base_n:   # 기준이 확정본 — 그 확정본이 올린 원본 그대로면(앞선 초기화의 「올린 원본으로 복원」) 되돌릴 것이 없다
+            p = works.file_path(s.id, "original")
+            back = p is None or p.read_bytes() != s.original
+    if back:   # 문서를 올린 원본으로(기준이 올린 원본이면 고친 것만 버림 · 확정이 있었으면 새 확정 「올린 원본으로 복원」) — 못 되돌리면 아무것도 비우지 않는다
+        server.commit_restore(doc_id, 0, {"discard": True})
+    turns = len(store.turns())
+    store.clear(materials=False)
+    plan = form_review_api.unplan(s.id)
+    with _LOCK:
+        _RUNS.pop(s.id, None)
+    works.log(s.id, "formWriteReset", stage=stage, reverted=back, turns=turns, plan=plan)
+    return {"stage": stage, "reverted": back, "turns": turns, "plan": plan}
+
+
 @router.get("/api/docs/{doc_id}/guide-write/run")
 def guide_write_state(doc_id: str):
     s = _sess(doc_id)

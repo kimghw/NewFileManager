@@ -92,8 +92,44 @@ def test_pack_dedupes_keeps_cells_apart_and_cuts_by_length():
     big = [{"src": "doc", "kind": "k", "text": "가" * 1500} for _ in range(4)]
     for i, g in enumerate(big):
         g["text"] += str(i)
-    got, cut = PG.pack(big, limit=PG.PLACE_MAX)
+    got, cut = PG.pack(big, limit=4000)
     assert len(got) == 2 and cut == 2
+
+
+def test_a_section_guide_reaches_the_places_under_it_but_not_a_sibling_section():
+    """2026-11-24 — 장 · 절 제목의 지침은 그 아래 하위 제목 · 표에도 닿는다(그래프의 조상만 — 형제 절로는 안 간다) · 글 없는 글머리 줄은 헤딩으로 세지 않는다."""
+    blocks = [_p("h1", "5. 다음 연도 계획"), _p("h11", "5-1 목표"), _p("b0", "o"), _t("t1", [("c1", 0, 0, [_p("p1")])]), _p("h2", "6. 보안"), _t("t2", [("c2", 0, 0, [_p("p2")])])]
+    node = lambda pid, parent=None, **kw: {"id": pid, "role": "heading", "area": "body", "para": pid, "parent": parent, **kw}  # noqa: E731
+    graph = {"nodes": [node("h1"), node("h11", "h1"), node("b0", "h11", blank=True), node("h2")]}
+    item = lambda iid, text, head: {"id": iid, "kind": "notes", "name": "※ 안내", "text": text, "heading": {"id": head}, "table": None, "top": 0}  # noqa: E731
+    ix = PG.index({"items": [item("x", "※ 다음연도 내용만 작성", "h1"), item("y", "변경 시 작성", "h11"), item("z", "기관별 작성", "h2")], "marks": []}, blocks, ["t1", "t2"])
+    place = PG.resolver(ix, blocks, graph)
+    assert [g["text"] for g in place("table", "t1")] == ["변경 시 작성", "※ 다음연도 내용만 작성"]   # 제 절의 것이 먼저 → 윗 절의 것(빈 글머리 줄 b0 은 건너뜀)
+    assert [g["text"] for g in place("block", "h11")] == ["변경 시 작성", "※ 다음연도 내용만 작성"]
+    assert [g["text"] for g in place("table", "t2")] == ["기관별 작성"]   # 형제 절(5.)의 지침은 안 온다
+    assert PG.ancestors(graph) == {"h1": [], "h11": ["h1"], "h2": []}
+
+
+def test_table_structure_is_a_guide_for_the_llm_but_not_part_of_the_sig():
+    """2026-11-24 — 표 구조(1단계 판정의 요약 · 단위 · 칸의 괄호 안내)를 그 표의 지침 하나로 싣는다 · 판에는 안 든다(표 자체에서 읽은 것)."""
+    cell = lambda cid, r, c, text: {"id": cid, "row": r, "col": c, "text": text, "blocks": [_p("p" + cid, text)]}  # noqa: E731
+    table = {"id": "t1", "type": "table", "cells": [cell("a", 0, 0, "연구개발비(천원)"), cell("b", 0, 1, "기간 (YY.MM.DD)"), cell("c", 1, 0, "홍길동(연구원)"), cell("d", 1, 1, "과제 수행 중 (해당 시 작성) 하는 아주 긴 문장으로 된 본문 칸의 글입니다 — 머리글이 아닙니다")]}
+    t3 = [{"id": "t1", "llm": {"summary": "기관별 연구개발비를 적는 매트릭스입니다."}, "unit": "천원"}, {"id": "t2"}]
+    st = PG.struct([table], t3)
+    assert list(st) == ["t1"] and st["t1"]["src"] == "struct" and st["t1"]["kind"] == PG.KIND_STRUCT
+    assert st["t1"]["text"] == "기관별 연구개발비를 적는 매트릭스입니다. / 단위: 천원 / 칸의 꼴: 연구개발비(천원) · 기간 (YY.MM.DD)"   # 이름 괄호(「(연구원)」) · 긴 본문 칸은 칸의 꼴이 아니다
+    ix = PG.index({"items": [], "marks": []}, [table], ["t1"], t3_tables=t3)
+    got = PG.for_table(ix, "t1")[0]
+    assert [g["kind"] for g in got] == [PG.KIND_STRUCT] and "t1" not in ix["tables"]   # LLM 에 싣는 목록에만 — 화면의 수(tables)에는 안 든다
+    assert PG.sig(got) == "" and PG.sig([{"src": "doc", "kind": "k", "text": "A"}, *got]) == PG.sig([{"src": "doc", "kind": "k", "text": "A"}])
+
+
+def test_budget_counts_a_repeated_guide_once():
+    """2026-11-24 — 같은 지침이 한 호출의 여러 자리(표 · 그 안의 묶음)에 되풀이되면 한 번만 센다(되풀이가 다른 자리의 지침을 밀어내지 않게)."""
+    same = lambda: [{"src": "doc", "kind": "k", "text": "가" * 300}]  # noqa: E731
+    places = [{"key": "t", "guides": same()}, {"key": "g1", "guides": same()}, {"key": "g2", "guides": same()}, {"key": "u", "guides": [{"src": "doc", "kind": "k", "text": "나" * 300}]}]
+    assert PG.budget(places, limit=700) == 0 and all(p.get("guides") for p in places)   # 300 × 3 은 한 번만 세어 600
+    assert PG.budget(places, limit=500) == 1 and "guides" not in places[3] and places[3]["guidesCut"] == 1   # 넘치면 뒤 자리부터
 
 
 def test_sig_changes_with_the_guides_and_budget_trims_from_the_end():

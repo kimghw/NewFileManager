@@ -352,6 +352,8 @@ def reset_files(wid, rev, carry=(), tries=6) -> dict | None:
             if src.is_file():
                 (d / rel).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, d / rel)
+            elif src.is_dir():   # 폴더째(이 문서의 자료 `agent/materials` — 양식 작성의 「준비 초기화」: spec_양식작성 ② §6-1)
+                shutil.copytree(src, d / rel, dirs_exist_ok=True)
         w.update(rev=rev, edited=0, verify={}, framed=False, updated=time.time())
         _write_json(d / "work.json", w)
     return {"n": n, "archive": f"reset/{n}", "moved": moved}

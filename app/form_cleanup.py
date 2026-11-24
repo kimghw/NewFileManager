@@ -16,10 +16,15 @@
            그 글에 **안내 낱말**(작성 · 기재 · 기입 · 예시 · 서술 · 기술 · 명시 · 입력)이 있을 때. 글만 지운다 — 상자는 쓸 자리라 남기고, 칸이 비어 남은 빈 줄은 본문 글 모양으로(검정 · 보통 굵기 · 양쪽 맞춤).
            본문 색 글이 한 줄이라도 있는 상자(사람이 쓴 내용이 섞임) · 칸 안에 표 · 그림이 든 상자 · 색 글이어도 안내 낱말이 없는 상자(색 글 제목 상자)는 건드리지 않는다. 「※」 가 없어 notes 가 못 잡던 꼴이다.
            첫 글이 「※」 로 시작하는 상자(안내뿐인 상자 — 연구개발계획서 양식의 빨간 「※ AI 관련 R&D 과제의 경우 … 작성 요망 ① …」: 전에는 ※ 줄만 지워져 「① …」 줄이 남았다)는 **상자째**(whole — 앞뒤가 다 빈 줄이면 뒤 빈 줄 하나도).
+- hints  : 「설명 줄」(2026-11-24 사용자 "테이블이나 밖깥쪽에 작성 지침이 있을 수도 있고? 이게 잘 지침을찾아오고 잘 정리하는지" — 실측: 연차보고서 서식의 표 아래 검정 「* 협약용 연구개발계획서 대비 변경이 있을 경우 기재합니다」 줄들이
+           어디에도 안 모였다) — **지우지 않는다 · 모으기만**(KINDS · PATTERNS · counts 에 없다 — apply 는 건드리지 않고 `form_guides.collect` 가 그 표 · 헤딩의 지침으로 모은다).
+           글이 「*」 · 「※」(본문 색 — 색 ※ 은 notes) · 「주)」 · 「주N)」 · 「N」」 로 시작하고 안내 낱말(작성 · 기재 · 기입 · 표기 · 해당 · 참조 · 첨부 · 삭제 · 선택 · 입력 · 이내 · 제출 · 구분)이 있는 문단(본문 · 표 칸 안).
+           표 바로 아래(빈 줄 · 설명 줄만 사이에 둔)의 「*」 · 「주)」 줄은 안내 낱말이 없어도(「* 개발, 구매, 임대 등」 — 그 표 칸에 고를 값).
+           **문서가 아직 양식일 때만**(작성 요령 표나 안내 상자가 하나라도 잡힐 때) — 작성본의 「* 출처: …」 · 검정 「※ 차도선 하루 10회 …」 는 내용이다.
 지우는 패턴의 목록 = PATTERNS(2026-11-12 사용자 "문서 정리에는 어떤 패턴을 삭제해야하는지 목록이 있어야함") — 화면 ⑥ 「목록 보기」 의 「지우는 패턴」 표 · 확인 창 글이 이것을 쓴다.
 패턴을 늘릴 때는 PATTERNS 에 한 줄 + find/apply 에 그 종류(키) + 시험.
 find(doc) → {"marks": [{id, text}], "tables": [{id, label, rows, blank}], "notes": [{id, text, guide, whole}], "refs": [{id, label, last, tables, blank}],
-"boxes": [{id(상자 = 표), first, last(지울 문단의 처음 · 끝), paras[글 있는 문단], text, color, whole(상자째인가), blank}], "counts", "patterns"} · apply(doc, found) → 지운 수."""
+"boxes": [{id(상자 = 표), first, last(지울 문단의 처음 · 끝), paras[글 있는 문단], text, color, whole(상자째인가), blank}], "hints": [{id, text}](모으기만), "counts", "patterns"} · apply(doc, found) → 지운 수."""
 import re
 
 from app.division_profiles import _structure as structure
@@ -30,6 +35,8 @@ BODY_COLORS = {None, "", "#000000", "#000", "black"}
 BOX_WORD = re.compile(r"작\s*성|기\s*재|기\s*입|예\s*시|서\s*술|기\s*술|명\s*시|입\s*력")   # 안내 상자의 안내 낱말 — 색 글이어도 이 낱말이 없는 상자(색 글 제목 상자)는 안내로 보지 않는다
 BOX_SKIP = {"#FFFFFF", "#FFF"}   # 흰 글 = 짙은 바탕 위의 제목(안내 색이 아니다)
 BOX_PLAIN = {"color": "#000000", "bold": False, "align": "justify", "firstLineMm": 0}   # 안내를 지워 빈 상자에 남는 빈 줄의 글 모양(안내의 빨강 · 굵게 · 가운데 · 내어쓰기를 물려받지 않게)
+HINT_HEAD = re.compile(r"^\s*(?:[*＊※]|주\s*\d*\s*\)|\d+\s*」)")   # 설명 줄의 첫머리 — 「* …」 · 「※ …」(검정 — 색 ※ 은 notes) · 「주) …」 · 「주1) …」 · 「1」 …」
+HINT_WORD = re.compile(r"작\s*성|기\s*재|기\s*입|표\s*기|해\s*당|참\s*조|첨\s*부|삭\s*제|선\s*택|입\s*력|이\s*내|제\s*출|구\s*분")   # 설명 줄의 안내 낱말
 
 # 지우는 패턴 목록(화면 차례) — key = find/apply 의 종류, name = 화면 이름, rule = 무엇을 찾나, how = 어떻게 지우나, example = 서식의 보기
 PATTERNS = (
@@ -209,13 +216,26 @@ def find(doc):
         keep = (text[:i].rstrip() + text[end:]).strip()
         notes.append({"id": b["id"], "text": text.strip()[:120], "guide": text[i:end].strip()[:120], "color": color, "whole": not keep,
                       "keep": text[:i].rstrip() + text[end:]})
+    taken = inside | {n["id"] for n in notes}
+    under = set()   # 표 바로 아래(빈 줄 · 설명 줄만 사이에 둔)의 설명 줄 — 안내 낱말이 없어도 그 표의 설명이다(「* 개발, 구매, 임대 등」: ※ 줄은 낱말이 있어야 — 내용일 수 있다)
+    for _, seq in _containers(blocks):
+        on = False
+        for b in seq:
+            if b.get("type") == "table":
+                on = True
+            elif not _blank(b):
+                on = on and bool(HINT_HEAD.match(b.get("text") or ""))
+                if on and not (b.get("text") or "").lstrip().startswith("※"):
+                    under.add(b["id"])
+    hints = [{"id": b["id"], "text": (b.get("text") or "").strip()[:200]} for b in _paras(blocks) if b["id"] not in taken
+             and HINT_HEAD.match(b.get("text") or "") and (HINT_WORD.search(b.get("text") or "") or b["id"] in under)] if tables or boxes else []   # 문서가 아직 양식일 때만(작성 요령 표 · 안내 상자가 남아 있음) — 작성본의 「* 출처 …」 · 검정 「※ …」 는 내용이다
     marks = doc.superscript_marks() if hasattr(doc, "superscript_marks") else []
     marks = [m for m in marks if m["id"] not in inside]   # 지울 표 안의 것은 표와 함께
     tabs = [{k: t[k] for k in ("id", "label", "rows")} | {"blank": blank.get(t["id"])} for t in tables]
     refs = [{k: r[k] for k in ("id", "label", "last", "tables", "blank")} for r in refs]
     found = {"marks": marks, "tables": tabs, "notes": notes, "refs": refs, "boxes": boxes}
     counts = {k: len(found[k]) for k in KINDS}
-    return {**found, "counts": {**counts, "total": sum(counts.values())}, "patterns": patterns(counts)}
+    return {**found, "hints": hints, "counts": {**counts, "total": sum(counts.values())}, "patterns": patterns(counts)}
 
 
 def patterns(counts=None):
@@ -226,7 +246,7 @@ def patterns(counts=None):
 def empty():
     """hwpx 가 아닌 문서의 빈 목록(find 와 같은 꼴)."""
     counts = {k: 0 for k in KINDS}
-    return {**{k: [] for k in KINDS}, "counts": {**counts, "total": 0}, "patterns": patterns(counts)}
+    return {**{k: [] for k in KINDS}, "hints": [], "counts": {**counts, "total": 0}, "patterns": patterns(counts)}
 
 
 def apply(doc, found):

@@ -1993,15 +1993,15 @@ class Store:
         got = works._read_json(p) if p.is_file() else None
         return got if isinstance(got, dict) else {}
 
-    def clear(self):
+    def clear(self, materials=True):
         """대화·제안·자료·반영 영수증을 모두 지운다(「비우기」) — 대화의 차례(`gen`)를 올린다: 도는 중이던 턴은 저장되지 않는다. 작업 기록(log.jsonl)과 턴마다 남긴 호출 상세
-        (`agent/turn_*.json` — `works.add_detail`)는 남는다."""
+        (`agent/turn_*.json` — `works.add_detail`)는 남는다. materials=False 면 자료는 남긴다(양식 작성의 「작성 초기화」 — 초안만 비운다: spec_양식작성 ② §6-1)."""
         with self.lock:
             _GENS[self.wid] = _GENS.get(self.wid, 0) + 1
             if self.dir is None:
-                self._mem.update(turns={}, materials={}, requests={})
+                self._mem.update(turns={}, requests={}, **({"materials": {}} if materials else {}))
                 return
-            for sub in ("turns", "materials"):
+            for sub in ("turns", "materials") if materials else ("turns",):
                 d = self.dir / sub
                 for p in (d.glob("*.json") if d.is_dir() else ()):
                     p.unlink(missing_ok=True)

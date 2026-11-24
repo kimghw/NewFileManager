@@ -79,6 +79,7 @@ def _guide_ids(found, blocks):
             out |= {x["id"] for x in structure.iter_blocks([blocks[k]])}
         out.add(r["id"])
     out |= {n["id"] for n in found.get("notes") or () if n.get("whole")}
+    out |= {h["id"] for h in found.get("hints") or ()}   # 설명 줄(표 아래 「* …」 — 모으기만 하는 지침: form_cleanup hints)도 양식의 글이다
     return out
 
 

@@ -49,6 +49,20 @@ def _save(wid, data):
         _MEM[wid] = data
 
 
+def unplan(wid):
+    """작성 계획만 비운다(양식 작성의 「작성 초기화」 — spec_양식작성 ② §6-1) → 비웠나. 양식 검토(요약 · 자리마다 how · needs · 찾을 테마 · 물음)와 사람이 정한 답은 남긴다 —
+    자료로 세운 것(자리마다 use · gap · 계획 때의 자료)만 지워 「작성 계획 세우기」 를 다시 하게 한다."""
+    st = load(wid)
+    rv = st["review"]
+    if not form_review.planned(rv):
+        return False
+    ps = rv.get("places")
+    wipe = lambda p: {**p, "use": "", "gap": ""} if isinstance(p, dict) else p  # noqa: E731
+    ps = {k: wipe(p) for k, p in ps.items()} if isinstance(ps, dict) else [wipe(p) for p in ps or ()]
+    _save(wid, {"review": {**rv, "places": ps, "materials": []}, "decided": st["decided"]})
+    return True
+
+
 def gate(wid):
     """지침 작성을 돌려도 되나 → (된다?, 까닭, 저장본). 양식 검토가 없거나 · 자료로 세운 작성 계획이 없거나 · 답하지 않은 물음이 있으면 안 된다(검토 → 계획 → 묻기 → 쓰기)."""
     st = load(wid)

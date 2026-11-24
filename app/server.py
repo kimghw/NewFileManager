@@ -2109,11 +2109,15 @@ def _reset_forget(wid):
 
 
 @app.post("/api/works/{wid}/reset")
-def work_reset(wid: str):
+def work_reset(wid: str, keep: str = ""):
     """작업 내용 초기화(spec_작업 ② §3-1) — 같은 작업을 올린 직후로: 문서 = 올린 원본, 고친 문단 · 실행 취소 · 분석 · LLM 결과 · 대화 · 검증 기록은 reset/<n>/ 으로 옮긴다.
     남김: 올린 원본 · 확정(있으면 「작업 내용 초기화 — 올린 원본으로」 확정 하나를 더함 — 기준이 뒤로 가지 않게 §8) · 작업 기록 · 양식 선택 · 취합본의 기관 문서 등록 · 프로젝트 구성 값·확정 · 워크플로우 옵션.
     편집 차례는 이어 센다. 메모리의 세션은 버리고 작업 폴더에서 다시 연다(가져오기 검증이 돈다 — 첫 분석은 화면이 부른다).
-    → GET /api/docs/{id} 꼴 + reset {n, archive, commit, skipped}. 400 저장 끔 · 404 없는 작업 · 409 공유 중 · 도는 LLM 일 · 500 옮기지 못함."""
+    → GET /api/docs/{id} 꼴 + reset {n, archive, commit, skipped}. 400 저장 끔 · 404 없는 작업 · 409 공유 중 · 도는 LLM 일 · 500 옮기지 못함.
+    keep=materials(쿼리) = 이 문서의 자료(에이전트 보기 · 「자료 가져오기」 로 준 것 — `agent/materials`)는 제자리에 남긴다(양식 작성의 「준비 초기화」 — spec_양식작성 ② §6-1). 그 밖의 값은 400."""
+    if keep not in ("", "materials"):
+        raise HTTPException(400, "keep 은 materials 만 됩니다")
+    carry = RESET_CARRY + (("agent/materials",) if keep else ())
     if not works.enabled():
         raise HTTPException(400, "작업 저장이 꺼져 있어 작업 내용을 초기화할 수 없습니다")
     w = _work_or_404(wid)
@@ -2138,10 +2142,10 @@ def work_reset(wid: str):
                         s.gen += 1   # 도는 검증은 결과를 세션·작업 폴더에 쓰지 않는다(_JobView.live)
                     DOCS.pop(wid, None)
                     rev = max(s.rev, w.get("rev") or 0) + 1
-                    moved = works.reset_files(wid, rev, carry=RESET_CARRY)
+                    moved = works.reset_files(wid, rev, carry=carry)
             else:
                 rev = (w.get("rev") or 0) + 1
-                moved = works.reset_files(wid, rev, carry=RESET_CARRY)
+                moved = works.reset_files(wid, rev, carry=carry)
         except OSError as e:
             works.log(wid, "resetFailed", error=str(e))
             raise HTTPException(500, f"작업 폴더의 일부를 옮기지 못했습니다(다른 프로그램이 잡고 있음) — 잠시 뒤 다시 하세요: {e}") from e
@@ -2172,7 +2176,7 @@ def work_reset(wid: str):
             except Exception as e:  # noqa: BLE001 — 그 사이 지운 기관 문서 등: 그 문서만 빠진다(기록에 남김)
                 skipped.append(part)
                 log.warning("[작업 내용 초기화] %s 기관 문서 %s 를 다시 넣지 못함: %r", wid, part, e)
-    works.log(wid, "reset", rev=rev, n=moved["n"], archive=moved["archive"], moved=moved["moved"], commit=commit, **({"skipped": skipped} if skipped else {}))
+    works.log(wid, "reset", rev=rev, n=moved["n"], archive=moved["archive"], moved=moved["moved"], commit=commit, **({"skipped": skipped} if skipped else {}), **({"keep": keep} if keep else {}))
     _persist_safe(s2, force=True)
     return {**get_doc(wid), "reset": {"n": moved["n"], "archive": moved["archive"], "commit": commit, "skipped": skipped}}
 

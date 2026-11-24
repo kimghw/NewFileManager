@@ -33,13 +33,13 @@ async function sameFileUpload(file, opts = {}) {
 }
 
 // 작업 내용 초기화(② §3-1) — 지금 연 문서면 반영 대기 중인 글을 먼저 보낸다(늦게 닿은 편집이 초기화한 문서를 고치지 않게) → {docId, reused: false, reset}
-async function workReset(id) {
+async function workReset(id, { keep = "" } = {}) { // keep "materials" = 이 문서의 자료는 남긴다(양식 작성의 「준비 초기화」 — form_write.js fwStageReset)
   if (state.id === id) {
     const run = typeof agwRunning === "function" ? agwRunning() : null;
     if (run) throw new Error(`「${run.label}」 이(가) 도는 중입니다 — 끝난 뒤에 초기화하세요`);
     await flushAll();
   }
-  const d = await api(`/api/works/${id}/reset`, { method: "POST" });
+  const d = await api(`/api/works/${id}/reset${keep ? `?keep=${keep}` : ""}`, { method: "POST" });
   document.dispatchEvent(new CustomEvent("nfm:work-reset", { detail: { id } })); // 문서 id 로 기억을 묶어 둔 화면 모듈(form_write.js 등)이 그 문서의 기억을 버린다 — 초기화해도 id 는 같다
   return { docId: id, name: d.name, reused: false, reset: d.reset };
 }
