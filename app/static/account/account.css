@@ -1,0 +1,29 @@
+/* 계정 페이지(/login · /account — spec_계정 ② §4) — style.css 다음(색 · .btn 은 그쪽 것) */
+body.acct { margin: 0; min-height: 100vh; background: var(--bg); font-size: 14px; }
+.acct-card { width: min(380px, calc(100vw - 32px)); margin: 12vh auto 0; padding: 22px 24px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-card.wide { width: min(720px, calc(100vw - 32px)); margin-top: 24px; }
+.acct-brand { margin: 0 0 16px; font-size: 16px; font-weight: 700; }
+.acct-tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.acct-tabs button { padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: none; font: inherit; color: var(--muted); cursor: pointer; }
+.acct-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.acct-form { display: grid; gap: 10px; }
+.acct-form.narrow { max-width: 320px; }
+.acct-form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.acct-form input { height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; color: var(--text); }
+.acct-form input:focus-visible, .acct-tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.acct-msg { min-height: 20px; margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fail); }
+.acct-msg.ok { color: var(--ok); }
+.acct-top { display: flex; align-items: center; gap: 8px; padding: 0 16px; height: var(--topbar); background: var(--surface); border-bottom: 1px solid var(--line); }
+.acct-top a.brand { font-weight: 700; color: inherit; text-decoration: none; }
+.acct-top .spacer { flex: 1; }
+.acct-card h2 { margin: 0 0 10px; font-size: 14px; }
+.acct-card h2 + div + h2 { margin-top: 22px; }
+.acct-card h2 small { margin-left: 6px; font-weight: 400; color: var(--muted); }
+.acct-list { width: 100%; border-collapse: collapse; }
+.acct-list td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
+.acct-list td:last-child { text-align: right; white-space: nowrap; }
+.acct-list td:last-child .btn { margin-left: 4px; }
+.acct-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; background: var(--surface-2); color: var(--muted); }
+.acct-tag.approved { background: var(--ok-soft); color: var(--ok); }
+.acct-tag.blocked { background: var(--fail-soft); color: var(--fail); }
+.acct-empty { margin: 0; color: var(--muted); font-size: 13px; }

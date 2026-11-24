@@ -12,4 +12,6 @@ else { cmd /c "echo [start_8114] claude.exe not found at %USERPROFILE%\.local\bi
 $env:NFM_LLM_BACKEND = 'cli'
 # 2026-11-22 구독의 Fable 사용 한도(429)에 닿아 사용자 답 「Opus 5.5로 재시작」 — 한도가 풀리면 사용자가 말할 때 'claude-fable-5-2' 로 되돌린다.
 $env:NFM_LLM_MODEL_FORCE = 'claude-opus-5-5'
+# 계정(로그인 · 가입 승인 · 계정마다 작업 폴더 — spec/spec_계정.md): 2026-11-24 사용자 "앱에 계정별로 할 수 있게 해줘. 관리자 모드 sscb/sscb 로 하고 승인할 수 있도록". 이 줄을 빼면 로그인 문이 없다(전과 같은 동작).
+$env:NFM_AUTH = '1'
 cmd /c "python -m uvicorn app.server:app --host 127.0.0.1 --port 8114 >> artifacts\5b_server\server-8114.log 2>&1"

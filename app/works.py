@@ -2,6 +2,7 @@
 
 폴더 %LOCALAPPDATA%\\NewFileManager\\works\\<작업 id>, env NFM_WORKS(off·0 이면 저장 끔). 서버(server.py)가 세션 상태를 묶어 넘기고
 이 모듈은 파일만 다룬다(문서 객체를 모름)."""
+import contextvars
 import gzip
 import hashlib
 import json
@@ -19,13 +20,24 @@ _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
-def root() -> Path | None:
+# 계정마다 작업 폴더의 뿌리가 따로다(spec_계정 ② §3) — 지금 요청의 계정(로그인 문 accounts_api.Gate 가 건다). None = 관리자 · 문이 꺼짐 · 맥락 없는 뒤 스레드 → 전과 같은 뿌리.
+ACCOUNT = contextvars.ContextVar("nfm_account", default=None)
+ACCOUNTS_DIR = "_accounts"   # 관리자 아닌 계정의 뿌리 = <뿌리>/_accounts/<이름>/ (작업 id 꼴이 아니라 관리자의 목록에 안 섞인다)
+
+
+def _base() -> Path | None:
     env = os.environ.get("NFM_WORKS")
     if env is not None and env.strip().lower() in ("off", "0", ""):
         return None
     if env:
         return Path(env)
     return Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "NewFileManager" / "works"
+
+
+def root() -> Path | None:
+    """지금 계정의 뿌리 — 작업 · projects.json · 워크플로우 옵션이 이 아래에 놓인다(계정마다 따로)."""
+    base, who = _base(), ACCOUNT.get()
+    return base / ACCOUNTS_DIR / who if base is not None and who else base
 
 
 def enabled() -> bool:
@@ -37,7 +49,10 @@ def folder(wid: str) -> Path | None:
     base = root()
     if base is None or not isinstance(wid, str) or not ID.match(wid):
         return None
-    return base / wid
+    d = base / wid
+    if ACCOUNT.get() is None and not d.exists():   # 계정 맥락이 없는 곳(작업 저장 · 검증의 뒤 스레드 · 관리자)은 다른 계정의 뿌리에서도 찾는다 — 계정 맥락에서는 제 뿌리만(남의 id = 없는 작업)
+        return next(iter((base / ACCOUNTS_DIR).glob(f"*/{wid}")), d)
+    return d
 
 
 def _lock(wid) -> threading.Lock:

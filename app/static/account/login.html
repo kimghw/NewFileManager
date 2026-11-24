@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로그인 — HWPX·DOCX 웹 편집</title>
+  <link rel="stylesheet" href="/static/style.css"><!-- 색·글꼴·단추의 변수(앱과 같은 것) -->
+  <link rel="stylesheet" href="/static/account/account.css"><!-- 계정 페이지(spec_계정 ② §4) -->
+</head>
+<body class="acct">
+  <main class="acct-card">
+    <h1 class="acct-brand">HWPX·DOCX 웹 편집</h1>
+    <div class="acct-tabs" role="tablist">
+      <button id="tabLogin" type="button" role="tab" aria-selected="true">로그인</button>
+      <button id="tabJoin" type="button" role="tab" aria-selected="false">가입 신청</button>
+    </div>
+    <form class="acct-form" id="form">
+      <label>이름<input id="name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" required></label>
+      <label>비밀번호<input id="pw" type="password" autocomplete="current-password" maxlength="200" required></label>
+      <label id="pw2Row" hidden>비밀번호 다시<input id="pw2" type="password" autocomplete="new-password" maxlength="200"></label>
+      <button class="btn primary" id="go" type="submit">로그인</button>
+      <p class="acct-msg" id="msg" role="status"></p>
+    </form>
+  </main>
+  <script src="/static/account/login.js"></script>
+</body>
+</html>

@@ -156,7 +156,8 @@ DOCS: dict[str, Session] = {}
 
 
 def _sess(doc_id) -> Session:
-    s = DOCS.get(doc_id) or _reopen(doc_id)
+    mine = works.ACCOUNT.get() is None or bool((d := works.folder(doc_id)) and d.is_dir())   # 계정 맥락(spec_계정 ② §3): 남의 작업은 메모리에 열려 있어도 없는 작업 — 본문으로 받은 id 까지
+    s = (DOCS.get(doc_id) or _reopen(doc_id)) if mine else None
     if s is None:
         raise HTTPException(404, "서버에 이 문서(작업)가 없습니다 — 지운 작업이거나 작업 저장이 꺼진 채 서버를 다시 켰습니다. 파일을 다시 열어 주세요")
     s.touched = time.time()
@@ -2595,9 +2596,12 @@ app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)
 app.include_router(__import__("app.pointer_api", fromlist=["router"]).router)   # 포인터(같은 문서를 보는 다른 화면에 내 마우스 자리 · 「클릭」 — WebSocket · 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다) 끝점은 app/pointer_api.py(spec_포인터 ② §3). 그 모듈은 이 파일을 import 하지 않는다
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다
 __import__("app.share_api", fromlist=["attach"]).attach(app, session=_sess, loaded=DOCS.get, name=_shown_of, doc=get_doc, patch=patch_block, split=split, merge=merge,
-                                                        media=media, bumped=BUMPED, store=works.root, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))
+                                                        media=media, bumped=BUMPED, store=works._base, exists=lambda wid: bool(works.folder(wid) and works.folder(wid).is_dir()))
 # 워크플로우 실행 층(서버 쪽 「한 번에 진행」 · 실행 기록 — spec_워크플로우 ② §17 · §18): 끝점은 app/workflow_exec_api.py. 그 층은 이 파일을 import 하지 않는다 — 문서의 일은 문(app/unit_steps.py)으로만 시킨다
 __import__("app.workflow_exec_api", fromlist=["attach"]).attach(app, unit=__import__("app.unit_steps", fromlist=["store"]))
+# 계정(로그인 · 가입 승인 · 계정마다 작업 폴더의 뿌리 — spec_계정): 끝점 · 페이지 · 로그인 문은 app/accounts_api.py. 문(Gate)은 맨 바깥 미들웨어여야 한다(맨 나중에 더한다) — env NFM_AUTH=1 일 때만 선다.
+app.include_router(__import__("app.accounts_api", fromlist=["router"]).router)
+app.add_middleware(__import__("app.accounts_api", fromlist=["Gate"]).Gate)
 
 
 def _rules_view():
