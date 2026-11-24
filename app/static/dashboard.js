@@ -751,11 +751,12 @@ const DASH_FLOW_ROLE = { source: "원본 문서", target: "목적 문서", pair:
 const DASH_FLOW_LLM = new Set(["headsLlm", "reheadsLlm"]); // 문서마다 「건너뛰기」 를 두는 줄(LLM 검증·보완 — 유료 · 몇 분: PUT …/flow/skip — 모든 화면 · 실행이 같이 본다)
 
 function dashFlowRoleEl(role, r, s) { // 카드 머리의 문서 꼬리표(첫 화면의 대시보드 hdRoleEl 과 같은 꼴 · 같은 클래스)
-  const doc = role === "source" || role === "target", head = doc ? (r ? r.title : DASH_FLOW_ROLE[role]) : (s.onText || "").split(" — ")[0] || DASH_FLOW_ROLE[role] || "";
+  const org = role === "source" && typeof orgIsGather === "function" && orgIsGather(); // 취합 — 문서 하나를 가리키지 않는 기관 문서 꼬리표는 「[기관]」(spec_취합 ② §11 · org_short.js)
+  const doc = role === "source" || role === "target", head = org ? "[기관]" : doc ? (r ? r.title : DASH_FLOW_ROLE[role]) : (s.onText || "").split(" — ")[0] || DASH_FLOW_ROLE[role] || "";
   if (!head) return null;
   const t = el("span", "hd-role", head);
   t.dataset.role = role;
-  t.title = doc ? (r ? `${r.title} — ${r.name}` : head) : s.onText || head;
+  t.title = org ? `기관 문서${r && r.many ? "마다" : ""} — ${(r && r.name) || "기관 문서"}` : doc ? (r ? `${r.title} — ${r.name}` : head) : s.onText || head;
   return t;
 }
 
@@ -1112,12 +1113,12 @@ async function dashFlowLive(M) {
       const cards = slots.map(({ role, p, w, each: one }) => {
         const cst = !p ? st : p.st === "done" ? "done" : p.st === "busy" ? "run" : hold(p.st) ? "hold" : st === "run" || st === "now" ? "now" : "todo", skipped = cst === "done" && !!(p ? p.skipped : s.skipped);
         let lead = dashFlowRoleEl(role, roles.find((q) => q.role === role) || null, R), text = (p && p.text) || s.text || (cst !== "done" && s.wait) || "";
-        if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「기관 이름 — 파일 이름」(반영할 기관이 있으면) · 서버의 글 앞의 파일 이름은 뗀다(꼬리표에 있다)
-          const name = collectDocName(tgt ? tgt.id : "", w.id, w.name);
+        if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「[기관 약칭] 파일 이름」(spec_취합 ② §11 — collect.js collectDocName) · 서버의 글 앞의 파일 이름은 뗀다(꼬리표에 있다)
+          const name = collectDocName(tgt ? tgt.id : "", w.id, w.name), full = collectDocOrgs(tgt ? tgt.id : "", w.id);
           lead = el("span", "hd-role collect-doc", name || partName);
           lead.dataset.role = "source";
           lead.dataset.doc = w.id;
-          lead.title = `${partName} — ${name}`;
+          lead.title = `${partName} — ${full ? `반영할 기관 ${full} · ` : ""}${(w && w.name) || name}`;
           if (w.name && text.startsWith(`${w.name} — `)) text = text.slice(w.name.length + 3);
         }
         return { ref: one ? `${s.key}@${role}:${w.id}${tag}` : `${s.key}@${role}${tag}`, role, state: cst, skipped, word: word(cst, p ? p.st : s.st, skipped), text: dashHere(text), lines: [], acts: [],   // 기다리는 줄(구성 값이 아직 없음 — 서버의 wait)은 그 까닭을 글로
@@ -1458,8 +1459,9 @@ const DASH_RESET_TIP = "작업 내용 초기화 — 고른 문서를 올린 직�
 const dashResetFresh = () => ({ open: false, docs: null, err: "", busy: "" });
 function dashResetDocs(V) { // 서버 상태(GET …/flow)의 문서 칸 → [{role, label, name, id}] — 원본 문서(취합은 기관 문서마다) → 목적 문서
   const D = (V && V.docs) || {}, out = [], add = (role, d, title) => { if (d && d.id && !out.some((x) => x.id === d.id)) out.push({ role, label: title, name: d.name || "", id: d.id }); };
-  const many = D.sources || [];
-  if (many.length) many.forEach((d, i) => add("source", d, many.length > 1 ? `원본 문서 ${i + 1}` : "원본 문서"));
+  const many = D.sources || [], tid = (D.target || {}).id || "", seen = {};
+  const tagOf = (d) => { const t = tid && typeof collectDocTag === "function" ? collectDocTag(tid, d.id) : ""; if (!t) return ""; const n = (seen[t] = (seen[t] || 0) + 1); return n > 1 ? `${t} ${n}` : t; }; // 같은 양식 취합의 기관 문서 = 반영할 기관의 약칭(spec_취합 ② §11 — 같은 기관이 둘이면 「[가나] 2」)
+  if (many.length) many.forEach((d, i) => add("source", d, tagOf(d) || (many.length > 1 ? `원본 문서 ${i + 1}` : "원본 문서")));
   else add("source", D.source, "원본 문서");
   add("target", D.target, "목적 문서");
   return out;

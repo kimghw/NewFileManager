@@ -318,8 +318,8 @@ def main():
         cards5 = page.evaluate("""() => [...document.querySelectorAll('#homeDash .hd-row[data-key=heads] .dash-node')].map((n) => { const t = n.querySelector('.hd-role'); return [t.dataset.role, t.dataset.doc || '', t.textContent, t.classList.contains('collect-doc')]; })""")
         V5 = flow(tid)
         heads5 = [p for p in next(s for g in V5["stages"] for s in g["steps"] if s["key"] == "heads")["per"] if p["role"] == "source"]
-        check("⑤ 첫 화면의 문서 카드 — 「헤딩 · 표 분석」 은 기관 문서마다 카드(서버의 per — 뒤 수정본이 있는 문서는 빠짐) · 꼬리표 = 「기관 이름 — 파일 이름」(미지정은 파일 이름) + 목적 문서 카드",
-              [c[1] for c in cards5 if c[3]] == [p["doc"] for p in heads5] and len(heads5) == 3 and [c[2] for c in cards5 if c[3]] == [f"다라연 — {FILES['b'].name}", f"가나대 — {FILES['c'].name}", FILES["d"].name]
+        check("⑤ 첫 화면의 문서 카드 — 「헤딩 · 표 분석」 은 기관 문서마다 카드(서버의 per — 뒤 수정본이 있는 문서는 빠짐) · 꼬리표 = 「[기관 약칭] 파일 이름」(spec_취합 ② §11 — 미지정은 「[미지정]」) + 목적 문서 카드",
+              [c[1] for c in cards5 if c[3]] == [p["doc"] for p in heads5] and len(heads5) == 3 and [c[2] for c in cards5 if c[3]] == [f"[다라] {FILES['b'].name}", f"[가나] {FILES['c'].name}", f"[미지정] {FILES['d'].name}"]
               and cards5[-1][:1] == ["target"] and not cards5[-1][3], [cards5, heads5])
         reqs.clear()
         page.click('#homeDash .dash-group[data-group="g2"] .dash-ghead [data-hd-focus="run:g2"]')   # 1단계는 올릴 때의 첫 분석으로 이미 끝났다(LLM 끔 = 건너뜀) — 2단계 「구성 맞추기」 를 돌린다
@@ -348,16 +348,21 @@ def main():
         d6 = page.evaluate(DASH)
         g = {x["id"]: x for x in d6["groups"]}
         heads6 = [c for c in g["g1"]["cards"] if c["key"] == "heads"]
-        check("⑥ 패널 대시보드 — 묶음 넷(g1 … g4 · 끝난 수 「n/m」) · 「한 문서만」 줄 없음(서버가 solo 를 안 낸다) · 「헤딩 · 표 분석」 = 기관 문서마다 카드(꼬리표 「기관 이름 — 파일 이름」 · ✓ 끝남) + 목적 문서 카드 · 둘째부터는 번호 없이 붙음",
+        check("⑥ 패널 대시보드 — 묶음 넷(g1 … g4 · 끝난 수 「n/m」) · 「한 문서만」 줄 없음(서버가 solo 를 안 낸다) · 「헤딩 · 표 분석」 = 기관 문서마다 카드(꼬리표 「[기관 약칭] 파일 이름」 · ✓ 끝남) + 목적 문서 카드 · 둘째부터는 번호 없이 붙음",
               list(g) == ["g1", "g2", "g3", "g4"] and all(re.fullmatch(r"\d+/\d+", x["count"]) for x in d6["groups"]) and not any(x["solo"] for x in d6["groups"])
-              and [c["lead"] for c in heads6] == [f"다라연 — {FILES['b'].name}", f"가나대 — {FILES['c'].name}", FILES["d"].name, "목적 문서"] and all(c["st"] == "✓ 끝남" for c in heads6)
+              and [c["lead"] for c in heads6] == [f"[다라] {FILES['b'].name}", f"[가나] {FILES['c'].name}", f"[미지정] {FILES['d'].name}", "목적 문서"] and all(c["st"] == "✓ 끝남" for c in heads6)
               and [c["same"] for c in heads6] == [False, True, True, True], [[(x["id"], x["count"], x["solo"]) for x in d6["groups"]], heads6])
         g3 = [(c["key"], c["lead"], c["role"]) for c in g["g3"]["cards"]]
-        check("⑥ 3단계의 카드 — 「반영할 기관 지정」 = 카드 하나(원본 문서) · 넣는 줄(자리 연결 · 넣기 계획 · 내용 반영)은 넣을 기관 문서마다(다라연 — …: 미지정 · 수정본 · 수정본이 생긴 문서는 카드 없음) · 「수정본 반영」 = 수정본마다(가나대 — …수정본)",
-              g3[0] == ("part", "원본 문서", "source") and [x[:2] for x in g3[1:4]] == [(k, f"다라연 — {FILES['b'].name}") for k in ("link", "plan", "apply")] and g3[4][:2] == ("revise", f"가나대 — {FILES['c'].name}") and len(g3) == 5, g3)
+        check("⑥ 3단계의 카드 — 「반영할 기관 지정」 = 카드 하나(꼬리표 「[기관]」) · 넣는 줄(자리 연결 · 넣기 계획 · 내용 반영)은 넣을 기관 문서마다([다라] …: 미지정 · 수정본 · 수정본이 생긴 문서는 카드 없음) · 「수정본 반영」 = 수정본마다([가나] …수정본)",
+              g3[0] == ("part", "[기관]", "source") and [x[:2] for x in g3[1:4]] == [(k, f"[다라] {FILES['b'].name}") for k in ("link", "plan", "apply")] and g3[4][:2] == ("revise", f"[가나] {FILES['c'].name}") and len(g3) == 5, g3)
+        tags6 = page.evaluate("""() => ({ mine: [document.getElementById('docRole').textContent, document.getElementById('docRole').dataset.role],
+            parts: Object.fromEntries(relayFlowParts().map((w) => [w.name, (docOrgTag(w) || {}).tag || ''])), short: [orgShort('사단법인 한국선급', ['한국선급', '(주)씨드로닉스', '유엔젤', '한국해양대학교']), orgShort('(주)씨드로닉스', ['씨드로닉스', '유엔젤', '랩오투원'])] })""")
+        check("⑥ 기관 문서 꼬리표(spec_취합 ② §11) — 목적 문서는 「목적 문서」 · 기관 문서는 반영할 기관의 약칭(인텍 · 가나대 · 다라연 = 앞 2글자가 모두 달라 2글자) · 미지정 「[미지정]」 · 앞 2글자가 겹치면 모두 3글자",
+              tags6["mine"] == ["목적 문서", "target"] and tags6["parts"].get(FILES["b"].name) == "[다라]" and tags6["parts"].get(FILES["a"].name) == "[가나]" and tags6["parts"].get(FILES["d"].name) == "[미지정]"
+              and tags6["short"] == ["한국선", "씨드"], tags6)
         open_card(page, "files")
         page.wait_for_selector("#paneDash .dash-node.open .collect-row", timeout=30000)
-        o6, L6 = page.evaluate(DASH)["open"], page.evaluate(LIST, "#paneDash")
+        o6, L6 =page.evaluate(DASH)["open"], page.evaluate(LIST, "#paneDash")
         check("⑥ 「준비」 카드 — 문서 칸(원본 문서 — 기관 문서: 문서 4개 · 목적 문서 — 사업계획서: … — 지금 문서) · 「기관 문서」 목록(줄 넷 — 이름 · 상태 꼬리표 · 반영할 기관 · 공통 자리 포함 · 수정본) · 「기관 문서 올리기…」 · 가로 넘침 없음",
               o6["key"] == "files" and any("원본 문서 — 기관 문서" in t and "문서 4개" in t for t in o6["text"]) and any("목적 문서 — 사업계획서" in t and "지금 문서" in t for t in o6["text"])
               and L6["head"] == "기관 문서 4개" and [r["tag"] for r in L6["rows"]] == ["수정본 있음", "넣을 차례", "수정본", "미지정"] and [b[0] for b in L6["btns"]] == ["자동 지정", "기관 문서 올리기…"]
@@ -381,7 +386,7 @@ def main():
         dash_idle(page)
         d6c = page.evaluate(DASH)
         check("⑥ 패널에서 반영할 기관 고르기 — PUT {orgs: [다라연]} · 대시보드가 서버 상태를 다시 읽음(넣는 줄의 카드가 그 문서만큼 늘고 꼬리표 = 「다라연 — 모름.hwpx」) · 「자동 지정」 이 사라짐",
-              sent("PUT", f"/collect/parts/{rd['part']}") == [{"orgs": ["다라연"]}] and [c["lead"] for c in {x["id"]: x for x in d6c["groups"]}["g3"]["cards"] if c["key"] == "link"] == [f"다라연 — {FILES['b'].name}", f"다라연 — {FILES['d'].name}"]
+              sent("PUT", f"/collect/parts/{rd['part']}") == [{"orgs": ["다라연"]}] and [c["lead"] for c in {x["id"]: x for x in d6c["groups"]}["g3"]["cards"] if c["key"] == "link"] == [f"[다라] {FILES['b'].name}", f"[다라] {FILES['d'].name}"]
               and [b[0] for b in page.evaluate(LIST, "#paneDash")["btns"]] == ["기관 문서 올리기…"], [sent("PUT", f"/collect/parts/{rd['part']}"), {x["id"]: x for x in d6c["groups"]}["g3"]["cards"]])
         page.evaluate("() => showTab('Div')")
         page.wait_for_selector("#paneDiv [data-task-many]", timeout=30000)

@@ -696,10 +696,11 @@ function taskDocRole(t, job) { // "target" | "source" | "" — job = 작업에 �
 }
 function docRoleDraw() { // taskDraw 끝(문서를 열 때 · 닫을 때 · 프로젝트·TASK·첨부 파일을 고른 뒤)
   const b = $("docRole"), role = state.id ? taskDocRole(state.task) : "", d = DOC_ROLE[role];
+  const org = role === "source" && typeof docOrgTag === "function" ? docOrgTag({ id: state.id, task: state.task }) : null; // 취합의 기관 문서 = 반영할 기관의 약칭 「[한국선]」(org_short.js — spec_취합 ② §11)
   b.hidden = !d;
   b.dataset.role = role;
-  b.textContent = d ? d[0] : "";
-  b.title = d ? `${d[0]} — ${d[2]}\n워크플로우 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
+  b.textContent = org ? org.tag : d ? d[0] : "";
+  b.title = d ? `${org ? orgTagTitle(org) : `${d[0]} — ${d[2]}`}\n워크플로우 「${taskName("job", state.task.job)}」 · ${taskName("file", state.task.file)}` : "";
 }
 // 표시 켜고 끄기의 기억 — 문서마다 따로(spec_작업 ② §12 「도구는 문서마다」, 2026-11-19 사용자 "원본, 목적문서가 따로면 도구도,, 따로 따로 적용하ㄹ수 있게 해야지"):
 // 이름 줄의 표시 아이콘(doc_quick.js — 템플릿 · 서식 라벨 · 표 라벨 · 구분 기준 자리 · 편집 구역)은 TASK 의 원본 · 목적 문서가 저마다 제 값을 기억한다(키 뒤에 「@source」 · 「@target」 —
@@ -2823,7 +2824,8 @@ const peerLabel = (w) => (gatherOn() && typeof gatherPeerLabel === "function" &&
 function peerTabsDraw(docs, id) { // 둘째 면 머리의 문서 이름 탭 — 띄울 수 있는 문서마다 하나, 고른 탭 = 떠 있는 문서. 누르면 그 문서로 바꾼다
   const job = (state.task || {}).job, role = (w) => taskDocRole(w.task, job); // 목적 문서 표시(docRoleDraw 위) — 탭 글은 peerLabel, 꼬리표는 data-role → CSS ::before
   const seen = {}, labels = docs.map((w) => { const t = peerLabel(w); if (t === w.name) return t; const n = (seen[t] = (seen[t] || 0) + 1); return n > 1 ? `${t} (${n})` : t; }); // 같은 기관 문서가 둘이면 (2) · (3) — 파일 이름 탭은 그대로
-  const box = $("peerTabs"), key = docs.map((w, i) => `${w.id}:${w.name}:${labels[i]}:${(w.task || {}).file || ""}:${role(w)}`).join("|") + "#" + id;
+  const orgs = docs.map((w) => (role(w) === "source" && typeof docOrgTag === "function" ? docOrgTag(w, job) : null)); // 취합의 기관 문서 — 꼬리표 「원본」 대신 반영할 기관의 약칭(data-chip → CSS ::before · org_short.js — spec_취합 ② §11)
+  const box = $("peerTabs"), key = docs.map((w, i) => `${w.id}:${w.name}:${labels[i]}:${(w.task || {}).file || ""}:${role(w)}:${orgs[i] ? orgs[i].tag + orgs[i].names.join(",") : ""}`).join("|") + "#" + id;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.textContent = "";
@@ -2835,8 +2837,10 @@ function peerTabsDraw(docs, id) { // 둘째 면 머리의 문서 이름 탭 — 
     b.tabIndex = on ? 0 : -1;
     b.dataset.peerDoc = w.id;
     if (r) b.dataset.role = r;
+    const org = orgs[i];
+    if (org) b.dataset.chip = org.tag;
     if (label !== w.name) b.dataset.peerOrg = label; // 반영할 기관 이름을 단 탭(화면 검사가 본다)
-    b.title = (r ? `[${DOC_ROLE[r][0]}] ` : "") + (label !== w.name ? `반영할 기관 ${label}\n` : "") + w.name + (kind ? ` — ${taskName("file", kind)}` : "") + (on ? "\n둘째 면에 떠 있는 문서(읽기 전용 — 고치려면 편집 문서 위 파일명 목록에서 이 문서를 엽니다)" : "\n누르면 둘째 면에 이 문서를 띄웁니다");
+    b.title = (r ? `${org ? org.tag : `[${DOC_ROLE[r][0]}]`} ` : "") + (label !== w.name ? `반영할 기관 ${label}\n` : org && org.names.length ? `반영할 기관 ${org.names.join(" · ")}\n` : "") + w.name + (kind ? ` — ${taskName("file", kind)}` : "") + (on ? "\n둘째 면에 떠 있는 문서(읽기 전용 — 고치려면 편집 문서 위 파일명 목록에서 이 문서를 엽니다)" : "\n누르면 둘째 면에 이 문서를 띄웁니다");
     b.append(el("span", null, label));
     b.onclick = () => { peerPick = w.id; peerKind = null; peerSync(); };
     box.append(b);
@@ -2891,8 +2895,8 @@ function toolDocList() { // [{id, short, title, on}] — 두 면의 문서(화�
   if (PEEK || !state.id || !pid || pid === state.id || $("peerCol").classList.contains("folded")) return []; // pid === state.id = 막 바꾼 사이(둘째 면이 아직 옛 문서 — 곧 peerSync)
   const job = (state.task || {}).job, pw = worksList.find((w) => w.id === pid) || { id: pid, name: $("peerName").textContent || "", task: null };
   const one = (id, name, t, on, label = "") => {
-    const r = taskDocRole(t, job), d = DOC_ROLE[r];
-    return { id, on, short: label || (d ? d[1] : name), title: `${d ? `${d[0]} — ` : ""}${name}\n` + (on ? "지금 도구(편집 도구 줄 · 패널 · 진행표)를 쓰는 문서입니다(고치는 문서)"
+    const r = taskDocRole(t, job), d = DOC_ROLE[r], org = r === "source" && typeof docOrgTag === "function" ? docOrgTag({ id, task: t }, job) : null; // 취합의 기관 문서 = 기관 약칭 「[한국선]」(org_short.js — spec_취합 ② §11)
+    return { id, on, short: org ? org.tag : label || (d ? d[1] : name), title: `${org ? `${orgTagTitle(org)}\n` : d ? `${d[0]} — ` : ""}${name}\n` + (on ? "지금 도구(편집 도구 줄 · 패널 · 진행표)를 쓰는 문서입니다(고치는 문서)"
       : "누르면 도구(편집 도구 줄 · 패널 · 진행표)를 이 문서에 씁니다 — 이 문서가 고치는 문서가 되고, 지금 문서는 옆에 읽기 전용으로. 두 문서의 자리 · 보던 곳 · 패널 탭은 그대로") };
   };
   const plabel = peerLabel(pw), mine = one(state.id, state.name, state.task, true), peer = one(pid, pw.name, pw.task, false, plabel !== pw.name ? plabel : ""); // 취합의 기관 문서는 반영할 기관 이름(peerLabel)
@@ -2915,7 +2919,8 @@ function toolDocDraw() { // 상단 바 「도구」 · 패널 머리의 문서 �
   const bar = $("toolDocBar"), src = $("toolSource");
   if (!state.id) { bar.hidden = true; src.replaceChildren(); src.removeAttribute("data-key"); return; } // 문서를 닫음(시작 화면) — 이 줄 아래의 let 들보다 먼저 불릴 수 있다(스크립트를 읽는 동안)
   const list = toolDocList(), cmp = $("panel").dataset.tool === "Compare";
-  const role = state.id ? taskDocRole(state.task) : "", key = JSON.stringify([list, toolDocBusy, cmp, state.id, state.name, role]);
+  const role = state.id ? taskDocRole(state.task) : "", org = role === "source" && typeof docOrgTag === "function" ? docOrgTag({ id: state.id, task: state.task }) : null; // 취합의 기관 문서 = 기관 약칭(org_short.js)
+  const key = JSON.stringify([list, toolDocBusy, cmp, state.id, state.name, role, org && org.tag]);
   if (src.dataset.key === key) return;
   src.dataset.key = key;
   bar.hidden = !list.length;
@@ -2924,8 +2929,8 @@ function toolDocDraw() { // 상단 바 「도구」 · 패널 머리의 문서 �
   src.classList.toggle("tool-doc", !cmp && list.length > 0);
   if (!cmp && list.length) { src.title = ""; src.setAttribute("role", "group"); src.setAttribute("aria-label", "도구를 쓸 문서"); src.append(...toolDocBtns(list)); return; }
   src.removeAttribute("role"); src.removeAttribute("aria-label");
-  const d = DOC_ROLE[role]; // 문서 하나 — TASK 의 원본 · 목적 문서면 그 이름(「목적 문서」 — 긴 파일 이름은 문서 위 이름 줄에 있다), 아니면 파일 이름
-  src.textContent = cmp ? "여러 문서 · 저장된 분석 결과" : d ? d[0] : state.name || "";
+  const d = DOC_ROLE[role]; // 문서 하나 — TASK 의 원본 · 목적 문서면 그 이름(「목적 문서」 — 긴 파일 이름은 문서 위 이름 줄에 있다 · 취합의 기관 문서는 기관 약칭), 아니면 파일 이름
+  src.textContent = cmp ? "여러 문서 · 저장된 분석 결과" : org ? org.tag : d ? d[0] : state.name || "";
   src.title = cmp ? "작업 목록에서 비교할 문서를 선택하세요" : state.name || "";
 }
 async function toolDocSet(id, then = null) { // 도구를 쓸 문서를 둘째 면의 문서 id 로 — 두 면이 문서를 바꾼다. then = 바꾼 뒤 할 일(둘째 면 이름 줄의 분석 상태를 누른 것 — doc_status.js)

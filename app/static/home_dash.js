@@ -389,11 +389,12 @@ function hdOrderState(nodes) { // 차례의 상태(번호 단추의 색 · 표�
 }
 
 function hdRoleEl(role, r, n) { // 카드 머리의 문서 꼬리표 — 「원본 문서」 · 「목적 문서」 · 「원본 → 목적」 · 「워크플로우 전체」(등록부의 말) | null(문서 하나인 워크플로우 — 문서가 하나라 적지 않는다)
-  const doc = role === "source" || role === "target", head = doc ? (r ? `${r.title}${r.many ? "마다" : ""}` : HD_ON[role]) : (n.onText || "").split(" — ")[0] || HD_ON[role] || "";
+  const org = role === "source" && typeof orgIsGather === "function" && orgIsGather((HD.view && HD.view.job) || HD.job); // 취합 — 문서 하나를 가리키지 않는 기관 문서 꼬리표는 「[기관]」(spec_취합 ② §11 · org_short.js — 패널 대시보드 dashFlowRoleEl 과 같다)
+  const doc = role === "source" || role === "target", head = org ? "[기관]" : doc ? (r ? `${r.title}${r.many ? "마다" : ""}` : HD_ON[role]) : (n.onText || "").split(" — ")[0] || HD_ON[role] || "";
   if (!head) return null;
   const t = el("span", "hd-role", head);
   t.dataset.role = role;
-  t.title = doc ? (r ? `${r.title} — ${r.name}${r.many ? "(문서마다)" : ""}` : head) : n.onText || head;
+  t.title = org ? `기관 문서${r && r.many ? "마다" : ""} — ${(r && r.name) || "기관 문서"}` : doc ? (r ? `${r.title} — ${r.name}${r.many ? "(문서마다)" : ""}` : head) : n.onText || head;
   return t;
 }
 
@@ -422,12 +423,12 @@ function hdCards(n, roles, wid, started) {
     const state = n.soon ? "soon" : !x ? "" : !p ? n.state : p.st === "done" ? "done" : p.st === "busy" ? "run" : p.st === "blocked" || p.st === "failed" ? p.st : x.st === "now" || x.st === "run" ? "now" : "todo";
     const skipped = !!(x && (p ? p.skipped : x.skipped));
     let lead = hdRoleEl(role, roles.find((q) => q.role === role) || null, n), text = !x ? "" : p ? p.text || "" : x.text || "";
-    if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「기관 이름 — 파일 이름」 · 서버의 글 앞의 파일 이름은 뗀다(패널 대시보드와 같다)
-      const file = (srcs.find((d) => d.id === p.doc) || {}).name || "", name = collectDocName(wid, p.doc, file);
+    if (one) { // 기관 문서마다의 카드 — 꼬리표 = 「[기관 약칭] 파일 이름」(spec_취합 ② §11 — collect.js collectDocName) · 서버의 글 앞의 파일 이름은 뗀다(패널 대시보드와 같다)
+      const file = (srcs.find((d) => d.id === p.doc) || {}).name || "", name = collectDocName(wid, p.doc, file), full = collectDocOrgs(wid, p.doc);
       lead = el("span", "hd-role collect-doc", name || partName);
       lead.dataset.role = "source";
       lead.dataset.doc = p.doc;
-      lead.title = `${partName} — ${name}`;
+      lead.title = `${partName} — ${full ? `반영할 기관 ${full} · ` : ""}${file || name}`;
       if (file && text.startsWith(`${file} — `)) text = text.slice(file.length + 3);
     }
     const c = { ...n, idx: null, ref, role, state, skipped, word: n.soon ? "준비 중" : !x ? "" : state === "done" && skipped ? "건너뜀" : FLOW_WORD[state] || "",

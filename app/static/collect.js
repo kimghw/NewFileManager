@@ -20,8 +20,15 @@ function collectOf(tid) { return (COLLECT.by[tid] = COLLECT.by[tid] || { view: n
 function collectTouch(tid) { if (COLLECT.by[tid]) COLLECT.by[tid].at = 0; } // 등록부가 바뀌었을 수 있다(실행이 끝남 · 문서를 올림) — 다음 그리기가 다시 읽는다
 const collectView = (tid) => (COLLECT.by[tid] || {}).view || null; // 읽어 둔 등록부(문서 카드의 이름 — 반영할 기관 — 이 읽는다) | null
 function collectPart(tid, part) { const V = collectView(tid); return (V && (V.parts || []).find((p) => p.work === part)) || null; }
-// 문서 카드의 이름 — 반영할 기관이 있으면 「기관 이름 — 파일 이름」 · 없으면 파일 이름(등록부를 아직 못 읽었으면 준 이름)
-function collectDocName(tid, part, name = "") { const p = collectPart(tid, part), file = (p && p.name) || name || ""; return p && (p.orgNames || []).length ? `${p.orgNames.join(" · ")} — ${file}` : file; }
+// 문서 카드의 이름 — 「[기관 약칭] 파일 이름」(spec_취합 ② §11 — 반영할 기관이 없으면 「[미지정] 파일 이름」 · 등록부를 아직 못 읽었으면 준 이름)
+function collectDocTag(tid, part) { // 그 기관 문서의 꼬리표 「[가나]」 · 「[미지정]」 | ""(등록부를 아직 못 읽음 · 이 등록부의 문서가 아님) — org_short.js orgTagText
+  const V = collectView(tid), p = collectPart(tid, part);
+  if (!p || typeof orgTagText !== "function") return "";
+  const names = (p.orgNames || p.orgs || []).map(String), all = ((V && V.orgs) || []).map((o) => o.name);
+  return orgTagText(names, all.length ? all : names);
+}
+function collectDocName(tid, part, name = "") { const p = collectPart(tid, part), file = (p && p.name) || name || "", tag = collectDocTag(tid, part); return tag ? `${tag} ${file}` : file; }
+const collectDocOrgs = (tid, part) => ((collectPart(tid, part) || {}).orgNames || []).join(" · "); // 카드 꼬리표의 풍선 도움말 — 반영할 기관의 온 이름
 function collectSig(tid) { // 다시 그릴지(대시보드의 sig 에 든다) — 등록부 · 보내는 요청 · 편 수정 계획
   const C = COLLECT.by[tid];
   if (!C) return 0;
@@ -43,6 +50,7 @@ function collectRead(tid, force = false) { // 등록부를 읽는다 → 약속 
     Object.assign(C, { at: Date.now(), err, ...(view ? { view } : {}) });
     if (C.plan && view && !(view.parts || []).some((p) => p.work === C.plan.part && p.revOf)) C.plan = null; // 수정본 표시를 푼 문서의 계획은 걷는다
     if (C.redraw) C.redraw();
+    if (view && typeof orgTagsSync === "function") orgTagsSync(); // 문서 꼬리표(이름 줄 · 둘째 면 탭 · 「도구」 단추)의 기관 약칭 — 반영할 기관이 바뀌었을 수 있다(org_short.js)
   })();
   Object.assign(C, { loading: mine, loadSeq: seq });
   return mine;

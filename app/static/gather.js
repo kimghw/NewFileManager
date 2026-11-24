@@ -118,13 +118,14 @@ async function gatherLoad() {
   Object.assign(g, { view: err ? g.view : view, err, missing, loading: false, div });
   gatherDraw();
   peerSync(); // 둘째 면의 탭 = 그 취합에 든 기관 문서
+  docRoleDraw(); // 이름 줄의 꼬리표 — 기관 문서를 보고 있으면 반영할 기관의 약칭(org_short.js — spec_취합 ② §11)
   if (typeof zonesLoad === "function") zonesLoad(); // 편집 구역(zones.js — 전의 기관 구역 표시: ② §9-2) — 반영·실행 취소·구분 기준 반영 뒤에도 이 길로 다시 읽는다
 }
 function gatherViewSet(V, wipe = false) { // 조작의 응답(취합 상태 몸통)을 화면 상태로 — wipe = 기준본이 바뀌어 읽어 둔 작성 내용·계획이 모두 낡음
   const g = gt();
   if (V && Array.isArray(V.parts)) { g.view = V; g.err = ""; g.missing = false; }
   if (wipe) { g.links = {}; g.plans = {}; }
-  if (!PEEK && V && Array.isArray(V.parts)) peerSync(); // 둘째 면 탭 글(반영할 기관 이름 — gatherPeerLabel)이 바뀌었을 수 있다 — 같으면 peerTabsDraw 가 그대로 둔다
+  if (!PEEK && V && Array.isArray(V.parts)) { peerSync(); docRoleDraw(); } // 둘째 면 탭 글(반영할 기관 이름 — gatherPeerLabel) · 탭과 이름 줄의 기관 약칭(org_short.js — spec_취합 ② §11)이 바뀌었을 수 있다 — 같으면 peerTabsDraw 가 그대로 둔다
 }
 function gatherWorks() { // 작업 목록을 읽은 뒤(app.js docSwitchDraw) — 문서를 처음 열었거나 칸의 문서가 달라졌으면 다시 읽는다
   if (PEEK) return;
