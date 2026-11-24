@@ -389,6 +389,71 @@ def test_cut_client_wiring():
     assert html.index('src="/static/outline_match.js"') < html.index('src="/static/outline_cut.js"')
     assert "b.dataset.paras = x.ps.join" in app and "dataset.paras" in js and "olmMergeCall(\"cut\"" in js and "/outline/cut?paras=" in js
     assert 'outlineCut: "새 템플릿으로 나누기"' in app
+    assert 'outlineMove: "나눈 템플릿으로 옮기기"' in app and 'olmMergeCall("move"' in js and "v.moves" in js  # 나눈 템플릿끼리 옮기기(② §8-13)
     for name in ("olmMergeCall", "olmKey", "olmUnsplit", "olmLookFrom"):  # 메뉴가 기대는 outline_match.js 의 이름
         assert f"function {name}(" in (static / "outline_match.js").read_text(encoding="utf-8") or f"const {name} =" in (static / "outline_match.js").read_text(encoding="utf-8")
     assert "갈래" not in js.split("*/", 1)[1] and "공백" not in js  # 화면 글에 쓰지 않는 말
+
+
+def _move(c, d, paras, tid, level, to, scope, sig=None):
+    return c.post(f"/api/docs/{d}/outline/move", json={"paras": paras, "tpl": str(tid), "level": level, "to": str(to), "scope": scope, **({"sig": sig} if sig else {})})
+
+
+def _mv(v, to):
+    return next(m for m in v["moves"] if m["id"] == to)
+
+
+def test_move_between_cut_templates(sess):
+    """나눈 템플릿끼리 옮기기(② §8-13) — 2026-11-24 사용자 "T7L2 로 모두변경하기, 이것만 변경하기 … 대표에서 a로 b로 b에서 대표로.. 이것만 전체":
+    T1 L4 → T1L4a(모두) · T1L4a → T1L4b(여기서만 · 모두) · T1L4b → T1 L4(여기서만) — 바꾼 직후와 다시 분석해 기록을 다시 건 뒤의 소속 · 대표가 같다 · 문서는 안 바뀐다 · 실행 취소로 처음."""
+    c, d, s = sess
+    l4 = _lines(s.outline, 1, 4)
+    n5 = len(_lines(s.outline, 1, 5))
+    assert _view(c, d, l4[0])["moves"] == []  # 나눈 템플릿이 없으면 옮길 곳도 없다
+    assert _cut(c, d, [l4[0]], 1, 4, "here").status_code == 200
+    assert _cut(c, d, [l4[1]], 1, 4, "here").status_code == 200  # → T1L4b
+    assert s.outline["lines"][l4[1]]["tpl"] == "1~4b"
+    # T1 L4 줄의 메뉴 — 「모두 T1L4a 에 넣기」 · 「모두 T1L4b 에 넣기」
+    v = _view(c, d, l4[2])
+    assert [(m["no"], m["root"]) for m in v["moves"]] == [("1L4a", False), ("1L4b", False)]
+    rest = len(_lines(s.outline, 1, 4))
+    assert _mv(v, "1~4a")["all"]["lines"] == rest and _mv(v, "1~4a")["all"]["why"] is None
+    assert _move(c, d, [l4[2]], 1, 4, "1~4a", "all", sig=_mv(v, "1~4b")["all"]["sig"]).status_code == 409  # 메뉴가 보인 계획과 다르면 하지 않는다
+    r = _move(c, d, [l4[2]], 1, 4, "1~4a", "all", sig=_mv(v, "1~4a")["all"]["sig"])
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"]["how"] == "into" and r.json()["moved"]["no"] == "1L4a" and not _lines(s.outline, 1, 4)
+    # T1L4a 줄의 메뉴 — 「여기서만 T1 L4 로 되돌리기」 · T1L4b 로 여기서만 · 모두
+    v = _view(c, d, l4[2])
+    assert [(m["no"], m["root"]) for m in v["moves"]] == [(1, True), ("1L4b", False)]
+    kids = M._members(s.outline, "1~4a", [l4[2]])
+    r = _move(c, d, [l4[2]], "1~4a", 4, "1~4b", "here", sig=_mv(v, "1~4b")["here"]["sig"])
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"]["how"] == "side"
+    assert all(s.outline["lines"][p]["tpl"] == "1~4b" for p in kids) and r.json()["moved"]["moved"] == len(kids)
+    _reps(s.outline)
+    ov, lost = _carry(s)
+    assert not lost and _where(ov) == _where(s.outline) and _reps(ov) == _reps(s.outline)  # 다시 분석해도 같은 소속 · 대표
+    # T1L4b 의 한 줄을 T1 L4 로 되돌리기(여기서만) — 원래 템플릿의 비었던 레벨에 대표가 선다
+    back = l4[1]
+    v = _view(c, d, back)
+    r = _move(c, d, [back], "1~4b", 4, "1", "here", sig=_mv(v, "1")["here"]["sig"])
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"]["how"] == "back"
+    assert s.outline["lines"][back]["tpl"] == "1" and s.outline["templates"]["1"]["slots"]["4"]["rep"] == back
+    assert back not in {p for m in s.outline["splits"] for p in m["lines"]}
+    ov, lost = _carry(s)
+    assert not lost and _where(ov) == _where(s.outline) and _reps(ov) == _reps(s.outline)
+    # T1L4a 모두 → T1L4b — T1L4a 가 없어진다
+    one = _lines(s.outline, "1~4a", 4)[0]
+    v = _view(c, d, one)
+    r = _move(c, d, [one], "1~4a", 4, "1~4b", "all", sig=_mv(v, "1~4b")["all"]["sig"])
+    assert r.status_code == 200, r.text
+    assert "1~4a" not in s.outline["templates"] and len(_lines(s.outline, 1, 4)) == 1
+    assert len(_lines(s.outline, "1~4b", 4)) + 1 == len(l4) and len(_lines(s.outline, "1~4b", 5)) == n5 - len(M._members(s.outline, "1", [back])) + 1
+    ov, lost = _carry(s)
+    assert not lost and _where(ov) == _where(s.outline) and _reps(ov) == _reps(s.outline)
+    # 같은 무리가 아닌 곳 · 제 자신은 400
+    assert _move(c, d, [one], "1~4b", 4, "1~4b", "here").status_code == 400
+    assert _move(c, d, [one], "1~4b", 4, "5", "here").status_code == 400
+    assert c.get(f"/api/docs/{d}/download").content == PLAN.read_bytes()
+    _undo_all(c, d, s)

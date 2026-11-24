@@ -6,7 +6,9 @@
        「여기서만 새 템플릿으로 나누기 → T1L4a」(그 줄과 그 아래 줄 — 번호 줄이면 「이 번호 묶음만」: 같은 번호 묶음의 형제도)
        「T1 L4 모두 새 템플릿으로 나누기 → T1L4a」(문서의 그 템플릿 · 그 레벨 줄 전부와 그 아래 줄)
        「여기서만 T1L4a 에 넣기」(그 레벨에서 이미 나눈 템플릿마다)
-       「T1L4a 전체를 T1 로 합치기」(누른 줄이 그렇게 나눈 템플릿의 줄일 때 — 있는 「합치기」: outline_match.js olmUnsplit)
+       「T1 L4 모두 T1L4a 에 넣기」 · 「여기서만 T1 L4 로 되돌리기」 · 「여기서만 / T1L4a L4 모두 T1L4b 로 옮기기」(나눈 템플릿끼리 옮기기 — 같은 무리 = T1 L4 와 거기서 나눈 템플릿:
+         2026-11-24 사용자 "T7L2 로 모두변경하기, 이것만 변경하기 넣어줘, 대표에서 a로 b로 b에서 대표로.. 이것만 전체" — 서버 outline_match.move · move_view · POST …/outline/move)
+       「T1L4a 전체를 T1 로 합치기」(누른 줄이 그렇게 나눈 템플릿의 줄일 때 — 있는 「합치기」: outline_match.js olmUnsplit · 나눈 템플릿 → 원래 템플릿 「모두」 가 이것이다)
        「템플릿 관계에서 보기」
      못 하는 항목은 꺼 두고 까닭을 풍선 도움말에 적는다(감추지 않는다). 긴 설명은 항목의 풍선 도움말에 둔다.
    · 한 라벨이 여러 줄을 가리키면(표 한 행의 칸들 — 「T11 L2 ×2」) 「여기서만」 은 그 줄 모두다(data-paras).
@@ -53,6 +55,24 @@ function olcItems(at, v) { // 계획(cut_view) → 메뉴 항목 [[글, 꼬리, 
     items.push([`여기서만 T${m.no} 에 넣기`, olcCount(h), () => olcRun(at, v, "here", m), !!(h.why || m.why),
       h.why || m.why || `이 줄과 그 아래 줄(모두 ${nf(h.moved)}줄)을 이미 있는 T${m.no}(줄 ${nf(m.lines)}개)로 옮깁니다 — 대표 · 서식은 T${m.no} 것 그대로\n${tail}(이번에 넣은 것만 되돌리려면 「실행 취소」 — 「합치기」 는 T${m.no} 의 줄을 모두 되돌립니다)`]);
   }
+  const moves = v.moves || [];
+  const groupName = (m) => (m.root ? `T${m.no} L${v.level}` : `T${m.no}`); // 갈 곳 — 원래 템플릿은 「T7 L2」 · 나눈 템플릿은 「T7L2a」
+  const mvTip = (m, scope, r) => r.why || (scope === "here"
+    ? `${at.paras.length > 1 ? `이 라벨의 줄 ${nf(at.paras.length)}개` : "이 줄"}${r.lines > at.paras.length ? `(번호 줄은 같은 번호 묶음의 형제까지 ${nf(r.lines)}줄)` : ""}과 그 아래 줄(모두 ${nf(r.moved)}줄)을 ${groupName(m)} 로 옮깁니다`
+    : `지금 문서의 ${name} 줄 ${nf(r.lines)}개와 그 아래 줄(모두 ${nf(r.moved)}줄)을 ${groupName(m)} 로 옮깁니다`)
+    + (r.why ? "" : `\n대표 · 서식은 ${groupName(m)} 것 그대로 · ${tail}`);
+  for (const m of moves) { // 나눈 템플릿끼리 옮기기(② §8-13) — 「T7 L2」 ↔ 「T7L2a」 ↔ 「T7L2b」 · 여기서만 · 모두
+    if (!m.root && (v.made || []).some((x) => String(x.id) === String(m.id))) { // 원래 템플릿의 줄 → 나눈 템플릿: 「여기서만 …에 넣기」 는 위에 있다
+      items.push([`${name} 모두 T${m.no} 에 넣기`, olcCount(m.all), () => olcMove(at, v, m, "all"), !!m.all.why, mvTip(m, "all", m.all)]);
+      continue;
+    }
+    if (m.root) { // 나눈 템플릿의 줄 → 원래 템플릿: 「모두」 는 아래 「합치기」
+      items.push([`여기서만 ${groupName(m)} 로 되돌리기`, olcCount(m.here), () => olcMove(at, v, m, "here"), !!m.here.why, mvTip(m, "here", m.here)]);
+      continue;
+    }
+    items.push([`여기서만 ${groupName(m)} 로 옮기기`, olcCount(m.here), () => olcMove(at, v, m, "here"), !!m.here.why, mvTip(m, "here", m.here)]);
+    items.push([`${name} 모두 ${groupName(m)} 로 옮기기`, olcCount(m.all), () => olcMove(at, v, m, "all"), !!m.all.why, mvTip(m, "all", m.all)]);
+  }
   if (v.back) {
     const b = v.back;
     items.push(null, [`T${b.no} 전체를 T${b.ofNo} 로 합치기`, `${nf(b.lines)}줄`, () => olmUnsplit(b.id), !!b.why,
@@ -60,6 +80,17 @@ function olcItems(at, v) { // 계획(cut_view) → 메뉴 항목 [[글, 꼬리, 
   }
   items.push(null, ["템플릿 관계에서 보기", "", () => olcRel(at), false, "「템플릿 관계」 열에서 이 레벨의 서식 목록과 이 줄의 서식을 봅니다(라벨을 두 번 누른 것과 같습니다)"]);
   return items;
+}
+
+function olcMove(at, v, m, scope) { // 나눈 템플릿끼리 옮기기 — POST …/outline/move(sig = 메뉴가 보인 계획: 그 사이 바뀌었으면 409)
+  const r = m[scope] || {};
+  return olmMergeCall("move", { paras: at.paras, tpl: String(v.tpl), level: v.level, to: String(m.id), scope, ...(r.sig ? { sig: r.sig } : {}) }, {
+    focus: (res) => olmKey((res.moved || {}).id || m.id),
+    msg: (res) => {
+      const c = res.moved || {};
+      return `T${c.from} 의 줄을 ${m.root ? `T${c.no} L${c.level}` : `T${c.no}`} 로 옮겼습니다 — ${c.scope === "all" ? "모두" : "여기서만"} · ${nf(c.moved)}줄 · 문서는 안 바뀜 · 「실행 취소」`;
+    },
+  });
 }
 
 function olcRel(at) {

@@ -3040,7 +3040,7 @@ const LOG_KIND = { create: "작업 만듦", text: "글 고침", revert: "되돌�
   para: "문단 모양", table: "표 행·열", rejected: "표준 검사로 되돌림", undo: "실행 취소", verify: "검증 시작", verified: "검증 끝",
   download: "내려받기", reopen: "작업 다시 엶", headings: "헤딩 추출", outline: "개요 편집",
   outlineFormat: "개요 줄 자리 수정", outlineAlign: "개요 줄 둘째 줄 맞춤", // 템플릿 레벨의 자리 규칙 적용 · 글을 고쳐 둔 줄 맞춤(spec_hwpx_웹편집 ② §8-1)
-  outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", outlineCut: "새 템플릿으로 나누기", // spec_hwpx_웹편집 ② §8-2 · §8-13(라벨의 오른쪽 단추 메뉴)
+  outlineRep: "레벨 대표 정하기", outlineMatch: "대표에 맞추기", outlineMerge: "종속 템플릿 만들기", outlineUnmerge: "종속 템플릿 떼기", outlineCut: "새 템플릿으로 나누기", outlineMove: "나눈 템플릿으로 옮기기", // spec_hwpx_웹편집 ② §8-2 · §8-13(라벨의 오른쪽 단추 메뉴)
   captionRep: "캡션 템플릿 대표 정하기", captionMatch: "캡션을 대표에 맞추기", // 캡션 템플릿 「CN」(spec_hwpx_웹편집 ② §8-10)
   commit: "확정", restore: "확정 복원", discard: "모두 되돌리기" }; // 확정(spec_작업 ② §8)
 const OUTLINE_OP = { enter: "하위 레벨 줄(Enter)", sibling: "같은 레벨 트리(Alt+Enter)", level: "개요 레벨 바꾸기(Alt+↑/↓)", move: "줄 옮기기(끌기)", remove: "빈 레터 줄 지우기",

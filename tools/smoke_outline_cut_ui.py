@@ -162,7 +162,8 @@ def main():
         check("나눈 줄의 메뉴 — 「T1L4a 전체를 T1 로 합치기」", any(i["text"] == "T1L4a 전체를 T1 로 합치기" and not i["off"] for i in items) and items[0]["text"].endswith("→ T1L4aL4a"), items)
         items = menu(page, l4[1])
         check("다른 「T1 L4」 줄의 메뉴 — 「여기서만 T1L4a 에 넣기」 · 새 이름은 T1L4b",
-              any(i["text"] == "여기서만 T1L4a 에 넣기" and not i["off"] for i in items) and items[0]["text"].endswith("→ T1L4b"), items)
+              any(i["text"] == "여기서만 T1L4a 에 넣기" and not i["off"] for i in items) and items[0]["text"].endswith("→ T1L4b")
+              and any(i["text"] == "T1 L4 모두 T1L4a 에 넣기" and not i["off"] and i["tip"] for i in items), items)  # 나눈 템플릿끼리 옮기기(② §8-13 — 2026-11-24)
 
         pick(page, "T1 L4 모두 새 템플릿으로")
         st = page.evaluate(STATE)
@@ -170,6 +171,11 @@ def main():
         left = page.evaluate("() => [...document.querySelectorAll('#doc .tpl-mark .tm-t')].filter((x) => x.dataset.tpl === '1' && x.dataset.level === '4').length")
         check("「T1 L4 모두」 → 남은 줄이 모두 「T1L4b L4」 · 「T1 L4」 라벨이 남지 않는다",
               "T1L4b 로 나눴습니다" in st["toast"] and "모두" in st["toast"] and st["a4"] == 0 and st["b4"] == len(l4) - 1 and m2 and m2["text"].startswith("T1L4b L4") and left == 0, [st, m2, left])
+        items = menu(page, l4[0])
+        texts = [i["text"] for i in items]
+        check("나눈 템플릿 줄의 메뉴 — 「여기서만 T1 L4 로 되돌리기」 · 「여기서만 T1L4b 로 옮기기」 · 「T1L4a L4 모두 T1L4b 로 옮기기」(② §8-13 나눈 템플릿끼리 옮기기)",
+              all(any(i["text"] == x and not i["off"] and i["tip"] for i in items) for x in ("여기서만 T1 L4 로 되돌리기", "여기서만 T1L4b 로 옮기기", "T1L4a L4 모두 T1L4b 로 옮기기")), texts)
+        page.keyboard.press("Escape")
         page.evaluate("() => tplRelOpen('1~4b')")
         page.wait_for_selector("#headsDlgBody li.trel-node", timeout=20000)
         page.wait_for_timeout(600)

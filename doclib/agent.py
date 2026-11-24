@@ -6,7 +6,7 @@
   - 구조화 출력(`--json-schema`) — 결과 줄(type: result)의 `structured_output`. 2026-11-24 실측: Opus 5.5 · Read 로 PDF 4쪽 → 33초 · 도구 Read 1번(references/Claude_CLI_헤드리스.md 「Read 도구로 PDF 읽기」).
 - 모델 = env NFM_DOCLIB_MODEL | `MODEL`(claude-opus-5-5 — 사용자 "claude opus 최신모델을 이용해서 read 도구 이용해서"). 실행 파일 = env NFM_CLAUDE_CLI | PATH 의 claude.
 - 청구: 자식 env 에서 ANTHROPIC_API_KEY · ANTHROPIC_AUTH_TOKEN 과 부른 세션에 묶인 CLAUDE* 를 뺀다(구독 로그인으로 — 8114 의 띄우개와 같은 까닭).
-- 동시 실행 = env NFM_DOCLIB_SLOTS(기본 3) 자리."""
+- 동시 실행 = env NFM_DOCLIB_SLOTS(기본 10) 자리 — 2026-11-24 사용자 "md 변환할때 20페이지씩 하면서 병렬 10개씩"."""
 import base64
 import json
 import os
@@ -20,6 +20,7 @@ from pathlib import Path
 MODEL = "claude-opus-5-5"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 _MODEL_RE = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}")
+SLOTS = 10                # 동시에 도는 CLI 호출 수(기본) — 쪽 묶음(20쪽)이 이만큼 같이 돈다
 _SLOTS = None
 _GUARD = threading.Lock()
 
@@ -48,9 +49,9 @@ def status():
 
 def slots_n():
     try:
-        return max(1, int(os.environ.get("NFM_DOCLIB_SLOTS") or 3))
+        return max(1, int(os.environ.get("NFM_DOCLIB_SLOTS") or SLOTS))
     except ValueError:
-        return 3
+        return SLOTS
 
 
 def _slots():

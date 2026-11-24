@@ -847,9 +847,51 @@ def cut_view(doc_id: str, paras: str):
     with s.lock:
         ov = _ov(server, s)
         try:
-            return {**outline_match.cut_view(s.doc, ov, ids), "rev": s.rev}
+            return {**outline_match.cut_view(s.doc, ov, ids), "moves": outline_match.move_view(s.doc, ov, ids), "rev": s.rev}
         except (KeyError, ValueError) as e:
             raise HTTPException(404, f"그 줄은 템플릿의 줄이 아닙니다 — {e}")
+
+
+@router.post("/api/docs/{doc_id}/outline/move")
+def move(doc_id: str, body: dict = Body(...)):
+    """{paras[줄 id], tpl, level, to, scope: "here" | "all", sig?} — 줄 paras 를 같은 무리(템플릿 A 의 L k 와 거기서 나눈 템플릿 — 「T7 L2」 · 「T7L2a」 · 「T7L2b」)의 템플릿 to 로 옮긴다
+    (outline_match.move — spec_hwpx_웹편집 ② §8-13 「나눈 템플릿끼리 옮기기」). tpl · level · sig = 메뉴(GET …/outline/cut 의 moves)가 보인 것 — 그 사이 바뀌었으면 409.
+    문서는 안 바뀐다 · 실행 취소 1(기록 `outlineMove`). → {moved{id, no, from, how(into | back | side), level, scope, lines, moved}, outline, …편집 상태}. 400 같은 무리가 아님 · 못 옮김 · 409 2단계 없음 · 바뀜."""
+    server = _server()
+    ids, scope, level, sig = _cut_paras(body.get("paras")), body.get("scope", "here"), body.get("level"), body.get("sig")
+    tid, to = _tid(body.get("tpl"), "tpl"), _tid(body.get("to"), "to")
+    if sig is not None and not isinstance(sig, str):
+        raise HTTPException(400, "sig 는 메뉴 자료(GET …/outline/cut 의 moves)의 그 범위 sig")
+    if isinstance(level, bool) or not isinstance(level, int) or level < 1:
+        raise HTTPException(400, "level(그 줄의 레벨 — 1 이상의 정수)이 필요합니다")
+    if scope not in outline_match.CUT_SCOPES:
+        raise HTTPException(400, "scope 는 here | all")
+    s = server._sess(doc_id)
+    _hwpx(s)
+    with s.lock:
+        ov = _ov(server, s)
+        for p in ids:
+            try:
+                x = outline_match._line_of(ov, p)
+            except ValueError:
+                x = {}
+            if str(x.get("tpl")) != tid or x.get("level") != level:
+                raise HTTPException(409, "그 줄의 템플릿 · 레벨이 메뉴를 연 뒤에 바뀌었습니다 — 라벨을 다시 눌러 주세요")
+        if sig is not None:
+            try:
+                now = outline_match.move_sig(ov, outline_match.move(s.doc, ov, ids, to, scope, dry=True))
+            except (KeyError, ValueError) as e:
+                raise HTTPException(400, str(e))
+            if now != sig:
+                raise HTTPException(409, "옮길 줄이 메뉴를 연 뒤에 바뀌었습니다 — 라벨을 다시 눌러 주세요")
+
+        def change():
+            got = outline_match.move(s.doc, ov, ids, to, scope)
+            return {**{k: got[k] for k in ("id", "no", "from", "level", "scope", "lines")}, "how": got["kind"], "moved": len(got["moved"])}  # (기록의 「kind」 는 _bump 의 인자라 how)
+        got, ok = _model_only(server, s, "outlineMove", {"paras": ids, "tpl": tid, "level": level, "to": to, "scope": scope}, change)
+        if not ok:
+            return got
+        return {"moved": got, "outline": outline_pos.view(s.doc, s.outline), **_state(s)}
 
 
 @router.post("/api/docs/{doc_id}/outline/cut")

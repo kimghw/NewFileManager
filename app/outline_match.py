@@ -1927,6 +1927,148 @@ def cut(doc, ov, tid, level, paras, scope="here", into=None, upto=None):
     return {**out, "scope": scope}
 
 
+# ---------------------------------------------------------------- 나눈 템플릿끼리 옮기기 — 「T7 L2」 ↔ 「T7L2a」 ↔ 「T7L2b」(spec_hwpx_웹편집 ② §8-13 「나눈 템플릿끼리 옮기기」)
+# 2026-11-24 사용자(라벨 「T7L2a L2」 의 메뉴를 보며) "T7L2 로 모두변경하기, 이것만 변경하기 넣어줘, 대표에서 a로 b로 b에서 대표로.. 이것만 전체, 기능을 템플릿 아이콘이나 추가 아이콘에 넣어줘".
+# 한 무리 = 템플릿 A 의 L k 와 거기서 나눈 템플릿들(variant.of = A · level = k). 줄을 무리 안의 다른 템플릿으로 옮긴다 — 문서는 안 바뀐다:
+#   A → 나눈 템플릿 = `cut(into=)` 그대로 · 나눈 템플릿 → A 「모두」 = `unsplit`(합치기) · 「여기서만」 = `back` · 나눈 템플릿 → 다른 나눈 템플릿 = A 로 되돌린 뒤 `cut(into=)`.
+def _peers(ov, tid, level):
+    """줄 (tid, level) 의 무리 → (A, [나눈 템플릿 id]) | None. tid 가 A 의 L level 에서 나눈 템플릿이고 줄이 그 첫 레벨이면 A 의 무리, 아니면 tid 자신의 무리(나눈 것이 없으면 None)."""
+    tid, level = str(tid), int(level)
+    v = (ov["templates"].get(tid) or {}).get("variant") or {}
+    root = str(v["of"]) if v and int(v.get("level") or 0) == level and str(v.get("of")) in ov["templates"] else tid
+    made = sorted((oid for oid, o in ov["templates"].items() if str((o.get("variant") or {}).get("of")) == root and int((o.get("variant") or {}).get("level") or 0) == level),
+                  key=lambda oid: str(ov["templates"][oid]["no"]))
+    return (root, made) if made else None
+
+
+def back(doc, ov, cid, paras, scope="here"):
+    """나눈 템플릿 cid 의 첫 레벨 줄 paras(번호형이면 같은 번호 묶음의 형제도 — cut_paras)와 그 아래 cid 줄을 원래 템플릿 A 의 같은 레벨로 되돌린다. scope 「all」 이거나 cid 의 줄이 모두 가면 `unsplit`(템플릿째).
+    떼기 기록에서 그 줄을 뺀다(다시 분석해 기록을 다시 걸어도 A 에 남는다). 오버레이만 바꾼다. -> {"id": A, "no", "moved"[줄 id], "paras"}."""
+    cid = str(cid)
+    C = _tpl(ov, cid)
+    v = C.get("variant") or {}
+    if not v:
+        raise ValueError(f"T{C['no']} 는 나눈 템플릿이 아닙니다")
+    tid, level = str(v["of"]), int(v["level"])
+    A = _tpl(ov, tid)
+    if v.get("by"):
+        raise ValueError(f"T{C['no']} 는 「넣은 뒤 정리」 · 「내용 반영」 이 만든 템플릿이라 줄을 옮기지 않습니다 — 「넣은 뒤 정리」 가 소속과 서식을 다시 정합니다")
+    got = cut_paras(doc, ov, cid, level, paras, scope)
+    moved = _members(ov, cid, got)
+    if scope == "all" or not any(x["tpl"] == cid and pid not in moved for pid, x in ov["lines"].items()):
+        ids = sorted(pid for pid, x in ov["lines"].items() if x["tpl"] == cid)
+        unsplit(ov, cid)
+        return {"id": tid, "no": A["no"], "moved": ids, "paras": got, "whole": True}
+    for pid, x in ov["lines"].items():  # 그 줄 아래에 cid 에서 다시 나눈 템플릿의 줄이 있으면 — 부모 템플릿이 갈라져 소속이 흐려진다: 그것부터
+        if x["tpl"] != cid and x.get("parent") in moved and _within(ov, x["tpl"], cid):
+            raise ValueError(f"이 줄 아래에 T{C['no']} 에서 나눈 T{ov['templates'][x['tpl']]['no']} 의 줄이 있습니다 — 그것부터 합치세요")
+    # ---- 여기부터 오버레이를 바꾼다
+    for pid in moved:
+        ov["lines"][pid].update(tpl=tid, no=A["no"])
+    _deep_shift(ov, cid, tid, moved)
+    for k in sorted({str(ov["lines"][pid]["level"]) for pid in moved}):
+        csl, asl = (C.get("slots") or {}).get(k) or {}, (A.get("slots") or {}).get(k)
+        if csl.get("rep") in moved:  # cid 의 대표가 떠났다 — 남은 첫 줄(없으면 비움)
+            rest = [pid for pid, y in ov["lines"].items() if y["tpl"] == cid and str(y["level"]) == k]
+            csl["rep"] = rest[0] if rest else None
+            for key in ("repSet", "agentRep"):
+                csl.pop(key, None)
+        if asl is not None and (not asl.get("rep") or asl["rep"] in ov["lines"]):  # A 의 그 레벨에 유효한 대표가 없으면(자리로 나눠 비었던 레벨) 돌아온 첫 줄 — 오버레이 줄이 아닌 대표는 그대로
+            x = ov["lines"].get(asl.get("rep")) if asl.get("rep") else None
+            if not (x is not None and x["tpl"] == tid and str(x["level"]) == k):
+                asl["rep"] = next(pid for pid in sorted(moved) if str(ov["lines"][pid]["level"]) == k)
+                for key in ("repSet", "agentRep"):
+                    asl.pop(key, None)
+    gone = set(moved)
+    recs = []
+    for r in ov.get("splits") or []:  # 기록에서 뺀다 — 빈 「더 넣기」 기록은 지운다(만든 기록은 남는다: 남은 줄이 있다)
+        if r.get("id") == cid:
+            r["lines"] = [p for p in r.get("lines") or [] if p not in gone]
+            if r.get("stop"):
+                r["stop"] = [p for p in r["stop"] if p not in gone] or None
+                if not r["stop"]:
+                    r.pop("stop")
+            if not r["lines"]:
+                continue
+        recs.append(r)
+    if any(r.get("id") == cid for r in ov.get("splits") or []) and not any(r.get("id") == cid and not r.get("add") for r in recs):
+        # 만든 기록의 줄이 모두 돌아갔다 — 남은 첫 「더 넣기」 기록이 만든 기록이 된다(다시 분석할 때 그 차례에 그 템플릿을 만든다 · 빈 기록을 「못 건 것」 으로 남기지 않는다)
+        first = next((r for r in recs if r.get("id") == cid), None)
+        if first is not None:
+            first.pop("add", None)
+    ov["splits"] = recs
+    _settle_cuts(ov)
+    return {"id": tid, "no": A["no"], "moved": sorted(moved), "paras": got, "whole": False}
+
+
+def move(doc, ov, paras, dst, scope="here", dry=False):
+    """줄 paras(라벨 하나가 가리키는 줄 — 같은 템플릿 · 레벨)를 같은 무리(_peers)의 템플릿 dst 로 옮긴다 — scope 「here」 그 줄과 그 아래 · 「all」 그 템플릿 · 그 레벨 줄 모두.
+    **사본에서 다 한 뒤 바꾼다**(둘 걸음 — 되돌린 뒤 넣다가 막혀도 반만 바뀐 채 남지 않게) · dry = 해 보기만(ov 를 안 바꾼다 — 메뉴의 셈). -> {"id", "no", "from", "kind"(into | back | side), "moved"[줄 id], "lines"}."""
+    paras = list(dict.fromkeys(paras or []))
+    if not paras:
+        raise ValueError("옮길 줄이 없습니다")
+    if scope not in CUT_SCOPES:
+        raise ValueError("scope 는 here | all")
+    x = _line_of(ov, paras[0])
+    tid, level, dst = str(x["tpl"]), int(x["level"]), str(dst)
+    for p in paras:
+        _check_member(ov, tid, level, p)
+    peers = _peers(ov, tid, level)
+    if peers is None or dst == tid or (dst != peers[0] and dst not in peers[1]):
+        raise ValueError(f"T{ov['templates'].get(dst, {}).get('no', dst)} 는 이 줄(T{x.get('no')} L{level})과 같은 무리의 템플릿이 아닙니다")
+    root = peers[0]
+    w = copy.deepcopy(ov)
+    if tid == root:  # A → 나눈 템플릿
+        got = cut(doc, w, tid, level, paras, scope=scope, into=dst)
+        kind, moved, lines = "into", got["moved"], got["paras"]
+    else:
+        got = back(doc, w, tid, paras, scope)
+        kind, moved, lines = "back", got["moved"], got["paras"]
+        if dst != root:  # 다른 나눈 템플릿으로 — 되돌린 첫 레벨 줄을 거기에 넣는다(그 아래 줄은 cut 이 데려간다)
+            kind = "side"
+            roots = [p for p in lines if w["lines"].get(p, {}).get("tpl") == root]  # (되돌린 줄을 자리로 나눈 다른 템플릿이 데려갔으면 — _settle_cuts — 그 줄은 안 간다)
+            if not roots:
+                raise ValueError("옮길 줄이 없습니다")
+            got2 = cut(doc, w, root, level, roots, scope="here", into=dst)
+            moved = sorted(set(moved) | set(got2["moved"]))
+    D = w["templates"].get(dst) or w["templates"][root]
+    out = {"id": dst, "no": D["no"], "from": ov["templates"][tid]["no"], "kind": kind, "moved": sorted(moved), "lines": len(lines), "level": level, "scope": scope}
+    if not dry:
+        ov.clear()
+        ov.update(w)
+    return out
+
+
+def move_sig(ov, out):
+    """옮기기 계획의 지문 — 메뉴가 보인 것(옮길 줄 · 갈 템플릿 · 헤딩 그래프의 실행)과 실행할 때의 것이 같은가."""
+    raw = json.dumps([out["id"], out["kind"], out["scope"], out["moved"], ov.get("run")], ensure_ascii=False, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def move_view(doc, ov, paras):
+    """줄 paras 의 무리 안 옮기기 메뉴 자료 → [{id, no, root(갈 곳이 원래 템플릿인가), here{lines, moved, why, sig}, all{…}}] — 사본에 해 보고 센다(읽기만)."""
+    x = _line_of(ov, paras[0])
+    tid, level = str(x["tpl"]), int(x["level"])
+    peers = _peers(ov, tid, level)
+    if peers is None:
+        return []
+    out = []
+    for dst in [peers[0]] + peers[1]:
+        if dst == tid:
+            continue
+        one = {"id": dst, "no": ov["templates"][dst]["no"], "root": dst == peers[0]}
+        for scope in CUT_SCOPES:
+            r = {"lines": 0, "moved": 0, "why": None, "sig": None}
+            try:
+                got = move(doc, ov, paras, dst, scope, dry=True)
+                r.update(lines=got["lines"], moved=len(got["moved"]), sig=move_sig(ov, got))
+            except (KeyError, ValueError) as e:
+                r["why"] = str(e)
+            one[scope] = r
+        out.append(one)
+    return out
+
+
 def apply_reps(g, ov):
     """그래프 g 의 템플릿 레벨 대표 문단(slots[].rep)을 정해 둔 대표(오버레이 — 사람이 정한 repSet · 서식 정리 계획이 정한 agentRep: rep_origin)로 바꾼 **사본** — 서식 복사의 내용 서식 후보가 그 줄의 서식을 뽑게
     (spec_hwpx_웹편집 ② §8-2 · spec_서식복사 ② §12). 그 대표가 오버레이에서 같은 템플릿·레벨 줄일 때만. 바꿀 것이 없으면 g 그대로."""
