@@ -154,6 +154,9 @@ def _state(to_id, G, k):
     return "todo", "넣을 차례" if not d else "문서 · 지정이 바뀌었거나 넣은 것이 되돌려져 다시 넣을 차례"
 
 
+NO_ORGS = "프로젝트 구성(기관)이 아직 없어 반영할 기관을 고를 수 없습니다 — 「프로젝트 구성 추출」 뒤에 고릅니다"   # 미지정 문서의 글(고를 기관이 없을 때) — 상태 식 workflow_units._c_part 도 같은 글
+
+
 def view(to_id):
     """등록부의 보기(GET …/collect) — 워크플로우 실행기 · 대시보드 · 화면의 「기관 문서」 목록이 읽는다."""
     if not is_collect(_job(to_id)):
@@ -166,6 +169,8 @@ def view(to_id):
     for i, k in enumerate(G["order"]):
         p = G["parts"][k]
         st, text = _state(to_id, G, k)
+        if st == "unassigned" and not orgs:   # 고를 기관이 없다 — 고르기가 꺼진 까닭을 그 줄에 보인다(풍선 도움말에만 두면 「왜 선택이 안 되지?」: 2026-11-24 사용자)
+            text = NO_ORGS
         parts.append({"work": k, "name": _name(k), "order": i, "orgs": list(p["orgs"]), "orgNames": [names.get(o, o) for o in p["orgs"]], "orgsBy": p["orgsBy"], "common": p["common"],
                       "revOf": p["revOf"], "revName": _name(p["revOf"]) if p["revOf"] else "", "later": MC.later(G, k), "state": st, "text": text, "done": p.get("done")})
     return {"collect": True, "version": G["version"], "orgs": orgs, "parts": parts}

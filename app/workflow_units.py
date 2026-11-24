@@ -1565,6 +1565,7 @@ _STATE_BY["gather"] = {"division": _g_division, "frame": _g_frame, "hand": _g_ha
 C_STATE = {"unassigned": "반영할 기관 미지정", "superseded": "뒤 수정본이 있음", "revision": "수정본 — 반영 전", "todo": "넣을 차례", "done": "반영함", "left": "반영함 · 확인 필요"}
 C_FILL = ("todo", "done", "left")   # 넣기 대상(자리 연결 → 넣기 계획 → 내용 반영을 도는 문서)의 상태 — 미지정 · 뒤 수정본이 있는 문서는 아니다 · 수정본으로 등록한 문서(revOf)도 아니다(「수정본 반영」 이 맡는다 — 반영한 뒤의 done · left 도)
 C_NAMES = 8   # 줄의 글에 이름을 적는 기관 문서 수(넘으면 「외 n개」)
+C_NO_ORGS = "프로젝트 구성(기관)이 아직 없어 반영할 기관을 고를 수 없습니다 — 「프로젝트 구성 추출」 뒤에 고릅니다"   # 등록부의 보기에 기관이 없을 때(merge_collect_api.NO_ORGS 와 같은 글 — tests/test_workflow_collect.py 가 맞춘다)
 
 
 def collect_rows(V):
@@ -1617,8 +1618,10 @@ def _c_part(ctx):
     if not rows:
         return {"st": "done", "skipped": True, "text": "기관 문서가 아직 없습니다 — 올리면 그때 반영할 기관을 정합니다"}
     un = [p for p in rows if p.get("state") == "unassigned"]
-    per = [_c_row(p, "todo", "반영할 기관 미지정 — 미지정이면 넣지 않습니다") if p in un else _c_row(p, "done", " · ".join(p.get("orgNames") or ()) or p.get("text") or "") for p in rows]
-    return {"st": "todo" if un else "done", "text": f"기관 문서 {nf(len(rows))}개 — 지정 {nf(len(rows) - len(un))} · 미지정 {nf(len(un))}", "per": per}
+    no_orgs = bool(un) and not (V or {}).get("orgs")   # 고를 기관이 없다(프로젝트 구성 전) — 그 까닭을 줄에 보인다(등록부의 글 merge_collect_api.NO_ORGS 와 같은 뜻 · 실행 층은 *_api 를 가져오지 않는다)
+    why = C_NO_ORGS if no_orgs else "반영할 기관 미지정 — 미지정이면 넣지 않습니다"
+    per = [_c_row(p, "todo", why) if p in un else _c_row(p, "done", " · ".join(p.get("orgNames") or ()) or p.get("text") or "") for p in rows]
+    return {"st": "todo" if un else "done", "text": f"기관 문서 {nf(len(rows))}개 — 지정 {nf(len(rows) - len(un))} · 미지정 {nf(len(un))}" + (f" · {C_NO_ORGS}" if no_orgs else ""), "per": per}
 
 
 def _c_fill(ctx):

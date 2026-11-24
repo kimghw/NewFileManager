@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import custom_tasks as C
 from app import custom_tasks_api as CA
 from app import job_prompts, unit_steps, workflow
+from app import merge_collect_api as MCA
 from app import workflow_exec as X
 from app import workflow_state as S
 from app import workflow_units as U
@@ -184,10 +185,10 @@ def _row(work, state, name=None, **more):
             "revOf": None, "revName": "", "later": [], "state": state, "text": "", "done": None, **more}
 
 
-def _ctx(parts=None, div=None, **facts):
+def _ctx(parts=None, div=None, orgs=({"key": "가나대", "name": "가나대", "role": "공동"},), **facts):
     t = {"id": "t", "heads": {"s2": True, "s3": True, "llm": False, "job": None}, "div": div, **facts}
     if parts is not None:
-        t["collect"] = {"collect": True, "version": 1, "orgs": [], "parts": parts}
+        t["collect"] = {"collect": True, "version": 1, "orgs": list(orgs), "parts": parts}
     return {"ready": True, "lack": [], "llm": True, "skip": set(), "base": "target", "pair": {"target": {"role": "target", "title": "사업계획서", "id": "t", "facts": t}}}
 
 
@@ -202,6 +203,9 @@ def test_state_lines_count_the_registry_view_not_the_last_source():
     assert (part["st"], part["text"]) == ("todo", "기관 문서 6개 — 지정 5 · 미지정 1") and [(p["doc"], p["st"], p["state"]) for p in part["per"]] == [
         ("a", "done", "done"), ("b", "todo", "unassigned"), ("c", "done", "todo"), ("d", "done", "superseded"), ("e", "done", "revision"), ("f", "done", "left")]
     assert part["per"][1]["text"] == "b.hwpx — 반영할 기관 미지정 — 미지정이면 넣지 않습니다" and part["per"][0]["text"] == "a.hwpx — 가나대" and all(p["role"] == "source" for p in part["per"])
+    bare = st("part", _ctx([_row("b", "unassigned")], orgs=()))   # 고를 기관이 없다(프로젝트 구성 전) — 고르기가 꺼진 까닭을 줄 · 문서 카드에(2026-11-24 「왜 반영할 기관 선택이 안 되지?」)
+    assert bare["st"] == "todo" and bare["text"] == f"기관 문서 1개 — 지정 0 · 미지정 1 · {U.C_NO_ORGS}" and bare["per"][0]["text"] == f"b.hwpx — {U.C_NO_ORGS}"
+    assert U.C_NO_ORGS == MCA.NO_ORGS   # 등록부의 그 줄 글과 같은 글
     fill = st("apply", _ctx(rows))
     assert st("link", _ctx(rows)) == st("plan", _ctx(rows)) == fill and fill["st"] == "todo"
     assert fill["text"] == "기관 문서 2/3 반영 — a.hwpx(반영함) · c.hwpx(넣을 차례) · f.hwpx(반영함 · 확인 필요) · 확인 필요 · 겹침이 남은 문서 1개(연결 목록에서 고른 뒤 다시 진행)"   # 넣기 대상 = 넣을 차례 · 반영함 · 확인 필요(미지정 · 수정본 · 뒤 수정본이 있는 문서는 아니다)
@@ -272,7 +276,7 @@ class CFake(Fake):
         return {"links": {}, "heads": {}}
 
     def collect(self, target):
-        return {"collect": True, "version": 1, "orgs": [], "parts": [dict(r) for r in self.rows.values()]}
+        return {"collect": True, "version": 1, "orgs": [{"key": "가나대", "name": "가나대", "role": "공동"}], "parts": [dict(r) for r in self.rows.values()]}   # 프로젝트 구성이 있는 묶음(기관이 없으면 미지정 줄의 글이 그 까닭이 된다 — C_NO_ORGS)
 
     def collect_auto(self, target, part):
         self.calls.append(("auto", part))
