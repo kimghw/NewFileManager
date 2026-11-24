@@ -82,31 +82,83 @@ async function fwTakeOpen() {
 }
 function fwTakeDraw() {
   if (heads.dlg !== "fwTake") return;
-  const body = $("headsDlgBody"), lib = FW.lib || { alive: false, docs: [] }, mats = (FW.gw && FW.gw.materials) || [];
+  const body = $("headsDlgBody"), lib = FW.lib || { alive: false, docs: [] }, docs = lib.docs || [], mats = (FW.gw && FW.gw.materials) || [];
   body.replaceChildren();
-  if (!lib.alive) return void body.append(el("div", "fw-empty", lib.why || FW_LIB_DOWN));
+  const sr = (s) => el("span", "fw-t-sr", s);
+  const matsCard = () => {
+    const sec = el("section", "fw-t-mats"), h = el("h3", "fw-t-mats-head");
+    h.append(el("span", "fw-t-mats-title", `이 문서의 자료 ${mats.length}개`));
+    sec.append(h);
+    const ul = el("ul", "fw-t-mat-list");
+    const libEids = new Set(docs.flatMap((d) => (d.extracts || []).map((e) => e.id)));
+    for (const m of mats) {
+      const fromLib = [...libEids].some((eid) => (m.note || "").includes(`(${eid})`));
+      const li = el("li", `fw-t-mat${fromLib ? " is-lib" : ""}${m.cut ? " is-cut" : ""}`);
+      li.title = m.note || m.head || m.name || "";
+      const meta = el("div", "fw-t-mat-meta");
+      meta.append(el("strong", "fw-t-mat-name", m.name));
+      const info = el("span", "fw-t-mat-info");
+      info.append(el("span", "fw-t-mat-chars", `${(m.chars || 0).toLocaleString()}자`));
+      if (m.cut) info.append(sr(" · "), el("span", "fw-tag warn", "잘림"));
+      meta.append(info);
+      li.append(meta);
+      ul.append(li);
+    }
+    sec.append(ul);
+    return sec;
+  };
+  const stateBox = (kind, msg) => {
+    const box = el("div", `fw-t-state ${kind}`), ico = el("span", "fw-t-state-ico");
+    ico.setAttribute("aria-hidden", "true");
+    box.append(ico, el("div", "fw-empty", msg));
+    return box;
+  };
+  if (!lib.alive) {
+    body.append(stateBox("is-down", lib.why || FW_LIB_DOWN));
+    if (mats.length) body.append(matsCard());
+    return;
+  }
+  if (mats.length) body.append(matsCard());
   const have = (eid) => mats.some((m) => (m.note || "").includes(`(${eid})`));
-  const withX = lib.docs.filter((d) => d.extracts.length);
-  if (!withX.length) body.append(el("div", "fw-empty", lib.docs.length ? "끝난 자료 추출이 없습니다 — 문서 라이브러리에서 뽑을 범위를 적고 추출하세요." : "문서 라이브러리에 자료 문서가 없습니다 — 「문서 라이브러리 열기」 로 문서를 올리세요."));
+  const withX = docs.filter((d) => (d.extracts || []).length);
+  if (!withX.length) {
+    body.append(stateBox(
+      docs.length ? "is-noext" : "is-empty",
+      docs.length
+        ? "끝난 자료 추출이 없습니다 — 문서 라이브러리에서 뽑을 범위를 적고 추출하세요."
+        : "문서 라이브러리에 자료 문서가 없습니다 — 「문서 라이브러리 열기」 로 문서를 올리세요.",
+    ));
+    return;
+  }
   for (const d of withX) {
-    const sec = el("section", "fw-doc"), h = el("h3", null, d.name);
+    const gotN = d.extracts.filter((e) => have(e.id)).length, allGot = gotN === d.extracts.length;
+    const sec = el("section", `fw-doc${allGot ? " is-all-got" : ""}`), h = el("h3", "fw-t-doc-head");
+    const name = el("span", "fw-t-doc-name", d.name);
+    name.title = d.name;
+    const cnt = el("span", `fw-t-doc-cnt${allGot ? " is-all" : gotN ? " is-part" : ""}`, gotN ? `${gotN}/${d.extracts.length} 가져옴` : `${d.extracts.length}개`);
+    h.append(name, cnt);
     sec.append(h);
     for (const e of d.extracts) {
-      const row = el("div", "fw-x"), meta = el("div", "fw-x-meta"), got = have(e.id);
-      const info = [e.span ? `쪽 ${e.span[0]}–${e.span[1]}` : "", `${(e.chars || 0).toLocaleString()}자`, `그림 ${e.figures || 0}`, `수식 ${e.formulas || 0}`].filter(Boolean).join(" · ");
-      meta.append(el("strong", null, e.focus || "문서 전체"), el("span", "fw-muted", info));
-      if (e.open) meta.append(el("span", "fw-tag warn", `확인 필요 ${e.open}`));
-      const take = hBtn(got ? "가져옴" : "가져오기", () => fwTake(e.id), { disabled: got, cls: "btn sm" + (got ? "" : " primary"), title: got ? "이미 이 문서의 자료입니다" : "이 추출의 MD 를 이 문서의 자료로 가져옵니다" });
-      const view = hBtn("보기", () => fwLibOpen(`d=${d.id}&x=${e.id}`), { title: "문서 라이브러리에서 이 추출의 MD 와 그림을 봅니다(새 탭)" });
-      row.append(meta, view, take);
+      const got = have(e.id), figs = e.figures || 0, forms = e.formulas || 0;
+      const row = el("div", `fw-x${got ? " is-got" : ""}${e.open ? " is-warn" : ""}`);
+      const head = el("div", "fw-x-head"), title = el("strong", "fw-t-focus", e.focus || "문서 전체");
+      head.append(title);
+      const meta = el("div", "fw-x-meta");
+      const parts = [];
+      if (e.span) parts.push(el("span", "fw-t-stat is-page", `쪽 ${e.span[0]}–${e.span[1]}`));
+      parts.push(el("span", "fw-t-stat", `${(e.chars || 0).toLocaleString()}자`));
+      parts.push(el("span", `fw-t-stat${figs ? "" : " is-zero"}`, `그림 ${figs}`));
+      parts.push(el("span", `fw-t-stat${forms ? "" : " is-zero"}`, `수식 ${forms}`));
+      if (e.open) parts.push(el("span", "fw-tag warn", `확인 필요 ${e.open}`));
+      meta.append(sr(" "));
+      parts.forEach((p, i) => { if (i) meta.append(sr(" · ")); meta.append(p); });
+      const acts = el("div", "fw-t-acts");
+      const view = hBtn("보기", () => fwLibOpen(`d=${d.id}&x=${e.id}`), { cls: "btn sm fw-t-view", title: "문서 라이브러리에서 이 추출의 MD 와 그림을 봅니다(새 탭)" });
+      const take = hBtn(got ? "가져옴" : "가져오기", () => fwTake(e.id), { disabled: got, cls: "btn sm fw-t-take" + (got ? " is-got" : " primary"), title: got ? "이미 이 문서의 자료입니다" : "이 추출의 MD 를 이 문서의 자료로 가져옵니다" });
+      acts.append(view, take);
+      row.append(head, meta, acts);
       sec.append(row);
     }
-    body.append(sec);
-  }
-  if (mats.length) {
-    const sec = el("section", "fw-doc");
-    sec.append(el("h3", null, `이 문서의 자료 ${mats.length}개`));
-    for (const m of mats) { const r = el("div", "fw-x"); r.append(el("div", "fw-x-meta", null)); r.firstChild.append(el("strong", null, m.name), el("span", "fw-muted", `${(m.chars || 0).toLocaleString()}자${m.cut ? " · 잘림" : ""}`)); sec.append(r); }
     body.append(sec);
   }
 }

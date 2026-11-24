@@ -229,6 +229,10 @@ def main():
             lp.goto(f"{lib}/#d={did}&x={eid}")
             lp.wait_for_selector("#mdSec pre", timeout=20000)
             lp.wait_for_function("() => /차단 시간 1 ms/.test(document.querySelector('#mdSec pre').textContent)", timeout=10000)
+            try:   # 그림은 loading=lazy — 그림 칸이 MD 옆 열(2026-11-24 꼴)이라 읽기 전에 로드를 기다린다
+                lp.wait_for_function("() => { const i = document.querySelector('#mdSec .figs img'); return i && i.complete && i.naturalWidth > 0; }", timeout=10000)
+            except Exception:
+                pass
             v = lp.evaluate("""() => ({ docs: [...document.querySelectorAll('#docList li .doc-name')].map((x) => x.textContent), card: document.querySelector('#xSec .x-card').textContent, figs: document.querySelectorAll('#mdSec .figs figure').length,
               warn: document.querySelectorAll('#mdSec .figs figure.warn').length, img: (document.querySelector('#mdSec .figs img') || {}).naturalWidth || 0, chip: document.getElementById('llmChip').textContent,
               focus: document.querySelector('#work textarea').value, over: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 })""")

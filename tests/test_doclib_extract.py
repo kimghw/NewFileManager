@@ -279,3 +279,23 @@ def test_write_retries_a_refused_replace_and_orphan_running_extract_is_cut(lib, 
     c = TestClient(server.app)
     got = c.get("/api/docs").json()["docs"][0]["extracts"][0]
     assert got["state"] == "cut" and got["error"]
+
+
+def test_deleting_a_running_extract_stops_it_then_removes_it(lib, monkeypatch):
+    """도는 카드의 「지우기」 — 멈추고, 스레드가 끝나면 지운다(2026-11-24 같은 범위로 두 번 시작한 것을 지우려던 사용자: 「삭제 이런게 없네」)."""
+    monkeypatch.setenv("NFM_DOCLIB_LLM", "")
+    monkeypatch.setattr(extract.agent, "status", lambda: {"available": True, "cli": "x", "model": "fake", "slots": 1})
+    began = threading.Event()
+
+    def slow(prompt, schema, *, cwd, tools=("Read",), images=(), effort="medium", timeout=0, stop=None):
+        began.set()
+        stop.wait(20)
+        return {"data": None, "error": "stopped", "ms": 1, "costUsd": None, "model": "fake", "turns": 0, "reads": 0}
+    monkeypatch.setattr(extract.agent, "run", slow)
+    c = TestClient(server.app)
+    did = c.post("/api/docs", files={"file": ("a.pdf", _pdf(2), "application/pdf")}).json()["doc"]["id"]
+    eid = c.post(f"/api/docs/{did}/extracts", json={"focus": "x"}).json()["extract"]["id"]
+    assert began.wait(20)
+    assert c.delete(f"/api/extracts/{eid}").json() == {"ok": True, "pending": True}
+    extract._RUNS[eid][0].join(30)
+    assert c.get(f"/api/extracts/{eid}").status_code == 404 and c.get("/api/docs").json()["docs"][0]["extracts"] == []

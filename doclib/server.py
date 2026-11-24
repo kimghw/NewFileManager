@@ -167,8 +167,8 @@ def extracts_stop(eid: str):
 @app.delete("/api/extracts/{eid}")
 def extracts_delete(eid: str):
     _ext(eid)
-    if extract.running(eid):
-        raise HTTPException(409, "도는 추출입니다 — 멈춘 뒤 지우세요")
+    if extract.halt(eid, drop=True):   # 도는 추출 — 멈추고, 스레드가 끝나면 지운다(도는 CLI 가 끊길 때까지 몇 초)
+        return {"ok": True, "pending": True}
     store.drop_extract(eid)
     return {"ok": True}
 

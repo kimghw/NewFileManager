@@ -527,7 +527,19 @@ def _last(note, text, **more):
 
 
 _RUNS = {}   # 추출 id → (스레드, 멈춤 표식)
+_DROP = set()   # 끝나면 지울 추출 id(halt(drop=True))
 _RUNS_LOCK = threading.Lock()
+
+
+def _run_then_drop(eid, stop):
+    try:
+        run(eid, stop)
+    finally:
+        with _RUNS_LOCK:
+            gone = eid in _DROP
+            _DROP.discard(eid)
+        if gone:
+            store.drop_extract(eid)
 
 
 def start(did, focus, span=None):
@@ -539,21 +551,28 @@ def start(did, focus, span=None):
     if meta is None:
         return None
     stop = threading.Event()
-    th = threading.Thread(target=run, args=(meta["id"], stop), name=f"extract-{meta['id']}", daemon=True)
+    th = threading.Thread(target=_run_then_drop, args=(meta["id"], stop), name=f"extract-{meta['id']}", daemon=True)
     with _RUNS_LOCK:
         _RUNS[meta["id"]] = (th, stop)
     th.start()
     return meta
 
 
-def halt(eid):
-    """도는 추출을 멈춘다 → 멈춤을 걸었나."""
+def halt(eid, drop=False):
+    """도는 추출을 멈춘다 → 멈춤을 걸었나. drop = 끝나면 그 추출을 지운다(도는 카드의 「지우기」)."""
     with _RUNS_LOCK:
         got = _RUNS.get(eid)
-    if got and got[0].is_alive():
-        got[1].set()
-        return True
+        if got and got[0].is_alive():
+            if drop:
+                _DROP.add(eid)
+            got[1].set()
+            return True
     return False
+
+
+def drop_pending(eid):
+    with _RUNS_LOCK:
+        return eid in _DROP
 
 
 def running(eid):

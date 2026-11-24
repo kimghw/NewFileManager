@@ -27,12 +27,14 @@
     <form method="dialog"><button class="btn">닫기</button></form>
   </dialog>
   <dialog class="help wide" id="skillDlg">
-    <h2>스킬 글 <span class="muted">— 추출 · 그림 확인 · 수식의 판단 기준</span></h2>
-    <div class="tabs" id="skillTabs"></div>
+    <div class="skill-head">
+      <h2>스킬 글 <span class="muted">— 추출 · 그림 확인 · 수식의 판단 기준</span></h2>
+      <div class="tabs" id="skillTabs"></div>
+    </div>
     <textarea id="skillText" spellcheck="false"></textarea>
-    <p class="muted" id="skillNote"></p>
-    <details><summary>계약(답의 꼴 — 고칠 수 없음)</summary><pre id="skillContract"></pre></details>
-    <div class="row end">
+    <p class="skill-note" id="skillNote"></p>
+    <details class="skill-contract"><summary>계약(답의 꼴 — 고칠 수 없음)</summary><pre id="skillContract"></pre></details>
+    <div class="row end skill-foot">
       <button type="button" class="btn" id="skillReset">기본본으로</button>
       <button type="button" class="btn primary" id="skillSave">저장</button>
       <button type="button" class="btn" id="skillClose">닫기</button>
@@ -43,13 +45,21 @@
       <div class="col-head">
         <strong>문서</strong><span class="count" id="docCount"></span>
         <span class="grow"></span>
-        <label class="btn primary">문서 올리기<input type="file" id="fileIn" accept=".pdf,.hwpx,.hwp,.docx" multiple hidden></label>
+        <label class="btn primary btn-upload">문서 올리기<input type="file" id="fileIn" accept=".pdf,.hwpx,.hwp,.docx" multiple hidden></label>
       </div>
-      <div class="drop" id="drop">여기에 hwp · hwpx · docx · pdf 를 끌어 놓습니다</div>
+      <div class="drop" id="drop">hwp · hwpx · docx · pdf 끌어 놓기</div>
       <ul class="doc-list" id="docList"></ul>
     </section>
     <section class="col work" id="work">
-      <div class="empty" id="workEmpty">왼쪽에서 문서를 고르면 자료 추출을 시작할 수 있습니다.</div>
+      <div class="empty" id="workEmpty">
+        <div class="empty-lead">왼쪽에서 문서를 고르면 자료 추출을 시작할 수 있습니다.</div>
+        <ol class="steps">
+          <li class="step"><span class="step-n">1</span><span>문서 올리기</span></li>
+          <li class="step cur"><span class="step-n">2</span><span>문서 고르기</span></li>
+          <li class="step"><span class="step-n">3</span><span>뽑을 범위 · 추출 시작</span></li>
+          <li class="step"><span class="step-n">4</span><span>MD · 그림 확인</span></li>
+        </ol>
+      </div>
     </section>
   </main>
   <div class="toast" id="toast" hidden></div>

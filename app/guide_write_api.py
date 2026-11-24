@@ -33,6 +33,17 @@ def _sess(doc_id):
 
 # ---- 문서 라이브러리(따로 선 서버) ----------------------------------------------------------------------------------------
 
+@router.get("/api/doclib/where")
+def doclib_where():
+    """문서 라이브러리 서버의 주소와 켜져 있는가 → {url, alive, why} — 상단 바 「문서 라이브러리」 아이콘(doclib_link.js)이 새 탭을 열기 전에 묻는다(목록은 안 읽는다 — 가볍게)."""
+    out = {"url": doclib_client.url(), "alive": False, "why": ""}
+    try:
+        out["alive"] = bool(doclib_client.health().get("ok"))
+    except (doclib_client.Down, LookupError) as e:
+        out["why"] = str(e)
+    return out
+
+
 @router.get("/api/doclib")
 def doclib_list():
     """문서 라이브러리 서버의 문서 · 끝난 추출 목록. 그 서버가 꺼져 있으면 {alive: false, why}."""

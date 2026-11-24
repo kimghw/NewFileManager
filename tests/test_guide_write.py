@@ -129,6 +129,7 @@ def test_library_listing_and_material_import(c, monkeypatch):
     doc = _doc(c)
     got = c.get("/api/doclib").json()                                    # 닿지 않는 주소(conftest) — 꺼짐으로 보이고 8114 는 그대로 답한다
     assert got["alive"] is False and got["docs"] == [] and "닿지 못했습니다" in got["why"] and got["url"] == "http://127.0.0.1:9"
+    assert c.get("/api/doclib/where").json() == {"url": "http://127.0.0.1:9", "alive": False, "why": got["why"]}   # 상단 바 「문서 라이브러리」 아이콘이 묻는 것(doclib_link.js)
     assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "../x"}).status_code == 400
     assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xaaaaaaaaaa"}).status_code == 502
     metas = {"xaaaaaaaaaa": {"id": "xaaaaaaaaaa", "doc": "d1", "state": "done", "focus": "한국선급의 연구", "figures": 2, "formulas": 1, "open": 1}, "xbbbbbbbbbb": {"id": "xbbbbbbbbbb", "doc": "d1", "state": "running"}}
@@ -137,6 +138,7 @@ def test_library_listing_and_material_import(c, monkeypatch):
                                                           "extracts": [{**metas["xaaaaaaaaaa"], "chars": 10, "span": [1, 9], "at": 1.0}, metas["xbbbbbbbbbb"]]}])
     monkeypatch.setattr(doclib_client, "extract", lambda eid: metas[eid] if eid in metas else (_ for _ in ()).throw(LookupError("그런 추출이 없습니다")))
     monkeypatch.setattr(doclib_client, "md", lambda eid: "# 연차보고서\n\n<!-- p.1 -->\n본문 글\n")
+    assert c.get("/api/doclib/where").json() == {"url": "http://127.0.0.1:9", "alive": True, "why": ""}
     got = c.get("/api/doclib").json()
     assert got["alive"] and got["docs"][0]["running"] == 1 and [e["id"] for e in got["docs"][0]["extracts"]] == ["xaaaaaaaaaa"] and got["docs"][0]["extracts"][0]["open"] == 1   # 끝난 추출만
     assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xbbbbbbbbbb"}).status_code == 409
