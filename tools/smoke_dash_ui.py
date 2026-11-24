@@ -534,6 +534,19 @@ def main():
         page.wait_for_function(f"() => /작업 내용을 초기화했습니다/.test(document.getElementById('toast').textContent) && state.id === '{rid0}' && !!document.querySelector('#doc .para') && !document.querySelector('#paneDash .dash-reset')", timeout=120000)
         check("「목적 문서 초기화」(지금 문서) → 올린 직후로(작업 폴더의 reset/1) · 다시 열림 · 원본 문서는 그대로 · 상자는 닫힘",
               (tmp / "works" / rid0 / "reset" / "1").is_dir() and not (tmp / "works" / src0 / "reset").exists() and page.evaluate("() => !state.commitBusy"), "")
+        # 초기화한 뒤에도 대시보드에 머물고(전에는 다시 여는 load 가 패널을 검증 · 에이전트 보기로 바꿨다) 그 자리(맨 아래 줄)에 「다음: …」 단추가 선다
+        # (2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐 ? 그리고 초기화 버튼 누르면 다음 버튼은 그 곳에 놓아줘" — ② §9 「작업 내용 초기화」 「초기화한 뒤」)
+        try:
+            page.wait_for_function("() => [...document.querySelectorAll('#paneDash .dash-reset-row button')].some((b) => b.dataset.dashFocus === 'reset:next')", timeout=30000)
+        except Exception:
+            pass
+        aft = page.evaluate("""() => { const pane = document.getElementById('paneDash'), row = pane.querySelector('.dash-reset-row'), bs = row ? [...row.querySelectorAll('button')] : [], nb = bs.find((b) => b.dataset.dashFocus === 'reset:next'), r = row && row.getBoundingClientRect();
+          const twins = nb ? [...pane.querySelectorAll('.dash-groups button, .dash-top button')].filter((b) => nb.textContent.endsWith(b.textContent) && !b.disabled).length : 0;
+          return { tool: document.getElementById('panel').dataset.tool, dash: !pane.hidden, float: !!document.querySelector('.agent-float:not([hidden])'), order: bs.map((b) => b.dataset.dashFocus), next: nb ? nb.textContent : '', primary: !!nb && nb.classList.contains('primary'),
+            twins, seen: !!r && r.top >= 0 && r.bottom <= window.innerHeight + 1, head: (pane.querySelector('.dash-next') || {}).textContent || '', over: pane.scrollWidth > pane.clientWidth + 1 }; }""")
+        check("초기화한 뒤 — 대시보드에 머묾(검증 · 에이전트로 안 넘어감) · 맨 아래 줄에 「다음: …」(강조 · 대시보드의 같은 단추의 거울) + 「작업 내용 초기화…」 · 그 줄이 보이는 데 · 넘침 없음",
+              aft["tool"] == "Dash" and aft["dash"] and aft["order"] == ["reset:next", "reset"] and aft["next"].startswith("다음: ") and aft["primary"] and aft["twins"] >= 1 and aft["seen"] and not aft["over"], aft)
+        page.locator("#paneDash").screenshot(path=str(OUT / "06c_reset_next.png"))
 
         # ---- TASK 가 없는 문서 — 탭은 늘 보이고 「TASK 고르기」 → 고르면 그 자리에서 단계 흐름(2026-11-18 사용자 「여기 탭에 넣어 달라고 했는데 보이질 않아」 — ② §9 「TASK 가 없을 때」)
         with PLAN.open("rb") as f:

@@ -289,7 +289,7 @@ async function homeTaskApply(job) {
   return true;
 }
 
-async function load(id) {
+async function load(id, opt = {}) { // opt.tab = 다 연 뒤에 보일 패널 도구(보던 탭 그대로 — 대시보드에서 한 「작업 내용 초기화」: dashboard.js dashResetDone). 없으면 전처럼 검증(일반 문서는 에이전트 보기)
   const d = await api(`/api/docs/${id}`);
   for (const t of state.timers.values()) clearTimeout(t); // 이전 문서의 대기 중 반영은 버린다(epoch 로 응답도 무시)
   state.epoch += 1;
@@ -336,8 +336,12 @@ async function load(id) {
   if (typeof compareReset === "function") compareReset();
   if (typeof agentReset === "function") agentReset(); // 에이전트 보기(doc_agent.js — spec_일반편집 ② §12)
   const agentFirst = !PEEK && taskGeneral() && toolShown("Agent");
-  showTab(agentFirst && !agentFloatOn() ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(② §12) — 그 밖에는 검증
-  if (agentFirst && agentFloatOn()) showTab("Agent"); // 에이전트가 떠 있는 창 자리면 패널은 검증 · 에이전트는 그 창에(agent_float.js)
+  const keepTab = !PEEK && opt && typeof opt.tab === "string" && TOOL_INFO[opt.tab] && toolShown(opt.tab) ? opt.tab : ""; // 보던 탭 그대로 — 그 탭에서 한 일로 다시 여는 것(2026-11-24 사용자 「왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐」: spec_작업에이전트 ② §9 「작업 내용 초기화」)
+  if (keepTab) showTab(keepTab); // 에이전트 보기 · 에이전트 창도 저절로 열지 않는다
+  else {
+    showTab(agentFirst && !agentFloatOn() ? "Agent" : "Verify"); // 「일반 문서」 작업은 에이전트 보기부터(② §12) — 그 밖에는 검증
+    if (agentFirst && agentFloatOn()) showTab("Agent"); // 에이전트가 떠 있는 창 자리면 패널은 검증 · 에이전트는 그 창에(agent_float.js)
+  }
   colFold("panel", colFoldLoad("panel"), false); // » 로 접어 둔 3열은 새 문서도 접힌 채(기억한 대로 — 도구 탭을 고르면 펴짐)
   renderVerify({});
   poll();

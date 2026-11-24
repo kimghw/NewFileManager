@@ -238,6 +238,33 @@ def main():
               focus: document.querySelector('#work textarea').value, over: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 })""")
             check("⑥ 문서 라이브러리 — 문서 · 추출 카드 · MD · 그림", v["docs"] == ["연차보고서_견본.pdf"] and "끝남" in v["card"] and "확인 필요 1" in v["card"] and v["figs"] == 1 and v["warn"] == 1 and v["img"] == 240
                   and v["chip"] == "LLM 꺼짐" and v["focus"] == "한국선급 · SSCB 설계" and not v["over"], v)
+            # 뽑을 범위 여럿(spec_양식작성 ② §3 「범위 여럿」) — 줄마다 범위 하나 = MD 하나: 한 줄에 「1.… 2.…」 를 적으면 나누기를 권하고(저절로 나누지 않음) · 나누면 줄 둘 + 번호 · 「＋ 범위 추가」 · 요청은 focuses[]
+            SC = """() => ({ rows: [...document.querySelectorAll('#work .scope textarea')].map((t) => t.value), many: document.querySelector('#work .scopes').classList.contains('many'),
+              split: (() => { const b = document.querySelector('#work .scope-split'); return b.offsetWidth ? b.textContent : ''; })(), hint: document.querySelector('#work .run-hint').textContent,
+              nums: [...document.querySelectorAll('#work .scope-n')].filter((n) => n.offsetWidth).map((n) => n.textContent), over: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 })"""
+            lp.fill("#work .scope textarea", "1.한국선급, 2.인텍전기전자")
+            sp0 = lp.evaluate(SC)
+            lp.click("#work .scope-split")
+            sp1 = lp.evaluate(SC)
+            lp.click("#work .scope-add")
+            lp.keyboard.type("한국선급, 1·2차년도")
+            sp2 = lp.evaluate(SC)
+            check("⑥ 뽑을 범위 여럿 — 나누기 권함 · 줄마다 범위 · 번호 · 안내", sp0["rows"] == ["1.한국선급, 2.인텍전기전자"] and sp0["split"] == "범위 2개로 나누기" and not sp0["many"] and "MD" not in sp0["hint"]
+                  and sp1["rows"] == ["한국선급", "인텍전기전자"] and sp1["many"] and not sp1["split"] and sp1["nums"] == ["1", "2"] and "범위 2개 → MD 2개" in sp1["hint"]
+                  and sp2["rows"] == ["한국선급", "인텍전기전자", "한국선급, 1·2차년도"] and not sp2["split"] and "범위 3개 → MD 3개" in sp2["hint"] and not sp2["over"], [sp0, sp1, sp2])
+            posted, asked = [], []
+            XS = re.compile(r"/api/docs/[^/]+/extracts$")
+            lp.route(XS, lambda r: (posted.append(json.loads(r.request.post_data)), r.fulfill(status=200, content_type="application/json", body='{"extract":{"id":"x0000000000"},"extracts":[]}'))[1])   # 가짜 답 — 실제 추출은 시작하지 않는다(LLM 꺼짐)
+            lp.once("dialog", lambda dlg: (asked.append(dlg.message), dlg.accept())[1])
+            lp.click("#work .btn-go")
+            lp.wait_for_function("() => !document.querySelector('#work .btn-go').disabled", timeout=10000)
+            lp.wait_for_timeout(300)
+            check("⑥ 「추출 시작」 — 범위 여럿은 focuses[] 로 · 확인 창에 범위와 「문서는 한 번만」", posted == [{"focuses": ["한국선급", "인텍전기전자", "한국선급, 1·2차년도"]}] and len(asked) == 1 and "범위 3개 → MD 3개" in asked[0] and "2. 인텍전기전자" in asked[0], [posted, asked])
+            lp.unroute(XS)
+            lp.click("#work .scope:nth-child(3) .scope-del")
+            lp.click("#work .scope:nth-child(2) .scope-del")
+            sp3 = lp.evaluate(SC)
+            check("⑥ 범위 빼기 — 하나 남으면 번호 없이", sp3["rows"] == ["한국선급"] and not sp3["many"] and sp3["nums"] == [] and "MD" not in sp3["hint"], sp3)
             lp.click("#skillBtn")
             lp.wait_for_selector("#skillDlg[open] #skillTabs button", timeout=10000)
             sk = lp.evaluate("() => ({ tabs: [...document.querySelectorAll('#skillTabs button')].map((b) => b.textContent), text: document.getElementById('skillText').value.slice(0, 40), contract: document.getElementById('skillContract').textContent.length })")
@@ -252,6 +279,22 @@ def main():
             d = page.evaluate(LIVE)
             check("문서 라이브러리 서버가 꺼지면 대시보드가 알린다(자료는 그대로)", d["keep"]["state"] == "hold" and d["keep"]["acts"] == [["문서 라이브러리 열기", True]] and d["take"]["state"] == "done" and "이 문서의 자료 1개" in d["take"]["text"], {k: d[k] for k in ("keep", "take")})
             page.screenshot(path=str(OUT / "07_lib_down.png"))
+            # ⑧ 대시보드에서 「작업 내용 초기화」 — 일반 문서 워크플로우도 대시보드에 머문다(전에는 다시 여는 load 가 에이전트 보기로 바꿨다 —
+            #    2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐": spec_작업에이전트 ② §9 「작업 내용 초기화」 「초기화한 뒤」)
+            page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")
+            page.wait_for_selector('#paneDash [data-dash-focus="reset"]:not([disabled])', timeout=30000)
+            rid = page.evaluate("() => state.id")
+            page.locator('#paneDash [data-dash-focus="reset"]').click()
+            page.wait_for_selector(f'#paneDash [data-dash-focus="reset:{rid}"]', timeout=30000)
+            page.locator(f'#paneDash [data-dash-focus="reset:{rid}"]').click()
+            page.wait_for_function("() => /작업 내용을 초기화했습니다/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para') && !document.querySelector('#paneDash .dash-reset')", timeout=120000)
+            page.wait_for_timeout(1200)   # 다시 연 뒤의 그리기(탭을 바꾸던 곳)가 지나가게
+            rz = page.evaluate("""() => { const f = document.getElementById('agentFloat'), row = document.querySelector('#paneDash .dash-reset-row');
+              return { tool: document.getElementById('panel').dataset.tool, dash: !document.getElementById('paneDash').hidden, float: !!f && !f.hidden && f.offsetWidth > 0,
+                row: row ? [...row.querySelectorAll('button')].map((b) => [b.dataset.dashFocus, b.textContent]) : [] }; }""")
+            check("⑧ 대시보드의 「작업 내용 초기화」 뒤 — 대시보드에 머묾 · 에이전트 창도 저절로 안 열림 · 맨 아래 줄에 초기화 단추(「다음」 단추가 있으면 그 앞)",
+                  rz["tool"] == "Dash" and rz["dash"] and not rz["float"] and rz["row"] and rz["row"][-1][0] == "reset" and all(k in ("reset:next", "reset") for k, _ in rz["row"]), rz)
+            page.locator("#paneDash").screenshot(path=str(OUT / "08_reset_stay.png"))
             br.close()
         check("콘솔 오류 없음", not errors, errors[:5])
     finally:

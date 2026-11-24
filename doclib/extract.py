@@ -9,7 +9,11 @@
  4. 조립(`assemble`) → `doc.md` + `images/` · 기록 `chunks/<n>.json`(프롬프트 · 답 · 호출).
 묶음의 추출 호출은 실패하면 한 번 더 부르고(`RETRIES`), 시간 초과면 그 묶음을 반으로 나눠 다시 한다(앞선 구현 `E:\\dev\\SSCB_guidelines\\makemd` 의 복구 규칙 — 2026-11-24 사용자 "workspace 에 동일한 기능이 있거든 참조해줘").
 문서 전체를 한 번 훑은 것(`pdfkit.survey` — 머리말 · 꼬리말 · 되풀이되는 꾸밈 그림 · 헤딩 참고(책갈피 | 글꼴 크기 단계) · 글 층이 없는 쪽)을 묶음마다 같이 준다 — 묶음이 같이 돌아도 제목 깊이가 어긋나지 않게.
-스크립트가 판정하지 못한 것 = 그림 후보에 없는 그림 · 수식 글꼴이 아닌 수식(그림으로 든 식) · 조각인지 따로 선 그림인지 — 모두 추출 호출이 쪽을 보고 답한다(후보 밖은 page + box 로)."""
+스크립트가 판정하지 못한 것 = 그림 후보에 없는 그림 · 수식 글꼴이 아닌 수식(그림으로 든 식) · 조각인지 따로 선 그림인지 — 모두 추출 호출이 쪽을 보고 답한다(후보 밖은 page + box 로).
+
+**범위 여럿 — 함께 뽑기**(② §3 「범위 여럿」 — 2026-11-24 사용자 "1.한국선급, 2.인텍전기전자 이렇게 각각 의 md 파일로 추출"): `start(did, [범위, …])` 는 범위마다 추출 기록 하나(같은 `group` · `part` [차례, 수])를 만들고
+스레드 하나가 **문서를 한 번만 읽어**(묶음마다 추출 호출 하나 — 계약 `CONTRACT_MULTI` · 답의 `scopes[]`) 범위마다 `doc.md` 를 따로 쓴다. 그림 · 수식(자르기 · 그림 확인 · LaTeX)은 범위들이 같이 쓴다.
+묶음의 결과는 범위마다의 `scopes[i]`{relevant, markdown, skipped} 를 지니고, 조립 · 기록은 범위 하나의 눈(`_view`)으로 본다. 「멈춤」 은 함께 뽑는 범위 모두를 멈추고, 도는 범위 하나의 「지우기」 는 그 범위만 뺀다(`leave`)."""
 import concurrent.futures
 import json
 import re
@@ -17,6 +21,7 @@ import shutil
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from doclib import agent, pdfkit, store
@@ -25,7 +30,8 @@ FORMULA_BATCH = 6
 FIG_DPI, EQ_DPI = 200, 260
 EQ_GROW = 12.0           # 수식 상자를 미는 한도(pt) — 위아래 줄의 글을 삼키지 않게
 FOCUS_MAX = 600
-RETRIES = 1              # 추출 호출이 실패하면 다시 부르는 횟수(꺼짐 · 멈춤 · 시간 초과는 다시 부르지 않는다 — 시간 초과는 반으로 나눈다)
+FOCUSES_MAX = 8          # 한 번에 함께 뽑는 범위의 수(범위마다 MD 하나 — 답이 그만큼 길어진다)
+RETRIES = 1             # 추출 호출이 실패하면 다시 부르는 횟수(꺼짐 · 멈춤 · 시간 초과는 다시 부르지 않는다 — 시간 초과는 반으로 나눈다)
 HINTS_MAX = 150          # 한 묶음에 싣는 헤딩 힌트 수
 S, I, B = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}
 
@@ -38,8 +44,10 @@ def _arr(item):
     return {"type": "array", "items": item}
 
 
-SCHEMA = _obj({"relevant": B, "markdown": S, "figures": _arr(_obj({"key": S, "caption": S, "page": I, "box": _arr(I), "join": _arr(S)})),
-               "formulas": _arr(_obj({"key": S, "page": I, "box": _arr(I), "near": S})), "skipped": S, "note": S})
+_FIGS = _arr(_obj({"key": S, "caption": S, "page": I, "box": _arr(I), "join": _arr(S)}))
+_EQS = _arr(_obj({"key": S, "page": I, "box": _arr(I), "near": S}))
+SCHEMA = _obj({"relevant": B, "markdown": S, "figures": _FIGS, "formulas": _EQS, "skipped": S, "note": S})
+MULTI_SCHEMA = _obj({"scopes": _arr(_obj({"id": S, "relevant": B, "markdown": S, "skipped": S})), "figures": _FIGS, "formulas": _EQS, "note": S})   # 범위 여럿 — 범위마다 MD 하나 · 그림 · 수식은 같이
 VERIFY_SCHEMA = _obj({"items": _arr(_obj({"key": S, "verdict": {"type": "string", "enum": ["ok", "cut", "drop"]}, "box": _arr(I), "why": S}))})
 FORMULA_SCHEMA = _obj({"items": _arr(_obj({"key": S, "latex": S, "ok": B, "note": S}))})
 
@@ -66,6 +74,31 @@ CONTRACT = """당신은 문서의 한 부분(이 폴더의 part.pdf — 원본 �
 - formulas = 따로 선 수식마다 {{key, page, box, near}}: 후보를 쓰면 key = 후보 key · box = [] · 후보에 없으면 key = "eq1", "eq2" … · page · box · near = 그 수식 바로 앞의 글 10자쯤.
 - skipped = focus 밖이라 옮기지 않은 것을 한두 줄로(없으면 빈 글) · note = 읽지 못했거나 사람이 볼 것(없으면 빈 글).
 - markdown 에 쓴 자리표시는 모두 figures · formulas 에 있어야 하고, 거기 적은 것은 모두 markdown 에 자리표시가 있어야 합니다."""
+
+# 범위 여럿(함께 뽑기)의 계약 — 한 범위의 계약에서 「범위」 를 다루는 줄만 바꾼 것(그림 · 수식 · 헤딩 참고의 글은 같은 글을 쓴다)
+_ONE = {
+    "lead": "**뽑을 범위(focus)의 내용만** 마크다운으로 옮기는 추출자입니다.",
+    "data": "- doc = 문서 이름 · focus = 뽑을 범위(빈 글이면 문서 전체) · pages = [첫 쪽, 끝 쪽](원본 쪽 번호).",
+    "relevant": "- relevant = 이 부분에 focus 에 해당하는 내용이 있나. 없으면 거짓 + markdown 은 빈 글.\n- markdown = 옮긴 글. ",
+    "skipped": "- skipped = focus 밖이라 옮기지 않은 것을 한두 줄로(없으면 빈 글) · note = ",
+    "tail": "- markdown 에 쓴 자리표시는 모두 figures · formulas 에 있어야 하고, 거기 적은 것은 모두 markdown 에 자리표시가 있어야 합니다.",
+}
+_MANY = {
+    "lead": "**뽑을 범위 여럿(scopes) 각각에 대해 그 범위의 내용만** 마크다운으로 옮기는 추출자입니다 — 범위마다 따로 선 MD 파일이 됩니다(문서는 한 번만 읽습니다).\n"
+            "아래 「판단 기준」 이 말하는 「뽑을 범위(focus)」 는 scopes 의 범위 하나하나입니다 — 범위마다 그 기준을 따로 적용합니다.",
+    "data": "- doc = 문서 이름 · scopes = 뽑을 범위들 [{{id, focus}}](범위마다 MD 하나) · pages = [첫 쪽, 끝 쪽](원본 쪽 번호).",
+    "relevant": "- scopes = 자료의 scopes 마다 하나씩 {{id, relevant, markdown, skipped}} — id 를 그대로 · 빠짐없이 · 같은 차례로:\n"
+                "  - relevant = 이 부분에 **그 범위**에 해당하는 내용이 있나. 없으면 거짓 + markdown 은 빈 글.\n"
+                "  - skipped = 그 범위 밖이라 옮기지 않은 것을 한두 줄로(없으면 빈 글).\n"
+                "  - markdown = 그 범위의 옮긴 글 — **그 범위 하나만 뽑을 때와 똑같이** 씁니다: 다른 범위의 MD 를 가리키거나(「위와 같음」) 줄이지 않고, 두 범위에 모두 해당하는 내용은 두 곳에 각각 옮깁니다. "
+                "한 범위에만 해당하는 내용을 다른 범위의 MD 에 넣지 않습니다.\n- (아래 figures · formulas 는 범위들이 **같이 쓰는 목록**입니다 — 어느 markdown 에서든 쓴 것마다 한 번만 적고, 같은 그림 · 수식을 여러 범위가 쓰면 같은 KEY 를 씁니다.) 자리표시: ",
+    "skipped": "- note = ",
+    "tail": "- 어느 markdown 에든 쓴 자리표시는 모두 figures · formulas 에 있어야 하고, 거기 적은 것은 적어도 한 markdown 에 자리표시가 있어야 합니다.",
+}
+CONTRACT_MULTI = CONTRACT
+for _k in _ONE:
+    assert _ONE[_k] in CONTRACT, _k   # 한 범위의 계약을 고치면 여기의 그 줄도 같이 고친다(가져오기에서 바로 떨어진다)
+    CONTRACT_MULTI = CONTRACT_MULTI.replace(_ONE[_k], _MANY[_k])
 
 VERIFY_CONTRACT = """당신은 문서에서 잘라 낸 그림이 **온전한지** 확인하는 검토자입니다. 이 폴더의 part.pdf(원본 {first}~{last}쪽 — 이 파일의 k쪽 = 원본 {first}+k-1 쪽)와 잘라 낸 그림 PNG 들을 Read 도구로 열어 견줍니다.
 ### 자료(JSON — 맨 아래)
@@ -292,21 +325,58 @@ def _verify(pdf, first, last, work, figs, stop):
     return {"prompt": prompt, "answer": res.get("data"), "call": {k: res.get(k) for k in ("error", "ms", "costUsd", "model", "turns", "reads")}}, gone
 
 
-def _chunk(data, name, focus, first, last, n, stop, info=None):
-    """쪽 묶음 하나 → {n, first, last, relevant, markdown, figures{key: …}, formulas{key: …}, skipped, note, dropped, error, calls[…], record}. 그림 · 수식의 key 는 문서 전체에서 겹치지 않는다(`_rekey`).
+def _blank():
+    return {"relevant": False, "markdown": "", "skipped": ""}
+
+
+def _line(text, most=600):
+    return " ".join(str(text or "").split())[:most]
+
+
+def _scopes_of(ans, n, first, last):
+    """추출 호출의 답 → 범위마다 {relevant, markdown, skipped}(n 개 — 자료의 차례). 한 범위는 답 그대로, 여럿은 답의 scopes 를 id(「s1」 …)로 잇는다.
+    답에 빠진 범위는 그 자리에 「추출하지 못함」 주석을 남긴다(lost — 조용히 「내용 없음」 으로 두지 않는다)."""
+    if n == 1 and "scopes" not in ans:
+        got = [ans]
+    else:
+        by = {str(s.get("id")): s for s in (ans.get("scopes") or ()) if isinstance(s, dict)}
+        got = [by.get(f"s{i + 1}") for i in range(n)]
+    out = []
+    for s in got:
+        if s is None:
+            out.append({"relevant": True, "markdown": f"<!-- p.{first}–{last}: 추출하지 못함 — 이 범위의 답이 빠졌습니다 -->", "skipped": "", "lost": 1})
+        else:
+            rel = bool(s.get("relevant"))
+            out.append({"relevant": rel, "markdown": str(s.get("markdown") or "") if rel else "", "skipped": _line(s.get("skipped"))})
+    return out
+
+
+def _view(c, i):
+    """묶음의 결과를 범위 하나(i 번째)의 눈으로 — 조립(`assemble`) · 기록이 읽는 꼴 {…, relevant, markdown, skipped, failed}. 그림 · 수식 · 메모는 범위들이 같이 쓴다."""
+    s = c["scopes"][i]
+    return {**{k: c[k] for k in ("n", "first", "last", "figures", "formulas", "note", "dropped", "error")}, "failed": c.get("failed", 0) + s.get("lost", 0),
+            "relevant": s["relevant"], "markdown": s["markdown"], "skipped": s["skipped"]}
+
+
+def _chunk(data, name, focuses, first, last, n, stop, info=None):
+    """쪽 묶음 하나 → {n, first, last, scopes[범위마다 {relevant, markdown, skipped}], figures{key: …}, formulas{key: …}, note, dropped, error, calls[…], record}. 그림 · 수식의 key 는 문서 전체에서 겹치지 않는다(`_rekey`).
+    focuses = 뽑을 범위들(하나면 한 범위의 계약 · 여럿이면 `CONTRACT_MULTI` — 호출은 묶음마다 하나다). 범위 하나의 결과는 `_view(결과, i)`.
     추출 호출이 실패하면 RETRIES 번 더 부르고, 시간 초과면 묶음을 반으로 나눠 다시 한다(한 쪽짜리는 나누지 않는다)."""
-    out = {"n": n, "first": first, "last": last, "relevant": False, "markdown": "", "figures": {}, "formulas": {}, "skipped": "", "note": "", "dropped": [], "error": None, "calls": [], "record": {}}
+    focuses = [focuses] if isinstance(focuses, str) else list(focuses)
+    multi = len(focuses) > 1
+    out = {"n": n, "first": first, "last": last, "scopes": [_blank() for _ in focuses], "figures": {}, "formulas": {}, "note": "", "dropped": [], "error": None, "calls": [], "record": {}}
     work = _work_dir()
     pdf = pdfkit.open_pdf(data)   # fitz 문서는 스레드마다 따로 연다
     try:
         (Path(work) / "part.pdf").write_bytes(pdfkit.part(pdf, first, last))
         figs, eqs = _candidates(pdf, first, last, work, info)
-        payload = {"doc": name, "focus": focus, "pages": [first, last], "figures": _manifest(pdf, figs, "figs"), "formulas": _manifest(pdf, eqs, "eqs"),
+        scope = {"scopes": [{"id": f"s{i + 1}", "focus": f or "(문서 전체)"} for i, f in enumerate(focuses)]} if multi else {"focus": focuses[0]}
+        payload = {"doc": name, **scope, "pages": [first, last], "figures": _manifest(pdf, figs, "figs"), "formulas": _manifest(pdf, eqs, "eqs"),
                    "running": (info or {}).get("running") or [], "scanned": [p for p in (info or {}).get("scanned") or () if first <= p <= last], "headings": _heading_ref(info, first, last)}
-        prompt = _prompt(CONTRACT.format(first=first, last=last, n=last - first + 1), "extract", payload)
+        prompt = _prompt((CONTRACT_MULTI if multi else CONTRACT).format(first=first, last=last, n=last - first + 1), "extract", payload)
         res, call = {}, {}
         for _ in range(RETRIES + 1):
-            res = agent.run(prompt, SCHEMA, cwd=work, tools=("Read",), effort="medium", timeout=1500.0, stop=stop)
+            res = agent.run(prompt, MULTI_SCHEMA if multi else SCHEMA, cwd=work, tools=("Read",), effort="medium", timeout=1500.0, stop=stop)
             call = {k: res.get(k) for k in ("error", "ms", "costUsd", "model", "turns", "reads")}
             out["calls"].append({"what": "extract", "pages": [first, last], **call})
             if res.get("data") is not None or res.get("error") in ("off", "stopped") or "시간 초과" in str(res.get("error") or "") or stop.is_set():
@@ -316,15 +386,17 @@ def _chunk(data, name, focus, first, last, n, stop, info=None):
         if ans is None:
             if "시간 초과" in str(res.get("error") or "") and last > first and not stop.is_set():   # 반으로 나눠 다시
                 mid = (first + last) // 2
-                return _merge(out, _chunk(data, name, focus, first, mid, n, stop, info), _chunk(data, name, focus, mid + 1, last, n, stop, info))
+                return _merge(out, _chunk(data, name, focuses, first, mid, n, stop, info), _chunk(data, name, focuses, mid + 1, last, n, stop, info))
             out["error"] = res.get("error") or "응답 없음"
             return out
-        out.update(relevant=bool(ans.get("relevant")), markdown=str(ans.get("markdown") or ""), skipped=" ".join(str(ans.get("skipped") or "").split())[:600], note=" ".join(str(ans.get("note") or "").split())[:600])
-        if not out["relevant"]:
-            out["markdown"] = ""
+        scopes = _scopes_of(ans, len(focuses), first, last)
+        out.update(scopes=scopes, note=_line(ans.get("note")))
+        if not any(s["relevant"] for s in scopes):
             return out
-        used_f, used_e, dropped = _resolve(pdf, first, last, ans, figs, eqs)
-        md, used_f, used_e = _rekey(out["markdown"], used_f, used_e)
+        used_f, used_e, dropped = _resolve(pdf, first, last, {**ans, "markdown": "\n".join(s["markdown"] for s in scopes)}, figs, eqs)   # 그림 · 수식은 범위들이 같이 쓴다 — 어느 범위의 글에서든 쓴 것
+        for s in scopes:
+            s["markdown"], by_f, by_e = _rekey(s["markdown"], used_f, used_e)
+        used_f, used_e = by_f, by_e
         check, gone = _verify(pdf, first, last, work, used_f, stop)
         if check is not None:
             out["calls"].append({"what": "verify", "pages": [first, last], **check["call"]})
@@ -332,7 +404,7 @@ def _chunk(data, name, focus, first, last, n, stop, info=None):
         for k in gone:
             used_f.pop(k, None)
             dropped.append(f"그림 {k}: 그림 확인이 그림이 아니라고 판정")
-        out.update(markdown=md, figures=used_f, formulas=used_e, dropped=dropped)
+        out.update(figures=used_f, formulas=used_e, dropped=dropped)
         return out
     except Exception as e:   # noqa: BLE001 — 한 묶음의 실패가 다른 묶음을 버리지 않게
         out["error"] = f"{type(e).__name__}: {e}"[:300]
@@ -345,12 +417,17 @@ def _chunk(data, name, focus, first, last, n, stop, info=None):
 def _merge(out, left, right):
     """반으로 나눠 다시 한 두 결과를 한 묶음으로 — 한쪽만 실패했으면 그 쪽의 자리에 주석을 남기고 나머지는 살린다(failed = 못 읽은 반쪽의 수)."""
     halves = [left, right]
-    parts = [h["markdown"] if not h["error"] else f"<!-- p.{h['first']}–{h['last']}: 추출하지 못함 — {h['error']} -->" for h in halves]
-    join = lambda k: " / ".join(h[k] for h in halves if h[k])  # noqa: E731
     failed = sum((1 if h["error"] else 0) + h.get("failed", 0) for h in halves)
-    out.update(relevant=any(h["relevant"] for h in halves) or (failed > 0 and not all(h["error"] for h in halves)), markdown="\n\n".join(p for p in parts if p), skipped=join("skipped"), note=join("note"),
+    both = bool(left["error"] and right["error"])
+    scopes = []
+    for i in range(len(out["scopes"])):   # 범위마다 두 반쪽의 글을 잇는다
+        each = [h["scopes"][i] for h in halves]
+        parts = [s["markdown"] if not h["error"] else f"<!-- p.{h['first']}–{h['last']}: 추출하지 못함 — {h['error']} -->" for h, s in zip(halves, each)]
+        scopes.append({"relevant": any(s["relevant"] for s in each) or (failed > 0 and not both), "markdown": "\n\n".join(p for p in parts if p),
+                       "skipped": " / ".join(s["skipped"] for s in each if s["skipped"]), "lost": sum(s.get("lost", 0) for s in each)})
+    out.update(scopes=scopes, note=" / ".join(h["note"] for h in halves if h["note"]),
                dropped=left["dropped"] + right["dropped"], figures={**left["figures"], **right["figures"]}, formulas={**left["formulas"], **right["formulas"]}, calls=out["calls"] + left["calls"] + right["calls"],
-               error=f"{left['error']} / {right['error']}" if left["error"] and right["error"] else None, failed=0 if left["error"] and right["error"] else failed)
+               error=f"{left['error']} / {right['error']}" if both else None, failed=0 if both else failed)
     out["record"] = {**out["record"], "split": [left["record"], right["record"]]}
     return out
 
@@ -432,7 +509,8 @@ def assemble(name, focus, meta, chunks, latex):
         if c.get("note"):
             notes.append(f"p.{c['first']}–{c['last']}: {c['note']}")
     head = [f"# {name}", "", f"> 자료 추출 — 범위: {focus or '문서 전체'} · 쪽 {meta['span'][0]}–{meta['span'][1]} · {time.strftime('%Y-%m-%d %H:%M', time.localtime(meta['at']))} · {meta.get('model') or ''}",
-            f"> 그림 {n_fig} · 수식 {n_eq}" + (f" · 확인 필요 {n_open}곳(「확인 필요」 주석을 찾으세요)" if n_open else ""), ""]
+            f"> 그림 {n_fig} · 수식 {n_eq}" + (f" · 확인 필요 {n_open}곳(「확인 필요」 주석을 찾으세요)" if n_open else ""),
+            *([f"> 함께 뽑은 범위 {meta['part'][0]}/{meta['part'][1]} — 문서를 한 번 읽어 범위마다 MD 하나"] if meta.get("part") else []), ""]
     skipped = [f"- p.{c['first']}–{c['last']}: {c['skipped']}" for c in chunks if c.get("skipped")]
     tail = (["", "---", "", "## 추출하며 뺀 것", "", *skipped] if skipped else []) + (["", "## 추출 메모", "", *[f"- {n}" for n in notes]] if notes else [])
     body = "\n\n".join(p for p in parts if p)
@@ -449,17 +527,28 @@ def equations_md(name, eqs, latex):
     return f"# 수식 목록 — {name}\n\n> 수식 캡처와 LaTeX 를 나란히 둔 것입니다(맞게 바뀌었는지 견줘 봅니다).\n\n" + "\n\n".join(rows) + "\n"
 
 
+def _members(meta):
+    """그 추출과 함께 뽑는 추출들(차례대로 — 저 포함). 함께 뽑기가 아니면 [저]."""
+    if not meta.get("group"):
+        return [meta]
+    ms = [m for m in store.extracts_of(meta["doc"]) if m.get("group") == meta["group"]]
+    return sorted(ms, key=lambda m: (m.get("part") or [0])[0]) or [meta]
+
+
 def run(eid, stop):
-    """추출 하나를 끝까지(배경 스레드) — 상태 · 진행은 meta.json 에 적는다. 예외를 내지 않는다."""
+    """추출 하나(함께 뽑기면 그 범위들 모두 — 문서는 한 번만 읽는다)를 끝까지(배경 스레드) — 상태 · 진행은 범위마다의 meta.json 에 적는다. 예외를 내지 않는다."""
     meta = store.extract(eid)
     if meta is None:
         return
+    metas = _members(meta)
+    meta = metas[0]   # 대표 — 쪽 범위 · 문서는 모두 같다
 
     def note(text, done=None, total=None, **more):
-        p = meta["progress"]
-        meta["progress"] = {"done": p["done"] if done is None else done, "total": p["total"] if total is None else total, "text": text}
-        meta.update(more)
-        store.save_extract(meta)
+        for m in metas:   # 도는 동안 지운 범위(`leave`)는 저장소에 없어 적히지 않는다
+            p = m["progress"]
+            m["progress"] = {"done": p["done"] if done is None else done, "total": p["total"] if total is None else total, "text": text}
+            m.update(more)
+            store.save_extract(m)
     try:
         doc = store.doc(meta["doc"]) or {}
         note("읽을 PDF 를 준비하는 중", state="running", model=agent.model())
@@ -474,12 +563,14 @@ def run(eid, stop):
         spans = pdfkit.split(pages, pdfkit.SIZE, meta.get("span"))
         if not spans:
             raise RuntimeError("추출할 쪽이 없습니다")
-        meta["span"] = [spans[0][0], spans[-1][1]]
-        meta["pages"] = spans[-1][1] - spans[0][0] + 1
-        note(f"쪽 묶음 {len(spans)}개를 읽는 중(묶음마다 {pdfkit.SIZE}쪽까지)", done=0, total=len(spans))
+        for m in metas:
+            m["span"] = [spans[0][0], spans[-1][1]]
+            m["pages"] = spans[-1][1] - spans[0][0] + 1
+        many = f" · 범위 {len(metas)}개를 함께" if len(metas) > 1 else ""
+        note(f"쪽 묶음 {len(spans)}개를 읽는 중(묶음마다 {pdfkit.SIZE}쪽까지{many})", done=0, total=len(spans))
         chunks, done = [None] * len(spans), 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(spans), agent.slots_n())) as ex:
-            futs = {ex.submit(_chunk, data, doc.get("name") or "문서", meta["focus"], a, b, i + 1, stop, info): i for i, (a, b) in enumerate(spans)}
+            futs = {ex.submit(_chunk, data, doc.get("name") or "문서", [m["focus"] for m in metas], a, b, i + 1, stop, info): i for i, (a, b) in enumerate(spans)}
             for f in concurrent.futures.as_completed(futs):
                 chunks[futs[f]] = f.result()
                 done += 1
@@ -495,23 +586,31 @@ def run(eid, stop):
             latex, fcalls = _formulas(eqs, stop)
         if stop.is_set():
             raise InterruptedError
-        md, images, counts = assemble(doc.get("name") or "문서", meta["focus"], meta, chunks, latex)
-        folder = store.ext_dir(eid)
-        (folder / "images").mkdir(exist_ok=True)
-        for fname, png in images.items():
-            (folder / "images" / fname).write_bytes(png)
-        (folder / "doc.md").write_text(md, encoding="utf-8")
-        if eqs:   # 수식 목록 — 캡처와 LaTeX 를 나란히(맞게 바꿨는지 견줘 보는 용: 앞선 구현 makemd 의 equations.md 와 같은 쓰임)
-            (folder / "equations.md").write_text(equations_md(doc.get("name") or "문서", [(k, v) for k, v in eqs if f"{k}.png" in images], latex), encoding="utf-8")
-        (folder / "chunks").mkdir(exist_ok=True)
-        for c in chunks:
-            store._write(folder / "chunks" / f"{c['n']}.json", {"n": c["n"], "first": c["first"], "last": c["last"], "relevant": c["relevant"], "error": c["error"], "skipped": c["skipped"], "note": c["note"],
-                                                                 "dropped": c["dropped"], "calls": c["calls"], **c["record"]})
         calls = [x for c in chunks for x in c["calls"]] + fcalls
         cost = [x["costUsd"] for x in calls if isinstance(x.get("costUsd"), (int, float))]
-        failed = sum(1 if c.get("error") else c.get("failed", 0) for c in chunks)
-        note("끝남" + (f" — 쪽 묶음 {failed}개는 추출하지 못함" if failed else ""), state="done", ended=round(time.time(), 3), chars=len(md), costUsd=round(sum(cost), 4) if cost else None,
-             calls=len(calls), failed=failed, relevant=sum(1 for c in chunks if c.get("relevant")), **counts)
+        ended = round(time.time(), 3)
+        for i, m in enumerate(metas):   # 범위마다 MD 하나 — 묶음의 결과를 그 범위의 눈으로(`_view`) 조립한다. 그림 · 수식은 그 범위의 글이 쓴 것만 그 폴더에
+            folder = store.ext_dir(m["id"])
+            if folder is None:   # 도는 동안 지운 범위
+                continue
+            views = [_view(c, i) for c in chunks]
+            md, images, counts = assemble(doc.get("name") or "문서", m["focus"], m, views, latex)
+            (folder / "images").mkdir(exist_ok=True)
+            for fname, png in images.items():
+                (folder / "images" / fname).write_bytes(png)
+            (folder / "doc.md").write_text(md, encoding="utf-8")
+            mine = [(k, v) for k, v in eqs if f"{k}.png" in images]
+            if mine:   # 수식 목록 — 캡처와 LaTeX 를 나란히(맞게 바꿨는지 견줘 보는 용: 앞선 구현 makemd 의 equations.md 와 같은 쓰임)
+                (folder / "equations.md").write_text(equations_md(doc.get("name") or "문서", mine, latex), encoding="utf-8")
+            (folder / "chunks").mkdir(exist_ok=True)
+            for c, v in zip(chunks, views):
+                store._write(folder / "chunks" / f"{c['n']}.json", {"n": c["n"], "first": c["first"], "last": c["last"], "relevant": v["relevant"], "error": c["error"], "skipped": v["skipped"], "note": c["note"],
+                                                                     "dropped": c["dropped"], "calls": c["calls"], **c["record"]})
+            failed = sum(1 if v.get("error") else v.get("failed", 0) for v in views)
+            # costUsd · calls 는 그 실행 전체의 것이다(함께 뽑은 범위들이 한 번 읽기를 같이 썼다 — 범위마다 나누지 않는다)
+            m["progress"] = {**m["progress"], "text": "끝남" + (f" — 쪽 묶음 {failed}개는 추출하지 못함" if failed else "")}
+            m.update(state="done", ended=ended, chars=len(md), costUsd=round(sum(cost), 4) if cost else None, calls=len(calls), failed=failed, relevant=sum(1 for v in views if v.get("relevant")), **counts)
+            store.save_extract(m)
     except InterruptedError:
         _last(note, "멈춤", state="stopped", ended=round(time.time(), 3), error="사람이 멈췄습니다")
     except Exception as e:   # noqa: BLE001 — 까닭을 적고 끝낸다
@@ -526,40 +625,60 @@ def _last(note, text, **more):
         pass
 
 
-_RUNS = {}   # 추출 id → (스레드, 멈춤 표식)
+_RUNS = {}   # 추출 id → (스레드, 멈춤 표식, 함께 뽑는 추출 id 들(같이 쓰는 set — 저 포함))
 _DROP = set()   # 끝나면 지울 추출 id(halt(drop=True))
 _RUNS_LOCK = threading.Lock()
 
 
-def _run_then_drop(eid, stop):
+def _run_then_drop(eid, stop, eids=()):
     try:
         run(eid, stop)
     finally:
         with _RUNS_LOCK:
-            gone = eid in _DROP
-            _DROP.discard(eid)
-        if gone:
-            store.drop_extract(eid)
+            gone = [e for e in (eid, *eids) if e in _DROP]
+            _DROP.difference_update(gone)
+        for e in dict.fromkeys(gone):
+            store.drop_extract(e)
+
+
+def focuses_of(focus):
+    """뽑을 범위(글 하나 | 글 여럿) → 범위 글들(빈칸을 다듬고 · 같은 글은 한 번 · 빈 글은 범위가 여럿일 때 뺀다 — 하나뿐이면 빈 글 = 문서 전체). 너무 길거나 많으면 ValueError."""
+    raw = [focus] if isinstance(focus, str) or focus is None else list(focus)
+    if not all(isinstance(f, str) or f is None for f in raw):
+        raise ValueError("뽑을 범위는 글이어야 합니다")
+    out = list(dict.fromkeys(" ".join((f or "").split()) for f in raw))
+    if len(out) > 1:
+        out = [f for f in out if f]
+    out = out or [""]
+    if any(len(f) > FOCUS_MAX for f in out):
+        raise ValueError(f"뽑을 범위는 {FOCUS_MAX}자까지입니다")
+    if len(out) > FOCUSES_MAX:
+        raise ValueError(f"한 번에 함께 뽑는 범위는 {FOCUSES_MAX}개까지입니다")
+    return out
 
 
 def start(did, focus, span=None):
-    """추출을 배경에서 시작 → meta. 문서가 없으면 None · 범위 글이 너무 길면 ValueError."""
-    focus = " ".join((focus or "").split())
-    if len(focus) > FOCUS_MAX:
-        raise ValueError(f"뽑을 범위는 {FOCUS_MAX}자까지입니다")
-    meta = store.new_extract(did, focus, span)
-    if meta is None:
-        return None
-    stop = threading.Event()
-    th = threading.Thread(target=_run_then_drop, args=(meta["id"], stop), name=f"extract-{meta['id']}", daemon=True)
+    """추출을 배경에서 시작 → meta(범위가 여럿이면 그 첫째 — 모두는 `_members(meta)`). 문서가 없으면 None · 범위 글이 너무 길거나 많으면 ValueError.
+    focus = 글 하나 | 글 여럿(범위마다 추출 기록 · MD 하나 — 스레드 하나가 문서를 한 번만 읽는다)."""
+    focuses = focuses_of(focus)
+    gid = "g" + uuid.uuid4().hex[:8] if len(focuses) > 1 else None
+    metas = []
+    for i, f in enumerate(focuses):
+        m = store.new_extract(did, f, span, {"group": gid, "part": [i + 1, len(focuses)]} if gid else None)
+        if m is None:
+            return None
+        metas.append(m)
+    stop, mates = threading.Event(), {m["id"] for m in metas}
+    th = threading.Thread(target=_run_then_drop, args=(metas[0]["id"], stop, tuple(mates)), name=f"extract-{metas[0]['id']}", daemon=True)
     with _RUNS_LOCK:
-        _RUNS[meta["id"]] = (th, stop)
+        for m in metas:
+            _RUNS[m["id"]] = (th, stop, mates)
     th.start()
-    return meta
+    return metas[0]
 
 
 def halt(eid, drop=False):
-    """도는 추출을 멈춘다 → 멈춤을 걸었나. drop = 끝나면 그 추출을 지운다(도는 카드의 「지우기」)."""
+    """도는 추출을 멈춘다 → 멈춤을 걸었나(함께 뽑는 범위가 있으면 모두 멈춘다 — 한 번 읽기를 같이 쓴다). drop = 끝나면 그 추출을 지운다(도는 카드의 「지우기」)."""
     with _RUNS_LOCK:
         got = _RUNS.get(eid)
         if got and got[0].is_alive():
@@ -568,6 +687,24 @@ def halt(eid, drop=False):
             got[1].set()
             return True
     return False
+
+
+def leave(eid):
+    """함께 뽑는 범위 가운데 이것만 뺀다 → 뺐나(함께 뽑는 다른 범위가 아직 돌 때만 — 부른 쪽이 그 기록을 바로 지운다 · 나머지는 계속 돈다). 혼자 도는 추출은 거짓(`halt(drop=True)` 로)."""
+    with _RUNS_LOCK:
+        got = _RUNS.get(eid)
+        if got and got[0].is_alive() and len(got[2]) > 1 and eid in got[2]:
+            got[2].discard(eid)
+            del _RUNS[eid]
+            return True
+    return False
+
+
+def mates_n(eid):
+    """그 추출과 함께 도는 범위의 수(저 포함 — 돌지 않으면 0)."""
+    with _RUNS_LOCK:
+        got = _RUNS.get(eid)
+        return len(got[2]) if got and got[0].is_alive() else 0
 
 
 def drop_pending(eid):

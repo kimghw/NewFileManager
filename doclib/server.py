@@ -4,8 +4,9 @@
 - `GET /api/health` → {ok, name, llm{available, cli, model, slots}, pdf{hwpx, docx}(한글 · Word 로 PDF 를 찍을 수 있나), size, root}
 - `GET /api/docs` → {docs[{id, name, ext, bytes, pages, at, org, topic, note, extracts[요약]}]} · `POST /api/docs`(multipart file) → {doc, created}
 - `PATCH /api/docs/{did}` {org?, topic?, note?} · `DELETE /api/docs/{did}`(도는 추출이 있으면 409) · `GET /api/docs/{did}/file`(올린 파일) · `GET /api/docs/{did}/pdf`(읽을 PDF — 없으면 그때 찍는다)
-- `POST /api/docs/{did}/extracts` {focus, first?, last?} → 추출을 배경에서 시작 {extract} · `GET /api/extracts/{eid}` → {extract, running}
-- `POST /api/extracts/{eid}/stop` · `DELETE /api/extracts/{eid}` · `GET /api/extracts/{eid}/md`(?abs=1 이면 그림 링크를 이 서버의 주소로) · `…/images/{name}` · `…/zip`(doc.md + 수식 목록 equations.md + images/)
+- `POST /api/docs/{did}/extracts` {focus | focuses[…], first?, last?} → 추출을 배경에서 시작 {extract, extracts[…]} — focuses 가 둘 이상이면 **범위마다 추출 하나(MD 하나)** 를 문서 한 번 읽기로 함께 뽑는다(같은 group) · `GET /api/extracts/{eid}` → {extract, running}
+- `POST /api/extracts/{eid}/stop`(함께 뽑는 범위 모두 멈춤 → {stopping, mates}) · `DELETE /api/extracts/{eid}`(함께 도는 범위가 있으면 그 범위만 뺌) · `GET /api/extracts/{eid}/md`(?abs=1 이면 그림 링크를 이 서버의 주소로) · `…/images/{name}`
+- `GET /api/extracts/{eid}/zip`(<문서>_<범위>.md + 수식 목록 + images/ · ?group=1 이면 함께 뽑은 범위의 MD 를 모두 한 zip 에)
 - `GET /api/prompts` · `GET | PUT /api/prompts/{name}` {text} — 스킬 글(빈 글 = 기본본으로)
 - `GET /` — 관리 화면(doclib/static/).
 127.0.0.1 만 듣는다. 다른 출처의 페이지가 보내는 바꾸는 요청(Origin 이 이 서버가 아님)은 403 — 8114 서버가 보내는 요청(Origin 없음)과 이 서버의 화면만 바꾼다."""
@@ -54,7 +55,7 @@ def _pdf_ok():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "name": "문서 라이브러리", "llm": agent.status(), "pdf": _pdf_ok(), "size": pdfkit.SIZE, "root": str(store.root())}
+    return {"ok": True, "name": "문서 라이브러리", "llm": agent.status(), "pdf": _pdf_ok(), "size": pdfkit.SIZE, "scopes": extract.FOCUSES_MAX, "root": str(store.root())}   # scopes = 한 번에 함께 뽑는 범위의 한도(화면이 이 값이 있을 때만 범위 여럿을 보낸다)
 
 
 @app.get("/api/docs")
@@ -146,11 +147,14 @@ def extracts_start(did: str, body: dict = Body(default={})):
         if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in (first, last)) or last < first:
             raise HTTPException(400, "쪽 범위는 first ≤ last 인 정수 둘")
         span = (first, last)
+    many = (body or {}).get("focuses")
+    if many is not None and not isinstance(many, list):
+        raise HTTPException(400, "focuses 는 글의 목록입니다")
     try:
-        meta = extract.start(did, (body or {}).get("focus") or "", span)
+        meta = extract.start(did, many if many else (body or {}).get("focus") or "", span)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    return {"extract": meta}
+    return {"extract": meta, "extracts": extract._members(meta)}
 
 
 @app.get("/api/extracts/{eid}")
@@ -161,13 +165,17 @@ def extracts_get(eid: str):
 @app.post("/api/extracts/{eid}/stop")
 def extracts_stop(eid: str):
     _ext(eid)
-    return {"ok": True, "stopping": extract.halt(eid)}
+    mates = extract.mates_n(eid)
+    return {"ok": True, "stopping": extract.halt(eid), "mates": mates}
 
 
 @app.delete("/api/extracts/{eid}")
 def extracts_delete(eid: str):
     _ext(eid)
-    if extract.halt(eid, drop=True):   # 도는 추출 — 멈추고, 스레드가 끝나면 지운다(도는 CLI 가 끊길 때까지 몇 초)
+    if extract.leave(eid):   # 함께 뽑는 다른 범위가 돌고 있다 — 이 범위만 빼고 바로 지운다(나머지는 계속)
+        store.drop_extract(eid)
+        return {"ok": True, "left": True}
+    if extract.halt(eid, drop=True):  # 도는 추출 — 멈추고, 스레드가 끝나면 지운다(도는 CLI 가 끊길 때까지 몇 초)
         return {"ok": True, "pending": True}
     store.drop_extract(eid)
     return {"ok": True}
@@ -200,25 +208,44 @@ def extracts_image(eid: str, name: str):
     return FileResponse(p, media_type="image/png")
 
 
+def _md_name(base, focus, taken):
+    """MD 파일 이름(확장자 없이) — 「<문서>_<범위>」(범위가 없으면 「<문서>」). 같은 이름이 이미 있으면 (2) (3) … 을 붙인다."""
+    tail = store.clean_name(focus)[:60].strip(" .") if focus else ""
+    name = f"{base}_{tail}" if tail else base
+    n, out = 1, name
+    while out in taken:
+        n += 1
+        out = f"{name} ({n})"
+    taken.add(out)
+    return out
+
+
 @app.get("/api/extracts/{eid}/zip")
-def extracts_zip(eid: str):
+def extracts_zip(eid: str, group: int = 0):
     m = _ext(eid)
     md = _md(eid)
     doc = store.doc(m["doc"]) or {}
     base = store.clean_name((doc.get("name") or "문서").rsplit(".", 1)[0])
-    buf = io.BytesIO()
+    # group = 함께 뽑은 범위들의 MD 를 한 zip 에(끝난 것만 — 그림은 같은 이름이 같은 그림이라 한 번만)
+    ms = [x for x in extract._members(m) if x.get("state") == "done" and (store.ext_dir(x["id"]) / "doc.md").is_file()] if group and m.get("group") else [m]
+    buf, taken, seen = io.BytesIO(), set(), set()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(md, f"{base}.md")
-        if (md.parent / "equations.md").is_file():   # 수식 목록(캡처와 LaTeX 를 나란히)
-            z.write(md.parent / "equations.md", f"{base}.equations.md")
-        for img in sorted((md.parent / "images").glob("*.png")):
-            z.write(img, f"images/{img.name}")
-    return Response(buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(base + '_추출.zip')}"})
+        for x in ms or [m]:
+            folder, name = store.ext_dir(x["id"]), _md_name(base, x.get("focus") or "", taken)
+            z.write(folder / "doc.md", f"{name}.md")
+            if (folder / "equations.md").is_file():   # 수식 목록(캡처와 LaTeX 를 나란히)
+                z.write(folder / "equations.md", f"{name}.equations.md")
+            for img in sorted((folder / "images").glob("*.png")):
+                if img.name not in seen:
+                    seen.add(img.name)
+                    z.write(img, f"images/{img.name}")
+    out = (base if len(ms) > 1 else next(iter(taken))) + "_추출.zip"
+    return Response(buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(out)}"})
 
 
 @app.get("/api/prompts")
 def prompts_list():
-    return {"prompts": [store.prompt(n) for n, _ in store.PROMPTS], "contracts": {"extract": extract.CONTRACT, "verify": extract.VERIFY_CONTRACT, "formula": extract.FORMULA_CONTRACT}}
+    return {"prompts": [store.prompt(n) for n, _ in store.PROMPTS], "contracts": {"extract": extract.CONTRACT + "\n\n──── 범위가 여럿일 때(함께 뽑기 — 범위마다 MD 하나) ────\n\n" + extract.CONTRACT_MULTI, "verify": extract.VERIFY_CONTRACT, "formula": extract.FORMULA_CONTRACT}}
 
 
 @app.put("/api/prompts/{name}")

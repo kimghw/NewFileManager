@@ -3,7 +3,7 @@
     <root>/docs/<문서 id>/meta.json     {id, name, ext, sha256, bytes, pages, at, org, topic, note}
                           source.<ext>  올린 파일 그대로
                           source.pdf    읽을 PDF(pdf 는 올린 것 · hwp · hwpx · docx 는 한글 · Word 로 찍은 것)
-                          extracts/<추출 id>/meta.json  {id, doc, focus, span, state, at, done, …} — extract.py 가 쓴다
+                          extracts/<추출 id>/meta.json  {id, doc, focus, span, state, at, done, …, group?, part?[차례, 수](함께 뽑은 범위)} — extract.py 가 쓴다
                                                doc.md · images/*.png · chunks/<n>.json
     <root>/prompts/<이름>.md             사람이 고친 스킬 글(없으면 doclib/prompts/ 의 기본본)
 
@@ -113,7 +113,8 @@ def docs():
 
 def brief(e):
     """추출 하나의 목록용 요약."""
-    return {k: e.get(k) for k in ("id", "doc", "focus", "span", "state", "at", "ended", "pages", "chars", "figures", "formulas", "open", "error", "progress", "model", "costUsd")}
+    return {k: e.get(k) for k in ("id", "doc", "focus", "span", "state", "at", "ended", "pages", "chars", "figures", "formulas", "open", "error", "progress", "model", "costUsd",
+                                  "group", "part")}   # group · part [차례, 수] = 함께 뽑은 범위(문서를 한 번 읽어 범위마다 MD 하나 — extract.start)
 
 
 def clean_name(name):

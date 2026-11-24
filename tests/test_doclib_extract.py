@@ -49,11 +49,11 @@ def _fake(seen, extract_answer=None, verify="ok", latex=True):
         if "keys" in data:   # 수식
             seen.append(("formula", data["keys"], len(images), tools))
             return {**base, "data": {"items": [{"key": k, "latex": "E = mc^{2} \\tag{1}" if latex else "", "ok": latex, "note": "" if latex else "읽을 수 없음"} for k in data["keys"]]}}
-        if "focus" not in data:   # 그림 확인
+        if "focus" not in data and "scopes" not in data:   # 그림 확인
             seen.append(("verify", [f["key"] for f in data["figures"]], sorted(p.name for p in (cwd / "check").iterdir()) if hasattr(cwd, "iterdir") else None, tools))
             items = [{"key": f["key"], "verdict": verify, "box": [180, 230, 620, 490] if verify == "cut" else [], "why": "시험"} for f in data["figures"]]
             return {**base, "data": {"items": items}}
-        seen.append(("extract", data["pages"], [f["key"] for f in data["figures"]], data["focus"], tools))
+        seen.append(("extract", data["pages"], [f["key"] for f in data["figures"]], data["focus"] if "focus" in data else [x["focus"] for x in data["scopes"]], tools, schema))
         if extract_answer is None:
             return {**base, "data": None, "error": "exit 1: 가짜 실패"}
         return {**base, "data": extract_answer(data)}
@@ -175,7 +175,7 @@ def test_server_endpoints(lib, monkeypatch):
     monkeypatch.setenv("NFM_DOCLIB_LLM", "off")
     c = TestClient(server.app)
     h = c.get("/api/health").json()
-    assert h["ok"] and h["llm"]["available"] is False and h["size"] == 20
+    assert h["ok"] and h["llm"]["available"] is False and h["size"] == 20 and h["scopes"] == extract.FOCUSES_MAX
     assert c.get("/").status_code == 200 and "문서 라이브러리" in c.get("/").text and c.get("/static/doclib.js").status_code == 200
     pdf = _pdf(2)
     r = c.post("/api/docs", files={"file": ("보고서.pdf", pdf, "application/pdf")})
@@ -204,7 +204,7 @@ def test_server_endpoints(lib, monkeypatch):
     assert "](http://testserver/api/extracts/" + eid + "/images/p1_F1.png)" in c.get(f"/api/extracts/{eid}/md?abs=1").text
     assert c.get(f"/api/extracts/{eid}/images/p1_F1.png").headers["content-type"] == "image/png" and c.get(f"/api/extracts/{eid}/images/..%5Cmeta.json").status_code == 404
     z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/extracts/{eid}/zip").content))
-    assert sorted(z.namelist()) == ["images/p1_F1.png", "images/p2_N1.png", "images/p2_Q1.png", "보고서.equations.md", "보고서.md"]
+    assert sorted(z.namelist()) == ["images/p1_F1.png", "images/p2_N1.png", "images/p2_Q1.png", "보고서_한국선급.equations.md", "보고서_한국선급.md"]   # MD 파일 이름 = 「<문서>_<범위>」
     ps = c.get("/api/prompts").json()
     assert [p["name"] for p in ps["prompts"]] == ["extract", "verify", "formula"] and set(ps["contracts"]) == {"extract", "verify", "formula"}
     assert c.put("/api/prompts/verify", json={"text": "내 기준"}).json()["prompt"]["custom"] and c.put("/api/prompts/nope", json={"text": "x"}).status_code == 404
@@ -299,3 +299,85 @@ def test_deleting_a_running_extract_stops_it_then_removes_it(lib, monkeypatch):
     assert c.delete(f"/api/extracts/{eid}").json() == {"ok": True, "pending": True}
     extract._RUNS[eid][0].join(30)
     assert c.get(f"/api/extracts/{eid}").status_code == 404 and c.get("/api/docs").json()["docs"][0]["extracts"] == []
+
+
+def _answer_many(data):
+    """범위 둘의 답 — 1~2쪽: s1 은 후보 그림 · s2 는 상자로 가리킨 그림과 수식 / 3쪽: s1 은 범위 밖 · s2 는 답에서 빠짐."""
+    if data["pages"][0] != 1:
+        return {"scopes": [{"id": "s1", "relevant": False, "markdown": "지워질 글", "skipped": "범위 밖"}], "figures": [], "formulas": [], "note": ""}
+    return {"scopes": [{"id": "s2", "relevant": True, "markdown": "<!-- p.2 -->\n\nB 글\n\n{{fig:new1}}\n\n{{eq:eq1}}\n\n{{fig:p1_F1}}", "skipped": ""},
+                       {"id": "s1", "relevant": True, "markdown": "<!-- p.1 -->\n\nA 글\n\n{{fig:p1_F1}}\n< 그림 1 >", "skipped": "인텍전기전자의 절"}],
+            "figures": [{"key": "p1_F1", "caption": "< 그림 1 >", "page": 1, "box": [], "join": []}, {"key": "new1", "caption": "", "page": 2, "box": [190, 240, 610, 480], "join": []}],
+            "formulas": [{"key": "eq1", "page": 2, "box": [230, 600, 480, 640], "near": "식"}], "note": "메모"}
+
+
+def test_many_scopes_read_the_document_once_and_write_one_md_per_scope(lib, monkeypatch):
+    """범위 여럿(2026-11-24 사용자 "1.한국선급, 2.인텍전기전자 이렇게 각각 의 md 파일로") — 추출 호출은 묶음마다 하나, MD · 그림은 범위마다."""
+    assert extract.focuses_of("  한국  선급 ") == ["한국 선급"] and extract.focuses_of(None) == [""] and extract.focuses_of(["", " "]) == [""]
+    assert extract.focuses_of(["한국선급", " ", "인텍전기전자", "한국선급"]) == ["한국선급", "인텍전기전자"]          # 빈 글 · 같은 글은 뺀다
+    with pytest.raises(ValueError):
+        extract.focuses_of([f"범위{i}" for i in range(extract.FOCUSES_MAX + 1)])
+    with pytest.raises(ValueError):
+        extract.focuses_of(["x" * (extract.FOCUS_MAX + 1)])
+    with pytest.raises(ValueError):
+        extract.focuses_of(["a", 3])
+    many = extract.CONTRACT_MULTI.format(first=1, last=2, n=2)
+    assert "scopes" in many and "{id, relevant, markdown, skipped}" in many and "focus 에 해당하는" not in many and "{{fig:KEY}}" in many and "{first}" not in many
+
+    seen = []
+    monkeypatch.setattr(extract.pdfkit, "SIZE", 2)
+    monkeypatch.setattr(extract.agent, "run", _fake(seen, _answer_many))
+    monkeypatch.setattr(extract.agent, "slots_n", lambda: 1)
+    meta, _ = store.add_doc("계획서.pdf", _pdf(3))
+    lead = extract.start(meta["id"], ["한국선급", "인텍전기전자, 1·2차년도"], None)
+    extract._RUNS[lead["id"]][0].join(30)
+    a, b = extract._members(store.extract(lead["id"]))
+    assert a["id"] == lead["id"] and a["group"] == b["group"] and a["group"].startswith("g") and (a["part"], b["part"]) == ([1, 2], [2, 2]) and (a["focus"], b["focus"]) == ("한국선급", "인텍전기전자, 1·2차년도")
+    ex = [s for s in seen if s[0] == "extract"]
+    assert len(ex) == 2 and all(s[3] == ["한국선급", "인텍전기전자, 1·2차년도"] and s[5] is extract.MULTI_SCHEMA for s in ex)   # 문서는 한 번만 읽는다(묶음마다 호출 하나)
+    assert [s[0] for s in seen].count("verify") == 1 and [s[0] for s in seen].count("formula") == 1                # 그림 확인 · 수식도 한 번(범위들이 같이 쓴다)
+    assert a["state"] == b["state"] == "done" and a["costUsd"] == b["costUsd"] == pytest.approx(0.04) and a["span"] == b["span"] == [1, 3]
+    assert (a["figures"], a["formulas"], a["failed"], a["relevant"]) == (1, 0, 0, 1) and (b["figures"], b["formulas"], b["failed"], b["relevant"]) == (2, 1, 1, 2)
+    fa, fb = store.ext_dir(a["id"]), store.ext_dir(b["id"])
+    ma, mb = (fa / "doc.md").read_text(encoding="utf-8"), (fb / "doc.md").read_text(encoding="utf-8")
+    assert "범위: 한국선급 · 쪽 1–3" in ma and "> 함께 뽑은 범위 1/2" in ma and "A 글" in ma and "B 글" not in ma and "지워질 글" not in ma and "![< 그림 1 >](images/p1_F1.png)" in ma
+    assert "- p.1–2: 인텍전기전자의 절" in ma and "- p.3–3: 범위 밖" in ma
+    assert "범위: 인텍전기전자, 1·2차년도" in mb and "> 함께 뽑은 범위 2/2" in mb and "B 글" in mb and "A 글" not in mb and "images/p2_N1.png" in mb and "images/p1_F1.png" in mb and "E = mc^{2}" in mb
+    assert "<!-- p.3–3: 추출하지 못함 — 이 범위의 답이 빠졌습니다 -->" in mb and b["open"] >= 1                     # 답에 빠진 범위는 「내용 없음」 이 아니라 남긴다
+    assert sorted(p.name for p in (fa / "images").iterdir()) == ["p1_F1.png"] and not (fa / "equations.md").exists()   # 그림 · 수식은 그 범위의 글이 쓴 것만
+    assert sorted(p.name for p in (fb / "images").iterdir()) == ["p1_F1.png", "p2_N1.png", "p2_Q1.png"] and (fb / "equations.md").is_file()
+    ra, rb = (json.loads((f / "chunks" / "2.json").read_text(encoding="utf-8")) for f in (fa, fb))
+    assert ra["relevant"] is False and ra["skipped"] == "범위 밖" and rb["relevant"] is True
+    assert json.loads(ra["prompt"].rsplit("## 자료(JSON)\n", 1)[1])["scopes"] == [{"id": "s1", "focus": "한국선급"}, {"id": "s2", "focus": "인텍전기전자, 1·2차년도"}]
+    c = TestClient(server.app)
+    listed = c.get("/api/docs").json()["docs"][0]["extracts"]
+    assert {(x["group"], tuple(x["part"])) for x in listed} == {(a["group"], (1, 2)), (a["group"], (2, 2))}
+    one = zipfile.ZipFile(io.BytesIO(c.get(f"/api/extracts/{a['id']}/zip").content))
+    assert sorted(one.namelist()) == ["images/p1_F1.png", "계획서_한국선급.md"]
+    both = zipfile.ZipFile(io.BytesIO(c.get(f"/api/extracts/{b['id']}/zip?group=1").content))                       # 함께 뽑은 범위의 MD 를 한 zip 에
+    assert sorted(both.namelist()) == ["images/p1_F1.png", "images/p2_N1.png", "images/p2_Q1.png", "계획서_인텍전기전자, 1·2차년도.equations.md", "계획서_인텍전기전자, 1·2차년도.md", "계획서_한국선급.md"]
+
+
+def test_many_scopes_stop_stops_all_and_delete_of_a_running_scope_leaves_the_rest(lib, monkeypatch):
+    monkeypatch.setenv("NFM_DOCLIB_LLM", "")
+    monkeypatch.setattr(extract.agent, "status", lambda: {"available": True, "cli": "x", "model": "fake", "slots": 1})
+    began = threading.Event()
+
+    def slow(prompt, schema, *, cwd, tools=("Read",), images=(), effort="medium", timeout=0, stop=None):
+        began.set()
+        stop.wait(20)
+        return {"data": None, "error": "stopped", "ms": 1, "costUsd": None, "model": "fake", "turns": 0, "reads": 0}
+    monkeypatch.setattr(extract.agent, "run", slow)
+    c = TestClient(server.app)
+    did = c.post("/api/docs", files={"file": ("a.pdf", _pdf(2), "application/pdf")}).json()["doc"]["id"]
+    assert c.post(f"/api/docs/{did}/extracts", json={"focuses": "한국선급"}).status_code == 400
+    assert c.post(f"/api/docs/{did}/extracts", json={"focuses": [f"범위{i}" for i in range(9)]}).status_code == 400
+    got = c.post(f"/api/docs/{did}/extracts", json={"focuses": ["가", "나", "다"]}).json()
+    ids = [x["id"] for x in got["extracts"]]
+    assert got["extract"]["id"] == ids[0] and len(ids) == 3 and began.wait(20) and all(extract.running(i) for i in ids)
+    assert c.delete(f"/api/extracts/{ids[0]}").json() == {"ok": True, "left": True}                 # 도는 범위 하나의 「지우기」 = 그 범위만 뺀다(나머지는 계속)
+    assert c.get(f"/api/extracts/{ids[0]}").status_code == 404 and extract.running(ids[1]) and extract.mates_n(ids[1]) == 2
+    assert c.post(f"/api/extracts/{ids[1]}/stop").json() == {"ok": True, "stopping": True, "mates": 2}   # 「멈춤」 = 함께 뽑는 범위 모두
+    extract._RUNS[ids[1]][0].join(30)
+    assert [c.get(f"/api/extracts/{i}").json()["extract"]["state"] for i in ids[1:]] == ["stopped", "stopped"]
+    assert sorted(x["id"] for x in c.get("/api/docs").json()["docs"][0]["extracts"]) == sorted(ids[1:])

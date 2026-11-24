@@ -142,6 +142,21 @@ input:focus, textarea:focus, .btn:focus-visible, .note:focus-visible { outline: 
 .run-act { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; margin-left: auto; }
 .run-hint { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .run-hint.is-warn { color: var(--warn); font-weight: 600; }
+/* 뽑을 범위 — 줄마다 범위 하나 = MD 파일 하나(둘 이상이면 번호 · 빼기 단추가 보인다) */
+.scope-field { flex: none; }
+.scopes { display: grid; gap: 6px; }
+.scope { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.scope textarea { min-height: 32px; height: 32px; resize: none; overflow-y: auto; flex: 1 1 auto; }
+.scope-n, .scope-del { display: none; flex: none; width: 24px; height: 32px; align-items: center; justify-content: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.scope-n { color: var(--muted); font-weight: 600; }
+.scope-n::after { content: "."; }
+.scope-del { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; border-radius: 6px; cursor: pointer; }
+.scope-del:hover { background: var(--fail-soft); color: var(--fail); }
+.scopes.many .scope-n, .scopes.many .scope-del { display: inline-flex; }
+.scope-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.scope-split { border-color: var(--accent); color: var(--accent); }
+.scope-split[hidden] { display: none; }
+.chip.x-group { background: var(--surface-2); color: var(--muted); border-color: var(--line); }
 
 /* ---- 3) 추출 결과(xSec) ---- */
 .x-list { display: grid; gap: 8px; }

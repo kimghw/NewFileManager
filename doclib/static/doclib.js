@@ -160,16 +160,60 @@ function runSec(d) {
   const help = el("button", "note", "i");
   help.type = "button"; help.title = "자료 추출 안내"; help.addEventListener("click", () => $("helpDlg").showModal());
   h.append(el("span", null, "자료 추출 (MD)"), help);
-  const focus = el("textarea");
-  focus.placeholder = "뽑을 범위 — 예: 한국선급이 맡은 연구 내용 / 자율운항 실증 과제의 2차년도 실적 (비우면 문서 전체)";
-  focus.value = [d.org, d.topic].filter(Boolean).join(" · ");
+  // 뽑을 범위 — 줄마다 범위 하나 = MD 파일 하나(범위가 둘 이상이면 문서를 한 번만 읽어 함께 뽑는다)
+  const scopes = el("div", "scopes"), scopeActs = el("div", "scope-acts");
+  const add = el("button", "btn small scope-add", "＋ 범위 추가"), split = el("button", "btn small scope-split");
+  add.type = "button"; split.type = "button"; split.hidden = true;
+  add.title = "범위마다 MD 파일 하나 — 예: 1 한국선급 · 2 인텍전기전자. 범위가 여럿이어도 문서는 한 번만 읽습니다";
+  const rows = () => [...scopes.querySelectorAll("textarea")];
+  const vals = () => [...new Set(rows().map((t) => t.value.replace(/\s+/g, " ").trim()).filter(Boolean))];
+  const fit = (t) => { t.style.height = "auto"; t.style.height = `${Math.min(160, t.scrollHeight + 2)}px`; };
+  const sync = () => {
+    const all = rows(), many = all.length > 1, max = (S.health && S.health.scopes) || 8;
+    scopes.classList.toggle("many", many);
+    all.forEach((t, i) => {
+      t.closest(".scope").querySelector(".scope-n").textContent = String(i + 1);
+      t.placeholder = i === 0 ? `예: 한국선급 / 한국선급, 1·2차년도${many ? "" : " (비우면 문서 전체)"}` : "예: 인텍전기전자 / 한국선급, 2차년도";
+    });
+    add.disabled = all.length >= max;
+    // 한 줄에 「1.한국선급, 2.인텍전기전자」 나 여러 줄을 적었으면 범위 여럿으로 나누기를 권한다(저절로 나누지 않는다)
+    const cut = all.map((t) => splitScopes(t.value)).find((p) => p.length > 1);
+    split.hidden = !cut;
+    if (cut) { split.textContent = `범위 ${cut.length}개로 나누기`; split.title = cut.map((s, i) => `${i + 1}. ${s}`).join("\n"); }
+    updateHint();
+  };
+  const addRow = (value, after) => {
+    const row = el("div", "scope"), t = el("textarea"), del = el("button", "scope-del", "×");
+    t.rows = 1; t.value = value || ""; t.setAttribute("aria-label", "뽑을 범위");
+    del.type = "button"; del.title = "이 범위 빼기"; del.setAttribute("aria-label", "이 범위 빼기");
+    del.addEventListener("click", () => { row.remove(); sync(); });
+    t.addEventListener("input", () => { fit(t); sync(); });
+    t.addEventListener("keydown", (ev) => {   // Enter = 다음 범위(줄 바꿈은 Shift+Enter)
+      if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing) return;
+      ev.preventDefault();
+      const next = row.nextElementSibling;
+      if (next) next.querySelector("textarea").focus(); else if (t.value.trim() && !add.disabled) addRow("", row).focus();
+    });
+    row.append(el("span", "scope-n"), t, del);
+    if (after) after.after(row); else scopes.append(row);
+    requestAnimationFrame(() => fit(t));
+    sync();
+    return t;
+  };
+  add.addEventListener("click", () => addRow("").focus());
+  split.addEventListener("click", () => {
+    const out = rows().flatMap((t) => splitScopes(t.value)).filter(Boolean).slice(0, (S.health && S.health.scopes) || 8);
+    scopes.replaceChildren();
+    out.forEach((s) => addRow(s));
+  });
+  scopeActs.append(add, split);
   const first = el("input"), last = el("input");
   for (const i of [first, last]) { i.type = "number"; i.min = "1"; if (d.pages) i.max = String(d.pages); }
   first.placeholder = "1"; last.placeholder = d.pages ? String(d.pages) : "끝";
   const go = el("button", "btn primary btn-go", "추출 시작");
   go.type = "button";
   go.addEventListener("click", () => {
-    const body = { focus: focus.value };
+    const list = vals(), body = list.length > 1 ? { focuses: list } : { focus: list[0] || "" };
     if (first.value || last.value) { body.first = Number(first.value || 1); body.last = Number(last.value || d.pages || first.value || 1); }
     startExtract(d, body, go);
   });
@@ -195,10 +239,12 @@ function runSec(d) {
     }
     const parts = pages ? [`${pages}쪽`, `쪽 묶음 ${Math.ceil(pages / size)}개`] : [`한 묶음 ${size}쪽`];
     if (slots) parts.push(`동시에 ${slots}개`);
+    const n = vals().length;
+    if (n > 1) parts.push(`범위 ${n}개 → MD ${n}개(문서는 한 번만 읽음)`);
     hint.textContent = parts.join(" · ");
   };
   for (const i of [first, last]) { i.addEventListener("input", updateHint); i.addEventListener("change", updateHint); }
-  updateHint();
+  addRow([d.org, d.topic].filter(Boolean).join(" · "));
   if (!S.health && $("llmChip")) {
     const mo = new MutationObserver(() => {
       if (!sec.isConnected) { mo.disconnect(); return; }
@@ -209,13 +255,25 @@ function runSec(d) {
   range.append(el("span", "range-lbl", "쪽 범위(비우면 전체)"), first, el("span", "muted", "~"), last);
   act.append(hint, go);
   bar.append(range, act);
-  sec.append(h, field("뽑을 범위(특정 기관 · 특정 연구)", focus), bar);
+  const scopeBox = el("div", "field scope-field");
+  scopeBox.append(el("span", null, "뽑을 범위(특정 기관 · 특정 연구) — 범위마다 MD 파일 하나"), scopes, scopeActs);
+  sec.append(h, scopeBox, bar);
   return sec;
+}
+// 한 줄에 적은 「1.한국선급, 2.인텍전기전자」(1 부터 차례로 매긴 번호 둘 이상) · 여러 줄 → 범위 글들. 나눌 것이 없으면 [그 글]
+function splitScopes(text) {
+  const t = (text || "").trim(), lines = t.split(/\n+/).map((s) => s.replace(/^\s*(?:\d{1,2}[.)]|[-•·])\s*/, "").trim()).filter(Boolean);
+  if (lines.length > 1) return lines;
+  const marks = [...t.matchAll(/(?:^|[\s,;·]+)(\d{1,2})[.)]\s*(?=[^\d\s])/g)];
+  if (marks.length < 2 || marks[0].index !== 0 || marks.some((m, i) => Number(m[1]) !== i + 1)) return [t];
+  return marks.map((m, i) => t.slice(m.index + m[0].length, i + 1 < marks.length ? marks[i + 1].index : t.length).trim()).filter(Boolean);
 }
 // 추출 시작(새로 · 「다시 추출」 같이) — 유료 LLM 이라 쪽 수 · 묶음 수를 보이고 묻는다
 async function startExtract(d, body, btn) {
-  const pages = body.first ? body.last - body.first + 1 : d.pages, size = (S.health && S.health.size) || 20;
-  if (!confirm(`유료 LLM(${(S.health && S.health.llm.model) || "Claude"})으로 추출합니다${pages ? ` — ${pages}쪽 · 쪽 묶음 ${Math.ceil(pages / size)}개` : ""}. 진행할까요?`)) return;
+  const pages = body.first ? body.last - body.first + 1 : d.pages, size = (S.health && S.health.size) || 20, many = (body.focuses || []).length;
+  if (many > 1 && !(S.health && S.health.scopes)) { toast("범위 여럿을 함께 뽑으려면 문서 라이브러리 서버를 다시 켜야 합니다(새 기능이 아직 안 실렸습니다)"); return; }
+  const what = many > 1 ? ` · 범위 ${many}개 → MD ${many}개(문서는 한 번만 읽습니다)\n${body.focuses.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}\n` : "";
+  if (!confirm(`유료 LLM(${(S.health && S.health.llm.model) || "Claude"})으로 추출합니다${pages ? ` — ${pages}쪽 · 쪽 묶음 ${Math.ceil(pages / size)}개` : ""}${what}${what ? "" : ". "}진행할까요?`)) return;
   btn.disabled = true;
   try { const got = await api(`/api/docs/${d.id}/extracts`, { method: "POST", body: JSON.stringify(body) }); S.ext = got.extract.id; await loadDocs(); } catch (e) { toast(e.message); }
   btn.disabled = false;
@@ -247,17 +305,27 @@ function extCard(d, e) {
   const isOn = e.id === S.ext, isLive = live(e);
   const card = el("div", `x-card state-${e.state}${isOn ? " on" : ""}${isLive ? " live" : ""}`), [name, cls] = STATE[e.state] || [e.state, ""];
   const top = el("div", "x-top"), title = el("div", "x-title"), acts = el("div", "x-acts");
+  // 함께 뽑은 범위(문서를 한 번 읽어 범위마다 MD 하나) — 같은 group 의 카드들
+  const mates = e.group ? d.extracts.filter((x) => x.group === e.group) : [e], liveMates = mates.filter(live).length;
   title.append(el("span", `chip ${cls}`, name), el("span", "x-focus", e.focus || "문서 전체"));
+  if (e.group && e.part) {
+    const g = el("span", "chip x-group", `함께 ${e.part[0]}/${e.part[1]}`);
+    g.title = `문서를 한 번 읽어 범위 ${e.part[1]}개를 함께 뽑았습니다 — 범위마다 MD 하나`;
+    title.append(g);
+  }
   if (e.state === "done" && e.open) title.append(el("span", "chip warn", `확인 필요 ${e.open}`));
   if (isLive) {
     const stop = el("button", "btn small btn-stop", "멈춤");
     stop.type = "button";
-    stop.addEventListener("click", async () => { try { await api(`/api/extracts/${e.id}/stop`, { method: "POST" }); toast("멈추는 중입니다"); } catch (err) { toast(err.message); } });
-    const drop = el("button", "btn small danger btn-del", "지우기");   // 도는 것도 — 멈추고 끝나는 대로 지운다
+    if (liveMates > 1) stop.title = `함께 뽑는 범위 ${liveMates}개가 모두 멈춥니다(문서를 한 번 읽어 같이 뽑는 중)`;
+    stop.addEventListener("click", async () => {
+      try { const got = await api(`/api/extracts/${e.id}/stop`, { method: "POST" }); toast(got.mates > 1 ? `함께 뽑는 범위 ${got.mates}개를 모두 멈추는 중입니다` : "멈추는 중입니다"); } catch (err) { toast(err.message); }
+    });
+    const drop = el("button", "btn small danger btn-del", "지우기");   // 도는 것도 — 멈추고 끝나는 대로 지운다(함께 뽑는 범위가 있으면 이 범위만 뺀다)
     drop.type = "button";
     drop.addEventListener("click", async () => {
-      if (!confirm("이 추출을 멈추고 지웁니다(도는 LLM 호출이 끊기는 대로 — 몇 초).")) return;
-      try { await api(`/api/extracts/${e.id}`, { method: "DELETE" }); delete S.md[e.id]; toast("멈추고 지우는 중입니다"); await loadDocs(); } catch (err) { toast(err.message); }
+      if (!confirm(liveMates > 1 ? "이 범위만 뺍니다 — 함께 뽑는 다른 범위는 계속 돕니다." : "이 추출을 멈추고 지웁니다(도는 LLM 호출이 끊기는 대로 — 몇 초).")) return;
+      try { const got = await api(`/api/extracts/${e.id}`, { method: "DELETE" }); delete S.md[e.id]; toast(got.left ? "이 범위를 뺐습니다 — 나머지는 계속 뽑습니다" : "멈추고 지우는 중입니다"); await loadDocs(); } catch (err) { toast(err.message); }
     });
     acts.append(stop, drop);
   } else {
@@ -267,10 +335,19 @@ function extCard(d, e) {
       view.addEventListener("click", () => pick(d.id, e.id));
       zip.href = `/api/extracts/${e.id}/zip`;
       acts.append(view, zip);
-    } else {   // 끊김 · 실패 · 멈춤 — 같은 범위 · 같은 쪽으로 다시
+      const doneMates = mates.filter((x) => x.state === "done").length;
+      if (doneMates > 1) {   // 함께 뽑은 MD 들을 한 zip 으로(범위마다 MD 파일 하나 + 그림)
+        const all = el("a", "btn small btn-zip-all", `함께 뽑은 ${doneMates}개(zip)`);
+        all.href = `/api/extracts/${e.id}/zip?group=1`;
+        all.title = "함께 뽑은 범위의 MD 파일을 모두 한 zip 으로 — 범위마다 MD 파일 하나";
+        acts.append(all);
+      }
+    } else {   // 끊김 · 실패 · 멈춤 — 같은 범위 · 같은 쪽으로 다시(함께 뽑다 같이 멈춘 범위들은 다시도 함께 — 문서를 한 번만 읽게)
       const again = el("button", "btn small btn-again", "다시 추출");
       again.type = "button";
-      again.addEventListener("click", () => startExtract(d, { focus: e.focus || "", ...(e.span ? { first: e.span[0], last: e.span[1] } : {}) }, again));
+      const redo = [...new Set(mates.filter((x) => !live(x) && x.state !== "done").map((x) => x.focus).filter(Boolean))];
+      if (redo.length > 1) again.title = `함께 뽑다 멈춘 범위 ${redo.length}개를 다시 함께 뽑습니다`;
+      again.addEventListener("click", () => startExtract(d, { ...(redo.length > 1 ? { focuses: redo } : { focus: e.focus || "" }), ...(e.span ? { first: e.span[0], last: e.span[1] } : {}) }, again));
       acts.append(again);
     }
     const del = el("button", "btn small danger btn-del", "지우기");
@@ -296,7 +373,10 @@ function extCard(d, e) {
     addStat("그림", String(e.figures));
     addStat("수식", String(e.formulas));
     addStat("자", (e.chars || 0).toLocaleString(), true);
-    if (typeof e.costUsd === "number") addStat("정가 셈", `$${e.costUsd.toFixed(2)}`);
+    if (typeof e.costUsd === "number") {
+      addStat(e.group ? "정가 셈(함께)" : "정가 셈", `$${e.costUsd.toFixed(2)}`);
+      if (e.group) stats.lastChild.title = "함께 뽑은 범위 전체의 값입니다(문서를 한 번 읽은 값 — 범위마다 나누지 않습니다)";
+    }
     metaRow.append(stats);
   }
   card.append(top, metaRow);

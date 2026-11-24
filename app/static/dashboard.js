@@ -1457,7 +1457,7 @@ function dashPickEl() { // TASK 가 없는 문서 — 이 문서의 형식으로
 // 문서마다 따로 · 모두 같이(「한 문서만」 과 같은 갈래). 도는 실행이 있으면 꺼 둔다(서버도 거절 — _flow_busy).
 // R = 그 보기의 상태 {open, docs[{role, label, name, id}] | null, err, busy} · opt = {wid 그 묶음의 문서 하나, off 누를 수 없는 까닭, redraw(), done(초기화한 id 목록) → 약속, focusAttr}
 const DASH_RESET_TIP = "작업 내용 초기화 — 고른 문서를 올린 직후로 되돌립니다(누르면 문서를 고르는 칸이 펴집니다 · 고르기 전에는 아무것도 안 바뀝니다)";
-const dashResetFresh = () => ({ open: false, docs: null, err: "", busy: "" });
+const dashResetFresh = () => ({ open: false, docs: null, err: "", busy: "", after: false }); // after = 방금 초기화했다 — 그 자리에 「다음」 단추를 둔다(dashNextBtn · 2026-11-24)
 function dashResetDocs(V) { // 서버 상태(GET …/flow)의 문서 칸 → [{role, label, name, id}] — 원본 문서(취합은 기관 문서마다) → 목적 문서
   const D = (V && V.docs) || {}, out = [], add = (role, d, title) => { if (d && d.id && !out.some((x) => x.id === d.id)) out.push({ role, label: title, name: d.name || "", id: d.id }); };
   const many = D.sources || [], tid = (D.target || {}).id || "", seen = {};
@@ -1468,12 +1468,13 @@ function dashResetDocs(V) { // 서버 상태(GET …/flow)의 문서 칸 → [{r
   return out;
 }
 async function dashResetOpen(R, wid, redraw, focus = () => {}) { // focus = 편 뒤 초점을 「취소」 로(그 보기의 초점 함수)
-  Object.assign(R, { open: true, docs: null, err: "" });
+  Object.assign(R, { open: true, docs: null, err: "", after: false });
   await redraw(); // 패널의 그리기(dashDraw)는 약속이다 — 그린 뒤에 초점을 옮긴다(다시 그릴 때는 그 단추에 초점이 남는다)
   focus();
   try { R.docs = dashResetDocs(await api(`/api/works/${wid}/flow`)); if (!R.docs.length) R.err = "이 워크플로우의 문서 칸이 비어 있습니다"; }
   catch (e) { R.err = `문서 칸을 읽지 못했습니다: ${e.message}`; }
   await redraw();
+  if (R.open) focus(); // 문서 단추가 생겨 상자가 길어졌다 — 맨 아래 줄에서 폈으면 단추가 화면 밖에 있지 않게(focus 가 「취소」 를 보이는 데까지 민다)
 }
 async function dashResetRun(R, list, { redraw, done }) {
   if (R.busy || !list.length) return;
@@ -1486,17 +1487,19 @@ async function dashResetRun(R, list, { redraw, done }) {
     state.commitBusy = false;
     if (!ok.some((d) => d.id === state.id)) { setSaveState("err", "초기화하지 못함"); if (typeof commitBar === "function") commitBar(); }
   }
-  Object.assign(R, { busy: "", open: !!bad.length && !ok.length });
+  Object.assign(R, { busy: "", open: !!bad.length && !ok.length, after: !!ok.length }); // after — 초기화한 그 자리에 「다음」 단추(그 보기가 next 를 줄 때: dashResetParts)
   if (ok.length) { try { await done(ok.map((d) => d.id)); } catch (e) { console.error(e); } }
   if (ok.length) toast(`작업 내용을 초기화했습니다 — ${ok.map((d) => d.label).join(" · ")}: 올린 원본부터 다시 시작합니다`);
   if (bad.length) toast(`작업 내용을 초기화하지 못했습니다 — ${bad.join(" / ")}`, true);
   if (typeof loadWorks === "function") loadWorks();
   redraw();
 }
-function dashResetParts(R, { wid, off = "", redraw, done, focusAttr = "dashFocus" }) { // → [요소] — 닫혀 있으면 단추 하나 · 펴면 상자 하나(그 안에 「취소」)
+// next = 방금 초기화한 뒤(R.after) 그 자리에 놓을 「다음」 단추(그 보기가 지은 것 — 패널은 dashNextBtn · 없으면 놓지 않는다): 초기화 단추의 앞에 선다
+function dashResetParts(R, { wid, off = "", redraw, done, focusAttr = "dashFocus", next = null }) { // → [요소] — 닫혀 있으면 단추 하나(초기화한 뒤에는 「다음」 단추 + 단추) · 펴면 상자 하나(그 안에 「취소」)
   const mark = (b, key) => { b.dataset[focusAttr] = key; return b; };
-  const toCancel = () => { const c = [...document.querySelectorAll(".dash-reset button")].find((x) => x.dataset[focusAttr] === "reset:close"); if (c) c.focus({ preventScroll: true }); }; // 다시 그린 뒤의 새 「취소」
-  if (!R.open) return [mark(hBtn(R.busy ? "초기화 중…" : "작업 내용 초기화…", () => dashResetOpen(R, wid, redraw, toCancel), { cls: "btn sm", disabled: !!off || !!R.busy || !wid, title: off || DASH_RESET_TIP }), "reset")];
+  const toCancel = () => { const c = [...document.querySelectorAll(".dash-reset button")].find((x) => x.dataset[focusAttr] === "reset:close"); if (c) { c.focus({ preventScroll: true }); c.scrollIntoView({ block: "nearest" }); } }; // 다시 그린 뒤의 새 「취소」 — 가려져 있으면 보이는 데까지만 민다(누른 자리에서 다음 단추를 바로 누를 수 있게)
+  if (!R.open) return [...(R.after && next && !R.busy ? [mark(next, "reset:next")] : []),
+    mark(hBtn(R.busy ? "초기화 중…" : "작업 내용 초기화…", () => dashResetOpen(R, wid, redraw, toCancel), { cls: "btn sm", disabled: !!off || !!R.busy || !wid, title: off || DASH_RESET_TIP }), "reset")];
   const box = el("div", "dash-reset");
   box.setAttribute("role", "group");
   box.setAttribute("aria-label", "작업 내용 초기화");
@@ -1525,14 +1528,34 @@ const dashResetState = () => (DASH.reset && DASH.reset.key === state.id ? DASH.r
 async function dashResetDone(ids) { // 패널 — 지금 문서를 초기화했으면 다시 열고 첫 분석(workResetAsk 와 같다) · 둘째 면의 문서를 초기화했으면 그 면을 다시 읽는다
   const shown = typeof peerShown === "function" ? peerShown() : "";
   if (shown && ids.includes(shown)) { try { $("peerFrame").contentWindow.location.reload(); } catch { /* 여는 중 */ } }
-  if (state.id && ids.includes(state.id)) { await load(state.id); firstRun(); }
+  // 다시 열어도 보던 탭(대시보드)에 머문다 — 전에는 load 가 패널을 검증(일반 문서 워크플로우는 에이전트 보기)으로 바꿨다(2026-11-24 사용자 「왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐」)
+  if (state.id && ids.includes(state.id)) { await load(state.id, { tab: $("panel").dataset.tool || "Dash" }); firstRun(); }
   if (DASH.flow) DASH.flow.stale = true;
+  dashResetState().pin = Date.now() + 3000; // 다시 그리는 몇 초 동안 맨 아래 줄(초기화한 자리 · 「다음」 단추)을 보이는 데 둔다 — dashDraw 가 읽는다(다시 열면 대시보드가 여러 번 그려져 스크롤이 위로 간다)
+}
+// 초기화한 그 자리(맨 아래 줄)에 놓는 「다음」 단추(2026-11-24 사용자 「초기화 버튼 누르면 다음 버튼은 그 곳에 놓아줘」 — spec_작업에이전트 ② §9 「작업 내용 초기화」).
+// 새 실행 길이 아니다 — 대시보드가 이미 그린 단추를 그대로 누르는 거울이다(그 단추의 확인 · 막이 · 유료 물음을 그대로 거친다). 고르는 차례: 지금 할 단계(「다음: NN …」)의 묶음 머리 「한 번에 진행」 →
+// 그 단계(문서 카드가 있으면 지금 할 카드)의 강조 단추 → 첫 단추 → 머리 아래 「이어서 한 번에」. 누를 수 있는 것이 없으면 놓지 않는다.
+function dashNextBtn(M, R) {
+  const ok = (b) => !!b && b.tagName === "BUTTON" && !b.disabled;
+  const all = M.groups.flatMap((g) => g.nodes.map((n) => ({ g, n })));
+  const hit = all.find((x) => x.n.state === "now") || all.find((x) => dashCounted(x.n) && x.n.state !== "done");
+  if (!hit) return null;
+  const card = hit.n.cards ? hit.n.cards.find((c) => c.state === "now") || hit.n.cards.find((c) => c.state !== "done") || hit.n.cards[0] : hit.n;
+  const acts = ((card && card.acts) || []).filter(ok), gName = `${hit.g.label.no} 「${hit.g.label.name}」`, nName = `${String(hit.n.idx).padStart(2, "0")} ${hit.n.name}`;
+  const pick = ok(hit.g.run) ? [hit.g.run, gName, `${hit.g.label.no} `] : acts.length ? [acts.find((b) => b.classList.contains("primary")) || acts[0], nName, ""] : M.top.some(ok) ? [M.top.find(ok), "머리 아래", ""] : null;
+  if (!pick) return null;
+  const [src, where, lead] = pick; // lead — 묶음의 「한 번에 진행」 은 어느 묶음인지(「다음: 1단계 한 번에 진행」)
+  return dashBtn(`다음: ${lead}${src.textContent}`, () => { R.after = false; src.click(); }, { primary: true,
+    title: `${where} 의 「${src.textContent}」 와 같은 단추입니다 — 방금 초기화한 자리에서 바로 이어서 누를 수 있게 여기에도 둡니다${src.title ? `\n${src.title}` : ""}` });
 }
 function dashResetEl(M) { // 패널 대시보드 맨 아래 — 도는 일이 있으면 꺼 둔다(에이전트 · 한 번에 진행 · 서버 실행)
   if (!state.id || !state.stored) return null;
-  const off = M.R || (M.lives && M.lives.length) || DASH.busy ? "지금 진행 중인 작업이 끝난 뒤에 초기화하세요 — 「멈춤」 으로 멈출 수 있습니다" : state.commitBusy && state.commitBusy !== "reset" ? "확정하는 중입니다 — 끝난 뒤에 초기화하세요" : "";
+  const running = !!(M.R || (M.lives && M.lives.length) || DASH.busy), R = dashResetState();
+  const off = running ? "지금 진행 중인 작업이 끝난 뒤에 초기화하세요 — 「멈춤」 으로 멈출 수 있습니다" : state.commitBusy && state.commitBusy !== "reset" ? "확정하는 중입니다 — 끝난 뒤에 초기화하세요" : "";
+  if (running && R.after && !R.busy) R.after = false; // 무엇이든 진행을 시작했다 — 「다음」 단추는 제 몫을 했다(위의 진행 줄이 맡는다)
   const wrap = el("div", "dash-reset-row");
-  wrap.append(...dashResetParts(dashResetState(), { wid: state.id, off, redraw: () => dashDraw(true), done: dashResetDone }));
+  wrap.append(...dashResetParts(R, { wid: state.id, off, redraw: () => dashDraw(true), done: dashResetDone, next: R.after && !R.open ? dashNextBtn(M, R) : null }));
   return wrap;
 }
 
@@ -1576,7 +1599,7 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
   const b = (x) => (x ? `${x.textContent}|${x.disabled ? 1 : 0}|${x.className}|${x.title}|${(x.getAttribute && x.getAttribute("aria-pressed")) || ""}` : ""); // 눌림(고르기 칩 — 「넣을 구성 선택」)도
   // busy 이름 — 「이어서 한 번에」 가 묶음을 넘어갈 때 바뀐다
   return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
-    DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
+    DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs, DASH.reset.after] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
     M.notes.map((n) => [n.text, b(n.act)]), M.last || 0, M.lasts || 0, (M.lives || []).map((x) => [x.n, x.label, x.stopping]), M.top.map(b),
     M.groups.map((g) => [b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
 }
@@ -1608,6 +1631,16 @@ async function dashDraw(force = false) {
   if (DWF.busy) for (const control of box.querySelectorAll(".dash-groups button, .dash-groups input, .dash-groups select, .dash-top button")) control.disabled = true;
   // 다시 그려도 초점은 그 단추에 — 초점 테두리는 키보드로 온 초점일 때만(2026-11-18 사용자 「왜 계획 보기는 위치가 그렇냐」: 마우스로 누른 단추가 다시 그릴 때 테두리(2px · 2px 밖)를 얻어 커지고 어긋나 보였다)
   if (focus) { const f = [...box.querySelectorAll("[data-dash-focus]")].find((x) => x.dataset.dashFocus === focus && !x.disabled); if (f) f.focus({ preventScroll: true, focusVisible: ring }); }
+  const RS = DASH.reset && DASH.reset.key === state.id ? DASH.reset : null; // 방금 초기화했다(dashResetDone 의 pin) — 그 자리(맨 아래 줄 · 「다음」 단추)를 보이는 데 두고, 초점이 떠 있으면 그 단추로
+  if (RS && RS.pin) {
+    const row = Date.now() < RS.pin ? box.querySelector(".dash-reset-row") : null;
+    if (!row) RS.pin = 0;
+    else {
+      row.scrollIntoView({ block: "nearest" });
+      const nb = [...row.querySelectorAll("button")].find((x) => x.dataset.dashFocus === "reset:next");
+      if (nb && (!document.activeElement || document.activeElement === document.body)) nb.focus({ preventScroll: true, focusVisible: false });
+    }
+  }
 }
 
 setInterval(() => { // 1초 — 보이는 동안만: 다른 보기 · 에이전트 · 「한 번에 진행」 이 바꾼 상태를 따라간다(서버는 읽지 않는다 — 화면이 들고 있는 값으로 셈)
