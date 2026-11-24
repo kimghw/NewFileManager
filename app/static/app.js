@@ -5491,12 +5491,30 @@ function renderVerify(v) {
 }
 
 function stageSummary(box, sum, job) {
-  if (!job) { sum.textContent = ""; return; }
+  if (!job) { sum.textContent = ""; sum.className = "stage-sum"; box.dataset.status = "empty"; return; }
   const c = { ok: 0, warn: 0, fail: 0, skip: 0 };
   job.steps.forEach((s) => { if (s.key !== "llm" && s.status in c) c[s.status] += 1; }); // LLM 검토 단계 자체는 셈에서 뺀다(그 판정은 단계 상태에 이미 들어감)
-  sum.textContent = job.running ? "진행 중" : [c.ok && `통과 ${c.ok}`, c.warn && `주의 ${c.warn}`, c.fail && `실패 ${c.fail}`, c.skip && `건너뜀 ${c.skip}`,
-    job.reviewing && "LLM 검토 중"].filter(Boolean).join(" · ");
-  sum.className = `stage-sum ${job.running ? "run" : job.status}`;
+  const st = job.running ? "run" : job.status;
+  sum.textContent = "";
+  if (job.running) sum.append(el("span", "v-pill run", "진행 중"));
+  else {
+    const items = [
+      c.ok && ["ok", "통과", c.ok],
+      c.warn && ["warn", "주의", c.warn],
+      c.fail && ["fail", "실패", c.fail],
+      c.skip && ["skip", "건너뜀", c.skip],
+      job.reviewing && ["llm", "LLM 검토 중", null],
+    ].filter(Boolean);
+    items.forEach(([k, label, n], i) => {
+      if (i) { const sep = el("span", "v-sr", " · "); sep.setAttribute("aria-hidden", "true"); sum.append(sep); }
+      const p = el("span", `v-pill ${k}`);
+      if (n == null) p.textContent = label;
+      else p.append(document.createTextNode(`${label} `), el("strong", "v-num", String(n)));
+      sum.append(p);
+    });
+  }
+  sum.className = `stage-sum ${st}`;
+  box.dataset.status = st;
   if (!box.dataset.touched) box.open = job.running || job.status !== "ok" || box.id === "editBox";
 }
 
@@ -5543,45 +5561,170 @@ function renderSummary(v) {
   if (rv && s.cls !== "run") s.text = `${s.text ? `${s.text} ` : ""}LLM 이 주의·실패 단계를 다시 보는 중 — 판정이 바뀔 수 있습니다.`;
   box.className = `summary ${s.cls}`;
   box.textContent = "";
-  box.append(el("div", "big", s.big));
+  const big = el("div", `big${s.big === "⟳" ? " is-spin" : ""}`, s.big);
+  big.setAttribute("aria-hidden", "true");
+  box.append(big);
   const d = el("div", "sum-body");
-  d.append(el("b", null, s.title));
+  const head = el("div", "sum-head");
+  head.append(el("b", null, s.title));
+  const acts = el("div", "sum-acts");
+  if (s.verify && canVerify()) { const b = el("button", "btn sm primary", "출력파일 검증"); b.type = "button"; b.onclick = startEditVerify; acts.append(b); }
+  if (s.compare) { const b = el("button", "btn sm", "달라진 곳 비교"); b.type = "button"; b.onclick = () => openCompare(s.compare, 0); acts.append(b); }
+  if (s.retry) { const b = el("button", "btn sm", "다시 연결"); b.type = "button"; b.onclick = poll; acts.append(b); }
+  if (acts.childNodes.length) head.append(acts);
+  d.append(head);
   if (s.text) d.append(el("p", null, s.text));
   if (lines.length) {
     const dl = el("dl");
     for (const [k, x] of lines) { dl.append(el("dt", null, k)); dl.append(el("dd", null, x)); }
     d.append(dl);
   }
-  const acts = el("div", "sum-acts");
-  if (s.verify && canVerify()) { const b = el("button", "btn sm primary", "출력파일 검증"); b.type = "button"; b.onclick = startEditVerify; acts.append(b); }
-  if (s.compare) { const b = el("button", "btn sm", "달라진 곳 비교"); b.type = "button"; b.onclick = () => openCompare(s.compare, 0); acts.append(b); }
-  if (s.retry) { const b = el("button", "btn sm", "다시 연결"); b.type = "button"; b.onclick = poll; acts.append(b); }
-  if (acts.childNodes.length) d.append(acts);
   box.append(d);
 }
 
 function fillSteps(ol, job) {
   ol.textContent = "";
-  for (const s of job.steps) {
-    const li = el("li", `step ${s.status}`);
-    li.append(el("span", "st", ICON[s.status]));
-    li.append(el("span", "ttl", s.title));
-    li.append(el("span", "sec", s.seconds != null ? `${s.seconds}s` : s.status === "run" ? "진행 중" : ""));
-    li.append(el("div", "det", s.detail || (s.status === "wait" ? s.about : "")));
-    li.querySelector(".ttl").title = s.about;
-    if (s.llm) { // 검증 LLM 검토가 바꾼 판정 — 스크립트의 원래 판정을 함께(spec_hwpx_웹편집 ② §4-1)
-      const VERD = { real: "실제 문제", reference: "기준 쪽 사정", mixed: "섞임", unclear: "판단 못 함" };
-      const KO = { ok: "통과", warn: "주의", fail: "실패", skip: "건너뜀" };
-      const was = s.script && s.script.status !== s.status ? ` · 스크립트 판정 ${KO[s.script.status] || s.script.status} → LLM 판정 ${KO[s.status] || s.status}` : "";
-      li.append(el("div", "det", `LLM — ${VERD[s.llm.verdict] || s.llm.verdict}${was}: ${s.llm.reason || ""}`));
+  const KO = { ok: "통과", warn: "주의", fail: "실패", skip: "건너뜀" };
+  const VERD = { real: "실제 문제", reference: "기준 쪽 사정", mixed: "섞임", unclear: "판단 못 함" };
+  const NUM_ALL = /\d[\d,]*\/\d[\d,]*|\d[\d,]*(?:\.\d+)?%|\d[\d,]*(?:\.\d+)?\s?(?:B|KB|MB)\b|\d[\d,]*(?:\.\d+)?(?:건|개|쪽|자|종|가지|단계|줄|칸|초|곳|회|행|열)|(?<=\s)\d[\d,]*$/g;
+  const NUM_PCT = /\d[\d,]*(?:\.\d+)?%/g;
+  const splitTop = (str, sep) => {
+    const out = [];
+    let depth = 0, start = 0;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      if (ch === "(" || ch === "「") depth += 1;
+      else if ((ch === ")" || ch === "」") && depth > 0) depth -= 1;
+      else if (depth === 0 && str.startsWith(sep, i)) {
+        out.push(str.slice(start, i));
+        i += sep.length - 1;
+        start = i + 1;
+      }
     }
-    if (s.diffPages && s.diffPages.length) li.append(pageChips(s));
+    out.push(str.slice(start));
+    return out;
+  };
+  const appendNums = (parent, str, pctOnly) => {
+    const re = pctOnly ? NUM_PCT : NUM_ALL;
+    re.lastIndex = 0;
+    let last = 0, m;
+    while ((m = re.exec(str))) {
+      if (m.index > last) parent.append(document.createTextNode(str.slice(last, m.index)));
+      parent.append(el("strong", "v-num", m[0]));
+      last = m.index + m[0].length;
+    }
+    if (last < str.length) parent.append(document.createTextNode(str.slice(last)));
+  };
+  const appendPiece = (parent, str) => {
+    let depth = 0, seg = 0;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === "(") {
+        if (depth === 0 && i > seg) { appendNums(parent, str.slice(seg, i), false); seg = i; }
+        depth += 1;
+      } else if (str[i] === ")" && depth > 0) {
+        depth -= 1;
+        if (depth === 0) {
+          const sp = el("span", "v-paren");
+          appendNums(sp, str.slice(seg, i + 1), true);
+          parent.append(sp);
+          seg = i + 1;
+        }
+      }
+    }
+    if (seg < str.length) appendNums(parent, str.slice(seg), false);
+  };
+  const srSep = (txt) => { const s = el("span", "v-sr", txt); s.setAttribute("aria-hidden", "true"); return s; };
+  for (const s of job.steps) {
+    const extras = [];
+    if (s.diffPages && s.diffPages.length) extras.push(pageChips(s));
     const miss = s.missing || (s.blocks && s.blocks.map((id) => ({ id, text: state.texts[id] || id })));
-    if (miss && miss.length) li.append(blockList(miss, s.key === "map" ? `PDF 위치를 못 찾은 문단 ${s.missingCount || miss.length}개` : `확인할 문단 ${miss.length}개`));
-    if (s.extra && s.extra.length) li.append(blockList(s.extra.map((id) => ({ id, text: state.texts[id] || id })), `예상 밖으로 바뀐 문단 ${s.extra.length}개`));
-    if (s.checks && s.checks.length) li.append(pageCheckList(s.checks));
-    if (s.heads && s.heads.patterns && s.heads.patterns.length) li.append(headTable(s.heads.patterns));
-    if (s.fonts && (s.fonts.faces || []).length) li.append(fontTable(s.fonts));
+    if (miss && miss.length) extras.push(blockList(miss, s.key === "map" ? `PDF 위치를 못 찾은 문단 ${s.missingCount || miss.length}개` : `확인할 문단 ${miss.length}개`));
+    if (s.extra && s.extra.length) extras.push(blockList(s.extra.map((id) => ({ id, text: state.texts[id] || id })), `예상 밖으로 바뀐 문단 ${s.extra.length}개`));
+    if (s.checks && s.checks.length) extras.push(pageCheckList(s.checks));
+    if (s.heads && s.heads.patterns && s.heads.patterns.length) extras.push(headTable(s.heads.patterns));
+    if (s.fonts && (s.fonts.faces || []).length) extras.push(fontTable(s.fonts));
+
+    const text = s.detail || (s.status === "wait" ? s.about : "") || "";
+    const isLlmStep = s.key === "llm";
+    const changed = !!(s.llm && s.script && s.script.status !== s.status);
+    const compact = !isLlmStep && !s.llm && !extras.length && ["ok", "skip", "wait"].includes(s.status) && text.length <= 48;
+
+    const li = el("li", `step ${s.status}${compact ? " v-compact" : ""}${changed ? " v-llm-changed" : ""}`);
+    if (s.key) li.dataset.key = s.key;
+    const stEl = el("span", "st", ICON[s.status]);
+    if (KO[s.status]) stEl.title = KO[s.status];
+    const ttl = el("span", "ttl", s.title);
+    if (s.about != null) ttl.title = s.about;
+    const sec = el("span", "sec", s.seconds != null ? `${s.seconds}s` : s.status === "run" ? "진행 중" : "");
+
+    const det = el("div", "det");
+    if (text) {
+      if (compact) appendPiece(det, text);
+      else {
+        const dash = splitTop(text, " — ");
+        const headText = dash[0];
+        const tailText = dash.length > 1 ? dash.slice(1).join(" — ") : "";
+        const parts = splitTop(headText, " · ");
+        if (parts.length > 1) {
+          const facts = el("div", "v-facts");
+          parts.forEach((p, i) => {
+            if (i) facts.append(srSep(" · "));
+            const item = el("span", "v-fact");
+            appendPiece(item, p);
+            facts.append(item);
+          });
+          det.append(facts);
+        } else if (tailText) {
+          const lead = el("div", "v-det-lead");
+          appendPiece(lead, headText);
+          det.append(lead);
+        } else {
+          appendPiece(det, headText);
+        }
+        if (tailText) det.append(srSep(" — "), el("div", "v-det-note", tailText));
+      }
+    }
+
+    if (compact) {
+      const main = el("div", "v-main");
+      main.append(ttl, det);
+      li.append(stEl, main, sec);
+    } else {
+      const head = el("div", "v-head");
+      head.append(ttl);
+      if (s.status === "warn" || s.status === "fail") head.append(el("span", `v-st-tag ${s.status}`, KO[s.status]));
+      else if (isLlmStep && s.status === "ok") head.append(el("span", "v-st-tag llm", "요약"));
+      li.append(stEl, head, sec, det);
+    }
+
+    if (s.llm) { // 검증 LLM 검토가 바꾼 판정 — 스크립트의 원래 판정을 함께(spec_hwpx_웹편집 ② §4-1)
+      const verd = s.llm.verdict || "unclear";
+      const llmBox = el("div", `det v-llm v-verd-${verd}`);
+      llmBox.dataset.verdict = verd;
+      const lh = el("div", "v-llm-head");
+      lh.append(el("span", "v-llm-who", "LLM"), srSep(" — "), el("span", `v-llm-verd ${verd}`, VERD[verd] || verd));
+      if (changed) {
+        const sh = el("span", "v-llm-shift");
+        sh.append(
+          srSep(" · "),
+          document.createTextNode("스크립트 판정 "),
+          el("strong", `v-shift-st ${s.script.status}`, KO[s.script.status] || s.script.status),
+          el("span", "v-shift-arr", " → "),
+          document.createTextNode("LLM 판정 "),
+          el("strong", `v-shift-st ${s.status}`, KO[s.status] || s.status),
+        );
+        lh.append(sh);
+      }
+      llmBox.append(lh);
+      if (s.llm.reason) llmBox.append(srSep(": "), el("div", "v-llm-reason", s.llm.reason));
+      li.append(llmBox);
+    }
+
+    if (extras.length) {
+      const ex = el("div", "v-extras");
+      ex.append(...extras);
+      li.append(ex);
+    }
     ol.append(li);
   }
 }
@@ -5623,7 +5766,7 @@ function pageChips(s) {
 }
 
 const CHECK = { moved: "PDF 맨 위 줄로 나눔을 옮김", split: "앞 쪽에서 이어진 문단·표 행", short: "맨 위 줄이 짧아 확인 못 함",
-  blank: "글 없는 쪽", miss: "맨 위 줄을 못 찾음(매핑 나눔 그대로)", none: "이 쪽에서 시작하는 단위 없음" };
+  blank: "글 없는 쪽", repeat: "맨 위가 표의 되풀이 머리 행(그 아래부터 맞춤)", miss: "맨 위 줄을 못 찾음(매핑 나눔 그대로)", none: "이 쪽에서 시작하는 단위 없음" };
 
 function pageCheckList(checks) {
   const d = el("details", "more");

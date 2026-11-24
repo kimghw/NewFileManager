@@ -1,0 +1,621 @@
+/* 패널 「검증」 탭(#paneVerify) — 요약 카드(#summary) · 가져오기 검증(#importBox) · 출력파일 검증(#editBox)의 단계 줄.
+   모든 규칙은 #paneVerify 아래로만 건다(.step · .steps · .det · details.more · table.mini 는 다른 화면도 쓴다 — style.css 의 그 규칙은 그대로).
+   그리기 = app.js renderSummary · stageSummary · fillSteps. 꼴의 규칙 = design.md §29. */
+
+#paneVerify {
+  --v-llm: #6d28d9;
+  --v-llm-soft: #f3edff;
+  --v-llm-bar: #7c3aed;
+  padding: 10px 12px 20px;
+  container-type: inline-size;
+  container-name: verify;
+}
+
+/* 시각적으로는 숨기되 textContent · 복사 · 낭독에 원문 구분자를 남김 */
+#paneVerify .v-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+#paneVerify .v-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* ---- 맨 위 요약 카드(#summary) ---- */
+#paneVerify #summary.summary {
+  padding: 10px 12px;
+  gap: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  background: var(--surface-2);
+  align-items: flex-start;
+}
+#paneVerify #summary.summary.ok { background: #f2fbf5; border-color: #bfe6cb; border-left-color: var(--ok); }
+#paneVerify #summary.summary.warn { background: #fffaf0; border-color: #f2d29b; border-left-color: var(--warn); }
+#paneVerify #summary.summary.fail { background: #fef3f3; border-color: #f2bcbc; border-left-color: var(--fail); }
+#paneVerify #summary.summary.run { background: #f4f7fe; border-color: #c9d8f6; border-left-color: var(--accent); }
+#paneVerify #summary.summary.pending { background: #f4f7fe; border-color: #c9d8f6; border-left-color: var(--accent); }
+
+#paneVerify #summary .big {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
+}
+#paneVerify #summary.ok .big { background: var(--ok); color: #fff; }
+#paneVerify #summary.warn .big { background: var(--warn); color: #fff; }
+#paneVerify #summary.fail .big { background: var(--fail); color: #fff; }
+#paneVerify #summary.pending .big { background: var(--accent-soft); color: var(--accent); font-size: 10px; }
+#paneVerify #summary.run .big { background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+#paneVerify #summary .big.is-spin { animation: spin 1.1s linear infinite; }
+
+#paneVerify #summary .sum-body {
+  min-width: 0;
+  flex: 1;
+}
+#paneVerify #summary .sum-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+  flex-wrap: wrap;
+}
+#paneVerify #summary b {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+  word-break: keep-all;
+}
+#paneVerify #summary .sum-acts {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+#paneVerify #summary .sum-acts .btn.sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+#paneVerify #summary p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475061;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+#paneVerify #summary dl {
+  margin: 7px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid rgba(28, 35, 48, 0.08);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+#paneVerify #summary dt {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+#paneVerify #summary dd {
+  margin: 0;
+  color: var(--text);
+  min-width: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* ---- 묶음(가져오기 검증 · 출력파일 검증) ---- */
+#paneVerify details.stage {
+  margin-top: 12px;
+  border-top: 0;
+  padding-top: 0;
+}
+#paneVerify details.stage > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+#paneVerify details.stage > summary::-webkit-details-marker { display: none; }
+#paneVerify details.stage > summary::before {
+  content: "▸";
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  width: 10px;
+  text-align: center;
+  flex: none;
+}
+#paneVerify details.stage[open] > summary::before { content: "▾"; }
+#paneVerify details.stage > summary:hover { background: #eef1f6; }
+#paneVerify details.stage > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+#paneVerify .stage-sum {
+  position: relative;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+#paneVerify .stage-sum:empty { display: none; }
+
+/* 읽기만 하는 상태 요약 꼬리표 — 테두리 없는 옅은 띠 */
+#paneVerify .v-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+#paneVerify .v-pill .v-num { color: inherit; }
+#paneVerify .v-pill.ok { background: var(--ok-soft); color: var(--ok); }
+#paneVerify .v-pill.warn { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+#paneVerify .v-pill.fail { background: var(--fail-soft); color: var(--fail); font-weight: 700; }
+#paneVerify .v-pill.skip { background: #e8ebf0; color: var(--skip); }
+#paneVerify .v-pill.run { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+#paneVerify .v-pill.llm { background: var(--v-llm-soft); color: var(--v-llm); font-weight: 700; }
+
+/* ---- 단계 목록 ---- */
+#paneVerify .steps {
+  margin: 4px 0 0;
+  padding: 0;
+  gap: 0;
+}
+#paneVerify .steps > li.muted {
+  margin-top: 4px;
+  padding: 10px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+/* 기본 단계 줄(조용한 통과 · 건너뜀 · 대기) — 상자 없이 1px 구분선 */
+#paneVerify .step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 3px;
+  padding: 6px 6px;
+  border-radius: 0;
+  border-bottom: 1px solid #eef0f4;
+  align-items: start;
+}
+#paneVerify .step:last-child { border-bottom: 0; }
+#paneVerify .step:hover { background: #fafbfc; }
+
+/* 주의 · 실패 · 진행 중 · LLM 요약 — 옅은 바탕 띠 + 왼 강조선(1겹) */
+#paneVerify .step.warn,
+#paneVerify .step.fail,
+#paneVerify .step.run,
+#paneVerify .step[data-key="llm"].ok {
+  margin: 5px 0;
+  padding: 8px 10px;
+  border-bottom: 0;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+}
+#paneVerify .step.warn { background: #fff9ee; border-left-color: var(--warn); }
+#paneVerify .step.warn:hover { background: #fff5e3; }
+#paneVerify .step.fail { background: #fef2f2; border-left-color: var(--fail); }
+#paneVerify .step.fail:hover { background: #fde8e8; }
+#paneVerify .step.run { background: #f3f7ff; border-left-color: var(--accent); }
+#paneVerify .step.run:hover { background: #ebf2ff; }
+#paneVerify .step[data-key="llm"].ok { background: #faf7ff; border-left-color: var(--v-llm-bar); }
+#paneVerify .step[data-key="llm"].ok:hover { background: #f4eeff; }
+
+/* LLM 이 판정을 바꾼 통과 단계 — 조용하되 바뀐 흔적은 왼쪽 보라 선으로 */
+#paneVerify .step.ok.v-llm-changed {
+  margin: 4px 0;
+  padding: 7px 9px;
+  border-bottom: 0;
+  border-radius: 6px;
+  background: #faf9fd;
+  border-left: 2.5px solid #a78bfa;
+}
+
+/* 상태 기호(.st) — 통과는 조용한 옅은 띠, 주의·실패는 또렷한 채움 */
+#paneVerify .step .st {
+  width: 17px;
+  height: 17px;
+  font-size: 10.5px;
+  margin-top: 1px;
+}
+#paneVerify .step.ok .st { background: var(--ok-soft); color: var(--ok); }
+#paneVerify .step.skip .st { background: #eceff4; color: var(--skip); }
+#paneVerify .step.wait .st { background: transparent; border: 1.5px solid #cbd2dc; }
+#paneVerify .step.warn .st { background: var(--warn); color: #fff; width: 18px; height: 18px; font-size: 11px; }
+#paneVerify .step.fail .st { background: var(--fail); color: #fff; width: 18px; height: 18px; font-size: 11px; }
+#paneVerify .step.run .st { background: transparent; border: 2px solid var(--accent); border-right-color: transparent; width: 16px; height: 16px; }
+#paneVerify .step[data-key="llm"].ok .st { background: #ede9fe; color: var(--v-llm); }
+
+/* 제목 줄 · 시간 */
+#paneVerify .step .v-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+#paneVerify .step .ttl {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #374151;
+}
+#paneVerify .step.warn .ttl,
+#paneVerify .step.fail .ttl,
+#paneVerify .step.run .ttl,
+#paneVerify .step[data-key="llm"] .ttl {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+#paneVerify .step.skip .ttl,
+#paneVerify .step.wait .ttl {
+  color: var(--muted);
+  font-weight: 500;
+}
+#paneVerify .step .sec {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #7b8494;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+#paneVerify .step.run .sec { color: var(--accent); font-weight: 600; }
+
+/* 주의 · 실패 · LLM 요약 꼬리표(테두리 없는 옅은 띠) */
+#paneVerify .v-st-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  height: 17px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+#paneVerify .v-st-tag.warn { background: #fde6bd; color: #92400e; }
+#paneVerify .v-st-tag.fail { background: #fad4d4; color: #991b1b; }
+#paneVerify .v-st-tag.llm { background: #ede9fe; color: var(--v-llm); }
+
+/* ---- 단계 설명(.det) · 항목 나열(.v-facts) · 풀이(.v-det-note) ---- */
+#paneVerify .step .det {
+  position: relative;
+  grid-column: 2 / 4;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.48;
+  color: #4b5563;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+#paneVerify .step .det:empty { display: none; }
+#paneVerify .step.fail .det:not(.v-llm) { color: #7f1d1d; }
+#paneVerify .step.fail .det:not(.v-llm) .v-num { color: var(--fail); }
+
+/* 짧은 통과 단계 — 제목 옆에 설명을 한 줄로(좁으면 자연스럽게 줄 바꿈 · 자르지 않음) */
+#paneVerify .step.v-compact {
+  padding: 5px 6px;
+  row-gap: 0;
+}
+#paneVerify .step.v-compact .v-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 1px;
+  min-width: 0;
+}
+#paneVerify .step.v-compact .ttl { flex: 0 0 auto; }
+#paneVerify .step.v-compact .det {
+  grid-column: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+#paneVerify .step.v-compact .v-num { font-weight: 600; color: #374151; }
+
+#paneVerify .v-facts {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 5px;
+  margin-top: 1px;
+}
+#paneVerify .v-fact {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.48;
+  color: #374151;
+  max-width: 100%;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+#paneVerify .step.warn .v-fact { background: rgba(255, 255, 255, 0.78); }
+#paneVerify .step.fail .v-fact { background: rgba(255, 255, 255, 0.78); color: #7f1d1d; }
+#paneVerify .step[data-key="llm"].ok .v-fact { background: #ede9fe; color: #4c1d95; }
+#paneVerify .step[data-key="llm"].ok .v-fact .v-num { color: #4c1d95; }
+
+#paneVerify .v-paren {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+#paneVerify .v-paren .v-num {
+  font-size: 11.5px;
+}
+
+#paneVerify .v-det-lead {
+  font-size: 12px;
+  line-height: 1.48;
+  color: #374151;
+}
+#paneVerify .v-det-note {
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+#paneVerify .step[data-key="llm"] .v-det-note {
+  margin-top: 5px;
+  color: #374151;
+  font-size: 12px;
+}
+
+/* ---- LLM 판정 덩이(.det.v-llm) — 보라 계열로 스크립트 설명과 분명히 가름 ---- */
+#paneVerify .step .det.v-llm {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  background: var(--v-llm-soft);
+  border-left: 2.5px solid var(--v-llm-bar);
+  color: var(--text);
+}
+#paneVerify .v-llm-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 5px;
+  margin-bottom: 3px;
+}
+#paneVerify .v-llm-who {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e4d8ff;
+  color: var(--v-llm);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+#paneVerify .v-llm-verd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+#paneVerify .v-llm-verd.real { background: var(--fail-soft); color: var(--fail); }
+#paneVerify .v-llm-verd.reference { background: #e8eef6; color: #334155; font-weight: 600; }
+#paneVerify .v-llm-verd.mixed { background: var(--warn-soft); color: var(--warn); }
+#paneVerify .v-llm-verd.unclear { background: #eceff4; color: var(--muted); font-weight: 600; }
+
+#paneVerify .v-llm-shift {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  line-height: 1.35;
+  color: #4c1d95;
+}
+#paneVerify .v-shift-st { font-weight: 700; }
+#paneVerify .v-shift-st.ok { color: var(--ok); }
+#paneVerify .v-shift-st.warn { color: var(--warn); }
+#paneVerify .v-shift-st.fail { color: var(--fail); }
+#paneVerify .v-shift-st.skip { color: var(--skip); }
+#paneVerify .v-shift-arr { color: var(--v-llm); font-weight: 700; }
+
+#paneVerify .v-llm-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #2b3342;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* ---- 접어 둔 목록 · 쪽 칩 묶음(.v-extras) ---- */
+#paneVerify .v-extras {
+  grid-column: 2 / 4;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+}
+#paneVerify .v-extras > .chips-wrap {
+  grid-column: auto;
+  flex: 1 0 100%;
+  width: 100%;
+  margin-top: 0;
+  min-width: 0;
+}
+#paneVerify .v-extras > details.more {
+  grid-column: auto;
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-top: 0;
+  min-width: 0;
+}
+#paneVerify .v-extras > details.more[open] {
+  flex: 1 0 100%;
+  width: 100%;
+}
+
+/* 누르는 접기 단추 — 흰 바탕 + 테두리(읽기만 하는 띠와 분명히 다름) */
+#paneVerify details.more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+  list-style: none;
+  word-break: keep-all;
+  white-space: normal;
+}
+#paneVerify details.more > summary::-webkit-details-marker { display: none; }
+#paneVerify details.more > summary::before {
+  content: "▸";
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--muted);
+  flex: none;
+}
+#paneVerify details.more[open] > summary::before {
+  content: "▾";
+  color: var(--accent);
+}
+#paneVerify details.more > summary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+#paneVerify details.more[open] > summary {
+  border-color: #9fb5ea;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+#paneVerify details.more > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+#paneVerify details.more ul {
+  margin: 5px 0 0;
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 6px;
+}
+#paneVerify details.more li button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+#paneVerify details.more .mini-wrap {
+  margin-top: 5px;
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 6px;
+  max-width: 100%;
+}
+#paneVerify details.more .mini-note {
+  font-size: 11px;
+  margin-top: 4px;
+}
+#paneVerify table.mini th,
+#paneVerify table.mini td {
+  padding: 3px 6px;
+}
+
+#paneVerify .chips-wrap .chips { gap: 4px; }
+#paneVerify .chips-wrap .chip-label {
+  font-size: 11.5px;
+  min-width: 58px;
+}
+#paneVerify .chips-wrap .chip {
+  min-height: 24px;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  border-radius: 5px;
+}
+
+/* ---- 좁은 패널(≤ 360px) 보정 ---- */
+@container verify (max-width: 360px) {
+  #paneVerify #summary.summary { padding: 9px 10px; gap: 8px; }
+  #paneVerify #summary dl { gap: 3px 8px; }
+  #paneVerify .step { column-gap: 6px; padding: 6px 4px; }
+  #paneVerify .step.warn,
+  #paneVerify .step.fail,
+  #paneVerify .step.run,
+  #paneVerify .step[data-key="llm"] { padding: 7px 8px; }
+  #paneVerify .step .det.v-llm { padding: 6px 8px; }
+  #paneVerify details.more > summary { padding: 3px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #paneVerify #summary .big.is-spin,
+  #paneVerify .step.run .st { animation: none; }
+}
