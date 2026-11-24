@@ -139,6 +139,35 @@
 .ag-paste[hidden] { display: none; }
 .ag-paste input[type="text"] { height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12px; color: var(--text); min-width: 0; }
 .ag-paste-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+/* 문서 라이브러리에서 고르기(「라이브러리」 단추 — 「자료 붙여넣기」 와 같은 자리에 펴지는 칸 · 창 아님: design.md §13 · §30). 줄 = 체크 + 이름(줄임표) + 옅은 글 + 꼬리표, 목록만 스크롤 */
+.ag-lib { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px; border: 1px solid #dfe2e9; border-radius: 6px; background: var(--surface); }
+.ag-lib[hidden] { display: none; }
+.ag-lib-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.ag-lib-title { color: #424958; font-size: 12px; }
+.ag-lib-head .panel-help { width: 22px; height: 22px; }
+.ag-lib-count { margin-right: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.ag-lib-head .btn.sm { height: 24px; padding: 0 6px; font-size: 11.5px; }
+.ag-lib-state { margin: 0; padding: 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.ag-lib-state.down { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.ag-lib-list { display: flex; flex-direction: column; min-width: 0; max-height: 216px; overflow-y: auto; border: 1px solid #edf0f4; border-radius: 6px; }
+.ag-lib-row { display: flex; flex: none; align-items: center; gap: 6px; min-width: 0; min-height: 26px; padding: 0 6px; color: var(--text); font-size: 12px; cursor: pointer; }
+.ag-lib-row:hover { background: #f1f4f9; }
+.ag-lib-row input { flex: none; margin: 0; }
+.ag-lib-row.is-all { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid #edf0f4; background: #f8f9fb; font-weight: 600; }
+.ag-lib-row.is-doc { border-top: 1px solid #edf0f4; font-weight: 600; }
+.ag-lib-row.is-all + .ag-lib-row.is-doc { border-top: 0; }
+.ag-lib-row.is-item { padding-left: 24px; }
+.ag-lib-row.is-off { cursor: default; }
+.ag-lib-row.is-off > .ag-lib-name { color: var(--muted); }
+.ag-lib-name { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-lib-meta { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; font-weight: 400; }
+.ag-lib-tag { flex: none; padding: 0 6px; border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 18px; white-space: nowrap; }
+.ag-lib-tag.got { background: var(--ok-soft); color: var(--ok); }
+.ag-lib-tag.warn { background: var(--warn-soft); color: var(--warn); }
+.ag-lib-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.ag-lib-foot .btn.sm { flex: none; height: 28px; }
+.ag-lib-msg { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.ag-lib-msg.bad { color: var(--warn); }
 .ag-input textarea { width: 100%; min-width: 0; min-height: 3.2em; max-height: 32vh; flex-shrink: 0; resize: vertical; padding: 8px; border: 1px solid #cbd6e6; border-radius: 6px; background: var(--surface); font: 12.5px/1.6 "Malgun Gothic", sans-serif; color: var(--text); }
 .ag-input textarea::placeholder { color: #637289; }
 .ag-input textarea:focus { outline: 2px solid #b6cafa; outline-offset: 0; border-color: #6e96e8; }

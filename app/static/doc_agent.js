@@ -3,6 +3,7 @@
 // 자리(2026-11-18 사용자 — agent_float.js): 상단 바 에이전트 아이콘이 여는 떠 있는 창(기본) 또는 패널 머리 탭 「에이전트」(대시보드 다음 — 창 머리의 「패널에 넣기」 로 고름). 같은 #paneAgent 노드를 옮긴다.
 // 사용자 2026-11-13 "우측열에 에이전트 사이드열을 주고 여기서 요청하면 관련 자료를 작성할 수 있도록 … 에이전트에 자료주면 테이블에 넣어주고 … 어떤 테이블 구조가 좋은지 에이전트가 제시".
 // 패널(3열) #paneAgent: 상태 줄(LLM 쓸 수 있나 · 「서식 보관함」 · 「비우기」) → 대화(턴마다 요청 글 · 답 · 제안 카드 · 호출 줄 + 「지침」) → 입력(아래 붙박이: 고른 자리 한 줄 · 표/글 서식 고르기 · 자료 칩 · 요청 글상자 · 「보내기」).
+// 자료를 주는 길 셋(요청 글상자 아래 단추): 「자료 붙여넣기」 · 「파일」 · 「라이브러리」(문서 라이브러리 = 따로 선 서버 doclib 에 등록한 문서 · 추출한 MD 를 골라 — 입력 칸 위에 펴지는 고르기 .ag-lib: 아래 「문서 라이브러리에서 고르기」).
 // 에이전트가 하는 일은 **제안까지**다 — 카드의 「문서에 반영」 을 눌러야 서버에 저장된 그 제안이 한 번의 편집(실행 취소 1개)으로 들어간다. 스크립트가 확인한 제안만 강조 단추(preselect),
 // 에이전트가 지은 글(draft)·경고·엑셀 검증 안 맞음은 보통 단추 「읽고 반영」(design.md §8). 표 구조 후보는 한 카드의 라디오(하나만). 카드에 올리면 문서의 그 자리가 보라 테두리(§6).
 // 2열(headsDlg — 팝업 아님) kind 둘: "agentProp"(제안 미리보기 — 표 후보 격자 나란히 · 채우기 목록(체크) · 글 줄) · "agentGuide"(그 턴에 보낸 글과 답 — 보기만).
@@ -23,6 +24,7 @@ function agentIcon(name, size = 16) {
     library: '<rect x="4" y="3" width="6" height="18" rx="1.5"/><path d="m10 4.5 5.2-1.2a1.5 1.5 0 0 1 1.8 1.1l2.8 11.6a1.5 1.5 0 0 1-1.1 1.8L8.5 20.5"/><path d="M10 15h9.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H7M7 17.5h.01"/>',
     paste: '<rect x="5" y="5" width="14" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
     file: '<path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M6 14l8-8"/>',
+    shelf: '<path d="M4 4v16M4 20h16M8 20V8h3v12M11 20V5h3v15M14.6 9.2l2.9-.8 2.9 10.8-2.9.8Z"/>', // 「라이브러리」(문서 라이브러리에서 자료 고르기) — 꽂힌 책 셋
     send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
     arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/>',
@@ -47,11 +49,12 @@ function agentIcon(name, size = 16) {
   return icon;
 }
 const agentFresh = () => ({ doc: null, loaded: false, loading: false, err: "", enabled: false, hwpx: true, policy: { apply: true, why: "" }, turns: [], materials: [], styles: { table: [], text: [] }, limits: {},
-  matOff: new Set(), matBusy: null, matMsg: "", paste: { open: false, name: "", text: "" }, draft: "", pick: { table: "", text: "" }, busy: null, lost: null,
+  matOff: new Set(), matBusy: null, matMsg: "", paste: { open: false, name: "", text: "" }, shelf: { open: false, loading: false, data: null, err: "", picks: new Set(), busy: null, msg: "", bad: false }, draft: "", pick: { table: "", text: "" }, busy: null, lost: null,
   choice: {}, fills: {}, req: {}, applying: null, prop: null, clearArm: 0, el: null, local: [], nextSig: "" });
 // turns = 서버가 준 턴(제안 포함) · matOff = 이번 요청에 안 보낼 자료 · busy = 도는 턴 {text, t0, timer} · lost = 보내지 못한 요청 {text, error} · choice[후보 묶음] = 고른 제안 ·
 // fills[제안 id] = 고른 칸 · req[제안 id] = 반영 요청 번호(같은 누름을 서버가 한 번으로) · prop = 2열에 띄운 제안 {turn, proposal} · el = 그려 둔 틀 ·
 // local = 화면에만 두는 카드(현황 보고 · LLM 검토 실행 — doc_agent_next.js, 저장 안 함) · nextSig = 그 카드·빈 화면 묶음이 기대는 분석 상태의 서명
+// shelf = 문서 라이브러리에서 고르기 {open, loading, data(GET /api/doclib 의 답), err, picks(고른 항목 key — 「x:<추출 id>」 · 「d:<문서 id>」), busy(가져오는 중 {i, n, name}), msg(끝 글), bad(끝 글이 못 가져온 것을 알림)}
 let AGENT = agentFresh();
 let agentSelRaf = 0;
 if (typeof LOG_KIND === "object") Object.assign(LOG_KIND, { agentTurn: "에이전트 요청", agentApply: "에이전트 제안 반영", agentMaterial: "에이전트 자료", agentClear: "에이전트 대화 비우기" }); // 「기록」 탭의 이름
@@ -202,6 +205,8 @@ function agentFrame() {
   const pasteActs = el("div", "ag-paste-acts");
   pasteActs.append(E.pasteAdd, hBtn("닫기", () => { AGENT.paste.open = false; agentDrawInput(); }));
   E.paste.append(E.pasteName, E.pasteText, pasteActs);
+  E.shelf = el("div", "ag-lib"); // 문서 라이브러리에서 고르기 — 「자료 붙여넣기」 와 같은 자리에 펴진다(창 아님 — agentShelfDraw 가 채운다)
+  E.shelf.hidden = true;
   E.text = el("textarea");
   E.text.rows = 3; E.text.maxLength = 4000;
   E.text.id = "agentRequest";
@@ -225,7 +230,7 @@ function agentFrame() {
   sendRow.append(E.mats, E.send, E.run, E.why);
   const composer = el("div", "ag-composer");
   composer.append(requestHead, E.text, sendRow);
-  E.input.append(E.policy, E.sel, picks, E.paste, composer);
+  E.input.append(E.policy, E.sel, picks, E.paste, E.shelf, composer);
   root.append(E.status, E.talk, E.input);
   box.replaceChildren(root);
 }
@@ -499,7 +504,7 @@ function agentDrawMats() {
     chip.append(name, x);
     E.mats.append(chip);
   }
-  const paste = hBtn("자료 붙여넣기", () => { AGENT.paste.open = !AGENT.paste.open; agentDrawInput(); if (AGENT.paste.open) E.pasteText.focus(); },
+  const paste = hBtn("자료 붙여넣기", () => { AGENT.paste.open = !AGENT.paste.open; if (AGENT.paste.open) AGENT.shelf.open = false; agentDrawInput(); if (AGENT.paste.open) E.pasteText.focus(); },
     { cls: "btn sm" + (A.paste.open ? " on" : ""), disabled: lock, title: "글을 붙여 넣어 자료로 씁니다(아래에 글상자가 열립니다) — 에이전트는 자료에 있는 값만 옮깁니다" });
   paste.dataset.agAct = "paste";
   paste.prepend(agentIcon("paste"));
@@ -507,7 +512,12 @@ function agentDrawMats() {
   const file = hBtn("파일", () => agentMatPick(), { disabled: lock, title: `파일을 자료로 — ${(A.limits.ext || []).join("·") || "txt·md·csv·tsv·xlsx·docx·hwpx·pdf"}(${A.limits.materialMb || 20} MB 까지 · 글로 바꿔 읽습니다)` });
   file.dataset.agAct = "file";
   file.prepend(agentIcon("file"));
-  E.mats.append(paste, file);
+  const shelf = hBtn("라이브러리", () => agentShelfToggle(), { cls: "btn sm" + (A.shelf.open ? " on" : ""), disabled: lock && !A.shelf.open,
+    title: "문서 라이브러리에 등록한 문서 · 추출한 MD 를 골라 자료로 가져옵니다(아래에 고르기가 열립니다 — 여럿 · 전체도 됩니다)" });
+  shelf.dataset.agAct = "shelf";
+  shelf.prepend(agentIcon("shelf"));
+  shelf.setAttribute("aria-pressed", String(A.shelf.open));
+  E.mats.append(paste, file, shelf);
   if (A.matBusy) { const run = el("span", "sl-run"); run.append(el("span", "sl-spin"), el("span", null, `「${short(A.matBusy.name || "자료", 20)}」 을(를) 자료로 읽는 중…`)); E.mats.append(run); }
   E.mats.append(el("span", "ag-mat-msg", A.matMsg));
 }
@@ -536,6 +546,7 @@ function agentDrawInput() {
   if (A.limits.text) E.text.maxLength = A.limits.text;
   for (const x of [E.text, E.pickTable, E.pickText, E.pasteName, E.pasteText]) x.disabled = !!A.busy;
   E.pasteAdd.disabled = !!A.busy || !!A.matBusy || !A.paste.text.trim();
+  agentShelfDraw();
   agentSendSync();
 }
 
@@ -589,6 +600,157 @@ async function agentMatDelete(m) {
   A.matOff.delete(m.id);
   A.matMsg = "";
   agentDrawMats();
+}
+
+// ---- 문서 라이브러리에서 고르기 ------------------------------------------------------------------------------------------------
+// 2026-11-24 사용자 "에이전트에서는 라이브러리에서 등록한 파일들을 선택해서 참조할 수 있도록 해줘, 전체 해도 되고"(spec_양식작성 ② §4 「에이전트 보기의 고르기」 · design.md §30).
+// 입력 칸 위에 펴지는 칸(.ag-lib — 「자료 붙여넣기」 와 같은 자리 · 창 아님). 목록 = GET /api/doclib(문서 라이브러리는 따로 선 서버 — 8114 가 HTTP 로 읽어 준다) ·
+// 가져오기 = 고른 것마다 차례로 POST …/agent/material/library {extract | doc}(form_write.js 의 「자료 가져오기」 열과 같은 끝점 — 가져온 것은 같은 자료 저장소에 놓여 자료 칩이 된다).
+// 고를 것 = 문서마다 끝난 추출(MD) · 끝난 추출이 없는 문서는 원본 파일(글로 읽을 수 있는 형식만 — 서버의 raw). 「가져옴」 = 추출은 자료 메모의 추출 id(「(x…)」) · 원본은 같은 sha256.
+const AG_LIB_HELP = "문서 라이브러리(자료 문서를 보관하고 자료 추출을 하는 따로 선 서버)에 등록한 문서를 골라 이 문서의 자료로 가져옵니다 — 가져온 자료는 아래 자료 칩이 되고 요청과 함께 에이전트에 갑니다(칩을 눌러 이번 요청에서 뺄 수 있습니다).\n"
+  + "고르는 것: 문서마다 끝난 자료 추출(MD — 뽑을 범위마다 하나). 추출이 아직 없는 문서는 원본 파일을 글로 읽어 가져옵니다(pdf · docx · hwpx — 그림 · 수식은 빠지고 긴 문서는 앞부분만: hwp 와 20 MB 를 넘는 파일은 추출한 뒤에).\n"
+  + "「전체 선택」 = 아직 가져오지 않은 것 모두 · 문서 이름 줄의 체크 = 그 문서의 것 모두. 자료는 문서마다 30개까지 둘 수 있어 넘치면 거기서 멈추고 못 가져온 수를 알립니다.\n"
+  + "문서를 올리거나 새로 추출하려면 「열기」 로 문서 라이브러리의 화면을 엽니다(새 탭). 문서는 바뀌지 않습니다.";
+const AG_LIB_DOWN = "문서 라이브러리 서버가 꺼져 있습니다 — 띄우개 tools/start_doclib.ps1 로 띄운 뒤 「새로 고침」 을 누르세요";
+const agentShelfSize = (n) => (n >= 2 ** 20 ? `${(n / 2 ** 20).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
+function agentShelfItems(d) { // 그 문서에서 고를 것 → [{key, body(요청 본문), name(자료 이름 — 알림에), e(추출) | raw, got(이미 이 문서의 자료), off(못 고르는 까닭)}]
+  const mats = AGENT.materials, base = String(d.name || "문서"), xs = d.extracts || [];
+  if (xs.length) return xs.map((e) => ({ key: `x:${e.id}`, body: { extract: e.id }, name: `${base} — ${e.focus || "문서 전체"}`, e, got: mats.some((m) => (m.note || "").includes(`(${e.id})`)), off: "" }));
+  const mb = AGENT.limits.materialMb || 20;
+  const off = d.raw ? "" : (d.bytes || 0) > mb * 2 ** 20 ? `원본 파일이 ${mb} MB 를 넘습니다 — 문서 라이브러리에서 자료 추출(MD)을 한 뒤 가져오세요`
+    : `${d.ext || "이 형식의"} 원본은 글로 읽지 못합니다 — 문서 라이브러리에서 자료 추출(MD)을 한 뒤 가져오세요`;
+  return [{ key: `d:${d.id}`, body: { doc: d.id }, name: base, raw: true, got: !!d.sha256 && mats.some((m) => m.sha256 === d.sha256), off }];
+}
+const agentShelfAll = () => (((AGENT.shelf.data || {}).docs) || []).flatMap((d) => agentShelfItems(d));
+function agentShelfToggle() {
+  const S = AGENT.shelf;
+  S.open = !S.open;
+  if (S.open) { AGENT.paste.open = false; S.msg = ""; agentShelfLoad(); } // 펴는 칸은 하나만(입력 영역이 낮다) · 열 때마다 목록을 다시 읽는다(그 사이 끝난 추출)
+  agentDrawInput();
+}
+async function agentShelfLoad() {
+  const A = AGENT, S = A.shelf;
+  if (S.loading) return;
+  S.loading = true;
+  S.err = "";
+  agentShelfDraw();
+  let r = null;
+  try { r = await api("/api/doclib"); } catch (e) { S.err = agentErr(e); }
+  if (A !== AGENT) return;
+  S.loading = false;
+  if (r) {
+    S.data = r;
+    const keys = new Set(agentShelfAll().filter((i) => !i.got && !i.off).map((i) => i.key));
+    for (const k of [...S.picks]) if (!keys.has(k)) S.picks.delete(k); // 그 사이 없어졌거나 이미 가져온 것
+  }
+  agentShelfDraw();
+}
+function agentShelfDraw() {
+  const A = AGENT, E = A.el, S = A.shelf;
+  if (!E || !E.shelf) return;
+  E.shelf.hidden = !S.open;
+  if (!S.open) { E.shelf.textContent = ""; return; }
+  const lock = !!A.busy || !!A.matBusy || !!S.busy || !A.loaded, L = S.data, docs = (L && L.docs) || [], max = A.limits.materials || 30;
+  const old = E.shelf.querySelector(".ag-lib-list"), top = old ? old.scrollTop : 0;
+  const head = el("div", "ag-lib-head");
+  head.append(el("strong", "ag-lib-title", "문서 라이브러리"));
+  if (typeof hHelp === "function") head.append(hHelp("문서 라이브러리에서 자료 고르기 안내", AG_LIB_HELP));
+  const count = el("span", "ag-lib-count", `이 문서의 자료 ${nf(A.materials.length)}/${nf(max)}`);
+  count.title = `자료는 문서마다 ${nf(max)}개까지 둘 수 있습니다`;
+  const open = hBtn("열기", () => { if (L && L.url) window.open(`${L.url}/`, "_blank", "noopener"); }, { disabled: !(L && L.alive), title: L && L.alive ? "문서 라이브러리의 화면을 새 탭에 엽니다 — 문서 올리기 · 자료 추출" : AG_LIB_DOWN });
+  open.dataset.agAct = "shelfOpen";
+  const again = hBtn("새로 고침", () => agentShelfLoad(), { disabled: S.loading || !!S.busy, title: "문서 라이브러리의 목록을 다시 읽습니다" });
+  again.dataset.agAct = "shelfReload";
+  head.append(count, again, open, hBtn("닫기", () => { AGENT.shelf.open = false; agentDrawInput(); }));
+  const kids = [head], note = (text, cls = "") => { const p = el("p", "ag-lib-state" + (cls ? ` ${cls}` : ""), text); p.setAttribute("role", "status"); return p; };
+  const items = agentShelfAll(), can = items.filter((i) => !i.got && !i.off), picked = can.filter((i) => S.picks.has(i.key));
+  if (S.err) kids.push(note(`문서 라이브러리의 목록을 읽지 못했습니다 — ${S.err}`, "down"));
+  else if (!L) kids.push(note("문서 라이브러리의 목록을 읽는 중…"));
+  else if (!L.alive) { const p = note(AG_LIB_DOWN, "down"); p.title = L.why || ""; kids.push(p); }
+  else if (!docs.length) kids.push(note("문서 라이브러리에 등록한 문서가 없습니다 — 「열기」 로 문서 라이브러리에서 문서를 올리세요"));
+  else {
+    const list = el("div", "ag-lib-list");
+    const row = (cls, on, some, off, fn, title = "") => { // 체크 한 줄(label) — 체크 상자 + 뒤에 붙일 것
+      const l = el("label", `ag-lib-row ${cls}` + (off ? " is-off" : "")), c = el("input");
+      c.type = "checkbox"; c.checked = on; c.indeterminate = !on && some; c.disabled = off || lock;
+      c.onchange = () => { fn(c.checked); agentShelfDraw(); };
+      if (title) l.title = title;
+      l.append(c);
+      return l;
+    };
+    const set = (its, on) => { for (const i of its) { if (on) S.picks.add(i.key); else S.picks.delete(i.key); } };
+    const tag = (cls, text, title = "") => { const t = el("span", "ag-lib-tag" + (cls ? ` ${cls}` : ""), text); if (title) t.title = title; return t; };
+    const all = row("is-all", can.length > 0 && picked.length === can.length, picked.length > 0, !can.length, (on) => set(can, on), can.length ? "아직 가져오지 않은 것을 모두 고릅니다" : "더 가져올 것이 없습니다");
+    all.dataset.agLib = "all";
+    const gotN = items.filter((i) => i.got).length;
+    all.append(el("span", "ag-lib-name", "전체 선택"), el("span", "ag-lib-meta", `문서 ${nf(docs.length)}개 · 고를 수 있는 것 ${nf(can.length)}개${gotN ? ` · 가져옴 ${nf(gotN)}개` : ""}`));
+    list.append(all);
+    for (const d of docs) {
+      const its = agentShelfItems(d), dcan = its.filter((i) => !i.got && !i.off), dpick = dcan.filter((i) => S.picks.has(i.key)), xs = d.extracts || [];
+      const dr = row("is-doc", dcan.length > 0 && dpick.length === dcan.length, dpick.length > 0, !dcan.length, (on) => set(dcan, on), d.name || "");
+      dr.dataset.agLib = `doc:${d.id}`;
+      dr.append(el("span", "ag-lib-name", d.name || "문서"), el("span", "ag-lib-meta", [d.pages ? `${nf(d.pages)}쪽` : "", xs.length ? `추출 ${nf(xs.length)}개` : "추출 전", d.running ? `추출 중 ${nf(d.running)}개` : ""].filter(Boolean).join(" · ")));
+      list.append(dr);
+      for (const i of its) {
+        const e = i.e, ir = row("is-item", !i.got && !i.off && S.picks.has(i.key), false, i.got || !!i.off, (on) => set([i], on),
+          i.off || (i.got ? "이미 이 문서의 자료입니다" : i.raw ? "원본 파일을 글로 읽어 자료로 가져옵니다(그림 · 수식은 빠집니다 — 자료 추출을 하면 MD 로 가져올 수 있습니다)" : "이 추출의 MD 를 자료로 가져옵니다"));
+        ir.dataset.agLib = i.key;
+        ir.append(el("span", "ag-lib-name", e ? e.focus || "문서 전체" : "원본 파일"),
+          el("span", "ag-lib-meta", e ? [e.span ? `쪽 ${e.span[0]}–${e.span[1]}` : "", `${nf(e.chars || 0)}자`].filter(Boolean).join(" · ") : [d.ext || "", d.bytes ? agentShelfSize(d.bytes) : ""].filter(Boolean).join(" · ")));
+        if (e && e.open) ir.append(tag("warn", `확인 필요 ${nf(e.open)}`, "추출하며 사람이 볼 것으로 남긴 곳(잘렸을 수 있는 그림 · 못 바꾼 수식 …) — 문서 라이브러리에서 봅니다"));
+        if (i.got) ir.append(tag("got", "가져옴"));
+        else if (i.off) ir.append(tag("", "추출 뒤에", i.off));
+        list.append(ir);
+      }
+    }
+    kids.push(list);
+  }
+  const foot = el("div", "ag-lib-foot"), n = picked.length;
+  const take = hBtn(n ? `가져오기 (${nf(n)})` : "가져오기", () => agentShelfTake(), { cls: "btn sm primary", disabled: !n || lock,
+    title: !n ? "가져올 것을 고르세요" : `고른 ${nf(n)}개를 이 문서의 자료로 가져옵니다 — 문서는 바뀌지 않습니다` });
+  take.dataset.agAct = "shelfTake";
+  foot.append(take);
+  if (S.busy) { const run = el("span", "sl-run"); run.append(el("span", "sl-spin"), el("span", null, `「${short(S.busy.name || "자료", 24)}」 가져오는 중 (${nf(S.busy.i)}/${nf(S.busy.n)})…`)); foot.append(run); }
+  else if (S.msg) { const m = el("span", "ag-lib-msg" + (S.bad ? " bad" : ""), S.msg); m.setAttribute("role", "status"); foot.append(m); }
+  kids.push(foot);
+  E.shelf.replaceChildren(...kids);
+  const list = E.shelf.querySelector(".ag-lib-list");
+  if (list && top) list.scrollTop = top;
+}
+async function agentShelfTake() { // 고른 것을 차례로 가져온다 — 자료 한도에 닿으면 멈추고 못 가져온 수를 알린다(문서 라이브러리 서버에 닿지 못하면 거기서 멈춤)
+  const A = AGENT, S = A.shelf, max = A.limits.materials || 30;
+  const todo = agentShelfAll().filter((i) => S.picks.has(i.key) && !i.got && !i.off);
+  if (!todo.length || S.busy || A.busy || A.matBusy || !A.loaded || !state.id) return;
+  const epoch = state.epoch, bad = [];
+  let ok = 0, same = 0, left = 0, full = false, down = false;
+  S.msg = "";
+  for (let k = 0; k < todo.length; k += 1) {
+    if (A.materials.length >= max) { left = todo.length - k; full = true; break; }
+    const it = todo[k];
+    S.busy = { i: k + 1, n: todo.length, name: it.name };
+    agentDrawInput();
+    let m = null, err = null;
+    try { m = await api(agentUrl("/material/library"), { method: "POST", headers: H_JSON, body: JSON.stringify(it.body) }); } catch (e) { err = e; }
+    if (A !== AGENT || epoch !== state.epoch) return;
+    if (m && m.id) {
+      A.materials = [...A.materials.filter((x) => x.id !== m.id), m];
+      A.matOff.delete(m.id);
+      S.picks.delete(it.key);
+      if (m.reused) same += 1; else ok += 1;
+    } else {
+      bad.push(`「${short(it.name, 24)}」 — ${agentErr(err)}`);
+      if (err && err.status === 502) { left = todo.length - k - 1; down = true; break; } // 문서 라이브러리 서버에 닿지 못함 — 남은 것도 같은 까닭으로 실패한다
+    }
+  }
+  S.busy = null;
+  S.bad = bad.length > 0 || left > 0;
+  S.msg = [ok ? `자료 ${nf(ok)}개를 가져왔습니다` : "", same ? `이미 있는 자료 ${nf(same)}개는 그대로 씁니다` : "", bad.length ? `가져오지 못함 ${nf(bad.length)}개: ${bad.slice(0, 2).join(" / ")}${bad.length > 2 ? " …" : ""}` : "",
+    full ? `자료는 ${nf(max)}개까지 둘 수 있습니다 — 남은 ${nf(left)}개는 가져오지 못했습니다(안 쓰는 자료를 지우고 다시 가져오세요)` : left ? `남은 ${nf(left)}개는 가져오지 않았습니다` : ""].filter(Boolean).join(" · ");
+  if (ok && !S.bad) toast(`문서 라이브러리에서 자료 ${nf(ok)}개를 가져왔습니다`);
+  agentDrawInput();
+  if (down) agentShelfLoad();
+  if (ok && typeof FW === "object" && FW && FW.gw && typeof fwRead === "function") // 「양식 작성」 의 대시보드 · 「자료 가져오기」 · 「지침 작성」 열이 같은 자료를 보인다(form_write.js — 읽어 둔 것이 있을 때만 다시)
+    fwRead(true).then(() => { if (typeof fwRedraw === "function") fwRedraw(); if (typeof dashDraw === "function") dashDraw(); }).catch(() => {});
 }
 
 async function agentSend(edit = false) { // 한 턴 — 요청 글 + 고른 자료 + 고른 자리 + 고른 서식 → 답과 제안(문서는 안 바뀐다). 동기 응답이라 10~90초 걸릴 수 있다

@@ -176,7 +176,7 @@ def test_api_roundtrip_and_delete_forgets_the_workflow_notes():
     c = TestClient(server.app, raise_server_exceptions=False)
     assert c.get("/api/agent-notes").json() == {**EMPTY, "max": N.TEXT_MAX}
     L = c.get("/api/agent-notes/lines").json()
-    assert set(L["families"]) == {"relay", "gather", "single", "collect"} and len(L["agents"]) == 24 and L["agents"]["gather"]["name"] == "취합 검토"
+    assert set(L["families"]) == {"relay", "gather", "single", "collect"} and len(L["agents"]) == 25 and L["agents"]["gather"]["name"] == "취합 검토"
     key = c.post("/api/tasks", json={"name": "전용 글 시험", "source": "plan", "target": "report", "assign": {"source": ["stage_review"], "target": list(custom_tasks.STAGES)}}).json()["task"]["key"]
     r = c.put("/api/agent-notes/merge_links", json={"text": "범용 글", "version": 0})
     assert r.status_code == 200 and r.json() == {"aid": "merge_links", "job": None, "text": "범용 글", "version": 1}

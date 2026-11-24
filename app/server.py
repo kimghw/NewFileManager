@@ -2058,6 +2058,11 @@ def _reset_busy(s):
     from app import zones_api
     if s.id in getattr(zones_api, "_LLM_RUN", ()):
         return "편집 구역 LLM 검토"
+    from app import form_review_api, guide_write_api   # 양식 작성(spec_양식작성 ② §5 · §5-1) — 끝나며 작업 폴더 · 메모리에 결과를 쓴다
+    for mod, name in ((guide_write_api, "지침 작성 — 제안 받기"), (form_review_api, "양식 검토 · 작성 계획")):
+        run = getattr(mod, "_RUNS", {}).get(s.id)
+        if run is not None and run.get("state") == "running":
+            return name
     return None
 
 
@@ -2078,7 +2083,7 @@ def _reset_keep(wid, s):
 
 def _reset_forget(wid):
     """작업 id 로 묶어 둔 메모리의 기억을 버린다 — 옮긴 결과를 다시 내지 않게(열쇠가 달라 안 쓰일 것도 함께). 도는 에이전트 턴은 저장되지 않는다(「비우기」 와 같은 차례 올림)."""
-    from app import doc_agent, doc_agent_api, merge_api, merge_gather_api, merge_over_api, zones_api
+    from app import doc_agent, doc_agent_api, form_review_api, guide_write_api, merge_api, merge_gather_api, merge_over_api, zones_api
     try:   # 사람이 하는 일의 「했음」 기록(app/flow_hands.py — spec_워크플로우 ② §18-12 ⑦: 초기화 세대가 바뀌면 앞 확인은 무효)
         __import__("app.flow_hands", fromlist=["forget"]).forget(wid)
     except (ImportError, AttributeError, OSError):
@@ -2086,7 +2091,8 @@ def _reset_forget(wid):
     gens = getattr(doc_agent, "_GENS", None)
     if isinstance(gens, dict):
         gens[wid] = gens.get(wid, 0) + 1
-    for mod, name in ((doc_agent_api, "_APPLIED"), (merge_api, "_FIXED"), (merge_api, "_ORIGINS"), (merge_gather_api, "_FRAMES"), (merge_gather_api, "_ZONES"), (zones_api, "_AUTO")):
+    for mod, name in ((doc_agent_api, "_APPLIED"), (merge_api, "_FIXED"), (merge_api, "_ORIGINS"), (merge_gather_api, "_FRAMES"), (merge_gather_api, "_ZONES"), (zones_api, "_AUTO"),
+                      (guide_write_api, "_RUNS"), (form_review_api, "_RUNS"), (form_review_api, "_MEM")):   # 양식 작성 — 마지막 지침 작성 · 양식 검토(작업 저장이 꺼진 문서의 검토 · 답)
         d = getattr(mod, name, None)
         if isinstance(d, dict):
             d.pop(wid, None)
@@ -2583,6 +2589,7 @@ app.include_router(__import__("app.task_options_api", fromlist=["router"]).route
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 app.include_router(__import__("app.guide_write_api", fromlist=["router"]).router)   # 지침 작성(자리마다 작성 지침 + 자료 → 문서 에이전트의 제안) · 문서 라이브러리(따로 선 서버 doclib/ — 포트 8121)에서 자료 가져오기 끝점은 app/guide_write_api.py(spec_양식작성 ② §4 · §5)
+app.include_router(__import__("app.form_review_api", fromlist=["router"]).router)   # 양식 검토(양식 전체를 읽고 어떻게 쓸지 · 쓰기 전에 사람이 정할 것을 묻기 — 지침 작성의 앞 단계) 끝점은 app/form_review_api.py(spec_양식작성 ② §5-1)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
 app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)   # 사람이 하는 일의 「했음」(조립한 워크플로우의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦) 끝점은 app/flow_hands_api.py
 app.include_router(__import__("app.pointer_api", fromlist=["router"]).router)   # 포인터(같은 문서를 보는 다른 화면에 내 마우스 자리 · 「클릭」 — WebSocket · 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다) 끝점은 app/pointer_api.py(spec_포인터 ② §3). 그 모듈은 이 파일을 import 하지 않는다

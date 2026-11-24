@@ -10,8 +10,10 @@ LLM 을 부르지 않는다: 추출 결과는 문서 라이브러리의 저장�
 - ② 문서 화면의 대시보드 — 묶음 셋(준비 · 자료 준비 · 지침 작성) · 문서 라이브러리의 문서 · 끝난 추출 수 · 자료 없음 → 「자료 가져오기」 가 지금 차례.
 - ③ 2열 「자료 가져오기」 — 문서 라이브러리의 추출 줄(범위 · 쪽 · 그림 · 수식 · 확인 필요) · 「가져오기」 → 이 문서의 자료(진짜 끝점 — 문서 라이브러리 서버에서 MD 를 읽어 온다) · 다시 누를 수 없음(「가져옴」).
 - ④ 2열 「지침 작성」 — 쓸 자료(체크) · 이번 작성의 지침 · 자리 목록(작성 지침이 있는 자리만 ↔ 모든 헤딩) · 「작성 지침 보기」 · LLM 꺼짐이면 「제안 받기」 꺼짐 + 까닭 · 가로 넘침 없음.
+- ④-1 「양식 검토」(끝점 응답만 바꿈 — spec_양식작성 ② §5-1) — 검토 전 = 「제안 받기」 꺼짐 「먼저 「양식 검토」 를 하세요」 · 양식만 검토 = 「작성 계획 세우기」 가 다음(「제안 받기」 꺼짐) · 작성 계획 뒤 자리 줄의 「자료에서 쓸 것」 · 「자료에 없는 것」 · 확인할 것(물음 · 「자료에서: …」 · 「자료대로」) · 답하지 않은 물음이 있으면 꺼짐 + 까닭 · 「자료대로」 → PUT 본문 · 자리 줄의 「작성 방향」.
 - ⑤ 흉내 낸 실행(끝점 응답만 바꿈) — 「제안 받기 (n곳)」 → 확인 창 → POST 본문 {places, materials, note} · 도는 동안 진행 글 · 「멈춤」 · 끝나면 자리마다 꼬리표(제안 n · 자료에 없음 · 실패).
 - ⑥ 문서 라이브러리 서버의 화면 — 문서 줄 · 추출 결과 카드 · MD 글과 그림 · 「스킬 글」(셋 · 계약) · 문서 편집 서버가 꺼져도 뜬다는 것은 보지 않는다(따로 선 프로세스임은 포트가 다른 것으로).
+- ⑦ 에이전트 보기의 「라이브러리」(doc_agent.js — 입력 칸 위에 펴지는 고르기 · 창 아님) — 등록 문서마다 추출(MD) 줄 · 추출 전인 문서의 원본 파일 줄 · 「전체 선택」 · 문서 줄의 체크 · 「가져오기 (n)」 → 자료 칩(진짜 끝점 — {extract} · {doc}) · 자료 한도에서 멈춤 · 「가져옴」 · 꺼진 서버.
 - 문서 라이브러리 서버를 끄면 대시보드가 「꺼져 있습니다」 로 알리고 지침 작성 열은 그대로 열린다.
 - 콘솔 오류 없음."""
 import argparse
@@ -49,6 +51,7 @@ for k in ("NFM_LLM_MODEL_FORCE", "NFM_LLM_MODEL", "NFM_DOCLIB_PORT"):
     env.pop(k, None)
 errors, fails = [], []
 GW = re.compile(r"/guide-write(/|$|\?)")
+FR = re.compile(r"/form-review(/|$|\?)")
 
 
 def seed():
@@ -143,12 +146,25 @@ def main():
             page.evaluate("() => showTab('Dash')")   # 작업 리스트에서 이어 연 문서는 그 전 보기 그대로다 — 카드로 시작하면(taskEnter) 처음 여는 보기가 대시보드(①)
             page.wait_for_selector("#paneDash .dash-node", timeout=60000)
             page.wait_for_function("() => /자료 가져오기/.test(document.querySelector('#paneDash').textContent)", timeout=20000)
+            page.wait_for_selector("#paneDash .dash-node[data-key=heads][data-state=done]", timeout=90000)   # 헤딩 · 표 분석(스크립트) · 작성 지침 저장이 끝난 뒤 — 도는 동안은 02 가 「진행 중」 이라 그 카드가 펴진다(부하가 크면 늦다)
             d = page.evaluate(DASH)
             check("② 대시보드 — 묶음 셋", len(d["groups"]) == 3 and "자료 준비" in "".join(d["groups"]) and "지침 작성" in "".join(d["groups"]), d["groups"])
             n = page.evaluate(LIVE)   # 단계마다의 상태 · 글(카드는 편 것만 글을 보인다 — 대시보드가 그리는 값 그대로)
             check("② 지금 차례의 카드가 펴져 그 글과 단추를 보인다", d["nodes"]["take"]["state"] == "now" and "자료가 없습니다" in d["nodes"]["take"]["text"] and "자료 가져오기" in d["nodes"]["take"]["text"], d["nodes"]["take"])
+            nows = [k for k, x in d["nodes"].items() if x["state"] == "now"]
+            check("② 「지금」 은 한 줄(차례상 첫 줄) — 뒤의 할 수 있는 줄은 「할 수 있음」", nows == ["take"] and d["nodes"]["review"]["state"] == "ready", {k: x["state"] for k, x in d["nodes"].items()})
+            fr0 = page.evaluate("() => { const g = FW.gen || 0; document.dispatchEvent(new CustomEvent('nfm:work-reset', { detail: { id: state.id } })); return { key: FW.key, gen: FW.gen, was: g }; }")
+            check("② 작업 내용 초기화(nfm:work-reset) — 그 문서의 기억을 버린다", fr0["key"] == "" and fr0["gen"] == fr0["was"] + 1, fr0)
+            page.evaluate("() => fwRead(true)")
             check("② 문서 라이브러리의 문서 · 끝난 추출 수", n["keep"]["state"] == "done" and "자료 문서 1개" in n["keep"]["text"] and n["extract"]["state"] == "done" and "끝난 추출 1개" in n["extract"]["text"], {k: n[k] for k in ("keep", "extract")})
             check("② 자료 없음 → 「자료 가져오기」 가 지금 차례", n["take"]["state"] == "now" and "자료가 없습니다" in n["take"]["text"] and n["ask"]["state"] == "todo", {k: n[k] for k in ("take", "ask")})
+            # ② 「1 준비」 의 「헤딩 · 표 분석 · 작성 지침」(2026-11-24 사용자 "1준비에 있어야지" · "테이블이나 본문이 지침을 가지고 와야지") — 분석이 끝나면 작성 지침을 저장하고 그 수를 보인다
+            page.wait_for_function("async () => { if (typeof docStatusPing === 'function') docStatusPing(); FW.at = 0; const r = await formWriteLive(); return r.steps.heads.state === 'done'; }", timeout=180000, polling=2000)
+            n = page.evaluate(LIVE)
+            fg = requests.get(f"{base}/api/docs/{doc}/form-guides", timeout=30).json()
+            check("② 준비 — 헤딩 · 표 분석 끝남 · 작성 지침을 저장하고 수를 보인다", n["heads"]["state"] == "done" and "헤딩 ✓ · 표 ✓" in n["heads"]["text"] and "작성 지침" in n["heads"]["text"] and fg["saved"] is not None,
+                  {"heads": n["heads"], "saved": (fg["saved"] or {}).get("counts")})
+            check("② 준비 — LLM 검증·보완은 선택 줄(사람이 누를 때만)", "headsLlm" in n and n["headsLlm"]["state"] in ("", "done"), n.get("headsLlm"))
             page.screenshot(path=str(OUT / "02_dash.png"))
             # ③ 자료 가져오기
             page.evaluate("() => fwTakeOpen()")
@@ -205,8 +221,43 @@ def main():
                         phase["run"].update(state="done", ended=time.time())
                     data["run"] = phase["run"]
                 route.fulfill(json=data)
+            # ④-1 양식 검토 — 검토가 없으면 「제안 받기」 가 꺼진다 → 흉내 낸 검토(물음 하나) → 답하면 열린다
+            pid = page.evaluate("() => (FW.gw.places.find((p) => p.n) || FW.gw.places[0]).id")
+            rv = {"summary": "양식 요약", "materials": [mats[0]["id"]], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "자료의 최종 목표 문단", "gap": "기준 연도"}}, "questions": [{"key": "q1", "text": "어느 기관의 몫을 쓰나요?", "why": "자료에 여러 기관", "places": [], "choices": ["한국선급"], "suggest": "한국선급", "source": "한국선급(KR)"}]}
+            fr, put = {"review": None, "planned": False, "decided": [], "open": [], "stale": False, "run": None, "hwpx": True, "enabled": True}, []
+
+            def frh(route):
+                req = route.request
+                if req.method == "PUT":
+                    put.append(json.loads(req.post_data))
+                    fr.update(decided=[{"key": "q1", "q": rv["questions"][0]["text"], "a": put[-1]["answers"][0]["a"], "places": [], "at": 0}], open=[])
+                return route.fulfill(json=fr)
+            page.route(FR, frh)
             page.route(GW, gw)   # 정규식으로 — 글롭 「**/guide-write**」 는 아래 길(/run · /stop)을 못 잡는다
             page.evaluate("() => fwRead(true).then(fwRedraw)")
+            page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '먼저 「양식 검토」 를 하세요'; }", timeout=10000)
+            check("④-1 검토 전 — 「양식 검토」 단추 · 「제안 받기」 꺼짐", page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-review button')].map((b) => b.textContent)") == ["양식 검토"], None)
+            # 양식만 검토한 상태(자료 없이) — 작성 방향은 보이고, 「작성 계획 세우기」 가 다음 · 「제안 받기」 는 아직 꺼짐
+            only = {**rv, "materials": [], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "", "gap": ""}}, "questions": [{**rv["questions"][0], "suggest": "", "source": ""}]}
+            fr.update(review=only, open=["q1"])
+            page.evaluate("() => fwRead(true).then(fwRedraw)")
+            page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '자료를 고르고 「작성 계획 세우기」 를 하세요'; }", timeout=10000)
+            st = page.evaluate("() => ({ btn: document.querySelector('#headsDlgBody .fw-review .fw-places-head button').textContent, steps: [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent), how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent) })")
+            check("④-1 양식만 검토 — 「작성 계획 세우기」 가 다음 · 작성 방향만(계획 없음)", st["btn"] == "작성 계획 세우기" and st["steps"] == ["양식 검토 ✓", "작성 계획", "확인할 것"] and st["how"] == ["작성 방향: 개조식 3줄"], st)
+            # 자료로 작성 계획을 세운 상태 — 자리마다 자료에서 쓸 것 · 자료에 없는 것 + 확인할 것
+            fr.update(review=rv, planned=True, open=["q1"])
+            page.evaluate("() => fwRead(true).then(fwRedraw)")
+            page.wait_for_selector("#headsDlgBody .fw-use", timeout=10000)
+            q = page.evaluate("() => { const q = document.querySelector('#headsDlgBody .fw-q'); return { text: q.textContent, btns: [...q.querySelectorAll('button')].map((b) => [b.textContent, b.title]) }; }")
+            foot = page.evaluate(FOOT)
+            how = page.evaluate("(id) => [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent)", pid)
+            check("④-1 검토 뒤 — 확인할 것(물음 · 자료에서 · 고를 답 · 자료대로) · 「제안 받기」 꺼짐 + 까닭 · 작성 방향", "어느 기관의 몫을 쓰나요?" in q["text"] and q["btns"][0] == ["자료에서: 한국선급", "근거: 한국선급(KR)"]
+                  and [b[0] for b in q["btns"][1:]] == ["한국선급", "자료대로"] and foot["btns"][-1][1] and foot["btns"][-1][2] == "쓰기 전에 확인할 것 1개에 답하세요" and how == ["작성 방향: 개조식 3줄", "자료에서 쓸 것: 자료의 최종 목표 문단", "자료에 없는 것: 기준 연도"]
+                  and page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent)") == ["양식 검토 ✓", "작성 계획 ✓", "확인할 것 0/1"], (q, foot, how))
+            page.screenshot(path=str(OUT / "04b_review.png"))
+            page.click("#headsDlgBody .fw-q button:has-text('자료대로')")
+            page.wait_for_function("() => !document.querySelector('#headsDlgBody .fw-q.is-open')", timeout=10000)
+            check("④-1 「자료대로」 → PUT {answers:[{key, a}]} · 물음이 닫힌다", put == [{"answers": [{"key": "q1", "a": "자료대로"}]}], put)
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.title === '채울 자리를 고르세요'; }", timeout=10000)
             for i in range(3):
                 page.click(f"#headsDlgBody .fw-place:nth-of-type({i + 1}) > input") if False else page.evaluate("(i) => document.querySelectorAll('#headsDlgBody .fw-place > input')[i].click()", i)
@@ -222,13 +273,33 @@ def main():
             check("⑤ 끝나면 자리마다 결과 꼬리표", "제안 2" in tags[0] and "자료에 없음" in tags[1] and "실패" in tags[2], tags)
             page.screenshot(path=str(OUT / "05_ran.png"))
             page.unroute(GW)
+            page.unroute(FR)
             # ⑥ 문서 라이브러리 서버의 화면
             lp = br.new_page(viewport={"width": 1400, "height": 950})
             lp.on("console", lambda m: errors.append("lib: " + m.text) if m.type == "error" else None)
             lp.on("pageerror", lambda e: errors.append("lib: " + str(e)))
             lp.goto(f"{lib}/#d={did}&x={eid}")
-            lp.wait_for_selector("#mdSec pre", timeout=20000)
-            lp.wait_for_function("() => /차단 시간 1 ms/.test(document.querySelector('#mdSec pre').textContent)", timeout=10000)
+            # 처음은 「미리보기」(마크다운을 그린 꼴 — md_preview.js) → 「원문」 을 누르면 MD 글 그대로
+            lp.wait_for_selector("#mdSec .md-prev .mp", timeout=20000)
+            pv = lp.evaluate("""() => { const m = document.querySelector('#mdSec .md-prev .mp'); return { on: [...document.querySelectorAll('#mdSec .md-seg button.on')].map((b) => b.textContent), preHidden: document.querySelector('#mdSec pre').hidden,
+              h2: [...m.querySelectorAll('h2')].map((x) => x.textContent), li: (m.querySelector('li') || {}).textContent || '', quote: !!m.querySelector('blockquote'), page: (m.querySelector('.mp-page') || {}).textContent || '',
+              fig: !!m.querySelector('.mp-fig img[src*="images/p1_F1.png"]'), warn: (m.querySelector('.mp-warn') || {}).textContent || '', math: (m.querySelector('.mp-math code') || {}).textContent || '' }; }""")
+            check("⑥ MD 미리보기 — 제목 · 목록 · 인용 · 쪽 · 그림 · 확인 필요 · 수식", pv["on"] == ["미리보기"] and pv["preHidden"] and pv["h2"] == ["연구개발 목표"] and "차단 시간 1 ms" in pv["li"] and pv["quote"]
+                  and pv["page"] == "p.1" and pv["fig"] and pv["warn"].startswith("확인 필요") and "V_{pk}" in pv["math"], pv)
+            lp.screenshot(path=str(OUT / "06_library_preview.png"))
+            # 위 접기 — MD 가 보이면 처음은 문서 정보 · 자료 추출 · 추출 결과가 한 줄(fold-bar)로 접혀 있다 → 그 줄을 누르면 펼침 → 「위 접기」 로 다시
+            FOLD = "() => ({ folded: document.getElementById('work').classList.contains('folded'), bar: (() => { const b = document.getElementById('foldBar'); return b && !b.hidden && b.offsetHeight > 0 && b.offsetHeight < 60 ? b.textContent : ''; })(), x: !!document.querySelector('#xSec').offsetHeight, run: !!document.querySelector('.run-sec').offsetHeight, btn: !!document.querySelector('#mdSec .btn-fold').offsetHeight })"
+            f0 = lp.evaluate(FOLD)
+            lp.click("#foldBar")
+            f1 = lp.evaluate(FOLD)
+            lp.click("#mdSec .btn-fold")
+            f2 = lp.evaluate(FOLD)
+            check("⑥ 위 접기 — 처음 접힘(한 줄) · 누르면 펼침 · 「위 접기」 로 다시", f0["folded"] and "연차보고서_견본.pdf" in f0["bar"] and "펼치기" in f0["bar"] and not f0["x"] and not f0["run"] and not f0["btn"]
+                  and not f1["folded"] and not f1["bar"] and f1["x"] and f1["run"] and f1["btn"] and f2["folded"] and f2["bar"] and not f2["x"], [f0, f1, f2])
+            lp.click("#foldBar")
+            lp.click("#mdSec .md-seg button[data-mode=raw]")
+            lp.wait_for_selector("#mdSec pre", timeout=5000)
+            lp.wait_for_function("() => /차단 시간 1 ms/.test(document.querySelector('#mdSec pre').textContent) && document.querySelector('#mdSec .md-prev').hidden", timeout=10000)
             try:   # 그림은 loading=lazy — 그림 칸이 MD 옆 열(2026-11-24 꼴)이라 읽기 전에 로드를 기다린다
                 lp.wait_for_function("() => { const i = document.querySelector('#mdSec .figs img'); return i && i.complete && i.naturalWidth > 0; }", timeout=10000)
             except Exception:
@@ -271,6 +342,62 @@ def main():
             check("⑥ 「스킬 글」 — 셋 · 계약", len(sk["tabs"]) == 3 and sk["text"].startswith("# 자료 추출") and sk["contract"] > 200, sk)
             lp.screenshot(path=str(OUT / "06_library.png"))
             lp.close()
+            # ⑦ 에이전트 보기의 「라이브러리」 — 입력 칸 위에 펴지는 고르기(2026-11-24 사용자 "에이전트에서는 라이브러리에서 등록한 파일들을 선택해서 참조할 수 있도록 해줘, 전체 해도 되고" — spec_양식작성 ② §4)
+            #    추출 전인 문서 하나를 더 올려 두고(원본 파일을 글로 읽어 자료로) 본 뒤, 그 문서와 그 자료를 지운다(뒤 검사의 수가 그대로이게)
+            import fitz
+            raw = fitz.open()
+            raw.new_page().insert_text((72, 72), "raw original text of the registered file")
+            did2 = requests.post(lib + "/api/docs", files={"file": ("추출 전 문서.pdf", raw.tobytes())}, timeout=30).json()["doc"]["id"]
+            SHELF = """() => { const b = document.querySelector('#paneAgent .ag-lib'); if (!b || b.hidden) return null;
+              const t = b.querySelector('[data-ag-act=shelfTake]');
+              return { rows: Object.fromEntries([...b.querySelectorAll('.ag-lib-row')].map((r) => [r.dataset.agLib, { text: r.textContent, on: r.querySelector('input').checked, off: r.querySelector('input').disabled, tags: [...r.querySelectorAll('.ag-lib-tag')].map((x) => x.textContent) }])),
+                state: (b.querySelector('.ag-lib-state') || {}).textContent || '', take: t ? [t.textContent, t.disabled] : null, msg: (b.querySelector('.ag-lib-msg') || {}).textContent || '', count: b.querySelector('.ag-lib-count').textContent,
+                over: b.scrollWidth > b.clientWidth + 1, help: !!b.querySelector('.ag-lib-head .panel-help'), dialog: document.querySelectorAll('dialog[open]').length, paste: !document.querySelector('#paneAgent .ag-paste').hidden,
+                chips: document.querySelectorAll('#paneAgent .ag-chip').length, pressed: document.querySelector('#paneAgent [data-ag-act=shelf]').getAttribute('aria-pressed') }; }"""
+            page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(true); showTab('Agent'); }")
+            page.wait_for_function("() => AGENT.loaded && !!document.querySelector('#paneAgent [data-ag-act=shelf]:not([disabled])')", timeout=30000)
+            acts = page.evaluate("() => [...document.querySelectorAll('#paneAgent .ag-mats > button')].map((b) => b.textContent)")
+            check("⑦ 에이전트 보기의 자료 단추 셋 — 자료 붙여넣기 · 파일 · 라이브러리", acts == ["자료 붙여넣기", "파일", "라이브러리"], acts)
+            page.click("#paneAgent .ag-chip .ag-chip-x")   # ③ 에서 가져온 자료를 지운다 — 고르기에서 추출(MD)과 원본 파일 둘을 함께 가져오게
+            page.wait_for_function("() => !document.querySelector('#paneAgent .ag-chip')", timeout=15000)
+            page.click("#paneAgent [data-ag-act=shelf]")
+            page.wait_for_function("() => document.querySelectorAll('#paneAgent .ag-lib .ag-lib-row.is-item').length === 2", timeout=20000)
+            s0 = page.evaluate(SHELF)
+            check("⑦ 「라이브러리」 — 입력 칸 위에 펴진다(창 아님) · 등록 문서 둘 · 추출(MD) 줄과 원본 파일 줄 · 설명은 노트 아이콘에", s0["dialog"] == 0 and not s0["paste"] and s0["pressed"] == "true" and s0["help"] and not s0["over"]
+                  and s0["count"] == "이 문서의 자료 0/30" and set(s0["rows"]) == {"all", f"doc:{did}", f"x:{eid}", f"doc:{did2}", f"d:{did2}"}
+                  and "한국선급의 SSCB 서브모듈 설계" in s0["rows"][f"x:{eid}"]["text"] and "쪽 1–3" in s0["rows"][f"x:{eid}"]["text"] and s0["rows"][f"x:{eid}"]["tags"] == ["확인 필요 1"]
+                  and "원본 파일" in s0["rows"][f"d:{did2}"]["text"] and "pdf" in s0["rows"][f"d:{did2}"]["text"] and "추출 전" in s0["rows"][f"doc:{did2}"]["text"] and "추출 1개" in s0["rows"][f"doc:{did}"]["text"]
+                  and "고를 수 있는 것 2개" in s0["rows"]["all"]["text"] and not any(r["on"] or r["off"] for r in s0["rows"].values()) and s0["take"] == ["가져오기", True], s0)
+            page.click("#paneAgent .ag-lib-row[data-ag-lib=all] input")
+            s1 = page.evaluate(SHELF)
+            page.click(f"#paneAgent .ag-lib-row[data-ag-lib='doc:{did2}'] input")   # 문서 줄의 체크 = 그 문서의 것만 뺀다
+            s2 = page.evaluate(SHELF)
+            page.click(f"#paneAgent .ag-lib-row[data-ag-lib='doc:{did2}'] input")
+            check("⑦ 「전체 선택」 → 모두 고름 · 문서 줄의 체크로 그 문서만 빼고 넣음", all(r["on"] for r in s1["rows"].values()) and s1["take"] == ["가져오기 (2)", False]
+                  and s2["take"] == ["가져오기 (1)", False] and not s2["rows"][f"d:{did2}"]["on"] and s2["rows"][f"x:{eid}"]["on"] and not s2["rows"]["all"]["on"], [s1["take"], s2])
+            page.screenshot(path=str(OUT / "06b_agent_library.png"))
+            page.evaluate("() => { AGENT.limits = { ...AGENT.limits, materials: 1 }; }")   # 자료 한도에 닿으면 거기서 멈추고 못 가져온 수를 알린다
+            page.click("#paneAgent [data-ag-act=shelfTake]")
+            page.wait_for_function("() => /남은 1개는 가져오지 못했습니다/.test((document.querySelector('#paneAgent .ag-lib-msg') || {}).textContent || '')", timeout=30000)
+            s3 = page.evaluate(SHELF)
+            check("⑦ 자료 한도 — 하나만 가져오고 멈춤 · 못 가져온 수를 알림", s3["chips"] == 1 and "자료 1개를 가져왔습니다" in s3["msg"] and "자료는 1개까지 둘 수 있습니다" in s3["msg"] and s3["take"] == ["가져오기 (1)", False]
+                  and sorted(len(r["tags"]) for k, r in s3["rows"].items() if k[:2] in ("x:", "d:")) in ([0, 2], [1, 1]), s3)
+            page.evaluate("() => { AGENT.limits = { ...AGENT.limits, materials: 30 }; }")
+            page.click("#paneAgent [data-ag-act=shelfTake]")
+            page.wait_for_function("() => document.querySelectorAll('#paneAgent .ag-chip').length === 2 && !document.querySelector('#paneAgent .ag-lib .sl-run')", timeout=30000)
+            s4 = page.evaluate(SHELF)
+            mats2 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=10).json()["materials"]
+            rawm = next((m for m in mats2 if m["kind"] == "pdf"), None)
+            check("⑦ 「가져오기」 — 추출(MD)과 원본 파일이 이 문서의 자료가 된다 · 줄은 「가져옴」 · 더 고를 것 없음", len(mats2) == 2 and {m["kind"] for m in mats2} == {"md", "pdf"} and rawm and f"문서 라이브러리의 원본({did2})" in rawm["note"]
+                  and rawm["name"] == "추출 전 문서.pdf" and "가져옴" in s4["rows"][f"x:{eid}"]["tags"] and s4["rows"][f"d:{did2}"]["tags"] == ["가져옴"] and s4["rows"]["all"]["off"] and all(r["off"] for r in s4["rows"].values())
+                  and s4["take"] == ["가져오기", True] and s4["count"] == "이 문서의 자료 2/30" and "자료 1개를 가져왔습니다" in s4["msg"] and not s4["over"], (s4, mats2))
+            page.locator("#paneAgent .ag-input").screenshot(path=str(OUT / "06c_agent_library_taken.png"))
+            requests.delete(f"{base}/api/docs/{doc}/agent/material/{rawm['id']}", timeout=10) if rawm else None
+            requests.delete(lib + f"/api/docs/{did2}", timeout=10)
+            page.click("#paneAgent .ag-lib-head button:has-text('닫기')")
+            check("⑦ 「닫기」 — 고르기가 접힌다", page.evaluate(SHELF) is None and page.evaluate("() => document.querySelector('#paneAgent [data-ag-act=shelf]').getAttribute('aria-pressed')") == "false")
+            page.evaluate("() => agentLoad(true)")
+            page.wait_for_function("() => document.querySelectorAll('#paneAgent .ag-chip').length === 1", timeout=15000)
             # 문서 라이브러리 서버를 끄면
             procs[0].terminate()
             procs[0].wait(timeout=20)
@@ -279,6 +406,12 @@ def main():
             d = page.evaluate(LIVE)
             check("문서 라이브러리 서버가 꺼지면 대시보드가 알린다(자료는 그대로)", d["keep"]["state"] == "hold" and d["keep"]["acts"] == [["문서 라이브러리 열기", True]] and d["take"]["state"] == "done" and "이 문서의 자료 1개" in d["take"]["text"], {k: d[k] for k in ("keep", "take")})
             page.screenshot(path=str(OUT / "07_lib_down.png"))
+            page.click("#paneAgent [data-ag-act=shelf]")   # ⑦ 꺼진 뒤의 고르기 — 꺼져 있다고 알리고 가져오기는 꺼진다(자료 칩은 그대로)
+            page.wait_for_function("() => /꺼져 있습니다/.test((document.querySelector('#paneAgent .ag-lib-state') || {}).textContent || '')", timeout=30000)
+            s5 = page.evaluate(SHELF)
+            check("⑦ 문서 라이브러리 서버가 꺼지면 고르기가 알린다(띄우개 · 가져오기 꺼짐 · 자료 칩 그대로)", "tools/start_doclib.ps1" in s5["state"] and s5["take"] == ["가져오기", True] and not s5["rows"] and s5["chips"] == 1, s5)
+            page.locator("#paneAgent .ag-input").screenshot(path=str(OUT / "07b_agent_library_down.png"))
+            page.evaluate("() => { AGENT.shelf.open = false; agentDrawInput(); if (typeof agentFloating === 'function' && agentFloating() && typeof agentFloatClose === 'function') agentFloatClose(); }")
             # ⑧ 대시보드에서 「작업 내용 초기화」 — 일반 문서 워크플로우도 대시보드에 머문다(전에는 다시 여는 load 가 에이전트 보기로 바꿨다 —
             #    2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐": spec_작업에이전트 ② §9 「작업 내용 초기화」 「초기화한 뒤」)
             page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")

@@ -81,10 +81,13 @@ def guides_text(guides, limit=GUIDE_MAX):
     return "\n".join(lines)
 
 
-def request(place, note="", head_text=""):
-    """자리 하나의 요청 글(문서 에이전트의 한 턴에 보내는 글) — 그 자리 · 그 자리의 작성 지침 · 이번 실행의 지침 · 무엇을 답할지. TEXT_MAX 자 안."""
+def request(place, note="", head_text="", plan=""):
+    """자리 하나의 요청 글(문서 에이전트의 한 턴에 보내는 글) — 그 자리 · 그 자리의 작성 지침 · 이번 실행의 지침 · 양식 검토의 글(plan — 사람이 정해 준 것 + 이 자리의 작성 방향:
+    form_review.plan_text) · 무엇을 답할지. TEXT_MAX 자 안 — 넘치면 작성 지침 몫을 줄인다(묻는 말 · 정해 준 것은 늘 남는다)."""
     note = " ".join((note or "").split())[:NOTE_MAX]
-    gt = guides_text(place.get("guides"))
+    plan = (plan or "").strip()
+    room = TEXT_MAX - len(note) - len(plan) - 1300   # 자리 · 묻는 말 · 머리들의 몫을 뗀 나머지
+    gt = guides_text(place.get("guides"), limit=max(400, min(GUIDE_MAX, room)))
     if place["kind"] == "table":
         where = f"표 「{place['text']}」(id {place['id']}" + (f" · 헤딩 「{_one(head_text, 80)}」 아래" if head_text else "") + ")"
         ask = ("받은 자료에서 이 표에 들어갈 값을 찾아 이 표를 채우는 제안(tableFill)을 내세요. 자료에 그 값이 없는 칸은 비워 둡니다. "
@@ -101,7 +104,9 @@ def request(place, note="", head_text=""):
         parts.append("이 자리의 작성 지침:\n" + gt)
     if note:
         parts.append("이번 작성의 지침(사람이 적음): " + note)
-    if not gt and not note:
+    if plan:
+        parts.append(plan)
+    if not gt and not note and not plan:
         parts.append("이 자리에 적힌 작성 지침은 없습니다 — 헤딩의 뜻에 맞는 내용을 자료에서 찾습니다.")
     parts.append(ask)
     text = "\n\n".join(parts)

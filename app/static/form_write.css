@@ -319,3 +319,21 @@
   }
   #headsDlg[data-kind="fwTake"] .fw-t-acts { justify-self: end; margin-top: 2px; }
 }
+
+/* ---- 「지침 작성」 의 「양식 검토」 절(fwReviewEl — 양식 전체 검토 · 쓰기 전에 확인할 것) ---- */
+.fw-pad { padding: 0 14px; }
+.fw-bad { color: var(--warn); }
+.fw-review .fw-guides { margin: 2px 0 6px; }
+.fw-q-head { padding: 4px 14px 2px; font-size: 12px; font-weight: 600; color: var(--text); }
+.fw-q { display: grid; gap: 4px; margin: 6px 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
+.fw-q.is-open { border-color: var(--warn); background: var(--warn-soft); }
+.fw-q-text { font-weight: 600; overflow-wrap: anywhere; }
+.fw-q-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fw-q-chips .btn { margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-q-chips .btn.is-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.fw-q-sug { border-color: #d9ccff; color: #6d3fd1; }
+.fw-q-input { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12.5px; background: var(--surface); }
+.fw-how { flex-basis: 100%; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.fw-steps { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.fw-how.fw-use { color: var(--text); }
+.fw-how.fw-gap { color: var(--warn); }

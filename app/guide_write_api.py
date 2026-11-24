@@ -1,11 +1,13 @@
 """지침 작성 · 문서 라이브러리에서 자료 가져오기 끝점(spec_양식작성 ② §4 · §5) — 요청 글 · 자리 고르기는 `app/guide_write.py`(순수), 문서 라이브러리 서버(doclib/ · 따로 선 서버)는 `app/doclib_client.py` 로만 읽는다.
 hwpx 문서만 · 어느 워크플로우의 문서에서나(공통 모듈 — 워크플로우 「양식 작성」 이 쓴다).
 
-- `GET /api/doclib` → {url, alive, why, llm, docs[{id, name, ext, pages, org, topic, extracts[끝난 것 — {id, focus, span, at, chars, figures, formulas, open}]}]} — 문서 라이브러리 서버의 문서 · 추출 목록(그 서버가 꺼져 있으면 alive false + 까닭).
+- `GET /api/doclib` → {url, alive, why, llm, docs[{id, name, ext, pages, org, topic, bytes, sha256, raw(원본을 글로 읽어 자료로 줄 수 있나), running, extracts[끝난 것 — {id, focus, span, at, chars, figures, formulas, open}]}]} — 문서 라이브러리 서버의 문서 · 추출 목록(그 서버가 꺼져 있으면 alive false + 까닭).
 - `POST /api/docs/{id}/agent/material/library` {extract} → 그 추출의 MD 를 이 문서의 **자료**로 가져온다(에이전트 보기의 자료와 같은 저장소 · 같은 꼴 — 같은 것이 있으면 그것: reused) → 자료 보기.
+  {doc}(extract 없이) → 등록한 문서의 **원본 파일**을 글로 읽어 자료로(추출 전인 문서 — pdf · docx · hwpx · 20 MB 까지: hwp 는 400). 고르는 곳 = 에이전트 보기의 「라이브러리」(doc_agent.js) · 2열 「자료 가져오기」(form_write.js — 추출만).
 - `GET /api/docs/{id}/guide-write` → {hwpx, enabled(LLM), places[자리 — guide_write.places], materials[자료 보기], run(도는 · 마지막 실행 | null), limits{places, note}}. 문서 안 바뀜.
 - `POST /api/docs/{id}/guide-write/run` {places: [자리 id…], materials: [자료 id…], note} → 자리마다 **문서 에이전트의 한 턴**을 배경에서 돌린다(유료 LLM · 자리마다 호출 1번 이상 — 같이 2개까지) → {run}.
-  제안은 에이전트 보기의 턴 · 제안 카드로 남는다(반영은 그 카드의 「문서에 반영」 — 문서는 여기서 바뀌지 않는다). 409 = 이 문서의 지침 작성이 이미 돈다 · 503 = LLM 없음.
+  제안은 에이전트 보기의 턴 · 제안 카드로 남는다(반영은 그 카드의 「문서에 반영」 — 문서는 여기서 바뀌지 않는다). 409 = 이 문서의 지침 작성이 이미 돈다 · 양식 검토가 없거나 답하지 않은 물음이 있다(`form_review_api.gate` — 쓰기 전에 묻는다) · 503 = LLM 없음.
+  자리마다의 요청 글에 양식 검토의 글(사람이 정해 준 것 + 그 자리의 작성 방향 — `form_review_api.plans`)을 싣는다.
 - `GET …/guide-write/run` → {run} · `POST …/guide-write/stop` → 남은 자리를 돌리지 않는다(도는 턴은 끝까지).
 실행의 상태는 이 프로세스의 메모리에 둔다(서버를 다시 켜면 사라진다 — 끝난 턴은 에이전트 대화에 남아 있다). 끝나면 작업 기록에 `guideWrite` 한 줄."""
 import concurrent.futures
@@ -17,7 +19,7 @@ import uuid
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from app import agent_notes, doc_agent, doclib_client, guide_write, llm, works
+from app import agent_notes, doc_agent, doclib_client, form_review_api, guide_write, llm, works
 
 router = APIRouter()
 WORKERS = 2
@@ -54,7 +56,8 @@ def doclib_list():
         for d in doclib_client.docs():
             ex = [{k: e.get(k) for k in ("id", "focus", "span", "at", "chars", "figures", "formulas", "open")} for e in d.get("extracts") or () if e.get("state") == "done"]
             run = sum(1 for e in d.get("extracts") or () if e.get("state") in ("queued", "running"))
-            out["docs"].append({**{k: d.get(k) for k in ("id", "name", "ext", "pages", "org", "topic")}, "extracts": ex, "running": run})
+            out["docs"].append({**{k: d.get(k) for k in ("id", "name", "ext", "pages", "org", "topic", "bytes", "sha256")}, "extracts": ex, "running": run,
+                                "raw": str(d.get("ext") or "").lower() in doc_agent.MATERIAL_EXT and (d.get("bytes") or 0) <= doc_agent.MATERIAL_BYTES})   # raw = 원본 파일을 글로 읽어 자료로 줄 수 있나(추출 전인 문서 — {doc})
     except (doclib_client.Down, LookupError) as e:
         out.update(alive=False, why=str(e))
     return out
@@ -62,9 +65,13 @@ def doclib_list():
 
 @router.post("/api/docs/{doc_id}/agent/material/library")
 def material_from_library(doc_id: str, body: dict = Body(...)):
-    """{extract} — 문서 라이브러리 서버의 그 추출(MD)을 이 문서의 자료로. 400: 추출 id 꼴이 아님 · 자료 30개 초과 · 404: 그런 추출 없음 · 409: 아직 안 끝난 추출 · 502: 그 서버에 닿지 못함."""
+    """{extract} — 문서 라이브러리 서버의 그 추출(MD)을 이 문서의 자료로. 400: 추출 id 꼴이 아님 · 자료 30개 초과 · 404: 그런 추출 없음 · 409: 아직 안 끝난 추출 · 502: 그 서버에 닿지 못함.
+    {doc}(extract 없이) — 등록한 문서의 **원본 파일**을 글로 읽어 자료로(추출 전인 문서 — `_raw_rec`: 2026-11-24 사용자 「라이브러리에서 등록한 파일들을 선택해서 참조」)."""
     s = _sess(doc_id)
-    eid = (body or {}).get("extract")
+    body = body if isinstance(body, dict) else {}
+    if body.get("extract") is None and body.get("doc") is not None:
+        return _lib_keep(s, _raw_rec(body["doc"]), body["doc"])
+    eid = body.get("extract")
     if not doclib_client.ok_id(eid):
         raise HTTPException(400, "extract(추출 id)가 필요합니다")
     try:
@@ -85,6 +92,11 @@ def material_from_library(doc_id: str, body: dict = Body(...)):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     rec.update(kind="md", note=f"문서 라이브러리의 자료 추출({eid}) — 그림 {meta.get('figures') or 0} · 수식 {meta.get('formulas') or 0}" + (f" · 확인 필요 {meta['open']}곳" if meta.get("open") else ""), library={"extract": eid, "doc": meta.get("doc")})
+    return _lib_keep(s, rec, eid)
+
+
+def _lib_keep(s, rec, ref):
+    """문서 라이브러리에서 읽어 온 자료 기록을 이 문서의 자료로 저장 → 자료 보기(같은 것이 있으면 그것 + reused). ref = 추출 id | 문서 id(작업 기록에)."""
     store = doc_agent.Store(s.id)
     with store.lock:
         have = store.materials()
@@ -94,8 +106,40 @@ def material_from_library(doc_id: str, body: dict = Body(...)):
         if len(have) >= doc_agent.MATERIALS_MAX:
             raise HTTPException(400, f"자료는 {doc_agent.MATERIALS_MAX}개까지 둘 수 있습니다 — 안 쓰는 자료를 지우세요")
         store.add_material(rec)
-    works.log(s.id, "agentMaterial", material=rec["id"], name=rec["name"], format="md", chars=rec["chars"], cut=rec["cut"], library=eid)
+    works.log(s.id, "agentMaterial", material=rec["id"], name=rec["name"], format=rec["kind"], chars=rec["chars"], cut=rec["cut"], library=ref)
     return doc_agent.material_view(rec)
+
+
+def _raw_rec(did):
+    """문서 라이브러리에 등록한 문서의 **원본 파일**(자료 추출 전) → 자료 기록(`doc_agent.material_from_file` — 글로 바꿔 읽는다: pdf · docx · hwpx).
+    400: 문서 id 꼴이 아님 · 글로 못 읽는 형식(hwp) · 못 읽는 파일(글이 없는 PDF) · 404: 그런 문서 없음 · 413: 자료 한도(20 MB) 초과 · 502: 그 서버에 닿지 못함."""
+    if not doclib_client.ok_doc(did):
+        raise HTTPException(400, "doc(문서 id)가 필요합니다")
+    try:
+        meta = next((d for d in doclib_client.docs() if d.get("id") == did), None)
+        if meta is None:
+            raise HTTPException(404, "문서 라이브러리에 그런 문서가 없습니다")
+        ext = str(meta.get("ext") or "").lower()
+        if ext not in doc_agent.MATERIAL_EXT:
+            raise HTTPException(400, f"{ext or '이 형식의'} 원본은 글로 읽지 못합니다 — 문서 라이브러리에서 자료 추출(MD)을 한 뒤 가져오세요")
+        if (meta.get("bytes") or 0) > doc_agent.MATERIAL_BYTES:
+            raise HTTPException(413, f"원본 파일이 자료 한도({doc_agent.MATERIAL_BYTES // 2 ** 20} MB)를 넘습니다 — 문서 라이브러리에서 자료 추출(MD)을 한 뒤 가져오세요")
+        name, data = doclib_client.file(did, doc_agent.MATERIAL_BYTES)
+    except doclib_client.Down as e:
+        raise HTTPException(502, str(e)) from e
+    except doclib_client.TooBig as e:
+        raise HTTPException(413, str(e)) from e
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    try:
+        rec = doc_agent.material_from_file(meta.get("name") or name or f"문서.{ext}", data)
+    except doc_agent.TooBig as e:
+        raise HTTPException(413, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    rec.update(note=f"문서 라이브러리의 원본({did}) — 자료 추출 전의 문서를 글로 읽음(그림 · 수식 없음)" + (" · 긴 문서라 앞부분만 — 전체는 자료 추출(MD)로" if rec["cut"] else "")
+               + (f" · {rec['note']}" if rec.get("note") else ""), library={"doc": did})
+    return rec
 
 
 # ---- 지침 작성 -----------------------------------------------------------------------------------------------------------
@@ -109,7 +153,7 @@ def _places(s):
 
 
 def _run_view(run):
-    return None if run is None else {k: v for k, v in run.items() if k != "stop"}
+    return None if run is None else {k: v for k, v in run.items() if k not in ("stop", "plans")}
 
 
 def _place_view(p):
@@ -129,7 +173,7 @@ def guide_write_get(doc_id: str):
 
 
 def _one(doc_id, place, head_text, mids, note, run):
-    """자리 하나 = 문서 에이전트의 한 턴 → 그 자리의 결과 줄을 고친다."""
+    """자리 하나 = 문서 에이전트의 한 턴 → 그 자리의 결과 줄을 고친다. 요청 글에 양식 검토의 글(사람이 정해 준 것 + 이 자리의 작성 방향 — run["plans"])을 싣는다."""
     from app import doc_agent_api
     item = next(i for i in run["items"] if i["id"] == place["id"])
     if run["stop"].is_set():
@@ -137,7 +181,7 @@ def _one(doc_id, place, head_text, mids, note, run):
         return
     item["state"] = "running"
     try:
-        got = doc_agent_api.agent_turn(doc_id, {"text": guide_write.request(place, note, head_text), "materials": list(mids), "selection": guide_write.selection(place)})
+        got = doc_agent_api.agent_turn(doc_id, {"text": guide_write.request(place, note, head_text, run["plans"].get(place["id"], "")), "materials": list(mids), "selection": guide_write.selection(place)})
     except HTTPException as e:
         item.update(state="failed", error=str(e.detail)[:300])
         return
@@ -185,12 +229,16 @@ def guide_write_run(doc_id: str, body: dict = Body(...)):
         raise HTTPException(400, "자료를 하나 이상 고르세요 — 자료에 있는 내용만 넣습니다")
     if not llm.status()["available"]:
         raise HTTPException(503, "LLM 을 쓸 수 없습니다(Claude Agent SDK·CLI·API 키 없음 또는 꺼짐)")
+    ok, why, _ = form_review_api.gate(s.id)   # 쓰기 전에 양식 검토 · 정할 것에 답하기(2026-11-24 사용자 — spec_양식작성 ② §5-1)
+    if not ok:
+        raise HTTPException(409, why)
     ps, _ = _places(s)
     todo, lost = guide_write.pick(ps, body.get("places"))
     if not todo:
         raise HTTPException(400, "작성할 자리를 하나 이상 고르세요" if not lost else "고른 자리가 지금 문서에 없습니다 — 목록을 다시 읽어 주세요")
     heads = {p["id"]: p["text"] for p in ps if p["kind"] == "head"}
     run = {"id": uuid.uuid4().hex[:10], "at": round(time.time(), 3), "ended": None, "state": "running", "note": note, "materials": list(mids), "lost": lost, "stop": threading.Event(),
+           "plans": form_review_api.plans(s.id, todo), "reviewed": True,
            "items": [{"id": p["id"], "kind": p["kind"], "text": p["text"], "state": "queued", "turn": None, "proposals": 0, "reply": "", "error": None} for p in todo]}
     with _LOCK:
         cur = _RUNS.get(s.id)

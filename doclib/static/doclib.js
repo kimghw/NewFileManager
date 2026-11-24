@@ -22,7 +22,8 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.hidden = true; }, 4500);
 }
-const S = { docs: [], doc: "", ext: "", health: null, timer: 0, md: {} };
+const S = { docs: [], doc: "", ext: "", health: null, timer: 0, md: {}, mdMode: (() => { try { return localStorage.getItem("doclib.mdMode") === "raw" ? "raw" : "preview"; } catch { return "preview"; } })(),
+  fold: (() => { try { return localStorage.getItem("doclib.fold") !== "0"; } catch { return true; } })() };
 const STATE = { queued: ["기다림", "llm"], running: ["추출 중", "llm"], done: ["끝남", "ok"], failed: ["실패", "fail"], stopped: ["멈춤", "warn"], cut: ["끊김", "warn"] };
 const bytes = (n) => (n >= 2 ** 20 ? `${(n / 2 ** 20).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const when = (t) => (t ? new Date(t * 1000).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
@@ -116,15 +117,46 @@ function renderWork() {
     empty.append(steps);
     box.replaceChildren(empty);
     box.dataset.doc = "";
+    box.classList.remove("folded");
     return;
   }
   if (box.dataset.doc !== d.id) {
     box.dataset.doc = d.id;
-    box.replaceChildren(docSec(d), runSec(d), el("div", "sec x-sec", ""), el("div", "sec md-sec", ""));
-    box.children[2].id = "xSec";
-    box.children[3].id = "mdSec";
+    const bar = el("div", "fold-bar");
+    bar.id = "foldBar"; bar.hidden = true;
+    bar.title = "눌러서 펼치기 — 문서 정보 · 자료 추출 · 추출 결과";
+    bar.addEventListener("click", () => setFold(false));
+    box.replaceChildren(bar, docSec(d), runSec(d), el("div", "sec x-sec", ""), el("div", "sec md-sec", ""));
+    box.children[3].id = "xSec";
+    box.children[4].id = "mdSec";
   }
   renderExtracts(d);
+}
+// ---- 위 접기 — MD 를 볼 때는 문서 정보 · 자료 추출 · 추출 결과를 한 줄로(처음은 접음 · 고른 것은 브라우저에 기억) ----
+function setFold(v) {
+  S.fold = v;
+  try { localStorage.setItem("doclib.fold", v ? "1" : "0"); } catch { /* 저장 못 해도 그대로 */ }
+  applyFold(docOf(S.doc));
+}
+function applyFold(d) {
+  const box = $("work"), bar = $("foldBar");
+  if (!box || !d) return;
+  const e = d.extracts.find((x) => x.id === S.ext), can = !!(e && e.state === "done"), on = can && S.fold;
+  box.classList.toggle("folded", on);
+  box.querySelectorAll(".btn-fold").forEach((b) => { b.hidden = !can || on; });
+  if (!bar) return;
+  bar.hidden = !on;
+  if (!on) return;
+  const ext = el("span", "doc-ext-tag", (d.ext || "").toUpperCase()), name = el("span", "fold-name", d.name), run = d.extracts.filter(live).length;
+  ext.dataset.ext = (d.ext || "").toLowerCase();
+  name.title = d.name;
+  const info = [d.pages ? `${d.pages}쪽` : "", d.org ? `기관 ${d.org}` : "", `추출 ${d.extracts.length}개`].filter(Boolean).join(" · ");
+  const open = el("button", "btn small btn-unfold", "펼치기");
+  open.type = "button";
+  open.setAttribute("aria-expanded", "false");
+  bar.replaceChildren(ext, name, el("span", "fold-info", info));
+  if (run) bar.append(el("span", "chip llm", `추출 중 ${run}`));
+  bar.append(open);
 }
 function docSec(d) {
   const sec = el("div", "sec doc-head");
@@ -300,6 +332,7 @@ function renderExtracts(d) {
   for (const e of d.extracts) list.append(extCard(d, e));
   sec.replaceChildren(h, list);
   renderMd(d);
+  applyFold(d);
 }
 function extCard(d, e) {
   const isOn = e.id === S.ext, isLive = live(e);
@@ -403,14 +436,44 @@ async function renderMd(d) {
   sec.hidden = false;
   if (sec.dataset.ext === e.id) return;
   sec.dataset.ext = e.id;
-  const h = el("h3", "md-head"), split = el("div", "md-split"), view = el("div", "md-view"), pre = el("pre"), figs = el("div", "figs");
-  h.append(el("span", null, "MD"), el("span", "count", e.focus || "문서 전체"));
-  view.append(pre);
+  const h = el("h3", "md-head"), split = el("div", "md-split"), view = el("div", "md-view"), pre = el("pre"), prev = el("div", "md-prev"), figs = el("div", "figs");
+  // 「원문 | 미리보기」 — 고른 것은 이 브라우저에 기억한다(처음은 미리보기)
+  const seg = el("span", "md-seg"), modes = [["raw", "원문"], ["preview", "미리보기"]];
+  const setMode = (m) => {
+    S.mdMode = m;
+    try { localStorage.setItem("doclib.mdMode", m); } catch { /* 저장 못 해도 그대로 */ }
+    pre.hidden = m !== "raw"; prev.hidden = m !== "preview";
+    seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.mode === m); b.setAttribute("aria-pressed", String(b.dataset.mode === m)); });
+  };
+  modes.forEach(([m, label]) => {
+    const b = el("button", "btn small", label);
+    b.type = "button"; b.dataset.mode = m;
+    b.addEventListener("click", () => setMode(m));
+    seg.append(b);
+  });
+  const fold = el("button", "btn small btn-fold", "위 접기");
+  fold.type = "button"; fold.title = "문서 정보 · 자료 추출 · 추출 결과를 한 줄로 접고 MD 를 넓게"; fold.setAttribute("aria-expanded", "true");
+  fold.addEventListener("click", () => { setFold(true); window.scrollTo({ top: 0 }); });
+  h.append(el("span", null, "MD"), el("span", "count", e.focus || "문서 전체"), fold, seg);
+  view.append(pre, prev);
   split.append(view, figs);
   sec.replaceChildren(h, split);
+  setMode(S.mdMode);
+  applyFold(d);
+  // 옆 열의 그림을 누르면 MD 의 그 자리로
+  figs.addEventListener("click", (ev) => {
+    const f = ev.target.closest("figure");
+    if (!f || !f.dataset.img) return;
+    const at = [...view.querySelectorAll("[data-img]")].find((n) => n.dataset.img === f.dataset.img && n.closest("[hidden]") === null);
+    if (!at) return;
+    at.scrollIntoView({ block: "center", behavior: "smooth" });
+    at.classList.remove("md-flash"); void at.offsetWidth; at.classList.add("md-flash");
+  });
   try {
     const text = S.md[e.id] || (S.md[e.id] = await api(`/api/extracts/${e.id}/md`));
     if (sec.dataset.ext !== e.id) return;
+    const imgUrl = (name) => `/api/extracts/${e.id}/images/${encodeURIComponent(name)}`;
+    try { prev.replaceChildren(window.mdPreview(text, { img: imgUrl })); } catch (err) { prev.replaceChildren(el("p", "md-com", `미리보기를 그리지 못했습니다 — ${err.message}`)); }
     const frag = document.createDocumentFragment(), lines = text.split("\n");
     let inMath = false, warnCount = 0;
     lines.forEach((ln, i) => {
@@ -436,13 +499,14 @@ async function renderMd(d) {
       } else if (/^!\[.*?\]\(images\/[^)]+\)/.test(t)) {
         cls = "md-img";
       }
-      if (cls) frag.append(el("span", cls, ln));
+      const m = /!\[(.*?)\]\(images\/([^)]+)\)/.exec(ln);
+      if (cls) { const sp = el("span", cls, ln); if (m) sp.dataset.img = m[2]; frag.append(sp); }
       else if (ln) frag.append(document.createTextNode(ln));
       if (i < lines.length - 1) frag.append(document.createTextNode("\n"));
-      const m = /!\[(.*?)\]\(images\/([^)]+)\)/.exec(ln);
       if (!m) return;
       const fig = el("figure"), img = el("img"), warn = /확인 필요/.test(lines[i + 1] || "");
-      img.src = `/api/extracts/${e.id}/images/${encodeURIComponent(m[2])}`;
+      fig.dataset.img = m[2]; fig.title = "MD 의 이 그림 자리로";
+      img.src = imgUrl(m[2]);
       img.alt = m[1]; img.loading = "lazy";
       if (warn) { fig.className = "warn"; warnCount += 1; }
       fig.append(img, el("figcaption", null, (warn ? "확인 필요 — " : "") + (m[1] || m[2])));

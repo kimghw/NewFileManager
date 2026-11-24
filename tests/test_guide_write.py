@@ -94,6 +94,7 @@ def test_guide_write_runs_one_agent_turn_per_place(c, monkeypatch):
     url = f"/api/docs/{doc}/guide-write/run"
     assert c.post(url, json={"places": ["h2"], "materials": [mid]}).status_code == 503                       # LLM 꺼짐(conftest)
     monkeypatch.setattr(API.llm, "status", lambda: {"available": True})
+    monkeypatch.setattr(API.form_review_api, "gate", lambda wid: (True, "", None))   # 양식 검토 · 정할 것은 tests/test_form_review.py 가 본다
     assert c.post(url, json={"places": ["h2"], "materials": []}).status_code == 400                          # 자료를 골라야 한다 — 자료에 있는 내용만 넣는다
     assert c.post(url, json={"places": ["h2"], "materials": ["m00000000"]}).status_code == 400
     assert c.post(url, json={"places": [], "materials": [mid]}).status_code == 400 and c.post(url, json={"places": ["zz"], "materials": [mid]}).status_code == 400
@@ -161,11 +162,83 @@ def test_client_address_and_ids(monkeypatch):
         doclib_client.md("nope")
 
 
+def test_library_original_file_as_material(c, monkeypatch):
+    """추출 전인 등록 문서 — {doc} 로 원본 파일을 글로 읽어 자료로(에이전트 보기의 「라이브러리」 고르기 — 2026-11-24 사용자 「라이브러리에서 등록한 파일들을 선택해서 참조」)."""
+    doc, raw, did, hwp, big = _doc(c), SMALL.read_bytes(), "d0123456789ab", "d1111111111aa", "d2222222222bb"
+    U = f"/api/docs/{doc}/agent/material/library"
+    assert c.post(U, json={"doc": "../x"}).status_code == 400 and c.post(U, json={}).status_code == 400 and c.post(U, json={"doc": did}).status_code == 502   # id 꼴 · 꺼진 서버
+    docs = [{"id": did, "name": "기술수요조사서.hwpx", "ext": "hwpx", "pages": 3, "org": "", "topic": "", "bytes": len(raw), "sha256": "ab" * 32, "extracts": []},
+            {"id": hwp, "name": "옛 문서.hwp", "ext": "hwp", "pages": None, "bytes": 10, "sha256": "cd" * 32, "extracts": []},
+            {"id": big, "name": "큰 문서.pdf", "ext": "pdf", "pages": 900, "bytes": A.MATERIAL_BYTES + 1, "sha256": "ef" * 32, "extracts": []}]
+    asked = []
+    monkeypatch.setattr(doclib_client, "health", lambda: {"ok": True})
+    monkeypatch.setattr(doclib_client, "docs", lambda: docs)
+    monkeypatch.setattr(doclib_client, "file", lambda d, limit: (asked.append((d, limit)), ("머리말의 이름.hwpx", raw))[1])
+    got = {d["id"]: d for d in c.get("/api/doclib").json()["docs"]}
+    assert (got[did]["raw"], got[hwp]["raw"], got[big]["raw"]) == (True, False, False) and got[did]["bytes"] == len(raw) and got[did]["sha256"] == "ab" * 32   # 화면이 고를 수 있나 · 「가져옴」(같은 sha256)을 이것으로
+    assert c.post(U, json={"doc": "d9999999999cc"}).status_code == 404
+    r = c.post(U, json={"doc": hwp})
+    assert r.status_code == 400 and "자료 추출(MD)을 한 뒤" in r.json()["detail"] and c.post(U, json={"doc": big}).status_code == 413 and asked == []   # 못 읽는 형식 · 한도 초과는 파일을 받지도 않는다
+    m = c.post(U, json={"doc": did}).json()
+    assert asked == [(did, A.MATERIAL_BYTES)] and m["name"] == "기술수요조사서.hwpx" and m["kind"] == "hwpx" and m["chars"] > 0 and f"문서 라이브러리의 원본({did})" in m["note"] and "reused" not in m
+    assert c.post(U, json={"doc": did}).json()["reused"] is True and [x["id"] for x in c.get(f"/api/docs/{doc}/agent").json()["materials"]] == [m["id"]]
+    monkeypatch.setattr(doclib_client, "file", lambda d, limit: (_ for _ in ()).throw(doclib_client.TooBig("원본 파일이 너무 큽니다")))
+    assert c.post(U, json={"doc": did}).status_code == 413
+    monkeypatch.setattr(A, "MATERIALS_MAX", 1)
+    monkeypatch.setattr(doclib_client, "file", lambda d, limit: ("다른 글.txt", "다른 자료 글".encode("utf-8")))
+    docs.append({"id": "d3333333333dd", "name": "다른 글.pdf", "ext": "pdf", "bytes": 5, "extracts": []})
+    r = c.post(U, json={"doc": "d3333333333dd"})                         # 글이 없는 PDF(읽지 못함) = 400 · 자료 한도는 그 뒤의 일
+    assert r.status_code == 400
+    docs[-1].update(name="다른 글.docx", ext="docx")
+    monkeypatch.setattr(A, "material_from_file", lambda name, data: A.material_from_text(name, data.decode("utf-8")))
+    r = c.post(U, json={"doc": "d3333333333dd"})
+    assert r.status_code == 400 and "1개까지" in r.json()["detail"]      # 자료 한도 — 화면은 여기서 멈추고 못 가져온 수를 알린다
+
+
+def test_client_file_reads_the_registered_original(monkeypatch):
+    import http.server
+    import threading
+    from urllib.parse import quote
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            ok = self.path == "/api/docs/d0123456789ab/file"
+            body = b"x" * 40 if ok else '{"detail": "그런 문서가 없습니다"}'.encode("utf-8")
+            self.send_response(200 if ok else 404)
+            if ok:
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote("연차 보고서.pdf"))
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("NFM_DOCLIB_URL", f"http://127.0.0.1:{srv.server_address[1]}")
+        assert doclib_client.ok_doc("d0123456789ab") and not doclib_client.ok_doc("x0123456789") and not doclib_client.ok_doc("d012") and not doclib_client.ok_doc(None)
+        assert doclib_client.file("d0123456789ab", 100) == ("연차 보고서.pdf", b"x" * 40)
+        with pytest.raises(doclib_client.TooBig):
+            doclib_client.file("d0123456789ab", 10)
+        with pytest.raises(LookupError, match="그런 문서가 없습니다"):
+            doclib_client.file("d000000000000", 100)
+        with pytest.raises(LookupError, match="꼴이 아닙니다"):
+            doclib_client.file("../x", 100)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    monkeypatch.setenv("NFM_DOCLIB_URL", "http://127.0.0.1:9")
+    with pytest.raises(doclib_client.Down):
+        doclib_client.file("d0123456789ab", 100)
+
+
 def test_registry_has_the_workflow_and_its_tools():
     from app import agents, job_prompts, workflow
     t = workflow.BY_JOB["form_write"]
     assert [g["id"] for g in t["stages"]] == ["open", "material", "write"] and [s["key"] for s in t["stages"][1]["steps"]] == ["keep", "extract", "take"]
-    assert [s["key"] for s in t["stages"][2]["steps"]] == ["guides", "ask", "check", "apply"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
+    assert [s["key"] for s in t["stages"][2]["steps"]] == ["guides", "review", "ask", "check", "apply"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
     ask = next(s for s in t["stages"][2]["steps"] if s["key"] == "ask")
     assert ask["agents"] == ("doc_agent", "table_fill") and ask["change"] == "store" and next(s for s in t["stages"][2]["steps"] if s["key"] == "apply")["change"] == "doc"
     assert agents.JOB_NAMES["form_write"] == "양식 작성" and server.TASK_KIND["form_write"] == "general" and "form_write" in server.TASK["job"]

@@ -6,7 +6,7 @@
 
 let sfOpen = null; // 열린 창 {box, done(값)} — 한 번에 하나
 
-const SF_RESET_LOSE = "고친 문단 · 헤딩/표 분석 · LLM 결과 · 서식 정리 계획 · 에이전트 대화 · 검증 기록";
+const SF_RESET_LOSE = "고친 문단 · 헤딩/표 분석 · LLM 결과 · 서식 정리 계획 · 에이전트 대화와 자료 · 작성 지침 저장본 · 양식 검토 · 검증 기록";
 const SF_RESET_KEEP = "올린 원본 · 확정 기록 · 작업 기록 · 프로젝트 · 워크플로우 · 라운드 · 프로젝트 구성";
 
 // file 을 올린다 — 같은 파일로 하던 작업이 있으면 묻는다. → 고른 것 | null(창을 닫음 — 아무것도 열지 않음)
@@ -40,6 +40,7 @@ async function workReset(id) {
     await flushAll();
   }
   const d = await api(`/api/works/${id}/reset`, { method: "POST" });
+  document.dispatchEvent(new CustomEvent("nfm:work-reset", { detail: { id } })); // 문서 id 로 기억을 묶어 둔 화면 모듈(form_write.js 등)이 그 문서의 기억을 버린다 — 초기화해도 id 는 같다
   return { docId: id, name: d.name, reused: false, reset: d.reset };
 }
 
