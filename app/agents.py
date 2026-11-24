@@ -112,7 +112,7 @@ AGENTS = (
 BY_ID = {a["id"]: a for a in AGENTS}
 assert tuple(BY_ID) == S.IDS, "agents.AGENTS 와 agent_settings.PREFIX 의 에이전트가 다릅니다"
 
-JOB_NAMES = {"plan_to_report": "사업계획서 → 연차보고서 이관", "plan_merge": "사업계획서 취합", "doc_edit": "문서 일반 편집", "style_copy": "문서 서식 복사"}
+JOB_NAMES = {"plan_to_report": "사업계획서 → 연차보고서 이관", "plan_merge": "사업계획서 취합", "form_write": "양식 작성", "doc_edit": "문서 일반 편집", "style_copy": "문서 서식 복사"}
 
 
 def _attr(ref):

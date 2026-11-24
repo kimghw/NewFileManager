@@ -1407,7 +1407,7 @@ def owpml_now(doc_id: str):
 
 WORK_KEYS = ("id", "name", "format", "size", "source", "created", "updated", "rev", "edited", "verify", "commits", "task", "roundParent", "alias")  # roundParent = 분기한 이전 라운드의 문서 id · alias = 별칭(② §10)
 TASK = {"kind": ("", "rnd", "general"), "file": ("", "plan", "report", "part"),
-        "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "doc_edit", "style_copy")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
+        "job": ("", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "report_merge", "form_write", "doc_edit", "style_copy")}  # 작업 종류·첨부 파일·할 일(② §10) — 이름은 화면(app.js WORK_TASK)
 def _job_ok(job):
     """그 할 일 키를 아는가 — 붙박이(TASK["job"]) 또는 화면에서 조립한 TASK(app/custom_tasks.py — spec_워크플로우 ② §14: 키 `u_…`)."""
     from app import custom_tasks
@@ -1420,7 +1420,7 @@ def _gather_job(job):
     return job == "plan_merge" or custom_tasks.is_gather(job)
 
 
-TASK_KIND = {"doc_edit": "general", "style_copy": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」(spec_일반편집 ② §11)·「문서 서식 복사」(spec_서식복사 ② §1)는 일반 문서(general)의 일. 다른 조합은 저장하지 않는다(work_task)
+TASK_KIND = {"form_write": "general", "doc_edit": "general", "style_copy": "general"}  # 할 일 → 작업 종류(여기 없으면 rnd) — 「문서 일반 편집」(spec_일반편집 ② §11)·「문서 서식 복사」(spec_서식복사 ② §1)는 일반 문서(general)의 일. 다른 조합은 저장하지 않는다(work_task)
 
 
 def _task(wid, blocks):
@@ -2582,6 +2582,7 @@ app.include_router(__import__("app.zones_api", fromlist=["router"]).router)   # 
 app.include_router(__import__("app.task_options_api", fromlist=["router"]).router)   # TASK 옵션(TASK 묶음마다 — 편집 구역이 보이는 기준) 끝점은 app/task_options_api.py(spec_구역 ② §1)
 app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 서식 보관함(목록 · 문서·파일에서 추출 · PDF 검증 · 적용) 끝점은 app/style_api.py(spec_일반편집 ② §7)
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
+app.include_router(__import__("app.guide_write_api", fromlist=["router"]).router)   # 지침 작성(자리마다 작성 지침 + 자료 → 문서 에이전트의 제안) · 문서 라이브러리(따로 선 서버 doclib/ — 포트 8121)에서 자료 가져오기 끝점은 app/guide_write_api.py(spec_양식작성 ② §4 · §5)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
 app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)   # 사람이 하는 일의 「했음」(조립한 워크플로우의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦) 끝점은 app/flow_hands_api.py
 app.include_router(__import__("app.pointer_api", fromlist=["router"]).router)   # 포인터(같은 문서를 보는 다른 화면에 내 마우스 자리 · 「클릭」 — WebSocket · 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다) 끝점은 app/pointer_api.py(spec_포인터 ② §3). 그 모듈은 이 파일을 import 하지 않는다

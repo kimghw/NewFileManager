@@ -32,6 +32,7 @@ SP_ZONE = "spec_구역.md"
 SP_TABLE = "spec_테이블매니저.md"
 SP_FLOW = "spec_워크플로우.md"
 SP_LINE = "spec_줄정리.md"
+SP_FORM = "spec_양식작성.md"
 
 
 def _s(key, name, by, does, *, no="", out="", change="none", modules=(), agents=(), uses=(), spec=None, auto=False, optional=False, soon=False, need="", done="", stop="", left="", on=""):
@@ -417,6 +418,30 @@ COMMON = (
                 "보이지 않는 곳에 있으면 문서 창(패널이면 그 패널)의 위 · 아래 가장자리에 이름표로 알립니다. 그 패널 · 단추가 이 화면에 안 보이면(닫힌 패널 · 다른 탭) 그리지 않습니다.", auto=True, modules=("pointer_api",), spec=(SP_POINTER, "② §2·§7")),
              _s("click", "「클릭」 표시", ("human", "script"), "포인터를 켠 채로 문서 · 사이드 패널 · 상단 바를 누르면 그 자리에 「클릭」 이 다른 화면에 잠깐 보입니다. 누른 것은 원래대로 작동합니다.",
                 modules=("pointer_api",), spec=(SP_POINTER, "② §1·§2·§7")),
+         )),
+    # 문서 라이브러리 · 자료 추출(MD) — 따로 선 서버(doclib/ · 포트 8121): 2026-11-24 사용자 "이 문서 관리 라이브러리는 별도 서버에서 관리해도 될거 같은데? … 자료추출도 같이 좀분리하고"(spec_양식작성 ② §2 · §3)
+    dict(id="doclib", name="문서 라이브러리 · 자료 추출(MD)", where="패널 「대시보드」 의 「문서 라이브러리 열기」(새 탭 — 따로 선 서버) · 「자료 가져오기」 열",
+         does="자료 문서(hwp · hwpx · docx · pdf)를 보관하고, 고른 문서에서 특정 기관 · 특정 연구의 내용만 뽑아 MD 파일로 만듭니다. 문서 편집 서버와 따로 선 서버(문서 라이브러리)가 맡으며 보관한 문서는 바뀌지 않습니다. "
+              "만든 MD 는 어느 문서에서나 에이전트의 자료로 가져와 씁니다.",
+         steps=(
+             _s("keep", "자료 문서 보관", "human", "문서 라이브러리에 자료 문서를 올립니다. 올린 파일 그대로 보관하고 문서마다 기관 · 연구 · 메모를 적어 둡니다. 같은 파일을 다시 올리면 같은 문서로 봅니다.",
+                out="보관한 자료 문서", change="store", modules=("doclib_client",), spec=(SP_FORM, "② §2")),
+             _s("extract", "자료 추출(MD)", ("human", "script", "llm"), "뽑을 범위(특정 기관 · 특정 연구)를 적고 추출을 시작합니다. 문서를 PDF 로 읽어 20쪽까지 한 묶음으로 나누고, 묶음마다 Claude Opus 가 Read 도구로 읽어 그 범위의 내용만 마크다운으로 옮깁니다. "
+                "그림은 스크립트가 쪼개진 조각을 합치고 네 변의 모서리를 확인해 잘라 내며 LLM 이 다시 봅니다. 따로 선 수식은 그 자리를 따로 캡처해 LaTeX 로 바꿔 넣습니다. 유료 LLM 을 쓰고 묶음마다 수십 초에서 몇 분 걸립니다.",
+                out="MD 파일 + 그림(PNG) + 수식(LaTeX · 캡처)", change="store", modules=("doclib_client",), spec=(SP_FORM, "② §3")),
+             _s("take", "자료로 가져오기", ("human", "script"), "끝난 추출의 MD 를 지금 문서의 자료로 가져옵니다. 에이전트 보기의 자료와 같은 곳에 놓이며 같은 것을 다시 가져오면 있는 것을 씁니다. 문서는 바뀌지 않습니다.",
+                out="이 문서의 자료(MD)", change="store", uses=("agent",), modules=("doclib_client", "guide_write_api"), spec=(SP_FORM, "② §4")),
+         )),
+    # 지침 작성 — 자리마다 작성 지침 + 자료 → 문서 에이전트의 제안(2026-11-24 사용자 "다른 도구는 작성 지침을 주면문서에 채워주는 LLM 도구" — spec_양식작성 ② §5)
+    dict(id="guidewrite", name="지침 작성", where="패널 「대시보드」 의 「지침 작성 열기」 · 「지침 작성」 열(문서 옆)",
+         does="문서의 자리(헤딩 · 표)마다 작성 지침을 주면, 받은 자료에서 그 자리에 넣을 내용을 에이전트가 찾아 제안합니다. 제안은 에이전트 보기의 제안 카드로 나오고 사람이 고른 것만 문서에 들어갑니다. 자료에 없는 내용은 만들지 않습니다.",
+         steps=(
+             _s("places", "자리 · 작성 지침 보기", "script", "문서의 본문 헤딩과 지침이 붙은 표를 자리로 보입니다. 자리마다 양식이 적어 둔 작성 지침(작성 요령 · ※ 안내 · 각주 항목)과 사람이 적은 지침을 함께 보입니다. 문서는 바뀌지 않습니다.",
+                out="자리 목록(자리마다 작성 지침)", uses=("headings",), modules=("guide_write", "place_guides", "form_guides"), spec=(SP_FORM, "② §5")),
+             _s("ask", "자리마다 제안 받기", ("human", "llm"), "채울 자리와 자료를 고르고 이번 작성의 지침을 적은 뒤 실행합니다. 자리마다 문서 에이전트의 한 턴이 돌아 글 쓰기와 표 채우기 제안을 만듭니다. 유료 LLM 을 쓰며 문서는 바뀌지 않습니다.",
+                out="자리마다 제안 카드", change="store", uses=("agent",), agents=("doc_agent", "table_fill"), modules=("guide_write", "guide_write_api", "doc_agent"), spec=(SP_FORM, "② §5")),
+             _s("apply", "고른 제안 반영", "human", "에이전트 보기의 제안 카드에서 「문서에 반영」 을 누른 제안만 문서에 들어갑니다. 에이전트가 지은 글과 경고가 있는 제안은 처음부터 고르지 않은 채로 보입니다.",
+                out="내용이 들어간 문서", change="doc", uses=("agent",), modules=("doc_agent_api",), spec=(SP_EDIT, "② §9")),
          )),
 )
 
@@ -1204,6 +1229,66 @@ TASKS = (
     dict(job="report_merge", roles=(_role("source", "기관 문서", "part", many=True), _role("target", "연차보고서(취합본)", "report")),   # 취합형(원본 여럿) — 단계가 없어 단위문서 TASK 도 없다
          inputs="연차보고서(취합본) + 기관 문서들", output="기관의 내용을 모은 연차보고서 하나", soon=True,
          note="준비 중인 기능입니다. 아직 실행할 수 없습니다.", stages=()),
+    # 양식 작성(spec_양식작성 — 2026-11-24 사용자 "워크플로우에 문서양식을 주고 LLM을 이용해서 문서양식을 작성해주는 TASK 를 만들고 싶음 이름은 뭘로 할지 모르겠고": 이름 「양식 작성」 은 에이전트 판단 · 사용자 확인 전)
+    dict(job="form_write", roles=(_role("target", "양식", "", title=SINGLE),), inputs="채울 양식 문서 하나(hwp · hwpx — 양식 제한 없음) + 자료 문서들(hwp · hwpx · docx · pdf — 문서 라이브러리에 보관) + 작성 지침",
+         output="자료에서 뽑은 MD(그림 · 수식 포함)와, 작성 지침에 따라 그 내용이 들어간 양식 문서",
+         note="자료 문서는 문서 편집 서버와 따로 선 서버(문서 라이브러리)가 보관하고 추출합니다. 양식에는 자료에 있는 내용만 넣으며 자료에 없는 사실과 수는 만들지 않습니다. "
+              "넣을 것은 먼저 제안으로 보이고 사람이 고른 것만 반영됩니다. 자료 문서는 바뀌지 않습니다.",
+         ways=_ways(
+             quick="한 번에 끝까지 가는 실행은 없습니다. 자료 추출은 문서 라이브러리에서 시작하면 끝까지 돌고, 지침 작성은 고른 자리의 제안을 한꺼번에 받습니다. 문서에 넣는 것은 제안 카드에서 사람이 고른 것만입니다.",
+             asks="뽑을 범위(특정 기관 · 특정 연구), 채울 자리, 쓸 자료, 이번 작성의 지침을 받습니다. 자리마다의 작성 지침은 양식이 적어 둔 것을 읽고, 없으면 사람이 그 헤딩에 적습니다.",
+             stops="추출에서 그림이 잘렸을 수 있거나 수식을 LaTeX 로 바꾸지 못한 곳은 MD 에 「확인 필요」 주석으로 남깁니다. 자료에 해당 내용이 없는 자리는 제안 없이 그렇게 답합니다. "
+                   "에이전트가 지은 글과 자료에 없는 수가 든 제안은 처음부터 고르지 않은 채로 보입니다.",
+             detail="자리 하나만 다시 받거나 직접 요청할 때는 에이전트 보기에서 그 자리를 고르고 글로 요청합니다. 표 하나는 표 손잡이 메뉴의 표 채우기를 씁니다."),
+         entry=(   # 시작 점검(② §10) — 근거: home_files.js homeFilesGo · app.js homeTaskStart·taskEnter·firstRun · form_write.js formWriteLive · guide_write_api.py
+             *_c_single(),
+             _C_WORK, _c_role("작업 종류를 일반 문서로 지정합니다. 문서 종류(사업계획서 · 연차보고서)는 따로 정하지 않습니다.", "양식에 묶이지 않은 문서이므로 프로젝트 구성과 구분 기준 항목이 없습니다."), _C_TASK,
+             _C_IMPORT, _C_ANALYSIS, _c_status(general=True),
+             _c("view", "enter", "대시보드 열기", "문서를 열면 패널의 대시보드가 열려 자료 준비와 지침 작성의 지금 상태를 보입니다.", uses=("dash",), spec=(SP_FORM, "② §6")),
+             _c("doclib", "enter", "문서 라이브러리 서버", "따로 선 문서 라이브러리 서버에 닿는지와 끝난 추출이 있는지 확인합니다.",
+                "서버가 꺼져 있으면 대시보드에 그렇게 알립니다. 자료 추출과 「자료 가져오기」 는 할 수 없지만, 파일이나 붙여 넣은 글을 자료로 주면 지침 작성은 할 수 있습니다.", uses=("doclib",), spec=(SP_FORM, "② §4")),
+             _c("materials", "enter", "이 문서의 자료", "이 문서에 가져온 자료가 있는지 확인합니다.", "자료가 없으면 지침 작성을 시작하지 않고 알립니다. 자료에 있는 내용만 넣기 때문입니다.", uses=("agent",), spec=(SP_FORM, "② §5")),
+             _c("agentLlm", "enter", "LLM 을 쓸 수 있는가", "지침 작성이 제안을 만들 수 있도록 LLM 연결 상태를 확인합니다.", "LLM 을 쓸 수 없으면 지침 작성을 시작하지 않습니다.", uses=("agent",), spec=(SP_EDIT, "② §8")),
+             _C_LLM,
+             _c("extractRun", "manual", "자료 추출", "문서를 열기만 해서는 돌지 않습니다. 문서 라이브러리에서 뽑을 범위를 적고 「추출 시작」 을 눌러야 실행됩니다(유료 LLM).", by=("human", "llm"), uses=("doclib",), spec=(SP_FORM, "② §3")),
+             _c("writeRun", "manual", "지침 작성", "문서를 열기만 해서는 돌지 않습니다. 「지침 작성」 열에서 자리와 자료를 고르고 「제안 받기」 를 눌러야 실행됩니다(유료 LLM).", by=("human", "llm"), uses=("guidewrite",), spec=(SP_FORM, "② §5")),
+         ),
+         stages=(
+             _g("open", (
+                 _s("open", _OPEN, ("human", "script"), "채울 양식 문서를 올리면 대시보드가 열립니다. 기본 분석(헤딩 그래프 · 표 구조 — 스크립트)은 다른 워크플로우와 같이 자동으로 돕니다. 자리 목록은 이 분석의 헤딩을 씁니다.", change="store", uses=("intake",),
+                    spec=(SP_FORM, "② §6"),
+                    need="hwp · hwpx 양식 문서 하나(양식 제한 없음).", done="문서와 대시보드가 열렸을 때."),
+             ), name="준비", does="채울 양식 문서를 올려 워크플로우를 시작"),
+             _g("material", (
+                 _s("keep", "자료 문서 올리기", "human", "문서 라이브러리(새 탭 — 따로 선 서버)에 자료 문서를 올립니다. hwp · hwpx · docx · pdf 를 받고 올린 그대로 보관합니다.", out="보관한 자료 문서", change="store", uses=("doclib",),
+                    modules=("doclib_client",), spec=(SP_FORM, "② §2"),
+                    need="문서 라이브러리 서버가 켜져 있어야 합니다.", done="문서 라이브러리에 자료 문서가 하나 이상 있을 때.", stop="서버가 꺼져 있으면 열 수 없습니다. 대시보드에 그렇게 알립니다."),
+                 _s("extract", "자료 추출(MD)", ("human", "script", "llm"), "문서 라이브러리에서 뽑을 범위(특정 기관 · 특정 연구)를 적고 추출합니다. 20쪽까지 한 묶음으로 나눠 Claude Opus 가 Read 도구로 읽고 그 범위의 내용만 마크다운으로 옮깁니다. "
+                    "그림은 쪼개진 조각을 합치고 모서리를 확인해 잘라 내며, 따로 선 수식은 따로 캡처해 LaTeX 로 바꿔 넣습니다.", out="MD 파일 + 그림 + 수식", change="store", uses=("doclib",),
+                    modules=("doclib_client",), spec=(SP_FORM, "② §3"),
+                    need="보관한 자료 문서와 LLM 연결(유료). hwp · hwpx · docx 는 한글이나 Word 로 PDF 를 찍을 수 있어야 합니다.", done="끝난 추출이 하나 이상 있을 때.",
+                    stop="LLM 이 한 묶음도 답하지 못하면 실패로 끝납니다. 한글 · Word 가 없어 PDF 로 바꾸지 못하면 PDF 로 올리라고 알립니다.",
+                    left="그림이 잘렸을 수 있는 곳, LaTeX 로 바꾸지 못한 수식, 추출하지 못한 쪽 묶음은 MD 에 「확인 필요」 주석으로 남깁니다. 문서 라이브러리의 결과 화면에서 그림을 보고 확인합니다."),
+                 _s("take", "자료 가져오기", ("human", "script"), "끝난 추출의 MD 를 이 문서의 자료로 가져옵니다. 「자료 가져오기」 열에서 고릅니다. 파일이나 붙여 넣은 글은 에이전트 보기에서 자료로 줄 수도 있습니다.", out="이 문서의 자료", change="store",
+                    uses=("doclib", "agent"), modules=("guide_write_api", "doc_agent_api"), spec=(SP_FORM, "② §4"),
+                    need="끝난 추출(또는 자료로 줄 파일 · 글).", done="이 문서에 자료가 하나 이상 있을 때."),
+             ), name="자료 준비", does="자료 문서에서 필요한 범위의 내용만 MD 로 뽑아 이 문서의 자료로 가져옴"),
+             _g("write", (
+                 _s("guides", "작성 지침 확인 · 적기", "human", "「지침 작성」 열에서 자리마다 양식이 적어 둔 작성 지침을 확인합니다. 지침이 없는 자리는 문서의 「지침」 단추로 그 헤딩에 적거나, 실행할 때 이번 작성의 지침을 적습니다.", change="store", optional=True,
+                    uses=("guidewrite", "headings"), modules=("guide_write", "place_guides_api"), spec=(SP_FORM, "② §5"),
+                    need="헤딩 추출 결과(자리 목록이 본문 헤딩에서 나옵니다).", done="선택 단계이므로 완료 여부를 따로 세지 않습니다."),
+                 _s("ask", "지침 작성 — 제안 받기", ("human", "llm"), "채울 자리와 쓸 자료를 고르고 「제안 받기」 를 누릅니다. 자리마다 문서 에이전트의 한 턴이 돌아 그 자리의 작성 지침과 자료로 글 쓰기 · 표 채우기 제안을 만듭니다. 문서는 바뀌지 않습니다.",
+                    out="자리마다 제안 카드", change="store", uses=("guidewrite", "agent"), agents=("doc_agent", "table_fill"), modules=("guide_write", "guide_write_api", "doc_agent"), spec=(SP_FORM, "② §5"),
+                    need="이 문서의 자료와 LLM 연결(유료 — 자리마다 호출 1번 이상).", done="이 문서에서 지침 작성을 한 번 이상 돌려 제안을 받았을 때.",
+                    stop="자료가 없거나 LLM 을 쓸 수 없으면 시작하지 않습니다.", left="자료에 해당 내용이 없는 자리는 제안 없이 그렇게 답합니다. 실패한 자리는 그 자리만 다시 고릅니다."),
+                 _s("check", "스크립트 검사 · 엑셀 검증", "script", "제안 속 숫자가 자료에 있는지 확인하고 합계 · 소계 · 비율의 검산을 봅니다. 경고가 있는 제안과 에이전트가 지은 글은 처음부터 고르지 않은 채로 보입니다.", auto=True,
+                    uses=("agent", "tables"), modules=("doc_agent", "table_excel", "table_fill"), spec=(SP_EDIT, "② §9"),
+                    need="에이전트가 낸 제안.", done="제안마다 검사 결과가 표시됐을 때(자동 실행)."),
+                 _s("apply", "고른 제안 반영", "human", "에이전트 보기의 제안 카드에서 「문서에 반영」 을 누른 제안만 양식에 들어갑니다. 제안 하나마다 실행 취소 한 번으로 되돌릴 수 있습니다.", out="내용이 들어간 양식", change="doc", uses=("agent",),
+                    modules=("doc_agent_api", "style_apply"), spec=(SP_EDIT, "② §9"),
+                    need="받은 제안. 제안을 받은 뒤 그 자리를 고쳤다면 다시 받아야 합니다.", done="반영한 제안이 하나 이상 있을 때."),
+             ), name="지침 작성", does="자리마다 작성 지침과 자료로 제안을 받고, 고른 제안만 양식에 반영"),
+         )),
     dict(job="doc_edit", roles=(_role("target", "문서", "", title=SINGLE),), inputs="hwp · hwpx 문서 하나(양식 제한 없음) + 요청 내용과 참고 자료", output="요청한 글과 표가 반영된 문서",
          note="정해진 단계 순서 없이 요청 → 제안 → 반영을 반복합니다. 서식은 서식 관리자나 이 문서에 있는 것만 쓰며 새 서식을 임의로 만들지 않습니다. 표의 값도 받은 자료에 있는 내용만 넣습니다.",
          ways=_ways(

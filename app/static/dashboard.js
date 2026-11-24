@@ -1194,6 +1194,7 @@ async function dashLive(job, M) {
   if (taskIsGather(job)) return dashGatherLive(M); // 취합형 — 붙박이 취합 · 취합형으로 조립한 것(같은 줄 key · 묶음은 그 정의의 것: dashGatherLive 가 줄이 든 묶음으로 잇는다)
   if (job === "style_copy") return dashStyleLive();
   if (job === "doc_edit") return dashEditLive();
+  if (job === "form_write") return formWriteLive(); // 양식 작성 — 문서 라이브러리(따로 선 서버)의 추출 · 이 문서의 자료 · 지침 작성의 상태(form_write.js — spec_양식작성 ② §6)
   return { steps: {}, runs: {} };
 }
 

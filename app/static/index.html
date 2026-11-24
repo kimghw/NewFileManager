@@ -30,6 +30,7 @@
   <link rel="stylesheet" href="/static/project_workspace.css">
   <link rel="stylesheet" href="/static/style_lib.css"><!-- 서식 보관함(2열 kind styleLib · styleSave — spec_일반편집 ② §12) — style.css·table-fill.css 다음 -->
   <link rel="stylesheet" href="/static/doc_agent.css"><!-- 에이전트 보기(#paneAgent · 2열 kind agentProp · agentGuide — spec_일반편집 ② §12) — style.css·table-fill.css·style_lib.css 다음 -->
+  <link rel="stylesheet" href="/static/form_write.css"><!-- 워크플로우 「양식 작성」 의 2열(「자료 가져오기」 · 「지침 작성」 — form_write.js · spec_양식작성 ② §6) -->
   <link rel="stylesheet" href="/static/dashboard.css"><!-- 대시보드(패널 탭 #paneDash — TASK 단계 흐름 · 단계마다 실행: spec_작업에이전트 ② §9 · design.md §17) — doc_agent.css 다음(.ag-spin) · .agw-form 은 doc_agent_work.css -->
   <link rel="stylesheet" href="/static/home_dash.css"><!-- 첫 화면의 대시보드(첫 화면 오른쪽 열 #homeAgent 안의 #homeDash — 패널 대시보드와 같은 것 — 묶음 안은 차례 번호 열 + 문서 카드: spec_작업에이전트 ② §10 · design.md §20) — dashboard.css 다음(.dash … 를 그대로 쓴다) -->
   <link rel="stylesheet" href="/static/collect.css"><!-- 같은 양식 취합의 「기관 문서」 목록(대시보드의 「준비」 · 「반영할 기관 지정」 카드 안 · 첫 화면의 대시보드 — 문서마다 반영할 기관 · 공통 자리 포함 · 수정본 고르기 · 편 수정 계획: spec_취합 ② §10) — dashboard.css · home_dash.css 다음 -->
@@ -308,6 +309,11 @@
                 <path fill="#fff" fill-opacity=".9" d="M13 10h9l5 5v12a2 2 0 0 1-2 2H13a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2Z"/>
                 <path fill="currentColor" fill-opacity=".08" d="M22 10v5h5"/><path opacity=".75" d="M15.5 25v-4M19 25v-7M22.5 25v-5"/>
                 <path d="M2.5 25H8m-2.5-2.5L8 25l-2.5 2.5"/></g></symbol>
+              <!-- 양식 작성(spec_양식작성 ② §6): 문서 = 쪽(빈 칸 줄 — 채울 양식) · 동작 = 반짝임(LLM 이 채움). 바탕은 「문서 일반 편집」 과 같은 옅은 회색(data-doc="any") -->
+              <symbol id="taskIcon-form_write" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path fill="#fff" fill-opacity=".9" d="M6 4h9l5 5v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+                <path fill="currentColor" fill-opacity=".08" d="M15 4v5h5"/><path opacity=".65" d="M8 14h3m2 0h3M8 18h3m2 0h2M8 22h3"/>
+                <path fill="#fff" fill-opacity=".95" d="M23 13.5l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5Z"/><path d="M28 9.5v3M26.5 11h3"/></g></symbol>
               <!-- 문서 일반 편집(spec_일반편집 ② §11): 문서 = 쪽(줄 — 어느 문서든) · 동작 = 연필. 바탕은 landing.css .task-logo[data-doc="any"] 옅은 회색 -->
               <symbol id="taskIcon-doc_edit" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                 <path fill="#fff" fill-opacity=".9" d="M6 4h9l5 5v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
@@ -623,6 +629,7 @@
   <script src="/static/dashboard_workflows.js"></script><!-- 문서별 워크플로우 목록 · 선택 · 진행 기록 -->
   <script src="/static/org_short.js"></script><!-- 취합의 기관 문서 꼬리표 — 「원본 문서」 대신 반영할 기관의 약칭 「[한국선]」(이름 줄 · 둘째 면 탭 · 「도구」 단추 · 대시보드 카드: docOrgTag · orgShort) — collect.js · dashboard.js · home_dash.js 앞(spec_취합 ② §11) -->
   <script src="/static/collect.js"></script><!-- 같은 양식 취합(조립 틀 「N → 1 · 같은 양식」 — task_catalog.js taskIsCollect)의 「기관 문서」 목록: 반영할 기관 · 공통 자리 포함 · 수정본 고르기 · 자동 지정 · 기관 문서 올리기 · 수정 계획 보기 → 수정본 반영. 패널 대시보드와 첫 화면의 대시보드가 같은 함수로 그린다 — dashboard.js · home_dash.js 앞(spec_취합 ② §10-4 · §10-5) -->
+  <script src="/static/form_write.js"></script><!-- 워크플로우 「양식 작성」(대시보드의 단계 상태 formWriteLive · 2열 「자료 가져오기」 · 「지침 작성」 — 문서 라이브러리는 따로 선 서버: spec_양식작성 ② §6) — doc_agent.js 다음 · dashboard.js 앞 -->
   <script src="/static/dashboard.js"></script><!-- 대시보드(패널 탭 「대시보드」 — 단계 흐름 · 단계마다 상태 · 실행: 「작업 개요」 · 에이전트의 상태 · 단추와 그 TASK 의 「한 번에 진행」 을 그대로 부름) — doc_agent_work.js 다음(spec_작업에이전트 ② §9) --><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
   <script src="/static/workflow_exec.js"></script><!-- 워크플로우 실행의 화면 쪽(서버 쪽 실행기의 상태 읽기 · 실행 · 멈춤 — flowGet · flowLive · flowStart · flowStop …: 첫 화면의 대시보드와 문서 화면이 같이 쓴다) — app.js · dashboard.js 다음(spec_워크플로우 ② §17-9 · 끝점 ② §17-5) -->
   <script src="/static/home_dash.js"></script><!-- 첫 화면의 대시보드(#homeDash — 워크플로우 고르기 · 단계 흐름 · 「워크플로우 시작」(문서 화면을 열지 않는 준비) · 서버가 맡은 묶음의 「한 번에 진행」 · 「멈춤」 · 「대시보드 자세히 보기」) — dashboard.js · workflow_exec.js · home_files.js · doc_agent_work.js 다음(spec_작업에이전트 ② §10) -->

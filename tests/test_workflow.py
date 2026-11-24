@@ -94,7 +94,7 @@ ON_TABLE = {
                    **dict.fromkeys(("link", "llm", "plan", "apply", "drop"), "pair")},
 }
 TITLES = {"plan_fit": ["작업 문서"], "plan_merge": ["원본 문서", "목적 문서"], "plan_to_report": ["원본 문서", "목적 문서"], "report_fit": ["작업 문서"], "report_merge": ["원본 문서", "목적 문서"],
-          "doc_edit": ["작업 문서"], "style_copy": ["서식을 가져올 문서"]}   # 역할의 화면 이름(roles[].title — 문서 하나 = 작업 문서 · 서식 복사 = 서식을 가져올 문서)
+          "form_write": ["작업 문서"], "doc_edit": ["작업 문서"], "style_copy": ["서식을 가져올 문서"]}   # 역할의 화면 이름(roles[].title — 문서 하나 = 작업 문서 · 서식 복사 = 서식을 가져올 문서)
 BASES = {"plan_to_report": "source", "plan_merge": "target"}   # 구성의 기준 문서 역할(그 밖 None)
 
 
@@ -187,7 +187,7 @@ def test_entry_words_and_conditions_follow_the_document_roles():
     T5 이관 조건 = 문서마다의 준비(원본 · 목적) + 워크플로우 전체에 한 번(프로젝트 구성 추출 — 원본 문서의 준비 목록이 아니다) · I5 넣기 계획 · 내용 반영의 끝남 = 정상 0건도(화면 linksNone) ·
     T4 「구성 맞추기」 없는 「내용 넣기」 의 조건 글은 상수 하나(FILL_NO_FIT) · 붙박이 이관의 시작 점검 = _relay_entry() 그대로."""
     names = {t["job"]: {c["key"]: c for c in t.get("entry") or ()} for t in W.TASKS}
-    single = {"plan_fit": "작업 문서", "report_fit": "작업 문서", "doc_edit": "작업 문서", "style_copy": "서식을 가져올 문서"}
+    single = {"plan_fit": "작업 문서", "report_fit": "작업 문서", "form_write": "작업 문서", "doc_edit": "작업 문서", "style_copy": "서식을 가져올 문서"}
     for job, doc in single.items():
         e = names[job]
         assert e["target"]["name"] == doc and e["format"]["does"].startswith(f"{doc}의 확장자가 이 워크플로우가 받는 형식(") and f"{doc} 하나로 합니다" in e["others"]["does"], job
@@ -311,7 +311,7 @@ def test_listing_adds_module_docs_agent_numbers_and_users_of_common_modules():
     mods = {m["name"]: m for m in link["modules"]}
     assert mods["merge_llm"]["path"] == "app/merge_llm.py" and mods["merge_llm"]["doc"].startswith("병합")
     common = {c["id"]: c for c in L["common"]}
-    assert common["headings"]["usedBy"] == ["plan_fit", "plan_merge", "plan_to_report", "style_copy"] and "plan_fit" in common["division"]["usedBy"]   # 양식 표준화 2 · 3단계가 헤딩 추출을 쓴다(spec_양식표준화 ② §1) and common["verify"]["usedBy"] == []
+    assert common["headings"]["usedBy"] == ["plan_fit", "plan_merge", "plan_to_report", "form_write", "style_copy"] and "plan_fit" in common["division"]["usedBy"]   # 양식 표준화 2 · 3단계가 헤딩 추출을 쓴다(spec_양식표준화 ② §1) and common["verify"]["usedBy"] == []
     places = next(s for s in common["division"]["steps"] if s["key"] == "places")
     assert {m["name"]: m["path"] for m in places["modules"]}["division_profiles"] == "app/division_profiles/"   # 묶음(폴더) 모듈
     # TASK 문서(② §10) — 시작 점검은 때마다 묶어, 단계의 조건은 적힌 것만

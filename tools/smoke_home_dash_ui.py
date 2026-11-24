@@ -192,7 +192,7 @@ def main():
               and "왼쪽 번호는 차례입니다 — 누르면 그 차례만 실행하고, 끝난 차례는 초록 ✓ 로 표시합니다." in s["help"]
               and "실행을 눌러도 이 화면에 머뭅니다 — 단계마다의 확인 · 보정 단추는 문서가 열려 있어야 해서, 편 카드의 「문서 화면에서 열기」 나 「대시보드 자세히 보기」 로 문서 화면에서 합니다." in s["help"]
               and s["next"] == "왼쪽에 문서를 넣고 목적 문서를 고른 뒤 워크플로우를 고르세요" and lay["sel"] == "워크플로우 고르기"
-              and s["opts"] == ["", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "doc_edit", "style_copy"] and JOB_NAME in lay["names"] and s["home"] and s["memo"] is None and not s["groups"], [s, lay])
+              and s["opts"] == ["", "plan_fit", "plan_merge", "plan_to_report", "report_fit", "form_write", "doc_edit", "style_copy"] and JOB_NAME in lay["names"] and s["home"] and s["memo"] is None and not s["groups"], [s, lay])
         page.screenshot(path=str(OUT / "01_pick.png"))
 
         # ---- ② 문서 목록 → 목적 문서 → 워크플로우 고르기 → 단계 흐름(시작 전)
@@ -201,7 +201,7 @@ def main():
         page.wait_for_function("() => document.querySelectorAll('#homeDash option').length === 2")
         check("② 목적 문서가 docx 면 고르기 목록은 그 형식으로 할 수 있는 워크플로우만(문서 서식 복사)", snap(page)["opts"] == ["", "style_copy"], snap(page)["opts"])
         page.locator("#homeFiles .hf-row").nth(1).locator("input[type=radio]").check()
-        page.wait_for_function("() => document.querySelectorAll('#homeDash option').length === 7")
+        page.wait_for_function("() => document.querySelectorAll('#homeDash option').length === 8")   # 빈 줄 + 붙박이 일곱(준비 중인 연차보고서 취합은 뺌 — 2026-11-24 「양식 작성」 이 더해져 일곱)
         page.select_option("#homeDash select", JOB)
         page.wait_for_selector("#homeDash[data-state=ready] .dash-group")
         s = snap(page)
@@ -553,7 +553,7 @@ def main():
         page.locator('#homeDash [data-hd-focus="other"]').click()
         page.wait_for_selector("#homeDash[data-state=pick] select")
         s = snap(page)
-        check("⑧ 「다른 워크플로우」 → 고르기로 · 기억을 비움 · 작업은 그대로 · 초점은 고르기 목록으로", s["state"] == "pick" and s["title"] == "대시보드" and s["memo"] is None and len(s["opts"]) == 7 and len(works()) == 2
+        check("⑧ 「다른 워크플로우」 → 고르기로 · 기억을 비움 · 작업은 그대로 · 초점은 고르기 목록으로", s["state"] == "pick" and s["title"] == "대시보드" and s["memo"] is None and len(s["opts"]) == 8 and len(works()) == 2
               and page.evaluate("() => (document.activeElement.dataset || {}).hdFocus") == "pick", s)
         for width in (820, 320):
             page.set_viewport_size({"width": width, "height": 900})

@@ -32,6 +32,20 @@ claude -p --model claude-opus-5-5 --effort low --output-format json --json-schem
 - 잰 것: 420×140 표 그림(3행 2열 + 제목 줄) → 격자 · 캡션을 정확히 읽음 · Opus 5.5 effort low 약 6초 · `total_cost_usd` 0.03~0.05(정가 셈).
 - Agent SDK 길도 같은 메시지 dict 를 `query(prompt=<async iterable>)` 로 주면 된다(SDK 가 이터러블이 끝나면 stdin 을 닫는다 — `claude_agent_sdk` 0.2.172 `Query.stream_input`). 사용처 `app/llm.py` `_user_line`(spec_그림 ② §7).
 
+## Read 도구로 PDF · 그림 읽기 — 도구를 하나만 주는 구조화 출력 (2026-11-24 실측 · 2.1.321 · 구독 로그인 · Windows)
+
+사용처: 문서 라이브러리 서버의 자료 추출 `doclib/agent.py`(spec_양식작성 ② §3).
+
+- 호출: `claude -p --model claude-opus-5-5 --effort medium --output-format stream-json --verbose --json-schema '<스키마>' --tools Read --allowedTools Read --setting-sources "" --no-session-persistence --permission-prompts none`
+  — 프롬프트는 stdin, cwd = 읽을 파일을 둔 **임시 폴더**. init 줄의 `tools` 가 `["Read", "StructuredOutput"]` 뿐이다(`--tools` 에 적은 것 + 구조화 출력용). cwd 안의 파일 읽기는 권한을 묻지 않는다(`permission_denials` 빈 목록).
+- 모델이 Read 를 `{file_path: <절대 경로>, pages: "1-4"}` 로 불러 PDF 를 읽는다(쪽은 글 + 그림으로 보인다 — **한 번에 20쪽까지**라 긴 문서는 20쪽 묶음으로 나눠 준다). PNG 도 Read 로 열어 본다(잘라 낸 그림이 온전한지 확인하게 할 수 있다).
+- 결과 줄(`type: result`)의 `structured_output` 이 답 · `num_turns` = Read 횟수 + 2쯤. 잰 것: PDF 4쪽을 읽어 본문 MD + 그림 11곳의 자리(쪽 폭 · 높이를 1000 으로 본 상자) → 33초 · `total_cost_usd` 0.32(정가 셈).
+  6쪽 묶음 + 그림 후보 PNG 31개(그 가운데 6개를 열어 봄) → 35초 · 0.41 · 잘라 낸 그림 4장을 다시 보는 호출 → 11초 · 0.23.
+- 모델이 어림한 상자는 실제 그림 상자와 수십 pt 어긋난다(4쪽 시험: 실제 [118, 50, 587, 210] ↔ 답 [140, 40, 470, 245] — 1000 기준) — 그대로 자르지 말고 스크립트가 그 쪽의 그림 · 선 묶음에 맞추고(`pdfkit.snap`) 변을 확인한다(`settle`).
+  스크립트가 미리 뽑은 후보에 key 를 붙여 주면 모델이 key 로 고른다(더 정확하다). 잘라 낸 그림을 다시 보여 주면 「아래 라벨이 잘림」 · 「캡션이 딸려 들어옴」 을 짚고 새 상자를 준다.
+- 도구 없이 그림을 바로 보일 때는 위 「그림 입력 — stream-json」 길(`--tools ""` + `--input-format stream-json`)이다 — 도구(Read)와 stream-json 입력을 함께 쓰는 것은 재 보지 않았다.
+- Git Bash 의 `curl -d '{…한글…}'` 은 본문이 cp949 로 나가 서버가 400 을 낸다(JSON 을 못 읽음) — 한글이 든 요청은 Python 으로 보낸다.
+
 ## 실패 결과 — 종료 코드 1 + 결과 JSON (2026-11-22 실측 · 구독 로그인)
 
 - 모델 사용 한도: 종료 코드 **1**, stdout 은 결과 JSON 그대로 — `is_error: true` · `subtype: "success"`(!) · `api_error_status: 429` · `terminal_reason: "api_error"` · `duration_api_ms: 0` ·
@@ -69,6 +83,10 @@ fable 스킬의 「키 에이전트」(`~/.claude/skills/fable/scripts/fable_age
 - **사용자 설정의 env 가 자식 env 를 덮는다**(2026-11-23 실측 · 2.1.321): `~\.claude\settings.json` 의 `env.ANTHROPIC_API_KEY` 가 있으면 CLI 가 그 값을 적용해, 띄울 때 자식 env 에 넣은 다른 키를 덮어쓴다.
   init 의 `apiKeySource` 는 어느 쪽이든 `"ANTHROPIC_API_KEY"` 라 구별되지 않는다. 이 PC 에서 settings 의 키(끝 VAAA — 크레딧 없음)가 Fable 키(끝 qgAA)를 덮어 첫 요청이 `billing_error` 400 「Credit balance is too low」(작은 일감도 같음)였고,
   같은 키로 SDK 를 직접 부르면 됐다. `--setting-sources project,local`(사용자 설정을 안 읽음)을 주면 자식 env 의 키로 청구되어 통과($0.25 — 한 낱말 답). 대신 사용자 설정의 `permissions.allow` · 훅도 빠진다.
+  **사용자 설정을 그대로 두고 키만 이기게 하기**(2026-11-24 실측 · 2.1.321): 플래그 설정 `--settings <파일>`(내용 `{"env": {"ANTHROPIC_API_KEY": "<키>"}}`)은 사용자 설정보다 먼저라 그 키로 호출된다 — 잘못된 키를 주면 settings 키의 「Credit balance is too low」 대신
+  `authentication_failed` 401 「Invalid API key · Fix external API key」 가 온다. 키 글이 명령 줄에 안 남게 임시 파일로 주고 프로세스가 끝난 뒤 지운다. fable 스킬의 키 에이전트가 이렇게 바꿨다(그 전까지는 등록한 키가 아니라 settings 의 키로 청구되었다).
+- **키 탓 실패의 꼴**(stream-json · 2026-11-24 실측): assistant 메시지(model `<synthetic>`)의 `error` = `authentication_failed`(401) · `billing_error`(400 「Credit balance is too low」) · `rate_limit`, 같은 메시지의 `api_error_status`,
+  끝 메시지는 `subtype: "success"` 인데 `is_error: true` · `terminal_reason: "api_error"` · `api_error_status` · `result` = 그 글 · `duration_api_ms: 0`. 종료 코드 1.
 - init 메시지: `apiKeySource` · `model` · `permissionMode` · `cwd` · `session_id` · `tools`(82개). 끝 메시지(`type: result`): `subtype`(success …) · `is_error` · `num_turns` · `duration_ms` · `total_cost_usd` · `usage` · `modelUsage`(claude-haiku-5-5 도 함께 쓰인다) · `session_id` · **`permission_denials`**(거절된 도구 호출 목록 — `tool_name`·`tool_input`).
 - **권한**: `--permission-mode` = acceptEdits · auto · bypassPermissions · manual · dontAsk · plan. `--permission-prompts none` = 물어야 하는 것은 자동 거절(권한 방식이 정하는 나머지는 그대로).
   `acceptEdits` + `none`: 파일 읽기·쓰기(cwd 안)는 되고 `PowerShell python --version` 은 거절되어 `permission_denials` 에 남는다. `--allowedTools "PowerShell(python --version)"` 를 주면 그 명령만 돈다(설정 파일의 `permissions.allow` 도 같은 효과).

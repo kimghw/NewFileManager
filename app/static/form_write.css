@@ -1,0 +1,35 @@
+/* 워크플로우 「양식 작성」 의 2열(headsDlg kind fwTake 「자료 가져오기」 · fwWrite 「지침 작성」 — form_write.js · spec_양식작성 ② §6 · design.md §30). 빛깔은 style.css 의 :root 변수 · 보라 = LLM(design.md §6). */
+.fw-wait, .fw-empty { padding: 18px 14px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.fw-doc { padding: 4px 0 10px; border-bottom: 1px solid var(--line); }
+.fw-doc:last-child { border-bottom: 0; }
+.fw-doc > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.fw-muted { color: var(--muted); font-size: 12px; }
+.fw-grow { flex: 1; }
+.fw-x { display: flex; align-items: center; gap: 8px; padding: 6px 14px; }
+.fw-x:hover { background: var(--surface-2); }
+.fw-x-meta { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: 12.5px; }
+.fw-x-meta strong { overflow-wrap: anywhere; font-weight: 600; }
+.fw-tag { display: inline-block; font-size: 11px; line-height: 1.5; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); white-space: nowrap; justify-self: start; }
+.fw-tag.guide { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.fw-tag.user { border-color: transparent; background: var(--ok-soft); color: var(--ok); }
+.fw-tag.warn { border-color: transparent; background: var(--warn-soft); color: var(--warn); }
+.fw-tag.fail { border-color: transparent; background: var(--fail-soft); color: var(--fail); }
+.fw-tag.ok, .fw-tag.run { border-color: transparent; background: #f1ebff; color: #6d3fd1; }
+.fw-mats { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 0 14px; }
+.fw-mat { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 400; color: var(--text); cursor: pointer; min-height: 24px; }
+.fw-mat input { margin: 0; }
+.fw-note { display: block; width: calc(100% - 28px); margin: 0 14px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12.5px; line-height: 1.5; resize: vertical; }
+.fw-places-head .btn { margin: 0; }
+.fw-place { display: flex; align-items: flex-start; gap: 8px; padding: 5px 14px 5px calc(14px + var(--fw-depth, 0) * 12px); }
+.fw-place:hover { background: var(--surface-2); }
+.fw-place > input { margin: 4px 0 0; flex: none; }
+.fw-place-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.fw-place-name { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.fw-place-name:hover { color: var(--accent); text-decoration: underline; }
+.fw-place.is-table .fw-place-name { color: var(--muted); }
+.fw-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.fw-guides { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+.fw-guides > summary { cursor: pointer; width: max-content; }
+.fw-guide { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; line-height: 1.5; color: var(--text); }
+.fw-guide > span:last-child { overflow-wrap: anywhere; white-space: pre-wrap; }
+#headsDlg[data-kind="fwWrite"] .hd-foot, #headsDlg[data-kind="fwTake"] .hd-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
