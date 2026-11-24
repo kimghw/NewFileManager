@@ -21,7 +21,7 @@
 .ptr-cur svg { position: absolute; left: -2px; top: -2px; display: block; filter: drop-shadow(0 1px 1.5px rgba(16, 24, 40, .35)); }
 .ptr-name { position: absolute; left: 11px; top: 15px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 4px 9px 9px 9px;
   background: var(--c); color: #fff; font-size: 11px; line-height: 16px; font-weight: 600; box-shadow: 0 1px 3px rgba(16, 24, 40, .25); }
-/* 문서 창의 위 · 아래로 벗어난 포인터 — 가장자리에 이름표만(「↑ 이름」 · 「↓ 이름」) */
+/* 문서 창(사이드 패널 · 옆 열 안의 것이면 그 패널의 보이는 곳 — spec_포인터 ② §7)의 위 · 아래로 벗어난 포인터 — 가장자리에 이름표만(「↑ 이름」 · 「↓ 이름」) */
 .ptr-cur:is(.up, .down) svg { display: none; }
 .ptr-cur:is(.up, .down) .ptr-name { left: 0; top: 0; transform: translateX(-50%); border-radius: 9px; opacity: .9; }
 .ptr-cur.down .ptr-name { top: auto; bottom: 0; }

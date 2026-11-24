@@ -180,6 +180,9 @@ def test_clean_at():
     # 시작 화면(방 "home" — spec_포인터 ② §6): 기준 h = 그 화면 요소의 「속성=값」(빈칸 없는 80자 안 — 블록 id 와 같은 꼴)
     assert P.clean_at({"k": "h", "a": "task=plan_to_report", "n": 1, "x": 0.5, "y": 0.25}) == {"k": "h", "a": "task=plan_to_report", "n": 1, "x": 0.5, "y": 0.25}
     assert P.clean_at({"k": "h", "a": "id=a b", "x": 0, "y": 0}) is None and P.clean_at({"k": "h", "a": 3, "x": 0, "y": 0}) is None
+    # 화면의 요소(상단 바 · 사이드 패널 — 기준 u: 2026-11-24 「사이드 패널이랑 상단 패널 전부」) — h 와 같은 꼴 검사
+    assert P.clean_at({"k": "u", "a": "id=tabDash", "x": 0.5, "y": 2}) == {"k": "u", "a": "id=tabDash", "n": 0, "x": 0.5, "y": 1.0}
+    assert P.clean_at({"k": "u", "a": "tool=a b", "x": 0, "y": 0}) is None and P.clean_at({"k": "u", "a": "x" * 81, "x": 0, "y": 0}) is None and P.clean_at({"k": "v", "a": "id=x", "x": 0, "y": 0}) is None
 
 
 def test_module_stands_alone():

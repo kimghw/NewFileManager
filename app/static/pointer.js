@@ -9,8 +9,12 @@
    서버 = app/pointer_api.py(WebSocket /api/docs/{id}/pointer — 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다). 둘째 면 화면(PEEK)은 단추도 연결도 없다.
    **시작 화면**(2026-11-23 사용자 "첫페이지 부터 포인터 기능 넣어줘" — spec_포인터 ② §6): 문서를 열지 않은 화면(body.no-doc · #empty)은 방 "home" 에 함께 든다 — 자리 = 시작 화면의 요소(PTR_HOME_KEYS 의 속성이 있는 가장 안쪽 요소 —
    id · data-task 워크플로우 카드 · data-works 최근 작업 · data-hd-focus 대시보드 · data-hf-focus 문서 목록 …) 안의 비율(기준 h · a = 「속성=값」). 요소를 못 찾으면 #empty 의 스크롤 내용 안의 비율.
+   **화면 어디서나**(2026-11-24 사용자 "포인터 기능을 문서에만 두지 말고 사이드 패널이랑 상단 패널 전부 가능하도록 해줘" — spec_포인터 ② §7): 마우스는 문서 창만이 아니라 화면 전체에서 듣는다 — 문서(#doc) · 시작 화면(#empty) 밖
+   (상단 바 · 도구 줄 · 사이드 패널 · 옆 열)의 자리 = 기준 u: 마우스 아래에서 밖으로 올라가며 처음 만나는 표식(PTR_UI_KEYS — 도구 · 탭의 data-* · id) 요소 안의 비율(a = 「속성=값」 · 문서 전체에서 몇째인지 n).
+   안이 굴러가는 요소(패널의 보기)는 스크롤 내용 안의 비율(ptrRect) · 받는 쪽은 그 요소가 보이는 창(넘친 것을 자르는 조상들 — ptrClip) 안에서만 그리고 위 · 아래로 벗어나면 그 가장자리에 이름표.
+   그 요소가 이 화면에 없거나 안 보이면(닫힌 패널 · 다른 탭) 그리지 않는다.
    app.js 에서 기대는 것(이름 · 뜻이 바뀌면 여기도): state.id(지금 문서 — 닫으면 null) · $ · el · toast · PEEK · 문서의 꼴(#scroller 가 스크롤 상자 · #doc 아래 .sheet 쪽 상자 · 블록의 data-id · 표 칸의 data-cell · 표의 data-tbl) ·
-   상단 바의 #downloadBtn, share.js 의 #shareBtn(있으면 그 앞에 단추를 끼운다 — 없으면 #downloadBtn 앞). */
+   상단 바의 #downloadBtn, share.js 의 #shareBtn(있으면 그 앞에 단추를 끼운다 — 없으면 #downloadBtn 앞) · index.html 의 상단 바 id(#topbar — 단추 사이 빈 곳의 바탕). */
 const PTR_ON = "nfm.pointer", PTR_NAME = "nfm.pointerName", PTR_COLOR = "nfm.pointerColor"; // 이 브라우저에 기억: 켬/끔 · 내 이름 · 지난번에 받은 색(같은 색을 다시 바란다)
 const PTR_SEND = 60;        // 움직임을 보내는 가장 짧은 사이(ms) — 초당 16번쯤
 const PTR_WATCH = 500;      // 문서가 바뀌었나 · 남의 포인터 자리 다시 맞추기(글을 고쳐 줄이 밀린 것)
@@ -26,6 +30,8 @@ const PTR_HOME = "home"; // 시작 화면의 방 이름(문서 id 는 16진 12�
 // 시작 화면에서 자리의 바탕이 되는 요소의 속성(짧은 이름 → 속성) — 안 → 밖으로 올라가며 처음 만나는 것. 같은 값이 여럿이면 몇째인지(n). 화면마다 같은 자료로 그려지는 표식만(차례 · 상태 같은 바뀌는 값은 넣지 않는다)
 const PTR_HOME_KEYS = [["hd", "data-hd-focus"], ["hf", "data-hf-focus"], ["task", "data-task"], ["works", "data-works"], ["key", "data-key"], ["group", "data-group"], ["id", "id"]];
 const PTR_HOME_ROOT = "id=empty"; // 위 요소가 없는 곳(시작 화면의 여백) — #empty 의 스크롤 내용 안의 비율
+// 문서 · 시작 화면 밖(상단 바 · 도구 줄 · 사이드 패널 · 옆 열 — 기준 u)의 표식: 도구 단추 · 탭의 표식 + 위의 것(id 는 맨 뒤). 값은 화면 안의 이름 · 키뿐인 속성만(문서의 글 · 파일 이름이 든 속성은 넣지 않는다)
+const PTR_UI_KEYS = [["tool", "data-tool"], ["set", "data-tool-set"], ["view", "data-head-view"], ["stage", "data-stage"], ...PTR_HOME_KEYS];
 const ptrGet = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
 const ptrPut = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* 기억만 안 함 */ } };
 const ptrName = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, PTR_NAME_MAX);
@@ -39,7 +45,7 @@ const ptrLive = () => !!(ptr.ws && ptr.ws.readyState === 1 && ptr.me); // 붙었
 const ptrOthers = () => ptr.peers.size;
 const ptrRoom = () => state.id || (document.body.classList.contains("no-doc") ? PTR_HOME : null); // 지금 화면의 방 — 연 문서 · 시작 화면 · 없음(넘어가는 중)
 const ptrHome = () => ptr.doc === PTR_HOME;
-const ptrWhere = () => (ptrHome() ? "시작 화면" : "문서"); // 화면 글의 「문서 위에서」 · 「같은 문서를 보는」 의 그 말
+const ptrWhere = () => (ptrHome() ? "시작 화면 · 상단 바" : "문서 · 사이드 패널 · 상단 바"); // 화면 글의 「… 위에서 움직이는 내 마우스」 의 그 말 — 화면 어디서나(2026-11-24)
 const ptrWhereO = () => (ptrHome() ? "시작 화면을" : "문서를"); // 같은 말 + 목적격 조사(받침 — 「화면을」 · 「문서를」)
 
 // ---------------------------------------------------------------- 연결
@@ -120,7 +126,7 @@ function ptrGot(raw) {
 
 function ptrAtIn(m) { // 서버가 준 자리 → 화면이 쓰는 꼴 | null(모르는 꼴 — 그리지 않는다)
   const sheet = m.k === "s";
-  if (!(sheet || m.k === "h" || Object.hasOwn(PTR_SEL, m.k)) || (sheet ? !Number.isInteger(m.a) : typeof m.a !== "string") || !Number.isFinite(m.x) || !Number.isFinite(m.y)) return null;
+  if (!(sheet || m.k === "h" || m.k === "u" || Object.hasOwn(PTR_SEL, m.k)) || (sheet ? !Number.isInteger(m.a) : typeof m.a !== "string") || !Number.isFinite(m.x) || !Number.isFinite(m.y)) return null;
   return { k: m.k, a: m.a, n: Number.isInteger(m.n) ? m.n : 0, x: ptrUnit(m.x), y: ptrUnit(m.y) };
 }
 
@@ -135,10 +141,16 @@ function ptrPeerDrop(id) { const p = ptr.peers.get(id); if (p && p.cur) p.cur.re
 function ptrPeersClear() { for (const p of ptr.peers.values()) if (p.cur) p.cur.remove(); ptr.peers.clear(); }
 
 // ---------------------------------------------------------------- 자리 — 화면 좌표 ↔ 문서 안의 자리
-function ptrAt(x, y) { // 화면 좌표 → 문서 안의 자리 {k, a, n, x, y} | null(문서의 쪽 밖)
-  if (ptrHome()) return ptrAtHome(x, y);
-  const doc = $("doc"), hit = document.elementFromPoint(x, y);
-  if (!hit || hit === doc || !doc.contains(hit)) return null;
+function ptrAt(x, y) { // 화면 좌표 → 자리 {k, a, n, x, y} | null(자리를 못 정하는 곳 — 쪽과 쪽 사이 · 표식 없는 곳 · 둘째 면: 마지막 자리 그대로 둔다)
+  const hit = document.elementFromPoint(x, y);
+  if (!hit || hit.tagName === "IFRAME" || hit.closest(".ptr-pop")) return null; // 포인터의 작은 창은 다른 화면에 없다
+  if (ptrHome()) { const root = $("empty"); return root && !root.hidden && root.contains(hit) ? ptrAtHome(x, y, root, hit) : ptrAtUi(x, y, hit); }
+  const doc = $("doc");
+  if (hit === doc || hit === $("scroller")) return null; // 쪽과 쪽 사이
+  return doc.contains(hit) ? ptrAtDoc(x, y, doc, hit) : ptrAtUi(x, y, hit); // 문서 밖(상단 바 · 도구 줄 · 사이드 패널 · 옆 열) = 화면의 요소
+}
+
+function ptrAtDoc(x, y, doc, hit) { // 문서 안 — 블록 · 표 칸 · 표 · 쪽 안의 비율
   for (let n = hit; n && n !== doc; n = n.parentElement) { // 안 → 밖: 처음 만나는 블록 · 칸 · 표
     const d = n.dataset || {};
     const k = d.id ? "p" : d.cell && n.tagName === "TD" ? "c" : d.tbl && n.matches("table.tbl") ? "t" : "";
@@ -157,38 +169,55 @@ function ptrAt(x, y) { // 화면 좌표 → 문서 안의 자리 {k, a, n, x, y}
   return r.width && r.height ? { k: "s", a: i, n: 0, x: ptrUnit((x - r.left) / r.width), y: ptrUnit((y - r.top) / r.height) } : null;
 }
 
-function ptrHomeSel(s, v) { const kv = PTR_HOME_KEYS.find((q) => q[0] === s); return kv ? `[${kv[1]}="${CSS.escape(v)}"]` : ""; } // 시작 화면 자리의 「속성=값」 → 선택자(#empty 안에서 찾는다) · 모르는 속성 = ""
+function ptrKeySel(keys, s, v) { const kv = keys.find((q) => q[0] === s); return kv ? `[${kv[1]}="${CSS.escape(v)}"]` : ""; } // 자리의 「속성=값」 → 선택자 · 그 목록에 없는 속성 = ""
 
-function ptrRect(n) { // 그 요소의 자리 상자 — 시작 화면의 바탕(#empty)은 스크롤 내용 전체(보이는 창이 아니라 — 굴린 만큼 옮겨진 내용 안의 비율)
-  const r = n.getBoundingClientRect();
-  if (n.id !== "empty") return r;
-  return { left: r.left - n.scrollLeft, top: r.top - n.scrollTop, width: n.scrollWidth, height: n.scrollHeight };
+function ptrRolls(n) { // 안의 내용이 넘쳐 굴러가는 요소인가(패널의 보기 · 목록 상자)
+  if (n.scrollHeight <= n.clientHeight + 1 && n.scrollWidth <= n.clientWidth + 1) return false;
+  const cs = getComputedStyle(n);
+  return /auto|scroll/.test(cs.overflowY + cs.overflowX);
 }
 
-function ptrAtHome(x, y) { // 시작 화면(방 home) — 화면 좌표 → {k: "h", a: 「속성=값」, n, x, y} | null(시작 화면 밖)
-  const root = $("empty"), hit = document.elementFromPoint(x, y);
-  if (!root || root.hidden || !hit || !root.contains(hit)) return null;
-  for (let n = hit; n && n !== root; n = n.parentElement) { // 안 → 밖: PTR_HOME_KEYS 의 속성이 있는 처음 요소
-    for (const [s, attr] of PTR_HOME_KEYS) {
+function ptrRect(n) { // 그 요소의 자리 상자 — 안이 굴러가는 요소(시작 화면의 바탕 #empty · 패널의 보기)는 스크롤 내용 전체(보이는 창이 아니라 — 굴린 만큼 옮겨진 내용 안의 비율)
+  const r = n.getBoundingClientRect();
+  if (n.id !== "empty" && !ptrRolls(n)) return r;
+  return { left: r.left + n.clientLeft - n.scrollLeft, top: r.top + n.clientTop - n.scrollTop, width: n.scrollWidth, height: n.scrollHeight };
+}
+
+function ptrMark(hit, stop, scope, keys, k, x, y) { // 안 → 밖(stop 앞까지): keys 의 속성이 있는 처음 요소 안의 비율 → {k, a: 「속성=값」, n(scope 안에서 몇째), x, y} | null
+  for (let n = hit; n && n !== stop; n = n.parentElement) {
+    for (const [s, attr] of keys) {
       const v = n.getAttribute(attr), a = v ? `${s}=${v}` : "";
       if (!a || a.length > 80 || /\s/.test(a)) continue; // 서버가 받는 꼴 밖(pointer_api AT_OK) — 다음 속성 · 바깥 요소로
-      const r = n.getBoundingClientRect();
+      const r = ptrRect(n);
       if (!r.width || !r.height) continue;
-      const i = [...root.querySelectorAll(ptrHomeSel(s, v))].indexOf(n);
+      const i = attr === "id" && scope === document && document.getElementById(v) === n ? 0 : [...scope.querySelectorAll(ptrKeySel(keys, s, v))].indexOf(n); // id 는 거의 하나 — 문서 전체를 훑지 않는다
       if (i < 0) continue;
-      return { k: "h", a, n: i, x: ptrUnit((x - r.left) / r.width), y: ptrUnit((y - r.top) / r.height) };
+      return { k, a, n: i, x: ptrUnit((x - r.left) / r.width), y: ptrUnit((y - r.top) / r.height) };
     }
   }
+  return null;
+}
+
+function ptrAtHome(x, y, root, hit) { // 시작 화면(#empty 안) — 화면 좌표 → {k: "h", a: 「속성=값」, n, x, y} | null
+  const at = ptrMark(hit, root, root, PTR_HOME_KEYS, "h", x, y);
+  if (at) return at;
   const r = ptrRect(root); // 표식 없는 여백 — 스크롤 내용 안의 비율
   return r.width && r.height ? { k: "h", a: PTR_HOME_ROOT, n: 0, x: ptrUnit((x - r.left) / r.width), y: ptrUnit((y - r.top) / r.height) } : null;
 }
 
+function ptrAtUi(x, y, hit) { return ptrMark(hit, document.documentElement, document, PTR_UI_KEYS, "u", x, y); } // 문서 · 시작 화면 밖(상단 바 · 도구 줄 · 사이드 패널 · 옆 열) — 화면의 요소 안의 비율 | null(표식 없는 곳)
+
 function ptrHost(at) { // 자리 → 이 화면의 그 요소 | null(이 화면에는 없다 — 그리지 않는다)
+  if (at.k === "u") { // 화면의 요소(상단 바 · 사이드 패널 …) — 문서 화면 · 시작 화면 어디서나
+    const i = at.a.indexOf("="), s = at.a.slice(0, Math.max(0, i)), v = at.a.slice(i + 1), sel = i > 0 ? ptrKeySel(PTR_UI_KEYS, s, v) : "";
+    if (!sel) return null;
+    return s === "id" && !at.n ? document.getElementById(v) : document.querySelectorAll(sel)[at.n] || null;
+  }
   if (at.k === "h") { // 시작 화면 — 이 화면도 시작 화면일 때만
     const root = $("empty");
     if (!ptrHome() || !root || root.hidden) return null;
     if (at.a === PTR_HOME_ROOT) return root;
-    const i = at.a.indexOf("="), sel = i > 0 ? ptrHomeSel(at.a.slice(0, i), at.a.slice(i + 1)) : "";
+    const i = at.a.indexOf("="), sel = i > 0 ? ptrKeySel(PTR_HOME_KEYS, at.a.slice(0, i), at.a.slice(i + 1)) : "";
     return sel ? root.querySelectorAll(sel)[at.n] || null : null;
   }
   if (ptrHome()) return null; // 시작 화면에는 문서의 자리가 없다
@@ -196,20 +225,35 @@ function ptrHost(at) { // 자리 → 이 화면의 그 요소 | null(이 화면�
   return document.querySelectorAll(PTR_SEL[at.k](CSS.escape(at.a)))[at.n] || null;
 }
 
-function ptrPoint(p) { // 그 화면의 포인터 → 이 화면의 좌표 {x, y} | null
+function ptrPoint(p) { // 그 화면의 포인터 → 이 화면의 좌표와 그 포인터가 보이는 창 {x, y, box} | null
   const at = p.at;
   if (!at) return null;
-  if (!p.host || !p.host.isConnected) p.host = ptrHost(at); // 쪽을 다시 그리면 요소가 새것이 된다 — 그때만 다시 찾는다
+  if (!p.host || !p.host.isConnected) { p.host = ptrHost(at); p.clips = null; } // 쪽 · 패널을 다시 그리면 요소가 새것이 된다 — 그때만 다시 찾는다
   if (!p.host) return null;
   const r = ptrRect(p.host);
-  return r.width || r.height ? { x: r.left + at.x * r.width, y: r.top + at.y * r.height } : null;
+  if (!(r.width || r.height)) return null; // 안 보이는 요소(닫힌 패널 · 다른 탭)
+  const box = at.k === "u" || at.k === "h" ? ptrClip(p) : ptrBox();
+  return box ? { x: r.left + at.x * r.width, y: r.top + at.y * r.height, box } : null;
 }
 
-function ptrBox() { // 포인터가 보이는 창 — 문서 창(스크롤 상자) · 시작 화면이면 #empty
-  const sc = ptrHome() ? $("empty") : $("scroller");
+function ptrBox() { // 문서의 포인터가 보이는 창 — 문서 창(스크롤 상자)
+  const sc = $("scroller");
   return sc && !sc.hidden ? sc.getBoundingClientRect() : null;
 }
-function ptrSeen(pt) { const b = pt && ptrBox(); return b && pt.x >= b.left && pt.x <= b.right && pt.y >= b.top && pt.y <= b.bottom ? pt : null; } // 문서 창 안에 보이는 자리만
+
+function ptrClip(p) { // 화면 요소의 포인터가 보이는 창 — 그 요소와 조상 가운데 넘친 것을 자르는 요소들(패널의 보기 · 시작 화면 #empty)이 겹친 상자 | null(안 보임)
+  if (!p.clips) { // 요소를 찾을 때 한 번만 훑는다
+    p.clips = [];
+    for (let n = p.host; n && n !== document.documentElement; n = n.parentElement) { const cs = getComputedStyle(n); if (cs.overflowX !== "visible" || cs.overflowY !== "visible") p.clips.push(n); }
+  }
+  const b = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  for (const n of p.clips) {
+    const r = n.getBoundingClientRect();
+    b.left = Math.max(b.left, r.left); b.top = Math.max(b.top, r.top); b.right = Math.min(b.right, r.right); b.bottom = Math.min(b.bottom, r.bottom);
+  }
+  return b.right > b.left && b.bottom > b.top ? b : null;
+}
+function ptrSeen(pt) { const b = pt && pt.box; return b && pt.x >= b.left && pt.x <= b.right && pt.y >= b.top && pt.y <= b.bottom ? pt : null; } // 그 창 안에 보이는 자리만
 
 // ---------------------------------------------------------------- 그리기 — 남의 포인터 · 「클릭」
 function ptrLayer() {
@@ -240,11 +284,11 @@ function ptrDrawSoon(still) { // still = 문서가 움직인 것(스크롤 · �
 
 function ptrDraw() {
   ptr.raf = 0;
-  const still = !!ptr.still, box = ptrBox();
+  const still = !!ptr.still;
   ptr.still = false;
   if (ptr.layer) ptr.layer.classList.toggle("still", still);
   for (const p of ptr.peers.values()) {
-    const pt = box ? ptrPoint(p) : null;
+    const pt = ptrPoint(p), box = pt && pt.box; // 그 포인터가 보이는 창 — 문서 창 · 화면 요소면 그 패널의 보이는 곳
     if (!pt || pt.x < box.left || pt.x > box.right) { if (p.cur) p.cur.hidden = true; continue; }
     const fresh = !p.cur || p.cur.hidden, cur = ptrCur(p), up = pt.y < box.top, down = pt.y > box.bottom; // 위 · 아래로 벗어남 — 가장자리에 「↑ 이름」 · 「↓ 이름」
     if (fresh) cur.style.transition = "none"; // 안 보이다 나타날 때는 옛 자리에서 미끄러져 오지 않게
@@ -291,9 +335,10 @@ function ptrFlush() {
 
 function ptrMoved(e) { ptr.x = e.clientX; ptr.y = e.clientY; ptr.inside = true; if (ptr.on) { ptr.dirty = true; ptrSendSoon(); } }
 function ptrLeft() { ptr.inside = false; if (ptr.on || ptr.shown) { ptr.dirty = true; ptrSendSoon(); } }
+function ptrOver(e) { if (e.target && e.target.tagName === "IFRAME") ptrLeft(); } // 둘째 면(iframe) 위 — 그 안의 마우스는 이 화면이 못 듣는다: 멈춘 자리에 남기지 않고 걷는다
 
-function ptrPressed(e) { // 켠 채로 문서를 눌렀다 — 「클릭」 을 알린다. 누른 것은 그대로 작동한다(여기서는 듣기만)
-  if (!ptr.on || e.button !== 0) return;
+function ptrPressed(e) { // 켠 채로 화면을 눌렀다 — 「클릭」 을 알린다. 누른 것은 그대로 작동한다(여기서는 듣기만)
+  if (!ptr.on || e.button !== 0 || (e.target.closest && e.target.closest("#pointerBtn"))) return; // 포인터 단추를 눌러 끄는 것은 알리지 않는다
   const at = ptrAt(e.clientX, e.clientY);
   if (!at) return;
   ptr.x = e.clientX; ptr.y = e.clientY; ptr.inside = true;
@@ -332,6 +377,7 @@ function ptrBtnDraw() {
   b.title = (ptr.on
     ? `포인터 켜짐 · 누르면 끕니다${who ? ` — 다른 화면에 보이는 이름: ${who}` : ""}\n${w} 위에서 움직이는 내 마우스가 같은 ${ptrWhereO()} 보는 다른 화면에 보이고, 누르면 그 자리에 「클릭」 이 보입니다(누른 것은 그대로 작동합니다).`
     : `포인터 — 켜면 ${w} 위에서 움직이는 내 마우스가 같은 ${ptrWhereO()} 보는 다른 화면에 보이고, 누르면 그 자리에 「클릭」 이 보입니다.\n다른 화면의 포인터는 켜지 않아도 보입니다.`)
+    + "\n패널 · 단추 위의 포인터는 다른 화면에도 그 패널 · 단추가 보일 때만 보입니다(닫힌 패널 · 다른 탭이면 안 보임)."
     + (ptr.full ? `\n이 ${ptrWhereO()} 보는 화면이 너무 많아 지금은 포인터를 쓸 수 없습니다 — 잠시 뒤 다시 잇습니다.` : !ptrLive() ? "\n연결하는 중입니다…" : `\n같이 보는 다른 화면 ${n}개`)
     + "\n오른쪽 단추: 내 이름 · 같이 보는 화면";
 }
@@ -384,7 +430,7 @@ function ptrPopOpen() { // 뼈대는 여기서 한 번만 짓는다 — 다시 �
   acts.append(toggle);
   const w = ptrWhere();
   pop.append(head, row, el("div", "ptr-pop-k", "같이 보는 화면"), people,
-    el("p", "ptr-pop-note", `켜면 ${w} 위에서 움직이는 내 마우스가 같은 ${ptrWhereO()} 보는 다른 화면에 보이고, 누르면 그 자리에 「클릭」 이 보입니다. 누른 것은 그대로 작동합니다. 다른 화면의 포인터는 켜지 않아도 보입니다.`), acts);
+    el("p", "ptr-pop-note", `켜면 ${w} 위에서 움직이는 내 마우스가 같은 ${ptrWhereO()} 보는 다른 화면에 보이고, 누르면 그 자리에 「클릭」 이 보입니다. 누른 것은 그대로 작동합니다. 다른 화면의 포인터는 켜지 않아도 보입니다. 패널 · 단추 위의 포인터는 다른 화면에도 그 패널 · 단추가 보일 때만 보입니다.`), acts);
   document.body.append(pop);
   ptr.pop = pop;
   ptrPopDraw();
@@ -435,12 +481,11 @@ if (!PEEK) { // 둘째 면 화면(같이 보기)은 포인터를 다루지 않�
     if (ptrRoom() !== ptr.doc) ptrDocChanged();
     else if (ptr.peers.size) ptrDrawSoon(true);
   }, PTR_WATCH);
-  for (const sc of [$("scroller"), $("empty")]) { // 문서 창 · 시작 화면(#empty — 2026-11-23 사용자 "첫페이지 부터 포인터 기능 넣어줘")
-    if (!sc) continue;
-    sc.addEventListener("pointermove", ptrMoved, { passive: true });
-    sc.addEventListener("pointerleave", ptrLeft, { passive: true });
-    sc.addEventListener("pointerdown", ptrPressed, { capture: true, passive: true }); // 잡는 단계 — 문서의 다른 손잡이가 전파를 끊어도 듣는다(막지는 않는다)
-  }
+  // 화면 전체에서 듣는다(2026-11-24 사용자 "문서에만 두지 말고 사이드 패널이랑 상단 패널 전부" — 전에는 문서 창 #scroller · 시작 화면 #empty 에서만). 어느 자리로 보낼지는 ptrAt 이 가른다
+  document.addEventListener("pointermove", ptrMoved, { passive: true });
+  document.addEventListener("pointerover", ptrOver, { passive: true });
+  document.documentElement.addEventListener("pointerleave", ptrLeft, { passive: true }); // 창 밖으로 나갔다
+  document.addEventListener("pointerdown", ptrPressed, { capture: true, passive: true }); // 잡는 단계 — 다른 손잡이가 전파를 끊어도 듣는다(막지는 않는다)
   document.addEventListener("scroll", () => { // 문서가 움직였다 — 남의 포인터를 그 자리에 다시 · 내 마우스 아래의 자리도 달라졌다
     if (ptr.peers.size) ptrDrawSoon(true);
     if (ptr.on && ptr.inside) { ptr.dirty = true; ptrSendSoon(); }

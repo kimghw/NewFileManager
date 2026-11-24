@@ -55,7 +55,7 @@
 <!-- body.no-doc = 문서를 열기 전(시작 화면이 보임) — app.js load() 가 빼고 closeDoc() 이 넣는다. landing.css 의 시작 화면 상단 바 모양이 이 클래스를 본다
      (옛 `body:has(#empty:not([hidden]))` 는 큰 문서에서 hidden 속성·요소 붙이기마다 문서 전체 스타일을 다시 계산시켰다 — references/브라우저_강제배치_비용.md) -->
 <body class="no-doc">
-  <header class="topbar">
+  <header class="topbar" id="topbar"><!-- id = 포인터가 상단 바의 빈 곳을 가리킬 때의 바탕(pointer.js ptrAtUi) -->
     <!-- 로고 = 시작 화면으로(spec_작업 ② §7 「시작 화면으로」, 2026-11-12 사용자): 누르면 app.js goHome() — 연 작업을 화면에서만 닫는다(지우지 않음).
          링크라 Ctrl·Shift·가운데 누름은 새 탭·새 창에 시작 화면. 끌어도 파일 놓기 표시가 뜨지 않게 draggable=false -->
     <a class="brand" id="homeLink" href="/" draggable="false" aria-label="HWPX·DOCX 웹 편집 — 시작 화면으로" title="시작 화면으로 — 파일 열기 · 최근 작업&#10;지금 작업은 지워지지 않습니다(최근 작업에서 다시 엽니다)">

@@ -4,8 +4,10 @@
 
 ① 시작 화면(2026-11-23 사용자 "첫페이지 부터 포인터 기능 넣어줘"): 두 화면 모두 문서를 열지 않은 채 — 상단 바에 「포인터」 단추 · 방 "home" 에 붙음 ·
    A 가 켜고 워크플로우 카드 위에서 움직이면 B 에 A 의 포인터(이름표)가 **B 의 같은 카드의 같은 비율 자리**에(창 폭이 달라 카드 자리가 다르다) · 누르면 B 에 「클릭」 ·
-   시작 화면 밖(상단 바)으로 나가면 B 에서 걷힘.
+   상단 바 위도 보인다(기준 u — 2026-11-24) · 다른 창으로 가면 B 에서 걷힘.
 ② 문서로 가면 방이 바뀐다: A 가 문서를 열면 B(시작 화면)의 「같이 보는 화면」 에서 빠지고, B 도 같은 문서를 열면 A 의 포인터가 같은 문단의 같은 비율 자리에(전의 문서 포인터 그대로).
+③ 화면 어디서나(2026-11-24 사용자 "포인터 기능을 문서에만 두지 말고 사이드 패널이랑 상단 패널 전부 가능하도록 해줘" — spec_포인터 ② §7): 사이드 패널의 탭 · 패널 안 · 상단 바 단추 위의 포인터가 B 의 같은 요소에 ·
+   「클릭」 · B 가 패널을 닫으면 안 보임 · 문서로 돌아오면 문서 자리.
 """
 import argparse
 import os
@@ -117,9 +119,19 @@ try:
         A.wait_for_timeout(250)
         at = A.evaluate("() => ptrAt(12, 600)")
         check("① 시작 화면의 여백 → 자리 = 시작 화면 바탕(id=empty — 스크롤 내용 안의 비율)", at is not None and at["k"] == "h" and at["a"] == "id=empty", at)
-        A.mouse.move(700, 15, steps=4)   # 상단 바 = 시작 화면(#empty) 밖
+        # 상단 바(2026-11-24 사용자 "문서에만 두지 말고 사이드 패널이랑 상단 패널 전부") — 시작 화면(#empty) 밖도 보인다: 기준 u = 화면의 요소 안의 비율
+        x, y = center(A, "#homeLink", .4, .5)
+        A.mouse.move(x, y, steps=4)
+        want = center(B, "#homeLink", .4, .5)
+        B.wait_for_function("([wx, wy]) => { const c = [...document.querySelectorAll('#ptrLayer .ptr-cur')].find((q) => !q.hidden), m = c && c.style.transform.match(/translate\\((-?[\\d.]+)px, (-?[\\d.]+)px\\)/); return !!m && Math.abs(+m[1] - wx) <= 3 && Math.abs(+m[2] - wy) <= 3; }",
+                            arg=list(want), timeout=10000)
+        at = A.evaluate("([x, y]) => ptrAt(x, y)", [x, y])
+        check("① 상단 바(로고) 위 → 자리 = 화면의 요소(기준 u · id=homeLink) · B 의 같은 요소의 같은 비율 자리에 보임", at is not None and at["k"] == "u" and at["a"] == "id=homeLink", at)
+        tb = A.evaluate("() => { const r = document.querySelector('.topbar .spacer').getBoundingClientRect(); return ptrAt(r.left + r.width / 2, r.top + r.height / 2); }")
+        check("① 상단 바의 빈 곳 → 자리 = 상단 바(id=topbar) 안의 비율", tb is not None and tb["k"] == "u" and tb["a"] == "id=topbar", tb)
+        A.evaluate("() => window.dispatchEvent(new Event('blur'))")   # 다른 창으로 감
         B.wait_for_function("() => ![...document.querySelectorAll('#ptrLayer .ptr-cur')].some((c) => !c.hidden)", timeout=5000)
-        check("① 시작 화면 밖(상단 바)으로 나가면 B 에서 A 의 포인터가 걷힘", B.evaluate(SEEN)["cur"] is None)
+        check("① 다른 창으로 가면 B 에서 A 의 포인터가 걷힘", B.evaluate(SEEN)["cur"] is None)
 
         # ② 문서로 — A 가 문서를 열면 방이 바뀐다(B 의 「같이 보는 화면」 에서 빠짐) · B 도 열면 문서 포인터(전처럼)
         form = ROOT / "samples" / "연구개발계획서_양식.hwpx"
@@ -145,6 +157,44 @@ try:
         bd = B.evaluate(SEEN)
         check("② 같은 문서 — A 의 포인터가 B 의 같은 문단 · 같은 비율 자리에(문서 포인터 그대로)", bd["cur"] is not None and near((bd["cur"]["x"], bd["cur"]["y"]), center(B, sel, .25, .5)), (bd["cur"], center(B, sel, .25, .5)))
         B.screenshot(path=str(OUT / "3_doc_B_sees.png"))
+
+        # ③ 사이드 패널 · 상단 바(문서 화면) — 패널 탭 · 패널 안 · 상단 바 단추 위의 포인터가 B 의 같은 요소에 · 「클릭」 · B 가 패널을 닫으면 안 보임
+        MOVED = "([wx, wy]) => { const c = [...document.querySelectorAll('#ptrLayer .ptr-cur')].find((q) => !q.hidden && !q.classList.contains('up') && !q.classList.contains('down')), m = c && c.style.transform.match(/translate\\((-?[\\d.]+)px, (-?[\\d.]+)px\\)/); return !!m && Math.abs(+m[1] - wx) <= 3 && Math.abs(+m[2] - wy) <= 3; }"
+        for pg in (A, B):
+            pg.wait_for_function("() => { const p = document.getElementById('panel'), t = document.getElementById('tabDash'); return p && !p.hidden && t && t.getClientRects().length > 0; }", timeout=30000)
+        x, y = center(A, "#tabDash", .3, .5)
+        A.mouse.move(x, y, steps=4)
+        B.wait_for_function(MOVED, arg=list(center(B, "#tabDash", .3, .5)), timeout=10000)
+        at = A.evaluate("([x, y]) => ptrAt(x, y)", [x, y])
+        check("③ 사이드 패널의 탭(대시보드) 위 → 자리 = 화면의 요소(기준 u) · B 의 같은 탭의 같은 비율 자리에 보임(창 폭이 달라 패널 자리가 다름)",
+              at is not None and at["k"] == "u" and round(center(A, "#tabDash")[0]) != round(center(B, "#tabDash")[0]), (at, center(A, "#tabDash"), center(B, "#tabDash")))
+        B.screenshot(path=str(OUT / "4_panel_B_sees.png"))
+        inner = A.evaluate("""() => { const p = document.getElementById('panel'), r = p.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height * .6, at = ptrAt(x, y); return { x, y, at }; }""")
+        A.mouse.move(inner["x"], inner["y"], steps=4)
+        A.wait_for_timeout(400)
+        bi = B.evaluate("""(at) => { const h = ptrHost(at); if (!h) return null; const r = ptrRect(h); return { x: r.left + at.x * r.width, y: r.top + at.y * r.height }; }""", inner["at"]) if inner["at"] else None
+        bs = B.evaluate(SEEN)
+        check("③ 사이드 패널 안(가운데) → 자리 = 화면의 요소(기준 u) · B 도 그 요소를 찾아 그 자리에(가장자리 이름표 포함) 그림",
+              inner["at"] is not None and inner["at"]["k"] == "u" and bi is not None and bs["cur"] is not None and abs(bs["cur"]["x"] - bi["x"]) <= 3, (inner, bi, bs["cur"]))
+        A.mouse.move(x, y, steps=3)   # 다시 탭 위 — 「클릭」(탭을 눌러도 A 의 탭만 바뀐다)
+        A.mouse.down()
+        A.mouse.up()
+        B.wait_for_function("() => document.querySelectorAll('#ptrLayer .ptr-click').length > 0", timeout=5000)
+        bc = B.evaluate("""() => { const c = document.querySelector('#ptrLayer .ptr-click'); return c ? { x: parseFloat(c.style.left), y: parseFloat(c.style.top) } : null; }""")
+        check("③ A 가 패널의 탭을 누름 → B 의 같은 탭 자리에 「클릭」", bc is not None and near((bc["x"], bc["y"]), center(B, "#tabDash", .3, .5), 4), (bc, center(B, "#tabDash", .3, .5)))
+        x, y = center(A, "#panelBtn")
+        A.mouse.move(x, y, steps=4)
+        B.wait_for_function(MOVED, arg=list(center(B, "#panelBtn")), timeout=10000)
+        check("③ 상단 바의 단추(패널 여닫기) 위 → B 의 같은 단추 자리에 보임", True)
+        A.mouse.move(*center(A, "#tabDash", .3, .5), steps=4)
+        B.wait_for_function(MOVED, arg=list(center(B, "#tabDash", .3, .5)), timeout=10000)
+        B.evaluate("() => setPanel(false)")   # B 가 패널을 닫음 — 그 요소가 안 보인다 → 그리지 않는다
+        B.wait_for_function("() => ![...document.querySelectorAll('#ptrLayer .ptr-cur')].some((c) => !c.hidden)", timeout=5000)
+        check("③ B 가 패널을 닫으면 패널 위의 포인터는 B 에 안 보임(없는 자리에 그리지 않는다)", B.evaluate(SEEN)["cur"] is None)
+        sel = f'#doc [data-id="{pid}"]'
+        A.mouse.move(*center(A, sel, .25, .5), steps=4)
+        B.wait_for_function(MOVED, arg=list(center(B, sel, .25, .5)), timeout=10000)
+        check("③ 다시 문서 위로 → B 에 문서의 같은 문단 자리로 돌아옴", True)
         check("JS 오류 없음", not errors, errors[:5])
         browser.close()
 except Exception as e:  # noqa: BLE001
