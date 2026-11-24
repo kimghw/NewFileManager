@@ -120,6 +120,48 @@ function homeDashReset() { // 「새 워크플로우 시작」(시작한 뒤) ·
   if (typeof homeFilesDraw === "function") homeFilesDraw();
 }
 
+// ---------------------------------------------------------------- 워크플로우 카드로 시작 · 「New」 · 라운드(spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」)
+// 2026-11-24 사용자(새 워크플로우 카드를 누른 첫 화면 — 왼쪽 「대시보드의 문서」 에 앞 워크플로우의 문서가 남은 것을 보며) "새작업의 시작인데 왜 연차보고서가 남아 있나?" ·
+// "프로젝트 오른쪽에 라운드 기능이랑 New 버튼 만들면 될거 같고" → 답 「첫 화면」 · New = 「새 작업」.
+// 워크플로우 카드의 시작(app.js homeTaskStart · home_files.js homeFilesGo · hfStartForm(stay false) — 문서 화면을 여는 길)은 이 보기를 거치지 않아, 기억(hdMemo)이 앞 작업에 남아
+// 여는 동안 왼쪽에 앞 작업의 문서가 보이고 첫 화면으로 돌아와도 앞 작업이 보였다. 이제 카드를 누르면 앞 작업의 보기를 바로 걷고(그 워크플로우의 시작 전 — 작업 · 문서 · 도는 실행은 그대로),
+// 시작하면 그 작업을 기억한다. 대시보드의 「워크플로우 시작」(hdStart)이 부른 길이면(HD.busy start) hdStart 가 맡는다.
+function homeDashCardStart(job) {
+  if (HD.busy === "start") return;
+  const cat = hdCat(job);
+  hdClear(cat && !cat.soon ? job : "");
+  homeDashDraw(true);
+  if (typeof homeFilesDraw === "function") homeFilesDraw();
+}
+function homeDashCardDone(job, wid) { // 카드로 시작했다(wid = 연 작업 — 그 묶음의 어느 문서든 서버가 묶음을 찾는다) — 첫 화면으로 돌아오면 이 작업의 대시보드 · 문서
+  if (HD.busy === "start" || !wid) return;
+  hdClear(hdCat(job) ? job : "");
+  Object.assign(HD, { wid, away: true });
+  hdMemo({ job: HD.job, wid });
+  homeDashDraw(true);
+}
+// 「New」 = 새 작업: 보던 작업의 프로젝트 · 워크플로우 그대로 새로 시작한다 — 이 보기를 그 워크플로우의 시작 전으로 걷고 왼쪽 프로젝트 칸에 그 프로젝트를 적어 둔다(문서를 놓고 시작하면 그 프로젝트의 다음 라운드).
+// 보던 작업은 지우지 않는다(라운드 목록 · 최근 작업에서 다시 본다)
+function homeDashNew(project) {
+  if (HD.busy === "start" || (typeof homeTaskBusy !== "undefined" && homeTaskBusy)) return;
+  const job = (HD.view && HD.view.job) || HD.job, cat = hdCat(job);
+  hdClear(cat && !cat.soon ? job : "");
+  if (typeof hf === "object") { hf.project = project || ""; hf.err = ""; }
+  HD.note = { text: `새 작업 — ${project ? `프로젝트 「${project}」 · ` : ""}워크플로우 「${hdName(HD.job)}」 로 새로 시작합니다. 왼쪽에 문서를 놓고 「워크플로우 시작」 을 누르세요(보던 작업은 그대로 — 최근 작업에서 다시 엽니다)`, warn: false };
+  homeDashDraw(true);
+  if (typeof homeFilesDraw === "function") homeFilesDraw();
+  if (typeof hfFormsLoad === "function") hfFormsLoad();
+}
+function homeDashRound(wid) { // 라운드 고르기 — 같은 프로젝트 · 워크플로우의 다른 라운드(그 라운드의 목적 문서 작업)의 대시보드를 본다(문서 화면을 열지 않는다)
+  if (!wid || wid === HD.wid || HD.busy) return;
+  const job = (HD.view && HD.view.job) || HD.job;
+  hdClear(hdCat(job) ? job : "");
+  Object.assign(HD, { wid });
+  hdMemo({ job: HD.job, wid });
+  homeDashDraw(true);
+  if (hdFront()) hdRead();
+}
+
 function hdFocus(keys, ring = false) { // 그린 뒤 초점을 옮긴다 — 누른 단추가 사라지는 바뀜(고름 · 「다른 워크플로우」)에서 초점이 문서 밖으로 떨어지지 않게. keys = 차례대로 찾는 data-hd-focus · 초점 테두리는 키보드로 온 초점일 때만
   const box = hdBox();
   for (const key of keys) {

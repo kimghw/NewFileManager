@@ -15,6 +15,8 @@
   다시 초기화 → 「한 번에 진행」 → 끝 글 「끝남 — …」(초록) · 「3/3」 · 그동안 문서 화면으로 넘어가지 않음.
 - 놓은 문서 ↔ 대시보드(2026-11-21 「놓여진 문서랑 매칭을 해주라는거야」 — spec_작업에이전트 ② §10 「놓은 문서와 대시보드」): ③ 시작해 목록이 비면 왼쪽 카드에 대시보드의 문서(역할 · 이름 — 문서 칸과 같은 것) ·
   ⑦-3 시작한 작업을 보이는 중 문서를 놓으면 → 같은 워크플로우의 시작 전(문서 칸 = 놓은 문서 · 알림 · 기억은 하던 작업) → 「비우기」 → 하던 작업의 대시보드 · 왼쪽에 다시 그 문서.
+- 새 작업 — 카드 · New · 라운드(2026-11-24 「새작업의 시작인데 왜 연차보고서가 남아 있나?」 · 「프로젝트 오른쪽에 라운드 기능이랑 New 버튼」 — spec_작업에이전트 ② §10): ⑦-5 왼쪽 프로젝트 줄(프로젝트 · 라운드 · New) →
+  New = 같은 워크플로우의 시작 전(기억 비움 · 프로젝트 칸에 그 프로젝트 · 목록에 「→ Round 2 · 새 라운드」) → 라운드 고르기로 그 작업에 돌아옴 / 맨 끝 — 워크플로우 카드로 다른 워크플로우를 시작하면 여는 동안 앞 작업의 보기를 걷고, 시작한 뒤 첫 화면 = 새 작업.
 - ⑤ 새 탭(같은 브라우저 컨텍스트)에서 첫 화면을 열면 같은 대시보드 · 같은 끝 글(기억 + 서버 상태).
 - ⑥ 「대시보드 자세히 보기」 → 그 목적 문서가 열리고 패널 탭 「대시보드」 ⑦ 로고로 첫 화면에 돌아오면 대시보드가 그대로 ⑦-2 서버가 안 맡은 묶음의 「한 번에 진행」 → 문서 화면을 열고 그 화면의 같은 단추(꺼져 있으면 까닭 알림 · 켜져 있으면 실제로 진행) ⑧ 「다른 워크플로우」 → 고르기로(기억도 비움) ⑨ 좁은 폭(820 · 400 · 320px)에서 가로 넘침 없음.
 - 그 밖: 같은 파일로 다시 시작 → 「같은 파일 고르기」 의 「이어서」 → 같은 작업의 대시보드 · 문서 하나인 워크플로우(연차보고서 양식 맞추기 — 모든 묶음 「문서 화면에서 진행합니다 …」 + 「한 번에 진행」) · 취합은 「워크플로우 시작」 이 켜짐(문서 화면을 열고 시작)."""
@@ -106,6 +108,10 @@ LEFT = """() => { const b = document.getElementById('homeFiles');
     state: [...b.querySelectorAll('.hf-dash-state')].map((x) => [x.closest('.hf-row').dataset.role, x.dataset.state, x.textContent]),   // 목적 문서 카드의 진행(2026-11-23 「완료라고 뜨고」)
     dl: [...b.querySelectorAll('.hf-dash-dl')].map((x) => [x.closest('.hf-row').dataset.role, ...[...x.querySelectorAll('button')].map((y) => `${y.querySelector('.ag-icon svg') ? '⤓' : ''}${y.textContent}`)]),   // 내려받기 둘(아이콘 + 글)
     dlName: [...b.querySelectorAll('.hf-dash-dl-name')].length }; }"""
+# 「대시보드의 문서」 의 프로젝트 줄(home_files.js hfDashProjEl — 2026-11-24 「프로젝트 오른쪽에 라운드 기능이랑 New 버튼」)
+PROJ = """() => { const b = document.getElementById('homeFiles'), p = b.querySelector('.hf-dash-proj'); if (!p) return null; const s = p.querySelector('select'), n = p.querySelector('.hf-dash-new');
+  return { name: (p.querySelector('.hf-dash-proj-name strong') || {}).textContent || '', opts: s ? [...s.options].map((o) => o.textContent) : null, value: s ? s.value : null, off: s ? s.disabled : null,
+    btn: n ? n.textContent : '', btnOff: n ? n.disabled : null, inside: p.getBoundingClientRect().right <= b.getBoundingClientRect().right + 0.5 }; }"""
 FIT = """() => { const e = document.getElementById('empty'), a = document.getElementById('homeAgent').getBoundingClientRect(), d = document.getElementById('homeDash');
   return { over: e.scrollWidth > e.clientWidth + 1, dash: d.scrollWidth > d.clientWidth + 1, w: Math.round(a.width),
     inside: [...d.querySelectorAll('.dash-node, .dash-ghead, .dash-ghead .btn, .home-dash-foot .btn, select, .dash-live, .dash-last, .dash-note, .home-dash-docs li')].every((x) => { const r = x.getBoundingClientRect(); return r.left >= a.left - 0.5 && r.right <= a.right + 0.5; }) }; }"""
@@ -512,6 +518,28 @@ def main():
               (n_reset(plan["id"]), n_reset(rep["id"])) == (r0[0] + 1, r0[1]) and "원본 문서" in s["toast"]
               and s["state"] == "live" and s["count"] == head_count(rid) and len(works()) == 2, [s["toast"], s["count"], head_count(rid), r0, n_reset(plan["id"]), n_reset(rep["id"])])
 
+        # ---- ⑦-5 「대시보드의 문서」 의 프로젝트 줄(2026-11-24 사용자 "프로젝트 오른쪽에 라운드 기능이랑 New 버튼 만들면 될거 같고" → 답 「첫 화면」 · New = 「새 작업」 — spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」):
+        #        「프로젝트 <이름> · 라운드 [Round 1 · 최신] · New」 → New = 같은 프로젝트 · 워크플로우의 시작 전(기억 비움 · 왼쪽 프로젝트 칸에 그 프로젝트 · 작업은 그대로) → 라운드 고르기(homeDashRound)로 그 작업에 돌아옴
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-dash-proj", timeout=30000)
+        pr = page.evaluate(PROJ)
+        check("⑦-5 왼쪽 「대시보드의 문서」 머리 아래 프로젝트 줄 — 프로젝트 이름(그 작업의 것) · 라운드 「Round 1 · 최신」(라운드 하나라 꺼짐) · 「New」(켜짐) · 카드 안에 들어감",
+              pr and pr["name"] == proj and pr["opts"] == ["Round 1 · 최신"] and pr["value"] == "1" and pr["off"] is True and pr["btn"] == "New" and pr["btnOff"] is False and pr["inside"], pr)
+        page.locator('#homeFiles [data-hf-focus="new"]').click()
+        page.wait_for_selector("#homeDash[data-state=ready] .dash-group", timeout=30000)
+        s, lf = snap(page), page.evaluate(LEFT)
+        check("⑦-5 「New」 → 같은 워크플로우의 시작 전(기억 비움) · 알림 「새 작업 — 프로젝트 「…」 …」 · 왼쪽은 빈 목록(앞 작업의 문서 없음) · 프로젝트 칸에 그 프로젝트 · 작업은 그대로 · 첫 화면 그대로",
+              s["state"] == "ready" and s["title"] == JOB_NAME and s["memo"] is None and any(n[0].startswith(f"새 작업 — 프로젝트 「{proj}」") for n in s["notes"]) and lf["hidden"] and lf["mode"] == ""
+              and page.evaluate("() => hf.project") == proj and len(works()) == 2 and s["home"] and s["id"] is None, [s, lf])
+        pick_files(page, [SMALL])
+        rn = page.evaluate("() => ({ v: (document.querySelector('#homeFiles [data-hf-focus=project]') || {}).value, note: (document.querySelector('#homeFiles .hf-round-note') || {}).textContent || '' })")
+        check("⑦-5 New 뒤 문서를 놓으면 목록의 프로젝트 칸 = 그 프로젝트 · 오른쪽에 시작할 라운드 「→ Round 2 · 새 라운드」", rn == {"v": proj, "note": "→ Round 2 · 새 라운드"}, rn)
+        page.locator("#homeFiles .hf-clear").click()
+        page.evaluate("(id) => homeDashRound(id)", rid)
+        page.wait_for_selector("#homeDash[data-state=live] .dash-group", timeout=30000)
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-dash-proj", timeout=30000)
+        s = snap(page)
+        check("⑦-5 라운드 고르기(homeDashRound) → 그 라운드의 작업 대시보드 · 기억 · 왼쪽에 그 작업의 문서", s["state"] == "live" and s["memo"] == {"job": JOB, "wid": rid} and s["count"] == head_count(rid), s)
+
         # ---- ⑧-0 「다시 시작」 → 같은 워크플로우의 시작 전으로(기억은 비움 — 문서 · 작업은 그대로: 2026-11-21 사용자 「다시 시작하기.. 기능이 없네」)
         again = page.evaluate("() => { const b = document.querySelector('#homeDash [data-hd-focus=\"again\"]'); return b ? { off: b.disabled, title: b.title } : null; }")
         page.locator('#homeDash [data-hd-focus="again"]').click()
@@ -667,6 +695,27 @@ def main():
         check("취합 「1단계 프로젝트 구성」 의 「한 번에 진행」(첫 화면) → 첫 화면에 머문 채 서버가 그 묶음을 돈다(실행 기록 · 끝 글 — 문서 화면으로 넘어가지 않음)",
               t["home"] and t["id"] is None and bool(runs) and runs[0]["range"]["from"] == "config" and runs[0]["origin"]["where"] == "home" and runs[0]["status"] in ("done", "left", "halted") and bool(t["last"]), [t, runs[:1]])
         page.screenshot(path=str(OUT / "11_gather_home_run.png"))
+
+        # ---- 워크플로우 카드로 다른 워크플로우를 시작(2026-11-24 사용자 「새작업의 시작인데 왜 연차보고서가 남아 있나?」 — spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」):
+        #      누르면 앞 작업(취합)의 대시보드 · 왼쪽 「대시보드의 문서」 를 바로 걷고, 시작하면 새 작업을 기억 → 첫 화면으로 돌아오면 새 작업의 대시보드 · 문서
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=30000)
+        with page.expect_file_chooser() as fc:
+            page.locator('#taskCards [data-task="report_fit"]').click()
+        fc.value.set_files([str(SMALL)])
+        page.wait_for_selector('.sf-pop [data-sf="new"]', timeout=120000)   # 앞 장면들이 올린 같은 파일 — 「새 작업으로 시작」
+        mid = page.evaluate("() => ({ wid: HD.wid, job: HD.job, memo: localStorage.getItem('nfm.homeDash'), mode: document.getElementById('homeFiles').dataset.mode || '', hidden: document.getElementById('homeFiles').hidden })")
+        check("카드로 다른 워크플로우를 시작하면 — 여는 동안 앞 작업(취합)의 대시보드 · 왼쪽 「대시보드의 문서」 를 바로 걷음(누른 워크플로우의 시작 전 · 기억 비움)",
+              mid == {"wid": "", "job": "report_fit", "memo": None, "mode": "", "hidden": True}, mid)
+        page.locator('.sf-pop [data-sf="new"]').click()
+        page.wait_for_function("() => !!state.id && (state.task || {}).job === 'report_fit' && !homeTaskBusy", timeout=180000)
+        nid = page.evaluate("() => state.id")
+        page.locator("#homeLink").click()
+        page.wait_for_function("() => document.body.classList.contains('no-doc') && state.id == null")
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=60000)
+        s, lf = snap(page), page.evaluate(LEFT)
+        check("… 시작한 뒤 첫 화면으로 돌아오면 새 작업의 대시보드 · 왼쪽에 새 작업의 문서(앞 작업의 것 아님) · 기억 = 새 작업",
+              s["memo"] == {"job": "report_fit", "wid": nid} and nid != gid and [r[1] for r in lf["rows"]] == [SMALL.name] and s["home"], [s, lf, nid, gid])
+        page.screenshot(path=str(OUT / "12_card_start.png"))
         real = [e for e in errors if "409" not in e]
         check("콘솔 오류 없음", not real, real[:5])
         br.close()

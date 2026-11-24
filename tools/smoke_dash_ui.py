@@ -475,8 +475,11 @@ def main():
         # ---- 이관(두 문서) — 「작업 개요」 의 단계 · 묶음 넷 · 등록부의 세부 단계는 「그 단계로」 · 「이어서 한 번에」
         page.goto(base)
         page.wait_for_selector("#taskCards .task-card")
+        # 앞 장면에서 카드로 시작한 작업을 첫 화면이 기억한다(2026-11-24 — spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」): 왼쪽이 그 작업의 「대시보드의 문서」 면 「파일 선택」 대신 「다른 문서 놓기…」
+        if page.evaluate("() => !!localStorage.getItem('nfm.homeDash')"):
+            page.wait_for_selector("#homeFiles[data-mode=dash] [data-hf-focus=more]", timeout=60000)
         with page.expect_file_chooser() as fc:
-            page.locator("#pickBtn").click()
+            page.locator("#homeFiles[data-mode=dash] [data-hf-focus=more], #pickBtn:visible").first.click()
         fc.value.set_files([str(ROOT / "samples" / "기술수요조사서.hwpx"), str(PLAN)])
         page.wait_for_function("() => document.querySelectorAll('#homeFiles .hf-row').length >= 2")
         page.locator("#homeFiles .hf-row").nth(0).locator("input[type=radio]").check()

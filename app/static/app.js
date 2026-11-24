@@ -223,6 +223,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
   fd.append("file", file);
   homeTaskBusy = true;
   if (card) card.classList.add("busy");
+  if (typeof homeDashCardStart === "function") homeDashCardStart(job); // 첫 화면의 대시보드가 앞 작업을 보이던 중이면 걷는다(home_dash.js — 2026-11-24 「새작업의 시작인데 왜 연차보고서가 남아 있나?」)
   setSaveState("busy", `${file.name} 여는 중…`);
   try {
     // 같은 파일로 하던 작업이 있으면 묻는다(same_file.js — ② §1 「같은 파일은 묻고 연다」, 2026-11-18 사용자): 줄 차례 = 그 TASK 의 작업 → TASK 가 빈 작업 → 그 밖(?job=).
@@ -233,6 +234,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     if (!got) { refreshSaveState(); return; } // 창을 닫음 — 아무것도 열지 않는다
     if (got.act === "open") { // 「그대로 열기」 — 그 작업을 그 TASK 그대로 연다
       await (typeof projectOpen === "function" ? projectOpen(got.id) : openWork(got.id));
+      if (state.id === got.id && typeof homeDashCardDone === "function") homeDashCardDone((state.task || {}).job || "", got.id); // 첫 화면으로 돌아오면 연 작업의 대시보드
       toast("하던 작업을 그 워크플로우 그대로 엽니다 — 이 워크플로우로 시작하려면 다시 올려 「새 작업으로 시작」 을 고르세요");
       return;
     }
@@ -246,6 +248,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
       if (state.id === r.docId) { state.task = res.task; taskDraw(); await loadWorks(); }
     } else kept = await homeTaskApply(job);
     if (state.id !== r.docId) return; // 그 사이 다른 문서를 열었다
+    if (typeof homeDashCardDone === "function") homeDashCardDone((state.task || {}).job || job, r.docId); // 첫 화면으로 돌아오면 이 작업의 대시보드 · 문서(home_dash.js)
     if (!r.reused) firstRun(); // 새 작업 · 초기화한 작업 — 첫 분석(② §9)
     taskEnter(kept ? job : state.task.job); // 그 TASK 가 처음 여는 보기(task_catalog.js entry — 보통 작업 개요 · 문서 일반 편집은 에이전트 · 문서 서식 복사는 2열 「서식 복사」)
     const temp = kept && homeTaskTemp ? `\n프로젝트 이름이 없어 임시 이름 「${homeTaskTemp}」 로 묶었습니다 — 「작업 개요」 의 프로젝트 칸(또는 작업 리스트의 「이름 정하기」)에 이름을 적으면 바뀝니다` : ""; // ② §17 「임시 프로젝트」
@@ -256,7 +259,7 @@ async function homeTaskStart(job, file, fresh = false) { // 올림(같은 파일
     else if (got.act === "new") toast(`같은 파일로 하던 작업은 그대로 두고 새 작업으로 열었습니다 — 워크플로우 「${taskName("job", job)}」 · ${named ? `프로젝트 「${named}」` : "프로젝트 미지정"}${temp}`);
     else if (temp) toast(temp.trim());
   } catch (e) { setSaveState("err", "열지 못함"); toast(e.message, true); }
-  finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); }
+  finally { homeTaskBusy = false; if (card) card.classList.remove("busy"); if (typeof homeFilesDraw === "function") homeFilesDraw(); } // 카드 글 「문서 여는 중」 · 꺼짐을 걷는다(여는 동안 그린 카드 — homeFilesGo 의 finally 와 같게)
 }
 
 // 방금 연 작업에 그 TASK 를 적는다(작업 종류 = 연구개발과제 · 할 일 = job · 첨부 파일 = 양식 판정이 정한 것, 없으면 그 TASK 의 문서) → 적었나.

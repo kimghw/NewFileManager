@@ -125,6 +125,38 @@ async function hfDashGet(id, which, redraw) { // 내려받기 — GET /api/works
   finally { HF_DL.delete(key); redraw(); }
 }
 
+// 「대시보드의 문서」 의 프로젝트 줄 — 「프로젝트 <이름> · 라운드 [Round N · 최신 ▾] · New」(2026-11-24 사용자 "프로젝트 오른쪽에 라운드 기능이랑 New 버튼 만들면 될거 같고" → 답 「첫 화면」 · New = 「새 작업」 —
+// spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」). 라운드 = 같은 프로젝트 · 워크플로우의 라운드(작업 개요의 라운드 줄과 같은 셈 — project_workspace.js projectGroups) ·
+// 고르면 그 라운드의 대시보드(home_dash.js homeDashRound — 문서 화면을 열지 않음) · New = 같은 프로젝트 · 워크플로우로 새로 시작(homeDashNew — 보던 작업은 그대로)
+function hfDashProjEl(D) {
+  const tid = (D.rows.find((r) => r.role === "target") || {}).id || "";
+  const w = tid && typeof worksList !== "undefined" ? worksList.find((x) => x.id === tid) : null, t = (w && w.task) || {};
+  const project = t.project || "", round = taskRound(t), busy = !!hf.busy || homeTaskBusy || (typeof HD === "object" && HD.busy === "start");
+  const line = el("div", "hf-dash-proj"), name = el("span", "hf-dash-proj-name");
+  name.append(el("span", "hf-dash-key", "프로젝트"), el("strong", null, project || "프로젝트 없음"));
+  name.title = project ? `이 작업의 프로젝트 「${project}」` : "프로젝트에 묶이지 않은 작업입니다";
+  line.append(name);
+  if (project) {
+    const groups = typeof projectGroups === "function" ? projectGroups().filter((g) => g.project === project && g.job === D.job).sort((a, b) => b.round - a.round) : [];
+    const lab = el("label", "hf-dash-round"), sel = el("select");
+    if (!groups.some((g) => g.round === round)) sel.append(new Option(`Round ${round}`, String(round)));
+    for (const g of groups) sel.append(new Option(`Round ${g.round}${g.latest ? " · 최신" : " · 이전"}`, String(g.round)));
+    sel.value = String(round);
+    sel.disabled = busy || groups.length < 2;
+    sel.dataset.hfFocus = "round";
+    sel.setAttribute("aria-label", "라운드");
+    lab.title = groups.length < 2 ? `프로젝트 「${project}」 의 이 워크플로우는 라운드가 하나입니다` : "고르면 그 라운드의 대시보드 · 문서를 봅니다(문서 화면을 열지 않습니다)";
+    sel.onchange = () => { const g = groups.find((x) => x.round === Number(sel.value)); sel.value = String(round); if (g && g.main) homeDashRound(g.main.id); };
+    lab.append(el("span", "hf-dash-key", "라운드"), sel);
+    line.append(lab);
+  }
+  const add = hBtn("New", () => homeDashNew(project), { cls: "btn sm hf-dash-new", disabled: busy,
+    title: `새 작업 — ${project ? `프로젝트 「${project}」 · ` : ""}워크플로우 「${D.name}」 로 새로 시작합니다: 이 보기를 시작 전으로 비우고 왼쪽에 문서를 놓아 「워크플로우 시작」(프로젝트가 있으면 그 프로젝트의 다음 라운드). 보던 작업은 지우지 않습니다` });
+  add.dataset.hfFocus = "new";
+  line.append(add);
+  return line;
+}
+
 function hfDashDraw(drop, box, D) {
   const focus = box.contains(document.activeElement) ? document.activeElement.dataset.hfFocus || "" : ""; // 진행이 바뀌어 다시 그려도 초점은 그 단추에
   drop.classList.add("has-files");
@@ -141,6 +173,7 @@ function hfDashDraw(drop, box, D) {
   head.append(h, hHelp("대시보드의 문서 안내", `오른쪽 대시보드가 보이는 작업(워크플로우 「${D.name}」)의 문서입니다 — 이미 서버에 올린 문서라 여기서 빼거나 바꾸지 않습니다.\n`
     + "새 문서를 놓거나 「다른 문서 놓기…」 로 고르면 이 자리에 그 문서의 목록이 서고, 대시보드의 문서 칸도 그 문서로 바뀝니다(같은 워크플로우의 시작 전 — 「워크플로우 시작」 으로 새로 시작).\n"
     + "하던 작업은 지우지 않습니다 — 놓은 문서 목록을 비우면 대시보드가 다시 이 작업을 보입니다(최근 작업에서도 열 수 있습니다).\n"
+    + "프로젝트 줄: 「라운드」 를 고르면 같은 프로젝트 · 워크플로우의 그 라운드를 봅니다 · 「New」 = 새 작업 — 같은 프로젝트 · 워크플로우로 새로 시작합니다(보던 작업은 그대로). 워크플로우 카드로 다른 워크플로우를 시작해도 이 자리는 그 작업으로 바뀝니다.\n"
     + "목적 문서 카드에는 워크플로우의 진행(「진행 중 · 끝남 n/m」 · 다 마치면 「완료」 — 대시보드의 셈 그대로)과 내려받기 둘이 있습니다: 「원본」 = 시작할 때 올린 그대로 · 「결과」 = 지금까지 작업한 문서(다 마쳤으면 완료본)."), more);
   const cap = el("p", "hf-cap", `워크플로우 「${D.name}」 — 오른쪽 대시보드의 문서 칸과 같은 문서입니다(이미 올림). 새 문서를 놓으면 그 문서로 시작할 준비를 합니다`);
   const rows = el("div", "hf-rows");
@@ -182,7 +215,7 @@ function hfDashDraw(drop, box, D) {
     }
     rows.append(row);
   }
-  box.append(head, cap, rows);
+  box.append(head, hfDashProjEl(D), cap, rows);
   if (focus) { const to = box.querySelector(`[data-hf-focus="${CSS.escape(focus)}"]`); if (to && !to.disabled) to.focus({ preventScroll: true }); }
 }
 
@@ -274,11 +307,23 @@ function homeFilesDraw() {
   pin.dataset.hfFocus = "project";
   // 비우면 서버가 임시 이름(「임시 프로젝트 N」)을 붙여 올린 문서들을 한 프로젝트로 묶는다 — 이름은 연 뒤에 정한다(② §17 「임시 프로젝트」, 2026-11-18)
   pin.title = "적으면 목적 문서가 그 프로젝트의 워크플로우 다음 라운드로 시작합니다 — 비우면 임시 이름(임시 프로젝트 N)으로 묶고, 연 뒤 작업 개요의 프로젝트 칸에 이름을 적으면 바뀝니다";
-  pin.oninput = () => { hf.project = pin.value; };
+  // 프로젝트 칸 오른쪽의 라운드(2026-11-24 「프로젝트 오른쪽에 라운드 기능이랑 New 버튼」 — spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」): 오른쪽 대시보드에 고른 워크플로우가 있고
+  // 그 프로젝트에 그 워크플로우의 라운드가 있으면 시작할 라운드(다음 라운드 — 서버 start-task 가 정함)를 알린다. 읽기만(라운드를 고르는 것은 시작한 뒤 「대시보드의 문서」 · 작업 개요의 라운드 줄)
+  const rnote = el("span", "hf-round-note");
+  const roundNote = () => {
+    const job = typeof HD === "object" && HD.job && !HD.wid ? HD.job : "", p = hfNorm(pin.value, 60);
+    const rs = job && p && typeof projectGroups === "function" ? projectGroups().filter((g) => g.project === p && g.job === job).map((g) => g.round) : [];
+    rnote.textContent = rs.length ? `→ Round ${Math.max(...rs) + 1} · 새 라운드` : "";
+    rnote.title = rs.length ? `프로젝트 「${p}」 의 워크플로우 「${(TASK_CATALOG[job] || {}).name || job}」 는 Round ${Math.max(...rs)} 까지 있습니다 — 시작하면 다음 라운드로 만듭니다(앞 라운드는 그대로)` : "";
+    rnote.hidden = !rs.length;
+  };
+  pin.oninput = () => { hf.project = pin.value; roundNote(); };
   // 고르기 목록 — 작업 개요의 프로젝트 칸과 같은 도우미(project_workspace.js projectComboAttach — 「새 프로젝트」 로 만든 문서 없는 프로젝트도 보인다). 고르면 그 이름을 적어 둔다(저장은 TASK 카드를 누를 때)
-  if (typeof projectComboAttach === "function") projectComboAttach(pin, { list: "homeFilesProjectList", commit: () => { hf.project = pin.value; } });
+  if (typeof projectComboAttach === "function") projectComboAttach(pin, { list: "homeFilesProjectList", commit: () => { hf.project = pin.value; roundNote(); } });
   else { const dl = el("datalist"); dl.id = "homeFilesProjects"; for (const p of hfProjects()) dl.append(new Option(p)); pin.setAttribute("list", dl.id); pl.append(dl); }
   pl.prepend(el("span", null, "프로젝트"), pin);
+  pl.append(rnote);
+  roundNote();
   const check = (text, key, title, off) => {
     const lab = el("label", "hf-check"), cb = el("input");
     cb.type = "checkbox";
@@ -486,6 +531,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
   hfBusy(`워크플로우 「${t.name}」 — ${hfDocName(job)} 「${target.name}」 올리는 중…${/\.hwp$/i.test(target.name) ? "(한글이 hwpx 로 바꿈 — 수십 초)" : ""}`);
   homeTaskBusy = true;
   if (card) card.classList.add("busy");
+  if (typeof homeDashCardStart === "function") homeDashCardStart(job); // 첫 화면의 대시보드가 앞 작업을 보이던 중이면 걷는다(home_dash.js — 대시보드의 「워크플로우 시작」 이 부른 길이면 hdStart 가 맡음)
   setSaveState("busy", `${target.name} 여는 중…`);
   let main;
   // 준비(목적 문서 열기 → 원본·기관 문서 올리기 → 간단 모드)가 끝날 때까지 작업 진행 에이전트의 시작 턴을 붙든다 — 준비가 끝난 상태로 한 번만 설명하고, 간단 모드가 돌았으면 그 결과를 보고한다(doc_agent_work.js agentWorkHold · spec_작업에이전트 ② §7)
@@ -509,6 +555,7 @@ async function homeFilesGo(job) { // 목록이 있을 때 TASK 카드 — 그 TA
     else if (sourceRole && (main.task || {}).project && hfSourceSlot(job) && !(await hfHasSource(job, main.id, main.task))) { // 원본 칸 = 저장한 양식(목록에 원본 파일이 없음 · 고정)
       if (await hfAddSourceForm(main, job, hfSourceSlot(job))) await loadWorks(); // 첨부 파일 칸이 저절로 잇는다(② §11)
     }
+    if (typeof homeDashCardDone === "function") homeDashCardDone(job, main.id); // 첫 화면으로 돌아오면 이 작업의 대시보드 · 문서
     return true; // 시작함(첫 화면 대화창이 본다 — doc_agent_work.js homeAgentAct)
   }
   catch (e) { // 문서는 열렸는데 TASK·별칭 저장에서 실패했을 수도 있다 — 시작 화면의 까닭 줄은 그때 안 보이므로 알림도
@@ -720,6 +767,7 @@ async function hfStartForm(job, { stay = true } = {}) {
   if (!confirmDiscard()) return stay ? null : false;
   hfBusy(`워크플로우 「${t.name}」 — ${hfFormLabel(was.form)}으로 목적 문서를 만드는 중…`);
   homeTaskBusy = true;
+  if (!stay && typeof homeDashCardStart === "function") homeDashCardStart(job); // 워크플로우 카드 — 첫 화면의 대시보드가 앞 작업을 보이던 중이면 걷는다(home_dash.js)
   try {
     await hfFormsLoad(true); // 시작 직전에 설정을 다시 읽는다 — 읽은 판(rev)과 양식의 해시를 서버가 견준다
     const s = hfSlot(job);
@@ -768,6 +816,7 @@ async function hfStartForm(job, { stay = true } = {}) {
     if (!stay) { // 워크플로우 카드 — 문서 화면을 연다(homeFilesGo 와 같다: 연 뒤 에이전트가 다음 단계를 안내)
       await openWork(id);
       if (state.id === id) taskEnter(job);
+      if (typeof homeDashCardDone === "function") homeDashCardDone(job, id); // 첫 화면으로 돌아오면 이 작업의 대시보드 · 문서
       toast(note);
       return true;
     }

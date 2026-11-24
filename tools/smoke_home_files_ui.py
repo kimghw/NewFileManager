@@ -247,7 +247,13 @@ try:
               tw["task"]["project"].startswith("임시 프로젝트 ") and tw["task"].get("round") == 1 and "임시 이름" in toast_text and "임시" not in tw["name"]
               and page.locator("#divBox .dv-task-field .dv-tag.is-temp").count() == 1, (tw, toast_text))
         go_home(page)
-        check("시작한 문서는 목록에서 빠짐 → 목록 없음", not page.evaluate(LIST)["vis"])
+        # 카드로 시작한 작업을 첫 화면이 따른다(2026-11-24 사용자 「새작업의 시작인데 왜 연차보고서가 남아 있나?」 — spec_작업에이전트 ② §10 「새 작업 — 카드 · New · 라운드」):
+        # 돌아오면 놓은 문서 목록 대신 그 작업의 「대시보드의 문서」(읽기만 — 고르기 없음 · 프로젝트 줄). 전에는 기억이 없어 빈 자리였다
+        page.wait_for_selector("#homeFiles[data-mode=dash] .hf-row", timeout=60000)
+        hm = page.evaluate("""() => { const p = document.getElementById('homeFiles'); return { radios: p.querySelectorAll('input[type=radio]').length, docs: [...p.querySelectorAll('.hf-row')].map((r) => r.dataset.doc || ''),
+          proj: (p.querySelector('.hf-dash-proj-name strong') || {}).textContent || '', files: hf.files.length, memo: JSON.parse(localStorage.getItem('nfm.homeDash') || 'null') }; }""")
+        check("시작한 문서는 목록에서 빠짐 → 목록 대신 그 작업의 「대시보드의 문서」(고르기 없음 · 프로젝트 줄 = 그 임시 프로젝트) · 첫 화면의 기억 = 그 작업",
+              hm["radios"] == 0 and hm["docs"] == [tid] and hm["proj"] == tw["task"]["project"] and hm["files"] == 0 and hm["memo"] == {"job": "plan_fit", "wid": tid}, hm)
         page.screenshot(path=str(OUT / "4_home.png"))
         bad = [e for e in errors if "409" not in e]   # 409 = LLM 꺼짐(noLlm) — 기대한 것
         check("콘솔 오류 0(기대한 409 빼고)", not bad, bad[:5])
