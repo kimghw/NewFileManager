@@ -513,9 +513,17 @@ def run(eid, stop):
         note("끝남" + (f" — 쪽 묶음 {failed}개는 추출하지 못함" if failed else ""), state="done", ended=round(time.time(), 3), chars=len(md), costUsd=round(sum(cost), 4) if cost else None,
              calls=len(calls), failed=failed, relevant=sum(1 for c in chunks if c.get("relevant")), **counts)
     except InterruptedError:
-        note("멈춤", state="stopped", ended=round(time.time(), 3), error="사람이 멈췄습니다")
+        _last(note, "멈춤", state="stopped", ended=round(time.time(), 3), error="사람이 멈췄습니다")
     except Exception as e:   # noqa: BLE001 — 까닭을 적고 끝낸다
-        note("실패", state="failed", ended=round(time.time(), 3), error=str(e)[:400])
+        _last(note, "실패", state="failed", ended=round(time.time(), 3), error=str(e)[:400])
+
+
+def _last(note, text, **more):
+    """끝 상태를 적는다 — 그것마저 못 적어도 예외를 내지 않는다(목록이 그 추출을 「끊김」 으로 거둔다: store.cut_orphans)."""
+    try:
+        note(text, **more)
+    except Exception:   # noqa: BLE001
+        pass
 
 
 _RUNS = {}   # 추출 id → (스레드, 멈춤 표식)

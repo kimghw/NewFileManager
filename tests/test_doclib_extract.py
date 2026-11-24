@@ -252,3 +252,30 @@ def test_extract_retries_a_failed_call_and_halves_a_chunk_that_timed_out(lib, mo
     assert calls == [(1, 2), (1, 1), (2, 2), (2, 2)]                       # 시간 초과는 다시 부르지 않고 반으로 · 보통 실패는 한 번 더
     assert got["state"] == "done" and got["failed"] == 1 and got["figures"] == 1 and got["open"] == 1
     assert "한 쪽 글" in md and "![그림 p.1](images/p1_F1.png)" in md and "<!-- p.2–2: 추출하지 못함 — exit 1: 못 읽음 -->" in md
+
+
+def test_write_retries_a_refused_replace_and_orphan_running_extract_is_cut(lib, monkeypatch):
+    """Windows 는 화면이 meta.json 을 읽는 순간 바꿔 쓰기를 거절한다(WinError 5) — 다시 해서 적는다 ·
+    끝 상태를 못 적고 죽은 「추출 중」 은 목록이 「끊김」 으로 거둔다(2026-11-24 254쪽 추출이 「준비하는 중」 에 남았던 것)."""
+    import os
+    real, tries = os.replace, []
+
+    def flaky(a, b):
+        tries.append(1)
+        if len(tries) < 3:
+            raise PermissionError(5, "Access is denied")
+        return real(a, b)
+    monkeypatch.setattr(store.os, "replace", flaky)
+    p = store.root() / "x.json"
+    store._write(p, {"a": 1})
+    assert json.loads(p.read_text(encoding="utf-8")) == {"a": 1} and len(tries) == 3
+    monkeypatch.setattr(store.os, "replace", real)
+
+    meta, _ = store.add_doc("a.pdf", _pdf(1))
+    e = store.new_extract(meta["id"], "", None)
+    e["state"] = "running"
+    store.save_extract(e)
+    assert store.cut_orphans(lambda eid: True) == 0
+    c = TestClient(server.app)
+    got = c.get("/api/docs").json()["docs"][0]["extracts"][0]
+    assert got["state"] == "cut" and got["error"]

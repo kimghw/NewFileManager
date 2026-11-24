@@ -18,4 +18,4 @@
 - 읽는 쪽: `PermissionError` 는 「없음」으로 치지 말고 몇 번 다시(10 ms …). `FileNotFoundError`·깨진 JSON 과 구분한다 — 구분하지 않으면
   「작업이 없습니다(404)」·목록에서 잠깐 사라짐 같은 가짜 결과가 난다.
 - 같은 프로세스 안의 쓰기끼리는 잠금으로 줄 세우되, 잠금 없이 읽는 길이 하나라도 있으면 위 두 가지가 필요하다.
-- 적용: `app/works.py` `_write`·`_read_json`.
+- 적용: `app/works.py` `_write`·`_read_json` · `doclib/store.py` `_write`(2026-11-24 — 화면이 1초마다 진행 상태를 읽어 254쪽 추출의 상태 쓰기가 거절되고 스레드가 죽었다).

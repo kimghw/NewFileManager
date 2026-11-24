@@ -59,6 +59,7 @@ def health():
 
 @app.get("/api/docs")
 def docs_list():
+    store.cut_orphans(extract.running)   # 스레드 없이 「추출 중」 으로 남은 것 → 「끊김」
     return {"docs": store.docs()}
 
 

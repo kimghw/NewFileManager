@@ -126,6 +126,8 @@
 - 시험: `tests/test_doclib_pdfkit.py`(조각 합치기 · 이음매 · 모서리 확인 · 수식 줄 판정 · 수식 번호 묶기 · 문서 훑기 · 상자 변환) · `tests/test_doclib_extract.py`(저장소 · 답 풀기 · 조립 · 가짜 LLM 으로 끝까지 · 다시 부르기 · 반으로 나누기 · 끝점 · 다른 출처 403) ·
   `tests/test_guide_write.py`(자리 · 요청 글 · 실행 끝점 — 가짜 턴) · 등록부 시험(`test_workflow.py` · `test_task_catalog.py`).
 - 실제 LLM 으로 잰 것은 ① 의 2026-11-24 줄.
+- 2026-11-24 고침(사용자 「이건 왜 아직까지 진행 중이냐?」 — 254쪽 PDF 추출이 「읽을 PDF 를 준비하는 중」 으로 1시간 남음): 화면의 1초 조회가 meta.json 을 읽는 순간 진행 상태를 바꿔 쓰다 거절(WinError 5)되어 추출 스레드가 죽었고, 실패 기록도 같은 까닭으로 못 써 「추출 중」 이 남았다 —
+  `store._write` 가 거절이면 잠깐 쉬고 다시(0.05 s × 40) · `extract.run` 의 끝 상태 쓰기는 예외를 내지 않음 · 목록(`GET /api/docs`)이 스레드 없는 「추출 중」 을 「끊김」 으로 거둠(`store.cut_orphans`). 외부 지식 [references/Windows_파일_바꿔넣기.md](../references/Windows_파일_바꿔넣기.md).
 
 ## ④ 미결/후속
 

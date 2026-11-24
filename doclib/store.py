@@ -44,7 +44,17 @@ def _write(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".{uuid.uuid4().hex[:6]}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    # Windows: 화면의 조회(_read — 잠금 없이 읽는다)가 그 파일을 연 순간에는 바꿔 쓰기가 거절된다(WinError 5).
+    # 잠깐 기다려 다시 한다 — 2026-11-24 254쪽 추출이 「준비하는 중」 에서 이것으로 죽었다.
+    for i in range(40):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == 39:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05)
 
 
 def doc_dir(did):
@@ -207,6 +217,21 @@ def cut_running():
                 e.update(state="cut", ended=round(time.time(), 3), error="서버가 꺼져 끊겼습니다 — 다시 추출하세요")
                 save_extract(e)
                 n += 1
+    return n
+
+
+def cut_orphans(alive):
+    """「추출 중」 인데 돌던 스레드가 없는 추출 → 「끊김」(상태를 못 적고 죽은 것 — 영영 「추출 중」 으로 남지 않게). alive(추출 id) → 스레드가 도나."""
+    n = 0
+    for d in docs():
+        for e in extracts_of(d["id"]):
+            if e.get("state") == "running" and not alive(e["id"]):
+                e.update(state="cut", ended=round(time.time(), 3), error=e.get("error") or "추출이 도중에 멈췄습니다 — 다시 추출하세요")
+                try:
+                    save_extract(e)
+                    n += 1
+                except OSError:
+                    pass
     return n
 
 
