@@ -12,7 +12,9 @@ import time
 
 from fastapi import APIRouter, Body, HTTPException
 
-from app import agent_notes, doc_agent, form_review, job_prompts, llm, merge_guides, works
+import concurrent.futures
+
+from app import agent_notes, agent_settings, doc_agent, form_review, job_prompts, llm, merge_guides, works
 
 router = APIRouter()
 FILE = "form_review.json"
@@ -116,6 +118,60 @@ def review_get(doc_id: str):
     return _view(s)
 
 
+CALL_S = 900.0   # 한 모델의 검토 한 번(Codex 도 같은 한도)
+
+
+def _ask(prompt, place_ids, has_mats, run):
+    """검토를 함께 부를 모델마다(LLM1 · LLM2 … — `agent_settings.models`, 기본 `form_review.LLMS`) 따로 받고, 둘 이상 답하면 LLM1 의 모델이 **협의**해 하나로 낸다
+    (2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의하도록」). → (협의한 답 · 자리마다 기록 [{slot, model, backend, ms, ok, error, questions}] | []).
+    모델이 하나면 전과 같은 한 번(에이전트 설정의 모델). 한 모델만 답하면 그 답을 쓰고 협의는 건너뛴다(기록에 남김) · 협의가 실패하면 LLM1 의 답(없으면 먼저 답한 것)."""
+    models = agent_settings.models("form_review", form_review.LLMS)
+    if len(models) <= 1:
+        got = llm.call(form_review.SCHEMA, prompt, "form-review", timeout=600.0, effort="medium", model=models[0] if models else form_review.MODEL,
+                       **({"slot": "LLM1"} if models else {}))
+        if got.get("data") is None:
+            raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
+        return got, []
+    slots = [(f"LLM{i + 1}", m) for i, m in enumerate(models)]
+    run["llms"] = [{"slot": sl, "model": m, "state": "running"} for sl, m in slots]
+
+    def one(sm):
+        return llm.call(form_review.SCHEMA, prompt, "form-review", timeout=CALL_S, effort="medium", model=sm[1], slot=sm[0])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(slots)) as ex:
+        outs = list(ex.map(agent_notes.carry(one), slots))
+    rec, drafts = [], []
+    for (sl, m), got in zip(slots, outs):
+        ok, err = got.get("data") is not None, got.get("error")
+        if ok:
+            try:
+                form_review.check(got["data"], place_ids, has_mats)
+            except Exception as e:   # noqa: BLE001 — 꼴이 틀린 답은 그 모델의 실패로
+                ok, err = False, f"답의 꼴: {e}"[:200]
+        rec.append({"slot": sl, "model": m, "backend": got.get("backend"), "ms": got.get("ms"), "ok": ok, "error": None if ok else (err or "까닭 모름")[:200],
+                    "questions": len(got["data"].get("questions") or []) if ok else 0})
+        if ok:
+            drafts.append({"slot": sl, "model": m, "data": got["data"], "got": got})
+    run["llms"] = [{**r, "state": "done" if r["ok"] else "failed"} for r in rec]
+    if not drafts:
+        raise RuntimeError("모든 모델이 답하지 못했습니다(" + " · ".join(f"{r['slot']} {r['error']}" for r in rec) + ")")
+    if len(drafts) == 1:
+        rec.append({"slot": "협의", "model": None, "ok": False, "error": f"{drafts[0]['slot']} 만 답해 협의 없이 그 답을 씀"})
+        return drafts[0]["got"], rec
+    run["consult"] = "running"
+    got = llm.call(form_review.SCHEMA, form_review.consult_prompt(prompt, drafts), "form-review#consult", timeout=CALL_S, effort="medium", model=models[0], slot="협의")
+    ok = got.get("data") is not None
+    if ok:
+        try:
+            form_review.check(got["data"], place_ids, has_mats)
+        except Exception as e:   # noqa: BLE001
+            ok, got = False, {**got, "error": f"답의 꼴: {e}"[:200]}
+    rec.append({"slot": "협의", "model": models[0], "backend": got.get("backend"), "ms": got.get("ms"), "ok": ok, "error": None if ok else (got.get("error") or "까닭 모름")[:200],
+                "questions": len(got["data"].get("questions") or []) if ok else 0})
+    run["consult"] = "done" if ok else "failed"
+    return (got if ok else drafts[0]["got"]), rec
+
+
 def _go(s, places, mids, run, request="", plan_request=""):
     """검토 한 번(배경 스레드) — 실패해도 앞 검토는 그대로 둔다. mids 가 있으면 작성 계획(앞 양식 검토의 요약 · 작성 방향 · 테마는 지닌다 — form_review.keep_review).
     plan_request = 「작성 계획에 줄 요청」(작성 계획 때만 프롬프트에 싣고 검토에 planRequest 로 남긴다 — 다시 열면 그 칸의 처음 값)."""
@@ -133,10 +189,10 @@ def _go(s, places, mids, run, request="", plan_request=""):
         from app import guide_write_api
         plan_request = plan_request if mats else ""
         data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s), request, plan_request)
-        got = llm.call(form_review.SCHEMA, form_review.prompt(data, job, g), "form-review", timeout=600.0, effort="medium", model=form_review.MODEL)
-        if got.get("data") is None:
-            raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
+        got, llms = _ask(form_review.prompt(data, job, g), [p["id"] for p in places], bool(mats), run)
         rv = form_review.check(got["data"], [p["id"] for p in places], bool(mats))
+        if llms:
+            rv["llms"] = llms
         prev = st["review"] or {}
         if mats and prev.get("sig") == form_review.sig(places):   # 작성 계획 — 양식 · 지침이 그대로면 요약 · 작성 방향 · 테마는 앞 양식 검토의 것(astra 2차 G14 의 테마 잇기를 넓힘)
             form_review.keep_review(rv, prev)

@@ -15,7 +15,8 @@ import threading
 import time
 from pathlib import Path
 
-MODELS = ("claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")   # 화면이 고르게 하는 모델(다른 id 도 꼴만 맞으면 저장은 된다)
+MODELS = ("claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-astra")   # 화면이 고르게 하는 모델(다른 id 도 꼴만 맞으면 저장은 된다 · gpt-… = Codex CLI — llm.is_codex)
+SLOTS_MAX = 4   # 한 에이전트가 함께 부르는 모델 수(LLM1 …) — 2026-11-25 사용자 「LLM1, LLM2 이런식으로 하고 클릭 해서 모델을 선택」
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 _MODEL_RE = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}")
 _NO_RE = re.compile(r"[0-9A-Za-z가-힣][0-9A-Za-z가-힣._\-]{0,11}")
@@ -66,6 +67,9 @@ def _clean(data):
     for aid, v in (agents.items() if isinstance(agents, dict) else ()):
         if aid in IDS and isinstance(v, dict):
             out[aid] = {k: v[k] for k in ("no", "role", "model", "effort") if isinstance(v.get(k), str) and v[k]}
+            ms = v.get("models")
+            if isinstance(ms, list) and ms and len(ms) <= SLOTS_MAX and all(isinstance(m, str) and _MODEL_RE.fullmatch(m) for m in ms):
+                out[aid]["models"] = list(ms)
     ver = data.get("version") if isinstance(data, dict) else 0
     return {"version": ver if isinstance(ver, int) and not isinstance(ver, bool) else 0, "agents": out}
 
@@ -97,13 +101,18 @@ def get(aid):
 def check(patch):
     """고칠 값 {no?, role?, model?, effort?}(None·"" = 기본으로) → 다듬은 값. 꼴이 틀리면 ValueError."""
     if not isinstance(patch, dict):
-        raise ValueError("고칠 값은 {no, role, model, effort} 가운데 있는 것")
+        raise ValueError("고칠 값은 {no, role, model, effort, models} 가운데 있는 것")
     out = {}
     for k, v in patch.items():
-        if k not in ("no", "role", "model", "effort"):
+        if k not in ("no", "role", "model", "effort", "models"):
             continue
-        if v is None or v == "":
+        if v is None or v == "" or v == []:
             out[k] = None
+            continue
+        if k == "models":   # 함께 부르는 모델들(LLM1 …) — 차례가 자리 번호
+            if not isinstance(v, list) or len(v) > SLOTS_MAX or not all(isinstance(m, str) and _MODEL_RE.fullmatch(m.strip()) for m in v):
+                raise ValueError(f"models 는 모델 이름 목록(1~{SLOTS_MAX}개)")
+            out[k] = [m.strip() for m in v]
             continue
         if not isinstance(v, str):
             raise ValueError(f"{k} 는 글이어야 합니다")
@@ -218,3 +227,9 @@ def reset_runs():
     with _LOCK:
         _RUNS.clear()
         _SEQ[0] = 0
+
+
+def models(aid, default=()):
+    """그 에이전트가 함께 부를 모델들(LLM1 · LLM2 …) — 사람이 정한 것이 먼저, 없으면 default(코드 등록값). 빈 목록이면 한 모델 에이전트."""
+    own = get(aid).get("models")
+    return list(own) if own else list(default)

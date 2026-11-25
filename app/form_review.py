@@ -218,6 +218,20 @@ def prompt(data, job=None, guide=None):
     return prompt_texts.contract(__name__) + guide_part(guide) + job_prompts.part(job) + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
+LLMS = ("claude-fable-5-2", "gpt-6-astra")   # 함께 검토하는 모델의 기본(LLM1 · LLM2 — 에이전트 설정 `models` 가 먼저: agents.AGENTS 의 llms 와 같다)
+CONSULT = """
+
+## 두 검토자의 답 — 협의
+아래는 위 양식 · 자료를 **따로** 검토한 검토자들의 답(같은 꼴)입니다. 판단 지침의 「두 검토자의 협의」 에 따라 **하나의 답**을 위와 같은 꼴로 내세요.
+답에 없는 자리 id · 자료에 없는 사실을 새로 만들지 않습니다. 검토자마다의 답(JSON):
+"""
+
+
+def consult_prompt(base, drafts):
+    """협의 프롬프트 = 검토 프롬프트 그대로 + 검토자들의 답(LLM1 · LLM2 …) — 협의 기준은 지침 글(form_review.md 「두 검토자의 협의」)."""
+    return base + CONSULT + "\n".join(f"### {d['slot']} ({d['model']})\n" + json.dumps(d["data"], ensure_ascii=False, separators=(",", ":")) for d in drafts)
+
+
 def parts(job=None, guide=None):
     """에이전트 설정 · 화면 「지침」 보기에 싣는 글들(자료 빼고) — guide_fix.parts 와 같은 꼴."""
     g = merge_guides.get(GUIDE) if guide is None else guide

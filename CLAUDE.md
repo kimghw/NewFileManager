@@ -68,6 +68,8 @@
 - **에이전트 설정**(상단 바 오른쪽 링크 → 따로 선 페이지 `/agents` · 새 탭 — 2026-11-15 사용자 "에이전트도 워크플로우 처럼 페이지로 해줘": 전의 문서 옆 2열은 없앰) = 앱의 LLM 호출 하나하나(**에이전트** — 지금 21)의 **작업 번호 · 역할 · 쓰는 곳 · 모델·생각 깊이 · 프롬프트 구성**을 보고 고치는 곳. 2026-11-15 사용자 지시("에이전트 설정을 만들고, 어떤 역할을 하고
   프롬프트가 무엇인지 작업번호등을 관리할 수 있는 관리를 우측 상단에 배치해줘"). 등록부 = `app/agents.py` `AGENTS` · 사용자 설정 = `%LOCALAPPDATA%\NewFileManager\agents.json`(`app/agent_settings.py`). **새 LLM 호출을 만들면 `agents.AGENTS` 와
   `agent_settings.PREFIX` 에 한 줄씩 등록한다**(안 하면 `tests/test_agents.py` 가 떨어진다). 에이전트마다 사람이 정한 모델은 서버 전체 설정·고정(pin)보다 먼저다. 원본 [spec/spec_에이전트.md](spec/spec_에이전트.md).
+  **모델 자리 LLM1 · LLM2**(2026-11-25 사용자 "양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의 … LLM 사용하는 도구는 어떤 모델인지 명시 … LLM1, LLM2 이런식으로 하고 클릭 해서 모델을 선택"): 함께 부르는 에이전트는 등록부에 `llms=(…)` · 사람이 고친 값은 설정 `models`(지금 25 양식 검토 = Fable · astra → LLM1 이 협의) ·
+  모델 `gpt-…` 는 `llm.call` 이 Codex CLI 로 부른다 · **LLM 을 쓰는 도구를 화면에 새로 그리면 칩 `LlmChips.el(에이전트 id 들)`(`app/static/llm_chips.js` — 누르면 모델 고르기)을 붙인다**. 원본 같은 사양서 ② §8.
 - **도구에 적어 두는 내용 — 도구 공통 · 이 워크플로우 전용**(2026-11-20 사용자 "각각의 단계에서 사용하는 에이전트의 스킬/도구/프롬프트는 클릭해서 여기서 보고 수정할 수 있게 해줘,, 다만 그건 범용일 수도 있고 현재 이 워크플로우 전용일 수 있으니 구분해서 작성할 수 있게 해줘, 우측 새로운 열에 확인할 수 있도록 해줘" ·
   같은 날 "공통적으로 그 도구에서는 는 내용과 워크플로우마다 사용되는 애용 2가지. 예로 구성맞추기 할때.. 사업계획서랑 다른 문서랑 제공해야 하는 정보가 다르잖아"): **단위는 도구(조립에 놓는 줄 — 틀 + 줄 key)이고 내용은 두 가지다** —
   **「도구 공통」**(그 도구에서 공통으로 쓰는 내용 — 그 도구를 쓰는 모든 워크플로우) · **「이 워크플로우 전용」**(워크플로우마다 쓰는 내용 — 그 워크플로우에서 그 도구에만). 에이전트마다가 아니다(에이전트가 처음에 그렇게 읽었다 — 그러면 「구성 맞추기」 처럼 에이전트 없이 스크립트가 하는 도구에 적을 칸이 없다).
@@ -120,7 +122,8 @@
 2026-11-10 사용자 지시.
 - 웹서버는 **8114 하나만** 띄운다. 띄우기 전에 8114 를 듣는 프로세스가 있는지 보고(`Get-NetTCPConnection -LocalPort 8114 -State Listen`),
   있으면 새로 띄우지 않는다. 다시 켤 때는 **먼저 끄고**(듣는 `python` 의 부모 `cmd` 의 부모 `powershell`(띄우개) 째 `taskkill /PID <그 pid> /T /F` — 띄우개가 없으면 `cmd` 째 → 포트가 빌 때까지 기다림)
-  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다(`backend: cli` · `model: claude-fable-5-2` · `available: true` 여야 한다 — **2026-11-22 부터 잠시 `claude-opus-5-5`**: 구독의 Fable 사용 한도(429)에 닿아 사용자 답 「Opus 5.5로 재시작」. 띄우개의 그 줄을 사용자가 말할 때만 Fable 로 되돌린다).
+  1개만 다시 띄운 뒤 `GET /api/headings/llm` 200 으로 확인한다(`backend: api` · `model: claude-fable-5-2` · `available: true` · `keys.source: fable` 여야 한다 — **2026-11-25 사용자 "fable 키를 사용할 수 있도록 해줘"**: fable 스킬에 등록한 API 키들(`~/.claude/fable/config.json` · 차례대로 · 키 탓 실패면 다음 키 — `app/llm_keys.py`)로 Fable.
+  전: 2026-11-22 구독의 Fable 한도(429)로 CLI · Opus 5.5 · 그 전 CLI · Fable. 아래 「CLI(구독 로그인)」 글은 그때의 것이고 되돌리는 법은 띄우개 머리에 있다).
   끄기 전에 `GET /api/flow/active` 로 서버가 도는 워크플로우 실행이 없는지 본다(2026-11-20 — 있으면 끊긴다: 사용자에게 알리고 정한다 · 아래 「용어 — TASK」 의 「실행 단위 · 서버 실행기」).
 - **백그라운드(세션과 떨어진 프로세스)** 로 띄운다 — 도구의 포그라운드 실행이나 `run_in_background` 로 띄우면 터미널을 잡거나 세션이 끝날 때 같이 죽는다. PowerShell:
   `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File E:\dev\NewFileManager\tools\start_8114.ps1'; CurrentDirectory = 'E:\dev\NewFileManager' }`

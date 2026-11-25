@@ -1246,6 +1246,7 @@ function dashTags(s, C) { // 누가(스크립트 · LLM · 사람) · 문서 바
   const box = el("span", "dash-tags"), by = (DASH.reg && DASH.reg.by) || {};
   const icon = (cls, text, name) => { const t = el("span", "dash-tag" + (cls ? ` dash-t-${cls}` : "")); t.title = text; t.append(agentIcon(name, 12), el("span", "sr-only", text)); return t; }; // 꾸밈 클래스는 dash-t- 로 — style.css 의 .doc 등과 안 겹치게
   for (const b of s.by) box.append(b === "llm" ? dashPromptButton(s, C) : icon(b === "script" ? "" : b, by[b] || b, b));
+  if (s.by.includes("llm") && s.agents?.length && typeof LlmChips !== "undefined") box.append(LlmChips.el(s.agents)); // 어떤 모델인지 「LLM1 · Fable 5.2」 — 누르면 모델 고르기(llm_chips.js · 2026-11-25 사용자)
   if (s.change === "doc") box.append(icon("doc", "문서 바뀜", "doc"));
   if (s.auto) box.append(el("span", "dash-tag dash-t-soft", "자동"));
   if (!s.optional && !s.soon && !s.auto) box.append(el("span", "dash-tag dash-t-must", "필수")); // 사람이 해야 다음으로 가는 단계(자동은 저절로 돌아 붙이지 않음)

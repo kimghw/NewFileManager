@@ -155,9 +155,9 @@ def main():
             cur: (document.querySelector('#agNav a[aria-current=true]') || {}).dataset.agent, two: box('.ags-prompt').left > box('.ags-set').right && Math.abs(box('.ags-prompt').top - box('.ags-set').top) < 4,
             parts: [...document.querySelectorAll('.agp')].map((x) => [x.className.replace('agp ', ''), x.querySelector('summary b').textContent, x.querySelector('.agp-src').textContent, (x.querySelector('summary .ags-tag') || {}).textContent || '']) }; }""")
         head = ag.evaluate(HEAD)
-        check("한 에이전트(주소 #merge_links · 머리 [09] 자리 연결 검토 · 목차의 지금 줄) — 두 단(왼쪽 설정 · 오른쪽 프롬프트) · ① 작업 번호 「09」 ② 역할 ③ 모델(「따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)」 + 넷)·생각 깊이 · 저장 꺼짐 · ④⑤ · 절마다 설명 글",
+        check("한 에이전트(주소 #merge_links · 머리 [09] 자리 연결 검토 · 목차의 지금 줄) — 두 단(왼쪽 설정 · 오른쪽 프롬프트) · ① 작업 번호 「09」 ② 역할 ③ 모델(「따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)」 + 다섯 — astra(Codex) 포함: 2026-11-25)·생각 깊이 · 저장 꺼짐 · ④⑤ · 절마다 설명 글",
               d["hash"] == "#merge_links" and head == ["09", "자리 연결 검토"] and d["title"].startswith("작업 09 · 자리 연결 검토") and d["cur"] == "merge_links" and d["two"] and d["no"] == "09" and d["role"].startswith("사업계획서")
-              and d["model"][0] == "따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)" and d["model"][1:] == ["Fable 5.2", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"] and d["effort"] == "따로 정하지 않음 — 지금 medium"
+              and d["model"][0] == "따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)" and d["model"][1:] == ["Fable 5.2", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "astra (Codex)"] and d["effort"] == "따로 정하지 않음 — 지금 medium"
               and d["saved"] == "기본값 그대로" and d["save"] and [s[0] for s in d["secs"]] == ["①", "②", "③", "④", "⑤"] and d["helps"] == 5, [head, d])
         check("④ 프롬프트의 차례 = 에이전트 계약 · 판단 지침 · 할 일 프롬프트(수정 가능) → 양식 정보 → 자료 → 덧붙이는 글(범용 — 고칠 수 있음: spec_에이전트 ② §6)",
               [x[0] for x in d["parts"]] == ["k-contract", "k-merge", "k-job", "k-form", "k-data", "k-note"] and all(x[3] == "고칠 수 있음" for x in d["parts"][:3]) and d["parts"][1][2] == "app/merge_guides_default/links.md"

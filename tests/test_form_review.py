@@ -11,6 +11,13 @@ from app import form_review_api as R
 from app import guide_write_api as GW
 from tests.test_guide_write import BLOCKS, GRAPH, IX, SMALL
 
+
+@pytest.fixture(autouse=True)
+def _one_model():
+    """이 파일의 시험은 호출 한 번의 검토를 본다 — 모델 여럿(LLM1 · LLM2 + 협의)은 tests/test_form_review_llms.py."""
+    from app import agent_settings
+    agent_settings.save("form_review", {"models": ["claude-opus-5-5"]})
+
 PLACES = guide_write.places(BLOCKS, GRAPH, IX)
 ANSWER = {"summary": "연구개발 목표와 추진 전략을 개조식으로 씁니다.",
           "places": [{"id": "h2", "how": "정량 지표와 함께 3줄", "needs": "목표 수치", "use": "자료의 최종 목표 문단", "gap": "기준 연도"}, {"id": "zz", "how": "없는 자리", "needs": "", "use": "", "gap": ""}],

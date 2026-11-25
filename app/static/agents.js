@@ -8,7 +8,7 @@
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const nf = (v) => (v == null ? "–" : Number(v).toLocaleString("ko-KR"));
-  const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5" }; // 워크플로우 페이지(workflow.js MODEL)와 같은 이름
+  const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5", "gpt-6-astra": "astra (Codex)" }; // 워크플로우 페이지(workflow.js MODEL)와 같은 이름
   const SRC = { user: "여기서 정함", pin: "이 에이전트에 고정", force: "서버 전체 설정", code: "코드가 정함", default: "서버 기본" };
   const EFFORT = { low: "낮음(low)", medium: "보통(medium)", high: "높음(high)", xhigh: "더 높음(xhigh)", max: "가장 높음(max)" };
   const KEYS = { no: "작업 번호", role: "역할", model: "모델", effort: "생각 깊이" };
@@ -213,6 +213,10 @@
     row3.append(el("span", "ags-lab", "모델"), model, el("span", "ags-lab", "생각 깊이"), effort);
     const now = el("p", "ags-kv ags-muted"); now.append(el("span", "ags-lab", "지금"), `${modelName(d.model.id)} · ${d.effort.id} — ${SRC[d.model.source]}`);
     s3.append(row3, now);
+    if ((d.llms || []).length > 1 && typeof LlmChips !== "undefined") { // 함께 부르는 모델(LLM1 · LLM2 — 양식 검토: 자리마다 따로 검토하고 LLM1 의 모델이 협의) — 누르면 그 자리의 모델을 바꾼다(llm_chips.js · 2026-11-25 사용자)
+      const multi = el("p", "ags-kv"); multi.append(el("span", "ags-lab", "함께 부르는 모델"), LlmChips.el([d.id]));
+      s3.append(multi);
+    }
     // 저장 줄(①②③ 을 함께 — 높이 고정)
     const state = el("div", "ags-rowline ags-state"), st = el("span", "ags-saved"), save = btn("저장", () => saveAgent(), { cls: "btn sm primary ags-save" });
     const drop = btn("고친 것 버리기", () => { S.drafts.delete(d.id); S.arm = null; draw(); });

@@ -76,7 +76,8 @@ def _matches(s, text, kind):
 
 @router.get("/api/docs/{doc_id}/place-guides")
 def place_guides_list(doc_id: str):
-    """{rev, version(사람 지침의 판), heads[{id, n, user, text}], tables[{id, n, user}], loose} — 지침이 있는 헤딩 · 표만(문서 차례가 아님 — 화면이 그 자리를 찾는다)."""
+    """{rev, version(사람 지침의 판), heads[{id, n, user, text}], tables[{id, n, user}], loose, lines[{id, n}]} — 지침이 있는 헤딩 · 표만(문서 차례가 아님 — 화면이 그 자리를 찾는다) ·
+    lines = 상자 · 칸 안의 헤딩 줄(늘 보이는 「지침」 단추 — 누르면 그 줄에 닿는 층들: GET …/at/{id} · n = 그 줄을 가리키는 작성 지침 보완 수)."""
     from app import server
     s = server._sess(doc_id)
     with s.lock:
@@ -85,7 +86,51 @@ def place_guides_list(doc_id: str):
             return {"rev": s.rev, "version": 0, "heads": [], "tables": [], "loose": 0}
         heads = [{"id": h, "n": len(v), "user": any(g["src"] == "user" for g in v), "text": ix["heads_text"].get(h) or _head_text(s, h)} for h, v in ix["heads"].items() if v]
         tables = [{"id": t, "n": len(v), "user": any(g["src"] == "user" for g in v)} for t, v in ix["tables"].items() if v]
-        return {"rev": s.rev, "version": user_load(s.id).get("version", 0), "heads": heads, "tables": tables, "loose": ix["loose"]}
+        from app import heading_runs
+        lines = [{"id": k, "n": v} for k, v in PG.chain_lines(heading_runs.graph(s), s.doc.blocks(), _extra(s.id)[0]).items()]
+        return {"rev": s.rev, "version": user_load(s.id).get("version", 0), "heads": heads, "tables": tables, "loose": ix["loose"], "lines": lines}
+
+
+def _extra(wid):
+    """(작성 지침 보완 26 의 rules {자리 id: [규칙…]}, 양식 검토 25 의 작성 방향 {자리 id: how}) — 양식 작성에서만 있다(없으면 빈 것)."""
+    from app import form_review_api, writing_guidance_api
+    try:
+        wg = writing_guidance_api._load(wid) or {}
+    except Exception:
+        wg = {}
+    rv = (form_review_api.load(wid) or {}).get("review") or {}
+    pl = rv.get("places") or {}
+    rows = pl.items() if isinstance(pl, dict) else ((x.get("id"), x) for x in pl if isinstance(x, dict))
+    hows = {k: v["how"] for k, v in rows if k and isinstance(v, dict) and (v.get("how") or "").strip()}
+    return (wg.get("rules") if isinstance(wg.get("rules"), dict) else {}), hows
+
+
+@router.get("/api/docs/{doc_id}/place-guides/at/{bid}")
+def place_guides_at(doc_id: str, bid: str):
+    """{id, text, layers[{key, title, at, items[{src, kind, text, label?}]}], rev} — 블록 bid(본문 · 상자 · 표 칸 안의 줄 · 칸)에 닿는 작성 지침을 가까운 층부터:
+    이 줄 → 윗 줄(상자 · 칸 안의 부모 줄) → 이 칸 → 상자 · 표 → 절 → 윗 절(place_guides.chain — 읽기만 · 문서는 안 바뀐다). 2026-11-25 사용자 「헤딩마다 작성 지침 … 아이콘」 · 「테이블 필드도 마찬가지로」."""
+    from app import heading_runs, server
+    s = server._sess(doc_id)
+    if s.fmt != "hwpx":
+        raise HTTPException(400, "작성 지침은 hwpx 문서에서만 봅니다")
+    rules, hows = _extra(s.id)
+    owner = {}
+    if rules or hows:   # 양식 작성의 자리가 품은 표(헤딩 자리 「p5」 → 표 「t6」) — 그 자리의 지침이 표 칸에도 닿게. **잠금 밖에서**(_base_places 가 세션 잠금을 잡는다 — 잠금은 다시 들어갈 수 없다)
+        from app import guide_write_api
+        try:
+            for pl in guide_write_api._base_places(s)[0]:
+                for t in pl.get("tables") or ():
+                    owner.setdefault(t, pl["id"])
+        except Exception:
+            owner = {}
+    with s.lock:
+        ix = index_of(s)
+        if ix is None:
+            raise HTTPException(400, "작성 지침은 hwpx 문서에서만 봅니다")
+        blocks = s.doc.blocks()
+        if bid not in PG.owners(blocks):
+            raise HTTPException(404, "그 자리가 지금 문서에 없습니다")
+        return {"id": bid, "text": _head_text(s, bid), "layers": PG.chain(ix, blocks, heading_runs.graph(s), bid, rules, hows, owner), "rev": s.rev}
 
 
 def _head_view(s, pid):

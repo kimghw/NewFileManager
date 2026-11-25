@@ -374,7 +374,8 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     check("다이어그램 — 1500·900·480·360px에서 기술 상세 · 시작 점검 · 문서마다 단위문서 TASK 를 펴도 가로 넘침 없음", not bad, bad)
     wf.screenshot(path=str(OUT / "08_diagram_mobile.png"))
     read_paths = {"/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples",
-                  "/api/reqs", "/api/tool-names", "/api/account/me", "/api/agents/merge_links"}
+                  "/api/reqs", "/api/tool-names", "/api/account/me", "/api/agents/merge_links",
+                  "/api/agents"}   # LLM 칩(llm_chips.js — 도구의 모델 「LLM1 · Fable 5.2」: 2026-11-25)이 읽는다
     check("다이어그램 탐색과 프롬프트 열람은 조회 요청만 보낸다",
           bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0].removeprefix(base) in read_paths for method, url in workflow_requests), workflow_requests)
     wf.set_viewport_size({"width": 1500, "height": 1000})
@@ -539,11 +540,11 @@ def main():
               and {k: v for k, v in ondoc["plan_merge"]}["link"] == f"원본 문서마다 → 목적 — {GS} → {GD}" and {k: v for k, v in ondoc["plan_merge"]}["config"] == FLOW_ON, [ondoc, want_on])
         wf.click("#plan_to_report .wf-step[data-step=llm] > summary")
         d = wf.evaluate("""() => { const d = document.querySelector('#plan_to_report .wf-step[data-step=llm]'), a = d.querySelector('.wf-agent');
-          return { open: d.open, rows: [...d.querySelectorAll('.wf-more dt')].map((x) => x.textContent), on: d.querySelector('.wf-more dd').textContent, ano: a.querySelector('.wf-ano').textContent, aname: a.querySelector('.wf-agent-link').textContent, ahref: a.querySelector('.wf-agent-link').getAttribute('href'), model: a.querySelector('.wf-tag').textContent,
+          return { open: d.open, rows: [...d.querySelectorAll('.wf-more dt')].map((x) => x.textContent), on: d.querySelector('.wf-more dd').textContent, ano: a.querySelector('.wf-ano').textContent, aname: a.querySelector('.wf-agent-link').textContent, ahref: a.querySelector('.wf-agent-link').getAttribute('href'), model: (a.querySelector('.llm-chip') || a.querySelector('.wf-tag')).textContent,
             how: a.querySelector('.wf-muted').textContent, role: a.querySelector('.wf-role').textContent.slice(0, 12), mods: [...d.querySelectorAll('.wf-mod code')].map((x) => x.textContent),
             doc: d.querySelector('.wf-mod span').textContent.trim().slice(0, 8), spec: d.querySelector('.wf-more dd:last-child').textContent }; }""")
         check("단계를 누르면 세부 — 하는 문서(원본 → 목적 — 사업계획서 → 연차보고서) · 문서 · 에이전트(작업 번호 09 · 자리 연결 검토(에이전트 설정 페이지 /agents#merge_links 로 가는 링크) · Opus 5.5 · 코드가 정함 · 눌러야 돎 · 역할 글) · 모듈(파일 + 설명 첫 줄) · 사양 자리",
-              d["open"] and d["rows"] == ["하는 문서", "문서", "에이전트", "코드", "사양"] and d["on"] == step_of(relay, "llm", "map").get("onText") == f"원본 → 목적 — {S} → {D}" and d["ano"] == "09" and d["aname"] == "자리 연결 검토" and d["ahref"] == "/agents#merge_links" and d["model"] == "Opus 5.5" and d["how"] == "코드가 정함 · 눌러야 돎"
+              d["open"] and d["rows"] == ["하는 문서", "문서", "에이전트", "코드", "사양"] and d["on"] == step_of(relay, "llm", "map").get("onText") == f"원본 → 목적 — {S} → {D}" and d["ano"] == "09" and d["aname"] == "자리 연결 검토" and d["ahref"] == "/agents#merge_links" and d["model"] == "LLM1 · Opus 5.5" and d["how"] == "코드가 정함 · 눌러야 돎"
               and d["role"].startswith("사업계획서") and d["mods"] == ["app/merge_llm.py", "app/merge_chunks.py", "app/merge_guides.py", "app/link_guides.py", "app/place_guides.py", "app/job_prompts.py"] and d["doc"].startswith("병합")
               and d["spec"] == "spec/spec_병합.md ② §4", d)
         # TASK 문서(spec_워크플로우 ② §10) — 시작 점검(진행 방식 아래 · 단계 묶음 위: 때마다 묶음 · 접힘) · 단계의 조건(세부 앞)

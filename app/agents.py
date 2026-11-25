@@ -109,6 +109,7 @@ AGENTS = (
          where="「그림 도구」 띠 · 그림의 오른쪽 단추 메뉴 → 「캡션 넣기」(캡션이 없는 그림)",
          data="그림(긴 변 2000px 안 · PNG) + 소속 헤딩 경로 · 앞뒤 글 · 이 문서의 그림 캡션 예"),
     dict(id="form_review", no="25", group="문서 편집", name="양식 검토", run="manual", effort="medium", contract=("app.form_review", "CONTRACT"), model=("app.form_review", "MODEL"), parts=(("merge", "form_review"), ("job", "*")),
+         llms=("claude-fable-5-2", "gpt-6-astra"),   # 함께 검토하고 협의하는 모델(LLM1 · LLM2 — 2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의」 · 화면에서 바꿈)
          role="양식 전체(헤딩 · 본문 안내 · 표 · 상자 안의 쓸 자리 · 자리마다의 작성 지침)를 읽고, 이 양식을 어떻게 쓸지(전체 요약 · 자리마다 작성 방향 · 필요한 정보)를 정리하고, 자료에서 찾을 테마 · 키워드를 맥락과 함께 뽑고, "
               "쓰기 전에 사람이 확인해 줘야 할 것(범위 · 기준 · 우선순위 · 같은 이름의 자리가 여럿일 때 어느 자리에 누구의 것을 쓸지)을 물음으로 냅니다. "
               "자료를 주면 **작성 계획**(자리마다 자료의 무엇을 쓸지 · 자료에 없는 것)을 세우고 물음의 답 후보를 자료에서만 찾습니다(근거 구절과 함께). 문서는 바뀌지 않고, 계획이 있고 사람이 물음에 모두 답해야 「지침 작성」 의 작성 초안 받기가 돌며 그 답과 계획이 자리마다의 요청에 실립니다.",
@@ -167,7 +168,18 @@ def _brief(a, own, tally):
     return {"id": a["id"], "no": own.get("no") or a["no"], "noDefault": a["no"], "group": a["group"], "name": a["name"], "role": own.get("role") or a["role"], "roleDefault": a["role"],
             "where": a["where"], "run": a["run"], "runText": RUN[a["run"]], "model": model_of(a, own.get("model") or ""), "modelCode": code, "pin": bool(a.get("pin")),
             "effort": effort_of(a, own.get("effort") or ""), "effortCode": a.get("effort"), "custom": sorted(own), "user": {k: own.get(k) for k in ("no", "role", "model", "effort")},
-            "whats": [p for p, i in S.PREFIX if i == a["id"]], "runs": t.get("runs", 0), "fails": t.get("fails", 0), "last": t.get("last")}
+            "whats": [p for p, i in S.PREFIX if i == a["id"]], "runs": t.get("runs", 0), "fails": t.get("fails", 0), "last": t.get("last"),
+            "llms": llms_of(a, own)}
+
+
+def llms_of(a, own=None):
+    """그 에이전트가 부르는 모델을 자리마다 [{slot: "LLM1", model, multi}] — 함께 부르는 에이전트(등록부 llms)는 자리 여럿 · 아니면 지금 모델 하나(LLM1).
+    화면의 「LLM1 · LLM2」 칩이 이것을 그리고, 누르면 모델을 고친다(multi = models 를 고침 · 아니면 model) — 2026-11-25 사용자 「LLM 사용하는 도구는 어떤 모델인지 명시 … 클릭 해서 모델을 선택」."""
+    own = own if own is not None else S.get(a["id"])
+    if a.get("llms"):
+        ms = list(own.get("models") or a["llms"])
+        return [{"slot": f"LLM{i + 1}", "model": m, "multi": True} for i, m in enumerate(ms)]
+    return [{"slot": "LLM1", "model": model_of(a, own.get("model") or "")["id"], "multi": False}]
 
 
 def listing():

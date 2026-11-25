@@ -94,7 +94,7 @@ def prompt_reset(aid: str, kind: str, name: str, version: int):
 
 @router.put("/api/agents/{aid}")
 def agent_put(aid: str, body: dict = Body(...)):
-    """{no?, role?, model?, effort?, version?} — 작업 번호 · 역할 글 · 모델 · 생각 깊이를 고친다(null·"" = 기본으로). → 그 에이전트(GET 꼴).
+    """{no?, role?, model?, effort?, models?, version?} — 작업 번호(models = 함께 부르는 모델들 LLM1 …) · 역할 글 · 모델 · 생각 깊이를 고친다(null·"" = 기본으로). → 그 에이전트(GET 꼴).
     400 꼴이 틀림·작업 번호가 다른 에이전트와 겹침 · 404 없는 에이전트 · 409 그 사이에 바뀜(version)."""
     if aid not in A.BY_ID:
         raise HTTPException(404, "그런 에이전트가 없습니다")
@@ -102,7 +102,7 @@ def agent_put(aid: str, body: dict = Body(...)):
     if ver is not None and (isinstance(ver, bool) or not isinstance(ver, int)):
         raise HTTPException(400, "version 은 정수")
     try:
-        return A.update(aid, {k: body[k] for k in ("no", "role", "model", "effort") if k in body}, ver)
+        return A.update(aid, {k: body[k] for k in ("no", "role", "model", "effort", "models") if k in body}, ver)
     except S.Stale as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:

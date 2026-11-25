@@ -334,3 +334,116 @@ def user_put(data, hid, text, label="", at=0.0):
     else:
         heads.pop(hid, None)
     return {"version": int((data or {}).get("version") or 0) + 1, "heads": heads}
+
+
+# ---- 한 자리에 닿는 지침의 사슬 — 줄 · 윗 줄 · 칸 · 상자/표 · 절 · 윗 절 -------------------------------------------------------------------
+# 2026-11-25 사용자(상자 안 「공동(기업명 작성) :」 아래 줄들을 보며) "여기서 하나의 셋트라고 해야하나... 헤딩마다 작성 지침이 있을거 아냐? 1. 1.1 1.1.1. 이렇면 1.1.1 도 작성 지침이 있고
+# 1.1 도 하위 내용에 대한 작성지침이 있고? 있다면, 목적문서에서 이걸 확인할 수 있는 아이콘을 제공했으면 좋겠어" · "테이블 필드도 마찬가지로".
+# 화면이 보이는 것만이다(읽기만) — 3단계 LLM 이 읽는 목록(resolver)은 바꾸지 않는다. 원천: 문서 · 사람의 지침(index) + 작성 지침 보완(26 — writing_guidance 의 rules: 자리 id 마다,
+# 글이 「p48 줄은 …」 · 「p50~p54 에는 …」 처럼 줄을 가리키면 그 줄의 것) + 양식 검토(25)의 자리마다 작성 방향(how). 층을 나누는 법은 에이전트 판단(사용자 확인 전).
+_IDS = re.compile(r"(?<![A-Za-z0-9])([pt])(\d+)(?:\s*[~∼\-–]\s*[pt]?(\d+))?(?![A-Za-z0-9])")
+KIND_RULE, KIND_HOW = "작성 지침 보완", "양식 검토 — 작성 방향"
+
+
+def mentions(text):
+    """글이 가리키는 블록 id 모음(「p48」 · 「p50~p54」 · 「t44」 — 범위는 60 까지만 편다)."""
+    out = set()
+    for m in _IDS.finditer(text or ""):
+        a = int(m.group(2))
+        b = int(m.group(3)) if m.group(3) else a
+        if b < a or b - a > 60:
+            b = a
+        out.update(f"{m.group(1)}{i}" for i in range(a, b + 1))
+    return out
+
+
+def _rule_item(r):
+    return {"src": "guidance", "kind": KIND_RULE + (" · 양식 명시" if r.get("basis") == "explicit" else " · 예시에서" if r.get("basis") == "example" else ""),
+            "text": _cut(r.get("instruction") or "", ITEM_MAX)}
+
+
+def chain(ix, blocks, graph, bid, rules=None, hows=None, owner=None):
+    """블록 bid(문단 · 칸 안 문단 · 칸)에 닿는 지침을 가까운 층부터 [{key, title, at, items[{src, kind, text, label?}]}] — 빈 층은 뺀다.
+    key = line(이 줄) · up(윗 줄 — 상자 · 칸 안의 부모 줄, 그래프의 parent) · cell(이 칸) · table(상자 · 표) · head(절 — 그 줄의 헤딩과 윗 헤딩).
+    rules = {자리 id: [작성 지침 보완 규칙…]} · hows = {자리 id: 양식 검토의 작성 방향} · owner = {표 id: 그 표를 품은 양식 작성의 자리 id}(헤딩 자리 「p5」 가 표 「t6」 을 품는 등)."""
+    ix, rules, hows, owner = ix or {}, rules or {}, hows or {}, owner or {}
+    cells = {}
+    own = owners(blocks, cells)
+    by_para = {n.get("para"): n for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("para")}
+    by_id = {n["id"]: n for n in by_para.values() if n.get("id")}
+    tchain = own.get(bid) or []
+    top = tchain[0] if tchain else None
+    t3 = set(ix.get("t3") or ()) | set(ix.get("tables") or ())
+    tid = next((t for t in reversed(tchain) if t in t3), None) or (tchain[-1] if tchain else None)
+    blk = {b["id"]: b for b in iter_blocks(blocks or ())}
+    text = lambda pid: _one((blk.get(pid) or {}).get("text") or (by_para.get(pid) or {}).get("text") or "", 40)
+    # 윗 줄 — 상자 · 칸 안에서 그래프의 parent 를 따라 같은 표 안에 있는 것만(본문 헤딩에 닿으면 멈춤 — 그것은 절의 층)
+    ups, seen, n = [], {bid}, by_para.get(bid)
+    p = by_id.get((n or {}).get("parent"))
+    while p is not None and p.get("para") not in seen and tchain and top in (own.get(p.get("para")) or []):
+        seen.add(p["para"])
+        if not p.get("blank"):
+            ups.append(p["para"])
+        p = by_id.get(p.get("parent"))
+    # 작성 지침 보완 · 양식 검토 — 그 자리(이 블록 자신 · 품은 표들)의 것을 가리키는 줄마다 나눈다
+    hit = {bid: [], **{u: [] for u in ups}}
+    rest = []
+    places = list(dict.fromkeys([bid, *tchain, *(owner[t] for t in tchain if owner.get(t))]))
+    whole = set(places) - {bid}   # 표 · 그 표를 품은 자리 — 이것만 가리키는 규칙은 그 표 전체의 것
+    for place in places:
+        for r in rules.get(place) or ():
+            if not isinstance(r, dict) or not (r.get("instruction") or "").strip():
+                continue
+            ids = mentions(r["instruction"]) - {place} - whole
+            if place == bid or not ids:
+                (hit[bid] if place == bid else rest).append(_rule_item(r))
+                continue
+            for k in [*reversed(ups), bid]:   # 윗 줄과 그 아래 줄을 함께 가리키면 그 묶음(셋트)의 지침 — 가장 위 줄의 것으로
+                if k in ids:
+                    hit[k].append(_rule_item(r))
+                    break
+    layers = []
+
+    def add(key, title, at, *lists, keep=False):   # keep = 비어도 세운다(이 줄 · 윗 줄 — 묶음의 짜임이 보이게)
+        items, _ = pack(*lists, limit=PLACE_MAX * 2)
+        if items or keep:
+            layers.append({"key": key, "title": title, "at": at, "items": items})
+    add("line", "이 줄", bid, (ix.get("heads") or {}).get(bid), hit[bid],
+        [{"src": "review", "kind": KIND_HOW, "text": _cut(hows[bid], ITEM_MAX)}] if hows.get(bid) else None, keep=True)
+    for u in ups:
+        add("up", f"윗 줄 「{text(u)}」" if text(u) else "윗 줄", u, (ix.get("heads") or {}).get(u), hit[u], keep=True)
+    if tid:
+        tg = (ix.get("tables") or {}).get(tid) or []
+        at_cell = cells.get(bid)
+        rc = at_cell[1] if at_cell and at_cell[0] == tid else None
+        if rc:
+            add("cell", f"이 칸({rc})", bid, [g for g in tg if g.get("cell") == rc])
+        st = (ix.get("struct") or {}).get(tid)
+        tb = blk.get(top) or {}
+        box = len(tb.get("cells") or ()) == 1
+        add("table", "이 상자" if box else "이 표", top, [g for g in tg if not g.get("cell")], [st] if st else None, rest,
+            [{"src": "review", "kind": KIND_HOW, "text": _cut(hows[k], ITEM_MAX)} for k in whole if hows.get(k)])
+    find, anc = heading_finder(blocks, graph), ancestors(graph)
+    h = find(top or bid)
+    for i, hp in enumerate([h, *anc.get(h, ())] if h else []):
+        if hp == bid:
+            continue
+        add("head", f"{'절' if i == 0 else '윗 절'} 「{text(hp)}」", hp, (ix.get("heads") or {}).get(hp))
+    return layers
+
+
+def chain_lines(graph, blocks, rules=None):
+    """늘 보이는 단추를 둘 상자 · 칸 안의 헤딩 줄 {블록 id: 그 줄을 가리키는 작성 지침 보완 수} — 그래프가 상자(area box) · 칸 안에서 헤딩 · 제목으로 읽은 글 있는 줄."""
+    own = owners(blocks)
+    out = {}
+    for n in (graph or {}).get("nodes") or ():
+        if not isinstance(n, dict) or not n.get("para") or n.get("blank") or n.get("area") == "body" or n.get("role") not in ("heading", "title"):
+            continue
+        if own.get(n["para"]):
+            out[n["para"]] = 0
+    for place, rs in (rules or {}).items():
+        for r in rs or ():
+            for k in mentions((r or {}).get("instruction") or "") - {place}:
+                if k in out:
+                    out[k] += 1
+    return out

@@ -1,0 +1,13 @@
+/* LLM 칩(llm_chips.js) — 도구의 모델을 자리마다 「LLM1 · Fable 5.2」 로 · 누르면 모델 고르기(2026-11-25 사용자). 색은 대시보드의 LLM 꼬리표(dash-t-llm)와 같은 보라 */
+.llm-chips { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.llm-chips[hidden] { display: none; }
+.llm-chip { height: 18px; padding: 0 6px; border: 1px solid #d9c8fb; border-radius: 9px; background: #f5f0ff; color: #6d28d9; font: inherit; font-size: 10.5px; line-height: 16px; white-space: nowrap; cursor: pointer; box-sizing: border-box; }
+.llm-chip:hover, .llm-chip:focus-visible { border-color: #7948bf; background: #ece3ff; }
+.llm-chip-codex { border-color: #b7dccb; background: #eefaf4; color: #13795b; }
+.llm-chip-codex:hover, .llm-chip-codex:focus-visible { border-color: #2f8f6a; background: #dcf3e8; }
+.llm-menu { position: absolute; z-index: 1000; min-width: 170px; padding: 4px; border: 1px solid #c9cfdb; border-radius: 6px; background: #fff; box-shadow: 0 6px 20px rgba(20, 30, 50, .16); font-size: 12px; }
+.llm-menu-head { padding: 4px 8px 6px; color: #53647f; font-weight: 600; border-bottom: 1px solid #eef0f4; margin-bottom: 2px; }
+.llm-menu button { display: block; width: 100%; padding: 5px 8px; border: 0; border-radius: 4px; background: none; text-align: left; font: inherit; cursor: pointer; }
+.llm-menu button:hover, .llm-menu button:focus-visible { background: #f2f4f8; }
+.llm-menu button[aria-checked="true"] { color: #6d28d9; font-weight: 600; }
+.llm-menu-note { padding: 6px 8px 3px; color: #7a8599; font-size: 11px; border-top: 1px solid #eef0f4; margin-top: 2px; max-width: 230px; }

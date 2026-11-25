@@ -106,3 +106,16 @@
 /* ④ 누가 읽나(발 고정) */
 .pg-who { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 4px; margin: 0; color: var(--muted, #5d6675); font-size: 11.5px; }
 .pg-who-short { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 줄에 닿는 지침(층별) — 상자 · 칸 안의 헤딩 줄의 늘 보이는 단추 · 그 밖의 줄의 커서 단추 「지침」(place_guides.js pgOpenChain — 2026-11-25 사용자 「헤딩마다 작성 지침 … 아이콘」 · 「테이블 필드도 마찬가지로」) */
+.sheet > .pg-btn.chain { color: #5b6b85; background: rgba(255, 255, 255, .9); border-color: #c9d3e3; font-weight: 400; }
+.sheet > .pg-btn.chain.caret { border-style: dashed; opacity: .85; }
+.pg-chain-cap { margin: 0 0 8px; }
+.pg-layers { display: flex; flex-direction: column; gap: 8px; }
+.pg-layer .pg-sec-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pg-layer .pg-h { flex: 1 1 auto; min-width: 0; }
+.pg-ltag { flex: none; font-size: 10.5px; padding: 0 6px; border-radius: 9px; background: #eef2f8; color: #4a5a74; border: 1px solid #d5dde9; }
+.pg-layer-line .pg-ltag { background: #eef3ff; color: #1c3f94; border-color: #9fb8e6; }
+.pg-layer-up .pg-ltag { background: #f3f0ff; color: #5b3fb0; border-color: #d2c6f5; }
+.pg-layer.is-empty .pg-empty { margin: 2px 0 0; }
+.pg-sec-up .pg-layers { margin-top: 6px; }

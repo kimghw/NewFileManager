@@ -93,7 +93,7 @@ def phead(doc, pid):
 
 
 # 문서의 「지침」 단추들 — 자리(화면 px)와 그 헤딩 줄 · 그 쪽 본문 오른끝
-BTNS = """() => [...document.querySelectorAll('#doc .sheet > .pg-btn')].map((b) => {
+BTNS = """() => [...document.querySelectorAll('#doc .sheet > .pg-btn:not(.chain)')].map((b) => {
   const r = b.getBoundingClientRect(), p = document.querySelector(`#doc .para[data-id="${CSS.escape(b.dataset.pg)}"]`), pr = p ? p.getBoundingClientRect() : null;
   const sheet = b.parentElement, body = sheet.querySelector(':scope > .sheet-body'), br = body ? body.getBoundingClientRect() : null, sr = sheet.getBoundingClientRect();
   return { id: b.dataset.pg, text: b.textContent.trim(), user: b.classList.contains('user'), caret: b.classList.contains('caret'), on: b.classList.contains('on'),
@@ -119,7 +119,7 @@ def open_work(page, wid):
 
 
 def wait_btns(page, n, timeout=30000):
-    page.wait_for_function("(n) => document.querySelectorAll('#doc .sheet > .pg-btn:not(.caret)').length >= n", arg=n, timeout=timeout)
+    page.wait_for_function("(n) => document.querySelectorAll('#doc .sheet > .pg-btn:not(.caret):not(.chain)').length >= n", arg=n, timeout=timeout)
 
 
 def show(page, pid):  # 그 헤딩을 보이는 곳으로 — 단추를 누를 수 있게

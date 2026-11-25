@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from app import agent_notes, agent_settings
+from app import agent_notes, agent_settings, llm_keys
 
 log = logging.getLogger(__name__)
 BACKENDS = ("auto", "sdk", "cli", "api", "off")
@@ -79,7 +79,7 @@ def cli_path(cfg=None):
 
 
 def _has_key():
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    return bool(llm_keys.keys())  # env NFM_LLM_KEYS=fable 이면 fable 스킬의 키들 · 아니면 env 의 키(app/llm_keys.py)
 
 
 _SDK = []  # [판 | None] — 한 번만 찾는다(가져오기는 무겁다)
@@ -107,7 +107,7 @@ def status():
     cfg = settings()
     tries = _tries(cfg)
     return {"backend": cfg["backend"], "model": forced() or cfg["model"], "sdk": sdk_version(), "cli": cli_path(cfg), "available": bool(tries),
-            "active": tries[0] if tries else None}
+            "active": tries[0] if tries else None, "keys": llm_keys.view()}
 
 
 def _blocks(content, images):
@@ -212,10 +212,69 @@ def _cli(cfg, schema, content, timeout, images=None):
     return out["structured_output"], out.get("total_cost_usd")
 
 
+CODEX_PREFIX = ("gpt-",)   # 이 꼴의 모델은 Codex CLI(OpenAI 로그인)로 부른다 — 2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의」
+CODEX_EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "xhigh"}
+
+
+def is_codex(model):
+    return bool(model) and model.startswith(CODEX_PREFIX)
+
+
+def codex_path():
+    """Codex CLI 실행 파일(env NFM_CODEX_CLI · 아니면 PATH 의 codex) | None."""
+    cand = os.environ.get("NFM_CODEX_CLI", "").strip() or shutil.which("codex")
+    return cand if cand and Path(cand).is_file() else None
+
+
+def _codex(cfg, schema, content, timeout, images=None):
+    """Codex CLI 헤드리스 한 번(`codex exec -s read-only --output-schema … -o …` — 빈 임시 폴더 · 읽기만 · 프롬프트는 stdin). 비용은 모른다(None)."""
+    exe = codex_path()
+    if not exe:
+        raise RuntimeError("Codex CLI 실행 파일 없음")
+    with tempfile.TemporaryDirectory(prefix="nfm-codex-") as cwd:
+        sp, op = Path(cwd) / "schema.json", Path(cwd) / "out.json"
+        sp.write_text(json.dumps(schema, ensure_ascii=False), encoding="utf-8")
+        args = [exe, "exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never", "-m", cfg["model"],
+                "-c", f'model_reasoning_effort="{CODEX_EFFORT.get(cfg["effort"], "medium")}"', "--output-schema", str(sp), "-o", str(op)]
+        for i, im in enumerate(images or ()):
+            ip = Path(cwd) / f"img{i}.{(im.get('media') or 'image/png').split('/')[-1]}"
+            ip.write_bytes(im["data"])
+            args += ["-i", str(ip)]
+        run = subprocess.run(args + ["-"], input=content, capture_output=True, text=True, encoding="utf-8", timeout=timeout, cwd=cwd,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        text = op.read_text(encoding="utf-8") if op.is_file() else ""
+    if run.returncode or not text.strip():
+        raise RuntimeError(f"codex exit {run.returncode}: {(run.stderr or run.stdout or '')[-300:]}")
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise RuntimeError("codex: JSON 객체가 아닙니다")
+    return data, None
+
+
 def _api(cfg, schema, content, timeout, max_tokens=32000, images=None):
+    """키를 차례대로 — 키 탓 실패(거절 · 권한 · 한도 · 크레딧)면 그 키를 잠시 뒤로 미루고 다음 키로(app/llm_keys.py)."""
+    errs = []
+    for key in llm_keys.keys():
+        try:
+            out = _api_one(cfg, schema, content, timeout, key, max_tokens, images)
+        except Exception as e:
+            reason = llm_keys.why(e)
+            if not reason:
+                raise
+            llm_keys.rest(key, reason)
+            log.warning("LLM api: 키 %s %s — 다음 키로", llm_keys.tail(key), reason)
+            errs.append(f"{llm_keys.tail(key)} {reason}")
+            continue
+        llm_keys.ok(key)
+        return out
+    raise RuntimeError("쓸 수 있는 키가 없습니다: " + (", ".join(errs) or "키 없음"))
+
+
+def _api_one(cfg, schema, content, timeout, key, max_tokens=32000, images=None):
     import anthropic
 
-    client = anthropic.Anthropic(timeout=timeout, max_retries=0)
+    own = {"api_key": key} if llm_keys.source() == "fable" else {}  # env 의 키는 전처럼 SDK 가 env 에서(ANTHROPIC_AUTH_TOKEN 도)
+    client = anthropic.Anthropic(timeout=timeout, max_retries=0, **own)
     kw = {"model": cfg["model"], "max_tokens": max_tokens, "messages": [{"role": "user", "content": _blocks(content, images) if images else content}],
           "output_config": {"effort": cfg["effort"], "format": {"type": "json_schema", "schema": schema}}}
     if cfg["model"] in FALLBACK_MODELS:
@@ -247,7 +306,7 @@ def reset_slots():
         _SLOTS = None
 
 
-def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=False, images=None):
+def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=False, images=None, slot=None):
     """구조화 출력 한 번 → {"data", "backend", "ms", "costUsd", "error"}. data 가 None 이면 error 에 까닭(off·busy·길마다 실패 글).
     자리는 NFM_LLM_WAIT초(기본 900) 기다린다 — 기다린 시간은 ms 에 안 넣는다.
     pin=True 면 준 model 이 NFM_LLM_MODEL_FORCE 보다 먼저다 — 사용자가 그 일의 모델을 따로 정한 호출만(템플릿 서식 정리 에이전트 = Opus 5.5:
@@ -255,16 +314,20 @@ def call(schema, content, what, *, timeout=180.0, effort=None, model=None, pin=F
     프롬프트 끝에는 그 에이전트에 사람이 **덧붙여 둔 글**(범용 + 지금 워크플로우 전용)이 붙는다(`agent_notes.attach` — 지금 워크플로우는 맥락 변수: 스레드를 새로 띄우는 곳은 `agent_notes.carry`).
     모델·생각 깊이의 차례(뒤가 이김): env 기본 → 호출이 준 model·effort → NFM_LLM_MODEL_FORCE(pin 이면 건너뜀) → **「에이전트 설정」 에서 그 에이전트에 사람이 정한 값**
     (what 으로 에이전트를 찾는다 — `agent_settings.override`, spec_에이전트 ② §2). 모든 호출은 실행 기록에 한 줄 남는다(`agent_settings.record`).
-    images = 글 앞에 실을 그림들 [{data: bytes, media: "image/png" …}](spec_그림 ② §7 — 없으면 전과 같은 길)."""
+    images = 글 앞에 실을 그림들 [{data: bytes, media: "image/png" …}](spec_그림 ② §7 — 없으면 전과 같은 길).
+    slot = 여러 모델을 함께 부르는 에이전트의 자리 이름(「LLM1」 · 「LLM2」 — 2026-11-25 사용자 「LLM1, LLM2 이런식으로 … 모델을 선택」): 주면 준 model 이 끝 값이다(서버 고정 · 에이전트 설정의 모델을 건너뜀 —
+    그 자리의 모델은 부르는 쪽이 `agent_settings.models` 로 이미 골랐다). 모델이 `gpt-…` 이면 Codex CLI 로 부른다(`_codex`)."""
     content, notes = agent_notes.attach(content, what)  # 그 에이전트에 사람이 덧붙여 둔 글(범용 · 지금 워크플로우 전용 — spec_에이전트 ② §6): 프롬프트 맨 끝에
-    out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin, **({"images": images} if images else {}))
+    out = _call(schema, content, what, timeout=timeout, effort=effort, model=model, pin=pin or bool(slot), slot=slot, **({"images": images} if images else {}))
+    if slot:
+        out["slot"] = slot
     if notes:
         out["notes"] = notes  # 붙인 것의 꼬리표(["all", "job:<워크플로우 키>"]) — 실행 기록에 남는다
     agent_settings.record(what, out)
     return out
 
 
-def _call(schema, content, what, *, timeout, effort, model, pin, images=None):
+def _call(schema, content, what, *, timeout, effort, model, pin, images=None, slot=None):
     cfg = settings()
     if effort in EFFORTS:
         cfg["effort"] = effort
@@ -276,12 +339,12 @@ def _call(schema, content, what, *, timeout, effort, model, pin, images=None):
     ov = agent_settings.override(what)  # 사람이 그 에이전트에 정한 모델·생각 깊이 — 맨 먼저
     if ov.get("effort") in EFFORTS:
         cfg["effort"] = ov["effort"]
-    if ov.get("model") and _MODEL_RE.fullmatch(ov["model"]):
+    if ov.get("model") and _MODEL_RE.fullmatch(ov["model"]) and not (slot and model):
         cfg["model"] = ov["model"]
     out = {"data": None, "backend": None, "ms": 0, "costUsd": None, "error": None, "model": cfg["model"], "effort": cfg["effort"]}
-    tries = _tries(cfg)
+    tries = (["codex"] if codex_path() else []) if is_codex(cfg["model"]) else _tries(cfg)
     if not tries:
-        out["error"] = "off"
+        out["error"] = "codex 없음" if is_codex(cfg["model"]) else "off"
         return out
     slots = _slots()
     wait = _env_num("NFM_LLM_WAIT", 900.0, float)
@@ -294,7 +357,7 @@ def _call(schema, content, what, *, timeout, effort, model, pin, images=None):
         for backend in tries:
             t = time.monotonic()
             try:
-                data, cost = {"sdk": _sdk, "cli": _cli, "api": _api}[backend](cfg, schema, content, timeout, **({"images": images} if images else {}))
+                data, cost = {"sdk": _sdk, "cli": _cli, "api": _api, "codex": _codex}[backend](cfg, schema, content, timeout, **({"images": images} if images else {}))
                 out.update(data=data, backend=backend, ms=round((time.monotonic() - t) * 1000), costUsd=cost, error=None)
                 return out
             except Exception as e:  # 실행 파일·로그인·네트워크·거절·파싱 — 다음 길로

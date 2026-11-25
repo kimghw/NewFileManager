@@ -12,7 +12,7 @@
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const CAT = typeof TASK_CATALOG === "undefined" ? {} : TASK_CATALOG, META = typeof TASK_STAGE_META === "undefined" ? {} : TASK_STAGE_META;
   const josa = (word, a, b) => (typeof taskJosa === "function" ? taskJosa(word, a, b) : a); // 이름 뒤 조사(task_catalog.js taskJosa — 받침이 있으면 a · 없으면 b) · 없으면 옛 글 그대로(a)
-  const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5" }; // 에이전트 설정 페이지(agents.js MODEL)와 같은 이름
+  const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5", "gpt-6-astra": "astra (Codex)" }; // 에이전트 설정 페이지(agents.js MODEL)와 같은 이름
   const SOURCE = { user: "에이전트 설정에서 정함", pin: "이 에이전트에 고정", force: "서버 전체 설정", code: "코드가 정함", default: "서버 기본" };
   const CHANGE = { none: "안 바뀜", doc: "바뀜", store: "안 바뀜 — 결과만 저장" }; // 펼친 세부의 「문서」 줄
   const taskName = (job) => (CAT[job] || {}).name || ((D && D.tasks.find((t) => t.job === job)) || {}).name || job; // 조립한 TASK 의 이름은 등록부(서버 저장소)에도 있다
@@ -313,7 +313,7 @@
       if (a.no) head.append(h("span", "wf-ano", a.no));
       if (a.group) { const nm = link(`/agents#${encodeURIComponent(a.id)}`, a.name, "wf-agent-link"); nm.title = "에이전트 설정에서 이 에이전트 보기 — 작업 번호 · 역할 · 모델 · 프롬프트"; head.append(nm); } // 등록부에 있는 에이전트 → 에이전트 설정 페이지(spec_에이전트 ② §5)
       else head.append(h("b", "", a.name));
-      if (a.model) head.append(tag(MODEL[a.model.id] || a.model.id, "llm"), h("span", "wf-muted", [SOURCE[a.model.source], a.run].filter(Boolean).join(" · ")));
+      if (a.model) head.append(typeof LlmChips !== "undefined" && a.group ? LlmChips.el([a.id]) : tag(MODEL[a.model.id] || a.model.id, "llm"), h("span", "wf-muted", [SOURCE[a.model.source], a.run].filter(Boolean).join(" · "))); // 「LLM1 · Fable 5.2」 — 누르면 모델 고르기(llm_chips.js)
       box.append(head);
       if (a.role) box.append(h("p", "wf-role", a.role));
       return box;

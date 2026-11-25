@@ -93,6 +93,13 @@
     if (!a.model) return "";
     return `${MODEL[a.model.id] || a.model.id}${a.effort ? ` · ${a.effort.id}` : ""}`;
   }
+  function modelEl(a, aid) { // 모델 = 「LLM1 · Fable 5.2」 칩(누르면 모델 고르기 — llm_chips.js · 2026-11-25 사용자) + 생각 깊이 · 칩이 없는 페이지면 전처럼 글
+    if (typeof LlmChips === "undefined" || !a.model) return h("span", "wf-ag-model", modelText(a));
+    const box = h("span", "wf-ag-model"), chips = LlmChips.el([aid]);
+    chips.addEventListener("click", (e) => e.stopPropagation()); // summary 를 접지 않게
+    box.append(chips, ...(a.effort ? [` · ${a.effort.id}`] : []));
+    return box;
+  }
   function noteMarks(c, aid) { // 그 에이전트에 적어 둔 덧붙이는 글의 표시(머리 줄 — 펼치지 않아도 보이게)
     const out = [];
     if (textOf(c, "all", aid).trim()) out.push(tag(dirty(c, "all", aid) ? "에이전트 글 · 저장 안 됨" : "에이전트 글", dirty(c, "all", aid) ? "dirty" : "all"));
@@ -178,7 +185,7 @@
     });
     marks.dataset.agMarks = aid;
     marks.append(...noteMarks(c, aid));
-    sum.append(h("span", "wf-ag-no", a.no || "–"), h("b", "wf-ag-name", a.name), h("span", "wf-ag-model", modelText(a)), marks);
+    sum.append(h("span", "wf-ag-no", a.no || "–"), h("b", "wf-ag-name", a.name), modelEl(a, aid), marks);
     det.append(sum);
     if (!det.open) return det;
     const body = h("div", "wf-ag-body"), d = A.detail.get(aid), top = h("p", "wf-ag-role", a.role);

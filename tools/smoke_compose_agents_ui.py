@@ -124,7 +124,7 @@ def tnote(page, scope, root="#wfCompose"):   # 도구의 칸(scope tool = 도구
 
 
 def open_agent(page, aid, root="#wfCompose"):
-    agent(page, aid, root).locator("> summary").click()
+    agent(page, aid, root).locator("> summary .wf-ag-name").click()   # 이름을 누른다 — 머리의 LLM 칩(llm_chips.js)은 모델 고르기라 접고 펴지 않는다
     page.wait_for_function("""([root, aid]) => { const d = document.querySelector(root + ' .wf-ag-agent[data-agent="' + aid + '"]'); return d && d.open && d.querySelectorAll('.wf-ag-part').length > 0; }""", arg=[root, aid], timeout=20000)
 
 

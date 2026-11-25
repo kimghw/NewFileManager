@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/workflow_agents.css"><!-- 조립 화면의 「에이전트」 열(② §18-16) — workflow.css 다음(세 칸 · 접힌 띠의 규칙이 설명 열의 규칙 뒤에 온다) -->
   <link rel="stylesheet" href="/static/workflow_names.css"><!-- 「도구 설명」 열의 「이름 바꾸기」(② §18-19) — workflow.css 다음 -->
   <link rel="stylesheet" href="/static/workflow_reqs.css"><!-- 「요구사항」 열 · 우클릭 메뉴 · 아이콘(② §18-20) — workflow.css 다음 -->
+  <link rel="stylesheet" href="/static/llm_chips.css"><!-- LLM 칩(「LLM1 · Fable 5.2」 · 누르면 모델 고르기) -->
 </head>
 <!-- TASK 워크플로우(spec_워크플로우 — app/workflow.py 등록부 · GET /api/workflow): TASK 마다 어떤 차례로 무엇을 하는지 보는 따로 선 페이지. 읽기만 한다(실행·진행 상태 없음).
      주소는 /workflow(app/workflow_api.py 가 아래 파일 주소에 ?v= 를 붙인다). #<job> · #common-<id> 로 그 절이 바로 열린다 -->
@@ -39,6 +40,7 @@
   <script src="/static/task_catalog.js"></script><!-- TASK 이름·한 줄 설명(TASK_CATALOG) · 이관·취합의 단계 이름(TASK_STAGE_META) — 원본 -->
   <script src="/api/tasks.js?v=2"></script><!-- v=2 = 줄 목록으로 조립한 정의(v2)도 싣는다(판 없이 읽는 옛 탭에는 표준 정의만 — spec_워크플로우 ② §18-12 ⑤). 화면에서 조립한 TASK 를 TASK 목록에 더한다(taskCatalogCustom — task_catalog.js 다음 · app.js 앞: spec_워크플로우 ② §14). 저장소 = 서버(app/custom_tasks.py) · 캐시 안 함 -->
   <script src="/static/panel_help.js"></script><!-- hHelp(노트 도움말) — workflow.js 앞 -->
+  <script src="/static/llm_chips.js"></script><!-- LLM 칩(「LLM1 · Fable 5.2」 · 누르면 모델 고르기) — workflow_agents.js · workflow.js 앞 -->
   <script src="/static/workflow_agents.js"></script><!-- 조립 화면의 「에이전트」 열(WfAgents — 줄이 쓰는 에이전트의 스킬 · 도구 · 프롬프트 · 덧붙이는 글: spec_워크플로우 ② §18-16) — workflow.js 앞(혼자 선다) -->
   <script src="/static/line_tidy_rules.js"></script><!-- 줄 정리의 「규칙」(LineTidyRules — 「도구 설명」 열: spec_줄정리 ② §6) — workflow.js 앞(혼자 선다) -->
   <script src="/static/workflow_names.js"></script><!-- 도구 이름 고치기(WfNames — 「도구 설명」 열의 「이름 바꾸기」: spec_워크플로우 ② §18-19) — workflow.js 앞(혼자 선다) -->
