@@ -329,3 +329,12 @@ def test_review_and_plan_are_apart_and_review_sees_the_request(c, monkeypatch):
     assert c.post(url, json={"materials": [mid], "note": "한국선급 몫만"}).status_code == 200 and _wait(c, doc)["state"] == "done"
     v = c.get(url).json()["review"]
     assert c.get(url).json()["planned"] and v["summary"] == ANSWER["summary"] and v["sees"] == sees and v["places"]["h2"]["how"] == "정량 지표와 함께 3줄" and v["places"]["h2"]["use"] == "자료의 최종 목표 문단"
+
+
+def test_plan_request_goes_only_with_materials():
+    """「작성 계획에 줄 요청」(spec_양식작성 ② §5-1 ⓓ) — 자료가 있을 때(작성 계획)만 프롬프트 자료 planRequest 로 싣고, 양식 검토(자료 없음)에는 안 간다."""
+    plan = form_review.payload([], {}, [], [], "자료 글", plan_request="2차년도 실적 위주로")
+    review = form_review.payload([], {}, [], [], "", plan_request="2차년도 실적 위주로")
+    assert plan["planRequest"] == "2차년도 실적 위주로" and "planRequest" not in review
+    assert "planRequest" not in form_review.payload([], {}, [], [], "자료 글")
+    assert "planRequest = **사람이 작성 계획에 대해 요청한 것**" in form_review.CONTRACT

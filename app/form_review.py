@@ -59,6 +59,8 @@ CONTRACT = """당신은 정해진 **양식 문서**(사업계획서 · 보고서
 - places = 채울 자리 [{id, kind("head" 헤딩 아래 · "box" 상자 안의 쓸 자리 · "table" 표), text, depth, guides[작성 지침 — (양식 · 종류) 또는 (사람)], filled(이미 글이 있음),
   slot?("label" 그 줄 뒤에 값을 쓰는 줄 · "check" 항목 하나에 표시하는 줄 · "filled" 이미 채운 줄), slots?(상자 — 쓸 수 있는 줄 수), boxed?(그 헤딩 아래에 따로 선 상자 자리가 있음 — 상자에 들어갈 내용은 상자 자리에 적습니다)}].
 - request = **사람이 이번 작성에 대해 요청한 것**(「이번 작성의 지침」 — 있을 때만). 자리의 guides 가운데 「(사람)」 도 사람이 그 자리에 적은 요청입니다. 검토는 이것을 따릅니다(양식의 지침과 어긋나면 어긋난다고 적습니다).
+- planRequest = **사람이 작성 계획에 대해 요청한 것**(「작성 계획에 줄 요청」 — 작성 계획 때 · 있을 때만: 자료의 무엇을 먼저 쓸지 · 어느 자료를 따를지 · 무엇을 묻지 말지 등). 작성 계획(use · gap · questions)은 이것을 따릅니다 —
+  양식의 지침 · request 와 어긋나면 어긋난다고 해당 자리의 gap 이나 물음에 적습니다. 이것으로 자료에 없는 내용을 만들지 않습니다.
 - writingJudgment = 04에서 해당 자리의 작성 규칙을 판정한 결과입니다. apply이면 writingGuidance에 채택한 규칙과 출처가 있습니다. basis의 explicit은 명시 요건, example은 샘플에서 관찰한 관례입니다. not_applicable이나 insufficient이면 이 자리의 원래 양식 지침을 사용합니다. 이 판정은 작성 방법에만 적용되며 실제로 채울 내용은 자료에서 찾습니다.
 - decided = 사람이 이미 정해 준 것 [{q, a}] — 다시 묻지 않습니다.
 - materials = 사람이 준 자료(있을 때만 — 특정 기관 · 특정 연구에 대해 뽑은 글). 없으면 자료는 아직 오지 않았습니다.
@@ -192,7 +194,8 @@ def fed(places, request=""):
             "userGuides": sum(g.get("src") == "user" for g in gs), **({"llmGuides": enriched} if enriched else {}), "request": bool(request)}
 
 
-def payload(blocks, graph, places, decided, materials_text="", orig=None, request=""):
+def payload(blocks, graph, places, decided, materials_text="", orig=None, request="", plan_request=""):
+    """plan_request = 사람이 작성 계획에 줄 요청(「작성 계획에 줄 요청」 — 자료가 있을 때만 싣는다: 양식 검토에는 안 간다)."""
     text, cut = form_text(blocks, graph, orig=orig)
     out = {"form": text, "cut": cut, "places": [_place_brief(p) for p in places or ()],
            "decided": [{"q": d["q"], "a": d["a"]} for d in decided or () if d.get("a")]}
@@ -200,6 +203,8 @@ def payload(blocks, graph, places, decided, materials_text="", orig=None, reques
         out["request"] = request
     if materials_text:
         out["materials"] = materials_text[:MATERIAL_MAX]
+        if plan_request:
+            out["planRequest"] = plan_request
     return out
 
 

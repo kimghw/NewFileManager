@@ -2,7 +2,7 @@
 문서를 바꾸지 않는다. 지침 작성의 「제안 받기」 는 검토가 있고 물음에 모두 답했을 때만 돈다(`gate` — guide_write_api 가 부른다).
 
 - `GET /api/docs/{id}/form-review` → {hwpx, enabled(LLM), review | null, decided[{key, q, a, places, at}], open[아직 답 안 한 물음 key], stale(검토 뒤 자리 · 지침이 바뀜), run | null}.
-- `POST /api/docs/{id}/form-review` {materials: [자료 id…], note} → 배경에서 한 번(유료 LLM · 호출 1번) → {run}. materials 가 비면 **양식 검토**(양식 · 작성 지침 · 사람의 요청 note 만 — 자료는 안 읽음),
+- `POST /api/docs/{id}/form-review` {materials: [자료 id…], note, planNote?(작성 계획에 줄 요청 — 자료가 있을 때만 씀)} →배경에서 한 번(유료 LLM — 함께 검토하는 모델(LLM1 · LLM2 …)마다 한 번 + 둘 이상 답하면 협의 한 번: `_ask`) → {run}. materials 가 비면 **양식 검토**(양식 · 작성 지침 · 사람의 요청 note 만 — 자료는 안 읽음),
   있으면 **작성 계획**(양식 검토가 먼저 — 없으면 409 · 양식이 그대로면 검토의 요약 · 작성 방향 · 테마는 그대로 두고 자리마다 use · gap 과 물음만 받는다). 409 = 도는 중 · 503 = LLM 없음.
 - `PUT /api/docs/{id}/form-review/answers` {answers: [{key?, q?, a}]} → 정한 것을 고친다(key = 검토의 물음 · 없으면 q 로 새 줄 · a 가 빈 글이면 그 줄을 지움) → 보기.
 저장 = 작업 폴더 `form_review.json` {review, decided} — 다시 검토해도 정한 것(decided)은 버리지 않는다(같은 물음은 다시 묻지 않는다 · 검토 실패는 앞 검토를 지우지 않는다).
@@ -116,8 +116,9 @@ def review_get(doc_id: str):
     return _view(s)
 
 
-def _go(s, places, mids, run, request=""):
-    """검토 한 번(배경 스레드) — 실패해도 앞 검토는 그대로 둔다. mids 가 있으면 작성 계획(앞 양식 검토의 요약 · 작성 방향 · 테마는 지닌다 — form_review.keep_review)."""
+def _go(s, places, mids, run, request="", plan_request=""):
+    """검토 한 번(배경 스레드) — 실패해도 앞 검토는 그대로 둔다. mids 가 있으면 작성 계획(앞 양식 검토의 요약 · 작성 방향 · 테마는 지닌다 — form_review.keep_review).
+    plan_request = 「작성 계획에 줄 요청」(작성 계획 때만 프롬프트에 싣고 검토에 planRequest 로 남긴다 — 다시 열면 그 칸의 처음 값)."""
     from app import heading_runs
     try:
         graph = heading_runs.graph(s)
@@ -130,7 +131,8 @@ def _go(s, places, mids, run, request=""):
         job = job_prompts.for_work(s.id)
         g = merge_guides.get(form_review.GUIDE)
         from app import guide_write_api
-        data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s), request)
+        plan_request = plan_request if mats else ""
+        data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s), request, plan_request)
         got = llm.call(form_review.SCHEMA, form_review.prompt(data, job, g), "form-review", timeout=600.0, effort="medium", model=form_review.MODEL)
         if got.get("data") is None:
             raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
@@ -140,7 +142,7 @@ def _go(s, places, mids, run, request=""):
             form_review.keep_review(rv, prev)
             request = prev.get("request") or ""   # 검토가 본 요청 그대로 둔다(계획은 요청을 다시 읽지만 검토를 바꾸지 않는다)
         rv.update(at=round(time.time(), 3), rev=s.rev, sig=form_review.sig(places), sigs=form_review.sigs(places), materials=list(mids), cut=data["cut"],
-                  request=request, fed=form_review.fed(places, request),
+                  request=request, planRequest=plan_request, fed=form_review.fed(places, request),
                   call={k: got.get(k) for k in ("backend", "model", "effort", "ms", "costUsd")}, guide=merge_guides.brief(g), job=job_prompts.brief(job))
         st = load(s.id)   # 도는 동안 사람이 답을 고쳤을 수 있다 — 지금 것에 얹는다
         for d in st["decided"]:   # 정한 것의 key 를 새 물음에 다시 잇는다(같은 물음 글) — 이은 것이 없으면 자리 모름(모든 자리에)으로 남는다
@@ -168,6 +170,9 @@ def review_run(doc_id: str, body: dict = Body(default={})):
     note = (body if isinstance(body, dict) else {}).get("note") or ""
     if not isinstance(note, str) or len(note) > form_review.REQUEST_MAX:
         raise HTTPException(400, f"note(사람의 요청 — 이번 작성의 지침)는 {form_review.REQUEST_MAX:,}자까지")
+    plan_note = (body if isinstance(body, dict) else {}).get("planNote") or ""
+    if not isinstance(plan_note, str) or len(plan_note) > form_review.REQUEST_MAX:
+        raise HTTPException(400, f"planNote(작성 계획에 줄 요청)는 {form_review.REQUEST_MAX:,}자까지")
     if not llm.status()["available"]:
         raise HTTPException(503, "LLM 을 쓸 수 없습니다(Claude Agent SDK·CLI·API 키 없음 또는 꺼짐)")
     if mids and load(s.id)["review"] is None:   # 작성 계획은 양식 검토 뒤 — 한 단추가 두 걸음을 함께 돌리지 않는다(2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려」)
@@ -181,7 +186,7 @@ def review_run(doc_id: str, body: dict = Body(default={})):
         if cur is not None and cur["state"] == "running":
             raise HTTPException(409, "이 문서의 양식 검토가 이미 돌고 있습니다")
         _RUNS[s.id] = run
-    threading.Thread(target=agent_notes.carry(_go), args=(s, places[:200], mids, run, form_review.request_text(note)), name=f"form-review-{s.id}", daemon=True).start()
+    threading.Thread(target=agent_notes.carry(_go), args=(s, places[:200], mids, run, form_review.request_text(note), form_review.request_text(plan_note) if mids else ""), name=f"form-review-{s.id}", daemon=True).start()
     return {"run": dict(run)}
 
 

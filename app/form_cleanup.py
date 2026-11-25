@@ -51,6 +51,10 @@ PATTERNS = (
     {"key": "marks", "name": "위첨자 각주 번호", "rule": "위첨자로 쓴 각주 번호 「15)」·「15-1)」", "how": "번호 글자만(글은 남김)", "example": "연구개발비15)"},
 )
 KINDS = tuple(p["key"] for p in PATTERNS)
+# 양식 작성의 끝 「작성 지침 · 샘플 지우기」 에서만 더하는 종류(spec_양식작성 ② §5-6 — 2026-11-25 사용자 "마지막에 작성 지침 및 샘플 ,, 본문에서 삭제하는 기능도 넣어줘"):
+# find(doc, sample_heads=…) 일 때만 찾는다 — 이관 · 취합의 「작성요령 삭제」 는 전과 같다(KINDS · PATTERNS 에 넣지 않음). 가려내기는 04 「LLM 검증·보완」 이 작성 예시로 읽는 것과 같은 함수(form_example_evidence)
+SAMPLE_PATTERN = {"key": "samples", "name": "작성 샘플", "rule": "예시라는 제목(「작성을 위한 샘플자료」 · 「작성 예시」 · 「견본」 …)이 붙은 표 · 그 제목 줄 아래의 표나 예문",
+                  "how": "제목 줄부터 그 표 · 예문까지 통째(제목 없이 놓인 그림 · 표는 내용일 수 있어 남김)", "example": "작성을 위한 샘플자료"}
 
 
 def _blank(b):
@@ -190,7 +194,22 @@ def _refs(blocks, skip):
     return out
 
 
-def find(doc):
+def _samples(blocks, heads, skip):
+    """작성 샘플(SAMPLE_PATTERN) → [{id(처음 블록), last, label, inside}] — 같은 자리(본문 차례 · 표 칸)의 잇따른 블록(id..last 를 한 번에 지움). skip(이미 지울 것 안)은 뺀다.
+    heads = 본문 헤딩 문단 id(예문이 다음 절로 넘어가지 않게 — form_example_evidence._examples 의 head_ids)."""
+    from app import form_example_evidence as FE
+    out, taken = [], set()
+    for b, name, body, _, _ in FE._examples(blocks, heads):
+        if not name or b["id"] in skip or b["id"] in taken:
+            continue
+        ids = {x["id"] for x in structure.iter_blocks(body) if x.get("id")}
+        taken |= ids
+        out.append({"id": body[0]["id"], "last": body[-1]["id"], "label": name[:60], "inside": ids})
+    return out
+
+
+def find(doc, sample_heads=None):
+    """sample_heads = None(이관 · 취합 — 전과 같음) | 본문 헤딩 id 모음(양식 작성 — 작성 샘플도 찾는다: found["samples"])."""
     blocks = doc.blocks()
     tables = _guide_tables(blocks)
     inside = set().union(*(t["inside"] for t in tables)) if tables else set()
@@ -204,6 +223,9 @@ def find(doc):
     near = _blank_after(blocks, {b["id"] for b in boxes if b["whole"]})
     for b in boxes:
         b["blank"] = near.get(b["id"])
+    samples = _samples(blocks, sample_heads, inside) if sample_heads is not None else None
+    if samples:
+        inside = inside.union(*(x["inside"] for x in samples))   # 샘플 안의 ※ 안내 · 위첨자는 샘플과 함께 지워진다
     notes = []
     for b in _paras(blocks):
         if b["id"] in inside:
@@ -235,12 +257,15 @@ def find(doc):
     refs = [{k: r[k] for k in ("id", "label", "last", "tables", "blank")} for r in refs]
     found = {"marks": marks, "tables": tabs, "notes": notes, "refs": refs, "boxes": boxes}
     counts = {k: len(found[k]) for k in KINDS}
-    return {**found, "hints": hints, "counts": {**counts, "total": sum(counts.values())}, "patterns": patterns(counts)}
+    if samples is not None:
+        found["samples"] = [{k: x[k] for k in ("id", "last", "label")} for x in samples]
+        counts["samples"] = len(samples)
+    return {**found, "hints": hints, "counts": {**counts, "total": sum(counts.values())}, "patterns": patterns(counts, samples is not None)}
 
 
-def patterns(counts=None):
-    """지우는 패턴 목록(PATTERNS) + 찾은 수 — 화면의 「지우는 패턴」 표."""
-    return [{**p, "count": (counts or {}).get(p["key"], 0)} for p in PATTERNS]
+def patterns(counts=None, samples=False):
+    """지우는 패턴 목록(PATTERNS · 양식 작성이면 작성 샘플도) + 찾은 수 — 화면의 「지우는 패턴」 표."""
+    return [{**p, "count": (counts or {}).get(p["key"], 0)} for p in (*PATTERNS, *((SAMPLE_PATTERN,) if samples else ()))]
 
 
 def empty():
@@ -305,6 +330,13 @@ def apply(doc, found):
                 doc.delete_blocks(it["blank"], it["blank"])
             except (ValueError, KeyError):   # 구역 설정이 든 빈 줄 — 남김
                 pass
+    for it in found.get("samples") or ():   # 작성 샘플(양식 작성만 — find 의 sample_heads) — 제목 줄부터 표 · 예문까지 통째
+        try:
+            doc.delete_blocks(it["id"], it["last"])
+        except (ValueError, KeyError) as e:
+            out["skipped"].append({"id": it["id"], "why": str(e)})
+            continue
+        out["samples"] = out.get("samples", 0) + 1
     if emptied and hasattr(doc, "derive_format"):
         _plain_boxes(doc, emptied)
     if found["marks"] and hasattr(doc, "strip_superscript_marks"):

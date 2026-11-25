@@ -591,3 +591,34 @@ def test_when_no_letter_after_the_deepest_used_one_is_free_an_earlier_free_lette
     got = MR.reletter_of(None, ov, {"p10", "p11", "p12", "p13"})
     # L1 「-」(넣을 자리 「-」 와 겹침) → 「⋅」 · L2 「◇」 그대로 · L3 「⋅」(L1 과 겹침) → 「◇」 뒤에 빈 레터가 없어 앞쪽의 「□」
     assert [(r["level"], r["was"], r["now"], r["why"]) for r in got] == [(1, "-", "⋅", None), (3, "⋅", "□", None)]
+
+
+def test_form_write_records_are_applied_drafts_and_keep_letters(monkeypatch):
+    """양식 작성(spec_양식작성 ② §5-5) — 넣은 줄 = 반영한 초안(fill · write · tableFill)의 문단 · 칸 · 표식 = 마지막 반영 · 레터는 바꾸지 않는다(relet False)."""
+    from app import doc_agent, works
+    from app import merge_retidy_api as RA
+
+    turns = {"t1": {"proposals": [{"type": "fill", "state": "applied", "applied": {"at": 10, "rev": 4, "paras": ["p2", "p3"]}},
+                                  {"type": "write", "state": "open", "applied": None},
+                                  {"type": "restyle", "state": "applied", "applied": {"at": 30, "rev": 9, "paras": ["p9"]}}]},
+             "t2": {"proposals": [{"type": "tableFill", "state": "applied", "applied": {"at": 20, "rev": 6, "paras": [], "cells": ["c1"]}}]}}
+
+    class FakeStore:
+        def __init__(self, wid):
+            pass
+
+        def turns(self):
+            return [{"id": k} for k in turns]
+
+        def turn(self, tid):
+            return turns.get(tid)
+
+    monkeypatch.setattr(doc_agent, "Store", FakeStore)
+    monkeypatch.setattr(works, "work", lambda wid: {"task": {"job": "form_write"}})
+    mark, ids = RA.agent_filled("w")
+    assert ids == {"p2", "p3", "c1"} and mark == {"at": 20, "rev": 6, "ids": ["c1", "p2", "p3"]}   # 서식 입히기(restyle) · 열린 제안은 넣은 글이 아니다
+    R = RA._records("w")
+    blocks = [{"id": "p1"}, {"id": "p2"}, {"id": "t5", "cells": [{"id": "c1", "blocks": [{"id": "p6"}]}]}]
+    assert R["relet"] is False and R["gather"] is False and R["held"] == set() and R["ins"](blocks) == {"p2", "p6"} and R["mark"]["rev"] == 6
+    monkeypatch.setattr(works, "work", lambda wid: {"task": {"job": "plan_to_report"}})
+    assert RA._form_write_doc("w") is False

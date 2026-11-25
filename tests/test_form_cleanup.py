@@ -189,3 +189,35 @@ def test_api_baseline_is_the_document_before_the_edit(client, monkeypatch):
     r = client.post(f"/api/docs/{d}/form-cleanup", json={})
     assert r.status_code == 200, r.text[:600]
     assert r.json()["done"]["tables"] == 5
+
+
+def test_samples_only_for_form_write_and_removed_whole():
+    """작성 샘플(spec_양식작성 ② §5-6) — find(doc, sample_heads) 일 때만 찾고(이관 · 취합의 작성요령 삭제는 그대로), 제목 줄부터 표까지 통째로 지운다 · 제목 없는 그림은 남긴다."""
+    def para(i, t):
+        return {"id": i, "type": "paragraph", "text": t, "runs": [{"text": t, "format": {}}]}
+
+    def table(i, t):
+        return {"id": i, "type": "table", "nRows": 1, "nCols": 2, "cells": [{"id": i + "c", "row": 0, "col": 0, "blocks": [para(i + "p", t)]}, {"id": i + "d", "row": 1, "col": 0, "blocks": [para(i + "q", "값")]}]}
+
+    class Doc:
+        def __init__(self):
+            self.b = [para("p1", "1. 개요"), table("t2", "작성을 위한 샘플자료"), para("p3", "■ 작성 예시"), para("p4", ""), table("t5", "가 | 나"),
+                      {"id": "i6", "type": "image"}, para("p7", "실제 내용")]
+            self.cut = []
+
+        def blocks(self):
+            return self.b
+
+        def delete_blocks(self, a, z):
+            ids = [x["id"] for x in self.b]
+            self.cut.append((a, z))
+            del self.b[ids.index(a):ids.index(z) + 1]
+
+    doc = Doc()
+    plain = FC.find(doc)
+    assert "samples" not in plain and "samples" not in plain["counts"] and all(p["key"] != "samples" for p in plain["patterns"])
+    f = FC.find(doc, {"p1"})
+    assert [(x["id"], x["last"]) for x in f["samples"]] == [("t2", "t2"), ("p3", "t5")] and f["counts"]["samples"] == 2 and f["counts"]["total"] == 2
+    assert next(p for p in f["patterns"] if p["key"] == "samples")["count"] == 2
+    done = FC.apply(doc, f)
+    assert done["samples"] == 2 and not done["skipped"] and [x["id"] for x in doc.b] == ["p1", "i6", "p7"]   # 제목 없는 그림 · 내용은 남김

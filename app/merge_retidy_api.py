@@ -33,6 +33,7 @@ log = logging.getLogger("uvicorn.error")
 FILE, VERSION = "retidy.json", 1
 WAIT_MAX = 600   # 다시 분석을 기다리는 한도(초)
 NO_FILL = "넣은 내용이 없습니다 — 「내용 반영」 뒤에 합니다"
+NO_DRAFT = "반영한 초안이 없습니다 — 「고른 초안을 문서에 반영」 뒤에 합니다"   # 양식 작성(_form_write_doc)
 
 
 def _path(wid):
@@ -88,12 +89,44 @@ def _gather_doc(wid):
     return server._gather_job(((works.work(wid) or {}).get("task") or {}).get("job"))
 
 
+def _form_write_doc(wid):
+    """그 문서가 양식 작성(form_write)의 목적 문서인가 — 넣은 기록이 merge.json 이 아니라 문서 에이전트의 반영한 초안이다(spec_양식작성 ② §5-5)."""
+    return ((works.work(wid) or {}).get("task") or {}).get("job") == "form_write"
+
+
+AGENT_TYPES = ("fill", "write", "tableFill")   # 글을 넣는 제안(서식 입히기 restyle · 새 표 tableNew · 서식 복사는 넣은 「글」 이 아니다)
+
+
+def agent_filled(wid):
+    """양식 작성의 넣은 기록 → (표식 {at, rev, ids} | None, 넣은 블록 · 칸 id 모음). 표식 = 마지막으로 반영한 초안의 때 · 문서 차례 —
+    문서 에이전트 저장소(doc_agent.Store)의 「반영됨」 제안 가운데 글을 넣는 것(fill · write · tableFill)의 `applied.paras` · `applied.cells`. 문서 안 바뀜."""
+    from app import doc_agent
+    store = doc_agent.Store(wid)
+    ids, last = set(), None
+    for row in store.turns():
+        for p in (store.turn(row.get("id")) or {}).get("proposals") or ():
+            a = p.get("applied") if p.get("state") == "applied" and p.get("type") in AGENT_TYPES else None
+            if not isinstance(a, dict):
+                continue
+            got = [x for x in (a.get("paras") or ()) if isinstance(x, str)] + [x for x in (a.get("cells") or ()) if isinstance(x, str)]
+            if not got:
+                continue
+            ids.update(got)
+            if last is None or (a.get("at") or 0) > (last.get("at") or 0):
+                last = {"at": a.get("at"), "rev": a.get("rev")}
+    return ({**last, "ids": sorted(ids)} if last else None), ids
+
+
 def _records(wid):
     """넣은 기록 어댑터 → {mark(마지막 반영 표식 | None), ins(blocks → 지금 문서의 넣은 블록 id), n(넣은 블록 수), held(사람이 처리를 고른 넘친 줄), gather(취합인가)}.
     이관 = merge.json(merge_api._store — filled · applied · copied) · 취합 = gather.json(merge_gather_api._store — filled · 기관 문서마다 · 뺀 기관 문서의 본문 기록: merge_retidy.gather_ids ·
     표식을 적기 전 판에 넣은 취합본이면 표식을 한 번 적는다 — merge_gather_api.legacy_filled).
     held = 넘친 줄 기록(이관 applied[].over · 취합 applied[].convert.over) 가운데 사례 열쇠가 merge_over.json cases 에 있는 것의 줄(merge_retidy.held_ids)."""
     from app import merge_over as MO
+    if _form_write_doc(wid):   # 양식 작성 — 넣은 줄 = 반영한 초안의 문단(사람이 고른 넘친 줄 · 취합의 규칙 없음 · 양식의 줄이 있는 레벨은 그 줄의 서식을 따른다)
+        mark, want = agent_filled(wid)
+        # relet=False — 레터를 바꾸지 않는다: 채운 줄의 레터는 양식이 적어 둔 자리표시(「    - 」)이거나 그 자리의 글이다(실측 d12321f92890: 「- → ■」 으로 같은 양식 줄 둘이 갈렸다)
+        return {"mark": mark, "ins": (lambda blocks: MR.within(blocks, want)), "n": len(want), "held": set(), "gather": False, "relet": False}
     gather = _gather_doc(wid)
     if gather:
         from app import merge_gather_api as GA
@@ -127,7 +160,7 @@ def facts(doc_id):
     R = _records(doc_id)
     f = R["mark"]
     a = load(doc_id).get("applied")
-    return {"why": "" if f else NO_FILL, "fill": (f or {}).get("at"), "inserted": R["n"],
+    return {"why": "" if f else NO_DRAFT if _form_write_doc(doc_id) else NO_FILL, "fill": (f or {}).get("at"), "inserted": R["n"],
             "applied": {"at": a.get("at"), "fill": a.get("fill"), "counts": a.get("counts") or {}} if a else None}
 
 
@@ -140,7 +173,7 @@ def _preview(doc, ov, ins, R):
     relet = 위 레벨과 같은 레터를 쓰는 넣은 레벨의 바꿀 레터(merge_retidy.reletter_of — 가른 뒤의 사본에서)."""
     sim = copy.deepcopy(ov)
     cuts, left = MR.cut_all(doc, sim, ins, R["held"])
-    relet = MR.reletter_of(doc, sim, ins, R["held"])
+    relet = MR.reletter_of(doc, sim, ins, R["held"]) if R.get("relet", True) else []
     P = MR.plan(doc, sim, ins, R["held"], near=not R["gather"])
     return P["rows"], cuts, left, sim, P["held"], relet
 
@@ -248,7 +281,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
     R = _records(doc_id)
     f = R["mark"]
     if not f:
-        raise HTTPException(409, NO_FILL)
+        raise HTTPException(409, NO_DRAFT if _form_write_doc(doc_id) else NO_FILL)
     g = heading_runs.graph(s)
     again = g is None or int(((g.get("meta") or {}).get("rev")) or 0) < int(f.get("rev") or 0)
     if again:
@@ -284,7 +317,7 @@ def retidy_post(doc_id: str, body: dict = Body(default={})):
         def run_():
             changed, left = [], []
             cuts, left_cut = MR.cut_all(s_.doc, ov2, ins2, keep2)   # ① deep 레벨을 서식 종속 템플릿으로(오버레이만 — 같은 트랜잭션: 실행 취소 1)
-            relet = MR.reletter_of(s_.doc, ov2, ins2, keep2)         # ①-1 위 레벨과 같은 레터를 쓰는 넣은 레벨 — 레터 글자만 바꾼다(문서 · 오버레이 — spec_병합 ② §5-9 11)
+            relet = MR.reletter_of(s_.doc, ov2, ins2, keep2) if R2.get("relet", True) else []   # ①-1 위 레벨과 같은 레터를 쓰는 넣은 레벨 — 레터 글자만 바꾼다(문서 · 오버레이 — spec_병합 ② §5-9 11)
             changed += MR.reletter(s_.doc, ov2, relet, left)
             m = OP.Measure(s_.doc)                                   # 레터를 바꾼 뒤에 잰다(접두 폭)
             P = MR.plan(s_.doc, ov2, ins2, keep2, near2)             # ② 가른 뒤의 계획 — 뗀 템플릿의 레벨은 넣은 줄만이라 cut

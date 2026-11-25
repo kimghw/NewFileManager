@@ -1576,8 +1576,18 @@ def merge_reset(doc_id: str, body: dict = Body(default={})):
 
 # ---- 3단계 「문서 정리」 ⑥ 작성요령 삭제 — 양식 안내 지우기(spec_작업 ② §14 「3단계」 · app/form_cleanup.py) ----
 
+def _sample_heads(s):
+    """양식 작성(form_write)의 문서면 본문 헤딩 문단 id 모음(작성 샘플도 찾게 — form_cleanup.find 의 sample_heads · spec_양식작성 ② §5-6) | None(이관 · 취합 — 전과 같음). 세션 잠금 안에서."""
+    from app import heading_runs, merge_retidy_api
+    if not merge_retidy_api._form_write_doc(s.id):
+        return None
+    g = heading_runs.graph(s) or {}
+    return {n.get("para") for n in g.get("nodes") or () if isinstance(n, dict) and n.get("role") == "heading" and n.get("area") == "body" and n.get("para")}
+
+
 def _cleanup_view(found):
     return {"counts": found["counts"], "patterns": found["patterns"], "marks": found["marks"][:300], "tables": found["tables"], "refs": found["refs"],
+            **({"samples": found["samples"]} if "samples" in found else {}),
             "boxes": [{k: b.get(k) for k in ("id", "first", "text", "color", "whole")} for b in found.get("boxes") or ()][:300],
             "notes": [{k: n[k] for k in ("id", "text", "guide", "color", "whole")} for n in found["notes"]][:300]}
 
@@ -1591,7 +1601,7 @@ def form_cleanup_get(doc_id: str):
     with s.lock:
         if s.fmt != "hwpx":
             return {**_cleanup_view(form_cleanup.empty()), "rev": s.rev}
-        return {**_cleanup_view(form_cleanup.find(s.doc)), "rev": s.rev}
+        return {**_cleanup_view(form_cleanup.find(s.doc, _sample_heads(s))), "rev": s.rev}
 
 
 @router.post("/api/docs/{doc_id}/form-cleanup")
@@ -1609,7 +1619,7 @@ def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
     with s.lock:
         if body.get("expectRev") is not None and body["expectRev"] != s.rev:
             raise HTTPException(409, "목록을 읽은 뒤 문서가 바뀌었습니다 — 다시 읽으세요")
-        found = form_cleanup.find(s.doc)
+        found = form_cleanup.find(s.doc, _sample_heads(s))
         if not found["counts"]["total"]:
             return {"nothing": True, **s.state()}
         try:   # 지우기 바로 전에 작성 지침(작성 요령 표 · <참고 N> 자료 · ※ 안내 · 각주 번호의 항목)을 헤딩/표별로 남긴다 — 어느 길로 지워도 지침이 남게(spec_작업 ② §21 「작성 지침 저장」)
@@ -1627,7 +1637,7 @@ def form_cleanup_post(doc_id: str, body: dict = Body(default={})):
 
         def run():
             done.update(form_cleanup.apply(s.doc, found))
-            return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {k: done[k] for k in ("marks", "tables", "notes", "refs", "boxes", "notesWhole", "notesInline")}}
+            return {"hosts": [], "struct": set(), "origin": {}, "anchor": None, "log": {k: done[k] for k in ("marks", "tables", "notes", "refs", "boxes", "notesWhole", "notesInline", "samples") if k in done}}
 
         def check(s_, out, base, header):
             return chk.verdict(s_.doc, {"schema": Counter(base["schema"]) | pre["schema"], "rules": Counter(base["rules"]) | pre["rules"]}, chk.check_doc(s_.doc))
