@@ -1,5 +1,5 @@
 // 문서 라이브러리 서버의 관리 화면(doclib/static) — 문서 목록 · 올리기 · 자료 추출 · 결과(MD · 그림) 보기 · 스킬 글. 문서 편집 서버(app/static)의 스크립트를 읽지 않는다.
-// 주소의 #d=<문서 id> · #x=<추출 id> 로 그 문서 · 그 추출을 연다(문서 편집 화면이 이 화면을 새 탭으로 열 때 쓴다).
+// #d=<문서 id> · #x=<추출 id> 는 자료를, #prompts는 추출 프롬프트 편집기를 연다.
 const $ = (id) => document.getElementById(id);
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -577,6 +577,10 @@ async function skillSave(text) {
 }
 // ---- 시작 ----
 function fromHash() {
+  if (location.hash === "#prompts") {
+    if (!$("skillDlg").open) skillOpen();
+    return;
+  }
   const q = new URLSearchParams(location.hash.slice(1));
   S.doc = q.get("d") || S.doc;
   S.ext = q.get("x") || S.ext;

@@ -1,7 +1,7 @@
 """할 일 프롬프트(spec_작업 ② §13): 할 일(`task.job`)마다 md 하나 — 그 일의 전제·기준을 사용자가 말한 대로 적어 두고, 그 할 일에서 도는 에이전트가 먼저 읽는다
 (사용자 2026-11-11 "명시적으로 프롬프트를 저장하고 에이전트가 실행할떄 이 작업에서는 이 내용을 참조할 수 있도록해").
 
-- 파일: `<저장소>/jobs/<할 일 키>.md`(env `NFM_JOBS` 가 폴더, `off`·`0` = 없음). 파일 하나가 원본 — 코드 에이전트(CLAUDE.md 가 가리킴)와 앱의 LLM 호출이 같은 글을 읽는다.
+- 기본 파일: `<저장소>/jobs/<할 일 키>.md`(env `NFM_JOBS` 가 폴더, `off`·`0` = 없음). 앱의 LLM 호출에는 화면에서 고친 사본이 있으면 그 전제가 들어간다.
   부를 때마다 읽는다(고친 글이 다음 실행에 바로).
 - 첫 「# 」 줄 = 제목(「— 」 뒤가 표시 이름). 그 줄과 HTML 주석(`<!-- … -->` — 사람·코드 에이전트만 보는 메모)을 뺀 나머지가 LLM 프롬프트에 들어간다(`body`).
 - 읽는 곳: 자리 연결 LLM 검토(`merge_llm` — 계약 바로 뒤 한 절, `part`) · 표 채우기(`tables_api.table_fill_propose` — `part(p, table_fill.JOB_NOTE)`, spec_헤딩_추출 ② §18).
@@ -12,7 +12,7 @@ import os
 import re
 from pathlib import Path
 
-from app import works
+from app import prompt_texts, works
 
 DEFAULT_DIR = Path(__file__).resolve().parents[1] / "jobs"
 KEY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")   # 할 일 키(server.TASK["job"] 의 값) = 파일 이름
@@ -71,7 +71,8 @@ def get(job):
         return None
     m = _TITLE.match(_COMMENT.sub("", text))
     name = (m.group(1).split("—", 1)[-1].strip() if m else "") or job
-    return {"job": job, "name": name, "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": str(p)}
+    default = {"job": job, "name": name, "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": str(p)}
+    return prompt_texts.file_content("job", job, default, name)
 
 
 def for_work(wid):

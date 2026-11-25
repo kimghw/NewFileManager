@@ -35,6 +35,15 @@ body.wf { font-size: 13px; }
 .wf-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; color: inherit; }
 .wf-icon svg { display: block; }
 .wf-tag.wf-t-llm { border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9; }
+button.wf-t-llm { cursor: pointer; }
+button.wf-t-llm:hover, button.wf-t-llm:focus-visible { border-color: #7948bf; background: #ece3ff; }
+.wf-prompt-node, .wf-prompt-step, .wf-prompt-tool { position: relative; }
+.wf-prompt-node > .wf-node, .wf-prompt-node > .wf-node[aria-current="step"] { padding-right: 39px; }
+.wf-prompt-node > .wf-tag { position: absolute; bottom: 12px; right: 11px; }
+.wf-prompt-step > .wf-step > summary { padding-right: 44px; }
+.wf-prompt-step > .wf-tag { position: absolute; top: 9px; right: 12px; }
+.wf-prompt-tool { display: flex; align-items: center; gap: 3px; }
+.wf-prompt-tool > .wf-nav-tool, .wf-prompt-tool > .wf-help-item { flex: 1 1 0%; min-width: 0; }
 .wf-tag.wf-t-human { border-color: #b8c8f0; background: var(--accent-soft); color: var(--accent); }
 .wf-tag.wf-t-doc { border-color: #f5d39a; background: var(--warn-soft); color: var(--warn); }
 .wf-tag.wf-t-soft { border-style: dashed; background: transparent; color: var(--muted); }

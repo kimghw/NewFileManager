@@ -2,7 +2,8 @@
 문서를 바꾸지 않는다. 지침 작성의 「제안 받기」 는 검토가 있고 물음에 모두 답했을 때만 돈다(`gate` — guide_write_api 가 부른다).
 
 - `GET /api/docs/{id}/form-review` → {hwpx, enabled(LLM), review | null, decided[{key, q, a, places, at}], open[아직 답 안 한 물음 key], stale(검토 뒤 자리 · 지침이 바뀜), run | null}.
-- `POST /api/docs/{id}/form-review` {materials: [자료 id…]} → 배경에서 양식 전체를 한 번 검토(유료 LLM · 호출 1번 — 고른 자료가 있으면 물음의 답 후보를 자료에서 찾는다) → {run}. 409 = 도는 중 · 503 = LLM 없음.
+- `POST /api/docs/{id}/form-review` {materials: [자료 id…], note} → 배경에서 한 번(유료 LLM · 호출 1번) → {run}. materials 가 비면 **양식 검토**(양식 · 작성 지침 · 사람의 요청 note 만 — 자료는 안 읽음),
+  있으면 **작성 계획**(양식 검토가 먼저 — 없으면 409 · 양식이 그대로면 검토의 요약 · 작성 방향 · 테마는 그대로 두고 자리마다 use · gap 과 물음만 받는다). 409 = 도는 중 · 503 = LLM 없음.
 - `PUT /api/docs/{id}/form-review/answers` {answers: [{key?, q?, a}]} → 정한 것을 고친다(key = 검토의 물음 · 없으면 q 로 새 줄 · a 가 빈 글이면 그 줄을 지움) → 보기.
 저장 = 작업 폴더 `form_review.json` {review, decided} — 다시 검토해도 정한 것(decided)은 버리지 않는다(같은 물음은 다시 묻지 않는다 · 검토 실패는 앞 검토를 지우지 않는다).
 작업 저장이 꺼진 문서는 이 프로세스의 메모리에 둔다. 끝나면 작업 기록에 `formReview` 한 줄."""
@@ -81,10 +82,11 @@ def fresh(st, todo, mids):
     ⓑ 고른 자리 가운데 검토에 없거나 검토한 뒤 바뀐 자리가 있다(자리마다의 지문 `form_review.sigs` — 옛 검토(지문 없음)는 자리 id 만 본다). 무관한 자리가 바뀐 것은 막지 않는다(stale 로 알릴 뿐)."""
     rv = st["review"] or {}
     if set(rv.get("materials") or ()) != set(mids or ()):
-        return "작성 계획을 세운 자료와 고른 자료가 다릅니다 — 쓸 자료를 계획 때와 같게 고르거나 「작성 계획 세우기」 를 다시 하세요"
+        return "작성 계획을 세운 자료와 고른 자료가 다릅니다 — 양식에 넣을 내용의 자료를 계획 때와 같게 고르거나 「작성 계획 세우기」 를 다시 하세요"
     sigs = rv.get("sigs")
     known = sigs if sigs is not None else rv.get("places") or {}   # 검토한 때 있던 자리 = 지문을 적어 둔 자리(LLM 이 작성 방향을 안 낸 자리도 검토한 자리다 — rv.places 로 보면 그 자리는 다시 검토해도 영영 막힌다) · 옛 검토(지문 없음)만 rv.places
-    bad = [p for p in todo if p["id"] not in known or (sigs is not None and sigs.get(p["id"]) != form_review.place_sig(p))]
+    bad = [p for p in todo if p["id"] not in known or (sigs is not None and sigs.get(p["id"]) != form_review.place_sig(p))
+           or (sigs is None and p.get("writingGuidanceSig"))]
     if bad:
         names = " · ".join(f"「{(p.get('text') or p['id'])[:20]}」" for p in bad[:3])
         return f"양식 검토 뒤에 생기거나 바뀐 자리 {len(bad)}곳({names}{' …' if len(bad) > 3 else ''}) — 「다시 검토」 로 작성 계획을 다시 세우세요(정한 답은 남습니다)"
@@ -114,8 +116,8 @@ def review_get(doc_id: str):
     return _view(s)
 
 
-def _go(s, places, mids, run):
-    """검토 한 번(배경 스레드) — 실패해도 앞 검토는 그대로 둔다."""
+def _go(s, places, mids, run, request=""):
+    """검토 한 번(배경 스레드) — 실패해도 앞 검토는 그대로 둔다. mids 가 있으면 작성 계획(앞 양식 검토의 요약 · 작성 방향 · 테마는 지닌다 — form_review.keep_review)."""
     from app import heading_runs
     try:
         graph = heading_runs.graph(s)
@@ -128,15 +130,17 @@ def _go(s, places, mids, run):
         job = job_prompts.for_work(s.id)
         g = merge_guides.get(form_review.GUIDE)
         from app import guide_write_api
-        data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s))
+        data = form_review.payload(blocks, graph, places, st["decided"], mtext, guide_write_api.uploaded_texts(s), request)
         got = llm.call(form_review.SCHEMA, form_review.prompt(data, job, g), "form-review", timeout=600.0, effort="medium", model=form_review.MODEL)
         if got.get("data") is None:
             raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
         rv = form_review.check(got["data"], [p["id"] for p in places], bool(mats))
         prev = st["review"] or {}
-        if not rv["topics"] and prev.get("topics") and prev.get("sig") == form_review.sig(places):   # 계획을 다시 세운 답이 테마를 비워 보냈다 — 양식 · 지침이 그대로면 앞의 것을 지닌다(astra 2차 G14)
-            rv["topics"], rv["topicsKept"] = prev["topics"], True
+        if mats and prev.get("sig") == form_review.sig(places):   # 작성 계획 — 양식 · 지침이 그대로면 요약 · 작성 방향 · 테마는 앞 양식 검토의 것(astra 2차 G14 의 테마 잇기를 넓힘)
+            form_review.keep_review(rv, prev)
+            request = prev.get("request") or ""   # 검토가 본 요청 그대로 둔다(계획은 요청을 다시 읽지만 검토를 바꾸지 않는다)
         rv.update(at=round(time.time(), 3), rev=s.rev, sig=form_review.sig(places), sigs=form_review.sigs(places), materials=list(mids), cut=data["cut"],
+                  request=request, fed=form_review.fed(places, request),
                   call={k: got.get(k) for k in ("backend", "model", "effort", "ms", "costUsd")}, guide=merge_guides.brief(g), job=job_prompts.brief(job))
         st = load(s.id)   # 도는 동안 사람이 답을 고쳤을 수 있다 — 지금 것에 얹는다
         for d in st["decided"]:   # 정한 것의 key 를 새 물음에 다시 잇는다(같은 물음 글) — 이은 것이 없으면 자리 모름(모든 자리에)으로 남는다
@@ -161,8 +165,13 @@ def review_run(doc_id: str, body: dict = Body(default={})):
     store = doc_agent.Store(s.id)
     if not isinstance(mids, list) or not all(isinstance(m, str) for m in mids) or len(set(mids)) != len(mids) or any(store.material(m) is None for m in mids):
         raise HTTPException(400, "materials 는 이 문서의 자료 id 목록(겹침 없이)")
+    note = (body if isinstance(body, dict) else {}).get("note") or ""
+    if not isinstance(note, str) or len(note) > form_review.REQUEST_MAX:
+        raise HTTPException(400, f"note(사람의 요청 — 이번 작성의 지침)는 {form_review.REQUEST_MAX:,}자까지")
     if not llm.status()["available"]:
         raise HTTPException(503, "LLM 을 쓸 수 없습니다(Claude Agent SDK·CLI·API 키 없음 또는 꺼짐)")
+    if mids and load(s.id)["review"] is None:   # 작성 계획은 양식 검토 뒤 — 한 단추가 두 걸음을 함께 돌리지 않는다(2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려」)
+        raise HTTPException(409, "먼저 「양식 검토」 를 하세요 — 작성 계획은 양식 검토 뒤에 자료로 세웁니다")
     places, _ = guide_write_api._places(s)
     if not places:
         raise HTTPException(400, "자리가 없습니다 — 헤딩 · 표 분석(헤딩 그래프)이 끝났는지 확인하세요")
@@ -172,7 +181,7 @@ def review_run(doc_id: str, body: dict = Body(default={})):
         if cur is not None and cur["state"] == "running":
             raise HTTPException(409, "이 문서의 양식 검토가 이미 돌고 있습니다")
         _RUNS[s.id] = run
-    threading.Thread(target=agent_notes.carry(_go), args=(s, places[:200], mids, run), name=f"form-review-{s.id}", daemon=True).start()
+    threading.Thread(target=agent_notes.carry(_go), args=(s, places[:200], mids, run, form_review.request_text(note)), name=f"form-review-{s.id}", daemon=True).start()
     return {"run": dict(run)}
 
 

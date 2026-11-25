@@ -430,6 +430,13 @@ def test_api_llm_chain_in_order_skips_what_is_done_and_keeps_plans(client, monke
     _wait_job(client, d)
     assert (f2.calls, f3.calls, len(asked)) == (1, 1, need)
     assert [s["status"] for s in client.get(f"/api/docs/{d}/analysis").json()["chain"]["steps"]] == ["skip", "skip", "skip"]
+    # 양식 작성 04로 들어오면 앞 구조 판정을 재사용해도 그 뒤의 지침 추출을 시작한다.
+    from app import writing_guidance_api
+    starts = []
+    monkeypatch.setattr(writing_guidance_api, "start", lambda s: starts.append(s.id))
+    assert client.post(f"/api/docs/{d}/analysis/llm", json={"writingGuidance": True}).status_code == 202
+    assert _wait_job(client, d)["status"] == "done" and starts == [d]
+    assert (f2.calls, f3.calls, len(asked)) == (1, 1, need)
     assert client.post(f"/api/docs/{d}/analysis/llm", json={"skill": "nope"}).status_code == 404
     assert client.delete(f"/api/docs/{d}/analysis/llm").status_code == 409   # 도는 것이 없음
     x = _upload(client, DOCX)

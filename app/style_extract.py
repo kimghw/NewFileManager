@@ -23,6 +23,7 @@ import threading
 import time
 from collections import Counter
 
+from app import prompt_texts
 from app import llm
 from app import table_make as M
 
@@ -806,7 +807,7 @@ def review(cands: dict, call=None, effort=None, job=None) -> dict:
     job_part = job_prompts.part(job, JOB_NOTE) if job else ""
     out["job"] = job_prompts.brief(job) if job_part else None
     for part, sent in sends:
-        out["prompts"][part] = CONTRACTS[part] + job_part + "\n\n## 자료(JSON)\n" + json.dumps(sent, ensure_ascii=False, separators=(",", ":"))
+        out["prompts"][part] = prompt_texts.contract(__name__, f"CONTRACT_{part.upper()}") + job_part + "\n\n## 자료(JSON)\n" + json.dumps(sent, ensure_ascii=False, separators=(",", ":"))
     out["prompt"], eff = out["prompts"][sends[0][0]], effort or "low"
     if call is not None:  # 시험의 가짜 call — 차례로
         results = []

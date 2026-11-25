@@ -119,6 +119,31 @@ const taskIsSingle = (job) => !!(TASK_CATALOG[job] || {}).single;
 // 취합형 TASK 인가 — 취합본 하나 + 기관 문서 여럿(붙박이 「사업계획서 취합」 · 취합형으로 조립한 것). 화면의 「취합이면」 가지는 키(plan_merge)를 견주지 않고 이것으로 가른다(spec_워크플로우 ② §18-13 갈래 「라」 ⓷)
 const taskGatherOf = (job) => (TASK_CATALOG[job] || {}).gather || null; // {base: 취합본의 종류, parts: 기관 문서의 종류} | null — 그때그때 읽는다(조립한 워크플로우는 정의를 다시 읽으면 바뀐다)
 const taskIsGather = (job) => !!taskGatherOf(job);
+
+// 문서 화면과 워크플로우 페이지가 같은 단계·도구의 프롬프트를 연다.
+function workflowPromptButton(context, icon, cls) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = cls;
+  button.dataset.llmPrompt = context.step || (context.steps || []).join(",");
+  button.title = `${context.title} LLM 프롬프트 보기·수정`;
+  button.setAttribute("aria-label", button.title);
+  const name = document.createElement("span");
+  name.className = "sr-only";
+  name.textContent = "LLM";
+  button.append(icon, name);
+  button.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (context.doclib) {
+      window.open("/api/doclib/prompt-editor", "_blank", "noopener");
+      return;
+    }
+    try {
+      await WorkflowPrompt.open({ ...context, trigger: button });
+    } catch (err) { alert(`프롬프트를 열지 못했습니다 — ${err.message}`); }
+  });
+  return button;
+}
 // 취합 화면의 묶음(config · frame · map — gather.js GT_STAGES)마다의 줄(실행 단위 key — 화면의 줄이 그 묶음에 서는 대로: gather.js gatherSteps). 「기관 문서마다」 = 기관 문서 하나에 차례로 도는 줄(화면은 문서마다 한 줄 part:<id>)
 const GATHER_SCREEN_UNITS = { config: ["config"], frame: ["division", "frame"], map: ["part", "heads", "link", "llm", "plan", "apply", "drop"] };
 const GATHER_EACH_UNITS = ["part", "heads", "link", "llm", "plan", "apply"];

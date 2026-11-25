@@ -10,6 +10,7 @@ import json
 import math
 import random
 
+from app import prompt_texts
 from app import heading_calc as HC
 from app import llm
 from app import table_formula as F
@@ -101,7 +102,7 @@ def guide_text(common, own, form=None):
 
 
 def content(data, guide):
-    return CONTRACT + "\n\n## 지침\n" + guide + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + "\n\n## 지침\n" + guide + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 def ask(data, guide, *, call=None, effort=None, timeout=300.0):

@@ -2037,6 +2037,9 @@ def work_delete(wid: str):
     gone = works.delete(wid)
     if s is None and not gone:
         raise HTTPException(404, "그런 작업이 없습니다")
+    from app import form_examples_api
+    with form_examples_api._LOCK:
+        form_examples_api._MEM.pop(wid, None)
     if projects.is_temp(project):   # 임시 프로젝트의 마지막 문서였으면 그 기록도 걷는다(② §17 「임시 프로젝트」 — 문서 없는 임시 프로젝트는 남기지 않는다)
         with projects.ROUND_LOCK:
             _temp_tidy(project)
@@ -2060,7 +2063,8 @@ def _reset_busy(s):
     if s.id in getattr(zones_api, "_LLM_RUN", ()):
         return "편집 구역 LLM 검토"
     from app import form_review_api, guide_write_api   # 양식 작성(spec_양식작성 ② §5 · §5-1) — 끝나며 작업 폴더 · 메모리에 결과를 쓴다
-    for mod, name in ((guide_write_api, "양식 초안 작성"), (form_review_api, "양식 검토 · 작성 계획")):
+    from app import writing_guidance_api
+    for mod, name in ((guide_write_api, "양식 초안 작성"), (form_review_api, "양식 검토 · 작성 계획"), (writing_guidance_api, "작성 지침 보완")):
         run = getattr(mod, "_RUNS", {}).get(s.id)
         if run is not None and run.get("state") == "running":
             return name
@@ -2084,16 +2088,20 @@ def _reset_keep(wid, s):
 
 def _reset_forget(wid):
     """작업 id 로 묶어 둔 메모리의 기억을 버린다 — 옮긴 결과를 다시 내지 않게(열쇠가 달라 안 쓰일 것도 함께). 도는 에이전트 턴은 저장되지 않는다(「비우기」 와 같은 차례 올림)."""
-    from app import doc_agent, doc_agent_api, form_review_api, guide_write_api, merge_api, merge_gather_api, merge_over_api, zones_api
+    from app import doc_agent, doc_agent_api, form_examples_api, form_review_api, guide_write_api, merge_api, merge_gather_api, merge_over_api, zones_api
     try:   # 사람이 하는 일의 「했음」 기록(app/flow_hands.py — spec_워크플로우 ② §18-12 ⑦: 초기화 세대가 바뀌면 앞 확인은 무효)
         __import__("app.flow_hands", fromlist=["forget"]).forget(wid)
     except (ImportError, AttributeError, OSError):
         pass
+    from app import writing_guidance_api
+    with writing_guidance_api._LOCK:
+        writing_guidance_api._RUNS.pop(wid, None)
+        writing_guidance_api._MEM.pop(wid, None)
     gens = getattr(doc_agent, "_GENS", None)
     if isinstance(gens, dict):
         gens[wid] = gens.get(wid, 0) + 1
     for mod, name in ((doc_agent_api, "_APPLIED"), (merge_api, "_FIXED"), (merge_api, "_ORIGINS"), (merge_gather_api, "_FRAMES"), (merge_gather_api, "_ZONES"), (zones_api, "_AUTO"),
-                      (guide_write_api, "_RUNS"), (form_review_api, "_RUNS"), (form_review_api, "_MEM")):   # 양식 작성 — 마지막 지침 작성 · 양식 검토(작업 저장이 꺼진 문서의 검토 · 답)
+                      (guide_write_api, "_RUNS"), (form_review_api, "_RUNS"), (form_review_api, "_MEM"), (form_examples_api, "_MEM")):   # 양식 작성 메모리 상태
         d = getattr(mod, name, None)
         if isinstance(d, dict):
             d.pop(wid, None)
@@ -2596,7 +2604,9 @@ app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 app.include_router(__import__("app.guide_write_api", fromlist=["router"]).router)   # 지침 작성(자리마다 작성 지침 + 자료 → 문서 에이전트의 제안) · 문서 라이브러리(따로 선 서버 doclib/ — 포트 8121)에서 자료 가져오기 끝점은 app/guide_write_api.py(spec_양식작성 ② §4 · §5)
 app.include_router(__import__("app.form_review_api", fromlist=["router"]).router)   # 양식 검토(양식 전체를 읽고 어떻게 쓸지 · 쓰기 전에 사람이 정할 것을 묻기 — 지침 작성의 앞 단계) 끝점은 app/form_review_api.py(spec_양식작성 ② §5-1)
+app.include_router(__import__("app.writing_guidance_api", fromlist=["router"]).router)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
+app.include_router(__import__("app.form_examples_api", fromlist=["router"]).router)   # 양식 작성 지침 보완에만 쓰는 샘플·추가 서식
 app.include_router(__import__("app.flow_hands_api", fromlist=["router"]).router)   # 사람이 하는 일의 「했음」(조립한 워크플로우의 hand 줄 — spec_워크플로우 ② §18-7 · §18-12 ⑦) 끝점은 app/flow_hands_api.py
 app.include_router(__import__("app.pointer_api", fromlist=["router"]).router)   # 포인터(같은 문서를 보는 다른 화면에 내 마우스 자리 · 「클릭」 — WebSocket · 방 = 문서 id · 저장 없음 · 문서를 안 바꾼다) 끝점은 app/pointer_api.py(spec_포인터 ② §3). 그 모듈은 이 파일을 import 하지 않는다
 # hwpx 공유(링크와 키를 받은 사람과 같이 쓰기 — spec_공유 ② §1): 끝점·손님 앱(공유 포트)·공유폴더 저장은 app/share_api.py. 그 모듈은 이 파일을 import 하지 않는다 — 필요한 것을 여기서 넘긴다

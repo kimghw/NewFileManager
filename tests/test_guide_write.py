@@ -142,6 +142,8 @@ def test_library_listing_and_material_import(c, monkeypatch):
     got = c.get("/api/doclib").json()                                    # 닿지 않는 주소(conftest) — 꺼짐으로 보이고 8114 는 그대로 답한다
     assert got["alive"] is False and got["docs"] == [] and "닿지 못했습니다" in got["why"] and got["url"] == "http://127.0.0.1:9"
     assert c.get("/api/doclib/where").json() == {"url": "http://127.0.0.1:9", "alive": False, "why": got["why"]}   # 상단 바 「문서 라이브러리」 아이콘이 묻는 것(doclib_link.js)
+    editor = c.get("/api/doclib/prompt-editor", follow_redirects=False)
+    assert editor.is_redirect and editor.headers["location"] == "http://127.0.0.1:9/#prompts"
     assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "../x"}).status_code == 400
     assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xaaaaaaaaaa"}).status_code == 502
     metas = {"xaaaaaaaaaa": {"id": "xaaaaaaaaaa", "doc": "d1", "state": "done", "focus": "한국선급의 연구", "figures": 2, "formulas": 1, "open": 1}, "xbbbbbbbbbb": {"id": "xbbbbbbbbbb", "doc": "d1", "state": "running"}}

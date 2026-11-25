@@ -431,7 +431,7 @@ function hdCards(n, roles, wid, started) {
       lead.title = `${partName} — ${full ? `반영할 기관 ${full} · ` : ""}${file || name}`;
       if (file && text.startsWith(`${file} — `)) text = text.slice(file.length + 3);
     }
-    const c = { ...n, idx: null, ref, role, state, skipped, word: n.soon ? "준비 중" : !x ? "" : state === "done" && skipped ? "건너뜀" : FLOW_WORD[state] || "",
+    const c = { ...n, idx: null, ref, role, docId: p?.doc || V?.docs?.[role]?.id || (role === "source" ? "" : wid), state, skipped, word: n.soon ? "준비 중" : !x ? "" : state === "done" && skipped ? "건너뜀" : FLOW_WORD[state] || "",
       text: dashHere(text), lines: [], acts: [], via: null, lead }; // dashHere — 서버의 글이 「작업 개요」 안의 자리(「아래 「…」」)를 가리키면 그 패널 이름으로(패널 대시보드와 같다)
     if (hand && ci === 0) { // 「했음」 · 「했음 취소」 는 이 화면에서도(사람의 단추 — 에이전트 행동에는 없다)
       const b = hBtn(hand.done ? "했음 취소" : "했음", () => hdHand(hand, !hand.done, ref), { cls: "btn sm" + (hand.done ? "" : " primary"),

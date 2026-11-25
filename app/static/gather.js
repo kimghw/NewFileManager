@@ -639,6 +639,7 @@ function gatherStepsEl(stage) { // 묶음 하나의 세부 목록(이관의 목�
     li.dataset.state = st;
     if (s.part) li.dataset.part = s.part;
     title.append(el("strong", null, s.name), el("span", "dv-flow-status"));
+    if (s.part) dashOverviewPrompts(title, ["llm"], s.part);
     body.append(title);
     if (st !== "todo") for (const [name, text] of s.lines) { const line = el("div", "dv-flow-text"); if (name) line.append(el("span", "gt-sub", name), " "); line.append(text); body.append(line); }
     li.append(el("span", "dv-flow-no", s.no || "·"), body);

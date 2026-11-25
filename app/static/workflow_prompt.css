@@ -1,0 +1,23 @@
+.wfp-panel { padding: 12px; min-width: 0; color: var(--text); font-size: 13px; }
+.hd-body > .wfp-panel { flex: 1 1 auto; }
+.wfp-dialog { width: min(720px, calc(100% - 28px)); max-height: 88vh; padding: 0; color: var(--text); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; }
+.wfp-dialog::backdrop { background: rgb(23 33 50 / 30%); }
+.wfp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px; border-bottom: 1px solid var(--line); }
+.wfp-head h2 { margin: 0; font-size: 16px; }
+.wfp-sub { color: var(--muted); flex: 1; }
+.wfp-select { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-weight: 600; }
+.wfp-select select { min-width: 0; max-width: 100%; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }
+.wfp-parts { display: grid; gap: 8px; margin-top: 12px; }
+.wfp-part { min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+.wfp-part > summary { padding: 8px 10px; cursor: pointer; overflow-wrap: anywhere; }
+.wfp-part[open] > summary { border-bottom: 1px solid var(--line); }
+.wfp-scope { margin-left: 7px; color: var(--muted); font-size: 11px; }
+.wfp-content { padding: 8px 10px; }
+.wfp-source, .wfp-status { margin: 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+.wfp-source { font-size: 12px; }
+.wfp-status:not(:empty) { margin-top: 8px; }
+.wfp-status.error { color: var(--danger, #af3030); }
+.wfp-text, .wfp-input { box-sizing: border-box; width: 100%; padding: 8px; margin: 7px 0 0; color: var(--text); border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.55; }
+.wfp-input { display: block; min-height: 12rem; resize: vertical; border-color: var(--accent); background: var(--surface); }
+.wfp-latest { margin-top: 8px; color: var(--muted); }
+.wfp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

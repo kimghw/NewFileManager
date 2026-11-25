@@ -7,6 +7,7 @@ import json
 
 from PIL import Image, ImageFilter, ImageOps
 
+from app import prompt_texts
 from app import caption_tpl
 from app import headings as H
 from app import llm
@@ -278,12 +279,12 @@ def _data(payload):
 def table_prompt(ctx, template) -> str:
     payload = {"소속 헤딩": ctx.get("heading") or [], "앞뒤 글": ctx.get("around") or {}, "지금 캡션": ctx.get("caption") or "",
                "표 캡션 예": (ctx.get("examples") or {}).get("table") or [], "표 양식": template}
-    return TABLE_CONTRACT + _data(payload)
+    return prompt_texts.contract(__name__, "TABLE_CONTRACT") + _data(payload)
 
 
 def caption_prompt(ctx) -> str:
     payload = {"소속 헤딩": ctx.get("heading") or [], "앞뒤 글": ctx.get("around") or {}, "그림 캡션 예": (ctx.get("examples") or {}).get("image") or []}
-    return CAPTION_CONTRACT + _data(payload)
+    return prompt_texts.contract(__name__, "CAPTION_CONTRACT") + _data(payload)
 
 
 def _info(res):

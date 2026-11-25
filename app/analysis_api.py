@@ -55,7 +55,7 @@ def analysis_get(doc_id: str):
     return analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans, place=_place(s, ol[0]) if ol else 0)
 
 
-def start_chain(s, chain, key=None):
+def start_chain(s, chain, key=None, *, writing_guidance=False):
     """이어 돌리기를 헤딩 작업 자리에서 시작한다 → 헤딩 작업. chain = analysis_llm.CHAINS 의 이름("llm" LLM 검증·보완 · "heads" 헤딩 그래프(LLM) → 서식 정리 계획 · "formats" 서식 정리 계획만),
     key = 서식 정리 스킬 키(기본 "tidy"). 400 hwpx 아님 · skill 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
     from app import server  # server 가 이 모듈을 include 하므로 부를 때 가져온다(순환 import 피함)
@@ -71,8 +71,12 @@ def start_chain(s, chain, key=None):
     how = analysis_llm.CHAINS[chain]
 
     def runner(sess, job):
-        return analysis_llm.run(sess, job, outline=lambda x: _outline(server, x), plans=tpl_agent_api.plans,
-                                plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key), **how)
+        n = analysis_llm.run(sess, job, outline=lambda x: _outline(server, x), plans=tpl_agent_api.plans,
+                             plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key), **how)
+        if writing_guidance and not job.stop:
+            from app import writing_guidance_api
+            writing_guidance_api.start(sess)
+        return n
     try:
         return heading_runs.start(s, 2, True, chain=chain, runner=runner)
     except heading_runs.Busy as e:
@@ -81,7 +85,8 @@ def start_chain(s, chain, key=None):
 
 @router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
 def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
-    """「LLM 검증·보완」 시작 {skill?(서식 정리 스킬 키 — 기본 "tidy"), only?("formats" — 서식 정리 계획만)} → 202 헤딩 작업(job.view — chain "llm" | "formats"). 유료 LLM — 화면은 진행표의 「돌 것」(llmPlan)을 보인 단추로만 부른다.
+    """「LLM 검증·보완」 시작 {skill?(기본 "tidy"), only?("formats"), writingGuidance?(양식 작성 04)} → 202 헤딩 작업.
+    writingGuidance가 참이면 구조 판정이 성공한 뒤 작성 지침을 추출한다. 그 실행 상태는 GET …/writing-guidance에서 읽는다.
     헤딩 · 템플릿과 표 판정의 호출을 같이 → 헤딩 그래프가 끝나면 서식(계획만 — 템플릿끼리 같이)(app/analysis_llm.py — 헤딩을 건너뛰면 표 · 서식이 같이) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜.
     only "formats" = 계획이 없거나 옛것인 템플릿의 서식 정리 계획만(헤딩 · 표 LLM 은 안 돎 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」). 400 hwpx 아님 · only 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
     from app import server
@@ -89,7 +94,10 @@ def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
     if only not in (None, "formats"):
         raise HTTPException(400, 'only 는 "formats" 뿐입니다')
     server._flow_busy_other(doc_id, "single")   # 문서 하나의 서버 실행이 이 문서에서 도는 동안 사람이 건 「LLM 검증·보완」 은 409(그 실행이 스스로 거는 것은 지나간다 — spec_워크플로우 ② §18-13)
-    return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill")).view()
+    guidance = body.get("writingGuidance", False)
+    if not isinstance(guidance, bool) or (guidance and only):
+        raise HTTPException(400, "writingGuidance는 전체 검증·보완에서만 쓰는 참·거짓 값입니다")
+    return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill"), writing_guidance=guidance).view()
 
 
 @router.delete("/api/docs/{doc_id}/analysis/llm")

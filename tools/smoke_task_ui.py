@@ -61,9 +61,9 @@ VIS = "(id) => { const e = document.getElementById(id); return !e.hidden && e.ge
 SLOTS = "() => Object.fromEntries([...document.querySelectorAll('#taskFlow select[data-task-file]')].map((s) => [s.dataset.taskFile, s.value]))"  # 이관의 첨부 파일 칸(② §11) → {plan, report: 작업 id | ''}
 STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config]):not([data-step=heads]):not([data-step=reheads]):not([data-step=headsLlm]):not([data-step=reheadsLlm])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
   status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent,
-  name: li.querySelector('.dv-flow-title strong').textContent, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }))"""
-CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 1단계 「구성 확정」(spec_작업 ② §18)
-STEP = "(k) => { const li = document.querySelector('#taskSteps li[data-step=' + k + ']'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 줄 하나 — 1단계 「헤딩 · 표 분석」(heads) · 2단계 「헤딩 · 표 다시 분석」(reheads): spec_작업 ② §21
+  name: li.querySelector('.dv-flow-title strong').textContent, text: li.textContent, acts: [...li.querySelectorAll('.dv-flow-acts button')].map((b) => b.textContent) }))"""
+CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('.dv-flow-acts button')].map((b) => b.textContent) }; }"  # 1단계 「구성 확정」(spec_작업 ② §18)
+STEP = "(k) => { const li = document.querySelector('#taskSteps li[data-step=' + k + ']'); return li && { state: li.dataset.state, text: li.textContent, acts: [...li.querySelectorAll('.dv-flow-acts button')].map((b) => b.textContent) }; }"  # 줄 하나 — 1단계 「헤딩 · 표 분석」(heads) · 2단계 「헤딩 · 표 다시 분석」(reheads): spec_작업 ② §21
 JOURNEY = "() => [...document.querySelectorAll('#taskFlow [data-journey]')].map(b => [b.dataset.journey, b.dataset.state, b.getAttribute('aria-current')])"
 
 
@@ -362,13 +362,8 @@ try:
         e = page.evaluate(SLOTS)["plan"]
         check("연차보고서를 보며 사업계획서 칸에 올림 — 화면은 그대로(올린 문서는 칸에만)", page.evaluate("() => state.id") == d and task_of(e)["file"] == "plan" and task_of(e)["project"] == "시험 과제"
               and "지금 보는 문서는 그대로" in tip, [page.evaluate("() => state.id"), task_of(e), tip])
-        for wid in (d, e):  # 뒤 검사는 a(연차보고서) · c(사업계획서)로 잇는다 — 올린 둘은 지운다
-            if wid == d:
-                swap_pick(page, "report", a, {"plan": e, "report": a})
-                page.wait_for_function("() => !state.polling", timeout=60000)   # 옛 문서(d)의 검증 읽기가 끝난 뒤에 지운다 — 지운 뒤 도착한 읽기가 404 를 콘솔에 남긴다
-            requests.delete(f"{base}/api/works/{wid}", timeout=30).raise_for_status()
-        page.evaluate("() => loadWorks().then(() => { divRender(); taskFlowLoad(); })")
-        page.wait_for_function(f"() => {{ const f = document.getElementById('taskFlow'); return f && f.dataset.key === taskFlowKey() && JSON.stringify(({SLOTS})()) === JSON.stringify({{plan: '', report: '{a}'}}); }}")
+        swap_pick(page, "report", a, {"plan": e, "report": a})
+        pick(page, "plan", "", {"plan": "", "report": a})
         pick(page, "plan", a, {"plan": a, "report": ""})
         pick(page, "report", a, {"plan": "", "report": a})
         check("지금 문서를 다른 칸으로 옮겼다 되돌림", task_of(a)["file"] == "report" and page.evaluate("() => state.task.file") == "report", task_of(a))
@@ -489,7 +484,7 @@ try:
         hl, st = page.evaluate(STEP, "headsLlm"), page.evaluate(STEPS)
         check("LLM 을 쓸 수 있으면 — 1단계 「LLM 검증·보완」 이 지금(원본 문서 = 사업계획서 · 유료) · 「LLM 검증·보완」(강조) · 「건너뛰기」 · ② 는 대기(이관 조건: 1 · 2단계가 먼저)",
               hl["state"] == "now" and hl["acts"] == ["LLM 검증·보완", "건너뛰기"] and "사업계획서의 헤딩 · 템플릿" in hl["text"] and "유료" in hl["text"] and st[2]["state"] == "todo"
-              and page.evaluate("() => document.querySelector('#taskSteps li[data-step=headsLlm] button').classList.contains('primary')")
+              and page.evaluate("() => document.querySelector('#taskSteps li[data-step=headsLlm] .dv-flow-acts button').classList.contains('primary')")
               and page.evaluate(STEP, "reheadsLlm")["state"] == "todo" and [x[1] for x in page.evaluate(JOURNEY)] == ["done", "now", "todo", "todo", "todo"], (hl, st[2], page.evaluate(JOURNEY)))
         page.locator("#taskSteps li[data-step=headsLlm] button", has_text="건너뛰기").click()
         hl, rl = page.evaluate(STEP, "headsLlm"), page.evaluate(STEP, "reheadsLlm")
@@ -544,12 +539,12 @@ try:
 
         def item(value, linked=True):
             return {"value": value, "to": {"id": pid, "text": f"[{value} 자리]"}, "from": {"id": "p900", "text": f"[{value} 원본]", "value": value} if linked else None, "status": "paired" if linked else "unpaired"}
-        base = {"dim": "org", "dimName": "기관", "kind": "paragraph", "source": "script", "reason": "", "anchor": None, "ctx": {"year": 1, "org": None}}
+        group_base = {"dim": "org", "dimName": "기관", "kind": "paragraph", "source": "script", "reason": "", "anchor": None, "ctx": {"year": 1, "org": None}}
         groups0 = [
-            {**base, "id": "g1", "status": "paired", "to": {"key": "g1", "path": ["다음 연도 연구개발계획", "연구개발기관별 사용계획 총괄표"], "label": "주관연구개발기관 : ]"}, "from": cand[0], "candidates": cand, "items": [item("주관"), item("공동1")]},
-            {**base, "id": "g2", "status": "ambiguous", "reason": "후보가 여럿이거나 닮음이 낮음", "to": {"key": "g2", "path": ["해당연도 추진 실적 및 추진내용"], "label": "주관연구개발기관명 : ]"}, "from": None, "candidates": cand, "items": [item("주관", False)]},
-            {**base, "id": "g3", "dim": "year", "dimName": "차년도", "kind": "cols", "status": "toOnly", "to": {"key": "g3", "path": ["정량적 연구개발성과"], "label": "", "table": "t9"}, "from": None, "candidates": [], "items": [item("1차년도", False)]},
-            {**base, "id": "from:p950", "status": "fromOnly", "to": None, "from": {"key": "p950", "path": ["연구개발 목표 및 내용", "개발 목표"], "label": "주관연구개발기관()]"}, "candidates": [], "items": []}]
+            {**group_base, "id": "g1", "status": "paired", "to": {"key": "g1", "path": ["다음 연도 연구개발계획", "연구개발기관별 사용계획 총괄표"], "label": "주관연구개발기관 : ]"}, "from": cand[0], "candidates": cand, "items": [item("주관"), item("공동1")]},
+            {**group_base, "id": "g2", "status": "ambiguous", "reason": "후보가 여럿이거나 닮음이 낮음", "to": {"key": "g2", "path": ["해당연도 추진 실적 및 추진내용"], "label": "주관연구개발기관명 : ]"}, "from": None, "candidates": cand, "items": [item("주관", False)]},
+            {**group_base, "id": "g3", "dim": "year", "dimName": "차년도", "kind": "cols", "status": "toOnly", "to": {"key": "g3", "path": ["정량적 연구개발성과"], "label": "", "table": "t9"}, "from": None, "candidates": [], "items": [item("1차년도", False)]},
+            {**group_base, "id": "from:p950", "status": "fromOnly", "to": None, "from": {"key": "p950", "path": ["연구개발 목표 및 내용", "개발 목표"], "label": "주관연구개발기관()]"}, "candidates": [], "items": []}]
         links = {"groups": copy.deepcopy(groups0), "calls": []}
 
         PLAN = {"planId": "pl1", "baseRev": 0, "todo": 5,
@@ -600,7 +595,7 @@ try:
         check("② LLM 을 쓸 수 없으면 「자리 연결」 은 「건너뜀」 으로 끝 — 확인 필요는 비워 둔다(서버 실행기의 상태 식과 같다 · 막다른 길 없음)", off["state"] == "done" and off["badge"] == "건너뜀" and "LLM 을 쓸 수 없어 확인 필요 1곳은 넣지 않고 비워 둡니다" in off["text"], off)
         page.evaluate("() => { taskLlmOk = true; taskStepsDraw(); }")
         st = page.evaluate(STEPS)
-        PRIMARY = "(step) => [...document.querySelectorAll(`#taskSteps li[data-step=${step}] button`)].map((b) => b.classList.contains('primary'))"  # 그 단계 단추들의 강조 여부
+        PRIMARY = "(step) => [...document.querySelectorAll(`#taskSteps li[data-step=${step}] .dv-flow-acts button`)].map((b) => b.classList.contains('primary'))"  # 실행 단추들의 강조 여부
         check("② 연결 목록이 나옴 — 다음 작업은 LLM 검토 · ③은 먼저 진행 가능", [s["state"] for s in st][:6] == ["done", "done", "now", "ready", "todo", "soon"]
               and st[2]["badge"] == "다음 작업" and st[3]["badge"] == "진행 가능"
               and "연결됨 1 · 확인 필요 1 · 후보 없음 1 · 원본에만 1" in st[2]["text"] and "다음: 「LLM 검토」" in st[2]["text"] and st[2]["acts"] == ["LLM 검토", "연결 목록", "지침", "매칭 지침"]   # 「매칭 지침」 — spec_병합 ② §5-6(2026-11-22 — 전의 「연결 코멘트」 단추: ② §5-3 1 · 2026-11-12)
@@ -759,6 +754,8 @@ try:
         page.locator("#panel").screenshot(path=str(OUT / "8_steps_done.png"))
         check("콘솔 오류 0", not errors, errors[:5])
         browser.close()
+        for wid in (d, e):  # 창이 닫힌 뒤에 지워야 전에 열었던 문서의 비동기 상태 조회가 끝난다.
+            requests.delete(f"{base}/api/works/{wid}", timeout=30).raise_for_status()
 finally:
     proc.terminate()
     try:

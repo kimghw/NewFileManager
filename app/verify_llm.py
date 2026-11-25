@@ -10,6 +10,7 @@
 import json
 import os
 
+from app import prompt_texts
 from app import llm, merge_guides, pdf_render
 
 KEY = "llm"
@@ -117,7 +118,7 @@ def guide_part(g=None):
 
 
 def prompt(data, g=None):
-    return CONTRACT + guide_part(g) + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + guide_part(g) + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 def apply(steps, answer):

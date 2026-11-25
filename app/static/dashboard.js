@@ -1194,7 +1194,7 @@ async function dashLive(job, M) {
   if (taskIsGather(job)) return dashGatherLive(M); // 취합형 — 붙박이 취합 · 취합형으로 조립한 것(같은 줄 key · 묶음은 그 정의의 것: dashGatherLive 가 줄이 든 묶음으로 잇는다)
   if (job === "style_copy") return dashStyleLive();
   if (job === "doc_edit") return dashEditLive();
-  if (job === "form_write") return formWriteLive(); // 양식 작성 — 문서 라이브러리(따로 선 서버)의 추출 · 이 문서의 자료 · 지침 작성의 상태(form_write.js — spec_양식작성 ② §6)
+  if (job === "form_write") return formWriteLive(M); // 양식 작성 — 문서 라이브러리(따로 선 서버)의 추출 · 이 문서의 자료 · 지침 작성의 상태(form_write.js — spec_양식작성 ② §6)
   return { steps: {}, runs: {} };
 }
 
@@ -1220,10 +1220,32 @@ async function dashModel() {
 }
 
 // ---------------------------------------------------------------- 그리기
-function dashTags(s) { // 누가(스크립트 · LLM · 사람) · 문서 바뀜 · 자동 · 필수 · 선택 — 워크플로우 페이지의 꼬리표와 같은 말(2026-11-18 사용자 「안해도됨은 '선택' 으로 하고 저절로는 '자동' 으로」 · 「꼭 해야하는건 필수 라고 적어줘」 · 「사람, 스크립트, LLM, 문서바뀜 아이콘으로 넣어달라해」: 넷은 아이콘 + .sr-only 글)
+function dashPromptButton(s, C = DASH_CTX) {
+  const job = C.job(), role = s.role || s.on || "", title = s.lead?.textContent;
+  const template = DASH.reg?.tasks.find((t) => t.job === job)?.family || "";
+  const pair = C.panel && taskIsRelay(job) && (taskSlots() || []);
+  const kind = pair && (role === "source" ? pair[0] : role === "target" || role === "pair" ? pair[1] : "");
+  const docId = s.doc?.id || s.docId || (kind ? taskSlotDoc(kind)?.id : !s.role && C.panel ? state.id : "") || "";
+  const button = workflowPromptButton({ job, template, step: s.key, title: title ? `${title} · ${s.name}` : s.name,
+    agents: s.agents, docId, role, doclib: (s.uses || []).includes("doclib") && !s.agents?.length },
+    agentIcon("llm", 12), "dash-tag dash-t-llm");
+  button.dataset[C.focus] = `prompt:${s.ref || s.key}`;
+  return button;
+}
+function dashOverviewPrompts(head, keys, docId = "") {
+  const job = agwJob();
+  const add = () => {
+    for (const key of keys) {
+      const step = dashRegStep(job, key);
+      if (step?.by.includes("llm")) head.append(dashPromptButton({ ...step, docId }));
+    }
+  };
+  if (DASH.reg) add(); else dashRegLoad().then(() => { if (job === agwJob() && head.isConnected) add(); });
+}
+function dashTags(s, C) { // 누가(스크립트 · LLM · 사람) · 문서 바뀜 · 자동 · 필수 · 선택
   const box = el("span", "dash-tags"), by = (DASH.reg && DASH.reg.by) || {};
   const icon = (cls, text, name) => { const t = el("span", "dash-tag" + (cls ? ` dash-t-${cls}` : "")); t.title = text; t.append(agentIcon(name, 12), el("span", "sr-only", text)); return t; }; // 꾸밈 클래스는 dash-t- 로 — style.css 의 .doc 등과 안 겹치게
-  for (const b of s.by) box.append(icon(b === "script" ? "" : b, by[b] || b, b));
+  for (const b of s.by) box.append(b === "llm" ? dashPromptButton(s, C) : icon(b === "script" ? "" : b, by[b] || b, b));
   if (s.change === "doc") box.append(icon("doc", "문서 바뀜", "doc"));
   if (s.auto) box.append(el("span", "dash-tag dash-t-soft", "자동"));
   if (!s.optional && !s.soon && !s.auto) box.append(el("span", "dash-tag dash-t-must", "필수")); // 사람이 해야 다음으로 가는 단계(자동은 저절로 돌아 붙이지 않음)
@@ -1388,7 +1410,7 @@ function dashNodeEl(n, gid, openKey, C = DASH_CTX) {
   // 2026-11-23 사용자 「메모 설명이나 이런게 좀 정리되어 있지 않고 읽기도 어려움」 — Antigravity(메모를 이름 바로 옆 · 꼬리표는 둘째 줄로)
   const main = el("span", "dash-node-main" + (n.lead ? " has-lead" : "")), st = n.word !== undefined ? n.word : DASH_ST[n.state] || "", memo = dashMemoEl(n, C);
   head.append(el("b", null, n.name));
-  main.append(...(n.lead ? [n.lead] : []), head, ...(memo ? [memo] : []), dashTags(n));
+  main.append(...(n.lead ? [n.lead] : []), head, ...(memo ? [memo] : []), dashTags(n, C));
   if (n.idx != null) top.append(el("span", "dash-no", String(n.idx).padStart(2, "0")));
   top.append(main);
   if (st) { const s = el("span", "dash-st", n.state === "done" && !n.skipped ? `✓ ${st}` : st); s.id = `${id}-st`; head.setAttribute("aria-describedby", s.id); top.append(s); }
@@ -1596,7 +1618,8 @@ async function dashResetDone(ids) { // 패널 — 지금 문서를 초기화했�
   const shown = typeof peerShown === "function" ? peerShown() : "";
   if (shown && ids.includes(shown)) { try { $("peerFrame").contentWindow.location.reload(); } catch { /* 여는 중 */ } }
   // 다시 열어도 보던 탭(대시보드)에 머문다 — 전에는 load 가 패널을 검증(일반 문서 워크플로우는 에이전트 보기)으로 바꿨다(2026-11-24 사용자 「왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐」)
-  if (state.id && ids.includes(state.id)) { await load(state.id, { tab: $("panel").dataset.tool || "Dash" }); firstRun(); }
+  // 양식 작성은 다시 연 뒤 첫 분석을 걸지 않는다(2026-11-25 사용자 「왜 초기화 하면 1,2,3 은 끝남으로 나오냐?」 — 초기화한 「헤딩 · 표 분석」 이 곧장 다시 돌아 끝남으로 보였다): 그 줄은 「지금」 으로 남고 「분석」 · 묶음의 「한 번에 진행」 이 돌린다(spec_양식작성 ② §6-1)
+  if (state.id && ids.includes(state.id)) { await load(state.id, { tab: $("panel").dataset.tool || "Dash" }); if ((state.task || {}).job !== "form_write") firstRun(); }
   if (DASH.flow) DASH.flow.stale = true;
   dashResetState().pin = Date.now() + 3000; // 다시 그리는 몇 초 동안 맨 아래 줄(초기화한 자리 · 「다음」 단추)을 보이는 데 둔다 — dashDraw 가 읽는다(다시 열면 대시보드가 여러 번 그려져 스크롤이 위로 간다)
 }
@@ -1610,7 +1633,8 @@ function dashNextBtn(M, R) {
   if (!hit) return null;
   const card = hit.n.cards ? hit.n.cards.find((c) => c.state === "now") || hit.n.cards.find((c) => c.state !== "done") || hit.n.cards[0] : hit.n;
   const acts = ((card && card.acts) || []).filter(ok), gName = `${hit.g.label.no} 「${hit.g.label.name}」`, nName = `${String(hit.n.idx).padStart(2, "0")} ${hit.n.name}`;
-  const pick = ok(hit.g.run) ? [hit.g.run, gName, `${hit.g.label.no} `] : acts.length ? [acts.find((b) => b.classList.contains("primary")) || acts[0], nName, ""] : M.top.some(ok) ? [M.top.find(ok), "머리 아래", ""] : null;
+  const gRun = hit.g.run && hit.g.run.tagName !== "BUTTON" ? hit.g.run.querySelector("button[data-run]") : hit.g.run; // 묶음 머리에 단추가 여럿(양식 작성 — 「한 번에 진행」 + 「N단계 초기화」: form_write.js)이면 실행 단추
+  const pick = ok(gRun) ? [gRun, gName, `${hit.g.label.no} `] : acts.length ? [acts.find((b) => b.classList.contains("primary")) || acts[0], nName, ""] : M.top.some(ok) ? [M.top.find(ok), "머리 아래", ""] : null;
   if (!pick) return null;
   const [src, where, lead] = pick; // lead — 묶음의 「한 번에 진행」 은 어느 묶음인지(「다음: 1단계 한 번에 진행」)
   return dashBtn(`다음: ${lead}${src.textContent}`, () => { R.after = false; src.click(); }, { primary: true,
@@ -1668,7 +1692,7 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
   return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
     DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs, DASH.reset.after] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
     M.notes.map((n) => [n.text, b(n.act)]), M.last || 0, M.lasts || 0, (M.lives || []).map((x) => [x.n, x.label, x.stopping]), M.top.map(b),
-    M.groups.map((g) => [b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
+    M.groups.map((g) => [g.run && g.run.tagName !== "BUTTON" ? [...g.run.querySelectorAll("button")].map(b) : b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
 }
 
 async function dashDraw(force = false) {

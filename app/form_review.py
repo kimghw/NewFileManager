@@ -15,6 +15,7 @@
 import hashlib
 import json
 
+from app import prompt_texts
 from app import form_slots as FS
 from app import job_prompts, merge_guides
 from app.headings import iter_blocks
@@ -31,6 +32,7 @@ def _arr(item):
 
 
 SCHEMA = _obj({"summary": S_,
+               "sees": _obj({"write": S_, "guides": S_, "asks": S_}),   # 양식 검토가 보는 셋(2026-11-25 사용자 「목적문서의 양식에 뭘 작성해야하는지, 어떤 지침이 있는지 사용자가 요청하는건 뭔지를 봐야지」)
                "places": _arr(_obj({"id": S_, "how": S_, "needs": S_, "use": S_, "gap": S_})),
                "topics": _arr(_obj({"name": S_, "keywords": _arr(S_), "context": S_, "scope": S_, "places": _arr(S_)})),
                "questions": _arr(_obj({"text": S_, "why": S_, "places": _arr(S_), "choices": _arr(S_), "suggest": S_, "source": S_}))})
@@ -43,6 +45,8 @@ QUESTIONS_MAX = 12
 TOPICS_MAX, KEYWORDS_MAX, TOPIC_NAME, KEYWORD_MAX, SCOPE_MAX = 12, 6, 40, 30, 200   # 자료에서 찾을 테마 · 키워드(② §5-2)
 HOW_MAX, Q_MAX, CHOICE_MAX, ANSWER_MAX = 300, 200, 6, 500
 PLAN_MAX = 1100         # 지침 작성 요청 하나에 붙이는 검토 글(작성 방향 + 정한 것)
+REQUEST_MAX = 1000      # 사람의 요청(「이번 작성의 지침」 — guide_write.NOTE_MAX 와 같다)
+SEES_MAX = 700          # 「보는 셋」 한 칸
 SKIP = "자료대로"        # 「따로 정하지 않음 — 자료에 있는 대로」 (사람이 고르는 답 — 물음을 건너뛴다는 뜻을 적어 둔다)
 
 CONTRACT = """당신은 정해진 **양식 문서**(사업계획서 · 보고서 · 신청서 등)를 채우기 전에, 양식 전체를 읽고 **어떻게 작성할지 검토**하는 검토자입니다. 문서를 쓰지 않습니다 —
@@ -54,11 +58,17 @@ CONTRACT = """당신은 정해진 **양식 문서**(사업계획서 · 보고서
   그 위의 제목 줄이 그 자리의 항목입니다. 「000」 · 「○○ 작성」 같은 글은 자리표시(양식의 글)입니다. 상자 안의 표 · 그림 자리는 여기서 채우지 않습니다.
 - places = 채울 자리 [{id, kind("head" 헤딩 아래 · "box" 상자 안의 쓸 자리 · "table" 표), text, depth, guides[작성 지침 — (양식 · 종류) 또는 (사람)], filled(이미 글이 있음),
   slot?("label" 그 줄 뒤에 값을 쓰는 줄 · "check" 항목 하나에 표시하는 줄 · "filled" 이미 채운 줄), slots?(상자 — 쓸 수 있는 줄 수), boxed?(그 헤딩 아래에 따로 선 상자 자리가 있음 — 상자에 들어갈 내용은 상자 자리에 적습니다)}].
+- request = **사람이 이번 작성에 대해 요청한 것**(「이번 작성의 지침」 — 있을 때만). 자리의 guides 가운데 「(사람)」 도 사람이 그 자리에 적은 요청입니다. 검토는 이것을 따릅니다(양식의 지침과 어긋나면 어긋난다고 적습니다).
+- writingJudgment = 04에서 해당 자리의 작성 규칙을 판정한 결과입니다. apply이면 writingGuidance에 채택한 규칙과 출처가 있습니다. basis의 explicit은 명시 요건, example은 샘플에서 관찰한 관례입니다. not_applicable이나 insufficient이면 이 자리의 원래 양식 지침을 사용합니다. 이 판정은 작성 방법에만 적용되며 실제로 채울 내용은 자료에서 찾습니다.
 - decided = 사람이 이미 정해 준 것 [{q, a}] — 다시 묻지 않습니다.
 - materials = 사람이 준 자료(있을 때만 — 특정 기관 · 특정 연구에 대해 뽑은 글). 없으면 자료는 아직 오지 않았습니다.
 
 ### 답
 - summary = 이 양식이 무엇이고 전체를 어떻게 쓰면 되는지(3~6문장 — 분량 · 문체(개조식 등) · 자리 사이의 관계 · 꼭 지킬 지침).
+- sees = 양식 검토가 보는 셋 {write, guides, asks} — 칸마다 2~5문장:
+  write = **목적 문서의 양식에 무엇을 써야 하는지**(쓸 자리들과 자리마다 들어갈 내용의 종류 · 이미 채운 곳) ·
+  guides = **어떤 작성 지침이 있는지**(양식의 작성 요령 · ※ 안내 · 각주 · 참고와 사람이 자리에 적은 지침 — 꼭 지킬 형식 · 분량 · 단위를 지침 이름과 함께. 지침이 없는 자리도 그렇게) ·
+  asks = **사람이 요청한 것**(request 와 「(사람)」 지침 — 무엇을 요청했고 검토가 그것을 어떻게 따르는지 · 양식의 지침과 어긋나는 곳). 요청이 없으면 「사람의 요청 없음」.
 - places = 자리마다 [{id, how, needs, use, gap}] — id 는 places 에 있는 것만. how = 그 자리에 무엇을 어떤 꼴로 쓸지 한두 문장(지침을 따름 — 지침의 예시 글 · 예시 수는 내용이 아님).
   needs = 그 자리를 쓰려면 자료에 있어야 할 정보(짧게). 쓸 것이 분명하지 않은 자리도 넣되 how 에 그렇게 적습니다.
   **작성 계획**(materials 가 있을 때만 — 없으면 둘 다 ""): use = 자료의 어느 내용을 이 자리에 쓸지(자료에 있는 것만 — 어느 절 · 어느 표 · 핵심 말로 짧게 가리킴: 글을 미리 쓰지 않습니다) ·
@@ -87,19 +97,21 @@ def _short(text, n):
 
 def _cells_rows(b):
     rows = {}
+    clipped = False
     for c in b.get("cells") or ():
         t = " ".join(x.get("text") or "" for x in iter_blocks(c.get("blocks") or ()) if x.get("type") == "paragraph").strip()
+        clipped |= len(" ".join(t.split())) > CELL_MAX
         rows.setdefault(c.get("row") or 0, []).append((c.get("col") or 0, _short(t, CELL_MAX)))
-    return [" | ".join(t for _, t in sorted(cs)) for _, cs in sorted(rows.items())]
+    return [" | ".join(t for _, t in sorted(cs)) for _, cs in sorted(rows.items())], clipped
 
 
 def form_text(blocks, graph, limit=FORM_MAX, orig=None):
     """양식 전체 글(문서 차례) → (글, cut). 넘치면 문단을 더 짧게 줄여 다시 짓고(헤딩 줄은 늘 남긴다), 그래도 넘치면 뒤를 자른다. orig = 올린 원본의 문단 원문(채운 자리를 가린다 — form_slots)."""
     text = ""
     for n, para_max in enumerate((PARA_MAX, 200, 100, 60)):
-        text = _form_text(blocks, graph, para_max, orig)
+        text, clipped = _form_text(blocks, graph, para_max, orig)
         if len(text) <= limit:
-            return text, n > 0
+            return text, clipped or n > 0
     return text[:limit], True
 
 
@@ -107,37 +119,51 @@ def _form_text(blocks, graph, para_max, orig=None):
     levels = {n["para"]: n["level"] for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("para") and n.get("level")}   # 상자 안 줄의 레벨(헤딩 추출이 매긴 것 — area box)
     depth = {n["para"]: n.get("depth") or 1 for n in (graph or {}).get("nodes") or ()
              if isinstance(n, dict) and n.get("role") == "heading" and n.get("area") == "body" and n.get("para")}
-    lines = []
+    lines, clipped = [], False
     for b in blocks or ():
         if b.get("type") == "paragraph":
             t = " ".join((b.get("text") or "").split())
             if not t:
                 continue
+            clipped |= len(t) > (200 if b["id"] in depth else para_max)
             lines.append(f"{'#' * min(6, depth[b['id']])} {_short(t, 200)} [{b['id']}]" if b["id"] in depth else _short(t, para_max))
         elif FS.box_cell(b) is not None:   # 상자(1칸 표) — 칸을 80자로 뭉개지 않고 문단마다(쓸 자리 · 제목 · 안쪽 표의 자리): 2026-11-24 사용자 「작성지침에서 필드에 있는 값을 못 읽는다는거지?」
-            lines.append(f"[상자 {b['id']}]\n" + FS.view_text(FS.entries(FS.box_cell(b), levels, orig)))
+            entries = FS.entries(FS.box_cell(b), levels, orig)
+            clipped |= any(len(e.get("raw", "")) > FS.RAW_MAX for e in entries)
+            lines.append(f"[상자 {b['id']}]\n" + FS.view_text(entries))
         elif b.get("type") == "table":
-            rows = _cells_rows(b)
+            rows, cells_cut = _cells_rows(b)
+            clipped |= cells_cut or len(rows) > ROWS_MAX
             lines.append(f"[표 {b['id']}]" + "".join(f"\n  {r}" for r in rows[:ROWS_MAX] if r.strip(" |")) + (f"\n  … ({len(rows) - ROWS_MAX}행 더)" if len(rows) > ROWS_MAX else ""))
-    return "\n".join(lines)
+    return "\n".join(lines), clipped
 
 
 def _place_brief(p):
     gs, used = [], 0
-    for g in sorted(p.get("guides") or (), key=lambda g: g.get("src") != "user"):
+    guides = p.get("guides") or ()
+    for g in sorted((g for g in guides if g.get("src") != "llm"), key=lambda g: g.get("src") != "user"):
         t = _short(g.get("text"), GUIDE_MAX - used)
         if used >= GUIDE_MAX or not t:
             break
         gs.append(f"({'사람' if g.get('src') == 'user' else '양식' + (' · ' + g['kind'] if g.get('kind') else '')}) {t}")
         used += len(t)
+    llm_rules = [{"instruction": g.get("instruction") or g["text"], "sources": g.get("sources") or [],
+                  **({"basis": g["basis"]} if g.get("basis") else {})} for g in guides if g.get("src") == "llm"]
     return {"id": p["id"], "kind": p["kind"], "text": p.get("text") or "", "depth": p.get("depth"), "guides": gs, "filled": bool(p.get("filled")),
+            **({"writingGuidance": llm_rules} if llm_rules else {}),
+            **({"writingJudgment": {"status": p["writingJudgment"]["status"]}} if p.get("writingJudgment") else {}),
             **{k: p[k] for k in ("slot", "slots", "boxed") if p.get(k)}}
 
 
 def place_sig(p):
     """자리 하나의 지문 — id · 종류 · 글 · 지침 · 같은 줄 자리 · 상자의 줄 차례(문단 id · 종류 · 원문: `guide_write.places` 가 준 fp). 고정 제목을 맞바꾸거나 줄의 역할이 달라지면 달라진다
     (astra 2차 G11 — 자리 id 와 덩이 수만으로는 「연구개발 목표」 ↔ 「내용 및 범위」 를 맞바꾼 양식을 못 가린다)."""
-    raw = json.dumps([p["id"], p.get("kind"), p.get("text"), [g.get("text") for g in p.get("guides") or ()], p.get("slot"), p.get("fp")], ensure_ascii=False)
+    inputs = [p["id"], p.get("kind"), p.get("text"), [g.get("text") for g in p.get("guides") or ()], p.get("slot"), p.get("fp")]
+    if p.get("writingGuidanceSig"):
+        inputs.append(p["writingGuidanceSig"])
+    if p.get("writingJudgment"):
+        inputs.append(p["writingJudgment"]["status"])
+    raw = json.dumps(inputs, ensure_ascii=False)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -152,10 +178,26 @@ def sig(places):
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def payload(blocks, graph, places, decided, materials_text="", orig=None):
+def request_text(note):
+    """사람의 요청(「이번 작성의 지침」) → 한 칸 글(줄 나눔은 남김 · REQUEST_MAX 자까지)."""
+    t = "\n".join(" ".join(x.split()) for x in str(note or "").splitlines()).strip()
+    return t[:REQUEST_MAX]
+
+
+def fed(places, request=""):
+    """검토에 실은 것의 셈 — {places, formGuides, userGuides, request}: 화면이 「검토가 본 것」 으로 보인다."""
+    gs = [g for p in places or () for g in p.get("guides") or ()]
+    enriched = sum(g.get("src") == "llm" for g in gs)
+    return {"places": len(places or ()), "formGuides": sum(g.get("src") not in ("user", "llm") for g in gs),
+            "userGuides": sum(g.get("src") == "user" for g in gs), **({"llmGuides": enriched} if enriched else {}), "request": bool(request)}
+
+
+def payload(blocks, graph, places, decided, materials_text="", orig=None, request=""):
     text, cut = form_text(blocks, graph, orig=orig)
     out = {"form": text, "cut": cut, "places": [_place_brief(p) for p in places or ()],
            "decided": [{"q": d["q"], "a": d["a"]} for d in decided or () if d.get("a")]}
+    if request:
+        out["request"] = request
     if materials_text:
         out["materials"] = materials_text[:MATERIAL_MAX]
     return out
@@ -168,13 +210,13 @@ def guide_part(g=None):
 
 def prompt(data, job=None, guide=None):
     """프롬프트 글 = 계약 + 판단 지침 + 할 일 프롬프트 + 자료(JSON)."""
-    return CONTRACT + guide_part(guide) + job_prompts.part(job) + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + guide_part(guide) + job_prompts.part(job) + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 def parts(job=None, guide=None):
     """에이전트 설정 · 화면 「지침」 보기에 싣는 글들(자료 빼고) — guide_fix.parts 와 같은 꼴."""
     g = merge_guides.get(GUIDE) if guide is None else guide
-    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": CONTRACT, "source": "app/form_review.py",
+    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": prompt_texts.contract(__name__), "source": "app/form_review.py",
             "note": "코드에 든 글입니다(답을 검증하는 코드와 한 몸) — 판단 기준은 아래 지침에 있습니다"}]
     if g and merge_guides.body(g):
         out.append({"key": "guide", "title": f"판단 지침 — {g['title']}", "text": merge_guides.body(g), "source": g["path"], "note": "이 파일을 고치면 다음 실행부터 적용됩니다"})
@@ -209,7 +251,26 @@ def check(answer, place_ids, has_materials):
         qs.append({"key": f"q{len(qs) + 1}", "text": text, "why": _short(q.get("why"), Q_MAX), "places": where,
                    "choices": choices, "suggest": sug, "source": _short(q.get("source"), 200) if sug else "",
                    **({"unplaced": True} if named and not where else {})})   # 자리를 적었는데 모두 모르는 id — 「문서 전체」 가 아니다: 어느 자리에도 싣지 않는다(astra 2차 「빠뜨린 2」 의 검토 시점 쪽)
-    return {"summary": _short(a.get("summary"), 1200), "places": ps, "questions": qs, "topics": topics(a.get("topics"), ids)}
+    sees = a.get("sees") if isinstance(a.get("sees"), dict) else {}
+    sees = {k: _short(sees.get(k), SEES_MAX) for k in ("write", "guides", "asks")}
+    return {"summary": _short(a.get("summary"), 1200), **({"sees": sees} if any(sees.values()) else {}), "places": ps, "questions": qs, "topics": topics(a.get("topics"), ids)}
+
+
+def keep_review(rv, prev):
+    """작성 계획(자료를 주고 한 검토)의 답 rv 에 앞 양식 검토 prev 의 것을 지닌다 — 요약 · 보는 셋 · 자리마다 작성 방향(how · needs) · 테마는 **양식 검토의 것**이고,
+    계획이 받는 것은 자리마다 use · gap 과 물음뿐이다(2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려」 — 두 걸음을 섞지 않는다). 양식이 바뀐 뒤면(지문이 다름) 부르지 않는다(새 답 그대로)."""
+    if not prev:
+        return rv
+    rv["summary"] = prev.get("summary") or rv["summary"]
+    if prev.get("sees"):
+        rv["sees"] = prev["sees"]
+    old = prev.get("places") if isinstance(prev.get("places"), dict) else {}
+    for pid, p in rv["places"].items():
+        o = old.get(pid) or {}
+        p.update(how=o.get("how") or p["how"], needs=o.get("needs") or p["needs"])
+    if prev.get("topics") is not None:
+        rv["topics"], rv["topicsKept"] = prev["topics"], True
+    return rv
 
 
 def topics(raw, place_ids):

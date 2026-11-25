@@ -260,6 +260,23 @@ def test_doc_choice_is_kept_in_work_folder_and_memory_when_off(c, monkeypatch):
 
 # ---- API -------------------------------------------------------------------------------------------------
 
+def test_selected_form_prompt_uses_agent_sections(c):
+    doc = _open_ready(c, SMALL)
+    endpoint = f"/api/docs/{doc}/headings/form/prompt"
+    assert c.get(endpoint, params={"agent": "heading_types"}).json()["form"] is None
+    assert c.get(endpoint, params={"agent": "writing_guidance"}).status_code == 404
+    text = TEXT + f"\n## {F.DIVISION_SECTION}\n- DIV_ONLY\n\n## {F.LINK_SECTION}\n- LINK_ONLY\n"
+    record = F.save("양식별지침", text, expect="")
+    F.set_choice(doc, record["key"])
+    view = c.get(endpoint, params={"agent": "heading_types"}).json()["form"]
+    prompt, _ = HL.prompt("계약", [], {}, {"form": record})
+    assert view["text"] == text and view["sha1"] == record["sha1"] and view["applied"] in prompt
+    assert "FORMFACT" in view["applied"] and all(mark not in view["applied"] for mark in ("DIV_ONLY", "LINK_ONLY", "MEMO"))
+    for agent in ("merge_links", "div_review"):
+        applied = c.get(endpoint, params={"agent": agent}).json()["form"]["applied"]
+        assert "DIV_ONLY" in applied and "LINK_ONLY" not in applied
+
+
 def test_api_forms_and_doc_form(c):
     d = _open_ready(c, SMALL)
     v = c.get(f"/api/docs/{d}/headings/form").json()

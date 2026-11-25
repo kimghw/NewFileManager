@@ -19,7 +19,7 @@ import uuid
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app import agent_notes, doc_agent, doclib_client, form_review, form_review_api, guide_write, llm, works
 
@@ -36,6 +36,11 @@ def _sess(doc_id):
 
 
 # ---- 문서 라이브러리(따로 선 서버) ----------------------------------------------------------------------------------------
+
+@router.get("/api/doclib/prompt-editor")
+def doclib_prompt_editor():
+    return RedirectResponse(doclib_client.url() + "/#prompts")
+
 
 @router.get("/api/doclib/where")
 def doclib_where():
@@ -191,12 +196,19 @@ def uploaded_texts(s):
         return None
 
 
-def _places(s):
+def _base_places(s):
     """그 문서의 자리 목록(guide_write.places) — 분석 결과 · 올린 원본은 세션 잠금 밖에서, 문서 블록 · 지침 색인은 잠금 안에서."""
     from app import heading_runs, place_guides_api
     graph, orig = heading_runs.graph(s), uploaded_texts(s)
     with s.lock:
         return guide_write.places(s.doc.blocks(), graph, place_guides_api.index_of(s), orig), s.rev
+
+
+def _places(s):
+    from app import writing_guidance_api
+    places, rev = _base_places(s)
+    writing_guidance_api.attach(s, places, rev)
+    return places, rev
 
 
 def _scope(s, place, chunks, decided):
@@ -224,7 +236,8 @@ def _run_view(run):
 
 
 def _place_view(p):
-    return {**{k: v for k, v in p.items() if k != "fp"}, "guides": [{**g, "text": g.get("text", "")[:GUIDE_VIEW]} for g in p["guides"]]}   # fp = 자리의 지문 재료(상자의 줄 전부 — 화면에는 안 보낸다)
+    return {**{k: v for k, v in p.items() if k != "fp"},
+            "guides": [g if g.get("src") == "llm" else {**g, "text": g.get("text", "")[:GUIDE_VIEW]} for g in p["guides"]]}
 
 
 @router.get("/api/docs/{doc_id}/guide-write")

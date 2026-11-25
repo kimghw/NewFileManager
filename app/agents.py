@@ -1,7 +1,7 @@
 """에이전트 등록부(spec_에이전트 ② §1) — 앱이 LLM 에 맡기는 일(에이전트) 하나하나가 **어떤 역할**을 하고 **어디서** 돌며 **무슨 프롬프트**로 도는지를 한곳에 적는다.
 사용자 2026-11-15 "에이전트 설정을 만들고, 어떤 역할을 하고 프롬프트가 무엇인지 작업번호등을 관리할 수 있는 관리를 우측 상단에 배치해줘".
 
-- `AGENTS` = 코드 등록값(차례 = 화면 차례): id · 작업 번호(기본) · 묶음 · 이름 · 역할 · 쓰는 곳 · 도는 때 · 코드가 정한 모델·생각 깊이 · 계약(코드의 CONTRACT — 답의 꼴과 한 몸이라 고칠 수 없음) ·
+- `AGENTS` = 코드 등록값(차례 = 화면 차례): id · 작업 번호(기본) · 묶음 · 이름 · 역할 · 쓰는 곳 · 도는 때 · 코드가 정한 모델·생각 깊이 · 계약의 기본 글(실제 호출은 고친 사본을 먼저 읽고, 출력 스키마는 코드에서 받는다) ·
   프롬프트에 붙는 글들(parts — 지침·스킬·할 일 프롬프트·양식 정보·표 지침). 새 LLM 호출을 만들면 여기와 `agent_settings.PREFIX` 에 한 줄씩 더한다.
 - 사용자가 고치는 것(`agent_settings` — `agents.json`): 작업 번호 · 역할 글 · 모델 · 생각 깊이. 프롬프트의 고칠 수 있는 글(헤딩 지침 · 템플릿 정리 스킬)은 제 저장소의 끝점으로 고친다.
   **덧붙이는 글**(`agent_notes` — 범용 · 워크플로우 전용: 프롬프트 맨 끝에 붙는 사람의 글)은 `_notes` 가 조각 `note` 로 싣는다(spec_에이전트 ② §6).
@@ -10,7 +10,7 @@ import importlib
 from pathlib import Path
 
 from app import agent_settings as S
-from app import llm
+from app import llm, prompt_texts
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = ("헤딩 추출", "프로젝트 구성", "이관 · 취합", "표", "문서 편집", "서식", "검증")
@@ -19,7 +19,7 @@ H = "app.heading_llm"
 
 # parts 의 꼴: ("heading", 지침 이름) · ("merge", 지침 이름) · ("job", 할 일 키 | "*") · ("form",) · ("table",) · ("skill",) — 프롬프트에 붙는 차례대로
 AGENTS = (
-    dict(id="heading_rules", no="01", group="헤딩 추출", name="레터 규칙식 제안", run="manual", effort="low", contract=(H, "RULES_CONTRACT"), parts=(("heading", "rules"),),
+    dict(id="heading_rules", no="01", group="헤딩 추출", name="레터 규칙식 제안", run="manual", effort="low", contract=(H, "RULES_CONTRACT"), parts=(("heading", "rules"), ("form",)),
          role="문단 첫머리의 레터(개요 기호·번호·라벨·안내 표지) 가운데 내장 규칙과 배운 규칙으로 판정하지 못한 묶음을 보고, 그것을 판정할 정규식 규칙을 제안합니다. 제안은 스크립트가 검증한 뒤에만 배운 규칙이 됩니다.",
          where="헤딩 추출 1단계 「추출(LLM)」 — 규칙 보강 · 2단계 「헤딩 그래프(LLM)」 이 그래프보다 먼저", data="내장·배운 규칙 목록 + 판정하지 못한 첫머리 묶음(묶음마다 견본 글)"),
     dict(id="heading_types", no="02", group="헤딩 추출", name="헤딩 유형 판정 (A)", run="manual", effort="medium", contract=(H, "TYPES_CONTRACT"), parts=(("heading", "graph"), ("heading", "templates"), ("heading", "tolerance"), ("form",)),
@@ -28,10 +28,10 @@ AGENTS = (
     dict(id="heading_section", no="03", group="헤딩 추출", name="구간 그래프 검토 (B)", run="manual", effort="medium", contract=(H, "SECTION_CONTRACT"), parts=(("heading", "graph"), ("heading", "templates"), ("form",)),
          role="A 판정과 부모 규칙으로 쌓은 초안 헤딩 그래프를 구간마다 읽고, 부모·레벨이 틀린 노드를 바로잡습니다(바꿀 노드와 까닭만 답하고 반영·검증은 스크립트).",
          where="헤딩 추출 2단계 「헤딩 그래프(LLM)」 — B 호출(구간마다)", data="구간의 노드 목록(레터·글·서식·지금 부모·레벨) + 그 구간에 양식이 적어 둔 작성 지침(작성 요령 표 · <참고 N> · ※ 안내 · 각주 번호의 항목 — 있을 때만)"),
-    dict(id="heading_formats", no="04", group="헤딩 추출", name="서식 조정 판정 (C)", run="manual", effort="low", contract=(H, "FORMAT_CONTRACT"), parts=(("heading", "templates"), ("heading", "tolerance")),
+    dict(id="heading_formats", no="04", group="헤딩 추출", name="서식 조정 판정 (C)", run="manual", effort="low", contract=(H, "FORMAT_CONTRACT"), parts=(("heading", "templates"), ("heading", "tolerance"), ("form",)),
          role="같은 템플릿·같은 레벨인데 서식 라벨이 다른 쌍마다, 그 차이가 오차(같은 서식으로 통일할 것)인지 일부러 준 다름인지 판정합니다. 결과는 「조정」 목록이 됩니다.",
          where="헤딩 추출 2단계 「헤딩 그래프(LLM)」 — C 호출(서식 쌍 묶음마다). 기본 실행에서는 돌지 않습니다(서버 설정 NFM_HEADS_PAIRS=on 일 때만 — 같은 템플릿의 서식은 조정 층의 서식 정리 계획이 정합니다)", data="서식 쌍(두 서식의 값 · 다른 항목 · 견본 글)"),
-    dict(id="heading_review", no="05", group="헤딩 추출", name="조정 재검토 (D)", run="manual", effort="medium", contract=(H, "REVIEW_CONTRACT"), parts=(("heading", "templates"), ("heading", "tolerance")),
+    dict(id="heading_review", no="05", group="헤딩 추출", name="조정 재검토 (D)", run="manual", effort="medium", contract=(H, "REVIEW_CONTRACT"), parts=(("heading", "templates"), ("heading", "tolerance"), ("form",)),
          role="C 호출이 내린 서식 조정 판정을 다른 호출이 다시 봅니다. 동의하지 않으면 「재검토 불일치」 로 남겨 사람이 확인하게 합니다.",
          where="헤딩 추출 2단계 「헤딩 그래프(LLM)」 — D 호출(C 뒤). 기본 실행에서는 돌지 않습니다(C 와 함께 — 서버 설정 NFM_HEADS_PAIRS=on 일 때만)", data="C 가 판정한 서식 쌍과 그 판정·까닭"),
     dict(id="heading_tables", no="06", group="헤딩 추출", name="표 구조 판정", run="manual", effort="medium", contract=(H, "TABLES_CONTRACT"), parts=(("heading", "tables"), ("heading", "tolerance"), ("form",)),
@@ -67,7 +67,7 @@ AGENTS = (
     dict(id="doc_agent", no="16", group="문서 편집", name="문서 에이전트", run="manual", effort=None, contract=("app.doc_agent", "CONTRACT"), parts=(("merge", "agent"), ("job", "*")),
          role="사람의 요청과 받은 자료를 읽고 문서에 넣을 것(글 · 새 표 · 표 채우기 · 서식 입히기 · 서식 복사)을 제안하거나 물음에 답합니다. 제안은 스크립트 검사를 거쳐 사람이 고른 것만 반영됩니다.",
          where="에이전트 보기(상단 바 에이전트 아이콘의 창 · 패널 「에이전트」 탭에 넣었으면 그 탭) — 요청을 보낼 때마다", data="요청 · 고른 자리 · 문서 개요 · 받은 자료 · 서식 목록 · 앞선 대화"),
-    dict(id="style_review", no="17", group="서식", name="서식 복사 검토", run="manual", effort=None, contract=("app.style_extract", "CONTRACT_TABLES"), parts=(("job", "style_copy"),),
+    dict(id="style_review", no="17", group="서식", name="서식 복사 검토", run="manual", effort=None, contract=("app.style_extract", "CONTRACT_TABLES"), parts=(("job", "style_copy", "fixed"),),
          more=(("테이블 서식 후보", ("app.style_extract", "CONTRACT_TABLES")), ("내용·문단 서식 후보", ("app.style_extract", "CONTRACT_TEXTS")), ("쪽 설정·표지 후보", ("app.style_extract", "CONTRACT_PAGES"))),
          role="스크립트가 문서에서 뽑은 서식 후보(표지 · 내용 · 테이블 · 문단 · 쪽 설정)를 검토합니다 — 이름·역할·저장할 만한가. 서식 값은 만들지 않고 스크립트가 보낸 후보·id·코드 가운데 고릅니다.",
          where="워크플로우 문서 서식 복사 · 「② LLM 검토」(후보 종류마다 한 번씩)", data="후보 목록(종류마다 — 서식 요약 · 견본 글 · 쓰인 곳)"),
@@ -114,6 +114,10 @@ AGENTS = (
               "자료를 주면 **작성 계획**(자리마다 자료의 무엇을 쓸지 · 자료에 없는 것)을 세우고 물음의 답 후보를 자료에서만 찾습니다(근거 구절과 함께). 문서는 바뀌지 않고, 계획이 있고 사람이 물음에 모두 답해야 「지침 작성」 의 작성 초안 받기가 돌며 그 답과 계획이 자리마다의 요청에 실립니다.",
          where="「지침 작성」 열 위의 「양식 검토」 · 「작성 계획 세우기」 단추 · 양식 작성 대시보드의 「양식 검토 · 찾을 테마」 · 「작성 계획 · 확인할 것」",
          data="양식 전체 글(문서 차례 — 헤딩 · 문단 · 표의 행 · 상자는 줄마다 레벨과 쓸 자리) + 자리[작성 지침 포함] + 이미 정한 것 + 고른 자료(있으면) · 스크립트가 판정하지 못한 것 = 양식 전체에서 무엇을 어떻게 써야 하고 무엇을 사람이 정해야 하는가"),
+    dict(id="writing_guidance", no="26", group="문서 편집", name="작성 지침 보완", run="manual", effort="medium",
+         contract=("app.writing_guidance", "CONTRACT"), model=("app.writing_guidance", "MODEL"), parts=(("merge", "writing_guidance"), ("job", "form_write")),
+         role="목적 양식의 각 자리와 샘플·별지·그림을 대조해 작성 규칙의 적용 여부를 판정하고, 채택한 규칙의 출처와 근거를 남깁니다.",
+         where="양식 작성 대시보드의 04 LLM 검증·보완", data="양식 본문 · 자리별 지침과 서식 · 안에 든 샘플 · 사람이 첨부한 샘플과 추가 서식의 글과 그림"),
 )
 BY_ID = {a["id"]: a for a in AGENTS}
 assert tuple(BY_ID) == S.IDS, "agents.AGENTS 와 agent_settings.PREFIX 의 에이전트가 다릅니다"
@@ -175,13 +179,21 @@ def listing():
             "agents": [_brief(a, data["agents"].get(a["id"]) or {}, tally) for a in AGENTS]}
 
 
-def _parts(a):
+def _prompt_edit(aid, kind, name, storage_name, available=True):
+    if not available:
+        return {"editable": False}
+    row = prompt_texts.read(kind, storage_name)
+    return {"editable": True, "custom": "text" in row, "builtin": True, "version": row.get("version", 0),
+            "api": f"/api/agents/{aid}/prompt/{kind}/{name}"}
+
+
+def _parts(a, job=None):
     """프롬프트에 들어가는 글을 차례대로 [{kind, title, source, editable, text?, note?, …}] — 계약 → 붙는 글들 → 자료."""
     out = []
     for title, ref in (a.get("more") or ((None, a["contract"]),)):
-        text = _attr(ref)
-        out.append({"kind": "contract", "title": "계약" + (f" — {title}" if title else ""), "source": f"{ref[0].replace('.', '/')}.py · {ref[1]}", "editable": False, "text": text if isinstance(text, str) else "",
-                    "note": "입력의 뜻 · 답의 꼴 · 지킬 것 — 답을 검증하는 코드와 한 몸이라 화면에서 고치지 않습니다"})
+        out.append({"kind": "contract", "name": ref[1], "title": "계약" + (f" — {title}" if title else ""), "source": f"{ref[0].replace('.', '/')}.py · {ref[1]}",
+                    "text": prompt_texts.contract(*ref), **_prompt_edit(a["id"], "contract", ref[1], ".".join(ref)),
+                    "note": "이 에이전트를 사용하는 모든 워크플로우에 적용됩니다. 구조화된 응답의 필드와 검증은 실행 코드가 정합니다."})
     for part in a["parts"]:
         kind = part[0]
         if kind == "heading":
@@ -192,17 +204,32 @@ def _parts(a):
         elif kind == "merge":
             from app import merge_guides
             g = merge_guides.get(part[1])
-            out.append({"kind": "merge", "name": part[1], "title": f"판단 지침 — {g['title'] if g else part[1]}", "source": _rel(g["path"]) if g else f"app/merge_guides_default/{part[1]}.md(없음)", "editable": False,
-                        "text": merge_guides.body(g) if g else "", "note": "저장소의 이 파일이 원본입니다 — 파일을 고치면 다음 실행부터 쓰입니다"})
+            body = merge_guides.body(g)
+            source = _rel(g["path"]) if g else f"app/merge_guides_default/{part[1]}.md(없음)"
+            if not body:
+                fallback = _attr((a["contract"][0], "FALLBACK_GUIDE"))
+                if isinstance(fallback, str):
+                    body = fallback.strip()
+                    source = a["contract"][0].replace(".", "/") + ".py · FALLBACK_GUIDE"
+            out.append({"kind": "merge", "name": part[1], "title": f"판단 지침 — {g['title'] if g else part[1]}", "source": source,
+                        **_prompt_edit(a["id"], kind, part[1], part[1], bool(g)), "text": body,
+                        "note": "이 판단 지침을 사용하는 모든 워크플로우에 적용됩니다."})
         elif kind == "job":
-            from app import job_prompts
-            keys = list(JOB_NAMES) if part[1] == "*" else [part[1]]
+            from app import custom_tasks, job_prompts
+            if job and "fixed" not in part:
+                keys = [job]
+            else:
+                keys = list(JOB_NAMES) if part[1] == "*" else [part[1]]
             for k in keys:
-                p = job_prompts.get(k)
-                if p is None and part[1] == "*":
+                with custom_tasks._LOCK:
+                    p = job_prompts.get(k)
+                    custom = custom_tasks.premise_info(k) if job_prompts.jobs_dir() else None
+                if p is None and not custom and part[1] == "*":
                     continue
-                out.append({"kind": "job", "name": k, "title": f"할 일 프롬프트 — {(p or {}).get('name') or JOB_NAMES.get(k, k)}", "source": _rel(p["path"]) if p else f"jobs/{k}.md(없음)", "editable": False,
-                            "text": job_prompts.body(p["text"]) if p else "", "note": ("작업의 워크플로우가 이것일 때만 붙습니다 · " if part[1] == "*" or len(keys) > 1 else "") + "저장소의 이 파일이 원본입니다(워크플로우의 전제·기준)"})
+                source = _rel(p["path"]) if p and p.get("path") else "조립한 워크플로우의 전제" if p else f"jobs/{k}.md(없음)"
+                out.append({"kind": "job", "name": k, "title": f"할 일 프롬프트 — {(p or {}).get('name') or JOB_NAMES.get(k, k)}", "source": source,
+                            **_prompt_edit(a["id"], kind, k, k, bool(p or custom)), **(custom or {}), "text": job_prompts.body(p["text"]) if p else "",
+                            "note": ("이 에이전트는 서식 복사 전제를 사용합니다." if "fixed" in part else "이 워크플로우의 전제를 읽는 에이전트에 적용됩니다.")})
         elif kind == "workflow":
             from app import work_guide
             out.append({"kind": "workflow", "title": "워크플로우 전체 지도 — workflow.md", "source": "workflow.md", "editable": False, "text": work_guide.workflow_text(),
@@ -210,7 +237,7 @@ def _parts(a):
         elif kind == "taskdoc":   # 참조 글 — 그 TASK 의 TASK 문서(tasks/<job>.md: 시작 점검 · 단계마다 조건 — spec_워크플로우 ② §10 · spec_작업에이전트 ② §8)
             from app import work_guide, workflow
             cat = workflow.catalog()[0]
-            for t in workflow.TASKS:
+            for t in ([{"job": job}] if job else workflow.TASKS):
                 out.append({"kind": "taskdoc", "name": t["job"], "title": f"워크플로우 상세 문서 — {(cat.get(t['job']) or {}).get('name') or t['job']}", "source": f"{workflow.TASK_DIR.name}/{t['job']}.md", "editable": False,
                             "text": work_guide.task_doc_text(t["job"]),
                             "note": "작업의 워크플로우가 이것일 때만 붙습니다(작업 화면) · 워크플로우 등록부에서 만든 글입니다 — 그 워크플로우의 절(머리 · 단계)에 시작 점검(시작할 때 저절로 확인하는 것)과 단계마다 조건을 더한 글"})
@@ -233,10 +260,10 @@ def _parts(a):
                             "text": sk["text"], "custom": sk["custom"], "builtin": sk["builtin"], "version": sk["version"], "skillName": sk["name"], "api": f"/api/outline/agent/skills/{sk['key']}",
                             "note": "부를 때 고른 스킬 하나가 붙습니다 — 새 스킬은 「템플릿 서식 정리」 열에서 만듭니다"})
     out.append({"kind": "data", "title": "자료 (JSON)", "source": "스크립트가 만듦", "editable": False, "text": "", "note": a["data"]})
-    return out + _notes(a)
+    return out + _notes(a, job)
 
 
-def _notes(a):
+def _notes(a, current_job=None):
     """덧붙이는 글(app/agent_notes.py — spec_에이전트 ② §6): 프롬프트 맨 끝(자료 뒤)에 붙는 사람의 글 — 이 에이전트의 범용 글 하나(여기서 고침) + 이 에이전트를 쓰는 도구에 적어 둔 내용(도구 공통 · 워크플로우 전용) +
     이 에이전트에만 적은 워크플로우 전용 글(읽기만 — 워크플로우 조립 화면에서 고친다). 차례 = 붙는 차례(넓은 것부터)."""
     from app import agent_notes
@@ -246,19 +273,29 @@ def _notes(a):
             "version": data["version"], "api": f"/api/agent-notes/{a['id']}",
             "note": "이 에이전트를 부를 때마다 프롬프트 맨 끝에 붙는 글입니다(어느 워크플로우에서든). 계약(답의 꼴 · 입력에 있는 key 만 고르기)은 이 글로 바뀌지 않습니다. "
                     "한 워크플로우에서만 붙일 글은 워크플로우 페이지의 조립 화면 「에이전트」 열에서 적습니다."}]
-    FAM = {"relay": "이관형", "gather": "취합형", "single": "문서 하나"}
+    FAM = {"relay": "이관형", "gather": "취합형", "collect": "같은 양식 취합", "single": "문서 하나"}
+    family, units = agent_notes.family_of(current_job) if current_job else ("", ())
     for fam, rows in agent_notes.tool_map().items():   # 이 에이전트를 쓰는 도구에 적어 둔 내용 — 도구 공통 → 그 도구 · 워크플로우 전용(읽기만 — 조립 화면에서 고친다)
+        if current_job and fam != family:
+            continue
         for unit, row in rows.items():
-            if a["id"] not in row["agents"]:
+            if a["id"] not in row["agents"] or (current_job and unit not in units):
                 continue
             common = data["tools"].get(agent_notes.tool_key(fam, unit), "")
             if common:
                 out.append({"kind": "note", "name": f"tool:{fam}.{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 공통({FAM[fam]})", "source": "워크플로우 조립 화면에서 고침", "editable": False, "text": common,
                             "note": "이 도구를 쓰는 모든 워크플로우에서, 이 도구가 이 에이전트를 부를 때 붙습니다 — 워크플로우 페이지의 조립 화면 「에이전트」 열에서 고칩니다"})
             for job, box in data["jobTools"].items():
-                if box.get(unit) and agent_notes.family_of(job)[0] == fam:
+                if (not current_job or current_job == job) and box.get(unit) and agent_notes.family_of(job)[0] == fam:
                     out.append({"kind": "note", "name": f"jobtool:{job}/{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 · 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침",
                                 "editable": False, "text": box[unit], "note": "이 워크플로우에서 이 도구가 이 에이전트를 부를 때만 붙습니다 — 조립 화면 「에이전트」 열에서 고칩니다"})
+    if current_job:
+        text = data["jobs"].get(current_job, {}).get(a["id"], "")
+        out.append({"kind": "note", "name": current_job, "job": current_job, "title": f"덧붙이는 글 — 「{agent_notes._job_name(current_job)}」 전용",
+                    "source": "이 워크플로우에 적은 글", "editable": True, "text": text, "custom": bool(text), "builtin": True,
+                    "api": f"/api/agent-notes/{a['id']}", "version": data["version"],
+                    "note": "이 워크플로우에서 이 에이전트를 부를 때 공통 지침 뒤에 붙습니다."})
+        return out
     for job, box in data["jobs"].items():
         if box.get(a["id"]):
             out.append({"kind": "note", "name": job, "title": f"덧붙이는 글 — 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침", "editable": False, "text": box[a["id"]],
@@ -266,11 +303,13 @@ def _notes(a):
     return out
 
 
-def detail(aid):
+def detail(aid, job=None):
     """목록의 한 줄 + prompt[…](글 포함) · runs(이 에이전트의 최근 실행 30). 없는 id 는 KeyError."""
     a = BY_ID[aid]
     data = S.load()
-    return {**_brief(a, data["agents"].get(aid) or {}, S.tally()), "version": data["version"], "prompt": _parts(a), "recent": S.runs(aid, 30)}
+    with prompt_texts._LOCK:
+        parts = _parts(a, job)
+    return {**_brief(a, data["agents"].get(aid) or {}, S.tally()), "version": data["version"], "prompt": parts, "recent": S.runs(aid, 30)}
 
 
 def update(aid, patch, expect=None):

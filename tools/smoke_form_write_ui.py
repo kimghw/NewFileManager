@@ -136,6 +136,115 @@ BOX = """() => { const r = document.querySelector('#headsDlgBody .fw-place.is-bo
     chunks: d ? [...d.querySelectorAll('.fw-chunk')].map((c) => ({ on: c.querySelector('input').checked, text: c.textContent })) : [] }; }"""
 
 
+def check_guidance_inputs(page, doc):
+    """04의 실제 파일 선택·삭제와 수동 실행. 유료 판정의 응답만 흉내 낸다."""
+    root = f"{base}/api/docs/{doc}"
+    card = page.locator("#paneDash .dash-node[data-key=headsLlm]")
+    name = "작성 예시.md"
+    def open_step():
+        if card.locator(".dash-node-head").get_attribute("aria-expanded") != "true":
+            card.locator(".dash-node-head").click()
+
+    open_step()
+    with page.expect_file_chooser() as chooser:
+        card.get_by_role("button", name="샘플·추가 서식 첨부…").click()
+    chooser.value.set_files({"name": name, "mimeType": "text/markdown", "buffer": "목표는 수치와 단위를 함께 적는다".encode()})
+    remove = card.get_by_role("button", name=f"{name} 빼기")
+    run_button = card.locator("button[data-dash-focus='act:headsLlm']")
+    remove.wait_for(timeout=30000)
+    check("② 04에서 첨부한 샘플은 작성 근거 자료에 섞이지 않는다",
+          [f["name"] for f in requests.get(root + "/form-examples", timeout=10).json()["files"]] == [name]
+          and not requests.get(root + "/agent", timeout=10).json()["materials"])
+    analysis = requests.get(root + "/analysis", timeout=15).json()
+    gw = requests.get(root + "/guide-write", timeout=15).json()
+    for part in analysis["items"]:
+        if part.get("llm"):
+            part["llm"]["state"] = "done"
+    result, posted = {"ready": False, "run": None}, []
+    def start_call(route):
+        posted.append(route.request.post_data_json)
+        result["run"] = {"state": "running"}
+        route.fulfill(status=202, json={"started": time.time(), "status": "running", "stage": 2, "chain": "llm", "steps": []})
+
+    paths = (root + "/analysis", root + "/guide-write", root + "/writing-guidance", root + "/analysis/llm")
+    page.route(paths[0], lambda r: r.fulfill(json=analysis))
+    page.route(paths[1], lambda r: r.fulfill(json={**gw, "enabled": True, "steps": {k: v for k, v in gw["steps"].items() if k != "guides"}}))
+    page.route(paths[2], lambda r: r.fulfill(json=result))
+    page.route(paths[3], start_call)
+    def refresh():
+        page.evaluate("async () => { await FW.loading; await fwRead(true); await dashDraw(true); }")
+        open_step()
+
+    def check_criteria(phase):
+        before = card.get_attribute("data-state")
+        was_locked = remove.is_disabled()
+        writes = []
+        def watch(req):
+            if req.url.startswith((root + "/", base + "/api/agents/")) and req.method not in ("GET", "HEAD", "OPTIONS"):
+                writes.append((req.method, req.url))
+
+        page.on("request", watch)
+        try:
+            with page.expect_response(base + "/api/agents/writing_guidance") as response:
+                card.get_by_role("button", name="검증·보완 지침 보기", exact=True).click()
+            parts = response.value.json()["prompt"]
+            expected = next(p["text"] for p in parts if p["kind"] == "merge" and p["name"] == "writing_guidance")
+            contract = next(p["text"] for p in parts if p["kind"] == "contract")
+            text = page.locator("#headsDlgBody details[data-part='guide'][open] .lg-text")
+            text.wait_for()
+            check(f"② 04 {phase}에 검증·보완 지침 원문을 펼쳐 본다",
+                  response.value.request.method == "GET" and "각주" in expected and "그림" in expected
+                  and text.text_content() == expected and page.locator("#headsDlgBody details[data-part='contract'] .lg-text").text_content() == contract
+                  and "아직 실행한 적 없음" not in page.locator("#headsDlgBody").inner_text())
+            if phase == "실행 중":
+                page.screenshot(path=str(OUT / "02b_04_review_guide.png"))
+            page.locator("#headsDlgClose").click()
+            page.locator("#headsDlg").wait_for(state="hidden")
+            open_step()
+            check(f"② 04 {phase}에 지침을 열고 닫아도 작업 상태와 첨부 잠금이 유지된다",
+                  not writes and card.get_attribute("data-state") == before and remove.is_disabled() == was_locked, writes)
+        finally:
+            page.remove_listener("request", watch)
+    try:
+        # 이미 마친 구조 판정 + 작업에 새로 올린 서식. 새 04 결과를 받기 전에 끝난 것으로 세지 않는다.
+        page.evaluate("(v) => { dsState.main = v; }", analysis)
+        refresh()
+        check("② 04 구조 검증을 마쳐도 자리별 지침을 기다린다", card.get_attribute("data-state") != "done")
+        check_criteria("실행 전")
+        with page.expect_request(paths[3]):
+            run_button.click()
+        refresh()
+        check("② 수동 04가 지침 추출을 요청하고 도는 동안 첨부를 잠근다",
+              bool(posted) and posted[0].get("writingGuidance") is True and card.get_attribute("data-state") == "run" and remove.is_disabled())
+        check_criteria("실행 중")
+        result["run"] = {"state": "failed", "error": "샘플 판독 실패"}
+        refresh()
+        check("② 04 판독 실패가 보이고 다시 실행할 수 있다",
+              card.get_attribute("data-state") != "done" and "샘플 판독 실패" in card.inner_text()
+              and run_button.is_enabled())
+        result.update(ready=True, audited=True, count=2, placeCount=4, judgmentCounts={"apply": 2, "not_applicable": 1, "insufficient": 1},
+                      images=1, cut=True, sources=["목적 양식", name], run={"state": "done"})
+        refresh()
+        shown = card.inner_text()
+        check("② 04 완료 후 실제 입력·그림 수·축약 범위와 결과가 보인다",
+              card.get_attribute("data-state") == "done" and "4곳을 판정" in shown and "지침 적용 2곳" in shown and "근거 부족 1곳" in shown and "그림 1장" in shown
+              and "목적 양식" in shown and name in shown and "일부 입력" in shown)
+        check_criteria("완료 후")
+        steps = page.evaluate(DASH)["nodes"]
+        guide_actions = page.evaluate("async () => (await formWriteLive()).steps.guides.acts.map(b => b.textContent)")
+        check("② 04 판정 후 05를 승인하지 않아도 06으로 진행한다",
+              steps["guides"]["state"] == "done" and steps["review"]["state"] == "now"
+              and "지침 보기 · 적기" in guide_actions and "확인함" not in guide_actions)
+    finally:
+        for path in paths:
+            page.unroute(path)
+        refresh()
+    remove.click()
+    remove.wait_for(state="detached", timeout=30000)
+    page.wait_for_function("() => !FW.changingExamples && !FW.examples.length", timeout=30000)
+    check("② 04에서 참고 서식을 뺄 수 있다", requests.get(root + "/form-examples", timeout=10).json()["files"] == [])
+
+
 def main():
     did, eid = seed()
     procs = [start("doclib.server:app", LIB_PORT, "doclib", common), start("app.server:app", args.port, "server", env)]
@@ -198,10 +307,11 @@ def main():
             page.wait_for_function("async () => { if (typeof docStatusPing === 'function') docStatusPing(); FW.at = 0; const r = await formWriteLive(); return r.steps.heads.state === 'done'; }", timeout=180000, polling=2000)
             n = page.evaluate(LIVE)
             fg = requests.get(f"{base}/api/docs/{doc}/form-guides", timeout=30).json()
-            check("② 준비 — 헤딩 · 표 분석 끝남 · 작성 지침을 저장하고 수를 보인다", n["heads"]["state"] == "done" and "헤딩 ✓ · 표 ✓" in n["heads"]["text"] and "작성 지침" in n["heads"]["text"] and fg["saved"] is not None,
+            check("② 준비 — 헤딩 · 표 분석 끝남 · 작성 지침을 저장하고 수를 보인다", n["heads"]["state"] == "done" and "헤딩 그래프·표 구조: 양식 있음" in n["heads"]["text"] and "작성 지침" in n["heads"]["text"] and fg["saved"] is not None,
                   {"heads": n["heads"], "saved": (fg["saved"] or {}).get("counts")})
             check("② 준비 — LLM 검증·보완은 선택 줄(사람이 누를 때만 돈다 · LLM 이 꺼져 있으면 건너뜀)", "headsLlm" in n and n["headsLlm"]["state"] == "done", n.get("headsLlm"))
             page.screenshot(path=str(OUT / "02_dash.png"))
+            check_guidance_inputs(page, doc)
             # ③ 자료 가져오기
             page.evaluate("() => fwTakeOpen()")
             page.wait_for_selector("#headsDlgBody .fw-x", timeout=15000)
@@ -267,10 +377,13 @@ def main():
             # ④-1 양식 검토 — 검토가 없으면 「제안 받기」 가 꺼진다 → 흉내 낸 검토(물음 하나) → 답하면 열린다
             pid = page.evaluate("() => (FW.gw.places.find((p) => p.n) || FW.gw.places[0]).id")
             rv = {"summary": "양식 요약", "materials": [mats[0]["id"]], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "자료의 최종 목표 문단", "gap": "기준 연도"}}, "questions": [{"key": "q1", "text": "어느 기관의 몫을 쓰나요?", "why": "자료에 여러 기관", "places": [], "choices": ["한국선급"], "suggest": "한국선급", "source": "한국선급(KR)"}]}
-            fr, put = {"review": None, "planned": False, "decided": [], "open": [], "stale": False, "run": None, "hwpx": True, "enabled": True}, []
+            fr, put, posted = {"review": None, "planned": False, "decided": [], "open": [], "stale": False, "run": None, "hwpx": True, "enabled": True}, [], []
 
             def frh(route):
                 req = route.request
+                if req.method == "POST":
+                    posted.append(json.loads(req.post_data))
+                    return route.fulfill(json={"run": None})
                 if req.method == "PUT":
                     put.append(json.loads(req.post_data))
                     fr.update(decided=[{"key": "q1", "q": rv["questions"][0]["text"], "a": put[-1]["answers"][0]["a"], "places": [], "at": 0}], open=[])
@@ -279,19 +392,42 @@ def main():
             page.route(GW, gw)   # 정규식으로 — 글롭 「**/guide-write**」 는 아래 길(/run · /stop)을 못 잡는다
             page.evaluate("() => fwRead(true).then(fwRedraw)")
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '먼저 「양식 검토」 를 하세요'; }", timeout=10000)
-            check("④-1 검토 전 — 「양식 검토」 단추 · 「작성 초안 받기」 꺼짐", page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-review button')].map((b) => b.textContent)") == ["양식 검토"], None)
-            # 양식만 검토한 상태(자료 없이) — 작성 방향은 보이고, 「작성 계획 세우기」 가 다음 · 「제안 받기」 는 아직 꺼짐
-            only = {**rv, "materials": [], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "", "gap": ""}}, "questions": [{**rv["questions"][0], "suggest": "", "source": ""}]}
+            # 2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려」 — 양식 검토(06) · 작성 계획(10)은 따로 선 절 · 단추 · 절 차례 = 대시보드 차례(spec_양식작성 ② §5-1 「① ② 를 뗀다」)
+            b0 = page.evaluate("""() => ({ rev: [...document.querySelectorAll('#headsDlgBody .fw-review-sec button')].map((b) => b.textContent),
+              plan: [...document.querySelectorAll('#headsDlgBody .fw-plan-sec .fw-places-head button')].map((b) => [b.textContent, b.disabled, b.title]),
+              order: [...document.querySelectorAll('#headsDlgBody > section')].map((s) => s.classList.contains('fw-review-sec') ? 'review' : s.classList.contains('fw-plan-sec') ? 'plan' : s.querySelector('.fw-note') ? 'note' : s.querySelector('.fw-mats') ? 'mats' : s.classList.contains('fw-places-sec') ? 'places' : 'other') })""")
+            check("④-1 검토 전 — 「양식 검토」 절의 단추는 「양식 검토」 하나 · 「작성 계획 세우기」 는 따로 선 절에서 꺼짐(양식 검토가 먼저) · 절 차례 = 요청 → 06 → 자료 → 10 → 자리",
+                  b0["rev"] == ["양식 검토"] and b0["plan"] and b0["plan"][0][0] == "작성 계획 세우기" and b0["plan"][0][1] and "양식 검토" in b0["plan"][0][2]
+                  and [o for o in b0["order"] if o != "other"] == ["note", "review", "mats", "plan", "places"], b0)
+            # 양식만 검토한 상태(자료 없이) — 보는 셋 · 검토가 본 것 · 작성 방향은 보이고, 「작성 계획 세우기」 가 다음 · 「제안 받기」 는 아직 꺼짐
+            only = {**rv, "materials": [], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "", "gap": ""}}, "questions": [{**rv["questions"][0], "suggest": "", "source": ""}],
+                    "sees": {"write": "자리 6곳에 개발 목표를 씀", "guides": "작성 요령: 개조식", "asks": "한국선급 몫만"}, "fed": {"places": 6, "formGuides": 2, "userGuides": 1, "request": True}, "request": "한국선급 몫만"}
             fr.update(review=only, open=["q1"])
             page.evaluate("() => fwRead(true).then(fwRedraw)")
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '자료를 고르고 「작성 계획 세우기」 를 하세요'; }", timeout=10000)
-            st = page.evaluate("() => ({ btn: document.querySelector('#headsDlgBody .fw-review .fw-places-head button').textContent, steps: [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent), how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent) })")
-            check("④-1 양식만 검토 — 「작성 계획 세우기」 가 다음 · 작성 방향만(계획 없음)", st["btn"] == "작성 계획 세우기" and st["steps"] == ["양식 검토 ✓", "작성 계획", "확인할 것"] and st["how"] == ["작성 방향: 개조식 3줄"], st)
+            st = page.evaluate("""() => ({ btn: document.querySelector('#headsDlgBody .fw-plan-sec .fw-places-head button').textContent, rev: document.querySelector('#headsDlgBody .fw-review-sec .fw-places-head button').textContent,
+              steps: [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent), how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent),
+              sees: [...document.querySelectorAll('#headsDlgBody .fw-review-sec .fw-see')].map((x) => [x.dataset.see, x.querySelector('b').textContent]), fed: (document.querySelector('#headsDlgBody .fw-rev-fed') || {}).textContent || '', note: FW.note })""")
+            check("④-1 양식만 검토 — 보는 셋(무엇을 써야 하나 · 작성 지침 · 사람의 요청) · 검토가 본 것 · 「다시 검토」 · 「작성 계획 세우기」 가 다음 · 작성 방향만 · 요청이 「이번 작성의 지침」 칸에",
+                  st["btn"] == "작성 계획 세우기" and st["rev"] == "다시 검토" and st["steps"] == ["양식 검토 ✓", "작성 계획", "확인할 것"] and st["how"] == ["작성 방향: 개조식 3줄"]
+                  and st["sees"] == [["write", "무엇을 써야 하나"], ["guides", "작성 지침"], ["asks", "사람의 요청"]] and "작성 지침 3개(양식 2 · 사람 1) · 사람의 요청 있음" in st["fed"]
+                  and st["note"] in ("", "한국선급 몫만"), st)
+            # 「다시 검토」 는 자료를 보내지 않는다(고른 자료가 있어도) · 요청은 함께 — 「작성 계획 세우기」 만 자료를 보낸다
+            page.once("dialog", lambda dlg: dlg.accept())
+            page.click("#headsDlgBody .fw-review-sec .fw-places-head button")
+            page.wait_for_timeout(400)
+            if page.evaluate("() => FW.gw.materials.length"):
+                page.once("dialog", lambda dlg: dlg.accept())
+                page.click("#headsDlgBody .fw-plan-sec .fw-places-head button")
+                page.wait_for_timeout(400)
+            check("④-1 「다시 검토」 POST = materials [] + note · 「작성 계획 세우기」 POST = 고른 자료", bool(posted) and posted[0]["materials"] == [] and "note" in posted[0]
+                  and (len(posted) == 1 or (len(posted) == 2 and posted[1]["materials"])), posted)
+            page.evaluate("() => fwRead(true).then(fwRedraw)")
             # 자료가 있으면 「작성 계획 세우기」 가 파란 단추 · 「자료 가져오기」 는 보통 단추 / 자료가 0개면 거꾸로(대시보드의 차례와 맞춤 — 2026-11-24 「자료 가져오기, 작성 계획 세우기 매칭이 안됨」)
-            NOMAT = "() => { const a = document.querySelector('#headsDlgBody .fw-rev-act'), t = document.querySelector('#headsDlg [data-fw-take]'), m = document.querySelector('#headsDlgBody .fw-rev-msg.is-warn'); return { mats: FW.gw.materials.length, act: [a.disabled, a.classList.contains('primary')], take: t.classList.contains('primary'), msg: m ? m.textContent : '' }; }"
+            NOMAT = "() => { const a = document.querySelector('#headsDlgBody .fw-plan-sec .fw-rev-act'), t = document.querySelector('#headsDlg [data-fw-take]'), m = document.querySelector('#headsDlgBody .fw-plan-sec .fw-rev-msg.is-warn'); return { mats: FW.gw.materials.length, act: [a.disabled, a.classList.contains('primary')], take: t.classList.contains('primary'), msg: m ? m.textContent : '' }; }"
             nm = page.evaluate(NOMAT)
             if nm["mats"]:
-                check("④-1 자료 있음 — 「작성 계획 세우기」 파란 단추 · 「자료 가져오기」 보통", nm["act"] == [False, True] and not nm["take"] and "쓸 자료를 고르고" in nm["msg"], nm)
+                check("④-1 자료 있음 — 「작성 계획 세우기」 파란 단추 · 「자료 가져오기」 보통", nm["act"] == [False, True] and not nm["take"] and "넣을 내용의 자료(MD)를 고르고" in nm["msg"], nm)
                 page.evaluate("() => { const g = FW.gw; FW.gw = { ...g, materials: [] }; fwRedraw(); FW.gw = g; }")
                 nm = page.evaluate(NOMAT)
             check("④-1 자료 0개 — 「작성 계획 세우기」 꺼짐 · 「자료 가져오기」 파란 단추 · 자료부터 가져오라는 글", nm["act"] == [True, False] and nm["take"] and "먼저 위 「자료 가져오기」" in nm["msg"], nm)
@@ -491,10 +627,10 @@ def main():
             lp.click("#work .scope:nth-child(2) .scope-del")
             sp3 = lp.evaluate(SC)
             check("⑥ 범위 빼기 — 하나 남으면 번호 없이", sp3["rows"] == ["한국선급"] and not sp3["many"] and sp3["nums"] == [] and "MD" not in sp3["hint"], sp3)
-            lp.click("#skillBtn")
+            lp.goto(base + "/api/doclib/prompt-editor")
             lp.wait_for_selector("#skillDlg[open] #skillTabs button", timeout=10000)
             sk = lp.evaluate("() => ({ tabs: [...document.querySelectorAll('#skillTabs button')].map((b) => b.textContent), text: document.getElementById('skillText').value.slice(0, 40), contract: document.getElementById('skillContract').textContent.length })")
-            check("⑥ 「스킬 글」 — 셋 · 계약", len(sk["tabs"]) == 3 and sk["text"].startswith("# 자료 추출") and sk["contract"] > 200, sk)
+            check("⑥ 문서 라이브러리의 프롬프트 주소에서 스킬 편집기가 열린다", lp.url == lib + "/#prompts" and len(sk["tabs"]) == 3 and sk["text"].startswith("# 자료 추출") and sk["contract"] > 200, sk)
             lp.screenshot(path=str(OUT / "06_library.png"))
             lp.close()
             # ⑦ 에이전트 보기의 「라이브러리」 — 입력 칸 위에 펴지는 고르기(2026-11-24 사용자 "에이전트에서는 라이브러리에서 등록한 파일들을 선택해서 참조할 수 있도록 해줘, 전체 해도 되고" — spec_양식작성 ② §4)
@@ -604,7 +740,39 @@ def main():
             check("⑧′ 「1단계 초기화」(준비) — 확인 줄의 단추는 「1단계 초기화」 · 「취소」 둘뿐(「모두 초기화(자료도)」 없음 — 전체는 맨 아래 하나) · 머리가 자료는 남긴다고 밝힘 · 올린 직후로 되돌리되 이 문서의 자료는 남긴다",
                   r3["box"] and r3["box"]["under"] == "open" and [a[:2] for a in r3["box"]["acts"]] == [["fwreset:open:go", "1단계 초기화"], ["fwreset:close", "취소"]]
                   and r3["box"]["head"].startswith("1단계 「준비」 초기화 — ") and "자료는 남김" in r3["box"]["head"] and mats_n() == 1, r3)
-            page.wait_for_selector('#paneDash [data-dash-focus="fwreset:material"]:not([disabled])', timeout=120000)   # 다시 연 뒤의 첫 분석이 끝난 뒤
+            # ⑥-2 · ⑥-1 「초기화 뒤」(2026-11-25 사용자 "왜 초기화 하면 1,2,3, 은 끝남으로 나오냐? 그리고 단계 별라 자동실행 기능 넣어주고, , 전체 실행 넣어주고" — spec_양식작성 ② §6-1 · §6-2)
+            page.wait_for_timeout(2500)   # 다시 연 뒤 분석 상태를 읽을 틈 — 첫 분석을 걸지 않으니 「헤딩 · 표 분석」 은 끝남으로 바뀌지 않아야 한다
+            page.evaluate("async () => { if (typeof dsRefresh === 'function') await dsRefresh(); FW.at = 0; }")
+            n1 = page.evaluate(LIVE)
+            check("⑥-1 1단계 초기화 뒤 — 첫 분석을 다시 걸지 않아 「헤딩 · 표 분석」 은 끝남이 아니다(「분석」 단추) · 목적 문서 줄은 그대로 끝남", n1["heads"]["state"] in ("now", "todo") and n1["open"]["state"] == "done", {"heads": n1["heads"], "open": n1["open"]})
+            AU = """() => ({ runs: [...document.querySelectorAll('#paneDash .dash-ghead button[data-run]')].map((b) => [b.dataset.run, b.textContent, b.disabled]),
+              top: [...document.querySelectorAll('#paneDash .dash-top button[data-run]')].map((b) => [b.dataset.run, b.textContent, b.disabled]),
+              end: [...document.querySelectorAll('#paneDash .dash-group')].map((g) => [g.dataset.group, (g.querySelector('.dash-gend') || {}).textContent || '']) })"""
+            page.wait_for_function("() => !!document.querySelector('#paneDash .dash-ghead button[data-run=open]:not([disabled])')", timeout=60000)
+            au = page.evaluate(AU)
+            check("⑥-2 묶음 머리마다 「한 번에 진행」(「N단계 초기화」 옆) · 머리 아래 「전체 실행 1→3단계」",
+                  [r[:2] for r in au["runs"]] == [["open", "한 번에 진행"], ["material", "한 번에 진행"], ["write", "한 번에 진행"]] and au["top"] and au["top"][0][:2] == ["chain", "전체 실행 1→3단계"], au)
+            page.locator('#paneDash .dash-ghead button[data-run=open]').click()
+            page.wait_for_function("() => !fwAuto && !!document.querySelector('#paneDash .dash-group[data-group=open] .dash-gend')", timeout=240000)
+            au2, n2 = page.evaluate(AU), page.evaluate(LIVE)
+            end_open = dict(au2["end"]).get("open", "")
+            check("⑥-2 1단계 「한 번에 진행」 — 헤딩 · 표 분석(스크립트)을 돌려 끝남 · LLM 검증·보완은 LLM 이 꺼져 건너뜀 · 작성 지침 확인은 남기고 · 양식 검토에서 LLM 이 없어 멈춤(끝 글)",
+                  n2["heads"]["state"] == "done" and n2["headsLlm"]["state"] == "done" and "양식 검토" in end_open and "LLM" in end_open and "작성 지침 확인" in end_open, {"end": au2["end"], "heads": n2["heads"], "headsLlm": n2["headsLlm"]})
+            page.locator("#paneDash").screenshot(path=str(OUT / "08c_stage_auto.png"))
+            # ⑥-3 패널 「작업 개요」(2026-11-25 사용자 "작업개요가 없는데 연차보고서 이관에 보면 작업 개요 있을텐데 참조해줘" — spec_양식작성 ② §6-3)
+            page.locator("#toolTabTask").click()
+            page.wait_for_function("() => !!document.querySelector('#divBox .fw-ov-flow .fw-ov-stage')", timeout=60000)
+            ov = page.evaluate("""() => ({ tab: !document.getElementById('toolTabTask').hidden, tool: document.getElementById('panel').dataset.tool,
+              first: !!document.querySelector('#divBox .dv-task [data-task=project]'), file: !!document.querySelector('#divBox select[data-task=file]'), docs: !!document.querySelector('#divBox .fw-ov-docs'),
+              stages: [...document.querySelectorAll('#divBox .fw-ov-stage')].map((d) => [d.dataset.stage, [...d.querySelectorAll('.fw-ov-step')].map((li) => li.dataset.step), !!d.querySelector('summary button[data-run]')]),
+              chain: [...document.querySelectorAll('#divBox .fw-ov-flow .dash-top button[data-run]')].map((b) => b.textContent),
+              heads: ((document.querySelector('#divBox .fw-ov-step[data-step=heads]') || {}).className || '') })""")
+            check("⑥-3 「작업 개요」 탭 — 첫 카드(프로젝트 · 워크플로우 · 라운드 — 첨부 파일 종류 칸 없음) · 문서 카드 · 묶음 셋(줄 · 「한 번에 진행」) · 「전체 실행」 · 대시보드와 같은 상태",
+                  ov["tab"] and ov["tool"] == "Div" and ov["first"] and not ov["file"] and ov["docs"] and [s[0] for s in ov["stages"]] == ["open", "material", "write"] and all(s[2] for s in ov["stages"])
+                  and "heads" in ov["stages"][0][1] and ov["chain"] and ov["chain"][0].startswith("전체 실행") and "is-done" in ov["heads"], ov)
+            page.locator("#paneDiv").screenshot(path=str(OUT / "08d_overview.png"))
+            page.evaluate("() => { showTab('Dash'); }")
+            page.wait_for_selector('#paneDash [data-dash-focus="fwreset:material"]:not([disabled])', timeout=120000)
             page.locator('#paneDash [data-dash-focus="fwreset:material"]').click()
             page.locator('#paneDash [data-dash-focus="fwreset:material:go"]').click()
             page.wait_for_function("() => /2단계 「자료 준비」 초기화 — 자료/.test(document.getElementById('toast').textContent)", timeout=60000)

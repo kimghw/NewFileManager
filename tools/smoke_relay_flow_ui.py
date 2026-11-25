@@ -110,6 +110,60 @@ def flow(wid):
     return requests.get(f"{base}/api/works/{wid}/flow", timeout=120).json()
 
 
+def check_llm_prompt(page, job, documents):
+    icons = page.locator('#paneDash .dash-node[data-key="headsLlm"] button[data-llm-prompt="headsLlm"]')
+    pane = page.locator("#workflowPromptDlg")
+    agent = "heading_types"
+    parts_url = f"{base}/api/agents/{agent}"
+
+    def current_contract():
+        response = requests.get(parts_url, params={"job": job}, timeout=10)
+        response.raise_for_status()
+        return next(p for p in response.json()["prompt"] if p["kind"] == "contract")
+
+    before = current_contract()
+    mark = "다른 절에 같은 제목이 있으면 상위 절과 함께 판정한다."
+    changed = before["text"] + "\n" + mark
+    check("④ 원본·목적 문서 검증 카드에 프롬프트 열기 단추가 하나씩 있다", icons.count() == 2)
+    for index, (role, doc) in enumerate(documents):
+        form_key = f"절구분_{role}"
+        form_api = f"{base}/api/docs/{doc}/headings/form"
+        original_choice = requests.get(form_api, timeout=10).json()["choice"]
+        form_note = f"{role} 문서에서는 표 제목의 상위 절을 확인한다."
+        requests.put(f"{base}/api/headings/forms/{form_key}", json={"text": form_note, "sha1": ""}, timeout=10).raise_for_status()
+        requests.put(form_api, json={"form": form_key}, timeout=10).raise_for_status()
+        icon = icons.nth(index)
+        if index == 0:
+            icon.focus()
+            icon.press("Enter")
+        else:
+            icon.click()
+        pane.wait_for()
+        picker = pane.get_by_role("combobox", name="에이전트")
+        agents = picker.locator("option").evaluate_all("(options) => options.map(o => o.value)")
+        check("④ 검증·보완의 기본 에이전트와 설정에 따라 실행하는 서식 판정·재검토도 고를 수 있다",
+              set(agents) == {"heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent"}, agents)
+        picker.select_option(agent)
+        form = pane.locator('.wfp-part[data-kind="form"]')
+        form.wait_for()
+        check("④ 누른 문서에 연결된 양식 지침을 본다", form_note in form.text_content())
+        section = pane.locator('.wfp-part[data-kind="contract"]').first
+        section.wait_for()
+        if section.get_attribute("open") is None:
+            section.locator("summary").click()
+        section.get_by_role("button", name="수정", exact=True).click()
+        field = section.locator("textarea")
+        check("④ 원본에서 연 프롬프트 원문" if index == 0 else "④ 목적 문서에서도 저장된 에이전트 공통 프롬프트가 보인다",
+              field.input_value() == (before["text"] if index == 0 else changed))
+        field.fill(changed if index == 0 else before["text"])
+        with page.expect_response(lambda r: r.request.method == "PUT" and r.url.startswith(base + "/api/")) as saved:
+            section.get_by_role("button", name="저장", exact=True).click()
+        check("④ 프롬프트 수정이 서버에 저장된다", saved.value.ok)
+        page.locator("#headsDlgClose").click()
+        requests.put(form_api, json={"form": original_choice}, timeout=10).raise_for_status()
+    check("④ 두 카드 모두 실제 프롬프트 저장 경로를 사용한다", current_contract()["text"] == before["text"])
+
+
 def open_dash(page, wid):
     page.goto(f"{base}/#w={wid}")
     page.wait_for_function("(id) => typeof state !== 'undefined' && state.id === id && !state.loading", arg=wid, timeout=120000)
@@ -207,6 +261,8 @@ def main():
               [(c["role"], c["lead"], c["same"], bool(c["no"])) for c in heads] == [("source", "원본 문서", False, True), ("target", "목적 문서", True, False)]
               and [(c["role"], c["lead"]) for c in group(d3b, "g2")["cards"] if c["key"] == "division"] == [("target", "목적 문서")]
               and card(d3b, "g3", "link").get("lead") == "원본 → 목적" and card(d3b, "g1", "config").get("lead") == "워크플로우 전체", [heads, group(d3b, "g2").get("cards"), card(d3b, "g3", "link")])
+
+        check_llm_prompt(page, key, [("원본", src), ("목적", tgt)])
 
         # ---- ⑤ 줄 하나 — 「이 단계만 진행」(프로젝트 구성 추출)
         requests.put(f"{base}/api/docs/{src}/divisions/settings", json={"values": VALUES}, timeout=120).raise_for_status()   # 사업계획서의 값(빈 양식이라 읽을 값이 없다)

@@ -6,6 +6,7 @@
 import json
 import time
 
+from app import prompt_texts
 from app import heading_extract as E
 from app import heading_forms as F
 from app import heading_guides as G
@@ -162,7 +163,7 @@ def prompt(contract, guide_names, data, pinned=None):
         used[name] = g["sha1"]
         parts += [f"## 지침 — {G.TITLES[name]} ({name})", g["text"].strip(), ""]
     form = (pinned or {}).get("form")
-    form_text = F.without(F.without(F.body(form.get("text")), F.DIVISION_SECTION), F.LINK_SECTION) if form else ""   # 「자리 연결」 절(연결 코멘트 — spec_병합 ② §5-3)은 병합 검토의 몫 · 「구분 기준 자리」 절은 구분 기준 검토의 몫 — 헤딩 추출에는 안 보낸다(② §12 「쓰이는 곳」)
+    form_text = F.prompt_body(form, headings=True)
     if form_text:
         used["form"] = form["sha1"]
         parts += [f"## 양식 정보 — {form.get('name') or form.get('key')} (이 양식에만 해당)", FORM_NOTE, form_text, ""]
@@ -196,7 +197,7 @@ def rule_jobs(result, store=None, groups=None, pinned=None):
                for r in st.get("rules") or [] if r.get("enabled", True)]
     jobs, guides = [], {}
     for i in range(0, len(groups), BATCH_GROUPS):
-        content, used = prompt(RULES_CONTRACT, ["rules"], {"builtinRules": builtin, "learnedRules": learned, "groups": groups[i:i + BATCH_GROUPS]}, pinned)
+        content, used = prompt(prompt_texts.contract(__name__, "RULES_CONTRACT"), ["rules"], {"builtinRules": builtin, "learnedRules": learned, "groups": groups[i:i + BATCH_GROUPS]}, pinned)
         guides.update(used)
         jobs.append({"schema": RULES_SCHEMA, "content": content, "what": f"heading_rules#{i // BATCH_GROUPS + 1}", "timeout": 600.0, "effort": "low"})
     return jobs, guides

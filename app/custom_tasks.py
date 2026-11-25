@@ -907,6 +907,29 @@ def is_key(job):
     return get(job) is not None
 
 
+def premise_info(key):
+    """조립 화면과 프롬프트 편집기가 함께 사용하는 워크플로우 전제와 현재 판."""
+    if not isinstance(key, str) or not KEY.fullmatch(key):
+        return None
+    with _LOCK:
+        data = _load()
+        task = next((t for t in data["tasks"] if t["key"] == key), None)
+        return {"custom": bool(task["premise"]), "version": data["version"]} if task else None
+
+
+def set_premise(key, text, version):
+    from app import agent_settings
+    with _LOCK:
+        info = premise_info(key)
+        if not info:
+            raise KeyError(key)
+        if type(version) is not int or version < 0:
+            raise ValueError("읽은 프롬프트의 판 번호가 필요합니다")
+        if info["version"] != version:
+            raise agent_settings.Stale("조립한 워크플로우가 그 사이에 바뀌었습니다. 다시 읽어 주세요")
+        update(key, {"premise": text or ""})
+
+
 def source_file(job):
     """그 TASK 의 원본 문서 종류 — 조립한 TASK 는 제 것(문서 하나로 조립한 것은 원본이 없다 — None), 그 밖(붙박이 이관)은 사업계획서."""
     t = get(job)

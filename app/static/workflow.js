@@ -75,9 +75,17 @@
 
   const must = (s) => !s.optional && !s.soon && !s.auto; // 「필수」 — 선택 · 자동 · 준비 중이 아닌 단계(2026-11-18 사용자 「꼭 해야하는건 필수 라고 적어줘」 · dashboard.js dashTags · app/workflow.py step() 과 같은 셈)
 
-  function badges(s) {
+  function promptTag(s, item) {
+    return workflowPromptButton({ job: item.job || "", template: item.family || "", step: s.key, agents: s.agents,
+      title: s.name, doclib: item.id === "doclib" || (s.uses || []).includes("doclib") && !s.agents.length },
+      wfIcon("llm"), "wf-tag wf-t-llm");
+  }
+  function badges(s, item, separatePrompt = false) {
     const box = h("div", "wf-badges");
-    for (const b of s.by) box.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
+    for (const b of s.by) {
+      if (b === "llm" && separatePrompt) continue;
+      box.append(b === "llm" ? promptTag(s, item) : tag(D.by[b] || b, b === "script" ? "" : b, b));
+    }
     if (s.auto) box.append(tag("자동", "soft"));
     if (must(s)) box.append(tag("필수", "must"));
     if (s.optional) box.append(tag("선택", "soft"));
@@ -135,11 +143,15 @@
       a.setAttribute("aria-controls", "wfDetail");
       a.setAttribute("aria-label", `${i + 1}. ${s.name}`);
       if (i === index) a.setAttribute("aria-current", "step");
-      const body = h("div", "wf-node-body"), meta = badges(s);
+      const body = h("div", "wf-node-body"), meta = badges(s, item, true);
       if (s.change === "doc") meta.append(tag("문서 바뀜", "doc"));
       body.append(h("b", "", s.name), meta);
       a.append(h("span", "wf-node-no", String(i + 1).padStart(2, "0")), body);
       li.append(a);
+      if (s.by.includes("llm")) {
+        li.classList.add("wf-prompt-node");
+        li.append(promptTag(s, item));
+      }
       return li;
     };
     let nodes;
@@ -168,7 +180,7 @@
     position.id = "wfPosition"; position.setAttribute("role", "status");
     readHead.append(h("span", "wf-eyebrow", "지금 확인하는 단계"), position);
     const name = h("h3", "", selected.s.name); name.id = "wfDetailTitle"; name.tabIndex = -1;
-    detail.append(readHead, name, badges(selected.s));
+    detail.append(readHead, name, badges(selected.s, item));
     const onDoc = item.job ? selected.s.onText || "" : ""; // 이 단계가 하는 문서(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 서버의 onText 그대로(비면 줄 없음: 문서 하나인 워크플로우 · 도구의 단계 · 옛 서버)
     if (onDoc) { const p = h("p", "wf-ondoc"); p.append(h("span", "", "하는 문서"), h("strong", "", onDoc)); detail.append(p); }
     const description = h("div", "wf-explain");
@@ -222,6 +234,25 @@
     return dl;
   }
 
+  // 시작 점검에 소개된 동작과 같은 실행 단계를 찾는다. 에이전트 · 도구 지침은 그 단계의 등록부가 정한다.
+  const entryCommonSteps = { import: ["intake", "import"], agent: ["agent", "guide"], llm: ["intake", "llm"],
+    divisionLlm: ["intake", "division"], zonesLlm: ["zones", "llm"] };
+  const entryTaskSteps = { extractRun: ["extract"], writeRun: ["ask"], reviewRun: ["review", "plan"], review: ["review"] };
+  const entryFamilySteps = { relay: ["llm", "tableMap", "gaps"], gather: ["llm"], single: ["headsLlm", "tablesLlm"] };
+  function entryPrompt(c, t) {
+    const common = entryCommonSteps[c.key];
+    if (common) {
+      const step = D.common.find(m => m.id === common[0]).steps.find(s => s.key === common[1]);
+      return promptTag({ ...step, name: c.name }, t);
+    }
+    const keys = (c.key === "taskLlm" ? entryFamilySteps[t.family] : entryTaskSteps[c.key]) || [];
+    const steps = t.stages.flatMap(g => g.steps).filter(s => keys.includes(s.key));
+    if (!steps.length) return null;
+    if (steps.length === 1) return promptTag({ ...steps[0], name: c.name }, t);
+    const agents = [...new Map(steps.flatMap(s => s.agents).map(a => [a.id, a])).values()];
+    return workflowPromptButton({ job: t.job, template: t.family, steps: steps.map(s => s.key), agents, title: c.name },
+      wfIcon("llm"), "wf-tag wf-t-llm");
+  }
   function entryEl(t, open) { // 시작 점검(② §10) — 시작할 때 저절로 확인하는 것: 때마다 묶음(접힘) › 항목(이름 · 누가 · 무엇을 확인하나 · 안 맞으면)
     const box = h("div", "wf-entry");
     box.setAttribute("aria-label", "시작 점검");
@@ -236,7 +267,10 @@
         const li = h("li"), line = h("div", "wf-line1");
         li.dataset.entry = c.key;
         line.append(h("span", "wf-name", c.name));
-        for (const b of c.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b));
+        for (const b of c.by) {
+          const mark = b === "llm" ? entryPrompt(c, t) : tag(D.by[b] || b, b === "script" ? "" : b);
+          if (mark) line.append(mark);
+        }
         li.append(line, h("p", "wf-does", c.does));
         if (c.miss) { const p = h("p", "wf-miss"); p.append(h("b", "", "안 맞으면"), document.createTextNode(" " + c.miss)); li.append(p); }
         ul.append(li);
@@ -254,7 +288,7 @@
     const nm = h("span", "wf-name", s.name);
     if (s.baseName) nm.title = `기본 이름 「${s.baseName}」 — 조립 화면의 「도구 설명」 에서 고친 이름입니다`; // 사람이 이름을 고친 도구(② §18-19) — 가리키면 기본 이름
     line.append(nm);
-    for (const b of s.by) line.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
+    for (const b of s.by) if (b !== "llm") line.append(tag(D.by[b] || b, b === "script" ? "" : b, b));
     if (s.change === "doc") line.append(tag(D.change.doc, "doc", "doc"));
     if (s.auto) line.append(tag("자동", "soft"));
     if (must(s)) line.append(tag("필수", "must"));
@@ -296,9 +330,18 @@
     return d;
   }
 
-  function stepsEl(steps, prefix) {
+  function stepsEl(steps, prefix, item) {
     const ol = h("ol", "wf-steps");
-    for (const s of steps) { const li = h("li"), step = stepEl(s); if (prefix) step.dataset.wfPath = `${prefix}--${s.key}`; li.append(step); ol.append(li); }
+    for (const s of steps) {
+      const li = h("li"), step = stepEl(s);
+      if (prefix) step.dataset.wfPath = `${prefix}--${s.key}`;
+      li.append(step);
+      if (s.by.includes("llm")) {
+        li.classList.add("wf-prompt-step");
+        li.append(promptTag(s, item));
+      }
+      ol.append(li);
+    }
     return ol;
   }
 
@@ -507,7 +550,7 @@
         p.append(link(`#common-${g.module}`, m ? m.name : g.module, "wf-chip"));
         head.append(p);
       }
-      box.append(head, stepsEl(g.steps, `${t.job}--${g.id}`));
+      box.append(head, stepsEl(g.steps, `${t.job}--${g.id}`, t));
       li.append(h("span", "wf-stage-no" + (L.no ? "" : " wf-plain"), L.no || String(i + 1)), box);
       ol.append(li);
     });
@@ -524,7 +567,7 @@
     row(io, "여는 곳", c.where);
     if (c.usedBy.length) { const links = h("div", "wf-links"); for (const job of c.usedBy) links.append(link(`#${job}`, taskName(job), "wf-chip")); row(io, used, links); }
     else row(io, used, stage ? "아직 이 단계를 조립한 워크플로우가 없습니다" : "어느 워크플로우의 문서에서나 엽니다(단계에 묶이지 않음)");
-    box.append(stepsEl(c.steps, `common-${c.id}`));
+    box.append(stepsEl(c.steps, `common-${c.id}`, c));
     box.style.marginTop = "10px";
     sec.append(io, box);
     return sec;
@@ -614,7 +657,6 @@
     grip.innerHTML = '<svg viewBox="0 0 10 14" width="8" height="12" fill="currentColor"><circle cx="3" cy="3" r="1.15"/><circle cx="7" cy="3" r="1.15"/><circle cx="3" cy="7" r="1.15"/><circle cx="7" cy="7" r="1.15"/><circle cx="3" cy="11" r="1.15"/><circle cx="7" cy="11" r="1.15"/></svg>';
     if (u.place === "pair") { const p = h("span", "wf-nav-tool-pair", "쌍"); p.title = "원본 문서 → 목적 문서 — 두 문서 칸에 쌍으로 놓입니다"; tags.append(p); }
     if (u.kind === "hand" || u.kind === "pick") tags.append(tag("사람", "human", "human"));
-    if (u.paid) tags.append(tag("LLM", "llm", "llm"));
     if (u.change === "doc") tags.append(tag("문서 바뀜", "doc", "doc"));
     b.append(grip, h("span", "wf-nav-tool-name", u.name), tags);
     if (off) b.classList.add("wf-off");
@@ -631,7 +673,22 @@
     });
     b.addEventListener("dragend", () => { if (drag && drag.unit) dragEnd(drag.c); }); // 놓지 않고 끝남(Esc · 밖) — 놓았으면 drop 이 먼저 지웠다
     li.append(b);
+    if (u.paid) { li.classList.add("wf-prompt-tool"); li.append(builderPromptTag(u, c)); }
     return li;
+  }
+  function builderPromptTag(u, c) {
+    const b = h("button", "wf-tag wf-t-llm");
+    b.type = "button"; b.dataset.llmPrompt = u.key;
+    b.title = `${u.name} LLM 프롬프트 보기·수정`;
+    b.setAttribute("aria-label", b.title);
+    b.append(wfIcon("llm"), h("span", "sr-only", "LLM"));
+    b.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!c) navToolPick(u.key);
+      const form = c || navForm();
+      if (form) { WfAgents.showPrompt(form, u.key); navReveal(form, form.ag.box); }
+    });
+    return b;
   }
   function navReveal(c, el) { // 그 폼이 보이게 — 다이어그램 보기에서 다른 절을 보고 있으면 전체 보기로(조립 · 단계 만들기 절은 전체 보기와 함께 선다) · el 이 본문 화면 밖이면 거기까지
     const sec = $(c === composing ? "wfCompose" : "wfStage"), main = $("wfMain");
@@ -1210,7 +1267,7 @@
     const u = unitOf(s.unit, c), nm = h("span", "wf-line-name"), tags = h("span", "wf-badges");
     nm.append(h("b", "", lineName(s, c)));
     if (u && u.kind === "hand") tags.append(tag("사람", "human", "human"));
-    if (u && u.paid) tags.append(tag("LLM", "llm", "llm"));
+    if (u && u.paid) tags.append(builderPromptTag(u, c));
     if (u && u.change === "doc") tags.append(tag("문서 바뀜", "doc", "doc"));
     if (u && u.optional) tags.append(tag("선택", "soft"));
     if (u && u.only && u.only.label) { // 전용 표시(② §18-17 — 2026-11-20 사용자 「도구에 *** 전용 이라고 명시를 해야 한다고봄」): 카드에는 짧게 「전용」 — 가리키면 어느 문서 전용인지와 까닭(「도구 설명」 · 「에이전트」 열에는 다 적는다)
@@ -1965,13 +2022,14 @@
         b.type = "button"; b.dataset.helpGo = u.key;
         top.append(h("b", "", u.name));
         if (who ? who.kind === "human" : u.kind === "hand" || u.kind === "pick") top.append(tag("사람", "human", "human")); // 설명의 「누가」 와 같은 판단(사람이 확정 · 지정하는 줄도)
-        if (u.paid) top.append(tag("LLM", "llm", "llm"));
         if (u.change === "doc") top.append(tag("문서 바뀜", "doc", "doc"));
         if (u.optional) top.append(tag("선택", "soft"));
         if (u.only && u.only.label) { const t = tag("전용", "only"); t.title = u.only.label; top.append(t); } // 전용 표시(② §18-17) — 목록에서는 짧게(가리키면 어느 문서 전용인지)
         b.append(top, ...(hp ? [h("span", "wf-help-item-easy", hp.easy)] : []));
         b.addEventListener("click", () => helpPick(c, u.key));
-        li.append(b); ul.append(li);
+        li.append(b);
+        if (u.paid) { li.classList.add("wf-prompt-tool"); li.append(builderPromptTag(u, c)); }
+        ul.append(li);
       }
       sec.append(ul); box.append(sec);
     }

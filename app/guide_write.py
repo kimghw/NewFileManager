@@ -6,7 +6,7 @@
 - `places(blocks, graph, ix)` → 자리 목록 [{id, kind("head" | "table"), text(헤딩 글 · 표 이름), depth, guides[{src, kind, text}], n(지침 수), user(사람 지침이 있나), filled(그 자리에 이미 글이 있나), head(표가 속한 헤딩 id)}]
   — 본문 헤딩 줄 전부(지침이 없어도 — 사람이 이번 실행의 지침만으로 채우게 할 수 있다) + 지침이 붙은 표. 문서 차례.
 - 스크립트가 판정하지 못한 것 = 그 자리에 무엇을 써야 하는지(지침과 자료를 읽어야 안다) — 문서 에이전트가 판정한다. 자료에 없는 내용은 에이전트가 행동 없이 그렇게 답한다(지어내지 않는다 — jobs/form_write.md)."""
-from app import form_slots as FS
+from app import form_example_evidence, form_slots as FS
 from app import place_guides as PG
 from app.headings import iter_blocks
 
@@ -42,13 +42,15 @@ def levels_of(graph):
     return {n["para"]: n["level"] for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("para") and n.get("level")}
 
 
-def boxes(blocks, graph, orig=None):
+def boxes(blocks, graph, orig=None, *, examples=None):
     """쓸 자리가 있는 상자(본문 최상위 1칸 표) {표 id: {"at": 본문 차례, "entries", "chunks", "targets", "inner"[상자 안 표 id]}} — 칸의 직접 문단에 빈 줄 · 글머리 줄 · 같은 줄 뒤에 값을 쓰는 줄 · 표시 줄이
     하나라도 있는 것(form_slots). orig = 올린 원본의 문단 원문 {id: 글}(주면 이미 채운 자리를 가린다 — 다 채운 상자도 자리로 남는다)."""
     lv, out = levels_of(graph), {}
+    if examples is None:
+        examples = form_example_evidence.example_ids(blocks or (), {h[1] for h in _heads(blocks, graph)})
     for k, b in enumerate(blocks or ()):
         cell = FS.box_cell(b)
-        if cell is None:
+        if cell is None or b["id"] in examples:
             continue
         ents = FS.entries(cell, lv, orig)
         chs = FS.chunks(ents)
@@ -57,14 +59,12 @@ def boxes(blocks, graph, orig=None):
     return out
 
 
-_SAMPLE = ("샘플", "예시", "작성 예", "작성예", "견본")
-
-
 def _sample(table):
-    """그 표가 본보기 · 그림 자리인가 — 표 안에 그림이 있거나(캡처 · 성과 그림) 제목 글에 「샘플」 · 「예시」 가 있다. 헤딩의 턴이 「그 아래의 표」 로 채우지 않는다(astra 3차: 「작성을 위한 샘플자료」 표의 꾸밈 칸 넷이 열렸다).
-    지침이 붙은 표는 따로 선 자리로 그대로 선다(사람이 고른다)."""
-    xs = list(iter_blocks([table]))
-    return any(x.get("type") == "image" or x.get("pics") for x in xs) or any(w in (x.get("text") or "") for x in xs if x.get("type") == "paragraph" for w in _SAMPLE)
+    """헤딩을 고른 것만으로는 그림이 든 표와 예시를 언급한 표를 채우지 않는다."""
+    labels = ("샘플", "예시", "작성 예", "작성예", "견본")
+    return any(x.get("type") == "image" or x.get("pics") or
+               (x.get("type") == "paragraph" and any(word in (x.get("text") or "") for word in labels))
+               for x in iter_blocks([table]))
 
 
 def chunk_views(box):
@@ -104,15 +104,18 @@ def places(blocks, graph, ix, orig=None):
     heads = _heads(blocks, graph)
     by_id = {b["id"]: b for b in blocks}
     ix = ix or {"heads": {}, "tables": {}}
-    bx = boxes(blocks, graph, orig)
+    examples = form_example_evidence.example_ids(blocks, {pid for _, pid, _ in heads})
+    bx = boxes(blocks, graph, orig, examples=examples)
     out, rows = [], []
     for n, (i, pid, depth) in enumerate(heads):
+        if pid in examples:
+            continue
         end = heads[n + 1][0] if n + 1 < len(heads) else len(blocks)
         seq = blocks[i + 1:end]
-        filled = any(b.get("type") == "paragraph" and (b.get("text") or "").strip() for b in seq)
+        filled = any(b.get("type") == "paragraph" and b["id"] not in examples and (b.get("text") or "").strip() for b in seq)
         guides = [dict(g) for g in ix["heads"].get(pid) or ()]
         rows.append((i, {"id": pid, "kind": "head", "text": _one(by_id[pid].get("text")), "depth": depth, "guides": guides, "n": len(guides), "user": any(g.get("src") == "user" for g in guides),
-                         "filled": filled, "tables": [b["id"] for b in seq if b.get("type") == "table" and b["id"] not in bx and not _sample(b)], "slot": FS.line_slot(by_id[pid], (orig or {}).get(pid) if orig is not None else None),
+                         "filled": filled, "tables": [b["id"] for b in seq if b.get("type") == "table" and b["id"] not in bx and b["id"] not in examples and not _sample(b)], "slot": FS.line_slot(by_id[pid], (orig or {}).get(pid) if orig is not None else None),
                          "boxed": any(b["id"] in bx for b in seq), "fp": by_id[pid].get("text") or ""}))
     find = PG.heading_finder(blocks, graph)
     pos = {b["id"]: k for k, b in enumerate(blocks)}
@@ -129,7 +132,7 @@ def places(blocks, graph, ix, orig=None):
                                        "filled": False, "head": find(tid), "top": True, "slots": len(chunk_paras(box, [v["key"] for v in chunk_views(box)])), "chunks": chunk_views(box),
                                        "fp": [[e.get("id"), e["kind"], e.get("raw", ""), e.get("level")] for e in box["entries"]]}))
     for tid, guides in tabs.items():
-        if not guides or tid not in top or tid in boxed:   # 상자 자리 안의 표는 따로 서지 않는다(그 지침은 상자 자리가 지닌다)
+        if not guides or tid not in top or tid in boxed or tid in examples:
             continue
         k = top[tid]
         host = blocks[k]
@@ -144,10 +147,20 @@ def places(blocks, graph, ix, orig=None):
 
 def guides_text(guides, limit=GUIDE_MAX):
     """그 자리의 지침들 → 요청 글에 싣는 줄들(사람의 것이 앞 · 합쳐 limit 자까지)."""
-    packed, _ = PG.pack(sorted(guides or (), key=lambda g: g.get("src") != "user"), limit=limit)   # 사람의 것이 앞(자를 때 남는다 — 같은 원천끼리는 차례 그대로)
+    guides = sorted(guides or (), key=lambda g: g.get("src") != "user")
+    llm_rules = [g for g in guides if g.get("src") == "llm"]
+    if llm_rules:
+        # 긴 양식 안내와 사람 지침이 있을 때도 본보기에서 추출한 지침의 몫을 둔다.
+        budget = min(sum(len(g["text"]) for g in llm_rules), limit // 2)
+        share = max(1, budget // len(llm_rules))
+        rules = [{**g, "text": _one(g["text"], share)} for g in llm_rules]
+        packed, _ = PG.pack([g for g in guides if g.get("src") != "llm"], limit=limit - budget)
+        packed += rules
+    else:
+        packed, _ = PG.pack(guides, limit=limit)
     lines = []
     for g in packed:
-        who = "사람" if g.get("src") == "user" else "양식"
+        who = {"user": "사람", "llm": "04 자동 판정"}.get(g.get("src"), "양식")
         kind = f" · {g['kind']}" if g.get("kind") and g.get("src") != "user" else ""
         lines.append(f"- ({who}{kind}) {' '.join((g.get('text') or '').split())}")
     return "\n".join(lines)

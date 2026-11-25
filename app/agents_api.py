@@ -6,7 +6,8 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
 from app import agent_settings as S
-from app import agents as A
+from app import agents as A, prompt_texts
+from app.agent_notes_api import job_ok
 
 router = APIRouter()
 STATIC = Path(__file__).with_name("static")
@@ -38,11 +39,57 @@ def agents_runs(agent: str = None, limit: int = 50):
 
 
 @router.get("/api/agents/{aid}")
-def agent_get(aid: str):
+def agent_get(aid: str, job: str = ""):
     """목록의 한 줄 + version · prompt[{kind, title, source, editable, text, note, …}](보내는 글의 차례 — 계약 → 지침·스킬·할 일 프롬프트·양식 정보·표 지침 → 자료) · recent(최근 실행 30)."""
     if aid not in A.BY_ID:
         raise HTTPException(404, "그런 에이전트가 없습니다")
-    return A.detail(aid)
+    if job and not job_ok(job):
+        raise HTTPException(404, "그런 워크플로우가 없습니다")
+    return A.detail(aid, job or None)
+
+
+def _edit_prompt(aid, kind, name, text, version):
+    agent = A.BY_ID.get(aid)
+    if agent is None or kind not in ("contract", "merge", "job"):
+        raise HTTPException(404, "그런 프롬프트가 없습니다")
+    if kind == "job" and not job_ok(name):
+        raise HTTPException(404, "그런 워크플로우가 없습니다")
+    job = name if kind == "job" else None
+    from app import custom_tasks
+    try:
+        with prompt_texts._LOCK:
+            part = next((p for p in A._parts(agent, job) if p["kind"] == kind and p.get("name") == name and p["editable"]), None)
+            if part is None:
+                raise HTTPException(404, "그 에이전트가 사용하는 프롬프트가 아닙니다")
+            storage_name = f"{agent['contract'][0]}.{name}" if kind == "contract" else name
+            if kind == "job" and custom_tasks.KEY.fullmatch(name):
+                custom_tasks.set_premise(name, text, version)
+            else:
+                prompt_texts.save(kind, storage_name, text, version)
+            updated = next((p for p in A._parts(agent, job) if p["kind"] == kind and p.get("name") == name), None)
+            if updated is None:
+                raise HTTPException(404, "그 프롬프트에 연결된 워크플로우가 없습니다")
+            return updated
+    except KeyError as e:
+        raise HTTPException(404, "그런 워크플로우가 없습니다") from e
+    except S.Stale as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except OSError as e:
+        raise HTTPException(503, "프롬프트를 저장하지 못했습니다") from e
+
+
+@router.put("/api/agents/{aid}/prompt/{kind}/{name}")
+def prompt_put(aid: str, kind: str, name: str, body: dict = Body(...)):
+    if not isinstance(body.get("text"), str):
+        raise HTTPException(400, "프롬프트 원문이 필요합니다")
+    return _edit_prompt(aid, kind, name, body["text"], body.get("version"))
+
+
+@router.delete("/api/agents/{aid}/prompt/{kind}/{name}")
+def prompt_reset(aid: str, kind: str, name: str, version: int):
+    return _edit_prompt(aid, kind, name, None, version)
 
 
 @router.put("/api/agents/{aid}")

@@ -426,6 +426,17 @@
   border-left-color: var(--fail); background: var(--fail-soft); color: #8f1d1d;
 }
 
+/* 양식 검토가 본 것 · 보는 셋(무엇을 써야 하나 · 작성 지침 · 사람의 요청 — form_write.js fwReviewEl) */
+.fw-review .fw-rev-fed { font-size: 12px; margin: 0 0 6px; word-break: keep-all; overflow-wrap: anywhere; }
+.fw-review .fw-sees { display: grid; gap: 6px; margin: 0 0 8px; min-width: 0; }
+.fw-review .fw-see {
+  display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; align-items: baseline;
+  font-size: 12px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere;
+}
+.fw-review .fw-see > b { font-weight: 600; color: #445063; }
+.fw-review .fw-see[data-see="asks"] > b { color: var(--accent); }
+@container (max-width: 300px) { .fw-review .fw-see { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
 /* 검토 요약 접기 */
 .fw-review .fw-guides { margin: 2px 0 6px; min-width: 0; }
 .fw-review .fw-rev-sum > summary,
@@ -746,3 +757,26 @@
 .fw-legend-row > .fw-tag { align-self: start; }
 .fw-legend-say { line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; color: var(--text); }
 .fw-legend-from { grid-column: 2; margin-top: -3px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+/* ---- 패널 「작업 개요」(양식 작성 — form_write.js fwOverviewDraw · spec_양식작성 ② §6-3): 첫 카드(프로젝트 · 워크플로우 · 라운드) + 문서 카드 + 단계 카드(묶음마다 접는 상자) */
+#divBox .fw-ov-docs, #divBox .fw-ov-flow { display: grid; gap: 8px; margin-top: 10px; }
+#divBox .fw-ov-docs h3, #divBox .fw-ov-flow h3 { margin: 0; font-size: 13px; }
+.fw-ov-lines { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12px; line-height: 1.5; }
+.fw-ov-lines dt { color: var(--muted); white-space: nowrap; }
+.fw-ov-lines dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.fw-ov-stage { border-top: 1px solid var(--line); padding-top: 6px; }
+.fw-ov-stage > .fw-ov-shead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; cursor: pointer; list-style: none; min-width: 0; padding: 2px 0; }
+.fw-ov-stage > .fw-ov-shead::-webkit-details-marker { display: none; }
+.fw-ov-stage > .fw-ov-shead::before { content: "▸"; color: var(--muted); font-size: 11px; }
+.fw-ov-stage[open] > .fw-ov-shead::before { content: "▾"; }
+.fw-ov-end { margin: 6px 0 0; }
+.fw-ov-steps { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.fw-ov-step { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface, #fff); min-width: 0; }
+.fw-ov-step.is-now, .fw-ov-step.is-run { border-color: var(--accent, #2563eb); }
+.fw-ov-step-h { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 12px; }
+.fw-ov-no { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fw-ov-name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.fw-ov-st { flex: none; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.fw-ov-step.is-done .fw-ov-st { color: var(--ok, #15803d); }
+.fw-ov-step.is-now .fw-ov-st, .fw-ov-step.is-run .fw-ov-st { color: var(--accent, #2563eb); font-weight: 600; }
+.fw-ov-text { margin: 3px 0 0; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.fw-ov-step .dash-acts { margin-top: 5px; }

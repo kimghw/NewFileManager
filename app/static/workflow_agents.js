@@ -16,7 +16,7 @@
   const MODEL = { "claude-fable-5-2": "Fable 5.2", "claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5" };
   const SOURCE = { user: "에이전트 설정에서 정함", pin: "이 에이전트에 고정", force: "서버 전체 설정", code: "코드가 정함", default: "서버 기본" };
   // 조각의 범위 꼬리표 — 무엇을 어디서 고치나(범용 = 모든 워크플로우 · 워크플로우 = 이 워크플로우만 · 문서 = 문서마다 · 코드 = 고치지 않는다)
-  const SCOPE = { contract: ["코드", "code"], heading: ["범용", "all"], skill: ["범용", "all"], merge: ["범용 · 파일", "all"], job: ["이 워크플로우", "job"], form: ["문서마다", "doc"], table: ["문서마다", "doc"],
+  const SCOPE = { contract: ["에이전트 공통", "all"], heading: ["범용", "all"], skill: ["범용", "all"], merge: ["범용", "all"], job: ["이 워크플로우", "job"], form: ["문서마다", "doc"], table: ["문서마다", "doc"],
     workflow: ["만든 글", "code"], taskdoc: ["만든 글", "code"], logs: ["기록", "code"], data: ["스크립트", "code"], toolnote: ["도구", "all"] };
   const WIDE = "(min-width: 1840px)", NARROW = "(max-width: 1359px)";
   const nf = (n) => Number(n || 0).toLocaleString("ko-KR");
@@ -158,7 +158,7 @@
     if (p.editable) {
       const acts = h("div", "wf-ag-acts");
       acts.append(h("span", "wf-ag-state", p.custom ? `내 사본 · 판 ${p.version}` : "기본 글"), h("span", "wf-ag-spacer"));
-      if (!editing) acts.append(btn("고치기", () => { s.edit = { key, text: p.text }; s.arm = ""; draw(c, true); }, { title: "이 글을 고칩니다 — 범용 글이라 저장하면 모든 워크플로우에서 다음 실행부터 쓰입니다", disabled: !!s.busy }));
+      if (!editing) acts.append(btn("고치기", () => { s.edit = { key, text: p.text }; s.arm = ""; draw(c, true); }, { title: "저장한 글을 다음 호출부터 사용합니다", disabled: !!s.busy }));
       else acts.append(btn("취소", () => { s.edit = null; draw(c, true); }, { disabled: !!s.busy }), btn("저장", () => partSave(c, aid, p), { cls: "btn sm primary", disabled: !!s.busy }));
       if (p.custom && (p.kind === "heading" || p.builtin)) acts.append(btn(s.arm === key ? "되돌리기 확인" : "기본으로", () => { if (s.arm === key) partReset(c, aid, p); else { s.arm = key; draw(c, true); } },
         { title: "내 사본을 버리고 기본 글로 — 한 번 더 누르면 됩니다", cls: `btn sm${s.arm === key ? " danger" : ""}`, disabled: !!s.busy }));
@@ -328,7 +328,7 @@
       s.edit = null; s.arm = "";
       A.detail.clear(); // 같은 지침을 쓰는 다른 에이전트의 글도 새로
       note = [`「${p.title}」 ${josa(p.title, "을", "를")} 저장했습니다 — 범용 글이라 모든 워크플로우에서 다음 실행부터 이 글로 돕니다`, false];
-    } catch (e) { note = [e.status === 409 ? "다른 곳에서 이 글을 먼저 고쳤습니다 — 「취소」 뒤 다시 고쳐 주세요" : `저장하지 못했습니다 — ${e.message}`, true]; }
+    } catch (e) { if (e.status === 409) A.detail.clear(); note = [e.status === 409 ? "다른 곳에서 먼저 저장했습니다. 현재 글을 다시 읽었습니다." : `저장하지 못했습니다 — ${e.message}`, true]; }
     finally { s.busy = false; await Promise.all([...s.open].map((x) => detailLoad(x))); redraw(c); if (note) say(c, ...note); }
   }
   async function partReset(c, aid, p) {
@@ -336,7 +336,7 @@
     if (s.busy) return;
     s.busy = true;
     let note = null;
-    try { await call(p.api, { method: "DELETE" }); s.edit = null; s.arm = ""; A.detail.clear(); note = [`「${p.title}」 ${josa(p.title, "을", "를")} 기본 글로 되돌렸습니다`, false]; }
+    try { await call(`${p.api}?version=${encodeURIComponent(p.version)}`, { method: "DELETE" }); s.edit = null; s.arm = ""; A.detail.clear(); note = [`「${p.title}」 ${josa(p.title, "을", "를")} 기본 글로 되돌렸습니다`, false]; }
     catch (e) { note = [`되돌리지 못했습니다 — ${e.message}`, true]; }
     finally { s.busy = false; await Promise.all([...s.open].map((x) => detailLoad(x))); redraw(c); if (note) say(c, ...note); }
   }
@@ -391,14 +391,23 @@
     sideSet(c, c.ag.side);
     if (old && old.said && old.said[0]) say(c, old.said[0], old.said[1]); // 방금의 알림 글도 이어받는다
     if (c.helpBox) c.helpBox.addEventListener("click", () => { if (cols.dataset.side === "agents" && !matchMedia(WIDE).matches) sideSet(c, "help"); }); // 접힌 「도구 설명」 띠를 누르면 편다
-    if (c.linesBox && !c.linesBox.dataset.agHook) { // 카드의 LLM 꼬리표를 누르면 이 열을 편다(고르는 것은 「도구 설명」 의 누름이 한다 — 같은 고름)
-      c.linesBox.dataset.agHook = "1";
-      c.linesBox.addEventListener("click", (e) => { if (c.ag && e.target.closest(".wf-tag.wf-t-llm") && e.target.closest(".wf-line-cell")) sideSet(c, "agents"); });
-    }
     load(true).then(() => { if (c.ag && c.ag.box === aside) draw(c, true); });
     draw(c, true);
   }
   function sync(c) { if (c && c.ag) draw(c, false); } // helpSync 끝 — 고른 도구가 바뀌었으면 다시 그린다
 
-  window.WfAgents = { mount, sync, flush };
+  async function showPrompt(c, key) {
+    const s = st(c);
+    s.ctx.pick(key);
+    sideSet(c, "agents");
+    if (!A.lines) await load();
+    if (c.help !== key || st(c) !== s) return;
+    const ids = rowOf(c, key).agents;
+    if (ids.length && !ids.some((id) => s.open.has(id))) {
+      s.open.add(ids[0]);
+      await detailLoad(ids[0]);
+    }
+    if (c.help === key && st(c) === s) draw(c, true);
+  }
+  window.WfAgents = { mount, sync, flush, showPrompt };
 })();

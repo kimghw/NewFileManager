@@ -1,7 +1,7 @@
 """병합 LLM 지침(spec_병합 ② §4 「지침」): 병합에서 도는 LLM 검토마다 md 하나 — **무엇을 같은 자리로 보는가**(판단 기준)를 코드 밖에 두고, 사람이 화면에서 읽고 파일을 고친다
 (사용자 2026-11-12 "이 내용 도 LLM 검토 단계에서 검토하도록 지침으로 들어가 있어야함" · "각 LLM이 검토나 작업할때 '지침' 이나 프롬프트를 확인할 수 있으면 좋겠어").
 
-- 파일: `app/merge_guides_default/<이름>.md`(env `NFM_MERGE_GUIDES` 가 폴더, `off`·`0` = 없음). 파일 하나가 원본 — 부를 때마다 읽는다(고친 글이 다음 실행에 바로).
+- 기본 파일: `app/merge_guides_default/<이름>.md`(env `NFM_MERGE_GUIDES` 가 폴더, `off`·`0` = 없음). 실제 호출과 보기는 같은 글을 읽으며, 화면에서 고친 사본이 있으면 그 본문을 쓴다.
   지금 있는 것 = `links`(자리 연결 LLM 검토 — 묶음 짝·표 짝·서식). 다른 병합 검토(취합 등)는 이 폴더에 파일을 더한다.
 - 첫 「# 」 줄 = 제목(「— 」 뒤가 표시 이름). 그 줄과 HTML 주석을 뺀 나머지가 프롬프트에 들어간다(`job_prompts.body` 와 같은 규칙).
 - 계약(답의 꼴·자료 설명 — 코드의 CONTRACT)은 여기 두지 않는다: 답을 검증하는 코드와 한 몸이라 글만 바꾸면 어긋난다. 지침이 없으면(파일 없음·끔) 프롬프트에 지침 절이 없다."""
@@ -10,7 +10,7 @@ import os
 import re
 from pathlib import Path
 
-from app import job_prompts
+from app import job_prompts, prompt_texts
 
 DEFAULT_DIR = Path(__file__).with_name("merge_guides_default")
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
@@ -43,7 +43,8 @@ def get(name):
         return None
     m = job_prompts._TITLE.match(job_prompts._COMMENT.sub("", text))
     title = (m.group(1).split("—", 1)[-1].strip() if m else "") or name
-    return {"name": name, "title": title, "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": str(p)}
+    default = {"name": name, "title": title, "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(), "text": text, "path": str(p)}
+    return prompt_texts.file_content("merge", name, default, title)
 
 
 def body(g):

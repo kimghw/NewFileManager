@@ -5,6 +5,7 @@
 - 관문은 `app/llm.py`(예외 없음 — data None 이면 error). 여기서는 답을 `table_make.normalize` 로 검사해 못 쓰는 답을 걸러 낸다."""
 import json
 
+from app import prompt_texts
 from app import llm
 from app import table_make as M
 
@@ -69,7 +70,7 @@ def guide_text(common, own, extra, form=None) -> str:
 def content(mode, template, source, guide) -> str:
     """프롬프트 = 계약 + 지침 + 자료(JSON). source = {"kind": "text", "text"} | {"kind": "table", "grid": 격자 꼴}."""
     payload = {"mode": mode, "template": template, "source": source}
-    return CONTRACT + "\n\n## 지침\n" + guide + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + "\n\n## 지침\n" + guide + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def ask(mode, template, source, guide, *, call=None, effort=None, timeout=180.0) -> dict:

@@ -45,10 +45,11 @@ def test_registry_lists_role_place_prompt_for_every_agent(monkeypatch):
     monkeypatch.delenv("NFM_JOBS", raising=False)   # 할 일 프롬프트는 저장소 jobs/ 의 것을 본다(conftest 는 빈 임시 폴더로 돌려 둔다)
     L = A.listing()
     ags = L["agents"]
-    assert len(ags) == 25 and [a["no"] for a in ags] == [f"{i:02d}" for i in range(1, 26)] and len({a["id"] for a in ags}) == 25   # 20 = 검증 LLM 검토(2026-11-16) · 21 = 편집 구역 검토(2026-11-17) · 22 = 지침 보정(2026-11-22) · 23 · 24 = 그림 → 표 · 그림 캡션(2026-11-23 — spec_그림) · 25 = 양식 검토(2026-11-24 — spec_양식작성 ② §5-1)
+    assert len(ags) == 26 and [a["no"] for a in ags] == [f"{i:02d}" for i in range(1, 27)] and len({a["id"] for a in ags}) == 26   # 20 = 검증 LLM 검토(2026-11-16) · 21 = 편집 구역 검토(2026-11-17) · 22 = 지침 보정(2026-11-22) · 23 · 24 = 그림 → 표 · 그림 캡션(2026-11-23 — spec_그림) · 25 = 양식 검토(2026-11-24 — spec_양식작성 ② §5-1)
     assert {a["group"] for a in ags} == set(L["groups"]) and all(a["role"] and a["where"] and a["name"] and a["whats"] for a in ags)
     assert L["models"] == list(S.MODELS) and L["efforts"] == list(S.EFFORTS) and L["llm"]["available"] is False
     by = {a["id"]: a for a in ags}
+    assert by["writing_guidance"]["no"] == "26" and by["writing_guidance"]["name"] == "작성 지침 보완"
     assert by["tpl_agent"]["model"] == {"id": "claude-opus-5-5", "source": "pin"} and by["tpl_agent"]["pin"]
     assert by["merge_links"]["model"] == {"id": "claude-opus-5-5", "source": "code"} and by["heading_rules"]["model"]["source"] == "default"
     assert by["heading_rules"]["effort"] == {"id": "low", "source": "code"} and by["doc_agent"]["effort"]["source"] == "default"
@@ -60,13 +61,109 @@ def test_registry_lists_role_place_prompt_for_every_agent(monkeypatch):
         assert all(p["title"] and p["source"] for p in d["prompt"]) and d["prompt"][-1]["note"]
     hp = A.detail("heading_types")["prompt"]
     hg = [p for p in hp if p["kind"] == "heading"]
-    assert [p["name"] for p in hg] == ["graph", "templates", "tolerance"] and all(p["editable"] and p["text"] and p["api"] == f"/api/headings/guides/{p['name']}" for p in hg) and not hp[0]["editable"]
+    assert [p["name"] for p in hg] == ["graph", "templates", "tolerance"] and all(p["editable"] and p["text"] and p["api"] == f"/api/headings/guides/{p['name']}" for p in hg) and hp[0]["editable"]
     assert [p["kind"] for p in hp] == ["contract", "heading", "heading", "heading", "form", "data", "note"]
     m = [p for p in A.detail("merge_links")["prompt"] if p["kind"] in ("merge", "job")]
-    assert [p["source"] for p in m] == ["app/merge_guides_default/links.md", "jobs/plan_to_report.md"] and all(p["text"] and not p["editable"] for p in m)
+    assert [p["source"] for p in m] == ["app/merge_guides_default/links.md", "jobs/plan_to_report.md"] and all(p["text"] and p["editable"] for p in m)
     assert [p["title"] for p in A.detail("style_review")["prompt"] if p["kind"] == "contract"] == ["계약 — 테이블 서식 후보", "계약 — 내용·문단 서식 후보", "계약 — 쪽 설정·표지 후보"]
     sk = [p for p in A.detail("tpl_agent")["prompt"] if p["kind"] == "skill"]
     assert [p["name"] for p in sk] == ["tidy", "majority"] and all(p["editable"] and p["api"].endswith(p["name"]) for p in sk)
+
+
+def test_stage_prompt_edits_reach_model_and_reset_with_version(monkeypatch):
+    from app import agent_notes, heading_llm, job_prompts, merge_llm
+
+    monkeypatch.delenv("NFM_JOBS")
+    client = TestClient(server.app)
+    job = "plan_to_report"
+    ep = "/api/agents/merge_links"
+    parts = {p["kind"]: p for p in client.get(ep, params={"job": job}).json()["prompt"]}
+    updates = {"contract": "후보의 작성 기관을 먼저 대조한다.", "merge": "서로 다른 연도끼리는 연결하지 않는다.", "job": "올해 실적을 연차보고서에 연결한다."}
+    for kind, text in updates.items():
+        part = parts[kind]
+        saved = client.put(part["api"], json={"text": text, "version": part["version"]})
+        assert saved.status_code == 200 and saved.json()["custom"] and saved.json()["text"] == text
+        assert client.put(part["api"], json={"text": "오래된 수정", "version": part["version"]}).status_code == 409
+
+    sent = []
+    def dispatch(schema, content, what, **kwargs):
+        sent.append((schema, content, what))
+        return {"data": {}, "ms": 1}
+    monkeypatch.setattr(llm, "_call", dispatch)
+    result = merge_llm.ask({"sentinel": "문서별 값"}, job=job_prompts.get(job))
+    schema, content, what = sent.pop()
+    assert schema == merge_llm.SCHEMA and what == "merge-llm" and content == result["prompt"]
+    assert content.startswith(updates["contract"]) and all(text in content for text in updates.values()) and "문서별 값" in content
+    assert parts["contract"]["text"] not in content
+    assert updates["job"] not in job_prompts.part(job_prompts.get("form_write"))
+    job_note = next(p for p in client.get(ep, params={"job": job}).json()["prompt"] if p.get("job") == job)
+    assert job_note["text"] == "" and job_note["editable"]
+    note_text = "차년도 항목은 이 워크플로우에서 따로 대조한다."
+    assert client.put(job_note["api"], json={"job": job_note["job"], "text": note_text, "version": job_note["version"]}).status_code == 200
+    with agent_notes.scope(job=job):
+        merge_llm.ask({})
+    assert note_text in sent.pop()[1]
+    with agent_notes.scope(job="form_write"):
+        merge_llm.ask({})
+    assert note_text not in sent.pop()[1]
+
+    # 같은 복합 단계의 다른 에이전트는 자기 프롬프트를 읽고, 뒤에 붙는 원본·목적 문서 값은 보존한다.
+    p = client.get("/api/agents/heading_rules", params={"job": job}).json()["prompt"][0]
+    assert client.put(p["api"], json={"text": "원본과 목적 레터를 따로 검토한다.", "version": p["version"]}).status_code == 200
+    for document in ("원본 문서", "목적 문서"):
+        jobs, _ = heading_llm.rule_jobs({}, groups=[{"document": document}])
+        assert jobs[0]["content"].startswith("원본과 목적 레터를 따로 검토한다.") and document in jobs[0]["content"]
+    assert client.get("/api/agents/heading_tables").json()["prompt"][0]["text"] == heading_llm.TABLES_CONTRACT
+
+    for part in (parts[k] for k in updates):
+        assert client.delete(part["api"], params={"version": 0}).status_code == 409
+        result = client.delete(part["api"], params={"version": 1})
+        assert result.status_code == 200 and result.json()["text"] == part["text"] and result.json()["version"] == 2
+        assert not result.json()["custom"]
+    assert merge_llm.prompt({})[0].startswith(merge_llm.CONTRACT)
+    assert client.put(ep + "/prompt/contract/UNREGISTERED", json={"text": "x", "version": 0}).status_code == 404
+
+
+def test_assembled_workflow_prompt_edits_its_own_premise(monkeypatch):
+    from app import custom_tasks, job_prompts
+
+    monkeypatch.delenv("NFM_JOBS")
+    job = custom_tasks.create({"name": "원본 검토와 내용 넣기", "stages": ["stage_fill"]})["key"]
+    client = TestClient(server.app)
+    detail = "/api/agents/merge_links"
+
+    def part():
+        response = client.get(detail, params={"job": job})
+        return next(p for p in response.json()["prompt"] if p["kind"] == "job")
+
+    original = part()
+    assert original["name"] == job and not original["custom"] and "고른 단계" in original["text"]
+    changed = client.put(original["api"], json={"text": "우리 기관 서식으로 정리한다.", "version": original["version"]}).json()
+    assert changed["custom"] and changed["text"] == custom_tasks.get(job)["premise"] == job_prompts.get(job)["text"]
+    custom_tasks.update(job, {"premise": "조립 화면에서 새로 고친 지침"})
+    assert part()["text"] == "조립 화면에서 새로 고친 지침"
+    assert client.delete(original["api"], params={"version": changed["version"]}).status_code == 409
+    restored = client.delete(original["api"], params={"version": part()["version"]}).json()
+    assert not restored["custom"] and restored["text"] == original["text"]
+
+
+def test_edit_one_contract_variant_preserves_other_prompt_and_data():
+    from app import work_guide
+
+    client = TestClient(server.app)
+    parts = client.get("/api/agents/work_guide").json()["prompt"]
+    home = next(p for p in parts if p.get("name") == "HOME_CONTRACT")
+    assert client.put(home["api"], json={"text": "새 문서에서는 필요한 파일을 먼저 안내한다.", "version": home["version"]}).status_code == 200
+    assert work_guide.content({"input": "자료의 원문"}, home=True).startswith("새 문서에서는 필요한 파일을 먼저 안내한다.")
+    existing = work_guide.content({"input": "자료의 원문"})
+    assert existing.startswith(work_guide.CONTRACT) and "자료의 원문" in existing
+
+
+def test_fixed_style_review_premise_is_the_one_used_when_called_from_other_jobs(monkeypatch):
+    monkeypatch.delenv("NFM_JOBS")
+    client = TestClient(server.app)
+    parts = client.get("/api/agents/style_review", params={"job": "doc_edit"}).json()["prompt"]
+    assert [p["name"] for p in parts if p["kind"] == "job"] == ["style_copy"]
 
 
 def test_force_shows_as_the_model_of_every_agent_but_the_pinned_one(monkeypatch):
@@ -135,7 +232,7 @@ def test_settings_off_keeps_values_in_memory(monkeypatch):
 def test_api_roundtrip():
     c = TestClient(server.app, raise_server_exceptions=False)
     L = c.get("/api/agents").json()
-    assert len(L["agents"]) == 25 and L["version"] == 0 and "prompt" not in L["agents"][0]
+    assert len(L["agents"]) == 26 and L["version"] == 0 and "prompt" not in L["agents"][0]
     d = c.get("/api/agents/doc_agent").json()
     assert d["name"] == "문서 에이전트" and d["prompt"][0]["kind"] == "contract" and d["recent"] == []
     r = c.put("/api/agents/doc_agent", json={"no": "E1", "model": "claude-opus-5-5", "version": 0})

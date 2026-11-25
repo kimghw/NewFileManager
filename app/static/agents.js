@@ -143,7 +143,7 @@
     const L = S.list, wrap = el("section", "ags-body");
     wrap.id = "overview";
     wrap.append(el("h2", "ags-h2", "전체 보기"), el("p", "ags-lead", "에이전트 = 앱이 LLM 에 맡기는 일 하나입니다. 에이전트마다 작업 번호 · 어떤 역할인지 · 어디서 도는지 · 무슨 프롬프트로 도는지를 보고, 작업 번호 · 역할 글 · 모델 · 생각 깊이를 고칩니다. "
-      + "프롬프트는 「계약」(답의 꼴 — 코드와 한 몸이라 고치지 않음) 뒤에 지침 · 스킬 · 할 일 프롬프트가 붙는 꼴이고, 고칠 수 있는 글은 그 자리에서 고칩니다. 설정은 이 PC 의 모든 문서가 같이 씁니다."));
+      + "프롬프트에는 에이전트 지시문과 판단 지침, 스킬, 해당 워크플로우의 전제가 들어갑니다. 「고치기」로 수정한 글은 다음 호출부터 쓰입니다."));
     if (S.err) wrap.append(el("p", "ags-warn", S.err));
     if (!L) { if (!S.err) wrap.append(el("p", "ags-note", "읽는 중…")); return wrap; }
     for (const g of L.groups) {
@@ -234,8 +234,7 @@
       { title: "작업 번호 · 역할 · 모델 · 생각 깊이를 모두 기본값으로 — 한 번 더 누르면 됩니다", cls: `btn sm${S.arm === "reset" ? " danger" : ""}`, disabled: busy }));
     sync();
     // ④ 프롬프트
-    const s4 = sec("④", "프롬프트 — 보내는 글의 차례", "LLM 에 보내는 글은 아래 차례로 이어 붙습니다. 「계약」(입력의 뜻 · 답의 꼴)은 코드와 한 몸이라 읽기만 합니다. 「지침」·「스킬」 은 사람이 관리하는 판단 기준 — 「고치기」 가 있는 글은 여기서 고쳐 저장하면 다음 실행부터 쓰입니다. "
-      + "저장소 파일이 원본인 글(판단 지침 · 할 일 프롬프트)은 그 파일을 고칩니다.");
+    const s4 = sec("④", "프롬프트 — 보내는 글의 차례", "「고치기」로 지시문과 지침을 수정합니다. 저장한 글은 다음 호출부터 적용되며 응답 형식은 서버에서 검증합니다.");
     d.prompt.forEach((p, i) => s4.append(part(p, i)));
     // ⑤ 최근 실행
     const s5 = sec("⑤", "최근 실행", "서버를 켠 뒤 이 에이전트가 돈 기록입니다(서버를 다시 켜면 비워집니다). 실행 번호는 모든 에이전트가 함께 쓰는 차례 번호입니다.");
@@ -346,7 +345,7 @@
     const id = S.id;
     S.busy = true;
     try {
-      await api(p.api, { method: "DELETE" });
+      await api(`${p.api}?version=${encodeURIComponent(p.version)}`, { method: "DELETE" });
       S.edit = null;
       S.arm = null;
       toast(`「${p.title}」 을 기본 글로 되돌렸습니다`);

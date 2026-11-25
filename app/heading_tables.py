@@ -14,6 +14,7 @@ import re
 import time
 from collections import Counter, defaultdict
 
+from app import prompt_texts
 from app import heading_llm as HL
 from app import heading_calc as HC
 from app import heading_rules as R
@@ -662,7 +663,7 @@ def t_jobs(tables, drafts, stage1, pinned=None, skip=(), only=None):
         data = {"tables": [table_payload(tb, drafts[tb["id"]][1], drafts[tb["id"]][0], _before_text(stage1, tb, skip), tg.get(tb["id"])) for tb in batch]}
         if tg:
             used["place"] = place["sha1"]
-        content, u = HL.prompt(HL.TABLES_CONTRACT, ["tables", "tolerance"], data, pinned)
+        content, u = HL.prompt(prompt_texts.contract(HL.__name__, "TABLES_CONTRACT"), ["tables", "tolerance"], data, pinned)
         used.update(u)
         jobs.append({"schema": HL.TABLES_SCHEMA, "content": content, "what": f"heading_tables#{i + 1}", "timeout": 900.0, "effort": "medium",
                      "_tables": [tb["id"] for tb in batch], "_guides": {t: len(g[0]) for t, g in tg.items() if g}})

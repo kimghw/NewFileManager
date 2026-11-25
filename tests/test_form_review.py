@@ -302,3 +302,30 @@ def test_lost_answer_stays_lost_and_stale_key_is_refused(c):
     r = c.put(f"/api/docs/{doc}/form-review/answers", json={"answers": [{"key": "q1", "q": "보고서 종류", "a": "연차보고서"}]})
     assert r.status_code == 409 and "검토가 바뀌었습니다" in r.json()["detail"]
     assert c.put(f"/api/docs/{doc}/form-review/answers", json={"answers": [{"key": "q1", "q": "주관기관", "a": "가"}]}).status_code == 200
+
+
+def test_review_and_plan_are_apart_and_review_sees_the_request(c, monkeypatch):
+    """2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려 ... 목적문서의 양식에 뭘 작성해야하는지, 어떤 지침이 있는지 사용자가 요청하는건 뭔지를 봐야지」(spec_양식작성 ② §5-1 「① ② 를 뗀다」):
+    작성 계획은 양식 검토 뒤(409) · 양식 검토는 자료 없이 사람의 요청(note)을 읽고 보는 셋(sees)을 낸다 · 계획은 검토의 요약 · 보는 셋 · 작성 방향을 바꾸지 않는다."""
+    doc = c.post("/api/docs", files={"file": (SMALL.name, SMALL.read_bytes())}).json()["docId"]
+    monkeypatch.setattr(GW, "_places", lambda s: (PLACES, 0))
+    monkeypatch.setattr(R.llm, "status", lambda: {"available": True})
+    mid = c.post(f"/api/docs/{doc}/agent/material", json={"name": "자료.md", "text": "한국선급(KR) 최종 목표"}).json()["id"]
+    sees = {"write": "1-1 에 최종 목표를 씀", "guides": "작성 요령: 개조식 3줄", "asks": "한국선급 몫만 — 요청대로"}
+    answers = [{**ANSWER, "sees": sees}, {**ANSWER, "summary": "계획이 낸 다른 요약", "sees": {"write": "다름", "guides": "", "asks": ""},
+                                          "places": [{**ANSWER["places"][0], "how": "계획이 낸 다른 방향"}]}]
+    sent = []
+    monkeypatch.setattr(R.llm, "call", lambda schema, content, what, **kw: sent.append(content) or {"data": answers.pop(0), "backend": "fake", "ms": 1})
+    url = f"/api/docs/{doc}/form-review"
+    r = c.post(url, json={"materials": [mid]})
+    assert r.status_code == 409 and "양식 검토" in r.json()["detail"] and not sent                   # 계획은 검토가 먼저 — 한 단추가 두 걸음을 돌리지 않는다
+    assert c.post(url, json={"note": "x" * (form_review.REQUEST_MAX + 1)}).status_code == 400
+    assert c.post(url, json={"note": "  한국선급 몫만  "}).status_code == 200 and _wait(c, doc)["state"] == "done"
+    data = sent[0].split("## 자료(JSON)")[1]
+    assert '"request":"한국선급 몫만"' in data and '"materials"' not in data and "사람이 이번 작성에 대해 요청한 것" in sent[0]
+    v = c.get(url).json()
+    assert v["review"]["sees"] == sees and v["review"]["request"] == "한국선급 몫만" and not v["planned"]
+    assert v["review"]["fed"] == {"places": len(PLACES), "formGuides": sum(1 for p in PLACES for g in p.get("guides") or () if g.get("src") != "user"), "userGuides": sum(1 for p in PLACES for g in p.get("guides") or () if g.get("src") == "user"), "request": True}
+    assert c.post(url, json={"materials": [mid], "note": "한국선급 몫만"}).status_code == 200 and _wait(c, doc)["state"] == "done"
+    v = c.get(url).json()["review"]
+    assert c.get(url).json()["planned"] and v["summary"] == ANSWER["summary"] and v["sees"] == sees and v["places"]["h2"]["how"] == "정량 지표와 함께 3줄" and v["places"]["h2"]["use"] == "자료의 최종 목표 문단"

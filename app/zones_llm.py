@@ -22,6 +22,7 @@ import json
 import re
 from collections import Counter
 
+from app import prompt_texts
 from app import llm, merge_guides, zones
 from app import merge_gather_frame as F
 
@@ -388,13 +389,13 @@ def guide_part(guide=None):
 
 def prompt(payload, guide=None):
     """프롬프트 글 = 계약 + 판단 지침 절 + 자료(JSON)."""
-    return CONTRACT + guide_part(guide) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + guide_part(guide) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def parts(guide=None):
     """화면의 「지침」 보기에 싣는 것 — 이 검토의 프롬프트를 이루는 글들(자료 빼고) [{key: contract|guide, title, text, source, note}]. prompt() 와 같은 차례(merge_gather_llm.parts 와 같은 꼴)."""
     g = merge_guides.get(GUIDE) if guide is None else guide
-    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴 · 권한", "text": CONTRACT, "source": "app/zones_llm.py",
+    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴 · 권한", "text": prompt_texts.contract(__name__), "source": "app/zones_llm.py",
             "note": "코드에 든 글입니다(답을 검증하는 코드와 한 몸) — 판단 기준은 아래 지침에 있습니다"}]
     if g and merge_guides.body(g):
         out.append({"key": "guide", "title": f"판단 지침 — {g['title']}", "text": merge_guides.body(g), "source": g["path"], "note": "이 파일을 고치면 다음 실행부터 적용됩니다"})

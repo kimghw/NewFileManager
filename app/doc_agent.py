@@ -34,6 +34,7 @@ from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
+from app import prompt_texts
 from app import form_slots as FS
 from app import heading_calc as HC
 from app import heading_rules as R
@@ -186,9 +187,9 @@ def guide_part(g=None):
     return merge_guides.part(g if g is not None else guide(), GUIDE_NOTE)
 
 
-def content(data, guide="", job=""):
+def content(data, guide="", job="", *, contract=None):
     """프롬프트 = 계약 + (할 일 프롬프트) + (판단 지침) + 자료(JSON). guide·job 은 붙일 절 글(`guide_part` · `job_prompts.part(p, JOB_NOTE)`) — 없으면 그 절이 없다."""
-    return CONTRACT + (job or "") + (guide or "") + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return (contract or prompt_texts.contract(__name__)) + (job or "") + (guide or "") + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 def clean(got):
@@ -200,14 +201,15 @@ def clean(got):
 
 def ask(data, guide="", job="", *, call=None, effort=None, timeout=240.0):
     """조정 호출 한 번(잠금 밖) → {"data": {reply, actions} | None, "prompt", "response": 받은 그대로, "call": {backend, model, effort, ms, costUsd, error}}."""
-    prompt = content(data, guide, job)
+    contract = prompt_texts.contract(__name__)
+    prompt = content(data, guide, job, contract=contract)
     res = (call or llm.call)(SCHEMA, prompt, "doc-agent", timeout=timeout, effort=effort)
     info = {k: res.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error")}
     raw = res.get("data")
     got = clean(raw)
     if raw is not None and got is None:
         info["error"] = "못 쓰는 답: {reply, actions} 꼴이 아님"
-    return {"data": got, "prompt": prompt, "response": raw, "call": info}
+    return {"data": got, "prompt": prompt, "contract": contract, "response": raw, "call": info}
 
 
 # ---- 문서에서 읽기(세션 잠금 안에서 부른다 — 읽기만) -----------------------------------------------------------------------

@@ -8,6 +8,7 @@
 import json
 from collections import Counter
 
+from app import prompt_texts
 from app import division_llm, heading_forms, job_prompts, llm, merge_chunks, merge_guides, merge_pairs
 from app import place_guides as PG
 
@@ -159,14 +160,14 @@ def prompt(payload, form=None, note="", job=None, guide=None, links=""):
         if part and all(x["key"] != f.get("key") for x in forms):
             forms.append({k: f.get(k) for k in ("key", "name", "sha1")})
             parts.append(part)
-    return (CONTRACT + note + guide_part(guide) + job_prompts.part(job) + merge_table_map.links_part(links) + "".join(parts)
+    return (prompt_texts.contract(__name__) + note + guide_part(guide) + job_prompts.part(job) + merge_table_map.links_part(links) + "".join(parts)
             + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), forms)
 
 
 def parts(form=None, job=None, guide=None, links=""):
     """화면의 「지침」 보기에 싣는 것 — 이 검토의 프롬프트를 이루는 글들(자료 빼고) [{key: contract|guide|job|form, title, text, source, note}]. prompt() 와 같은 차례."""
     g = merge_guides.get(GUIDE) if guide is None else guide
-    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": CONTRACT + UNIT_NOTE, "source": "app/merge_llm.py",
+    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": prompt_texts.contract(__name__) + UNIT_NOTE, "source": "app/merge_llm.py",
             "note": "코드에 든 글입니다(답을 검증하는 코드와 한 몸) — 판단 기준은 아래 지침에 있습니다"}]
     if g and merge_guides.body(g):
         out.append({"key": "guide", "title": f"판단 지침 — {g['title']}", "text": merge_guides.body(g), "source": g["path"], "note": "이 파일을 고치면 다음 실행부터 적용됩니다"})

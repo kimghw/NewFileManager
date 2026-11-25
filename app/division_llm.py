@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 
+from app import prompt_texts
 from app import heading_forms, llm
 from app.division_profiles import _structure as structure
 from app.division_profiles.rnd import core
@@ -57,7 +58,7 @@ FORM_NOTE_REVIEW = ("아래는 **이 문서의 양식**에 대해 사용자가 �
 def form_part(form, note=FORM_NOTE):
     """양식 정보(heading_forms.pin 꼴 {key, name, sha1, text} | None) → 프롬프트에 붙일 절 글 | ""(맞는 양식 없음 · 보낼 글 없음 — 프롬프트는 전과 같다).
     note = 머리 문장 — 빠진 자리 검토는 FORM_NOTE, 재검토는 FORM_NOTE_REVIEW."""
-    text = heading_forms.without(heading_forms.body(form.get("text")), heading_forms.LINK_SECTION) if form else ""   # 「자리 연결」 절(연결 코멘트 — spec_병합 ② §5-3)은 병합 검토의 몫
+    text = heading_forms.prompt_body(form)
     return f"\n\n## 양식 정보 — {form.get('name') or form.get('key')} (이 양식에만 해당)\n{note}\n\n{text}" if text else ""
 
 
@@ -131,7 +132,7 @@ def ask(payload, *, call=None, effort="medium", timeout=240.0, form=None):
     """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}, "form": {key, name, sha1} | None}.
     form = 이 문서의 양식 정보(heading_forms.pin) — 있으면 프롬프트에 한 절(② §16 — 머리 문장은 재검토용: 형제 찾기의 배경으로만)."""
     part = form_part(form, FORM_NOTE_REVIEW)
-    content = CONTRACT + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    content = prompt_texts.contract(__name__) + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     res = (call or llm.call)(SCHEMA, content, "divisions-llm", timeout=timeout, effort=effort)
     return _asked(res, content, form, part)
 
@@ -372,7 +373,7 @@ def ask_missing(payload, *, call=None, effort="medium", timeout=240.0, form=None
     """한 번 호출(잠금 밖) → {"data": 응답 | None, "prompt", "call": {backend, model, effort, ms, costUsd, error}, "form": {key, name, sha1} | None}.
     form = 이 문서의 양식 정보(heading_forms.pin) — 있으면 프롬프트에 한 절(② §16)."""
     part = form_part(form)
-    content = MISSING_CONTRACT + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    content = prompt_texts.contract(__name__, "MISSING_CONTRACT") + part + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     res = (call or llm.call)(MISSING_SCHEMA, content, "divisions-missing", timeout=timeout, effort=effort)
     return _asked(res, content, form, part)
 

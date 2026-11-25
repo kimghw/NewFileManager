@@ -18,6 +18,7 @@ import re
 import time
 from collections import Counter, defaultdict
 
+from app import prompt_texts
 from app import division_terms as DT
 from app import heading_bands as HB
 from app import heading_boxes as BX
@@ -410,7 +411,7 @@ def a_job(types, nodes, keys, proposal, doc_name="", pinned=None, bases=BASES, d
     if division is not None:   # 구분 기준 판독(연구개발과제 문서 — §13 「구분 기준 판독」): 확인한 줄 · 엇갈린 줄 · 기관 이름 후보 줄의 수(근거가 있는 유형만)
         data["division"] = [{"type": tid, "basis": d.get("basis") or "", "confirmed": d["confirmed"], "of": d["total"], "conflict": d["conflict"], "names": d.get("names", 0)}
                             for tid, d in division.items() if d.get("confirmed") or d.get("conflict") or d.get("names")]
-    content, used = HL.prompt(HL.TYPES_CONTRACT, ["graph", "templates", "tolerance"], data, pinned)
+    content, used = HL.prompt(prompt_texts.contract(HL.__name__, "TYPES_CONTRACT"), ["graph", "templates", "tolerance"], data, pinned)
     return {"schema": HL.TYPES_SCHEMA, "content": content, "what": "heading_types", "timeout": 900.0, "effort": "medium"}, used, data
 
 
@@ -1035,7 +1036,7 @@ def b_jobs(secs, nodes, graph, prov, types, roles, keys, pinned=None, bases=BASE
             if cut:
                 data["guidesCut"] = True
             used["place"] = pinned["place"]["sha1"]
-        content, u = HL.prompt(HL.SECTION_CONTRACT, ["graph", "templates"], data, pinned)
+        content, u = HL.prompt(prompt_texts.contract(HL.__name__, "SECTION_CONTRACT"), ["graph", "templates"], data, pinned)
         used.update(u)
         jobs.append({"schema": HL.SECTION_SCHEMA, "content": content, "what": f"heading_section#{i + 1}", "timeout": 600.0, "effort": "medium",
                      "_section": sec, "_ancestors": anc, "_guides": len(got)})
@@ -1180,7 +1181,7 @@ def slot_pairs(nodes, graph, asg_nodes, labels, decided):
 def c_jobs(pairs, pinned=None):
     jobs, used = [], {}
     for i in range(0, len(pairs), PAIR_BATCH):
-        content, u = HL.prompt(HL.FORMAT_CONTRACT, ["templates", "tolerance"], {"pairs": pairs[i:i + PAIR_BATCH]}, pinned)
+        content, u = HL.prompt(prompt_texts.contract(HL.__name__, "FORMAT_CONTRACT"), ["templates", "tolerance"], {"pairs": pairs[i:i + PAIR_BATCH]}, pinned)
         used.update(u)
         jobs.append({"schema": HL.FORMAT_SCHEMA, "content": content, "what": f"heading_formats#{i // PAIR_BATCH + 1}", "timeout": 600.0, "effort": "low"})
     return jobs, used
@@ -1208,7 +1209,7 @@ def d_jobs(pairs, pinned=None):
     jobs, used = [], {}
     for i in range(0, len(pairs), PAIR_BATCH):
         batch = pairs[i:i + PAIR_BATCH]
-        content, u = HL.prompt(HL.REVIEW_CONTRACT, ["templates", "tolerance"], {"pairs": batch}, pinned)
+        content, u = HL.prompt(prompt_texts.contract(HL.__name__, "REVIEW_CONTRACT"), ["templates", "tolerance"], {"pairs": batch}, pinned)
         used.update(u)
         jobs.append({"schema": HL.REVIEW_SCHEMA, "content": content, "what": f"heading_review#{i // PAIR_BATCH + 1}", "timeout": 600.0, "effort": "medium",
                      "_pairs": batch})

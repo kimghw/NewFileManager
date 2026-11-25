@@ -328,7 +328,7 @@ function dsTableDraw() {
   t.replaceChildren(head, grid, foot);
 }
 
-async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리 하나에서(헤딩 탭의 진행 · 결과도 같이 따라온다: headsPoll). → 시작했나(true) — 에이전트 실행 카드가 「실행함」/「멈춤」 을 가른다(doc_agent_next.js)
+async function dsLlmRun(writingGuidance = false) { // 양식 작성 04에서는 구조 판정 뒤 자리별 작성 지침도 추출한다.
   if (!state.id) return false;
   const id = state.id, epoch = state.epoch;
   let ok = false;
@@ -336,7 +336,7 @@ async function dsLlmRun() { // 「LLM 검증·보완」 — 헤딩 작업 자리
   if (epoch !== state.epoch) return false;
   const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : "tidy"; // 서식 정리는 열에서 고른 스킬(없으면 기본 — tpl_agent.js)
   try {
-    const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill }) });
+    const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill, ...(writingGuidance === true ? { writingGuidance: true } : {}) }) });
     if (epoch !== state.epoch) return;
     heads.expect = job.started;
     headsRender({ ...(heads.view || { rev: state.serverRev, runs: [], stage1: null, stage2: null, stage3: null }), job });

@@ -13,6 +13,7 @@ import threading
 
 from fastapi import APIRouter, Body, HTTPException
 
+from app import prompt_texts
 from app import heading_runs as HR
 from app import merge_pairs as P
 from app import merge_take as TK
@@ -1109,7 +1110,7 @@ def llm_guide(doc_id: str, step: str, part: str = None):
         parts, model = zones_llm.parts(), None   # 계약 + 판단 지침(app/merge_guides_default/zones.md) — 모델은 서버 기본
     else:
         review = step == "division-review"
-        parts = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴 · 판단 기준", "text": division_llm.CONTRACT if review else division_llm.MISSING_CONTRACT, "source": "app/division_llm.py",
+        parts = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴 · 판단 기준", "text": prompt_texts.contract(division_llm.__name__) if review else prompt_texts.contract(division_llm.__name__, "MISSING_CONTRACT"), "source": "app/division_llm.py",
                   "note": "코드에 든 글입니다 — 양식마다 다른 사실·요청은 아래 양식 정보에 적습니다"}]
         form = server._division_form(s)
         if form and division_llm.form_part(form):

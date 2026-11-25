@@ -350,7 +350,7 @@ def _turn(doc_id, body, scope=None):
     call, got = res["call"], res["data"]
     tid = store.new_turn_id()   # 무작위 꼬리 — 같은 밀리초에 끝난 두 턴도 다른 id
     rec = {"id": tid, "at": round(time.time(), 3), "rev": rev0, "request": {"text": text, "materials": [m["id"] for m in mats], "selection": sel, "styles": picked},
-           "reply": "", "notes": [], "error": None, "proposals": [], "dropped": [], "prompt": {"contract": doc_agent.CONTRACT, "job": job_part, "guide": guide_part, "data": data},
+           "reply": "", "notes": [], "error": None, "proposals": [], "dropped": [], "prompt": {"contract": res.get("contract", doc_agent.CONTRACT), "job": job_part, "guide": guide_part, "data": data},
            "response": res["response"], "call": call, "fills": [], "job": job_prompts.brief(job) if job_part else None, "guide": merge_guides.brief(guide) if guide_part else None}
     fills, fill_recs = {}, []
     if got is not None:

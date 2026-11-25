@@ -307,6 +307,14 @@ def diagram_checks(wf, ctx, api, workflow_requests):
     tech_text = tech.inner_text()
     check("기술 상세 펼치기 — 실제 에이전트·모듈·사양 포함",
           llm["agents"][0]["name"] in tech_text and llm["modules"][0]["path"] in tech_text and llm["spec"]["file"] in tech_text, tech_text)
+    prompt_icon = wf.locator("#wfDetail button[data-llm-prompt]").first
+    prompt_icon.click()
+    prompt = wf.locator("dialog #workflowPromptDlg")
+    prompt.locator('details[data-kind="merge"] .wfp-text').wait_for()
+    check("워크플로우 페이지의 LLM 아이콘은 그 단계의 실제 판단 지침을 연다",
+          prompt.get_by_role("combobox", name="에이전트").input_value() == llm["agents"][0]["id"]
+          and prompt.locator('details[data-kind="merge"]').get_by_role("button", name="수정", exact=True).is_visible())
+    wf.get_by_role("dialog").get_by_role("button", name="닫기", exact=True).click()
     # 문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」) — 고른 단계의 「하는 문서」 · 「입력·산출물 …」 안에 목록 보기와 같은 표(기술 상세에는 그 줄을 두지 않는다)
     relay = tasks["plan_to_report"]
     S, D = doc_names(relay)
@@ -365,8 +373,10 @@ def diagram_checks(wf, ctx, api, workflow_requests):
             bad.append((width, overflow))
     check("다이어그램 — 1500·900·480·360px에서 기술 상세 · 시작 점검 · 문서마다 단위문서 TASK 를 펴도 가로 넘침 없음", not bad, bad)
     wf.screenshot(path=str(OUT / "08_diagram_mobile.png"))
-    check("다이어그램 탐색은 읽기만 — API 요청은 GET /api/workflow · 조립한 TASK 읽기(GET /api/tasks · /api/tasks.js) · 저장한 양식 읽기(GET /api/form-files — 양식 더하기가 펴져 있으면 /api/works · /api/samples) · 요구사항 읽기(GET /api/reqs · 고친 도구 이름 /api/tool-names — 아이콘의 수: ② §18-20) · 계정 읽기(GET /api/account/me — 상단 바의 계정 단추 chip.js: spec_계정 ② §4)뿐",
-          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0] in tuple(base + x for x in ("/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples", "/api/reqs", "/api/tool-names", "/api/account/me")) for method, url in workflow_requests), workflow_requests)
+    read_paths = {"/api/workflow", "/api/tasks", "/api/tasks.js", "/api/form-files", "/api/works", "/api/samples",
+                  "/api/reqs", "/api/tool-names", "/api/account/me", "/api/agents/merge_links"}
+    check("다이어그램 탐색과 프롬프트 열람은 조회 요청만 보낸다",
+          bool(workflow_requests) and all(method == "GET" and url.split("?", 1)[0].removeprefix(base) in read_paths for method, url in workflow_requests), workflow_requests)
     wf.set_viewport_size({"width": 1500, "height": 1000})
     wf.click("#wfViewList")
     # 상세 주소로 목록을 열며 펼쳐진 단계가 기존 목록 검사의 초기 상태에 섞이지 않게 한다.
@@ -450,7 +460,7 @@ def main():
           return { h2: s.querySelector('h2').textContent, lead: s.querySelector('.wf-lead').textContent, io, prompt: s.querySelector('.wf-io code').textContent,
             stages: [...s.querySelectorAll('.wf-stage')].map((g) => [g.dataset.stage, g.querySelector('.wf-stage-no').textContent, g.querySelector('h3').textContent, g.querySelectorAll('.wf-step').length]),
             map: [...s.querySelectorAll('.wf-stage[data-stage=map] .wf-step')].map((d) => [d.dataset.step, d.querySelector('.wf-no').textContent, d.querySelector('.wf-name').textContent,
-              [...d.querySelectorAll('summary .wf-tag')].map((x) => x.textContent).join('|'), d.querySelector('.wf-does').offsetHeight > 0, d.open]),
+              [d.parentElement.querySelector(':scope > button[data-llm-prompt]'), ...d.querySelectorAll('summary .wf-tag')].filter(Boolean).map((x) => x.textContent).join('|'), d.querySelector('.wf-does').offsetHeight > 0, d.open]),
             top: Math.round(s.getBoundingClientRect().top - document.getElementById('wfMain').getBoundingClientRect().top), hash: location.hash }; }""")
         check("이관 절 — 이름·설명(TASK_CATALOG) · 받는 문서 → 산출물 → 알아 둘 것 → 전제(jobs/plan_to_report.md) · 그 절로 스크롤(#plan_to_report)",
               ts["h2"] == "워크플로우사업계획서 → 연차보고서 이관" and "연차보고서로 옮깁니다" in ts["lead"] and ts["io"] == ["받는 문서", "문서 칸", "산출물", "알아 둘 것", "전제", "한 번에 진행", "에이전트가 묻는 것", "멈추거나 남기는 곳 · 보정", "단계별(세부 작업)"] and ts["prompt"] == "jobs/plan_to_report.md"

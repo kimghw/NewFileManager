@@ -184,6 +184,16 @@ def without(text, word):
     return out if _filled(s for s in out.splitlines() if not s.lstrip().startswith("#")) else ""
 
 
+def prompt_body(form, *, headings=False):
+    """단계에서 읽는 양식 본문. 자리 연결 지침은 별도 입력이고 헤딩 검토는 구분 기준 절도 제외한다."""
+    if not form:
+        return ""
+    text = body(form.get("text"))
+    if headings:
+        text = without(text, DIVISION_SECTION)
+    return without(text, LINK_SECTION)
+
+
 # ---- 코멘트(spec_구분_기준 ② §18) — 「구분 기준 자리」 절 끝의 목록: 머리 줄 아래 `- (YYYY-MM-DD) 글` 한 줄씩(화면에서 남긴 것) ----------------------
 
 COMMENT_HEAD = "코멘트 — 화면에서 남긴 것(새 것이 아래):"

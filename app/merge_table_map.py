@@ -16,6 +16,7 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from app import prompt_texts
 from app import heading_calc as HC
 from app import job_prompts, llm, merge_guides
 from app import merge_fixed as X
@@ -470,13 +471,13 @@ def prompt(payload, job=None, links="", guide=None):
     """프롬프트 글 = 계약(+ 목적 표에 작성 지침이 있으면 그 한 줄 — spec_병합 ② §5-11) + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
     from app import place_guides as PG
     note = PG.CONTRACT_LINE if (payload.get("target") or {}).get("guides") else ""
-    return CONTRACT + note + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return prompt_texts.contract(__name__) + note + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def parts(job=None, links="", guide=None):
     """화면 「지침」 보기에 싣는 글들(자료 빼고) — merge_llm.parts 와 같은 꼴."""
     g = merge_guides.get(GUIDE) if guide is None else guide
-    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": CONTRACT, "source": "app/merge_table_map.py",
+    out = [{"key": "contract", "title": "계약 — 역할 · 자료 설명 · 답의 꼴", "text": prompt_texts.contract(__name__), "source": "app/merge_table_map.py",
             "note": "코드에 든 글입니다(답을 검증하는 코드와 한 몸) — 판단 기준은 아래 지침에 있습니다"}]
     if g and merge_guides.body(g):
         out.append({"key": "guide", "title": f"판단 지침 — {g['title']}", "text": merge_guides.body(g), "source": g["path"], "note": "이 파일을 고치면 다음 실행부터 적용됩니다"})

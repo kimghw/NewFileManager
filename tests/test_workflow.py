@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app import agents, server
+from app import agents, server, workflow_state
 from app import workflow as W
 
 ROOT = Path(__file__).parents[1]
@@ -328,6 +328,7 @@ def test_listing_carries_roles_with_unit_tasks_and_step_documents():
     단계마다 on · onText(하는 문서의 화면 글 — 화면이 그대로 쓴다) — 등록부 · unit() · flow_of() · on_text() 와 같다."""
     L = W.listing()
     by = {t["job"]: t for t in L["tasks"]}
+    assert all(t["family"] == workflow_state.family(W.task_of(t["job"])) for t in L["tasks"])
     for t in W.TASKS:
         assert by[t["job"]]["roles"] == [{"role": r["role"], "name": r["name"], "title": r["title"], "kind": r["kind"], "many": r["many"],
                                           "unit": [{"stage": g["id"], "steps": [s["key"] for s in hit]} for g, hit in W.unit(t, r["role"])]} for r in t["roles"]], t["job"]

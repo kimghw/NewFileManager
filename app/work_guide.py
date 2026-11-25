@@ -16,6 +16,7 @@
 import json
 import re
 
+from app import prompt_texts
 from app import job_prompts, llm, workflow
 
 WHAT = "work-guide"          # 호출 이름(agent_settings.PREFIX → 에이전트 `work_guide`)
@@ -277,7 +278,7 @@ def history_of(rows, cap=HISTORY):
 def content(data, job=None, home=False):
     """프롬프트 = 계약 + 워크플로우(그 TASK 의 절) + (할 일 프롬프트) + 자료(JSON)."""
     shown = {**data, "actions": [{k: v for k, v in a.items() if k != "key"} for a in data.get("actions") or []]}   # key(카드가 가리키는 계획)는 화면이 견주는 값 — LLM 에는 안 보낸다
-    return (HOME_CONTRACT if home else CONTRACT) + workflow_part(None if home else job) + ("" if home else job_prompts.part(job_prompts.get(job or ""), JOB_NOTE)) \
+    return prompt_texts.contract(__name__, "HOME_CONTRACT" if home else "CONTRACT") + workflow_part(None if home else job) + ("" if home else job_prompts.part(job_prompts.get(job or ""), JOB_NOTE)) \
         + "\n\n## 자료(JSON)\n" + json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
 
 

@@ -16,6 +16,7 @@
 import json
 import re
 
+from app import prompt_texts
 from app import heading_calc as HC
 from app import heading_rules as R
 from app import heading_tables as HT
@@ -381,7 +382,7 @@ def guide_text(common, own, form=None):
 
 def content(data, notes, guide, rules, job=""):
     """프롬프트 = 계약 + (할 일 프롬프트) + 작성요령 + 지침 + 칸 입력 규칙 + 자료(JSON)."""
-    return (CONTRACT + (job or "") + "\n\n## 작성요령(문서에서)\n" + notes + "\n\n## 지침\n" + guide
+    return (prompt_texts.contract(__name__) + (job or "") + "\n\n## 작성요령(문서에서)\n" + notes + "\n\n## 지침\n" + guide
             + "\n\n## 칸 입력 규칙(칸에 값을 넣는 방식 — 어긋나면 뒤의 것이 우선: 이 표 › 공통 › 기본)\n" + rules
             + "\n\n## 자료(JSON)\n" + json.dumps(data, ensure_ascii=False, separators=(",", ":")))
 

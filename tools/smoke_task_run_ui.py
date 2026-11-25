@@ -63,7 +63,8 @@ def open_work(page, wid):
 
 VIS = "(id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0 && e.checkVisibility(); }"  # 접힌 details 안은 getClientRects 가 남는다(content-visibility) — checkVisibility 까지
 STEPS = """() => [...document.querySelectorAll('#taskSteps li:not([data-step=config]):not([data-step=heads]):not([data-step=reheads]):not([data-step=headsLlm]):not([data-step=reheadsLlm])')].map((li) => ({ step: li.dataset.step, state: li.dataset.state,
-  status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent, text: li.textContent }))"""
+  status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, no: li.querySelector('.dv-flow-no').textContent, text: li.textContent,
+  description: li.querySelector('.dv-flow-text')?.textContent || '' }))"""
 # 묶음 머리 — 펴짐 · 끝난 수 · 상태 줄(종류·글·동그라미) · 단추(글·꺼짐·강조)
 STAGE = """() => { const b = document.getElementById('taskStage'); if (!b) return null; const st = b.querySelector('.dv-phase-state'), run = b.querySelector('[data-task-run]');
   const progress = b.querySelector('.dv-phase-progress');
@@ -71,7 +72,7 @@ STAGE = """() => { const b = document.getElementById('taskStage'); if (!b) retur
     btn: run.textContent, disabled: run.disabled, primary: run.classList.contains('primary'), head: b.querySelector('summary').textContent }; }"""
 STAGE0 = STAGE.replace("'taskStage'", "'taskStageR'")  # 1단계 「문서 검토」 묶음(spec_작업 ② §21 — STAGE = 2단계 「구성 맞추기」: 전의 1단계 「프로젝트 구성」 묶음 #taskStage0 은 없다)
 STAGE2 = STAGE.replace("'taskStage'", "'taskStage2'")  # 3단계 「내용 넣기」 묶음
-STEP = "(k) => { const li = document.querySelector('#taskSteps li[data-step=' + k + ']'); return li && { state: li.dataset.state, status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, text: li.textContent, acts: [...li.querySelectorAll('button')].map((b) => b.textContent) }; }"  # 줄 하나(heads · reheads)
+STEP = "(k) => { const li = document.querySelector('#taskSteps li[data-step=' + k + ']'); return li && { state: li.dataset.state, status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, text: li.textContent, acts: [...li.querySelectorAll('.dv-flow-acts button')].map((b) => b.textContent) }; }"  # 줄 하나(heads · reheads)
 STAGE3 = STAGE.replace("'taskStage'", "'taskStage3'")  # 4단계 「문서 정리」 묶음
 CONFIG = "() => { const li = document.querySelector('#taskSteps li[data-step=config]'); return li && { state: li.dataset.state, status: li.dataset.status, badge: li.querySelector('.dv-flow-status').textContent, text: li.textContent }; }"
 # 이어서 한 번에(spec_작업 ② §14 — 2026-11-12 사용자 "1,2,3 단계도 한번에 … 1,2 만 할 수도 있고 3까지 할 수도 있고"): 줄 보임 · 상태 글 · 끝 묶음마다 단추(글·숨김·꺼짐·강조)
@@ -116,6 +117,19 @@ try:
         check("묶음 = 접힌 상자 · 「1단계 문서 검토」(0/2 — 헤딩·표 분석 · LLM 검증·보완) · 「2단계 구성 맞추기」(0/4 — 구성 확정 · 반영 · 다시 문서 검토 · 그 LLM)와 진행률 · 세부 목록은 안 보임", s0["open"] is False and "1단계" in s0["head"] and "문서 검토" in s0["head"] and s0["count"] == "0/2 완료"
               and s["open"] is False and "2단계" in s["head"] and "구성 맞추기" in s["head"] and s["count"] == "0/4 완료" and s["progress"] == [0, 4]
               and not page.evaluate(OLVIS, "taskStage") and not page.evaluate(OLVIS, "taskStageR") and page.locator("#taskStage0").count() == 0, (s0, s))
+        # 등록부의 복합 LLM 단계는 실행이 비활성인 동안에도 자판으로 편집기를 연다.
+        page.locator("#taskStageR > summary").click()
+        prompt = page.locator("#taskStageR button[data-llm-prompt=headsLlm]")
+        prompt.focus()
+        prompt.press("Enter")
+        choices = page.locator("#workflowPromptDlg select[aria-label='에이전트']")
+        choices.wait_for()
+        expect = next(s for t in requests.get(base + "/api/workflow", timeout=10).json()["tasks"] if t["job"] == "plan_to_report"
+                      for g in t["stages"] for s in g["steps"] if s["key"] == "headsLlm")["agents"]
+        check("작업 개요 LLM 아이콘에서 등록된 복합 검토의 프롬프트를 연다",
+              choices.locator("option").evaluate_all("xs => xs.map(o => o.value)") == [a["id"] for a in expect])
+        page.locator("#headsDlgClose").click()
+        page.locator("#taskStageR > summary").click()
         s2 = page.evaluate(STAGE2)
         map_note = page.get_attribute("#taskStage2 > summary .panel-help", "data-help")
         check("셋째 묶음 = 「3단계 내용 넣기」 · 0/3 완료 · 선행조건(앞 묶음 중 덜 끝난 첫 묶음)은 표시하고 상세 설명은 노트 · 단추 꺼짐", s2["open"] is False and "3단계" in s2["head"] and "내용 넣기" in s2["head"]
@@ -365,7 +379,7 @@ try:
         page.wait_for_function(f"() => {{ const s = ({STAGE2})(); return s && s.count === '3/3 완료' && ({STAGE})().count === '4/4 완료' && !taskFlow.linkBusy && !!taskFlow.links; }}", timeout=180000)
         st4 = {x["step"]: x for x in page.evaluate(STEPS)}
         check("다시 열면 — 2 · 3단계 모두 끝난 채(단추 꺼짐) · ③④ 는 「지난 반영이 끝나 있습니다」(본문 자리에 넣은 것이 없는 반영 — 「넣은 자리 0곳」 이라 적지 않는다) · 「넣기 계획 다시」",
-              page.evaluate(STAGE)["disabled"] and page.evaluate(STAGE2)["disabled"] and st4["plan"]["text"].startswith("③표 안 연결 · 넣기 계획완료지난 반영이 끝나 있습니다") and "지난 반영이 끝나 있습니다" in st4["apply"]["text"]
+              page.evaluate(STAGE)["disabled"] and page.evaluate(STAGE2)["disabled"] and st4["plan"]["description"].startswith("지난 반영이 끝나 있습니다") and "지난 반영이 끝나 있습니다" in st4["apply"]["text"]
               and "0곳" not in st4["plan"]["text"] + st4["apply"]["text"] and "넣기 계획 다시" in st4["plan"]["text"], [st4["plan"], st4["apply"]])
         n = len(dialogs)
         again = requests.post(f"{base}/api/works/{report}/flow/runs", json={"from": "map"}, timeout=120)

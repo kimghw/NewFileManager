@@ -3,9 +3,9 @@
 
 - 시작 화면(문서 없음): 상단 바의 에이전트 아이콘(#agentBtn — 워크플로우 다음 · 글 없이 아이콘만) → 에이전트 창(안내 글) 머리의 톱니 「에이전트 설정」(/agents · 새 탭) — 2026-11-18 사용자: 전의 상단 바 링크 #agentsLink 를 옮김.
   시작 화면은 agents.js 를 읽지 않는다.
-- 페이지 /agents: 상단 줄(제목 · 「에이전트 25개」 · 「LLM 꺼짐」 · 「워크플로우」) · 목차(전체 보기 · 실행 기록 · 묶음 일곱 · 에이전트 25) · 전체 보기 = 묶음 일곱 · 에이전트 25줄(작업 번호 01~25· 이름 · 쓰는 곳 · 역할 · 모델 — 넓은 폭에서 네 칸).
+- 페이지 /agents: 상단 줄(제목 · 등록된 에이전트 수 · 「LLM 꺼짐」 · 「워크플로우」) · 목차(전체 보기 · 실행 기록 · 묶음 일곱 · 에이전트) · 전체 보기 = 묶음 일곱 · 각 에이전트(작업 번호 01~25· 이름 · 쓰는 곳 · 역할 · 모델 — 넓은 폭에서 네 칸).
 - 한 에이전트(자리 연결 검토 — 주소 #merge_links · 두 단): ① 작업 번호 ② 역할 ③ 모델·생각 깊이 → 저장 안 한 값은 다른 화면에 갔다 와도 남음(목차 「저장 안 됨」) → 「저장」 → 전체 보기 줄에 「M-1」·「Sonnet 5.5」(여기서 정함)·「고침」 ·
-  겹치는 작업 번호는 거절 · 「고친 것 버리기」 · 「모두 기본으로」(두 번). ④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료.
+  겹치는 작업 번호는 거절 · 「고친 것 버리기」 · 「모두 기본으로」(두 번). ④ 프롬프트의 차례 = 에이전트 계약 · 판단 지침 · 할 일 프롬프트(수정 가능) → 양식 정보 → 자료.
 - 고칠 수 있는 프롬프트: 헤딩 지침(레터 규칙식 제안)과 템플릿 정리 스킬을 그 자리에서 고쳐 저장 → 「고침 · 내 사본 판 1」 → 「기본으로 되돌리기」(두 번).
 - 주소: /agents#tpl_agent 로 바로 그 에이전트 · 모르는 id 는 전체 보기.
 - 실행 기록: 문서를 올려 2단계까지 돌린 뒤 템플릿 서식 정리 계획을 부르면(LLM 끔 → 503) 실행 #1 이 「LLM 꺼짐」 으로 남고, 그 에이전트의 ⑤ 최근 실행과 전체 보기 줄에도 보인다.
@@ -132,12 +132,17 @@ def main():
             cols: Math.abs(box(row.querySelector('.ags-where')).top - box(row.querySelector('.ags-rmain')).top) < 6 && box(row.querySelector('.ags-role')).left > box(row.querySelector('.ags-where')).right - 1,
             nav: [...document.querySelectorAll('#agNav a')].map((a) => a.getAttribute('href')), navH: [...document.querySelectorAll('#agNav h2')].map((h) => h.textContent),
             cur: (document.querySelector('#agNav a[aria-current=true]') || {}).textContent, navW: Math.round(box(document.getElementById('agNav')).width), over: document.documentElement.scrollWidth > innerWidth }; }""")
-        check("새 탭 /agents — 상단 줄(제목 · 「에이전트 25개」 · 「LLM 꺼짐」 · 「워크플로우」 → /workflow) · 가로 넘침 없음",
-              st["path"] == "/agents" and st["title"].startswith("에이전트 설정") and st["h1"] == "에이전트 설정" and st["note"] == "에이전트 25개" and st["llm"] == "LLM 꺼짐" and st["wf"] == "/workflow" and not st["over"], st)
-        check("전체 보기 — 묶음 일곱 · 에이전트 25줄(작업 번호 01~25 — 묶음 차례라 「프로젝트 구성」 의 21(편집 구역 검토 — 2026-11-17)이 08 뒤, 「이관 · 취합」 의 22(지침 보정 — 2026-11-22)가 12 뒤, 「문서 편집」 의 19 · 23 · 24 · 25(그림 → 표 · 그림 캡션 — 2026-11-23 · 양식 검토 — 2026-11-24)가 「서식」 의 17·18 앞, 「검증」 의 20 이 끝 · 쓰는 곳 · 역할 · 모델) · 넓은 폭에서 네 칸(번호 | 이름 | 쓰는 곳 | 역할)",
-              len(st["groups"]) == 7 and st["groups"][0] == "헤딩 추출 6" and st["nos"] == [f"{i:02d}" for i in range(1, 9)] + ["21"] + [f"{i:02d}" for i in range(9, 13)] + ["22"] + [f"{i:02d}" for i in range(13, 17)] + ["19", "23", "24", "25", "17", "18", "20"] and st["full"] and "레터 규칙식 제안" in st["first"] and "pin" in st["pin"] and st["cols"], st)
-        check("목차 — 전체 보기(지금) · 실행 기록 · 묶음 일곱 · 에이전트 25(주소 #id)",
-              st["nav"][:2] == ["#overview", "#runs"] and len(st["nav"]) == 27 and st["nav"][2] == "#heading_rules" and len(st["navH"]) == 7 and st["cur"] == "전체 보기" and st["navW"] == 248, st)
+        agents = requests.get(base + "/api/agents", timeout=10).json()
+        ordered = [a for name in agents["groups"] for a in agents["agents"] if a["group"] == name]
+        check("새 탭 /agents — 등록된 에이전트 수 · LLM 상태 · 워크플로우 링크 · 가로 넘침 없음",
+              st["path"] == "/agents" and st["title"].startswith("에이전트 설정") and st["h1"] == "에이전트 설정"
+              and st["note"] == f"에이전트 {len(ordered)}개" and st["llm"] == "LLM 꺼짐" and st["wf"] == "/workflow" and not st["over"], st)
+        check("전체 보기 — 등록부의 묶음과 작업 번호 차례 · 쓰는 곳 · 역할 · 모델 · 네 칸 배치",
+              len(st["groups"]) == len(agents["groups"]) and st["groups"][0] == "헤딩 추출 6"
+              and st["nos"] == [a["no"] for a in ordered] and st["full"] and "레터 규칙식 제안" in st["first"] and "pin" in st["pin"] and st["cols"], st)
+        check("목차 — 전체 보기 · 실행 기록 · 등록된 에이전트의 주소",
+              st["nav"] == ["#overview", "#runs"] + ["#" + a["id"] for a in ordered]
+              and len(st["navH"]) == len(agents["groups"]) and st["cur"] == "전체 보기" and st["navW"] == 248, st)
         ag.screenshot(path=str(OUT / "01_overview.png"))
 
         # ---- 한 에이전트 — 설정 저장
@@ -154,12 +159,15 @@ def main():
               d["hash"] == "#merge_links" and head == ["09", "자리 연결 검토"] and d["title"].startswith("작업 09 · 자리 연결 검토") and d["cur"] == "merge_links" and d["two"] and d["no"] == "09" and d["role"].startswith("사업계획서")
               and d["model"][0] == "따로 정하지 않음 — 지금 Opus 5.5(코드가 정함)" and d["model"][1:] == ["Fable 5.2", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"] and d["effort"] == "따로 정하지 않음 — 지금 medium"
               and d["saved"] == "기본값 그대로" and d["save"] and [s[0] for s in d["secs"]] == ["①", "②", "③", "④", "⑤"] and d["helps"] == 5, [head, d])
-        check("④ 프롬프트의 차례 = 계약(읽기만) → 판단 지침(저장소 파일) → 할 일 프롬프트 → 양식 정보 → 자료 → 덧붙이는 글(범용 — 고칠 수 있음: spec_에이전트 ② §6)",
-              [x[0] for x in d["parts"]] == ["k-contract", "k-merge", "k-job", "k-form", "k-data", "k-note"] and d["parts"][0][3] == "읽기만" and d["parts"][1][2] == "app/merge_guides_default/links.md"
+        check("④ 프롬프트의 차례 = 에이전트 계약 · 판단 지침 · 할 일 프롬프트(수정 가능) → 양식 정보 → 자료 → 덧붙이는 글(범용 — 고칠 수 있음: spec_에이전트 ② §6)",
+              [x[0] for x in d["parts"]] == ["k-contract", "k-merge", "k-job", "k-form", "k-data", "k-note"] and all(x[3] == "고칠 수 있음" for x in d["parts"][:3]) and d["parts"][1][2] == "app/merge_guides_default/links.md"
               and d["parts"][5][1] == "덧붙이는 글 — 범용(모든 워크플로우)" and d["parts"][5][3] == "고칠 수 있음"
               and d["parts"][2][2] == "jobs/plan_to_report.md" and "자리 연결" in d["parts"][1][1], d["parts"])
         ag.locator("#agMain .agp.k-contract summary").click()
-        check("계약 글은 읽기 전용으로 펼쳐 본다", ag.evaluate("() => { const t = document.querySelector('.agp.k-contract .agp-text'); return t.readOnly && t.value.length > 500 && !document.querySelector('.agp.k-contract .agp-acts'); }"))
+        contract = ag.locator("#agMain .agp.k-contract")
+        contract.get_by_role("button", name="고치기").click()
+        check("계약 글을 직접 수정하고 취소할 수 있다", contract.locator("textarea").is_editable() and len(contract.locator("textarea").input_value()) > 500)
+        contract.get_by_role("button", name="취소").click()
         ag.fill("#agMain .ags-noin", "M-1")
         ag.fill("#agMain .ags-role-in", "이관에서 자리를 잇는 검토자")
         ag.select_option("#agMain .ags-model-in", "claude-sonnet-5-5")

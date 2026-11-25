@@ -66,6 +66,19 @@ def doc_form(doc_id: str):
     return doc_view(_sess(doc_id))
 
 
+@router.get("/api/docs/{doc_id}/headings/form/prompt")
+def doc_form_prompt(doc_id: str, agent: str):
+    from app import agents
+    spec = agents.BY_ID.get(agent)
+    if not spec or ("form",) not in spec["parts"]:
+        raise HTTPException(404, "이 에이전트는 문서별 양식 지침을 사용하지 않습니다")
+    form = F.for_session(_sess(doc_id))
+    if not form:
+        return {"form": None}
+    return {"form": {"key": form["key"], "name": form["name"], "sha1": form["sha1"], "text": form["text"],
+                     "applied": F.prompt_body(form, headings=agent.startswith("heading_"))}}
+
+
 @router.put("/api/docs/{doc_id}/headings/form")
 def doc_form_put(doc_id: str, body: dict = Body(...)):
     """{form: 양식 키 | ""(양식 없음으로 고정) | null(자동)} — 이 문서의 양식을 고른다."""

@@ -16,7 +16,7 @@ app/agent_notes.py · agent_notes_api.py) 화면 확인 — 임시 서버(임시
 - ⑥ 범용 글(헤딩 지침)을 그 자리에서 고쳐 저장 → 헤딩 지침 저장소의 내 사본 · 「기본으로」 두 번 → 기본 글 · 에이전트에만 덧붙이는 글(접어 둔 칸)도 저장된다.
 - ⑦ 폼의 「저장」 → 워크플로우를 만든 뒤 전용 내용(도구 둘)이 그 키로 저장된다(조립 검사 · 저장 몸에는 그 글이 없다).
 - ⑧ 「고치기」 로 다시 열면 전용 내용이 저장된 것으로 보이고 그 칸의 「저장」 으로 바로 고친다 · 에이전트 설정의 보내는 글(GET /api/agents/{id})에 도구 공통 · 전용 조각.
-- ⑨ 「자리 연결 LLM 검토」 = 판단 지침(범용 · 파일 — 고치기 없음) + 전제(이 워크플로우) + 도구의 글이 붙는 자리 · 카드의 LLM 꼬리표를 누르면 열이 펴진다.
+- ⑨ 「자리 연결 LLM 검토」의 공통 판단 지침을 수정할 수 있고 워크플로우의 전제와 도구의 글도 볼 수 있다.
 - ⑩ 1920px = 세 칸(폼 | 도구 설명 320 | 에이전트 380 — 띠 · 접는 단추 없음) · 1200px = 한 칸(가로 띠) · 어느 폭에서도 가로 넘침 없음.
 - ⑪ 잠긴 폼에서도 고친다 · 「복제」 = 전용 내용이 새 폼에 적혀 있다(저장 전) · 「단계 만들기」 폼 = 전용 칸은 안내 글 · 워크플로우를 지우면 그 전용 내용도 지워진다.
 - 콘솔 오류 없음."""
@@ -163,8 +163,8 @@ def main():
         card(page, "headsLlm").click()
         a1 = ag(page)
         want = reg["headsLlm"]["agents"]
-        check("② 「LLM 검증·보완」 카드를 누름 → 「도구 설명」 이 그 도구(같은 고름) · 띠에 그 줄이 쓰는 에이전트 수(등록부 = 6)",
-              a1["helpUnit"] == "headsLlm" and a1["side"] == "help" and a1["railN"] == str(len(want)) == "6", [a1["helpUnit"], a1["railN"], want])
+        check("② 「LLM 검증·보완」 카드를 누름 → 「도구 설명」 이 그 도구(같은 고름) · 띠에 그 줄이 쓰는 에이전트 수(등록부 기준)",
+              a1["helpUnit"] == "headsLlm" and a1["side"] == "help" and a1["railN"] == str(len(want)), [a1["helpUnit"], a1["railN"], want])
         page.click("#wfCompose .wf-ag-rail")
         a2 = ag(page)
         page.screenshot(path=str(OUT / "02_open_1500.png"))
@@ -175,20 +175,20 @@ def main():
         check("② 맨 위 = 이 도구에 적어 두는 내용 두 칸(「도구 공통」 · 「이 워크플로우 전용」) + 누가 읽는지 한 줄 · 그 아래 그 줄이 쓰는 에이전트 = 등록부의 차례(번호 · 이름 · 모델) · 쓰는 도구 「헤딩 추출」 · 「템플릿 관계 · 서식 정리」(새 탭 — 받은 서식 정리 계획을 그 문서에 반영: 2026-11-22)",
               a2["unit"] == "headsLlm" and a2["name"] == "LLM 검증·보완" and [x["id"] for x in a2["agents"]] == want and [x["name"] for x in a2["agents"]] == [names[k] for k in want]
               and [x["no"] for x in a2["agents"]] == [lines["agents"][k]["no"] for k in want] and all(x["model"] and not x["open"] and x["marks"] == [] for x in a2["agents"])
-              and "Opus 5.5" in a2["agents"][-1]["model"] and a2["tools"] == [["헤딩 추출", "/workflow#common-headings", "_blank"], ["템플릿 관계 · 서식 정리", "/workflow#common-outline", "_blank"]] and "에이전트 6개" in a2["sub"]
+              and "Opus 5.5" in a2["agents"][-1]["model"] and a2["tools"] == [["헤딩 추출", "/workflow#common-headings", "_blank"], ["템플릿 관계 · 서식 정리", "/workflow#common-outline", "_blank"]] and f"에이전트 {len(want)}개" in a2["sub"]
               and [(n["scope"], n["tag"], n["title"]) for n in a2["toolNotes"]] == [("tool", "도구 공통", "이 도구에서 공통으로 쓰는 내용"), ("jobtool", "이 워크플로우 전용", "이 워크플로우에서만 쓰는 내용")]
               and a2["toolNotes"][0]["save"] == [True, True] and a2["toolNotes"][0]["state"] == "아직 없음" and "모든 워크플로우에서 씁니다" in a2["toolNotes"][0]["hint"]
-              and a2["toolNotes"][1]["save"][0] is False and "할 때만 씁니다" in a2["toolNotes"][1]["hint"] and "에이전트 6개의 프롬프트 끝에" in a2["reader"], a2)
+              and a2["toolNotes"][1]["save"][0] is False and "할 때만 씁니다" in a2["toolNotes"][1]["hint"] and f"에이전트 {len(want)}개의 프롬프트 끝에" in a2["reader"], a2)
 
         # ---- ③ 에이전트를 펴면 보내는 글의 차례 + 접어 둔 「이 에이전트에만 덧붙이는 글」
         open_agent(page, "heading_types")
         a3 = ag(page)
         ht = next(x for x in a3["agents"] if x["id"] == "heading_types")
         page.screenshot(path=str(OUT / "03_agent_open.png"))
-        check("③ 「헤딩 유형 판정 (A)」 를 펴면 역할 · 에이전트 설정 링크 · 보내는 글의 차례 = 계약(코드) → 지침 셋(범용 · 고칠 수 있음) → 양식 정보(문서마다) → 자료(스크립트) → 도구에 적어 둔 내용(도구 — 위의 두 칸)",
+        check("③ 헤딩 유형 판정의 공통 계약과 지침 셋을 수정할 수 있고 문서별 양식 정보와 입력 자료 구성을 볼 수 있다",
               ht["open"] and ht["role"].startswith("스크립트가 헤딩 후보") and ht["link"] == "/agents#heading_types"
               and [p["kind"] for p in ht["parts"]] == ["contract", "heading", "heading", "heading", "form", "data", "toolnote"]
-              and [p["tags"] for p in ht["parts"]] == [["코드"], ["범용", "고칠 수 있음"], ["범용", "고칠 수 있음"], ["범용", "고칠 수 있음"], ["문서마다"], ["스크립트"], ["도구"]]
+              and [p["tags"] for p in ht["parts"]] == [["에이전트 공통", "고칠 수 있음"], ["범용", "고칠 수 있음"], ["범용", "고칠 수 있음"], ["범용", "고칠 수 있음"], ["문서마다"], ["스크립트"], ["도구"]]
               and ht["parts"][1]["title"] == "지침 — 헤딩 그래프·개요레벨 지침", ht)
         check("③ 에이전트 하나에만 덧붙이는 글은 접어 둔 칸(「이 에이전트에만 덧붙이는 글(선택)」 — 처음엔 접힘 · 안에 두 칸: 모든 워크플로우 · 이 워크플로우 전용)",
               ht["own"] is False and [(n["scope"], n["tag"], n["title"]) for n in ht["notes"]] == [("all", "모든 워크플로우", "이 에이전트에만 — 모든 워크플로우"), ("job", "이 워크플로우 전용", "이 에이전트에만 — 이 워크플로우에서만")], ht["notes"])
@@ -218,7 +218,7 @@ def main():
         check("⑤ 에이전트가 없는 도구(프로젝트 구성 반영)에도 두 칸 — 읽는 곳 = 작업 진행 에이전트(스크립트의 동작은 그대로) · 쓰는 도구 · 아래에 에이전트를 쓰는 도구 목록",
               a5b["unit"] == "division" and a5b["agents"] == [] and "쓰지 않습니다" in a5b["sub"] and a5b["tools"][0][0] == "프로젝트 구성(구분 기준)"
               and [n["scope"] for n in a5b["toolNotes"]] == ["tool", "jobtool"] and a5b["toolNotes"][0]["text"] == "" and "작업 진행 에이전트가 이 단계를 안내" in a5b["reader"] and "스크립트의 동작은 바뀌지 않습니다" in a5b["reader"]
-              and [u[0] for u in a5b["users"]] == [k for k in ("headsLlm", "reheadsLlm", "llm", "gaps", "tableMap", "guideFix") if reg[k]["agents"]] and a5b["users"][0][2] == "에이전트 6", a5b)
+              and [u[0] for u in a5b["users"]] == [k for k in ("headsLlm", "reheadsLlm", "llm", "gaps", "tableMap", "guideFix") if reg[k]["agents"]] and a5b["users"][0][2] == f"에이전트 {len(want)}", a5b)
         FIT = "사업계획서는 단계 · 차년도 · 기관을 준다."
         tnote(page, "jobtool").locator("textarea").fill(FIT)
         page.locator('#wfCompose .wf-ag-user[data-ag-go="headsLlm"]').click()   # 목록에서 그 도구로
@@ -228,7 +228,7 @@ def main():
         page.locator("#wfCompose .wf-ag-fold").click()
         a5d = ag(page)
         check("⑤ 접는 단추 » → 「에이전트」 가 띠로 · 「도구 설명」 이 다시 펴짐(그 도구의 설명 그대로) · 띠에 수와 「저장 안 됨」",
-              a5d["side"] == "help" and a5d["rail"] and a5d["helpShown"] and a5d["helpUnit"] == "headsLlm" and a5d["railN"] == "6" and "저장 안 됨" in a5d["railText"] and a5d["help"]["w"] == 320, a5d)
+              a5d["side"] == "help" and a5d["rail"] and a5d["helpShown"] and a5d["helpUnit"] == "headsLlm" and a5d["railN"] == str(len(want)) and "저장 안 됨" in a5d["railText"] and a5d["help"]["w"] == 320, a5d)
         check("⑤ 여기까지 조립 검사 · 워크플로우 저장을 부르지 않았다(열을 여닫고 글을 적는 것은 조립을 바꾸지 않는다)", len(checks) == n_checks and not [b for b in bodies[n_bodies:] if "/api/tasks" in b[1]], [checks[n_checks:], bodies[n_bodies:]])
 
         # ---- ⑤-2 전용 표시(② §18-17 — 사용자 「도구에 *** 전용 이라고 명시를 해야 한다고봄」): 카드의 「전용」 꼬리표 · 「도구 설명」 · 「에이전트」 열의 「○○ 전용」 + 까닭
@@ -327,9 +327,9 @@ def main():
         a9 = ag(page)
         ml = a9["agents"][0]
         page.screenshot(path=str(OUT / "09_merge_links.png"))
-        check("⑨ 「자리 연결 LLM 검토」 = 에이전트 「자리 연결 검토」 하나 — 판단 지침은 「범용 · 파일」(읽기만 — 고치기 없음) · 전제는 「이 워크플로우」(폼의 「전제」 칸) · 자료 뒤에 「도구에 적어 둔 내용」",
+        check("⑨ 자리 연결 검토의 판단 지침을 수정할 수 있고 전제와 도구의 글이 프롬프트에 표시된다",
               a9["unit"] == "llm" and [x["id"] for x in a9["agents"]] == ["merge_links"] and [p["kind"] for p in ml["parts"]] == ["contract", "merge", "form", "job", "data", "toolnote"]
-              and ml["parts"][1]["tags"] == ["범용 · 파일"] and ml["parts"][1]["btns"] == [] and ml["parts"][3]["tags"] == ["이 워크플로우"] and ml["parts"][3]["title"] == "전제 — 이 워크플로우의 할 일 프롬프트"
+              and ml["parts"][1]["tags"] == ["범용", "고칠 수 있음"] and "고치기" in ml["parts"][1]["btns"] and ml["parts"][3]["tags"] == ["이 워크플로우"] and ml["parts"][3]["title"] == "전제 — 이 워크플로우의 할 일 프롬프트"
               and [n["scope"] for n in a9["toolNotes"]] == ["tool", "jobtool"] and a9["toolNotes"][1]["save"] == [True, True] and "에이전트 1개의 프롬프트 끝에" in a9["reader"], [ml, a9["toolNotes"]])
 
         # ---- ⑩ 폭 — 1920px 세 칸 · 1200px 한 칸

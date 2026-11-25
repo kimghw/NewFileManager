@@ -47,6 +47,8 @@ function agwRunning() { // → {kind, label, note, t0(Date.now 기준 ms — 0 =
   const S = typeof STYLE !== "undefined" && STYLE.save && STYLE.save.auto ? STYLE.save : null; // 서식 복사(2열 「서식 복사」 의 「한 번에 진행」 — 문서는 안 바뀐다)
   if (S) return { kind: "style", label: "서식 복사 — 한 번에 진행", note: S.llm ? "② LLM 검토" : S.busy ? `③ 저장 ${S.busy.i + 1}/${S.busy.n}` : "④ PDF 검증을 기다리는 중", t0: Date.now() - (performance.now() - S.auto.t0),
     stopping: !!S.auto.stop, stop: () => { S.auto.stop = true; if (typeof styleSaveDraw === "function") styleSaveDraw(); } };
+  const W = typeof fwAutoRunning === "function" ? fwAutoRunning() : null; // 양식 작성의 묶음 「한 번에 진행」 · 「전체 실행」(form_write.js fwAutoRun) — 그 안에서 도는 LLM 검증·보완보다 먼저
+  if (W) return { kind: "formWrite", ...W };
   const F = typeof headsAllRunning === "function" ? headsAllRunning() : null; // 헤딩 추출 「전체 실행」(heads_run_all.js — 남은 LLM 단계 → 조정까지: spec_헤딩_추출 ② §7 「전체 실행」) — 그 안에서 도는 LLM 검증·보완보다 먼저
   if (F) return { kind: "headsAll", ...F };
   const P = typeof headsPickRunning === "function" ? headsPickRunning() : null; // 헤딩 추출 「단계별 실행」 — 고른 단계를 차례로(heads_run_pick.js: spec_헤딩_추출 ② §7 「실행 메뉴는 머리에」) — 그 안에서 도는 헤딩 판정 → 서식 계획보다 먼저

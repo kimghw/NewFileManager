@@ -687,6 +687,9 @@ const WORK_TASK = {
 };
 const taskRnd = () => !state.task || state.task.kind === "rnd"; // task 가 없으면(시험용 화면 등) 전처럼 연구개발과제로 본다
 const taskGeneral = () => !!state.task && state.task.kind === "general"; // 「일반 문서」 — 처음 여는 보기가 「에이전트」 · 「작업 개요」(Div) 탭은 없다(spec_일반편집 ② §12)
+// 「작업 개요」(Div) 탭이 서는 작업 — 연구개발과제 + 일반 문서 가운데 제 작업 개요가 있는 워크플로우(양식 작성 — form_write.js fwOverviewDraw: 2026-11-25 사용자 「작업개요가 없는데 연차보고서 이관에 보면 작업 개요 있을텐데 참조해줘」 · spec_양식작성 ② §6-3)
+const taskOwnOverview = () => !!state.task && state.task.job === "form_write" && typeof fwOverviewDraw === "function";
+const taskDivOn = () => taskRnd() || taskOwnOverview();
 const taskName = (key, v) => (v && (WORK_TASK[key].find((o) => o[0] === v) || [])[1]) || "";
 
 function taskSelect(sel, key) { // select 하나를 선택지로 채우고 지금 값으로 — 바꾸면 저장
@@ -759,7 +762,7 @@ function toolTabsDraw() {
   a.hidden = !toolShown("Agent") || agentFloatOn(); // hwpx 만(docx 는 에이전트 보기가 없다) · 에이전트가 떠 있는 창 자리면 탭이 없다(상단 바 아이콘으로 엶 — 2026-11-18 사용자: agent_float.js)
   const d = $("tabDash"); // 대시보드(dashboard.js — spec_작업에이전트 ② §9): 문서가 열려 있으면 늘(TASK 가 없으면 TASK 고르기) · 첫 탭(2026-11-18 사용자 「에이전트 보다 대시보드를 앞부분에 놔줘」)
   d.hidden = !toolShown("Dash");
-  t.hidden = !taskRnd(); // 연구개발 TASK 의 내용(Div) — 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
+  t.hidden = !taskDivOn(); // 연구개발 TASK 의 내용(Div) · 양식 작성의 작업 개요 — 그 밖의 「일반 문서」 는 에이전트 보기가 그 TASK 의 일이라 이 탭이 없다
   u.hidden = !toolLast || !toolShown(toolLast);
   if (toolLast) { u.textContent = TOOL_INFO[toolLast][0]; u.setAttribute("aria-controls", `pane${toolLast}`); }
   const rows = [[d, cur === "Dash"], [a, cur === "Agent"], [t, cur === "Div"], ...PANEL_MAIN.map((n) => [$(`tab${n}`), cur === n]), [u, !u.hidden && cur === toolLast], ...PANEL_TOOLS.map((n) => [$(`tab${n}`), cur === n])]; // 작업 리스트(Tasks)는 이 줄에 없다 — 상단 바 아이콘(taskListBtnDraw)
@@ -827,7 +830,8 @@ function taskRow() { // 「연구개발과제」 패널 첫 카드 — 할 일 �
   if (lost) { const p = el("p", "dv-caption dv-task-lost"); p.setAttribute("role", "status"); p.append(el("span", "dv-tag is-warning", "확인 필요"), " ", lost); row.append(p); }
   if (typeof projectRoundRow === "function") row.append(projectRoundRow());
   const slots = taskSlots(), gather = gatherOn(), inSlot = new Set(gather ? gatherDocIds() : (slots || []).map((k) => (taskSlotDoc(k) || {}).id)); // 이관이면 첨부 파일 칸 둘 + 단계(② §11) — 그 밖에는 이 문서의 종류 하나
-  if (!gather && !slots) field("첨부 파일", "이 문서가 어떤 첨부 파일인지 — 처음에는 양식 판정으로 채웁니다 · 작업에 저장", taskSelect(el("select"), "file"));
+  if (!gather && !slots && !taskGeneral()) field("첨부 파일", // 일반 문서(양식 작성의 작업 개요)는 첨부 파일 종류(사업계획서 · 연차보고서 · 기관 문서)를 따로 정하지 않는다 — 문서 칸은 그 작업 개요가 그린다
+ "이 문서가 어떤 첨부 파일인지 — 처음에는 양식 판정으로 채웁니다 · 작업에 저장", taskSelect(el("select"), "file"));
   if (typeof projectConfigurationRow === "function" && taskProject() && !taskGeneral()) row.append(projectConfigurationRow());
   if (gather) row.append(gatherFlowEl()); // 취합(plan_merge) — 취합본 칸 + 기관 문서 줄 + 묶음 둘은 gather.js 가 그린다(spec_취합 ② §5)
   else if (slots) row.append(taskFlowEl());
@@ -865,7 +869,7 @@ async function taskSetNow(key, value) {
   const jobKind = state.task.job ? taskKindOf(state.task.job) : "";
   if (state.task.job && (jobKind !== "rnd" ? state.task.kind !== jobKind : state.task.kind && state.task.kind !== "rnd")) state.task = key === "kind" ? { ...state.task, job: "" } : { ...state.task, kind: jobKind };
   taskDraw();
-  if (!taskRnd() && $("panel").dataset.tool === "Div") showTab(taskGeneral() && toolShown("Agent") ? "Agent" : "Verify");
+  if (!taskDivOn() && $("panel").dataset.tool === "Div") showTab(taskGeneral() && toolShown("Agent") ? "Agent" : "Verify");
   divMarksDraw(); // 연구개발과제가 아니면 문서의 구분 기준 표시도 걷는다
   if (!state.stored) return true; // 작업 저장이 꺼져 있으면 이 화면에서만
   try {
@@ -1498,6 +1502,18 @@ function llmGuideBtn(step, docId, q = "") { // 「지침」 — 보통 단추(�
   b.dataset.llmGuide = step;
   return b;
 }
+function llmGuidePart(p) {
+  const d = el("details", "lg-part"), s = el("summary");
+  d.dataset.part = p.key || "";
+  d.open = LLM_GUIDE_OPEN.has(p.key);
+  const source = p.source || "코드에 든 글";
+  s.append(el("strong", null, p.title || p.key || ""), el("span", "lg-src", p.custom ? `사용자 사본 · 기본 ${source}` : source));
+  d.append(s);
+  const note = [p.note, p.source && !p.custom && LLM_GUIDE_OPEN.has(p.key) ? "이 파일을 고치면 다음 실행부터 적용됩니다" : ""].filter(Boolean).join(" · ");
+  if (note) d.append(el("p", "lg-note", note));
+  d.append(el("pre", "lg-text", p.text || "(빈 글)"));
+  return d;
+}
 async function llmGuideOpen(step, docId, q = "") {
   if (!docId) return;
   const { tools, body } = headsDlg("llmGuide", "LLM 지침 — " + (LLM_GUIDE_STEPS[step] || step), "이 LLM 검토에 함께 보내는 글과 마지막으로 보낸 프롬프트 · 보기만(문서는 안 바뀜)");
@@ -1522,17 +1538,7 @@ async function llmGuideOpen(step, docId, q = "") {
   const parts = g.parts || [];
   body.append(el("div", "lk-cap", `함께 보내는 글 ${parts.length}개 — 이 차례로 프롬프트에 들어갑니다(뒤에 그 실행의 자료가 붙음)`));
   if (!parts.length) body.append(el("p", "hnote lg-msg", "함께 보내는 글이 없습니다"));
-  for (const p of parts) {
-    const d = el("details", "lg-part"), s = el("summary");
-    d.dataset.part = p.key || "";
-    d.open = LLM_GUIDE_OPEN.has(p.key);
-    s.append(el("strong", null, p.title || p.key || ""), el("span", "lg-src", p.source || "코드에 든 글"));
-    d.append(s);
-    const note = [p.note, p.source && LLM_GUIDE_OPEN.has(p.key) ? "이 파일을 고치면 다음 실행부터 적용됩니다" : ""].filter(Boolean).join(" · ");
-    if (note) d.append(el("p", "lg-note", note));
-    d.append(el("pre", "lg-text", p.text || "(빈 글)"));
-    body.append(d);
-  }
+  for (const p of parts) body.append(llmGuidePart(p));
   const last = g.last, units = (last && last.units) || [];
   body.append(el("div", "lk-cap", "마지막으로 보낸 프롬프트" + (last && last.at ? ` — ${fmtWhen(Date.parse(last.at) / 1000)}` : "")));
   if (!last) { body.append(el("p", "hnote lg-msg", "아직 실행한 적 없음")); return; }
@@ -1736,6 +1742,8 @@ function taskStepsEl(stage) { // 묶음 하나의 세부 목록. 순서 번호�
     li.dataset.state = st;
     const body = el("div", "dv-flow-body"), title = el("div", "dv-flow-title");
     title.append(el("strong", null, s.name), el("span", "dv-flow-status"));
+    // 자리 연결과 넣기 계획은 작업 개요에서 연관된 LLM 검토 단추도 함께 제공한다.
+    dashOverviewPrompts(title, s.key === "link" ? [s.key, "llm"] : s.key === "plan" ? [s.key, "tableMap", "gaps"] : [s.key]);
     body.append(title);
     if (st !== "todo" && s.text) body.append(el("div", "dv-flow-text", s.text));
     li.append(el("span", "dv-flow-no", s.no || "·"), body);
@@ -6010,7 +6018,7 @@ async function panelTaskPick(v) {
 
 // 탭 띠에 단추가 없는 도구 = 「연구개발과제」(Div — 2026-11-12 탭을 없앰): 작업 종류가 연구개발과제일 때만 열린다(전의 탭 보임 조건 그대로)
 // 에이전트(Agent — spec_일반편집 ② §12)는 탭(패널 머리 탭 #tabAgent — 대시보드 다음)의 보임과 상관없이 hwpx 문서면 열린다 — 탭의 보임은 toolTabsDraw 가 이 값으로 정한다
-const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; if (n === "Dash") return typeof dashShown === "function" && dashShown(); const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskRnd()); };
+const toolShown = (n) => { if (n === "Agent") return !!state.id && state.format !== "docx" && typeof agentShow === "function"; if (n === "Dash") return typeof dashShown === "function" && dashShown(); const t = $(`tab${n}`); return t ? !t.hidden : !!state.id && (n === "Tasks" || n === "Div" && taskDivOn()); };
 // 에이전트 보기의 자리(2026-11-18 사용자 「대시보드 옆 에이전트는 워크플로우 아이콘 옆 에이전트아이콘으로 … 팝업으로 … 대시보드 옆으로 들어 갈 수 있도록」 — agent_float.js):
 // 떠 있는 창(기본)이면 showTab("Agent") 은 패널을 바꾸지 않고 그 창을 연다 — 부르는 쪽(대시보드 · 작업 진행 에이전트 · TASK 들어가기)은 그대로 「에이전트 보기를 연다」 로 쓴다
 function agentFloatOn() { return typeof agentFloating === "function" && agentFloating(); } // 함수 선언 — toolTabsDraw(위)가 이 줄보다 먼저 불려도 되게
@@ -9393,6 +9401,7 @@ function divValues() { // 서버에 보낼 값(빈 선택 항목은 뺀다)
 
 async function divShow() {
   if (!state.id) return;
+  if (!taskRnd()) { if (taskOwnOverview()) await fwOverviewDraw(); return; } // 일반 문서의 작업 개요(양식 작성 — 프로젝트 구성 · 구분 기준 칸 없이: form_write.js)
   const id = state.id, epoch = state.epoch, view = dv, seq = ++dv.seq;
   const inputKey = dv.values ? divCanon(divValues()) : null, savedKey = dv.savedKey;
   let r;

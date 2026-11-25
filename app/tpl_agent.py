@@ -19,6 +19,7 @@ import uuid
 from collections import Counter
 from pathlib import Path
 
+from app import prompt_texts
 from app import agent_settings
 from app import heading_rules as R
 from app import llm
@@ -459,7 +460,7 @@ CONTRACT = """당신은 한글(HWPX) 문서의 **개요 템플릿 서식을 정�
 
 def prompt(mat, sk, request=""):
     req = (request or "").strip()
-    return (CONTRACT + f"\n\n## 스킬 — {sk['name']} (사용자가 저장해 둔 정리 기준)\n{sk['text'].strip()}"
+    return (prompt_texts.contract(__name__) + f"\n\n## 스킬 — {sk['name']} (사용자가 저장해 둔 정리 기준)\n{sk['text'].strip()}"
             + (f"\n\n## 이번 요청 (스킬보다 먼저)\n{req}" if req else "")
             + "\n\n## 자료 (JSON)\n```json\n" + json.dumps({"material": prompt_material(mat)}, ensure_ascii=False, indent=1) + "\n```")
 
