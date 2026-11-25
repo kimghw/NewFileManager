@@ -14,6 +14,7 @@ def _no_hangul(tmp_path, monkeypatch):
     monkeypatch.setenv("NFM_JOBS", str(tmp_path / "jobs"))  # 할 일 프롬프트(spec_작업 ② §13)도 — 저장소 jobs/ 의 글은 그것을 보는 시험만 직접 읽는다
     monkeypatch.setenv("NFM_AGENTS", str(tmp_path / "agents.json"))  # 에이전트 설정(spec_에이전트 ② §2)도 시험마다 임시 파일 — 사용자가 정한 모델·생각 깊이가 시험의 LLM 호출에 섞이지 않게
     monkeypatch.setenv("NFM_AGENT_NOTES", str(tmp_path / "agent_notes.json"))  # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 시험마다 임시 파일 — 사용자가 적어 둔 글이 시험의 프롬프트에 붙지 않게
+    monkeypatch.setenv("NFM_STEP_TEXTS", str(tmp_path / "step_texts.json"))  # 사람이 고친 단계 설명(spec_워크플로우 ② §18-26)도 시험마다 임시 파일
     monkeypatch.setenv("NFM_TOOL_NAMES", str(tmp_path / "tool_names.json"))  # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 시험마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 시험에 섞이지 않게
     monkeypatch.setenv("NFM_REQS", str(tmp_path / "requirements.json"))  # 사용자 요구사항(spec_워크플로우 ② §18-20)도 시험마다 임시 파일 — 저장소의 reqs/requirements.json 을 시험이 고치지 않게
     monkeypatch.setenv("NFM_STYLES", str(tmp_path / "styles"))  # 서식 보관함(spec_일반편집 ② §2)도 시험마다 임시 폴더 — 사용자 보관함(%LOCALAPPDATA%)을 안 건드린다

@@ -52,6 +52,51 @@ function fwLibOpen(hash = "") { // 문서 라이브러리(따로 선 서버)를 
   if (!url) return toast("문서 라이브러리 서버의 주소를 모릅니다", true);
   window.open(url + (hash ? `/#${hash}` : "/"), "_blank", "noopener");
 }
+// 「문서 올리기 · 첫 분석」 줄의 올리기 둘(2026-11-24 사용자 「문서 올리기, 첫분석에서 일단 목적문서 올리기, 참조문서 올리기 기능이 있어야지」 — spec_양식작성 ② §6 「워크플로우 개요 · 문서 칸」).
+// 목적 문서 올리기 = 이 워크플로우의 양식을 다른 파일로 바꾼다 — 새 작업으로 올려 같은 묶음(프로젝트 · 워크플로우 · 라운드)에 넣고 그 문서를 연다 · 지금 문서는 묶음에서 나온다(작업 리스트에는 남음 — taskSlotSet 과 같은 규칙).
+// 참조 문서 올리기 = 문서 라이브러리 서버에 바로 올린다(POST /api/doclib/docs — 8114 가 건네 줌 · 새 탭 없이). 자료 추출은 2단계(그 서버의 화면)에서.
+function fwPick(accept, multiple, fn) { const inp = el("input"); inp.type = "file"; inp.accept = accept; inp.multiple = multiple; inp.onchange = () => inp.files.length && fn([...inp.files]); inp.click(); }
+async function fwTargetUpload(file) {
+  if (!/\.hwpx?$/i.test(file.name)) return toast("목적 문서(채울 양식)는 hwp · hwpx 만 올릴 수 있습니다", true);
+  if (!confirmDiscard()) return;
+  const old = { id: state.id, task: { ...(state.task || {}) } }, epoch = state.epoch;
+  if (!old.task.job) return toast("이 문서의 워크플로우가 정해지지 않았습니다 — 첫 화면에서 「양식 작성」 으로 시작하세요", true);
+  toast(/\.hwp$/i.test(file.name) ? `${file.name} — hwpx 로 바꿔 올리는 중…(한글이 변환)` : `${file.name} 올리는 중…`);
+  const fd = new FormData();
+  fd.append("file", file);
+  let d;
+  try {
+    d = await api("/api/docs?new=1", { method: "POST", body: fd });
+    await api(`/api/works/${d.docId}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...old.task }) }); // 같은 묶음(프로젝트 · 워크플로우 · 라운드 · 작업 종류)
+  } catch (e) { return toast(`목적 문서를 올리지 못했습니다: ${e.message}`, true); }
+  api(`/api/docs/${d.docId}/headings`, { method: "POST", headers: H_JSON, body: JSON.stringify({ first: true }) }).catch(() => {}); // 첫 분석(스크립트) — 다음 줄 「헤딩 · 표 분석 · 작성 지침」 이 그 결과를 본다
+  if (epoch !== state.epoch) return toast(`${file.name} — 올렸습니다(그 사이 다른 문서를 열어 화면은 그대로입니다)`);
+  try { await load(d.docId, { tab: "Dash" }); }
+  catch (e) { return toast(`${file.name} — 올렸지만 열지 못했습니다: ${e.message}`, true); }
+  try { await api(`/api/works/${old.id}/task`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ ...old.task, project: "" }) }); } // 옛 양식은 묶음에서 나온다(지우지 않음)
+  catch (e) { toast(`옛 목적 문서를 묶음에서 빼지 못했습니다: ${e.message}`, true); }
+  if (typeof loadWorks === "function") await loadWorks();
+  toast(`${file.name} — 목적 문서로 넣었습니다(헤딩 · 표 분석을 겁니다). 앞 문서는 작업 리스트에 남습니다`);
+}
+async function fwRefUpload(files) {
+  const ok = [], same = [], bad = [];
+  for (const f of files) {
+    if (!/\.(pdf|hwpx|hwp|docx)$/i.test(f.name)) { bad.push(`${f.name}(받지 않는 형식)`); continue; }
+    toast(`${f.name} — 문서 라이브러리에 올리는 중…`);
+    const fd = new FormData();
+    fd.append("file", f);
+    try { const r = await api("/api/doclib/docs", { method: "POST", body: fd }); (r.created ? ok : same).push(f.name); }
+    catch (e) {
+      if (e.status === 404 && e.message === "Not Found") { bad.push(`${f.name}(8114 서버가 옛 판입니다 — 서버를 다시 켠 뒤에 됩니다 · 그때까지는 「문서 라이브러리 열기」 로)`); break; } // 끝점이 없는 옛 서버
+      bad.push(`${f.name}(${e.message})`);
+    }
+  }
+  if (same.length && !ok.length && fwMark("keep") !== "done") await fwStepMark("keep", "done"); // 이미 라이브러리에 있던 문서 — 올린 때가 그 문서의 처음 때라 「이 문서의 몫」 으로 안 세어진다: 「있는 문서 쓰기」 와 같게 둔다
+  const say = [ok.length ? `참조 문서 ${ok.length}개를 올렸습니다` : "", same.length ? `이미 라이브러리에 있는 문서 ${same.length}개(그것을 씁니다)` : "", bad.length ? `못 올림: ${bad.join(" · ")}` : ""].filter(Boolean).join(" · ");
+  toast(`${say}${ok.length || same.length ? " — 자료 추출은 2단계 「자료 추출(MD)」 에서" : ""}`, !!bad.length);
+  await fwRead(true);
+  if (typeof dashDraw === "function") dashDraw(true);
+}
 const fwDoneExtracts = () => ((FW.lib && FW.lib.docs) || []).reduce((n, d) => n + d.extracts.length, 0);
 const FW_LIB_DOWN = "문서 라이브러리 서버가 꺼져 있습니다 — tools/start_doclib.ps1 로 띄웁니다(자료 추출 · 「자료 가져오기」 를 할 수 없습니다)";
 
@@ -86,15 +131,83 @@ function fwHeadsStep(A) { // 「헤딩 · 표 분석 · 작성 지침」 줄의 
   return { state: c ? "done" : "run", text: `헤딩 ✓ · 표 ✓ · ${tail}${c && !(c.items + c.marks) ? "(양식에 적힌 지침이 없습니다 — 「작성 지침 확인 · 적기」 에서 적습니다)" : ""}`,
     acts: [...guideBtn, ...(c ? [dashBtn("다시 모으기", () => fwGuidesKeep(true).then(() => typeof dashDraw === "function" && dashDraw(true)), { title: "지금 문서에서 작성 지침을 다시 모아 저장합니다(스크립트 · 문서는 안 바뀜) — 문서에서 지운 지침은 저장본에 남습니다", focus: "act:heads:keep" })] : []), ...headsBtn] };
 }
-function fwLlmStep(A) { // 「LLM 검증·보완」 줄(선택)
+// 선택 줄(03 「LLM 검증·보완」 · 04 「작성 지침 확인 · 적기」)도 차례에 선다 — 2026-11-24 사용자 「전체 초기화를 했는데 1,2 번은 끝났다고 했는데 3,4번이 지나가지 않았는데 왜 5로 오냐 순서가 안맞음」:
+// 전에는 선택 줄의 상태가 비어(「선택」) 「지금」 · 「다음: …」 이 05 로 건너뛰었다. 이제 앞 줄이 끝나면 선택 줄이 「지금」 이 되고, 하거나 「건너뛰기」 · 「확인함」 을 눌러야 지나간다
+// (표시 = 작업 폴더 — PUT …/form-write/step: 작업 내용 초기화 · 준비 초기화가 함께 비운다 · spec_양식작성 ② §6 「선택 줄도 차례에」).
+const fwMark = (key) => ((FW.gw && FW.gw.steps) || {})[key] || "";
+function fwStepMark(key, mark, say) { // 표시를 남기거나(skip · done) 지운다(null) → 다시 그림
+  if (!state.id) return;
+  const id = state.id;
+  return api(`/api/docs/${id}/form-write/step`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ key, mark }) })
+    .then((r) => { if (state.id === id && FW.gw) FW.gw.steps = r.steps || {}; if (say) toast(say); })
+    .catch((e) => toast(`표시를 남기지 못했습니다: ${e.message}`, true))
+    .finally(() => typeof dashDraw === "function" && dashDraw(true));
+}
+// 「워크플로우 개요」 · 「문서 올리기 · 첫 분석」 의 문서 칸(2026-11-24 사용자 "여기 문서는 목적문서랑, 참조문서 넣는 곳을 넣어줘야지.. 그리고 어떤 tak 인지도 워크플로우 개요 단계가 있어야지 하지 않냐?" — spec_양식작성 ② §6 「워크플로우 개요 · 문서 칸」)
+function fwOverviewStep() { // 보기만 하는 줄(상태 꼬리표 없음 · 「지금」 자리를 차지하지 않음) — 이 워크플로우가 받는 것 · 만드는 것 · 단계의 차례
+  const reg = typeof DASH === "object" && DASH.reg && (DASH.reg.tasks || []).find((t) => t.job === "form_write");
+  const name = (reg && reg.name) || (typeof TASK_CATALOG === "object" && TASK_CATALOG.form_write && TASK_CATALOG.form_write.name) || "양식 작성";
+  const order = Object.keys(FW_STAGE_RESET).map((st) => `${fwStageWord(st)} ${FW_STAGE_RESET[st].name}`).join(" → ");
+  return { state: "", text: "", lines: [
+    ["워크플로우", `${name} — 양식 문서를 참조 문서에서 뽑은 자료로 채웁니다`],
+    ["받는 것", "목적 문서(채울 양식 — 지금 문서) · 참조 문서(자료 문서 — 문서 라이브러리에 올려 내용을 뽑습니다)"],
+    ["만드는 것", "자료에 있는 내용으로 채운 양식 — 넣을 것은 초안(제안 카드)으로 보이고 「문서에 반영」 을 누른 것만 들어갑니다"],
+    ["차례", order]],
+    acts: [dashBtn("워크플로우 상세 보기", () => window.open(`/workflow#${encodeURIComponent("form_write")}`, "_blank", "noopener"), { title: "워크플로우 페이지에서 이 워크플로우의 단계 · 조건 보기(새 탭)", focus: "act:overview" })] };
+}
+function fwOpenStep(o) { // 문서 칸 둘 — 목적 문서(지금 문서) · 참조 문서(문서 라이브러리 — 올리기는 그 서버의 화면에서: 8114 는 읽기만)
+  const ref = !o.lib.alive ? "문서 라이브러리 서버가 꺼져 있습니다 — tools/start_doclib.ps1 로 띄웁니다"
+    : o.keepOk ? (o.newDocs ? `이 문서의 몫 ${o.newDocs}개(라이브러리 전체 ${o.docs}개)` : `라이브러리에 있는 문서를 씁니다(${o.docs}개)`)
+    : o.docs ? `라이브러리에 ${o.docs}개 — 이 문서의 몫은 아직 없습니다(「참조 문서 올리기…」 로 올리거나 2단계 「있는 문서 쓰기」)` : "아직 없습니다 — 「참조 문서 올리기…」 로 문서 라이브러리에 올립니다";
+  return { state: state.id ? "done" : "now", text: "", lines: [
+    ["목적 문서(채울 양식)", state.name || "—"],
+    ["참조 문서(자료 문서)", `${ref}${o.mats ? ` · 이 문서의 자료 ${o.mats}개` : ""}`]],
+    acts: [dashBtn("목적 문서 올리기…", () => fwPick(".hwp,.hwpx", false, (fs) => fwTargetUpload(fs[0])), { title: "채울 양식(hwp · hwpx)을 다른 파일로 바꿉니다 — 새 작업으로 올려 이 워크플로우에 넣고 그 문서를 엽니다(헤딩 · 표 분석을 바로 겁니다). 지금 문서는 묶음에서 나오고 작업 리스트에 남습니다", focus: "act:open:target" }),
+      dashBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx", true, fwRefUpload), { primary: !!o.lib.alive && !o.keepOk, disabled: !o.lib.alive, title: o.lib.alive ? "참조 문서(pdf · hwpx · hwp · docx — 여럿 가능)를 문서 라이브러리에 바로 올립니다(새 탭 없이) — 자료 추출은 2단계에서" : FW_LIB_DOWN, focus: "act:open:ref" }),
+      ...(o.lib.alive ? [dashBtn("문서 라이브러리 열기", () => fwLibOpen(), { title: "올린 참조 문서를 보거나 자료 추출을 하는 따로 선 서버 — 새 탭으로 엽니다", focus: "act:open:lib" })] : [])] };
+}
+function fwLibStep(key, o) { // 06 「자료 문서 올리기」(keep) · 07 「자료 추출(MD)」(extract) — 이 문서의 몫으로 센다(o.fresh = 기준 시각 뒤의 것 · o.all = 라이브러리 전체)
+  const isKeep = key === "keep", noun = isKeep ? "자료 문서" : "끝난 추출", mark = fwMark(key) === "done", ok = !!o.fresh || mark;
+  const use = isKeep ? "있는 문서 쓰기" : "있는 추출 쓰기";
+  const acts = [...o.libBtn(`act:${key}`)];
+  if (ok && mark && !o.fresh) acts.push(dashBtn("쓰기 취소", () => fwStepMark(key, null, `${isKeep ? "06" : "07"} 을 다시 할 일로 둡니다`), { title: "이 줄을 다시 할 일로 둡니다", focus: `act:${key}:undo` }));
+  if (!ok && o.all) acts.push(dashBtn(use, () => fwStepMark(key, "done", `라이브러리에 있는 ${noun}를 씁니다`), { title: `새로 ${isKeep ? "올리지" : "추출하지"} 않고 문서 라이브러리에 이미 있는 ${noun}를 이 문서에 씁니다 — 이 줄을 끝남으로 둡니다(「쓰기 취소」 로 되돌립니다)`, focus: `act:${key}:use` }));
+  if (o.going) return { state: "run", text: `추출 중 ${o.going}개${o.all ? ` · 끝난 추출 ${o.all}개` : ""}`, acts };
+  const down = !o.alive ? { word: "서버 꺼짐" } : {};
+  if (ok) return { state: "done", ...(mark && !o.fresh ? { word: "있는 것 씀" } : {}), text: o.fresh ? `이 문서의 몫 — ${noun} ${o.fresh}개${o.all > o.fresh ? ` (라이브러리 전체 ${o.all}개)` : ""}` : `라이브러리에 있는 ${noun}를 씁니다(${o.all}개)`, acts };
+  const text = !o.alive ? FW_LIB_DOWN : o.all ? `아직 안 했습니다 — 라이브러리에 ${noun} ${o.all}개가 있습니다. 새로 ${isKeep ? "올리거나" : "추출하거나"} 「${use}」` : isKeep ? "아직 자료 문서가 없습니다" : "아직 추출한 것이 없습니다";
+  const state = o.mats ? (o.alive ? "ready" : "hold") : isKeep || o.prev ? "now" : "todo";
+  return { state, ...(state === "hold" || state === "now" ? down : {}), text, acts };
+}
+function fwLlmStep(A) { // 「LLM 검증·보완」 줄(선택 — 하거나 「건너뛰기」 를 눌러야 지나간다)
   if (!A.view || !A.hwpx) return { state: "", text: "" };
   const v = A.view, chain = !!(v.job && v.job.chain && v.job.status === "running"), four = (v.items || []).filter((i) => ["heads", "templates", "formats", "tables"].includes(i.key) && i.llm);
-  const doneN = four.filter((i) => i.llm.state === "done").length, bad = four.some((i) => i.llm.state === "failed");
+  const doneN = four.filter((i) => i.llm.state === "done").length, bad = four.some((i) => i.llm.state === "failed"), skip = fwMark("headsLlm") === "skip", llmOn = !(FW.gw && FW.gw.enabled === false);
   if (chain) return { state: "run", text: "LLM 검증·보완 중(유료) — 진행은 문서 이름 줄의 진행표에 보입니다",
     acts: typeof dsLlmStop === "function" ? [dashBtn("멈춤", () => dsLlmStop(), { title: "지금 하는 일이 끝나면 멈춥니다", focus: "act:headsLlm:stop" })] : [] };
-  const text = !A.base ? "헤딩 · 표 분석이 끝나야 합니다" : !four.length ? "" : doneN === four.length ? "LLM 검증·보완을 거쳤습니다" : bad ? "LLM 판정이 실패한 항목이 있습니다 — 앞 결과는 그대로입니다" : doneN ? `LLM 칸 ${doneN}/${four.length} 끝남` : "LLM 검증·보완 안 함 — 스크립트 결과로도 초안 작성을 할 수 있습니다";
-  return { state: doneN === four.length && four.length ? "done" : "", text,
-    acts: typeof dsLlmRun === "function" ? [dashBtn("LLM 검증·보완", () => dsLlmRun().then(() => typeof dashDraw === "function" && dashDraw(true)), { disabled: !A.base || A.busy || A.llmBusy, title: "헤딩 · 템플릿 · 표를 LLM 이 검증 · 보완하고 서식 정리 계획을 받습니다(유료 · 몇 분 · 문서는 안 바뀜) — 판정할 때 그 자리의 작성 지침을 함께 읽습니다", focus: "act:headsLlm" })] : [] };
+  const all = !!four.length && doneN === four.length;
+  const run = typeof dsLlmRun === "function" ? [dashBtn("LLM 검증·보완", () => dsLlmRun().then(() => typeof dashDraw === "function" && dashDraw(true)), { primary: !all && !skip && A.base && llmOn, disabled: !A.base || A.busy || A.llmBusy || !llmOn, title: llmOn ? "헤딩 · 템플릿 · 표를 LLM 이 검증 · 보완하고 서식 정리 계획을 받습니다(유료 · 몇 분 · 문서는 안 바뀜) — 판정할 때 그 자리의 작성 지침을 함께 읽습니다" : "LLM 을 쓸 수 없습니다", focus: "act:headsLlm" })] : [];
+  if (all) return { state: "done", text: "LLM 검증·보완을 거쳤습니다", acts: run };
+  if (skip) return { state: "done", skipped: true, word: "건너뜀", text: "건너뜀 — 스크립트 분석 결과로 진행합니다(LLM 검증·보완은 지금이라도 할 수 있습니다)",
+    acts: [...run, dashBtn("건너뛰기 취소", () => fwStepMark("headsLlm", null, "LLM 검증·보완을 다시 할 일로 둡니다"), { title: "이 줄을 다시 할 일로 둡니다", focus: "act:headsLlm:unskip" })] };
+  if (!A.base) return { state: "todo", text: "헤딩 · 표 분석이 끝나야 합니다", acts: run };
+  if (!four.length || !llmOn) return { state: "done", skipped: true, word: "건너뜀", text: !llmOn ? "LLM 을 쓸 수 없어 건너뜁니다 — 스크립트 분석 결과로 진행합니다" : "LLM 검증·보완할 항목이 없습니다", acts: run };
+  const text = bad ? "LLM 판정이 실패한 항목이 있습니다 — 앞 결과는 그대로입니다. 다시 돌리거나 건너뜁니다" : doneN ? `LLM 칸 ${doneN}/${four.length} 끝남` : "선택 — 돌리거나(유료 · 몇 분) 「건너뛰기」 로 스크립트 분석 결과만으로 진행합니다";
+  return { state: "now", text, acts: [...run, dashBtn("건너뛰기", () => fwStepMark("headsLlm", "skip", "LLM 검증·보완을 건너뜁니다 — 스크립트 분석 결과로 진행합니다"), { title: "LLM 검증·보완 없이 다음 줄로 넘어갑니다(「건너뛰기 취소」 로 되돌립니다)", focus: "act:headsLlm:skip" })] };
+}
+function fwGuidesStep(gw, A, heads, guided) { // 「작성 지침 확인 · 적기」 줄(선택 — 「확인함」 · 「건너뛰기」 를 눌러야 지나간다)
+  const topics = FW.fr && FW.fr.review && FW.fr.review.topics, mark = fwMark("guides");
+  // 2026-11-24 사용자 "작성 지침 확인/적기가.. 지침작성 자리가 맞냐? 지침 작성 자리에는 양식검토, 채울자리 이렇게 있던데?" — 열의 맨 위(자료 · 양식 검토)가 아니라 「채울 자리」 로 바로 가서 지침을 펼치고 그 자리에서 적는다(fwWriteOpen("guides"))
+  const open = (primary) => dashBtn("지침 보기 · 적기", () => fwWriteOpen("guides"), { primary, title: "「지침 작성」 열의 「채울 자리」 로 갑니다 — 자리마다 작성 지침이 펼쳐지고, 헤딩 자리에는 그 자리에서 지침을 적습니다(문서는 안 바뀜)", focus: "act:guides" });
+  const more = topics && topics.length ? [dashBtn("테마 · 키워드 보기", () => fwWriteOpen("topics"), { title: "양식 검토가 뽑은 「자료에서 찾을 테마 · 키워드」 — 골라서 문서 라이브러리의 「뽑을 범위」 에 붙일 줄로 복사합니다", focus: "act:guides:topics" })] : [];
+  if (gw.hwpx === false) return { state: "", text: "hwpx 문서만 됩니다", acts: [open(false), ...more] };
+  const base = `헤딩 ${heads}곳 · 작성 지침이 있는 자리 ${guided}곳`;
+  if (mark) return { state: "done", ...(mark === "skip" ? { skipped: true, word: "건너뜀" } : { word: "확인함" }), text: `${mark === "skip" ? "건너뜀" : "확인함"} — ${base}`,
+    acts: [open(false), ...more, dashBtn(mark === "skip" ? "건너뛰기 취소" : "확인 취소", () => fwStepMark("guides", null, "작성 지침 확인을 다시 할 일로 둡니다"), { title: "이 줄을 다시 할 일로 둡니다", focus: "act:guides:undo" })] };
+  if (!A.base) return { state: "todo", text: `${base} — 헤딩 · 표 분석이 끝나야 합니다`, acts: [open(false), ...more] };
+  return { state: "now", text: `선택 — ${base}. 지침을 보고 없는 자리에 적은 뒤 「확인함」, 볼 것이 없으면 「건너뛰기」`,
+    acts: [open(true), ...more, dashBtn("확인함", () => fwStepMark("guides", "done", "작성 지침을 확인했습니다"), { title: "작성 지침을 확인했습니다 — 다음 줄로 넘어갑니다(「확인 취소」 로 되돌립니다)", focus: "act:guides:done" }),
+      dashBtn("건너뛰기", () => fwStepMark("guides", "skip", "작성 지침 확인을 건너뜁니다"), { title: "확인하지 않고 다음 줄로 넘어갑니다(「건너뛰기 취소」 로 되돌립니다)", focus: "act:guides:skip" })] };
 }
 
 // 초안이 0개인 까닭을 가른다(서버가 자리마다 준 why — guide_write_api._one): 에이전트가 행동 없이 답함(자료에 해당 내용 없음) ↔ 검사에서 버림 ↔ 쓸 자리를 안 고른 상자 ↔ 이미 채운 줄.
@@ -118,6 +231,8 @@ async function formWriteLive() { // 대시보드(dashboard.js dashLive)의 「�
   const lib = FW.lib || { alive: false, docs: [] }, gw = FW.gw || { places: [], materials: [], run: null, enabled: false }, run = gw.run;
   const libBtn = (focus) => [dashBtn("문서 라이브러리 열기", () => fwLibOpen(), { disabled: !lib.alive, title: lib.alive ? "자료 문서를 올리고 자료 추출을 하는 따로 선 서버 — 새 탭으로 엽니다" : FW_LIB_DOWN, focus })];
   const docs = lib.docs.length, done = fwDoneExtracts(), going = lib.docs.reduce((n, d) => n + (d.running || 0), 0), mats = gw.materials.length, guided = gw.places.filter((p) => p.n).length, heads = gw.places.filter((p) => p.kind === "head").length;
+  const from = gw.libFrom || 0, newDocs = lib.docs.filter((d) => (d.at || 0) > from).length, newDone = lib.docs.reduce((n, d) => n + (d.extracts || []).filter((e) => e.state === "done" && (e.ended || 0) > from).length, 0);
+  const keepOk = !!newDocs || fwMark("keep") === "done";
   const items = (run && run.items) || [], got = items.reduce((n, i) => n + (i.proposals || 0), 0), applied = fwAppliedN(run);
   const rv = FW.fr && FW.fr.review, topics = rv && rv.topics;
   const next = !mats ? "take" : "ask";
@@ -125,16 +240,20 @@ async function formWriteLive() { // 대시보드(dashboard.js dashLive)의 「�
   if (!A.view && state.id && typeof dsRefresh === "function") { await dsRefresh(); A = fwAnalysis(); } // 이름 줄의 분석 상태를 아직 못 읽음 — 한 번 읽고 그린다
   if (A.base && FW.fg && !FW.fg.saved && !FW.fgAsked) await fwGuidesKeep(); // 분석이 끝났는데 저장한 작성 지침이 없다 — 한 번 모아 저장(스크립트)
   const S = {
-    open: { state: "done", text: "" },
+    overview: fwOverviewStep(),
+    open: fwOpenStep({ lib, docs, newDocs, mats, keepOk, libBtn }),
     heads: fwHeadsStep(A),
     headsLlm: fwLlmStep(A),
     // 줄의 차례 = 등록부의 차례(「지금」 은 차례상 첫 줄 하나): 준비(… · 작성 지침 확인 · 양식 검토 · 찾을 테마) → 자료 준비 → 작성(작성 계획 · 확인할 것 → 양식 초안 작성 → 검사 → 반영)
-    guides: { state: "", text: gw.hwpx === false ? "hwpx 문서만 됩니다" : `헤딩 ${heads}곳 · 작성 지침이 있는 자리 ${guided}곳`,
-      acts: [dashBtn("지침 작성 열기", () => fwWriteOpen(), { title: "자리마다의 작성 지침을 보고, 채울 자리와 자료를 골라 초안을 받습니다(문서 옆 열)", focus: "act:guides" }),
-        ...(topics && topics.length ? [dashBtn("테마 · 키워드 보기", () => fwWriteOpen("topics"), { title: "양식 검토가 뽑은 「자료에서 찾을 테마 · 키워드」 — 골라서 문서 라이브러리의 「뽑을 범위」 에 붙일 줄로 복사합니다", focus: "act:guides:topics" })] : [])] },
+    guides: fwGuidesStep(gw, A, heads, guided),
     review: fwReviewStep(gw),
-    keep: { state: docs ? "done" : lib.alive ? "now" : "hold", text: lib.alive ? (docs ? `자료 문서 ${docs}개` : "아직 자료 문서가 없습니다") : FW_LIB_DOWN, acts: libBtn("act:keep") },
-    extract: { state: going ? "run" : done ? "done" : docs ? "now" : "todo", text: lib.alive ? [done ? `끝난 추출 ${done}개` : "아직 추출한 것이 없습니다", going ? `추출 중 ${going}개` : ""].filter(Boolean).join(" · ") : "", acts: libBtn("act:extract") },
+    // 서버가 꺼져 「hold」 일 때 상태 글은 「서버 꺼짐」 — 대시보드의 공용 글 DASH_ST.hold 는 취합의 「기관 미지정」 이라 이 줄에 맞지 않았다(2026-11-24 화면 검사 그림 · 사용자 「진행해줘」)
+    // 자료가 아직 없으면 06 이 「지금」 자리를 차지한다(서버가 꺼져도 — 글자만 「서버 꺼짐」): 전에는 꺼지면 「hold」 라 자리를 안 차지해 05 → 08 로 건너뛰었다(2026-11-24 사용자 「한번에 5번에서 8번으로 가버리냐?」).
+    // 자료를 이미 다른 길(에이전트 보기의 파일 · 글)로 받았으면 06 · 07 은 자리를 차지하지 않는다(할 수 있음 · 꺼졌으면 「서버 꺼짐」).
+    // 06 · 07 의 「끝남」 은 이 문서의 몫으로 센다(2026-11-24 사용자 「초기화 할때 5,6 도 아직 안했다고 나와야지」): 문서 라이브러리는 모든 작업이 같이 쓰는 서버라 그 서버에 있는 것만으로 세면 초기화해도 끝남이 남았다 —
+    // 기준 시각(gw.libFrom — 작업을 만든 때 · 마지막 초기화 · 「2단계 초기화」) 뒤에 올린 문서 · 끝난 추출이 있거나, 있는 것을 쓰겠다고 누른 때(「있는 문서 쓰기」 · 「있는 추출 쓰기」)만 끝남.
+    keep: fwLibStep("keep", { alive: lib.alive, all: docs, fresh: newDocs, mats, prev: null, libBtn }),
+    extract: fwLibStep("extract", { alive: lib.alive, all: done, fresh: newDone, mats, going, prev: keepOk, libBtn }),
     take: { state: mats ? "done" : next === "take" ? "now" : "todo", text: mats ? `이 문서의 자료 ${mats}개` : "자료가 없습니다 — 추출한 MD 를 가져오거나 에이전트 보기에서 파일 · 글을 자료로 줍니다",
       acts: [dashBtn("자료 가져오기", () => fwTakeOpen(), { primary: !mats, title: "문서 라이브러리에서 추출한 MD 를 이 문서의 자료로 가져옵니다(문서 옆 열)", focus: "act:take" })] },
     plan: fwPlanStep(gw),
@@ -149,54 +268,65 @@ async function formWriteLive() { // 대시보드(dashboard.js dashLive)의 「�
   };
   if (FW.err) S.take.text = `읽지 못했습니다 — ${FW.err}`;
   let nowSeen = false; // 「지금」 은 차례상 첫 줄 하나 — 뒤의 줄은 할 수 있어도 「할 수 있음」(단추는 그대로 보인다): 줄마다 따로 셈해 「지금」 이 여럿 서던 것(2026-11-24 사용자 「지금은 긴 몇개냐」)
-  for (const s of Object.values(S)) { if (s.state === "now") { if (nowSeen) s.state = "ready"; nowSeen = true; } }
+  // 「진행 중」(run) 인 줄도 그 자리를 차지한다 — 앞 줄이 도는데 뒤 줄에 「지금」 이 같이 서던 것(2026-11-24 사용자 「3번 5번은 왜 동시에 나오냐?」 — 03 LLM 검증·보완 진행 중 + 05 양식 검토 지금)
+  for (const s of Object.values(S)) { if (s.state === "run") nowSeen = true; else if (s.state === "now") { if (nowSeen) s.state = "ready"; nowSeen = true; } }
   if (fwRunning() || fwReviewing() || going || A.busy ||(A.view && A.view.job && A.view.job.status === "running")) { clearTimeout(FW.poll); FW.poll = setTimeout(() => { fwRead(true).then(() => { if (typeof dashDraw === "function") dashDraw(); fwRedraw(); }); }, 2500); }
   const off = fwStageResetOff(A), runs = {}, subs = {};
-  for (const st of Object.keys(FW_STAGE_RESET)) { // 묶음 머리마다 「초기화…」 — 누르면 그 묶음 머리 아래에 확인 줄(fwStageResetEl)
-    runs[st] = dashBtn("초기화…", () => { FW.rs = FW.rs === st ? "" : st; dashDraw(true); }, { disabled: !!off || !!FW.rsBusy, title: off || FW_STAGE_RESET[st].tip, focus: `fwreset:${st}` });
+  for (const st of Object.keys(FW_STAGE_RESET)) { // 묶음 머리마다 「N단계 초기화」(단계별 초기화 — 번호 = 묶음 머리의 번호: fwStageNo) — 누르면 그 묶음 머리 아래에 확인 줄(fwStageResetEl)
+    runs[st] = dashBtn(`${fwStageWord(st)} 초기화`, () => { FW.rs = FW.rs === st ? "" : st; dashDraw(true); }, { disabled: !!off || !!FW.rsBusy, focus: `fwreset:${st}`,
+      title: off || `${fwStageName(st)} 초기화 — 누르면 확인 줄이 펴집니다(누르기 전에는 아무것도 안 바뀝니다)` });
     if (FW.rs === st) subs[st] = fwStageResetEl(st, off, mats);
   }
   return { runs, subs, steps: S };
 }
 
 // ---- 단계 초기화(2026-11-24 사용자 "여기도... 초기화 하고 싶을때가 있는데 새로 프로젝트를 올려야 하나? 준비/자료,작성 단계를 따로 두고 단계별로 실행할 수 있거나.. 모두 작업 내용 초기화 할 수 있도록 해줘" — spec_양식작성 ② §6-1) ----
-// 묶음(등록부의 open · material · write)마다 그 단계의 것만 비운다. 뒤 단계는 앞 단계에 기댄다 — 준비를 초기화하면 작성도 함께(자료는 남는다) · 모두 = 대시보드 맨 아래의 「작업 내용 초기화」 와 같은 것(dashResetRun).
-const FW_STAGE_RESET = {
-  open: { name: "준비", tip: "준비 단계 초기화 — 누르면 확인 줄이 펴집니다(고르기 전에는 아무것도 안 바뀝니다)", head: "문서를 올린 직후로 되돌립니다(작성 단계도 함께 · 이 문서의 자료는 남김)",
+// 묶음(등록부의 open · material · write)마다 그 단계의 것만 비운다. 뒤 단계는 앞 단계에 기댄다 — 준비를 초기화하면 작성도 함께(자료는 남는다).
+// 2026-11-24 사용자 "복잡하게 하지 말고,, 전체 초기화 각 단계별 초기화로 해줘, 작성 3단계, 2, 자료준비 단계.. 단계로 해주고": 초기화는 두 가지뿐 —
+// **단계별**(묶음 머리의 「N단계 초기화」 → 확인 줄의 「N단계 초기화」 · 「취소」) · **전체**(대시보드 맨 아래 「전체 초기화…」 — dashboard.js DASH_RESET_ALL: 이 워크플로우에서의 「작업 내용 초기화」 이름).
+// 전의 준비 확인 줄 「모두 초기화(자료도)」 는 없앴다(「모두」 가 두 곳이었다 — 전체는 맨 아래 하나).
+const FW_STAGE_RESET = { // head = 확인 줄 머리의 한 줄(「N단계 「이름」 초기화 — …」 뒤) · lose · keep = 노트 아이콘의 글
+  open: { name: "준비", head: "올린 직후로 되돌립니다(「작성」 단계도 함께 비움 · 이 문서의 자료는 남김)",
     lose: "헤딩 · 표 분석 · LLM 검증·보완 · 작성 지침 저장본 · 양식 검토(찾을 테마 · 확인할 것의 답) · 작성 계획 · 받은 초안 · 문서에 반영한 글과 고친 문단", keep: "올린 원본 · 이 문서의 자료 · 확정 기록 · 작업 기록 · 문서 라이브러리의 문서와 추출" },
-  material: { name: "자료 준비", tip: "자료 준비 단계 초기화 — 누르면 확인 줄이 펴집니다", head: "이 문서의 자료를 모두 비웁니다",
-    lose: "이 문서로 가져온 자료(추출한 MD · 에이전트 보기에서 준 파일 · 글)", keep: "문서 라이브러리의 문서와 추출(그 서버의 것 — 다시 가져올 수 있습니다) · 분석 · 양식 검토 · 받은 초안 · 문서. 자료가 바뀌니 「작성 계획 세우기」 는 다시 해야 합니다" },
-  write: { name: "작성", tip: "작성 단계 초기화 — 누르면 확인 줄이 펴집니다", head: "받은 초안과 작성 계획을 비우고 문서를 올린 원본으로 되돌립니다",
+  material: { name: "자료 준비", head: "이 문서의 자료를 모두 비웁니다",
+    lose: "이 문서로 가져온 자료(추출한 MD · 에이전트 보기에서 준 파일 · 글) · 자료 문서 올리기 · 자료 추출의 「끝남」(이 문서의 몫으로 다시 셉니다 — 있는 것을 쓰려면 「있는 문서 쓰기」 · 「있는 추출 쓰기」)", keep: "문서 라이브러리의 문서와 추출(그 서버의 것 — 다시 가져올 수 있습니다) · 분석 · 양식 검토 · 받은 초안 · 문서. 자료가 바뀌니 「작성 계획 세우기」 는 다시 해야 합니다" },
+  write: { name: "작성", head: "초안 · 작성 계획을 비우고 문서를 올린 원본으로 되돌립니다",
     lose: "작성 계획 · 받은 초안(에이전트 대화 · 제안 카드) · 문서에 반영한 글과 그 밖에 고친 문단(확정한 것이 있으면 「올린 원본으로 복원」 확정을 하나 더합니다)", keep: "헤딩 · 표 분석 · 작성 지침 · 양식 검토(찾을 테마) · 확인할 것에 정한 답 · 이 문서의 자료" },
 };
+function fwStageNo(st) { // 그 묶음의 단계 번호 — 대시보드 묶음 머리의 번호와 같은 셈(dashboard.js dashModel: 등록부의 no · 없으면 차례) · 등록부를 아직 못 읽었으면 FW_STAGE_RESET 의 차례(글에 번호를 박지 않는다)
+  const reg = typeof DASH === "object" && DASH.reg && (DASH.reg.tasks || []).find((t) => t.job === "form_write"), gs = (reg && reg.stages) || [], gi = gs.findIndex((g) => g.id === st);
+  return gi >= 0 ? String(gs[gi].no || gi + 1) : String(Object.keys(FW_STAGE_RESET).indexOf(st) + 1);
+}
+const fwStageWord = (st) => { const no = fwStageNo(st); return /단계$/.test(no) ? no : `${no}단계`; }; // 「1단계」
+const fwStageName = (st) => `${fwStageWord(st)} 「${FW_STAGE_RESET[st].name}」`; // 「1단계 「준비」」 — 확인 줄 · 풍선 · 토스트의 이름
 function fwStageResetOff(A) { // 초기화를 누를 수 없는 까닭 | "" — 도는 일이 끝난 뒤에
   const run = typeof agwRunning === "function" ? agwRunning() : null;
   return !state.stored ? "작업 저장이 꺼진 문서는 초기화할 수 없습니다" : fwRunning() ? "초안을 받는 중입니다 — 멈추거나 끝난 뒤에 초기화하세요" : fwReviewing() ? "양식 검토가 도는 중입니다 — 끝난 뒤에 초기화하세요"
     : A && A.busy ? "분석이 도는 중입니다 — 끝난 뒤에 초기화하세요" : run ? `「${run.label}」 이(가) 도는 중입니다 — 끝난 뒤에 초기화하세요` : state.commitBusy ? "확정 · 초기화하는 중입니다 — 끝난 뒤에 누르세요" : "";
 }
-function fwStageResetEl(st, off, mats) { // 묶음 머리 아래의 확인 줄(모달 아님 — 대시보드 맨 아래 「작업 내용 초기화」 상자와 같은 꼴 · 비우는 것 · 남는 것은 노트 아이콘)
-  const T = FW_STAGE_RESET[st], box = el("div", "dash-reset"), head = el("p", "dash-reset-head", `${T.name} 초기화 — ${T.head}`), acts = el("div", "dash-reset-acts"), stop = off || (FW.rsBusy ? "초기화하는 중입니다" : "");
+function fwStageResetEl(st, off, mats) { // 묶음 머리 아래의 확인 줄(모달 아님 — 대시보드 맨 아래 초기화 상자와 같은 꼴): 머리 한 줄 + 노트 아이콘(비우는 것 · 남는 것) + 단추 둘(「N단계 초기화」 · 「취소」)뿐
+  const T = FW_STAGE_RESET[st], label = fwStageName(st), box = el("div", "dash-reset"), head = el("p", "dash-reset-head", `${label} 초기화 — ${T.head}`), acts = el("div", "dash-reset-acts"), stop = off || (FW.rsBusy ? "초기화하는 중입니다" : "");
   box.setAttribute("role", "group");
-  box.setAttribute("aria-label", `${T.name} 단계 초기화`);
+  box.setAttribute("aria-label", `${label} 초기화`);
   box.dataset.fwReset = st;
   head.append(hHelp("초기화하면 비우는 것 · 남는 것", `비우는 것 — ${T.lose}
-남는 것 — ${T.keep}`, { rows: true, title: `${T.name} 초기화` }));
+남는 것 — ${T.keep}`, { rows: true, title: `${label} 초기화` }));
   box.append(head);
   if (st === "material" && !mats) box.append(el("p", "dash-text muted", "이 문서의 자료가 없습니다 — 비울 것이 없습니다"));
   if (st === "write" && state.edited && state.edited.size) box.append(el("p", "dash-text", `지금 고친 문단 ${state.edited.size}개가 올린 원본으로 돌아갑니다`));
   const go = (label, run, key, title, disabled = false) => { const b = dashBtn(label, run, { disabled: !!stop || disabled, title: stop || title, focus: `fwreset:${key}` }); b.classList.add("danger"); acts.append(b); };
-  go(FW.rsBusy === st ? "초기화 중…" : `${T.name} 초기화`, () => fwStageReset(st), `${st}:go`, T.head, st === "material" && !mats);
-  if (st === "open") go("모두 초기화(자료도)", () => fwStageReset("all"), "all:go", "작업 내용 초기화 — 이 문서의 자료까지 비우고 올린 직후로 되돌립니다(대시보드 맨 아래의 「작업 내용 초기화…」 와 같습니다)");
+  go(FW.rsBusy === st ? "초기화 중…" : `${fwStageWord(st)} 초기화`, () => fwStageReset(st), `${st}:go`, `${label} — ${T.head}`, st === "material" && !mats);
   acts.append(dashBtn("취소", () => { FW.rs = ""; dashDraw(true); }, { disabled: !!FW.rsBusy, title: "초기화하지 않고 닫습니다", focus: "fwreset:close" }));
   box.append(acts);
   return box;
 }
-async function fwStageReset(st) { // st = open(준비 — 자료만 남기고 올린 직후로) · all(모두) · material · write
+async function fwStageReset(st) { // st = open(준비 — 자료만 남기고 올린 직후로) · material · write (전체 = 대시보드 맨 아래 「전체 초기화…」 — 여기를 지나지 않는다)
   if (FW.rsBusy || !state.id) return;
-  const id = state.id, name = st === "all" ? "모든 단계" : FW_STAGE_RESET[st].name;
-  if (st === "open" || st === "all") { // 작업 내용 초기화와 같은 길(dashResetRun → workReset → 다시 열고 첫 분석: dashResetDone) — 준비는 자료만 남긴다
+  const id = state.id, name = fwStageName(st), T = FW_STAGE_RESET[st];
+  if (st === "open") { // 작업 내용 초기화와 같은 길(dashResetRun → workReset → 다시 열고 첫 분석: dashResetDone) — 자료만 남긴다(keep) · 글은 이 단계의 이름으로(say)
     FW.rs = "";
-    return dashResetRun(dashResetState(), [{ id, label: name, name: state.name || "", opt: st === "open" ? { keep: "materials" } : {} }], { redraw: () => dashDraw(true), done: dashResetDone });
+    return dashResetRun(dashResetState(), [{ id, label: name, name: state.name || "", opt: { keep: "materials" } }], { redraw: () => dashDraw(true), done: dashResetDone,
+      say: { name: `${name} 초기화`, ok: () => `${name} 초기화 — ${T.head.replace("되돌립니다", "되돌렸습니다")}`, bad: (bad) => `초기화하지 못했습니다 — ${bad.join(" / ")}` } });
   }
   FW.rsBusy = st;
   dashDraw(true);
@@ -205,8 +335,8 @@ async function fwStageReset(st) { // st = open(준비 — 자료만 남기고 �
     const r = await api(`/api/docs/${id}/form-write/reset`, { method: "POST", headers: H_JSON, body: JSON.stringify({ stage: st }) });
     FW.rs = "";
     if (st === "write" && state.id === id) await load(id, { tab: $("panel").dataset.tool || "Dash" }); // 문서가 올린 원본으로 — 다시 연다(보던 탭에 머문다)
-    toast(st === "material" ? `자료 준비를 초기화했습니다 — 자료 ${r.materials}개를 비웠습니다` : `작성을 초기화했습니다 — 초안 ${r.turns}개${r.plan ? " · 작성 계획" : ""}을 비우고${r.reverted ? " 문서를 올린 원본으로 되돌렸습니다" : " 문서는 올린 원본 그대로입니다"}`);
-  } catch (e) { toast(`${name}을(를) 초기화하지 못했습니다 — ${e.message}`, true); }
+    toast(st === "material" ? `${name} 초기화 — 자료 ${r.materials}개를 비웠습니다` : `${name} 초기화 — 초안 ${r.turns}개${r.plan ? " · 작성 계획" : ""}을 비우고${r.reverted ? " 문서를 올린 원본으로 되돌렸습니다" : " 문서는 올린 원본 그대로입니다"}`);
+  } catch (e) { toast(`${name} — 초기화하지 못했습니다: ${e.message}`, true); }
   FW.rsBusy = "";
   if (state.id === id) { FW.at = 0; FW.picks = new Set(); FW.mats = null; await fwRead(true); if (typeof agentLoad === "function") agentLoad(); fwRedraw(); }
   dashDraw(true);
@@ -330,15 +460,20 @@ const FW_HELP_WRITE = "문서의 자리(본문 헤딩 · 쓸 자리가 있는 �
 const FW_HELP_TOPICS = "양식 검토가 양식 전체를 읽고 뽑은 것입니다 — 이 양식을 쓰려면 자료 문서에서 무엇을 찾아야 하는지.\n"
   + "테마 = 찾을 내용의 이름 · 키워드 = 자료에서 그 내용을 부르는 표현(같은 뜻의 다른 말을 찾는 단서) · 맥락 = 어느 자리에 무엇이 어떤 꼴로 필요한가.\n"
   + "쓰는 법 = 「범위 앞에 붙일 말」 에 누구의 것인지(기관 · 연구 · 기간)를 적고, 찾을 테마를 골라 「고른 것 복사」 → 문서 라이브러리의 「뽑을 범위」 에 붙여 넣습니다(줄마다 범위 하나 = MD 하나 · 한 번에 8개까지 · 줄마다 600자까지).\n"
-  + "테마마다 기간이 다르면(당해연도 ↔ 다음 연도) 한꺼번에 복사하지 말고 앞에 붙일 말을 바꿔 나눠 복사하거나, 붙여 넣은 뒤 그 줄을 고칩니다. 아래 미리보기가 복사될 글 그대로입니다. 문서 라이브러리의 추출은 그 화면에서 시작합니다(여기서는 복사까지).";
-async function fwWriteOpen(at = "") { // at = "topics" → 「자료에서 찾을 테마 · 키워드」 절로 굴린다(대시보드의 「테마 · 키워드 보기」)
+  + "「모두 선택」 = 복사할 수 있는 테마를 한 번에 고릅니다(8개를 넘으면 앞 8개만 · 다 골라져 있으면 「모두 해제」). 「모두 복사」 = 고른 것과 상관없이 복사할 수 있는 줄을 모두 복사합니다(8줄을 넘으면 나눠 붙여 넣습니다 · 600자를 넘는 줄은 뺍니다).\n"
+  + "테마마다 기간이 다르면(당해연도 ↔ 다음 연도) 한꺼번에 복사하지 말고 앞에 붙일 말을 바꿔 나눠 복사하거나, 붙여 넣은 뒤 그 줄을 고칩니다. 아래 미리보기가 「고른 것 복사」 로 복사될 글 그대로입니다. 문서 라이브러리의 추출은 그 화면에서 시작합니다(여기서는 복사까지).";
+async function fwWriteOpen(at = "") { // at = "topics" → 「자료에서 찾을 테마 · 키워드」 절로 굴린다(대시보드의 「테마 · 키워드 보기」) · "guides" → 「채울 자리」 로 굴리고 자리마다 지침을 펼친다(대시보드 「작성 지침 확인 · 적기」)
   fwClearWay();
+  FW.guideMode = at === "guides";
   const { tools, body } = headsDlg("fwWrite", "지침 작성", "자리마다 작성 지침 + 자료 → 초안 · 문서는 「문서에 반영」 을 눌러야 바뀝니다");
-  tools.append(hBtn("자료 가져오기", () => fwTakeOpen(), { title: "문서 라이브러리에서 추출한 MD 를 이 문서의 자료로" }), hBtn("새로 고침", () => fwRead(true).then(fwRedraw)), hHelp("지침 작성 안내", FW_HELP_WRITE, { note: true }));
+  const take = hBtn("자료 가져오기", () => fwTakeOpen(), { title: "문서 라이브러리에서 추출한 MD 를 이 문서의 자료로" });
+  take.dataset.fwTake = "1"; // 자료가 없으면 fwWriteDraw 가 파란 단추로(대시보드의 「지금」 = 자료 가져오기와 같은 단추)
+  tools.append(take, hBtn("새로 고침", () => fwRead(true).then(fwRedraw)), hHelp("지침 작성 안내", FW_HELP_WRITE, { note: true }));
   body.append(el("div", "fw-wait", "읽는 중…"));
-  await fwRead(true);
+  await Promise.all([fwRead(true), typeof dashRegLoad === "function" ? dashRegLoad() : null]); // 등록부 = 절마다의 단계 번호(fwWhereEl — 대시보드와 같은 셈)
   fwWriteDraw();
-  if (at === "topics") { const sec = body.querySelector(".fw-topics"); if (sec) body.scrollTop = Math.max(0, sec.offsetTop - body.offsetTop - 6); }
+  const to = at === "topics" ? body.querySelector(".fw-topics") : at === "guides" ? body.querySelector(".fw-places-sec") : null;
+  if (to) body.scrollTop = Math.max(0, to.offsetTop - body.offsetTop - 6);
   fwReviewPoll(); // 검토가 도는 중이면 끝날 때까지 따라간다
 }
 // ---- 양식 검토 — 양식 전체를 읽고 어떻게 쓸지 · 쓰기 전에 사람이 확인할 것을 묻는다(form_review_api — spec_양식작성 ② §5-1) -----------------------
@@ -416,15 +551,20 @@ function fwReviewEl() { // 「지침 작성」 열의 「양식 검토 · 작성
   const s2 = el("span", `fw-tag${planned ? " user" : ""}`, planned ? "작성 계획 ✓" : "작성 계획");
   const s3 = el("span", `fw-tag${planned && !on ? " user" : planned ? " warn" : ""}`, planned ? (qn ? `확인할 것 ${qn - on}/${qn}` : "확인할 것 없음") : "확인할 것");
   s1.dataset.step = "1"; s2.dataset.step = "2"; s3.dataset.step = "3";
+  // 이 문서에 자료가 하나도 없으면 작성 계획은 아직 못 세운다 — 단추를 끄고 「자료 가져오기」 를 먼저 가리킨다(대시보드의 차례 「자료 가져오기」 → 「작성 계획 · 확인할 것」 과 맞춤 —
+  // 2026-11-24 사용자 「자료 가져오기, 작성 계획 세우기 매칭이 안됨」: 자료가 0개인데 이 단추가 파란 단추 · 「쓸 자료를 고르고」 라 했다)
+  const noMats = !!rv && !planned && !((FW.gw && FW.gw.materials) || []).length;
   if (!rv) s1.dataset.now = "1";
-  else if (!planned) s2.dataset.now = "1";
+  else if (!planned && !noMats) s2.dataset.now = "1";
   steps.append(s1, s2, s3);
   const actBtn = hBtn(going ? ((run.materials || []).length ? "계획 세우는 중…" : "검토 중…") : !rv ? "양식 검토" : !planned ? "작성 계획 세우기" : "다시 검토", () => fwReviewRun(), {
-    cls: `btn sm fw-rev-act${rv && planned ? "" : " primary"}${going ? " is-going" : ""}`,
-    disabled: going || !fr.enabled,
-    title: !fr.enabled ? "LLM 을 쓸 수 없습니다" : "양식 전체(헤딩 · 안내 글 · 표 · 작성 지침)를 읽어 어떻게 쓸지 검토하고, 쓸 자료를 골라 두었으면 자리마다 자료의 무엇을 쓸지 작성 계획을 세우고 확인할 것을 묻습니다 — 유료 LLM 한 번 · 문서는 바뀌지 않습니다. 다시 해도 답한 것은 남습니다",
+    cls: `btn sm fw-rev-act${(rv && planned) || noMats ? "" : " primary"}${going ? " is-going" : ""}`,
+    disabled: going || !fr.enabled || (noMats && !going),
+    title: !fr.enabled ? "LLM 을 쓸 수 없습니다" : noMats ? "작성 계획은 자료로 세웁니다 — 먼저 위 「자료 가져오기」 로 이 문서의 자료를 가져오세요" : "양식 전체(헤딩 · 안내 글 · 표 · 작성 지침)를 읽어 어떻게 쓸지 검토하고, 쓸 자료를 골라 두었으면 자리마다 자료의 무엇을 쓸지 작성 계획을 세우고 확인할 것을 묻습니다 — 유료 LLM 한 번 · 문서는 바뀌지 않습니다. 다시 해도 답한 것은 남습니다",
   });
-  h.append(el("span", "fw-rev-title", "양식 검토 · 작성 계획"), actBtn, steps);
+  h.append(el("span", "fw-rev-title", "양식 검토 · 작성 계획"), actBtn);
+  fwHead(h, [["run", "review"], ["run", "plan"]]); // 이 절의 단추가 돌리는 단계 둘(① 양식 검토 = 준비의 끝 · ②③ = 작성의 처음 — 사이에 자료 준비)
+  h.append(steps);
   sec.append(h);
   if (going) sec.append(el("div", "fw-muted fw-pad fw-rev-msg is-going", (run.materials || []).length ? "양식과 자료를 읽고 작성 계획을 세우는 중입니다(1~3분)." : "양식 전체를 읽는 중입니다(1~3분)."));
   else if (run && run.state === "failed") sec.append(el("div", "fw-muted fw-pad fw-bad fw-rev-msg is-fail", `검토 실패 — ${run.error || "까닭 모름"}${rv ? "(앞 검토는 그대로입니다)" : ""}`));
@@ -433,7 +573,8 @@ function fwReviewEl() { // 「지침 작성」 열의 「양식 검토 · 작성
     return sec;
   }
   if (fr.stale) sec.append(el("div", "fw-muted fw-pad fw-bad fw-rev-msg is-warn", "검토 뒤에 양식(자리 · 작성 지침)이 바뀌었습니다 — 바뀐 곳이 많으면 「다시 검토」 합니다(정한 것은 남습니다)."));
-  if (!planned && !going) sec.append(el("div", "fw-muted fw-pad fw-bad fw-rev-msg is-warn", "양식만 검토했습니다 — 쓸 자료를 고르고 「작성 계획 세우기」 를 누르세요."));
+  if (!planned && !going) sec.append(el("div", "fw-muted fw-pad fw-bad fw-rev-msg is-warn", noMats ? "양식만 검토했습니다 — 작성 계획은 자료로 세웁니다. 먼저 위 「자료 가져오기」 로 이 문서의 자료를 가져오세요(대시보드 「자료 가져오기」 → 「작성 계획 · 확인할 것」)."
+    : "양식만 검토했습니다 — 쓸 자료를 고르고 「작성 계획 세우기」 를 누르세요."));
   if (rv.summary) { const d = el("details", "fw-guides fw-pad fw-rev-sum"); d.open = !dec.length; d.append(el("summary", null, "검토 요약 — 이 양식을 어떻게 쓰나"), el("div", "fw-guide", rv.summary)); sec.append(d); }
   const qs = rv.questions || [], left = new Set(fr.open || []);
   if (planned) {
@@ -543,27 +684,59 @@ function fwTopicsEl() { // 「양식 검토 · 작성 계획」 절 바로 아�
   const topics = rv.topics, lib = FW.lib || { alive: false }, sec = el("section", "fw-doc fw-topics"), h = el("h3", "fw-places-head");
   h.append(el("span", "fw-top-title", "자료에서 찾을 테마 · 키워드"), hHelp("자료에서 찾을 테마 · 키워드 안내", FW_HELP_TOPICS, { note: true }));
   if (topics && topics.length) h.append(el("span", "fw-tag", `${topics.length}개`));
-  sec.append(h);
+  sec.append(fwHead(h, [["result", "review"], ["prep", "extract"]]));
   if (!topics) { sec.append(el("div", "fw-muted fw-pad fw-top-msg", "아직 뽑지 않았습니다 — 「다시 검토」 로 뽑습니다")); return sec; } // 오늘 전에 저장한 검토(topics 없음) — 「0개」 가 아니다
   if (!topics.length) { sec.append(el("div", "fw-muted fw-pad fw-top-msg", "찾을 테마가 없습니다")); return sec; }
   for (const k of [...FW.topicOn]) if (!topics.some((t) => t.key === k)) FW.topicOn.delete(k);
   const lead = el("input", "fw-top-lead"), prev = el("div", "fw-top-prev"), names = new Map(((FW.gw && FW.gw.places) || []).map((p) => [p.id, p.text]));
   lead.type = "text"; lead.maxLength = 200; lead.value = FW.lead || ""; lead.placeholder = "범위 앞에 붙일 말(기관 · 연구 · 기간) — 예: 한국선급, 2차년도";
   lead.setAttribute("aria-label", "범위 앞에 붙일 말(기관 · 연구 · 기간)");
-  const copyAll = hBtn("고른 것 복사", () => { const ls = chosen(); if (ls.length) fwCopy(ls.join("\n"), `범위 ${ls.length}줄을 복사했습니다 — 문서 라이브러리의 「뽑을 범위」 에 붙여 넣으세요`); }, { cls: "btn sm primary fw-top-copy" });
+  const copyChosen = () => { const ls = chosen(); if (ls.length) fwCopy(ls.join("\n"), `범위 ${ls.length}줄을 복사했습니다 — 문서 라이브러리의 「뽑을 범위」 에 붙여 넣으세요`); };
+  const copyAll = hBtn("고른 것 복사", copyChosen, { cls: "btn sm primary fw-top-copy" });
+  const copyTop = hBtn("고른 것 복사", copyChosen, { cls: "btn sm primary fw-top-copy-top" }); // 목록 위의 같은 단추(2026-11-24 — 아래 것은 테마가 많으면 굴려야 보인다)
   const rows = [];
   const chosen = () => topics.map((t, i) => [t, fwTopicLine(i)]).filter(([t, line]) => FW.topicOn.has(t.key) && line && line.length <= FW_SCOPE_MAX).map(([, line]) => line);
-  const sync = () => { // 고른 것 · 앞말이 바뀔 때 — 미리보기 · 단추 · 줄마다의 넘침 표시만 고친다(목록을 다시 그리지 않는다: 쓰던 글 · 굴린 자리)
-    const ls = chosen(), on = topics.filter((t) => FW.topicOn.has(t.key)).length;
+  const able = () => topics.filter((t, i) => { const line = fwTopicLine(i); return line && line.length <= FW_SCOPE_MAX; }); // 복사할 수 있는 테마(줄이 비지 않고 한도 안)
+  const wanted = () => able().slice(0, FW_SCOPES); // 「모두 선택」 이 고를 것 — 앞에서부터 그 서버가 한 번에 받는 수까지
+  const allOn = () => { const w = wanted(); return !!w.length && w.every((t) => FW.topicOn.has(t.key)); };
+  const pickAll = hBtn("모두 선택", () => { // 2026-11-24 사용자 "모두 선택하기가 있어야지" — 다 골라져 있으면 「모두 해제」
+    if (allOn()) FW.topicOn.clear();
+    else {
+      const n = able().length, w = wanted();
+      FW.topicOn.clear();
+      for (const t of w) FW.topicOn.add(t.key);
+      if (n > w.length) toast(`문서 라이브러리가 한 번에 ${FW_SCOPES}개까지 받습니다 — 복사할 수 있는 ${n}개 가운데 앞 ${w.length}개를 골랐습니다(나머지는 「모두 복사」 나 나눠 골라 복사)`);
+    }
+    sync();
+  }, { cls: "btn sm fw-top-all" });
+  const copyEvery = hBtn("모두 복사", () => { // 고른 것과 상관없이 복사할 수 있는 모든 줄
+    const lines = topics.map((t, i) => fwTopicLine(i)), ok = lines.filter((l) => l && l.length <= FW_SCOPE_MAX), over = lines.filter((l) => l.length > FW_SCOPE_MAX).length;
+    if (!ok.length) return;
+    fwCopy(ok.join("\n"), `범위 ${ok.length}줄을 모두 복사했습니다 — 문서 라이브러리의 「뽑을 범위」 에 붙여 넣으세요`
+      + (ok.length > FW_SCOPES ? ` · 문서 라이브러리는 한 번에 ${FW_SCOPES}줄까지 받습니다 — 나눠 붙여 넣으세요` : "")
+      + (over ? ` · ${FW_SCOPE_MAX}자를 넘는 ${over}줄은 뺐습니다` : ""));
+  }, { cls: "btn sm fw-top-copyall" });
+  const sync = () => { // 고른 것 · 앞말이 바뀔 때 — 미리보기 · 단추 · 줄마다의 체크 · 넘침 표시만 고친다(목록을 다시 그리지 않는다: 쓰던 글 · 굴린 자리)
+    const ls = chosen(), on = topics.filter((t) => FW.topicOn.has(t.key)).length, all = able().length, full = allOn();
     prev.replaceChildren(...(ls.length ? ls.map((l) => el("div", "fw-top-line", l)) : [el("div", "fw-top-line is-none", on ? "복사할 수 있는 줄이 없습니다" : "테마를 고르면 복사될 줄이 여기 보입니다")]));
-    copyAll.textContent = `고른 것 복사${ls.length ? ` (${ls.length})` : ""}`;
-    copyAll.disabled = !ls.length;
-    copyAll.title = ls.length ? `미리보기의 ${ls.length}줄을 복사합니다 — 문서 라이브러리의 「뽑을 범위」 에 붙여 넣으면 줄마다 범위 하나(= MD 하나)가 됩니다` : "테마를 고르세요";
-    rows.forEach(([row, i]) => row.classList.toggle("is-long", fwTopicLine(i).length > FW_SCOPE_MAX));
+    for (const b of [copyAll, copyTop]) {
+      b.textContent = `고른 것 복사${ls.length ? ` (${ls.length})` : ""}`;
+      b.disabled = !ls.length;
+      b.title = ls.length ? `미리보기의 ${ls.length}줄을 복사합니다 — 문서 라이브러리의 「뽑을 범위」 에 붙여 넣으면 줄마다 범위 하나(= MD 하나)가 됩니다` : "테마를 고르세요";
+    }
+    pickAll.textContent = full ? "모두 해제" : "모두 선택";
+    pickAll.disabled = !all && !on;
+    pickAll.title = full ? "고른 테마를 모두 풉니다" : !all ? (on ? "복사할 수 있는 줄이 없습니다 — 누르면 고른 것을 풉니다" : "복사할 수 있는 줄이 없습니다")
+      : all > FW_SCOPES ? `복사할 수 있는 테마 ${all}개 가운데 앞 ${FW_SCOPES}개를 고릅니다 — 문서 라이브러리가 한 번에 ${FW_SCOPES}개까지 받습니다` : `복사할 수 있는 테마 ${all}개를 모두 고릅니다`;
+    copyEvery.textContent = `모두 복사${all ? ` (${all})` : ""}`;
+    copyEvery.disabled = !all;
+    copyEvery.title = !all ? "복사할 수 있는 줄이 없습니다" : `고른 것과 상관없이 복사할 수 있는 ${all}줄을 모두 복사합니다` + (all > FW_SCOPES ? ` — 문서 라이브러리는 한 번에 ${FW_SCOPES}줄까지 받으니 나눠 붙여 넣습니다` : "");
+    rows.forEach(([row, i, cb]) => { row.classList.toggle("is-long", fwTopicLine(i).length > FW_SCOPE_MAX); cb.checked = FW.topicOn.has(topics[i].key); });
   };
   lead.addEventListener("input", () => { FW.lead = lead.value; sync(); });
   const leadRow = el("div", "fw-pad fw-top-leadrow"); leadRow.append(lead);
-  sec.append(leadRow);
+  const bar = el("div", "fw-pad fw-top-bar"); bar.append(pickAll, copyTop, copyEvery);
+  sec.append(leadRow, bar);
   topics.forEach((t, i) => {
     const row = el("div", "fw-top"), cb = el("input"), main = el("div", "fw-top-main"), head = el("div", "fw-top-head"), kws = el("div", "fw-top-kws");
     cb.type = "checkbox"; cb.checked = FW.topicOn.has(t.key); cb.setAttribute("aria-label", `${t.name} 고르기`);
@@ -586,7 +759,7 @@ function fwTopicsEl() { // 「양식 검토 · 작성 계획」 절 바로 아�
       main.append(pl);
     }
     row.append(cb, main);
-    rows.push([row, i]);
+    rows.push([row, i, cb]);
     sec.append(row);
   });
   const act = el("div", "fw-pad fw-top-acts");
@@ -598,18 +771,79 @@ function fwTopicsEl() { // 「양식 검토 · 작성 계획」 절 바로 아�
 }
 function fwRedraw() { fwTakeDraw(); fwWriteDraw(); }
 function fwShown() { const ps = (FW.gw && FW.gw.places) || []; return FW.onlyGuided ? ps.filter((p) => p.n || FW.picks.has(p.id)) : ps; }
+// ---- 절마다 「어느 단계의 결과 · 준비인가」(2026-11-24 사용자 「여기서 어떤 것의 결과다. 준비다 이런게 있어야 하는데 구분이 되질 않잖아」 — spec_양식작성 ② §6 「절의 단계 꼬리표」) ----
+// 한 열에 여러 단계의 것이 함께 선다: 결과 = 그 단계가 만든 것 · 준비 = 그 단계를 돌리기 전에 여기서 고르고 적는 것 · 실행 = 그 단계를 이 절의 단추로 돌린다.
+// 번호와 이름은 대시보드와 같은 셈(등록부 차례 · 고친 도구 이름 — dashboard.js dashModel) — 화면 글에 번호를 박지 않는다(단계가 늘면 어긋난다). 등록부를 못 읽었으면 꼬리표를 그리지 않는다.
+const FW_WHERE = { result: "결과", prep: "준비", run: "실행" };
+function fwStepNo(key) { // 대시보드 순서 번호 { no: "03", name } | null — 번호는 등록부 차례에서 센다(글에 박지 않는다)
+  const reg = typeof DASH === "object" && DASH.reg && (DASH.reg.tasks || []).find((t) => t.job === "form_write");
+  let i = 0;
+  if (reg) for (const g of reg.stages) for (const s of g.steps) { i += 1; if (s.key === key) return { no: String(i).padStart(2, "0"), name: s.name }; }
+  return null;
+}
+function fwStepRef(key) { const s = fwStepNo(key); return s ? `${s.no} ${s.name}` : ""; } // "05 양식 검토 · 찾을 테마" | ""
+// 「채울 자리」 줄의 꼬리표 — 뜻과 어느 단계에서 나오나(등록부 줄 key → 대시보드 순서 번호).
+// 2026-11-24 사용자 "채움, 쓸 자리, 지침 의미를 아래에 적어 주고 어디서 추출되었는디 번호를 넣어줘, 순서 번호가 있잖아" — 꼬리표 끝에 번호 · 절 아래에 범례(그 목록에 보이는 꼬리표만).
+// 근거: guide_write.places(자리 · slot · boxed · 지침 n — 헤딩 그래프 · form_slots · 저장한 작성 지침) · 사람 지침 = place_guides_api(05) · 초안 = guide_write_api 실행(11).
+const FW_TAGS = {
+  table:  { word: "표", cls: "", step: "heads", say: "작성 지침이 붙은 표 — 표 채우기로 씁니다" },
+  box:    { word: "상자", cls: "", step: "heads", say: "본문의 1칸 표(상자) 안에 쓸 줄이 있는 자리" },
+  chunks: { word: "쓸 자리 n", cls: "guide", step: "heads", say: "상자 안에서 글을 쓸 덩이(머리 줄 + 그 아래 줄)의 수 — 「쓸 자리 고르기」 에서 고릅니다" },
+  label:  { word: "같은 줄 뒤에 씀", cls: "guide", step: "heads", say: "「이름 :」 처럼 그 줄 뒤에 값을 이어 쓰는 줄" },
+  check:  { word: "표시 줄", cls: "guide", step: "heads", say: "□ 선택지 가운데 맞는 것에 표시하는 줄" },
+  filled: { word: "채움", cls: "user", step: "heads", say: "올린 양식에서는 쓸 자리였고 지금은 값이 든 줄 — 다시 쓰지 않습니다(고치려면 문서에서 직접)" },
+  boxed:  { word: "아래 상자는 따로", cls: "", step: "heads", say: "이 헤딩 아래의 쓸 자리는 상자 안에 있습니다 — 그 상자 줄을 고릅니다" },
+  guides: { word: "지침 n", cls: "guide", step: "heads", say: "이 자리에 붙은 작성 지침의 수(양식의 작성 요령 · 참고 · ※ 안내 · 각주) — 「작성 지침 보기」 로 펼칩니다" },
+  user:   { word: "사람 지침", cls: "user", step: "guides", say: "사람이 이 자리에 적은 작성 지침이 있음" },
+  text:   { word: "글 있음", cls: "", step: "", say: "헤딩 아래에 이미 본문 글이 있음(지금 문서)" },
+  draft:  { word: "초안 n", cls: "ok", step: "ask", say: "이 자리에 받은 초안의 수 · 받는 중 · 자료에 없음 같은 결과" },
+};
+function fwTagEl(key, text, cls, step) { // 꼬리표 하나 — 끝에 그 꼬리표가 나온 단계의 순서 번호(풍선 도움말 = 뜻 + 단계 이름)
+  const d = FW_TAGS[key] || {}, s = fwStepNo(step === undefined ? d.step : step), t = el("span", `fw-tag ${cls === undefined ? d.cls || "" : cls}`.trim(), text);
+  t.dataset.tag = key;
+  if (s) t.dataset.no = s.no; // 번호는 CSS ::after 로(꼬리표 글 = textContent 는 그대로 — 화면 검사 · 다른 코드가 글로 견준다)
+  t.title = [d.say, s ? `← ${s.no} ${s.name}` : ""].filter(Boolean).join("\n");
+  return t;
+}
+function fwLegendEl(keys) { // 절 아래의 범례 — 보이는 꼬리표만 · 꼬리표 · 뜻 · 나온 단계(순서 번호 + 이름)
+  const box = el("div", "fw-legend");
+  for (const k of Object.keys(FW_TAGS)) {
+    if (!keys.has(k)) continue;
+    const d = FW_TAGS[k], s = fwStepNo(d.step), row = el("div", "fw-legend-row"), chip = el("span", `fw-tag ${d.cls}`.trim(), d.word);
+    if (s) chip.dataset.no = s.no;
+    row.append(chip, el("span", "fw-legend-say", d.say), el("span", "fw-legend-from", s ? `← ${s.no} ${s.name}` : "지금 문서"));
+    box.append(row);
+  }
+  return box.childNodes.length ? box : null;
+}
+function fwWhereEl(parts) { // parts = [[결과|준비|실행 의 key, 등록부 줄 key], …] → 절 머리 아래 한 줄의 꼬리표들(없으면 null)
+  const box = el("span", "fw-where");
+  for (const [kind, key] of parts) {
+    const ref = fwStepRef(key);
+    if (!ref) continue;
+    const t = el("span", `fw-where-tag is-${kind}`);
+    t.dataset.where = `${kind}:${key}`;
+    t.title = kind === "result" ? `대시보드 「${ref}」 단계가 만든 것` : kind === "prep" ? `대시보드 「${ref}」 단계를 돌리기 전에 여기서 고르고 적는 것` : `대시보드 「${ref}」 단계를 이 절의 단추로 돌립니다`;
+    t.append(el("b", null, FW_WHERE[kind]), el("span", null, ref));
+    box.append(t);
+  }
+  return box.childNodes.length ? box : null;
+}
+function fwHead(h3, parts) { const w = fwWhereEl(parts); if (w) h3.append(w); return h3; }
 function fwWriteDraw() {
   if (heads.dlg !== "fwWrite") return;
   const body = $("headsDlgBody"), foot = $("headsDlgFoot"), gw = FW.gw;
   const keep = body.scrollTop, noteEl = body.querySelector(".fw-note");
   if (noteEl && document.activeElement === noteEl) return void fwFootDraw(foot); // 지침을 적는 동안에는 목록을 다시 그리지 않는다(쓰던 글 · 커서)
-  if (document.activeElement && (document.activeElement.classList.contains("fw-q-input") || document.activeElement.classList.contains("fw-top-lead")) && body.contains(document.activeElement)) return void fwFootDraw(foot); // 물음의 답 · 범위 앞에 붙일 말을 적는 동안에도
+  if (document.activeElement && ["fw-q-input", "fw-top-lead", "fw-gnote"].some((c) => document.activeElement.classList.contains(c)) && body.contains(document.activeElement)) return void fwFootDraw(foot); // 물음의 답 · 범위 앞에 붙일 말 · 자리 지침을 적는 동안에도
   body.replaceChildren();
   if (!gw) return void body.append(el("div", "fw-empty", FW.err || "읽는 중…"));
   if (gw.hwpx === false) return void body.append(el("div", "fw-empty", "지침 작성은 hwpx 문서만 됩니다."));
+  const takeBtn = document.querySelector("#headsDlg [data-fw-take]");
+  if (takeBtn) takeBtn.classList.toggle("primary", !gw.materials.length);
   // 자료
   const matSec = el("section", "fw-doc"), matBox = el("div", "fw-mats");
-  matSec.append(el("h3", null, "쓸 자료"));
+  matSec.append(fwHead(el("h3", null, "쓸 자료"), [["result", "take"], ["prep", "plan"]]));
   if (!gw.materials.length) matBox.append(el("span", "fw-muted", "자료가 없습니다 — 「자료 가져오기」 로 추출한 MD 를 가져오거나 에이전트 보기에서 파일 · 글을 자료로 주세요."));
   for (const m of gw.materials) {
     const lab = el("label", "fw-mat"), cb = el("input");
@@ -625,18 +859,26 @@ function fwWriteDraw() {
   note.rows = 3; note.maxLength = (gw.limits && gw.limits.note) || 1000; note.value = FW.note;
   note.placeholder = "이번 작성의 지침(선택) — 예: 한국선급이 맡은 내용만, 개조식으로 3~5줄, 2차년도 실적 위주로";
   note.addEventListener("input", () => { FW.note = note.value; });
-  noteSec.append(el("h3", null, "이번 작성의 지침"), note);
+  noteSec.append(fwHead(el("h3", null, "이번 작성의 지침"), [["prep", "ask"]]), note);
   // 자리
-  const plSec = el("section", "fw-doc"), head = el("h3", "fw-places-head"), only = el("label", "fw-mat"), onlyCb = el("input"), shown = fwShown();
+  const plSec = el("section", "fw-doc fw-places-sec"), head = el("h3", "fw-places-head"), only = el("label", "fw-mat"), onlyCb = el("input"), shown = fwShown();
   onlyCb.type = "checkbox"; onlyCb.checked = FW.onlyGuided;
   onlyCb.addEventListener("change", () => { FW.onlyGuided = onlyCb.checked; fwWriteDraw(); });
   only.append(onlyCb, el("span", null, "작성 지침이 있는 자리만"));
   const all = hBtn("모두 고르기", () => { for (const p of fwShown()) if (p.slot !== "filled" && !(p.kind === "head" && p.boxed && !p.slot)) FW.picks.add(p.id); fwWriteDraw(); }, { title: "보이는 자리를 모두 고릅니다(이미 채운 줄 · 쓸 자리가 아래 상자에 있는 헤딩은 빼고)" }), none = hBtn("모두 해제", () => { FW.picks.clear(); fwWriteDraw(); });
   head.append(el("span", null, `채울 자리 — ${shown.length}곳`), only, all, none);
-  plSec.append(head);
+  plSec.append(fwHead(head, [["run", "guides"], ["prep", "ask"]]));
+  if (FW.guideMode) { // 대시보드 「작성 지침 확인 · 적기」 로 왔다 — 이 절에서 하는 일을 한 줄로(그 밖의 절은 다른 단계의 것)
+    const tip = el("div", "fw-pad fw-gmode");
+    tip.append(el("span", null, "자리마다 「작성 지침」 을 펼쳤습니다 — 양식의 지침을 보고, 없거나 모자란 헤딩에는 그 자리의 칸에 적습니다. 표의 지침은 문서에서 그 표의 「지침」 단추로 적습니다."),
+      hBtn("지침 접기", () => { FW.guideMode = false; fwWriteDraw(); }, { cls: "btn sm" }));
+    plSec.append(tip);
+  }
   if (!shown.length) plSec.append(el("div", "fw-empty", gw.places.length ? "작성 지침이 붙은 자리가 없습니다 — 「작성 지침이 있는 자리만」 을 끄면 모든 헤딩이 보입니다. 헤딩에 지침을 적으려면 문서에서 그 헤딩의 「지침」 단추를 씁니다." : "본문 헤딩이 없습니다 — 헤딩 추출(기본 분석)이 끝났는지 확인하세요."));
   const ran = new Map(((gw.run && gw.run.items) || []).map((i) => [i.id, i]));
   for (const p of shown) plSec.append(fwPlaceEl(p, ran.get(p.id), foot));
+  const legend = fwLegendEl(new Set([...plSec.querySelectorAll(".fw-place-main > .fw-tags > [data-tag]")].map((t) => t.dataset.tag))); // 보이는 꼬리표의 뜻 · 나온 단계
+  if (legend) plSec.append(legend);
   body.append(...[matSec, fwReviewEl(), fwTopicsEl(), noteSec, plSec].filter(Boolean));
   body.scrollTop = keep;
   fwFootDraw(foot);
@@ -679,30 +921,54 @@ function fwPlaceEl(p, item, foot) {
   name.type = "button"; name.title = "문서의 그 자리로";
   name.addEventListener("click", () => scrollToBlock(p.id));
   row.style.setProperty("--fw-depth", String(Math.max(0, Math.min(5, (p.depth || 1) - 1))));
-  if (p.kind === "table") tags.append(el("span", "fw-tag", "표"));
-  if (p.kind === "box") tags.append(el("span", "fw-tag", "상자"), el("span", "fw-tag guide", `쓸 자리 ${(p.chunks || []).length}`));
-  if (p.slot === "label") tags.append(el("span", "fw-tag guide", "같은 줄 뒤에 씀"));
-  if (p.slot === "check") tags.append(el("span", "fw-tag guide", "표시 줄"));
-  if (p.slot === "filled") tags.append(el("span", "fw-tag user", "채움"));
-  if (p.boxed) tags.append(el("span", "fw-tag", "아래 상자는 따로"));
-  if (p.n) tags.append(el("span", "fw-tag guide", `지침 ${p.n}`));
-  if (p.user) tags.append(el("span", "fw-tag user", "사람 지침"));
-  if (p.filled) tags.append(el("span", "fw-tag", "글 있음"));
-  if (item) { const [word, cls] = FW_ITEM[item.state] || [item.state, ""]; const t = el("span", `fw-tag ${cls}`, item.state === "done" ? `초안 ${item.proposals}` : item.state === "none" ? FW_NONE[item.why] || word : word); t.title = item.error || item.note || item.reply || ""; tags.append(t); }
+  if (p.kind === "table") tags.append(fwTagEl("table", "표"));
+  if (p.kind === "box") tags.append(fwTagEl("box", "상자"), fwTagEl("chunks", `쓸 자리 ${(p.chunks || []).length}`));
+  if (p.slot === "label") tags.append(fwTagEl("label", "같은 줄 뒤에 씀"));
+  if (p.slot === "check") tags.append(fwTagEl("check", "표시 줄"));
+  if (p.slot === "filled") tags.append(fwTagEl("filled", "채움"));
+  if (p.boxed) tags.append(fwTagEl("boxed", "아래 상자는 따로"));
+  if (p.n) tags.append(fwTagEl("guides", `지침 ${p.n}`, undefined, (p.guides || []).some((g) => g.src !== "user") ? "heads" : "guides")); // 양식의 지침이 있으면 03 · 사람이 적은 것뿐이면 05
+  if (p.user) tags.append(fwTagEl("user", "사람 지침"));
+  if (p.filled) tags.append(fwTagEl("text", "글 있음"));
+  if (item) { const [word, cls] = FW_ITEM[item.state] || [item.state, ""]; const t = fwTagEl("draft", item.state === "done" ? `초안 ${item.proposals}` : item.state === "none" ? FW_NONE[item.why] || word : word, cls); const why = item.error || item.note || item.reply || ""; if (why) t.title = `${why}\n${t.title}`; tags.append(t); }
   main.append(name, tags);
   if (p.kind === "box" && (p.chunks || []).length) main.append(fwChunksEl(p, foot));
   const how = FW.fr && FW.fr.review && (FW.fr.review.places || {})[p.id];
-  if (how && how.how) { const h = el("div", "fw-how", `작성 방향: ${how.how}`); if (how.needs) h.title = `필요한 정보: ${how.needs}`; main.append(h); }
-  if (how && how.use) main.append(el("div", "fw-how fw-use", `자료에서 쓸 것: ${how.use}`)); // 작성 계획(자료를 주고 한 검토)
-  if (how && how.gap) main.append(el("div", "fw-how fw-gap", `자료에 없는 것: ${how.gap}`));
-  if (p.guides.length) {
-    const det = el("details", "fw-guides"), sum = el("summary", null, "작성 지침 보기");
+  // 자리 줄 안의 회색 글은 앞 단계의 결과다(작성 방향 = 양식 검토 · 쓸 것 · 없는 것 = 작성 계획) — 풍선 도움말에 그 단계를 밝힌다(절의 단계 꼬리표 · fwWhereEl)
+  const from = (key) => { const ref = fwStepRef(key); return ref ? `「${ref}」 의 결과` : ""; };
+  if (how && how.how) { const h = el("div", "fw-how", `작성 방향: ${how.how}`); h.title = [from("review"), how.needs ? `필요한 정보: ${how.needs}` : ""].filter(Boolean).join("\n"); main.append(h); }
+  if (how && how.use) { const u = el("div", "fw-how fw-use", `자료에서 쓸 것: ${how.use}`); u.title = from("plan"); main.append(u); } // 작성 계획(자료를 주고 한 검토)
+  if (how && how.gap) { const g = el("div", "fw-how fw-gap", `자료에 없는 것: ${how.gap}`); g.title = from("plan"); main.append(g); }
+  const writable = p.kind === "head"; // 사람이 적는 지침은 헤딩 자리에만(place_guides_api PUT …/heads — 표는 「이 표」 지침)
+  if (p.guides.length || (FW.guideMode && writable)) {
+    const det = el("details", "fw-guides"), sum = el("summary", null, p.guides.length ? "작성 지침 보기" : "작성 지침 적기");
+    det.open = !!FW.guideMode;
     det.append(sum);
     for (const g of p.guides) { const li = el("div", "fw-guide"); li.append(el("span", `fw-tag ${g.src === "user" ? "user" : "guide"}`, g.src === "user" ? "사람" : g.kind || "양식"), el("span", null, g.text)); det.append(li); }
+    if (FW.guideMode && writable) det.append(fwGuideNoteEl(p));
     main.append(det);
   }
   row.append(cb, main);
   return row;
+}
+function fwGuideNoteEl(p) { // 헤딩 자리에 사람이 적는 지침 — 문서의 「지침」 단추와 같은 저장(place_guides_api PUT …/heads/{pid} · 작업 폴더 guides_user.json · 빈 글 = 지움)
+  const box = el("div", "fw-gwrite"), ta = el("textarea", "fw-gnote"), mine = (p.guides.find((g) => g.src === "user") || {}).text || "";
+  ta.rows = 2; ta.maxLength = 2000; ta.value = mine;
+  ta.placeholder = "이 헤딩에 쓸 내용 · 분량 · 꼴 — 예: 기관별 역할을 개조식 3줄로, 금액은 천원 단위";
+  ta.setAttribute("aria-label", `${p.text} 의 작성 지침`);
+  const save = hBtn(mine ? "고쳐 저장" : "저장", async () => {
+    const text = ta.value.trim();
+    if (text === mine.trim()) return toast("바뀐 것이 없습니다");
+    try {
+      await api(`/api/docs/${state.id}/place-guides/heads/${encodeURIComponent(p.id)}`, { method: "PUT", headers: H_JSON, body: JSON.stringify({ text }) });
+      toast(text ? `「${p.text}」 의 작성 지침을 저장했습니다` : `「${p.text}」 에 적은 지침을 지웠습니다`);
+    } catch (e) { return toast(e.message || String(e), true); }
+    ta.blur();
+    await fwRead(true); fwRedraw();
+    if (typeof dashDraw === "function") dashDraw();
+  }, { cls: "btn sm primary", title: "이 헤딩에 지침을 저장합니다 — 양식 검토 · 초안 작성이 이 자리의 지침으로 읽습니다(문서는 안 바뀜 · 비우고 저장하면 지움)" });
+  box.append(ta, save);
+  return box;
 }
 function fwFootDraw(foot) {
   if (!foot || heads.dlg !== "fwWrite") return;

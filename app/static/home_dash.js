@@ -33,7 +33,7 @@ const HD_HELP = "대시보드에서 워크플로우의 단계와 진행 상황�
   + "꼬리표 아이콘 — 사람(파랑) · 스크립트(</>) · LLM(보라 반짝임) · 문서 바뀜(주황 문서+연필) — 마우스를 올리면 이름이 보입니다. 「필수」 는 해야 다음으로 가는 단계, 점선 단계(「선택」)는 안 해도 되는 단계, 「준비 중」 은 아직 없는 단계입니다.";
 // 그리기 문맥 — 패널 대시보드와 같은 그리기(dashboard.js dashGroupsEl · dashNodeEl · dashDetailEl · dashMemoEl)를 이 보기의 초점 이름 · 펴고 접기로 쓴다.
 // 끝난 수 = 서버가 센 줄 가운데 필수 줄(준비 줄 포함 — 패널 대시보드의 셈과 같다: 「1단계 문서 검토 1/3」). 서버가 안 맡은 묶음의 줄은 상태가 없어 세지 않는다(「n개 단계」)
-const HD_CTX = { focus: "hdFocus", id: "homeDashD", panel: false, counted: (n) => !n.optional && !n.soon && !!n.live,
+const HD_CTX = { focus: "hdFocus", id: "homeDashD", panel: false, job: () => HD.job, counted: (n) => !n.optional && !n.soon && !!n.live,
   toggle: (key, open) => { HD.open = open ? "" : key; homeDashDraw(true); }, go: (key) => { HD.open = key; homeDashDraw(true); } };
 
 const hdBox = () => $("homeDash");
@@ -827,7 +827,7 @@ function hdLiveParts() { // ③ 시작한 뒤 — 서버가 센 상태 그대로
   more.dataset.hdFocus = "more";
   const resetOff = active ? "지금 도는 실행이 끝난 뒤에 초기화하세요 — 「멈춤」 으로 멈출 수 있습니다" : HD.busy ? "지금 하는 일이 끝난 뒤에 누르세요" : ""; // 작업 내용 초기화(dashboard.js — 패널 대시보드와 같은 것: 문서마다 · 모두)
   parts.push(hdFootEl(more, hdAgainBtn(job, active), hdOtherBtn("이 대시보드를 비우고 새 워크플로우를 고릅니다 — 왼쪽에 문서를 놓고 워크플로우를 골라 시작합니다(지금 작업의 문서 · 결과 · 도는 실행은 그대로 — 작업 리스트에서 다시 열 수 있습니다)", false, "새 워크플로우 시작"),
-    ...dashResetParts(HD.reset, { wid: tid, off: resetOff, redraw: () => homeDashDraw(true), done: () => hdRead(), focusAttr: "hdFocus" })));
+    ...dashResetParts(HD.reset, { wid: tid, off: resetOff, redraw: () => homeDashDraw(true), done: () => hdRead(), focusAttr: "hdFocus", say: dashResetSay(job) }))); // say — 양식 작성에서만 이름이 「전체 초기화…」(패널 대시보드와 같게 — dashboard.js DASH_RESET_ALL)
   return parts;
 }
 
@@ -843,8 +843,15 @@ function hdLostParts(st) { // ④ 못 찾음(지웠거나 서버가 옛 판) · 
 function homeDashDraw(force = false) {
   const box = hdBox();
   if (!box) return;
-  const D = homeDashDocs(), docKey = D ? JSON.stringify([D.job, D.name, D.rows, D.state]) : ""; // 왼쪽 목록이 비어 있으면 거기 보이는 대시보드의 문서(ⓐ) · 진행(「완료」) — 바뀌었을 때만 목록을 다시 그린다
-  if (docKey !== HD.docKey) { HD.docKey = docKey; if (typeof homeFilesDraw === "function" && typeof hfHas === "function" && !hfHas()) homeFilesDraw(); }
+  // 왼쪽 목록이 비어 있으면 거기 보이는 대시보드의 문서(ⓐ) · 진행(「완료」) · 프로젝트 줄(작업 목록에서 읽음 — 목록이 늦게 오면 「프로젝트 없음」 으로 남았다) — 바뀌었을 때만 목록을 다시 그린다.
+  // 최근 작업의 「지금 대시보드」 표지(app.js recentDashIds)도 이때 다시 그린다
+  const D = homeDashDocs(), tid = D ? (D.rows.find((r) => r.role === "target") || {}).id || "" : "", tw = tid && typeof worksList !== "undefined" ? worksList.find((x) => x.id === tid) : null;
+  const docKey = JSON.stringify([HD.wid, D ? [D.job, D.name, D.rows, D.state] : 0, tw ? [(tw.task || {}).project || "", (tw.task || {}).round || 1] : 0]);
+  if (docKey !== HD.docKey) {
+    HD.docKey = docKey;
+    if (typeof homeFilesDraw === "function" && typeof hfHas === "function" && !hfHas()) homeFilesDraw();
+    if (!state.id && typeof renderRecentWorks === "function" && typeof recentShown !== "undefined" && recentShown.length) renderRecentWorks($("workList"), recentShown);
+  }
   const a = document.activeElement;
   if (!force && a && a.tagName === "SELECT" && box.contains(a)) return; // 고르기 목록에 초점이 있는 동안은 다시 그리지 않는다(펼친 목록이 닫힌다) — 고르거나 초점이 떠나면 그린다
   // 등록부 — 페이지에 한 번 읽는다(패널 대시보드와 같이 쓴다). 읽어 둔 등록부에 고른 워크플로우가 없으면(이 화면을 연 뒤에 조립한 워크플로우) 그 워크플로우마다 한 번 다시 읽는다(dashboard.js dashCatalogChanged)

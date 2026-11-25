@@ -200,6 +200,31 @@ def main():
         page.click('#paneDash .dash-node[data-key=values] .dash-node-head')
         page.wait_for_selector('#paneDash .dash-node[data-key=values] .dash-detail')
 
+        # ---- 메모 「고치기」(spec_워크플로우 ② §18-26 — 2026-11-24 사용자 「이거 수정할 수 있도록 해줘」): 풍선 → 폼 → 저장 → 메모가 새 글 · 밖을 눌러도 폼은 그대로 · 「모두 기본 글로」
+        memo_help = lambda: page.evaluate("() => document.querySelector('#paneDash .dash-node[data-key=plan] .dash-memo').dataset.help")
+        before = memo_help()
+        page.click('#paneDash .dash-node[data-key=plan] .dash-memo')
+        page.click('#panelHelpTooltip .panel-help-foot .panel-help-edit')
+        page.wait_for_selector('#panelHelpTooltip form.panel-help-form textarea[name=does]')
+        page.fill('#panelHelpTooltip textarea[name=does]', "  고친   하는 일 글 ")
+        page.fill('#panelHelpTooltip textarea[name=stop]', "고친 멈춤 글")
+        page.mouse.click(5, 5)   # 밖을 눌러도(고치는 중) 닫지 않는다
+        still = page.evaluate("() => !!document.querySelector('#panelHelpTooltip:not([hidden]) form.panel-help-form') && document.querySelector('#panelHelpTooltip').getAttribute('role') === 'dialog'")
+        page.screenshot(path=str(OUT / "01b_memo_edit.png"))
+        page.click('#panelHelpTooltip .panel-help-form-acts .panel-help-edit.primary')
+        page.wait_for_function("(b) => { const m = document.querySelector('#paneDash .dash-node[data-key=plan] .dash-memo'); return m && m.dataset.help !== b; }", arg=before, timeout=15000)
+        after = memo_help()
+        saved = requests.get(f"{base}/api/step-texts", timeout=30).json()["texts"]
+        page.click('#paneDash .dash-node[data-key=plan] .dash-memo')
+        page.click('#panelHelpTooltip .panel-help-foot .panel-help-edit')
+        page.wait_for_selector('#panelHelpTooltip .panel-help-edited')
+        marks = page.evaluate("() => [...document.querySelectorAll('#panelHelpTooltip .panel-help-field')].filter((f) => f.querySelector('.panel-help-edited')).map((f) => f.querySelector('textarea').name)")
+        page.click('#panelHelpTooltip .panel-help-form-acts .panel-help-edit:has-text("모두 기본 글로")')
+        page.wait_for_function("(b) => document.querySelector('#paneDash .dash-node[data-key=plan] .dash-memo')?.dataset.help === b", arg=before, timeout=15000)
+        check("메모 「고치기」 — 풍선이 폼(밖을 눌러도 그대로) · 저장하면 메모가 새 글(빈칸 정리) · 고친 칸에 「고침」 · 「모두 기본 글로」 면 처음 글",
+              still and "하는 일 — 고친 하는 일 글" in after and "멈추는 때 — 고친 멈춤 글" in after and saved == {"plan_fit.plan": {"does": "고친 하는 일 글", "stop": "고친 멈춤 글"}}
+              and sorted(marks) == ["does", "stop"] and requests.get(f"{base}/api/step-texts", timeout=30).json()["texts"] == {}, [still, after[:200], saved, marks])
+
         doc = page.evaluate("state.id")
         rev0 = requests.get(f"{base}/api/docs/{doc}/agent", timeout=30).json()["rev"]
 

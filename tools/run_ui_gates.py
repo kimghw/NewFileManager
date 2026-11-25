@@ -174,7 +174,7 @@ def free_port(start, taken):
     return p
 
 
-STATE = ("tasks.json", "form_files", "agent_notes.json", "requirements.json", "tool_names.json")   # 아래 env 가 가리키는 검사마다의 임시 설정 — 시작할 때 비운다
+STATE = ("tasks.json", "form_files", "agent_notes.json", "requirements.json", "tool_names.json", "step_texts.json")   # 아래 env 가 가리키는 검사마다의 임시 설정 — 시작할 때 비운다
 
 
 def start(name, port, tag=""):
@@ -190,6 +190,7 @@ def start(name, port, tag=""):
                                  "NFM_FORM_FILES": str(d / "form_files"),   # 저장한 양식 · 워크플로우마다의 양식 설정(② §18-9)도 — 사용자가 건 고정 양식이 검사의 시작 길을 막지 않게
                                  "NFM_AGENT_NOTES": str(d / "agent_notes.json"),   # 에이전트에 덧붙이는 글(spec_에이전트 ② §6)도 검사마다 임시 파일 — 사용자가 적어 둔 글이 검사에 섞이거나 검사가 그 파일을 고치지 않게
                                  "NFM_REQS": str(d / "requirements.json"),   # 사용자 요구사항(spec_워크플로우 ② §18-20)도 검사마다 임시 파일 — 저장소의 reqs/requirements.json 을 검사가 고치지 않고, 적힌 요구사항의 수 · 아이콘이 다른 검사에 섞이지 않게
+                                 "NFM_STEP_TEXTS": str(d / "step_texts.json"),   # 사람이 고친 단계 설명(② §18-26)도 검사마다 임시 파일
                                  "NFM_TOOL_NAMES": str(d / "tool_names.json"),   # 사람이 고친 도구 이름(spec_워크플로우 ② §18-19)도 검사마다 임시 파일 — 사용자가 고친 이름이 줄 이름을 견주는 검사에 섞이지 않게
                                  "NFM_LINE_TIDY": str(d / "line_tidy.json"),   # 줄 정리 규칙(spec_줄정리 ② §6)도 — 검사가 사용자의 규칙을 고치지 않게
                                  "NFM_DOCLIB": str(d / "doclib"), "NFM_DOCLIB_URL": "http://127.0.0.1:9"},   # 문서 라이브러리 서버(spec_양식작성 ② §2 · §4)의 저장소 · 주소도 — 검사가 사용자의 자료 문서를 건드리거나 켜져 있는 실제 서버를 읽지 않게(그 서버를 보는 검사는 스스로 띄워 주소를 건다)

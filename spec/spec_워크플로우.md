@@ -333,6 +333,9 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
 - 2026-11-24 사용자 "워크플로우에 문서양식을 주고 LLM을 이용해서 문서양식을 작성해주는 TASK 를 만들고 싶음 …" · "이 문서 관리 라이브러리는 별도 서버에서 관리해도 될거 같은데? … 자료추출도 같이 좀분리하고" → 등록부에 워크플로우 **「양식 작성」**(`form_write` — 준비 › 자료 준비 › 지침 작성)과
   도구 둘(`doclib` 「문서 라이브러리 · 자료 추출(MD)」 — 따로 선 서버 8121 · `guidewrite` 「지침 작성」)을 더함. 화면이 도는 워크플로우다(서버 실행 단위 · 조립 틀 없음 — 문서 일반 편집과 같은 꼴). 원본 [spec_양식작성.md](spec_양식작성.md).
 
+- 2026-11-24 (newfilemanager-8c) 사용자(대시보드 단계 카드의 메모 풍선 「LLM 검증·보완 — 하는 일 · 나오는 것 · 하려면 · 끝난 것으로 보는 때 · 멈추는 때」 를 보이며) **"이거 수정할 수 있도록 해줘,"**
+  → 메모 풍선 맨 아래 「고치기」 → 풍선이 폼(글 여섯) · 저장하면 그 워크플로우 그 단계의 화면 설명이 바뀜(이 PC 의 설정 · 등록부의 글 = 기본 글은 그대로) — ② §18-26 · ③ 같은 날. 묻지 않고 정한 것(권장대로)은 그 절 끝줄.
+
 ## ② 확정 사양
 
 ### 1. 등록부 (`app/workflow.py`)
@@ -1745,7 +1748,20 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   번호형으로 읽히지 않았다. `outline_match.match_one` 은 줄의 레터와 대표의 레터에 **둘 다 번호가 있으면** 키와 상관없이 대표 꼴에 **제 번호**를 넣는다(「(2-1)」 그대로 · 「5-1」 → 「5-1.」 — 전부터 있던 버그 · 모든 맞추기에 같다).
 - 에이전트 판단(사용자 확인 전): 반영을 그 LLM 줄 안에서 한 것(따로 선 줄을 두지 않음) · 받은 계획이 없을 때 새로 받지 않는 것 · 남긴 것을 「남김」 으로 둔 것 · 끝남의 셈에 반영 여부를 넣지 않은 것(④) · 붙박이 이관의 1단계도 원본 문서를 정리하는 것.
 
+#### 18-26. 「단계 설명 고치기」 — 대시보드 단계 메모의 글을 화면에서 고친다(2026-11-24 사용자(메모 풍선 「LLM 검증·보완」 을 보이며) 「이거 수정할 수 있도록 해줘,」 — ① 같은 날)
+
+- **어디서**: 두 대시보드(패널 · 첫 화면)의 단계 카드 이름 옆 메모 아이콘 → 풍선 맨 아래 **「고치기」** → 풍선이 폼이 된다(`panel_help.js` `hHelp(…, {edit})` · `panelHelpEdit` — 고치는 동안은 마우스가 떠나거나 밖을 눌러도 닫지 않는다 · Esc · 「취소」 가 닫는다).
+  칸 여섯 = 하는 일 · 나오는 것 · 하려면 · 끝난 것으로 보는 때 · 멈추는 때 · 남기는 것 · 보정(등록부 줄의 `does` · `out` · `need` · `done` · `stop` · `left`). 고친 칸에 「고침」 + 「기본 글로」 · 「모두 기본 글로」. 빈 칸 = 기본 글.
+- **단위**: 워크플로우 키 + 줄 key(같은 줄 key 라도 워크플로우마다 설명이 따로다 — 도구 이름(§18-19)과 다르다). 등록부에 있는 단계만(조립한 워크플로우 포함 · 서버가 낸 줄만 있는 카드는 「고치기」 없음).
+- **저장** = 이 PC 의 사용자 설정 `step_texts.json`(`app/step_texts.py` · env `NFM_STEP_TEXTS` — 시험 · 화면 검사는 임시 파일) · 끝점 `app/step_texts_api.py`(`GET /api/step-texts` · `PUT|DELETE /api/step-texts/{워크플로우}/{줄}`). 글은 한 줄로 다듬는다(메모가 줄마다 「이름 — 글」 로 그린다) · 1500자까지.
+- **얹는 곳은 등록부 응답 하나**(`workflow.listing` 의 `_texted` — 두 대시보드의 메모 · `/workflow` 의 단계 글 · 고친 줄에 `baseText`). **등록부의 글은 「기본 글」 이고 그대로다** — 만든 글(workflow.md · tasks/<job>.md) · 작업 진행 에이전트의 참조 글 · LLM 프롬프트는 기본 글(어느 PC 에서나 같은 글 — §18-19 와 같은 원칙).
+  사용자가 고친 글을 등록부의 기본 글로 올리고 싶다고 하면 그때 `app/workflow.py` 의 그 줄을 고치고 만든 글을 다시 만든다.
+- 에이전트 판단(사용자 확인 전 — 권장대로 정함): 도구 이름처럼 이 PC 의 설정에 둔 것(저장소 · 등록부를 고치지 않음) · 단위를 워크플로우 + 줄로 둔 것 · 만든 글 · 에이전트는 기본 글 그대로 둔 것 · 계정(NFM_AUTH)과 무관하게 이 PC 전체에 하나인 것 · 고치는 곳을 메모 풍선 안의 폼으로 둔 것.
+
 ## ③ 구현 상태
+
+- 2026-11-24 **단계 설명 고치기**(① 같은 날 · ② §18-26 — newfilemanager-8c): `app/step_texts.py` · `app/step_texts_api.py` · `workflow._texted` · `_step` 의 `baseText` · `server.py` include / `panel_help.js` `hHelp` edit · `panelHelpEdit` · `panel_help.css` / `dashboard.js` `dashMemoEl` · `dashMemoEdit` · `dashMemoSave` · `DASH_CTX.job` · `home_dash.js` `HD_CTX.job` /
+  시험 `tests/test_step_texts.py` · 화면 검사 `smoke_dash_ui.py`(메모 「고치기」 → 저장 → 기본 글로) · env `NFM_STEP_TEXTS`(`tests/conftest.py` · `tools/run_ui_gates.py`).
 
 - 2026-11-22 **LLM 검증·보완 뒤 서식 정리 반영**(① 같은 날 · ② §18-25 — newfilemanager-d1): `workflow_exec._adjust_doc`(문서 하나의 `_do_std_adjust` 몸을 뗌 · `fresh_only`) · `_tidy_after` · `_do_heads_llm` · `_reheads_llm_doc` · `_commit_docs` · `_together` · `_clash` /
   `workflow_units.TIDY_ROLES` · `changes` · `std_adjust_state`(`_s_adjust` 의 몸) · COMMON headsLlm · reheadsLlm change doc · SOURCE_FIT · `_llm_one` 글 / `custom_tasks.check` 경고 / 등록부 글(`workflow._st_review` · `_st_fit` · `_st_fit_on`) · `unit_help` /

@@ -2,6 +2,7 @@
 hwpx 문서만 · 어느 워크플로우의 문서에서나(공통 모듈 — 워크플로우 「양식 작성」 이 쓴다).
 
 - `GET /api/doclib` → {url, alive, why, llm, docs[{id, name, ext, pages, org, topic, bytes, sha256, raw(원본을 글로 읽어 자료로 줄 수 있나), running, extracts[끝난 것 — {id, focus, span, at, chars, figures, formulas, open}]}]} — 문서 라이브러리 서버의 문서 · 추출 목록(그 서버가 꺼져 있으면 alive false + 까닭).
+- `POST /api/doclib/docs`(multipart file) → 그 서버의 {doc, created} — 자료(참조) 문서를 문서 라이브러리에 올린다(양식 작성의 「참조 문서 올리기…」 — 새 탭 없이 · 추출은 그 서버에서).
 - `POST /api/docs/{id}/agent/material/library` {extract} → 그 추출의 MD 를 이 문서의 **자료**로 가져온다(에이전트 보기의 자료와 같은 저장소 · 같은 꼴 — 같은 것이 있으면 그것: reused) → 자료 보기.
   {doc}(extract 없이) → 등록한 문서의 **원본 파일**을 글로 읽어 자료로(추출 전인 문서 — pdf · docx · hwpx · 20 MB 까지: hwp 는 400). 고르는 곳 = 에이전트 보기의 「라이브러리」(doc_agent.js) · 2열 「자료 가져오기」(form_write.js — 추출만).
 - `GET /api/docs/{id}/guide-write` → {hwpx, enabled(LLM), places[자리 — guide_write.places], materials[자료 보기], run(도는 · 마지막 실행 | null), limits{places, note}}. 문서 안 바뀜.
@@ -16,7 +17,8 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app import agent_notes, doc_agent, doclib_client, form_review, form_review_api, guide_write, llm, works
@@ -61,6 +63,28 @@ def doclib_list():
     except (doclib_client.Down, LookupError) as e:
         out.update(alive=False, why=str(e))
     return out
+
+
+@router.post("/api/doclib/docs")
+async def doclib_upload(request: Request):
+    """자료(참조) 문서를 문서 라이브러리 서버에 올린다(multipart file) → 그 서버의 {doc, created} — 양식 작성의 「문서 올리기 · 첫 분석」 줄의 「참조 문서 올리기…」(새 탭 없이).
+    400: 받지 않는 형식 · 그 서버가 거절 · 413: 80 MB 초과 · 502: 그 서버에 닿지 못함. 올리기만 — 추출은 그 서버의 화면에서."""
+    form = await request.form()
+    f = form.get("file")
+    if f is None or not hasattr(f, "read"):
+        raise HTTPException(400, "file 이 필요합니다")
+    name = f.filename or "문서"
+    if name.rsplit(".", 1)[-1].lower() not in doclib_client.UPLOAD_EXT:
+        raise HTTPException(400, f"받는 형식은 {' · '.join(doclib_client.UPLOAD_EXT)} 입니다")
+    data = await f.read(doclib_client.UPLOAD_MAX + 1)
+    if len(data) > doclib_client.UPLOAD_MAX:
+        raise HTTPException(413, f"파일은 {doclib_client.UPLOAD_MAX // 2 ** 20} MB 까지입니다")
+    try:
+        return await run_in_threadpool(doclib_client.upload, name, data)
+    except doclib_client.Down as e:
+        raise HTTPException(502, str(e)) from e
+    except LookupError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/api/docs/{doc_id}/agent/material/library")
@@ -207,12 +231,83 @@ def _place_view(p):
 def guide_write_get(doc_id: str):
     s = _sess(doc_id)
     if s.fmt != "hwpx":
-        return {"hwpx": False, "enabled": False, "places": [], "materials": [], "run": None, "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
+        return {"hwpx": False, "enabled": False, "places": [], "materials": [], "run": None, "steps": steps_of(s.id), "libFrom": lib_from(s.id), "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
     ps, rev = _places(s)
     with _LOCK:
         run = _run_view(_RUNS.get(s.id))
     return {"hwpx": True, "enabled": bool(llm.status()["available"]), "rev": rev, "places": [_place_view(p) for p in ps], "materials": [doc_agent.material_view(m) for m in doc_agent.Store(s.id).materials()],
-            "run": run, "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
+            "run": run, "steps": steps_of(s.id), "libFrom": lib_from(s.id), "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
+
+
+# ---- 선택 줄의 표시(2026-11-24 사용자 「전체 초기화를 했는데 1,2 번은 끝났다고 했는데 3,4번이 지나가지 않았는데 왜 5로 오냐 순서가 안맞음」 — spec_양식작성 ② §6 「선택 줄도 차례에」) ----
+# 양식 작성의 선택 줄(「LLM 검증·보완」 · 「작성 지침 확인 · 적기」)은 차례대로 「지금」 이 서고, 사람이 「건너뛰기」 · 「확인함」 을 눌러야 지나간다 — 그 표시를 작업 폴더에 둔다
+# (작업 내용 초기화 · 준비 초기화는 작업 폴더를 reset/<n>/ 으로 옮기므로 표시도 함께 비워진다). 문서는 안 바뀐다.
+STEP_FILE = "form_write_steps.json"
+STEP_MARKS = {"headsLlm": ("skip",), "guides": ("done", "skip"), "keep": ("done",), "extract": ("done",)}   # 줄 key → 받을 표시(skip = 건너뜀 · done = 확인함 · keep · extract 의 done = 「있는 것 쓰기」)
+LIB_FROM = "libFrom"   # 자료 준비(06 · 07)를 이 문서의 몫으로 세는 기준 시각 — 「2단계 초기화」 가 적는다(그 밖의 초기화는 reset/<n>/ 의 시각)
+
+
+def lib_from(wid) -> float:
+    """06 「자료 문서 올리기」 · 07 「자료 추출」 을 이 문서의 몫으로 세는 기준 시각(epoch 초) — 작업을 만든 때 · 마지막 작업 내용 초기화 · 「2단계 초기화」 가운데 늦은 것.
+    문서 라이브러리는 모든 작업이 같이 쓰는 서버라, 그 서버에 문서가 있다고 이 문서의 06 · 07 을 끝남으로 세면 초기화해도 끝남이 남는다(2026-11-24 사용자 「초기화 할때 5,6 도 아직 안했다고 나와야지」)."""
+    d = works.folder(wid)
+    if d is None:
+        return 0.0
+    w = works.work(wid) or {}
+    at = [float(w.get("created") or 0)]
+    box = d / "reset"
+    if box.is_dir():
+        at += [p.stat().st_mtime for p in box.iterdir() if p.name.isdigit()]
+    try:
+        got = json.loads((d / STEP_FILE).read_text(encoding="utf-8")) if (d / STEP_FILE).exists() else {}
+        if isinstance(got, dict) and isinstance(got.get(LIB_FROM), (int, float)):
+            at.append(float(got[LIB_FROM]))
+    except (OSError, ValueError):
+        pass
+    return max(at)
+
+
+def steps_of(wid) -> dict:
+    """{줄 key: "skip" | "done"} — 없거나 못 읽으면 빈 사전."""
+    d = works.folder(wid)
+    p = d / STEP_FILE if d is not None else None
+    try:
+        got = json.loads(p.read_text(encoding="utf-8")) if p is not None and p.exists() else {}
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in got.items() if isinstance(got, dict) and k in STEP_MARKS and v in STEP_MARKS[k]} if isinstance(got, dict) else {}
+
+
+def _steps_write(d, marks, lib=None):
+    """표시를 쓴다 — 파일의 기준 시각(libFrom)은 그대로 두거나(lib=None) 새 값으로."""
+    p = d / STEP_FILE
+    try:
+        old = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (OSError, ValueError):
+        old = {}
+    keep = lib if lib is not None else (old.get(LIB_FROM) if isinstance(old, dict) else None)
+    p.write_text(json.dumps({**marks, **({LIB_FROM: keep} if keep is not None else {})}, ensure_ascii=False), encoding="utf-8")
+
+
+@router.put("/api/docs/{doc_id}/form-write/step")
+def form_write_step(doc_id: str, body: dict = Body(...)):
+    """선택 줄의 표시 {key, mark: "skip" | "done" | null(지움)} → {steps}. 400 = 모르는 줄 · 표시 · 작업 저장이 꺼짐."""
+    key, mark = body.get("key"), body.get("mark")
+    if key not in STEP_MARKS or (mark is not None and mark not in STEP_MARKS[key]):
+        raise HTTPException(400, f"key 는 {' · '.join(STEP_MARKS)} · mark 는 그 줄이 받는 표시 또는 null 입니다")
+    s = _sess(doc_id)
+    d = works.folder(s.id)
+    if d is None or not d.is_dir():
+        raise HTTPException(400, "작업 저장이 꺼진 문서는 표시를 남길 수 없습니다")
+    with _LOCK:
+        cur = steps_of(s.id)
+        if mark is None:
+            cur.pop(key, None)
+        else:
+            cur[key] = mark
+        _steps_write(d, cur)
+    works.log(s.id, "formWriteStep", key=key, mark=mark)
+    return {"steps": cur}
 
 
 def _one(doc_id, place, head_text, mids, note, run):
@@ -334,6 +429,11 @@ def form_write_reset(doc_id: str, body: dict = Body(...)):
         mids = [m["id"] for m in store.materials()]
         for mid in mids:
             store.drop_material(mid)
+        d = works.folder(s.id)
+        if d is not None and d.is_dir():   # 06 · 07 도 「아직 안 함」 으로 — 기준 시각을 지금으로 · 「있는 것 쓰기」 표시를 지움(문서 라이브러리의 문서 · 추출은 그대로)
+            with _LOCK:
+                cur = {k: v for k, v in steps_of(s.id).items() if k not in ("keep", "extract")}
+                _steps_write(d, cur, lib=round(time.time(), 3))
         works.log(s.id, "formWriteReset", stage=stage, materials=len(mids))
         return {"stage": stage, "materials": len(mids)}
     from app import server

@@ -1,7 +1,8 @@
 """문서 라이브러리 서버(doclib/ — 따로 선 서버 · 포트 8121)를 HTTP 로 읽는 얇은 손님(spec_양식작성 ② §4). 그 서버의 파일 · 함수를 가져오지 않는다 — 주소만 안다.
 
 - 주소 = env NFM_DOCLIB_URL | `http://127.0.0.1:<NFM_DOCLIB_PORT | 8121>`. 그 서버가 꺼져 있으면 `Down`(화면이 「문서 라이브러리 서버가 꺼져 있습니다」 로 알린다 — 8114 는 그대로 돈다).
-- `health()` · `docs()` · `extract(eid)` · `md(eid)` · `file(did, limit)`(등록한 원본 파일 — 이름 · 바이트) — 읽기만(추출을 시작 · 지우는 것은 그 서버의 화면에서)."""
+- `health()` · `docs()` · `extract(eid)` · `md(eid)` · `file(did, limit)`(등록한 원본 파일 — 이름 · 바이트) — 읽기 · `upload(name, data)` — 자료 문서 올리기 하나(양식 작성의 「참조 문서 올리기…」).
+  추출을 시작 · 지우는 것은 그 서버의 화면에서."""
 import json
 import os
 import re
@@ -98,3 +99,32 @@ def file(did, limit):
         raise TooBig(f"원본 파일이 너무 큽니다({limit // 2 ** 20} MB 까지)")
     m = re.search(r"filename\*=UTF-8''([^;]+)", head.get("content-disposition") or "", re.I)
     return (urllib.parse.unquote(m.group(1).strip()) if m else None), data
+
+
+UPLOAD_EXT = ("pdf", "hwpx", "hwp", "docx")   # 그 서버가 받는 형식(doclib/store.py EXTS — 화면이 먼저 거른다 · 판정은 그 서버)
+UPLOAD_MAX = 80 * 2 ** 20                     # 그 서버의 한도(store.MAX_BYTES)
+
+
+def upload(name, data):
+    """자료 문서를 그 서버에 올린다(POST /api/docs multipart) → {doc, created}. 2026-11-24 사용자 「문서 올리기, 첫분석에서 … 참조문서 올리기 기능이 있어야지」 —
+    양식 작성 대시보드에서 새 탭 없이 올린다(spec_양식작성 ② §6 「워크플로우 개요 · 문서 칸」). 올리기만 — 추출을 시작 · 지우는 것은 전처럼 그 서버의 화면에서.
+    그 서버가 거절하면 LookupError(그 서버의 글) · 꺼졌으면 Down."""
+    boundary = "nfm" + os.urandom(12).hex()
+    fname = (name or "문서").replace('"', "'").replace("\r", " ").replace("\n", " ")
+    head = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{fname}\"; filename*=UTF-8''{urllib.parse.quote(fname)}\r\n"
+            "Content-Type: application/octet-stream\r\n\r\n").encode("utf-8")
+    body = head + data + f"\r\n--{boundary}--\r\n".encode("ascii")
+    req = urllib.request.Request(url() + "/api/docs", data=body, method="POST", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=120.0) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("detail")
+        except Exception:   # noqa: BLE001
+            detail = None
+        raise LookupError(detail or f"문서 라이브러리 서버의 응답 {e.code}") from e
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        raise Down(f"문서 라이브러리 서버({url()})에 닿지 못했습니다") from e
+    except ValueError as e:
+        raise Down("문서 라이브러리 서버의 응답을 읽지 못했습니다") from e

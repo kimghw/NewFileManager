@@ -178,6 +178,10 @@
 .recent-work-arrow { color: #0066cc; font-size: 11px; white-space: nowrap; }
 /* 같은 프로젝트 · TASK 의 문서 여럿 = 한 줄(spec_작업 ② §7, 2026-11-13) — Round 표지(2 부터) · 넷째 줄 = 나머지 문서로 바로 가는 단추(왼쪽 = 줄 여백 + 로고 + 간격 — 본문 열에 맞춤) */
 .recent-work-round { flex: none; padding: 2px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 600; line-height: 1.5; white-space: nowrap; color: #6e6e73; background: #f5f5f7; }
+/* 오른쪽 대시보드가 보이는 작업의 줄(app.js recentDashIds — 2026-11-25) — 왼쪽 파랑 띠 + 표지 「지금 대시보드」 */
+.recent-work-dash { flex: none; padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600; line-height: 1.5; white-space: nowrap; color: #fff; background: #0071e3; }
+.recent-work.on-dash .recent-work-open { box-shadow: inset 3px 0 0 #0071e3; background: #f5f9ff; }
+.recent-work.on-dash .recent-work-open:hover { background: #edf4ff; }
 .recent-work.recent-group .recent-work-open { padding-bottom: 8px; }
 .recent-work.recent-group:last-child .recent-work-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .recent-work-docs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 0 20px 14px 77px; }

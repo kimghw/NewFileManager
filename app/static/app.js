@@ -392,6 +392,15 @@ async function loadWorks() {
   if (typeof projectListDraw === "function") projectListDraw();
   $("recent").hidden = !list.length;
   $("recentCount").textContent = rows.length === list.length ? `전체 ${list.length}개` : `전체 ${rows.length}개 · 문서 ${list.length}개`;
+  if (!state.id && typeof homeDashDraw === "function") homeDashDraw(); // 첫 화면 「대시보드의 문서」 의 프로젝트 줄은 이 목록으로 읽는다 — 목록이 대시보드보다 늦게 오면 「프로젝트 없음」 으로 남았다(2026-11-25)
+}
+
+// 첫 화면 오른쪽 대시보드가 보이는 작업의 문서 id 들 — 최근 작업에서 그 줄에 「대시보드」 표지(2026-11-25 사용자 "이게 어떤 작업인지 모르겠고 … 최근 작업에서 현재 프로젝트가 어떤 프로젝트인지 표기는 해줘라").
+// 문서 화면이 열려 있으면 비운다(그때는 「지금 연 문서」 가 기준 — li.current)
+function recentDashIds() {
+  if (state.id || typeof HD !== "object" || !HD.wid) return new Set();
+  const D = typeof homeDashDocs === "function" ? homeDashDocs() : null;
+  return new Set([HD.wid, ...(D ? D.rows.map((r) => r.id).filter(Boolean) : [])]);
 }
 
 // 작업 줄의 「무슨 일의 어느 작업」(spec_작업 ② §7, 2026-11-12 사용자 "이관이냐 취합이냐. 그리고 작업이름이 뭐냐 이런게 있어야지") — GET /api/works 의 task 를 읽기만.
@@ -453,22 +462,28 @@ function recentVerifyTag(w, kind) {
 
 function renderRecentWorks(ul, rows) {
   ul.textContent = "";
+  const dash = recentDashIds();
   for (const r of rows) {
     const docs = r.docs, w = docs[0], many = docs.length > 1, T = workTaskInfo(w); // w = 누르면 여는 문서
-    const format = (w.format || "").toLowerCase(), sum = (k) => docs.reduce((n, d) => n + (d[k] || 0), 0);
-    const li = el("li", "recent-work" + (many ? " recent-group" : "") + (docs.some((d) => d.id === state.id) ? " current" : "")); // 「group」 은 안 됨 — style.css 의 전역 .group(flex)
+    const format = (w.format || "").toLowerCase(), sum = (k) => docs.reduce((n, d) => n + (d[k] || 0), 0), onDash = docs.some((d) => dash.has(d.id));
+    const li = el("li", "recent-work" + (many ? " recent-group" : "") + (docs.some((d) => d.id === state.id) ? " current" : "") + (onDash ? " on-dash" : "")); // 「group」 은 안 됨 — style.css 의 전역 .group(flex)
     li.dataset.works = docs.map((d) => d.id).join(" "); // 이 줄에 든 작업 id 들 — 화면 검사가 [data-works~='<id>'] 로 찾는다
     const open = el("button", "recent-work-open"), icon = T.job ? taskLogoEl(T.job, T.doc) : el("span", `recent-file-icon ${format === "docx" ? "docx" : "hwpx"}`, format.toUpperCase() || "문서");
     const note = many ? `이 워크플로우의 문서 ${docs.length}개 중 마지막에 고친 문서` : "";
     open.type = "button";
     open.title = `${T.what}\n${many ? note + "\n" : ""}${w.name} · 작업 ${w.id}`; // 끝 「작업 <id>」 = 이 줄을 누르면 여는 문서 — 화면 검사가 이것으로 찾는다
-    open.setAttribute("aria-label", `${T.what} · ${many ? note + " · " : ""}${w.name} · ${fmtWhen(w.created)} 시작 · 작업 ${w.id} 이어서 열기`);
+    open.setAttribute("aria-label", `${onDash ? "지금 대시보드 · " : ""}${T.what} · ${many ? note + " · " : ""}${w.name} · ${fmtWhen(w.created)} 시작 · 작업 ${w.id} 이어서 열기`);
     icon.setAttribute("aria-hidden", "true");
     const main = el("span", "recent-work-main"), head = el("span", "recent-work-head");
     // 첫 줄 = 프로젝트 이름 + TASK 표지(+ Round 2 부터 Round 표지) · 둘째 줄 = 누르면 여는 문서의 역할 + 파일 이름 · 셋째 줄 = 형식·크기(묶음이면 문서 수)·때 + 검증 표지.
     // TASK 가 없으면 첫 줄이 파일 이름(둘째 줄 없음). 문서가 여럿이면 줄 아래에 나머지 문서로 바로 가는 단추(넷째 줄 — 단추 안에 단추를 둘 수 없어 따로).
     head.append(el("span", "recent-work-title" + (T.job && !T.project ? " none" : ""), T.job ? T.project || "프로젝트 이름 없음" : w.name), taskChipEl(T));
     if (T.job && r.round > 1) head.append(el("span", "recent-work-round", `Round ${r.round}`));
+    if (onDash) {
+      const tag = el("span", "recent-work-dash", "지금 대시보드");
+      tag.title = `오른쪽 대시보드가 보이는 작업입니다 — ${T.what}`;
+      head.append(tag);
+    }
     main.append(head);
     if (T.job) {
       const file = el("span", "recent-work-file");

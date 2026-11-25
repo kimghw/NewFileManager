@@ -32,6 +32,11 @@
 .fw-guides > summary { cursor: pointer; width: max-content; }
 .fw-guide { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; line-height: 1.5; color: var(--text); }
 .fw-guide > span:last-child { overflow-wrap: anywhere; white-space: pre-wrap; }
+/* 「작성 지침 확인 · 적기」 로 열었을 때 — 헤딩 자리마다 지침을 적는 칸(fwGuideNoteEl) · 절 머리의 한 줄 안내(design.md §30) */
+.fw-gwrite { display: flex; align-items: flex-end; gap: 6px; padding: 4px 0 2px; }
+.fw-gwrite > .fw-gnote { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: var(--text); resize: vertical; }
+.fw-gmode { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text); background: var(--accent-bg, #eef4ff); border-radius: 6px; padding: 6px 8px; margin: 4px 0 6px; }
+.fw-gmode > span { flex: 1; min-width: 0; line-height: 1.5; }
 #headsDlg[data-kind="fwWrite"] .hd-foot, #headsDlg[data-kind="fwTake"] .hd-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 /* ---- 2열 「자료 가져오기」 (#headsDlg[data-kind="fwTake"] — fwTakeDraw) ---- */
@@ -694,6 +699,8 @@
 .fw-topics .fw-top-title { font-size: 13px; font-weight: 700; line-height: 1.35; letter-spacing: -.01em; }
 .fw-topics .fw-top-msg { padding-top: 2px; padding-bottom: 2px; }
 .fw-top-leadrow { margin-bottom: 4px; }
+.fw-top-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 8px; } /* 목록 위의 단추 줄 — 모두 선택 · 고른 것 복사 · 모두 복사 */
+.fw-top-bar .btn { margin: 0; }
 .fw-top-lead { width: 100%; box-sizing: border-box; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font: inherit; font-size: 12.5px; background: var(--surface); }
 .fw-top { display: flex; align-items: flex-start; gap: 8px; padding: 7px 14px; border-top: 1px solid var(--line); min-width: 0; }
 .fw-top:hover { background: var(--surface-2); }
@@ -722,3 +729,20 @@
 .fw-chunk > input { margin: 0; flex: none; align-self: center; }
 .fw-chunk-name { flex: 1 1 10em; min-width: 0; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
 .fw-chunk .fw-tag { white-space: normal; }
+
+/* 절의 단계 꼬리표(fwWhereEl — spec_양식작성 ② §6 「절의 단계 꼬리표」 · design.md §30): 절 머리 아래 한 줄 · 「결과 08 자료 가져오기」 · 번호는 대시보드와 같은 셈 */
+.fw-where { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; font-weight: 400; }
+.fw-where-tag { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 11px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.fw-where-tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-where-tag > b { flex: none; font-weight: 700; }
+.fw-where-tag.is-result > b { color: var(--ok); }
+.fw-where-tag.is-prep > b { color: var(--accent); }
+.fw-where-tag.is-run > b { color: #6d3fd1; }
+
+/* 「채울 자리」 꼬리표의 순서 번호 · 범례(fwTagEl · fwLegendEl — spec_양식작성 ② §6 「꼬리표의 뜻 · 나온 단계」 · design.md §30): 꼬리표 끝의 작은 번호 = 대시보드 순서 번호 · 절 아래 범례 = 꼬리표 · 뜻 · 나온 단계 */
+.fw-tag[data-no]::after { content: attr(data-no); margin-left: 4px; padding-left: 4px; border-left: 1px solid currentColor; opacity: .7; font-size: 10px; font-variant-numeric: tabular-nums; }
+.fw-legend { margin-top: 8px; padding: 6px 8px; border-top: 1px dashed var(--line); display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; font-size: 11px; color: var(--muted); }
+.fw-legend-row { display: contents; }
+.fw-legend-row > .fw-tag { align-self: start; }
+.fw-legend-say { line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; color: var(--text); }
+.fw-legend-from { grid-column: 2; margin-top: -3px; line-height: 1.4; font-variant-numeric: tabular-nums; }

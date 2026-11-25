@@ -173,13 +173,25 @@ def main():
             d = page.evaluate(DASH)
             check("② 대시보드 — 묶음 셋(준비 · 자료 준비 · 작성)", len(d["groups"]) == 3 and "자료 준비" in "".join(d["groups"]) and "작성" in d["groups"][2] and "지침 작성" not in "".join(d["groups"]), d["groups"])
             n = page.evaluate(LIVE)   # 단계마다의 상태 · 글(카드는 편 것만 글을 보인다 — 대시보드가 그리는 값 그대로)
+            # 선택 줄도 차례에(2026-11-24 사용자 「3,4번이 지나가지 않았는데 왜 5로 오냐 순서가 안맞음」 — spec_양식작성 ② §6 「선택 줄도 차례에」)
+            check("② 선택 줄 03 LLM 검증·보완 — LLM 을 쓸 수 없으면 저절로 건너뜀", n["headsLlm"]["state"] == "done" and "건너뜁니다" in n["headsLlm"]["text"], n["headsLlm"])
+            nows = [k for k, x in d["nodes"].items() if x["state"] == "now"]
+            check("② 선택 줄 04 「작성 지침 확인 · 적기」 가 지금 — 누르기 전에는 05 로 건너뛰지 않는다", nows == ["guides"] and d["nodes"]["review"]["state"] == "ready"
+                  and "확인함" in d["nodes"]["guides"]["text"] and "건너뛰기" in d["nodes"]["guides"]["text"], {k: x["state"] for k, x in d["nodes"].items()})
+            page.click("#paneDash .dash-node[data-key=guides] button:has-text('건너뛰기')")
+            page.wait_for_selector("#paneDash .dash-node[data-key=guides][data-state=done]", timeout=15000)
+            st = requests.get(f"{base}/api/docs/{doc}/guide-write", timeout=30).json().get("steps")
+            check("② 04 「건너뛰기」 — 작업 폴더에 표시가 남고 「건너뜀」", st == {"guides": "skip"} and "건너뜀" in page.evaluate(DASH)["nodes"]["guides"]["text"], st)
+            d, n = page.evaluate(DASH), page.evaluate(LIVE)
             check("② 지금 차례의 카드가 펴져 그 글과 단추를 보인다(양식 검토 — 자료 준비 앞)", d["nodes"]["review"]["state"] == "now" and "아직 검토하지 않았습니다" in d["nodes"]["review"]["text"] and "양식 검토 · 찾을 테마" in d["nodes"]["review"]["text"], d["nodes"]["review"])
             nows = [k for k, x in d["nodes"].items() if x["state"] == "now"]
             check("② 「지금」 은 한 줄(차례상 첫 줄) — 뒤의 할 수 있는 줄은 「할 수 있음」", nows == ["review"] and d["nodes"]["take"]["state"] == "ready" and set(d["nodes"]) >= {"guides", "review", "plan", "ask", "apply"}, {k: x["state"] for k, x in d["nodes"].items()})
             fr0 = page.evaluate("() => { const g = FW.gen || 0; document.dispatchEvent(new CustomEvent('nfm:work-reset', { detail: { id: state.id } })); return { key: FW.key, gen: FW.gen, was: g }; }")
             check("② 작업 내용 초기화(nfm:work-reset) — 그 문서의 기억을 버린다", fr0["key"] == "" and fr0["gen"] == fr0["was"] + 1, fr0)
             page.evaluate("() => fwRead(true)")
-            check("② 문서 라이브러리의 문서 · 끝난 추출 수", n["keep"]["state"] == "done" and "자료 문서 1개" in n["keep"]["text"] and n["extract"]["state"] == "done" and "끝난 추출 1개" in n["extract"]["text"], {k: n[k] for k in ("keep", "extract")})
+            # 06 · 07 은 이 문서의 몫으로 센다(2026-11-24 사용자 「초기화 할때 5,6 도 아직 안했다고 나와야지」) — 작업을 만들기 전에 라이브러리에 있던 문서 · 추출은 「끝남」 이 아니고 「있는 문서 쓰기」 · 「있는 추출 쓰기」 로 쓴다
+            check("② 문서 라이브러리의 문서 · 끝난 추출 수(이 문서의 몫 전 — 있는 것 쓰기)", n["keep"]["state"] != "done" and "자료 문서 1개" in n["keep"]["text"] and ["있는 문서 쓰기", False] in n["keep"]["acts"]
+                  and n["extract"]["state"] == "todo" and "끝난 추출 1개" in n["extract"]["text"] and ["있는 추출 쓰기", False] in n["extract"]["acts"], {k: n[k] for k in ("keep", "extract")})
             check("② 자료 없음 · 검토 전 → 「양식 검토 · 찾을 테마」 가 지금 차례(자료 없이 된다) · 자료 가져오기는 할 수 있음 · 작성 계획은 아직", n["review"]["state"] == "now" and n["review"]["acts"] == [["양식 검토", False]]
                   and n["take"]["state"] == "ready" and "자료가 없습니다" in n["take"]["text"] and n["plan"]["state"] == "todo" and n["ask"]["state"] == "todo", {k: n[k] for k in ("review", "take", "plan", "ask")})
             # ② 「1 준비」 의 「헤딩 · 표 분석 · 작성 지침」(2026-11-24 사용자 "1준비에 있어야지" · "테이블이나 본문이 지침을 가지고 와야지") — 분석이 끝나면 작성 지침을 저장하고 그 수를 보인다
@@ -188,7 +200,7 @@ def main():
             fg = requests.get(f"{base}/api/docs/{doc}/form-guides", timeout=30).json()
             check("② 준비 — 헤딩 · 표 분석 끝남 · 작성 지침을 저장하고 수를 보인다", n["heads"]["state"] == "done" and "헤딩 ✓ · 표 ✓" in n["heads"]["text"] and "작성 지침" in n["heads"]["text"] and fg["saved"] is not None,
                   {"heads": n["heads"], "saved": (fg["saved"] or {}).get("counts")})
-            check("② 준비 — LLM 검증·보완은 선택 줄(사람이 누를 때만)", "headsLlm" in n and n["headsLlm"]["state"] in ("", "done"), n.get("headsLlm"))
+            check("② 준비 — LLM 검증·보완은 선택 줄(사람이 누를 때만 돈다 · LLM 이 꺼져 있으면 건너뜀)", "headsLlm" in n and n["headsLlm"]["state"] == "done", n.get("headsLlm"))
             page.screenshot(path=str(OUT / "02_dash.png"))
             # ③ 자료 가져오기
             page.evaluate("() => fwTakeOpen()")
@@ -210,6 +222,11 @@ def main():
             check("④ 2열 「지침 작성」 — 쓸 자료가 고른 채로", c["kind"] == "fwWrite" and not c["over"] and len(mat) == 1 and mat[0][1] and "연차보고서_견본" in mat[0][0], (c, mat))
             check("④ 작성 지침이 있는 자리만(기본) — 자리마다 지침", len(ps) >= 3 and all(any(t.startswith("지침") for t in p["tags"]) and p["guides"] >= 1 for p in ps), ps[:6])
             check("④ LLM 꺼짐 — 「작성 초안 받기」 꺼짐 + 까닭", foot["btns"][-1][0] == "작성 초안 받기" and foot["btns"][-1][1] and foot["btns"][-1][2] == "LLM 을 쓸 수 없습니다", foot)
+            # 절의 단계 꼬리표(2026-11-24 사용자 「어떤 것의 결과다. 준비다 이런게 있어야」) — 번호는 대시보드와 같은 셈(등록부 차례)
+            wh = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-where-tag')].map((t) => [t.dataset.where, t.textContent])")
+            whs = dict(wh)
+            check("④ 절마다 단계 꼬리표 — 결과 09 자료 가져오기 · 준비 11 양식 초안 작성(01 = 워크플로우 개요)", whs.get("result:take", "").startswith("결과09 ") and "자료 가져오기" in whs.get("result:take", "")
+                  and whs.get("prep:ask", "").startswith("준비11 ") and [k for k, _ in wh].count("prep:ask") == 2 and not c["over"], wh)
             page.click("#headsDlgBody .fw-places-head input[type=checkbox]")
             page.wait_for_function(f"() => document.querySelectorAll('#headsDlgBody .fw-place').length > {len(ps)}", timeout=10000)
             allp = page.evaluate(PLACES)
@@ -270,6 +287,15 @@ def main():
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '자료를 고르고 「작성 계획 세우기」 를 하세요'; }", timeout=10000)
             st = page.evaluate("() => ({ btn: document.querySelector('#headsDlgBody .fw-review .fw-places-head button').textContent, steps: [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent), how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent) })")
             check("④-1 양식만 검토 — 「작성 계획 세우기」 가 다음 · 작성 방향만(계획 없음)", st["btn"] == "작성 계획 세우기" and st["steps"] == ["양식 검토 ✓", "작성 계획", "확인할 것"] and st["how"] == ["작성 방향: 개조식 3줄"], st)
+            # 자료가 있으면 「작성 계획 세우기」 가 파란 단추 · 「자료 가져오기」 는 보통 단추 / 자료가 0개면 거꾸로(대시보드의 차례와 맞춤 — 2026-11-24 「자료 가져오기, 작성 계획 세우기 매칭이 안됨」)
+            NOMAT = "() => { const a = document.querySelector('#headsDlgBody .fw-rev-act'), t = document.querySelector('#headsDlg [data-fw-take]'), m = document.querySelector('#headsDlgBody .fw-rev-msg.is-warn'); return { mats: FW.gw.materials.length, act: [a.disabled, a.classList.contains('primary')], take: t.classList.contains('primary'), msg: m ? m.textContent : '' }; }"
+            nm = page.evaluate(NOMAT)
+            if nm["mats"]:
+                check("④-1 자료 있음 — 「작성 계획 세우기」 파란 단추 · 「자료 가져오기」 보통", nm["act"] == [False, True] and not nm["take"] and "쓸 자료를 고르고" in nm["msg"], nm)
+                page.evaluate("() => { const g = FW.gw; FW.gw = { ...g, materials: [] }; fwRedraw(); FW.gw = g; }")
+                nm = page.evaluate(NOMAT)
+            check("④-1 자료 0개 — 「작성 계획 세우기」 꺼짐 · 「자료 가져오기」 파란 단추 · 자료부터 가져오라는 글", nm["act"] == [True, False] and nm["take"] and "먼저 위 「자료 가져오기」" in nm["msg"], nm)
+            page.evaluate("() => fwRedraw()")
             # 자료로 작성 계획을 세운 상태 — 자리마다 자료에서 쓸 것 · 자료에 없는 것 + 확인할 것
             fr.update(review=rv, planned=True, open=["q1"])
             page.evaluate("() => fwRead(true).then(fwRedraw)")
@@ -316,8 +342,28 @@ def main():
             page.evaluate("() => { document.activeElement && document.activeElement.blur(); FW.at = Date.now(); }")
             dl = page.evaluate(LIVE)
             check("④-2 대시보드 — 「양식 검토 · 찾을 테마」 끝남(찾을 테마 10개) · 「테마 · 키워드 보기」(작성 지침 확인 줄에도) · 「작성 계획 · 확인할 것」 끝남", dl["review"]["state"] == "done" and "찾을 테마 10개" in dl["review"]["text"]
-                  and dl["review"]["acts"] == [["테마 · 키워드 보기", False]] and [a[0] for a in dl["guides"]["acts"]] == ["지침 작성 열기", "테마 · 키워드 보기"]
+                  and dl["review"]["acts"] == [["테마 · 키워드 보기", False]] and [a[0] for a in dl["guides"]["acts"]] == ["지침 보기 · 적기", "테마 · 키워드 보기", "건너뛰기 취소"]   # 「건너뛰기 취소」 — ② 에서 04 를 건너뛰었다
                   and dl["plan"]["state"] == "done" and "확인할 것 1개 모두 답함" in dl["plan"]["text"], {k: dl[k] for k in ("guides", "review", "plan")})
+            # ④-3 「지침 보기 · 적기」(2026-11-24 사용자 「지침작성 자리가 맞냐?」) — 「채울 자리」 로 굴리고 지침을 펼치며 헤딩 자리에서 바로 적는다(PUT …/place-guides/heads · 비우면 지움)
+            page.evaluate("() => fwWriteOpen('guides')")
+            page.wait_for_selector("#headsDlgBody .fw-gmode", timeout=10000)
+            GM = """() => { const b = document.getElementById('headsDlgBody'), sec = b.querySelector('.fw-places-sec'), ds = [...b.querySelectorAll('.fw-place:not(.is-table):not(.is-box) details.fw-guides:not(.fw-chunks)')];
+              return { top: Math.abs(sec.offsetTop - b.offsetTop - b.scrollTop) < 12 || b.scrollTop + b.clientHeight >= b.scrollHeight - 2, open: ds.length && ds.every((d) => d.open), notes: b.querySelectorAll('.fw-place:not(.is-table):not(.is-box) .fw-gnote').length,
+                heads: b.querySelectorAll('.fw-place:not(.is-table):not(.is-box)').length, run: !!sec.querySelector('[data-where="run:guides"]') }; }"""
+            g1 = page.evaluate(GM)
+            first = page.locator("#headsDlgBody .fw-place:not(.is-table):not(.is-box) .fw-gnote").first
+            first.fill("개조식 3줄로")
+            first.locator("xpath=following-sibling::button").click()
+            page.wait_for_function("() => [...document.querySelectorAll('#headsDlgBody .fw-place .fw-tag')].some((t) => t.textContent === '사람 지침')", timeout=10000)
+            first = page.locator("#headsDlgBody .fw-place:not(.is-table):not(.is-box) .fw-gnote").first
+            saved = first.input_value()
+            first.fill("")
+            first.locator("xpath=following-sibling::button").click()
+            page.wait_for_function("() => ![...document.querySelectorAll('#headsDlgBody .fw-place .fw-tag')].some((t) => t.textContent === '사람 지침')", timeout=10000)
+            check("④-3 「지침 보기 · 적기」 — 채울 자리로 굴림 · 헤딩마다 지침 펼침 · 적는 칸 · 저장하면 「사람 지침」 · 비우고 저장하면 지움", g1["top"] and g1["open"] and g1["notes"] == g1["heads"] > 0 and g1["run"] and saved == "개조식 3줄로", (g1, saved))
+            page.locator("#headsDlg").screenshot(path=str(OUT / "04d_guides.png"))
+            page.evaluate("() => fwWriteOpen()")
+            page.wait_for_function("() => !document.querySelector('#headsDlgBody .fw-gmode') && !document.querySelector('#headsDlgBody .fw-gnote')", timeout=10000)
             for i in range(3):
                 page.click(f"#headsDlgBody .fw-place:nth-of-type({i + 1}) > input") if False else page.evaluate("(i) => document.querySelectorAll('#headsDlgBody .fw-place > input')[i].click()", i)
             page.fill("#headsDlgBody .fw-note", "개조식으로 3줄")
@@ -350,6 +396,15 @@ def main():
             tagsOf = {p["name"]: p["tags"] for p in ps2[:5]}
             check("⑤-1 상자 자리 · 줄 자리의 꼬리표 — 상자 · 쓸 자리 3 / 같은 줄 뒤에 씀 / 표시 줄 / 채움 / 아래 상자는 따로", b0["tags"][:2] == ["상자", "쓸 자리 3"] and not b0["on"] and not b0["open"]
                   and "같은 줄 뒤에 씀" in tagsOf["■ 연구개발과제명 :"] and "표시 줄" in tagsOf["■ 작성 기준 보고서 ( □ 연차 □ 최종 )"] and "채움" in tagsOf["■ 주관연구개발기관 : 가나다"] and "아래 상자는 따로" in tagsOf["■ 성과목표 관리"], (b0, tagsOf))
+            # ⑤-1b 꼬리표의 뜻 · 나온 단계(spec_양식작성 ② §6 「꼬리표의 뜻 · 나온 단계」) — 꼬리표 끝 순서 번호(data-no · 대시보드와 같은 셈) + 절 아래 범례(보이는 꼬리표만)
+            lg = page.evaluate("""() => { const no = (fwStepNo('heads') || {}).no, tag = (w) => [...document.querySelectorAll('#headsDlgBody .fw-place .fw-tags .fw-tag')].find((t) => t.textContent === w || t.textContent.startsWith(w));
+              const L = document.querySelector('#headsDlgBody .fw-places-sec > .fw-legend');
+              return { no, fill: (tag('채움') || {}).dataset?.no, chunk: (tag('쓸 자리') || {}).dataset?.no, guide: (tag('지침') || {}).dataset?.no,
+                rows: L ? [...L.querySelectorAll('.fw-legend-row')].map((r) => [r.querySelector('.fw-tag').textContent, r.querySelector('.fw-legend-from').textContent]) : null,
+                over: document.getElementById('headsDlgBody').scrollWidth > document.getElementById('headsDlgBody').clientWidth + 1 }; }""")
+            words = dict(lg["rows"] or [])
+            check("⑤-1b 꼬리표 끝 순서 번호 · 절 아래 범례(채움 · 쓸 자리 n · 지침 n ← 헤딩 · 표 분석) · 옆으로 안 넘침", bool(lg["no"]) and lg["fill"] == lg["chunk"] == lg["guide"] == lg["no"]
+                  and all(str(words.get(w, "")).startswith(f"← {lg['no']} ") for w in ("채움", "쓸 자리 n", "지침 n")) and "표시 줄" in words and not lg["over"], lg)
             page.click("#headsDlgBody .fw-places-head button:has-text('모두 고르기')")
             allp = {p["name"]: p["on"] for p in page.evaluate(PLACES)}
             check("⑤-1 「모두 고르기」 — 채운 줄은 빼고", allp["■ 연구개발과제명 :"] and allp["< 연구개발 과제명 작성 >"] and not allp["■ 주관연구개발기관 : 가나다"], allp)
@@ -505,6 +560,10 @@ def main():
             page.wait_for_function("() => FW.lib && FW.lib.alive === false", timeout=20000)
             d = page.evaluate(LIVE)
             check("문서 라이브러리 서버가 꺼지면 대시보드가 알린다(자료는 그대로)", d["keep"]["state"] == "hold" and d["keep"]["acts"] == [["문서 라이브러리 열기", True]] and d["take"]["state"] == "done" and "이 문서의 자료 1개" in d["take"]["text"], {k: d[k] for k in ("keep", "take")})
+            # 06 줄의 상태 글 = 「서버 꺼짐」(전에는 대시보드 공용 글 「기관 미지정」 — 취합의 말)
+            page.evaluate("() => dashDraw(true)")
+            page.wait_for_function("() => /서버 꺼짐/.test((document.querySelector('#paneDash .dash-node[data-key=keep]') || {}).textContent || '')", timeout=20000)
+            check("문서 라이브러리 서버가 꺼지면 06 줄의 상태 글은 「서버 꺼짐」(「기관 미지정」 이 아님)", "기관 미지정" not in page.evaluate(DASH)["nodes"]["keep"]["text"], page.evaluate(DASH)["nodes"].get("keep"))
             page.screenshot(path=str(OUT / "07_lib_down.png"))
             page.click("#paneAgent [data-ag-act=shelf]")   # ⑦ 꺼진 뒤의 고르기 — 꺼져 있다고 알리고 가져오기는 꺼진다(자료 칩은 그대로)
             page.wait_for_function("() => /꺼져 있습니다/.test((document.querySelector('#paneAgent .ag-lib-state') || {}).textContent || '')", timeout=30000)
@@ -512,57 +571,70 @@ def main():
             check("⑦ 문서 라이브러리 서버가 꺼지면 고르기가 알린다(띄우개 · 가져오기 꺼짐 · 자료 칩 그대로)", "tools/start_doclib.ps1" in s5["state"] and s5["take"] == ["가져오기", True] and not s5["rows"] and s5["chips"] == 1, s5)
             page.locator("#paneAgent .ag-input").screenshot(path=str(OUT / "07b_agent_library_down.png"))
             page.evaluate("() => { AGENT.shelf.open = false; agentDrawInput(); if (typeof agentFloating === 'function' && agentFloating() && typeof agentFloatClose === 'function') agentFloatClose(); }")
-            # ⑧′ 단계 초기화(2026-11-24 사용자 "준비/자료,작성 단계를 따로 두고 단계별로 … 초기화" — spec_양식작성 ② §6-1): 묶음 머리마다 「초기화…」 → 그 아래 확인 줄 → 그 단계의 것만 비운다
+            # ⑧′ 단계별 초기화(2026-11-24 사용자 "준비/자료,작성 단계를 따로 두고 단계별로 … 초기화" · 같은 날 "복잡하게 하지 말고,, 전체 초기화 각 단계별 초기화로 … 단계로 해주고" — spec_양식작성 ② §6-1):
+            #    묶음 머리마다 「N단계 초기화」(번호 = 묶음 머리의 번호) → 그 아래 확인 줄(단추는 「N단계 초기화」 · 「취소」 둘뿐) → 그 단계의 것만 비운다
             page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")
             page.wait_for_selector('#paneDash [data-dash-focus="fwreset:write"]:not([disabled])', timeout=60000)
             RS = """() => { const b = document.querySelector('#paneDash .dash-reset[data-fw-reset]');
               return { heads: [...document.querySelectorAll('#paneDash .dash-ghead [data-dash-focus^="fwreset:"]')].map((x) => [x.dataset.dashFocus, x.textContent]),
+                nos: [...document.querySelectorAll('#paneDash .dash-group')].map((g) => [`fwreset:${g.dataset.group}`, `${g.querySelector('.dash-gno').textContent}단계 초기화`]),
                 box: b ? { st: b.dataset.fwReset, head: b.querySelector('.dash-reset-head').textContent, help: !!b.querySelector('.dash-reset-head .panel-help'), under: b.closest('.dash-group').dataset.group,
                   acts: [...b.querySelectorAll('.dash-reset-acts button')].map((x) => [x.dataset.dashFocus, x.textContent, x.disabled]) } : null, tool: document.getElementById('panel').dataset.tool }; }"""
             mats_n = lambda: len(requests.get(f"{base}/api/docs/{doc}/agent", timeout=60).json()["materials"])  # noqa: E731
             page.locator('#paneDash [data-dash-focus="fwreset:write"]').click()
             page.wait_for_selector('#paneDash .dash-reset[data-fw-reset=write]', timeout=20000)
             r1 = page.evaluate(RS)
-            check("⑧′ 묶음 머리마다 「초기화…」 · 「작성」 을 누르면 그 묶음 아래에 확인 줄(무엇을 비우는지 · 노트 아이콘 · 「작성 초기화」 · 「취소」) — 누르기 전에는 안 바뀜",
-                  r1["heads"] == [["fwreset:open", "초기화…"], ["fwreset:material", "초기화…"], ["fwreset:write", "초기화…"]] and r1["box"] and r1["box"]["under"] == "write" and r1["box"]["help"]
-                  and r1["box"]["head"].startswith("작성 초기화 — ") and "올린 원본" in r1["box"]["head"] and r1["box"]["acts"] == [["fwreset:write:go", "작성 초기화", False], ["fwreset:close", "취소", False]] and mats_n() == 1, r1)
+            check("⑧′ 묶음 머리마다 「N단계 초기화」(번호 = 묶음 머리의 번호) · 3단계를 누르면 그 묶음 아래에 확인 줄(한 줄 머리 · 노트 아이콘 · 단추는 「3단계 초기화」 · 「취소」 둘뿐) — 누르기 전에는 안 바뀜",
+                  r1["heads"] == [["fwreset:open", "1단계 초기화"], ["fwreset:material", "2단계 초기화"], ["fwreset:write", "3단계 초기화"]] and r1["heads"] == r1["nos"] and r1["box"] and r1["box"]["under"] == "write" and r1["box"]["help"]
+                  and r1["box"]["head"].startswith("3단계 「작성」 초기화 — ") and "올린 원본" in r1["box"]["head"] and r1["box"]["acts"] == [["fwreset:write:go", "3단계 초기화", False], ["fwreset:close", "취소", False]] and mats_n() == 1, r1)
             page.locator("#paneDash").screenshot(path=str(OUT / "08a_stage_reset.png"))
             page.locator('#paneDash [data-dash-focus="fwreset:close"]').click()
             page.wait_for_function("() => !document.querySelector('#paneDash .dash-reset[data-fw-reset]')", timeout=20000)
             page.locator('#paneDash [data-dash-focus="fwreset:write"]').click()
             page.locator('#paneDash [data-dash-focus="fwreset:write:go"]').click()
-            page.wait_for_function("() => /작성을 초기화했습니다/.test(document.getElementById('toast').textContent) && !document.querySelector('#paneDash .dash-reset[data-fw-reset]')", timeout=120000)
+            page.wait_for_function("() => /3단계 「작성」 초기화 — 초안/.test(document.getElementById('toast').textContent) && !document.querySelector('#paneDash .dash-reset[data-fw-reset]')", timeout=120000)
             r2 = page.evaluate(RS)
-            check("⑧′ 「작성 초기화」 — 초안 · 작성 계획만 비우고 대시보드에 머묾 · 자료는 그대로", r2["tool"] == "Dash" and mats_n() == 1 and not requests.get(f"{base}/api/docs/{doc}/agent", timeout=60).json()["turns"], r2)
+            check("⑧′ 「3단계 초기화」(작성) — 초안 · 작성 계획만 비우고 대시보드에 머묾 · 자료는 그대로", r2["tool"] == "Dash" and mats_n() == 1 and not requests.get(f"{base}/api/docs/{doc}/agent", timeout=60).json()["turns"], r2)
             page.wait_for_selector('#paneDash [data-dash-focus="fwreset:open"]:not([disabled])', timeout=60000)
             page.locator('#paneDash [data-dash-focus="fwreset:open"]').click()
             page.wait_for_selector('#paneDash .dash-reset[data-fw-reset=open]', timeout=20000)
             r3 = page.evaluate(RS)
             page.locator('#paneDash [data-dash-focus="fwreset:open:go"]').click()
-            page.wait_for_function("() => /작업 내용을 초기화했습니다 — 준비/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para')", timeout=120000)
-            check("⑧′ 「준비」 — 「준비 초기화」 · 「모두 초기화(자료도)」 · 「취소」 · 준비 초기화는 올린 직후로 되돌리되 이 문서의 자료는 남긴다",
-                  r3["box"] and r3["box"]["under"] == "open" and [a[:2] for a in r3["box"]["acts"]] == [["fwreset:open:go", "준비 초기화"], ["fwreset:all:go", "모두 초기화(자료도)"], ["fwreset:close", "취소"]] and mats_n() == 1, r3)
+            page.wait_for_function("() => /1단계 「준비」 초기화 — 올린 직후로 되돌렸습니다/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para')", timeout=120000)
+            check("⑧′ 「1단계 초기화」(준비) — 확인 줄의 단추는 「1단계 초기화」 · 「취소」 둘뿐(「모두 초기화(자료도)」 없음 — 전체는 맨 아래 하나) · 머리가 자료는 남긴다고 밝힘 · 올린 직후로 되돌리되 이 문서의 자료는 남긴다",
+                  r3["box"] and r3["box"]["under"] == "open" and [a[:2] for a in r3["box"]["acts"]] == [["fwreset:open:go", "1단계 초기화"], ["fwreset:close", "취소"]]
+                  and r3["box"]["head"].startswith("1단계 「준비」 초기화 — ") and "자료는 남김" in r3["box"]["head"] and mats_n() == 1, r3)
             page.wait_for_selector('#paneDash [data-dash-focus="fwreset:material"]:not([disabled])', timeout=120000)   # 다시 연 뒤의 첫 분석이 끝난 뒤
             page.locator('#paneDash [data-dash-focus="fwreset:material"]').click()
             page.locator('#paneDash [data-dash-focus="fwreset:material:go"]').click()
-            page.wait_for_function("() => /자료 준비를 초기화했습니다/.test(document.getElementById('toast').textContent)", timeout=60000)
+            page.wait_for_function("() => /2단계 「자료 준비」 초기화 — 자료/.test(document.getElementById('toast').textContent)", timeout=60000)
             page.wait_for_function("() => (document.querySelector('#paneDash .dash-node[data-key=take]') || { dataset: {} }).dataset.state !== 'done'", timeout=30000)
-            check("⑧′ 「자료 준비 초기화」 — 이 문서의 자료만 비운다(대시보드의 「자료 가져오기」 가 끝남에서 내려옴)", mats_n() == 0 and page.evaluate(RS)["tool"] == "Dash", page.evaluate(DASH)["nodes"].get("take"))
-            # ⑧ 대시보드에서 「작업 내용 초기화」 — 일반 문서 워크플로우도 대시보드에 머문다(전에는 다시 여는 load 가 에이전트 보기로 바꿨다 —
-            #    2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐": spec_작업에이전트 ② §9 「작업 내용 초기화」 「초기화한 뒤」)
+            check("⑧′ 「2단계 초기화」(자료 준비) — 이 문서의 자료만 비운다(대시보드의 「자료 가져오기」 가 끝남에서 내려옴)", mats_n() == 0 and page.evaluate(RS)["tool"] == "Dash", page.evaluate(DASH)["nodes"].get("take"))
+            # ⑧ 대시보드 맨 아래의 「전체 초기화…」(= 「작업 내용 초기화」 — 양식 작성에서만 그 이름: dashboard.js DASH_RESET_ALL) — 이 문서의 자료까지 비우고, 일반 문서 워크플로우도 대시보드에 머문다
+            #    (전에는 다시 여는 load 가 에이전트 보기로 바꿨다 — 2026-11-24 사용자 "왜 dash 보드에서 초기화 하면 에이전트 탭으로 너머 가냐": spec_작업에이전트 ② §9 「작업 내용 초기화」 「초기화한 뒤」)
             page.evaluate("() => { if (typeof headsColClose === 'function') headsColClose(); showTab('Dash'); }")
             page.wait_for_selector('#paneDash [data-dash-focus="reset"]:not([disabled])', timeout=30000)
             rid = page.evaluate("() => state.id")
+            requests.post(f"{base}/api/docs/{rid}/agent/material", json={"name": "전체 초기화 확인", "text": "전체 초기화가 이 문서의 자료까지 비우는지 보는 글입니다."}, timeout=60)   # 자료 하나(2단계 초기화로 0개가 됐다) — 전체는 이것도 비워야 한다
+            ALL = """() => { const b = document.querySelector('#paneDash .dash-reset:not([data-fw-reset])'), o = document.querySelector('#paneDash .dash-reset-row [data-dash-focus="reset"]');
+              return { open: o ? o.textContent : '', label: b ? b.getAttribute('aria-label') : '', head: b ? b.querySelector('.dash-reset-head').textContent : '', help: !!(b && b.querySelector('.dash-reset-head .panel-help')),
+                acts: b ? [...b.querySelectorAll('.dash-reset-acts button')].map((x) => x.textContent) : [] }; }"""
+            a0 = page.evaluate(ALL)
             page.locator('#paneDash [data-dash-focus="reset"]').click()
             page.wait_for_selector(f'#paneDash [data-dash-focus="reset:{rid}"]', timeout=30000)
+            a1 = page.evaluate(ALL)
+            check("⑧ 맨 아래 단추는 「전체 초기화…」 — 펴면 확인 상자(머리 「전체 초기화 — …」 · 노트 아이콘 · 단추는 「전체 초기화」 · 「취소」 둘뿐) · 누르기 전에는 자료 그대로",
+                  a0["open"] == "전체 초기화…" and a1["label"] == "전체 초기화" and a1["head"].startswith("전체 초기화 — ") and a1["help"] and a1["acts"] == ["전체 초기화", "취소"] and mats_n() == 1, (a0, a1))
+            page.locator("#paneDash").screenshot(path=str(OUT / "08b_reset_all.png"))
             page.locator(f'#paneDash [data-dash-focus="reset:{rid}"]').click()
-            page.wait_for_function("() => /작업 내용을 초기화했습니다/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para') && !document.querySelector('#paneDash .dash-reset')", timeout=120000)
+            page.wait_for_function("() => /전체 초기화했습니다/.test(document.getElementById('toast').textContent) && !!document.querySelector('#doc .para') && !document.querySelector('#paneDash .dash-reset')", timeout=120000)
+            check("⑧ 「전체 초기화」 — 이 문서의 자료까지 비운다(1단계 초기화와 다른 점)", mats_n() == 0, mats_n())
             page.wait_for_timeout(1200)   # 다시 연 뒤의 그리기(탭을 바꾸던 곳)가 지나가게
             rz = page.evaluate("""() => { const f = document.getElementById('agentFloat'), row = document.querySelector('#paneDash .dash-reset-row');
               return { tool: document.getElementById('panel').dataset.tool, dash: !document.getElementById('paneDash').hidden, float: !!f && !f.hidden && f.offsetWidth > 0,
                 row: row ? [...row.querySelectorAll('button')].map((b) => [b.dataset.dashFocus, b.textContent]) : [] }; }""")
-            check("⑧ 대시보드의 「작업 내용 초기화」 뒤 — 대시보드에 머묾 · 에이전트 창도 저절로 안 열림 · 맨 아래 줄에 초기화 단추(「다음」 단추가 있으면 그 앞)",
-                  rz["tool"] == "Dash" and rz["dash"] and not rz["float"] and rz["row"] and rz["row"][-1][0] == "reset" and all(k in ("reset:next", "reset") for k, _ in rz["row"]), rz)
+            check("⑧ 대시보드의 「전체 초기화」 뒤 — 대시보드에 머묾 · 에이전트 창도 저절로 안 열림 · 맨 아래 줄에 「전체 초기화…」 단추(「다음」 단추가 있으면 그 앞)",
+                  rz["tool"] == "Dash" and rz["dash"] and not rz["float"] and rz["row"] and rz["row"][-1] == ["reset", "전체 초기화…"] and all(k in ("reset:next", "reset") for k, _ in rz["row"]), rz)
             page.locator("#paneDash").screenshot(path=str(OUT / "08_reset_stay.png"))
             br.close()
         check("콘솔 오류 없음", not errors, errors[:5])

@@ -1260,9 +1260,15 @@ TASKS = (
          ),
          stages=(
              _g("open", (
-                 _s("open", _OPEN, ("human", "script"), "채울 양식 문서를 올리면 대시보드가 열립니다. 기본 분석(헤딩 그래프 · 표 구조 — 스크립트)은 다른 워크플로우와 같이 자동으로 돌고, 그 결과는 다음 줄 「헤딩 · 표 분석 · 작성 지침」 에 보입니다.", change="store", uses=("intake",),
+                 # 2026-11-24 사용자(대시보드의 01 「문서 올리기 · 첫 분석」 을 보며) "여기 문서는 목적문서랑, 참조문서 넣는 곳을 넣어줘야지.. 그리고 어떤 tak 인지도 워크플로우 개요 단계가 있어야지 하지 않냐?" — spec_양식작성 ② §6 「워크플로우 개요 · 문서 칸」
+                 _s("overview", "워크플로우 개요", "script", "이 워크플로우가 무엇을 받아 무엇을 만드는지와 단계의 차례(준비 → 자료 준비 → 작성)를 보입니다. "
+                    "받는 것은 목적 문서(채울 양식 — 지금 문서)와 참조 문서(자료 문서 — 문서 라이브러리에 올려 내용을 뽑습니다)이고, 만드는 것은 자료에 있는 내용으로 채운 양식입니다. 읽기만 합니다.",
+                    spec=(SP_FORM, "② §6"), need="없음 — 워크플로우를 고르면 보입니다.", done="늘 끝남(보기만 하는 줄 — 상태를 세지 않습니다)."),
+                 _s("open", _OPEN, ("human", "script"), "문서 칸 둘을 채웁니다 — 목적 문서(채울 양식)는 올린 문서이고(「목적 문서 올리기…」 로 다른 양식으로 바꿉니다 — 새 작업으로 올려 그 문서를 엽니다), "
+                    "참조 문서(자료 문서)는 「참조 문서 올리기…」 로 문서 라이브러리(따로 선 서버)에 바로 올립니다(자료 추출은 2단계). "
+                    "양식을 올리면 대시보드가 열리고 기본 분석(헤딩 그래프 · 표 구조 — 스크립트)이 다른 워크플로우와 같이 자동으로 돌며, 그 결과는 다음 줄 「헤딩 · 표 분석 · 작성 지침」 에 보입니다.", change="store", uses=("intake", "doclib"),
                     spec=(SP_FORM, "② §6"),
-                    need="hwp · hwpx 양식 문서 하나(양식 제한 없음).", done="문서와 대시보드가 열렸을 때."),
+                    need="hwp · hwpx 양식 문서 하나(양식 제한 없음). 참조 문서는 지금 없어도 됩니다(2단계 「자료 문서 올리기」 에서 올립니다).", done="목적 문서가 열렸을 때(참조 문서 칸은 그 상태만 보입니다)."),
                  # 2026-11-24 사용자(대시보드를 보며) "여기 문서의 헤딩이랑 테이블 분석하는 단계가 없네 1준비에 있어야지." · "이걸 하면서,,, 테이블이나 본문이 지침을 가지고 와야지"
                  _s("heads", "헤딩 · 표 분석 · 작성 지침", "script", "양식의 헤딩 그래프와 표 구조를 스크립트로 분석합니다(올릴 때 자동 — 없으면 이 줄의 「분석」 으로 돌립니다). 끝나면 양식의 작성 지침(작성 요령 표, 「<참고 N>」 자료, ※ 안내, 각주 작성 요령)을 "
                     "그것이 속한 헤딩과 표에 연결해 저장합니다. 양식 검토와 초안 작성이 자리마다 이 지침을 읽습니다. 문서는 바뀌지 않습니다.", out="헤딩 그래프 · 표 구조 · 헤딩/표별 작성 지침", change="store", auto=True,
@@ -1273,11 +1279,11 @@ TASKS = (
                  _s("headsLlm", "LLM 검증·보완", ("human", "llm"), "저절로 돌지 않으며 이 줄의 「LLM 검증·보완」 을 눌러 돌립니다(유료 · 몇 분). LLM 이 헤딩과 템플릿, 표 구조를 검증 · 보완하고 서식 정리 계획을 받습니다. "
                     "판정할 때 그 자리의 작성 지침을 자료로 함께 읽습니다. 문서는 바뀌지 않습니다.", out="LLM 검증·보완을 거친 헤딩 그래프 · 표 구조", change="store", optional=True,
                     uses=("headings", "outline"), agents=_ANALYSIS_LLM_AGENTS, modules=("analysis_llm", "heading_runs", "tpl_agent"), spec=(SP_WORK, "② §20"),
-                    need="헤딩 · 표 분석과 LLM 연결(유료).", done="선택 단계이므로 완료 여부를 따로 세지 않습니다. 스크립트 분석만으로도 초안 작성을 할 수 있습니다.",
+                    need="헤딩 · 표 분석과 LLM 연결(유료).", done="LLM 검증·보완을 거쳤거나 사람이 「건너뛰기」 를 눌렀을 때(LLM 을 쓸 수 없으면 건너뜀). 선택 단계라 끝남 수에는 세지 않지만 차례에는 서서, 하거나 건너뛰어야 다음 줄이 「지금」 이 됩니다. 스크립트 분석만으로도 초안 작성을 할 수 있습니다.",
                     stop="LLM 이 답을 못 하면 앞 결과는 그대로 두고 실패로 알립니다."),
-                 _s("guides", "작성 지침 확인 · 적기", "human", "「지침 작성」 열에서 자리마다 양식이 적어 둔 작성 지침을 확인합니다. 지침이 없는 자리는 문서의 「지침」 단추로 그 헤딩에 적거나, 초안을 받을 때 이번 작성의 지침을 적습니다.", change="store", optional=True,
+                 _s("guides", "작성 지침 확인 · 적기", "human", "이 줄의 「지침 보기 · 적기」 를 누르면 「지침 작성」 열의 「채울 자리」 로 가서 자리마다 양식이 적어 둔 작성 지침이 펼쳐집니다. 지침이 없거나 모자란 헤딩은 그 자리의 칸에 바로 적고(문서의 「지침」 단추와 같은 저장), 표의 지침은 문서에서 그 표의 「지침」 단추로 적습니다. 문서는 바뀌지 않습니다.", change="store", optional=True,
                     uses=("guidewrite", "headings"), modules=("guide_write", "place_guides_api"), spec=(SP_FORM, "② §5"),
-                    need="헤딩 추출 결과(자리 목록이 본문 헤딩에서 나옵니다).", done="선택 단계이므로 완료 여부를 따로 세지 않습니다."),
+                    need="헤딩 추출 결과(자리 목록이 본문 헤딩에서 나옵니다).", done="사람이 「확인함」 이나 「건너뛰기」 를 눌렀을 때. 선택 단계라 끝남 수에는 세지 않지만 차례에는 서서, 누르기 전에는 다음 줄이 「지금」 이 되지 않습니다(표시는 작업 내용 초기화 · 준비 초기화가 함께 비웁니다)."),
                  # 2026-11-24 사용자 "양식을 전부 읽고 어떻게 작성해야할지 검토한다, 그리고 사용자가 문서를 제공하면 작성하는데,, 이전에 사용자가 정해줄 내용을 물어 본다" ·
                  # 같은 날(「작성 지침 확인 · 적기」 줄을 가리키며) "여기서 작성 테마/키워드를 추출해줘 … 그럼 내가 라이브러리에서 이 테마나 키워드로 추출하게.. 테마/키워드 그리고 맥락을 함께" — 자료 준비 앞에 선다(spec_양식작성 ② §5-2)
                  _s("review", "양식 검토 · 찾을 테마", ("human", "llm"), "LLM 이 양식 전체(헤딩, 안내 글, 표, 상자 안의 자리, 작성 지침)를 읽고 어떻게 쓸지(요약과 자리마다 작성 방향)를 검토하고, "
@@ -1289,12 +1295,12 @@ TASKS = (
              _g("material", (
                  _s("keep", "자료 문서 올리기", "human", "문서 라이브러리(새 탭 — 따로 선 서버)에 자료 문서를 올립니다. hwp · hwpx · docx · pdf 를 받고 올린 그대로 보관합니다.", out="보관한 자료 문서", change="store", uses=("doclib",),
                     modules=("doclib_client",), spec=(SP_FORM, "② §2"),
-                    need="문서 라이브러리 서버가 켜져 있어야 합니다.", done="문서 라이브러리에 자료 문서가 하나 이상 있을 때.", stop="서버가 꺼져 있으면 열 수 없습니다. 대시보드에 그렇게 알립니다."),
+                    need="문서 라이브러리 서버가 켜져 있어야 합니다.", done="이 문서를 만들거나 초기화한 뒤에 문서 라이브러리에 자료 문서를 올렸을 때, 또는 이미 있는 문서를 쓰겠다고 「있는 문서 쓰기」 를 눌렀을 때(라이브러리는 모든 작업이 같이 쓰는 서버라 거기 있는 것만으로 세지 않습니다).", stop="서버가 꺼져 있으면 열 수 없습니다. 대시보드에 그렇게 알립니다."),
                  _s("extract", "자료 추출(MD)", ("human", "script", "llm"), "문서 라이브러리에서 뽑을 범위(특정 기관 · 특정 연구)를 적고 추출합니다. 20쪽까지 한 묶음으로 나눠 Claude Opus 가 Read 도구로 읽고 그 범위의 내용만 마크다운으로 옮깁니다. "
                     "범위를 여럿 적으면 문서를 한 번만 읽어 범위마다 MD 파일 하나를 만들고, 범위에 차년도나 단계를 함께 적으면 그것만 뽑습니다. "
                     "그림은 쪼개진 조각을 합치고 모서리를 확인해 잘라 내며, 따로 선 수식은 따로 캡처해 LaTeX 로 바꿔 넣습니다.", out="MD 파일 + 그림 + 수식", change="store", uses=("doclib",),
                     modules=("doclib_client",), spec=(SP_FORM, "② §3"),
-                    need="보관한 자료 문서와 LLM 연결(유료). hwp · hwpx · docx 는 한글이나 Word 로 PDF 를 찍을 수 있어야 합니다.", done="끝난 추출이 하나 이상 있을 때.",
+                    need="보관한 자료 문서와 LLM 연결(유료). hwp · hwpx · docx 는 한글이나 Word 로 PDF 를 찍을 수 있어야 합니다.", done="이 문서를 만들거나 초기화한 뒤에 끝난 추출이 있을 때, 또는 이미 있는 추출을 쓰겠다고 「있는 추출 쓰기」 를 눌렀을 때.",
                     stop="LLM 이 한 묶음도 답하지 못하면 실패로 끝납니다. 한글 · Word 가 없어 PDF 로 바꾸지 못하면 PDF 로 올리라고 알립니다.",
                     left="그림이 잘렸을 수 있는 곳, LaTeX 로 바꾸지 못한 수식, 추출하지 못한 쪽 묶음은 MD 에 「확인 필요」 주석으로 남깁니다. 문서 라이브러리의 결과 화면에서 그림을 보고 확인합니다."),
                  _s("take", "자료 가져오기", ("human", "script"), "끝난 추출의 MD 를 이 문서의 자료로 가져옵니다. 「자료 가져오기」 열에서 고르거나, 에이전트 보기의 「라이브러리」 에서 여럿이나 전체를 골라 한 번에 가져옵니다(추출이 아직 없는 문서는 원본 파일을 글로 읽어). "
@@ -1924,6 +1930,12 @@ def _shown(t, family=None):
     return tool_names.apply(t, family or workflow_state.family(t))
 
 
+def _texted(t):
+    """등록부 응답(listing)에만 — 고친 도구 이름(_shown) + 사람이 고친 단계 설명(app/step_texts.py — ② §18-26: 고친 줄에 baseText). 만든 글 · 프롬프트는 기본 글 그대로."""
+    from app import step_texts
+    return step_texts.apply(_shown(t))
+
+
 def shown_of(job):
     """키 → 사람이 고친 도구 이름을 얹은 워크플로우 꼴(붙박이 · 조립한 것) | None — 워크플로우 실행 층이 읽는 정의(workflow_state.definition: 실행 상태 · 실행 기록의 줄 이름 — ② §18-19).
     만든 글 · 프롬프트를 짓는 곳은 task_of(기본 이름)를 쓴다."""
@@ -1938,6 +1950,7 @@ def _step(s, ags, names=("", "", False)):
             "beside": bool(s.get("beside")),   # 앞 줄과 같은 차례(조립한 정의의 같은 행 — ② §18-6 「행 × 두 칸」: 붙박이는 늘 거짓)
             "onText": on_text(s["on"], *names),   # 그 화면 글(문서 이름까지 — 화면이 그대로 쓴다 · on 이 비면 "")
             "cond": [{"key": k, "name": name, "text": s[k]} for k, name in COND if s[k]],   # 단계마다 조건(② §10 — 적힌 것만: 공통 모듈의 단계는 빈 목록)
+            "baseText": dict(s.get("baseText") or {}),   # 사람이 화면에서 고친 설명의 기본 글 {글 키: 등록부의 글}(안 고쳤으면 빈 것 — ② §18-26 · app/step_texts.py)
             "uses": list(s["uses"]), "spec": _spec(s["spec"]),
             "modules": [{"name": m, "path": module_path(m) or "", "doc": _doc(m)} for m in s["modules"]],
             "agents": [ags.get(a) or {"id": a, "no": "", "name": a, "group": "", "role": "", "run": "", "model": None} for a in s["agents"]]}
@@ -1974,7 +1987,7 @@ def listing():
               "flow": [{"stage": g["id"], "steps": [s["key"] for s in hit]} for g, hit in flow_of(t)],   # 워크플로우 전체(문서마다가 아니라 한 번 — 어느 문서의 단위문서 TASK 에도 안 듦)
               "base": t.get("base"),   # 구성의 기준 문서 역할(이관 = source · 조립 = 목적 문서에 「구성 맞추기」 가 있을 때만 source · 취합 = target · 그 밖 None)
               "stages": [{"id": g["id"], "meta": g["meta"], "no": g["no"], "name": g["name"], "does": g["does"], "module": g.get("module"), "steps": [_step(s, ags, nm) for s in g["steps"]]} for g in _groups(t)]}
-             for t in map(_shown, list(TASKS) + made) for nm in [_names(t)]]   # _shown = 사람이 고친 도구 이름을 얹은 사본(② §18-19)
+             for t in map(_texted, list(TASKS) + made) for nm in [_names(t)]]   # _texted = 사람이 고친 도구 이름(② §18-19) · 단계 설명(② §18-26)을 얹은 사본
     common = [{"id": c["id"], "kind": c.get("kind") or "", "name": c["name"], "does": c["does"], "where": c["where"], "usedBy": used[c["id"]],
                "steps": [_step(s, ags) for s in (_shown({"stages": [c]}, "relay")["stages"][0] if c.get("kind") == "stage" else c)["steps"]]} for c in COMMON]   # kind "stage" = 단계 모듈(TASK 가 조립 — ② §13)
     return {"tasks": tasks, "common": common, "by": dict(BY), "change": dict(CHANGE), "waysNote": WAYS_NOTE.replace("**", "")}

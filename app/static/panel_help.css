@@ -52,3 +52,22 @@
 .panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-k { color: #86e2ab; }
 .panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-k::before { background: #52d989; box-shadow: 0 0 0 2px #52d98933; }
 .panel-help-tooltip[data-help-kind="end"] .panel-help-row[data-help-key="끝 확정"] .panel-help-v { color: #ecf8f0; }
+/* 고칠 수 있는 설명(hHelp 의 edit — 대시보드 단계 메모: spec_워크플로우 ② §18-26) — 풍선 맨 아래 「고치기」 · 고치는 폼 */
+.panel-help-tooltip .panel-help-foot { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 8px; border-top: 1px solid #3c4b62; }
+.panel-help-tooltip .panel-help-edit { padding: 3px 11px; border: 1px solid #55657d; border-radius: 6px; background: #2f3d52; color: #e6ecf5; font: 12px/1.5 "Segoe UI", "Malgun Gothic", sans-serif; cursor: pointer; }
+.panel-help-tooltip .panel-help-edit:hover:not(:disabled) { background: #3a4a62; }
+.panel-help-tooltip .panel-help-edit.primary { border-color: #4f7fe0; background: #3b6fd8; color: #fff; }
+.panel-help-tooltip .panel-help-edit:disabled { opacity: .55; cursor: default; }
+.panel-help-tooltip.is-editing { width: min(460px, calc(100vw - 20px)); max-width: min(460px, calc(100vw - 20px)); max-height: calc(100vh - 20px); white-space: normal; }
+.panel-help-tooltip.is-rows.is-editing[data-help-title]::before { display: none; } /* 제목은 폼 머리(.panel-help-form-h)가 단다 */
+.panel-help-tooltip .panel-help-form { display: flex; flex-direction: column; gap: 9px; margin: 0; }
+.panel-help-tooltip .panel-help-form-h { padding-bottom: 7px; border-bottom: 1px solid #3c4b62; color: #fff; font-size: 13.5px; font-weight: 700; line-height: 1.35; }
+.panel-help-tooltip .panel-help-field { display: flex; flex-direction: column; gap: 3px; }
+.panel-help-tooltip .panel-help-field-k { font-size: 11px; font-weight: 700; color: #9fb0c7; }
+.panel-help-tooltip .panel-help-edited { font-style: normal; font-weight: 600; color: #f2c078; }
+.panel-help-tooltip .panel-help-mini { padding: 0 6px; border: 1px solid #55657d; border-radius: 5px; background: transparent; color: #c9d4e3; font: 11px/1.6 "Segoe UI", "Malgun Gothic", sans-serif; cursor: pointer; }
+.panel-help-tooltip .panel-help-field textarea { box-sizing: border-box; width: 100%; resize: vertical; padding: 5px 7px; border: 1px solid #4a5a72; border-radius: 6px; background: #1b2433; color: #f4f7fb; font: 12.5px/1.55 "Segoe UI", "Malgun Gothic", sans-serif; }
+.panel-help-tooltip .panel-help-field textarea:focus { outline: 2px solid #5b8def; outline-offset: 0; }
+.panel-help-tooltip .panel-help-form-msg { margin: 0; color: #f2c078; font-size: 12px; }
+.panel-help-tooltip .panel-help-form-msg:empty { display: none; }
+.panel-help-tooltip .panel-help-form-acts { display: flex; gap: 6px; justify-content: flex-end; }

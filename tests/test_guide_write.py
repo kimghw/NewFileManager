@@ -250,7 +250,7 @@ def test_registry_has_the_workflow_and_its_tools():
     t = workflow.BY_JOB["form_write"]
     assert [g["id"] for g in t["stages"]] == ["open", "material", "write"] and [s["key"] for s in t["stages"][1]["steps"]] == ["keep", "extract", "take"]
     # 2026-11-24 차례를 다시 놓음: 양식 검토(찾을 테마)가 자료 준비 앞 — 준비의 끝 · 작성 = 작성 계획 → 양식 초안 작성 → 검사 → 반영
-    assert [s["key"] for s in t["stages"][0]["steps"]] == ["open", "heads", "headsLlm", "guides", "review"]
+    assert [s["key"] for s in t["stages"][0]["steps"]] == ["overview", "open", "heads", "headsLlm", "guides", "review"]
     assert [s["key"] for s in t["stages"][2]["steps"]] == ["plan", "ask", "check", "apply"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
     names = {s["key"]: s["name"] for g in t["stages"] for s in g["steps"]}
     assert (names["review"], names["plan"], names["ask"], names["apply"]) == ("양식 검토 · 찾을 테마", "작성 계획 · 확인할 것", "양식 초안 작성", "고른 초안을 문서에 반영")
@@ -461,3 +461,27 @@ def test_stage_reset_clears_only_that_stage(c):
     assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "material"}).json() == {"stage": "material", "materials": 1} and mats() == []
     API._RUNS[wid] = {"state": "running"}
     assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "material"}).status_code == 409   # 초안을 받는 중에는 못 한다
+    API._RUNS.pop(wid, None)
+
+
+def test_lib_steps_count_for_this_document(c):
+    """06 · 07 의 「끝남」 은 이 문서의 몫(2026-11-24 사용자 「초기화 할때 5,6 도 아직 안했다고 나와야지」): 기준 시각(libFrom)은 작업을 만든 때 · 초기화 · 「2단계 초기화」 가운데 늦은 것 ·
+    「2단계 초기화」 는 기준 시각을 올리고 「있는 것 쓰기」 표시(keep · extract)를 지운다(다른 표시는 남김)."""
+    import time as _t
+    doc = _doc(c)
+    wid = server._sess(doc).id
+    g = c.get(f"/api/docs/{doc}/guide-write").json()
+    t0 = g["libFrom"]
+    assert t0 > 0 and t0 <= _t.time() + 1
+    for key in ("keep", "extract", "guides"):
+        assert c.put(f"/api/docs/{doc}/form-write/step", json={"key": key, "mark": "done"}).status_code == 200
+    assert c.put(f"/api/docs/{doc}/form-write/step", json={"key": "keep", "mark": "skip"}).status_code == 400   # 06 은 「있는 문서 쓰기」(done)만
+    assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "material"}).status_code == 200
+    g = c.get(f"/api/docs/{doc}/guide-write").json()
+    assert g["libFrom"] >= t0 and g["steps"] == {"guides": "done"}, g["steps"]
+    t1 = g["libFrom"]
+    assert c.put(f"/api/docs/{doc}/form-write/step", json={"key": "keep", "mark": "done"}).json()["steps"] == {"guides": "done", "keep": "done"}
+    assert c.get(f"/api/docs/{doc}/guide-write").json()["libFrom"] == t1   # 표시를 써도 기준 시각은 그대로
+    assert c.post(f"/api/works/{wid}/reset").status_code == 200   # 전체 초기화 — 표시 파일째 옮겨지고 기준 시각은 그 초기화
+    g = c.get(f"/api/docs/{doc}/guide-write").json()
+    assert g["steps"] == {} and g["libFrom"] >= t1
