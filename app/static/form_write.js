@@ -827,8 +827,12 @@ function fwPlanStep(gw) { // 대시보드 「작성 계획 · 확인할 것」 �
   const fr = FW.fr, rv = fr && fr.review, run = fr && fr.run, open = (fr && fr.open) || [];
   const planned = !!(fr && fr.planned), mats = ((FW.gw && FW.gw.materials) || []).length;
   if (gw.hwpx === false) return { state: "", text: "" };
-  const btn = [dashBtn(!planned ? "작성 계획 세우기" : "계획 · 물음 보기", () => fwWriteOpen("plan"), { primary: !!rv && ((!planned && !!mats) || !!open.length), title: "「지침 작성」 열의 「작성 계획 · 확인할 것」 —양식에 넣을 내용의 자료(MD)를 고르고 자리마다 자료의 무엇을 쓸지 계획을 세우고, 확인할 것에 답합니다(유료 LLM · 문서는 안 바뀜)", focus: "act:plan" })];
-  if (run && run.state === "running" && (run.materials || []).length) return { state: "run", text: "고른 자료를 읽고 작성 계획을 세우는 중(1~3분)", acts: btn }; // 양식 검토가 도는 것(자료 없음)은 이 줄의 일이 아니다
+  // 2026-11-25 사용자 「왜 작성 계획 세우기랑 초안 받기가 같이 활성화가 되어 있냐? … 계획 세우기 단계였는데 안맞으면 안됨」 — 계획이 도는 동안 이 줄의 단추가 파란 「작성 계획 세우기」 로 남아 있었다:
+  // 도는 동안은 「계획 세우는 중」 (회색 · 열을 열어 진행을 볼 뿐)이고, 「지침 작성」 열 아래 「작성 초안 받기」 도 꺼진 동안은 회색이다(fwFootDraw)
+  const going = !!(run && run.state === "running" && (run.materials || []).length); // 양식 검토가 도는 것(자료 없음)은 이 줄의 일이 아니다
+  const btn = [going ? dashBtn("계획 세우는 중 — 보기", () => fwWriteOpen("plan"), { title: "「지침 작성」 열의 「작성 계획 · 확인할 것」 — 고른 자료를 읽고 작성 계획을 세우는 중입니다. 끝나면 확인할 것을 묻습니다", focus: "act:plan" })
+    : dashBtn(!planned ? "작성 계획 세우기" : "계획 · 물음 보기", () => fwWriteOpen("plan"), { primary: !!rv && ((!planned && !!mats) || !!open.length), title: "「지침 작성」 열의 「작성 계획 · 확인할 것」 —양식에 넣을 내용의 자료(MD)를 고르고 자리마다 자료의 무엇을 쓸지 계획을 세우고, 확인할 것에 답합니다(유료 LLM · 문서는 안 바뀜)", focus: "act:plan" })];
+  if (going) return { state: "run", text: "고른 자료를 읽고 작성 계획을 세우는 중(1~3분)", acts: btn };
   if (!rv) return { state: "todo", text: "양식 검토 뒤에 세웁니다", acts: btn };
   const n = rv.questions.length, pl = Object.values(rv.places || {});
   if (!planned) return { state: mats ? "now" : "todo", text: mats ? "작성 계획 전 — 양식에 넣을 내용의 자료(MD)를 고르고 「작성 계획 세우기」 를 누릅니다" : "자료를 가져오면 계획을 세웁니다", acts: btn };
@@ -1354,7 +1358,8 @@ function fwFootDraw(foot) {
   }
   foot.append(el("span", "fw-grow"));
   if (why) foot.append(el("span", "fw-muted", why));
-  foot.append(hBtn(`작성 초안 받기${n ? ` (${n}곳)` : ""}`, () => fwRun(), { cls: "btn sm primary", disabled: !!why, title: why || `고른 자리 ${n}곳의 초안을 받습니다 — LLM 이 쓴 글이 제안 카드로 나옵니다(유료 LLM · 자리마다 호출 1번 이상 · 문서는 아직 바뀌지 않습니다)` }));
+  // 꺼진 동안은 파란 단추로 두지 않는다(옅은 파랑이 켜진 단추로 읽혔다 — 2026-11-25 사용자 「작성 계획 세우기랑 초안 받기가 같이 활성화」): 앞 걸음이 끝나야 파랗게
+  foot.append(hBtn(`작성 초안 받기${n ? ` (${n}곳)` : ""}`, () => fwRun(), { cls: "btn sm" + (why ? "" : " primary"), disabled: !!why, title: why || `고른 자리 ${n}곳의 초안을 받습니다 — LLM 이 쓴 글이 제안 카드로 나옵니다(유료 LLM · 자리마다 호출 1번 이상 · 문서는 아직 바뀌지 않습니다)` }));
 }
 async function fwRun() {
   const places = [...FW.picks], materials = [...(FW.mats || [])], chunks = {};
