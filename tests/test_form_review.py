@@ -251,7 +251,8 @@ def test_topics_kept_on_replan_lost_answers_and_old_saved_reviews(c, monkeypatch
     monkeypatch.setattr(GW.llm, "status", lambda: {"available": True})
     mid = c.post(f"/api/docs/{doc}/agent/material", json={"name": "자료.md", "text": "한국선급(KR) 최종 목표"}).json()["id"]
     topics = [{"name": "최종 목표", "keywords": ["목표 수치", "정량 지표"], "context": "1-1 에 3줄", "scope": "최종 목표와 정량 지표", "places": ["h2"]}]
-    answers = [{**ANSWER, "topics": topics}, {**ANSWER, "topics": []}, {**ANSWER, "topics": []}]
+    plan_t = [{"name": "자료의 목표 수치", "keywords": ["목표"], "context": "자료 2절", "scope": "자료에 적힌 목표 수치", "places": ["h2"]}]
+    answers = [{**ANSWER, "topics": topics}, {**ANSWER, "topics": plan_t}, {**ANSWER, "topics": []}]
     monkeypatch.setattr(R.llm, "call", lambda *a, **k: {"data": answers.pop(0), "backend": "fake", "ms": 1})
     url = f"/api/docs/{doc}/form-review"
     assert c.post(url, json={}).status_code == 200 and _wait(c, doc)["state"] == "done"                 # ① 양식만 검토 — 테마를 받는다
@@ -261,6 +262,11 @@ def test_topics_kept_on_replan_lost_answers_and_old_saved_reviews(c, monkeypatch
     assert c.post(url, json={"materials": [mid]}).status_code == 200 and _wait(c, doc)["state"] == "done"   # ② 계획 — 답이 테마를 비워 보냄: 양식이 그대로면 앞의 것을 지닌다
     v = c.get(url).json()
     assert v["planned"] and [t["name"] for t in v["review"]["topics"]] == ["최종 목표"] and v["review"]["topicsKept"] is True
+    # 작성 계획이 뽑은 테마는 따로(화면의 「작성 계획」 탭 — 2026-11-26 사용자 「6번에서 나온 결과 인지 모르잖아. 탭으로」) — 06 의 것을 덮지 않는다
+    assert [t["name"] for t in v["review"]["planTopics"]] == ["자료의 목표 수치"] and v["planTopicLines"] and v["topicLines"] == ["최종 목표와 정량 지표 (목표 수치)"]
+    assert R.unplan(wid) and "planTopics" not in R.load(wid)["review"]   # 「작성 초기화」 는 계획이 뽑은 테마도 비운다
+    answers.insert(0, {**ANSWER, "topics": plan_t})
+    assert c.post(url, json={"materials": [mid]}).status_code == 200 and _wait(c, doc)["state"] == "done"   # 계획을 되살린다(아래가 그 위에서 본다)
     places[:] = [{**p, "guides": [{"src": "user", "kind": "사용자 지침", "text": "두 줄로"}]} if p["id"] == "h2" else p for p in PLACES]   # 양식(지침)이 바뀜 → 옛 테마를 잇지 않는다
     assert c.post(url, json={"materials": [mid]}).status_code == 200 and _wait(c, doc)["state"] == "done"
     v = c.get(url).json()

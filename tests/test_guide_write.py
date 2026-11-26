@@ -488,3 +488,36 @@ def test_lib_steps_count_for_this_document(c):
     assert c.post(f"/api/works/{wid}/reset").status_code == 200   # 전체 초기화 — 표시 파일째 옮겨지고 기준 시각은 그 초기화
     g = c.get(f"/api/docs/{doc}/guide-write").json()
     assert g["steps"] == {} and g["libFrom"] >= t1
+
+
+def test_project_refs_only_selected_library_docs_are_used(c, monkeypatch):
+    """이 프로젝트의 참조 문서(spec_양식작성 ② §2-1 — 2026-11-26 사용자 「있는 추출할때 전부 참조할 수 있지만 사용자가 선택한 문서만 사용할 수 있게 해줘」):
+    양식 작성의 문서는 프로젝트에 고른 문서의 추출만 자료로 가져오고 쓴다 · 고르기는 프로젝트 기록에 남고 이름 바꾸기를 따라간다 · 그 밖의 워크플로우는 전과 같다."""
+    from app import projects
+    doc = _doc(c)
+    wid = server._sess(doc).id
+    metas = {"xaaaaaaaaaa": {"id": "xaaaaaaaaaa", "doc": "d0123456789ab", "state": "done", "focus": "한국선급"}}
+    monkeypatch.setattr(doclib_client, "docs", lambda: [{"id": "d0123456789ab", "name": "보고서.pdf", "ext": "pdf", "extracts": []}])
+    monkeypatch.setattr(doclib_client, "extract", lambda eid: metas[eid])
+    monkeypatch.setattr(doclib_client, "md", lambda eid: "# 보고서\n\n본문\n")
+    assert c.get(f"/api/docs/{doc}/guide-write").json()["refs"]["only"] is False                       # 워크플로우 · 프로젝트 없음 — 거르지 않는다
+    assert c.put(f"/api/docs/{doc}/refs", json={"doc": "d0123456789ab", "on": True}).status_code == 400   # 프로젝트가 없는 문서
+    m0 = c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xaaaaaaaaaa"}).json()        # 거르지 않는 문서 — 전과 같이 가져온다
+    assert c.put(f"/api/works/{wid}/task", json={"kind": "general", "file": "", "project": "참조 시험", "job": "form_write"}).status_code == 200
+    g = c.get(f"/api/docs/{doc}/guide-write").json()
+    assert g["refs"] == {"project": "참조 시험", "docs": [], "only": True} and g["materials"][0]["outside"] is True and g["materials"][0]["libDoc"] == "d0123456789ab"
+    r = c.post(f"/api/docs/{doc}/guide-write/run", json={"places": ["h1"], "materials": [m0["id"]]})
+    assert r.status_code == 409 and "참조 문서가 아닌" in r.text                                       # 고르지 않은 문서의 자료로는 쓰지 않는다
+    assert c.post(f"/api/docs/{doc}/form-review", json={"materials": [m0["id"]]}).status_code == 409
+    c.delete(f"/api/docs/{doc}/agent/material/{m0['id']}")
+    assert c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xaaaaaaaaaa"}).status_code == 409
+    assert c.put(f"/api/docs/{doc}/refs", json={"doc": "d0999999999ab", "on": True}).status_code == 404   # 라이브러리에 없는 문서
+    assert c.put(f"/api/docs/{doc}/refs", json={"doc": "../x", "on": True}).status_code == 400
+    got = c.put(f"/api/docs/{doc}/refs", json={"doc": "d0123456789ab", "on": True}).json()["refs"]
+    assert got["docs"] == ["d0123456789ab"] and projects.refs("참조 시험") == ["d0123456789ab"]
+    m = c.post(f"/api/docs/{doc}/agent/material/library", json={"extract": "xaaaaaaaaaa"})
+    assert m.status_code == 200 and c.get(f"/api/docs/{doc}/guide-write").json()["materials"][-1]["outside"] is False
+    assert projects.rename("참조 시험", "참조 시험 2") and projects.refs("참조 시험 2") == ["d0123456789ab"]   # 이름 바꾸기를 따라간다
+    projects.rename("참조 시험 2", "참조 시험")
+    assert c.put(f"/api/docs/{doc}/refs", json={"doc": "d0123456789ab", "on": False}).json()["refs"]["docs"] == []
+    assert c.get(f"/api/docs/{doc}/guide-write").json()["materials"][-1]["outside"] is True              # 빼면 가져온 자료는 남고 「프로젝트 밖」

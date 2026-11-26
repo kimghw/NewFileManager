@@ -304,9 +304,9 @@ def main():
             fr0 = page.evaluate("() => { const g = FW.gen || 0; document.dispatchEvent(new CustomEvent('nfm:work-reset', { detail: { id: state.id } })); return { key: FW.key, gen: FW.gen, was: g }; }")
             check("② 작업 내용 초기화(nfm:work-reset) — 그 문서의 기억을 버린다", fr0["key"] == "" and fr0["gen"] == fr0["was"] + 1, fr0)
             page.evaluate("() => fwRead(true)")
-            # 06 · 07 은 이 문서의 몫으로 센다(2026-11-24 사용자 「초기화 할때 5,6 도 아직 안했다고 나와야지」) — 작업을 만들기 전에 라이브러리에 있던 문서 · 추출은 「끝남」 이 아니고 「있는 문서 쓰기」 · 「있는 추출 쓰기」 로 쓴다
-            check("② 문서 라이브러리의 문서 · 끝난 추출 수(이 문서의 몫 전 — 있는 것 쓰기)", n["keep"]["state"] != "done" and "자료 문서 1개" in n["keep"]["text"] and ["있는 문서 쓰기", False] in n["keep"]["acts"]
-                  and n["extract"]["state"] == "todo" and "끝난 추출 1개" in n["extract"]["text"] and ["있는 추출 쓰기", False] in n["extract"]["acts"], {k: n[k] for k in ("keep", "extract")})
+            # 07 · 08 은 이 프로젝트에 고른 참조 문서로 센다(2026-11-26 사용자 「있는 추출할때 전부 참조할 수 있지만 사용자가 선택한 문서만 사용할 수 있게 해줘」) — 라이브러리에 문서 · 추출이 있어도 고르기 전에는 끝남이 아니다
+            check("② 참조 문서를 고르기 전 — 라이브러리에 있어도 07 · 08 은 끝남이 아니다 · 「참조 문서 고르기」", n["keep"]["state"] != "done" and "이 프로젝트에 고른 참조 문서가 없습니다" in n["keep"]["text"] and "라이브러리 1개" in n["keep"]["text"]
+                  and ["참조 문서 고르기", False] in n["keep"]["acts"] and n["extract"]["state"] == "todo" and "먼저 이 프로젝트의 참조 문서를 고릅니다" in n["extract"]["text"], {k: n[k] for k in ("keep", "extract")})
             check("② 자료 없음 · 검토 전 → 「양식 검토 · 찾을 테마」 가 지금 차례(자료 없이 된다) · 자료 가져오기는 할 수 있음 · 작성 계획은 아직", n["review"]["state"] == "now" and n["review"]["acts"] == [["양식 검토", False]]
                   and n["take"]["state"] == "ready" and "자료가 없습니다" in n["take"]["text"] and n["plan"]["state"] == "todo" and n["ask"]["state"] == "todo", {k: n[k] for k in ("review", "take", "plan", "ask")})
             # ② 「1 준비」 의 「헤딩 · 표 분석 · 작성 지침」(2026-11-24 사용자 "1준비에 있어야지" · "테이블이나 본문이 지침을 가지고 와야지") — 분석이 끝나면 작성 지침을 저장하고 그 수를 보인다
@@ -320,11 +320,27 @@ def main():
             check_guidance_inputs(page, doc)
             # ② 「문서 올리기 · 첫 분석」 — 접어도 보이는 줄(참조 문서 수 + 「참조 문서 목록」) → 2열 「참조 문서」(2026-11-26 사용자 「참고 문서 갯수를 상단에 표기 … 참고문헌 리스트만 왼쪽열에서」)
             al = page.evaluate("() => { const b = document.querySelector('#paneDash .dash-node[data-key=open] .dash-always'); return b ? { text: b.textContent, btns: [...b.querySelectorAll('button')].map((x) => x.textContent) } : null; }")
-            check("② 문서 올리기 카드 — 접어도 참조 문서 수 · 「참조 문서 목록」", bool(al) and "참조 문서 1개" in al["text"] and al["btns"] == ["참조 문서 목록"], al)
+            check("② 문서 올리기 카드 — 접어도 참조 문서 수(이 프로젝트 · 라이브러리) · 「참조 문서 목록」", bool(al) and "이 프로젝트의 참조 문서 0개 · 라이브러리 1개" in al["text"] and al["btns"] == ["참조 문서 목록"], al)
             page.click("#paneDash .dash-node[data-key=open] .dash-always button")
-            page.wait_for_selector("#headsDlgBody .fw-ref", timeout=15000)
-            rc = page.evaluate("() => ({ kind: document.querySelector('#headsDlg').dataset.kind, rows: [...document.querySelectorAll('#headsDlgBody .fw-ref')].map((r) => r.textContent) })")
-            check("② 2열 「참조 문서」 — 라이브러리의 참조 문서 목록만", rc["kind"] == "fwRefs" and len(rc["rows"]) == 1 and "추출 1개" in rc["rows"][0], rc)
+            page.wait_for_selector("#headsDlgBody .fw-ref-tabs", timeout=15000)
+            RC = "() => ({ kind: document.querySelector('#headsDlg').dataset.kind, tabs: [...document.querySelectorAll('#headsDlgBody .fw-ref-tabs .fw-tab')].map((b) => [b.dataset.tab, b.textContent, b.classList.contains('is-on')]), rows: [...document.querySelectorAll('#headsDlgBody .fw-ref')].map((r) => r.textContent) })"
+            rc = page.evaluate(RC)
+            check("② 2열 「참조 문서」 — 탭 「이 프로젝트」(처음 · 비었음) | 「문서 라이브러리」", rc["kind"] == "fwRefs" and rc["tabs"] == [["project", "이 프로젝트 (0)", True], ["lib", "문서 라이브러리 (1)", False]] and not rc["rows"], rc)
+            # 고르지 않은 문서의 추출은 서버도 막는다(양식 작성 — 409)
+            r409 = requests.post(f"{base}/api/docs/{doc}/agent/material/library", json={"extract": eid}, timeout=30)
+            check("② 고르지 않은 문서의 추출을 자료로 — 409", r409.status_code == 409 and "참조 문서가 아닙니다" in r409.text, (r409.status_code, r409.text[:200]))
+            page.click("#headsDlgBody .fw-ref-tabs .fw-tab[data-tab=lib]")
+            page.wait_for_selector("#headsDlgBody .fw-ref .fw-ref-pick", timeout=15000)
+            rc = page.evaluate(RC)
+            check("② 「문서 라이브러리」 탭 — 모든 문서 · 「이 프로젝트에 넣기」", len(rc["rows"]) == 1 and "추출 1개" in rc["rows"][0] and "이 프로젝트에 넣기" in rc["rows"][0], rc)
+            page.click("#headsDlgBody .fw-ref .fw-ref-pick")
+            page.wait_for_function("() => /넣음/.test(document.querySelector('#headsDlgBody .fw-ref .fw-ref-pick')?.textContent || '')", timeout=15000)
+            refs = requests.get(f"{base}/api/docs/{doc}/guide-write", timeout=30).json()["refs"]
+            check("② 넣으면 프로젝트 기록에 남는다", refs["only"] and len(refs["docs"]) == 1, refs)
+            page.click("#headsDlgBody .fw-ref-tabs .fw-tab[data-tab=project]")
+            page.wait_for_function("() => document.querySelectorAll('#headsDlgBody .fw-ref').length === 1", timeout=15000)
+            n = page.evaluate(LIVE)
+            check("② 고른 뒤 — 07 · 08 끝남(이 프로젝트의 참조 문서 · 끝난 추출)", n["keep"]["state"] == "done" and "이 프로젝트의 참조 문서 1개" in n["keep"]["text"] and n["extract"]["state"] == "done", {k: n[k] for k in ("keep", "extract")})
             page.screenshot(path=str(OUT / "02b_refs.png"))
             # ③ 자료 가져오기
             page.evaluate("() => fwTakeOpen()")
@@ -341,16 +357,26 @@ def main():
             # ④ 지침 작성
             page.evaluate("() => fwWriteOpen()")
             page.wait_for_selector("#headsDlgBody .fw-note", timeout=15000)
-            c, ps, foot = page.evaluate(COL), page.evaluate(PLACES), page.evaluate(FOOT)
+            # 탭(2026-11-26 사용자 「각 도구가 뭘 정확히 어딜 선택하라는건지 알 수가 없어. 탭으로 분리해서」) — 대시보드 단계마다 하나 · 처음 = 지금 할 탭(검토 전 = 양식 검토) · 탭마다 「이 탭에서 할 일」
+            t0 = page.evaluate("""() => ({ tab: FW.wTab, tabs: [...document.querySelectorAll('#headsDlgBody .fw-w-tabs .fw-w-tab')].map((b) => b.dataset.tab), on: (document.querySelector('#headsDlgBody .fw-w-tab.is-on') || {}).dataset?.tab,
+              todo: [...document.querySelectorAll('#headsDlgBody > .fw-todo .fw-todo-t')].map((x) => x.textContent), now: (document.querySelector('#headsDlgBody .fw-todo-i.is-now .fw-todo-t') || {}).textContent || '',
+              foot: document.getElementById('headsDlgFoot').textContent, btns: document.querySelectorAll('#headsDlgFoot button').length })""")
+            check("④ 탭 — 작성 지침 · 양식 검토 · 찾을 테마 · 작성 계획 · 초안 작성 · 처음 = 양식 검토 · 할 일(지금 = 「양식 검토」 누르기) · 발치에 초안 단추 없음",
+                  t0["tabs"] == ["guides", "review", "topics", "plan", "write"] and t0["tab"] == t0["on"] == "review" and t0["now"] == "「양식 검토」 누르기" and t0["btns"] == 0 and "초안 작성」 탭에서" in t0["foot"], t0)
+            WHERE = "() => [...document.querySelectorAll('#headsDlgBody .fw-where-tag')].map((t) => [t.dataset.where, t.textContent])"
+            page.evaluate("() => fwWTabGo('plan')")
             mat = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-mats .fw-mat')].map((l) => [l.textContent, l.querySelector('input').checked])")
-            check("④ 2열 「지침 작성」 — 쓸 자료가 고른 채로", c["kind"] == "fwWrite" and not c["over"] and len(mat) == 1 and mat[0][1] and "연차보고서_견본" in mat[0][0], (c, mat))
+            wh = page.evaluate(WHERE)
+            page.evaluate("() => fwWTabGo('write')")
+            c, ps, foot = page.evaluate(COL), page.evaluate(PLACES), page.evaluate(FOOT)
+            check("④ 2열 「지침 작성」 — 쓸 자료가 고른 채로(작성 계획 탭)", c["kind"] == "fwWrite" and not c["over"] and len(mat) == 1 and mat[0][1] and "연차보고서_견본" in mat[0][0], (c, mat))
             check("④ 작성 지침이 있는 자리만(기본) — 자리마다 지침", len(ps) >= 3 and all(any(t.startswith("지침") for t in p["tags"]) and p["guides"] >= 1 for p in ps), ps[:6])
             check("④ LLM 꺼짐 — 「작성 초안 받기」 꺼짐 + 까닭", foot["btns"][-1][0] == "작성 초안 받기" and foot["btns"][-1][1] and foot["btns"][-1][2] == "LLM 을 쓸 수 없습니다", foot)
             # 절의 단계 꼬리표(2026-11-24 사용자 「어떤 것의 결과다. 준비다 이런게 있어야」) — 번호는 대시보드와 같은 셈(등록부 차례)
-            wh = page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-where-tag')].map((t) => [t.dataset.where, t.textContent])")
-            whs = dict(wh)
-            check("④ 절마다 단계 꼬리표 — 결과 09 자료 가져오기 · 준비 11 양식 초안 작성(01 = 워크플로우 개요)", whs.get("result:take", "").startswith("결과09 ") and "자료 가져오기" in whs.get("result:take", "")
-                  and whs.get("prep:ask", "").startswith("준비11 ") and [k for k, _ in wh].count("prep:ask") == 2 and not c["over"], wh)
+            wh2 = page.evaluate(WHERE)   # 초안 작성 탭 — 「이번 작성의 지침」 · 「채울 자리」 둘 다 11 의 준비
+            whs = dict(wh + wh2)
+            check("④ 절마다 단계 꼬리표 — 결과 09 자료 가져오기(작성 계획 탭) · 준비 11 양식 초안 작성(초안 작성 탭 둘)", whs.get("result:take", "").startswith("결과09 ") and "자료 가져오기" in whs.get("result:take", "")
+                  and whs.get("prep:ask", "").startswith("준비11 ") and [k for k, _ in wh2].count("prep:ask") == 2 and not c["over"], (wh, wh2))
             page.click("#headsDlgBody .fw-places-head input[type=checkbox]")
             page.wait_for_function(f"() => document.querySelectorAll('#headsDlgBody .fw-place').length > {len(ps)}", timeout=10000)
             allp = page.evaluate(PLACES)
@@ -407,29 +433,36 @@ def main():
             page.evaluate("() => fwRead(true).then(fwRedraw)")
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '먼저 「양식 검토」 를 하세요'; }", timeout=10000)
             # 2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려」 — 양식 검토(06) · 작성 계획(10)은 따로 선 절 · 단추 · 절 차례 = 대시보드 차례(spec_양식작성 ② §5-1 「① ② 를 뗀다」)
-            b0 = page.evaluate("""() => ({ rev: [...document.querySelectorAll('#headsDlgBody .fw-review-sec button')].map((b) => b.textContent),
-              plan: [...document.querySelectorAll('#headsDlgBody .fw-plan-sec .fw-places-head button')].map((b) => [b.textContent, b.disabled, b.title]),
-              order: [...document.querySelectorAll('#headsDlgBody > section')].map((s) => s.classList.contains('fw-review-sec') ? 'review' : s.classList.contains('fw-plan-sec') ? 'plan' : s.querySelector('.fw-note') ? 'note' : s.querySelector('.fw-mats') ? 'mats' : s.classList.contains('fw-places-sec') ? 'places' : 'other') })""")
-            check("④-1 검토 전 — 「양식 검토」 절의 단추는 「양식 검토」 하나 · 「작성 계획 세우기」 는 따로 선 절에서 꺼짐(양식 검토가 먼저) · 절 차례 = 요청 → 06 → 자료 → 10 → 자리",
+            # 탭마다의 절 — 양식 검토 탭 = 요청 · 06 / 작성 계획 탭 = 자료 · 10 / 초안 작성 탭 = 요청 · 자리
+            b0 = page.evaluate("""() => { const order = () => [...document.querySelectorAll('#headsDlgBody > section')].map((s) => s.classList.contains('fw-review-sec') ? 'review' : s.classList.contains('fw-plan-sec') ? 'plan' : s.querySelector('.fw-note') ? 'note' : s.querySelector('.fw-mats') ? 'mats' : s.classList.contains('fw-places-sec') ? 'places' : 'other').filter((o) => o !== 'other'), o = {};
+              fwWTabGo('review'); o.rev = [...document.querySelectorAll('#headsDlgBody .fw-review-sec button')].map((b) => b.textContent); o.review = order();
+              fwWTabGo('plan'); o.plan = [...document.querySelectorAll('#headsDlgBody .fw-plan-sec .fw-places-head button')].map((b) => [b.textContent, b.disabled, b.title]); o.planOrder = order();
+              fwWTabGo('write'); o.write = order(); return o; }""")
+            check("④-1 검토 전 — 「양식 검토」 절의 단추는 「양식 검토」 하나 · 「작성 계획 세우기」 는 따로 선 탭에서 꺼짐(양식 검토가 먼저) · 탭마다 그 단계의 절만",
                   b0["rev"] == ["양식 검토"] and b0["plan"] and b0["plan"][0][0] == "작성 계획 세우기" and b0["plan"][0][1] and "양식 검토" in b0["plan"][0][2]
-                  and [o for o in b0["order"] if o != "other"] == ["note", "review", "mats", "plan", "places"], b0)
+                  and b0["review"] == ["note", "review"] and b0["planOrder"] == ["mats", "plan"] and b0["write"] == ["note", "places"], b0)
             # 양식만 검토한 상태(자료 없이) — 보는 셋 · 검토가 본 것 · 작성 방향은 보이고, 「작성 계획 세우기」 가 다음 · 「제안 받기」 는 아직 꺼짐
             only = {**rv, "materials": [], "places": {pid: {"how": "개조식 3줄", "needs": "목표 수치", "use": "", "gap": ""}}, "questions": [{**rv["questions"][0], "suggest": "", "source": ""}],
                     "sees": {"write": "자리 6곳에 개발 목표를 씀", "guides": "작성 요령: 개조식", "asks": "한국선급 몫만"}, "fed": {"places": 6, "formGuides": 2, "userGuides": 1, "request": True}, "request": "한국선급 몫만"}
             fr.update(review=only, open=["q1"])
             page.evaluate("() => fwRead(true).then(fwRedraw)")
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.disabled && b.title === '자료를 고르고 「작성 계획 세우기」 를 하세요'; }", timeout=10000)
-            st = page.evaluate("""() => ({ btn: document.querySelector('#headsDlgBody .fw-plan-sec .fw-places-head button').textContent, rev: document.querySelector('#headsDlgBody .fw-review-sec .fw-places-head button').textContent,
-              steps: [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent), how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent),
-              sees: [...document.querySelectorAll('#headsDlgBody .fw-review-sec .fw-see')].map((x) => [x.dataset.see, x.querySelector('b').textContent]), fed: (document.querySelector('#headsDlgBody .fw-rev-fed') || {}).textContent || '', note: FW.note })""")
+            st = page.evaluate("""() => { const o = { how: [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent), note: FW.note };
+              fwWTabGo('review'); o.rev = document.querySelector('#headsDlgBody .fw-review-sec .fw-places-head button').textContent;
+              o.sees = [...document.querySelectorAll('#headsDlgBody .fw-review-sec .fw-see')].map((x) => [x.dataset.see, x.querySelector('b').textContent]); o.fed = (document.querySelector('#headsDlgBody .fw-rev-fed') || {}).textContent || '';
+              o.tabMark = (document.querySelector('#headsDlgBody .fw-w-tab[data-tab=review] .fw-wt-mark') || {}).textContent || '';
+              fwWTabGo('plan'); o.btn = document.querySelector('#headsDlgBody .fw-plan-sec .fw-places-head button').textContent; o.steps = [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent);
+              o.now = (document.querySelector('#headsDlgBody .fw-todo-i.is-now .fw-todo-t') || {}).textContent || ''; return o; }""")
             check("④-1 양식만 검토 — 보는 셋(무엇을 써야 하나 · 작성 지침 · 사람의 요청) · 검토가 본 것 · 「다시 검토」 · 「작성 계획 세우기」 가 다음 · 작성 방향만 · 요청이 「이번 작성의 지침」 칸에",
                   st["btn"] == "작성 계획 세우기" and st["rev"] == "다시 검토" and st["steps"] == ["양식 검토 ✓", "작성 계획", "확인할 것"] and st["how"] == ["작성 방향: 개조식 3줄"]
                   and st["sees"] == [["write", "무엇을 써야 하나"], ["guides", "작성 지침"], ["asks", "사람의 요청"]] and "작성 지침 3개(양식 2 · 사람 1) · 사람의 요청 있음" in st["fed"]
-                  and st["note"] in ("", "한국선급 몫만"), st)
+                  and st["note"] in ("", "한국선급 몫만") and st["tabMark"] == "✓" and st["now"] == "「작성 계획 세우기」 누르기", st)
             # 「다시 검토」 는 자료를 보내지 않는다(고른 자료가 있어도) · 요청은 함께 — 「작성 계획 세우기」 만 자료를 보낸다
+            page.evaluate("() => fwWTabGo('review')")
             page.once("dialog", lambda dlg: dlg.accept())
             page.click("#headsDlgBody .fw-review-sec .fw-places-head button")
             page.wait_for_timeout(400)
+            page.evaluate("() => fwWTabGo('plan')")
             if page.evaluate("() => FW.gw.materials.length"):
                 page.once("dialog", lambda dlg: dlg.accept())
                 page.click("#headsDlgBody .fw-plan-sec .fw-places-head button")
@@ -448,11 +481,14 @@ def main():
             page.evaluate("() => fwRedraw()")
             # 자료로 작성 계획을 세운 상태 — 자리마다 자료에서 쓸 것 · 자료에 없는 것 + 확인할 것
             fr.update(review=rv, planned=True, open=["q1"])
-            page.evaluate("() => fwRead(true).then(fwRedraw)")
+            page.evaluate("() => { fwWTabGo('write'); return fwRead(true).then(fwRedraw); }")
             page.wait_for_selector("#headsDlgBody .fw-use", timeout=10000)
-            q = page.evaluate("() => { const q = document.querySelector('#headsDlgBody .fw-q'); return { text: q.textContent, btns: [...q.querySelectorAll('button')].map((b) => [b.textContent, b.title]) }; }")
             foot = page.evaluate(FOOT)
             how = page.evaluate("(id) => [...document.querySelectorAll('#headsDlgBody .fw-how')].map((x) => x.textContent)", pid)
+            wt = page.evaluate("() => ({ now: (document.querySelector('#headsDlgBody .fw-todo-i.is-now .fw-todo-t') || {}).textContent || '', mark: (document.querySelector('#headsDlgBody .fw-w-tab[data-tab=plan] .fw-wt-mark') || {}).textContent || '' })")
+            check("④-1 초안 작성 탭 — 물음이 남으면 할 일의 지금 = 작성 계획(탭으로 감) · 작성 계획 탭에 「답 1」", wt["now"].startswith("작성 계획 · 확인할 것") and wt["mark"] == "답 1", wt)
+            page.evaluate("() => fwWTabGo('plan')")
+            q = page.evaluate("() => { const q = document.querySelector('#headsDlgBody .fw-q'); return { text: q.textContent, btns: [...q.querySelectorAll('button')].map((b) => [b.textContent, b.title]) }; }")
             check("④-1 검토 뒤 — 확인할 것(물음 · 자료에서 · 고를 답 · 자료대로) · 「작성 초안 받기」 꺼짐 + 까닭 · 작성 방향", "어느 기관의 몫을 쓰나요?" in q["text"] and q["btns"][0] == ["자료에서: 한국선급", "근거: 한국선급(KR)"]
                   and [b[0] for b in q["btns"][1:]] == ["한국선급", "자료대로"] and foot["btns"][-1][1] and foot["btns"][-1][2] == "쓰기 전에 확인할 것 1개에 답하세요" and how == ["작성 방향: 개조식 3줄", "자료에서 쓸 것: 자료의 최종 목표 문단", "자료에 없는 것: 기준 연도"]
                   and page.evaluate("() => [...document.querySelectorAll('#headsDlgBody .fw-steps .fw-tag')].map((x) => x.textContent)") == ["양식 검토 ✓", "작성 계획 ✓", "확인할 것 0/1"], (q, foot, how))
@@ -460,8 +496,11 @@ def main():
             page.click("#headsDlgBody .fw-q button:has-text('자료대로')")
             page.wait_for_function("() => !document.querySelector('#headsDlgBody .fw-q.is-open')", timeout=10000)
             check("④-1 「자료대로」 → PUT {answers:[{key, a}]} · 물음이 닫힌다", put == [{"answers": [{"key": "q1", "a": "자료대로", "q": "어느 기관의 몫을 쓰나요?"}]}], put)   # 물음 번호와 함께 그 물음의 글도 보낸다(옛 화면의 번호가 다른 물음에 저장되지 않게 — 서버가 견준다)
+            page.evaluate("() => fwWTabGo('write')")
             page.wait_for_function("() => { const b = [...document.querySelectorAll('#headsDlgFoot button')].pop(); return b && b.title === '채울 자리를 고르세요'; }", timeout=10000)
+            check("④-1 답한 뒤 — 초안 작성 탭의 지금 = 채울 자리 고르기", page.evaluate("() => (document.querySelector('#headsDlgBody .fw-todo-i.is-now .fw-todo-t') || {}).textContent || ''").startswith("채울 자리 고르기"))
             # ④-2 자료에서 찾을 테마 · 키워드(2026-11-24 사용자 "여기서 작성 테마/키워드를 추출해줘 … 테마/키워드 그리고 맥락을 함께" — spec_양식작성 ② §5-2)
+            page.evaluate("() => fwWTabGo('topics')")
             t0 = page.evaluate(TOP)   # 오늘 전에 저장한 검토(topics 없음) — 「0개」 가 아니라 「아직 뽑지 않았습니다」
             check("④-2 옛 검토(topics 없음) — 「아직 뽑지 않았습니다」(0개라고 하지 않는다)", bool(t0) and t0["msg"] == "아직 뽑지 않았습니다 — 「다시 검토」 로 뽑습니다" and not t0["rows"] and "0개" not in t0["title"] and t0["help"], t0)
             fr.update(review={**rv, "topics": TOPICS}, topicLines=TOPIC_LINES, lost=[])
@@ -469,7 +508,7 @@ def main():
             page.wait_for_selector("#headsDlgBody .fw-topics .fw-top", timeout=10000)
             t1 = page.evaluate(TOP)
             check("④-2 테마 줄 — 테마 · 키워드 · 맥락 · 처음에는 고른 것 없음 · 「고른 것 복사」 꺼짐 · 「문서 라이브러리 열기」", len(t1["rows"]) == 10 and t1["rows"][0]["name"] == "테마 1" and t1["rows"][0]["kws"] == ["개발 목표", "세부 목표"]
-                  and "개조식" in t1["rows"][0]["ctx"] and not any(r["on"] for r in t1["rows"]) and t1["copy"] == ["고른 것 복사", True] and t1["lib"] == ["문서 라이브러리 열기", False] and "10개" in t1["title"] and not t1["over"], t1)
+                  and "개조식" in t1["rows"][0]["ctx"] and not any(r["on"] for r in t1["rows"]) and t1["copy"] == ["고른 것 복사", True] and t1["lib"] == ["문서 라이브러리 열기", False] and "(10)" in page.evaluate("() => (document.querySelector('#headsDlgBody .fw-top-tab.is-on') || {}).textContent || ''") and not t1["over"], t1)   # 테마 수 = 테마 절 안 탭(「06 … (10)」 — 3b 가 제목에서 옮김)
             page.evaluate("() => { const c = document.querySelectorAll('#headsDlgBody .fw-top > input'); c[0].click(); c[1].click(); }")
             t2 = page.evaluate(TOP)
             page.fill("#headsDlgBody .fw-top-lead", "한국선급,  2차년도")
@@ -498,7 +537,7 @@ def main():
             page.evaluate("() => fwWriteOpen('guides')")
             page.wait_for_selector("#headsDlgBody .fw-gmode", timeout=10000)
             GM = """() => { const b = document.getElementById('headsDlgBody'), sec = b.querySelector('.fw-places-sec'), ds = [...b.querySelectorAll('.fw-place:not(.is-table):not(.is-box) details.fw-guides:not(.fw-chunks)')];
-              return { top: Math.abs(sec.offsetTop - b.offsetTop - b.scrollTop) < 12 || b.scrollTop + b.clientHeight >= b.scrollHeight - 2, open: ds.length && ds.every((d) => d.open), notes: b.querySelectorAll('.fw-place:not(.is-table):not(.is-box) .fw-gnote').length,
+              return { top: FW.wTab === 'guides' && !!b.querySelector('.fw-w-tab.is-on[data-tab=guides]') && !b.querySelector('.fw-review-sec, .fw-plan-sec, .fw-mats'), open: ds.length && ds.every((d) => d.open), notes: b.querySelectorAll('.fw-place:not(.is-table):not(.is-box) .fw-gnote').length,
                 heads: b.querySelectorAll('.fw-place:not(.is-table):not(.is-box)').length, run: !!sec.querySelector('[data-where="run:guides"]') }; }"""
             g1 = page.evaluate(GM)
             first = page.locator("#headsDlgBody .fw-place:not(.is-table):not(.is-box) .fw-gnote").first
@@ -510,9 +549,9 @@ def main():
             first.fill("")
             first.locator("xpath=following-sibling::button").click()
             page.wait_for_function("() => ![...document.querySelectorAll('#headsDlgBody .fw-place .fw-tag')].some((t) => t.textContent === '사람 지침')", timeout=10000)
-            check("④-3 「지침 보기 · 적기」 — 채울 자리로 굴림 · 헤딩마다 지침 펼침 · 적는 칸 · 저장하면 「사람 지침」 · 비우고 저장하면 지움", g1["top"] and g1["open"] and g1["notes"] == g1["heads"] > 0 and g1["run"] and saved == "개조식 3줄로", (g1, saved))
+            check("④-3 「지침 보기 · 적기」 — 「작성 지침」 탭(그 절만) · 헤딩마다 지침 펼침 · 적는 칸 · 저장하면 「사람 지침」 · 비우고 저장하면 지움", g1["top"] and g1["open"] and g1["notes"] == g1["heads"] > 0 and g1["run"] and saved == "개조식 3줄로", (g1, saved))
             page.locator("#headsDlg").screenshot(path=str(OUT / "04d_guides.png"))
-            page.evaluate("() => fwWriteOpen()")
+            page.evaluate("() => fwWriteOpen('write')")
             page.wait_for_function("() => !document.querySelector('#headsDlgBody .fw-gmode') && !document.querySelector('#headsDlgBody .fw-gnote')", timeout=10000)
             for i in range(3):
                 page.click(f"#headsDlgBody .fw-place:nth-of-type({i + 1}) > input") if False else page.evaluate("(i) => document.querySelectorAll('#headsDlgBody .fw-place > input')[i].click()", i)
@@ -653,6 +692,8 @@ def main():
             raw = fitz.open()
             raw.new_page().insert_text((72, 72), "raw original text of the registered file")
             did2 = requests.post(lib + "/api/docs", files={"file": ("추출 전 문서.pdf", raw.tobytes())}, timeout=30).json()["doc"]["id"]
+            # 양식 작성 — 자료로 쓰는 것은 이 프로젝트에 고른 참조 문서의 것만(spec_양식작성 ② §2-1): 그 서버에 바로 올린 문서는 먼저 이 프로젝트에 넣는다(안 넣으면 가져오기가 409)
+            check("⑦ 라이브러리에 바로 올린 문서를 이 프로젝트에 넣음", requests.put(f"{base}/api/docs/{doc}/refs", json={"doc": did2, "on": True}, timeout=30).status_code == 200)
             SHELF = """() => { const b = document.querySelector('#paneAgent .ag-lib'); if (!b || b.hidden) return null;
               const t = b.querySelector('[data-ag-act=shelfTake]');
               return { rows: Object.fromEntries([...b.querySelectorAll('.ag-lib-row')].map((r) => [r.dataset.agLib, { text: r.textContent, on: r.querySelector('input').checked, off: r.querySelector('input').disabled, tags: [...r.querySelectorAll('.ag-lib-tag')].map((x) => x.textContent) }])),
@@ -698,6 +739,7 @@ def main():
                   and s4["take"] == ["가져오기", True] and s4["count"] == "이 문서의 자료 2/30" and "자료 1개를 가져왔습니다" in s4["msg"] and not s4["over"], (s4, mats2))
             page.locator("#paneAgent .ag-input").screenshot(path=str(OUT / "06c_agent_library_taken.png"))
             requests.delete(f"{base}/api/docs/{doc}/agent/material/{rawm['id']}", timeout=10) if rawm else None
+            requests.put(f"{base}/api/docs/{doc}/refs", json={"doc": did2, "on": False}, timeout=30)   # 뒤 검사의 수가 그대로이게 — 프로젝트에서도 뺀다
             requests.delete(lib + f"/api/docs/{did2}", timeout=10)
             page.click("#paneAgent .ag-lib-head button:has-text('닫기')")
             check("⑦ 「닫기」 — 고르기가 접힌다", page.evaluate(SHELF) is None and page.evaluate("() => document.querySelector('#paneAgent [data-ag-act=shelf]').getAttribute('aria-pressed')") == "false")
@@ -709,7 +751,7 @@ def main():
             page.evaluate("() => fwRead(true).then(() => dashDraw(true))")
             page.wait_for_function("() => FW.lib && FW.lib.alive === false", timeout=20000)
             d = page.evaluate(LIVE)
-            check("문서 라이브러리 서버가 꺼지면 대시보드가 알린다(자료는 그대로)", d["keep"]["state"] == "hold" and d["keep"]["acts"] == [["문서 라이브러리 열기", True]] and d["take"]["state"] == "done" and "이 문서의 자료 1개" in d["take"]["text"], {k: d[k] for k in ("keep", "take")})
+            check("문서 라이브러리 서버가 꺼지면 대시보드가 알린다(자료는 그대로)", d["keep"]["state"] == "hold" and d["keep"]["acts"] == [["참조 문서 고르기", True], ["문서 라이브러리 열기", True]] and d["take"]["state"] == "done" and "이 문서의 자료 1개" in d["take"]["text"], {k: d[k] for k in ("keep", "take")})
             # 06 줄의 상태 글 = 「서버 꺼짐」(전에는 대시보드 공용 글 「기관 미지정」 — 취합의 말)
             page.evaluate("() => dashDraw(true)")
             page.wait_for_function("() => /서버 꺼짐/.test((document.querySelector('#paneDash .dash-node[data-key=keep]') || {}).textContent || '')", timeout=20000)

@@ -60,7 +60,7 @@ def unplan(wid):
     ps = rv.get("places")
     wipe = lambda p: {**p, "use": "", "gap": ""} if isinstance(p, dict) else p  # noqa: E731
     ps = {k: wipe(p) for k, p in ps.items()} if isinstance(ps, dict) else [wipe(p) for p in ps or ()]
-    _save(wid, {"review": {**rv, "places": ps, "materials": []}, "decided": st["decided"]})
+    _save(wid, {"review": {**{k: v for k, v in rv.items() if k != "planTopics"}, "places": ps, "materials": []}, "decided": st["decided"]})   # 작성 계획이 뽑은 테마도 함께 비운다
     return True
 
 
@@ -105,7 +105,8 @@ def _view(s, places=None):
     return {"hwpx": True, "enabled": bool(llm.status()["available"]), "review": rv, "planned": form_review.planned(rv), "decided": st["decided"],
             "open": [q["key"] for q in form_review.open_questions(rv, st["decided"])], "stale": bool(rv and places is not None and rv.get("sig") != form_review.sig(places)), "run": run,
             "lost": [d["q"] for d in form_review.lost(rv, st["decided"], ids)] if ids is not None else [],   # 자리를 잃은 답(어느 자리에도 싣지 않는다 — 화면이 알린다)
-            "topicLines": [form_review.scope_line(t) for t in (rv or {}).get("topics") or ()]}   # 테마마다 「뽑을 범위」 에 붙일 한 줄(앞말 없이 — 화면이 앞말을 붙인다)
+            "topicLines": [form_review.scope_line(t) for t in (rv or {}).get("topics") or ()],   # 테마마다 「뽑을 범위」 에 붙일 한 줄(앞말 없이 — 화면이 앞말을 붙인다)
+            "planTopicLines": [form_review.scope_line(t) for t in (rv or {}).get("planTopics") or ()]}   # 작성 계획이 뽑은 테마의 줄(화면의 「작성 계획」 탭)
 
 
 @router.get("/api/docs/{doc_id}/form-review")
@@ -164,6 +165,8 @@ def _go(s, places, mids, run, request="", plan_request=""):
         if llms:
             rv["llms"] = llms
         prev = st["review"] or {}
+        if mats:   # 작성 계획이 자료를 읽고 뽑은 테마는 따로 남긴다(2026-11-26 사용자 「작성계획 세우기에서 나온 결과 인지 6번에서 나온 결과 인지 모르잖아. 탭으로 해서 구분」) — topics 는 06 양식 검토의 것
+            rv["planTopics"] = list(rv.get("topics") or [])
         if mats and prev.get("sig") == form_review.sig(places):   # 작성 계획 — 양식 · 지침이 그대로면 요약 · 작성 방향 · 테마는 앞 양식 검토의 것(astra 2차 G14 의 테마 잇기를 넓힘)
             form_review.keep_review(rv, prev)
             request = prev.get("request") or ""   # 검토가 본 요청 그대로 둔다(계획은 요청을 다시 읽지만 검토를 바꾸지 않는다)
@@ -193,6 +196,9 @@ def review_run(doc_id: str, body: dict = Body(default={})):
     store = doc_agent.Store(s.id)
     if not isinstance(mids, list) or not all(isinstance(m, str) for m in mids) or len(set(mids)) != len(mids) or any(store.material(m) is None for m in mids):
         raise HTTPException(400, "materials 는 이 문서의 자료 id 목록(겹침 없이)")
+    bad = guide_write_api.outside(s.id, mids)   # 양식 작성 — 이 프로젝트의 참조 문서에서 온 자료만(spec_양식작성 ② §2-1)
+    if bad:
+        raise HTTPException(409, f"이 프로젝트의 참조 문서가 아닌 문서의 자료입니다({' · '.join(bad[:3])}) — 빼고 고르거나 그 문서를 「이 프로젝트에 넣기」 합니다")
     note = (body if isinstance(body, dict) else {}).get("note") or ""
     if not isinstance(note, str) or len(note) > form_review.REQUEST_MAX:
         raise HTTPException(400, f"note(사람의 요청 — 이번 작성의 지침)는 {form_review.REQUEST_MAX:,}자까지")

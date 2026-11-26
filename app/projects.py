@@ -107,6 +107,9 @@ def _read():
                 raise ValueError("프로젝트 구성 설정 형식 오류")
             if record.get("confirmed") is not None and not isinstance(record["confirmed"], dict):   # 1단계 확정(spec_작업 ② §18) — 없어도 된다
                 raise ValueError("프로젝트 구성 확정 형식 오류")
+            refs = record.get("refs")   # 이 프로젝트의 참조 문서(문서 라이브러리의 문서 id — spec_양식작성 ② §2-1) — 없어도 된다
+            if refs is not None and not (isinstance(refs, list) and all(isinstance(r, str) for r in refs)):
+                raise ValueError("프로젝트 참조 문서 형식 오류")
             rows = record.get("versions")   # 구분 기준 버전(② §19) — 없어도 된다
             if rows is not None and not (isinstance(rows, list) and all(_version_ok(v) for v in rows)
                                          and len({v["id"] for v in rows}) == len(rows)):
@@ -245,6 +248,44 @@ def version_delete(name, vid):
         return copy.deepcopy(gone)
 
 
+# ---- 이 프로젝트의 참조 문서(spec_양식작성 ② §2-1 — 2026-11-26 사용자 「있는 추출할때 전부 참조할 수 있지만 사용자가 선택한 문서만 사용할 수 있게 해줘, 선택된.
+#      이 프로젝트의 참고 문헌은 문서 라이브러리랑 탭이든 뭐든 구분이 되어야함」) — 문서 라이브러리(따로 선 서버 · 모든 작업이 같이 봄)에서 사람이 고른 문서 id 목록.
+#      고른 차례대로 · 문서 라이브러리의 문서 · 추출은 건드리지 않는다(고르기만). 이름 바꾸기는 기록째 따라가고 지우기는 기록째 사라진다.
+REFS_MAX = 200
+
+
+def refs(name):
+    """그 프로젝트의 참조 문서 id 목록(고른 차례). 이름 · 작업 폴더 · 기록이 없으면 []. 저장 파일이 깨졌으면 ValueError."""
+    name = normalize_name(name)
+    if not name or _path() is None:
+        return []
+    with _LOCK:
+        return list((_read()["projects"].get(name) or {}).get("refs") or [])
+
+
+def refs_set(name, doc, on):
+    """참조 문서 하나를 넣거나(on) 뺀다 → 바뀐 목록. 기록이 없으면 만든다(넣을 때만). 이름 · 작업 폴더가 없으면 None · 넘치면 ValueError(덮지 않는다)."""
+    name = normalize_name(name)
+    if not name or _path() is None:
+        return None
+    with _LOCK:
+        data = _read()
+        record = data["projects"].get(name)
+        rows = list((record or {}).get("refs") or [])
+        if on and doc not in rows:
+            if len(rows) >= REFS_MAX:
+                raise ValueError(f"참조 문서는 프로젝트마다 {REFS_MAX}개까지입니다")
+            rows.append(doc)
+        elif not on and doc in rows:
+            rows.remove(doc)
+        else:
+            return rows
+        now = time.time()
+        data["projects"][name] = {**(record or {"created": now}), "refs": rows, "updated": now}
+        works._write_json(_path(), data)
+        return rows
+
+
 def listing():
     """프로젝트 → TASK → 라운드. 진행중 여부는 최신 라운드이며 완료를 추측하지 않는다.
     작업이 하나도 없고 projects.json 에 기록만 남은 프로젝트(문서 없는 프로젝트 — spec_작업 ② §17)도 낸다: works·tasks 가 [] 이고 updated 는 기록의 것."""
@@ -328,6 +369,10 @@ def absorb(src, dst):
         if record.get("settings") is not None and (cur is None or cur.get("settings") is None):
             carry = {k: copy.deepcopy(record[k]) for k in ("settings", "confirmed", "versions") if k in record}
             data["projects"][dst] = {**(cur or {}), **carry, "updated": time.time()}
+        if record.get("refs"):   # 참조 문서는 구성과 따로 — 늘 합친다(겹침 없이 · dst 의 차례가 먼저)
+            cur = data["projects"].get(dst) or {}
+            have = list(cur.get("refs") or [])
+            data["projects"][dst] = {**cur, "refs": have + [r for r in record["refs"] if r not in have], "updated": time.time()}
         works._write_json(_path(), data)
         return True
 
