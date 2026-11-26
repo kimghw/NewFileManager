@@ -61,9 +61,10 @@ def doclib_list():
         h = doclib_client.health()
         out.update(alive=bool(h.get("ok")), llm=h.get("llm"))
         for d in doclib_client.docs():
-            ex = [{k: e.get(k) for k in ("id", "focus", "span", "at", "chars", "figures", "formulas", "open")} for e in d.get("extracts") or () if e.get("state") == "done"]
+            # at(문서를 올린 때) · ended(추출이 끝난 때) — 양식 작성 대시보드가 「이 문서의 몫」(기준 시각 뒤의 것)을 이것으로 센다(form_write.js formWriteLive): 전에는 떨궈 늘 0 이었다
+            ex = [{k: e.get(k) for k in ("id", "focus", "span", "at", "ended", "chars", "figures", "formulas", "open")} for e in d.get("extracts") or () if e.get("state") == "done"]
             run = sum(1 for e in d.get("extracts") or () if e.get("state") in ("queued", "running"))
-            out["docs"].append({**{k: d.get(k) for k in ("id", "name", "ext", "pages", "org", "topic", "bytes", "sha256")}, "extracts": ex, "running": run,
+            out["docs"].append({**{k: d.get(k) for k in ("id", "name", "ext", "pages", "org", "topic", "bytes", "sha256", "at")}, "extracts": ex, "running": run,
                                 "raw": str(d.get("ext") or "").lower() in doc_agent.MATERIAL_EXT and (d.get("bytes") or 0) <= doc_agent.MATERIAL_BYTES})   # raw = 원본 파일을 글로 읽어 자료로 줄 수 있나(추출 전인 문서 — {doc})
     except (doclib_client.Down, LookupError) as e:
         out.update(alive=False, why=str(e))

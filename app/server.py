@@ -88,6 +88,7 @@ class Session:
         # 작업 저장(spec_작업 ② §3): 편집 차례·작업 폴더에 쓴 차례·만든 때, 저장 한 번에 하나(plock)
         self.rev, self.saved_rev, self.created, self.plock = 0, 0, time.time(), threading.Lock()
         self.persist_error = None  # 마지막 작업 저장 실패(있으면 화면 상단이 실패를 보임)
+        self.account = works.ACCOUNT.get()  # 이 문서를 연 계정(spec_계정 ② §3) — 저장은 늘 이 계정의 뿌리에(다른 계정의 요청이 메모리를 비우며 저장해도: spec_작업 ② §3 「저장 한 벌 · 직전 저장본」)
         # 구분 기준(spec_구분_기준 ② §4·§7): 입력 중 설정 · 마지막 적용(값·rev·planId·요약 — 문서와 함께 저장·실행 취소로 복원) · 마지막 계획(사본 문서 포함, 메모리만 하나)
         self.division = {"settings": None, "applied": None, "plan": None, "hints": [],   # hints = 추가한 자리(spec_구분_기준 ② §11)
                          "review": None, "reviewing": False,   # 마지막 LLM 검토(취합 — ② §14, 작업에 저장) · 도는 중(메모리만)
@@ -186,10 +187,21 @@ def _admit(sess):
     from app import workflow_exec
     keep = workflow_exec.pinned()   # 도는 워크플로우 실행이 지금 일하는 문서(많아야 둘)는 비우지 않는다 — 다 그렇다면 전처럼(spec_워크플로우 ② §17-7 「기다림」)
     while len(DOCS) >= MAX_DOCS:  # 가장 오래 안 쓴 문서부터 비운다(열린 순서가 아니라 마지막 요청 시각) — 작업 폴더에 먼저 쓴다
-        old = min([x for x in DOCS.values() if x.id not in keep] or DOCS.values(), key=lambda x: x.touched)
-        _persist_safe(old)
-        DOCS.pop(old.id, None)
+        pool = sorted([x for x in DOCS.values() if x.id not in keep] or DOCS.values(), key=lambda x: x.touched)
+        for old in pool:
+            _persist_safe(old)
+            if _saved(old):   # 마지막 편집까지 작업 폴더에 쓴 문서만 비운다 — 저장이 실패한 문서를 비우면 200 을 받은 편집이 사라진다(spec_작업 ② §3 「저장 한 벌 · 직전 저장본」)
+                DOCS.pop(old.id, None)
+                break
+        else:   # 비울 수 있는 문서가 없음(모두 저장 실패) — 한도를 넘겨서라도 메모리에 둔다(배경 저장이 다시 쓴다)
+            log.warning("[작업 저장] 문서 %d 개가 모두 저장되지 않아 메모리에서 비우지 않습니다 — 한도 %d 를 넘김", len(DOCS), MAX_DOCS)
+            break
     DOCS[sess.id] = sess
+
+
+def _saved(s) -> bool:
+    """이 세션의 마지막 편집까지 작업 폴더에 있나 — 저장이 꺼져 있으면 참(비워도 잃을 것이 전과 같다)."""
+    return not works.enabled() or (s.persist_error is None and s.saved_rev == s.rev)
 
 
 def _same_view(w):
@@ -304,7 +316,11 @@ def _persist(s, force=False):
                      "zones": copy.deepcopy(s.zones)}  # 편집 구역의 지정·출처(spec_구역 ② §7 「저장 · 읽는 길 · 등록」) — 사본(쓰기는 잠금 밖: 그 사이 지정을 잇는 편집이 목록을 고친다)
             edited, framed = len(s.edited()), bool(s.division["applied"])
         snap = {**snap, "rev": rev, "base": base, "sha256": works.sha256(snap["bytes"])}
-        works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited, framed=framed)   # framed = 프로젝트 구성을 반영한 문서 — 닫힌 작업의 보이는 이름이 본다(spec_작업 ② §10 「프레임 이름」)
+        tok = works.ACCOUNT.set(getattr(s, "account", None))   # 연 계정의 뿌리에 — 지금 요청의 계정이 아니다(남의 계정 요청이 비우며 저장하면 그 뿌리에서 작업을 못 찾아 쓰지 않은 채 「저장함」 이 됐다)
+        try:
+            works.save_state(s.id, s.fmt, snap, state, rev=rev, edited=edited, framed=framed)   # framed = 프로젝트 구성을 반영한 문서 — 닫힌 작업의 보이는 이름이 본다(spec_작업 ② §10 「프레임 이름」)
+        finally:
+            works.ACCOUNT.reset(tok)
         s.saved_rev = rev
 
 
@@ -465,6 +481,10 @@ def _reopen(doc_id):
                 works.set_aside_state(doc_id)
             works.update(doc_id, rev=0, edited=0)
         s.rev = s.saved_rev = w.get("rev", 0) if ok else 0
+        if ok and got.get("fallback") and st:   # 지금 저장본이 깨져 직전 저장본으로 엶(works.load) — 차례는 그 저장본의 것 · 곧 다시 써서 지금 저장본을 바로잡는다
+            s.rev, s.saved_rev = st.get("rev", s.rev), -1
+            works.update(doc_id, rev=s.rev)
+            why = f"지금 저장본이 깨져 직전 저장본({got['fallback']})으로 엶"
         if bool(s.division.get("applied")) != bool(w.get("framed")):   # 이 표시가 생기기 전에 반영한 작업 · 어긋난 상태를 옆으로 옮긴 작업 — 닫힌 뒤의 보이는 이름이 맞게(② §10 「프레임 이름」 · 바뀐 때는 그대로)
             works.mark(doc_id, framed=bool(s.division.get("applied")))
         for kind, rec in works.last_runs(doc_id).items():  # 지금 기준에서 돈 검증만 결과로(확정 뒤 가져오기 검증이 끝나기 전에 꺼졌으면 다시 돈다)

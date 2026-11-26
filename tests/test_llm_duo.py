@@ -88,8 +88,9 @@ def test_single_model_is_one_call(calls):
     assert len(log) == 1 and "slot" not in log[0] and log[0]["model"] == "claude-fable-5-2"
 
 
-def test_ask_all_calls_both_models_for_duo_agents_only(calls):
+def test_ask_all_calls_both_models_for_duo_agents_only(calls, monkeypatch):
     log, fake = calls
+    monkeypatch.setitem(agent_settings.LLMS, "heading_types", (None, agent_settings.LLM2))   # 길 시험 — 헤딩 판정은 기본이 한 모델(2026-11-26 「작성지침 내용만」)이라 여기서만 두 모델로 연다
     fake.answer = lambda slot, model, content: {"v": "협의" if "두 검토자의 답" in content else slot or "LLM1"}   # LLM1 이 평소 모델이면 협의도 자리 이름 없이 부른다 — 글로 가른다
     jobs =[{"schema": SCHEMA, "content": "A", "what": "heading_types"}, {"schema": SCHEMA, "content": "B", "what": "tpl-agent"}]
     a, b = llm.ask_all(jobs)
@@ -100,6 +101,7 @@ def test_ask_all_calls_both_models_for_duo_agents_only(calls):
 
 def test_ask_all_one_model_setting_and_off(calls, monkeypatch):
     log, _ = calls
+    monkeypatch.setitem(agent_settings.LLMS, "heading_types", (None, agent_settings.LLM2))
     agent_settings.save("heading_types", {"models": ["claude-opus-5-5"]})   # 「한 모델만」 — 기본 두 모델로 되돌아가지 않는다
     assert agent_settings.duo("heading_types") == ["claude-opus-5-5"]
     out = llm.ask_all([{"schema": SCHEMA, "content": "A", "what": "heading_types"}])[0]
@@ -114,7 +116,8 @@ def test_ask_all_one_model_setting_and_off(calls, monkeypatch):
 
 def test_registry_matches_settings_and_one_model_listing():
     assert {a["id"]: tuple(a["llms"]) for a in agents.AGENTS if a.get("llms")} == {k: tuple(v) for k, v in agent_settings.LLMS.items()}
-    assert {"writing_guidance", "form_review", "heading_rules", "heading_types", "heading_section", "heading_tables"} == set(agent_settings.LLMS)
+    assert {"writing_guidance", "form_review"} == set(agent_settings.LLMS)   # 04 의 두 모델은 작성 지침 보완만(2026-11-26 사용자 「작성지침 내용만 넣어줘」) — 헤딩 · 표 판정은 한 모델
+    assert all(not agents.BY_ID[x].get("llms") for x in ("heading_rules", "heading_types", "heading_section", "heading_tables"))
     a = agents.BY_ID["writing_guidance"]
     two = agents.llms_of(a)
     assert [x["slot"] for x in two] == ["LLM1", "LLM2"] and two[1]["model"] == "gpt-6-astra" and two[0]["model"] == agents.model_of(a)["id"] and all(x["multi"] for x in two)

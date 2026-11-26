@@ -197,9 +197,11 @@ def test_mismatched_state_opens_original_and_sets_aside(client):
     client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": p["text"] + "★"})
     _restart()
     folder = works.folder(d)
-    st = json.loads((folder / "state.json").read_text("utf-8"))
-    st["rev"] = 99  # 묶음(doc.pkl)과 차례가 어긋남 — 쓰다 꺼진 것처럼
-    (folder / "state.json").write_text(json.dumps(st), "utf-8")
+    for name in ("state.json", "state.json.prev"):   # 지금 저장본 · 직전 저장본이 모두 어긋남(직전만 맞으면 그것으로 연다 — 아래 시험)
+        if (folder / name).is_file():
+            st = json.loads((folder / name).read_text("utf-8"))
+            st["rev"] = 99  # 묶음(doc.pkl)과 차례가 어긋남 — 쓰다 꺼진 것처럼
+            (folder / name).write_text(json.dumps(st), "utf-8")
     g = client.get(f"/api/docs/{d}").json()
     assert g["edited"] == [] and g["pristine"] is True and g["work"]["rev"] == 0
     assert list(folder.glob("state.json.broken-*")) and list(folder.glob("current.hwpx.broken-*"))
@@ -499,3 +501,115 @@ def test_reupload_prefers_the_work_of_the_chosen_task(client):
     fresh = again("?new=1&job=plan_fit")
     assert not fresh["reused"] and fresh["docId"] not in (move, fit, blank, cleared, newer_fit)   # new=1 은 늘 새 작업
     assert works.work(move)["task"]["job"] == "plan_to_report" and works.work(fit)["task"]["job"] == "plan_fit" and "task" not in works.work(blank)
+
+
+# ---- 저장 한 벌 · 직전 저장본 · 비우기 전 저장 확인(spec_작업 ② §3 「저장 한 벌 · 직전 저장본」) ----------------------------------
+
+def _two_saves(client):
+    """편집 둘(★ · ★★)을 하나씩 저장한 작업 → (id, 문단 id, 첫 편집 글, 둘째 편집 글)."""
+    d = _upload(client)
+    _wait(client, d, "import")
+    p = _texts(client, d)[1]
+    one, two = p["text"] + "★", p["text"] + "★★"
+    client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": one})
+    server._persist_all()
+    client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": two})
+    return d, p["id"], one, two
+
+
+def _text_of(client, d, pid):
+    return next(p["text"] for p in _paras(client.get(f"/api/docs/{d}").json()["blocks"]) if p["id"] == pid)
+
+
+def test_broken_current_save_opens_previous_save(client):
+    d, pid, one, two = _two_saves(client)
+    _restart()
+    folder = works.folder(d)
+    assert (folder / "state.json.prev").is_file() and (folder / "doc.pkl.prev").is_file()
+    st = json.loads((folder / "state.json").read_text("utf-8"))
+    st["rev"] = 99   # 지금 저장본만 어긋남
+    (folder / "state.json").write_text(json.dumps(st), "utf-8")
+    assert _text_of(client, d, pid) == one   # 원본(0판)이 아니라 직전 저장본(1판)
+    ev = _events(client, d)[-1]
+    assert ev["kind"] == "reopen" and ev["ok"] is True and "직전 저장본" in ev["reason"]
+    server._persist_all()   # 곧 다시 써서 지금 저장본을 바로잡는다
+    server.DOCS.clear()
+    assert _text_of(client, d, pid) == one and "reason" not in _events(client, d)[-1]
+
+
+def test_failed_write_keeps_last_good_save(client, monkeypatch):
+    """둘째 파일(doc.pkl)을 못 쓰면 셋 가운데 아무것도 안 바뀐다 — 다시 열면 마지막 정상 저장본(1판)."""
+    d, pid, one, two = _two_saves(client)
+    real = works._stage
+
+    def stage(path, data):
+        if path.name == "doc.pkl":
+            raise OSError(28, "No space left on device")
+        return real(path, data)
+    monkeypatch.setattr(works, "_stage", stage)
+    server._persist_all()
+    assert server.DOCS[d].persist_error and "OSError" in server.DOCS[d].persist_error
+    assert not [p for p in works.folder(d).iterdir() if ".tmp" in p.name]   # 반쯤 쓴 사본이 남지 않음
+    server.DOCS.clear()
+    assert _text_of(client, d, pid) == one
+
+
+def test_crash_between_swaps_opens_a_whole_save(client, monkeypatch):
+    """바꿔 넣는 도중 끊김(첫 파일만 새것) — 어긋난 셋이 아니라 맞는 한 벌(직전 저장본)로 연다."""
+    d, pid, one, two = _two_saves(client)
+    real, n = works._swap, []
+
+    def swap(tmp, path):
+        n.append(path.name)
+        if len(n) == 2:
+            raise OSError("끊김")
+        return real(tmp, path)
+    monkeypatch.setattr(works, "_swap", swap)
+    server._persist_all()
+    monkeypatch.setattr(works, "_swap", real)
+    server.DOCS.clear()
+    assert _text_of(client, d, pid) == one
+
+
+def test_eviction_keeps_unsaved_document(client, monkeypatch):
+    """저장이 실패한 문서는 메모리에서 비우지 않는다 — 200 을 받은 편집이 다른 문서를 연 뒤에도 남는다."""
+    monkeypatch.setattr(server, "MAX_DOCS", 2)
+    d = _upload(client)
+    p = _texts(client, d)[1]
+    real = works.save_state
+
+    def fail(wid, *a, **k):
+        if wid == d:
+            raise OSError(28, "No space left on device")
+        return real(wid, *a, **k)
+    monkeypatch.setattr(works, "save_state", fail)
+    assert client.patch(f"/api/docs/{d}/blocks/{p['id']}", json={"text": p["text"] + "★"}).status_code == 200
+    _upload(client)
+    third = _upload(client)   # 한도 2 — 비울 차례는 d 지만 저장이 실패해 남고, 저장된 다음 문서를 비운다
+    assert d in server.DOCS and third in server.DOCS and len(server.DOCS) == 2
+    monkeypatch.setattr(works, "save_state", real)
+    _upload(client)   # 이제 저장되니 d 를 비운다
+    assert d not in server.DOCS
+    assert _text_of(client, d, p["id"]) == p["text"] + "★"
+
+
+def test_save_goes_to_the_owner_account(client):
+    """다른 계정의 요청이 메모리를 비우며 저장해도 그 문서를 연 계정의 뿌리에 쓴다."""
+    tok = works.ACCOUNT.set("bob")
+    try:
+        d = server._open(HWPX.name, HWPX.read_bytes(), new=True)["docId"]
+        s = server.DOCS[d]
+        s.rev += 1
+    finally:
+        works.ACCOUNT.reset(tok)
+    tok = works.ACCOUNT.set("alice")
+    try:
+        server._persist_safe(s)
+        assert s.persist_error is None and s.saved_rev == s.rev
+    finally:
+        works.ACCOUNT.reset(tok)
+    tok = works.ACCOUNT.set("bob")
+    try:
+        assert (works.folder(d) / "state.json").is_file()
+    finally:
+        works.ACCOUNT.reset(tok)

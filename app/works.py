@@ -65,6 +65,11 @@ def sha256(data: bytes) -> str:
 
 
 def _write(path: Path, data: bytes):
+    _swap(_stage(path, data), path)
+
+
+def _stage(path: Path, data: bytes) -> Path:
+    """대상 옆에 사본을 끝까지 쓴다(아직 바꿔 넣지 않음) → 사본 경로. 못 쓰면 사본을 지우고 예외 — 대상 파일은 그대로."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp{os.getpid()}-{threading.get_ident()}")
     try:
@@ -72,6 +77,11 @@ def _write(path: Path, data: bytes):
     except OSError:  # 디스크가 찼을 때(Errno 28) 반쯤 쓴 사본이 남아 자리를 더 잡지 않게 — 대상 파일은 그대로(2026-11-23 C: 0 바이트)
         tmp.unlink(missing_ok=True)
         raise
+    return tmp
+
+
+def _swap(tmp: Path, path: Path):
+    """다 쓴 사본을 대상 자리에 바꿔 넣는다(os.replace — 몇 번 다시)."""
     for k in range(6):
         try:
             os.replace(tmp, path)
@@ -391,25 +401,53 @@ def save_state(wid, fmt, snap: dict, state: dict, **summary):
     # 직렬화를 먼저 끝낸다 — 못 쓰는 값이 있으면 파일을 하나도 안 바꾼다(셋이 어긋난 채 남지 않게)
     pkl = pickle.dumps({k: v for k, v in snap.items() if k != "bytes"}, protocol=pickle.HIGHEST_PROTOCOL)
     js = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    names = (f"current.{fmt}", "doc.pkl", "state.json")
     with _lock(wid):
         if not (d / "work.json").exists():  # 지운 작업 — 되살리지 않는다
             return
-        _write(d / f"current.{fmt}", snap["bytes"])
-        _write(d / "doc.pkl", pkl)
-        _write(d / "state.json", js)
+        # 저장 한 벌(셋)을 깨지지 않게(spec_작업 ② §3 「저장 한 벌 · 직전 저장본」): ① 셋을 모두 사본으로 끝까지 쓴다 — 하나라도 못 쓰면 아무것도 안 바뀐다
+        # ② 지금 셋을 <이름>.prev 로(직전 저장본) ③ 사본을 제자리에. ②·③ 사이에 끊겨도 load 가 「지금 + 직전」 · 「직전」 에서 맞는 한 벌을 찾는다.
+        tmps = []
+        try:
+            for name, data in zip(names, (snap["bytes"], pkl, js)):
+                tmps.append(_stage(d / name, data))
+        except BaseException:
+            for t in tmps:
+                t.unlink(missing_ok=True)
+            raise
+        for name in names:
+            if (d / name).is_file():
+                _swap_keep(d / name, d / (name + PREV))
+        for name, t in zip(names, tmps):
+            _swap(t, d / name)
     if summary:
         update(wid, **summary)
 
 
+PREV = ".prev"   # 직전 저장본(편집 상태 한 벌) — 지금 것이 깨졌을 때 load 가 연다
+
+
+def _swap_keep(src: Path, dst: Path):
+    """src 를 dst 로 옮긴다(덮음) — 못 옮기면 몇 번 다시 뒤 예외."""
+    for k in range(6):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if k == 5:
+                raise
+            time.sleep(0.02 * (k + 1))
+
+
 def set_aside_state(wid):
-    """못 붙인 편집 상태(current·doc.pkl·state.json)를 <이름>.broken-<시각> 으로 옮긴다 — 지우지 않음."""
+    """못 붙인 편집 상태(current·doc.pkl·state.json · 직전 저장본 .prev)를 <이름>.broken-<시각> 으로 옮긴다 — 지우지 않음."""
     d = folder(wid)
     if d is None:
         return
     tag = time.strftime("%Y%m%d-%H%M%S")
     with _lock(wid):
-        for p in [*d.glob("current.*"), d / "doc.pkl", d / "state.json"]:
-            if p.is_file() and ".broken-" not in p.name:
+        for p in [*d.glob("current.*"), d / "doc.pkl", d / "state.json", d / ("doc.pkl" + PREV), d / ("state.json" + PREV)]:
+            if p.is_file() and ".broken-" not in p.name and ".tmp" not in p.name:
                 try:
                     os.replace(p, p.with_name(f"{p.name}.broken-{tag}"))
                 except OSError:
@@ -426,15 +464,36 @@ def load(wid) -> dict | None:
         original = (d / f"original.{fmt}").read_bytes()
     except OSError:
         return None
-    snap = state = None
-    try:
-        cur = d / f"current.{fmt}"
-        if cur.exists() and (d / "doc.pkl").exists():
-            snap = {**pickle.loads((d / "doc.pkl").read_bytes()), "bytes": cur.read_bytes()}
-            state = _read_json(d / "state.json")
-    except Exception:  # noqa: BLE001 — 깨진 묶음: 원본으로 열고 서버가 기록에 남긴다
-        snap = state = None
+    names = (f"current.{fmt}", "doc.pkl", "state.json")
+    # 맞는 한 벌을 찾는 차례(save_state 의 ②·③ 어디서 끊겨도): 지금 셋 → 지금 것이 없으면 직전 것으로 채운 셋 → 직전 셋
+    picks = (("now", lambda n: d / n), ("mixed", lambda n: d / n if (d / n).is_file() else d / (n + PREV)), ("prev", lambda n: d / (n + PREV)))
+    first = None
+    for tag, at in picks:
+        got = _read_set(*(at(n) for n in names))
+        if got is None:
+            continue
+        first = first or (tag, got)
+        if _consistent(*got):
+            return {"work": w, "original": original, "snap": got[0], "state": got[1], **({"fallback": tag} if tag != "now" else {})}
+    # 맞는 한 벌이 없음 — 지금 것(있으면)을 그대로 넘긴다: 서버가 어긋남을 알아보고 마지막 확정 · 원본으로 연다(어긋난 파일은 옆으로)
+    snap, state = first[1] if first and first[0] == "now" else (None, None)
     return {"work": w, "original": original, "snap": snap, "state": state}
+
+
+def _read_set(cur: Path, pkl: Path, st: Path):
+    """편집 상태 한 벌 → (snap, state) | None(파일이 없거나 못 읽음)."""
+    try:
+        if not (cur.is_file() and pkl.is_file()):
+            return None
+        return {**pickle.loads(pkl.read_bytes()), "bytes": cur.read_bytes()}, _read_json(st)
+    except Exception:  # noqa: BLE001 — 깨진 묶음
+        return None
+
+
+def _consistent(snap, state) -> bool:
+    """한 벌이 서로 맞나 — 묶음 · 상태의 차례 · 기준 확정 · 바이트 해시(server._restore_state 가 보는 것과 같은 조건)."""
+    return (isinstance(state, dict) and snap.get("rev") == state.get("rev") and snap.get("base", 0) == state.get("base", 0)
+            and snap.get("sha256") == sha256(snap["bytes"]))
 
 
 # ---- 기록 ------------------------------------------------------------------------------------------

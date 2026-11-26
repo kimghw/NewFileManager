@@ -105,6 +105,7 @@ async function fwRefUpload(files) {
   const say = [ok.length ? `참조 문서 ${ok.length}개를 올렸습니다` : "", same.length ? `이미 라이브러리에 있는 문서 ${same.length}개(그것을 씁니다)` : "", bad.length ? `못 올림: ${bad.join(" · ")}` : ""].filter(Boolean).join(" · ");
   toast(`${say}${ok.length || same.length ? " — 자료 추출은 2단계 「자료 추출(MD)」 에서" : ""}`, !!bad.length);
   await fwRead(true);
+  fwRefsDraw(); // 2열 「참조 문서」 가 열려 있으면 그 목록도
   fwAutoRedraw(); // 대시보드 + 「작업 개요」(문서 카드의 「참조 문서 올리기…」 를 누른 화면도 다시 그린다)
 }
 const fwDoneExtracts = () => ((FW.lib && FW.lib.docs) || []).reduce((n, d) => n + d.extracts.length, 0);
@@ -172,12 +173,50 @@ function fwOpenStep(o) { // 문서 칸 둘 — 목적 문서(지금 문서) · �
   const ref = !o.lib.alive ? "문서 라이브러리 서버가 꺼져 있습니다 — tools/start_doclib.ps1 로 띄웁니다"
     : o.keepOk ? (o.newDocs ? `이 문서의 몫 ${o.newDocs}개(라이브러리 전체 ${o.docs}개)` : `라이브러리에 있는 문서를 씁니다(${o.docs}개)`)
     : o.docs ? `라이브러리에 ${o.docs}개 — 이 문서의 몫은 아직 없습니다(「참조 문서 올리기…」 로 올리거나 2단계 「있는 문서 쓰기」)` : "아직 없습니다 — 「참조 문서 올리기…」 로 문서 라이브러리에 올립니다";
-  return { state: state.id ? "done" : "now", text: "", lines: [
+  // 접어도 보이는 줄(dashNodeEl 의 n.always) — 참조 문서 수 + 「참조 문서 목록」(문서 옆 2열: fwRefsOpen) · 2026-11-26 사용자 「참고 문서 갯수를 상단에 표기 … 참고문헌 리스트만 왼쪽열에서 볼수 있는 버튼」
+  const cnt = el("span", "fw-ref-count", !o.lib.alive ? "참조 문서 — 서버 꺼짐" : `참조 문서 ${o.docs}개${o.newDocs ? ` · 이 문서의 몫 ${o.newDocs}` : ""}`);
+  cnt.title = o.lib.alive ? "문서 라이브러리에 있는 참조 문서(자료 문서)의 수 — 「이 문서의 몫」 = 이 작업을 만들거나 초기화한 뒤에 올린 것" : FW_LIB_DOWN;
+  const always = [cnt, dashBtn("참조 문서 목록", () => fwRefsOpen(), { title: "참조 문서 목록만 문서 옆 열에 보입니다(이름 · 형식 · 쪽 · 올린 때 · 자료 추출)", focus: "act:open:refs" })];
+  return { state: state.id ? "done" : "now", text: "", always, lines: [
     ["목적 문서(채울 양식)", state.name || "—"],
     ["참조 문서(자료 문서)", `${ref}${o.mats ? ` · 이 문서의 자료 ${o.mats}개` : ""}`]],
     acts: [dashBtn("목적 문서 올리기…", () => fwPick(".hwp,.hwpx", false, (fs) => fwTargetUpload(fs[0])), { title: "채울 양식(hwp · hwpx)을 다른 파일로 바꿉니다 — 새 작업으로 올려 이 워크플로우에 넣고 그 문서를 엽니다(헤딩 · 표 분석을 바로 겁니다). 지금 문서는 묶음에서 나오고 작업 리스트에 남습니다", focus: "act:open:target" }),
       dashBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx", true, fwRefUpload), { primary: !!o.lib.alive && !o.keepOk, disabled: !o.lib.alive, title: o.lib.alive ? "참조 문서(pdf · hwpx · hwp · docx — 여럿 가능)를 문서 라이브러리에 바로 올립니다(새 탭 없이) — 자료 추출은 2단계에서" : FW_LIB_DOWN, focus: "act:open:ref" }),
       ...(o.lib.alive ? [dashBtn("문서 라이브러리 열기", () => fwLibOpen(), { title: "올린 참조 문서를 보거나 자료 추출을 하는 따로 선 서버 — 새 탭으로 엽니다", focus: "act:open:lib" })] : [])] };
+}
+// 2열 「참조 문서」 — 문서 라이브러리의 참조 문서 목록만(올리기 · 라이브러리 열기 · 새로 고침). 자료로 가져오기는 「자료 가져오기」 열의 일이다(여기는 보기만 · 문서는 안 바뀜).
+async function fwRefsOpen() {
+  fwClearWay();
+  const { tools, body } = headsDlg("fwRefs", "참조 문서", "문서 라이브러리(따로 선 서버)에 있는 자료 문서 · 문서는 안 바뀜");
+  tools.append(hBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx", true, fwRefUpload), { cls: "btn sm primary", title: "참조 문서(pdf · hwpx · hwp · docx — 여럿 가능)를 문서 라이브러리에 바로 올립니다" }),
+    hBtn("문서 라이브러리 열기", () => fwLibOpen(), { cls: "btn sm", title: "자료 추출을 하는 따로 선 서버 — 새 탭" }), hBtn("새로 고침", () => fwRead(true).then(fwRedraw), { cls: "btn sm" }));
+  body.append(el("div", "fw-wait", "읽는 중…"));
+  await fwRead(true);
+  fwRefsDraw();
+}
+function fwRefsDraw() {
+  if (heads.dlg !== "fwRefs") return;
+  const body = $("headsDlgBody"), lib = FW.lib || { alive: false, docs: [] }, docs = lib.docs || [], from = (FW.gw && FW.gw.libFrom) || 0;
+  body.replaceChildren();
+  if (!lib.alive) return body.append(el("p", "hwarn", lib.why || FW_LIB_DOWN));
+  const mine = docs.filter((d) => (d.at || 0) > from).length;
+  body.append(el("p", "hnote", `참조 문서 ${docs.length}개${mine ? ` · 이 문서의 몫 ${mine}개(이 작업을 만들거나 초기화한 뒤에 올린 것)` : ""}`));
+  if (!docs.length) return body.append(el("p", "hnote", "아직 없습니다 — 「참조 문서 올리기…」 로 올립니다"));
+  const ul = el("ul", "fw-refs");
+  for (const d of docs) {
+    const li = el("li", "fw-ref" + ((d.at || 0) > from ? " is-mine" : "")), top = el("div", "fw-ref-top"), name = el("strong", "fw-ref-name", d.name || d.id);
+    name.title = d.name || "";
+    top.append(name);
+    if ((d.at || 0) > from) top.append(el("span", "fw-tag ok", "이 문서의 몫"));
+    const x = (d.extracts || []).length;
+    const meta = [String(d.ext || "").toUpperCase(), d.pages ? `${d.pages}쪽` : "", d.bytes ? `${Math.max(1, Math.round(d.bytes / 1024)).toLocaleString()} KB` : "", d.at ? `올림 ${new Date(d.at * 1000).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "",
+      x ? `추출 ${x}개` : "추출 전", d.running ? `추출 중 ${d.running}` : ""].filter(Boolean).join(" · ");
+    const acts = el("div", "fw-ref-acts");
+    acts.append(hBtn("보기", () => fwLibOpen(`d=${d.id}`), { cls: "btn sm", title: "문서 라이브러리에서 이 문서를 봅니다(새 탭)" }));
+    li.append(top, el("div", "fw-ref-meta", meta), acts);
+    ul.append(li);
+  }
+  body.append(ul);
 }
 function fwLibStep(key, o) { // 06 「자료 문서 올리기」(keep) · 07 「자료 추출(MD)」(extract) — 이 문서의 몫으로 센다(o.fresh = 기준 시각 뒤의 것 · o.all = 라이브러리 전체)
   const isKeep = key === "keep", noun = isKeep ? "자료 문서" : "끝난 추출", mark = fwMark(key) === "done", ok = !!o.fresh || mark;
@@ -886,6 +925,7 @@ async function fwOverviewDraw() {
   const docs = el("section", "dv-card fw-ov-docs"), dh = el("div", "dv-note-heading");
   dh.append(el("h3", null, "문서"), hHelp("문서 안내", "목적 문서 = 채울 양식(지금 문서) · 참조 문서 = 내용이 나오는 자료 문서(문서 라이브러리 — 따로 선 서버) · 자료 = 참조 문서에서 뽑아 이 문서로 가져온 MD", { note: true }));
   docs.append(dh);
+  if (S.open.always) { const top = el("div", "dash-acts"); top.append(...S.open.always); docs.append(top); } // 참조 문서 수 + 「참조 문서 목록」(대시보드 카드의 접어도 보이는 줄과 같은 것)
   const dl = el("dl", "fw-ov-lines");
   for (const [k, v] of S.open.lines || []) dl.append(el("dt", null, k), el("dd", null, v));
   dl.append(el("dt", null, "자료"), el("dd", null, S.take.text));
@@ -1147,10 +1187,10 @@ function fwReviewStep(gw) { // 대시보드 「양식 검토 · 찾을 테마」
   if (gw.hwpx === false) return { state: "", text: "hwpx 문서만 됩니다" };
   if (rv && fr.stale && FW.guidance?.ready) {
     return { state: going ? "run" : "now", text: going ? "바뀐 작성 지침으로 양식을 검토하고 있습니다" : "작성 지침이 바뀌었습니다. 현재 지침으로 양식을 다시 검토하세요.",
-      acts: [dashBtn("다시 검토", () => fwWriteOpen("review"), { primary: !going, focus: "act:review" })] };
+      acts: [dashBtn(going ? "검토 중 — 보기" : "다시 검토", () => fwReviewFromDash(going), { primary: !going, focus: "act:review" })] };
   }
   if (!rv) {
-    const btn = [dashBtn("양식 검토", () => fwWriteOpen("review"), { primary: !going, title: "「지침 작성」 열의 「양식 검토」 — 목적 문서의 양식에 무엇을 써야 하는지 · 어떤 작성 지침이 있는지 · 사람의 요청을 검토하고 자료에서 찾을 테마 · 키워드를 뽑습니다(유료 LLM 한 번 · 자료는 읽지 않음 · 문서는 안 바뀜)", focus: "act:review" })];
+    const btn = [dashBtn(going ? "검토 중 — 보기" : "양식 검토", () => fwReviewFromDash(going), { primary: !going, title: "「지침 작성」 열의 「양식 검토」 — 목적 문서의 양식에 무엇을 써야 하는지 · 어떤 작성 지침이 있는지 · 사람의 요청을 검토하고 자료에서 찾을 테마 · 키워드를 뽑습니다(유료 LLM 한 번 · 자료는 읽지 않음 · 문서는 안 바뀜)", focus: "act:review" })];
     if (going) return { state: "run", text: "양식 · 작성 지침 · 사람의 요청을 읽는 중(1~3분)", acts: btn };
     return { state: "now", text: run && run.state === "failed" ? `검토 실패 — ${run.error || "까닭 모름"}` : "아직 검토하지 않았습니다 — 양식에 무엇을 써야 하는지 · 어떤 작성 지침이 있는지 · 사람의 요청을 보고 자료에서 찾을 테마를 뽑습니다(자료는 읽지 않습니다)", acts: btn };
   }
@@ -1172,6 +1212,12 @@ function fwPlanStep(gw) { // 대시보드 「작성 계획 · 확인할 것」 �
   const n = rv.questions.length, pl = Object.values(rv.places || {});
   if (!planned) return { state: mats ? "now" : "todo", text: mats ? "작성 계획 전 — 양식에 넣을 내용의 자료(MD)를 고르고(LLM 에 줄 요청은 그 절의 「작성 계획에 줄 요청」 칸에) 「작성 계획 세우기」 를 누릅니다" : "자료를 가져오면 계획을 세웁니다", acts: btn };
   return { state: open.length ? "now" : "done", text: `작성 계획 — 자료에서 쓸 자리 ${pl.filter((x) => x.use).length}곳 · 자료에 없는 것이 있는 자리 ${pl.filter((x) => x.gap).length}곳 · ${open.length ? `확인할 것 ${open.length}개가 남았습니다` : n ? `확인할 것 ${n}개 모두 답함` : "확인할 것이 없습니다"}${rv.planRequest ? " · 사람의 요청을 넣어 세움" : ""}`, acts: btn };
+}
+// 대시보드 06 의 단추 — 열을 열고(진행 · 결과를 보이려고) 바로 양식 검토를 시작한다(확인 창 하나). 2026-11-26 사용자 「양식 검토를 누르면 바로 실행이 안되고 옆에 사이드 패널이 뜨고 사이드 패널에서 다시 클릭해야 실행이 되냐?」 —
+// 전에는 열만 열고 열 안의 「양식 검토」 를 또 눌러야 했다. 도는 중이면 열만 연다. 열을 먼저 여는 까닭 = 「이번 작성의 지침」 의 처음 값을 fwRead 가 채운 뒤에 보낸다
+async function fwReviewFromDash(going) {
+  await fwWriteOpen("review");
+  if (!going && !fwReviewing()) fwReviewRun("review");
 }
 // kind = "review"(양식 검토 — 양식 · 작성 지침 · 사람의 요청만 · 자료는 안 보냄) | "plan"(작성 계획 — 고른 자료 · 양식 검토가 먼저). 한 단추가 두 걸음을 함께 돌리지 않는다
 // (2026-11-25 사용자 「양식검토만 하는데 왜 다른걸 돌려 ... 목적문서의 양식에 뭘 작성해야하는지, 어떤 지침이 있는지 사용자가 요청하는건 뭔지를 봐야지」 — 전에는 자료를 고른 채 「양식 검토」 를 누르면 계획까지 했다).
@@ -1485,7 +1531,7 @@ function fwTopicsEl() { // 「양식 검토 · 작성 계획」 절 바로 아�
   sync();
   return sec;
 }
-function fwRedraw() { fwTakeDraw(); fwWriteDraw(); fwOvSync(); } // fwOvSync = 패널 「작업 개요」(열려 있을 때만)
+function fwRedraw() { fwTakeDraw(); fwWriteDraw(); fwRefsDraw(); fwOvSync(); } // fwOvSync = 패널 「작업 개요」(열려 있을 때만)
 function fwShown() { const ps = (FW.gw && FW.gw.places) || []; return FW.onlyGuided ? ps.filter((p) => p.n || FW.picks.has(p.id)) : ps; }
 // ---- 절마다 「어느 단계의 결과 · 준비인가」(2026-11-24 사용자 「여기서 어떤 것의 결과다. 준비다 이런게 있어야 하는데 구분이 되질 않잖아」 — spec_양식작성 ② §6 「절의 단계 꼬리표」) ----
 // 한 열에 여러 단계의 것이 함께 선다: 결과 = 그 단계가 만든 것 · 준비 = 그 단계를 돌리기 전에 여기서 고르고 적는 것 · 실행 = 그 단계를 이 절의 단추로 돌린다.

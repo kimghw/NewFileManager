@@ -43,9 +43,10 @@ PREFIX = (
 # 함께 부르는 에이전트의 모델 자리 기본값(LLM1 · LLM2 — 2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완」 · 「문서의 지침을 작성할 떄는 2가지 모델을 같이 사용 … 불가피한 경우 1개만 선택」).
 # None = 그 에이전트가 평소 부르는 모델(코드 · 서버 설정 · 「에이전트 설정」 의 model — llm.call 의 보통 차례 그대로). 사람이 고친 값은 설정 `models`(길이 1 = 한 모델만 — `models()` 가 기본값으로 되돌리지 않는다).
 # app/agents.py AGENTS 의 llms 와 같아야 한다(tests/test_agents.py) — 이 모듈이 가벼워야 해서(llm.py 가 부를 때마다 읽는다) 원본을 여기 둔다.
+# 2026-11-26 사용자(04 「LLM 검증·보완」 카드의 칩 「LLM2 · astra」 를 가리키며) "작성지침 내용만 넣어줘" — 04 에서 두 모델(LLM2)은 작성 지침 보완(26)에만 둔다:
+# 헤딩 · 표 판정(heading_rules · heading_types · heading_section · heading_tables)은 다시 한 모델(평소 모델)이다. 두 모델로 돌리는 길(llm.ask_all → llm_duo)은 그대로라 여기 다시 적으면 열린다.
 LLM2 = "gpt-6-astra"
-LLMS = {"form_review": ("claude-fable-5-2", LLM2), "writing_guidance": (None, LLM2),
-        "heading_rules": (None, LLM2), "heading_types": (None, LLM2), "heading_section": (None, LLM2), "heading_tables": (None, LLM2)}
+LLMS = {"form_review": ("claude-fable-5-2", LLM2), "writing_guidance": (None, LLM2)}
 _BY_LEN = sorted(PREFIX, key=lambda x: -len(x[0]))
 IDS = tuple(dict.fromkeys(a for _, a in PREFIX))
 

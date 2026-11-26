@@ -1221,7 +1221,7 @@ async function dashModel() {
       // cards = 그 줄의 문서 카드들(줄 목록으로 조립한 이관형 — dashFlowLive: 두 문서에 하는 줄은 원본 · 목적 카드 둘). 줄(이 노드)은 끝난 수 · 「다음: …」 을 세고, 그리는 것은 카드다(dashGroupsEl) — 번호는 첫 카드에만
       const cards = live.cards ? live.cards.map((c, ci) => ({ ...s, ...c, idx: ci ? null : idx, lines: c.lines || [], acts: c.acts || [], via: null })) : null;
       return { ...s, idx, state: s.soon ? "soon" : live.state || "", text: live.text || "", lines: live.lines || [], acts: live.acts || [], via: via ? { key: via.key, name: via.name } : null,
-        ...(live.word !== undefined ? { word: live.word } : {}), ...(live.skipped ? { skipped: true } : {}), ...(live.ref ? { ref: live.ref } : {}), ...(cards ? { cards } : {}) }; // word = 서버가 센 상태의 글(막힘 · 실패 · 건너뜀 …) · ref = 펴고 접는 이름(key 가 겹치는 줄)
+        ...(live.word !== undefined ? { word: live.word } : {}), ...(live.skipped ? { skipped: true } : {}), ...(live.ref ? { ref: live.ref } : {}), ...(live.always ? { always: live.always } : {}), ...(cards ? { cards } : {}) }; // word = 서버가 센 상태의 글(막힘 · 실패 · 건너뜀 …) · ref = 펴고 접는 이름(key 가 겹치는 줄)
     }),
   }));
   return M;
@@ -1701,7 +1701,7 @@ function dashSig(M) { // 다시 그릴지 — 상태 · 글 · 단추(글 · 켜
   return JSON.stringify([M.job, !!M.reg, !!DASH.reg, state.format, DWF.open, DWF.library, DWF.items, DWF.loaded, DWF.busy, DWF.error, dwfBlocked(), DASH.regErr, DASH.open, DASH.form, DASH.busy ? DASH.busy.label : "", DASH.last, M.R ? `${M.R.kind}|${M.R.label}|${M.R.stopping}|${!!M.R.stop}` : "",
     DASH.reset && DASH.reset.key === state.id ? [DASH.reset.open, DASH.reset.busy, DASH.reset.err, DASH.reset.docs, DASH.reset.after] : 0, state.stored, state.commitBusy, // 작업 내용 초기화(dashResetEl)
     M.notes.map((n) => [n.text, b(n.act)]), M.last || 0, M.lasts || 0, (M.lives || []).map((x) => [x.n, x.label, x.stopping]), M.top.map(b),
-    M.groups.map((g) => [g.run && g.run.tagName !== "BUTTON" ? [...g.run.querySelectorAll("button")].map(b) : b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
+    M.groups.map((g) => [g.run && g.run.tagName !== "BUTTON" ? [...g.run.querySelectorAll("button")].map(b) : b(g.run), g.sub ? [...g.sub.querySelectorAll("button")].map(b) : 0, g.end, g.parts ? [b(g.parts.add), g.parts.rows.map((r) => [r.state, r.lines, r.acts.map(b)])] : 0, g.nodes.map((n) => [n.state, n.word || "", n.text, n.lines, n.acts.map(b), n.always ? n.always.map((x) => x.textContent) : 0, n.cards ? n.cards.map((c) => [c.ref, c.state, c.word || "", c.text, c.lines, c.acts.map(b), c.sig || 0, c.lead ? c.lead.textContent : ""]) : 0])])]); // sig = 그 카드의 덧붙임(extra — 「기관 문서」 목록)이 바뀌었나 · lead = 문서 카드의 이름(기관 문서마다의 카드 — 반영할 기관이 바뀌면 이름도)
 }
 
 async function dashDraw(force = false) {

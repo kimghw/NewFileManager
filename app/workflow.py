@@ -763,7 +763,8 @@ def _relay_files():
 # 헤딩 · 표의 LLM 검증·보완(공통 모듈의 이어 돌리기를 그 문서로 부른다: spec_작업 ② §20 · §21)이 부르는 에이전트
 # 2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완 하고 10페이지씩 검증 에이전트를 병렬로 추가」: 판정 에이전트(규칙 보강 · 유형 · 구간 · 표)는 두 모델(LLM1 · LLM2)이 따로 답하고 협의 · 끝에 「구간 검증」(analysis_check)
 _ANALYSIS_LLM_AGENTS = ("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent", "analysis_check")
-_ANALYSIS_LLM_HOW = " 판정은 두 모델이 따로 하고 다르면 협의 · 끝에 10쪽씩 구간 검증."   # 줄 글(does)은 320자까지(tests/test_workflow.py) — 풀이는 사양서(spec_작업 ② §20 「두 모델」 · 「구간 검증 — 10쪽씩」)와 도구 설명에
+# 같은 날 사용자(양식 작성 04 의 칩 「LLM2 · astra」) "작성지침 내용만 넣어줘" — 두 모델은 작성 지침 보완(26)에만: 헤딩 · 표 판정은 한 모델(agent_settings.LLMS)
+_ANALYSIS_LLM_HOW = " 끝에 10쪽씩 구간 검증이 같이 돕니다."   # 줄 글(does)은 320자까지(tests/test_workflow.py) — 풀이는 사양서(spec_작업 ② §20 「두 모델」 · 「구간 검증 — 10쪽씩」)와 도구 설명에
 
 
 # ---------------------------------------------------------------- 단계 모듈 — TASK 가 조립하는 일반 단계(spec_워크플로우 ② §13 · spec_작업 ② §21)
@@ -1315,7 +1316,7 @@ TASKS = (
                     "테마 YAML(구분 기준 타입 · 템플릿 · 테이블 타입)로 문서의 테마 · 템플릿 · 표마다 테이블 타입을 밝히고, 없으면 새로 정의해 더합니다.",
                     out="검증한 헤딩 그래프 · 표 구조와 출처가 있는 자리별 작성 지침 · 문서의 테마 · 템플릿 · 표마다의 테이블 타입", change="store", optional=True,
                     uses=("headings", "outline", "guidewrite"), agents=(*_ANALYSIS_LLM_AGENTS, "writing_guidance"), modules=("analysis_llm", "heading_runs", "tpl_agent", "writing_guidance_api", "form_examples_api", "form_themes"), spec=(SP_FORM, "② §5-4"),
-                    need="헤딩 · 표 분석과 LLM 연결(유료). 필요하면 비교할 샘플·서식을 실행 전에 첨부합니다. 구조 판정과 작성 지침 판정은 두 모델(LLM1 · LLM2)이 따로 하고 답이 다르면 협의하며(불가피하면 LLM 칩에서 한 모델만), "
+                    need="헤딩 · 표 분석과 LLM 연결(유료). 필요하면 비교할 샘플·서식을 실행 전에 첨부합니다. 작성 지침 판정은 두 모델(LLM1 · LLM2)이 따로 하고 답이 다르면 협의하며(불가피하면 LLM 칩에서 한 모델만 — 구조 판정은 한 모델), "
                          "구조 판정 끝에 10쪽씩 구간 검증이 같이 돕니다 — 호출이 그만큼 늡니다.", done="구조 판정과 현재 입력의 작성 지침 추출이 모두 끝났을 때. 선택 단계이므로 건너뛸 수도 있습니다.",
                     stop="LLM 이 답을 못 하면 앞 결과는 그대로 두고 실패로 알립니다."),
                  _s("guides", "작성 지침 확인 · 적기", "human", "이 줄의 「작성 지침 보기 · 적기」 를 누르면 「지침 작성」 열의 「채울 자리」 로 가서 자리마다 양식이 적어 둔 작성 지침이 펼쳐집니다. 지침이 없거나 모자란 헤딩은 그 자리의 칸에 바로 적고(문서의 「지침」 단추와 같은 저장), 표의 지침은 문서에서 그 표의 「지침」 단추로 적습니다. 문서는 바뀌지 않습니다.", change="store", optional=True,
