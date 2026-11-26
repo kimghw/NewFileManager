@@ -50,18 +50,31 @@ function renderDocs() {
   const ul = $("docList");
   ul.replaceChildren();
   $("docCount").textContent = S.docs.length ? `${S.docs.length}개` : "";
+  const extShort = { hwpx: "HWP", hwp: "HWP", docx: "DOC", pptx: "PPT", ppt: "PPT", pdf: "PDF" };
   for (const d of S.docs) {
     const li = el("li", d.id === S.doc ? "on" : "");
-    const ext = el("span", "doc-ext", (d.ext || "").toUpperCase());
-    ext.dataset.ext = (d.ext || "").toLowerCase();
+    const extRaw = (d.ext || "").toLowerCase();
+    const ext = el("span", "doc-ext", extShort[extRaw] || extRaw.toUpperCase());
+    ext.dataset.ext = extRaw;
+    if (extRaw) ext.title = extRaw.toUpperCase();
     const body = el("div", "doc-body");
     const meta = el("div", "doc-meta");
     meta.append(el("span", "doc-info", `${d.pages ? `${d.pages}쪽` : "쪽 수 모름"} · ${bytes(d.bytes)}`));
-    if (d.org) meta.append(el("span", "doc-org", d.org));
+    if (d.org) {
+      const org = el("span", "doc-org", d.org);
+      org.title = d.org;
+      meta.append(org);
+    }
     const n = d.extracts.filter((e) => e.state === "done").length, run = d.extracts.filter(live).length;
     if (run) meta.append(el("span", "chip llm", `추출 중 ${run}`));
     else if (n) meta.append(el("span", "chip ok", `추출 ${n}`));
-    const name = el("div", "doc-name", d.name);
+    const name = el("div", "doc-name");
+    const m = extRaw && d.name.match(/^(.+)(\.[^.\s]+)$/);
+    if (m && m[2].slice(1).toLowerCase() === extRaw) {
+      name.append(document.createTextNode(m[1]), el("span", "doc-name-ext", m[2]));
+    } else {
+      name.textContent = d.name;
+    }
     name.title = d.name;
     body.append(name, meta);
     li.append(ext, body);
