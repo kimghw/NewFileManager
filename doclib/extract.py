@@ -1,7 +1,7 @@
 """자료 추출(spec_양식작성 ② §3) — 문서(PDF)를 쪽 묶음으로 나눠 LLM(Opus · Read 도구)이 **뽑을 범위의 내용만** MD 로 옮기고, 그림은 스크립트가 잘라 모서리를 확인하고, 수식은 따로 캡처해 LaTeX 로 바꾼다.
 
 흐름(`run(eid, stop)` — 배경 스레드 하나가 추출 하나):
- 1. 읽을 PDF 준비(`ensure_pdf` — hwp · hwpx · docx 는 한글 · Word 로 찍는다) → 쪽 묶음(`pdfkit.split` — 묶음마다 20쪽까지).
+ 1. 읽을 PDF 준비(`ensure_pdf` — hwp · hwpx · docx · ppt · pptx 는 한글 · Word · PowerPoint 로 찍는다) → 쪽 묶음(`pdfkit.split` — 묶음마다 20쪽까지).
  2. 묶음마다(`_chunk` — 같이 돈다 · 자리 수 = agent.slots_n): 임시 폴더에 그 묶음의 PDF · 그림 후보 PNG · 수식 후보 PNG 를 두고 **추출 호출**(Read 도구) → {relevant, markdown, figures, formulas, skipped, note}.
     답의 그림 = 후보 key(스크립트가 이미 자르고 모서리를 본 것) · join(조각 여럿을 한 그림으로) · page + box(후보에 없거나 잘린 것 — 스크립트가 `snap` → `settle` 로 맞춰 자른다).
     LLM 의 상자로 자른 그림은 **그림 확인 호출**이 한 번 다시 본다(ok · cut(다시 자름) · drop) — 그래도 변에 잉크가 남으면 「확인 필요」 로 남긴다.
@@ -130,18 +130,19 @@ def _prompt(contract, name, data):
 
 
 def ensure_pdf(did):
-    """그 문서의 읽을 PDF 경로 — 없으면 한글 · Word 로 찍어 만든다. 못 만들면 RuntimeError(까닭)."""
+    """그 문서의 읽을 PDF 경로 — 없으면 한글 · Word · PowerPoint 로 찍어 만든다(ppt · pptx = 슬라이드 하나가 한 쪽). 못 만들면 RuntimeError(까닭)."""
     src, pdf = store.source(did)
     meta = store.doc(did)
     if src is None or meta is None:
         raise RuntimeError("문서가 없습니다")
     if pdf is not None:
         return pdf
-    from app import pdf_render   # 한글 · Word 의 PDF 출력 — app/ 에서 빌려 쓰는 하나뿐인 모듈(순수 · 서버를 가져오지 않는다)
+    from app import pdf_render   # 한글 · Word · PowerPoint 의 PDF 출력 — app/ 에서 빌려 쓰는 하나뿐인 모듈(순수 · 서버를 가져오지 않는다)
     ext, data = meta["ext"], src.read_bytes()
-    fmt = "docx" if ext == "docx" else "hwpx"
+    fmt = ext if ext in ("docx", "pptx", "ppt") else "hwpx"
     if not pdf_render.available(fmt):
-        raise RuntimeError(f"{pdf_render.app_name(fmt)} 이 없어 PDF 로 바꿀 수 없습니다 — PDF 로 저장해 올려 주세요")
+        name = pdf_render.app_name(fmt)
+        raise RuntimeError(f"{name}{'이' if fmt == 'hwpx' else '가'} 없어 PDF 로 바꿀 수 없습니다 — PDF 로 저장해 올려 주세요")
     try:
         if ext == "hwp":
             data = pdf_render.hwp_to_hwpx(data)

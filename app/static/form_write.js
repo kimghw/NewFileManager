@@ -91,7 +91,7 @@ async function fwTargetUpload(file) {
 async function fwRefUpload(files) {
   const ok = [], same = [], bad = [];
   for (const f of files) {
-    if (!/\.(pdf|hwpx|hwp|docx)$/i.test(f.name)) { bad.push(`${f.name}(받지 않는 형식)`); continue; }
+    if (!/\.(pdf|hwpx|hwp|docx|pptx|ppt)$/i.test(f.name)) { bad.push(`${f.name}(받지 않는 형식)`); continue; }
     toast(`${f.name} — 문서 라이브러리에 올리는 중…`);
     const fd = new FormData();
     fd.append("file", f);
@@ -226,14 +226,14 @@ function fwOpenStep(o) { // 문서 칸 둘 — 목적 문서(지금 문서) · �
     ["목적 문서(채울 양식)", state.name || "—"],
     ["참조 문서(자료 문서)", `${ref}${o.mats ? ` · 이 문서의 자료 ${o.mats}개` : ""}`]],
     acts: [dashBtn("목적 문서 올리기…", () => fwPick(".hwp,.hwpx", false, (fs) => fwTargetUpload(fs[0])), { title: "채울 양식(hwp · hwpx)을 다른 파일로 바꿉니다 — 새 작업으로 올려 이 워크플로우에 넣고 그 문서를 엽니다(헤딩 · 표 분석을 바로 겁니다). 지금 문서는 묶음에서 나오고 작업 리스트에 남습니다", focus: "act:open:target" }),
-      dashBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx", true, fwRefUpload), { primary: !!o.lib.alive && !(R.only ? o.refN : o.keepOk), disabled: !o.lib.alive, title: o.lib.alive ? "참조 문서(pdf · hwpx · hwp · docx — 여럿 가능)를 문서 라이브러리에 바로 올립니다(새 탭 없이) — 자료 추출은 2단계에서" : FW_LIB_DOWN, focus: "act:open:ref" }),
+      dashBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx,.pptx,.ppt", true, fwRefUpload), { primary: !!o.lib.alive && !(R.only ? o.refN : o.keepOk), disabled: !o.lib.alive, title: o.lib.alive ? "참조 문서(pdf · hwpx · hwp · docx · ppt · pptx — 여럿 가능)를 문서 라이브러리에 바로 올립니다(새 탭 없이) — 자료 추출은 2단계에서" : FW_LIB_DOWN, focus: "act:open:ref" }),
       ...(o.lib.alive ? [dashBtn("문서 라이브러리 열기", () => fwLibOpen(), { title: "올린 참조 문서를 보거나 자료 추출을 하는 따로 선 서버 — 새 탭으로 엽니다", focus: "act:open:lib" })] : [])] };
 }
 // 2열 「참조 문서」 — 문서 라이브러리의 참조 문서 목록만(올리기 · 라이브러리 열기 · 새로 고침). 자료로 가져오기는 「자료 가져오기」 열의 일이다(여기는 보기만 · 문서는 안 바뀜).
 async function fwRefsOpen() {
   fwClearWay();
   const { tools, body } = headsDlg("fwRefs", "참조 문서", fwRefs().only ? "이 프로젝트의 참조 문서(쓰는 것) · 문서 라이브러리(모든 문서 — 보기만) · 문서는 안 바뀜" : "문서 라이브러리(따로 선 서버)에 있는 자료 문서 · 문서는 안 바뀜");
-  tools.append(hBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx", true, fwRefUpload), { cls: "btn sm primary", title: "참조 문서(pdf · hwpx · hwp · docx — 여럿 가능)를 문서 라이브러리에 바로 올립니다" }),
+  tools.append(hBtn("참조 문서 올리기…", () => fwPick(".pdf,.hwpx,.hwp,.docx,.pptx,.ppt", true, fwRefUpload), { cls: "btn sm primary", title: "참조 문서(pdf · hwpx · hwp · docx · ppt · pptx — 여럿 가능)를 문서 라이브러리에 바로 올립니다" }),
     hBtn("문서 라이브러리 열기", () => fwLibOpen(), { cls: "btn sm", title: "자료 추출을 하는 따로 선 서버 — 새 탭" }), hBtn("새로 고침", () => fwRead(true).then(fwRedraw), { cls: "btn sm" }));
   body.append(el("div", "fw-wait", "읽는 중…"));
   await fwRead(true);

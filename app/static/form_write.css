@@ -998,6 +998,8 @@ button.btn.primary[data-dash-focus="act:guides"]:hover:not(:disabled) {
 .fw-ref-ext[data-ext="hwp"] { background: #e3f7fa; color: #0e7490; }
 .fw-ref-ext[data-ext="docx"],
 .fw-ref-ext[data-ext="doc"] { background: #eceeff; color: #4338ca; }
+.fw-ref-ext[data-ext="pptx"],
+.fw-ref-ext[data-ext="ppt"] { background: #fff1e6; color: #c2410c; }
 
 /* 문서 이름(2줄까지 · 전체는 title) */
 .fw-ref-top {

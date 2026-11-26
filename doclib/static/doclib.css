@@ -82,6 +82,7 @@ body { margin: 0; background: var(--bg); min-height: 100vh; color: var(--text); 
 .doc-ext[data-ext="pdf"], .doc-ext-tag[data-ext="pdf"] { background: var(--fail-soft); color: var(--fail); border-color: transparent; }
 .doc-ext[data-ext="hwpx"], .doc-ext-tag[data-ext="hwpx"], .doc-ext[data-ext="hwp"], .doc-ext-tag[data-ext="hwp"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .doc-ext[data-ext="docx"], .doc-ext-tag[data-ext="docx"] { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.doc-ext[data-ext="pptx"], .doc-ext-tag[data-ext="pptx"], .doc-ext[data-ext="ppt"], .doc-ext-tag[data-ext="ppt"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 
 .doc-body { display: grid; gap: 3px; min-width: 0; }
 .doc-name { font-size: 13.5px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

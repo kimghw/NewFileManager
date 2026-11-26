@@ -136,17 +136,57 @@ class _Hwp(_Com):
         self.log.append(("Quit",))
 
 
-def _run_child(monkeypatch, capsys, jobs, fail=False):
-    """_CHILD 를 가짜 win32com 으로 이 프로세스 안에서 돌린다 -> (COM 기록, 자식이 낸 JSON 줄)."""
+class _Pres(_Com):
+    def __init__(self, log, fail=False):
+        super().__init__(log)
+        object.__setattr__(self, "fail", fail)
+
+    def SaveAs(self, path, kind=None):
+        self.log.append(("SaveAs", path, kind))
+        if self.fail:
+            raise RuntimeError("save failed")
+
+    def Close(self):
+        self.log.append(("Close",))
+
+
+class _Presentations(_Com):
+    def __init__(self, log, fail=False, count=0):
+        super().__init__(log)
+        object.__setattr__(self, "fail", fail)
+        object.__setattr__(self, "Count", count)
+
+    def Open(self, *args, **kw):
+        self.log.append(("Open", args, kw))
+        return _Pres(self.log, self.fail)
+
+
+class _PowerPoint(_Com):
+    def __init__(self, log, fail=False, count=0):
+        super().__init__(log)
+        object.__setattr__(self, "Presentations", _Presentations(log, fail, count))
+
+    def Quit(self):
+        self.log.append(("Quit",))
+
+
+def _run_child(monkeypatch, capsys, jobs, fail=False, tasks="", open_count=0):
+    """_CHILD 를 가짜 win32com 으로 이 프로세스 안에서 돌린다 -> (COM 기록, 자식이 낸 JSON 줄).
+    tasks = tasklist 가 띄운 뒤에 보일 줄(새 프로세스 번호 — 이 자식이 띄운 것) · open_count = PowerPoint 에 이미 열린 프레젠테이션 수."""
     log = []
     client = types.ModuleType("win32com.client")
     client.Dispatch = lambda prog: (log.append(("Dispatch", prog)), _Hwp(log))[1]
-    client.DispatchEx = lambda prog: (log.append(("DispatchEx", prog)), _Word(log, fail))[1]
+    client.DispatchEx = lambda prog: (log.append(("DispatchEx", prog)), _PowerPoint(log, fail, open_count) if prog == "PowerPoint.Application" else _Word(log, fail))[1]
     pkg = types.ModuleType("win32com")
     pkg.client = client
     monkeypatch.setitem(sys.modules, "win32com", pkg)
     monkeypatch.setitem(sys.modules, "win32com.client", client)
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(stdout=""))  # tasklist 없이
+    calls = []
+
+    def fake_run(*a, **k):  # tasklist 없이 — 띄우기 전(홀수 번째)은 빈 목록, 띄운 뒤(짝수 번째)는 tasks
+        calls.append(a)
+        return types.SimpleNamespace(stdout="" if len(calls) % 2 else tasks)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(j) + "\n" for j in jobs)))
     exec(pdf_render._CHILD, {"__name__": "_child"})  # noqa: S102 — 모듈 안의 고정 스크립트
     out = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.strip()]
@@ -183,6 +223,67 @@ def test_hangul_job_without_app_keeps_forceopen(monkeypatch, capsys):
     assert ("Dispatch", "HWPFrame.HwpObject") in log and not any(x[0] == "DispatchEx" for x in log)
     assert ("Open", "a.hwpx", "HWPX", "forceopen:true") in log and ("SaveAs", "a.pdf", "PDF", "") in log
     assert ("SaveAs", "b.hwpx", "HWPX", "") in log
+
+
+def test_powerpoint_prints_pdf_without_window_and_lets_go_after_each_job(monkeypatch, capsys):
+    """ppt · pptx = PowerPoint(2026-11-26 — 문서 라이브러리의 자료 문서). 창 없이 읽기 전용으로 열어 PDF(32)로 · 매크로 끔 ·
+    작업마다 놓는다 — 이 자식이 띄웠으면 닫고 그 번호를 부모가 잊게 알린다(계속 띄워 두면 사람이 연 프레젠테이션이 그 인스턴스에 들어온다)."""
+    mine = '"POWERPNT.EXE","4321","Console","1","100 K"\n'
+    log, out = _run_child(monkeypatch, capsys, [{"src": "C:\\t\\doc.pptx", "pdf": "C:\\t\\doc.pdf", "format": "PDF", "app": "ppt"},
+                                                {"src": "C:\\t\\doc.ppt", "pdf": "C:\\t\\old.pdf", "format": "PDF", "app": "ppt"}], tasks=mine)
+    assert out == [{"pids": [4321]}, {"gone": [4321]}, {"ok": True}] * 2         # 띄운 번호를 알리고(시간 초과면 부모가 죽임) · 닫으면 잊게 알린다
+    assert log.count(("DispatchEx", "PowerPoint.Application")) == 2 and not any(x[0] == "Dispatch" for x in log) and log.count(("Quit",)) == 2
+    opened = next(i for i, x in enumerate(log) if x[0] == "Open")
+    before = {x[1]: x[2] for x in log[:opened] if x[0] == "set"}
+    assert before.get("AutomationSecurity") == 3 and before.get("DisplayAlerts") == 1 and "Visible" not in before   # PowerPoint 는 창을 감출 수 없다 — 열 때 WithWindow 없이
+    assert log[opened][1] == ("C:\\t\\doc.pptx", -1, 0, 0)
+    assert ("SaveAs", "C:\\t\\doc.pdf", 32) in log and ("SaveAs", "C:\\t\\old.pdf", 32) in log and log.count(("Close",)) == 2
+    assert log.index(("Quit",)) > log.index(("Close",))
+
+
+def test_powerpoint_leaves_a_powerpoint_it_did_not_start(monkeypatch, capsys):
+    """사람이 연 PowerPoint 에 붙었으면(새 프로세스 없음) 닫지 않는다 · 열린 프레젠테이션이 있어도 닫지 않는다 · PDF 말고는 거절 · 실패해도 문서는 닫고 놓는다."""
+    log, out = _run_child(monkeypatch, capsys, [{"src": "a.pptx", "pdf": "a.pdf", "format": "PDF", "app": "ppt"},
+                                                {"src": "a.pptx", "pdf": "a.docx", "format": "DOCX", "app": "ppt"}])
+    assert out[:3] == [{"pids": []}, {"ok": True}, {"pids": []}] and out[3]["ok"] is False and "PDF" in out[3]["error"]
+    assert ("Quit",) not in log
+    mine = '"POWERPNT.EXE","4321","Console","1","100 K"\n'
+    log, out = _run_child(monkeypatch, capsys, [{"src": "a.pptx", "pdf": "a.pdf", "format": "PDF", "app": "ppt"}], tasks=mine, open_count=1)
+    assert out == [{"pids": [4321]}, {"ok": True}] and ("Quit",) not in log
+    log, out = _run_child(monkeypatch, capsys, [{"src": "a.pptx", "pdf": "a.pdf", "format": "PDF", "app": "ppt"}], fail=True, tasks=mine)
+    assert out[:2] == [{"pids": [4321]}, {"gone": [4321]}] and out[-1]["ok"] is False and "save failed" in out[-1]["error"]
+    assert ("Close",) in log and log[-1] == ("Quit",)
+
+
+def test_exporter_forgets_pids_the_child_closed(monkeypatch):
+    """자식이 「gone」 으로 알린 번호는 부모가 잊는다 — 시간 초과 때 그 번호(다른 프로세스가 다시 받았을 수 있다)를 죽이지 않게."""
+    ex = pdf_render.Exporter()
+    ex.proc = types.SimpleNamespace(poll=lambda: None, stdin=io.StringIO())
+    ex.lines = __import__("queue").Queue()
+    for m in ({"pids": [4321]}, {"gone": [4321]}, {"ok": True}):
+        ex.lines.put(json.dumps(m))
+    assert ex.run("a.pptx", "a.pdf", 5, app="ppt") == "a.pdf" and ex.pids == set()
+
+
+def test_pptx_copy_is_hardened_and_ppt_goes_as_is(monkeypatch):
+    """pptx 렌더 사본도 바깥 관계(연결 그림 등)를 뗀다(OOXML 공통 하드닝) · ppt(옛 바이너리)는 그대로 · 출력은 PowerPoint(app ppt)."""
+    rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="\\\\evil\\share\\a.png" TargetMode="External"/>'
+            '</Relationships>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        z.writestr("ppt/slides/slide1.xml", '<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+        z.writestr("ppt/slides/_rels/slide1.xml.rels", rels)
+    data = buf.getvalue()
+    copy = pdf_render.render_copy(data, "pptx")
+    assert copy != data and b"evil" not in zipfile.ZipFile(io.BytesIO(copy)).read("ppt/slides/_rels/slide1.xml.rels")
+    assert pdf_render.render_copy(b"\xd0\xcf\x11\xe0old", "ppt") == b"\xd0\xcf\x11\xe0old"
+    fake = _FakeWord()
+    monkeypatch.setattr(pdf_render, "EXPORTER", fake)
+    pdf_render.export_pdf(b"\xd0\xcf\x11\xe0old", fmt="ppt")
+    assert [(c["name"], c["fmt"], c["app"]) for c in fake.calls] == [("doc.ppt", "PDF", "ppt")]
+    assert pdf_render.app_name("pptx") == pdf_render.app_name("ppt") == "PowerPoint"
 
 
 def _with_update_fields(data):

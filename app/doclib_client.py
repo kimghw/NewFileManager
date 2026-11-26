@@ -101,7 +101,7 @@ def file(did, limit):
     return (urllib.parse.unquote(m.group(1).strip()) if m else None), data
 
 
-UPLOAD_EXT = ("pdf", "hwpx", "hwp", "docx")   # 그 서버가 받는 형식(doclib/store.py EXTS — 화면이 먼저 거른다 · 판정은 그 서버)
+UPLOAD_EXT = ("pdf", "hwpx", "hwp", "docx", "pptx", "ppt")   # 그 서버가 받는 형식(doclib/store.py EXTS — 화면이 먼저 거른다 · 판정은 그 서버)
 UPLOAD_MAX = 80 * 2 ** 20                     # 그 서버의 한도(store.MAX_BYTES)
 
 

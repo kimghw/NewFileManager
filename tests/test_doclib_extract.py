@@ -92,6 +92,31 @@ def test_store_keeps_documents_and_prompts(lib):
     assert store.cut_running() == 1 and store.extract(e["id"])["state"] == "cut" and store.drop_extract(e["id"]) and store.drop_doc(meta["id"]) and store.docs() == []
 
 
+def test_ppt_documents_are_kept_and_printed_with_powerpoint(lib, monkeypatch):
+    """2026-11-26 사용자 "ppt 도 참조 문서로 넣을 수 있도록" — ppt · pptx 를 받고, 읽을 PDF 는 PowerPoint 로 찍는다(형식 그대로 넘긴다)."""
+    from app import pdf_render
+    seen, made = [], fitz.open()
+    made.new_page()
+    pdf_bytes = made.tobytes()
+
+    def fake_export(data, limit=None, fmt="hwpx"):
+        seen.append((fmt, data))
+        out = store.root() / f"made-{fmt}.pdf"
+        out.write_bytes(pdf_bytes)
+        return out
+    monkeypatch.setattr(pdf_render, "available", lambda fmt="hwpx": fmt in ("pptx", "ppt"))
+    monkeypatch.setattr(pdf_render, "export_pdf", fake_export)
+    for name, body in (("발표.pptx", b"PK-pptx"), ("옛 발표.PPT", b"\xd0\xcf-ppt")):
+        meta, created = store.add_doc(name, body)
+        assert created and meta["ext"] == name.rsplit(".", 1)[1].lower()
+        assert extract.ensure_pdf(meta["id"]).read_bytes() == pdf_bytes and seen[-1] == (meta["ext"], body)
+    assert [f for f, _ in seen] == ["pptx", "ppt"]
+    monkeypatch.setattr(pdf_render, "available", lambda fmt="hwpx": False)
+    meta, _ = store.add_doc("다른.pptx", b"PK-other")
+    with pytest.raises(RuntimeError, match="PowerPoint가 없어"):
+        extract.ensure_pdf(meta["id"])
+
+
 def test_skill_text_drops_only_the_head_comment(lib):
     text = extract.skill("extract")
     assert not text.startswith("# ") and text.startswith("## 무엇을 뽑나") and "사용자 원문" not in text and "<!-- 범위 확인 필요 -->" in text and "<!-- p.N -->" in text   # 머리의 주석만 뺀다 — 글 안의 주석은 판단 기준의 일부

@@ -1,7 +1,7 @@
 """문서 라이브러리 서버(spec_양식작성 ② §2) — `python -m uvicorn doclib.server:app --host 127.0.0.1 --port 8121`(띄우개 tools/start_doclib.ps1).
 
 끝점(모두 이 파일 — 8114 의 끝점과 따로):
-- `GET /api/health` → {ok, name, llm{available, cli, model, slots}, pdf{hwpx, docx}(한글 · Word 로 PDF 를 찍을 수 있나), size, root}
+- `GET /api/health` → {ok, name, llm{available, cli, model, slots}, pdf{hwpx, docx, pptx}(한글 · Word · PowerPoint 로 PDF 를 찍을 수 있나 — pptx 가 ppt 도), size, root}
 - `GET /api/docs` → {docs[{id, name, ext, bytes, pages, at, org, topic, note, extracts[요약]}]} · `POST /api/docs`(multipart file) → {doc, created}
 - `PATCH /api/docs/{did}` {org?, topic?, note?} · `DELETE /api/docs/{did}`(도는 추출이 있으면 409) · `GET /api/docs/{did}/file`(올린 파일) · `GET /api/docs/{did}/pdf`(읽을 PDF — 없으면 그때 찍는다)
 - `POST /api/docs/{did}/extracts` {focus | focuses[…], first?, last?} → 추출을 배경에서 시작 {extract, extracts[…]} — focuses 가 둘 이상이면 **범위마다 추출 하나(MD 하나)** 를 문서 한 번 읽기로 함께 뽑는다(같은 group) · `GET /api/extracts/{eid}` → {extract, running}
@@ -48,9 +48,9 @@ async def _own_origin(request: Request, call_next):
 def _pdf_ok():
     try:
         from app import pdf_render
-        return {"hwpx": pdf_render.available("hwpx"), "docx": pdf_render.available("docx")}
+        return {"hwpx": pdf_render.available("hwpx"), "docx": pdf_render.available("docx"), "pptx": pdf_render.available("pptx")}
     except Exception:   # noqa: BLE001
-        return {"hwpx": False, "docx": False}
+        return {"hwpx": False, "docx": False, "pptx": False}
 
 
 @app.get("/api/health")

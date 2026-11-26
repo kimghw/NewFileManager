@@ -1,4 +1,5 @@
-"""한글·Word COM PDF 출력(spec_hwpx_웹편집 ② §5) — FileMergeManager render_anchors.Exporter 를 옮긴 것(hwpx = 한글, docx = Word).
+"""한글·Word COM PDF 출력(spec_hwpx_웹편집 ② §5) — FileMergeManager render_anchors.Exporter 를 옮긴 것(hwpx = 한글, docx = Word,
+ppt · pptx = PowerPoint — 문서 라이브러리의 자료 문서를 읽을 PDF 로만: spec_양식작성 ② §2).
 
 자식 프로세스마다 `HWPFrame.HwpObject` 를 계속 쓴다: 한글 「파일 접근 확인」 창(보안 모듈 미등록)은 프로세스마다 한 번이라 「모두 허용」을
 한 번 누르면 그 뒤 문서는 묻지 않는다. 시간 초과·실패면 자식과 그것이 띄운 한글만 죽이고 다음에 새로 띄운다(한글 COM 은 가끔 멈춘다 —
@@ -40,9 +41,10 @@ def export_limit(size: int) -> int:
     return round(min(LIMIT_MOST, LIMIT_BASE + LIMIT_PER_MB * size / 2 ** 20))
 
 
-PROGIDS = {"hwpx": "HWPFrame.HwpObject", "docx": "Word.Application"}  # 문서 형식 → 출력 프로그램 COM
-APPS = {"hwpx": "hwp", "docx": "word"}                                   # 문서 형식 → 자식 작업의 "app"
-APP_NAMES = {"hwp": "한글", "word": "Word"}
+PROGIDS = {"hwpx": "HWPFrame.HwpObject", "docx": "Word.Application",     # 문서 형식 → 출력 프로그램 COM
+           "pptx": "PowerPoint.Application", "ppt": "PowerPoint.Application"}   # ppt · pptx = PowerPoint(PDF 출력만 — 문서 라이브러리의 자료 문서)
+APPS = {"hwpx": "hwp", "docx": "word", "pptx": "ppt", "ppt": "ppt"}       # 문서 형식 → 자식 작업의 "app"
+APP_NAMES = {"hwp": "한글", "word": "Word", "ppt": "PowerPoint"}
 
 
 def app_name(fmt: str = "hwpx") -> str:
@@ -51,7 +53,7 @@ def app_name(fmt: str = "hwpx") -> str:
 
 
 def available(fmt: str = "hwpx") -> bool:
-    """그 형식을 찍을 COM 이 등록돼 있는지 — hwpx = 한글(정식 한글 — 무료 뷰어엔 없음), docx = Word. env NFM_PDF=off 면 모두 끈다(시험)."""
+    """그 형식을 찍을 COM 이 등록돼 있는지 — hwpx = 한글(정식 한글 — 무료 뷰어엔 없음), docx = Word, ppt · pptx = PowerPoint. env NFM_PDF=off 면 모두 끈다(시험)."""
     if os.environ.get("NFM_PDF", "").lower() == "off" or sys.platform != "win32" or fmt not in PROGIDS:
         return False
     try:
@@ -71,12 +73,24 @@ import win32com.client
 def pids(name):
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + name, "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
     return {int(l.split('","')[1]) for l in out.splitlines() if l.lower().startswith('"' + name.lower() + '"')}
-apps = {}
+apps, mine = {}, {}
 def app(kind):
     if kind not in apps:
-        name = "Hwp.exe" if kind == "hwp" else "WINWORD.EXE"
+        name = {"hwp": "Hwp.exe", "ppt": "POWERPNT.EXE"}.get(kind, "WINWORD.EXE")
         before = pids(name)
-        if kind == "hwp":
+        if kind == "ppt":
+            # PowerPoint 는 한 인스턴스뿐(DispatchEx 도 사람이 연 PowerPoint 에 붙는다) · 창을 감출 수 없다(Visible = False 는 오류) —
+            # 창 없이 열고(WithWindow) 작업마다 놓는다(let_go — 계속 띄워 두면 사람이 연 프레젠테이션이 이 인스턴스에 들어온다)
+            a = win32com.client.DispatchEx("PowerPoint.Application")
+            try:
+                a.AutomationSecurity = 3
+            except Exception:
+                pass
+            try:
+                a.DisplayAlerts = 1  # ppAlertsNone
+            except Exception:
+                pass
+        elif kind == "hwp":
             a = win32com.client.Dispatch("HWPFrame.HwpObject")
             try:
                 a.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
@@ -91,8 +105,19 @@ def app(kind):
             a.Visible, a.DisplayAlerts = False, 0
             a.AutomationSecurity = 3
         apps[kind] = a
-        print(json.dumps({"pids": sorted(pids(name) - before)}), flush=True)
+        new = sorted(pids(name) - before)
+        mine[kind] = new
+        print(json.dumps({"pids": new}), flush=True)
     return apps[kind]
+def let_go(kind):
+    """그 프로그램을 놓는다(PowerPoint — 작업마다) — 닫는 것은 이 자식이 띄웠고 열린 것이 없을 때만 · 닫으면 부모가 그 번호를 잊게 알린다."""
+    a, new = apps.pop(kind, None), mine.pop(kind, [])
+    try:
+        if a is not None and new and not a.Presentations.Count:
+            a.Quit()
+            print(json.dumps({"gone": new}), flush=True)
+    except Exception:
+        pass
 WORD_FORMAT = {"PDF": 17, "DOCX": 16}  # wdFormatPDF, wdFormatDocumentDefault
 for line in sys.stdin:
     job = json.loads(line)
@@ -110,6 +135,18 @@ for line in sys.stdin:
             a.Clear(1)
             if not ok:
                 raise RuntimeError("한글 " + fmt + " 저장 실패")
+        elif kind == "ppt":
+            try:
+                if fmt != "PDF":
+                    raise RuntimeError("PowerPoint 는 PDF 출력만 합니다")
+                d = a.Presentations.Open(job["src"], -1, 0, 0)  # ReadOnly · Untitled 아님 · WithWindow 없음(msoTrue -1 / msoFalse 0)
+                try:
+                    d.SaveAs(job["pdf"], 32)  # ppSaveAsPDF
+                finally:
+                    d.Close()
+            finally:
+                a = d = None   # 쥔 COM 참조를 놓는다 — 남아 있으면 Quit 뒤에도 POWERPNT.EXE 가 남는다(실측)
+                let_go("ppt")
         else:
             d = a.Documents.Open(job["src"], ConfirmConversions=False, ReadOnly=True, AddToRecentFiles=False,
                                  NoEncodingDialog=True)
@@ -156,7 +193,7 @@ class Exporter:
         self.proc, self.pids = None, set()
 
     def run(self, src, pdf, limit, fmt="PDF", app="hwp", layout=False):
-        """app = hwp(한글)|word — 한 자식 프로세스가 둘 다 띄워 쓸 수 있다(처음 쓸 때). fmt = 내보낼 형식(PDF·HWPX·DOCX).
+        """app = hwp(한글)|word|ppt(PowerPoint — PDF 만) — 한 자식 프로세스가 여럿 띄워 쓸 수 있다(처음 쓸 때). fmt = 내보낼 형식(PDF·HWPX·DOCX).
         layout = 한글이 끝 쪽까지 조판한 뒤 저장(layout_hwpx)."""
         name = APP_NAMES.get(app, app)
         with self.lock:
@@ -171,13 +208,16 @@ class Exporter:
                 except queue.Empty:
                     self.stop()
                     raise TimeoutError(f"{name} {fmt} 출력 {limit}s 초과 — " + (
-                        "한글 창(파일 접근 확인 등)이 떠 있는지 보세요" if app == "hwp" else "Word 대화상자가 떠 있는지 보세요"))
+                        "한글 창(파일 접근 확인 등)이 떠 있는지 보세요" if app == "hwp" else f"{name} 대화상자가 떠 있는지 보세요"))
                 if line is None:
                     self.stop()
                     raise RuntimeError(f"{name} {fmt} 출력 프로세스가 끝남")
                 msg = json.loads(line)
                 if "pids" in msg:
                     self.pids |= set(msg["pids"])
+                    continue
+                if "gone" in msg:   # 자식이 닫은 프로그램(PowerPoint — 작업마다) — 그 번호는 다른 프로세스가 다시 받을 수 있어 잊는다
+                    self.pids -= set(msg["gone"])
                     continue
                 if not msg.get("ok"):
                     self.stop()
@@ -246,10 +286,13 @@ def one_per_sheet(data: bytes) -> bytes:
 
 def render_copy(data: bytes, fmt: str = "hwpx") -> bytes:
     """프로그램에 넘길 사본 — hwpx = 한 쪽씩 찍기(one_per_sheet), docx = 바깥을 부르지 않게 한 사본(docx_harden.strip_external — 읽을 수 없는
-    멤버가 있으면 ValueError, 원본을 그대로 넘기지 않음). 사용자 문서·다운로드 바이트는 그대로."""
-    if fmt == "docx":
+    멤버가 있으면 ValueError, 원본을 그대로 넘기지 않음), pptx = 같은 하드닝(바깥 관계 떼기는 OOXML 공통 — 연결 그림 · 연결 OLE · 동영상),
+    ppt(옛 바이너리) = 그대로(고칠 수 없다). 사용자 문서·다운로드 바이트는 그대로."""
+    if fmt in ("docx", "pptx"):
         from app import docx_harden
         return docx_harden.strip_external(data)
+    if fmt == "ppt":
+        return data
     return one_per_sheet(data)
 
 

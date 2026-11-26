@@ -142,13 +142,14 @@
   같은 턴 사용자(10 「작성 계획 · 확인할 것」 의 물음 넷 — 답 후보 없이 「자료대로」 만 선 그림) **"이거는 LLM 이 확정이나 추천해 주는 절차가 없나?"** → 답(조회): 추천은 있다 — 작성 계획(자료를 읽은 뒤)의 물음마다 `suggest` · `source`(자료에서 찾은 답 후보와 근거 구절 — 단추 「자료에서: …」). 그림은 양식 검토(06 — 자료 없이)만 한 상태라 후보가 없다(`form_review.check` 가 자료 없는 답의 후보를 버린다).
   LLM 이 저절로 확정하는 절차는 없다 — 「확인해야 할 사항은 사용자에게 물어본다」(11-24 ② §5-1). 「자료에서 찾은 답 모두 받기」 단추는 제안만(④).
 - 2026-11-26 사용자(대시보드 「11 양식 초안 작성」 의 「지침 작성 열기」 그림) **"사이드패널에서 뭔가 열리고 선택하라는데 각 도구가 뭘 정확히 어딜 선택하라는건지 알 수가 없어. 탭으로 분리해서 탭을 열어주던가"** → ② §6-4 「지침 작성 열의 탭」(대시보드 단계마다 탭 하나 · 탭 맨 위 「이 탭에서 할 일」 · 대시보드 단추는 제 탭을 연다).
+- 2026-11-26 사용자(문서 라이브러리 「문서」 목록 · 「hwp · hwpx · docx · pdf 끌어 놓기」 그림) **"ppt 도 참조 문서로 넣을 수 있도록 해줘,"** → ② §2 「받는 형식」 — ppt · pptx 를 받고 읽을 PDF 는 PowerPoint 로 찍는다(슬라이드 하나 = 한 쪽 · 추출은 PDF 와 같은 길).
 
 ## ② 확정 사양
 
 ### 0. 용어 · 범위
 
 - **양식 작성** = 워크플로우(키 `form_write` · 작업 종류 일반 문서 `general`). 목적 문서 = 채울 **양식**(hwp · hwpx — 양식 제한 없음) 하나.
-- **자료 문서** = 내용이 나오는 문서(hwp · hwpx · docx · pdf) — 문서 라이브러리가 보관한다(8114 의 작업이 아니다 · 바뀌지 않는다). **자료** = 그 문서에서 뽑은 MD(이 문서의 에이전트 자료로 가져온 것) · 파일 · 붙여 넣은 글.
+- **자료 문서** = 내용이 나오는 문서(hwp · hwpx · docx · pdf · ppt · pptx) — 문서 라이브러리가 보관한다(8114 의 작업이 아니다 · 바뀌지 않는다). **자료** = 그 문서에서 뽑은 MD(이 문서의 에이전트 자료로 가져온 것) · 파일 · 붙여 넣은 글.
 - **문서 라이브러리** = 자료 문서를 보관하고 자료 추출을 하는 따로 선 서버(와 그 화면)의 이름. **자료 추출** = 문서에서 **뽑을 범위**(특정 기관 · 특정 연구)의 내용만 MD 로 만드는 일.
 - **작성 지침** = 그 자리(헤딩 · 표)에 무엇을 어떻게 쓰는지 — 양식이 적어 둔 것(작성 요령 · ※ 안내 · 각주 항목) + 사람이 적은 것. 고르기는 `place_guides` 하나([spec_병합.md](spec_병합.md) ② §5-11).
 - 하지 않는 것(v1): 제안을 사람 확인 없이 문서에 넣기 · docx 양식 채우기 · 그림 · 수식을 양식에 넣기(자료의 캡션만 글로) · 스캔 PDF 의 OCR · 서버가 도는 「한 번에 진행」(④).
@@ -168,9 +169,11 @@
 ### 2. 문서 라이브러리 서버 — `doclib/`
 
 - **따로 선 프로세스**: `python -m uvicorn doclib.server:app --host 127.0.0.1 --port 8121`(띄우개 `tools/start_doclib.ps1` — 구독 로그인의 Claude CLI · 키를 넣지 않는다). 포트 대장에 8121 로 등록. 8114 가 꺼져 있어도 돈다.
-- **의존**: `doclib/` 는 `app.server` · `app.*_api` · `app.works` · `app.llm` 을 가져오지 않는다. `app/` 에서 빌려 쓰는 것은 한글 · Word 의 PDF 출력 `app.pdf_render`(순수 모듈) 하나다. 8114 쪽은 이 서버의 파일 · 함수를 가져오지 않고 HTTP 로만 읽는다(§4).
+- **의존**: `doclib/` 는 `app.server` · `app.*_api` · `app.works` · `app.llm` 을 가져오지 않는다. `app/` 에서 빌려 쓰는 것은 한글 · Word · PowerPoint 의 PDF 출력 `app.pdf_render`(순수 모듈) 하나다. 8114 쪽은 이 서버의 파일 · 함수를 가져오지 않고 HTTP 로만 읽는다(§4).
 - **저장소** = `%LOCALAPPDATA%\NewFileManager\doclib`(env `NFM_DOCLIB`): `docs/<문서 id>/{meta.json, source.<ext>, source.pdf, extracts/<추출 id>/{meta.json, doc.md, images/*.png, chunks/<n>.json}}` · `prompts/<이름>.md`(사람이 고친 스킬 글).
-  문서 id = 「d」 + sha256 앞 12자(같은 파일은 같은 문서) · 받는 형식 hwp · hwpx · docx · pdf · 80 MB 까지. 문서마다 사람이 적는 것 = 기관 · 연구 · 메모(뽑을 범위의 처음 값이 된다).
+  문서 id = 「d」 + sha256 앞 12자(같은 파일은 같은 문서) · 받는 형식 hwp · hwpx · docx · pdf · ppt · pptx · 80 MB 까지. 문서마다 사람이 적는 것 = 기관 · 연구 · 메모(뽑을 범위의 처음 값이 된다).
+  pdf 가 아닌 것의 읽을 PDF 는 처음 읽을 때 찍는다(`extract.ensure_pdf` — hwp · hwpx = 한글 · docx = Word · **ppt · pptx = PowerPoint**(2026-11-26 — ①): 슬라이드 하나가 한 쪽 · 창 없이 읽기 전용 · 매크로 끔 · pptx 는 docx 와 같은 렌더 하드닝(바깥 관계 떼기) · 옛 ppt 는 그대로 ·
+  그 프로그램이 없으면 「PDF 로 저장해 올려 주세요」). PowerPoint 는 한 인스턴스뿐이라 사람이 연 PowerPoint 에 붙을 수 있다 — 출력 자식은 **작업마다** 띄우고 놓으며(계속 띄워 두면 사람이 연 프레젠테이션이 그 인스턴스에 들어간다) 제가 띄웠고 열린 프레젠테이션이 없을 때만 닫는다(`app/pdf_render.py` 자식 스크립트 · 외부 지식 [references/PowerPoint_COM_PDF.md](../references/PowerPoint_COM_PDF.md)).
 - **끝점**(`doclib/server.py` 머리말이 원본): 문서 목록 · 올리기 · 고치기 · 지우기 · 올린 파일 · 읽을 PDF / 추출 시작 · 상태 · 멈춤 · 지우기 · MD · 그림 · zip / 스킬 글 읽기 · 고치기 / 관리 화면 `GET /`.
   127.0.0.1 만 듣는다. 다른 출처의 페이지가 보내는 바꾸는 요청(Origin 이 이 서버가 아님)은 403.
 - **화면**(`doclib/static/` — 8114 의 스크립트 · 스타일을 읽지 않는다): 왼쪽 문서 목록(올리기 · 끌어 놓기) · 오른쪽 고른 문서(기관 · 연구 · 메모 / 자료 추출: 뽑을 범위 · 쪽 범위 · 「추출 시작」 / 추출 결과: 상태 · 진행 · 그림 · 수식 · 확인 필요 수 · 「MD 보기」 · 「내려받기(zip)」 / MD 글과 그림 모음).
@@ -557,6 +560,11 @@
 - 에이전트 판단(사용자 확인 전): 탭의 나눔(테마를 따로 · 05 를 탭으로) · 할 일 줄의 글 · 다른 탭의 발치를 한 줄 안내로 둔 것.
 
 ## ③ 구현 상태
+
+- 2026-11-26 ppt · pptx 참조 문서(② §2): `doclib/store.py` `EXTS` · `extract.ensure_pdf`(형식 그대로 넘김 · 없을 때 글) · `server._pdf_ok` 의 `pptx` · 화면(`index.html` 올리기 · 끌어 놓기 글 · `doclib.css` PPT 배지) /
+  `app/pdf_render.py`(`PROGIDS` · `APPS` · `APP_NAMES` · 자식 스크립트의 PowerPoint 가지 · `render_copy`) · 8114 쪽 `doclib_client.UPLOAD_EXT` · `form_write.js` 「참조 문서 올리기…」 · `form_write.css` 배지 · 등록부 글(`workflow.py` → workflow.md · tasks/form_write.md).
+  실제 PowerPoint 로 pptx · 옛 ppt(각 3장 → 3쪽 · 띄우기 포함 약 7초)를 찍어 봄 · 작업이 끝나면 PowerPoint 가 닫힘 · 8121 을 다시 켜 올리기 → 읽을 PDF 까지 확인(시험 문서는 지움). 시험 `test_pdf_render.py`(PowerPoint 자식 · 작업마다 놓기 · 사람의 PowerPoint 를 안 닫음 · 닫은 번호를 부모가 잊음 · 하드닝) · `test_doclib_extract.py`(받기 · 찍기 · 없을 때) · 화면 검사 form_write 104 통과.
+  8114 쪽(「참조 문서 올리기…」 의 서버 검사 `UPLOAD_EXT`)은 8114 를 다시 켠 뒤에 ppt 를 받는다(2026-11-26 기준 안 켬).
 
 - 2026-11-26 「지침 작성」 열의 탭(② §6-4): `form_write.js` `FW_WTABS` · `fwWTabsEl` · `fwWTodo` · `fwWTabGo` · `fwWriteDraw`(탭마다 절) · `fwFootDraw`(초안 단추는 초안 작성 탭에만) · 대시보드 11 단추 · `fwAutoRun` 멈춤이 제 탭을 엶 · `form_write.css` 끝 블록 · 화면 검사 `smoke_form_write_ui.py` ④ ~ ⑤-1 이 탭을 바꿔 가며 본다(newfilemanager-3b 의 참조 문서 고침과 함께 화면 검사 전체 통과 104 · 실패 0).
 
