@@ -15,6 +15,9 @@ LLM 자리(llm — NFM_LLM_SLOTS)는 서버 전체가 나눠 쓴다 — 같이 �
 **문서는 바꾸지 않는다** — 계획의 반영은 사람이 「템플릿 서식 정리」 열에서 고른 것만. 한 단계의 LLM 이 답을 못 하면(스크립트로 대신함) 그 단계를 실패로 남기고 아직 시작하지 않은 단계는 돌리지 않는다
 (①이 실패하면 ③ 은 대기로 남음 · **이미 묻기 시작한 ②는 받은 답으로 맺는다** — 유료 답을 버리지 않는다: 소속은 스크립트 헤딩 그래프에서 · 같이 도는 단계는 한쪽이 실패해도 다른 쪽은 제 일을 마친다 — 작업은 실패로 끝남).
 멈추기는 지금 도는 단계가 끝나면(①과 같이 묻던 ②는 맺고 · ③ 은 아직 시작하지 않은 템플릿부터).
+**두 모델**(2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완 하고 10페이지씩 검증 에이전트를 병렬로 추가」): ① ② 의 판정 호출(규칙 보강 · 유형 · 구간 · 표)은 호출마다 두 모델(LLM1 · LLM2)이 따로 답하고
+다르면 협의한 하나를 받는다 — 이 파일이 아니라 `llm.ask_all` 이 그 에이전트의 호출에 한다(app/llm_duo.py · 「한 모델만」 으로 둔 에이전트는 한 번). ③ 은 한 모델 그대로.
+  ④ 구간 검증 = 시작하는 쪽이 청하면(run 의 windows) ① ② ③ 이 끝난 뒤 문서를 10쪽씩 나눠 구간마다 검증 에이전트를 같이 돌려 「확인 필요」 를 남긴다(_check · app/analysis_check.py — 판정 · 문서는 안 바뀜 · 이 단계의 실패는 작업을 실패로 끝내지 않는다).
 건너뛰는 기준은 분석 상태(app/analysis.py llm_plan)와 같다. server 를 import 하지 않는다 — outline · plans · plan 을 받는다(app/analysis_api.py 가 넘긴다).
 
 이어 돌리기는 셋이다(CHAINS — job.chain 의 이름 · 화면 이름은 analysis.CHAIN_NAMES):
@@ -24,10 +27,13 @@ LLM 자리(llm — NFM_LLM_SLOTS)는 서버 전체가 나눠 쓴다 — 같이 �
   formats = ③ 만 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」(계획이 없거나 옛것인 템플릿만)"""
 import concurrent.futures
 import threading
+import time
 
-from app import agent_notes, analysis, heading_runs, llm, tpl_agent, works
+from app import agent_notes, agent_settings, analysis, analysis_check, heading_runs, llm, tpl_agent, works
 
 PARTS = (("heads", "헤딩 · 템플릿 — 헤딩 그래프(LLM)"), ("tables", "표 — 표 구조(LLM)"), ("formats", "서식 — 템플릿 서식 정리 계획"))  # 차례 번호는 analysis.part_nos(헤딩이 도느냐에 따라 — 같은 번호 = 같이 돎)
+CHECK_PART = ("check", f"구간 검증 — {analysis_check.PAGES}쪽씩(LLM)")  # ④ — run(windows=True) 일 때만 단계에 든다(PARTS 에 넣지 않는다: parts 의 기본값이 PARTS 다)
+CHECK_STEP = "구간 검증 — LLM"  # 헤딩 작업의 단계 줄 이름
 PLAN_WORKERS = None  # 서식 정리 계획을 같이 받는 템플릿 수 — None = LLM 자리 수(llm.slots_n: 자리는 서버 전체가 나눠 쓴다 — 표 판정이 아직 돌면 자리를 기다릴 뿐이다) · 시험이 수로 바꾼다
 AHEAD_NOTE = "헤딩 판정과 같이"  # 표 판정 호출을 ①과 같이 돌릴 때 단계 글에 붙는 말
 CHAINS = {"llm": {"parts": ("heads", "tables", "formats"), "force": False, "strict": True},      # 이름 → 도는 단계 · 헤딩을 늘 다시 도나 · 헤딩 LLM 이 답을 못 하면 작업을 실패로 끝내나
@@ -79,15 +85,19 @@ def _log(sess, st, stage, job, n):
               **({"n": n} if st.get("lastSaved") is not False else {"saved": False}))
 
 
-def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True):
+def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True, windows=False):
     """job = heading_runs.Job(chain "llm" · "heads" · "formats" — CHAINS). outline(sess) → (개요 오버레이, 서식 갈래) | None · plans(sess, graph) → {tpl: 기록} · plan(sess, tpl) → 계획(실패는 예외).
     parts = 돌 단계(없으면 셋 다) · force = 헤딩이 이미 LLM 을 거쳤어도 다시 돈다 · strict = 헤딩 LLM 이 답을 못 하면 작업을 실패로 끝낸다(아니면 단계만 실패로 적고 뒤 단계는 돌리지 않은 채 끝낸다).
+    windows = 참이면 헤딩 · 표가 모두 든 이어 돌리기의 끝에 **구간 검증**(④ — 10쪽씩 · 구간마다 검증 에이전트를 같이: _check)을 더한다(시작하는 쪽이 청한다 — POST …/analysis/llm 의 check).
     → 마지막으로 저장한 헤딩 실행 번호 | None."""
     st = heading_runs.state(sess)
     parts = tuple(parts or [k for k, _ in PARTS])
     heads_run = "heads" in parts and (force or not llm_done(st.get("stage2")))  # ①이 실제로 도나(_heads 와 같은 기준)
     nos = analysis.part_nos(parts, heads_run)  # 차례 번호는 도는 단계끼리 1부터(같은 번호 = 같이 돎)
     job.parts = [{"key": k, "name": name, "no": nos[k], "status": "wait", "msg": ""} for k, name in PARTS if k in parts]
+    windows = bool(windows) and {"heads", "tables"} <= set(parts)
+    if windows:  # ④ 는 앞 단계가 모두 끝난 뒤(지금 판정을 읽는다) — 차례 번호는 맨 뒤
+        job.parts.append({"key": CHECK_PART[0], "name": CHECK_PART[1], "no": max(nos.values()) + 1, "status": "wait", "msg": ""})
     n = None
     rebuilt = False
     ahead = None
@@ -126,6 +136,12 @@ def run(sess, job, *, outline, plans, plan, parts=None, force=False, strict=True
     if err is not None:
         raise err
     n3 = ft.result() if ft else None
+    if windows and not _stopped(job):
+        try:
+            _check(sess, job, st)
+        except Exception as e:  # ④ 의 오류는 작업을 실패로 끝내지 않는다 — 앞 단계의 결과는 이미 저장됐다(단계 줄에만 남긴다)
+            _part(job, "check", "failed", f"구간 검증을 하다가 오류 — {type(e).__name__}: {e}"[:300])
+            job.step(CHECK_STEP, "failed", f"{type(e).__name__}: {e}"[:300])
     return n3 if n3 is not None else n
 
 
@@ -154,7 +170,7 @@ def _heads(sess, job, st, force, strict):
     if llm_done(st.get("stage2")) and not force:
         _part(job, "heads", "skip", "지금 결과가 이미 LLM 판정을 거쳤습니다 — 건너뜀")
     else:
-        _part(job, "heads", "running")
+        _part(job, "heads", "running", duo_note("heading_rules", "heading_types", "heading_section"))  # 도는 동안 — 두 모델로 도는지(끝나면 결과 글로 바뀐다)
         n = heading_runs.run_stage2(sess, job, True)
         _log(sess, st, 2, job, n)
         lm = (st.get("stage2") or {}).get("llm") or {}
@@ -202,6 +218,66 @@ def _tables(sess, job, st, rebuilt):
                                                        f"보완 대상 {lm['pending']}" if lm.get("pending") else "",
                                                        f"호출은 {AHEAD_NOTE}" if lm.get("ahead") else "") if b))
     return n
+
+
+def duo_note(*aids):
+    """그 에이전트들이 두 모델로 도는가 → 단계 글에 붙일 말(「두 모델(LLM1 · LLM2)이 따로 판정 · 다르면 협의」) | ""(한 모델 — 사람이 「한 모델만」 으로 두었거나 함께 부르는 에이전트가 아님)."""
+    n = max((len(agent_settings.duo(a)) for a in aids), default=0)
+    return f"두 모델({' · '.join(f'LLM{i + 1}' for i in range(n))})이 따로 판정 · 다르면 협의" if n > 1 else ""
+
+
+def _check(sess, job, st):
+    """④ 구간 검증(app/analysis_check.py — 2026-11-26 사용자 「10페이지씩 검증 에이전트를 병렬로 추가해서 처리」): 앞 단계의 **지금 판정**(헤딩 그래프 · 표 구조)을 10쪽 구간마다 검증 에이전트가 같이 읽고
+    틀려 보이는 곳을 「확인 필요」 로 남긴다 — 판정 · 문서는 안 바뀐다. 구간의 판이 앞 검증과 같은 구간은 묻지 않고(이어 씀), 같이 도는 수는 LLM 자리 수까지(구간을 그 수씩 묶어 — 멈추기는 묶음 사이에서:
+    아직 시작하지 않은 구간부터 안 한다), 답을 못 받은 구간은 앞 검증을 그대로 둔다. 이 단계의 실패는 작업을 실패로 끝내지 않는다(앞 단계의 결과는 이미 저장됐다 — 단계 줄에만 남긴다)."""
+    def part(status, msg=""):
+        _part(job, "check", status, msg)
+        job.step(CHECK_STEP, "running" if status == "running" else "failed" if status == "failed" else "ok", msg)
+    graph = st.get("stage2")
+    if not graph:
+        part("skip", "헤딩 그래프가 없어 구간을 나눌 수 없습니다")
+        return
+    if not llm.status()["available"]:
+        part("skip", "LLM 을 쓸 수 없어 구간 검증을 하지 않음 — 앞 검증은 그대로")
+        return
+    try:
+        with sess.lock:
+            blocks = sess.doc.blocks()
+        wins = analysis_check.windows(blocks, graph, st.get("stage3"))
+        store = analysis_check.load(sess.id)
+    except Exception as e:  # 구간을 못 나눔 — 앞 단계의 결과는 그대로
+        part("failed", f"구간을 나누다가 오류 — {type(e).__name__}: {e}"[:300])
+        return
+    todo = [w for w in wins if w["sig"] not in store["checked"]]
+    kept = len(wins) - len(todo)
+    if not todo:
+        part("skip", f"구간 {len(wins)}개 모두 앞 검증을 이어 씀 — {analysis_check.counts_text(analysis_check.view(store, wins)['counts'])}" if wins else "검증할 줄이 없습니다")
+        return
+    span = lambda w: f"{w['pages'][0]}–{w['pages'][1]}쪽"  # noqa: E731
+    done, bad = [], {}
+    part("running", f"구간 {len(todo)}개({analysis_check.PAGES}쪽씩 · 같이 {min(len(todo), llm.slots_n())}) 검증 중" + (f" — 이어 씀 {kept}" if kept else ""))
+    size = max(1, llm.slots_n())
+    for at in range(0, len(todo), size):
+        if job.stop:
+            break
+        batch = todo[at:at + size]
+        jobs = [analysis_check.job(w, len(wins), getattr(sess, "name", "") or "") for w in batch]
+        tick = lambda n, total, at=at, batch=batch: part("running", f"구간 {at + n}/{len(todo)} 끝남 — 지금 {' · '.join(span(w) for w in batch)}" + (f" · 이어 씀 {kept}" if kept else ""))  # noqa: E731
+        for w, res in zip(batch, llm.ask_all(jobs, progress=tick)):
+            if res.get("data") is None:
+                bad[w["no"]] = f"{span(w)}: {_why(res.get('error'))}"
+                continue
+            analysis_check.merge(store, w, analysis_check.check(res["data"], w), round(time.time(), 3), res.get("model"))
+            done.append(w)
+        if done:
+            analysis_check.save(sess.id, store)  # 묶음마다 — 뒤 묶음이 실패 · 멈춰도 받은 답은 남는다
+    left = len(todo) - len(done) - len(bad)
+    v = analysis_check.view(store, wins)
+    msg = " · ".join(b for b in (f"구간 {len(done)}/{len(todo)} 검증" + (f"(이어 씀 {kept})" if kept else ""), analysis_check.counts_text(v["counts"]),
+                                 f"답을 못 받은 구간 {len(bad)}({' / '.join(list(bad.values())[:3])}) — 앞 검증은 그대로" if bad else "",
+                                 f"멈춤 — 남은 구간 {left}" if left else "") if b)
+    works.log(sess.id, "analysisCheck", windows=len(wins), asked=len(todo), done=len(done), failed=len(bad), carried=kept, finds=len(v["finds"]), rev=job.rev)
+    part("failed" if bad and not done else "partial" if bad or left else "ok", msg + (" — 판정 · 문서는 안 바뀜(확인 필요는 진행표에 보입니다)" if v["finds"] else ""))
 
 
 def _formats(sess, job, outline, plans, plan):

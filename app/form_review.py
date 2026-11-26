@@ -62,6 +62,9 @@ CONTRACT = """당신은 정해진 **양식 문서**(사업계획서 · 보고서
 - planRequest = **사람이 작성 계획에 대해 요청한 것**(「작성 계획에 줄 요청」 — 작성 계획 때 · 있을 때만: 자료의 무엇을 먼저 쓸지 · 어느 자료를 따를지 · 무엇을 묻지 말지 등). 작성 계획(use · gap · questions)은 이것을 따릅니다 —
   양식의 지침 · request 와 어긋나면 어긋난다고 해당 자리의 gap 이나 물음에 적습니다. 이것으로 자료에 없는 내용을 만들지 않습니다.
 - writingJudgment = 04에서 해당 자리의 작성 규칙을 판정한 결과입니다. apply이면 writingGuidance에 채택한 규칙과 출처가 있습니다. basis의 explicit은 명시 요건, example은 샘플에서 관찰한 관례입니다. not_applicable이나 insufficient이면 이 자리의 원래 양식 지침을 사용합니다. 이 판정은 작성 방법에만 적용되며 실제로 채울 내용은 자료에서 찾습니다.
+  writingGuidance 의 instruction 이 「테이블 타입 —」 으로 시작하면 그 자리의 표가 어떤 꼴의 표이고(본문 · 헤딩 · 그림 · 값 등) 어떻게 쓰는지입니다(04 가 밝힌 것).
+- theme = 04 가 밝힌 **이 문서의 테마**(있을 때만) — 그 종류의 문서에서 중요하게 볼 항목(구분 기준 타입: 항목 이름과 다루는 법)과 문서가 쓰는 개요 템플릿(레벨마다 레터).
+- docGuides = **문서 전체에 닿는 지침**(있을 때만 · 한 번만 실었습니다) — 줄 머리의 「규정 · 필수|권고 · 출처」 는 다른 규칙이 이 양식에 요구하는 것, 「문서 목적 …」 은 이 과제의 공고 · 목적 · 평가 관점 · 요구 사항, 「양식 지침 — 문서 전체」 는 일반 가이드라인입니다. 자리의 guides 에도 「(규정 …)」 · 「(문서 목적 …)」 으로 그 자리에 닿는 것이 섞여 있습니다.
 - decided = 사람이 이미 정해 준 것 [{q, a}] — 다시 묻지 않습니다.
 - materials = 사람이 준 자료(있을 때만 — 특정 기관 · 특정 연구에 대해 뽑은 글). 없으면 자료는 아직 오지 않았습니다.
 
@@ -143,11 +146,15 @@ def _form_text(blocks, graph, para_max, orig=None):
 def _place_brief(p):
     gs, used = [], 0
     guides = p.get("guides") or ()
-    for g in sorted((g for g in guides if g.get("src") != "llm"), key=lambda g: g.get("src") != "user"):
+    from app import place_guides as PG
+    for g in sorted((g for g in guides if g.get("src") != "llm"), key=PG.rank):   # 출처 순위(사람 › 규정(필수) › 문서 목적 › 양식 명시 › 양식 지침 › 규정(권고) — spec_양식작성 ② §5-9)
         t = _short(g.get("text"), GUIDE_MAX - used)
         if used >= GUIDE_MAX or not t:
             break
-        gs.append(f"({'사람' if g.get('src') == 'user' else '양식' + (' · ' + g['kind'] if g.get('kind') else '')}) {t}")
+        who = ("사람" if g.get("src") == "user" else PG.tag(g) if g.get("src") in ("rule", "purpose")   # 규정 · 문서 목적(② §5-9 — 「규정 · 필수 · 출처」)
+               else "양식 지침" + (" · " + g["label"] if g.get("label") else "") if g.get("src") == "form"   # 양식 지침 YAML(spec_양식작성 ② §5-8)
+               else "양식" + (" · " + g["kind"] if g.get("kind") else ""))
+        gs.append(f"({who}) {t}")
         used += len(t)
     llm_rules = [{"instruction": g.get("instruction") or g["text"], "sources": g.get("sources") or [],
                   **({"basis": g["basis"]} if g.get("basis") else {})} for g in guides if g.get("src") == "llm"]
@@ -199,6 +206,13 @@ def payload(blocks, graph, places, decided, materials_text="", orig=None, reques
     text, cut = form_text(blocks, graph, orig=orig)
     out = {"form": text, "cut": cut, "places": [_place_brief(p) for p in places or ()],
            "decided": [{"q": d["q"], "a": d["a"]} for d in decided or () if d.get("a")]}
+    theme = next((p["docTheme"] for p in places or () if p.get("docTheme")), "")   # 04 가 밝힌 문서의 테마 · 중요 항목 · 개요 템플릿(자리마다 같은 글 — 한 번만 싣는다: spec_양식작성 ② §5-7)
+    if theme:
+        out["theme"] = theme
+    doc = next((p["docGuides"] for p in places or () if p.get("docGuides")), None)   # 문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인 — 자리마다 같은 목록: 한 번만 싣는다 · ② §5-9)
+    if doc:
+        from app import place_guides as PG
+        out["docGuides"] = PG.doc_text(doc)
     if request:
         out["request"] = request
     if materials_text:

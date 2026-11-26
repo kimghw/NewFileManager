@@ -10,6 +10,7 @@
  5. 판이 바뀐 뒤 저장(다른 화면이 고침 = 끝점으로 PUT) → 409 알림 · 적던 글은 입력에 남음 → 다시 저장하면 됨.
  6. 「지우기」(확인 창) → 사람 지침 없음 · 수 그대로(문서의 것).
  7. 지침 없는 헤딩에 글쓰기 자리를 두면 그 줄에만 옅은 「지침 적기」 → 누르면 열 → 적고 저장 → 늘 보이는 단추(.user)로.
+ 7-1. 상자 · 표 칸 안의 줄의 층별 열 「작성 지침 — 이 줄에 닿는 것」: 열 머리가 어느 줄인지(쪽 · 상자 · 표) · 문서의 그 줄 표시(.pg-here) · 층 제목 「지침 n개」 · 빈 층 글 · 닫으면 걷힘.
  8. 배율을 바꿔도 단추가 그 헤딩 줄 높이 · 쪽 보기를 끄면 안 보임.
  9. 표 모서리의 「작성요령 · 표 지침」 열에 「저장해 둔 문서 지침 n」 절(그 표의 저장본 수).
 10. 좁은 창(1100px)에서도 본문 글을 가리지 않음 · 페이지 오류 없음.
@@ -18,6 +19,7 @@
 """
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -250,6 +252,66 @@ try:
             page.wait_for_function("(id) => { const b = document.querySelector(`#doc .sheet > .pg-btn[data-pg=\"${id}\"]`); return b && b.classList.contains('user') && !b.classList.contains('caret'); }", arg=free, timeout=10000)
             b = btn_of(page, free)
             check("저장 → 늘 보이는 단추(.user · 1)", b and b["user"] and b["text"] == "1" and (phead(d, free)["user"] or {}).get("text") == "표는 해당연도만", b)
+
+        # ---- 7-1. 줄에 닿는 지침(층별 열) — 열 머리가 어느 줄인지(쪽 · 상자 · 표) · 문서의 그 줄 표시(.pg-here) · 층 제목 「지침 n개」 · 빈 층 글 · 닫으면 걷힘
+        #          (2026-11-26 사용자 「여기서 내가 작성지침 아이콘을 누르면 우측 열에서 뭔지 내가 어떻게 아냐?」)
+        line_id = page.evaluate("""() => { const b = document.querySelector('#doc .sheet > .pg-btn.chain:not(.caret)'); if (b) return b.dataset.pg;
+            const p = document.querySelector('#doc .sheet td .para[data-id]'); return p ? p.dataset.id : null; }""")
+        check("상자 · 표 칸 안의 줄이 있음(시험 자료)", bool(line_id), line_id)
+        if line_id:
+            page.evaluate("(id) => { pgOpenChain(id); }", line_id)
+            page.wait_for_function("() => document.getElementById('headsDlgTitle').textContent === '작성 지침 — 이 줄에 닿는 것' && document.querySelector('#headsDlg .pg-layers') != null", timeout=20000)
+            cv = page.evaluate("""() => ({ note: document.getElementById('headsDlgNote').textContent, here: [...document.querySelectorAll('#doc .para.pg-here')].map((p) => p.dataset.id),
+                heads: [...document.querySelectorAll('#headsDlg .pg-layer .pg-h')].map((h) => h.textContent),
+                empties: [...document.querySelectorAll('#headsDlg .pg-layer.is-empty')].map((s) => [s.dataset.pgLayer, (s.querySelector('.pg-empty') || {}).textContent || '']) })""")
+            at = requests.get(f"{base}/api/docs/{d}/place-guides/at/{line_id}", timeout=60).json()
+            wh = at.get("where") or {}
+            check("끝점 …/at 의 where — 그 줄을 품은 상자 · 표 · 층마다 name", len(wh.get("tables") or []) >= 1 and "blank" in wh and all(x.get("name") for x in at["layers"]), (wh, [x.get("name") for x in at["layers"]]))
+            check("열 머리 — 쪽과 상자 · 표로 어느 줄인지(「(빈 줄)」 만이 아님)", re.search(r"\d+쪽", cv["note"]) is not None and ("상자" in cv["note"] or "표" in cv["note"]) and "(빈 줄)" not in cv["note"], cv["note"])
+            check("문서의 그 줄에 표시(.pg-here — 그 줄만)", bool(cv["here"]) and set(cv["here"]) == {line_id}, cv["here"])
+            check("층 제목 — 맨 숫자로 끝나지 않음(지침이 있으면 「지침 n개」)", cv["heads"] and all(not re.search(r"\s\d+$", h) for h in cv["heads"]), cv["heads"])
+            check("빈 층 글이 그 층의 것(「이 줄에만」 은 이 줄 층만)", all(("이 줄에만" in t) == (k == "line") and "없습니다" in t for k, t in cv["empties"]), cv["empties"])
+            page.screenshot(path=str(OUT / "place_guides_chain.png"))
+            page.evaluate("() => headsColClose(true)")
+            page.wait_for_timeout(400)
+            check("열을 닫으면 문서의 표시가 걷힘", page.evaluate("() => document.querySelectorAll('#doc .para.pg-here').length") == 0)
+
+        # ---- 7-2. 양식 지침 YAML(spec_양식작성 ② §5-8) — 양식(올린 원본의 sha256 으로 맞음) · 「양식 지침」 열 · 후보 올리기 · 자리 지침의 「양식 지침」 · 「예시 더하기」
+        if free:
+            import hashlib
+            import json
+            (tmp / "forms").mkdir(parents=True, exist_ok=True)
+            sha = hashlib.sha256(REPORT_FORM.read_bytes()).hexdigest()
+            (tmp / "forms" / "연차보고서.md").write_text("# 양식 정보 — 연차보고서\n\n```json\n" + json.dumps({"name": "연차보고서", "match": {"names": ["*연차보고서*"], "sha256": [sha]}}, ensure_ascii=False) + "\n```\n", encoding="utf-8")
+            fv = requests.get(f"{base}/api/docs/{d}/form-guide", timeout=60).json()
+            check("양식 지침 끝점 — 양식 맞음(sha256) · 쓸 수 있음 · 그 헤딩의 사람 지침이 후보", fv["form"] and fv["form"]["how"] == "sha256" and fv["writable"] and any(x["place"] == free for x in fv["candidates"]),
+                  {k: fv.get(k) for k in ("form", "writable", "why")})
+            page.evaluate("() => fgyOpen()")
+            page.wait_for_function("() => { const c = document.getElementById('headsDlg'); return c && !c.hidden && c.dataset.kind === 'formGuide' && c.querySelector('.fgy-cands'); }", timeout=20000)
+            key = next(x["key"] for x in fv["candidates"] if x["place"] == free)
+            idx = [x["key"] for x in fv["candidates"]].index(key)
+            page.locator(f"{COL} .fgy-cand input[type=checkbox]").nth(idx).check()
+            st = page.evaluate("() => ({ n: document.querySelectorAll('#headsDlg .fgy-cand').length, on: document.querySelectorAll('#headsDlg .fgy-cand input:checked').length, "
+                               "btns: [...document.querySelectorAll('#headsDlg button')].map((b) => [b.textContent, b.disabled]) })")
+            check("후보 열 — 후보 줄 · 고르면 단추가 켜짐", st["n"] == len(fv["candidates"]) and st["on"] == 1 and any("양식 지침에 올리기" in t and not dis for t, dis in st["btns"]), st)
+            page.screenshot(path=str(OUT / "form_guide_pick.png"))
+            page.click(f"{COL} button:has-text('고른 것 양식 지침에 올리기')")
+            page.wait_for_function("() => { const t = document.getElementById('toast'); return t && !t.hidden && t.textContent.includes('양식 지침에'); }", timeout=15000)
+            yp = tmp / "forms" / "연차보고서.guide.yaml"
+            check("올리기 → forms/연차보고서.guide.yaml 에 그 글", yp.is_file() and "표는 해당연도만" in yp.read_text("utf-8"), yp.is_file())
+            page.screenshot(path=str(OUT / "form_guide_col.png"))
+            requests.put(f"{base}/api/docs/{d}/place-guides/heads/{free}", json={"text": ""}, timeout=30)   # 작업의 사람 지침을 지워도
+            at2 = requests.get(f"{base}/api/docs/{d}/place-guides/at/{free}", timeout=60).json()
+            check("자리 지침에 「양식 지침」(src form)으로 남아 읽힘", any(i.get("src") == "form" and i["text"] == "표는 해당연도만" for L in at2["layers"] for i in L["items"]), [L["items"] for L in at2["layers"]][:2])
+            page.evaluate("(id) => { pgOpenChain(id); }", free)
+            page.wait_for_function("() => document.querySelector('#headsDlg .pg-layer-head button') != null", timeout=20000)
+            page.click(f"{COL} .pg-layer-head button:has-text('예시 더하기')")
+            page.fill(f"{COL} .fgy-ex-ta", "예: 해당연도의 실적을 한 문단으로 적는다.")
+            page.click(f"{COL} button:has-text('양식 지침에 예시 저장')")
+            page.wait_for_function("() => { const t = document.getElementById('toast'); return t && !t.hidden && t.textContent.includes('작성 예시'); }", timeout=15000)
+            fv2 = requests.get(f"{base}/api/docs/{d}/form-guide", timeout=60).json()
+            check("「예시 더하기」 → 양식 지침의 예시 1", fv2["counts"]["examples"] == 1 and "해당연도의 실적" in yp.read_text("utf-8"), fv2["counts"])
+            page.evaluate("() => headsColClose(true)")
 
         # ---- 8. 배율 · 쪽 보기
         page.evaluate("() => setZoom(state.zoom * 0.8)")

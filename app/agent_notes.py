@@ -12,6 +12,9 @@
 - `tool_map()` = 틀마다 줄 key → {name, agents[에이전트 id…], tools[{id, name}]} — 워크플로우 등록부의 그 줄에서(따로 적는 표가 없다).
 - `part(aid, job, family, unit)` = 그 에이전트의 프롬프트 **맨 끝**(자료 뒤)에 붙는 절 글 | "" — 넓은 것부터: 에이전트(모든 워크플로우) → 도구 공통 → 도구 · 이 워크플로우 → 에이전트 · 이 워크플로우.
   unit 을 알면(서버 실행기가 그 줄을 도는 중) 그 도구의 글만, 모르면(문서 화면에서 손으로 돌림) 그 틀에서 그 에이전트를 쓰는 도구들의 글. 계약(답의 꼴 · 입력에 있는 key 만)은 바꾸지 못한다고 머리 문장이 적는다.
+- **같은 도구 — 틀이 없는 워크플로우의 줄**(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 등록부의 워크플로우가 `twins`({이 줄 key: (틀, 그 틀의 줄 key)} — 양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구)로 적은 줄은
+  그 도구의 **「도구 공통」 글**이 그 워크플로우에서도 붙는다(`twins(job)` → `_part` — 그 도구가 부르는 에이전트에만: 그 줄에만 있는 에이전트(writing_guidance)에는 안 붙는다 · 작업 진행 에이전트의 요약 `digest` 에도).
+  짝은 등록부 한 곳에만 적는다 · 저장 키는 그 틀의 것 그대로다(이 워크플로우 전용 칸은 없다 — 틀이 없는 워크플로우에는 조립 화면이 없다).
 - `attach(content, what)` = `llm.call` 의 훅 — 호출 이름(what)으로 에이전트를 찾아 `part` 를 붙인다 → (글, 붙인 것의 꼬리표 목록 | None). 작업 진행 에이전트(work_guide)에는 그 워크플로우의 **도구마다 적어 둔 내용의 요약**을 붙인다
   (에이전트 없이 스크립트 · 사람이 하는 도구에 적은 내용을 읽는 곳 — 그 단계를 안내 · 제안할 때). 어떤 오류도 호출을 막지 않는다(못 읽으면 붙이지 않는다).
 - **지금 워크플로우 · 지금 도구**는 맥락 변수다: `scope(job=…)` · `scope(work=…)`(작업 id 만 아는 곳 — 요청 주소의 문서: 부를 때 그 작업의 `task.job` 을 읽는다) · `job_now()` /
@@ -263,6 +266,23 @@ def family_of(job):
         return "", ()
 
 
+def twins(job):
+    """그 워크플로우가 「다른 틀의 그 도구와 같은 도구」 라고 적은 줄 → [(이 줄 key, 틀, 그 틀의 줄 key)] — 등록부의 그 워크플로우 `twins`(app/workflow.py: 짝은 거기 한 곳에만 적는다 · 도구 이름도 같은 표를 읽는다 — tool_names.twin_names).
+    2026-11-25 사용자 「도구도 공통내용은 같았으면」: 틀이 없는 워크플로우(양식 작성)의 줄이 이관형의 도구와 같은 엔진을 부를 때, 그 도구의 「도구 공통」 글이 여기서도 붙게 한다(_part · digest).
+    등록부에 그 틀 · 그 줄이 없는 짝은 뺀다. 모르는 키 · 못 읽음은 빈 목록(호출은 돈다)."""
+    try:
+        from app import workflow
+        t = workflow.task_of(job) if job else None
+        rows, out = tool_map(), []
+        for own, pair in ((t or {}).get("twins") or {}).items():
+            fam, unit = pair
+            if fam in FAMILIES and unit in rows.get(fam, {}):
+                out.append((own, fam, unit))
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 # ---------------------------------------------------------------- 지금 워크플로우 · 지금 도구 — 맥락 변수
 @contextlib.contextmanager
 def scope(job=None, work=None):
@@ -360,6 +380,13 @@ def _part(aid, job, family=None, unit=None):
                 name = name or _job_name(job)
                 secs.append(f"{JOB_TOOL_HEAD.format(tool=tool, name=name)}\n{own}")
                 tags.append(f"jobtool:{job}/{u}")
+    if job and data["tools"]:   # 같은 도구(등록부의 twins) — 이 워크플로우의 줄이 다른 틀의 그 도구와 같은 도구면 그 도구의 「도구 공통」 글도(그 도구가 부르는 에이전트에만 · 도는 줄을 알면 그 줄의 짝만 · 이미 붙였으면 다시 안 붙인다)
+        for mine_key, fam, u in twins(job):
+            row, tag = tool_map().get(fam, {}).get(u) or {}, f"tool:{tool_key(fam, u)}"
+            common = data["tools"].get(tool_key(fam, u), "")
+            if common and aid in (row.get("agents") or ()) and tag not in tags and (not unit or unit == mine_key):
+                secs.append(f"{TOOL_HEAD.format(tool=row.get('name') or u)}\n{common}")
+                tags.append(tag)
     mine = (data["jobs"].get(job) or {}).get(aid, "") if job else ""
     if mine:
         secs.append(f"{JOB_HEAD.format(name=_job_name(job))}\n{mine}")
@@ -372,19 +399,24 @@ def _cut(text):
 
 
 def digest(job):
-    """작업 진행 에이전트에 붙이는 절 — 그 워크플로우의 도구(정의의 줄 차례)마다 적어 둔 내용의 요약 | ""(없음 · 모르는 워크플로우)."""
+    """작업 진행 에이전트에 붙이는 절 — 그 워크플로우의 도구(정의의 줄 차례)마다 적어 둔 내용의 요약 | ""(없음 · 모르는 워크플로우).
+    틀이 없는 워크플로우는 「같은 도구」 라고 적은 줄(twins)의 「공통」 글만 싣는다(적은 줄이 없으면 "")."""
     data = load()
     mine = data["jobTools"].get(job) or {} if job else {}
     if not job or not (data["tools"] or mine):
         return ""
     family, units = family_of(job)
-    if not family:
-        return ""
-    rows, lines = tool_map().get(family, {}), []
-    for u in units:
+    rows, lines, seen = tool_map().get(family, {}) if family else {}, [], set()
+    for u in units if family else ():
         common, own = data["tools"].get(tool_key(family, u), ""), mine.get(u, "")
         if common or own:
             lines.append(f"### 도구 「{(rows.get(u) or {}).get('name') or u}」" + (f"\n- 공통: {_cut(common)}" if common else "") + (f"\n- 이 워크플로우: {_cut(own)}" if own else ""))
+            seen.add(tool_key(family, u))
+    for _own, fam, u in twins(job):   # 같은 도구(등록부의 twins — 틀이 없는 워크플로우의 줄이 다른 틀의 그 도구와 같은 도구) — 그 도구의 「공통」 글만(이 워크플로우 전용 칸은 없다)
+        common = data["tools"].get(tool_key(fam, u), "")
+        if common and tool_key(fam, u) not in seen:
+            lines.append(f"### 도구 「{(tool_map().get(fam, {}).get(u) or {}).get('name') or u}」\n- 공통: {_cut(common)}")
+            seen.add(tool_key(fam, u))
     return ("\n\n" + GUIDE_HEAD.format(name=_job_name(job)) + "\n\n" + "\n\n".join(lines)) if lines else ""
 
 

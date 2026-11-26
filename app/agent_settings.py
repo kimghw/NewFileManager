@@ -38,7 +38,14 @@ PREFIX = (
     ("pic-table", "pic_table"), ("pic-caption", "pic_caption"),
     ("form-review", "form_review"),
     ("writing-guidance", "writing_guidance"),
+    ("analysis-check", "analysis_check"),
 )
+# 함께 부르는 에이전트의 모델 자리 기본값(LLM1 · LLM2 — 2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완」 · 「문서의 지침을 작성할 떄는 2가지 모델을 같이 사용 … 불가피한 경우 1개만 선택」).
+# None = 그 에이전트가 평소 부르는 모델(코드 · 서버 설정 · 「에이전트 설정」 의 model — llm.call 의 보통 차례 그대로). 사람이 고친 값은 설정 `models`(길이 1 = 한 모델만 — `models()` 가 기본값으로 되돌리지 않는다).
+# app/agents.py AGENTS 의 llms 와 같아야 한다(tests/test_agents.py) — 이 모듈이 가벼워야 해서(llm.py 가 부를 때마다 읽는다) 원본을 여기 둔다.
+LLM2 = "gpt-6-astra"
+LLMS = {"form_review": ("claude-fable-5-2", LLM2), "writing_guidance": (None, LLM2),
+        "heading_rules": (None, LLM2), "heading_types": (None, LLM2), "heading_section": (None, LLM2), "heading_tables": (None, LLM2)}
 _BY_LEN = sorted(PREFIX, key=lambda x: -len(x[0]))
 IDS = tuple(dict.fromkeys(a for _, a in PREFIX))
 
@@ -233,3 +240,11 @@ def models(aid, default=()):
     """그 에이전트가 함께 부를 모델들(LLM1 · LLM2 …) — 사람이 정한 것이 먼저, 없으면 default(코드 등록값). 빈 목록이면 한 모델 에이전트."""
     own = get(aid).get("models")
     return list(own) if own else list(default)
+
+
+def duo(aid):
+    """함께 부르는 에이전트(LLMS 에 든 것)의 모델 자리들 — 아니면 빈 목록. 길이 1 = 사람이 「한 모델만」 으로 둔 것 · 자리의 None = 그 에이전트가 평소 부르는 모델. 설정을 못 읽으면 빈 목록(호출은 전처럼 한 모델로 돈다)."""
+    try:
+        return models(aid, LLMS[aid]) if aid in LLMS else []
+    except Exception:  # noqa: BLE001
+        return []

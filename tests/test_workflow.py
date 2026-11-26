@@ -179,7 +179,67 @@ def test_review_module_follows_the_documents_it_is_given():
                 if s["key"] == "headsLlm" and dst and "target" not in llm:
                     assert ("다시 문서 검토(LLM)" in s["does"]) == fit and ("스크립트)만 합니다" in s["does"]) == (not fit), (src, dst, llm, fit)
                 if s["key"] == "headsLlm" and dst and "target" in llm:   # 목적 문서의 LLM 도 여기서 — 새로 쓴 글은 「워크플로우」(화면 말)
-                    assert "「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라" in s["does"], (src, dst, llm, fit)
+                    # 「고르지 않은 워크플로우라」 는 구조 반영이 정말 없을 때만(2026-11-25 — 줄 목록 v2 는 구조 반영이 있는 정의에도 이 줄을 목적 문서에 놓을 수 있다: 전에는 fit 을 안 보고 이 글이 나왔다)
+                    assert ("「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라" in s["does"]) == (not fit), (src, dst, llm, fit)
+                    assert ("「다시 문서 검토(LLM)」 에서 LLM 검증·보완을 다시 받습니다" in s["does"]) == fit, (src, dst, llm, fit)
+    # 구조 반영은 있는데 그 뒤 목적 문서의 「다시 문서 검토(LLM)」 가 없는 정의(again=False) — 없는 줄을 가리키지 않는다
+    for llm in (("source", "target"), ("target",), ("source",)):
+        s = next(s for s in W._st_review(S, D, src="source" in llm, dst=True, llm=llm, fit=True, again=False) if s["key"] == "headsLlm")
+        assert "고르지 않은 워크플로우라" not in s["does"] and "에서 반영합니다" not in s["does"] and "다시 받습니다" not in s["does"] and "에서 합니다" not in s["does"], llm
+        if "target" in llm:
+            assert f"이 워크플로우에는 {D}의 「다시 문서 검토(LLM)」 가 없어" in s["does"] and "여기서만 합니다" in s["does"], llm
+        else:
+            assert f"이 워크플로우에서는 {D}의 LLM 검증·보완을 하지 않습니다" in s["does"], llm
+    assert W._st_review(S, D, fit=False, again=False) == W._st_review(S, D, fit=False)   # 구조 반영이 없으면 again 은 보지 않는다
+
+
+def test_flow_definition_with_fit_does_not_say_fit_was_not_picked():
+    """줄 목록(v2)으로 조립한 이관형 — 「프로젝트 구성 반영」 이 있는 정의에 사람이 1단계 「LLM 검증·보완」 을 목적 문서에도 놓았을 때(실제 워크플로우 u_d05846b0 의 꼴):
+    그 줄의 글이 「「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라」 고 하지 않는다(2026-11-25 — 사실대로: 여기서 검증 · 서식 정리의 반영과 다시 검증은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」).
+    그 뒤 목적 문서의 「다시 문서 검토(LLM)」 가 없는 정의는 그 줄을 가리키지 않고, 구조 반영이 정말 없는 정의의 글은 전과 같다."""
+    from app import custom_tasks as C
+    both, pair = ["source", "target"], lambda *keys: [{"unit": k} for k in keys]   # noqa: E731
+
+    def made(flow):
+        got = C.check("relay", "plan", "report", flow)
+        assert not got["errors"], got["errors"]
+        t = W.assemble({"key": "u_0000000c", "name": "시험", "desc": "", "source": "plan", "target": "report", "shape": "relay", "flow": got["flow"], "premise": "", "at": 0})
+        return {s["key"]: s for g in t["stages"] for s in g["steps"]}
+
+    g1 = {"name": "문서 검토", "steps": [{"unit": "config"}, {"unit": "heads", "on": both}, {"unit": "headsLlm", "on": both}]}
+    full = made([g1, {"name": "구성 맞추기", "steps": [{"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}, {"unit": "reheadsLlm", "on": ["target"]}]},
+                 {"name": "내용 넣기", "steps": pair("link", "plan", "apply")}])
+    does = full["headsLlm"]["does"]
+    assert full["headsLlm"]["on"] == "both" and "고르지 않은 워크플로우라" not in does
+    assert "연차보고서의 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다." in does
+    assert does.endswith("연차보고서의 헤딩과 표도 여기서 검증하며, 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 LLM 검증·보완을 다시 받습니다.")
+    assert "고르지 않은 워크플로우라" not in full["link"]["need"] and "「구성 맞추기」 로 구조를 맞춘 연차보고서" in full["link"]["need"]   # 같은 꼴의 글(자리 연결의 「하려면」)은 구조 반영 줄을 따른다
+    bare = made([g1, {"name": "구성 맞추기", "steps": [{"unit": "division", "on": ["target"]}, {"unit": "reheads", "on": ["target"]}]}, {"name": "내용 넣기", "steps": pair("link", "plan", "apply")}])
+    does = bare["headsLlm"]["does"]   # 구조 반영 뒤 목적 문서의 「다시 문서 검토(LLM)」 가 없다 — 없는 줄을 가리키지 않는다
+    assert "고르지 않은 워크플로우라" not in does and "다시 받습니다" not in does and "연차보고서에는 반영하지 않습니다." in does
+    assert does.endswith("이 워크플로우에는 연차보고서의 「다시 문서 검토(LLM)」 가 없어 연차보고서의 LLM 검증·보완은 여기서만 합니다.")
+    none = made([{"name": "문서 검토", "steps": g1["steps"][1:]}, {"name": "내용 넣기", "steps": pair("link", "plan", "apply")}])   # 구조 반영(「구성 맞추기」 의 줄)이 정말 없는 정의 — 전과 같은 글
+    assert none["headsLlm"]["does"].endswith("「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라 연차보고서의 LLM 검증·보완도 여기서 합니다.")
+    assert "「구성 맞추기」 를 고르지 않은 워크플로우라" in none["link"]["need"]
+
+
+def test_twins_name_the_same_tool_in_another_family():
+    """같은 도구 짝(등록부의 twins — 틀이 없는 워크플로우의 줄 = 다른 틀의 그 도구: 2026-11-25 사용자 「도구도 공통내용은 같았으면」). 짝은 등록부 한 곳에만 적고, 적은 짝은 정말 같은 도구여야 한다 —
+    이 워크플로우에 그 줄이 있고 · 그 틀에 그 도구가 있고 · 기본 이름이 같고 · 그 도구가 부르는 에이전트를 이 줄도 모두 부른다(같은 엔진 — 그 도구의 「도구 공통」 글이 붙는 에이전트: app/agent_notes.py twins).
+    줄을 더하거나 이름 · 에이전트를 바꿔 짝이 어긋나면 여기서 떨어진다(짝을 고치거나 뺀다). 지금 짝 = 양식 작성의 「LLM 검증·보완」 ↔ 이관형의 그 도구."""
+    from app import agent_notes, tool_names
+    rows = agent_notes.tool_map()
+    assert {t["job"]: t["twins"] for t in W.TASKS if t.get("twins")} == {"form_write": {"headsLlm": ("relay", "headsLlm")}}
+    for t in W.TASKS:
+        steps = {s["key"]: s for g in t["stages"] for s in g["steps"]}
+        for own, (fam, unit) in (t.get("twins") or {}).items():
+            twin = rows[fam][unit]
+            assert own in steps and steps[own]["name"] == twin["name"] and twin["agents"] and set(twin["agents"]) <= set(steps[own]["agents"]), (t["job"], own)
+            assert workflow_state.family(t) != fam and unit not in tool_names.FIXED, (t["job"], own)   # 같은 틀이면 틀로 이미 닿는다(적지 않는다) · 「사람이 하는 일」 은 도구 이름이 없다
+        assert agent_notes.twins(t["job"]) == [(own, fam, unit) for own, (fam, unit) in (t.get("twins") or {}).items()], t["job"]
+    form = {s["key"]: s for g in W.BY_JOB["form_write"]["stages"] for s in g["steps"]}
+    assert "writing_guidance" in form["headsLlm"]["agents"] and "writing_guidance" not in rows["relay"]["headsLlm"]["agents"]   # 그 줄에만 있는 에이전트 — 이관형 도구의 글은 붙지 않는다(tests/test_agent_notes.py)
+    assert "twins" not in W.markdown() and "twins" not in W.task_markdown("form_write")   # 선언일 뿐 — 만든 글에는 들지 않는다
 
 
 def test_entry_words_and_conditions_follow_the_document_roles():

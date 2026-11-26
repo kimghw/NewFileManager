@@ -80,7 +80,7 @@ function taskCatalogCustom(defs, opt = null) {
     TASK_CATALOG[d.key] = { name: d.name, act: "이관", doc: "plan-report", file: "", up: "문서", desc: d.desc || auto || `${d.sourceName}의 내용을 ${d.targetName}로 옮깁니다 — 고른 단계만 진행합니다.`,
       hint: `${d.sourceName}나 ${d.targetName} 가운데 하나 — 나머지 문서는 연 뒤 작업 개요의 첨부 파일 칸에서 올립니다(화면에서 조립한 워크플로우)`,
       files: [d.source, d.target], target: d.target, custom: true, groups: d.groups || [], stages, assign: v2 ? null : assign, does, v2,
-      ...(v2 ? { entry: "Dash" } : {}), // 줄 목록(v2) — 묶음(g1 …)은 대시보드에서 진행한다(「작업 개요」 는 표준 네 묶음만 그린다: taskIsRelayFlow — 문서 하나로 조립한 것과 같이 처음 여는 보기 = 대시보드)
+      ...(v2 ? { entry: "Dash" } : {}), // 줄 목록(v2) — 묶음(g1 …)은 대시보드에서 진행한다(taskIsRelayFlow — 문서 하나로 조립한 것과 같이 처음 여는 보기 = 대시보드) · 「작업 개요」 에는 대시보드와 같은 묶음 · 단추의 「단계」 절이 선다(flow_overview.js — 2026-11-25: 전에는 표준 네 묶음만 그려 이 정의의 묶음이 모두 빠졌다)
       sig: typeof d.sig === "string" ? d.sig : "", sigLocal: taskSigLocal(assign, stages), icon: "plan_to_report" };
   }
 }

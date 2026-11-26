@@ -40,6 +40,15 @@ def _save(wid, data, name=FILE):
         works._write_json(p, data)
 
 
+def clear(wid):
+    """검토 결과(계획 · 반영 기록)를 비운다 — 양식 작성의 「작성」 단계 초기화가 부른다(guide_write_api.form_write_reset). → 비울 것이 있었나."""
+    rec = load(wid)
+    had = bool(rec.get("plan") or rec.get("applied"))
+    if had:
+        _save(wid, {"version": VERSION, "plan": None, "applied": None})
+    return had
+
+
 def _fill_at(wid):
     """그 문서의 「내용 넣기」 마지막 반영 표식 시각 | None(merge.json `filled.at` — 넣은 뒤 다시 넣으면 보정을 다시 한다)."""
     try:
@@ -77,9 +86,12 @@ def facts(doc_id):
         if s.fmt != "hwpx":
             return {"guides": {"headings": 0, "tables": 0, "total": 0}, "plan": None, "applied": None, "fill": None, "why": "hwpx 문서가 아닙니다"}
         saved = form_guides_api.load(s.id)
+        n = _assembled_n(_index(s))   # 양식 지침 · 규정 · 문서 목적 · 사람의 것이 붙은 자리도 센다(문서에 작성요령이 없는 양식도 검토할 것이 있다 — ② §5-9)
     rec = load(doc_id)
     p, a = rec.get("plan"), rec.get("applied")
-    return {"guides": _counts(saved), "saved": saved is not None,
+    counts = _counts(saved)
+    counts = {**counts, "assembled": n, "total": max(counts["total"], n)}
+    return {"guides": counts, "saved": saved is not None,
             "plan": {"at": p.get("at"), "planId": p.get("planId"), "fixes": len(p.get("fixes") or ()), "left": len(p.get("left") or ()), "rejected": len(p.get("rejected") or ()), "asked": p.get("asked")} if p else None,
             "applied": {"at": a.get("at"), "fill": a.get("fill"), "done": len(a.get("done") or ()), "skipped": len(a.get("skipped") or ()), "left": len(a.get("left") or ())} if a else None,
             "fill": _fill_at(doc_id), "why": ""}
@@ -91,7 +103,16 @@ def guide_fix_get(doc_id: str):
     from app import job_prompts
     rec = load(doc_id)
     f = facts(doc_id)
-    return {**rec, "guides": f["guides"], "fill": f["fill"], "parts": guide_fix.parts(job_prompts.for_work(doc_id))}
+    form = None   # 이 문서의 양식(템플릿) — 「지침 검토 · 수정」 은 양식이 정해졌을 때의 줄이다(양식 작성 대시보드가 없으면 까닭을 보이고 건너뛴다)
+    try:
+        from app import heading_forms, server
+        s = server._sess(doc_id)
+        with s.lock:
+            got = heading_forms.for_session(s) if s.fmt == "hwpx" else None
+        form = {"key": got["key"], "name": got["name"]} if got else None
+    except Exception:   # noqa: BLE001 — 양식 판정은 덤이다
+        form = None
+    return {**rec, "guides": f["guides"], "fill": f["fill"], "form": form, "parts": guide_fix.parts(job_prompts.for_work(doc_id))}
 
 
 @router.post("/api/docs/{doc_id}/guide-fix/ask")
@@ -102,24 +123,42 @@ def guide_fix_ask(doc_id: str):
     s = server._sess(doc_id)
     if s.fmt != "hwpx":
         raise HTTPException(400, "hwpx 문서만 됩니다")
+    from app import place_guides as PG
     with s.lock:
         saved = _saved_guides(s)
         blocks, rev = s.doc.blocks(), s.rev
-        us, ctx = guide_fix.units(blocks, heading_runs.graph(s), saved, form_cleanup.find(s.doc)) if saved else ([], {})
+        ix = _index(s)   # 조립된 자리 지침(문서 · 사람 · 양식 지침 · 규정 · 문서 목적 — 이관 3단계 · 양식 작성 초안과 같은 색인: spec_양식작성 ② §5-9 「지침 검토 · 수정」)
+        us, ctx = guide_fix.units(blocks, heading_runs.graph(s), saved, form_cleanup.find(s.doc), ix=ix) if saved or ix else ([], {})
     if not us:
-        why = "저장한 작성 지침이 없습니다" if not saved else "지침이 붙은 자리에 넣은 글이 없습니다"
+        why = "작성 지침이 없습니다(문서의 작성요령 · 양식 지침 · 규정 · 사람이 적은 것)" if not saved and not _assembled_n(ix) else "지침이 붙은 자리에 넣은 글이 없습니다"
         rec = load(doc_id)
-        _save(doc_id, {**rec, "plan": {"planId": uuid.uuid4().hex[:12], "at": time.time(), "rev": rev, "fixes": [], "left": [], "rejected": [], "units": [], "asked": 0, "nothing": why}})
-        return {"nothing": True, "why": why, "planId": load(doc_id)["plan"]["planId"], "rev": rev, "fixes": [], "left": [], "rejected": [], "units": [], "asked": 0}
-    res = guide_fix.ask({"units": us, "ctx": ctx}, job_prompts.for_work(doc_id))   # 잠금 밖 — 뜬 것만 쓴다
+        _save(doc_id, {**rec, "plan": {"planId": uuid.uuid4().hex[:12], "at": time.time(), "rev": rev, "fixes": [], "left": [], "rejected": [], "ok": [], "places": [], "units": [], "asked": 0, "nothing": why}})
+        return {"nothing": True, "why": why, "planId": load(doc_id)["plan"]["planId"], "rev": rev, "fixes": [], "left": [], "rejected": [], "ok": [], "places": [], "units": [], "asked": 0}
+    res = guide_fix.ask({"units": us, "ctx": ctx, "doc": PG.doc_text((ix or {}).get("doc"))}, job_prompts.for_work(doc_id))   # 잠금 밖 — 뜬 것만 쓴다
     if res["asked"] and all(u.get("error") for u in res["units"]):
         raise HTTPException(503, f"LLM 이 답을 내지 못했습니다 — {res['units'][0].get('error')}")
     plan = {"planId": uuid.uuid4().hex[:12], "at": time.time(), "rev": rev, "fixes": res["fixes"], "left": res["left"], "rejected": res["rejected"], "asked": res["asked"],
+            "ok": res.get("ok") or [], "places": res.get("places") or [],   # 자리마다의 검토 결과(맞음 · 고침 제안 · 못 고침 · 답 없음) — 판정만이 아니라 「맞음」 도 남긴다
             "units": [{"keys": u["keys"], "where": u["where"], "error": u.get("error")} for u in res["units"]], "guide": res.get("guide"), "job": res.get("job")}
     rec = load(doc_id)
     _save(doc_id, {**rec, "plan": plan})
     _save(doc_id, {"at": plan["at"], "units": [{k: u.get(k) for k in ("n", "keys", "where", "error", "prompt", "answer")} for u in res["units"]]}, LAST)
-    return {k: plan[k] for k in ("planId", "rev", "fixes", "left", "rejected", "units", "asked")}
+    return {k: plan[k] for k in ("planId", "rev", "fixes", "left", "rejected", "ok", "places", "units", "asked")}
+
+
+def _index(s):
+    """(세션 잠금 안) 조립된 자리 지침 색인 | None(못 읽음 — 그러면 전처럼 저장한 작성 지침만으로)."""
+    from app import place_guides_api
+    try:
+        return place_guides_api.index_of(s)
+    except Exception:   # noqa: BLE001 — 색인은 덤이다
+        log.exception("[지침 보정] 자리 지침 색인을 읽지 못했습니다")
+        return None
+
+
+def _assembled_n(ix):
+    """색인에 제 지침이 있는 자리(헤딩 · 표)의 수."""
+    return sum(1 for k in ("heads", "tables") for v in ((ix or {}).get(k) or {}).values() if v)
 
 
 @router.post("/api/docs/{doc_id}/guide-fix/apply")
@@ -134,11 +173,16 @@ def guide_fix_apply(doc_id: str, body: dict = Body(default={})):
     if not plan or plan.get("planId") != body.get("planId"):
         raise HTTPException(409, "그 보정 계획은 지금 계획이 아닙니다 — 다시 물으세요")
     fill = _fill_at(doc_id)
+    ids = body.get("ids")   # 사람이 고른 고침(문단 id 목록 — 「반영은 사람이 고른 것만」: ② §5-9) | 없으면 계획의 고침 모두(서버 실행기의 길 — 전과 같다)
+    if ids is not None and (not isinstance(ids, list) or not all(isinstance(x, str) for x in ids)):
+        raise HTTPException(400, "ids 는 고른 고침의 문단 id 목록입니다")
     with s.lock:
         texts = {b["id"]: b.get("text") or "" for b in structure.iter_blocks(s.doc.blocks()) if b.get("type") == "paragraph"}
         todo, skipped = [], []
         for f in plan.get("fixes") or ():
-            if texts.get(f["id"]) != f["old"]:
+            if ids is not None and f["id"] not in ids:
+                skipped.append({**f, "skip": "고르지 않음"})
+            elif texts.get(f["id"]) != f["old"]:
                 skipped.append({**f, "skip": "물은 뒤 그 문단의 글이 바뀌었습니다" if f["id"] in texts else "그 문단이 문서에 없습니다"})
             else:
                 todo.append(f)

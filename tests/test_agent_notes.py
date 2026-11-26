@@ -176,7 +176,7 @@ def test_api_roundtrip_and_delete_forgets_the_workflow_notes():
     c = TestClient(server.app, raise_server_exceptions=False)
     assert c.get("/api/agent-notes").json() == {**EMPTY, "max": N.TEXT_MAX}
     L = c.get("/api/agent-notes/lines").json()
-    assert set(L["families"]) == {"relay", "gather", "single", "collect"} and len(L["agents"]) == 26 and L["agents"]["gather"]["name"] == "취합 검토"
+    assert set(L["families"]) == {"relay", "gather", "single", "collect"} and len(L["agents"]) == 27 and L["agents"]["gather"]["name"] == "취합 검토"   # 27 = 구간 검증(2026-11-26 — 등록부의 에이전트 모두가 이 목록에 든다)
     key = c.post("/api/tasks", json={"name": "전용 글 시험", "source": "plan", "target": "report", "assign": {"source": ["stage_review"], "target": list(custom_tasks.STAGES)}}).json()["task"]["key"]
     r = c.put("/api/agent-notes/merge_links", json={"text": "범용 글", "version": 0})
     assert r.status_code == 200 and r.json() == {"aid": "merge_links", "job": None, "text": "범용 글", "version": 1}
@@ -375,6 +375,51 @@ def test_work_guide_reads_what_was_written_for_each_tool(monkeypatch):
         assert llm.call({}, "GUIDE", "work-guide")["notes"] == ["all", "tools-digest"] and seen[-1].index("설명은 짧게") < seen[-1].index("도구마다 사용자가 적어 둔 내용")
     with N.scope(job="doc_edit"):   # 틀이 없는 워크플로우
         assert llm.call({}, "GUIDE", "work-guide")["notes"] == ["all"]
+
+
+def test_a_twin_tool_note_reaches_the_workflow_without_a_family(monkeypatch):
+    """같은 도구 — 틀이 없는 워크플로우의 줄(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구(등록부의 twins).
+    이관형의 그 도구에 적어 둔 「도구 공통」 글이 양식 작성에서도 그 도구가 부르는 에이전트의 프롬프트 끝에 붙는다(llm.call 한 곳) — 그 줄에만 있는 에이전트(writing_guidance) · 다른 도구의 글 ·
+    다른 워크플로우(틀이 없는 것 · 다른 틀)에는 안 붙는다 · 이관형은 전처럼 틀로(두 번 붙지 않는다) · 작업 진행 에이전트의 요약에도 그 「공통」 글."""
+    assert N.family_of("form_write") == ("", ()) and N.twins("form_write") == [("headsLlm", "relay", "headsLlm")]
+    assert N.twins("doc_edit") == N.twins("plan_to_report") == N.twins("u_nothere0") == N.twins(None) == []
+    assert N._part("heading_types", "form_write") == ("", []) and N.digest("form_write") == ""   # 적어 둔 글이 없으면 전과 같다
+    N.save_tool("relay", "headsLlm", "검증 공통")
+    N.save_tool("relay", "reheadsLlm", "다시 검토 공통")   # 같은 에이전트를 쓰는 이관형의 다른 도구 — 짝이 아니다
+    N.save_tool("relay", "llm", "연결 공통")
+    got, tags = N._part("heading_types", "form_write")
+    assert tags == ["tool:relay.headsLlm"] and got == "\n\n" + N.HEAD + "\n\n" + N.TOOL_HEAD.format(tool="LLM 검증·보완") + "\n검증 공통"
+    assert all(N._part(aid, "form_write")[1] == ["tool:relay.headsLlm"] for aid in N.tool_map()["relay"]["headsLlm"]["agents"])   # 그 도구가 부르는 에이전트 모두
+    for aid in ("writing_guidance", "form_review", "merge_links", "doc_agent"):   # 그 줄에만 있는 에이전트 · 그 워크플로우의 다른 줄의 에이전트 · 다른 도구의 에이전트
+        assert N._part(aid, "form_write") == ("", []), aid
+    for job in ("doc_edit", "style_copy", None):   # 틀이 없는 다른 워크플로우 · 워크플로우를 모름
+        assert N._part("heading_types", job) == ("", []), job
+    assert N._part("heading_types", "plan_merge", "gather") == ("", [])   # 다른 틀(취합)
+    assert N._part("heading_types", "plan_to_report", "relay")[1] == ["tool:relay.headsLlm", "tool:relay.reheadsLlm"]   # 이관형은 전처럼 틀로 — 두 번 붙지 않는다
+    N.save("heading_types", "에이전트 범용")
+    N.save("heading_types", "에이전트 전용", job="form_write")
+    got, tags = N._part("heading_types", "form_write")   # 넓은 것부터 — 에이전트 범용 → 도구 공통 → 에이전트 · 이 워크플로우
+    order = [got.index(x) for x in ("에이전트 범용", "검증 공통", "에이전트 전용")]
+    assert tags == ["all", "tool:relay.headsLlm", "job:form_write"] and order == sorted(order)
+    N.save("heading_types", "")
+    N.save("heading_types", "", job="form_write")
+    seen = []
+    monkeypatch.setattr(llm, "_call", lambda schema, content, what, **kw: seen.append(content) or {"data": {}, "backend": "x", "ms": 1, "costUsd": None, "error": None, "model": "m", "effort": "low"})
+    with N.scope(job="form_write"):   # 양식 작성 문서의 「LLM 검증·보완」(요청 주소의 작업 → 그 워크플로우) — llm.call 한 곳에서 붙는다
+        out = llm.call({}, "PROMPT", "heading_types-1")
+        assert out["notes"] == ["tool:relay.headsLlm"] and seen[-1] == "PROMPT" + N._part("heading_types", "form_write")[0] and seen[-1].endswith("검증 공통")
+        assert "notes" not in llm.call({}, "PROMPT", "writing-guidance-1") and seen[-1] == "PROMPT"   # 양식 작성에만 있는 에이전트에는 이관형 도구의 글을 붙이지 않는다
+        assert llm.call({}, "GUIDE", "work-guide")["notes"] == ["tools-digest"] and seen[-1] == "GUIDE" + N.digest("form_write")
+    d = N.digest("form_write")
+    assert d.startswith("\n\n## 도구마다 사용자가 적어 둔 내용 — 이 워크플로우(") and d.endswith("### 도구 「LLM 검증·보완」\n- 공통: 검증 공통") and "연결 공통" not in d and "다시 검토 공통" not in d
+    with N.scope(job="doc_edit"):   # 틀이 없는 다른 워크플로우 — 그대로
+        assert "notes" not in llm.call({}, "PROMPT", "heading_types-2") and seen[-1] == "PROMPT" and N.digest("doc_edit") == ""
+    with N.scope(job="plan_merge"):   # 다른 틀
+        assert "notes" not in llm.call({}, "PROMPT", "heading_types-3") and seen[-1] == "PROMPT"
+    # 에이전트 설정 화면(단계의 LLM 아이콘 — agents._notes)도 붙는 글을 그대로 보인다: 양식 작성에서 그 도구가 부르는 에이전트에만 · 그 줄에만 있는 에이전트 · 틀이 없는 다른 워크플로우에는 없다
+    names = lambda aid, job: [p["name"] for p in A.detail(aid, job)["prompt"] if p["kind"] == "note" and p["name"].startswith("tool:")]  # noqa: E731
+    assert names("heading_types", "form_write") == ["tool:relay.headsLlm"] and names("writing_guidance", "form_write") == [] and names("heading_types", "doc_edit") == []
+    assert names("heading_types", "plan_to_report").count("tool:relay.headsLlm") == 1   # 이관형은 전처럼 틀로 — 두 번 보이지 않는다
 
 
 def test_tool_notes_api_and_the_agents_page_lists_them():

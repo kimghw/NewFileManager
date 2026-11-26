@@ -95,7 +95,9 @@ AGENTS = (
               "스크립트가 판정하지 못한 것 = 후보 자체(근거가 서로 다름 · 기관 모름 · 값이 안 붙었는데 낌새가 있는 표 · 같은 꼴의 이웃 표 가운데 혼자 빠진 표)"),
     dict(id="guide_fix", no="22", group="이관 · 취합", name="지침 보정", run="manual", effort="medium", contract=("app.guide_fix", "CONTRACT"), model=("app.guide_fix", "MODEL"), parts=(("merge", "guide_fix"), ("job", "*")),
          role="내용을 넣은 뒤, 양식의 작성 지침(작성 요령 · ※ 안내 · 각주가 가리키는 항목 — 작업에 저장한 것)을 헤딩 · 표마다 그 자리의 지금 글과 견줘, 넣은 글을 지침의 꼴(표기 · 단위 · 날짜 · 정해진 말 · 분량 한도 · 남은 예시)에 맞게 고칩니다. "
-              "있는 글만 고치고 새 사실 · 수는 짓지 않습니다 — 고침마다 스크립트가 검사하고(지은 수 · 너무 늘어난 글은 버림), 받은 고침은 한 번에 반영됩니다(실행 취소 한 번).",
+              "있는 글만 고치고 새 사실 · 수는 짓지 않습니다 — 고침마다 스크립트가 검사하고(지은 수 · 너무 늘어난 글은 버림), 받은 고침은 한 번에 반영됩니다(실행 취소 한 번). "
+              "지침은 조립된 자리 지침으로 받습니다(문서의 작성요령 · 사람이 적은 것 · 양식 지침 · 규정 · 문서 목적 — 이관 3단계 · 양식 작성 초안과 같은 색인, 출처와 함께). "
+              "양식 작성의 「지침 검토 · 수정」 줄도 이 에이전트입니다 — 자리마다 「맞음 · 고침 제안 · 못 고침」 을 남기고 사람이 고른 고침만 반영합니다.",
          where="조립한 워크플로우의 4단계 「문서 정리」 도구 「지침 보정(LLM)」(서버 실행 — 그 줄의 「이 단계만 진행」 · 묶음의 「한 번에 진행」)",
          data="자리마다 작성 지침 글 + 그 헤딩 아래 본문 · 그 표의 지금 글(문단 id · 글 — 표는 칸마다) · 스크립트가 판정하지 못한 것 = 지침이 붙은 자리 전부(어긋남은 LLM 이 판정)"),
     dict(id="pic_table", no="23", group="문서 편집", name="그림 → 표", run="manual", effort=None, contract=("app.pic_tools", "TABLE_CONTRACT"), parts=(),
@@ -117,11 +119,21 @@ AGENTS = (
          data="양식 전체 글(문서 차례 — 헤딩 · 문단 · 표의 행 · 상자는 줄마다 레벨과 쓸 자리) + 자리[작성 지침 포함] + 이미 정한 것 + 고른 자료(있으면) · 스크립트가 판정하지 못한 것 = 양식 전체에서 무엇을 어떻게 써야 하고 무엇을 사람이 정해야 하는가"),
     dict(id="writing_guidance", no="26", group="문서 편집", name="작성 지침 보완", run="manual", effort="medium",
          contract=("app.writing_guidance", "CONTRACT"), model=("app.writing_guidance", "MODEL"), parts=(("merge", "writing_guidance"), ("job", "form_write")),
-         role="목적 양식의 각 자리와 샘플·별지·그림을 대조해 작성 규칙의 적용 여부를 판정하고, 채택한 규칙의 출처와 근거를 남깁니다.",
+         llms=S.LLMS["writing_guidance"],   # 두 모델이 따로 판정하고 협의(2026-11-26 사용자 「문서의 지침을 작성할 떄는 2가지 모델을 같이 사용 … 불가피한 경우 1개만 선택」 — LLM1 = 이 에이전트의 평소 모델 · 칩에서 「한 모델만」)
+         role="목적 양식의 각 자리와 샘플·별지·그림을 대조해 작성 규칙의 적용 여부를 판정하고, 채택한 규칙의 출처와 근거를 남깁니다. 두 모델(LLM1 · LLM2)이 따로 판정하고 다르면 LLM1 의 모델이 협의해 하나로 냅니다(한쪽만 답하면 그 답).",
          where="양식 작성 대시보드의 04 LLM 검증·보완", data="양식 본문 · 자리별 지침과 서식 · 안에 든 샘플 · 사람이 첨부한 샘플과 추가 서식의 글과 그림"),
+    dict(id="analysis_check", no="27", group="헤딩 추출", name="구간 검증", run="manual", effort="medium", contract=("app.analysis_check", "CONTRACT"),
+         parts=(("heading", "graph"), ("heading", "templates"), ("heading", "tables")),
+         role="「LLM 검증·보완」 의 끝에 문서를 10쪽씩 나눠, 구간마다 앞 단계가 낸 헤딩 그래프 · 표 구조의 지금 판정을 다시 읽고 틀려 보이는 곳(역할 · 부모 · 레벨 · 헤더 행/열 · 서브 테이블 나눔 · 헤딩으로 안 잡힌 줄)을 「확인 필요」 로 남깁니다. "
+              "구간끼리 같이 돌고(LLM 자리 수까지), 판정 · 문서는 바꾸지 않습니다 — 앞 검증과 같은 구간은 다시 묻지 않고, 판정을 고치면 그 항목은 저절로 빠집니다.",
+         where="진행표의 「LLM 검증·보완」 · 워크플로우의 「LLM 검증·보완」 줄 — 헤딩 · 표 판정이 끝난 뒤(구간마다)",
+         data="구간(약 10쪽)의 줄 — 헤딩 노드(슬롯 · 역할 · 레터 · 글 · 부모) · 표(크기 · 서브 테이블 · 헤더 칸 글) · 그래프에 안 든 짧은 문단(스크립트 · 앞 판정이 헤딩으로 잡지 못한 것) + 앞에서 열린 헤딩 사슬 · 앞뒤 구간의 가장자리 줄(문맥)"),
 )
 BY_ID = {a["id"]: a for a in AGENTS}
 assert tuple(BY_ID) == S.IDS, "agents.AGENTS 와 agent_settings.PREFIX 의 에이전트가 다릅니다"
+for _aid, _ms in S.LLMS.items():   # 헤딩 · 표 판정(04 「LLM 검증·보완」)의 모델 자리는 설정 쪽 표(S.LLMS)가 원본 — 줄마다 다시 적지 않는다
+    BY_ID[_aid].setdefault("llms", _ms)
+assert {a["id"]: tuple(a["llms"]) for a in AGENTS if a.get("llms")} == {k: tuple(v) for k, v in S.LLMS.items()}, "함께 부르는 에이전트(llms)가 agent_settings.LLMS 와 다릅니다"
 
 JOB_NAMES = {"plan_to_report": "사업계획서 → 연차보고서 이관", "plan_merge": "사업계획서 취합", "form_write": "양식 작성", "doc_edit": "문서 일반 편집", "style_copy": "문서 서식 복사"}
 
@@ -169,7 +181,7 @@ def _brief(a, own, tally):
             "where": a["where"], "run": a["run"], "runText": RUN[a["run"]], "model": model_of(a, own.get("model") or ""), "modelCode": code, "pin": bool(a.get("pin")),
             "effort": effort_of(a, own.get("effort") or ""), "effortCode": a.get("effort"), "custom": sorted(own), "user": {k: own.get(k) for k in ("no", "role", "model", "effort")},
             "whats": [p for p, i in S.PREFIX if i == a["id"]], "runs": t.get("runs", 0), "fails": t.get("fails", 0), "last": t.get("last"),
-            "llms": llms_of(a, own)}
+            "llms": llms_of(a, own), "llmsDefault": llms_default(a, own)}
 
 
 def llms_of(a, own=None):
@@ -177,9 +189,17 @@ def llms_of(a, own=None):
     화면의 「LLM1 · LLM2」 칩이 이것을 그리고, 누르면 모델을 고친다(multi = models 를 고침 · 아니면 model) — 2026-11-25 사용자 「LLM 사용하는 도구는 어떤 모델인지 명시 … 클릭 해서 모델을 선택」."""
     own = own if own is not None else S.get(a["id"])
     if a.get("llms"):
-        ms = list(own.get("models") or a["llms"])
-        return [{"slot": f"LLM{i + 1}", "model": m, "multi": True} for i, m in enumerate(ms)]
+        ms = list(own.get("models") or a["llms"])   # 길이 1 = 사람이 「한 모델만」 으로 둔 것(칩의 「LLM2 빼기」 — 기본값으로 되돌리지 않는다) · None 자리 = 이 에이전트의 평소 모델
+        usual = model_of(a, own.get("model") or "")["id"]
+        return [{"slot": f"LLM{i + 1}", "model": m or usual, "multi": True} for i, m in enumerate(ms)]
     return [{"slot": "LLM1", "model": model_of(a, own.get("model") or "")["id"], "multi": False}]
+
+
+def llms_default(a, own=None):
+    """함께 부르는 에이전트의 기본 모델 자리(등록부 llms — None 자리는 평소 모델로 풀어서) | [] — 칩의 「두 모델로」 가 빠진 자리를 이것으로 채운다."""
+    own = own if own is not None else S.get(a["id"])
+    usual = model_of(a, own.get("model") or "")["id"]
+    return [m or usual for m in a.get("llms") or ()]
 
 
 def listing():
@@ -301,6 +321,15 @@ def _notes(a, current_job=None):
                 if (not current_job or current_job == job) and box.get(unit) and agent_notes.family_of(job)[0] == fam:
                     out.append({"kind": "note", "name": f"jobtool:{job}/{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 · 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침",
                                 "editable": False, "text": box[unit], "note": "이 워크플로우에서 이 도구가 이 에이전트를 부를 때만 붙습니다 — 조립 화면 「에이전트」 열에서 고칩니다"})
+    if current_job:   # 같은 도구(등록부의 twins — agent_notes.twins: 양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구) — 그 도구의 「도구 공통」 글도 이 워크플로우에서 붙는다(agent_notes._part 와 같은 조건 · 2026-11-25)
+        shown = {n["name"] for n in out}
+        for _own, fam, unit in agent_notes.twins(current_job):
+            row, name = agent_notes.tool_map().get(fam, {}).get(unit) or {}, f"tool:{agent_notes.tool_key(fam, unit)}"
+            common = data["tools"].get(agent_notes.tool_key(fam, unit), "")
+            if common and a["id"] in (row.get("agents") or ()) and name not in shown:
+                shown.add(name)
+                out.append({"kind": "note", "name": name, "title": f"도구에 적어 둔 내용 — 「{row.get('name') or unit}」 공통({FAM[fam]} — 이 워크플로우의 같은 도구에도)", "source": "워크플로우 조립 화면에서 고침", "editable": False, "text": common,
+                            "note": "이 도구를 쓰는 모든 워크플로우에서, 이 도구가 이 에이전트를 부를 때 붙습니다 — 이 워크플로우의 같은 줄에서도 붙습니다. 워크플로우 페이지의 조립 화면 「에이전트」 열에서 고칩니다"})
     if current_job:
         text = data["jobs"].get(current_job, {}).get(a["id"], "")
         out.append({"kind": "note", "name": current_job, "job": current_job, "title": f"덧붙이는 글 — 「{agent_notes._job_name(current_job)}」 전용",

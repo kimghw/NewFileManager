@@ -438,11 +438,11 @@ COMMON = (
     dict(id="guidewrite", name="지침 작성", where="패널 「대시보드」 의 「지침 작성 열기」 · 「지침 작성」 열(문서 옆)",
          does="문서의 자리(헤딩 · 표)마다 작성 지침을 주면, 받은 자료에서 그 자리에 넣을 내용을 에이전트가 찾아 초안을 씁니다. 초안은 에이전트 보기의 제안 카드로 나오고 사람이 고른 것만 문서에 들어갑니다. 자료에 없는 내용은 만들지 않습니다.",
          steps=(
-             _s("places", "자리 · 작성 지침 보기", "script", "문서의 본문 헤딩, 쓸 자리가 있는 상자(1칸 표), 지침이 붙은 표를 자리로 보입니다. 자리마다 양식이 적어 둔 작성 지침(작성 요령 · ※ 안내 · 각주 항목)과 사람이 적은 지침을 함께 보입니다. 문서는 바뀌지 않습니다.",
-                out="자리 목록(자리마다 작성 지침)", uses=("headings",), modules=("guide_write", "place_guides", "form_guides"), spec=(SP_FORM, "② §5")),
+             _s("places", "자리 · 작성 지침 보기", "script", "문서의 본문 헤딩, 쓸 자리가 있는 상자(1칸 표), 지침이 붙은 표를 자리로 보입니다. 자리마다 양식이 적어 둔 작성 지침(작성 요령 · ※ 안내 · 각주 항목)과 사람이 적은 지침, 같은 양식의 문서마다 쓰려고 양식에 저장해 둔 양식 지침(본문 절 · 표 · 서브 테이블 · 칸마다 — 「지침」 열의 「양식 지침」 에서 이 작업의 지침을 골라 올리고 예시를 더합니다)을 함께 보입니다. 문서는 바뀌지 않습니다.",
+                out="자리 목록(자리마다 작성 지침)", uses=("headings",), modules=("guide_write", "place_guides", "form_guides", "form_guide_yaml"), spec=(SP_FORM, "② §5 · §5-8")),
              _s("review", "양식 검토 · 작성 계획", ("human", "llm", "human"), "먼저 양식 전체(헤딩 · 안내 글 · 표 · 작성 지침)를 LLM 이 읽고 어떻게 쓸지(요약 · 자리마다 작성 방향)를 검토하고 자료에서 찾을 테마 · 키워드를 뽑습니다. 자료를 주면 자리마다 자료의 무엇을 쓸지와 자료에 없는 것을 작성 계획으로 세우고, 확인할 것을 사람에게 묻습니다. 계획을 세우고 물음에 모두 답해야 초안 받기가 돕니다. 문서는 바뀌지 않습니다.",
                 out="검토 요약 · 자리마다 작성 방향과 작성 계획 · 자료에서 찾을 테마 · 키워드 · 사람이 확인한 것", change="store", agents=("form_review",), modules=("form_review", "form_review_api"), spec=(SP_FORM, "② §5-1")),
-             _s("ask", "자리마다 작성 초안 받기", ("human", "llm"), "채울 자리와 자료를 고르고 이번 작성의 지침을 적은 뒤 실행합니다. 자리마다 문서 에이전트의 한 턴이 돌아 그 자리의 작성 지침, 양식 검토의 작성 방향과 사람이 정한 것으로 초안(글 쓰기 · 상자 안 자리 채우기 · 표 채우기)을 만듭니다. 유료 LLM 을 쓰며 문서는 바뀌지 않습니다.",
+             _s("ask", "자리마다 작성 초안 받기", ("human", "llm"), "채울 자리와 자료를 고르고 이번 작성의 지침을 적은 뒤 실행합니다. 자리마다 문서 에이전트의 한 턴이 돌아 그 자리의 작성 지침(양식 지침의 작성 예시가 있으면 꼴 · 문체 · 분량의 참고로 하나), 양식 검토의 작성 방향과 사람이 정한 것으로 초안(글 쓰기 · 상자 안 자리 채우기 · 표 채우기)을 만듭니다. 유료 LLM 을 쓰며 문서는 바뀌지 않습니다.",
                 out="자리마다 초안(제안 카드)", change="store", uses=("agent",), agents=("doc_agent", "table_fill"), modules=("guide_write", "guide_write_api", "doc_agent"), spec=(SP_FORM, "② §5")),
              _s("apply", "고른 제안 반영", "human", "에이전트 보기의 제안 카드에서 「문서에 반영」 을 누른 제안만 문서에 들어갑니다. 에이전트가 지은 글과 경고가 있는 제안은 처음부터 고르지 않은 채로 보입니다.",
                 out="내용이 들어간 문서", change="doc", uses=("agent",), modules=("doc_agent_api",), spec=(SP_EDIT, "② §9")),
@@ -748,7 +748,9 @@ def _relay_files():
     return _config_steps("사업계획서", "같은 프로젝트 · 워크플로우 · 라운드의 사업계획서와 연차보고서를 첨부 파일 칸에서 고르거나 새로 올립니다.", "사업계획서 칸과 연차보고서 칸이 모두 찼을 때.",
                          then="「프로젝트 구성 반영」 으로", on=("flow", "flow"))[0]
 # 헤딩 · 표의 LLM 검증·보완(공통 모듈의 이어 돌리기를 그 문서로 부른다: spec_작업 ② §20 · §21)이 부르는 에이전트
-_ANALYSIS_LLM_AGENTS = ("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent")
+# 2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완 하고 10페이지씩 검증 에이전트를 병렬로 추가」: 판정 에이전트(규칙 보강 · 유형 · 구간 · 표)는 두 모델(LLM1 · LLM2)이 따로 답하고 협의 · 끝에 「구간 검증」(analysis_check)
+_ANALYSIS_LLM_AGENTS = ("heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent", "analysis_check")
+_ANALYSIS_LLM_HOW = " 판정은 두 모델이 따로 하고 다르면 협의 · 끝에 10쪽씩 구간 검증."   # 줄 글(does)은 320자까지(tests/test_workflow.py) — 풀이는 사양서(spec_작업 ② §20 「두 모델」 · 「구간 검증 — 10쪽씩」)와 도구 설명에
 
 
 # ---------------------------------------------------------------- 단계 모듈 — TASK 가 조립하는 일반 단계(spec_워크플로우 ② §13 · spec_작업 ② §21)
@@ -756,11 +758,14 @@ _ANALYSIS_LLM_AGENTS = ("heading_rules", "heading_types", "heading_section", "he
 # 일반 단계 넷 — 문서 검토 · 구성 맞추기 · 내용 넣기 · 문서 정리 — 을 **단계 모듈**로 둔다. 모듈 하나 = 단계를 만드는 함수 하나(`_st_*` — 원본 문서 · 목적 문서의 이름을 받는다).
 # 공통 모듈 목록(COMMON)의 그 모듈 절은 같은 함수에 일반 이름(「원본 문서」 · 「목적 문서」)을 넣어 만든 것이고, TASK 는 `_stage(모듈 id, 묶음 id, 번호, 원본 이름, 목적 이름)` 로 조립한다 —
 # 단계의 글은 한 곳(그 함수)에만 있다. TASK 마다 다른 것(문서 이름 · 그 TASK 만의 앞 단계 · 묶음의 한 줄 설명)은 조립할 때 준다. 지금 조립한 TASK = 이관(plan_to_report).
-def _st_review(S, D, *, src=True, dst=True, llm=("source",), fit=True):
+def _st_review(S, D, *, src=True, dst=True, llm=("source",), fit=True, again=True):
     """단계 모듈 「문서 검토」 — 헤딩 · 표 분석(스크립트) → LLM 검증·보완. S·D = 원본 · 목적 문서의 이름.
     문서마다 단위문서 TASK(spec_워크플로우 ② §15 「문서마다 단위문서 TASK」): src · dst = 헤딩 · 표 분석을 하는 문서(원본 · 목적 — 기본은 둘 다) ·
     llm = LLM 검증·보완을 하는 문서 역할(조립한 정의의 assign.llm — custom_tasks.llm_rule 이 허락하는 것 · 기본은 원본만: 붙박이 이관) ·
-    fit = 그 워크플로우의 목적 문서가 「구성 맞추기」 를 하나(하면 목적 문서의 LLM 검증·보완은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 — 글이 그것을 가리킨다).
+    fit = 그 워크플로우의 목적 문서가 「구성 맞추기」 를 하나(하면 목적 문서의 LLM 검증·보완은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 — 글이 그것을 가리킨다) ·
+    again = 그 워크플로우에 이 줄 뒤 목적 문서의 「다시 문서 검토(LLM)」 줄이 있나(fit 일 때만 본다 — 옛 꼴(assign)은 「구성 맞추기」 를 고르면 늘 있다: 기본값. 줄 목록(v2)은 줄마다 놓아 없을 수 있다 —
+    없는 줄을 가리키지 않는다). 줄 목록(v2)에서는 사람이 구조 반영 줄이 있는 정의에도 이 줄을 목적 문서에 놓을 수 있다(llm_rule 은 옛 꼴의 규칙) — 그때 글은 「고르지 않은 워크플로우라」 가 아니라
+    사실대로다(여기서 검증 · 서식 정리의 반영과 다시 검증은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」: workflow_units.TIDY_ROLES · 2026-11-25).
     단계의 on · 글은 고른 문서를 따르고, 닿는 문서가 없는 단계는 서지 않는다. 기본값의 글은 붙박이 이관 · 단계 절(_GENERIC)의 글 그대로다(tests/test_workflow.py 「조립한 묶음 = 모듈의 단계」)."""
     out = []
     heads = [n for n, on in ((S, src), (D, dst)) if on]
@@ -778,15 +783,23 @@ def _st_review(S, D, *, src=True, dst=True, llm=("source",), fit=True):
     if s_llm or d_llm:   # LLM 검증·보완 — llm 의 문서(헤딩 · 표 분석을 하는 문서 가운데)
         two = s_llm and d_llm
         who, X = (f"두 문서({S} · {D})", "두 문서") if two else (S, S) if s_llm else (D, D)
-        tail = (f" {D}의 LLM 검증·보완은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 합니다. 구조 반영 전 판정은 반영 뒤에 못 쓰게 됩니다." if dst and not d_llm and fit
+        later = fit and again   # 구조를 맞춘 뒤 목적 문서의 「다시 문서 검토(LLM)」 가 있다(그 줄을 가리켜도 된다)
+        tail = (f" {D}의 LLM 검증·보완은 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 합니다. 구조 반영 전 판정은 반영 뒤에 못 쓰게 됩니다." if dst and not d_llm and later
                 else f" {D}는 헤딩 · 표 분석(스크립트)만 합니다. 이 워크플로우에서는 {D}의 LLM 검증·보완을 하지 않습니다." if dst and not d_llm
+                # 구조 반영 줄이 있는 정의인데 사람이 이 줄을 목적 문서에도 놓았다(줄 목록 v2) — 「고르지 않은 워크플로우라」 가 아니다(전에는 fit 을 안 보고 그 글이 나왔다)
+                else (f" {D}의 헤딩과 표도 여기서 검증하며, 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 LLM 검증·보완을 다시 받습니다." if two
+                      else " 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 LLM 검증·보완을 다시 받습니다.") if d_llm and later
+                else (f" {D}의 헤딩과 표도 여기서 검증합니다. 이 워크플로우에는 {D}의 「다시 문서 검토(LLM)」 가 없어 {D}의 LLM 검증·보완은 여기서만 합니다." if two
+                      else f" 이 워크플로우에는 {D}의 「다시 문서 검토(LLM)」 가 없어 LLM 검증·보완은 여기서만 합니다.") if d_llm and fit
                 else f" 「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라 {D}의 LLM 검증·보완도 여기서 합니다." if two
                 else " 「구성 맞추기」(구조 반영)를 고르지 않은 워크플로우라 여기서 합니다." if d_llm else "")
         # 받은 서식 정리 계획의 반영 — 1단계는 원본 문서만(2026-11-22 사용자 「1단계에는 원문만 조정하고, 2단계에서는 목적 문서를 조정」 — workflow_exec.TIDY_ROLES · spec_워크플로우 ② §18-25)
         tidy = (f" 이어서 {S}에는 받은 서식 정리 계획(템플릿 조정과 서식 조정)을 반영합니다. 내용은 그대로 두고 헤딩 줄의 레터와 서식만 맞춥니다."
-                + (f" {D}의 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다." if d_llm and fit else f" {D}에는 반영하지 않습니다." if d_llm else "")) if s_llm \
-            else (f" 문서는 바뀌지 않습니다. {D}의 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다." if fit else " 문서는 바뀌지 않습니다. 서식 정리 계획은 원본 문서만 여기서 반영하고, 목적 문서는 2단계 「다시 문서 검토(LLM)」 에서 반영합니다.")
-        out.append(_s("headsLlm", "LLM 검증·보완", ("human", "llm"), f"LLM 이 {who}의 헤딩과 템플릿, 표, 서식 정리 계획을 차례로 검증하고 보완합니다. 유료이며 몇 분 걸립니다." + tidy + tail,
+                + (f" {D}의 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다." if d_llm and later else f" {D}에는 반영하지 않습니다." if d_llm else "")) if s_llm \
+            else (f" 문서는 바뀌지 않습니다. {D}의 서식 정리는 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 반영합니다." if later
+                  else f" 문서는 바뀌지 않습니다. {D}의 서식 정리 계획은 여기서 반영하지 않습니다." if fit   # 구조 반영은 있는데 그 뒤 목적 문서의 「다시 문서 검토(LLM)」 가 없는 정의 — 없는 줄을 가리키지 않는다
+                  else " 문서는 바뀌지 않습니다. 서식 정리 계획은 원본 문서만 여기서 반영하고, 목적 문서는 2단계 「다시 문서 검토(LLM)」 에서 반영합니다.")
+        out.append(_s("headsLlm", "LLM 검증·보완", ("human", "llm"), f"LLM 이 {who}의 헤딩과 템플릿, 표, 서식 정리 계획을 차례로 검증하고 보완합니다. 유료이며 몇 분 걸립니다." + _ANALYSIS_LLM_HOW + tidy + tail,
                       out=f"LLM 검증·보완을 거친 {X}의 헤딩 그래프 · 표 구조" + (f" · 서식을 정리한 {S}" if s_llm else ""), change="doc", uses=("headings", "outline"), agents=_ANALYSIS_LLM_AGENTS,
                       modules=("analysis_llm", "heading_runs", "tpl_agent", "outline_conform"), spec=(SP_WORK, "② §20·§21"),
                       need=f"{X}의 헤딩 · 표 분석과 LLM 연결(유료). 줄의 「LLM 검증·보완」 이나 묶음의 「한 번에 진행」 으로 실행합니다.",
@@ -1236,6 +1249,10 @@ TASKS = (
     # 양식 작성(spec_양식작성 — 2026-11-24 사용자 "워크플로우에 문서양식을 주고 LLM을 이용해서 문서양식을 작성해주는 TASK 를 만들고 싶음 이름은 뭘로 할지 모르겠고": 이름 「양식 작성」 은 에이전트 판단 · 사용자 확인 전)
     dict(job="form_write", roles=(_role("target", "양식", "", title=SINGLE),), inputs="채울 양식 문서 하나(hwp · hwpx — 양식 제한 없음) + 자료 문서들(hwp · hwpx · docx · pdf — 문서 라이브러리에 보관) + 작성 지침",
          output="자료에서 뽑은 MD(그림 · 수식 포함)와, 작성 지침에 따라 그 내용이 들어간 양식 문서",
+         # twins = **같은 도구** — 이 워크플로우의 줄 key → (틀, 그 틀의 줄 key): 줄 key · 기본 이름이 같고 같은 엔진(POST …/analysis/llm)을 부르는 줄만 적는다(2026-11-25 사용자 「도구도 공통내용은 같았으면」 — 요구사항 r202).
+         # 이 워크플로우에는 틀(가족)이 없어 틀로 찾는 도구 설정이 닿지 않는다 — 여기 적은 줄에는 그 도구의 **고친 이름**(화면으로 나가는 문 — tool_names.apply)과 **「도구 공통」 글**(그 도구가 부르는 에이전트의 프롬프트 끝 — agent_notes._part)이 같이 닿는다.
+         # 짝은 여기 한 곳에만 적는다(다른 코드에 키를 박지 않는다 — tests/test_workflow.py 가 짝의 줄 key · 기본 이름 · 에이전트를 견준다). 기본 이름이 다른 줄(「헤딩 · 표 분석 · 작성 지침」 ↔ 이관형 「헤딩 · 표 분석」)은 다른 도구라 적지 않는다.
+         twins={"headsLlm": ("relay", "headsLlm")},
          note="자료 문서는 문서 편집 서버와 따로 선 서버(문서 라이브러리)가 보관하고 추출합니다. 양식에는 자료에 있는 내용만 넣으며 자료에 없는 사실과 수는 만들지 않습니다. "
               "넣을 것은 먼저 제안으로 보이고 사람이 고른 것만 반영됩니다. 자료 문서는 바뀌지 않습니다.",
          ways=_ways(
@@ -1281,11 +1298,14 @@ TASKS = (
                     stop="분석이 실패하면 까닭을 알립니다. 「헤딩 추출」 탭에서 확인하고 다시 돌립니다.",
                     left="자리 지침이 없는 헤딩 · 표는 「작성 지침 확인 · 적기」 에서 사람이 적습니다. 이 줄의 「작성 지침」 으로 헤딩별 · 표별 목록을 봅니다."),
                  _s("headsLlm", "LLM 검증·보완", ("human", "llm"), "구조 검증 뒤 LLM이 목적 문서와 샘플·추가 서식의 문구, 표 칸, 캡처를 대조하고 자리별로 적용할 작성 규칙을 판정합니다. "
-                    "함께 볼 파일은 이 단계에서 「샘플·추가 서식 첨부…」로 올립니다. 읽은 출처와 그림 수를 이 단계에서, 자리별 지침과 출처를 「지침 보기 · 적기」에서 확인합니다.", out="검증한 헤딩 그래프 · 표 구조와 출처가 있는 자리별 작성 지침", change="store", optional=True,
-                    uses=("headings", "outline", "guidewrite"), agents=(*_ANALYSIS_LLM_AGENTS, "writing_guidance"), modules=("analysis_llm", "heading_runs", "tpl_agent", "writing_guidance_api", "form_examples_api"), spec=(SP_FORM, "② §5-4"),
-                    need="헤딩 · 표 분석과 LLM 연결(유료). 필요하면 비교할 샘플·서식을 실행 전에 첨부합니다.", done="구조 판정과 현재 입력의 작성 지침 추출이 모두 끝났을 때. 선택 단계이므로 건너뛸 수도 있습니다.",
+                    "함께 볼 파일은 이 단계에서 「샘플·추가 서식 첨부…」로 올립니다. 읽은 출처와 그림 수를 이 단계에서, 자리별 작성 지침과 출처를 「작성 지침 보기 · 적기」에서 확인합니다. 이 LLM 이 받는 판정 기준은 「추출 프롬프트 보기」에서 봅니다(작성 지침이 아닙니다). "
+                    "테마 YAML(구분 기준 타입 · 템플릿 · 테이블 타입)로 문서의 테마 · 템플릿 · 표마다 테이블 타입을 밝히고, 없으면 새로 정의해 더합니다.",
+                    out="검증한 헤딩 그래프 · 표 구조와 출처가 있는 자리별 작성 지침 · 문서의 테마 · 템플릿 · 표마다의 테이블 타입", change="store", optional=True,
+                    uses=("headings", "outline", "guidewrite"), agents=(*_ANALYSIS_LLM_AGENTS, "writing_guidance"), modules=("analysis_llm", "heading_runs", "tpl_agent", "writing_guidance_api", "form_examples_api", "form_themes"), spec=(SP_FORM, "② §5-4"),
+                    need="헤딩 · 표 분석과 LLM 연결(유료). 필요하면 비교할 샘플·서식을 실행 전에 첨부합니다. 구조 판정과 작성 지침 판정은 두 모델(LLM1 · LLM2)이 따로 하고 답이 다르면 협의하며(불가피하면 LLM 칩에서 한 모델만), "
+                         "구조 판정 끝에 10쪽씩 구간 검증이 같이 돕니다 — 호출이 그만큼 늡니다.", done="구조 판정과 현재 입력의 작성 지침 추출이 모두 끝났을 때. 선택 단계이므로 건너뛸 수도 있습니다.",
                     stop="LLM 이 답을 못 하면 앞 결과는 그대로 두고 실패로 알립니다."),
-                 _s("guides", "작성 지침 확인 · 적기", "human", "이 줄의 「지침 보기 · 적기」 를 누르면 「지침 작성」 열의 「채울 자리」 로 가서 자리마다 양식이 적어 둔 작성 지침이 펼쳐집니다. 지침이 없거나 모자란 헤딩은 그 자리의 칸에 바로 적고(문서의 「지침」 단추와 같은 저장), 표의 지침은 문서에서 그 표의 「지침」 단추로 적습니다. 문서는 바뀌지 않습니다.", change="store", optional=True,
+                 _s("guides", "작성 지침 확인 · 적기", "human", "이 줄의 「작성 지침 보기 · 적기」 를 누르면 「지침 작성」 열의 「채울 자리」 로 가서 자리마다 양식이 적어 둔 작성 지침이 펼쳐집니다. 지침이 없거나 모자란 헤딩은 그 자리의 칸에 바로 적고(문서의 「지침」 단추와 같은 저장), 표의 지침은 문서에서 그 표의 「지침」 단추로 적습니다. 문서는 바뀌지 않습니다.", change="store", optional=True,
                     uses=("guidewrite", "headings"), modules=("guide_write", "place_guides_api"), spec=(SP_FORM, "② §5"),
                     need="헤딩 추출 결과(자리 목록이 본문 헤딩에서 나옵니다).", done="04에서 자리별 자동 판정이 끝나면 양식 검토로 이어집니다. 추가로 요청할 사항은 이 줄에서 적을 수 있습니다. 자동 판정을 건너뛴 경우에는 「확인함」이나 「건너뛰기」로 진행합니다."),
                  # 2026-11-24 사용자 "양식을 전부 읽고 어떻게 작성해야할지 검토한다, 그리고 사용자가 문서를 제공하면 작성하는데,, 이전에 사용자가 정해줄 내용을 물어 본다" ·
@@ -1342,6 +1362,15 @@ TASKS = (
                     out="반영한 줄의 템플릿 · 서식을 맞춘 양식", change="doc", uses=("headings",), modules=("merge_retidy", "merge_retidy_api", "outline_match_api", "outline_conform"), spec=(SP_FORM, "② §5-5"),
                     need="반영한 초안(앞 줄).", done="마지막으로 초안을 반영한 뒤 정리했을 때(맞출 줄이 없어도 기록이 남아 끝남).",
                     stop="헤딩 분석이 도는 중이거나 그 사이 문서가 바뀌면 다시 누르라고 알립니다. 표준 검사에 어긋나면 되돌립니다.", left="반영한 뒤 문단을 손으로 고쳐도 그 줄은 그대로 정리 대상입니다."),
+                 # 2026-11-26 사용자 "도구를 하나 추가하는데 템플릿이 선택되고 목적문서가 작성될 경우 템플릿 작성지침에 따라 작성되었는지 검토 후 수정하는 도구를 만들어줘" — 새 LLM 길이 아니다:
+                 # 이관형 「지침 보정(LLM)」 의 엔진(guide_fix · 에이전트 22)이 조립된 작성 지침(place_guides_api.index_of — 문서 · 사람 · 양식 지침 · 규정 · 문서 목적)을 읽는다. 기본 이름이 달라 twins 로 잇지 않았다(같은 도구의 조건 = 기본 이름이 같음)
+                 _s("guideFix", "지침 검토 · 수정", ("llm", "script"), "양식(템플릿)이 정해진 문서에서, 글이 들어간 자리마다 그 자리의 작성 지침(문서의 작성요령, 사람이 적은 지침, 양식 지침, 규정, 문서 목적)에 맞게 썼는지 LLM 이 검토합니다. "
+                    "자리마다 「맞음 · 고침 제안(지금 글 → 고친 글 · 어느 지침 · 출처) · 못 고침(까닭)」 을 문서 옆 열에 보이고, 사람이 고른 고침만 한 번에 반영합니다(실행 취소 한 번). 새 사실이나 숫자는 짓지 않습니다(스크립트가 고침마다 검사합니다).",
+                    out="자리마다의 검토 결과(맞음 · 고침 제안 · 못 고침) · 고른 고침을 반영한 양식", change="doc", uses=("headings",), agents=("guide_fix",),
+                    modules=("guide_fix", "guide_fix_api", "place_guides", "form_rules", "purpose_yaml"), spec=(SP_FORM, "② §5-9"),
+                    need="반영한 초안(앞 줄)과 이 문서의 양식(템플릿 — 헤딩 추출의 「양식」). 유료 LLM 연결이 필요합니다.", done="검토했고 고를 고침 제안이 남지 않았을 때(고른 것을 반영했거나 고침 제안이 없음). 양식이 없거나 닿는 작성 지침이 없으면 건너뜀.",
+                    stop="양식(템플릿)이 정해지지 않은 문서는 그 까닭을 보이고 건너뜁니다. 검토한 뒤 글이 바뀐 문단의 고침은 건너뜁니다. 표준 검사에 걸리면 되돌립니다.",
+                    left="문서에 없는 정보가 있어야 고칠 수 있는 곳은 「못 고침」 으로 남깁니다(사람이 고칩니다)."),
                  # 2026-11-25 사용자 "마지막에 작성 지침 및 샘플 ,, 본문에서 삭제하는 기능도 넣어줘, 이관 테스트에도 있지?" — 이관 4단계 「작성요령 삭제」 와 같은 끝점 + 양식 작성이면 작성 샘플도
                  _s("cleanup", "작성 지침 · 샘플 지우기", "script", "본문에 남은 양식 안내(작성 요령 표, 「<참고 N>」 자료, 안내 색 ※ 글, 1칸 상자의 색 글 안내, 위첨자 각주 번호)와 작성 샘플(「작성을 위한 샘플자료」 처럼 예시 제목이 붙은 표 · 예문)을 한 번에 지웁니다(실행 취소 한 번). "
                     "이관의 「작성요령 삭제」 와 같은 도구이고, 지우기 직전에 작성 지침을 헤딩 · 표별로 저장합니다. 제목 없이 놓인 그림 · 표는 내용일 수 있어 남깁니다.",
@@ -1701,7 +1730,10 @@ def _assemble_flow(c):
         for s in g["steps"]:
             on.setdefault(s["unit"], set()).update(s["on"])
     A, fit, review = custom_tasks.guess_assign(c["flow"]), "division" in on, "heads" in on
-    opts = {"stage_review": dict(src="source" in on.get("heads", ()), dst="target" in on.get("heads", ()), llm=tuple(r for r in ("source", "target") if r in on.get("headsLlm", ())) or ("source",), fit=fit),
+    flat = [(s["unit"], s["on"]) for g in c["flow"] for s in g["steps"]]   # 줄의 차례 그대로 — 1단계 「LLM 검증·보완」 의 글이 가리키는 「다시 문서 검토(LLM)」 가 그 줄 뒤 목적 문서에 정말 있나(_st_review 의 again)
+    at = next((i for i, (u, o) in enumerate(flat) if u == "headsLlm" and "target" in o), -1)   # 목적 문서에 놓은 「LLM 검증·보완」 의 자리(없으면 처음부터 본다)
+    again = any(u == "reheadsLlm" and "target" in o for u, o in flat[at + 1:])
+    opts = {"stage_review": dict(src="source" in on.get("heads", ()), dst="target" in on.get("heads", ()), llm=tuple(r for r in ("source", "target") if r in on.get("headsLlm", ())) or ("source",), fit=fit, again=again),
             "stage_fit": dict(take=True),   # 조립에 놓는 도구 「넣을 구성 선택」 의 줄 글까지(_take_step — 표준 차례에는 없다)
             "stage_fill": dict(fit=fit, review=review), "stage_clean": dict(review=review, fill="apply" in on, more=True)}   # more = 조립 도구 「지침 보정(LLM)」 · 「빈 구역 지우기」 의 줄 글까지(② §18-23 — 표준 차례에는 없다)
     made = {}
@@ -1713,7 +1745,7 @@ def _assemble_flow(c):
             made.setdefault(s["key"], (mid, s))
     if "headsLlm" in on and "headsLlm" not in made:   # 「LLM 검증·보완」 을 「헤딩 · 표 분석」 이 없는 문서에 놓은 정의(조립 검사는 경고로 지나간다 — 분석이 없으면 실행이 스크립트로 먼저 한다) — 그 줄의 글을 그 문서의 것으로 따로 짓는다
         r = on["headsLlm"]   # (전에는 여기서 KeyError — 그 정의를 저장하면 목록 · /workflow 가 500 이었다: 2026-11-20)
-        made["headsLlm"] = ("stage_review", next(s for s in _st_review(S, D, src="source" in r, dst="target" in r, llm=tuple(x for x in ("source", "target") if x in r), fit=fit) if s["key"] == "headsLlm"))
+        made["headsLlm"] = ("stage_review", next(s for s in _st_review(S, D, src="source" in r, dst="target" in r, llm=tuple(x for x in ("source", "target") if x in r), fit=fit, again=again) if s["key"] == "headsLlm"))
     stages, no = [], {}
     for i, g in enumerate(c["flow"]):
         steps, homes = [_relay_files()] if i == 0 else [], set()
@@ -1948,7 +1980,8 @@ def entry(t):
 
 def _shown(t, family=None):
     """그 워크플로우(등록부의 꼴)에 사람이 화면에서 고친 도구 이름을 얹은 사본(② §18-19 「도구 이름 고치기」 — app/tool_names.py) · 고친 것이 없으면 받은 것 그대로.
-    **화면으로 나가는 문에만 쓴다**(등록부 응답 listing · 실행 층이 읽는 정의 shown_of) — 만든 글(markdown · task_markdown)은 기본 이름 그대로다(어느 PC 에서나 같은 글). family = 틀을 아는 곳이 준다(단계 = 이관형의 줄)."""
+    **화면으로 나가는 문에만 쓴다**(등록부 응답 listing · 실행 층이 읽는 정의 shown_of) — 만든 글(markdown · task_markdown)은 기본 이름 그대로다(어느 PC 에서나 같은 글). family = 틀을 아는 곳이 준다(단계 = 이관형의 줄).
+    틀이 없는 워크플로우도 「같은 도구」 라고 적은 줄(`twins` — 양식 작성의 「LLM 검증·보완」)은 그 도구의 고친 이름으로 보인다(tool_names.apply 가 그 표를 읽는다)."""
     from app import tool_names, workflow_state
     return tool_names.apply(t, family or workflow_state.family(t))
 

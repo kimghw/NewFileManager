@@ -287,7 +287,17 @@ def rename(old, new):
         record["updated"] = time.time()
         data["projects"][new] = record
         works._write_json(_path(), data)
+        _purpose("moved", old, new)   # 프로젝트의 문서 목적(purpose.yaml — spec_양식작성 ② §5-9)도 새 이름으로 따라간다
         return True
+
+
+def _purpose(what, *names):
+    """프로젝트의 문서 목적 파일(app/purpose_yaml.py)을 이름 바꾸기 · 지우기에 따라가게 한다 — 못 해도 프로젝트 기록의 일은 그대로다."""
+    try:
+        from app import purpose_yaml
+        getattr(purpose_yaml, what)(*names)
+    except Exception:   # noqa: BLE001 — 덤이다
+        pass
 
 
 def create(name):
@@ -329,4 +339,5 @@ def remove(name):
         if data["projects"].pop(name, None) is None:
             return False
         works._write_json(_path(), data)
+        _purpose("removed", name)   # 문서 목적 파일은 지우지 않고 _purpose/_removed/ 로 옮긴다
         return True

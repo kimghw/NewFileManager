@@ -1110,6 +1110,10 @@ async function dashFlowLive(M) {
         }
         return [{ role, p: doc ? (s.per || []).find((q) => q.role === role) || null : null, w: role === "source" ? src : role === "target" ? tgt : null, each: false }];
       });
+      // 바뀌는 문서 — 서버가 줄마다 정한 것(상태의 changes = 그 줄이 바꾸는 문서 역할들: workflow_units.changed_roles — 1단계 「LLM 검증·보완」 은 원본 문서만 바꾼다 · 목적 문서의 서식 정리는 2단계 「다시 문서 검토(LLM)」).
+      // 화면은 줄 key 로 다시 세지 않는다 · changes 가 없는 응답(옛 서버)은 전처럼 등록부 줄의 change. keeps(role) = 등록부로는 「문서 바뀜」 인 줄이지만 그 카드의 문서는 안 바뀐다 → 그 카드에 「문서 바뀜」 꼬리표를 붙이지 않는다(dashTags)
+      const chs = Array.isArray(s.changes) ? s.changes : null;
+      const keeps = (role) => !!chs && R.change === "doc" && !(role === "source" || role === "target" ? chs.includes(role) : chs.length);
       const cards = slots.map(({ role, p, w, each: one }) => {
         const cst = !p ? st : p.st === "done" ? "done" : p.st === "busy" ? "run" : hold(p.st) ? "hold" : st === "run" || st === "now" ? "now" : "todo", skipped = cst === "done" && !!(p ? p.skipped : s.skipped);
         let lead = dashFlowRoleEl(role, roles.find((q) => q.role === role) || null, R), text = (p && p.text) || s.text || (cst !== "done" && s.wait) || "";
@@ -1122,7 +1126,7 @@ async function dashFlowLive(M) {
           if (w.name && text.startsWith(`${w.name} — `)) text = text.slice(w.name.length + 3);
         }
         return { ref: one ? `${s.key}@${role}:${w.id}${tag}` : `${s.key}@${role}${tag}`, role, state: cst, skipped, word: word(cst, p ? p.st : s.st, skipped), text: dashHere(text), lines: [], acts: [],   // 기다리는 줄(구성 값이 아직 없음 — 서버의 wait)은 그 까닭을 글로
-          lead, same: false, doc: w, per: p, each: one };
+          lead, same: false, doc: w, per: p, each: one, ...(keeps(role) ? { change: "store" } : {}) };
       });
       cards.slice(1).forEach((c) => { c.same = true; });
       if (s.key === "files") { cards[0].lines = files.lines; cards[0].acts = files.acts; if (!V.ready) cards[0].text = ""; } // 준비 — 문서 칸 둘(빈 칸의 글은 줄마다 — 서버의 한 줄을 겹쳐 적지 않는다)
@@ -1137,12 +1141,16 @@ async function dashFlowLive(M) {
           const laneOf = !many && (c.role === "source" || c.role === "target") ? c.role : "";
           const no = offFor(laneOf) || lack || s.wait || "", rr = each ? roles.find((q) => q.role === c.role) || null : null, who = each ? (rr && rr.title) || DASH_FLOW_ROLE[c.role] : "";
           const pays = each ? (s.paid || []).filter((d) => c.doc && d === c.doc.id).length : paid;
+          // 풍선의 「○○가 바뀝니다」 — 문서 카드마다의 단추(each)는 그 카드의 문서가 바뀌나 · 카드 하나의 단추는 그 줄이 바꾸는 문서를 이름으로(서버의 changes — 위 chs · 없으면 등록부 줄의 change)
+          const chName = (role) => ((roles.find((q) => q.role === role) || {}).title) || DASH_FLOW_ROLE[role] || "문서";
+          const chg = each ? (chs ? (chs.includes(c.role) ? `${who}가 바뀝니다` : `${who}는 바뀌지 않습니다`) : R.change === "doc" ? `${who}가 바뀝니다` : "문서는 바뀌지 않습니다")
+            : chs ? (chs.length ? `${chs.map(chName).join(" · ")}가 바뀝니다` : "문서는 바뀌지 않습니다") : R.change === "doc" ? "문서가 바뀝니다" : "문서는 바뀌지 않습니다";
           c.acts.push(dashBtn(DASH_SINGLE_ONE, () => dashFlowRun(`${s.name}${each ? `(${who})` : ""} — ${DASH_SINGLE_ONE}`, g.id, { only: s.key, ...(each ? { role: c.role } : laneOf ? { lane: laneOf } : {}), sig: V.sig || "" }),
             { primary: (each ? c.state : st) === "now" && !no, disabled: !!no, focus: `act:${c.ref}:only`,
               title: no || [files.fill && !V.ready ? `${files.fill}.` : "",
                 each ? `이 단계를 ${who}${rr && rr.name ? `(${rr.name})` : ""}에만 진행합니다 — 다른 문서의 몫은 그 문서의 카드에서 따로 합니다. 서버에서 진행합니다(창을 닫아도 이어집니다). 앞 단계가 남았으면 진행하지 않고 그 까닭을 알립니다.`
                   : `이 단계만 진행합니다${many && cards.some((x) => x.each) ? `(${partName} 모두 — 등록한 차례대로)` : ""} — 서버에서 진행합니다(창을 닫아도 이어집니다). 앞 단계가 남았으면 진행하지 않고 그 까닭을 알립니다.`,
-                pays ? `유료 LLM — 문서 ${pays}개` : "", R.change === "doc" ? `${each ? `${who}가` : "문서가"} 바뀝니다` : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n") }));
+                pays ? `유료 LLM — 문서 ${pays}개` : "", chg].filter(Boolean).join("\n") }));
         }
         for (const c of cards) {
           if (DASH_FLOW_LLM.has(s.key) && c.per && c.per.doc && c.doc) { // 그 문서의 LLM 검증·보완 — 건너뛰기 · 건너뛰기 취소(사람이 건너뛴 문서에만 「취소」 — LLM 을 못 써서 건너뛴 것은 단추 없음)

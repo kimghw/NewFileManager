@@ -336,6 +336,9 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
 - 2026-11-24 (newfilemanager-8c) 사용자(대시보드 단계 카드의 메모 풍선 「LLM 검증·보완 — 하는 일 · 나오는 것 · 하려면 · 끝난 것으로 보는 때 · 멈추는 때」 를 보이며) **"이거 수정할 수 있도록 해줘,"**
   → 메모 풍선 맨 아래 「고치기」 → 풍선이 폼(글 여섯) · 저장하면 그 워크플로우 그 단계의 화면 설명이 바뀜(이 PC 의 설정 · 등록부의 글 = 기본 글은 그대로) — ② §18-26 · ③ 같은 날. 묻지 않고 정한 것(권장대로)은 그 절 끝줄.
 
+- 2026-11-25 (newfilemanager-e7) 사용자(「양식 작성 ↔ 연차보고서 배포(안) 작성」 UI/UX 대조 검토 결과 — [spec_양식작성.md](spec_양식작성.md) ④ 맨 위 · 요구사항 r202 "워크플로우는 UI 이고 내부 동작같은 경우 같은걸 사용하도록 되어 있거든 일관성이 있어야햐... 가능하면 도구도 공통내용은 같았으면 좋겠어" — 를 붙이며) **"검토하고 필요한 부분 진행해줘"**
+  → 줄 목록으로 조립한 이관형의 「작업 개요」 에 대시보드와 같은 「단계」 절 · 「문서가 바뀝니다」 를 문서 역할마다 · 1단계 「LLM 검증·보완」 설명의 틀린 글 · 같은 도구(양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구)에 고친 이름 · 「도구 공통」 글 · 작성 지침 수의 꼴 — ② §18-27 · ③ 같은 날. 양식 작성 쪽 고침은 그 사양서 ③. 범위와 꼴은 에이전트 판단(사용자 확인 전).
+
 ## ② 확정 사양
 
 ### 1. 등록부 (`app/workflow.py`)
@@ -1758,6 +1761,22 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
   사용자가 고친 글을 등록부의 기본 글로 올리고 싶다고 하면 그때 `app/workflow.py` 의 그 줄을 고치고 만든 글을 다시 만든다.
 - 에이전트 판단(사용자 확인 전 — 권장대로 정함): 도구 이름처럼 이 PC 의 설정에 둔 것(저장소 · 등록부를 고치지 않음) · 단위를 워크플로우 + 줄로 둔 것 · 만든 글 · 에이전트는 기본 글 그대로 둔 것 · 계정(NFM_AUTH)과 무관하게 이 PC 전체에 하나인 것 · 고치는 곳을 메모 풍선 안의 폼으로 둔 것.
 
+#### 18-27. 두 워크플로우가 같이 쓰는 것을 같게 — 작업 개요 · 문서 바뀜 · 같은 도구(2026-11-25 사용자 "워크플로우는 UI 이고 내부 동작같은 경우 같은걸 사용하도록 되어 있거든 일관성이 있어야햐... 가능하면 도구도 공통내용은 같았으면 좋겠어" → "검토하고 필요한 부분 진행해줘")
+
+- **줄 목록으로 조립한 이관형의 「작업 개요」 = 대시보드와 같은 「단계」 절**(`app/static/flow_overview.js` — 같은 양식 취합 포함: `taskIsRelayFlow`). 새로 세지 않는다 — 대시보드의 셈(`dashModel`)과 그리기 함수(`dashGroupsEl` · `dashLiveEl` · `dashEndEl`)를 제 그리기 문맥으로 부르고, 단추는 대시보드의 것 그대로다(서버 쪽 실행기).
+  묶음 머리 「한 번에 진행」 · 「한 문서만」 · 문서 카드의 「이 단계만 진행」 · 보기 단추 · 고르기 칩 · 「이어서 한 번에 N→M단계」 · 진행 줄의 「멈춤」 이 선다. 보이는 동안 1초마다 · 대시보드가 다시 그려질 때 따라간다. 길 찾기 줄도 「준비 + 그 정의의 묶음」 으로 채운다.
+  펼친 카드는 대시보드와 같은 값을 쓴다(두 탭에서 같은 카드가 펴진다). 넣지 않은 것: 맨 아래 「작업 내용 초기화」 줄 · 워크플로우 고르기. 붙박이 이관 · 표준 차례로 조립한 것 · 취합의 작업 개요는 그대로다.
+  **기대는 것**: 대시보드 단추의 초점 이름 `act:files:div` · `act:config:input` · `act:configLoad:open`(그 셋은 이미 「작업 개요」 탭이라 탭 안의 그 자리로 옮긴다 — 이름이 바뀌면 본디 동작 `showTab("Div")` 으로 돌아간다).
+- **「문서가 바뀝니다」 는 문서 역할마다**: 그 줄이 어느 문서를 바꾸는지는 서버 한 곳이 정한다(`workflow_units.changed_roles` ← `changes` · `TIDY_ROLES`) — 상태 `GET …/flow` 의 줄마다 `changes`(역할 목록 · 빈 목록 = 안 바뀜).
+  두 대시보드의 줄 단추 풍선 · 첫 화면의 차례 번호 풍선 · 문서 카드의 「문서 바뀜」 꼬리표가 그것으로 적는다(1단계 「LLM 검증·보완」 의 목적 문서 카드 = 「목적 문서는 바뀌지 않습니다」 · 꼬리표 없음). 서버의 끝 확정 · 묶음의 `change` · 「한 문서만」 은 전부터 역할마다 셌다(실행은 안 바뀜). `changes` 가 없는 응답은 전처럼 등록부 줄의 `change`.
+- **1단계 「LLM 검증·보완」 의 설명**(`workflow._st_review` 의 `again` — 그 줄 뒤에 목적 문서의 「다시 문서 검토(LLM)」 가 있나): 구조 반영이 있는 정의에서 사람이 1단계 LLM 을 목적 문서에도 놓았으면 「…의 헤딩과 표도 여기서 검증하며, 구조를 맞춘 뒤 「다시 문서 검토(LLM)」 에서 LLM 검증·보완을 다시 받습니다」 로 적는다
+  (전에는 「구성 맞추기를 고르지 않은 워크플로우라」 — 옛 꼴(assign)은 그 놓기를 막아 그 가지가 늘 「구성 맞추기 없음」 이었다). 붙박이의 글은 그대로다(만든 글 안 바뀜).
+- **같은 도구 — 등록부의 `twins`**: 틀이 없는 워크플로우의 줄이 다른 틀의 도구와 **같은 도구**(줄 key · 기본 이름이 같고 같은 엔진)면 등록부의 그 워크플로우에 `twins={이 줄 key: (틀, 그 틀의 줄 key)}` 로 적는다 — 지금 양식 작성의 `headsLlm` = 이관형의 `headsLlm`(「LLM 검증·보완」) 하나.
+  ⓐ 고친 도구 이름(§18-19)이 그 줄에도 보인다(`tool_names.twin_names` → `apply` — 등록부 응답 · 실행 층의 정의: 만든 글 · 프롬프트는 기본 이름) ⓑ 그 도구의 「도구 공통」 글(spec_에이전트 ② §6)이 그 워크플로우에서도 **그 도구가 부르는 에이전트에만** 붙는다(`agent_notes.twins` → `_part` — `llm.call` 한 곳 그대로 · 꼬리표 `tool:relay.headsLlm` · 작업 진행 에이전트의 요약에도 · 에이전트 설정 화면의 「덧붙이는 글」 목록에도: `agents._notes`).
+  그 줄에만 있는 에이전트(양식 작성의 writing_guidance)에는 붙이지 않는다 · 기본 이름이 다른 줄(양식 작성의 「헤딩 · 표 분석 · 작성 지침」 ↔ 이관형 「헤딩 · 표 분석」)은 잇지 않는다 · 「이 워크플로우 전용」 칸은 만들지 않는다(틀이 없는 워크플로우에는 조립 화면이 없다). **짝은 등록부 한 곳에만 적는다**(코드에 워크플로우 · 줄 key 를 박지 않는다).
+- **작성 지침 수의 꼴**: 「작성 지침 {지침 수}개 저장(헤딩 a · 표 b[ · 각주 번호 이어짐/전체])」 — 지침 수에 각주 번호 수를 더하지 않는다(공통 상세 `form_guides.js` 와 같은 셈: 서버 끝 글 `workflow_exec._guides_text` · 화면 실행의 끝 글 `app.js` · 양식 작성의 줄 `form_write.js`).
+- 에이전트 판단(사용자 확인 전): 「단계」 절을 대시보드의 그리기로 세운 것 · 펼친 카드를 두 탭이 같이 쓰는 것 · 값을 상태 응답의 줄에 둔 것 · 안 바뀌는 카드의 글 · `twins` 의 이름과 꼴 · 요약(`digest`)에도 싣는 것 · 새 설명 글.
+
 ## ③ 구현 상태
 
 - 2026-11-24 **단계 설명 고치기**(① 같은 날 · ② §18-26 — newfilemanager-8c): `app/step_texts.py` · `app/step_texts_api.py` · `workflow._texted` · `_step` 의 `baseText` · `server.py` include / `panel_help.js` `hHelp` edit · `panelHelpEdit` · `panel_help.css` / `dashboard.js` `dashMemoEl` · `dashMemoEdit` · `dashMemoSave` · `DASH_CTX.job` · `home_dash.js` `HD_CTX.job` /
@@ -2261,8 +2280,17 @@ TASK(할 일) 하나가 **어떤 차례로 무엇을 하는지** — 프로젝�
 - **2026-11-22 — `run_ui_gates.py` 다시 돌리기 · 포트 잠금**(② §12 · ① 같은 날 · newfilemanager-92): `start(name, port, tag)` — 다시 돌리기 = tag `.retry`(폴더 · 로그) · 시작할 때 `STATE`(검사마다의 임시 설정) 비움 · `claim` / `release`(잠금 파일 · 끝날 때와 `atexit` 에 풂) · `free_port` 가 잠금도 본다.
   - 확인(`artifacts/gates_fix_2026-11-22`): 두 실행 + 시간 초과 실행을 같은 첫 포트(18300)로 동시에 → 18300 · 18301 | 18302 | 18303 으로 갈림 · 시간 초과(`--timeout 5`)로 다시 돌리기 → `home.retry` 폴더 · `home.retry.log` 따로, 첫 실행 것 남음 · 끝난 뒤 잠금 풀림.
 - 2026-11-23 **「문서 정리」 의 조립 도구 「캡션 맞추기」**(① 같은 날 — newfilemanager-79 · ② §18-23 「캡션 맞추기」 · 하는 일 = [spec_hwpx_웹편집.md](spec_hwpx_웹편집.md) ② §8-10 「모든 캡션을 한 꼴로」): 단위 `workflow_units.COMMON["capUnify"]`(사실 `captioned` · `SOURCE_FIT`) · 상태 `_cap_unify_of` · 글 `cap_unify_text` · 처리 함수 `workflow_exec._cap_unify_doc`(`HANDLERS` · `FILL_KEYS` · `_fill_need` · `_tidy_materials`) · 문 `unit_steps.cap_unify_view` · `cap_unify` · `cap_form_set` · 끝점 `GET · PUT /api/works/{wid}/flow/caption` · 옵션 `task_options.flow_caption` · 등록부 `_st_clean(more=True)` 의 끝 줄 · 도구 설명 `unit_help.COMMON["capUnify"]` · 시험 `tests/test_workflow_fill.py`(차례 · 울타리 · 끝 글) · `test_unit_help.py`(이관형 고를 줄 20). 대시보드의 꼴 고르기 칩은 ③ 다음 줄.
+- 2026-11-25 **두 워크플로우가 같이 쓰는 것을 같게**(① 같은 날 · ② §18-27 — newfilemanager-e7 · 구현 = Fable 키 에이전트 넷(파일을 나눠 맡김) + 이 세션이 검사): ⓐ 「작업 개요」 의 「단계」 절 — 새 파일 `app/static/flow_overview.js`(`flowOverviewEl` · `flowOverviewDraw` · `fovCtx` · `flowOverviewJourney` · `flowOverviewGo`) ·
+  `app.js` `taskFlowEl`(줄 목록 이관형이면 그 절) · `taskJourneyDraw` · `index.html` script 줄 · `divisions.css` `#divBox .flow-ov …` ⓑ 문서 역할마다의 바뀜 — `workflow_units.changed_roles` · `workflow_exec._commit_docs`(그 함수로 — 동작 같음) · `workflow_state.view` 의 줄 `changes` ·
+  `dashboard.js` `dashFlowLive`(줄 단추 풍선 · 카드의 꼬리표) · `home_dash.js` `hdGoBtn` · `hdCards` ⓒ `workflow._st_review(again=)` · `_assemble_flow` ⓓ 같은 도구 — 등록부 `form_write` 의 `twins` · `tool_names.twin_names` · `apply` · `agent_notes.twins` · `_part` · `digest` · `agents._notes`
+  ⓔ 지침 수 — `workflow_exec._guides_text` · `app.js` `taskRunSteps` 의 끝 글. 만든 글(workflow.md · tasks/)은 안 바뀜(붙박이의 글 그대로 — `tests/test_workflow.py` 통과).
+  검사: pytest 17파일 520 통과(`test_workflow` · `test_workflow_units` · `test_workflow_exec` · `test_tool_names` · `test_agent_notes` 에 새 시험) · 화면 검사 `relay_flow` 47(새 검사 ⑨-2 넷 · ⑩) · `collect` 34(같이 돌 때 한 번 떨어지고 혼자서 통과 — 부하) · `dash` 55 · `home_dash` 67 · `form_write` 91 · `task_run` 62 · `tool_names` 22 · `compose_agents` 37 · `agents` 29 ·
+  `custom_task` 53(목차의 자리 번호로 견주던 검사를 「붙박이의 마지막 바로 뒤」 로 고침 — 붙박이 「양식 작성」 이 늘어 전부터 떨어지던 것) · `spec_check` 통과. 서버 코드가 바뀌어 8114 를 다시 켜야 닿는다(정적 파일은 새로 고침).
 
 ## ④ 미결/후속
+- (2026-11-25 — ② §18-27 에서 남긴 것) ⓐ 「작업 개요」 의 「단계」 절은 `dashFlowRead` · `dashTakeRead` · `dashCapRead` 가 대시보드가 보일 때만 다시 그리는 것을 `MutationObserver` 로 따라간다(그쪽이 「그렸다」 알림을 내주면 뺄 수 있다) ·
+  ⓑ 조립 화면의 「도구 설명」 · 「에이전트」 열과 이름 PUT 응답의 `also` 는 `twins` 를 모른다(「양식 작성의 같은 줄에도 닿는다」 표시 없음) ⓒ 묶음 머리 「한 번에 진행」 · 「이어서 한 번에」 의 「문서가 바뀝니다」 는 어느 문서인지 적지 않는다(줄의 `changes` 를 모으면 된다)
+  ⓓ v2 정의의 글에서 눈에 띈 것(안 고침): 구조 반영을 원본 문서에만 놓아도 `fit` 으로 읽힘 · 「헤딩 · 표 분석」 은 한 문서 · 「LLM 검증·보완」 은 두 문서에 놓으면 글은 한 문서 것 · 구조 반영이 없는 목적 문서만의 LLM 글이 없는 「다시 문서 검토(LLM)」 를 가리킴 · `_relay_entry` 는 `frame` 만 봄.
 - (2026-11-22 — ② §18-24 「한 번에 진행 뒤 고친 문단 확정」: 안 한 것 · 알아 둘 것) ⓐ 끄는 스위치 `NFM_FLOW_EXEC=client` 일 때 화면이 도는 이관 · 취합의 「한 번에 진행」(`taskRunAll` · `gatherRunAll`)은 끝에 확정하지 않는다 ·
   ⓑ 「이 확정으로 복원」 뒤에도 작업 폴더의 기록으로 세는 「문서 정리」 의 끝남이 「끝남」 으로 남던 것 — **넣은 뒤 정리는 풂**(2026-11-22 교차 검토 · [spec_병합.md](spec_병합.md) ② §5-9 10 「다시 반영 · 복원」:
   정리 전에 만든 확정으로 복원 · 모두 되돌리기 · 정리 편집의 실행 취소면 `retidy.json` 의 applied 를 내려 줄이 다시 「할 차례」 — 이관 · 취합 같이. 전에 적은 「「내용 넣기」 를 다시 하면 풀린다」 는 넣은 뒤 정리에는 틀렸다:

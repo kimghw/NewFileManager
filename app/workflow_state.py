@@ -237,7 +237,8 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
     """지금 상태 → {job, sig, docs{target, source}, ready, why, stages[{id, no, name, does, server, steps[…] | None, total, done, left, can, why, paid[문서 id], change}]}.
     facts = {문서 id: unit_steps.facts 의 값 | None(못 읽음)}(need 의 역할 문서) · llm = LLM 을 쓸 수 있나(None = 모름) · skip = 건너뛴 문서 id 들 ·
     running = 도는 실행의 「지금 줄」({stage, key} | None — 그 줄을 「진행 중」 으로) · 문서마다 따로 도는 실행이 둘이면 그 목록(② §18-22).
-    묶음마다 lane(그 묶음을 도는 실행이 쓰는 문서 — source | target | "" 두 문서: lane_of) · wait(첫 남은 줄이 구성 값을 기다리는 까닭 | "") · 줄마다 wait?(그 줄이 기다릴 까닭 — _config_wait).
+    묶음마다 lane(그 묶음을 도는 실행이 쓰는 문서 — source | target | "" 두 문서: lane_of) · wait(첫 남은 줄이 구성 값을 기다리는 까닭 | "") · 줄마다 wait?(그 줄이 기다릴 까닭 — _config_wait) ·
+    줄마다 changes(그 줄이 바꾸는 문서 역할들 — workflow_units.changed_roles: 묶음의 change · solo 의 change 와 같은 규칙을 줄 · 문서마다로).
     단계의 st = done · now(그 묶음의 첫 남은 줄) · todo · run(도는 중) · blocked · failed, skipped = 「건너뜀」 으로 끝남. 끝난 수 = 필수 줄만(준비 · 선택 줄은 빼고 — 대시보드의 셈과 같다)."""
     fam, (ok, _lack, why) = family(task), ready(task, pair)
     ctx0 = context(task, pair, facts, llm=llm, skip=skip)
@@ -272,6 +273,7 @@ def view(task, pair, facts, *, llm=None, skip=(), running=None):
                 steps.append({"key": s["key"], "name": s["name"], "on": s["on"], "optional": s["optional"], "st": st, "done": done, "skipped": bool(got.get("skipped")), "busy": got["st"] == "busy",
                               "text": got.get("text") or "", **({"per": got["per"]} if got.get("per") else {}), **({"paid": got["paid"]} if got.get("paid") else {}),
                               "kind": (u or {}).get("kind") or "",   # 그 줄을 누가 하나(auto 실행기가 한다 · pick 사람이 고르는 줄 — 실행기는 지나감 · hand 사람이 하고 「했음」) — 화면이 「이 단계만 진행」 을 둘 줄을 이것으로 가른다
+                              "changes": list(U.changed_roles(u, roles_on(task, on))),   # 이 줄이 바꾸는 문서 역할들(원본 → 목적 차례 · 빈 목록 = 문서를 안 바꾼다) — 화면의 줄 · 문서 카드 단추가 「○○ 문서가 바뀝니다」 를 이것으로 적는다(1단계 「LLM 검증·보완」 의 목적 문서는 안 바뀐다 — 끝 확정의 대상과 같은 셈: workflow_units.changed_roles)
                               **({"wait": wait} if wait else {}),   # 이 줄이 기다릴 까닭(구성 값이 아직 확정되지 않음) — 화면은 그 줄의 실행 단추를 끄고 이 글을 보인다 · 시작 요청은 거절(needs)
                               **({"beside": True} if s.get("beside") else {})})   # 앞 줄과 같은 차례(조립한 정의의 같은 행 — 화면이 한 차례로 묶어 보인다)
             work = [x for x in steps if x["key"] != "files" and not x["optional"]]   # 세는 줄 — 준비 · 선택 줄은 뺀다

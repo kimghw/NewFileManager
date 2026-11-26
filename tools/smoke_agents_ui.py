@@ -138,7 +138,7 @@ def main():
               st["path"] == "/agents" and st["title"].startswith("에이전트 설정") and st["h1"] == "에이전트 설정"
               and st["note"] == f"에이전트 {len(ordered)}개" and st["llm"] == "LLM 꺼짐" and st["wf"] == "/workflow" and not st["over"], st)
         check("전체 보기 — 등록부의 묶음과 작업 번호 차례 · 쓰는 곳 · 역할 · 모델 · 네 칸 배치",
-              len(st["groups"]) == len(agents["groups"]) and st["groups"][0] == "헤딩 추출 6"
+              len(st["groups"]) == len(agents["groups"]) and st["groups"][0] == f"헤딩 추출 {sum(1 for a in agents['agents'] if a['group'] == '헤딩 추출')}"   # 수는 등록부에서 셈(2026-11-26 — 27 구간 검증이 그 묶음에 듦)
               and st["nos"] == [a["no"] for a in ordered] and st["full"] and "레터 규칙식 제안" in st["first"] and "pin" in st["pin"] and st["cols"], st)
         check("목차 — 전체 보기 · 실행 기록 · 등록된 에이전트의 주소",
               st["nav"] == ["#overview", "#runs"] + ["#" + a["id"] for a in ordered]

@@ -129,6 +129,48 @@ def test_view_of_the_built_in_relay():
     assert [s["st"] for s in live["steps"]] == ["done", "done", "run"]
 
 
+def test_changed_roles_say_which_document_a_line_changes():
+    """줄이 바꾸는 문서 역할(changed_roles — 끝 확정의 대상 · 상태의 줄마다 changes 가 같이 읽는 한 곳): 1단계 「LLM 검증·보완」 은 원본 문서만(TIDY_ROLES — 목적 문서의 서식 정리는 2단계) ·
+    2단계 「다시 문서 검토(LLM)」 는 그 줄의 문서 · 저장만 하는 줄은 없음 · 원본 → 목적 줄은 목적 문서."""
+    llm, re, heads, division = (U.unit(k) for k in ("headsLlm", "reheadsLlm", "heads", "division"))
+    assert U.changed_roles(llm, U.ROLES) == ("source",) and U.changed_roles(llm, ("source",)) == ("source",) and U.changed_roles(llm, ("target",)) == ()
+    assert U.changed_roles(re, U.ROLES) == U.ROLES and U.changed_roles(re, ("target",)) == ("target",)
+    assert U.changed_roles(heads, U.ROLES) == () and U.changed_roles(None, U.ROLES) == ()   # 저장만(change store) · 단위 없음
+    assert U.changed_roles(division, ("target", "source")) == U.ROLES and U.changed_roles(division, ("target",)) == ("target",)   # 차례는 늘 원본 → 목적
+    pair = next(u for u in U.RELAY.values() if u["place"] == "pair" and u["change"] == "doc")
+    assert U.changed_roles(pair, U.ROLES) == ("target",)   # 원본 → 목적 줄 — 받는 쪽만 바뀐다
+    assert all(U.changed_roles(u, U.ROLES) == () for u in {**U.COMMON, **U.RELAY}.values() if u["change"] != "doc")
+
+
+def test_view_tells_per_line_which_documents_change():
+    """상태의 줄마다 changes — 화면(문서 카드의 「이 단계만 진행」 풍선 · 카드의 「문서 바뀜」 꼬리표)이 줄 key 로 다시 세지 않고 이것으로 적는다.
+    1단계 「LLM 검증·보완」 을 두 문서에 놓은 정의(조립한 이관형 — 원본 · 목적 카드 둘): 원본 문서만 바뀐다 → 목적 문서 카드는 「목적 문서는 바뀌지 않습니다」 · 「목적 문서만」 도 안 바뀜(solo) · 묶음은 바뀜(원본 문서)."""
+    import copy
+    base = S.definition("plan_to_report")
+    v = S.view(base, PAIR, {"a": _facts("a", True), "b": _facts("b", True)}, llm=True)
+    by = {s["key"]: s["changes"] for g in v["stages"] for s in g["steps"] or ()}
+    assert by["files"] == [] and by["heads"] == [] and by["headsLlm"] == ["source"] and by["config"] == [] and by["division"] == ["target"] and by["reheads"] == [] and by["reheadsLlm"] == ["target"], by
+    for g in base["stages"]:   # 모든 줄 — 단위의 규칙 그대로(문서를 안 바꾸는 줄은 빈 목록 · 원본 → 목적 줄은 목적 문서)
+        for s in g["steps"]:
+            if not s["soon"]:
+                assert by[s["key"]] == list(U.changed_roles(U.unit(s["key"], "relay"), S.roles_on(base, s["on"]))), s["key"]
+    task = copy.deepcopy(base)
+    for s in task["stages"][0]["steps"]:
+        if s["key"] in ("heads", "headsLlm"):
+            s["on"] = "both"
+    review = S.view(task, PAIR, {"a": _facts("a", True), "b": _facts("b", True)}, llm=True)["stages"][0]
+    line = next(s for s in review["steps"] if s["key"] == "headsLlm")
+    assert line["changes"] == ["source"] and {p["role"] for p in line["per"]} == {"source", "target"}   # 두 문서에 하는 줄 — 바뀌는 것은 원본 문서뿐
+    solo = {x["role"]: x["change"] for x in review["solo"]}
+    assert solo == {"source": True, "target": False} and review["change"] is True
+    only = copy.deepcopy(base)
+    for s in only["stages"][0]["steps"]:
+        if s["key"] == "headsLlm":
+            s["on"] = "target"
+    alone = S.view(only, PAIR, {"a": _facts("a", True), "b": _facts("b", True)}, llm=True)["stages"][0]
+    assert next(s for s in alone["steps"] if s["key"] == "headsLlm")["changes"] == [] and alone["change"] is False   # 목적 문서에만 놓은 1단계 LLM 줄 — 어느 문서도 안 바뀐다
+
+
 def test_view_without_a_document_slot_is_not_ready():
     task = S.definition("plan_to_report")
     v = S.view(task, {**PAIR, "source": None}, {}, llm=True)

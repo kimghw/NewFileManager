@@ -18,14 +18,18 @@
 .sheet > .pg-btn.caret { color: var(--muted, #667085); background: rgba(255, 255, 255, .85); border-style: dashed; opacity: .8; font-weight: 400; }
 .sheet > .pg-btn.caret:hover, .sheet > .pg-btn.caret.on { opacity: 1; color: var(--accent, #2458d6); border-color: var(--accent, #2458d6); }
 .hide-pages .pg-btn { display: none; }
-@media print { .sheet > .pg-btn { display: none; } }
+/* 열에 연 줄 · 헤딩 — 문서의 그 줄(place_guides.js pgHereSync: 열이 열려 있는 동안만). 글쓰기 자리의 줄(.para:focus — 실선 테)과 가르게 점선 테 · 배치는 안 바꾼다(outline). 빈 줄도 한 줄 높이로 보인다 */
+#doc .para.pg-here { outline: 1.5px dashed var(--accent, #2458d6); outline-offset: 1px; background-color: rgba(36, 88, 214, .07); }
+@media print { .sheet > .pg-btn { display: none; } #doc .para.pg-here { outline: 0; background-color: transparent; } }
 
 /* 2열 「작성 지침 — 이 자리」(kind placeGuides) — 절 넷: 문서의 작성 지침 · 내가 적은 지침 · 양식의 매칭 지침 · 누가 읽나 */
 #headsDlg[data-kind="placeGuides"] > header { align-items: flex-start; gap: 6px; padding: 9px 12px; }
 #headsDlg[data-kind="placeGuides"] > header > .spacer { display: none; }
 #headsDlg[data-kind="placeGuides"] .hd-heading-copy { flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 #headsDlg[data-kind="placeGuides"] #headsDlgTitle { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text); }
-#headsDlg[data-kind="placeGuides"] #headsDlgNote { max-width: 100%; font-size: 12px; line-height: 1.35; color: var(--muted); }
+#headsDlg[data-kind="placeGuides"] #headsDlgNote { max-width: 100%; font-size: 12px; line-height: 1.35; color: var(--muted); white-space: normal; word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; } /* 어느 줄인가(쪽 · 상자 › 「…」 아래 · 줄) — 세 줄까지 접어 보인다(전체는 풍선 도움말) */
+#headsDlg[data-kind="placeGuides"] #headsDlgNote .pg-where-line { font-weight: 700; color: var(--text, #1c2330); }
 #headsDlg[data-kind="placeGuides"] #headsDlgTools { padding: 6px 12px; gap: 6px; }
 #headsDlg[data-kind="placeGuides"] #headsDlgTools .pg-tbtn { height: 28px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
 #headsDlg[data-kind="placeGuides"] #headsDlgTools .pg-total { margin-left: auto; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -114,8 +118,45 @@
 .pg-layers { display: flex; flex-direction: column; gap: 8px; }
 .pg-layer .pg-sec-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pg-layer .pg-h { flex: 1 1 auto; min-width: 0; }
+.pg-layer .pg-lcnt { font-size: 11.5px; font-weight: 400; color: var(--muted, #5d6675); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pg-ltag { flex: none; font-size: 10.5px; padding: 0 6px; border-radius: 9px; background: #eef2f8; color: #4a5a74; border: 1px solid #d5dde9; }
 .pg-layer-line .pg-ltag { background: #eef3ff; color: #1c3f94; border-color: #9fb8e6; }
 .pg-layer-up .pg-ltag { background: #f3f0ff; color: #5b3fb0; border-color: #d2c6f5; }
 .pg-layer.is-empty .pg-empty { margin: 2px 0 0; }
 .pg-sec-up .pg-layers { margin-top: 6px; }
+
+/* 출처 꼬리표 · 「끄기」 · 「이 작업에서 끈 지침」(place_guides.js — spec_양식작성 ② §5-9) + 「지침 검토 · 수정」 열의 고침 줄(form_write.js fwGuideFixOpen) */
+.pg-item .pg-off-btn { margin-left: auto; }
+.pg-item.is-off .pg-body { color: var(--muted); text-decoration: line-through; }
+.pg-item.pg-src-rule > .pg-item-head > .pg-kind { border-color: #c2410c; color: #9a3412; }
+.pg-item.pg-src-purpose > .pg-item-head > .pg-kind { border-color: #1d4ed8; color: #1e40af; }
+.fwx-fix .fwx-old, .fwx-fix .fwx-new { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fwx-fix .fwx-old { color: var(--muted); }
+.fwx-fix .fwx-why { margin-top: 4px; font-size: 12px; }
+/* 양식 지침 YAML — 2열 kind formGuide · 층의 「예시 더하기」(form_guide_yaml.js — spec_양식작성 ② §5-8 · design.md §32) */
+.fgy-total { font-size: 11.5px; }
+.fgy-here { margin: 0 0 6px; }
+.fgy-warn, .fgy-warnline { color: var(--warn, #9a5b00); }
+.fgy-sec { margin-top: 10px; }
+.fgy-list { display: flex; flex-direction: column; gap: 6px; }
+.fgy-item { min-width: 0; font-size: 12.5px; line-height: 1.5; }
+.fgy-item.is-saved { opacity: .62; }
+.fgy-cand-row { display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; }
+.fgy-cand-row input { flex: none; margin: 0; }
+.fgy-tag { flex: none; font-size: 11px; }
+.fgy-where { min-width: 0; font-size: 11.5px; color: var(--muted, #5d6675); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgy-text { min-width: 0; padding-left: 22px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; }
+.fgy-item:not(.fgy-cand) .fgy-text { padding-left: 6px; }
+.fgy-item:not(.fgy-cand) { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.fgy-note, .fgy-warnline { padding-left: 22px; font-size: 11.5px; }
+.fgy-tools { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+.fgy-lost > summary { cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.fgy-yaml, .fgy-ex-ta { display: block; width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); color: var(--text);
+  font: 12px/1.5 var(--mono, ui-monospace, Consolas, monospace); resize: vertical; }
+.fgy-ex { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; padding: 8px; border: 1px dashed var(--line); border-radius: 4px; }
+.fgy-ex-ta { font-family: inherit; font-size: 12.5px; }
+.fgy-ex-note, .fgy-ex-band { width: 100%; box-sizing: border-box; font-size: 12px; }
+.fgy-col .fgy-here, .fgy-col .fgy-warn { margin: 0; }
+.fgy-yaml-sec { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.fgy-yaml-sec .fgy-yaml { align-self: stretch; }
+.fgy-yaml-sec .fgy-tools { align-self: stretch; }

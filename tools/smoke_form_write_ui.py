@@ -48,7 +48,8 @@ FORM = ROOT / "samples" / "연구개발계획서_양식.hwpx"   # 작성 요령�
 common = {**os.environ, "PYTHONUTF8": "1", "NFM_PDF": "off", "NFM_DOCLIB": str(tmp / "doclib"), "NFM_DOCLIB_LLM": "off"}
 env = {**common, "NFM_LLM_BACKEND": "off", "NFM_WORKS": str(tmp / "works"), "NFM_RENDER": str(tmp / "render"), "NFM_HEADINGS": str(tmp / "headings"), "NFM_FORMS": str(tmp / "forms"),
        "NFM_DIVISION_PRESETS": str(tmp / "presets.json"), "NFM_STYLES": str(tmp / "styles"), "NFM_AGENTS": str(tmp / "agents.json"), "NFM_TASKS": str(tmp / "tasks.json"), "NFM_FORM_FILES": str(tmp / "form_files"),
-       "NFM_AGENT_NOTES": str(tmp / "agent_notes.json"), "NFM_TOOL_NAMES": str(tmp / "tool_names.json"), "NFM_REQS": str(tmp / "reqs.json"), "NFM_DOCLIB_URL": lib}
+       "NFM_AGENT_NOTES": str(tmp / "agent_notes.json"), "NFM_TOOL_NAMES": str(tmp / "tool_names.json"), "NFM_REQS": str(tmp / "reqs.json"), "NFM_DOCLIB_URL": lib,
+       "NFM_FORM_THEMES": str(tmp / "form_themes")}   # 양식 테마의 이 PC 사본(② §5-7) — 혼자 돌릴 때도 사용자의 테마 파일을 읽지 않게
 for k in ("NFM_LLM_MODEL_FORCE", "NFM_LLM_MODEL", "NFM_DOCLIB_PORT"):
     env.pop(k, None)
 errors, fails = [], []
@@ -186,16 +187,21 @@ def check_guidance_inputs(page, doc):
         page.on("request", watch)
         try:
             with page.expect_response(base + "/api/agents/writing_guidance") as response:
-                card.get_by_role("button", name="검증·보완 지침 보기", exact=True).click()
+                card.get_by_role("button", name="추출 프롬프트 보기", exact=True).click()
             parts = response.value.json()["prompt"]
             expected = next(p["text"] for p in parts if p["kind"] == "merge" and p["name"] == "writing_guidance")
             contract = next(p["text"] for p in parts if p["kind"] == "contract")
             text = page.locator("#headsDlgBody details[data-part='guide'][open] .lg-text")
             text.wait_for()
-            check(f"② 04 {phase}에 검증·보완 지침 원문을 펼쳐 본다",
+            check(f"② 04 {phase}에 추출 프롬프트 원문을 펼쳐 본다",
                   response.value.request.method == "GET" and "각주" in expected and "그림" in expected
                   and text.text_content() == expected and page.locator("#headsDlgBody details[data-part='contract'] .lg-text").text_content() == contract
                   and "아직 실행한 적 없음" not in page.locator("#headsDlgBody").inner_text())
+            themes = page.locator("#headsDlgBody .fw-themes details.fw-th")   # 미리 적어 둔 테마(테이블 타입 · 구분 기준 타입 · 템플릿 — ② §5-7): 읽기만(GET)
+            themes.first.wait_for(state="attached")
+            shown = page.locator("#headsDlgBody .fw-themes").text_content()
+            check(f"② 04 {phase}에 추출 프롬프트 열이 미리 적어 둔 테마를 보인다",
+                  themes.count() >= 2 and all(w in shown for w in ("연구개발과제", "참여기관", "연구개발계획서 기본", "본문 테이블", "헤딩 테이블", "그림 테이블", "YAML 고치기")), shown[:200])
             if phase == "실행 중":
                 page.screenshot(path=str(OUT / "02b_04_review_guide.png"))
             page.locator("#headsDlgClose").click()
@@ -234,7 +240,7 @@ def check_guidance_inputs(page, doc):
         guide_actions = page.evaluate("async () => (await formWriteLive()).steps.guides.acts.map(b => b.textContent)")
         check("② 04 판정 후 05를 승인하지 않아도 06으로 진행한다",
               steps["guides"]["state"] == "done" and steps["review"]["state"] == "now"
-              and "지침 보기 · 적기" in guide_actions and "확인함" not in guide_actions)
+              and "작성 지침 보기 · 적기" in guide_actions and "확인함" not in guide_actions)
     finally:
         for path in paths:
             page.unroute(path)
@@ -478,7 +484,7 @@ def main():
             page.evaluate("() => { document.activeElement && document.activeElement.blur(); FW.at = Date.now(); }")
             dl = page.evaluate(LIVE)
             check("④-2 대시보드 — 「양식 검토 · 찾을 테마」 끝남(찾을 테마 10개) · 「테마 · 키워드 보기」(작성 지침 확인 줄에도) · 「작성 계획 · 확인할 것」 끝남", dl["review"]["state"] == "done" and "찾을 테마 10개" in dl["review"]["text"]
-                  and dl["review"]["acts"] == [["테마 · 키워드 보기", False]] and [a[0] for a in dl["guides"]["acts"]] == ["지침 보기 · 적기", "테마 · 키워드 보기", "건너뛰기 취소"]   # 「건너뛰기 취소」 — ② 에서 04 를 건너뛰었다
+                  and dl["review"]["acts"] == [["테마 · 키워드 보기", False]] and [a[0] for a in dl["guides"]["acts"]] == ["작성 지침 보기 · 적기", "테마 · 키워드 보기", "건너뛰기 취소"]   # 「건너뛰기 취소」 — ② 에서 04 를 건너뛰었다
                   and dl["plan"]["state"] == "done" and "확인할 것 1개 모두 답함" in dl["plan"]["text"], {k: dl[k] for k in ("guides", "review", "plan")})
             # ④-3 「지침 보기 · 적기」(2026-11-24 사용자 「지침작성 자리가 맞냐?」) — 「채울 자리」 로 굴리고 지침을 펼치며 헤딩 자리에서 바로 적는다(PUT …/place-guides/heads · 비우면 지움)
             page.evaluate("() => fwWriteOpen('guides')")
@@ -771,6 +777,41 @@ def main():
                   ov["tab"] and ov["tool"] == "Div" and ov["first"] and not ov["file"] and ov["docs"] and [s[0] for s in ov["stages"]] == ["open", "material", "write"] and all(s[2] for s in ov["stages"])
                   and "heads" in ov["stages"][0][1] and ov["chain"] and ov["chain"][0].startswith("전체 실행") and "is-done" in ov["heads"], ov)
             page.locator("#paneDiv").screenshot(path=str(OUT / "08d_overview.png"))
+            # ⑥-3′ 「작업 개요」 에서 누른 「N단계 초기화」 — 확인 줄이 그 탭(누른 화면)에 선다(2026-11-25 r202: 전에는 대시보드만 다시 그려 숨은 대시보드에만 떴다) · 접힌 묶음이면 펴서 보인다 · 「취소」 · 초기화 끝도 그 탭에 바로
+            OVB = '#divBox .fw-ov-stage[data-stage=write] summary [data-dash-focus="fwreset:write"]'
+            for _ in range(60):   # 도는 일이 끝나 단추가 켜질 때까지(작업 개요는 열려 있을 때만 다시 그려진다 — 한 번씩 다시 그려 본다)
+                if page.evaluate("(q) => { const b = document.querySelector(q); return !!b && !b.disabled; }", OVB):
+                    break
+                page.evaluate("() => fwOverviewDraw()")
+                page.wait_for_timeout(1000)
+            OVR = """() => { const b = document.querySelector('#divBox .dash-reset[data-fw-reset]'), d = b && b.closest('.fw-ov-stage');
+              return { tool: document.getElementById('panel').dataset.tool, box: b ? { st: b.dataset.fwReset, under: d ? d.dataset.stage : '', open: !!(d && d.open), seen: b.offsetHeight > 0,
+                head: b.querySelector('.dash-reset-head').textContent, help: !!b.querySelector('.dash-reset-head .panel-help'),
+                acts: [...b.querySelectorAll('.dash-reset-acts button')].map((x) => [x.dataset.dashFocus, x.textContent, x.disabled]) } : null }; }"""
+            page.locator(OVB).click()
+            page.wait_for_selector('#divBox .fw-ov-stage[data-stage=write] .dash-reset[data-fw-reset=write]', state="visible", timeout=20000)
+            o1 = page.evaluate(OVR)
+            check("⑥-3′ 「작업 개요」 에서 「3단계 초기화」 를 누르면 그 탭의 그 묶음 아래에 확인 줄이 선다(묶음이 펴짐 · 단추는 「3단계 초기화」 · 「취소」 둘뿐) — 누르기 전에는 안 바뀜",
+                  o1["tool"] == "Div" and o1["box"] and o1["box"]["under"] == "write" and o1["box"]["open"] and o1["box"]["seen"] and o1["box"]["help"] and o1["box"]["head"].startswith("3단계 「작성」 초기화 — ")
+                  and o1["box"]["acts"] == [["fwreset:write:go", "3단계 초기화", False], ["fwreset:close", "취소", False]] and mats_n() == 1, o1)
+            page.locator("#paneDiv").screenshot(path=str(OUT / "08e_overview_reset.png"))
+            page.locator('#divBox [data-dash-focus="fwreset:close"]').click()
+            page.wait_for_function("() => !document.querySelector('#divBox .dash-reset[data-fw-reset]')", timeout=20000)
+            page.locator(OVB).click()
+            page.wait_for_selector('#divBox [data-dash-focus="fwreset:write:go"]:not([disabled])', timeout=20000)
+            page.locator('#divBox [data-dash-focus="fwreset:write:go"]').click()
+            page.wait_for_function("""() => /3단계 「작성」 초기화 — 초안/.test(document.getElementById('toast').textContent) && !document.querySelector('#divBox .dash-reset[data-fw-reset]')
+              && !!document.querySelector('#divBox .fw-ov-stage[data-stage=write] summary [data-dash-focus="fwreset:write"]') && !FW.rsBusy""", timeout=120000)
+            o2 = page.evaluate(OVR)
+            check("⑥-3′ 「작업 개요」 의 「취소」 는 확인 줄을 닫고, 「3단계 초기화」 는 끝난 뒤 그 탭에 머문 채 확인 줄이 걷힌다(자료는 그대로)", o2["tool"] == "Div" and not o2["box"] and mats_n() == 1, o2)
+            # 작성 지침 수의 꼴 — n = 지침(items)만 · 각주 번호는 괄호 안에 따로(공통 상세 form_guides.js · 이관의 「작성 지침 n개 저장」 과 같은 셈 — 2026-11-25 r202: 전에는 지침 + 각주 번호를 더해 보였다)
+            GC = """(c) => { const keep = FW.fg; FW.fg = { saved: { counts: c } }; try { return fwHeadsStep({ view: {}, hwpx: true, base: true }).text; } finally { FW.fg = keep; } }"""
+            g1 = page.evaluate(GC, {"items": 3, "marks": 2, "marksLinked": 1, "headings": 2, "tables": 1})
+            g2 = page.evaluate(GC, {"items": 0, "marks": 0, "marksLinked": 0, "headings": 0, "tables": 0})
+            g3 = page.evaluate(GC, {"items": 0, "marks": 2, "marksLinked": 0, "headings": 0, "tables": 0})
+            check("「헤딩 · 표 분석 · 작성 지침」 줄의 지침 수 — 「작성 지침 {지침}개 저장(헤딩 · 표 · 각주 번호 이어짐/전체)」: 각주 번호를 지침 수에 더하지 않는다 · 지침도 각주 번호도 없을 때만 「양식에 적힌 지침이 없습니다」",
+                  "작성 지침 3개 저장(헤딩 2 · 표 1 · 각주 번호 1/2)" in g1 and "없습니다" not in g1 and "작성 지침 0개 저장(헤딩 0 · 표 0)" in g2 and "양식에 적힌 지침이 없습니다" in g2
+                  and "작성 지침 0개 저장(헤딩 0 · 표 0 · 각주 번호 0/2)" in g3 and "없습니다" not in g3, (g1, g2, g3))
             page.evaluate("() => { showTab('Dash'); }")
             page.wait_for_selector('#paneDash [data-dash-focus="fwreset:material"]:not([disabled])', timeout=120000)
             page.locator('#paneDash [data-dash-focus="fwreset:material"]').click()

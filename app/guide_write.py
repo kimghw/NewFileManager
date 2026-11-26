@@ -13,6 +13,7 @@ from app.headings import iter_blocks
 TEXT_MAX = 3800          # 요청 글(doc_agent.TEXT_MAX 4,000 안쪽)
 GUIDE_MAX = 2400         # 요청 글에 싣는 그 자리의 지침(합쳐)
 NOTE_MAX = 1000          # 이번 실행에 사람이 적는 지침
+THEME_MAX = 400          # 요청 글에 싣는 문서의 테마 · 중요 항목 · 개요 템플릿(04 가 밝힌 것 — 자리가 남을 때만)
 PLACES_MAX = 40          # 한 번에 돌리는 자리 수
 HEAD_TEXT = 160
 
@@ -94,6 +95,7 @@ def chunk_paras(box, keys=None):
     return out
 
 
+DOC_SEND = 1200   # 초안 요청 하나에 싣는 「문서 전체에 닿는 지침」 의 글자 수(spec_양식작성 ② §5-9)
 WRITABLE = ("blank", "stub", "label", "check")   # v1 — 붙이기 · 표시만(양식에 있던 글을 바꾸는 줄은 내지 않는다: astra 2차 G4)
 
 
@@ -115,6 +117,7 @@ def places(blocks, graph, ix, orig=None):
         filled = any(b.get("type") == "paragraph" and b["id"] not in examples and (b.get("text") or "").strip() for b in seq)
         guides = [dict(g) for g in ix["heads"].get(pid) or ()]
         rows.append((i, {"id": pid, "kind": "head", "text": _one(by_id[pid].get("text")), "depth": depth, "guides": guides, "n": len(guides), "user": any(g.get("src") == "user" for g in guides),
+                         "examples": list((ix.get("examples") or {}).get(pid) or ()),   # 양식 지침의 작성 예시(spec_양식작성 ② §5-8 — 초안 요청만 읽는다)
                          "filled": filled, "tables": [b["id"] for b in seq if b.get("type") == "table" and b["id"] not in bx and b["id"] not in examples and not _sample(b)], "slot": FS.line_slot(by_id[pid], (orig or {}).get(pid) if orig is not None else None),
                          "boxed": any(b["id"] in bx for b in seq), "fp": by_id[pid].get("text") or ""}))
     find = PG.heading_finder(blocks, graph)
@@ -129,6 +132,7 @@ def places(blocks, graph, ix, orig=None):
         guides = [dict(g) for t in (tid, *box["inner"]) for g in tabs.get(t) or ()]
         name = next((c["head"]["raw"].strip() for c in box["chunks"]), "") or "상자"
         rows.append((box["at"] + 0.5, {"id": tid, "kind": "box", "text": _one(name, 80), "depth": None, "guides": guides, "n": len(guides), "user": any(g.get("src") == "user" for g in guides),
+                                       "examples": [e for t in (tid, *box["inner"]) for e in (ix.get("examples") or {}).get(t) or ()],
                                        "filled": False, "head": find(tid), "top": True, "slots": len(chunk_paras(box, [v["key"] for v in chunk_views(box)])), "chunks": chunk_views(box),
                                        "fp": [[e.get("id"), e["kind"], e.get("raw", ""), e.get("level")] for e in box["entries"]]}))
     for tid, guides in tabs.items():
@@ -139,15 +143,24 @@ def places(blocks, graph, ix, orig=None):
         b = next((x for x in iter_blocks([host]) if x["id"] == tid), host)
         guides = [dict(g) for g in guides]
         rows.append((k + 0.5, {"id": tid, "kind": "table", "text": _table_name(b), "depth": None, "guides": guides, "n": len(guides), "user": any(g.get("src") == "user" for g in guides),
+                               "examples": list((ix.get("examples") or {}).get(tid) or ()),
                                "filled": False, "head": find(host["id"]), "top": tid in pos}))
+    # 조립은 이관 3단계와 같은 함수로(place_guides.resolver — spec_양식작성 ② §5-9 「같은 결과를 읽는다」): 그 자리의 것(`guides` — 전과 같다: 검토 · 지문 · 화면의 수가 이것을 센다) 말고
+    # 표 구조 · 윗 절의 지침이 `up` 에(초안 요청이 함께 싣는다 — 전에는 양식 작성 초안에 윗 절 · 표 구조 지침이 가지 않았다), 문서 전체에 닿는 것(규정 · 문서 목적 · 일반 가이드라인)은 `docGuides` 에(요청에 한 번).
+    at = PG.resolver(ix, blocks, graph)
+    doc = list(ix.get("doc") or ())
     for _, p in sorted(rows, key=lambda r: r[0]):
+        mine = {PG.fp(g) for g in p["guides"]}
+        p["up"] = [dict(g) for g in at("table" if p["kind"] in ("table", "box") else "block", p["id"]) if PG.fp(g) not in mine]
+        if doc:
+            p["docGuides"] = doc
         out.append(p)
     return out
 
 
 def guides_text(guides, limit=GUIDE_MAX):
     """그 자리의 지침들 → 요청 글에 싣는 줄들(사람의 것이 앞 · 합쳐 limit 자까지)."""
-    guides = sorted(guides or (), key=lambda g: g.get("src") != "user")
+    guides = sorted(guides or (), key=PG.rank)   # 출처 순위(사람 › 규정(필수) › 문서 목적 › 양식 명시 › 양식 지침 › 규정(권고) › 04 — place_guides.RANK): 자를 때도 같은 순위로 빠진다
     llm_rules = [g for g in guides if g.get("src") == "llm"]
     if llm_rules:
         # 긴 양식 안내와 사람 지침이 있을 때도 본보기에서 추출한 지침의 몫을 둔다.
@@ -160,9 +173,13 @@ def guides_text(guides, limit=GUIDE_MAX):
         packed, _ = PG.pack(guides, limit=limit)
     lines = []
     for g in packed:
-        who = {"user": "사람", "llm": "04 자동 판정"}.get(g.get("src"), "양식")
-        kind = f" · {g['kind']}" if g.get("kind") and g.get("src") != "user" else ""
-        lines.append(f"- ({who}{kind}) {' '.join((g.get('text') or '').split())}")
+        if g.get("src") in ("rule", "purpose"):   # 규정(필수 · 권고 · 출처 · 적용 조건) · 문서 목적 — 출처 꼬리표를 그대로(② §5-9)
+            lines.append(f"- ({PG.tag(g)}{' · ' + g['label'] if g.get('label') else ''}) {' '.join((g.get('text') or '').split())}")
+            continue
+        who = {"user": "사람", "llm": "04 자동 판정", "form": "양식 지침", "struct": "표 구조"}.get(g.get("src"), "양식")
+        kind = f" · {g['kind']}" if g.get("kind") and g.get("src") not in ("user", "form", "struct") else ""
+        where = f" · {g['label']}" if g.get("src") == "form" and g.get("label") else ""   # 서브 테이블 · 칸에만 닿는 양식 지침
+        lines.append(f"- ({who}{kind}{where}) {' '.join((g.get('text') or '').split())}")
     return "\n".join(lines)
 
 
@@ -171,8 +188,17 @@ def request(place, note="", head_text="", plan=""):
     form_review.plan_text) · 무엇을 답할지. TEXT_MAX 자 안 — 넘치면 작성 지침 몫을 줄인다(묻는 말 · 정해 준 것은 늘 남는다)."""
     note = " ".join((note or "").split())[:NOTE_MAX]
     plan = (plan or "").strip()
-    room = TEXT_MAX - len(note) - len(plan) - 1300   # 자리 · 묻는 말 · 머리들의 몫을 뗀 나머지
-    gt = guides_text(place.get("guides"), limit=max(400, min(GUIDE_MAX, room)))
+    # 문서의 테마 · 중요하게 볼 항목 · 개요 템플릿(04 가 밝힌 것 — writing_guidance_api.attach 의 docTheme: spec_양식작성 ② §5-7). 지침의 가장 작은 몫(400)을 남기고 들어갈 때만 싣는다
+    spare = TEXT_MAX - len(note) - len(plan) - 1300 - 400 - 40
+    theme = _one(place.get("docTheme"), min(THEME_MAX, spare)) if place.get("docTheme") and spare >= 80 else ""
+    room = TEXT_MAX - len(note) - len(plan) - 1300 - (len(theme) + 40 if theme else 0)   # 자리 · 묻는 말 · 머리들의 몫을 뗀 나머지
+    # 문서 전체에 닿는 지침(규정의 targets 없는 항목 · 문서 목적 · 양식 지침의 일반 가이드라인 — 색인의 doc 묶음: 요청에 한 번) — 자리 지침의 가장 작은 몫(400)을 남기고 DOC_SEND 자까지
+    dg = PG.doc_text(place.get("docGuides"), limit=max(0, min(DOC_SEND, (room - 400) // 2))) if place.get("docGuides") else ""
+    room -= len(dg) + 40 if dg else 0
+    gt = guides_text([*(place.get("guides") or ()), *(place.get("up") or ())], limit=max(400, min(GUIDE_MAX, room)))   # 그 자리의 것 + 표 구조 · 윗 절의 것(이관 3단계와 같은 조립 — places 의 up)
+    from app import form_guide_yaml
+    ex = form_guide_yaml.example_text(place.get("examples"))   # 양식 지침의 작성 예시 하나(꼴만 — spec_양식작성 ② §5-8) · 지침이 들어간 뒤 남는 몫이 있을 때만
+    ex = ex if ex and room - len(gt) - len(ex) > 60 else ""
     if place["kind"] == "box":
         where = f"상자 「{place['text']}」(id {place['id']}" + (f" · 헤딩 「{_one(head_text, 80)}」 아래" if head_text else "") + ")"
         ask = ("이 상자 안의 쓸 자리(selection.table.lines 의 문단)를 받은 자료의 내용으로 채우는 제안(fill)을 내세요. 줄마다 그 문단의 **새 글 전체**를 적습니다 — 라벨 줄 · 글머리 줄은 지금 글(앞 빈칸 · 글머리 · 라벨) 뒤에 값을 붙이고, "
@@ -203,6 +229,12 @@ def request(place, note="", head_text="", plan=""):
     parts = [f"[지침 작성] {where} 자리를 작성 지침에 따라 채웁니다."]
     if gt:
         parts.append("이 자리의 작성 지침:\n" + gt)
+    if ex:
+        parts.append(ex)
+    if dg:
+        parts.append("문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인 — 규정의 「필수」 는 꼭 지킬 요구 사항이고, 문서 목적은 범위 · 관점입니다. 넣을 사실 · 수는 자료에서만):\n" + dg)
+    if theme:
+        parts.append("문서의 테마(04 자동 판정): " + theme)
     if note:
         parts.append("이번 작성의 지침(사람이 적음): " + note)
     if plan:

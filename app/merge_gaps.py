@@ -418,8 +418,11 @@ def data(T, F, found, skip=None, guides=None, places=None):
             unit(ch)["slots"].append({"id": s["id"], "kind": s["kind"], "label": s["label"], "path": path, "table": s["table"], "ctx": s["ctx"],
                                       **({"budget": s["budget"]} if s.get("budget") else {}), **({"guide": g} if g else {}), **({"guides": gs} if gs else {}), "candidates": cands})
     out = [{"title": k, "payload": p} for k, ps in units.items() for p in ps if p["tables"] or p["slots"]]
+    dg = PG.doc_text(getattr(places, "doc", None))   # 문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인) — 호출에 한 번(spec_양식작성 ② §5-9)
     for u in out:   # 한 호출의 작성 지침 합을 자른다(② §5-11)
         PG.budget([*u["payload"]["tables"], *u["payload"]["slots"]])
+        if dg:
+            u["payload"]["docGuides"] = dg
     return out, ctx
 
 
@@ -434,7 +437,7 @@ def links_part(links):
 
 def prompt(payload, job=None, links="", guide=None):
     """프롬프트 글 = 계약(+ 자리에 작성 지침 `guides` 가 있으면 그 한 줄 — spec_병합 ② §5-11) + 판단 지침 + 할 일 프롬프트 + 자리 연결 절 + 자료(JSON)."""
-    note = PG.CONTRACT_LINE if any(x.get("guides") for k in ("tables", "slots") for x in payload.get(k) or ()) else ""
+    note = PG.CONTRACT_LINE if payload.get("docGuides") or any(x.get("guides") for k in ("tables", "slots") for x in payload.get(k) or ()) else ""
     return prompt_texts.contract(__name__) + note + guide_part(guide) + job_prompts.part(job) + links_part(links) + "\n\n## 자료(JSON)\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 

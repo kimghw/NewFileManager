@@ -620,6 +620,7 @@
   <script src="/static/form_guides.js"></script><!-- 작성 지침 목록(작업에 저장한 작성 요령 표 · <참고 N> 자료 · ※ 안내를 헤딩별 · 표별로 — 2열 kind formGuides: 이관 「헤딩 · 표 분석」 줄의 「작성 지침」) — app.js 다음(spec_작업 ② §21 「작성 지침 저장」) -->
   <script src="/static/link_guides.js"></script><!-- 매칭 지침(표 · 본문별 — 연차보고서 양식 정보 「자리 연결」 절의 지침을 자리마다 보고 · 더하고 · 고치고 · 지움 + 연결 코멘트: 2열 kind linkGuides · 이관 「자리 연결」 줄의 「매칭 지침」) — app.js 다음(spec_병합 ② §5-6) -->
   <script src="/static/place_guides.js"></script><!-- 자리마다의 작성 지침(헤딩마다 쪽 오른쪽 여백의 「지침」 단추 · 2열 kind placeGuides: 문서의 지침 · 내가 적은 지침 · 양식의 매칭 지침) — app.js · form_guides.js · link_guides.js 다음(spec_병합 ② §5-11) -->
+  <script src="/static/form_guide_yaml.js"></script><!-- 양식 지침 YAML(양식마다 본문 · 표 · 서브 테이블의 작성 지침 + 예시 + 주요 항목 — 2열 kind formGuide · 「지침」 열의 「양식 지침」 · 「예시 더하기」) — place_guides.js 다음(spec_양식작성 ② §5-8) -->
   <script src="/static/merge_over.js"></script><!-- 넘친 개요 레벨(넣기 계획 안의 한 절 — 덮은 템플릿 그대로 · 템플릿 수정 · 다른 템플릿 · 넣은 줄에 다시 맞추기) — app.js 다음 · gather.js 앞(spec_병합 ② §5-5 9) -->
   <script src="/static/zones.js"></script><!-- 편집 구역(기관·단계·차년도 값마다의 구역 — 「편집 구역」 줄 · 구역 띠·이름표 · 「구역 지정…」 · 목록: 어느 연구개발 TASK 에서나) — app.js 다음 · gather.js 앞(취합 카드가 이 줄을 쓴다: spec_구역 ② §6) -->
   <script src="/static/gather.js"></script><!-- 취합(할 일 「사업계획서 취합」 plan_merge — 취합본 칸·기관 문서 줄 · 묶음 둘 · 2열 「기관 작성 내용」·「넣기 계획」 · 둘째 면 · 끌어 넣기) — app.js 다음(spec_취합 ② §5) -->
@@ -641,6 +642,7 @@
   <script src="/static/dashboard.js"></script><!-- 대시보드(패널 탭 「대시보드」 — 단계 흐름 · 단계마다 상태 · 실행: 「작업 개요」 · 에이전트의 상태 · 단추와 그 TASK 의 「한 번에 진행」 을 그대로 부름) — doc_agent_work.js 다음(spec_작업에이전트 ② §9) --><!-- 작업 진행 에이전트의 화면(진행 턴 · TASK 마다의 상태·행동 · 행동 실행 · 첫 화면 대화창) — doc_agent.js 다음(spec_작업에이전트 ② §3·§5) -->
   <script src="/static/workflow_exec.js"></script><!-- 워크플로우 실행의 화면 쪽(서버 쪽 실행기의 상태 읽기 · 실행 · 멈춤 — flowGet · flowLive · flowStart · flowStop …: 첫 화면의 대시보드와 문서 화면이 같이 쓴다) — app.js · dashboard.js 다음(spec_워크플로우 ② §17-9 · 끝점 ② §17-5) -->
   <script src="/static/home_dash.js"></script><!-- 첫 화면의 대시보드(#homeDash — 워크플로우 고르기 · 단계 흐름 · 「워크플로우 시작」(문서 화면을 열지 않는 준비) · 서버가 맡은 묶음의 「한 번에 진행」 · 「멈춤」 · 「대시보드 자세히 보기」) — dashboard.js · workflow_exec.js · home_files.js · doc_agent_work.js 다음(spec_작업에이전트 ② §10) -->
+  <script src="/static/flow_overview.js"></script><!-- 패널 「작업 개요」 의 「단계」 절(#flowOverview — 줄 목록(v2)으로 조립한 이관형 · 같은 양식 취합: 대시보드와 같은 서버 상태 · 같은 그리기 · 같은 단추 — 묶음의 「한 번에 진행」 · 「한 문서만」 · 줄의 「이 단계만 진행」) — dashboard.js · workflow_exec.js 다음(app.js taskFlowEl 이 자리를 넣는다) -->
   <script src="/static/doc_agent_next.js"></script><!-- 에이전트 빈 화면의 「지금 할 수 있는 일」 — 현황 보고 카드(스크립트) · 헤딩·표 LLM 검토 실행 카드 · 서식 반영(spec_일반편집 ② §12) -->
   <script src="/static/doc_diff.js"></script><!-- 문서에서 고친 곳 보기(깃처럼 — 넣은 글·지운 자리·바뀐 모양 값 꼬리표 · 도구 줄 #ddBtn) — app.js 다음(spec_작업 ② §8 「문서에서 — 고친 곳 보기」) -->
   <script src="/static/fmt_focus.js"></script><!-- 서식 라벨만 또렷이(여백의 서식 라벨 .tm-f 누름 → #doc.fmt-focus · .para.fmt-hit · 이름 줄 설명 #fmtKey) — app.js 다음(spec_헤딩_추출 ② §7 「서식 라벨만 또렷이」) -->

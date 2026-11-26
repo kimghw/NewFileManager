@@ -432,7 +432,9 @@ function hdCards(n, roles, wid, started) {
       if (file && text.startsWith(`${file} — `)) text = text.slice(file.length + 3);
     }
     const c = { ...n, idx: null, ref, role, docId: p?.doc || V?.docs?.[role]?.id || (role === "source" ? "" : wid), state, skipped, word: n.soon ? "준비 중" : !x ? "" : state === "done" && skipped ? "건너뜀" : FLOW_WORD[state] || "",
-      text: dashHere(text), lines: [], acts: [], via: null, lead }; // dashHere — 서버의 글이 「작업 개요」 안의 자리(「아래 「…」」)를 가리키면 그 패널 이름으로(패널 대시보드와 같다)
+      text: dashHere(text), lines: [], acts: [], via: null, lead,
+      // 그 카드의 문서가 안 바뀌면 「문서 바뀜」 꼬리표를 붙이지 않는다 — 서버가 정한 그 줄이 바꾸는 문서 역할들(상태의 changes: 패널 대시보드 dashFlowLive 의 keeps 와 같은 셈 — 1단계 「LLM 검증·보완」 의 목적 문서 카드). changes 가 없으면(시작 전 · 서버가 안 맡은 묶음 · 옛 서버) 등록부 줄의 change 그대로
+      ...(x && Array.isArray(x.changes) && n.change === "doc" && !(role === "source" || role === "target" ? x.changes.includes(role) : x.changes.length) ? { change: "store" } : {}) }; // dashHere — 서버의 글이 「작업 개요」 안의 자리(「아래 「…」」)를 가리키면 그 패널 이름으로(패널 대시보드와 같다)
     if (hand && ci === 0) { // 「했음」 · 「했음 취소」 는 이 화면에서도(사람의 단추 — 에이전트 행동에는 없다)
       const b = hBtn(hand.done ? "했음 취소" : "했음", () => hdHand(hand, !hand.done, ref), { cls: "btn sm" + (hand.done ? "" : " primary"),
         title: hand.done ? "「했음」 을 되돌립니다 — 다음 실행이 이 줄에서 다시 멈춥니다" : `사람이 할 일 — ${hand.does}\n마쳤으면 누릅니다 — 묶음의 「한 번에 진행」 이 이 줄을 지나 다음 줄로 갑니다` });
@@ -572,9 +574,13 @@ function hdGoBtn(g, o, V, active, wid) {
   else if (wait) why = wait;
   else {
     const paid = new Set(x0.flatMap((x) => x.paid || [])).size;
+    // 바뀌는 문서 — 서버가 줄마다 정한 것(상태의 changes = 그 줄이 바꾸는 문서 역할들: 패널 대시보드 dashFlowLive 와 같은 값 — 1단계 「LLM 검증·보완」 을 목적 문서에만 놓은 차례는 문서가 안 바뀐다).
+    // changes 가 없는 줄(옛 서버의 응답)은 전처럼 등록부 줄의 change("" = 어느 문서인지 모름 → 「문서가」)
+    const chs = [...new Set(o.nodes.flatMap((n) => (n.live && Array.isArray(n.live.changes) ? n.live.changes : n.change === "doc" ? [""] : [])))];
+    const chWho = ["source", "target"].filter((r) => chs.includes(r)).map((r) => HD_ON[r]).join(" · ");
     run = () => hdRunOrder(g.id, o);
     tip = ["이 차례만 실행합니다 — 눌러도 이 화면에 머뭅니다(서버에서 진행 · 창을 닫아도 이어집니다). 앞 차례가 남았으면 실행하지 않고 그 까닭을 알립니다.",
-      paid ? `유료 LLM — 문서 ${paid}개` : "", o.nodes.some((n) => n.change === "doc") ? "문서가 바뀝니다" : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n");
+      paid ? `유료 LLM — 문서 ${paid}개` : "", chs.length ? `${!chs.includes("") && chWho ? chWho : "문서"}가 바뀝니다` : "문서는 바뀌지 않습니다"].filter(Boolean).join("\n");
   }
   const b = el("button", "dash-no hd-go", o.no);
   b.type = "button";

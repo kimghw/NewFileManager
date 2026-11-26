@@ -142,6 +142,7 @@ function pgButton(id, h, caret, brief = false) { // brief = 좁은 여백의 「
 }
 function pgPaint() { // 지침이 있는 헤딩 + 「지침 적기」 줄만 잰다 — 읽기(자리 모두) → 쓰기(단추 붙이기)
   clearTimeout(PLG.drawTimer);
+  pgHereSync(); // 문단 요소가 새로 그려졌을 수 있다 — 열에 연 줄의 표시를 다시
   for (const e of document.querySelectorAll("#doc .sheet > .pg-btn")) e.remove();
   if (!pgOk() || PLG.key !== pgKey() || !(PLG.heads.size || PLG.lines.size || PLG.caret) || !gutterSync()) return; // 다른 문서를 막 열었다 — 지켜보기가 비우고 다시 읽을 때까지 옛 목록으로 그리지 않는다(문단 id 는 문서마다 겹친다)
   const geo = new Map();
@@ -208,7 +209,12 @@ function pgCaretSync() {
 
 // ---- 2열 「작성 지침 — 이 자리」 -------------------------------------------------------------------------------------------------
 const pgDirty = () => !!(PLG.ta && PLG.ta.isConnected && pgColOpen() && PLG.ta.value.trim() !== PLG.saved.trim());
-function pgOnSync() { for (const b of document.querySelectorAll("#doc .sheet > .pg-btn")) b.classList.toggle("on", pgColOpen() && b.dataset.pg === PLG.open); }
+function pgOnSync() { for (const b of document.querySelectorAll("#doc .sheet > .pg-btn")) b.classList.toggle("on", pgColOpen() && b.dataset.pg === PLG.open); pgHereSync(); }
+function pgHereSync() { // 열에 연 줄 · 헤딩을 **문서에서** 표시(.pg-here — 열이 열려 있는 동안만: 닫거나 다른 보기로 바뀌면 걷는다). 2026-11-26 사용자 「우측 열에서 뭔지 내가 어떻게 아냐?」 — 전에는 여백 단추의 눌림 테뿐이라 빈 줄이면 어느 줄인지 알 수 없었다
+  const id = pgColOpen() ? PLG.open : null;
+  for (const p of document.querySelectorAll("#doc .para.pg-here")) if (p.dataset.id !== id) p.classList.remove("pg-here");
+  if (id) for (const p of document.querySelectorAll(`#doc .para[data-id="${CSS.escape(id)}"]`)) p.classList.add("pg-here");
+}
 
 async function pgOpen(pid, { keep = null } = {}) { // keep = 409 뒤 다시 읽을 때 적던 글(버리지 않는다)
   if (!pgOk()) return;
@@ -309,6 +315,8 @@ function pgRender(v, keep = null) {
   tools.append(hBtn("문서에서 보기", () => headsGo(v.id), { cls: "btn sm pg-tbtn", disabled: !v.alive, title: v.alive ? "문서의 그 헤딩으로" : "그 헤딩이 지금 문서에 없습니다" }));
   if (typeof formGuidesList === "function") tools.append(hBtn("작성 지침 목록", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) formGuidesList({ id: state.id, name: state.name }); },
     { cls: "btn sm pg-tbtn", title: `이 문서에 저장해 둔 작성 지침 전체(헤딩별 · 표별)${PLG.loose ? ` — 헤딩 · 표를 못 정한 지침 ${nf(PLG.loose)}개도 거기` : ""}` }));
+  if (typeof fgyOpen === "function") tools.append(hBtn("양식 지침", () => { if (!pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?")) fgyOpen(); }, { cls: "btn sm pg-tbtn", title: "같은 양식의 문서마다 쓰는 지침(forms/<양식>.guide.yaml)" }));
+  if (typeof fgyMoreBtns === "function") tools.append(...fgyMoreBtns(() => !pgDirty() || confirm("저장하지 않은 지침 글이 있습니다. 버릴까요?"))); // 「규정」 · 「문서 목적」(form_guide_yaml.js — spec_양식작성 ② §5-9)
   tools.append(el("span", "muted pg-total", `지침 ${nf(docs.length + (user ? 1 : 0))}개`));
   const wrap = el("div", "pg-col");
   // ① 문서의 작성 지침
@@ -401,22 +409,67 @@ function pgRender(v, keep = null) {
 // ---- 2열 「작성 지침 — 이 줄에 닿는 것」(층별 · 읽기만) — 2026-11-25 사용자 「헤딩마다 작성 지침 … 1.1.1 도 작성 지침이 있고 1.1 도 하위 내용에 대한 작성지침 … 확인할 수 있는 아이콘」 · 「테이블 필드도 마찬가지로」
 // 서버 GET …/place-guides/at/{id}(place_guides.chain): 이 줄 → 윗 줄(상자 · 칸 안의 부모 줄 = 그 묶음의 지침) → 이 칸 → 상자 · 표 → 절 → 윗 절. 절 층에는 「지침 적기」(pgOpen).
 const PLG_LAYER_TAG = { line: "이 줄", up: "윗 줄", cell: "칸", table: "상자 · 표", head: "절" };
-function pgLayersEl(layers, skipLine = false) {
+const PLG_LAYER_NAME = { line: "이 줄", up: "이 윗 줄", cell: "이 칸", table: "이 상자 · 표", head: "이 절" }; // 빈 층 글의 임자 — 서버가 층마다 name 을 준다(옛 서버면 이것)
+// 열 머리 — 누른 줄이 문서의 어디인가: 쪽(화면의 쪽 상자) · 상자 · 표(머리 글 · 칸) › 윗 줄 | 앞 줄 「…」 아래 · 그 줄 글 | 빈 줄. 쪽 밖의 것은 서버 where(place_guides.where).
+// 2026-11-26 사용자(여백의 작성 지침 아이콘을 누르고 오른쪽 열을 보며) "여기서 내가 작성지침 아이콘을 누르면 우측 열에서 뭔지 내가 어떻게 아냐?" — 전에는 줄 글뿐이라 빈 줄이면 「(빈 줄)」 만 보였다.
+function pgWhere(v, n = 22) {
+  const p = paraEl(v.id), sheet = p && p.closest("#doc .sheet");
+  let w = v.where;
+  if (!w) { // 옛 서버(where 없음) — 화면에서 바로 앞의 글 있는 줄만
+    w = { blank: !v.text, tables: [] };
+    let s = p && p.previousElementSibling, k = 1;
+    while (s && s.classList.contains("para") && !s.textContent.trim()) { s = s.previousElementSibling; k += 1; }
+    if (s && s.classList.contains("para")) { w.prev = s.textContent.trim(); w.nth = k; }
+  }
+  const q = (t) => `「${short(t, n)}」`;
+  const anchor = v.text ? w.up || "" : w.prev || w.up || ""; // 빈 줄 = 바로 앞의 글 있는 줄(없으면 윗 줄) · 글 있는 줄 = 윗 줄
+  const tabs = w.tables || [];
+  const path = tabs.map((t, i) => {
+    const m = /^r(\d+)c(\d+)$/.exec(t.cell || "");
+    const again = i === tabs.length - 1 && t.text && (anchor || v.text || "").startsWith(t.text); // 바로 뒤에 같은 글이 또 나온다 — 한 번만
+    return (t.kind === "box" ? "상자" : "표") + (t.text && !again ? ` ${q(t.text)}` : "") + (m ? ` ${+m[1] + 1}행 ${+m[2] + 1}열` : "");
+  });
+  if (!path.length && w.head) path.push(`절 ${q(w.head)}`);
+  if (anchor) path.push(`${q(anchor)} 아래`);
+  const lab = sheet ? (sheet.querySelector(":scope > .sheet-label") || {}).textContent || "" : "";
+  const page = (lab.match(/^≈?\d+쪽/) || [])[0] || (sheet && sheet.dataset.page ? `${sheet.dataset.page}쪽` : "");
+  const line = v.text ? q(v.text) : w.blank === false ? "" : w.prev && w.nth > 1 ? `${nf(w.nth)}번째 빈 줄` : "빈 줄";
+  return { path: [page, path.join(" › ")].filter(Boolean).join(" · "), line };
+}
+async function pgOffSet(fp, off, pid) { // 이 작업에서 지침 하나를 끄거나 다시 켠다(PUT …/place-guides/off — 양식 · 규정 · 문서 목적 파일은 안 바뀐다)
+  try { await api(pgUrl("/off"), { method: "PUT", headers: H_JSON, body: JSON.stringify({ fp, off }) }); }
+  catch (e) { return toast(`바꾸지 못했습니다: ${e.message}`, true); }
+  toast(off ? "이 작업에서 그 지침을 껐습니다 — 열 아래 「이 작업에서 끈 지침」 에서 다시 켭니다" : "그 지침을 다시 켰습니다");
+  if (typeof pgSoon === "function") pgSoon(0);
+  pgOpenChain(pid);
+}
+function pgLayersEl(layers, skipLine = false, offPid = null) { // offPid = 「끄기」 단추를 둘 때 다시 읽을 줄(「이 줄에 닿는 것」 열에서만)
   const wrap = el("div", "pg-layers");
   for (const L of layers || []) {
     if (skipLine && L.key === "line") continue;
     const sec = el("section", `pg-sec pg-layer pg-layer-${L.key}` + (L.items.length ? "" : " is-empty"));
     sec.dataset.pgLayer = L.key;
     const head = el("div", "pg-sec-head");
-    head.append(el("span", "hb pg-ltag", PLG_LAYER_TAG[L.key] || L.key), el("h3", "pg-h", `${L.title} ${nf(L.items.length)}`));
+    const h3 = el("h3", "pg-h", L.title);
+    if (L.items.length) h3.append(" ", el("span", "pg-lcnt", `지침 ${nf(L.items.length)}개`)); // 수만 적으면(「이 줄 0」) 무엇의 수인지 안 읽힌다 — 빈 층은 아래 글이 말한다
+    head.append(el("span", "hb pg-ltag", PLG_LAYER_TAG[L.key] || (L.key === "doc" ? "문서" : L.key)), h3);
+    if (L.key === "doc" && typeof hHelp === "function") head.append(hHelp("문서 전체", "자리를 정하지 않은 지침입니다 — 규정의 targets 없는 항목 · 문서 목적(공고 · 평가 관점 · 요구 사항 · 프로젝트 지침) · 양식 지침의 일반 가이드라인. LLM 호출에는 자리마다 되풀이하지 않고 한 번만 실립니다."));
     if (L.at) head.append(hBtn("문서에서", () => headsGo(L.at), { cls: "btn sm pg-tbtn", title: "문서의 그 자리로" }));
     if (L.key === "head" && L.at) head.append(hBtn("지침 적기", () => pgOpen(L.at), { cls: "btn sm pg-tbtn", title: "이 절의 헤딩에 내 지침을 적습니다" }));
+    if ((L.key === "head" || L.key === "table") && L.at && typeof fgyExampleEl === "function") // 양식 지침의 작성 예시(form_guide_yaml.js — spec_양식작성 ② §5-8)
+      head.append(hBtn("예시 더하기", () => { const old = sec.querySelector(".fgy-ex"); if (old) old.remove(); else head.after(fgyExampleEl(L.at, L.key)); },
+        { cls: "btn sm pg-tbtn", title: "이 자리에 쓰는 글의 예를 양식 지침에 저장합니다 — 같은 양식의 문서에서 초안을 쓸 때 꼴 · 문체 · 분량의 참고로 실립니다" }));
     sec.append(head);
     if (L.items.length) {
       const ul = el("ul", "pg-list");
-      for (const g of L.items) ul.append(g.label ? pgItem(g.kind || "각주", short(g.label, 60), `→ ${g.text || ""}`) : pgItem(g.kind || "지침", "", g.text || ""));
+      for (const g of L.items) {
+        const src = g.src === "rule" || g.src === "purpose"; // 출처 꼬리표 — 「규정 · 필수 · 출처」 · 「문서 목적 — …」(서버 place_guides.tag)
+        const li = g.label ? pgItem((src && g.tag) || g.kind || "각주", short(g.label, 60), `→ ${g.text || ""}`, src ? `pg-src-${g.src}` : "") : pgItem((src && g.tag) || g.kind || "지침", "", g.text || "", src ? `pg-src-${g.src}` : "");
+        if (g.fp && offPid) li.querySelector(".pg-item-head").append(hBtn("끄기", () => pgOffSet(g.fp, true, offPid), { cls: "btn sm pg-tbtn pg-off-btn", title: "이 작업에서만 이 지침을 쓰지 않습니다(이관의 LLM 검토 · 양식 작성의 검토 · 초안에 실리지 않음) — 파일은 그대로이고 열 아래에서 다시 켭니다" }));
+        ul.append(li);
+      }
       sec.append(ul);
-    } else sec.append(el("p", "hnote pg-empty", L.key === "line" ? "이 줄에만 붙은 지침은 없습니다 — 아래 층의 것이 이 줄에 닿습니다." : "이 줄에만 붙은 지침은 없습니다."));
+    } else sec.append(el("p", "hnote pg-empty", L.key === "line" ? "이 줄에만 붙은 지침은 없습니다 — 아래 층의 것이 이 줄에 닿습니다." : `${L.name || PLG_LAYER_NAME[L.key] || "이 층"}에 붙은 지침은 없습니다.`));
     wrap.append(sec);
   }
   return wrap;
@@ -439,12 +492,30 @@ async function pgOpenChain(pid) {
   if (seq !== heads.seq || epoch !== state.epoch || id !== state.id) return;
   const tools = $("headsDlgTools"), foot = $("headsDlgFoot");
   for (const x of [tools, body, foot]) x.textContent = "";
-  const note = $("headsDlgNote");
-  note.textContent = v.text ? `「${short(v.text, 50)}」` : "(빈 줄)";
-  note.title = v.text || "";
+  const note = $("headsDlgNote"), wh = pgWhere(v), full = pgWhere(v, 200);
+  note.textContent = wh.path && wh.line ? `${wh.path} · ` : wh.path; // 어느 줄인가 — 쪽 · 상자 · 표 › 「윗 줄 | 앞 줄」 아래 · 그 줄(굵게)
+  if (wh.line) note.append(el("b", "pg-where-line", wh.line));
+  note.title = [full.path, full.line].filter(Boolean).join(" · ") + "\n열이 열려 있는 동안 문서의 이 줄에 파란 점선 테가 있습니다";
   const total = (v.layers || []).reduce((a, L) => a + L.items.length, 0);
+  tools.append(hBtn("문서에서 보기", () => headsGo(v.id), { cls: "btn sm pg-tbtn", title: "문서의 이 줄로 — 열이 열려 있는 동안 이 줄에 파란 점선 테가 있습니다" }));
+  if (typeof fgyOpen === "function") tools.append(hBtn("양식 지침", () => fgyOpen(), { cls: "btn sm pg-tbtn", title: "같은 양식의 문서마다 쓰는 지침(forms/<양식>.guide.yaml) — 이 작업의 지침 · 04 의 규칙을 골라 올리기 · 예시 · 주요 항목" }));
+  if (typeof fgyMoreBtns === "function") tools.append(...fgyMoreBtns()); // 「규정」 · 「문서 목적」(spec_양식작성 ② §5-9)
   tools.append(el("span", "muted pg-total", `층 ${nf((v.layers || []).length)} · 지침 ${nf(total)}개`));
-  body.append(el("p", "hnote pg-chain-cap", "가까운 것부터 — 이 줄 → 윗 줄(그 묶음) → 칸 → 상자 · 표 → 절. 위의 것이 먼저입니다."), pgLayersEl(v.layers));
+  body.append(el("p", "hnote pg-chain-cap", "가까운 것부터 — 이 줄 → 윗 줄(그 묶음) → 칸 → 상자 · 표 → 절 → 문서 전체. 위의 것이 먼저입니다."), pgLayersEl(v.layers, false, pid));
+  if ((v.offed || []).length) { // 이 작업에서 끈 지침(guides_user.json 의 off — spec_양식작성 ② §5-9 「끄기」): 다시 켤 수 있게 남겨 보인다
+    const sec = el("section", "pg-sec pg-offed");
+    const head = el("div", "pg-sec-head");
+    head.append(el("h3", "pg-h", `이 작업에서 끈 지침 ${nf(v.offed.length)}`));
+    if (typeof hHelp === "function") head.append(hHelp("끈 지침", "이 작업에서만 끈 지침입니다 — 이관의 LLM 검토와 양식 작성의 검토 · 초안에 실리지 않습니다. 양식 지침 · 규정 · 문서 목적 파일은 그대로라 다른 작업에는 전처럼 닿습니다. 「켜기」 로 되돌립니다."));
+    const ul = el("ul", "pg-list");
+    for (const g of v.offed) {
+      const li = pgItem(g.tag || g.kind || "지침", g.label ? short(g.label, 60) : "", g.text || "", "is-off");
+      li.querySelector(".pg-item-head").append(hBtn("켜기", () => pgOffSet(g.fp, false, pid), { cls: "btn sm pg-tbtn pg-off-btn", title: "이 작업에서 이 지침을 다시 씁니다" }));
+      ul.append(li);
+    }
+    sec.append(head, ul);
+    body.append(sec);
+  }
   const who = el("div", "pg-who");
   if (typeof hHelp === "function") who.append(hHelp("어디서 온 지침인가", "문서의 작성 지침(1단계 「문서 검토」 가 모음) · 내가 적은 지침 · 작성 지침 보완(양식 작성 04 — 규칙이 「p48 줄은 …」 처럼 줄을 가리키면 그 줄 · 윗 줄과 그 아래를 함께 가리키면 윗 줄의 것) · 양식 검토의 작성 방향(양식 작성 06)을 모아 보입니다. 읽기만 — 문서는 바뀌지 않습니다."));
   who.append(el("span", "pg-who-short", "읽기만 · 문서 변경 없음"));

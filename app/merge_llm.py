@@ -394,7 +394,10 @@ def review(to_side, from_side, pairs, to_groups, from_groups, *, pages=merge_chu
             row["guides"] = sum(1 for t in [*p["targets"], *(p.get("tableTargets") or ())] if t.get("guides"))
             if places_cut:
                 row["guidesCut"] = places_cut
-            if row["guides"]:
+            dg = PG.doc_text(getattr(places, "doc", None))   # 문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인) — 자리마다가 아니라 호출에 한 번(spec_양식작성 ② §5-9)
+            if dg:
+                p["docGuides"] = dg
+            if row["guides"] or dg:
                 note += PG.CONTRACT_LINE
         content, out["form"] = prompt(p, form, note, job, g if g else False, links)
         row.update(targets=len(p["targets"]), tables=len(p.get("tableTargets") or ()), prompt=content)

@@ -145,6 +145,17 @@ def changes(u, role):
     return u["change"] == "doc" and role in TIDY_ROLES.get(u["key"], (role,))
 
 
+def changed_roles(u, roles):
+    """그 단위의 줄(닿는 문서 역할 roles — workflow_state.roles_on)을 돌면 **바뀌는 문서 역할들**(원본 → 목적 차례 · 없으면 빈 튜플) — 「어느 문서가 바뀌나」 를 정하는 한 곳:
+    문서마다의 줄 = 그 줄의 문서 가운데 changes 가 참인 것(1단계 「LLM 검증·보완」 의 목적 문서는 아니다) · 원본 → 목적 줄 · 원본 문서마다의 덩이(each) = 목적 문서.
+    끝 확정의 대상(workflow_exec._commit_docs)과 상태의 줄마다 `changes`(workflow_state.view — 화면의 「○○ 문서가 바뀝니다」)가 같이 읽는다(화면이 줄 key 로 다시 세지 않게)."""
+    if not u or u.get("change") != "doc":
+        return ()
+    if u.get("place") == "pair" or u.get("each"):
+        return ("target",)
+    return tuple(r for r in ROLES if r in roles and changes(u, r))
+
+
 def roles_in(u, family):
     """그 틀(가족)에서 그 단위를 놓을 수 있는 문서 역할 — 구조 · 정리 줄(SOURCE_FIT)을 원본 문서에 놓는 것은 이관형(relay)뿐이다: 취합의 원본 문서(기관 문서)는 바뀌지 않는다. 조립 검사 · 조립 화면의 고를 줄이 읽는다."""
     if family != "relay" and u["key"] in SOURCE_FIT and COMMON.get(u["key"]) is u:

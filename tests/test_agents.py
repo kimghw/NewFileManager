@@ -45,7 +45,7 @@ def test_registry_lists_role_place_prompt_for_every_agent(monkeypatch):
     monkeypatch.delenv("NFM_JOBS", raising=False)   # 할 일 프롬프트는 저장소 jobs/ 의 것을 본다(conftest 는 빈 임시 폴더로 돌려 둔다)
     L = A.listing()
     ags = L["agents"]
-    assert len(ags) == 26 and [a["no"] for a in ags] == [f"{i:02d}" for i in range(1, 27)] and len({a["id"] for a in ags}) == 26   # 20 = 검증 LLM 검토(2026-11-16) · 21 = 편집 구역 검토(2026-11-17) · 22 = 지침 보정(2026-11-22) · 23 · 24 = 그림 → 표 · 그림 캡션(2026-11-23 — spec_그림) · 25 = 양식 검토(2026-11-24 — spec_양식작성 ② §5-1)
+    assert len(ags) == 27 and [a["no"] for a in ags] == [f"{i:02d}" for i in range(1, 28)] and len({a["id"] for a in ags}) == 27   # 27 = 구간 검증(2026-11-26 — spec_작업 ② §20 「구간 검증 — 10쪽씩」) · 20 = 검증 LLM 검토(2026-11-16) · 21 = 편집 구역 검토(2026-11-17) · 22 = 지침 보정(2026-11-22) · 23 · 24 = 그림 → 표 · 그림 캡션(2026-11-23 — spec_그림) · 25 = 양식 검토(2026-11-24 — spec_양식작성 ② §5-1)
     assert {a["group"] for a in ags} == set(L["groups"]) and all(a["role"] and a["where"] and a["name"] and a["whats"] for a in ags)
     assert L["models"] == list(S.MODELS) and L["efforts"] == list(S.EFFORTS) and L["llm"]["available"] is False
     by = {a["id"]: a for a in ags}
@@ -232,7 +232,7 @@ def test_settings_off_keeps_values_in_memory(monkeypatch):
 def test_api_roundtrip():
     c = TestClient(server.app, raise_server_exceptions=False)
     L = c.get("/api/agents").json()
-    assert len(L["agents"]) == 26 and L["version"] == 0 and "prompt" not in L["agents"][0]
+    assert len(L["agents"]) == 27 and L["version"] == 0 and "prompt" not in L["agents"][0]
     d = c.get("/api/agents/doc_agent").json()
     assert d["name"] == "문서 에이전트" and d["prompt"][0]["kind"] == "contract" and d["recent"] == []
     r = c.put("/api/agents/doc_agent", json={"no": "E1", "model": "claude-opus-5-5", "version": 0})

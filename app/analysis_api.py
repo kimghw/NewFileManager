@@ -3,7 +3,7 @@ GET 은 읽기만 한다 — 분석을 시작하지 않는다(시작은 `POST �
 「LLM 검증·보완」(2026-11-16 — ② §20 「넷 · 진행표 · LLM 검증·보완」)은 `POST …/analysis/llm` 으로 시작하고 `DELETE` 로 멈춘다 — 실행은 app/analysis_llm.py."""
 from fastapi import APIRouter, Body, HTTPException
 
-from app import analysis, analysis_llm, heading_runs, outline_conform, outline_match, tpl_agent_api, works
+from app import analysis, analysis_check, analysis_llm, heading_runs, outline_conform, outline_match, tpl_agent_api, works
 
 router = APIRouter()
 
@@ -52,10 +52,42 @@ def analysis_get(doc_id: str):
     kind = ((works.work(s.id) or {}).get("task") or {}).get("kind") or ""
     ol = _outline(server, s)
     plans = tpl_agent_api.plans(s, ol[0].get("run")) if ol else {}
-    return analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans, place=_place(s, ol[0]) if ol else 0)
+    out = analysis.status(s, kind=kind, division=_division(server, s), outline=ol, plans=plans, place=_place(s, ol[0]) if ol else 0)
+    if out["items"]:
+        out["check"] = _check_view(s)   # 구간 검증이 남긴 「확인 필요」(지금 판정에 유효한 것만) | None(한 번도 안 함 · 못 셈) — 진행표가 보인다
+    return out
 
 
-def start_chain(s, chain, key=None, *, writing_guidance=False):
+def _check_view(s):
+    """구간 검증(app/analysis_check.py)의 지금 보기 {pages, windows, left, finds, counts} | None(검증한 적 없음 · 헤딩 그래프 없음). 문서 차례 · 헤딩/표 실행 · 저장본마다 한 번 센다(도는 동안 2초마다 읽힌다)."""
+    try:
+        store = analysis_check.load(s.id)
+        if not store["checked"]:
+            return None
+        graph, tables = heading_runs.graph(s), heading_runs.tables(s)
+        if not graph:
+            return None
+        key = (s.rev, (graph.get("meta") or {}).get("run"), ((tables or {}).get("meta") or {}).get("run"), len(store["checked"]), max((c.get("at") or 0 for c in store["checked"].values()), default=0))
+        got = getattr(s, "analysis_check_view", None)
+        if got is None or got[0] != key:
+            with s.lock:
+                blocks = s.doc.blocks()
+            got = s.analysis_check_view = (key, analysis_check.view(store, analysis_check.windows(blocks, graph, tables)))
+        return got[1]
+    except Exception:  # noqa: BLE001 — 보기를 못 세도 분석 상태는 그대로 낸다
+        return None
+
+
+@router.get("/api/docs/{doc_id}/analysis/check")
+def analysis_check_get(doc_id: str):
+    """구간 검증의 지금 보기 → {pages(구간의 쪽 수), windows[{no, pages[첫 쪽, 끝 쪽], checked}], left(아직 검증 안 한 구간 수), finds[{kind, name, id, text, what, suggest, sure, pages, at}], counts{heading, table, missed}}
+    — 한 번도 검증하지 않았으면 {pages, windows: [], left: 0, finds: [], counts: {}}. 읽기만 한다(검증은 「LLM 검증·보완」 이 한다 — POST …/analysis/llm {check: true})."""
+    from app import server
+    s = server._sess(doc_id)
+    return (_check_view(s) if s.fmt == "hwpx" else None) or {"pages": analysis_check.PAGES, "windows": [], "left": 0, "finds": [], "counts": {}}
+
+
+def start_chain(s, chain, key=None, *, writing_guidance=False, windows=False):
     """이어 돌리기를 헤딩 작업 자리에서 시작한다 → 헤딩 작업. chain = analysis_llm.CHAINS 의 이름("llm" LLM 검증·보완 · "heads" 헤딩 그래프(LLM) → 서식 정리 계획 · "formats" 서식 정리 계획만),
     key = 서식 정리 스킬 키(기본 "tidy"). 400 hwpx 아님 · skill 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
     from app import server  # server 가 이 모듈을 include 하므로 부를 때 가져온다(순환 import 피함)
@@ -72,7 +104,7 @@ def start_chain(s, chain, key=None, *, writing_guidance=False):
 
     def runner(sess, job):
         n = analysis_llm.run(sess, job, outline=lambda x: _outline(server, x), plans=tpl_agent_api.plans,
-                             plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key), **how)
+                             plan=lambda x, tid: tpl_agent_api.plan_one(server, x, tid, key), windows=windows and chain == "llm", **how)
         if writing_guidance and not job.stop:
             from app import writing_guidance_api
             writing_guidance_api.start(sess)
@@ -85,7 +117,8 @@ def start_chain(s, chain, key=None, *, writing_guidance=False):
 
 @router.post("/api/docs/{doc_id}/analysis/llm", status_code=202)
 def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
-    """「LLM 검증·보완」 시작 {skill?(기본 "tidy"), only?("formats"), writingGuidance?(양식 작성 04)} → 202 헤딩 작업.
+    """「LLM 검증·보완」 시작 {skill?(기본 "tidy"), only?("formats"), writingGuidance?(양식 작성 04), check?(끝에 구간 검증 — 10쪽씩)} → 202 헤딩 작업.
+    헤딩 · 표의 판정 호출은 두 모델(LLM1 · LLM2 — 그 에이전트의 모델 자리)이 따로 답하고 다르면 협의한다(app/llm_duo.py — 「한 모델만」 으로 둔 에이전트는 한 번).
     writingGuidance가 참이면 구조 판정이 성공한 뒤 작성 지침을 추출한다. 그 실행 상태는 GET …/writing-guidance에서 읽는다.
     헤딩 · 템플릿과 표 판정의 호출을 같이 → 헤딩 그래프가 끝나면 서식(계획만 — 템플릿끼리 같이)(app/analysis_llm.py — 헤딩을 건너뛰면 표 · 서식이 같이) · 이미 LLM 을 거친 것은 건너뜀 · 문서는 안 바뀜.
     only "formats" = 계획이 없거나 옛것인 템플릿의 서식 정리 계획만(헤딩 · 표 LLM 은 안 돎 — 헤딩 추출 탭 진행 줄 「조정」 의 「계획 받기」). 400 hwpx 아님 · only 꼴 · 404 스킬 없음 · 409 헤딩 작업이 도는 중."""
@@ -97,7 +130,10 @@ def analysis_llm_start(doc_id: str, body: dict = Body(default={})):
     guidance = body.get("writingGuidance", False)
     if not isinstance(guidance, bool) or (guidance and only):
         raise HTTPException(400, "writingGuidance는 전체 검증·보완에서만 쓰는 참·거짓 값입니다")
-    return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill"), writing_guidance=guidance).view()
+    windows = body.get("check", False)   # 끝에 구간 검증(10쪽씩 — app/analysis_check.py)을 더한다: 화면의 「LLM 검증·보완」 · 워크플로우의 그 줄이 청한다(2026-11-26)
+    if not isinstance(windows, bool) or (windows and only):
+        raise HTTPException(400, "check 는 전체 검증·보완에서만 쓰는 참·거짓 값입니다")
+    return start_chain(server._sess(doc_id), "formats" if only else "llm", body.get("skill"), writing_guidance=guidance, windows=windows).view()
 
 
 @router.delete("/api/docs/{doc_id}/analysis/llm")

@@ -292,7 +292,7 @@ def start_heads(doc_id, how="first"):
 def start_llm(doc_id, skill=None):
     """헤딩 · 표의 「LLM 검증·보완」 을 시작(배경 · 유료) — 이미 거친 것은 그 실행이 건너뛴다. 도는 중이면 busy."""
     from app import analysis_api
-    return _run(analysis_api.analysis_llm_start, doc_id, {"skill": skill} if skill else {})
+    return _run(analysis_api.analysis_llm_start, doc_id, {"check": True, **({"skill": skill} if skill else {})})   # check = 끝에 구간 검증(10쪽씩 — spec_작업 ② §20 「구간 검증 — 10쪽씩」)
 
 
 def job(doc_id):

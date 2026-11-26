@@ -1805,6 +1805,7 @@ function taskJourneySync(host, items) {
 }
 function taskJourneyDraw(host = document.getElementById("taskFlow")) {
   if (!host || !taskStepsLast) return;
+  if (typeof flowOverviewOn === "function" && flowOverviewOn()) return; // 줄 목록(v2)으로 조립한 이관형 — 묶음이 TASK_STAGES 에 없다(「준비」 하나만 그려진다): 길 찾기 줄은 「단계」 절이 서버가 센 묶음으로 채운다(flow_overview.js flowOverviewJourney)
   const files = taskStepsLast.find((s) => s.key === "files"), prepared = !!files?.done;
   let available = prepared;
   const items = [{ id: "prepare", label: "준비", state: prepared ? "done" : "now", target: host.querySelector(".dv-flow-files"), note: "사업계획서와 연차보고서를 고르는 곳으로 이동합니다." }];
@@ -1844,7 +1845,10 @@ function taskFlowEl() { // 첫 카드 안 — 첨부 파일 칸(종류마다 한
   taskStepsCalc();
   stages.append(...TASK_STAGES.map((stage) => taskStageEl(stage)));
   const chain = taskChainEl(); // 여러 묶음 이어서 한 번에 — 첨부 파일 칸과 묶음 사이 한 줄
-  box.append(taskJourneyEl(), files, chain, stages);
+  // 줄 목록(v2)으로 조립한 이관형 · 같은 양식 취합 — 그 정의의 묶음(g1 …)은 TASK_STAGES 에 없어 위 묶음 상자가 하나도 안 선다: 그 자리에 「단계」 절(flow_overview.js — 대시보드와 같은 서버 상태 · 같은 그리기 · 같은 단추.
+  // 2026-11-25 사용자 「양식작성 워크플로우와 연차보고서 배포안 작성 워크플로우가 UIUX 가 동일한지 … 일관성이 있어야」: 양식 작성의 작업 개요에는 묶음과 실행 단추가 서는데 여기는 빠져 있었다)
+  const flowOv = typeof flowOverviewEl === "function" && taskIsRelayFlow(state.task.job) ? flowOverviewEl() : null;
+  box.append(taskJourneyEl(), files, chain, stages, ...(flowOv ? [flowOv] : []));
   taskJourneyDraw(box);
   taskChainSync(chain);
   return box;
@@ -2361,7 +2365,7 @@ async function taskRunSteps(run, plan, report) { // 그 묶음(run.stage)의 안
       await guidesKeep();
     }
     const gc = ((taskFlow.guides || {}).saved || {}).counts;
-    const base = `${RV.heads.length === 1 ? RV.heads[0][1] : "두 문서"}의 헤딩 그래프·표 구조가 있습니다${gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)})` : ""}`;
+    const base = `${RV.heads.length === 1 ? RV.heads[0][1] : "두 문서"}의 헤딩 그래프·표 구조가 있습니다${gc && (gc.items || gc.marks) ? ` · 작성 지침 ${nf(gc.items)}개 저장(헤딩 ${nf(gc.headings)} · 표 ${nf(gc.tables)}${gc.marks ? ` · 각주 번호 ${nf(gc.marksLinked)}/${nf(gc.marks)}` : ""})` : ""}`; // 글의 꼴 = 위 taskSteps 의 「헤딩 · 표 분석」 줄과 같게(n = 지침 수 · 각주 번호는 있을 때만 — form_write.js · workflow_exec.py 도 같은 꼴)
     if (run.only === "heads") return RV.llm.length ? `${base} — 다음은 「LLM 검증·보완」 입니다` : base; // 「분석」 단추 — 이 단계만
     let llm = "";
     for (const [w, who] of RV.llm) llm += await llmPart("headsLlm", w, who); // 원본 문서의 LLM 검증·보완(목적 문서는 구조를 맞춘 뒤 2단계의 「다시 문서 검토(LLM)」 — 조립한 TASK 에서 목적 문서가 「구성 맞추기」 를 안 골랐으면 여기서 이어서)

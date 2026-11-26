@@ -56,7 +56,18 @@ def index_of(s):
     if saved is None:
         saved, _ = form_guides_api.current(s)
     t3 = heading_runs.tables(s) or {}
-    return PG.index(saved, s.doc.blocks(), [t.get("id") for t in t3.get("tables") or () if isinstance(t, dict)], user_load(s.id), _table_user(s.id), t3.get("tables"))
+    try:   # 양식 지침 YAML(spec_양식작성 ② §5-8) — 덤이다: 못 읽어도 자리 지침은 나간다
+        from app import form_guide_yaml_api
+        form = form_guide_yaml_api.overlay(s, t3)
+    except Exception:
+        form = None
+    extra = []   # 규정(forms/<키>.rules.yaml — src "rule") · 문서 목적(프로젝트의 purpose.yaml — src "purpose"): 같은 자리 잇기 · 같은 색인(② §5-9 「읽는 길은 하나」) — 덤이다
+    for mod in ("form_rules_api", "purpose_yaml_api"):
+        try:
+            extra.append(__import__(f"app.{mod}", fromlist=["overlay"]).overlay(s, t3))
+        except Exception:
+            extra.append(None)
+    return PG.index(saved, s.doc.blocks(), [t.get("id") for t in t3.get("tables") or () if isinstance(t, dict)], user_load(s.id), _table_user(s.id), t3.get("tables"), form, extra)
 
 
 def _head_text(s, pid):
@@ -107,7 +118,7 @@ def _extra(wid):
 
 @router.get("/api/docs/{doc_id}/place-guides/at/{bid}")
 def place_guides_at(doc_id: str, bid: str):
-    """{id, text, layers[{key, title, at, items[{src, kind, text, label?}]}], rev} — 블록 bid(본문 · 상자 · 표 칸 안의 줄 · 칸)에 닿는 작성 지침을 가까운 층부터:
+    """{id, text, where{blank, tables[], up, prev, nth, head}, layers[{key, title, name, at, items[{src, kind, text, label?}]}], rev} — 블록 bid(본문 · 상자 · 표 칸 안의 줄 · 칸)에 닿는 작성 지침을 가까운 층부터:
     이 줄 → 윗 줄(상자 · 칸 안의 부모 줄) → 이 칸 → 상자 · 표 → 절 → 윗 절(place_guides.chain — 읽기만 · 문서는 안 바뀐다). 2026-11-25 사용자 「헤딩마다 작성 지침 … 아이콘」 · 「테이블 필드도 마찬가지로」."""
     from app import heading_runs, server
     s = server._sess(doc_id)
@@ -130,7 +141,48 @@ def place_guides_at(doc_id: str, bid: str):
         blocks = s.doc.blocks()
         if bid not in PG.owners(blocks):
             raise HTTPException(404, "그 자리가 지금 문서에 없습니다")
-        return {"id": bid, "text": _head_text(s, bid), "layers": PG.chain(ix, blocks, heading_runs.graph(s), bid, rules, hows, owner), "rev": s.rev}
+        graph = heading_runs.graph(s)
+        layers = PG.chain(ix, blocks, graph, bid, rules, hows, owner)
+        for ly in layers:
+            ly["items"] = [{**g, "fp": PG.fp(g), "tag": PG.tag(g)} if g.get("src") in OFFABLE else g for g in ly["items"]]   # 끌 수 있는 것 = 색인이 싣는 출처(04 · 25 의 것은 그 실행의 것이라 여기서 끄지 않는다)
+        # 이 줄에 닿는 자리에서 이 작업이 끈 지침(「켜기」 로 되돌린다) — 층이 비어 사라져도 보이게 자리를 따로 센다: 이 줄 · 품은 표들 · 절과 윗 절 · 문서 전체
+        tids = [t["id"] for t in (PG.where(blocks, graph, bid) or {}).get("tables") or ()]
+        h = PG.heading_finder(blocks, graph)(tids[0] if tids else bid)
+        spots = [bid, *tids, *([h, *PG.ancestors(graph).get(h, ())] if h else [])]
+        offed, seen = [], set()
+        for g in [*(g for at in dict.fromkeys(spots) for g in ix["offed"].get(at) or ()), *(ix.get("docOffed") or ())]:
+            if PG.fp(g) not in seen:
+                seen.add(PG.fp(g))
+                offed.append({**g, "fp": PG.fp(g), "tag": PG.tag(g)})
+        return {"id": bid, "text": _head_text(s, bid), "where": PG.where(blocks, graph, bid),   # where = 그 줄이 문서의 어디인가(상자 · 표 · 윗 줄 · 앞 줄 — 열 머리가 「어느 줄인가」 를 글로 보인다: 2026-11-26)
+                "layers": layers, "offed": offed, "version": user_load(s.id).get("version", 0), "rev": s.rev}
+
+
+OFFABLE = ("doc", "form", "rule", "purpose", "user")
+
+
+@router.put("/api/docs/{doc_id}/place-guides/off")
+def place_guides_off(doc_id: str, body: dict = Body(...)):
+    """{fp, off(true = 끄기 | false = 다시 켜기), version?} — 이 작업에서 지침 하나를 끈다(작업 폴더 guides_user.json 의 `off` — 지문 목록: spec_양식작성 ② §5-9 「끄기」).
+    끈 지침은 이관 3단계 · 양식 작성 · 화면이 같이 읽는 색인에서 빠진다(양식 · 규정 · 문서 목적 파일은 안 바뀐다 — 다른 작업에는 그대로). 문서는 안 바뀐다 → {off[…], version}."""
+    from app import server
+    s = server._sess(doc_id)
+    with s.lock:
+        if s.fmt != "hwpx":
+            raise HTTPException(400, "자리 지침은 hwpx 문서에서만 다룹니다")
+        cur = user_load(s.id)
+        ver = body.get("version")
+        if ver is not None and (isinstance(ver, bool) or not isinstance(ver, int)):
+            raise HTTPException(400, "version 은 정수(받은 지침의 판)여야 합니다")
+        if ver is not None and ver != int(cur.get("version") or 0):
+            raise HTTPException(409, "그 사이 다른 화면에서 지침이 바뀌었습니다 — 다시 읽어 주세요")
+        try:
+            new = PG.off_put(cur, body.get("fp"), body.get("off") is not False)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        _user_save(s.id, new)
+        works.log(s.id, "placeGuideOff", fp=body.get("fp"), off=body.get("off") is not False, version=new["version"])
+        return {"off": new.get("off") or [], "version": new["version"], "rev": s.rev}
 
 
 def _head_view(s, pid):

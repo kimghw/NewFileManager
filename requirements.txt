@@ -12,3 +12,4 @@ pywin32==312; sys_platform == "win32"   # 한글 COM PDF 출력(app/pdf_render.p
 regex==2026.9.29          # 헤딩 추출 배운 규칙 정규식 시간 제한(app/heading_rules.py — LLM 이 제안한 정규식)
 claude-agent-sdk==0.2.172 # LLM 호출 첫 길(app/llm.py — Claude Code CLI 가 패키지에 들어 있음, Windows 휠 약 130 MB)
 openpyxl==3.1.5           # 헤딩 추출 3단계 표 의미 — 표 하나를 엑셀로(app/heading_calc.py workbook, GET …/headings/tables/{tid}/xlsx)
+pyyaml==6.0.3             # 양식 테마(테이블 타입 · 구분 기준 타입 · 개요 템플릿 — app/form_themes.py: safe_load · safe_dump 만)

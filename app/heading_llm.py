@@ -174,7 +174,8 @@ def prompt(contract, guide_names, data, pinned=None):
 def _call_record(job, res):
     return {"what": job["what"], "prompt": job["content"], "schema": job["schema"], "response": res.get("data"), "backend": res.get("backend"),
             "model": res.get("model"), "effort": res.get("effort"), "ms": res.get("ms"), "costUsd": res.get("costUsd"), "error": res.get("error"),
-            "retried": res.get("retried", False)}
+            "retried": res.get("retried", False),
+            **({"duo": res["duo"]} if res.get("duo") else {})}   # 함께 부른 호출 — 자리마다(LLM1 · LLM2 · 협의) 기록과 그 자리의 답을 협의한 답(response)과 따로 남긴다(app/llm_duo.py)
 
 
 # ---- 1단계 규칙 보강 -------------------------------------------------------------------------------------

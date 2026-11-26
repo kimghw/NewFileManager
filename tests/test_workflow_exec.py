@@ -175,6 +175,17 @@ def test_one_line_only_does_not_start_the_paid_line(fake):
         X.start("t", {"from": "nope"})
 
 
+def test_the_saved_guides_count_text_is_the_common_form(fake):
+    """작성 지침 수 글 — 「작성 지침 {items}개 저장(헤딩 a · 표 b[ · 각주 번호 이어진 수/전체])」: n 은 지침 항목(items)만 · 각주 번호는 있을 때만 그 조각(화면의 공통 상세 form_guides.js 와 같은 셈)."""
+    assert X._guides_text({"items": 1234, "headings": 20, "tables": 7, "marks": 0, "marksLinked": 0}) == "작성 지침 1,234개 저장(헤딩 20 · 표 7)"
+    assert X._guides_text({"items": 75, "headings": 20, "tables": 7, "marks": 53, "marksLinked": 51}) == "작성 지침 75개 저장(헤딩 20 · 표 7 · 각주 번호 51/53)"
+    assert X._guides_text({"marks": 2}) == "작성 지침 0개 저장(헤딩 0 · 표 0 · 각주 번호 0/2)"   # 각주 번호만 있는 문서 — 항목 수에 더하지 않는다
+    fake.guides_keep = lambda doc: Outcome("ok", "", {"saved": {"counts": {"items": 75, "headings": 20, "tables": 7, "marks": 53, "marksLinked": 51}}})
+    X.start("t", {"from": "review", "only": "heads"})
+    rec = _done("t")
+    assert rec["status"] == "done" and "두 문서의 헤딩 그래프·표 구조가 있습니다 · 작성 지침 75개 저장(헤딩 20 · 표 7 · 각주 번호 51/53)" in rec["steps"][0]["text"], rec["steps"]
+
+
 def test_agent_run_only_calls_the_approved_documents(fake):
     """에이전트 카드에서 시작한 실행은 승인한 문서에만 유료 호출을 건다 — 밖이면 하지 않고 남긴다(실패도 끝남도 아니다)."""
     fake.heads.update(s=True, t=True)

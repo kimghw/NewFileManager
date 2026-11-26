@@ -254,7 +254,7 @@ def test_registry_has_the_workflow_and_its_tools():
     # 2026-11-24 차례를 다시 놓음: 양식 검토(찾을 테마)가 자료 준비 앞 — 준비의 끝 · 작성 = 작성 계획 → 양식 초안 작성 → 검사 → 반영
     assert [s["key"] for s in t["stages"][0]["steps"]] == ["overview", "open", "heads", "headsLlm", "guides", "review"]
     # 2026-11-25 반영 뒤 「반영한 뒤 서식 정리」 · 「작성 지침 · 샘플 지우기」(spec_양식작성 ② §5-5 · §5-6)
-    assert [s["key"] for s in t["stages"][2]["steps"]] == ["plan", "ask", "check", "apply", "retidy", "cleanup"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
+    assert [s["key"] for s in t["stages"][2]["steps"]] == ["plan", "ask", "check", "apply", "retidy", "guideFix", "cleanup"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
     names = {s["key"]: s["name"] for g in t["stages"] for s in g["steps"]}
     assert (names["review"], names["plan"], names["ask"], names["apply"]) == ("양식 검토 · 찾을 테마", "작성 계획 · 확인할 것", "양식 초안 작성", "고른 초안을 문서에 반영")
     ask = next(s for s in t["stages"][2]["steps"] if s["key"] == "ask")

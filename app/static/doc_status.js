@@ -271,7 +271,7 @@ function dsTableDraw() {
   if (!t || t.hidden) return;
   if (!v || !v.items.some((i) => i.key === "formats")) { dsTableClose(); return; }
   dsTablePlace(t);
-  const sig = JSON.stringify([v.items.filter((i) => i.key !== "division"), v.chain, v.llmPlan, v.busy, v.job && v.job.status]);
+  const sig = JSON.stringify([v.items.filter((i) => i.key !== "division"), v.chain, v.llmPlan, v.busy, v.job && v.job.status, v.check || null]);
   if (sig === dsState.tableSig) return;
   dsState.tableSig = sig;
   const by = Object.fromEntries(v.items.map((i) => [i.key, i]));
@@ -314,7 +314,8 @@ function dsTableDraw() {
       go.disabled = !!v.busy;
       go.title = v.busy ? "다른 헤딩 작업이 도는 중입니다 — 끝난 뒤 누르세요" : `아래 「돌 것」 을 돌립니다 — ${DS_ORDER} · 유료 LLM 호출 · 몇 분 · 문서는 바뀌지 않습니다`;
       go.onclick = (e) => { e.stopPropagation(); go.disabled = true; dsLlmRun(); };
-      foot.append(el("div", "ds-foot-title", "돌 것 — 유료 LLM · 몇 분 걸립니다 · 문서는 바뀌지 않습니다(서식 정리는 계획만 — 반영은 「템플릿 서식 정리」 에서 고른 것만)"), ol, go);
+      foot.append(el("div", "ds-foot-title", "돌 것 — 유료 LLM · 몇 분 걸립니다 · 문서는 바뀌지 않습니다(서식 정리는 계획만 — 반영은 「템플릿 서식 정리」 에서 고른 것만)"), ol,
+        el("div", "ds-foot-note", "헤딩 · 표 판정은 두 모델(LLM1 · LLM2)이 따로 하고 다르면 협의합니다(한 모델만 쓰려면 LLM 칩에서) · 끝에 10쪽씩 구간 검증이 같이 돌아 확인이 필요한 곳을 남깁니다 — 호출이 그만큼 늡니다"), go);
     } else {
       const left = by.formats && by.formats.apply.state !== "done" && by.formats.levels;
       foot.append(el("div", "ds-foot-title", `LLM 검증·보완을 모두 마쳤습니다${left ? ` — 남은 일: 서식 반영(${by.formats.apply.text})` : ""}`));
@@ -324,6 +325,23 @@ function dsTableDraw() {
         b.type = "button"; b.onclick = (e) => { e.stopPropagation(); if (all) { dsTableClose(); tplPlanGo(); } else dsGo("Tidy"); }; foot.append(b);
       }
     }
+  }
+  const ck = v.check; // 구간 검증(10쪽씩 — 서버 app/analysis_check.py)이 남긴 「확인 필요」: 지금 판정에 유효한 것만(판정을 고치면 빠진다) · 판정 · 문서는 안 바뀐다
+  if (ck && ck.finds && ck.finds.length) {
+    const d = el("details", "ds-check");
+    d.open = !!dsState.checkOpen;
+    d.ontoggle = () => { dsState.checkOpen = d.open; };
+    d.append(el("summary", "", `구간 검증 — 확인 필요 ${ck.finds.length}곳${ck.left ? ` · 아직 검증 안 한 구간 ${ck.left}` : ""}`));
+    const ul = el("ul", "ds-check-list");
+    for (const f of ck.finds.slice(0, 40)) {
+      const li = el("li", f.sure ? "sure" : "");
+      li.append(el("span", "ds-check-kind", `${f.name} · ${f.pages[0]}–${f.pages[1]}쪽`), el("span", "ds-check-text", f.text ? `「${f.text}」` : f.id),
+        el("span", "ds-step-msg", f.what + (f.suggest ? ` → ${f.suggest}` : "")));
+      ul.append(li);
+    }
+    if (ck.finds.length > 40) ul.append(el("li", "", `… 그 밖에 ${ck.finds.length - 40}곳`));
+    d.append(ul);
+    foot.append(d);
   }
   t.replaceChildren(head, grid, foot);
 }
@@ -336,7 +354,7 @@ async function dsLlmRun(writingGuidance = false) { // 양식 작성 04에서는 
   if (epoch !== state.epoch) return false;
   const skill = typeof tpaSkillKey === "function" ? tpaSkillKey() : "tidy"; // 서식 정리는 열에서 고른 스킬(없으면 기본 — tpl_agent.js)
   try {
-    const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill, ...(writingGuidance === true ? { writingGuidance: true } : {}) }) });
+    const job = await api(`/api/docs/${id}/analysis/llm`, { method: "POST", headers: H_JSON, body: JSON.stringify({ skill, check: true, ...(writingGuidance === true ? { writingGuidance: true } : {}) }) }); // check = 끝에 구간 검증(10쪽씩 — 서버 app/analysis_check.py)
     if (epoch !== state.epoch) return;
     heads.expect = job.started;
     headsRender({ ...(heads.view || { rev: state.serverRev, runs: [], stage1: null, stage2: null, stage3: null }), job });

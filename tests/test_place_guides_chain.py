@@ -61,6 +61,31 @@ def test_review_how_goes_with_its_place():
     assert "상자의 작성 방향" in dict(got)["table"]
 
 
+def test_layers_name_their_box_or_table_and_say_whose_layer_it_is():
+    """층 제목이 어느 상자 · 표인지(머리 글) · 빈 층 글의 임자(name) — 2026-11-26 사용자 「우측 열에서 뭔지 내가 어떻게 아냐?」."""
+    by = {L["key"]: L for L in PG.chain(IX, BLOCKS, GRAPH, "p21", RULES)}
+    assert by["table"]["title"] == "이 상자 「공동(기업명 작성) :」" and by["table"]["name"] == "이 상자"
+    assert by["up"]["title"] == "윗 줄 「공동(기업명 작성) :」" and by["up"]["name"] == "이 윗 줄" and by["line"]["name"] == "이 줄"
+    by = {L["key"]: L for L in PG.chain(IX, BLOCKS, GRAPH, "p31", RULES)}
+    assert by["table"]["title"] == "이 표 「금액」" and by["table"]["name"] == "이 표" and by["cell"]["name"] == "이 칸" and by["head"]["name"] == "이 절"
+
+
+def test_where_tells_which_line_it_is():
+    """누른 줄의 자리 — 상자 · 표(머리 글 · 칸) · 윗 줄 · 앞의 글 있는 줄과 그 뒤 몇째 줄 · 절(쪽은 화면이 안다)."""
+    w = PG.where(BLOCKS, GRAPH, "p12")   # 상자 안 둘째 빈 줄
+    assert w["blank"] is True and w["tables"] == [{"id": "t1", "kind": "box", "text": "공동(기업명 작성) :", "cell": None}]
+    assert (w["up"], w["prev"], w["nth"], w["head"]) == ("공동(기업명 작성) :", "공동(기업명 작성) :", 2, "1. 성과목표")
+    w = PG.where(BLOCKS, GRAPH, "p21")   # 다른 묶음의 첫 빈 줄 — 앞 줄은 그 묶음의 머리 줄
+    assert (w["prev"], w["nth"]) == ("공동(기업명 작성) :", 1)
+    w = PG.where(BLOCKS, GRAPH, "p31")   # 표 칸 안의 빈 줄 — 그 칸(0행 1열) · 같은 칸에 앞 줄 없음
+    assert w["tables"] == [{"id": "t2", "kind": "table", "text": "금액", "cell": "r0c1"}] and (w["up"], w["prev"], w["nth"]) == ("", "", 0)
+    w = PG.where(BLOCKS, GRAPH, "p10")   # 글 있는 줄
+    assert w["blank"] is False and w["prev"] == "" and w["up"] == ""
+    w = PG.where(BLOCKS, GRAPH, "p1")    # 본문 헤딩 — 표 밖 · 그 줄 자신이 절
+    assert w["tables"] == [] and w["head"] == "" and w["blank"] is False
+    assert PG.where(BLOCKS, GRAPH, "nope") is None
+
+
 def test_chain_lines_lists_box_heading_lines_with_mention_counts():
     lines = PG.chain_lines(GRAPH, BLOCKS, RULES)
     assert lines == {"p10": 1, "p11": 2, "p12": 1, "p20": 1, "p21": 0}

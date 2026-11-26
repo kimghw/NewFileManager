@@ -288,6 +288,15 @@
 #divBox .dv-chain .btn { white-space: nowrap; }
 #divBox .dv-chain-state { flex-basis: 100%; min-width: 0; font-size: 11px; color: var(--accent); overflow-wrap: anywhere; }
 #divBox .dv-chain-state:empty { display: none; }
+/* 줄 목록(v2)으로 조립한 이관형 · 같은 양식 취합의 「단계」 절(#flowOverview — flow_overview.js: 붙박이 이관의 묶음 상자 자리 · 대시보드와 같은 그리기 — 꼴은 dashboard.css 의 .dash … 그대로).
+   여기는 이 패널의 넓은 규칙(#divBox p 의 margin 0 · #divBox .btn 의 28px · 6px)이 대시보드의 것을 덮는 곳만 되돌린다 — 묶음 머리 아래 줄의 간격 · 고르기 칩(알약 꼴) · 「기관 문서」 목록의 들여쓰기 */
+#divBox .flow-ov { min-width: 0; margin-top: 2px; padding-top: 8px; border-top: 1px solid #e8edf3; color: var(--text); }
+#divBox .flow-ov-head h3 { font-size: 13px; }
+#divBox .flow-ov .dash-solo, #divBox .flow-ov .dash-gend { margin: -2px 0 6px; }
+#divBox .flow-ov .dash-acts .dash-chip { height: 25px; min-height: 25px; padding: 0 7px 0 5px; border-radius: 999px; }
+#divBox .flow-ov .dash-acts .dash-take-target .dash-chip { height: 24px; min-height: 24px; padding: 0 7px 0 6px; border-radius: 5px; }
+#divBox .flow-ov .collect-row > .dash-text { margin-left: 26px; }
+@container (max-width: 360px) { #divBox .flow-ov .collect-row > .dash-text { margin-left: 0; } }
 #divBox .dv-flow-files label { display: contents; }
 #divBox .dv-flow-files select { width: 100%; min-width: 0; height: 28px; padding: 3px 8px; font-size: 12px; text-overflow: ellipsis; }
 #divBox .dv-flow-steps { list-style: none; margin: 0; padding: 6px 0 0; border-top: 1px solid #e8edf3; display: flex; flex-direction: column; gap: 0; }

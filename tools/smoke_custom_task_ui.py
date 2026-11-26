@@ -302,7 +302,7 @@ try:
         nav, made = wf.evaluate(NAV), wf.evaluate(MADE)
         used = wf.evaluate("() => Object.fromEntries(['stage_review', 'stage_fit', 'stage_fill', 'stage_clean'].map((id) => [id, [...document.querySelectorAll('#common-' + id + ' .wf-io .wf-chip')].map((a) => a.textContent)]))")
         check("목차에 그 워크플로우(「조립」 표시 · 붙박이 워크플로우 뒤) · 「워크플로우 조립」 절의 목록(문서마다 고른 단계 — 원본: — · 목적: 구성 맞추기 · 내용 넣기 · 고치기 · 지우기) · 단계 절의 「조립한 워크플로우」 에 더해짐(고른 단계에만)",
-              [f"#{key}", "구성 맞추고 넣기", "wf-made"] in nav["links"] and nav["links"][8][0] == f"#{key}" and len(made) == 1 and made[0]["key"] == key and made[0]["name"] == "구성 맞추고 넣기"
+              [f"#{key}", "구성 맞추고 넣기", "wf-made"] in nav["links"] and (lambda hs: hs.index(f"#{key}") == hs.index("#style_copy") + 1)([x[0] for x in nav["links"]]) and len(made) == 1   # 붙박이의 마지막(문서 서식 복사) 바로 뒤 — 자리 번호로 견주지 않는다(붙박이 「양식 작성」 이 늘어 번호가 밀렸다: 2026-11-25) and made[0]["key"] == key and made[0]["name"] == "구성 맞추고 넣기"
               and [r[:2] for r in made[0]["roles"]] == [["source", []], ["target", ["구성 맞추기", "내용 넣기"]]] and made[0]["roles"][0][2] == "원본:—" and made[0]["btns"] == [["고치기", False], ["지우기", False]]
               and made[0]["use"] == [] and made[0]["tips"] == ["이름 · 설명 · 고른 단계 · 전제를 고칩니다", "이 워크플로우를 지웁니다(단계 · 도구는 그대로)"]   # 쓰는 작업이 없어 셈 없음 · 까닭 없음
               and used["stage_fit"] == ["사업계획서 → 연차보고서 이관", "구성 맞추고 넣기"] and used["stage_review"] == ["사업계획서 → 연차보고서 이관"], [nav["links"][8], made, used])

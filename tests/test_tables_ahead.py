@@ -73,7 +73,11 @@ def _asker(types_ok=True, on_types=None):
             log.append(f"ask:{what}")
             if what == "heading_tables":
                 tables_in.set()
-                data = {"tables": [{"table": tid, "subtables": [], "cells": [], "summary": "가짜 요약"} for tid in _table_ids(job)], "summary": "표 묶음"}
+                # 띠는 초안 그대로 적는다(계약 「초안이 맞으면 초안 영역을 그대로」) — 빈 subtables + 빈 cells 는 「하나도 받아들이지 못한 답」 이라 판정으로 세지 않는다(heading_tables._settle — astra 결과 검토 P1-11:
+                # 이 가짜 답이 그 규칙보다 먼저 쓰여 빈 띠였다. 2026-11-24 전체 시험부터 떨어져 있던 것을 2026-11-26 고침)
+                tabs = json.loads(job["content"].split("## 자료(JSON)\n", 1)[1])["tables"]
+                data = {"tables": [{"table": tp["table"], "subtables": [{"sub": b["id"], "rows": b["rows"], "cols": b["cols"], "kind": b["kind"], "headerRows": -1, "headerCols": -1, "note": ""}
+                                                                        for b in tp["draft"]], "cells": [], "summary": "가짜 요약"} for tp in tabs], "summary": "표 묶음"}
             elif what == "heading_types":
                 assert tables_in.wait(60), "헤딩 판정(유형 판정)이 도는 동안 표 판정 호출이 시작되지 않음"
                 if on_types:

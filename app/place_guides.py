@@ -27,6 +27,9 @@ _UNIT1 = r"(?<![가-힣])(?:원|명|건|개|개월|년|월|일)(?![가-힣])"
 FIELD = re.compile(r"[\(（][^()（）]{0,20}(?:단위|천\s*원|백만\s*원|억\s*원|%|M/M|YY|yy|○\s*/\s*×|해당\s*시|이내|작성|기재|기입|선택|표기|예시|" + _UNIT1 + r")[^()（）]{0,20}[\)）]")   # 칸 글 안의 괄호 안내 — 단위 · 날짜 꼴 · 조건
 FIELD_CELL, FIELD_MAX = 40, 8   # 그런 괄호가 든 짧은 칸만(머리 칸 · 라벨 칸) · 표 하나에 싣는 수
 CONTRACT_LINE = ("\n\n### 자리마다의 작성 지침(guides)\n자료의 `guides` = 그 자리(헤딩 · 표)에 무엇을 쓰는지 양식(src \"doc\")이나 사람(src \"user\")이 정한 글입니다. "
+                 "src \"form\"(「양식 지침」) = 같은 양식의 문서마다 쓰려고 양식에 저장해 둔 지침입니다 — label 이 「서브 테이블 「…」」 · 「칸 「…」」 이면 그 표의 그 부분에만 닿습니다. "
+                 "src \"rule\"(「규정」) = 다른 규칙(관리 규정 · 지침서)이 이 양식에 요구하는 것입니다 — required 가 참이면 꼭 지킬 요구 사항이고 source 가 그 출처, applies 가 적용 조건입니다. "
+                 "src \"purpose\"(「문서 목적」) = 이 과제의 공고 · 목적에 맞춰 사람이 적은 것입니다(범위 · 관점). 자료의 `docGuides` 가 있으면 문서 전체에 닿는 규정 · 문서 목적 · 일반 지침입니다(자리마다 되풀이하지 않고 한 번만 실었습니다). "
                  "짝 · 칸 · 자리를 고를 때 근거로 쓰되, 넣을 사실 · 수 · 이름은 원본의 실제 내용에서만 가져옵니다(지침에 적힌 예시 · 수를 옮기지 않습니다). "
                  "지침이 그 자리에 넣지 말라는 내용(다른 차년도 · 다른 기관 · 계획 대신 실적 등)은 짝으로 고르지 않습니다. "
                  "지침은 그 자리의 것이 먼저이고 그 뒤에 윗 절(윗 제목)의 것이 이어집니다. src \"struct\"(「표 구조」) = 그 표의 구조에서 읽은 것(무엇을 적는 표인지 · 단위 · 칸의 꼴)입니다. "
@@ -118,12 +121,16 @@ def struct(blocks, t3_tables):
     return out
 
 
-def index(saved, blocks, t3_ids, user=None, table_user=None, t3_tables=None):
+def index(saved, blocks, t3_ids, user=None, table_user=None, t3_tables=None, form=None, extra=None):
     """저장본 + 사용자 지침 → {"tables": {표 id: [지침…]}, "heads": {헤딩 문단 id: [지침…]}, "loose": 어디에도 못 붙인 수, "heads_text": {헤딩 id: 글}, "struct": {표 id: 표 구조 지침}}.
     t3_tables = 3단계 결과의 표 목록(heading_runs.tables 의 `tables` — 주면 표 구조 지침 `struct` 를 짓는다 · 화면의 수(`tables`)에는 안 든다 — LLM 에 싣는 목록(`for_table`)에만).
     saved = form_guides 저장본(form_guides_api.load 꼴) | None · blocks = 지금 문서의 블록 · t3_ids = 3단계 표 id 들 ·
-    user = guides_user.json 꼴 {heads{헤딩 id: {text, label}}} | None · table_user = {표 id: 「이 표」 지침 글}(table_agent own instructions).
-    지침 = {src, kind, text, label?(각주 번호가 든 칸 · 줄의 글)}."""
+    user = guides_user.json 꼴 {heads{헤딩 id: {text, label}}} | None · table_user = {표 id: 「이 표」 지침 글}(table_agent own instructions) ·
+    form = 양식 지침 YAML 을 지금 자리에 이은 것(`form_guide_yaml.locate` — {heads, tables, examples}) | None: 그 지침은 src "form"(사람의 것 다음 · 문서의 것 앞) · 예시는 `examples` 로 따로.
+    extra = 같은 자리 잇기로 이은 다른 원천들 [규정(form_rules.locate — src "rule"), 문서 목적(purpose_yaml.locate — src "purpose")] | None: 자리에 이어진 것은 그 자리의 목록에(사람의 것 다음),
+    문서 전체에 닿는 것(그 원천의 `doc` · 양식 지침의 루트 guides)은 자리마다 되풀이하지 않고 **`doc` 묶음 하나**로(호출에 한 번 — `doc_text`).
+    user 의 `off` = 이 작업에서 끈 지침의 지문 목록(`fp`) — 끈 것은 목록 · `doc` 에서 빠지고 `offed`(자리마다) · `docOffed` 에 남는다(화면이 「켜기」 로 되돌린다). 판(sig)은 끈 뒤의 목록으로 셈해진다.
+    지침 = {src, kind, text, label?(각주 번호가 든 칸 · 줄의 글), required? · source? · applies?(규정 · 문서 목적)}."""
     cell_of = {}
     own, inside, t3 = owners(blocks, cell_of), _inside(blocks), set(t3_ids or ())
     tables, heads, loose, names = {}, {}, 0, {}
@@ -159,6 +166,15 @@ def index(saved, blocks, t3_ids, user=None, table_user=None, t3_tables=None):
             names.setdefault(h["id"], h.get("text") or "")
         else:
             loose += 1
+    for key, got in (("heads", heads), ("tables", tables)):   # 양식 지침(form_guide_yaml.locate — src "form"): 사람의 것 다음 · 문서의 것 앞(spec_양식작성 ② §5-8)
+        for pid, gs in ((form or {}).get(key) or {}).items():
+            got[pid] = [dict(g) for g in gs] + got.get(pid, [])
+    doc = [dict(g) for g in (form or {}).get("doc") or ()]
+    for ov in reversed([x for x in extra or () if x]):   # 규정 · 문서 목적 — 사람의 것 다음 · 양식 지침 앞(extra 의 차례대로: 규정 → 문서 목적)
+        for key, got in (("heads", heads), ("tables", tables)):
+            for pid, gs in (ov.get(key) or {}).items():
+                got[pid] = [dict(g) for g in gs] + got.get(pid, [])
+        doc = [dict(g) for g in ov.get("doc") or ()] + doc
     for hid, u in ((user or {}).get("heads") or {}).items():
         if isinstance(u, dict) and (u.get("text") or "").strip():
             heads.setdefault(hid, []).insert(0, {"src": "user", "kind": KIND_USER, "text": _cut(u["text"], ITEM_MAX)})   # 사람의 것이 앞(자를 때 남는다)
@@ -166,7 +182,21 @@ def index(saved, blocks, t3_ids, user=None, table_user=None, t3_tables=None):
     for tid, text in (table_user or {}).items():
         if (text or "").strip():
             tables.setdefault(tid, []).insert(0, {"src": "user", "kind": KIND_TABLE_USER, "text": _cut(text, ITEM_MAX)})
-    return {"tables": tables, "heads": heads, "loose": loose, "heads_text": names, "t3": sorted(t3), "struct": struct(blocks, t3_tables) if t3_tables else {}}
+    offs = {x for x in (user or {}).get("off") or () if isinstance(x, str)}
+    offed, doc_offed = {}, []
+    if offs:   # 이 작업에서 끈 지침 — 이관 3단계 · 양식 작성 · 화면이 같은 색인을 읽으니 한 곳에서 뺀다
+        for got in (heads, tables):
+            for pid, gs in got.items():
+                out = [g for g in gs if fp(g) in offs]
+                if out:
+                    offed[pid] = offed.get(pid, []) + out
+                    got[pid] = [g for g in gs if fp(g) not in offs]
+        doc_offed = [g for g in doc if fp(g) in offs]
+        doc = [g for g in doc if fp(g) not in offs]
+    doc, _ = pack(doc, limit=10 ** 9)   # 같은 글은 하나
+    return {"tables": tables, "heads": heads, "loose": loose, "heads_text": names, "t3": sorted(t3), "struct": struct(blocks, t3_tables) if t3_tables else {},
+            "doc": doc, "off": sorted(offs), "offed": offed, "docOffed": doc_offed,
+            "examples": dict((form or {}).get("examples") or {})}   # 양식 지침의 작성 예시 {헤딩 | 표 id: [예시…]} — 지침 목록에 섞지 않는다(글을 쓰는 호출만 읽는다)
 
 
 def _head(n):
@@ -247,25 +277,81 @@ def resolver(ix, blocks, graph):
         if tid:
             return table(tid)
         return common([block(it["id"]) for it in x.get("items") or () if it.get("id")])   # 항목마다 그 라벨 블록의 자리(칸 라벨이면 그 표의 지침도 — 「block」 과 같은 해석: astra 3차)
+    place.doc = list((ix or {}).get("doc") or ())   # 문서 전체에 닿는 지침(규정 · 문서 목적 · 양식 지침의 루트 guides) — 자리마다가 아니라 호출에 한 번(`doc_text` — 부르는 쪽이 자료의 `docGuides` 로 싣는다)
     return place
 
 
+RANK = {"user": 0, "purpose": 2, "doc": 3, "form": 4, "struct": 4, "llm": 6, "guidance": 6, "review": 6}   # 자를 때의 출처 순위(작을수록 남는다 — spec_양식작성 ② §5-9 「조립의 규칙」): 이번 작업의 사람 › 규정(required) 1 › 문서 목적 › 양식 명시(doc) › 양식 지침 › 규정(권고) 5 › LLM
+DOC_MAX = 3000   # 문서 전체에 닿는 지침(규정의 targets 없는 항목 · 문서 목적 · 양식 지침의 루트 guides)을 한 호출에 싣는 글자 수
+SRC_NAME = {"rule": "규정", "purpose": "문서 목적", "form": "양식 지침", "user": "사람", "doc": "양식", "llm": "04 자동 판정", "struct": "표 구조"}
+
+
+def rank(g):
+    """지침 하나의 출처 순위(작을수록 먼저 남는다)."""
+    src = (g or {}).get("src")
+    if src == "rule":
+        return 1 if g.get("required", True) else 5
+    return RANK.get(src, 3)
+
+
+def _norm(text):
+    return " ".join((text or "").split())
+
+
+def fp(g):
+    """지침 하나의 지문(12자 — 글 · label · 칸: 출처는 넣지 않는다 — 같은 글이 다른 출처로 또 있어도 끈 것은 꺼진다). 작업마다의 「끄기」 목록(guides_user.json `off`)이 이것을 적는다."""
+    raw = "\x1f".join((_norm((g or {}).get("text")), (g or {}).get("label") or "", (g or {}).get("cell") or ""))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def tag(g):
+    """지침 하나의 출처 꼬리표 글 — 「규정 · 필수 · 관리규정 제5조」 · 「문서 목적 — 평가 관점」 · 「양식 지침」 …(글 쓰는 호출 · 화면이 같이 쓴다)."""
+    src = (g or {}).get("src")
+    if src == "rule":
+        parts = ["규정", "필수" if g.get("required", True) else "권고"]
+    elif src == "purpose":
+        parts = [g.get("kind") or "문서 목적"]
+    else:
+        parts = [g.get("kind") or SRC_NAME.get(src, "양식")]
+    if g.get("source"):
+        parts.append(_one(g["source"], 60))
+    if g.get("applies"):
+        parts.append("적용: " + _one(g["applies"], 80))
+    return " · ".join(parts)
+
+
+def doc_text(guides, limit=DOC_MAX):
+    """문서 전체에 닿는 지침들(색인의 `doc`) → 한 호출에 **한 번** 싣는 글(줄마다 「- (출처) 글」 · 순위대로 · limit 자까지) | ""."""
+    rows, _ = pack(sorted(guides or (), key=rank), limit=limit)
+    return "\n".join(f"- ({tag(g)}) {_norm(g.get('text'))}" for g in rows)
+
+
 def pack(*lists, limit=PLACE_MAX):
-    """자리 하나의 지침 목록들(앞의 것이 먼저) → (합친 목록, 자른 수). 같은 (kind, text, label) 은 하나 · 글자 합이 limit 을 넘으면 뒤의 것을 뺀다."""
-    out, seen, n, cut = [], set(), 0, 0
+    """자리 하나의 지침 목록들(앞의 것이 먼저) → (합친 목록, 자른 수). **같은 글은 출처가 달라도 하나**(앞의 것 — 2026-11-26: 전에는 열쇠에 kind 가 들어 양식 지침에 올린 글이 그 작업에서 src user · form 으로 두 번 실렸다) ·
+    다른 칸 · 다른 label 의 같은 글은 따로(어느 칸의 지침인지가 다르다). 글자 합이 limit 을 넘으면 **출처 순위가 낮은 것부터**(`rank` — 같은 순위면 뒤의 것부터) 뺀다 — 남은 것의 차례는 그대로다."""
+    rows, seen = [], set()
     for lst in lists:
         for g in lst or ():
-            k = (g.get("kind"), g.get("text"), g.get("label") or "", g.get("cell") or "")   # 같은 번호 · 같은 항목이라도 다른 칸의 각주는 따로(어느 칸의 지침인지가 다르다)
+            k = (_norm(g.get("text")), g.get("label") or "", g.get("cell") or "")
             if k in seen:
                 continue
             seen.add(k)
-            size = len(g.get("text") or "") + len(g.get("label") or "")
-            if n + size > limit:
-                cut += 1
-                continue
-            n += size
-            out.append(g)
-    return out, cut
+            rows.append(g)
+    size = lambda g: len(g.get("text") or "") + len(g.get("label") or "")  # noqa: E731
+    total = sum(size(g) for g in rows)
+    if total <= limit:
+        return rows, 0
+    drop = set()
+    for i in sorted(range(len(rows)), key=lambda i: (-rank(rows[i]), -i)):
+        if total <= limit:
+            break
+        drop.add(i)
+        total -= size(rows[i])
+    for i in sorted(drop, key=lambda i: (rank(rows[i]), i)):   # 큰 것 하나를 빼느라 같이 빠진 작은 것은 들어가면 되살린다
+        if total + size(rows[i]) <= limit:
+            drop.discard(i)
+            total += size(rows[i])
+    return [g for i, g in enumerate(rows) if i not in drop], len(drop)
 
 
 def _heads(ix, head):
@@ -333,7 +419,25 @@ def user_put(data, hid, text, label="", at=0.0):
         heads[hid] = {"text": t, "label": _one(label, 120), "at": at}
     else:
         heads.pop(hid, None)
-    return {"version": int((data or {}).get("version") or 0) + 1, "heads": heads}
+    return {"version": int((data or {}).get("version") or 0) + 1, "heads": heads, **({"off": list(data["off"])} if (data or {}).get("off") else {})}
+
+
+OFF_MAX = 500
+
+
+def off_put(data, key, off=True):
+    """이 작업에서 지침 하나를 끄거나(off) 다시 켠 새 저장본 — key = 그 지침의 지문(`fp`). ValueError(지문 꼴이 아님 · 너무 많음)."""
+    if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{12}", key):
+        raise ValueError("끌 지침의 지문(fp)이 필요합니다")
+    cur = [x for x in (data or {}).get("off") or () if isinstance(x, str) and x != key]
+    if off:
+        if len(cur) >= OFF_MAX:
+            raise ValueError(f"끈 지침은 {OFF_MAX}개까지입니다")
+        cur.append(key)
+    out = {"version": int((data or {}).get("version") or 0) + 1, "heads": dict((data or {}).get("heads") or {})}
+    if cur:
+        out["off"] = cur
+    return out
 
 
 # ---- 한 자리에 닿는 지침의 사슬 — 줄 · 윗 줄 · 칸 · 상자/표 · 절 · 윗 절 -------------------------------------------------------------------
@@ -377,14 +481,7 @@ def chain(ix, blocks, graph, bid, rules=None, hows=None, owner=None):
     tid = next((t for t in reversed(tchain) if t in t3), None) or (tchain[-1] if tchain else None)
     blk = {b["id"]: b for b in iter_blocks(blocks or ())}
     text = lambda pid: _one((blk.get(pid) or {}).get("text") or (by_para.get(pid) or {}).get("text") or "", 40)
-    # 윗 줄 — 상자 · 칸 안에서 그래프의 parent 를 따라 같은 표 안에 있는 것만(본문 헤딩에 닿으면 멈춤 — 그것은 절의 층)
-    ups, seen, n = [], {bid}, by_para.get(bid)
-    p = by_id.get((n or {}).get("parent"))
-    while p is not None and p.get("para") not in seen and tchain and top in (own.get(p.get("para")) or []):
-        seen.add(p["para"])
-        if not p.get("blank"):
-            ups.append(p["para"])
-        p = by_id.get(p.get("parent"))
+    ups = _line_ups(by_para, by_id, own, bid)
     # 작성 지침 보완 · 양식 검토 — 그 자리(이 블록 자신 · 품은 표들)의 것을 가리키는 줄마다 나눈다
     hit = {bid: [], **{u: [] for u in ups}}
     rest = []
@@ -404,32 +501,105 @@ def chain(ix, blocks, graph, bid, rules=None, hows=None, owner=None):
                     break
     layers = []
 
-    def add(key, title, at, *lists, keep=False):   # keep = 비어도 세운다(이 줄 · 윗 줄 — 묶음의 짜임이 보이게)
+    def add(key, title, at, *lists, keep=False, name=""):   # keep = 비어도 세운다(이 줄 · 윗 줄 — 묶음의 짜임이 보이게) · name = 그 층을 가리키는 말(화면의 빈 층 글 「이 윗 줄에 붙은 지침은 없습니다」)
         items, _ = pack(*lists, limit=PLACE_MAX * 2)
         if items or keep:
-            layers.append({"key": key, "title": title, "at": at, "items": items})
+            layers.append({"key": key, "title": title, "name": name or title, "at": at, "items": items})
     add("line", "이 줄", bid, (ix.get("heads") or {}).get(bid), hit[bid],
         [{"src": "review", "kind": KIND_HOW, "text": _cut(hows[bid], ITEM_MAX)}] if hows.get(bid) else None, keep=True)
     for u in ups:
-        add("up", f"윗 줄 「{text(u)}」" if text(u) else "윗 줄", u, (ix.get("heads") or {}).get(u), hit[u], keep=True)
+        add("up", f"윗 줄 「{text(u)}」" if text(u) else "윗 줄", u, (ix.get("heads") or {}).get(u), hit[u], keep=True, name="이 윗 줄")
     if tid:
         tg = (ix.get("tables") or {}).get(tid) or []
         at_cell = cells.get(bid)
         rc = at_cell[1] if at_cell and at_cell[0] == tid else None
         if rc:
-            add("cell", f"이 칸({rc})", bid, [g for g in tg if g.get("cell") == rc])
+            add("cell", f"이 칸({rc})", bid, [g for g in tg if g.get("cell") == rc], name="이 칸")
         st = (ix.get("struct") or {}).get(tid)
         tb = blk.get(top) or {}
-        box = len(tb.get("cells") or ()) == 1
-        add("table", "이 상자" if box else "이 표", top, [g for g in tg if not g.get("cell")], [st] if st else None, rest,
-            [{"src": "review", "kind": KIND_HOW, "text": _cut(hows[k], ITEM_MAX)} for k in whole if hows.get(k)])
+        what = "이 상자" if len(tb.get("cells") or ()) == 1 else "이 표"
+        th = table_head(tb)   # 어느 상자 · 표인가 — 그 머리 글(2026-11-26 사용자 「우측 열에서 뭔지 내가 어떻게 아냐?」)
+        add("table", f"{what} 「{th}」" if th else what, top, [g for g in tg if not g.get("cell")], [st] if st else None, rest,
+            [{"src": "review", "kind": KIND_HOW, "text": _cut(hows[k], ITEM_MAX)} for k in whole if hows.get(k)], name=what)
     find, anc = heading_finder(blocks, graph), ancestors(graph)
     h = find(top or bid)
     for i, hp in enumerate([h, *anc.get(h, ())] if h else []):
         if hp == bid:
             continue
-        add("head", f"{'절' if i == 0 else '윗 절'} 「{text(hp)}」", hp, (ix.get("heads") or {}).get(hp))
+        add("head", f"{'절' if i == 0 else '윗 절'} 「{text(hp)}」", hp, (ix.get("heads") or {}).get(hp), name="이 절" if i == 0 else "이 윗 절")
+    add("doc", "문서 전체", "", ix.get("doc"), name="문서 전체")   # 규정의 targets 없는 항목 · 문서 목적 · 양식 지침의 일반 가이드라인 — 글 쓰는 호출에는 자리마다가 아니라 한 번 실린다
     return layers
+
+
+def _line_ups(by_para, by_id, own, bid):
+    """상자 · 칸 안의 줄 bid 의 윗 줄들 [가까운 것부터] — 그래프의 parent 를 따라 같은 최상위 표 안에 있는 글 있는 줄만(본문 헤딩에 닿으면 멈춤 — 그것은 절의 층)."""
+    tchain = own.get(bid) or []
+    top = tchain[0] if tchain else None
+    ups, seen = [], {bid}
+    p = by_id.get((by_para.get(bid) or {}).get("parent"))
+    while p is not None and p.get("para") not in seen and tchain and top in (own.get(p.get("para")) or []):
+        seen.add(p["para"])
+        if not p.get("blank"):
+            ups.append(p["para"])
+        p = by_id.get(p.get("parent"))
+    return ups
+
+
+def table_head(tb, n=30):
+    """표 · 상자 하나를 사람이 알아볼 짧은 글 — 상자(1칸 표)는 그 안의 글 있는 첫 줄 · 표는 글이 있는 첫 행의 칸 글(셋까지 「 · 」 로). 글이 없으면 ""."""
+    cs = (tb or {}).get("cells") or ()
+    if len(cs) == 1:
+        return next((_one(b.get("text"), n) for b in iter_blocks(cs[0].get("blocks") or ()) if b.get("type") == "paragraph" and _one(b.get("text"))), "")
+    rows = {}
+    for c in cs:
+        t = _one(" ".join(b.get("text") or "" for b in c.get("blocks") or () if b.get("type") == "paragraph"), 12)
+        if t:
+            rows.setdefault(c.get("row", 0), []).append((c.get("col", 0), t))
+    return _one(" · ".join(t for _, t in sorted(rows[min(rows)])[:3]), n) if rows else ""
+
+
+def where(blocks, graph, bid):
+    """블록 bid 가 문서의 어디인가 — 화면이 「어느 줄의 지침인가」 를 글로 보일 자료(읽기만 · 쪽 번호는 화면이 안다). 없는 블록이면 None.
+    2026-11-26 사용자(여백의 작성 지침 아이콘을 누르고 오른쪽 열을 보며) "여기서 내가 작성지침 아이콘을 누르면 우측 열에서 뭔지 내가 어떻게 아냐?" — 전에는 줄 글뿐이라 빈 줄이면 「(빈 줄)」 만 보였다.
+    {blank(글 없는 줄인가), tables[{id, kind "box"|"table", text(table_head), cell "r{행}c{열}" | None(그 표에서 이 줄을 품은 칸 — 상자는 칸이 하나라 없음)}](바깥 → 안쪽),
+     up(상자 · 칸 안의 바로 윗 줄 글 — 그래프의 parent · 없으면 ""), prev(같은 칸 · 본문에서 바로 앞의 글 있는 줄 글 — 사이에 표가 있으면 ""), nth(prev 뒤 몇째 줄인가 — 1부터 · prev 가 없으면 0),
+     head(그 줄의 절 글 — 그 줄 자신이 절이면 "")}."""
+    cells = {}
+    own = owners(blocks, cells)
+    if bid not in own:
+        return None
+    blk = {b["id"]: b for b in iter_blocks(blocks or ())}
+    by_para = {n.get("para"): n for n in (graph or {}).get("nodes") or () if isinstance(n, dict) and n.get("para")}
+    by_id = {n["id"]: n for n in by_para.values() if n.get("id")}
+    text = lambda pid: _one((blk.get(pid) or {}).get("text") or (by_para.get(pid) or {}).get("text") or "", 60)
+    tchain = own[bid]
+    tables = []
+    for i, t in enumerate(tchain):
+        tb = blk.get(t) or {}
+        box = len(tb.get("cells") or ()) == 1
+        at = cells.get(tchain[i + 1] if i + 1 < len(tchain) else bid)
+        tables.append({"id": t, "kind": "box" if box else "table", "text": table_head(tb), "cell": at[1] if at and at[0] == t and not box else None})
+
+    def lists(seq):
+        yield seq
+        for b in seq:
+            if b.get("type") == "table":
+                for c in b.get("cells") or ():
+                    yield from lists(c.get("blocks") or ())
+    prev, nth = "", 0
+    for b in next((seq for seq in lists(blocks or ()) if any(x["id"] == bid for x in seq)), ()):
+        if b["id"] == bid:
+            break
+        if b.get("type") != "paragraph":   # 사이에 표 — 「그 줄 아래 n번째」 라고 할 수 없다
+            prev, nth = "", 0
+        elif _one(b.get("text")):
+            prev, nth = _one(b.get("text"), 60), 0
+        elif prev:
+            nth += 1
+    ups = _line_ups(by_para, by_id, own, bid)
+    h = heading_finder(blocks, graph)(tchain[0] if tchain else bid)
+    return {"blank": (blk.get(bid) or {}).get("type") == "paragraph" and not text(bid), "tables": tables, "up": text(ups[0]) if ups else "",
+            "prev": prev, "nth": nth + 1 if prev else 0, "head": text(h) if h and h != bid else ""}
 
 
 def chain_lines(graph, blocks, rules=None):

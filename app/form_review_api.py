@@ -12,9 +12,7 @@ import time
 
 from fastapi import APIRouter, Body, HTTPException
 
-import concurrent.futures
-
-from app import agent_notes, agent_settings, doc_agent, form_review, job_prompts, llm, merge_guides, works
+from app import agent_notes, agent_settings, doc_agent, form_review, job_prompts, llm, llm_duo, merge_guides, works
 
 router = APIRouter()
 FILE = "form_review.json"
@@ -125,51 +123,23 @@ def _ask(prompt, place_ids, has_mats, run):
     """검토를 함께 부를 모델마다(LLM1 · LLM2 … — `agent_settings.models`, 기본 `form_review.LLMS`) 따로 받고, 둘 이상 답하면 LLM1 의 모델이 **협의**해 하나로 낸다
     (2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의하도록」). → (협의한 답 · 자리마다 기록 [{slot, model, backend, ms, ok, error, questions}] | []).
     모델이 하나면 전과 같은 한 번(에이전트 설정의 모델). 한 모델만 답하면 그 답을 쓰고 협의는 건너뛴다(기록에 남김) · 협의가 실패하면 LLM1 의 답(없으면 먼저 답한 것)."""
+    # 두 모델 + 협의의 틀은 공통 함수(app/llm_duo.py — 2026-11-26 부터 04 「LLM 검증·보완」 · 작성 지침 보완도 같이 쓴다). 양식 검토는 답이 같아 보여도 늘 협의한다(same_fn 없음 — 물음을 하나로 모으는 일).
     models = agent_settings.models("form_review", form_review.LLMS)
-    if len(models) <= 1:
-        got = llm.call(form_review.SCHEMA, prompt, "form-review", timeout=600.0, effort="medium", model=models[0] if models else form_review.MODEL,
-                       **({"slot": "LLM1"} if models else {}))
+    out = llm_duo.ask(form_review.SCHEMA, prompt, "form-review", models, timeout=CALL_S, single_timeout=600.0, effort="medium", default_model=form_review.MODEL,
+                      check=lambda d: form_review.check(d, place_ids, has_mats), consult=form_review.consult_prompt, same_fn=None, on=run.__setitem__)
+    got, rec, by = out["got"], out["rec"], {d["slot"]: d["data"] for d in out["drafts"]}
+    if not rec:   # 한 모델(사람이 「한 모델만」 으로 둠)
         if got.get("data") is None:
             raise RuntimeError(f"LLM 이 답하지 못했습니다({got.get('error') or '까닭 모름'})")
         return got, []
-    slots = [(f"LLM{i + 1}", m) for i, m in enumerate(models)]
-    run["llms"] = [{"slot": sl, "model": m, "state": "running"} for sl, m in slots]
-
-    def one(sm):
-        return llm.call(form_review.SCHEMA, prompt, "form-review", timeout=CALL_S, effort="medium", model=sm[1], slot=sm[0])
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(slots)) as ex:
-        outs = list(ex.map(agent_notes.carry(one), slots))
-    rec, drafts = [], []
-    for (sl, m), got in zip(slots, outs):
-        ok, err = got.get("data") is not None, got.get("error")
-        if ok:
-            try:
-                form_review.check(got["data"], place_ids, has_mats)
-            except Exception as e:   # noqa: BLE001 — 꼴이 틀린 답은 그 모델의 실패로
-                ok, err = False, f"답의 꼴: {e}"[:200]
-        rec.append({"slot": sl, "model": m, "backend": got.get("backend"), "ms": got.get("ms"), "ok": ok, "error": None if ok else (err or "까닭 모름")[:200],
-                    "questions": len(got["data"].get("questions") or []) if ok else 0})
-        if ok:
-            drafts.append({"slot": sl, "model": m, "data": got["data"], "got": got})
-    run["llms"] = [{**r, "state": "done" if r["ok"] else "failed"} for r in rec]
-    if not drafts:
-        raise RuntimeError("모든 모델이 답하지 못했습니다(" + " · ".join(f"{r['slot']} {r['error']}" for r in rec) + ")")
-    if len(drafts) == 1:
-        rec.append({"slot": "협의", "model": None, "ok": False, "error": f"{drafts[0]['slot']} 만 답해 협의 없이 그 답을 씀"})
-        return drafts[0]["got"], rec
-    run["consult"] = "running"
-    got = llm.call(form_review.SCHEMA, form_review.consult_prompt(prompt, drafts), "form-review#consult", timeout=CALL_S, effort="medium", model=models[0], slot="협의")
-    ok = got.get("data") is not None
-    if ok:
-        try:
-            form_review.check(got["data"], place_ids, has_mats)
-        except Exception as e:   # noqa: BLE001
-            ok, got = False, {**got, "error": f"답의 꼴: {e}"[:200]}
-    rec.append({"slot": "협의", "model": models[0], "backend": got.get("backend"), "ms": got.get("ms"), "ok": ok, "error": None if ok else (got.get("error") or "까닭 모름")[:200],
-                "questions": len(got["data"].get("questions") or []) if ok else 0})
-    run["consult"] = "done" if ok else "failed"
-    return (got if ok else drafts[0]["got"]), rec
+    if not out["drafts"]:
+        err = got.get("error") or "까닭 모름"
+        raise RuntimeError(err if err.startswith("모든 모델") else f"모든 모델이 답하지 못했습니다({err})")
+    for r in rec:   # 자리마다 그 답의 물음 수(협의는 협의한 답의 것)
+        d = by.get(r["slot"]) if r["slot"] != llm_duo.CONSULT_SLOT else (got.get("data") if r.get("ok") else None)
+        if r.get("backend") is not None or r["slot"] != llm_duo.CONSULT_SLOT:
+            r["questions"] = len((d or {}).get("questions") or []) if r.get("ok") else 0
+    return got, rec
 
 
 def _go(s, places, mids, run, request="", plan_request=""):

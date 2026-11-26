@@ -24,7 +24,9 @@ def _arr(item):
     return {"type": "array", "items": item}
 
 
-SCHEMA = _obj({"fixes": _arr(_obj({"unit": S_, "id": S_, "new": S_, "rule": S_, "why": S_})), "left": _arr(_obj({"unit": S_, "id": S_, "why": S_}))})
+SCHEMA = _obj({"fixes": _arr(_obj({"unit": S_, "id": S_, "new": S_, "rule": S_, "src": S_, "why": S_})), "left": _arr(_obj({"unit": S_, "id": S_, "why": S_})),
+               "ok": _arr(_obj({"unit": S_, "why": S_}))})   # src = 따른 지침의 출처 · ok = 지침에 맞는 자리(「맞음」 — 사람이 검토 결과를 본다: spec_양식작성 ② §5-9 「지침 검토 · 수정」)
+SRCS = ("doc", "user", "form", "rule", "purpose", "struct")   # 조립된 지침의 출처(place_guides — 문서 · 사람 · 양식 지침 · 규정 · 문서 목적 · 표 구조)
 GUIDE, MODEL = "guide_fix", "claude-opus-5-5"
 SCOPE_MAX, GUIDE_MAX, CALL_MAX, UNIT_MAX, TEXT_MAX = 12000, 6000, 24000, 4, 1500   # 자리 하나의 글 · 지침 글 · 한 호출의 자료 · 한 호출의 자리 수 · 문단 하나의 글(보내는 꼴)
 GROW, GROW_MIN = 0.2, 20   # 새 글이 늘 수 있는 몫(옛 글의 20% 와 20자 가운데 큰 것)
@@ -34,7 +36,8 @@ CONTRACT = """당신은 국가R&D 문서(연차보고서 등 — **목적 문서
 **이미 들어간 글을 고치는** 검토자입니다. 새 내용을 쓰지 않습니다 — 있는 글을 지침이 정한 꼴로 고치거나 덜어 냅니다.
 
 ### 자료
-units = 자리 [{key, kind("heading" = 그 헤딩 아래 본문 · "table" = 그 표), where(헤딩 글 · 표 이름), guides[{kind, text}](그 자리에 붙은 작성 지침), content[…], cut(참이면 자리의 글이 길어 앞부분만 보냄)}].
+units = 자리 [{key, kind("heading" = 그 헤딩 아래 본문 · "table" = 그 표), where(헤딩 글 · 표 이름), guides[{kind, text, src?}](그 자리에 붙은 작성 지침 — src = 출처: doc 양식의 작성요령 · user 사람 · form 양식 지침 · rule 규정(kind 에 「필수 · 권고」 와 출처) · purpose 문서 목적 · struct 표 구조. 그 자리의 것 다음에 윗 절의 것이 이어집니다), content[…], cut(참이면 자리의 글이 길어 앞부분만 보냄)}].
+docGuides(있을 때) = 문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인 — 모든 자리에 함께 봅니다).
 content 의 줄 = {id, text}(고칠 수 있는 문단) · {h}(헤딩 줄 — 고칠 수 없음) · {table, cells[{rc(행 r · 열 c), id, text}]}(표 — 칸 안 문단마다 id) · {pic: true}(그림 · 개체 — 고칠 수 없음).
 
 ### 답
@@ -43,7 +46,8 @@ content 의 줄 = {id, text}(고칠 수 있는 문단) · {h}(헤딩 줄 — 고
   - **새 사실 · 수를 짓지 않습니다** — 새 글의 수는 그 자리의 글에 이미 있는 수만 씁니다(스크립트가 검사해 어긴 고침은 버립니다). 글을 늘리지 않습니다.
   - 지침에 맞는 글은 그대로 둡니다(fixes 에 넣지 않습니다). 확신이 없으면 고치지 않습니다 — 틀리게 고치는 것보다 그대로 두는 것이 낫습니다.
 - left = [{unit, id, why}] — 지침에 맞지 않지만 **문서에 없는 정보가 있어야** 고칠 수 있는 것(id 는 그 문단 · 자리 전체면 "").
-- rule = 따른 지침의 말(짧게 인용) · why = 무엇을 왜 고쳤는지(또는 왜 못 고치는지) 한 문장."""
+- ok = [{unit, why}] — 그 자리의 글이 지침에 맞아 고칠 것이 없는 자리(why = 무엇을 보고 맞다고 했는지 한 문장). 고침 · left 가 있는 자리는 넣지 않습니다.
+- rule = 따른 지침의 말(짧게 인용) · src = 그 지침의 출처(guides 의 src 그대로 — docGuides 의 것이면 그 줄 머리의 「규정」 은 rule · 「문서 목적」 은 purpose · 그 밖은 form) · why = 무엇을 왜 고쳤는지(또는 왜 못 고치는지) 한 문장."""
 
 FALLBACK_GUIDE = """- 지침이 꼴(표기 · 단위 · 날짜 · 정해진 말)을 정한 곳은 그 꼴로 고친다. 지침이 분량을 정한 곳은 넘는 뒷부분을 덜어 낸다(앞부분의 뜻을 바꾸지 않는다).
 - 지침이 「삭제」 · 「지우고 작성」 이라 한 예시 글 · 자리표시가 남아 있으면 지운다. 지침이 말하지 않는 문장은 고치지 않는다."""
@@ -158,8 +162,25 @@ def _content(seq, guide_ids, heads_at):
     return lines, ids, "\n".join(texts), cut
 
 
-def units(blocks, graph, saved, found):
-    """자리 목록 → ([{key, kind, where, guides, content, cut}], {자리 key: {ids{문단 id: 옛 글}, nums, where, kind}}). saved = 저장한 작성 지침(form_guides_api.load 꼴)."""
+def _assembled(ix, at, kind, pid, seq):
+    """조립된 지침(place_guides.index 꼴 ix + resolver at) → 그 자리의 [{kind, text, src}] — 그 자리의 것 → 표 구조 → 윗 절의 것(이관 3단계 · 양식 작성 초안과 같은 조립) + 헤딩 자리면 그 구간에 든 표의 것.
+    GUIDE_MAX 자까지 — 넘치면 출처 순위가 낮은 것부터 뺀다(place_guides.pack)."""
+    from app import place_guides as PG
+    gs = list(at("table" if kind == "table" else "block", pid))
+    if kind == "heading":
+        for b in seq:
+            for x in structure.iter_blocks([b]):
+                if x.get("type") == "table":
+                    gs += (ix.get("tables") or {}).get(x["id"]) or []
+    rows, _ = PG.pack(gs, limit=GUIDE_MAX)
+    return [{"kind": PG.tag(g) if g.get("src") in ("rule", "purpose") else (g.get("kind") or "") + (f" — {_short(g['label'], 40)}" if g.get("label") else ""),
+             "text": g["text"].strip(), "src": g.get("src") or "doc"} for g in rows if (g.get("text") or "").strip()]
+
+
+def units(blocks, graph, saved, found, ix=None):
+    """자리 목록 → ([{key, kind, where, guides, content, cut}], {자리 key: {ids{문단 id: 옛 글}, nums, where, kind}}). saved = 저장한 작성 지침(form_guides_api.load 꼴).
+    ix = 조립된 자리 지침 색인(place_guides_api.index_of — 문서 · 사람 · 양식 지침 · 규정 · 문서 목적: spec_양식작성 ② §5-9 「지침 검토 · 수정」)을 주면 지침을 그 조립 결과로 받고(출처 `src` 와 함께 · 윗 절의 것까지),
+    자리도 그 색인에 제 지침이 있는 헤딩 · 표로 넓힌다(문서에 작성요령이 없어도 양식 지침 · 규정이 붙은 자리를 본다). ix 가 없으면 전처럼 저장한 작성 지침의 묶음만."""
     from app import form_guides
     pos = {b["id"]: k for k, b in enumerate(blocks)}
     heads = _heads(graph, pos)
@@ -167,9 +188,23 @@ def units(blocks, graph, saved, found):
     guide_ids = _guide_ids(found or {}, blocks)
     G = form_guides.groups(saved or {})
     out, ctx, covered = [], {}, set()
+    at = None
+    if ix:
+        from app import place_guides as PG
+        at = PG.resolver(ix, blocks, graph)
+        by = {b["id"]: b for b in blocks}
+        have = {g["id"] for g in G["headings"]}
+        G = {"headings": sorted([*G["headings"], *({"id": h, "text": (ix.get("heads_text") or {}).get(h) or (by.get(h) or {}).get("text") or "", "items": [], "marks": []}
+                                                    for h, v in (ix.get("heads") or {}).items() if v and h in pos and h not in have)], key=lambda g: pos.get(g["id"], 10 ** 9)),
+             "tables": [*G["tables"], *({"id": t, "label": PG.table_head(by.get(t) or {}) or t, "items": [], "marks": []}
+                                         for t, v in (ix.get("tables") or {}).items() if v and t in pos and t not in {g["id"] for g in G["tables"]})]}
 
     def add(kind, where, seq, g):
-        guides = _guides_of(g)
+        guides = _guides_of(g)   # 저장한 작성 지침의 묶음 — 전과 같은 것이 먼저다(헤딩 그래프 · 3단계 결과가 없는 문서에서는 조립이 헤딩을 못 찾는다 — 그래도 이관형의 전 동작 그대로 자리가 선다)
+        if at is not None:
+            guides = [{**x, "src": "doc"} for x in guides]
+            seen = {" ".join(x["text"].split()) for x in guides}
+            guides += [x for x in _assembled(ix, at, kind, g["id"], seq) if " ".join(x["text"].split()) not in seen]   # 조립이 더한 것(사람 · 양식 지침 · 규정 · 문서 목적 · 표 구조 · 윗 절) — 같은 글은 하나
         if not guides:
             return
         lines, ids, text, cut = _content(seq, guide_ids, heads_at)
@@ -255,11 +290,36 @@ def check(ctx, answer):
             rejected.append({"unit": u or "", "id": pid or "", "why": bad})
             continue
         seen.add(pid)
-        fixes.append({"unit": u, "id": pid, "where": c["where"], "old": c["ids"][pid], "new": new, "rule": _short(f.get("rule"), 200), "why": _short(f.get("why"), 300)})
+        fixes.append({"unit": u, "id": pid, "where": c["where"], "old": c["ids"][pid], "new": new, "rule": _short(f.get("rule"), 200), "why": _short(f.get("why"), 300),
+                      **({"src": f["src"]} if f.get("src") in SRCS else {})})   # src = 따른 지침의 출처(조립된 지침으로 물었을 때 — 화면이 「어느 지침 · 출처」 를 보인다)
     for x in (answer or {}).get("left") or ():
         if isinstance(x, dict) and x.get("unit") in ctx:
             left.append({"unit": x["unit"], "id": x.get("id") if x.get("id") in ctx[x["unit"]]["ids"] else "", "where": ctx[x["unit"]]["where"], "why": _short(x.get("why"), 300)})
     return fixes, left, rejected
+
+
+def oks(ctx, answer, fixes=(), left=()):
+    """답의 「맞음」 → [{unit, where, why}] — 아는 자리만 · 고침 · 못 고침이 있는 자리는 뺀다(맞음이 아니다) · 자리마다 하나."""
+    busy = {x["unit"] for x in [*fixes, *left]}
+    out, seen = [], set()
+    for x in (answer or {}).get("ok") or ():
+        u = x.get("unit") if isinstance(x, dict) else None
+        if u in ctx and u not in busy and u not in seen:
+            seen.add(u)
+            out.append({"unit": u, "where": ctx[u]["where"], "why": _short(x.get("why"), 300)})
+    return out
+
+
+def places(ctx, fixes=(), left=(), ok=(), failed=()):
+    """자리마다의 검토 결과 [{unit, where, kind, state("fix" 고침 제안 | "left" 못 고침 | "ok" 맞음 | "none" 답 없음), fixes(수), left(수), why}] — 사람이 검토 결과를 자리마다 본다. failed = 답을 못 받은 자리 key 들."""
+    out = []
+    why = {x["unit"]: x.get("why") or "" for x in ok}
+    for u, c in ctx.items():
+        nf, nl = sum(1 for f in fixes if f["unit"] == u), sum(1 for x in left if x["unit"] == u)
+        state = "fix" if nf else "left" if nl else "ok" if u in why else "none"
+        out.append({"unit": u, "where": c["where"], "kind": c["kind"], "state": state, "fixes": nf, "left": nl,
+                    "why": why.get(u, "") if state == "ok" else "LLM 이 답을 내지 못했습니다" if state == "none" and u in set(failed) else ""})
+    return out
 
 
 def ask(prep, job=None, model=MODEL, effort="medium", timeout=300.0):
@@ -267,17 +327,22 @@ def ask(prep, job=None, model=MODEL, effort="medium", timeout=300.0):
     us, ctx = prep["units"], prep["ctx"]
     g = merge_guides.get(GUIDE)
     groups = batches(us)
-    jobs = [{"schema": SCHEMA, "content": prompt({"units": b}, job, g), "what": f"guide-fix-{i + 1}", "timeout": timeout, "effort": effort, "model": model} for i, b in enumerate(groups)]
+    doc = {"docGuides": prep["doc"]} if prep.get("doc") else {}   # 문서 전체에 닿는 지침(규정 · 문서 목적 · 일반 가이드라인) — 호출마다 한 번(자리마다 되풀이하지 않는다)
+    jobs = [{"schema": SCHEMA, "content": prompt({"units": b, **doc}, job, g), "what": f"guide-fix-{i + 1}", "timeout": timeout, "effort": effort, "model": model} for i, b in enumerate(groups)]
     res = llm.ask_all(jobs) if jobs else []
-    out = {"fixes": [], "left": [], "rejected": [], "units": [], "asked": len(jobs), "guide": merge_guides.brief(g),
+    out = {"fixes": [], "left": [], "rejected": [], "ok": [], "failed": [], "units": [], "asked": len(jobs), "guide": merge_guides.brief(g),
            "job": {k: job[k] for k in ("job", "name", "sha1") if k in job} if job and job_prompts.part(job) else None}
     for i, (b, j, r) in enumerate(zip(groups, jobs, res)):
         call = {k: r.get(k) for k in ("backend", "model", "effort", "ms", "costUsd", "error", "retried")}
         out["units"].append({"n": i, "keys": [u["key"] for u in b], "where": [u["where"] for u in b], "error": call.get("error"), "prompt": j["content"], "answer": r.get("data"), "call": call})
         if r.get("data") is None:
+            out["failed"] += [u["key"] for u in b]
             continue
-        fixes, left, rejected = check({u["key"]: ctx[u["key"]] for u in b}, r["data"])
+        mine = {u["key"]: ctx[u["key"]] for u in b}
+        fixes, left, rejected = check(mine, r["data"])
         out["fixes"] += fixes
         out["left"] += left
         out["rejected"] += rejected
+        out["ok"] += oks(mine, r["data"], fixes, left)
+    out["places"] = places(ctx, out["fixes"], out["left"], out["ok"], out["failed"])
     return out

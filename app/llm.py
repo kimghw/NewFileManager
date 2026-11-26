@@ -378,6 +378,8 @@ def slots_n():
 def ask_all(jobs, workers=None, retry_workers=2, progress=None):
     """여러 호출을 병렬로 → jobs 와 같은 순서의 결과 목록. job = call 의 인자 dict {schema, content, what, timeout?, effort?, model?}.
     데이터 없이 실패한 것(off·busy 제외)은 retry_workers 병렬로 한 번 더 — 결과에 "retried": True. 한 job 의 예외가 다른 결과를 버리지 않는다.
+    **함께 부르는 에이전트**(what 의 에이전트가 `agent_settings.LLMS` 에 든 것 — 04 「LLM 검증·보완」 의 규칙 보강 · 유형 · 구간 · 표 판정)의 job 은 모델마다 따로 부르고 답이 다르면 협의한 하나를 돌려준다
+    (`llm_duo.job` — 결과에 `duo`: 자리마다 기록 · 답. 2026-11-26 사용자 「한개의 에이전트로 하지 말고 … 2개의 에이전트가 검증보완」). 사람이 그 에이전트를 「한 모델만」 으로 두었으면 한 번.
     progress(끝난 수, 전체 수) = 첫 바퀴에서 호출 하나가 끝날 때마다(부른 스레드에서 · 예외는 삼킨다) — 큰 문서의 진행 글(「표 판정 호출 7/25」)."""
     jobs = list(jobs)
     if not jobs:
@@ -385,6 +387,11 @@ def ask_all(jobs, workers=None, retry_workers=2, progress=None):
 
     def one(job):
         try:
+            aid = agent_settings.agent_of(job.get("what", "llm"))
+            duo = agent_settings.duo(aid) if aid and settings()["backend"] != "off" else []   # 함께 부르는 에이전트(LLM1 · LLM2 — agent_settings.LLMS)의 호출은 모델마다 따로 + 협의(app/llm_duo.py). LLM 을 끈 서버(off)는 전처럼 한 번(「off」)
+            if duo:
+                from app import llm_duo   # 부를 때 가져온다(llm_duo 가 이 모듈을 가져온다)
+                return llm_duo.job(job, duo)
             return call(job["schema"], job["content"], job.get("what", "llm"), timeout=job.get("timeout", 180.0),
                         effort=job.get("effort"), model=job.get("model"))
         except Exception as e:  # call 은 예외를 안 내지만 시험의 가짜 call 등

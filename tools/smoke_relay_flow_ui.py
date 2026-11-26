@@ -23,7 +23,8 @@ app/static/task_catalog.js(taskIsRelayFlow) · workflow_exec.js(relayFlowRun · 
 - ⑦-2 「캡션 맞추기」(조립 도구 — spec_워크플로우 ② §18-23): 끝난 줄의 목적 문서 카드에 맞출 꼴 칩 · 누르면 PUT …/flow/caption · 「가장 많은 꼴로」 로 풂.
 - ⑧ 목적 문서 화면 — 카드의 「목적 문서 열기」 로 감 · 같은 대시보드(같은 끝난 수) · 그 문서에서 「연결 목록」 · 「목록 보기」 가 보임 · LLM 검증·보완의 「건너뛰기」 → PUT …/flow/skip → 「건너뛰기 취소」.
 - ⑨ 에이전트 상태(agwStatus) — 서버 상태의 묶음 이름(「1단계 문서 검토」)으로(이관의 화면 셈이 아니다).
-- ⑩ 붙박이 이관 문서는 그대로(문서 카드 꼬리표 없음 · relayFlowOn 거짓).
+- ⑨-2 패널 「작업 개요」 의 「단계」 절(flow_overview.js — 2026-11-25): 묶음 넷 · 대시보드와 같은 끝난 수 · 단추 · 길 찾기 줄 · 카드 펴기 · 고르기 칩 · 문서 카드의 「이 단계만 진행」 = 서버 실행(대시보드 탭은 숨은 채).
+- ⑩ 붙박이 이관 문서는 그대로(문서 카드 꼬리표 없음 · relayFlowOn 거짓 · 「작업 개요」 = 묶음 상자 넷 · 「단계」 절 없음).
 - 콘솔 오류 없음."""
 import argparse
 import json
@@ -142,7 +143,7 @@ def check_llm_prompt(page, job, documents):
         picker = pane.get_by_role("combobox", name="에이전트")
         agents = picker.locator("option").evaluate_all("(options) => options.map(o => o.value)")
         check("④ 검증·보완의 기본 에이전트와 설정에 따라 실행하는 서식 판정·재검토도 고를 수 있다",
-              set(agents) == {"heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent"}, agents)
+              set(agents) == {"heading_rules", "heading_types", "heading_section", "heading_formats", "heading_review", "heading_tables", "tpl_agent", "analysis_check"}, agents)   # analysis_check = 끝의 구간 검증(10쪽씩 — 2026-11-26)
         picker.select_option(agent)
         form = pane.locator('.wfp-part[data-kind="form"]')
         form.wait_for()
@@ -566,6 +567,60 @@ def main():
         check("⑨ 에이전트 상태 — 서버 상태의 묶음(「1단계 문서 검토」 … 「4단계 문서 정리」) · 줄(files · config · heads …) — 이관의 화면 셈(준비 — 사업계획서 · 연차보고서 고르기)이 아니다",
               st9["stages"] == ["1단계 문서 검토", "2단계 구성 맞추기", "3단계 본문 및 테이블 매칭", "4단계 문서 정리"] and st9["keys"] == ["files", "config", "heads", "headsLlm"], st9)
 
+        # ---- ⑨-2 패널 「작업 개요」 의 「단계」 절(flow_overview.js — 2026-11-25 사용자 "양식작성 워크플로우와 연차보고서 배포안 작성 워크플로우가 UIUX 가 동일한지 … 일관성이 있어야":
+        # 전에는 이 정의의 묶음(g1 …)이 「작업 개요」 에서 모두 빠졌다). 대시보드와 같은 것 — 같은 묶음 · 끝난 수 · 단추, 대시보드 탭이 숨어 있어도 눌리고 따라간다
+        OV = DASH.replace("#paneDash", "#flowOverview")
+        page.evaluate("() => { dashFlowTouch(state.id); DASH.open = null; return dashDraw(true); }")
+        idle(page)
+        d9 = page.evaluate(DASH)
+        page.evaluate("() => showTab('Div')")
+        page.wait_for_function("() => !!document.querySelector('#flowOverview .dash-group .dash-st')", timeout=120000)
+        idle(page)
+        o9 = page.evaluate(OV)
+        w9 = page.evaluate("""() => ({ inFlow: !!document.querySelector('#taskFlow #flowOverview'), phases: document.querySelectorAll('#taskSteps details.dv-phase').length, dashHidden: document.getElementById('paneDash').hidden,
+          head: (document.querySelector('#flowOverview .flow-ov-head h3') || {}).textContent || '', note: !!document.querySelector('#flowOverview .flow-ov-head .panel-help, #flowOverview .flow-ov-head button'),
+          journey: [...document.querySelectorAll('#taskFlow .dv-journey button')].map((b) => b.dataset.journey), over: document.getElementById('flowOverview').scrollWidth > document.getElementById('flowOverview').clientWidth + 1 })""")
+        same9 = {k: (d9[k], o9[k]) for k in ("groups", "notes", "last", "count", "next", "top") if d9[k] != o9[k]}
+        check("⑨-2 「작업 개요」 의 「단계」 절 — 첫 카드의 묶음 자리(#taskFlow 안 · 붙박이 묶음 상자는 없음)에 묶음 넷(g1 … g4) · 대시보드와 같은 끝난 수 · 「한 번에 진행」(글 · 켜짐 · 풍선) · 문서 카드 · 알림 · 끝 글 · 머리 단추 · 제목 「단계」 + 메모 · 길 찾기 줄 = 준비 + 묶음 넷 · 가로 넘침 없음",
+              [g["id"] for g in o9["groups"]] == ["g1", "g2", "g3", "g4"] and not same9 and all(g["run"] and g["run"]["text"] == "한 번에 진행" for g in o9["groups"])
+              and w9 == {"inFlow": True, "phases": 0, "dashHidden": True, "head": "단계", "note": True, "journey": ["prepare", "g1", "g2", "g3", "g4"], "over": False}, [same9, w9, [(g["id"], g["count"]) for g in o9["groups"]]])
+        page.evaluate("() => { DASH.open = ''; return flowOverviewDraw(true); }")
+        page.click('#flowOverview [data-dash-focus="node:capUnify@target"]')   # 카드 머리를 눌러 편다(대시보드와 같은 펴기 — 같은 값 DASH.open)
+        OCAP = '#flowOverview [data-dash-focus="act:capUnify@target:cap:%s"]'
+        page.wait_for_selector(OCAP % 0, timeout=60000)
+        open9 = page.evaluate("() => { const n = document.querySelector('#flowOverview .dash-node.open'); return n ? [n.dataset.key, DASH.open] : null; }")
+        reqs.clear()
+        page.click(OCAP % 0)
+        page.wait_for_function("(s) => !DASH.busy && !!document.querySelector(s)", arg=OCAP % "auto", timeout=60000)   # 대시보드 탭이 숨은 채 — 이 절이 바뀐 상태를 따라 그린다(「가장 많은 꼴로」 가 생김)
+        page.click(OCAP % "auto")
+        page.wait_for_function("(s) => !DASH.busy && !document.querySelector(s)", arg=OCAP % "auto", timeout=60000)
+        puts9 = [json.loads(b) for m, u, b in reqs if m == "PUT" and "/flow/caption" in u]
+        check("⑨-2 「단계」 절의 카드 — 머리를 누르면 펴지고(대시보드와 같은 값) · 고르기 칩이 눌린다(PUT …/flow/caption {form: 그 꼴} → 「가장 많은 꼴로」 → {form: null}) · 그동안 대시보드 탭은 숨은 채",
+              open9 == ["capUnify", "capUnify@target"] and puts9 == [{"form": cv["forms"][0]["key"]}, {"form": None}] and page.evaluate("() => document.getElementById('paneDash').hidden"), [open9, puts9])
+        page.locator("#paneDiv").screenshot(path=str(OUT / "relay_flow_overview.png"))
+        # 새 묶음(프로젝트 「배포 시험 개요」 · 두 문서 모두 분석 전)에서 — 「작업 개요」 만 보며 문서 카드의 「이 단계만 진행」: 서버 실행 · 끝나면 그 카드 ✓ 끝남 · 끝 글
+        src5 = up(PLAN)
+        requests.put(f"{base}/api/works/{src5}/task", json={"kind": "rnd", "file": "plan", "job": key, "project": "배포 시험 개요"}, timeout=60).raise_for_status()
+        tgt5 = requests.post(f"{base}/api/workflow-start/target", json={"job": key, "main": src5, "request": f"ov-{int(time.time())}", "target": {"form": form["id"]}}, timeout=300).json()["docId"]
+        page.evaluate("(id) => openWork(id)", tgt5)
+        page.wait_for_function("(id) => state.id === id && !state.loading", arg=tgt5, timeout=120000)
+        page.evaluate("() => showTab('Div')")
+        page.wait_for_function("() => DASH.flow && DASH.flow.id === state.id && !!DASH.flow.view && !!document.querySelector('#flowOverview .dash-group .dash-st')", timeout=120000)
+        idle(page)
+        page.evaluate("() => { DASH.open = 'heads@target'; return flowOverviewDraw(true); }")
+        page.wait_for_selector('#flowOverview [data-dash-focus="act:heads@target:only"]:not([disabled])', timeout=60000)
+        solo9 = page.evaluate("() => [...document.querySelectorAll('#flowOverview .dash-group[data-group=\"g1\"] .dash-solo button')].map((b) => b.textContent)")
+        reqs.clear()
+        page.click('#flowOverview [data-dash-focus="act:heads@target:only"]')
+        page.wait_for_function("() => !!DASH.busy || !!taskRun", timeout=30000)
+        idle(page)
+        HEADS9 = """() => Object.fromEntries([...document.querySelectorAll('#flowOverview .dash-node[data-key="heads"]')].map((n) => [(n.querySelector('.hd-role') || { dataset: {} }).dataset.role || '', (n.querySelector('.dash-st') || {}).textContent || '']))"""
+        page.wait_for_function(f"() => ({HEADS9})().target === '✓ 끝남'", timeout=120000)
+        runs9, h9, o9c = [json.loads(b) for m, u, b in reqs if m == "POST" and u.endswith("/flow/runs")], page.evaluate(HEADS9), page.evaluate(OV)
+        check("⑨-2 「단계」 절의 단추로 실행 — 「한 문서만」 줄(원본 문서만 · 목적 문서만) · 목적 문서 카드의 「이 단계만 진행」 → 시작 요청 {from: g1, only: heads, role: target} 한 번(서버 실행) · 끝나면 그 카드만 ✓ 끝남 · 지난 실행의 끝 글 「끝남 — …」 · 대시보드 탭은 숨은 채",
+              solo9 == ["원본 문서만", "목적 문서만"] and len(runs9) == 1 and runs9[0].get("from") == "g1" and runs9[0].get("only") == "heads" and runs9[0].get("role") == "target"
+              and h9.get("target") == "✓ 끝남" and h9.get("source") != "✓ 끝남" and o9c["last"][0].startswith("끝남 — ") and page.evaluate("() => document.getElementById('paneDash').hidden"), [solo9, runs9, h9, o9c["last"]])
+
         # ---- ⑩ 붙박이 이관 문서는 그대로
         old = up(PLAN)
         requests.put(f"{base}/api/works/{old}/task", json={"kind": "rnd", "file": "plan", "job": "plan_to_report", "project": "붙박이 이관"}, timeout=60).raise_for_status()
@@ -576,6 +631,12 @@ def main():
         b10 = page.evaluate("() => ({ on: relayFlowOn(), roles: document.querySelectorAll('#paneDash .hd-role').length, groups: [...document.querySelectorAll('#paneDash .dash-group')].map((g) => g.dataset.group), flow: !!(DASH.flow && DASH.flow.id === state.id) })")
         check("⑩ 붙박이 「사업계획서 → 연차보고서 이관」 문서는 그대로 — 줄 목록 가지가 아님(relayFlowOn 거짓 · 문서 카드 꼬리표 없음 · 서버 상태를 이 보기가 읽지 않음) · 묶음 = 표준 넷",
               b10 == {"on": False, "roles": 0, "groups": ["review", "frame", "map", "clean"], "flow": False}, b10)
+        page.evaluate("() => showTab('Div')")
+        page.wait_for_function("() => document.querySelectorAll('#taskSteps details.dv-phase').length > 0 && document.querySelectorAll('#taskFlow .dv-journey button').length > 0", timeout=120000)
+        b10b = page.evaluate("""() => ({ phases: [...document.querySelectorAll('#taskSteps details.dv-phase')].map((d) => d.dataset.stage), ov: !!document.getElementById('flowOverview'),
+          journey: [...document.querySelectorAll('#taskFlow .dv-journey button')].map((b) => b.dataset.journey) })""")
+        check("⑩ 붙박이 이관의 「작업 개요」 는 그대로 — 묶음 상자 넷(review · frame · map · clean) · 「단계」 절(#flowOverview)은 없음 · 길 찾기 줄 = 준비 + 묶음 넷",
+              b10b == {"phases": ["review", "frame", "map", "clean"], "ov": False, "journey": ["prepare", "review", "frame", "map", "clean"]}, b10b)
 
         real = [e for e in errors if "409" not in e and "400" not in e]
         check("콘솔 오류 없음", not real, real[:6])

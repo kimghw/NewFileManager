@@ -771,6 +771,7 @@
 .fw-ov-stage > .fw-ov-shead::before { content: "▸"; color: var(--muted); font-size: 11px; }
 .fw-ov-stage[open] > .fw-ov-shead::before { content: "▾"; }
 .fw-ov-end { margin: 6px 0 0; }
+.fw-ov-stage > .dash-reset { margin: 6px 0 0; } /* 「N단계 초기화」 의 확인 줄(form_write.js fwStageResetEl) — 묶음 머리 아래 · 끝 글 띠와 같은 간격 */
 .fw-ov-steps { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
 .fw-ov-step { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface, #fff); min-width: 0; }
 .fw-ov-step.is-now, .fw-ov-step.is-run { border-color: var(--accent, #2563eb); }
@@ -782,3 +783,83 @@
 .fw-ov-step.is-now .fw-ov-st, .fw-ov-step.is-run .fw-ov-st { color: var(--accent, #2563eb); font-weight: 600; }
 .fw-ov-text { margin: 3px 0 0; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .fw-ov-step .dash-acts { margin-top: 5px; }
+
+/* 2026-11-26 두 지침 가르기 — 추출 프롬프트(B · 보라 반짝이) ↔ 작성 지침(A · 청록 클립보드) */
+button.btn[data-dash-focus="act:headsLlm:criteria"],
+button.btn[data-dash-focus="act:headsLlm:view"],
+button.btn[data-dash-focus="act:guides"] {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 0 9px 0 8px; font-weight: 500;
+}
+button.btn[data-dash-focus="act:headsLlm:criteria"]::before,
+button.btn[data-dash-focus="act:headsLlm:view"]::before,
+button.btn[data-dash-focus="act:guides"]::before {
+  content: ""; flex: none; width: 14px; height: 14px; background-color: currentColor;
+  -webkit-mask: var(--fw-ic) center / contain no-repeat;
+  mask: var(--fw-ic) center / contain no-repeat;
+}
+button.btn[data-dash-focus="act:headsLlm:criteria"] {
+  border-color: #d9c8fb; background: #f5f0ff; color: #6d28d9;
+  --fw-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z'/%3E%3Cpath d='M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z'/%3E%3C/svg%3E");
+}
+button.btn[data-dash-focus="act:headsLlm:criteria"]:hover:not(:disabled) {
+  border-color: #b697f4; background: #ece3ff; color: #5b21b6;
+}
+button.btn[data-dash-focus="act:headsLlm:view"],
+button.btn[data-dash-focus="act:guides"]:not(.primary) {
+  border-color: #a7e0d8; background: #ecfaf7; color: #0f766e;
+  --fw-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='2.5' width='10' height='11.5' rx='1.5'/%3E%3Cpath d='M6 2.5v-1h4v1M5.5 6.5h5M5.5 9h5M5.5 11.5h3'/%3E%3C/svg%3E");
+}
+button.btn[data-dash-focus="act:headsLlm:view"]:hover:not(:disabled),
+button.btn[data-dash-focus="act:guides"]:not(.primary):hover:not(:disabled) {
+  border-color: #68bfb4; background: #ddf3ee; color: #0b5c56;
+}
+button.btn.primary[data-dash-focus="act:guides"] {
+  border-color: #0f766e; background: #0f766e; color: #fff; font-weight: 600;
+  --fw-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='2.5' width='10' height='11.5' rx='1.5'/%3E%3Cpath d='M6 2.5v-1h4v1M5.5 6.5h5M5.5 9h5M5.5 11.5h3'/%3E%3C/svg%3E");
+}
+button.btn.primary[data-dash-focus="act:guides"]:hover:not(:disabled) {
+  border-color: #0b5c56; background: #0b5c56; color: #fff;
+}
+#headsDlg[data-kind="fwCriteria"]:not(.folded) > header {
+  align-items: flex-start; gap: 6px; padding: 10px 12px 9px 14px;
+  background: #faf7ff; border-bottom: 1px solid #e4d9fb;
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+#headsDlg[data-kind="fwCriteria"] > header > .spacer { display: none; }
+#headsDlg[data-kind="fwCriteria"] .hd-heading-copy {
+  flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+}
+#headsDlg[data-kind="fwCriteria"] #headsDlgTitle {
+  display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px 6px;
+  font-size: 14px; font-weight: 700; line-height: 1.35; color: #4c1d95;
+}
+#headsDlg[data-kind="fwCriteria"] #headsDlgTitle::before {
+  content: ""; flex: none; width: 15px; height: 15px; background-color: #6d28d9;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z'/%3E%3Cpath d='M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z'/%3E%3Cpath d='M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+#headsDlg[data-kind="fwCriteria"] #headsDlgTitle::after {
+  content: "작성 지침 아님"; flex: none; padding: 0 6px;
+  border: 1px solid #d9c8fb; border-radius: 9px; background: #f5f0ff; color: #6d28d9;
+  font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap;
+}
+#headsDlg[data-kind="fwCriteria"] #headsDlgNote {
+  max-width: 100%; white-space: normal; overflow: visible; text-overflow: clip;
+  font-size: 11.5px; line-height: 1.45; color: #5b4b7a; word-break: keep-all;
+}
+#headsDlg[data-kind="fwCriteria"] > header > .icon { margin-top: -2px; color: #6d5a94; }
+
+/* 추출 프롬프트 열의 「미리 적어 둔 테마」 — 테마마다 구분 기준 타입 · 템플릿 · 테이블 타입 + 「YAML 고치기」(spec_양식작성 ② §5-7 · form_write.js fwThemesDraw) */
+.fw-themes { margin-top: 12px; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+.fw-th-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 13px; }
+.fw-th { margin-top: 6px; border: 1px solid var(--line); border-radius: 6px; }
+.fw-th > summary { cursor: pointer; padding: 6px 10px; font-size: 13px; line-height: 1.6; }
+.fw-th > summary > * { margin-right: 6px; }
+.fw-th-body { padding: 0 10px 10px; font-size: 12px; }
+.fw-th-docs { margin: 2px 0 4px; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.fw-th-kind { margin: 8px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.fw-th-item > .fw-tag { flex: none; }
+.fw-th-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fw-th-yaml { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); color: var(--text);
+  font: 12px/1.5 ui-monospace, Consolas, "D2Coding", monospace; white-space: pre; overflow: auto; resize: vertical; tab-size: 2; }

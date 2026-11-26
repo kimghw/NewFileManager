@@ -583,7 +583,8 @@ def _do_heads(run, stage, line):
         if not _got(f):
             err = ((f or {}).get("heads", {}).get("job") or {}).get("error") or "결과가 생기지 않았습니다"
             raise _Halt("failed", f"{name}의 헤딩 · 표 분석이 실패했습니다 — {err}(「헤딩 추출」 탭에서 확인)")
-    # 끝 글은 화면 실행의 글 그대로(② §17-7 「끝 글」 — app.js taskRunSteps 의 base): 「두 문서의 헤딩 그래프·표 구조가 있습니다 · 작성 지침 n개 저장(헤딩 a · 표 b)」
+    # 끝 글은 화면 실행의 글 그대로(② §17-7 「끝 글」 — app.js taskRunSteps 의 base): 「두 문서의 헤딩 그래프·표 구조가 있습니다 · 작성 지침 n개 저장(헤딩 a · 표 b[ · 각주 번호 이어진 수/전체])」
+    # (n = 지침 항목 items 만 — 각주 번호는 있을 때만 따로 적는다: 공통 상세 form_guides.js 와 같은 셈 · _guides_text)
     text = f"{'두 문서' if len(docs) == 2 else docs[0][1]}의 헤딩 그래프·표 구조가 있습니다"
     target = next((d for d, _, role in docs if role == "target"), None)
     if target:
@@ -592,8 +593,16 @@ def _do_heads(run, stage, line):
         if not kept.ok:
             text += f" · 작성 지침을 저장하지 못했습니다({kept.text})"
         elif c.get("items") or c.get("marks"):
-            text += f" · 작성 지침 {c.get('items', 0):,}개 저장(헤딩 {c.get('headings', 0):,} · 표 {c.get('tables', 0):,})"
+            text += f" · {_guides_text(c)}"
     return ("done" if missing else "nothing"), text
+
+
+def _guides_text(c):
+    """저장한 작성 지침의 수 글(공통 꼴) — 「작성 지침 {items}개 저장(헤딩 {headings} · 표 {tables}[ · 각주 번호 {marksLinked}/{marks}])」.
+    n = 지침 항목(items)만이고 각주 번호(작성 요령 항목에 이어진 수 / 전체)는 있을 때만 그 조각을 붙인다 — 화면의 같은 글(form_guides.js 의 「지침 n개 · 각주 번호 a/b」 · app.js · form_write.js)과 같은 셈. c = form_guides 의 counts."""
+    n = lambda k: f"{int(c.get(k) or 0):,}"  # noqa: E731
+    marks = f" · 각주 번호 {n('marksLinked')}/{n('marks')}" if c.get("marks") else ""
+    return f"작성 지침 {n('items')}개 저장(헤딩 {n('headings')} · 표 {n('tables')}{marks})"
 
 
 def _llm_job(run, stage, key, d, name, start=None, what="LLM 검증·보완", note=None, done=None, stops=False):
@@ -882,7 +891,7 @@ def _commit_docs(run):
             u = x.get("unit") or {}
             if u.get("kind") != "auto" or u.get("change") != "doc":
                 continue
-            roles |= {"target"} if u.get("place") == "pair" or u.get("each") else {r for r in S.roles_on(task, x["on"]) if U.changes(u, r)}   # 서식 정리를 반영하는 LLM 줄은 그 역할만(U.TIDY_ROLES — 1단계 「LLM 검증·보완」 의 목적 문서는 아님)
+            roles |= set(U.changed_roles(u, S.roles_on(task, x["on"])))   # 서식 정리를 반영하는 LLM 줄은 그 역할만(U.TIDY_ROLES — 1단계 「LLM 검증·보완」 의 목적 문서는 아님) · 상태의 줄마다 changes 와 같은 셈(화면의 「○○ 문서가 바뀝니다」)
     with run.lock:
         changed = set(run.changed)
     return [(d, r, name) for d, r, name in _held_docs(run) if r in roles or d in changed]

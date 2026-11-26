@@ -1,23 +1,707 @@
-.wfp-panel { padding: 12px; min-width: 0; color: var(--text); font-size: 13px; }
-.hd-body > .wfp-panel { flex: 1 1 auto; }
-.wfp-dialog { width: min(720px, calc(100% - 28px)); max-height: 88vh; padding: 0; color: var(--text); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; }
-.wfp-dialog::backdrop { background: rgb(23 33 50 / 30%); }
-.wfp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px; border-bottom: 1px solid var(--line); }
-.wfp-head h2 { margin: 0; font-size: 16px; }
-.wfp-sub { color: var(--muted); flex: 1; }
-.wfp-select { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-weight: 600; }
-.wfp-select select { min-width: 0; max-width: 100%; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text); font: inherit; }
-.wfp-parts { display: grid; gap: 8px; margin-top: 12px; }
-.wfp-part { min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
-.wfp-part > summary { padding: 8px 10px; cursor: pointer; overflow-wrap: anywhere; }
-.wfp-part[open] > summary { border-bottom: 1px solid var(--line); }
-.wfp-scope { margin-left: 7px; color: var(--muted); font-size: 11px; }
-.wfp-content { padding: 8px 10px; }
-.wfp-source, .wfp-status { margin: 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
-.wfp-source { font-size: 12px; }
-.wfp-status:not(:empty) { margin-top: 8px; }
-.wfp-status.error { color: var(--danger, #af3030); }
-.wfp-text, .wfp-input { box-sizing: border-box; width: 100%; padding: 8px; margin: 7px 0 0; color: var(--text); border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.55; }
-.wfp-input { display: block; min-height: 12rem; resize: vertical; border-color: var(--accent); background: var(--surface); }
-.wfp-latest { margin-top: 8px; color: var(--muted); }
-.wfp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* LLM 프롬프트 열 · 대화상자(workflow_prompt.js) — 모든 선택자는 .wfp- 로 시작, :has() 금지. */
+
+.wfp-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 12px 16px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+/* ---- 대화상자 모드(워크플로우 페이지) ---- */
+.wfp-dialog {
+  width: min(740px, calc(100vw - 28px));
+  max-height: 86vh;
+  padding: 0;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+.wfp-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.wfp-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.34);
+}
+.wfp-dialog .wfp-panel {
+  overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+.wfp-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.wfp-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+}
+.wfp-sub {
+  flex: 1 1 120px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfp-head .btn {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* ---- 상단 도구 줄: 에이전트 고르기 + 미리보기/원문 세그먼트 ---- */
+.wfp-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.wfp-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 150px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.wfp-select > span {
+  flex: none;
+  white-space: nowrap;
+}
+.wfp-select select {
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.wfp-select select:hover {
+  border-color: var(--accent);
+}
+.wfp-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 세그먼트 전환(미리보기 | 원문) — 높이 28px · 켜짐 = 옅은 파란 눌림 바탕 */
+.wfp-view {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
+  height: 28px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  box-sizing: border-box;
+}
+.wfp-view-btn {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.wfp-view-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.wfp-view-btn[aria-pressed="true"] {
+  background: var(--accent-soft, #e8efff);
+  border-color: #9fb5ea;
+  color: var(--accent);
+}
+.wfp-view-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- 출처 · 상태 안내 ---- */
+.wfp-source,
+.wfp-status {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.wfp-source {
+  font-size: 11.5px;
+}
+.wfp-source:empty,
+.wfp-status:empty {
+  display: none;
+}
+.wfp-panel > .wfp-source {
+  margin-top: 6px;
+}
+.wfp-status:not(:empty) {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+}
+.wfp-status.error {
+  border-color: #f2b8b8;
+  background: var(--fail-soft, #fdeaea);
+  color: var(--danger, var(--fail, #c81e1e));
+  font-weight: 600;
+}
+
+/* ---- 부분 목록(아코디언) — 상자 1겹 ---- */
+.wfp-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  min-width: 0;
+}
+.wfp-part {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition: border-color 0.12s;
+}
+.wfp-part:not([open]):hover {
+  border-color: var(--line-strong);
+}
+.wfp-part[open] {
+  border-color: var(--line-strong);
+}
+.wfp-part.wfp-editing {
+  border-color: #9fb5ea;
+}
+.wfp-part.wfp-empty:not([open]) {
+  background: var(--surface-2);
+  border-style: dashed;
+  border-color: var(--line);
+}
+.wfp-part > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 10px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 5px;
+  transition: background-color 0.1s;
+}
+.wfp-part > summary::-webkit-details-marker {
+  display: none;
+}
+.wfp-part > summary::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border-right: 1.6px solid var(--muted);
+  border-bottom: 1.6px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+.wfp-part[open] > summary::before {
+  border-color: var(--accent);
+  transform: rotate(45deg) translateY(-1px);
+}
+.wfp-part > summary:hover {
+  background: var(--surface-2);
+}
+.wfp-part[open] > summary {
+  background: #f5f7fb;
+  border-bottom: 1px solid var(--line);
+  border-radius: 5px 5px 0 0;
+}
+.wfp-part[open] > summary:hover {
+  background: #eef2f8;
+}
+.wfp-part.wfp-editing > summary {
+  background: var(--accent-soft, #e8efff);
+  border-bottom-color: #cddcf7;
+}
+.wfp-part > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.wfp-part > summary > strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wfp-part[open] > summary > strong {
+  font-weight: 700;
+}
+.wfp-part.wfp-empty:not([open]) > summary > strong {
+  color: var(--muted);
+  font-weight: 500;
+}
+.wfp-part.wfp-empty:not([open]) > summary::before {
+  opacity: 0.45;
+}
+
+/* 읽기 전용 꼬리표(공통 · 이 워크플로우 · 수정됨) — 테두리 없는 띠 */
+.wfp-scope {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: #eceff4;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  white-space: nowrap;
+}
+.wfp-part.wfp-empty:not([open]) > summary > .wfp-scope {
+  background: #e6eaf0;
+}
+.wfp-scope.wfp-custom {
+  background: var(--accent-soft, #e8efff);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- 부분 본문 ---- */
+.wfp-content {
+  padding: 10px 12px 11px;
+  min-width: 0;
+}
+.wfp-content:empty {
+  display: none;
+}
+
+/* ---- 원문 보기(pre.wfp-text) — 고정폭 글꼴 + 줄 바꿈 유지 ---- */
+.wfp-text:not(.wfp-md) {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-family: ui-monospace, Consolas, "D2Coding", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.wfp-text:not(.wfp-md):first-child {
+  margin-top: 0;
+}
+
+/* ---- 미리보기(마크다운 렌더: div.wfp-text.wfp-md) — 깔끔한 흰 바탕 읽기 면 ---- */
+.wfp-text.wfp-md {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0 4px 0 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.68;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wfp-content > .wfp-source + .wfp-md {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eef0f4;
+}
+.wfp-md > :first-child {
+  margin-top: 0;
+}
+.wfp-md > :last-child {
+  margin-bottom: 0;
+}
+.wfp-md p {
+  margin: 0.55em 0;
+}
+.wfp-md .wfp-md-h {
+  margin: 1.05em 0 0.4em;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text);
+  letter-spacing: -0.015em;
+}
+.wfp-md h3.wfp-md-h {
+  font-size: 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.wfp-md h4.wfp-md-h {
+  font-size: 13.5px;
+}
+.wfp-md h5.wfp-md-h {
+  font-size: 13px;
+  color: #2b384e;
+}
+.wfp-md h6.wfp-md-h {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.wfp-md .wfp-md-list {
+  margin: 0.45em 0;
+  padding-left: 18px;
+}
+.wfp-md ul.wfp-md-list {
+  list-style-type: disc;
+}
+.wfp-md ul.wfp-md-list ul.wfp-md-list {
+  list-style-type: circle;
+}
+.wfp-md ul.wfp-md-list ul.wfp-md-list ul.wfp-md-list {
+  list-style-type: square;
+}
+.wfp-md ol.wfp-md-list {
+  list-style-type: decimal;
+  padding-left: 20px;
+}
+.wfp-md .wfp-md-list .wfp-md-list {
+  margin: 0.25em 0 0.2em;
+  padding-left: 16px;
+}
+.wfp-md .wfp-md-list > li {
+  margin: 0.35em 0;
+  padding-left: 2px;
+}
+.wfp-md .wfp-md-list > li::marker {
+  color: var(--line-strong);
+  font-size: 0.9em;
+}
+.wfp-md .wfp-md-li {
+  display: inline;
+}
+.wfp-md strong {
+  font-weight: 700;
+  color: var(--text);
+}
+.wfp-md em {
+  font-style: italic;
+  color: #334155;
+}
+.wfp-md code {
+  padding: 1px 4.5px;
+  border-radius: 4px;
+  background: #eef1f6;
+  color: #1e3a6e;
+  font-family: ui-monospace, Consolas, "D2Coding", "Courier New", monospace;
+  font-size: 11.8px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.wfp-md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wfp-md a:hover {
+  color: #1d49b5;
+}
+.wfp-md pre.wfp-md-code {
+  margin: 0.6em 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: ui-monospace, Consolas, "D2Coding", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+  tab-size: 2;
+}
+.wfp-md pre.wfp-md-code[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  margin: -3px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wfp-md .wfp-md-table {
+  margin: 0.6em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.wfp-md .wfp-md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--surface);
+}
+.wfp-md .wfp-md-table th,
+.wfp-md .wfp-md-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.wfp-md .wfp-md-table th + th,
+.wfp-md .wfp-md-table td + td {
+  border-left: 1px solid #eef0f4;
+}
+.wfp-md .wfp-md-table thead th {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.wfp-md .wfp-md-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.wfp-md .wfp-md-table tbody tr:nth-child(even) td {
+  background: #fafbfc;
+}
+.wfp-md blockquote {
+  margin: 0.6em 0;
+  padding: 6px 10px;
+  border-left: 3px solid #9fb5ea;
+  border-radius: 0 4px 4px 0;
+  background: #f6f8fc;
+  color: #3b475c;
+}
+.wfp-md blockquote > :first-child {
+  margin-top: 0;
+}
+.wfp-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+.wfp-md hr {
+  margin: 0.85em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* ---- 수정 모드: 편집/미리보기 탭 + 본문 상자 일체형 ---- */
+.wfp-edit-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 4px 6px 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+.wfp-edit-tabs:first-child {
+  margin-top: 0;
+}
+.wfp-edit-tab {
+  position: relative;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.1s, background-color 0.1s;
+}
+.wfp-edit-tab:hover:not([aria-selected="true"]) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.7);
+}
+.wfp-edit-tab[aria-selected="true"] {
+  z-index: 1;
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--accent);
+}
+.wfp-edit-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.wfp-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 13rem;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0 0 6px 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, Consolas, "D2Coding", "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: vertical;
+  tab-size: 2;
+}
+.wfp-input:focus {
+  outline: none;
+  border-color: var(--line-strong);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.wfp-input[readonly] {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.wfp-edit-preview {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 13rem;
+  max-height: 60vh;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0 0 6px 6px;
+  background: var(--surface);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.wfp-edit-preview .wfp-text.wfp-md {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  margin: 0;
+}
+.wfp-edit-preview > .wfp-source {
+  margin: 0;
+  padding: 4px 0;
+  font-style: italic;
+}
+.wfp-edit-preview[hidden],
+.wfp-input[hidden] {
+  display: none;
+}
+
+/* ---- 충돌 시 최신 원문 비교 ---- */
+.wfp-latest {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid #f5d39a;
+  border-radius: 6px;
+  background: var(--warn-soft, #fff4e0);
+  color: var(--warn, #b45309);
+  font-size: 12px;
+}
+.wfp-latest > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.wfp-latest .wfp-text {
+  margin-top: 6px;
+  max-height: 32vh;
+  background: var(--surface);
+  border-color: #f0d59a;
+}
+
+/* ---- 하단 동작 단추 줄 ---- */
+.wfp-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eef0f4;
+}
+.wfp-actions:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.wfp-actions .btn {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.wfp-actions .btn.primary {
+  font-weight: 600;
+}

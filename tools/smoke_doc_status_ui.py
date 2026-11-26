@@ -244,7 +244,8 @@ def main():
         lp = [x for x in posts if x[0].endswith("/analysis/llm")]
         ch = page.evaluate("() => dsState.main.chain")
         check("「LLM 검증·보완」 → POST …/analysis/llm 한 번 · LLM 끔이라 헤딩에서 멈춤(까닭 「LLM 이 꺼져 있습니다」) · 뒤 단계는 대기",
-              len(lp) == 1 and [x["status"] for x in ch["steps"]] == ["failed", "wait", "wait"] and "LLM 이 꺼져 있습니다" in ch["steps"][0]["msg"], [lp, ch])
+              len(lp) == 1 and ch["steps"][0]["status"] == "failed" and len(ch["steps"]) >= 3 and all(x["status"] == "wait" for x in ch["steps"][1:])   # 뒤 단계 = 표 · 서식 (+ 구간 검증 — 2026-11-26 「check」)
+              and "LLM 이 꺼져 있습니다" in ch["steps"][0]["msg"], [lp, ch])
         if page.evaluate("() => document.getElementById('dsTable').hidden"):
             page.click("#dsMore")
         t = page.evaluate(TABLE)

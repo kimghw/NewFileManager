@@ -236,7 +236,8 @@ def _run_view(run):
 
 
 def _place_view(p):
-    return {**{k: v for k, v in p.items() if k != "fp"},
+    return {**{k: v for k, v in p.items() if k not in ("fp", "docTheme", "docGuides", "up")},   # docTheme(문서의 테마 글 — 모든 자리에 같은 글)는 화면에 자리마다 싣지 않는다(화면은 writing-guidance 의 theme 을 본다) · docGuides(문서 전체에 닿는 지침) · up(표 구조 · 윗 절의 지침)도 — 수만
+            "upN": len(p.get("up") or ()), "docN": len(p.get("docGuides") or ()),
             "guides": [g if g.get("src") == "llm" else {**g, "text": g.get("text", "")[:GUIDE_VIEW]} for g in p["guides"]]}
 
 
@@ -460,6 +461,11 @@ def form_write_reset(doc_id: str, body: dict = Body(...)):
     turns = len(store.turns())
     store.clear(materials=False)
     plan = form_review_api.unplan(s.id)
+    try:   # 「지침 검토 · 수정」 의 검토 결과(guidefix.json — 문서를 올린 원본으로 되돌렸으니 그 계획은 낡았다: spec_양식작성 ② §5-9)
+        from app import guide_fix_api
+        guide_fix_api.clear(s.id)
+    except Exception:   # noqa: BLE001 — 못 비워도 초기화는 끝낸다(다음 검토가 덮는다)
+        pass
     with _LOCK:
         _RUNS.pop(s.id, None)
     works.log(s.id, "formWriteReset", stage=stage, reverted=back, turns=turns, plan=plan)
