@@ -73,10 +73,10 @@ def form_rules_get(doc_id: str):
 def _key(key):
     try:
         HF.check_key(key)
-    except ValueError as e:
+        if HF.get(key) is None:
+            raise KeyError(key)
+    except (ValueError, KeyError) as e:   # 틀린 키 · 양식 정보가 없는 키 — 규정은 등록된 양식에만 둔다
         raise HTTPException(404, "그런 양식이 없습니다") from e
-    if HF.get(key) is None:
-        raise HTTPException(404, "그런 양식이 없습니다")
     return key
 
 

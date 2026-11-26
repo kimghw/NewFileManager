@@ -27,7 +27,8 @@ const AGF_SVG = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
   dock: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M17.3 8.5h1.4M17.3 11.5h1.4"/><path d="M5.5 12h6M9.5 9.5 12 12l-2.5 2.5"/>',
   undock: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M17.3 8.5h1.4M17.3 11.5h1.4"/><path d="M12.5 12h-6M9 9.5 6.5 12 9 14.5"/>',
-  close: '<path d="M6 6l12 12M18 6 6 18"/>'
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  guides: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/>' // 「지침 설정」 — 글이 적힌 쪽(노트)
 };
 const agfSvg = (name, size) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${AGF_SVG[name]}</svg>`;
 function agfIc(tag, cls, name, label, title, onclick) { // 글 없는 아이콘 단추(이름은 aria-label · 도움말은 title — design.md §9)
@@ -48,11 +49,19 @@ function agfSettingsLink() { // 「에이전트 설정」 — 전에 상단 바 
   a.draggable = false;
   return a;
 }
-// 패널 탭 자리일 때 에이전트 상태 줄(.ag-status — doc_agent.js agentFrame)의 오른쪽 끝에 붙는 둘: 「에이전트 설정」 · 「창으로 띄우기」. 창 안에서는 CSS 가 감춘다(창 머리에 같은 것)
+function agfGuidesLink() { // 「지침 설정」 — 톱니 바로 옆(spec_양식작성 ② §5-10: LLM 이 따르는 판단 지침과 양식마다의 지침을 한곳에서 보고 고치는 따로 선 페이지 /guides · 입구는 여기 하나)
+  const a = agfIc("a", "agf-guides", "guides", "지침 설정", "지침 설정 — LLM 이 따르는 판단 지침과 양식마다의 지침(양식 지침 · 규정 · 문서 목적)을 새 탭에서 보고 고칩니다");
+  a.href = "/guides";
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.draggable = false;
+  return a;
+}
+// 패널 탭 자리일 때 에이전트 상태 줄(.ag-status — doc_agent.js agentFrame)의 오른쪽 끝에 붙는 것: 「에이전트 설정」 · 「지침 설정」 · 「창으로 띄우기」. 창 안에서는 CSS 가 감춘다(창 머리에 같은 것)
 function agentFloatTools() {
   const s = document.createElement("span");
   s.className = "agf-pane-tools";
-  s.append(agfSettingsLink(), agfIc("button", "agf-undock", "undock", "창으로 띄우기", "창으로 띄우기 — 에이전트를 패널 탭에서 빼 떠 있는 창으로 엽니다(상단 바의 에이전트 아이콘으로 여닫음)", () => agentDockSet(false)));
+  s.append(agfSettingsLink(), agfGuidesLink(), agfIc("button", "agf-undock", "undock", "창으로 띄우기", "창으로 띄우기 — 에이전트를 패널 탭에서 빼 떠 있는 창으로 엽니다(상단 바의 에이전트 아이콘으로 여닫음)", () => agentDockSet(false)));
   return s;
 }
 
@@ -83,7 +92,9 @@ function agfBuild() {
   dock.id = "agentDock";
   const x = agfIc("button", "agf-x", "close", "에이전트 창 닫기", "닫기 — 대화 · 쓰던 요청 · 자료는 그대로 남습니다(상단 바의 에이전트 아이콘으로 다시 엶)", () => agentFloatClose());
   x.id = "agentFloatClose";
-  head.append(mark, title, doc, settings, dock, x);
+  const guides = agfGuidesLink();
+  guides.id = "agentGuides";
+  head.append(mark, title, doc, settings, guides, dock, x);
   const body = document.createElement("div");
   body.className = "agf-body";
   const note = document.createElement("p");

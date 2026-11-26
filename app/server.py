@@ -2608,6 +2608,7 @@ app.include_router(__import__("app.writing_guidance_api", fromlist=["router"]).r
 app.include_router(__import__("app.form_guide_yaml_api", fromlist=["router"]).router)   # 양식 지침 YAML(양식마다 본문 · 표 · 서브 테이블의 작성 지침 + 예시 + 주요 항목 — forms/<키>.guide.yaml) 끝점은 app/form_guide_yaml_api.py(spec_양식작성 ② §5-8)
 app.include_router(__import__("app.form_rules_api", fromlist=["router"]).router)   # 규정 YAML(다른 규칙이 이 양식에 요구하는 것 — forms/<키>.rules.yaml) 끝점은 app/form_rules_api.py(spec_양식작성 ② §5-9)
 app.include_router(__import__("app.purpose_yaml_api", fromlist=["router"]).router)   # 문서 목적 YAML(공고 · RFP — 프로젝트마다: 계정의 작업 뿌리 아래 _purpose/) 끝점은 app/purpose_yaml_api.py(spec_양식작성 ② §5-9)
+app.include_router(__import__("app.guides_page_api", fromlist=["router"]).router)   # 지침 설정 페이지(/guides — 판단 지침 · 양식별 지침을 한곳에서: 읽기만 하는 목록 끝점 둘 · 고치기는 글마다의 끝점) 끝점은 app/guides_page_api.py(spec_양식작성 ② §5-10)
 app.include_router(__import__("app.form_themes_api", fromlist=["router"]).router)   # 양식 테마(테이블 타입 · 구분 기준 타입 · 개요 템플릿 — 테마마다 YAML · 이 PC 의 사용자 설정) 끝점은 app/form_themes_api.py(spec_양식작성 ② §5-7)
 app.include_router(__import__("app.form_files_api", fromlist=["router"]).router)   # 저장한 양식 · 워크플로우마다의 양식 설정(고정 · 기본값) · 양식으로 시작 끝점은 app/form_files_api.py(spec_워크플로우 ② §18-9)
 app.include_router(__import__("app.form_examples_api", fromlist=["router"]).router)   # 양식 작성 지침 보완에만 쓰는 샘플·추가 서식

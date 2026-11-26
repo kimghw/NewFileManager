@@ -1,0 +1,59 @@
+/* 지침 설정 페이지 /guides (spec_양식작성 ② §5-10 · design.md §33) — 틀(상단 줄 · 목차 · 본문 · 절)은 agents.css 의 것을 그대로 쓰고 여기는 이 페이지에만 있는 것 */
+.gp-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.gp-tab { height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.gp-tab.is-on { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
+.gp-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; font-size: 17px; font-weight: 700; }
+.gp-meta { margin-top: 0; }
+.gp-h4 { margin: 12px 0 4px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.gp-sub { color: var(--muted); font-size: 12px; font-weight: 400; }
+.gp-link { color: var(--accent); text-decoration: none; }
+.gp-link:hover { text-decoration: underline; }
+.gp-tag { display: inline-block; flex: none; margin-right: 6px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 18px; color: var(--muted); white-space: nowrap; }
+.gp-tag.is-mine { border-color: #c4b5fd; color: #6d28d9; background: #f5f3ff; }
+.gp-tag.is-req { border-color: #fdba74; color: #9a3412; background: #fff7ed; }
+.ags-nav a .gp-nav-name { flex: 1; min-width: 0; }
+.ags-nav a .gp-tag { margin: 0; }
+/* 노트 아이콘 — 설명 문단은 그 뒤에 */
+.gp-help { position: relative; display: inline-flex; font-weight: 400; }
+.gp-help-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.gp-help-btn:hover, .gp-help-btn[aria-expanded="true"] { border-color: var(--line-strong); color: var(--accent); background: var(--surface); }
+.gp-help-pop { position: absolute; top: 26px; left: 0; z-index: 5; width: min(520px, 80vw); padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px rgba(15, 23, 42, .12); color: var(--text); font-size: 12px; line-height: 1.6; white-space: normal; }
+/* 표(전체 보기) */
+.gp-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+.gp-table th, .gp-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.45; }
+.gp-table th { font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* 읽는 에이전트 · 쓰이는 곳 */
+.gp-reader { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 4px 12px; padding: 6px 0; border-top: 1px dashed var(--line); font-size: 12.5px; }
+.gp-reader:first-of-type { border-top: 0; }
+.gp-agent { font-weight: 600; }
+.gp-used { margin: 0; padding-left: 16px; line-height: 1.6; }
+/* 글 · 고치기 · 견주기 */
+.gp-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 6px 0; }
+.gp-text { margin: 6px 0 0; padding: 12px 14px; max-height: 62vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font: 12.5px/1.6 ui-monospace, "D2Coding", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gp-ta { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: 12.5px/1.6 ui-monospace, "D2Coding", Consolas, monospace; resize: vertical; }
+.gp-dl { display: block; white-space: pre-wrap; }
+.gp-dl.is-del { background: #fee2e2; color: #991b1b; }
+.gp-dl.is-add { background: #dcfce7; color: #166534; }
+.gp-dl.is-gap { color: var(--muted); }
+.gp-bad { color: var(--fail); }
+/* 양식 지침의 나무 — 절 › 표 › 서브 테이블 › 칸 */
+.gp-tree { margin-top: 4px; }
+.gp-node { margin: 2px 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--line); }
+.gp-node > summary { display: flex; align-items: baseline; gap: 4px; padding: 3px 0; cursor: pointer; font-size: 12.5px; line-height: 1.45; }
+.gp-node-section > summary .gp-node-name { font-weight: 600; }
+.gp-node-table { margin-left: 12px; }
+.gp-node-sub { margin-left: 12px; }
+.gp-node-name { min-width: 0; overflow-wrap: anywhere; }
+.gp-node-cnt { margin-left: auto; flex: none; padding-left: 8px; white-space: nowrap; }
+.gp-field { display: flex; align-items: baseline; margin: 4px 0 0 14px; font-size: 12.5px; }
+.gp-ex-cap { margin: 4px 0 0 14px; }
+.gp-list { margin: 4px 0 6px; padding-left: 30px; font-size: 12.5px; line-height: 1.6; }
+.gp-list li { margin: 2px 0; overflow-wrap: anywhere; }
+.gp-list.is-ex li { color: var(--muted); }
+.gp-rules { padding-left: 18px; list-style: none; }
+.gp-rules li { padding: 5px 0; border-top: 1px dashed var(--line); }
+.gp-project { padding: 6px 0; border-top: 1px dashed var(--line); }
+@media (max-width: 800px) {
+  .gp-reader { grid-template-columns: minmax(0, 1fr); }
+  .gp-tabs { order: 5; }
+}

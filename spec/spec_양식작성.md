@@ -613,7 +613,16 @@
   ⓒ **같은 도구** — 등록부 `form_write` 의 `twins={"headsLlm": ("relay", "headsLlm")}`: 이관형에서 고친 「LLM 검증·보완」 의 이름 · 그 도구의 「도구 공통」 글이 양식 작성에도(같은 절).
   화면 검사 `form_write` 91 통과(새 검사 ⑥-3′ — 작업 개요에서 「3단계 초기화」 → 그 탭에 확인 줄 · 「취소」 · 초기화 뒤 그 탭에 머묾 · 지침 수 글 셋) · pytest 는 spec_워크플로우 ③ 같은 날. 정적 파일 + 서버 코드(등록부 · agent_notes · tool_names) — 서버 쪽은 8114 를 다시 켜야 닿는다.
 
-- 2026-11-26 지침 YAML 셋 + 지침 검토 · 수정(② §5-9) — **구현함 · 시험은 아직 못 돌림**(하위 에이전트 세션에서 명령 실행이 거절됨 — 부른 세션이 돌린다: `tests/test_form_rules.py` · `test_purpose_yaml.py` 와 닿는 시험들):
+- 2026-11-26 지침 설정 페이지 `/guides`(② §5-10) — **구현함 · 이 페이지의 시험 · 화면 검사는 아직 못 돌림**(하위 에이전트 세션에서 명령 실행이 거절됨 — 부른 세션이 돌린다: `tests/test_guides_page.py` · `run_ui_gates.py <폴더> guides_page agents agent_float`):
+  끝점 `app/guides_page_api.py`(server.py 에 include — `GET /guides` · 읽기만 하는 목록 `GET /api/guides-page/judgment`(글마다 읽는 에이전트 = `agents.AGENTS` 의 parts · 쓰이는 워크플로우 › 단계 = `workflow.listing` 의 줄 agents · 기본본 · 고친 본 · 고치는 주소 `save` · `reset`) ·
+  `GET /api/guides-page/forms`(양식마다 양식 정보 · 양식 지침 · 규정의 읽은 꼴 · 테마 · 그 양식의 문서를 가진 프로젝트의 문서 목적 + 양식에 묶이지 않은 프로젝트)) ·
+  문서 목적을 프로젝트로 읽고 쓰는 끝점 `GET · PUT /api/purpose/yaml`(`purpose_yaml_api` — 같은 저장 함수 `purpose_yaml.save_text` · 아는 프로젝트만: 작업의 프로젝트 + projects.json) ·
+  화면 `app/static/guides.html` · `guides.js` · `guides.css`(app.js 를 읽지 않음 · `account/chip.js` 먼저 · 틀은 agents.css) · 입구 = 에이전트 창 머리의 톱니 옆 「지침 설정」(`agent_float.js` `agfGuidesLink` — #agentGuides) ·
+  화면 검사 `tools/smoke_guides_page_ui.py`(`run_ui_gates` 이름 `guides_page`) · 꼴 design.md §33.
+  고치기는 새 저장 길이 없다 — 판단 지침 md = 에이전트 설정의 프롬프트 사본(`/api/agents/{에이전트}/prompt/merge/{이름}`) · 헤딩 지침 · 스킬 · 테마 · 양식 정보 · 양식 지침 · 규정 = 저마다의 끝점.
+  **안 한 것 · 알려 둘 것**: 테마 YAML 을 읽는 에이전트는 등록부 parts 에 없어 「작성 지침 보완의 판단 지침을 읽는 에이전트」 로 찾는다(`THEME_PART`) · 워크플로우 이름은 등록부 응답의 name → `agents.JOB_NAMES` → 키 차례(이름이 없는 붙박이는 키로 보인다) ·
+  새 스킬 만들기 · 양식 정보 새로 만들기는 이 페이지에 없다(문서 화면의 것 그대로) · 프로젝트를 양식에 묶는 법 = 그 프로젝트 작업의 파일 이름 · 사람이 고른 양식(올린 원본의 sha256 은 안 봄).
+- 2026-11-26 지침 YAML 셋 + 지침 검토 · 수정(② §5-9) — **구현함**(부른 세션이 돌린 pytest 20 파일: 3 실패 → 고침 — `unit_help` 의 guideFix 글 길이 · `guide_fix.units` 가 그래프 없는 문서에서 자리를 못 세우던 것(저장한 작성 지침의 묶음을 먼저 두고 조립이 더한 것을 뒤에) · 고친 뒤의 재실행은 부른 세션이):
   규정 = 모듈 `app/form_rules.py`(꼴 · `as_form` 으로 양식 지침의 자리 잇기를 그대로 씀) · 끝점 `app/form_rules_api.py`(`GET /api/docs/{id}/form-rules` · `GET · PUT /api/form-rules/{키}/yaml` — 이력 `forms_history/<키>.rules/`) /
   문서 목적 = `app/purpose_yaml.py`(계정의 작업 뿌리 아래 `_purpose/<이름-지문>.yaml` · 이력 `_purpose/_history/` · 프로젝트 이름 바꾸기 `moved` · 지우기 `removed`(옮김) — `projects.rename` · `remove` 가 부른다) · 끝점 `app/purpose_yaml_api.py`(`GET · PUT /api/docs/{id}/purpose`) /
   양식 지침 YAML 루트 `guides[]`(일반 사용자 가이드라인 — kind 「양식 지침 — 문서 전체」) / 조립 = `place_guides.py`(`rank` · `fp` · `tag` · `doc_text` · `pack` 이 같은 글 하나 + 출처 순위로 자름 · `index(extra=)` 가 규정 · 문서 목적을 자리에 얹고 문서 전체의 것을 `doc` 묶음에 · `off`(guides_user.json — `PUT …/place-guides/off`) · `chain` 의 「문서 전체」 층) ·

@@ -42,6 +42,12 @@ rules:
 """
 
 
+@pytest.fixture(autouse=True)
+def _store(tmp_path, monkeypatch):
+    """헤딩 저장소(양식 파일의 이력 history.jsonl · forms_history)도 임시 폴더로 — 규정을 저장하는 시험이 사용자의 저장소(%LOCALAPPDATA%)에 쓰지 않게."""
+    monkeypatch.setenv("NFM_HEADINGS", str(tmp_path / "headings"))
+
+
 def _places():
     return FG.doc_places(D.BLOCKS, D.GRAPH, D.T3)
 

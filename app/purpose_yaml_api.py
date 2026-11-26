@@ -64,6 +64,61 @@ def _sess_doc(doc_id):
     return server._sess(doc_id)
 
 
+def known_projects():
+    """이 계정의 프로젝트 이름들(작업의 task.project + projects.json 의 기록) — 프로젝트로 읽고 쓰는 끝점이 아무 이름의 파일을 만들지 않게."""
+    from app import projects
+    out = set()
+    for w in works.list_works():
+        task = w.get("task") if isinstance(w.get("task"), dict) else {}
+        name = " ".join(str(task.get("project") or "").split())
+        if name:
+            out.add(name)
+    try:
+        out |= {" ".join(str(k).split()) for k in (projects._read().get("projects") or {})}
+    except Exception:   # noqa: BLE001 — 깨진 projects.json 은 작업의 이름만으로
+        pass
+    return out
+
+
+def _project(name):
+    name = " ".join(str(name or "").split())
+    if not name or name not in known_projects():
+        raise HTTPException(404, "그런 프로젝트가 없습니다")
+    return name
+
+
+@router.get("/api/purpose/yaml")
+def purpose_yaml_get(project: str):
+    """프로젝트로 읽기(지침 설정 페이지 /guides — 문서를 열지 않고: spec_양식작성 ② §5-10) → {project, text, sha1, exists}. 404 = 그런 프로젝트가 없음."""
+    project = _project(project)
+    p = PY.path_of(project)
+    try:
+        text = p.read_bytes().decode("utf-8") if p is not None and p.is_file() else None
+    except OSError as e:
+        raise HTTPException(503, f"문서 목적을 읽지 못했습니다: {e}") from e
+    return {"project": project, "text": text if text is not None else PY.dump(PY._empty(project)), "sha1": FG._sha1(text) if text is not None else "", "exists": text is not None}
+
+
+@router.put("/api/purpose/yaml")
+def purpose_yaml_put(body: dict = Body(...)):
+    """{project, text, sha1} → 검사 뒤 저장(같은 저장 길 — purpose_yaml.save_text) → {project, sha1}. 400 = 틀린 꼴 · 404 = 그런 프로젝트가 없음 · 409 = 그 사이 바뀜."""
+    project = _project(body.get("project"))
+    text, sha = body.get("text"), body.get("sha1")
+    if not isinstance(text, str):
+        raise HTTPException(400, "text(YAML 글)가 필요합니다")
+    if sha is not None and not isinstance(sha, str):
+        raise HTTPException(400, "sha1 은 문자열(읽었을 때의 판)이어야 합니다")
+    try:
+        _, new = PY.save_text(project, text, expect=sha)
+    except FG.StaleVersion as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except OSError as e:
+        raise HTTPException(503, f"문서 목적을 저장하지 못했습니다: {e}") from e
+    return {"project": project, "sha1": new}
+
+
 @router.get("/api/docs/{doc_id}/purpose")
 def purpose_get(doc_id: str):
     s = _sess_doc(doc_id)
