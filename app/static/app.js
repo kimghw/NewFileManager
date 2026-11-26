@@ -123,7 +123,14 @@ function confirmDiscard() {
 }
 
 // 같은 파일(이름·형식·바이트)로 하던 작업이 있으면 — 올리기는 열기 전에 묻고(same_file.js — spec_작업 ② §1 「같은 파일은 묻고 연다」) 예제 열기는 서버가 이어 연다(reused) — 알림에서 새 작업으로 다시 열 수 있다
+// 엑셀(xlsx) 작업은 문서 화면이 아니라 시트 편집기(/sheet — spec_엑셀편집 ② §1)가 연다. 서버가 준 주소로 가고, 부른 쪽은 끝나지 않는 약속을 기다린다(뒤의 첫 분석 · 알림이 돌지 않게)
+function sheetGo(url) {
+  location.assign(url);
+  return new Promise(() => {});
+}
+
 async function opened(r, again) {
+  if (r.open) return sheetGo(r.open);
   await load(r.docId);
   if (r.reset) { firstRun(); toast("작업 내용을 초기화했습니다 — 올린 원본부터 다시 시작합니다"); return; } // 「초기화하고 열기」(② §3-1) — 새 작업과 같이 첫 분석
   if (!r.reused) { firstRun(); return; } // 새 작업 — 첫 분석(헤딩 2·3단계 스크립트 — spec_작업 ② §9 · 구분 기준 LLM 검토는 2026-11-15 부터 저절로 안 돈다: ② §20)
@@ -136,7 +143,7 @@ async function opened(r, again) {
 
 async function openFile(file, fresh = false) {
   if (!file) return;
-  if (!/\.(hwpx?|docx)$/i.test(file.name)) { toast("hwp·hwpx·docx 파일만 열 수 있습니다", true); return; } // hwp 는 서버가 한글로 hwpx 로 바꿔 받는다
+  if (!/\.(hwpx?|docx|xlsx)$/i.test(file.name)) { toast("hwp·hwpx·docx·xlsx 파일만 열 수 있습니다", true); return; } // hwp 는 서버가 한글로 hwpx 로 바꿔 받는다 · xlsx 는 시트 편집기로(spec_엑셀편집 ② §1)
   if (!confirmDiscard()) return;
   setSaveState("busy", `${file.name} 여는 중…`);
   try {
@@ -291,6 +298,7 @@ async function homeTaskApply(job) {
 
 async function load(id, opt = {}) { // opt.tab = 다 연 뒤에 보일 패널 도구(보던 탭 그대로 — 대시보드에서 한 「작업 내용 초기화」: dashboard.js dashResetDone). 없으면 전처럼 검증(일반 문서는 에이전트 보기)
   const d = await api(`/api/docs/${id}`);
+  if (d.open) return sheetGo(d.open); // 엑셀 작업 — 시트 편집기로(spec_엑셀편집 ② §1)
   for (const t of state.timers.values()) clearTimeout(t); // 이전 문서의 대기 중 반영은 버린다(epoch 로 응답도 무시)
   state.epoch += 1;
   Object.assign(state, fresh(), { id, name: d.name, blocks: d.blocks, edited: new Set(d.edited), unrestored: new Set(d.unrestored || []), pristine: d.pristine,

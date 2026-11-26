@@ -33,6 +33,7 @@ SP_TABLE = "spec_테이블매니저.md"
 SP_FLOW = "spec_워크플로우.md"
 SP_LINE = "spec_줄정리.md"
 SP_FORM = "spec_양식작성.md"
+SP_XLSX = "spec_엑셀편집.md"
 
 
 def _s(key, name, by, does, *, no="", out="", change="none", modules=(), agents=(), uses=(), spec=None, auto=False, optional=False, soon=False, need="", done="", stop="", left="", on=""):
@@ -408,6 +409,18 @@ COMMON = (
                 out="공유폴더의 hwpx", change="store", auto=True, modules=("share_api",), spec=(SP_SHARE, "② §8")),
              _s("stop", "키 새로 만들기 · 공유 끄기", "human", "키를 새로 만들면 접속해 있던 손님이 모두 나갑니다. 공유를 끄면 링크와 바로가기는 사라지고 저장본 파일은 폴더에 남습니다.",
                 change="store", modules=("share", "share_api"), spec=(SP_SHARE, "② §2")),
+         )),
+    dict(id="sheet", name="엑셀 시트 편집", where="시작 화면 「열기」 · 끌어 놓기 · 작업 목록에서 xlsx 파일(따로 선 페이지 /sheet)",
+         does="엑셀(xlsx) 파일을 문서처럼 올려 칸 글을 고치고 행을 넣고 지운 뒤 xlsx 로 내려받습니다. 이 화면이 모르는 것(그림 · 차트 · 조건부 서식 · 인쇄 설정)은 파일에 그대로 남습니다. 워크플로우의 문서로는 아직 쓰지 않습니다.",
+         steps=(
+             _s("open", "xlsx 올리기", "human", "xlsx 를 고르면 작업 하나가 생기고 시트 편집 화면이 열립니다. 같은 파일로 하던 작업이 있으면 묻지 않고 이어 엽니다. xls · xlsm 은 받지 않습니다.",
+                out="작업(형식 xlsx)", change="store", modules=("xlsx_api", "xlsx_doc"), spec=(SP_XLSX, "② §1")),
+             _s("edit", "칸 고치기 · 붙여 넣기", "human", "칸을 고르고 바로 치거나 두 번 눌러 고칩니다. 엑셀 · 한글 표를 복사해 붙여 넣으면 고른 칸부터 펼쳐 넣습니다. 숫자 · 날짜 · 수식은 칸의 형식에 따라 가려 넣고, 긴 번호(ISBN 등)는 글로 둡니다.",
+                change="doc", modules=("xlsx_api", "xlsx_doc"), spec=(SP_XLSX, "② §3")),
+             _s("rows", "행 넣기 · 지우기", "human", "행 번호나 칸에서 오른쪽 단추로 위 · 아래에 행을 넣거나 지웁니다. 새 행은 위 행의 서식을 받고, 병합 · 수식 · 유효성 · 표의 범위가 함께 옮겨집니다.",
+                change="doc", modules=("xlsx_doc",), spec=(SP_XLSX, "② §3")),
+             _s("save", "xlsx 저장(내려받기)", "human", "지금 상태의 xlsx 를 내려받습니다. 고친 칸이 있는 파일은 엑셀이 열 때 수식을 다시 계산합니다.",
+                out="xlsx 파일", modules=("xlsx_api",), spec=(SP_XLSX, "② §2")),
          )),
     dict(id="pointer", name="포인터 — 내 마우스 자리 같이 보기", where="상단 바 「포인터」(시작 화면 · 문서를 연 뒤 · 오른쪽 단추로 누르면 내 이름 · 같이 보는 화면)",
          does="같은 문서를 연 다른 화면에 내 마우스가 가리키는 자리와 「클릭」 을 보여 줍니다 — 문서뿐 아니라 사이드 패널 · 상단 바 위에서도 보입니다. 시작 화면에서도 시작 화면을 보는 화면끼리 같이 봅니다. 문서는 바뀌지 않고 아무것도 저장하지 않습니다. 워크플로우와 무관하게 쓸 수 있습니다.",

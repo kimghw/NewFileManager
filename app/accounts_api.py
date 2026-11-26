@@ -29,7 +29,7 @@ PAGES = Path(__file__).with_name("static") / "account"
 OPEN = ("/login", "/api/account/login", "/api/account/join", "/api/account/me", "/static/")   # 로그인 없이 열리는 길(정적 파일 = 화면 코드 — 사용자 자료가 아니다)
 ADMIN_ONLY = ("/api/flow/active",)   # 모든 계정의 도는 실행(8114 를 다시 켜기 전에 보는 것)
 FAIL_MAX, FAIL_WINDOW, PENDING_MAX = 5, 300, 50
-_WORK = re.compile(r"^/api/(?:docs|works)/([0-9a-f]{12})(?:/|$)")   # 작업 id 가 든 주소(works.ID 의 꼴)
+_WORK = re.compile(r"^/api/(?:docs|works|sheets)/([0-9a-f]{12})(?:/|$)")   # 작업 id 가 든 주소(works.ID 의 꼴)
 _fails: dict[str, list[float]] = {}
 
 

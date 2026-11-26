@@ -229,7 +229,11 @@ def _open(name, data, source="upload", new=False, job=None, ask=False, use=None)
     ask = 같은 파일 작업이 있으면 열지 않고 그 목록 {ask, name, same}(「같은 파일 고르기」 — ② §1 「같은 파일은 묻고 연다」) · use = 그 가운데 고른 작업을 이어 엶."""
     fmt = fmt_of(name)
     if fmt is None:
-        raise HTTPException(400, "hwp·hwpx·docx 파일만 열 수 있습니다")
+        from app import xlsx_api   # 엑셀은 시트 편집기의 작업으로(spec_엑셀편집 ② §1 — 같은 파일이면 묻지 않고 이어 엶 · 답의 open = /sheet 주소)
+        if xlsx_api.is_xlsx(name):
+            return xlsx_api.open_upload(name, data, new, source)
+        xlsx_api.refuse_other(name)
+        raise HTTPException(400, "hwp·hwpx·docx·xlsx 파일만 열 수 있습니다")
     if len(data) > MAX_MB * 2 ** 20:
         raise HTTPException(413, f"{MAX_MB} MB 보다 큰 파일은 열 수 없습니다")
     if ask and not new and not use:
@@ -527,6 +531,10 @@ def _from_hwp(name, data):
 
 @app.get("/api/docs/{doc_id}")
 def get_doc(doc_id: str):
+    if doc_id not in DOCS:
+        from app import xlsx_api
+        if (w := xlsx_api.work_of(doc_id)) is not None:   # 엑셀 작업은 시트 편집기가 연다(spec_엑셀편집 ② §1 — 화면 load 가 open 으로 간다)
+            return {"docId": doc_id, "name": w.get("name"), "format": "xlsx", "open": xlsx_api.open_url(doc_id)}
     s = _sess(doc_id)
     with s.lock:
         edited = s.edited()
@@ -2574,6 +2582,7 @@ app.include_router(__import__("app.step_texts_api", fromlist=["router"]).router)
 app.include_router(__import__("app.tool_names_api", fromlist=["router"]).router)   # 도구 이름 고치기(사람이 화면에서 고친 도구 이름 — 모든 워크플로우의 화면에) 끝점은 app/tool_names_api.py(spec_워크플로우 ② §18-19)
 app.include_router(__import__("app.user_reqs_api", fromlist=["router"]).router)   # 사용자 요구사항(도구 · 단계 · 워크플로우마다 사용자가 말한 것 — 저장소 파일 reqs/requirements.json · /workflow 의 「요구사항」 열) 끝점은 app/user_reqs_api.py(spec_워크플로우 ② §18-20)
 app.include_router(__import__("app.tpl_agent_api", fromlist=["router"]).router)   # 템플릿 서식 정리 에이전트(스킬 저장 · 계획 받기 — Opus 5.5) 끝점은 app/tpl_agent_api.py(spec_hwpx_웹편집 ② §8-4)
+app.include_router(__import__("app.xlsx_api", fromlist=["router"]).router)   # 엑셀(xlsx) 시트 편집(페이지 GET /sheet · /api/sheets/… — 원본 XML 을 직접 고침) 끝점은 app/xlsx_api.py(spec_엑셀편집 ② §6)
 app.include_router(__import__("app.workflow_api", fromlist=["router"]).router)   # TASK 워크플로우(GET /api/workflow · 페이지 GET /workflow — 등록부 app/workflow.py) 끝점은 app/workflow_api.py(spec_워크플로우 ② §2)
 app.include_router(__import__("app.analysis_api", fromlist=["router"]).router)   # 분석 상태(GET /api/docs/{id}/analysis — 헤딩 · 표 · LLM · 구분 기준이 어디까지 됐나) 끝점은 app/analysis_api.py(spec_작업 ② §20)
 app.include_router(__import__("app.heading_llm_diff_api", fromlist=["router"]).router)   # LLM 이 바꾼 것(GET /api/docs/{id}/headings/llm-changes — 규칙 보강 · 헤딩 판정 · 표 판정 · 서식 계획) 끝점은 app/heading_llm_diff_api.py(spec_헤딩_추출 ② §7)

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>시트 편집 — HWPX·DOCX 웹 편집</title>
+  <link rel="stylesheet" href="/static/style.css"><!-- 색·글꼴·단추의 변수(앱과 같은 것) -->
+  <link rel="stylesheet" href="/static/sheet/sheet.css"><!-- 시트 편집기(spec_엑셀편집 · design.md §34) -->
+</head>
+<!-- 엑셀(xlsx) 시트 편집기(spec_엑셀편집 ② §0~§4 · 끝점 app/xlsx_api.py): 주소 /sheet#w=<작업 id>. app.js 를 읽지 않는다(제 그리기 · 제 편집) -->
+<body class="sh-page">
+  <header class="topbar sh-top">
+    <a class="brand" href="/" draggable="false" aria-label="HWPX·DOCX 웹 편집 — 시작 화면으로" title="시작 화면으로">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="#60a5fa" d="M8 2h10a3 3 0 0 1 3 3v9.5a3 3 0 0 1-3 3h-1V7a3 3 0 0 0-3-3H8V2Z"/><path fill="#1d4ed8" fill-rule="evenodd" d="M5 5h10a3 3 0 0 1 3 3v4.2l-4.6 4.6a1.8 1.8 0 0 0-.4.7l-.6 2.4a.5.5 0 0 0 .6.6l2.4-.6c.3-.1.5-.2.7-.4l1.9-1.9V19a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Zm1.5 3.2a.8.8 0 0 0 0 1.6h7a.8.8 0 0 0 0-1.6h-7Zm0 3.5a.8.8 0 0 0 0 1.6h7a.8.8 0 0 0 0-1.6h-7Zm0 3.5a.8.8 0 0 0 0 1.6h4a.8.8 0 0 0 0-1.6h-4Z"/><path fill="#60a5fa" d="m19.3 11.5 1.7 1.7a1 1 0 0 1 0 1.4l-4.8 4.8-2.3.6.6-2.3 4.8-4.8a1 1 0 0 1 1.4 0Z"/></svg>
+      <span>HWPX·DOCX 웹 편집</span>
+    </a>
+    <div class="sh-file">
+      <svg class="sh-xl" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="#15803d"/><path d="M8 7.5l8 9M16 7.5l-8 9" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>
+      <strong id="shName">시트</strong>
+      <span class="sh-state" id="shState" aria-live="polite"></span>
+    </div>
+    <div class="spacer"></div>
+    <div class="sh-tools" role="toolbar" aria-label="시트 도구">
+      <button class="btn sm" id="shUndo" type="button" disabled title="실행 취소 (Ctrl+Z)">실행 취소</button>
+      <button class="btn sm" id="shRowUp" type="button" title="고른 행 위에 행 넣기">위에 행 넣기</button>
+      <button class="btn sm" id="shRowDown" type="button" title="고른 행 아래에 행 넣기">아래에 행 넣기</button>
+      <button class="btn sm danger" id="shRowDel" type="button" title="고른 행 지우기">행 지우기</button>
+      <a class="btn sm primary" id="shDownload" href="#" download title="지금 상태의 xlsx 로 내려받기 (Ctrl+S)">xlsx 저장</a>
+    </div>
+  </header>
+  <div class="sh-bar">
+    <span class="sh-addr" id="shAddr" aria-label="고른 칸">A1</span>
+    <span class="sh-fx-mark" aria-hidden="true">fx</span>
+    <input class="sh-fx" id="shFx" type="text" spellcheck="false" autocomplete="off" aria-label="칸 입력 줄 — 고른 칸의 글 · 수식">
+  </div>
+  <div class="sh-note" id="shNote" hidden></div>
+  <main class="sh-wrap" id="shWrap" tabindex="-1">
+    <div class="sh-inner" id="shInner">
+      <table class="sh-grid" id="shGrid" aria-label="시트"></table>
+      <textarea class="sh-ed" id="shEd" spellcheck="false" autocomplete="off" aria-label="칸 편집"></textarea>
+    </div>
+  </main>
+  <footer class="sh-foot">
+    <div class="sh-tabs" id="shTabs" role="tablist" aria-label="시트"></div>
+    <span class="sh-hint">두 번 누르거나 F2 = 고치기 · Enter ↓ · Tab → · Alt+Enter = 칸 안 줄 바꿈 · 엑셀 · 한글 표를 복사해 붙여 넣을 수 있습니다</span>
+  </footer>
+  <div class="sh-menu" id="shMenu" role="menu" hidden></div>
+  <div class="sh-toast" id="shToast" role="status" hidden></div>
+  <script src="/static/account/chip.js"></script><!-- 계정(상단 바 끝의 계정 단추 · 로그인이 풀린 화면을 /login 으로 — spec_계정 ② §4) — 다른 스크립트보다 먼저 -->
+  <script src="/static/sheet/sheet.js"></script>
+</body>
+</html>
