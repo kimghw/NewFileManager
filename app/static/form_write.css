@@ -866,11 +866,225 @@ button.btn.primary[data-dash-focus="act:guides"]:hover:not(:disabled) {
 
 /* 「문서 올리기 · 첫 분석」 카드의 접어도 보이는 줄 — 참조 문서 수(fwOpenStep) · 2열 「참조 문서」 목록(fwRefsDraw) */
 .fw-ref-count { align-self: center; font-size: 12.5px; font-weight: 600; color: var(--text); margin-right: 4px; }
-.fw-refs { list-style: none; margin: 6px 0 0; padding: 0; }
-.fw-ref { padding: 8px 2px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
-.fw-ref:last-child { border-bottom: 0; }
-.fw-ref-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.fw-ref-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.fw-ref-meta { grid-column: 1; font-size: 12px; color: var(--muted); }
-.fw-ref-acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-#headsDlg[data-kind="fwRefs"] #headsDlgBody { padding: 10px 14px; overflow-x: hidden; }
+
+#headsDlg[data-kind="fwRefs"]:not(.folded) > header {
+  align-items: flex-start; gap: 6px; padding: 10px 12px 9px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+#headsDlg[data-kind="fwRefs"] > header > .spacer { display: none; }
+#headsDlg[data-kind="fwRefs"] .hd-heading-copy {
+  flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+}
+#headsDlg[data-kind="fwRefs"] #headsDlgTitle {
+  font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text);
+}
+#headsDlg[data-kind="fwRefs"] #headsDlgNote {
+  max-width: 100%; white-space: normal; overflow: visible; text-overflow: clip;
+  font-size: 11.5px; line-height: 1.4; color: var(--muted); word-break: keep-all;
+}
+#headsDlg[data-kind="fwRefs"] > header > .icon { margin-top: -2px; color: var(--muted); }
+#headsDlg[data-kind="fwRefs"]:not(.folded) > #headsDlgTools {
+  padding: 8px 12px; gap: 6px; background: #fafbfd; border-bottom: 1px solid var(--line);
+}
+#headsDlg[data-kind="fwRefs"] #headsDlgBody {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 14px;
+  background: var(--surface-2); overflow-x: hidden; overflow-y: auto;
+  container-type: inline-size;
+}
+#headsDlg[data-kind="fwRefs"] .fw-wait {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 28px 16px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--muted); font-size: 12.5px;
+}
+#headsDlg[data-kind="fwRefs"] .fw-wait::before {
+  content: ""; flex: none; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--accent); border-right-color: transparent;
+  animation: spin .8s linear infinite;
+}
+#headsDlg[data-kind="fwRefs"] .hwarn {
+  margin: 0; padding: 10px 12px; border-left: 3px solid var(--warn);
+  border-radius: var(--radius); word-break: keep-all;
+}
+.fw-ref-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: pre; border: 0;
+}
+
+/* 목록 머리(참조 문서 N개 · 이 문서의 몫) */
+#headsDlg[data-kind="fwRefs"] .fw-refs-head {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px;
+  margin: 0; padding: 2px 2px 7px; border-bottom: 1px solid var(--line);
+  font-size: 12px; line-height: 1.45; color: var(--muted);
+}
+#headsDlg[data-kind="fwRefs"] .fw-refs-head::before {
+  content: ""; flex: none; width: 14px; height: 14px; background-color: var(--muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 2.5h5.5L12.5 6v7.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1ZM9 2.5V6h3.5M5.5 9h5M5.5 11.5h3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 2.5h5.5L12.5 6v7.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1ZM9 2.5V6h3.5M5.5 9h5M5.5 11.5h3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.fw-refs-total {
+  font-size: 12.5px; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.fw-refs-mine {
+  display: inline-flex; align-items: center; padding: 0 7px; border-radius: 999px;
+  background: #f1ebff; color: #6d3fd1; font-size: 11px; font-weight: 600;
+  line-height: 1.65; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.fw-refs-mine-note {
+  font-size: 11px; color: var(--muted); word-break: keep-all;
+}
+
+/* 빈 목록 상태 */
+#headsDlg[data-kind="fwRefs"] .fw-refs-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin: 0; padding: 26px 16px; text-align: center;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--muted); font-size: 12.5px;
+  line-height: 1.55; word-break: keep-all;
+}
+#headsDlg[data-kind="fwRefs"] .fw-refs-empty::before {
+  content: ""; flex: none; width: 22px; height: 22px; background-color: var(--line-strong);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.5 5a1.3 1.3 0 0 1 1.3-1.3h2.7l1.2 1.4h4.5a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.8a1.3 1.3 0 0 1-1.3-1.3V5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.5 5a1.3 1.3 0 0 1 1.3-1.3h2.7l1.2 1.4h4.5a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.8a1.3 1.3 0 0 1-1.3-1.3V5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* 참조 문서 목록(열 → 줄 카드 2겹) */
+.fw-refs {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.fw-ref {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "ext top acts" "ext meta acts";
+  align-items: start; gap: 5px 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface);
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.fw-ref:hover {
+  background: #f8faff; border-color: #c3d3f0;
+}
+.fw-ref.is-mine {
+  padding-left: 13px; border-color: #d6c8f5;
+  box-shadow: inset 3px 0 0 #6d3fd1; background: #fcfaff;
+}
+.fw-ref.is-mine:hover {
+  background: #f6f2ff; border-color: #beaaee;
+}
+
+/* 형식 배지(줄 왼쪽 — 파일 아이콘 + 형식 약어, 형식마다 다른 색) */
+.fw-ref-ext {
+  position: relative; grid-area: ext; align-self: start;
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-width: 40px; min-height: 36px; margin-top: 1px; padding: 4px 4px 3px;
+  border-radius: 7px; background: #eef1f6; color: #525d6e;
+  font-size: 9.5px; font-weight: 800; line-height: 1; letter-spacing: -.01em;
+  text-transform: uppercase; user-select: none;
+}
+.fw-ref-ext::before {
+  content: ""; flex: none; width: 13px; height: 13px; background-color: currentColor; opacity: .88;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.8 2h5.3L12.5 5.4V13a1 1 0 0 1-1 1H3.8a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM9 2v3.5h3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.8 2h5.3L12.5 5.4V13a1 1 0 0 1-1 1H3.8a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM9 2v3.5h3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.fw-ref-ext[data-ext="pdf"] { background: #fdecec; color: #b91c1c; }
+.fw-ref-ext[data-ext="hwpx"] { background: #e8f1ff; color: #1d4ed8; }
+.fw-ref-ext[data-ext="hwp"] { background: #e3f7fa; color: #0e7490; }
+.fw-ref-ext[data-ext="docx"],
+.fw-ref-ext[data-ext="doc"] { background: #eceeff; color: #4338ca; }
+
+/* 문서 이름(2줄까지 · 전체는 title) */
+.fw-ref-top {
+  position: relative; grid-area: top; min-width: 0;
+}
+.fw-ref-name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; min-width: 0;
+  font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--text);
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+
+/* 메타 줄(추출 상태 칩 · 이 문서의 몫 · 쪽 · 크기 · 올림 때) */
+.fw-ref-meta {
+  position: relative; grid-area: meta; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  font-size: 11.5px; line-height: 1.45; color: var(--muted);
+}
+.fw-ref-status {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; line-height: 1.5;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.fw-ref-status.is-done {
+  background: var(--ok-soft); color: var(--ok);
+}
+.fw-ref-status.is-done::before {
+  content: ""; flex: none; width: 11px; height: 11px; background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.4 6.5 11.6 13 4.8' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.4 6.5 11.6 13 4.8' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.fw-ref-status.is-none {
+  background: #edf0f5; color: var(--muted); font-weight: 500;
+}
+.fw-ref-status.is-none::before {
+  content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
+  background: #9aa3b2;
+}
+.fw-ref-status.is-run {
+  background: var(--accent-soft); color: var(--accent);
+}
+.fw-ref-status.is-run::before {
+  content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%;
+  border: 1.6px solid currentColor; border-right-color: transparent;
+  animation: spin .8s linear infinite;
+}
+.fw-ref-meta .fw-tag.ok {
+  font-size: 11px; font-weight: 600; line-height: 1.5; padding: 1px 6px;
+}
+.fw-ref-facts {
+  position: relative; display: inline-flex; flex-wrap: wrap; align-items: center;
+  gap: 2px 8px; min-width: 0; font-variant-numeric: tabular-nums;
+}
+.fw-ref-specs {
+  display: inline-flex; align-items: center; white-space: nowrap; color: #525d6e;
+}
+.fw-ref-sep {
+  color: #c2c9d6; white-space: pre; user-select: none;
+}
+.fw-ref-when {
+  color: #788292; white-space: nowrap;
+}
+
+/* 오른쪽 「보기」 단추(btn sm 크기 그대로 · 아이콘은 ::before 만) */
+.fw-ref-acts {
+  position: relative; grid-area: acts; align-self: center; flex: none;
+}
+.fw-ref-view {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  font-weight: 500; color: var(--text);
+}
+.fw-ref-view:hover:not(:disabled) {
+  background: var(--accent-soft); border-color: #9fb8e6; color: var(--accent);
+}
+.fw-ref-view::before {
+  content: ""; flex: none; width: 13px; height: 13px; background-color: currentColor; opacity: .75;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.6 8s2.4-4.2 6.4-4.2S14.4 8 14.4 8s-2.4 4.2-6.4 4.2S1.6 8 1.6 8Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='8' r='1.8' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.6 8s2.4-4.2 6.4-4.2S14.4 8 14.4 8s-2.4 4.2-6.4 4.2S1.6 8 1.6 8Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='8' r='1.8' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* 좁은 열 폭(≤ 380px): 제목에 폭을 넓혀 주고 「보기」 단추를 메타 줄 오른쪽으로 내려 겹침 방지 */
+@container (max-width: 380px) {
+  #headsDlg[data-kind="fwRefs"] .fw-ref {
+    grid-template-areas: "ext top top" "meta meta acts";
+    gap: 6px 8px; padding: 9px 10px;
+  }
+  #headsDlg[data-kind="fwRefs"] .fw-ref.is-mine { padding-left: 11px; }
+  #headsDlg[data-kind="fwRefs"] .fw-ref-ext {
+    min-width: 36px; min-height: 32px; align-self: center; margin-top: 0;
+  }
+  #headsDlg[data-kind="fwRefs"] .fw-ref-acts { align-self: end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #headsDlg[data-kind="fwRefs"] .fw-wait::before,
+  .fw-ref-status.is-run::before { animation: none; }
+}

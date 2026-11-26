@@ -199,21 +199,53 @@ function fwRefsDraw() {
   const body = $("headsDlgBody"), lib = FW.lib || { alive: false, docs: [] }, docs = lib.docs || [], from = (FW.gw && FW.gw.libFrom) || 0;
   body.replaceChildren();
   if (!lib.alive) return body.append(el("p", "hwarn", lib.why || FW_LIB_DOWN));
+  const sr = (s) => el("span", "fw-ref-sr", s);
   const mine = docs.filter((d) => (d.at || 0) > from).length;
-  body.append(el("p", "hnote", `참조 문서 ${docs.length}개${mine ? ` · 이 문서의 몫 ${mine}개(이 작업을 만들거나 초기화한 뒤에 올린 것)` : ""}`));
-  if (!docs.length) return body.append(el("p", "hnote", "아직 없습니다 — 「참조 문서 올리기…」 로 올립니다"));
+  const head = el("p", "hnote fw-refs-head");
+  head.append(el("strong", "fw-refs-total", `참조 문서 ${docs.length}개`));
+  if (mine) {
+    head.append(sr(" · "), el("span", "fw-refs-mine", `이 문서의 몫 ${mine}개`), el("span", "fw-refs-mine-note", "(이 작업을 만들거나 초기화한 뒤에 올린 것)"));
+  }
+  body.append(head);
+  if (!docs.length) return body.append(el("p", "hnote fw-refs-empty", "아직 없습니다 — 「참조 문서 올리기…」 로 올립니다"));
   const ul = el("ul", "fw-refs");
   for (const d of docs) {
-    const li = el("li", "fw-ref" + ((d.at || 0) > from ? " is-mine" : "")), top = el("div", "fw-ref-top"), name = el("strong", "fw-ref-name", d.name || d.id);
-    name.title = d.name || "";
-    top.append(name);
-    if ((d.at || 0) > from) top.append(el("span", "fw-tag ok", "이 문서의 몫"));
+    const isMine = (d.at || 0) > from;
+    const li = el("li", "fw-ref" + (isMine ? " is-mine" : ""));
+    const extText = String(d.ext || "").toUpperCase();
+    const ext = el("span", "fw-ref-ext", extText);
+    ext.dataset.ext = extText.replace(/^\./, "").toLowerCase();
+    if (extText) ext.append(sr(" "));
+    const top = el("div", "fw-ref-top"), name = el("strong", "fw-ref-name", d.name || d.id);
+    name.title = d.name || d.id || "";
+    top.append(name, sr(" "));
     const x = (d.extracts || []).length;
-    const meta = [String(d.ext || "").toUpperCase(), d.pages ? `${d.pages}쪽` : "", d.bytes ? `${Math.max(1, Math.round(d.bytes / 1024)).toLocaleString()} KB` : "", d.at ? `올림 ${new Date(d.at * 1000).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "",
-      x ? `추출 ${x}개` : "추출 전", d.running ? `추출 중 ${d.running}` : ""].filter(Boolean).join(" · ");
+    const meta = el("div", "fw-ref-meta");
+    meta.append(el("span", `fw-ref-status ${x ? "is-done" : "is-none"}`, x ? `추출 ${x}개` : "추출 전"));
+    if (d.running) meta.append(sr(" · "), el("span", "fw-ref-status is-run", `추출 중 ${d.running}`));
+    if (isMine) meta.append(sr(" · "), el("span", "fw-tag ok", "이 문서의 몫"));
+    const specs = [d.pages ? `${d.pages}쪽` : "", d.bytes ? `${Math.max(1, Math.round(d.bytes / 1024)).toLocaleString()} KB` : ""].filter(Boolean);
+    const when = d.at ? `올림 ${new Date(d.at * 1000).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "";
+    if (specs.length || when) {
+      const facts = el("span", "fw-ref-facts");
+      facts.append(sr(" · "));
+      if (specs.length) {
+        const specEl = el("span", "fw-ref-specs");
+        specs.forEach((s, i) => {
+          if (i) specEl.append(el("span", "fw-ref-sep", " · "));
+          specEl.append(el("span", "fw-ref-fact", s));
+        });
+        facts.append(specEl);
+      }
+      if (when) {
+        if (specs.length) facts.append(sr(" · "));
+        facts.append(el("span", "fw-ref-when", when));
+      }
+      meta.append(facts);
+    }
     const acts = el("div", "fw-ref-acts");
-    acts.append(hBtn("보기", () => fwLibOpen(`d=${d.id}`), { cls: "btn sm", title: "문서 라이브러리에서 이 문서를 봅니다(새 탭)" }));
-    li.append(top, el("div", "fw-ref-meta", meta), acts);
+    acts.append(sr(" "), hBtn("보기", () => fwLibOpen(`d=${d.id}`), { cls: "btn sm fw-ref-view", title: "문서 라이브러리에서 이 문서를 봅니다(새 탭)" }));
+    li.append(ext, top, meta, acts);
     ul.append(li);
   }
   body.append(ul);
