@@ -73,6 +73,15 @@ function agentChosen(t, group) { // 후보 묶음에서 지금 고른 것 — �
 }
 // 제안의 열쇠 — 턴 id + 제안 id. 제안 id 는 턴마다 p1 부터라, 제안 id 만으로 적어 두면 앞 턴 카드에서 고른 칸 · 줄이 다음 턴의 같은 번호 카드로 넘어간다(astra 3차 — 처음부터 안 고른 줄이 고른 채로 반영 요청에 실렸다)
 const agentPropKey = (p) => { const t = AGENT.turns.find((x) => (x.proposals || []).includes(p)); return `${t ? t.id : ""}/${p.id}`; };
+// 줄 · 칸의 근거 구절이 든 **자료의 자리**(서버 doc_agent._evid 의 at — 자료 id · 글자 자리 · 쪽 · 절 제목: spec_양식작성 ② §5-12 3)가 있으면 근거 구절 옆에 「근거 p.N」 단추 — 누르면 문서 옆 열 「참조한 자료」 에
+// 그 자리의 앞뒤 글(form_write.js fsrcOpen). 같은 구절이 자료의 여러 곳에 있으면 「n곳」 을 함께 적는다(보이는 곳을 확정한 것이 아니다). 자리가 없으면(자료에서 못 찾음 · 지은 글 · 사람이 정한 답) 아무것도 안 붙인다.
+function agentSrcBtn(cell, at, quote) {
+  if (!at || !at.mat || typeof fsrcOpen !== "function") return;
+  const where = [at.page !== null && at.page !== undefined ? `p.${at.page}` : "", at.title || ""].filter(Boolean).join(" · ");
+  const b = hBtn(`근거${at.page !== null && at.page !== undefined ? ` p.${at.page}` : ""}${(at.hits || 1) > 1 ? ` · ${at.hits}곳` : ""}`, () => fsrcOpen(at, quote), { cls: "btn sm agp-src-go",
+    title: `「참조한 자료」 열에서 이 구절이 든 자리를 봅니다 — ${at.name || "자료"}${where ? ` · ${where}` : ""}${(at.hits || 1) > 1 ? `\n같은 구절이 자료의 ${at.hits}곳에 있습니다 — 보이는 곳이 이 값의 근거인지 확인하세요` : ""}` });
+  cell.append(b);
+}
 function agentFillPicks(p) { // 표 채우기 · 자리 채우기 제안의 고른 칸 · 줄 — 처음에는 서버가 골라 둔 것(view.picked: 스크립트가 확인한 제안 — 엑셀 검증이 안 맞으면 비어 있다 · design.md §8). 옛 서버면 경고 없는 제안
   const k = agentPropKey(p);
   if (!AGENT.fills[k]) {
@@ -1057,7 +1066,7 @@ function agentPropSync() { // 열이 제안 미리보기일 때만 — 그 자�
     (v.lines || []).forEach((ln, i) => {
       const lw = ln.warn || [], tr = el("tr", lw.length || (ln.source && !ln.quoted) ? "warn" : null), c0 = el("td", null, String(i + 1)), c1 = el("td", "agp-text", ln.text || ""), c2 = el("td", "wrap agp-src tfl-why");
       if (ln.itemName || ln.item) c0.append(" ", el("span", "hb", ln.itemName || ln.item)); // 그 줄에 입힐 글 서식 항목
-      if (ln.source) { const q = el("q", ln.quoted ? null : "tfl-noquote", ln.source); q.title = ln.quoted ? "자료·선택 글에서 확인한 구절(글자 포함 검사 — 사실 검증은 아닙니다)" : "이 구절을 자료·선택 글에서 찾지 못했습니다 — 직접 확인하세요"; c2.append(q); }
+      if (ln.source) { const q = el("q", ln.quoted ? null : "tfl-noquote", ln.source); q.title = ln.quoted ? "자료·선택 글에서 확인한 구절(글자 포함 검사 — 사실 검증은 아닙니다)" : "이 구절을 자료·선택 글에서 찾지 못했습니다 — 직접 확인하세요"; c2.append(q); agentSrcBtn(c2, ln.at, ln.source); }
       else c2.append(v.mode === "draft" ? "에이전트가 쓴 글" : "—");
       for (const w of lw) c2.append(el("span", "hb und", w));
       tr.append(c0, c1, c2);
@@ -1126,7 +1135,7 @@ function agentFillList(wrap, t, p) { // 표 채우기 제안 목록 — 「에�
     c1.append(go, el("span", "hb", form[f.form] || f.form || ""));
     if ((f.now || "").trim()) c3.append(el("span", "tfl-now", f.now), el("span", "tfl-arrow", " → "));
     c3.append(el("b", "tfl-new", f.text));
-    if (f.source) { const q = el("q", f.quoted ? null : "tfl-noquote", f.source); q.title = f.quoted ? `확인한 구절${f.where ? ` — ${where[f.where] || f.where}` : ""}` : "이 구절을 자료에서 찾지 못했습니다 — 값이 맞는지 직접 확인하세요"; c4.append(q); }
+    if (f.source) { const q = el("q", f.quoted ? null : "tfl-noquote", f.source); q.title = f.quoted ? `확인한 구절${f.where ? ` — ${where[f.where] || f.where}` : ""}` : "이 구절을 자료에서 찾지 못했습니다 — 값이 맞는지 직접 확인하세요"; c4.append(q); agentSrcBtn(c4, (v.at || {})[f.cell], f.source); }
     if (f.reason) c4.append(el("span", "tfl-reason", f.reason));
     for (const w of warn) c4.append(el("span", "hb und", w));
     tr.append(c0, c1, c2, c3, c4);
@@ -1176,7 +1185,7 @@ function agentFillLines(wrap, t, p) { // 자리 채우기 제안의 줄 목록 �
     if (keep) neu.append("「", el("span", "agf-keep", keep), el("b", "tfl-new", text.slice(keep.length)), "」"); // 지금 글은 그대로 · 붙인 값만 굵게
     else neu.append("「", el("b", "tfl-new", text), "」");
     c2.append(neu);
-    if (ln.source) { const q = el("q", ln.quoted ? null : "tfl-noquote", ln.source); q.title = ln.quoted ? "자료에서 확인한 구절(글자 포함 검사 — 사실 검증은 아닙니다)" : "이 구절을 자료에서 찾지 못했습니다 — 값이 맞는지 직접 확인하세요"; c3.append(q); }
+    if (ln.source) { const q = el("q", ln.quoted ? null : "tfl-noquote", ln.source); q.title = ln.quoted ? "자료에서 확인한 구절(글자 포함 검사 — 사실 검증은 아닙니다)" : "이 구절을 자료에서 찾지 못했습니다 — 값이 맞는지 직접 확인하세요"; c3.append(q); agentSrcBtn(c3, ln.at, ln.source); }
     if (ln.from === "decided") c3.append(el("span", "hb agf-decided", "사람이 정한 답"));
     for (const w of warn) c3.append(el("span", "hb und", w));
     if (done.has(ln.para)) c3.append(el("span", "hb agf-done", "채움"));

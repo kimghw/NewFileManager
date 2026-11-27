@@ -152,8 +152,9 @@ def check_heads(rows, blocks, its, pages):
         if before and not head["letter"] and row["source"] == "style":
             near_x = chars[0][1] - before[-1][3] < 3 * (chars[0][4] - chars[0][2])
             num = strict_text("".join(c[0] for c in before[-8:]))
-            if near_x and num:
-                missing_web += 1  # 개요 문단: 한글이 찍는 개요 번호를 웹은 안 보인다
+            shown = strict_text(p.get("outlineNum") or "")   # 웹이 보이는 개요 번호(hwpx_doc _outline_num) — PDF 의 그 글자와 같으면 「웹에 없는」 것이 아니다
+            if near_x and num and not (shown and num.endswith(shown)):
+                missing_web += 1  # 개요 문단: 한글이 찍는 개요 번호를 웹은 안 보인다(또는 다르게 보인다)
                 note(pid, "outline", "", num, text, pno)
         letter = strict_text(head["letter"])
         nonsp = [k for k, c in enumerate(chars) if not c[0].isspace()]

@@ -631,3 +631,59 @@ def test_blocks_cached_until_edit():
     b = d.blocks()
     assert b is not a and next(x for x in _paras(d) if x["id"] == target["id"])["text"] == "[작성가이드라인] 캐시 뒤 수정"
     assert d.blocks() is b
+
+
+# ---- 개요 번호(spec_hwpx_웹편집 ② §3-7) — 2026-11-27 사용자 "결과가 이런데 왜 양식은 그모양이지?": 글머리가 모두 개요 번호(「2)」 · 「(1)」 · 「○」 · 「-」)인 양식이 웹에는 글머리 없는 줄로 보였다
+
+def _outlined():
+    """작은 견본의 글 문단 몇을 개요 문단으로 바꾼 문서 — 문단 모양 둘을 골라 heading 을 OUTLINE(5수준 · 2수준)으로. 견본의 개요 번호 모양 = 「^1.」 · 「^2.」(가) · 「^3)」 · 「^4)」(가) · 「(^5)」 …"""
+    d = HwpxDoc(_bytes(SMALL))
+    ps = [p for sec in d._sections for p in sec.iter(f"{{{HP}}}p") if d._text(p).strip() and d._heading(p) is not None and d._heading(p).get("type") == "NONE"]
+    ids = list(dict.fromkeys(p.get("paraPrIDRef") for p in ps))
+    deep, top = ids[0], ids[1]
+    for pid, lv in ((deep, "4"), (top, "1")):
+        h = d._defs["paraPr"][pid].find(f"{{{HH}}}heading")
+        h.set("type", "OUTLINE"), h.set("level", lv)
+    d._blocks_cache = None
+    return d, deep, top
+
+
+def test_outline_number_counts_like_hangul():
+    d, deep, top = _outlined()
+    key = ("outline", "1")
+    d._num_ctr = {}
+    assert [d._count_num("1", 5, key, above=True)[0] for _ in range(2)] == ["(1)", "(2)"]
+    assert d._count_num("1", 2, key, above=True)[0] == "나."   # 아직 안 나온 윗 수준은 한 번 나온 것으로 센다 — 한글 PDF 실측(5 · 6수준 줄만 있던 문서의 첫 2수준 줄 = 「2)」)
+    assert d._count_num("1", 5, key, above=True)[0] == "(1)"   # 더 깊은 수준은 다시 1부터
+    assert d._count_num("1", 2, key, above=True)[0] == "다."
+    d._num_ctr = {}
+    assert d._count_num("1", 2, "1")[0] == "가."               # 문단 번호(NUMBER)의 셈은 전과 같다 · 개요 번호와 따로 센다
+    blocks = [b for b in _walk(d.blocks()) if b.get("type") == "paragraph" and b.get("outlineLevel")]
+    assert blocks and all(b["outlineNum"] and b["list"] is None for b in blocks)   # list 는 그대로 None — 헤딩 판정은 안 바뀐다
+    five = [b["outlineNum"] for b in blocks if b["outlineLevel"] == 5]
+    assert five[0] == "(1)" and all(n.startswith("(") and n.endswith(")") for n in five)
+    assert all(b.get("outlineNum") is None for b in _walk(d.blocks()) if b.get("type") == "paragraph" and not b.get("outlineLevel"))
+
+
+def test_outline_number_empty_head_draws_nothing_and_partial_read_keeps():
+    d, deep, top = _outlined()
+    num = d._defs["numbering"]["1"]
+    ph = next(x for x in num.iterchildren(f"{{{HH}}}paraHead") if x.get("level") == "5")
+    five = lambda bs: [b for b in _walk(bs) if b.get("outlineLevel") == 5]   # noqa: E731
+    el = host = d._ids[five(d.blocks())[0]["id"]]
+    while host.getparent() not in d._sections:                 # 그 문단이 든 최상위 문단(표 안이면 표를 품은 문단)
+        host = host.getparent()
+    assert d.order_bound([host])                               # 번호를 세는 개요 문단 — 그 문단만 따로 읽지 못한다(앞 문단을 다 세어야 값이 나온다)
+    ph.text = "○"                                              # 글자뿐인 번호 글 — 세지 않는다
+    d._blocks_cache = None
+    assert {b["outlineNum"] for b in five(d.blocks())} == {"○"}
+    d._keep_an = True                                          # 따로 읽는 길(table_block · host_blocks) — 전에 센 값을 지키고, 처음 보는 문단은 세지 않는 글만 낸다
+    try:
+        assert d._outline_num(el, d._heading(el)) == "○" and (d._ol_val.pop(el), d._outline_num(el, d._heading(el)))[1] == "○"
+        ph.text = "(^5)"
+        assert d._outline_num(el, d._heading(el)) is None      # 세는 번호는 문서 전체를 다시 읽을 때 나온다
+    finally:
+        d._keep_an = False
+    ph.text = None                                             # 번호 글이 빈 수준 — 한글이 안 찍는다(번호를 글로 친 공공 양식)
+    d._blocks_cache = None
+    assert five(d.blocks()) and all(b["outlineNum"] is None for b in five(d.blocks()))

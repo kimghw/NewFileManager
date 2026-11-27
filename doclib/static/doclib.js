@@ -308,7 +308,15 @@ function runSec(d) {
     hint.textContent = parts.join(" · ");
   };
   for (const i of [first, last]) { i.addEventListener("input", updateHint); i.addEventListener("change", updateHint); }
-  addRow([d.org, d.topic].filter(Boolean).join(" · "));
+  // 주소의 #d=<문서>&scope=<범위 줄들>(문서 편집 서버의 「찾을 테마」 가 넘긴 것 — fromHash) — 그 문서의 「뽑을 범위」 칸을 미리 채운다. **추출은 시작하지 않는다**: 사람이 범위를 보고 「추출 시작」 을 누른다(유료 확인 창도 그대로).
+  const given = S.scopeFor === d.id ? takeScopes() : [];
+  if (given.length) {
+    const max = (S.health && S.health.scopes) || 8;
+    given.slice(0, max).forEach((s) => addRow(s));
+    const note = el("div", "scope-given", `문서 편집 화면에서 넘긴 범위 ${Math.min(given.length, max)}줄을 채웠습니다 — 고친 뒤 「추출 시작」 을 누르면 추출합니다(아직 시작하지 않았습니다)${given.length > max ? ` · 한 번에 ${max}줄까지라 뒤의 ${given.length - max}줄은 뺐습니다` : ""}`);
+    note.setAttribute("role", "status");
+    scopeActs.append(note);
+  } else addRow([d.org, d.topic].filter(Boolean).join(" · "));
   if (!S.health && $("llmChip")) {
     const mo = new MutationObserver(() => {
       if (!sec.isConnected) { mo.disconnect(); return; }
@@ -597,7 +605,21 @@ function fromHash() {
   const q = new URLSearchParams(location.hash.slice(1));
   S.doc = q.get("d") || S.doc;
   S.ext = q.get("x") || S.ext;
+  const scope = q.get("scope"); // 미리 채울 범위 줄들(줄 나눔으로 이은 글) — 그 문서의 추출 칸이 한 번만 쓴다(takeScopes). 주소에서는 지운다(새로 고쳐도 사람이 고친 범위를 덮지 않게)
+  if (scope && q.get("d")) {
+    S.scopeFor = q.get("d");
+    S.scopeLines = scope.split("\n").map((s) => s.replace(/\s+/g, " ").trim().slice(0, FOCUS_MAX)).filter(Boolean);
+    history.replaceState(null, "", `#d=${S.doc}`);
+    const w = $("work");
+    // 이미 그 문서의 추출 폼이 열려 있으면(같은 탭에서 주소만 바뀜) 폼을 다시 그려야 범위가 채워진다 — 사람이 쓰던 범위 · 쪽 범위가 있으면 **묻고 나서만** 바꾼다(묻지 않고 덮지 않는다)
+    if (w && w.dataset.doc === S.doc) {
+      const typed = [...w.querySelectorAll(".scopes textarea, .page-range input")].some((t) => t.value.trim());
+      if (!typed || window.confirm(`문서 편집 화면에서 범위 ${S.scopeLines.length}줄을 넘겨받았습니다. 지금 적어 둔 범위 · 쪽 범위를 지우고 넘겨받은 범위로 바꿀까요?`)) w.dataset.doc = "";
+      else takeScopes();
+    }
+  }
 }
+function takeScopes() { const out = S.scopeLines || []; S.scopeLines = []; S.scopeFor = ""; return out; }
 $("helpBtn").addEventListener("click", () => $("helpDlg").showModal());
 $("skillBtn").addEventListener("click", skillOpen);
 $("skillClose").addEventListener("click", () => $("skillDlg").close());

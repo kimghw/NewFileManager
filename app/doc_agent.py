@@ -38,6 +38,7 @@ from app import prompt_texts
 from app import form_slots as FS
 from app import heading_calc as HC
 from app import heading_rules as R
+from app import material_index as MI
 from app import llm, merge_guides, table_excel, table_fill, table_make, works, zip_guard
 from app import table_formula as F
 from app.hwpx_doc import PIC, RUN, TBL, TC, HwpxDoc, P
@@ -116,12 +117,12 @@ SCHEMA = _schema({"reply": S, "actions": _arr(_ACTION)})
 CONTRACT = f"""당신은 한글(hwpx) 문서를 사람과 함께 고치는 편집 에이전트입니다. 사람의 요청(request)과 받은 자료(materials)를 읽고, 문서에 넣을 **제안**을 행동(actions)으로 답합니다.
 제안은 스크립트가 검사한 뒤 사람에게 보이고, 사람이 고른 것만 문서에 들어갑니다. 당신은 문서를 직접 바꾸지 못하고 도구도 없습니다 — 이 한 번의 답이 전부입니다.
 자료(JSON): request = 사람의 요청 글 · selection = 사람이 지금 고른 것(paras = 고른 문단 {{id, text, top}} · table = 고른 표 {{id, size, grid(행마다 칸 글 — 합친 칸은 {{t, rs, cs}}), range(끌어 고른 칸 범위 — A1 꼴 「B2:D5」)}} ·
-고른 표가 **상자**(1칸 표 — 안에 쓸 자리가 있는 글상자)면 grid 대신 {{id, size, box: true, lines}} — lines = 상자 안의 줄(줄마다 「[문단 id] (L레벨) 「원문」 (쓸 자리의 종류)」 · 「[p1 p2 p3] (쓸 자리 — 빈 줄 3)」 은 빈 줄 셋의 id · 안쪽 표 · 그림은 자리만) ·
+고른 표가 **상자**(1칸 표 — 안에 쓸 자리가 있는 글상자)면 grid 대신 {{id, size, box: true, lines}} — lines = 상자 안의 줄(줄마다 「[문단 id] (L레벨) 「원문」 (쓸 자리의 종류)」 · 「[p1 p2 p3] (쓸 자리 — 빈 줄 3)」 은 빈 줄 셋의 id · 「자동 글머리 ○」 = 한글이 그 줄 앞에 찍는 글머리(글에는 없는 글자 — 새 글에 치지 않습니다 · 글머리가 같은 줄이 같은 깊이의 항목입니다) · 안쪽 표 · 그림은 자리만) ·
 cursor = 커서가 놓인 블록 {{id, text, top}} — top = 그 블록이 든 **본문 최상위 블록**의 id: 넣을 자리로는 top 을 씁니다. 커서 줄이 **같은 줄에 값을 쓰는 자리**면 slot("label" 뒤에 값 | "check" 표시 줄)과 raw(그 줄의 원문 전체)가 함께 옵니다) · outline = 본문 최상위 블록 차례(문단 {{id, text(앞 {OUTLINE_TEXT}자)}} · 표 {{id, text 「표 행×열 · 첫 행 글」}} ·
 {{gap: n}} = n줄을 줄여 보냄) · tables = 문서의 표 {{id, size, head(첫 행 글), caption?}}({{more: n}} = n개 더 있음) ·
 templates = 문서의 개요템플릿 {{id, no, name, chain(레벨 차례의 레터 사슬), levels(레벨 수)}}(헤딩 추출 결과가 없으면 빈 목록 · {{more: n}} = n개 더 있음) · styles = 서식(table = 표 서식 {{id, name, bands, rows, cols, blueprint}} · text = 글 서식 {{id, name, items[{{key, name, level, sample}}]}} ·
 서식마다 from = 그 서식을 **뽑은 원본 문서** {{doc(문서 이름), project?(그 문서의 프로젝트), where?(문서 안 자리), also?[같은 서식이 나온 다른 문서 이름], same?("doc" = 지금 이 문서에서 뽑은 서식 ·
-"project" = 같은 프로젝트의 문서에서 뽑은 서식)}} — from 이 없으면 원본을 모르는 서식 · picked = 사람이 이번 요청에 고른 서식) · materials = 받은 자료 {{id, name, text, cut(뒤가 잘렸으면 true)}} · history = 앞선 대화(요청 · 답 · 반영한 제안 제목 — 옛 것부터).
+"project" = 같은 프로젝트의 문서에서 뽑은 서식)}} — from 이 없으면 원본을 모르는 서식 · picked = 사람이 이번 요청에 고른 서식) · materials = 받은 자료 {{id, name, text, cut(뒤가 잘렸으면 true)}}(text 에 「[[<자료 id>/<절 id> | p.쪽 | 제목]]」 줄이 있으면 그 자리의 근거로 고른 절만 실은 것입니다 — 그 줄은 자리표이고 자료의 글이 아닙니다(근거 구절로 옮기지 않습니다). 끝의 「목차」 는 실지 않은 절의 제목입니다) · history = 앞선 대화(요청 · 답 · 반영한 제안 제목 — 옛 것부터).
 답: reply = 사람에게 하는 말(한국어 — 무엇을 제안했는지 한두 문장, 또는 질문·설명) · actions = 행동 목록(할 것이 없으면 빈 목록). 행동마다 아래 키를 **모두** 적되, 그 type 이 쓰지 않는 키는 빈 값("" · [])으로 둡니다.
 - type "write"(글 쓰기): after = 넣을 자리 — 그 본문 최상위 블록 **바로 뒤**에 넣습니다 · mode = "extract"(자료·선택 글에서 옮긴 글) | "draft"(당신이 지은 글) · style = 글 서식 id | "" ·
   lines = 줄 목록(줄 하나 = 문단 하나): item = 그 줄에 입힐 글 서식의 item key | "" · text = 문단 글(줄 바꿈 없이 — 글 서식을 쓰면 레터·번호는 스크립트가 붙이므로 본문만) ·
@@ -1032,6 +1033,68 @@ def _number_check(src_text, cells):
     return text, {"what": "numbers", "status": "warn", "text": text}
 
 
+FIELD_OFF = "근거의 제목이 이 자리와 다릅니다"   # 근거 구절 · 그 절의 제목 경로에 적힌 차년도 · 단계 · 연도가 그 자리의 머리 글과 다름(evid "field" — 처음부터 고르지 않는다)
+NOT_MATERIAL = "근거 구절이 받은 자료의 글이 아닙니다(절 머리 줄 · 목차 · 요청 글) — 읽고 고르세요"   # 자리 턴에서 근거 구절을 보낸 자료 글에서 못 잡음(evid "none" — 처음부터 고르지 않는다)
+
+
+def _evid(c, whole, found, more=""):
+    """근거 구절의 **자료 자리**와 대조 결과(spec_양식작성 ② §5-12 3 · 5) → (at | None, evid, 경고 글 | None). found = 그 구절을 보낸 자료에서 찾았나(`quoted`) · more = 그 줄의 머리 · 윗 제목 글.
+    at = {mat, name, start, end, sec, page, path, title, hits}(자료 **전체 글**의 글자 자리 — c.mats) · evid = "none"(못 찾음) | "match"(한 곳) | "multi"(같은 구절이 여러 곳 — 첫 자리를 주되 확정하지 않는다) |
+    "field"(근거의 제목 경로에 적힌 차년도 · 단계 · 연도가 자리의 머리 글(c.ctx + more)과 다름). 같은 구절이 여러 곳이면 작성 계획이 고른 절(c.evidence)의 것 → 자리와 어긋나지 않는 것 → 첫 자리 차례로 고른다.
+    글자 대조일 뿐이다 — 그 구절이 그 값을 뒷받침하는지는 사람이 근거를 열어 본다."""
+    if not found:
+        return None, "none", None
+    spots, hits = MI.locate_all(whole, c.get("mats") or [])
+    spans = c.get("spans") if isinstance(c.get("spans"), dict) else None   # 근거 절만 실은 턴 — 실제로 보낸 구간 {자료 id: [(start, end)]}: 그 밖의 절의 구절은 에이전트가 본 글이 아니다
+    if spans is not None:
+        spots = [sp for sp in spots if MI.inside(sp, spans)]
+        hits = len(spots)
+    if not spots:
+        # 자리 턴(서버가 범위를 건 턴)에서 자료를 줬는데 그 구절이 **보낸 자료 글**에 없다 = 절 머리 줄 · 목차 · 쪽 표시 · 요청 글(작성 지침 · 예시)의 구절이다 — 값의 근거가 아니다(astra R2 P1:
+        # 머리 줄 「[[… | p.46 | …]]」 을 인용하고 46 을 값으로 낸 줄이 경고 없이 골라졌다). 범위가 없는 턴(에이전트 보기에서 바로)은 요청 · 고른 글의 구절도 근거다 — 자리 없이 둔다
+        if c.get("scope") is not None and c.get("mats"):
+            return None, "none", NOT_MATERIAL
+        return None, "match", None
+    ctx = " ".join(x for x in (str(c.get("ctx") or ""), str(more or "")) if x.strip())
+    want = {(e.get("mat"), e.get("sec")) for e in c.get("evidence") or () if isinstance(e, dict)}
+    # 차년도 · 단계 · 연도는 가까운 글부터 견준다(근거 구절 → 그 절의 제목 → 윗 제목 경로)
+    clash = lambda sp: MI.field_clash(ctx, whole, sp["title"], " › ".join(sp["path"])) if ctx else []  # noqa: E731
+    liked = [sp for sp in spots if (sp["mat"], sp["sec"]) in want]
+    pick = (next((sp for sp in liked if not clash(sp)), None) or next((sp for sp in spots if not clash(sp)), None)   # 계획이 고른 절이면서 자리와 어긋나지 않는 것 → 어긋나지 않는 것
+            or (liked[0] if liked else spots[0]))                                                                     # → 계획이 고른 절 → 첫 자리(둘 다 어긋난다 — 경고)
+    bad, at = clash(pick), {**pick, "hits": hits}
+    if bad:
+        return at, "field", f"{FIELD_OFF}({bad[0]}) — 근거를 열어 보고 고르세요"
+    return at, "multi" if hits > 1 else "match", None
+
+
+def applied_sources(p, written=(), lined=(), cells=()):
+    """반영한 제안 → 들어간 문단 · 칸마다의 근거 [{para | cell(+ table), mat, name, start, end, sec, page, title, hits, quote}] — 줄 · 칸에 자료 자리(at)가 있는 것만.
+    written = 글 쓰기가 넣은 문단 id(줄 차례) · lined = 자리 채우기가 채운 문단 id · cells = 표 채우기가 채운 칸 id. `GET …/guide-write/sources` 가 문단마다의 근거로 모은다(② §5-12 3)."""
+    view, out = p.get("view") if isinstance(p.get("view"), dict) else {}, []
+
+    def row(x, **key):
+        at = x.get("at") if isinstance(x.get("at"), dict) else None
+        if at:
+            out.append({**key, **{k: at.get(k) for k in ("mat", "name", "start", "end", "sec", "page", "title", "hits")}, "quote": x.get("source") or ""})
+    if p.get("type") == "fill":
+        by = {ln.get("para"): ln for ln in view.get("lines") or ()}
+        for pid in lined or ():
+            if pid in by:
+                row(by[pid], para=pid)
+    elif p.get("type") == "write":
+        lines = list(view.get("lines") or ())
+        if len(lines) == len(written or ()):   # 줄 하나 = 문단 하나일 때만 짝짓는다
+            for pid, ln in zip(written, lines):
+                row(ln, para=pid)
+    elif p.get("type") == "tableFill":   # 칸의 자료 자리는 따로 실려 있다(view.at {칸 id: at})
+        by, ats = {x.get("cell"): x for x in view.get("fills") or ()}, view.get("at") if isinstance(view.get("at"), dict) else {}
+        for cid in cells or ():
+            if cid in by and cid in ats:
+                row({"at": ats[cid], "source": by[cid].get("source")}, cell=cid, table=view.get("table"))
+    return out
+
+
 def _write(doc, a, c):
     after = _after(doc, a, c)
     mode = a.get("mode") if a.get("mode") in MODES else "draft"   # 모르는 값은 지은 글로 본다(처음부터 안 고름)
@@ -1047,6 +1110,7 @@ def _write(doc, a, c):
         whole = " ".join(str(ln.get("source") or "").replace(R.BR, " ").split())   # 근거 구절 전체로 견준다(보이는 것만 200자로 줄인다 — 긴 줄을 그대로 옮긴 것도 통과하게)
         source = _short(whole, 200)
         ok = mode == "extract" and quoted(whole, c["sources"]["hay"])
+        at, evid, off = _evid(c, whole, ok) if mode == "extract" else (None, "draft", None)   # 근거 구절의 자료 자리 · 대조(② §5-12 3 · 5)
         for part in str(ln.get("text") or "").replace("\r", "").replace(R.BR, "\n").split("\n"):
             text = part.strip()
             if not text:
@@ -1059,7 +1123,7 @@ def _write(doc, a, c):
             reworded += ok and not same
             bodies.append({"text": body})
             lines.append({"text": text, "item": item or None, "itemName": (items.get(item) or {}).get("name") if item else None, "source": source, "quoted": ok,
-                          "warn": [] if mode != "extract" or same else [REWORDED] if ok else ["근거 구절을 자료에서 못 찾음"]})
+                          "warn": ([] if mode != "extract" or same else [REWORDED] if ok else ["근거 구절을 자료에서 못 찾음"]) + ([off] if off else []), "at": at, "evid": evid})
     if not lines:
         raise _Drop("쓸 줄이 없습니다")
     if len(lines) > LINES_MAX:
@@ -1072,6 +1136,10 @@ def _write(doc, a, c):
         bad = sum(1 for ln in lines if not ln["quoted"])
         warn.append(f"근거 구절을 자료에서 못 찾은 줄 {bad}개" if bad else None)
         warn.append(f"자료의 글을 바꿔 옮긴 줄 {reworded}개 — 읽고 반영하세요" if reworded else None)
+        clashed = sum(1 for ln in lines if ln["evid"] == "field")
+        warn.append(f"{FIELD_OFF} — {clashed}줄(근거를 열어 보고 반영하세요)" if clashed else None)
+        loose = sum(1 for ln in lines if ln["quoted"] and ln["evid"] == "none")   # 인용은 보낸 글에 있는데 자료의 글이 아님(자리 턴 — 절 머리 줄 · 목차 · 요청 글의 구절)
+        warn.append(f"근거 구절이 받은 자료의 글이 아닌 줄 {loose}개 — 읽고 반영하세요" if loose else None)
         checks.append({"what": "source", "status": "warn" if bad or reworded else "pass",
                        "text": f"근거 구절 확인 {n - bad}/{n}줄 · 글자 그대로 옮긴 줄 {n - bad - reworded}/{n}줄(글자 대조 — 사실 검증 아님: {HUMAN})"})
     w, chk = _number_check(c["sources"]["text"], bodies)   # 레터의 번호(「1. 」)는 자료의 수가 아니다 — 뗀 글로 견준다
@@ -1182,8 +1250,13 @@ def _fill(doc, a, c):
             warn.append(REWORDED if ok else "근거 구절을 자료에서 못 찾음")
         if t["kind"] == "label":
             warn.append(LABEL_ASK)
+        # 근거 구절의 자료 자리 · 대조(② §5-12 3 · 5) — 사람이 정한 답에서 온 값 · 지은 글은 자료 자리가 없다
+        at, evid, off = (None, "decided", None) if origin == "decided" else (None, "draft", None) if mode == "draft" and not ok else _evid(c, whole, ok, f"{t.get('under') or ''} {t.get('head') or ''}")
+        if off:
+            warn.append(off)
         values.append({"text": value, "mat": hit})
         lines.append({"para": pid, "was": raw, "text": text, "value": value, "kind": t["kind"], "mode": how, "chunk": t.get("chunk"), "head": t.get("head") or "", "under": t.get("under") or "",
+                      "at": at, "evid": evid,
                       "nth": t.get("nth") or 0, "dup": list(t.get("dup") or [1, 1]), "level": t.get("level"), "source": _short(whole, 200), "quoted": bool(ok), "from": origin, "warn": warn,
                       "headId": t.get("headId"), "headRaw": t.get("headRaw")})
     if len(fills) > FILL_LINES_MAX:
@@ -1291,6 +1364,21 @@ def _table_fill(doc, i, c):
         raise _Drop("자료에서 그 표에 채울 값을 찾지 못했습니다" + (f" — {answer}" if answer else ""))
     # 에이전트 쪽 값 검사(기존 길의 결과는 건드리지 않고 사본에 경고를 더한다): 넣을 값이 그 칸의 근거 구절에 있어야 한다 — 없으면 경고 = 처음부터 안 고름(`fill_supported` — 검토 1)
     fills = [x if fill_supported(x) else {**x, "warn": [*x["warn"], UNSUPPORTED]} for x in got["fills"]]
+    at_map, evid_map = {}, {}   # 칸마다 근거 구절의 자료 자리 · 대조(② §5-12 3 · 5 — 자료를 준 턴만). 칸 목록(fills — 기존 표 채우기 길의 꼴)에는 키를 더하지 않고 따로 싣는다(view.at · view.evid)
+    if c.get("mats"):
+        placed = []
+        for x in fills:
+            if x.get("where") not in (None, "", "material"):   # 자료가 아닌 곳에서 온 값(지침이 정한 고정 글 where "rule" 등 — 기존 표 채우기 길이 그 글과 견줬다): 자료 자리를 찾지 않는다
+                evid_map[x["cell"]] = str(x["where"])
+                placed.append(x)
+                continue
+            at, evid, off = _evid(c, x.get("source"), bool(str(x.get("source") or "").strip()))
+            if at is not None:
+                at_map[x["cell"]] = at
+            evid_map[x["cell"]] = evid if at is not None or not x["warn"] else "none"
+            # 근거의 제목이 자리와 다르면 경고(처음부터 안 고름) · 「자료의 글이 아님」 은 기존 표 채우기 길이 이미 경고한 칸(근거 구절을 자료에서 못 찾음)에는 겹쳐 적지 않는다
+            placed.append({**x, "warn": [*x["warn"], off]} if off and (off != NOT_MATERIAL or not x["warn"]) else x)
+        fills = placed
     clean_ = [x for x in fills if not x["warn"]]
     n = len(fills)
     ex, judged = excel_check(doc=doc, table=tid, fills=clean_, roles=f.get("heads"), doc_key=c.get("docKey"), store=c.get("store"), raw=True)
@@ -1311,7 +1399,7 @@ def _table_fill(doc, i, c):
     picked = [] if any(warn) else [x["cell"] for x in clean_]   # 제안에 경고(다른 대상 · 엑셀 불일치)가 있으면 처음부터 아무 칸도 안 고른다
     counts = {**an["counts"], **got["counts"], "clean": len(clean_), "warn": n - len(clean_)}
     view = {"table": tid, "range": an["range"], "rows": an["rows"], "cols": an["cols"], "unit": an.get("unit"), "fills": fills, "rejected": got["rejected"],
-            "counts": counts, "answer": answer, "picked": picked}
+            "counts": counts, "answer": answer, "picked": picked, **({"at": at_map, "evid": evid_map} if evid_map else {})}
     op = {"table": tid, "fills": [{"cell": x["cell"], "text": x["text"], "was": x["now"]} for x in fills]}
     # baseRev = 턴을 시작한 때의 차례(c.rev) — 표 채우기 호출 뒤의 차례(f.rev)로 다시 찍지 않는다(검토 3: 그 사이 문서가 바뀐 턴은 끝점이 통째로 낡은 것으로 만든다)
     p = _proposal("tableFill", f"표 채우기 — {n}칸", answer or f"표 {tid} 의 빈 칸 {n}개에 넣을 값", c["rev"], {"block": tid, "blocks": [tid], "hash": f.get("hash")}, op, view, warn, checks)
@@ -1493,7 +1581,11 @@ def proposals(doc, actions, ctx):
          # decided = 사람이 정한 답 글들(서버가 읽은 것) · uploaded = 올린 원본의 {문단 id: 원문} | None · sources_mat = 자료만의 견줄 글(요청 글 · 고른 글 빼고)
          "fill": ctx.get("fill") if isinstance(ctx.get("fill"), dict) else {}, "box": ctx.get("box") if isinstance(ctx.get("box"), str) else None,
          "scope": ctx.get("scope") if isinstance(ctx.get("scope"), dict) else None, "decided": ctx.get("decided") or [],
-         "uploaded": ctx.get("uploaded") if isinstance(ctx.get("uploaded"), dict) else None, "sources_mat": ctx.get("sources_mat") or sources("")}
+         "uploaded": ctx.get("uploaded") if isinstance(ctx.get("uploaded"), dict) else None, "sources_mat": ctx.get("sources_mat") or sources(""),
+         # 근거의 자료 자리(`_evid`): mats = 자료 전체 글 [{id, name, text}] · evidence = 작성 계획이 고른 절 [{mat, sec}] · ctx = 그 자리의 머리 글(차년도 · 단계 대조)
+         # spans = 근거 절만 실은 턴에서 실제로 보낸 구간 {자료 id: [(start, end)]} | None(자료 전체를 실음)
+         "mats": [m for m in ctx.get("mats") or () if isinstance(m, dict)], "evidence": [e for e in ctx.get("evidence") or () if isinstance(e, dict)], "ctx": str(ctx.get("ctx") or ""),
+         "spans": ctx.get("spans") if isinstance(ctx.get("spans"), dict) else None}
     off = ctx.get("off") if isinstance(ctx.get("off"), dict) else {}   # {행동 차례: 까닭} — 끝점이 이 턴의 범위 밖이라고 미리 가른 행동(검사 없이 버린다)
     out, dropped = [], []
 
@@ -1557,8 +1649,9 @@ def turn_view(rec, full=False):
     req, fills = rec.get("request") or {}, rec.get("fills") or []
     out = {"id": rec.get("id"), "at": rec.get("at"), "rev": rec.get("rev"), "text": req.get("text") or "", "materials": req.get("materials") or [], "selection": req.get("selection"),
            "styles": req.get("styles"), "reply": rec.get("reply") or "", "notes": rec.get("notes") or [], "error": rec.get("error"), "proposals": [card(p) for p in rec.get("proposals") or []],
-           "dropped": rec.get("dropped") or [], "call": rec.get("call"), "calls": 1 + len(fills), "fillCalls": [{"table": f.get("table"), "call": f.get("call"), "counts": f.get("counts")} for f in fills],
-           "job": rec.get("job"), "guide": rec.get("guide")}
+           "dropped": rec.get("dropped") or [], "call": rec.get("call"), "calls": (0 if (rec.get("call") or {}).get("skipped") else 1) + len(fills),   # 조정 호출을 건너뛴 턴(표 자리 — call.skipped)은 표 채우기 호출만 센다
+           "fillCalls": [{"table": f.get("table"), "call": f.get("call"), "counts": f.get("counts")} for f in fills],
+           "job": rec.get("job"), "guide": rec.get("guide"), "narrowed": rec.get("narrowed") or []}   # narrowed = 이 턴에 실은 근거 절(「자료 id/절 id」 — 비면 자료 전체를 실었다)
     if full:
         p = rec.get("prompt") or {}
         parts = [{"key": "contract", "title": "계약(코드 고정 — 답의 꼴과 금지)", "text": p.get("contract") or ""}]
@@ -1570,7 +1663,8 @@ def turn_view(rec, full=False):
         parts.append({"key": "data", "title": "자료(JSON)", "text": json.dumps(p.get("data"), ensure_ascii=False, indent=1)})
         parts += [{"key": f"fill:{f.get('table')}", "title": f"표 채우기 호출 — 표 {f.get('table')}", "text": f.get("prompt") or ""} for f in fills]
         out.update(parts=parts, response={"turn": rec.get("response"), "fills": [{"table": f.get("table"), "response": f.get("response")} for f in fills]} if fills else rec.get("response"),
-                   calls=[{"what": "조정 호출", **(rec.get("call") or {})}] + [{"what": f"표 채우기 — 표 {f.get('table')}", **(f.get("call") or {})} for f in fills],
+                   calls=([] if (rec.get("call") or {}).get("skipped") else [{"what": "조정 호출", **(rec.get("call") or {})}])   # 조정 호출을 건너뛴 턴(표 자리)은 실제 호출만
+                   + [{"what": f"표 채우기 — 표 {f.get('table')}", **(f.get("call") or {})} for f in fills],
                    prompt=rec.get("prompt"), answers={"turn": rec.get("response"), "fills": fills})
     return out
 

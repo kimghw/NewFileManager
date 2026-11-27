@@ -659,8 +659,8 @@ def slim(blocks) -> list:
             x = {"id": b["id"], "type": t, "text": b.get("text") or "", "format": _fmt(b.get("format"))}
             if b.get("runs"):
                 x["runs"] = [{"text": r.get("text") or "", "format": _fmt(r.get("format"))} for r in b["runs"]]
-            if (b.get("list") or {}).get("label"):
-                x["label"] = b["list"]["label"]
+            if (b.get("list") or {}).get("label") or b.get("outlineNum"):   # 자동 번호 · 개요 번호(한글이 찍는 글머리 — 주인 화면과 같이 보인다)
+                x["label"] = (b.get("list") or {}).get("label") or b["outlineNum"]
             if b.get("pics"):  # 글 속 그림 — 글과 같은 줄의 그 자리에 그린다(spec_hwpx_웹편집 ② §3-6)
                 x["pics"] = [{k: q.get(k) for k in ("id", "at", "media", "widthMm", "heightMm")} for q in b["pics"]]
         elif t == "table":

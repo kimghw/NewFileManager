@@ -111,11 +111,14 @@ AGENTS = (
          where="「그림 도구」 띠 · 그림의 오른쪽 단추 메뉴 → 「캡션 넣기」(캡션이 없는 그림)",
          data="그림(긴 변 2000px 안 · PNG) + 소속 헤딩 경로 · 앞뒤 글 · 이 문서의 그림 캡션 예"),
     dict(id="form_review", no="25", group="문서 편집", name="양식 검토", run="manual", effort="medium", contract=("app.form_review", "CONTRACT"), model=("app.form_review", "MODEL"), parts=(("merge", "form_review"), ("job", "*")),
-         llms=("claude-fable-5-2", "gpt-6-astra"),   # 함께 검토하고 협의하는 모델(LLM1 · LLM2 — 2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의」 · 화면에서 바꿈)
+         # 모델 자리(LLM1 · LLM2 — 2026-11-25 사용자 「양식 검토할때 claude fable, 하고 codex astra 모두 추출해서 협의」 · 화면에서 바꿈). **두 모델 협의는 옵션**이다(2026-11-27 사용자 「양식 검토의 두 모델 협의 는 옵션으로 둘 수 있고」):
+         # 기본은 LLM1 한 모델이고, 실행할 때 「두 모델로 협의」 를 켜면 LLM2 도 부르고 LLM1 이 협의한다(form_review_api._ask 의 duo — spec_양식작성 ② §5-12 1)
+         llms=("claude-fable-5-2", "gpt-6-astra"),
          role="양식 전체(헤딩 · 본문 안내 · 표 · 상자 안의 쓸 자리 · 자리마다의 작성 지침)를 읽고, 이 양식을 어떻게 쓸지(전체 요약 · 자리마다 작성 방향 · 필요한 정보)를 정리하고, 자료에서 찾을 테마 · 키워드를 맥락과 함께 뽑고, "
-              "쓰기 전에 사람이 확인해 줘야 할 것(범위 · 기준 · 우선순위 · 같은 이름의 자리가 여럿일 때 어느 자리에 누구의 것을 쓸지)을 물음으로 냅니다. "
-              "자료를 주면 **작성 계획**(자리마다 자료의 무엇을 쓸지 · 자료에 없는 것)을 세우고 물음의 답 후보를 자료에서만 찾습니다(근거 구절과 함께). 문서는 바뀌지 않고, 계획이 있고 사람이 물음에 모두 답해야 「지침 작성」 의 작성 초안 받기가 돌며 그 답과 계획이 자리마다의 요청에 실립니다.",
-         where="「지침 작성」 열 위의 「양식 검토」 · 「작성 계획 세우기」 단추 · 양식 작성 대시보드의 「양식 검토 · 찾을 테마」 · 「작성 계획 · 확인할 것」",
+              "자료를 뽑기 전에 사람이 정해 줘야 할 것(어느 기관 · 몇 차년도 · 계획인가 실적인가)을 물음으로 냅니다. "
+              "자료를 주면 **작성 계획**(자리마다 자료의 무엇을 쓸지 · 그 내용이 든 절 · 자료에 없는 것)을 세우고 그 밖에 확인할 것(기준 · 단위 · 분량)을 물으며 답 후보를 자료에서만 찾습니다(근거 구절과 함께). "
+              "문서는 바뀌지 않고, 답과 계획은 그 자리의 초안 요청에 실립니다 — 답하지 않은 물음은 그 물음이 닿는 자리의 초안만 막습니다. 기본은 한 모델(LLM1)이고 「두 모델로 협의」 를 켜면 LLM2 도 따로 검토한 뒤 LLM1 이 협의합니다.",
+         where="「지침 작성」 열 위의 「양식 검토」 · 「작성 계획 세우기」 단추 · 양식 작성 대시보드의 「문서 작성 요령 생성 · 찾을 테마」 · 「작성 계획 · 확인할 것」",
          data="양식 전체 글(문서 차례 — 헤딩 · 문단 · 표의 행 · 상자는 줄마다 레벨과 쓸 자리) + 자리[작성 지침 포함] + 이미 정한 것 + 고른 자료(있으면) · 스크립트가 판정하지 못한 것 = 양식 전체에서 무엇을 어떻게 써야 하고 무엇을 사람이 정해야 하는가"),
     dict(id="writing_guidance", no="26", group="문서 편집", name="작성 지침 보완", run="manual", effort="medium",
          contract=("app.writing_guidance", "CONTRACT"), model=("app.writing_guidance", "MODEL"), parts=(("merge", "writing_guidance"), ("job", "form_write")),
@@ -321,7 +324,7 @@ def _notes(a, current_job=None):
                 if (not current_job or current_job == job) and box.get(unit) and agent_notes.family_of(job)[0] == fam:
                     out.append({"kind": "note", "name": f"jobtool:{job}/{unit}", "title": f"도구에 적어 둔 내용 — 「{row['name']}」 · 「{agent_notes._job_name(job)}」 전용", "source": "워크플로우 조립 화면에서 고침",
                                 "editable": False, "text": box[unit], "note": "이 워크플로우에서 이 도구가 이 에이전트를 부를 때만 붙습니다 — 조립 화면 「에이전트」 열에서 고칩니다"})
-    if current_job:   # 같은 도구(등록부의 twins — agent_notes.twins: 양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구) — 그 도구의 「도구 공통」 글도 이 워크플로우에서 붙는다(agent_notes._part 와 같은 조건 · 2026-11-25)
+    if current_job:   # 같은 도구(등록부의 twins — agent_notes.twins: 양식 작성의 headsLlm = 이관형의 「LLM 검증·보완」) — 그 도구의 「도구 공통」 글도 이 워크플로우에서 붙는다(agent_notes._part 와 같은 조건 · 2026-11-25)
         shown = {n["name"] for n in out}
         for _own, fam, unit in agent_notes.twins(current_job):
             row, name = agent_notes.tool_map().get(fam, {}).get(unit) or {}, f"tool:{agent_notes.tool_key(fam, unit)}"

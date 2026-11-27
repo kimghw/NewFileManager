@@ -225,8 +225,9 @@ def test_flow_definition_with_fit_does_not_say_fit_was_not_picked():
 
 def test_twins_name_the_same_tool_in_another_family():
     """같은 도구 짝(등록부의 twins — 틀이 없는 워크플로우의 줄 = 다른 틀의 그 도구: 2026-11-25 사용자 「도구도 공통내용은 같았으면」). 짝은 등록부 한 곳에만 적고, 적은 짝은 정말 같은 도구여야 한다 —
-    이 워크플로우에 그 줄이 있고 · 그 틀에 그 도구가 있고 · 기본 이름이 같고 · 그 도구가 부르는 에이전트를 이 줄도 모두 부른다(같은 엔진 — 그 도구의 「도구 공통」 글이 붙는 에이전트: app/agent_notes.py twins).
-    줄을 더하거나 이름 · 에이전트를 바꿔 짝이 어긋나면 여기서 떨어진다(짝을 고치거나 뺀다). 지금 짝 = 양식 작성의 「LLM 검증·보완」 ↔ 이관형의 그 도구."""
+    이 워크플로우에 그 줄이 있고 · 그 틀에 그 도구가 있고 · 그 도구가 부르는 에이전트를 이 줄도 모두 부른다(같은 엔진 — 그 도구의 「도구 공통」 글이 붙는 에이전트: app/agent_notes.py twins).
+    기본 이름은 달라도 된다 — 다르면 고친 도구 이름이 그 줄에 닿지 않는다(workflow._twin_named · tests/test_tool_names.py: 2026-11-27 사용자가 양식 작성의 04 를 제 이름으로 고침).
+    줄을 더하거나 에이전트를 바꿔 짝이 어긋나면 여기서 떨어진다(짝을 고치거나 뺀다). 지금 짝 = 양식 작성의 「에이전트 기반 문서 구조 및 작성 지침 보완」 ↔ 이관형의 「LLM 검증·보완」."""
     from app import agent_notes, tool_names
     rows = agent_notes.tool_map()
     assert {t["job"]: t["twins"] for t in W.TASKS if t.get("twins")} == {"form_write": {"headsLlm": ("relay", "headsLlm")}}
@@ -234,10 +235,13 @@ def test_twins_name_the_same_tool_in_another_family():
         steps = {s["key"]: s for g in t["stages"] for s in g["steps"]}
         for own, (fam, unit) in (t.get("twins") or {}).items():
             twin = rows[fam][unit]
-            assert own in steps and steps[own]["name"] == twin["name"] and twin["agents"] and set(twin["agents"]) <= set(steps[own]["agents"]), (t["job"], own)
+            assert own in steps and twin["agents"] and set(twin["agents"]) <= set(steps[own]["agents"]), (t["job"], own)
+            same = steps[own]["name"] == twin["name"]   # 기본 이름이 같은 짝만 고친 이름이 닿는다
+            assert (own in W._twin_named(t)["twins"]) == same, (t["job"], own)
             assert workflow_state.family(t) != fam and unit not in tool_names.FIXED, (t["job"], own)   # 같은 틀이면 틀로 이미 닿는다(적지 않는다) · 「사람이 하는 일」 은 도구 이름이 없다
         assert agent_notes.twins(t["job"]) == [(own, fam, unit) for own, (fam, unit) in (t.get("twins") or {}).items()], t["job"]
     form = {s["key"]: s for g in W.BY_JOB["form_write"]["stages"] for s in g["steps"]}
+    assert (form["heads"]["name"], form["headsLlm"]["name"]) == ("문서 구조 분석 및 작성 지침 추출", "에이전트 기반 문서 구조 및 작성 지침 보완")   # 2026-11-27 사용자가 고친 이름(03 · 04)
     assert "writing_guidance" in form["headsLlm"]["agents"] and "writing_guidance" not in rows["relay"]["headsLlm"]["agents"]   # 그 줄에만 있는 에이전트 — 이관형 도구의 글은 붙지 않는다(tests/test_agent_notes.py)
     assert "twins" not in W.markdown() and "twins" not in W.task_markdown("form_write")   # 선언일 뿐 — 만든 글에는 들지 않는다
 

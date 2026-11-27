@@ -7,10 +7,10 @@ hwpx 문서만 · 어느 워크플로우의 문서에서나(공통 모듈 — �
   {doc}(extract 없이) → 등록한 문서의 **원본 파일**을 글로 읽어 자료로(추출 전인 문서 — pdf · docx · hwpx · 20 MB 까지: hwp 는 400). 고르는 곳 = 에이전트 보기의 「라이브러리」(doc_agent.js) · 2열 「자료 가져오기」(form_write.js — 추출만).
 - `GET /api/docs/{id}/guide-write` → {hwpx, enabled(LLM), places[자리 — guide_write.places], materials[자료 보기], run(도는 · 마지막 실행 | null), limits{places, note}}. 문서 안 바뀜.
 - `POST /api/docs/{id}/guide-write/run` {places: [자리 id…], materials: [자료 id…], note} → 자리마다 **문서 에이전트의 한 턴**을 배경에서 돌린다(유료 LLM · 자리마다 호출 1번 이상 — 같이 2개까지) → {run}.
-  제안은 에이전트 보기의 턴 · 제안 카드로 남는다(반영은 그 카드의 「문서에 반영」 — 문서는 여기서 바뀌지 않는다). 409 = 이 문서의 지침 작성이 이미 돈다 · 양식 검토가 없거나 답하지 않은 물음이 있다(`form_review_api.gate` — 쓰기 전에 묻는다) · 503 = LLM 없음.
+  제안은 에이전트 보기의 턴 · 제안 카드로 남는다(반영은 그 카드의 「문서에 반영」 — 문서는 여기서 바뀌지 않는다). 409 = 이 문서의 지침 작성이 이미 돈다 · 양식 검토 · 작성 계획이 없다(`form_review_api.gate`) · 고른 자리가 모두 답하지 않은 물음에 막혔다(자리 일부만 막혔으면 그 자리만 `why: ask` 로 건너뛴다 — ② §5-12 6) · 503 = LLM 없음.
   자리마다의 요청 글에 양식 검토의 글(사람이 정해 준 것 + 그 자리의 작성 방향 — `form_review_api.plans`)을 싣는다.
 - `GET …/guide-write/run` → {run} · `POST …/guide-write/stop` → 남은 자리를 돌리지 않는다(도는 턴은 끝까지).
-실행의 상태는 이 프로세스의 메모리에 둔다(서버를 다시 켜면 사라진다 — 끝난 턴은 에이전트 대화에 남아 있다). 끝나면 작업 기록에 `guideWrite` 한 줄."""
+실행의 상태는 이 프로세스의 메모리와 작업 폴더 `guide_write_run.json` 에 둔다(서버를 다시 켜면 그 파일에서 읽는다 — 돌던 실행은 「끊김」: ② §5-12 8 · 끝난 턴은 에이전트 대화에 남아 있다). 끝나면 작업 기록에 `guideWrite` 한 줄."""
 import concurrent.futures
 import json
 import threading
@@ -309,8 +309,61 @@ def _scope(s, place, chunks, decided):
     return {**base, "types": {"write", "tableFill"}, "paras": set(), "tables": set(place.get("tables") or ()), "after": {place["id"]}}   # 글은 그 헤딩 줄 바로 뒤에만(다른 헤딩 뒤에 쓰지 않는다 — astra 3차)
 
 
+RUN_FILE = "guide_write_run.json"   # 마지막 실행의 상태(자리마다의 결과) — 작업 폴더에 남긴다(spec_양식작성 ② §5-12 8: 전에는 메모리뿐이라 서버를 다시 켜면 사라졌다). 작업 내용 초기화는 reset/<n>/ 으로 옮긴다
+_RUN_HIDE = ("stop", "plans", "decided", "evidence", "heldAll", "sigs")
+_KEEP = threading.Lock()
+
+
 def _run_view(run):
-    return None if run is None else {k: v for k, v in run.items() if k not in ("stop", "plans", "decided")}
+    return None if run is None else {k: v for k, v in run.items() if k not in _RUN_HIDE}
+
+
+def _run_path(wid):
+    f = works.folder(wid)
+    return f / RUN_FILE if f is not None and (f / "work.json").is_file() else None
+
+
+def _run_keep(wid, run):
+    """실행의 상태를 작업 폴더에(보기 꼴 — 요청 글 · 답 · 근거는 안 싣는다). 못 써도 실행은 그대로 돈다(메모리에 있다)."""
+    p = _run_path(wid)
+    if p is None:
+        return
+    try:
+        with _KEEP:   # 쓰기 직전에 **이 실행이 아직 그 문서의 실행인지** 본다 — 초기화(`_run_drop`)나 새 실행이 끼어든 뒤 끝난 옛 실행이 파일을 되살리지 않게(astra R2 P1)
+            with _LOCK:
+                if _RUNS.get(wid) is not run:
+                    return
+                view = json.loads(json.dumps(_run_view(run), ensure_ascii=False, default=list))
+            works._write_json(p, view)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _run_drop(wid):
+    with _KEEP:   # 저장(`_run_keep`)과 같은 잠금 — 지우는 사이에 옛 실행이 다시 쓰지 못한다(메모리에서 뺀 뒤에는 쓰지 않는다)
+        with _LOCK:
+            _RUNS.pop(wid, None)
+        p = _run_path(wid)
+        try:
+            if p is not None and p.is_file():
+                p.unlink()
+        except OSError:
+            pass
+
+
+def _run_of(wid):
+    """이 문서의 도는 · 마지막 실행(보기 꼴) | None — 메모리에 없으면 작업 폴더에서(서버를 다시 켠 뒤): 돌던 실행은 「끊김」(state "cut" — 기다리던 · 받던 자리도)."""
+    with _LOCK:
+        run = _RUNS.get(wid)
+        if run is not None:
+            return _run_view(run)
+    p = _run_path(wid)
+    got = works._read_json(p) if p is not None and p.is_file() else None
+    if not isinstance(got, dict) or not isinstance(got.get("items"), list):
+        return None
+    if got.get("state") == "running":
+        got = {**got, "state": "cut", "items": [{**i, "state": "cut"} if i.get("state") in ("queued", "running") else i for i in got["items"] if isinstance(i, dict)]}
+    return got
 
 
 def _place_view(p):
@@ -325,10 +378,8 @@ def guide_write_get(doc_id: str):
     if s.fmt != "hwpx":
         return {"hwpx": False, "enabled": False, "places": [], "materials": [], "run": None, "steps": steps_of(s.id), "libFrom": lib_from(s.id), "refs": refs_of(s.id), "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
     ps, rev = _places(s)
-    with _LOCK:
-        run = _run_view(_RUNS.get(s.id))
     return {"hwpx": True, "enabled": bool(llm.status()["available"]), "rev": rev, "places": [_place_view(p) for p in ps], "materials": _material_views(s.id),
-            "run": run, "steps": steps_of(s.id), "libFrom": lib_from(s.id), "refs": refs_of(s.id), "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
+            "run": _run_of(s.id), "steps": steps_of(s.id), "libFrom": lib_from(s.id), "refs": refs_of(s.id), "limits": {"places": guide_write.PLACES_MAX, "note": guide_write.NOTE_MAX}}
 
 
 # ---- 선택 줄의 표시(2026-11-24 사용자 「전체 초기화를 했는데 1,2 번은 끝났다고 했는데 3,4번이 지나가지 않았는데 왜 5로 오냐 순서가 안맞음」 — spec_양식작성 ② §6 「선택 줄도 차례에」) ----
@@ -417,7 +468,17 @@ def _one(doc_id, place, head_text, mids, note, run):
         if place.get("slot") == "filled":   # 이미 채운 줄 — 다시 쓰지 않는다(LLM 을 부르지 않는다)
             item.update(state="none", reply="이미 값이 있는 줄입니다 — 다시 쓰지 않습니다(고치려면 문서에서 직접 고칩니다).", why="filled")
             return
-        scope = _scope(_sess(doc_id), place, (run.get("chunks") or {}).get(place["id"]), run.get("decided"))
+        asks = (run.get("held") or {}).get(place["id"]) or []
+        if asks:   # 이 자리에 닿는 물음에 답하지 않았다 — 이 자리만 막는다(LLM 을 부르지 않는다 · 다른 자리는 돈다: spec_양식작성 ② §5-12 6)
+            item.update(state="none", why="ask", asks=len(asks), reply=f"확인할 것 {len(asks)}개에 답하지 않아 이 자리의 초안을 받지 않았습니다 — 「작성 계획 · 확인할 것」 에서 답합니다: {asks[0]}"[:300])
+            return
+        scope = _scope(_sess(doc_id), place, (run.get("chunks") or {}).get(place["id"]), (run.get("decided") or {}).get(place["id"]))   # decided = 이 자리에 닿는 답만(astra P1)
+        scope["ctx"] = " ".join(x for x in (head_text or "", place.get("text") or "") if x)   # 이 자리의 머리 글 — 근거의 제목과 차년도 · 단계가 다른지 견준다(doc_agent._evid)
+        scope["place"], scope["planSig"] = place["id"], (run.get("sigs") or {}).get(place["id"])   # 턴 기록에 남긴다 — 어느 자리의 턴 · 어느 계획과 답으로 받았나(덮임 · 옛 계획의 초안 가리기)
+        # 확인할 것이 남은 **다른 자리의 표**는 이 턴에서도 채우지 않는다 — 헤딩 턴이 그 아래 표를 표 채우기로 낼 수 있다(전에는 표 자리만 막고 윗 헤딩을 통해 초안이 나갔다: astra R2 P1)
+        scope["tables"] = set(scope.get("tables") or ()) - (set(run.get("heldAll") or ()) - {place["id"]})
+        if place["id"] not in set(run.get("wide") or ()):   # 근거 절(작성 계획이 고른 것)만 싣는다 — 「자료 전체로 다시 받기」(wide)를 누른 자리는 자료 전체
+            scope["evidence"] = list((run.get("evidence") or {}).get(place["id"]) or ())
         if scope.get("unpicked"):
             item["unpicked"] = list(scope["unpicked"])
         if place["kind"] == "box" and not scope["paras"]:
@@ -440,18 +501,28 @@ def _one(doc_id, place, head_text, mids, note, run):
     turn = got.get("turn") or {}
     props = turn.get("proposals") or []
     dropped = turn.get("dropped") or []   # 초안이 0개인 까닭을 가른다(astra 1차 5): 검사에서 버림 ↔ 에이전트가 행동 없이 답함(자료에 없음 등 — 답 글에 있다)
+    # 초안이 없는 까닭(② §5-12 8): dropped = 검사에서 제외 · nomat = 작성 계획도 자료에서 쓸 것을 못 찾은 자리 · noaction = 에이전트가 행동 없이 답함(까닭은 답 글 — 「자료에 없음」 으로 단정하지 않는다)
+    empty = bool(dropped) and all(d.get("type") == "tableFill" and str(d.get("why") or "").startswith(NO_VALUES) for d in dropped)   # 표 채우기가 「채울 값 없음」 으로 끝남 — 검사에서 버린 것이 아니다
+    why = None if props else "dropped" if dropped and not empty else "nomat" if place["id"] in set(run.get("nouse") or ()) else "noaction"
     item.update(state="done" if props else "none", turn=turn.get("id"), proposals=len(props), reply=" ".join(str(turn.get("reply") or "").split())[:300],
                 picked=sum(1 for p in props if p.get("preselect")), stale=sum(1 for p in props if p.get("state") == "stale"),
-                dropped=len(dropped), why=None if props else "dropped" if dropped else "noaction", note=" ".join(str(dropped[0].get("why") or "").split())[:200] if dropped and not props else "")
+                dropped=len(dropped), why=why, note=" ".join(str(dropped[0].get("why") or "").split())[:200] if dropped and not props else "",
+                narrowed=len(turn.get("narrowed") or []))   # narrowed = 이 턴에 실은 근거 절 수(0 = 자료 전체를 실음)
 
 
 def _go(doc_id, wid, todo, heads, mids, note, run, keep):
+    def one(p):
+        try:
+            keep(doc_id, p, heads.get(p.get("head") or ""), mids, note, run)
+        finally:
+            _run_keep(wid, run)   # 자리 결과가 바뀔 때마다 작업 폴더에(서버가 꺼져도 어디까지 받았는지 남는다)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as ex:
-            list(ex.map(lambda p: keep(doc_id, p, heads.get(p.get("head") or ""), mids, note, run), todo))
+            list(ex.map(one, todo))
     finally:
         items = run["items"]
         run.update(state="stopped" if run["stop"].is_set() else "done", ended=round(time.time(), 3))
+        _run_keep(wid, run)
         works.log(wid, "guideWrite", run=run["id"], places=len(items), proposals=sum(i.get("proposals") or 0 for i in items), failed=sum(1 for i in items if i["state"] == "failed"),
                   none=sum(1 for i in items if i["state"] == "none"), materials=len(mids), stopped=run["stop"].is_set())
 
@@ -489,16 +560,33 @@ def guide_write_run(doc_id: str, body: dict = Body(...)):
     chunks = body.get("chunks") or {}
     if not isinstance(chunks, dict) or not all(isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v) for k, v in chunks.items()):
         raise HTTPException(400, "chunks 는 {상자 id: [쓸 자리(덩이)의 key…]}")
+    wide = body.get("wide") or []   # 「자료 전체로 다시 받기」 — 그 자리는 근거 절로 좁히지 않고 자료 전체를 싣는다(계획이 절을 잘못 골랐을 때의 길: spec_양식작성 ② §5-12 4)
+    if not isinstance(wide, list) or not all(isinstance(x, str) for x in wide):
+        raise HTTPException(400, "wide 는 [자리 id…]")
+    ids = [p["id"] for p in ps]
+    # 답하지 않은 물음은 **그 물음이 닿는 자리만** 막는다(② §5-12 6) — 고른 자리가 모두 막혔을 때만 409(전에는 물음 하나가 모든 자리를 막았다)
+    asks = {pid: qs for pid, qs in form_review_api.held(st, ids).items() if pid in {p["id"] for p in todo}}
+    if len(asks) == len(todo):
+        n = len({q for qs in asks.values() for q in qs})
+        raise HTTPException(409, f"쓰기 전에 확인할 것 {n}개에 답하세요 — 고른 자리가 모두 그 물음에 막혀 있습니다(「작성 계획 · 확인할 것」 의 물음 — 따로 정하지 않으려면 「{form_review.SKIP}」)")
+    mats = [m for m in (store.material(i) for i in mids) if m is not None]
+    plan = (st["review"] or {}).get("places") if isinstance((st["review"] or {}).get("places"), dict) else {}
     heads = {p["id"]: p["text"] for p in ps if p["kind"] == "head"}
     run = {"id": uuid.uuid4().hex[:10], "at": round(time.time(), 3), "ended": None, "state": "running", "note": note, "materials": list(mids), "lost": lost, "stop": threading.Event(),
-           "plans": form_review_api.plans(s.id, todo, [p["id"] for p in ps]), "reviewed": True, "chunks": {k: list(v) for k, v in chunks.items()},
-           "decided": [d["a"] for d in st["decided"] if d.get("a") and d["a"] != form_review.SKIP],
+           "plans": form_review_api.plans(s.id, todo, ids), "reviewed": True, "chunks": {k: list(v) for k, v in chunks.items()},
+           "decided": {pid: [a for a in xs if a != form_review.SKIP] for pid, xs in form_review_api.answers(st, todo, ids).items()},   # 자리마다 그 자리에 닿는 답만(astra P1 — 전에는 모든 답을 자리마다 넘겼다)
+           "evidence": form_review_api.evidence(st, mats), "held": asks, "wide": [x for x in wide if x in set(ids)],
+           "heldAll": sorted(form_review_api.held(st, ids)),   # 확인할 것이 남은 자리 모두(고르지 않은 자리도) — 다른 자리의 턴이 그 자리의 표를 채우지 않게(_one)
+           "sigs": {p["id"]: form_review_api.plan_sig(st, p["id"], ids) for p in todo},   # 자리마다 「이 계획 · 이 답으로 받았다」 의 지문(턴에 남긴다)
+           # 작성 계획이 **그 자리를 보고** 자료에서 쓸 것이 없다고 적은 자리(use 가 비고 gap 이 적힘) — 초안이 없을 때의 까닭 nomat. 계획이 그 자리를 아예 안 다뤘으면 nomat 이 아니다(자료에 없다고 단정하지 않는다: astra R2)
+           "nouse": [p["id"] for p in todo if p["id"] in plan and not (plan[p["id"]] or {}).get("use") and (plan[p["id"]] or {}).get("gap")],
            "items": [{"id": p["id"], "kind": p["kind"], "text": p["text"], "state": "queued", "turn": None, "proposals": 0, "reply": "", "error": None} for p in todo]}
     with _LOCK:
         cur = _RUNS.get(s.id)
         if cur is not None and cur["state"] == "running":
             raise HTTPException(409, "이 문서의 지침 작성이 이미 돌고 있습니다")
         _RUNS[s.id] = run
+    _run_keep(s.id, run)
     keep = agent_notes.carry(_one)   # 일꾼 스레드에도 지금 워크플로우(덧붙이는 글의 전용 범위)를 넘긴다
     threading.Thread(target=_go, args=(doc_id, s.id, todo, heads, mids, note, run, keep), name=f"guide-write-{run['id']}", daemon=True).start()
     return {"run": _run_view(run)}
@@ -549,8 +637,7 @@ def form_write_reset(doc_id: str, body: dict = Body(...)):
         guide_fix_api.clear(s.id)
     except Exception:   # noqa: BLE001 — 못 비워도 초기화는 끝낸다(다음 검토가 덮는다)
         pass
-    with _LOCK:
-        _RUNS.pop(s.id, None)
+    _run_drop(s.id)   # 실행의 상태(메모리 · 작업 폴더의 guide_write_run.json)
     works.log(s.id, "formWriteReset", stage=stage, reverted=back, turns=turns, plan=plan)
     return {"stage": stage, "reverted": back, "turns": turns, "plan": plan}
 
@@ -558,8 +645,166 @@ def form_write_reset(doc_id: str, body: dict = Body(...)):
 @router.get("/api/docs/{doc_id}/guide-write/run")
 def guide_write_state(doc_id: str):
     s = _sess(doc_id)
-    with _LOCK:
-        return {"run": _run_view(_RUNS.get(s.id))}
+    return {"run": _run_of(s.id)}
+
+
+# ---- 덮임 · 근거(spec_양식작성 ② §5-12 3 · 9) — 턴 기록에서 센다(실행 상태가 아니다: 서버를 다시 켜도 같다) ------------------------------------------------
+
+GW_HEAD = "[지침 작성]"   # 지침 작성이 낸 턴의 요청 글 머리(guide_write.request)
+NO_VALUES = "자료에서 그 표에 채울 값을 찾지 못했습니다"   # doc_agent._table_fill 이 「채울 값 없음」 으로 버릴 때의 글 머리(검사에서 제외한 것과 가른다)
+
+
+def _lines(p):
+    """제안 하나 → (줄 수, 처음 고른 줄 수, 반영한 줄 수) — 자리 채우기 = 줄 · 표 채우기 = 칸 · 그 밖 = 카드 하나를 한 줄로."""
+    view, ap = p.get("view") if isinstance(p.get("view"), dict) else {}, p.get("applied") if isinstance(p.get("applied"), dict) else {}
+    done = p.get("state") == "applied"
+    if p.get("type") == "fill":
+        return len(view.get("lines") or ()), len(view.get("picked") or ()), len(((ap.get("filledLines") or {}).get("paras")) or ap.get("paras") or ()) if done else 0
+    if p.get("type") == "tableFill":
+        return len(view.get("fills") or ()), len(view.get("picked") or ()), len(ap.get("cells") or ()) if done else 0
+    n = len(view.get("lines") or ()) or 1
+    return n, n if p.get("preselect") else 0, n if done else 0
+
+
+def _turn_place(t):
+    """그 턴이 지침 작성의 자리 턴이면 그 자리 id | None. 서버가 턴에 적어 둔 `place`(doc_agent_api._turn — 범위를 건 턴만)로 가린다. 그 키를 적기 전의 옛 턴(`narrowed` 키도 없음)만 요청 글 머리와 cursor 로
+    (사람이 에이전트 보기에서 「[지침 작성] …」 이라고 직접 친 요청은 자리 턴이 아니다 — astra R2)."""
+    if isinstance(t.get("place"), str):
+        return t["place"]
+    if "narrowed" in t:
+        return None
+    req = t.get("request") or {}
+    cur = (req.get("selection") or {}).get("cursor")
+    return cur if str(req.get("text") or "").startswith(GW_HEAD) and isinstance(cur, str) else None
+
+
+def _alive(doc, p):
+    """반영한 제안의 줄 · 칸 가운데 **지금 문서에 그대로 있는** 수(세션 잠금 안에서) — 실행 취소로 되돌렸거나 그 뒤 고친 줄은 세지 않는다: 자리 채우기 = 그 문단의 글이 넣은 글 그대로 ·
+    글 쓰기 = 넣은 문단이 문서에 있음 · 표 채우기 = 그 표가 문서에 있음(칸의 글까지는 안 본다)."""
+    ap, op = p.get("applied") if isinstance(p.get("applied"), dict) else {}, p.get("op") if isinstance(p.get("op"), dict) else {}
+    here = lambda i: doc._ids.get(i) is not None and doc._attached(doc._ids[i])  # noqa: E731
+    if p.get("type") == "fill":
+        text = {ln.get("para"): ln.get("text") for ln in op.get("lines") or () if isinstance(ln, dict)}
+        return sum(1 for i in ((ap.get("filledLines") or {}).get("paras")) or ap.get("paras") or () if here(i) and doc._text(doc._ids[i]) == text.get(i))
+    if p.get("type") == "tableFill":
+        return len(ap.get("cells") or ()) if here(ap.get("table") or op.get("table")) else 0
+    if p.get("type") == "write":
+        return sum(1 for i in ap.get("paras") or () if here(i))
+    return 1
+
+
+def coverage(s):
+    """자리마다 어디까지 됐나 → {rows[…], counts{…}} — 위 머리말(② §5-12 9). 자리의 지침 작성 턴(서버가 턴에 적은 `place` — 그 키가 없는 옛 턴만 요청 글 머리 `GW_HEAD` · selection.cursor: `_turn_place`)과 마지막 실행의 자리 결과(턴 없이 끝난 까닭)로 센다."""
+    ps, _ = _places(s)
+    st = form_review_api.load(s.id)
+    rv = st["review"] or {}
+    plan = rv.get("places") if isinstance(rv.get("places"), dict) else {}
+    store, by = doc_agent.Store(s.id), {}
+    for row in store.turns():   # 옛 것부터 — 자리마다의 지침 작성 턴들
+        t = store.turn(row["id"])
+        pid = _turn_place(t) if t else None
+        if pid is not None:
+            by.setdefault(pid, []).append(t)
+    run = _run_of(s.id) or {}
+    items = {i.get("id"): i for i in run.get("items") or () if isinstance(i, dict)}
+    ids = [p["id"] for p in ps]
+    asks = form_review_api.held(st, ids) if rv else {}
+    rows, none = [], {}
+    with s.lock:   # 반영한 줄이 지금 문서에 그대로 있는지 본다(실행 취소로 되돌린 반영을 세지 않는다)
+        doc = s.doc
+        for p in ps:
+            pl, turns, it = plan.get(p["id"]) or {}, by.get(p["id"]) or [], items.get(p["id"]) or {}
+            t = turns[-1] if turns else None
+            props = [x for x in (t or {}).get("proposals") or () if isinstance(x, dict)]
+            live = [x for x in props if x.get("state") in ("open", "applied")]
+            # 이전 계획의 초안 — 그 턴을 받은 뒤 작성 계획을 다시 세웠거나 이 자리에 닿는 답을 고쳤다(턴에 적어 둔 지문 planSig 이 지금 것과 다름): 열린 카드는 「모두 반영」 에 넣지 않고 남은 줄로 센다
+            old = bool(t and t.get("planSig") and rv and t["planSig"] != form_review_api.plan_sig(st, p["id"], ids) and any(x.get("state") == "open" for x in live))
+            lines = picked = todo = 0
+            for x in live:
+                n, pk, _ = _lines(x)
+                lines += n
+                if x.get("state") == "open":
+                    picked, todo = picked + (0 if old else pk), todo + (n if old else n - pk)
+                else:
+                    todo += max(0, n - _alive(doc, x))   # 반영한 카드에서 안 넣었거나 되돌린 줄
+            applied = sum(_alive(doc, x) for tt in turns for x in tt.get("proposals") or () if isinstance(x, dict) and x.get("state") == "applied")   # 이 자리의 모든 턴에서 — 뒤 턴이 0건이어도 앞서 넣은 줄은 문서에 있다
+            # 마지막 시도 = 마지막 턴 | 그 뒤에 턴 없이 끝난 마지막 실행의 자리 결과(ask · noslot · filled · boxed · 실패 · 끊김)
+            newer = bool(it) and it.get("turn") != (t or {}).get("id") and not it.get("turn") and it.get("state") in ("none", "failed", "cut", "skipped") and (t is None or (run.get("at") or 0) > (t.get("at") or 0))
+            why = None
+            if newer:
+                why = it.get("why") or it.get("state")
+            elif t is not None and not live:   # 초안이 없다 — 그 턴의 까닭: 낡은 카드뿐 · 검사에서 제외 · 실패 · 작성 계획도 자료에서 못 찾음 · 행동 없이 답함
+                empty = bool(t.get("dropped")) and all(d.get("type") == "tableFill" and str(d.get("why") or "").startswith(NO_VALUES) for d in t["dropped"])
+                why = ("stale" if props else "error" if t.get("error") else "dropped" if t.get("dropped") and not empty
+                       else "nomat" if p["id"] in plan and not pl.get("use") and pl.get("gap") else "noaction")
+            row = {"id": p["id"], "kind": p["kind"], "text": p.get("text") or "", "slot": p.get("slot"), "use": bool(pl.get("use")), "gap": bool(pl.get("gap")), "evidence": len(pl.get("evidence") or ()),
+                   "boxed": bool(p["kind"] == "head" and p.get("boxed") and not p.get("slot")),   # 쓸 자리가 아래 상자에 있는 헤딩 — 초안을 받는 자리가 아니다(화면의 「작성 계획대로」 도 뺀다)
+                   "turn": (t or {}).get("id"), "cards": len(live), "lines": lines, "picked": picked, "applied": applied, "left": todo, "why": why, "old": old,
+                   "ask": len(asks.get(p["id"]) or ()), "unpicked": list(it.get("unpicked") or ()) if it.get("turn") == (t or {}).get("id") or t is None else [],
+                   "tried": bool(turns) or newer,   # 이 자리를 한 번이라도 돌렸나(턴이 있거나 턴 없이 끝난 결과가 있음)
+                   "reply": " ".join(str((it.get("reply") if newer else (t or {}).get("reply")) or "").split())[:300] if why else ""}
+            if why:
+                none[why] = none.get(why, 0) + 1
+            rows.append(row)
+    planned = [r for r in rows if r["use"] and r["slot"] != "filled" and not r["boxed"]]   # 작성 계획이 고른 자리 = 화면의 fwPlanPlaces 와 같은 걸름(이미 채운 줄 · 상자가 딸린 헤딩은 빼고)
+    counts = {"places": len(rows), "planned": len(planned), "drafted": sum(1 for r in rows if r["cards"]), "applied": sum(1 for r in rows if r["applied"]),
+              "open": sum(1 for r in rows if r["picked"]), "openLines": sum(r["picked"] for r in rows), "left": sum(1 for r in rows if r["left"]), "leftLines": sum(r["left"] for r in rows),
+              "appliedLines": sum(r["applied"] for r in rows), "none": none, "old": sum(1 for r in rows if r["old"]),
+              "idle": sum(1 for r in planned if not r["tried"]),   # 작성 계획이 고른 자리 가운데 아직 안 돌린 자리
+              "ask": sum(1 for r in rows if r["ask"])}
+    return {"rows": rows, "counts": counts, "planned": form_review.planned(rv), "run": run.get("id")}
+
+
+@router.get("/api/docs/{doc_id}/guide-write/coverage")
+def guide_write_coverage(doc_id: str):
+    s = _sess(doc_id)
+    if s.fmt != "hwpx":
+        return {"rows": [], "counts": {}, "planned": False, "run": None}
+    return coverage(s)
+
+
+@router.get("/api/docs/{doc_id}/guide-write/sources")
+def guide_write_sources(doc_id: str):
+    """반영한 문단 · 칸마다의 근거 → {paras{문단 id: {mat, name, start, end, sec, page, title, hits, quote, turn, proposal}}, cells{칸 id: {…, table}}} — 반영 기록(`applied.sources`)에서: 뒤에 반영한 것이 앞의 것을 덮는다.
+    문서의 반영된 문단을 누르면 「참조한 자료」 열이 이것으로 근거를 보인다(2026-11-25 사용자 「내용 클릭하면 참조했던 부분 은 바로 옆 열에서」 — spec_양식작성 ② §5-12 3)."""
+    s = _sess(doc_id)
+    store, paras, cells = doc_agent.Store(s.id), {}, {}
+    turns = [t for t in (store.turn(row["id"]) for row in store.turns()) if t]
+    with s.lock:   # 지금 문서에 그대로 있는 줄만(실행 취소로 되돌렸거나 그 뒤 고친 줄의 근거는 보이지 않는다)
+        doc = s.doc
+        for t in turns:
+            for p in t.get("proposals") or ():
+                if not isinstance(p, dict) or p.get("state") != "applied":
+                    continue
+                text = {ln.get("para"): ln.get("text") for ln in (p.get("op") or {}).get("lines") or () if isinstance(ln, dict)} if p.get("type") == "fill" else None
+                for src in (p.get("applied") or {}).get("sources") or ():
+                    rec = {**{k: v for k, v in src.items() if k not in ("para", "cell")}, "turn": t.get("id"), "proposal": p.get("id")}
+                    pid = src.get("para")
+                    if pid:
+                        el = doc._ids.get(pid)
+                        if el is not None and doc._attached(el) and (text is None or doc._text(el) == text.get(pid)):
+                            paras[pid] = rec
+                    elif src.get("cell"):
+                        cells[src["cell"]] = rec
+    return {"paras": paras, "cells": cells}
+
+
+SOURCE_AROUND = 1500   # 「참조한 자료」 열에 싣는 근거 앞뒤 글
+
+
+@router.get("/api/docs/{doc_id}/agent/material/{mid}/at")
+def material_at(doc_id: str, mid: str, start: int = 0, end: int = 0):
+    """자료의 그 자리 앞뒤 글 → {id, name, chars, sec{id, page, path, title} | null, before, hit, after, from, to} — 「참조한 자료」 열(읽기만). 404 = 그런 자료 없음."""
+    from app import material_index
+    s = _sess(doc_id)
+    m = doc_agent.Store(s.id).material(mid) if isinstance(mid, str) and doc_agent._MID.match(mid) else None
+    if m is None:
+        raise HTTPException(404, "그런 자료가 없습니다 — 지웠거나 다른 문서의 자료입니다")
+    text = str(m.get("text") or "")
+    start, end = max(0, min(int(start), len(text))), max(0, min(int(end), len(text)))
+    sec = material_index.section_at(text, start) if end > start else None
+    return {"id": m["id"], "name": m.get("name") or "", "chars": len(text), **material_index.excerpt(text, start, max(start, end), SOURCE_AROUND),
+            "sec": {k: sec[k] for k in ("id", "page", "path", "title")} if sec else None}
 
 
 @router.post("/api/docs/{doc_id}/guide-write/stop")

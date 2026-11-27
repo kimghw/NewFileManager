@@ -41,7 +41,7 @@ not_applicable은 읽은 양식과 예시가 그 자리에 별도 작성 방법�
 insufficient는 어떤 방식이 필요한지 자료가 잘렸거나 판독이 어렵거나 서로 충돌해 판단할 근거가 부족한 경우입니다.
 두 경우 모두 reason에 어떤 항목·예시를 대조했으며 무엇이 해당하지 않거나 불분명한지 짧게 적고 rules는 빈 목록으로 둡니다.
 rule은 {instruction, basis, evidence}입니다. basis=explicit은 해당 자리에 적용되는 명시적 지시, example은 본보기에서 관찰한 작성 방식입니다.
-적용 강도가 다른 지침은 따로 냅니다. evidence는 [{source, image, detail}]입니다. source는 target 또는 references의 id입니다.
+서로 다른 것을 시키는 지침만 따로 냅니다. 같은 줄·칸에 같은 일을 시키는 지침은 근거가 여럿이어도 하나로 내고 evidence에 근거를 모두 붙입니다. evidence는 [{source, image, detail}]입니다. source는 target 또는 references의 id입니다.
 그림을 읽은 근거라면 해당 출처 imageNumbers의 attached 번호를 쓰고, 글·표·자리의 서식이 근거라면 image에 0을 씁니다.
 detail에는 근거 위치와 짧은 원문 표현 또는 눈으로 확인한 배치·항목을 씁니다. 각 지침에는 뒷받침하는 근거가 하나 이상 있어야 합니다.
 해당 자리의 내용 범위, 서술 순서·문체·분량, 표의 행·열·단위, 캡션·그림·증빙의 배치를 구체적으로 적습니다.

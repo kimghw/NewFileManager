@@ -148,6 +148,7 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         self._blocks_cache = None   # blocks() 결과 — 고치면(_mark) 버림
         self._ids, self._rev, self._n = {}, {}, 0
         self._an_val, self._num_ctr, self._an_ctr, self._sigs, self._summ = {}, {}, {}, {}, {}
+        self._ol_val = {}   # 개요 문단 → 한글이 찍는 개요 번호 글(_outline_num — 문서 순서로 센 값: 따로 읽는 길이 지킨다)
         self._reflist = self._roots[HEADER].find(_h("refList"))
         self._defs = {}
         for kind, lst in DEFS.items():
@@ -202,7 +203,7 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         """문서 전체 블록. 고치기 전까지는 같은 열을 다시 돌려준다(캐시 — 고치는 메서드는 모두 _mark 를 지나 비움. 연구개발계획서 양식
         499 KB 도 한 번 읽기 0.6~1 s 인데 구분 초기화가 차례마다 되풀이해 읽음, spec_구분_초기화 ② §4). 받은 쪽은 사전을 고치지 말 것."""
         if self._blocks_cache is None:
-            self._num_ctr, self._an_ctr = {}, {}
+            self._num_ctr, self._an_ctr, self._ol_val = {}, {}, {}
             self._blocks_cache = hwpx_layout.annotate(self, [b for sec in self._sections for b in self._list_blocks(sec)])
         return self._blocks_cache
 
@@ -221,7 +222,8 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         return b
 
     def order_bound(self, hosts) -> bool:
-        """hosts(최상위 문단들) 안에 **문서 순서로 세는 값**이 있는가 — 번호 문단(heading NUMBER: _num_ctr)·자동 번호(autoNum: _an_ctr).
+        """hosts(최상위 문단들) 안에 **문서 순서로 세는 값**이 있는가 — 번호 문단(heading NUMBER: _num_ctr)·자동 번호(autoNum: _an_ctr)·
+        번호를 세는 개요 문단(heading OUTLINE 이고 그 수준의 번호 글에 「^N」 이 있다 — 「○」 · 「-」 처럼 글자뿐인 수준은 세지 않는다).
         있으면 그 문단만 따로 읽을 수 없다(앞 문단들을 다 세어야 값이 나온다)."""
         for h in hosts:
             if next(h.iter(AUTONUM_EL), None) is not None:
@@ -229,6 +231,8 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
             for p in h.iter(P):
                 hd = self._heading(p)
                 if hd is not None and hd.get("type") == "NUMBER":
+                    return True
+                if hd is not None and hd.get("type") == "OUTLINE" and "^" in (self._outline_head(p, hd)[1] or ""):
                     return True
         return False
 
@@ -329,6 +333,7 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         return {"id": self._id(p), "type": "paragraph", "text": text,
                 "style": style.get("name") if style is not None else None,
                 "outlineLevel": int(h.get("level", 0)) + 1 if htype == "OUTLINE" else None,
+                "outlineNum": self._outline_num(p, h) if htype == "OUTLINE" else None,   # 한글이 찍는 개요 번호 글(「2)」 · 「○」) | None(안 찍음) — list 와 따로(헤딩 판정은 안 바뀐다)
                 "list": self._list_info(h) if htype in ("BULLET", "NUMBER") else None,
                 "bold": self._bold([p]),
                 "autoNum": next((AUTONUM[a.get("numType")] for a in self._slots(p) if a.tag == AUTONUM_EL), None),
@@ -432,13 +437,24 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
         if h.get("type") == "BULLET":
             b = self._defs["bullet"].get(h.get("idRef"))
             return {"kind": "bullet", "level": level, "label": b.get("char") if b is not None else None}
-        num = self._defs["numbering"].get(h.get("idRef"))
+        label, head = self._count_num(h.get("idRef"), level, h.get("idRef"))
+        return {"kind": "number", "level": level, "label": label, "numFmt": head.get("numFormat") if head is not None else None}
+
+    def _count_num(self, nid, level, key, above=False):
+        """번호 정의 nid 의 수준 level(1부터)을 하나 세고 그 번호 글을 낸다 → (글 | None, 그 수준의 paraHead | None). key = 세는 칸(_num_ctr 의 열쇠 — 문단 번호는 번호 정의 id,
+        개요 번호는 ("outline", 번호 정의 id): 한글은 둘을 따로 센다). above = 아직 안 나온 윗 수준을 「한 번 나온 것」 으로 센다(개요 번호 — 실측 2026-11-27 한글 PDF:
+        「○」(5수준) · 「-」(6수준) 줄만 있던 문서의 첫 2수준 줄이 「1)」 이 아니라 「2)」 로 찍힌다 · references/HWPX_포맷.md)."""
+        num = self._defs["numbering"].get(nid)
         heads = {ph.get("level"): ph for ph in num.iterchildren(_h("paraHead"))} if num is not None else {}
         head = heads.get(str(level))
         if head is None:
-            return {"kind": "number", "level": level, "label": None, "numFmt": None}
+            return None, None
         # ponytail: counters run per numbering id in document order; hp:newNum restarts are ignored
-        ctr = self._num_ctr.setdefault(h.get("idRef"), {})
+        ctr = self._num_ctr.setdefault(key, {})
+        if above:
+            for k in range(1, level):
+                if k not in ctr and (hk := heads.get(str(k))) is not None:
+                    ctr[k] = int(hk.get("start", 1))
         ctr[level] = ctr.get(level, int(head.get("start", 1)) - 1) + 1
         for k in [k for k in ctr if k > level]:
             del ctr[k]
@@ -447,7 +463,27 @@ class HwpxDoc(FormatMixin, StructMixin, TableMakeMixin, TableSplitMixin, PicMixi
             hk = heads.get(m.group(1))
             parts[m.group(0)] = _fmt_num(ctr.get(int(m.group(1)), 1), hk.get("numFormat") if hk is not None else None)
         label = None if None in parts.values() else re.sub(r"\^\d+", lambda m: parts[m.group(0)], head.text or "")
-        return {"kind": "number", "level": level, "label": label or None, "numFmt": head.get("numFormat")}
+        return label or None, head
+
+    def _outline_head(self, p, h):
+        """개요 문단 p 의 (그 구역의 개요 번호 모양 = 번호 정의 id | None, 그 수준의 번호 글 「^2)」 · 「○」 | None) — 구역 설정(secPr)의 outlineShapeIDRef."""
+        sp = next(p.getroottree().getroot().iter(_p("secPr")), None)
+        nid = sp.get("outlineShapeIDRef") if sp is not None else None
+        num = self._defs["numbering"].get(nid) if nid is not None else None
+        ph = next((x for x in num.iterchildren(_h("paraHead")) if x.get("level") == str(int(h.get("level", 0)) + 1)), None) if num is not None else None
+        return nid, (ph.text or "") if ph is not None else None
+
+    def _outline_num(self, p, h):
+        """개요 문단의 번호 글 — **한글이 실제로 찍는 것**(「2)」 · 「(1)」 · 「○」 · 「-」) | None(그 수준의 번호 글이 비었거나 번호 모양이 없다 — 안 찍는다: 번호를 글로 친 공공 양식에 흔하다).
+        2026-11-27 사용자 "결과가 이런데 왜 양식은 그모양이지?"(글머리가 모두 개요 번호인 양식 — 웹에는 글머리 없는 줄로 보였다). 수준마다 문서 순서로 센다(더 깊은 수준은 다시 1부터 — 문단 번호와 같은 셈).
+        따로 읽는 길(table_block · host_blocks — _keep_an)은 전에 센 값을 지키고, 그때 처음 보는 문단은 세지 않는 글(「^N」 이 없는 「○」 · 「-」)만 낸다."""
+        nid, text = self._outline_head(p, h)
+        if getattr(self, "_keep_an", False):
+            return self._ol_val[p] if p in self._ol_val else text if text and text.strip() and "^" not in text else None
+        label = self._count_num(nid, int(h.get("level", 0)) + 1, ("outline", nid), above=True)[0] if nid is not None else None
+        label = label if label and label.strip() else None   # 빈칸뿐인 번호 글도 안 찍는 것이다
+        self._ol_val[p] = label
+        return label
 
     def _bold(self, ps):
         runs = [r for p in ps for r in p.iterchildren(RUN)

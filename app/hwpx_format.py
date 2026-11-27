@@ -89,6 +89,28 @@ class FormatMixin:
             raise ValueError(f"{block_id} is not a paragraph")
         return el
 
+    def shape_like(self, block_id, like_id, text=None) -> bool:
+        """문단 block_id 의 모양(문단 모양 · 스타일 · 글 런의 글자 모양)을 문단 like_id 의 것으로 — 한글이 찍는 글머리(개요 번호 · 문단 번호)도 그 문단 모양을 따라온다. text 를 주면 글도 그것으로
+        (친 글머리를 지운 글). 표 · 그림을 품은 런의 글자 모양은 그대로. -> 바뀌었나. 양식 서식 점검의 「서식 수정」(spec_양식작성 ② §5-11 — app/form_shapes_api.py)."""
+        p, like = self._para(block_id), self._para(like_id)
+        changed = False
+        if text is not None and self._text(p) != text:
+            self.set_text(block_id, text)
+            changed = True
+        cid = self._char_id(like)
+        runs = [r for r in p.iterchildren(RUN) if r.find(TBL) is None and r.find(PIC) is None]
+        want = {k: like.get(k, "0") for k in ("paraPrIDRef", "styleIDRef")}
+        if all(p.get(k, "0") == v for k, v in want.items()) and all(r.get("charPrIDRef") == cid for r in runs):
+            return changed
+        for k, v in want.items():
+            p.set(k, v)
+        for r in runs:
+            r.set("charPrIDRef", cid)
+        for ls in p.findall(LINESEG):
+            p.remove(ls)
+        self._touch(p)
+        return True
+
     def _parse(self, fmt):
         m = re.fullmatch(r"p(\d+)\|c(\d+)", str(fmt.get("token")))
         if not m or m[1] not in self._defs["paraPr"] or m[2] not in self._defs["charPr"]:

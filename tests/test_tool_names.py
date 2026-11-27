@@ -150,29 +150,37 @@ def test_the_same_tool_in_another_family_is_renamed_together():
 
 
 def test_a_twin_line_in_a_workflow_without_a_family_shows_the_renamed_tool():
-    """같은 도구 — 틀이 없는 워크플로우의 줄(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 양식 작성(틀 없음)의 「LLM 검증·보완」 = 이관형의 그 도구(등록부의 twins — 한 곳에만 적는다).
-    이관형에서 고친 이름이 양식 작성의 그 줄에도 보인다(등록부 응답 · 실행 층이 읽는 정의) · 적지 않은 줄(줄 key 는 같아도 기본 이름이 다른 「헤딩 · 표 분석 · 작성 지침」)은 그대로 ·
+    """같은 도구 — 틀이 없는 워크플로우의 줄(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 양식 작성(틀 없음)의 headsLlm = 이관형의 「LLM 검증·보완」(등록부의 twins — 한 곳에만 적는다).
+    고친 이름은 **기본 이름도 같은 짝에만** 닿는다(workflow._twin_named — 2026-11-27 사용자가 양식 작성의 04 를 「에이전트 기반 문서 구조 및 작성 지침 보완」 으로 고침: 이관형에서 이름을 고쳐도 그 줄은 제 이름 그대로 ·
+    「도구 공통」 글은 그대로 잇는다 — tests/test_agent_notes.py). 이름이 같은 짝(가상)이면 등록부의 문(_shown)이 고친 이름을 얹는다 · 적지 않은 줄(03 heads)은 그대로 ·
     만든 글 · 등록부는 기본 이름 · 틀이 없는 다른 워크플로우에는 안 닿는다 · 되돌리면 같이 되돌아간다."""
     form = workflow.BY_JOB["form_write"]
     assert form["twins"] == {"headsLlm": ("relay", "headsLlm")} and WS.family(form) == ""
     base, rows = {s["key"]: s["name"] for g in form["stages"] for s in g["steps"]}, TA.bases("relay")
-    assert base["headsLlm"] == rows["headsLlm"] and base["heads"] != rows["heads"]   # 같은 도구 = 줄 key · 기본 이름이 같다 / heads 는 줄 key 만 같다(다른 도구)
+    assert base["headsLlm"] != rows["headsLlm"] and base["heads"] != rows["heads"]   # 지금 짝은 기본 이름이 다르다(같은 엔진 — 「도구 공통」 글만 잇는다) / heads 는 줄 key 만 같다(다른 도구)
+    same = {**form, "stages": [{**g, "steps": [{**s, "name": rows["headsLlm"]} if s["key"] == "headsLlm" else s for s in g["steps"]]} for g in form["stages"]]}   # 기본 이름이 같은 짝(가상) — 고친 이름이 닿는 꼴
+    assert workflow._twin_named(form)["twins"] == {} and workflow._twin_named(same) is same
     md = workflow.task_markdown("form_write")
     assert T.twin_names(form) == {} and T.apply(form, "") is form   # 고친 것이 없으면 받은 것 그대로
     step = lambda job, k: next(s for t in workflow.listing()["tasks"] if t["job"] == job for g in t["stages"] for s in g["steps"] if s["key"] == k)  # noqa: E731
     cl = _client()
     assert cl.put("/api/tool-names/relay/headsLlm", json={"name": "구조 검증"}).status_code == 200
     assert cl.put("/api/tool-names/relay/heads", json={"name": "구조 분석"}).status_code == 200
-    assert T.twin_names(form) == {"headsLlm": "구조 검증"}
-    assert (step("form_write", "headsLlm")["name"], step("form_write", "headsLlm")["baseName"]) == ("구조 검증", base["headsLlm"])   # ① 등록부 응답
+    assert T.twin_names(form) == {"headsLlm": "구조 검증"}   # 저장소는 짝을 읽지만 — 이름이 다른 짝은 등록부의 문이 뺀다
+    assert (step("form_write", "headsLlm")["name"], step("form_write", "headsLlm")["baseName"]) == (base["headsLlm"], "")   # ① 등록부 응답 — 사용자가 붙인 이 줄의 이름 그대로
     assert (step("form_write", "heads")["name"], step("form_write", "heads")["baseName"]) == (base["heads"], "")   # 적지 않은 줄 — 이관형의 「헤딩 · 표 분석」 을 고쳐도 그대로
+    shown = {s["key"]: s for g in workflow._shown(same)["stages"] for s in g["steps"]}
+    assert (shown["headsLlm"]["name"], shown["headsLlm"]["baseName"]) == ("구조 검증", rows["headsLlm"]) and shown["heads"]["name"] == base["heads"]   # 이름이 같은 짝이면 닿는다
     assert step("plan_to_report", "headsLlm")["name"] == "구조 검증" and step("plan_to_report", "heads")["name"] == "구조 분석"
     line = {s["key"]: s["name"] for g in WS.definition("form_write")["stages"] for s in g["steps"]}   # ② 실행 층이 읽는 정의
-    assert line["headsLlm"] == "구조 검증" and line["heads"] == base["heads"]
+    assert line["headsLlm"] == base["headsLlm"] and line["heads"] == base["heads"]
     assert workflow.task_markdown("form_write") == md and {s["key"]: s["name"] for g in form["stages"] for s in g["steps"]} == base   # 만든 글 · 등록부는 기본 이름 그대로
     for job in ("doc_edit", "style_copy", "plan_fit"):   # 짝을 적지 않은 워크플로우 — 틀이 없거나(일반 편집 · 서식 복사) 다른 틀(문서 하나: 줄 key headsLlm 이 있어도 다른 도구)
         t = workflow.BY_JOB[job]
         assert T.apply(t, WS.family(t)) is t, job
     assert T.apply({**form, "twins": {"headsLlm": "꼴이 틀린 짝"}}, "")["stages"] == form["stages"]   # 꼴이 틀린 짝은 안 얹는다(화면이 멈추지 않는다)
-    assert cl.delete("/api/tool-names/relay/headsLlm").status_code == 200   # 되돌리면 양식 작성의 그 줄도 기본 이름으로
+    assert workflow._shown({**same, "twins": {"headsLlm": "꼴이 틀린 짝"}})["stages"] == same["stages"]
+    assert cl.delete("/api/tool-names/relay/headsLlm").status_code == 200   # 되돌리면 이름이 같은 짝도 기본 이름으로
+    shown = {s["key"]: s for g in workflow._shown(same)["stages"] for s in g["steps"]}
+    assert (shown["headsLlm"]["name"], shown["headsLlm"].get("baseName", "")) == (rows["headsLlm"], "")
     assert (step("form_write", "headsLlm")["name"], step("form_write", "headsLlm")["baseName"]) == (base["headsLlm"], "")

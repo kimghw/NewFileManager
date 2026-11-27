@@ -401,8 +401,8 @@ def paginate(blocks, pages, located):
     keys = [[key_text(p.get("text")) for p in u["paras"]] for u in us]
     heads = [[key_text(p.get("text")) for p in u["heads"]] for u in us]
     # 자동 번호 문단: 번호(list.label)는 블록 글에 없고 PDF 줄에는 있다 — 「1.」+「서론」 = 맨 위 줄 「1. 서론」 전체와 같으면 길이와 무관하게 바로 시작
-    labs = [[key_text(((p.get("list") or {}).get("label") or "") + (p.get("text") or "")) if (p.get("list") or {}).get("label") else ""
-             for p in u["heads"]] for u in us]
+    auto = lambda p: (p.get("list") or {}).get("label") or p.get("outlineNum") or ""   # noqa: E731 — 자동 번호 · 개요 번호(한글이 찍는 것)
+    labs = [[key_text(auto(p) + (p.get("text") or "")) if auto(p) else "" for p in u["heads"]] for u in us]
     raw = [sorted({pg for p in u["paras"] for pg in located.get(p["id"], ())}) for u in us]
     # 단위의 긴 글(5자 넘음 — 짧은 칸 글은 「가까운 자리」 매핑이라 쪽이 틀릴 수 있다)이 찍힌 가장 뒤 쪽 — 앞 쪽에서 이어진 단위가 이 쪽 뒤까지 가는지 본다
     reach = [max((pg for p in u["paras"] if len(key_text(p.get("text"))) > 5 for pg in located.get(p["id"], ())), default=0) for u in us]

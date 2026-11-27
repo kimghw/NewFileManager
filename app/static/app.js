@@ -3905,6 +3905,7 @@ function renderPara(b, text = null) {
   const f = b.format || {};
   paraLook(p, f);
   if (b.list && b.list.label) p.dataset.label = b.list.label;
+  else if (b.outlineNum) p.dataset.label = b.outlineNum; // 개요 번호(한글이 찍는 「2)」 · 「○」 · 「-」 — hwpx_doc _outline_num): 글머리가 개요 번호뿐인 양식이 글머리 없는 줄로 보이지 않게(spec_hwpx_웹편집 ② §3-7)
   // 문단 끝 빈 런이 글보다 크면 한글은 마지막 줄을 그 크기로 높인다 — 끝에 보이지 않는 글자(::after)를 그 크기로(② §3-4)
   if (b.endSizePt) { p.classList.add("end-size"); p.style.setProperty("--end-size", `${b.endSizePt}pt`); }
   leadShift(p, b, f);

@@ -173,3 +173,17 @@ def test_round3_counterexamples():
     lv, orig = {"y1": 1, "a": 2, "y2": 1, "b": 2}, {"y1": "연차: ", "a": "공동: ", "a1": "", "y2": "연차: ", "b": "공동: ", "b1": ""}
     chs = FS.chunks(FS.entries(cell, lv, orig))
     assert [c["dup"] for c in chs if c["head"]["id"] in ("a", "b")] == [[1, 2], [2, 2]]
+
+
+def test_view_text_writes_the_letter_hangul_draws():
+    """개요 번호 · 자동 번호(글에는 없는 글머리)를 줄 목록에 적는다 — 글머리가 모두 개요 번호인 양식에서 LLM 이 같은 항목들을 「-」 줄 하나와 「○」 줄 둘에 나눠 썼다(2026-11-27 실제 실행).
+    글머리가 다른 빈 줄(「-」 줄 뒤의 글머리 없는 줄)은 한 묶음으로 적지 않는다."""
+    def p(i, text, num=None, lst=None):
+        return {**para(i, text), "outlineNum": num, "list": lst}
+    b = box("t9", [p("h", "연구개발 목표", "(1)"), p("a", "000", "○"), p("s", "    - "), p("b1", "", "○"), p("b2", "", "○"), p("b3", "", "-"), p("b4", ""),
+                   p("n", "", None, {"kind": "bullet", "level": 1, "label": "◦"})])
+    ents = FS.entries(FS.box_cell(b), {"h": 3, "a": 4, "b1": 4, "b2": 4})
+    assert [e.get("num") for e in ents] == ["(1)", "○", None, "○", "○", "-", None, "◦"]
+    lines = FS.view_text(ents).splitlines()
+    assert lines[:3] == ["  [h] (L3) 자동 글머리 (1) 「연구개발 목표」", "  [a] (L4) 자동 글머리 ○ 「000」", "  [s] 「    - 」 (쓸 자리 — 글머리 줄)"]
+    assert lines[3:] == ["  [b1 b2] (쓸 자리 — 빈 줄 2 · L4 · 자동 글머리 ○)", "  [b3] (쓸 자리 — 빈 줄 1 · 자동 글머리 -)", "  [b4] (쓸 자리 — 빈 줄 1)", "  [n] (쓸 자리 — 빈 줄 1 · 자동 글머리 ◦)"]

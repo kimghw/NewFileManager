@@ -26,15 +26,26 @@ def calls(monkeypatch):
                 "error": "boom" if fail else None, "model": kw.get("model")}
     fake.fail = set()
     monkeypatch.setattr(form_review_api.llm, "call", fake)
-    monkeypatch.setattr(form_review_api.form_review, "check", lambda d, ids, m: d)
+    monkeypatch.setattr(form_review_api.form_review, "check", lambda d, *a: d)
     monkeypatch.setenv("NFM_AGENTS", "off")
     agent_settings._MEMORY.update(version=0, agents={})
     return log, fake
 
 
-def test_default_two_models_then_consult(calls):
+def test_default_is_one_model_consult_is_an_option(calls):
+    """2026-11-27 사용자 「양식 검토의 두 모델 협의 는 옵션으로 둘 수 있고」 — 기본은 한 모델(LLM1) · 켜면 두 모델 + 협의(spec_양식작성 ② §5-12 1)."""
     log, _ = calls
     got, rec = form_review_api._ask("P", [], False, {})
+    assert [c["model"] for c in log] == ["claude-fable-5-2"] and rec == [] and got["data"]["questions"][0]["text"] == "LLM1"
+    agent_settings.save("form_review", {"models": ["claude-opus-5-5"]})   # 둘째 모델이 설정에 없으면 켜도 한 번
+    log.clear()
+    got, rec = form_review_api._ask("P", [], False, {}, duo=True)
+    assert [c["model"] for c in log] == ["claude-opus-5-5"] and rec == []
+
+
+def test_two_models_then_consult(calls):
+    log, _ = calls
+    got, rec = form_review_api._ask("P", [], False, {}, duo=True)
     assert [(c["slot"], c["model"]) for c in log] == [("LLM1", "claude-fable-5-2"), ("LLM2", "gpt-6-astra"), ("협의", "claude-fable-5-2")]
     assert "LLM1 (claude-fable-5-2)" in log[2]["content"] and "LLM2 (gpt-6-astra)" in log[2]["content"]
     assert got["data"]["questions"][0]["text"] == "협의"
@@ -44,7 +55,7 @@ def test_default_two_models_then_consult(calls):
 def test_one_fails_uses_other_without_consult(calls):
     log, fake = calls
     fake.fail = {"gpt-6-astra"}
-    got, rec = form_review_api._ask("P", [], False, {})
+    got, rec = form_review_api._ask("P", [], False, {}, duo=True)
     assert got["data"]["questions"][0]["text"] == "LLM1" and len(log) == 2
     assert rec[1]["ok"] is False and rec[-1]["slot"] == "협의" and rec[-1]["ok"] is False
 
@@ -53,7 +64,7 @@ def test_all_fail_raises(calls):
     _, fake = calls
     fake.fail = {"claude-fable-5-2", "gpt-6-astra"}
     with pytest.raises(RuntimeError, match="모든 모델"):
-        form_review_api._ask("P", [], False, {})
+        form_review_api._ask("P", [], False, {}, duo=True)
 
 
 def test_single_model_setting_is_one_call(calls):

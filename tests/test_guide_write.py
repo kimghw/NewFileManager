@@ -145,7 +145,7 @@ def test_guide_write_runs_one_agent_turn_per_place(c, monkeypatch):
     run = _wait(c, doc)
     by = {i["id"]: i for i in run["items"]}
     assert run["state"] == "done" and (by["h2"]["state"], by["h2"]["proposals"], by["h2"]["picked"], by["h2"]["turn"]) == ("done", 2, 1, "t2")
-    assert (by["h1"]["state"], by["h1"]["reply"], by["h1"]["why"], by["h2"]["why"]) == ("none", "자료에 없습니다", "noaction", None) and (by["t1"]["state"], by["t1"]["turn"]) == ("failed", "t9") and "가짜" in by["t1"]["error"] and by["h3"]["error"] == "가짜 400"
+    assert (by["h1"]["state"], by["h1"]["reply"], by["h1"]["why"], by["h2"]["why"]) == ("none", "자료에 없습니다", "noaction", None)   # noaction = 에이전트가 행동 없이 답함(작성 계획이 그 자리를 보고 「자료에 없음」 이라 적은 자리만 nomat — tests/test_form_write_flow.py) and (by["t1"]["state"], by["t1"]["turn"]) == ("failed", "t9") and "가짜" in by["t1"]["error"] and by["h3"]["error"] == "가짜 400"
     assert len(seen) == 4 and all(b["materials"] == [mid] and "이번 작성의 지침(사람이 적음): 개조식" in b["text"] for b in seen)
     sel = {b["selection"]["cursor"] or b["selection"]["table"]: b["selection"] for b in seen}
     assert sel["h2"]["cursor"] == "h2" and sel["t1"]["table"] == "t1"
@@ -277,7 +277,7 @@ def test_registry_has_the_workflow_and_its_tools():
     # 2026-11-25 반영 뒤 「반영한 뒤 서식 정리」 · 「작성 지침 · 샘플 지우기」(spec_양식작성 ② §5-5 · §5-6)
     assert [s["key"] for s in t["stages"][2]["steps"]] == ["plan", "ask", "check", "apply", "retidy", "guideFix", "cleanup"] and {"doclib", "guidewrite"} <= set(workflow.BY_COMMON)
     names = {s["key"]: s["name"] for g in t["stages"] for s in g["steps"]}
-    assert (names["review"], names["plan"], names["ask"], names["apply"]) == ("양식 검토 · 찾을 테마", "작성 계획 · 확인할 것", "양식 초안 작성", "고른 초안을 문서에 반영")
+    assert (names["review"], names["plan"], names["ask"], names["apply"]) == ("문서 작성 요령 생성 · 찾을 테마", "작성 계획 · 확인할 것", "양식 초안 작성", "고른 초안을 문서에 반영")
     ask = next(s for s in t["stages"][2]["steps"] if s["key"] == "ask")
     assert ask["agents"] == ("doc_agent", "table_fill") and ask["change"] == "store" and next(s for s in t["stages"][2]["steps"] if s["key"] == "apply")["change"] == "doc"
     assert agents.JOB_NAMES["form_write"] == "양식 작성" and server.TASK_KIND["form_write"] == "general" and "form_write" in server.TASK["job"]
@@ -482,7 +482,7 @@ def test_stage_reset_clears_only_that_stage(c):
     after = next(b for b in flat() if b["id"] == para["id"])
     assert after["text"] == para["text"] and c.get(f"/api/docs/{doc}/agent").json()["turns"] == [] and len(mats()) == 1   # 문서는 올린 원본 · 초안은 비움 · 자료는 그대로
     st = form_review_api.load(wid)
-    assert not form_review.planned(st["review"]) and st["review"]["places"]["h1"] == {"how": "개조식", "needs": "목표", "use": "", "gap": ""}   # 작성 계획만 비운다 — 양식 검토 · 찾을 테마 · 정한 답은 남는다
+    assert not form_review.planned(st["review"]) and st["review"]["places"]["h1"] == {"how": "개조식", "needs": "목표", "use": "", "gap": ""}   # 작성 계획만 비운다 — 문서 작성 요령 생성 · 찾을 테마 · 정한 답은 남는다
     assert st["review"]["topics"] == [{"name": "목표"}] and [d["a"] for d in st["decided"]] == ["2차년도"]
     assert c.post(f"/api/docs/{doc}/form-write/reset", json={"stage": "write"}).json() == {"stage": "write", "reverted": False, "turns": 0, "plan": False}   # 두 번째 — 되돌릴 것이 없다
 

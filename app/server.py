@@ -2633,6 +2633,7 @@ app.include_router(__import__("app.style_api", fromlist=["router"]).router)   # 
 app.include_router(__import__("app.doc_agent_api", fromlist=["router"]).router)   # 에이전트(한 턴 · 제안 반영 · 자료) 끝점은 app/doc_agent_api.py(spec_일반편집 ② §8~§10)
 app.include_router(__import__("app.guide_write_api", fromlist=["router"]).router)   # 지침 작성(자리마다 작성 지침 + 자료 → 문서 에이전트의 제안) · 문서 라이브러리(따로 선 서버 doclib/ — 포트 8121)에서 자료 가져오기 끝점은 app/guide_write_api.py(spec_양식작성 ② §4 · §5)
 app.include_router(__import__("app.form_review_api", fromlist=["router"]).router)   # 양식 검토(양식 전체를 읽고 어떻게 쓸지 · 쓰기 전에 사람이 정할 것을 묻기 — 지침 작성의 앞 단계) 끝점은 app/form_review_api.py(spec_양식작성 ② §5-1)
+app.include_router(__import__("app.form_shapes_api", fromlist=["router"]).router)   # 양식 서식 점검(상자 안의 글머리 없는 줄 · 친 글머리 줄 → 서식 수정 · 삭제 제안 — 스크립트만 · 반영은 사람이 고른 줄만) 끝점은 app/form_shapes_api.py(spec_양식작성 ② §5-11)
 app.include_router(__import__("app.writing_guidance_api", fromlist=["router"]).router)
 app.include_router(__import__("app.form_guide_yaml_api", fromlist=["router"]).router)   # 양식 지침 YAML(양식마다 본문 · 표 · 서브 테이블의 작성 지침 + 예시 + 주요 항목 — forms/<키>.guide.yaml) 끝점은 app/form_guide_yaml_api.py(spec_양식작성 ② §5-8)
 app.include_router(__import__("app.form_rules_api", fromlist=["router"]).router)   # 규정 YAML(다른 규칙이 이 양식에 요구하는 것 — forms/<키>.rules.yaml) 끝점은 app/form_rules_api.py(spec_양식작성 ② §5-9)

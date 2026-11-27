@@ -21,7 +21,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from app import doc_agent, heading_forms, heading_runs, job_prompts, llm, merge_guides, table_agent, table_make, work_guide, works
+from app import doc_agent, heading_forms, heading_runs, job_prompts, llm, material_index, merge_guides, table_agent, table_make, work_guide, works
 from app.hwpx_doc import TBL, P
 
 router = APIRouter()
@@ -349,16 +349,31 @@ def _turn(doc_id, body, scope=None):
     allowed = doc_agent.allowed_ids(outline, tables, got_sel["data"], templates)
     chosen = {"paras": [p["id"] for p in got_sel["data"]["paras"]], "table": (got_sel["data"]["table"] or {}).get("id"), "range": sel["range"] if got_sel["data"]["table"] else None}
     sent = doc_agent.materials_data(mats)
+    # 자리 턴이 근거 절을 받았으면(작성 계획이 고른 것 — scope.evidence) 자료 전체가 아니라 **그 절 + 앞뒤 절 + 목차**만 싣는다(spec_양식작성 ② §5-12 4). 아는 절이 하나도 없으면 전처럼 자료 전체
+    evidence = [e for e in (scope or {}).get("evidence") or () if isinstance(e, dict)]
+    narrowed = material_index.narrow(mats, evidence, doc_agent.MATERIALS_SENT) if evidence else None
+    if narrowed:
+        sent = [{"id": m["id"], "name": m["name"], "text": m["text"], "cut": m["cut"]} for m in narrowed]
+    basis_mats = narrowed or mats   # 표 채우기 호출에 줄 자료(같은 절만)
     fill_targets = {k: v for k, v in got_sel["fill"].items() if only_paras is None or k in only_paras}   # 자리 채우기의 대상 — 서버가 이 선택에서 셈한 것(범위를 줬으면 그 안으로)
     inner = set(got_sel["inner"])                                                                        # 고른 상자 안의 표 — 이 턴에 채우지 않는다
     # 자리 턴(scope)은 앞선 대화를 싣지 않는다 — 한 실행의 다른 자리 턴(다른 상자의 요청 · 답)이 이 자리의 답에 섞이지 않게(2026-11-26 사용자 「보고있는 문서와 에이전트가 하고 있는 문서가 관련이 없음」)
     history = [] if scope is not None else doc_agent.history_of([t for t in (store.turn(row["id"]) for row in store.turns()[-2 * doc_agent.HISTORY:]) if t])
     data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked, here, only_here=narrow), sent, history, templates=templates)
     job_part, guide_part = job_prompts.part(job, doc_agent.JOB_NOTE), doc_agent.guide_part(guide)
-    res = doc_agent.ask(data, guide_part, job_part, effort=effort)
+    # 표 자리의 턴(범위의 행동이 표 채우기 하나 · 표 하나)은 조정 호출 없이 그 표의 표 채우기를 바로 부른다 — 조정 호출은 자료 전체를 읽고 「그 표를 채운다」 한 줄만 답한다(2026-11-27 Carbon · spec_양식작성 ② §5-12 10)
+    direct = next(iter(only_tables)) if scope is not None and types == {"tableFill"} and only_tables is not None and len(only_tables) == 1 else None
+    if direct is not None:
+        res = {"call": {"backend": None, "model": None, "effort": None, "ms": 0, "costUsd": None, "error": None, "skipped": True}, "prompt": "", "contract": "", "response": None,
+               "data": {"reply": "", "actions": [{"type": "tableFill", "table": direct, "range": ""}]}}
+    else:
+        res = doc_agent.ask(data, guide_part, job_part, effort=effort)
     call, got = res["call"], res["data"]
     tid = store.new_turn_id()   # 무작위 꼬리 — 같은 밀리초에 끝난 두 턴도 다른 id
     rec = {"id": tid, "at": round(time.time(), 3), "rev": rev0, "request": {"text": text, "materials": [m["id"] for m in mats], "selection": sel, "styles": picked},
+           "narrowed": [material_index.ref(m["id"], sec) for m in narrowed for sec in m["secs"]] if narrowed else [],   # 이 턴에 **실제로 실은** 절(근거 절 + 앞뒤 — 분량을 넘어 못 실은 절은 빠진다 · 비면 자료 전체를 실었다)
+           # 지침 작성의 자리 턴 — 어느 자리의 턴인가 · 어느 계획(작성 계획 + 그 자리에 닿는 답)으로 받았나(서버가 준 범위에서만: 덮임이 이것으로 세고, 계획 · 답이 바뀐 뒤의 옛 초안을 가린다 — guide_write_api.coverage)
+           **({"place": scope["place"], "planSig": scope.get("planSig")} if scope and isinstance(scope.get("place"), str) else {}),
            "reply": "", "notes": [], "error": None, "proposals": [], "dropped": [], "prompt": {"contract": res.get("contract", doc_agent.CONTRACT), "job": job_part, "guide": guide_part, "data": data},
            "response": res["response"], "call": call, "fills": [], "job": job_prompts.brief(job) if job_part else None, "guide": merge_guides.brief(guide) if guide_part else None}
     fills, fill_recs = {}, []
@@ -371,7 +386,7 @@ def _turn(doc_id, body, scope=None):
         want = [i for i, a in enumerate(actions[:doc_agent.ACTIONS_MAX]) if a.get("type") == "tableFill" and i not in off][:doc_agent.FILLS_PER_TURN]
         # 표 채우기의 값 근거: 에이전트 보기에서 바로 온 턴은 자료 + 요청 글(사람이 값을 요청에 바로 적는다 — 전과 같다). **양식 작성의 자리 턴(scope)** 의 요청 글은 작성 지침 · 작성 계획 · 예시를 모은 글이라
         # 근거가 아니다 — 자료 + 사람이 정한 답만 근거로 주고(`fill_basis`), 요청 글은 「지침」 절로만 보낸다(2026-11-27 astra P1-5: 지침에 섞인 샘플 기관명이 자료 없이 근거 검사를 지나갔다)
-        material, how = ("", "") if not want else (doc_agent.fill_basis(mats, (scope or {}).get("decided")), text) if scope is not None else (doc_agent.fill_material(text, mats), "")
+        material, how = ("", "") if not want else (doc_agent.fill_basis(basis_mats, (scope or {}).get("decided")), text) if scope is not None else (doc_agent.fill_material(text, mats), "")
         for i in want:   # 표마다: 잠금 안에서 모으고 → 잠금 밖에서 기능 호출(기존 표 채우기 길 그대로)
             a = actions[i]
             tid_ = str(a.get("table") or "").strip()
@@ -390,6 +405,9 @@ def _turn(doc_id, body, scope=None):
                 g = _fill_ask(g, material, form_guide, job, effort, how)
                 fill_recs.append({"table": g["table"], "range": g["an"]["range"], "prompt": g["prompt"], "response": g["response"], "call": g["call"], "counts": (g.get("out") or {}).get("counts")})
             fills[i] = g
+        if direct is not None and not rec["reply"]:   # 조정 호출이 없는 턴 — 답 글은 표 채우기의 것(없으면 못 한 까닭)
+            g0 = fills.get(0) or {}
+            rec["reply"] = str(g0.get("answer") or g0.get("error") or "")[:doc_agent.TEXT_MAX]
         with s.lock:   # 제안 검사는 지금 문서와 견주되(없는 id 는 여기서 버려진다) **기준 차례는 호출 전의 rev0** — 호출 뒤 문서로 기준을 다시 찍지 않는다(검토 3)
             changed = s.rev != rev0   # 도는 동안 문서가 바뀌었다 — 낡은 문서를 보고 한 답이다: 이 턴의 제안은 모두 낡은 것으로
             built = doc_agent.proposals(s.doc, actions, {"rev": rev0, "turn": tid, "sources": doc_agent.sources(text, got_sel["text"], sent), "styles": doc_agent.styles_index(metas),
@@ -397,7 +415,13 @@ def _turn(doc_id, body, scope=None):
                                                          "templates": templates, "off": off, "fill": fill_targets, "box": got_sel["box"], "scope": scope,
                                                          "decided": [d for d in (scope or {}).get("decided") or [] if isinstance(d, str)], "uploaded": uploaded,
                                                          # 자리 채우기의 근거는 자료만(요청 글 · 고른 글 = 양식의 글은 근거가 아니다) — each = 자료마다의 글(근거 구절 · 수는 자료 하나 안에서 견준다)
-                                                         "sources_mat": {**doc_agent.sources("", "", sent), "each": [str(m.get("text") or "") for m in sent]}})
+                                                         "sources_mat": {**doc_agent.sources("", "", sent), "each": [str(m.get("text") or "") for m in sent]},
+                                                         # 근거 구절의 자료 자리(줄마다의 at · evid — ② §5-12 3 · 5): 자료 **전체 글**에서 찾는다(보낸 글이 근거 절만일 때도 자리는 자료 글의 글자 자리) ·
+                                                         # evidence = 작성 계획이 고른 절(같은 구절이 여러 곳이면 그 절의 것이 먼저) · ctx = 그 자리의 머리 글(차년도 · 단계가 근거의 제목과 다른지 견준다)
+                                                         "mats": [{"id": m["id"], "name": m.get("name") or "", "text": str(m.get("text") or "")} for m in mats],
+                                                         "evidence": evidence, "ctx": str((scope or {}).get("ctx") or ""),
+                                                         # 근거 절만 실은 턴 — 실제로 보낸 구간(그 밖의 절 · 절 머리 줄 · 목차의 구절은 근거가 아니다: doc_agent._evid)
+                                                         "spans": {m["id"]: m["spans"] for m in narrowed} if narrowed else None})
         rec.update(proposals=built["proposals"], dropped=built["dropped"], fills=fill_recs,
                    notes=[f"{d['why']}" for d in built["dropped"] if d.get("type") == "tableFill"]   # 채울 칸이 없거나 막힌 표는 그 까닭을 답에(spec ② §8)
                    + ([doc_agent.BUSY_STALE] if changed and built["proposals"] else []))
@@ -415,8 +439,10 @@ def _turn(doc_id, body, scope=None):
     detail = works.add_detail(s.id, "agent", f"turn_{tid[1:]}", {"turn": tid, "rev": rev0, "request": rec["request"], "prompt": res["prompt"], "response": res["response"], "call": call,
                                                                 "fills": fill_recs, "proposals": [doc_agent.card(p) for p in rec["proposals"]], "dropped": rec["dropped"],
                                                                 "job": rec["job"], "guide": rec["guide"]})
+    lead = next((c for c in calls if not c.get("skipped")), call)   # 조정 호출을 건너뛴 턴(표 자리)은 첫 실제 호출(표 채우기)의 길 · 모델을 적는다
     works.log(s.id, "agentTurn", rev=rev0, turn=tid, proposals=len(rec["proposals"]), dropped=len(rec["dropped"]), materials=len(mats), fills=len(fill_recs),
-              backend=call.get("backend"), model=call.get("model"), ms=sum(int(c.get("ms") or 0) for c in calls), costUsd=round(sum(cost), 6) if cost else None,
+              backend=lead.get("backend"), model=lead.get("model"), ms=sum(int(c.get("ms") or 0) for c in calls), costUsd=round(sum(cost), 6) if cost else None,
+              **({"narrowed": len(rec["narrowed"])} if rec.get("narrowed") else {}), **({"place": rec["place"]} if rec.get("place") else {}),
               error=call.get("error"), detail=detail, **({} if kept else {"cleared": True}))
     if got is None:
         return JSONResponse({"detail": rec["error"], "turn": doc_agent.turn_view(rec)}, status_code=502)
@@ -800,6 +826,7 @@ def agent_apply(doc_id: str, body: dict = Body(...)):
         p.update(state="applied", applied={"at": round(time.time(), 3), "rev": s.rev, "table": made.get("table") or op.get("table") or None,
                                            "paras": written.get("paras") or lined.get("paras") or list(op.get("paras") or []),
                                            "cells": filled.get("cells") or [], "excel": done.get("excel"), "note": note,
+                                           "sources": doc_agent.applied_sources(p, written.get("paras") or [], lined.get("paras") or [], filled.get("cells") or []),   # 들어간 문단 · 칸 → 근거의 자료 자리(② §5-12 3)
                                            **{k: done[k] for k in ("made", "filled", "written", "formatted", "filledLines") if k in done}})
         for x in rec["proposals"]:
             if group and x is not p and x.get("choiceGroup") == group and x.get("state") == "open":   # 같은 묶음의 다른 후보는 닫는다(하나만 반영)

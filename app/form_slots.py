@@ -3,7 +3,9 @@
 (따로 다시 읽지 않는다). astra 협의(artifacts/form_fill_slots_astra_2026-11-24/) — 아래 가름은 에이전트 판단(사용자 확인 전).
 
 - `box_cell(block)` → 그 블록이 상자(1칸 표)면 그 칸 | None.
-- `entries(cell, levels)` → 칸의 **직접** 블록 차례 [{id, raw(원문 — 앞뒤 빈칸 그대로), kind, level}] — 안쪽 표 · 그림은 {id, kind: "table" | "image", size}(자리만 — 경계).
+- `entries(cell, levels)` → 칸의 **직접** 블록 차례 [{id, raw(원문 — 앞뒤 빈칸 그대로), kind, level, num?}] — 안쪽 표 · 그림은 {id, kind: "table" | "image", size}(자리만 — 경계).
+  num = **한글이 그 줄 앞에 찍는 글머리**(개요 번호 `outlineNum` · 자동 번호 `list.label` — 글에는 없다: 「○」 · 「-」 · 「(1)」). 2026-11-27 사용자 "결과가 이런데 왜 양식은 그모양이지?" —
+  글머리가 모두 개요 번호인 양식에서 LLM 이 빈 줄의 글머리를 몰라 같은 항목들을 「-」 줄 하나와 「○」 줄 둘에 나눠 썼다. 줄 목록(view_text)이 그 글머리를 적고, 글머리가 다른 빈 줄은 묶지 않는다.
   kind: `blank`(빈칸뿐) · `stub`(글머리 · 「:」 뿐 — 「    - 」 · 「  : 」) · `label`(「… : 」 로 끝남) · `check`(「□」 가 둘 이상) · `note`(※ 안내) · `caption`(캡션 문단 · 「그림 1 …」) · `text`(그 밖 — 제목 · 「000」 · 「개발목표 작성」).
 - `chunks(entries)` → 덩이 [{no, head(label · check · text 문단), slots[잇따르는 blank · stub 문단], dup(같은 머리 글의 덩이 가운데 [몇 번째, 몇 개])}] — 안쪽 표 · 그림 · 안내 · 캡션은 자리의 잇달음을 끊는다.
 - `targets(chunks)` → 채울 수 있는 문단 {id: {raw, kind, chunk(no), head(머리 글), dup, nth(덩이 안 몇째 줄 — 머리 = 0)}} — 머리(label · check · text)와 자리(blank · stub). 안내 · 캡션 · 안쪽 표의 문단은 없다.
@@ -63,7 +65,9 @@ def entries(cell, levels=None, orig=None):
         if kind == "paragraph":
             raw = b.get("text") or ""
             was = was_kind(raw, (orig or {}).get(b["id"])) if orig is not None else None
-            out.append({"id": b["id"], "raw": raw, "kind": "filled" if was else kind_of(raw, bool(b.get("captionOf"))), "level": (levels or {}).get(b["id"]), **({"was": was, "orig": orig[b["id"]]} if was else {})})
+            num = b.get("outlineNum") or (b.get("list") or {}).get("label")
+            out.append({"id": b["id"], "raw": raw, "kind": "filled" if was else kind_of(raw, bool(b.get("captionOf"))), "level": (levels or {}).get(b["id"]), **({"num": num} if num else {}),
+                        **({"was": was, "orig": orig[b["id"]]} if was else {})})
         elif kind == "table":
             out.append({"id": b["id"], "kind": "table", "size": f"{b.get('nRows')}×{b.get('nCols')}"})
         else:
@@ -178,12 +182,18 @@ def judge(raw, new, kind=None):
     return "replace", new.strip()
 
 
+def _num(e, before="", after=""):
+    """그 줄의 자동 글머리 표시 「자동 글머리 ○」(없으면 빈 글)."""
+    return f"{before}자동 글머리 {e['num']}{after}" if e.get("num") else ""
+
+
 def _short(text, n=RAW_MAX):
     return text if len(text) <= n else text[:n - 1] + "…"
 
 
 def view_text(ents, chs=None, only=None):
     """LLM 에 싣는 줄들 — 문단마다 「[id] (L레벨) 원문」 · 빈 줄 묶음은 「[id…] (빈 줄 n)」 · 안쪽 표 · 그림은 자리만. 원문의 앞 빈칸은 그대로 둔다(따옴표 안).
+    한글이 그 줄 앞에 찍는 글머리(num)가 있으면 원문 앞에 「자동 글머리 ○」 로 적는다(글에는 없는 글자 — 새 글에 치지 않는다) · 빈 줄은 글머리가 같은 것끼리만 묶는다.
     only = 이번 턴에 쓸 수 있는 문단 id 들(None = 가리지 않음) — 그 밖의 쓸 자리는 「이번에는 쓰지 않는 자리」 로 적는다(사람이 고르지 않은 덩이 · 같은 이름 자리의 다른 쪽: 2026-11-24 실제 실행에서
     LLM 이 고르지 않은 「공동」 자리에 써서 줄이 모두 버려졌다 — 보낸 글이 어느 자리가 열렸는지 말해 줘야 한다)."""
     ok = (lambda i: True) if only is None else (lambda i: i in only)
@@ -194,7 +204,7 @@ def view_text(ents, chs=None, only=None):
             lv = run[0].get("level")
             on = [e for e in run if ok(e["id"])]
             if headed[0] and on:
-                lines.append(f"  [{' '.join(e['id'] for e in on)}] (쓸 자리 — 빈 줄 {len(on)}{f' · L{lv}' if lv else ''})")
+                lines.append(f"  [{' '.join(e['id'] for e in on)}] (쓸 자리 — 빈 줄 {len(on)}{f' · L{lv}' if lv else ''}{_num(run[0], ' · ')})")
             if headed[0] and len(on) < len(run):
                 lines.append(f"  (이번에는 쓰지 않는 자리 — 빈 줄 {len(run) - len(on)})")
             if not headed[0]:
@@ -204,6 +214,8 @@ def view_text(ents, chs=None, only=None):
     for e in ents or ():
         k = e["kind"]
         if k == "blank":
+            if run and run[-1].get("num") != e.get("num"):   # 글머리가 다른 빈 줄(「-」 줄 넷 뒤의 글머리 없는 줄)은 다른 자리다
+                flush()
             run.append(e)
             continue
         flush()
@@ -219,6 +231,6 @@ def view_text(ents, chs=None, only=None):
                 tag = ""
             elif k in ("stub", "label", "check") and not ok(e["id"]):
                 tag = "이번에는 쓰지 않는 자리"
-            lines.append(f"  [{e['id']}] {lv}「{_short(e['raw'])}」" + (f" ({tag})" if tag else ""))
+            lines.append(f"  [{e['id']}] {lv}{_num(e, '', ' ')}「{_short(e['raw'])}」" + (f" ({tag})" if tag else ""))
     flush()
     return "\n".join(lines)

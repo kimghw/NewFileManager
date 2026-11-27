@@ -378,7 +378,7 @@ def test_work_guide_reads_what_was_written_for_each_tool(monkeypatch):
 
 
 def test_a_twin_tool_note_reaches_the_workflow_without_a_family(monkeypatch):
-    """같은 도구 — 틀이 없는 워크플로우의 줄(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 양식 작성의 「LLM 검증·보완」 = 이관형의 그 도구(등록부의 twins).
+    """같은 도구 — 틀이 없는 워크플로우의 줄(2026-11-25 사용자 「도구도 공통내용은 같았으면」): 양식 작성의 headsLlm(2026-11-27 이름 「에이전트 기반 문서 구조 및 작성 지침 보완」) = 이관형 「LLM 검증·보완」 과 같은 엔진(등록부의 twins — 기본 이름이 달라도 이 글은 잇는다).
     이관형의 그 도구에 적어 둔 「도구 공통」 글이 양식 작성에서도 그 도구가 부르는 에이전트의 프롬프트 끝에 붙는다(llm.call 한 곳) — 그 줄에만 있는 에이전트(writing_guidance) · 다른 도구의 글 ·
     다른 워크플로우(틀이 없는 것 · 다른 틀)에는 안 붙는다 · 이관형은 전처럼 틀로(두 번 붙지 않는다) · 작업 진행 에이전트의 요약에도 그 「공통」 글."""
     assert N.family_of("form_write") == ("", ()) and N.twins("form_write") == [("headsLlm", "relay", "headsLlm")]
