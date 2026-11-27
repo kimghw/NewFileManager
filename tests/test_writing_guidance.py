@@ -489,3 +489,117 @@ def test_the_job_premise_is_scoped_to_this_call():
     tail = text.split("## 할 일 — 양식 작성")[1]
     assert tail.index("자리별 작성 방법을 판정하는 일") < tail.index("뒤 단계의 일") < tail.index("## 이 일은") < tail.index("## 분석할 자료")
     assert "문서 종류" in W.JOB_NOTE and "자료에서 찾을 테마" in W.JOB_NOTE and W.JOB_NOTE not in W.prompt({}, None)
+
+
+# ---- 그림 속 문구 복원(spec_양식작성 ② §5-13 — 2026-11-28 사용자 「문장이 있는 이미지는 동일한 형식으로 … 문구를 복원하고 검토」) ----
+SHOT_NAMES, SHOT_LABELS = {"target": "양식", "ref1": "샘플.png"}, {"ref1": {1: "그림 1", 2: "2쪽", 3: "3쪽", 4: "4쪽"}}
+
+
+def _shot_answer(text, place="h1", extra=()):
+    return {"decisions": [{"place": place, "status": "apply", "reason": "예시 그림의 문장을 본보기로 쓴다",
+                           "rules": [{"instruction": "개조식으로 쓴다", "basis": "example", "evidence": [{"source": "ref1", "image": 1, "detail": "그림의 글머리 줄"}]}],
+                           "tables": [], "imageTexts": [{"source": "ref1", "image": 1, "text": text}, *extra]}]}
+
+
+def test_image_texts_keep_the_format_and_drop_what_is_not_in_the_input():
+    """복원한 문구는 줄 나눔 · 줄 앞 빈칸을 그대로 둔다(형식이 본보기다) · 입력에 없는 출처 · 그 출처의 그림이 아닌 번호 · 빈 글은 버린다(다시 묻지 않는다) · 같은 그림은 한 항목으로 · 적용하는 자리의 것만."""
+    from app import form_guide_yaml
+    text = "□ 개발 목표  \r\n  o 정확도 95% 달성\n\n\n\n  o 처리 시간 3초\n"
+    data = _shot_answer(text, extra=[{"source": "ref9", "image": 1, "text": "입력에 없는 출처"}, {"source": "ref1", "image": 7, "text": "그 출처의 그림이 아님"},
+                                     {"source": "ref1", "image": 0, "text": "그림 번호가 없음"}, {"source": "ref1", "image": 2, "text": "   "},
+                                     {"source": "ref1", "image": 1, "text": "이어지는 줄"}, "글"])
+    valid, errors = W.check(data, {"h1"}, SHOT_NAMES, SHOT_LABELS)
+    assert not errors
+    assert valid["h1"]["imageTexts"] == [{"source": "샘플.png", "ref": "ref1", "image": 1, "label": "그림 1",
+                                          "text": "□ 개발 목표\n  o 정확도 95% 달성\n\n  o 처리 시간 3초\n이어지는 줄"}]
+    long = W.check(_shot_answer("가" * 2000), {"h1"}, SHOT_NAMES, SHOT_LABELS)[0]["h1"]["imageTexts"][0]
+    assert len(long["text"]) == W.IMAGE_TEXT_MAX and long["text"].endswith("…") and long["cut"] is True
+    many = _shot_answer("첫째", extra=[{"source": "ref1", "image": n, "text": f"{n}째"} for n in (2, 3, 4)])
+    assert [x["image"] for x in W.check(many, {"h1"}, SHOT_NAMES, SHOT_LABELS)[0]["h1"]["imageTexts"]] == [1, 2, 3]   # 자리 하나에 IMAGE_TEXTS_MAX 개
+    off = {"decisions": [{"place": "h1", "status": "not_applicable", "reason": "고정 제목", "rules": [], "imageTexts": [{"source": "ref1", "image": 1, "text": "글"}]}]}
+    assert "imageTexts" not in W.check(off, {"h1"}, SHOT_NAMES, SHOT_LABELS)[0]["h1"]   # 적용하지 않는 자리의 것은 받지 않는다
+    old = {"decisions": [{"place": "h1", "status": "not_applicable", "reason": "고정 제목", "rules": []}]}
+    assert "imageTexts" not in W.check(old, {"h1"}, SHOT_NAMES, SHOT_LABELS)[0]["h1"]   # 칸이 없는 답(옛 꼴)도 그대로 읽는다
+    # 초안 요청의 예시: 사람이 올린 양식 지침의 예시가 먼저 · 그림에서 복원한 것은 줄 나눔을 지키고 확인 필요를 밝힌다
+    shot = {"src": "image", "text": "□ 목표\n  o 정확도 95%", "label": "샘플.png · 그림 1", "check": "one"}
+    assert form_guide_yaml.example_text([{"text": "사람이 올린 예시"}, shot]).startswith("작성 예시(양식 지침")
+    sent = form_guide_yaml.example_text([shot])
+    assert sent.startswith("작성 예시(04 가 그림에서 복원한 문구") and sent.endswith("□ 목표\n  o 정확도 95%") and "확인 전의 복원" in sent and "샘플.png · 그림 1" in sent
+    assert "확인 전의 복원" not in form_guide_yaml.example_text([{**shot, "check": "agree"}])
+    assert len(form_guide_yaml.example_text([{**shot, "text": "가" * 2000}]).split("):\n", 1)[1]) == form_guide_yaml.IMAGE_EXAMPLE_SEND
+
+
+def test_two_models_restored_texts_are_compared_per_place_and_image():
+    """검토 = 두 모델이 따로 복원한 글의 견줌(스크립트): 빈칸 · 줄 나눔만 다르면 같음 · 글자 하나라도 다르면 「다름」 이고 다른 글을 따로 남긴다 · 한 모델만 복원했거나 견줄 답이 둘이 안 되면 그렇게 적는다."""
+    one = "□ 목표\n  o 정확도 95% 달성"
+
+    def judged():
+        return W.check(_shot_answer(one), {"h1"}, SHOT_NAMES, SHOT_LABELS)[0]
+
+    def checked(*others):
+        v = judged()
+        W.image_text_checks(v, [{"slot": "LLM1", "data": _shot_answer(one)}, *({"slot": f"LLM{i}", "data": d} for i, d in enumerate(others, 2))])
+        return v["h1"]["imageTexts"][0]
+
+    same = checked(_shot_answer("□ 목표\n o 정확도   95% 달성\n"))
+    assert same["check"] == "agree" and "alt" not in same
+    differ = checked(_shot_answer(one.replace("95", "96")))
+    assert differ["check"] == "differ" and differ["alt"] == [{"slot": "LLM2", "text": "□ 목표\n  o 정확도 96% 달성"}] and differ["text"] == one   # 숫자 한 자 — 봐주지 않는다
+    assert checked({"decisions": [{"place": "h1", "imageTexts": []}]})["check"] == "one"
+    assert checked(_shot_answer(one, place="h2"))["check"] == "one"   # 다른 자리에 복원한 것은 견주지 않는다
+    assert checked({"decisions": "꼴이 틀린 답"})["check"] == "one"
+    for drafts in ([], [{"slot": "LLM1", "data": _shot_answer(one)}]):   # 한 모델로 돌았거나 한쪽이 실패
+        v = judged()
+        W.image_text_checks(v, drafts)
+        assert v["h1"]["imageTexts"][0]["check"] == "single"
+    assert set(W.CHECK_OPEN) < set(W.CHECKS) and all(k in W.CHECKS for k in ("agree", "differ", "one", "single"))
+
+
+def test_04_restores_the_wording_of_an_image_and_sends_it_to_drafts_as_an_example(monkeypatch, tmp_path):
+    """실제 HTTP 길: 두 모델이 따로 복원 → 다르면 협의한 답 + 「확인 필요」(다른 글은 따로) → 기록 · 화면용 자리 목록 · 초안 요청(예시로 — 줄 나눔 그대로). 06 양식 검토는 읽지 않는다."""
+    from app import agent_settings
+    agent_settings.save("writing_guidance", {"models": None})   # 두 모델(LLM1 · LLM2)
+    monkeypatch.setenv("NFM_WORKS", str(tmp_path))
+    client = TestClient(server.app)
+    doc = client.post("/api/docs", files={"file": (SMALL.name, SMALL.read_bytes())}).json()["docId"]
+    path = f"/api/docs/{doc}"
+    ps = guide_write.places(BLOCKS, GRAPH, IX)
+    monkeypatch.setattr(guide_write_api, "_base_places", lambda s: (copy.deepcopy(ps), s.rev))
+    monkeypatch.setattr(API.llm, "status", lambda: {"available": True})
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "red").save(buf, format="PNG")
+    monkeypatch.setattr(form_example_evidence, "evidence", lambda *args: [
+        {"id": "t20", "name": "작성 예시", "text": "", "images": [{"media": "image/png", "data": buf.getvalue(), "label": "그림 [pic7]"}]}])
+    first = "□ 성과 요약\n  o 시제품 2종 제작\n  o 특허 출원 1건"
+    seen = []
+
+    def call(schema, content, what, **kw):
+        seen.append((what, kw.get("slot")))
+        data = json.loads(content.split("## 분석할 자료\n")[-1].split("\n\n## 두 검토자의 답")[0])
+        text = first.replace("2종", "3종") if kw.get("slot") == "LLM2" else first
+        decisions = [{"place": p["id"], "status": "not_applicable", "reason": "고정 제목", "rules": [], "tables": [], "imageTexts": []} for p in data["places"] if p["id"] != "h2"]
+        decisions.append({"place": "h2", "status": "apply", "reason": "예시 그림의 문장을 본보기로 쓴다",
+                          "rules": [{"instruction": "성과를 개조식으로 요약한다", "basis": "example", "evidence": [{"source": "ref1", "image": 1, "detail": "글머리 줄 셋"}]}],
+                          "tables": [], "imageTexts": [{"source": "ref1", "image": 1, "text": text}]})
+        return {"data": {"decisions": decisions}, "ms": 1}
+    monkeypatch.setattr(API.llm, "call", call)
+    ep = path + "/writing-guidance"
+    assert client.post(ep).status_code == 200
+    for _ in range(400):
+        state = client.get(ep).json()
+        if state["run"] and state["run"]["state"] != "running":
+            break
+        time.sleep(0.01)
+    assert state["run"]["state"] == "done", state["run"]
+    assert [w for w, _ in seen].count("writing-guidance#consult") == 1   # 복원한 글이 달라 협의했다
+    assert state["imageTexts"] == {"items": 1, "places": 1, "check": 1}
+    shot = json.loads((tmp_path / doc / API.FILE).read_text(encoding="utf-8"))["imageTexts"]["h2"][0]
+    assert shot["text"] == first and shot["check"] == "differ" and shot["alt"] == [{"slot": "LLM2", "text": first.replace("2종", "3종")}]
+    assert shot["block"] == "pic7" and shot["source"] == "작성 예시 [t20]" and shot["label"] == "그림 [pic7]"   # 목적 문서 안의 그림 — 화면이 그 블록으로 간다
+    shown = client.get(path + "/guide-write").json()["places"]
+    p = next(x for x in shown if x["id"] == "h2")
+    assert p["imageTexts"][0]["text"] == first and p["examples"][-1]["src"] == "image" and p["examples"][-1]["check"] == "differ"
+    assert all("imageTexts" not in x for x in shown if x["id"] != "h2")
+    request = guide_write.request(p, "")
+    assert "04 가 그림에서 복원한 문구" in request and "  o 시제품 2종 제작\n  o 특허 출원 1건" in request and "확인 전의 복원" in request
+    assert "시제품 2종" not in str(form_review._place_brief(p))   # 예시는 초안 요청만 읽는다(② §5-8)

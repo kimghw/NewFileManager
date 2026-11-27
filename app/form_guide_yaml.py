@@ -33,6 +33,7 @@ SUFFIX = ".guide.yaml"
 TEXT_MAX = 400_000            # 파일 하나
 GUIDE_MAX, EXAMPLE_MAX = 2000, 1500   # 지침 하나 · 예시 하나(저장)
 EXAMPLE_SEND = 300            # 초안 요청에 싣는 예시 하나(astra 「자리당 1개 · 300자」)
+IMAGE_EXAMPLE_SEND = 600      # 04 가 그림에서 복원한 문구를 예시로 실을 때(줄 나눔을 지킨다 — spec_양식작성 ② §5-13 5)
 PATH_MAX, HEAD_MAX, LABEL_MAX, NOTE_MAX = 12, 400, 120, 200
 ITEMS_MAX = 40                # 한 자리의 지침 · 예시 수
 OUTPUTS = ("", "stages", "orgs", "period", "current", "subs")   # 주요 항목이 채우는 프로젝트 구성 값의 필드(빈 글 = 구성 값이 아닌 문서 항목)
@@ -821,6 +822,14 @@ def example_text(examples, limit=EXAMPLE_SEND):
     ex = next((x for x in examples or () if (x.get("text") or "").strip()), None)
     if ex is None:
         return ""
+    if ex.get("src") == "image":
+        # 04 가 샘플 · 예시 그림에서 복원한 문구(writing_guidance_api.attach — spec_양식작성 ② §5-13 5): 줄 나눔 · 들여쓰기를 지킨 채(형식이 본보기다) IMAGE_EXAMPLE_SEND 자까지.
+        # 사람이 올린 양식 지침의 예시가 있으면 그것이 먼저다(이 목록의 앞). 두 모델이 다르게 복원했거나 한 모델만 복원한 글은 그렇게 밝힌다
+        t = "\n".join(r.rstrip() for r in ex["text"].strip("\n").split("\n"))
+        t = t if len(t) <= IMAGE_EXAMPLE_SEND else t[:IMAGE_EXAMPLE_SEND - 1] + "…"
+        doubt = " · 확인 전의 복원(글자가 그림과 다를 수 있음)" if ex.get("check") in ("differ", "one") else ""
+        return ("작성 예시(04 가 그림에서 복원한 문구 — 꼴 · 문체 · 분량만 참고하고 이름 · 수치 · 사실은 옮기지 않습니다"
+                + (f" · {ex['label']}" if ex.get("label") else "") + doubt + "):\n" + t)
     t = " ".join(ex["text"].split())
     t = t if len(t) <= limit else t[:limit - 1] + "…"
     head = "작성 예시(양식 지침 — 꼴 · 문체 · 분량만 참고하고 이름 · 수치 · 사실은 옮기지 않습니다"

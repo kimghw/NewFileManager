@@ -578,6 +578,8 @@ function fwLlmStep(A) {
     const th = [g.theme ? `문서의 테마 「${g.theme.name}」` : "", (g.templates || []).length ? `템플릿 ${g.templates.map((t) => t.name).join(" · ")}` : "", g.tableTypeCount ? `표 ${g.tableTypeCount}개의 테이블 타입` : "",
       (g.defined || []).length ? `새로 정의 ${g.defined.map((d) => d.name).join(" · ")}` : ""].filter(Boolean); // 테마 · 템플릿 · 테이블 타입의 판정(② §5-7)
     if (th.length) lines.push(["테마 · 테이블 타입", th.join(" · ")]);
+    const it = g.imageTexts || {}; // 문장이 든 샘플 · 예시 그림에서 복원한 문구(② §5-13) — 확인 필요 = 두 모델이 다르게 복원했거나 한 모델만 복원한 것
+    if (it.items) lines.push(["그림에서 복원한 문구", `${it.items}개 · 자리 ${it.places}곳${it.check ? ` · 확인 필요 ${it.check}개` : ""} — 「작성 지침 보기」 에서 봅니다`]);
   }
   const odd = (FW.sh && FW.sh.items) || []; // 이상한 서식 줄(② §5-11) — 스크립트가 찾은 것: 사람이 골라 서식 수정 · 삭제
   if (odd.length) lines.push(["이상한 서식", fwShapeCountText(FW.sh)]);
@@ -2012,6 +2014,7 @@ const FW_TAGS = {
   boxed:  { word: "아래 상자는 따로", cls: "", step: "heads", say: "이 헤딩 아래의 쓸 자리는 상자 안에 있습니다 — 그 상자 줄을 고릅니다" },
   guides: { word: "지침 n", cls: "guide", step: "heads", say: "이 자리에 붙은 작성 지침의 수(양식의 작성 요령 · 참고 · ※ 안내 · 각주) — 「작성 지침 보기」 로 펼칩니다" },
   ttype:  { word: "테이블 타입", cls: "ok", step: "headsLlm", say: "04 가 이 자리의 표에 밝힌 테이블 타입(본문 · 헤딩 · 그림 · 값 테이블 …) — 타입의 작성 방법은 「작성 지침 보기」 에 있습니다" },
+  imgtext: { word: "그림 문구 n", cls: "guide", step: "headsLlm", say: "04 가 샘플 · 예시 그림에서 복원한 문구의 수 — 초안을 쓸 때 예시(꼴만)로 읽습니다. 「작성 지침 보기」 에서 복원한 글과 두 모델의 견줌을 봅니다" },
   user:   { word: "사람 지침", cls: "user", step: "guides", say: "사람이 이 자리에 적은 작성 지침이 있음" },
   text:   { word: "글 있음", cls: "", step: "", say: "헤딩 아래에 이미 본문 글이 있음(지금 문서)" },
   draft:  { word: "초안 n", cls: "ok", step: "ask", say: "이 자리에 받은 초안의 수 · 받는 중 · 초안이 없는 까닭(자료에 없음 · 확인할 것 남음 · 검사에서 제외 …)" },
@@ -2159,6 +2162,25 @@ function fwChunksEl(p, foot) { // 「쓸 자리 고르기」 — 상자를 골�
   }
   return det;
 }
+// ---- 그림에서 복원한 문구(spec_양식작성 ② §5-13 — 2026-11-28 사용자 「문장이 있는 이미지는 동일한 형식으로 … 문구를 복원하고 검토」) ----
+// 04 가 샘플 · 예시 그림의 문장을 그림에 보이는 형식 그대로 글로 복원한 것(서버 writing_guidance_api.attach — 자리의 imageTexts). check = 두 모델이 따로 복원한 글의 견줌(스크립트):
+// agree 같음 · differ 다름(다른 글 = alt) · one 한 모델만 복원 · single 견주지 못함. block = 목적 문서 안의 그림이면 그 블록(누르면 문서의 그 그림으로 — 열과 나란히 본다).
+const FW_IMG_CHECK = { agree: ["두 모델 일치", "user"], differ: ["확인 필요", "warn"], one: ["확인 필요", "warn"], single: ["한 모델 — 견주지 않음", ""] };
+const FW_IMG_SAY = { agree: "두 모델이 따로 복원한 글이 같습니다(빈칸 · 줄 나눔은 빼고 견줌)", differ: "두 모델이 다르게 복원했습니다 — 그림과 견줘 보세요(아래 「다른 모델이 복원한 글」)",
+  one: "한 모델만 이 그림의 문구를 복원했습니다 — 그림과 견줘 보세요", single: "한 모델로 돌았거나 한쪽이 답하지 못해 견주지 못했습니다" };
+const FW_IMG_OPEN = new Set(["differ", "one"]); // 사람이 그림과 견줘 볼 것(「확인 필요」)
+function fwImgTextEl(x) {
+  const box = el("div", "fw-imgtext"), head = el("div", "fw-imgtext-head"), [word, cls] = FW_IMG_CHECK[x.check] || FW_IMG_CHECK.single;
+  const where = `${x.source} · ${x.label || "그림 " + x.image}`, src = el(x.block ? "button" : "span", "fw-imgtext-src", where), chk = el("span", `fw-tag ${cls}`.trim(), word);
+  if (x.block) { src.type = "button"; src.title = "문서의 그 그림으로 갑니다 — 복원한 글과 나란히 봅니다"; src.addEventListener("click", () => scrollToBlock(x.block)); }
+  chk.dataset.check = x.check || "single";
+  chk.title = FW_IMG_SAY[x.check] || FW_IMG_SAY.single;
+  head.append(el("span", "fw-tag guide", "그림에서 복원"), src, chk);
+  if (x.cut) { const c = el("span", "fw-tag warn", "잘림"); c.title = "복원한 글이 길어 1,500자에서 잘랐습니다"; head.append(c); }
+  box.append(head, el("pre", "fw-imgtext-text", x.text));
+  for (const a of x.alt || []) { const d = el("details", "fw-imgtext-alt"); d.append(el("summary", null, `다른 모델이 복원한 글 (${a.slot})`), el("pre", "fw-imgtext-text", a.text)); box.append(d); }
+  return box;
+}
 function fwPlaceEl(p, item, foot) {
   const row = el("div", `fw-place${p.kind === "table" ? " is-table" : p.kind === "box" ? " is-box" : ""}`), cb = el("input"), main = el("div", "fw-place-main"), name = el("button", "fw-place-name", p.text || (p.kind === "table" ? "표" : p.kind === "box" ? "상자" : "(빈 헤딩)")), tags = el("span", "fw-tags");
   cb.type = "checkbox"; cb.checked = FW.picks.has(p.id); cb.setAttribute("aria-label", `${p.text} 고르기`);
@@ -2179,6 +2201,8 @@ function fwPlaceEl(p, item, foot) {
   const types = new Map(); // 그 자리의 표에 밝힌 테이블 타입(이름마다 표의 수 — 서버 writing_guidance_api.attach 의 tableTypes)
   for (const t of p.tableTypes || []) types.set(t.name, (types.get(t.name) || 0) + 1);
   for (const [name, n] of types) tags.append(fwTagEl("ttype", n > 1 ? `${name} ${n}` : name));
+  const shots = p.imageTexts || []; // 04 가 그림에서 복원한 문구(② §5-13) — 확인 필요(두 모델이 다르게 복원 · 한 모델만 복원)가 있으면 경고색
+  if (shots.length) { const open = shots.filter((x) => FW_IMG_OPEN.has(x.check)).length, t = fwTagEl("imgtext", `그림 문구 ${shots.length}`, open ? "warn" : undefined); if (open) t.title = `확인 필요 ${open}개 — 두 모델이 다르게 복원했거나 한 모델만 복원했습니다\n${t.title}`; tags.append(t); }
   if (p.user) tags.append(fwTagEl("user", "사람 지침"));
   if (p.filled) tags.append(fwTagEl("text", "글 있음"));
   if (item) { const [word, cls] = FW_ITEM[item.state] || [item.state, ""]; const t = fwTagEl("draft", item.state === "done" ? `초안 ${item.proposals}` : item.state === "none" ? FW_NONE[item.why] || word : word, cls); const why = item.error || item.note || item.reply || ""; if (why) t.title = `${why}\n${t.title}`; tags.append(t); }
@@ -2206,11 +2230,12 @@ function fwPlaceEl(p, item, foot) {
   if (how && how.use) { const u = el("div", "fw-how fw-use", `자료에서 쓸 것: ${how.use}`); u.title = from("plan"); main.append(u); } // 작성 계획(자료를 주고 한 검토)
   if (how && how.gap) { const g = el("div", "fw-how fw-gap", `자료에 없는 것: ${how.gap}`); g.title = from("plan"); main.append(g); }
   const writable = p.kind === "head"; // 사람이 적는 지침은 헤딩 자리에만(place_guides_api PUT …/heads — 표는 「이 표」 지침)
-  if (p.guides.length || (FW.guideMode && writable)) {
-    const det = el("details", "fw-guides"), sum = el("summary", null, p.guides.length ? "작성 지침 보기" : "작성 지침 적기");
+  if (p.guides.length || shots.length || (FW.guideMode && writable)) {
+    const det = el("details", "fw-guides"), sum = el("summary", null, p.guides.length || shots.length ? "작성 지침 보기" : "작성 지침 적기");
     det.open = !!FW.guideMode;
     det.append(sum);
     for (const g of p.guides) { const li = el("div", "fw-guide"); li.append(el("span", `fw-tag ${g.src === "user" ? "user" : "guide"}`, g.src === "user" ? "사람" : g.kind || "양식"), el("span", null, g.text)); det.append(li); }
+    for (const x of shots) det.append(fwImgTextEl(x)); // 그림에서 복원한 문구 — 지침 목록 아래(예시로만 읽는다)
     if (FW.guideMode && writable) det.append(fwGuideNoteEl(p));
     main.append(det);
   }

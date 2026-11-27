@@ -123,7 +123,8 @@ AGENTS = (
     dict(id="writing_guidance", no="26", group="문서 편집", name="작성 지침 보완", run="manual", effort="medium",
          contract=("app.writing_guidance", "CONTRACT"), model=("app.writing_guidance", "MODEL"), parts=(("merge", "writing_guidance"), ("job", "form_write")),
          llms=S.LLMS["writing_guidance"],   # 두 모델이 따로 판정하고 협의(2026-11-26 사용자 「문서의 지침을 작성할 떄는 2가지 모델을 같이 사용 … 불가피한 경우 1개만 선택」 — LLM1 = 이 에이전트의 평소 모델 · 칩에서 「한 모델만」)
-         role="목적 양식의 각 자리와 샘플·별지·그림을 대조해 작성 규칙의 적용 여부를 판정하고, 채택한 규칙의 출처와 근거를 남깁니다. 두 모델(LLM1 · LLM2)이 따로 판정하고 다르면 LLM1 의 모델이 협의해 하나로 냅니다(한쪽만 답하면 그 답).",
+         role="목적 양식의 각 자리와 샘플·별지·그림을 대조해 작성 규칙의 적용 여부를 판정하고, 채택한 규칙의 출처와 근거를 남깁니다. 두 모델(LLM1 · LLM2)이 따로 판정하고 다르면 LLM1 의 모델이 협의해 하나로 냅니다(한쪽만 답하면 그 답). "
+              "문장이 든 샘플 · 예시 그림은 그 문구를 그림에 보이는 형식 그대로 글로 복원해 남기고, 두 모델이 복원한 글이 다르면 「확인 필요」 로 남깁니다(복원한 문구는 초안의 예시로만 쓰입니다).",
          where="양식 작성 대시보드의 04 LLM 검증·보완", data="양식 본문 · 자리별 지침과 서식 · 안에 든 샘플 · 사람이 첨부한 샘플과 추가 서식의 글과 그림"),
     dict(id="analysis_check", no="27", group="헤딩 추출", name="구간 검증", run="manual", effort="medium", contract=("app.analysis_check", "CONTRACT"),
          parts=(("heading", "graph"), ("heading", "templates"), ("heading", "tables")),

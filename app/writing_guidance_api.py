@@ -138,6 +138,7 @@ def attach(s, places, rev):
     current = stored if stored and stored.get("sig") == key else {}
     off = _ref_stale(current, _ref_sigs(places)[1], places) if current else set()   # 규정 · 문서 목적이 판정 때와 달라진 자리 — 그 자리의 판정 · 규칙 · 타입만 싣지 않는다(다른 자리는 그대로)
     rules, judgments = current.get("rules", {}), current.get("judgments", {})
+    image_texts = current.get("imageTexts") or {}
     types, themes = current.get("tableTypes") or {}, None
     llm_defined = {x.get("id") for x in current.get("defined") or () if isinstance(x, dict) and x.get("kind") == "tables"}   # 이 실행에서 LLM 이 새로 정의한 테이블 타입(테마에서 지워졌어도 확인 전으로 본다)
     if types or current.get("theme") or current.get("templates"):   # 테마의 글은 지금 것으로 읽는다(사람이 YAML 을 고치면 바로 닿는다 — 지워진 항목은 판정 때 적어 둔 글로)
@@ -153,6 +154,11 @@ def attach(s, places, rev):
             p["docTheme"] = doc_theme   # 문서의 테마 · 중요 항목 · 개요 템플릿 — 자리마다의 지침 목록에 넣지 않는다(모든 자리에 같은 줄이 붙지 않게: 06 은 한 번 · 초안 요청은 자리마다 읽는다)
         if not fresh:
             continue
+        shots = image_texts.get(p["id"]) or ()
+        if shots:   # 그림에서 복원한 문구(② §5-13 5) — 화면용 `imageTexts` + 자리의 예시 **끝**에(양식 지침의 사람 예시가 먼저 · 초안 요청만 읽는다: form_guide_yaml.example_text)
+            p["imageTexts"] = [dict(x) for x in shots]
+            p["examples"] = [*(p.get("examples") or ()),
+                             *({"src": "image", "text": x["text"], "label": f"{x['source']} · {x.get('label') or '그림 ' + str(x['image'])}", "check": x.get("check") or "single"} for x in shots)]
         extra = []
         for rule in rules.get(p["id"], ()):
             basis = W.BASIS.get(rule.get("basis"))
@@ -182,6 +188,15 @@ def attach(s, places, rev):
             p["n"] = len(p["guides"])
 
 
+def _picture(row, embedded):
+    """그림 문구 하나가 가리키는 **목적 문서 안의 그림** 블록 id | None(사람이 올린 서식의 그림 — 문서에 없다). embedded = {출처 id: 목적 문서 안 예시의 블록 id}.
+    목적 문서 안 그림의 label 은 「그림 [블록 id]」(form_example_evidence.evidence) — 그 꼴이 아니면 예시의 블록으로."""
+    if row.get("ref") not in embedded:
+        return None
+    label = row.get("label") or ""
+    return label[4:-1] if label.startswith("그림 [") and label.endswith("]") and len(label) > 5 else embedded[row["ref"]]
+
+
 def _judge(batch, inputs, job, images, names, image_labels, types=(), doc=None, run=None):
     """types = 테이블 타입 id 들 · doc = 문서 단위의 답(테마 · 템플릿)을 받아 둘 사전(처음 받은 답 하나 — 묶음마다 다시 묻지만 첫 답을 쓴다).
     **두 모델이 따로 판정하고 협의한다**(LLM1 · LLM2 — `agent_settings.duo`: 2026-11-26 사용자 「문서의 지침을 작성할 떄는 2가지 모델을 같이 사용 … 불가피한 경우 1개만 선택」 · 공통 함수 app/llm_duo.py —
@@ -203,6 +218,7 @@ def _judge(batch, inputs, job, images, names, image_labels, types=(), doc=None, 
         if doc is not None:
             doc.setdefault("got", got["data"])
         valid, errors = W.check(got["data"], {p["id"] for p in pending}, names, image_labels, tables, types)
+        W.image_text_checks(valid, out["drafts"])   # 그림에서 복원한 문구 — 두 모델이 따로 낸 답을 견줘 check 를 적는다(스크립트 · spec_양식작성 ② §5-13 3)
         decisions.update(valid)
         if not errors:
             return decisions
@@ -266,8 +282,13 @@ def _go(s, run):
         table_text = {t["id"]: t.get("text") or "" for p in briefs for t in p.get("tables") or ()}
         rules = {k: v["rules"] for k, v in decisions.items() if v["rules"]}
         judgments = {k: {"status": v["status"], "reason": v["reason"], **({"llm": v["llm"]} if v.get("llm") else {})} for k, v in decisions.items()}   # llm = 스크립트가 상태를 고친 자리의 LLM 답 그대로
+        # 그림에서 복원한 문구(② §5-13) — 적용하는 자리의 것만 · 목적 문서 안의 그림이면 그 블록 id 를 함께(화면이 문서의 그 그림으로 간다)
+        embedded_ids = {row["id"]: r["id"] for row, r in zip(sources, embedded)}   # pack 은 준 차례대로 ref1 … 을 매긴다 — 목적 문서 안의 예시가 앞이다
+        image_texts = {k: [{**x, **({"block": b} if (b := _picture(x, embedded_ids)) else {})} for x in v["imageTexts"]]
+                       for k, v in decisions.items() if v.get("imageTexts") and v["status"] == "apply"}
         rules.update({k: v for k, v in (prior.get("rules") or {}).items() if k in keep})
         judgments.update({k: v for k, v in (prior.get("judgments") or {}).items() if k in keep})
+        image_texts.update({k: v for k, v in (prior.get("imageTexts") or {}).items() if k in keep})
         counts = Counter(v["status"] for v in judgments.values())
         current, now = GW._base_places(s)
         if sig != _key(s, current, now, form_examples_api.listing(s.id)):
@@ -281,6 +302,7 @@ def _go(s, run):
                   "count": len(rules), "images": len(images), "sources": list(names.values()),
                   "placeCount": len(places), "cut": any(r["cut"] for r in detail), "sourceDetails": detail,
                   "refSigs": ref_sigs,   # 자리마다 보낸 참조(규정 · 문서 목적)의 지문 — 달라진 자리만 낡는다(_ref_stale)
+                  **({"imageTexts": image_texts} if image_texts else {}),   # 자리마다 그림에서 복원한 문구 + 두 모델 견줌(check · alt) — 없으면 키를 두지 않는다
                   **({"carried": len(keep)} if keep else {}),   # 앞 판정을 이어 쓴 자리의 수(이번에 다시 묻지 않았다 — 직접 판정한 것으로 세지 않는다)
                   **({"llms": run["duo"][-12:]} if run.get("duo") else {})}   # 묶음마다 자리(LLM1 · LLM2 · 협의)의 기록 — 어느 모델이 답했고 협의했나
         with s.plock, _LOCK:
@@ -310,7 +332,8 @@ def _go(s, run):
             else:
                 _MEM[s.id] = record
             works.log(s.id, "writingGuidance", places=len(rules), images=len(images), sources=len(names), cut=record["cut"],
-                      theme=theme or "", tableTypes=sum(len(v) for v in record["tableTypes"].values()), defined=len(defined))
+                      theme=theme or "", tableTypes=sum(len(v) for v in record["tableTypes"].values()), defined=len(defined),
+                      imageTexts=sum(len(v) for v in image_texts.values()))
             run.update(state="done", ended=time.time())
     except Exception as e:
         with _LOCK:
@@ -354,7 +377,9 @@ def view(doc_id: str):
         off = len(_ref_stale(saved, _ref_sigs(places)[1], places)) if current else 0   # 규정 · 문서 목적이 판정 때와 달라진 자리의 수 — 다시 실행하면 그 자리만 묻는다
         current = current and not off
     audited = bool(saved and saved.get("judgments"))
+    shots = [x for rows in ((saved or {}).get("imageTexts") or {}).values() for x in rows]   # 그림에서 복원한 문구(② §5-13) — 수 · 자리 수 · 사람이 견줘 볼 것(두 모델이 다르게 복원 · 한 모델만 복원)
     return {"ready": current and audited, "audited": audited, "stale": bool(saved and not current), "run": run, "refStale": off,
+            "imageTexts": {"items": len(shots), "places": len((saved or {}).get("imageTexts") or {}), "check": sum(x.get("check") in W.CHECK_OPEN for x in shots)},
             "judgmentCounts": (saved or {}).get("judgmentCounts", {}),
             "count": (saved or {}).get("count", 0), "placeCount": (saved or {}).get("placeCount", 0), "sources": (saved or {}).get("sources", []),
             "sourceDetails": (saved or {}).get("sourceDetails", []), "images": (saved or {}).get("images", 0),

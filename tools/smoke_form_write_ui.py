@@ -237,6 +237,23 @@ def check_guidance_inputs(page, doc):
               card.get_attribute("data-state") == "done" and "4곳을 판정" in shown and "지침 적용 2곳" in shown and "근거 부족 1곳" in shown and "그림 1장" in shown
               and "목적 양식" in shown and name in shown and "일부 입력" in shown)
         check_criteria("완료 후")
+        # 그림에서 복원한 문구(spec_양식작성 ② §5-13): 04 카드의 줄 + 자리 줄의 꼬리표 · 「작성 지침 보기」 안의 복원한 글 · 두 모델의 견줌(확인 필요 = 다르게 복원 · 다른 글은 접어 둠)
+        result["imageTexts"] = {"items": 2, "places": 1, "check": 1}
+        refresh()
+        check("② 04 카드가 그림에서 복원한 문구의 수와 확인 필요를 보인다", "그림에서 복원한 문구" in card.inner_text() and "2개 · 자리 1곳 · 확인 필요 1개" in card.inner_text(), card.inner_text()[-300:])
+        shots = page.evaluate("""() => {
+          const p = { id: "x1", kind: "head", text: "성과", depth: 1, guides: [], n: 0, imageTexts: [
+            { source: "작성 예시 [t20]", label: "그림 [pic7]", image: 1, text: "□ 성과\\n  o 시제품 2종", check: "differ", alt: [{ slot: "LLM2", text: "□ 성과\\n  o 시제품 3종" }], block: "pic7" },
+            { source: "별지.png", label: "그림 1", image: 2, text: "가. 개요", check: "agree" }] };
+          const row = fwPlaceEl(p, null, document.createElement("div")), tag = row.querySelector('[data-tag="imgtext"]');
+          return { tag: tag.textContent, warn: tag.classList.contains("warn"), summary: row.querySelector(".fw-guides > summary").textContent,
+            shots: [...row.querySelectorAll(".fw-imgtext")].map((b) => ({ text: b.querySelector(".fw-imgtext-text").textContent, check: b.querySelector("[data-check]").textContent,
+              src: b.querySelector(".fw-imgtext-src").tagName, alt: [...b.querySelectorAll(".fw-imgtext-alt summary")].map((s) => s.textContent) })) };
+        }""")
+        check("② 자리 줄이 그림에서 복원한 문구를 줄 나눔 그대로 보이고 두 모델의 견줌을 밝힌다",
+              shots["tag"] == "그림 문구 2" and shots["warn"] and shots["summary"] == "작성 지침 보기"
+              and shots["shots"] == [{"text": "□ 성과\n  o 시제품 2종", "check": "확인 필요", "src": "BUTTON", "alt": ["다른 모델이 복원한 글 (LLM2)"]},
+                                     {"text": "가. 개요", "check": "두 모델 일치", "src": "SPAN", "alt": []}], shots)
         steps = page.evaluate(DASH)["nodes"]
         guide_actions = page.evaluate("async () => (await formWriteLive()).steps.guides.acts.map(b => b.textContent)")
         check("② 04 판정 후 05를 승인하지 않아도 06으로 진행한다",

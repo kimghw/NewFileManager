@@ -1145,3 +1145,13 @@ button.btn.primary[data-dash-focus="act:guides"]:hover:not(:disabled) {
 .fsrc-text { margin: 4px 12px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface, #fff); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .fsrc-hit { background: #ffe58a; color: inherit; padding: 1px 0; border-radius: 2px; }
 .agp-src-go { margin-left: 4px; height: 20px; padding: 0 6px; font-size: 11px; }
+
+/* 그림에서 복원한 문구(spec_양식작성 ② §5-13 · form_write.js fwImgTextEl) — 「작성 지침 보기」 의 지침 목록 아래: 출처 · 견줌 꼬리표 + 복원한 글(줄 나눔 그대로) + 접어 둔 「다른 모델이 복원한 글」 */
+.fw-imgtext { margin: 6px 0 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.fw-imgtext-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.fw-imgtext-src { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+button.fw-imgtext-src { border: 0; padding: 0; background: none; cursor: pointer; font: inherit; font-size: 12px; color: var(--accent); text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.fw-imgtext-text { margin: 0; font: inherit; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.fw-imgtext-alt { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.fw-imgtext-alt > summary { cursor: pointer; width: max-content; }
+.fw-imgtext-alt > .fw-imgtext-text { margin-top: 2px; padding-left: 8px; border-left: 2px solid var(--warn); color: var(--text); }
