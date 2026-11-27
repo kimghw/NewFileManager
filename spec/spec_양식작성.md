@@ -157,6 +157,9 @@
   자리 턴의 머리에 자리 이름(누르면 그 자리로) · 같은 이름 자리를 안 고른 상자에 「안 쓸 자리 · 안 쓴 자리」 → ② §5-3 「읽는 문서」 · 「안 쓴 자리 알림」.
 - 2026-11-26 사용자(문서 라이브러리 「문서」 목록 · 「hwp · hwpx · docx · pdf 끌어 놓기」 그림) **"ppt 도 참조 문서로 넣을 수 있도록 해줘,"** → ② §2 「받는 형식」 — ppt · pptx 를 받고 읽을 PDF 는 PowerPoint 로 찍는다(슬라이드 하나 = 한 쪽 · 추출은 PDF 와 같은 길).
 - 2026-11-27 사용자(04 카드의 단추 「추출 프롬프트 보기」 그림과 함께) **"판단지침 이라고 해줘야지. 입력과 판정 결과 작성 규칙은 스크립트야?  테마나 이 단계가 아니라 사전에 구축해 놓은 거란거지?"** → 위 11-26 의 제안(「판단 지침」)을 확정: 단추 「추출 프롬프트 보기」 → **「판단 지침 보기」** · 열 머리 「추출 프롬프트」 → 「판단 지침」(`form_write.js` `fwLlmStep` · `fwCriteriaOpen` · 등록부 줄 글 · 화면 검사). 답: 「입력과 판정 결과 작성 규칙」 = 스크립트가 도는 것이 아니라 LLM 에 보내는 글(계약 — `app/writing_guidance.py` `CONTRACT`: 입력의 뜻 · 답의 꼴)이고 코드에 둔 까닭은 서버가 같은 꼴로 답을 검사하기 때문 · 테마(YAML) · 판단 지침은 이 단계가 만드는 것이 아니라 미리 적어 둔 것(04 는 읽기만 — 맞는 타입이 없을 때만 새 정의를 이 PC 사본의 `added` 에 더함).
+- 2026-11-27 사용자 **"안티그라비티에 요청헤서 판단지침을 사람이 이해하기 쉽게 작성해 주길 바람 작성 지침도 함께/"** → 판단 지침 글(`app/merge_guides_default/` · `heading_guides_default/` · `tpl_agent_default/` 의 md)을 Antigravity 로 다시 씀 —
+  규칙 하나 = 항목 하나 · 까닭 · 예는 들여 쓴 하위 항목 · 필드 이름에 우리말 뜻 · 절 머리에 한 줄 요약. **뜻은 그대로**(제목 줄 · HTML 주석 · `## ` 머리 · 코드 블록 · 시험이 찾는 문구는 글자 그대로 — 원본과 한 문장씩 견줘 약해지거나 좁아진 곳은 되돌림).
+  「작성 지침」 = 04 의 판단 지침 `writing_guidance.md` + 테마 YAML 의 작성 방법(`how` · `signs`)으로 읽음(에이전트 판단 — 사용자 확인 전: 양식 지침 YAML 은 지금 경로 · 머리글뿐이라 뺌). 상태 ③.
 
 ## ② 확정 사양
 
@@ -714,6 +717,9 @@
   `app/static/form_write.js`(`fwRefs` · `fwRefSet` · `fwRefTabsEl` · `fwRefBtn` · `fwRefStep` · `fwRefsDraw` · `fwTakeDraw` · `fwOpenStep` · `fwRefUpload` · 자료 처음 값) · `form_write.css`(`.fw-tabs` · `.fw-tab` · `.fw-ref-tabs` · `.fw-ref-out`) · 등록부 07 · 08 의 「끝난 것으로 보는 때」.
   테마 탭(② §5-2): `form_review_api._go`(`planTopics`) · `_view`(`planTopicLines`) · `unplan` · `form_write.js` `fwTopicSrc` · `fwTopicsEl`.
   시험: `tests/test_guide_write.py` 더함 1(`test_project_refs_only_selected_library_docs_are_used`) · `tests/test_form_review.py`(계획의 테마 따로 · 작성 초기화가 비움) — 닿는 파일 8개 144 통과 · 화면 검사 `smoke_form_write_ui.py` ② 구간을 새 동작으로(탭 · 409 · 넣기 · 07 · 08 끝남) · ⑦ 에이전트 보기 「라이브러리」 는 바로 올린 문서를 먼저 프로젝트에 넣음 — `form_write` 104 통과(newfilemanager-bf 의 「지침 작성」 탭 고침과 함께).
+- 2026-11-27 판단 지침 글을 사람이 읽기 쉽게 다시 씀(① — Antigravity 셋을 나란히 · 뜻 그대로): **한 것** = `merge_guides_default/` 의 agent · form_review · guide_fix · gaps · links · table_map · gather · verify · zones, `heading_guides_default/` 의 graph · rules · tables · templates · tolerance(json 블록은 그대로), `tpl_agent_default/tidy.md`(`majority.md` 는 짧아 그대로).
+  검토 = 형식 검사(제목 줄 · 주석 · `## ` 머리 · 코드 블록 · 시험 문구) + 따로 띄운 검토 에이전트 셋이 원본과 견줌 — 빠진 규칙 없음 · 「예:」 · 「까닭:」 아래로 내려가 약해진 규칙과 본문보다 좁은 요약 30여 곳을 되돌림. 8114 는 다시 켜지 않아도 새 글을 읽는다(파일을 그때그때 읽음).
+  같은 날 이어서 `writing_guidance.md` · 테마 YAML `common` · `rnd`(`how` · `signs` 글 값만 — 구조 · 주석 줄은 그대로)도 얹음 — 다른 세션이 그 셋의 뜻을 고친(astra 검토 반영) 뒤의 글 위에. 시험: 지침을 읽는 pytest 파일들 통과(전체 시험은 밤에).
 
 ## ④ 미결/후속
 
