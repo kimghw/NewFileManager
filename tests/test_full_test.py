@@ -1,4 +1,4 @@
-"""전체 시험의 때 판단(tools/full_test.py decide — spec_워크플로우 ② §12): 24시간이 지나면 알리고 돌림 · 오늘 아직이고 CPU 가 한가하면 돌림 · 하루 한 번."""
+"""전체 시험의 때 판단(tools/full_test.py decide — spec_워크플로우 ② §12): 밤 0시~7시에만 · 하룻밤에 한 번 · 낮에는 며칠이 지났어도 안 돌림."""
 import datetime as dt
 import importlib.util
 import json
@@ -11,57 +11,50 @@ _spec = importlib.util.spec_from_file_location("full_test", ROOT / "tools" / "fu
 FT = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(FT)
 
-NOW = dt.datetime(2026, 11, 17, 15, 0)
+DAY = dt.datetime(2026, 11, 17, 15, 0)
+NIGHT = dt.datetime(2026, 11, 17, 2, 0)
 
 
-def _cpu(pct):
-    called = []
-
-    def fn():
-        called.append(1)
-        return pct
-    return fn, called
-
-
-def test_no_record_or_over_24h_is_due_regardless_of_cpu():
-    fn, called = _cpu(90.0)
-    assert FT.decide(None, NOW, None, fn)[0] == "24h"
-    assert FT.decide(NOW - dt.timedelta(hours=24, minutes=1), NOW, None, fn)[0] == "24h"
-    assert not called  # 24시간이 지났으면 CPU 를 재지 않고 알리고 돌린다
+def test_daytime_never_runs_even_without_record_or_after_days():
+    """2026-11-27 사용자 「전체 테스트는 밤 12시에서 7시 사이에만」 — 낮에는 기록이 없어도 · 며칠이 지났어도 돌릴 때가 아니다."""
+    for last in (None, DAY - dt.timedelta(days=3), DAY - dt.timedelta(hours=25)):
+        kind, why = FT.decide(last, DAY, None)
+        assert kind == "no" and "0시~7시" in why
+    for hour in (7, 8, 12, 23):  # 7시 정각부터는 밤 시간이 아니다
+        assert FT.decide(None, DAY.replace(hour=hour, minute=0), None)[0] == "no"
 
 
-def test_already_ran_today_does_not_measure_cpu():
-    fn, called = _cpu(1.0)
-    assert FT.decide(dt.datetime(2026, 11, 17, 0, 30), NOW, None, fn)[0] == "no"
-    assert not called
-
-
-def test_not_today_and_idle_cpu_runs_but_busy_cpu_waits():
-    yday = dt.datetime(2026, 11, 16, 22, 0)  # 어제 · 17시간 전(12시간은 지났고 24시간은 안 됨)
-    assert FT.decide(yday, NOW, None, _cpu(10.0)[0])[0] == "idle"
-    assert FT.decide(yday, NOW, None, _cpu(60.0)[0])[0] == "wait"
-    assert FT.decide(yday, NOW, None, _cpu(None)[0])[0] == "wait"  # 못 재면 기다린다(늦어도 24시간이 되면 돈다)
-
-
-def test_idle_needs_min_gap_after_midnight():
-    fn, called = _cpu(1.0)
-    late = dt.datetime(2026, 11, 16, 23, 30)
-    assert FT.decide(late, dt.datetime(2026, 11, 17, 2, 0), None, fn)[0] == "no"  # 날짜는 바뀌었지만 2시간 반 전
-    assert not called
+def test_night_runs_once_per_night():
+    assert FT.decide(None, NIGHT, None)[0] == "night"
+    assert FT.decide(dt.datetime(2026, 11, 16, 23, 30), NIGHT, None)[0] == "night"   # 어젯밤 자정 전에 끝난 것은 오늘 밤 몫이 아니다
+    assert FT.decide(dt.datetime(2026, 11, 16, 3, 0), NIGHT, None)[0] == "night"
+    assert FT.decide(dt.datetime(2026, 11, 17, 0, 40), NIGHT, None)[0] == "no"       # 오늘 0시 뒤에 끝난 것이 있다
+    for hour, minute in ((0, 0), (6, 59)):
+        assert FT.decide(None, NIGHT.replace(hour=hour, minute=minute), None)[0] == "night"
 
 
 def test_running_elsewhere_blocks():
-    assert FT.decide(None, NOW, {"pid": 1}, _cpu(1.0)[0])[0] == "running"
+    assert FT.decide(None, NIGHT, {"pid": 1})[0] == "running"
 
 
-def test_hook_prints_json_only_when_due(tmp_path, monkeypatch):
-    for k in ("DIR", "LAST", "HISTORY", "LOCK", "CPU"):
+def test_run_refuses_outside_night_unless_anytime(monkeypatch, capsys):
+    """낮에 `full_test.py` 를 그냥 부르면 돌지 않는다(종료 코드 3 — 잠금 · 기록을 만들지 않는다)."""
+    class Noon(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 17, 12, 0)
+    monkeypatch.setattr(FT.dt, "datetime", Noon)
+    monkeypatch.setattr(FT, "running", lambda: (_ for _ in ()).throw(AssertionError("밤 시간 밖이면 잠금도 보지 않는다")))
+    assert FT.run() == 3 and "--anytime" in capsys.readouterr().out
+
+
+def test_status_reads_last_record(tmp_path, monkeypatch):
+    for k in ("DIR", "LAST", "HISTORY", "LOCK"):
         monkeypatch.setattr(FT, k, tmp_path / getattr(FT, k).name if k != "DIR" else tmp_path)
-    FT._write(FT.LAST, {"end": dt.datetime.now().isoformat(timespec="seconds"), "ok": True})
-    assert FT.status()["kind"] == "no"
-    FT._write(FT.LAST, {"end": (dt.datetime.now() - dt.timedelta(days=2)).isoformat(timespec="seconds"), "ok": True})
-    s = FT.status()
-    assert s["kind"] == "24h" and "24시간" in s["why"]
+    FT._write(FT.LAST, {"end": "2026-11-17T00:40:00", "ok": True})
+    assert FT.status(NIGHT)["kind"] == "no"
+    FT._write(FT.LAST, {"end": "2026-11-15T03:00:00", "ok": True})
+    assert FT.status(NIGHT)["kind"] == "night" and FT.status(DAY)["kind"] == "no"
 
 
 def test_hook_command_output_is_valid_json_or_empty():

@@ -1,17 +1,17 @@
-"""전체 시험 — 하루 한 번(2026-11-17 사용자 "고친 부분만 테스트 하고, 이후에 하루에 한번 사용자가 요청하거나 24시간 이내에 테스트 하지 않으면
-사용자에게 알리고 테스트 하도록, 또는 cpu를 사용량이 낮은 경우 테스트 진행하도록" — 원본 spec/spec_워크플로우.md ② §12).
+"""전체 시험 — 밤(0시~7시)에만 · 하룻밤에 한 번(2026-11-27 사용자 "테스트는 수정한 부분만 하고,, 전체 테스트는 밤 12시에서 7시 사이에만 하도록 해줘" · "전체 테스트를 하고 있어 다른거 못쓰게"
+— 낮에 도는 전체 시험이 PC 를 잡아 다른 일을 못 했다. 전: 2026-11-17 「24시간이 지나면 알리고 돌림 · CPU 가 한가하면 돌림」. 원본 spec/spec_워크플로우.md ② §12).
 
-    python -X utf8 tools/full_test.py               전체 시험을 돌린다 — pytest 전체(run_pytest.py) → 화면 검사 기본 묶음(run_ui_gates.py), 차례로(같이 돌리지 않는다) · 기록을 남긴다
-    python -X utf8 tools/full_test.py --due         돌릴 때인가 — 마지막 전체 시험 · 지난 시간 · 도는 중인가 · CPU · 판단(사람이 읽는 글)
+    python -X utf8 tools/full_test.py               전체 시험을 돌린다 — pytest 전체(run_pytest.py) → 화면 검사 기본 묶음(run_ui_gates.py), 차례로(같이 돌리지 않는다) · 기록을 남긴다.
+                                                    밤 시간(0시~7시) 밖이면 돌리지 않고 종료 코드 3 — 사용자가 지금 돌리라고 직접 말했을 때만 --anytime
+    python -X utf8 tools/full_test.py --due         돌릴 때인가 — 마지막 전체 시험 · 도는 중인가 · 판단(사람이 읽는 글)
     python -X utf8 tools/full_test.py --due --hook  훅(UserPromptSubmit — .claude/settings.json)용: 돌릴 때일 때만 JSON 한 줄(맥락 글 + 사용자에게 보일 한 줄), 아니면 아무것도 안 찍는다
 
 돌릴 때(decide):
-  ① 마지막 전체 시험이 끝난 지 24시간이 지났다(기록이 없어도) → "24h": 사용자에게 알리고 돌린다(CPU 와 상관없이)
-  ② 오늘(이 PC 의 날짜) 아직 안 돌렸고 · 마지막에서 12시간이 지났고 · CPU 사용량이 낮다(2초 평균 25% 미만) → "idle": 돌리고 한 줄로 알린다
-  그 밖 → 안 돌린다. 다른 세션이 전체 시험을 돌리고 있으면(잠금 — 살아 있는 프로세스) 안 돌린다. 사용자가 청하면 언제든 돌린다(판단과 상관없이).
-기록(artifacts/full_test/ — 세션들이 같이 본다): last.json(마지막 전체 시험) · history.jsonl · lock.json(도는 동안) · cpu.json(CPU 를 잰 때 — 10분에 한 번만 재서 훅이 매번 2초를 기다리지 않게) ·
-  <때>/(pytest.out · gates.out · 화면 검사 그림). 끝까지 돈 실행만 기록한다(실패도 기록 — 24시간은 다시 센다). 중간에 끊긴 실행은 기록하지 않는다.
-하나라도 떨어지면 종료 코드 1 · 이미 도는 중이면 2."""
+  지금이 밤 시간(이 PC 의 시계로 0시 이상 7시 미만)이고 · 오늘 0시 뒤에 끝난 전체 시험이 없다 → "night": 돌리고 한 줄로 알린다
+  그 밖 → 안 돌린다(낮에는 며칠이 지났어도). 다른 세션이 전체 시험을 돌리고 있으면(잠금 — 살아 있는 프로세스) 안 돌린다.
+기록(artifacts/full_test/ — 세션들이 같이 본다): last.json(마지막 전체 시험) · history.jsonl · lock.json(도는 동안) ·
+  <때>/(pytest.out · gates.out · 화면 검사 그림). 끝까지 돈 실행만 기록한다(실패도 기록). 중간에 끊긴 실행은 기록하지 않는다.
+하나라도 떨어지면 종료 코드 1 · 이미 도는 중이면 2 · 밤 시간 밖이면 3."""
 import argparse
 import datetime as dt
 import json
@@ -25,11 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIR = ROOT / "artifacts" / "full_test"
-LAST, HISTORY, LOCK, CPU = DIR / "last.json", DIR / "history.jsonl", DIR / "lock.json", DIR / "cpu.json"
-FULL_HOURS = 24        # ① 이만큼 지나면 알리고 돌린다
-IDLE_MIN_HOURS = 12    # ② 한가할 때 돌리는 것도 마지막에서 이만큼은 지나야(자정 넘어 곧바로 또 돌지 않게)
-CPU_LOW = 25.0         # ② 「CPU 사용량이 낮다」 = 2초 평균 이 % 미만(에이전트 판단 — 8114 서버 · 다른 세션이 늘 조금 쓴다)
-CPU_SAMPLE_S, CPU_CACHE_S = 2.0, 600
+LAST, HISTORY, LOCK = DIR / "last.json", DIR / "history.jsonl", DIR / "lock.json"
+NIGHT = (0, 7)         # 전체 시험을 돌리는 밤 시간 — 이 PC 의 시계로 0시 이상 7시 미만(2026-11-27 사용자 「밤 12시에서 7시 사이에만」)
 GATE_PORT = 18500      # 화면 검사의 첫 포트 — 세션들이 고친 곳 검사에 쓰는 기본 18300~ 와 겹치지 않게(2026-11-17 첫 실행: 다른 세션의 검사가 18301 을 같이 써서 결과가 어긋남)
 
 
@@ -72,55 +69,35 @@ def running():
         return None
 
 
-def cpu_now():
-    """CPU 사용량 %(2초 평균) — 10분 안에 잰 값이 있으면 그것(훅이 말마다 2초를 기다리지 않게). 못 재면 None."""
-    c = _read(CPU)
-    if c and time.time() - float(c.get("at", 0)) < CPU_CACHE_S:
-        return float(c["pct"])
-    try:
-        import psutil
-        pct = float(psutil.cpu_percent(interval=CPU_SAMPLE_S))
-    except Exception:  # noqa: BLE001
-        return None
-    try:
-        _write(CPU, {"at": time.time(), "pct": pct})
-    except OSError:
-        pass
-    return pct
+def at_night(now):
+    return NIGHT[0] <= now.hour < NIGHT[1]
 
 
-def decide(last_end, now, busy, cpu_fn):
-    """돌릴 때인가 → (판단, 까닭). 판단 = "running"(다른 실행이 도는 중) · "24h"(알리고 돌린다) · "idle"(돌리고 알린다) · "wait"(오늘 아직이지만 CPU 가 바쁘다) · "no".
-    cpu_fn 은 그것이 필요할 때만 부른다(오늘 이미 돌렸으면 CPU 를 재지 않는다)."""
+def decide(last_end, now, busy):
+    """돌릴 때인가 → (판단, 까닭). 판단 = "running"(다른 실행이 도는 중) · "night"(밤 시간이고 오늘 밤 아직 — 돌리고 알린다) · "no"."""
     if busy:
         return "running", "다른 세션이 전체 시험을 돌리고 있습니다"
-    if last_end is None:
-        return "24h", "전체 시험 기록이 없습니다"
-    age = now - last_end
-    if age >= dt.timedelta(hours=FULL_HOURS):
-        return "24h", f"마지막 전체 시험이 {_ago(age)}입니다(24시간 지남)"
-    if last_end.date() == now.date() or age < dt.timedelta(hours=IDLE_MIN_HOURS):
-        return "no", f"마지막 전체 시험 {_ago(age)} — 오늘 몫은 했습니다" if last_end.date() == now.date() else f"마지막 전체 시험 {_ago(age)} — {IDLE_MIN_HOURS}시간 안"
-    pct = cpu_fn()
-    if pct is not None and pct < CPU_LOW:
-        return "idle", f"오늘 아직 전체 시험을 안 돌렸고 CPU 가 한가합니다({pct:.0f}% < {CPU_LOW:.0f}%)"
-    return "wait", f"오늘 아직 전체 시험을 안 돌렸지만 CPU 가 바쁩니다({'못 잼' if pct is None else f'{pct:.0f}%'}) — 한가해지면 돌립니다(늦어도 24시간이 되면)"
+    span = f"밤 {NIGHT[0]}시~{NIGHT[1]}시"
+    if not at_night(now):
+        return "no", f"전체 시험은 {span}에만 돌립니다(지금 {now:%H:%M})" + (f" — 마지막 {_ago(now - last_end)}" if last_end else " — 기록 없음")
+    if last_end is not None and last_end >= now.replace(hour=0, minute=0, second=0, microsecond=0):
+        return "no", f"마지막 전체 시험 {_ago(now - last_end)} — 오늘 밤 몫은 했습니다"
+    return "night", f"{span}이고 오늘 밤 전체 시험을 아직 안 돌렸습니다(" + (f"마지막 {_ago(now - last_end)}" if last_end else "기록 없음") + ")"
 
 
 def status(now=None):
     now = now or dt.datetime.now()
     last, busy = _read(LAST), running()
-    kind, why = decide(_when((last or {}).get("end")), now, busy, cpu_now)
+    kind, why = decide(_when((last or {}).get("end")), now, busy)
     return {"kind": kind, "why": why, "last": last, "busy": busy}
 
 
 def due(hook):
     s = status()
     if hook:
-        if s["kind"] not in ("24h", "idle"):
+        if s["kind"] != "night":
             return 0
-        act = ("사용자에게 먼저 한 줄로 알리고 " if s["kind"] == "24h" else "") + "`python -X utf8 tools/full_test.py` 를 백그라운드(run_in_background)로 돌린다"
-        ctx = (f"[전체 시험 — CLAUDE.md 「시험 — 고친 곳만, 전체는 하루 한 번」] {s['why']}. 이번 턴에 {act}"
+        ctx = (f"[전체 시험 — CLAUDE.md 「시험 — 고친 곳만, 전체는 밤에만」] {s['why']}. 이번 턴에 `python -X utf8 tools/full_test.py` 를 백그라운드(run_in_background)로 돌리고 한 줄로 알린다"
                " — 이 세션이 지금 pytest·화면 검사를 돌리고 있으면 그것이 끝난 뒤에. 기다리지 말고 하던 일을 하고, 끝나면 결과(떨어진 것)를 사용자에게 알린다."
                " 사용자가 지금은 안 된다고 하면 돌리지 않는다.")
         print(json.dumps({"systemMessage": f"전체 시험: {s['why']} — 이번 턴에 돌립니다",
@@ -159,7 +136,10 @@ def _git(*a):
         return ""
 
 
-def run():
+def run(anytime=False):
+    if not anytime and not at_night(dt.datetime.now()):  # 낮에 도는 전체 시험은 PC 를 잡는다 — 사용자가 직접 청했을 때만 --anytime
+        print(f"전체 시험은 밤 {NIGHT[0]}시~{NIGHT[1]}시에만 돌립니다(지금 {dt.datetime.now():%H:%M}) — 고친 곳에 닿는 시험만 돌리세요. 사용자가 지금 돌리라고 직접 말했을 때만 --anytime")
+        return 3
     DIR.mkdir(parents=True, exist_ok=True)
     if running():
         print(f"이미 도는 중입니다: {running()}")
@@ -212,6 +192,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--due", action="store_true")
     ap.add_argument("--hook", action="store_true")
+    ap.add_argument("--anytime", action="store_true", help="밤 시간(0시~7시) 밖에도 돌린다 — 사용자가 지금 돌리라고 직접 말했을 때만")
     a = ap.parse_args()
     if a.due:
         try:
@@ -221,4 +202,4 @@ if __name__ == "__main__":
                 raise
             print(f"full_test --due 실패: {e}", file=sys.stderr)
             sys.exit(0)
-    sys.exit(run())
+    sys.exit(run(a.anytime))
