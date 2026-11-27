@@ -351,3 +351,23 @@ def test_plan_request_goes_only_with_materials():
     assert plan["planRequest"] == "2차년도 실적 위주로" and "planRequest" not in review
     assert "planRequest" not in form_review.payload([], {}, [], [], "자료 글")
     assert "planRequest = **사람이 작성 계획에 대해 요청한 것**" in form_review.CONTRACT
+
+
+def test_insufficient_judgment_carries_its_reason_to_the_review_and_the_plan():
+    """2026-11-27 astra P2-6 — 04 가 판정하지 못한 자리(insufficient)의 까닭(풀리지 않은 충돌 · 판독 부족)을 25 양식 검토 · 작성 계획의 자리 목록에 한 줄로 싣는다(전에는 status 만 갔다).
+    apply · not_applicable 의 reason 은 싣지 않는다(분량 — apply 는 채택한 규칙이 간다)."""
+    p = next(x for x in PLACES if x["id"] == "h2")
+    why = "양식 본문의 「천원」 과 별지 서식의 「백만원」 이 부딪쳐 금액 단위를 정하지 못함. " + "가" * 300
+    b = form_review._place_brief({**p, "writingJudgment": {"status": "insufficient", "reason": why}})
+    got = b["writingJudgment"]
+    assert got["status"] == "insufficient" and got["reason"].startswith("양식 본문의 「천원」 과 별지 서식의 「백만원」 이 부딪쳐") and len(got["reason"]) == form_review.JUDGMENT_REASON_MAX == 160
+    for st in ("apply", "not_applicable"):
+        assert form_review._place_brief({**p, "writingJudgment": {"status": st, "reason": why}})["writingJudgment"] == {"status": st}
+    assert form_review._place_brief({**p, "writingJudgment": {"status": "insufficient"}})["writingJudgment"] == {"status": "insufficient"}   # 까닭이 없는 기록
+    assert "writingJudgment" not in form_review._place_brief(p)
+    for materials in ("", "자료 글"):   # 양식 검토(자료 없음) · 작성 계획(자료 있음) — 같은 자리 목록
+        data = form_review.payload(BLOCKS, GRAPH, [{**p, "writingJudgment": {"status": "insufficient", "reason": "표 그림을 읽지 못함"}}], [], materials)
+        assert data["places"][0]["writingJudgment"] == {"status": "insufficient", "reason": "표 그림을 읽지 못함"}
+    assert "insufficient이면 reason에 04가 판정하지 못한 까닭" in form_review.CONTRACT
+    same = {**p, "writingJudgment": {"status": "insufficient", "reason": "가"}}
+    assert form_review.place_sig(same) == form_review.place_sig({**same, "writingJudgment": {"status": "insufficient", "reason": "나"}})   # 자리의 지문은 전처럼 status 까지(까닭 글은 지문에 안 든다)

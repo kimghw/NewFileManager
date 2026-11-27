@@ -4,6 +4,7 @@ import io
 import json
 import threading
 import time
+from collections import Counter
 
 import pytest
 from fastapi.testclient import TestClient
@@ -317,3 +318,174 @@ def test_table_types_and_the_theme_reach_the_review_and_the_draft_request(monkey
     assert "문서의 테마" not in guide_write.request(next(p for p in ps if p["id"] == "h3"), "")
     packed = guide_write.request(by["h3"], "가" * guide_write.NOTE_MAX, "", "나" * 1100)   # 사람의 지침 · 계획이 길면 테마는 줄이거나 빼고 묻는 말은 남긴다
     assert len(packed) <= guide_write.TEXT_MAX and packed.rstrip().endswith("(지어내지 않습니다).")
+
+
+# ---- astra 검토(2026-11-27 — artifacts/writing_guidance_astra_2026-11-27/answer.md)의 고침 ----
+def _ref(text, src="rule", **more):
+    return {"src": src, "kind": "규정" if src == "rule" else "문서 목적", "text": text, **more}
+
+
+def _checked(text, basis="example", source="별지.txt"):
+    """검사(W.check)를 지난 규칙의 꼴 — 근거의 source 는 출처의 이름이다."""
+    return {"instruction": text, "basis": basis, "evidence": [{"source": source, "image": 0, "label": "", "detail": "근거"}], "sources": [source]}
+
+
+def test_echoed_reference_rules_are_dropped_per_place_and_an_emptied_apply_is_rejudged():
+    """P1-2 — 규정 · 문서 목적을 되낸 규칙은 **그 자리에 실린 참조**와만 견줘 빼고, 규칙이 안 남은 apply 자리는 상태 · 이유를 스크립트가 고친다(LLM 의 답은 `llm` 에 남김).
+    양식 원문을 명시 근거로 든 규칙은 글이 같아도 남긴다."""
+    whole = [_ref("본문은 10쪽 이내로 쓴다.")]
+    places = [{"id": "h1", "kind": "head", "guides": [_ref("목표는 정량 지표로 적는다.")], "docGuides": whole},
+              {"id": "h2", "kind": "head", "guides": [], "up": [_ref("개요 전체에 닿는 요구")], "docGuides": whole},
+              {"id": "h3", "kind": "head", "guides": []}]
+    decisions = {
+        "h1": {"status": "apply", "reason": "규정을 적용", "rules": [_checked("목표는  정량 지표로 적는다."), _checked("본문은 10쪽 이내로 쓴다.")], "tables": []},   # 그 자리 · 문서 전체의 참조만 되냈다
+        "h2": {"status": "apply", "reason": "양식에도 적혀 있음", "tables": [{"table": "t1", "type": "common.body"}],
+               "rules": [_checked("개요 전체에 닿는 요구", "explicit", "양식.hwpx"), _checked("개요 전체에 닿는 요구"), _checked("표는 차년도마다 한 행")]},   # 윗 절에서 내려온 규정
+        "h3": {"status": "apply", "reason": "예시에서 읽음", "rules": [_checked("목표는 정량 지표로 적는다.")], "tables": []},   # 다른 자리(h1)의 규정과 글이 같지만 이 자리에는 그 참조가 실리지 않았다
+        "h4": {"status": "not_applicable", "reason": "고정 제목", "rules": [], "tables": []}}
+    out = W.settle_echo(decisions, places, "양식.hwpx")
+    assert out["h1"] == {"status": "not_applicable", "reason": W.ECHO_REASON, "rules": [], "tables": [], "llm": {"status": "apply", "reason": "규정을 적용"}}
+    assert [(r["instruction"], r["basis"]) for r in out["h2"]["rules"]] == [("개요 전체에 닿는 요구", "explicit"), ("표는 차년도마다 한 행", "example")]
+    assert out["h2"]["status"] == "apply" and out["h2"]["tables"] == decisions["h2"]["tables"] and "llm" not in out["h2"]
+    assert out["h3"]["status"] == "apply" and len(out["h3"]["rules"]) == 1   # 전에는 모든 자리의 참조를 한데 모아 견줘 이 규칙도 지웠다
+    assert out["h4"] == decisions["h4"] and decisions["h1"]["status"] == "apply" and len(decisions["h1"]["rules"]) == 2   # 사본 — 받은 판정은 바꾸지 않는다
+    assert Counter(v["status"] for v in out.values()) == {"apply": 2, "not_applicable": 2}   # 집계는 고친 판정으로
+    assert [r["basis"] for r in W.drop_echo(decisions["h2"]["rules"], W.echo_texts(places[1:2]))] == ["example"]   # 양식 출처를 주지 않으면 전처럼 글이 같은 것은 모두 뺀다
+
+
+def test_place_reference_carries_the_upper_sections_rules_and_its_sig_follows_what_is_sent():
+    """P1-3 — 자리의 참조에 윗 절에서 내려온 규정 · 문서 목적(`up`)도 싣는다 · 자리마다의 참조 지문은 실제로 보내는 글을 따른다(참조가 없으면 지문도 없다)."""
+    p = {"id": "h2", "kind": "head", "text": "1-1. 목표",
+         "guides": [_ref("실증 성과를 강조한다", "purpose"), _ref("목표는 정량 지표로 적는다.", required=True), {"src": "doc", "kind": "작성 요령", "text": "3줄 이내"}],
+         "up": [_ref("개요 전체에 닿는 요구", required=False), {"src": "doc", "kind": "", "text": "윗 절의 양식 안내"}]}
+    got = W.reference_of(p)
+    assert [(r["from"], r["text"]) for r in got] == [("규정 · 필수", "목표는 정량 지표로 적는다."), ("문서 목적", "실증 성과를 강조한다"), ("규정 · 권고", "개요 전체에 닿는 요구")]   # 출처 순위대로 · 양식 안내는 참조가 아니다
+    assert [r["text"] for r in W.reference_of({**p, "up": []})] == ["목표는 정량 지표로 적는다.", "실증 성과를 강조한다"]
+    sig = W.reference_sig("", got)
+    assert sig and W.reference_sig("", W.reference_of(p)) == sig and W.reference_sig("", []) == "" and W.reference_sig(None, None) == ""
+    assert W.reference_sig("- (규정 · 필수) 본문은 10쪽 이내로 쓴다.", got) != sig and W.reference_sig("", W.reference_of({**p, "up": []})) != sig
+    assert W.reference_sig("- (규정 · 필수) 본문은 10쪽 이내로 쓴다.", []) != ""   # 문서 전체 참조만 있어도 그 자리의 판정은 그 글을 읽었다
+    whole, sigs = API._ref_sigs([p, {"id": "h3", "kind": "head", "guides": [{"src": "doc", "kind": "", "text": "양식 안내"}]}])
+    assert whole == "" and sigs == {"h2": sig}   # 참조가 없는 자리는 사전에 없다
+    assert API._ref_stale({}, sigs, [p, {"id": "h3"}]) == {"h2"} and API._ref_stale({"refSigs": sigs}, sigs, [p, {"id": "h3"}]) == set()   # 지문이 없는 옛 기록 — 참조가 실리는 자리만 낡은 것으로
+
+
+def test_reference_change_reasks_only_the_places_it_reaches(monkeypatch, tmp_path):
+    """P1-3 · P1-2 · P1-4 를 실제 길로 — 규정이 바뀌면 그 글이 닿는 자리만 낡고 그 자리만 다시 묻는다(다른 자리의 판정은 이어 쓴다) · 규정의 글만 되낸 apply 는 해당 없음으로 집계 ·
+    04 에 싣는 테마에서 LLM 이 정의한 항목의 작성 방법은 뺀다 · 참조가 없는 문서의 옛 기록은 그대로 유효하다."""
+    monkeypatch.setenv("NFM_WORKS", str(tmp_path))
+    client = TestClient(server.app)
+    doc = client.post("/api/docs", files={"file": (SMALL.name, SMALL.read_bytes())}).json()["docId"]
+    ps = guide_write.places(BLOCKS, GRAPH, IX)
+    by = {p["id"]: p for p in ps}
+    rule = _ref("목표는 정량 지표로 적는다.", required=True)
+    by["h2"]["guides"].append(rule)
+    by["h3"]["up"] = [_ref("전략은 표로 요약한다.", required=False)]   # 윗 절에서 내려온 규정
+    monkeypatch.setattr(guide_write_api, "_base_places", lambda s: (copy.deepcopy(ps), s.rev))
+    monkeypatch.setattr(API.llm, "status", lambda: {"available": True})
+    monkeypatch.setattr(form_example_evidence, "evidence", lambda *args: [])
+    T.add("rnd", "tables", {"name": "체크 테이블", "signs": "항목마다 □ 가 있다", "how": "해당 항목에 표시한다"}, "llm", "w0")
+    asked = []
+
+    def call(schema, content, what, **kw):
+        data = json.loads(content.split("## 분석할 자료\n")[-1])
+        asked.append(data)
+        out = []
+        for p in data["places"]:
+            if p["id"] == "h2":   # 규정의 글만 그대로 되낸다
+                out.append({"place": "h2", "status": "apply", "reason": "규정을 적용", "tables": [],
+                            "rules": [{"instruction": p["reference"][0]["text"], "basis": "example", "evidence": [{"source": "target", "image": 0, "detail": "규정"}]}]})
+            elif p["id"] == "h3":
+                out.append({"place": "h3", "status": "apply", "reason": "양식의 안내", "tables": [],
+                            "rules": [{"instruction": f"전략을 {len(asked)}번째 판정대로 쓴다", "basis": "explicit", "evidence": [{"source": "target", "image": 0, "detail": "안내"}]}]})
+            else:
+                out.append({"place": p["id"], "status": "not_applicable", "reason": "고정 제목", "rules": [], "tables": []})
+        return {"data": {"decisions": out}}
+    monkeypatch.setattr(API.llm, "call", call)
+    ep, on_disk = f"/api/docs/{doc}/writing-guidance", tmp_path / doc / API.FILE
+
+    def run():
+        assert client.post(ep).status_code == 200
+        for _ in range(300):
+            state = client.get(ep).json()
+            if state["run"] and state["run"]["state"] != "running":
+                assert state["run"]["state"] == "done", state["run"]
+                return state
+            time.sleep(0.01)
+        raise AssertionError("작성 지침 보완이 끝나지 않았습니다")
+
+    done = run()
+    sent = {p["id"]: p for p in asked[0]["places"]}
+    assert len(asked) == 1 and sent["h2"]["reference"] == [{"from": "규정 · 필수", "text": "목표는 정량 지표로 적는다."}] and sent["h3"]["reference"] == [{"from": "규정 · 권고", "text": "전략은 표로 요약한다."}]
+    assert "reference" not in sent["h1"] and "reference" not in asked[0]
+    tables = {x["name"]: x for t in asked[0]["themes"] for x in t["tables"]}
+    assert "how" not in tables["체크 테이블"] and tables["체크 테이블"]["signs"] and tables["본문 테이블"]["how"]   # LLM 이 정의한 타입은 이름 · 판별 단서만
+    assert done["ready"] and done["refStale"] == 0 and done["count"] == 1
+    assert done["judgmentCounts"] == {"apply": 1, "not_applicable": len(ps) - 1, "insufficient": 0}   # h2 는 규칙이 안 남았다 — apply 로 세지 않는다
+    record = json.loads(on_disk.read_text(encoding="utf-8"))
+    assert record["judgments"]["h2"] == {"status": "not_applicable", "reason": W.ECHO_REASON, "llm": {"status": "apply", "reason": "규정을 적용"}} and "h2" not in record["rules"]
+    assert set(record["refSigs"]) == {"h2", "h3"} and "carried" not in record and record["rules"]["h3"][0]["instruction"] == "전략을 1번째 판정대로 쓴다"
+    rule["text"] = "목표는 정량 지표 둘 이상으로 적는다."   # h2 에 닿는 규정만 바뀐다
+    stale = client.get(ep).json()
+    assert stale["stale"] and not stale["ready"] and stale["refStale"] == 1
+    shown = {p["id"]: p for p in client.get(f"/api/docs/{doc}/guide-write").json()["places"]}
+    assert "writingJudgment" not in shown["h2"] and shown["h3"]["writingJudgment"]["status"] == "apply" and any(g["src"] == "llm" for g in shown["h3"]["guides"])   # 낡은 것은 그 자리뿐
+    asked.clear()
+    again = run()
+    assert [[p["id"] for p in d["places"]] for d in asked] == [["h2"]] and again["ready"] and again["refStale"] == 0   # 달라진 자리만 다시 물었다
+    record2 = json.loads(on_disk.read_text(encoding="utf-8"))
+    assert record2["rules"]["h3"] == record["rules"]["h3"] and record2["judgments"]["h1"] == record["judgments"]["h1"] and record2["carried"] == len(ps) - 1   # 다른 자리의 판정은 이어 쓴다
+    assert record2["judgmentCounts"] == record["judgmentCounts"] and record2["refSigs"]["h3"] == record["refSigs"]["h3"] and record2["refSigs"]["h2"] != record["refSigs"]["h2"]
+    API.works._write_json(on_disk, {k: v for k, v in record2.items() if k != "refSigs"})   # 이 고침 전의 기록(자리마다의 참조 지문이 없다)
+    old = client.get(ep).json()
+    assert old["stale"] and old["refStale"] == 2   # 참조가 실리는 자리(h2 · h3)는 그때 무엇을 읽었는지 몰라 낡은 것으로
+    by["h2"]["guides"].remove(rule)
+    by["h3"]["up"] = []
+    plain = client.get(ep).json()
+    assert plain["ready"] and not plain["stale"] and plain["refStale"] == 0   # 규정 · 문서 목적을 안 쓰는 문서의 옛 기록은 이 고침만으로 낡지 않는다
+
+
+def test_two_models_disagreeing_only_on_the_level_order_consult(monkeypatch):
+    """P1-6 — 템플릿의 levels 는 위 → 아래 차례가 뜻이다: 차례만 다른 두 답은 다른 판정이라 협의한다(전에는 같은 답으로 보고 LLM1 의 답을 썼다)."""
+    from app import agent_settings
+    agent_settings.save("writing_guidance", {"models": None})
+    log = []
+
+    def call(schema, prompt, what, **kw):
+        log.append(what)
+        levels = ["o", "□", "-"] if kw.get("slot") == "LLM2" else ["□", "o", "-"]
+        return {"data": {"theme": {"id": "", "new": NO_THEME}, "templates": [{"id": "new", "new": {"name": "기호 사슬", "levels": levels, "how": ""}}],
+                         "decisions": [{"place": "첫 자리", "status": "not_applicable", "reason": "고정 제목", "rules": [], "tables": []}]}, "ms": 1}
+    monkeypatch.setattr(API.llm, "call", call)
+    doc = {}
+    API._judge([{"id": "첫 자리", "text": "첫 자리"}], {}, None, [], {}, {}, doc=doc)
+    assert sorted(log) == ["writing-guidance", "writing-guidance", "writing-guidance#consult"]
+    assert W.doc_judgment(doc["got"], T.brief())["templates"][0]["new"]["levels"] == ["□", "o", "-"]
+
+
+def test_common_is_not_a_document_theme_and_same_named_definitions_must_match():
+    """P2-3 — 문서의 테마로 「공통」 을 받지 않는다 · 판별 단서가 빈 새 테이블 타입은 받지 않는다 · 이름이 같은 있는 항목에는 내용이 같은 정의만 잇는다(다른 정의는 잇지도 더하지도 않고 적어 둔다)."""
+    themes = T.brief()
+    assert W.doc_judgment({"theme": {"id": "common", "new": NO_THEME}}, themes)["theme"] is None and W.doc_judgment({"theme": {"id": "rnd", "new": NO_THEME}}, themes)["theme"] == {"id": "rnd"}
+    types = {x["id"] for t in themes for x in t["tables"]}
+    no_signs = {"decisions": [{"place": "h1", "status": "not_applicable", "reason": "고정 제목", "rules": [],
+                               "tables": [{"table": "t1", "type": "new", "new": {"name": "체크 테이블", "signs": " ", "how": "해당 항목에 표시한다"}}]}]}
+    assert W.check(no_signs, {"h1"}, {}, {}, {"h1": {"t1"}}, types)[0]["h1"]["tables"] == []
+    body = T.find("tables", "common.body")[1]
+    decisions = {"t1": {"tables": [{"table": "t1", "type": "new", "new": {"name": "본문  테이블", "signs": body["signs"], "how": body["how"]}}]},
+                 "t3": {"tables": [{"table": "t3", "type": "new", "new": {"name": "본문 테이블", "signs": "서명 칸이 있다", "how": "서명 칸은 비워 둔다"}}]}}
+    judged = {"theme": {"id": "rnd"}, "templates": [{"id": "new", "new": {"name": "연구개발계획서 기본", "levels": ["가.", "1)"], "how": ""}}]}
+    clashes = []
+    theme, templates, by_place, defined = API._settle(judged, decisions, "w1", clashes)
+    assert theme == "rnd" and templates == [] and by_place == {"t1": [{"table": "t1", "type": "common.body"}]} and defined == []
+    assert clashes == [{"kind": "templates", "name": "연구개발계획서 기본", "id": "rnd.main"}, {"kind": "tables", "name": "본문 테이블", "id": "common.body"}]
+    assert T.find("tables", "common.body")[1] == body and len(T.get("rnd")["tables"]) == 1 and T.find("templates", "rnd.main")[1]["levels"][0] == "1."   # 테마는 그대로
+
+
+def test_the_job_premise_is_scoped_to_this_call():
+    """P2-5 — 할 일의 전제(워크플로우 전체를 말하는 글) 앞에 이 호출의 범위를 밝힌다: 자리별 작성 방법 판정만 · theme = 문서 종류 · 추출 주제 · 질문 · 초안 · 반영은 뒤 단계."""
+    job = {"job": "form_write", "name": "양식 작성", "sha1": "x", "text": "# 할 일 프롬프트 — 양식 작성\n\n## 이 일은\n\n- 양식을 채운다\n"}
+    text = W.prompt({}, job)
+    tail = text.split("## 할 일 — 양식 작성")[1]
+    assert tail.index("자리별 작성 방법을 판정하는 일") < tail.index("뒤 단계의 일") < tail.index("## 이 일은") < tail.index("## 분석할 자료")
+    assert "문서 종류" in W.JOB_NOTE and "자료에서 찾을 테마" in W.JOB_NOTE and W.JOB_NOTE not in W.prompt({}, None)

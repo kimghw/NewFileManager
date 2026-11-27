@@ -85,6 +85,41 @@ def test_define_a_new_theme_and_reuse_one_with_the_same_name():
     assert T.reset(tid) and T.get(tid) is None and tid not in T.ids()
 
 
+def test_brief_can_leave_out_the_how_of_unconfirmed_items():
+    """04 에 싣는 요약 — LLM 이 정의했고 사람이 확인하지 않은 항목(src llm)의 작성 방법은 빼고 이름 · 판별 단서 · 레터만(astra 2026-11-27 P1-4). 기본(인자 없음)은 전과 같다."""
+    iid, _ = T.add("rnd", "tables", {"name": "체크 테이블", "signs": "항목마다 □ 가 있다", "how": "해당 항목에 표시한다"}, "llm", "w1", "2026-11-27")
+    tid, _ = T.add("rnd", "templates", {"name": "로마 숫자 장", "levels": ["Ⅰ.", "1."], "how": "장 번호를 로마 숫자로"})
+    made, _ = T.define({"name": "입찰 제안서", "division": [{"name": "평가 항목", "how": "평가표의 항목마다 쓴다"}]}, "llm")
+    full, lean = {t["id"]: t for t in T.brief()}, {t["id"]: t for t in T.brief(unconfirmed_how=False)}
+    assert next(x for x in full["rnd"]["tables"] if x["id"] == f"rnd.{iid}")["how"] == "해당 항목에 표시한다" and full[made]["division"] == [{"name": "평가 항목", "how": "평가표의 항목마다 쓴다"}]
+    assert next(x for x in lean["rnd"]["tables"] if x["id"] == f"rnd.{iid}") == {"id": f"rnd.{iid}", "name": "체크 테이블", "signs": "항목마다 □ 가 있다"}
+    assert next(x for x in lean["rnd"]["templates"] if x["id"] == f"rnd.{tid}") == {"id": f"rnd.{tid}", "name": "로마 숫자 장", "levels": ["Ⅰ.", "1."]}   # 레터는 남는다
+    assert lean[made]["division"] == [{"name": "평가 항목"}]   # LLM 이 정의한 테마의 항목도 확인 전
+    assert lean["common"] == full["common"] and lean["rnd"]["division"] == full["rnd"]["division"] and lean["rnd"]["tables"][0] == full["rnd"]["tables"][0]   # 기본본의 것은 그대로
+    uid, _ = T.add("rnd", "tables", {"name": "서명 테이블", "signs": "서명 칸이 있다", "how": "서명 칸은 비워 둔다"}, "user")   # 사람의 것(src user = 확인한 것)은 싣는다
+    assert next(x for t in T.brief(unconfirmed_how=False) for x in t["tables"] if x["id"] == f"rnd.{uid}")["how"] == "서명 칸은 비워 둔다"
+    assert T.unconfirmed({"src": "llm"}) and not T.unconfirmed({"src": "user"}) and not T.unconfirmed({"src": "default"}) and not T.unconfirmed(None)
+
+
+def test_same_def_compares_the_content_not_only_the_name():
+    """이름이 같은 새 정의를 있는 항목에 이어도 되는가 — 템플릿 = 레터가 같음 · 테이블 타입 = 판별 단서와 작성 방법이 같음(astra 2026-11-27 P2-3)."""
+    body, main = T.find("tables", "common.body")[1], T.find("templates", "rnd.main")[1]
+    assert T.same_def("tables", body, {"name": "본문 테이블", "signs": body["signs"].replace(" ", "  "), "how": body["how"]})   # 빈칸의 차이는 같은 정의
+    assert not T.same_def("tables", body, {"name": "본문 테이블", "signs": body["signs"], "how": "서명 칸은 비워 둔다"})
+    assert not T.same_def("tables", body, {"name": "본문 테이블", "signs": "", "how": body["how"]})
+    assert T.same_def("templates", main, {"name": "다른 이름이어도", "levels": list(main["levels"]), "how": "설명은 달라도 된다"})
+    assert not T.same_def("templates", main, {"name": main["name"], "levels": list(reversed(main["levels"])), "how": main["how"]})   # 레터의 차례가 다르면 다른 템플릿
+    assert not T.same_def("tables", None, {"name": "본문 테이블"}) and not T.same_def("tables", body, None)
+
+
+def test_default_hows_match_the_guidance_on_units_and_skipped_levels():
+    """기본본의 작성 방법이 04 판단 지침과 부딪치지 않는다(astra 2026-11-27 P2-4 · P2-5) — 예산의 단위는 표에 적힌 단위가 먼저 · 번호 사슬의 「건너뛰지 않는다」 는 새로 쓰는 줄의 말."""
+    budget = next(x for x in T.get("rnd")["division"] if x["id"] == "budget")["how"]
+    assert "단위는 자료 그대로" not in budget and "표에 단위가 적혀 있으면 그 단위로 쓴다" in budget and "환산 관계를 확인할 수 있을 때만" in budget
+    numbered = next(x for x in T.get("common")["templates"] if x["id"] == "numbered")["how"]
+    assert "새로 쓰는 줄은 레벨을 건너뛰지 않는다" in numbered and "이미 놓인 줄의 깊이는 그대로" in numbered
+
+
 def test_bad_yaml_is_rejected_and_nothing_is_written(tmp_path):
     for bad, word in (("id: common\nname: [", "읽을 수 없습니다"), ("- a\n- b\n", "묶음"), ("id: rnd\nname: x\n", "「common」"), ("id: common\ntables:\n  - {id: Bad Id, name: x}\n", "id"),
                       ("id: common\ntemplates:\n  - {id: a, name: x, levels: [1., 가.]}\n", "따옴표"), ("id: common\ntables:\n  - {id: a, name: x}\n  - {id: a, name: y}\n", "두 번"),

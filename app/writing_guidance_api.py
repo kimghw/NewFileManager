@@ -33,6 +33,22 @@ def _key(s, places, rev, refs):
     return hashlib.sha256(json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
+def _ref_sigs(places):
+    """(문서 전체 참조 글, {자리 id: 그 자리에 실제로 보내는 참조 글의 지문}) — 규정 · 문서 목적(04 는 참조로 읽는다: ② §5-9). 참조가 하나도 안 실리는 자리는 사전에 없다.
+    **위 `_key`(실행 전체의 지문)에는 넣지 않는다** — 넣으면 규정 한 줄을 고쳐도 모든 자리의 판정이 낡고, 규정 · 문서 목적을 안 쓰는 문서의 지문은 그대로여야 한다. 자리마다 따로 적어 두고(기록의 `refSigs`)
+    달라진 자리만 낡은 것으로 본다(astra 2026-11-27 P1-3 — 전에는 규정을 고쳐도 종전 판정이 그대로 유효했다 · spec_작업 ② §22 ⓑ: 항목마다)."""
+    from app import place_guides as PG
+    whole = PG.doc_text([g for g in next((p["docGuides"] for p in places if p.get("docGuides")), ()) if g.get("src") in W.REFERENCE])
+    return whole, {p["id"]: k for p in places if (k := W.reference_sig(whole, W.reference_of(p)))}
+
+
+def _ref_stale(stored, now, places):
+    """참조(규정 · 문서 목적)가 판정 때와 달라진 자리 id 들 — 그 자리의 판정만 낡았다(다른 자리의 것은 그대로 쓴다). stored = 저장된 기록 · now = `_ref_sigs` 의 지금 지문.
+    `refSigs` 가 없는 옛 기록: 참조가 실리는 자리는 그때 무엇을 읽었는지 모르니 낡은 것으로(참조가 없는 자리 · 문서는 전과 같다)."""
+    was = (stored or {}).get("refSigs") or {}
+    return {p["id"] for p in places if was.get(p["id"], "") != now.get(p["id"], "")}
+
+
 TYPE_KIND = "테이블 타입"   # 자리의 지침 목록에 얹는 테이블 타입 줄의 종류(화면 말 — spec_양식작성 ② §5-7)
 THEME_MAX = 900
 
@@ -64,9 +80,11 @@ def _theme_text(record, themes):
     return text if len(text) <= THEME_MAX else text[:THEME_MAX - 1] + "…"
 
 
-def _settle(judged, decisions, wid):
-    """LLM 이 새로 정의한 테마 · 템플릿 · 테이블 타입을 테마 사본에 더하고(같은 이름이 있으면 그것을 쓴다) 판정을 id 로 맞춘다 →
-    (테마 id | None, [템플릿 id], {자리 id: [{table, type}]}, defined[{kind, id, name}] — 이번에 새로 더한 것). 더하지 못한 새 정의는 버린다(판정 전체를 실패로 두지 않는다)."""
+def _settle(judged, decisions, wid, clashes=None):
+    """LLM 이 새로 정의한 테마 · 템플릿 · 테이블 타입을 테마 사본에 더하고(같은 이름의 **같은 정의**가 있으면 그것을 쓴다) 판정을 id 로 맞춘다 →
+    (테마 id | None, [템플릿 id], {자리 id: [{table, type}]}, defined[{kind, id, name}] — 이번에 새로 더한 것). 더하지 못한 새 정의는 버린다(판정 전체를 실패로 두지 않는다).
+    이름은 같은데 내용(템플릿 = 레터 · 테이블 타입 = 판별 단서 · 작성 방법)이 다른 새 정의는 있는 항목에 잇지 않고 버린다 — clashes(목록)를 주면 [{kind, name, id(이름이 같은 있는 항목)}] 를 적는다
+    (astra 2026-11-27 P2-3: 전에는 이름만 같으면 이었다 — 이름이 같은 다른 정의의 작성 방법이 그 표에 실렸다)."""
     at, defined, theme = time.strftime("%Y-%m-%d"), [], None
     t = judged.get("theme")
     if t and t["id"] == W.NEW:
@@ -78,12 +96,16 @@ def _settle(judged, decisions, wid):
             theme = None
     elif t:
         theme = t["id"]
-    home = theme or "common"   # 새 항목을 더할 테마 — 문서의 테마, 못 정했으면 공통
+    home = theme or W.COMMON   # 새 항목을 더할 테마 — 문서의 테마, 못 정했으면 공통
 
     def put(kind, new):
         key = T.by_name(kind, new["name"])
         if key:
-            return key
+            if T.same_def(kind, T.find(kind, key)[1], new):
+                return key
+            if clashes is not None:
+                clashes.append({"kind": kind, "name": new["name"], "id": key})
+            return None
         try:
             iid, made = T.add(home, kind, new, "llm", wid, at)
         except (ValueError, OSError):
@@ -114,6 +136,7 @@ def attach(s, places, rev):
         return
     key = _key(s, places, rev, refs)
     current = stored if stored and stored.get("sig") == key else {}
+    off = _ref_stale(current, _ref_sigs(places)[1], places) if current else set()   # 규정 · 문서 목적이 판정 때와 달라진 자리 — 그 자리의 판정 · 규칙 · 타입만 싣지 않는다(다른 자리는 그대로)
     rules, judgments = current.get("rules", {}), current.get("judgments", {})
     types, themes = current.get("tableTypes") or {}, None
     llm_defined = {x.get("id") for x in current.get("defined") or () if isinstance(x, dict) and x.get("kind") == "tables"}   # 이 실행에서 LLM 이 새로 정의한 테이블 타입(테마에서 지워졌어도 확인 전으로 본다)
@@ -123,10 +146,13 @@ def attach(s, places, rev):
     for p in places:
         # 보완을 기다리는 동안에도 이전 예시로 세운 검토·계획은 오래된 판으로 보인다.
         p["writingGuidanceSig"] = key
-        if p["id"] in judgments:
+        fresh = p["id"] not in off
+        if fresh and p["id"] in judgments:
             p["writingJudgment"] = judgments[p["id"]]
         if themes is not None and doc_theme:
             p["docTheme"] = doc_theme   # 문서의 테마 · 중요 항목 · 개요 템플릿 — 자리마다의 지침 목록에 넣지 않는다(모든 자리에 같은 줄이 붙지 않게: 06 은 한 번 · 초안 요청은 자리마다 읽는다)
+        if not fresh:
+            continue
         extra = []
         for rule in rules.get(p["id"], ()):
             basis = W.BASIS.get(rule.get("basis"))
@@ -167,7 +193,8 @@ def _judge(batch, inputs, job, images, names, image_labels, types=(), doc=None, 
         if errors:
             data["recheck"] = errors
         out = llm_duo.ask(W.SCHEMA, W.prompt(data, job), "writing-guidance", agent_settings.duo("writing_guidance"), timeout=600.0, effort="medium", default_model=W.MODEL,
-                          images=images or None, on=run.__setitem__ if run is not None else None)
+                          images=images or None, on=run.__setitem__ if run is not None else None,
+                          ordered=("levels",))   # 템플릿의 levels 는 위 → 아래 차례가 뜻이다 — 차례가 다르면 다른 판정(협의한다: astra 2026-11-27 P1-6)
         got = out["got"]
         if run is not None and out["rec"]:
             run.setdefault("duo", []).append([{k: r.get(k) for k in ("slot", "model", "ok", "error", "ms")} for r in out["rec"]])
@@ -211,22 +238,36 @@ def _go(s, run):
         job = job_prompts.for_work(s.id)
         names = {"target": s.name, **{r["id"]: r["name"] for r in sources if r["text"] or r["imageNumbers"]}}
         image_labels = {r["id"]: {n["attached"]: n.get("label") or f"그림 {n['local']}" for n in r["imageNumbers"]} for r in sources}
-        themes = T.brief()   # 미리 적어 둔 테마(테이블 타입 · 구분 기준 타입 · 개요 템플릿 — spec_양식작성 ② §5-7)
+        # 미리 적어 둔 테마(테이블 타입 · 구분 기준 타입 · 개요 템플릿 — spec_양식작성 ② §5-7). LLM 이 정의했고 사람이 확인하지 않은 항목은 작성 방법(how) 없이 이름 · 판별 단서 · 레터만 —
+        # 04 가 확인 전의 작성 방법을 자리 규칙으로 바꿔 뒤 단계에 넘기지 않게(astra 2026-11-27 P1-4)
+        themes = T.brief(unconfirmed_how=False)
         inputs = {"form": form, "cut": cut, "target": s.name, "references": sources, "themes": themes}
-        from app import place_guides as PG
-        whole = PG.doc_text([g for g in next((p["docGuides"] for p in places if p.get("docGuides")), ()) if g.get("src") in W.REFERENCE])
+        whole, ref_sigs = _ref_sigs(places)
         if whole:   # 문서 전체에 닿는 규정 · 문서 목적 — 참조 자료(판단 지침 writing_guidance.md 「규정 · 문서 목적」: 요구 사항 · 범위로 읽고 규칙으로 다시 내지 않는다 · ② §5-9)
             inputs["reference"] = whole
-        echo = W.echo_texts(places)
+        # 규정 · 문서 목적만 달라진 실행 — 달라진 자리만 다시 묻고 나머지 자리의 앞 판정은 이어 쓴다(astra 2026-11-27 P1-3 · spec_작업 ② §22 ⓑ ⓓ). 다른 입력이 바뀌었으면(sig) 전처럼 모두 ·
+        # 달라진 자리가 없으면(사람이 그냥 다시 실행) 전처럼 모두 다시 묻는다
+        prior = _load(s.id) or {}
+        prior = prior if prior.get("sig") == sig and isinstance(prior.get("judgments"), dict) and prior["judgments"] else {}
+        redo = _ref_stale(prior, ref_sigs, places) if prior else set()
+        keep = {p["id"] for p in places if p["id"] in prior["judgments"]} - redo if redo else set()
         types, doc = {x["id"] for t in themes for x in t["tables"]}, {}
         decisions = {}
-        for i in range(0, len(briefs), W.BATCH_SIZE):
-            batch = briefs[i:i + W.BATCH_SIZE]
+        asked = [b for b in briefs if b["id"] not in keep]
+        for i in range(0, len(asked), W.BATCH_SIZE):
+            batch = asked[i:i + W.BATCH_SIZE]
             decisions.update(_judge(batch, inputs, job, images, names, image_labels, types, doc, run))
+        # 규정 · 문서 목적의 글을 그대로 되낸 규칙은 버린다(되먹임 — 그 글은 제 출처로 이미 실린다): 그 자리에 실린 참조와만 견주고, 규칙이 안 남은 apply 자리는 상태 · 이유를 고친 **끝 판정으로 집계**한다(astra 2026-11-27 P1-2)
+        decisions = W.settle_echo(decisions, places, names["target"])
         judged = W.doc_judgment(doc.get("got"), themes)
+        if keep:   # 이어 쓰는 실행 — 문서 단위의 판정(테마 · 템플릿)은 앞 기록 그대로다(아래에서 되넣는다). 새 테이블 타입이 갈 테마만 앞 기록의 것으로
+            was = (prior.get("theme") or {}).get("id")
+            judged = {"theme": {"id": was} if was in {t["id"] for t in themes} else None, "templates": []}
         table_text = {t["id"]: t.get("text") or "" for p in briefs for t in p.get("tables") or ()}
-        rules = {k: kept for k, v in decisions.items() if (kept := W.drop_echo(v["rules"], echo))}   # 규정 · 문서 목적의 글을 그대로 되낸 규칙은 버린다(되먹임 — 그 글은 제 출처로 이미 실린다)
-        judgments = {k: {"status": v["status"], "reason": v["reason"]} for k, v in decisions.items()}
+        rules = {k: v["rules"] for k, v in decisions.items() if v["rules"]}
+        judgments = {k: {"status": v["status"], "reason": v["reason"], **({"llm": v["llm"]} if v.get("llm") else {})} for k, v in decisions.items()}   # llm = 스크립트가 상태를 고친 자리의 LLM 답 그대로
+        rules.update({k: v for k, v in (prior.get("rules") or {}).items() if k in keep})
+        judgments.update({k: v for k, v in (prior.get("judgments") or {}).items() if k in keep})
         counts = Counter(v["status"] for v in judgments.values())
         current, now = GW._base_places(s)
         if sig != _key(s, current, now, form_examples_api.listing(s.id)):
@@ -239,6 +280,8 @@ def _go(s, run):
         record = {"sig": sig, "rules": rules, "judgments": judgments, "judgmentCounts": {k: counts[k] for k in W.STATUSES},
                   "count": len(rules), "images": len(images), "sources": list(names.values()),
                   "placeCount": len(places), "cut": any(r["cut"] for r in detail), "sourceDetails": detail,
+                  "refSigs": ref_sigs,   # 자리마다 보낸 참조(규정 · 문서 목적)의 지문 — 달라진 자리만 낡는다(_ref_stale)
+                  **({"carried": len(keep)} if keep else {}),   # 앞 판정을 이어 쓴 자리의 수(이번에 다시 묻지 않았다 — 직접 판정한 것으로 세지 않는다)
                   **({"llms": run["duo"][-12:]} if run.get("duo") else {})}   # 묶음마다 자리(LLM1 · LLM2 · 협의)의 기록 — 어느 모델이 답했고 협의했나
         with s.plock, _LOCK:
             if _RUNS.get(s.id) is not run:
@@ -246,7 +289,8 @@ def _go(s, run):
             if not heading_runs._live(s):
                 raise ValueError("문서를 다시 연 뒤 작성 지침 보완을 다시 실행하세요")
             # 테마 · 템플릿 · 표마다의 테이블 타입 — 새로 정의된 것은 테마 사본에 「LLM 이 정의함」 으로 더하고(이 실행이 버려지지 않을 때만), 판정은 그때의 이름 · 작성 방법과 함께 기록에
-            theme, templates, types_by, defined = _settle(judged, decisions, s.id)
+            clashes = []
+            theme, templates, types_by, defined = _settle(judged, decisions, s.id, clashes)
             now_themes = T.listing()
             got_theme = next((t for t in now_themes if t["id"] == theme), None)
             record["theme"] = {"id": theme, "name": got_theme["name"], "text": _theme_head(got_theme)} if got_theme else None
@@ -254,6 +298,12 @@ def _go(s, run):
             record["tableTypes"] = {pid: [{**r, "text": table_text.get(r["table"], ""), "name": x["name"], "how": x["how"]} for r in rows for _, x in [T.find("tables", r["type"], now_themes)] if x]
                                     for pid, rows in types_by.items()}
             record["defined"] = defined
+            if keep:   # 이어 쓴 실행 — 문서 단위의 판정과 이어 쓴 자리의 테이블 타입 · 앞 실행이 새로 정의한 것의 목록은 앞 기록 그대로(이번 묶음의 답으로 덮지 않는다)
+                record["theme"], record["templates"] = prior.get("theme"), prior.get("templates") or []
+                record["tableTypes"] = {**{k: v for k, v in (prior.get("tableTypes") or {}).items() if k in keep}, **record["tableTypes"]}
+                record["defined"] = [*(prior.get("defined") or ()), *defined]
+            if clashes:   # 이름은 같은데 내용이 다른 새 정의 — 있는 항목에 잇지 않고 버렸다(그 표는 타입 없이 남는다)
+                record["nameClashes"] = clashes
             path = _path(s.id)
             if path is not None:
                 works._write_json(path, record)
@@ -297,12 +347,14 @@ def view(doc_id: str):
     with _LOCK:
         run = dict(_RUNS[doc_id]) if doc_id in _RUNS else None
         saved = _load(doc_id)
-    current = False
+    current, off = False, 0
     if saved:
         places, rev = guide_write_api._base_places(s)
         current = saved.get("sig") == _key(s, places, rev, form_examples_api.listing(doc_id))
+        off = len(_ref_stale(saved, _ref_sigs(places)[1], places)) if current else 0   # 규정 · 문서 목적이 판정 때와 달라진 자리의 수 — 다시 실행하면 그 자리만 묻는다
+        current = current and not off
     audited = bool(saved and saved.get("judgments"))
-    return {"ready": current and audited, "audited": audited, "stale": bool(saved and not current), "run": run,
+    return {"ready": current and audited, "audited": audited, "stale": bool(saved and not current), "run": run, "refStale": off,
             "judgmentCounts": (saved or {}).get("judgmentCounts", {}),
             "count": (saved or {}).get("count", 0), "placeCount": (saved or {}).get("placeCount", 0), "sources": (saved or {}).get("sources", []),
             "sourceDetails": (saved or {}).get("sourceDetails", []), "images": (saved or {}).get("images", 0),

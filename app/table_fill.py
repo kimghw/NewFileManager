@@ -373,9 +373,15 @@ def notes_text(notes):
     return "\n".join(lines) if lines else "(없음)"
 
 
-def guide_text(common, own, form=None):
-    """지침 묶음 — 양식(양식 정보 「표」 절 — spec ② §12) · 공통 · 이 표. `table_excel_llm.guide_text` 와 같은 꼴."""
-    parts = [("양식 표 지침(이 양식의 문서에 공통)", form), ("공통 표 지침", common), ("이 표 지침", own)]
+REQUEST_GUIDE = ("이 자리의 작성 요청(작성 지침 · 작성 계획 — 무엇을 어떤 꼴로 쓰는지입니다. 값은 material 에서 찾습니다: 사람이 정한 답도 material 의 「[사람이 정한 답]」 에 있고, "
+                 "이 글에 든 예시 이름 · 예시 수는 값이 아닙니다)")
+
+
+def guide_text(common, own, form=None, request=None):
+    """지침 묶음 — 양식(양식 정보 「표」 절 — spec ② §12) · 공통 · 이 표. `table_excel_llm.guide_text` 와 같은 꼴.
+    request = 양식 작성의 자리 턴이 보낸 요청 글(작성 지침 · 작성 계획 · 예시 — `doc_agent_api._fill_ask`): 자료(material)가 아니라 **지침**으로 싣는다 — 값의 근거 검사(`haystack`)에는 안 들고,
+    그 글이 정한 고정 글(「해당 없음」 · 단위)은 where "rule" 의 근거(`rules_haystack` — 이 묶음 글을 받는다)로 찾는다."""
+    parts = [("양식 표 지침(이 양식의 문서에 공통)", form), ("공통 표 지침", common), ("이 표 지침", own), (REQUEST_GUIDE, request)]
     out = [f"### {name}\n{text.strip()}" for name, text in parts if isinstance(text, str) and text.strip()]
     return "\n\n".join(out) if out else "(없음)"
 

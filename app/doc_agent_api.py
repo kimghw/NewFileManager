@@ -255,11 +255,12 @@ def _fill_gather(s, tid, rng, tb, allowed=None):
             "own": table_agent.get(s.id, tid), "heads": heads, "place": table_fill.place_of(tb), "rev": s.rev, "hash": doc_agent.target_hash(s.doc, tid)}
 
 
-def _fill_ask(g, material, form_guide, job, effort):
-    """표 채우기의 잠금 밖 부분 — 기존 호출 그대로(`table_fill.payload → ask → apply`). g 에 out(답 검사 결과 | None)·answer·기록할 것(prompt·response·call)을 더한다."""
+def _fill_ask(g, material, form_guide, job, effort, how=""):
+    """표 채우기의 잠금 밖 부분 — 기존 호출 그대로(`table_fill.payload → ask → apply`). g 에 out(답 검사 결과 | None)·answer·기록할 것(prompt·response·call)을 더한다.
+    how = 양식 작성의 자리 턴이 보낸 요청 글(작성 지침 · 작성 계획 · 예시) — 자료(material)가 아니라 「지침」 절로 싣는다: 값의 근거 검사에 안 든다(고정 글의 근거 where "rule" 로만 찾는다)."""
     from app import table_fill
     data = table_fill.payload(g["an"], g["ctx"], material, "", g["place"])
-    notes_txt, guide_txt, rules_txt = (table_fill.notes_text(g["notes"]), table_fill.guide_text(g["common"]["instructions"], g["own"]["instructions"], form=form_guide),
+    notes_txt, guide_txt, rules_txt = (table_fill.notes_text(g["notes"]), table_fill.guide_text(g["common"]["instructions"], g["own"]["instructions"], form=form_guide, request=how or None),
                                        table_agent.rules_text(g["common"], g["own"]))
     res = table_fill.ask(data, notes_txt, guide_txt, rules_txt, job_prompts.part(job, table_fill.JOB_NOTE), effort=effort)
     got = res["data"]
@@ -303,7 +304,7 @@ def _uploaded(s):
 def _turn(doc_id, body, scope=None):
     """한 턴의 몸통(끝점 `agent_turn` 과 같은 답) + **서버만 주는 범위**(scope — 요청 본문으로는 못 준다: 「지침 작성」 이 자리마다의 턴을 이 함수로 돌린다 — spec_양식작성 ② §5-3).
     scope = {"types": 이 턴에 받는 행동 종류 모음(그 밖의 행동은 버림 「이 자리에서는 하지 않는 행동입니다」), "paras": 자리 채우기(fill)를 받는 문단 id 모음 | None(= 셈한 대상 모두 — 같은 이름의 자리가 여럿인 덩이는 빼고),
-    "tables": 표 채우기를 받는 표 id 모음 | None(= 안 좁힘), "after": 글 쓰기 · 새 표를 받는 자리(after) id 모음 | None(= 안 좁힘 — 그 밖의 자리는 `OFF_AFTER`), "decided": [사람이 정한 답 글…](fill 의 값 근거),
+    "tables": 표 채우기를 받는 표 id 모음 | None(= 안 좁힘), "after": 글 쓰기 · 새 표를 받는 자리(after) id 모음 | None(= 안 좁힘 — 그 밖의 자리는 `OFF_AFTER`), "decided": [사람이 정한 답 글…](fill · 표 채우기의 값 근거 — 범위가 있는 턴의 표 채우기는 요청 글을 근거로 세지 않는다: `doc_agent.fill_basis`),
     "uploaded": {문단 id: 올린 원본의 원문} | None(글이 있는 쓸 자리가 올린 그대로인지 · 이미 채운 줄)}. 범위가 없는 턴은 올린 원본을 작업 폴더에서 읽는다(`_uploaded`).
     막는 것은 모두 **하위 호출 전**이다 — 범위 밖의 표는 표 채우기 호출(유료)을 하지 않는다. 범위가 없어도 상자를 고른 턴은 그 상자 안의 표를 채우지 않는다(그림 · 샘플 자리 — astra 2차 G9)."""
     body = body if isinstance(body, dict) else {}
@@ -368,7 +369,9 @@ def _turn(doc_id, body, scope=None):
         if only_after is not None:
             off.update({i: OFF_AFTER for i, a in enumerate(actions) if i not in off and a.get("type") in ("write", "tableNew") and str(a.get("after") or "").strip() not in only_after})
         want = [i for i, a in enumerate(actions[:doc_agent.ACTIONS_MAX]) if a.get("type") == "tableFill" and i not in off][:doc_agent.FILLS_PER_TURN]
-        material = doc_agent.fill_material(text, mats) if want else ""
+        # 표 채우기의 값 근거: 에이전트 보기에서 바로 온 턴은 자료 + 요청 글(사람이 값을 요청에 바로 적는다 — 전과 같다). **양식 작성의 자리 턴(scope)** 의 요청 글은 작성 지침 · 작성 계획 · 예시를 모은 글이라
+        # 근거가 아니다 — 자료 + 사람이 정한 답만 근거로 주고(`fill_basis`), 요청 글은 「지침」 절로만 보낸다(2026-11-27 astra P1-5: 지침에 섞인 샘플 기관명이 자료 없이 근거 검사를 지나갔다)
+        material, how = ("", "") if not want else (doc_agent.fill_basis(mats, (scope or {}).get("decided")), text) if scope is not None else (doc_agent.fill_material(text, mats), "")
         for i in want:   # 표마다: 잠금 안에서 모으고 → 잠금 밖에서 기능 호출(기존 표 채우기 길 그대로)
             a = actions[i]
             tid_ = str(a.get("table") or "").strip()
@@ -384,7 +387,7 @@ def _turn(doc_id, body, scope=None):
             with s.lock:
                 g = _fill_gather(s, str(a.get("table") or "").strip(), rng, tb, allowed)
             if not g.get("error"):
-                g = _fill_ask(g, material, form_guide, job, effort)
+                g = _fill_ask(g, material, form_guide, job, effort, how)
                 fill_recs.append({"table": g["table"], "range": g["an"]["range"], "prompt": g["prompt"], "response": g["response"], "call": g["call"], "counts": (g.get("out") or {}).get("counts")})
             fills[i] = g
         with s.lock:   # 제안 검사는 지금 문서와 견주되(없는 id 는 여기서 버려진다) **기준 차례는 호출 전의 rev0** — 호출 뒤 문서로 기준을 다시 찍지 않는다(검토 3)

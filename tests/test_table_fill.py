@@ -150,6 +150,24 @@ def test_place_filled_and_rule_fixed_text(cover, rnd_doc):
     assert "지금 열어 둔 이 문서" in TF.JOB_NOTE and "값의 출처로 쓰지 않고" in TF.JOB_NOTE and "material 은 사용자가" in TF.JOB_NOTE
 
 
+def test_request_text_goes_as_a_guide_and_is_not_a_value_source(cover):
+    """2026-11-27 astra P1-5 — 양식 작성의 자리 턴이 보낸 요청 글(작성 지침 · 작성 계획 · 예시)은 「지침」 절로 간다: 값의 근거 글(haystack)에는 안 들고, 그 글이 정한 고정 글은 where "rule" 로만 찾는다."""
+    _, an = cover
+    how = "이 자리의 작성 지침:\n- (04 자동 판정) 기관명은 「샘플전자(주)」 처럼 정식 명칭으로 쓴다. 해당 없는 칸은 「해당 없음」 으로 적는다."
+    guide = TF.guide_text("공통 지침", "", request=how)
+    assert guide == f"### 공통 표 지침\n공통 지침\n\n### {TF.REQUEST_GUIDE}\n{how}" and "값은 material 에서 찾습니다" in TF.REQUEST_GUIDE
+    assert TF.guide_text("공통 지침", "", request=None) == TF.guide_text("공통 지침", "") == "### 공통 표 지침\n공통 지침" and TF.guide_text("", "", request=" ") == "(없음)"   # 요청 글이 없으면 전과 같은 글
+    data = TF.payload(an, None, "[자료: 과제]\n중앙행정기관: 산업통상부\n\n[사람이 정한 답]\n- 한국선급")
+    text = TF.content(data, "(없음)", guide, "")
+    assert text.index("## 지침") < text.index("샘플전자(주)") < text.index("## 칸 입력 규칙") and "샘플전자" not in json.loads(text.split("## 자료(JSON)\n", 1)[1])["material"]   # 프롬프트에는 그대로 — 지침 절에
+    hay, rules = TF.haystack(data), TF.rules_haystack("(없음)", guide, "")
+    got = TF.apply({"fills": [one("W3", "샘플전자(주)", "기관명은 「샘플전자(주)」 처럼", "material"),      # 지침에 섞인 샘플 이름 — 자료에 없다: 경고(처음부터 안 고름)
+                              one("W4", "한국선급", "한국선급", "material"),                                 # 사람이 정한 답 — 근거
+                              one("W6", "해당 없음", "해당 없는 칸은 「해당 없음」 으로 적는다", "rule")]},     # 요청 글이 정한 고정 글 — 지침 · 규칙에서 찾는다
+                   an, hay, rules)["fills"]
+    assert [(f["ref"], f["warn"]) for f in got] == [("W3", ["근거 구절을 자료에서 못 찾음"]), ("W4", []), ("W6", [])]
+
+
 # ---- 채울 칸 ---------------------------------------------------------------------------------------------------------
 
 def test_analyze_cover_targets(cover, rnd_doc):

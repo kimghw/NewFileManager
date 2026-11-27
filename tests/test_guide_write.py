@@ -57,6 +57,27 @@ def test_request_text_carries_the_place_guides_and_the_run_note():
     assert [p["id"] for p in got] == ["h2", "h3"] and lost == 1
 
 
+def test_llm_rules_are_sent_whole_or_dropped_whole_never_cut_in_the_middle():
+    """2026-11-27 astra P2-6 — 초안 요청에 싣는 04 규칙(src "llm")은 중간에서 자르지 않는다: 전에는 몫을 규칙 수로 나눠 규칙마다 잘라 뒤쪽의 적용 조건 · 예외가 끊겼다.
+    분량을 넘는 규칙은 통째로 빠지고(place_guides.pack — 뒤의 것부터 · 차례는 그대로) 빠진 수가 한 줄로 실린다."""
+    def rule(k):
+        return {"src": "llm", "kind": "LLM 작성 지침", "text": f"규칙{k} — 표의 금액 칸은 " + "가" * 140 + f" 단, 협약 변경이 있으면 변경 뒤 금액으로 적는다(끝{k})"}
+    rules = [rule(1), rule(2), rule(3)]
+    size = len(rules[0]["text"])
+    doc = {"src": "doc", "kind": "작성 요령", "text": "양식 안내 " + "나" * 280}
+    text = guide_write.guides_text([doc, *rules], limit=600)   # 양식 안내 286자 + 규칙 하나(남은 분량에 둘은 못 든다)
+    lines = text.splitlines()
+    assert size * 2 > 600 - len(doc["text"]) >= size and lines[0].startswith("- (양식 · 작성 요령) 양식 안내")
+    assert lines[1] == "- (04 자동 판정 · LLM 작성 지침) " + rules[0]["text"] and lines[2] == guide_write.RULES_CUT.format(n=2) == "- (04 자동 판정) 분량을 넘어 이 요청에 싣지 않은 규칙 2개" and len(lines) == 3
+    assert "끝2" not in text and "끝3" not in text and "…" not in text                                      # 뺀 규칙은 조각도 안 남는다
+    whole = guide_write.guides_text(rules, limit=600)                                                       # 다른 지침이 없으면 남은 분량까지 04 규칙이 쓴다 — 셋 다 끝까지
+    assert whole.splitlines() == ["- (04 자동 판정 · LLM 작성 지침) " + r["text"] for r in rules] and size * 3 <= 600
+    none = guide_write.guides_text([doc, {**rule(4), "text": "긴 규칙 " + "다" * 700 + " (끝4)"}], limit=600)    # 혼자서도 분량을 넘는 규칙 — 잘라 싣지 않고 뺀다
+    assert none.splitlines()[1:] == [guide_write.RULES_CUT.format(n=1)] and "끝4" not in none
+    req = guide_write.request({"id": "h2", "kind": "head", "text": "1-1. 최종 목표", "guides": [doc, *rules]}, "")
+    assert all(f"(끝{k})" in req for k in (1, 2, 3)) and "싣지 않은 규칙" not in req                           # 평소 분량(2,400자)에서는 모두 실린다
+
+
 def _reviewed(doc, places, mids, decided=()):
     """양식 검토 · 작성 계획이 끝난 저장본을 적는다(물음 없음 — 문 `form_review_api.gate` 가 열린다). 자리마다의 지문은 지금 자리 목록의 것."""
     form_review_api._save(server._sess(doc).id, {"review": {"summary": "", "places": {}, "questions": [], "topics": [], "materials": list(mids), "sig": form_review.sig(places), "sigs": form_review.sigs(places)},

@@ -159,7 +159,9 @@ def test_04_reads_rules_as_reference_and_does_not_echo_them():
     ps = guide_write.places(D.BLOCKS, D.GRAPH, ix)
     p = next(x for x in ps if x["id"] == "h2")
     assert all(g["src"] not in ("rule", "purpose") for g in W.form_place(p)["guides"])   # 04 의 「양식 원문의 지침」 에는 안 든다
-    assert [r["from"].split(" · ")[0] for r in W.reference_of(p)] == ["규정", "문서 목적 — 프로젝트 지침"]
+    # 그 자리의 것 + 윗 절(1. 개요)에서 내려온 규정(「개요 전체에 닿는 요구」 — 2026-11-27 astra P1-3: 전에는 `up` 이 04 의 자리 참조에 안 실렸다)
+    assert [(r["from"].split(" · ")[0], r["text"]) for r in W.reference_of(p)] == [
+        ("규정", "목표는 정량 지표로 적는다."), ("규정", "개요 전체에 닿는 요구"), ("문서 목적 — 프로젝트 지침", "이번 공고의 탄소 저감 관점으로 쓴다.")]
     echo = W.echo_texts(ps)
     assert "본문은 10쪽 이내로 쓴다." in echo
     kept = W.drop_echo([{"instruction": "목표는  정량 지표로 적는다."}, {"instruction": "표는 차년도마다 한 행"}], echo)

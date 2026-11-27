@@ -172,16 +172,21 @@ def places(blocks, graph, ix, orig=None):
     return out
 
 
+RULES_CUT = "- (04 자동 판정) 분량을 넘어 이 요청에 싣지 않은 규칙 {n}개"   # 04 규칙을 통째로 뺐을 때의 알림 줄(guides_text)
+
+
 def guides_text(guides, limit=GUIDE_MAX):
-    """그 자리의 지침들 → 요청 글에 싣는 줄들(사람의 것이 앞 · 합쳐 limit 자까지)."""
+    """그 자리의 지침들 → 요청 글에 싣는 줄들(사람의 것이 앞 · 합쳐 limit 자까지). 04 규칙(src "llm")은 한 항목씩 완결된 꼴로만 싣는다 — 분량을 넘는 규칙은 통째로 빠지고 끝에 `RULES_CUT` 한 줄."""
     guides = sorted(guides or (), key=PG.rank)   # 출처 순위(사람 › 규정(필수) › 문서 목적 › 양식 명시 › 양식 지침 › 규정(권고) › 04 — place_guides.RANK): 자를 때도 같은 순위로 빠진다
     llm_rules = [g for g in guides if g.get("src") == "llm"]
+    cut = 0
     if llm_rules:
-        # 긴 양식 안내와 사람 지침이 있을 때도 본보기에서 추출한 지침의 몫을 둔다.
-        budget = min(sum(len(g["text"]) for g in llm_rules), limit // 2)
-        share = max(1, budget // len(llm_rules))
-        rules = [{**g, "text": _one(g["text"], share)} for g in llm_rules]
+        # 긴 양식 안내와 사람 지침이 있을 때도 본보기에서 추출한 지침의 몫을 둔다(limit 의 절반까지 — 다른 지침이 덜 쓰면 남은 분량도 04 규칙이 쓴다).
+        # **규칙을 중간에서 자르지 않는다**(2026-11-27 astra P2-6 — 전에는 몫을 규칙 수로 나눠 규칙마다 잘라, 뒤쪽에 적힌 적용 조건 · 예외가 끊겼다): 분량을 넘는 규칙은 통째로 빼고(place_guides.pack — 뒤의 것부터 · 차례는 그대로) 뺀 수를 한 줄로 알린다
+        size = lambda g: len(g.get("text") or "") + len(g.get("label") or "")  # noqa: E731 — place_guides.pack 이 세는 크기
+        budget = min(sum(size(g) for g in llm_rules), limit // 2)
         packed, _ = PG.pack([g for g in guides if g.get("src") != "llm"], limit=limit - budget)
+        rules, cut = PG.pack(llm_rules, limit=limit - sum(size(g) for g in packed))
         packed += rules
     else:
         packed, _ = PG.pack(guides, limit=limit)
@@ -194,6 +199,8 @@ def guides_text(guides, limit=GUIDE_MAX):
         kind = f" · {g['kind']}" if g.get("kind") and g.get("src") not in ("user", "form", "struct") else ""
         where = f" · {g['label']}" if g.get("src") == "form" and g.get("label") else ""   # 서브 테이블 · 칸에만 닿는 양식 지침
         lines.append(f"- ({who}{kind}{where}) {' '.join((g.get('text') or '').split())}")
+    if cut:
+        lines.append(RULES_CUT.format(n=cut))
     return "\n".join(lines)
 
 

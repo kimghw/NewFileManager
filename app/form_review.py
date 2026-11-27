@@ -40,6 +40,7 @@ GUIDE, MODEL = "form_review", "claude-opus-5-5"
 FORM_MAX = 45000        # 양식 글
 PARA_MAX, CELL_MAX, ROWS_MAX = 400, 80, 12   # 문단 하나 · 칸 하나 · 표 하나에 싣는 행
 GUIDE_MAX = 600         # 자리 하나의 지침(합쳐 — 자리 목록에)
+JUDGMENT_REASON_MAX = 160   # 04 가 판정하지 못한 자리(insufficient)의 까닭 한 줄(자리 목록에)
 MATERIAL_MAX = 60000    # 고른 자료(합쳐)
 QUESTIONS_MAX = 12
 TOPICS_MAX, KEYWORDS_MAX, TOPIC_NAME, KEYWORD_MAX, SCOPE_MAX = 12, 6, 40, 30, 200   # 자료에서 찾을 테마 · 키워드(② §5-2)
@@ -61,7 +62,7 @@ CONTRACT = """당신은 정해진 **양식 문서**(사업계획서 · 보고서
 - request = **사람이 이번 작성에 대해 요청한 것**(「이번 작성의 지침」 — 있을 때만). 자리의 guides 가운데 「(사람)」 도 사람이 그 자리에 적은 요청입니다. 검토는 이것을 따릅니다(양식의 지침과 어긋나면 어긋난다고 적습니다).
 - planRequest = **사람이 작성 계획에 대해 요청한 것**(「작성 계획에 줄 요청」 — 작성 계획 때 · 있을 때만: 자료의 무엇을 먼저 쓸지 · 어느 자료를 따를지 · 무엇을 묻지 말지 등). 작성 계획(use · gap · questions)은 이것을 따릅니다 —
   양식의 지침 · request 와 어긋나면 어긋난다고 해당 자리의 gap 이나 물음에 적습니다. 이것으로 자료에 없는 내용을 만들지 않습니다.
-- writingJudgment = 04에서 해당 자리의 작성 규칙을 판정한 결과입니다. apply이면 writingGuidance에 채택한 규칙과 출처가 있습니다. basis의 explicit은 명시 요건, example은 샘플에서 관찰한 관례입니다. not_applicable이나 insufficient이면 이 자리의 원래 양식 지침을 사용합니다. 이 판정은 작성 방법에만 적용되며 실제로 채울 내용은 자료에서 찾습니다.
+- writingJudgment = 04에서 해당 자리의 작성 규칙을 판정한 결과입니다. apply이면 writingGuidance에 채택한 규칙과 출처가 있습니다. basis의 explicit은 명시 요건, example은 샘플에서 관찰한 관례입니다. not_applicable이나 insufficient이면 이 자리의 원래 양식 지침을 사용합니다. insufficient이면 reason에 04가 판정하지 못한 까닭(풀리지 않은 충돌 · 판독 부족)이 한 줄로 있습니다. 이 판정은 작성 방법에만 적용되며 실제로 채울 내용은 자료에서 찾습니다.
   writingGuidance 의 instruction 이 「테이블 타입 —」 으로 시작하면 그 자리의 표가 어떤 꼴의 표이고(본문 · 헤딩 · 그림 · 값 등) 어떻게 쓰는지입니다(04 가 밝힌 것).
 - theme = 04 가 밝힌 **이 문서의 테마**(있을 때만) — 그 종류의 문서에서 중요하게 볼 항목(구분 기준 타입: 항목 이름과 다루는 법)과 문서가 쓰는 개요 템플릿(레벨마다 레터).
 - docGuides = **문서 전체에 닿는 지침**(있을 때만 · 한 번만 실었습니다) — 줄 머리의 「규정 · 필수|권고 · 출처」 는 다른 규칙이 이 양식에 요구하는 것, 「문서 목적 …」 은 이 과제의 공고 · 목적 · 평가 관점 · 요구 사항, 「양식 지침 — 문서 전체」 는 일반 가이드라인입니다. 자리의 guides 에도 「(규정 …)」 · 「(문서 목적 …)」 으로 그 자리에 닿는 것이 섞여 있습니다.
@@ -158,9 +159,12 @@ def _place_brief(p):
         used += len(t)
     llm_rules = [{"instruction": g.get("instruction") or g["text"], "sources": g.get("sources") or [],
                   **({"basis": g["basis"]} if g.get("basis") else {})} for g in guides if g.get("src") == "llm"]
+    wj = p.get("writingJudgment") or {}
+    # 04 가 판정하지 못한 자리(insufficient)의 까닭 — 풀리지 않은 충돌 · 판독 부족을 검토 · 계획이 알게 한 줄로(2026-11-27 astra P2-6: 전에는 status 만 가서 그 까닭이 뒤 단계에 닿지 않았다). apply · not_applicable 의 reason 은 싣지 않는다(분량)
+    why = _short(wj.get("reason"), JUDGMENT_REASON_MAX) if wj.get("status") == "insufficient" else ""
     return {"id": p["id"], "kind": p["kind"], "text": p.get("text") or "", "depth": p.get("depth"), "guides": gs, "filled": bool(p.get("filled")),
             **({"writingGuidance": llm_rules} if llm_rules else {}),
-            **({"writingJudgment": {"status": p["writingJudgment"]["status"]}} if p.get("writingJudgment") else {}),
+            **({"writingJudgment": {"status": wj["status"], **({"reason": why} if why else {})}} if wj else {}),
             **{k: p[k] for k in ("slot", "slots", "boxed") if p.get(k)}}
 
 

@@ -373,6 +373,38 @@ def test_fill_turn_is_the_existing_pipeline_and_applies_only_picks(c, monkeypatc
     assert v3["proposals"] == [] and "시간 초과" in v3["notes"][0]
 
 
+def test_place_turn_table_fill_counts_only_materials_and_decided_answers(c, monkeypatch, plain):
+    """2026-11-27 astra P1-5 — 양식 작성의 자리 턴(서버가 범위를 건 턴)의 요청 글은 작성 지침 · 작성 계획 · 예시를 모은 글이다: 표 채우기의 값 근거(material)에 넣지 않고 「지침」 절로만 보낸다
+    (전에는 요청 글 전체가 material 에 합쳐져, 지침에 섞인 샘플 이름을 인용한 칸이 자료에 없어도 근거 검사를 지나 처음부터 골라졌다). 근거 = 고른 자료 + 사람이 정한 답. 범위 없는 턴(에이전트 보기)은 전과 같다."""
+    d = _upload(c)
+    tid = "t8"
+    text = ("[지침 작성] 표 「기술수요」(id t8) 자리를 작성 지침에 따라 채웁니다.\n\n이 자리의 작성 지침:\n"
+            "- (04 자동 판정) 과제명은 「샘플 전력모듈 실증」 처럼 한 줄로 쓴다. 해당 없는 칸은 「해당 없음」 으로 적는다.")
+    mid = c.post(f"/api/docs/{d}/agent/material", json={"name": "과제", "text": "과제명: 차세대 전력변환 모듈 개발"}).json()["id"]
+    answer = {"fills": [{"cell": "B4", "text": "차세대 전력변환 모듈 개발", "source": "과제명: 차세대 전력변환 모듈 개발", "where": "material", "reason": "과제명"},
+                        {"cell": "B6", "text": "샘플 전력모듈 실증", "source": "과제명은 「샘플 전력모듈 실증」 처럼", "where": "material", "reason": "지침의 예시를 값으로 옮김"},
+                        {"cell": "B8", "text": "해당 없음", "source": "해당 없는 칸은 「해당 없음」 으로 적는다", "where": "rule", "reason": "지침이 정한 고정 글"}], "note": ""}
+    sent = []
+
+    def fill(data, notes, guide, rules, job="", **kw):
+        sent.append({"data": data, "guide": guide})
+        return {"data": answer, "prompt": TF.content(data, notes, guide, rules, job), "call": {"backend": "api", "model": "m", "effort": kw.get("effort"), "ms": 9, "costUsd": 0.02, "error": None}}
+    monkeypatch.setattr(TF, "ask", fill)
+    _llm(monkeypatch, {"reply": "표를 채웁니다", "actions": [{"type": "tableFill", "table": tid, "range": ""}]})
+    body = {"text": text, "materials": [mid], "selection": {"table": tid}}
+    scope = {"types": {"tableFill"}, "paras": set(), "tables": {tid}, "decided": ["한국선급"], "uploaded": None}
+    (p,) = API._turn(d, body, scope=scope)["turn"]["proposals"]
+    mat = A.Store(d).material(mid)
+    assert sent[0]["data"]["material"] == A.fill_basis([mat], ["한국선급"]) and "샘플" not in sent[0]["data"]["material"] and "[요청 글]" not in sent[0]["data"]["material"]
+    assert sent[0]["data"]["material"].endswith("[사람이 정한 답]\n- 한국선급") and sent[0]["guide"].endswith(f"### {TF.REQUEST_GUIDE}\n{text}")   # 요청 글은 프롬프트의 지침 절에 그대로
+    by = {f["ref"]: f for f in p["view"]["fills"]}
+    assert by["B4"]["warn"] == [] and by["B6"]["warn"] == ["근거 구절을 자료에서 못 찾음"] and by["B8"]["warn"] == []   # 지침의 샘플 이름은 근거가 아니다 · 지침이 정한 고정 글은 where "rule" 로 찾는다
+    assert p["view"]["picked"] == [by["B4"]["cell"], by["B8"]["cell"]]
+    (q,) = _turn(c, d, **body).json()["turn"]["proposals"]                                                           # 범위 없는 턴 — 사람이 요청 글에 적은 값은 전처럼 근거
+    assert sent[1]["data"]["material"] == A.fill_material(text, [mat]) and TF.REQUEST_GUIDE not in sent[1]["guide"]
+    assert {f["ref"]: f for f in q["view"]["fills"]}["B6"]["warn"] == []
+
+
 def test_source_document_policy_blocks_apply(c, monkeypatch, plain):
     d = _upload(c)
     s = server.DOCS[d]

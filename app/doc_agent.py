@@ -576,6 +576,20 @@ def fill_material(request, mats, cap=MATERIALS_SENT):
     return (body + "\n\n" + tail if body else tail)[:cap]
 
 
+DECIDED_HEAD = "[사람이 정한 답]"
+
+
+def fill_basis(mats, decided=(), cap=MATERIALS_SENT):
+    """**양식 작성의 자리 턴**(서버가 범위를 건 턴 — `doc_agent_api._turn(scope=)`)에서 표 채우기 호출에 줄 자료 글 = 고른 자료 글 + 사람이 정한 답(「[사람이 정한 답]」 머리 · 한 줄에 하나).
+    **요청 글은 싣지 않는다** — 그 턴의 요청 글은 작성 지침 · 작성 계획 · 예시를 모은 글(`guide_write.request`)이라 「어떻게 쓰나」 이지 값의 근거가 아니다
+    (2026-11-27 astra P1-5: `fill_material` 로 합치면 지침에 섞인 샘플 기관명이 자료에 없어도 `table_fill.haystack` 의 근거 검사를 지나갔다). 요청 글은 호출의 「지침」 절로 따로 간다(`table_fill.guide_text(request=)`).
+    사람이 에이전트 보기에서 직접 적는 요청(범위 없는 턴)은 전처럼 `fill_material` — 거기서는 요청 글에 적은 값이 근거다."""
+    answers = [" ".join(d.split()) for d in decided or () if isinstance(d, str) and d.strip()]
+    tail = DECIDED_HEAD + "\n" + "\n".join(f"- {a}" for a in answers) if answers else ""
+    body = materials_text(mats, max(0, cap - len(tail) - 2))
+    return (body + "\n\n" + tail if body and tail else body or tail)[:cap]
+
+
 def history_of(turns, n=HISTORY):
     """턴 기록들(옛 것부터) → 프롬프트의 history — 답이 있는 최근 n턴: {request, reply, applied[반영한 제안 제목]}."""
     out = []

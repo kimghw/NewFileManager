@@ -33,6 +33,26 @@ def test_same_ignores_free_text_and_order():
     assert not llm_duo.same(a, {"changes": [{"id": "n1", "parent": "n9", "reason": "가"}, a["changes"][1]], "summary": "x"})
 
 
+def test_same_keeps_the_order_only_for_the_ordered_keys():
+    """차례가 뜻인 목록(작성 지침 보완의 템플릿 `levels`: 위 레벨 → 아래 레벨)은 ordered 로 준 키만 차례까지 견준다 — 기본은 전과 같이 차례 없이(astra 2026-11-27 P1-6: 전에는 레터의 차례가 뒤바뀐 두 답을 같다고 봤다)."""
+    a = {"templates": [{"id": "new", "new": {"name": "기호", "levels": ["□", "o", "-"]}}, {"id": "rnd.main"}], "decisions": [{"place": "h1"}, {"place": "h2"}]}
+    b = {"templates": [{"id": "rnd.main"}, {"id": "new", "new": {"name": "기호", "levels": ["o", "□", "-"]}}], "decisions": [{"place": "h2"}, {"place": "h1"}]}
+    assert llm_duo.same(a, b)   # 기본 — 목록은 차례 없이(다른 에이전트의 견줌은 그대로)
+    assert not llm_duo.same(a, b, ordered=("levels",))
+    c = {**b, "templates": [{"id": "rnd.main"}, {"id": "new", "new": {"name": "기호", "levels": ["□", "o", "-"]}}]}
+    assert llm_duo.same(a, c, ordered=("levels",))   # levels 가 같으면 그 밖의 목록(templates · decisions)의 차례는 여전히 안 본다
+
+
+def test_ask_consults_when_only_an_ordered_list_differs(calls):
+    log, fake = calls
+    fake.answer = lambda slot, model, content: {"templates": [{"levels": ["o", "□"] if slot == "LLM2" else ["□", "o"]}]}
+    out = llm_duo.ask(SCHEMA, "P", "writing-guidance", ["claude-fable-5-2", "gpt-6-astra"])
+    assert len(log) == 2 and out["rec"][2]["same"] is True   # 기본 — 차례만 다른 목록은 같은 답
+    log.clear()
+    out = llm_duo.ask(SCHEMA, "P", "writing-guidance", ["claude-fable-5-2", "gpt-6-astra"], ordered=("levels",))
+    assert [c["what"] for c in log].count("writing-guidance#consult") == 1 and len(log) == 3 and out["rec"][2]["ok"] is True   # 차례가 뜻인 키를 주면 다른 답 — 협의한다
+
+
 def test_two_models_same_answer_skip_consult(calls):
     log, _ = calls
     out = llm_duo.ask(SCHEMA, "P", "heading_section#1", [None, "gpt-6-astra"], effort="medium")

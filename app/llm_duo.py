@@ -41,22 +41,28 @@ def _bare(x):
     return x
 
 
-def same(a, b):
-    """두 답의 판정이 같은가 — 풀이 글(LOOSE)은 빼고, 목록은 차례 없이 견준다."""
-    def norm(x):
+def same(a, b, ordered=()):
+    """두 답의 판정이 같은가 — 풀이 글(LOOSE)은 빼고, 목록은 차례 없이 견준다.
+    ordered = **차례가 뜻인 목록의 키**(그 키 아래의 목록은 차례까지 같아야 같다 — 작성 지침 보완의 `levels`: 위 레벨 → 아래 레벨. 기본 = 없음: 다른 에이전트의 견줌은 전과 같다 · astra 2026-11-27 P1-6)."""
+    def norm(x, keep=False):
         x = _bare(x)
         if isinstance(x, dict):
-            return {k: norm(v) for k, v in x.items()}
+            return {k: norm(v, k in ordered) for k, v in x.items()}
         if isinstance(x, list):
-            return sorted((norm(v) for v in x), key=lambda v: json.dumps(v, ensure_ascii=False, sort_keys=True))
+            rows = [norm(v) for v in x]
+            return rows if keep else sorted(rows, key=lambda v: json.dumps(v, ensure_ascii=False, sort_keys=True))
         return x
     return norm(a) == norm(b)
 
 
-def ask(schema, prompt, what, models, *, timeout=600.0, effort=None, default_model=None, check=None, consult=None, same_fn=same, on=None, images=None, single_timeout=None):
+def ask(schema, prompt, what, models, *, timeout=600.0, effort=None, default_model=None, check=None, consult=None, same_fn=same, on=None, images=None, single_timeout=None, ordered=()):
     """→ {"got": llm.call 꼴의 답(모두 실패면 data None · error), "rec": 자리마다 기록 [{slot, model, backend, ms, costUsd, ok, error}] (한 모델이면 []), "drafts": [{slot, model, data, got}]}.
     models = 모델 자리들(None = 평소 모델) · default_model = None 자리에 넘길 코드의 모델(없으면 서버 기본) · check(data) = 답의 꼴 검사(예외 = 그 모델의 실패) ·
-    consult(prompt, drafts) → 협의 프롬프트(없으면 consult_prompt) · same_fn(a, b) = 두 답이 같으면 협의를 건너뛴다(None = 늘 협의) · on(kind, value) = 진행 알림("llms" 자리 상태 · "consult" 상태)."""
+    consult(prompt, drafts) → 협의 프롬프트(없으면 consult_prompt) · same_fn(a, b) = 두 답이 같으면 협의를 건너뛴다(None = 늘 협의) · on(kind, value) = 진행 알림("llms" 자리 상태 · "consult" 상태) ·
+    ordered = 차례가 뜻인 목록의 키(`same` 의 ordered — 기본 견줌(`same`)을 쓸 때만 먹는다: 제 same_fn 을 준 쪽은 그 함수가 정한다)."""
+    if ordered and same_fn is same:
+        keys = tuple(ordered)
+        same_fn = lambda a, b: same(a, b, keys)   # noqa: E731
     extra = {"images": images} if images else {}
     tell = on or (lambda kind, value: None)
     models = list(models or ())

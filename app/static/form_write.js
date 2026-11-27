@@ -513,7 +513,7 @@ function fwLlmStep(A) {
   if (!A.base) return { state: "todo", text: "헤딩 · 표 분석이 끝나야 합니다", lines, acts: run };
   if (!llmOn) return { state: "done", skipped: true, word: "건너뜀", text: "LLM 을 쓸 수 없어 건너뜁니다 — 스크립트 분석 결과로 진행합니다", lines, acts: run };
   const failure = g.run?.state === "failed" ? g.run.error : v.job?.status === "failed" ? v.job.error : g.error;
-  const text = failure || (bad ? "구조 판정이 실패했습니다. 다시 실행하거나 건너뛸 수 있습니다." : g.stale ? "입력이 바뀌었습니다. 현재 양식과 첨부로 작성 지침을 다시 추출하세요." : doneN ? `구조 판정 ${doneN}/${four.length} · 자리별 작성 지침 추출 전` : "목적 문서의 작성 예시를 읽습니다. 함께 비교할 샘플·서식이 있으면 실행 전에 첨부하세요.");
+  const text = failure || (bad ? "구조 판정이 실패했습니다. 다시 실행하거나 건너뛸 수 있습니다." : g.refStale ? `규정 · 문서 목적이 판정 뒤에 바뀌었습니다 — 그 글이 닿는 자리 ${g.refStale}곳만 다시 판정합니다(다른 자리의 판정은 이어 씁니다).` : g.stale ? "입력이 바뀌었습니다. 현재 양식과 첨부로 작성 지침을 다시 추출하세요." : doneN ? `구조 판정 ${doneN}/${four.length} · 자리별 작성 지침 추출 전` : "목적 문서의 작성 예시를 읽습니다. 함께 비교할 샘플·서식이 있으면 실행 전에 첨부하세요.");
   return { state: "now", text, lines, acts: [...run, dashBtn("건너뛰기", () => fwStepMark("headsLlm", "skip", "LLM 검증·보완을 건너뜁니다 — 스크립트 분석 결과로 진행합니다"), { title: "스크립트 분석 결과로 다음 줄로 넘어갑니다", focus: "act:headsLlm:skip" })] };
 }
 function fwGuidesStep(gw, A, heads, guided) { // 04의 자리별 판정이 있으면 05는 추가 메모용이다.

@@ -198,6 +198,12 @@ def test_styles_materials_history_payload():
     assert len(text) <= 60_000 and text.startswith("[자료: 긴 자료]\n가") and "(뒤는 잘림)" in text and "[자료: 짧은 자료]\n" + "나" * 100 in text
     fm = A.fill_material("책임자는 홍길동", mats)
     assert len(fm) <= TF.MATERIAL_MAX and fm.endswith("[요청 글]\n책임자는 홍길동") and A.fill_material("값 1", []) == "[요청 글]\n값 1"
+    # 양식 작성의 자리 턴 — 표 채우기의 값 근거 = 자료 + 사람이 정한 답뿐(요청 글 = 작성 지침 · 계획 · 예시는 싣지 않는다: 2026-11-27 astra P1-5)
+    fb = A.fill_basis(mats[1:2], ["한국선급", " 2차년도 \n몫 ", "", 7])
+    assert fb == "[자료: 짧은 자료]\n" + "나" * 100 + "\n\n[사람이 정한 답]\n- 한국선급\n- 2차년도 몫" and "[요청 글]" not in fb
+    assert A.fill_basis([], []) == "" and A.fill_basis([], ["한국선급"]) == "[사람이 정한 답]\n- 한국선급" and A.fill_basis(mats[1:2]) == "[자료: 짧은 자료]\n" + "나" * 100
+    big = A.fill_basis(mats, ["한국선급"])
+    assert len(big) <= TF.MATERIAL_MAX and big.endswith("[사람이 정한 답]\n- 한국선급")   # 긴 자료에도 정한 답의 몫은 남는다
     turns = [{"request": {"text": f"요청 {k}"}, "reply": f"답 {k}", "proposals": [{"title": "표", "state": "applied"}, {"title": "글", "state": "open"}]} for k in range(8)]
     turns.insert(3, {"request": {"text": "실패"}, "error": "시간 초과", "reply": ""})
     h = A.history_of(turns)

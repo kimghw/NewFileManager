@@ -430,15 +430,36 @@ def by_name(kind, name, themes=None):
     return None
 
 
-def brief(themes=None):
-    """LLM 에 싣는 꼴 — 테마마다 {id, name, docs, signs, division[{name, how}], templates[{id(「테마.항목」), name, levels, how}], tables[{id(「테마.항목」), name, signs, how}]}."""
+def unconfirmed(item):
+    """LLM 이 정의했고 사람이 확인하지 않은 항목인가 — 저장 꼴에 「확인함」 표식이 따로 없어 출처로 가른다: `src: llm`(LLM 이 더한 것 · LLM 이 정의한 테마의 항목)이면 확인 전,
+    사람이 YAML 에서 그 항목의 src 를 user 로 고치면 확인한 것(writing_guidance_api.attach 가 뒤 단계에 싣는 글을 가르는 것과 같은 기준 — spec_양식작성 ② §5-9)."""
+    return (item or {}).get("src") == "llm"
+
+
+def brief(themes=None, unconfirmed_how=True):
+    """LLM 에 싣는 꼴 — 테마마다 {id, name, docs, signs, division[{name, how}], templates[{id(「테마.항목」), name, levels, how}], tables[{id(「테마.항목」), name, signs, how}]}.
+    unconfirmed_how=False 면 확인 전 항목(`unconfirmed`)의 how(다루는 법 · 작성 방법)를 **빼고** 이름 · 판별 단서 · 레터만 싣는다(그 항목에 how 키가 없다) — 04 가 확인 전의 작성 방법을 자리 규칙으로 옮겨
+    뒤 단계에 넘기지 않게(astra 2026-11-27 P1-4: 뒤 단계는 확인 전 how 를 빼는데 04 의 규칙으로 바뀌면 그 막이를 비켜 간다). 분류(이 표가 그 타입인가)에는 이름 · 단서로 족하다."""
+    def how(x):
+        return {} if not unconfirmed_how and unconfirmed(x) else {"how": x["how"]}
     out = []
     for t in (themes if themes is not None else listing()):
         out.append({"id": t["id"], "name": t["name"], "docs": t["docs"], "signs": t["signs"],
-                    "division": [{"name": x["name"], "how": x["how"]} for x in t["division"]],
-                    "templates": [{"id": ref(t["id"], x["id"]), "name": x["name"], "levels": x["levels"], "how": x["how"]} for x in t["templates"]],
-                    "tables": [{"id": ref(t["id"], x["id"]), "name": x["name"], "signs": x["signs"], "how": x["how"]} for x in t["tables"]]})
+                    "division": [{"name": x["name"], **how(x)} for x in t["division"]],
+                    "templates": [{"id": ref(t["id"], x["id"]), "name": x["name"], "levels": x["levels"], **how(x)} for x in t["templates"]],
+                    "tables": [{"id": ref(t["id"], x["id"]), "name": x["name"], "signs": x["signs"], **how(x)} for x in t["tables"]]})
     return out
+
+
+def same_def(kind, item, new):
+    """새 정의(new)가 있는 항목(item)과 **같은 정의**인가 — 이름만 같고 내용이 다른 정의를 있는 항목에 잇지 않게(astra 2026-11-27 P2-3).
+    템플릿 = 레벨마다의 레터가 같음 · 테이블 타입 = 판별 단서와 작성 방법이 같음 · 구분 기준 타입 = 다루는 법이 같음(빈칸 · 기호를 뺀 글로 견준다 — `_norm`)."""
+    if not item or not isinstance(new, dict):
+        return False
+    if kind == "templates":
+        return [_one(x, LETTER_MAX) for x in item.get("levels") or ()] == [_one(x, LETTER_MAX) for x in new.get("levels") or () if isinstance(x, str)]
+    keys = (("signs", SIGNS_MAX), ("how", HOW_MAX)) if kind == "tables" else (("how", HOW_MAX),)   # 저장할 때와 같은 길이로 잘라 견준다
+    return all(_norm(_one(item.get(k), n)) == _norm(_one(new.get(k), n)) for k, n in keys)
 
 
 def division_text(theme, limit=600):
