@@ -369,24 +369,25 @@ async function fwStartGuidance() {
 }
 async function fwCriteriaOpen() {
   fwClearWay();
-  const { tools, body } = headsDlg("fwCriteria", "추출 프롬프트", "작성 지침을 뽑는 LLM(04 LLM 검증·보완)이 받는 글입니다 — 작성 지침 자체가 아닙니다.");
+  // 2026-11-27 사용자 "판단지침 이라고 해줘야지" — 전의 「추출 프롬프트」(spec_양식작성 ① 11-26 의 제안을 확정: 이 프로젝트가 merge_guides_default/*.md 에 쓰는 말)
+  const { tools, body } = headsDlg("fwCriteria", "판단 지침", "작성 지침을 뽑는 LLM(04 LLM 검증·보완)이 따르는 판단 지침과 함께 받는 글입니다 — 작성 지침 자체가 아닙니다.");
   const seq = heads.seq, epoch = state.epoch;
   const alive = () => heads.dlg === "fwCriteria" && heads.seq === seq && state.epoch === epoch;
-  tools.append(hBtn("다시 읽기", fwCriteriaOpen, { title: "현재 설정된 추출 프롬프트를 다시 읽습니다" }));
-  body.append(el("p", "hnote lg-msg", "추출 프롬프트를 읽고 있습니다…"));
+  tools.append(hBtn("다시 읽기", fwCriteriaOpen, { title: "현재 설정된 판단 지침을 다시 읽습니다" }));
+  body.append(el("p", "hnote lg-msg", "판단 지침을 읽고 있습니다…"));
   try {
     const agent = await api("/api/agents/writing_guidance");
     if (!alive()) return;
     const guide = agent.prompt.find((p) => p.kind === "merge" && p.name === "writing_guidance");
     const contract = agent.prompt.find((p) => p.kind === "contract");
-    body.replaceChildren(guide?.text ? llmGuidePart({ ...guide, key: "guide", note: guide.custom ? "LLM 아이콘에서 저장한 추출 프롬프트를 사용합니다." : "" })
-      : el("p", "hnote lg-msg", "현재 설정된 추출 프롬프트가 없습니다."));
+    body.replaceChildren(guide?.text ? llmGuidePart({ ...guide, key: "guide", note: guide.custom ? "LLM 아이콘에서 저장한 판단 지침을 사용합니다." : "" })
+      : el("p", "hnote lg-msg", "현재 설정된 판단 지침이 없습니다."));
     if (contract?.text) body.append(llmGuidePart({ ...contract, key: "contract", title: "입력과 판정 결과 작성 규칙" }));
     const themes = el("section", "fw-themes");
     body.append(themes);
     fwThemesDraw(themes, alive); // 04 가 함께 받는 미리 적어 둔 테마(테이블 타입 · 구분 기준 타입 · 템플릿)
   } catch (e) {
-    if (alive()) body.replaceChildren(el("p", "hwarn lg-msg fail", `추출 프롬프트를 읽지 못했습니다 — ${e.message}`));
+    if (alive()) body.replaceChildren(el("p", "hwarn lg-msg fail", `판단 지침을 읽지 못했습니다 — ${e.message}`));
   }
 }
 // ---- 미리 적어 둔 테마(spec_양식작성 ② §5-7 — 2026-11-26 사용자 「테이블 타입 및 작성방법 을 저장하고 관리 … 구분기준 타입 도 … 템플릿도 사전에 정의 … yaml 파일로 관리하면 어떨까? 테마마다」) ----
@@ -492,8 +493,8 @@ function fwLlmStep(A) {
       (g.defined || []).length ? `새로 정의 ${g.defined.map((d) => d.name).join(" · ")}` : ""].filter(Boolean); // 테마 · 템플릿 · 테이블 타입의 판정(② §5-7)
     if (th.length) lines.push(["테마 · 테이블 타입", th.join(" · ")]);
   }
-  const criteria = dashBtn("추출 프롬프트 보기", fwCriteriaOpen,
-    { title: "작성 지침을 뽑는 LLM(04 LLM 검증·보완)이 받는 판정 기준과 답의 규칙(프롬프트)을 봅니다.", focus: "act:headsLlm:criteria" });
+  const criteria = dashBtn("판단 지침 보기", fwCriteriaOpen,
+    { title: "작성 지침을 뽑는 LLM(04 LLM 검증·보완)이 따르는 판단 지침과, 함께 받는 답의 규칙 · 미리 적어 둔 테마를 봅니다.", focus: "act:headsLlm:criteria" });
   const attach = dashBtn("샘플·추가 서식 첨부…", () => fwPick(".hwp,.hwpx,.docx,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp", true, fwChangeExamples),
     { disabled: busy, title: "작성 예시나 함께 비교할 서식을 올립니다. 이 작업의 자리별 작성 방법을 추출할 때 읽습니다.", focus: "act:headsLlm:attach" });
   const guideActions = [criteria, attach, ...files.map((f) => dashBtn(`${f.name} 빼기`, () => fwChangeExamples([], f.id),

@@ -791,7 +791,7 @@
 .fw-ov-text { margin: 3px 0 0; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .fw-ov-step .dash-acts { margin-top: 5px; }
 
-/* 2026-11-26 두 지침 가르기 — 추출 프롬프트(B · 보라 반짝이) ↔ 작성 지침(A · 청록 클립보드) */
+/* 2026-11-26 두 지침 가르기 — 판단 지침(B · 보라 반짝이 — 2026-11-27 전의 화면 말 「추출 프롬프트」) ↔ 작성 지침(A · 청록 클립보드) */
 button.btn[data-dash-focus="act:headsLlm:criteria"],
 button.btn[data-dash-focus="act:headsLlm:view"],
 button.btn[data-dash-focus="act:guides"] {
@@ -857,7 +857,7 @@ button.btn.primary[data-dash-focus="act:guides"]:hover:not(:disabled) {
 }
 #headsDlg[data-kind="fwCriteria"] > header > .icon { margin-top: -2px; color: #6d5a94; }
 
-/* 추출 프롬프트 열의 「미리 적어 둔 테마」 — 테마마다 구분 기준 타입 · 템플릿 · 테이블 타입 + 「YAML 고치기」(spec_양식작성 ② §5-7 · form_write.js fwThemesDraw) */
+/* 판단 지침 열의 「미리 적어 둔 테마」 — 테마마다 구분 기준 타입 · 템플릿 · 테이블 타입 + 「YAML 고치기」(spec_양식작성 ② §5-7 · form_write.js fwThemesDraw) */
 .fw-themes { margin-top: 12px; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
 .fw-th-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 13px; }
 .fw-th { margin-top: 6px; border: 1px solid var(--line); border-radius: 6px; }

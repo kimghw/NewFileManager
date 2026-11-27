@@ -187,20 +187,20 @@ def check_guidance_inputs(page, doc):
         page.on("request", watch)
         try:
             with page.expect_response(base + "/api/agents/writing_guidance") as response:
-                card.get_by_role("button", name="추출 프롬프트 보기", exact=True).click()
+                card.get_by_role("button", name="판단 지침 보기", exact=True).click()
             parts = response.value.json()["prompt"]
             expected = next(p["text"] for p in parts if p["kind"] == "merge" and p["name"] == "writing_guidance")
             contract = next(p["text"] for p in parts if p["kind"] == "contract")
             text = page.locator("#headsDlgBody details[data-part='guide'][open] .lg-text")
             text.wait_for()
-            check(f"② 04 {phase}에 추출 프롬프트 원문을 펼쳐 본다",
+            check(f"② 04 {phase}에 판단 지침 원문을 펼쳐 본다",
                   response.value.request.method == "GET" and "각주" in expected and "그림" in expected
                   and text.text_content() == expected and page.locator("#headsDlgBody details[data-part='contract'] .lg-text").text_content() == contract
                   and "아직 실행한 적 없음" not in page.locator("#headsDlgBody").inner_text())
             themes = page.locator("#headsDlgBody .fw-themes details.fw-th")   # 미리 적어 둔 테마(테이블 타입 · 구분 기준 타입 · 템플릿 — ② §5-7): 읽기만(GET)
             themes.first.wait_for(state="attached")
             shown = page.locator("#headsDlgBody .fw-themes").text_content()
-            check(f"② 04 {phase}에 추출 프롬프트 열이 미리 적어 둔 테마를 보인다",
+            check(f"② 04 {phase}에 판단 지침 열이 미리 적어 둔 테마를 보인다",
                   themes.count() >= 2 and all(w in shown for w in ("연구개발과제", "참여기관", "연구개발계획서 기본", "본문 테이블", "헤딩 테이블", "그림 테이블", "YAML 고치기")), shown[:200])
             if phase == "실행 중":
                 page.screenshot(path=str(OUT / "02b_04_review_guide.png"))
