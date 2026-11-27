@@ -95,6 +95,20 @@ def chunk_paras(box, keys=None):
     return out
 
 
+def unpicked(box, keys=None):
+    """같은 이름의 덩이가 여럿인데 이번에 하나도 고르지 않은 이름들 [「공동(기업명 작성) : 2곳」 …] — 그 덩이는 이번에 쓰지 않는다(사람이 고를 때까지).
+    실행 결과 · 화면이 「안 쓴 자리」 로 알린다(2026-11-26 사용자 — 자료는 공동기관 몫인데 공동 자리를 안 골라 상자가 빈 채로 남았다)."""
+    views, want, out, seen = chunk_views(box), set(keys or ()), [], set()
+    for v in views:
+        g = (v["group"], v["under"])
+        if v["dup"][1] <= 1 or g in seen:
+            continue
+        seen.add(g)
+        if not any(x["key"] in want for x in views if (x["group"], x["under"]) == g):
+            out.append(f"{_one(v['group'], 80)} {v['dup'][1]}곳")   # 이름 = 양식의 글(채운 머리도 올린 원본의 글로)
+    return out
+
+
 DOC_SEND = 1200   # 초안 요청 하나에 싣는 「문서 전체에 닿는 지침」 의 글자 수(spec_양식작성 ② §5-9)
 WRITABLE = ("blank", "stub", "label", "check")   # v1 — 붙이기 · 표시만(양식에 있던 글을 바꾸는 줄은 내지 않는다: astra 2차 G4)
 

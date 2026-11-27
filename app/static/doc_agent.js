@@ -315,11 +315,27 @@ function agentEmptyEl() {
   return box;
 }
 
+// 「지침 작성」 이 자리마다 낸 턴(요청 글이 「[지침 작성] <자리> 자리를 …」 — guide_write.request)은 **어느 자리의 턴인지**를 머리에 보이고(누르면 그 자리로) 긴 요청 글은 접는다
+// (2026-11-26 사용자 「내가 보고있는 웹 문서와 에이전트가 하고 있는 문서가 관련이 없음」 — 한 실행의 마지막 자리(다른 쪽의 상자) 턴만 보여 어느 자리 얘기인지 몰랐다).
+function agentQEls(t) {
+  const text = t.text || "", m = /^\[지침 작성\] (.+?) 자리를 작성 지침에 따라 채웁니다\./.exec(text);
+  if (!m) return [el("p", "ag-q", text)];
+  const id = (/\(id ([A-Za-z]?\d+)/.exec(m[1]) || [])[1], where = m[1].replace(/\(id [^)]*\)\s*/, "").replace(/\s+/g, " ").trim();
+  const head = el("p", "ag-q ag-place"), go = el("button", "ag-place-go", where);
+  go.type = "button";
+  go.title = id ? "문서의 그 자리로" : "";
+  if (id && typeof scrollToBlock === "function") go.addEventListener("click", () => scrollToBlock(id)); else go.disabled = true;
+  head.append(el("span", "ag-place-tag", "지침 작성"), go);
+  const det = el("details", "ag-q-more");
+  det.append(el("summary", null, "보낸 요청 글 보기"), el("p", "ag-q", text));
+  return [head, det];
+}
+
 function agentTurnEl(t) {
   if (t.kind === "guide" && typeof agentWorkTurnEl === "function") return agentWorkTurnEl(t); // 진행 턴(작업 진행 에이전트 — doc_agent_work.js)
   const box = el("section", "ag-turn"), seen = new Set(), c = t.call || {}, dropped = t.dropped || [];
   box.dataset.turn = t.id;
-  box.append(el("p", "ag-q", t.text || ""));
+  box.append(...agentQEls(t));
   if (t.reply) box.append(el("p", "ag-a", t.reply));
   for (const n of t.notes || []) box.append(el("p", "ag-note", n)); // 스크립트가 덧붙인 말(채울 칸이 없는 표 · 자른 자료 …)
   if (t.error) box.append(el("p", "hwarn fail", `에이전트가 답하지 못했습니다: ${t.error}`));

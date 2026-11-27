@@ -298,7 +298,8 @@ def _scope(s, place, chunks, decided):
     if place["kind"] == "box":
         with s.lock:
             box = guide_write.boxes(s.doc.blocks(), heading_runs.graph(s), orig).get(place["id"])
-        return {**base, "types": {"fill"}, "paras": set(guide_write.chunk_paras(box, chunks) if box else ()), "tables": set()}
+        return {**base, "types": {"fill"}, "paras": set(guide_write.chunk_paras(box, chunks) if box else ()), "tables": set(),
+                "unpicked": guide_write.unpicked(box, chunks) if box else []}   # 같은 이름이라 고르지 않아 이번에 안 쓰는 자리(실행 결과가 알린다)
     if place["kind"] == "table":
         return {**base, "types": {"tableFill"}, "paras": set(), "tables": {place["id"]}}
     if place.get("slot") in ("label", "check"):
@@ -417,6 +418,8 @@ def _one(doc_id, place, head_text, mids, note, run):
             item.update(state="none", reply="이미 값이 있는 줄입니다 — 다시 쓰지 않습니다(고치려면 문서에서 직접 고칩니다).", why="filled")
             return
         scope = _scope(_sess(doc_id), place, (run.get("chunks") or {}).get(place["id"]), run.get("decided"))
+        if scope.get("unpicked"):
+            item["unpicked"] = list(scope["unpicked"])
         if place["kind"] == "box" and not scope["paras"]:
             item.update(state="none", reply="이 상자에서 쓸 자리를 고르지 않았습니다 — 「지침 작성」 열에서 쓸 자리를 고릅니다.", why="noslot")
             return

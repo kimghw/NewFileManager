@@ -523,15 +523,19 @@ def from_text(meta):
     return " · ".join(x for x in (f["doc"], f.get("project"), f.get("where")) if x) + (f" 외 {n}개 문서" if n else "")
 
 
-def styles_data(metas, picked=None, here=None):
+def styles_data(metas, picked=None, here=None, only_here=False):
     """보관함 목록 → 프롬프트의 styles {table[{id, name, bands, rows, cols, blueprint, from?}], text[{id, name, items[{key, name, level, sample}], from?}], picked{table, text}} — 종류마다 STYLES_MAX 개까지.
     표 서식의 첫 항목은 늘 기본 표(`builtin`). `from` = 그 서식을 뽑은 원본 문서(`style_from` — spec_서식복사 ② §17). here = 지금 문서 {name, sha256, project}: 주면 **이 문서에서 뽑은 서식 → 같은 프로젝트의
-    문서에서 뽑은 서식 → 그 밖** 차례로 싣는다(같은 묶음 안은 보관함 차례 그대로 — STYLES_MAX 에 잘릴 때 가까운 문서의 서식이 남게)."""
+    문서에서 뽑은 서식 → 그 밖** 차례로 싣는다(같은 묶음 안은 보관함 차례 그대로 — STYLES_MAX 에 잘릴 때 가까운 문서의 서식이 남게).
+    only_here = **지금 문서에서 뽑은 서식과 사람이 고른 서식만** 싣는다(양식 작성 — 에이전트는 목적 문서와 참조 문서만 읽는다: 2026-11-26 사용자 · spec_양식작성 ② §5-3 「읽는 문서」)."""
     idx, picked = styles_index(metas), picked if isinstance(picked, dict) else {}
     rank = {"doc": 0, "project": 1}
+    mine = {picked.get("table"), picked.get("text")} - {None, ""}
 
     def near(kind):
         rows = [(m, style_from(m, here)) for m in idx[kind].values()]
+        if only_here:
+            rows = [r for r in rows if (r[1] or {}).get("same") == "doc" or r[0].get("id") in mine]
         return sorted(rows, key=lambda r: rank.get((r[1] or {}).get("same"), 2))[:STYLES_MAX]   # sorted 는 차례를 지킨다(stable)
 
     table = [{"id": "builtin", "name": "기본 표(평범한 괘선)"}]

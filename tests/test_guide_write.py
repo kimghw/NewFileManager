@@ -302,6 +302,10 @@ def test_boxes_chunk_views_and_chunk_paras():
     v2 = {v["key"]: v for v in guide_write.chunk_views(b2)}
     assert v2["p69"]["paras"] == ["p70", "p71"] and v2["p69"]["dup"] == [1, 2] and v2["p75"]["dup"] == [2, 2] and v2["p69"]["group"] == v2["p75"]["group"]
     assert cp(b2) == ["p50", "p51", "p52"] and cp(b2, ["p69", "p75"]) == [] and cp(b2, ["p75"]) == ["p75", "p76", "p77"]
+    # 같은 이름의 자리를 하나도 안 고르면 그 이름을 「안 쓰는 자리」 로 알린다(2026-11-26 — 공동기관 자료인데 공동 자리를 안 골라 상자가 빈 채로 남았다)
+    un = guide_write.unpicked
+    assert un(bx["t44"]) == ["공동(기업명 작성) : 2곳"] and un(bx["t44"], ["p49"]) == ["공동(기업명 작성) : 2곳"]
+    assert un(bx["t44"], ["p75"]) == [] and un(bx["t97"]) == [] and un(b2) == ["공동(기업명 작성) : 2곳"] and un(b2, ["p69"]) == []
 
 
 def test_places_have_box_places_and_line_slots():
@@ -345,7 +349,8 @@ def test_scope_per_place_kind(monkeypatch):
     monkeypatch.setattr("app.heading_runs.graph", lambda sess: FGRAPH)
     monkeypatch.setattr(API, "uploaded_texts", lambda sess: {"f1": "■ 연구개발과제명 : "})
     by = {p["id"]: p for p in guide_write.places(FORM, FGRAPH, FIX)}
-    assert API._scope(s, by["t44"], None, ["한국선급"]) == {"decided": ["한국선급"], "uploaded": {"f1": "■ 연구개발과제명 : "}, "types": {"fill"}, "paras": {"p50", "p51", "p52"}, "tables": set()}   # 고르지 않으면 같은 이름의 덩이는 뺀다
+    assert API._scope(s, by["t44"], None, ["한국선급"]) == {"decided": ["한국선급"], "uploaded": {"f1": "■ 연구개발과제명 : "}, "types": {"fill"}, "paras": {"p50", "p51", "p52"}, "tables": set(),
+                                                         "unpicked": ["공동(기업명 작성) : 2곳"]}   # 고르지 않으면 같은 이름의 덩이는 빼고 그렇다고 남긴다
     assert API._scope(s, by["t44"], ["p75"], None)["paras"] == {"p75", "p76", "p77"} and API._scope(s, by["t44"], ["p69", "p75"], None)["paras"] == set() and API._scope(s, by["t44"], [], None)["paras"] == set()
     assert API._scope(s, {**by["t44"], "id": "gone"}, None, None)["paras"] == set()                                              # 그 사이 상자가 없어짐
 
@@ -401,6 +406,9 @@ def test_run_chunks_filled_slots_and_zero_draft_reasons(c, monkeypatch):
     assert scope["decided"] == ["한국선급"] and seen["f4"][1]["types"] == {"write", "tableFill"} and seen["f4"][1]["after"] == {"f4"}   # 「자료대로」 는 정한 값이 아니다 · 헤딩의 글은 그 헤딩 줄 뒤에만
     r = c.post(url, json={"places": ["t44"], "materials": [mid], "chunks": {"t44": ["p75", "p49"]}})
     assert r.status_code == 200 and _wait(c, doc)["items"][0]["why"] == "noaction" and seen["t44"][1]["paras"] == {"p50", "p51", "p52", "p75", "p76", "p77"}
+    assert "unpicked" not in _wait(c, doc)["items"][0]
+    r = c.post(url, json={"places": ["t44"], "materials": [mid]})                                         # 고르지 않으면 같은 이름의 자리(공동 둘)는 안 쓰고 그렇다고 남긴다
+    assert r.status_code == 200 and _wait(c, doc)["items"][0]["unpicked"] == ["공동(기업명 작성) : 2곳"] and seen["t44"][1]["paras"] == {"p50", "p51", "p52"}
 
 
 def test_run_is_refused_when_the_plan_no_longer_fits(c, monkeypatch):

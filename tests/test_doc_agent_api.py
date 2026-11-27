@@ -239,7 +239,9 @@ def test_write_turn_apply_replay_consumed_undo(c, monkeypatch, tmp_path, plain):
     v2 = _turn(c, d, "한 줄 더").json()["turn"]
     assert seen[-1]["job"].startswith("\n\n## 할 일 — 문서 일반 편집") and "값은 받은 자료에 있는 것만" in seen[-1]["job"] and v2["job"]["job"] == "doc_edit"
     assert seen[-1]["data"]["history"][0] == {"request": "자료를 표 아래에 써 줘", "reply": "두 줄을 제안합니다", "applied": ["글 쓰기 — 2줄"]}
-    full2 = c.get(f"/api/docs/{d}/agent/turns/{v2['id']}").json()
+    API._turn(d, {"text": "자리 하나"}, scope={"types": {"write"}})                                                                    # 「지침 작성」 의 자리 턴 — 앞선 대화(다른 자리의 턴)를 싣지 않는다(2026-11-26)
+    assert seen[-1]["data"]["history"] == []
+    full2 =c.get(f"/api/docs/{d}/agent/turns/{v2['id']}").json()
     assert "## 할 일 — 문서 일반 편집" in works.detail_records(d, "agent")[-1]["prompt"] and full2["prompt"]["job"] == seen[-1]["job"]
     assert [x["key"] for x in full2["parts"]] == ["contract", "job", "guide", "request", "data"] and full2["parts"][1]["title"] == "할 일 프롬프트 — 문서 일반 편집"
     # 실행 취소 — 한 번에 돌아온다

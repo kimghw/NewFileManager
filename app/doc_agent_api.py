@@ -319,6 +319,13 @@ def _turn(doc_id, body, scope=None):
         raise HTTPException(400, "에이전트 쓰기는 지금 hwpx 문서만 됩니다")
     store, metas = doc_agent.Store(s.id), _listing()
     text, mats, sel, picked, effort = _turn_input(s, body, store, metas)
+    # 읽는 문서 = 목적 문서(지금 문서)와 그 프로젝트의 참조 문서뿐(2026-11-26 사용자 「에이전트는 목적문서랑 참조하는 문서들만 읽어야지」 — spec_양식작성 ② §5-3 「읽는 문서」):
+    # 양식 작성의 문서 · 지침 작성의 자리 턴은 참조 문서 밖의 자료를 받지 않고, 다른 문서에서 뽑은 서식(보관함)을 싣지 않는다
+    from app import guide_write_api
+    narrow = scope is not None or guide_write_api.refs_of(s.id)["only"]
+    bad = guide_write_api.outside(s.id, [m["id"] for m in mats])
+    if bad:
+        raise HTTPException(409, f"이 프로젝트의 참조 문서가 아닌 문서의 자료입니다({' · '.join(bad[:3])}) — 빼고 고르거나 그 문서를 「이 프로젝트에 넣기」 합니다")
     if not llm.status()["available"]:
         raise HTTPException(503, NO_LLM)
     gen0 = store.gen()   # 대화의 차례 — 이 턴이 도는 동안 「비우기」 를 하면 저장하지 않는다(검토 15)
@@ -343,8 +350,9 @@ def _turn(doc_id, body, scope=None):
     sent = doc_agent.materials_data(mats)
     fill_targets = {k: v for k, v in got_sel["fill"].items() if only_paras is None or k in only_paras}   # 자리 채우기의 대상 — 서버가 이 선택에서 셈한 것(범위를 줬으면 그 안으로)
     inner = set(got_sel["inner"])                                                                        # 고른 상자 안의 표 — 이 턴에 채우지 않는다
-    history = doc_agent.history_of([t for t in (store.turn(row["id"]) for row in store.turns()[-2 * doc_agent.HISTORY:]) if t])
-    data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked, here), sent, history, templates=templates)
+    # 자리 턴(scope)은 앞선 대화를 싣지 않는다 — 한 실행의 다른 자리 턴(다른 상자의 요청 · 답)이 이 자리의 답에 섞이지 않게(2026-11-26 사용자 「보고있는 문서와 에이전트가 하고 있는 문서가 관련이 없음」)
+    history = [] if scope is not None else doc_agent.history_of([t for t in (store.turn(row["id"]) for row in store.turns()[-2 * doc_agent.HISTORY:]) if t])
+    data = doc_agent.payload(text, got_sel["data"], outline, tables, doc_agent.styles_data(metas, picked, here, only_here=narrow), sent, history, templates=templates)
     job_part, guide_part = job_prompts.part(job, doc_agent.JOB_NOTE), doc_agent.guide_part(guide)
     res = doc_agent.ask(data, guide_part, job_part, effort=effort)
     call, got = res["call"], res["data"]

@@ -539,6 +539,8 @@ function fwRunWhy(run) { // 「자료에 해당 내용 없음 1곳 · 검사에�
   for (const [k, word] of Object.entries(FW_WHY)) { const n = items.filter((i) => i.state === "none" && (i.why || "noaction") === k).length; if (n) out.push(`${word} ${n}곳`); }
   const failed = items.filter((i) => i.state === "failed").length;
   if (failed) out.push(`실패 ${failed}곳`);
+  const unpicked = items.filter((i) => (i.unpicked || []).length).length; // 같은 이름의 자리를 안 골라 그 자리를 안 쓴 상자(guide_write_api._one 의 unpicked)
+  if (unpicked) out.push(`같은 이름 자리를 안 골라 일부를 안 쓴 상자 ${unpicked}곳`);
   return out.join(" · ");
 }
 function fwAppliedN(run) { // 반영한 초안 수 — **이번 실행의 턴**만 센다(문서의 모든 에이전트 턴이 아니다: 전에 에이전트 보기에서 따로 반영한 카드가 「반영함」 으로 세어지지 않게 — astra 2차 G13).
@@ -1890,6 +1892,16 @@ function fwChunkSet(p) {
   for (const k of [...FW.chunks[p.id]]) if (!keys.has(k)) FW.chunks[p.id].delete(k);
   return FW.chunks[p.id];
 }
+function fwUnpicked(p) { // 같은 이름의 자리(윗 제목까지 같은 덩이)가 여럿인데 하나도 안 고른 이름들 [「공동(기업명 작성) : 2곳」] — 서버 guide_write.unpicked 와 같은 셈(그쪽은 group 으로 가린다)
+  const set = fwChunkSet(p), out = [], seen = new Set();
+  for (const c of p.chunks || []) {
+    const dup = c.dup || [1, 1], g = `${c.group || c.head}\u0000${c.under || ""}`;
+    if (dup[1] <= 1 || seen.has(g)) continue;
+    seen.add(g);
+    if (!(p.chunks || []).some((o) => `${o.group || o.head}\u0000${o.under || ""}` === g && set.has(o.key))) out.push(`${c.group || c.head} ${dup[1]}곳`);
+  }
+  return out;
+}
 function fwChunksEl(p, foot) { // 「쓸 자리 고르기」 — 상자를 골랐거나 사람이 펴 두었으면 펴진다
   const set = fwChunkSet(p), det = el("details", "fw-guides fw-chunks"), sum = el("summary", null, `쓸 자리 고르기 — ${p.chunks.length}곳 가운데 ${set.size}곳`);
   det.open = FW.picks.has(p.id) || FW.chunkOpen.has(p.id);
@@ -1935,6 +1947,9 @@ function fwPlaceEl(p, item, foot) {
   if (p.user) tags.append(fwTagEl("user", "사람 지침"));
   if (p.filled) tags.append(fwTagEl("text", "글 있음"));
   if (item) { const [word, cls] = FW_ITEM[item.state] || [item.state, ""]; const t = fwTagEl("draft", item.state === "done" ? `초안 ${item.proposals}` : item.state === "none" ? FW_NONE[item.why] || word : word, cls); const why = item.error || item.note || item.reply || ""; if (why) t.title = `${why}\n${t.title}`; tags.append(t); }
+  const unpicked = p.kind === "box" ? fwUnpicked(p) : []; // 같은 이름의 자리를 하나도 안 골랐다 — 그 자리는 이번에 안 쓴다(2026-11-26 사용자: 공동기관 자료인데 공동 자리를 안 골라 상자가 빈 채로 남았다)
+  if (unpicked.length) { const t = fwTagEl("unpicked", `안 쓸 자리: ${unpicked.join(" · ")}`, "warn"); t.title = "같은 이름의 자리가 여럿이라 누구의 자리인지 스크립트가 정하지 않습니다 — 아래 「쓸 자리 고르기」 에서 하나를 고르면 씁니다"; tags.append(t); }
+  else if (item && (item.unpicked || []).length) { const t = fwTagEl("unpicked", `안 쓴 자리: ${item.unpicked.join(" · ")}`, "warn"); t.title = "지난 실행에서 같은 이름의 자리를 고르지 않아 쓰지 않았습니다 — 「쓸 자리 고르기」 에서 고른 뒤 다시 받습니다"; tags.append(t); }
   main.append(name, tags);
   if (p.kind === "box" && (p.chunks || []).length) main.append(fwChunksEl(p, foot));
   const how = FW.fr && FW.fr.review && (FW.fr.review.places || {})[p.id];

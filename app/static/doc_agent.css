@@ -56,6 +56,14 @@
 .ag-turn { min-width: 0; }
 .ag-turn + .ag-turn { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .ag-q { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 「지침 작성」 자리 턴의 머리 — 어느 자리의 턴인지(누르면 그 자리로) · 긴 요청 글은 접음(doc_agent.js agentQEls) */
+.ag-q.ag-place { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; white-space: normal; }
+.ag-place-tag { font-size: 11px; line-height: 1.5; padding: 0 6px; border-radius: 4px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.ag-place-go { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.ag-place-go:hover { text-decoration: underline; }
+.ag-place-go:disabled { color: var(--text); cursor: default; text-decoration: none; }
+.ag-q-more > summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.ag-q-more > .ag-q { margin-top: 4px; }
 .ag-a { margin: 7px 0 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ag-note { margin: 4px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .ag-turn > .ag-run { margin: 8px 0 0; }

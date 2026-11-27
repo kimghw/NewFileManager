@@ -185,6 +185,9 @@ def test_styles_materials_history_payload():
     assert got[2]["from"] == {"doc": "같은 프로젝트 문서.hwpx", "project": "갑", "also": ["또 0.hwpx", "또 1.hwpx", "또 2.hwpx"], "more": 2, "same": "project"}
     assert got[3]["from"] == {"doc": "남의 문서.hwpx", "project": "을", "where": "표 1번째"}
     assert [x["id"] for x in A.styles_data([far, proj, mine])["table"]] == ["builtin", "far", "proj", "mine"] and "same" not in A.styles_data([mine])["table"][1]["from"]  # here 없이는 보관함 차례 그대로
+    # 양식 작성 — 지금 문서에서 뽑은 서식과 사람이 고른 서식만(다른 문서에서 뽑은 서식은 싣지 않는다: 2026-11-26 사용자 「목적문서랑 참조하는 문서들만」)
+    assert [x["id"] for x in A.styles_data([far, proj, mine], None, here, only_here=True)["table"]] == ["builtin", "mine"]
+    assert [x["id"] for x in A.styles_data([far, proj, mine], {"table": "far"}, here, only_here=True)["table"]] == ["builtin", "mine", "far"]
     assert A.from_text(far) == "남의 문서.hwpx · 을 · 표 1번째" and A.from_text(proj) == "같은 프로젝트 문서.hwpx · 갑 외 5개 문서" and A.from_text({"id": "x"}) is None
     assert "from = 그 서식을 **뽑은 원본 문서**" in A.CONTRACT
     mats = [{"id": "m1", "name": "긴 자료", "text": "가" * 50_000}, {"id": "m2", "name": "짧은 자료", "text": "나" * 100}, {"id": "m3", "name": "긴 자료 2", "text": "다" * 50_000}]
